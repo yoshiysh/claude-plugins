@@ -6,7 +6,7 @@
 {
   "status": "ok|needs_input|blocked",
   "scope": {
-    "kind": "inbox|page|database|unclassified|unknown",
+    "kind": "bookmark|inbox|page|database|unclassified|unknown",
     "query": "string",
     "page_ids": [],
     "database_ids": []
@@ -25,11 +25,46 @@
 ```json
 {
   "status": "ready|needs_confirmation|blocked",
-  "data_source_id": "string|null",
-  "database_page_id": "string|null",
+  "home_page_id": "string|null",
+  "topic_index_data_source_id": "string|null",
+  "topic_index_database_page_id": "string|null",
+  "index_page_id": "string|null",
+  "domains": [],
   "available_properties": [],
   "missing_properties": [],
   "needs_confirmation": []
+}
+```
+
+## content-enricher output
+
+```json
+{
+  "status": "ok|partial|blocked",
+  "pages": [
+    {
+      "page_id": "string",
+      "title": "string",
+      "resolved_title": "string|null",
+      "title_source": "notion|url_reader|url_path|generated|unknown",
+      "source_url": "string|null",
+      "source_type": "Notion Note|Web Article|Bookmark|PDF|Video|Book|Code|Chat|Unknown",
+      "extraction_status": "Not Started|Extracted|Partial|Failed|Needs Manual Review",
+      "reader": {
+        "backend": "string|null",
+        "status": "string|null",
+        "status_reason": "string|null",
+        "attempts": [],
+        "warnings": []
+      },
+      "summary": "string",
+      "source_notes": [],
+      "decision_notes": [],
+      "evidence": [],
+      "unknowns": [],
+      "warnings": []
+    }
+  ]
 }
 ```
 
@@ -42,14 +77,34 @@
     {
       "page_id": "string",
       "title": "string",
+      "resolved_title": "string|null",
+      "title_source": "notion|url_reader|url_path|generated|unknown",
+      "topic": {
+        "domain": "string",
+        "domain_slug": "string|null",
+        "topic": "string",
+        "topic_slug": "string|null",
+        "subtopic": "string|null",
+        "subtopic_slug": "string|null",
+        "summary": "string",
+        "topic_page_id": "string|null",
+        "confidence": "high|medium|low",
+        "recommended_action": "register_and_move_to_topic_page|keep_in_inbox_needs_review",
+        "source_urls": []
+      },
       "classification": {
         "type": "string",
-        "area": [],
         "status": "string",
         "summary": "string",
         "source_url": "string|null",
+        "source_type": "string",
+        "extraction_status": "string",
         "tags": [],
+        "related_topics": [],
+        "canonical_role": "Canonical|Supporting|Duplicate|Stale|Unknown",
         "canonical_candidate": false,
+        "canonical_url": "string|null",
+        "export_path": "string|null",
         "exportable_candidate": false
       },
       "evidence": [],
@@ -67,6 +122,14 @@
   "applied_updates": [],
   "proposed_updates": [],
   "needs_confirmation": [],
+  "inbox_needs_review": [
+    {
+      "page_id": "string",
+      "title": "string",
+      "url": "string",
+      "reason": "string"
+    }
+  ],
   "errors": []
 }
 ```
@@ -91,9 +154,12 @@
   "findings": [],
   "summary_counts": {
     "processed": 0,
-    "updated": 0,
-    "canonical": 0,
+    "db_registered": 0,
+    "remaining_in_inbox_needs_review": 0,
+    "moved": 0,
+    "canonical_role": 0,
     "duplicates_or_stale": 0,
+    "export_ready": 0,
     "unknown": 0,
     "remaining": 0
   },

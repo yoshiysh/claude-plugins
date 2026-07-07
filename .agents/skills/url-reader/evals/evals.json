@@ -1,0 +1,50 @@
+{
+  "skill_name": "url-reader",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use $url-reader to read https://twitter.com/nikkei/status/1524011459130314752 and return JSON fields that would be useful for a Notion knowledge workflow.",
+      "expected_output": "The script normalizes the URL to x.com, uses the X oEmbed backend, extracts post text and author metadata, and returns a stable JSON object.",
+      "assertions": [
+        "normalized_url starts with https://x.com/nikkei/status/1524011459130314752",
+        "reader_backend is x_oembed",
+        "reader_status is Extracted or Partial",
+        "markdown contains the public post text",
+        "image_links is empty or the response explicitly explains that X oEmbed does not provide media URLs"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Use $url-reader to read a public Instagram post URL and download any extracted images to a temporary directory.",
+      "expected_output": "The script uses the generic reader path, preserves the source URL, extracts caption or metadata when available, and records downloaded image paths or per-image errors.",
+      "assertions": [
+        "reader_backend is generic_reader",
+        "reader_status is one of Extracted, Partial, ImagesOnly, Blocked, or Failed",
+        "downloaded_images contains paths for successful downloads or error messages for failed downloads",
+        "the response does not invent hidden caption text when extraction is blocked"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Use $url-reader to read http://localhost:3000/private and explain the result.",
+      "expected_output": "The script refuses to fetch private or local URLs and returns a structured Failed result instead of sending the URL to an external reader.",
+      "assertions": [
+        "reader_status is Failed",
+        "reader_backend is null",
+        "error explains that localhost, private, or internal host URLs are refused",
+        "no network fetch is attempted for the target URL"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Use $url-reader to read an Instagram Reel URL that resolves to an Instagram login page.",
+      "expected_output": "The script reports reader_status Blocked for the Reel login wall, does not preserve login-page assets as usable images, and leaves downstream workflows enough reason to keep the page in manual review.",
+      "assertions": [
+        "instagram.com/reel/... login pages return reader_status Blocked",
+        "status_reason mentions the Instagram Reel login wall or manual review",
+        "login-page static assets are not returned as usable image_links",
+        "ordinary instagram.com/p/... posts are not blocked by this rule"
+      ]
+    }
+  ]
+}

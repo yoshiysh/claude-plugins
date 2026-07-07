@@ -96,17 +96,6 @@
   },
   "model": "opus[1m]",
   "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "make test"
-          }
-        ]
-      }
-    ],
     "Notification": [
       {
         "matcher": "*",

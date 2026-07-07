@@ -1,0 +1,4 @@
+interface:
+  display_name: "URL Reader"
+  short_description: "URLメモを本文・画像・失敗状態に正規化"
+  default_prompt: "Use $url-reader to enrich a captured URL-only note into stable Markdown, metadata, image links, and a structured read status."
