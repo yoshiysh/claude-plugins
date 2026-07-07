@@ -1,0 +1,13 @@
+{
+    "name": "yoshiysh-claude-plugins",
+    "description": "スキルを公開するマーケットプレイスです。",
+    "owner": {
+        "name": "yoshiysh"
+    },
+    "plugins": [
+        {
+            "name": "skill-creator-multi-agent",
+            "source": "./plugins/skill-creator-multi-agent"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+BASH_DEFAULT_TIMEOUT_MS = "600000"
+BASH_MAX_TIMEOUT_MS = "600000"
+ANTHROPIC_DEFAULT_OPUS_MODEL = "claude-opus-4-6[1m]"
+ANTHROPIC_DEFAULT_SONNET_MODEL = "claude-sonnet-5[1m]"
+CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR = "true"
+CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"
+CLAUDE_LANGUAGE = "ja"
