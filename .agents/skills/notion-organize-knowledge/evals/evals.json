@@ -1,0 +1,38 @@
+{
+  "skill_name": "notion-organize-knowledge",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Notion の Inbox にある未整理メモを20件だけ分類して、Knowledge Index に入れて。将来 Markdown/RAG に移せるように Summary と Canonical も見てほしい。",
+      "expected_output": "Notion MCP を使って Knowledge Index を確認し、20件上限で分類・正規化・検証まで進める。",
+      "files": [],
+      "assertions": [
+        "Knowledge Index DB の存在確認または作成案が含まれている",
+        "Type / Area / Status / Summary / Source URL / Canonical / Exportable の分類が扱われている",
+        "20件上限と残件報告が明記されている",
+        "削除や破壊的変更をしない方針が明記されている"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Notion を整理したい。どこからやればいいかわからないけど、AI検索しやすくしたい。",
+      "expected_output": "対象範囲が曖昧なため、Notion MCP で検索可能な範囲を整理し、不足情報だけを確認する。",
+      "files": [],
+      "assertions": [
+        "対象範囲が曖昧な場合の確認が含まれている",
+        "Notion を RAG エンジンそのものとして扱わない説明が含まれている",
+        "まず Knowledge Index / Inbox / 未分類ページのどれを対象にするか整理している"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "この記事1本を短く要約して。",
+      "expected_output": "単一リンクや単一記事の要約は対象外として、このスキルを発動しない。",
+      "files": [],
+      "assertions": [
+        "単一リンク要約では notion-organize-knowledge が発動しない",
+        "Notion DB 整理や Knowledge Index 作成を勝手に始めない"
+      ]
+    }
+  ]
+}
