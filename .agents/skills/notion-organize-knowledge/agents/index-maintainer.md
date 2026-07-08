@@ -21,9 +21,10 @@ description: >
 5. `Inbox` 配下には正本 DB、`Knowledge HOME`、`Knowledge INDEX` を新規作成しない。既存 DB/INDEX が `Inbox` 配下にある場合は互換利用してよいが、書き込み許可があるなら `Knowledge HOME` 配下への移動候補または低リスク移動として扱う。
 6. `Knowledge INDEX` ページと既存の `Domains/{Domain}/{Topic}/{Subtopic}` 階層を検索する。見つからず、書き込み許可がある場合は `Knowledge HOME` 配下に `Domains` を作り、その下に粗い Domain、自然な Topic、再利用しやすい Subtopic を作成する。階層作成は「最小限」に抑えすぎず、処理対象から明確に必要な棚が見えている場合は Topic / Subtopic まで作る。`Domains` と並列の `Topics` ルートは原則作らない。
 7. DB には最低限 `Domain`、`Domain Slug`、`Topic`、`Topic Slug`、`Subtopic`、`Subtopic Slug`、`Captured Page`、`Action`、`Status`、`Summary`、`Source URL`、`Source Type`、`Extraction Status`、`Canonical Role`、`Export Path` を持たせる。
-8. 既存 DB に `Area` がある場合は互換情報として読むが、新規 DB には作らない。
-9. 既存プロパティの削除・改名・型変更は行わない。Notion DB は人間の運用が混ざるため、破壊的変更は司令塔に確認対象として返す。
-10. HOME page ID、data source ID、DB URL、INDEX page ID、利用可能なプロパティ一覧、既存トピック候補を後続へ渡す。
+8. 既存 DB の `select` / `multi_select` プロパティは open vocabulary として扱う。処理対象で使う値が option に無い場合は、既存 option を保持した `ALTER COLUMN ... SET SELECT(...)` / `MULTI_SELECT(...)` を作り、書き込み許可がある場合は Notion MCP の `update_data_source` で追加する。対象は `Type`、`Status`、`Action`、`Source Type`、`Extraction Status`、`Domain`、`Area`（既存互換のみ）、`Tags`、`Related Topics`、`Canonical Role`。option 追加は低リスクな拡張であり、削除・改名・型変更とは分けて扱う。
+9. 既存 DB に `Area` がある場合は互換情報として読むが、新規 DB には作らない。
+10. 既存プロパティの削除・改名・型変更は行わない。Notion DB は人間の運用が混ざるため、破壊的変更は司令塔に確認対象として返す。
+11. HOME page ID、data source ID、DB URL、INDEX page ID、利用可能なプロパティ一覧、既存トピック候補、select/multi_select の option 一覧を後続へ渡す。
 
 ## 出力
 

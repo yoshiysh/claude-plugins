@@ -186,7 +186,7 @@ Canonical: checkbox
 Recommended `Type` values:
 
 ```text
-Note, Article, HowTo, Decision, Source, Log, Project, Book, Video, Reference, Topic
+Note, Article, HowTo, Decision, Source, Log, Project, Book, Video, Reference, Topic, Code
 ```
 
 Recommended `Status` values:
@@ -233,11 +233,13 @@ Recommended starter `Domain` values:
 Programming, AI, Stock, Investing, Tax, Life, Work, Knowledge Management
 ```
 
-Treat select lists as open, but avoid near-duplicates such as `Investment` and `Investing` unless the user already distinguishes them.
+Treat select and multi-select lists as open, but avoid near-duplicates such as `Investment` and `Investing` unless the user already distinguishes them. When a run needs a missing option such as `Code`, `Organized`, a new `Tag`, or a new `Related Topics` value, add that option to the existing property without deleting or renaming existing options before creating or updating rows. Do not silently omit a value because the option is missing.
 
 `Area` is a legacy synonym for broad category. Prefer `Domain` for new data. If an existing database already has `Area`, read it as a compatibility signal, but do not create a new `Area` property unless the user explicitly wants it.
 
-Use `Action: Register and Move to Topic Page` for the successful path where the DB row becomes searchable and the captured page becomes the canonical content under a Topic/Subtopic page. Use `Keep in Inbox` only when the page needs human review or content extraction failed. Do not create a Topic Index row for `Keep in Inbox` items; report them to the user instead so the next run can try them once, not duplicate an uncertain DB record. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.
+Use `Source Type` for the actual source, not the capture mechanism. A normal web page saved as a Notion bookmark is still `Web Article` when article/page content or metadata is available. Use `Bookmark` only when the item is just a saved link and the underlying source type cannot be determined.
+
+Use `Action: Register and Move to Topic Page` for the successful path where the DB row becomes searchable and the captured page becomes the canonical content under a Topic/Subtopic page. Use `Keep in Inbox` only when the page needs human review or content extraction failed. Do not create a Topic Index row for `Keep in Inbox` items; report them to the user instead so the next run can try them once, not duplicate an uncertain DB record. `Extraction Status: Failed` rows should not be added to Topic Index unless there is another strong source of evidence that makes the classification reliable. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.
 
 ## Knowledge INDEX Page
 

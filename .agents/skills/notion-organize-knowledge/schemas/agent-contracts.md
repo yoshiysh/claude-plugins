@@ -32,6 +32,19 @@
   "domains": [],
   "available_properties": [],
   "missing_properties": [],
+  "select_options": {
+    "Type": [],
+    "Status": [],
+    "Action": [],
+    "Source Type": [],
+    "Extraction Status": [],
+    "Domain": [],
+    "Tags": [],
+    "Related Topics": [],
+    "Canonical Role": []
+  },
+  "schema_updates_applied": [],
+  "schema_updates_proposed": [],
   "needs_confirmation": []
 }
 ```
@@ -121,6 +134,8 @@
   "status": "applied|proposed|partial|blocked",
   "applied_updates": [],
   "proposed_updates": [],
+  "schema_updates_applied": [],
+  "schema_updates_proposed": [],
   "needs_confirmation": [],
   "inbox_needs_review": [
     {

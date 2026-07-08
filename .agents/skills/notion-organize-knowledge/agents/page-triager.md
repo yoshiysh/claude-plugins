@@ -23,12 +23,14 @@ description: >
 7. 各ページについて、推奨アクションを `register_and_move_to_topic_page` または `keep_in_inbox` から選ぶ。
 8. `register_and_move_to_topic_page` は、Topic Index DB への登録と `Domains/{Domain}/{Topic}/{Subtopic}` 配下への移動をセットにした成功パスである。
 9. `keep_in_inbox` は、url-reader 実行後も分類 confidence が低い、内容取得に失敗した、重複/正本判断が弱いなど、DB 登録に足る根拠がない場合だけ選ぶ。この場合は Topic Index DB 行を作らない前提にする。
-10. 1ページが複数 Topic にまたがる場合は、物理移動先として最も関連度の高い Domain / Topic / Subtopic を1つ選ぶ。その他の関連先は `tags` と `related_topics` 候補に入れる。
-11. 既存トピックに近いものがある場合は新規作成より既存トピックへの DB 登録と移動を優先する。ただし既存に自然な受け皿が無い場合は、Domain 直下や曖昧な `Misc` に逃がさず、将来も使える Topic / Subtopic の新規作成候補を出す。
-12. Subtopic は「必要な場合だけ」ではなく、分類が明確で同種ページが今後も入りそうなら積極的に付ける。例: `Life / Health / Fitness`、`Life / Home / Maintenance`、`Programming / Engineering Education / New Graduate Training`。一回限りの固有名詞だけで棚を乱立させず、再利用できる粒度にする。
-13. `Domain Slug`、`Topic Slug`、`Subtopic Slug` は lowercase ASCII kebab-case にする。分類に自信がない場合は slug と `Export Path` を空欄にする。
-14. `Source URL` と `Decision` を混ぜない。外部記事や引用は source、自分の判断は decision として扱う。
-15. 根拠がない著者、投稿日、結論、出典は埋めない。空欄または `Unknown` とし、理由を `unknowns` に入れる。
+10. `Source Type` は capture の形ではなく source の実体で決める。Web ページ本文や metadata が取れている通常リンクは `Web Article`、動画 URL は `Video`、GitHub/gist/コード断片は `Code`、Notion 内だけのメモは `Notion Note`、種別不明の保存リンクだけ `Bookmark` または `Unknown` にする。
+11. `tags` は空欄を既定にしない。Domain / Topic / Subtopic、source 種別、主要技術、主要対象から 1〜5 個の lowercase kebab-case タグ候補を作る。根拠のあるタグが既存 option に無い場合も候補として出し、page-normalizer に option 追加させる。
+12. 1ページが複数 Topic にまたがる場合は、物理移動先として最も関連度の高い Domain / Topic / Subtopic を1つ選ぶ。その他の関連先は `tags` と `related_topics` 候補に入れる。
+13. 既存トピックに近いものがある場合は新規作成より既存トピックへの DB 登録と移動を優先する。ただし既存に自然な受け皿が無い場合は、Domain 直下や曖昧な `Misc` に逃がさず、将来も使える Topic / Subtopic の新規作成候補を出す。
+14. Subtopic は「必要な場合だけ」ではなく、分類が明確で同種ページが今後も入りそうなら積極的に付ける。例: `Life / Health / Fitness`、`Life / Home / Maintenance`、`Programming / Engineering Education / New Graduate Training`。一回限りの固有名詞だけで棚を乱立させず、再利用できる粒度にする。
+15. `Domain Slug`、`Topic Slug`、`Subtopic Slug` は lowercase ASCII kebab-case にする。分類に自信がない場合は slug と `Export Path` を空欄にする。
+16. `Source URL` と `Decision` を混ぜない。外部記事や引用は source、自分の判断は decision として扱う。
+17. 根拠がない著者、投稿日、結論、出典は埋めない。空欄または `Unknown` とし、理由を `unknowns` に入れる。
 
 ## 出力
 

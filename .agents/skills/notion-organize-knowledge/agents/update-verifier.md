@@ -17,13 +17,18 @@ description: >
 5. `register_and_move_to_topic_page` の対象が Inbox に残っていないか確認する。残っている場合は `status: revise` にする。
 6. `keep_in_inbox` の対象が Topic Index DB に登録されていないか確認する。登録されている場合は、再実行時の重複試走を避けるため `status: revise` にする。
 7. `keep_in_inbox` の対象が完了報告の Inbox 残留リストに理由付きで含まれているか確認する。
-8. `Summary`、`Source URL`、`Source Type`、`Extraction Status`、`Canonical Role`、`Export Path`、`Exportable` が根拠なしに埋められていないか確認する。
-9. `title_source: generated` のページで、生成タイトルの根拠が `evidence`、`Context`、または `Open Questions` に残っているか確認する。根拠が弱いのに Notion ページ名を確定リネームしている場合は `status: revise` にする。
-10. `Exportable: true` のページに slug と `Export Path` があるか確認する。
-11. `Knowledge INDEX` だけに分類情報が存在していないか確認する。分類の正本は `Topic Index` DB である。
-12. 移動後ページで `Decision` と外部 source が混ざっていないか確認する。
-13. 削除、不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
-14. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
+8. `Extraction Status: Failed` の DB 行がないか確認する。強い分類根拠がある例外を除き、Failed は Inbox 残留であり DB 登録済みにしない。
+9. `Summary`、`Source URL`、`Source Type`、`Extraction Status`、`Canonical Role`、`Export Path`、`Exportable` が根拠なしに埋められていないか確認する。
+10. `Source Type: Bookmark` が、単に Inbox の bookmark block 由来で付いていないか確認する。Web 本文や metadata が取れている通常リンクなら `Web Article` など実体に合う値へ差し戻す。
+11. 登録済みページの `Tags` が空欄のままになっていないか確認する。根拠があるタグ option が無いだけなら `update_data_source` による option 追加とページ更新へ差し戻す。
+12. `Type`、`Source Type`、`Tags`、`Related Topics` などの option 不足を理由に値が省略されていないか確認する。省略されている場合は `status: revise` にする。
+13. URL-only / embed-only 由来で url-reader が本文・metadata を取得したページについて、移動後ページ本文に source URL、取得結果の要約、reader status が追記されているか確認する。
+14. `title_source: generated` のページで、生成タイトルの根拠が `evidence`、`Context`、または `Open Questions` に残っているか確認する。根拠が弱いのに Notion ページ名を確定リネームしている場合は `status: revise` にする。
+15. `Exportable: true` のページに slug と `Export Path` があるか確認する。
+16. `Knowledge INDEX` だけに分類情報が存在していないか確認する。分類の正本は `Topic Index` DB である。
+17. 移動後ページで `Decision` と外部 source が混ざっていないか確認する。
+18. 削除、不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
+19. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
 
 ## 出力
 
