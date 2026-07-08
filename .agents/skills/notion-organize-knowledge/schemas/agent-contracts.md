@@ -163,6 +163,33 @@
       "ancestor_path_after": []
     }
   ],
+  "content_audit": [
+    {
+      "page_id": "string",
+      "required_sections": ["Summary", "Source", "Decision"],
+      "has_summary": true,
+      "has_source": true,
+      "has_decision": true,
+      "reader_status_recorded": true,
+      "result": "success|failed|skipped"
+    }
+  ],
+  "duplicate_deletes": [
+    {
+      "page_id": "string",
+      "canonical_page_id": "string",
+      "reason": "same normalized_url|same source_url|same captured_page",
+      "tool": "string",
+      "result": "deleted|archived|trashed"
+    }
+  ],
+  "duplicate_delete_unavailable": [
+    {
+      "page_id": "string",
+      "canonical_page_id": "string",
+      "reason": "string"
+    }
+  ],
   "needs_confirmation": [],
   "unresolved_sources": [
     {
@@ -190,6 +217,7 @@
   "status": "ok|partial|blocked",
   "canonical_candidates": [],
   "duplicate_candidates": [],
+  "delete_candidates": [],
   "stale_candidates": [],
   "human_review": []
 }
@@ -206,6 +234,9 @@
     "db_registered": 0,
     "moved_to_unresolved_sources": 0,
     "moved": 0,
+    "content_appended": 0,
+    "duplicates_deleted": 0,
+    "duplicates_delete_unavailable": 0,
     "canonical_role": 0,
     "duplicates_or_stale": 0,
     "export_ready": 0,
