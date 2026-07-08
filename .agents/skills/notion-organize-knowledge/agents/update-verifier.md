@@ -15,8 +15,8 @@ description: >
 3. DB 行に `Captured Page` があり、処理済みページへ辿れるか確認する。
 4. DB 登録されたページで `Domain`、`Topic`、`Status`、`Action` が空のままになっていないか確認する。判断不能なページは DB 登録せず Inbox に残っている必要がある。
 5. `register_and_move_to_topic_page` の対象が Inbox に残っていないか確認する。残っている場合は `status: revise` にする。
-6. `keep_in_inbox_needs_review` の対象が Topic Index DB に登録されていないか確認する。登録されている場合は、再実行時の重複試走を避けるため `status: revise` にする。
-7. `keep_in_inbox_needs_review` の対象が完了報告の人間確認リストに理由付きで含まれているか確認する。
+6. `keep_in_inbox` の対象が Topic Index DB に登録されていないか確認する。登録されている場合は、再実行時の重複試走を避けるため `status: revise` にする。
+7. `keep_in_inbox` の対象が完了報告の Inbox 残留リストに理由付きで含まれているか確認する。
 8. `Summary`、`Source URL`、`Source Type`、`Extraction Status`、`Canonical Role`、`Export Path`、`Exportable` が根拠なしに埋められていないか確認する。
 9. `title_source: generated` のページで、生成タイトルの根拠が `evidence`、`Context`、または `Open Questions` に残っているか確認する。根拠が弱いのに Notion ページ名を確定リネームしている場合は `status: revise` にする。
 10. `Exportable: true` のページに slug と `Export Path` があるか確認する。

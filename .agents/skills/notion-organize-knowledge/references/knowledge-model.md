@@ -128,6 +128,7 @@ Knowledge HOME
 - Keep `Knowledge HOME`, `Topic Index`, and `Knowledge INDEX` out of `Inbox`. Inbox is not a parent for organized infrastructure.
 - Prefer one physical hierarchy under `Domains`: `Domains/{Domain}/{Topic}/{Subtopic}`. Do not create a parallel top-level `Topics` tree unless the user explicitly wants that view; it usually duplicates the Domain tree.
 - Keep `Domain` broad. `Programming`, `AI`, `Investing`, `Life`, and `Work` are good shelves. `iOS`, `RAG`, or `Agent Memory` are usually Topics under a Domain, not Domains themselves.
+- Do not under-create the hierarchy. When a confident page does not fit an existing shelf, create a reusable Topic/Subtopic path instead of dropping it directly under a broad Domain. Good examples are `Life / Health / Fitness`, `Life / Home / Maintenance`, `Life / Digital Creation / VTuber Tools`, and `Programming / Engineering Education / New Graduate Training`. Avoid one-off shelves named after a single captured page unless that name is already a durable concept.
 - When a page spans multiple topics, move it under the single most relevant Topic/Subtopic page. Preserve cross-topic discoverability with `Tags`, `Related Topics`, and a `Related Topics` section in the page body.
 - Preserve raw captured pages. Normalize by adding summaries, links, and DB rows; do not overwrite clips destructively.
 - Make export deterministic with stable slugs and `Export Path`, independent of current Notion page parents.
@@ -138,7 +139,7 @@ When the source is a broad bookmark or inbox page, treat it as a capture queue, 
 
 1. User drops pages, article links, notes, or copied snippets into `Bookmark` / `Inbox`.
 2. Read each captured page and, when possible, enrich it from URL, embed, existing Notion clip, attachment text, or page body.
-3. Infer the best `Domain`, `Topic`, and optional `Subtopic`.
+3. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
 4. If classification is confident enough, register the captured page in `Topic Index` with Domain / Topic / Subtopic fields.
 5. Move the captured page out of `Inbox` and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page.
 6. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, and related links.
@@ -212,7 +213,7 @@ Recommended `Title Source` values:
 notion, url_reader, url_path, generated, unknown
 ```
 
-Use `Resolved Title` when the captured Notion title is empty, a raw URL, `Untitled`, or otherwise not useful for classification. Generated titles must be short labels derived only from extracted public content, existing Notion text, or URL path evidence. Do not infer authors, dates, conclusions, or named entities not present in the evidence.
+Run title resolution for every processed page, including pages that already have a Notion title. Use `Resolved Title` when the captured title is empty, a raw URL, `Untitled`, a service-only label, a truncated save title, mismatched with the body, or otherwise weak for classification. If the existing title is already descriptive and accurate, keep `Title Source: notion` and leave `Resolved Title` null or equal to the existing title. Generated titles must be short labels derived only from extracted public content, existing Notion text, or URL path evidence. Do not infer authors, dates, conclusions, or named entities not present in the evidence.
 
 Recommended `Extraction Status` values:
 
@@ -236,7 +237,7 @@ Treat select lists as open, but avoid near-duplicates such as `Investment` and `
 
 `Area` is a legacy synonym for broad category. Prefer `Domain` for new data. If an existing database already has `Area`, read it as a compatibility signal, but do not create a new `Area` property unless the user explicitly wants it.
 
-Use `Action: Register and Move to Topic Page` for the successful path where the DB row becomes searchable and the captured page becomes the canonical content under a Topic/Subtopic page. Use `Keep in Inbox` only when the page needs human review or content extraction failed. Do not create a Topic Index row for `Keep in Inbox` items; report them to the user instead so the next run can try them once, not duplicate an uncertain DB record.
+Use `Action: Register and Move to Topic Page` for the successful path where the DB row becomes searchable and the captured page becomes the canonical content under a Topic/Subtopic page. Use `Keep in Inbox` only when the page needs human review or content extraction failed. Do not create a Topic Index row for `Keep in Inbox` items; report them to the user instead so the next run can try them once, not duplicate an uncertain DB record. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.
 
 ## Knowledge INDEX Page
 
@@ -403,7 +404,7 @@ Recommended export path format:
 domains/{domain-slug}/{topic-slug}/{subtopic-slug?}/{title-slug}.md
 ```
 
-If classification is uncertain, leave slug fields blank or mark `Extraction Status: Needs Manual Review` rather than inventing a stable path.
+If classification is uncertain, leave slug fields blank and use `Extraction Status: Partial` or `Failed` with explicit unknowns rather than inventing a stable path. Use `Needs Manual Review` only when a human decision is explicitly required, not as the default for blocked URL extraction.
 
 ## Markdown/RAG Readiness
 

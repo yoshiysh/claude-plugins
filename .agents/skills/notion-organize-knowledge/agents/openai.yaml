@@ -1,0 +1,13 @@
+interface:
+  display_name: "Notion Organize Knowledge"
+  short_description: "Organize Notion inbox pages into knowledge"
+  default_prompt: "Use $notion-organize-knowledge to organize my Notion Inbox into Domain, Topic, and Subtopic pages."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "notion"
+      description: "Read and update Notion pages, databases, and page hierarchy."
+
+policy:
+  allow_implicit_invocation: true

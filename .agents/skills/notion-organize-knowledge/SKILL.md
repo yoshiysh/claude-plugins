@@ -31,10 +31,10 @@ flowchart LR
   D --> TP["Domain/Topic/Subtopic Page\nAI + 人間が読む同じページ"]
   E --> TP
   DB --> TP
-  I -.判断不能・取得失敗.-> R["Needs Review\nInboxに残す・DB未登録"]
+  I -.読める根拠なし.-> R["Inbox残留\nDB未登録"]
 ```
 
-成功パスでは、処理済みページを `Topic Index` に登録し、同じページを `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移動する。AI 向け情報も人間向け情報もそのページに残す。判断不能・取得失敗のページは `Topic Index` に登録せず、Inbox に残して完了報告でユーザーへ伝える。
+成功パスでは、処理済みページを `Topic Index` に登録し、同じページを `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移動する。AI 向け情報も人間向け情報もそのページに残す。判断不能・取得失敗のページは `Topic Index` に登録せず、Inbox に残して完了報告でユーザーへ伝える。ただし URL-only、タイトルだけ、埋め込みだけのページは、判断不能にする前に必ず `url-reader` で取得を試す。`url-reader` でタイトル、metadata、本文断片、画像、投稿種別、失敗理由のいずれかが取れた場合は、その根拠で通常の分類処理に乗せる。
 
 1ページが複数 Topic にまたがる場合は、物理配置先として最も関連度の高い Domain / Topic / Subtopic を1つ選ぶ。横断的な関連は `Topic Index` の `Tags`、`Related Topics` 相当のプロパティ、移動後ページ本文の `Related Topics` に残し、検索・AI取得・Markdown/RAG export で拾えるようにする。
 
@@ -79,11 +79,13 @@ agents/update-verifier
 
 `agents/input-resolver.md` を Read し、ユーザー依頼全文、現在分かっている Notion workspace 情報、希望件数を渡す。対象範囲が空、または Notion MCP が使えない場合はここで止め、足りない情報だけをユーザーに聞く。
 
-処理件数は既定 20 件までにする。大量ページを一度に更新すると Notion 側の状態把握が難しくなるため、残件数を報告して次回に続ける。
+処理件数は既定 50 件までにする。ユーザーが件数を明示した場合は 100 件まで許可する。大量ページを一度に更新すると Notion 側の状態把握が難しくなるため、残件数を報告して次回に続ける。
 
 ### Step 2: index-maintainer を呼ぶ
 
 `agents/index-maintainer.md` を Read し、Step 1 の scope と `references/knowledge-model.md` を渡す。`Knowledge HOME`、`Topic Index` DB、`Knowledge INDEX` ページ、既存の `Domains/{Domain}/{Topic}/{Subtopic}` 階層を探す。無い場合、ユーザーが「DB 追加もやって」「作ってよい」「整理して」と明示していれば、`Inbox` 配下ではなく安定した `Knowledge HOME` 配下または workspace private に作成する。明示がない場合は作成案を返し、司令塔が確認する。
+
+Domain / Topic / Subtopic 階層は「最小限だけ作る」方針にしない。処理対象から明確な分類が取れており、既存階層に自然な受け皿が無い場合は、人間が後から辿りやすい標準的な階層を積極的に作る。例: 料理は `Life / Cooking / Recipes`、健康運動は `Life / Health / Fitness`、住まいの手入れは `Life / Home / Maintenance`、技術研修は `Programming / Engineering Education / New Graduate Training` のように、Domain 直下へ雑に溜めず Topic と Subtopic まで作ってよい。ただし同義・近義の棚を乱立させないため、作成前に既存ページを検索し、近い既存階層がある場合はそこへ寄せる。
 
 `Knowledge HOME` は構造化知識レイヤーの固定入口であり、雑多な既存ページを単に `knowledge` という名前だけで正本ルート扱いしない。既存の `knowledge` / `メモ` / `Bookmark` などに混在ページがある場合は capture queue または既存置き場として扱い、中核 DB/INDEX は `Knowledge HOME` にまとめる。
 
@@ -93,11 +95,11 @@ agents/update-verifier
 
 ### Step 3: content-enricher を呼ぶ
 
-`agents/content-enricher.md` を Read し、メモ置き場の対象ページ一覧を渡す。各ページについて、Notion 本文、URL、埋め込み、既存 Notion クリップ、添付テキストから取れる内容を補完する。取得できない外部本文は推測せず、`Extraction Status` を `Partial` / `Failed` / `Needs Manual Review` にする。
+`agents/content-enricher.md` を Read し、メモ置き場の対象ページ一覧を渡す。各ページについて、Notion 本文、URL、埋め込み、既存 Notion クリップ、添付テキストから取れる内容を補完する。取得できない外部本文は推測せず、`Extraction Status` を `Partial` / `Failed` にする。`Needs Manual Review` は自動処理で安易に使わず、ユーザー確認が不可欠な明示的理由がある場合だけ使う。
 
-URL だけ、タイトルだけ、または埋め込みだけのページでは、利用可能なら `$url-reader` の `scripts/read_url.py` を使って公開 URL の本文・metadata・画像リンク・失敗理由を補完する。取得結果の `reader_status`、`reader_backend`、`status_reason`、`attempts`、`warnings` は content-enricher の根拠として残す。
+URL だけ、タイトルだけ、または埋め込みだけのページでは、`$url-reader` の `scripts/read_url.py` を必ず使って公開 URL の本文・metadata・画像リンク・失敗理由を補完する。取得結果の `reader_status`、`reader_backend`、`status_reason`、`attempts`、`warnings` は content-enricher の根拠として残す。URL-only / embed-only ページの content-enricher 出力に `reader.status` または `reader.status_reason` が無い場合、司令塔は page-triager へ進めず content-enricher を差し戻す。
 
-タイトルが空、URL そのもの、`Untitled`、短すぎる記号列などで分類に使えない場合は、取得済み本文・Notion 本文・URL パス・source metadata から簡潔な `resolved_title` を生成してよい。生成タイトルは事実を足さず、8〜40文字程度の名詞句にし、`title_source: generated` と根拠を必ず残す。外部本文も Notion 本文も弱い場合はタイトルを無理に作らず `Needs Manual Review` にする。
+ページに既存タイトルがある場合も、全件をタイトル解決ステップに通す。既存タイトルが URL、サービス名だけ、保存時の省略タイトル、本文とずれたタイトル、分類に弱い曖昧なタイトルなら、取得済み本文・Notion 本文・URL パス・source metadata から `resolved_title` を付ける。外部 metadata のタイトルが本文と一致していてより自然なら `title_source: url_reader`、URL パス由来なら `url_path`、本文/URL から生成した短い名詞句なら `generated` にする。既存タイトルが十分なら `title_source: notion` とし、`resolved_title` は同じ値または `null` でよい。生成タイトルは事実を足さず、8〜40文字程度の名詞句にし、根拠を必ず残す。外部本文も Notion 本文も弱い場合はタイトルを無理に作らず、`Extraction Status: Failed` または `Partial` として Inbox 残留候補にする。
 
 ### Step 4: page-triager を呼ぶ
 
@@ -107,10 +109,10 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 - Domain Slug
 - Topic 名
 - Topic Slug
-- Subtopic 名（必要な場合のみ）
-- Subtopic Slug（必要な場合のみ）
+- Subtopic 名（分類が明確なら積極的に付ける）
+- Subtopic Slug（分類が明確なら積極的に付ける）
 - 既存 Topic ページ/DB 行候補または新規作成候補
-- 推奨アクション: `register_and_move_to_topic_page` / `keep_in_inbox_needs_review`
+- 推奨アクション: `register_and_move_to_topic_page` / `keep_in_inbox`
 - `Type`
 - `Status`
 - `Summary`
@@ -132,10 +134,10 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 
 Step 4 の結果をもとに、独立して実行できる場合は同一ターンで並列に呼ぶ。
 
-- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Source`、`Decision`、`Open Questions` を残す。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。ユーザーが一括整理を許可している場合だけ Notion に適用する。
+- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Source`、`Decision`、`Open Questions` を残す。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。ユーザーが一括整理を許可している場合だけ Notion に適用する。
 - `agents/duplicate-reviewer.md`: 類似ページ、古いメモ、正式ページ候補を検出し、Canonical Role / Duplicate / Stale の扱いを提案する。
 
-削除、不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ出す。判断が弱いページは DB 登録せずメモ置き場に残し、完了報告の `Inbox残留（要確認）` に必ず含める。Needs Review を Topic Index DB に入れると再実行時に重複試走しやすいため、未処理キューとして Inbox に残す。
+削除、不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ出す。判断が弱いページは DB 登録せずメモ置き場に残し、完了報告の `Inbox残留` に理由付きで必ず含める。Inbox 残留ページを Topic Index DB に入れると再実行時に重複試走しやすいため、未処理キューとして Inbox に残す。
 
 ### Step 6: update-verifier を呼ぶ
 

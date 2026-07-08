@@ -13,22 +13,23 @@ description: >
 
 `references/knowledge-model.md` の `Topic Index Schema`、`Memo Inbox To Topic Workflow`、`Markdown/RAG Readiness` を Read してください。
 
-URL-only、タイトルなし、埋め込みだけのページを処理するときは、必要に応じて `.agents/skills/url-reader/SKILL.md` と `.agents/skills/url-reader/references/output-contract.md` を Read し、`.agents/skills/url-reader/scripts/read_url.py` を実行してください。
+URL-only、タイトルなし、埋め込みだけのページを処理するときは、必ず `.agents/skills/url-reader/SKILL.md` と `.agents/skills/url-reader/references/output-contract.md` を Read し、`.agents/skills/url-reader/scripts/read_url.py` を実行してください。URL-only / embed-only ページを `url-reader` なしで分類係へ渡してはいけません。
 
 ## 手順
 
 1. 対象ページを `notion-fetch` で読む。親ページがメモ置き場の場合は、処理上限内の子ページも読む。
 2. Notion 本文、URL、ブックマーク、埋め込み、既存の Web クリップ、添付テキストから分類に使える情報を抽出する。
-3. 公開 URL があり、Notion 側の本文やタイトルだけでは分類に弱い場合は、`python3 .agents/skills/url-reader/scripts/read_url.py '<url>' --json` を実行する。画像保存が必要な依頼では `--download-images` を付ける。
-4. url-reader の JSON から `markdown`、`title`、`source_url`、`author_name`、`published_at_text`、`image_links`、`reader_backend`、`reader_status`、`status_reason`、`attempts`、`warnings` を取り込み、取得できた範囲だけを根拠にする。
-5. Instagram Reel URL (`instagram.com/reel/...`) がログイン画面、汎用シェル、または `reader_status: Blocked` になった場合は、本文・画像が一部見えても移動可能な抽出として扱わない。`extraction_status: Needs Manual Review`、`unknowns` に `Instagram Reel requires manual review` を入れる。
-6. 外部本文が取得できない場合はタイトル、URL、既存本文だけを根拠にし、本文を推測しない。
-7. タイトルが空、URL そのもの、`Untitled`、`無題`、短すぎる記号列、サービス名だけなど分類に使えない場合は、取得済み本文・既存 Notion 本文・URL パス・source metadata から `resolved_title` を生成してよい。
-8. 生成タイトルは 8〜40 文字程度の簡潔な名詞句にする。煽り文、結論の断定、著者名や日付の推測、未確認の固有名詞追加は禁止する。生成した場合は `title_source: generated`、既存タイトルを使う場合は `notion`、url-reader の title を使う場合は `url_reader`、URL パスから作る場合は `url_path` にする。
-9. `Source URL`、`Source Type`、`Extraction Status` を判定する。
-10. Summary は短く作ってよいが、根拠が取れた範囲に限る。著者、投稿日、主張、結論を推測で埋めない。
-11. 個人の判断やメモが本文にある場合は `decision_notes`、外部記事由来の内容は `source_notes` に分ける。
-12. 取得失敗、ログイン必要、本文不足、URL 不明、タイトル生成根拠不足などは `unknowns` と `warnings` に入れる。
+3. 公開 URL があり、ページが URL-only、タイトルなし、タイトルが `ページタイトル...` / `Untitled` / `無題`、または埋め込みだけの場合は、`python3 .agents/skills/url-reader/scripts/read_url.py '<url>' --json` を必ず実行する。既存タイトルがあるページでも、タイトルがサービス名だけ、保存時の省略タイトル、URL 断片、本文とずれたタイトル、分類に弱い曖昧なタイトルなら同じ取得経路に乗せる。画像保存が必要な依頼では `--download-images` を付ける。実行できない場合も `reader.status_reason` に実行不能理由を残す。
+4. url-reader の JSON から `markdown`、`title`、`source_url`、`author_name`、`published_at_text`、`image_links`、`reader_backend`、`reader_status`、`status_reason`、`attempts`、`warnings` を取り込み、取得できた範囲だけを根拠にする。X/Twitter、Instagram、YouTube などの social URL も、reader が返した metadata、本文断片、画像 alt、URL パス、失敗理由をそのまま分類材料にする。
+5. Instagram Reel URL (`instagram.com/reel/...`) や Instagram post URL がログイン画面、汎用シェル、または `reader_status: Blocked` になっても、それだけで `Needs Manual Review` にしない。タイトル、caption、画像情報、URL、Notion 既存本文など読めた根拠があれば通常の分類候補にする。根拠が URL と失敗理由だけの場合は `extraction_status: Failed` または `Partial` とし、`unknowns` に不足理由を入れる。
+6. 外部本文が取得できない場合はタイトル、URL、既存本文、url-reader の metadata / status_reason だけを根拠にし、本文を推測しない。
+7. 既存タイトルの有無に関係なく、全ページでタイトル解決を行う。既存タイトルが分類に十分なら `title_source: notion` とし、`resolved_title` は同じ値または `null` にする。既存タイトルが弱い場合は、取得済み本文・既存 Notion 本文・URL パス・source metadata から `resolved_title` を決める。
+8. url-reader の `title` が本文や metadata と一致し、既存タイトルより具体的なら `title_source: url_reader` にする。URL パスから自然なタイトルを作れる場合は `title_source: url_path` にする。本文・URL・metadata から短い名詞句を作る場合は `title_source: generated` にする。
+9. 生成タイトルは 8〜40 文字程度の簡潔な名詞句にする。煽り文、結論の断定、著者名や日付の推測、未確認の固有名詞追加は禁止する。既存タイトルを置き換える場合は、元タイトルと置き換え理由を `evidence` または `warnings` に残す。
+10. `Source URL`、`Source Type`、`Extraction Status` を判定する。
+11. Summary は短く作ってよいが、根拠が取れた範囲に限る。著者、投稿日、主張、結論を推測で埋めない。
+12. 個人の判断やメモが本文にある場合は `decision_notes`、外部記事由来の内容は `source_notes` に分ける。
+13. 取得失敗、ログイン必要、本文不足、URL 不明、タイトル生成根拠不足などは `unknowns` と `warnings` に入れる。`Needs Manual Review` は既定にしない。自動分類に乗せる根拠が薄い場合は `Partial` / `Failed` と理由を明示する。
 
 ## 出力
 

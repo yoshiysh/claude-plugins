@@ -3,8 +3,8 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Notion の Inbox にある未整理メモを20件だけ分類して、Topic Index に登録して。将来 Markdown/RAG に移せるように Summary と Canonical Role も見てほしい。",
-      "expected_output": "Notion MCP を使って Topic Index を確認し、20件上限で内容補完・分類・正規化・検証まで進める。",
+      "prompt": "Notion の Inbox にある未整理メモを50件だけ分類して、Topic Index に登録して。将来 Markdown/RAG に移せるように Summary と Canonical Role も見てほしい。",
+      "expected_output": "Notion MCP を使って Topic Index を確認し、50件上限で内容補完・分類・正規化・検証まで進める。",
       "files": [],
       "assertions": [
         "Topic Index DB の存在確認または作成案が含まれている",
@@ -14,12 +14,12 @@
         "Inbox は処理前の capture queue として混沌を許容する方針が含まれている",
         "処理済みページは Topic Index 登録後に Domains 配下の Topic/Subtopic ページへ移動する方針が含まれている",
         "Topic/Subtopic ページの Summary はページ運用説明ではなく対象技術・概念そのもののサマリにする方針が含まれている",
-        "Needs Review は Topic Index DB に入れず Inbox に残してユーザーへ報告する方針が含まれている",
+        "判断が弱いページは Topic Index DB に入れず Inbox に残してユーザーへ報告する方針が含まれている",
         "Domain / Topic / Subtopic と slug / Export Path が扱われている",
         "Type / Status / Summary / Source URL / Source Type / Extraction Status / Canonical Role / Exportable の分類が扱われている",
         "URL-only ページでは url-reader による公開 URL 補完が扱われている",
-        "タイトルがない、または URL だけのページでは根拠付きの Resolved Title / Title Source が扱われている",
-        "20件上限と残件報告が明記されている",
+        "既存タイトルがあるページも含めて根拠付きの Resolved Title / Title Source が扱われている",
+        "50件上限と残件報告が明記されている",
         "削除や破壊的変更をしない方針が明記されている"
       ]
     },
@@ -38,14 +38,14 @@
     {
       "id": 3,
       "prompt": "Inbox にタイトルが URL のままのブックマークがある。X や Instagram 以外の普通の記事 URL も含めて、読めるものは内容を補完して、タイトルがなければ短いタイトルを付けて整理して。",
-      "expected_output": "content-enricher が url-reader を使って公開 URL を補完し、タイトル不足ページには根拠付きの resolved_title/title_source を付ける。根拠が弱いものは Needs Review に残す。",
+      "expected_output": "content-enricher が url-reader を使って公開 URL を補完し、既存タイトルが弱いページにも根拠付きの resolved_title/title_source を付ける。根拠が弱いものは keep_in_inbox として DB 登録しない。",
       "files": [],
       "assertions": [
         "url-reader を URL-only ページの補完バックエンドとして使う方針が含まれている",
         "X/Instagram に限らず公開 URL 一般に対して補完を試す方針が含まれている",
-        "タイトルが空・URL・Untitled などの場合に resolved_title を生成できる方針が含まれている",
+        "既存タイトルがあるページも含めて resolved_title を決める方針が含まれている",
         "生成タイトルは根拠付きで title_source: generated として扱う方針が含まれている",
-        "本文や根拠が弱い場合は無理にタイトルや分類を確定せず Needs Review に残す方針が含まれている"
+        "本文や根拠が弱い場合は無理にタイトルや分類を確定せず keep_in_inbox として DB 登録しない方針が含まれている"
       ]
     },
     {
@@ -61,7 +61,7 @@
     {
       "id": 5,
       "prompt": "Inbox に Instagram Reel の URL-only ページがある。reader ではログイン画面っぽい本文と静的画像しか取れない。普通の Instagram 投稿は整理対象にしたいが、この Reel だけは移動しないで。",
-      "expected_output": "Instagram Reel URL は reader_status が Extracted に見えてもログイン画面や汎用 shell なら Needs Manual Review とし、register_and_move_to_topic_page を選ばず Inbox に残す。通常の Instagram 投稿まで一律除外しない。",
+      "expected_output": "Instagram Reel URL でも url-reader を必ず通し、タイトル・caption・画像情報・Notion 既存本文など分類根拠が取れた場合は通常の分類に乗せる。ログイン画面や汎用 shell しか取れず根拠が URL と失敗理由だけなら keep_in_inbox とし、DB 登録しない。",
       "files": [],
       "assertions": [
         "instagram.com/reel/... のみを自動移動対象から外している",

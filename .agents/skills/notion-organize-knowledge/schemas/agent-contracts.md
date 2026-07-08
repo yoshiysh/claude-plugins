@@ -89,7 +89,7 @@
         "summary": "string",
         "topic_page_id": "string|null",
         "confidence": "high|medium|low",
-        "recommended_action": "register_and_move_to_topic_page|keep_in_inbox_needs_review",
+        "recommended_action": "register_and_move_to_topic_page|keep_in_inbox",
         "source_urls": []
       },
       "classification": {
