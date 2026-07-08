@@ -31,10 +31,10 @@ flowchart LR
   D --> TP["Domain/Topic/Subtopic Page\nAI + 人間が読む同じページ"]
   E --> TP
   DB --> TP
-  I -.読める根拠なし.-> R["Inbox残留\nDB未登録"]
+  I -.取得不能/根拠不足.-> R["Unresolved Sources\nDB未登録"]
 ```
 
-成功パスでは、処理済みページを `Topic Index` に登録し、同じページを `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移動する。AI 向け情報も人間向け情報もそのページに残す。判断不能・取得失敗のページは `Topic Index` に登録せず、Inbox に残して完了報告でユーザーへ伝える。ただし URL-only、タイトルだけ、埋め込みだけのページは、判断不能にする前に必ず `url-reader` で取得を試す。`url-reader` でタイトル、metadata、本文断片、画像、投稿種別、失敗理由のいずれかが取れた場合は、その根拠で通常の分類処理に乗せる。`url-reader` を実行できなかった URL は、分類不能ではなく「実行漏れ」として扱い、page-triager へ進めない。
+成功パスでは、処理済みページを `Topic Index` に登録し、同じページを `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移動する。AI 向け情報も人間向け情報もそのページに残す。判断不能・取得失敗のページは `Topic Index` に登録せず、Inbox に放置せず、`Knowledge HOME` 配下の `Unresolved Sources` へ移して完了報告でユーザーへ伝える。ただし URL-only、タイトルだけ、埋め込みだけのページは、判断不能にする前に必ず `url-reader` で取得を試す。`url-reader` でタイトル、metadata、本文断片、画像、投稿種別、失敗理由のいずれかが取れた場合は、その根拠で通常の分類処理に乗せる。`url-reader` を実行できなかった URL は、分類不能ではなく「実行漏れ」として扱い、page-triager へ進めない。
 
 1ページが複数 Topic にまたがる場合は、物理配置先として最も関連度の高い Domain / Topic / Subtopic を1つ選ぶ。横断的な関連は `Topic Index` の `Tags`、`Related Topics` 相当のプロパティ、移動後ページ本文の `Related Topics` に残し、検索・AI取得・Markdown/RAG export で拾えるようにする。
 
@@ -49,7 +49,7 @@ agents/input-resolver
   │
   ▼
 agents/index-maintainer
-  │  Knowledge HOME / Topic Index DB / Knowledge INDEX / Domains 階層を検索し、無ければ作成する/作成案を返す
+  │  Knowledge HOME / Topic Index DB / Knowledge INDEX / Unresolved Sources / Domains 階層を検索し、無ければ作成する/作成案を返す
   │
   ▼
 agents/content-enricher
@@ -83,13 +83,13 @@ agents/update-verifier
 
 ### Step 2: index-maintainer を呼ぶ
 
-`agents/index-maintainer.md` を Read し、Step 1 の scope と `references/knowledge-model.md` を渡す。`Knowledge HOME`、`Topic Index` DB、`Knowledge INDEX` ページ、既存の `Domains/{Domain}/{Topic}/{Subtopic}` 階層を探す。無い場合、ユーザーが「DB 追加もやって」「作ってよい」「整理して」と明示していれば、`Inbox` 配下ではなく安定した `Knowledge HOME` 配下または workspace private に作成する。明示がない場合は作成案を返し、司令塔が確認する。
+`agents/index-maintainer.md` を Read し、Step 1 の scope と `references/knowledge-model.md` を渡す。`Knowledge HOME`、`Topic Index` DB、`Knowledge INDEX` ページ、`Unresolved Sources` ページ、既存の `Domains/{Domain}/{Topic}/{Subtopic}` 階層を探す。無い場合、ユーザーが「DB 追加もやって」「作ってよい」「整理して」と明示していれば、`Inbox` 配下ではなく安定した `Knowledge HOME` 配下または workspace private に作成する。明示がない場合は作成案を返し、司令塔が確認する。
 
 Domain / Topic / Subtopic 階層は「最小限だけ作る」方針にしない。処理対象から明確な分類が取れており、既存階層に自然な受け皿が無い場合は、人間が後から辿りやすい標準的な階層を積極的に作る。例: 料理は `Life / Cooking / Recipes`、健康運動は `Life / Health / Fitness`、住まいの手入れは `Life / Home / Maintenance`、技術研修は `Programming / Engineering Education / New Graduate Training` のように、Domain 直下へ雑に溜めず Topic と Subtopic まで作ってよい。ただし同義・近義の棚を乱立させないため、作成前に既存ページを検索し、近い既存階層がある場合はそこへ寄せる。
 
 `Knowledge HOME` は構造化知識レイヤーの固定入口であり、雑多な既存ページを単に `knowledge` という名前だけで正本ルート扱いしない。既存の `knowledge` / `メモ` / `Bookmark` などに混在ページがある場合は capture queue または既存置き場として扱い、中核 DB/INDEX は `Knowledge HOME` にまとめる。
 
-`Knowledge INDEX` は人間と AI の入口だが、正本ではなく `Topic Index` DB から再生成できるナビゲーションキャッシュとして扱う。Domain 一覧、Topic / Subtopic 一覧、未分類/要確認メモ、最近整理したページを持つ。`Domains` は粗い棚であり、例として `Programming -> iOS -> The Composable Architecture (TCA)` のように辿れる物理階層にする。`Topics` を `Domains` と並列に作ると二重管理になりやすいため、原則作らない。
+`Knowledge INDEX` は人間と AI の入口だが、正本ではなく `Topic Index` DB から再生成できるナビゲーションキャッシュとして扱う。Domain 一覧、Topic / Subtopic 一覧、未分類/要確認メモ、最近整理したページを持つ。`Unresolved Sources` は取得不能・根拠不足ページの退避キューであり、処理済み検索先ではない。`Domains` は粗い棚であり、例として `Programming -> iOS -> The Composable Architecture (TCA)` のように辿れる物理階層にする。`Topics` を `Domains` と並列に作ると二重管理になりやすいため、原則作らない。
 
 既存 DB がある場合は破壊的変更をしない。足りないプロパティは追加候補として扱い、既存プロパティ名の変更や削除は確認してから行う。一方で、既存の `select` / `multi_select` プロパティに不足 option があるだけなら、低リスクなスキーマ保守として Notion MCP の `update_data_source` で追加してよい。特に `Type`、`Status`、`Action`、`Source Type`、`Extraction Status`、`Tags`、`Related Topics`、`Canonical Role` は、後続の DB 登録前に今回使う値が存在するか確認し、存在しない値は既存 option を消さずに追記する。
 
@@ -145,16 +145,16 @@ page-triager へ渡す前に URL enrichment gate を再確認する。URL-only /
 
 Step 4 の結果をもとに、独立して実行できる場合は同一ターンで並列に呼ぶ。
 
-- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。DB 登録前に、今回登録する `select` / `multi_select` 値が既存 option にあるか確認し、無ければ既存 option を保ったまま追加する。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Source`、`Decision`、`Open Questions` を残す。URL-only / embed-only 由来で url-reader が本文や metadata を取得できた場合は、その要約と取得元 URL、reader status をページ本文へ追記し、Notion ページ側だけ見ても内容が分かるようにする。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。ユーザーが一括整理を許可している場合だけ Notion に適用する。
+- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。DB 登録前に、今回登録する `select` / `multi_select` 値が既存 option にあるか確認し、無ければ既存 option を保ったまま追加する。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Source`、`Decision`、`Open Questions` を残す。URL-only / embed-only 由来で url-reader が本文や metadata を取得できた場合は、その要約と取得元 URL、reader status をページ本文へ追記し、Notion ページ側だけ見ても内容が分かるようにする。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。`keep_in_inbox` は原則 Inbox に残さず、`Unresolved Sources` へ移して取得失敗理由を本文に追記する。ユーザーが一括整理を許可している場合だけ Notion に適用する。
 - `agents/duplicate-reviewer.md`: 類似ページ、古いメモ、正式ページ候補を検出し、Canonical Role / Duplicate / Stale の扱いを提案する。
 
-削除、不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ出す。判断が弱いページは DB 登録せずメモ置き場に残し、完了報告の `Inbox残留` に理由付きで必ず含める。Inbox 残留ページを Topic Index DB に入れると再実行時に重複試走しやすいため、未処理キューとして Inbox に残す。
+削除、不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ出す。判断が弱いページは DB 登録せず `Unresolved Sources` へ移し、完了報告の `Unresolved Sources移動` に理由付きで必ず含める。Inbox 残留ページを Topic Index DB に入れると再実行時に重複試走しやすいため、取得不能・根拠不足のページは Inbox から分離する。
 
 ### Step 6: update-verifier を呼ぶ
 
 `agents/update-verifier.md` を Read し、更新結果、重複レビュー、判断不能項目を渡す。検証結果が `status: revise` の場合は page-normalizer に1回だけ差し戻す。2回目も失敗する場合は、失敗理由と対象ページをユーザーへ提示して止める。
 
-update-verifier には、対象件数、URL enrichment gate の件数、Inbox 残留リストを渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
+update-verifier には、対象件数、URL enrichment gate の件数、Unresolved Sources 移動リストを渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
 
 ### Step 7: 完了報告
 
@@ -165,7 +165,7 @@ Notion知識整理完了:
 - 処理: {N}件
 - DB登録済み: {A}件
 - 移動済み: {M}件
-- Inbox残留（要確認）: {I}件
+- Unresolved Sources移動（取得不能/根拠不足）: {I}件
 - Canonical Role設定/候補: {C}件
 - 重複/古い可能性: {D}件
 - Export ready: {E}件

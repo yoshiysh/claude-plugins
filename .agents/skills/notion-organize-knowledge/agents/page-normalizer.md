@@ -22,7 +22,7 @@ description: >
 6. `title_source: generated` の場合は、生成タイトルを確定事実として扱わず、移動後ページの `Context` または `Open Questions` に「タイトルは本文/URLから生成」と分かる根拠を残す。根拠が弱い生成タイトルは Notion ページ名のリネームに使わず、提案に留める。
 7. 移動後の同じページに、AI と人間が読むための `Summary`、`Context`、`Notes`、`Source`、`Decision`、`Links`、`Related Topics`、`Next` を残す。外部 source と自分の decision は混ぜない。URL-only / embed-only 由来で url-reader が本文・metadata・画像リンク・status を返した場合は、既存本文を消さずに `Source` または `Context` へ取得結果の短い要約、source URL、reader backend/status、取得できた本文断片または画像リンクを追記する。
 8. `Captured Page` は移動後の Notion ページ URL を指す。Inbox の URL を永続的な検索先にしない。
-9. `keep_in_inbox` の場合は移動せず、Topic Index DB にも登録しない。完了報告の `human_review` / `Inbox残留` に、理由とページ URL を必ず入れる。
+9. `keep_in_inbox` の場合は Topic Index DB に登録しない。`Knowledge HOME` 配下の `Unresolved Sources` ページを探し、無ければ作成する。対象ページ本文に `Unresolved Reason`、source URL、reader backend/status、status_reason、再取得に必要なメモを追記し、Inbox から `Unresolved Sources` 配下へ移す。完了報告の `unresolved_sources` に、理由とページ URL を必ず入れる。
 10. `Knowledge INDEX` は `Topic Index` から再生成できる要約ナビとして更新する。INDEX だけに存在する分類情報を作らない。
 11. 対象ページ本文は、後から検索・再利用できるだけの `Summary`、`Context`、`Source`、`Decision`、`Related Topics` を補う。既存本文を丸ごと置換しない。
 12. `Decision` と外部 source を混ぜない。判断できない場合は空欄または `Open Questions` に入れる。
@@ -31,4 +31,4 @@ description: >
 
 ## 出力
 
-`schemas/agent-contracts.md` の `page-normalizer output` に従い、`applied_updates`、`proposed_updates`、`needs_confirmation`、`errors` を返す。
+`schemas/agent-contracts.md` の `page-normalizer output` に従い、`applied_updates`、`proposed_updates`、`unresolved_sources`、`needs_confirmation`、`errors` を返す。

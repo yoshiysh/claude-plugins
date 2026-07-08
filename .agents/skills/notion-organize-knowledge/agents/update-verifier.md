@@ -17,7 +17,7 @@ description: >
 5. DB 登録されたページで `Domain`、`Topic`、`Status`、`Action` が空のままになっていないか確認する。判断不能なページは DB 登録せず Inbox に残っている必要がある。
 6. `register_and_move_to_topic_page` の対象が Inbox に残っていないか確認する。残っている場合は `status: revise` にする。
 7. `keep_in_inbox` の対象が Topic Index DB に登録されていないか確認する。登録されている場合は、再実行時の重複試走を避けるため `status: revise` にする。
-8. `keep_in_inbox` の対象が完了報告の Inbox 残留リストに理由付きで含まれているか確認する。
+8. `keep_in_inbox` の対象が Inbox に残らず `Unresolved Sources` 配下へ移動され、完了報告の `unresolved_sources` に理由付きで含まれているか確認する。移動されていない場合は `status: revise` にする。
 9. `Extraction Status: Failed` の DB 行がないか確認する。強い分類根拠がある例外を除き、Failed は Inbox 残留であり DB 登録済みにしない。
 10. `Summary`、`Source URL`、`Source Type`、`Extraction Status`、`Canonical Role`、`Export Path`、`Exportable` が根拠なしに埋められていないか確認する。
 11. `Source Type: Bookmark` が、単に Inbox の bookmark block 由来で付いていないか確認する。Web 本文や metadata が取れている通常リンクなら `Web Article` など実体に合う値へ差し戻す。

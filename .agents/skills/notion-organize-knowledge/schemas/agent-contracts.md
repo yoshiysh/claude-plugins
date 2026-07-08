@@ -29,6 +29,7 @@
   "topic_index_data_source_id": "string|null",
   "topic_index_database_page_id": "string|null",
   "index_page_id": "string|null",
+  "unresolved_sources_page_id": "string|null",
   "domains": [],
   "available_properties": [],
   "missing_properties": [],
@@ -152,12 +153,13 @@
   "schema_updates_applied": [],
   "schema_updates_proposed": [],
   "needs_confirmation": [],
-  "inbox_needs_review": [
+  "unresolved_sources": [
     {
       "page_id": "string",
       "title": "string",
       "url": "string",
-      "reason": "string"
+      "reason": "string",
+      "moved_to_page_id": "string|null"
     }
   ],
   "errors": []
@@ -185,7 +187,7 @@
   "summary_counts": {
     "processed": 0,
     "db_registered": 0,
-    "remaining_in_inbox_needs_review": 0,
+    "moved_to_unresolved_sources": 0,
     "moved": 0,
     "canonical_role": 0,
     "duplicates_or_stale": 0,
