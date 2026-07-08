@@ -8,7 +8,8 @@
       "files": [],
       "assertions": [
         "Topic Index DB の存在確認または作成案が含まれている",
-        "Knowledge HOME を固定入口とし、Topic Index DB と Knowledge INDEX を Inbox 配下に置かない方針が含まれている",
+        "Knowledge HOME を固定入口とし、Topic Index DB / Domains / Unresolved Sources を Inbox 配下に置かない方針が含まれている",
+        "Knowledge INDEX は不要な派生ナビとして新規作成・更新しない方針が含まれている",
         "物理階層は Domains/{Domain}/{Topic}/{Subtopic} を基本とし、Domains と並列の Topics ルートを原則作らない方針が含まれている",
         "Domain は Programming / AI など粗い棚にし、iOS や RAG 程度の粒度は Topic として扱う方針が含まれている",
         "Inbox は処理前の capture queue として混沌を許容する方針が含まれている",
@@ -31,7 +32,7 @@
       "assertions": [
         "対象範囲が曖昧な場合の確認が含まれている",
         "Notion を RAG エンジンそのものとして扱わない説明が含まれている",
-        "Knowledge HOME / Topic Index / Knowledge INDEX / Bookmark / Inbox / 未分類ページの関係を整理している",
+        "Knowledge HOME / Topic Index / Domains / Unresolved Sources / Bookmark / Inbox / 未分類ページの関係を整理している",
         "まず Topic Index / Bookmark / Inbox / 未分類ページのどれを対象にするか整理している"
       ]
     },

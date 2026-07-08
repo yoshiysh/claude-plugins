@@ -28,7 +28,6 @@
   "home_page_id": "string|null",
   "topic_index_data_source_id": "string|null",
   "topic_index_database_page_id": "string|null",
-  "index_page_id": "string|null",
   "unresolved_sources_page_id": "string|null",
   "domains": [],
   "available_properties": [],
@@ -152,6 +151,18 @@
   "proposed_updates": [],
   "schema_updates_applied": [],
   "schema_updates_proposed": [],
+  "move_audit": [
+    {
+      "page_id": "string",
+      "destination_page_id": "string",
+      "destination_path": "string",
+      "tool": "mcp__notion.notion_move_pages",
+      "attempted": true,
+      "result": "success|failed|skipped",
+      "verified": true,
+      "ancestor_path_after": []
+    }
+  ],
   "needs_confirmation": [],
   "unresolved_sources": [
     {
@@ -159,7 +170,13 @@
       "title": "string",
       "url": "string",
       "reason": "string",
-      "moved_to_page_id": "string|null"
+      "moved_to_page_id": "string|null",
+      "move_audit": {
+        "tool": "mcp__notion.notion_move_pages",
+        "attempted": true,
+        "verified": true,
+        "ancestor_path_after": []
+      }
     }
   ],
   "errors": []

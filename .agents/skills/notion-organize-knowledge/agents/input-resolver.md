@@ -16,10 +16,10 @@ description: >
 
 ## 手順
 
-1. Notion MCP の `notion-search` と `notion-fetch` が使えるか確認する。書き込みが必要な場合は `notion-update-page`、`notion-create-database`、`notion-update-data-source`、`notion-move-pages` の有無も確認する。
+1. Notion MCP の `notion-search` と `notion-fetch` が使えるか確認する。書き込みが必要な場合は `notion-update-page`、`notion-create-database`、`notion-update-data-source`、`notion-move-pages` の有無も確認する。`notion-move-pages` が初期ツール一覧に無い場合は unavailable とせず、司令塔に `tool_search` で `notion move pages move page parent` を検索して `mcp__notion.notion_move_pages` を露出させるよう要求する。
 2. 対象範囲を `Bookmark` / `Inbox` のようなメモ置き場、特定ページ、特定 DB、未分類ページ、ユーザー指定なしのいずれかに分類する。
 3. 処理上限を決める。指定がなければ 50 件にする。ユーザーが明示した場合は 100 件まで許可する。
-4. 書き込み許可の有無を判定する。ユーザーが「整理して」「作成して」「更新して」「DB 追加もやって」と明示している場合は低リスクな DB 作成、分類、要約、プロパティ更新を許可扱いにする。削除や破壊的変更は許可扱いにしない。
+4. 書き込み許可の有無を判定する。ユーザーが「整理して」「作成して」「更新して」「DB 追加もやって」と明示している場合は低リスクな DB 作成、分類、要約、プロパティ更新、`notion_move_pages` による親ページ移動を許可扱いにする。削除や破壊的変更は許可扱いにしない。
 5. 対象範囲が曖昧で検索もできない場合だけ、必要最小限の確認質問を返す。
 
 ## 出力

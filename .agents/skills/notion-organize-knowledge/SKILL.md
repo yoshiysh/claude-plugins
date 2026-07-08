@@ -4,7 +4,7 @@ description: >
   Notion MCP を使って Notion workspace のメモ置き場に、Domain / Topic / Subtopic 中心の構造化レイヤーを重ねるスキル。
   Bookmark / Inbox などの capture queue からページを読み、リンク先や本文を補完し、適切な Domain / Topic / Subtopic を推測し、
   処理できたページは Topic Index DB に登録する。Inbox は混沌を受け止める入口だが、処理済みページの検索先にはしない。
-  処理済みページは Domains 配下の Topic / Subtopic ページへ移し、AI と人間が同じページを参照できるようにする。判断不能なページは DB 登録せず Inbox に残して報告する。
+  処理済みページは Domains 配下の Topic / Subtopic ページへ移し、AI と人間が同じページを参照できるようにする。判断不能なページは DB 登録せず Unresolved Sources へ移して報告する。
   Summary 生成、Source と Decision の分離、
   Canonical Role / Exportable 設定、重複・古いページの検出、Markdown/RAG 移行しやすい本文正規化を行う。
   Use when the user says 「Notion を整理して」「Notion のメモを DB 化したい」「AI 検索や将来 RAG に備えてページを正規化して」
@@ -15,16 +15,23 @@ description: >
 
 採用パターン：Orchestrator-Subagent + Generator-Verifier。
 
-Notion を作業場・閲覧 UI・入力口として使いながら、将来 Markdown export や自前 RAG に逃がせる形へ知識ページを整理する。主な運用は、ユーザーが `Bookmark` や `Inbox` のようなメモ置き場へ記事・メモ・リンクを放り込み、スキルが内容を読み足して、適切な Domain / Topic / Subtopic へ分類し、処理できたページを `Topic Index` DB に登録する流れ。`Inbox` は混沌としてよい capture queue だが、処理済みページの検索先にはしない。構造化レイヤーの固定入口は `Knowledge HOME` とし、その配下に `Topic Index` DB、`Knowledge INDEX`、粗い棚としての `Domains` を置く。物理階層は原則 `Domains/{Domain}/{Topic}/{Subtopic}` に寄せ、`Domains` と並列の `Topics` ルートは作らない。DB を AI が読む構造化された索引とし、AI と人間が参照する canonical content は同じ Topic / Subtopic 配下のページにする。判断不能なページは DB に入れず Inbox に残し、重複試走を避けるために完了報告で明示する。ページ階層や `Knowledge INDEX` は人間が辿りやすい閲覧 UI として扱う。Topic / Subtopic ページの Summary は「そのページの運用説明」ではなく、対象技術・概念そのもののサマリにする。SKILL.md は進行管理だけを担い、Notion の読み取り・分類・更新・検証は `agents/` の各 Sub-agent が担当する。分類基準と DB スキーマは `references/knowledge-model.md`、エージェント間の入出力契約は `schemas/agent-contracts.md` を正とする。
+Notion を作業場・閲覧 UI・入力口として使いながら、将来 Markdown export や自前 RAG に逃がせる形へ知識ページを整理する。主な運用は、ユーザーが `Bookmark` や `Inbox` のようなメモ置き場へ記事・メモ・リンクを放り込み、スキルが内容を読み足して、適切な Domain / Topic / Subtopic へ分類し、処理できたページを `Topic Index` DB に登録する流れ。`Inbox` は混沌としてよい capture queue だが、処理済みページの検索先にはしない。構造化レイヤーの固定入口は `Knowledge HOME` とし、その配下に `Topic Index` DB、粗い棚としての `Domains`、取得不能ページ用の `Unresolved Sources` を置く。物理階層は原則 `Domains/{Domain}/{Topic}/{Subtopic}` に寄せ、`Domains` と並列の `Topics` ルートは作らない。DB を AI が読む構造化された索引とし、AI と人間が参照する canonical content は同じ Topic / Subtopic 配下のページにする。判断不能なページは DB に入れず `Unresolved Sources` へ移し、重複試走を避けるために完了報告で明示する。ページ階層は人間が辿りやすい閲覧 UI として扱う。`Knowledge INDEX` は不要な派生ナビなので、新規作成・更新・正本扱いをしない。Topic / Subtopic ページの Summary は「そのページの運用説明」ではなく、対象技術・概念そのもののサマリにする。SKILL.md は進行管理だけを担い、Notion の読み取り・分類・更新・検証は `agents/` の各 Sub-agent が担当する。分類基準と DB スキーマは `references/knowledge-model.md`、エージェント間の入出力契約は `schemas/agent-contracts.md` を正とする。
 
 ## 全体フロー
+
+## Notion 移動ツールの必須条件
+
+処理済みページや取得不能ページを Inbox から出すときは、必ず Notion MCP の `mcp__notion.notion_move_pages` を使う。初期表示のツール一覧に無い場合でも unavailable と判断せず、`tool_search` で `notion move pages move page parent` を検索して `notion_move_pages` を露出させてから実行する。
+
+`notion-update-page`、`replace_content`、`insert_content`、`<page>` / `<mention-page>` ブロック、ページ URL の追記、DB の `Captured Page` 更新はページ移動の代替にしてはいけない。これらはリンクや本文更新であり、親ページを変えないため、完了報告の「移動済み」に数えない。
+
+移動は destination parent ごとにまとめ、`notion_move_pages` の `page_ids` に対象ページ ID を渡す。実行後は `notion-fetch` で移動済みページを確認し、ancestor path の直近 parent が期待する Domain / Topic / Subtopic または `Unresolved Sources` になっており、Inbox が ancestor に残っていないことを検証する。検証できないページは `moved` に数えず、`update-verifier` で `status: revise` にする。
 
 ### 概念図
 
 ```mermaid
 flowchart LR
   H["Knowledge HOME\n固定入口"] --> DB["Topic Index DB\nAI検索・移行用の索引"]
-  H --> K["Knowledge INDEX\n再生成可能なナビ"]
   H --> D["Domains\n粗い棚"]
   I["Inbox\n未処理・混沌OK"] --> E["内容取得/補完"]
   E --> DB
@@ -49,7 +56,7 @@ agents/input-resolver
   │
   ▼
 agents/index-maintainer
-  │  Knowledge HOME / Topic Index DB / Knowledge INDEX / Unresolved Sources / Domains 階層を検索し、無ければ作成する/作成案を返す
+  │  Knowledge HOME / Topic Index DB / Unresolved Sources / Domains 階層を検索し、無ければ作成する/作成案を返す
   │
   ▼
 agents/content-enricher
@@ -83,13 +90,13 @@ agents/update-verifier
 
 ### Step 2: index-maintainer を呼ぶ
 
-`agents/index-maintainer.md` を Read し、Step 1 の scope と `references/knowledge-model.md` を渡す。`Knowledge HOME`、`Topic Index` DB、`Knowledge INDEX` ページ、`Unresolved Sources` ページ、既存の `Domains/{Domain}/{Topic}/{Subtopic}` 階層を探す。無い場合、ユーザーが「DB 追加もやって」「作ってよい」「整理して」と明示していれば、`Inbox` 配下ではなく安定した `Knowledge HOME` 配下または workspace private に作成する。明示がない場合は作成案を返し、司令塔が確認する。
+`agents/index-maintainer.md` を Read し、Step 1 の scope と `references/knowledge-model.md` を渡す。`Knowledge HOME`、`Topic Index` DB、`Unresolved Sources` ページ、既存の `Domains/{Domain}/{Topic}/{Subtopic}` 階層を探す。無い場合、ユーザーが「DB 追加もやって」「作ってよい」「整理して」と明示していれば、`Inbox` 配下ではなく安定した `Knowledge HOME` 配下または workspace private に作成する。明示がない場合は作成案を返し、司令塔が確認する。
 
 Domain / Topic / Subtopic 階層は「最小限だけ作る」方針にしない。処理対象から明確な分類が取れており、既存階層に自然な受け皿が無い場合は、人間が後から辿りやすい標準的な階層を積極的に作る。例: 料理は `Life / Cooking / Recipes`、健康運動は `Life / Health / Fitness`、住まいの手入れは `Life / Home / Maintenance`、技術研修は `Programming / Engineering Education / New Graduate Training` のように、Domain 直下へ雑に溜めず Topic と Subtopic まで作ってよい。ただし同義・近義の棚を乱立させないため、作成前に既存ページを検索し、近い既存階層がある場合はそこへ寄せる。
 
-`Knowledge HOME` は構造化知識レイヤーの固定入口であり、雑多な既存ページを単に `knowledge` という名前だけで正本ルート扱いしない。既存の `knowledge` / `メモ` / `Bookmark` などに混在ページがある場合は capture queue または既存置き場として扱い、中核 DB/INDEX は `Knowledge HOME` にまとめる。
+`Knowledge HOME` は構造化知識レイヤーの固定入口であり、雑多な既存ページを単に `knowledge` という名前だけで正本ルート扱いしない。既存の `knowledge` / `メモ` / `Bookmark` などに混在ページがある場合は capture queue または既存置き場として扱い、中核 DB と整理済みページ階層は `Knowledge HOME` にまとめる。
 
-`Knowledge INDEX` は人間と AI の入口だが、正本ではなく `Topic Index` DB から再生成できるナビゲーションキャッシュとして扱う。Domain 一覧、Topic / Subtopic 一覧、未分類/要確認メモ、最近整理したページを持つ。`Unresolved Sources` は取得不能・根拠不足ページの退避キューであり、処理済み検索先ではない。`Domains` は粗い棚であり、例として `Programming -> iOS -> The Composable Architecture (TCA)` のように辿れる物理階層にする。`Topics` を `Domains` と並列に作ると二重管理になりやすいため、原則作らない。
+`Knowledge INDEX` は不要な派生ナビなので、新規作成・更新・分類情報の保存先にしない。既存ページがあっても互換のために読む必要はなく、必要になった場合だけユーザー指示で別途追加する。`Unresolved Sources` は取得不能・根拠不足ページの退避キューであり、処理済み検索先ではない。`Domains` は粗い棚であり、例として `Programming -> iOS -> The Composable Architecture (TCA)` のように辿れる物理階層にする。`Topics` を `Domains` と並列に作ると二重管理になりやすいため、原則作らない。
 
 既存 DB がある場合は破壊的変更をしない。足りないプロパティは追加候補として扱い、既存プロパティ名の変更や削除は確認してから行う。一方で、既存の `select` / `multi_select` プロパティに不足 option があるだけなら、低リスクなスキーマ保守として Notion MCP の `update_data_source` で追加してよい。特に `Type`、`Status`、`Action`、`Source Type`、`Extraction Status`、`Tags`、`Related Topics`、`Canonical Role` は、後続の DB 登録前に今回使う値が存在するか確認し、存在しない値は既存 option を消さずに追記する。
 
@@ -110,7 +117,7 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 
 ### Step 4: page-triager を呼ぶ
 
-`agents/page-triager.md` を Read し、補完済みページ一覧、Topic Index data source ID、INDEX ページ ID、分類基準を渡す。各ページについて、タイトル・本文・URL・補完済み内容から Domain / Topic / Subtopic 候補と整理方針を判定させる。
+`agents/page-triager.md` を Read し、補完済みページ一覧、Topic Index data source ID、分類基準を渡す。各ページについて、タイトル・本文・URL・補完済み内容から Domain / Topic / Subtopic 候補と整理方針を判定させる。
 
 page-triager へ渡す前に URL enrichment gate を再確認する。URL-only / embed-only / 弱いタイトルのページで `reader.required: true` かつ `reader.attempted: false` のもの、または `reader.status` と `reader.status_reason` が両方空のものがあれば、分類せず content-enricher へ差し戻す。
 
@@ -154,7 +161,7 @@ Step 4 の結果をもとに、独立して実行できる場合は同一ター�
 
 `agents/update-verifier.md` を Read し、更新結果、重複レビュー、判断不能項目を渡す。検証結果が `status: revise` の場合は page-normalizer に1回だけ差し戻す。2回目も失敗する場合は、失敗理由と対象ページをユーザーへ提示して止める。
 
-update-verifier には、対象件数、URL enrichment gate の件数、Unresolved Sources 移動リストを渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
+update-verifier には、対象件数、URL enrichment gate の件数、Unresolved Sources 移動リスト、`notion_move_pages` の実行ログ、移動後 fetch で確認した ancestor path を渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、または移動対象で `notion_move_pages` 実行・ancestor 検証が欠けている場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
 
 ### Step 7: 完了報告
 
@@ -178,7 +185,7 @@ Notion知識整理完了:
 
 入力：ユーザーの Notion 整理依頼、対象ページ名または Bookmark / Inbox / Domain / Topic Index DB 名、必要なら処理件数。
 
-出力：Notion 上の Topic Index DB、Knowledge INDEX ページ、Domain / Topic / Subtopic ページ、Topic Index に登録済みで Inbox から移動/処理済みになったメモページ、または更新前のレビュー用変更案。完了報告には処理件数、DB登録件数、作成/更新した Domain / Topic / Subtopic、移動件数、Inbox に残った要確認件数、未確定項目、次の確認対象を含める。
+出力：Notion 上の Topic Index DB、Domain / Topic / Subtopic ページ、Topic Index に登録済みで Inbox から移動/処理済みになったメモページ、または更新前のレビュー用変更案。完了報告には処理件数、DB登録件数、作成/更新した Domain / Topic / Subtopic、移動件数、Inbox に残った要確認件数、未確定項目、次の確認対象を含める。
 
 ## 境界
 

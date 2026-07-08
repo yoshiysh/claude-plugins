@@ -9,7 +9,6 @@
 - [Memo Inbox To Topic Workflow](#memo-inbox-to-topic-workflow)
 - [Topic Index Schema](#topic-index-schema)
 - [Required Semantics](#required-semantics)
-- [Knowledge INDEX Page](#knowledge-index-page)
 - [Topic Tree](#topic-tree)
 - [Page Body Template](#page-body-template)
 - [Duplicate Handling](#duplicate-handling)
@@ -25,7 +24,7 @@ Workspace
 - Inbox
 - Knowledge HOME
   - Topic Index
-  - Knowledge INDEX
+  - Unresolved Sources
   - Domains
     - Programming
       - iOS
@@ -47,7 +46,7 @@ Workspace
 
 `Inbox` is a capture queue. It is allowed to be messy before processing because its job is to accept incomplete notes, raw clips, broken titles, copied snippets, and mixed topics. After processing, pages should not remain in `Inbox` as the search target. They should be registered in `Topic Index` and moved under the matching Topic or Subtopic page.
 
-`Knowledge HOME` is the stable organized layer's fixed entry point. `Topic Index` is the structured index for AI retrieval and migration. `Knowledge INDEX` is a regenerable navigation cache. `Domains` is the human-readable physical hierarchy. Topic/Subtopic pages under each Domain hold the canonical content that both AI and humans read. Do not make `Knowledge INDEX` the only place where classification exists.
+`Knowledge HOME` is the stable organized layer's fixed entry point. `Topic Index` is the structured index for AI retrieval and migration. `Domains` is the human-readable physical hierarchy. `Unresolved Sources` holds pages that could not be confidently enriched or classified. Topic/Subtopic pages under each Domain hold the canonical content that both AI and humans read. Do not create or update `Knowledge INDEX`; it is an unnecessary derived navigation cache unless the user explicitly reintroduces it later.
 
 Do not treat a page as the root only because it is named `knowledge`, `Knowledge`, `メモ`, or `Bookmark`. If that page contains mixed or legacy content, keep it as an existing content area and create or use a clean `Knowledge HOME` for the structured layer.
 
@@ -57,11 +56,12 @@ Do not treat a page as the root only because it is named `knowledge`, `Knowledge
 
 ```markdown
 ## Summary
-One paragraph explaining that Inbox is capture, Topic Index is structured truth, Knowledge INDEX is navigation, and Topic/Subtopic pages are where canonical content lives.
+One paragraph explaining that Inbox is capture, Topic Index is structured truth, Unresolved Sources is the failed/uncertain queue, and Topic/Subtopic pages are where canonical content lives.
 
 ## Core
 - Topic Index: structured DB for AI retrieval and migration.
-- Knowledge INDEX: human-readable navigation regenerated from Topic Index.
+- Domains: human-readable hierarchy for organized canonical pages.
+- Unresolved Sources: pages not registered in Topic Index because extraction or evidence was insufficient.
 
 ## Workflow
 1. Capture in Inbox.
@@ -73,8 +73,8 @@ One paragraph explaining that Inbox is capture, Topic Index is structured truth,
 ## Structure
 - Inbox
 - Topic Index
-- Knowledge INDEX
 - Domains / Domain / Topic / Subtopic pages
+- Unresolved Sources
 ```
 
 `Knowledge HOME` is not the source of truth for classification. Keep durable classification in `Topic Index`; keep durable topic summaries in Topic/Subtopic pages.
@@ -93,14 +93,14 @@ After processing:
 ```mermaid
 flowchart LR
   H["Knowledge HOME\nfixed entry"] --> T["Topic Index DB\nstructured source of truth"]
-  H --> K["Knowledge INDEX\nregenerable navigation"]
   H --> D["Domains\ncoarse shelves"]
+  H --> R["Unresolved Sources\nfailed or uncertain"]
   I["Inbox"] --> E["content enrichment"]
   E --> T
   D --> TP["Domain / Topic / Subtopic pages\nAI + human canonical content"]
   T --> TP
   E --> TP
-  I -. uncertain: no DB row .-> R["Needs Review\nstill in Inbox"]
+  I -. uncertain: no DB row .-> R
 ```
 
 Steady state:
@@ -112,7 +112,7 @@ Inbox
 
 Knowledge HOME
 - Topic Index DB
-- Knowledge INDEX
+- Unresolved Sources
 - Domains
   - Domain pages
     - Topic pages
@@ -125,7 +125,8 @@ Knowledge HOME
 - A page counts as organized only after it is registered in `Topic Index`, moved out of `Inbox`, and normalized so AI and humans can read the same canonical page.
 - Prefer DB registration over page hierarchy. A page can belong to multiple topics through DB properties and tags, while a page hierarchy has only one parent.
 - Treat page movement as physical cleanup and human navigation. The searchable classification lives in `Topic Index`; the canonical content lives in the moved Topic/Subtopic page.
-- Keep `Knowledge HOME`, `Topic Index`, and `Knowledge INDEX` out of `Inbox`. Inbox is not a parent for organized infrastructure.
+- Keep `Knowledge HOME`, `Topic Index`, `Domains`, and `Unresolved Sources` out of `Inbox`. Inbox is not a parent for organized infrastructure.
+- Do not create or update `Knowledge INDEX`. Use `Topic Index` DB views and the `Domains` hierarchy instead. If a navigation cache becomes useful later, add it only after explicit user direction.
 - Prefer one physical hierarchy under `Domains`: `Domains/{Domain}/{Topic}/{Subtopic}`. Do not create a parallel top-level `Topics` tree unless the user explicitly wants that view; it usually duplicates the Domain tree.
 - Keep `Domain` broad. `Programming`, `AI`, `Investing`, `Life`, and `Work` are good shelves. `iOS`, `RAG`, or `Agent Memory` are usually Topics under a Domain, not Domains themselves.
 - Do not under-create the hierarchy. When a confident page does not fit an existing shelf, create a reusable Topic/Subtopic path instead of dropping it directly under a broad Domain. Good examples are `Life / Health / Fitness`, `Life / Home / Maintenance`, `Life / Digital Creation / VTuber Tools`, and `Programming / Engineering Education / New Graduate Training`. Avoid one-off shelves named after a single captured page unless that name is already a durable concept.
@@ -143,9 +144,9 @@ When the source is a broad bookmark or inbox page, treat it as a capture queue, 
 4. If classification is confident enough, register the captured page in `Topic Index` with Domain / Topic / Subtopic fields.
 5. Move the captured page out of `Inbox` and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page.
 6. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, and related links.
-7. If confidence is low, do not register a Topic Index row. Leave the page in the memo inbox and report it to the user as Needs Review.
+7. If confidence is low, do not register a Topic Index row. Move the page to `Unresolved Sources` with the failed extraction or weak-evidence reason and report it to the user.
 
-The memo inbox may remain chaotic before processing, but processed pages should leave it. `Topic Index` is the structured index. Topic pages contain the canonical content. `Knowledge INDEX` is a navigation surface over that structure.
+The memo inbox may remain chaotic before processing, but processed pages should leave it. `Topic Index` is the structured index. Topic pages contain the canonical content. `Unresolved Sources` keeps failed or weak-evidence items separate from both Inbox and Topic Index.
 
 ## Topic Index Schema
 
@@ -240,31 +241,6 @@ Treat select and multi-select lists as open, but avoid near-duplicates such as `
 Use `Source Type` for the actual source, not the capture mechanism. A normal web page saved as a Notion bookmark is still `Web Article` when article/page content or metadata is available. Use `Bookmark` only when the item is just a saved link and the underlying source type cannot be determined.
 
 Use `Action: Register and Move to Topic Page` for the successful path where the DB row becomes searchable and the captured page becomes the canonical content under a Topic/Subtopic page. Use `Keep in Inbox` only when the page needs human review or content extraction failed. Do not create a Topic Index row for `Keep in Inbox` items; report them to the user instead so the next run can try them once, not duplicate an uncertain DB record. `Extraction Status: Failed` rows should not be added to Topic Index unless there is another strong source of evidence that makes the classification reliable. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.
-
-## Knowledge INDEX Page
-
-`Knowledge INDEX` is a derived navigation cache over `Topic Index`, not a second source of truth. It should be possible to regenerate it from the database plus Domain / Topic pages.
-
-Normalize the INDEX page toward this shape:
-
-```markdown
-## Domains
-- Domain: one-line summary and link to the domain page.
-
-## Topics
-- Topic: domain, one-line summary, and link to topic page or DB view.
-
-## Subtopics
-- Subtopic: topic, one-line summary, and link to page or DB view.
-
-## Needs Review
-- Optional short report section for pages left in Inbox during the current run. Do not treat this section as durable state; the durable state for unresolved pages is that they remain in Inbox and are reported to the user.
-
-## Recently Organized
-- Newly moved or registered pages, grouped by date or batch.
-```
-
-Keep INDEX concise. It should help a human or AI choose which Domain / Topic / Subtopic to open first, but any durable classification must be present in `Topic Index`.
 
 ## Topic Tree
 
