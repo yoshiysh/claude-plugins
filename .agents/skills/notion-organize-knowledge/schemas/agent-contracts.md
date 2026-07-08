@@ -54,6 +54,17 @@
 ```json
 {
   "status": "ok|partial|blocked",
+  "url_reader_audit": {
+    "url_reader_required_count": 0,
+    "url_reader_attempted_count": 0,
+    "url_reader_missing": [
+      {
+        "page_id": "string",
+        "url": "string",
+        "reason": "string"
+      }
+    ]
+  },
   "pages": [
     {
       "page_id": "string",
@@ -64,6 +75,10 @@
       "source_type": "Notion Note|Web Article|Bookmark|PDF|Video|Book|Code|Chat|Unknown",
       "extraction_status": "Not Started|Extracted|Partial|Failed|Needs Manual Review",
       "reader": {
+        "required": false,
+        "attempted": false,
+        "input_url": "string|null",
+        "normalized_url": "string|null",
         "backend": "string|null",
         "status": "string|null",
         "status_reason": "string|null",
