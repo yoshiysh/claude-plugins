@@ -132,6 +132,7 @@ Knowledge HOME
 
 - Keep capture and organization separate. `Inbox` stores raw input before processing; `Topic Index` stores structured index rows after processing.
 - Treat URL-only list pages such as `Inbox URL` as capture queues. Do not classify or register the parent list page as knowledge unless the user explicitly asks to organize that page itself. Extract each URL as an independent item, run url-reader, then create or update an organized Notion page for that URL item.
+- After a URL-only list item has been converted into a canonical page or an unresolved page and moved out of the queue, delete only that processed URL line from the source list. Leaving processed URL lines in `Inbox URL` causes duplicate retries; deleting unprocessed URLs or surrounding notes is not allowed.
 - A page counts as organized only after it is registered in `Topic Index`, moved out of `Inbox`, and normalized so AI and humans can read the same canonical page.
 - Prefer DB registration over page hierarchy. A page can belong to multiple topics through DB properties and tags, while a page hierarchy has only one parent.
 - Treat page movement as physical cleanup and human navigation. The searchable classification lives in `Topic Index`; the canonical content lives in the moved Topic/Subtopic page.
@@ -155,7 +156,8 @@ When the source is a broad bookmark page, inbox page, or URL-only list page, tre
 5. If classification is confident enough, register the captured page or URL item page in `Topic Index` with Domain / Topic / Subtopic fields.
 6. Move the captured page or URL item page out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet, create one before DB registration and movement.
 7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list.
-8. If confidence is low, do not register a Topic Index row. Create or use a page for the unresolved URL item, move it to `Unresolved Sources` with the failed extraction or weak-evidence reason, and report it to the user.
+8. For URL-only list items, remove the processed URL line from the source list after the canonical page or unresolved page exists and its destination has been verified.
+9. If confidence is low, do not register a Topic Index row. Create or use a page for the unresolved URL item, move it to `Unresolved Sources` with the failed extraction or weak-evidence reason, remove that URL line from the source list, and report it to the user.
 
 The memo inbox may remain chaotic before processing, but processed pages should leave it. `Topic Index` is the structured index. Topic pages contain the canonical content. `Unresolved Sources` keeps failed or weak-evidence items separate from both Inbox and Topic Index.
 

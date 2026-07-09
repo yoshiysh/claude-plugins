@@ -42,8 +42,9 @@ description: >
 27. `content_audit` が処理対象ページごとに存在し、`required_sections`、各 section の有無、reader status の記録有無、本文追記結果を持っているか確認する。`content_audit` が無い、対象件数と合わない、または `result: failed|skipped` がある場合は、最後の記述漏れゲート未通過として `status: revise` にする。
 28. Unresolved Sources へ移したページについて、本文に `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に人間が確認すべき点が追記されているか確認する。欠けている場合は `status: revise` にする。
 29. URL-only list page の親ページ自体が Topic Index DB に登録、`Domains` 配下へ移動、または organized page として正規化されていないか確認する。ユーザーが親ページ自体の整理を明示していない限り、親ページは source queue として残し、各 URL item だけを処理対象にする。
-30. 不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
-31. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
+30. URL-only list page 由来で canonical page または unresolved page を作成・移動できた item は、元一覧ページから該当 URL 行が削除されているか確認する。`source_queue_cleanup` が無い、`attempted` が true でない、`result` が success でない、cleanup 後 fetch で同じ URL 行が残っている、または未処理 URL や周辺メモまで消している場合は `status: revise` にする。
+31. 不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
+32. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
 
 ## 出力
 

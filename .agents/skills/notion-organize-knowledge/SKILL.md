@@ -61,9 +61,9 @@ flowchart LR
 
 URL item ごとに必ず `url-reader` を実行し、`normalized_url`、reader backend/status、metadata、本文断片、失敗理由を取得する。取得結果から `resolved_title` を決め、低リスク更新が許可されている場合は、元の URL 一覧ページ配下に一時子ページを作るか、直接 destination へ置く organized page を作って、そのページ本文へ `Summary`、`Context`、`Source`、`Decision`、`Related Topics` を書く。単なるリンク行だけを Topic Index DB に登録しない。
 
-作成した URL item ページは通常の Inbox ページと同じ成功条件を満たす必要がある。つまり、Topic Index DB 登録、Notion Page の canonical URL、Source URL、Published At、Tags、Related Topics、本文追記、`mcp__notion.notion_move_pages` による Domains 配下への移動、ancestor path 検証を省略しない。処理済み URL は、元の URL 一覧ページ上では削除・置換しなくてよいが、完了報告に `source_queue_page` として一覧ページ名を出し、どの URL を処理したか分かるようにする。削除やチェックマーク化など URL 一覧ページ本文の破壊的整理は、ユーザーが明示した場合だけ行う。
+作成した URL item ページは通常の Inbox ページと同じ成功条件を満たす必要がある。つまり、Topic Index DB 登録、Notion Page の canonical URL、Source URL、Published At、Tags、Related Topics、本文追記、`mcp__notion.notion_move_pages` による Domains 配下への移動、ancestor path 検証を省略しない。処理済み URL は、元の URL 一覧ページ上から削除する。URL 一覧ページは capture queue であり、URL item が canonical page または unresolved page として通常フローへ乗った後は、同じ URL 行を残すと再実行で重複試走するため残さない。削除対象は今回処理して canonical/unresolved page に移した URL 行だけに限定し、未処理 URL、周辺メモ、親ページ自体は残す。削除後も完了報告に `source_queue_page` として一覧ページ名を出し、どの URL を処理して削除したか分かるようにする。
 
-URL 一覧ページ由来で取得できなかった item も Inbox に残さない。対象 URL 用のページを作るか、既に作成済みの一時ページを使って `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に確認すべき点を本文に残し、`Unresolved Sources` へ移す。
+URL 一覧ページ由来で取得できなかった item も Inbox や URL 一覧ページに残さない。対象 URL 用のページを作るか、既に作成済みの一時ページを使って `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に確認すべき点を本文に残し、`Unresolved Sources` へ移す。Unresolved page を作成・移動できた URL 行も、元の URL 一覧ページから削除する。
 
 同一 source URL、同一 normalized URL、または同一 Notion capture が複数ある場合は、代表ページを1件だけ残す。代表ページだけを Topic Index DB に登録し、重複ページは DB に登録しない。ユーザーが削除を許可している場合、重複ページは要約追記や移動ではなく削除/アーカイブを優先する。Notion MCP に削除・アーカイブ・trash 用ツールが露出していない場合は、削除した扱いにせず、`duplicate_delete_unavailable` として完了報告へ出す。重複ページを `Duplicate` の DB 行として増やさない。
 
@@ -108,7 +108,7 @@ agents/update-verifier
 
 ### Step 1: input-resolver を呼ぶ
 
-`agents/input-resolver.md` を Read し、ユーザー依頼全文、現在分かっている Notion workspace 情報、希望件数を渡す。対象範囲が空、または Notion MCP が使えない場合はここで止め、足りない情報だけをユーザーに聞く。対象が `Inbox URL` や「URLだけの一覧ページ」の場合は `scope.kind: url_list_page` とし、ページ本文の URL を URL item として処理する前提を後続へ渡す。
+`agents/input-resolver.md` を Read し、ユーザー依頼全文、現在分かっている Notion workspace 情報、希望件数を渡す。対象範囲が空、または Notion MCP が使えない場合はここで止め、足りない情報だけをユーザーに聞く。対象が `Inbox URL` や「URLだけの一覧ページ」の場合は `scope.kind: url_list_page` とし、ページ本文の URL を URL item として処理する前提を後続へ渡す。URL 一覧ページでは、処理済み URL 行の削除を capture queue cleanup として許可する。
 
 処理件数は既定 50 件までにする。ユーザーが件数を明示した場合は 100 件まで許可する。大量ページを一度に更新すると Notion 側の状態把握が難しくなるため、残件数を報告して次回に続ける。
 
@@ -170,7 +170,7 @@ page-triager へ渡す前に URL enrichment gate を再確認する。URL-only /
 
 Step 4 の結果をもとに、独立して実行できる場合は同一ターンで並列に呼ぶ。
 
-- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。DB 登録前に、今回登録する `select` / `multi_select` 値が既存 option にあるか確認し、無ければ既存 option を保ったまま追加する。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Context`、`Source`、`Decision`、`Related Topics`、必要なら `Open Questions` を必ず残す。URL-only / embed-only 由来で url-reader が本文や metadata を取得できた場合は、その要約と取得元 URL、公開日が取れた場合の `Published At`、reader backend/status、取得本文断片をページ本文へ追記し、Notion ページ側だけ見ても内容が分かるようにする。本文追記が未完了のページは DB 登録済み・移動済みでも処理完了に数えない。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。`keep_in_inbox` は原則 Inbox に残さず、`Unresolved Sources` へ移して取得失敗理由を本文に追記する。ユーザーが一括整理を許可している場合だけ Notion に適用する。
+- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。DB 登録前に、今回登録する `select` / `multi_select` 値が既存 option にあるか確認し、無ければ既存 option を保ったまま追加する。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Context`、`Source`、`Decision`、`Related Topics`、必要なら `Open Questions` を必ず残す。URL-only / embed-only 由来で url-reader が本文や metadata を取得できた場合は、その要約と取得元 URL、公開日が取れた場合の `Published At`、reader backend/status、取得本文断片をページ本文へ追記し、Notion ページ側だけ見ても内容が分かるようにする。本文追記が未完了のページは DB 登録済み・移動済みでも処理完了に数えない。URL 一覧ページ由来の item は、canonical page または unresolved page を作成・移動できたら、元一覧ページから該当 URL 行だけを削除する。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。`keep_in_inbox` は原則 Inbox に残さず、`Unresolved Sources` へ移して取得失敗理由を本文に追記する。ユーザーが一括整理を許可している場合だけ Notion に適用する。
 - `agents/duplicate-reviewer.md`: 類似ページ、古いメモ、正式ページ候補を検出し、代表ページと削除対象を決める。重複ページは原則 Topic Index DB に登録しない。ユーザーが削除を許可している場合は削除/アーカイブ可能な MCP ツールを使って重複ページを削除する。削除ツールが無い場合は削除不能として報告し、重複ページを成功パスへ混ぜない。
 
 不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。重複削除はユーザーが明示的に許可した場合だけ行う。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ出す。判断が弱いページは DB 登録せず `Unresolved Sources` へ移し、完了報告の `Unresolved Sources移動` に理由付きで必ず含める。Inbox 残留ページを Topic Index DB に入れると再実行時に重複試走しやすいため、取得不能・根拠不足のページは Inbox から分離する。
@@ -179,13 +179,14 @@ Step 4 の結果をもとに、独立して実行できる場合は同一ター�
 
 `agents/update-verifier.md` を Read し、更新結果、重複レビュー、判断不能項目を渡す。検証結果が `status: revise` の場合は page-normalizer に1回だけ差し戻す。2回目も失敗する場合は、失敗理由と対象ページをユーザーへ提示して止める。
 
-update-verifier には、対象件数、URL enrichment gate の件数、本文追記済み件数、重複削除/削除不能リスト、Unresolved Sources 移動リスト、`notion_move_pages` の実行ログ、移動後 fetch で確認した ancestor path を渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、処理対象ページに `Summary`、`Source`、`Decision` の追記検証が欠けている場合、または移動対象で `notion_move_pages` 実行・ancestor 検証が欠けている場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
+update-verifier には、対象件数、URL enrichment gate の件数、本文追記済み件数、URL 一覧ページの cleanup audit、重複削除/削除不能リスト、Unresolved Sources 移動リスト、`notion_move_pages` の実行ログ、移動後 fetch で確認した ancestor path を渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、処理対象ページに `Summary`、`Source`、`Decision` の追記検証が欠けている場合、URL 一覧ページ由来の完了 item が元一覧ページに残っている場合、または移動対象で `notion_move_pages` 実行・ancestor 検証が欠けている場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
 
 司令塔は Step 7 の完了報告前に、update-verifier の結果を使って最後の記述漏れゲートを必ず確認する。このゲートは件数が多い場合でも省略しない。
 
 - DB 登録済みページは DB 行に `Title`、`Summary`、`Notion Page`、`Domain`、`Topic`、`Type`、`Source Type`、`Tags` が入っている。`Subtopic`、`Source URL`、`Related Topics`、`Published At` は根拠がある場合だけ入れるが、空欄の場合は本文の `Open Questions` または verifier findings に理由が残っている。
 - 移動済みページ本文に `Summary`、`Context`、`Source`、`Decision`、`Related Topics` がある。必要な場合は `Open Questions` もある。見出しだけで中身が空、リンクだけ、短い分類メモだけの場合は記述漏れとして扱う。
 - URL-only / embed-only / 弱いタイトル由来のページは、本文に source URL、reader backend/status、取得結果の短い要約または取得失敗理由がある。
+- URL 一覧ページ由来で canonical page または unresolved page を作成・移動できた item は、元一覧ページから該当 URL 行が削除されている。未処理 URL や周辺メモは削除されていない。
 - `Published At` が空の場合は、Notion created/updated で代用していないことを確認する。公開日が不明なだけなら空欄でよい。
 - Unresolved Sources へ移したページは、本文に `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に人間が確認すべき点がある。
 - 代表ページ以外の重複は DB 登録されていない。削除できなかった重複は `duplicate_delete_unavailable` に理由付きで残っている。

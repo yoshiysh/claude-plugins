@@ -30,7 +30,8 @@ description: >
 14. 移動後は `notion-fetch` で対象ページの ancestor path を確認し、直近 parent が期待する destination parent であり、Inbox が ancestor に残っていないことを記録する。検証できないページは `applied_updates` の `move_audit.verified` を `false` にし、完了扱いにしない。
 15. 重複ページについてユーザーが削除を許可している場合、削除/アーカイブ/trash 用の Notion MCP ツールが露出しているか確認し、初期 tool 一覧に無い場合は `tool_search` で `notion delete archive trash page` を検索する。利用可能なら代表ページ以外を削除する。削除したページは DB 登録・移動済み件数に含めず、`duplicate_deletes` に入れる。検索後も削除ツールが無い場合だけ、削除した扱いにせず `duplicate_delete_unavailable` と `tool_unavailable_after_search` に入れて報告する。
 16. Notion の作成/更新/移動/schema/view/削除系操作は、初期 tool 一覧だけで可否判断しない。必要 tool が無ければ `tool_search` で露出を試し、検索後も見つからない場合だけ unavailable とする。作成できるはずの Topic / Subtopic / Unresolved Sources、追加できるはずの Tags / Related Topics option、削除できるはずの重複ページを、検索なしに省略・残留・代替リンク化してはいけない。
-17. 不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。必要なら `needs_confirmation` に入れる。
+17. URL 一覧ページ由来の item は、canonical page または unresolved page の作成・本文追記・DB 登録または Unresolved 移動・ancestor 検証が完了した後、元一覧ページから該当 URL 行だけを削除する。`mcp__notion.notion_update_page` の `update_content` を使い、fetch した本文から完全一致する URL 行または bookmark/link ブロックだけを最小差分で取り除く。複数の同一 URL 行がある場合は、今回処理した `source_queue_position` に対応する1行だけを削除し、未処理 URL、周辺メモ、親ページタイトル、他のブロックは残す。削除できない場合は `source_queue_cleanup.result: failed` として完了扱いにしない。
+18. 不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。必要なら `needs_confirmation` に入れる。URL 一覧ページの処理済み URL 行削除は queue cleanup として扱うが、親ページ全体の置換や未処理 URL の削除は行わない。
 
 ## 出力
 

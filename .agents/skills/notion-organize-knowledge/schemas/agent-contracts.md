@@ -183,6 +183,22 @@
       "result": "success|failed|skipped"
     }
   ],
+  "source_queue_cleanup": [
+    {
+      "source_queue_page_id": "string",
+      "source_queue_title": "string",
+      "source_queue_url": "string|null",
+      "source_queue_position": 0,
+      "source_url": "string",
+      "item_page_id": "string",
+      "destination": "canonical|unresolved",
+      "tool": "mcp__notion.notion_update_page",
+      "attempted": true,
+      "result": "success|failed|skipped",
+      "verified_absent_after": true,
+      "preserved_unprocessed_urls": true
+    }
+  ],
   "duplicate_deletes": [
     {
       "page_id": "string",
