@@ -34,14 +34,10 @@
   "missing_properties": [],
   "select_options": {
     "Type": [],
-    "Status": [],
-    "Action": [],
     "Source Type": [],
-    "Extraction Status": [],
     "Domain": [],
     "Tags": [],
-    "Related Topics": [],
-    "Canonical Role": []
+    "Related Topics": []
   },
   "schema_updates_applied": [],
   "schema_updates_proposed": [],
@@ -73,6 +69,7 @@
       "title_source": "notion|url_reader|url_path|generated|unknown",
       "source_url": "string|null",
       "source_type": "Notion Note|Web Article|Bookmark|PDF|Video|Book|Code|Chat|Unknown",
+      "published_at": "YYYY-MM-DD|null",
       "extraction_status": "Not Started|Extracted|Partial|Failed|Needs Manual Review",
       "reader": {
         "required": false,
@@ -109,11 +106,8 @@
       "title_source": "notion|url_reader|url_path|generated|unknown",
       "topic": {
         "domain": "string",
-        "domain_slug": "string|null",
         "topic": "string",
-        "topic_slug": "string|null",
         "subtopic": "string|null",
-        "subtopic_slug": "string|null",
         "summary": "string",
         "topic_page_id": "string|null",
         "confidence": "high|medium|low",
@@ -122,18 +116,13 @@
       },
       "classification": {
         "type": "string",
-        "status": "string",
         "summary": "string",
         "source_url": "string|null",
         "source_type": "string",
+        "published_at": "YYYY-MM-DD|null",
         "extraction_status": "string",
         "tags": [],
-        "related_topics": [],
-        "canonical_role": "Canonical|Supporting|Duplicate|Stale|Unknown",
-        "canonical_candidate": false,
-        "canonical_url": "string|null",
-        "export_path": "string|null",
-        "exportable_candidate": false
+        "related_topics": []
       },
       "evidence": [],
       "unknowns": []
@@ -166,11 +155,23 @@
   "content_audit": [
     {
       "page_id": "string",
-      "required_sections": ["Summary", "Source", "Decision"],
+      "required_sections": ["Summary", "Context", "Source", "Decision", "Related Topics"],
       "has_summary": true,
+      "has_context": true,
       "has_source": true,
       "has_decision": true,
+      "has_related_topics": true,
+      "has_open_questions": false,
       "reader_status_recorded": true,
+      "source_url_recorded": true,
+      "section_details": {
+        "Summary": "present|missing|empty",
+        "Context": "present|missing|empty",
+        "Source": "present|missing|empty",
+        "Decision": "present|missing|empty",
+        "Related Topics": "present|missing|empty",
+        "Open Questions": "present|missing|empty|not_required"
+      },
       "result": "success|failed|skipped"
     }
   ],
@@ -178,7 +179,7 @@
     {
       "page_id": "string",
       "canonical_page_id": "string",
-      "reason": "same normalized_url|same source_url|same captured_page",
+      "reason": "same normalized_url|same source_url|same_notion_page",
       "tool": "string",
       "result": "deleted|archived|trashed"
     }
@@ -237,9 +238,7 @@
     "content_appended": 0,
     "duplicates_deleted": 0,
     "duplicates_delete_unavailable": 0,
-    "canonical_role": 0,
     "duplicates_or_stale": 0,
-    "export_ready": 0,
     "unknown": 0,
     "remaining": 0
   },

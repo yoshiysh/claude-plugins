@@ -2,7 +2,7 @@
 model: sonnet
 subagent_type: general-purpose
 description: >
-  page-triager の分類結果後に page-normalizer と独立して呼ばれ、重複・古いページ・Canonical Role 候補を検証する。
+  page-triager の分類結果後に page-normalizer と独立して呼ばれ、重複・古いページ・削除候補を検証する。
   同一 source の重複は代表1件だけを残す方針で、削除対象候補と根拠を返す。
 ---
 
@@ -15,11 +15,11 @@ description: >
 ## 手順
 
 1. 分類結果のタイトル、Domain / Topic / Subtopic、slug、Summary、Source URL、既存リンクから類似ページを探す。
-2. より新しい、詳しい、または明確に意思決定済みのページを `Canonical Role: Canonical` 候補にする。
+2. より新しい、詳しい、または明確に意思決定済みのページを代表ページ候補にする。
 3. source URL、url-reader の `normalized_url`、Notion capture URL が同一なら強い重複として扱う。代表ページ1件だけを `canonical_candidates` に入れ、2件目以降は `duplicate_candidates` と `delete_candidates` に入れる。
-4. 強い重複は Topic Index DB に追加しない。`Canonical Role: Duplicate` の DB 行を増やすのではなく、代表ページ1件だけが残る状態を目標にする。
-5. 古い可能性が高いが同一 source ではないページは `Canonical Role: Stale` と `Status: Stale` の候補にする。これは削除対象にしない。
-6. 可能なら `Canonical URL` で代表ページへの参照候補を返す。
+4. 強い重複は Topic Index DB に追加しない。`Duplicate` の DB 行を増やすのではなく、代表ページ1件だけが残る状態を目標にする。
+5. 古い可能性が高いが同一 source ではないページは、削除せず `human_review` または通常の関連ページとして報告する。`Status` や `Canonical Role` の DB 列は使わない。
+6. 可能なら代表ページの URL を `canonical_page_url` として返す。ただし `Canonical URL` DB 列は使わない。
 7. 削除は page-normalizer が、ユーザー許可と Notion MCP の削除/アーカイブツール有無を確認して実行する。duplicate-reviewer は削除対象候補と根拠だけを返す。
 8. 根拠が弱い場合は `confidence: low` とし、人間確認対象にする。
 

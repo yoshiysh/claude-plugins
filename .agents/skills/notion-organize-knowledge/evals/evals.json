@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Notion の Inbox にある未整理メモを50件だけ分類して、Topic Index に登録して。将来 Markdown/RAG に移せるように Summary と Canonical Role も見てほしい。",
+      "prompt": "Notion の Inbox にある未整理メモを50件だけ分類して、Topic Index に登録して。ページ本文に Summary と Source を残して、あとで Markdown/RAG に逃がせるようにしてほしい。",
       "expected_output": "Notion MCP を使って Topic Index を確認し、50件上限で内容補完・分類・正規化・検証まで進める。",
       "files": [],
       "assertions": [
@@ -16,8 +16,8 @@
         "処理済みページは Topic Index 登録後に Domains 配下の Topic/Subtopic ページへ移動する方針が含まれている",
         "Topic/Subtopic ページの Summary はページ運用説明ではなく対象技術・概念そのもののサマリにする方針が含まれている",
         "判断が弱いページは Topic Index DB に入れず Unresolved Sources へ移してユーザーへ報告する方針が含まれている",
-        "Domain / Topic / Subtopic と slug / Export Path が扱われている",
-        "Type / Status / Summary / Source URL / Source Type / Extraction Status / Canonical Role / Exportable の分類が扱われている",
+        "Domain / Topic / Subtopic が扱われ、slug / Export Path のような未使用 export 列を要求していない",
+        "Type / Summary / Source URL / Source Type / Published At / Tags / Related Topics の分類が扱われている",
         "URL-only ページでは url-reader による公開 URL 補完が扱われている",
         "既存タイトルがあるページも含めて根拠付きの Resolved Title / Title Source が扱われている",
         "50件上限と残件報告が明記されている",

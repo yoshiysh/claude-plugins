@@ -12,7 +12,7 @@
 - [Topic Tree](#topic-tree)
 - [Page Body Template](#page-body-template)
 - [Duplicate Handling](#duplicate-handling)
-- [Stable Names And Export Paths](#stable-names-and-export-paths)
+- [Stable Names](#stable-names)
 - [Markdown/RAG Readiness](#markdownrag-readiness)
 
 ## Workspace Shape
@@ -132,7 +132,7 @@ Knowledge HOME
 - Do not under-create the hierarchy. When a confident page does not fit an existing shelf, create a reusable Topic/Subtopic path instead of dropping it directly under a broad Domain. Good examples are `Life / Health / Fitness`, `Life / Home / Maintenance`, `Life / Digital Creation / VTuber Tools`, and `Programming / Engineering Education / New Graduate Training`. Avoid one-off shelves named after a single captured page unless that name is already a durable concept.
 - When a page spans multiple topics, move it under the single most relevant Topic/Subtopic page. Preserve cross-topic discoverability with `Tags`, `Related Topics`, and a `Related Topics` section in the page body.
 - Preserve raw captured pages. Normalize by adding summaries, links, and DB rows; do not overwrite clips destructively.
-- Make export deterministic with stable slugs and `Export Path`, independent of current Notion page parents.
+- Keep stable human labels in `Domain`, `Topic`, and `Subtopic`. Do not maintain duplicate slug/export columns unless the user explicitly reintroduces export automation.
 
 ## Memo Inbox To Topic Workflow
 
@@ -154,52 +154,29 @@ Recommended properties:
 
 ```text
 Title: title
-Resolved Title: rich_text
-Title Source: select
-Type: select
-Domain: select
-Domain Slug: rich_text
-Topic: rich_text
-Topic Slug: rich_text
-Subtopic: rich_text
-Subtopic Slug: rich_text
-Status: select
 Summary: rich_text
-Source URL: url
+Notion Page: url
+Domain: select
+Topic: rich_text
+Subtopic: rich_text
+Type: select
 Source Type: select
-Extraction Status: select
+Source URL: url
 Tags: multi_select
 Related Topics: multi_select
-Topic Page: url
-Captured Page: url
-Action: select
-Export Path: rich_text
-Canonical Role: select
-Canonical URL: url
-Created: created_time
-Updated: last_edited_time
-Ingested At: date
-Last Verified: date
-Exportable: checkbox
-Canonical: checkbox
+Published At: date
+```
+
+Recommended table view order:
+
+```text
+Title, Summary, Notion Page, Domain, Topic, Subtopic, Type, Source Type, Source URL, Tags, Related Topics, Published At
 ```
 
 Recommended `Type` values:
 
 ```text
 Note, Article, HowTo, Decision, Source, Log, Project, Book, Video, Reference, Topic, Code
-```
-
-Recommended `Status` values:
-
-```text
-Inbox, Processing, Organized, Evergreen, Archived, Stale, Duplicate
-```
-
-Recommended `Action` values:
-
-```text
-Register and Move to Topic Page, Keep in Inbox, Needs Human Review
 ```
 
 Recommended `Source Type` values:
@@ -216,31 +193,25 @@ notion, url_reader, url_path, generated, unknown
 
 Run title resolution for every processed page, including pages that already have a Notion title. Use `Resolved Title` when the captured title is empty, a raw URL, `Untitled`, a service-only label, a truncated save title, mismatched with the body, or otherwise weak for classification. If the existing title is already descriptive and accurate, keep `Title Source: notion` and leave `Resolved Title` null or equal to the existing title. Generated titles must be short labels derived only from extracted public content, existing Notion text, or URL path evidence. Do not infer authors, dates, conclusions, or named entities not present in the evidence.
 
-Recommended `Extraction Status` values:
-
-```text
-Not Started, Extracted, Partial, Failed, Needs Manual Review
-```
-
-Recommended `Canonical Role` values:
-
-```text
-Canonical, Supporting, Duplicate, Stale, Unknown
-```
-
 Recommended starter `Domain` values:
 
 ```text
 Programming, AI, Stock, Investing, Tax, Life, Work, Knowledge Management
 ```
 
-Treat select and multi-select lists as open, but avoid near-duplicates such as `Investment` and `Investing` unless the user already distinguishes them. When a run needs a missing option such as `Code`, `Organized`, a new `Tag`, or a new `Related Topics` value, add that option to the existing property without deleting or renaming existing options before creating or updating rows. Do not silently omit a value because the option is missing.
+Treat select and multi-select lists as open, but avoid near-duplicates such as `Investment` and `Investing` unless the user already distinguishes them. When a run needs a missing option such as `Code`, a new `Tag`, or a new `Related Topics` value, add that option to the existing property without deleting or renaming existing options before creating or updating rows. Do not silently omit a value because the option is missing.
 
-`Area` is a legacy synonym for broad category. Prefer `Domain` for new data. If an existing database already has `Area`, read it as a compatibility signal, but do not create a new `Area` property unless the user explicitly wants it.
+`Area` is removed. Use `Domain` as the only broad category field. Do not create, populate, read as authoritative, or backfill `Area`. If an existing Topic Index DB still has `Area`, remove the property during schema maintenance after confirming `Domain` exists.
 
 Use `Source Type` for the actual source, not the capture mechanism. A normal web page saved as a Notion bookmark is still `Web Article` when article/page content or metadata is available. Use `Bookmark` only when the item is just a saved link and the underlying source type cannot be determined.
 
-Use `Action: Register and Move to Topic Page` for the successful path where the DB row becomes searchable and the captured page becomes the canonical content under a Topic/Subtopic page. Use `Keep in Inbox` only when the page needs human review or content extraction failed. Do not create a Topic Index row for `Keep in Inbox` items; report them to the user instead so the next run can try them once, not duplicate an uncertain DB record. `Extraction Status: Failed` rows should not be added to Topic Index unless there is another strong source of evidence that makes the classification reliable. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.
+Use `Published At` for the date the source information was originally published or released. Prefer dates extracted from URL metadata, reader output, visible page text, video metadata, repository release/tag metadata, or the user's own note when explicitly stated. Do not fill `Published At` from Notion page created time or last edited time. If the published date is unknown, leave it empty rather than inventing recency.
+
+Do not create or rely on `Created`, `Updated`, `Created at`, `Updated at`, `Ingested At`, or `Source Checked At` properties for this workflow. These are operational bookkeeping fields and the user does not need them in the knowledge index. Use `Published At` only for the source's public date when available.
+
+Use `Notion Page` only for the organized Notion page itself. Store the stable canonical Notion page URL derived from the page ID after movement, not the original capture URL, not an `app.notion.com` UI URL copied from the browser, and not the external `Source URL`. Source links belong in `Source URL`.
+
+The Topic Index contains only successfully organized pages. Do not use `Action`, `Status`, or `Extraction Status` columns to represent workflow state in the DB. Pages that cannot be organized should not get a Topic Index row; move them to `Unresolved Sources` with a reason instead. Keep extraction results in the internal `extraction_status` field and the organized page body when they matter. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.
 
 ## Topic Tree
 
@@ -312,20 +283,7 @@ For capture-only pages, keep `Decisions` empty. Do not invent conclusions that a
 - `Reference`: stable factual material to look up later
 - `Topic`: Domain, Topic, or Subtopic page used as a container/navigation unit
 
-`Status` describes lifecycle.
-
-- `Inbox`: captured but not processed
-- `Processing`: partly classified or needs human review
-- `Evergreen`: useful, current, and worth retrieving later
-- `Archived`: no longer active but kept
-- `Stale`: possibly outdated
-- `Duplicate`: overlaps with a better canonical page
-
-`Canonical Role` describes how this page should be treated during retrieval and export. Use `Canonical` for the preferred page in a cluster, `Supporting` for useful context, `Duplicate` for overlap, and `Stale` for outdated material.
-
-`Canonical` is a compatibility checkbox for quick filtering. Treat `Canonical Role` as the richer source of truth when both exist.
-
-`Exportable` means the page can be exported to Markdown/JSON without losing important context.
+`Status`, `Action`, `Canonical Role`, `Canonical`, `Canonical URL`, `Exportable`, `Export Path`, `Topic Page`, and slug columns are removed from the active schema. They made the DB look like a migration/export control plane, but the current workflow only needs a lightweight index for organized pages. Duplicate handling should delete/archive duplicate captures when allowed or report them as unresolved; do not create extra duplicate rows just to express canonical state.
 
 ## Page Body Template
 
@@ -360,29 +318,20 @@ For source-only clips, keep `Decision` empty and make `Source URL` explicit. For
 
 When duplicates are detected:
 
-1. Pick the clearer, more complete, or more recent page as the canonical candidate.
-2. Mark that page `Canonical Role: Canonical` and, if the compatibility checkbox exists, `Canonical: true`.
-3. Mark weaker overlaps `Canonical Role: Duplicate` or `Canonical Role: Stale`, and set `Status` to `Duplicate` or `Stale`.
-4. Add `Canonical URL` or a link from duplicate/stale pages to the canonical page when possible.
-5. Do not merge or delete without explicit user approval.
+1. Pick the clearer, more complete, or more recent page as the retained page.
+2. Register only the retained page in Topic Index.
+3. If the user has allowed deletion, delete/archive weaker duplicate captures when the tool is available.
+4. If deletion is unavailable, report the duplicate as `duplicate_delete_unavailable`; do not add a duplicate Topic Index row.
+5. Do not use `Canonical Role`, `Canonical`, or `Canonical URL` columns.
 
-## Stable Names And Export Paths
+## Stable Names
 
-AI retrieval and migration work best when human labels are paired with stable machine names.
+AI retrieval works best when human labels are consistent.
 
-- Generate `Domain Slug`, `Topic Slug`, and `Subtopic Slug` as lowercase ASCII kebab-case.
-- Keep slugs stable. Do not rename slugs only because the display label was polished.
+- Keep one canonical display spelling for each `Domain`, `Topic`, and `Subtopic`.
 - Prefer one canonical spelling per concept. Use tags for aliases and related terms.
-- Set `Export Path` when enough classification exists.
-- Do not derive `Export Path` from the Notion parent page. Derive it from stable slugs and title/source identity.
-
-Recommended export path format:
-
-```text
-domains/{domain-slug}/{topic-slug}/{subtopic-slug?}/{title-slug}.md
-```
-
-If classification is uncertain, leave slug fields blank and use `Extraction Status: Partial` or `Failed` with explicit unknowns rather than inventing a stable path. Use `Needs Manual Review` only when a human decision is explicitly required, not as the default for blocked URL extraction.
+- Do not generate or backfill slug columns unless export automation is explicitly requested later.
+- If classification is uncertain, do not create a Topic Index row. Move the page to `Unresolved Sources` with explicit unknowns. Use `Needs Manual Review` only when a human decision is explicitly required, not as the default for blocked URL extraction.
 
 ## Markdown/RAG Readiness
 
@@ -391,11 +340,10 @@ A page is ready for future Markdown or RAG export when:
 - The title is descriptive without relying on parent hierarchy.
 - `Summary` states the conclusion or page role.
 - `Source URL` is set for external material.
-- `Source Type` and `Extraction Status` describe how content was captured.
+- `Published At` is set when the source provides a reliable publication date; otherwise it is empty.
+- `Source Type` describes what kind of source the page came from.
 - `Decision` is separated from external source notes.
 - Related pages are linked in `Links`.
-- `Domain Slug`, `Topic Slug`, and `Export Path` are stable when classification is confident.
-- `Canonical Role` is set appropriately.
-- `Exportable` is true only after the above conditions are met.
+- `Domain`, `Topic`, and when useful `Subtopic` are stable and readable.
 
-Do not build a vector DB inside this skill. This skill prepares clean Notion content that can later be exported to Markdown/JSON and embedded by a separate RAG pipeline.
+Do not build a vector DB or export control plane inside this skill. If Markdown/JSON export becomes necessary later, add a dedicated export workflow instead of carrying unused columns in the Notion index.

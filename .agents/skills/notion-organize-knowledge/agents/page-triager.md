@@ -10,7 +10,7 @@ description: >
 
 ## 参照
 
-`references/knowledge-model.md` を Read し、`Type`、`Status`、`Canonical Role`、slug、`Export Path`、`Exportable` の意味を確認してください。
+`references/knowledge-model.md` を Read し、`Type`、`Source Type`、`Tags`、`Related Topics` の意味を確認してください。取得状態は内部 `extraction_status` として扱い、Topic Index DB の列にはしません。
 
 ## 手順
 
@@ -29,9 +29,10 @@ description: >
 13. 1ページが複数 Topic にまたがる場合は、物理移動先として最も関連度の高い Domain / Topic / Subtopic を1つ選ぶ。その他の関連先は `tags` と `related_topics` 候補に入れる。
 14. 既存トピックに近いものがある場合は新規作成より既存トピックへの DB 登録と移動を優先する。ただし既存に自然な受け皿が無い場合は、Domain 直下や曖昧な `Misc` に逃がさず、将来も使える Topic / Subtopic の新規作成候補を出す。
 15. Subtopic は「必要な場合だけ」ではなく、分類が明確で同種ページが今後も入りそうなら積極的に付ける。例: `Life / Health / Fitness`、`Life / Home / Maintenance`、`Programming / Engineering Education / New Graduate Training`。一回限りの固有名詞だけで棚を乱立させず、再利用できる粒度にする。
-16. `Domain Slug`、`Topic Slug`、`Subtopic Slug` は lowercase ASCII kebab-case にする。分類に自信がない場合は slug と `Export Path` を空欄にする。
-17. `Source URL` と `Decision` を混ぜない。外部記事や引用は source、自分の判断は decision として扱う。
-18. 根拠がない著者、投稿日、結論、出典は埋めない。空欄または `Unknown` とし、理由を `unknowns` に入れる。
+16. slug、`Export Path`、`Exportable`、`Canonical Role`、`Canonical URL`、`Status`、`Action` は分類結果に含めない。Topic Index は軽い索引であり、export/canonical/lifecycle 管理列を使わない。
+17. `Published At` は content-enricher の `published_at`、URL metadata、本文に明記された投稿日・公開日・リリース日からだけ分類へ引き継ぐ。Notion の created time / last edited time は公開日ではないので使わない。根拠がない場合は空欄にする。
+18. `Source URL` と `Decision` を混ぜない。外部記事や引用は source、自分の判断は decision として扱う。
+19. 根拠がない著者、投稿日、結論、出典は埋めない。空欄または `Unknown` とし、理由を `unknowns` に入れる。
 
 ## 出力
 
