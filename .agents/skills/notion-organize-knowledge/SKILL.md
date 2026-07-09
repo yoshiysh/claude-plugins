@@ -122,7 +122,7 @@ Domain / Topic / Subtopic 階層は「最小限だけ作る」方針にしない
 
 `Knowledge INDEX` は不要な派生ナビなので、新規作成・更新・分類情報の保存先にしない。既存ページがあっても互換のために読む必要はなく、必要になった場合だけユーザー指示で別途追加する。`Unresolved Sources` は取得不能・根拠不足ページの退避キューであり、処理済み検索先ではない。`Domains` は粗い棚であり、例として `Programming -> iOS -> The Composable Architecture (TCA)` のように辿れる物理階層にする。`Topics` を `Domains` と並列に作ると二重管理になりやすいため、原則作らない。
 
-既存 DB がある場合はスキーマを軽い索引へ保つ。足りないプロパティは追加候補として扱い、不要な legacy プロパティはユーザーの許可がある場合に削除する。一方で、既存の `select` / `multi_select` プロパティに不足 option があるだけなら、低リスクなスキーマ保守として Notion MCP の `update_data_source` で追加してよい。`update_data_source` が初期 tool 一覧に無い場合は、`tool_search` で `notion update data source schema alter column select multi_select` を検索して露出させてから実行する。特に `Type`、`Source Type`、`Tags`、`Related Topics`、`Domain` は、後続の DB 登録前に今回使う値が存在するか確認し、存在しない値は既存 option を消さずに追記する。`Extraction Status` は処理ログであり Topic Index の DB 列にはしない。既存 DB に残っていてユーザーが削除を許可している場合は削除する。
+既存 DB がある場合はスキーマを軽い索引へ保つ。足りないプロパティは追加候補として扱い、不要な legacy プロパティはユーザーの許可がある場合に削除する。一方で、既存の `select` / `multi_select` プロパティに不足 option があるだけなら、低リスクなスキーマ保守として Notion MCP の `update_data_source` で追加してよい。`update_data_source` が初期 tool 一覧に無い場合は、`tool_search` で `notion update data source schema alter column select multi_select` を検索して露出させてから実行する。特に `Type`、`Source Type`、`Tags`、`Related Topics`、`Domain` は、後続の DB 登録前に今回使う値が存在するか確認し、存在しない値は既存 option を消さずに追記する。未存在 option で Notion に弾かれた場合は、値を削って成功扱いにせず、必ず `mcp__notion.notion_update_data_source` で option を追加し、schema を再 fetch し、同じ値で DB 登録またはページ更新を再試行する。`prompt-engineering` のような分類上必要な `Tags` / `Related Topics` を option 不足だけで省略してはいけない。`Extraction Status` は処理ログであり Topic Index の DB 列にはしない。既存 DB に残っていてユーザーが削除を許可している場合は削除する。
 
 ### Step 3: content-enricher を呼ぶ
 
@@ -134,6 +134,7 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 
 - `url_reader_required_count` が 0 より大きい場合、`url_reader_attempted_count` は同じ件数でなければならない。
 - 各 URL-required ページは `reader.required: true`、`reader.attempted: true`、`reader.status` または `reader.status_reason` を持つ。
+- `reader.attempted: true` は `.agents/skills/url-reader/scripts/read_url.py` を実際に起動した場合だけにする。実行不能理由を記録しただけの URL は `attempted: false` のまま `url_reader_missing` に入れ、page-triager へ進めない。
 - URL 一覧ページ由来の item は全件 `reader.required: true` とし、URL 行だけを根拠にした分類へ進めない。
 - X/Twitter URL は `url-reader` の正規化結果として `normalized_url` を持つ。`twitter.com` のまま読めなかった、という理由だけで Inbox 残留にしない。
 - `reader.attempted: false` のページが1件でもある場合、処理を止めて content-enricher をやり直す。完了報告で Inbox 残留に数えない。
@@ -184,6 +185,7 @@ update-verifier には、対象件数、URL enrichment gate の件数、本文�
 司令塔は Step 7 の完了報告前に、update-verifier の結果を使って最後の記述漏れゲートを必ず確認する。このゲートは件数が多い場合でも省略しない。
 
 - DB 登録済みページは DB 行に `Title`、`Summary`、`Notion Page`、`Domain`、`Topic`、`Type`、`Source Type`、`Tags` が入っている。`Subtopic`、`Source URL`、`Related Topics`、`Published At` は根拠がある場合だけ入れるが、空欄の場合は本文の `Open Questions` または verifier findings に理由が残っている。
+- DB 登録または DB 更新で `Type`、`Source Type`、`Domain`、`Tags`、`Related Topics` の option 不足エラーが出たページは、`schema_option_audit` に不足値、`tool_search`、`mcp__notion.notion_update_data_source`、schema 再 fetch、同一値での再試行結果が残っている。値を落として再試行したページは記述漏れではなく実行ミスとして `status: revise` にする。
 - 移動済みページ本文に `Summary`、`Context`、`Source`、`Decision`、`Related Topics` がある。必要な場合は `Open Questions` もある。見出しだけで中身が空、リンクだけ、短い分類メモだけの場合は記述漏れとして扱う。
 - URL-only / embed-only / 弱いタイトル由来のページは、本文に source URL、reader backend/status、取得結果の短い要約または取得失敗理由がある。
 - URL 一覧ページ由来で canonical page または unresolved page を作成・移動できた item は、元一覧ページから該当 URL 行が削除されている。未処理 URL や周辺メモは削除されていない。

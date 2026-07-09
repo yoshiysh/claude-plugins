@@ -15,7 +15,7 @@ description: >
 ## 手順
 
 1. content-enricher の補完結果を読む。不足があれば対象ページを `notion-fetch` で確認してよいが、外部本文を推測しない。`scope.kind: url_list_page` の場合、分類対象は親リストページではなく、`source_queue_*` を持つ各 URL item である。
-2. URL reader audit を確認する。`url_reader_required_count` と `url_reader_attempted_count` が一致しない場合、または `url_reader_missing` が空でない場合は分類せず `status: blocked` で差し戻す。ページ単位でも `reader.required: true` なのに `reader.attempted: true` でないもの、または `reader.status` と `reader.status_reason` が両方空のものは分類しない。
+2. URL reader audit を確認する。`url_reader_attempted_count` は read_url.py を実際に起動した件数だけを指す。`url_reader_required_count` と `url_reader_attempted_count` が一致しない場合、または `url_reader_missing` が空でない場合は分類せず `status: blocked` で差し戻す。ページ単位でも `reader.required: true` なのに `reader.attempted: true` でないもの、または `reader.status` と `reader.status_reason` が両方空のものは分類しない。
 3. `resolved_title` がある場合は分類用タイトルとして優先し、無い場合は元の `title` を使う。`title_source: generated` のタイトルは分類補助として扱い、著者・日付・結論などの事実根拠にはしない。
 4. タイトル、本文、URL、補完済み summary/source_notes/decision_notes、reader metadata、既存プロパティから Domain / Topic / Subtopic 候補を作る。URL-only list item では親リストのタイトルではなく URL item の resolved title、source URL、reader output を主根拠にする。Domain は粗い棚にする。例: `Programming -> iOS -> The Composable Architecture (TCA)`。`iOS Architecture` のように細かすぎる Topic 名へ寄せすぎず、まずは `iOS` 程度の自然な棚を優先する。
 5. リンク先や埋め込みから十分な本文が取れていない場合は、タイトルと既存本文だけを根拠にし、confidence を下げる。

@@ -15,7 +15,7 @@
     "low_risk_updates_allowed": true,
     "destructive_changes_allowed": false
   },
-  "batch_limit": 20,
+  "batch_limit": 50,
   "questions": []
 }
 ```
@@ -53,6 +53,7 @@
   "url_reader_audit": {
     "url_reader_required_count": 0,
     "url_reader_attempted_count": 0,
+    "attempted_means": "read_url.py_invoked",
     "url_reader_missing": [
       {
         "page_id": "string",
@@ -148,6 +149,20 @@
   "proposed_updates": [],
   "schema_updates_applied": [],
   "schema_updates_proposed": [],
+  "schema_option_audit": [
+    {
+      "page_id": "string",
+      "property": "Type|Source Type|Domain|Tags|Related Topics",
+      "required_options": [],
+      "missing_options_before": [],
+      "tool_search_attempted": true,
+      "update_data_source_tool": "mcp__notion.notion_update_data_source|null",
+      "update_result": "success|failed|not_needed|tool_unavailable_after_search",
+      "schema_refetched": true,
+      "missing_options_after": [],
+      "db_retry_result": "success|failed|not_needed"
+    }
+  ],
   "move_audit": [
     {
       "page_id": "string",

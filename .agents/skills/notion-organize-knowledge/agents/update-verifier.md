@@ -11,7 +11,7 @@ description: >
 ## 手順
 
 1. 更新済み件数と提案件数が対象件数と矛盾しないか確認する。
-2. URL reader audit を確認する。`url_reader_required_count` と `url_reader_attempted_count` が一致しない、`url_reader_missing` が空でない、または URL-required ページに `reader.status` と `reader.status_reason` の両方が無い場合は `status: revise` にする。この不一致は Inbox 残留ではなく実行漏れとして扱う。
+2. URL reader audit を確認する。`url_reader_attempted_count` は read_url.py を実際に起動した件数だけでなければならない。実行不能理由を記録しただけの URL を attempted に数えている場合は `status: revise` にする。`url_reader_required_count` と `url_reader_attempted_count` が一致しない、`url_reader_missing` が空でない、または URL-required ページに `reader.status` と `reader.status_reason` の両方が無い場合は `status: revise` にする。この不一致は Inbox 残留ではなく実行漏れとして扱う。
    - `scope.kind: url_list_page` または `source_queue_page_id` を持つ URL item は全件 URL-required として扱う。親の URL-only list page を reader 済み扱いにして、各 URL item の reader audit を省略している場合は `status: revise` にする。
 3. `register_and_move_to_topic_page` の対象が `Topic Index` DB に登録されているか確認する。
 4. 重複ページが Topic Index DB に登録されていないか確認する。同一 source URL / normalized URL の代表以外が DB 登録されている場合は `status: revise` にする。
@@ -28,7 +28,8 @@ description: >
 13. `Summary`、`Source URL`、`Source Type`、`Published At`、`Tags`、`Related Topics` が根拠なしに埋められていないか確認する。`Published At` が Notion の作成日時・更新日時から埋められている場合は `status: revise` にする。
 14. `Source Type: Bookmark` が、単に Inbox の bookmark block 由来で付いていないか確認する。Web 本文や metadata が取れている通常リンクなら `Web Article` など実体に合う値へ差し戻す。
 15. 登録済みページの `Tags` が空欄のままになっていないか確認する。根拠があるタグ option が無いだけなら `update_data_source` による option 追加とページ更新へ差し戻す。
-16. `Type`、`Source Type`、`Tags`、`Related Topics` などの option 不足を理由に値が省略されていないか確認する。省略されている場合、`tool_search` で `notion update data source schema alter column select multi_select` を検索した記録と `mcp__notion.notion_update_data_source` 試行記録が無ければ実行漏れとして `status: revise` にする。検索後も tool が無かった場合だけ `tool_unavailable_after_search` として許容する。
+16. `Type`、`Source Type`、`Domain`、`Tags`、`Related Topics` などの option 不足を理由に値が省略されていないか確認する。省略されている場合、`schema_option_audit` に不足値、`tool_search` で `notion update data source schema alter column select multi_select` を検索した記録、`mcp__notion.notion_update_data_source` 試行記録、追加後 schema 再 fetch、同一値での再試行結果がすべて無ければ実行漏れとして `status: revise` にする。検索後も tool が無かった場合だけ `tool_unavailable_after_search` として許容する。
+   - Notion が `prompt-engineering` などの `Tags` / `Related Topics` option 不足で弾いた後、該当値を外して登録・更新している場合は常に `status: revise` にする。分類根拠がある値は option 追加後に同じ値で再登録されていなければならない。
 17. `mcp__notion.notion_update_data_source` で select / multi_select option を追加した場合、既存 option の name と color を保持しているか確認する。既存 option の色変更を混ぜている、または Notion の `Cannot update color of select` 系エラー後に既存 color を保持して再試行していない場合は `status: revise` にする。
 18. Notion のページ/DB 作成、移動、schema 更新、view 更新、削除/アーカイブ/trash を unavailable と報告している場合、対応する `tool_search` の検索記録があるか確認する。作成は `mcp__notion.notion_create_pages`、移動は `mcp__notion.notion_move_pages`、schema 更新は `mcp__notion.notion_update_data_source`、view 更新は `mcp__notion.notion_update_view` が実 tool である。検索記録なしの unavailable、リンク追記だけの代替、作成可能な Topic / Subtopic / Unresolved Sources の未作成、削除許可済み重複ページの残置は `status: revise` にする。
 19. `title_source: generated` のページで、生成タイトルの根拠が `evidence`、`Context`、または `Open Questions` に残っているか確認する。根拠が弱いのに Notion ページ名を確定リネームしている場合は `status: revise` にする。
