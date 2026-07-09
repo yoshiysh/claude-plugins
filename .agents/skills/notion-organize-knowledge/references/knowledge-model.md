@@ -199,7 +199,7 @@ Recommended starter `Domain` values:
 Programming, AI, Stock, Investing, Tax, Life, Work, Knowledge Management
 ```
 
-Treat select and multi-select lists as open, but avoid near-duplicates such as `Investment` and `Investing` unless the user already distinguishes them. When a run needs a missing option such as `Code`, a new `Tag`, or a new `Related Topics` value, add that option to the existing property without deleting or renaming existing options before creating or updating rows. Do not silently omit a value because the option is missing.
+Treat select and multi-select lists as open, but avoid near-duplicates such as `Investment` and `Investing` unless the user already distinguishes them. When a run needs a missing option such as `Code`, a new `Tag`, or a new `Related Topics` value, add that option to the existing property without deleting or renaming existing options before creating or updating rows. Preserve existing option names and colors exactly; Notion rejects attempts to recolor existing select options. Use `mcp__notion.notion_update_data_source` for option additions. If that tool is not initially available, use `tool_search` to expose it before deciding the option cannot be added. Do not silently omit a value because the option is missing.
 
 `Area` is removed. Use `Domain` as the only broad category field. Do not create, populate, read as authoritative, or backfill `Area`. If an existing Topic Index DB still has `Area`, remove the property during schema maintenance after confirming `Domain` exists.
 

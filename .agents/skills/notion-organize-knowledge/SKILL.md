@@ -18,9 +18,21 @@ Notion を作業場・閲覧 UI・入力口として使いながら、後で Mar
 
 ## 全体フロー
 
+## Notion MCP tool 露出の必須条件
+
+Notion MCP の tool は初期表示に出ていないことがある。初期 tool 一覧に無いだけで「作成できない」「移動できない」「option 追加できない」「削除できない」と判断してはいけない。必要な操作がある場合は、まず `tool_search` で該当 tool を露出させ、露出後は下記の実 tool 名を使う。
+
+- ページ/DB 作成: `tool_search` で `notion create pages database page parent` を検索し、`mcp__notion.notion_create_pages` を使う。
+- ページ移動: `tool_search` で `notion move pages move page parent` を検索し、`mcp__notion.notion_move_pages` を使う。
+- DB schema / select / multi_select option / 列の追加・削除・リネーム: `tool_search` で `notion update data source schema alter column select multi_select` を検索し、`mcp__notion.notion_update_data_source` を使う。
+- view 表示順・表示列などの更新: `tool_search` で `notion update view show hide columns` を検索し、`mcp__notion.notion_update_view` を使う。
+- 重複ページの削除/アーカイブ/trash: ユーザーが削除を許可している場合、`tool_search` で `notion delete archive trash page` を検索し、専用の削除/アーカイブ/trash tool が露出した場合だけ使う。露出しない場合は削除した扱いにせず `tool_unavailable_after_search` とする。
+
+上記の検索をしても tool が露出しない場合だけ、`tool_unavailable_after_search` として完了報告に出す。検索せずに unavailable と報告したり、値を省略したり、代替としてリンク追記だけで済ませたりしてはいけない。
+
 ## Notion 移動ツールの必須条件
 
-処理済みページや取得不能ページを Inbox から出すときは、必ず Notion MCP の `mcp__notion.notion_move_pages` を使う。初期表示のツール一覧に無い場合でも unavailable と判断せず、`tool_search` で `notion move pages move page parent` を検索して `notion_move_pages` を露出させてから実行する。
+処理済みページや取得不能ページを Inbox から出すときは、必ず Notion MCP の `mcp__notion.notion_move_pages` を使う。初期表示のツール一覧に無い場合でも unavailable と判断せず、`tool_search` で `notion move pages move page parent` を検索して `mcp__notion.notion_move_pages` を露出させてから実行する。
 
 `notion-update-page`、`replace_content`、`insert_content`、`<page>` / `<mention-page>` ブロック、ページ URL の追記、DB の `Notion Page` 更新はページ移動の代替にしてはいけない。これらはリンクや本文更新であり、親ページを変えないため、完了報告の「移動済み」に数えない。
 
@@ -99,7 +111,7 @@ Domain / Topic / Subtopic 階層は「最小限だけ作る」方針にしない
 
 `Knowledge INDEX` は不要な派生ナビなので、新規作成・更新・分類情報の保存先にしない。既存ページがあっても互換のために読む必要はなく、必要になった場合だけユーザー指示で別途追加する。`Unresolved Sources` は取得不能・根拠不足ページの退避キューであり、処理済み検索先ではない。`Domains` は粗い棚であり、例として `Programming -> iOS -> The Composable Architecture (TCA)` のように辿れる物理階層にする。`Topics` を `Domains` と並列に作ると二重管理になりやすいため、原則作らない。
 
-既存 DB がある場合はスキーマを軽い索引へ保つ。足りないプロパティは追加候補として扱い、不要な legacy プロパティはユーザーの許可がある場合に削除する。一方で、既存の `select` / `multi_select` プロパティに不足 option があるだけなら、低リスクなスキーマ保守として Notion MCP の `update_data_source` で追加してよい。特に `Type`、`Source Type`、`Tags`、`Related Topics`、`Domain` は、後続の DB 登録前に今回使う値が存在するか確認し、存在しない値は既存 option を消さずに追記する。`Extraction Status` は処理ログであり Topic Index の DB 列にはしない。既存 DB に残っていてユーザーが削除を許可している場合は削除する。
+既存 DB がある場合はスキーマを軽い索引へ保つ。足りないプロパティは追加候補として扱い、不要な legacy プロパティはユーザーの許可がある場合に削除する。一方で、既存の `select` / `multi_select` プロパティに不足 option があるだけなら、低リスクなスキーマ保守として Notion MCP の `update_data_source` で追加してよい。`update_data_source` が初期 tool 一覧に無い場合は、`tool_search` で `notion update data source schema alter column select multi_select` を検索して露出させてから実行する。特に `Type`、`Source Type`、`Tags`、`Related Topics`、`Domain` は、後続の DB 登録前に今回使う値が存在するか確認し、存在しない値は既存 option を消さずに追記する。`Extraction Status` は処理ログであり Topic Index の DB 列にはしない。既存 DB に残っていてユーザーが削除を許可している場合は削除する。
 
 ### Step 3: content-enricher を呼ぶ
 

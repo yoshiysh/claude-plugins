@@ -25,19 +25,21 @@ description: >
 13. `Summary`、`Source URL`、`Source Type`、`Published At`、`Tags`、`Related Topics` が根拠なしに埋められていないか確認する。`Published At` が Notion の作成日時・更新日時から埋められている場合は `status: revise` にする。
 14. `Source Type: Bookmark` が、単に Inbox の bookmark block 由来で付いていないか確認する。Web 本文や metadata が取れている通常リンクなら `Web Article` など実体に合う値へ差し戻す。
 15. 登録済みページの `Tags` が空欄のままになっていないか確認する。根拠があるタグ option が無いだけなら `update_data_source` による option 追加とページ更新へ差し戻す。
-16. `Type`、`Source Type`、`Tags`、`Related Topics` などの option 不足を理由に値が省略されていないか確認する。省略されている場合は `status: revise` にする。
-17. `title_source: generated` のページで、生成タイトルの根拠が `evidence`、`Context`、または `Open Questions` に残っているか確認する。根拠が弱いのに Notion ページ名を確定リネームしている場合は `status: revise` にする。
-18. `Created` / `Updated` / `Created at` / `Updated at` / `Ingested At` / `Source Checked At` が新規 DB schema や更新必須項目として追加されていないか確認する。既存 DB に残っていてユーザーが削除を許可している場合は、削除へ差し戻す。必要な公開日は `Published At` で表す。
-19. `Area` が新規 DB schema、既存 Topic Index schema、必須項目、DB 登録値、option 追加対象として使われていないか確認する。`Domain` が存在するのに `Area` が残っている場合は、`update_data_source` による削除へ差し戻す。
-20. `Domain Slug`、`Topic Slug`、`Subtopic Slug`、`Action`、`Status`、`Topic Page`、`Export Path`、`Exportable`、`Canonical Role`、`Canonical URL`、`Canonical`、`Source Page`、`Extraction Status` が新規 DB schema、必須項目、DB 登録値、option 追加対象として使われていないか確認する。既存 DB に残っていてユーザーが削除を許可している場合は、削除へ差し戻す。
-21. `Knowledge INDEX` の作成・更新をしていないか確認する。既存 INDEX だけに分類情報を追記している場合は `status: revise` にする。分類の正本は `Topic Index` DB である。
-22. 移動後ページで `Decision` と外部 source が混ざっていないか確認する。
-23. ユーザーが重複削除を許可している場合、削除済み件数または削除不能理由が `duplicate_deletes` / `duplicate_delete_unavailable` に記録されているか確認する。重複を `Duplicate` DB 行として増やしている場合は `status: revise` にする。
-24. URL-only / embed-only 由来で `url-reader` が `Extracted` または `Partial` を返したページの本文が、リンクだけ・短い分類メモだけで終わっていないか確認する。取得本文の要約、主要ポイント、source URL、reader backend/status がページ本文に無い場合は `status: revise` にする。
-25. `content_audit` が処理対象ページごとに存在し、`required_sections`、各 section の有無、reader status の記録有無、本文追記結果を持っているか確認する。`content_audit` が無い、対象件数と合わない、または `result: failed|skipped` がある場合は、最後の記述漏れゲート未通過として `status: revise` にする。
-26. Unresolved Sources へ移したページについて、本文に `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に人間が確認すべき点が追記されているか確認する。欠けている場合は `status: revise` にする。
-27. 不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
-28. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
+16. `Type`、`Source Type`、`Tags`、`Related Topics` などの option 不足を理由に値が省略されていないか確認する。省略されている場合、`tool_search` で `notion update data source schema alter column select multi_select` を検索した記録と `mcp__notion.notion_update_data_source` 試行記録が無ければ実行漏れとして `status: revise` にする。検索後も tool が無かった場合だけ `tool_unavailable_after_search` として許容する。
+17. `mcp__notion.notion_update_data_source` で select / multi_select option を追加した場合、既存 option の name と color を保持しているか確認する。既存 option の色変更を混ぜている、または Notion の `Cannot update color of select` 系エラー後に既存 color を保持して再試行していない場合は `status: revise` にする。
+18. Notion のページ/DB 作成、移動、schema 更新、view 更新、削除/アーカイブ/trash を unavailable と報告している場合、対応する `tool_search` の検索記録があるか確認する。作成は `mcp__notion.notion_create_pages`、移動は `mcp__notion.notion_move_pages`、schema 更新は `mcp__notion.notion_update_data_source`、view 更新は `mcp__notion.notion_update_view` が実 tool である。検索記録なしの unavailable、リンク追記だけの代替、作成可能な Topic / Subtopic / Unresolved Sources の未作成、削除許可済み重複ページの残置は `status: revise` にする。
+19. `title_source: generated` のページで、生成タイトルの根拠が `evidence`、`Context`、または `Open Questions` に残っているか確認する。根拠が弱いのに Notion ページ名を確定リネームしている場合は `status: revise` にする。
+20. `Created` / `Updated` / `Created at` / `Updated at` / `Ingested At` / `Source Checked At` が新規 DB schema や更新必須項目として追加されていないか確認する。既存 DB に残っていてユーザーが削除を許可している場合は、削除へ差し戻す。必要な公開日は `Published At` で表す。
+21. `Area` が新規 DB schema、既存 Topic Index schema、必須項目、DB 登録値、option 追加対象として使われていないか確認する。`Domain` が存在するのに `Area` が残っている場合は、`update_data_source` による削除へ差し戻す。
+22. `Domain Slug`、`Topic Slug`、`Subtopic Slug`、`Action`、`Status`、`Topic Page`、`Export Path`、`Exportable`、`Canonical Role`、`Canonical URL`、`Canonical`、`Source Page`、`Extraction Status` が新規 DB schema、必須項目、DB 登録値、option 追加対象として使われていないか確認する。既存 DB に残っていてユーザーが削除を許可している場合は、削除へ差し戻す。
+23. `Knowledge INDEX` の作成・更新をしていないか確認する。既存 INDEX だけに分類情報を追記している場合は `status: revise` にする。分類の正本は `Topic Index` DB である。
+24. 移動後ページで `Decision` と外部 source が混ざっていないか確認する。
+25. ユーザーが重複削除を許可している場合、削除済み件数または削除不能理由が `duplicate_deletes` / `duplicate_delete_unavailable` に記録されているか確認する。重複を `Duplicate` DB 行として増やしている場合は `status: revise` にする。
+26. URL-only / embed-only 由来で `url-reader` が `Extracted` または `Partial` を返したページの本文が、リンクだけ・短い分類メモだけで終わっていないか確認する。取得本文の要約、主要ポイント、source URL、reader backend/status がページ本文に無い場合は `status: revise` にする。
+27. `content_audit` が処理対象ページごとに存在し、`required_sections`、各 section の有無、reader status の記録有無、本文追記結果を持っているか確認する。`content_audit` が無い、対象件数と合わない、または `result: failed|skipped` がある場合は、最後の記述漏れゲート未通過として `status: revise` にする。
+28. Unresolved Sources へ移したページについて、本文に `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に人間が確認すべき点が追記されているか確認する。欠けている場合は `status: revise` にする。
+29. 不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
+30. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
 
 ## 出力
 
