@@ -6,7 +6,7 @@
 {
   "status": "ok|needs_input|blocked",
   "scope": {
-    "kind": "bookmark|inbox|page|database|unclassified|unknown",
+    "kind": "bookmark|inbox|url_list_page|page|database|unclassified|unknown",
     "query": "string",
     "page_ids": [],
     "database_ids": []
@@ -64,6 +64,10 @@
   "pages": [
     {
       "page_id": "string",
+      "source_queue_page_id": "string|null",
+      "source_queue_title": "string|null",
+      "source_queue_url": "string|null",
+      "source_queue_position": 0,
       "title": "string",
       "resolved_title": "string|null",
       "title_source": "notion|url_reader|url_path|generated|unknown",
@@ -101,6 +105,10 @@
   "pages": [
     {
       "page_id": "string",
+      "source_queue_page_id": "string|null",
+      "source_queue_title": "string|null",
+      "source_queue_url": "string|null",
+      "source_queue_position": 0,
       "title": "string",
       "resolved_title": "string|null",
       "title_source": "notion|url_reader|url_path|generated|unknown",

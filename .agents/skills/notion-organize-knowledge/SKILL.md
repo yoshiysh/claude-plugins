@@ -2,7 +2,7 @@
 name: notion-organize-knowledge
 description: >
   Notion MCP を使って Notion workspace のメモ置き場に、Domain / Topic / Subtopic 中心の構造化レイヤーを重ねるスキル。
-  Bookmark / Inbox などの capture queue からページを読み、リンク先や本文を補完し、適切な Domain / Topic / Subtopic を推測し、
+  Bookmark / Inbox / Inbox URL などの capture queue や URL だけの一覧ページからページやリンクを読み、リンク先や本文を補完し、適切な Domain / Topic / Subtopic を推測し、
   処理できたページは Topic Index DB に登録する。Inbox は混沌を受け止める入口だが、処理済みページの検索先にはしない。
   処理済みページは Domains 配下の Topic / Subtopic ページへ移し、AI と人間が同じページを参照できるようにする。判断不能なページは DB 登録せず Unresolved Sources へ移して報告する。
   Summary 生成、Source と Decision の分離、重複検出、Markdown/RAG に後で逃がしやすい本文正規化を行う。
@@ -14,7 +14,7 @@ description: >
 
 採用パターン：Orchestrator-Subagent + Generator-Verifier。
 
-Notion を作業場・閲覧 UI・入力口として使いながら、後で Markdown export や自前 RAG に逃がせる本文を残す形へ知識ページを整理する。主な運用は、ユーザーが `Bookmark` や `Inbox` のようなメモ置き場へ記事・メモ・リンクを放り込み、スキルが内容を読み足して、適切な Domain / Topic / Subtopic へ分類し、処理できたページを `Topic Index` DB に登録する流れ。`Inbox` は混沌としてよい capture queue だが、処理済みページの検索先にはしない。構造化レイヤーの固定入口は `Knowledge HOME` とし、その配下に `Topic Index` DB、粗い棚としての `Domains`、取得不能ページ用の `Unresolved Sources` を置く。物理階層は原則 `Domains/{Domain}/{Topic}/{Subtopic}` に寄せ、`Domains` と並列の `Topics` ルートは作らない。DB は軽い索引とし、AI と人間が参照する canonical content は同じ Topic / Subtopic 配下のページにする。判断不能なページは DB に入れず `Unresolved Sources` へ移し、重複試走を避けるために完了報告で明示する。ページ階層は人間が辿りやすい閲覧 UI として扱う。`Knowledge INDEX` は不要な派生ナビなので、新規作成・更新・正本扱いをしない。Topic / Subtopic ページの Summary は「そのページの運用説明」ではなく、対象技術・概念そのもののサマリにする。SKILL.md は進行管理だけを担い、Notion の読み取り・分類・更新・検証は `agents/` の各 Sub-agent が担当する。分類基準と DB スキーマは `references/knowledge-model.md`、エージェント間の入出力契約は `schemas/agent-contracts.md` を正とする。
+Notion を作業場・閲覧 UI・入力口として使いながら、後で Markdown export や自前 RAG に逃がせる本文を残す形へ知識ページを整理する。主な運用は、ユーザーが `Bookmark` や `Inbox` のようなメモ置き場へ記事・メモ・リンクを放り込み、スキルが内容を読み足して、適切な Domain / Topic / Subtopic へ分類し、処理できたページを `Topic Index` DB に登録する流れ。`Inbox URL` のように、ページ本文へ URL だけが行ごとに並ぶ一覧ページも capture queue として扱い、各 URL を独立した URL item に展開してから同じ enrichment / triage / normalize / move / verify 経路に乗せる。`Inbox` と URL 一覧ページは混沌としてよい capture queue だが、処理済みページの検索先にはしない。構造化レイヤーの固定入口は `Knowledge HOME` とし、その配下に `Topic Index` DB、粗い棚としての `Domains`、取得不能ページ用の `Unresolved Sources` を置く。物理階層は原則 `Domains/{Domain}/{Topic}/{Subtopic}` に寄せ、`Domains` と並列の `Topics` ルートは作らない。DB は軽い索引とし、AI と人間が参照する canonical content は同じ Topic / Subtopic 配下のページにする。判断不能なページは DB に入れず `Unresolved Sources` へ移し、重複試走を避けるために完了報告で明示する。ページ階層は人間が辿りやすい閲覧 UI として扱う。`Knowledge INDEX` は不要な派生ナビなので、新規作成・更新・正本扱いをしない。Topic / Subtopic ページの Summary は「そのページの運用説明」ではなく、対象技術・概念そのもののサマリにする。SKILL.md は進行管理だけを担い、Notion の読み取り・分類・更新・検証は `agents/` の各 Sub-agent が担当する。分類基準と DB スキーマは `references/knowledge-model.md`、エージェント間の入出力契約は `schemas/agent-contracts.md` を正とする。
 
 ## 全体フロー
 
@@ -45,6 +45,7 @@ flowchart LR
   H["Knowledge HOME\n固定入口"] --> DB["Topic Index DB\nAI検索・移行用の索引"]
   H --> D["Domains\n粗い棚"]
   I["Inbox\n未処理・混沌OK"] --> E["内容取得/補完"]
+  U["Inbox URL\nURL-only list"] --> E
   E --> DB
   D --> TP["Domain/Topic/Subtopic Page\nAI + 人間が読む同じページ"]
   E --> TP
@@ -52,7 +53,17 @@ flowchart LR
   I -.取得不能/根拠不足.-> R["Unresolved Sources\nDB未登録"]
 ```
 
-成功パスでは、処理済みページを `Topic Index` に登録し、同じページを `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移動する。AI 向け情報も人間向け情報もそのページに残す。判断不能・取得失敗のページは `Topic Index` に登録せず、Inbox に放置せず、`Knowledge HOME` 配下の `Unresolved Sources` へ移して完了報告でユーザーへ伝える。ただし URL-only、タイトルだけ、埋め込みだけのページは、判断不能にする前に必ず `url-reader` で取得を試す。`url-reader` でタイトル、metadata、本文断片、画像、投稿種別、失敗理由のいずれかが取れた場合は、その根拠で通常の分類処理に乗せる。`url-reader` を実行できなかった URL は、分類不能ではなく「実行漏れ」として扱い、page-triager へ進めない。
+成功パスでは、処理済みページを `Topic Index` に登録し、同じページを `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移動する。AI 向け情報も人間向け情報もそのページに残す。判断不能・取得失敗のページは `Topic Index` に登録せず、Inbox や URL 一覧ページに放置せず、`Knowledge HOME` 配下の `Unresolved Sources` へ移して完了報告でユーザーへ伝える。ただし URL-only、タイトルだけ、埋め込みだけ、URL 一覧ページ由来の item は、判断不能にする前に必ず `url-reader` で取得を試す。`url-reader` でタイトル、metadata、本文断片、画像、投稿種別、失敗理由のいずれかが取れた場合は、その根拠で通常の分類処理に乗せる。`url-reader` を実行できなかった URL は、分類不能ではなく「実行漏れ」として扱い、page-triager へ進めない。
+
+### URL-only list page handling
+
+`Inbox URL` のように本文へ URL だけが複数並ぶページを対象にする場合は、その親ページ自体を1件の知識ページとして分類しない。親ページは capture queue として扱い、本文中の URL / bookmark link / plain link を上から順に抽出して、処理上限までの各 URL を独立した URL item として扱う。
+
+URL item ごとに必ず `url-reader` を実行し、`normalized_url`、reader backend/status、metadata、本文断片、失敗理由を取得する。取得結果から `resolved_title` を決め、低リスク更新が許可されている場合は、元の URL 一覧ページ配下に一時子ページを作るか、直接 destination へ置く organized page を作って、そのページ本文へ `Summary`、`Context`、`Source`、`Decision`、`Related Topics` を書く。単なるリンク行だけを Topic Index DB に登録しない。
+
+作成した URL item ページは通常の Inbox ページと同じ成功条件を満たす必要がある。つまり、Topic Index DB 登録、Notion Page の canonical URL、Source URL、Published At、Tags、Related Topics、本文追記、`mcp__notion.notion_move_pages` による Domains 配下への移動、ancestor path 検証を省略しない。処理済み URL は、元の URL 一覧ページ上では削除・置換しなくてよいが、完了報告に `source_queue_page` として一覧ページ名を出し、どの URL を処理したか分かるようにする。削除やチェックマーク化など URL 一覧ページ本文の破壊的整理は、ユーザーが明示した場合だけ行う。
+
+URL 一覧ページ由来で取得できなかった item も Inbox に残さない。対象 URL 用のページを作るか、既に作成済みの一時ページを使って `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に確認すべき点を本文に残し、`Unresolved Sources` へ移す。
 
 同一 source URL、同一 normalized URL、または同一 Notion capture が複数ある場合は、代表ページを1件だけ残す。代表ページだけを Topic Index DB に登録し、重複ページは DB に登録しない。ユーザーが削除を許可している場合、重複ページは要約追記や移動ではなく削除/アーカイブを優先する。Notion MCP に削除・アーカイブ・trash 用ツールが露出していない場合は、削除した扱いにせず、`duplicate_delete_unavailable` として完了報告へ出す。重複ページを `Duplicate` の DB 行として増やさない。
 
@@ -97,7 +108,7 @@ agents/update-verifier
 
 ### Step 1: input-resolver を呼ぶ
 
-`agents/input-resolver.md` を Read し、ユーザー依頼全文、現在分かっている Notion workspace 情報、希望件数を渡す。対象範囲が空、または Notion MCP が使えない場合はここで止め、足りない情報だけをユーザーに聞く。
+`agents/input-resolver.md` を Read し、ユーザー依頼全文、現在分かっている Notion workspace 情報、希望件数を渡す。対象範囲が空、または Notion MCP が使えない場合はここで止め、足りない情報だけをユーザーに聞く。対象が `Inbox URL` や「URLだけの一覧ページ」の場合は `scope.kind: url_list_page` とし、ページ本文の URL を URL item として処理する前提を後続へ渡す。
 
 処理件数は既定 50 件までにする。ユーザーが件数を明示した場合は 100 件まで許可する。大量ページを一度に更新すると Notion 側の状態把握が難しくなるため、残件数を報告して次回に続ける。
 
@@ -115,7 +126,7 @@ Domain / Topic / Subtopic 階層は「最小限だけ作る」方針にしない
 
 ### Step 3: content-enricher を呼ぶ
 
-`agents/content-enricher.md` を Read し、メモ置き場の対象ページ一覧を渡す。各ページについて、Notion 本文、URL、埋め込み、既存 Notion クリップ、添付テキストから取れる内容を補完する。取得できない外部本文は推測せず、内部フィールド `extraction_status` を `Partial` / `Failed` にし、理由を reader audit やページ本文の `Open Questions` / `Source` に残す。`Needs Manual Review` は自動処理で安易に使わず、ユーザー確認が不可欠な明示的理由がある場合だけ使う。
+`agents/content-enricher.md` を Read し、メモ置き場の対象ページ一覧を渡す。各ページについて、Notion 本文、URL、埋め込み、既存 Notion クリップ、添付テキストから取れる内容を補完する。取得できない外部本文は推測せず、内部フィールド `extraction_status` を `Partial` / `Failed` にし、理由を reader audit やページ本文の `Open Questions` / `Source` に残す。`Needs Manual Review` は自動処理で安易に使わず、ユーザー確認が不可欠な明示的理由がある場合だけ使う。URL 一覧ページの場合は、親ページを分類せず、抽出した各 URL を `source_queue_page_id` と `source_queue_url` を持つ URL item として出力する。
 
 URL だけ、タイトルだけ、または埋め込みだけのページでは、`$url-reader` の `scripts/read_url.py` を必ず使って公開 URL の本文・metadata・画像リンク・失敗理由を補完する。取得結果の `reader_status`、`reader_backend`、`status_reason`、`attempts`、`warnings` は content-enricher の根拠として残す。URL-only / embed-only ページの content-enricher 出力に `reader.status` または `reader.status_reason` が無い場合、司令塔は page-triager へ進めず content-enricher を差し戻す。
 
@@ -123,6 +134,7 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 
 - `url_reader_required_count` が 0 より大きい場合、`url_reader_attempted_count` は同じ件数でなければならない。
 - 各 URL-required ページは `reader.required: true`、`reader.attempted: true`、`reader.status` または `reader.status_reason` を持つ。
+- URL 一覧ページ由来の item は全件 `reader.required: true` とし、URL 行だけを根拠にした分類へ進めない。
 - X/Twitter URL は `url-reader` の正規化結果として `normalized_url` を持つ。`twitter.com` のまま読めなかった、という理由だけで Inbox 残留にしない。
 - `reader.attempted: false` のページが1件でもある場合、処理を止めて content-enricher をやり直す。完了報告で Inbox 残留に数えない。
 
@@ -201,7 +213,7 @@ Notion知識整理完了:
 
 ## 入出力
 
-入力：ユーザーの Notion 整理依頼、対象ページ名または Bookmark / Inbox / Domain / Topic Index DB 名、必要なら処理件数。
+入力：ユーザーの Notion 整理依頼、対象ページ名または Bookmark / Inbox / Inbox URL / URL だけの一覧ページ / Domain / Topic Index DB 名、必要なら処理件数。
 
 出力：Notion 上の Topic Index DB、Domain / Topic / Subtopic ページ、Topic Index に登録済みで Inbox から移動/処理済みになったメモページ、または更新前のレビュー用変更案。完了報告には処理件数、DB登録件数、作成/更新した Domain / Topic / Subtopic、移動件数、Inbox に残った要確認件数、未確定項目、次の確認対象を含める。
 

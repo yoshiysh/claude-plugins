@@ -22,6 +22,7 @@ Use databases as structured truth for AI retrieval and pages as human navigation
 ```text
 Workspace
 - Inbox
+- Inbox URL
 - Knowledge HOME
   - Topic Index
   - Unresolved Sources
@@ -44,7 +45,7 @@ Workspace
   - Projects
 ```
 
-`Inbox` is a capture queue. It is allowed to be messy before processing because its job is to accept incomplete notes, raw clips, broken titles, copied snippets, and mixed topics. After processing, pages should not remain in `Inbox` as the search target. They should be registered in `Topic Index` and moved under the matching Topic or Subtopic page.
+`Inbox` is a capture queue. It is allowed to be messy before processing because its job is to accept incomplete notes, raw clips, broken titles, copied snippets, and mixed topics. `Inbox URL` or any URL-only list page is also a capture queue: the parent page is just the source list, and each URL line is the processing item. After processing, pages should not remain in `Inbox` or URL-only list queues as the search target. They should be registered in `Topic Index` and moved under the matching Topic or Subtopic page.
 
 `Knowledge HOME` is the stable organized layer's fixed entry point. `Topic Index` is the structured index for AI retrieval and migration. `Domains` is the human-readable physical hierarchy. `Unresolved Sources` holds pages that could not be confidently enriched or classified. Topic/Subtopic pages under each Domain hold the canonical content that both AI and humans read. Do not create or update `Knowledge INDEX`; it is an unnecessary derived navigation cache unless the user explicitly reintroduces it later.
 
@@ -64,14 +65,15 @@ One paragraph explaining that Inbox is capture, Topic Index is structured truth,
 - Unresolved Sources: pages not registered in Topic Index because extraction or evidence was insufficient.
 
 ## Workflow
-1. Capture in Inbox.
+1. Capture in Inbox or a URL-only list page.
 2. Enrich content.
 3. Infer Domain / Topic / Subtopic.
 4. Register confident pages in Topic Index and move them under Topic/Subtopic pages.
-5. Leave uncertain pages in Inbox and report them.
+5. Move uncertain pages or URL items to Unresolved Sources and report them.
 
 ## Structure
 - Inbox
+- Inbox URL
 - Topic Index
 - Domains / Domain / Topic / Subtopic pages
 - Unresolved Sources
@@ -86,6 +88,7 @@ Before processing:
 ```mermaid
 flowchart LR
   U["User adds notes / links"] --> I["Inbox\nmessy capture queue"]
+  U --> L["Inbox URL\nURL-only list queue"]
 ```
 
 After processing:
@@ -96,11 +99,13 @@ flowchart LR
   H --> D["Domains\ncoarse shelves"]
   H --> R["Unresolved Sources\nfailed or uncertain"]
   I["Inbox"] --> E["content enrichment"]
+  L["Inbox URL"] --> E
   E --> T
   D --> TP["Domain / Topic / Subtopic pages\nAI + human canonical content"]
   T --> TP
   E --> TP
   I -. uncertain: no DB row .-> R
+  L -. uncertain: no DB row .-> R
 ```
 
 Steady state:
@@ -109,6 +114,10 @@ Steady state:
 Inbox
 - unprocessed pages
 - Needs Review pages only
+
+Inbox URL
+- unprocessed URL list pages
+- source queues only, not organized knowledge pages
 
 Knowledge HOME
 - Topic Index DB
@@ -122,6 +131,7 @@ Knowledge HOME
 ## Design Principles
 
 - Keep capture and organization separate. `Inbox` stores raw input before processing; `Topic Index` stores structured index rows after processing.
+- Treat URL-only list pages such as `Inbox URL` as capture queues. Do not classify or register the parent list page as knowledge unless the user explicitly asks to organize that page itself. Extract each URL as an independent item, run url-reader, then create or update an organized Notion page for that URL item.
 - A page counts as organized only after it is registered in `Topic Index`, moved out of `Inbox`, and normalized so AI and humans can read the same canonical page.
 - Prefer DB registration over page hierarchy. A page can belong to multiple topics through DB properties and tags, while a page hierarchy has only one parent.
 - Treat page movement as physical cleanup and human navigation. The searchable classification lives in `Topic Index`; the canonical content lives in the moved Topic/Subtopic page.
@@ -136,15 +146,16 @@ Knowledge HOME
 
 ## Memo Inbox To Topic Workflow
 
-When the source is a broad bookmark or inbox page, treat it as a capture queue, not as the final knowledge hierarchy. The intended workflow is:
+When the source is a broad bookmark page, inbox page, or URL-only list page, treat it as a capture queue, not as the final knowledge hierarchy. The intended workflow is:
 
-1. User drops pages, article links, notes, or copied snippets into `Bookmark` / `Inbox`.
-2. Read each captured page and, when possible, enrich it from URL, embed, existing Notion clip, attachment text, or page body.
-3. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
-4. If classification is confident enough, register the captured page in `Topic Index` with Domain / Topic / Subtopic fields.
-5. Move the captured page out of `Inbox` and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page.
-6. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, and related links.
-7. If confidence is low, do not register a Topic Index row. Move the page to `Unresolved Sources` with the failed extraction or weak-evidence reason and report it to the user.
+1. User drops pages, article links, notes, copied snippets, or URL-only lines into `Bookmark` / `Inbox` / `Inbox URL`.
+2. Read each captured page. For URL-only list pages, extract URL lines top-to-bottom up to the batch limit and treat each URL as its own item.
+3. Enrich each item from URL, embed, existing Notion clip, attachment text, or page body. URL-only items must run url-reader before classification.
+4. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
+5. If classification is confident enough, register the captured page or URL item page in `Topic Index` with Domain / Topic / Subtopic fields.
+6. Move the captured page or URL item page out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet, create one before DB registration and movement.
+7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list.
+8. If confidence is low, do not register a Topic Index row. Create or use a page for the unresolved URL item, move it to `Unresolved Sources` with the failed extraction or weak-evidence reason, and report it to the user.
 
 The memo inbox may remain chaotic before processing, but processed pages should leave it. `Topic Index` is the structured index. Topic pages contain the canonical content. `Unresolved Sources` keeps failed or weak-evidence items separate from both Inbox and Topic Index.
 

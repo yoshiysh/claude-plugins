@@ -12,11 +12,14 @@ description: >
 
 1. 更新済み件数と提案件数が対象件数と矛盾しないか確認する。
 2. URL reader audit を確認する。`url_reader_required_count` と `url_reader_attempted_count` が一致しない、`url_reader_missing` が空でない、または URL-required ページに `reader.status` と `reader.status_reason` の両方が無い場合は `status: revise` にする。この不一致は Inbox 残留ではなく実行漏れとして扱う。
+   - `scope.kind: url_list_page` または `source_queue_page_id` を持つ URL item は全件 URL-required として扱う。親の URL-only list page を reader 済み扱いにして、各 URL item の reader audit を省略している場合は `status: revise` にする。
 3. `register_and_move_to_topic_page` の対象が `Topic Index` DB に登録されているか確認する。
 4. 重複ページが Topic Index DB に登録されていないか確認する。同一 source URL / normalized URL の代表以外が DB 登録されている場合は `status: revise` にする。
 5. DB 行に `Notion Page` があり、処理済みページへ辿れるか確認する。`Notion Page` が空、外部 source URL、移動前 Inbox URL、またはブラウザからコピーした不安定な `app.notion.com` / `notion.so` URL になっている場合は、ページ ID から組み立てた canonical Notion page URL へ差し戻す。
+   - URL-only list item の `Notion Page` は、作成または移動された item page の canonical URL でなければならない。親の `Inbox URL` / URL-only list page の URL、または外部 source URL を入れている場合は `status: revise` にする。
 6. DB 登録されたページで `Domain`、`Topic`、`Summary`、`Notion Page` が空のままになっていないか確認する。判断不能なページは DB 登録せず `Unresolved Sources` へ移動されている必要がある。
 7. `register_and_move_to_topic_page` の対象について、移動前または移動後のページ本文に `Summary`、`Context`、`Source`、`Decision`、`Related Topics` が追記されているか確認する。必要な場合は `Open Questions` も確認する。見出しだけで中身が空、リンクだけ、短い分類メモだけ、または `Summary` だけで `Source` / `Decision` が無い場合は記述漏れとして `status: revise` にする。URL-only / embed-only 由来なら source URL、reader backend/status、取得結果の要約または取得不能理由も必要。欠けている場合は `status: revise` にする。
+   - URL-only list item 由来なら、本文の `Context` または `Source` に source queue page/title/position のいずれかが記録されているか確認する。どのリストから来た URL か追えない場合は `status: revise` にする。
 8. `register_and_move_to_topic_page` の対象が `mcp__notion.notion_move_pages` で移動されているか確認する。`move_audit.tool` が `mcp__notion.notion_move_pages` でない、`move_audit.attempted` が `true` でない、または `<page>` / `<mention-page>` / URL 追記 / `notion-update-page` だけで済ませている場合は `status: revise` にする。
 9. `register_and_move_to_topic_page` の対象を `notion-fetch` し、ancestor path の直近 parent が期待する Domain / Topic / Subtopic であり、Inbox が ancestor に残っていないか確認する。残っている場合、または ancestor 検証が無い場合は `status: revise` にする。
 10. `keep_in_inbox` の対象が Topic Index DB に登録されていないか確認する。登録されている場合は、再実行時の重複試走を避けるため `status: revise` にする。
@@ -38,8 +41,9 @@ description: >
 26. URL-only / embed-only 由来で `url-reader` が `Extracted` または `Partial` を返したページの本文が、リンクだけ・短い分類メモだけで終わっていないか確認する。取得本文の要約、主要ポイント、source URL、reader backend/status がページ本文に無い場合は `status: revise` にする。
 27. `content_audit` が処理対象ページごとに存在し、`required_sections`、各 section の有無、reader status の記録有無、本文追記結果を持っているか確認する。`content_audit` が無い、対象件数と合わない、または `result: failed|skipped` がある場合は、最後の記述漏れゲート未通過として `status: revise` にする。
 28. Unresolved Sources へ移したページについて、本文に `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に人間が確認すべき点が追記されているか確認する。欠けている場合は `status: revise` にする。
-29. 不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
-30. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
+29. URL-only list page の親ページ自体が Topic Index DB に登録、`Domains` 配下へ移動、または organized page として正規化されていないか確認する。ユーザーが親ページ自体の整理を明示していない限り、親ページは source queue として残し、各 URL item だけを処理対象にする。
+30. 不可逆な置換、大量移動、既存 DB 破壊が含まれていないか確認する。
+31. 実装ミスで直せる問題は `status: revise`、人間判断が必要な問題は `status: needs_human`、問題なしは `status: passed` を返す。
 
 ## 出力
 
