@@ -61,6 +61,10 @@ flowchart LR
 
 URL item ごとに必ず `url-reader` を実行し、`normalized_url`、reader backend/status、metadata、本文断片、失敗理由を取得する。取得結果から `resolved_title` を決め、低リスク更新が許可されている場合は、元の URL 一覧ページ配下に一時子ページを作るか、直接 destination へ置く organized page を作って、そのページ本文へ記事に関連する `Summary`、`Source`、取得本文を書く。分類・取得履歴は本文へ残さない。単なるリンク行だけを Topic Index DB に登録しない。
 
+URL Reader は外部サイトのレート制限を避けるため、全件を一度に並列実行してはならない。既定の並列数は4件以下とし、バッチ間に短い待機を入れる。429 / rate limit が発生した場合は、残りを同時実行せず、指数バックオフまたは少数バッチへ切り替えて再試行する。1件の取得失敗を理由に、同じバッチの他ページや後続ページを一括で `Unresolved` にしてはならない。
+
+GitHub のURLで generic reader が403、匿名アクセス制限、レート制限、または本文欠落になった場合は、`url-reader` のGitHub CLI fallback（`scripts/read_github_cli.py`）を使い、keyring等に保存済みの `gh` CLI認証を利用して取得する。PATを引数・ログ・Notion本文へ出力してはならない。CLI取得が失敗した場合に限り、ログイン済みの in-app Browser をfallbackとして使う。リポジトリ名、ページタイトル、README、本文、公開範囲、主要リンクを確認し、取得できた範囲だけを根拠にする。CLIとBrowserの両方で本文を確認できない場合だけ `Partial` / `Failed` としてUnresolved化する。
+
 作成した URL item ページは通常の Inbox ページと同じ成功条件を満たす必要がある。つまり、Topic Index DB 登録、Notion Page の canonical URL、Source URL、Published At、Tags、Related Topics、本文追記、`mcp__notion.notion_move_pages` による Domains 配下への移動、ancestor path 検証を省略しない。処理済み URL は、元の URL 一覧ページ上から削除する。URL 一覧ページは capture queue であり、URL item が canonical page または unresolved page として通常フローへ乗った後は、同じ URL 行を残すと再実行で重複試走するため残さない。削除対象は今回処理して canonical/unresolved page に移した URL 行だけに限定し、未処理 URL、周辺メモ、親ページ自体は残す。削除後も完了報告に `source_queue_page` として一覧ページ名を出し、どの URL を処理して削除したか分かるようにする。
 
 URL 一覧ページ由来で取得できなかった item も Inbox や URL 一覧ページに残さない。対象 URL 用のページを作るか、既に作成済みの一時ページを使って `Unresolved Reason`、source URL、reader backend/status または取得不能理由、次に確認すべき点を本文に残し、`Unresolved Sources` へ移す。Unresolved page を作成・移動できた URL 行も、元の URL 一覧ページから削除する。
@@ -147,6 +151,8 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 ### Step 4: page-triager を呼ぶ
 
 `agents/page-triager.md` を Read し、補完済みページ一覧、Topic Index data source ID、分類基準を渡す。各ページについて、タイトル・本文・URL・補完済み内容から Domain / Topic / Subtopic 候補と整理方針を判定させる。
+
+分類候補が得られたページを、取得結果が少し不完全という理由だけで即時にUnresolved化してはならない。本文・タイトル・URLパス・metadata・Browser確認結果のどれが使えるかを列挙し、既存のDomain / Topic / SubtopicをNotion検索して寄せ先を確認する。候補が複数に割れて決められない場合は、候補と確認した既存ページを記録したうえで追加検索を1回行い、それでも決められない場合だけUnresolved化する。「分類判断に追加確認が必要」とだけ書いて処理を終えてはならず、検索語、候補、決定できなかった具体的な理由、次の人間確認事項を残す。
 
 page-triager へ渡す前に URL enrichment gate を再確認する。URL-only / embed-only / 弱いタイトルのページで `reader.required: true` かつ `reader.attempted: false` のもの、または `reader.status` と `reader.status_reason` が両方空のものがあれば、分類せず content-enricher へ差し戻す。
 

@@ -50,6 +50,7 @@ Use these reader paths:
 - Instagram post URLs: use the generic reader path. It can often return the caption, author link, location, hashtags, and signed image URLs.
 - Instagram Reel URLs (`instagram.com/reel/...`): if the reader returns an Instagram login page or generic shell, report `Blocked` and do not treat extracted login assets as usable images.
 - Other public URLs: use the generic reader path unless a more specific domain backend has been added.
+- GitHub URLs: run the generic reader first. If it returns `403`, an anonymous-access block, rate limiting, or missing repository content, run `scripts/read_github_cli.py` when an authenticated `gh` CLI is available. The script uses the CLI's keyring-backed login and never accepts or prints a PAT. Report `reader_backend: github_cli`; use in-app Browser only when the CLI fallback fails.
 
 X oEmbed is sufficient for post text and author metadata, but it does not reliably expose attached media URLs. If the user asks for X images or video, mark the text extraction separately from media extraction and use another backend or `Needs Review` for media.
 
