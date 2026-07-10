@@ -15,6 +15,18 @@
     },
     {
       "id": 2,
+      "prompt": "Use $url-reader to read https://x.com/claudecode84/article/2072546601789428152 and return its Markdown and image links for a Notion knowledge page.",
+      "expected_output": "The script preserves the X Article URL as the normalized and source URL, derives the same-ID status URL only for tweet.md retrieval, and returns Article Markdown and public image links when available.",
+      "assertions": [
+        "normalized_url and source_url remain https://x.com/claudecode84/article/2072546601789428152",
+        "reader_backend is tweet_md when the Article retrieval succeeds",
+        "attempts[0].reader_url is the derived https://x.com/claudecode84/status/2072546601789428152 URL",
+        "markdown contains the public Article text without replacing the Article source URL",
+        "image_links contains extracted public image URLs when the Article exposes images"
+      ]
+    },
+    {
+      "id": 3,
       "prompt": "Use $url-reader to read a public Instagram post URL and download any extracted images to a temporary directory.",
       "expected_output": "The script uses the generic reader path, preserves the source URL, extracts caption or metadata when available, and records downloaded image paths or per-image errors.",
       "assertions": [
@@ -25,7 +37,7 @@
       ]
     },
     {
-      "id": 3,
+      "id": 4,
       "prompt": "Use $url-reader to read http://localhost:3000/private and explain the result.",
       "expected_output": "The script refuses to fetch private or local URLs and returns a structured Failed result instead of sending the URL to an external reader.",
       "assertions": [
@@ -36,12 +48,12 @@
       ]
     },
     {
-      "id": 4,
+      "id": 5,
       "prompt": "Use $url-reader to read an Instagram Reel URL that resolves to an Instagram login page.",
-      "expected_output": "The script reports reader_status Blocked for the Reel login wall, does not preserve login-page assets as usable images, and leaves downstream workflows enough reason to keep the page in manual review.",
+      "expected_output": "The script reports reader_status Blocked for the Reel login wall, does not preserve login-page assets as usable images, and supplies a structured reason for downstream unresolved-source handling.",
       "assertions": [
         "instagram.com/reel/... login pages return reader_status Blocked",
-        "status_reason mentions the Instagram Reel login wall or manual review",
+        "status_reason mentions the Instagram Reel login wall",
         "login-page static assets are not returned as usable image_links",
         "ordinary instagram.com/p/... posts are not blocked by this rule"
       ]

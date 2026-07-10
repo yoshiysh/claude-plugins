@@ -9,7 +9,7 @@ The script prints one JSON object when run with `--json`. Keep these field names
   "schema_version": "1.0",
   "input_url": "original user-provided URL",
   "normalized_url": "canonical URL after unwrapping and domain normalization",
-  "reader_backend": "x_oembed | generic_reader | null",
+  "reader_backend": "x_oembed | tweet_md | generic_reader | null",
   "http_status": 200,
   "reader_status": "Extracted | Partial | ImagesOnly | Blocked | Failed",
   "status_reason": "machine-readable explanation for the status, or null",
@@ -36,6 +36,8 @@ The script prints one JSON object when run with `--json`. Keep these field names
 - `ImagesOnly`: image URLs are present and textual content is not useful.
 - `Blocked`: login wall, access denial, rate limit, or domain protection.
 - `Failed`: invalid input, unsupported URL, timeout, network failure, or parser failure.
+
+When an extraction backend requires a derived retrieval target, `attempts[].reader_url` records it. For example, an X Article may use a same-ID status URL for `tweet_md`; this must never replace the Article's `normalized_url` or `source_url`.
 
 ## Safety Rules
 

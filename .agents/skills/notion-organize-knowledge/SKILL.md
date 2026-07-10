@@ -59,7 +59,7 @@ flowchart LR
 
 `Inbox URL` のように本文へ URL だけが複数並ぶページを対象にする場合は、その親ページ自体を1件の知識ページとして分類しない。親ページは capture queue として扱い、本文中の URL / bookmark link / plain link を上から順に抽出して、処理上限までの各 URL を独立した URL item として扱う。
 
-URL item ごとに必ず `url-reader` を実行し、`normalized_url`、reader backend/status、metadata、本文断片、失敗理由を取得する。取得結果から `resolved_title` を決め、低リスク更新が許可されている場合は、元の URL 一覧ページ配下に一時子ページを作るか、直接 destination へ置く organized page を作って、そのページ本文へ `Summary`、`Context`、`Source`、`Decision`、`Related Topics` を書く。単なるリンク行だけを Topic Index DB に登録しない。
+URL item ごとに必ず `url-reader` を実行し、`normalized_url`、reader backend/status、metadata、本文断片、失敗理由を取得する。取得結果から `resolved_title` を決め、低リスク更新が許可されている場合は、元の URL 一覧ページ配下に一時子ページを作るか、直接 destination へ置く organized page を作って、そのページ本文へ記事に関連する `Summary`、`Source`、取得本文を書く。分類・取得履歴は本文へ残さない。単なるリンク行だけを Topic Index DB に登録しない。
 
 作成した URL item ページは通常の Inbox ページと同じ成功条件を満たす必要がある。つまり、Topic Index DB 登録、Notion Page の canonical URL、Source URL、Published At、Tags、Related Topics、本文追記、`mcp__notion.notion_move_pages` による Domains 配下への移動、ancestor path 検証を省略しない。処理済み URL は、元の URL 一覧ページ上から削除する。URL 一覧ページは capture queue であり、URL item が canonical page または unresolved page として通常フローへ乗った後は、同じ URL 行を残すと再実行で重複試走するため残さない。削除対象は今回処理して canonical/unresolved page に移した URL 行だけに限定し、未処理 URL、周辺メモ、親ページ自体は残す。削除後も完了報告に `source_queue_page` として一覧ページ名を出し、どの URL を処理して削除したか分かるようにする。
 
@@ -136,7 +136,8 @@ URL だけ、タイトルだけ、または埋め込みだけのページでは�
 - 各 URL-required ページは `reader.required: true`、`reader.attempted: true`、`reader.status` または `reader.status_reason` を持つ。
 - `reader.attempted: true` は `.agents/skills/url-reader/scripts/read_url.py` を実際に起動した場合だけにする。実行不能理由を記録しただけの URL は `attempted: false` のまま `url_reader_missing` に入れ、page-triager へ進めない。
 - URL 一覧ページ由来の item は全件 `reader.required: true` とし、URL 行だけを根拠にした分類へ進めない。
-- X/Twitter URL は `url-reader` の正規化結果として `normalized_url` を持つ。`twitter.com` のまま読めなかった、という理由だけで Inbox 残留にしない。
+- X/Twitter URL は `url-reader` の正規化結果として `normalized_url` を持つ。`x.com/<user>/article/<id>` は、Article URL を正本の `Source URL` / `normalized_url` として保持したまま、url-reader の `tweet_md` 経路で同一 ID の `status` URL から本文と画像を取得する。Article URL を generic reader だけで失敗扱いにしてはいけない。`twitter.com` のまま読めなかった、という理由だけで Inbox 残留にしない。
+- X Article で url-reader の本文が `Blocked` / `Partial` / 空、または画像・本文の保存要件を満たさない場合、ログイン済みの in-app Browser が利用できるなら同じ canonical Article URL を Browser fallback として実行する。Browser を最初の reader の代替にしてはいけず、先に `url-reader` を実行した audit を内部結果へ残す。Browser では `main` 全体やプロフィール・推薦欄を保存せず、`[data-testid="twitterArticleReadView"]` が1件だけ取得できることを確認して、その article view から本文・見出し・コード・引用・リスト・`pbs.twimg.com/media/` の実画像を単一の順序付きブロック列として抽出する。画像 URL は CSS 由来の断片を除外して重複排除し、各画像を元記事と同じ直前/直後の本文位置へ置く。成功ページには記事に関連する `Summary`、`Source`、順序を保った記事本文だけを残す。`Browser Capture`、`Browser Reader Audit`、reader backend/status、取得日時、locator 件数、添付名、静的 HTML、`Rendered Source Text`、内部 Decision などの取得履歴・運用ログを成功ページへ追記してはいけない。監査情報は sub-agent の出力と完了報告だけに残す。ログイン済み Browser が無い、Article view が取得できない、または本文・画像の順序を復元できない場合は Browser 成功扱いにせず、理由を `reader.status_reason` と `unknowns` に残して通常の Partial / Failed 判定へ戻す。
 - `reader.attempted: false` の URL-required ページが1件でもある場合、処理を止めて content-enricher をやり直す。URL を持たないページには適用しない。
 - 意味のある画像・図・スクリーンショットを持つページは `visual_analysis_required: true` とし、実画像を `view_image` 等の画像解析可能な手段で確認した件数を `visual_analysis_attempted_count` に数える。画像 URL や alt テキストだけで解析済みにしてはいけない。
 - 画像が主要な根拠であるページは、`visual_evidence` に画像ごとの短い説明、読めた文字または図の構造、分類への寄与、解析不能ならその理由を残す。画像を解析できず本文にも十分な根拠がない場合は通常登録せず `Unresolved Sources` へ移す。
@@ -173,7 +174,7 @@ page-triager へ渡す前に URL enrichment gate を再確認する。URL-only /
 
 Step 4 の結果をもとに、独立して実行できる場合は同一ターンで並列に呼ぶ。
 
-- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。DB 登録前に、今回登録する `select` / `multi_select` 値が既存 option にあるか確認し、無ければ既存 option を保ったまま追加する。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。対象ページ本文には AI と人間の両方が読む `Summary`、`Context`、`Source`、`Decision`、`Related Topics`、必要なら `Open Questions` を必ず残す。画像を解析したページは、画像が何を示すか、読める文字・図表構造・分類に使ったポイントを `Visual Notes` として追記する。URL-only / embed-only 由来で url-reader が本文や metadata を取得できた場合は、その要約と取得元 URL、公開日が取れた場合の `Published At`、reader backend/status、取得本文断片をページ本文へ追記し、Notion ページ側だけ見ても内容が分かるようにする。本文追記が未完了のページは DB 登録済み・移動済みでも処理完了に数えない。URL 一覧ページ由来の item は、canonical page または unresolved page を作成・移動できたら、元一覧ページから該当 URL 行だけを削除する。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。`keep_in_inbox` は原則 Inbox に残さず、`Unresolved Sources` へ移して取得失敗理由を本文に追記する。ユーザーが一括整理を許可している場合だけ Notion に適用する。
+- `agents/page-normalizer.md`: 処理できたページの Topic Index DB 行を作る。DB 登録前に、今回登録する `select` / `multi_select` 値が既存 option にあるか確認し、無ければ既存 option を保ったまま追加する。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ移す。成功ページ本文には AI と人間が読む記事関連の `Summary`、`Source`、取得本文、必要なら `Open Questions` または `Visual Notes` だけを残す。分類・取得履歴は DB、sub-agent 出力、完了報告に残す。URL-only / embed-only 由来で url-reader が本文や metadata を取得できた場合は、その要約、取得元 URL、取得本文をページ本文へ追記し、Notion ページ側だけ見ても内容が分かるようにする。本文追記が未完了のページは DB 登録済み・移動済みでも処理完了に数えない。URL 一覧ページ由来の item は、canonical page または unresolved page を作成・移動できたら、元一覧ページから該当 URL 行だけを削除する。Topic / Subtopic ページを作る場合、その Summary は「整理済みページを集める場所」ではなく、対象トピック自体の説明・主要概念・採用/回避条件・未解決論点を書く。分類が明確で既存階層が無い場合は、最小限の受け皿で済ませず、将来同種ページが増えても使える自然な Topic / Subtopic 階層を作る。`keep_in_inbox` は原則 Inbox に残さず、`Unresolved Sources` へ移して取得失敗理由を本文に追記する。ユーザーが一括整理を許可している場合だけ Notion に適用する。
 - `agents/duplicate-reviewer.md`: 類似ページ、古いメモ、正式ページ候補を検出し、代表ページと削除対象を決める。重複ページは原則 Topic Index DB に登録しない。ユーザーが削除を許可している場合は削除/アーカイブ可能な MCP ツールを使って重複ページを削除する。削除ツールが無い場合は削除不能として報告し、重複ページを成功パスへ混ぜない。
 
 不可逆な本文置換、既存 DB スキーマの破壊的変更は行わない。重複削除はユーザーが明示的に許可した場合だけ行う。処理済みページは Inbox から `Domains/{Domain}/{Topic}/{Subtopic}` 配下へ出す。判断が弱いページは DB 登録せず `Unresolved Sources` へ移し、完了報告の `Unresolved Sources移動` に理由付きで必ず含める。Inbox 残留ページを Topic Index DB に入れると再実行時に重複試走しやすいため、取得不能・根拠不足のページは Inbox から分離する。
@@ -182,14 +183,15 @@ Step 4 の結果をもとに、独立して実行できる場合は同一ター�
 
 `agents/update-verifier.md` を Read し、更新結果、重複レビュー、判断不能項目を渡す。検証結果が `status: revise` の場合は page-normalizer に1回だけ差し戻す。2回目も失敗する場合は、失敗理由と対象ページをユーザーへ提示して止める。
 
-update-verifier には、対象件数、URL enrichment gate と visual enrichment gate の件数、本文追記済み件数、URL 一覧ページの cleanup audit、重複削除/削除不能リスト、Unresolved Sources 移動リスト、`notion_move_pages` の実行ログ、移動後 fetch で確認した ancestor path を渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、画像解析必須件数と実画像解析件数が一致しない場合、画像主要ページに `Visual Notes` がない場合、処理対象ページに `Summary`、`Source`、`Decision` の追記検証が欠けている場合、URL 一覧ページ由来の完了 item が元一覧ページに残っている場合、または移動対象で `notion_move_pages` 実行・ancestor 検証が欠けている場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
+update-verifier には、対象件数、URL enrichment gate と visual enrichment gate の件数、本文追記済み件数、URL 一覧ページの cleanup audit、重複削除/削除不能リスト、Unresolved Sources 移動リスト、`notion_move_pages` の実行ログ、移動後 fetch で確認した ancestor path を渡す。URL-required 件数と url-reader 実行済み件数が一致しない場合、画像解析必須件数と実画像解析件数が一致しない場合、画像主要ページに必要な `Visual Notes` がない場合、処理対象ページに記事関連の `Summary`、`Source`、取得本文の追記検証が欠けている場合、成功ページに分類・取得履歴が残っている場合、URL 一覧ページ由来の完了 item が元一覧ページに残っている場合、または移動対象で `notion_move_pages` 実行・ancestor 検証が欠けている場合、検証結果は必ず `status: revise` とし、完了報告へ進まない。
 
 司令塔は Step 7 の完了報告前に、update-verifier の結果を使って最後の記述漏れゲートを必ず確認する。このゲートは件数が多い場合でも省略しない。
 
 - DB 登録済みページは DB 行に `Title`、`Summary`、`Notion Page`、`Domain`、`Topic`、`Type`、`Source Type`、`Tags` が入っている。`Subtopic`、`Source URL`、`Related Topics`、`Published At` は根拠がある場合だけ入れるが、空欄の場合は本文の `Open Questions` または verifier findings に理由が残っている。
 - DB 登録または DB 更新で `Type`、`Source Type`、`Domain`、`Tags`、`Related Topics` の option 不足エラーが出たページは、`schema_option_audit` に不足値、`tool_search`、`mcp__notion.notion_update_data_source`、schema 再 fetch、同一値での再試行結果が残っている。値を落として再試行したページは記述漏れではなく実行ミスとして `status: revise` にする。
-- 移動済みページ本文に `Summary`、`Context`、`Source`、`Decision`、`Related Topics` がある。必要な場合は `Open Questions` もある。見出しだけで中身が空、リンクだけ、短い分類メモだけの場合は記述漏れとして扱う。
+- 移動済み成功ページ本文には、記事関連の `Summary`、`Source`、取得本文がある。必要な場合は `Open Questions` または `Visual Notes` もある。見出しだけで中身が空、リンクだけ、短い分類メモだけ、または分類・取得履歴が残っている場合は記述漏れとして扱う。
 - URL-only / embed-only / 弱いタイトル由来のページは、本文に source URL、reader backend/status、取得結果の短い要約または取得失敗理由がある。
+- Browser fallback を使った X Article は、対象ページに取得履歴用の見出し・添付・監査ログがなく、記事本文の見出し・段落・コード・引用・リスト・画像が元記事と同じ順序で並ぶ。画像数と本文中の画像位置が Browser の抽出結果と一致しない場合は、Browser 取得成功・本文追記済み・処理完了に数えない。
 - 画像を分類根拠に使ったページは、本文に `Visual Notes` があり、画像 URL/ファイル名だけでなく、画像が示す内容と分類に使った観測事実が書かれている。
 - URL 一覧ページ由来で canonical page または unresolved page を作成・移動できた item は、元一覧ページから該当 URL 行が削除されている。未処理 URL や周辺メモは削除されていない。
 - `Published At` が空の場合は、Notion created/updated で代用していないことを確認する。公開日が不明なだけなら空欄でよい。

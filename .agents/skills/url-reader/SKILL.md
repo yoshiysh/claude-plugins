@@ -2,7 +2,7 @@
 name: url-reader
 description: >
   Enriches URL-only notes, Notion/bookmark inbox items, and captured social post links by using domain-aware reader backends to produce stable Markdown, metadata, image links, and structured failure states.
-  Use when Codex needs to normalize twitter.com links to x.com, inspect whether X/Twitter or Instagram posts can be read, download extracted public image assets, or classify login walls, blocked domains, partial extraction, and unsupported private URLs. Do not use for general web browsing, latest-news research, or official API documentation lookup.
+  Use when Codex needs to normalize twitter.com links to x.com, read X/Twitter posts or X Articles, inspect whether Instagram posts can be read, download extracted public image assets, or classify login walls, blocked domains, partial extraction, and unsupported private URLs. Do not use for general web browsing, latest-news research, or official API documentation lookup.
 ---
 
 # URL Reader
@@ -43,9 +43,10 @@ python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com
 
 Use these reader paths:
 
-- `x.com/<user>/status/<id>`: fetch `publish.x.com/oembed` first. Use the returned blockquote paragraph as `markdown`, keep `author_name`, `author_url`, and the date-like link text when present, and report `reader_backend: x_oembed`.
+- `x.com/<user>/status/<id>`: fetch `publish.x.com/oembed` first. Use the returned blockquote paragraph as `markdown`, keep `author_name`, `author_url`, and the date-like link text when present, and report `reader_backend: x_oembed`. If that paragraph is only one `t.co` link, derive `x.com/<user>/article/<id>` from the original status URL and try the X Article route before treating the post as link-only.
 - `twitter.com/<user>/status/<id>` and mobile/www variants: normalize to the equivalent `x.com` URL, then use the X oEmbed path.
 - `twitter.com/i/web/status/<id>`: normalize to `x.com/i/status/<id>` before using X oEmbed.
+- `x.com/<user>/article/<id>`: keep the Article URL as `normalized_url` and `source_url`, derive `x.com/<user>/status/<id>` only for retrieval, then call `https://tweet.md/i/api/convert?url=<derived-status-url>`. Report `reader_backend: tweet_md`. Use the returned Markdown and image links as Article evidence. Do not send the original Article URL to Jina before this route. An opaque `x.com/i/article/<id>` redirect URL is not a same-ID status URL; when its originating `<user>/status/<id>` URL is available, use that original status URL so the canonical Article route can be derived.
 - Instagram post URLs: use the generic reader path. It can often return the caption, author link, location, hashtags, and signed image URLs.
 - Instagram Reel URLs (`instagram.com/reel/...`): if the reader returns an Instagram login page or generic shell, report `Blocked` and do not treat extracted login assets as usable images.
 - Other public URLs: use the generic reader path unless a more specific domain backend has been added.
@@ -64,7 +65,7 @@ Use these extraction statuses:
 
 For Instagram, image URLs may expire, so download them immediately when the user asks for images. Do not download or preserve login-page assets from Reel URLs.
 
-For X, if oEmbed fails, the script falls back to the generic reader path. If both paths fail, report the exact error and fall back to official X API, browser automation with a logged-in session, another configured backend, or `Needs Review`.
+For X status posts, if oEmbed fails, the script falls back to the generic reader path. For X Articles, if tweet.md fails, the script falls back to the generic reader path. If both paths fail, report the exact error and fall back to browser automation with a logged-in session or another configured backend. Do not infer Article text and do not use `Needs Review` as a default failure state.
 
 ## Output To Use Downstream
 
@@ -94,4 +95,4 @@ For Notion knowledge organization, only register the page when `reader_status` i
 
 ## Validation
 
-Use [evals/evals.json](evals/evals.json) as the minimum regression set after changing routing, safety checks, or the JSON contract. Always run the script on at least one X post, one generic public URL, and one refused private/local URL.
+Use [evals/evals.json](evals/evals.json) as the minimum regression set after changing routing, safety checks, or the JSON contract. Always run the script on at least one X post, one X Article, one generic public URL, and one refused private/local URL.

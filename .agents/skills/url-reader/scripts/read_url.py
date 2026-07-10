@@ -25,6 +25,7 @@ TITLE_RE = re.compile(r"^Title:\s*(.+)$", re.MULTILINE)
 SOURCE_RE = re.compile(r"^URL Source:\s*(.+)$", re.MULTILINE)
 X_STATUS_RE = re.compile(r"^/(?:([^/]+)/status(?:es)?|i/status)/(\d+)")
 X_WEB_STATUS_RE = re.compile(r"^/i/web/status/(\d+)")
+X_ARTICLE_RE = re.compile(r"^/([^/]+)/article/(\d+)")
 LINK_RE = re.compile(r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 INSTAGRAM_REEL_RE = re.compile(r"^/reel/[^/]+/?")
@@ -87,6 +88,14 @@ def normalize_x_status_url(parsed: urllib.parse.ParseResult) -> urllib.parse.Par
     return parsed
 
 
+def normalize_x_article_url(parsed: urllib.parse.ParseResult) -> urllib.parse.ParseResult:
+    article_match = X_ARTICLE_RE.match(parsed.path)
+    if article_match:
+        username, article_id = article_match.groups()
+        return parsed._replace(path=f"/{username}/article/{article_id}", query="", fragment="")
+    return parsed
+
+
 def normalize_url(url: str) -> str:
     unwrapped = unwrap_reader_url(url)
     parsed = urllib.parse.urlparse(unwrapped)
@@ -95,7 +104,9 @@ def normalize_url(url: str) -> str:
     if host_without_www == "twitter.com":
         parsed = parsed._replace(netloc="x.com")
     if parsed.netloc.lower().removeprefix("www.").removeprefix("mobile.") == "x.com":
+        parsed = parsed._replace(netloc="x.com")
         parsed = normalize_x_status_url(parsed)
+        parsed = normalize_x_article_url(parsed)
         return urllib.parse.urlunparse(parsed)
     return unwrapped
 
@@ -104,6 +115,32 @@ def is_x_status_url(url: str) -> bool:
     parsed = urllib.parse.urlparse(url)
     host = parsed.netloc.lower().removeprefix("www.").removeprefix("mobile.")
     return host == "x.com" and bool(X_STATUS_RE.match(parsed.path))
+
+
+def x_article_status_url(url: str) -> str | None:
+    """Map a public X Article URL to the matching status URL for tweet.md."""
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.").removeprefix("mobile.")
+    article_match = X_ARTICLE_RE.match(parsed.path)
+    if host != "x.com" or not article_match:
+        return None
+    username, article_id = article_match.groups()
+    return f"https://x.com/{username}/status/{article_id}"
+
+
+def x_status_article_url(url: str) -> str | None:
+    """Derive a canonical X Article URL from a user-scoped status URL."""
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc.lower().removeprefix("www.").removeprefix("mobile.")
+    status_match = X_STATUS_RE.match(parsed.path)
+    if host != "x.com" or not status_match:
+        return None
+    username, status_id = status_match.groups()
+    return f"https://x.com/{username}/article/{status_id}" if username else None
+
+
+def is_x_article_url(url: str) -> bool:
+    return x_article_status_url(url) is not None
 
 
 def is_instagram_reel_url(url: str) -> bool:
@@ -170,6 +207,12 @@ def markdown_from_x_oembed(oembed_html: str) -> tuple[str, list[dict[str, str]],
     return markdown.strip(), links, date_link
 
 
+def is_tco_only_markdown(markdown: str) -> bool:
+    """Identify an X post whose entire oEmbed body is one t.co redirect."""
+    parsed = urllib.parse.urlparse(markdown.strip())
+    return parsed.scheme == "https" and parsed.netloc.lower() == "t.co" and bool(parsed.path)
+
+
 def build_x_oembed_result(input_url: str, normalized_url: str, timeout: int, image_dir: str | None) -> dict[str, object]:
     status_code, payload, error = fetch_x_oembed(normalized_url, timeout)
     if not payload:
@@ -189,6 +232,17 @@ def build_x_oembed_result(input_url: str, normalized_url: str, timeout: int, ima
     title = str(payload.get("author_name") or "X post")
     status = "Extracted" if markdown else "Partial"
     status_reason = None if markdown else "X oEmbed returned metadata but no post paragraph text"
+    oembed_attempt = {"backend": "x_oembed", "http_status": status_code, "status": status, "reason": status_reason}
+    article_url = x_status_article_url(normalized_url)
+    if article_url and is_tco_only_markdown(markdown):
+        oembed_attempt["reason"] = "X oEmbed returned only a t.co link; trying the canonical Article URL"
+        return build_x_article_result(
+            input_url,
+            article_url,
+            timeout,
+            image_dir,
+            previous_attempts=[oembed_attempt],
+        )
     return {
         "schema_version": RESULT_SCHEMA_VERSION,
         "input_url": input_url,
@@ -206,10 +260,94 @@ def build_x_oembed_result(input_url: str, normalized_url: str, timeout: int, ima
         "links": links,
         "image_links": [],
         "downloaded_images": [],
-        "attempts": [{"backend": "x_oembed", "http_status": status_code, "status": status, "reason": status_reason}],
+        "attempts": [oembed_attempt],
         "warnings": ["X oEmbed does not reliably expose attached media URLs."],
         "error": None,
         "raw_oembed": payload,
+    }
+
+
+def fetch_tweet_markdown(status_url: str, timeout: int) -> tuple[int, str]:
+    """Fetch an X post or Article as Markdown through tweet.md."""
+    validate_public_http_url(status_url)
+    query = urllib.parse.urlencode({"url": status_url})
+    request = urllib.request.Request(
+        f"https://tweet.md/i/api/convert?{query}",
+        headers={"User-Agent": "codex-url-reader-skill/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            return int(response.status), body
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return int(exc.code), body
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return 0, str(exc)
+
+
+def title_from_markdown(markdown: str) -> str | None:
+    match = re.search(r"^#\s+(.+?)\s*$", markdown, flags=re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+def build_x_article_result(
+    input_url: str,
+    normalized_url: str,
+    timeout: int,
+    image_dir: str | None,
+    previous_attempts: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    status_url = x_article_status_url(normalized_url)
+    attempts = list(previous_attempts or [])
+    if not status_url:
+        return build_generic_result(input_url, normalized_url, timeout, image_dir)
+
+    status_code, markdown = fetch_tweet_markdown(status_url, timeout)
+    images = extract_images(markdown)
+    status, status_reason = classify_with_reason(status_code, markdown)
+    attempt = {
+        "backend": "tweet_md",
+        "http_status": status_code,
+        "status": status,
+        "reason": status_reason,
+        "reader_url": status_url,
+    }
+    attempts.append(attempt)
+    if status in {"Blocked", "Failed"}:
+        return build_generic_result(
+            input_url,
+            normalized_url,
+            timeout,
+            image_dir,
+            fallback_error=f"tweet.md failed for derived status URL: {status_reason or f'HTTP {status_code}'}",
+            previous_attempts=attempts,
+        )
+
+    downloaded = download_images(images, Path(image_dir), timeout) if image_dir else []
+    username = urllib.parse.urlparse(normalized_url).path.split("/", 2)[1]
+    author_handle = username if username != "i" else None
+    return {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "input_url": input_url,
+        "normalized_url": normalized_url,
+        "reader_backend": "tweet_md",
+        "http_status": status_code,
+        "reader_status": status,
+        "status_reason": status_reason,
+        "title": title_from_markdown(markdown),
+        "source_url": normalized_url,
+        "author_name": author_handle,
+        "author_url": f"https://x.com/{author_handle}" if author_handle else None,
+        "published_at_text": None,
+        "markdown": markdown.strip(),
+        "links": [],
+        "image_links": images,
+        "downloaded_images": downloaded,
+        "attempts": attempts,
+        "warnings": ["X Article content was retrieved through tweet.md using the derived status URL."],
+        "error": None,
+        "raw_oembed": None,
     }
 
 
@@ -415,6 +553,7 @@ def build_generic_result(
 
 
 DOMAIN_ROUTES = (
+    {"backend": "tweet_md", "matches": is_x_article_url, "handler": build_x_article_result},
     {"backend": "x_oembed", "matches": is_x_status_url, "handler": build_x_oembed_result},
 )
 
