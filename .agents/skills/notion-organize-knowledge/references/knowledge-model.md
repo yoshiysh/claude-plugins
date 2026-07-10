@@ -149,9 +149,9 @@ Knowledge HOME
 
 When the source is a broad bookmark page, inbox page, or URL-only list page, treat it as a capture queue, not as the final knowledge hierarchy. The intended workflow is:
 
-1. User drops pages, article links, notes, copied snippets, or URL-only lines into `Bookmark` / `Inbox` / `Inbox URL`.
+1. User drops pages, article links, notes, copied snippets, images, or URL-only lines into `Bookmark` / `Inbox` / `Inbox URL`. A URL is optional for a normal Notion page.
 2. Read each captured page. For URL-only list pages, extract URL lines top-to-bottom up to the batch limit and treat each URL as its own item.
-3. Enrich each item from URL, embed, existing Notion clip, attachment text, or page body. URL-only items must run url-reader before classification.
+3. Enrich each item from URL, embed, existing Notion clip, attachment text, page body, and meaningful images. URL-only items must run url-reader before classification. Pages whose image is a material source must open and analyze the actual image, not just preserve its URL or alt text.
 4. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
 5. If classification is confident enough, register the captured page or URL item page in `Topic Index` with Domain / Topic / Subtopic fields.
 6. Move the captured page or URL item page out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet, create one before DB registration and movement.
@@ -311,6 +311,9 @@ Why it was captured or researched, including relevant assumptions.
 
 ## Notes
 Main notes, excerpts, implementation steps, facts, or observations.
+
+## Visual Notes
+For images used as evidence: what each image shows, legible text or diagram structure, and the observed point used for classification. Omit this section when images are absent or purely decorative. Do not persist temporary signed image URLs.
 
 ## Decision
 Personal judgment, chosen approach, rejected options, or investment stance. Leave blank when there is no decision.

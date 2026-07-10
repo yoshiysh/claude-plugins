@@ -62,6 +62,18 @@
       }
     ]
   },
+  "visual_analysis_audit": {
+    "visual_analysis_required_count": 0,
+    "visual_analysis_attempted_count": 0,
+    "attempted_means": "image_opened_with_visual_analysis_tool",
+    "visual_analysis_missing": [
+      {
+        "page_id": "string",
+        "image_source": "string",
+        "reason": "string"
+      }
+    ]
+  },
   "pages": [
     {
       "page_id": "string",
@@ -87,6 +99,17 @@
         "attempts": [],
         "warnings": []
       },
+      "visual_analysis_required": false,
+      "visual_evidence": [
+        {
+          "source": "string",
+          "analysis_status": "Analyzed|Unavailable|NotRequired",
+          "description": "string",
+          "observations": [],
+          "classification_relevance": "string|null",
+          "reason": "string|null"
+        }
+      ],
       "summary": "string",
       "source_notes": [],
       "decision_notes": [],
@@ -187,6 +210,9 @@
       "has_open_questions": false,
       "reader_status_recorded": true,
       "source_url_recorded": true,
+      "visual_notes_required": false,
+      "has_visual_notes": false,
+      "visual_evidence_recorded": true,
       "section_details": {
         "Summary": "present|missing|empty",
         "Context": "present|missing|empty",
