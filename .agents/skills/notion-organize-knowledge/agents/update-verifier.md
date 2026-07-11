@@ -10,7 +10,7 @@ description: >
 
 ## 手順
 
-1. 更新済み件数と提案件数が対象件数と矛盾しないか確認する。
+1. 更新済み件数と提案件数が対象件数と矛盾しないか確認する。親ページを対象件数へ混ぜていないこと、全 item が `registered` / `unresolved` / `deferred` のいずれか一つの終端状態を持つことを確認する。途中で打ち切った item、Browser 未確認 item、上限外 item は `deferred` にあり、processed / db_registered / moved の件数に含まれていなければならない。ローカル batch manifest を `scripts/validate_run_audit.py` で検証して `passed` でない場合は、他の確認結果にかかわらず `status: revise` にする。
 2. URL reader audit を確認する。`url_reader_attempted_count` は read_url.py を実際に起動した件数だけでなければならない。実行不能理由を記録しただけの URL を attempted に数えている場合は `status: revise` にする。`url_reader_required_count` と `url_reader_attempted_count` が一致しない、`url_reader_missing` が空でない、または URL-required ページに `reader.status` と `reader.status_reason` の両方が無い場合は `status: revise` にする。この不一致は Inbox 残留ではなく実行漏れとして扱う。
    - `scope.kind: url_list_page` または `source_queue_page_id` を持つ URL item は全件 URL-required として扱う。親の URL-only list page を reader 済み扱いにして、各 URL item の reader audit を省略している場合は `status: revise` にする。
 **Visual analysis audit.** 内容に関わる画像・図・スクリーンショットを持つページは `visual_analysis_required: true` でなければならない。`visual_analysis_attempted_count` は実画像を `view_image` 等の画像解析可能な手段で確認したページ数だけにする。画像 URL、alt text、ファイル名だけを attempted に数えた場合、required と attempted が一致しない場合、`visual_analysis_missing` が空でない場合、または画像主要ページに `visual_evidence` がない場合は `status: revise` にする。
@@ -21,7 +21,7 @@ description: >
    - URL-only list item の `Notion Page` は、作成または移動された item page の canonical URL でなければならない。親の `Inbox URL` / URL-only list page の URL、または外部 source URL を入れている場合は `status: revise` にする。
 6. DB 登録されたページで `Domain`、`Topic`、`Summary`、`Notion Page` が空のままになっていないか確認する。判断不能なページは DB 登録せず `Unresolved Sources` へ移動されている必要がある。
 7. `register_and_move_to_topic_page` の対象について、移動前または移動後の成功ページ本文に記事関連の `Summary`、`Source`、取得本文があるか確認する。必要な場合は `Open Questions` または `Visual Notes` を確認する。見出しだけで中身が空、リンクだけ、短い分類メモだけ、または `Summary` だけで source URL / 取得本文が無い場合は記述漏れとして `status: revise` にする。`Context`、`Decision`、`Related Topics`、reader backend/status、取得日時、実行回数、`Browser Capture`、`Browser Reader Audit`、静的 HTML attachment は成功ページ本文に不要であり、残っている場合は `status: revise` にする。URL-only / embed-only 由来なら source URL と取得結果の要約または取得不能理由が必要。欠けている場合は `status: revise` にする。
-   - Browser fallback の X Article は、article view から抽出した見出し、段落、コード、引用、リスト、画像が元記事と同じ順序で本文にあるか確認する。画像を別節へ集約している、画像と前後の本文の対応が失われている、または記事 UI のプロフィール・反応数・誘導文を本文へ混ぜている場合は `status: revise` にする。
+   - Browser fallback の X Article は、article view から抽出した見出し、段落、コード、引用、リスト、画像が元記事と同じ順序で本文にあるか確認する。画像を別節へ集約している、画像と前後の本文の対応が失われている、または記事 UI のプロフィール・反応数・誘導文を本文へ混ぜている場合は `status: revise` にする。Browser が `not_found` / `blocked` を返した場合は、canonical URL、最終 URL、article view 件数、判定理由が audit に揃っていなければ `status: revise` にする。URL を推測変換して開いた結果だけで取得不能を確定している場合も `status: revise` にする。
    - URL-only list item 由来なら、本文の `Context` または `Source` に source queue page/title/position のいずれかが記録されているか確認する。どのリストから来た URL か追えない場合は `status: revise` にする。
 8. `register_and_move_to_topic_page` の対象が `mcp__notion.notion_move_pages` で移動されているか確認する。`move_audit.tool` が `mcp__notion.notion_move_pages` でない、`move_audit.attempted` が `true` でない、または `<page>` / `<mention-page>` / URL 追記 / `notion-update-page` だけで済ませている場合は `status: revise` にする。
 9. `register_and_move_to_topic_page` の対象を `notion-fetch` し、ancestor path の直近 parent が期待する Domain / Topic / Subtopic であり、Inbox が ancestor に残っていないか確認する。残っている場合、または ancestor 検証が無い場合は `status: revise` にする。

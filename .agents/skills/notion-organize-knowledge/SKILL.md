@@ -18,6 +18,18 @@ Notion を作業場・閲覧 UI・入力口として使いながら、後で Mar
 
 ## 全体フロー
 
+## 強制実行プロトコル（省略禁止）
+
+このスキルでは、個別ページを見つけて即時に更新・移動・完了報告してはいけない。必ずバッチ台帳を作り、全対象を `pending` として固定してから実行する。親ページは台帳に入れず、子ページまたは URL item だけを数える。台帳の各 item は少なくとも `page_id`、元タイトル、source URL、`url_required`、reader 実行結果、Browser 実行結果、分類、DB、本文、移動、ancestor 検証、最終状態を持つ。
+
+最終状態は `registered`、`unresolved`、`deferred` の三つだけにする。`registered` は DB 登録・本文検証・`notion_move_pages` 実行・ancestor path 検証の全てが true の場合だけにする。`unresolved` は理由・reader 結果・Unresolved Sources への移動・ancestor path 検証がある場合だけにする。未確認、途中失敗、対象外、上限外は `deferred` にし、処理済み件数へ含めない。
+
+書込み前に台帳の対象と URL enrichment gate を確定し、書込み後・完了報告前に `scripts/validate_run_audit.py <manifest.json>` を実行する。検証が失敗したバッチは、DB登録済み・移動済み・処理済みとして報告してはいけない。検証スクリプトは運用ログを Notion 本文へ保存するためのものではなく、ローカル一時ファイルだけに使う。
+
+Browser fallback は URL を推測して開かない。url-reader の `normalized_url` または X の canonical Article URL を台帳に固定してから開く。Browser で「ページが存在しない」と出た場合は、開いた URL、最終 URL、記事 view の件数を記録し、canonical URL が一致すると確認できた場合だけ `not_found` と判断する。投稿 URL・`i/article` URL・Article URL を互いに推測変換しただけでは失敗根拠にならない。
+
+途中経過では「候補」「取得試行済み」「未検証」を明示し、`Browserで取得不能`、`分類済み`、`移動済み`、`完了` の断定は台帳の対応する検証フィールドが true のときだけ使う。ユーザーが次のバッチを指示した場合も、前バッチの台帳が `passed` でなければ次バッチへ進まず、先に `revise` 対象を処理する。
+
 ## Notion MCP tool 露出の必須条件
 
 Notion MCP の tool は初期表示に出ていないことがある。初期 tool 一覧に無いだけで「作成できない」「移動できない」「option 追加できない」「削除できない」と判断してはいけない。必要な操作がある場合は、まず `tool_search` で該当 tool を露出させ、露出後は下記の実 tool 名を使う。

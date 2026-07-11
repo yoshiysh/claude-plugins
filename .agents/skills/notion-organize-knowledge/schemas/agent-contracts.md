@@ -99,6 +99,14 @@
         "attempts": [],
         "warnings": []
       },
+      "browser_capture": {
+        "attempted": false,
+        "canonical_url": "string|null",
+        "final_url": "string|null",
+        "status": "not_attempted|success|not_found|blocked|failed",
+        "article_view_count": 0,
+        "reason": "string|null"
+      },
       "visual_analysis_required": false,
       "visual_evidence": [
         {
@@ -308,5 +316,31 @@
     "remaining": 0
   },
   "human_review": []
+}
+```
+
+## batch manifest (local only)
+
+Write one JSON manifest per batch before applying writes and validate it with `scripts/validate_run_audit.py`. Do not put this operational record in Notion page bodies.
+
+```json
+{
+  "target_count": 1,
+  "items": [
+    {
+      "page_id": "string",
+      "state": "registered|unresolved|deferred",
+      "url_required": true,
+      "reader": {"attempted": true, "status": "Extracted", "status_reason": null},
+      "browser": {"attempted": false, "canonical_url": null, "status": "not_attempted", "article_view_count": 0},
+      "db_registered": true,
+      "content_verified": true,
+      "move_attempted": true,
+      "move_verified": true,
+      "destination_page_id": "string",
+      "unresolved_reason": null,
+      "deferred_reason": null
+    }
+  ]
 }
 ```
