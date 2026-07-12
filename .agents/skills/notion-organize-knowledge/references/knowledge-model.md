@@ -136,6 +136,8 @@ Knowledge HOME
 - A page counts as organized only after it is registered in `Topic Index`, moved out of `Inbox`, and normalized so AI and humans can read the same canonical page.
 - Prefer DB registration over page hierarchy. A page can belong to multiple topics through DB properties and tags, while a page hierarchy has only one parent.
 - Treat page movement as physical cleanup and human navigation. The searchable classification lives in `Topic Index`; the canonical content lives in the moved Topic/Subtopic page.
+- Preserve page identity for existing Notion inputs. If an item has `page_id`, that page is both the source page and canonical content (`source_page_id == canonical_page_id`); update and move it in place. Only a URL-only list item with no `page_id` may create a dedicated canonical page. A separate source page and canonical page without a consumed queue record is a duplicate.
+- Keep the identity mode in the queue record: `existing_page` for an existing Notion page, `url_item` for a URL-only row with `source_queue_page_id` and no `page_id`. Verify this mode before applying writes and again after Notion refetch.
 - Keep `Knowledge HOME`, `Topic Index`, `Domains`, and `Unresolved Sources` out of `Inbox`. Inbox is not a parent for organized infrastructure.
 - Do not create or update `Knowledge INDEX`. Use `Topic Index` DB views and the `Domains` hierarchy instead. If a navigation cache becomes useful later, add it only after explicit user direction.
 - Prefer one physical hierarchy under `Domains`: `Domains/{Domain}/{Topic}/{Subtopic}`. Do not create a parallel top-level `Topics` tree unless the user explicitly wants that view; it usually duplicates the Domain tree.
@@ -154,7 +156,7 @@ When the source is a broad bookmark page, inbox page, or URL-only list page, tre
 3. Enrich each item from URL, embed, existing Notion clip, attachment text, page body, and meaningful images. URL-only items must run url-reader before classification. Pages whose image is a material source must open and analyze the actual image, not just preserve its URL or alt text.
 4. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
 5. If classification is confident enough, register the captured page or URL item page in `Topic Index` with Domain / Topic / Subtopic fields.
-6. Move the captured page or URL item page out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet, create one before DB registration and movement.
+6. Move the captured page itself out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet (`page_id: null`), create one before DB registration and movement; this is the only new-page exception.
 7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list.
 8. For URL-only list items, remove the processed URL line from the source list after the canonical page or unresolved page exists and its destination has been verified.
 9. If confidence is low, do not register a Topic Index row. Create or use a page for the unresolved URL item, move it to `Unresolved Sources` with the failed extraction or weak-evidence reason, remove that URL line from the source list, and report it to the user.
@@ -304,10 +306,10 @@ Normalize pages toward this shape:
 
 ```markdown
 ## Summary
-What this page is about and the current conclusion.
+What this page is about, limited to evidence available in the page or source.
 
-## Context
-Why it was captured or researched, including relevant assumptions.
+## Source
+Original URL and the provenance needed to interpret the note.
 
 ## Notes
 Main notes, excerpts, implementation steps, facts, or observations.
@@ -318,17 +320,16 @@ For images used as evidence: what each image shows, legible text or diagram stru
 ## Decision
 Personal judgment, chosen approach, rejected options, or investment stance. Leave blank when there is no decision.
 
-## Links
-Original source URLs and related Notion pages.
-
-## Related Topics
-Other topics that should retrieve this page even though they are not its physical parent.
-
-## Next
+## Open Questions
 Open questions, follow-up tasks, or verification needed.
+
+## Links
+Related Notion pages and sources not already listed in Source.
 ```
 
-For source-only clips, keep `Decision` empty and make `Source URL` explicit. For decision pages, include links to sources used.
+`Summary`、`Source`、`Notes` are required for a successful organized page. `Visual Notes` is required only when images materially support the page. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
+
+Do not write `Context`, reader backend/status, retrieval time, Browser capture data, locator counts, queue state, classification history, or other operational audit data into a successful page. Keep them in the local queue, agent proposal, and verifier record. For source-only clips, keep `Decision` absent and make `Source URL` explicit. For decision pages, include links to the sources used.
 
 ## Duplicate Handling
 
@@ -336,7 +337,7 @@ When duplicates are detected:
 
 1. Pick the clearer, more complete, or more recent page as the retained page.
 2. Register only the retained page in Topic Index.
-3. If the user has allowed deletion, delete/archive weaker duplicate captures when the tool is available.
+3. Delete/archive weaker duplicate captures by default when the deletion tool is available.
 4. If deletion is unavailable, report the duplicate as `duplicate_delete_unavailable`; do not add a duplicate Topic Index row.
 5. Do not use `Canonical Role`, `Canonical`, or `Canonical URL` columns.
 

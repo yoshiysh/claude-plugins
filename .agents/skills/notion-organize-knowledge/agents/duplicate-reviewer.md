@@ -20,7 +20,7 @@ description: >
 4. 強い重複は Topic Index DB に追加しない。`Duplicate` の DB 行を増やすのではなく、代表ページ1件だけが残る状態を目標にする。
 5. 古い可能性が高いが同一 source ではないページは、削除せず `human_review` または通常の関連ページとして報告する。`Status` や `Canonical Role` の DB 列は使わない。
 6. 可能なら代表ページの URL を `canonical_page_url` として返す。ただし `Canonical URL` DB 列は使わない。
-7. 削除は page-normalizer が、ユーザー許可と Notion MCP の削除/アーカイブツール有無を確認して実行する。duplicate-reviewer は削除対象候補と根拠だけを返す。
+7. 強い重複の `delete_candidates` は page-normalizer が、Notion MCP の削除・アーカイブ・trash ツールの有無を確認して既定で処理する。duplicate-reviewer は削除対象候補と根拠を返し、削除ツールが無い場合は `duplicate_delete_unavailable` の根拠を残す。
 8. 根拠が弱い場合は `confidence: low` とし、人間確認対象にする。
 
 ## 出力

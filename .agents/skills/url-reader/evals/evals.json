@@ -16,11 +16,12 @@
     {
       "id": 2,
       "prompt": "Use $url-reader to read https://x.com/claudecode84/article/2072546601789428152 and return its Markdown and image links for a Notion knowledge page.",
-      "expected_output": "The script preserves the X Article URL as the normalized and source URL, derives the same-ID status URL only for tweet.md retrieval, and returns Article Markdown and public image links when available.",
+      "expected_output": "The script preserves the X Article URL as the normalized and source URL, reads it through the generic reader, and returns Article Markdown and image links when available.",
       "assertions": [
         "normalized_url and source_url remain https://x.com/claudecode84/article/2072546601789428152",
-        "reader_backend is tweet_md when the Article retrieval succeeds",
-        "attempts[0].reader_url is the derived https://x.com/claudecode84/status/2072546601789428152 URL",
+        "reader_backend is generic_reader or browser4 when the Article retrieval succeeds",
+        "the Article URL remains the retrieval URL; no derived status URL is required",
+        "when generic_reader and Browser4 remain incomplete, browser_fallback.required is true and surface is in_app_browser",
         "markdown contains the public Article text without replacing the Article source URL",
         "image_links contains extracted public image URLs when the Article exposes images"
       ]
@@ -56,6 +57,17 @@
         "status_reason mentions the Instagram Reel login wall",
         "login-page static assets are not returned as usable image_links",
         "ordinary instagram.com/p/... posts are not blocked by this rule"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Use $url-reader to read a public article URL whose generic reader and Browser4 fallback cannot extract the body.",
+      "expected_output": "The script preserves the best structured result and emits a mandatory in-app Browser handoff instead of silently ending at Browser4.",
+      "assertions": [
+        "browser_fallback.required is true",
+        "browser_fallback.surface is in_app_browser",
+        "browser_fallback.canonical_url is the normalized public URL",
+        "the handoff is not emitted for a complete Extracted result"
       ]
     }
   ]
