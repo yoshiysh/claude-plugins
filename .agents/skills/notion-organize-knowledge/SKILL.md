@@ -98,11 +98,14 @@ python3 "$QUEUE" dispatch --workspace "$WORKSPACE" --run-id '<run>' --max-claims
 # worklist の各 job は、実際に開始する直前に claim する
 python3 "$QUEUE" claim --workspace "$WORKSPACE" --run-id '<run>' \
   --job-id '<job-id>' --worker-id 'worker-1'
+# 既に registered/unresolved/deferred の job を訂正する場合は claim ではなく reopen
+python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
+  --job-id '<job-id>' --worker-id 'worker-2' --reason 'source_url should point at the original publisher, not the mirror'
 ```
 
 - `dispatch` は non-mutating worklist であり、worker reservation ではない。`claimed` 数ではなく `status.capacity.active` の有効 lease 数だけを稼働 worker 数として扱う。
 - worker は `advance` で phase を一段ずつ進める。`classify` には `--proposal-json`、`apply` には `--application-json` が必須である。旧 run を `verify` から再検証する場合は、Notion 更新を再実行せず `record-proposal --proposal-json` で AI の根拠付き分類を補完できる。
-- 旧 terminal を再検証するときは `claim --job-id <id>` で対象だけを lease してから proposal と verifier record を補完する。preflight はその検証が済むまで dispatch してはいけない。
+- 旧 terminal（`registered`/`unresolved`/`deferred`）を再検証・訂正するときは `claim` ではなく `reopen --job-id <id> --reason <理由>` を使う。`claim`/`record-proposal`/`advance` はいずれも既に lease 済みの job しか扱えず、terminal job には使えない。`reopen` は対象 job を再度 lease し、既定で `verify` phase へ戻す（`--phase` で `classify`/`apply` からやり直すことも指定できる）。既存の `proposal`/`application` 履歴は保持されるので、`record-proposal` や `advance` で内容を訂正してから改めて `complete` を実行する。preflight はその検証が済むまで dispatch してはいけない。
 - 429 は `retry --retry-after <ISO-8601> --reason rate_limited` を使う。job の domain と同一 domain の claim は指定時刻まで止まる。
 - 長い取得中は `heartbeat` で lease を延長する。
 - verifier が別 role で再 fetch した後だけ `complete --verifier-id ... --verification-json ...` を実行する。完了 event の直後に `dispatch` を再実行する。
@@ -111,12 +114,13 @@ python3 "$QUEUE" claim --workspace "$WORKSPACE" --run-id '<run>' \
 ## 本文・分類のルール
 
 - 成功ページの本文は `Summary`、`Source`、`Notes` を必須とする。必要な場合だけ `Visual Notes`、`Decision`、`Open Questions`、`Links` を加える。`Decision` は本人の判断がある場合だけで、外部 source と混ぜない。
+- `Summary` は短い要旨でよいが、`Notes` は要約ではない。取得できた本文全文を、見出し・段落・コード・引用・リストの構造と順序を保ったまま `Notes` に転記する。ナビゲーション・広告・関連記事欄・反応数などの非本文要素以外は省略・要約・言い換えをしない。
 - 通常ページの成功条件は、元の `source.page_id` がそのまま Domains 配下へ移動し、Topic Index の `Notion Page` も同じ page ID を指すことである。新規ページを作って元ページを Unresolved Sources に残した状態は成功ではない。
 - 成功ページに `Context`、reader backend/status、取得日時、Browser audit、実行ログ、分類履歴を置かない。これらは queue / proposal / verification にのみ残す。
-- in-app Browser fallback は、抽出した見出し・段落・コード・引用・リスト・画像を元記事順で `Notes` に置く。X Article は `[data-testid="twitterArticleReadView"]` だけを対象にし、通常ページも選択した本文スコープだけを対象にする。プロフィール、反応数、誘導文、Browser audit を混ぜない。
+- in-app Browser fallback の取得手順・selector・`browser_capture` schema は `.agents/skills/url-reader/references/in-app-browser-fallback.md` だけが定義する。このスキル側では再定義しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・画像）を元記事順のまま `Notes` に置く。プロフィール、反応数、誘導文、Browser audit を混ぜない。
 - 根拠不足は DB に登録せず `Unresolved Sources` へ移す。理由、source URL、reader 結果、次の確認点を残す。
 - 同一 source URL、normalized URL、または Notion capture の強い重複は、代表ページだけを残す。重複ページは既定で削除・アーカイブ・trash を実行し、削除系ツールが初期一覧に無ければ `tool_search` で露出を試す。検索後も利用できない場合は削除した扱いにせず `duplicate_delete_unavailable` として記録し、対象 job を `deferred`（`deferred_reason: duplicate_delete_unavailable`）にして報告する。重複ページを Topic Index に登録しない。
 
 ## 報告と完了条件
 
-途中報告では、progress audit を通った item だけを「ページ完了」と呼ぶ。queue に `ready` / `waiting_retry` / `leased` が残っていても、既に検証済み item の結果を否定しない。`leased` は worker id・phase・有効期限を併記し、expired lease を含む生の件数を稼働中と表現してはいけない。`バッチ完了` は final audit 成功時だけ使い、処理数、DB 登録数、Unresolved 数、deferred 数、残件、domain backoff、次に人間が見る項目を報告する。既存の terminal job に page identity が無い場合は旧結果を信頼せず、`revise` として再検証する。
+途中報告では、progress audit を通った item だけを「ページ完了」と呼ぶ。queue に `ready` / `waiting_retry` / `leased` が残っていても、既に検証済み item の結果を否定しない。`leased` は worker id・phase・有効期限を併記し、expired lease を含む生の件数を稼働中と表現してはいけない。`バッチ完了` は final audit 成功時だけ使い、処理数、DB 登録数、Unresolved 数、deferred 数、残件、domain backoff、次に人間が見る項目を報告する。既存の terminal job に page identity が無い場合は旧結果を信頼せず、`reopen` で再検証する。

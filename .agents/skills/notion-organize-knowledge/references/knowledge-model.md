@@ -309,10 +309,10 @@ Normalize pages toward this shape:
 What this page is about, limited to evidence available in the page or source.
 
 ## Source
-Original URL and the provenance needed to interpret the note.
+The primary publisher's URL and the provenance needed to interpret the note. When the captured link is a distribution/aggregator mirror (e.g. a news portal republishing another outlet's article) and the mirror page itself names and links the original publisher's article, treat that original as the primary Source URL and list the mirror URL as a secondary reference. Do not guess an original URL that the mirror page does not explicitly link.
 
 ## Notes
-Main notes, excerpts, implementation steps, facts, or observations.
+Full extracted body text of the source, preserved in original order and structure (headings, paragraphs, code, quotes, lists) rather than summarized. For an external article, this is the article's full content (via url-reader markdown or in-app Browser capture), not a condensed excerpt. For a personal Notion memo, this is the original memo text verbatim. Only navigation, ads, related-article rails, reactions, and other non-content boilerplate may be omitted; do not shorten, paraphrase, or drop substantive sections to save space.
 
 ## Visual Notes
 For images used as evidence: what each image shows, legible text or diagram structure, and the observed point used for classification. Omit this section when images are absent or purely decorative. Do not persist temporary signed image URLs.
@@ -327,7 +327,7 @@ Open questions, follow-up tasks, or verification needed.
 Related Notion pages and sources not already listed in Source.
 ```
 
-`Summary`、`Source`、`Notes` are required for a successful organized page. `Visual Notes` is required only when images materially support the page. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
+`Summary`、`Source`、`Notes` are required for a successful organized page. `Summary` stays a short synopsis (a few sentences) of what the page is about; `Notes` is not a summary — it must carry the full source text as described above. `Visual Notes` is required only when images materially support the page. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
 
 Do not write `Context`, reader backend/status, retrieval time, Browser capture data, locator counts, queue state, classification history, or other operational audit data into a successful page. Keep them in the local queue, agent proposal, and verifier record. For source-only clips, keep `Decision` absent and make `Source URL` explicit. For decision pages, include links to the sources used.
 
