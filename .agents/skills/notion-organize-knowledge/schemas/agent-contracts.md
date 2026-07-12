@@ -11,6 +11,10 @@
     "page_ids": [],
     "database_ids": []
   },
+  "queue_input": {
+    "kind": "notion_page|notion_children|notion_database|notion_search|url_list_page|url_list|resume_run",
+    "source": {}
+  },
   "write_policy": {
     "low_risk_updates_allowed": true,
     "destructive_changes_allowed": false
@@ -53,8 +57,17 @@
   "url_reader_audit": {
     "url_reader_required_count": 0,
     "url_reader_attempted_count": 0,
+    "browser_fallback_required_count": 0,
+    "browser_fallback_attempted_count": 0,
     "attempted_means": "read_url.py_invoked",
     "url_reader_missing": [
+      {
+        "page_id": "string",
+        "url": "string",
+        "reason": "string"
+      }
+    ],
+    "browser_fallback_missing": [
       {
         "page_id": "string",
         "url": "string",
@@ -99,12 +112,22 @@
         "attempts": [],
         "warnings": []
       },
+      "browser_fallback": {
+        "required": false,
+        "surface": "in_app_browser|null",
+        "canonical_url": "string|null",
+        "reason": "string|null"
+      },
       "browser_capture": {
         "attempted": false,
         "canonical_url": "string|null",
         "final_url": "string|null",
         "status": "not_attempted|success|not_found|blocked|failed",
         "article_view_count": 0,
+        "content_selector": "string|null",
+        "text_length": 0,
+        "image_count": 0,
+        "images": [],
         "reason": "string|null"
       },
       "visual_analysis_required": false,
@@ -152,7 +175,8 @@
         "topic_page_id": "string|null",
         "confidence": "high|medium|low",
         "recommended_action": "register_and_move_to_topic_page|keep_in_inbox",
-        "source_urls": []
+        "source_urls": [],
+        "existing_candidates_checked": []
       },
       "classification": {
         "type": "string",
@@ -161,8 +185,19 @@
         "source_type": "string",
         "published_at": "YYYY-MM-DD|null",
         "extraction_status": "string",
-        "tags": [],
-        "related_topics": []
+        "tags": [
+          {
+            "value": "lowercase-kebab-case",
+            "evidence": ["source evidence id or concise observed fact"],
+            "confidence": "high|medium|low"
+          }
+        ],
+        "related_topics": [],
+        "evidence": ["source evidence id or concise observed fact"],
+        "alternatives": [
+          {"domain": "string", "topic": "string", "reason_not_selected": "string"}
+        ],
+        "decision_reason": "why this destination best fits the evidence"
       },
       "evidence": [],
       "unknowns": []
@@ -209,24 +244,21 @@
   "content_audit": [
     {
       "page_id": "string",
-      "required_sections": ["Summary", "Context", "Source", "Decision", "Related Topics"],
+      "required_sections": ["Summary", "Source", "Notes"],
       "has_summary": true,
-      "has_context": true,
       "has_source": true,
-      "has_decision": true,
-      "has_related_topics": true,
+      "has_notes": true,
+      "has_decision": false,
       "has_open_questions": false,
-      "reader_status_recorded": true,
       "source_url_recorded": true,
       "visual_notes_required": false,
       "has_visual_notes": false,
       "visual_evidence_recorded": true,
       "section_details": {
         "Summary": "present|missing|empty",
-        "Context": "present|missing|empty",
         "Source": "present|missing|empty",
-        "Decision": "present|missing|empty",
-        "Related Topics": "present|missing|empty",
+        "Notes": "present|missing|empty",
+        "Decision": "present|missing|empty|not_required",
         "Open Questions": "present|missing|empty|not_required"
       },
       "result": "success|failed|skipped"
@@ -284,6 +316,42 @@
 }
 ```
 
+`applied_updates` の各 item は、Notion への適用前に次の `page_identity` を含める。通常の Notion item は入力ページ自身を正本にし、URL-only list の `page_id: null` item だけが新規ページを作成できる。
+
+```json
+{
+  "page_identity": {
+    "mode": "existing_page|url_item",
+    "source_page_id": "string|null",
+    "canonical_page_id": "string",
+    "canonical_page_created": false,
+    "source_queue_page_id": "string|null"
+  }
+}
+```
+
+Queue の `--application-json` に渡す record は1 job分の次の形を使う。`page_identity` を省略した旧形式や、通常ページで source と canonical が異なる形式は apply/verify へ進めない。
+
+```json
+{
+  "page_identity": {
+    "mode": "existing_page",
+    "source_page_id": "notion-page-id",
+    "canonical_page_id": "notion-page-id",
+    "canonical_page_created": false,
+    "source_queue_page_id": null
+  },
+  "page_updated": true,
+  "db_registered": true,
+  "content_verified": true,
+  "move_attempted": true,
+  "move_verified": true,
+  "source_queue_cleanup": null
+}
+```
+
+URL-only item では `mode: url_item`、`source_page_id: null`、作成した `canonical_page_id`、`canonical_page_created: true` を使い、`source_queue_cleanup` に URL 行の削除と削除後 fetch の根拠を記録する。
+
 ## duplicate-reviewer output
 
 ```json
@@ -303,6 +371,34 @@
 {
   "status": "passed|revise|needs_human|blocked",
   "findings": [],
+  "verification_records": [
+    {
+      "page_id": "string",
+      "verifier_id": "string",
+      "verified_at": "ISO-8601",
+      "notion_refetch": {
+        "page_id": "string",
+        "fetched_at": "ISO-8601",
+        "destination_parent_id": "string"
+      },
+      "page_identity": {
+        "mode": "existing_page|url_item",
+        "source_page_id": "string|null",
+        "canonical_page_id": "string",
+        "canonical_page_created": false,
+        "source_queue_page_id": "string|null"
+      },
+      "db_registered": true,
+      "content_verified": true,
+      "move_attempted": true,
+      "move_verified": true,
+      "source_queue_cleanup": {
+        "attempted": true,
+        "result": "success",
+        "verified_absent_after": true
+      }
+    }
+  ],
   "summary_counts": {
     "processed": 0,
     "db_registered": 0,
@@ -319,28 +415,27 @@
 }
 ```
 
-## batch manifest (local only)
+## run queue (local only)
 
-Write one JSON manifest per batch before applying writes and validate it with `scripts/validate_run_audit.py`. Do not put this operational record in Notion page bodies.
+Use `scripts/queue.py` to create and mutate the only run ledger. `validate_run_audit.py --workspace <workspace> --run-id <run> --phase preflight|progress|final` reads those same files; do not create a parallel manifest or hand-edit job JSON. `events.jsonl` is append-only audit history and is never written into Notion.
 
 ```json
 {
-  "target_count": 1,
-  "items": [
-    {
-      "page_id": "string",
-      "state": "registered|unresolved|deferred",
-      "url_required": true,
-      "reader": {"attempted": true, "status": "Extracted", "status_reason": null},
-      "browser": {"attempted": false, "canonical_url": null, "status": "not_attempted", "article_view_count": 0},
-      "db_registered": true,
-      "content_verified": true,
-      "move_attempted": true,
-      "move_verified": true,
-      "destination_page_id": "string",
-      "unresolved_reason": null,
-      "deferred_reason": null
-    }
-  ]
+  "schema_version": 2,
+  "job_id": "job-abc123",
+  "sequence": 0,
+  "input_kind": "notion_page|notion_children|notion_database|notion_search|url_list_page|url_list",
+  "source": {},
+  "domain": "example.com|null",
+  "state": "ready|waiting_retry|leased|registered|unresolved|deferred",
+  "phase": "resolve|enrich|classify|apply|verify|done",
+  "attempt_count": 0,
+  "retry": null,
+  "lease": null,
+  "proposal": null,
+  "application": null,
+  "verification": null
 }
 ```
+
+`proposal.classification` must contain `domain`, `topic`, `decision_reason`, evidence, alternatives, and evidence-backed tags. An apply record and terminal `verification` must contain the same `page_identity`. A terminal verification must contain a distinct `verifier_id`, `verified_at`, and Notion refetch evidence (`page_id`, `fetched_at`, `destination_parent_id`). For `existing_page`, the refetched page ID must equal the input `source.page_id`; for `url_item`, the URL row cleanup must be verified absent. `registered` additionally requires DB/content/move verification; `unresolved` requires a reason and move verification.

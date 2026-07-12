@@ -10,6 +10,14 @@ def gh_call(gh, endpoint, raw=False):
     if p.returncode: raise RuntimeError((p.stderr or p.stdout).strip())
     return p.stdout
 
+def browser_fallback(url, reason):
+    return {
+        "required": True,
+        "surface": "in_app_browser",
+        "canonical_url": url,
+        "reason": reason,
+    }
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("url"); ap.add_argument("--gh", default=os.environ.get("GH_CLI", "/opt/homebrew/bin/gh")); a=ap.parse_args()
     u=urlparse(a.url)
@@ -24,8 +32,8 @@ def main():
     else:
         try: body=gh_call(a.gh, f"{endpoint}/readme", raw=True)
         except RuntimeError: body=f"Repository: {title}\nDescription: {meta.get('description') or ''}\n"
-    print(json.dumps({"status":"Extracted" if body.strip() else "Partial", "backend":"github_cli", "title":title, "source_url":a.url, "repository":meta.get("html_url", f"https://github.com/{owner}/{repo}"), "default_branch":meta.get("default_branch"), "private":meta.get("private", False), "markdown":body}, ensure_ascii=False))
+    print(json.dumps({"status":"Extracted" if body.strip() else "Partial", "backend":"github_cli", "title":title, "source_url":a.url, "repository":meta.get("html_url", f"https://github.com/{owner}/{repo}"), "default_branch":meta.get("default_branch"), "private":meta.get("private", False), "markdown":body, "browser_fallback": None}, ensure_ascii=False))
 
 if __name__ == "__main__":
     try: main()
-    except Exception as e: print(json.dumps({"status":"Failed", "backend":"github_cli", "reason":str(e)}, ensure_ascii=False)); sys.exit(1)
+    except Exception as e: print(json.dumps({"status":"Failed", "backend":"github_cli", "reason":str(e), "browser_fallback": browser_fallback(sys.argv[1] if len(sys.argv) > 1 else "", "GitHub CLI did not produce usable content")}, ensure_ascii=False)); sys.exit(1)

@@ -69,6 +69,34 @@
         "Reel のログイン画面・静的アセットを有効本文や有効画像として扱わない",
         "通常の instagram.com/p/... 投稿は十分な本文が取れれば整理対象にできる"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "Unresolved Sources を50件処理していたら X の429が出た。残りは安全に継続し、タグはAIに判断させたまま進めたい。",
+      "expected_output": "queue の domain backoff で X の job だけを waiting_retry に戻し、他 domain を最大4 workerで継続する。AI が根拠付きの分類・タグ proposal を返し、別 verifier の再fetch後だけ個別完了にする。",
+      "files": [],
+      "assertions": [
+        "429 domain の job を retry_after と domain gate 付きで待機させる",
+        "worker 完了または retry event 後に dispatcher が空き枠へ次の ready job を補充する",
+        "Python がタグやDomain/Topicを推論しない",
+        "タグごとの evidence、分類候補、alternatives、decision_reason をAI proposalへ含める",
+        "applying worker とは別 role の verifier が Notion を再fetchしてから terminal state にする",
+        "progress audit が他の leased / waiting_retry job を理由に完了済み item を否定しない"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Notion整理の自動化を継続中です。queue は leased: 4 と表示していますが、有効な worker は2件だけです。残りのreadyを処理し続けてください。",
+      "expected_output": "期限切れ lease を回収して有効capacityを計算し、dispatcherは非破壊のworklistだけを返す。実際に実行するworkerだけがclaimし、terminal後はauditと即時補充を同じ起動内で繰り返す。",
+      "files": [],
+      "assertions": [
+        "status または dispatch の前に期限切れ lease を回収する",
+        "dispatcher が予定だけで job を leased にしない",
+        "worker は実際に開始する直前に claim --job-id を行う",
+        "有効 lease 数だけを稼働worker数として報告する",
+        "terminal event の直後に progress audit と次の worklist 補充を行う",
+        "AI/MCPを呼べないPython常駐プロセスを実行workerとして扱わない"
+      ]
     }
   ]
 }
