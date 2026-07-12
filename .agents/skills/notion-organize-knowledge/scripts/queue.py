@@ -501,6 +501,43 @@ def cmd_status(args: argparse.Namespace) -> None:
         unlock(held)
 
 
+def cmd_reopen(args: argparse.Namespace) -> None:
+    """Reopen a terminal job so a distinct worker/verifier can revise it.
+
+    ``claim``, ``record-proposal``, and ``advance`` all require a job to
+    already be leased, so a terminal (registered/unresolved/deferred) job is
+    otherwise unreachable once ``complete`` has run. This lets a corrected
+    proposal or a fresh verifier re-fetch flow the job back through
+    classify/apply/verify without hand-editing job JSON or losing the prior
+    proposal/application history.
+    """
+    workspace = Path(args.workspace).expanduser().resolve()
+    directory, _ = load_run(workspace, args.run_id)
+    path = directory / "jobs" / f"{args.job_id}.json"
+    held = lock(directory)
+    try:
+        job = read_json(path)
+        if job["state"] not in TERMINAL_STATES:
+            raise ValueError(f"only a terminal job can be reopened: state={job['state']}")
+        previous_state = job["state"]
+        job["state"] = WORKING_STATE
+        job["phase"] = args.phase
+        job["attempt_count"] += 1
+        job["verification"] = None
+        job["lease"] = {
+            "worker_id": args.worker_id,
+            "claimed_at": now(),
+            "heartbeat_at": now(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=args.lease_minutes)).isoformat().replace("+00:00", "Z"),
+        }
+        job["reopened_from"] = {"state": previous_state, "reason": args.reason, "at": now()}
+        write_job(path, job)
+        append_event(directory, {"event": "reopened", "job_id": job["job_id"], "worker_id": args.worker_id, "from_state": previous_state, "to_phase": args.phase, "reason": args.reason})
+        print(json.dumps(job, ensure_ascii=False, indent=2))
+    finally:
+        unlock(held)
+
+
 def cmd_migrate_run(args: argparse.Namespace) -> None:
     """Migrate schema v1 run data without treating prior self-attested work as verified."""
     workspace = Path(args.workspace).expanduser().resolve()
@@ -634,6 +671,16 @@ def parser() -> argparse.ArgumentParser:
     status.add_argument("--run-id", required=True)
     status.add_argument("--verbose", action="store_true")
     status.set_defaults(func=cmd_status)
+
+    reopen = commands.add_parser("reopen")
+    reopen.add_argument("--workspace", required=True)
+    reopen.add_argument("--run-id", required=True)
+    reopen.add_argument("--job-id", required=True)
+    reopen.add_argument("--worker-id", required=True)
+    reopen.add_argument("--phase", choices=PHASES, default="verify")
+    reopen.add_argument("--lease-minutes", type=int, default=20)
+    reopen.add_argument("--reason", required=True)
+    reopen.set_defaults(func=cmd_reopen)
 
     migrate = commands.add_parser("migrate-run")
     migrate.add_argument("--workspace", required=True)
