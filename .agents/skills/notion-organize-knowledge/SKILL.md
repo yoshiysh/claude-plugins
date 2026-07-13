@@ -114,7 +114,7 @@ python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
 ## 本文・分類のルール
 
 - 成功ページの本文は `Summary`、`Source`、`Notes` を必須とする。必要な場合だけ `Visual Notes`、`Decision`、`Open Questions`、`Links` を加える。`Decision` は本人の判断がある場合だけで、外部 source と混ぜない。
-- `Summary` は短い要旨でよいが、`Notes` は要約ではない。取得できた本文全文を、見出し・段落・コード・引用・リストの構造と順序を保ったまま `Notes` に転記する。ナビゲーション・広告・関連記事欄・反応数などの非本文要素以外は省略・要約・言い換えをしない。
+- `Summary` は短い要旨でよいが、`Notes` は要約ではない。取得できた本文の全セクションを、見出し・段落・コード・引用・リストの構造と順序を保ったまま `Notes` に収める。ナビゲーション・広告・関連記事欄・反応数などの非本文要素以外は省略・取捨選択をしない。ただし第三者の著作物（記事・ブログ記事など）は逐語転記ではなく、原文の構成・順序を保った丁寧な要約（paraphrase）にする。逐語転記してよいのは自分自身のメモ、コードブロック、コマンド例、表・数値などの事実データに限る。paraphrase は情報量を削ってはならない — 見出し・箇条書きの各項目・数値/日付/固有名詞は1つも欠かさず、文の言い回しと構成だけを書き直す（詳細な網羅ルールは `references/knowledge-model.md` の `## Notes` を参照）。原文を再取得できない場合（ログイン壁・リンク切れ等）は本文を捏造せず、既存の根拠付き要約を残したまま `Open Questions` に不足を記録する。
 - 通常ページの成功条件は、元の `source.page_id` がそのまま Domains 配下へ移動し、Topic Index の `Notion Page` も同じ page ID を指すことである。新規ページを作って元ページを Unresolved Sources に残した状態は成功ではない。
 - 成功ページに `Context`、reader backend/status、取得日時、Browser audit、実行ログ、分類履歴を置かない。これらは queue / proposal / verification にのみ残す。
 - in-app Browser fallback の取得手順・selector・`browser_capture` schema は `.agents/skills/url-reader/references/in-app-browser-fallback.md` だけが定義する。このスキル側では再定義しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・画像）を元記事順のまま `Notes` に置く。プロフィール、反応数、誘導文、Browser audit を混ぜない。
