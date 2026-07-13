@@ -146,6 +146,8 @@
       "visual_evidence": [
         {
           "source": "string",
+          "image_url": "string|null",
+          "position": "string",
           "analysis_status": "Analyzed|Unavailable|NotRequired",
           "description": "string",
           "observations": [],
@@ -402,6 +404,8 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
       },
       "db_registered": true,
       "content_verified": true,
+      "images_inline_verified": "true|false|not_applicable",
+      "temporary_image_url_found": false,
       "move_attempted": true,
       "move_verified": true,
       "source_queue_cleanup": {
