@@ -435,6 +435,25 @@ def is_tco_only_markdown(markdown: str) -> bool:
     return parsed.scheme == "https" and parsed.netloc.lower() == "t.co" and bool(parsed.path)
 
 
+TRUNCATION_MARKERS = ("…", "...")
+MEDIA_PLACEHOLDER_MARKER = "pic.twitter.com/"
+
+
+def x_oembed_incompleteness_reason(markdown: str) -> str | None:
+    """Detect X oEmbed bodies that look "Extracted" but are missing real content.
+
+    oEmbed truncates long post text with an ellipsis and never exposes attached
+    photo/video URLs as real image links (only a `pic.twitter.com/...` caption
+    placeholder). Both cases must route through the in-app Browser fallback
+    instead of being reported as a complete extraction.
+    """
+    if markdown.rstrip().endswith(TRUNCATION_MARKERS):
+        return "X oEmbed text is truncated with an ellipsis"
+    if MEDIA_PLACEHOLDER_MARKER in markdown:
+        return "X oEmbed indicates attached media that oEmbed does not expose as a real image URL"
+    return None
+
+
 def build_x_oembed_result(input_url: str, normalized_url: str, timeout: int, image_dir: str | None) -> dict[str, object]:
     status_code, payload, error = fetch_x_oembed(normalized_url, timeout)
     if not payload:
@@ -454,6 +473,11 @@ def build_x_oembed_result(input_url: str, normalized_url: str, timeout: int, ima
     title = str(payload.get("author_name") or "X post")
     status = "Extracted" if markdown else "Partial"
     status_reason = None if markdown else "X oEmbed returned metadata but no post paragraph text"
+    if status == "Extracted":
+        incomplete_reason = x_oembed_incompleteness_reason(markdown)
+        if incomplete_reason:
+            status = "Partial"
+            status_reason = incomplete_reason
     oembed_attempt = {"backend": "x_oembed", "http_status": status_code, "status": status, "reason": status_reason}
     article_url = x_status_article_url(normalized_url)
     if article_url and is_tco_only_markdown(markdown):

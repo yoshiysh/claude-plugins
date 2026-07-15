@@ -87,6 +87,60 @@ Article body line five.
         self.assertEqual(result["attempts"][0]["backend"], "x_oembed")
         self.assertEqual(result["attempts"][1]["backend"], "generic_reader")
 
+    def test_x_oembed_truncated_text_requires_browser_fallback(self):
+        payload = {
+            "url": "https://x.com/ArtificialAnlys/status/2075739292052463646",
+            "author_name": "Artificial Analysis",
+            "author_url": "https://x.com/ArtificialAnlys",
+            "html": (
+                '<blockquote><p lang="en">GPT-5.6 Sol and Luna are ahead of Terra at every point on the '
+                'Intelligence vs Cost per Task chart, and there is a lot more nuance to unpack once you look '
+                'past the headline number and into the reasoning effort levels shown on each curve…</p>'
+                '<a href="https://x.com/ArtificialAnlys/status/2075739292052463646">July 11, 2026</a></blockquote>'
+            ),
+        }
+        with (
+            mock.patch.object(read_url, "fetch_x_oembed", return_value=(200, payload, None)),
+            mock.patch.object(
+                read_url,
+                "run_browser4",
+                return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
+            ),
+        ):
+            result = read_url.build_result(
+                "https://x.com/artificialanlys/status/2075739292052463646", 5, None
+            )
+
+        self.assertEqual(result["reader_backend"], "x_oembed")
+        self.assertEqual(result["reader_status"], "Partial")
+        self.assertIn("truncated", result["status_reason"])
+        self.assertTrue(result["browser_fallback"]["required"])
+
+    def test_x_oembed_media_placeholder_requires_browser_fallback(self):
+        payload = {
+            "url": "https://x.com/example/status/999",
+            "author_name": "Example",
+            "author_url": "https://x.com/example",
+            "html": (
+                '<blockquote><p lang="en">Short caption with an attached photo '
+                '<a href="https://t.co/abc123">pic.twitter.com/abc123</a></p>'
+                '<a href="https://x.com/example/status/999">July 11, 2026</a></blockquote>'
+            ),
+        }
+        with (
+            mock.patch.object(read_url, "fetch_x_oembed", return_value=(200, payload, None)),
+            mock.patch.object(
+                read_url,
+                "run_browser4",
+                return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
+            ),
+        ):
+            result = read_url.build_result("https://x.com/example/status/999", 5, None)
+
+        self.assertEqual(result["reader_status"], "Partial")
+        self.assertIn("attached media", result["status_reason"])
+        self.assertTrue(result["browser_fallback"]["required"])
+
     def test_instagram_reel_login_wall_is_blocked(self):
         body = """Title: Instagram
 URL Source: https://www.instagram.com/reel/Cg_nrIBvg7k/

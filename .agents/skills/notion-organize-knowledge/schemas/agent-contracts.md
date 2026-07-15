@@ -1,5 +1,16 @@
 # Agent Contracts
 
+## 目次
+
+- [input-resolver output](#input-resolver-output)
+- [index-maintainer output](#index-maintainer-output)
+- [content-enricher output](#content-enricher-output)
+- [page-triager output](#page-triager-output)
+- [page-normalizer output](#page-normalizer-output)
+- [duplicate-reviewer output](#duplicate-reviewer-output)
+- [update-verifier output](#update-verifier-output)
+- [run queue (local only)](#run-queue-local-only)
+
 ## input-resolver output
 
 ```json
@@ -98,6 +109,7 @@
       "resolved_title": "string|null",
       "title_source": "notion|url_reader|url_path|generated|unknown",
       "source_url": "string|null",
+      "mirror_source_url": "string|null",
       "source_type": "Notion Note|Web Article|Bookmark|PDF|Video|Book|Code|Chat|Unknown",
       "published_at": "YYYY-MM-DD|null",
       "extraction_status": "Not Started|Extracted|Partial|Failed|Needs Manual Review",
@@ -134,6 +146,8 @@
       "visual_evidence": [
         {
           "source": "string",
+          "image_url": "string|null",
+          "position": "string",
           "analysis_status": "Analyzed|Unavailable|NotRequired",
           "description": "string",
           "observations": [],
@@ -449,6 +463,8 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
       },
       "db_registered": true,
       "content_verified": true,
+      "images_inline_verified": "true|false|not_applicable",
+      "temporary_image_url_found": false,
       "move_attempted": true,
       "move_verified": true,
       "content_verification": {

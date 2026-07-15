@@ -309,13 +309,27 @@ Normalize pages toward this shape:
 What this page is about, limited to evidence available in the page or source.
 
 ## Source
-Original URL and the provenance needed to interpret the note.
+The primary publisher's URL and the provenance needed to interpret the note. When the captured link is a distribution/aggregator mirror (e.g. a news portal republishing another outlet's article) and the mirror page itself names and links the original publisher's article, treat that original as the primary Source URL and list the mirror URL as a secondary reference. Do not guess an original URL that the mirror page does not explicitly link.
 
 ## Notes
-Main notes, excerpts, implementation steps, facts, or observations. For an external or clipped source, preserve the source body represented by `source_content.ordered_blocks` here, including inline images in their original positions.
+Full-coverage body content of the source, preserved in original order and structure (headings, paragraphs, code, quotes, lists) rather than condensed into a short summary or a handful of bullets. Every substantive section of the source must be represented — not shortened, not cherry-picked, not dropped to save space. Only navigation, ads, related-article rails, reactions, and other non-content boilerplate may be omitted.
+
+Whether that full coverage is verbatim transcription or a thorough, structurally-faithful paraphrase in your own words depends on the source: for a personal Notion memo or your own notes, transcribe verbatim. For a third-party published article, blog post, or other copyrighted text, write a thorough paraphrase that follows the source's own order and covers every section — do not bulk-transcribe large verbatim spans of someone else's copyrighted writing into Notes. Paraphrasing must not cost information: it changes the sentence-level wording and structure, not the coverage. Concretely —
+
+- Reproduce every heading and sub-heading from the source as its own heading in `Notes`, in the same order — do not merge multiple source sections under one heading.
+- Reproduce every list item, every step of a how-to, every bullet point as its own line — do not collapse a list into a single summarizing sentence.
+- Keep every number, date, name, spec, price, statistic, quantity, and proper noun exactly as given — these are facts, not the author's protected expression, so precision here is required, not optional.
+- Cover every distinct claim or point the source makes, even minor ones — do not silently drop a point because it seems less important. If space is a concern, split across more Notion blocks; never trim content to fit.
+- Code blocks, command examples, and tabular/factual data (specs, numbers) are not prose and are reproduced as-is, verbatim.
+- A short quote (well under a paragraph) is fine when the exact wording matters (a quoted statement, a key sentence, a section's own summarizing line) — the rest should be in your own words, not a synonym-substituted rewrite of the original sentence structure (that kind of thin rewording does not count as a paraphrase).
+
+The result should be shorter than the source only because paraphrase is more economical than the original prose — never because content was cut. When a source cannot be re-extracted at all (login wall, broken link, no text content), do not fabricate Notes — leave the existing evidence-backed summary and record the gap in `Open Questions` instead.
+
+Images that are part of the source content (an X post's attached media, an article's inline figures/screenshots/diagrams) are embedded inline in `Notes`, at the position that matches where they appear in the original source — not appended as a separate end-of-page block. This applies the same way to X posts and to articles. Whether an image exists is decided from what the extraction actually returned (Notion image blocks, url-reader `image_links`, in-app Browser captured images), never from whether the surrounding prose happens to mention it (e.g. "see image below"). Absence of such a phrase is not grounds to skip checking for images; presence of the phrase is not required to embed one. Only embed an image behind a stable, non-expiring URL (the original publisher's own asset URL, or `pbs.twimg.com/media/...` for X). Never embed a temporary signed URL (Notion's own attachment URLs, any URL with an expiring signature such as `X-Amz-Expires`) — it will 404 once the signature lapses. If only a temporary URL is available and no stable equivalent can be found, keep a short textual description in place of the image and note the gap in `Open Questions`, rather than embedding a link that will break.
+The canonical bridge for this full-coverage body is `source_content.ordered_blocks`. The applied `Notes` content must preserve the same block order, including inline images at their original positions; the source digest, text length, and image count are checked independently during application and verification.
 
 ## Visual Notes
-For images used as evidence: what each image shows, legible text or diagram structure, and the observed point used for classification. Omit this section when images are absent or purely decorative. Do not persist temporary signed image URLs.
+Supplementary analysis for an image already embedded inline in `Notes`, when the image's meaning is not obvious from the image alone: how to read a chart or table, OCR uncertainty, or the specific point the image supports for classification. This section does not hold the image itself — that lives inline in `Notes` at its original position. Omit this section when images are absent, purely decorative, or self-explanatory.
 
 ## Decision
 Personal judgment, chosen approach, rejected options, or investment stance. Leave blank when there is no decision.
@@ -327,7 +341,7 @@ Open questions, follow-up tasks, or verification needed.
 Related Notion pages and sources not already listed in Source.
 ```
 
-`Summary`、`Source`、`Notes` are required for a successful organized page. `Visual Notes` is required only when images materially support the page. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
+`Summary`、`Source`、`Notes` are required for a successful organized page. `Summary` stays a short synopsis (a few sentences) of what the page is about; `Notes` is not a summary — it must carry full coverage of the source as described above (verbatim for your own memos, thorough paraphrase for third-party copyrighted text), with any source images embedded inline at their original position. `Visual Notes` is optional and used only for analysis that doesn't belong inline; it is never the only place an image's own embed lives. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
 
 ## Source Content Contract
 
@@ -361,6 +375,11 @@ Related Notion pages and sources not already listed in Source.
 For an existing Notion page, use `preserve_existing_in_place` when the fetched blocks already match the source; do not append a second copy. When blocks are missing, use `append_missing_ordered_blocks` or `rebuild_ordered_notes` only without destructive deletion, and retain the original capture. A successful application must report the mode, source digest, applied block/image counts, and that text and image order were preserved. A summary, URL, and classification line without the source body is never a successful application.
 
 Do not write `Context`, reader backend/status, retrieval time, Browser capture data, locator counts, queue state, classification history, or other operational audit data into a successful page. Keep them in the local queue, agent proposal, and verifier record. For source-only clips, keep `Decision` absent and make `Source URL` explicit. For decision pages, include links to the sources used.
+
+## Notion API constraints when editing existing pages
+
+- Notion's `notion-update-page` `update_properties` command **replaces** the entire value of a multi-select property (e.g. `Tags`, `Related Topics`) — it does not append to the existing list. Before adding one tag to a row that already has others, fetch the row's current value first and resubmit the full desired array in one call; submitting a single new value alone will silently wipe the rest.
+- A native Notion image attachment (URL host `prod-files-secure.s3...` with an `X-Amz-Expires`/`X-Amz-Signature` query string) gets a freshly re-signed URL on every fetch. Because of this, `update_content`'s exact-string `old_str` match will not find that URL again by the time the edit call runs, even seconds later — search-and-replace against these URLs fails deterministically, not from a typo. Don't retry it more than once; either use `replace_content` for that specific block if a stable replacement image is available, or record the limitation and move on without embedding a fix.
 
 ## Duplicate Handling
 

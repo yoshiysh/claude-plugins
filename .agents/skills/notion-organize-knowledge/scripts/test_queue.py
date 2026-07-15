@@ -261,6 +261,80 @@ class QueueTest(unittest.TestCase):
         result = self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(replacement), ok=False)
         self.assertIn("existing_page", result["error"])
 
+    def test_terminal_job_can_be_reopened_and_recompleted_by_a_new_verifier(self) -> None:
+        self.create(max_workers=1)
+        self.enqueue("page", "https://example.com/page")
+        self.invoke(QUEUE, "claim", "--workspace", str(self.workspace), "--run-id", "run", "--worker-id", "worker-a")
+        common = ("--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page", "--worker-id", "worker-a")
+        self.invoke(QUEUE, "advance", *common, "--phase", "enrich")
+        proposal = {
+            "classification": {
+                "domain": "AI", "topic": "Agents", "subtopic": None,
+                "source_url": "https://mirror.example.com/page",
+                "evidence": ["text"], "tags": [], "alternatives": [], "decision_reason": "text",
+            }
+        }
+        self.invoke(QUEUE, "advance", *common, "--phase", "classify", "--proposal-json", json.dumps(proposal))
+        identity = {
+            "mode": "existing_page", "source_page_id": "page", "canonical_page_id": "page",
+            "canonical_page_created": False, "source_queue_page_id": None,
+        }
+        application = self.registered_application(identity)
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        verification = self.registered_verification(application)
+        verification["verified_at"] = "2026-07-12T22:00:00Z"
+        verification["notion_refetch"]["fetched_at"] = "2026-07-12T22:00:00Z"
+        self.invoke(
+            QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered",
+            "--verification-json", json.dumps(verification),
+        )
+
+        # A terminal job is not "ready", so claim silently skips it instead of leasing it.
+        blocked_claim = self.invoke(
+            QUEUE, "claim", "--workspace", str(self.workspace), "--run-id", "run",
+            "--worker-id", "worker-c", "--job-id", "page",
+        )
+        self.assertIsNone(blocked_claim["job"])
+
+        reopened = self.invoke(
+            QUEUE, "reopen", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page",
+            "--worker-id", "worker-c", "--reason", "source_url should point at the original publisher",
+        )
+        self.assertEqual(reopened["state"], "leased")
+        self.assertEqual(reopened["phase"], "verify")
+        self.assertIsNone(reopened["verification"])
+        self.assertEqual(reopened["reopened_from"]["state"], "registered")
+
+        # The prior proposal/application history survives the reopen and can be amended.
+        corrected_proposal = json.loads(json.dumps(proposal))
+        corrected_proposal["classification"]["source_url"] = "https://original.example.com/page"
+        self.invoke(
+            QUEUE, "record-proposal", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page",
+            "--worker-id", "worker-c", "--proposal-json", json.dumps(corrected_proposal),
+        )
+        new_verification = self.registered_verification(application)
+        new_verification["verifier_id"] = "verifier-d"
+        new_verification["verified_at"] = "2026-07-12T23:00:00Z"
+        new_verification["notion_refetch"]["fetched_at"] = "2026-07-12T23:00:00Z"
+        completed = self.invoke(
+            QUEUE, "complete", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page",
+            "--worker-id", "worker-c", "--verifier-id", "verifier-d", "--state", "registered",
+            "--verification-json", json.dumps(new_verification),
+        )
+        self.assertEqual(completed["job"]["state"], "registered")
+        self.assertEqual(completed["job"]["proposal"]["classification"]["source_url"], "https://original.example.com/page")
+
+    def test_reopen_rejects_a_non_terminal_job(self) -> None:
+        self.create(max_workers=1)
+        self.enqueue("page", "https://example.com/page")
+        self.invoke(QUEUE, "claim", "--workspace", str(self.workspace), "--run-id", "run", "--worker-id", "worker-a")
+        result = self.invoke(
+            QUEUE, "reopen", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page",
+            "--worker-id", "worker-b", "--reason", "test", ok=False,
+        )
+        self.assertIn("terminal", result["error"])
+
     def test_url_item_requires_verified_source_cleanup(self) -> None:
         self.create(max_workers=1)
         self.invoke(
