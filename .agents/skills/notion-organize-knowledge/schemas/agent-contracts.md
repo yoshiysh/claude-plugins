@@ -142,6 +142,26 @@
         }
       ],
       "summary": "string",
+      "source_content": {
+        "status": "complete|partial|failed|not_available",
+        "origin": "notion_capture|url_reader|browser_fallback|combined",
+        "raw_markdown": "full fetched or captured source body, never an AI summary",
+        "ordered_blocks": [
+          {
+            "index": 0,
+            "type": "heading|paragraph|quote|list|code|table|link|image|divider",
+            "markdown": "source block in original order",
+            "image": {
+              "source_url": "string|null",
+              "persistent_asset": "Notion attachment or stable image reference|null",
+              "alt": "string"
+            }
+          }
+        ],
+        "digest": "sha256:<64 lowercase hex>",
+        "text_length": 0,
+        "image_count": 0
+      },
       "source_notes": [],
       "decision_notes": [],
       "evidence": [],
@@ -254,6 +274,17 @@
       "visual_notes_required": false,
       "has_visual_notes": false,
       "visual_evidence_recorded": true,
+      "source_content_required": true,
+      "source_content_status": "complete|partial|failed|not_available",
+      "source_content_digest": "sha256:<64 lowercase hex>",
+      "applied_source_content_digest": "sha256:<64 lowercase hex>",
+      "source_content_block_count": 0,
+      "applied_block_count": 0,
+      "source_content_image_count": 0,
+      "applied_image_count": 0,
+      "source_content_order_preserved": true,
+      "image_order_preserved": true,
+      "existing_content_preserved": true,
       "section_details": {
         "Summary": "present|missing|empty",
         "Source": "present|missing|empty",
@@ -330,7 +361,7 @@
 }
 ```
 
-Queue の `--application-json` に渡す record は1 job分の次の形を使う。`page_identity` を省略した旧形式や、通常ページで source と canonical が異なる形式は apply/verify へ進めない。
+Queue の `--application-json` に渡す record は1 job分の次の形を使う。`page_identity` を省略した旧形式、通常ページで source と canonical が異なる形式、`source_content` がない要約だけの形式は apply/verify へ進めない。
 
 ```json
 {
@@ -340,6 +371,34 @@ Queue の `--application-json` に渡す record は1 job分の次の形を使う
     "canonical_page_id": "notion-page-id",
     "canonical_page_created": false,
     "source_queue_page_id": null
+  },
+  "action": "register_and_move_to_topic_page",
+  "source_content": {
+    "status": "complete",
+    "origin": "notion_capture|url_reader|browser_fallback|combined",
+    "raw_markdown": "full captured source body",
+    "ordered_blocks": [
+      {"index": 0, "type": "paragraph", "markdown": "..."},
+      {"index": 1, "type": "image", "markdown": "![...](...)" , "image": {"source_url": "...", "persistent_asset": null, "alt": "..."}}
+    ],
+    "digest": "sha256:<64 lowercase hex>",
+    "text_length": 0,
+    "image_count": 1
+  },
+  "content_application": {
+    "required": true,
+    "status": "applied",
+    "target_page_id": "notion-page-id",
+    "mode": "preserve_existing_in_place|append_missing_ordered_blocks|rebuild_ordered_notes",
+    "source_content_digest": "sha256:<64 lowercase hex>",
+    "source_content_block_count": 2,
+    "applied_block_count": 2,
+    "source_content_image_count": 1,
+    "applied_image_count": 1,
+    "source_content_order_preserved": true,
+    "image_order_preserved": true,
+    "existing_content_preserved": true,
+    "destructive_overwrite": false
   },
   "page_updated": true,
   "db_registered": true,
@@ -392,6 +451,22 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
       "content_verified": true,
       "move_attempted": true,
       "move_verified": true,
+      "content_verification": {
+        "status": "passed",
+        "target_page_id": "notion-page-id",
+        "source_content_digest": "sha256:<64 lowercase hex>",
+        "refetched_content_digest": "sha256:<64 lowercase hex>",
+        "source_content_block_count": 0,
+        "applied_block_count": 0,
+        "refetched_block_count": 0,
+        "source_content_image_count": 0,
+        "applied_image_count": 0,
+        "refetched_image_count": 0,
+        "source_content_order_preserved": true,
+        "image_order_preserved": true,
+        "summary_only_rejected": true,
+        "operational_metadata_absent": true
+      },
       "source_queue_cleanup": {
         "attempted": true,
         "result": "success",

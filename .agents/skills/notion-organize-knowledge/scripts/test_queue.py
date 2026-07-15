@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from content_contract import canonical_source_content_digest
+
 
 ROOT = Path(__file__).resolve().parent
 QUEUE = ROOT / "queue.py"
@@ -50,6 +52,90 @@ class QueueTest(unittest.TestCase):
             QUEUE, "enqueue", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", job_id,
             "--source-json", json.dumps({"source_queue_page_id": "url-list", "source_url": url, "source_queue_position": 0}),
         )
+
+    def source_content(self) -> dict:
+        raw_markdown = "Full source body.\n![diagram](https://example.com/diagram.png)"
+        content = {
+            "status": "complete",
+            "origin": "url_reader",
+            "raw_markdown": raw_markdown,
+            "ordered_blocks": [
+                {"index": 0, "type": "paragraph", "markdown": "Full source body."},
+                {
+                    "index": 1,
+                    "type": "image",
+                    "markdown": "![diagram](https://example.com/diagram.png)",
+                    "image": {
+                        "source_url": "https://example.com/diagram.png",
+                        "persistent_asset": "notion-asset://diagram",
+                        "alt": "diagram",
+                    },
+                },
+            ],
+            "text_length": len(raw_markdown),
+            "image_count": 1,
+        }
+        content["digest"] = canonical_source_content_digest(content)
+        return content
+
+    def registered_application(self, identity: dict) -> dict:
+        content = self.source_content()
+        return {
+            "page_identity": identity,
+            "action": "register_and_move_to_topic_page",
+            "source_content": content,
+            "content_application": {
+                "required": True,
+                "status": "applied",
+                "target_page_id": identity["canonical_page_id"],
+                "mode": "preserve_existing_in_place",
+                "source_content_digest": content["digest"],
+                "source_content_block_count": 2,
+                "applied_block_count": 2,
+                "source_content_image_count": 1,
+                "applied_image_count": 1,
+                "source_content_order_preserved": True,
+                "image_order_preserved": True,
+                "existing_content_preserved": True,
+                "destructive_overwrite": False,
+            },
+            "page_updated": True,
+            "db_registered": True,
+            "content_verified": True,
+            "move_attempted": True,
+            "move_verified": True,
+            "source_queue_cleanup": None,
+        }
+
+    def registered_verification(self, application: dict) -> dict:
+        identity = application["page_identity"]
+        content = application["source_content"]
+        return {
+            "verifier_id": "verifier-b",
+            "verified_at": "2026-07-11T03:00:00Z",
+            "notion_refetch": {"page_id": identity["canonical_page_id"], "fetched_at": "2026-07-11T03:00:00Z", "destination_parent_id": "topic"},
+            "page_identity": identity,
+            "db_registered": True,
+            "content_verified": True,
+            "move_attempted": True,
+            "move_verified": True,
+            "content_verification": {
+                "status": "passed",
+                "target_page_id": identity["canonical_page_id"],
+                "source_content_digest": content["digest"],
+                "refetched_content_digest": content["digest"],
+                "source_content_block_count": 2,
+                "applied_block_count": 2,
+                "refetched_block_count": 2,
+                "source_content_image_count": 1,
+                "applied_image_count": 1,
+                "refetched_image_count": 1,
+                "source_content_order_preserved": True,
+                "image_order_preserved": True,
+                "summary_only_rejected": True,
+                "operational_metadata_absent": True,
+            },
+        }
 
     def test_capacity_domain_gate_and_owner_are_enforced(self) -> None:
         self.create()
@@ -105,22 +191,13 @@ class QueueTest(unittest.TestCase):
             }
         }
         self.invoke(QUEUE, "advance", *common, "--phase", "classify", "--proposal-json", json.dumps(proposal))
-        application = {
-            "page_identity": {
+        application = self.registered_application({
                 "mode": "existing_page", "source_page_id": "page", "canonical_page_id": "page",
                 "canonical_page_created": False, "source_queue_page_id": None,
-            },
-            "page_updated": True, "db_registered": True, "content_verified": True,
-            "move_attempted": True, "move_verified": True, "source_queue_cleanup": None,
-        }
+            })
         self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
         self.invoke(QUEUE, "advance", *common, "--phase", "verify")
-        verification = {
-            "verifier_id": "verifier-b", "verified_at": "2026-07-11T03:00:00Z",
-            "notion_refetch": {"page_id": "page", "fetched_at": "2026-07-11T03:00:00Z", "destination_parent_id": "topic"},
-            "page_identity": application["page_identity"],
-            "db_registered": True, "content_verified": True, "move_attempted": True, "move_verified": True,
-        }
+        verification = self.registered_verification(application)
         self.invoke(
             QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered",
             "--verification-json", json.dumps(verification),
@@ -136,24 +213,36 @@ class QueueTest(unittest.TestCase):
         self.invoke(QUEUE, "advance", *common, "--phase", "enrich")
         proposal = '{"classification":{"domain":"AI","topic":"Agents","evidence":["text"],"tags":[],"alternatives":[],"decision_reason":"text"}}'
         self.invoke(QUEUE, "advance", *common, "--phase", "classify", "--proposal-json", proposal)
+        application = self.registered_application({
+                "mode": "existing_page", "source_page_id": "page", "canonical_page_id": "page",
+                "canonical_page_created": False, "source_queue_page_id": None,
+            })
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        verification_record = self.registered_verification(application)
+        verification_record["verifier_id"] = "worker-a"
+        verification = json.dumps(verification_record)
+        result = self.invoke(QUEUE, "complete", *common, "--verifier-id", "worker-a", "--state", "registered", "--verification-json", verification, ok=False)
+        self.assertIn("distinct", result["error"])
+
+    def test_summary_only_application_is_rejected(self) -> None:
+        self.create(max_workers=1)
+        self.enqueue("page", "https://example.com/page")
+        self.invoke(QUEUE, "claim", "--workspace", str(self.workspace), "--run-id", "run", "--worker-id", "worker-a")
+        common = ("--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page", "--worker-id", "worker-a")
+        self.invoke(QUEUE, "advance", *common, "--phase", "enrich")
+        proposal = '{"classification":{"domain":"AI","topic":"Agents","evidence":["text"],"tags":[],"alternatives":[],"decision_reason":"text"}}'
+        self.invoke(QUEUE, "advance", *common, "--phase", "classify", "--proposal-json", proposal)
         application = {
             "page_identity": {
                 "mode": "existing_page", "source_page_id": "page", "canonical_page_id": "page",
                 "canonical_page_created": False, "source_queue_page_id": None,
             },
-            "page_updated": True, "db_registered": True, "content_verified": True,
-            "move_attempted": True, "move_verified": True, "source_queue_cleanup": None,
+            "action": "register_and_move_to_topic_page",
+            "summary": "short classification summary",
         }
-        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
-        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
-        verification = json.dumps({
-            "verifier_id": "worker-a", "verified_at": "2026-07-11T03:00:00Z",
-            "notion_refetch": {"page_id": "page", "fetched_at": "2026-07-11T03:00:00Z", "destination_parent_id": "topic"},
-            "page_identity": application["page_identity"],
-            "db_registered": True, "content_verified": True, "move_attempted": True, "move_verified": True,
-        })
-        result = self.invoke(QUEUE, "complete", *common, "--verifier-id", "worker-a", "--state", "registered", "--verification-json", verification, ok=False)
-        self.assertIn("distinct", result["error"])
+        result = self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application), ok=False)
+        self.assertIn("source_content", result["error"])
 
     def test_existing_page_cannot_be_replaced_by_a_new_canonical_page(self) -> None:
         self.create(max_workers=1)
@@ -188,14 +277,10 @@ class QueueTest(unittest.TestCase):
             "mode": "url_item", "source_page_id": None, "canonical_page_id": "canonical-page",
             "canonical_page_created": True, "source_queue_page_id": "url-list",
         }
-        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps({"page_identity": identity}))
+        application = self.registered_application(identity)
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
         self.invoke(QUEUE, "advance", *common, "--phase", "verify")
-        verification = {
-            "verifier_id": "verifier-b", "verified_at": "2026-07-11T03:00:00Z",
-            "notion_refetch": {"page_id": "canonical-page", "fetched_at": "2026-07-11T03:00:00Z", "destination_parent_id": "topic"},
-            "page_identity": identity,
-            "db_registered": True, "content_verified": True, "move_attempted": True, "move_verified": True,
-        }
+        verification = self.registered_verification(application)
         result = self.invoke(QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered", "--verification-json", json.dumps(verification), ok=False)
         self.assertIn("source_queue_cleanup", result["error"])
         verification["source_queue_cleanup"] = {"attempted": True, "result": "success", "verified_absent_after": True}

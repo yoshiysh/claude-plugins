@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from content_contract import content_application_errors, content_verification_errors
 from page_identity import cleanup_verified, identity_errors, identity_key, job_page_mode
 
 
@@ -45,6 +46,7 @@ def required_verification(job: dict[str, Any], errors: list[str]) -> None:
         for key in ("db_registered", "content_verified", "move_attempted", "move_verified"):
             if verification.get(key) is not True:
                 errors.append(f"{prefix}: registered job lacks {key}=true")
+        errors.extend(content_verification_errors(job, verification.get("content_verification"), f"{prefix}: verification.content_verification"))
     elif job["state"] == "unresolved":
         if not verification.get("unresolved_reason"):
             errors.append(f"{prefix}: unresolved job lacks unresolved_reason")
@@ -81,6 +83,7 @@ def validate_application(job: dict[str, Any], errors: list[str]) -> None:
         errors.append(f"{job['job_id']}: apply phase lacks application record")
         return
     errors.extend(identity_errors(job, application.get("page_identity"), "application.page_identity"))
+    errors.extend(content_application_errors(job, application, f"{job['job_id']}: application"))
 
 
 def main() -> int:

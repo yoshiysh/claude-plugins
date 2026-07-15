@@ -157,7 +157,7 @@ When the source is a broad bookmark page, inbox page, or URL-only list page, tre
 4. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
 5. If classification is confident enough, register the captured page or URL item page in `Topic Index` with Domain / Topic / Subtopic fields.
 6. Move the captured page itself out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet (`page_id: null`), create one before DB registration and movement; this is the only new-page exception.
-7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list.
+7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, the complete `source_content` body in source order, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list. `source_content` is an application payload, not a summary hint; it must include material text and inline images when the source contains them.
 8. For URL-only list items, remove the processed URL line from the source list after the canonical page or unresolved page exists and its destination has been verified.
 9. If confidence is low, do not register a Topic Index row. Create or use a page for the unresolved URL item, move it to `Unresolved Sources` with the failed extraction or weak-evidence reason, remove that URL line from the source list, and report it to the user.
 
@@ -312,7 +312,7 @@ What this page is about, limited to evidence available in the page or source.
 Original URL and the provenance needed to interpret the note.
 
 ## Notes
-Main notes, excerpts, implementation steps, facts, or observations.
+Main notes, excerpts, implementation steps, facts, or observations. For an external or clipped source, preserve the source body represented by `source_content.ordered_blocks` here, including inline images in their original positions.
 
 ## Visual Notes
 For images used as evidence: what each image shows, legible text or diagram structure, and the observed point used for classification. Omit this section when images are absent or purely decorative. Do not persist temporary signed image URLs.
@@ -328,6 +328,37 @@ Related Notion pages and sources not already listed in Source.
 ```
 
 `Summary`、`Source`、`Notes` are required for a successful organized page. `Visual Notes` is required only when images materially support the page. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
+
+## Source Content Contract
+
+`source_content` is the canonical bridge between enrichment, Notion application, and independent verification. It is required for every `register_and_move_to_topic_page` result, including an existing Notion page that already contains a full clip.
+
+```json
+{
+  "status": "complete",
+  "origin": "notion_capture|url_reader|browser_fallback|combined",
+  "raw_markdown": "the fetched or captured body, not an AI summary",
+  "ordered_blocks": [
+    {
+      "index": 0,
+      "type": "heading|paragraph|quote|list|code|table|link|image|divider",
+      "markdown": "source block in its original order",
+      "image": {
+        "source_url": "https://example.com/image.png",
+        "persistent_asset": "Notion attachment or stable image reference|null",
+        "alt": "observed alt text or visual description"
+      }
+    }
+  ],
+  "digest": "sha256:<64 lowercase hex characters>",
+  "text_length": 0,
+  "image_count": 0
+}
+```
+
+`ordered_blocks` is the source-of-truth sequence. The digest is SHA-256 over canonical JSON of `ordered_blocks` only (`ensure_ascii=false`, sorted keys, compact separators); this makes text and image position changes detectable. `image_count` must equal the number of `image` blocks, and `text_length` must equal the character length of `raw_markdown`. Do not put reader status, retrieval time, queue state, classification, or verifier logs in this payload.
+
+For an existing Notion page, use `preserve_existing_in_place` when the fetched blocks already match the source; do not append a second copy. When blocks are missing, use `append_missing_ordered_blocks` or `rebuild_ordered_notes` only without destructive deletion, and retain the original capture. A successful application must report the mode, source digest, applied block/image counts, and that text and image order were preserved. A summary, URL, and classification line without the source body is never a successful application.
 
 Do not write `Context`, reader backend/status, retrieval time, Browser capture data, locator counts, queue state, classification history, or other operational audit data into a successful page. Keep them in the local queue, agent proposal, and verifier record. For source-only clips, keep `Decision` absent and make `Source URL` explicit. For decision pages, include links to the sources used.
 

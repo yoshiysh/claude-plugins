@@ -19,6 +19,8 @@
         "Domain / Topic / Subtopic が扱われ、slug / Export Path のような未使用 export 列を要求していない",
         "Type / Summary / Source URL / Source Type / Published At / Tags / Related Topics の分類が扱われている",
         "URL-only ページでは url-reader による公開 URL 補完が扱われている",
+        "register_and_move_to_topic_page では取得本文の source_content を要約の代わりに必須適用する方針が含まれている",
+        "source_content の ordered_blocks に本文と画像を原文順で保持し、画像の位置・件数・digestを検証する方針が含まれている",
         "既存タイトルがあるページも含めて根拠付きの Resolved Title / Title Source が扱われている",
         "50件上限と残件報告が明記されている",
         "削除や破壊的変更をしない方針が明記されている"
