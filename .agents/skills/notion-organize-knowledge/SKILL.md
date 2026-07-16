@@ -66,8 +66,8 @@ ready -> leased(resolve -> enrich -> classify -> apply -> verify) -> registered|
 4. `validate_run_audit.py --phase preflight` を通してから `dispatch` で worklist を作る。preflight は未処理 job がすべて `ready` で、既に verifier 済みの terminal job は保持されていることを確認する。
 5. worker は worklist の job を `claim --job-id` してから1 jobを処理する。URL-only / embed-only / 弱いタイトルの URL は必ず `$url-reader` を実行してから分類する。url-reader の JSON に `browser_fallback.required: true` がある場合、canonical URL を固定したうえで in-app Browser fallback を同じ起動内に必ず実行し、`browser_capture` を記録してから分類へ進む。未実行のまま terminal 化してはいけない。
 6. AI worker は `classification` proposal を返す。タグの値だけを返すことは禁止し、各タグの根拠と分類の比較理由を含める。
-7. `page-normalizer` はまず page identity を確定し、proposal と取得済み本文を正しい canonical page にだけ適用する。option 不足時は既存 option を保持して追加し、同じ値で再試行する。値を落として成功扱いにしない。
-8. `update-verifier` は別 role で Notion を再 fetch し、`notion_refetch.page_id` が page identity の `canonical_page_id` と一致すること、通常ページではそれが `source.page_id` と同一であることを確認する。`complete` は identity、移動、本文、DB、必要な URL 行 cleanup を含む verifier record を必須とする。
+7. `page-normalizer` はまず page identity を確定し、proposal と `source_content` を正しい canonical page にだけ適用する。`source_content` は要約ではなく、取得元の本文を元の順序で表す必須適用データである。option 不足時は既存 option を保持して追加し、同じ値で再試行する。値や本文を落として成功扱いにしない。
+8. `update-verifier` は別 role で Notion を再 fetch し、`notion_refetch.page_id` が page identity の `canonical_page_id` と一致すること、通常ページではそれが `source.page_id` と同一であることを確認する。さらに `content_verification` で source / applied / refetched digest、本文 block 数、画像数、本文・画像順序の一致を記録する。`complete` は identity、移動、本文、DB、必要な URL 行 cleanup を含む verifier record を必須とする。
 9. terminal event ごとに `validate_run_audit.py --phase progress` を実行し、直後に dispatcher が次の ready job を補充する。全 job が終端になったときだけ `--phase final` を実行し、バッチ完了と報告する。
 
 ## Dispatcher loop（heartbeat / runner ごとに必須）
@@ -113,11 +113,12 @@ python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
 
 ## 本文・分類のルール
 
-- 成功ページの本文は `Summary`、`Source`、`Notes` を必須とする。必要な場合だけ `Visual Notes`、`Decision`、`Open Questions`、`Links` を加える。`Decision` は本人の判断がある場合だけで、外部 source と混ぜない。
-- `Summary` は短い要旨でよいが、`Notes` は要約ではない。取得できた本文の全セクションを、見出し・段落・コード・引用・リストの構造と順序を保ったまま `Notes` に収める。ナビゲーション・広告・関連記事欄・反応数などの非本文要素以外は省略・取捨選択をしない。ただし第三者の著作物（記事・ブログ記事など）は逐語転記ではなく、原文の構成・順序を保った丁寧な要約（paraphrase）にする。逐語転記してよいのは自分自身のメモ、コードブロック、コマンド例、表・数値などの事実データに限る。paraphrase は情報量を削ってはならない — 見出し・箇条書きの各項目・数値/日付/固有名詞は1つも欠かさず、文の言い回しと構成だけを書き直す（詳細な網羅ルールは `references/knowledge-model.md` の `## Notes` を参照）。原文を再取得できない場合（ログイン壁・リンク切れ等）は本文を捏造せず、既存の根拠付き要約を残したまま `Open Questions` に不足を記録する。
+- 成功ページの本文は `Summary`、`Source`、`Notes` を必須とする。`Summary` は短い要旨でよいが、`Notes` は要約ではない。取得できた本文の全セクションを、見出し・段落・コード・引用・リスト・表・リンクの構造と順序を保ったまま収める。ナビゲーション・広告・関連記事欄・反応数などの非本文要素以外は省略・取捨選択をしない。ただし第三者の著作物は逐語転記ではなく、原文の構成・順序を保った丁寧な要約（paraphrase）にする。見出し・箇条書きの各項目・数値・日付・固有名詞などの情報は削らない。自分自身のメモ、コードブロック、コマンド例、表・数値などの事実データは必要に応じて逐語で保持できる。原文を再取得できない場合は本文を捏造せず、既存の根拠付き要約を残したまま `Open Questions` に不足を記録する。
 - 通常ページの成功条件は、元の `source.page_id` がそのまま Domains 配下へ移動し、Topic Index の `Notion Page` も同じ page ID を指すことである。新規ページを作って元ページを Unresolved Sources に残した状態は成功ではない。
 - 成功ページに `Context`、reader backend/status、取得日時、Browser audit、実行ログ、分類履歴を置かない。これらは queue / proposal / verification にのみ残す。
-- in-app Browser fallback の取得手順・selector・`browser_capture` schema は `.agents/skills/url-reader/references/in-app-browser-fallback.md` だけが定義する。このスキル側では再定義しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・画像）を元記事順のまま `Notes` に置く。プロフィール、反応数、誘導文、Browser audit を混ぜない。
+- `source_content` は content-enricher の取得結果から必ず生成する。URL reader の `markdown`、Notion の既存クリップ、または Browser fallback の順序付き block 列を `raw_markdown` と `ordered_blocks` に保持し、AI が要約を書き直したものを本文の代用にしてはいけない。`ordered_blocks` の `image` block は本文中の元の位置、画像 URL / 永続化された Notion asset、alt または視覚的説明を保持する。`digest`、`text_length`、`image_count` は実測値から計算し、分類用の Summary を `source_content` に混ぜない。
+- in-app Browser fallback の取得手順・selector・`browser_capture` schema は `.agents/skills/url-reader/references/in-app-browser-fallback.md` だけが定義する。このスキル側では再定義しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・表・リンク・画像）を元記事順のまま `Notes` に置き、プロフィール、反応数、誘導文、Browser audit を混ぜない。画像を先頭・末尾へまとめたり、画像 URL だけを別の節へ移したりしてはいけない。
+- 登録成功には `source_content.status: complete`、本文 digest、ordered block 数、画像数、`content_application`、独立 verifier による本文・画像順序の一致が必須である。取得本文が `Partial`、画像が欠落、または原文と適用本文の対応を確認できない場合は登録せず、根拠と不足を `Unresolved Sources` へ移す。
 - 根拠不足は DB に登録せず `Unresolved Sources` へ移す。理由、source URL、reader 結果、次の確認点を残す。
 - 同一 source URL、normalized URL、または Notion capture の強い重複は、代表ページだけを残す。重複ページは既定で削除・アーカイブ・trash を実行し、削除系ツールが初期一覧に無ければ `tool_search` で露出を試す。検索後も利用できない場合は削除した扱いにせず `duplicate_delete_unavailable` として記録し、対象 job を `deferred`（`deferred_reason: duplicate_delete_unavailable`）にして報告する。重複ページを Topic Index に登録しない。
 

@@ -157,7 +157,7 @@ When the source is a broad bookmark page, inbox page, or URL-only list page, tre
 4. Infer the best `Domain`, `Topic`, and `Subtopic` when the evidence supports it.
 5. If classification is confident enough, register the captured page or URL item page in `Topic Index` with Domain / Topic / Subtopic fields.
 6. Move the captured page itself out of the capture queue and under the matching `Domains/{Domain}/{Topic}/{Subtopic}` page. If a URL-only item has no Notion page yet (`page_id: null`), create one before DB registration and movement; this is the only new-page exception.
-7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list.
+7. Normalize that same moved page with AI-readable and human-readable information: summary, source URL, the complete `source_content` body in source order, source notes, decision notes, open questions, related links, and the source queue page when it came from a URL list. `source_content` is an application payload, not a summary hint; it must include material text and inline images when the source contains them.
 8. For URL-only list items, remove the processed URL line from the source list after the canonical page or unresolved page exists and its destination has been verified.
 9. If confidence is low, do not register a Topic Index row. Create or use a page for the unresolved URL item, move it to `Unresolved Sources` with the failed extraction or weak-evidence reason, remove that URL line from the source list, and report it to the user.
 
@@ -326,6 +326,7 @@ Whether that full coverage is verbatim transcription or a thorough, structurally
 The result should be shorter than the source only because paraphrase is more economical than the original prose — never because content was cut. When a source cannot be re-extracted at all (login wall, broken link, no text content), do not fabricate Notes — leave the existing evidence-backed summary and record the gap in `Open Questions` instead.
 
 Images that are part of the source content (an X post's attached media, an article's inline figures/screenshots/diagrams) are embedded inline in `Notes`, at the position that matches where they appear in the original source — not appended as a separate end-of-page block. This applies the same way to X posts and to articles. Whether an image exists is decided from what the extraction actually returned (Notion image blocks, url-reader `image_links`, in-app Browser captured images), never from whether the surrounding prose happens to mention it (e.g. "see image below"). Absence of such a phrase is not grounds to skip checking for images; presence of the phrase is not required to embed one. Only embed an image behind a stable, non-expiring URL (the original publisher's own asset URL, or `pbs.twimg.com/media/...` for X). Never embed a temporary signed URL (Notion's own attachment URLs, any URL with an expiring signature such as `X-Amz-Expires`) — it will 404 once the signature lapses. If only a temporary URL is available and no stable equivalent can be found, keep a short textual description in place of the image and note the gap in `Open Questions`, rather than embedding a link that will break.
+The canonical bridge for this full-coverage body is `source_content.ordered_blocks`. The applied `Notes` content must preserve the same block order, including inline images at their original positions; the source digest, text length, and image count are checked independently during application and verification.
 
 ## Visual Notes
 Supplementary analysis for an image already embedded inline in `Notes`, when the image's meaning is not obvious from the image alone: how to read a chart or table, OCR uncertainty, or the specific point the image supports for classification. This section does not hold the image itself — that lives inline in `Notes` at its original position. Omit this section when images are absent, purely decorative, or self-explanatory.
@@ -341,6 +342,37 @@ Related Notion pages and sources not already listed in Source.
 ```
 
 `Summary`、`Source`、`Notes` are required for a successful organized page. `Summary` stays a short synopsis (a few sentences) of what the page is about; `Notes` is not a summary — it must carry full coverage of the source as described above (verbatim for your own memos, thorough paraphrase for third-party copyrighted text), with any source images embedded inline at their original position. `Visual Notes` is optional and used only for analysis that doesn't belong inline; it is never the only place an image's own embed lives. `Decision` is optional and only contains the user's own judgment; never mix it with external source material. `Open Questions` and `Links` are optional.
+
+## Source Content Contract
+
+`source_content` is the canonical bridge between enrichment, Notion application, and independent verification. It is required for every `register_and_move_to_topic_page` result, including an existing Notion page that already contains a full clip.
+
+```json
+{
+  "status": "complete",
+  "origin": "notion_capture|url_reader|browser_fallback|combined",
+  "raw_markdown": "the fetched or captured body, not an AI summary",
+  "ordered_blocks": [
+    {
+      "index": 0,
+      "type": "heading|paragraph|quote|list|code|table|link|image|divider",
+      "markdown": "source block in its original order",
+      "image": {
+        "source_url": "https://example.com/image.png",
+        "persistent_asset": "Notion attachment or stable image reference|null",
+        "alt": "observed alt text or visual description"
+      }
+    }
+  ],
+  "digest": "sha256:<64 lowercase hex characters>",
+  "text_length": 0,
+  "image_count": 0
+}
+```
+
+`ordered_blocks` is the source-of-truth sequence. The digest is SHA-256 over canonical JSON of `ordered_blocks` only (`ensure_ascii=false`, sorted keys, compact separators); this makes text and image position changes detectable. `image_count` must equal the number of `image` blocks, and `text_length` must equal the character length of `raw_markdown`. Do not put reader status, retrieval time, queue state, classification, or verifier logs in this payload.
+
+For an existing Notion page, use `preserve_existing_in_place` when the fetched blocks already match the source; do not append a second copy. When blocks are missing, use `append_missing_ordered_blocks` or `rebuild_ordered_notes` only without destructive deletion, and retain the original capture. A successful application must report the mode, source digest, applied block/image counts, and that text and image order were preserved. A summary, URL, and classification line without the source body is never a successful application.
 
 Do not write `Context`, reader backend/status, retrieval time, Browser capture data, locator counts, queue state, classification history, or other operational audit data into a successful page. Keep them in the local queue, agent proposal, and verifier record. For source-only clips, keep `Decision` absent and make `Source URL` explicit. For decision pages, include links to the sources used.
 
