@@ -1,0 +1,8 @@
+{
+    "name": "worktree-sync",
+    "version": "0.1.0",
+    "description": "Worktree を最新の main に同期し、マージ済みブランチと不要な作業状態を掃除する。 「main を更新」「最新にして」「sync」「同期」「マージしたから更新」「main を取得」 「ブランチを更新」「ブランチを整理」「掃除して」等のキーワードで起動する。 ローカル・remote 双方のマージ済みブランチ、stash の滞留、submodule の drift、 終了済み workspace までを 1 回の実行で洗い出す。",
+    "author": {
+        "name": "yoshiysh"
+    }
+}

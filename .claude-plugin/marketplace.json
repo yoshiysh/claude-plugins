@@ -8,6 +8,26 @@
         {
             "name": "skill-creator-multi-agent",
             "source": "./plugins/skill-creator-multi-agent"
+        },
+        {
+            "name": "pr-create",
+            "source": "./plugins/pr-create"
+        },
+        {
+            "name": "reference",
+            "source": "./plugins/reference"
+        },
+        {
+            "name": "commit",
+            "source": "./plugins/commit"
+        },
+        {
+            "name": "worktree-sync",
+            "source": "./plugins/worktree-sync"
+        },
+        {
+            "name": "skill-creator-best-practices",
+            "source": "./plugins/skill-creator-best-practices"
         }
     ]
 }
