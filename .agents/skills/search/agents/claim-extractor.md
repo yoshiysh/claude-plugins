@@ -3,8 +3,9 @@ name: claim-extractor
 model: sonnet
 subagent_type: general-purpose
 description: >
-  search スキルの検証ループ Step 2 で SKILL.md から呼ばれる。調査の問い・現時点のドラフト
-  回答・synthesizer が出した追加検証の問いを受け取り、検証が必要な事実主張を本筋・添え物を
+  search スキルの検証ループ（`scripts/investigate.js` の Extract フェーズ）で呼ばれる。調査の
+  問い・現時点のドラフト回答・synthesizer が出した追加検証の問い・既に検証済みの主張一覧を
+  受け取り、検証が必要な事実主張を本筋・添え物を
   問わず全て列挙する。各主張に検証手段（live API / ファイル Read / Web 検索）と、複数の事実を
   組み合わせた推論による合成主張かどうかの区別を付す。出力は source-verifier が並列検証する
   ための claims[]（JSON）であり、この agent 自身は検証を行わない（抽出のみ）。

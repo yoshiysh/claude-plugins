@@ -19,9 +19,16 @@ description: >
 このスキルの deliverable は「もっともらしい説明」ではなく「一次情報に裏付けられた検証済み事実
 ＋未検証のまま残った点の正直な区別＋（特定できた場合の）根本原因」である。
 
-SKILL.md（Orchestrator）は「誰に何を渡すか・どの順で回すか・いつ終わるか」だけを制御する。
-各 agent の検証ロジック（truncation 検知・チェリーピッキング防止・三値判定・反証義務）は
-`agents/` に外出しし、SKILL.md からは呼ぶとだけ書く。
+検証ループ本体（claim 抽出 → claim ごと並列検証 → 合成 → 収束判定）は
+`scripts/investigate.js`（Workflow スクリプト）が持つ。SKILL.md は「ループに入る前の分岐」と
+「結果の提示」だけを制御する。各 agent の検証ロジック（truncation 検知・チェリーピッキング
+防止・三値判定・反証義務）は `agents/` に外出しする。
+
+**なぜループを script に置くか**: 「抽出された claim が検証されないままレポートに載る」
+「同じ問いを検証し直して終わらない」を散文の禁止事項で防ごうとすると、それを見張る記述が
+際限なく増える。script が claims[] を走査して verifier を spawn する形にすれば、検証の
+スキップは原理的に起こりえず、監視の記述ごと不要になる。ループ・並列・集約は script、
+判断（何を検証すべきか・収束したか）は agent、という分担。
 
 ## このスキルが対策する失敗（設計の出発点）
 
@@ -60,6 +67,8 @@ SKILL.md（Orchestrator）は「誰に何を渡すか・どの順で回すか・
 - **読めなかった内容を創作しない**：`cannot-verify` は「未検証」として正直に区分する。
   推測で根本原因を埋めない。
 - **SKILL.md が検証ツールを直接叩かない**：一次情報の取得・判定は agent の責務。
+- **SKILL.md がループを回さない**：ラウンド反復・並列 spawn・累積・打ち切り判定は
+  `scripts/investigate.js` の責務。
 
 ## フロー
 
@@ -70,28 +79,23 @@ SKILL.md（Orchestrator）は「誰に何を渡すか・どの順で回すか・
   │
   ├─[0.5] 委譲ヘッダ検出（SKILL.md が直接判定）
   │       先頭が [SKILL_DELEGATION caller=... purpose=verify-claim] なら
-  │       claim 抽出（[2]）を飛ばし、渡された主張を直接 [3] source-verifier へ。
+  │       Workflow を通さず、渡された主張を source-verifier へ直接 spawn する。
   │       三値（verified/refuted/cannot-verify）で呼び出し元へ返して終了（§Step 0.5）。
   │
   ├─[1] 調査+実行の混在判定（SKILL.md が直接判定）
   │       「調べて直して」等なら調査部分のみ担当。実行部分は検証済みレポート＋明示的な
   │       引き継ぎとしてユーザー / 呼び出し元へ返す（自身では実行しない。§Step 1）。
   │
-  ├─[R] bounded loop（round = 1..5、進捗ガード付き。§検証ループ）:
-  │   │
-  │   ├─[2] claim-extractor（agent, sonnet）
-  │   │      問い・現在のドラフト回答・synthesizer の next_question から、検証すべき
-  │   │      事実主張を全列挙。各 claim に kind(fact|inference) と verify_method を付す。
-  │   │
-  │   ├─[3] source-verifier（agent, sonnet, claim ごとに並列 = 同一ターンで一括 spawn）
-  │   │      実ツールを実行して三値判定。情報源の truncation/pagination、出典独立性、
-  │   │      引用-主張の意味的整合、情報鮮度を確認。evidence_ref を必ず併記。
-  │   │
-  │   └─[4] root-cause-synthesizer（agent, opus）
-  │          累積した検証結果から根本原因を組む。反証を最低 1 つ試みる。矛盾・未解決点が
-  │          あれば next_question を 1 つ返して [2] へ差し戻す。無ければレポートを確定。
+  ├─[2] Workflow を呼ぶ（§Step 2）
+  │       scriptPath: scripts/investigate.js
+  │       args: { skillDir, question, maxRounds? }
+  │       ループ本体は script が内包する:
+  │         Extract    claim-extractor（sonnet）が検証すべき事実主張を全列挙
+  │         Verify     source-verifier（sonnet）を claim ごとに並列 spawn し三値判定
+  │         Synthesize root-cause-synthesizer（opus）が累積 verdict から根本原因を組む
+  │         → next_question があれば Extract へ戻る。round 上限 5 / 進捗ガードで打ち切り
   │
-  └─[5] 4要素の最終レポートを返す（verified_facts / unverified_or_inconclusive / root_cause /
+  └─[3] 4要素の最終レポートを返す（verified_facts / unverified_or_inconclusive / root_cause /
         inferences）。組み立ては root-cause-synthesizer が行い、SKILL.md はそれを relay する。
 ```
 
@@ -128,11 +132,15 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
 見る。これは単純な文字列パターンの有無確認なので SKILL.md 側で直接判定してよい。
 
 - **一致する場合**：ヘッダ行を除いた本文を「検証対象の主張（1 個または少数）」として、
-  `[2] claim-extractor` を飛ばして `[3] source-verifier` へ直接渡す。各主張について
-  `verified`/`refuted`/`cannot-verify` の三値 + `evidence_ref` を呼び出し元へ返して終了する
-  （root-cause 合成は行わない。呼び出し元が求めているのは主張の裏付け可否のみ）。
-  複数主張なら claim ごとに並列 spawn する。契約は `schemas/agent-contracts.md`
+  `agents/source-verifier.md` を読み **Agent ツールで直接 spawn する**（複数主張なら
+  同一ターンで並列に）。各主張について `verified`/`refuted`/`cannot-verify` の三値 +
+  `evidence_ref` を呼び出し元へ返して終了する（root-cause 合成は行わない。呼び出し元が
+  求めているのは主張の裏付け可否のみ）。契約は `schemas/agent-contracts.md`
   §delegation-verify-claim を正とする。
+
+  **この経路は Workflow を通さない**。委譲は呼び出し元スキルへの同期的な request/response
+  であり、バックグラウンド実行される Workflow に載せると応答の形と待ち方が変わる。
+  検証ループ（抽出 → 検証 → 合成の反復）が要らない経路でもあり、script の出番がない。
 - **一致しない場合**：通常どおり Step 1 へ進む。
 
 ## Step 1: 調査+実行の混在判定（SKILL.md が直接判定する分岐）
@@ -146,69 +154,45 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
   理由：このスキルの検証保証は「助言（assessment）」に閉じることで成立しており、状態変更の
   承認境界と混ぜない（不可逆操作は人間 / 呼び出し元の責務）。
 
-## 検証ループ（Step 2 → 3 → 4、bounded + 進捗ガード）
+## Step 2: Workflow を呼ぶ
 
-Orchestrator は**累積検証結果**（これまでの全 claim の三値判定 + evidence_ref）を状態として
-保持し、各ラウンドで synthesizer に丸ごと渡す。
+```
+Workflow({
+  scriptPath: "[SKILL_DIR]/scripts/investigate.js",
+  args: { skillDir: "[SKILL_DIR]", question: "<調査依頼>", maxRounds: <number|undefined> }
+})
+```
 
-- **round は最大 5**。5 ラウンド到達で打ち切り、その時点の最終レポート（4要素）を「未解決点あり」
-  として返す（無限ループ防止）。
-- **進捗ガード**：あるラウンドで (a) 新たに verified になった claim が 0 件、かつ (b)
-  synthesizer の next_question が前ラウンドと実質同一、なら「進捗なし」とみなして早期打ち切り。
-  理由：同じ問いを検証し直す reactive loop を防ぐ。
-- **部分検証でも回答を継続する**：一部の claim が `cannot-verify` でも、ループを止めず、その
-  claim を最終レポートの `unverified_or_inconclusive` に落として残りを組み立てる（全部
-  検証できないことは回答放棄の理由にしない）。
+`skillDir` には本スキルの実ディレクトリを実パスで渡す。スクリプトは自身の位置を解決できず、
+agent に渡す `agents/*.md` と `schemas/agent-contracts.md` の Read パスがここでしか決まらない。
 
-### Step 2: claim-extractor を呼ぶ
+完了すると `{ question, rounds_run, termination_reason, report, verdicts, rounds }` が返る。
 
-`agents/claim-extractor.md` を読み、以下を渡して呼ぶ。
+**script が構造として保証すること**（散文の禁止事項で担保していたものの置き換え）:
 
-- `[QUESTION]`：元の調査依頼
-- `[DRAFT]`：現時点のドラフト回答（あれば。無ければ空）。2 ラウンド目以降は**前ラウンドの
-  synthesizer が組み立てた `report` ドラフトをそのまま渡す**。これにより extractor が
-  ドラフト全体を再スキャンし、verdict の付いていない事実主張（特に添え物）を**一括で**
-  拾い直せる（1 ラウンド 1 件ずつのトリクルにせず、5 ラウンド上限に対して網羅性を確保する）。
-- `[NEXT_QUESTION]`：前ラウンドの synthesizer が出した追加検証の問い（あれば）
+| 保証 | 実現方法 |
+|---|---|
+| 抽出された claim は必ず検証を通る | script が `claims[]` を走査して claim ごとに verifier を spawn する。未検証の主張がレポートに載る経路が存在しない |
+| 同じ claim を毎ラウンド検証し直さない | 正規化した主張文をキーに既検証分を除外（`seen`） |
+| 無限ループしない | `round < maxRounds`（既定 5）の `while` |
+| 進捗のないループを早期に切る | (a) 新規 verified 0 件 かつ (b) `same_question_as_previous` で打ち切り。(b) の意味判断は synthesizer が返し、分岐は script が持つ |
+| 検証 agent が落ちても捏造しない | 結果を返さなかった claim を `cannot-verify` として明示的に積む |
+| load-bearing な主張を先に検証する | `priority` 順に並べてから spawn。打ち切り時に本筋を支える claim が残る |
 
-出力：`claims[]`（各 `{id, text, kind, verify_method, priority, hedge}`）。
+**部分検証でも回答を継続する**：一部の claim が `cannot-verify` でもループは止まらず、その
+claim は最終レポートの `unverified_or_inconclusive` に落ちる（全部検証できないことは回答
+放棄の理由にしない）。`claims` が空（検証すべき事実主張が無い純粋な定義・意見の問い）の
+場合も同様にレポートは組み上がる（`verified_facts` が空になりうる）。
 
-- `claims` が空（検証すべき事実主張が存在しない純粋な定義・意見の問い）の場合は、検証ループを
-  回さず、その旨を明記した回答を返す（`root_cause` は推論として `inferences` に置き、
-  `verified_facts` は空になりうる）。
+`termination_reason` は `converged`（収束）/ `stalled`（進捗なしで打ち切り）/ `max_rounds`
+（ラウンド上限）/ `budget_exhausted`（予算到達）/ `not_started`（1 ラウンドも回らなかった）。
+`converged` 以外は Step 3 で必ず明示する（達成度を実態より良く見せない）。`not_started` と
+`report: null` が返った場合はレポートを組み立てず、その事実をそのまま伝える。
 
-### Step 3: source-verifier を呼ぶ（claim ごとに並列）
+Workflow は `resumeFromRunId` で再開できる。長い調査が中断した場合は同じ `scriptPath` +
+`resumeFromRunId` で続きから回せる。
 
-`agents/source-verifier.md` を読み、**検証すべき claim すべてを同一ターンで並列に spawn する**
-（後回しにせず一括起動 = throughput 確保）。
-
-- 入力（各 claim）：`{id, text, verify_method}`
-- 出力（各 claim）：`{id, verdict, evidence_ref, source_completeness, note}`（三値）
-
-claim が極端に多い場合（目安 8 件超）は、claim-extractor が付けた `priority`（本筋の結論を
-支える load-bearing な主張ほど高い）順に上位を先に verify し、残りはバッチで続ける。
-どの claim も検証されないまま最終レポートに混入させない。
-
-### Step 4: root-cause-synthesizer を呼ぶ
-
-`agents/root-cause-synthesizer.md` を読み、`model: "opus"` で呼ぶ。
-
-- 入力：`[QUESTION]` / 累積 `verdicts[]`（Step 3 までの全結果）
-- 出力：`{root_cause, disconfirmation_attempted, contradictions[], next_question, report}`
-
-分岐：
-
-- `next_question != null` かつ `round < 5` かつ進捗あり → その問いを `[NEXT_QUESTION]`、
-  synthesizer の `report` ドラフトを `[DRAFT]` として Step 2 へ戻る（extractor がドラフト全体を
-  再スキャンし、未検証の添え物を一括で拾い直す）。
-- それ以外 → `report`（4要素）を確定し Step 5 へ。
-
-**添え物の検証省略を構造的に防ぐ**：synthesizer は、自分が組み立てた `report` 内に
-verdict の付いていない事実主張（本筋・添え物を問わず）が 1 つでも残っていれば、たとえ
-root_cause が確定していても `next_question` を必ず立てる。これにより「即断できるケースでも
-添え物は必ず検証を通る」ことを保証する。
-
-## Step 5: 4要素の最終レポートを返す
+## Step 3: 4要素の最終レポートを返す
 
 root-cause-synthesizer が組み立てた `report` をそのままユーザー / 呼び出し元へ返す。構造は
 `schemas/agent-contracts.md` §final-report を正とする（`verified_facts` / 
@@ -226,18 +210,27 @@ root-cause-synthesizer が組み立てた `report` をそのままユーザー /
 
 ## 人間承認について
 
-このフローは Step 0〜5 まで承認なしに完結する。deliverable が常に「検証済みの調査結果
+このフローは Step 0〜3 まで承認なしに完結する。deliverable が常に「検証済みの調査結果
 （assessment）」に留まり、状態変更を伴わないため。人間介入が要るのは 2 箇所のみ：
 (1) Step 0 の対象特定不能な曖昧問い（明確化質問を返す）、(2) Step 1 の実行部分（引き継ぎ、
 実行は人間 / 呼び出し元）。
+
+**どちらも Workflow 起動前に位置している**。Workflow は実行中にユーザー入力を受け取れない
+ため、人間ゲートを持つ判断（Step 0 の明確化質問・Step 0.5 の委譲判定・Step 1 の実行分離）は
+SKILL.md 側に残し、script にはループだけを持たせている。
 
 ## エラー時の挙動
 
 - 検証ツール（Bash/gh/WebFetch 等）が失敗 → `source-verifier` はその claim を `cannot-verify`
   とし、失敗理由を `note` に残す（捏造しない）。ループ全体は止めない。
+- `source-verifier` の呼び出し自体が失敗（agent が結果を返さない）→ script がその claim を
+  `cannot-verify` として積む。検証済みとして扱われることはない。
 - synthesizer が矛盾を検出 → `contradictions[]` に記録し、レポートの
   `unverified_or_inconclusive` に反映する。矛盾を隠して片方を採らない。
-- 5 ラウンド打ち切り / 進捗なし打ち切り → その時点のレポートを「未解決点あり」として返す。
+- ラウンド上限 / 進捗なし打ち切り → その時点のレポートを「未解決点あり」として返す。
+  `termination_reason` を必ず添える。
+- Workflow 呼び出し自体が失敗（構文エラー・ツール未許可等）→ エラー内容をそのまま伝える。
+  生成物を捏造しない。
 
 ## モデル交代時の更新ポイント
 
