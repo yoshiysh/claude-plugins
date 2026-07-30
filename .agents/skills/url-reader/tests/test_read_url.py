@@ -152,7 +152,16 @@ Log into Instagram
 Mobile number, username or email
 Log in with Facebook
 """
-        with mock.patch.object(read_url, "post_generic_reader", return_value=(200, body)):
+        # Browser4 も塞ぐ。塞がないと Blocked のあと fallback が実際に走り、
+        # Browser4 が読める環境でだけ Extracted に上書きされて結果が環境依存になる。
+        with (
+            mock.patch.object(read_url, "post_generic_reader", return_value=(200, body)),
+            mock.patch.object(
+                read_url,
+                "run_browser4",
+                return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
+            ),
+        ):
             result = read_url.build_result("https://www.instagram.com/reel/Cg_nrIBvg7k/?igshid=x", 5, None)
 
         self.assertEqual(result["reader_status"], "Blocked")
