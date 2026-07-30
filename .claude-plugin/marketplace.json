@@ -24,6 +24,18 @@
         {
             "name": "skill-creator-best-practices",
             "source": "./plugins/skill-creator-best-practices"
+        },
+        {
+            "name": "chat",
+            "source": "./plugins/chat"
+        },
+        {
+            "name": "dispatch",
+            "source": "./plugins/dispatch"
+        },
+        {
+            "name": "search",
+            "source": "./plugins/search"
         }
     ]
 }
