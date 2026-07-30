@@ -1,0 +1,47 @@
+{
+  "skill_name": "chat-rigorous",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/chat-rigorous このプロジェクトの現状を評価して、今後の開発優先順位を提案してほしい。何を先にやるべきで、何は作らない方がいいかも含めて。",
+      "expected_output": "正常系エッジ（発動すべき・非投資のプロジェクト評価）。investment-topic-router が proceed:true を返し、analyst が起動する。analyst は references/analytical-workflow.md を読み、実際に対象を調査（Read/Grep/Bash で行数・ファイル数・件数等を計測）した上で 24 パターンに従って分析する。結論ファースト、実測値テーブル、強み/弱み分離、見落とし専用セクション（対象固有の実測に紐づく）、非推奨セクション（作らない方がよいもの）、フェーズ分割の順序理由、敵対的自己チェック（最強の反論の書き出しとそれへの応答）を含む。投資判断は生成しない。",
+      "files": [],
+      "assertions": [
+        "investment-topic-router が proceed:true を返し、analyst が起動している",
+        "analyst が references/analytical-workflow.md を Read してから分析している",
+        "analyst が対象を実際に調査（Read/Grep/Bash で行数・ファイル数・件数等の実測値を取得）しており、憶測の条件分岐だけで済ませていない",
+        "出力が結論（やるべき優先順位の判断）から始まっている（結論ファースト）",
+        "見落とし専用セクションの各指摘が対象固有の実測値・file:line・具体的な数字に紐づいており、『テストを書くべき』のような初心者でも思いつく一般論で埋められていない（非自明性バー）",
+        "『作らない方がよいもの』の非推奨セクションが独立して存在し、加算のみのロードマップになっていない",
+        "出力に、自らの結論を最も強く否定する反論が明示的に書き出され、それに対する応答が本文に含まれている（敵対的自己チェックの痕跡）",
+        "analyst 自身が銘柄の売買判断・目標株価を生成していない"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "/chat-rigorous なんかこの認証まわり、色々ヤバい気がするんだけど直感で。トークンの扱いとか。",
+      "expected_output": "準正常系（発動すべき・曖昧表現）。曖昧だが実体のある相談なので Step 0 で打ち切らず、investment-topic-router を経て analyst が起動する。analyst は曖昧さを整理し、対象の認証関連コードを実際に調査した上で結論に導く。相談の規模が小さい場合は比例性ガード（パターン 23）により全 24 パターンを機械展開せず、該当しないパターンは N/A として理由を添える。一般論の条件分岐提示で終わらず、確認できた事実に基づく明確な判定（高/中/低の脅威度等）に達する。",
+      "files": [],
+      "assertions": [
+        "Step 0 で雑談として打ち切られず、investment-topic-router を経て analyst が起動している（曖昧だが実体のある相談として継続）",
+        "investment-topic-router が proceed:true を返している",
+        "analyst が対象の認証関連コードを実際に Read/Grep で確認し、実際のファイル名・関数名・変数名等を最低1つ引用している（一般論の条件分岐だけで終わっていない）",
+        "出力が一般論の条件分岐の羅列で終わらず、確認できた事実に基づく明確な結論（脅威度の判定等）に達している",
+        "相談規模に対して出力の構造的重さが比例しており、該当しないパターンは N/A として理由が添えられている（機械展開になっていない）"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "/chat-rigorous NVDA と AMD、半導体セクターの旬を踏まえて今どっちを組み入れるべきか厳密に分析してほしい。目標株価的にはどう見る？",
+      "expected_output": "誤発動リスク検証（投資相談 → investment-strategist へ委譲、analyst は起動しない）。investment-topic-router 内で detect_investment_topic.py が is_investment_topic:true を返し（組み入れ・目標株価・旬 が検出される）、agent 自身が Skill({skill: \"investment-strategist\"}) を呼んで proceed:false を返す。SKILL.md は relayed_response をそのまま返して終了し、analyst（24 パターン分析）は完全にスキップされる。chat-rigorous 自身は投資判断を一切生成しない。『厳密に分析』という語に釣られて analyst を起動しないことが検証の核。",
+      "files": [],
+      "assertions": [
+        "investment-topic-router 内の script が is_investment_topic=true を返している（組み入れ・目標株価・旬 が検出される）",
+        "investment-topic-router が Skill({skill: \"investment-strategist\"}) を自ら呼び、SKILL.md は直接呼んでいない",
+        "investment-topic-router が proceed:false を返し、SKILL.md はその relayed_response をそのまま返している",
+        "analyst（Step 2）が呼ばれていない（『厳密に分析』の語に釣られて 24 パターン分析を起動していない）",
+        "chat-rigorous スキル自身が銘柄の売買判断・目標株価の見解を生成していない"
+      ]
+    }
+  ]
+}
