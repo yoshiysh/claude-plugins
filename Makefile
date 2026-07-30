@@ -12,4 +12,7 @@ test:
 	$(PYTHON) $(VALIDATOR) .agents/skills/commit --verbose
 	$(PYTHON) $(VALIDATOR) .agents/skills/worktree-sync --verbose
 	$(PYTHON) $(VALIDATOR) .agents/skills/skill-creator-best-practices --verbose
+	$(PYTHON) $(VALIDATOR) .agents/skills/chat --verbose
+	$(PYTHON) $(VALIDATOR) .agents/skills/dispatch --verbose
+	$(PYTHON) $(VALIDATOR) .agents/skills/search --verbose
 	$(PYTHON) -m unittest discover -s .agents/skills/worktree-sync/tests -p 'test_*.py'

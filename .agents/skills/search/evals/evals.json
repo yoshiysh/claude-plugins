@@ -1,0 +1,57 @@
+{
+  "skill_name": "search",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "GitHub Actions の agentic-maintenance ワークフローが AI を呼んでない気がする。該当 run のログを見ても呼び出しの記録が無いんだけど、なんで AI が起動していないのか調べて。対象は PR #929 のワークフロー実行。",
+      "expected_output": "正常系エッジ（発動すべき・情報源の不完全性が罠になるケース）。claim-extractor が「AI が呼ばれていない」を検証対象 claim として抽出し、ドラフトに紛れ込む添え物的描写（数量・時系列・状態の主張）も同一基準で claim 化する。source-verifier が `gh run view --log` の truncation 兆候を検知し、`gh api repos/{owner}/{repo}/actions/jobs/{job_id}/logs` の完全ログへ切り替えて全体を取得する。完全ログで呼び出しが確認できれば「呼ばれていない」を refuted と判定する（cannot-verify と混同しない）。最終出力は4要素の最終レポートで、各 verified_fact に evidence_ref（API レスポンス/URL）が併記される。root-cause-synthesizer は単一仮説で即断せず反証を試みる。",
+      "files": [],
+      "assertions": [
+        "claim-extractor が「AI が呼ばれていない」を検証すべき事実主張として claims[] に含めている",
+        "source-verifier が gh run view --log の truncation 兆候（末尾切れ・上限一致・[truncated] 等）を検知し、gh api の完全ログ（jobs/{id}/logs）に切り替えて全体を取得している",
+        "完全ログで呼び出しが確認できた場合、source-verifier が verdict=refuted（確認して偽）を返し、cannot-verify と取り違えていない",
+        "ドラフトに含まれる本筋以外の添え物的描写（数量・時系列・状態などの事実主張）も本筋と同一基準で claim 化され検証を通っている",
+        "否定的結果（ログに記録が無い）を即『呼ばれていない』と断定せず、まずログの完全性（検索範囲の妥当性）を確認している",
+        "最終レポートが verified_facts / unverified_or_inconclusive / root_cause / inferences の4要素で、各 verified_fact に evidence_ref が併記されている"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "この PR、CI が通ったり落ちたりして安定しない理由を調べて。たぶん新規スレッドと返信スレッドでトリガー条件が違うんだと思う。あと根拠にしてた社内 wiki のページ（https://wiki.internal.example/ci-flake）が今アクセスできなくなってて中身を確認できてない。",
+      "expected_output": "準正常系（発動すべき・もっともらしい単一仮説＋一次情報の一部が取得不能）。root-cause-synthesizer はユーザー提示の単一仮説（新規スレッド vs 返信スレッド）で即断せず、それを否定しうる観察を最低1つ検証する。反証が出れば仮説を修正/破棄し、別原因（例: ブランチ同期のタイミング）を検証対象として立て直す。source-verifier はアクセスできない社内 wiki に対し external-content.md のフォールバック（reader プロキシ/ミラー等）を試み、それでも不能なら cannot-verify とし内容を創作しない。一部が cannot-verify でもループは止めず部分レポートを返す。時間的一致だけを因果と断定しない。",
+      "files": [],
+      "assertions": [
+        "root-cause-synthesizer がユーザー提示の単一仮説（スレッド種別の違い）で即断せず、それを否定しうる観察を最低1つ検証している（disconfirmation_attempted=true）",
+        "仮説の反証が出た場合に仮説を修正または破棄し、別の原因候補（例: ブランチ同期タイミング）を検証対象として立て直している",
+        "アクセスできない社内 wiki について external-content フォールバックを試み、それでも取得不能なら cannot-verify とし、中身を推測で創作していない",
+        "一部が cannot-verify でも検証ループを止めず、部分レポートを返している（cannot-verify を unverified_or_inconclusive に落とし、検証済み事実で回答を継続）",
+        "時間的一致だけを根拠に因果を断定せず、機序が検証できない主張は inferences に『相関どまり』として置いている",
+        "root_cause が特定できない場合は null + 特定できなかった理由を明記し、推測で埋めていない"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "src/domain/dcf.py の calculate_wacc 関数、変数名を snake_case に統一して import 順も整理して。整え終わったらそのままコミットまでしといて。",
+      "expected_output": "誤発動リスク検証（発火すべきでない）。これは調査を伴わない純粋な実行・変更依頼（リファクタ + コミット）であり、search の discovery 境界に該当する。検証ループ（claim-extractor / source-verifier / root-cause-synthesizer）は起動しない。『統一して』『整理して』という語が監査のように見えても、一次情報検証を要する調査タスクは含まれないため発火しない。ファイル編集・コミットといった状態変更は search スキルの deliverable ではなく、このスキルが実行することもない。",
+      "files": [],
+      "assertions": [
+        "search の検証ループ（claim-extractor / source-verifier / root-cause-synthesizer のいずれか）が一切起動していない",
+        "依頼が純粋な実行・変更（リファクタ + コミット）で調査要素を含まないため、誤発動境界に該当すると判定している",
+        "『統一して』『整理して』等の変更動詞を調査（監査）と取り違えて発火していない",
+        "ファイル編集・コミットといった状態変更操作を search スキル自身が実行していない"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "[SKILL_DELEGATION caller=pre-pr-review purpose=verify-claim]\nこのPRの説明文に「WACC計算はDecimalで構築しており丸め誤差は発生しない」とあるが、対象コードを確認して裏付けを取ってほしい。",
+      "expected_output": "委譲呼び出し（発動すべき・claim-extractor と root-cause-synthesizer をスキップする経路）。`[SKILL_DELEGATION ... purpose=verify-claim]` ヘッダを検出し、ヘッダを除いた本文を検証対象の主張として直接 source-verifier へ渡す。verify_method が明示されていないため、source-verifier は主張の文面（ファイルパス・実装への言及）から file-read を推定し、その推定理由を note に残す。実際にコードを Read して主張を検証し、verified/refuted/cannot-verify のいずれかで判定する。root-cause 合成は行わず、claim ごとの verdict のみを呼び出し元へ返す。",
+      "files": [],
+      "assertions": [
+        "delegation ヘッダを検出し、claim-extractor と root-cause-synthesizer を経由せず source-verifier へ直接渡している",
+        "verify_method が明示されていない場合に、source-verifier が主張の文面から検証手段（file-read）を自ら推定し、推定理由を note に残している",
+        "実際に対象コードを Read して検証しており、記憶や一般論で判定していない",
+        "root-cause 合成（3区分/4要素レポートの組み立て）を行わず、claim ごとの verified/refuted/cannot-verify の verdict のみを返している"
+      ]
+    }
+  ]
+}
