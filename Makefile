@@ -17,3 +17,4 @@ test:
 	$(PYTHON) $(VALIDATOR) .agents/skills/dispatch --verbose
 	$(PYTHON) $(VALIDATOR) .agents/skills/search --verbose
 	$(PYTHON) -m unittest discover -s .agents/skills/worktree-sync/tests -p 'test_*.py'
+	$(PYTHON) -m unittest discover -s .agents/skills/url-reader/tests -p 'test_*.py'
