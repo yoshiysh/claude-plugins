@@ -14,7 +14,7 @@ Use a domain-aware read-only enrichment layer before summarizing, classifying, o
 Run the bundled script with the original target URL. The script owns backend and Browser4 attempts, but the calling agent owns the in-app Browser handoff:
 
 ```bash
-python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com/p/...'
+python3 [SKILL_DIR]/scripts/read_url.py 'https://www.instagram.com/p/...'
 ```
 
 When the normal reader returns anything other than `Extracted`, `read_url.py` automatically tries Browser4 and keeps whichever result contains better evidence. Browser4 is optional: if `browser4-cli` is unavailable, the original reader result is preserved and the failed Browser4 attempt is recorded. If the public URL still remains incomplete, the JSON contains `browser_fallback.required: true`; the calling agent must then execute the in-app Browser final-fallback protocol in [references/in-app-browser-fallback.md](references/in-app-browser-fallback.md) without asking the user for permission. This is a fixed retrieval stage, not a decision to ask the user about.
@@ -24,13 +24,13 @@ To enable the fallback, install Browser4 and its self-contained runtime, then ma
 For machine-readable output:
 
 ```bash
-python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com/p/...' --json
+python3 [SKILL_DIR]/scripts/read_url.py 'https://www.instagram.com/p/...' --json
 ```
 
 To save extracted image assets:
 
 ```bash
-python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com/p/...' --json --download-images /tmp/url-reader-images
+python3 [SKILL_DIR]/scripts/read_url.py 'https://www.instagram.com/p/...' --json --download-images /tmp/url-reader-images
 ```
 
 ## Rules
@@ -54,7 +54,7 @@ Use these reader paths:
 - Instagram post URLs: use the generic reader path. It can often return the caption, author link, location, hashtags, and signed image URLs.
 - Instagram Reel URLs (`instagram.com/reel/...`): if the reader returns an Instagram login page or generic shell, report `Blocked` and do not treat extracted login assets as usable images.
 - Other public URLs: use the generic reader path first. If the result is `Partial`, `ImagesOnly`, `Blocked`, or `Failed`, `read_url.py` automatically tries Browser4 and then emits the mandatory in-app Browser handoff if the result is still incomplete. Do not omit the handoff because the domain is ordinary.
-- GitHub URLs: run the generic reader first. If it returns `403`, an anonymous-access block, rate limiting, or missing repository content, run `scripts/read_github_cli.py` when an authenticated `gh` CLI is available before the in-app Browser final fallback. The script uses the CLI's keyring-backed login and never accepts or prints a PAT. If CLI evidence is still incomplete or the CLI is unavailable, execute the required in-app Browser fallback; do not ask the user to choose between them.
+- GitHub URLs: run the generic reader first. If it returns `403`, an anonymous-access block, rate limiting, or missing repository content, run `[SKILL_DIR]/scripts/read_github_cli.py` when an authenticated `gh` CLI is available before the in-app Browser final fallback. The script uses the CLI's keyring-backed login and never accepts or prints a PAT. If CLI evidence is still incomplete or the CLI is unavailable, execute the required in-app Browser fallback; do not ask the user to choose between them.
 
 X oEmbed is sufficient for post text and author metadata, but it does not reliably expose attached media URLs. If the user asks for X images or video, mark the text extraction separately from media extraction and use another backend or `Needs Review` for media.
 

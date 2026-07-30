@@ -85,9 +85,9 @@ ready -> leased(resolve -> enrich -> classify -> apply -> verify) -> registered|
 ## Queue コマンド
 
 ```bash
-WORKSPACE=.agents/skills/notion-organize-knowledge/workspace
-QUEUE=.agents/skills/notion-organize-knowledge/scripts/queue.py
-AUDIT=.agents/skills/notion-organize-knowledge/scripts/validate_run_audit.py
+WORKSPACE=[SKILL_DIR]/workspace
+QUEUE=[SKILL_DIR]/scripts/queue.py
+AUDIT=[SKILL_DIR]/scripts/validate_run_audit.py
 
 python3 "$QUEUE" create-run --workspace "$WORKSPACE" --input-kind notion_children \
   --source-json '{"page_id":"..."}' --batch-limit 50 --max-workers 4
@@ -117,7 +117,7 @@ python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
 - 通常ページの成功条件は、元の `source.page_id` がそのまま Domains 配下へ移動し、Topic Index の `Notion Page` も同じ page ID を指すことである。新規ページを作って元ページを Unresolved Sources に残した状態は成功ではない。
 - 成功ページに `Context`、reader backend/status、取得日時、Browser audit、実行ログ、分類履歴を置かない。これらは queue / proposal / verification にのみ残す。
 - `source_content` は content-enricher の取得結果から必ず生成する。URL reader の `markdown`、Notion の既存クリップ、または Browser fallback の順序付き block 列を `raw_markdown` と `ordered_blocks` に保持し、AI が要約を書き直したものを本文の代用にしてはいけない。`ordered_blocks` の `image` block は本文中の元の位置、画像 URL / 永続化された Notion asset、alt または視覚的説明を保持する。`digest`、`text_length`、`image_count` は実測値から計算し、分類用の Summary を `source_content` に混ぜない。
-- in-app Browser fallback の取得手順・selector・`browser_capture` schema は `.agents/skills/url-reader/references/in-app-browser-fallback.md` だけが定義する。このスキル側では再定義しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・表・リンク・画像）を元記事順のまま `Notes` に置き、プロフィール、反応数、誘導文、Browser audit を混ぜない。画像を先頭・末尾へまとめたり、画像 URL だけを別の節へ移したりしてはいけない。
+- in-app Browser fallback の取得手順・selector・`browser_capture` schema は `[SKILL_DIR]/../url-reader/references/in-app-browser-fallback.md` だけが定義する（`url-reader` を兄弟スキルとして同一プラグインに同梱する前提。コピーせず直接 Read する）。このスキル側では再定義しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・表・リンク・画像）を元記事順のまま `Notes` に置き、プロフィール、反応数、誘導文、Browser audit を混ぜない。画像を先頭・末尾へまとめたり、画像 URL だけを別の節へ移したりしてはいけない。
 - 登録成功には `source_content.status: complete`、本文 digest、ordered block 数、画像数、`content_application`、独立 verifier による本文・画像順序の一致が必須である。取得本文が `Partial`、画像が欠落、または原文と適用本文の対応を確認できない場合は登録せず、根拠と不足を `Unresolved Sources` へ移す。
 - 根拠不足は DB に登録せず `Unresolved Sources` へ移す。理由、source URL、reader 結果、次の確認点を残す。
 - 同一 source URL、normalized URL、または Notion capture の強い重複は、代表ページだけを残す。重複ページは既定で削除・アーカイブ・trash を実行し、削除系ツールが初期一覧に無ければ `tool_search` で露出を試す。検索後も利用できない場合は削除した扱いにせず `duplicate_delete_unavailable` として記録し、対象 job を `deferred`（`deferred_reason: duplicate_delete_unavailable`）にして報告する。重複ページを Topic Index に登録しない。
