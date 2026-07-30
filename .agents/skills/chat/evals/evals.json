@@ -1,0 +1,72 @@
+{
+  "skill_name": "chat",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/chat この DCF 計算関数、Decimal から float へのキャストで丸め誤差が出ない実装になってる？ROUND_HALF_UP は指定すべき？",
+      "expected_output": "正常系エッジ（発動すべき・非投資技術質問）。investment-topic-router が proceed:true を返し、prompt-compiler→sounding-board-consultant(fable)→relay-formatter の3段が回る。整形後の回答は outcome-first で、Decimal/float/ROUND_HALF_UP の固有表現を保持し、Fable の懸念をトーンダウンせず、shorthand を含まない。",
+      "files": [],
+      "assertions": [
+        "investment-topic-router が proceed:true を返している",
+        "prompt-compiler が呼ばれ、compiled prompt に越権禁止の境界指示（行動を取らず助言に留める）が含まれている",
+        "sounding-board-consultant が model: fable で呼ばれている",
+        "relay-formatter の出力が結論（outcome）から始まっている",
+        "relay-formatter の出力に Decimal・float・ROUND_HALF_UP の固有表現が保持されている",
+        "relay-formatter の出力に矢印連鎖などの shorthand が残っていない"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "/chat なんかこの認証まわりのコード、色々ヤバい気がするんだけど…トークンの扱いとセッション管理、あと入力バリデーションも一気に見てほしい",
+      "expected_output": "準正常系（発動すべき・曖昧表現+複数論点混在）。非投資技術質問として3段が回る。曖昧表現でも処理を継続し、混在した3論点（トークン扱い・セッション管理・入力バリデーション）が脱落せずに整形出力へ反映される。セキュリティ相談なので /scout /skeptic 相当のレンズが選ばれる。",
+      "files": [],
+      "assertions": [
+        "investment-topic-router が proceed:true を返している",
+        "曖昧表現（ヤバい気がする）でも案内文で打ち切らず処理を継続している",
+        "prompt-compiler が選ぶ思考レンズにセキュリティ向け（/scout または /skeptic）が含まれている",
+        "relay-formatter の出力にトークン扱い・セッション管理・入力バリデーションの3論点がすべて含まれ、特定論点だけが不釣り合いに削られていない",
+        "relay-formatter の出力が実際のファイル名・関数名・変数名等プロジェクト固有のコード要素を最低1つ引用している（条件分岐の提示だけで終わっていない）",
+        "relay-formatter の出力が一般論の条件分岐提示で終わらず、確認できた事実に基づく明確な結論（高/中/低の判定等）に達している"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "/chat NVDA と AMD、半導体セクターの旬を踏まえて今どっちを組み入れるべきか相談したい。目標株価的にはどう見る？",
+      "expected_output": "誤発動リスク検証（投資相談 → investment-strategist へ正しく委譲）。investment-topic-router 内で detect_investment_topic.py が is_investment_topic:true を返し、agent 自身が Skill({skill: \"investment-strategist\"}) を呼んで proceed:false を返す。prompt-compiler 以降（壁打ちパイプライン）は完全にスキップされる。chat スキル自身は投資判断を生成しない。",
+      "files": [],
+      "assertions": [
+        "investment-topic-router 内の script が is_investment_topic=true を返している（組み入れ・目標株価・旬 が検出される）",
+        "investment-topic-router が Skill({skill: \"investment-strategist\"}) を自ら呼び、SKILL.md は直接呼んでいない",
+        "investment-topic-router が proceed:false を返し、SKILL.md はその relayed_response をそのまま返している",
+        "prompt-compiler / sounding-board-consultant / relay-formatter が呼ばれていない（Step2-4 が完全スキップ）",
+        "chat スキル自身が銘柄の売買判断・目標株価の見解を生成していない"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "[SKILL_DELEGATION caller=magi-issue-resolver purpose=code-review]\nこの diff（frame_audit.py の quote 検証ロジック変更）をレビューしてほしい。特に YAML エスケープ周りの境界値を確認してほしい。",
+      "expected_output": "委譲呼び出し（他スキルからの起用）。委譲ヘッダを検出し、Step 1（investment-topic-router）と Step 5（Notion 記録）の両方をスキップして Step 0 → 0.5 → 2 → 3 → 4 のみを通る。ヘッダ行はユーザー向け相談文から除去された上で prompt-compiler に渡る。",
+      "files": [],
+      "assertions": [
+        "SKILL.md が Step 0.5 で委譲ヘッダを検出し、investment-topic-router を呼んでいない",
+        "prompt-compiler に渡る [USER_CONSULTATION] からヘッダ行 [SKILL_DELEGATION ...] が除去されている",
+        "sounding-board-consultant と relay-formatter は通常どおり呼ばれている（Step 2-4 はスキップされない）",
+        "Notion への記録（Step 5、notion-recording-guide.md に従った記録呼び出し）が実行されていない",
+        "chat スキル自身が投資トピック判定を行っていない（委譲元がコードレビュー目的であることを前提に処理している）"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "/chat FastAPI の依存性注入で、DB セッションのライフサイクル管理どうするのが良いか相談したい。yield ベースの dependency でコネクションリークが起きないか心配",
+      "expected_output": "正常系（通常のユーザー起動、委譲ヘッダなし）。Step 5 が実行され、Coordinator が自ら Notion「Fable 相談ログ」DB へ記録する（subagent への委譲ではない）。記録内容は相談内容・Fable の生分析・整形後回答の3セクションを一切要約・改変せず逐語転記する。ユーザーへの応答は Step 4 の時点で返され、Step 5 の完了を待たない。",
+      "files": [],
+      "assertions": [
+        "ユーザーへの応答（relay-formatter の出力）が Step 4 完了時点で返されており、Notion 記録の完了を待っていない",
+        "Notion への記録は Coordinator（SKILL.md 実行者）自身が直接ツールを呼んでおり、Agent tool 経由の subagent には委譲していない",
+        "Notion ページの本文が [USER_CONSULTATION]・[RAW_ANALYSIS]・[FORMATTED_RESPONSE] の3セクションをそれぞれ逐語（要約・改変なし）で含んでいる",
+        "相談サマリ（title プロパティ）が「相談」「質問」等の空疎な語のみでなく、DI・DBセッション・コネクションリークといった固有の語を含む具体的な要約になっている",
+        "Notion 記録が失敗してもユーザーへの応答内容自体は変化しない（記録の成否がユーザー向け出力に影響しない）"
+      ]
+    }
+  ]
+}
