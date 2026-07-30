@@ -1,0 +1,321 @@
+# スキル一覧 ベストプラクティス監査
+
+対象: `.agents/skills/` 配下の全 12 スキル
+基準: `skill-creator-best-practices/references/best-practices.md`（§1–13）
+実施日: 2026-07-30
+
+---
+
+## 目次
+
+1. [サマリ](#1-サマリ)
+2. [機械検証の結果](#2-機械検証の結果)
+3. [チェックリスト適合表](#3-チェックリスト適合表)
+4. [個別の指摘](#4-個別の指摘)
+5. [Workflow 実行型（§13）の判定](#5-workflow-実行型13-の判定)
+6. [リポジトリレベルの指摘](#6-リポジトリレベルの指摘)
+7. [対応方針](#7-対応方針)
+
+---
+
+## 1. サマリ
+
+全体としてこのリポジトリのスキル群はベストプラクティスへの適合度が高い。特に
+
+- **Orchestrator の純粋性（§1）**: `chat` / `chat-rigorous` / `search` / `manage-marketplace-plugin` は SKILL.md をフロー制御に限定し、ドメイン知識を `agents/` `references/` に外出しできている。
+- **Determinism Split（§5）**: `worktree-sync` / `manage-marketplace-plugin` / `notion-organize-knowledge` / `url-reader` は確定的処理を `scripts/` に寄せている。`worktree-sync` は「なぜ workflow でなくスクリプトか」まで本文に明記している。
+- **Generator-Verifier 分離（§3・§11)**: `search`（extractor / verifier / synthesizer）、`manage-marketplace-plugin`（registrar / install-verifier）、`notion-organize-knowledge`（worker / update-verifier）で徹底されている。
+- **SKILL.md 500 行制限（§1）**: 全 12 スキルが適合（最大 306 行 = `skill-creator-best-practices`）。
+- **参照ファイルの目次（§1）**: 100 行超の参照ファイル 12 本のうち 11 本に目次あり。
+
+不足は主に **eval の欠落**、**一部 description の [When] 欠落**、**配布ポータビリティ**の 3 点に集中している。
+
+---
+
+## 2. 機械検証の結果
+
+`quick_validate.py --verbose` を全 12 スキルに実行 → **全て「✅ バリデーション通過」**。
+
+警告の内訳と判定:
+
+| 警告 | 該当 | 判定 |
+|---|---|---|
+| `description に [When] が含まれていない可能性` | 11 スキル | **大半は誤検出**。判定ロジックが `"?" / "Use when" / "use"` の ASCII 一致（`quick_validate.py:94`）で、日本語 description を評価できない。実際に [When] を欠くのは `commit` と `pr-create` の 2 件のみ |
+| `name は gerund 形式を推奨` | chat, commit, dispatch, reference, search | **対応不要**。すべてスラッシュコマンド名として使われており（`/commit` `/search`）、gerund 化は呼び出し体験を悪化させる |
+| `agents/analyst.md に model: がありません` | chat-rigorous | **意図的な逸脱**。`SKILL.md:140–150`「モデルポータビリティ」で理由が明記済み（分析品質を instructions で担保するのが設計中核のため、モデルを固定しない） |
+
+その他の機械チェック:
+
+- **Git 衛生**: `__pycache__` / `workspace/runs` はいずれも追跡されていない（`.gitignore` と `workspace/.gitignore` で除外済み）。問題なし。
+- **§12 撤去弁明の grep**: 実質的な該当は 1 件のみ（`chat-rigorous/SKILL.md:123`）。他の 2 件は best-practices.md 自身の説明文とガイドの例示で、該当しない。
+
+---
+
+## 3. チェックリスト適合表
+
+| スキル | 行数 | evals | agents | scripts | Orchestrator純粋性 | 主な指摘 |
+|---|---:|---:|---:|---:|---|---|
+| chat | 248 | 5 | 5 | 1 | ✅ | — |
+| chat-rigorous | 165 | 3 | 1 | — | ✅ | §12 撤去弁明 1 件 |
+| commit | 104 | ❌ 0 | — | — | 該当なし | description に [When] 欠落 / MUST・CRITICAL 過多（§11） |
+| dispatch | 166 | ❌ 0 | — | 1 | ✅ | typo「スキール」3 箇所 / planner-role.md に目次なし |
+| manage-marketplace-plugin | 197 | ❌ 0 | 5 | 4 | ✅ | evals 欠落 |
+| notion-organize-knowledge | 127 | 7 | 7 | 5 | △ ※ | repo 固定パス / 禁止事項の羅列（§12 right altitude） |
+| pr-create | 54 | ❌ 0 | — | — | 該当なし | description に [When] 欠落 |
+| reference | 68 | ❌ 0 | — | — | 該当なし | `user-invocable: false`。evals 欠落 |
+| search | 247 | 4 | 3 | — | ✅ | ループが散文（§13 警察装置シグナル）→ Workflow 化した |
+| skill-creator-best-practices | 306 | 3 | 10 | 8 | ✅ | Phase 2–4 が Workflow 候補（§13）→ 抽出した |
+| url-reader | 106 | 6 | — | 2 | 該当なし | repo 固定パス |
+| worktree-sync | 163 | ❌ 0 | — | 1 | ✅ | evals 欠落 |
+
+**evals 欠落 6 件**（commit / dispatch / manage-marketplace-plugin / pr-create / reference / worktree-sync）が §6・§10「最低 3 件の評価テストケース」に対する最大の未達。
+
+※ `notion-organize-knowledge` だけが △ なのは、SKILL.md が「本文・分類のルール」節でドメイン知識（Summary/Source/Notes の必須構成、逐語転記と paraphrase の境界、画像順序の保持）を直接持っているため。§1 ならこれは `agents/page-normalizer.md` 側に属する。`commit` / `pr-create` / `reference` / `url-reader` の「該当なし」は subagent を持たない単体スキルで、Orchestrator 純粋性の評価対象外という意味。
+
+---
+
+## 4. 個別の指摘
+
+### 4.1 配布ポータビリティ（優先度: 高）
+
+`notion-organize-knowledge` と `url-reader` の SKILL.md が、リポジトリ固定の相対パスを直書きしている。
+
+- `notion-organize-knowledge/SKILL.md:88–90` — `WORKSPACE=.agents/skills/...` / `QUEUE=` / `AUDIT=`
+- `notion-organize-knowledge/SKILL.md:120` — `.agents/skills/url-reader/references/in-app-browser-fallback.md`（他スキルへのクロス参照）
+- `url-reader/SKILL.md:17,27,33` — `python3 .agents/skills/url-reader/scripts/read_url.py`
+
+これは `manage-marketplace-plugin` の `portability-checker` / `check_portability.py` がまさに検出対象としている「install 先で壊れる参照」に該当する。両スキルとも現在 marketplace 未登録なので実害は出ていないが、**登録の前提を満たしていない状態**。
+
+なお `manage-marketplace-plugin` と `skill-creator-best-practices` の `.claude/skills/...` 参照は、いずれも「そのスキルが操作・生成する対象のパス」であって自己参照ではないため、該当しない。
+
+### 4.1b check_portability.py が `.agents/skills/` を検出できない（優先度: 高）
+
+上記 6 件が今まで検出されなかった理由。`check_portability.py:83` の `self_hardcode` 判定が
+
+```python
+re_self = re.compile(r"\.claude/skills/" + re.escape(name) + r"/[\w.\-]")
+```
+
+と `.claude/skills/` だけを見ており、**このリポジトリのスキル実体パスである `.agents/skills/` を見逃していた**。CLAUDE.md は「スキル実体は `.agents/skills/`、Claude 用は `.claude/skills` symlink」と定めているので、checker の側が旧構成の前提のまま取り残されていた形。
+
+`external_script` 判定（`re_script`）も救えない。negative lookbehind `(?<![\w./\]])scripts/` により、`.agents/skills/url-reader/scripts/read_url.py` のように `/` が直前に来る形は除外されるため。
+
+これは §12「残すべき機械検証（契約・安全そのもの）」に属するゲートが**静かに素通りしていた**ケースで、代理指標の問題ではなく単純な検出漏れ。
+
+**適用済み**: 正規表現を `\.(?:claude|agents)/skills/` に拡張。修正後、url-reader 3 件・notion 3 件を検出。他 10 スキルで新たな誤検出は発生しない（回帰確認済み）。修正後は 12 スキル中 10 スキルが blocker 0 件。
+
+残る 2 件はいずれも本監査のスコープ外の既知の false positive:
+
+- `worktree-sync`（`env_build` 2 件）— `make venv && make install-dev` は `.claude/worktree-sync.json` に**リポジトリ自身が宣言する例**として本文に書かれているもので、スキルが実行するコマンドではない。
+- `manage-marketplace-plugin`（`external_script` 19 件）— 自身の `scripts/*.py` をフロー説明の中で名指ししているもの。このスキルの scripts は同名で同梱されている。
+
+### 4.2 description の [What] + [When]（優先度: 中）
+
+`commit` と `pr-create` の description は [What] のみで [When] を欠く。
+
+```
+commit:    "Generate intelligent commit messages and execute commits."
+pr-create: "Automate intelligent Pull Request creation (Diff analysis, Template filling, Draft mode)."
+```
+
+§2「description はスキル発見の唯一の手がかり」および §10「[What] + [When] の両方を含む」に対し、いつ発火すべきか・何が対象外かの情報がゼロ。両者とも marketplace 公開済み。
+
+### 4.3 §11「削る」に該当する指示（優先度: 中）
+
+`commit/SKILL.md` は Claude 5 世代向けとしては規定が過剰。
+
+- `CRITICAL` 4 箇所・`PROHIBITED` 1 箇所・`IMPORTANT` などの大文字強調が本文 104 行に対して密度が高い
+- ただし **Step 0 の Authority Check（コミット権限の確認）と「`git add .` を勝手に実行しない」は §11 の「残す」側**（境界ブロック・不可逆操作の scope 制約）に該当する。削ってはいけない。
+
+削る候補は「Why が書かれていない MUST/NEVER」（§3 Why-driven）に限る。`commit` の場合、各 CRITICAL に理由が併記されていないものが対象。
+
+### 4.4 §12 撤去弁明・来歴（優先度: 低）
+
+`chat-rigorous/SKILL.md:123`:
+
+> …（既存の chat-rigorous 初版で実際に発生していた欠落）
+
+§12「撤去弁明・来歴をドキュメントに残さない」に該当。この経緯は commit message に属する情報で、SKILL.md には「`note` を保持して末尾に付記する」という現在の要件だけが残るべき。
+
+### 4.5 存在しないスキルへの参照（優先度: 高）
+
+**リポジトリ外のスキルへの委譲**: `chat` / `chat-rigorous` / `dispatch` が `investment-strategist`（40 箇所）と `magi` / `magi-issue-resolver`（5 箇所）を参照しているが、これらは本リポジトリにも `~/.claude/skills/`（存在しない）にも無い。実体は別リポジトリ `stock-valuation-dcf` の `.agent/skills/` 配下にある。
+
+影響が実在するのは `chat` の投資ルーティング。`chat/agents/investment-topic-router.md:53` が `Skill({skill: "investment-strategist"})` を呼ぶが、**同ファイルの fail-safe は `detect_investment_topic.py` が非 0 終了した場合のみ**を扱っており、スキル自体が存在せず `Skill` 呼び出しが失敗する経路は未定義。`chat` と `dispatch` は marketplace 公開済みなので、インストールした環境で投資トピックを投げると未定義の失敗に落ちる。
+
+`dispatch` / `chat-rigorous` の `magi` 参照は「そちらを使ってください」という案内文と設計上の引用のみで、実行経路には乗らない（影響は誘導先が存在しないことに留まる）。
+
+**適用済み**: `pr-create/SKILL.md:52` の「use the `git` skill's `fix` subcommand」を削除。`git` という名前のスキルはリポジトリにもセッションのスキル一覧にも存在せず、しかも frontmatter に新たに書いた「既存 PR の更新・レビューは対象外」と矛盾する誘導だったため。
+
+### 4.6 軽微
+
+- `dispatch/SKILL.md` — 「本スキール」の typo 3 箇所（19, 84, 149 行付近）
+- `dispatch/references/planner-role.md` — 103 行あるが目次なし（§1「100 行超の参照ファイルには目次」）
+- `notion-organize-knowledge/SKILL.md` — 「〜してはいけない」形の禁止列挙が多く、§12 の right altitude としては over-specification 寄り。ただし §4.7 参照。
+
+### 4.7 notion-organize-knowledge の「警察装置」シグナル（§13）
+
+`scripts/validate_run_audit.py`（preflight / progress / final の 3 フェーズ監査）と、SKILL.md 本文の「〜と説明・記録してはいけない」「予定・候補・shell のバックグラウンド起動だけで lease を取得してはいけない」といった compliance theater 検査は、§13 が名指しする **「この種の監視コードを書き始めたら、ループ自体を script に移すべきサイン」** そのもの。
+
+**しかし Workflow 化は現状ブロックされている**（§5 参照）。シグナルは実在するが、対処は Workflow 変換ではない。
+
+---
+
+## 5. Workflow 実行型（§13）の判定
+
+§13 の選択基準のうち決定的なのは **「実行中のユーザー入力は不可。設計された人間ゲートが途中に多いタスクは Coordinator 駆動のままにする」**。fan-out の有無ではなく、この制約を各スキルに当てて判定した。
+
+| スキル | fan-out | 人間ゲート | 判定 |
+|---|---|---|---|
+| **dispatch** | あり | Step 0 のみ（Workflow 起動前） | **✅ 既に Workflow 型**（`scripts/orchestrate.js`）。best-practices.md §13 がリポジトリ内の参照実装として名指ししている。変更不要 |
+| **search** | あり（claim ごと並列） | Step 0 の明確化質問のみ（ループ前） | **✅ Workflow 化した**（`scripts/investigate.js`）。下記参照 |
+| **skill-creator-best-practices** | あり（6 並列 + 3 並列） | Phase 1（ペルソナ承認）・Phase 5（保存承認） | **✅ Phase 2–4 を Workflow 化した**（`scripts/build_skill.js`）。下記参照 |
+| **notion-organize-knowledge** | あり（論理 worker 4） | 途中に多数 | **❌ 変換不可**。下記参照 |
+| chat / chat-rigorous | なし（直列 2–5 agent） | なし | ❌ 対象外。fan-out していない |
+| commit / pr-create / reference / worktree-sync / url-reader / manage-marketplace-plugin | なし | manage-marketplace-plugin は 3 箇所 | ❌ 対象外 |
+
+### 5.1 search — Workflow 化した（`scripts/investigate.js`）
+
+`claim-extractor → source-verifier（claim ごと並列）→ root-cause-synthesizer` の bounded loop は
+best-practices.md §13 が参照実装として名指しする `/deep-research`（fan-out 検索 → ソース相互検証 →
+主張ごとに投票 → 検証を生き残らなかった主張を除外）とほぼ同型で、§13 の選択基準
+「相互検証つき調査」「品質パターンを構造として強制したい」に正面から該当する。
+
+決定的なのは**警察装置シグナル**（§13）。変換前の SKILL.md には監視機構が散文で 4 種そろっていた:
+
+| 変換前の散文（警察装置） | §13 の分類 |
+|---|---|
+| 「どの claim も検証されないまま最終レポートに混入させない」 | 記録漏れ検知 |
+| 「添え物の検証省略を構造的に防ぐ」（synthesizer が未検証主張を見つけたら next_question を必ず立てる） | compliance theater 検査 |
+| 「進捗ガード：新規 verified 0 件かつ next_question が実質同一なら打ち切り」 | skip 検出 |
+| 「round は最大 5」 | ループ暴走の監視 |
+
+§13 は「この種の監視コードを書き始めたら、ループ自体を script に移すべきサイン——Workflow 化すれば
+スキップも bypass も構造的に不可能になり、監視装置ごと削除できる」と明示している。
+
+**適用した構造**（`scripts/investigate.js`）:
+
+| 保証 | 実現方法 | 削除できた散文 |
+|---|---|---|
+| 抽出された claim は必ず検証を通る | script が `claims[]` を走査して claim ごとに verifier を spawn | 「混入させない」「添え物の検証省略を構造的に防ぐ」（`root-cause-synthesizer.md` §差し戻し判定からも削除） |
+| 同一 claim を再検証しない | 正規化した主張文をキーに `seen` で除外 | — |
+| ループが暴走しない | `round < maxRounds` の `while` | 「round は最大 5」 |
+| 進捗のないループを切る | (a) 新規 verified 0 件 かつ (b) `same_question_as_previous` | 進捗ガードの散文 |
+| 検証 agent が落ちても捏造しない | 結果を返さなかった claim を `cannot-verify` として積む | （新規の保証） |
+| 打ち切り時に本筋が残る | `priority` 順に並べてから spawn | 「priority 順に上位を先に verify」 |
+| 達成度を良く見せない | `termination_reason` に既定値を持たせず、break した理由からのみ決める | — |
+
+**進捗ガードの条件(b) の扱い**: 「next_question が前ラウンドと実質同一」は言い換えを含む意味判断
+なので、script 側の文字列比較にはしなかった（§12 の代理指標になり、言い換えただけの同一問いが
+素通りして収束しなくなる）。synthesizer の出力に `same_question_as_previous`（boolean）を追加し、
+**判断は agent・分岐は script** という §13 の分担原則に合わせた。契約は
+`schemas/agent-contracts.md` §root-cause-synthesizer に反映済み。
+
+**Workflow に入れなかった経路**: Step 0（空入力・曖昧な問いへの明確化質問）、Step 0.5（委譲ヘッダ
+検出）、Step 1（調査+実行の混在判定）は SKILL.md に残した。Step 0 は設計された人間ゲートで、
+§13 の制約（実行中のユーザー入力は不可）に抵触する。Step 0.5 の委譲は呼び出し元スキルへの
+同期的な request/response であり、バックグラウンド実行される Workflow に載せると応答の形と
+待ち方が変わるため、`source-verifier` を直接 spawn する形のまま残した。
+
+### 5.2 skill-creator-best-practices — Phase 2–4 を Workflow 化した（`scripts/build_skill.js`）
+
+Phase 2 → 2.5 → 3 → 4 は「fan-out → 集約 → 閾値判定 → 条件付き再実行」の連なりで、途中に人間の
+判断が要らない。散文では「同一ターンで6エージェント同時起動」「delta を集計して 0.2 未満なら改稿」
+と書かれていたが、実行者がまとめ忘れる・閾値を目分量で判断する余地が残っていた。
+
+**適用した構造**:
+
+| 保証 | 実現方法 |
+|---|---|
+| with_skill と baseline が必ず対で走る | 全テストケース分を 1 つの `parallel()` にまとめて発行 |
+| pass_rate と delta が正確 | 集計は script の算術（LLM に平均を出させない。§5） |
+| 閾値判定がぶれない | `delta >= 0.2 && reviewer.failed.length === 0` |
+| 改稿が無限に続かない | `revision >= maxRevisions`（既定 1）で打ち切り |
+| 構成の差し戻しが止まる | designer → reviewer を最大 2 回。未解決は `structure.unresolved` で返す |
+| テストが改稿を跨いで同一 | テストケース生成をループの外に置き、pass_rate の変化が改善だけを反映する |
+| 出力欠損を成績に混ぜない | 片側が欠けたペアは採点に回さず `ungraded_cases` として数える |
+
+**変換中に見つかった既存の契約ギャップ 2 件**（いずれも script 側で解消）:
+
+1. `tester.md` の出力形式はプロンプト 3 本のみだが、`grader.md` は assertions を必要とする
+   （SKILL.md の `[TEST_CASE]` は「プロンプト + assertions」）。schema で assertions を必須にして塞いだ。
+2. `reviewer.md` / `structure-reviewer.md` は自由記述の markdown に ✅/⚠️/❌ を書く形式で、
+   合否を判定するには script が絵文字を数えることになる（§12 の代理指標ゲート）。schema で
+   `failed[]` を返させ、script はそのフィールドだけを見るようにした。
+
+**人間ゲートは Coordinator に残した**: Phase 1（ペルソナ承認）と Phase 5（保存承認）。
+Workflow が返す `verdict: needs_human_decision`（改稿上限に達しても閾値に届かなかった）は
+失敗の宣告ではなく、要件・基準まで遡るかを人間が決めるための報告として Phase 5 に渡る。
+
+**agentType を渡していない点**: `agents/*.md` の frontmatter には `subagent_type`
+（analyzer / architect / qa / reviewer）が書かれているが、これらは Agent ツールのレジストリに
+登録された型ではなく、指定すると解決に失敗する。役割はプロンプト本文が担っているため、
+`model` だけを渡して既定の subagent で実行している。
+
+### 5.3 notion-organize-knowledge — シグナルは実在するが変換不可
+
+§13 の警察装置シグナルは強く出ている（§4.7）。しかし Workflow script には次の制約がある（Workflow ツール仕様）:
+
+- **ファイルシステム / Node API へのアクセス不可**
+- **`Date.now()` / `new Date()` / `Math.random()` が throw する**（resume 機構を壊すため）
+
+`queue.py` の中核は「durable state を `workspace/runs/<timestamp>-<hash>/` に書く」「lease の期限を時刻で管理する」「heartbeat で延長する」であり、これらは上記制約に真正面から衝突する。resume 可能性そのものが `workspace/` のファイル状態に依存している。
+
+→ **結論: シグナルは正しいが、Workflow への変換は現行の Workflow ツールでは不可能**。現状の「Python が control plane、AI/MCP が execution plane」という 3 層分離は、この制約下では妥当な設計。監視コードは残さざるを得ない。
+
+---
+
+## 6. リポジトリレベルの指摘
+
+### 6.1 CLAUDE.md の「収録スキル」表が実態と乖離（優先度: 高）
+
+CLAUDE.md は 2 スキル（`skill-creator-best-practices` / `manage-marketplace-plugin`）しか記載していないが、実際には 12 スキルが存在する。CLAUDE.md はセッションごとに読み込まれる指示であり、最も目に触れる場所が最も古い。
+
+### 6.2 CLAUDE.md の「検証」節が Makefile 不在に言及したまま
+
+CLAUDE.md 末尾が「`.claude/settings.json` と `.codex/hooks.json` には `make test` hook があるが、このリポジトリには現在 `Makefile` がない」と記載。これは §12「時間依存・来歴の記述」に近い形で残っている。hook を更新するか Makefile を追加するかの決着が必要。
+
+### 6.3 marketplace 未登録の 3 スキル
+
+`manage-marketplace-plugin` / `notion-organize-knowledge` / `url-reader` が未登録。
+
+- `manage-marketplace-plugin` は marketplace そのものを管理するスキルで、リポジトリ固有の前提（`.claude-plugin/marketplace.json` の存在）に依存するため、**未登録が正しい**可能性が高い。
+- `notion-organize-knowledge` / `url-reader` は §4.1 のポータビリティ問題を解消すれば登録可能。ただし登録するか否かは公開意図の問題であり、監査で決める事項ではない。
+
+---
+
+## 7. 対応方針
+
+### 適用済み
+
+| # | 内容 | 根拠 | 対象 |
+|---|---|---|---|
+| 1 | `check_portability.py` の `self_hardcode` 検出を `.agents/skills/` にも拡張 | §4.1b | `manage-marketplace-plugin/scripts/check_portability.py` |
+| 2 | `url-reader` の repo 固定パス 3 件 + `read_github_cli.py` 参照を `[SKILL_DIR]` 化 | §4.1 | `url-reader/SKILL.md:17,27,33,57` |
+| 3 | `notion-organize-knowledge` の `WORKSPACE`/`QUEUE`/`AUDIT` を `[SKILL_DIR]` 化 | §4.1 | `notion-organize-knowledge/SKILL.md:88–90` |
+| 4 | url-reader へのクロス参照を `[SKILL_DIR]/../url-reader/...` + 同梱前提の注記に変更（`chat-rigorous` が chat を参照するのと同じパターン） | §4.1 | `notion-organize-knowledge/SKILL.md:120` |
+| 5 | `agent-contracts.md` の bare `scripts/queue.py` 参照を `[SKILL_DIR]` 化 | §4.1 | `notion-organize-knowledge/schemas/agent-contracts.md:511` |
+| 6 | `commit` / `pr-create` の description に [When] と対象外を追加 | §4.2 | 各 SKILL.md frontmatter |
+| 7 | 撤去弁明「既存の chat-rigorous 初版で実際に発生していた欠落」を削除 | §4.4 | `chat-rigorous/SKILL.md:123` |
+| 8 | 「スキール」typo を 12 箇所修正 | §4.5 | `dispatch/SKILL.md` + `references/*.md` |
+| 9 | `planner-role.md` に目次追加 | §4.5 | `dispatch/references/planner-role.md` |
+| 10 | CLAUDE.md の収録スキル表を全 12 スキル + plugin 登録状況へ更新、検証コマンドを全スキル対象＋ポータビリティ検証を追加 | §6.1 | `CLAUDE.md` |
+| 11 | 存在しない `git` スキルへの誘導を削除 | §4.5 | `pr-create/SKILL.md:52` |
+| 12 | **`search` の検証ループを Workflow 化**。散文の警察装置 4 種を構造的保証に置き換え、`root-cause-synthesizer.md` の「添え物の検証省略を構造的に防ぐ」指示ごと削除。契約に `same_question_as_previous` を追加 | §5.1 | `search/scripts/investigate.js`（新規）/ `SKILL.md` / `agents/root-cause-synthesizer.md` / `schemas/agent-contracts.md` |
+| 13 | **`skill-creator-best-practices` Phase 2–4 を Workflow 化**。並列発行・pass_rate 集計・閾値判定・改稿上限を script に移し、Phase 1/5 の人間ゲートは司令塔に残置 | §5.2 | `skill-creator-best-practices/scripts/build_skill.js`（新規）/ `SKILL.md` / `references/orchestrator-output.md` |
+| 14 | tester → grader の assertions 受け渡しギャップと、reviewer 系の ✅/❌ markdown 判定（§12 代理指標）を schema で解消 | §5.2 | `build_skill.js` の `TEST_CASES_SCHEMA` / `REVIEW_SCHEMA` / `STRUCTURE_REVIEW_SCHEMA` |
+
+`[SKILL_DIR]` の使用可否は確認済み。`worktree-sync` が subagent を持たない単体スキルで
+`python3 [SKILL_DIR]/scripts/repo_state.py` を既に使っており、`url-reader` も同じ形になる。
+クロス参照の `[SKILL_DIR]/../<sibling>/...` は `chat-rigorous/SKILL.md:103` の実績パターン。
+
+### 未対応（ユーザー判断が必要）
+
+| # | 内容 | 規模 | 判断が要る点 |
+|---|---|---|---|
+| A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
+| B | Workflow 化した 2 スキルの実走検証 | 中 | `investigate.js` / `build_skill.js` は構文・禁止 API・`filter(Boolean)`・`args` ガードまで確認済みだが、**実際の調査／スキル生成を 1 本通していない**。schema がモデルの出力形と噛み合うか、`same_question_as_previous` が期待どおり収束させるかは実走でしか確認できない |
+| C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
+| D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |
+| E | CLAUDE.md の `make test` hook と Makefile 不在の決着（§6.2） | 小 | Makefile を追加するか、hook コマンドを検証コマンドに差し替えるか |
+| F | `investment-strategist` / `magi` への外部依存（§4.5） | 中 | 実体は別リポジトリ `stock-valuation-dcf`。(1) 同梱する (2) `chat` / `chat-rigorous` から投資ルーティング自体を外す (3) router にスキル不在時の fallback を足す、のいずれか。`chat` / `dispatch` は公開済みなので放置すると他環境で未定義の失敗になる |

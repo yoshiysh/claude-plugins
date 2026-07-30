@@ -1,6 +1,12 @@
 ---
 name: commit
-description: Generate intelligent commit messages and execute commits.
+description: >
+  Analyzes staged changes, generates a Conventional Commits message, runs the repository's own
+  format/test/verify commands, and executes the commit. Use when the user explicitly asks to
+  commit ("commit this", "コミットして"), or approves a plan whose immediate next step is a commit.
+  Also use for a dry run when the user asks to preview a commit message without committing.
+  Does not stage files on its own, does not push, and does not create pull requests
+  (use pr-create for that).
 ---
 
 # Commit Skill

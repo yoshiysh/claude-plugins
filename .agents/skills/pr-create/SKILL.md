@@ -1,6 +1,11 @@
 ---
 name: pr-create
-description: Automate intelligent Pull Request creation (Diff analysis, Template filling, Draft mode).
+description: >
+  Pushes the current branch, analyzes the diff against main to generate a PR title and body,
+  fills the repository's pull_request_template.md when present, and creates the PR as a draft
+  via gh. Use when the user asks to open or create a pull request ("PR を作って", "open a PR",
+  "プルリク出して") after their work is committed. Does not commit or stage changes
+  (use commit for that), and does not merge, review, or update an existing PR.
 ---
 
 # PR Create Skill
@@ -47,8 +52,5 @@ gh pr create --title "<Generated Title>" --body "<Generated Body>" --draft
 ### 4. Post-Creation
 
 If successful, the PR URL is output. Present this URL to the user.
-
-**Tip**:
-- If review-comment handling is needed after creation, use the `git` skill's `fix` subcommand.
 
 **CRITICAL**: The final output to the user (URL and status) must be in **JAPANESE**.

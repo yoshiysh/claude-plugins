@@ -18,10 +18,22 @@ This file provides guidance to Claude Code when working in this repository.
 
 ## 収録スキル
 
-| スキル | 実体 | 用途 |
+実体はすべて `.agents/skills/<name>`。「plugin」列は `.claude-plugin/marketplace.json` への登録状況。
+
+| スキル | 用途 | plugin |
 |---|---|---|
-| `skill-creator-best-practices` | `.agents/skills/skill-creator-best-practices` | マルチエージェントでスキルを設計・作成・評価する |
-| `manage-marketplace-plugin` | `.agents/skills/manage-marketplace-plugin` | 既存スキルを marketplace plugin として登録・更新・検証する |
+| `chat` | Fable 5 を壁打ち相手に技術相談し、整形して relay する | `chat` |
+| `chat-rigorous` | 反証耐性の高い分析ワークフローを instructions で強制する壁打ち | `chat`（同梱） |
+| `commit` | staged 変更から Conventional Commits メッセージを生成しコミットする | `commit` |
+| `dispatch` | Fable 5 が計画・評価し、Workflow スクリプトが subagent を反復実行する | `dispatch` |
+| `manage-marketplace-plugin` | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
+| `notion-organize-knowledge` | Notion の capture queue を根拠付きで整理し検証付きで書き込む | 未登録 |
+| `pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `pr-create` |
+| `reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `reference` |
+| `search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `search` |
+| `skill-creator-best-practices` | マルチエージェントでスキルを設計・作成・評価する | `skill-creator-best-practices` |
+| `url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する | 未登録 |
+| `worktree-sync` | worktree を main に同期し、マージ済みブランチと作業状態を掃除する | `worktree-sync` |
 
 Marketplace に登録された plugin は次の形でインストールできる。
 
@@ -33,8 +45,7 @@ Marketplace に登録された plugin は次の形でインストールできる
 
 ```text
 .agents/skills/
-  skill-creator-best-practices/
-  manage-marketplace-plugin/
+  <skill-name>/            # 全 12 スキルの実体（上表参照）
 .claude/
   settings.json
   skills -> ../.agents/skills
@@ -57,17 +68,22 @@ plugins/
 
 ## 検証
 
-基本検証:
+基本検証（全スキル）:
 
 ```bash
-python3 .claude/skills/skill-creator-best-practices/scripts/quick_validate.py .claude/skills/skill-creator-best-practices --verbose
-python3 .claude/skills/skill-creator-best-practices/scripts/quick_validate.py .claude/skills/manage-marketplace-plugin --verbose
+for d in .agents/skills/*/; do python3 .claude/skills/skill-creator-best-practices/scripts/quick_validate.py "$d" --verbose; done
+```
+
+配布前のポータビリティ検証（install 先で壊れる参照の検出）:
+
+```bash
+python3 .claude/skills/manage-marketplace-plugin/scripts/check_portability.py --skill <skill-name>
 ```
 
 Marketplace 登録後の install 検証:
 
 ```bash
-python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --skill skill-creator-best-practices
+python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --skill <skill-name>
 ```
 
 `.claude/settings.json` と `.codex/hooks.json` には `make test` hook があるが、このリポジトリには現在 `Makefile` がない。hook を有効運用するなら `Makefile` を追加するか、hook コマンドを上記の検証コマンドに更新する。
