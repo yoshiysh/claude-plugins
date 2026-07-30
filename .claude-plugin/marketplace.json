@@ -6,10 +6,6 @@
     },
     "plugins": [
         {
-            "name": "skill-creator-multi-agent",
-            "source": "./plugins/skill-creator-multi-agent"
-        },
-        {
             "name": "pr-create",
             "source": "./plugins/pr-create"
         },
