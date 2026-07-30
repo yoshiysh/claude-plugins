@@ -20,7 +20,7 @@ This file provides guidance to Codex when working in this repository.
 
 | スキル | 実体 | 用途 |
 |---|---|---|
-| `skill-creator-multi-agent` | `.agents/skills/skill-creator-multi-agent` | マルチエージェントでスキルを設計・作成・評価する |
+| `skill-creator-best-practices` | `.agents/skills/skill-creator-best-practices` | マルチエージェントでスキルを設計・作成・評価する |
 | `manage-marketplace-plugin` | `.agents/skills/manage-marketplace-plugin` | 既存スキルを marketplace plugin として登録・更新・検証する |
 
 Marketplace に登録された plugin は次の形でインストールできる。
@@ -33,7 +33,7 @@ Marketplace に登録された plugin は次の形でインストールできる
 
 ```text
 .agents/skills/
-  skill-creator-multi-agent/
+  skill-creator-best-practices/
   manage-marketplace-plugin/
 .Codex/
   settings.json
@@ -41,10 +41,10 @@ Marketplace に登録された plugin は次の形でインストールできる
 .Codex-plugin/
   marketplace.json
 plugins/
-  skill-creator-multi-agent/
+  skill-creator-best-practices/
     .Codex-plugin/plugin.json
     README.md
-    skills/skill-creator-multi-agent -> ../../../.Codex/skills/skill-creator-multi-agent
+    skills/skill-creator-best-practices -> ../../../.Codex/skills/skill-creator-best-practices
 ```
 
 ## 作業ルール
@@ -60,14 +60,14 @@ plugins/
 基本検証:
 
 ```bash
-python3 .Codex/skills/skill-creator-multi-agent/scripts/quick_validate.py .Codex/skills/skill-creator-multi-agent --verbose
-python3 .Codex/skills/skill-creator-multi-agent/scripts/quick_validate.py .Codex/skills/manage-marketplace-plugin --verbose
+python3 .Codex/skills/skill-creator-best-practices/scripts/quick_validate.py .Codex/skills/skill-creator-best-practices --verbose
+python3 .Codex/skills/skill-creator-best-practices/scripts/quick_validate.py .Codex/skills/manage-marketplace-plugin --verbose
 ```
 
 Marketplace 登録後の install 検証:
 
 ```bash
-python3 .Codex/skills/manage-marketplace-plugin/scripts/verify_install.py --skill skill-creator-multi-agent
+python3 .Codex/skills/manage-marketplace-plugin/scripts/verify_install.py --skill skill-creator-best-practices
 ```
 
 `.Codex/settings.json` と `.codex/hooks.json` には `make test` hook があるが、このリポジトリには現在 `Makefile` がない。hook を有効運用するなら `Makefile` を追加するか、hook コマンドを上記の検証コマンドに更新する。

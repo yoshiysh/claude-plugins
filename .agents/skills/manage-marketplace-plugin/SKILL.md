@@ -7,13 +7,13 @@ description: >
   marketplace.json への非破壊追記／更新、プラグインディレクトリと plugin.json の生成、README の雛形作成、
   スキル本体への相対 symlink 作成、リンク経由の検証までを自動化する。
   対象スキルが別スキルを呼び出す連鎖依存を持つ場合は、その依存スキルを同一プラグインの skills 配下に同梱する。
-  「skill-creator-multi-agent をマーケットプレイスに追加して」「既存スキルをプラグインとして公開して」
+  「skill-creator-best-practices をマーケットプレイスに追加して」「既存スキルをプラグインとして公開して」
   「このスキルを marketplace に登録して」「〇〇を /plugin で入れられるようにして」
   「登録済みの 〇〇 を更新して／再公開して」「〇〇 の version を上げて公開し直して」
   などのリクエストで使うこと。登録・更新対象スキル名への言及があれば積極的に使う。
   既存の marketplace.json エントリ・README は壊さない非破壊・冪等が既定（更新時は plugin.json の version を上げ、
   symlink/plugin.json を現状へ再同期する）。
-  スキル本体（SKILL.md）の作成・編集は対象外（それは skill-creator-multi-agent の役割）。
+  スキル本体（SKILL.md）の作成・編集は対象外（それは skill-creator-best-practices の役割）。
   marketplace.json の内容閲覧のみ・プラグインのアンインストール・公開済みプラグインの削除も対象外。
 ---
 
