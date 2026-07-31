@@ -116,7 +116,7 @@ note: <補足。依存スキル自体が env_build 等で配布困難なら警�
 ```
 
 - `bundle_skills` が空でも `status: ok`（依存なしは正常）。
-- 司令塔は `bundle_skills` の同梱可否をユーザーに確認し（`needs_confirmation` は必須）、確定分を plugin-registrar に渡す。
+- `bundle_skills` と `needs_confirmation` の使い分けが確認の要否を決める。`bundle_skills` は `rationale` に呼び出し箇所を挙げられた**実依存の確定分**で、司令塔は確認せずそのまま同梱する。`needs_confirmation` は**分類が付かなかった候補**で、こちらだけをユーザーに聞く。判断が付いた候補を `needs_confirmation` に入れない（聞く必要のない確認が増える）。
 
 ---
 

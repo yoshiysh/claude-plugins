@@ -111,23 +111,44 @@ def validate_skill(skill_dir: str, verbose: bool = False) -> bool:
                 if "model" not in agent_fields:
                     warnings.append(f"agents/{agent_file.name} に model: フィールドがありません")
 
-    _print_result(errors, warnings, verbose)
+    _print_result(errors, warnings, verbose, has_agents=agents_dir.exists())
     return len(errors) == 0
 
 
-def _print_result(errors: list, warnings: list, verbose: bool):
+# このスクリプトが原理的に判定できない項目。「✅ 通過」を全項目の合格と読ませないために、
+# 何を見ていないかを毎回明示する。適否がスキルの機能（何を生み出し誰が使うか）に依存する
+# 項目は、機械判定にすると代理指標ゲートになる（best-practices.md §12）ため、ここでは
+# 判定せず設計レビューへ送る。
+_UNCHECKED = [
+    "生成物を、それを生成した agent 以外が検証する経路があるか"
+    "（状態変更・下流で行動の根拠になる出力を持つスキルに適用。agents/ の有無では判定しない）",
+    "その検証が状態変更の前に置かれているか",
+    "description が実際に狙ったリクエストで発火するか（evals での実測が必要）",
+    "参照ファイルの内容が SKILL.md の記述と整合しているか",
+]
+
+
+def _print_result(errors: list, warnings: list, verbose: bool, has_agents: bool = False):
     if errors:
         print("❌ バリデーション失敗")
         for e in errors:
             print(f"  ERROR: {e}")
     else:
-        print("✅ バリデーション通過")
+        print("✅ バリデーション通過（機械検査のみ）")
 
     if warnings and verbose:
         for w in warnings:
             print(f"  WARN:  {w}")
     elif warnings:
         print(f"  ⚠️  {len(warnings)} 件の警告があります（--verbose で詳細表示）")
+
+    if verbose:
+        print("  ── このスクリプトが見ていない項目（設計レビューで確認する）")
+        for item in _UNCHECKED:
+            print(f"  SKIP:  {item}")
+        if not has_agents:
+            print("  SKIP:  agents/ が無いため agent 関連の検査を実行していない"
+                  "（無いこと自体が欠落でありうる。上記 1 件目を参照）")
 
 
 if __name__ == "__main__":

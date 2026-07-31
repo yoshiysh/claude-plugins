@@ -37,9 +37,14 @@
 {
   "question": "元の調査依頼（string）",
   "draft": "現時点のドラフト回答（string, 無ければ空文字）",
-  "next_question": "前ラウンドで synthesizer が出した追加検証の問い（string | null）"
+  "next_question": "前ラウンドで synthesizer が出した追加検証の問い（string | null）",
+  "verified_claims": ["既に検証済みの主張文（string[]、初回は空）"]
 }
 ```
+
+`verified_claims` に載っている主張は既に verdict が付いており、再抽出しても
+`investigate.js` が重複として除外する（同じ主張を毎ラウンド検証し直さないため）。
+抽出時は新規の主張に注力する。
 
 ### 出力
 
@@ -144,6 +149,7 @@ claim ごとに 1 回呼ばれ、1 主張分の verdict を返す。
   ],
   "scope_assumption": "調査範囲が問いから一意に定まらず前提を選んだ場合の宣言（string, 任意）",
   "next_question": "次に検証すべき最も決定的な 1 問（string） | null",
+  "same_question_as_previous": false,
   "report": { "final-report を参照" }
 }
 ```
@@ -152,16 +158,24 @@ claim ごとに 1 回呼ばれ、1 主張分の verdict を返す。
 
 - `disconfirmation_attempted` は常に `true`（反証を試みたことが root_cause 主張の前提）。
   何を反証として試したかは `report.root_cause` 付近か `note` に残す。
-- `next_question != null` の間はループ継続（SKILL.md が round と進捗ガードで打ち切る）。
-- `report` ドラフト内に verdict 未取得の事実主張が残る場合は、`root_cause` が確定していても
-  `next_question` を必ず立てる（添え物の検証省略防止）。
+- `next_question != null` の間はループ継続（`scripts/investigate.js` が round 上限と
+  進捗ガードで打ち切る）。
 - `next_question: null` のとき `report` を確定版として返す。
+- `same_question_as_previous` は、返す `next_question` が前ラウンドのものと実質的に同じ問い
+  （言い回しが違っても検証対象と論点が同一）なら `true`。前ラウンドが無い場合と
+  `next_question: null` の場合は `false`。進捗ガードの条件(b) にスクリプトが使う。
+  「実質同一」は言い換えを含む意味判断のため機械的な文字列比較には落とせず、判断を
+  synthesizer 側に置いている。
+
+入力の `verdicts[]` は、その時点で抽出された全 claim に検証が走った結果である
+（`investigate.js` が claim ごとに verifier を spawn する）。未検証の主張が混入する経路は
+構造上存在しない。
 
 ---
 
 ## final-report（最終レポート契約）
 
-SKILL.md が Step 5 でユーザー / 呼び出し元へ返す最終成果物。root-cause-synthesizer が組み立てる。
+SKILL.md が Step 3 でユーザー / 呼び出し元へ返す最終成果物。root-cause-synthesizer が組み立てる。
 
 ```json
 {

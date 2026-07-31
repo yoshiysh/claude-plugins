@@ -82,7 +82,9 @@ def detect(name: str) -> dict:
     # 種別判定用の正規表現
     # self_hardcode: 自分の固定パス配下の「サブパス」を指す参照のみ（ファイル構成の
     # ディレクトリ見出し `.claude/skills/<name>/` 単体は誤検出しないようサブパス必須）。
-    re_self = re.compile(r"\.claude/skills/" + re.escape(name) + r"/[\w.\-]")
+    # スキル実体は `.agents/skills/`、Claude からの参照は `.claude/skills/` symlink 経由の
+    # 両方があるため、どちらの表記も検出する。
+    re_self = re.compile(r"\.(?:claude|agents)/skills/" + re.escape(name) + r"/[\w.\-]")
     # bare scripts/foo.(sh|py)（[SKILL_DIR]/ や <skill>/ で前置されていないもの）
     re_script = re.compile(r"(?<![\w./\]])scripts/([\w.\-]+\.(?:sh|py))")
     re_env = re.compile(r"(/usr/bin/make\b|\bmake\s+[a-z][\w-]*)")

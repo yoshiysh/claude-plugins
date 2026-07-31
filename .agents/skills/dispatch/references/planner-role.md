@@ -8,6 +8,16 @@
 まず `[SKILL_DIR]/references/fable-orchestration-prompting-guide.md` の
 「Parallel subagents」「Consider all effort levels」節を読むこと。
 
+## 目次
+
+1. [タスク](#タスク) — ラウンド分解と、各 subagent に決めるべき 4 項目
+   - [model / effort の選び方](#model--effort-の選び方high-freedom--判断はタスクの性質次第)
+   - [persona_commands](#persona_commandsペルソナ思考コマンドの付与)
+   - [needs_verification](#needs_verification検証要否)
+   - [verifier_model](#verifier_model検証者のモデル選択)
+2. [出力](#出力) — 返す構造化データの形
+3. [禁止事項](#禁止事項) — 状態変更を伴う prompt を書かない等の境界
+
 ## タスク
 
 1. 元の難問と、これまでのラウンド履歴（未解決の論点・既に得られた発見）を読む。
@@ -96,7 +106,7 @@ subagent 側にその定義は存在しないため効果がない。選んだ�
 ## 禁止事項
 
 - subagent に **状態変更**（ファイル編集・コマンド実行・外部への書き込み）をさせる
-  prompt を書かない。本スキールの deliverable は調査・分析・統合であり、実行では
+  prompt を書かない。本スキルの deliverable は調査・分析・統合であり、実行では
   ない。
 - 内部の推論過程をそのまま書き出させる指示を含めない
   （`fable-orchestration-prompting-guide.md` の該当節参照。`reasoning_extraction`

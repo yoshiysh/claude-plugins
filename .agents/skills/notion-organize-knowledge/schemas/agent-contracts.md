@@ -508,7 +508,7 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
 
 ## run queue (local only)
 
-Use `scripts/queue.py` to create and mutate the only run ledger. `validate_run_audit.py --workspace <workspace> --run-id <run> --phase preflight|progress|final` reads those same files; do not create a parallel manifest or hand-edit job JSON. `events.jsonl` is append-only audit history and is never written into Notion.
+Use `[SKILL_DIR]/scripts/queue.py` to create and mutate the only run ledger. `[SKILL_DIR]/scripts/validate_run_audit.py --workspace <workspace> --run-id <run> --phase preflight|progress|final` reads those same files; do not create a parallel manifest or hand-edit job JSON. `events.jsonl` is append-only audit history and is never written into Notion.
 
 ```json
 {

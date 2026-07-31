@@ -14,7 +14,7 @@ Anthropic 公式ドキュメント "Prompting Claude Fable 5" の抜粋を conde
 Fable 5 は先行モデルより並列 subagent の委譲に長けており、積極的に使ってよい。
 非同期の運用（委譲後ブロックせず動き続ける）を好む。長寿命な subagent はコンテキストを
 跨いで保持することで cache read の節約と「最も遅い subagent への律速」の回避になる——
-ただし本スキールでは Claude Code の「subagent はさらに subagent を spawn できない」
+ただし本スキルでは Claude Code の「subagent はさらに subagent を spawn できない」
 制約により、subagent の長寿命化・再委譲は行わない（1ラウンド1ショットの subagent として
 設計する）。
 
@@ -33,7 +33,7 @@ Delegate independent subtasks to subagents and keep working while they run. Inte
 > "Separate, fresh-context verifier subagents tend to outperform self-critique."
 
 自己採点（同じ subagent が自分の出力を自己批評する）より、**文脈を共有しない別の
-subagent が検証する**方が品質が高い。本スキールの Verify ステップは、Execute で
+subagent が検証する**方が品質が高い。本スキルの Verify ステップは、Execute で
 出力した subagent 自身にではなく、常に**別の agent() 呼び出し**（`references/verifier-role.md`
 準拠）に検証させる。これは loop engineering の「検証は generator-verifier で分離する。
 自分が書いたものを自分で採点しない」と完全に一致する原則。
@@ -44,12 +44,12 @@ Fable 5 は過去のラウンドの教訓を記録・参照できる場がある
 1教訓1ファイル、冒頭に一行要約、訂正と確認済みアプローチの両方を記録し、重複作成せず
 既存ノートを更新する。
 
-本スキールでは、この原則を以下の形で運用する:
+本スキルでは、この原則を以下の形で運用する:
 
 - **ラウンド間（同一実行内）**: `history` 配列（`orchestrate.js` が保持）がこの役割を
   果たす。Plan/Evaluate はすべての過去ラウンドの `summary`/`findings`/`open_questions`
   を毎回受け取る。
-- **実行を跨いだ恒久的な教訓**: 本スキール自体が汎用的に改善すべき教訓（例:「特定の
+- **実行を跨いだ恒久的な教訓**: 本スキル自体が汎用的に改善すべき教訓（例:「特定の
   タスク種別では〇〇系 subagent を必ず含めるべき」）に気づいた場合、Synthesize
   ステップの出力に「次回この skill を改善するなら」を含めてよい。ただし**自動で
   `references/*.md` を書き換えない**——ユーザーへの提示に留め、恒久化はユーザー承認を
@@ -58,14 +58,14 @@ Fable 5 は過去のラウンドの教訓を記録・参照できる場がある
 
 ## Rare cases of early stopping / autonomous operation（全ステップ共通）
 
-長い自律実行の途中で、許可を求めて止まってしまうことがある。本スキールの各ステップは
+長い自律実行の途中で、許可を求めて止まってしまうことがある。本スキルの各ステップは
 ユーザーが見ていない/介入できない前提で動くため、以下の姿勢を各 role ファイルで前提とする:
 
 ```
 You are operating autonomously. The user is not watching in real time and cannot answer questions mid-task, so asking "Want me to…?" or "Shall I…?" will block the work. For reversible actions that follow from the original request, proceed without asking.
 ```
 
-本スキールの subagent は state を変更しない（read-only な調査・分析・評価に限定）ため、
+本スキルの subagent は state を変更しない（read-only な調査・分析・評価に限定）ため、
 「不可逆な行動」に該当するものはそもそも存在しない。この指示は「止まらずに調査・分析を
 完遂せよ」という意味で適用する。
 
@@ -82,7 +82,7 @@ Before reporting progress, audit each claim against a tool result from this sess
 
 Fable 5 に「内部の推論過程をそのまま応答に書き出せ」と指示すると、
 `reasoning_extraction` という拒否カテゴリに触れ、Opus へのフォールバックが増える。
-本スキールの role ファイル（planner/evaluator/synthesis）は、いずれも「結論・判断・
+本スキルの role ファイル（planner/evaluator/synthesis）は、いずれも「結論・判断・
 その根拠となった具体的な証拠」を書かせる設計であり、「内部の思考過程そのものを逐語
 的に書き出せ」という指示は含めない（分析の深さを求める指示と、内部推論の逐語転写を
 求める指示は別物であることに注意する）。

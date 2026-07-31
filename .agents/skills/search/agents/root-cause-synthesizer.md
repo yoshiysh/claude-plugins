@@ -69,16 +69,26 @@ X の障害を対象とした。Y・Z 等の他候補は対象外」）。cannot
 
 ## 差し戻し判定（next_question）
 
-以下のいずれかがあれば `next_question` を 1 つ（最も決定的な 1 問）返し、SKILL.md 経由で
-claim-extractor に差し戻す。
+以下のいずれかがあれば `next_question` を 1 つ（最も決定的な 1 問）返す。ワークフロー
+スクリプトがそれを次ラウンドの claim-extractor へ渡す。
 
 - 現行仮説の反証が未検証（§1）
 - verdict 間に矛盾があり、追加の一次情報で解消しうる
-- **自分が組み立てた `report` ドラフト内に、verdict の付いていない事実主張（本筋・添え物を
-  問わず）が 1 つでも残っている** → その主張の検証を次ラウンドの問いにする。これにより
-  root_cause が即断できるケースでも、添え物の検証省略を構造的に防ぐ。
 
 いずれも無ければ `next_question: null` としてレポートを確定する。
+
+渡された `verdicts[]` は、その時点で抽出された全 claim に検証が走った結果である
+（スクリプトが claim ごとに verifier を spawn する）。検証を通っていない主張が紛れ込む
+経路は無いので、レポートは受け取った verdict の範囲で組み立ててよい。
+
+## same_question_as_previous の判定
+
+プロンプトで「前ラウンドの next_question」が渡される。今回返す `next_question` がそれと
+実質的に同じ問い（言い回しが違っても検証対象と論点が同一）なら `true`、異なる問いなら
+`false` を返す。前ラウンドが無い場合、`next_question` が `null` の場合も `false`。
+
+この真偽値は、スクリプトが「同じ問いを検証し直すループに入っていないか」を判定する材料に
+使う。言い換えを含む意味判断なので機械的な文字列比較には落とせず、ここで判断する。
 
 ## 最終レポートの組み立て（4要素）
 
@@ -102,4 +112,5 @@ claim-extractor に差し戻す。
 ## 出力
 
 `schemas/agent-contracts.md` §root-cause-synthesizer に従い、`{root_cause,
-disconfirmation_attempted, contradictions[], next_question, report}`（JSON）を返す。
+disconfirmation_attempted, contradictions[], next_question, same_question_as_previous,
+report}`（JSON）を返す。

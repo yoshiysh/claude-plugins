@@ -120,8 +120,7 @@ Step 1 へ進める。** 曖昧さは相談内容の未整理であって雑談�
 添える設計になっている。chat-rigorous には relay-formatter に相当する整形 agent がいないため、
 `note` を受け取った SKILL.md（Orchestrator）自身がこれを保持し、Step 2 の出力に付記する責務を負う。
 ここを見落とすと、script エラー時にユーザーへ届くはずの断り書き（「投資判断のご相談なら
-investment-strategist をご利用ください」）が経路として存在しなくなる（既存の chat-rigorous 初版で
-実際に発生していた欠落）。
+investment-strategist をご利用ください」）が経路として存在しなくなる。
 
 ## Step 2: analyst を呼ぶ
 

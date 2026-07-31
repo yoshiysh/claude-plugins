@@ -1,6 +1,22 @@
 # 統合・保存ガイド
 
-司令塔が Phase 5 で単独実行する手順。改善ループは Phase 4 で完結済み。
+司令塔が Phase 5 で単独実行する手順。改善ループは Phase 2–4 の Workflow
+（`scripts/build_skill.js`）で完結済みで、その戻り値を受けてここから始まる。
+
+Workflow の `verdict` が `passed` 以外の場合は合格として提示しない。いずれも `skill_draft` には
+直近の有効な稿が入っているので、草稿を失うことはない。
+
+- **`needs_human_decision`**（改稿上限に達しても閾値に届かなかった）: 品質の問題。pass_rate・
+  reviewer の失格項目・analyzer の改善提案をそのまま示し、要件・基準（Phase 1/2 相当）まで
+  遡るか、この稿で保存するかをユーザーに選んでもらう。
+- **`revision_failed`**（改稿 agent が応答しなかった）: 品質ではなくツール側の失敗。同じ入力で
+  Workflow を再実行すれば解消しうる（`resumeFromRunId` で改稿ステップから再開できる）。
+  品質不足として報告しない。再実行するか、直前の稿で保存するかを聞く。
+- **`evaluation_incomplete`**（採点 agent か reviewer が応答せず合否を判定できなかった）:
+  これも品質の問題ではない。`iterations[].ungraded_cases` と `evaluation_complete` に実態が
+  出ているので、**何件中何件が採点できなかったかを添えて**提示する。`pass_rates` が `null` の
+  場合は「差が無かった」ではなく「測れなかった」と伝える。直前に評価が揃ったラウンドが
+  あるなら、そちらの数字を「これが最後に取れた測定値」として併記してよい。
 
 ---
 
@@ -81,7 +97,7 @@ python [SKILL_DIR]/scripts/quick_validate.py .claude/skills/[スキル名]
 
 ## eval-viewer によるレビュー（任意・推奨）
 
-Phase 4 の評価結果を人間が確認するための静的 HTML を生成する。
+Workflow が返した評価結果（`iterations[]`）を人間が確認するための静的 HTML を生成する。
 
 **Step 1：ワークスペースに評価結果を保存する**
 

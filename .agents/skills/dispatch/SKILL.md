@@ -35,7 +35,7 @@ Split（「ループ・並列処理・ファイル操作は script、判断・�
 体現した形。
 
 副次的な利点: Workflow ツールは `resumeFromRunId` によるネイティブな再開機構を持つため、
-`magi` が自前で構築した `state.json` + `resume_from_state.py` 相当の仕組みを本スキールで
+`magi` が自前で構築した `state.json` + `resume_from_state.py` 相当の仕組みを本スキルで
 は手で作る必要がない。
 
 ## 何をしないか（境界）
@@ -81,7 +81,7 @@ Split（「ループ・並列処理・ファイル操作は script、判断・�
   理由: Workflow は数十 agent を並列生成しうる高コストな仕組み（ツール自身のドキュメントが
   明示的に警告している）。単純な質問にまで適用するのはコストの正当化ができない。
 
-判断に迷う場合（難問かどうか自体が曖昧）は、迷わずループ側に倒してよい——本スキールの
+判断に迷う場合（難問かどうか自体が曖昧）は、迷わずループ側に倒してよい——本スキルの
 対象はまさに「答えの形が事前にわからない」問いであり、判定を厳密にしすぎると本来の
 対象まで弾いてしまう。
 
@@ -146,7 +146,7 @@ Workflow はバックグラウンドで実行される（`Workflow` ツールの
 Fable 5 は現行フラッグシップ。次期モデルへ交代する際は、`scripts/orchestrate.js` 内の
 `model: 'fable'` を差し替え、`references/fable-orchestration-prompting-guide.md` を
 新モデルの prompting guide に基づいて更新する（`chat/agents/sounding-board-consultant.md`
-と同じ更新ポイント。本スキール名にモデル名を含めていないのはこの更新を名前変更なしで
+と同じ更新ポイント。本スキル名にモデル名を含めていないのはこの更新を名前変更なしで
 行えるようにするため）。
 
 ## References（1 level deep）

@@ -14,7 +14,7 @@ Use a domain-aware read-only enrichment layer before summarizing, classifying, o
 Run the bundled script with the original target URL. The script owns backend and Browser4 attempts, but the calling agent owns the in-app Browser handoff:
 
 ```bash
-python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com/p/...'
+python3 [SKILL_DIR]/scripts/read_url.py 'https://www.instagram.com/p/...'
 ```
 
 When the normal reader returns anything other than `Extracted`, `read_url.py` automatically tries Browser4 and keeps whichever result contains better evidence. Browser4 is optional: if `browser4-cli` is unavailable, the original reader result is preserved and the failed Browser4 attempt is recorded. If the public URL still remains incomplete, the JSON contains `browser_fallback.required: true`; the calling agent must then execute the in-app Browser final-fallback protocol in [references/in-app-browser-fallback.md](references/in-app-browser-fallback.md) without asking the user for permission. This is a fixed retrieval stage, not a decision to ask the user about.
@@ -24,13 +24,13 @@ To enable the fallback, install Browser4 and its self-contained runtime, then ma
 For machine-readable output:
 
 ```bash
-python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com/p/...' --json
+python3 [SKILL_DIR]/scripts/read_url.py 'https://www.instagram.com/p/...' --json
 ```
 
 To save extracted image assets:
 
 ```bash
-python3 .agents/skills/url-reader/scripts/read_url.py 'https://www.instagram.com/p/...' --json --download-images /tmp/url-reader-images
+python3 [SKILL_DIR]/scripts/read_url.py 'https://www.instagram.com/p/...' --json --download-images /tmp/url-reader-images
 ```
 
 ## Rules
@@ -54,7 +54,7 @@ Use these reader paths:
 - Instagram post URLs: use the generic reader path. It can often return the caption, author link, location, hashtags, and signed image URLs.
 - Instagram Reel URLs (`instagram.com/reel/...`): if the reader returns an Instagram login page or generic shell, report `Blocked` and do not treat extracted login assets as usable images.
 - Other public URLs: use the generic reader path first. If the result is `Partial`, `ImagesOnly`, `Blocked`, or `Failed`, `read_url.py` automatically tries Browser4 and then emits the mandatory in-app Browser handoff if the result is still incomplete. Do not omit the handoff because the domain is ordinary.
-- GitHub URLs: run the generic reader first. If it returns `403`, an anonymous-access block, rate limiting, or missing repository content, run `scripts/read_github_cli.py` when an authenticated `gh` CLI is available before the in-app Browser final fallback. The script uses the CLI's keyring-backed login and never accepts or prints a PAT. If CLI evidence is still incomplete or the CLI is unavailable, execute the required in-app Browser fallback; do not ask the user to choose between them.
+- GitHub URLs: run the generic reader first. If it returns `403`, an anonymous-access block, rate limiting, or missing repository content, run `[SKILL_DIR]/scripts/read_github_cli.py` when an authenticated `gh` CLI is available before the in-app Browser final fallback. The script uses the CLI's keyring-backed login and never accepts or prints a PAT. If CLI evidence is still incomplete or the CLI is unavailable, execute the required in-app Browser fallback; do not ask the user to choose between them.
 
 X oEmbed is sufficient for post text and author metadata, but it does not reliably expose attached media URLs. If the user asks for X images or video, mark the text extraction separately from media extraction and use another backend or `Needs Review` for media.
 
@@ -73,6 +73,29 @@ For Instagram, image URLs may expire, so download them immediately when the user
 For X status posts, if oEmbed fails, the script falls back to the generic reader path and then automatically tries Browser4 when the result is incomplete. X Articles use the generic reader path directly, then Browser4, then the mandatory in-app Browser handoff when `browser_fallback.required` is true. The same handoff is mandatory for every other public URL that remains incomplete after its configured reader backends. A result with that flag is not terminal: do not classify, move, register, or mark the item resolved until the in-app Browser attempt is recorded. Browser4 or in-app Browser may still return `Blocked` when a page requires login; never enter credentials or infer hidden text. Do not use `Needs Review` as a default failure state.
 
 Browser4 extraction is intentionally read-only and deterministic: open the public URL in a temporary headless session, extract `document.title`, `document.body.innerText`, and the live body HTML, then close the session. Do not use Browser4 `agent`, `extract`, `summarize`, `swarm`, or login interactions for this fallback.
+
+## Verifying The Claimed Status
+
+`read_url.py` reports `reader_status` from its own extraction. Before handing the result to
+anything that acts on it — registering a Notion page, classifying an inbox item, telling the
+user a post could be read — read [agents/extraction-verifier.md](agents/extraction-verifier.md)
+and call it with the full JSON as `[READER_JSON]`.
+
+Why a separate agent: the status is self-reported by the same run that produced the payload, so
+nothing in the pipeline currently contradicts it. A verifier reading only the payload catches
+`Extracted` with an empty `markdown`, `ImagesOnly` counting login-page assets, and results still
+carrying `browser_fallback.required` that are about to be treated as terminal. Downstream
+(`notion-organize-knowledge`) decides registration from this field, and an overstated status
+becomes an empty page in the knowledge base that nobody notices later.
+
+- `verdict: consistent` → use the result as reported.
+- `verdict: overstated` → treat `actual_status` as the real one. If it drops to `Blocked` or
+  `Failed`, do not register or move the item; leave it for review with the verifier's `evidence`.
+- `fallback_pending: true` → run the in-app Browser protocol before treating the item as
+  terminal, regardless of status.
+
+Skip the verifier only when the result is not being acted on (e.g. the user asked to inspect one
+URL interactively and is reading the output themselves).
 
 ## Output To Use Downstream
 
