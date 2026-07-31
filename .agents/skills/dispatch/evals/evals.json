@@ -1,0 +1,43 @@
+{
+  "skill_name": "dispatch",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "このリポジトリのビルドが特定の環境でだけ稀に失敗する原因を徹底的に調べてほしい。一人の視点だと思い込みで結論しそうなので、複数の観点で検証しながら進めて。",
+      "expected_output": "正常系（発動すべき・反復検証を伴う難問）。Step 0 の短絡判定を通過（投資でも単純な一問一答でもない）。Step 1 でコスト透明性の一言（最大ラウンド数・ラウンドあたり subagent 上限）を伝えるが、承認は待たない（状態変更を伴わないため）。Step 2 で Workflow を scriptPath: scripts/orchestrate.js、args に skillDir（実パス）と topic を渡して呼ぶ。完了後、synthesis をそのまま提示し、termination_reason と rounds_run を添える。converged 以外（stalled / max_rounds / budget_exhausted）で終わった場合は必ずその旨を明示し、達成度を実態より良く見せない。",
+      "files": [],
+      "assertions": [
+        "Workflow 起動前にコスト見積り（最大ラウンド数・subagent 上限）が一言伝えられている",
+        "Workflow が scripts/orchestrate.js を scriptPath に、skillDir と topic を args に指定して呼ばれている",
+        "Coordinator 自身が調査ループを手で回しておらず、ループ本体は Workflow に委ねられている",
+        "結果の提示に termination_reason と rounds_run が含まれている",
+        "termination_reason が converged 以外の場合、その旨が明示され『完了しました』のように良く見せる表現になっていない",
+        "subagent にファイル変更・コマンドによる状態変更をさせる計画になっていない（deliverable は synthesis）"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "package.json の engines フィールドって何を指定するものだっけ？徹底的に調べて。",
+      "expected_output": "準正常系（発動しても短絡すべき・修飾語に反して単純な一問一答）。「徹底的に」と言われているが、内容は既知仕様の確認で、Coordinator が直接調べれば数分で答えが出る。Step 0 の短絡判定に従い『この規模の質問であればループを回さず直接お答えします』と伝えて、Workflow を起動せずに通常のツール（Read / WebSearch 等）で直接回答する。理由は Workflow が数十 agent を並列生成しうる高コストな仕組みであり、単純な質問への適用はコストを正当化できないため。修飾語ではなく問いの実質で判定している。",
+      "files": [],
+      "assertions": [
+        "Workflow（orchestrate.js）が起動されていない",
+        "ループを回さず直接回答する旨がユーザーに一言伝えられている",
+        "質問自体には直接回答している（スキル対象外を理由に回答を拒否していない）",
+        "『徹底的に』という修飾語だけを根拠にループ側へ倒していない（判定が問いの実質に基づいている）"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "保有してる半導体株を売るべきか、複数の観点から徹底的に検証して判断材料を出してほしい。",
+      "expected_output": "誤発動リスク（発動すべきでない・投資判断トピック）。「複数の観点」「徹底的に検証」という dispatch のトリガー語彙を含むが、内容は売買タイミングの投資判断であり Step 0 の短絡判定の対象。『投資判断は investment-strategist / magi が扱います。そちらをお試しください』と案内して終了する。Workflow を起動せず、判断材料の収集や銘柄分析を dispatch のループとして代行しない。理由は投資助言の規制境界を investment-strategist 側の一元管理から外さないため。",
+      "files": [],
+      "assertions": [
+        "Workflow（orchestrate.js）が起動されていない",
+        "investment-strategist / magi への誘導が案内されている",
+        "売買判断の材料収集・銘柄分析を dispatch 自身が代行していない",
+        "トリガー語彙（複数の観点・徹底的に）に引きずられず、トピックの実質（投資判断）で判定している"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "skill_name": "manage-marketplace-plugin",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "notion-organize-knowledge をマーケットプレイスに登録して。",
+      "expected_output": "正常系エッジ（発動すべき・依存同梱が発生するケース）。input-resolver がスキル名を解決し、marketplace.json 照合で未登録（mode: register）と判定する。portability-checker が check_portability.py で install 先で壊れる参照をスキャンする。dependency-resolver が detect_dependencies.py で連鎖依存を検出し、url-reader（in-app-browser-fallback.md の参照・$url-reader 実行）が実依存として bundle_skills に挙がる。bundle_skills（rationale に呼び出し箇所がある確定分）は確認せずそのまま同梱し、needs_confirmation に挙がった候補だけをユーザーに聞く。plugin-registrar が register_plugin.py で相対 symlink により登録し、install-verifier が verify_install.py で L2+L3（HOME 隔離の実 install スモーク）を実行する。最終報告に同梱した依存が明記される。",
+      "files": [],
+      "assertions": [
+        "登録前に portability チェックが実行され、blocker があれば登録に進む前に扱われている",
+        "url-reader が連鎖依存として検出され、同一プラグインへの同梱対象になっている",
+        "実依存と確定した bundle_skills の同梱可否をユーザーに確認していない（needs_confirmation のみ確認）",
+        "スキル本体がコピーではなく相対 symlink で参照されている",
+        "登録後に L2+L3 検証（HOME 隔離の実 install）が実行され、overall_passed が確認されている",
+        "同梱した依存スキルが最終報告に明記されている（黙って同梱していない）"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "search プラグインを更新して再公開して。",
+      "expected_output": "準正常系（発動すべき・登録済みの更新ケース）。input-resolver が marketplace.json を照合して登録済み（update: true / mode: update）と判定する。plugin-registrar は --update 付きで register_plugin.py を実行し、version はユーザー明示が無いので既存 plugin.json の patch を +1 する。既存の marketplace.json エントリ・他プラグインの定義・手書き README は上書きしない（非破壊）。symlink と plugin.json は現状へ再同期される。報告では『新規登録』ではなく『更新（version X→Y）』であることを明示する。同じ操作を再実行しても壊れない（冪等）。",
+      "files": [],
+      "assertions": [
+        "登録済みの判定に基づいて更新モード（--update）で実行されている",
+        "version がユーザー未指定のため patch+1 で自動決定されている",
+        "marketplace.json の他プラグインのエントリが変更されていない",
+        "既存の README.md が上書きされていない",
+        "報告に『更新』であることと version の変化（X→Y）が明示されている"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "月報を自動生成するスキルを作って、マーケットプレイスに載せられる形にして。",
+      "expected_output": "誤発動リスク（前半では発動すべきでない・スキル作成は対象外）。このスキルの対象は『既存スキル（.claude/skills/ 配下に実体があるもの）の登録・更新』であり、スキル本体の作成は skill-creator-best-practices の役割と description に明記されている。存在しないスキルを登録しようとせず（実在確認の前置：SKILL.md が無いスキルを登録すると壊れたプラグインが公開される）、まずスキル作成が先であることを伝えて skill-creator-best-practices へ誘導する。作成が済んだ後の登録は本スキルで引き受けられることを添えるのはよい。",
+      "files": [],
+      "assertions": [
+        "register_plugin.py が実行されていない（存在しないスキルの登録を試みていない）",
+        "スキル本体の作成が skill-creator-best-practices の役割であることが案内されている",
+        "作成後の登録は本スキルが担えるという役割分担が示されている",
+        "SKILL.md の実在しない対象に対して marketplace.json やプラグインディレクトリへの書き込みが発生していない"
+      ]
+    }
+  ]
+}
