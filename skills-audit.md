@@ -479,6 +479,48 @@ reviewer も落ちる → review?.failed || [] は [] → 失格 0 件
 （designer → reviewer の until-pass ループ）は通っていない。コードパスを通すために種別を
 偽ると測定が歪むので、正直な種別を選んだ結果として残した。
 
+### 5.2d 3 回目の実走（`taskType: document`）— Structure は通り、境界の片側漏れが露見
+
+未検証だった Structure フェーズを通すため `taskType: document` で実行した（題材: 公開済み
+8 プラグインの README が全て同一の 25 行雛形のまま放置されている問題）。
+
+**Structure フェーズは動作した**。journal 上で `structure-designer` が構成案を返し、
+`structure-reviewer` が `STRUCTURE_REVIEW_SCHEMA` に沿って
+`{checks: [{name: "A. 要件との整合性", result: "warn", rationale: ...}]}` を返している。
+schema による構造化判定（markdown 中の ✅/❌ を数えない形）が実データで機能した。
+
+ただし `result` は `warn` であり `fail` は 0 件だったため、`failed[]` が空になり 1 回目で
+ループを抜けた。**❌ が出たときの差し戻し・再設計と `MAX_STRUCTURE_ATTEMPTS` による打ち切りは
+まだ通っていない。**
+
+**露見した別のバグ（修正済み）**: 実行中、監視が `plugins/dispatch/README.md`（追跡ファイル）の
+書き換えを**リアルタイムで捕捉**したため停止させた。原因は、前回追加した境界ブロックを
+**`with_skill` 側にしか入れていなかった**こと。`baseline` は素のプロンプトのまま全ツールを
+持つため、「README が雛形のままなので直して」というテストプロンプトを額面どおり実行した。
+journal の該当 agent は「`plugins/dispatch/README.md` を書き換えました」と明示的に報告している。
+
+スキル定義を渡されない `baseline` の方がむしろ歯止めが無い、という非対称性を見落としていた。
+
+**なぜ前回の実行では出なかったか**: 前回の題材（既存スキルの設計レビュー）は本質的に
+読み取り専用で、テストプロンプトが変更を求めなかった。今回の題材は「README を直して」と
+書き換えを求めるため、境界の欠落が初めて表面化した。**題材の性質が異なる 2 本を通して
+初めて出た欠陥**であり、1 本の実走では見つからなかった。
+
+**適用した修正**: 境界ブロックを `EVAL_BOUNDARY` 定数として抽出し、`with_skill` と `baseline`
+の両方に適用した。文面も「スキル定義の実装ではない」から「依頼の遂行ではない。変更を求められても
+適用せず、こう変更するという内容を回答として書く」に一般化している。定数の直上に、片側だけに
+付けた場合に何が起きたかを実失敗として記録した。
+
+**検出の改善**: 1 回目は書き込みに 20 分以上気づかなかったが、今回は作業ツリー監視を張って
+いたため最初の 1 ファイル目で検出・停止できた。被害は 1 ファイルに留まり、差分を保全したうえで
+復旧済み。
+
+**あわせて気づいた点（未対応）**: `writer` agent がこの run では成果物を scratchpad に
+書き出し、戻り値を「4 つのファイルを書いた」という報告にしていた。リポジトリ外なので実害は
+無いが、`skill_draft` が SKILL.md 本文ではなくポインタになると、後段の
+`extractFrontmatter` と評価 agent に定義が渡らない。前回の run では本文が返っていたため
+挙動が安定していない。
+
 ### 5.3 notion-organize-knowledge — シグナルは実在するが変換不可
 
 §13 の警察装置シグナルは強く出ている（§4.7）。しかし Workflow script には次の制約がある（Workflow ツール仕様）:
@@ -562,7 +604,8 @@ CLAUDE.md 89 行目は「`.claude/settings.json` と `.codex/hooks.json` には 
 | # | 内容 | 規模 | 判断が要る点 |
 |---|---|---|---|
 | A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
-| B | **`build_skill.js` の Structure フェーズの実走検証**（評価ループは実走済み・§5.2c、`investigate.js` は §5.1b、検証者 3 件は §4.8） | 小 | `taskType: document` でのみ通る designer → reviewer の until-pass ループが未検証。document 種別のスキルを 1 本生成すれば通る |
+| B | **`build_skill.js` の残る未検証パス** | 小 | Structure の**差し戻し経路**（reviewer が `fail` を返したときの再設計と `MAX_STRUCTURE_ATTEMPTS` 打ち切り）。3 回目の実走で designer → reviewer は動いたが `warn` のみで `fail` が出ず、ループは 1 回で抜けた（§5.2d） |
+| H | `writer` agent の戻り値の不安定さ（§5.2d 末尾） | 小 | 成果物を scratchpad に書き出して「書いた」と報告する run があり、その場合 `skill_draft` が本文ではなくポインタになる。writer 側にも「戻り値が成果物である」境界が要るか検討 |
 | C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
 
 | D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |
