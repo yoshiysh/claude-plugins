@@ -68,25 +68,32 @@ plugins/
 
 ## 検証
 
-基本検証（全スキル）:
+`Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出するので、スキルを追加しても検証対象に入れ忘れることはない。
 
 ```bash
-for d in .agents/skills/*/; do python3 .claude/skills/skill-creator-best-practices/scripts/quick_validate.py "$d" --verbose; done
+make test         # 合否ゲート: 全スキルの quick_validate + worktree-sync / url-reader の unittest
+make portability  # 配布 portability の一覧（install 先で壊れる参照の検出）
+make check        # 上記 2 つをまとめて
 ```
 
-配布前のポータビリティ検証（install 先で壊れる参照の検出）:
+`make portability` を合否ゲートにしていないのは、`check_portability.py` が blocker を検出しても exit 0 を返すことと、既知の false positive が 2 件（`manage-marketplace-plugin` の自己参照 `external_script`、`worktree-sync` の設定例中の `env_build`）あるため。詳細は `skills-audit.md` §4.1b。
+
+個別スキルだけを見るとき:
 
 ```bash
-python3 .claude/skills/manage-marketplace-plugin/scripts/check_portability.py --skill <skill-name>
+python3 .claude/skills/skill-creator-best-practices/scripts/quick_validate.py .agents/skills/<name> --verbose
+python3 .claude/skills/manage-marketplace-plugin/scripts/check_portability.py --skill <name>
 ```
 
 Marketplace 登録後の install 検証:
 
 ```bash
-python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --skill <skill-name>
+python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --skill <name>
 ```
 
-`.claude/settings.json` と `.codex/hooks.json` には `make test` hook があるが、このリポジトリには現在 `Makefile` がない。hook を有効運用するなら `Makefile` を追加するか、hook コマンドを上記の検証コマンドに更新する。
+`make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。`.claude/settings.json` 側には検証 hook は無く、通知系（Notification / Stop）のみ。
+
+`quick_validate.py` が通っても全項目の合格ではない。検証者の有無・description の実発火など機械判定できない項目は `SKIP:` として毎回申告されるので、公開前にはそこを設計レビューで見る。
 
 ## 注意点
 

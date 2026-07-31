@@ -1,20 +1,31 @@
 PYTHON ?= python3
-VALIDATOR := .agents/skills/skill-creator-best-practices/scripts/quick_validate.py
+SKILLS_DIR := .agents/skills
+VALIDATOR := $(SKILLS_DIR)/skill-creator-best-practices/scripts/quick_validate.py
+PORTABILITY := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_portability.py
 
-.PHONY: test
+# スキル一覧はディレクトリから毎回導出する。ここをハードコードすると、
+# 新しいスキルを追加したときに検証対象から静かに漏れる。
+SKILLS := $(notdir $(patsubst %/,%,$(wildcard $(SKILLS_DIR)/*/)))
 
+.PHONY: test portability check
+
+# 合否ゲート。1 つでも失敗したら止まる。
 test:
-	$(PYTHON) $(VALIDATOR) .agents/skills/manage-marketplace-plugin --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/notion-organize-knowledge --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/url-reader --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/pr-create --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/reference --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/commit --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/worktree-sync --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/skill-creator-best-practices --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/chat --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/chat-rigorous --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/dispatch --verbose
-	$(PYTHON) $(VALIDATOR) .agents/skills/search --verbose
-	$(PYTHON) -m unittest discover -s .agents/skills/worktree-sync/tests -p 'test_*.py'
-	$(PYTHON) -m unittest discover -s .agents/skills/url-reader/tests -p 'test_*.py'
+	@set -e; for s in $(SKILLS); do \
+		echo "── $$s"; \
+		$(PYTHON) $(VALIDATOR) $(SKILLS_DIR)/$$s --verbose; \
+	done
+	$(PYTHON) -m unittest discover -s $(SKILLS_DIR)/worktree-sync/tests -p 'test_*.py'
+	$(PYTHON) -m unittest discover -s $(SKILLS_DIR)/url-reader/tests -p 'test_*.py'
+
+# 配布 portability の一覧。check_portability.py は blocker があっても exit 0 を返すため
+# 合否ゲートにはせず、一覧を出して人が読む形にする（既知の false positive が
+# 2 件あり、ゲートにすると恒常的に失敗する。詳細は skills-audit.md §4.1b）。
+portability:
+	@for s in $(SKILLS); do \
+		$(PYTHON) $(PORTABILITY) --skill $$s 2>/dev/null | $(PYTHON) -c \
+		"import json,sys; d=json.load(sys.stdin); print(('BLOCKER ' if d['has_blockers'] else 'ok      ') + d['skill'] + ('  ' + json.dumps(d['summary'], ensure_ascii=False) if d['summary'] else ''))"; \
+	done
+
+# 公開前にまとめて見たいときの入口。
+check: test portability

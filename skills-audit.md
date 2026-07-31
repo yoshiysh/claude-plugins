@@ -340,6 +340,28 @@ best-practices.md §13 が参照実装として名指しする `/deep-research`�
 同期的な request/response であり、バックグラウンド実行される Workflow に載せると応答の形と
 待ち方が変わるため、`source-verifier` を直接 spawn する形のまま残した。
 
+### 5.1b 実走結果（`investigate.js`）
+
+実タスク（§6.2 の CLAUDE.md の記述が現状と一致するかの調査）を 1 本通した。
+
+| 指標 | 結果 |
+|---|---|
+| ラウンド | r1（12 claim）→ r2（6）→ r3（16）→ **自然収束** |
+| 終了理由 | `converged`（打ち切りではない） |
+| 重複検証 | **0 件**（`seen` による除外が機能） |
+| verdict | verified 33 / refuted 1 / cannot-verify 0 |
+| agent | 40 件、エラー 0 |
+
+設計時の構造的保証が実データで確認できた点:
+
+- **`seen` による重複除外**: 3 ラウンドで 34 claim を検証し、同一主張の再検証が 0 件
+- **反証義務**: refuted 1 件は**ワークフロー自身が前ラウンドで立てた主張**で、反証したうえで「本レポートの root_cause と inferences はこの claim に依存しないため結論を変えない」と明記していた
+- **`next_question` による継続と収束**: r1・r2 で問いが立ち、r3 で `null` になって停止。進捗ガード（`same_question_as_previous`）は発火せず、収束経路で終わった
+
+結論の質も監査者（人間側）を上回った。監査の初版は「Makefile が無い」という CLAUDE.md の記述を検証せず引き写していたが、ワークフローは**記述が執筆時点では真で、無関係な 2 コミットで二段階に偽になった**ことまで特定した（§6.2 の表）。
+
+**未確認**: 進捗ガードの停止経路（`stalled`）と `cannot-verify` の蓄積経路は、この run では通っていない。収束したため。
+
 ### 5.2 skill-creator-best-practices — Phase 2–4 を Workflow 化した（`scripts/build_skill.js`）
 
 Phase 2 → 2.5 → 3 → 4 は「fan-out → 集約 → 閾値判定 → 条件付き再実行」の連なりで、途中に人間の
@@ -375,6 +397,41 @@ Workflow が返す `verdict: needs_human_decision`（改稿上限に達しても
 登録された型ではなく、指定すると解決に失敗する。役割はプロンプト本文が担っているため、
 `model` だけを渡して既定の subagent で実行している。
 
+### 5.2b 実走で判明した重大な欠陥（`build_skill.js`）— 修正済み・再検証は未了
+
+実タスク（全スキルに検証スクリプトを一括実行するスキルの生成）を流したところ、**評価フェーズの
+agent がリポジトリを書き換えた**ため途中で停止させた。
+
+| 起きたこと | 影響 |
+|---|---|
+| `.agents/skills/validate-skills/`（10 ファイル）を新規作成 | 未追跡。セッションにスキルとして登録され、意図せず発火しうる状態になった |
+| `quick_validate.py` を 80 行追加で改変 | **追跡ファイル**。PR 進行中のブランチ上で、著者もレビューも経ていない変更が混入した |
+
+**原因**: `with_skill` の評価 agent へ渡すプロンプトに**境界ブロックが無かった**。「このスキル定義が
+システムプロンプトに含まれているものとして振る舞え」とだけ指示していたため、定義が
+`scripts/run_validation.py` を呼ぶと書いてあるのを見た agent が、**そのスクリプトを実際に作って
+実行した**（journal に `run_validation.py --skill dispatch-helper` の実行記録がある）。
+
+これは本監査 §11 で「残す側」に分類した「境界ブロック（頼まれていない行動を取ることがある）」
+そのものであり、その原則を自分のスクリプトに適用し損ねていた。
+
+**害は書き込みだけではない**。不足を自力で補った `with_skill` は baseline に勝つが、それは
+スキル定義の質ではなく **agent の補完能力**を測っている。delta が測定対象を取り違える。
+
+**適用済み**: 評価 agent のプロンプトに境界ブロックを追加した（ファイルの作成・編集・削除を禁止、
+定義が参照する未作成のスクリプトを作らない、実行できない場合は記述で答える、読み取り専用の調査は
+許可）。理由も併記している — 評価対象は「定義がどれだけ的確に振る舞いを導くか」であって
+「不足を自力で補える agent かどうか」ではない、という Why。
+
+**後始末**: `quick_validate.py` は `git checkout` で復旧。生成された `validate-skills/` は
+scratchpad へ退避した（削除ではなく移動。差分は `unauthorized-quick_validate.patch` に保全）。
+追跡ファイルへの他の変更は無く、既存スキルは壊れていない。
+
+**この題材選定自体も誤りだった**: 生成対象とした「全スキルに検証スクリプトを一括実行するスキル」は、
+`Makefile` の `make test` が既に大半をカバーしていた。要件を書く前にそれを確認していなかった
+（§6.2 と同じ、一次情報に当たらずに前提を書いた失敗）。実際に必要だったのは Makefile の数行修正で、
+agent 4 本 + スクリプトを持つスキルではない。
+
 ### 5.3 notion-organize-knowledge — シグナルは実在するが変換不可
 
 §13 の警察装置シグナルは強く出ている（§4.7）。しかし Workflow script には次の制約がある（Workflow ツール仕様）:
@@ -394,9 +451,26 @@ Workflow が返す `verdict: needs_human_decision`（改稿上限に達しても
 
 CLAUDE.md は 2 スキル（`skill-creator-best-practices` / `manage-marketplace-plugin`）しか記載していないが、実際には 12 スキルが存在する。CLAUDE.md はセッションごとに読み込まれる指示であり、最も目に触れる場所が最も古い。
 
-### 6.2 CLAUDE.md の「検証」節が Makefile 不在に言及したまま
+### 6.2 CLAUDE.md の「検証」節が二重に古くなっていた（優先度: 中）
 
-CLAUDE.md 末尾が「`.claude/settings.json` と `.codex/hooks.json` には `make test` hook があるが、このリポジトリには現在 `Makefile` がない」と記載。これは §12「時間依存・来歴の記述」に近い形で残っている。hook を更新するか Makefile を追加するかの決着が必要。
+CLAUDE.md 89 行目は「`.claude/settings.json` と `.codex/hooks.json` には `make test` hook があるが、このリポジトリには現在 `Makefile` がない」と記載していた。**本監査の初版はこの記述を検証せずそのまま引き写した**（§4.10 と同じく、走査で済ませて一次情報に当たらなかった失敗）。
+
+`search` スキルの Workflow（`investigate.js`）を実走させてこの記述を調査させたところ、**執筆時点では真だったものが、無関係な 2 コミットで二段階に偽になっていた**ことが判明した。
+
+| 時点 | 出来事 | 記述への影響 |
+|---|---|---|
+| 2026-07-07 `c395a26` | CLAUDE.md 追加。当時 `settings.json` にも `make test` の PostToolUse hook が実在し、Makefile は未追加 | 前段・後段とも真 |
+| 2026-07-08 `9701486a` | `settings.json` から `make test` hook ブロックのみ削除 | **前段が偽に** |
+| 2026-07-10 `a75982e` | Makefile を追加 | **後段も偽に** |
+
+以後 2026-07-31 の CLAUDE.md 大規模書き換えを含め、89 行目は blame 上 `c395a26` のまま一度も更新されていなかった。
+
+要点は自分でも一次情報で再確認した — `.claude/settings.json` に `make` の出現は 0 件（hook は Notification / Stop のみ）、`.codex/hooks.json` は PostToolUse（matcher `Edit|Write|MultiEdit`）で `make test` を呼ぶ、`Makefile` は追跡済みで `make test` は exit 0。
+
+**適用済み**: CLAUDE.md の検証節を現状に合わせて書き直し、`Makefile` を検証の入口として明記した。あわせて Makefile 自体の 2 つの穴も塞いだ。
+
+- スキル一覧が 12 個ハードコードされており、13 個目が静かに漏れる状態だった（`investigate.js` の F12 が検出）→ `$(wildcard $(SKILLS_DIR)/*/)` から毎回導出する形に変更。一時的な probe スキルを置いて自動で拾われることを確認済み
+- `check_portability` が `make` から呼ばれていなかった → `portability` ターゲットを追加。ただし合否ゲートにはしない（同スクリプトは blocker 検出時も exit 0 を返し、かつ既知 false positive が 2 件あるため恒常的に失敗する）。`check` で両方まとめて実行できる
 
 ### 6.3 marketplace 未登録の 3 スキル
 
@@ -429,6 +503,7 @@ CLAUDE.md 末尾が「`.claude/settings.json` と `.codex/hooks.json` には `ma
 | 14 | tester → grader の assertions 受け渡しギャップと、reviewer 系の ✅/❌ markdown 判定（§12 代理指標）を schema で解消 | §5.2 | `build_skill.js` の `TEST_CASES_SCHEMA` / `REVIEW_SCHEMA` / `STRUCTURE_REVIEW_SCHEMA` |
 | 15 | **状態変更 3 スキルに fresh-context の検証者を追加**。いずれも状態変更の前に置き、`mismatch` なら実行しない。verifier に `diff_summary` / `evidence` を必須化して「読まずに ok を返す」経路を塞いだ | §4.8 | `commit/agents/message-verifier.md`・`pr-create/agents/body-verifier.md`・`url-reader/agents/extraction-verifier.md`（いずれも新規）+ 各 SKILL.md |
 | 16 | `manage-marketplace-plugin` の不要な人間ゲート 2 件を自動化（実依存確定分の同梱確認・exit 4 の衝突確認）。残る 3 件は入力・他スキルへの状態変更・テストデータが必要なため維持 | §4.9 | `manage-marketplace-plugin/SKILL.md` / `references/schemas.md` |
+| 18 | **CLAUDE.md の検証節を現状へ更新し、Makefile の 2 つの穴を修正**。スキル一覧のハードコード（13 個目が漏れる）を動的導出に、`check_portability` を呼ぶ `portability` / `check` ターゲットを追加 | §6.2 | `CLAUDE.md` / `Makefile` |
 | 17 | **§4.8 の見落としを招いた基準側の欠陥 3 件を修正**。基準リストの不一致・構造キーの条件付け・機械検査の沈黙。§10 に「適用範囲は機能で決める」を明記し、検証者の項目を基本品質へ、`quick_validate.py` に `SKIP:` 申告を追加 | §4.10 | `skill-creator-best-practices/references/best-practices.md` / `references/criteria-by-task.md` / `scripts/quick_validate.py` |
 
 `[SKILL_DIR]` の使用可否は確認済み。`worktree-sync` が subagent を持たない単体スキルで
@@ -440,9 +515,9 @@ CLAUDE.md 末尾が「`.claude/settings.json` と `.codex/hooks.json` には `ma
 | # | 内容 | 規模 | 判断が要る点 |
 |---|---|---|---|
 | A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
-| B | Workflow 化した 2 スキルの実走検証 | 中 | `investigate.js` / `build_skill.js` は構文・禁止 API・`filter(Boolean)`・`args` ガードまで確認済みだが、**実際の調査／スキル生成を 1 本通していない**。schema がモデルの出力形と噛み合うか、`same_question_as_previous` が期待どおり収束させるかは実走でしか確認できない（検証者 3 件は実走済み。§4.8 参照） |
+| B | **`build_skill.js` の評価ループの実走検証**（`investigate.js` は実走済み・§5.1、検証者 3 件も実走済み・§4.8） | 中 | 境界ブロック欠落の修正後、Grade / Analyze フェーズまで到達させていない。pass_rate 集計・delta 閾値判定・改稿ループは未検証。再実行時は書き込みが起きないことも併せて確認する |
 | C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
 
 | D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |
-| E | CLAUDE.md の `make test` hook と Makefile 不在の決着（§6.2） | 小 | Makefile を追加するか、hook コマンドを検証コマンドに差し替えるか |
+
 | F | `investment-strategist` / `magi` への外部依存（§4.5） | 中 | 実体は別リポジトリ `stock-valuation-dcf`。(1) 同梱する (2) `chat` / `chat-rigorous` から投資ルーティング自体を外す (3) router にスキル不在時の fallback を足す、のいずれか。`chat` / `dispatch` は公開済みなので放置すると他環境で未定義の失敗になる |
