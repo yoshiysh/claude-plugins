@@ -305,6 +305,20 @@ if (!skillDraft) {
   throw new Error('writer が初稿を返しませんでした。生成物を捏造せずここで打ち切ります。')
 }
 
+// 戻り値が SKILL.md 本文を含んでいることを、評価に入る前に確認する。
+// writer が成果物をファイルへ書き出して「書きました」という報告だけを返す run が実測で
+// あった。その状態でも文字列は非空なので上の !skillDraft は通過し、評価 agent には
+// スキル定義の代わりにパス案内が渡る。読み取りは許可されているので with_skill 側だけが
+// そのファイルを読んで実質的に定義を得てしまい、delta は大きく出るが測っているものは
+// 「定義の質」ではなくなる。数字が良い方向に壊れるため気づきにくい。
+if (!extractFrontmatter(skillDraft, 'name') || !extractFrontmatter(skillDraft, 'description')) {
+  throw new Error(
+    'writer の戻り値から name / description を持つ frontmatter を取り出せませんでした。' +
+      'SKILL.md 本文そのものではなく、ファイルへの参照や作業報告が返っている可能性があります。' +
+      `戻り値の冒頭: ${String(skillDraft).slice(0, 200)}`
+  )
+}
+
 // ---------------------------------------------------------------- Phase 4: テスト生成
 
 phase('Test')
@@ -554,10 +568,27 @@ while (true) {
 
 // frontmatter から 1 フィールドを取り出す。tester/grader へ渡す name・description の抽出用。
 // 複数行 description（`>` や `|` の折り畳み）も拾えるよう、次のトップレベルキーまでを読む。
+//
+// 先頭固定で探さない理由: writer は「## SKILL.md の完全なテキスト」のような前置きを付けて
+// ```markdown フェンスの中に本文を入れて返すことがある（実測）。先頭一致にすると、
+// 本文が確かに含まれている戻り値でも抽出に失敗する。行頭の `---` を本文中から探し、
+// name を持つ最初のブロックを frontmatter として採る。
 function extractFrontmatter(text, key) {
-  const fm = String(text).match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  if (!fm) return null
-  const lines = fm[1].split(/\r?\n/)
+  const all = String(text).split(/\r?\n/)
+  // `---` の行番号を集め、隣り合う 2 本で挟まれたブロックを順に見る。区切りを 2 本ずつ
+  // 消費すると、本文中の水平線が frontmatter の開始行と対になって食い違う（前置きに
+  // `---` を書く writer の戻り値で実際に起きた）。1 本ずつ進めて name: を持つ最初の
+  // ブロックを採る。
+  const delims = []
+  all.forEach((l, i) => {
+    if (l.trim() === '---') delims.push(i)
+  })
+  let lines = null
+  for (let a = 0; a < delims.length - 1 && !lines; a++) {
+    const block = all.slice(delims[a] + 1, delims[a + 1])
+    if (block.some((l) => /^name:/.test(l))) lines = block
+  }
+  if (!lines) return null
   const start = lines.findIndex((l) => l.startsWith(`${key}:`))
   if (start === -1) return null
   const first = lines[start].slice(key.length + 1).trim()

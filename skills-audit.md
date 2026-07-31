@@ -515,6 +515,31 @@ journal の該当 agent は「`plugins/dispatch/README.md` を書き換えまし
 いたため最初の 1 ファイル目で検出・停止できた。被害は 1 ファイルに留まり、差分を保全したうえで
 復旧済み。
 
+**`writer` の戻り値に対するガードを追加した**（実走せずに検証できる範囲の対処）。
+
+戻り値が非空でも SKILL.md 本文とは限らない。`!skillDraft` のチェックは通過するため、
+ポインタ文字列がそのまま評価 agent に「スキル定義」として渡る経路があった。読み取りは
+`EVAL_BOUNDARY` でも許可しているので、`with_skill` 側だけがその先のファイルを読んで実質的に
+定義を得てしまい、**delta は大きく出るが測っているものは「定義の質」ではなくなる**。数字が
+良い方向に壊れるため気づきにくい。
+
+`name` と `description` を持つ frontmatter を取り出せなければ throw する形にした。あわせて
+`extractFrontmatter` を行単位の走査に書き直している。従来は先頭固定の正規表現で、
+「前置き + 水平線 + ```markdown フェンス内に本文」という writer の実際の返し方だと抽出に
+失敗していた（2 回目の成功 run でも `[SKILL_NAME]: (name 未取得)` のまま tester / grader に
+渡っていたことになる）。本文中の `---` が frontmatter の開始行と対に消費される問題があるため、
+区切りを 1 本ずつ進めて `name:` を持つ最初のブロックを採る。
+
+実測 5 パターンで確認済み:
+
+| 入力 | 結果 |
+|---|---|
+| 2 回目の成功 run の草稿（前置き + フェンス内 frontmatter・全文） | PASS（`name=review-skill-design` を抽出） |
+| 3 回目の writer の報告文（ポインタ） | THROW |
+| 素の SKILL.md（先頭が `---`） | PASS |
+| 散文のみ（水平線あり・frontmatter 無し） | THROW |
+| 前置き + 水平線 + フェンス内 frontmatter（最小例） | PASS（`name=x-skill`） |
+
 **あわせて気づいた点（未対応）**: `writer` agent がこの run では成果物を scratchpad に
 書き出し、戻り値を「4 つのファイルを書いた」という報告にしていた。リポジトリ外なので実害は
 無いが、`skill_draft` が SKILL.md 本文ではなくポインタになると、後段の
@@ -605,7 +630,7 @@ CLAUDE.md 89 行目は「`.claude/settings.json` と `.codex/hooks.json` には 
 |---|---|---|---|
 | A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
 | B | **`build_skill.js` の残る未検証パス** | 小 | Structure の**差し戻し経路**（reviewer が `fail` を返したときの再設計と `MAX_STRUCTURE_ATTEMPTS` 打ち切り）。3 回目の実走で designer → reviewer は動いたが `warn` のみで `fail` が出ず、ループは 1 回で抜けた（§5.2d） |
-| H | `writer` agent の戻り値の不安定さ（§5.2d 末尾） | 小 | 成果物を scratchpad に書き出して「書いた」と報告する run があり、その場合 `skill_draft` が本文ではなくポインタになる。writer 側にも「戻り値が成果物である」境界が要るか検討 |
+| H | `writer` の戻り値がポインタになる根本原因の解消 | 小 | ガードは追加済み（下記）。writer 側に「戻り値が成果物である」境界を置くかは、実際に throw が起きてから判断する（§12 前方修正） |
 | C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
 
 | D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |
