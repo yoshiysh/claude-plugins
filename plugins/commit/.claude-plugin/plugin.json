@@ -1,7 +1,6 @@
 {
     "name": "commit",
-    "version": "0.1.0",
-    "description": "Generate intelligent commit messages and execute commits.",
+    "version": "0.1.1",
     "author": {
         "name": "yoshiysh"
     }

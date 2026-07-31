@@ -1,7 +1,6 @@
 {
     "name": "pr-create",
-    "version": "0.1.0",
-    "description": "Automate intelligent Pull Request creation (Diff analysis, Template filling, Draft mode).",
+    "version": "0.1.1",
     "author": {
         "name": "yoshiysh"
     }

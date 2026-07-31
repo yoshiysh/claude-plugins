@@ -1,7 +1,6 @@
 {
     "name": "cleanup-branches",
-    "version": "0.1.0",
-    "description": "マージ済みブランチと不要な作業状態を検出・削除し、worktree を最新の主ブランチに同期する。 「ブランチを整理して」「不要なブランチを消したい」「マージ済みブランチをクリーンアップして」 「main を更新」「最新にして」「sync」「同期」「マージしたから更新」「ブランチを更新」 「掃除して」等のキーワードで起動する。 ローカル・remote 双方のマージ済みブランチ（squash merge・cherry-pick・rebase で 取り込まれたものを含む）、stash の滞留、submodule の drift、終了済み workspace までを 1 回の実行で洗い出す。判定基準は main / develop / release-*/dev-* を動的に列挙するため、 develop が主軸で dev/{version} のような並走ブランチを持つリポジトリでも正しく判定する。",
+    "version": "0.1.1",
     "author": {
         "name": "yoshiysh"
     }
