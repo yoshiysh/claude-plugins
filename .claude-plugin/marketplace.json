@@ -18,8 +18,8 @@
             "source": "./plugins/commit"
         },
         {
-            "name": "worktree-sync",
-            "source": "./plugins/worktree-sync"
+            "name": "cleanup-branches",
+            "source": "./plugins/cleanup-branches"
         },
         {
             "name": "skill-creator-best-practices",
