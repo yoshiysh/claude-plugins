@@ -60,6 +60,16 @@ investment-strategist 自身が既に規制境界・disclaimer を経た最終�
 {"proceed": false, "relayed_response": "<investment-strategist の応答>"}
 ```
 
+**`Skill` 呼び出し自体が失敗した場合（investment-strategist がこの環境に存在しない・
+ツールエラー等）**：Step 3 の fail-safe（技術壁打ちへ続行）には**倒さない**。ここは script
+エラー時と条件が違う — 投資トピックだと**判定は済んでいる**ので、委譲先が無いからといって
+壁打ちに流すと「このスキルは投資判断を扱わない」という境界そのものを破る。代わりに案内文を
+返して終了する：
+
+```json
+{"proceed": false, "relayed_response": "このご相談は投資判断（銘柄評価・売買タイミング・ポートフォリオ等）に当たるため、このスキルでは扱えません。委譲先の investment-strategist スキルがこの環境にインストールされていないため、回答を生成できませんでした。投資判断のご相談には investment-strategist スキルを導入してご利用ください。"}
+```
+
 ### Step 3: is_investment_topic が false の場合（script エラー時も含む）
 
 `Skill()` は呼ばない。SKILL.md に続行を伝える。

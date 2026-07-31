@@ -1,0 +1,44 @@
+{
+  "skill_name": "commit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "リファクタしておいたからコミットして。fetch 関数の引数を整理しただけ。",
+      "expected_output": "正常系エッジ（発動すべき・ユーザーの変更説明と diff の実態がズレるケース）。Authority Check はユーザーの明示指示で通過。git diff --staged で staged 変更を確認し、リポジトリの検証コマンド（Makefile の test 等）を解決して実行する。メッセージ生成後、message-verifier が別 context で diff を読み直す。ユーザーは「引数を整理しただけ」と言っているが、diff にシグネチャの非互換変更（keyword-only 化・引数名変更等）が含まれていれば、verifier が type の過小（chore/refactor → feat! 相当）と breaking change の欠落を mismatch として検出し、コミットせずに suggested_message を提示してユーザーに選ばせる。ユーザーの自己申告をそのままメッセージにしない。",
+      "files": [],
+      "assertions": [
+        "コミット実行前に git diff --staged の内容を実際に確認している（ユーザーの変更説明を鵜呑みにしてメッセージを書いていない）",
+        "message-verifier（生成した agent とは別の fresh context）が diff を自分で読み直し、type / description / breaking change を照合している",
+        "diff に非互換変更（公開シグネチャ・CLI 引数・スキーマ等）が含まれる場合、verifier が mismatch を返し、コミットが実行されていない",
+        "mismatch 時に verifier の指摘理由と suggested_message が提示され、コミットするかの選択がユーザーに委ねられている",
+        "verifier の出力に diff_summary（実際に読んだ staged 変更の要約）が含まれており、読まずに判定した形跡がない",
+        "git add を実行していない（ユーザーが staged した範囲のみをコミット対象にしている）"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "コミットしておいて。",
+      "expected_output": "準正常系（発動すべき・staged が空のケース）。Authority Check は明示指示で通過するが、git diff --staged --name-only が空を返す。この時点で停止し「staged された変更がありません」と伝える。git add . を勝手に実行して unstaged の変更を巻き込むことはしない（何を commit 対象にするかはユーザーの承認境界であり、スキルが代行すると意図しないファイルが履歴に入る）。unstaged の変更が存在してもそれについて質問攻めにせず、staged が無い事実だけを簡潔に伝える。",
+      "files": [],
+      "assertions": [
+        "git diff --staged（または --name-only）で staged 変更の有無を最初に確認している",
+        "staged が空の時点で処理を停止し、staged 変更が無い旨をユーザーに伝えている",
+        "git add（-A / . / -u を含む）を一切実行していない",
+        "unstaged の変更やファイル一覧を勝手に staging する提案として押し付けず、メッセージ生成・コミット実行に進んでいない",
+        "エラーではなく正常な停止として簡潔に報告している（検証コマンドの実行やメッセージ生成を空振りで行っていない）"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "この staged の変更、どういう意図の修正か説明してもらえる？",
+      "expected_output": "誤発動リスク（発動すべきでない・説明依頼でありコミット指示ではない）。ユーザーは diff の説明を求めているだけで「コミットして」とは言っていない。Authority Check（ユーザーが明示的にコミットを指示したか / コミットを含む計画を承認したか）が No なので、コミットを実行しない。diff を読んで変更内容を説明するのは通常の応答として行ってよいが、その流れで git commit を実行したり「ついでにコミットしておきました」と事後報告したりしない。説明の最後に「コミットしますか？」と確認を添えるのは許容される。",
+      "files": [],
+      "assertions": [
+        "git commit が実行されていない",
+        "変更内容の説明という依頼本体には答えている（スキルの発動条件を理由に説明まで拒否していない）",
+        "コミットメッセージの生成・検証パイプラインを勝手に走らせて結果を押し付けていない",
+        "コミットを行う場合は改めてユーザーの明示指示を待つ形になっている（実行済みの事後報告になっていない）"
+      ]
+    }
+  ]
+}

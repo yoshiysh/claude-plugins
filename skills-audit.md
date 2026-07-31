@@ -617,6 +617,8 @@ CLAUDE.md 89 行目は「`.claude/settings.json` と `.codex/hooks.json` には 
 | 14 | tester → grader の assertions 受け渡しギャップと、reviewer 系の ✅/❌ markdown 判定（§12 代理指標）を schema で解消 | §5.2 | `build_skill.js` の `TEST_CASES_SCHEMA` / `REVIEW_SCHEMA` / `STRUCTURE_REVIEW_SCHEMA` |
 | 15 | **状態変更 3 スキルに fresh-context の検証者を追加**。いずれも状態変更の前に置き、`mismatch` なら実行しない。verifier に `diff_summary` / `evidence` を必須化して「読まずに ok を返す」経路を塞いだ | §4.8 | `commit/agents/message-verifier.md`・`pr-create/agents/body-verifier.md`・`url-reader/agents/extraction-verifier.md`（いずれも新規）+ 各 SKILL.md |
 | 16 | `manage-marketplace-plugin` の不要な人間ゲート 2 件を自動化（実依存確定分の同梱確認・exit 4 の衝突確認）。残る 3 件は入力・他スキルへの状態変更・テストデータが必要なため維持 | §4.9 | `manage-marketplace-plugin/SKILL.md` / `references/schemas.md` |
+| 19 | **evals 欠落 6 スキルに各 3 件のテストケースを追加**（正常系エッジ / 準正常系 / 誤発動リスク。計 18 件・assertions 84 件）。これで全 12 スキルが evals を持つ | §7-A | `commit` / `pr-create` / `reference` / `dispatch` / `worktree-sync` / `manage-marketplace-plugin` の `evals/evals.json`（新規） |
+| 20 | **investment-topic-router に `Skill` 呼び出し失敗時の fallback を追加**。investment-strategist が install 先に存在しない場合、投資と判定済みの相談を壁打ちへ流さず（境界維持）、案内文を返して終了する。出力契約は不変のため chat-rigorous 側も互換 | §7-F | `chat/agents/investment-topic-router.md` |
 | 18 | **CLAUDE.md の検証節を現状へ更新し、Makefile の 2 つの穴を修正**。スキル一覧のハードコード（13 個目が漏れる）を動的導出に、`check_portability` を呼ぶ `portability` / `check` ターゲットを追加 | §6.2 | `CLAUDE.md` / `Makefile` |
 | 17 | **§4.8 の見落としを招いた基準側の欠陥 3 件を修正**。基準リストの不一致・構造キーの条件付け・機械検査の沈黙。§10 に「適用範囲は機能で決める」を明記し、検証者の項目を基本品質へ、`quick_validate.py` に `SKIP:` 申告を追加 | §4.10 | `skill-creator-best-practices/references/best-practices.md` / `references/criteria-by-task.md` / `scripts/quick_validate.py` |
 
@@ -628,11 +630,10 @@ CLAUDE.md 89 行目は「`.claude/settings.json` と `.codex/hooks.json` には 
 
 | # | 内容 | 規模 | 判断が要る点 |
 |---|---|---|---|
-| A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
+
 | B | **`build_skill.js` の残る未検証パス** | 小 | Structure の**差し戻し経路**（reviewer が `fail` を返したときの再設計と `MAX_STRUCTURE_ATTEMPTS` 打ち切り）。3 回目の実走で designer → reviewer は動いたが `warn` のみで `fail` が出ず、ループは 1 回で抜けた（§5.2d） |
 | H | `writer` の戻り値がポインタになる根本原因の解消 | 小 | ガードは追加済み（下記）。writer 側に「戻り値が成果物である」境界を置くかは、実際に throw が起きてから判断する（§12 前方修正） |
 | C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
 
 | D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |
 
-| F | `investment-strategist` / `magi` への外部依存（§4.5） | 中 | 実体は別リポジトリ `stock-valuation-dcf`。(1) 同梱する (2) `chat` / `chat-rigorous` から投資ルーティング自体を外す (3) router にスキル不在時の fallback を足す、のいずれか。`chat` / `dispatch` は公開済みなので放置すると他環境で未定義の失敗になる |
