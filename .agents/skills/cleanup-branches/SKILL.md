@@ -1,16 +1,19 @@
 ---
-name: worktree-sync
+name: cleanup-branches
 description: |
-  Worktree を最新の main に同期し、マージ済みブランチと不要な作業状態を掃除する。
-  「main を更新」「最新にして」「sync」「同期」「マージしたから更新」「main を取得」
-  「ブランチを更新」「ブランチを整理」「掃除して」等のキーワードで起動する。
-  ローカル・remote 双方のマージ済みブランチ、stash の滞留、submodule の drift、
-  終了済み workspace までを 1 回の実行で洗い出す。
+  マージ済みブランチと不要な作業状態を検出・削除し、worktree を最新の主ブランチに同期する。
+  「ブランチを整理して」「不要なブランチを消したい」「マージ済みブランチをクリーンアップして」
+  「main を更新」「最新にして」「sync」「同期」「マージしたから更新」「ブランチを更新」
+  「掃除して」等のキーワードで起動する。
+  ローカル・remote 双方のマージ済みブランチ（squash merge・cherry-pick・rebase で
+  取り込まれたものを含む）、stash の滞留、submodule の drift、終了済み workspace までを
+  1 回の実行で洗い出す。判定基準は main / develop / release-*/dev-* を動的に列挙するため、
+  develop が主軸で dev/{version} のような並走ブランチを持つリポジトリでも正しく判定する。
 ---
 
-# Sync — Worktree 同期とリポジトリ整理
+# cleanup-branches — ブランチ整理と worktree 同期
 
-PR マージ後に worktree を最新の main に同期し、溜まった不要物を落として次の作業用ブランチを作る。
+PR マージ後に worktree を最新の主ブランチに同期し、溜まった不要物を落として次の作業用ブランチを作る。
 
 検出と削除は `[SKILL_DIR]/scripts/repo_state.py` に閉じている。Coordinator は
 **いつユーザーに聞くか**だけを持つ。
@@ -22,17 +25,35 @@ PR マージ後に worktree を最新の main に同期し、溜まった不要�
 
 ## 判定の根拠（ここが壊れると静かに取りこぼす）
 
-- **基準は常に `origin/main`**。ローカル `main` は他 worktree が checkout 中だと更新に失敗し、
-  その状態で `--merged main` を使うと検出漏れが黙って起きる。
+- **判定基準は main / develop / release-*/dev-* を動的に列挙する**（`primary_branch_names()`）。
+  `origin/main` 固定にすると、develop が主軸で dev/{version} のような並走ブランチを持つ
+  リポジトリで、実際には取り込み済みのブランチを誤って「未マージ」と判定する。release-*/dev-*
+  はワイルドカードのため、ローカル・リモートに実在するブランチだけを対象にする。
 - **fetch は `--prune` つき**。prune しないと remote 削除済みブランチが `[gone]` にならない。
-- **「取り込まれたか」を 3 経路で見る**。`git branch --merged` は merge commit しか辿れず
-  squash merge を取りこぼす（実測: MERGED な remote ブランチ 7 本のうち検出できたのは 1 本だけ）。
-  そこで ①履歴に含まれるか（`merge-base --is-ancestor`）②PR が merged か
-  ③パッチが既に main にあるか（`git cherry` の patch-id 比較）を順に見る。③は cherry-pick /
-  rebase で取り込まれ、履歴にも PR にも痕跡が残らないブランチだけが該当する。
+- **「取り込まれたか」を経路を分けて見る**。①いずれかの primary ref の履歴に含まれるか
+  （事前に primary ごと `git branch --merged` で取り込み済み集合を1回だけ計算し、以降は
+  集合参照にする。ブランチごとに `merge-base --is-ancestor` を呼ぶと本リポジトリの実測
+  （remote 301本 × primary 38本）で7分超かかった）②いずれかの primary ref を base とする
+  PR が merged か（`gh pr list` は primary ごとに絞らず1回だけ取得し、`baseRefName` で
+  Python 側にフィルタする。primary ごとに絞ると1回あたり数秒かかる `gh pr list` を
+  primary 数ぶん呼ぶことになり実測4-5分かかった）③**ローカルブランチに限り**、パッチが
+  既に main/develop/起点ブランチ（`sync_base`）のいずれかにあるか（`git cherry` の
+  patch-id 比較）。③は cherry-pick / rebase で取り込まれ、履歴にも PR にも痕跡が残らない
+  ブランチだけが該当する。remote には適用しない（相手が数百本規模になりうるリモート全件に
+  `git cherry` を適用すると、それだけで再び分単位の遅延になる。サーバー側で PR も経由せず
+  cherry-pick される remote ブランチは稀なケースであり、この経路だけ needs_decision に
+  倒す安全側の判断にしている）。PR の base を限定するのは、限定しないと無関係な feature 間
+  PR の headRefName まで拾ってしまうため。
+- **削除前に退避タグを打つ**（`deleted-branches/<branch名の / を - に置換>-<YYYYMMDD-HHMMSS>`）。
+  reflog は保持期限があり同一マシン限定のため、それに依存しない復元手段を先に用意してから消す。
+  タグ作成に失敗したら削除自体を中止する（復元手段が無いまま消さない）。
 
 判定は全て `git` と `gh` の呼び出しで完結し、agent は関与しない。`gh` が使えない環境では
 PR 経路が落ちるだけで、残る 2 経路が効き、分類は安全側（要判断）に寄る。
+
+`git branch -d`/`-D`・`git tag` はスクリプト内部で `subprocess` の引数リスト形式（シェル文字列
+展開を経ない）で呼ばれる。エージェントが個別に `git branch -d` を叩く設計と違い、ヒアドキュメント・
+`eval` 等で許可制（deny ルール）を迂回する余地が構造的に無い。
 
 ## [ACTION] Step 1: 状態を取る
 
@@ -40,18 +61,21 @@ PR 経路が落ちるだけで、残る 2 経路が効き、分類は安全側�
 python3 [SKILL_DIR]/scripts/repo_state.py report
 ```
 
-`--prune` つき fetch とローカル main の追従までを含む。以降の判断は全てこの JSON を根拠にする。
+`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。以降の判断は全て
+この JSON を根拠にする。`primary_branches` フィールドに、今回の判定で実際に使った
+main/develop/release-*/dev-* の一覧が入るので、想定通り列挙されているか確認する。
 
 ## 聞く / 聞かないの基準
 
 **削除がその成果物の唯一の写しを壊すときだけ聞く。** 取り込み済みと分類されたものは定義上
-main に同じ内容があり、消しても失われるものが無い。そこに確認を挟んでも答えは毎回同じで、
-ユーザーの注意を「本当に判断が要る項目」から逸らすだけになる。
+いずれかの primary ref に同じ内容があり、消しても失われるものが無い（加えて退避タグでも
+復元できる）。そこに確認を挟んでも答えは毎回同じで、ユーザーの注意を「本当に判断が要る項目」
+から逸らすだけになる。
 
 | 対象 | 削除で失うもの | 確認 |
 |---|---|---|
-| ローカルの取り込み済み | 無し（main にある） | 不要 |
-| remote の取り込み済み | 無し（main にある。復元も `git push origin <sha>:refs/heads/<name>` の 1 行） | 不要 |
+| ローカルの取り込み済み | 無し（primary ref にある。加えて退避タグでも復元可） | 不要 |
+| remote の取り込み済み | 無し（primary ref にある。復元も `git push origin <sha>:refs/heads/<name>` の 1 行） | 不要 |
 | 未取り込み（ローカル / remote） | **その作業そのもの** | 必要 |
 | 終了済み workspace | **審議の記録**（gitignore 対象で復元不可） | 必要 |
 
@@ -69,14 +93,16 @@ python3 [SKILL_DIR]/scripts/repo_state.py prune-remote
 cherry-pick で取り込まれたものは `-D`）。**ブランチ名だけを受け取って人手で `-D` し直さない** —
 その運用にすると未取り込みのブランチを巻き込む余地が生まれる。
 
-消した内容は Step 7 の報告に必ず載せる（黙って消さない）。
+`prune-local` の出力には各ブランチの `backup_tag` が含まれる。消した内容は Step 7 の報告に
+退避タグ名とあわせて必ず載せる（黙って消さない）。
 
 ## [ACTION] Step 3: 判断が要るものを 1 回でまとめて聞く
 
 以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。カテゴリごとに質問を分けない。
 
 **`local.needs_decision`（remote 削除済みだが未取り込み）**: 消えた PR の作業がローカルにだけ
-残っている。承認された分だけ `git branch -D <name>` を個別に実行する。
+残っている。承認された分だけ `git branch -D <name>` を個別に実行する（このケースは退避タグを
+Step 2 のスクリプトが打っていないので、個別実行前に同じ命名規則でタグを打ってから消す）。
 
 **`remote.needs_decision`（未取り込みで remote に残存）**: CLOSED PR や PR の無いブランチ。
 提示するだけだと永久に溜まるので、削除するかを選択肢として出す。承認後:
@@ -115,11 +141,16 @@ python3 [SKILL_DIR]/scripts/repo_state.py purge-workspace --sessions "id1,id2"
 
 ## [ACTION] Step 5: 同期とブランチ作成
 
+**起点ブランチの決定**: プロジェクト側に `.claude/detect-base-branch.sh`（現在のブランチから
+適切なベースブランチを検出するスクリプト。`resolve-conflict`・`create-pr` スキルが既に使って
+いる）があれば、`repo_state.py` がそれを優先して使う（`report` 出力の `sync_base` で確認できる）。
+無ければ `origin/HEAD` の default branch（多くの場合 `main`）にフォールバックする。
+
 未コミットの変更があれば先に `git stash`（Step 7 で戻す）。
 
 - **open な PR のブランチに乗っている場合**: `git reset` するとローカル ref が PR head から
-  離れるため reset しない。`git switch -c <new> origin/main` で新ブランチを直接作る。
-- **それ以外**: `git reset --mixed origin/main` で同期してから `git switch -c <new>`。
+  離れるため reset しない。`git switch -c <new> origin/<sync_base>` で新ブランチを直接作る。
+- **それ以外**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。
 
 ブランチ名はユーザー指定があればそれを使い、無ければ `feature/{6文字hex}` を生成する。
 
@@ -151,13 +182,15 @@ stash した場合は `git stash pop`（コンフリクト時は箇所を出し�
 
 ```
 同期完了:
-- main: {commit} {message}
+- 起点ブランチ: {sync_base}（{commit} {message}）
+- 判定に使った primary refs: {primary_branches}
 - ブランチ: {new_branch}
-- 削除（確認不要・取り込み済み）: ローカル {names} / remote {names}
+- 削除（確認不要・取り込み済み）: ローカル {names + backup_tag} / remote {names}
 - 要判断のまま残したもの: {names | なし}
 - 作業状態: submodule drift {n} / tracked dirty {n} / untracked {n} / stash {n}
 - workspace: 削除 {n} / 保持 {n}
 - 後処理: {実行したコマンドと結果 | 設定なし（.claude/worktree-sync.json が無い）}
 ```
 
-削除しなかったものは「なし」で省略せず、何を残したかを明示する。
+削除しなかったものは「なし」で省略せず、何を残したかを明示する。退避タグは復元の手がかりに
+なるため、削除したブランチと必ず対にして示す。
