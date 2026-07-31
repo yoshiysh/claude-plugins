@@ -12,6 +12,11 @@ Workflow の `verdict` が `passed` 以外の場合は合格として提示し�
 - **`revision_failed`**（改稿 agent が応答しなかった）: 品質ではなくツール側の失敗。同じ入力で
   Workflow を再実行すれば解消しうる（`resumeFromRunId` で改稿ステップから再開できる）。
   品質不足として報告しない。再実行するか、直前の稿で保存するかを聞く。
+- **`evaluation_incomplete`**（採点 agent か reviewer が応答せず合否を判定できなかった）:
+  これも品質の問題ではない。`iterations[].ungraded_cases` と `evaluation_complete` に実態が
+  出ているので、**何件中何件が採点できなかったかを添えて**提示する。`pass_rates` が `null` の
+  場合は「差が無かった」ではなく「測れなかった」と伝える。直前に評価が揃ったラウンドが
+  あるなら、そちらの数字を「これが最後に取れた測定値」として併記してよい。
 
 ---
 

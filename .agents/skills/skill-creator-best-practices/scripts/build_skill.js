@@ -406,17 +406,28 @@ while (true) {
   ])
 
   const graded = gradings.filter(Boolean)
-  // pass_rate の集計は script が行う。LLM に平均を出させない（§5 確定的処理はスクリプトへ）。
-  const mean = (nums) => (nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0)
-  const withSkillRate = mean(graded.map((g) => g.summary.with_skill.pass_rate))
-  const baselineRate = mean(graded.map((g) => g.summary.baseline.pass_rate))
-  const delta = withSkillRate - baselineRate
-
-  const reviewFailures = review?.failed || []
   const ungraded = cases.length - graded.length
 
+  // 評価が揃ったかを、合否を計算する前に判定する。agent が落ちた分を欠測として扱わず
+  // 平均に含めると、生き残った少数の結果から出た数字が全体の成績に見える。
+  // 極端な例: 3 件中 2 件が落ちて 1 件だけ delta 0.9 を返すと、平均も 0.9 になり
+  // 閾値を通ってしまう。reviewer も同様で、null を「失格 0 件」と読むと
+  // 「レビューされていない」が「レビューを通った」に化ける。
+  const evaluationComplete = ungraded === 0 && !!review
+
+  // pass_rate の集計は script が行う。LLM に平均を出させない（§5 確定的処理はスクリプトへ）。
+  // 1 件も採点できなかった場合は 0 ではなく null を返す。0 は「measured tie」を意味する
+  // 実データの値であり、欠測をそこに丸めると両者が区別できなくなる。
+  const mean = (nums) => (nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null)
+  const withSkillRate = mean(graded.map((g) => g.summary.with_skill.pass_rate))
+  const baselineRate = mean(graded.map((g) => g.summary.baseline.pass_rate))
+  const delta = withSkillRate === null || baselineRate === null ? null : withSkillRate - baselineRate
+
+  const reviewFailures = review?.failed || []
+
   phase('Analyze')
-  const winner = delta > 0.05 ? 'with_skill' : delta < -0.05 ? 'without_skill' : 'tie'
+  const winner =
+    delta === null ? 'undetermined' : delta > 0.05 ? 'with_skill' : delta < -0.05 ? 'without_skill' : 'tie'
   const firstCase = cases[0]
   const firstPair = byCase.get(firstCase.id) || {}
   // comparator → analyzer は直列。analyzer の入力 [COMPARATOR_RESULT] は comparator の出力
@@ -447,16 +458,22 @@ while (true) {
     { model: 'sonnet', phase: 'Analyze', label: `analyze-${iterLabel}` }
   )
 
-  const passed = delta >= DELTA_THRESHOLD && reviewFailures.length === 0
+  // 合格には「閾値を超えた」だけでなく「評価が揃った」ことを要求する。欠測を含む
+  // 数字で合格を出すと、達成度を実態より良く見せることになる。
+  const passed = evaluationComplete && delta >= DELTA_THRESHOLD && reviewFailures.length === 0
+  const fmt = (n) => (n === null ? 'n/a' : n.toFixed(2))
   log(
-    `評価 ${revision + 1} 回目: delta ${delta.toFixed(2)}（with_skill ${withSkillRate.toFixed(2)} / baseline ${baselineRate.toFixed(2)}）` +
-      ` / reviewer ❌ ${reviewFailures.length} 件 / ${passed ? '合格' : '不合格'}`
+    `評価 ${revision + 1} 回目: delta ${fmt(delta)}（with_skill ${fmt(withSkillRate)} / baseline ${fmt(baselineRate)}）` +
+      ` / reviewer ${review ? `❌ ${reviewFailures.length} 件` : '未実施'}` +
+      (ungraded ? ` / 未採点 ${ungraded}/${cases.length} 件` : '') +
+      ` / ${passed ? '合格' : evaluationComplete ? '不合格' : '判定不能（評価が揃っていない）'}`
   )
 
   iterations.push({
     revision,
     pass_rates: { with_skill: withSkillRate, baseline: baselineRate, delta },
     ungraded_cases: ungraded,
+    evaluation_complete: evaluationComplete,
     gradings: graded,
     review,
     comparison,
@@ -466,6 +483,14 @@ while (true) {
 
   if (passed) {
     verdict = 'passed'
+    break
+  }
+
+  // 評価が揃っていないなら改稿しない。何を直すべきかの根拠が無いまま writer を回すと、
+  // 稿を書き換えたうえで次ラウンドも同じ理由で判定不能になりうる。品質不足とは
+  // 区別できる verdict で返し、再実行するかを人間が決める。
+  if (!evaluationComplete) {
+    verdict = 'evaluation_incomplete'
     break
   }
 

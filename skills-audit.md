@@ -432,6 +432,53 @@ scratchpad へ退避した（削除ではなく移動。差分は `unauthorized-
 （§6.2 と同じ、一次情報に当たらずに前提を書いた失敗）。実際に必要だったのは Makefile の数行修正で、
 agent 4 本 + スクリプトを持つスキルではない。
 
+### 5.2c 再実行の結果（`build_skill.js`）— 評価ループは動作、失敗時の判定に別バグ
+
+境界ブロック修正後に別の題材（`quick_validate.py` が SKIP: と申告する 4 項目を実際にレビューする
+スキル）で再実行した。
+
+**確認できたこと**:
+
+| 検証したい点 | 結果 |
+|---|---|
+| 意図しない書き込みが起きないか | **ゼロ**。作業ツリー監視を張ったまま完走し、追跡・未追跡とも変更なし。境界ブロックは機能した |
+| Grade / Analyze に到達するか | 到達。rev0 で with_skill 1.00 / baseline 0.38 / **delta 0.617** を算出 |
+| 閾値判定が働くか | 働いた。delta は閾値を超えたが reviewer の失格が 8 件あり `passed: false`。`delta >= 0.2 && failed.length === 0` の後段で落ちている |
+| 改稿ループが回るか | 回った。`revision_used: 1`、writer(revise) が実行され rev1 に進んだ |
+| 上限で止まるか | 止まった。`needs_human_decision` で返り、草稿は保持された |
+
+rev0 の grading 内訳は `1.00/0.90`（delta 0.10）、`1.00/0.25`（0.75）、`1.00/0.00`（1.00）で、
+テストケースごとに差が出ている。reviewer の失格 8 件も「非該当に file:line を要求していない」
+「自己参照時の挙動が未定義」など具体的な設計指摘だった。評価機構としては意図どおり動いている。
+
+**発見した別のバグ（修正済み）**: rev1 で採点 agent 3 件と reviewer が環境側の理由（session
+limit）で全滅した際、スクリプトは **0 件の結果から `delta = 0` を算出し、`review: null` を
+「失格 0 件」と読んだ**。今回は `delta 0 < 0.2` で安全側に落ちたが、危険な経路が実在する:
+
+```
+3 件中 2 件が落ち、1 件だけ delta 0.9 を返す → mean([0.9]) = 0.9 ≥ 0.2
+reviewer も落ちる → review?.failed || [] は [] → 失格 0 件
+⇒ passed = true（証拠 1/3、レビューなし）
+```
+
+これは監査自身が掲げた「達成度を実態より良く見せない」に反する。`investigate.js` では
+`termination_reason` に既定値を持たせない形で同じ失敗を避けていたのに、`build_skill.js` の
+合否計算には適用していなかった。
+
+**適用した修正**:
+
+- `evaluationComplete = ungraded === 0 && !!review` を合否の必要条件に追加
+- 1 件も採点できなかったときの `delta` を `0` ではなく `null` に（`0` は実測の引き分けを
+  意味する値なので、欠測をそこに丸めない）
+- 評価が揃っていない場合は改稿せず `evaluation_incomplete` で返す（何を直すべきかの根拠が
+  無いまま writer を回さない）。品質不足の `needs_human_decision` と区別する
+- 判定ロジックを今回の実データ 4 パターンで再現テストし、危険ケースが `passed: false` に
+  なることを確認
+
+**未検証のまま残るもの**: `taskType: workflow` で実行したため Structure フェーズ
+（designer → reviewer の until-pass ループ）は通っていない。コードパスを通すために種別を
+偽ると測定が歪むので、正直な種別を選んだ結果として残した。
+
 ### 5.3 notion-organize-knowledge — シグナルは実在するが変換不可
 
 §13 の警察装置シグナルは強く出ている（§4.7）。しかし Workflow script には次の制約がある（Workflow ツール仕様）:
@@ -515,7 +562,7 @@ CLAUDE.md 89 行目は「`.claude/settings.json` と `.codex/hooks.json` には 
 | # | 内容 | 規模 | 判断が要る点 |
 |---|---|---|---|
 | A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
-| B | **`build_skill.js` の評価ループの実走検証**（`investigate.js` は実走済み・§5.1、検証者 3 件も実走済み・§4.8） | 中 | 境界ブロック欠落の修正後、Grade / Analyze フェーズまで到達させていない。pass_rate 集計・delta 閾値判定・改稿ループは未検証。再実行時は書き込みが起きないことも併せて確認する |
+| B | **`build_skill.js` の Structure フェーズの実走検証**（評価ループは実走済み・§5.2c、`investigate.js` は §5.1b、検証者 3 件は §4.8） | 小 | `taskType: document` でのみ通る designer → reviewer の until-pass ループが未検証。document 種別のスキルを 1 本生成すれば通る |
 | C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
 
 | D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |

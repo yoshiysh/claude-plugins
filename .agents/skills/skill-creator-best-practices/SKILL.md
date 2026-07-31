@@ -110,8 +110,21 @@ Workflow({
 }
 ```
 
-`verdict` は `passed`（delta >= 0.2 かつ reviewer の失格 0 件）/ `needs_human_decision`
-（改稿上限に達しても届かなかった）/ `revision_failed`（改稿 agent が応答しなかった）。
+`verdict` は次の 4 値。
+
+| verdict | 意味 |
+|---|---|
+| `passed` | 全テストケースが採点され、reviewer も応答し、delta >= 0.2 かつ失格 0 件 |
+| `needs_human_decision` | 評価は揃ったが、改稿上限に達しても閾値に届かなかった（品質の問題） |
+| `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係） |
+| `revision_failed` | 改稿 agent が応答しなかった |
+
+`passed` は「閾値を超えた」だけでなく**評価が揃った**ことも要求する。落ちた agent の分を
+欠測として扱わず平均に含めると、生き残った少数の結果から出た数字が全体の成績に見える
+（3 件中 2 件が落ちて 1 件だけ delta 0.9 を返すと平均も 0.9 になる）。reviewer も同じで、
+応答が無い状態を「失格 0 件」と読むと「レビューされていない」が「レビューを通った」に化ける。
+1 件も採点できなかったときの `delta` は `0` ではなく `null` を返す（`0` は実測の引き分けを
+意味する値なので、欠測をそこに丸めない）。
 
 ### script が構造として保証すること
 
