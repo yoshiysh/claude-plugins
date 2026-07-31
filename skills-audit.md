@@ -196,6 +196,27 @@ verifier subagent は self-critique を上回る」——いずれにも反す�
   `ImagesOnly` と数えている、`browser_fallback.required` を terminal 扱いしている等）。
   下流の `notion-organize-knowledge` がこの status で登録可否を決めるため 3 つの中で影響が最大
 
+**実走結果**: 3 件を「不一致を捕まえるか」「正しい出力を誤って止めないか」の両方向で実行した（6/6 期待どおり）。
+
+| 検証者 | 捕捉ケース | 誤検出ケース |
+|---|---|---|
+| `message-verifier` | 挙動追加 + 非互換シグネチャ変更に `chore:` を付けた staged diff → `mismatch`（type / description / breaking change の 3 点すべて指摘） | README への節追加に `docs:` → `ok` |
+| `body-verifier` | 捏造入り本文 → `mismatch`（存在しない `tests/test_workflows.py`・未実施の実走主張・収束ラウンド数を検出） | 本監査ブランチの実際の PR 本文 → `ok`（捏造なし） |
+| `extraction-verifier` | ログインウォール本文を `Extracted` と申告 → `overstated`（実態 `Blocked`）+ `fallback_pending: true` | oEmbed の `Partial` 申告 → `consistent` |
+
+想定を超えた挙動が 2 件あった。`message-verifier` は仕込んでいなかった不具合を挙げた——
+`timeout=5` を機械的に `timeout_ms=5` へ置換すると 5 秒が 5 ミリ秒に静かに変わり、かつ既定値だけは
+`30000/1000 == 30` で等価なので既定のまま使う呼び出しでは気づけない、という指摘。`body-verifier` は
+捏造版に対し、同じ diff に含まれる `skills-audit.md` §7 の未対応記載を反証として使い、さらに
+「残した課題」節が矛盾する 2 項目（B・G）だけを落としていることを検出した。
+
+`diff_summary` / `evidence` の必須化も機能した。6 件すべてで、実際に読んだ diff・payload の内容が
+具体的な引用つきで返っており、読まずに判定した形跡は無い。
+
+**副次的な収穫**: 実際の PR 本文に対する `body-verifier` の実行が、本文側の実不備を 3 件検出した
+（節番号の 3 → 5 の飛び、`commit` の Preview / Dry run セマンティクス変更の未記載、
+`orchestrator-output.md` に増えた Phase 5 の分岐の未記載）。いずれも PR 本文に反映済み。
+
 ### 4.9 manage-marketplace-plugin の不要な人間ゲート（優先度: 中）
 
 人間ゲートが 5 箇所あり、§13 の「設計された人間ゲートが途中に多いタスクは Coordinator 駆動の
@@ -419,9 +440,9 @@ CLAUDE.md 末尾が「`.claude/settings.json` と `.codex/hooks.json` には `ma
 | # | 内容 | 規模 | 判断が要る点 |
 |---|---|---|---|
 | A | evals 欠落 6 スキルへのテストケース追加（§6・§10） | 3 件 × 6 = 18 件 | **最大の未達**。全部作るか、公開済みプラグイン（commit / pr-create / reference / dispatch / worktree-sync）優先か |
-| B | Workflow 化した 2 スキルの実走検証 | 中 | `investigate.js` / `build_skill.js` は構文・禁止 API・`filter(Boolean)`・`args` ガードまで確認済みだが、**実際の調査／スキル生成を 1 本通していない**。schema がモデルの出力形と噛み合うか、`same_question_as_previous` が期待どおり収束させるかは実走でしか確認できない |
+| B | Workflow 化した 2 スキルの実走検証 | 中 | `investigate.js` / `build_skill.js` は構文・禁止 API・`filter(Boolean)`・`args` ガードまで確認済みだが、**実際の調査／スキル生成を 1 本通していない**。schema がモデルの出力形と噛み合うか、`same_question_as_previous` が期待どおり収束させるかは実走でしか確認できない（検証者 3 件は実走済み。§4.8 参照） |
 | C | `commit` の Why-less な CRITICAL の整理（§4.3） | 小 | Authority Check と `git add .` 禁止は §11 の「残す」側。どこまで削るかは実際の誤爆経験に依存する |
-| G | 追加した検証者 3 件の実走検証 | 小 | B と同種。検証者が実際に不一致を捕まえるか、逆に正しいメッセージを誤って止めないかは走らせないと分からない |
+
 | D | `notion-organize-knowledge` / `url-reader` の marketplace 登録（§6.3） | 小 | ポータビリティは解消済み。登録するかは公開意図の問題。登録する場合、notion は url-reader を同梱する必要がある |
 | E | CLAUDE.md の `make test` hook と Makefile 不在の決着（§6.2） | 小 | Makefile を追加するか、hook コマンドを検証コマンドに差し替えるか |
 | F | `investment-strategist` / `magi` への外部依存（§4.5） | 中 | 実体は別リポジトリ `stock-valuation-dcf`。(1) 同梱する (2) `chat` / `chat-rigorous` から投資ルーティング自体を外す (3) router にスキル不在時の fallback を足す、のいずれか。`chat` / `dispatch` は公開済みなので放置すると他環境で未定義の失敗になる |
