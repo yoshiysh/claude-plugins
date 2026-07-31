@@ -216,6 +216,53 @@ script は shell を持たないので、コマンド 1 本ごとに agent を�
 `commit` / `pr-create` と同じ損になる。生成と検証（`plugin-registrar` と `install-verifier`）は
 既に別 agent なので、そこは元から満たしている。
 
+### 4.10 §4.8 の見落としを招いた基準側の欠陥（優先度: 高）
+
+§4.8（状態変更スキルの検証者不在）は本監査の初版が見落とした項目だが、原因を追うと
+**基準を提供する `skill-creator-best-practices` 側にも 3 つの欠陥があった**。同じ見落としが
+このスキルを使う次のスキル作成でも起きる。
+
+**欠陥1: 同一スキル内で 2 つの基準リストが食い違っていた**
+
+`best-practices.md` §10 の「基本品質」（全スキル対象）には
+「フィードバックループ（検証→修正）が設計されている」があるのに、基準生成 agent が実際に
+参照する `criteria-by-task.md` の「全タスク種別共通」には無く、「workflow 系」にだけあった。
+document / data と分類されたスキルにはこの観点が一度も現れない。
+
+**欠陥2: 問おうとしている問いを、条件が先に答えていた**
+
+§10 の「Generator と Verifier が別エージェントになっている」は
+`### マルチエージェント設計（該当する場合）` の下にあった。この条件は**構造**（`agents/` が
+あるか）で切っているが、検証者の要否は**機能**（状態を変えるか・出力が下流で行動の根拠に
+なるか）で決まる。結果、agent を持たないスキルは「該当しない」に落ち、**検証者が無いという
+状態そのものが、その項目の適用対象から自分を外していた**。
+
+**欠陥3: `quick_validate.py` が沈黙で通していた**
+
+`agents_dir.exists()` が偽なら agent 関連の検査を丸ごと飛ばす（`quick_validate.py:104`）。
+全 12 スキルで ✅ が出るため、機械検査の通過が全項目の合格に見える偽の底ができていた。
+
+**適用済み**（§12「制約は失敗から育てる。足すときは『どの実失敗を防ぐか』を根拠にする」に
+該当する。実失敗が観測されたのが今回）:
+
+- `best-practices.md` §10 に**適用範囲の決め方**を明記（「各項目がどのスキルに当てはまるかは
+  そのスキルが何をするかで決める。既にある構造で決めない」）
+- §10 基本品質に「生成物を、生成した agent 以外が検証する経路がある」「検証が状態変更の前に
+  置かれている」を追加。`agents/` の有無で判定しないこと、単体スキルで検証者が 1 つも無い
+  状態こそが不合格であることを項目内に明記
+- 「マルチエージェント設計（該当する場合）」を「（既に複数 agent を持つ場合）」に改題し、
+  「ここが該当しないことを検証者不要の根拠にしない」と注記
+- `criteria-by-task.md` の「全タスク種別共通」に同じ 2 項目を追加（欠陥1 の解消）
+- `quick_validate.py` に `SKIP:` 出力を追加。判定できない項目（検証者の要否・description の
+  実発火・参照ファイルの整合）を毎回列挙し、`agents/` 不在時はその旨も出す
+
+**`quick_validate.py` で検証者の有無を判定しない理由**: 要否がスキルの機能に依存するため、
+機械判定にすると `reference`（検証すべき出力を持たない指針文書）のようなスキルに誤検出する。
+§12 の「代理指標を検証ゲートにしない」に該当するので、判定せず「見ていない」と申告する形に
+した。
+
+---
+
 ## 5. Workflow 実行型（§13）の判定
 
 §13 の選択基準のうち決定的なのは **「実行中のユーザー入力は不可。設計された人間ゲートが途中に多いタスクは Coordinator 駆動のままにする」**。fan-out の有無ではなく、この制約を各スキルに当てて判定した。
@@ -361,6 +408,7 @@ CLAUDE.md 末尾が「`.claude/settings.json` と `.codex/hooks.json` には `ma
 | 14 | tester → grader の assertions 受け渡しギャップと、reviewer 系の ✅/❌ markdown 判定（§12 代理指標）を schema で解消 | §5.2 | `build_skill.js` の `TEST_CASES_SCHEMA` / `REVIEW_SCHEMA` / `STRUCTURE_REVIEW_SCHEMA` |
 | 15 | **状態変更 3 スキルに fresh-context の検証者を追加**。いずれも状態変更の前に置き、`mismatch` なら実行しない。verifier に `diff_summary` / `evidence` を必須化して「読まずに ok を返す」経路を塞いだ | §4.8 | `commit/agents/message-verifier.md`・`pr-create/agents/body-verifier.md`・`url-reader/agents/extraction-verifier.md`（いずれも新規）+ 各 SKILL.md |
 | 16 | `manage-marketplace-plugin` の不要な人間ゲート 2 件を自動化（実依存確定分の同梱確認・exit 4 の衝突確認）。残る 3 件は入力・他スキルへの状態変更・テストデータが必要なため維持 | §4.9 | `manage-marketplace-plugin/SKILL.md` / `references/schemas.md` |
+| 17 | **§4.8 の見落としを招いた基準側の欠陥 3 件を修正**。基準リストの不一致・構造キーの条件付け・機械検査の沈黙。§10 に「適用範囲は機能で決める」を明記し、検証者の項目を基本品質へ、`quick_validate.py` に `SKIP:` 申告を追加 | §4.10 | `skill-creator-best-practices/references/best-practices.md` / `references/criteria-by-task.md` / `scripts/quick_validate.py` |
 
 `[SKILL_DIR]` の使用可否は確認済み。`worktree-sync` が subagent を持たない単体スキルで
 `python3 [SKILL_DIR]/scripts/repo_state.py` を既に使っており、`url-reader` も同じ形になる。
