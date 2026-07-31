@@ -3,9 +3,11 @@ SKILLS_DIR := .agents/skills
 VALIDATOR := $(SKILLS_DIR)/skill-creator-best-practices/scripts/quick_validate.py
 PORTABILITY := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_portability.py
 
-# スキル一覧はディレクトリから毎回導出する。ここをハードコードすると、
-# 新しいスキルを追加したときに検証対象から静かに漏れる。
+# スキル一覧・tests ディレクトリはどちらも毎回導出する。ハードコードすると、スキルの
+# 追加・リネームのたびに検証対象から静かに漏れる（実例: worktree-sync → cleanup-branches の
+# リネーム時、unittest の 2 行だけがハードコードのまま残り make test が壊れた）。
 SKILLS := $(notdir $(patsubst %/,%,$(wildcard $(SKILLS_DIR)/*/)))
+TEST_DIRS := $(wildcard $(SKILLS_DIR)/*/tests)
 
 .PHONY: test portability check
 
@@ -15,8 +17,10 @@ test:
 		echo "── $$s"; \
 		$(PYTHON) $(VALIDATOR) $(SKILLS_DIR)/$$s --verbose; \
 	done
-	$(PYTHON) -m unittest discover -s $(SKILLS_DIR)/worktree-sync/tests -p 'test_*.py'
-	$(PYTHON) -m unittest discover -s $(SKILLS_DIR)/url-reader/tests -p 'test_*.py'
+	@set -e; for t in $(TEST_DIRS); do \
+		echo "── unittest $$t"; \
+		$(PYTHON) -m unittest discover -s $$t -p 'test_*.py'; \
+	done
 
 # 配布 portability の一覧。check_portability.py は blocker があっても exit 0 を返すため
 # 合否ゲートにはせず、一覧を出して人が読む形にする（既知の false positive が

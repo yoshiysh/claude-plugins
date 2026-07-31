@@ -24,6 +24,7 @@ This file provides guidance to Claude Code when working in this repository.
 |---|---|---|
 | `chat` | Fable 5 を壁打ち相手に技術相談し、整形して relay する | `chat` |
 | `chat-rigorous` | 反証耐性の高い分析ワークフローを instructions で強制する壁打ち | `chat`（同梱） |
+| `cleanup-branches` | マージ済みブランチと作業状態を掃除し worktree を主ブランチに同期する | `cleanup-branches` |
 | `commit` | staged 変更から Conventional Commits メッセージを生成しコミットする | `commit` |
 | `dispatch` | Fable 5 が計画・評価し、Workflow スクリプトが subagent を反復実行する | `dispatch` |
 | `manage-marketplace-plugin` | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
@@ -33,7 +34,6 @@ This file provides guidance to Claude Code when working in this repository.
 | `search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `search` |
 | `skill-creator-best-practices` | マルチエージェントでスキルを設計・作成・評価する | `skill-creator-best-practices` |
 | `url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する | 未登録 |
-| `worktree-sync` | worktree を main に同期し、マージ済みブランチと作業状態を掃除する | `worktree-sync` |
 
 Marketplace に登録された plugin は次の形でインストールできる。
 
@@ -71,12 +71,12 @@ plugins/
 `Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出するので、スキルを追加しても検証対象に入れ忘れることはない。
 
 ```bash
-make test         # 合否ゲート: 全スキルの quick_validate + worktree-sync / url-reader の unittest
+make test         # 合否ゲート: 全スキルの quick_validate + 各スキルの tests/ の unittest
 make portability  # 配布 portability の一覧（install 先で壊れる参照の検出）
 make check        # 上記 2 つをまとめて
 ```
 
-`make portability` を合否ゲートにしていないのは、`check_portability.py` が blocker を検出しても exit 0 を返すことと、既知の false positive が 2 件（`manage-marketplace-plugin` の自己参照 `external_script`、`worktree-sync` の設定例中の `env_build`）あるため。詳細は `skills-audit.md` §4.1b。
+`make portability` を合否ゲートにしていないのは、`check_portability.py` が blocker を検出しても exit 0 を返すことと、既知の false positive が 2 件（`manage-marketplace-plugin` の自己参照 `external_script`、`cleanup-branches` の設定例中の `env_build`）あるため。詳細は `skills-audit.md` §4.1b。
 
 個別スキルだけを見るとき:
 
