@@ -18,7 +18,8 @@ This skill analyzes staged changes, generates appropriate commit messages compli
 1.  **Staging Verification**: Check if there are staged changes.
 2.  **Pre-Commit Validation**: Run the repository's own quality checks before committing.
 3.  **Message Generation**: Infers the intent from changes and generates a message.
-4.  **Execution**: Executes the commit and displays the result.
+4.  **Message Verification**: A separate agent re-reads the diff and checks the message against it.
+5.  **Execution**: Executes the commit and displays the result.
 
 ## Detailed Steps
 
@@ -88,15 +89,35 @@ Analyze `git diff --staged` and generate a message in the following format.
 
 - **Breaking Changes**: If there are breaking changes, append `!` after the type (e.g., `feat!: ...`) or include `BREAKING CHANGE:` in the body.
 
-### 4. Execution
+### 4. Message Verification (before committing)
 
-Execute the commit with the generated message.
+Read `agents/message-verifier.md` and call it with `[PROPOSED_MESSAGE]` set to the generated
+message. It runs in a fresh context, reads `git diff --staged` itself, and checks type,
+description, and breaking-change against what the diff actually contains.
+
+Why a separate agent: whoever wrote the message already believes it is right, so self-checking
+reproduces the same assumption. A verifier that has not seen the reasoning catches the case
+where the message describes an intent the diff does not carry.
+
+Why before the commit rather than after: a commit is the state change this skill exists to make.
+Verifying afterwards reports a mistake that is already in the history, and rewriting history
+after a push is not a real option.
+
+- `verdict: ok` → proceed to Step 5.
+- `verdict: mismatch` → **do not commit**. Show the user which check failed, the verifier's
+  reasoning, and its `suggested_message`. Let them choose: commit the suggestion, commit the
+  original anyway, or revise. The staged changes are untouched either way, so nothing is lost
+  by stopping here.
+
+### 5. Execution
+
+Execute the commit with the verified message.
 
 ```bash
-git commit -m "<generated_message>"
+git commit -m "<verified_message>"
 ```
 
-### 5. Post-Execution
+### 6. Post-Execution
 
 Display the result of the commit.
 
@@ -105,6 +126,8 @@ git show --stat --oneline HEAD
 ```
 
 **Preview Mode**:
-If the user asks for a "Preview" or "Dry run", only display the generated message and do NOT execute `git commit`.
+If the user asks for a "Preview" or "Dry run", run Steps 1–4 and display the verified message
+(plus any mismatch the verifier found), but do NOT execute `git commit`. The verification is
+part of what a preview is for.
 
 **CRITICAL**: The final output to the user regarding the action taken must be in **JAPANESE**.

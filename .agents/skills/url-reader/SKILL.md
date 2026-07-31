@@ -74,6 +74,29 @@ For X status posts, if oEmbed fails, the script falls back to the generic reader
 
 Browser4 extraction is intentionally read-only and deterministic: open the public URL in a temporary headless session, extract `document.title`, `document.body.innerText`, and the live body HTML, then close the session. Do not use Browser4 `agent`, `extract`, `summarize`, `swarm`, or login interactions for this fallback.
 
+## Verifying The Claimed Status
+
+`read_url.py` reports `reader_status` from its own extraction. Before handing the result to
+anything that acts on it — registering a Notion page, classifying an inbox item, telling the
+user a post could be read — read [agents/extraction-verifier.md](agents/extraction-verifier.md)
+and call it with the full JSON as `[READER_JSON]`.
+
+Why a separate agent: the status is self-reported by the same run that produced the payload, so
+nothing in the pipeline currently contradicts it. A verifier reading only the payload catches
+`Extracted` with an empty `markdown`, `ImagesOnly` counting login-page assets, and results still
+carrying `browser_fallback.required` that are about to be treated as terminal. Downstream
+(`notion-organize-knowledge`) decides registration from this field, and an overstated status
+becomes an empty page in the knowledge base that nobody notices later.
+
+- `verdict: consistent` → use the result as reported.
+- `verdict: overstated` → treat `actual_status` as the real one. If it drops to `Blocked` or
+  `Failed`, do not register or move the item; leave it for review with the verifier's `evidence`.
+- `fallback_pending: true` → run the in-app Browser protocol before treating the item as
+  terminal, regardless of status.
+
+Skip the verifier only when the result is not being acted on (e.g. the user asked to inspect one
+URL interactively and is reading the output themselves).
+
 ## Output To Use Downstream
 
 For the full JSON contract, read [references/output-contract.md](references/output-contract.md).

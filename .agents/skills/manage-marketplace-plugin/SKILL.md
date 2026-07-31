@@ -57,7 +57,7 @@ agents/dependency-resolver（sonnet）
   │  scripts/detect_dependencies.py で「対象が呼ぶ他スキル」を検出（推移的）
   │  実依存（パイプライン呼び出し）だけを同梱対象に。案内・言及は除外
   │
-  ├─【司令塔】bundle_skills をユーザーに提示し同梱可否を確認（needs_confirmation は必須）
+  ├─ bundle_skills（実依存確定）はそのまま同梱。needs_confirmation があるときだけ聞く
   │
   ▼  bundle_skills 確定（空＝同梱なし）
 agents/plugin-registrar（sonnet）
@@ -67,7 +67,7 @@ agents/plugin-registrar（sonnet）
   │
   ├─ exit 2（marketplace.json 破損）  → 中断して手動修正を案内
   ├─ exit 3（SKILL.md 欠落）          → 設置不備として終了
-  ├─ exit 4（update=false なのに既存）→ 想定外。安全側で中止しユーザー確認
+  ├─ exit 4（update=false なのに既存）→ --update を付けて再実行（非破壊。報告に記載）
   │
   ▼  exit 0（added / updated）
 agents/install-verifier（sonnet）
@@ -118,9 +118,10 @@ portability-checker は対象スキルを静的スキャンし、「install 先�
 
 dependency-resolver は対象スキルが呼び出す他スキル（連鎖依存）を検出し、`references/schemas.md` の「dependency-resolver の出力」形式で `bundle_skills`（実依存と判定した同梱対象）を返す。
 
-- **司令塔は同梱可否をユーザーに確認する（人間介入ポイント）**：`bundle_skills` を「これらの依存スキルも同一プラグインに同梱します」と提示し、`needs_confirmation` があれば必ず可否を聞く。ユーザーが外したスキルは同梱対象から除外する。
-- `bundle_skills` が空（依存なし）の場合：そのまま次のステップへ（同梱なし）。
-- 確定した同梱対象を `bundle_skills` として plugin-registrar に渡す。
+- **`bundle_skills`（実依存と確定した分）はそのまま同梱する。確認しない。** `rationale` に呼び出し箇所が挙がっている時点で判断は済んでおり、聞いても答えは毎回同じになる。加えて失敗のコストが非対称：余分に同梱した場合の害は「プラグインにスキルが1つ多い」だけで後から外せるが、実依存を同梱し損ねるとプラグインは install 先で壊れ、しかも壊れたことに気づくのは使った人になる。安全側は同梱する方。
+- **`needs_confirmation`（判断に迷った候補）だけをユーザーに聞く（人間介入ポイント）。** ここは分類が付いていないので、聞く価値のある問いが実際に残っている。
+- `bundle_skills` と `needs_confirmation` がどちらも空の場合：何も聞かず次のステップへ（同梱なし）。
+- 同梱した内容は最終報告（ステップ6）に必ず載せる。確認を省いた分、何が入ったかは事後に見える形で残す。
 
 ### ステップ3：plugin-registrar を呼ぶ
 
@@ -130,7 +131,7 @@ plugin-registrar は `scripts/register_plugin.py` を実行し、JSON レポー�
 
 - `update=true`（input-resolver が登録済みと判定）の場合は `--update` を付けて実行する。これが**更新の正常系**で、register_plugin.py が version を patch+1（ユーザー version 明示時はそれ）に上げ、plugin.json/symlink を現状へ再同期し、レポートの `marketplace_entry: updated` と `version` / `version_bump` を返す。
 - `update=false`（未登録）の場合は `--update` なしで実行する。これが**新規登録の正常系**（`marketplace_entry: added` / version 0.1.0）。
-- 万一 `update=false` で実行したのに既存だった場合（exit 4）は、input-resolver の判定とズレている異常事態。勝手に上書きせず「既に登録済みのようです。更新しますか？」とユーザーに確認し、同意が得られたら `--update` 付きで再実行する（人間介入ポイント）。
+- 万一 `update=false` で実行したのに既存だった場合（exit 4）は、`--update` を付けて**そのまま再実行する**。理由：このスキルの契約は「未登録なら登録、登録済みなら更新」であり、既存だったと判明した時点で正しい操作は更新に決まる。`--update` は非破壊（marketplace.json の他エントリを保持し、手書き README を上書きせず、version を patch+1 するだけ）なので、聞いて得られるのは同じ答えだけ。input-resolver の判定とズレていた事実は最終報告に載せる（黙って呑み込まない）。
 
 登録/更新が異常終了（破損 JSON・SKILL.md 欠落・想定外衝突）した場合は、自動修復していない旨と対処方法を伝えて終了する（後続の検証には進まない）。報告では「新規登録」か「更新（version X→Y）」かを明示する。
 
