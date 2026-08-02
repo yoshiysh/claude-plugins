@@ -1,0 +1,41 @@
+{
+    "name": "yoshiysh-claude-plugins",
+    "description": "スキルを公開するマーケットプレイスです。",
+    "owner": {
+        "name": "yoshiysh"
+    },
+    "plugins": [
+        {
+            "name": "pr-create",
+            "source": "./plugins/pr-create"
+        },
+        {
+            "name": "reference",
+            "source": "./plugins/reference"
+        },
+        {
+            "name": "commit",
+            "source": "./plugins/commit"
+        },
+        {
+            "name": "cleanup-branches",
+            "source": "./plugins/cleanup-branches"
+        },
+        {
+            "name": "skill-creator-best-practices",
+            "source": "./plugins/skill-creator-best-practices"
+        },
+        {
+            "name": "chat",
+            "source": "./plugins/chat"
+        },
+        {
+            "name": "dispatch",
+            "source": "./plugins/dispatch"
+        },
+        {
+            "name": "search",
+            "source": "./plugins/search"
+        }
+    ]
+}
