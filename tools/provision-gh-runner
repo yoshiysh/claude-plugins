@@ -1,7 +1,7 @@
 #!/bin/bash
 # GitHub Actions self-hosted runner を任意のターゲットに設置・起動する。
 #
-#   provision-gh-runner.sh --repo owner/repo --target TARGET [options]
+#   provision-gh-runner --repo owner/repo --target TARGET [options]
 #
 # TARGET:
 #   local              このマシン
