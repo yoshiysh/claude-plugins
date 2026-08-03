@@ -1,0 +1,60 @@
+#!/bin/bash
+# Claude Code の plugin をまるごと最新化する。
+#
+#   update-plugins [-h|--help]
+#
+# やること（順に）:
+#   1. 登録済みマーケットプレイスを全て更新（claude plugin marketplace update）
+#      — これを先にやらないと plugin update が古いカタログを引く
+#   2. project（./.claude/settings.json）と user（~/.claude/settings.json）の
+#      enabledPlugins を列挙し、各 plugin を対応する --scope で update
+#
+# 反映には Claude Code の再起動が必要（CLI 側の仕様）。
+set -euo pipefail
+
+case "${1:-}" in
+  -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+  "") ;;
+  *) echo "unknown arg: $1（--help 参照）" >&2; exit 2 ;;
+esac
+
+command -v claude >/dev/null || { echo "claude CLI が見つからない" >&2; exit 1; }
+command -v jq >/dev/null || { echo "jq が見つからない" >&2; exit 1; }
+
+USER_SETTINGS="$HOME/.claude/settings.json"
+PROJECT_SETTINGS="./.claude/settings.json"
+
+echo "## marketplaces"
+claude plugin marketplace update || echo "  -> marketplace update failed（続行）"
+echo ""
+
+update_from() {
+  local settings_file="$1"
+  local scope="$2"
+
+  if [ ! -f "$settings_file" ]; then
+    return
+  fi
+
+  local plugins=()
+  while IFS= read -r plugin; do
+    plugins+=("$plugin")
+  done < <(jq -r '(.enabledPlugins // {}) | keys[]' "$settings_file")
+
+  if [ ${#plugins[@]} -eq 0 ]; then
+    echo "No enabled plugins found in $settings_file"
+    return
+  fi
+
+  echo "## scope: $scope ($settings_file)"
+  for plugin in "${plugins[@]}"; do
+    echo "=== $plugin ==="
+    claude plugin update "$plugin" --scope "$scope" || echo "  -> failed to update $plugin"
+    echo ""
+  done
+}
+
+update_from "$PROJECT_SETTINGS" project
+update_from "$USER_SETTINGS" user
+
+echo "完了。反映には Claude Code の再起動が必要。"
