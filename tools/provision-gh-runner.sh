@@ -1,0 +1,212 @@
+#!/bin/bash
+# GitHub Actions self-hosted runner を任意のターゲットに設置・起動する。
+#
+#   provision-gh-runner.sh --repo owner/repo --target TARGET [options]
+#
+# TARGET:
+#   local              このマシン
+#   ssh:HOST           ssh 先の Linux / macOS（~/.ssh/config の Host 名）
+#   wsl:HOST           Windows ホスト（ssh 経由）の既定 WSL distro 内
+#   docker:CONTAINER   起動中の docker コンテナ内
+#
+# options:
+#   --name NAME        runner 名（既定: ターゲットから自動生成）
+#   --labels a,b,c     追加ラベル（self-hosted と OS ラベルは自動付与）
+#   --version X.Y.Z    runner バージョン（既定: 最新を gh で解決）
+#   --dir DIR          設置ディレクトリ（~ 相対。既定: actions-runner。
+#                      同一マシンに複数 runner を置いて並列化する場合に変える）
+#   --remove           設置ではなく登録解除して runner を削除する
+#
+# 設計メモ:
+# - ターゲットへの到達方法は run_target() の 1 関数に隔離し、処理本体は常に
+#   stdin でターゲットの bash に流す。ssh → cmd.exe → wsl の多層クォートは
+#   cmd.exe がシングルクォートを剥がさず必ず壊れるため、クォートを一切
+#   経路に見せないことが唯一の安全な渡し方（wsl 経路の実測で確認済み）。
+# - 登録トークンはこのスクリプトを実行するマシンの gh 認証で実行時に取得する。
+#   トークンや秘密をスクリプト・ターゲットに保存しない。
+# - 既知の環境の壁は検出してエラーメッセージに対処コマンドを埋める（下記
+#   KNOWN WALLS）。ドキュメントではなくスクリプトが知識を持つ。
+set -uo pipefail
+
+REPO="" TARGET="" NAME="" EXTRA_LABELS="" VERSION="" REMOVE=0 RDIR="actions-runner"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) REPO="$2"; shift 2 ;;
+    --target) TARGET="$2"; shift 2 ;;
+    --name) NAME="$2"; shift 2 ;;
+    --labels) EXTRA_LABELS="$2"; shift 2 ;;
+    --version) VERSION="$2"; shift 2 ;;
+    --dir) RDIR="$2"; shift 2 ;;
+    --remove) REMOVE=1; shift ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$REPO" ] && [ -n "$TARGET" ] || { echo "--repo と --target は必須。--help 参照" >&2; exit 2; }
+
+say() { printf '\n===== %s =====\n' "$*"; }
+die() { printf 'NG: %s\n' "$*" >&2; exit 1; }
+
+# --- ターゲット到達アダプタ（唯一の分岐点） -------------------------------
+KIND="${TARGET%%:*}"; HOST="${TARGET#*:}"
+SSH_OPTS="-o ConnectTimeout=8 -o BatchMode=yes -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no"
+run_target() {
+  case "$KIND" in
+    local)  bash -s ;;
+    ssh)    ssh $SSH_OPTS "$HOST" "bash -s" ;;
+    wsl)    ssh $SSH_OPTS "$HOST" "wsl --exec bash -s" ;;
+    docker) docker exec -i "$HOST" bash -s ;;
+    *) die "未知の TARGET 種別: $KIND（local / ssh: / wsl: / docker: のいずれか）" ;;
+  esac
+}
+
+say "ターゲット調査 ($TARGET)"
+INFO=$(run_target <<'EOF'
+uname -s
+uname -m
+whoami
+test -d /run/systemd/system && echo init=systemd || { [ "$(uname -s)" = Darwin ] && echo init=launchd || echo init=none; }
+sudo -n true 2>/dev/null && echo sudo=yes || echo sudo=no
+command -v curl >/dev/null && echo curl=yes || echo curl=no
+EOF
+) || die "ターゲットに到達できない。ssh 疎通 / docker ps を確認。
+  macOS から LAN 先に 'No route to host' が出る場合はアプリの
+  ローカルネットワーク権限（TCC）が原因のことがある — Terminal.app から実行する"
+OS=$(echo "$INFO"  | sed -n 1p | tr -d '\r')
+ARCH=$(echo "$INFO" | sed -n 2p | tr -d '\r')
+RUSER=$(echo "$INFO" | sed -n 3p | tr -d '\r')
+INIT=$(echo "$INFO" | sed -n 4p | tr -d '\r' | cut -d= -f2)
+SUDO=$(echo "$INFO" | sed -n 5p | tr -d '\r' | cut -d= -f2)
+echo "$INFO" | grep -q curl=yes || die "ターゲットに curl が無い。先にインストールする"
+echo "$OS $ARCH / user=$RUSER / init=$INIT / sudo=$SUDO"
+
+case "$OS/$ARCH" in
+  Linux/x86_64)   PKG_OS=linux;  PKG_ARCH=x64;   OS_LABEL=linux ;;
+  Linux/aarch64)  PKG_OS=linux;  PKG_ARCH=arm64; OS_LABEL=linux ;;
+  Darwin/arm64)   PKG_OS=osx;    PKG_ARCH=arm64; OS_LABEL=macos ;;
+  Darwin/x86_64)  PKG_OS=osx;    PKG_ARCH=x64;   OS_LABEL=macos ;;
+  *) die "未対応の OS/arch: $OS/$ARCH" ;;
+esac
+[ -n "$NAME" ] || { NAME="$(echo "$TARGET" | tr ':' '-')-runner"; [ "$RDIR" != actions-runner ] && NAME="$NAME-${RDIR##*-}"; }
+LABELS="self-hosted,$OS_LABEL${EXTRA_LABELS:+,$EXTRA_LABELS}"
+[ "$KIND" = wsl ] && LABELS="$LABELS,wsl"
+[ "$KIND" = docker ] && LABELS="$LABELS,docker"
+
+# --- 登録解除モード ---------------------------------------------------------
+if [ "$REMOVE" = 1 ]; then
+  say "登録解除 ($NAME)"
+  RM_TOKEN=$(gh api -X POST "repos/${REPO}/actions/runners/remove-token" --jq .token) || die "gh api 失敗"
+  run_target <<EOF || die "登録解除に失敗"
+set -e
+cd ~/"${RDIR}"
+if [ -d /run/systemd/system ]; then
+  sudo -n ./svc.sh stop 2>/dev/null || true
+  sudo -n ./svc.sh uninstall 2>/dev/null || true
+elif [ "\$(uname -s)" = Darwin ]; then
+  ./svc.sh stop 2>/dev/null || true
+  ./svc.sh uninstall 2>/dev/null || true
+fi
+pkill -f "\$HOME/${RDIR}/bin/Runner.Listener" 2>/dev/null || true
+sleep 1
+./config.sh remove --token "${RM_TOKEN}"
+EOF
+  gh api "repos/${REPO}/actions/runners" --jq '.runners[] | "\(.name): \(.status)"'
+  exit 0
+fi
+
+say "runner バージョン解決"
+[ -n "$VERSION" ] || VERSION=$(gh api repos/actions/runner/releases/latest --jq '.tag_name' | tr -d v) \
+  || die "バージョン解決に失敗（--version で明示可）"
+PKG="actions-runner-${PKG_OS}-${PKG_ARCH}-${VERSION}.tar.gz"
+echo "v${VERSION} / ${PKG} / labels=${LABELS} / name=${NAME}"
+
+say "登録トークン取得（この手元マシンの gh 認証で）"
+TOKEN=$(gh api -X POST "repos/${REPO}/actions/runners/registration-token" --jq .token) \
+  || die "gh api 失敗。gh auth status を確認"
+
+say "配置（既存があればスキップ）"
+run_target <<EOF || die "配置に失敗"
+set -e
+cd ~
+if [ -f "${RDIR}/config.sh" ]; then echo already-extracted; exit 0; fi
+mkdir -p "${RDIR}" && cd "${RDIR}"
+curl -sSL -o runner.tar.gz "https://github.com/actions/runner/releases/download/v${VERSION}/${PKG}"
+tar xzf runner.tar.gz && echo extracted
+EOF
+
+say "登録（登録済みならスキップ）"
+run_target <<EOF || die "config.sh に失敗"
+set -e
+cd ~/"${RDIR}"
+if [ -f .runner ]; then echo already-configured; exit 0; fi
+./config.sh --url "https://github.com/${REPO}" --token "${TOKEN}" \
+  --unattended --name "${NAME}" --labels "${LABELS}" 2>&1 | tail -3
+EOF
+
+say "起動・常駐化（init=${INIT} sudo=${SUDO}）"
+START_LOG=$(mktemp)
+run_target <<EOF | tee "$START_LOG" || die "起動に失敗"
+cd ~/"${RDIR}"
+# 以前の実行が nohup 起動した listener が残ったままサービスを起動すると、
+# GitHub 側がセッション競合で 2 本目を拒否して二重・不安定になる。
+# サービスが active でないのに listener がいる = nohup 残骸なので先に止める。
+stop_orphan_listener() {
+  pgrep -f "\$HOME/${RDIR}/bin/Runner.Listener" >/dev/null || return 0
+  ./svc.sh status 2>/dev/null | grep -qiE "active \(running\)|^Started" && return 0
+  sudo -n ./svc.sh status 2>/dev/null | grep -qiE "active \(running\)" && return 0
+  pkill -f "\$HOME/${RDIR}/bin/Runner.Listener"; sleep 2
+}
+case "${INIT}/${SUDO}" in
+  systemd/yes)
+    stop_orphan_listener
+    sudo ./svc.sh install "${RUSER}" >/dev/null 2>&1 || true
+    sudo ./svc.sh start 2>&1 | tail -1
+    echo "mode=systemd-service (再起動後も自動復帰)" ;;
+  launchd/*)
+    stop_orphan_listener
+    ./svc.sh install >/dev/null 2>&1 || true
+    ./svc.sh start 2>&1 | tail -1
+    echo "mode=launchd-service (ログイン中は自動復帰)" ;;
+  *)
+    if pgrep -f "\$HOME/${RDIR}/bin/Runner.Listener" >/dev/null; then echo already-running; exit 0; fi
+    nohup ./run.sh > runner.log 2>&1 &
+    sleep 3
+    pgrep -f "\$HOME/${RDIR}/bin/Runner.Listener" >/dev/null && echo "mode=nohup (再起動後は手動)" \
+      || { tail -5 runner.log; exit 1; }
+    ;;
+esac
+EOF
+
+say "GitHub 側の認識（repo の全 runner 一覧）"
+sleep 5
+gh api "repos/${REPO}/actions/runners" --jq '.runners[] | "\(.name): \(.status)"'
+
+# --- KNOWN WALLS: 起動後に job が失敗する既知の環境の壁と対処 ---------------
+# 変化のない冪等再実行（already-running）では省略する。
+grep -q already-running "$START_LOG" && { rm -f "$START_LOG"; exit 0; }
+rm -f "$START_LOG"
+if [ "$OS_LABEL" = macos ]; then
+  cat <<'NOTE'
+
+[macOS の既知の壁] actions/setup-python を使う job は初回に 2 つの一回きり設定が要る:
+  sudo mkdir -p /Users/runner/hostedtoolcache && sudo chown -R $(whoami) /Users/runner
+  echo "$(whoami) ALL=(ALL) NOPASSWD: /usr/sbin/installer" | sudo tee /etc/sudoers.d/actions-runner-installer
+(setup-python の macOS ビルドは /Users/runner 固定パス + pkg インストーラで sudo を要求するため)
+NOTE
+fi
+if [ "$KIND" = wsl ] && [ "$SUDO" = no ]; then
+  cat <<NOTE
+
+[WSL の補足] sudo にパスワードが要るため nohup 起動になっている。常駐化するには WSL 内で:
+  echo "${RUSER} ALL=(ALL) NOPASSWD: /home/${RUSER}/${RDIR}/svc.sh" | sudo tee /etc/sudoers.d/actions-runner-svc-${NAME}
+を一度実行してから本スクリプトを再実行（systemd サービス化される）。
+さらに Windows 再起動時に WSL ごと自動起動するには、Windows 側で:
+  ssh <HOST> "schtasks /create /tn ActionsRunner-${NAME} /sc onlogon /tr \\"wsl.exe --exec /home/${RUSER}/${RDIR}/run.sh\\" /f"
+（ssh 経由の非対話で作成できる。ログオン時にコンソールウィンドウが 1 つ常駐し、閉じると runner が止まる）
+NOTE
+fi
+if [ "$KIND" = docker ]; then
+  echo
+  echo "[docker の補足] コンテナ再作成で消える。イメージ側で ENTRYPOINT に run.sh を含めるか、"
+  echo "restart policy のあるコンテナで /actions-runner を volume にすることを検討。"
+fi
