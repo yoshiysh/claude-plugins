@@ -1,5 +1,5 @@
 ---
-name: notion-organize-knowledge
+name: organize-knowledge
 description: >
   Notion MCP を使い、Bookmark / Inbox / URL-only list / Unresolved Sources などの入力から知識ページを根拠付きで整理し、
   Domain / Topic / Subtopic、Tags、Topic Index、Domains 階層へ安全に反映する。URL 補完、重複レビュー、本文正規化、

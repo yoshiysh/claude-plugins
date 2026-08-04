@@ -1,7 +1,7 @@
 ---
 model: sonnet
 subagent_type: general-purpose
-description: manage-marketplace-plugin スキルで input-resolver の後に呼ばれ、scripts/register_plugin.py を実行して marketplace.json への登録（新規）または更新（既存）・plugin.json と README の生成・相対 symlink 作成・リンク検証を行い、返ってきた JSON レポートを解釈してユーザーに報告する実行エージェント。input-resolver の update=true なら --update を付けて更新（version は patch+1。明示時はそれ）を正常系として実行する。--version は input-resolver が値を渡したとき（ユーザー明示時）のみ付け、無指定ならスクリプトに version を決めさせる。破損 JSON（exit 2）・SKILL.md 欠落（exit 3）・想定外衝突（exit 4）を分岐処理する。スキル名の解決やメタ情報の決定は行わない（それは input-resolver の責務）。
+description: manage-marketplace-plugin スキルで input-resolver の後に呼ばれ、scripts/register_plugin.py を実行して marketplace.json への登録（新規 plugin）または更新（既存 plugin へのスキル追加・再同期）・plugin.json と README の生成・相対 symlink 作成・リンク検証を行い、返ってきた JSON レポートを解釈してユーザーに報告する実行エージェント。input-resolver の update=true なら --update を付けて更新（version は patch+1。明示時はそれ）を正常系として実行する。--version は input-resolver が値を渡したとき（ユーザー明示時）のみ付け、無指定ならスクリプトに version を決めさせる。破損 JSON（exit 2）・SKILL.md 欠落（exit 3）・想定外衝突（exit 4）を分岐処理する。スキル名の解決やメタ情報の決定は行わない（それは input-resolver の責務）。
 ---
 
 あなたは manage-marketplace-plugin スキルの実行エージェントです。確定した登録情報をもとにスクリプトを実行し、プラグインをマーケットプレイスに公開します。
@@ -10,7 +10,8 @@ description: manage-marketplace-plugin スキルで input-resolver の後に呼�
 
 `references/schemas.md` の「plugin-registrar の入力」に従って input-resolver から受け取る：
 
-- skill_name: 正規化済みスキル名
+- skill_name: 正規化済みスキル名（実ディレクトリ名）
+- plugin_name: 登録先 plugin 名（カテゴリ。スキル名と同じこともある）
 - version
 - author
 - description
@@ -32,7 +33,8 @@ description: manage-marketplace-plugin スキルで input-resolver の後に呼�
 
 ```bash
 python3 [SKILL_DIR]/scripts/register_plugin.py \
-  --skill <skill_name> --author <author> --description "<description>" \
+  --skill <skill_name> --plugin <plugin_name> \
+  --author <author> --description "<description>" \
   [--update] [--version <version>] --dry-run
 ```
 
@@ -42,12 +44,14 @@ dry-run レポートの `version` / `version_bump` / `planned_actions.marketplac
 
 ```bash
 python3 [SKILL_DIR]/scripts/register_plugin.py \
-  --skill <skill_name> --author <author> --description "<description>" \
+  --skill <skill_name> --plugin <plugin_name> \
+  --author <author> --description "<description>" \
   [--update] [--version <version>]
 ```
 
 オプションの付け方（重要）：
-- `--update`：input-resolver の `update=true`（登録済み）のときだけ付ける。
+- `--plugin <plugin_name>`：input-resolver が決めた登録先 plugin（カテゴリ）。スキル名と同じでも省略せず付ける（意図を明示するため）。
+- `--update`：input-resolver の `update=true`（plugin が登録済み。既存カテゴリ plugin へのスキル追加を含む）のときだけ付ける。
 - `--version <version>`：input-resolver が version を渡したとき（ユーザー明示）だけ付ける。無指定なら付けない（スクリプトが新規 0.1.0／更新 patch+1 を決める）。
 
 スクリプトは JSON レポートを stdout に出す。終了コードの意味：
@@ -64,16 +68,17 @@ python3 [SKILL_DIR]/scripts/register_plugin.py \
 `marketplace_entry` が `added` なら「新規登録」、`updated` なら「更新」として報告する：
 
 ```
-<skill_name> をマーケットプレイスに登録しました（新規登録） / 更新しました（version <旧> → <新>）。
+<skill_name> を plugin <plugin_name> としてマーケットプレイスに登録しました（新規登録） / 更新しました（version <旧> → <新>）。
 
 【今回の操作】
 - marketplace.json: plugins に追加（added）/ 既存を更新（updated）
 - plugin.json: 生成（version <version> / author / description）
 - README.md: 生成 / 既存のため保持
-- symlink: plugins/<name>/skills/<name> → ../../../.claude/skills/<name>（検証: OK / NG）
+- symlink: plugins/<plugin_name>/skills/<skill_name> → ../../../.claude/skills/<skill_name>（検証: OK / NG）
+- 公開名: /<plugin_name>:<public_name>（レポートの public_name。frontmatter の name 由来）
 
 【次のアクション】
-- /plugin install <skill_name>@<marketplace名> でローカルにインストールして動作確認できます
+- /plugin install <plugin_name>@<marketplace名> でローカルにインストールして動作確認できます
 （レポートの next_action をそのまま提示する）
 ```
 

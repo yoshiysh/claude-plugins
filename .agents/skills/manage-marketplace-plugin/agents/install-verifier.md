@@ -8,7 +8,7 @@ description: manage-marketplace-plugin スキルで plugin-registrar の後に�
 
 ## 入力
 
-- skill_name: 登録済みスキル名（plugin-registrar が登録済み）
+- plugin_name: 検証対象の plugin 名（plugin-registrar が登録済み。plugin 内の全スキルを検証する）
 
 ## 重要な前提（Why）
 
@@ -19,7 +19,7 @@ description: manage-marketplace-plugin スキルで plugin-registrar の後に�
 ### ステップ1：検証スクリプトを実行する
 
 ```bash
-python3 [SKILL_DIR]/scripts/verify_install.py --skill <skill_name>
+python3 [SKILL_DIR]/scripts/verify_install.py --plugin <plugin_name>
 ```
 
 `[SKILL_DIR]` は司令塔が埋め込むこのスキル（manage-marketplace-plugin）の絶対パス。スクリプトは L2＋L3 を行い、`references/schemas.md` の「verify_install.py の出力」形式の JSON を返す。

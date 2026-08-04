@@ -1,5 +1,5 @@
 ---
-name: skill-creator-best-practices
+name: best-practices
 description: >
   マルチエージェントを用いて高品質なスキルを自動生成する。要件整理・検証基準生成・
   構成設計・執筆・テスト・検証を複数の専門 Sub-agent に分担させ、単独実行より品質の高い

@@ -15,6 +15,7 @@ manage-marketplace-plugin 内の各エージェントが入出力するデータ
 ```
 status: ok | error
 skill_name: <正規化済みスキル名（.claude/skills/ の実ディレクトリ名）>
+plugin_name: <登録先 plugin 名（カテゴリ。スキル名と同じこともある）>
 mode: register | update
 update: true | false
 version: <ユーザー明示時のみ。無指定は空>
@@ -26,7 +27,8 @@ error_message: <status: error のときのみ。候補名や欠落理由を含�
 ### フィールド詳細
 
 - `skill_name`: ユーザー入力の表記ゆれを `.claude/skills/` 実ディレクトリ名へ寄せた正規名。
-- `mode` / `update`: **marketplace.json を照合した実体ベースの判定**。既に登録済みなら `update / true`、未登録（または marketplace.json 不在）なら `register / false`。ユーザーの言い回しではなく実体で決める。
+- `plugin_name`: 登録先 plugin（カテゴリ）。優先順位は「ユーザー明示 → 既に `plugins/*/skills/<skill_name>` を持つ plugin → AskUserQuestion で確認」。スキルの公開名（frontmatter の `name`）とは別物。
+- `mode` / `update`: **marketplace.json を plugin_name で照合した実体ベースの判定**。plugin が登録済みなら `update / true`（既存カテゴリ plugin へのスキル追加を含む）、未登録（または marketplace.json 不在）なら `register / false`。ユーザーの言い回しではなく実体で決める。
 - `version`: **ユーザーが明示した場合のみ**値を入れる。無指定なら空のまま渡す（新規=`0.1.0`／更新=既存 version の patch+1 を register_plugin.py が決めるため、ここで `0.1.0` を埋めない）。
 - `author`: ユーザー指定が無ければデフォルト `yoshiysh`。
 - `description`: ユーザー指定 → 対象 SKILL.md frontmatter の description → AskUserQuestion の順で確定。空のまま渡さない。
@@ -127,13 +129,14 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 | plugin-registrar の入力 | 提供元 | フィールド名 |
 |---|---|---|
 | skill_name  | input-resolver | skill_name  |
+| plugin_name | input-resolver | plugin_name |
 | mode / update | input-resolver | mode / update |
 | version     | input-resolver | version（空のことがある） |
 | author      | input-resolver | author      |
 | description | input-resolver | description |
 | bundle_skills | dependency-resolver（司令塔が確認後に確定）| bundle_skills |
 
-これらを `scripts/register_plugin.py` の引数 `--skill / --author / --description` に対応させて実行する。
+これらを `scripts/register_plugin.py` の引数 `--skill / --plugin / --author / --description` に対応させて実行する。
 `--update` は `update=true` のときだけ付ける。`--version` は version が空でない（ユーザー明示）ときだけ付ける（空なら付けず、スクリプトに新規 0.1.0／更新 patch+1 を決めさせる）。
 `--bundle-skill <dep>` は確定した同梱対象スキルごとに付ける（複数可。無ければ付けない）。
 
@@ -149,6 +152,9 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
   "dry_run": false,
   "created_new": false,
   "marketplace_path": "<絶対パス>/.claude-plugin/marketplace.json",
+  "plugin": "<登録先 plugin 名>",
+  "skill": "<スキル実体ディレクトリ名>",
+  "public_name": "<公開名（frontmatter の name。無ければスキル名）>",
   "version": "0.1.1",
   "version_bump": "0.1.0 -> patch+1 | explicit | default(0.1.0)",
   "actions": {
@@ -158,12 +164,15 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
     "symlink": "created | kept | relinked"
   },
   "bundled_skills": [
-    { "skill": "<dep>", "symlink": "created | kept | relinked", "ok": true }
+    { "skill": "<dep>", "public_name": "<dep公開名>",
+      "symlink": "created | kept | relinked", "ok": true }
   ],
   "symlink_ok": true,
-  "next_action": "/plugin install <name>@<marketplace名> でインストールして動作確認できます。"
+  "next_action": "/plugin install <plugin>@<marketplace名> でインストールして動作確認できます。"
 }
 ```
+
+- `public_name`: 呼び出し名 `/plugin:skill` の skill 部分。symlink 名はスキル実体ディレクトリ名を保つ（install 先キャッシュのディレクトリ名になるため、`../<兄弟スキル>/` 参照を壊さない）。
 
 - `version`: 実際に plugin.json へ書いた version。`version_bump`: その決め方（`explicit`=ユーザー明示／`X -> patch+1`=更新で patch を上げた／`default(0.1.0)`=新規）。
 - `bundled_skills`: `--bundle-skill` で同一プラグインに同梱した依存スキルの symlink 結果（`skills/<dep>`）。指定が無ければ空配列。`symlink_ok` は本体＋同梱すべてのリンク検証を AND した結果。
@@ -182,25 +191,29 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 
 ## verify_install.py の出力
 
-`python3 scripts/verify_install.py --skill <name>` が stdout に出す JSON（登録後検証 L2＋L3）：
+`python3 scripts/verify_install.py --plugin <name>`（旧 `--skill` も別名として受理）が stdout に出す JSON（登録後検証 L2＋L3）：
 
 ```json
 {
-  "skill": "<name>",
+  "plugin": "<name>",
   "l2_bundle_check": { "passed": true, "findings": [] },
   "l3_isolated_install": {
     "passed": true,
     "steps": [["marketplace add", 0, "..."], ["install", 0, "..."]],
-    "bundled_skill_md": true,
-    "bundled_scripts": ["..."],
-    "bundled_scripts_real": true,
+    "skills": {
+      "<公開名>": {
+        "bundled_skill_md": true,
+        "bundled_scripts": ["..."],
+        "bundled_scripts_real": true
+      }
+    },
     "details_ok": true
   },
   "overall_passed": true
 }
 ```
 
-- **L2**：plugin.json 妥当性／`skills/<name>` symlink→SKILL.md 解決／dangling symlink の有無（読み取り専用）。
+- **L2**：plugin.json 妥当性／`skills/` 配下の全 symlink→SKILL.md 解決／dangling symlink の有無（読み取り専用）。plugin は複数スキルを持ちうる。
 - **L3**：HOME を一時ディレクトリに差し替えた**実 install**。キャッシュにバンドルが実体（symlink でない）として展開され、`claude plugin details` でスキル認識されるか。**実ホーム ~/.claude は変更しない**（終了時に一時ディレクトリごと後始末）。
 - 終了コード：0=overall_passed / 5=検証失敗 / 3=登録 plugin dir 不在。
 - L4（実データ実行）は本スクリプト外。司令塔が AskUserQuestion で入力を聞いて実行する。

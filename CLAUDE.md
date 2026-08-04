@@ -14,32 +14,36 @@ This file provides guidance to Claude Code when working in this repository.
 - Marketplace 名: `yoshiysh-claude-plugins`
 - 公開用 plugin: `plugins/<name>/`
 
-`plugins/<name>/skills/<name>` は、必ず `../../../.claude/skills/<name>` への相対 symlink にする。絶対 symlink やスキル本体のコピーは作らない。
+`plugins/<plugin>/skills/<スキル実体ディレクトリ名>` は、必ず `../../../.claude/skills/<同名>` への相対 symlink にする。絶対 symlink やスキル本体のコピーは作らない。symlink 名は実体ディレクトリ名に揃える（公開名は frontmatter の `name` が担う。install 先のキャッシュは symlink 名でディレクトリが作られるため、`../<兄弟スキル>/` 参照を壊さないように実体名を保つ）。
 
 ## 収録スキル
 
-実体はすべて `.agents/skills/<name>`。「plugin」列は `.claude-plugin/marketplace.json` への登録状況。
+実体はすべて `.agents/skills/<ディレクトリ>`。plugin はカテゴリ単位（`git` / `chat` / `research` / `notion` / `skill-creator`）でまとめ、呼び出し名は `plugin:skill` になる。スキルの公開名（frontmatter の `name`）がディレクトリ名と異なる場合があり、その対応は「公開名」列に示す。
 
-| スキル | 用途 | plugin |
-|---|---|---|
-| `chat` | Fable 5 を壁打ち相手に技術相談し、整形して relay する | `chat` |
-| `chat-rigorous` | 反証耐性の高い分析ワークフローを instructions で強制する壁打ち | `chat`（同梱） |
-| `cleanup-branches` | マージ済みブランチと作業状態を掃除し worktree を主ブランチに同期する | `cleanup-branches` |
-| `commit` | staged 変更から Conventional Commits メッセージを生成しコミットする | `commit` |
-| `dispatch` | Fable 5 が計画・評価し、Workflow スクリプトが subagent を反復実行する | `dispatch` |
-| `manage-marketplace-plugin` | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
-| `notion-organize-knowledge` | Notion の capture queue を根拠付きで整理し検証付きで書き込む | 未登録 |
-| `pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `pr-create` |
-| `reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `reference` |
-| `search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `search` |
-| `skill-creator-best-practices` | マルチエージェントでスキルを設計・作成・評価する | `skill-creator-best-practices` |
-| `url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する | 未登録 |
+| ディレクトリ | 公開名（呼び出し） | 用途 | plugin |
+|---|---|---|---|
+| `chat` | `chat:fable` | Fable 5 を壁打ち相手に技術相談し、整形して relay する | `chat` |
+| `chat-rigorous` | `chat:rigorous` | 反証耐性の高い分析ワークフローを instructions で強制する壁打ち | `chat` |
+| `cleanup-branches` | `git:cleanup-branches` | マージ済みブランチと作業状態を掃除し worktree を主ブランチに同期する | `git` |
+| `commit` | `git:commit` | staged 変更から Conventional Commits メッセージを生成しコミットする | `git` |
+| `dispatch` | `research:dispatch` | Fable 5 が計画・評価し、Workflow スクリプトが subagent を反復実行する | `research` |
+| `manage-marketplace-plugin` | —（未登録） | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
+| `notion-organize-knowledge` | `notion:organize-knowledge` | Notion の capture queue を根拠付きで整理し検証付きで書き込む | `notion` |
+| `pr-create` | `git:pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `git` |
+| `reference` | `research:reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `research` |
+| `search` | `research:search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `research` |
+| `skill-creator-best-practices` | `skill-creator:best-practices` | マルチエージェントでスキルを設計・作成・評価する | `skill-creator` |
+| `url-reader` | `research:url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する | `research` |
+
+frontmatter の `name` はディレクトリ名より優先される（plugin スキルの公式仕様）。ディレクトリ名 ≠ 公開名のスキルは `chat`（→`fable`）、`chat-rigorous`（→`rigorous`）、`notion-organize-knowledge`（→`organize-knowledge`）、`skill-creator-best-practices`（→`best-practices`）の 4 つ。
 
 Marketplace に登録された plugin は次の形でインストールできる。
 
 ```bash
 /plugin install <plugin-name>@yoshiysh-claude-plugins
 ```
+
+plugin の改名・削除で残骸になった旧 plugin は `tools/update-plugins` がカタログ照合で検出して uninstall する（新 plugin の install は手動）。
 
 ## ディレクトリ構成
 
@@ -52,10 +56,12 @@ Marketplace に登録された plugin は次の形でインストールできる
 .claude-plugin/
   marketplace.json
 plugins/
-  skill-creator-best-practices/
+  git/                     # 例。chat / research / notion / skill-creator も同構成
     .claude-plugin/plugin.json
     README.md
-    skills/skill-creator-best-practices -> ../../../.claude/skills/skill-creator-best-practices
+    skills/commit -> ../../../.claude/skills/commit
+    skills/pr-create -> ../../../.claude/skills/pr-create
+    skills/cleanup-branches -> ../../../.claude/skills/cleanup-branches
 ```
 
 ## 作業ルール
@@ -88,7 +94,7 @@ python3 .claude/skills/manage-marketplace-plugin/scripts/check_portability.py --
 Marketplace 登録後の install 検証:
 
 ```bash
-python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --skill <name>
+python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --plugin <plugin-name>
 ```
 
 `make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。`.claude/settings.json` 側には検証 hook は無く、通知系（Notification / Stop）のみ。
