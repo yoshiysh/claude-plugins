@@ -87,7 +87,8 @@ claim ごとに 1 回呼ばれ、1 主張分の verdict を返す。
 {
   "id": "c1",
   "text": "検証対象の 1 主張（string）",
-  "verify_method": "live-api | file-read | web-search | web-fetch | not-verifiable-by-nature"
+  "verify_method": "live-api | file-read | web-search | web-fetch | not-verifiable-by-nature",
+  "evidence_file": "生の収集材料を書き出すファイルパス（string、呼び出し元が組み立てて渡す）"
 }
 ```
 
@@ -97,11 +98,12 @@ claim ごとに 1 回呼ばれ、1 主張分の verdict を返す。
 {
   "id": "c1",
   "verdict": "verified | refuted | cannot-verify",
-  "evidence_ref": "URL / ファイルパス+行 / 実行した API とレスポンス要点（string）",
+  "evidence_ref": "URL / ファイルパス+行 / 実行した API とレスポンス要点の一行要約（string）",
+  "evidence_file": "生の収集材料を書き出したファイルパス（string、入力の値をそのまま返す）",
   "source_completeness": "complete | partial | unavailable",
   "as_of": "情報源の as-of 時点（ISO 日付/日時 or 記述, 任意）",
   "independence": "original | reposted | unknown（出典が独立原典か転載か, 任意）",
-  "note": "判定理由。字義通り裏付けた該当箇所の引用、否定/例外/留保の確認結果、矛盾源の優先順位、鮮度の注記、失敗理由等（string）"
+  "note": "判定理由の要約（string）。字義通り裏付けた該当箇所・否定/例外/留保の確認結果・矛盾源の優先順位・鮮度の注記・失敗理由等の詳細は evidence_file 側に書き、ここは synthesizer に渡す軽量な要約に留める"
 }
 ```
 
@@ -112,7 +114,11 @@ claim ごとに 1 回呼ばれ、1 主張分の verdict を返す。
 - `source_completeness: partial`（truncation/pagination で全体未取得）や `unavailable`
   （到達不能）で真偽が付かなければ `verdict: cannot-verify`。
 - `evidence_ref` は必須。記憶ベースの主張は不可（実行した取得の参照を入れる）。
-- 矛盾する複数一次情報を採否したときは、採用理由と不採用源を `note` に残す。
+- `evidence_file` は必須。取得した生の情報（ログ全文・レスポンス全体・引用の前後文脈等）は
+  ここに書き出し、`note` には要約だけを残す（synthesizer には `note` までしか渡らないため、
+  詳細をここに逃がすことで累積 verdicts のサイズを抑える）。
+- 矛盾する複数一次情報を採否したときは、採用理由と不採用源を `note` に要約し、詳細比較は
+  `evidence_file` に書く。
 
 ---
 
@@ -130,9 +136,10 @@ claim ごとに 1 回呼ばれ、1 主張分の verdict を返す。
       "kind": "fact | inference",
       "verdict": "verified | refuted | cannot-verify",
       "evidence_ref": "一次情報参照（string）",
+      "evidence_file": "生の収集材料へのパス（string、詳細確認が要る場合のみ synthesizer が読む）",
       "based_on": ["inference の根拠 id, 任意"],
       "hedge": false,
-      "note": "source-verifier の判定理由（string）"
+      "note": "source-verifier の判定理由の要約（string）"
     }
   ]
 }
@@ -183,6 +190,7 @@ SKILL.md が Step 3 でユーザー / 呼び出し元へ返す最終成果物。
     {
       "claim": "検証済みの事実主張（string）",
       "evidence_ref": "一次情報参照 URL/ファイルパス/API レスポンス（string）",
+      "evidence_file": "生の収集材料へのパス（string、任意。詳細確認が必要な場合の参照用）",
       "confidence": "verified"
     }
   ],
@@ -190,7 +198,8 @@ SKILL.md が Step 3 でユーザー / 呼び出し元へ返す最終成果物。
     {
       "claim": "未確定の主張（string）",
       "reason": "cannot-verify | refuted | unverified",
-      "note": "到達できなかった一次情報 / 矛盾内容 / 打ち切り理由（string）"
+      "note": "到達できなかった一次情報 / 矛盾内容 / 打ち切り理由（string）",
+      "evidence_file": "生の収集材料へのパス（string、任意）"
     }
   ],
   "root_cause": "特定できた場合の記述（string） | null（+ 特定できなかった理由と必要だった一次情報）",
@@ -227,13 +236,16 @@ SKILL.md が Step 3 でユーザー / 呼び出し元へ返す最終成果物。
 ```json
 {
   "claim": "検証対象の主張（string）",
-  "verify_method": "live-api | file-read | web-search | web-fetch | not-verifiable-by-nature | null"
+  "verify_method": "live-api | file-read | web-search | web-fetch | not-verifiable-by-nature | null",
+  "evidence_file": "生の収集材料を書き出すファイルパス（string、SKILL.md が組み立てて渡す）"
 }
 ```
 
 `verify_method` は呼び出し元が検証手段を把握していれば明示する（省略可）。**省略時（`null`
 または未指定）は source-verifier 自身が主張の文面から推定する**（claim-extractor を経由しない
 経路のため、この推定は source-verifier.md の責務として定義する。詳細は同ファイル参照）。
+`evidence_file` は §ワークスペースの手順（SKILL.md 参照）で確定した `workspaceDir` 配下に
+SKILL.md が組み立てる（`{workspaceDir}/evidence/{連番}.md` 等）。
 
 - 返却は各主張の三値 verdict のみ：
 
@@ -244,7 +256,8 @@ SKILL.md が Step 3 でユーザー / 呼び出し元へ返す最終成果物。
       "claim": "検証対象の主張（string）",
       "verdict": "verified | refuted | cannot-verify",
       "evidence_ref": "一次情報参照（string）",
-      "note": "判定理由 / 到達できなかった理由（string）"
+      "evidence_file": "生の収集材料へのパス（string、入力の値をそのまま返す）",
+      "note": "判定理由の要約 / 到達できなかった理由（string）"
     }
   ]
 }
