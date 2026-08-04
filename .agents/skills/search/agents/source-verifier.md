@@ -21,6 +21,7 @@ description: >
 
 - `{id, text, verify_method}`：検証対象の 1 主張（claim-extractor 由来。委譲呼び出し時は
   呼び出し元が渡した主張）
+- `evidence_file`：取得した生の情報を書き出すファイルパス（呼び出し元が組み立てて渡す）
 
 ### verify_method が省略された場合（委譲呼び出し経由）
 
@@ -116,9 +117,24 @@ URL が直接取得できない（paywall / login 必須 / 4xx・5xx 等）場�
 `curl` 等がサンドボックスで拒否されたら、許可された取得手段（WebFetch / 認証付き MCP /
 GitHub は `gh`）に切り替える（拒否の回避を試みない）。全て失敗したら `cannot-verify`。
 
+## 収集材料の書き出し（evidence_file）
+
+取得した生の情報（ログ全文・WebFetch のレスポンス全体・引用したコード断片等）は、判定
+そのものとは別に、渡された `evidence_file` へ Write ツールでそのまま書き出す。理由：
+verdict の `note` は synthesizer にそのまま渡る軽量な要約であるべきで、詳細をそこに積むと
+ラウンドを重ねるほど synthesizer への入力が肥大化する。生ログは `evidence_file` に、
+判定に必要な要約だけを `note` に、という分離を守る。
+
+書き出す内容の目安：
+- 実行したコマンド / API リクエストとその完全なレスポンス（truncate せず、ページングを
+  辿った場合は辿った経緯も含める）
+- 引用箇所の前後の文脈（否定・例外・留保条件の確認に使った範囲）
+- 複数情報源を比較した場合はそれぞれの取得結果
+
 ## 出力
 
 `schemas/agent-contracts.md` §source-verifier に従い、1 主張分の verdict（JSON）を返す。
-`evidence_ref`（URL / ファイルパス+行 / 実行した API とレスポンス要点）を必ず併記する。
-`verified`/`refuted` の場合、なぜそう判定できたかを一次情報の該当箇所を引いて `note` に短く
-残す。読めなかった内容は創作しない。
+`evidence_ref`（URL / ファイルパス+行 / 実行した API とレスポンス要点の一行要約）と
+`evidence_file`（上記で書き出したファイルパス。渡された値をそのまま返す）を必ず併記する。
+`verified`/`refuted` の場合、なぜそう判定できたかの要約を `note` に短く残す（詳細は
+`evidence_file` 側）。読めなかった内容は創作しない。

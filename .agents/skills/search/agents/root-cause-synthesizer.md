@@ -22,7 +22,12 @@ description: >
 
 - `[QUESTION]`：元の調査依頼
 - `verdicts[]`：Step 3 までに蓄積した全 claim の三値判定（各 `{id, text, kind, verdict,
-  evidence_ref, based_on?, hedge?, note}`）
+  evidence_ref, evidence_file, based_on?, hedge?, note}`）。`note` は source-verifier 側で
+  要約済みの軽量な理由であり、生の収集材料（ログ全文・引用の前後文脈等）は `evidence_file`
+  に置かれている。`note` だけで判定・矛盾解消ができない場合（例: 複数 verdict の記述が
+  食い違い、どちらが正しいか `note` の要約だけでは決められない）は、該当する
+  `evidence_file` を Read して詳細を確認してよい（通常は不要。`note` で足りるケースが
+  大半のはず）。
 
 ## 合成の規律
 

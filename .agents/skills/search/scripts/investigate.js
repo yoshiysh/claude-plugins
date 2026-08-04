@@ -59,12 +59,13 @@ const VERDICT_SCHEMA = {
     id: { type: 'string' },
     verdict: { type: 'string', enum: ['verified', 'refuted', 'cannot-verify'] },
     evidence_ref: { type: 'string' },
+    evidence_file: { type: 'string' },
     source_completeness: { type: 'string', enum: ['complete', 'partial', 'unavailable'] },
     as_of: { type: 'string' },
     independence: { type: 'string', enum: ['original', 'reposted', 'unknown'] },
     note: { type: 'string' },
   },
-  required: ['id', 'verdict', 'evidence_ref', 'source_completeness', 'note'],
+  required: ['id', 'verdict', 'evidence_ref', 'evidence_file', 'source_completeness', 'note'],
 }
 
 const SYNTH_SCHEMA = {
@@ -122,7 +123,7 @@ function buildExtractPrompt(question, draft, nextQuestion, verifiedTexts) {
   ].join('\n')
 }
 
-function buildVerifyPrompt(claim) {
+function buildVerifyPrompt(claim, evidenceFile) {
   return [
     `Read ${SKILL_DIR}/agents/source-verifier.md for your full role instructions before doing anything else.`,
     `契約は ${SKILL_DIR}/schemas/agent-contracts.md §source-verifier を正とする。`,
@@ -130,7 +131,14 @@ function buildVerifyPrompt(claim) {
     '# 検証対象の主張（1 件）',
     JSON.stringify({ id: claim.id, text: claim.text, verify_method: claim.verify_method }, null, 2),
     '',
+    '# 収集材料の書き出し先（evidence_file）',
+    evidenceFile,
+    '取得した生の情報（ログ全文・WebFetch 結果・コード断片等）は Write ツールで上記パスに' +
+      'そのまま書き出すこと。verdict の `note` には要約のみを残し、詳細はこのファイルに置く' +
+      '（後段の synthesizer には note しか渡らないため、判定に不要な detail をここに逃がす）。',
+    '',
     '出力の `id` は上記の id をそのまま返すこと（後段の突合キー）。',
+    '出力の `evidence_file` には上記パスをそのまま返すこと。',
   ].join('\n')
 }
 
@@ -170,6 +178,15 @@ if (!SKILL_DIR) {
 const question = parsedArgs.question
 if (!question || typeof question !== 'string' || !question.trim()) {
   throw new Error('args.question が空です。調査依頼の本文を args.question に渡してください。')
+}
+
+// workspaceDir: source-verifier が生の収集材料（ログ全文・WebFetch 結果等）を書き出す先。
+// 対象プロジェクトのツリーの外（呼び出し元スキルがユーザーの gitignore 管理外に確保した
+// 固定ロケーション）を SKILL.md が生成して渡す。script は自身で日時/乱数を生成できない
+// （resume 時に再現性が崩れるため禁止）ので、ここでもパスを組み立てず素通しする。
+const workspaceDir = parsedArgs.workspaceDir
+if (!workspaceDir) {
+  throw new Error('args.workspaceDir が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。')
 }
 
 const maxRounds = parsedArgs.maxRounds || DEFAULT_MAX_ROUNDS
@@ -218,8 +235,9 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
   // レポートに混入する主張」は原理的に存在しえない。散文で禁止する必要がない。
   const newVerdicts = (
     await parallel(
-      fresh.map((claim) => () =>
-        agent(buildVerifyPrompt(claim), {
+      fresh.map((claim) => () => {
+        const evidenceFile = `${workspaceDir}/evidence/${claim.id}.md`
+        return agent(buildVerifyPrompt(claim, evidenceFile), {
           model: 'sonnet',
           schema: VERDICT_SCHEMA,
           phase: 'Verify',
@@ -233,10 +251,11 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
                 based_on: claim.based_on,
                 hedge: claim.hedge,
                 ...v,
+                evidence_file: v.evidence_file || evidenceFile,
               }
             : null
         )
-      )
+      })
     )
   ).filter(Boolean)
 
@@ -253,6 +272,7 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
       hedge: c.hedge,
       verdict: 'cannot-verify',
       evidence_ref: '(検証 agent が結果を返さなかった)',
+      evidence_file: null,
       source_completeness: 'unavailable',
       note: 'source-verifier の呼び出しが失敗したため未検証。推測で埋めていない。',
     }))

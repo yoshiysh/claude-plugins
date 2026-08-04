@@ -87,8 +87,9 @@ description: >
   │       引き継ぎとしてユーザー / 呼び出し元へ返す（自身では実行しない。§Step 1）。
   │
   ├─[2] Workflow を呼ぶ（§Step 2）
+  │       事前に §ワークスペース の手順で workspaceDir を確定する
   │       scriptPath: scripts/investigate.js
-  │       args: { skillDir, question, maxRounds? }
+  │       args: { skillDir, question, workspaceDir, maxRounds? }
   │       ループ本体は script が内包する:
   │         Extract    claim-extractor（sonnet）が検証すべき事実主張を全列挙
   │         Verify     source-verifier（sonnet）を claim ごとに並列 spawn し三値判定
@@ -126,6 +127,29 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
   このスキルの対象外。呼び出されても調査タスクが無いことを伝えて終了する（discovery 境界を
   本文でも担保）。ただし「調べて直して」のように調査を含む場合は Step 1 で扱う。
 
+## ワークスペース（収集材料の書き出し先）
+
+`source-verifier` が取得した生の情報（ログ全文・WebFetch 結果・コード断片等）は、判定用の
+軽量な verdict（`schemas/agent-contracts.md` 参照）とは別に、対象プロジェクトのツリー外に
+確保した固定ロケーションへ書き出す。
+
+**なぜ対象プロジェクトの外に置くか**：このスキルは任意のプロジェクトから呼ばれる。CWD 相対の
+`workspace/` を使うと呼び出された先のプロジェクトのリポジトリ直下に書き込むことになるが、
+その `.gitignore` は呼び出し先プロジェクトの持ち物であり自分（プラグイン開発者）は管理して
+いない。書き込むたびに他人のリポジトリへ侵襲的な変更を加えることになり、`.gitignore` 追加前
+にコミットされてしまうリスクも残る。プロジェクトに依存しない `~/.claude/search-workspace/`
+を使えば、この gitignore 管理という問題自体が発生しない。
+
+Step 0.5（委譲経路）・Step 2（通常経路）のいずれで verifier を spawn する前にも、SKILL.md
+自身（script ではなく agent）が以下を行い `workspaceDir` を確定する：
+
+1. 調査依頼（委譲経路では検証対象の主張）から短い slug を作る（英数字・ハイフンのみ、
+   20 文字程度に要約）。
+2. Bash で `date +%Y%m%d-%H%M%S` を実行し、その値と slug を組み合わせて
+   `~/.claude/search-workspace/{timestamp}-{slug}` を `workspaceDir` とする
+   （script は再現性のため日時を自ら生成できないので、ここは agent 側の責務）。
+3. `mkdir -p {workspaceDir}/evidence` を実行してから spawn に進む。
+
 ## Step 0.5: 委譲ヘッダ検出（SKILL.md が直接判定する分岐）
 
 `<text>` の先頭行が `[SKILL_DELEGATION caller=<skill> purpose=verify-claim]` に一致するかを
@@ -133,8 +157,10 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
 
 - **一致する場合**：ヘッダ行を除いた本文を「検証対象の主張（1 個または少数）」として、
   `agents/source-verifier.md` を読み **Agent ツールで直接 spawn する**（複数主張なら
-  同一ターンで並列に）。各主張について `verified`/`refuted`/`cannot-verify` の三値 +
-  `evidence_ref` を呼び出し元へ返して終了する（root-cause 合成は行わない。呼び出し元が
+  同一ターンで並列に）。spawn 前に §ワークスペースの手順で `workspaceDir` を用意し、
+  主張ごとの `evidence_file`（`{workspaceDir}/evidence/{連番}.md`）を組み立てて渡す。
+  各主張について `verified`/`refuted`/`cannot-verify` の三値 + `evidence_ref` +
+  `evidence_file` を呼び出し元へ返して終了する（root-cause 合成は行わない。呼び出し元が
   求めているのは主張の裏付け可否のみ）。契約は `schemas/agent-contracts.md`
   §delegation-verify-claim を正とする。
 
@@ -159,12 +185,19 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
 ```
 Workflow({
   scriptPath: "[SKILL_DIR]/scripts/investigate.js",
-  args: { skillDir: "[SKILL_DIR]", question: "<調査依頼>", maxRounds: <number|undefined> }
+  args: {
+    skillDir: "[SKILL_DIR]",
+    question: "<調査依頼>",
+    workspaceDir: "<上で確定した workspaceDir>",
+    maxRounds: <number|undefined>
+  }
 })
 ```
 
 `skillDir` には本スキルの実ディレクトリを実パスで渡す。スクリプトは自身の位置を解決できず、
 agent に渡す `agents/*.md` と `schemas/agent-contracts.md` の Read パスがここでしか決まらない。
+`workspaceDir` は上記の手順で確定したパスをそのまま渡す。script はこれを使って claim ごとの
+`evidence_file`（`{workspaceDir}/evidence/{claim-id}.md`）を組み立て、verifier に渡す。
 
 完了すると `{ question, rounds_run, termination_reason, report, verdicts, rounds }` が返る。
 
