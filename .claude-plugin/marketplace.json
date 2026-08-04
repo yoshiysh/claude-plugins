@@ -6,36 +6,24 @@
     },
     "plugins": [
         {
-            "name": "pr-create",
-            "source": "./plugins/pr-create"
-        },
-        {
-            "name": "reference",
-            "source": "./plugins/reference"
-        },
-        {
-            "name": "commit",
-            "source": "./plugins/commit"
-        },
-        {
-            "name": "cleanup-branches",
-            "source": "./plugins/cleanup-branches"
-        },
-        {
-            "name": "skill-creator-best-practices",
-            "source": "./plugins/skill-creator-best-practices"
+            "name": "git",
+            "source": "./plugins/git"
         },
         {
             "name": "chat",
             "source": "./plugins/chat"
         },
         {
-            "name": "dispatch",
-            "source": "./plugins/dispatch"
+            "name": "research",
+            "source": "./plugins/research"
         },
         {
-            "name": "search",
-            "source": "./plugins/search"
+            "name": "notion",
+            "source": "./plugins/notion"
+        },
+        {
+            "name": "skill-creator",
+            "source": "./plugins/skill-creator"
         }
     ]
 }

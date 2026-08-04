@@ -1,0 +1,8 @@
+{
+    "name": "git",
+    "version": "0.1.0",
+    "description": "Git ワークフロー支援（commit / pr-create / cleanup-branches）",
+    "author": {
+        "name": "yoshiysh"
+    }
+}

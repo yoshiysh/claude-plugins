@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """既存スキルをリポジトリの marketplace.json にプラグインとして登録するスクリプト。
 
-`plugins/<name>/` に公開用のプラグインディレクトリを作り、そこに manifest（plugin.json）と
-README を生成し、plugins/<name>/skills/<name> をスキル本体（.claude/skills/<name>）への相対
-シンボリックリンクにする。marketplace.json の plugins には {name, source: "./plugins/<name>"}
-を非破壊で追記する。
+`plugins/<plugin>/` に公開用のプラグインディレクトリを作り、そこに manifest（plugin.json）と
+README を生成し、plugins/<plugin>/skills/<公開名> をスキル本体（.claude/skills/<skill>）への
+相対シンボリックリンクにする。marketplace.json の plugins には
+{name, source: "./plugins/<plugin>"} を非破壊で追記する。
+
+plugin はカテゴリ単位で複数スキルを収録できる（例: plugins/git/skills/{commit,pr-create}）。
+- `--plugin` で対象 plugin を指定する（未指定ならスキル名と同名の plugin）。
+- skills/ 配下のエントリ名（symlink 名）は**スキル実体ディレクトリ名**を既定とする。
+  公開名（/plugin:skill の skill 部分）は frontmatter の `name` が担うため、symlink 名を
+  変える必要はない。むしろ install 先のキャッシュは symlink 名でディレクトリが作られるため、
+  `[SKILL_DIR]/../<兄弟スキル>/` のようなディレクトリ名参照を持つスキルは symlink 名を
+  実体名から変えると install 先で参照が切れる。`--as` は例外的な明示上書き用。
 
 なぜこの構成か（symlink + ルート plugin dir）:
 - marketplace 経由の install では CLI が plugin dir をキャッシュにコピーする際、
@@ -17,15 +25,17 @@ README を生成し、plugins/<name>/skills/<name> をスキル本体（.claude/
 
 設計上の不変条件:
 - 非破壊: marketplace.json の既存 plugins 要素・他トップレベルキーを保持。既存 README は上書きしない。
+  既存 plugin への追加登録時は、既にある skills/ 配下の他スキル symlink を保持する。
 - 冪等: 2回登録しても plugins が重複せず、symlink も二重化しない。
 - 相対 symlink のみ: 絶対 symlink は使わない（クローン先で壊れるため）。
 - 不在 != 破損: marketplace.json 不在は新規作成、破損 JSON は中断（自動修復しない）。
-- スキル実体は複製しない: 必ず symlink で .claude/skills/<name> を参照する。
+- スキル実体は複製しない: 必ず symlink で .claude/skills/<skill> を参照する。
 """
 
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -39,7 +49,7 @@ SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 MARKETPLACE_PATH = PROJECT_ROOT / ".claude-plugin" / "marketplace.json"
 # 公開用プラグインディレクトリの置き場（ルート直下を散らかさないよう plugins/ に集約）。
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
-# plugins/<name>/skills/ からリポジトリルートまでの相対深さ（.. を3つ）。
+# plugins/<plugin>/skills/ からリポジトリルートまでの相対深さ（.. を3つ）。
 SKILL_LINK_TARGET_PREFIX = (os.pardir, os.pardir, os.pardir)
 
 # marketplace.json 不在時に作る雛形（既存フォーマットに合わせる）。
@@ -74,6 +84,24 @@ def verify_skill_exists(name: str) -> None:
              "  登録対象スキルがリポジトリに実在するか確認してください。")
 
 
+def frontmatter_name(skill: str) -> str:
+    """SKILL.md frontmatter の name を読む。取れなければスキルディレクトリ名を返す。
+
+    公開名（skills/ 配下のエントリ名）の既定値。frontmatter の name が
+    ディレクトリ名より優先される公式仕様に合わせ、公開名も name に揃える。
+    """
+    skill_md = SKILLS_DIR / skill / "SKILL.md"
+    try:
+        text = skill_md.read_text(encoding="utf-8")
+    except OSError:
+        return skill
+    m = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+    if not m:
+        return skill
+    nm = re.search(r"^name:\s*(\S+)\s*$", m.group(1), re.MULTILINE)
+    return nm.group(1) if nm else skill
+
+
 def load_marketplace() -> tuple[dict, bool]:
     """marketplace.json を読む。
 
@@ -100,20 +128,20 @@ def load_marketplace() -> tuple[dict, bool]:
     return data, False
 
 
-def merge_marketplace_entry(data: dict, name: str, update: bool) -> str:
-    """plugins 配列に {name, source: "./<name>"} を非破壊・重複なしで追加する。
+def merge_marketplace_entry(data: dict, plugin: str, update: bool) -> str:
+    """plugins 配列に {name, source: "./plugins/<plugin>"} を非破壊・重複なしで追加する。
 
     戻り値: "added" | "updated"
     既存エントリがあり update=False のときは衝突として中断する。
     """
-    entry = {"name": name, "source": f"./plugins/{name}"}
+    entry = {"name": plugin, "source": f"./plugins/{plugin}"}
     plugins = data["plugins"]
     for i, p in enumerate(plugins):
-        if isinstance(p, dict) and p.get("name") == name:
+        if isinstance(p, dict) and p.get("name") == plugin:
             if not update:
                 fail(EXIT_CONFLICT,
-                     f"ERROR: '{name}' は既に marketplace.json に登録済みです。",
-                     "  更新する場合は --update を付けて再実行してください。")
+                     f"ERROR: plugin '{plugin}' は既に marketplace.json に登録済みです。",
+                     "  更新（スキル追加を含む）の場合は --update を付けて再実行してください。")
             plugins[i] = entry  # 冪等: 内容を正規形に揃える
             return "updated"
     plugins.append(entry)
@@ -128,84 +156,95 @@ def write_marketplace(data: dict) -> None:
     )
 
 
-def build_plugin_json(name: str, version: str, author: str, description: str) -> str:
-    plugin = {"name": name, "version": version}
+def build_plugin_json(plugin: str, version: str, author: str, description: str) -> str:
+    data = {"name": plugin, "version": version}
     if description:
-        plugin["description"] = description
-    plugin["author"] = {"name": author}
-    return json.dumps(plugin, indent=INDENT, ensure_ascii=False) + "\n"
+        data["description"] = description
+    data["author"] = {"name": author}
+    return json.dumps(data, indent=INDENT, ensure_ascii=False) + "\n"
 
 
-def build_readme(name: str, description: str, bundled_skills=None) -> str:
+def build_readme(plugin: str, public_name: str, skill: str,
+                 description: str, bundled_skills=None) -> str:
     """README の最小要件（スキル名・概要・呼び出し例・参照先）を満たす雛形。
 
-    bundled_skills（依存として同梱した他スキル）があれば「含まれるスキル」に併記する。
+    bundled_skills（依存として同梱した他スキル）があれば「収録スキル」に併記する。
+    既存 README がある場合は呼ばれない（上書きしない）。
     """
-    desc = description or f"{name} スキルをプラグインとして公開します。"
-    rows = [f"| `{name}` | {desc} |"]
+    desc = description or f"{public_name} スキルをプラグインとして公開します。"
+    rows = [f"| `{public_name}` | `/{plugin}:{public_name}` | {desc} |"]
     for dep in (bundled_skills or []):
-        rows.append(f"| `{dep}` | {name} が依存するため同梱（連鎖呼び出し用） |")
+        dep_public = frontmatter_name(dep)
+        rows.append(f"| `{dep_public}` | `/{plugin}:{dep_public}` | "
+                    f"{public_name} が依存するため同梱（連鎖呼び出し用） |")
     skills_table = "\n".join(rows)
-    bundle_note = ""
-    if bundled_skills:
-        links = ", ".join(f"`skills/{d}`" for d in bundled_skills)
-        bundle_note = (
-            f"\nこのプラグインには {name} が依存する {links} も同梱されています"
-            "（いずれもリポジトリ本体への相対シンボリックリンク）。\n")
+    entity_note = ""
+    if public_name != skill:
+        entity_note = (
+            f"スキル実体はディレクトリ名（`{skill}`）のまま、"
+            f"frontmatter の `name`（`{public_name}`）で公開されます。\n")
     return (
-        f"# {name}\n\n"
+        f"# {plugin}\n\n"
         f"{desc}\n\n"
-        "## 含まれるスキル\n\n"
-        "| スキル | 説明 |\n"
-        "|---|---|\n"
+        "## 収録スキル\n\n"
+        "| スキル | 呼び出し | 説明 |\n"
+        "|---|---|---|\n"
         f"{skills_table}\n\n"
         "## 使い方\n\n"
-        "プラグインを有効化したうえで、スキルを呼び出します。\n\n"
         "```\n"
-        f"/{name} <依頼内容>\n"
+        f"/{plugin}:{public_name} <依頼内容>\n"
         "```\n\n"
-        f"詳細なフローは `skills/{name}/SKILL.md` を参照してください。\n\n"
-        "## 構成について\n\n"
-        f"このプラグインの `skills/{name}` は、リポジトリ本体の\n"
-        f"`.claude/skills/{name}` への相対シンボリックリンクです。\n"
-        "スキルの実体は `.claude/skills/` を唯一の正とし、公開時はリンク経由で参照します。\n"
-        f"{bundle_note}"
+        f"詳細なフローは `skills/{skill}/SKILL.md` を参照してください。\n\n"
+        "## 構成\n\n"
+        "このプラグインの `skills/` 配下は、リポジトリ本体の\n"
+        "`.claude/skills/` への相対シンボリックリンクです。\n"
+        f"{entity_note}"
     )
 
 
-def write_plugin_files(name: str, version: str, author: str,
-                       description: str, bundled_skills=None) -> dict:
+def write_plugin_files(plugin: str, public_name: str, skill: str, version: str,
+                       author: str, description: str, bundled_skills=None) -> dict:
     """ルート plugin dir に plugin.json を生成し、README は既存があれば保持する。
 
     戻り値: {"plugin_json": "created", "readme": "created"|"kept"}
     """
-    plugin_dir = PLUGINS_DIR / name / ".claude-plugin"
+    plugin_dir = PLUGINS_DIR / plugin / ".claude-plugin"
     plugin_dir.mkdir(parents=True, exist_ok=True)
+    # 既存カテゴリ plugin への追加登録で description 未指定のとき、
+    # 既存 plugin.json の description（plugin 全体の説明）を消さない。
+    if not description:
+        pj = plugin_dir / "plugin.json"
+        if pj.is_file():
+            try:
+                description = json.loads(
+                    pj.read_text(encoding="utf-8")).get("description", "")
+            except (json.JSONDecodeError, OSError):
+                pass
     (plugin_dir / "plugin.json").write_text(
-        build_plugin_json(name, version, author, description), encoding="utf-8")
+        build_plugin_json(plugin, version, author, description), encoding="utf-8")
 
-    readme_path = PLUGINS_DIR / name / "README.md"
+    readme_path = PLUGINS_DIR / plugin / "README.md"
     if readme_path.exists():
         readme_action = "kept"  # 既存 README を上書きしない（手書き保護）
     else:
         readme_path.write_text(
-            build_readme(name, description, bundled_skills), encoding="utf-8")
+            build_readme(plugin, public_name, skill, description, bundled_skills),
+            encoding="utf-8")
         readme_action = "created"
     return {"plugin_json": "created", "readme": readme_action}
 
 
-def ensure_symlink(plugin_name: str, skill_name: str) -> str:
-    """<plugin_name>/skills/<skill_name> → ../../../.claude/skills/<skill_name> の相対 symlink を作る。
+def ensure_symlink(plugin: str, link_name: str, skill: str) -> str:
+    """plugins/<plugin>/skills/<link_name> → ../../../.claude/skills/<skill> の相対 symlink を作る。
 
-    plugin_name と skill_name を分けるのは、依存スキルを同一プラグインに同梱
-    （`<plugin_name>/skills/<dep>`）するため。本体は plugin_name == skill_name。
+    link_name（公開名）と skill（実体ディレクトリ名）は異なってよい。
     冪等: 既に正しい相対 symlink ならそのまま。違う向きなら張り直す。
     戻り値: "created" | "kept" | "relinked"
     """
-    skills_subdir = PLUGINS_DIR / plugin_name / "skills"
+    skills_subdir = PLUGINS_DIR / plugin / "skills"
     skills_subdir.mkdir(parents=True, exist_ok=True)
-    link_path = skills_subdir / skill_name
-    target = os.path.join(*SKILL_LINK_TARGET_PREFIX, ".claude", "skills", skill_name)
+    link_path = skills_subdir / link_name
+    target = os.path.join(*SKILL_LINK_TARGET_PREFIX, ".claude", "skills", skill)
 
     if link_path.is_symlink():
         if os.readlink(link_path) == target:
@@ -222,15 +261,15 @@ def ensure_symlink(plugin_name: str, skill_name: str) -> str:
     return "created"
 
 
-def verify_symlink(plugin_name: str, skill_name: str) -> bool:
+def verify_symlink(plugin: str, link_name: str) -> bool:
     """リンク経由で SKILL.md が読めるかを検証する。"""
-    linked_skill_md = PLUGINS_DIR / plugin_name / "skills" / skill_name / "SKILL.md"
+    linked_skill_md = PLUGINS_DIR / plugin / "skills" / link_name / "SKILL.md"
     return linked_skill_md.is_file()
 
 
-def read_existing_version(name: str):
+def read_existing_version(plugin: str):
     """既存 plugin.json から version を読む。無ければ None。"""
-    pj = PLUGINS_DIR / name / ".claude-plugin" / "plugin.json"
+    pj = PLUGINS_DIR / plugin / ".claude-plugin" / "plugin.json"
     if pj.is_file():
         try:
             return json.loads(pj.read_text(encoding="utf-8")).get("version")
@@ -248,7 +287,7 @@ def bump_patch(version: str) -> str:
     return version
 
 
-def resolve_version(name: str, explicit, exists: bool):
+def resolve_version(plugin: str, explicit, exists: bool):
     """登録/更新時の plugin.json version を決める。戻り値: (version, bump_note)
 
     - 明示指定（--version）があれば最優先（更新でも新規でも）。
@@ -261,7 +300,7 @@ def resolve_version(name: str, explicit, exists: bool):
     if explicit:
         return explicit, "explicit"
     if exists:
-        cur = read_existing_version(name)
+        cur = read_existing_version(plugin)
         if cur:
             return bump_patch(cur), f"{cur} -> patch+1"
         return "0.1.0", "default(0.1.0)"
@@ -271,7 +310,13 @@ def resolve_version(name: str, explicit, exists: bool):
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="既存スキルを marketplace.json にプラグイン登録する")
-    parser.add_argument("--skill", required=True, help="登録対象スキル名")
+    parser.add_argument("--skill", required=True,
+                        help="登録対象スキル名（.claude/skills/ の実ディレクトリ名）")
+    parser.add_argument("--plugin", default=None,
+                        help="登録先 plugin 名（カテゴリ）。未指定ならスキル名と同名の plugin")
+    parser.add_argument("--as", dest="link_name", default=None,
+                        help="skills/ 配下のエントリ名（symlink 名）。既定はスキル実体"
+                             "ディレクトリ名（公開名は frontmatter の name が担うため通常不要）")
     parser.add_argument("--version", default=None,
                         help="plugin.json の version。未指定なら新規=0.1.0／"
                              "更新=既存 version の patch を +1")
@@ -279,90 +324,104 @@ def main() -> None:
     parser.add_argument("--description", default="",
                         help="プラグイン説明文（未指定時は空。input-resolver が補う想定）")
     parser.add_argument("--update", action="store_true",
-                        help="同名エントリが既にある場合に更新する（既定は衝突中断）")
+                        help="同名 plugin エントリが既にある場合に更新する（既定は衝突中断）。"
+                             "既存カテゴリ plugin へのスキル追加もこれ")
     parser.add_argument("--bundle-skill", action="append", default=[],
                         metavar="DEP",
-                        help="依存スキルを同一プラグインに同梱する（skills/<DEP> を追加。"
+                        help="依存スキルを同一プラグインに同梱する（skills/<DEP公開名> を追加。"
                              "複数指定可）")
     parser.add_argument("--dry-run", action="store_true",
                         help="ファイルに書き込まず、行う操作のみ報告する")
     args = parser.parse_args()
 
-    name = args.skill
+    skill = args.skill
+    plugin = args.plugin or skill
 
     # 同梱依存スキル（重複除去・本体除外・入力順を保持）
     bundle_skills = []
     for dep in args.bundle_skill:
-        if dep and dep != name and dep not in bundle_skills:
+        if dep and dep != skill and dep not in bundle_skills:
             bundle_skills.append(dep)
 
     # 1. 実在確認（最初に行い無駄な書き込みを防ぐ）。同梱依存も実在を要求する。
-    verify_skill_exists(name)
+    verify_skill_exists(skill)
     for dep in bundle_skills:
         verify_skill_exists(dep)
 
+    # symlink 名は明示（--as）> スキル実体ディレクトリ名。公開名は frontmatter の name。
+    link_name = args.link_name or skill
+    public_name = frontmatter_name(skill)
+
     # 2. marketplace.json 読み込み（破損中断・不在は新規）
     data, created_new = load_marketplace()
-    exists = any(isinstance(p, dict) and p.get("name") == name
+    exists = any(isinstance(p, dict) and p.get("name") == plugin
                  for p in data["plugins"])
 
     # version を解決（明示 > 更新時 patch+1 > 新規 0.1.0）
-    version, version_bump = resolve_version(name, args.version, exists)
+    version, version_bump = resolve_version(plugin, args.version, exists)
 
     if args.dry_run:
         if exists and not args.update:
             fail(EXIT_CONFLICT,
-                 f"ERROR: '{name}' は既に登録済みです（--update が必要）。")
+                 f"ERROR: plugin '{plugin}' は既に登録済みです（--update が必要）。")
         report = {
             "status": "ok",
             "dry_run": True,
             "created_new": created_new,
             "marketplace_path": str(MARKETPLACE_PATH),
+            "plugin": plugin,
+            "skill": skill,
+            "public_name": public_name,
             "version": version,
             "version_bump": version_bump,
             "planned_actions": {
                 "marketplace_entry": "updated" if exists else "added",
                 "plugin_json": f"would_create (version {version})",
-                "readme": "would_keep" if (PLUGINS_DIR / name / "README.md").exists()
+                "readme": "would_keep" if (PLUGINS_DIR / plugin / "README.md").exists()
                           else "would_create",
-                "symlink": f"./plugins/{name}/skills/{name} -> ../../../.claude/skills/{name}",
+                "symlink": f"./plugins/{plugin}/skills/{link_name} -> "
+                           f"../../../.claude/skills/{skill}",
                 "bundled_symlinks": [
-                    f"./plugins/{name}/skills/{dep} -> ../../../.claude/skills/{dep}"
+                    f"./plugins/{plugin}/skills/{dep} -> ../../../.claude/skills/{dep}"
                     for dep in bundle_skills
                 ],
             },
             "bundled_skills": bundle_skills,
             "next_action":
-                f"/plugin install {name}@{data.get('name', 'yoshiysh-claude-plugins')} "
+                f"/plugin install {plugin}@{data.get('name', 'yoshiysh-claude-plugins')} "
                 "でインストールして動作確認できます。",
         }
         print(json.dumps(report, ensure_ascii=False, indent=2))
         sys.exit(EXIT_OK)
 
     # 3. marketplace.json へ非破壊マージ（衝突は exit 4）
-    entry_action = merge_marketplace_entry(data, name, update=args.update)
+    entry_action = merge_marketplace_entry(data, plugin, update=args.update)
     write_marketplace(data)
 
     # 4-5. plugin.json / README 生成・相対 symlink 作成（本体）
-    file_actions = write_plugin_files(name, version, args.author,
-                                      args.description, bundle_skills)
-    symlink_action = ensure_symlink(name, name)
+    file_actions = write_plugin_files(plugin, public_name, skill, version,
+                                      args.author, args.description, bundle_skills)
+    symlink_action = ensure_symlink(plugin, link_name, skill)
 
     # 4-5b. 依存スキルを同一プラグインに同梱（skills/<dep> の追加 symlink）
     bundled = []
     for dep in bundle_skills:
-        dep_action = ensure_symlink(name, dep)
-        bundled.append({"skill": dep, "symlink": dep_action,
-                        "ok": verify_symlink(name, dep)})
+        dep_action = ensure_symlink(plugin, dep, dep)
+        bundled.append({"skill": dep, "public_name": frontmatter_name(dep),
+                        "symlink": dep_action,
+                        "ok": verify_symlink(plugin, dep)})
 
     # 6. symlink 検証（本体＋同梱すべて）
-    symlink_ok = verify_symlink(name, name) and all(b["ok"] for b in bundled)
+    symlink_ok = verify_symlink(plugin, link_name) and all(b["ok"] for b in bundled)
 
     report = {
         "status": "ok",
         "dry_run": False,
         "created_new": created_new,
         "marketplace_path": str(MARKETPLACE_PATH),
+        "plugin": plugin,
+        "skill": skill,
+        "public_name": public_name,
         "version": version,
         "version_bump": version_bump,
         "actions": {
@@ -374,7 +433,7 @@ def main() -> None:
         "bundled_skills": bundled,
         "symlink_ok": symlink_ok,
         "next_action":
-            f"/plugin install {name}@{data.get('name', 'yoshiysh-claude-plugins')} "
+            f"/plugin install {plugin}@{data.get('name', 'yoshiysh-claude-plugins')} "
             "でインストールして動作確認できます。",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))

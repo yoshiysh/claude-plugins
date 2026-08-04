@@ -1,10 +1,10 @@
 ---
-name: chat-rigorous
+name: rigorous
 description: >
   技術的な壁打ち・分析・レビュー相談（プロジェクト全体の評価、既存文書/Issue のレビュー、
   設計判断の壁打ち等）に対し、反証耐性の高い分析ワークフロー（24 パターン）を明示的な instructions
   として analyst agent に強制し、Sonnet / Opus 等どのモデルでも Claude Fable 5 相当の厳密な分析品質を
-  再現するスキル。ユーザーが `/chat-rigorous` に続けて対象/トピックを入力したときにのみ起動する
+  再現するスキル。ユーザーが `/rigorous` に続けて対象/トピックを入力したときにのみ起動する
   （自然文トリガーは対象外）。analyst は助言に徹し、調査目的の Read/Grep/Bash は行うが、ファイル変更・
   コマンドによる状態変更は行わない。相談内容が投資判断（銘柄評価・買い時/売り時・組み入れ・
   ポートフォリオ・目標株価等）を含む場合は investment-strategist スキルへ完全委譲し、このスキル自身は
@@ -16,7 +16,7 @@ description: >
 技術的な相談・レビュー・自己評価に対し、**反証耐性の高い分析ワークフロー（4 つの生成原理と 24 パターン）**を
 明示的な instructions として `analyst` agent に踏ませることで、モデル非依存に厳密な分析を返す。
 
-既存の `/chat` が Claude Fable 5 の素の分析能力に依存するのに対し、本スキルは「思考の型」を
+既存の `/fable` が Claude Fable 5 の素の分析能力に依存するのに対し、本スキルは「思考の型」を
 instructions 化して強制する。これにより Sonnet / Opus 等でも Fable 5 相当の分析品質を目指す。
 
 このスキル自身は分析結果を生成しない。**分析は `analyst` agent が生成原理に基づき（派生形として
@@ -26,7 +26,7 @@ SKILL.md からは直接呼ばない。
 
 ## 役割（何をするか）
 
-1. `/chat-rigorous <対象/トピック>` の相談を受け取る
+1. `/rigorous <対象/トピック>` の相談を受け取る
 2. `investment-topic-router` agent（既存 chat スキルのものを再利用）に投資トピック判定と委譲判断を委ねる
 3. 非投資の相談は、`analyst` agent に渡して生成原理に基づく（派生形として 24 パターンを用いた）分析をさせる
 4. analyst の出力をそのままユーザーへ返す（整形の中間 agent は挟まない）
@@ -44,7 +44,7 @@ SKILL.md からは直接呼ばない。
 - **SKILL.md がスクリプト・別スキルを直接呼ばない**：投資トピック判定（script 実行）と
   investment-strategist への委譲（Skill 呼び出し）はいずれも `investment-topic-router` agent の責務とし、
   SKILL.md はその agent を呼ぶとだけ書く。
-- **Notion 記録はしない**：本スキルはログ記録機能を持たない（`/chat` との差別化点）。
+- **Notion 記録はしない**：本スキルはログ記録機能を持たない（`/fable` との差別化点）。
 
 ## 既存 chat スキルとの関係（investment-topic-router の再利用）
 
@@ -57,7 +57,7 @@ SKILL.md からは直接呼ばない。
 ## フロー
 
 ```
-/chat-rigorous <対象/トピック>
+/rigorous <対象/トピック>
   │
   ├─[0] 空入力 / コマンドのみ / 明らかな雑談  → 案内文を返して終了（agent に渡さない）
   │
@@ -80,8 +80,8 @@ SKILL.md からは直接呼ばない。
 
 ```
 厳密に分析・レビューしてほしい対象を続けて書いてください。
-例: /chat-rigorous このプロジェクトの現状を評価して、今後の優先順位を提案してほしい
-例: /chat-rigorous src/pricing/rounding.py の丸め処理、境界値で破綻しないか見てほしい
+例: /rigorous このプロジェクトの現状を評価して、今後の優先順位を提案してほしい
+例: /rigorous src/pricing/rounding.py の丸め処理、境界値で破綻しないか見てほしい
 ```
 
 `<対象/トピック>` が明らかに分析相談でも投資相談でもない雑談的入力（例：「今日の天気は」「元気？」）の
@@ -91,7 +91,7 @@ SKILL.md からは直接呼ばない。
 
 ```
 このスキルは技術的な分析・レビュー・設計の壁打ち（プロジェクト評価・文書やIssueのレビュー・
-設計判断の相談等）向けです。分析したい対象を書いて `/chat-rigorous` で呼び出してください。
+設計判断の相談等）向けです。分析したい対象を書いて `/rigorous` で呼び出してください。
 ```
 
 **ただし、曖昧だが実体のある相談（例：「なんかこの認証まわり、色々ヤバい気がする」）は打ち切らず
@@ -116,8 +116,8 @@ Step 1 へ進める。** 曖昧さは相談内容の未整理であって雑談�
 - `proceed: true` の場合：Step 2 へ続行する。**`note` が付いていた場合（script エラー時の断り書き）は
   破棄せず保持し、Step 2 の analyst 出力の末尾に付記して返す**（下記参照）。
 
-**`note` を握り潰さないことが重要な理由**：既存 `/chat` では `note` は relay-formatter が最終出力末尾に
-添える設計になっている。chat-rigorous には relay-formatter に相当する整形 agent がいないため、
+**`note` を握り潰さないことが重要な理由**：既存 `/fable` では `note` は relay-formatter が最終出力末尾に
+添える設計になっている。rigorous には relay-formatter に相当する整形 agent がいないため、
 `note` を受け取った SKILL.md（Orchestrator）自身がこれを保持し、Step 2 の出力に付記する責務を負う。
 ここを見落とすと、script エラー時にユーザーへ届くはずの断り書き（「投資判断のご相談なら
 investment-strategist をご利用ください」）が経路として存在しなくなる。
@@ -136,9 +136,9 @@ investment-strategist をご利用ください」）が経路として存在し�
 **Step 1 で `note` を受け取っていた場合**：analyst の出力の末尾にそのまま追記してから返す
 （改変・要約せず一言添えるだけ。SKILL.md 自身が行うフロー制御の一部であり、analyst に渡す必要はない）。
 
-## モデルポータビリティ（本スキルの設計中核・`/chat` との差別化根拠）
+## モデルポータビリティ（本スキルの設計中核・`/fable` との差別化根拠）
 
-`/chat` の `sounding-board-consultant` は frontmatter で `model: fable` を固定し、Fable 5 の素の分析
+`/fable` の `sounding-board-consultant` は frontmatter で `model: fable` を固定し、Fable 5 の素の分析
 能力に依存する。本スキルの `analyst` は**あえてモデルを固定しない**。
 
 - 理由：本スキルの存在意義は「分析品質をモデル能力ではなく instructions で担保する」こと。特定モデルに

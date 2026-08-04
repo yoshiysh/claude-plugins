@@ -8,6 +8,8 @@
 #      — これを先にやらないと plugin update が古いカタログを引く
 #   2. project（./.claude/settings.json）と user（~/.claude/settings.json）の
 #      enabledPlugins を列挙し、各 plugin を対応する --scope で update
+#   3. update が「カタログに存在しない」で失敗した plugin（marketplace 側で
+#      改名・削除された残骸）を uninstall する
 #
 # 反映には Claude Code の再起動が必要（CLI 側の仕様）。
 set -euo pipefail
@@ -49,9 +51,30 @@ update_from() {
   echo "## scope: $scope ($settings_file)"
   for plugin in "${plugins[@]}"; do
     echo "=== $plugin ==="
-    claude plugin update "$plugin" --scope "$scope" || echo "  -> failed to update $plugin"
+    if ! claude plugin update "$plugin" --scope "$scope"; then
+      if is_stale "$plugin"; then
+        echo "  -> カタログに存在しない（改名/削除済み）ため uninstall する"
+        claude plugin uninstall "$plugin" --scope "$scope" \
+          && echo "  -> uninstalled: $plugin（新名称の plugin は claude plugin install で入れ直すこと）" \
+          || echo "  -> failed to uninstall $plugin"
+      else
+        echo "  -> failed to update $plugin"
+      fi
+    fi
     echo ""
   done
+}
+
+# plugin（name@marketplace）が marketplace の現行カタログに存在しなければ stale。
+# カタログが手元に見つからない場合は stale 扱いしない（誤 uninstall 防止）。
+is_stale() {
+  local plugin="$1"
+  local name="${plugin%%@*}"
+  local marketplace="${plugin#*@}"
+  [ "$name" != "$marketplace" ] || return 1
+  local catalog="$HOME/.claude/plugins/marketplaces/$marketplace/.claude-plugin/marketplace.json"
+  [ -f "$catalog" ] || return 1
+  ! jq -e --arg n "$name" '.plugins[] | select(.name == $n)' "$catalog" >/dev/null
 }
 
 update_from "$PROJECT_SETTINGS" project

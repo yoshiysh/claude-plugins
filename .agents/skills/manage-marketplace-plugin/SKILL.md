@@ -3,11 +3,13 @@ name: manage-marketplace-plugin
 description: >
   このリポジトリ内の既存スキル（.claude/skills/ 配下に実体があるもの）を、リポジトリ自身の
   marketplace.json（ルートの .claude-plugin/marketplace.json）にプラグインとして登録・更新・公開するスキル。
-  未登録なら新規登録し、登録済みなら更新する（version は明示が無ければ patch を自動インクリメント）。
+  plugin はカテゴリ単位（git / chat / research / notion / skill-creator 等）で複数スキルを収録でき、
+  既存カテゴリ plugin へのスキル追加にも対応する。未登録 plugin なら新規登録し、
+  登録済みなら更新する（version は明示が無ければ patch を自動インクリメント）。
   marketplace.json への非破壊追記／更新、プラグインディレクトリと plugin.json の生成、README の雛形作成、
   スキル本体への相対 symlink 作成、リンク経由の検証までを自動化する。
   対象スキルが別スキルを呼び出す連鎖依存を持つ場合は、その依存スキルを同一プラグインの skills 配下に同梱する。
-  「skill-creator-best-practices をマーケットプレイスに追加して」「既存スキルをプラグインとして公開して」
+  「url-reader を research plugin に追加して」「既存スキルをプラグインとして公開して」
   「このスキルを marketplace に登録して」「〇〇を /plugin で入れられるようにして」
   「登録済みの 〇〇 を更新して／再公開して」「〇〇 の version を上げて公開し直して」
   などのリクエストで使うこと。登録・更新対象スキル名への言及があれば積極的に使う。
@@ -21,7 +23,7 @@ description: >
 
 採用パターン：Orchestrator-Subagent（直列5エージェント）
 
-未登録なら**登録**、登録済みなら**更新**を行う（登録/更新の判定は input-resolver が marketplace.json を見て自動で行う）。更新時は plugin.json の version を上げ（明示が無ければ patch+1）、symlink・plugin.json を現状へ再同期する。対象スキルが**別スキルを呼び出す連鎖依存**を持つ場合は、その依存スキルを**同一プラグインに同梱**（`skills/<dep>` を追加）して、install 先で連鎖が切れないようにする。
+未登録 plugin なら**登録**、登録済みなら**更新**（既存カテゴリ plugin へのスキル追加を含む）を行う（登録/更新の判定と登録先 plugin の決定は input-resolver が行う）。plugin はカテゴリ単位で複数スキルを収録でき、スキルの公開名（`/plugin:skill` の skill 部分）は frontmatter の `name` が担う（実体ディレクトリ名と異なってよい）。更新時は plugin.json の version を上げ（明示が無ければ patch+1）、symlink・plugin.json を現状へ再同期する。対象スキルが**別スキルを呼び出す連鎖依存**を持つ場合は、その依存スキルを**同一プラグインに同梱**（`skills/<dep>` を追加）して、install 先で連鎖が切れないようにする。
 
 SKILL.md はフロー進行（誰に何を渡すか・分岐・完了条件）のみを担う。確定的処理は `scripts/register_plugin.py`（登録／更新・同梱）・`scripts/check_portability.py`（配布前スキャン）・`scripts/detect_dependencies.py`（依存スキル検出）・`scripts/verify_install.py`（登録後の install 検証）、入力解決は `agents/input-resolver.md`、配布前チェックは `agents/portability-checker.md`、依存解決は `agents/dependency-resolver.md`、登録は `agents/plugin-registrar.md`、登録後検証は `agents/install-verifier.md` が担当する。エージェント間の入出力契約は `references/schemas.md` を唯一の正とする。
 
@@ -39,8 +41,11 @@ SKILL.md はフロー進行（誰に何を渡すか・分岐・完了条件）�
   ▼
 agents/input-resolver（sonnet）
   │  スキル名の表記ゆれを .claude/skills/ 実ディレクトリ名と照合して解決
-  │  SKILL.md 実在確認 / version・author・description の決定
-  │  marketplace.json を見て登録済みか判定 → 登録済みなら update=true
+  │  SKILL.md 実在確認 / 登録先 plugin（既存追加・新カテゴリ新設・同名新規）の決定
+  │  plugin 名と公開名の重複・冗長（chat:chat / notion:notion-* 型）を検出したら
+  │  簡潔化候補つきで AskUserQuestion 確認
+  │  version・author・description の決定
+  │  marketplace.json を plugin 名で照合して登録済みか判定 → 登録済みなら update=true
   │  description が frontmatter に無ければ AskUserQuestion で問い返す
   │
   ├─ status: error（スキル未発見）→ 中断し候補を提示
@@ -61,8 +66,9 @@ agents/dependency-resolver（sonnet）
   │
   ▼  bundle_skills 確定（空＝同梱なし）
 agents/plugin-registrar（sonnet）
-  │  scripts/register_plugin.py を実行（update=true なら --update／同梱は --bundle-skill <dep>）
-  │  新規=登録 / 既存=更新（version は明示優先、無ければ更新時 patch+1）
+  │  scripts/register_plugin.py を実行（--skill <skill> --plugin <plugin>／
+  │  update=true なら --update／同梱は --bundle-skill <dep>）
+  │  新規=登録 / 既存=更新・スキル追加（version は明示優先、無ければ更新時 patch+1）
   │  依存は同一プラグインに skills/<dep> として同梱
   │
   ├─ exit 2（marketplace.json 破損）  → 中断して手動修正を案内
@@ -92,10 +98,10 @@ agents/install-verifier（sonnet）
 
 - `[USER_INPUT]` → ユーザーの指示テキスト全文
 
-input-resolver は登録対象スキル名の解決・SKILL.md 実在確認・**登録済みか（marketplace.json 照合）による update 判定**・メタ情報（version / author / description）の決定までを行い、`references/schemas.md` の「input-resolver の出力」形式で返す。
+input-resolver は登録対象スキル名の解決・SKILL.md 実在確認・**登録先 plugin（カテゴリ）の決定**・**登録済みか（marketplace.json を plugin 名で照合）による update 判定**・メタ情報（version / author / description）の決定までを行い、`references/schemas.md` の「input-resolver の出力」形式で返す。
 
 - `status: error`（対象スキルが見つからない・存在しない）の場合：ここで中断し、input-resolver が提示した候補スキル名をユーザーに伝えて終了する。後続には進まない。
-- `update`（登録済みなら true / 未登録なら false）と `mode`（register / update）も後続に渡す。version はユーザー明示が無ければ空のままで渡してよい（更新時の patch+1・新規時の 0.1.0 は register_plugin.py が決める）。
+- `plugin_name`（登録先 plugin）・`update`（plugin 登録済みなら true / 未登録なら false）・`mode`（register / update）も後続に渡す。version はユーザー明示が無ければ空のままで渡してよい（更新時の patch+1・新規時の 0.1.0 は register_plugin.py が決める）。
 
 ### ステップ2：portability-checker を呼ぶ
 
@@ -125,7 +131,7 @@ dependency-resolver は対象スキルが呼び出す他スキル（連鎖依存
 
 ### ステップ3：plugin-registrar を呼ぶ
 
-input-resolver の出力（`status: ok`）に、ステップ2.5 で確定した `bundle_skills` と `[SKILL_DIR]`（このスキルの Base directory 絶対パス）を添えて `agents/plugin-registrar.md` の入力に渡して Agent ツールを呼ぶ。受け渡すフィールドは `references/schemas.md` の対応表に従う（`skill_name` / `version` / `author` / `description` / `update` / `bundle_skills`）。
+input-resolver の出力（`status: ok`）に、ステップ2.5 で確定した `bundle_skills` と `[SKILL_DIR]`（このスキルの Base directory 絶対パス）を添えて `agents/plugin-registrar.md` の入力に渡して Agent ツールを呼ぶ。受け渡すフィールドは `references/schemas.md` の対応表に従う（`skill_name` / `plugin_name` / `version` / `author` / `description` / `update` / `bundle_skills`）。
 
 plugin-registrar は `scripts/register_plugin.py` を実行し、JSON レポートを解釈してユーザーに報告する。実行モードの判断も plugin-registrar の責務：
 
@@ -140,7 +146,7 @@ plugin-registrar は `scripts/register_plugin.py` を実行し、JSON レポー�
 `agents/install-verifier.md` を Read し、以下を埋め込んで Agent ツールを呼ぶ：
 
 - `[SKILL_DIR]` → このスキル（manage-marketplace-plugin）の Base directory 絶対パス（`verify_install.py` の場所）
-- `skill_name` → input-resolver の `skill_name`
+- `plugin_name` → input-resolver の `plugin_name`（`verify_install.py --plugin` に渡す。plugin 内の全スキルを検証する）
 
 install-verifier は `scripts/verify_install.py` を実行し、L2（バンドル解決の読み取り検査）と L3（HOME を隔離した実 install スモーク。実ホームは汚さない）を行う。
 
@@ -165,7 +171,8 @@ install-verifier は `scripts/verify_install.py` を実行し、L2（バンド�
 - **冪等**：同じスキルを2回登録しても marketplace.json のエントリは重複せず、symlink は二重化しない。再実行は安全（登録済みなら更新として扱われる）。
 - **登録済みは更新（破壊しない）**：既に登録済みのスキルは新規登録ではなく更新として扱い、plugin.json の version を上げて symlink/plugin.json を現状へ再同期する。手書き README は上書きしない。
 - **連鎖依存は同梱**：対象スキルが実行時に別スキルを呼ぶ場合、その依存スキルを同一プラグインに `skills/<dep>` として相対 symlink で同梱する（複製しない）。同梱対象は実依存のみ（案内・言及は除外）で、適用前にユーザー確認する。
-- **相対 symlink**：`plugins/<name>/skills/<name>` → `../../../.claude/skills/<name>` の相対リンクのみを作る。絶対パス symlink はクローン先で解決できず壊れるため使わない。git では mode 120000 で記録される。
+- **相対 symlink**：`plugins/<plugin>/skills/<skill>` → `../../../.claude/skills/<skill>` の相対リンクのみを作る。絶対パス symlink はクローン先で解決できず壊れるため使わない。git では mode 120000 で記録される。
+- **symlink 名は実体ディレクトリ名**：公開名（`/plugin:skill` の skill 部分）は frontmatter の `name` が担うため、symlink 名を公開名に変えない。install 先のキャッシュは symlink 名でディレクトリが作られるため、`[SKILL_DIR]/../<兄弟スキル>/` のようなディレクトリ名参照が symlink 名の変更で壊れる。
 - **実在確認の前置**：登録前に `.claude/skills/<name>/SKILL.md` の実在を確認する。存在しないスキルを登録すると壊れたプラグインが公開されるため。
 - **破損は中断**：marketplace.json が壊れた JSON の場合は自動修復せず中断する（他人のエントリを失う恐れがあるため）。不在は新規作成と明確に区別する。
 - **本体は単一ソース**：スキル実体は `.claude/skills/` のみ。プラグインディレクトリには複製を置かず、必ず symlink で参照する。
