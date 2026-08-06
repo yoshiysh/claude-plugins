@@ -56,7 +56,7 @@ run_target() {
     ssh)    ssh $SSH_OPTS "$HOST" "bash -s" ;;
     wsl)    ssh $SSH_OPTS "$HOST" "wsl --exec bash -s" ;;
     docker) docker exec -i "$HOST" bash -s ;;
-    *) die "未知の TARGET 種別: $KIND（local / ssh: / wsl: / docker: のいずれか）" ;;
+    *) die "未知の TARGET 種別: ${KIND}（local / ssh: / wsl: / docker: のいずれか）" ;;
   esac
 }
 

@@ -55,7 +55,7 @@ update_from() {
       if is_stale "$plugin"; then
         echo "  -> カタログに存在しない（改名/削除済み）ため uninstall する"
         claude plugin uninstall "$plugin" --scope "$scope" \
-          && echo "  -> uninstalled: $plugin（新名称の plugin は claude plugin install で入れ直すこと）" \
+          && echo "  -> uninstalled: ${plugin}（新名称の plugin は claude plugin install で入れ直すこと）" \
           || echo "  -> failed to uninstall $plugin"
       else
         echo "  -> failed to update $plugin"
