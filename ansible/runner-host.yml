@@ -2,6 +2,8 @@
 #
 #   ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass
 #   ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass -e node_lts=true
+#   ansible-playbook -i inventory.yml runner-host.yml \
+#     -e '{"gemini_extensions":["https://github.com/gemini-cli-extensions/code-review"]}'
 #   ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass --check   # 差分だけ見る
 #
 # 何のために要るか:
@@ -18,6 +20,7 @@
 
   vars:
     node_lts: false
+    gemini_extensions: []
 
   tasks:
     # 未設定のまま走ると inventory_hostname へ接続を試みて分かりにくく失敗する。
@@ -53,6 +56,35 @@
         update_cache: true
       become: true
       when: node_lts | bool
+
+    # run-gemini-cli は毎回 `gemini extensions install` を走らせる。ephemeral runner
+    # 前提の作りで、既に入っていると `Please uninstall it first` で job ごと落ちる。
+    # ホスト側に一度入れておき、workflow からは extensions を渡さない。
+    - name: Look for the gemini CLI
+      ansible.builtin.shell: command -v gemini
+      register: gemini_bin
+      changed_when: false
+      failed_when: false
+      when: gemini_extensions | length > 0
+
+    - name: Install the gemini CLI
+      ansible.builtin.command: npm install -g @google/gemini-cli
+      become: true
+      when:
+        - gemini_extensions | length > 0
+        - gemini_bin.rc | default(1) != 0
+
+    - name: Install the gemini CLI extensions
+      ansible.builtin.shell: |
+        if out=$(echo Y | gemini extensions install "{{ item }}" 2>&1); then
+          printf '%s\n' "$out"
+        else
+          printf '%s\n' "$out"
+          printf '%s' "$out" | grep -qi "already installed"
+        fi
+      loop: "{{ gemini_extensions }}"
+      register: installed_extensions
+      changed_when: "'already installed' not in installed_extensions.stdout"
 
     # ansible_user は Windows へ SSH するユーザー。WSL 内で実際に動くユーザーとは
     # 別物になりうるので、fact から取った実行ユーザーを使う。
@@ -113,6 +145,8 @@
       ansible.builtin.shell: |
         docker --version
         node --version 2>/dev/null || echo "node: 未導入（node_lts=true で導入できる）"
+        gemini --version 2>/dev/null || echo "gemini: 未導入"
+        gemini extensions list 2>/dev/null || true
       args:
         executable: /bin/bash
       register: versions
