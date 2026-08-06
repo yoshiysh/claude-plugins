@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 .browser4-cli/
+
+# direnv: 実値（ホストのアドレス・ユーザー名）が入るため追跡しない。
+# テンプレートは ansible/.envrc.example
+.envrc

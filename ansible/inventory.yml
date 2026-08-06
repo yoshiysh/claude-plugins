@@ -1,0 +1,39 @@
+# GitHub Actions self-hosted runner ホストの inventory。
+#
+# 環境依存の値はここに書かず、環境変数から流し込む（このファイルは公開リポジトリに入る）。
+#
+#   RUNNER_HOST      必須。ホストのアドレス（例: 192.168.1.10 / winbox.local）
+#   RUNNER_SSH_USER  任意。SSH のユーザー。既定は手元の $USER
+#   RUNNER_WSL_DISTRO 任意。WSL の distro 名。既定は Ubuntu
+#
+#   RUNNER_HOST=192.168.1.10 ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass
+#
+# 毎回渡すのが面倒なら direnv を使う（.envrc は gitignore 済み）:
+#   cp .envrc.example .envrc && $EDITOR .envrc && direnv allow
+#
+# 接続は community.general.wsl を使う。Windows へ SSH してから
+# `wsl.exe --distribution <name>` でコマンドを包む方式で、WSL 内に sshd を立てる必要はない。
+#
+# 注意: この plugin は Paramiko 実装のため **~/.ssh/config の Host エイリアスを読まない**。
+# `ssh <alias>` が通っていても、RUNNER_HOST には実アドレスを渡す必要がある。
+all:
+  children:
+    runner_hosts:
+      hosts:
+        runner:
+          ansible_host: "{{ lookup('env', 'RUNNER_HOST') }}"
+          ansible_user: "{{ lookup('env', 'RUNNER_SSH_USER') | default(lookup('env', 'USER'), true) }}"
+
+          # 明示しないと Ansible が探索で見つけた python を使い、別の python が入った
+          # 時点で解釈が変わる（実行時に interpreter discovery の警告が出る）。
+          ansible_python_interpreter: /usr/bin/python3
+
+          ansible_connection: community.general.wsl
+          wsl_distribution: "{{ lookup('env', 'RUNNER_WSL_DISTRO') | default('Ubuntu', true) }}"
+
+          # wsl_user は指定しない。distro の既定ユーザーで動き、実際に誰として動いたかは
+          # ansible_user_id fact で取れるため、ここに名前を固定する必要がない。
+
+          # Windows 側の SSH が cmd.exe を返すか PowerShell を返すかで包み方が変わる。
+          # OpenSSH for Windows の既定は cmd。
+          wsl_remote_ssh_shell_type: cmd
