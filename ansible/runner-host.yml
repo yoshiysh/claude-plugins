@@ -150,7 +150,7 @@
         docker --version
         node --version 2>/dev/null || echo "node: 未導入（node_lts=true で導入できる）"
         gemini --version 2>/dev/null || echo "gemini: 未導入"
-        gemini extensions list 2>/dev/null || true
+        gemini extensions list 2>&1 || echo "gemini extensions: 一覧を取得できない"
       args:
         executable: /bin/bash
       register: versions
