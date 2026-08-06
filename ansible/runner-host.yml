@@ -84,6 +84,7 @@
     # 補助グループの追加は動作中のプロセスに反映されない。ここを飛ばすと、導入は成功して
     # 見えるのに job だけが `docker: permission denied` で落ち続け、原因が非常に分かりにくい。
     # svc.sh のサービス名は環境で変わるため推測せず、listener を直接止めて起動し直す。
+      tags: restart
     - name: Restart the runners so they pick up the docker group
       # pkill/pgrep の -f は自分自身のコマンドラインにも当たる。Ansible は本文を
       # sh -c の引数として渡すため、素直に書くと自分を SIGTERM して落ちる（実測 rc=-15）。
@@ -104,6 +105,7 @@
       register: restarted
       changed_when: "'skip:' not in restarted.stdout"
 
+      tags: restart
     - name: Check that the runner user can reach the docker daemon
       # sg で先取りする。再ログインしていないシェルでも group 追加後の状態を確認できる。
       ansible.builtin.command: sg docker -c "docker info"
