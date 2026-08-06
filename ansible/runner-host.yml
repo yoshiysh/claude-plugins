@@ -32,6 +32,7 @@
           RUNNER_HOST=192.168.1.10 ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass
       delegate_to: localhost
       run_once: true
+      tags: always
 
     - name: Install Docker
       ansible.builtin.apt:
@@ -67,6 +68,7 @@
       failed_when: false
       when: gemini_extensions | length > 0
 
+      tags: gemini
     - name: Install the gemini CLI
       ansible.builtin.command: npm install -g @google/gemini-cli
       become: true
@@ -74,6 +76,7 @@
         - gemini_extensions | length > 0
         - gemini_bin.rc | default(1) != 0
 
+      tags: gemini
     - name: Install the gemini CLI extensions
       ansible.builtin.shell: |
         if out=$(echo Y | gemini extensions install "{{ item }}" 2>&1); then
@@ -90,6 +93,7 @@
     # 別物になりうるので、fact から取った実行ユーザーを使う。
     # fact は ansible_facts[...] で引く。top-level への自動注入（ansible_user_id 等）は
     # 非推奨で ansible-core 2.24 で消えるため、そちらに依存しない。
+      tags: gemini
     - name: Put the runner user in the docker group
       ansible.builtin.user:
         name: "{{ ansible_facts['user_id'] }}"
