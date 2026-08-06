@@ -1,0 +1,69 @@
+#!/bin/bash
+# ssh_config の Host エイリアスから接続先を解決して .envrc に書く。
+#
+#   ./sync-envrc <ssh-host-alias>
+#
+# なぜ要るか:
+#   playbook が使う community.general.wsl は Paramiko 実装で ssh_config を読まない。
+#   `ssh <alias>` が通っていても Host エイリアスは使えず、実アドレスが要る。
+#   そのアドレスは既に ssh_config にあるので、ここで一度だけ解決して環境変数へ落とす。
+#
+# 解決は `ssh -G` に任せる。Host / Match / Include を ssh 自身に評価させるため、
+# 設定ファイルを自前で読むより正確（自前 parse は Match と Include を取りこぼす）。
+#
+# アドレスが変わるなら、そもそもこれを繰り返し実行するより
+# ルータ側で DHCP 予約か固定 IP にする方が根本的（下の診断メッセージ参照）。
+set -uo pipefail
+
+ALIAS="${1:-}"
+case "$ALIAS" in
+  -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+  "") awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 2 ;;
+esac
+
+ENVRC="$(cd "$(dirname "$0")" && pwd)/.envrc"
+
+CFG=$(ssh -G "$ALIAS" 2>/dev/null) || {
+  echo "NG: ssh -G $ALIAS が失敗。~/.ssh/config に Host $ALIAS があるか確認する" >&2
+  exit 1
+}
+RESOLVED=$(printf '%s\n' "$CFG" | awk '$1=="hostname"{print $2; exit}')
+SSH_USER=$(printf '%s\n' "$CFG" | awk '$1=="user"{print $2; exit}')
+
+# HostName が無いと ssh -G は alias をそのまま返す。DNS で引ける FQDN ならよいが、
+# 単なる別名だと Paramiko が解決できず、playbook は接続段で分かりにくく落ちる。
+if [ "$RESOLVED" = "$ALIAS" ]; then
+  cat >&2 <<NOTE
+NG: Host $ALIAS に HostName が無く、alias がそのまま返った。
+    Paramiko は ssh_config を読まないため、名前解決できないとこのまま使えない。
+
+    対処（上から順に根本的）:
+    1. ルータで DHCP 予約か固定 IP にする。アドレスが変わらなくなり、この作業自体が消える
+    2. ~/.ssh/config の Host $ALIAS に HostName <アドレス> を書いてから再実行する
+    3. MAC が分かっているなら arp から引く:
+         ping -c1 -t1 <推定アドレス> >/dev/null 2>&1; arp -an | grep -i <mac>
+    4. ルータの DHCP リース表を見る
+NOTE
+  exit 1
+fi
+
+upsert() {
+  local key="$1" val="$2" tmp
+  if grep -qE "^export ${key}=" "$ENVRC" 2>/dev/null; then
+    tmp=$(mktemp) || return 1
+    sed "s|^export ${key}=.*|export ${key}=${val}|" "$ENVRC" > "$tmp" && mv "$tmp" "$ENVRC"
+  else
+    printf 'export %s=%s\n' "$key" "$val" >> "$ENVRC"
+  fi
+}
+
+[ -e "$ENVRC" ] || printf '# sync-envrc が生成。再解決は ./sync-envrc %s\n' "$ALIAS" > "$ENVRC"
+
+upsert RUNNER_HOST "$RESOLVED" || { echo "NG: ${ENVRC} を更新できない" >&2; exit 1; }
+echo "RUNNER_HOST=$RESOLVED"
+
+# 手元の $USER と同じなら playbook 側の既定で足りる。設定項目を無駄に増やさない。
+if [ -n "$SSH_USER" ] && [ "$SSH_USER" != "${USER:-}" ]; then
+  upsert RUNNER_SSH_USER "$SSH_USER"
+  echo "RUNNER_SSH_USER=$SSH_USER"
+fi

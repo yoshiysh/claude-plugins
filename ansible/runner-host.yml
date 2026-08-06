@@ -1,0 +1,143 @@
+# runner ホストに Docker（と任意で Node LTS）を用意する。
+#
+#   ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass
+#   ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass -e node_lts=true
+#   ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass --check   # 差分だけ見る
+#
+# 何のために要るか:
+#   - Docker container action（pr-agent 等）は runner に Docker が無いと動かない
+#     （GitHub の仕様: Docker container action を動かす self-hosted runner は Linux かつ
+#     Docker 導入済みであること）
+#   - docker ベースの MCP サーバ（github-mcp-server 等）も同様
+#   - Node は run-gemini-cli のような CLI を使う action が要求する。action 自身は
+#     setup-node を呼ばないため、ホスト側に無いと落ちる
+---
+- name: Provision a self-hosted runner host
+  hosts: runner_hosts
+  gather_facts: true
+
+  vars:
+    node_lts: false
+
+  tasks:
+    # 未設定のまま走ると inventory_hostname へ接続を試みて分かりにくく失敗する。
+    - name: Require the host address
+      ansible.builtin.assert:
+        that: ansible_host | length > 0
+        fail_msg: >-
+          RUNNER_HOST が未設定。ホストのアドレスを渡して実行する:
+          RUNNER_HOST=192.168.1.10 ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass
+      delegate_to: localhost
+      run_once: true
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+        update_cache: true
+      become: true
+
+    # apt の nodejs は Ubuntu 24.04 で 18 系に留まり、CLI 系が要求する版に届かない。
+    # NodeSource は Node 公式が案内している導入経路。
+    - name: Add the NodeSource repository
+      ansible.builtin.shell: curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+      become: true
+      when: node_lts | bool
+
+    - name: Install Node LTS
+      ansible.builtin.apt:
+        name: nodejs
+        state: present
+        update_cache: true
+      become: true
+      when: node_lts | bool
+
+    # ansible_user は Windows へ SSH するユーザー。WSL 内で実際に動くユーザーとは
+    # 別物になりうるので、fact から取った実行ユーザーを使う。
+    # fact は ansible_facts[...] で引く。top-level への自動注入（ansible_user_id 等）は
+    # 非推奨で ansible-core 2.24 で消えるため、そちらに依存しない。
+    - name: Put the runner user in the docker group
+      ansible.builtin.user:
+        name: "{{ ansible_facts['user_id'] }}"
+        groups: docker
+        append: true
+      become: true
+
+    - name: Enable and start dockerd
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+      become: true
+
+    # inventory に列挙するとパスに個人のホームが載るうえ、runner を増減したときに
+    # 実態とずれる。ホスト上で見つける。
+    - name: Discover runner installations
+      ansible.builtin.find:
+        paths: "{{ ansible_facts['env']['HOME'] }}"
+        patterns: "actions-runner*"
+        file_type: directory
+      register: found_runners
+
+    # 補助グループの追加は動作中のプロセスに反映されない。ここを飛ばすと、導入は成功して
+    # 見えるのに job だけが `docker: permission denied` で落ち続け、原因が非常に分かりにくい。
+    # svc.sh のサービス名は環境で変わるため推測せず、listener を直接止めて起動し直す。
+    - name: Restart the runners so they pick up the docker group
+      # pkill/pgrep の -f は自分自身のコマンドラインにも当たる。Ansible は本文を
+      # sh -c の引数として渡すため、素直に書くと自分を SIGTERM して落ちる（実測 rc=-15）。
+      # 先頭を文字クラスにするとパターン文字列自体は当たらなくなる。pgrep 側も同様で、
+      # 直さないと自己一致で「起動失敗でも常に成功」という逆の壊れ方をする。
+      # setsid で切り離すのは、Ansible がタスク終了時にセッションごと畳んで
+      # nohup した子まで持っていくのを防ぐため。
+      ansible.builtin.shell: |
+        [ -x "{{ item }}/run.sh" ] || { echo "skip: run.sh なし"; exit 0; }
+        pat='[/]{{ item[1:] }}/bin/Runner.Listener'
+        pkill -f "$pat" || true
+        sleep 2
+        cd "{{ item }}"
+        setsid nohup ./run.sh < /dev/null > runner.log 2>&1 &
+        sleep 3
+        pgrep -f "$pat" > /dev/null
+      loop: "{{ found_runners.files | map(attribute='path') | sort }}"
+      register: restarted
+      changed_when: "'skip:' not in restarted.stdout"
+
+    - name: Check that the runner user can reach the docker daemon
+      # sg で先取りする。再ログインしていないシェルでも group 追加後の状態を確認できる。
+      ansible.builtin.command: sg docker -c "docker info"
+      changed_when: false
+
+    - name: Report versions
+      ansible.builtin.shell: |
+        docker --version
+        node --version 2>/dev/null || echo "node: 未導入（node_lts=true で導入できる）"
+      args:
+        executable: /bin/bash
+      register: versions
+      changed_when: false
+
+    # --check では shell が実行されないので versions は空になる。空の配列を表示しても
+    # 誤解を招くだけなので、実行モードのときだけ出す。
+    - name: Show versions
+      ansible.builtin.debug:
+        var: versions.stdout_lines
+      when: not ansible_check_mode
+
+# 既知の壁（この playbook の外で必要になること）:
+#
+# WSL: `wsl --shutdown` や Windows 再起動で WSL ごと落ちる。systemd があれば docker は
+#   自動復帰するが、WSL 自体の起動はログオン時タスク等が要る。
+#     ssh <HOST> "schtasks /create /tn ActionsRunner-<name> /sc onlogon /tr \"wsl.exe --exec <dir>/run.sh\" /f"
+#
+# WSL: sudo にパスワードが要る環境では runner を systemd サービス化できない。常駐させるには
+#   WSL 内で一度だけ:
+#     echo "<user> ALL=(ALL) NOPASSWD: <dir>/svc.sh" | sudo tee /etc/sudoers.d/actions-runner-svc
+#
+# provisioning 中に実行中の job があると、runner 再起動で巻き添え cancel になる。
+#   その job は再実行すれば済む。CI が静かなときに流すのが無難。
+#
+# macOS runner: actions/setup-python を使う job は初回に一回きりの設定が要る。
+#   sudo mkdir -p /Users/runner/hostedtoolcache && sudo chown -R $(whoami) /Users/runner
+#   echo "$(whoami) ALL=(ALL) NOPASSWD: /usr/sbin/installer" | sudo tee /etc/sudoers.d/actions-runner-installer

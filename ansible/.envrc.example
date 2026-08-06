@@ -1,0 +1,20 @@
+# direnv 用のテンプレート。実値を入れて `.envrc` にコピーする。
+#
+#   cp .envrc.example .envrc && $EDITOR .envrc && direnv allow
+#
+# .envrc は gitignore 済み（アドレスとユーザー名は公開リポジトリに入れない）。
+# direnv を使わない場合は、実行時に前置きしてもよい:
+#   RUNNER_HOST=192.168.1.10 ansible-playbook -i inventory.yml runner-host.yml --ask-become-pass
+
+# 必須。runner ホストのアドレス。
+# community.general.wsl は Paramiko 実装で ~/.ssh/config を読まないため、
+# `ssh <alias>` が通っていても Host エイリアスは使えない。実アドレスを書く。
+export RUNNER_HOST=192.168.1.10
+
+# 任意。Windows へ SSH するユーザー。未設定なら手元の $USER を使う。
+# WSL 内で実際にコマンドが動くユーザーとは別物でよい（そちらは fact から取る）。
+# export RUNNER_SSH_USER=youruser
+
+# 任意。WSL の distro 名。未設定なら Ubuntu。
+# `wsl -l -q` で確認できる。
+# export RUNNER_WSL_DISTRO=Ubuntu
