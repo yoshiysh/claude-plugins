@@ -1,0 +1,194 @@
+#!/bin/bash
+# GitHub Actions self-hosted runner のホストに Docker（と任意で Node）を用意する。
+# Docker container action（pr-agent 等）と、docker を使う MCP サーバを動かすための前提。
+#
+#   provision-docker-host --target TARGET [options]
+#
+# TARGET:
+#   local              このマシン
+#   ssh:HOST           ssh 先の Linux（~/.ssh/config の Host 名）
+#   wsl:HOST           Windows ホスト（ssh 経由）の既定 WSL distro 内
+#
+# options:
+#   --with-node        Node.js LTS も入れる（NodeSource。apt 版は古く CLI 系が動かないため）
+#   --no-restart       runner の再起動をしない（docker group 反映は次回起動まで持ち越し）
+#   --check            調査だけして何も変更しない
+#
+# 設計メモ:
+# - provision-gh-runner と同じ run_target() アダプタを持つが、**sudo を伴う段だけ
+#   TTY 経路に分ける**。sudo がパスワードを要求する環境では、stdin を bash -s に
+#   使ってしまうとプロンプトが stdin を奪い合って必ず固まる（ssh -t + wsl + sudo の
+#   組み合わせで実測）。payload は base64 で送ってファイル化し、実行だけ ssh -t で行う。
+# - base64 で送るのはクォート回避のため。ssh → cmd.exe → wsl の多層経路は
+#   cmd.exe がシングルクォートを剥がさないので、英数字だけを経路に見せる。
+# - docker group への追加は**既存プロセスに反映されない**。runner を再起動しないと
+#   job から docker が見えないままになるので、既定で再起動まで面倒を見る。
+# - 秘密は扱わない。sudo パスワードはユーザーが対話で直接 sudo に入力する
+#   （このスクリプトは受け取らないし保存もしない）。
+set -uo pipefail
+
+TARGET="" WITH_NODE=0 NO_RESTART=0 CHECK_ONLY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target) TARGET="$2"; shift 2 ;;
+    --with-node) WITH_NODE=1; shift ;;
+    --no-restart) NO_RESTART=1; shift ;;
+    --check) CHECK_ONLY=1; shift ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$TARGET" ] || { echo "--target は必須。--help 参照" >&2; exit 2; }
+
+say() { printf '\n===== %s =====\n' "$*"; }
+die() { printf 'NG: %s\n' "$*" >&2; exit 1; }
+
+KIND="${TARGET%%:*}"; HOST="${TARGET#*:}"
+SSH_OPTS="-o ConnectTimeout=8 -o BatchMode=yes -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no"
+# TTY 経路は sudo のプロンプトを通すため BatchMode を外す。
+SSH_TTY_OPTS="-o ConnectTimeout=8 -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no"
+
+run_target() {
+  case "$KIND" in
+    local) bash -s ;;
+    ssh)   ssh $SSH_OPTS "$HOST" "bash -s" ;;
+    wsl)   ssh $SSH_OPTS "$HOST" "wsl --exec bash -s" ;;
+    *) die "未知の TARGET 種別: $KIND（local / ssh: / wsl: のいずれか）
+  docker: は対象外 — コンテナ内に Docker を建てる用途は想定していない" ;;
+  esac
+}
+
+# sudo を含む段専用。stdin は使わず TTY を渡す。
+run_target_tty() {
+  local script="$1"
+  case "$KIND" in
+    local) bash "$script" ;;
+    ssh)   ssh -t $SSH_TTY_OPTS "$HOST" "bash $script" ;;
+    wsl)   ssh -t $SSH_TTY_OPTS "$HOST" "wsl --exec bash $script" ;;
+  esac
+}
+
+say "ターゲット調査 ($TARGET)"
+INFO=$(run_target <<'EOF'
+. /etc/os-release 2>/dev/null; echo "distro=${ID:-unknown}-${VERSION_ID:-}"
+whoami | sed 's/^/user=/'
+test -d /run/systemd/system && echo init=systemd || echo init=none
+sudo -n true 2>/dev/null && echo sudo=nopasswd || echo sudo=password
+command -v docker >/dev/null && echo docker=yes || echo docker=no
+(docker info >/dev/null 2>&1 && echo dockerusable=yes) || echo dockerusable=no
+id -nG | tr ' ' '\n' | grep -qx docker && echo dockergroup=yes || echo dockergroup=no
+command -v node >/dev/null && node --version | sed 's/^/node=/' || echo node=no
+command -v apt-get >/dev/null && echo pkg=apt || echo pkg=other
+ls -d "$HOME"/actions-runner* 2>/dev/null | sed 's/^/runnerdir=/' || true
+EOF
+) || die "ターゲットに到達できない。ssh 疎通を確認。
+  macOS から LAN 先に 'No route to host' が出る場合はアプリの
+  ローカルネットワーク権限（TCC）が原因のことがある — Terminal.app から実行する"
+INFO=$(echo "$INFO" | tr -d '\r')
+val() { echo "$INFO" | sed -n "s/^$1=//p" | head -1; }
+DISTRO=$(val distro); RUSER=$(val user); INIT=$(val init); SUDO=$(val sudo)
+HAS_DOCKER=$(val docker); DOCKER_USABLE=$(val dockerusable)
+IN_GROUP=$(val dockergroup); HAS_NODE=$(val node); PKG=$(val pkg)
+RUNNER_DIRS=$(echo "$INFO" | sed -n 's/^runnerdir=//p')
+echo "$DISTRO / user=$RUSER / init=$INIT / sudo=$SUDO"
+echo "docker=$HAS_DOCKER usable=$DOCKER_USABLE group=$IN_GROUP / node=$HAS_NODE"
+[ -n "$RUNNER_DIRS" ] && echo "runner: $(echo "$RUNNER_DIRS" | tr '\n' ' ')" || echo "runner: なし"
+
+[ "$PKG" = apt ] || die "apt 以外のパッケージマネージャは未対応（検出: $PKG）"
+
+NEED_NODE=0
+[ "$WITH_NODE" = 1 ] && [ "$HAS_NODE" = no ] && NEED_NODE=1
+if [ "$HAS_DOCKER" = yes ] && [ "$DOCKER_USABLE" = yes ] && [ "$NEED_NODE" = 0 ]; then
+  say "変更なし"
+  echo "docker は導入済みで $RUSER から利用できる。行うことはない。"
+  exit 0
+fi
+if [ "$CHECK_ONLY" = 1 ]; then
+  say "--check のため中断"
+  echo "不足: $([ "$HAS_DOCKER" = no ] && echo -n 'docker ')$([ "$IN_GROUP" = no ] && echo -n 'docker-group ')$([ "$NEED_NODE" = 1 ] && echo -n 'node')"
+  exit 0
+fi
+
+# --- sudo を伴う本体（TTY で実行） -----------------------------------------
+PAYLOAD=$(cat <<PAYLOAD_END
+set -uo pipefail
+echo "[1/4] apt update"
+sudo apt-get update -qq || exit 1
+echo "[2/4] docker.io"
+if ! command -v docker >/dev/null; then
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io || exit 1
+else
+  echo "  導入済み"
+fi
+if [ "${NEED_NODE}" = 1 ]; then
+  echo "[2b/4] Node LTS (NodeSource)"
+  # apt の nodejs は Ubuntu 24.04 で 18 系。gemini-cli 等が要求する版に届かないため
+  # NodeSource を使う。公式の導入手順そのもの。
+  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - >/dev/null 2>&1 || exit 1
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs || exit 1
+fi
+echo "[3/4] ${RUSER} を docker group へ"
+sudo usermod -aG docker "${RUSER}" || exit 1
+echo "[4/4] dockerd 起動・自動起動"
+if [ -d /run/systemd/system ]; then
+  sudo systemctl enable --now docker || exit 1
+  systemctl is-active docker | sed 's/^/  systemd: /'
+else
+  # systemd 無しの WSL 等。dockerd を直接起動する（再起動後は手動）。
+  if ! pgrep -x dockerd >/dev/null; then
+    sudo nohup dockerd >/var/log/dockerd.log 2>&1 &
+    sleep 4
+  fi
+  pgrep -x dockerd >/dev/null && echo "  dockerd: 起動（再起動後は手動）" || { echo "  dockerd 起動失敗 /var/log/dockerd.log 参照"; exit 1; }
+fi
+echo "--- 検証（group 反映は sg で先取り確認）"
+sudo docker version --format '  server={{.Server.Version}}' 2>/dev/null || echo "  server 版取得できず"
+sg docker -c 'docker info >/dev/null 2>&1' && echo "  ${RUSER} から docker 利用可" || echo "  ${RUSER} からはまだ不可（runner 再起動で反映）"
+command -v node >/dev/null && node --version | sed 's/^/  node /' || true
+PAYLOAD_END
+)
+
+say "インストール（sudo のパスワードを聞かれます）"
+echo "※ パスワードは sudo が直接受け取ります。本スクリプトは読み取りも保存もしません。"
+B64=$(printf '%s' "$PAYLOAD" | base64 | tr -d '\n')
+run_target <<EOF || die "payload の転送に失敗"
+printf '%s' '$B64' | base64 -d > /tmp/provision-docker-host.payload.sh
+EOF
+run_target_tty /tmp/provision-docker-host.payload.sh || die "インストールに失敗（上のログ参照）"
+run_target <<'EOF' >/dev/null 2>&1
+rm -f /tmp/provision-docker-host.payload.sh
+EOF
+
+# --- runner 再起動（docker group を反映させる） -----------------------------
+# 既存プロセスの補助グループは後から変わらない。再起動しないと job からは
+# 「docker: permission denied」のままになる。ここを飛ばすと原因が分かりにくい。
+if [ -n "$RUNNER_DIRS" ] && [ "$NO_RESTART" = 0 ]; then
+  say "runner 再起動（docker group 反映のため）"
+  # svc.sh を持つ runner でも、サービス名の推測はせず listener を直接止めて起動し直す。
+  # provision-gh-runner の起動段と同じ扱い（sudo にパスワードが要る環境では
+  # どのみち systemd 経路に入れないため、経路を 1 本に保つ方が壊れにくい）。
+  run_target <<EOF
+set -u
+for d in $(echo "$RUNNER_DIRS" | tr '\n' ' '); do
+  name=\$(basename "\$d")
+  pkill -f "\$d/bin/Runner.Listener" 2>/dev/null && sleep 2
+  ( cd "\$d" && nohup ./run.sh > runner.log 2>&1 & )
+  sleep 3
+  pgrep -f "\$d/bin/Runner.Listener" >/dev/null && echo "\$name: 再起動" || echo "\$name: 起動失敗 \$d/runner.log 参照"
+done
+EOF
+elif [ -n "$RUNNER_DIRS" ]; then
+  echo
+  echo "[--no-restart] runner は再起動していない。docker group は次回起動まで反映されないため、"
+  echo "そのままでは job から docker が使えない。手動で再起動すること。"
+fi
+
+say "完了後の確認"
+cat <<NOTE
+job から docker が使えるかは、対象リポジトリで Docker container action を 1 本流すのが確実。
+すぐ確かめるなら runner 上で:
+  sg docker -c 'docker run --rm hello-world'
+
+[WSL の注意] wsl --shutdown / Windows 再起動で WSL ごと落ちる。systemd があれば docker は
+自動復帰するが、WSL 自体の起動はログオン時タスク等が要る（provision-gh-runner の WSL 補足参照）。
+NOTE
