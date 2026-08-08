@@ -26,6 +26,14 @@ description: 要件・構成案・検証レポートをもとにSKILL.mdの初�
 ### タスク種別
 [TASK_TYPE]
 
+`document` / `procedure` / `data` の**ドメイン分類**。下の「アーキテクチャ」とは別軸なので混同しないこと。
+
+### アーキテクチャ
+[ARCHITECTURE]
+
+- `coordinator`：Claude がターンごとに次を決める形。SKILL.md が誰に何を渡すかを順に書く（従来の既定）
+- `workflow`：実行順序・ループ・並列・集約・閾値判定を **script が握る**形。SKILL.md は script を呼ぶ前後だけを書き、`scripts/<name>.js` を**あわせて生成する**
+
 ### 構成案（document タイプのみ）
 [STRUCTURE_PLAN]
 
@@ -53,6 +61,9 @@ document タイプの場合、上記の構成案に従って執筆すること�
 1. description を最重要視する：3人称で書く・[What]+[When] を含む・除外条件を明記する
 2. 理由を説明する：「〜すること」だけでなく「なぜそうするか」を書く（Why-driven）
 3. **SKILL.md はフローの進行のみ**：「誰に何を渡すか」の順序・分岐・完了条件だけを書く。処理の実行責任は Sub-agent が持つ。以下は必ず外出しする：
+
+   > **`ARCHITECTURE` が `workflow` のときはこの原則の適用先が変わる。** 実行順序を握るのは SKILL.md ではなく script なので、SKILL.md には「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出し」「返り値の解釈と人間への提示」だけを書く。**区間の内側の手順を散文で再掲しない**（script が唯一の正になり、二重管理は必ずズレる）。以下の外出し規則は変わらず適用する。
+
    - 変換ルール・マッピング表 → `references/` または `assets/`
    - 定型エラーメッセージ・案内文 → `references/` または `assets/`
    - 設定値・URL・閾値 → `assets/`
@@ -93,6 +104,18 @@ description: >
 
 1. **SKILL.md の完全なテキスト**
    フロントマターから本文末尾まで、コピーしてファイルに保存できる状態で出力すること。
+
+1b. **`scripts/<スキル名>.js`（`ARCHITECTURE` が `workflow` のときのみ）**
+   `[SKILL_DIR]/references/skill-writing-guide.md` の「Workflow 型スキルの執筆」を Read し、その規則に従って**動作する workflow script 全文**を出力すること。骨組みだけ・`// TODO` で中身を省くのは不可。
+
+   最低限これらを満たさないとランタイムが起動前に落ちる、または resume が壊れる：
+   - `export const meta = { name, description, phases }` から始める。**meta は純粋なリテラル**（変数・関数呼び出し・スプレッド・テンプレート展開を含めない）
+   - `phase()` に渡すタイトルは `meta.phases[].title` と**完全一致**させる
+   - `import()` を書かない（含むと起動前に失敗する）
+   - `Date.now()` / `Math.random()` / 引数なし `new Date()` を書かない（throw する）
+   - `agent()` の結果は `null` になりうる。使う前に `.filter(Boolean)` する
+   - 人間の判断が要る地点は script の**内側に置かない**（実行中にユーザー入力を受け取れない）。境界で `status: "BLOCKED"` 等を返して止める
+   - 既定は `pipeline()`。`parallel()`（barrier）を使うなら、次のステージが前ステージの**全件を横断して見る必要がある**理由をコメントに書く
 
 2. **evals.json のドラフト**
    以下のフォーマットで3件のテストケースを生成すること。

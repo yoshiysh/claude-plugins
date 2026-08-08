@@ -28,8 +28,19 @@ description: 要件と検証基準をもとにSKILL.mdのセクション構成�
 
 `references/coordination-patterns.md` を Read して参照すること。
 
-- **採用パターン**：Orchestrator-Subagent / Generator-Verifier / Parallelization / Agent Teams / Shared State から選択（複数可）
+- **採用パターン**：Orchestrator-Subagent / Generator-Verifier / Parallelization / Agent Teams / Shared State / Workflow 実行型 から選択（複数可）
 - **Sub-agent の列挙**：各 agent の名前・担当モデル・単一の責務（1行）
+
+**Workflow 実行型（`ARCHITECTURE` が `workflow`）を採る場合、構成案の意味が変わる。**
+実行順序を握るのは SKILL.md ではなく `scripts/<name>.js` なので、
+
+- SKILL.md の構成は「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出しと `args` の意味」「返り値の解釈と人間への提示」「人間ゲートの位置」の 4 ブロックに絞る
+- **区間の内側の手順を SKILL.md のセクションとして起こさない**（script が唯一の正になり、二重管理は必ずズレる）
+- 代わりに **script の phase 構成**を設計する：各 phase の名前・何を fan-out するか・どこで集約するか・閾値判定をどこに置くか・人間ゲートをどの境界に出すか
+- 品質パターン（adversarial verify / perspective-diverse verify / judge panel / loop-until-dry）を使うなら、どの phase に入れるかをここで決める
+- 既定は `pipeline()`。`parallel()`（barrier）を置く phase があるなら、**全件が揃う必要がある理由**を構成案に書く
+
+判断材料は `references/best-practices.md` §13 と `references/skill-writing-guide.md`「Workflow 型スキルの執筆」。
 - **モデル選定の根拠**：Opus / Sonnet / Haiku それぞれの割り当て理由
 - **assets に分離するもの**：変化しない参照データ（仕様・コンポーネント集・設定値）を `assets/` に分離する
 

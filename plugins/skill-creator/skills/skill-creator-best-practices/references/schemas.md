@@ -108,6 +108,54 @@ description: >
 [本文]
 ```
 
+### writer（initial モード）の追加出力（`ARCHITECTURE` が `workflow` のときのみ）
+
+SKILL.md 全文に続けて、workflow script を ```` ```javascript ```` フェンスで出力する。
+`build_skill.js` は**`export const meta` で始まるフェンスブロック**を script 本体として取り出す
+（本文中の説明用 JS 断片と取り違えないための条件）。取り出せない場合はその場で打ち切る。
+
+````
+```javascript
+export const meta = {
+  name: '[スキル名]',
+  description: '[一行の説明]',
+  phases: [{ title: '[phase 名]', detail: '[説明]' }],
+}
+
+phase('[phase 名]')
+...
+```
+````
+
+制約は `references/skill-writing-guide.md`「Workflow 型スキルの執筆」を正とする
+（`meta` は純粋リテラル・`import()` 禁止・`Date.now()` / `Math.random()` 禁止・
+`phase()` のタイトルは `meta.phases[].title` と一致・`agent()` の結果は `.filter(Boolean)`）。
+
+### script-reviewer の出力（`ARCHITECTURE` が `workflow` のときのみ）
+
+```json
+{
+  "verdict": "ok | mismatch",
+  "failed": [
+    {
+      "category": "A | B | C | D | E",
+      "item": "該当する検査項目",
+      "evidence": "script 中の該当箇所",
+      "why_it_matters": "実行時に何が起きるか",
+      "fix": "具体的な直し方"
+    }
+  ],
+  "warnings": [{ "item": "確認したい点", "note": "補足" }],
+  "script_summary": "実際に読んだ script の構造の要約（必須）"
+}
+```
+
+- カテゴリ：A=起動前・実行中に落ちる / B=黙って間違える / C=barrier の誤用 / D=人間ゲートと停止条件 / E=要件との対応
+- A または B が 1 件でもあれば `verdict: mismatch`
+- `script_summary` が必須なのは、reviewer が script を読まずに `ok` を返す経路を残さないため
+- reviewer が応答しなかった場合、`build_skill.js` はそれを「失格 0 件」と読まず
+  `verdict: script_review_incomplete` で返す（未検証を検証済みに化けさせない）
+
 ### writer（revise モード）の出力
 
 ```
