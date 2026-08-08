@@ -535,3 +535,40 @@ fan-out する既存スキルは「それを指して同じことをする workf
        ├─ 制御ループ（until-pass / until-dry / until-budget）← script の while
        └─ graph（DAG）← script の依存関係（await / pipeline / parallel）として表現
 ```
+
+### `scripts/` は 2 つの別の層を指す（混同しない）
+
+同じ `scripts/` でも、担っている層が違う。
+
+| | 決定的処理（§5 Determinism Split） | orchestration（本節） |
+|---|---|---|
+| 例 | `anthropics/skills` の `docx/scripts/{accept_changes,comment,merge_runs}.py` | `dispatch/scripts/orchestrate.js` |
+| 中身 | OOXML 手術・PDF 処理など、1 操作を確実に行うコード | agent の fan-out・集約・閾値判定 |
+| 呼ぶ人 | agent が Bash で叩く | `Workflow({ scriptPath })` でランタイムが実行 |
+
+`docx` が workflow を持たないのは正しい。あのスキルは fan-out しない（1 agent が Python を叩くだけ）ので、orchestration を決定化する対象が無い。**「scripts/ があるから決定化済み」ではない**——見るべきは「ループと並列と閾値判定を誰が持っているか」。
+
+### 参照実装と、本家との差
+
+`anthropics/skills`（2026-08 時点）は `workflows/` ディレクトリを 1 つも持たず、`.js` は作画テンプレート 1 本のみ。本家 `skill-creator` も `agents/` + Python の `scripts/` で、全区間が Claude のターンごとの指揮で回る。**このリポジトリの skill-creator-best-practices はその直系だが、Phase 2–4 を `build_skill.js` に移した時点で本家より先へ出ている。**
+
+継承したパターン表（`coordination-patterns.md` の 1–6）は dynamic workflows 以前の corpus 由来で、Workflow 実行型が候補に入っていなかった。本節が後から足されても選択経路に届いていなかったのが、fan-out するスキルを作っても script 化しない傾向の実際の原因。ステップ 0 の判定はそれを塞ぐために置いてある。
+
+より進んだ参照実装は別リポジトリの `magi`（`stock-valuation-dcf`）:
+
+- `.claude/workflows/{magi-deliberate,magi-implement,magi-close}.js` に**名前付き**で保存し、`/magi-deliberate` として起動
+- skill 側は `agents/` `contracts/` `domains/` のみを持ち、`.js` を 1 本も持たない（**skill＝専門知識、workflow＝実行順序**の完全分離）
+- 人間ゲートは workflow の境界に置き、gate FAIL は `status: "BLOCKED"` と理由・証拠を返して停止
+- `evals/scenarios/28_workflow_execution_boundary.md` で「構造で解決された failure mode」と「honor system に残る failure mode」を切り分けて検証している
+
+### script の置き場
+
+公式は 3 つのサーフェスを認めているが、どれを使うべきかは**何も言っていない**。
+
+| 置き場 | 起動 | 配布 |
+|---|---|---|
+| `<skill>/scripts/*.js` | skill が `Workflow({ scriptPath })` | skill 資産として plugin に同梱される |
+| `.claude/workflows/*.js` | `/name`（保存済み workflow） | リポジトリローカル。plugin 配布されない |
+| `plugins/<p>/workflows/*.js` | `/plugin:name` | plugin 資産として配布される |
+
+**このリポジトリは `<skill>/scripts/*.js` に統一する。**

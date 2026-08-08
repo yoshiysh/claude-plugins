@@ -35,7 +35,8 @@ description: manage-marketplace-plugin スキルで input-resolver の後に呼�
 python3 [SKILL_DIR]/scripts/register_plugin.py \
   --skill <skill_name> --plugin <plugin_name> \
   --author <author> --description "<description>" \
-  [--update] [--version <version>] --dry-run
+  [--update] [--version <version>] \
+  [--bundle-skill <dep> ...] [--depends-on <plugin> ...] --dry-run
 ```
 
 dry-run レポートの `version` / `version_bump` / `planned_actions.marketplace_entry`（added か updated か）を確認する。
@@ -46,13 +47,16 @@ dry-run レポートの `version` / `version_bump` / `planned_actions.marketplac
 python3 [SKILL_DIR]/scripts/register_plugin.py \
   --skill <skill_name> --plugin <plugin_name> \
   --author <author> --description "<description>" \
-  [--update] [--version <version>]
+  [--update] [--version <version>] \
+  [--bundle-skill <dep> ...] [--depends-on <plugin> ...]
 ```
 
 オプションの付け方（重要）：
 - `--plugin <plugin_name>`：input-resolver が決めた登録先 plugin（カテゴリ）。スキル名と同じでも省略せず付ける（意図を明示するため）。
 - `--update`：input-resolver の `update=true`（plugin が登録済み。既存カテゴリ plugin へのスキル追加を含む）のときだけ付ける。
 - `--version <version>`：input-resolver が version を渡したとき（ユーザー明示）だけ付ける。無指定なら付けない（スクリプトが新規 0.1.0／更新 patch+1 を決める）。
+- `--bundle-skill <dep>`：dependency-resolver が確定した `bundle_skills` の各スキル（未登録の実依存）。実体が登録先 plugin へ移動して同梱される。**既に別 plugin に属するスキルを渡してはいけない**（実体の複製になるため exit 4 で止まる）。
+- `--depends-on <plugin>`：dependency-resolver の `cross_plugin_dependencies[].owning_plugin`（重複除去）。`.claude-plugin/plugin.json` の `dependencies` に書かれ、Claude Code が同時 install する。`.codex-plugin/plugin.json` には書かれない（Codex に同等機能が無いため、Codex では手動 install 前提）。
 
 スクリプトは JSON レポートを stdout に出す。終了コードの意味：
 
@@ -74,7 +78,7 @@ python3 [SKILL_DIR]/scripts/register_plugin.py \
 - marketplace.json: plugins に追加（added）/ 既存を更新（updated）
 - plugin.json: 生成（version <version> / author / description）
 - README.md: 生成 / 既存のため保持
-- symlink: plugins/<plugin_name>/skills/<skill_name> → ../../../.claude/skills/<skill_name>（検証: OK / NG）
+- relocate: .agents/skills/<skill_name> → plugins/<plugin_name>/skills/<skill_name>（実体移動＋逆symlink）<skill_name>（検証: OK / NG）
 - 公開名: /<plugin_name>:<public_name>（レポートの public_name。frontmatter の name 由来）
 
 【次のアクション】

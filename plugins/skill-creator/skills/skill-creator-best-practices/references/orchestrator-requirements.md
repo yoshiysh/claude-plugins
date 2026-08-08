@@ -37,6 +37,8 @@
 
 `references/coordination-patterns.md` を Read し、生成するスキルに適したパターンを選択する。
 
+**最初に判定するのは「誰が plan を握るか」**（`coordination-patterns.md` のパターン選択ガイド ステップ 0）。パターン 1–6 はいずれも Claude がターンごとに指揮する形で、Workflow 実行型だけが軸が違う。ここを飛ばして 1–6 から選び始めると、orchestration を script に移す選択肢が最後まで検討されない。判定の根拠は `references/best-practices.md` §13 を Read すること。
+
 ### 責務分離の原則（判断不要・常に適用）
 
 **SKILL.md はフローの進行のみを担う。処理の実行責任は Sub-agent が持つ。**
@@ -50,6 +52,14 @@
 
 ### 選択手順
 
+0. **orchestration を script に移すかを判定する**（`coordination-patterns.md` ステップ 0）：
+   - 人間ゲートを挟まない区間に fan-out・集約・閾値判定・条件付き再実行が連なるか
+   - 1 会話で調整できる数を超える agent が要るか
+   - adversarial verify・多角比較を構造として強制したいか
+   - **「警察装置」シグナル**：ループが正しく回るかの監視（skip 検出・bypass 検出・記録漏れ検知）を SKILL.md に書きたくなっていないか。書きたくなっていれば、それはループ自体を script に移すサイン（`best-practices.md` §13）
+   - いずれかに当てはまれば **Workflow 実行型**。この場合も人間ゲートは script の境界に置けるので、全区間を script にする必要はない
+   - 当てはまらなければ 1–6 のまま進む
+
 1. **Sub-agent の分割単位を決める**：各ステップを「1入力 → 1出力」の単一責務に分割する
    - 例：「入力検証」「API取得」「フォーマット変換」「ファイル保存」はそれぞれ別 agent
 
@@ -57,6 +67,7 @@
    - 品質保証が重要か → Generator-Verifier を追加
    - 独立した複数観点の検証があるか → Parallelization を追加
    - サブタスクが長期・複数ステップか → Agent Teams を追加
+   - Workflow 実行型を採った場合、これらは script の制御フローとして内側に入る（置換ではなく入れ子）
 
 3. **各 Sub-agent のモデルを決定する**：
    - 深い創造・推論・高品質な生成 → Opus

@@ -107,7 +107,12 @@ note: <補足>
 ```
 status: ok
 has_dependencies: true | false
-bundle_skills: [<実依存と判定した同梱対象スキル名>]
+bundle_skills: [<実依存かつ未登録で、同梱できるスキル名>]
+cross_plugin_dependencies:
+  - skill: <実依存だが既に別 plugin に属するスキル名>
+    owning_plugin: <その plugin 名>
+    action: "--depends-on <owning_plugin> で宣言し、呼び出しをスキル呼び出しへ書き換える"
+    path_references: [<install 先で解決しないパス参照の箇所。無ければ空>]
 rationale:
   - <skill>: <実依存と判断した根拠（呼び出し箇所）>
 needs_confirmation:
@@ -118,6 +123,7 @@ note: <補足。依存スキル自体が env_build 等で配布困難なら警�
 ```
 
 - `bundle_skills` が空でも `status: ok`（依存なしは正常）。
+- **既に別 plugin に属するスキルを `bundle_skills` に入れてはいけない。** 実体は 1 箇所しか置けず（配布サブツリーに symlink を置けないため）、同梱すると実体のコピーになって drift する。`register_plugin.py` は exit 4 で止める。該当分は `cross_plugin_dependencies` に入れ、司令塔が `--depends-on` 宣言＋呼び出しの書き換えとして扱う。
 - `bundle_skills` と `needs_confirmation` の使い分けが確認の要否を決める。`bundle_skills` は `rationale` に呼び出し箇所を挙げられた**実依存の確定分**で、司令塔は確認せずそのまま同梱する。`needs_confirmation` は**分類が付かなかった候補**で、こちらだけをユーザーに聞く。判断が付いた候補を `needs_confirmation` に入れない（聞く必要のない確認が増える）。
 
 ---
@@ -135,10 +141,12 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 | author      | input-resolver | author      |
 | description | input-resolver | description |
 | bundle_skills | dependency-resolver（司令塔が確認後に確定）| bundle_skills |
+| depends_on | dependency-resolver | cross_plugin_dependencies[].owning_plugin（重複除去）|
 
 これらを `scripts/register_plugin.py` の引数 `--skill / --plugin / --author / --description` に対応させて実行する。
 `--update` は `update=true` のときだけ付ける。`--version` は version が空でない（ユーザー明示）ときだけ付ける（空なら付けず、スクリプトに新規 0.1.0／更新 patch+1 を決めさせる）。
 `--bundle-skill <dep>` は確定した同梱対象スキルごとに付ける（複数可。無ければ付けない）。
+`--depends-on <plugin>` は cross-plugin 依存の所有 plugin ごとに付ける（複数可。無ければ付けない）。これは `.claude-plugin/plugin.json` の `dependencies` にだけ書かれ、`.codex-plugin/plugin.json` には入らない（Codex に同等機能が無く、未知フィールドの許容も明記されていないため）。
 
 ---
 
@@ -161,22 +169,26 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
     "marketplace_entry": "added | updated",
     "plugin_json": "created",
     "readme": "created | kept",
-    "symlink": "created | kept | relinked"
+    "relocate": "created | migrated | kept"
   },
   "bundled_skills": [
     { "skill": "<dep>", "public_name": "<dep公開名>",
-      "symlink": "created | kept | relinked", "ok": true }
+      "relocate": "created | migrated | kept", "ok": true }
   ],
-  "symlink_ok": true,
+  "entities_ok": true,
+  "leftover_symlinks": [],
+  "bundle_ok": true,
   "next_action": "/plugin install <plugin>@<marketplace名> でインストールして動作確認できます。"
 }
 ```
 
-- `public_name`: 呼び出し名 `/plugin:skill` の skill 部分。symlink 名はスキル実体ディレクトリ名を保つ（install 先キャッシュのディレクトリ名になるため、`../<兄弟スキル>/` 参照を壊さない）。
+- `public_name`: 呼び出し名 `/plugin:skill` の skill 部分。`skills/` 配下のディレクトリ名は実体名を保つ（install 先キャッシュのディレクトリ名になるため、`../<兄弟スキル>/` 参照を壊さない）。
+- `actions.relocate`: `created`=未登録スキルを移動／`migrated`=旧 symlink レイアウトから反転／`kept`=既に移動済み。
+- `leftover_symlinks`: `plugins/<plugin>/` 配下に残った symlink の相対パス。**常に空でなければならない**（残っていると Codex の install 先で中身ごと落ちる）。`bundle_ok` は `entities_ok` かつこれが空であること。
 
 - `version`: 実際に plugin.json へ書いた version。`version_bump`: その決め方（`explicit`=ユーザー明示／`X -> patch+1`=更新で patch を上げた／`default(0.1.0)`=新規）。
-- `bundled_skills`: `--bundle-skill` で同一プラグインに同梱した依存スキルの symlink 結果（`skills/<dep>`）。指定が無ければ空配列。`symlink_ok` は本体＋同梱すべてのリンク検証を AND した結果。
-- `--dry-run` 時は `actions` の代わりに `planned_actions`（`marketplace_entry` / `plugin_json: would_create (version X)` / `readme` / `symlink` / `bundled_symlinks`）を返し、`version` / `version_bump` / `bundled_skills`（同梱予定の名前リスト）も返る。
+- `bundled_skills`: `--bundle-skill` で同一プラグインに取り込んだ依存スキルの移動結果（`skills/<dep>`）。指定が無ければ空配列。既に別 plugin に属するスキルを指定した場合は exit 4 で中断する。
+- `--dry-run` 時は `actions` の代わりに `planned_actions`（`marketplace_entry` / `plugin_json: would_create (version X)` / `readme` / `relocate` / `bundled_relocations`）を返し、`version` / `version_bump` / `bundled_skills`（同梱予定の名前リスト）も返る。
 
 ### 終了コード
 
@@ -213,7 +225,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 }
 ```
 
-- **L2**：plugin.json 妥当性／`skills/` 配下の全 symlink→SKILL.md 解決／dangling symlink の有無（読み取り専用）。plugin は複数スキルを持ちうる。
+- **L2**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致すること／`skills/` 配下の各スキルが SKILL.md を持つこと／**配布サブツリーに symlink が 1 つも無いこと**（読み取り専用）。plugin は複数スキルを持ちうる。
 - **L3**：HOME を一時ディレクトリに差し替えた**実 install**。キャッシュにバンドルが実体（symlink でない）として展開され、`claude plugin details` でスキル認識されるか。**実ホーム ~/.claude は変更しない**（終了時に一時ディレクトリごと後始末）。
 - 終了コード：0=overall_passed / 5=検証失敗 / 3=登録 plugin dir 不在。
 - L4（実データ実行）は本スクリプト外。司令塔が AskUserQuestion で入力を聞いて実行する。

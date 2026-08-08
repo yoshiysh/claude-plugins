@@ -103,6 +103,8 @@ subagent（Sonnet/Opus/Haiku）を回します。収束すれば途中で打ち�
 
 ## Step 2: Workflow を呼ぶ
 
+> **実行環境の前提**: このスキルは Claude Code の dynamic workflows に依存する。Codex では動作しない可能性が高い — `codex` CLI に workflow サブコマンドが無く、[Codex plugin の仕様](https://developers.openai.com/codex/plugins/build)にも `workflows/` サーフェスが無い（いずれも 2026-08 時点。Codex セッション内のツールセットを直接確認したものではない）。Codex で使う場合は、まず Workflow 相当のツールが露出しているか確認すること。
+
 ```
 Workflow({
   scriptPath: "[SKILL_DIR]/scripts/orchestrate.js",

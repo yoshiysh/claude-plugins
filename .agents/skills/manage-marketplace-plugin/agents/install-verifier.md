@@ -24,7 +24,7 @@ python3 [SKILL_DIR]/scripts/verify_install.py --plugin <plugin_name>
 
 `[SKILL_DIR]` は司令塔が埋め込むこのスキル（manage-marketplace-plugin）の絶対パス。スクリプトは L2＋L3 を行い、`references/schemas.md` の「verify_install.py の出力」形式の JSON を返す。
 
-- **L2（bundle 解決）**：plugin.json の妥当性／`skills/<name>` symlink が SKILL.md へ解決／dangling symlink の有無
+- **L2（bundle 解決）**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致／各 `skills/<name>` が SKILL.md を持つ／**配布サブツリーに symlink が 1 つも無い**／dangling symlink の有無
 - **L3（隔離 install）**：HOME を一時ディレクトリに差し替えて実際に `claude plugin marketplace add` + `install` を実行し、キャッシュにバンドルが**実体として**展開され、`claude plugin details` でスキルが認識されることを確認する。**実ホーム ~/.claude/plugins は変更されない**（スクリプトが終了時に一時ディレクトリごと後始末する）。
 
 ### ステップ2：結果を解釈して報告する
