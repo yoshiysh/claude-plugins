@@ -41,6 +41,8 @@ Phase 2–4: Workflow を呼ぶ（scripts/build_skill.js が全て内包）
   Criteria   criteria-gen（Sonnet）→ criteria-comp（Sonnet）で検証基準を確定
   Structure  document のみ。structure-designer → structure-reviewer の until-pass ループ
   Write      writer（Opus, MODE=initial）が初稿を執筆
+             architecture=workflow なら scripts/<name>.js も生成し、
+             script-reviewer（Opus）が別 context で検査する
   Test       tester（Haiku）が assertions 付きテストケース3件を生成
   Evaluate   with_skill / baseline を全ケース分まとめて並列実行（6 agent）
   Grade      grader を3件並列（Sonnet）+ reviewer（Opus）を同時実行 → pass_rate を集計
@@ -88,11 +90,13 @@ Workflow({
     skillDir: "[SKILL_DIR]",
     requirements: "<Phase 1 で構造化した要件全体>",
     requirementsSummary: "<トリガー条件・対象ユーザーの要約>",
-    taskType: "document | workflow | data",
+    taskType: "document | procedure | data",
+    architecture: "coordinator | workflow",
     personas: {
       criteriaGen: "...", criteriaComp: "...",
       structureDesigner: "...", structureReviewer: "...",
-      writer: "...", tester: "...", reviewer: "..."
+      writer: "...", tester: "...", reviewer: "...",
+      scriptReviewer: "..."   // architecture: "workflow" のときのみ
     }
   }
 })
@@ -107,12 +111,13 @@ Workflow({
 
 ```
 {
-  task_type, criteria, structure: { plan, attempts, unresolved, review },
+  task_type, architecture, workflow_script, script_review,
+  criteria, structure: { plan, attempts, unresolved, review },
   skill_draft, test_cases, iterations[], final, revisions_used, verdict
 }
 ```
 
-`verdict` は次の 4 値。
+`verdict` は次の 6 値（下 2 つは `architecture: "workflow"` のときだけ出る）。
 
 | verdict | 意味 |
 |---|---|
@@ -120,6 +125,16 @@ Workflow({
 | `needs_human_decision` | 評価は揃ったが、改稿上限に達しても閾値に届かなかった（品質の問題） |
 | `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係） |
 | `revision_failed` | 改稿 agent が応答しなかった |
+| `script_rejected` | **workflow のみ**。評価は通ったが script-reviewer が失格項目を挙げた |
+| `script_review_incomplete` | **workflow のみ**。script-reviewer が応答せず、script を検証できなかった |
+
+`architecture: "workflow"` を渡すと、writer は SKILL.md に加えて `scripts/<name>.js` を生成し、
+script-reviewer（別 context）がそれを検査する。**評価が通っても script が失格なら `passed` にしない** ——
+配布されるのは script なので、SKILL.md の質だけで合格にすると壊れた実体がそのまま公開される。
+script-reviewer が落ちたときも「失格 0 件」とは読まず `script_review_incomplete` で返す。
+
+`architecture` は `taskType`（`document` / `procedure` / `data` というドメイン分類）とは**別軸**。
+取り違えると構成設計フェーズの有無が変わるため、`build_skill.js` は不正な値を受けたら即座に落ちる。
 
 `passed` は「閾値を超えた」だけでなく**評価が揃った**ことも要求する。落ちた agent の分を
 欠測として扱わず平均に含めると、生き残った少数の結果から出た数字が全体の成績に見える
@@ -186,6 +201,7 @@ python3 [SKILL_DIR]/eval-viewer/generate_review.py \
 - `.claude/skills/[スキル名]/SKILL.md`（スキル本体）
 - `.claude/skills/[スキル名]/evals/evals.json`（テストケース3件）
 - マルチエージェント設計の場合はさらに `agents/` / `assets/` / `schemas/` も生成
+- `architecture: "workflow"` の場合は `.claude/skills/[スキル名]/scripts/[スキル名].js`（workflow script）も生成する。**配布される実体はこの script なので、保存時に必ず一緒に書き出す**（Workflow の戻り値 `workflow_script` に入っている）
 
 **スキル発動に必要な条件：**
 - 「スキルを作りたい」「スキルを設計して」「〜を自動化するスキル」などのリクエスト
@@ -214,6 +230,7 @@ agents/                         # 各 Sub-agent プロンプト（build_skill.js
   tester.md                     # Test：テストケース生成（Haiku）
   grader.md                     # Grade：with_skill vs baseline 採点（Sonnet）
   reviewer.md                   # Grade：定性チェック（Opus）
+  script-reviewer.md            # Review script：workflow script の検査（Opus・workflow のみ）
   comparator.md                 # Analyze：ブラインド A/B 比較（Sonnet）
   analyzer.md                   # Analyze：grading 結果のパターン分析・改善提案（Sonnet）
 

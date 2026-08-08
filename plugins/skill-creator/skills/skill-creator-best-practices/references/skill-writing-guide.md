@@ -7,6 +7,7 @@
 - [本文の書き方](#本文の書き方)
 - [マルチエージェント設計の原則](#マルチエージェント設計の原則)
 - [document タイプの追加ルール](#document-タイプの追加ルール)
+- [Workflow 型スキルの執筆](#workflow-型スキルの執筆)
 - [eval-first 開発](#eval-first-開発)
 - [パターン選択](#パターン選択)
 - [良い SKILL.md の基準](#良い-skillmd-の基準)
@@ -188,6 +189,95 @@ Sub-agent が必要なタイミングで `assets/` を Read する設計にす�
 
 - 実際の入力例と出力例をセットで **1パターン以上含める**（「省略」と書いて省くことは禁止）
 - サンプルが具体的であるほど、Claude の出力品質が安定する
+
+---
+
+## Workflow 型スキルの執筆
+
+`ARCHITECTURE` が `workflow` のときだけ適用する。SKILL.md に加えて `scripts/<スキル名>.js` を生成する。
+背景と選択理由は `references/best-practices.md` §13。
+
+### SKILL.md 側に書くこと・書かないこと
+
+| 書く | 書かない |
+|---|---|
+| script を呼ぶ前の準備（要件の構造化・ユーザー確認） | script が回す区間の手順の再掲 |
+| `Workflow({ scriptPath, args })` の呼び出しと `args` の意味 | ループ回数・並列数・閾値の数値（script が持つ） |
+| 返り値の構造と、その解釈・人間への提示 | 「〜を忘れずに実行する」型の注意書き（構造で保証済み） |
+| 人間ゲートの位置と、止まったときの選択肢 | agent プロンプトの本文（`agents/` に置く） |
+
+**区間の内側を散文で再掲しない。** script が唯一の正になるため、二重管理は必ずズレる。
+
+`scriptPath` にはスキルの実ディレクトリ絶対パスを渡す。script は自身の位置を解決できないので、`agents/*.md` を Read させるための基準パスは `args` で渡すしかない。
+
+### script の骨格
+
+```javascript
+export const meta = {
+  name: 'skill-name',
+  description: '一行の説明（承認ダイアログに出る）',
+  phases: [
+    { title: 'Collect', detail: '対象を列挙する' },
+    { title: 'Verify',  detail: '各件を独立に検証する' },
+  ],
+}
+
+phase('Collect')
+const found = await agent('対象を列挙する。', { schema: LIST_SCHEMA })
+
+const verified = await pipeline(
+  found.items,
+  item => agent(`${item} を検証する。`, { label: item, phase: 'Verify', schema: VERDICT }),
+)
+return verified.filter(Boolean)
+```
+
+### 起動前に落ちる・resume が壊れる書き方（禁止）
+
+| 禁止 | 理由 |
+|---|---|
+| `meta` に変数・関数呼び出し・スプレッド・テンプレート展開を入れる | `meta` は純粋なリテラルでなければならない |
+| `import()` を書く | 含む script は起動前に失敗する |
+| `Date.now()` / `Math.random()` / 引数なし `new Date()` | throw する（resume を壊すため）。時刻は `args` で渡し、乱択は index で prompt を変える |
+| script から直接ファイル読み書き・shell 実行 | script にその権限は無い。agent のタスクに寄せる |
+| `agent()` の結果をそのまま使う | 停止・API エラーで `null` になる。`.filter(Boolean)` してから使う |
+| `phase()` のタイトルを `meta.phases[].title` とずらす | 進捗表示が別グループに割れる |
+| script の内側でユーザーに確認する | 実行中にユーザー入力を受け取れない |
+
+### pipeline を既定にする
+
+`pipeline()` は item ごとに独立して流れる。`parallel()` は **barrier**（全件揃うまで待つ）で、次のステージが前ステージの**全件を横断して見る必要がある**ときだけ正当。
+
+barrier の理由にならないもの：「flatten / map / filter したい」（ステージ内でやる）、「ステージが概念的に別」（pipeline がそれを表現する）、「その方が読みやすい」。
+
+`parallel()` を使うなら、**なぜ全件が揃う必要があるのかをコメントに書く**。書けないなら pipeline に直す。
+
+resume の性質上、**長い 1 agent より小さい agent への fan-out の方が中断時に進捗が残る**（キャッシュは最初の未完了 agent で止まり、それ以降に起動した分は完了済みでもやり直しになる）。phase の粒度はこれを踏まえて決める。
+
+### 人間ゲートは境界に置く
+
+workflow は実行中にユーザー入力を受け取れない。承認・sign-off が要るなら、
+
+1. 段階ごとに別 workflow として回す
+2. gate が通らなかったら `status: "BLOCKED"` と理由・証拠を返して**止める**
+3. SKILL.md 側がそれをユーザーへ提示し、判断を得てから再実行する
+
+### 集計と判定は script の算術で行う
+
+- 平均・比率・件数を LLM に出させない。`agent()` の返り値から script が計算する
+- 閾値判定は式で書く（`delta >= 0.2 && failed.length === 0`）。目分量の余地を残さない
+- 検証結果は `schema` で `failed[]` のような構造化配列として受け取る。markdown 中の ❌ を数えない
+- **欠測を成績に混ぜない**。出力が欠けたケースは採点対象から外し、別カウントで返す。0 件しか採点できなかったときの差分は `0` ではなく `null`（`0` は実測の引き分けを意味する値）
+- 上限・打ち切り・サンプリングで範囲を絞ったら `log()` に落とす。黙った打ち切りは「全部見た」と読まれる
+
+### 品質パターン
+
+`references/best-practices.md` §13 の表から要件に合うものを選ぶ。よく効くのは、
+
+- **Adversarial verify**：主張ごとに独立した懐疑者を N 体立て、**反証するよう**指示して過半数で棄却
+- **Perspective-diverse verify**：同じ検証者を N 体ではなく観点を変える（correctness / security / perf / 再現性）
+- **Loop-until-dry**：新規発見が K ラウンド連続でゼロになるまで続ける（件数が読めない発見タスク）
+- **Judge panel**：独立した N 案を生成 → 並列 judge で採点 → 勝ち筋に次点の良い部分を接ぐ
 
 ---
 

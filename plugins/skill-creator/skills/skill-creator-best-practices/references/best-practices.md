@@ -24,6 +24,8 @@
 - [nyosegawa - skill-creator and orchestration skill](https://nyosegawa.com/posts/skill-creator-and-orchestration-skill/)
 - [Multi-agent coordination patterns](https://claude.com/blog/multi-agent-coordination-patterns)
 - [Orchestrate subagents at scale with dynamic workflows（公式・一次情報）](https://code.claude.com/docs/en/workflows)
+- [Introducing dynamic workflows in Claude Code（公式ブログ）](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)
+- Workflow ツールの contract（セッション内のツール定義。公開 URL は無い。§13 の script 作法はここが一次情報）
 
 ---
 
@@ -572,3 +574,75 @@ fan-out する既存スキルは「それを指して同じことをする workf
 | `plugins/<p>/workflows/*.js` | `/plugin:name` | plugin 資産として配布される |
 
 **このリポジトリは `<skill>/scripts/*.js` に統一する。**
+
+### 実行時制約（script を書く前に知っておく）
+
+出典: [workflows docs](https://code.claude.com/docs/en/workflows)（2026-08-09 取得）。
+
+| 制約 | 設計への影響 |
+|---|---|
+| **実行中のユーザー入力は不可** | 人間ゲートは workflow の境界に置く。段階ごとに別 workflow として回す |
+| **script 自身からファイルシステム・shell を触れない** | 読み書き・コマンド実行は agent の仕事。script は agent を並べるだけ |
+| **`import()` を含む script は起動前に失敗する** | ライブラリが要る処理は agent のタスクに寄せる |
+| **同時実行は最大 16 agent**（CPU コア数次第でさらに少ない） | 100 件渡しても全部完走する。並列度は気にしなくてよい |
+| **1 run あたり通算 1000 agent** | 暴走ループのバックストップ。通常の設計で当たる数ではない |
+| `Date.now()` / `Math.random()` / 引数なし `new Date()` は throw する | resume を壊すため。時刻は `args` で渡し、乱択は index で prompt を変える |
+
+`agent()` はユーザーが停止したり回復不能な API エラーになると `null` を返す。`pipeline()` はその `null` を配列に残すので、**結果を使う前に `.filter(Boolean)` する**。
+
+### resume の意味論と、そこから出る設計則
+
+停止した run を再開すると、完了済み agent は原則キャッシュから返る。ただし復元のルールが 2 つある。
+
+> Cached results stop at the first agent that didn't finish, and every agent that started after that one runs again, even if it completed.
+
+つまり A→B→C→D の順に起動して B の実行中に止めると、再開時は A だけがキャッシュから返り、**B・C・D は全部やり直し**になる（C・D が完了済みでも）。ここから設計則が出る。
+
+> **A workflow that fans work out across many small agents therefore preserves more progress than one long agent.**
+
+長い 1 agent に仕事を集めるより、小さい agent に fan-out した方が中断に強い。phase の粒度を決めるときの判断材料にする。
+
+### pipeline と parallel の使い分け（既定は pipeline）
+
+**`pipeline()` を既定にする。** 各 item がステージ間の barrier なしで独立に流れるので、wall-clock は「最も遅い 1 item の連鎖」であって「ステージごとの最遅の総和」にならない。
+
+`parallel()` は **barrier**（全件揃うまで待つ）。これが正当なのは、次のステージが**前ステージの全件を横断して見る必要がある**ときだけ。
+
+| barrier が正当 | barrier の理由にならない |
+|---|---|
+| 全件を突き合わせて dedup / merge してから高コストな後続へ渡す | 「flatten / map / filter したい」→ pipeline のステージ内でやればよい |
+| 合計が 0 件なら後続を丸ごと省略したい（early exit） | 「ステージが概念的に別」→ pipeline はそれを表現する形。別 ≠ 同期が要る |
+| 次ステージの prompt が「他の findings」を参照する | 「その方がコードが読みやすい」→ barrier の待ち時間は実在するコスト |
+
+判定の目安：`const a = await parallel(...)` → `const b = transform(a)`（flatten/map/filter だけ）→ `const c = await parallel(b.map(...))` と書いていたら、その中間 transform に barrier は要らない。pipeline のステージに畳む。
+
+**このスキル自身の `build_skill.js` が barrier を使っている箇所は正当な例**：Evaluate は with_skill と baseline を 1 つの `parallel()` にまとめて発行する。採点は必ず対で行う必要があり、片側だけ先に進めても意味がないため。逆に「なぜここだけ barrier なのか」を説明できない `parallel()` は pipeline に直す候補。
+
+### 品質パターン（構造として強制するもの）
+
+出典: [workflows docs](https://code.claude.com/docs/en/workflows)、[Introducing dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)（2026-08-09 取得）、および Workflow ツールの contract（セッション内のツール定義。公開 URL は無い）。
+
+workflow の価値は「agent を増やせる」ことではなく、**品質パターンを構造として強制できる**ことにある。blog はこれを「independent attempts と、結果をあなたが見る前に壊しにかかる adversarial agents」と表現している。
+
+| パターン | 形 | 効く場面 |
+|---|---|---|
+| **Adversarial verify** | 主張ごとに独立した懐疑者を N 体立て、**反証するよう**指示する。過半数が反証したら棄却 | もっともらしいが誤りの findings を落とす |
+| **Perspective-diverse verify** | 同一の検証者を N 体ではなく、観点を変える（correctness / security / perf / 再現性） | 失敗の仕方が複数ある主張。冗長性では拾えない |
+| **Judge panel** | 独立した N 案を別角度から生成 → 並列の judge が採点 → 勝ち筋を軸に、次点の良い部分を接ぐ | 解の空間が広い設計判断。1 案を反復するより強い |
+| **Loop-until-dry** | 新規発見が K ラウンド連続でゼロになるまで探索を続ける | 件数が事前に読めない発見タスク。`while count < N` は尻尾を取りこぼす |
+| **Multi-modal sweep** | 探し方の違う agent を並べる（コンテナ別・内容別・エンティティ別・時系列別） | 1 つの探索軸では全部見つからないとき |
+| **Completeness critic** | 最後に「何が欠けているか（未実行の modality・未検証の主張・未読の source）」だけを問う agent を置く | その出力が次ラウンドの作業になる |
+| **No silent caps** | top-N・リトライ無し・サンプリングで範囲を絞ったら `log()` に落とす | 黙った打ち切りは「全部見た」と読まれる |
+
+blog が挙げる収束形は「独立した角度から取り組む agent 群 → 別の agent がそれを反証しにかかる → 答えが収束するまで反復」。上表の adversarial verify と loop-until-dry の組み合わせにあたる。
+
+`schema` オプションを渡すと agent は構造化出力を強制され、検証済みオブジェクトが返る。**検証結果は schema の `failed[]` で受け取り、markdown 中の ❌ を数えない**（書式に判定を依存させない）。
+
+### 規模とコスト
+
+- 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧めている
+- size guideline（`/config`）は Claude が狙う agent 数の目安。`small` < 5 / `medium` < 15（既定）/ `large` < 50 / `unrestricted`
+- 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）
+- **モデルは既定でセッションのモデル**。安く済むステージだけ明示的に落とす。`effort` も同様（機械的なステージは `low`、最も難しい verify / judge だけ上げる）
+
+規模はタスクに合わせる。「バグを探して」なら finder 数体＋単票 verify、「徹底的に監査して」なら finder を増やし 3〜5 票の adversarial pass と統合ステージを置く。

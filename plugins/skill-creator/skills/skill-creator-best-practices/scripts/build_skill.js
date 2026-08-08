@@ -6,6 +6,7 @@ export const meta = {
     { title: 'Criteria' },
     { title: 'Structure' },
     { title: 'Write' },
+    { title: 'Review script', detail: 'architecture=workflow のときだけ走る' },
     { title: 'Test' },
     { title: 'Evaluate' },
     { title: 'Grade' },
@@ -87,6 +88,39 @@ const REVIEW_SCHEMA = {
     report: { type: 'string' },
   },
   required: ['criteria_checks', 'failed', 'report'],
+}
+
+// Workflow 型スキルの script 検証。reviewer 系と同じく failed[] を構造化して受け取る
+// （markdown 中の記号を script 側で数えると、書式の揺れが判定を左右する）。
+const SCRIPT_REVIEW_SCHEMA = {
+  type: 'object',
+  required: ['verdict', 'failed', 'script_summary'],
+  properties: {
+    verdict: { type: 'string', enum: ['ok', 'mismatch'] },
+    failed: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['category', 'item', 'why_it_matters', 'fix'],
+        properties: {
+          category: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },
+          item: { type: 'string' },
+          evidence: { type: 'string' },
+          why_it_matters: { type: 'string' },
+          fix: { type: 'string' },
+        },
+      },
+    },
+    warnings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['item'],
+        properties: { item: { type: 'string' }, note: { type: 'string' } },
+      },
+    },
+    script_summary: { type: 'string' },
+  },
 }
 
 // TEST_CASES_SCHEMA: tester.md の出力形式はプロンプト 3 本のみだが、grader は
@@ -175,6 +209,17 @@ if (!requirements || typeof requirements !== 'string' || !requirements.trim()) {
 }
 
 const taskType = parsedArgs.taskType || 'document'
+// architecture は taskType（ドメイン分類）とは別軸。「誰が plan を握るか」を決める。
+// coordinator = Claude がターンごとに指揮 / workflow = 実行順序を script が握る。
+// 既定を coordinator にしているのは、workflow 型は writer が動く .js まで書く必要があり、
+// Phase 1 が明示的に選んだときだけ入るべき経路だから。
+const architecture = parsedArgs.architecture || 'coordinator'
+if (!['coordinator', 'workflow'].includes(architecture)) {
+  throw new Error(
+    `args.architecture は 'coordinator' か 'workflow' のいずれかです（受領: ${architecture}）。` +
+      'taskType（document / procedure / data）とは別軸なので取り違えていないか確認してください。'
+  )
+}
 const personas = parsedArgs.personas || {}
 const maxRevisions = parsedArgs.maxRevisions ?? MAX_REVISIONS
 
@@ -232,7 +277,10 @@ let structureReview = null
 let structureAttempts = 0
 let structureUnresolved = []
 
-if (taskType === 'document') {
+// Structure は document 系のセクション設計のために置かれたフェーズだが、Workflow 型は
+// taskType に関わらず「phase 構成・fan-out 点・集約点・barrier の位置」を先に決める必要が
+// ある。ここを通さないと writer が執筆と同じ 1 パスで設計まで背負うことになる。
+if (taskType === 'document' || architecture === 'workflow') {
   phase('Structure')
   let feedback = null
 
@@ -242,6 +290,7 @@ if (taskType === 'document') {
       'structure-designer.md',
       [
         `[PERSONA_STRUCTURE_DESIGNER]:\n${persona('structureDesigner')}`,
+        `[ARCHITECTURE]: ${architecture}`,
         `[REQUIREMENTS]:\n${requirements}`,
         `[CRITERIA]:\n${criteria}`,
         feedback
@@ -295,6 +344,7 @@ let skillDraft = await roleAgent(
     '[MODE]: initial',
     `[PERSONA_WRITER]:\n${persona('writer')}`,
     `[TASK_TYPE]: ${taskType}`,
+    `[ARCHITECTURE]: ${architecture}`,
     `[REQUIREMENTS]:\n${requirements}`,
     `[STRUCTURE_PLAN]:\n${structurePlan}`,
   ].join('\n\n'),
@@ -317,6 +367,64 @@ if (!extractFrontmatter(skillDraft, 'name') || !extractFrontmatter(skillDraft, '
       'SKILL.md 本文そのものではなく、ファイルへの参照や作業報告が返っている可能性があります。' +
       `戻り値の冒頭: ${String(skillDraft).slice(0, 200)}`
   )
+}
+
+// ------------------------------------------------ Phase 3b: workflow script の抽出と検証
+
+// writer は SKILL.md と workflow script を 1 つの戻り値にまとめて返す。script は
+// ```javascript フェンスで囲まれた `export const meta` から始まるブロックとして取り出す。
+// 「meta で始まる」を条件にしているのは、SKILL.md 本文に説明用の JS 断片が混ざっても
+// それを script 本体と取り違えないため。
+function extractWorkflowScript(text) {
+  const re = /```(?:javascript|js)\s*\n([\s\S]*?)```/g
+  let m
+  while ((m = re.exec(String(text))) !== null) {
+    const body = m[1]
+    if (/^\s*export\s+const\s+meta\s*=/.test(body)) return body.trim()
+  }
+  return null
+}
+
+let workflowScript = null
+let scriptReview = null
+if (architecture === 'workflow') {
+  workflowScript = extractWorkflowScript(skillDraft)
+  // 骨組みだけ・説明だけを返す run を通すと、「Workflow 型で作った」という報告だけが残って
+  // 実体が無いスキルが保存される。frontmatter 検査と同じ理由でここで打ち切る。
+  if (!workflowScript) {
+    throw new Error(
+      'architecture=workflow ですが、writer の戻り値から workflow script を取り出せませんでした。' +
+        '```javascript フェンス内の `export const meta = {...}` で始まるブロックが必要です。'
+    )
+  }
+
+  phase('Review script')
+  scriptReview = await roleAgent(
+    'script-reviewer.md',
+    [
+      `[SKILL_DIR] = ${SKILL_DIR}`,
+      `[PERSONA_SCRIPT_REVIEWER]:\n${persona('scriptReviewer')}`,
+      `[REQUIREMENTS]:\n${requirements}`,
+      `[SKILL_DRAFT]:\n${skillDraft}`,
+      `[WORKFLOW_SCRIPT]:\n${workflowScript}`,
+    ].join('\n\n'),
+    {
+      model: 'opus',
+      phase: 'Review script',
+      label: 'script-review',
+      schema: SCRIPT_REVIEW_SCHEMA,
+    }
+  )
+  // reviewer が落ちた場合を「失格 0 件」と読むと、レビューされていないものが
+  // レビューを通ったことになる。欠測は欠測として最終 verdict に残す。
+  if (!scriptReview) {
+    log('script-reviewer が応答しませんでした。script の検証は未実施として報告します。')
+  } else {
+    log(
+      `script review: ${scriptReview.verdict} / 失格 ${scriptReview.failed.length} 件` +
+        `（警告 ${(scriptReview.warnings || []).length} 件）`
+    )
+  }
 }
 
 // ---------------------------------------------------------------- Phase 4: テスト生成
@@ -512,6 +620,20 @@ while (true) {
   })
 
   if (passed) {
+    // Workflow 型は評価が通っても script 自体が壊れていれば配布できない。script の
+    // 検証は改稿ループの外（Write 直後）で 1 回だけ回しているので、ここでは結果を
+    // 合否に反映するだけにする。reviewer が落ちた場合は「失格 0 件」と読まず、
+    // 未検証として別 verdict にする（レビューされていないものを通したことにしない）。
+    if (architecture === 'workflow') {
+      if (!scriptReview) {
+        verdict = 'script_review_incomplete'
+        break
+      }
+      if (scriptReview.verdict !== 'ok' || scriptReview.failed.length > 0) {
+        verdict = 'script_rejected'
+        break
+      }
+    }
     verdict = 'passed'
     break
   }
@@ -603,6 +725,9 @@ function extractFrontmatter(text, key) {
 
 return {
   task_type: taskType,
+  architecture,
+  workflow_script: workflowScript,
+  script_review: scriptReview,
   criteria,
   structure: {
     plan: structurePlan,

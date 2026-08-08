@@ -111,8 +111,77 @@ def validate_skill(skill_dir: str, verbose: bool = False) -> bool:
                 if "model" not in agent_fields:
                     warnings.append(f"agents/{agent_file.name} に model: フィールドがありません")
 
+    # scripts/ 配下の workflow script（`export const meta` で始まる .js）を検査する。
+    # 構文と「起動前に落ちる書き方」は静的に判定できるので、ここで潰しておく。
+    for js in sorted((path / "scripts").glob("*.js")) if (path / "scripts").is_dir() else []:
+        errors.extend(validate_workflow_script(js))
+
     _print_result(errors, warnings, verbose, has_agents=agents_dir.exists())
     return len(errors) == 0
+
+
+# workflow script に書くとランタイムが起動前に落ちる / resume が壊れる構文。
+# 出典: references/best-practices.md §13「実行時制約」。
+_FORBIDDEN = [
+    (re.compile(r"\bimport\s*\("), "import() を含む script は起動前に失敗する"),
+    (re.compile(r"\bDate\.now\s*\("), "Date.now() は throw する（resume を壊すため）"),
+    (re.compile(r"\bMath\.random\s*\("), "Math.random() は throw する（resume を壊すため）"),
+    (re.compile(r"\bnew\s+Date\s*\(\s*\)"), "引数なし new Date() は throw する"),
+]
+
+
+def validate_workflow_script(js_path: Path) -> list:
+    """workflow script を静的検査する。workflow script でなければ何も見ない。
+
+    ランタイムは script 本体を async 関数として実行するため、top-level の `await` と
+    `return` が使える。素の ESM として `node --check` に掛けると `return` で落ちるので、
+    同じ形（async 関数で包み、関数内に置けない `export` を外す）にしてから検査する。
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    src = js_path.read_text(encoding="utf-8")
+    if not re.match(r"^\s*export\s+const\s+meta\s*=", src):
+        return []  # workflow script ではない（通常のヘルパー .js）
+
+    errors = []
+    rel = f"scripts/{js_path.name}"
+
+    # meta は純粋なリテラルでなければならない。中身に変数展開・関数呼び出し・スプレッドが
+    # 入っていると承認ダイアログの表示前に評価できず落ちる。
+    m = re.search(r"export\s+const\s+meta\s*=\s*\{(.*?)\n\}", src, re.S)
+    if not m:
+        errors.append(f"{rel}: export const meta = {{...}} を読み取れません")
+    else:
+        meta_body = m.group(1)
+        for key in ("name", "description"):
+            if not re.search(rf"\b{key}\s*:", meta_body):
+                errors.append(f"{rel}: meta に {key} がありません")
+        if "..." in meta_body or "`" in meta_body:
+            errors.append(f"{rel}: meta は純粋なリテラルにする（スプレッド・テンプレート展開が入っている）")
+        # phase() のタイトルは meta.phases[].title と一致していないと進捗表示が割れる。
+        declared = set(re.findall(r"title:\s*['\"]([^'\"]+)['\"]", meta_body))
+        used = set(re.findall(r"\bphase\(\s*['\"]([^'\"]+)['\"]\s*\)", src))
+        for t in sorted(used - declared):
+            errors.append(f"{rel}: phase('{t}') に対応する meta.phases のエントリがありません")
+
+    for pattern, why in _FORBIDDEN:
+        if pattern.search(src):
+            errors.append(f"{rel}: {why}")
+
+    if not shutil.which("node"):
+        return errors  # node が無い環境では構文検査だけ飛ばす（他の検査は済んでいる）
+
+    body = re.sub(r"^\s*export\s+const\s+meta\s*=", "const meta =", src, count=1, flags=re.M)
+    with tempfile.TemporaryDirectory() as d:
+        wrapped = Path(d) / "check.mjs"
+        wrapped.write_text(f"async function __check() {{\n{body}\n}}\n", encoding="utf-8")
+        r = subprocess.run(["node", "--check", str(wrapped)], capture_output=True, text=True)
+        if r.returncode != 0:
+            detail = (r.stderr or r.stdout).strip().splitlines()
+            errors.append(f"{rel}: 構文エラー — {detail[3] if len(detail) > 3 else detail[:1]}")
+    return errors
 
 
 # このスクリプトが原理的に判定できない項目。「✅ 通過」を全項目の合格と読ませないために、
