@@ -8,10 +8,13 @@
   - [4. Agent Teams](#4-agent-teamsチーム型並列)
   - [5. Shared State](#5-shared-state共有状態)
   - [6. Message Bus](#6-message-busメッセージバス)
+  - [7. Workflow 実行型](#7-workflow-実行型orchestration-の決定化)
 - [パターン選択ガイド](#パターン選択ガイド)
 - [モデル選定基準](#モデル選定基準)
 
 スキル設計時に参照する。要件に応じて適切なパターンを選択し、組み合わせる。
+
+**先に決めるのは「誰が plan を握るか」**。パターン 1–6 はいずれも *Claude がターンごとに指揮する*前提の形で、パターン 7 だけが軸が違う（orchestration を script に移す）。7 を採る場合、1–6 は script の制御フローとして**その内側に入れ子になる**ので、まず 7 の要否を判定してから 1–6 を選ぶ。
 
 ---
 
@@ -129,7 +132,50 @@
 
 ---
 
+### 7. Workflow 実行型（orchestration の決定化）
+
+**定義**：実行順序・ループ・並列・集約・閾値判定を **script が握り**、agent は各ノードでの判断だけを行う。パターン 1–6 が「Claude がターンごとに次を決める」形なのに対し、これだけは plan が script 側にある。詳細と公式の 4 分類表は `best-practices.md` §13。
+
+**適用条件**：
+- 人間ゲートを挟まない区間に fan-out・集約・閾値判定・条件付き再実行が連なる
+- 1 会話で調整できる数を超える agent が要る（監査・大規模移行・相互検証つき調査）
+- orchestration 自体を読める・再実行できる資産にしたい
+- ループの正しさを監視するコード（skip 検出・bypass 検出・記録漏れ検知）を書き始めた
+
+**利点**：スキップ・bypass・閾値の目分量判定が**構造的に起こりえなくなる**（監視機構ごと削除できる）。集計を LLM にさせないので数字が正確。中断しても同一 session 内で resume 可能。
+**欠点**：**実行中にユーザー入力を受け取れない**。Claude Code 専用（Codex には該当機能が無い）。1 run のトークン消費が大きい。
+
+**SKILL.md への反映**：
+- SKILL.md は「script を呼ぶ前」と「結果を受け取った後」だけを書く。区間の内側の手順を散文で再掲しない（script が唯一の正）
+- script は `<skill>/scripts/<name>.js` に置き、`Workflow({ scriptPath, args })` で呼ぶ
+- 人間ゲートは script の**境界**に置く。段階ごとに別 workflow として回し、gate FAIL は `status: "BLOCKED"` と理由・証拠を返して止める
+- agent プロンプトは `agents/` に残す（skill は専門知識、workflow は実行順序という分担）
+- Claude Code 専用である旨を SKILL.md に明記する
+
+**入れ子**：パターン 1–6 は script の制御フローとしてそのまま内側に入る（`parallel()` = Parallelization、designer→reviewer の until-pass = Generator-Verifier）。置換ではなく階層。
+
+**参照実装**：`dispatch`（`scripts/orchestrate.js`）、`skill-creator-best-practices`（`scripts/build_skill.js`）、`search`（`scripts/investigate.js`）。
+
+---
+
 ## パターン選択ガイド
+
+### ステップ 0：orchestration を script に移すか（軸が違うので先に判定する）
+
+| 状況 | 判定 |
+|------|------|
+| 人間ゲートを挟まない区間に fan-out・集約・閾値判定・条件付き再実行が連なる | **Workflow 実行型** |
+| 1 会話で調整できる数を超える agent が要る（監査・大規模移行・相互検証つき調査） | **Workflow 実行型** |
+| adversarial verify・多角ドラフト比較を**構造として強制**したい | **Workflow 実行型** |
+| ループが正しく回るかの監視コード（skip 検出・bypass 検出・記録漏れ検知）を書き始めた | **Workflow 実行型**（→ 監視ごと消せる） |
+| 各ステップに人間の判断・承認が挟まる | 1–6 のまま（workflow は実行中にユーザー入力を受け取れない） |
+| agent が数個で、逐次の判断がそのまま流れになる | 1–6 のまま |
+
+判定の根拠と詳細は `best-practices.md` §13。**「警察装置」シグナル**（監視機構を書き始めたら script に移すサイン）はここで必ず確認する。
+
+Workflow 実行型を採る場合でも、人間ゲートは workflow の**境界**に置ける（段階ごとに別 workflow として回し、gate FAIL は `status: "BLOCKED"` で返して止める）。全区間を script に入れる必要はない。
+
+### ステップ 1：内側の形を選ぶ
 
 | 状況 | 推奨パターン |
 |------|------------|
@@ -140,7 +186,7 @@
 | 協調調査・発見の共有 | Shared State |
 | イベント駆動・エコシステム拡張予定 | Message Bus |
 
-**基本方針**：まず Orchestrator-Subagent から始め、具体的な課題が見えてから他パターンを組み合わせる。本番設計はパターンの組み合わせが一般的。
+**基本方針**：ステップ 0 で Workflow 実行型を採らないと決めた場合は、まず Orchestrator-Subagent から始め、具体的な課題が見えてから他パターンを組み合わせる。採る場合は、同じ表で選んだ形を script の制御フローとして表現する（`parallel()` = Parallelization、designer→reviewer の until-pass ループ = Generator-Verifier）。本番設計はパターンの組み合わせが一般的。
 
 ---
 

@@ -76,6 +76,8 @@ Workflow は実行中にユーザー入力を受け取れないため script に
 
 ## Phase 2–4: Workflow を呼ぶ
 
+> **実行環境の前提**: このスキルは Claude Code の dynamic workflows に依存する。Codex では動作しない可能性が高い — `codex` CLI に workflow サブコマンドが無く、[Codex plugin の仕様](https://developers.openai.com/codex/plugins/build)にも `workflows/` サーフェスが無い（いずれも 2026-08 時点。Codex セッション内のツールセットを直接確認したものではない）。Codex で使う場合は、まず Workflow 相当のツールが露出しているか確認すること。
+
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」
 
@@ -167,7 +169,8 @@ python3 [SKILL_DIR]/eval-viewer/generate_review.py \
 
 ## Phase 5: 統合・改善ループ・ユーザーへの提示
 
-**Agent ツールは呼び出さない。司令塔が単独で行う（修正ループ時を除く）。**
+**Agent ツールは呼び出さない。司令塔が単独で行う。** 改善ループは Phase 2–4 の Workflow が内包しており、
+ここでやり直す場合も `resumeFromRunId` で Workflow を再実行する（散文で agent を起動し直さない）。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
 

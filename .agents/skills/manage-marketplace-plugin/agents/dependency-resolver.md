@@ -16,6 +16,18 @@ marketplace 経由で install されると、プラグインに含まれる `ski
 
 ただし「依存」と「単なる言及」は別物。スキルの SKILL.md には「これは対象外。代わりに X スキルを使ってください」という**案内**が書かれることが多く、これは実行時に X を呼ぶわけではないので同梱不要。**実際にランタイムで呼び出す依存だけ**を同梱対象にする。
 
+### 同梱できる依存とできない依存
+
+実体は常に 1 箇所しか置けない。配布サブツリーに symlink を置けない（Codex の install で落ちる）以上、同じスキルを 2 つの plugin に入れると実体のコピーになり drift する。したがって:
+
+- **依存スキルがまだどの plugin にも属していない** → `bundle_skills` に入れる。実体が登録先 plugin へ移動して同梱される。
+- **依存スキルが既に別 plugin に属している** → **同梱できない**。`bundle_skills` に入れてはいけない（register_plugin.py が exit 4 で止める）。代わりに `cross_plugin_dependencies` に入れ、次の 2 つで解くよう報告する:
+  1. 依存先の plugin を `--depends-on <plugin>` で `dependencies` に宣言する（Claude Code が同時 install する。Codex に同等機能は無いので手動 install 前提）。
+  2. 呼び出し側は**スキル呼び出し**に書き換える。相手のファイルをパス参照したりスクリプトを直接実行したりしている箇所は、install 先で解決しないので必ず直す。
+  3. 呼び出し側の agent が自分で実行する必要のある手順書だけは、自前の `references/` に持たせる。
+
+依存先がどの plugin に属するかは `plugins/*/skills/<dep>` が実体ディレクトリとして存在するかで判定する。
+
 ## タスク
 
 ### ステップ1：依存候補を静的検出する
@@ -46,7 +58,12 @@ python3 [SKILL_DIR]/scripts/detect_dependencies.py --skill <skill_name>
 ```
 status: ok
 has_dependencies: true | false
-bundle_skills: [<実依存と判定した同梱対象スキル名のリスト>]
+bundle_skills: [<実依存かつ未登録で、同梱できるスキル名のリスト>]
+cross_plugin_dependencies:
+  - skill: <実依存だが既に別 plugin に属するスキル名>
+    owning_plugin: <その plugin 名>
+    action: "--depends-on <owning_plugin> で宣言し、呼び出しをスキル呼び出しへ書き換える"
+    path_references: [<install 先で解決しないパス参照の箇所。無ければ空>]
 rationale:
   - <skill>: <実依存と判断した根拠（呼び出し箇所）>
 needs_confirmation:

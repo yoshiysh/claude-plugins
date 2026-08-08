@@ -18,6 +18,6 @@ Notion の知識整理を支援するプラグイン。
 
 ## 構成
 
-このプラグインの `skills/` 配下は、リポジトリ本体の
-`.claude/skills/` への相対シンボリックリンクです。スキル実体はディレクトリ名
+このプラグインの `skills/` 配下がスキルの実体です。
+リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。スキル実体はディレクトリ名
 （`notion-organize-knowledge`）のまま、frontmatter の `name`（`organize-knowledge`）で公開されます。

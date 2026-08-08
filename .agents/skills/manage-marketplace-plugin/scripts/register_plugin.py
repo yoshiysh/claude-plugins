@@ -1,35 +1,41 @@
 #!/usr/bin/env python3
 """既存スキルをリポジトリの marketplace.json にプラグインとして登録するスクリプト。
 
-`plugins/<plugin>/` に公開用のプラグインディレクトリを作り、そこに manifest（plugin.json）と
-README を生成し、plugins/<plugin>/skills/<公開名> をスキル本体（.claude/skills/<skill>）への
-相対シンボリックリンクにする。marketplace.json の plugins には
+`plugins/<plugin>/` に公開用のプラグインディレクトリを作り、そこに manifest
+（`.claude-plugin/plugin.json` と `.codex-plugin/plugin.json` の両方）と README を生成し、
+**スキル実体を `.agents/skills/<skill>` から `plugins/<plugin>/skills/<公開名>` へ移動**して、
+`.agents/skills/<skill>` を移動先への相対 symlink に置き換える。marketplace.json の plugins には
 {name, source: "./plugins/<plugin>"} を非破壊で追記する。
+
+つまり「開発中は `.agents/skills/` に実体、公開したら `plugins/` に実体」という向きになる。
+新規スキルは従来どおり `.agents/skills/` に作ればよく、公開の瞬間にこのスクリプトが反転させる。
 
 plugin はカテゴリ単位で複数スキルを収録できる（例: plugins/git/skills/{commit,pr-create}）。
 - `--plugin` で対象 plugin を指定する（未指定ならスキル名と同名の plugin）。
-- skills/ 配下のエントリ名（symlink 名）は**スキル実体ディレクトリ名**を既定とする。
-  公開名（/plugin:skill の skill 部分）は frontmatter の `name` が担うため、symlink 名を
-  変える必要はない。むしろ install 先のキャッシュは symlink 名でディレクトリが作られるため、
-  `[SKILL_DIR]/../<兄弟スキル>/` のようなディレクトリ名参照を持つスキルは symlink 名を
+- skills/ 配下のエントリ名は**スキル実体ディレクトリ名**を既定とする。
+  公開名（/plugin:skill の skill 部分）は frontmatter の `name` が担うため、変える必要はない。
+  むしろ install 先のキャッシュはこのディレクトリ名で作られるため、
+  `[SKILL_DIR]/../<兄弟スキル>/` のようなディレクトリ名参照を持つスキルは名前を
   実体名から変えると install 先で参照が切れる。`--as` は例外的な明示上書き用。
 
-なぜこの構成か（symlink + ルート plugin dir）:
-- marketplace 経由の install では CLI が plugin dir をキャッシュにコピーする際、
-  プラグイン内の symlink を「実体コピー」に解決して取り込む（検証済み）。よってスキル本体は
-  .claude/skills/ の1箇所だけを正とし、複製せずに配布できる。
-- スキルを <plugin>/skills/<name>/ に「ネスト」させることで、スキル内部の agents/ は
-  スキル付属物として正しくスコープされ、プラグインの公開エージェントとして露出しない。
-- plugin.json はルート plugin dir 側に置くため、.claude/skills/<name> は plain skill の
-  ままで @skills-dir プラグインとして二重ロードされない。
+なぜ symlink ではなく実体移動なのか:
+- Claude Code は plugin dir をキャッシュへコピーする際、同一 marketplace 内を指す symlink を
+  dereference する（公式仕様。plugins-reference "Share files within a marketplace with symlinks"）。
+  この前提で以前は plugins/<plugin>/skills/<name> -> .claude/skills/<name> の symlink にしていた。
+- しかし Codex は plugin サブツリーだけを取得し、symlink を落とす。実測では
+  ~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/skills/ が空になり、
+  plugin.json は読めているのにスキルが 1 つも入らない。
+- 両方で動く構成は「配布サブツリーに symlink を置かない」形しかないため、実体を
+  plugins/ 側に置き、リポジトリ内の開発用参照を symlink にする向きへ反転した。
 
 設計上の不変条件:
 - 非破壊: marketplace.json の既存 plugins 要素・他トップレベルキーを保持。既存 README は上書きしない。
-  既存 plugin への追加登録時は、既にある skills/ 配下の他スキル symlink を保持する。
-- 冪等: 2回登録しても plugins が重複せず、symlink も二重化しない。
-- 相対 symlink のみ: 絶対 symlink は使わない（クローン先で壊れるため）。
+  既存 plugin への追加登録時は、既にある skills/ 配下の他スキルを保持する。
+- 冪等: 2回登録しても plugins が重複せず、既に移動済みのスキルは "kept" になる。
+- 配布サブツリーに symlink を置かない: plugins/<plugin>/ 配下は全て実体でなければならない。
+- 相対 symlink のみ: `.agents/skills/<skill>` からの逆参照は相対で張る（クローン先で壊れるため）。
 - 不在 != 破損: marketplace.json 不在は新規作成、破損 JSON は中断（自動修復しない）。
-- スキル実体は複製しない: 必ず symlink で .claude/skills/<skill> を参照する。
+- スキル実体は複製しない: 実体は常に 1 箇所。複数 plugin での共有はコピーになるため許可しない。
 """
 
 import argparse
@@ -46,11 +52,18 @@ SKILL_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SKILL_DIR.parent.parent.parent
 
 SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
+# スキルの開発用置き場（実体または plugins/ への symlink）。編集はこちら側から行う。
+AGENTS_SKILLS_DIR = PROJECT_ROOT / ".agents" / "skills"
 MARKETPLACE_PATH = PROJECT_ROOT / ".claude-plugin" / "marketplace.json"
 # 公開用プラグインディレクトリの置き場（ルート直下を散らかさないよう plugins/ に集約）。
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
-# plugins/<plugin>/skills/ からリポジトリルートまでの相対深さ（.. を3つ）。
-SKILL_LINK_TARGET_PREFIX = (os.pardir, os.pardir, os.pardir)
+# .agents/skills/ から plugins/<plugin>/skills/<name> までの相対深さ（.. を2つ）。
+BACKLINK_PREFIX = (os.pardir, os.pardir)
+# manifest を置くディレクトリ。Claude は .claude-plugin、Codex は .codex-plugin を読む。
+MANIFEST_DIRS = (".claude-plugin", ".codex-plugin")
+# Claude 側だけに書くフィールド。Claude Code は未知フィールドを無視すると明記しているが、
+# Codex 側にその保証が無いため、Codex 仕様に無い項目は .codex-plugin へ入れない。
+CLAUDE_ONLY_FIELDS = ("dependencies",)
 
 # marketplace.json 不在時に作る雛形（既存フォーマットに合わせる）。
 DEFAULT_MARKETPLACE = {
@@ -156,11 +169,16 @@ def write_marketplace(data: dict) -> None:
     )
 
 
-def build_plugin_json(plugin: str, version: str, author: str, description: str) -> str:
+def build_plugin_json(plugin: str, version: str, author: str, description: str,
+                      dependencies=None, claude_only: bool = True) -> str:
     data = {"name": plugin, "version": version}
     if description:
         data["description"] = description
     data["author"] = {"name": author}
+    if dependencies and claude_only:
+        # 他 plugin のスキルを呼び出す場合に、その plugin の同時 install を保証する。
+        # Codex には同等のフィールドが無いため .codex-plugin 側には書かない。
+        data["dependencies"] = list(dependencies)
     return json.dumps(data, indent=INDENT, ensure_ascii=False) + "\n"
 
 
@@ -196,32 +214,49 @@ def build_readme(plugin: str, public_name: str, skill: str,
         "```\n\n"
         f"詳細なフローは `skills/{skill}/SKILL.md` を参照してください。\n\n"
         "## 構成\n\n"
-        "このプラグインの `skills/` 配下は、リポジトリ本体の\n"
-        "`.claude/skills/` への相対シンボリックリンクです。\n"
+        "このプラグインの `skills/` 配下がスキルの実体です。\n"
+        "リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。\n"
         f"{entity_note}"
     )
 
 
 def write_plugin_files(plugin: str, public_name: str, skill: str, version: str,
-                       author: str, description: str, bundled_skills=None) -> dict:
+                       author: str, description: str, bundled_skills=None,
+                       dependencies=None) -> dict:
     """ルート plugin dir に plugin.json を生成し、README は既存があれば保持する。
+
+    plugin.json は .claude-plugin/ と .codex-plugin/ の両方に同じ内容で書く。Claude Code は
+    legacy 互換で .claude-plugin を読むが、Codex の公式仕様は .codex-plugin/plugin.json を
+    required としているため、片方だけだと将来の regression で落ちる。
 
     戻り値: {"plugin_json": "created", "readme": "created"|"kept"}
     """
-    plugin_dir = PLUGINS_DIR / plugin / ".claude-plugin"
-    plugin_dir.mkdir(parents=True, exist_ok=True)
     # 既存カテゴリ plugin への追加登録で description 未指定のとき、
     # 既存 plugin.json の description（plugin 全体の説明）を消さない。
     if not description:
-        pj = plugin_dir / "plugin.json"
+        pj = PLUGINS_DIR / plugin / MANIFEST_DIRS[0] / "plugin.json"
         if pj.is_file():
             try:
                 description = json.loads(
                     pj.read_text(encoding="utf-8")).get("description", "")
             except (json.JSONDecodeError, OSError):
                 pass
-    (plugin_dir / "plugin.json").write_text(
-        build_plugin_json(plugin, version, author, description), encoding="utf-8")
+    # dependencies 未指定なら既存の宣言を落とさない（description と同じ扱い）。
+    if dependencies is None:
+        pj = PLUGINS_DIR / plugin / MANIFEST_DIRS[0] / "plugin.json"
+        if pj.is_file():
+            try:
+                dependencies = json.loads(
+                    pj.read_text(encoding="utf-8")).get("dependencies")
+            except (json.JSONDecodeError, OSError):
+                pass
+    for manifest_dir in MANIFEST_DIRS:
+        d = PLUGINS_DIR / plugin / manifest_dir
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "plugin.json").write_text(
+            build_plugin_json(plugin, version, author, description, dependencies,
+                              claude_only=(manifest_dir == ".claude-plugin")),
+            encoding="utf-8")
 
     readme_path = PLUGINS_DIR / plugin / "README.md"
     if readme_path.exists():
@@ -234,37 +269,91 @@ def write_plugin_files(plugin: str, public_name: str, skill: str, version: str,
     return {"plugin_json": "created", "readme": readme_action}
 
 
-def ensure_symlink(plugin: str, link_name: str, skill: str) -> str:
-    """plugins/<plugin>/skills/<link_name> → ../../../.claude/skills/<skill> の相対 symlink を作る。
+def relocate_skill(plugin: str, entry_name: str, skill: str) -> str:
+    """スキル実体を plugins/<plugin>/skills/<entry_name> へ移し、開発用の逆 symlink を張る。
 
-    link_name（公開名）と skill（実体ディレクトリ名）は異なってよい。
-    冪等: 既に正しい相対 symlink ならそのまま。違う向きなら張り直す。
-    戻り値: "created" | "kept" | "relinked"
+    entry_name（配布時のディレクトリ名）と skill（開発側ディレクトリ名）は異なってよい。
+
+    冪等性の判定は「実体がどちら側にあるか」で行う:
+    - 既に移動済み（配布側が実体・開発側がそこを指す symlink）→ "kept"
+    - 旧レイアウト（配布側が symlink・開発側が実体）→ 反転して "migrated"
+    - 未登録（配布側が無い・開発側が実体）→ 移動して "created"
+
+    戻り値: "created" | "migrated" | "kept"
     """
     skills_subdir = PLUGINS_DIR / plugin / "skills"
     skills_subdir.mkdir(parents=True, exist_ok=True)
-    link_path = skills_subdir / link_name
-    target = os.path.join(*SKILL_LINK_TARGET_PREFIX, ".claude", "skills", skill)
+    dest = skills_subdir / entry_name
+    src = AGENTS_SKILLS_DIR / skill
+    backlink_target = os.path.join(*BACKLINK_PREFIX, "plugins", plugin, "skills", entry_name)
 
-    if link_path.is_symlink():
-        if os.readlink(link_path) == target:
-            return "kept"
-        link_path.unlink()
-        link_path.symlink_to(target)
-        return "relinked"
-    if link_path.exists():
-        # symlink でない実体がある場合は複製を疑い、安全のため中断。
+    dest_is_entity = dest.is_dir() and not dest.is_symlink()
+    src_is_entity = src.is_dir() and not src.is_symlink()
+
+    # 既に移動済み。開発側の symlink だけ、向きが正しいか確認して必要なら張り直す。
+    if dest_is_entity and not src_is_entity:
+        if src.is_symlink() and os.readlink(src) != backlink_target:
+            src.unlink()
+            src.symlink_to(backlink_target)
+        elif not src.exists() and not src.is_symlink():
+            src.symlink_to(backlink_target)
+        return "kept"
+
+    # 実体が両側にある = 複製。どちらが正か機械判断できないので中断する。
+    if dest_is_entity and src_is_entity:
         fail(EXIT_CONFLICT,
-             f"ERROR: {link_path} が symlink ではない実体として存在します。",
-             "  スキル本体の複製の可能性があるため自動削除しません。手動で確認してください。")
-    link_path.symlink_to(target)
-    return "created"
+             f"ERROR: スキル実体が 2 箇所にあります: {src} と {dest}",
+             "  複製は許可していません（drift するため）。どちらが正か確認し、"
+             "不要な方を手で削除してから再実行してください。")
+
+    if not src_is_entity:
+        fail(EXIT_CONFLICT,
+             f"ERROR: 移動元のスキル実体が見つかりません: {src}",
+             "  開発中のスキルは .agents/skills/<name>/ に実体で置いてください。")
+
+    # 旧レイアウト（配布側が symlink）なら、まずそれを外す。
+    action = "created"
+    if dest.is_symlink():
+        dest.unlink()
+        action = "migrated"
+
+    src.rename(dest)
+    src.symlink_to(backlink_target)
+    return action
 
 
-def verify_symlink(plugin: str, link_name: str) -> bool:
-    """リンク経由で SKILL.md が読めるかを検証する。"""
-    linked_skill_md = PLUGINS_DIR / plugin / "skills" / link_name / "SKILL.md"
-    return linked_skill_md.is_file()
+def verify_entity(plugin: str, entry_name: str) -> bool:
+    """配布側が実体として存在し、SKILL.md を持つかを検証する。"""
+    entry = PLUGINS_DIR / plugin / "skills" / entry_name
+    if entry.is_symlink() or not entry.is_dir():
+        return False
+    return (entry / "SKILL.md").is_file()
+
+
+def owning_plugin(skill: str):
+    """スキル実体が既にどの plugin に属しているかを返す。未登録なら None。"""
+    if not PLUGINS_DIR.is_dir():
+        return None
+    for plugin_dir in sorted(PLUGINS_DIR.iterdir()):
+        entry = plugin_dir / "skills" / skill
+        if entry.is_dir() and not entry.is_symlink():
+            return plugin_dir.name
+    return None
+
+
+def find_symlinks(plugin: str) -> list[str]:
+    """plugins/<plugin>/ 配下に残っている symlink を列挙する。
+
+    配布サブツリーに symlink があると Codex の install 先で中身が落ちる。
+    「壊れた symlink が無いか」ではなく「symlink が 1 つも無いか」を見るのが要点。
+    """
+    plugin_dir = PLUGINS_DIR / plugin
+    if not plugin_dir.is_dir():
+        return []
+    return sorted(
+        str(p.relative_to(plugin_dir))
+        for p in plugin_dir.rglob("*") if p.is_symlink()
+    )
 
 
 def read_existing_version(plugin: str):
@@ -315,7 +404,7 @@ def main() -> None:
     parser.add_argument("--plugin", default=None,
                         help="登録先 plugin 名（カテゴリ）。未指定ならスキル名と同名の plugin")
     parser.add_argument("--as", dest="link_name", default=None,
-                        help="skills/ 配下のエントリ名（symlink 名）。既定はスキル実体"
+                        help="skills/ 配下のエントリ名。既定はスキル実体"
                              "ディレクトリ名（公開名は frontmatter の name が担うため通常不要）")
     parser.add_argument("--version", default=None,
                         help="plugin.json の version。未指定なら新規=0.1.0／"
@@ -328,8 +417,16 @@ def main() -> None:
                              "既存カテゴリ plugin へのスキル追加もこれ")
     parser.add_argument("--bundle-skill", action="append", default=[],
                         metavar="DEP",
-                        help="依存スキルを同一プラグインに同梱する（skills/<DEP公開名> を追加。"
-                             "複数指定可）")
+                        help="依存スキルを同一プラグインに同梱する（skills/<DEP> を追加。"
+                             "複数指定可）。既に別 plugin に属するスキルは指定できない"
+                             "（実体の複製になるため。中断して案内する）")
+    parser.add_argument("--depends-on", action="append", default=[],
+                        metavar="PLUGIN",
+                        help="このプラグインが必要とする別 plugin（複数指定可）。"
+                             ".claude-plugin/plugin.json の dependencies に書き、Claude Code に"
+                             "同時 install させる。Codex には同等機能が無いため "
+                             ".codex-plugin 側には書かない。別 plugin のスキルを "
+                             "Skill として呼び出す場合に使う（ファイルパス参照は不可）")
     parser.add_argument("--dry-run", action="store_true",
                         help="ファイルに書き込まず、行う操作のみ報告する")
     args = parser.parse_args()
@@ -347,6 +444,15 @@ def main() -> None:
     verify_skill_exists(skill)
     for dep in bundle_skills:
         verify_skill_exists(dep)
+        owner = owning_plugin(dep)
+        if owner and owner != plugin:
+            fail(EXIT_CONFLICT,
+                 f"ERROR: '{dep}' は既に plugin '{owner}' の実体です。",
+                 f"  '{plugin}' へ同梱すると実体が 2 箇所になり drift します。",
+                 "  配布サブツリーに symlink は置けない（Codex の install で落ちる）ため、"
+                 "共有はできません。",
+                 f"  対処: {plugin} 側が必要とする定義を自前の references/ に持たせるか、"
+                 f"依存元スキルを {owner} plugin へ移してください。")
 
     # symlink 名は明示（--as）> スキル実体ディレクトリ名。公開名は frontmatter の name。
     link_name = args.link_name or skill
@@ -379,10 +485,10 @@ def main() -> None:
                 "plugin_json": f"would_create (version {version})",
                 "readme": "would_keep" if (PLUGINS_DIR / plugin / "README.md").exists()
                           else "would_create",
-                "symlink": f"./plugins/{plugin}/skills/{link_name} -> "
-                           f"../../../.claude/skills/{skill}",
-                "bundled_symlinks": [
-                    f"./plugins/{plugin}/skills/{dep} -> ../../../.claude/skills/{dep}"
+                "relocate": f".agents/skills/{skill} -> ./plugins/{plugin}/skills/{link_name} "
+                            f"（実体を移動し、.agents/skills/{skill} を逆 symlink に置換）",
+                "bundled_relocations": [
+                    f".agents/skills/{dep} -> ./plugins/{plugin}/skills/{dep}"
                     for dep in bundle_skills
                 ],
             },
@@ -398,21 +504,25 @@ def main() -> None:
     entry_action = merge_marketplace_entry(data, plugin, update=args.update)
     write_marketplace(data)
 
-    # 4-5. plugin.json / README 生成・相対 symlink 作成（本体）
+    # 4-5. plugin.json / README 生成・スキル実体の移動（本体）
     file_actions = write_plugin_files(plugin, public_name, skill, version,
-                                      args.author, args.description, bundle_skills)
-    symlink_action = ensure_symlink(plugin, link_name, skill)
+                                      args.author, args.description, bundle_skills,
+                                      args.depends_on or None)
+    relocate_action = relocate_skill(plugin, link_name, skill)
 
-    # 4-5b. 依存スキルを同一プラグインに同梱（skills/<dep> の追加 symlink）
+    # 4-5b. 依存スキルを同一プラグインに同梱（未登録スキルのみ。既登録は上で中断済み）
     bundled = []
     for dep in bundle_skills:
-        dep_action = ensure_symlink(plugin, dep, dep)
+        dep_action = relocate_skill(plugin, dep, dep)
         bundled.append({"skill": dep, "public_name": frontmatter_name(dep),
-                        "symlink": dep_action,
-                        "ok": verify_symlink(plugin, dep)})
+                        "relocate": dep_action,
+                        "ok": verify_entity(plugin, dep)})
 
-    # 6. symlink 検証（本体＋同梱すべて）
-    symlink_ok = verify_symlink(plugin, link_name) and all(b["ok"] for b in bundled)
+    # 6. 検証: 実体が揃っているか＋配布サブツリーに symlink が 1 つも無いか。
+    #    後者が本命。symlink が残っていると Codex の install 先で中身ごと落ちる。
+    leftover_symlinks = find_symlinks(plugin)
+    entities_ok = verify_entity(plugin, link_name) and all(b["ok"] for b in bundled)
+    bundle_ok = entities_ok and not leftover_symlinks
 
     report = {
         "status": "ok",
@@ -428,16 +538,18 @@ def main() -> None:
             "marketplace_entry": entry_action,
             "plugin_json": file_actions["plugin_json"],
             "readme": file_actions["readme"],
-            "symlink": symlink_action,
+            "relocate": relocate_action,
         },
         "bundled_skills": bundled,
-        "symlink_ok": symlink_ok,
+        "entities_ok": entities_ok,
+        "leftover_symlinks": leftover_symlinks,
+        "bundle_ok": bundle_ok,
         "next_action":
             f"/plugin install {plugin}@{data.get('name', 'yoshiysh-claude-plugins')} "
             "でインストールして動作確認できます。",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    sys.exit(EXIT_OK if symlink_ok else EXIT_NO_SKILL)
+    sys.exit(EXIT_OK if bundle_ok else EXIT_NO_SKILL)
 
 
 if __name__ == "__main__":

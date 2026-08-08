@@ -20,6 +20,6 @@ Claude Fable 5 相当の壁打ち相談を提供するプラグイン。
 
 ## 構成
 
-このプラグインの `skills/` 配下は、リポジトリ本体の
-`.claude/skills/` への相対シンボリックリンクです。スキル実体はディレクトリ名
+このプラグインの `skills/` 配下がスキルの実体です。
+リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。スキル実体はディレクトリ名
 （`chat` / `chat-rigorous`）のまま、frontmatter の `name`（`fable` / `rigorous`）で公開されます。

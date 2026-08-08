@@ -4,18 +4,16 @@
 register_plugin.py（登録）＋ claude plugin validate（構造=L1）だけでは
 「install 先で実際に解決・展開されるか」は確認できない。本スクリプトは：
 
-- L2（バンドル解決・読み取り専用）：ルートの plugin dir を辿り、
-  plugin.json の妥当性／skills/ 配下の各 symlink が SKILL.md へ解決すること／
-  スキル配下に dangling な symlink が無いことを確認する。
+- L2（バンドル解決・読み取り専用）：ルートの plugin dir を辿り、Claude 用・Codex 用
+  両方の plugin.json が揃って内容一致すること／各スキルが SKILL.md を持つこと／
+  **配布サブツリーに symlink が 1 つも無いこと**を確認する。
 - L3（隔離 install スモーク）：一時 marketplace を複製し、HOME を一時ディレクトリに
   差し替えて `claude plugin marketplace add` + `install` を実行する。
-  キャッシュにバンドル（symlink が実体コピーへ解決された結果）が展開され、
-  `claude plugin details` でスキルが認識されることを確認する。
+  キャッシュにバンドルが展開され、`claude plugin details` でスキルが認識されることを確認する。
   HOME を隔離するため**ユーザーの実 ~/.claude/plugins を一切変更しない**。終了時に確実に後始末する。
 
 plugin はカテゴリ単位で複数スキルを持ちうる（例: plugins/git/skills/{commit,pr-create,...}）。
-skills/ 配下のエントリ名（公開名）とリンク先の実体ディレクトリ名は異なってよい
-（frontmatter の name が優先される仕様のため）。
+skills/ 配下のディレクトリ名と公開名は異なってよい（frontmatter の name が優先される仕様のため）。
 
 L4（実データでの実行）は入力・認証が対象ごとに異なるため本スクリプトには含めない。
 司令塔が AskUserQuestion で入力を聞き、install 済みバンドルに対して実行する（SKILL.md 参照）。
@@ -36,6 +34,8 @@ SKILL_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SKILL_DIR.parent.parent.parent
 SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"   # 公開用プラグイン dir の置き場
+# .claude-plugin/plugin.json だけに載るフィールド（register_plugin.py と揃える）。
+CLAUDE_ONLY_FIELDS = ("dependencies",)
 
 EXIT_OK = 0
 EXIT_FAIL = 5          # 検証失敗（install 先で壊れる）
@@ -43,7 +43,7 @@ EXIT_NO_PLUGIN = 3     # 登録されたプラグイン dir が無い
 
 
 def skill_entries(plugin: str) -> list[Path]:
-    """plugins/<plugin>/skills/ 配下のスキルエントリ（symlink）を列挙する。"""
+    """plugins/<plugin>/skills/ 配下のスキルエントリを列挙する。"""
     skills_dir = PLUGINS_DIR / plugin / "skills"
     if not skills_dir.is_dir():
         return []
@@ -51,36 +51,75 @@ def skill_entries(plugin: str) -> list[Path]:
 
 
 def l2_bundle_check(plugin: str) -> dict:
-    """読み取り専用で「コピー後に全資産が解決するか」を検査する。"""
+    """読み取り専用で「コピー後に全資産が解決するか」を検査する。
+
+    最重要は **配布サブツリーに symlink が 1 つも無いこと**。Claude Code は同一 marketplace 内を
+    指す symlink を dereference するが、Codex は plugin サブツリーだけを取得して symlink を落とす。
+    実測では skills/ が空のまま install が「成功」した。よって「symlink が解決するか」ではなく
+    「symlink が存在しないか」を見る。
+    """
     findings = []
     plugin_dir = PLUGINS_DIR / plugin
-    # plugin.json
-    pj = plugin_dir / ".claude-plugin" / "plugin.json"
-    if not pj.is_file():
-        findings.append(f"plugin.json が無い: {pj}")
-    else:
+    # plugin.json は Claude 用・Codex 用の両方を要求し、内容一致まで見る。
+    manifests = {}
+    for manifest_dir in (".claude-plugin", ".codex-plugin"):
+        pj = plugin_dir / manifest_dir / "plugin.json"
+        if not pj.is_file():
+            findings.append(f"plugin.json が無い: {pj}")
+            continue
         try:
             meta = json.loads(pj.read_text(encoding="utf-8"))
+            manifests[manifest_dir] = meta
             if not meta.get("name"):
-                findings.append("plugin.json に name が無い")
+                findings.append(f"{manifest_dir}/plugin.json に name が無い")
         except json.JSONDecodeError as e:
-            findings.append(f"plugin.json が不正な JSON: {e}")
+            findings.append(f"{manifest_dir}/plugin.json が不正な JSON: {e}")
+    if len(manifests) == 2:
+        # dependencies は Claude 固有（Codex に同等機能が無く、未知フィールドの許容も
+        # 明記されていない）。共通フィールドだけを比較する。
+        shared = {k: {kk: vv for kk, vv in m.items() if kk not in CLAUDE_ONLY_FIELDS}
+                  for k, m in manifests.items()}
+        if shared[".claude-plugin"] != shared[".codex-plugin"]:
+            findings.append(
+                ".claude-plugin/plugin.json と .codex-plugin/plugin.json の"
+                "共通フィールドが一致しない")
+        if manifests[".codex-plugin"].keys() & set(CLAUDE_ONLY_FIELDS):
+            findings.append(
+                ".codex-plugin/plugin.json に Claude 固有フィールドが混入している: "
+                f"{sorted(manifests['.codex-plugin'].keys() & set(CLAUDE_ONLY_FIELDS))}")
+
+    # 配布サブツリー全体の symlink 検査（これが本命の不変条件）
+    for p in sorted(plugin_dir.rglob("*")):
+        if p.is_symlink():
+            findings.append(
+                f"配布サブツリーに symlink がある: {p.relative_to(plugin_dir)} "
+                f"-> {os.readlink(p)}（Codex の install 先で中身ごと落ちる）")
+
     entries = skill_entries(plugin)
     if not entries:
         findings.append(f"skills/ 配下にスキルエントリが無い: {plugin_dir / 'skills'}")
-    for linked_skill in entries:
-        # skills/<公開名> symlink → SKILL.md
-        if not (linked_skill / "SKILL.md").is_file():
-            findings.append(f"skills/{linked_skill.name}/SKILL.md がリンク経由で解決しない")
-            continue
-        # スキル配下の dangling symlink 検出（リンクを辿って実体が無いもの）
-        real = linked_skill.resolve()
-        for p in real.rglob("*"):
-            if p.is_symlink() and not p.exists():
-                findings.append(
-                    f"dangling symlink ({linked_skill.name}): "
-                    f"{p.relative_to(real)} -> {os.readlink(p)}")
+    for entry in entries:
+        if not (entry / "SKILL.md").is_file():
+            findings.append(f"skills/{entry.name}/SKILL.md が無い")
     return {"passed": not findings, "findings": findings}
+
+
+def declared_dependencies(plugin: str) -> list[str]:
+    """.claude-plugin/plugin.json の dependencies を plugin 名のリストで返す。"""
+    pj = PLUGINS_DIR / plugin / ".claude-plugin" / "plugin.json"
+    if not pj.is_file():
+        return []
+    try:
+        deps = json.loads(pj.read_text(encoding="utf-8")).get("dependencies") or []
+    except (json.JSONDecodeError, OSError):
+        return []
+    # 要素は "name" か {"name": ..., "version": ...} のどちらでもよい。
+    names = []
+    for d in deps:
+        name = d if isinstance(d, str) else (d.get("name") if isinstance(d, dict) else None)
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def _run(cmd, env, timeout=120):
@@ -100,21 +139,27 @@ def l3_isolated_install(plugin: str) -> dict:
     try:
         mp = Path(tmp_mp)
         (mp / ".claude-plugin").mkdir(parents=True)
-        (mp / ".claude" / "skills").mkdir(parents=True)
-        # プラグイン dir を symlink 保持で複製し、参照される実体スキルを全て複製する。
-        # 本番と同じ深さ（plugins/<plugin>）で複製しないと相対 symlink が解決しない。
+        # プラグイン dir を symlink 保持で複製する。実体は plugins/ 側にあるため、
+        # このサブツリーだけで自己完結する（本番と同じ深さで複製し、深さ依存も再現する）。
         shutil.copytree(PLUGINS_DIR / plugin, mp / "plugins" / plugin, symlinks=True)
-        for entry in skill_entries(plugin):
-            real = entry.resolve()
-            dest = mp / ".claude" / "skills" / real.name
-            if not dest.exists():
-                shutil.copytree(real, dest, symlinks=True)
         if (PROJECT_ROOT / "scripts").is_dir():
             shutil.copytree(PROJECT_ROOT / "scripts", mp / "scripts")
         mpname = "plugin-verify"
+        # plugin.json の dependencies に挙がった plugin も一時 marketplace に含める。
+        # 含めないと依存が解決できず、「宣言した plugin 名が実在するか」を検証できない
+        # （install 自体は通ってしまうため、typo が素通りする）。
+        entries = [{"name": plugin, "source": f"./plugins/{plugin}"}]
+        for dep in declared_dependencies(plugin):
+            dep_src = PLUGINS_DIR / dep
+            if not dep_src.is_dir():
+                result["steps"].append(
+                    ("dependency missing", 1, f"dependencies に挙がった '{dep}' が plugins/ に無い"))
+                return result
+            shutil.copytree(dep_src, mp / "plugins" / dep, symlinks=True)
+            entries.append({"name": dep, "source": f"./plugins/{dep}"})
         (mp / ".claude-plugin" / "marketplace.json").write_text(json.dumps(
-            {"name": mpname, "owner": {"name": "verify"},
-             "plugins": [{"name": plugin, "source": f"./plugins/{plugin}"}]}), encoding="utf-8")
+            {"name": mpname, "owner": {"name": "verify"}, "plugins": entries}),
+            encoding="utf-8")
 
         env = dict(os.environ, HOME=tmp_home)
         rc, out = _run(["claude", "plugin", "marketplace", "add", tmp_mp], env)
