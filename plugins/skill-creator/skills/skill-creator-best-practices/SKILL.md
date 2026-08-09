@@ -123,15 +123,25 @@ Workflow({
 |---|---|
 | `passed` | 全テストケースが採点され、reviewer も応答し、delta >= 0.2 かつ失格 0 件 |
 | `needs_human_decision` | 評価は揃ったが、改稿上限に達しても閾値に届かなかった（品質の問題） |
-| `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係） |
+| `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係）。workflow では reviewer 欠測のみが該当 |
 | `revision_failed` | 改稿 agent が応答しなかった |
 | `script_rejected` | **workflow のみ**。評価は通ったが script-reviewer が失格項目を挙げた |
 | `script_review_incomplete` | **workflow のみ**。script-reviewer が応答せず、script を検証できなかった |
 
 `architecture: "workflow"` を渡すと、writer は SKILL.md に加えて `scripts/<name>.js` を生成し、
-script-reviewer（別 context）がそれを検査する。**評価が通っても script が失格なら `passed` にしない** ——
-配布されるのは script なので、SKILL.md の質だけで合格にすると壊れた実体がそのまま公開される。
+script-reviewer（別 context）がそれを検査する。合否は **reviewer（基準充足）＋ script-reviewer** で決まり、
+script の判定を先に見る（評価が揃わなくても script の失格は報告する）。
 script-reviewer が落ちたときも「失格 0 件」とは読まず `script_review_incomplete` で返す。
+
+**Workflow 型では with_skill / baseline の delta 評価を行わない。** この測定の前提は「with_skill は
+方法論を持ち baseline は持たない」だが、Workflow 型の方法論は script 側にあり、評価時点の script は
+ディスク上に無く、しかも評価 subagent には Workflow ツール自体が無い（実測）。出る数字は方法論の差では
+なく「script が保存済みか」を測ることになるため、走らせない。実効性の実測は**保存後に人間が 1 回
+回して測る**（Phase 5 の eval-viewer 手順）。
+
+script が失格でもこのループでは改稿しない。script-reviewer は Write 直後に 1 回だけ走る設計で、
+再検証の経路が無いまま writer を回すと直ったか確かめずに次へ進むことになる。指摘を添えて返し、
+人間が判断する。
 
 `architecture` は `taskType`（`document` / `procedure` / `data` というドメイン分類）とは**別軸**。
 取り違えると構成設計フェーズの有無が変わるため、`build_skill.js` は不正な値を受けたら即座に落ちる。
