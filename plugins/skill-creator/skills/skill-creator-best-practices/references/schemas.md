@@ -136,13 +136,15 @@ phase('[phase 名]')
 ```json
 {
   "verdict": "ok | mismatch",
+  "intended_behavior": "要件だけから先に導いた「本来の挙動」（必須）",
   "failed": [
     {
       "category": "A | B | C | D | E",
       "item": "該当する検査項目",
       "evidence": "script 中の該当箇所",
       "why_it_matters": "実行時に何が起きるか",
-      "fix": "具体的な直し方"
+      "should_be": "本来どう動くべきか（挙動の記述）",
+      "fix": "そのために script をどう直すか"
     }
   ],
   "warnings": [{ "item": "確認したい点", "note": "補足" }],
@@ -150,7 +152,8 @@ phase('[phase 名]')
 }
 ```
 
-- カテゴリ：A=起動前・実行中に落ちる / B=黙って間違える / C=barrier の誤用 / D=人間ゲートと停止条件 / E=要件との対応
+- カテゴリ：A=起動前・実行中に落ちる / B=黙って間違える / C=barrier の誤用 / D=人間ゲートと停止条件 / **E=設計が要件に対して正しいか**（工程分割・不変条件の構造化・verify の独立性・集約が問いに答えているか）
+- `intended_behavior` は **script を読む前に要件だけから導く**。これを必須にしているのは、script の構造を所与として禁止構文を探すだけの検査になるのを防ぐため（script 中のコメントは主張であって根拠ではない）。E は A・B より重い — 禁止構文は直せば済むが、工程分割の誤りは書き直しになる
 - A または B が 1 件でもあれば `verdict: mismatch`
 - `script_summary` が必須なのは、reviewer が script を読まずに `ok` を返す経路を残さないため
 - reviewer が応答しなかった場合、`build_skill.js` はそれを「失格 0 件」と読まず

@@ -94,19 +94,27 @@ const REVIEW_SCHEMA = {
 // （markdown 中の記号を script 側で数えると、書式の揺れが判定を左右する）。
 const SCRIPT_REVIEW_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'failed', 'script_summary'],
+  // intended_behavior を必須にしているのは、reviewer に「要件だけから本来の挙動を先に導く」
+  // 工程を踏ませるため。これが無いと、script に書かれた構造を所与として禁止構文を探すだけの
+  // 検査になり、構造そのものが要件に対して間違っている場合を落とす。書かせることで、
+  // 突き合わせた形跡が残る（script_summary と同じ理屈）。
+  required: ['verdict', 'intended_behavior', 'failed', 'script_summary'],
   properties: {
     verdict: { type: 'string', enum: ['ok', 'mismatch'] },
+    intended_behavior: { type: 'string' },
     failed: {
       type: 'array',
       items: {
         type: 'object',
-        required: ['category', 'item', 'why_it_matters', 'fix'],
+        // should_be（本来どう動くべきか）と fix（どう直すか）を分けて必須にする。
+        // 直し方だけだと、なぜその直し方が正しいのかが失われる。
+        required: ['category', 'item', 'why_it_matters', 'should_be', 'fix'],
         properties: {
           category: { type: 'string', enum: ['A', 'B', 'C', 'D', 'E'] },
           item: { type: 'string' },
           evidence: { type: 'string' },
           why_it_matters: { type: 'string' },
+          should_be: { type: 'string' },
           fix: { type: 'string' },
         },
       },
@@ -458,6 +466,15 @@ const iterations = []
 let revision = 0
 let verdict = null
 
+// Workflow 型に with_skill / baseline の delta ゲートを適用しない。この測定の前提は
+// 「with_skill は方法論を持ち、baseline は持たない」だが、Workflow 型の方法論は script 側に
+// あり、評価時点の script はディスク上に存在せず、しかも評価 subagent には Workflow ツール
+// 自体が無い（実測）。つまり with_skill は方法論を一度も手にできず、出る数字は方法論の差では
+// なく「script が保存済みか」を測っている。測れない前提のまま数字を出すのは代理指標ゲート
+// （§12）なので、走らせない。合否は reviewer（基準充足）と script-reviewer が担う。
+// 空配列にするのは、fan-out・採点・集計が構造的に発生しない形にするため。
+const evalCases = architecture === 'workflow' ? [] : cases
+
 while (true) {
   const iterLabel = `i${revision + 1}`
 
@@ -466,7 +483,7 @@ while (true) {
   // 「同一ターンで並列に」を散文で指示するのではなく parallel() で表現しているので、
   // 直列化も片側だけの実行も起こりえない。
   const runs = await parallel(
-    cases.flatMap((tc) => [
+    evalCases.flatMap((tc) => [
       () =>
         agent(
           [
@@ -512,7 +529,7 @@ while (true) {
   // のは、agent が落ちたときに全体を reject させず null に落として続行するため。
   const [gradings, review] = await parallel([
     () => parallel(
-      cases.map((tc) => () => {
+      evalCases.map((tc) => () => {
         const pair = byCase.get(tc.id) || {}
         // 片側でも出力が欠けているペアは採点しない。欠損を採点者に渡すと
         // 「出力が無い＝fail」として実態と違う delta が出る。
@@ -544,7 +561,7 @@ while (true) {
   ])
 
   const graded = gradings.filter(Boolean)
-  const ungraded = cases.length - graded.length
+  const ungraded = evalCases.length - graded.length
 
   // 評価が揃ったかを、合否を計算する前に判定する。agent が落ちた分を欠測として扱わず
   // 平均に含めると、生き残った少数の結果から出た数字が全体の成績に見える。
@@ -563,11 +580,14 @@ while (true) {
 
   const reviewFailures = review?.failed || []
 
-  phase('Analyze')
+  // Analyze は with_skill / baseline の出力比較なので、評価を回さない Workflow 型では
+  // 入力そのものが存在しない。comparator / analyzer を空入力で起動すると、比較していない
+  // 内容の「分析結果」が返る。走らせない。
+  if (evalCases.length > 0) phase('Analyze')
   const winner =
     delta === null ? 'undetermined' : delta > 0.05 ? 'with_skill' : delta < -0.05 ? 'without_skill' : 'tie'
-  const firstCase = cases[0]
-  const firstPair = byCase.get(firstCase.id) || {}
+  const firstCase = evalCases[0] || null
+  const firstPair = firstCase ? byCase.get(firstCase.id) || {} : {}
   // comparator → analyzer は直列。analyzer の入力 [COMPARATOR_RESULT] は comparator の出力
   // そのものなので、並列化すると analyzer に「未取得」を渡すことになる（実際に何を渡すかが
   // 決まらないまま「並列に呼ぶ」とだけ書かれていた元の手順の穴）。1 回の await で解消する。
@@ -576,7 +596,7 @@ while (true) {
       ? await roleAgent(
           'comparator.md',
           [
-            `[TEST_PROMPT]:\n${firstCase.prompt}`,
+            `[TEST_PROMPT]:\n${firstCase ? firstCase.prompt : ''}`,
             `[OUTPUT_A]:\n${firstPair.with_skill}`,
             `[OUTPUT_B]:\n${firstPair.baseline}`,
             `[ASSERTION_RATES]:\n${JSON.stringify({ with_skill: withSkillRate, baseline: baselineRate, delta }, null, 2)}`,
@@ -585,7 +605,7 @@ while (true) {
         )
       : null
 
-  const analysis = await roleAgent(
+  const analysis = evalCases.length === 0 ? null : await roleAgent(
     'analyzer.md',
     [
       '[MODE]: post-hoc',
@@ -598,12 +618,24 @@ while (true) {
 
   // 合格には「閾値を超えた」だけでなく「評価が揃った」ことを要求する。欠測を含む
   // 数字で合格を出すと、達成度を実態より良く見せることになる。
-  const passed = evaluationComplete && delta >= DELTA_THRESHOLD && reviewFailures.length === 0
+  // Workflow 型は delta を持たないので、基準充足（reviewer）だけを品質ゲートにする。
+  // script の合否はこの後段で別に見る（評価が揃わなくても報告するため）。
+  const passed =
+    evaluationComplete &&
+    (architecture === 'workflow' || delta >= DELTA_THRESHOLD) &&
+    reviewFailures.length === 0
   const fmt = (n) => (n === null ? 'n/a' : n.toFixed(2))
+  // delta が n/a と出るのは「測って揃わなかった」場合と「そもそも測らない設計」の 2 通りが
+  // あり、同じ表示にすると後者が失敗に見える。文言を分ける。
   log(
-    `評価 ${revision + 1} 回目: delta ${fmt(delta)}（with_skill ${fmt(withSkillRate)} / baseline ${fmt(baselineRate)}）` +
+    (architecture === 'workflow'
+      ? `判定 ${revision + 1} 回目: delta 評価は Workflow 型のため適用外`
+      : `評価 ${revision + 1} 回目: delta ${fmt(delta)}（with_skill ${fmt(withSkillRate)} / baseline ${fmt(baselineRate)}）`) +
       ` / reviewer ${review ? `❌ ${reviewFailures.length} 件` : '未実施'}` +
-      (ungraded ? ` / 未採点 ${ungraded}/${cases.length} 件` : '') +
+      (ungraded ? ` / 未採点 ${ungraded}/${evalCases.length} 件` : '') +
+      (architecture === 'workflow'
+        ? ` / script ${scriptReview ? `❌ ${scriptReview.failed.length} 件` : '未検証'}`
+        : '') +
       ` / ${passed ? '合格' : evaluationComplete ? '不合格' : '判定不能（評価が揃っていない）'}`
   )
 
@@ -619,21 +651,25 @@ while (true) {
     passed,
   })
 
-  if (passed) {
-    // Workflow 型は評価が通っても script 自体が壊れていれば配布できない。script の
-    // 検証は改稿ループの外（Write 直後）で 1 回だけ回しているので、ここでは結果を
-    // 合否に反映するだけにする。reviewer が落ちた場合は「失格 0 件」と読まず、
-    // 未検証として別 verdict にする（レビューされていないものを通したことにしない）。
-    if (architecture === 'workflow') {
-      if (!scriptReview) {
-        verdict = 'script_review_incomplete'
-        break
-      }
-      if (scriptReview.verdict !== 'ok' || scriptReview.failed.length > 0) {
-        verdict = 'script_rejected'
-        break
-      }
+  // Workflow 型は script の合否を最初に見る。配布される実体は script なので、
+  // 「評価が揃わなかった」を理由に品質と無関係な verdict を返すと、失格を抱えた script が
+  // 「再実行すれば直る」扱いで保存されうる。reviewer が落ちた場合も「失格 0 件」と
+  // 読まず、未検証として別 verdict にする（レビューされていないものを通したことにしない）。
+  // script の改稿はこのループでは行わない。script-reviewer は Write 直後に 1 回だけ
+  // 走る設計で、再検証の経路が無いまま writer を回すと、直ったかどうかを確かめずに
+  // 次へ進むことになる。指摘を添えて司令塔へ返し、人間が判断する。
+  if (architecture === 'workflow') {
+    if (!scriptReview) {
+      verdict = 'script_review_incomplete'
+      break
     }
+    if (scriptReview.verdict !== 'ok' || scriptReview.failed.length > 0) {
+      verdict = 'script_rejected'
+      break
+    }
+  }
+
+  if (passed) {
     verdict = 'passed'
     break
   }

@@ -18,6 +18,38 @@ Workflow の `verdict` が `passed` 以外の場合は合格として提示し�
   場合は「差が無かった」ではなく「測れなかった」と伝える。直前に評価が揃ったラウンドが
   あるなら、そちらの数字を「これが最後に取れた測定値」として併記してよい。
 
+- **`script_rejected`**（Workflow 型で script-reviewer が失格項目を挙げた）: 配布される実体は
+  script なので、これは合格にできない。`script_review.failed[]` の各項目（category / evidence /
+  why_it_matters / fix）をそのまま示す。カテゴリ A（起動前に落ちる）と B（黙って間違える）は
+  実行前に必ず直す。C（barrier の誤用）は遅延の問題なので、急ぐなら保存してから直してもよい。
+  **このループでは script の改稿を行わない**（script-reviewer は Write 直後に 1 回だけ走る設計で、
+  再検証の経路が無い）。直すなら要件に修正点を足して Workflow を再実行する。
+- **`script_review_incomplete`**（script-reviewer が応答しなかった）: 品質ではなくツール側の失敗。
+  script は未検証なので「検証を通った」と言わない。再実行するか、未検証と明示したうえで
+  保存するかを聞く。
+
+## Workflow 型スキルの実効性測定（保存後）
+
+`architecture: "workflow"` のスキルは、Workflow 内で with_skill / baseline の delta 評価を
+**行っていない**。方法論が script 側にあり、評価時点の script はディスク上に無く、評価 subagent に
+Workflow ツールも無いため、測っても「script が保存済みか」を測ることにしかならないからである。
+
+したがって実効性は**保存後に人間が 1 回回して測る**。保存が済んだら次を案内する。
+
+```bash
+# 生成された workflow script が静的検査を通るか（meta の形・phase 名の一致・禁止構文・構文）
+python3 [SKILL_DIR]/scripts/quick_validate.py .claude/skills/[スキル名] --verbose
+```
+
+そのうえで、生成されたスキルを実際に 1 回起動してもらい、`/workflows` で phase 構成・agent 数・
+トークン消費を確認する。ここで初めて「構文は正しいがデッドロックする」「集計を間違える」が出る。
+静的検査と script-reviewer はこの層を見ていないことを、案内するときに明示する。
+
+`evals/evals.json` は生成されているので、通常の
+[eval-viewer によるレビュー](#eval-viewer-によるレビュー任意推奨)も従来どおり使える。ただし
+with_skill 側は script を実行できないため、数字は方法論の実力ではなく「SKILL.md 単体で
+どこまでやれるか」を示す点に注意する。
+
 ---
 
 ## ユーザーへの提示フォーマット
