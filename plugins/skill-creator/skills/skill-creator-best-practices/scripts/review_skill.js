@@ -38,6 +38,10 @@ const FINDINGS_SCHEMA = {
           evidence: { type: 'string' },
           severity: SEVERITY,
           suggested_fix: { type: 'string' },
+          // Reverify（draft）でだけ意味を持つ。evidence の引用が改稿前の原本にもそのまま
+          // 存在するか。true なら改稿が持ち込んだ問題ではなく、改稿前の Find が見落とした
+          // 既存の問題。script はこれを new から preexisting へ分ける唯一の材料にする。
+          present_in_original: { type: 'boolean' },
         },
       },
     },
@@ -300,6 +304,16 @@ function scopeBlock(kind) {
         'そのまま読む。ドラフトは git の追跡外にあり、差分を取ろうとすると空になり、' +
         '「見るべき箇所が無い」と誤解したまま何も読まないことになる。'
     )
+    // 改稿前の原本を渡すのは、各指摘に present_in_original を返させるため。改稿前の Find が
+    // 見落とした既存の問題を「改稿が持ち込んだ」と報告すると、承認判断が歪む（実際に起きた）。
+    lines.push(`[ORIGINAL_DIR]: ${skillPath}`)
+    lines.push(
+      '各指摘について、evidence の引用が [ORIGINAL_DIR] の同じファイルにもそのまま存在するかを' +
+        '確認し present_in_original に true / false で返すこと。原本が読めなければ省略する。' +
+        '引用が同じでも、指摘が成立する条件（参照先・前提）が改稿で変わったなら false。' +
+        '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
+        '[TARGET_DIR] で実際に読んだものだけ。原本は相対パスが同じなので混ぜると観測の有無が狂う）。'
+    )
   } else {
     lines.push(`[SCOPE]: ${scope}`)
     lines.push(
@@ -370,9 +384,18 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind) {
           evidence: item.evidence,
           severity: item.severity,
           suggested_fix: item.suggested_fix,
+          // 明示列挙で再構築しているので、ここに書かないと finder が返した値が落ちる
+          // （実際に落ちていて preexisting が恒常的に空になった）。boolean 以外は undefined に
+          // 正規化し、「分からない」を false（＝改稿由来）に丸めない。
+          present_in_original:
+            typeof item.present_in_original === 'boolean' ? item.present_in_original : undefined,
         })
       })
-      log(`観点 ${f.id}: 指摘 ${items.length} 件 / 読んだファイル ${scannedByCategory[f.id].length} 件（${passLabel}）`)
+      const checked = items.filter((it) => typeof it.present_in_original === 'boolean').length
+      log(
+        `観点 ${f.id}: 指摘 ${items.length} 件 / 読んだファイル ${scannedByCategory[f.id].length} 件（${passLabel}）` +
+          (scopeKind === 'draft' ? ` / 原本照合 ${checked}/${items.length}` : '')
+      )
     }
     return { findings, missing, scannedByCategory }
   })
@@ -614,6 +637,7 @@ while (revision <= maxRevisions) {
       unobserved: [],
       reclassified: [],
       out_of_scope: [],
+      preexisting: [],
     }
     verdict = 'update_failed'
     break
@@ -638,6 +662,7 @@ while (revision <= maxRevisions) {
       unobserved: [],
       reclassified: [],
       out_of_scope: [],
+      preexisting: [],
     }
     verdict = 'reverify_incomplete'
     break
@@ -686,7 +711,14 @@ while (revision <= maxRevisions) {
   const notOriginal = post.confirmed.filter((f) => !beforeKeys.has(keyOf(f)))
   const reclassified = notOriginal.filter((f) => beforeSeenKeys.has(keyOf(f)))
   const outOfScope = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)) && !isInScope(f))
-  const introduced = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)) && isInScope(f))
+  // 改稿前の Find が見落とした既存の問題は、どのバケット（reclassified / out_of_scope）にも
+  // 落ちずに new へ入る。finder の非決定性由来で前後の Find 結果の差からは区別できないので、
+  // 再検証の finder が原本を照合した present_in_original を唯一の材料にして分ける。
+  // 実在する確定指摘であることに変わりはないので提示はするが、「改稿が持ち込んだ」数字と
+  // blocker 判定からは外す（改稿前にも同じ状態だったものを改稿の副作用として止めない）。
+  const candidates = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)) && isInScope(f))
+  const preexisting = candidates.filter((f) => f.present_in_original === true)
+  const introduced = candidates.filter((f) => f.present_in_original !== true)
 
   // 粗いキー（観点＋ファイル）だけが一致する新規は、文言が変わっただけの同じ指摘である
   // 可能性がある。script は意味の一致を判定できないので new から取り除かず、別枠に併記する。
@@ -700,8 +732,11 @@ while (revision <= maxRevisions) {
     `突き合わせ（最初の確定指摘との比較・観点/ファイル/主張の一致で判定）: ` +
       `解消 ${resolved.length} / 残存 ${remaining.length} / 新規 ${introduced.length} / ` +
       `未観測 ${unobserved.length} / 未検証 ${post.unverified.length} / ` +
-      `再分類 ${reclassified.length} / 範囲外 ${outOfScope.length}`
+      `再分類 ${reclassified.length} / 範囲外 ${outOfScope.length} / 既存 ${preexisting.length}`
   )
+  if (preexisting.length > 0) {
+    log(`既存 ${preexisting.length} 件は引用が改稿前の原本にもそのまま存在する指摘（改稿が持ち込んだものではない）。`)
+  }
   if (reclassified.length > 0) {
     log(`うち ${reclassified.length} 件は改稿前に未検証・棄却だった指摘が再検証で確定したもの（改稿が持ち込んだものではない）。`)
   }
@@ -726,6 +761,7 @@ while (revision <= maxRevisions) {
     unobserved,
     reclassified,
     out_of_scope: outOfScope,
+    preexisting,
   }
   latest = post
   latestSource = 'after'

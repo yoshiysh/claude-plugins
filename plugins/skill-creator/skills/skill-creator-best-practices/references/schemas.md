@@ -380,7 +380,8 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
       "claim": "複数行に一致したときの優先順位が書かれていない",
       "evidence": "| 依頼の形 | モード | 進む先 |",
       "severity": "blocker",
-      "suggested_fix": "実体を伴う行を優先する規則を1行足す"
+      "suggested_fix": "実体を伴う行を優先する規則を1行足す",
+      "present_in_original": true
     }
   ],
   "scanned_files": ["SKILL.md", "agents/writer.md", "references/best-practices.md"],
@@ -395,6 +396,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `findings[].severity` | ○ | `blocker` / `major` / `minor`。update の打ち切り判定に使う |
 | `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
+| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本にもそのまま存在するか。script はこれで `new` と `preexisting` を分ける。原本が読めなければ省略 |
 
 ### refuter の出力（REFUTE_SCHEMA）
 
