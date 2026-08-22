@@ -72,7 +72,7 @@ def ref_exists(ref: str) -> bool:
 
 
 def primary_branch_names() -> list[str]:
-  """main / develop / release-* / dev-* のうち、ローカルかリモートに実在するものを列挙する。
+  """main / develop / release/* / dev/* のうち、ローカルかリモートに実在するものを列挙する。
 
   release/* と dev/* はワイルドカードなので、存在しないパターンは自然にスキップされる。
   重複除去のうえ、決定的な順序（列挙順→アルファベット順）で返す。
@@ -267,7 +267,7 @@ def patches_all_in_any_primary(ref: str, cherry_primaries: list[str]) -> str:
   `merge-base` でも PR 状態でも取り込み済みと判定できない。`git cherry` は
   patch-id で比較するので、この経路だけを拾える。
 
-  `cherry_primaries` は `primaries`（release-*/dev-* を含む全 primary refs）の部分集合で
+  `cherry_primaries` は `primaries`（release/* と dev/* を含む全 primary refs）の部分集合で
   なければならない。`git cherry` は対象範囲の全コミットの patch-id を計算するため、
   ブランチ数 × primary 数で呼び出すと重い履歴を持つリポジトリで実測 10 分超えの遅延が
   起きた（本リポジトリで実測: リモートブランチ301本 × primary 38本）。cherry-pick /
@@ -506,7 +506,7 @@ def cherry_check_primaries(primaries: list[str], base: str) -> list[str]:
   """高価な patch-id 比較（`git cherry`）の対象を絞り込む。
 
   `main`・`develop`・現在の同期起点（`sync_base`）に限定する。cherry-pick / rebase で
-  紛れるのはほぼ必ず現在アクティブな統合先であり、全 release-*/dev-* 分（本リポジトリの
+  紛れるのはほぼ必ず現在アクティブな統合先であり、全 release/* / dev/* 分（本リポジトリの
   実測で 30 本超）を毎回 `git cherry` すると、ブランチ数との掛け算で実行時間が
   ブランチ本数 × primary 本数に比例して膨らむ。
   """

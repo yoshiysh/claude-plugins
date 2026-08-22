@@ -196,7 +196,7 @@ class BranchClassificationTests(unittest.TestCase):
 
 class PrimaryBranchNamesTests(unittest.TestCase):
   def test_wildcards_only_include_existing_branches(self):
-    """release-*/dev-* は実在するものだけを列挙し、main/developは常に含める前提で確認する。"""
+    """release/* と dev/* は実在するものだけを列挙し、main/developは常に含める前提で確認する。"""
     outputs = {
       ("git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"):
         "main\ndevelop\ndev/5.0.0\nfeature/x",

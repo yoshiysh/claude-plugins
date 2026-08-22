@@ -1,13 +1,14 @@
 ---
 name: cleanup-branches
 description: |
-  マージ済みブランチと不要な作業状態を検出・削除し、worktree を最新の主ブランチに同期する。
+  マージ済みブランチと不要な作業状態を検出・削除し、worktree を最新の主ブランチに同期し、
+  その後の作業用ブランチ（`feature/{hex}` 等）を作成して終わる。
   「ブランチを整理して」「不要なブランチを消したい」「マージ済みブランチをクリーンアップして」
   「main を更新」「最新にして」「sync」「同期」「マージしたから更新」「ブランチを更新」
   「掃除して」等のキーワードで起動する。
   ローカル・remote 双方のマージ済みブランチ（squash merge・cherry-pick・rebase で
   取り込まれたものを含む）、stash の滞留、submodule の drift、終了済み workspace までを
-  1 回の実行で洗い出す。判定基準は main / develop / release-*/dev-* を動的に列挙するため、
+  1 回の実行で洗い出す。判定基準は main / develop / release/* / dev/* を動的に列挙するため、
   develop が主軸で dev/{version} のような並走ブランチを持つリポジトリでも正しく判定する。
 ---
 
@@ -25,9 +26,9 @@ PR マージ後に worktree を最新の主ブランチに同期し、溜まっ�
 
 ## 判定の根拠（ここが壊れると静かに取りこぼす）
 
-- **判定基準は main / develop / release-*/dev-* を動的に列挙する**（`primary_branch_names()`）。
+- **判定基準は main / develop / release/* / dev/* を動的に列挙する**（`primary_branch_names()`）。
   `origin/main` 固定にすると、develop が主軸で dev/{version} のような並走ブランチを持つ
-  リポジトリで、実際には取り込み済みのブランチを誤って「未マージ」と判定する。release-*/dev-*
+  リポジトリで、実際には取り込み済みのブランチを誤って「未マージ」と判定する。release/* と dev/*
   はワイルドカードのため、ローカル・リモートに実在するブランチだけを対象にする。
 - **fetch は `--prune` つき**。prune しないと remote 削除済みブランチが `[gone]` にならない。
 - **「取り込まれたか」を経路を分けて見る**。①いずれかの primary ref の履歴に含まれるか
@@ -51,9 +52,18 @@ PR マージ後に worktree を最新の主ブランチに同期し、溜まっ�
 判定は全て `git` と `gh` の呼び出しで完結し、agent は関与しない。`gh` が使えない環境では
 PR 経路が落ちるだけで、残る 2 経路が効き、分類は安全側（要判断）に寄る。
 
-`git branch -d`/`-D`・`git tag` はスクリプト内部で `subprocess` の引数リスト形式（シェル文字列
-展開を経ない）で呼ばれる。エージェントが個別に `git branch -d` を叩く設計と違い、ヒアドキュメント・
-`eval` 等で許可制（deny ルール）を迂回する余地が構造的に無い。
+**スクリプトが消すのは「取り込み済み」と分類された ref だけ**という契約になっている
+（`prune-local` は `local.auto_delete`、`prune-remote` は `remote.merged` としか照合しない）。
+この経路では `git branch -d`/`-D`・`git tag` がスクリプト内部で `subprocess` の引数リスト形式
+（シェル文字列展開を経ない）で呼ばれるため、エージェントが自分で `git branch -d` を組み立てる
+設計と違い、ヒアドキュメント・`eval` 等で許可制（deny ルール）を迂回する余地が構造的に無い。
+
+この契約の**外側**にあるもの（未取り込みブランチ = `needs_decision`）は、スクリプトに
+サブコマンドを足して消せるようにしない。足せば「未取り込みの ref を消せる経路」がスクリプト内に
+生まれ、上の契約そのものが失われる。未取り込みの削除はユーザーの承認が前提の一件ごとの判断で、
+まとめて回す対象ではないため、Step 3 では**承認された分だけを手で 1 本ずつ**消す。その代わり、
+スクリプトが自動でやっている「先に退避タグを打ち、タグが作れなければ削除しない」を
+手順としてそのまま踏む（下記）。
 
 ## [ACTION] Step 1: 状態を取る
 
@@ -63,7 +73,7 @@ python3 [SKILL_DIR]/scripts/repo_state.py report
 
 `--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。以降の判断は全て
 この JSON を根拠にする。`primary_branches` フィールドに、今回の判定で実際に使った
-main/develop/release-*/dev-* の一覧が入るので、想定通り列挙されているか確認する。
+main/develop/release/* / dev/* の一覧が入るので、想定通り列挙されているか確認する。
 
 ## 聞く / 聞かないの基準
 
@@ -101,18 +111,33 @@ cherry-pick で取り込まれたものは `-D`）。**ブランチ名だけを�
 以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。カテゴリごとに質問を分けない。
 
 **`local.needs_decision`（remote 削除済みだが未取り込み）**: 消えた PR の作業がローカルにだけ
-残っている。承認された分だけ `git branch -D <name>` を個別に実行する（このケースは退避タグを
-Step 2 のスクリプトが打っていないので、個別実行前に同じ命名規則でタグを打ってから消す）。
-
-**`remote.needs_decision`（未取り込みで remote に残存）**: CLOSED PR や PR の無いブランチ。
-提示するだけだと永久に溜まるので、削除するかを選択肢として出す。承認後:
+残っている。承認された分だけ、次の 2 手を**この順で**個別に実行する。
 
 ```bash
-python3 [SKILL_DIR]/scripts/repo_state.py prune-remote --branches "a,b"
+git tag deleted-branches/<branch名の / を - に置換>-<YYYYMMDD-HHMMSS> <name>
+git branch -D <name>
 ```
 
-ただしスクリプトは merged 以外を拒否するため、承認された未取り込みブランチは
-`git push origin --delete <name>` を個別に実行する。
+例: `feature/foo` なら `git tag deleted-branches/feature-foo-20250101-123456 feature/foo`。
+タグ名は Step 2 のスクリプトと同じ規則（`/` を `-` に置換し、`-YYYYMMDD-HHMMSS` を付ける）。
+**`git tag` が失敗したら `git branch -D` を実行しない** — 復元手段が無いまま消さないという
+スクリプト側の性質を、手順としてそのまま踏む。打ったタグ名は Step 7 の報告に載せる。
+
+**`remote.needs_decision`（未取り込みで remote に残存）**: CLOSED PR や PR の無いブランチ。
+提示するだけだと永久に溜まるので、削除するかを選択肢として出す。`prune-remote` は merged 以外を
+拒否する（それが上の契約）ので、承認された未取り込みブランチはローカル側と同じ 2 手を
+**この順で**個別に実行する。
+
+```bash
+git tag deleted-branches/<branch名の / を - に置換>-<YYYYMMDD-HHMMSS> origin/<name>
+git push origin --delete <name>
+```
+
+タグは必ず削除**前**に、remote-tracking ref（`origin/<name>`）から打つ。push --delete の後は
+その ref が消えて、控える対象自体が無くなる。`git tag` が失敗したら削除しない。
+復元は控えた SHA から `git push origin <sha>:refs/heads/<name>`。
+このタグはローカルにしか残らない（他の誰かの手元には無い）ので、確認を省く理由にはならない —
+Step 3 で聞くこと自体は変わらない。打ったタグ名は Step 7 の報告に載せる。
 
 **`workspace.finished`（終了済みの skill session）**: `{.agent,.claude}/skills/*/workspace` を
 自動探索し、session の `state.json` が `status: completed` を持つものだけを終端と見なす。
@@ -186,6 +211,7 @@ stash した場合は `git stash pop`（コンフリクト時は箇所を出し�
 - 判定に使った primary refs: {primary_branches}
 - ブランチ: {new_branch}
 - 削除（確認不要・取り込み済み）: ローカル {names + backup_tag} / remote {names}
+- 承認を得て削除した未取り込み: ローカル {names + tag} / remote {names + tag} | なし
 - 要判断のまま残したもの: {names | なし}
 - 作業状態: submodule drift {n} / tracked dirty {n} / untracked {n} / stash {n}
 - workspace: 削除 {n} / 保持 {n}
