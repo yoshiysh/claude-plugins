@@ -57,7 +57,7 @@ This file provides guidance to Claude Code when working in this repository.
 | `pr-create` | `git:pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `git` |
 | `reference` | `research:reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `research` |
 | `search` | `research:search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `research` |
-| `skill-creator-best-practices` | `skill-creator:best-practices` | マルチエージェントでスキルを設計・作成・評価する | `skill-creator` |
+| `skill-creator-best-practices` | `skill-creator:best-practices` | マルチエージェントでスキルを作成（create）・評価（review）・更新（update）する | `skill-creator` |
 | `url-reader` | `research:url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する | `research` |
 
 frontmatter の `name` はディレクトリ名より優先される（plugin スキルの公式仕様）。ディレクトリ名 ≠ 公開名のスキルは `chat`（→`fable`）、`chat-rigorous`（→`rigorous`）、`notion-organize-knowledge`（→`organize-knowledge`）、`skill-creator-best-practices`（→`best-practices`）の 4 つ。

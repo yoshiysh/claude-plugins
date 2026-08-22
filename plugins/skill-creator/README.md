@@ -1,17 +1,19 @@
 # skill-creator
 
-マルチエージェントで高品質なスキルを設計・作成・評価するプラグイン。
+マルチエージェントでスキルを設計・作成し、既存スキルの評価と更新も同じ枠組みで行うプラグイン。
 
 ## 収録スキル
 
 | スキル | 呼び出し | 説明 |
 |---|---|---|
-| `best-practices` | `/skill-creator:best-practices` | 要件整理・検証基準生成・構成設計・執筆・テスト・検証を専門 Sub-agent に分担させてスキルを生成する |
+| `best-practices` | `/skill-creator:best-practices` | create: 要件整理・基準生成・構成設計・執筆・テスト・検証を Sub-agent に分担して生成 / review: 観点別指摘 → 独立反証で生き残った指摘だけを返す / update: staging へ改稿 → 再検証 → 承認後に反映 |
 
 ## 使い方
 
 ```
 /skill-creator:best-practices <作りたいスキルの説明>
+/skill-creator:best-practices このスキルを best-practices に沿ってるか評価して  # review
+/skill-creator:best-practices Issue #NN に沿ってこのスキルを更新して           # update
 ```
 
 詳細なフローは `skills/skill-creator-best-practices/SKILL.md` を参照してください。

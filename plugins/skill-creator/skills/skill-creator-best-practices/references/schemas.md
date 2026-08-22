@@ -359,3 +359,98 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
   "status": "complete"
 }
 ```
+
+---
+
+## Phase 5：review/update の入出力
+
+`scripts/review_skill.js` が finder / refuter / updater と交換する契約。
+**観点の一覧・反証者の観点・閾値そのものは script の `FINDERS` / `PERSPECTIVES` /
+`MIN_VALID_VOTES` / `MAX_REVISIONS` が唯一の正**なので、ここには写さない。
+ここが定義するのはフィールドの形と、その形が保証していることだけ。
+
+### finder の出力（FINDINGS_SCHEMA）
+
+```json
+{
+  "findings": [
+    {
+      "file": "SKILL.md",
+      "location": "## モード判定",
+      "claim": "複数行に一致したときの優先順位が書かれていない",
+      "evidence": "| 依頼の形 | モード | 進む先 |",
+      "severity": "blocker",
+      "suggested_fix": "実体を伴う行を優先する規則を1行足す"
+    }
+  ],
+  "scanned_files": ["SKILL.md", "agents/writer.md", "references/best-practices.md"],
+  "unreadable": false,
+  "note": ""
+}
+```
+
+| フィールド | 必須 | 保証していること |
+|---|---|---|
+| `findings[].evidence` | ○ | 引用が無い指摘は反証者が検証できず、確定も棄却もされないまま未検証で終わる |
+| `findings[].severity` | ○ | `blocker` / `major` / `minor`。update の打ち切り判定に使う |
+| `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
+| `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
+
+### refuter の出力（REFUTE_SCHEMA）
+
+```json
+{ "verdict": "refuted", "reason": "SKILL.md L52 に該当の記述があり、指摘の引用と一致しない" }
+```
+
+`verdict` は `refuted` / `not_refuted` / `unreadable` の三値。boolean にすると
+「読めなかった」を `false`（反証できなかった）に押し込むことになり、検証していない票が
+確定側の有効票として数えられる。`unreadable` は集計の分母から外れ、有効票が
+`MIN_VALID_VOTES` に届かなければその指摘は `unverified` になる。
+
+### updater の出力（UPDATE_SCHEMA）
+
+```json
+{
+  "changed_files": [
+    { "path": "SKILL.md", "reason": "モード判定に優先順位規則を追加", "findings_addressed": ["p1-loopholes-1"] },
+    { "path": "agents/finder.md", "reason": "unreadable の返し方を追記", "findings_addressed": ["intent"] }
+  ],
+  "summary": "指摘2件を解消し、意図どおり observability を追加した。未検証の指摘1件は判断できず据え置いた。"
+}
+```
+
+`changed_files` は**実際に内容を変えたファイルだけ**。staging には対象スキルの全ファイルが
+複製されるが、この一覧は承認後に本体へコピーする対象そのものなので、無変更のファイルを
+載せると承認されていない上書きが起きる。`findings_addressed` を必須にしているのは、
+指摘にも意図にも紐づかない改稿を後段の突き合わせで説明できないため（意図由来なら
+`"intent"` と書く）。
+
+### review_skill.js の戻り値
+
+```json
+{
+  "mode": "update",
+  "target": { "skillPath": "/abs/path", "scope": "full", "diffRef": null, "focus": null },
+  "verdict": "applied_to_staging",
+  "findings": { "confirmed": [], "rejected": [], "unverified": [] },
+  "findings_source": "after",
+  "by_category": { "before": { "why-driven": 1 }, "after": { "why-driven": 0 } },
+  "staging": {
+    "dir": "/abs/path-workspace/staging",
+    "changed_files": [],
+    "resolved": [], "remaining": [], "new": [],
+    "unverified": [], "possibly_rephrased": [], "unobserved": []
+  },
+  "revisions_used": 0
+}
+```
+
+| フィールド | 意味 |
+|---|---|
+| `findings_source` | `findings` が最後に完了した検査パスのどちらか（`before` = 改稿前 / `after` = 再検証後） |
+| `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
+| `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
+| `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない |
+| `possibly_rephrased` | 観点とファイルは一致するが主張の文言が変わり、機械的には `new` になったもの。`new` にも残る |
+| `unobserved` | 再検証でそのファイルを同じ観点の担当が読んでいないため、`resolved` に数えられないもの |
+| `revisions_used` | **再**改稿の回数。初回の改稿は含まない |
