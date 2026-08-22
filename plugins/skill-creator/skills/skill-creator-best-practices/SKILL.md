@@ -59,8 +59,7 @@ description: >
 選択が実行者の裁量に落ち、最も安直な行（対象外）が既定になる。
 
 `review` と `update` の分かれ目は「直す許可が出ているか」だけ。`review` に倒したときは
-結果提示で「このまま update で直すこともできる」と添える。読み違えて `update` に入ると、
-承認していない改稿が staging に残る。
+結果提示で「このまま update で直すこともできる」と添える（読み違えて `update` に入ると、承認していない改稿が staging に残る）。
 
 ---
 
@@ -332,7 +331,7 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
   by_category: { before, after },
   staging: { dir, changed_files[], resolved[], remaining[], new[],
              unverified[], possibly_rephrased[], unobserved[],
-             reclassified[], out_of_scope[] } | null,
+             reclassified[], out_of_scope[], preexisting[] } | null,
   revisions_used
 }
 ```
@@ -353,7 +352,7 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` を提示し、反映してよいか確認する（blocker 判定は `remaining` + `new` + `reclassified`） |
+| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` を提示し、反映してよいか確認する（blocker 判定は `remaining` + `new` + `reclassified`） |
 | `needs_human_decision` | 残った blocker（未検証の blocker を含む）を提示し、staging を残して判断を仰ぐ。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
@@ -437,6 +436,7 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 | `staging.possibly_rephrased[]` | ファイルと観点は一致するが主張の文言が変わり、機械的には `new` として出たもの。`new` にも載ったまま、別枠でも残す |
 | `staging.unobserved[]` | 再検証時にそのファイルを誰も読んでいないため、消えたのか見られていないのかが分からない指摘。`resolved` には数えない。blocker が含まれる場合は `unverified` の blocker と同様に自動確定せず `needs_human_decision` になる |
 | `staging.reclassified[]` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` には入れない |
+| `staging.preexisting[]` | 再検証で新しく出たが、引用が改稿前の原本にもそのまま存在する確定指摘。改稿前の検査が見落とした既存の問題なので `new` には入れず、blocker 判定にも入れない（提示はする） |
 | `staging.out_of_scope[]` | `scope: "diff"` のときだけ。改稿前に読まれたファイルにも今回変更したファイルにも無い場所で再検証が見つけた確定指摘。元からあった可能性が高いので提示だけし、blocker 判定には入れない（`full` では常に空） |
 | `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
 | `by_category.before` | 改稿前（Find）の観点別確定件数。欠測観点は `null` |
