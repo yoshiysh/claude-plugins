@@ -61,12 +61,14 @@ run_target() {
 }
 
 say "ターゲット調査 ($TARGET)"
-INFO=$(run_target <<'EOF'
+# sudo 判定は「svc.sh を NOPASSWD で実行できるか」で見る。`sudo -n true` だと
+# svc.sh だけ許可した sudoers（下の WSL フォールバックが入れるもの）を no と誤判定する。
+INFO=$(run_target <<EOF
 uname -s
 uname -m
 whoami
-test -d /run/systemd/system && echo init=systemd || { [ "$(uname -s)" = Darwin ] && echo init=launchd || echo init=none; }
-sudo -n true 2>/dev/null && echo sudo=yes || echo sudo=no
+test -d /run/systemd/system && echo init=systemd || { [ "\$(uname -s)" = Darwin ] && echo init=launchd || echo init=none; }
+{ sudo -n true 2>/dev/null || sudo -n -l "\$HOME/${RDIR}/svc.sh" >/dev/null 2>&1; } && echo sudo=yes || echo sudo=no
 command -v curl >/dev/null && echo curl=yes || echo curl=no
 EOF
 ) || die "ターゲットに到達できない。ssh 疎通 / docker ps を確認。
@@ -79,6 +81,32 @@ INIT=$(echo "$INFO" | sed -n 4p | tr -d '\r' | cut -d= -f2)
 SUDO=$(echo "$INFO" | sed -n 5p | tr -d '\r' | cut -d= -f2)
 echo "$INFO" | grep -q curl=yes || die "ターゲットに curl が無い。先にインストールする"
 echo "$OS $ARCH / user=$RUSER / init=$INIT / sudo=$SUDO"
+
+# --- WSL フォールバック: sudo パスワード必須なら svc.sh だけ NOPASSWD 許可を入れる ---
+# これが無いと nohup 起動に落ち、Windows 再起動で runner が消える（実際に起きた）。
+# sudoers の内容は引用符なしで /tmp に置き、sudo が要る install だけ -t 付き ssh で
+# 対話的に行う（ssh → cmd.exe → wsl 経路にクォートを見せない）。
+if [ "$REMOVE" = 0 ] && [ "$KIND" = wsl ] && [ "$INIT" = systemd ] && [ "$SUDO" = no ]; then
+  say "WSL: svc.sh の NOPASSWD 許可を投入（sudo パスワードを 1 回入力）"
+  SUDOERS_FILE="actions-runner-svc-${RDIR}"
+  run_target <<EOF || die "sudoers の一時ファイル作成に失敗"
+printf '%s ALL=(ALL) NOPASSWD: %s/${RDIR}/svc.sh\n' "\$(whoami)" "\$HOME" > "/tmp/${SUDOERS_FILE}"
+EOF
+  if [ -t 0 ]; then
+    ssh -t $SSH_OPTS "$HOST" wsl --exec sudo install -m 440 -o root -g root "/tmp/${SUDOERS_FILE}" /etc/sudoers.d/ </dev/tty
+    SUDO=$(run_target <<EOF
+sudo -n -l "\$HOME/${RDIR}/svc.sh" >/dev/null 2>&1 && echo yes || echo no
+EOF
+    )
+    SUDO=$(echo "$SUDO" | tr -d '\r')
+    echo "sudo=$SUDO"
+  else
+    cat <<NOTE
+非対話実行のため投入できない。手元の端末で次を実行してから本スクリプトを再実行:
+  ssh -t ${HOST} wsl --exec sudo install -m 440 -o root -g root /tmp/${SUDOERS_FILE} /etc/sudoers.d/
+NOTE
+  fi
+fi
 
 case "$OS/$ARCH" in
   Linux/x86_64)   PKG_OS=linux;  PKG_ARCH=x64;   OS_LABEL=linux ;;
@@ -159,8 +187,9 @@ stop_orphan_listener() {
 case "${INIT}/${SUDO}" in
   systemd/yes)
     stop_orphan_listener
-    sudo ./svc.sh install "${RUSER}" >/dev/null 2>&1 || true
-    sudo ./svc.sh start 2>&1 | tail -1
+    # sudoers が svc.sh のフルパス限定のことがあるので絶対パスで呼ぶ
+    sudo -n "\$HOME/${RDIR}/svc.sh" install "${RUSER}" >/dev/null 2>&1 || true
+    sudo -n "\$HOME/${RDIR}/svc.sh" start 2>&1 | tail -1
     echo "mode=systemd-service (再起動後も自動復帰)" ;;
   launchd/*)
     stop_orphan_listener
@@ -194,15 +223,21 @@ if [ "$OS_LABEL" = macos ]; then
 (setup-python の macOS ビルドは /Users/runner 固定パス + pkg インストーラで sudo を要求するため)
 NOTE
 fi
-if [ "$KIND" = wsl ] && [ "$SUDO" = no ]; then
+if [ "$KIND" = wsl ] && [ "$SUDO" = yes ] && [ "$INIT" = systemd ]; then
+  # systemd 化しても WSL の VM 自体は Windows 再起動後に誰かが起動するまで上がらない。
+  # ログオン時に既定 distro を起動して sleep で VM を保持するタスクを冪等に登録する。
+  # 既定 distro の全 runner で共有するのでタスク名は固定。
+  say "Windows: ログオン時に WSL を自動起動するタスクを登録（既にあればスキップ）"
+  ssh $SSH_OPTS "$HOST" 'schtasks /query /tn ActionsRunner-WSL >NUL 2>&1 && echo already-registered || schtasks /create /tn ActionsRunner-WSL /sc onlogon /tr "wsl.exe --exec sleep infinity" /f' 2>/dev/null \
+    | { iconv -f CP932 -t UTF-8 2>/dev/null || cat; } | tr -d '\r' | grep -v '^$' \
+    || echo "タスク登録に失敗。手元で: ssh ${HOST} 'schtasks /create /tn ActionsRunner-WSL /sc onlogon /tr \"wsl.exe --exec sleep infinity\" /f'"
+  echo "（Windows ログオン前は WSL が上がらない。無人再起動も想定するなら自動ログオンを有効にする）"
+elif [ "$KIND" = wsl ] && [ "$SUDO" = no ]; then
   cat <<NOTE
 
-[WSL の補足] sudo にパスワードが要るため nohup 起動になっている。常駐化するには WSL 内で:
-  echo "${RUSER} ALL=(ALL) NOPASSWD: /home/${RUSER}/${RDIR}/svc.sh" | sudo tee /etc/sudoers.d/actions-runner-svc-${NAME}
-を一度実行してから本スクリプトを再実行（systemd サービス化される）。
-さらに Windows 再起動時に WSL ごと自動起動するには、Windows 側で:
-  ssh <HOST> "schtasks /create /tn ActionsRunner-${NAME} /sc onlogon /tr \\"wsl.exe --exec /home/${RUSER}/${RDIR}/run.sh\\" /f"
-（ssh 経由の非対話で作成できる。ログオン時にコンソールウィンドウが 1 つ常駐し、閉じると runner が止まる）
+[WSL の補足] sudo にパスワードが要るため nohup 起動になっている（Windows 再起動で消える）。
+上の案内どおり sudoers を投入してから本スクリプトを再実行すると systemd サービス化＋
+ログオン時 WSL 自動起動タスクの登録まで進む。
 NOTE
 fi
 if [ "$KIND" = docker ]; then

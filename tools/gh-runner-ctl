@@ -1,0 +1,81 @@
+#!/bin/bash
+# 設置済みの GitHub Actions self-hosted runner を ssh 越しに起動・停止・確認する。
+# （設置・登録は provision-gh-runner。これは「止まったので上げ直す」ための日常用）
+#
+#   gh-runner-ctl --target TARGET [status|start|stop] [--dir DIR] [--repo owner/repo]
+#
+# TARGET:  provision-gh-runner と同じ（local / ssh:HOST / wsl:HOST / docker:CONTAINER）
+# --dir    対象ディレクトリ（~ 相対。省略時は ~/actions-runner* をすべて対象）
+# --repo   指定すると最後に GitHub 側の runner 一覧（online/offline）も表示
+#
+# 各ディレクトリごとに、systemd/launchd サービスが入っていればそれを、無ければ
+# nohup ./run.sh を使う。wsl: ターゲットでは WSL の起動も兼ねる
+# （wsl --exec で distro が立ち上がり、systemd が有効なら unit も自動で上がる）。
+set -uo pipefail
+
+TARGET="" ACTION=status RDIR="" REPO=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --target) TARGET="$2"; shift 2 ;;
+    --dir) RDIR="$2"; shift 2 ;;
+    --repo) REPO="$2"; shift 2 ;;
+    status|start|stop) ACTION="$1"; shift ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$TARGET" ] || { echo "--target は必須。--help 参照" >&2; exit 2; }
+
+KIND="${TARGET%%:*}"; HOST="${TARGET#*:}"
+SSH_OPTS="-o ConnectTimeout=8 -o BatchMode=yes -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no"
+run_target() {
+  case "$KIND" in
+    local)  bash -s ;;
+    ssh)    ssh $SSH_OPTS "$HOST" "bash -s" ;;
+    wsl)    ssh $SSH_OPTS "$HOST" "wsl --exec bash -s" ;;
+    docker) docker exec -i "$HOST" bash -s ;;
+    *) echo "未知の TARGET 種別: ${KIND}" >&2; exit 2 ;;
+  esac
+}
+
+run_target <<EOF | tr -d '\r'
+cd ~ || exit 1
+if [ -n "${RDIR}" ]; then DIRS="\$HOME/${RDIR}"; else DIRS=\$(ls -d \$HOME/actions-runner* 2>/dev/null); fi
+[ -n "\$DIRS" ] || { echo "runner ディレクトリが無い（provision-gh-runner で設置する）"; exit 1; }
+for d in \$DIRS; do
+  [ -f "\$d/config.sh" ] || { echo "\$(basename \$d): not-a-runner"; continue; }
+  cd "\$d"
+  name=\$(sed -n 's/.*"agentName": *"\([^"]*\)".*/\1/p' .runner 2>/dev/null)
+  running=no; pgrep -f "\$d/bin/Runner.Listener" >/dev/null && running=yes
+  if [ -d /run/systemd/system ] && grep -lqs "\$d/" /etc/systemd/system/actions.runner.*.service; then mode=systemd
+  elif [ "\$(uname -s)" = Darwin ] && ls ~/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1; then mode=launchd
+  else mode=nohup; fi
+  case "${ACTION}" in
+    status) echo "\$(basename \$d) [\$name] mode=\$mode running=\$running" ;;
+    start)
+      if [ "\$running" = yes ]; then echo "\$(basename \$d) [\$name] already-running"; continue; fi
+      case \$mode in
+        systemd) sudo -n "\$d/svc.sh" start >/dev/null 2>&1 ;;
+        launchd) ./svc.sh start >/dev/null 2>&1 ;;
+        nohup)   nohup ./run.sh > runner.log 2>&1 & ;;
+      esac
+      sleep 3
+      pgrep -f "\$d/bin/Runner.Listener" >/dev/null && echo "\$(basename \$d) [\$name] started (\$mode)" \
+        || { echo "\$(basename \$d) [\$name] FAILED (\$mode)"; tail -3 runner.log 2>/dev/null; } ;;
+    stop)
+      case \$mode in
+        systemd) sudo -n "\$d/svc.sh" stop >/dev/null 2>&1 ;;
+        launchd) ./svc.sh stop >/dev/null 2>&1 ;;
+      esac
+      pkill -f "\$d/bin/Runner.Listener" 2>/dev/null; sleep 1
+      pgrep -f "\$d/bin/Runner.Listener" >/dev/null && echo "\$(basename \$d) [\$name] still-running" \
+        || echo "\$(basename \$d) [\$name] stopped" ;;
+  esac
+done
+EOF
+RC=$?
+if [ -n "$REPO" ]; then
+  [ "$ACTION" = status ] || sleep 5
+  gh api "repos/${REPO}/actions/runners" --jq '.runners[] | "\(.name): \(.status)"'
+fi
+exit $RC
