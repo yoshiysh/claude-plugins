@@ -224,6 +224,8 @@ Use `Published At` for the date the source information was originally published 
 
 Do not create or rely on `Created`, `Updated`, `Created at`, `Updated at`, `Ingested At`, or `Source Checked At` properties for this workflow. These are operational bookkeeping fields and the user does not need them in the knowledge index. Use `Published At` only for the source's public date when available.
 
+A Topic Index row is a page whose parent is the Topic Index data source (`collection://...`). Create rows with `notion-create-pages` using a `data_source_id` parent. A page created under a Topic page or next to the canonical page is not a row, does not appear in database queries, and must not be reported as a registration.
+
 Use `Notion Page` only for the organized Notion page itself. Store the stable canonical Notion page URL derived from the page ID after movement, not the original capture URL, not an `app.notion.com` UI URL copied from the browser, and not the external `Source URL`. Source links belong in `Source URL`.
 
 The Topic Index contains only successfully organized pages. Do not use `Action`, `Status`, or `Extraction Status` columns to represent workflow state in the DB. Pages that cannot be organized should not get a Topic Index row; move them to `Unresolved Sources` with a reason instead. Keep extraction results in the internal `extraction_status` field and the organized page body when they matter. When a page is confident enough for registration but no matching Topic/Subtopic exists, create or propose the reusable path instead of weakening the classification.

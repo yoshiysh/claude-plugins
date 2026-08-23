@@ -18,7 +18,7 @@ Notion は知識 UI と正本ページの置き場、`Topic Index` は軽い索�
 
 - **AI worker** は本文・画像・URLの解釈、要約、Domain / Topic / Subtopic、Tags、Related Topics、重複の意味的判断、Unresolved 判断を行う。各タグと分類には根拠、既存候補、代替候補、決定理由を残す。
 - **queue.py** は AI の代わりに分類しない。job の順序、lease、owner 照合、heartbeat、retry、domain backoff、イベント、終端化の構造条件だけを保証する。
-- **verifier** は applying worker と別の role で Notion を再 fetch し、DB・本文・移動先・ancestor を実測する。worker の自己申告や `audit_passed` だけで終端化してはいけない。
+- **verifier** は applying worker と別の role で Notion を再 fetch し、DB・本文・移動先・ancestor を実測する。DB は Topic Index の data source を query して行を見つけること（`db_verification`）で確認し、worker の `db_registered: true` や `audit_passed` だけで終端化してはいけない。
 
 ## 正本ページの同一性ルール（必須）
 
@@ -66,8 +66,8 @@ ready -> leased(resolve -> enrich -> classify -> apply -> verify) -> registered|
 4. `validate_run_audit.py --phase preflight` を通してから `dispatch` で worklist を作る。preflight は未処理 job がすべて `ready` で、既に verifier 済みの terminal job は保持されていることを確認する。
 5. worker は worklist の job を `claim --job-id` してから1 jobを処理する。URL-only / embed-only / 弱いタイトルの URL は必ず `$url-reader` を実行してから分類する。url-reader の JSON に `browser_fallback.required: true` がある場合、canonical URL を固定したうえで in-app Browser fallback を同じ起動内に必ず実行し、`browser_capture` を記録してから分類へ進む。未実行のまま terminal 化してはいけない。
 6. AI worker は `classification` proposal を返す。タグの値だけを返すことは禁止し、各タグの根拠と分類の比較理由を含める。
-7. `page-normalizer` はまず page identity を確定し、proposal と `source_content` を正しい canonical page にだけ適用する。`source_content` は要約ではなく、取得元の本文を元の順序で表す必須適用データである。option 不足時は既存 option を保持して追加し、同じ値で再試行する。値や本文を落として成功扱いにしない。
-8. `update-verifier` は別 role で Notion を再 fetch し、`notion_refetch.page_id` が page identity の `canonical_page_id` と一致すること、通常ページではそれが `source.page_id` と同一であることを確認する。さらに `content_verification` で source / applied / refetched digest、本文 block 数、画像数、本文・画像順序の一致を記録する。`complete` は identity、移動、本文、DB、必要な URL 行 cleanup を含む verifier record を必須とする。
+7. `page-normalizer` はまず page identity を確定し、proposal と `source_content` を正しい canonical page にだけ適用する。Topic Index への登録は `topic_index_data_source_id` を親にした行作成であり、`application.knowledge_index`（data_source_id / row_page_id / parent_type: data_source_id / notion_page_url）を記録する。Topic ページ配下に作ったページは DB 行ではない。正本のタイトルが空や placeholder なら先に設定する。`source_content` は要約ではなく、取得元の本文を元の順序で表す必須適用データである。option 不足時は既存 option を保持して追加し、同じ値で再試行する。値や本文を落として成功扱いにしない。
+8. `update-verifier` は別 role で Notion を再 fetch し、`notion_refetch.page_id` が page identity の `canonical_page_id` と一致すること、通常ページではそれが `source.page_id` と同一であることを確認する。さらに `content_verification` で source / applied / refetched digest、本文 block 数、画像数、本文・画像順序の一致を記録する。DB は `application.knowledge_index.data_source_id` を query し、行 ID と `Notion Page` が canonical を指すことを `db_verification` に記録する。`complete` は identity、移動、本文、`db_verification`、再 fetch したタイトル、必要な URL 行 cleanup を含む verifier record を必須とする。
 9. terminal event ごとに `validate_run_audit.py --phase progress` を実行し、直後に dispatcher が次の ready job を補充する。全 job が終端になったときだけ `--phase final` を実行し、バッチ完了と報告する。
 
 ## Dispatcher loop（heartbeat / runner ごとに必須）
@@ -124,4 +124,4 @@ python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
 
 ## 報告と完了条件
 
-途中報告では、progress audit を通った item だけを「ページ完了」と呼ぶ。queue に `ready` / `waiting_retry` / `leased` が残っていても、既に検証済み item の結果を否定しない。`leased` は worker id・phase・有効期限を併記し、expired lease を含む生の件数を稼働中と表現してはいけない。`バッチ完了` は final audit 成功時だけ使い、処理数、DB 登録数、Unresolved 数、deferred 数、残件、domain backoff、次に人間が見る項目を報告する。既存の terminal job に page identity が無い場合は旧結果を信頼せず、`reopen` で再検証する。
+途中報告では、progress audit を通った item だけを「ページ完了」と呼ぶ。queue に `ready` / `waiting_retry` / `leased` が残っていても、既に検証済み item の結果を否定しない。`leased` は worker id・phase・有効期限を併記し、expired lease を含む生の件数を稼働中と表現してはいけない。`バッチ完了` は final audit 成功時だけ使い、処理数、DB 登録数、Unresolved 数、deferred 数、残件、domain backoff、次に人間が見る項目を報告する。既存の terminal job に page identity、`application.knowledge_index`、`verification.db_verification` のいずれかが無い場合は旧結果を信頼せず、`reopen` で再検証する（旧契約の registered は Topic Index に行が無いまま終端化している可能性がある）。
