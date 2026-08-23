@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from content_contract import content_application_errors, content_verification_errors
+from index_contract import db_verification_errors, knowledge_index_errors, refetched_title_errors
 from page_identity import cleanup_verified, identity_errors, identity_key, job_page_mode
 
 
@@ -333,6 +334,7 @@ def validate_proposal(proposal: dict[str, Any]) -> None:
 def validate_application(job: dict[str, Any], application: dict[str, Any]) -> None:
     errors = identity_errors(job, application.get("page_identity"), "application.page_identity")
     errors.extend(content_application_errors(job, application))
+    errors.extend(knowledge_index_errors(job, application))
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -421,6 +423,8 @@ def validate_verification(job: dict[str, Any], state: str, verification: dict[st
             if verification.get(key) is not True:
                 raise ValueError(f"registered verification requires {key}=true")
         errors = content_verification_errors(job, verification.get("content_verification"))
+        errors.extend(db_verification_errors(job, verification))
+        errors.extend(refetched_title_errors(verification))
         if errors:
             raise ValueError("; ".join(errors))
     elif state == "unresolved":

@@ -99,6 +99,12 @@ class QueueTest(unittest.TestCase):
                 "existing_content_preserved": True,
                 "destructive_overwrite": False,
             },
+            "knowledge_index": {
+                "data_source_id": "collection://index-source",
+                "row_page_id": "index-row",
+                "parent_type": "data_source_id",
+                "notion_page_url": f"https://www.notion.so/{identity['canonical_page_id']}",
+            },
             "page_updated": True,
             "db_registered": True,
             "content_verified": True,
@@ -113,9 +119,20 @@ class QueueTest(unittest.TestCase):
         return {
             "verifier_id": "verifier-b",
             "verified_at": "2026-07-11T03:00:00Z",
-            "notion_refetch": {"page_id": identity["canonical_page_id"], "fetched_at": "2026-07-11T03:00:00Z", "destination_parent_id": "topic"},
+            "notion_refetch": {
+                "page_id": identity["canonical_page_id"], "fetched_at": "2026-07-11T03:00:00Z",
+                "destination_parent_id": "topic", "title": "Organized page title",
+            },
             "page_identity": identity,
             "db_registered": True,
+            "db_verification": {
+                "method": "notion-query-data-sources sql",
+                "queried_at": "2026-07-11T03:00:00Z",
+                "data_source_id": "collection://index-source",
+                "row_page_id": "index-row",
+                "notion_page_property": f"https://www.notion.so/{identity['canonical_page_id']}",
+                "notion_page_matches_canonical": True,
+            },
             "content_verified": True,
             "move_attempted": True,
             "move_verified": True,
@@ -334,6 +351,73 @@ class QueueTest(unittest.TestCase):
             "--worker-id", "worker-b", "--reason", "test", ok=False,
         )
         self.assertIn("terminal", result["error"])
+
+    def prepare_apply(self) -> tuple[tuple[str, ...], dict]:
+        self.create(max_workers=1)
+        self.enqueue("page", "https://example.com/page")
+        self.invoke(QUEUE, "claim", "--workspace", str(self.workspace), "--run-id", "run", "--worker-id", "worker-a")
+        common = ("--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page", "--worker-id", "worker-a")
+        self.invoke(QUEUE, "advance", *common, "--phase", "enrich")
+        proposal = '{"classification":{"domain":"AI","topic":"Agents","evidence":["text"],"tags":[],"alternatives":[],"decision_reason":"text"}}'
+        self.invoke(QUEUE, "advance", *common, "--phase", "classify", "--proposal-json", proposal)
+        application = self.registered_application({
+                "mode": "existing_page", "source_page_id": "page", "canonical_page_id": "page",
+                "canonical_page_created": False, "source_queue_page_id": None,
+            })
+        return common, application
+
+    def test_index_row_must_be_created_under_the_data_source(self) -> None:
+        common, application = self.prepare_apply()
+        del application["knowledge_index"]
+        result = self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application), ok=False)
+        self.assertIn("knowledge_index is required", result["error"])
+
+        application = self.registered_application(application["page_identity"])
+        application["knowledge_index"]["parent_type"] = "page_id"
+        result = self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application), ok=False)
+        self.assertIn("not an index row", result["error"])
+
+        application["knowledge_index"]["parent_type"] = "data_source_id"
+        application["knowledge_index"]["notion_page_url"] = "https://www.notion.so/someone-else"
+        result = self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application), ok=False)
+        self.assertIn("notion_page_url must point at canonical_page_id", result["error"])
+
+    def test_registration_requires_a_verifier_query_of_the_index_row(self) -> None:
+        common, application = self.prepare_apply()
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        complete = (QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered")
+
+        verification = self.registered_verification(application)
+        del verification["db_verification"]
+        result = self.invoke(*complete, "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("db_verification is required", result["error"])
+
+        verification = self.registered_verification(application)
+        verification["db_verification"]["row_page_id"] = "another-row"
+        result = self.invoke(*complete, "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("row_page_id must equal the row the worker created", result["error"])
+
+        verification = self.registered_verification(application)
+        verification["db_verification"]["notion_page_property"] = "https://www.notion.so/other-page"
+        verification["db_verification"]["notion_page_matches_canonical"] = False
+        result = self.invoke(*complete, "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("notion_page_property", result["error"])
+
+        self.invoke(*complete, "--verification-json", json.dumps(self.registered_verification(application)))
+        self.invoke(AUDIT, "--workspace", str(self.workspace), "--run-id", "run", "--phase", "final")
+
+    def test_registration_rejects_a_placeholder_page_title(self) -> None:
+        common, application = self.prepare_apply()
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        verification = self.registered_verification(application)
+        verification["notion_refetch"]["title"] = "新規ページ"
+        result = self.invoke(
+            QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered",
+            "--verification-json", json.dumps(verification), ok=False,
+        )
+        self.assertIn("placeholder", result["error"])
 
     def test_url_item_requires_verified_source_cleanup(self) -> None:
         self.create(max_workers=1)

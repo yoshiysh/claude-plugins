@@ -414,6 +414,12 @@ Queue の `--application-json` に渡す record は1 job分の次の形を使う
     "existing_content_preserved": true,
     "destructive_overwrite": false
   },
+  "knowledge_index": {
+    "data_source_id": "collection://<topic-index-data-source-id>",
+    "row_page_id": "notion-page-id of the row created under that data source",
+    "parent_type": "data_source_id",
+    "notion_page_url": "https://www.notion.so/<canonical-page-id>"
+  },
   "page_updated": true,
   "db_registered": true,
   "content_verified": true,
@@ -422,6 +428,8 @@ Queue の `--application-json` に渡す record は1 job分の次の形を使う
   "source_queue_cleanup": null
 }
 ```
+
+`knowledge_index` は registration の必須 record である。`data_source_id` は index-maintainer が返した `topic_index_data_source_id`、`row_page_id` は `notion-create-pages` を `parent: {type: data_source_id}` で呼んで作った行の page ID、`notion_page_url` はその行の `Notion Page` に入れた canonical page URL を指す。`parent_type` が `data_source_id` 以外（Topic ページ配下に作った通常ページ等）の record は apply へ進めない。`db_registered` は boolean の自己申告であり、根拠は `knowledge_index` と verifier の `db_verification` が持つ。
 
 URL-only item では `mode: url_item`、`source_page_id: null`、作成した `canonical_page_id`、`canonical_page_created: true` を使い、`source_queue_cleanup` に URL 行の削除と削除後 fetch の根拠を記録する。
 
@@ -452,7 +460,8 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
       "notion_refetch": {
         "page_id": "string",
         "fetched_at": "ISO-8601",
-        "destination_parent_id": "string"
+        "destination_parent_id": "string",
+        "title": "refetched canonical page title (placeholders such as 新規ページ / Untitled are rejected)"
       },
       "page_identity": {
         "mode": "existing_page|url_item",
@@ -462,6 +471,14 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
         "source_queue_page_id": "string|null"
       },
       "db_registered": true,
+      "db_verification": {
+        "method": "notion-query-data-sources sql",
+        "queried_at": "ISO-8601",
+        "data_source_id": "collection://<topic-index-data-source-id>",
+        "row_page_id": "notion-page-id returned by the query",
+        "notion_page_property": "queried 'Notion Page' value",
+        "notion_page_matches_canonical": true
+      },
       "content_verified": true,
       "images_inline_verified": "true|false|not_applicable",
       "temporary_image_url_found": false,
@@ -529,4 +546,4 @@ Use `[SKILL_DIR]/scripts/queue.py` to create and mutate the only run ledger. `[S
 }
 ```
 
-`proposal.classification` must contain `domain`, `topic`, `decision_reason`, evidence, alternatives, and evidence-backed tags. An apply record and terminal `verification` must contain the same `page_identity`. A terminal verification must contain a distinct `verifier_id`, `verified_at`, and Notion refetch evidence (`page_id`, `fetched_at`, `destination_parent_id`). For `existing_page`, the refetched page ID must equal the input `source.page_id`; for `url_item`, the URL row cleanup must be verified absent. `registered` additionally requires DB/content/move verification; `unresolved` requires a reason and move verification.
+`proposal.classification` must contain `domain`, `topic`, `decision_reason`, evidence, alternatives, and evidence-backed tags. An apply record and terminal `verification` must contain the same `page_identity`. A terminal verification must contain a distinct `verifier_id`, `verified_at`, and Notion refetch evidence (`page_id`, `fetched_at`, `destination_parent_id`). For `existing_page`, the refetched page ID must equal the input `source.page_id`; for `url_item`, the URL row cleanup must be verified absent. `registered` additionally requires DB/content/move verification; `unresolved` requires a reason and move verification. DB verification is a query, not a flag: `db_verification.data_source_id` and `row_page_id` must equal `application.knowledge_index`, and `notion_page_property` must point at the canonical page. `notion_refetch.title` must be the refetched title and must not be a placeholder.

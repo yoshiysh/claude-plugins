@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from content_contract import content_application_errors, content_verification_errors
+from index_contract import db_verification_errors, knowledge_index_errors, refetched_title_errors
 from page_identity import cleanup_verified, identity_errors, identity_key, job_page_mode
 
 
@@ -47,6 +48,8 @@ def required_verification(job: dict[str, Any], errors: list[str]) -> None:
             if verification.get(key) is not True:
                 errors.append(f"{prefix}: registered job lacks {key}=true")
         errors.extend(content_verification_errors(job, verification.get("content_verification"), f"{prefix}: verification.content_verification"))
+        errors.extend(db_verification_errors(job, verification, f"{prefix}: verification.db_verification"))
+        errors.extend(refetched_title_errors(verification, f"{prefix}: verification.notion_refetch"))
     elif job["state"] == "unresolved":
         if not verification.get("unresolved_reason"):
             errors.append(f"{prefix}: unresolved job lacks unresolved_reason")
@@ -84,6 +87,7 @@ def validate_application(job: dict[str, Any], errors: list[str]) -> None:
         return
     errors.extend(identity_errors(job, application.get("page_identity"), "application.page_identity"))
     errors.extend(content_application_errors(job, application, f"{job['job_id']}: application"))
+    errors.extend(knowledge_index_errors(job, application, f"{job['job_id']}: application.knowledge_index"))
 
 
 def main() -> int:
