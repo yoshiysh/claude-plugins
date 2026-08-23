@@ -118,6 +118,9 @@ class Report:
   primary_branches: list[str] = field(default_factory=list)
   main_synced: bool = False
   sync_base: str = ""
+  # detached HEAD では空文字。Step 5 の分岐はこの 2 つだけで決まる。
+  current_branch: str = ""
+  current_branch_open_pr: bool = False
   local_auto: list[BranchInfo] = field(default_factory=list)
   local_decide: list[BranchInfo] = field(default_factory=list)
   local_keep: list[BranchInfo] = field(default_factory=list)
@@ -142,6 +145,8 @@ class Report:
         "primary_branches": self.primary_branches,
         "main_synced": self.main_synced,
         "sync_base": self.sync_base,
+        "current_branch": self.current_branch,
+        "current_branch_open_pr": self.current_branch_open_pr,
         "local": {
           "auto_delete": branches(self.local_auto),
           "needs_decision": branches(self.local_decide),
@@ -524,6 +529,15 @@ def build_report(roots: list[Path]) -> Report:
   report.main_synced = fetch_and_sync_base(base)
   merged_sets = compute_merged_sets(primaries)
   merged_prs, open_prs = pr_states_per_primary(primaries)
+  # Step 5 の「reset してよいか」を agent の目分量ではなくレポートの値で決めるために残す。
+  # hold_reason() は current を open_prs より先に判定するため、local.keep の reason には
+  # 現在のブランチが open PR に乗っているかどうかが出てこない。ここで別に控える
+  # （分類ロジックには触れない ＝ 既存の挙動は変えない）。detached HEAD では空文字になり、
+  # その場合 current_branch_open_pr は必ず False。
+  report.current_branch = run(["git", "branch", "--show-current"], check=False)
+  report.current_branch_open_pr = (
+    report.current_branch != "" and report.current_branch in open_prs
+  )
   classify_local(report, primaries, cherry_primaries, merged_sets, merged_prs, open_prs)
   classify_remote(report, primaries, cherry_primaries, merged_sets, merged_prs, open_prs)
   collect_working_state(report)
