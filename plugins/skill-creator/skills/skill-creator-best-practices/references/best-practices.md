@@ -29,7 +29,8 @@
 - Workflow ツールの contract（セッション内のツール定義。公開 URL は無い。§13 の script 作法はここが一次情報）
 - [Six Agent Harness Capabilities for Higher Model Performance（NVIDIA Technical Blog）](https://developer.nvidia.com/blog/six-agent-harness-capabilities-for-higher-model-performance/) / [技術レポート arXiv:2607.20709](https://arxiv.org/abs/2607.20709)
 - [How enabling two settings tripled our scores on the ARC-AGI-3 benchmark（OpenAI）](https://openai.com/index/how-two-settings-tripled-our-arc-agi-3-scores/)
-- [Long-Horizon Agent の設計原理（岡野原大輔・X スレッド）](https://x.com/hillbig/status/2091320304329269722) — PARC / Argus / InfiAgent / File-as-Bus の整理
+- [NVIDIA AVO reaches 100% on ARC-AGI-3（NVIDIA Technical Blog）](https://developer.nvidia.com/blog/nvidia-avo-reaches-100-on-arc-agi-3-demonstrating-a-frontier-level-general-purpose-architecture-for-long-horizon-autonomous-agents/) / [AVO: Agentic Variation Operators arXiv:2603.24517](https://arxiv.org/abs/2603.24517)
+- [Long-Horizon Agent の設計原理（岡野原大輔・X スレッド）](https://x.com/hillbig/status/2091320304329269722) — 二次整理。PARC / Argus / InfiAgent / File-as-Bus への索引
 
 ---
 
@@ -382,11 +383,10 @@ feedback.json で構造化フィードバック収集
 - [ ] 実際のユースケースでテストした
 
 ### ハーネス（状態を持つ・長時間走る・agent を跨ぐスキルの場合）
-- [ ] 現在の状態が会話履歴ではなく state ファイル／script 変数にあり、再開はそこから始まる（§14 ①）
-- [ ] subagent の戻り値と script 出力が「判断に要る要約 + 根拠のパス」で、全文ログを親 context に流していない（§14 ②）
-- [ ] Phase 間の引き継ぎ（capsule）に決定・制約・未解決・却下案が残り、「古い方から捨てる」になっていない（§14 ④）
-- [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、却下した経路と実行した事実も state に残している（§14 ⑤）
-- [ ] with_skill / baseline の比較でハーネス（context 方針・ツール・設定）を固定している（§14 評価）
+基準の正本は `criteria-by-task.md`「ハーネス」節。ここでは構造で保証すべき 3 点だけ挙げる。
+- [ ] 現在の状態が会話履歴ではなく state ファイル／script 変数にあり、再開はそこから始まる。session を切るのは Phase 境界で、再試行では切らない（§14 ①④）
+- [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、verified にはスコープを付け、却下した経路と実行した事実も state に残している（§14 ⑤）
+- [ ] supervisor の介入は redirect のみで、仮説を供給しない（§14 較正 3）
 
 ### Claude 5 世代対応（対象モデルが Opus 5 / Fable 5 の場合）
 - [ ] 明示的な検証指示（「最後に検証せよ」「ダブルチェックせよ」）を削除した（§11）
@@ -665,7 +665,9 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 
 一次情報: [Six Agent Harness Capabilities（NVIDIA Technical Blog）](https://developer.nvidia.com/blog/six-agent-harness-capabilities-for-higher-model-performance/)（[arXiv:2607.20709](https://arxiv.org/abs/2607.20709)）、
 [How enabling two settings tripled our scores on ARC-AGI-3（OpenAI）](https://openai.com/index/how-two-settings-tripled-our-arc-agi-3-scores/)、
-[Long-Horizon Agent の設計原理（岡野原大輔）](https://x.com/hillbig/status/2091320304329269722)（PARC [arXiv:2512.03549](https://arxiv.org/abs/2512.03549) / Argus / InfiAgent / File-as-Bus）。いずれも 2026-08-23 取得。
+[NVIDIA AVO reaches 100% on ARC-AGI-3（NVIDIA Technical Blog）](https://developer.nvidia.com/blog/nvidia-avo-reaches-100-on-arc-agi-3-demonstrating-a-frontier-level-general-purpose-architecture-for-long-horizon-autonomous-agents/)（[arXiv:2603.24517](https://arxiv.org/abs/2603.24517)）。
+整理の出典（二次）: [Long-Horizon Agent の設計原理（岡野原大輔・X）](https://x.com/hillbig/status/2091320304329269722) — PARC [arXiv:2512.03549](https://arxiv.org/abs/2512.03549) / Argus / InfiAgent / File-as-Bus への索引として参照する。
+いずれも 2026-08-23〜24 取得。数字は一次ソースと照合済み。
 
 **ハーネス**とは、モデルを取り囲んでタスクを遂行させる周辺設計の全体（context に何を入れるか、
 ツール結果をどう返すか、状態をどこに持つか、ループを誰が回すか、完了を誰が判定するか）。
@@ -677,7 +679,12 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 |---|---|
 | OpenAI: ARC-AGI-3 公式ハーネス → reasoning 保持 + compaction | GPT-5.6 Sol 13.3% → 38.3%、出力トークン 1/6 |
 | NVIDIA NOOA: SWE-bench Verified、同じ GPT-5.5 | 82.2%（29 呼び出し・110 万 token）vs 比較ハーネス 78.2%（66 呼び出し・220 万 token）。context compaction 不要 |
-| NVIDIA AVO: Claude Opus 5 on ARC-AGI-3 | 公式ハーネス約 30% → AVO で 183 レベル全問正解（NVIDIA 自身が「統制された比較ではない」と留保） |
+| 本書の較正実験: ARC-AGI-3 `ls20`、同じモデル・同じ action 予算 300 | ハーネス設計 v1 → v3 で 2 → 3 レベル、L1 通過時の action 187 → 68（下記「較正」） |
+
+NVIDIA AVO（Claude Opus 5 で ARC-AGI-3 public set 183 レベル全問）はこの表に入れない。NVIDIA 自身が
+「統制された ablation ではない（agent backend・観測表現・memory・context 管理が全て異なる）」と明記し、
+論文も memory・supervisor・lineage の個別寄与を測っていないため、「ハーネスで同じモデルが何倍になったか」
+の数字として使えない。AVO から持ち込めるのは構造（⑤ の例）だけ。
 
 §5（決定的処理の分離）・§11（fresh-context verifier・メモリ）・§13（orchestration の決定化）は
 ハーネスの「誰が回すか」側を扱っている。本節はその先、**モデルに何を見せ、状態をどこに置くか**を
@@ -688,12 +695,15 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 
 | # | 原理（出典） | スキルでの形 | 既に持っている場所（本書の節、または参照実装 `magi`（別リポジトリ `stock-valuation-dcf`）） |
 |---|---|---|---|
-| ① | **状態は履歴ではなくオブジェクトに**（NOOA explicit object state / InfiAgent「history ではなく state」/ File-as-Bus「thin control over thick state」） | 現在の状態（phase・決定・制約・未解決・成果物パス）を state ファイルか script 変数に持つ。agent に渡すのは「現在の状態 + 直近の固定幅」であって transcript ではない。再開は state から。InfiAgent はこれで長時間タスクでも context 量をほぼ一定に保つ | §13 の script 変数。MAGI の `state.json` + Phase Capsule |
+| ① | **状態は履歴ではなくオブジェクトに**（NOOA explicit object state / InfiAgent「history ではなく state」/ File-as-Bus「thin control over thick state」） | 現在の状態（phase・決定・制約・未解決・成果物パス）を state ファイルか script 変数に持つ。agent に渡すのは「現在の状態 + 直近の固定幅」であって transcript ではない。再開は state から。**切るのはタスク/レベル境界であって試行単位ではない**（④ との粒度の違い。較正 1） | §13 の script 変数。MAGI の `state.json` + Phase Capsule |
 | ② | **参照渡し — ツール結果を context に往復させない**（NOOA pass by reference） | subagent は全文をファイルに書き、親へは要約 + findings + パスだけ返す。script は判定に要る結果だけを出力する（案内文・進捗ナレーションを混ぜない）。NOOA は transcript が追記専用になり prefill cache が効き続けることでトークンを半減させた | §13「中間結果の置き場 = script 変数」。token-budget の「親へ戻す出力を選別」 |
-| ③ | **code as action — 複数操作は 1 本のコードで**（NOOA） | ツールを 1 回ずつ往復させるより、読む・変換する・集計するを 1 script にまとめて agent に実行させる。往復ごとに context を消費しないし、途中状態が変数に残る | §5 |
-| ④ | **reasoning を捨てない。compaction は truncation ではない**（OpenAI） | ステップ間で「なぜそう決めたか」を落とすと、agent は毎ターン問題を一から解釈し直す（公式ハーネスの 13.3% の主因）。capsule には決定・制約・根拠・未解決・却下案を残し、要約のために削らない。古い方から捨てる rolling truncation は初期の観察を失い、満杯付近で動く時間を長くする | token-budget の NG リスト（Hard Constraints / concerns / Sources は削らない） |
-| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。試して却下した案、実行した事実も state に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する | §11 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
-| ⑥ | **ハーネス API はモデルから呼べる。メモリは agent 自身がキュレーションする**（NOOA model-callable harness APIs / memory） | 状態の読み出し・再開・メモリの書き込みと修正を、バックグラウンドの自動要約ではなく agent が明示的に呼ぶ scripts / tools にする。メモリ record には型と関係（supports / contradicts / derived-from）を持たせ、フラットなログにしない。NOOA はこれでファイルメモ比 +11.8 pt | §11「1 教訓 1 ファイル + 既存更新・重複禁止・誤り削除」 |
+| ④ | **reasoning を捨てない。compaction は truncation ではない**（OpenAI） | ステップ間で「なぜそう決めたか」を落とすと、agent は毎ターン問題を一から解釈し直す（公式ハーネスの 13.3% の主因）。同じタスクの再試行で agent を作り直すと同じことが起きる（較正 1）。capsule には決定・制約・根拠・未解決・却下案を残し、要約のために削らない。古い方から捨てる rolling truncation は初期の観察を失い、満杯付近で動く時間を長くする | token-budget の NG リスト（Hard Constraints / concerns / Sources は削らない） |
+| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route。AVO は正しさ検査を通りスコアを維持/改善した候補だけを git commit し、失敗は 0 点で lineage に残す） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。**verified にはスコープ（どの条件下で観測したか）を必ず付ける** — 無スコープの verified は後段で反証されても捨てられず探索を抑圧する（較正 2）。試して却下した案、実行した事実も state に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する。rule に抽象化したとき落ちる情報は生の手順側に残す（較正 4） | §11 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
+
+NOOA の残り 2 つは本書で既出: code as action（複数操作を 1 本のコードに）は §5、
+model-callable harness API / agent 自身が curation するメモリは §11「1 教訓 1 ファイル + 既存更新・
+重複禁止・誤り削除」。NOOA の memory +11.8 pt は NOOA 固有の memory subsystem の数字で、
+スキルのメモリファイルに転用できる保証はないため根拠には使わない。
 
 ### 制約を足した根拠（§12「制約は失敗から育てる」）
 
@@ -705,22 +715,53 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
   Coordinator が履歴から「どこから再開するか」を復元できなかった
 - ④ は OpenAI が公式ハーネスの低スコアを調べて見つけた 2 要因（reasoning 破棄・rolling
   truncation）がそのまま根拠
+- ⑤ のスコープ要件・supervisor の制限・探索義務は下記の較正実験が根拠
+
+### 較正: 公開された制約から再構成したハーネスを自分で測る（2026-08-24）
+
+AVO の ARC-AGI-3 設計は公開情報が原理レベルまでしかない（テキストグリッド観測・persistent memory・
+停滞を検知する supervisor・lineage）。そこで公開された制約（6,624 action / 183 レベル ≒ 36 action
+/レベル、64×64 観測 × 数千手は 1 window に入らない）から設計を逆算し、`arc-agi` toolkit のローカル
+環境（`ls20`、7 レベル、4 action）で、同じモデル・同じ action 予算 300 でハーネスだけを変えて測った。
+各 1 run（n=1）なので優劣の結論には使わず、**失敗機序の特定**に使う。
+
+| run | ハーネス | レベル | action | 失敗機序 |
+|---|---|---|---|---|
+| v1 | レベルごと + **試行ごと**に fresh agent、memory を verifier gate で commit、supervisor が仮説を供給 | 2 | 300 | 再試行のたびに盤面理解を再導出 |
+| v2 | レベルごとに fresh agent、**試行は同一 agent を継続**（supervisor は SendMessage で介入）、memory 同上 | 2 | 287 | L0–1 で verified にした「panel 一致 + ゴール進入 = クリア」が L2 で anchor になり、唯一未踏の前提タイルを 147 action 踏まなかった。supervisor の仮説（bar コスト）も誤誘導 |
+| v3 | v2 + **rule にスコープ明記** + **未踏の特殊要素は結論前に必ず踏む** + **supervisor は redirect のみ（仮説を出さない）** | 3 | 269 | L2 を最初の試行で前提タイル発見。L1 通過時 action は v1 187 → v2 142 → v3 68 |
+| baseline | 1 session・memory なし | 3 | 279 | prior が無いので素直に探索 |
+
+ここから本節に入れた修正:
+
+1. **①（状態の外部化）と ④（reasoning 保持）は粒度が違う。** session を切るのはタスク/レベル境界。
+   試行単位で切ると ④ を壊して性能が落ちる（v1）
+2. **verified commit にはスコープが要る。** 「L0–1 で観測」を普遍則として渡すと、次段で反証されても
+   捨てられず探索を抑圧する（v2）。verified は「何を・どの条件で」の組で持つ
+3. **supervisor は redirect のみ。** 停滞検知と未探索領域の指摘に限り、仮説を供給しない。供給した仮説は
+   v1・v2 とも誤誘導になった。NVIDIA の記述も「別の方向へ steer する」であって答えを出すことではない
+4. **探索義務は memory の prior より優先する。** 未踏の特殊要素を 1 回は踏んでから結論する（v3）。
+   rule 抽象化で落ちた情報（L0 の「key を取る」手順）は生の手順側に残っていた — ⑤「実行した事実も
+   状態に残す」の意味はこれ
+5. **環境の非決定性を測る。** action ログを再生すると L2 以降で分岐した（launch pad の発火が試行ごとに
+   異なる）。比較は seed 固定か複数試行でしか成立しない
 
 ### 評価はハーネスも測る
 
 - with_skill / baseline の delta は「指示の差」のつもりでも、context 方針・ツール・API 設定が
-  違えばその差を測ってしまう。比較では**ハーネスを固定**し、指示だけを変える
+  違えばその差を測ってしまう。比較では**ハーネスを固定**し、指示だけを変える。環境に非決定性が
+  あるなら seed 固定か複数試行（較正 5）
 - 低スコアに出会ったら、モデルを疑う前にハーネス設定を疑う（OpenAI の教訓はこれ自体）。
   公開ベンチマークは意図的に素朴なハーネスを使う（欠点を見えやすくするため）ので、そのスコアは
   商用ハーネス下の性能を表さない
 - ハーネスを整えても長時間委任の劣化は消えない（DELEGATE-52: フロンティアモデルでも長時間
   ワークフローで文書内容の平均 25% が破損）。長く走らせる設計ではなく、§11 の「小さい agent
-  への fan-out」と ⑤ の verified commit で区切る
+  への fan-out」で区切る。⑤ は区切りの手段ではなく、区切った先で永続化を受理する条件
 
 ### 持ち込まないもの
 
-- NOOA の「agent = Python クラス」という形そのもの。スキルが扱うのはインターフェースの原理で、
-  フレームワークの置き換えではない
-- 「常に参照渡しせよ」「transcript を渡すな」のような一律ルール。全文中の広範な相互依存を検証する
-  必要がある場面では全文を渡すのが正しい（token-budget の例外と同じ）。§12 の right altitude で較正する
-
+- NOOA の「agent = Python クラス」、AVO の「進化探索の variation operator」という形そのもの。
+  スキルが扱うのはインターフェースの原理で、フレームワークの置き換えではない
+- 「常に参照渡しせよ」「transcript を渡すな」「常に fresh session」のような一律ルール。全文中の広範な
+  相互依存を検証する必要がある場面では全文を渡すのが正しい（token-budget の例外と同じ）し、
+  同一タスク内の再試行では session を保つのが正しい（較正 1）。§12 の right altitude で較正する

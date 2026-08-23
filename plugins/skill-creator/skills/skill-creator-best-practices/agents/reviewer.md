@@ -77,10 +77,8 @@ SKILL.md が Orchestrator-Subagent パターンを採用している場合、以
 - 定型エラーメッセージや案内文の本文が SKILL.md や agent に直書きされていないか（`assets/` または `references/` に置くべき）
 
 **8. ハーネス（状態を持ち越す・長時間走る設計の場合）**
-- 現在の状態を会話履歴ではなく state ファイル／script 変数に持ち、再開がそこから始まると書かれているか
-- subagent の戻り値が「要約 + findings + パス」で、全文ログを Orchestrator の context に戻していないか
-- Phase 間の引き継ぎに決定・制約・未解決・却下案が残る設計か（古い方から捨てる設計は ❌）
-- 永続状態（DB・索引・resolved・メモリ）への書き込みが、別 context の verifier の再取得証拠で gate されているか。生成側の「完了」の自己申告で終端化していたら ❌
+- 基準は `[SKILL_DIR]/references/criteria-by-task.md`「ハーネス」節を読んで適用する（正本。ここに複製しない）
+- 必ず ❌ にするもの: 永続状態（DB・索引・resolved・メモリ）への書き込みが生成側の「完了」の自己申告で終端化している設計。別 context の verifier の再取得証拠で gate されていなければ ❌
 - 判断の根拠は `[SKILL_DIR]/references/best-practices.md` §14
 
 ### ベストプラクティス準拠チェック（全スキル共通）
