@@ -14,6 +14,7 @@
 11. [Claude 5 世代（Opus 5 / Fable 5）でのスキル設計](#11-claude-5-世代opus-5--fable-5-でのスキル設計)
 12. [制約の較正 — right altitude と代理指標の排除](#12-制約の較正--right-altitude-と代理指標の排除)
 13. [オーケストレーション層の決定化 — Workflow 実行型](#13-オーケストレーション層の決定化--workflow-実行型)
+14. [ハーネス設計 — モデルに面したインターフェースと状態](#14-ハーネス設計--モデルに面したインターフェースと状態)
 
 スキル本体の更新・新規スキル設計時の指標となる参照ドキュメント。
 以下のソースを統合している（§11 は 2026-07-29 取得の一次情報に基づく）：
@@ -26,6 +27,9 @@
 - [Orchestrate subagents at scale with dynamic workflows（公式・一次情報）](https://code.claude.com/docs/en/workflows)
 - [Introducing dynamic workflows in Claude Code（公式ブログ）](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)
 - Workflow ツールの contract（セッション内のツール定義。公開 URL は無い。§13 の script 作法はここが一次情報）
+- [Six Agent Harness Capabilities for Higher Model Performance（NVIDIA Technical Blog）](https://developer.nvidia.com/blog/six-agent-harness-capabilities-for-higher-model-performance/) / [技術レポート arXiv:2607.20709](https://arxiv.org/abs/2607.20709)
+- [How enabling two settings tripled our scores on the ARC-AGI-3 benchmark（OpenAI）](https://openai.com/index/how-two-settings-tripled-our-arc-agi-3-scores/)
+- [Long-Horizon Agent の設計原理（岡野原大輔・X スレッド）](https://x.com/hillbig/status/2091320304329269722) — PARC / Argus / InfiAgent / File-as-Bus の整理
 
 ---
 
@@ -377,6 +381,13 @@ feedback.json で構造化フィードバック収集
 - [ ] Sonnet と Opus でテストした
 - [ ] 実際のユースケースでテストした
 
+### ハーネス（状態を持つ・長時間走る・agent を跨ぐスキルの場合）
+- [ ] 現在の状態が会話履歴ではなく state ファイル／script 変数にあり、再開はそこから始まる（§14 ①）
+- [ ] subagent の戻り値と script 出力が「判断に要る要約 + 根拠のパス」で、全文ログを親 context に流していない（§14 ②）
+- [ ] Phase 間の引き継ぎ（capsule）に決定・制約・未解決・却下案が残り、「古い方から捨てる」になっていない（§14 ④）
+- [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、却下した経路と実行した事実も state に残している（§14 ⑤）
+- [ ] with_skill / baseline の比較でハーネス（context 方針・ツール・設定）を固定している（§14 評価）
+
 ### Claude 5 世代対応（対象モデルが Opus 5 / Fable 5 の場合）
 - [ ] 明示的な検証指示（「最後に検証せよ」「ダブルチェックせよ」）を削除した（§11）
 - [ ] 手順の hardcode・網羅的な書式ルール・防衛的な繰り返しを削った（§11）
@@ -633,6 +644,7 @@ workflow の価値は「agent を増やせる」ことではなく、**品質パ
 | **Multi-modal sweep** | 探し方の違う agent を並べる（コンテナ別・内容別・エンティティ別・時系列別） | 1 つの探索軸では全部見つからないとき |
 | **Completeness critic** | 最後に「何が欠けているか（未実行の modality・未検証の主張・未読の source）」だけを問う agent を置く | その出力が次ラウンドの作業になる |
 | **No silent caps** | top-N・リトライ無し・サンプリングで範囲を絞ったら `log()` に落とす | 黙った打ち切りは「全部見た」と読まれる |
+| **Verified commit** | 永続状態（DB・索引・`resolved` フラグ・メモリ）への書き込みは、生成側と別 context の verifier が再取得した証拠を record に持つときだけ script が受理する | 「登録した」「解決した」が自己申告で通ると、後段はそれを前提に動く。§14 |
 
 blog が挙げる収束形は「独立した角度から取り組む agent 群 → 別の agent がそれを反証しにかかる → 答えが収束するまで反復」。上表の adversarial verify と loop-until-dry の組み合わせにあたる。
 
@@ -646,3 +658,69 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 - **モデルは既定でセッションのモデル**。安く済むステージだけ明示的に落とす。`effort` も同様（機械的なステージは `low`、最も難しい verify / judge だけ上げる）
 
 規模はタスクに合わせる。「バグを探して」なら finder 数体＋単票 verify、「徹底的に監査して」なら finder を増やし 3〜5 票の adversarial pass と統合ステージを置く。
+
+---
+
+## 14. ハーネス設計 — モデルに面したインターフェースと状態
+
+一次情報: [Six Agent Harness Capabilities（NVIDIA Technical Blog）](https://developer.nvidia.com/blog/six-agent-harness-capabilities-for-higher-model-performance/)（[arXiv:2607.20709](https://arxiv.org/abs/2607.20709)）、
+[How enabling two settings tripled our scores on ARC-AGI-3（OpenAI）](https://openai.com/index/how-two-settings-tripled-our-arc-agi-3-scores/)、
+[Long-Horizon Agent の設計原理（岡野原大輔）](https://x.com/hillbig/status/2091320304329269722)（PARC [arXiv:2512.03549](https://arxiv.org/abs/2512.03549) / Argus / InfiAgent / File-as-Bus）。いずれも 2026-08-23 取得。
+
+**ハーネス**とは、モデルを取り囲んでタスクを遂行させる周辺設計の全体（context に何を入れるか、
+ツール結果をどう返すか、状態をどこに持つか、ループを誰が回すか、完了を誰が判定するか）。
+スキルは SKILL.md・agents・scripts・schemas の形でこのハーネスを定義している。
+
+同じモデルでもハーネスで結果が桁で変わることが、実測で示されている:
+
+| 実測 | 数字 |
+|---|---|
+| OpenAI: ARC-AGI-3 公式ハーネス → reasoning 保持 + compaction | GPT-5.6 Sol 13.3% → 38.3%、出力トークン 1/6 |
+| NVIDIA NOOA: SWE-bench Verified、同じ GPT-5.5 | 82.2%（29 呼び出し・110 万 token）vs 比較ハーネス 78.2%（66 呼び出し・220 万 token）。context compaction 不要 |
+| NVIDIA AVO: Claude Opus 5 on ARC-AGI-3 | 公式ハーネス約 30% → AVO で 183 レベル全問正解（NVIDIA 自身が「統制された比較ではない」と留保） |
+
+§5（決定的処理の分離）・§11（fresh-context verifier・メモリ）・§13（orchestration の決定化）は
+ハーネスの「誰が回すか」側を扱っている。本節はその先、**モデルに何を見せ、状態をどこに置くか**を
+扱う。NOOA は Python クラスという形でこれを実現しているが、スキルに持ち込むのは形ではなく原理
+（Claude Code のスキルは Python クラスではない）。
+
+### 原理とスキルへの写像
+
+| # | 原理（出典） | スキルでの形 | 既に持っている場所（本書の節、または参照実装 `magi`（別リポジトリ `stock-valuation-dcf`）） |
+|---|---|---|---|
+| ① | **状態は履歴ではなくオブジェクトに**（NOOA explicit object state / InfiAgent「history ではなく state」/ File-as-Bus「thin control over thick state」） | 現在の状態（phase・決定・制約・未解決・成果物パス）を state ファイルか script 変数に持つ。agent に渡すのは「現在の状態 + 直近の固定幅」であって transcript ではない。再開は state から。InfiAgent はこれで長時間タスクでも context 量をほぼ一定に保つ | §13 の script 変数。MAGI の `state.json` + Phase Capsule |
+| ② | **参照渡し — ツール結果を context に往復させない**（NOOA pass by reference） | subagent は全文をファイルに書き、親へは要約 + findings + パスだけ返す。script は判定に要る結果だけを出力する（案内文・進捗ナレーションを混ぜない）。NOOA は transcript が追記専用になり prefill cache が効き続けることでトークンを半減させた | §13「中間結果の置き場 = script 変数」。token-budget の「親へ戻す出力を選別」 |
+| ③ | **code as action — 複数操作は 1 本のコードで**（NOOA） | ツールを 1 回ずつ往復させるより、読む・変換する・集計するを 1 script にまとめて agent に実行させる。往復ごとに context を消費しないし、途中状態が変数に残る | §5 |
+| ④ | **reasoning を捨てない。compaction は truncation ではない**（OpenAI） | ステップ間で「なぜそう決めたか」を落とすと、agent は毎ターン問題を一から解釈し直す（公式ハーネスの 13.3% の主因）。capsule には決定・制約・根拠・未解決・却下案を残し、要約のために削らない。古い方から捨てる rolling truncation は初期の観察を失い、満杯付近で動く時間を長くする | token-budget の NG リスト（Hard Constraints / concerns / Sources は削らない） |
+| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。試して却下した案、実行した事実も state に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する | §11 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
+| ⑥ | **ハーネス API はモデルから呼べる。メモリは agent 自身がキュレーションする**（NOOA model-callable harness APIs / memory） | 状態の読み出し・再開・メモリの書き込みと修正を、バックグラウンドの自動要約ではなく agent が明示的に呼ぶ scripts / tools にする。メモリ record には型と関係（supports / contradicts / derived-from）を持たせ、フラットなログにしない。NOOA はこれでファイルメモ比 +11.8 pt | §11「1 教訓 1 ファイル + 既存更新・重複禁止・誤り削除」 |
+
+### 制約を足した根拠（§12「制約は失敗から育てる」）
+
+- ⑤ は実失敗から来ている。`notion-organize-knowledge` は `db_registered: true` という根拠の無い
+  boolean を verifier が転記するだけで `registered` を受理していたため、1 回の run で 13 件が
+  DB に 1 行も無いまま「登録済み」になった（2026-08-23）。受理条件を query の証拠に置き換えて
+  構造で閉じた
+- ① は MAGI で state ファイル導入前に 1 session で continue 介入が 22 回起きたことが根拠。
+  Coordinator が履歴から「どこから再開するか」を復元できなかった
+- ④ は OpenAI が公式ハーネスの低スコアを調べて見つけた 2 要因（reasoning 破棄・rolling
+  truncation）がそのまま根拠
+
+### 評価はハーネスも測る
+
+- with_skill / baseline の delta は「指示の差」のつもりでも、context 方針・ツール・API 設定が
+  違えばその差を測ってしまう。比較では**ハーネスを固定**し、指示だけを変える
+- 低スコアに出会ったら、モデルを疑う前にハーネス設定を疑う（OpenAI の教訓はこれ自体）。
+  公開ベンチマークは意図的に素朴なハーネスを使う（欠点を見えやすくするため）ので、そのスコアは
+  商用ハーネス下の性能を表さない
+- ハーネスを整えても長時間委任の劣化は消えない（DELEGATE-52: フロンティアモデルでも長時間
+  ワークフローで文書内容の平均 25% が破損）。長く走らせる設計ではなく、§11 の「小さい agent
+  への fan-out」と ⑤ の verified commit で区切る
+
+### 持ち込まないもの
+
+- NOOA の「agent = Python クラス」という形そのもの。スキルが扱うのはインターフェースの原理で、
+  フレームワークの置き換えではない
+- 「常に参照渡しせよ」「transcript を渡すな」のような一律ルール。全文中の広範な相互依存を検証する
+  必要がある場面では全文を渡すのが正しい（token-budget の例外と同じ）。§12 の right altitude で較正する
+
