@@ -1,7 +1,9 @@
 ---
 name: cleanup-branches
 description: |
-  マージ済みブランチと不要な作業状態を検出・削除し、worktree を最新の主ブランチに同期し、
+  取り込み済みブランチと終了済み workspace を削除し（承認を得た未取り込みブランチも個別に削除。
+  stash・submodule drift・untracked・tracked の未コミット差分は削除せず一覧として提示するだけ）、
+  worktree を最新の主ブランチに同期し、
   その後の作業用ブランチ（`feature/{hex}` 等）を作成して終わる。
   「ブランチを整理して」「不要なブランチを消したい」「マージ済みブランチをクリーンアップして」
   「main を更新」「最新にして」「sync」「同期」「マージしたから更新」「ブランチを更新」
@@ -109,6 +111,12 @@ cherry-pick で取り込まれたものは `-D`）。**ブランチ名だけを�
 ## [ACTION] Step 3: 判断が要るものを 1 回でまとめて聞く
 
 以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。カテゴリごとに質問を分けない。
+候補が多い（目安として 1 カテゴリ 20 件超）ときも問いかけは 1 回のままで、全件列挙はせず
+件数と代表例（最終 commit が古い順に数件、下記の `reason` の事実を添える）に要約したうえで
+「全件残す / 一覧を見て個別に選ぶ」を選択肢として出す（ユーザーが一覧を求めた場合にだけ
+全件を出す。これはユーザーの返答であって、カテゴリごとに質問を分けることではない）。
+「全件まとめて削除」は選択肢に含めない —— 未取り込みの削除は一件ごとの承認が前提で、
+まとめて回す対象ではないという上の契約に反する。
 
 **`local.needs_decision`（remote 削除済みだが未取り込み）**: 消えた PR の作業がローカルにだけ
 残っている。承認された分だけ、次の 2 手を**この順で**個別に実行する。
@@ -173,9 +181,15 @@ python3 [SKILL_DIR]/scripts/repo_state.py purge-workspace --sessions "id1,id2"
 
 未コミットの変更があれば先に `git stash`（Step 7 で戻す）。
 
-- **open な PR のブランチに乗っている場合**: `git reset` するとローカル ref が PR head から
+分岐は Step 1 の JSON の `current_branch_open_pr` だけで決める（`gh pr view` 等で改めて
+調べ直さない。同じ判定を 2 か所で持つと食い違う）。この値は `hold_reason()` の open PR 判定と
+同じ集合（base が primary の open PR）に基づくため、base が別の feature ブランチの
+stacked PR は `false` になる。
+
+- **`current_branch_open_pr` が `true`**: `git reset` するとローカル ref が PR head から
   離れるため reset しない。`git switch -c <new> origin/<sync_base>` で新ブランチを直接作る。
-- **それ以外**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。
+- **`false`**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。
+  `current_branch` が空（detached HEAD）のときもこちら。
 
 ブランチ名はユーザー指定があればそれを使い、無ければ `feature/{6文字hex}` を生成する。
 
