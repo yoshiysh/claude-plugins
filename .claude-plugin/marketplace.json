@@ -24,6 +24,10 @@
         {
             "name": "skill-creator",
             "source": "./plugins/skill-creator"
+        },
+        {
+            "name": "pdca",
+            "source": "./plugins/pdca"
         }
     ]
 }
