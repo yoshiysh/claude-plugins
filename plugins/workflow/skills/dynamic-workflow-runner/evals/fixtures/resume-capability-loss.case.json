@@ -1,0 +1,20 @@
+{
+  "case_id": "resume-capability-loss",
+  "frozen_manifest_requirements": {
+    "semantic_capabilities": ["research.read"],
+    "permissions": ["workspace.write"],
+    "on_unavailable": "unsupported_runtime"
+  },
+  "initial_snapshot": {
+    "max_parallel": 4,
+    "semantic_capabilities": {"research.read": {"availability": "supported", "enforcement": "enforced"}},
+    "permissions": {"workspace.write": {"status": "granted", "enforcement": "enforced"}}
+  },
+  "resume_snapshot": {
+    "max_parallel": 1,
+    "semantic_capabilities": {"research.read": {"availability": "supported", "enforcement": "enforced"}},
+    "permissions": {"workspace.write": {"status": "denied", "enforcement": "enforced"}}
+  },
+  "completed_task_ids": ["collect"],
+  "pending_task_ids": ["write"]
+}

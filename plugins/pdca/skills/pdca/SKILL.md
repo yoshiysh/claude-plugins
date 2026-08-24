@@ -95,6 +95,14 @@ planner は次のどれかに当たるとき、Plan を書かずに `status: "un
 承認された Plan をそのまま args に載せて workflow を起動する。この区間には人間ゲートが無く、
 条件ごとの fan-out・独立検証・集計が連なるので、順序と反復は script が持つ。
 
+> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
+> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
+> 内部互換層として自動利用するが、現行`pdca.js`はconditionごとのworktree isolationとruntime-generated artifact pathを
+> 必須にするためrunner v1ではagent起動前に`rejected_source`となる。isolationやartifactを弱めて実行したことにしない。
+> native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
+>
+> **Codex v1 classification: `rejected_source_v1`**（worktree isolation / runtime-generated artifacts）。
+
 ```js
 Workflow({
   scriptPath: '<このスキルの絶対パス>/scripts/pdca.js',
@@ -119,6 +127,10 @@ Workflow({
   },
 })
 ```
+
+caller が所有する前処理は Plan フェーズとゲート①、成功後処理は結果提示と Act、human gate はゲート①②。
+これらをrunner内gateに移さない。現行Codex互換経路は`rejected_source`をそのまま報告し、Do/Checkの結果提示やActを開始しない。
+runner未install、`unsupported_runtime`、`workflow_incomplete`でも同様に止める。
 
 条件が 1 本のときは対制御を組まず単一条件として回る（動機起点や非実験の問題起点はこれ）。
 反復上限・欠測の扱い・confidence の決め方は script が持つので、ここでは指定しない。
@@ -258,8 +270,8 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
 
 ## 注意事項
 
-- Do/Check は Claude Code の Workflow ランタイムを使う。使えない環境ではこのスキルは
-  Plan とゲートまでしか進められないので、その旨を伝えて止める
+- Do/Check は native Workflow、または Codex の内部互換経路を使う。どちらも利用できない
+  環境では Plan とゲートまでしか進めず、利用不可のterminal stateをそのまま伝えて止める
 - 予算（run 数・トークン・時間）は Plan の停止条件に必ず入れる。入っていないと 1 周が
   いくらでも伸びる
 - ゲート①②はユーザーの承認そのものが要る地点。承認の記録を承認の代わりに使わない

@@ -1,0 +1,610 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow/v1",
+  "title": "Dynamic Workflow Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "translation_mode",
+    "source",
+    "arguments",
+    "limits",
+    "required_capabilities",
+    "tasks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "dynamic-workflow/v1"
+    },
+    "workflow_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "translation_mode": {
+      "enum": ["direct", "translated"]
+    },
+    "invocation_mode": {
+      "enum": ["direct", "skill_bridge"]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "format"],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/absolute_path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "arguments": {
+      "type": "object"
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_parallel", "max_agent_runs", "max_tasks", "max_depth"],
+      "properties": {
+        "max_parallel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "max_agent_runs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "max_tasks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "native_collaboration",
+          "spawn",
+          "collect_or_wait",
+          "stable_handle",
+          "message",
+          "resume",
+          "interrupt"
+        ]
+      },
+      "allOf": [
+        { "contains": { "const": "native_collaboration" } },
+        { "contains": { "const": "spawn" } },
+        { "contains": { "const": "collect_or_wait" } },
+        { "contains": { "const": "stable_handle" } }
+      ]
+    },
+    "independent_pairs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          { "$ref": "#/$defs/task_id" },
+          { "$ref": "#/$defs/task_id" }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "return_binding": {
+      "$ref": "#/$defs/return_binding"
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/agent_task" },
+          { "$ref": "#/$defs/human_gate" }
+        ]
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["invocation_mode"],
+        "properties": { "invocation_mode": { "const": "skill_bridge" } }
+      },
+      "then": { "required": ["return_binding"] },
+      "else": { "not": { "required": ["return_binding"] } }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          { "pattern": "^(?:/|[A-Za-z]:[\\\\/])" },
+          { "pattern": "(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)" },
+          { "pattern": "^(?:\\.[Gg][Ii][Tt]|\\.[Cc][Oo][Dd][Ee][Xx]|\\.[Aa][Gg][Ee][Nn][Tt])(?:[\\\\/]|$)" },
+          { "pattern": "\\u0000" }
+        ]
+      }
+    },
+    "absolute_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:/|[A-Za-z]:[\\\\/])"
+    },
+    "base_task": {
+      "type": "object",
+      "required": ["id", "kind", "depends_on", "required"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/task_id"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "depends_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/task_id"
+          }
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "condition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task_id", "outcomes"],
+          "properties": {
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "outcomes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["pass", "revise"] }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task_id", "artifact_path", "pointer", "predicate"],
+          "properties": {
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "artifact_path": { "$ref": "#/$defs/relative_path" },
+            "pointer": { "$ref": "#/$defs/json_pointer" },
+            "predicate": { "const": "exists" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task_id", "artifact_path", "pointer", "predicate", "expected"],
+          "properties": {
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "artifact_path": { "$ref": "#/$defs/relative_path" },
+            "pointer": { "$ref": "#/$defs/json_pointer" },
+            "predicate": { "const": "equals" },
+            "expected": { "type": ["null", "string", "number", "boolean"] }
+          }
+        }
+      ]
+    },
+    "agent_task": {
+      "allOf": [
+        { "$ref": "#/$defs/base_task" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "kind",
+            "depends_on",
+            "required",
+            "prompt",
+            "context_policy",
+            "requirements",
+            "result_contract",
+            "inputs",
+            "output_path",
+            "artifact_paths",
+            "effect",
+            "approval_gate_id",
+            "accepted_outcomes"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/task_id"
+            },
+            "kind": {
+              "const": "agent"
+            },
+            "depends_on": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/task_id"
+              }
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "when": {
+              "$ref": "#/$defs/condition"
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "context_policy": {
+              "$ref": "#/$defs/context_policy"
+            },
+            "requirements": {
+              "$ref": "#/$defs/task_requirements"
+            },
+            "result_contract": {
+              "$ref": "#/$defs/result_contract"
+            },
+            "inputs": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/input_ref"
+              }
+            },
+            "output_path": {
+              "$ref": "#/$defs/relative_path"
+            },
+            "artifact_paths": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/relative_path"
+              }
+            },
+            "effect": {
+              "enum": ["read_only", "workspace_write"]
+            },
+            "approval_gate_id": {
+              "oneOf": [
+                { "$ref": "#/$defs/task_id" },
+                { "type": "null" }
+              ]
+            },
+            "accepted_outcomes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": ["pass", "revise"]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "context_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["fresh", "all"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "turns"],
+          "properties": {
+            "mode": { "const": "recent" },
+            "turns": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        }
+      ]
+    },
+    "task_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_capabilities", "permissions", "on_unavailable"],
+      "properties": {
+        "semantic_capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/semantic_id" } },
+        "permissions": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/semantic_id" } },
+        "on_unavailable": { "enum": ["unsupported_runtime", "skip_optional"] }
+      }
+    },
+    "semantic_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "result_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "target", "schema", "validation"],
+      "properties": {
+        "schema_version": { "const": "dynamic-workflow-task-result-contract/v1" },
+        "contract_id": { "$ref": "#/$defs/task_id" },
+        "target": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "node_result" } } },
+            { "type": "object", "additionalProperties": false, "required": ["kind", "artifact_path"], "properties": { "kind": { "const": "json_artifact" }, "artifact_path": { "$ref": "#/$defs/relative_path" } } }
+          ]
+        },
+        "schema": {
+          "oneOf": [
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["kind", "dialect", "document", "canonical_sha256"],
+              "properties": { "kind": { "const": "inline" }, "dialect": { "const": "https://json-schema.org/draft/2020-12/schema" }, "document": { "type": "object" }, "canonical_sha256": { "$ref": "#/$defs/sha256" } }
+            },
+            {
+              "type": "object", "additionalProperties": false,
+              "required": ["kind", "dialect", "path", "sha256"],
+              "properties": { "kind": { "const": "file" }, "dialect": { "const": "https://json-schema.org/draft/2020-12/schema" }, "path": { "$ref": "#/$defs/absolute_path" }, "sha256": { "$ref": "#/$defs/sha256" } }
+            }
+          ]
+        },
+        "validation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["at_finish", "at_final_review", "on_missing", "on_invalid"],
+          "properties": { "at_finish": { "const": true }, "at_final_review": { "const": true }, "on_missing": { "const": "workflow_incomplete" }, "on_invalid": { "const": "workflow_incomplete" } }
+        }
+      }
+    },
+    "return_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "workflow_call_sha256", "expression", "schema", "limits"],
+      "properties": {
+        "schema_version": { "const": "dynamic-workflow-return-binding/v1" },
+        "workflow_call_sha256": { "$ref": "#/$defs/sha256" },
+        "expression": { "$ref": "#/$defs/return_expression" },
+        "schema": { "$ref": "#/$defs/return_schema" },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_depth", "max_nodes"],
+          "properties": {
+            "max_depth": { "type": "integer", "minimum": 1, "maximum": 32 },
+            "max_nodes": { "type": "integer", "minimum": 1, "maximum": 4096 }
+          }
+        }
+      }
+    },
+    "return_schema": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dialect", "document", "canonical_sha256"],
+          "properties": {
+            "kind": { "const": "inline" },
+            "dialect": { "const": "https://json-schema.org/draft/2020-12/schema" },
+            "document": { "type": "object" },
+            "canonical_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "dialect", "path", "sha256"],
+          "properties": {
+            "kind": { "const": "file" },
+            "dialect": { "const": "https://json-schema.org/draft/2020-12/schema" },
+            "path": { "$ref": "#/$defs/absolute_path" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    },
+    "return_expression": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": { "kind": { "const": "literal" }, "value": true }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "key", "pointer"],
+          "properties": { "kind": { "const": "argument" }, "key": { "type": "string", "minLength": 1 }, "pointer": { "$ref": "#/$defs/json_pointer" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "task_id", "pointer"],
+          "properties": { "kind": { "const": "task_result" }, "task_id": { "$ref": "#/$defs/task_id" }, "pointer": { "$ref": "#/$defs/json_pointer" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "task_id", "path", "pointer"],
+          "properties": { "kind": { "const": "artifact" }, "task_id": { "$ref": "#/$defs/task_id" }, "path": { "$ref": "#/$defs/relative_path" }, "pointer": { "$ref": "#/$defs/json_pointer" } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "entries"],
+          "properties": { "kind": { "const": "object" }, "entries": { "type": "object", "additionalProperties": { "$ref": "#/$defs/return_expression" } } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "items"],
+          "properties": { "kind": { "const": "array" }, "items": { "type": "array", "items": { "$ref": "#/$defs/return_expression" } } }
+        }
+      ]
+    },
+    "json_pointer": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^(?:/(?:[^~/]|~[01])*){0,64}$"
+    },
+    "human_gate": {
+      "allOf": [
+        { "$ref": "#/$defs/base_task" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "depends_on", "required", "action", "targets", "scope", "action_package"],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/task_id"
+            },
+            "kind": {
+              "const": "human_gate"
+            },
+            "depends_on": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/task_id"
+              }
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "when": {
+              "$ref": "#/$defs/condition"
+            },
+            "action": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targets": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "scope": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "action_package": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["task_id", "path"],
+                  "properties": {
+                    "task_id": { "$ref": "#/$defs/task_id" },
+                    "path": { "$ref": "#/$defs/relative_path" }
+                  }
+                },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "input_ref": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key"],
+          "properties": {
+            "kind": { "const": "argument" },
+            "key": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "task_id"],
+          "properties": {
+            "kind": { "const": "task_result" },
+            "task_id": { "$ref": "#/$defs/task_id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "task_id"],
+          "properties": {
+            "kind": { "const": "optional_task_result" },
+            "task_id": { "$ref": "#/$defs/task_id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "task_id", "path"],
+          "properties": {
+            "kind": { "const": "artifact" },
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "path": { "$ref": "#/$defs/relative_path" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "task_id", "path"],
+          "properties": {
+            "kind": { "const": "optional_artifact" },
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "path": { "$ref": "#/$defs/relative_path" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path", "sha256"],
+          "properties": {
+            "kind": { "const": "file" },
+            "path": { "$ref": "#/$defs/absolute_path" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      ]
+    }
+  }
+}

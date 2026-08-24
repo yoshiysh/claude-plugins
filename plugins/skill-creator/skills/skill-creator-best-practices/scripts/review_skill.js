@@ -19,6 +19,10 @@ const MIN_VALID_VOTES = 2
 // 同じ入力で回し続けても収束しない。上限に達したら人間へ返す。
 const MAX_REVISIONS = 1
 
+// finder 1 体が返す指摘数の上限。指摘ごとに複数の独立反証を起動するため、
+// schema 側で制限しないと runtime data がそのまま無界の fan-out になる。
+const MAX_FINDINGS_PER_FINDER = 8
+
 const SEVERITY = { type: 'string', enum: ['blocker', 'major', 'minor'] }
 
 const FINDINGS_SCHEMA = {
@@ -26,6 +30,7 @@ const FINDINGS_SCHEMA = {
   properties: {
     findings: {
       type: 'array',
+      maxItems: MAX_FINDINGS_PER_FINDER,
       items: {
         type: 'object',
         // evidence を必須にしているのは、引用が無い指摘を反証者が検証できないため。
@@ -171,9 +176,9 @@ if (skillPath.startsWith(`${stagingDir}/`)) {
 const maxRevisions = parsedArgs.maxRevisions ?? MAX_REVISIONS
 // 上限が数値でないまま while に入ると、比較が常に false になって改稿が 1 回で黙って終わるか、
 // 逆に打ち切りが効かなくなる。どちらも「上限がある」という保証が消えるので起動時に落とす。
-if (!Number.isInteger(maxRevisions) || maxRevisions < 0) {
+if (!Number.isInteger(maxRevisions) || maxRevisions < 0 || maxRevisions > MAX_REVISIONS) {
   throw new Error(
-    `args.maxRevisions は 0 以上の整数です（受領: ${JSON.stringify(parsedArgs.maxRevisions)}）。`
+    `args.maxRevisions は 0..${MAX_REVISIONS} の整数です（受領: ${JSON.stringify(parsedArgs.maxRevisions)}）。`
   )
 }
 

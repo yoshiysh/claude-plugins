@@ -1,0 +1,11 @@
+{
+  "case_id": "invalid-task-result",
+  "result_contract": {
+    "target": "json_artifact",
+    "required": ["companies", "evidence"],
+    "property_types": {"companies": "array", "evidence": "array"},
+    "validation_points": ["finish", "final_review"]
+  },
+  "agent_artifact": {"summary": "Plausible prose without the contracted arrays"},
+  "node_result_outcome": "pass"
+}

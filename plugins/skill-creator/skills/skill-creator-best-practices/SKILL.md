@@ -35,8 +35,6 @@ description: >
 7. [ファイル構成（参照先）](#ファイル構成参照先)
 8. [設計上の制約](#設計上の制約)
 
----
-
 ## モード判定
 
 **このスキルが起動したら、他のどの節より先にここで経路を決める。** 経路の無い依頼を
@@ -60,8 +58,6 @@ description: >
 
 `review` と `update` の分かれ目は「直す許可が出ているか」だけ。`review` に倒したときは
 結果提示で「このまま update で直すこともできる」と添える（読み違えて `update` に入ると、承認していない改稿が staging に残る）。
-
----
 
 ## 全体フロー
 
@@ -122,8 +118,6 @@ Phase 3: 結果の提示と適用（司令塔が単独で実行・人間ゲー�
 review と改稿の間に人間ゲートを置かないのも同じ理由（止めると指摘の選別が裁量に戻る）。
 **本体ファイルは承認まで一切書き換えない**ため、途中に止める必要が無い。
 
----
-
 ## Phase 1: 要件整理とペルソナ設計（create）
 
 **Agent ツールは呼び出さない。司令塔が単独で行う。**
@@ -131,8 +125,6 @@ review と改稿の間に人間ゲートを置かないのも同じ理由（止�
 `references/orchestrator-requirements.md` を Read し、手順に従って実行する。
 
 完了条件：ユーザーがペルソナを承認したら Phase 2 へ進む。
-
----
 
 ## Phase 1: 対象と範囲の確認（review/update）
 
@@ -168,11 +160,18 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 
 完了条件：上表が埋まり、パスが `realpath` で解決できたら Phase 2 へ進む。
 
----
-
 ## Phase 2-4: Workflow を呼ぶ（create）
 
-> **実行環境の前提**: このスキルは Claude Code の dynamic workflows に依存する。Codex では動作しない可能性が高い — `codex` CLI に workflow サブコマンドが無く、[Codex plugin の仕様](https://developers.openai.com/codex/plugins/build)にも `workflows/` サーフェスが無い（いずれも 2026-08 時点。Codex セッション内のツールセットを直接確認したものではない）。Codex で使う場合は、まず Workflow 相当のツールが露出しているか確認すること。この前提は review/update（`scripts/review_skill.js`）にも同じく効く。
+> **透過実行 route**: native `Workflow` を未試行なら1回だけ優先し、存在しないCodexでは`workflow:dynamic-workflow-runner`を内部利用する。native試行後はfallback しない。createはv1互換、review/updateは意味保存不能のためagent起動前に`rejected_source`。別modeへ自動縮退しない。callerのhuman gateはrunner内gateに移さない。active callsite到達時は必ず[Codex Workflow互換契約](references/codex-workflow-compatibility.md)を読む。
+>
+> | call | Codex v1 classification |
+> | --- | --- |
+> | `build_skill.js` create | `portable_v1` |
+> | `review_skill.js` + `mode: review` | `rejected_source_v1` |
+> | `review_skill.js` + `mode: update` | `rejected_source_v1` |
+>
+> **Codex v1 classification: `portable_v1`** for create only; review/updateは上表どおりfail closed。
+> **Codex v1 classification: `rejected_source_v1`** for `review_skill.js` in both review and update mode。
 
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」
@@ -283,8 +282,6 @@ python3 [SKILL_DIR]/eval-viewer/generate_review.py \
   .claude/skills/[スキル名]-workspace/iteration-1 --output review.html
 ```
 
----
-
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 ユーザーへの一言：
@@ -304,7 +301,7 @@ Workflow({
     },
     intent: "<update のときの変更意図。update では必須>",
     stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>",
-    maxRevisions: "<任意。整数 0 以上。省略時の既定は script が持つ>"
+    maxRevisions: "<任意。script が定義する上限内の非負整数。省略時の既定も script が持つ>"
   }
 })
 ```
@@ -312,7 +309,7 @@ Workflow({
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
 どちらも Phase 1 で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
 agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
-`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`maxRevisions` が 0 以上の整数でない、
+`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`maxRevisions` が script の上限内の非負整数でない、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。曖昧なまま
 走らせると、対象も範囲も定まらないレビューが「結果」として返るため。
 
@@ -365,16 +362,12 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
 `applied_to_staging` にはならない**（検証が足りないことは改稿で直せないため、
 script は改稿を繰り返さず `needs_human_decision` へ倒す）。
 
----
-
 ## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
 
 **Agent ツールは呼び出さない。司令塔が単独で行う。** 改善ループは Phase 2-4 の Workflow が内包しており、
 ここでやり直す場合も `resumeFromRunId` で Workflow を再実行する（散文で agent を起動し直さない）。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
-
----
 
 ## Phase 3: 結果の提示と適用（review/update）
 
@@ -387,8 +380,6 @@ script は staging に書くところで必ず止まる。コピー対象・非�
 すべて参照先に書いてある（要点をここにも置くと、手順が 2 箇所に分かれて食い違う）。
 
 完了条件：ユーザーが反映を承認して本体へコピーしたか、非承認で終了したか、どちらかが確定すること。
-
----
 
 ## 入出力の定義
 
@@ -456,8 +447,6 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 - 通常のチャット質問への回答
 - SKILL.md を伴わない一般のコードレビュー（対象が「スキル」でないなら経路が無い）
 
----
-
 ## ユーザーへの話し方
 
 - 技術用語（エージェント・アサーション・フロントマターなど）は使わない
@@ -465,8 +454,6 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 - 確認は一度にまとめる。細かい質問を何度も繰り返さない
 - 選択肢は「Aで進めます。問題あれば言ってください」の形が使いやすい
 - レビュー結果は「確定」「棄却」「未検証」を必ず区別して伝える。件数を隠さない
-
----
 
 ## ファイル構成（参照先）
 
@@ -489,8 +476,6 @@ scripts/       # build_skill.js  — create の Phase 2-4 本体
 
 各ファイルの詳細な役割は、それを Read させている script と `references/schemas.md` が持つ
 （ここに 1 行説明を複製すると、役割が変わったとき片方だけが古くなる）。
-
----
 
 ## 設計上の制約
 

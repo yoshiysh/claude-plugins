@@ -1,0 +1,615 @@
+{
+  "schema_version": "dynamic-workflow-eval-expectations/v2",
+  "cases": [
+    {
+      "case_id": "translated-bounded-loop",
+      "eval_id": 1,
+      "eval_name": "arbitrary_named_workflow_source",
+      "input": "quarterly-research.flow",
+      "files": [
+        "evals/fixtures/quarterly-research.flow",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/quarterly-research.flow": "bef710e7bb85832ef2b5df3452d2b3bd09b19aa29eea51556002fcb47d63db37"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["verify-1=revise", "repair=pass", "verify-2=pass", "final_review=pass"],
+      "required_observations": [
+        "translator_and_contract_reviewer_handles_differ",
+        "parallel_research_frontier_preserved",
+        "revise_loop_statically_bounded_to_two_verifications",
+        "final_revise_not_promoted_to_success"
+      ],
+      "forbidden_observations": ["dynamic_graph_growth", "implicit_retry", "extension_based_routing"]
+    },
+    {
+      "case_id": "feature-flags-without-callable-tools",
+      "eval_id": 2,
+      "eval_name": "feature_flags_without_callable_tools",
+      "input": null,
+      "files": [],
+      "fixture_sha256": {},
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "unsupported_runtime",
+      "expected_terminal": "unsupported_runtime",
+      "runtime_events": [],
+      "required_observations": [
+        "feature_flags_are_diagnostics_only",
+        "callable_inventory_is_authoritative",
+        "no_probe_agent_dispatched",
+        "unsupported_runtime_reported"
+      ],
+      "forbidden_observations": ["codex_exec_fallback", "shell_fallback", "single_agent_fallback"]
+    },
+    {
+      "case_id": "unsafe-source",
+      "eval_id": 3,
+      "eval_name": "malicious_source_and_path_escape",
+      "input": "malicious-workflow.source",
+      "files": [
+        "evals/fixtures/malicious-workflow.source",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/malicious-workflow.source": "0241b6f92ad60f0808014b172b79acb4545a4a6b62e8500d1cbb83b3178d6330"
+      },
+      "expected_trigger": true,
+      "expected_route": "reject",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "rejected_source",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "rejected_source",
+      "runtime_events": [],
+      "required_observations": ["eval_rejected", "dynamic_import_rejected", "path_escape_rejected", "prompt_injection_treated_as_data"],
+      "forbidden_observations": ["agent_task_dispatch", "source_execution", "partial_manifest_success"]
+    },
+    {
+      "case_id": "action-handoff",
+      "eval_id": 4,
+      "eval_name": "external_write_requires_human_gate",
+      "input": "external-pr-workflow.flow",
+      "files": [
+        "evals/fixtures/external-pr-workflow.flow",
+        "evals/fixtures/run-review-action-package.input.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/external-pr-workflow.flow": "1b7db85f0b339a28d0e66a66e4c479841862637ef342022255f5093ac5fae860",
+        "evals/fixtures/run-review-action-package.input.json": "fa72ed3c8469644f92ff8d3c35da286ad52045610db35008bf95b2979febd973"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_complete_without_external_effect",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_complete_without_external_effect",
+      "runtime_events": ["research=pass", "review=pass", "package=pass", "checkpoint=workflow_waiting_for_gate", "gate=approve", "final_review=pass"],
+      "required_observations": [
+        "run_local_action_package_present",
+        "final_review_action_package_binding_schema_valid",
+        "workflow_gate_binds_package_hash_action_targets_scopes",
+        "handoff_execution_status_not_authorized",
+        "handoff_requires_new_approval_bound_to_package_hash_action_ids_targets_scopes"
+      ],
+      "forbidden_observations": ["push_inside_graph", "pr_creation_inside_graph", "workflow_gate_reused_as_external_approval"]
+    },
+    {
+      "case_id": "partial-fanout-and-lost-handle",
+      "eval_id": 5,
+      "eval_name": "partial_fanout_and_lost_handle",
+      "input": null,
+      "files": [],
+      "fixture_sha256": {},
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_incomplete",
+      "expected_terminal": "workflow_incomplete",
+      "runtime_events": ["completed=5", "timeout=2", "lost_handle=1"],
+      "required_observations": [
+        "input_and_terminal_counts_sum_to_eight",
+        "completed_results_and_hashes_preserved",
+        "three_missing_results_not_imputed",
+        "workflow_incomplete_reported"
+      ],
+      "forbidden_observations": ["completed_task_respawn", "lost_handle_respawn", "silent_truncation"]
+    },
+    {
+      "case_id": "single-delegation-should-not-trigger",
+      "eval_id": 6,
+      "eval_name": "single_delegation_should_not_trigger",
+      "input": null,
+      "files": [],
+      "fixture_sha256": {},
+      "expected_trigger": false,
+      "expected_route": "not_applicable",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "not_applicable",
+      "expected_terminal": "not_applicable",
+      "runtime_events": [],
+      "required_observations": ["ordinary_single_subagent_delegation_used"],
+      "forbidden_observations": ["manifest_created", "controller_initialized", "workflow_verifiers_dispatched"]
+    },
+    {
+      "case_id": "semantic-capability-is-not-feature-flag",
+      "eval_id": 7,
+      "eval_name": "semantic_capability_is_not_a_feature_flag",
+      "input": null,
+      "files": [],
+      "fixture_sha256": {},
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "unsupported_runtime",
+      "expected_terminal": "unsupported_runtime",
+      "runtime_events": [],
+      "required_observations": [
+        "semantic_capabilities_checked_before_dispatch",
+        "permissions_checked_before_dispatch",
+        "unknown_not_promoted_to_supported",
+        "feature_flags_remain_diagnostics"
+      ],
+      "forbidden_observations": ["agent_task_dispatch", "unknown_capability_default", "required_task_skipped"]
+    },
+    {
+      "case_id": "invalid-task-result",
+      "eval_id": 8,
+      "eval_name": "task_specific_result_contract",
+      "input": "invalid-task-result.case.json",
+      "files": [
+        "evals/fixtures/invalid-task-result.case.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/invalid-task-result.case.json": "e9e20f1ed6232fb5e47ee5274ec8153cacd355a4cd43fd46043971e355170a85"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_incomplete",
+      "expected_terminal": "workflow_incomplete",
+      "runtime_events": ["finish_with=agent_artifact"],
+      "required_observations": ["finish_rejects_contract_mismatch", "missing_arrays_not_imputed", "final_review_cannot_pass"],
+      "forbidden_observations": ["node_envelope_only_success", "summary_promoted_to_companies", "empty_array_default"]
+    },
+    {
+      "case_id": "exact-recent-context-or-stop",
+      "eval_id": 9,
+      "eval_name": "exact_recent_context_or_stop",
+      "input": null,
+      "files": [],
+      "fixture_sha256": {},
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "unsupported_runtime",
+      "expected_terminal": "unsupported_runtime",
+      "runtime_events": [],
+      "required_observations": [
+        "typed_recent_context_preserved",
+        "exact_turn_count_checked",
+        "unsupported_runtime_reported_before_dispatch"
+      ],
+      "forbidden_observations": ["recent_to_all_fallback", "recent_to_fresh_fallback", "agent_task_dispatch"]
+    },
+    {
+      "case_id": "resume-capability-loss",
+      "eval_id": 10,
+      "eval_name": "resume_with_runtime_capability_loss",
+      "input": "resume-capability-loss.case.json",
+      "files": [
+        "evals/fixtures/resume-capability-loss.case.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/resume-capability-loss.case.json": "32e5665cf0f8e662fe2805c3604930a3e55fa51daeaa7d64257a0723e2b12479"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_incomplete",
+      "expected_terminal": "workflow_incomplete",
+      "runtime_events": ["resume_with=resume_snapshot"],
+      "required_observations": [
+        "initial_capability_receipt_preserved",
+        "resume_capability_receipt_appended",
+        "effective_max_parallel_equals_one",
+        "pending_write_not_dispatched"
+      ],
+      "forbidden_observations": ["completed_task_respawn", "fallback_to_initial_permission", "lost_handle_inference"]
+    },
+    {
+      "case_id": "direct-portable",
+      "eval_id": 11,
+      "eval_name": "direct_portable_manifest_without_translator",
+      "input": "direct-portable.manifest.template.json",
+      "files": [
+        "evals/README.md",
+        "evals/fixtures/direct-research.input",
+        "evals/fixtures/direct-portable.manifest.template.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/direct-research.input": "14f6961aca3297dc85454b4d903ddfa90cd08acf8294e4bb77115f5d3f5695bb",
+        "evals/fixtures/direct-portable.manifest.template.json": "7f290a70e7dd638ccd959f002e4bc9166c3c1dba9546a66f72b9e3fc0940da06"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "direct",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["research=pass", "final_review=pass"],
+      "required_observations": [
+        "translator_handle_is_null",
+        "fresh_contract_reviewer_handle_present",
+        "source_path_and_raw_sha256_bound",
+        "one_agent_task_only",
+        "result_contract_validated_at_finish_and_final_review"
+      ],
+      "forbidden_observations": ["translator_invocation", "filename_based_routing", "source_execution"]
+    },
+    {
+      "case_id": "implicit-cross-skill-bridge",
+      "eval_id": 12,
+      "eval_name": "implicit_bridge_from_selected_caller_skill",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/workflow-return.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt": "31ac45aa5be87c5245c916c095f402bebe31d5a8e52822eb5f8485250d6e8b77",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline": "fbc8ee90e3eb9da4c52284f314d7446f9aed72a570310a7d346b1f3f72f2c902",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9",
+        "evals/fixtures/workflow-return.cases.json": "fcdfae84b5da2b434ead56b44a2166df6f0ff3ca122b4d4ae08c25c2b80f39f1"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["caller_pre=complete", "bridge=once", "final_review=pass", "return_binding=pass"],
+      "required_observations": ["implicit_route_from_active_callsite", "caller_identity_bound", "exactly_one_bridge_execution", "return_bound_to_exact_call"],
+      "forbidden_observations": ["user_must_name_bridge", "native_double_execution", "caller_continuation_before_return_binding"]
+    },
+    {
+      "case_id": "relative-scriptpath-and-exact-args",
+      "eval_id": 13,
+      "eval_name": "caller_root_relative_path_and_exact_arguments",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/relative-signal-map/caller-skill.fixture.txt",
+        "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/relative-signal-map/caller-skill.fixture.txt": "0554d5299454ef300ffd7dc502d1100ed16c98f72580018e293c058ac47b9794",
+        "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom": "26e5d2ab3fe10b67d5d1335de128ac73ea2ddb60a229f05b687e73eaafd4f333",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["resolve=caller_root", "args_hash=match", "bridge=once", "final_review=pass"],
+      "required_observations": ["relative_path_resolved_from_caller_root", "declared_and_resolved_paths_preserved", "exact_arguments_hash_bound"],
+      "forbidden_observations": ["cwd_relative_resolution", "argument_defaulting", "array_reordering", "null_or_false_elision"]
+    },
+    {
+      "case_id": "native-workflow-precedence",
+      "eval_id": 14,
+      "eval_name": "native_workflow_precedes_compatibility_bridge",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt": "31ac45aa5be87c5245c916c095f402bebe31d5a8e52822eb5f8485250d6e8b77",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline": "fbc8ee90e3eb9da4c52284f314d7446f9aed72a570310a7d346b1f3f72f2c902",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9"
+      },
+      "expected_trigger": false,
+      "expected_route": "native",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 1,
+      "expected_caller_continuation": true,
+      "expected_return_status": "workflow_complete",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["native_workflow_callable=true", "native=once"],
+      "required_observations": ["current_native_inventory_authoritative", "one_native_execution", "zero_bridge_executions"],
+      "forbidden_observations": ["bridge_execution", "double_execution", "feature_flag_as_native_evidence"]
+    },
+    {
+      "case_id": "ordinary-script-is-not-workflow",
+      "eval_id": 15,
+      "eval_name": "ordinary_deterministic_script_does_not_trigger_bridge",
+      "input": null,
+      "files": [
+        "evals/fixtures/ordinary-file-formatter/caller-skill.fixture.txt",
+        "evals/fixtures/ordinary-file-formatter/scripts/format-one.mjs",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/ordinary-file-formatter/caller-skill.fixture.txt": "fd3eeb5db04b706820f8704beb911e0960e48e9d7025301c98d0ac4ca8bbb086",
+        "evals/fixtures/ordinary-file-formatter/scripts/format-one.mjs": "dd696ae25cbb1b75af2286ebfdb3bd8e0ec7438ac02f71486f4edfb567e64085"
+      },
+      "expected_trigger": false,
+      "expected_route": "not_applicable",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "not_applicable",
+      "expected_terminal": "not_applicable",
+      "runtime_events": ["ordinary_script=once"],
+      "required_observations": ["ordinary_script_route_preserved", "zero_workflow_executions"],
+      "forbidden_observations": ["extension_based_trigger", "scripts_directory_trigger", "manifest_created"]
+    },
+    {
+      "case_id": "missing-workflow-source",
+      "eval_id": 16,
+      "eval_name": "missing_declared_workflow_source_fails_closed",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/missing-source-caller/caller-skill.fixture.txt",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/missing-source-caller/caller-skill.fixture.txt": "b25d23a22f7fc23d5f88805f81ca98ad53afc3ff59c16a879c2c5d5a2aec7b4c",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9"
+      },
+      "expected_trigger": false,
+      "expected_route": "reject",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "rejected_source",
+      "expected_terminal": "rejected_source",
+      "runtime_events": ["source_resolution=missing"],
+      "required_observations": ["missing_source_rejected", "zero_workflow_executions", "caller_stopped"],
+      "forbidden_observations": ["basename_search", "cwd_fallback", "source_synthesis", "caller_post_phase"]
+    },
+    {
+      "case_id": "ambiguous-workflow-source",
+      "eval_id": 17,
+      "eval_name": "ambiguous_dynamic_source_expression_fails_closed",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/ambiguous-source-caller/caller-skill.fixture.txt",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/ambiguous-source-caller/caller-skill.fixture.txt": "a037aba95b9ec54d8b5747b8bcde1f784717612ee215c7ccffb9fc12880337ee",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9"
+      },
+      "expected_trigger": false,
+      "expected_route": "reject",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "rejected_source",
+      "expected_terminal": "rejected_source",
+      "runtime_events": ["source_resolution=ambiguous"],
+      "required_observations": ["ambiguous_source_rejected", "zero_workflow_executions", "caller_stopped"],
+      "forbidden_observations": ["preferred_default", "fallback_default", "guessed_arguments", "caller_post_phase"]
+    },
+    {
+      "case_id": "caller-phase-and-gate-ownership",
+      "eval_id": 18,
+      "eval_name": "caller_retains_pre_post_phase_and_human_gate",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/workflow-return.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt": "31ac45aa5be87c5245c916c095f402bebe31d5a8e52822eb5f8485250d6e8b77",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline": "fbc8ee90e3eb9da4c52284f314d7446f9aed72a570310a7d346b1f3f72f2c902",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9",
+        "evals/fixtures/workflow-return.cases.json": "fcdfae84b5da2b434ead56b44a2166df6f0ff3ca122b4d4ae08c25c2b80f39f1"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "caller_waiting_for_gate",
+      "runtime_events": ["caller_pre=complete", "workflow=complete", "return_binding=pass", "caller_gate=waiting"],
+      "required_observations": ["caller_owns_pre_phase", "caller_owns_human_gate", "caller_owns_post_phase", "gate_wait_reported"],
+      "forbidden_observations": ["gate_moved_into_graph", "post_phase_inside_graph", "gate_wait_as_caller_complete"]
+    },
+    {
+      "case_id": "cross-skill-return-value",
+      "eval_id": 19,
+      "eval_name": "return_value_is_bound_back_to_exact_caller_call",
+      "input": "workflow-return.cases.json",
+      "files": [
+        "evals/fixtures/relative-signal-map/caller-skill.fixture.txt",
+        "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/workflow-return.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/relative-signal-map/caller-skill.fixture.txt": "0554d5299454ef300ffd7dc502d1100ed16c98f72580018e293c058ac47b9794",
+        "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom": "26e5d2ab3fe10b67d5d1335de128ac73ea2ddb60a229f05b687e73eaafd4f333",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9",
+        "evals/fixtures/workflow-return.cases.json": "fcdfae84b5da2b434ead56b44a2166df6f0ff3ca122b4d4ae08c25c2b80f39f1"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["workflow=complete", "return_binding=pass", "caller_post=continue"],
+      "required_observations": ["call_hash_matches", "value_hash_matches", "schema_hash_matches", "exact_caller_continues"],
+      "forbidden_observations": ["unbound_value_return", "foreign_call_receipt", "continuation_before_receipt_validation"]
+    },
+    {
+      "case_id": "return-binding-crosswire",
+      "eval_id": 20,
+      "eval_name": "crosswired_return_receipt_is_rejected",
+      "input": "workflow-return.cases.json",
+      "files": [
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline",
+        "evals/fixtures/relative-signal-map/caller-skill.fixture.txt",
+        "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/workflow-return.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt": "31ac45aa5be87c5245c916c095f402bebe31d5a8e52822eb5f8485250d6e8b77",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline": "fbc8ee90e3eb9da4c52284f314d7446f9aed72a570310a7d346b1f3f72f2c902",
+        "evals/fixtures/relative-signal-map/caller-skill.fixture.txt": "0554d5299454ef300ffd7dc502d1100ed16c98f72580018e293c058ac47b9794",
+        "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom": "26e5d2ab3fe10b67d5d1335de128ac73ea2ddb60a229f05b687e73eaafd4f333",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9",
+        "evals/fixtures/workflow-return.cases.json": "fcdfae84b5da2b434ead56b44a2166df6f0ff3ca122b4d4ae08c25c2b80f39f1"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 2,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "workflow_incomplete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_incomplete",
+      "runtime_events": ["orbit=complete", "relative=complete", "return_crosswire=reject"],
+      "required_observations": ["call_id_crosswire_detected", "call_hash_crosswire_detected", "wrong_caller_not_resumed"],
+      "forbidden_observations": ["schema_valid_value_overrides_binding", "foreign_return_accepted", "wrong_caller_continuation"]
+    },
+    {
+      "case_id": "implicit-bridge-unsupported-source",
+      "eval_id": 21,
+      "eval_name": "implicitly_bridged_unsafe_source_is_rejected",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/unsafe-bridge-caller/caller-skill.fixture.txt",
+        "evals/fixtures/unsafe-bridge-caller/scripts/hostile.source",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/unsafe-bridge-caller/caller-skill.fixture.txt": "c5c9d8b1408a63658ade7ad716e36f50f7fea9bf16e5f14b40e7031224902c7d",
+        "evals/fixtures/unsafe-bridge-caller/scripts/hostile.source": "e26b87f95fce8f0f51b6987db783517aea1d6f4c7b6d7648e7f02eb82e261f4a",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9"
+      },
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": false,
+      "expected_return_status": "rejected_source",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "rejected_source",
+      "runtime_events": ["implicit_bridge=once", "translation=reject"],
+      "required_observations": ["implicit_route_from_active_callsite", "unsafe_source_treated_as_data", "rejected_source_returned"],
+      "forbidden_observations": ["source_execution", "partial_graph_success", "caller_continuation"]
+    },
+    {
+      "case_id": "inactive-workflow-branch",
+      "eval_id": 22,
+      "eval_name": "inactive_caller_branch_does_not_trigger_bridge",
+      "input": null,
+      "files": [
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt": "31ac45aa5be87c5245c916c095f402bebe31d5a8e52822eb5f8485250d6e8b77"
+      },
+      "expected_trigger": false,
+      "expected_route": "not_applicable",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "not_applicable",
+      "expected_terminal": "not_applicable",
+      "runtime_events": ["caller_branch=quick"],
+      "required_observations": ["active_branch_checked", "zero_workflow_executions", "quick_branch_continues"],
+      "forbidden_observations": ["mere_mention_trigger", "inactive_call_execution", "manifest_created"]
+    },
+    {
+      "case_id": "native-workflow-attempted-no-fallback",
+      "eval_id": 23,
+      "eval_name": "attempted_native_workflow_cannot_fallback_to_bridge",
+      "input": "workflow-call.cases.json",
+      "files": [
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline",
+        "evals/fixtures/workflow-call.cases.json",
+        "evals/fixtures/expected-mappings.json"
+      ],
+      "fixture_sha256": {
+        "evals/fixtures/orbit-market-scan/caller-skill.fixture.txt": "31ac45aa5be87c5245c916c095f402bebe31d5a8e52822eb5f8485250d6e8b77",
+        "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline": "fbc8ee90e3eb9da4c52284f314d7446f9aed72a570310a7d346b1f3f72f2c902",
+        "evals/fixtures/workflow-call.cases.json": "91ec672f0711a574c94f0bae0398caf87f25f17eeb22f398bf43161855e9c9d9"
+      },
+      "expected_trigger": false,
+      "expected_route": "reject",
+      "expected_bridge_executions": 0,
+      "expected_native_executions": 1,
+      "expected_caller_continuation": false,
+      "expected_return_status": "native_workflow_failed",
+      "expected_terminal": "native_workflow_failed",
+      "runtime_events": ["native_workflow_attempted=true", "native_timeout", "bridge=zero"],
+      "required_observations": ["native_attempt_preserved", "zero_bridge_executions", "native_failure_returned", "caller_post_success_stopped"],
+      "forbidden_observations": ["native_timeout_as_not_attempted", "bridge_fallback", "double_execution", "caller_post_success_phase"]
+    }
+  ]
+}

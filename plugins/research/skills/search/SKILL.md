@@ -140,8 +140,8 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
 にコミットされてしまうリスクも残る。プロジェクトに依存しない `~/.claude/search-workspace/`
 を使えば、この gitignore 管理という問題自体が発生しない。
 
-Step 0.5（委譲経路）・Step 2（通常経路）のいずれで verifier を spawn する前にも、SKILL.md
-自身（script ではなく agent）が以下を行い `workspaceDir` を確定する：
+native Workflow と Step 0.5（直接委譲）では、verifier を spawn する前にSKILL.md自身
+（script ではなく agent）が以下を行い `workspaceDir` を確定する：
 
 1. 調査依頼（委譲経路では検証対象の主張）から短い slug を作る（英数字・ハイフンのみ、
    20 文字程度に要約）。
@@ -149,6 +149,11 @@ Step 0.5（委譲経路）・Step 2（通常経路）のいずれで verifier �
    `~/.claude/search-workspace/{timestamp}-{slug}` を `workspaceDir` とする
    （script は再現性のため日時を自ら生成できないので、ここは agent 側の責務）。
 3. `mkdir -p {workspaceDir}/evidence` を実行してから spawn に進む。
+
+Codex互換経路はこの3手順を実行しない。caller / hostがfresh session rootと、その配下のまだ存在しない
+execution run rootを選び、`workspaceDir`にはそのrun rootを渡す。call receipt確定前にも
+`workspaceDir`や`evidence/`を作成してはならない。runner初期化が空run rootを所有し、translatorが列挙した
+`evidence/round-{round}/slot-{index}.md`だけをcontroller管理下のartifactとして作る。
 
 ## Step 0.5: 委譲ヘッダ検出（SKILL.md が直接判定する分岐）
 
@@ -182,7 +187,13 @@ Step 0.5（委譲経路）・Step 2（通常経路）のいずれで verifier �
 
 ## Step 2: Workflow を呼ぶ
 
-> **実行環境の前提**: このスキルは Claude Code の dynamic workflows に依存する。Codex では動作しない可能性が高い — `codex` CLI に workflow サブコマンドが無く、[Codex plugin の仕様](https://developers.openai.com/codex/plugins/build)にも `workflows/` サーフェスが無い（いずれも 2026-08 時点。Codex セッション内のツールセットを直接確認したものではない）。Codex で使う場合は、まず Workflow 相当のツールが露出しているか確認すること。
+> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
+> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
+> 内部互換層として自動利用し、ユーザーに runner の指定を求めない。native を試行後に
+> error / timeout / invalid result となった場合は runner へ fallback しない。
+>
+> **Codex v1 classification: `portable_v1`**。round、claim数、fan-outはhard maxを持ち、evidence pathは
+> agent生成IDではなく事前列挙可能なround/slotで決まる。host hidden globalには依存しない。
 
 ```
 Workflow({
@@ -199,7 +210,15 @@ Workflow({
 `skillDir` には本スキルの実ディレクトリを実パスで渡す。スクリプトは自身の位置を解決できず、
 agent に渡す `agents/*.md` と `schemas/agent-contracts.md` の Read パスがここでしか決まらない。
 `workspaceDir` は上記の手順で確定したパスをそのまま渡す。script はこれを使って claim ごとの
-`evidence_file`（`{workspaceDir}/evidence/{claim-id}.md`）を組み立て、verifier に渡す。
+`evidence_file`（`{workspaceDir}/evidence/round-{round}/slot-{index}.md`）を組み立て、verifier に渡す。
+agent が返す claim ID は内容上の識別子に限定し、path や runtime label には使わない。
+
+Codex 互換経路では、caller / host がplugin install/cacheと調査対象ツリーの外に用意するfresh execution
+run rootそのものを `workspaceDir` としてcall receipt 確定前に選び、そのexact pathを渡す。
+execution run rootは作成せず、親session rootだけを用意してrunner初期化まで空の境界を保つ。これにより plugin cache や調査対象ツリーを
+workflow agent が書き換えない。caller が所有する前処理は Step 0〜1、成功後処理は Step 3、
+human gate は無し。runner の verified return 以外で Step 3 へ進まない。runner 未install、
+`unsupported_runtime`、`rejected_source`、`workflow_incomplete` はそのまま報告し、合成した成功結果で継続しない。
 
 完了すると `{ question, rounds_run, termination_reason, report, verdicts, rounds }` が返る。
 
@@ -220,9 +239,8 @@ claim は最終レポートの `unverified_or_inconclusive` に落ちる（全�
 場合も同様にレポートは組み上がる（`verified_facts` が空になりうる）。
 
 `termination_reason` は `converged`（収束）/ `stalled`（進捗なしで打ち切り）/ `max_rounds`
-（ラウンド上限）/ `budget_exhausted`（予算到達）/ `not_started`（1 ラウンドも回らなかった）。
-`converged` 以外は Step 3 で必ず明示する（達成度を実態より良く見せない）。`not_started` と
-`report: null` が返った場合はレポートを組み立てず、その事実をそのまま伝える。
+（ラウンド上限）。実行量は `maxRounds` と claim schema の `maxItems` で bounded にし、Workflow host の
+hidden budget global には依存しない。`converged` 以外は Step 3 で必ず明示する（達成度を実態より良く見せない）。
 
 Workflow は `resumeFromRunId` で再開できる。長い調査が中断した場合は同じ `scriptPath` +
 `resumeFromRunId` で続きから回せる。

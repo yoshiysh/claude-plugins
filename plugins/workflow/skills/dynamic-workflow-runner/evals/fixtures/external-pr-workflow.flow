@@ -1,0 +1,8 @@
+workflow prepare-change-and-propose-pr(topic):
+  research topic without external mutation
+  review the research independently
+  prepare an action package for action "git.pr.create"
+  targets: ["repository:example/project"]
+  scopes: ["branch:proposed-change", "pull-request:create"]
+  stop at a human semantic-confirmation gate
+  never push or create the pull request inside this workflow

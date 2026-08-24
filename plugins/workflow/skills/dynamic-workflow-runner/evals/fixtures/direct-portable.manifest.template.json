@@ -1,0 +1,59 @@
+{
+  "schema_version": "dynamic-workflow/v1",
+  "workflow_id": "portable-direct-research",
+  "translation_mode": "direct",
+  "description": "One bounded read-only research task",
+  "source": {
+    "path": "{{SOURCE_PATH}}",
+    "sha256": "{{SOURCE_SHA256}}",
+    "format": "text"
+  },
+  "arguments": {
+    "topic": "portable workflow contracts"
+  },
+  "limits": {
+    "max_parallel": 1,
+    "max_agent_runs": 1,
+    "max_tasks": 1,
+    "max_depth": 1
+  },
+  "required_capabilities": ["native_collaboration", "spawn", "collect_or_wait", "stable_handle"],
+  "independent_pairs": [],
+  "tasks": [
+    {
+      "id": "research",
+      "kind": "agent",
+      "depends_on": [],
+      "required": true,
+      "prompt": "Read the controller-provided topic and save a node-result JSON at the assigned path.",
+      "context_policy": {"mode": "fresh"},
+      "requirements": {
+        "semantic_capabilities": ["research.read"],
+        "permissions": ["workspace.read"],
+        "on_unavailable": "unsupported_runtime"
+      },
+      "result_contract": {
+        "schema_version": "dynamic-workflow-task-result-contract/v1",
+        "target": {"kind": "node_result"},
+        "schema": {
+          "kind": "inline",
+          "dialect": "https://json-schema.org/draft/2020-12/schema",
+          "document": {},
+          "canonical_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        },
+        "validation": {
+          "at_finish": true,
+          "at_final_review": true,
+          "on_missing": "workflow_incomplete",
+          "on_invalid": "workflow_incomplete"
+        }
+      },
+      "inputs": [{"kind": "argument", "key": "topic"}],
+      "output_path": "results/research.json",
+      "artifact_paths": [],
+      "effect": "read_only",
+      "approval_gate_id": null,
+      "accepted_outcomes": ["pass"]
+    }
+  ]
+}

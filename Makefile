@@ -1,4 +1,6 @@
 PYTHON ?= python3
+NODE ?= node
+FIND ?= find
 SKILLS_DIR := .agents/skills
 VALIDATOR := $(SKILLS_DIR)/skill-creator-best-practices/scripts/quick_validate.py
 PORTABILITY := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_portability.py
@@ -9,6 +11,10 @@ REFERENCES := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_references.p
 # リネーム時、unittest の 2 行だけがハードコードのまま残り make test が壊れた）。
 SKILLS := $(notdir $(patsubst %/,%,$(wildcard $(SKILLS_DIR)/*/)))
 TEST_DIRS := $(wildcard $(SKILLS_DIR)/*/tests)
+SKILL_NODE_TEST_FILES := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/scripts/*.test.mjs' -print 2>/dev/null)
+REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 2>/dev/null)
+NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
+EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
 .PHONY: test portability references check
 
@@ -21,6 +27,14 @@ test: references
 	@set -e; for t in $(TEST_DIRS); do \
 		echo "── unittest $$t"; \
 		$(PYTHON) -m unittest discover -s $$t -p 'test_*.py'; \
+	done
+	@if [ -n "$(NODE_TEST_FILES)" ]; then \
+		echo "── Node tests"; \
+		$(NODE) --test $(NODE_TEST_FILES); \
+	fi
+	@set -e; for e in $(EVAL_RUNNERS); do \
+		echo "── eval preflight $$e"; \
+		$(NODE) $$e; \
 	done
 
 # 参照先の実在チェック。こちらは portability と違い合否ゲートにする。

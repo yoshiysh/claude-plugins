@@ -1,0 +1,142 @@
+{
+  "schema_version": "dynamic-workflow-return-fixtures/v1",
+  "returns": [
+    {
+      "template_id": "orbit-deep-return",
+      "call_template_id": "orbit-deep-call",
+      "return_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["observation", "review"],
+        "properties": {
+          "observation": { "type": "string" },
+          "review": { "type": "string" }
+        }
+      },
+      "return": {
+        "schema_version": "dynamic-workflow-return/v1",
+        "call_id": "orbit-market-scan:deep:1",
+        "workflow_id": "phase-lens",
+        "run_id": "run-orbit-1",
+        "status": "workflow_complete",
+        "value": {
+          "observation": "grid backlog is rising",
+          "review": "evidence threshold passed"
+        },
+        "receipt": {
+          "workflow_call_sha256": "{{WORKFLOW_CALL_SHA256}}",
+          "manifest_sha256": "{{MANIFEST_SHA256}}",
+          "final_review_sha256": "{{FINAL_REVIEW_SHA256}}",
+          "value_canonical_sha256": "{{VALUE_CANONICAL_SHA256}}",
+          "schema_sha256": "{{RETURN_SCHEMA_SHA256}}",
+          "materialized_at": "2026-08-21T00:10:00Z"
+        },
+        "caller_continuation": {
+          "allowed": true,
+          "owner": "caller_skill",
+          "invoking_skill_root": "{{SKILL_ROOT}}",
+          "post_workflow": ["write-summary"],
+          "human_gates": ["publish-check"]
+        }
+      }
+    },
+    {
+      "template_id": "relative-signal-return",
+      "call_template_id": "relative-signal-call",
+      "return_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["region", "signals"],
+        "properties": {
+          "region": { "const": "JP" },
+          "signals": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "return": {
+        "schema_version": "dynamic-workflow-return/v1",
+        "call_id": "relative-signal-map:jp:1",
+        "workflow_id": "signal-map",
+        "run_id": "run-signal-1",
+        "status": "workflow_complete",
+        "value": {
+          "region": "JP",
+          "signals": ["orders", "spreads"]
+        },
+        "receipt": {
+          "workflow_call_sha256": "{{WORKFLOW_CALL_SHA256}}",
+          "manifest_sha256": "{{MANIFEST_SHA256}}",
+          "final_review_sha256": "{{FINAL_REVIEW_SHA256}}",
+          "value_canonical_sha256": "{{VALUE_CANONICAL_SHA256}}",
+          "schema_sha256": "{{RETURN_SCHEMA_SHA256}}",
+          "materialized_at": "2026-08-21T00:11:00Z"
+        },
+        "caller_continuation": {
+          "allowed": true,
+          "owner": "caller_skill",
+          "invoking_skill_root": "{{SKILL_ROOT}}",
+          "post_workflow": ["return-signal-map"],
+          "human_gates": []
+        }
+      }
+    }
+  ],
+  "return_bindings": [
+    {
+      "template_id": "orbit-deep-binding",
+      "call_template_id": "orbit-deep-call",
+      "binding": {
+        "schema_version": "dynamic-workflow-return-binding/v1",
+        "workflow_call_sha256": "{{WORKFLOW_CALL_SHA256}}",
+        "expression": {
+          "kind": "object",
+          "entries": {
+            "observation": { "kind": "task_result", "task_id": "observe", "pointer": "/value" },
+            "review": { "kind": "task_result", "task_id": "challenge", "pointer": "/value" }
+          }
+        },
+        "schema": {
+          "kind": "inline",
+          "dialect": "https://json-schema.org/draft/2020-12/schema",
+          "document": {
+            "type": "object",
+            "required": ["observation", "review"]
+          },
+          "canonical_sha256": "{{RETURN_SCHEMA_SHA256}}"
+        },
+        "limits": { "max_depth": 4, "max_nodes": 16 }
+      }
+    },
+    {
+      "template_id": "relative-signal-binding",
+      "call_template_id": "relative-signal-call",
+      "binding": {
+        "schema_version": "dynamic-workflow-return-binding/v1",
+        "workflow_call_sha256": "{{WORKFLOW_CALL_SHA256}}",
+        "expression": { "kind": "task_result", "task_id": "verify", "pointer": "/value" },
+        "schema": {
+          "kind": "inline",
+          "dialect": "https://json-schema.org/draft/2020-12/schema",
+          "document": { "type": "object" },
+          "canonical_sha256": "{{RETURN_SCHEMA_SHA256}}"
+        },
+        "limits": { "max_depth": 2, "max_nodes": 4 }
+      }
+    }
+  ],
+  "return_binding_crosswire_mutations": [
+    {
+      "mutation_id": "relative-binding-to-orbit-call",
+      "target_call_template_id": "orbit-deep-call",
+      "binding_template_id": "relative-signal-binding",
+      "expected_binding": "reject"
+    }
+  ],
+  "crosswire_mutations": [
+    {
+      "mutation_id": "relative-return-to-orbit-call",
+      "target_call_template_id": "orbit-deep-call",
+      "return_template_id": "relative-signal-return",
+      "expected_binding": "reject"
+    }
+  ]
+}
