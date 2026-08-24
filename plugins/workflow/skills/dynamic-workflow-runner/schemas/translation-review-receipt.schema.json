@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-translation-review-receipt/v1",
+  "title": "Dynamic Workflow Translation Review Invocation Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "invocation_id",
+    "reviewer_handle",
+    "context_policy",
+    "parent_context_inherited",
+    "translation_mode",
+    "handle_boundary",
+    "prompt",
+    "input_manifest",
+    "invoked_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-translation-review-receipt/v1" },
+    "invocation_id": { "type": "string", "minLength": 1 },
+    "reviewer_handle": { "type": "string", "minLength": 1 },
+    "context_policy": { "const": "fresh" },
+    "parent_context_inherited": { "const": false },
+    "translation_mode": { "enum": ["direct", "translated"] },
+    "handle_boundary": { "enum": ["runtime_enforced", "attested_not_enforced"] },
+    "prompt": { "$ref": "#/$defs/file_ref" },
+    "input_manifest": { "$ref": "#/$defs/file_ref" },
+    "workflow_call": { "$ref": "#/$defs/workflow_call_binding" },
+    "original_receipt": { "$ref": "#/$defs/file_ref" },
+    "invoked_at": { "$ref": "#/$defs/canonical_date_time" }
+  },
+  "$defs": {
+    "canonical_date_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,9})?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$"
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "phase_list": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    },
+    "caller_phase_ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "pre_workflow", "post_workflow", "human_gates"],
+      "properties": {
+        "owner": { "const": "caller_skill" },
+        "pre_workflow": { "$ref": "#/$defs/phase_list" },
+        "post_workflow": { "$ref": "#/$defs/phase_list" },
+        "human_gates": { "$ref": "#/$defs/phase_list" }
+      }
+    },
+    "native_workflow_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempted", "available", "observed_at", "evidence"],
+      "properties": {
+        "attempted": { "const": false },
+        "available": { "const": false },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "workflow_call_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt", "caller_phase_ownership", "native_workflow_observation"],
+      "properties": {
+        "receipt": { "$ref": "#/$defs/file_ref" },
+        "caller_phase_ownership": { "$ref": "#/$defs/caller_phase_ownership" },
+        "native_workflow_observation": { "$ref": "#/$defs/native_workflow_observation" }
+      }
+    }
+  }
+}

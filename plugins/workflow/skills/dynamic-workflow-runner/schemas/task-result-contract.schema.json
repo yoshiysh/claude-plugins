@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-task-result-contract/v1",
+  "title": "Dynamic Workflow Task Result Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "target", "schema", "validation"],
+  "properties": {
+    "schema_version": {
+      "const": "dynamic-workflow-task-result-contract/v1"
+    },
+    "contract_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "node_result" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "artifact_path"],
+          "properties": {
+            "kind": { "const": "json_artifact" },
+            "artifact_path": { "$ref": "#/$defs/relative_path" }
+          }
+        }
+      ]
+    },
+    "schema": {
+      "oneOf": [
+        { "$ref": "#/$defs/inline_schema" },
+        { "$ref": "#/$defs/file_schema" }
+      ]
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at_finish", "at_final_review", "on_missing", "on_invalid"],
+      "properties": {
+        "at_finish": { "const": true },
+        "at_final_review": { "const": true },
+        "on_missing": { "const": "workflow_incomplete" },
+        "on_invalid": { "const": "workflow_incomplete" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          { "pattern": "^(?:/|[A-Za-z]:[\\\\/])" },
+          { "pattern": "(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)" },
+          { "pattern": "\\u0000" }
+        ]
+      }
+    },
+    "absolute_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:/|[A-Za-z]:[\\\\/])"
+    },
+    "inline_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "dialect", "document", "canonical_sha256"],
+      "properties": {
+        "kind": { "const": "inline" },
+        "dialect": { "const": "https://json-schema.org/draft/2020-12/schema" },
+        "document": { "type": "object" },
+        "canonical_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "file_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "dialect", "path", "sha256"],
+      "properties": {
+        "kind": { "const": "file" },
+        "dialect": { "const": "https://json-schema.org/draft/2020-12/schema" },
+        "path": { "$ref": "#/$defs/absolute_path" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

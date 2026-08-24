@@ -1,0 +1,8 @@
+{
+    "name": "workflow",
+    "version": "0.1.0",
+    "description": "Claude Code 向け skill が実行中に到達した Workflow({scriptPath,args}) 呼び出しを、 bounded multi-agent graph へ適合させる Codex 内部互換層。ユーザーが直接呼ぶスキルではなく、 Workflow callsite を持つ caller skill が native Workflow 不在時に透過的に内部利用する。 Use when: 選択済み caller skill の active callsite がこの内部互換層を要求した場合だけ。 通常のNode.js/Python/shell実行、単発subagent委譲、外部更新の無承認自動化、hostile sourceに対する強制sandboxには使わない。",
+    "author": {
+        "name": "yoshiysh"
+    }
+}

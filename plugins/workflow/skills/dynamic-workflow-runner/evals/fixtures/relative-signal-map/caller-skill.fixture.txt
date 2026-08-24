@@ -1,0 +1,23 @@
+---
+name: relative-signal-map
+description: Runs a bounded signal-map workflow for the caller's requested region.
+---
+
+# Relative Signal Map
+
+Invoke this Claude-style call without changing its argument object:
+
+```text
+Workflow({
+  scriptPath: "scripts/build-signal-map.custom",
+  args: {
+    region: "JP",
+    window: { start: "2026-07-01", end: "2026-08-01" },
+    thresholds: [0, 0.25, 1],
+    nullable: null,
+    enabled: false
+  }
+})
+```
+
+Resolve the relative `scriptPath` against this skill directory, not the process cwd.

@@ -43,7 +43,7 @@ This file provides guidance to Claude Code when working in this repository.
 
 ## 収録スキル
 
-実体はすべて `.agents/skills/<ディレクトリ>`。plugin はカテゴリ単位（`git` / `chat` / `research` / `notion` / `skill-creator`）でまとめ、呼び出し名は `plugin:skill` になる。スキルの公開名（frontmatter の `name`）がディレクトリ名と異なる場合があり、その対応は「公開名」列に示す。
+実体はすべて `.agents/skills/<ディレクトリ>`。plugin はカテゴリ単位（`git` / `chat` / `research` / `notion` / `skill-creator` / `pdca` / `workflow`）でまとめ、呼び出し名は `plugin:skill` になる。スキルの公開名（frontmatter の `name`）がディレクトリ名と異なる場合があり、その対応は「公開名」列に示す。
 
 | ディレクトリ | 公開名（呼び出し） | 用途 | plugin |
 |---|---|---|---|
@@ -52,8 +52,10 @@ This file provides guidance to Claude Code when working in this repository.
 | `cleanup-branches` | `git:cleanup-branches` | マージ済みブランチと作業状態を掃除し worktree を主ブランチに同期する | `git` |
 | `commit` | `git:commit` | staged 変更から Conventional Commits メッセージを生成しコミットする | `git` |
 | `dispatch` | `research:dispatch` | Fable 5 が計画・評価し、Workflow スクリプトが subagent を反復実行する | `research` |
+| `dynamic-workflow-runner` | —（内部専用） | Claude 向け Workflow callsite を Codex の bounded multi-agent graph へ適合させる | `workflow` |
 | `manage-marketplace-plugin` | —（未登録） | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
 | `notion-organize-knowledge` | `notion:organize-knowledge` | Notion の capture queue を根拠付きで整理し検証付きで書き込む | `notion` |
+| `pdca` | `pdca:pdca` | Plan→Do→Check→Act を契約・検証付きで回す | `pdca` |
 | `pr-create` | `git:pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `git` |
 | `reference` | `research:reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `research` |
 | `search` | `research:search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `research` |
@@ -76,14 +78,14 @@ plugin の改名・削除で残骸になった旧 plugin は `tools/update-plugi
 .agents/skills/
   manage-marketplace-plugin/          # 未登録スキルはここが実体
   commit -> ../../plugins/git/skills/commit          # 公開済みは plugins/ への symlink
-  ...                                                # 他 10 スキルも同様
+  ...                                                # 他の公開済みスキルも同様
 .claude/
   settings.json
   skills -> ../.agents/skills
 .claude-plugin/
   marketplace.json
 plugins/
-  git/                     # 例。chat / research / notion / skill-creator も同構成
+  git/                     # 例。chat / research / notion / skill-creator / pdca / workflow も同構成
     .claude-plugin/plugin.json         # Claude 用（dependencies はこちらだけ）
     .codex-plugin/plugin.json          # Codex 用（共通フィールドのみ）
     README.md
@@ -107,7 +109,7 @@ plugins/
 `Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出するので、スキルを追加しても検証対象に入れ忘れることはない。
 
 ```bash
-make test         # 合否ゲート: 参照先の実在チェック + 全スキルの quick_validate + 各スキルの tests/ の unittest
+make test         # 合否ゲート: 参照・quick_validate・unittest・汎用 Node test・各 eval preflight
 make portability  # 配布 portability の一覧（install 先で壊れる「書き方」の検出）
 make check        # 上記 2 つをまとめて
 ```
@@ -141,7 +143,13 @@ python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 - `plugin.json` は `.claude-plugin/` と `.codex-plugin/` の 2 箇所にある。Codex の公式仕様は `.codex-plugin/plugin.json` を required としており、`.claude-plugin` が読めているのは undocumented な legacy 互換に乗っているだけなので、両方を維持する。内容は `dependencies` を除いて同一で、`verify_install.py` の L2 が一致を検査する。
 - Codex が `plugin.json` の未知フィールドを許容するかは未確認。Codex 仕様に無いフィールド（現状 `dependencies`）は `.codex-plugin/` 側に書かない。
 - **`.agents/skills/` を `find` で走査するときは `-L` を付ける。** 公開済みスキルは symlink なので、`find` は既定で中へ降りず、結果が静かに 0 件になる（`find -L .agents/skills -name '*.js'` のように書く）。同じ理由で `grep -r` も `-r` ではなく実体側（`plugins/`）か `-L` 相当の指定を使う。`make` の `$(wildcard .agents/skills/*/)` と Python の `Path.rglob` は symlink を辿るので影響を受けない（実測確認済み）。
-- `search` / `dispatch` / `skill-creator-best-practices` は Claude Code の dynamic workflows に依存するため **Codex では動作しない**。install 自体は成功するので、実行時まで気づけない。新たに Workflow を使うスキルを作る場合は SKILL.md に同じ注記を入れる。
+- `search` / `dispatch` / `skill-creator-best-practices` / `pdca` は native Workflow を優先し、それが無い
+  Codex では caller SKILL.md の active callsite から `workflow:dynamic-workflow-runner` を透過利用する。
+  これは host-global interceptor ではないため、新たな Workflow caller には同じ native-first route契約を追加する。
+- runner v1でportable executionまで進めるのは `search` と `skill-creator-best-practices` のcreate modeだけ。
+  `dispatch`、`pdca`、review/updateは意味保存できないconstructを含むため、execution前にfail-closedする。
+- Claude Code は caller plugin の `dependencies` から `workflow` を導入する。Codex に同等の自動依存導入は無いため、
+  caller plugin と `workflow` を別々に一度 install する。
 
 ## 言語
 

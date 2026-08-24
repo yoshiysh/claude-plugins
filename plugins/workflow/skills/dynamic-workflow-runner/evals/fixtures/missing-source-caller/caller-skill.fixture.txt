@@ -1,0 +1,9 @@
+---
+name: missing-source-caller
+description: Runs a bounded comparison workflow when its declared workflow source is present.
+---
+
+# Missing Source Caller
+
+Invoke `Workflow({ scriptPath: "[SKILL_DIR]/scripts/not-present.any", args: { region: "EU" } })`.
+If that exact source cannot be resolved as a regular file, stop before any workflow execution.

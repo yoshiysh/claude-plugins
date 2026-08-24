@@ -1,0 +1,7 @@
+workflow quarterly-research(topic):
+  research-us and research-jp in parallel
+  summarize after both research tasks
+  verify summarize in fresh context
+  if verify returns revise, repair then verify once more
+  stop after the second verification
+  evaluation events: first verification returns revise; second verification returns pass

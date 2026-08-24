@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-task-input/v1",
+  "title": "Dynamic Workflow Task Input Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "workflow_id", "run_id", "task_id", "invocation_id", "context_policy", "requirements", "capability_snapshot", "capability_assessment", "fork_behavior", "result_contract", "inputs"],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-task-input/v1" },
+    "workflow_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "invocation_id": { "type": "string", "minLength": 1 },
+    "context_policy": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "enum": ["fresh", "all"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["mode", "turns"], "properties": { "mode": { "const": "recent" }, "turns": { "type": "integer", "minimum": 1, "maximum": 1000 } } }
+      ]
+    },
+    "requirements": {
+      "type": "object", "additionalProperties": false,
+      "required": ["semantic_capabilities", "permissions", "on_unavailable"],
+      "properties": {
+        "semantic_capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "permissions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "on_unavailable": { "enum": ["unsupported_runtime", "skip_optional"] }
+      }
+    },
+    "capability_snapshot": { "$ref": "#/$defs/file_ref" },
+    "capability_assessment": {
+      "type": "object", "additionalProperties": false, "required": ["available", "reasons"],
+      "properties": { "available": { "type": "boolean" }, "reasons": { "type": "array", "items": { "type": "string" } } }
+    },
+    "result_contract": {
+      "type": "object", "additionalProperties": false, "required": ["contract_sha256", "schema_sha256", "schema_path"],
+      "properties": {
+        "contract_sha256": { "$ref": "#/$defs/sha256" },
+        "schema_sha256": { "$ref": "#/$defs/sha256" },
+        "schema_path": { "type": ["string", "null"] }
+      }
+    },
+    "fork_behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_isolation", "model_context_inherited"],
+      "properties": {
+        "context_isolation": { "enum": ["enforced", "attested_not_enforced"] },
+        "model_context_inherited": { "type": "boolean" }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "key", "value"],
+            "properties": {
+              "kind": { "const": "argument" },
+              "key": { "type": "string", "minLength": 1 },
+              "value": {}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "task_id", "path", "sha256"],
+            "properties": {
+              "kind": { "const": "task_result" },
+              "task_id": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "task_id", "status", "path", "sha256"],
+                "properties": {
+                  "kind": { "const": "optional_task_result" },
+                  "task_id": { "type": "string", "minLength": 1 },
+                  "status": { "const": "available" },
+                  "path": { "type": "string", "minLength": 1 },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "task_id", "status", "path", "sha256"],
+                "properties": {
+                  "kind": { "const": "optional_task_result" },
+                  "task_id": { "type": "string", "minLength": 1 },
+                  "status": { "const": "skipped" },
+                  "path": { "type": "null" },
+                  "sha256": { "type": "null" }
+                }
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "task_id", "path", "sha256"],
+            "properties": {
+              "kind": { "const": "artifact" },
+              "task_id": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "task_id", "status", "path", "sha256"],
+                "properties": {
+                  "kind": { "const": "optional_artifact" },
+                  "task_id": { "type": "string", "minLength": 1 },
+                  "status": { "const": "available" },
+                  "path": { "type": "string", "minLength": 1 },
+                  "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "task_id", "status", "path", "sha256"],
+                "properties": {
+                  "kind": { "const": "optional_artifact" },
+                  "task_id": { "type": "string", "minLength": 1 },
+                  "status": { "const": "skipped" },
+                  "path": { "type": "string", "minLength": 1 },
+                  "sha256": { "type": "null" }
+                }
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "path", "sha256"],
+            "properties": {
+              "kind": { "const": "file" },
+              "path": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "file_ref": {
+      "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+      "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" } }
+    }
+  }
+}

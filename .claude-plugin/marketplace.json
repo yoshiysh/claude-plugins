@@ -28,6 +28,10 @@
         {
             "name": "pdca",
             "source": "./plugins/pdca"
+        },
+        {
+            "name": "workflow",
+            "source": "./plugins/workflow"
         }
     ]
 }

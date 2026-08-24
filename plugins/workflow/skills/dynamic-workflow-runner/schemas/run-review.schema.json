@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-run-review/v1",
+  "title": "Dynamic Workflow Run Review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "run_id",
+    "manifest_sha256",
+    "state_snapshot_sha256",
+    "invocation_id",
+    "reviewer_handle",
+    "prompt_sha256",
+    "input_manifest_sha256",
+    "verdict",
+    "summary",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "dynamic-workflow-run-review/v1"
+    },
+    "workflow_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "state_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "invocation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$"
+    },
+    "reviewer_handle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prompt_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "input_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "verdict": {
+      "enum": ["pass", "revise", "stop_with_unknowns"]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

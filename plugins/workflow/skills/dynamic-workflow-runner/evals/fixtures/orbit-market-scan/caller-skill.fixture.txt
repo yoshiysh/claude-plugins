@@ -1,0 +1,27 @@
+---
+name: orbit-market-scan
+description: Runs a two-stage market scan when the user invokes this skill. The deep route delegates its bounded graph through a Claude-style Workflow call.
+---
+
+# Orbit Market Scan
+
+1. Record the caller-owned `collect-request` pre-workflow phase.
+2. If `mode` is `deep`, invoke exactly this call:
+
+```text
+Workflow({
+  scriptPath: "[SKILL_DIR]/scripts/phase-lens.pipeline",
+  args: {
+    universe: ["power-grid", "industrial-software"],
+    horizon_days: 45,
+    filters: { currencies: ["JPY", "USD"], include_sensors: true },
+    note: "preserve whitespace:  A  B"
+  }
+})
+```
+
+3. Treat the returned value as the result of this exact call only. Never accept a return receipt from a different call.
+4. Stop at the caller-owned `publish-check` human gate. Do not move this gate into the workflow graph.
+5. After approval, run the caller-owned `write-summary` post-workflow phase with the bound return value.
+
+If `mode` is `quick`, do not invoke `Workflow`. Run only the ordinary `summarize-input` step and return.
