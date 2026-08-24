@@ -36,7 +36,7 @@ AI は思考しないが、思考は既存手順の組み合わせで模倣で�
 - [references/operators.md](references/operators.md) — 思考オペレータカタログ（Plan が選ぶ）
 - [assets/plan-template.md](assets/plan-template.md) / [assets/run-table.md](assets/run-table.md) — Plan 雛形・run 表
 - [schemas/agent-contracts.md](schemas/agent-contracts.md) — agent 間契約と script の args / 返り値
-- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（後半 4 つは `scripts/pdca.js` が Read させる）
+- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（後半 4 つは `scripts/pdca.js` が Read させる）
 - [evals/evals.json](evals/evals.json) — テストケース 4 件（起点 3 モード + 誤発動）
 
 ## 起点の判定（3 モード）
@@ -52,43 +52,51 @@ AI は思考しないが、思考は既存手順の組み合わせで模倣で�
 動機起点で現状把握を強制すると、存在しない事実を埋めることになる。代わりに 1 周目の Do を
 「現状を作るため」に使い、成功基準は `provisional` として置き、Check で確定する。
 
-## Plan フェーズ
+## Plan フェーズ（Workflow 呼び出し）
 
-`intake` → `evidence-collector` → `planner` の順に呼ぶ。逐次なのは、後段が前段の出力だけを
-入力に取るため。
+Plan 区間は `scripts/pdca-plan.js` に閉じている。intake → evidence-collector → planner →
+**plan-verifier（敵対的検証）** → 改稿、の until-pass ループを script が持つ（改稿上限 2）。
+人間承認の代わりに、Plan を書いていない fresh context の verifier が「この Plan が使えない測定を
+生む理由」を 6 レンズ（指標の崩壊・検証契約の実行可能性・交絡と fixed の漏れ・停止条件の操作化・
+標本選択バイアス・独立性の証拠経路）で反証し、blocker/major が 0 になるまで Do に進む分岐が無い。
 
-1. **`agents/intake.md`** に起点の文（と資料 URL・測れる環境・予算があればそれ）を渡す。
-   起点モードを判定し、不足入力（測れる環境が無い／成功の定義が無い等）があればここで問い返す。
-   問い返しが返ってきたらユーザーに聞き、埋めてから次へ進む。
-2. **`agents/evidence-collector.md`** に intake の出力を渡す。事実確認オペレータの実行担当で、
-   `research:search` へパイプライン委譲して一次情報を集め、**出典付きの事実だけ**を返す。
-   動機起点では事実欄を「無し」で返す。裏が取れなかったものは事実に混ぜず未確認として残す。
-3. **`agents/planner.md`** に intake と evidence-collector の出力を渡す。オペレータ選択・
-   選択肢（各案に機序）・選定基準・棄却理由・成功基準・測定方法・停止条件を確定させる。
-   planner に渡すのは evidence-collector の出力までで、**過去の類似 run のログや Do/Check の
-   中間結果は渡さない**。見えていると、出た結果に通る基準を書けてしまう。
-   雛形は [assets/plan-template.md](assets/plan-template.md)（起点別）を使わせる。
+```js
+Workflow({
+  scriptPath: '<このスキルの絶対パス>/scripts/pdca-plan.js',
+  args: {
+    skillDir: '<このスキルの絶対パス>',
+    input: '<起点の文（問題 / 動機 / 主張）>',
+    materials: '<資料 URL・パス（任意）>',
+    budget: { maxRuns: 8, cycles: 3 },
+  },
+})
+```
+
+役割定義: [agents/intake.md](agents/intake.md)（起点判定・不足入力の問い返し）、
+[agents/evidence-collector.md](agents/evidence-collector.md)（`research:search` 委譲、出典付き事実のみ。
+動機起点では事実欄は空のまま）、[agents/planner.md](agents/planner.md)（オペレータ選択・機序付き選択肢・
+基準の事前固定。Do/Check の中間結果は渡さない — 見えていると出た結果に通る基準を書けてしまう）、
+[agents/plan-verifier.md](agents/plan-verifier.md)（反証専任）。
+
+返り値の `status`:
+
+| status | 意味と次の一手 |
+|---|---|
+| `ok` | `plan` と `plan_review` を持つ。**ユーザー承認を待たずに Do/Check へ進んでよい** |
+| `NEEDS_INPUT` | intake の問い返し。`questions[]` をユーザーに聞いて埋め、再実行する |
+| `UNVERIFIABLE` | 測れる形にできない。理由と「何が要るか」を返して止める（`research:search` で調査だけ続ける選択肢を添える） |
+| `BLOCKED` | 改稿上限まで pass しなかった。findings を添えてユーザーの判断を仰ぐ |
 
 Plan で選択肢が割れて審議が要ると planner が判断したら、`magi` に委譲してから戻る。
 
-### 検証不能の経路
+## Plan から Do への遷移（人間ゲート無し）
 
-planner は次のどれかに当たるとき、Plan を書かずに `status: "unverifiable"` と理由を返す。
-無理に対制御を組むと、測っているのは主張ではなく測れる何かになる。
-
-- 主張検証起点で、主張の一次情報が得られず数字・制約が無い（逆算の材料が無い）
-- 測れる環境が無く、ユーザーも用意できないと答えた
-- 成功基準を「何が観測されたら」の形に落とせない（「良くなる」「速くなる」のまま）
-
-この場合はユーザーにその旨と「測れる形にするには何が要るか」を返して止める。`research:search`
-で調査だけ続ける選択肢を添える。
-
-## ゲート①：Plan 承認
-
-> Plan をユーザーに提示し、**承認を得るまで Do に進まない**。
-> workflow は実行中にユーザー入力を受け取れないので、判断はこの境界に置く。
-> 動機起点では「仮基準（provisional）のまま 1 周目を回す」ことへの承認として取る。
-> 提示するのは Plan の全文（事実・目標・選択肢と機序・採用/棄却・成功基準・測定方法・停止条件）。
+> pdca-plan.js が `status: ok` を返したら、**ユーザー承認を待たずに** Do/Check へ進む。
+> 承認の代替は plan-verifier の敵対的検証（blocker/major 0 が構造条件）。人間の関与が要るのは
+> `NEEDS_INPUT` / `UNVERIFIABLE` / `BLOCKED` の 3 経路と、Act の standardize だけ。
+> Do 起動時、`plan` と `plan_review.findings`（minor 含む）を pdca.js の args にそのまま載せ、
+> ユーザーには「Plan が検証を通過したので Do に進む」ことを要約付きで**事後報告**する（黙って進めない）。
+> 動機起点の仮基準（provisional）もこの経路で通る — 仮であることは Check の基準確定で回収される。
 
 ## Do/Check フェーズ（Workflow 呼び出し）
 
