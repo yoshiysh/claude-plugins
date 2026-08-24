@@ -1,6 +1,6 @@
 {
     "name": "pdca",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "PDCA ループ実行スキル。契約固定・思考オペレータ選択型（問題/動機/主張検証の 3 起点）",
     "author": {
         "name": "yoshiysh"
