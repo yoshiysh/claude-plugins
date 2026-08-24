@@ -263,3 +263,6 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
 - 予算（run 数・トークン・時間）は Plan の停止条件に必ず入れる。入っていないと 1 周が
   いくらでも伸びる
 - ゲート①②はユーザーの承認そのものが要る地点。承認の記録を承認の代わりに使わない
+- successCriteria に検証手順を書いたら、それは verifier への契約になる。verifier が実施できなかった
+  検証は met=false（未実施）として返り、mechanism-analyst の unmeasured に載る。「書いたのに
+  実施されず pass」は起きない設計にする
