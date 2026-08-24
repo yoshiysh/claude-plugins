@@ -11,6 +11,8 @@
 | runner | `[PLAN] [FIXED] [CONDITION] [ARTIFACTS] [MEASUREMENT_POINTS] [RUN_INDEX] [BUDGET]` | `{condition_id, run_index, executed, observations, raw_measurements, cost, anomalies[]}` |
 | verifier | `[SUCCESS_CRITERIA]（text + METRIC + 向き） [CONDITION_ID] [RUN_INDEX] [ARTIFACTS] [RUN_OBSERVATIONS] [RAW_MEASUREMENTS]` | `{condition_id, run_index, measured, unmeasured_reason, score, criteria_checks[{criterion,met,evidence}], failure_mechanism_hint, self_report_used}` |
 | mechanism-analyst | `[SUCCESS_CRITERIA] [PER_CONDITION_STATS] [DELTA] [RUN_DETAILS]` | `{mechanisms[{statement,evidence,alternative_explanations[],identified}], criteria_validity, unmeasured[], gap}` |
+| plan-verifier | Plan JSON | `{verdict: pass|revise, findings[{lens,severity,claim,why_it_breaks_measurement,what_would_make_it_testable}], non_findings[]}` |
+| plan-verifier | Plan JSON | `{verdict: pass|revise, findings[{lens,severity,claim,why_it_breaks_measurement,what_would_make_it_testable}], non_findings[]}` |
 | act-judge | Do/Check 返り値 + Plan の成功基準・停止条件 | `{decision: standardize|revise|stop|human_required, matched_rule, basis[{field,value,why}], auto_executable, conflicts[], note_for_user}` |
 | revision-planner | `check.mechanisms[]`, Plan | `{revisionDiffs[], predicted_observations[], deferred[{diff,why}]}` |
 
