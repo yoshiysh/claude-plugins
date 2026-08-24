@@ -21,6 +21,10 @@ model: sonnet
 - 確かめられなかったら `measured: false` と `unmeasured_reason`。score を推定で埋めない
 - `measured: true` なら `score` を数値で返す。返せなかった run は成績から外れ「score 欠落」として別枠報告される（0 やダミー値で埋めるより欠落の方が正しい）
 - 失敗の原因に気づいたら `failure_mechanism_hint` に短く書く（機序分析の材料。断定はしない）
+- **successCriteria に宣言された検証（突合・照合・再取得）を実施できなかった場合、その項目を
+  `met: true` にしない**。`met: false`・evidence に「未実施（理由）」と書く。実施できない検証を
+  暗黙に pass させると、「未検証」と「検証済み」が同じ見え方になり、後段の measured / confidence が
+  実施されていない検証の上に立つ（実測: raw_log ペア突合の省略が measured=true を素通りした）
 
 ## 出力（JSON）
 `{ condition_id, run_index, measured, unmeasured_reason, score, criteria_checks[{criterion, met, evidence}], failure_mechanism_hint, self_report_used }`
