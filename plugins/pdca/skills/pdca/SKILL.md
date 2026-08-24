@@ -36,7 +36,7 @@ AI は思考しないが、思考は既存手順の組み合わせで模倣で�
 - [references/operators.md](references/operators.md) — 思考オペレータカタログ（Plan が選ぶ）
 - [assets/plan-template.md](assets/plan-template.md) / [assets/run-table.md](assets/run-table.md) — Plan 雛形・run 表
 - [schemas/agent-contracts.md](schemas/agent-contracts.md) — agent 間契約と script の args / 返り値
-- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [revision-planner](agents/revision-planner.md)（後半 4 つは `scripts/pdca.js` が Read させる）
+- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（後半 4 つは `scripts/pdca.js` が Read させる）
 - [evals/evals.json](evals/evals.json) — テストケース 4 件（起点 3 モード + 誤発動）
 
 ## 起点の判定（3 モード）
@@ -173,17 +173,27 @@ confidence: suggestive（n=3、実行の非決定性が残り、機序は 2 案�
 測れていないもの: 探索順序のランダム性、モデル側のキャッシュ影響
 ```
 
-## ゲート②：Act 承認
+## ゲート②：Act の判定と承認
 
-> `check.mechanisms[]` の解釈と `decision`（standardize / revise / stop）をユーザーに承認させる。
-> ここでの介入は **redirect のみ**（停滞の指摘・未探索領域の提示）に留め、仮説や答えを
-> こちらから供給しない。供給すると、次の周で検証しているのは自分の仮説になり、
-> ループが自己確認に変わる。承認プロンプトにも結論を混ぜない。
+> decision の候補出しは [agents/act-judge.md](agents/act-judge.md) に委譲する。act-judge は
+> Act 判定表を機械的に適用し、`decision` / `matched_rule` / `auto_executable` を返す。
+>
+> **自動実行の線引き**（承認済み停止条件が上限を構造で持つことが前提）:
+> - `revise`・`stop` で `auto_executable: true` → ユーザー承認なしで実行してよい。実行後に
+>   matched_rule と根拠を**事後報告**する（黙って進めない）
+> - `standardize` → 必ず人間ゲート。rules / skill / memory への恒久化は不可逆側の操作
+> - `human_required`（表に無い状況・行の衝突）→ 必ず人間ゲート。act-judge が発明した規則で
+>   進めない
+>
+> ユーザーが「毎回確認したい」と言った場合は auto_executable を無視して全件ゲートに戻す。
+> ここでの人間・司令塔の介入は **redirect のみ**（停滞の指摘・未探索領域の提示）に留め、
+> 仮説や答えを供給しない。供給すると、次の周で検証しているのは自分の仮説になり、
+> ループが自己確認に変わる。
 
 ## Act フェーズ
 
-decision は次の規則で**先に機械的に候補を出し**、ゲート②ではその候補と根拠を提示する。
-規則が無いと「もう少し頑張る」が revise に化ける。
+decision は次の規則で決まる（適用は act-judge が行う）。規則が無いと「もう少し頑張る」が revise に化ける。
+**行の優先順位は上から**で、複数行に該当し順序で解決できない場合は human_required。
 
 | 条件 | decision 候補 |
 |---|---|
