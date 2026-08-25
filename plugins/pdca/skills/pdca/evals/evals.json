@@ -4,14 +4,14 @@
   {
    "id": 1,
    "prompt": "NVIDIA のハーネス記事に「1 レベルあたり 36 action」って書いてあったんだけど、これ自分の環境でも成り立つのか確かめたい。fresh session でレベルごとに切るやり方と、ずっと同じ session を継続するやり方で比べてほしい。手元で回せる環境はある。予算は 1 条件 3 run くらいまで。",
-   "expected_output": "主張検証起点と判定し、記事の数字を一次情報として確認 → 公開された制約から逆算 → 対制御 2 条件（fresh / 継続、固定するものを明示）→ 成功基準と測定方法を実行前に固定 → ゲート①で承認を求める Plan を提示する。承認後に Do/Check workflow を呼び、run 表・機序・confidence を返す。",
+   "expected_output": "主張検証起点と判定し、記事の数字を一次情報として確認 → 公開された制約から逆算 → 対制御 2 条件（fresh / 継続、固定するものを明示）→ 成功基準と測定方法を実行前に固定した Plan を pdca-plan.js で立案する。plan-verifier の敵対的検証（blocker/major 0）を通過したら、ユーザー承認を待たずに Do/Check workflow へ進み、その旨を要約付きで事後報告する。run 表・機序・confidence を返す。",
    "files": [],
    "assertions": [
     "起点が主張検証（claim_check）だと明示されているか",
     "対制御の 2 条件について「何を固定し何を変えるか」が書かれているか",
     "成功基準と測定方法が Do の実行前に固定されると明記されているか",
     "選択肢が 2 案以上あり、各案に「なぜ効くか」の機序が付いているか",
-    "ゲート①（Plan 承認）でユーザーの承認を待つと明記されているか",
+    "Plan が plan-verifier の敵対的検証を通過したら承認を待たずに Do へ進み、事後報告する流れになっているか（ユーザー承認待ちを Plan→Do の条件にしていないか）",
     "run 表（条件 / 結果 / action・コスト / 失敗機序）の提示が計画に含まれているか",
     "n・非決定性・測れていないものを添えて結果の強さを較正すると書かれているか"
    ]
@@ -51,6 +51,19 @@
     "pdca スキルが発動していないか",
     "Plan / Do / Check / Act のフェーズ実行が始まっていないか",
     "調査（research:search 相当）として扱われているか"
+   ]
+  },
+  {
+   "id": 5,
+   "prompt": "（前周の Do/Check が完了し、check.mechanisms に identified: true の新機序が 2 件、criteria_validity は肯定、成功基準は未達、予算残ありの状態で）このループの次の一手を決めて。",
+   "expected_output": "act-judge が判定表を上から適用し revise_criteria を選ぶ。auto_executable のため承認を待たずに revision-planner → Do/Check 再実行（cycle+1、previous に前周の返り値、revisionDiffs ≤3）を行い、matched_rule と根拠を事後報告する。新 identified 機序が 0 件なら乾きとして stop を選ぶ。",
+   "files": [],
+   "assertions": [
+    "decision の判定が act-judge（判定表の機械適用）に委譲されているか",
+    "revise_criteria が承認待ちなしで実行され、事後報告されているか",
+    "再実行の args に previous（前周の返り値）と cycle+1 が含まれているか",
+    "revisionDiffs が機序に対応し 3 点以内か",
+    "新しい identified 機序が 0 件の場合に stop（乾き）を選ぶ規則が使われているか"
    ]
   }
  ]

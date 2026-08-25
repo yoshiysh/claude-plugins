@@ -50,6 +50,18 @@ const VERIFY_SCHEMA = {
   },
 }
 
+const PLANNER_SCHEMA = {
+  type: 'object',
+  required: ['status'],
+  properties: {
+    status: { type: 'string', enum: ['ok', 'unverifiable'] },
+    plan: {},
+    reason: { type: 'string' },
+    what_is_needed: { type: 'string' },
+    needs_deliberation: { type: 'boolean' },
+  },
+}
+
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 const SKILL_DIR = parsedArgs.skillDir
 if (!SKILL_DIR) throw new Error('args.skillDir が未指定です。')
@@ -128,19 +140,25 @@ for (let attempt = 0; attempt <= MAX_PLAN_REVISIONS; attempt++) {
       review
         ? `[VERIFIER_FINDINGS]（前回の Plan への反証。blocker/major は全件、what_would_make_it_testable に沿って解消すること）:\n${JSON.stringify(review.findings, null, 2)}`
         : '',
-      '完全な Plan JSON（または unverifiable）だけを返すこと。successCriteria に書く検証はすべて' +
-        '記録済み成果物から機械的に再実行できるものに限る（verifier への契約になる）。',
+      '返り値は schema に従うこと: 立案できたら { status: "ok", plan: <完全な Plan JSON> }、' +
+        '検証不能なら { status: "unverifiable", reason, what_is_needed }。successCriteria に書く検証は' +
+        'すべて記録済み成果物から機械的に再実行できるものに限る（verifier への契約になる）。',
     ]
       .filter(Boolean)
       .join('\n\n'),
-    { model: 'opus', phase: 'Plan', label: `planner#${attempt + 1}` }
+    { model: 'opus', phase: 'Plan', label: `planner#${attempt + 1}`, schema: PLANNER_SCHEMA }
   )
 
   if (!planText) return { status: 'BLOCKED', reason: 'planner が結果を返しませんでした。', attempts }
-  if (typeof planText === 'string' && planText.includes('"unverifiable"')) {
-    return { status: 'UNVERIFIABLE', reason: 'planner が検証不能と判定しました。', detail: planText, attempts }
+  if (planText.status === 'unverifiable') {
+    return {
+      status: 'UNVERIFIABLE',
+      reason: planText.reason || 'planner が検証不能と判定しました。',
+      what_is_needed: planText.what_is_needed || null,
+      attempts,
+    }
   }
-  plan = planText
+  plan = planText.plan
 
   review = await roleAgent(
     'plan-verifier.md',
