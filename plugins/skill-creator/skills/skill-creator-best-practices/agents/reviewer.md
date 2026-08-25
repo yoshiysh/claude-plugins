@@ -76,6 +76,11 @@ SKILL.md が Orchestrator-Subagent パターンを採用している場合、以
 - 確定的な処理（フォーマット変換・集計・ファイル操作）は `scripts/` に分離されているか
 - 定型エラーメッセージや案内文の本文が SKILL.md や agent に直書きされていないか（`assets/` または `references/` に置くべき）
 
+**8.5 反復（改稿・審査・実験の繰り返しを持つ設計の場合）**
+- 基準は `[SKILL_DIR]/references/criteria-by-task.md`「反復（グラフ）」節を読んで適用する（正本。ここに複製しない）
+- 必ず ❌ にするもの: 較正根拠の無い回数上限を停止条件の本体にしている設計（backstop としての明記が無い）
+- 判断の根拠は `[SKILL_DIR]/references/best-practices.md` §13「反復の停止と戻り先」
+
 **8. ハーネス（状態を持ち越す・長時間走る設計の場合）**
 - 基準は `[SKILL_DIR]/references/criteria-by-task.md`「ハーネス」節を読んで適用する（正本。ここに複製しない）
 - 必ず ❌ にするもの: 永続状態（DB・索引・resolved・メモリ）への書き込みが生成側の「完了」の自己申告で終端化している設計。別 context の verifier の再取得証拠で gate されていなければ ❌
