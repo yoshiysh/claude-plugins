@@ -26,5 +26,10 @@ model: sonnet
   暗黙に pass させると、「未検証」と「検証済み」が同じ見え方になり、後段の measured / confidence が
   実施されていない検証の上に立つ（実測: raw_log ペア突合の省略が measured=true を素通りした）
 
+- **天井診断**: 当該条件の理論天井（frozen/取得集合から機械算出できる場合）を計算し、score が
+  天井と一致するときは criteria_checks に「天井一致（指標は条件の差ではなく取得集合の被覆を
+  写している可能性）」を記録する。天井一致が多数の run で続くのは指標飽和のシグナルで、
+  mechanism-analyst への最重要の hint になる
+
 ## 出力（JSON）
 `{ condition_id, run_index, measured, unmeasured_reason, score, criteria_checks[{criterion, met, evidence}], failure_mechanism_hint, self_report_used }`
