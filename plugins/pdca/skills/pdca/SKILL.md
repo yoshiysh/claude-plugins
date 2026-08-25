@@ -36,7 +36,7 @@ AI は思考しないが、思考は既存手順の組み合わせで模倣で�
 - [references/operators.md](references/operators.md) — 思考オペレータカタログ（Plan が選ぶ）
 - [assets/plan-template.md](assets/plan-template.md) / [assets/run-table.md](assets/run-table.md) — Plan 雛形・run 表
 - [schemas/agent-contracts.md](schemas/agent-contracts.md) — agent 間契約と script の args / 返り値
-- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（後半 4 つは `scripts/pdca.js` が Read させる）
+- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（builder/runner/verifier/mechanism-analyst は `scripts/pdca.js` が、intake/evidence-collector/planner/plan-verifier は `scripts/pdca-plan.js` が Read させる。act-judge / revision-planner は司令塔が Act で呼ぶ）
 - [evals/evals.json](evals/evals.json) — テストケース 4 件（起点 3 モード + 誤発動）
 
 ## 起点の判定（3 モード）
@@ -57,8 +57,7 @@ AI は思考しないが、思考は既存手順の組み合わせで模倣で�
 Plan 区間は `scripts/pdca-plan.js` に閉じている。intake → evidence-collector → planner →
 **plan-verifier（敵対的検証）** → 改稿、の until-pass ループを script が持つ（改稿上限 2）。
 人間承認の代わりに、Plan を書いていない fresh context の verifier が「この Plan が使えない測定を
-生む理由」を 6 レンズ（指標の崩壊・検証契約の実行可能性・交絡と fixed の漏れ・停止条件の操作化・
-標本選択バイアス・独立性の証拠経路）で反証し、blocker/major が 0 になるまで Do に進む分岐が無い。
+生む理由」を 8 レンズ（正本は [agents/plan-verifier.md](agents/plan-verifier.md)。指標の崩壊・検証契約の実行可能性・交絡・停止条件の操作化・標本選択バイアス・独立性の証拠経路・水準整合・天井飽和）で反証し、blocker/major が 0 になるまで Do に進む分岐が無い。
 
 ```js
 Workflow({
@@ -100,7 +99,7 @@ Plan で選択肢が割れて審議が要ると planner が判断したら、`ma
 
 ## Do/Check フェーズ（Workflow 呼び出し）
 
-承認された Plan をそのまま args に載せて workflow を起動する。この区間には人間ゲートが無く、
+検証を通過した Plan をそのまま args に載せて workflow を起動する。この区間には人間ゲートが無く、
 条件ごとの fan-out・独立検証・集計が連なるので、順序と反復は script が持つ。
 
 ```js
@@ -108,7 +107,7 @@ Workflow({
   scriptPath: '<このスキルの絶対パス>/scripts/pdca.js',
   args: {
     skillDir: '<このスキルの絶対パス>',
-    plan: '<承認された Plan の全文>',
+    plan: '<pdca-plan.js が返した plan の全文>',
     successCriteria: {
       text: '<成功基準と測定方法。verifier はこれだけを見て採点する>',
       metric: '<verifier が score に入れる指標名（例: 到達レベル数、action 数）>',
@@ -181,49 +180,63 @@ confidence: suggestive（n=3、実行の非決定性が残り、機序は 2 案�
 測れていないもの: 探索順序のランダム性、モデル側のキャッシュ影響
 ```
 
-## ゲート②：Act の判定と承認
+## Act ゲート：判定は act-judge、停止は証拠、人間は入力と不変条件のみ
 
-> decision の候補出しは [agents/act-judge.md](agents/act-judge.md) に委譲する。act-judge は
+> decision の判定は [agents/act-judge.md](agents/act-judge.md) に委譲する。act-judge は
 > Act 判定表を機械的に適用し、`decision` / `matched_rule` / `auto_executable` を返す。
 >
-> **自動実行の線引き**（承認済み停止条件が上限を構造で持つことが前提）:
-> - `revise`・`stop` で `auto_executable: true` → ユーザー承認なしで実行してよい。実行後に
->   matched_rule と根拠を**事後報告**する（黙って進めない）
-> - `standardize` → 必ず人間ゲート。rules / skill / memory への恒久化は不可逆側の操作
-> - `human_required`（表に無い状況・行の衝突）→ 必ず人間ゲート。act-judge が発明した規則で
->   進めない
+> **自動実行の線引きは操作の種類ではなく対象で引く**:
+> - `revise_criteria` / `revise_plan` / `stop` / `standardize` → 自動実行してよい。実行後に
+>   matched_rule と根拠を**事後報告**する（黙って進めない）。standardize の書き込みは
+>   git で可逆な範囲（当該スキルのファイル・references・memory）に限る
+> - **不変条件に触れる standardize だけ人間ゲート**: `.claude/rules/` と `CLAUDE.md` の変更、
+>   PR のマージ、外部公開。これらは対象が承認制と定められている
+> - `escalate_intake`（問いの前提・価値が崩れた）→ NEEDS_INPUT としてユーザーに返す
+> - `human_required`（表に無い状況・行の衝突）→ 人間ゲート。act-judge が規則を発明しない
 >
 > ユーザーが「毎回確認したい」と言った場合は auto_executable を無視して全件ゲートに戻す。
-> ここでの人間・司令塔の介入は **redirect のみ**（停滞の指摘・未探索領域の提示）に留め、
-> 仮説や答えを供給しない。供給すると、次の周で検証しているのは自分の仮説になり、
-> ループが自己確認に変わる。
+> 介入は **redirect のみ**（停滞の指摘・未探索領域の提示）に留め、仮説や答えを供給しない。
+> 供給すると、次の周で検証しているのは自分の仮説になり、ループが自己確認に変わる。
 
 ## Act フェーズ
 
 decision は次の規則で決まる（適用は act-judge が行う）。規則が無いと「もう少し頑張る」が revise に化ける。
 **行の優先順位は上から**で、複数行に該当し順序で解決できない場合は human_required。
 
-| 条件 | decision 候補 |
+失敗の種別が戻る深さを決める（スコープの梯子）。測定の欠陥は基準へ、前提の欠陥は Plan へ、
+問いの欠陥はユーザーへ戻る。梯子が無いと、前提が崩れているのに測定修正だけを重ねて周回を使い切る
+（実測: コーパスが 3 年しか無く「時期偏り」という前提自体が弱いと 1 周目で見えていたのに、
+3 周とも測定修正に費やした）。
+
+| 条件 | decision |
 |---|---|
 | 成功基準を満たし、`confidence` が `mechanism_identified` | **standardize** |
-| 成功基準未達だが `check.mechanisms[]` に `identified: true` があり、`cycle < 3`、予算内 | **revise** |
-| `confidence` が `inconclusive`（n・欠測・非決定性で差を主張できない） | **stop**（測定設計に戻る。revise で差分を足しても判定できない） |
-| 機序が 1 つも特定できない（全て `identified: false`） | **stop**（機序に紐づかない差分は次の Check で分離できない） |
-| `cycle` が上限、または `budget.maxRuns` 到達、または script が BLOCKED | **stop**（どの停止条件に当たったか明記） |
-| 成功基準は満たしたが `criteria_validity` が「主張を捉えていない」 | **revise**（差分は基準の見直し。成果物は変えない） |
+| `check.mechanisms[]` が Plan の前提（環境・コーパス・タスク構造）の不成立を示す | **revise_plan**（pdca-plan.js へ戻る。findings を materials に渡して再立案） |
+| 問いそのものの価値・入力が崩れた（測っても使い道が無い、環境が用意できない） | **escalate_intake**（NEEDS_INPUT としてユーザーへ） |
+| 成功基準未達だが新しい `identified: true` の機序があり、予算内 | **revise_criteria**（測定・基準の差分 3 点以内で Do/Check 再実行） |
+| **この周で新しい identified 機序が 1 つも出なかった（乾いた）** | **stop**（証拠が乾いた。回数ではなくこれが本来の停止条件） |
+| `confidence` が `inconclusive` かつ測定設計の欠陥も特定できない | **stop**（判定不能。設計に戻る材料も無い） |
+| 予算（budget.maxRuns / トークン / 時間）到達、または script が BLOCKED | **stop**（どの停止条件に当たったか明記） |
+| 成功基準は満たしたが `criteria_validity` が「主張を捉えていない」 | **revise_criteria**（差分は基準の見直し。成果物は変えない） |
+
+周回の上限（`maxCycles`、既定 5）は**較正された停止条件ではなく暴走の backstop** — 正常なループは
+乾き・前提崩れ・予算のどれかで先に止まる。backstop に当たって止まった場合はその旨を明記する
+（「3 周で決まる」といった回数の根拠は存在しない。回数を停止条件に使った過去の設計は、
+前提の弱さが見えていても周回を消化する挙動を生んだ）。
 
 動機起点の 1 周目は成功基準が `provisional` なので、standardize の前に Check で基準を確定させる。
 
-承認された decision に従う。
+act-judge の decision に従う（auto_executable なら事後報告、そうでなければゲート）。
 
-- **standardize**：学びの恒久化先を指定する。共通のコード規約・設計原則なら `.claude/rules/`、
-  その作業/スキル固有なら当該スキルのファイル、session 文脈の想起だけなら `memory/`。
-  置き場所を決めずに残すと腐る
-- **revise**：`agents/revision-planner.md` に `check.mechanisms[]` と Plan を渡し、
-  **機序に対応する差分だけ**を 3 点以内で作らせる。機序に紐づかない思いつきの変更を混ぜると、
-  次の Check で何が効いたか分離できなくなる。できた差分を `revisionDiffs` に、前周の返り値を
+- **standardize**：学びの恒久化先を指定する。共通のコード規約・設計原則なら `.claude/rules/`
+  （**ここだけ人間ゲート**）、その作業/スキル固有なら当該スキルのファイル、session 文脈の想起なら
+  `memory/`。置き場所を決めずに残すと腐る
+- **revise_criteria**：`agents/revision-planner.md` に `check.mechanisms[]` と Plan を渡し、
+  **機序に対応する差分だけ**を 3 点以内で作らせる。差分を `revisionDiffs` に、前周の返り値を
   `previous` に、`cycle` を +1 して Do/Check を再実行する
-- **stop**：停止条件（予算・反復上限・達成）のどれに当たったかを明記して終える
+- **revise_plan**：pdca-plan.js を再実行する。`materials` に前周の check（機序・criteria_validity・
+  unmeasured）を渡し、planner が前提から立て直す。plan-verifier の検証も再度通る
+- **stop**：停止条件（乾き・判定不能・予算・backstop）のどれに当たったかを明記して終える
 
 ## 出力契約
 
@@ -270,7 +283,9 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
   Plan とゲートまでしか進められないので、その旨を伝えて止める
 - 予算（run 数・トークン・時間）は Plan の停止条件に必ず入れる。入っていないと 1 周が
   いくらでも伸びる
-- ゲート①②はユーザーの承認そのものが要る地点。承認の記録を承認の代わりに使わない
+- 人間ゲートは NEEDS_INPUT / BLOCKED / human_required と、不変条件（`.claude/rules/`・`CLAUDE.md`・
+  PR マージ・外部公開）に触れる standardize のみ。ゲートに当たったら承認そのものを得る
+  （承認の記録を承認の代わりに使わない）
 - successCriteria に検証手順を書いたら、それは verifier への契約になる。verifier が実施できなかった
   検証は met=false（未実施）として返り、mechanism-analyst の unmeasured に載る。「書いたのに
   実施されず pass」は起きない設計にする

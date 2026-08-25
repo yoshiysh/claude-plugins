@@ -26,10 +26,10 @@ const MAX_RUNS_PER_CONDITION = 10
 // 条件が増えるほど固定側が崩れるため、上限で止めて Plan に差し戻す。
 const MAX_CONDITIONS = 6
 
-// MAX_CYCLES: Act→revise で同じ Plan を回し直せる周回の上限。周回ごとに script は新しく
-// 起動されるため、何周目かは呼び出し側が args.cycle で渡す。上限を超えたら Plan（目標・基準）
-// 自体を見直す段階なので境界で止める。
-const MAX_CYCLES = 3
+// DEFAULT_MAX_CYCLES: 周回の backstop。較正された停止条件ではない — 正常なループは
+// 乾き（新 identified 機序ゼロ）・前提崩れ・予算のどれかで先に止まり、ここには当たらない。
+// 当たった場合は「backstop 停止」であって「十分に回した」ではない。args.maxCycles で上書き可。
+const DEFAULT_MAX_CYCLES = 5
 
 const RUN_RECORD_SCHEMA = {
   type: 'object',
@@ -87,6 +87,8 @@ const MECHANISM_SCHEMA = {
           evidence: { type: 'string' },
           alternative_explanations: { type: 'array', items: { type: 'string' } },
           identified: { type: 'boolean' },
+          new: { type: 'boolean' },
+          premise_defect: { type: 'boolean' },
         },
       },
     },
@@ -118,7 +120,7 @@ if (!SKILL_DIR) {
 
 const plan = parsedArgs.plan
 if (!plan || !String(plan).trim()) {
-  throw new Error('args.plan が空です。ゲート①で承認された Plan の全文を渡してください。')
+  throw new Error('args.plan が空です。pdca-plan.js の返り値 `plan` の全文を渡してください。')
 }
 
 // 成功基準を Plan と別フィールドで受け取るのは、verifier に「基準だけ」を見せるため。
@@ -164,6 +166,7 @@ const budget = parsedArgs.budget || null
 const budgetText = budget ? (typeof budget === 'string' ? budget : JSON.stringify(budget)) : '(予算の指定なし)'
 const revisionDiffs = Array.isArray(parsedArgs.revisionDiffs) ? parsedArgs.revisionDiffs : []
 const cycle = Math.max(Number(parsedArgs.cycle) || 1, 1)
+const MAX_CYCLES = Math.max(Number(parsedArgs.maxCycles) || DEFAULT_MAX_CYCLES, 1)
 // previous は「前周の返り値をそのまま」受け取り、script 側でパスを解決する。呼び出し側に
 // 平坦化を要求すると、片方だけ合わせた部分適用で mechanisms が silent drop する。
 const previousRaw = parsedArgs.previous || null
@@ -179,7 +182,7 @@ const previous = previousRaw
 if (cycle > MAX_CYCLES) {
   return {
     status: 'BLOCKED',
-    reason: `周回 ${cycle} は上限 ${MAX_CYCLES} を超えています。`,
+    reason: `周回 ${cycle} は backstop（maxCycles=${MAX_CYCLES}）を超えています。`,
     evidence: '差分の積み重ねで届かない段階です。Plan の目標・基準に戻って決め直してください。',
   }
 }
@@ -455,11 +458,15 @@ const analysis = await roleAgent(
       null,
       2
     )}`,
+    previous && previous.mechanisms
+      ? `[PREVIOUS_MECHANISMS]（前周までに挙がった機序。novelty 判定に使う）:\n${JSON.stringify(previous.mechanisms, null, 2)}`
+      : '[PREVIOUS_MECHANISMS]: (初周のため無し。全機序が new: true)',
     '点数の要約ではなく、なぜその差が出たのかを述べること。' +
       '各機序に対して、それが外れる場合の別説明を必ず併記すること。' +
       '別説明を潰せていない機序は identified=false とすること。' +
       'さらに、測定指標がそもそも Plan の主張を捉えていたか（criteria_validity）と、' +
-      '測れていないもの（unmeasured）を分けて返すこと。',
+      '測れていないもの（unmeasured）を分けて返すこと。' +
+      '各機序に new（この周で初めて立ったか）と、前提の不成立を示す場合は premise_defect を付けること。',
   ].join('\n\n'),
   { model: 'opus', phase: 'Analyze', label: 'mechanism-analyst', schema: MECHANISM_SCHEMA }
 )
@@ -554,6 +561,13 @@ return {
   runTable,
   cycle,
   max_cycles: MAX_CYCLES,
+  // 乾き判定の材料（act-judge が使う）: この周で新しく特定された機序の数。
+  new_identified_mechanisms: (analysis.mechanisms || []).filter(
+    (m) => m.identified === true && m.new !== false
+  ).length,
+  premise_defect_mechanisms: (analysis.mechanisms || []).filter(
+    (m) => m.premise_defect === true
+  ).length,
   truncations,
   revision_diffs_applied: revisionDiffs,
 }

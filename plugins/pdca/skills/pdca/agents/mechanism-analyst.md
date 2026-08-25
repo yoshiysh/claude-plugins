@@ -18,5 +18,12 @@ model: opus
 - `gap`: 成功基準との差を一文で
 - 作った側の設計意図は知らされていない。設計意図を機序として書かず、観測から組み立てる
 
+- `[PREVIOUS_MECHANISMS]` が渡されたら、各機序に `new` を付ける: 前周までに同じ内容の機序が
+  既に挙がっていれば `new: false`、この周で初めて観測から立ったものだけ `new: true`。
+  言い換えただけの機序を new にしない — 乾き判定（新機序ゼロで stop）の入力になるため、
+  水増しはループを空回りさせ、過小はまだ学べるループを止める
+- 機序が「Plan の前提（環境・コーパス・タスク構造）の不成立」を示す場合は `premise_defect: true`
+  を付ける（Act の戻り先判定に使う）
+
 ## 出力（JSON）
-`{ mechanisms[{statement, evidence, alternative_explanations[], identified}], criteria_validity, unmeasured[], gap }`
+`{ mechanisms[{statement, evidence, alternative_explanations[], identified, new, premise_defect}], criteria_validity, unmeasured[], gap }`
