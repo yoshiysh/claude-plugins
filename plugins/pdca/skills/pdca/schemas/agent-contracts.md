@@ -12,7 +12,7 @@
 | verifier | `[SUCCESS_CRITERIA]（text + METRIC + 向き） [CONDITION_ID] [RUN_INDEX] [ARTIFACTS] [RUN_OBSERVATIONS] [RAW_MEASUREMENTS]` | `{condition_id, run_index, measured, unmeasured_reason, score, criteria_checks[{criterion,met,evidence}], failure_mechanism_hint, self_report_used}` |
 | mechanism-analyst | `[SUCCESS_CRITERIA] [PER_CONDITION_STATS] [DELTA] [RUN_DETAILS]` | `{mechanisms[{statement,evidence,alternative_explanations[],identified,new,premise_defect}], criteria_validity, unmeasured[], gap}` |
 | plan-verifier | Plan JSON | `{verdict: pass|revise, findings[{lens,severity,claim,why_it_breaks_measurement,what_would_make_it_testable}], non_findings[]}` |
-| act-judge | Do/Check 返り値 + Plan の成功基準・停止条件 | `{decision: standardize|revise_criteria|revise_plan|escalate_intake|stop|human_required, matched_rule, basis[{field,value,why}], auto_executable, conflicts[], note_for_user}` |
+| act-judge | Do/Check 返り値 + Plan の成功基準・停止条件 | `{decision: standardize|revise_criteria|revise_plan|stop|needs_input, needs_input_kind?: data|decision, questions?[], matched_rule, basis[{field,value,why}], auto_executable, conflicts[], note_for_user}` |
 | revision-planner | `check.mechanisms[]`, Plan | `{revisionDiffs[], predicted_observations[], deferred[{diff,why}]}` |
 
 ## pdca-plan.js の args / 返り値
@@ -20,7 +20,7 @@
 args: { skillDir, input（起点の文）, materials?, budget? }
 返り値: { status: "ok"|"NEEDS_INPUT"|"UNVERIFIABLE"|"BLOCKED",
   ok 時: origin_mode, intake, evidence, plan, plan_review{verdict, findings[]}, attempts[]
-  NEEDS_INPUT 時: questions[], intake
+  NEEDS_INPUT 時: kind: "data", questions[], intake
   UNVERIFIABLE 時: reason, what_is_needed
   BLOCKED 時: reason, plan?, plan_review?, attempts[] }
 ```
