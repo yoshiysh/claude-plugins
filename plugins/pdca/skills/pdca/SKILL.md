@@ -191,17 +191,19 @@ confidence: suggestive（n=3、実行の非決定性が残り、機序は 2 案�
 >   git で可逆な範囲（当該スキルのファイル・references・memory）に限る
 > - **不変条件に触れる standardize だけ人間ゲート**: `.claude/rules/` と `CLAUDE.md` の変更、
 >   PR のマージ、外部公開。これらは対象が承認制と定められている
-> - `escalate_intake`（問いの前提・価値が崩れた）→ NEEDS_INPUT としてユーザーに返す
-> - `human_required`（表に無い状況・行の衝突）→ 人間ゲート。act-judge が規則を発明しない
+> - `needs_input` → ユーザーに返す。**人間の境界はこの一分類**で、kind が中身を分ける:
+>   `data` = 人間しか持たない情報の不足（問いの価値・環境・予算。旧 escalate_intake）、
+>   `decision` = 判定表で決められず裁定という入力が要る（行の衝突・表に無い状況）。
+>   どちらも「質問 + 答えが入れば自動で再開」であり、Plan フェーズの NEEDS_INPUT と同じ族
 >
-> ユーザーが「毎回確認したい」と言った場合は auto_executable を無視して全件ゲートに戻す。
+> ユーザーが「毎回確認したい」と言った場合は auto_executable を無視して全件 needs_input に戻す。
 > 介入は **redirect のみ**（停滞の指摘・未探索領域の提示）に留め、仮説や答えを供給しない。
 > 供給すると、次の周で検証しているのは自分の仮説になり、ループが自己確認に変わる。
 
 ## Act フェーズ
 
 decision は次の規則で決まる（適用は act-judge が行う）。規則が無いと「もう少し頑張る」が revise に化ける。
-**行の優先順位は上から**で、複数行に該当し順序で解決できない場合は human_required。
+**行の優先順位は上から**で、複数行に該当し順序で解決できない場合は needs_input（kind: decision）。
 
 失敗の種別が戻る深さを決める（スコープの梯子）。測定の欠陥は基準へ、前提の欠陥は Plan へ、
 問いの欠陥はユーザーへ戻る。梯子が無いと、前提が崩れているのに測定修正だけを重ねて周回を使い切る
@@ -212,7 +214,7 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
 |---|---|
 | 成功基準を満たし、`confidence` が `mechanism_identified` | **standardize** |
 | `check.mechanisms[]` が Plan の前提（環境・コーパス・タスク構造）の不成立を示す | **revise_plan**（pdca-plan.js へ戻る。findings を materials に渡して再立案） |
-| 問いそのものの価値・入力が崩れた（測っても使い道が無い、環境が用意できない） | **escalate_intake**（NEEDS_INPUT としてユーザーへ） |
+| 問いそのものの価値・入力が崩れた（測っても使い道が無い、環境が用意できない） | **needs_input**（kind: data。問いの継続可否と不足入力をユーザーへ） |
 | 成功基準未達だが新しい `identified: true` の機序があり、予算内 | **revise_criteria**（測定・基準の差分 3 点以内で Do/Check 再実行） |
 | **この周で新しい identified 機序が 1 つも出なかった（乾いた）** | **stop**（証拠が乾いた。回数ではなくこれが本来の停止条件） |
 | `confidence` が `inconclusive` かつ測定設計の欠陥も特定できない | **stop**（判定不能。設計に戻る材料も無い） |
@@ -283,9 +285,9 @@ act-judge の decision に従う（auto_executable なら事後報告、そう�
   Plan とゲートまでしか進められないので、その旨を伝えて止める
 - 予算（run 数・トークン・時間）は Plan の停止条件に必ず入れる。入っていないと 1 周が
   いくらでも伸びる
-- 人間ゲートは NEEDS_INPUT / BLOCKED / human_required と、不変条件（`.claude/rules/`・`CLAUDE.md`・
-  PR マージ・外部公開）に触れる standardize のみ。ゲートに当たったら承認そのものを得る
-  （承認の記録を承認の代わりに使わない）
+- 人間の境界は NEEDS_INPUT（kind: data = 不足入力 / kind: decision = 裁定）/ BLOCKED と、
+  不変条件（`.claude/rules/`・`CLAUDE.md`・PR マージ・外部公開）に触れる standardize のみ。
+  境界に当たったら入力・承認そのものを得る（記録を承認の代わりに使わない）
 - successCriteria に検証手順を書いたら、それは verifier への契約になる。verifier が実施できなかった
   検証は met=false（未実施）として返り、mechanism-analyst の unmeasured に載る。「書いたのに
   実施されず pass」は起きない設計にする
