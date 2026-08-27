@@ -574,6 +574,6 @@ outer_round の転記）はしない** — 30〜70KB の転記は写し間違い
 | `[SKILL_DIR]/scripts/draft.js` | Workflow A（初稿 + 実行可能性検査 + 構造検査） |
 | `[SKILL_DIR]/scripts/refine.js` | Workflow B（改稿 + 7 観点監査ループ + INDEX 組み立て + `unpresented_blocking`） |
 | `[SKILL_DIR]/scripts/check_blocking_rate.py` | blocking TBD の件数を提示容量（20 件/周 × 2 周）と照合する回帰ゲート。欠測は exit 2 で「未計測」として返す |
-| `[SKILL_DIR]/tests/` | 回帰テスト群（構造検査・重複定義・カテゴリ整合・TBD 名前空間・blocking 容量ほか）。`make test` が全実行する |
+| `[SKILL_DIR]/tests/` | 回帰テスト群（構造検査・重複定義・カテゴリ整合・TBD 名前空間・blocking 容量ほか）。`python3 -m unittest discover [SKILL_DIR]/tests` で全実行する |
 | `[SKILL_DIR]/evals/evals.json` | テストケース |
 | `[SKILL_DIR]/evals/trigger-evals.json` | description の発火評価（should_trigger 10 / should_not_trigger 10。`run_loop.py --eval-set` で使う） |
