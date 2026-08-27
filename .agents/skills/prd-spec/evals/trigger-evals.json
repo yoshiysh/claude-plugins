@@ -1,0 +1,82 @@
+[
+  {
+    "query": "新しい在庫管理機能の PRD を書いてほしい",
+    "should_trigger": true
+  },
+  {
+    "query": "この機能の要件定義をまとめて",
+    "should_trigger": true
+  },
+  {
+    "query": "議事録に書いた合意内容を仕様書に落としてください",
+    "should_trigger": true
+  },
+  {
+    "query": "docs/requirements/payment.md をレビューして、曖昧なところを指摘して",
+    "should_trigger": true
+  },
+  {
+    "query": "この要求文書から仕様書を起こして",
+    "should_trigger": true
+  },
+  {
+    "query": "通知サービスの要求仕様書を作って。決まってないことは聞いてほしい",
+    "should_trigger": true
+  },
+  {
+    "query": "既にある batch/export.py の要件定義を後追いで作りたい。コードは読んでいい",
+    "should_trigger": true
+  },
+  {
+    "query": "プロダクト要求を requirements と specifications に分けてドキュメント化して",
+    "should_trigger": true
+  },
+  {
+    "query": "この PRD に不足している非機能要求を洗い出して追記して",
+    "should_trigger": true
+  },
+  {
+    "query": "顧客との打ち合わせメモを貼るので、そこから要求文書を作成して",
+    "should_trigger": true
+  },
+  {
+    "query": "チーム向けの技術ブログ記事を書いて",
+    "should_trigger": false
+  },
+  {
+    "query": "経営会議向けの提案書のドラフトを一緒に作ってほしい",
+    "should_trigger": false
+  },
+  {
+    "query": "src/auth/session.ts の refreshToken() の仕様を教えて",
+    "should_trigger": false
+  },
+  {
+    "query": "この API のレート制限の仕様ってどうなってるか調べて",
+    "should_trigger": false
+  },
+  {
+    "query": "仕様書どおりに UserService クラスを実装して",
+    "should_trigger": false
+  },
+  {
+    "query": "README にセットアップ手順のドキュメントを追加して",
+    "should_trigger": false
+  },
+  {
+    "query": "この設計判断について壁打ちしたい。マイクロサービスに分けるべきか",
+    "should_trigger": false
+  },
+  {
+    "query": "昨日のミーティングの議事録を要約して",
+    "should_trigger": false
+  },
+  {
+    "query": "月報を自動生成するスキルを作ってほしい",
+    "should_trigger": false
+  },
+  {
+    "query": "この PR をレビューしてマージしていいか判断して",
+    "should_trigger": false
+  }
+]
