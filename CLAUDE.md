@@ -11,7 +11,7 @@ This file provides guidance to Claude Code when working in this repository.
 スキル実体の置き場は「公開済みかどうか」で決まる。
 
 - **公開済み（plugin に属する）**: 実体は `plugins/<plugin>/skills/<name>/`。`.agents/skills/<name>` はそこへの相対 symlink（`../../plugins/<plugin>/skills/<name>`）。
-- **未公開・未登録**: 実体は `.agents/skills/<name>/`（現状は `manage-marketplace-plugin` のみ）。
+- **未公開・未登録**: 実体は `.agents/skills/<name>/`（現状は `manage-marketplace-plugin` と `prd-spec`）。
 - Claude からの参照: `.claude/skills -> ../.agents/skills`
 - Marketplace 定義: `.claude-plugin/marketplace.json`
 - Marketplace 名: `yoshiysh-claude-plugins`
@@ -55,6 +55,7 @@ This file provides guidance to Claude Code when working in this repository.
 | `manage-marketplace-plugin` | —（未登録） | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
 | `notion-organize-knowledge` | `notion:organize-knowledge` | Notion の capture queue を根拠付きで整理し検証付きで書き込む | `notion` |
 | `pr-create` | `git:pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `git` |
+| `prd-spec` | —（未登録） | 要求文書・仕様書を日本語で作成/レビューする。要求文書は認識が一致する状態、仕様書は実装が一意に決まる状態まで聞き返して詰める。関心事ごとに複数ファイルへ分割し INDEX を導出する | 未登録 |
 | `reference` | `research:reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `research` |
 | `search` | `research:search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `research` |
 | `skill-creator-best-practices` | `skill-creator:best-practices` | マルチエージェントでスキルを作成（create）・評価（review）・更新（update）する | `skill-creator` |
