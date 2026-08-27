@@ -1,7 +1,7 @@
 export const meta = {
   name: 'skill-creator-build',
   description:
-    'スキル生成の Phase 2–4（基準生成 → 構成設計/検証 → 執筆 → with_skill vs baseline 評価 → 改稿）を決定的に実行する',
+    'スキル生成の中核（基準生成 → 構成設計/検証 → 執筆 → with_skill vs baseline 評価 → 改稿）を決定的に実行する',
   phases: [
     { title: 'Criteria' },
     { title: 'Structure' },
@@ -20,7 +20,7 @@ const DELTA_THRESHOLD = 0.2
 
 // MAX_REVISIONS: 改稿の上限。1 回改稿しても閾値に届かないなら実装レベルではなく計画レベル
 // （要件・基準）の問題である可能性が高く、script 内で回し続けても収束しない。上限に達したら
-// 判断材料を添えて呼び出し元（司令塔）へ返し、Phase 1/2 へ遡るかを人間が決める。
+// 判断材料を添えて呼び出し元（司令塔）へ返し、手順 1/2 へ遡るかを人間が決める。
 const MAX_REVISIONS = 1
 
 // MAX_STRUCTURE_ATTEMPTS: 構成設計の再試行上限。designer → reviewer で ❌ が出たら差し戻すが、
@@ -132,7 +132,7 @@ const SCRIPT_REVIEW_SCHEMA = {
 }
 
 // TEST_CASES_SCHEMA: tester.md の出力形式はプロンプト 3 本のみだが、grader は
-// assertions を必要とする（SKILL.md Step 4-3 の [TEST_CASE] は「プロンプト + assertions」）。
+// assertions を必要とする（SKILL.md の [TEST_CASE] は「プロンプト + assertions」）。
 // schema で assertions を必須にして、この受け渡しのギャップを塞ぐ。
 const TEST_CASES_SCHEMA = {
   type: 'object',
@@ -213,14 +213,14 @@ if (!SKILL_DIR) {
 
 const requirements = parsedArgs.requirements
 if (!requirements || typeof requirements !== 'string' || !requirements.trim()) {
-  throw new Error('args.requirements が空です。Phase 1 で構造化した要件全体を渡してください。')
+  throw new Error('args.requirements が空です。手順 2 で構造化した要件全体を渡してください。')
 }
 
 const taskType = parsedArgs.taskType || 'document'
 // architecture は taskType（ドメイン分類）とは別軸。「誰が plan を握るか」を決める。
 // coordinator = Claude がターンごとに指揮 / workflow = 実行順序を script が握る。
 // 既定を coordinator にしているのは、workflow 型は writer が動く .js まで書く必要があり、
-// Phase 1 が明示的に選んだときだけ入るべき経路だから。
+// 司令塔が明示的に選んだときだけ入るべき経路だから。
 const architecture = parsedArgs.architecture || 'coordinator'
 if (!['coordinator', 'workflow'].includes(architecture)) {
   throw new Error(
@@ -228,6 +228,37 @@ if (!['coordinator', 'workflow'].includes(architecture)) {
       'taskType（document / procedure / data）とは別軸なので取り違えていないか確認してください。'
   )
 }
+// domainKnowledge: 「このスキルが扱う領域では、その語が何を指すのか」の確認結果。
+// **任意**である。要るのは「出力の形が、鍵となる語のどの定義を採るかで変わる」スキルだけで、
+// そうでないものに要求すると調査コストが全ビルドに乗る（要否判定は司令塔が行う）。
+//
+// これが無いまま作られたスキルは、writer が知っていることをそのまま規範として書き、
+// 誰もそれを検証しない。生成物の中で「規格が定めている」ように見える記述が、実は
+// 実務慣行だったり出所が無かったりする状態がそのまま残る。
+//
+// 各 claim に strength（typed strength marker）を必須とするのが要点である。内容そのものより、
+// **どの主張がどれだけ確かなのか**が下流で効く。強度の無い知識ファイルは、根拠のある記述と
+// 無い記述を見分けられなくするだけで、defect を再生産する。
+const domainKnowledge = parsedArgs.domainKnowledge || null
+const knowledgeBlock = (() => {
+  if (!domainKnowledge) return ''
+  const claims = (domainKnowledge.claims || [])
+    .map((c) => `- [${c.strength || '強度未記載'}] ${c.claim}${c.source ? `（出所: ${c.source}）` : ''}`)
+    .join('\n')
+  const avoid = (domainKnowledge.do_not_write || []).map((x) => `- ${x}`).join('\n')
+  return [
+    '',
+    '[DOMAIN_KNOWLEDGE] この領域について確認済みのこと',
+    domainKnowledge.summary || '',
+    claims ? `\n確認された主張（[] 内は確からしさ）:\n${claims}` : '',
+    avoid ? `\n**書いてはならないこと**:\n${avoid}` : '',
+    '',
+    '**強度の区別を生成物でも保つこと。** 「一次情報確認済み」でない主張を、規格や公式の定めで',
+    'あるかのように書かない。出所が実務慣行なら実務慣行と明示する。未確認のものは書かない。',
+    '',
+  ].join('\n')
+})()
+
 const personas = parsedArgs.personas || {}
 const maxRevisions = parsedArgs.maxRevisions ?? MAX_REVISIONS
 
@@ -248,7 +279,7 @@ function roleAgent(file, body, opts) {
 
 const persona = (key) => personas[key] || '(ペルソナ指定なし。要件から適切な専門家像を自分で置くこと)'
 
-// ---------------------------------------------------------------- Phase 2: 基準生成
+// ---------------------------------------------------------------- Criteria: 基準生成
 
 phase('Criteria')
 const criteriaGen = await roleAgent(
@@ -258,6 +289,7 @@ const criteriaGen = await roleAgent(
     `[PERSONA_CRITERIA_GEN]:\n${persona('criteriaGen')}`,
     `[TASK_TYPE]: ${taskType}`,
     `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
   ].join('\n\n'),
   { model: 'sonnet', phase: 'Criteria', label: 'criteria-gen' }
 )
@@ -269,6 +301,7 @@ const criteriaComp = await roleAgent(
     `[PERSONA_CRITERIA_COMP]:\n${persona('criteriaComp')}`,
     `[TASK_TYPE]: ${taskType}`,
     `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
     `[EXISTING_CRITERIA]:\n${criteriaGen}`,
   ].join('\n\n'),
   { model: 'sonnet', phase: 'Criteria', label: 'criteria-comp' }
@@ -278,7 +311,7 @@ const criteriaComp = await roleAgent(
 const criteria = criteriaComp || criteriaGen
 log('検証基準を確定しました')
 
-// ------------------------------------------------- Phase 2.5: 構成設計・検証（document のみ）
+// ------------------------------------------------- Structure: 構成設計・検証（document のみ）
 
 let structurePlan = '該当なし'
 let structureReview = null
@@ -300,6 +333,7 @@ if (taskType === 'document' || architecture === 'workflow') {
         `[PERSONA_STRUCTURE_DESIGNER]:\n${persona('structureDesigner')}`,
         `[ARCHITECTURE]: ${architecture}`,
         `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
         `[CRITERIA]:\n${criteria}`,
         feedback
           ? `# 前回の構成案に対する指摘（これを解消した構成に作り直すこと）\n${feedback}`
@@ -316,6 +350,7 @@ if (taskType === 'document' || architecture === 'workflow') {
       [
         `[PERSONA_STRUCTURE_REVIEWER]:\n${persona('structureReviewer')}`,
         `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
         `[CRITERIA]:\n${criteria}`,
         `[STRUCTURE_PLAN]:\n${plan}`,
       ].join('\n\n'),
@@ -342,7 +377,7 @@ if (taskType === 'document' || architecture === 'workflow') {
   }
 }
 
-// ---------------------------------------------------------------- Phase 3: 初稿執筆
+// ---------------------------------------------------------------- Write: 初稿執筆
 
 phase('Write')
 let skillDraft = await roleAgent(
@@ -354,6 +389,7 @@ let skillDraft = await roleAgent(
     `[TASK_TYPE]: ${taskType}`,
     `[ARCHITECTURE]: ${architecture}`,
     `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
     `[STRUCTURE_PLAN]:\n${structurePlan}`,
   ].join('\n\n'),
   { model: 'opus', phase: 'Write', label: 'write-initial' }
@@ -377,7 +413,7 @@ if (!extractFrontmatter(skillDraft, 'name') || !extractFrontmatter(skillDraft, '
   )
 }
 
-// ------------------------------------------------ Phase 3b: workflow script の抽出と検証
+// ------------------------------------------------ Write: workflow script の抽出と検証
 
 // writer は SKILL.md と workflow script を 1 つの戻り値にまとめて返す。script は
 // ```javascript フェンスで囲まれた `export const meta` から始まるブロックとして取り出す。
@@ -413,6 +449,7 @@ if (architecture === 'workflow') {
       `[SKILL_DIR] = ${SKILL_DIR}`,
       `[PERSONA_SCRIPT_REVIEWER]:\n${persona('scriptReviewer')}`,
       `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
       `[SKILL_DRAFT]:\n${skillDraft}`,
       `[WORKFLOW_SCRIPT]:\n${workflowScript}`,
     ].join('\n\n'),
@@ -435,7 +472,7 @@ if (architecture === 'workflow') {
   }
 }
 
-// ---------------------------------------------------------------- Phase 4: テスト生成
+// ---------------------------------------------------------------- Test: テストケース生成
 
 phase('Test')
 // テストケースは改稿を跨いで固定する。改稿のたびに作り直すと、pass_rate の変化が
@@ -460,7 +497,7 @@ if (!cases.length) {
   throw new Error('tester がテストケースを返しませんでした。評価なしで先に進めません。')
 }
 
-// ------------------------------------------- Phase 4: 評価ループ（改稿は MAX_REVISIONS 回まで）
+// ------------------------------------------- Evaluate: 評価ループ（改稿は MAX_REVISIONS 回まで）
 
 const iterations = []
 let revision = 0
@@ -699,6 +736,7 @@ while (true) {
       `[PERSONA_WRITER]:\n${persona('writer')}`,
       `[TASK_TYPE]: ${taskType}`,
       `[REQUIREMENTS]:\n${requirements}`,
+    knowledgeBlock,
       `[STRUCTURE_PLAN]:\n${structurePlan}`,
       `[PREVIOUS_DRAFT]:\n${skillDraft}`,
       `[REVIEW_REPORT]:\n${JSON.stringify(

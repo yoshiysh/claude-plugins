@@ -4,15 +4,15 @@ skill-creator-best-practices 内の各エージェントが入出力するデー
 フィールド名のズレでパイプラインが壊れるため、変更時は全エージェントに伝播させること。
 
 ## 目次
-- [Phase 2：基準生成の出力](#phase-2基準生成の出力)
-- [Phase 2.5：構成設計の出力](#phase-25構成設計の出力)
-- [Phase 3：執筆の出力](#phase-3執筆の出力)
-- [Phase 4：テスト・検証の出力](#phase-4テスト検証の出力)
+- [Criteria：基準生成の出力](#criteria基準生成の出力)
+- [Structure：構成設計の出力](#structure構成設計の出力)
+- [Write：執筆の出力](#write執筆の出力)
+- [Test/Grade：テスト・検証の出力](#testgradeテスト検証の出力)
 - [eval framework](#eval-framework優先度c)
 
 ---
 
-## Phase 2：基準生成の出力
+## Criteria：基準生成の出力
 
 ### criteria-gen / criteria-comp の出力（検証基準リスト）
 
@@ -29,7 +29,7 @@ N. ...
 
 ---
 
-## Phase 2.5：構成設計の出力
+## Structure：構成設計の出力
 
 ### structure-designer の出力（構成案）
 
@@ -92,7 +92,7 @@ assets に分離するもの：[ファイル名：内容]
 
 ---
 
-## Phase 3：執筆の出力
+## Write：執筆の出力
 
 ### writer（initial モード）の出力（SKILL.md 全文）
 
@@ -170,7 +170,7 @@ phase('[phase 名]')
 
 ---
 
-## Phase 4：並列評価・採点の出力
+## Test/Grade：並列評価・採点の出力
 
 ### tester の出力（テストケース3件）
 
@@ -296,7 +296,7 @@ aggregate_benchmark.py が生成する形式。
 
 ---
 
-## Phase 4 Step 4-5：comparator の出力
+## Analyze：comparator の出力
 
 ```json
 {
@@ -319,7 +319,7 @@ aggregate_benchmark.py が生成する形式。
 }
 ```
 
-## Phase 4 Step 4-5：analyzer の出力
+## Analyze：analyzer の出力
 
 ```json
 {

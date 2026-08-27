@@ -69,7 +69,7 @@ description: >
 
 ```
 Phase 1: 要件整理・ペルソナ設計（司令塔が単独で実行・人間ゲート）
-  └─ 要件を構造化 → ペルソナを推論 → ユーザーに確認
+  └─ 要件を構造化 → ドメイン知識を確認（条件付き）→ ペルソナを推論 → ユーザーに確認
   ※ 詳細手順： references/orchestrator-requirements.md を Read すること
 
 Phase 2-4: Workflow を呼ぶ（scripts/build_skill.js が全て内包）
@@ -129,6 +129,7 @@ review と改稿の間に人間ゲートを置かないのも同じ理由（止�
 **Agent ツールは呼び出さない。司令塔が単独で行う。**
 
 `references/orchestrator-requirements.md` を Read し、手順に従って実行する。
+ドメイン知識の要否判定と収集（domainKnowledge の組み立て）も同参照先の手順に含まれる。
 
 完了条件：ユーザーがペルソナを承認したら Phase 2 へ進む。
 
@@ -186,6 +187,11 @@ Workflow({
     requirementsSummary: "<トリガー条件・対象ユーザーの要約>",
     taskType: "document | procedure | data",
     architecture: "coordinator | workflow",
+    domainKnowledge: {          // 任意。Phase 1 で「要る」と判定したときだけ
+      summary: "...",
+      claims: [{ claim: "...", strength: "一次情報確認済み|実務慣行|未確認", source: "..." }],
+      do_not_write: ["..."]
+    },
     personas: {
       criteriaGen: "...", criteriaComp: "...",
       structureDesigner: "...", structureReviewer: "...",
@@ -195,6 +201,11 @@ Workflow({
   }
 })
 ```
+
+`domainKnowledge` は **Phase 1 で「要る」と判定したときだけ**渡す。渡すと criteria-gen・
+writer・reviewer のプロンプトへ注入され、writer は `references/<領域>-knowledge.md` として
+生成物にも書き出す。**`strength` を落とさないこと** — 内容そのものより「どの主張がどれだけ
+確かなのか」が下流で効き、強度の無い知識は根拠のある記述と無い記述を混ぜてしまう。
 
 `skillDir` には本スキルの実ディレクトリを実パスで渡す。スクリプトは自身の位置を解決できず、
 `agents/*.md` の Read パスがここでしか決まらない。`personas` は Phase 1 でユーザーが承認した
