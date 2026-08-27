@@ -22,18 +22,20 @@ description: >
 
 ## 目次
 
-0. [モード判定](#モード判定)
-1. [全体フロー](#全体フロー)
-2. [Phase 1: 要件整理とペルソナ設計（create）](#phase-1-要件整理とペルソナ設計create)
-2b. [Phase 1: 対象と範囲の確認（review/update）](#phase-1-対象と範囲の確認reviewupdate)
-3. [Phase 2-4: Workflow を呼ぶ（create）](#phase-2-4-workflow-を呼ぶcreate)
-3b. [Phase 2: Workflow を呼ぶ（review/update）](#phase-2-workflow-を呼ぶreviewupdate)
-4. [Phase 5: 統合・改善ループ・ユーザーへの提示（create）](#phase-5-統合改善ループユーザーへの提示create)
-4b. [Phase 3: 結果の提示と適用（review/update）](#phase-3-結果の提示と適用reviewupdate)
-5. [入出力の定義](#入出力の定義)
-6. [ユーザーへの話し方](#ユーザーへの話し方)
-7. [ファイル構成（参照先）](#ファイル構成参照先)
-8. [設計上の制約](#設計上の制約)
+- [モード判定](#モード判定)
+- [全体フロー](#全体フロー)
+- create の司令塔手順
+  - [要件整理とペルソナ設計（create）](#要件整理とペルソナ設計create)
+  - [Workflow を呼ぶ（create）](#workflow-を呼ぶcreate)
+  - [統合・改善ループ・ユーザーへの提示（create）](#統合改善ループユーザーへの提示create)
+- review/update の司令塔手順
+  - [対象と範囲の確認（review/update）](#対象と範囲の確認reviewupdate)
+  - [Workflow を呼ぶ（review/update）](#workflow-を呼ぶreviewupdate)
+  - [結果の提示と適用（review/update）](#結果の提示と適用reviewupdate)
+- [入出力の定義](#入出力の定義)
+- [ユーザーへの話し方](#ユーザーへの話し方)
+- [ファイル構成（参照先）](#ファイル構成参照先)
+- [設計上の制約](#設計上の制約)
 
 ---
 
@@ -45,10 +47,10 @@ description: >
 
 | 依頼の形 | モード | 進む先 |
 |---|---|---|
-| これから作るスキルの説明がある（「〜するスキルを作って」「品質チェック付きで設計して」） | `create` | Phase 1（create）へ |
-| 既存スキルのパス・名前を挙げて評価を求める（「このスキルを best-practices に沿ってるか評価して」） | `review` | Phase 1（review/update）へ |
-| 変更・コミット・PR の範囲を挙げて評価を求める（「直近の変更をレビューして」「main...HEAD を見て」） | `review` | Phase 1（review/update）へ |
-| 評価に加えて直すことまで求める（「Issue に沿ってこのスキルを更新して」「指摘を反映して」） | `update` | Phase 1（review/update）へ |
+| これから作るスキルの説明がある（「〜するスキルを作って」「品質チェック付きで設計して」） | `create` | 「要件整理とペルソナ設計（create）」へ |
+| 既存スキルのパス・名前を挙げて評価を求める（「このスキルを best-practices に沿ってるか評価して」） | `review` | 「対象と範囲の確認（review/update）」へ |
+| 変更・コミット・PR の範囲を挙げて評価を求める（「直近の変更をレビューして」「main...HEAD を見て」） | `review` | 「対象と範囲の確認（review/update）」へ |
+| 評価に加えて直すことまで求める（「Issue に沿ってこのスキルを更新して」「指摘を反映して」） | `update` | 「対象と範囲の確認（review/update）」へ |
 | スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー | 対象外 | このスキルを使わない旨を伝えて終了 |
 | 何を対象にするか読み取れない・入力が空 | 判定不能 | create / review / update のどれかと対象を 1 回で聞き返す |
 
@@ -68,15 +70,15 @@ description: >
 **create:**
 
 ```
-Phase 1: 要件整理・ペルソナ設計（司令塔が単独で実行・人間ゲート）
+要件整理とペルソナ設計（司令塔が単独で実行・人間ゲート）
   └─ 要件を構造化 → ドメイン知識を確認（条件付き）→ ペルソナを推論 → ユーザーに確認
   ※ 詳細手順： references/orchestrator-requirements.md を Read すること
 
-Phase 2-4: Workflow を呼ぶ（scripts/build_skill.js が全て内包）
+Workflow を呼ぶ（scripts/build_skill.js が全て内包）
   Criteria → Structure → Write（+ Review script）→ Test → Evaluate → Grade → Analyze
   → 閾値を満たさなければ writer(revise) で改稿し Evaluate へ戻る
 
-Phase 5: 統合・保存（司令塔が単独で実行・人間ゲート）
+統合・改善ループ・ユーザーへの提示（司令塔が単独で実行・人間ゲート）
   └─ pass_rate と定性レポートをユーザーに提示 → 承認後に保存
   ※ 詳細手順： references/orchestrator-output.md を Read すること
 ```
@@ -84,14 +86,14 @@ Phase 5: 統合・保存（司令塔が単独で実行・人間ゲート）
 **review:**
 
 ```
-Phase 1: 対象と範囲の確認（司令塔が単独で実行・人間ゲート／確認は 1 回）
+対象と範囲の確認（司令塔が単独で実行・人間ゲート／確認は 1 回）
 
-Phase 2: Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェーズだけ）
+Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェーズだけ）
   Find     観点別 finder を並列で fan-out（観点の一覧は script の FINDERS が唯一の正）
   Verify   finding ごとに観点の異なる反証者を独立に立て、過半数の反証で棄却
   ※ Update / Reverify は起動しない。ファイルは 1 バイトも書かれない
 
-Phase 3: 結果の提示（司令塔が単独で実行）
+結果の提示（司令塔が単独で実行）
   └─ 確定・棄却・未検証を件数ごと提示。直すかどうかは人間が決める
   ※ 詳細手順： references/orchestrator-review.md を Read すること
 ```
@@ -99,15 +101,15 @@ Phase 3: 結果の提示（司令塔が単独で実行）
 **update:**
 
 ```
-Phase 1: 対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート／確認は 1 回）
+対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート／確認は 1 回）
 
-Phase 2: Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 つ続く）
+Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 つ続く）
   Find     観点別 finder を並列で fan-out
   Verify   finding ごとに反証者を独立に立て、過半数の反証で棄却
   Update   updater が staging（対象スキルの全ファイルのミラー）に改稿を書く
   Reverify staging に同じ観点を再適用し、最初の Verify の確定指摘と突き合わせる
 
-Phase 3: 結果の提示と適用（司令塔が単独で実行・人間ゲート）
+結果の提示と適用（司令塔が単独で実行・人間ゲート）
   └─ 解消/残存/新規/未検証を提示 → 承認後に司令塔が staging を本体へ反映
   ※ 詳細手順： references/orchestrator-review.md を Read すること
 ```
@@ -124,18 +126,18 @@ review と改稿の間に人間ゲートを置かないのも同じ理由（止�
 
 ---
 
-## Phase 1: 要件整理とペルソナ設計（create）
+## 要件整理とペルソナ設計（create）
 
 **Agent ツールは呼び出さない。司令塔が単独で行う。**
 
 `references/orchestrator-requirements.md` を Read し、手順に従って実行する。
 ドメイン知識の要否判定と収集（domainKnowledge の組み立て）も同参照先の手順に含まれる。
 
-完了条件：ユーザーがペルソナを承認したら Phase 2 へ進む。
+完了条件：ユーザーがペルソナを承認したら「Workflow を呼ぶ（create）」へ進む。
 
 ---
 
-## Phase 1: 対象と範囲の確認（review/update）
+## 対象と範囲の確認（review/update）
 
 **Agent ツールは呼び出さない。司令塔が単独で行う。確認は 1 回にまとめる。**
 
@@ -167,11 +169,11 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
    finder が全員「読めなかった」を返し、結果が空なのか対象が無いのかを人間が判別できない。
 4. 得た実体パスを `skillDir` / `target.skillPath` に渡す。
 
-完了条件：上表が埋まり、パスが `realpath` で解決できたら Phase 2 へ進む。
+完了条件：上表が埋まり、パスが `realpath` で解決できたら「Workflow を呼ぶ（review/update）」へ進む。
 
 ---
 
-## Phase 2-4: Workflow を呼ぶ（create）
+## Workflow を呼ぶ（create）
 
 > **実行環境の前提**: このスキルは Claude Code の dynamic workflows に依存する。Codex では動作しない可能性が高い — `codex` CLI に workflow サブコマンドが無く、[Codex plugin の仕様](https://developers.openai.com/codex/plugins/build)にも `workflows/` サーフェスが無い（いずれも 2026-08 時点。Codex セッション内のツールセットを直接確認したものではない）。Codex で使う場合は、まず Workflow 相当のツールが露出しているか確認すること。この前提は review/update（`scripts/review_skill.js`）にも同じく効く。
 
@@ -183,11 +185,11 @@ Workflow({
   scriptPath: "[SKILL_DIR]/scripts/build_skill.js",
   args: {
     skillDir: "[SKILL_DIR]",
-    requirements: "<Phase 1 で構造化した要件全体>",
+    requirements: "<要件整理で構造化した要件全体>",
     requirementsSummary: "<トリガー条件・対象ユーザーの要約>",
     taskType: "document | procedure | data",
     architecture: "coordinator | workflow",
-    domainKnowledge: {          // 任意。Phase 1 で「要る」と判定したときだけ
+    domainKnowledge: {          // 任意。要件整理で「要る」と判定したときだけ
       summary: "...",
       claims: [{ claim: "...", strength: "一次情報確認済み|実務慣行|未確認", source: "..." }],
       do_not_write: ["..."]
@@ -202,13 +204,13 @@ Workflow({
 })
 ```
 
-`domainKnowledge` は **Phase 1 で「要る」と判定したときだけ**渡す。渡すと criteria-gen・
+`domainKnowledge` は **要件整理で「要る」と判定したときだけ**渡す。渡すと criteria-gen・
 writer・reviewer のプロンプトへ注入され、writer は `references/<領域>-knowledge.md` として
 生成物にも書き出す。**`strength` を落とさないこと** — 内容そのものより「どの主張がどれだけ
 確かなのか」が下流で効き、強度の無い知識は根拠のある記述と無い記述を混ぜてしまう。
 
 `skillDir` には本スキルの実ディレクトリを実パスで渡す。スクリプトは自身の位置を解決できず、
-`agents/*.md` の Read パスがここでしか決まらない。`personas` は Phase 1 でユーザーが承認した
+`agents/*.md` の Read パスがここでしか決まらない。`personas` は要件整理でユーザーが承認した
 ペルソナ説明文を役割ごとに入れる（未指定の役割は script 側で「要件から自分で置く」旨の
 指示に落ちる）。
 
@@ -242,7 +244,7 @@ script-reviewer が落ちたときも「失格 0 件」とは読まず `script_r
 方法論を持ち baseline は持たない」だが、Workflow 型の方法論は script 側にあり、評価時点の script は
 ディスク上に無く、しかも評価 subagent には Workflow ツール自体が無い（実測）。出る数字は方法論の差では
 なく「script が保存済みか」を測ることになるため、走らせない。実効性の実測は**保存後に人間が 1 回
-回して測る**（Phase 5 の eval-viewer 手順）。
+回して測る**（「統合・改善ループ・ユーザーへの提示（create）」の eval-viewer 手順）。
 
 script が失格でもこのループでは改稿しない。script-reviewer は Write 直後に 1 回だけ走る設計で、
 再検証の経路が無いまま writer を回すと直ったか確かめずに次へ進むことになる。指摘を添えて返し、
@@ -277,7 +279,7 @@ script が失格でもこのループでは改稿しない。script-reviewer は
 ### 判定を script に閉じない箇所
 
 `verdict: needs_human_decision` は「実装レベルの修正では届かなかった」という報告であって、
-失敗の宣告ではない。Phase 5 でユーザーに提示し、要件・基準（Phase 1/2 相当）まで遡るかを
+失敗の宣告ではない。「統合・改善ループ・ユーザーへの提示（create）」でユーザーに提示し、要件・基準（要件整理・Criteria 相当）まで遡るかを
 人間が決める。script はそこを自動で判断しない。
 
 ### eval-viewer の生成
@@ -296,7 +298,7 @@ python3 [SKILL_DIR]/eval-viewer/generate_review.py \
 
 ---
 
-## Phase 2: Workflow を呼ぶ（review/update）
+## Workflow を呼ぶ（review/update）
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
@@ -321,7 +323,7 @@ Workflow({
 ```
 
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
-どちらも Phase 1 で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
+どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
 agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
 `diffRef` が無い、`mode: "update"` なのに `intent` が無い、`maxRevisions` が 0 以上の整数でない、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。曖昧なまま
@@ -378,16 +380,16 @@ script は改稿を繰り返さず `needs_human_decision` へ倒す）。
 
 ---
 
-## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
+## 統合・改善ループ・ユーザーへの提示（create）
 
-**Agent ツールは呼び出さない。司令塔が単独で行う。** 改善ループは Phase 2-4 の Workflow が内包しており、
+**Agent ツールは呼び出さない。司令塔が単独で行う。** 改善ループは Workflow（`scripts/build_skill.js`）が内包しており、
 ここでやり直す場合も `resumeFromRunId` で Workflow を再実行する（散文で agent を起動し直さない）。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
 
 ---
 
-## Phase 3: 結果の提示と適用（review/update）
+## 結果の提示と適用（review/update）
 
 **Agent ツールは呼び出さない。司令塔が単独で行う。**
 
@@ -492,7 +494,7 @@ evals/         # evals.json — このスキル自体の評価テストケース
 references/    # orchestrator-requirements / orchestrator-output / orchestrator-review（司令塔の手順）、
                # coordination-patterns / best-practices / skill-writing-guide / criteria-by-task /
                # flow-design（設計ガイド）、schemas（エージェント間入出力の契約書）
-scripts/       # build_skill.js  — create の Phase 2-4 本体
+scripts/       # build_skill.js  — create の Workflow 本体
                # review_skill.js — review/update 本体（観点一覧 FINDERS の唯一の正）
                # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
                # package_skill.py / quick_validate.py / utils.py
@@ -507,5 +509,5 @@ scripts/       # build_skill.js  — create の Phase 2-4 本体
 
 パス・staging・新設ファイルの置き場・agent frontmatter に関する制約は
 `references/orchestrator-review.md` の「設計上の制約」節にまとめてある。
-review/update を実行する前に、Phase 3 と同じタイミングで一度 Read すること。
+review/update を実行する前に、「結果の提示と適用（review/update）」と同じタイミングで一度 Read すること。
 ここに要約を置かないのは、制約の本文が 2 箇所に分かれると片方だけが更新されるため。

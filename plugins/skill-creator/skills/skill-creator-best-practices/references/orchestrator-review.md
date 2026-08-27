@@ -1,7 +1,7 @@
 # 司令塔：review / update の提示と適用
 
 `scripts/review_skill.js` の戻り値を人間に見せ、update なら承認を得て本体へ反映するまでの手順。
-SKILL.md の Phase 3 から Read される。
+SKILL.md の「結果の提示と適用（review/update）」から Read される。
 
 ## 目次
 
