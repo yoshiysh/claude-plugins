@@ -362,7 +362,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 
 ---
 
-## Phase 5：review/update の入出力
+## review/update の入出力
 
 `scripts/review_skill.js` が finder / refuter / updater と交換する契約。
 **観点の一覧・反証者の観点・閾値そのものは script の `FINDERS` / `PERSPECTIVES` /

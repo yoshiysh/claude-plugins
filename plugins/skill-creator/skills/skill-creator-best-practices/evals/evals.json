@@ -4,11 +4,11 @@
     {
       "id": 1,
       "prompt": "社内の問い合わせメールを分類して担当チームに振り分けるスキルを作ってほしい。分類ルールは既存のスプレッドシートにあるので、それを参照する形にしたい。品質チェックもお願いします。",
-      "expected_output": "create モードと判定し、Phase 1 で要件とペルソナを確認したうえで build_skill.js を呼ぶ流れを示す",
+      "expected_output": "create モードと判定し、要件整理で要件とペルソナを確認したうえで build_skill.js を呼ぶ流れを示す",
       "files": [],
       "assertions": [
         "モード判定で create を選んだことが示されているか",
-        "Phase 1 で要件整理とペルソナの確認を行い、ユーザーの承認を待つと述べているか",
+        "司令塔が要件整理とペルソナの確認を行い、ユーザーの承認を待つと述べているか",
         "scripts/build_skill.js を Workflow で呼ぶことと、skillDir を realpath で解決した実パスで渡すことが示されているか",
         "分類ルール表を SKILL.md 本体ではなく assets/ または references/ に外出しする方針が示されているか"
       ]
