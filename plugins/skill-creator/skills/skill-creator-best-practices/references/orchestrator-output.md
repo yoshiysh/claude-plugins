@@ -1,13 +1,13 @@
 # 統合・保存ガイド
 
-司令塔が Phase 5 で単独実行する手順。改善ループは Phase 2–4 の Workflow
+司令塔が Workflow の完了後に単独実行する手順。改善ループは Workflow
 （`scripts/build_skill.js`）で完結済みで、その戻り値を受けてここから始まる。
 
 Workflow の `verdict` が `passed` 以外の場合は合格として提示しない。いずれも `skill_draft` には
 直近の有効な稿が入っているので、草稿を失うことはない。
 
 - **`needs_human_decision`**（改稿上限に達しても閾値に届かなかった）: 品質の問題。pass_rate・
-  reviewer の失格項目・analyzer の改善提案をそのまま示し、要件・基準（Phase 1/2 相当）まで
+  reviewer の失格項目・analyzer の改善提案をそのまま示し、要件・基準まで
   遡るか、この稿で保存するかをユーザーに選んでもらう。
 - **`revision_failed`**（改稿 agent が応答しなかった）: 品質ではなくツール側の失敗。同じ入力で
   Workflow を再実行すれば解消しうる（`resumeFromRunId` で改稿ステップから再開できる）。
