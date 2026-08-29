@@ -1,0 +1,37 @@
+{
+  "skill_name": "review-document",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/Users/me/proj/docs/requirements/retrieval.md と /Users/me/proj/docs/requirements/index.md を、渾身の言語化の基準で採点して。要求 ID は絶対に消さないでほしいけど、今回は採点だけでいい。",
+      "expected_output": "review モードで Workflow を呼び、3軸のスコア・独自用語表・最悪文・分量内訳・改善策を返す。ファイルは書かない。",
+      "files": [],
+      "assertions": [
+        "review モードとして扱われ、ファイルへの書き込みを行わないことが明記されているか",
+        "scores / jargon / worst_sentences / breakdown の4点セットが揃って提示されているか",
+        "採点できなかった軸があれば null または欠測として示され、0点や『問題なし』と区別されているか",
+        "文字数・行数のしきい値による合否判定を行っていないか"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "文章が長すぎるので短く書き直して。",
+      "expected_output": "対象パスが無いため、モードを推測できても採点・改稿に入らず、どの文書かを1回だけ聞き返して終了する。",
+      "files": [],
+      "assertions": [
+        "対象の文書パスを尋ねる問い返しが含まれているか",
+        "問い返しは1回で、勝手に対象を推測して採点や改稿を始めていないか"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "src/domain/dcf_engine.py のこの関数、条件分岐が多くて読みにくいのでリファクタしてほしい。命名も分かりにくい。",
+      "expected_output": "コードのリファクタリング依頼であり、日本語の説明的文書の採点ではないため、このスキルは発動しない。",
+      "files": [],
+      "assertions": [
+        "review-document スキルが発動していないか",
+        "3軸（短さ・平易さ・独自用語）による文書採点が行われていないか"
+      ]
+    }
+  ]
+}
