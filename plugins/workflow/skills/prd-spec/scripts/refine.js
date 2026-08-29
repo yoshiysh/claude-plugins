@@ -1040,7 +1040,7 @@ function execToTbd(findings) {
 function ladderToTbd(entries) {
   return entries.map(({ kind, finding: f }) => ({
     id: `TBD-NI-${stableKey(`${f.document}|${f.location}|${f.issue}`)}`,
-    text: `${f.issue}（想定される解消: ${f.fix || '依頼者の決定'}）`,
+    text: `${f.issue || f.text || '(指摘本文なし)'}（想定される解消: ${f.fix || '依頼者の決定'}）`,
     owner: '',
     due: '',
     blocking: true,
@@ -1775,7 +1775,9 @@ while (true) {
     for (const f of draftStructural) {
       if (fixedKeys.has(f.document)) continue
       if (structural.some((s) => s.id === f.id)) continue
-      allFailed.push({ ...f, from_draft: true })
+      // draft.js の構造検査は {id, text} 形で届く。issue へ正規化しないと、下流の
+      // ladderToTbd / findingDigest が f.issue を読んで undefined を TBD 本文に落とす（実測）。
+      allFailed.push({ ...f, issue: f.issue || f.text || '', auditor: f.auditor || 'structural', from_draft: true })
     }
   }
 
