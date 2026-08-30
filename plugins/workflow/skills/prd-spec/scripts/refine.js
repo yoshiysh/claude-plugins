@@ -2468,6 +2468,87 @@ const unpresentedBlocking = blockingTbd.filter((t) => {
   return rec.digest !== stableKey(String(t.text || ''))
 })
 
+// 先例裁定: 未提示 blocking を人間ゲートへ積む前に、決定ログ・回答履歴と突き合わせる。
+// 既裁定と同型の判断を毎回人間へ返すと、ゲートは推奨を選ぶだけの承認ボタンになり、
+// 本当に人間にしか決められない項目がその中に埋もれる（実測: 第 2 波で blocking 4 件全てが
+// 第 1 波裁定の同型だった）。同型かどうかは意味判定なので judge agent に出す。
+// 迷いは novel（人間ゲート行き）へ倒す契約 — 自動裁定の偽陽性は依頼者の決定を勝手に
+// 置き換える事故で、偽陰性（余計に聞く）より重い。judge が応答しなければ全件ゲート行き。
+const PRECEDENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    classifications: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['tbd_id', 'verdict', 'rationale'],
+        properties: {
+          tbd_id: { type: 'string' },
+          verdict: { type: 'string', enum: ['resolvable', 'novel', 'conflict', 'irreversible'] },
+          precedent_ids: { type: 'array', items: { type: 'string' } },
+          proposed_resolution: { type: 'string' },
+          rationale: { type: 'string' },
+        },
+      },
+    },
+  },
+  required: ['classifications'],
+}
+let autoResolvedBlocking = []
+let gateBlocking = unpresentedBlocking
+if (unpresentedBlocking.length && (decisions.length || answers.trim() || tbdAnswersHistory.length)) {
+  const pj = await agent(
+    [
+      'あなたは先例裁定係。未提示の blocking TBD それぞれについて、決定ログ・回答・過去周回の',
+      '回答履歴の中に「同型の判断が既に下っている先例」があるかを判定する。',
+      '',
+      'verdict の基準:',
+      '- resolvable: 先例の判断をそのまま当てはめれば解消する（先例の ID を precedent_ids に、',
+      '  当てはめた解消文を proposed_resolution に書く）。',
+      '- novel: 先例が無い、または先例からの類推に飛躍がある。',
+      '- conflict: 当てはまりうる先例が複数あり、互いに逆の判断を含む。',
+      '- irreversible: 解消の内容が外部公開・データ削除など取り消しの難しい影響を持つ。',
+      '',
+      '迷ったら novel にする。resolvable の偽陽性は依頼者の決定を勝手に置き換える事故であり、',
+      '余計に質問する（偽陰性）より重い。「推奨が自明」は先例ではない — 判断の型が先例と',
+      '一致するときだけ resolvable にする。',
+      '',
+      `# [DECISIONS]\n${JSON.stringify(decisions, null, 1)}`,
+      `# [ANSWERS]\n${answers}`,
+      `# [TBD_ANSWERS_HISTORY]\n${JSON.stringify(tbdAnswersHistory, null, 1)}`,
+      `# [UNPRESENTED_BLOCKING]\n${JSON.stringify(
+        unpresentedBlocking.map(({ id, text, document }) => ({ id, text, document })),
+        null,
+        1
+      )}`,
+    ].join('\n'),
+    { model: 'sonnet', schema: PRECEDENT_SCHEMA, phase: 'Finalize', label: 'precedent-judge' }
+  )
+  const pjById = new Map(
+    (((pj || {}).classifications) || []).filter((c) => c && c.tbd_id).map((c) => [c.tbd_id, c])
+  )
+  autoResolvedBlocking = unpresentedBlocking
+    .filter((t) => (pjById.get(t.id) || {}).verdict === 'resolvable')
+    .map((t) => {
+      const c = pjById.get(t.id)
+      return {
+        ...t,
+        precedent_ids: c.precedent_ids || [],
+        proposed_resolution: c.proposed_resolution || '',
+        rationale: c.rationale || '',
+      }
+    })
+  const autoIds = new Set(autoResolvedBlocking.map((t) => t.id))
+  gateBlocking = unpresentedBlocking.filter((t) => !autoIds.has(t.id))
+  if (autoResolvedBlocking.length) {
+    log(
+      `先例裁定: 未提示 blocking ${unpresentedBlocking.length} 件のうち ${autoResolvedBlocking.length} 件を` +
+        '先例から解消可能と判定しました（auto_resolved_blocking として返します。司令塔は次周回の' +
+        ' tbd_answers に採り、保存ゲートで決定ログとして事後提示すること）。'
+    )
+  }
+}
+
 const { deferred: categoriesDeferred } = reconcileCategories(documents, requiredCategories)
 
 // INDEX は導出物なので、その kind の文書を実際に書いた（＝ fixed でない）ランでのみ組み立てる。
@@ -2523,7 +2604,7 @@ const nextArgs = buildNextArgs({
   outer_round: outerRound,
   max_outer_rounds: MAX_OUTER_ROUNDS,
   has_needs_input: needsInputTbd.length > 0,
-  has_unpresented_blocking: unpresentedBlocking.length > 0,
+  has_unpresented_blocking: gateBlocking.length > 0,
   skillDir: SKILL_DIR,
   mode,
   input,
@@ -2579,7 +2660,8 @@ return {
   // digest は script が計算して付ける。司令塔に text からの導出をさせると、
   // 照合側（stableKey）と別の値（生 text など）が積まれ、提示済みが全件「未提示」に化ける。
   blocking_tbd_items: blockingTbd.map((t) => ({ ...t, digest: stableKey(String(t.text || '')) })),
-  unpresented_blocking: unpresentedBlocking.map((t) => ({
+  auto_resolved_blocking: autoResolvedBlocking,
+  unpresented_blocking: gateBlocking.map((t) => ({
     ...t,
     digest: stableKey(String(t.text || '')),
   })),
@@ -2645,7 +2727,8 @@ return {
     unverified_citations: structural.filter((f) => f.id.startsWith('ST-UNVERIFIED')).length,
     tbd_count: tbdItems.length,
     blocking_tbd_count: blockingTbd.length,
-    unpresented_blocking_count: unpresentedBlocking.length,
+    unpresented_blocking_count: gateBlocking.length,
+    auto_resolved_blocking_count: autoResolvedBlocking.length,
     deferred_categories_count: categoriesDeferred.length,
     revision_backstop: REVISION_BACKSTOP,
     stuck_threshold: STUCK_THRESHOLD,
