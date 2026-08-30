@@ -431,7 +431,13 @@ function findPerFile(perFile, file) {
     const s = String(p.file).replace(/^\.\//, '')
     return s && file.endsWith(`/${s}`)
   })
-  return suffix.length === 1 ? suffix[0] : null
+  if (suffix.length === 1) return suffix[0]
+  // 相対表記の向きが逆のケース（採点側がミラー内の相対パス、照合側が別階層の絶対パス）では
+  // suffix 一致が両向きとも成立しない。対象集合の中で basename が一意なときだけ最後の橋にする —
+  // 一意でなければ null（欠測）に落ち、誤結合より欠測を選ぶ。
+  const base = file.slice(file.lastIndexOf('/') + 1)
+  const byBase = list.filter((p) => String(p.file).endsWith(`/${base}`) || String(p.file) === base)
+  return byBase.length === 1 ? byBase[0] : null
 }
 
 function runScore(files, phaseTitle, passLabel) {
@@ -792,8 +798,10 @@ const changed = await agent(
     '',
     `[TARGET_DIR]: ${mirrorRoot}`,
     `[STAGING_DIR]: ${stagingDir}`,
-    `[FILES]:\n${scoreTargets.join('\n')}`,
-    'ディレクトリ構造は対象と同じ相対位置で作る（後で承認されたファイルだけを本体へ戻すため）。',
+    '[FILE_MAP]: 各行「原本 → 書き込み先」。書き込み先はこの絶対パスに一字違わず書くこと。',
+    '相対位置を自分で解釈させないのは、階層の取り方が 1 段ズレると再採点が別のパスを読み、',
+    '全セル欠測として突き合わせが破綻するため（実測）。',
+    scoreTargets.map((t) => `${t} → ${stagingPathOf(t)}`).join('\n'),
     '',
     `[CONSTRAINTS]:\n${constraints}`,
     'これは落とせない性質。短くするために要求 ID・参照リンク・例外条件を消してはいけない。',
