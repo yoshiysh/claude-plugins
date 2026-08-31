@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
+**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§precedent-judge](#precedent-judge) · [§measurement](#measurement) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
 
 各 agent が返す形の正。`scripts/draft.js` と `scripts/refine.js` にも同じ定義が JSON Schema と
 して埋まっており、writer / auditor はそちらで構造化出力を強制される。このファイルは**文書側の
@@ -102,6 +102,9 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
   "markdown": "要求文書の本文（常設章は references/document-structure.md を正とする）",
   "summary": "この文書に何が書いてあるかの 1〜2 文。INDEX の文書一覧に使われる",
   "requirement_items": [{ "id": "PR-AUTH-001", "heading": "多要素認証" }],
+  "trace": [
+    { "item_id": "PR-AUTH-001", "kind": "input", "ref": "", "quote": "根拠原本からの引用（そのまま写す）" }
+  ],
   "tbd_items": [
     { "id": "TBD-AUTH-001", "text": "決めるべき論点", "owner": "", "due": "", "blocking": true, "candidates": ["決め方の候補（任意）"] }
   ],
@@ -115,6 +118,14 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 }
 ```
 
+- **`trace` は項目 ID → 根拠原本の対応。** 納品文書の本文には根拠句を書かないので
+  （`references/document-structure.md` §4）、「この記述はどこから来たか」はここにしか残らない。
+  script が `audit_trail` に畳み、fabrication-auditor がこれと入力を突き合わせる。
+  `kind` は `input` / `answers` / `tbd_answers` / `decision` / `premise` / `measurement` /
+  `domain` のいずれか。認められた根拠原本以外の出所は列挙に無いので申告できない。
+  `quote` は原本に実在する文字列をそのまま写す（要約・言い換えは照合できず、根拠なしとして
+  扱われる）。**全項目に必要**である — trace の無い項目は構造検査が `ST-NO-EVIDENCE-<id>` を
+  立てる。
 - `requirement_items` は本文に実在する ID を**すべて**列挙する。script が本文から正規表現で
   独立に抽出して突き合わせるので、抜けると欠陥として検出される。
 - **`tbd_items[].id` は `TBD-<領域>-<連番>`。** 各文書は並列に書かれ互いの採番を知らないため、
@@ -137,6 +148,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
   "markdown": "仕様書の本文",
   "summary": "この文書に何が書いてあるかの 1〜2 文",
   "spec_items": [{ "id": "SP-AUTH-001", "heading": "認証トークンの発行" }],
+  "trace": [{ "item_id": "SP-AUTH-001", "kind": "decision", "ref": "D-003", "quote": "..." }],
   "traceability": [
     {
       "requirement_id": "PR-AUTH-001",
@@ -152,6 +164,16 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 }
 ```
 
+- **`trace` は項目 ID → 根拠原本の対応。** 納品文書の本文には根拠句を書かないので
+  （`references/document-structure.md` §4）、「この記述はどこから来たか」はここにしか残らない。
+  script が `audit_trail` に畳み、fabrication-auditor がこれと入力を突き合わせる。
+  `kind` は `input` / `answers` / `tbd_answers` / `decision` / `premise` / `measurement` /
+  `domain` のいずれか。認められた根拠原本以外の出所は列挙に無いので申告できない。
+  `quote` は原本に実在する文字列をそのまま写す（要約・言い換えは照合できず、根拠なしとして
+  扱われる）。**全項目に必要**である — trace の無い項目は構造検査が `ST-NO-EVIDENCE-<id>` を
+  立てる。
+- `traceability`（要求 ID → 仕様 ID の対応表）は `trace`（項目 ID → 根拠）とは別物である。
+  前者は文書に載る階層の対応で、後者は文書に載らない根拠の対応である。
 - `traceability` は**この文書がカバーする要求の分だけ**を持つ。全要求を書き写すと他の仕様文書と
   重複し、どちらが正か決まらなくなる。本文中の表と一致させる（片方だけ更新しない）。
 - `requirement_id` は他文書の要求を指してよい（文書を跨いだ照合は script が行う）。
@@ -276,6 +298,66 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 
 ---
 
+## §precedent-judge
+
+`scripts/refine.js` が未提示 blocking をまとめて 1 体に渡す。**人間必要性の判定パイプライン
+段 2**（段 1 は ladder-judge、段 3 は measurement）。
+
+```json
+{
+  "classifications": [
+    {
+      "tbd_id": "TBD-AUTH-001",
+      "verdict": "resolvable | measurable | novel | conflict | irreversible",
+      "precedent_ids": ["D-003"],
+      "proposed_resolution": "先例を当てはめた解消文（resolvable のとき）",
+      "measurement_target": "何を読めば決まるか（measurable のとき）",
+      "rationale": "分類の根拠 1 行"
+    }
+  ]
+}
+```
+
+| verdict | 意味 | 行き先 |
+|---|---|---|
+| `resolvable` | 決定ログ・回答履歴に同型の先例があり、当てはめれば解消する | 同一ラン内で本文へ反映 |
+| `measurable` | 現物（実装・設定・既存文書）が答えを持つ | §measurement へ |
+| `novel` | 先例が無い / 類推に飛躍がある | 人間ゲート |
+| `conflict` | 当てはまりうる先例同士が逆の判断を含む | 人間ゲート |
+| `irreversible` | 解消が取り消しの難しい影響を持つ | 人間ゲート |
+
+**迷ったら `novel`。** 自動裁定の偽陽性は依頼者の決定を勝手に置き換える事故であり、
+余計に聞く偽陰性より重い。`measurement_target` が空の `measurable` は script が採らない
+（読む対象を名指しできないなら、それは計測ではなく推測である）。
+
+---
+
+## §measurement
+
+`scripts/refine.js` が `measurable` と判定された項目をまとめて 1 体に渡す。役割の詳細は
+`agents/measurement.md`。
+
+```json
+{
+  "resolutions": [
+    {
+      "tbd_id": "TBD-AUTH-001",
+      "resolved": true,
+      "statement": "測った事実を 1 文で（そのまま規範の材料になる）",
+      "evidence": [{ "file": "src/auth/session.py", "line": 42, "quote": "実ファイルに実在する文字列" }],
+      "reason": "確定できた / できなかった理由"
+    }
+  ]
+}
+```
+
+- **`resolved: false` は正しい応答**である。確定できなかった項目は人間ゲートへ戻る。
+- `evidence` が空の `resolved: true` は script が採らない。証拠なしの断定は計測ではなく推測で
+  あり、実測の体裁をまとった捏造は下流の監査を素通りするため。
+- `statement` に測っていないこと（今後どうすべきか・実装がそうなっている理由）を書かない。
+
+---
+
 ## §structural（script が生成する finding）
 
 `structuralFindings()` が返す。agent は生成しない。戻り値は `{ findings, not_checked }`。
@@ -291,7 +373,10 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 | `ST-PHANTOM-` | ID 一覧にあるが本文に無い |
 | `ST-OBSOLETE-` | 廃止済み規制の語の混入（`references/citation-policy.md`） |
 | `ST-UNVERIFIED-` | 本文未確認の規格に条番号を付けた引用 |
+| `ST-NO-EVIDENCE-` | 項目 ID に対応する `trace`（根拠）が申告されていない |
+| `ST-NON-NORMATIVE-` | 本文に根拠句・決定ログ・経緯・未確定事項の章が混ざっている |
 
 `not_checked` は**失格ではなく「材料が無くて実行できなかった検査」**。
 `ST-NOTCHECKED-CROSSREF` は、片方の kind の文書が対象に含まれず ID 照合が成立しなかったこと
-を示す。**「指摘 0 件」と混同させないため、別配列で返す。**
+を示す。`ST-NOTCHECKED-TRACE-<文書>` は、その文書が `trace` を申告せず根拠の対応を検査できな
+かったことを示す（「根拠あり」ではない）。**「指摘 0 件」と混同させないため、別配列で返す。**

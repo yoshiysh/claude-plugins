@@ -5,9 +5,10 @@
 
 - **intake**: これらを質問リストに入れない。依頼文がこれらと**食い違う**ときだけ、
   食い違いの確認として聞く。
-- **writer**: これらを前提として使ってよい。根拠欄には `（スキル既定: 前提 N）` と書く。
+- **writer**: これらを前提として使ってよい。`trace` に `{ kind: "premise", ref: "前提 N" }` と
+  申告する（本文には出所を書かない。正は `document-structure.md` §4）。
   依頼文・回答を根拠に偽装しない。外部規格の名を出所として借りない。
-- **fabrication-auditor**: `（スキル既定: 前提 N）` を出所とする記述は、対応する前提が
+- **fabrication-auditor**: `kind: "premise"` の申告は、対応する前提が
   本ファイルに実在する限り捏造ではない。**出所の偽装**（スキル既定の内容を規格名・依頼者の
   回答・業界慣行の名で書くこと）は引き続き指摘する。
 - **司令塔**: これらに関わる TBD が起票されたら、人間ゲートに出す前にこのファイルで解消する。
@@ -20,7 +21,7 @@
 | 2 | 保存先の既定は `docs/requirements` / `docs/specifications`、途中成果物は `~/.claude/prd-spec-workspace/<案件>/`。変更は司令塔が `paths` args で行う | SKILL.md 手順 7 |
 | 3 | 生成対象（requirements / specifications のどちらか・両方）は依頼文の語から `references/document-splitting.md` §0 の判定表で決める | document-splitting.md §0 |
 | 4 | 要求文の記述規律（4 語尾の助動詞規約・曖昧語リスト・ID 体系・章構成の既定）は `references/requirement-writing-rules.md` / `traceability.md` / `document-structure.md` が定めるスキル既定の規律であり、案件ごとに依頼者へ確認しない。依頼文が別の規約を指定したときだけそちらを優先する | 各 reference |
-| 5 | 生成文書に変更履歴の章を置かない。TBD の決め方候補（candidates）を本文に書かない | SKILL.md・document-structure.md §4 |
+| 5 | 生成文書の本文に置くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけである（根拠句・出所表記・決定ログ・変更履歴・経緯・採らなかった案・未確定事項の章・TBD の候補を本文に書かない）。根拠は `trace`、経緯は保存時の commit / PR 本文に残す | document-structure.md §4 |
 | 6 | 司令塔は生成文書を手編集しない。修正は改稿経路（writer + 監査）を通すか、指摘を残したまま保存する | SKILL.md 手順 6（保存） |
 | 7 | 検査・判定を定める文書では、判定が定まらない場合の既定値は fail-closed（否・不合格側）に倒す。fail-open（合側）に倒す規則を置く場合は、その適用範囲を機械的に判別できる条件（手続きが返す値）で定義し、fail-closed の規則と適用範囲が重ならないことを本文で示す。重なりが残る場合は blocking である | run5 実測（fail-closed/fail-open の適用範囲矛盾が改稿上限内で解消できず unresolved 化） |
 

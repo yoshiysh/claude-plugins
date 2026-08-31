@@ -25,6 +25,15 @@ const STUCK_THRESHOLD = 2
 // 到達したら verdict に 'revision_backstop_reached' を立てて明示的に終わる。
 const REVISION_BACKSTOP = 3
 
+// GATE_CAPACITY_PER_ROUND / MAX_GATE_ROUNDS: 人間ゲートの提示容量。**正は
+// scripts/check_blocking_rate.py の同名定数**であり、ここはその写しである（workflow script は
+// import を書けず、Python との間で値を共有できない）。両者の一致は
+// tests/test_function_parity.py が機械で検査する。容量を超えた blocking は
+// 「未提示のまま完了」に直結するため、返り値の blocking_over_capacity で申告する
+// （司令塔に別のスクリプトを走らせる判断を委ねない — 走らせなければ超過に気づけない）。
+const GATE_CAPACITY_PER_ROUND = 20
+const MAX_GATE_ROUNDS = 2
+
 // AUDITORS の scope: 'each' = 全文書に 1 体ずつ / 'requirements' | 'specifications' = その種別だけ /
 // 'all' = 全文書をまとめて 1 体。consistency だけが 'all' なのは、重複・矛盾・INDEX との齟齬は
 // 単一文書の中では原理的に見えないため。他の 5 観点は 1 文書で判定が閉じるので fan-out する。
@@ -81,12 +90,37 @@ const TBD_ITEM = {
   required: ['id', 'text', 'blocking'],
 }
 
+// TRACE_ITEM: 項目 ID → 根拠原本の対応。納品文書の本文には根拠句を書かない規約に変えたため、
+// 「この記述はどこから来たか」はここにしか残らない。返り値では audit_trail として集約され、
+// fabrication 監査と traceability 監査の照合対象になる。本文から根拠句を消しただけで
+// trace を作らないと、捏造検査の入力そのものが消え、指摘 0 件が「健全」に化ける。
+const TRACE_ITEM = {
+  type: 'object',
+  properties: {
+    item_id: { type: 'string' },
+    // kind: 根拠原本の種別。認められた原本以外の出所（業界の常識・類似システムの慣行）は
+    // 列挙に無いので、そもそも申告できない。
+    kind: {
+      type: 'string',
+      enum: ['input', 'answers', 'tbd_answers', 'decision', 'premise', 'measurement', 'domain'],
+    },
+    // ref: 原本の中の識別子（D-003 / 前提 2 / 計測 M-001 / 観点名）。input のように識別子を
+    // 持たない原本では空でよい。
+    ref: { type: 'string' },
+    // quote: 原本からの引用。要約や言い換えではなく、原本に実在する文字列を写す
+    // （照合側は文字列一致で確かめるため、言い換えると根拠なしとして扱われる）。
+    quote: { type: 'string' },
+  },
+  required: ['item_id', 'kind', 'quote'],
+}
+
 const REQ_DOC_SCHEMA = {
   type: 'object',
   properties: {
     markdown: { type: 'string' },
     summary: { type: 'string' },
     requirement_items: { type: 'array', items: ID_ITEM },
+    trace: { type: 'array', items: TRACE_ITEM },
     tbd_items: { type: 'array', items: TBD_ITEM },
     categories_deferred: { type: 'array', items: { type: 'string' } },
     referenced_ids: { type: 'array', items: { type: 'string' } },
@@ -111,7 +145,7 @@ const REQ_DOC_SCHEMA = {
       required: ['after', 'net_added'],
     },
   },
-  required: ['markdown', 'summary', 'requirement_items', 'tbd_items'],
+  required: ['markdown', 'summary', 'requirement_items', 'trace', 'tbd_items'],
 }
 
 const SPEC_DOC_SCHEMA = {
@@ -120,6 +154,7 @@ const SPEC_DOC_SCHEMA = {
     markdown: { type: 'string' },
     summary: { type: 'string' },
     spec_items: { type: 'array', items: ID_ITEM },
+    trace: { type: 'array', items: TRACE_ITEM },
     traceability: {
       type: 'array',
       items: {
@@ -157,7 +192,7 @@ const SPEC_DOC_SCHEMA = {
       required: ['after', 'net_added'],
     },
   },
-  required: ['markdown', 'summary', 'spec_items', 'traceability', 'tbd_items'],
+  required: ['markdown', 'summary', 'spec_items', 'trace', 'traceability', 'tbd_items'],
 }
 
 // AUDIT_SCHEMA: 6 auditor 共通。判定は failed[] の件数で受け取る（markdown 中の ❌ を数えない）。
@@ -337,6 +372,10 @@ let documents = inputDocs.map((d) => ({
   items: d.items || [],
   ids: (d.items || []).map((i) => i.id).filter(Boolean),
   referenced: d.referenced_ids || [],
+  // trace: 前工程（Workflow A / 前周回）が申告した項目 ID → 根拠。改稿で writer が返した
+  // 値に置き換わる。undefined のまま渡すと構造検査が「未検査」を立てるので、欠落は
+  // 「根拠あり」に化けずに申告される。
+  trace: d.trace,
   traceability: d.traceability || [],
   tbd_items: d.tbd_items || [],
   categories_deferred: d.categories_deferred || [],
@@ -438,6 +477,12 @@ function otherDocsContext(self) {
     .join('\n\n---\n\n')
 }
 
+// writerDirectives: 人間必要性の判定パイプライン（段 2〜4）が決めた「この TBD をこう解消する /
+// 保持規則に変換する」を writer へ渡す経路。監査指摘とは契機が違う（指摘は文書の欠陥、これは
+// 未確定事項の決着）ので [FINDINGS] に混ぜない — 混ぜると writer は「指摘の解消」として扱い、
+// 決着した内容を新しい要求として書き足す方向へ流れる。
+let writerDirectives = new Map()
+
 function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
   const isReq = doc.kind === 'requirements'
   const role = isReq ? 'req-writer' : 'spec-writer'
@@ -462,6 +507,26 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
       '# [REQUIREMENTS_REVISED] requirements 文書が改稿された',
       'この文書への指摘が 0 件でも、要求 ID の増減・文言変更にトレーサビリティ表と各仕様項目の',
       '紐付けを追随させること。追随に不要な箇所は前稿を維持すること。',
+      ''
+    )
+  }
+  const directives = writerDirectives.get(doc.key) || []
+  if (directives.length) {
+    tail.push(
+      '# [TBD_RESOLUTION] 未確定事項の決着（この 1 回で本文へ反映する）',
+      JSON.stringify(directives, null, 2),
+      '',
+      '- `action: "resolve"` — `resolution` の内容を確定した規範として本文に書き、対応する',
+      '  未確定事項を tbd_items から外す。根拠は本文に書かず、trace に申告する',
+      '  （kind は先例なら decision、計測なら measurement）。',
+      '- `action: "carry"` — 着手は止めないが決まっていない論点である。**本文には何も書かず**、',
+      '  その未確定事項を tbd_items から外す（止めるべき進行が無いので保持規則も書かない。',
+      '  裁定は文書の外の作業項目として追跡される）。',
+      '- `action: "hold"` — その論点は決まらないままである。「決まっていない」と書く代わりに、',
+      '  **裁定が下るまで何をしてはならないかを規範文として書く**（例:「〜の裁定が下るまで、',
+      '  この出力を新しい箇所へ拡大してはならない」）。書いたら tbd_items から外す。',
+      '  読み手が次に何をしてよいかが決まる形にすること — 「未定」とだけ書かれた項目を前に',
+      '  すると、次工程は勝手に決めるか止まるかしかない。',
       ''
     )
   }
@@ -573,6 +638,22 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
       '# [SPECIMENS] 実在の標本文書（各項目をここへ実際に適用する。Read すること）',
       specimenPaths.map((p) => `- ${p}`).join('\n'),
       '標本は判定装置のテスト入力であり、監査対象ではない（標本自体の品質は指摘しない）。',
+      ''
+    )
+  }
+
+  if (auditor.name === 'fabrication') {
+    head.push(
+      '# [TRACE] 項目 ID → 根拠原本の引用（本文には根拠句を書かない規約なので、根拠はここにある）',
+      JSON.stringify(
+        (auditor.scope === 'all' ? documents : task.docs)
+          .filter((d) => !d.fixed)
+          .map((d) => ({ document: d.path, basis: d.trace || [] })),
+        null,
+        2
+      ),
+      '本文に出所が書かれていないことを指摘しない（規約どおりの状態である）。引用が原本に実在し、',
+      'その項目を本当に支えているかを突き合わせること。trace の無い項目は構造検査が拾う。',
       ''
     )
   }
@@ -991,9 +1072,65 @@ function structuralFindings(docs) {
           quote: t.id,
           severity: 'degraded',
           issue: `着手を止める未確定事項 ${t.id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
-          fix: 'TBD 表に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
+          fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
         })
       }
+    }
+  }
+
+
+  // (7) 根拠の所在。納品文書の本文には根拠句を書かない規約（document-structure.md §4）に
+  //     したため、「どの記述がどこから来たか」は trace（→ audit_trail）にしか無い。trace が
+  //     欠けた項目は、本文からも返り値からも根拠を辿れず、出所不明の断定と区別できない。
+  //     ここを検査しないと、本文から根拠句を消した瞬間に fabrication 監査の入力が消え、
+  //     指摘 0 件が「健全」に化ける。
+  for (const d of docs) {
+    if (d.fixed) continue
+    if (!Array.isArray(d.trace)) {
+      notChecked.push({
+        id: `ST-NOTCHECKED-TRACE-${d.key}`,
+        issue: `${d.key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
+      })
+    } else {
+      const traced = new Set(d.trace.map((t) => t && t.item_id).filter(Boolean))
+      for (const id of d.ids) {
+        if (traced.has(id)) continue
+        out.push({
+          auditor: 'structural',
+          id: `ST-NO-EVIDENCE-${id}`,
+          document: d.key,
+          location: id,
+          quote: id,
+          issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
+          fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+        })
+      }
+    }
+  }
+
+  // (8) 本文に混ざった非規範の記述。納品文書に置いてよいのは規範文・ID・上位/姉妹文書への
+  //     参照・自明でない規則の 1 文 inline の why だけである。根拠句・決定ログ・採らなかった
+  //     案・未確定事項の章は、読み手（後続の実装者と AI）が従うべき規範を薄めるだけであり、
+  //     経緯は git commit / PR 本文に残す。文字列は旧規約が定めていた定型なので機械照合できる。
+  const NON_NORMATIVE = [
+    { re: /（既定[:：]/, what: '決定ログの出所表記' },
+    { re: /（スキル既定[:：]/, what: 'スキル既定の出所表記' },
+    { re: /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討|未確定事項|TBD)\s*$/, what: '経緯・未確定事項の章' },
+  ]
+  for (const d of docs) {
+    if (d.fixed || !d.markdown) continue
+    for (const p of NON_NORMATIVE) {
+      const hit = String(d.markdown).split('\n').find((ln) => p.re.test(ln))
+      if (!hit) continue
+      out.push({
+        auditor: 'structural',
+        id: `ST-NON-NORMATIVE-${d.key}-${p.what}`,
+        document: d.key,
+        location: '本文',
+        quote: hit.trim().slice(0, 60),
+        issue: `本文に${p.what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
+        fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
+      })
     }
   }
 
@@ -1227,7 +1364,14 @@ async function classifyFindings(findings, label) {
     // 改稿経路そのものを止めない（欠測を needs_input に読み替えると偽の質問が人間へ飛ぶ）。
     else toWriter.push({ ...f, ladder_kind: kind || 'artifact' })
   }
-  return { toWriter, needsInput }
+  const unclassified = withDigest.filter((f) => !kindByDigest.has(f.digest)).length
+  if (unclassified > 0) {
+    log(
+      `ladder-judge 欠測: ${unclassified} 件が未分類のまま writer 経路へ流れました` +
+        '（premise 相当が artifact 扱いされる恐れ。捏造監査が下流で照合します）。'
+    )
+  }
+  return { toWriter, needsInput, unclassified }
 }
 
 // validateAdjudication: 終端裁定の三値分類（fixed / rejected / documented）を検証する。
@@ -1529,6 +1673,9 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
     const subset = documents.filter((d) => d.kind === kind && !d.fixed)
     const targetsForRound = subset.filter((d) => {
       if (forceAll) return true
+      // 未確定事項の決着（段 2〜4）は指摘 0 件でも引き直す契機である。指摘の有無だけで
+      // 絞ると、決着の反映パスが 1 文書も動かないまま「反映済み」として返る。
+      if ((writerDirectives.get(d.key) || []).length) return true
       const f = findingsByDoc.get(d.key) || []
       if (f.length) return true
       // 指摘 0 件でも、要求側が改稿されたラウンドの仕様書は紐付けの追随のために引き直す。
@@ -1564,6 +1711,7 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
         items,
         ids: items.map((i) => i.id).filter(Boolean),
         referenced: result.referenced_ids || [],
+        trace: result.trace,
         traceability: kind === 'specifications' ? result.traceability || [] : [],
         tbd_items: result.tbd_items || [],
         categories_deferred: result.categories_deferred || [],
@@ -2440,40 +2588,61 @@ if (needsInputByDigest.size) {
 const needsInputTbd = ladderToTbd([...needsInputByDigest.values()])
 const needsInputKinds = [...new Set(needsInputTbd.map((t) => t.needs_input_kind))]
 
-const execTbd = execToTbd(execFindings)
-// 現ラウンドの申告を正として組み直す（前回分は owner/due などのメタデータ供給元）。
-// 無条件マージにすると解決した TBD が消えず、「あと N 個」の N が永遠に減らない。
-// spread して渡すのは、currentLists.flat() が 1 段しか平坦化しないため。
-// [documents.map(...), execTbd] と書くと documents 側が配列の配列のまま残り、
-// item.id が undefined になって**全件が黙って捨てられる**。捨てられた結果は
-// tbd_items 0 件・blocking 0 件となり、「未提示の blocking が 0 件」という完成条件を
-// 無条件に成立させる。ここは完成判定の唯一の供給元なので、形を崩さないこと。
-const { current: tbdItems, resolved: resolvedTbdIds } = rebuildTbd(
-  [...documents.map((d) => d.tbd_items), execTbd, needsInputTbd],
-  inputTbdItems
-)
-const blockingTbd = tbdItems.filter((t) => t.blocking)
-
-// unpresented_blocking: この設計の要。blocking かつ「まだ人間に提示していない」TBD。
-// 「聞かれもせずに残った blocking」を完了時に必ず可視化するための唯一の算出地点であり、
-// SKILL.md 側はこの配列の length を見るだけで、同じ式を再実装しない。
+// 未確定事項の集計。段 3（計測解消）と段 4（保持規則への変換）は本文と TBD 申告を書き換える
+// ので、集計は関数にして反映の前後で 2 回走らせる。式を 2 箇所に書き分けると、反映後の件数
+// だけが古い式で出て「解消したのに残っている」「残っているのに 0 件」が起きる。
+let tbdItems = []
+let resolvedTbdIds = []
+let blockingTbd = []
+// settled: 判定パイプラインが決着させた TBD の ID。**再集計から差し引くために要る。**
+// tbd_items は毎回ゼロから組み直され、script 起票分（TBD-EX- / TBD-NI-）は writer の申告に
+// 関係なく再投入される。差し引かないと、本文には解消文や保持規則が入っているのに返り値では
+// 未解決のまま残り、文書の実体と提示内容が食い違う（この乖離こそ在ラン解消の目的である）。
+const settled = new Set()
+// unpresented_blocking: blocking かつ「まだ人間に提示していない」TBD。「聞かれもせずに残った
+// blocking」を可視化する唯一の算出地点であり、SKILL.md 側はこの配列の length を見るだけで
+// 同じ式を再実装しない。
 //
 // 判定を ID だけで行うと偽陰性が出る。改稿で TBD-AUTH-003 が別の論点に振り直されると、
 // 古い 003 を提示した記録が新しい論点に流用され、聞いていないのに「提示済み」になる。
 // そこで内容の digest も併せて照合する（id が一致しても中身が変わっていれば未提示扱い）。
-const unpresentedBlocking = blockingTbd.filter((t) => {
-  const rec = presentedById.get(t.id)
-  if (!rec) return true
-  if (!rec.digest) return false // 旧形式（ID のみ）で渡された場合は従来どおり提示済みとみなす
-  return rec.digest !== stableKey(String(t.text || ''))
-})
+let unpresentedBlocking = []
+const recomputeTbd = () => {
+  // 現ラウンドの申告を正として組み直す（前回分は owner/due などのメタデータ供給元）。
+  // 無条件マージにすると解決した TBD が消えず、「あと N 個」の N が永遠に減らない。
+  // spread して渡すのは、currentLists.flat() が 1 段しか平坦化しないため。
+  // [documents.map(...), execTbd] と書くと documents 側が配列の配列のまま残り、
+  // item.id が undefined になって**全件が黙って捨てられる**。捨てられた結果は
+  // tbd_items 0 件・blocking 0 件となり、完成条件を無条件に成立させる。形を崩さないこと。
+  const rebuilt = rebuildTbd(
+    [...documents.map((d) => d.tbd_items), execToTbd(execFindings), needsInputTbd],
+    inputTbdItems
+  )
+  tbdItems = rebuilt.current.filter((t) => !settled.has(t.id))
+  resolvedTbdIds = [...rebuilt.resolved, ...[...settled].filter((id) => !tbdItems.some((t) => t.id === id))]
+  blockingTbd = tbdItems.filter((t) => t.blocking)
+  unpresentedBlocking = blockingTbd.filter((t) => {
+    const rec = presentedById.get(t.id)
+    if (!rec) return true
+    if (!rec.digest) return false // 旧形式（ID のみ）で渡された場合は従来どおり提示済みとみなす
+    return rec.digest !== stableKey(String(t.text || ''))
+  })
+}
+recomputeTbd()
 
-// 先例裁定: 未提示 blocking を人間ゲートへ積む前に、決定ログ・回答履歴と突き合わせる。
-// 既裁定と同型の判断を毎回人間へ返すと、ゲートは推奨を選ぶだけの承認ボタンになり、
-// 本当に人間にしか決められない項目がその中に埋もれる（実測: 第 2 波で blocking 4 件全てが
-// 第 1 波裁定の同型だった）。同型かどうかは意味判定なので judge agent に出す。
-// 迷いは novel（人間ゲート行き）へ倒す契約 — 自動裁定の偽陽性は依頼者の決定を勝手に
-// 置き換える事故で、偽陰性（余計に聞く）より重い。judge が応答しなければ全件ゲート行き。
+// ------------------------------------------------ 人間必要性の判定パイプライン（段 2〜4）
+//
+// 段 1（ladder-judge）は改稿ループの中にある。ここは残った未確定事項を、人間に聞く前に
+// 「聞かなくても決まるもの」から順に落とす経路である。同型の質問を毎回返すと、ゲートは
+// 推奨を選ぶだけの承認ボタンになり、本当に人間にしか決められない項目がその中に埋もれる
+// （実測: 第 2 波統合ゲートで 4 問すべてが第 1 波裁定の同型だった）。
+//
+//   段 2 先例裁定  … 既裁定と同型か（decidable なら裁定して反映）
+//   段 3 計測解消  … リポジトリを読めば事実が確定するか（resolvable なら計測して反映）
+//   段 4 保持規則  … 依頼者に提示済みでなお決まらないものを規範文へ変換し、作業項目を起票
+//
+// 段 2・3 は迷ったら人間ゲートへ倒す。自動裁定の偽陽性は依頼者の決定を勝手に置き換える
+// 事故であり、余計に聞く偽陰性より重い。judge が応答しなければ全件がゲート行きになる。
 const PRECEDENT_SCHEMA = {
   type: 'object',
   properties: {
@@ -2484,9 +2653,15 @@ const PRECEDENT_SCHEMA = {
         required: ['tbd_id', 'verdict', 'rationale'],
         properties: {
           tbd_id: { type: 'string' },
-          verdict: { type: 'string', enum: ['resolvable', 'novel', 'conflict', 'irreversible'] },
+          verdict: {
+            type: 'string',
+            enum: ['resolvable', 'measurable', 'novel', 'conflict', 'irreversible'],
+          },
           precedent_ids: { type: 'array', items: { type: 'string' } },
           proposed_resolution: { type: 'string' },
+          // measurement_target: measurable のときに「何を読めば決まるか」を書く。
+          // 書けないなら、それは計測ではなく推測なので novel に落ちる。
+          measurement_target: { type: 'string' },
           rationale: { type: 'string' },
         },
       },
@@ -2495,23 +2670,28 @@ const PRECEDENT_SCHEMA = {
   required: ['classifications'],
 }
 let autoResolvedBlocking = []
+let measurableBlocking = []
 let gateBlocking = unpresentedBlocking
-if (unpresentedBlocking.length && (decisions.length || answers.trim() || tbdAnswersHistory.length)) {
+if (unpresentedBlocking.length) {
   const pj = await agent(
     [
-      'あなたは先例裁定係。未提示の blocking TBD それぞれについて、決定ログ・回答・過去周回の',
-      '回答履歴の中に「同型の判断が既に下っている先例」があるかを判定する。',
+      'あなたは先例裁定係。未提示の blocking TBD それぞれについて、人間に聞く必要が本当に',
+      'あるかを判定する。',
       '',
       'verdict の基準:',
-      '- resolvable: 先例の判断をそのまま当てはめれば解消する（先例の ID を precedent_ids に、',
-      '  当てはめた解消文を proposed_resolution に書く）。',
+      '- resolvable: 決定ログ・回答・過去周回の回答履歴に同型の先例があり、その判断をそのまま',
+      '  当てはめれば解消する（先例の ID を precedent_ids に、当てはめた解消文を',
+      '  proposed_resolution に書く）。',
+      '- measurable: 依頼者の意図ではなく現物（リポジトリの実装・設定・既存文書）が答えを',
+      '  持っており、読めば確定する（何を読めば決まるかを measurement_target に書く）。',
       '- novel: 先例が無い、または先例からの類推に飛躍がある。',
       '- conflict: 当てはまりうる先例が複数あり、互いに逆の判断を含む。',
       '- irreversible: 解消の内容が外部公開・データ削除など取り消しの難しい影響を持つ。',
       '',
-      '迷ったら novel にする。resolvable の偽陽性は依頼者の決定を勝手に置き換える事故であり、',
-      '余計に質問する（偽陰性）より重い。「推奨が自明」は先例ではない — 判断の型が先例と',
-      '一致するときだけ resolvable にする。',
+      '迷ったら novel にする。resolvable / measurable の偽陽性は依頼者の決定を勝手に置き換える',
+      '事故であり、余計に質問する（偽陰性）より重い。「推奨が自明」は先例ではない — 判断の型が',
+      '先例と一致するときだけ resolvable にする。「たぶんコードにあるはず」も計測ではない —',
+      '読む対象を名指しできるときだけ measurable にする。',
       '',
       `# [DECISIONS]\n${JSON.stringify(decisions, null, 1)}`,
       `# [ANSWERS]\n${answers}`,
@@ -2527,26 +2707,201 @@ if (unpresentedBlocking.length && (decisions.length || answers.trim() || tbdAnsw
   const pjById = new Map(
     (((pj || {}).classifications) || []).filter((c) => c && c.tbd_id).map((c) => [c.tbd_id, c])
   )
-  autoResolvedBlocking = unpresentedBlocking
-    .filter((t) => (pjById.get(t.id) || {}).verdict === 'resolvable')
-    .map((t) => {
-      const c = pjById.get(t.id)
-      return {
-        ...t,
-        precedent_ids: c.precedent_ids || [],
-        proposed_resolution: c.proposed_resolution || '',
-        rationale: c.rationale || '',
-      }
-    })
-  const autoIds = new Set(autoResolvedBlocking.map((t) => t.id))
-  gateBlocking = unpresentedBlocking.filter((t) => !autoIds.has(t.id))
-  if (autoResolvedBlocking.length) {
-    log(
-      `先例裁定: 未提示 blocking ${unpresentedBlocking.length} 件のうち ${autoResolvedBlocking.length} 件を` +
-        '先例から解消可能と判定しました（auto_resolved_blocking として返します。司令塔は次周回の' +
-        ' tbd_answers に採り、保存ゲートで決定ログとして事後提示すること）。'
-    )
+  const withVerdict = (v) =>
+    unpresentedBlocking
+      .filter((t) => (pjById.get(t.id) || {}).verdict === v)
+      .map((t) => {
+        const c = pjById.get(t.id)
+        return {
+          ...t,
+          precedent_ids: c.precedent_ids || [],
+          proposed_resolution: c.proposed_resolution || '',
+          measurement_target: c.measurement_target || '',
+          rationale: c.rationale || '',
+        }
+      })
+  autoResolvedBlocking = withVerdict('resolvable')
+  // 読む対象を名指しできない measurable は計測ではなく推測なので、ゲートへ返す。
+  measurableBlocking = withVerdict('measurable').filter((t) => t.measurement_target)
+  const handled = new Set([...autoResolvedBlocking, ...measurableBlocking].map((t) => t.id))
+  gateBlocking = unpresentedBlocking.filter((t) => !handled.has(t.id))
+  log(
+    `先例裁定: 未提示 blocking ${unpresentedBlocking.length} 件のうち、先例で解消 ${autoResolvedBlocking.length} 件 / ` +
+      `計測で解消可能 ${measurableBlocking.length} 件 / 人間ゲート行き ${gateBlocking.length} 件。`
+  )
+}
+
+// 段 3: 計測解消。measurement agent はリポジトリを Read して事実を確定する係であり、
+// 「確定できなかった」を返せる。返せない設計にすると、もっともらしいコードから事実を
+// 推論して埋める — このスキルが防ぐと宣言した失敗（要求の捏造）そのものになる。
+// 証拠（file / quote）の無い解消は採らない。証拠なしの断定は計測ではなく推測である。
+const MEASUREMENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    resolutions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['tbd_id', 'resolved', 'reason'],
+        properties: {
+          tbd_id: { type: 'string' },
+          resolved: { type: 'boolean' },
+          statement: { type: 'string' },
+          evidence: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['file', 'quote'],
+              properties: {
+                file: { type: 'string' },
+                line: { type: 'number' },
+                quote: { type: 'string' },
+              },
+            },
+          },
+          reason: { type: 'string' },
+        },
+      },
+    },
+  },
+  required: ['resolutions'],
+}
+let resolvedByMeasurement = []
+if (measurableBlocking.length) {
+  const mm = await agent(
+    [
+      `Read ${SKILL_DIR}/agents/measurement.md for your full role instructions before doing anything else.`,
+      `契約は ${SKILL_DIR}/schemas/agent-contracts.md §measurement を正とする。`,
+      '',
+      '# [ITEMS] 計測で解消しうる未確定事項',
+      JSON.stringify(
+        measurableBlocking.map(({ id, text, document, measurement_target }) => ({
+          id,
+          text,
+          document,
+          measurement_target,
+        })),
+        null,
+        1
+      ),
+    ].join('\n'),
+    { model: 'sonnet', schema: MEASUREMENT_SCHEMA, phase: 'Finalize', label: 'measurement' }
+  )
+  const byId = new Map(
+    (((mm || {}).resolutions) || []).filter((r) => r && r.tbd_id).map((r) => [r.tbd_id, r])
+  )
+  resolvedByMeasurement = measurableBlocking
+    .map((t) => ({ item: t, r: byId.get(t.id) }))
+    .filter(({ r }) => r && r.resolved && r.statement && (r.evidence || []).length)
+    .map(({ item, r }) => ({
+      ...item,
+      proposed_resolution: r.statement,
+      evidence: r.evidence,
+      rationale: r.reason || '',
+    }))
+  const resolvedIds = new Set(resolvedByMeasurement.map((t) => t.id))
+  // 計測できなかった分はゲートへ戻す（黙って消さない）。
+  gateBlocking = [...gateBlocking, ...measurableBlocking.filter((t) => !resolvedIds.has(t.id))]
+  log(
+    `計測解消: ${measurableBlocking.length} 件のうち ${resolvedByMeasurement.length} 件を実測で確定し、` +
+      `残り ${measurableBlocking.length - resolvedByMeasurement.length} 件は人間ゲートへ戻しました。`
+  )
+}
+
+// 段 4: 保持規則。既に提示したのに決まらない未確定事項は、聞き直しても決まらない（依頼者が
+// 決めていないものは、何回聞いても決まらない）。そのまま TBD として残すと、次工程は
+// 「決まっていない」とだけ書かれた項目を前にして、勝手に決めるか止まるかしかない。
+// そこで「裁定が下るまで何をしてはならないか」という規範文（保持規則）へ変換して文書に置き、
+// 裁定そのものは作業項目（work_items）として文書の外へ出す。これが完成条件を
+// 「未提示 blocking 0」から「TBD 0」へ動かせる理由である。
+const isPresented = (t) => {
+  const rec = presentedById.get(t.id)
+  if (!rec) return false
+  if (rec.digest && rec.digest !== stableKey(String(t.text || ''))) return false
+  return true
+}
+const holdingTargets = blockingTbd.filter(isPresented)
+// 進行可能（blocking: false）な未確定事項には止めるべき進行が無いので、保持規則を書かない
+// （書くと、実際には妨げていない規範が本文に増える）。決着は作業項目としてだけ出す。
+const carryTargets = tbdItems.filter((t) => !t.blocking)
+const holdingRules = holdingTargets.map((t) => ({
+  id: `HR-${t.id}`,
+  tbd_id: t.id,
+  document: t.document || '',
+  unresolved: t.text,
+}))
+// work_items: 保持規則で当面の被害は止まるが、裁定そのものは未了である。この一覧は
+// **文書には書かない** — 司令塔が保存時に Issue 化する（規約は SKILL.md）。
+const workItems = [...holdingTargets, ...carryTargets].map((t, i) => ({
+  id: `WI-${String(i + 1).padStart(3, '0')}`,
+  tbd_id: t.id,
+  document: t.document || '',
+  title: t.text,
+  why: t.blocking
+    ? `提示済みだが裁定が得られていない。保持規則 HR-${t.id} で当面の拡大は止めているが、裁定は未了である。`
+    : '着手は止めないが未確定である。決まった時点で文書へ反映する。',
+  candidates: t.candidates || [],
+}))
+
+// 段 2〜4 の結果を**同じラウンドのうちに**本文へ反映する。次周回に持ち越すと、未提示
+// blocking が 0 件になった run では次周回そのものが起きず、解消したはずの記述が文書に
+// 残ったまま「解消済み」として提示される（文書の実体と提示内容の乖離）。
+const resolutionDirectives = new Map()
+const pushDirective = (docKey, entry) => {
+  if (!docKey) return
+  if (!resolutionDirectives.has(docKey)) resolutionDirectives.set(docKey, [])
+  resolutionDirectives.get(docKey).push(entry)
+}
+for (const t of [...autoResolvedBlocking, ...resolvedByMeasurement]) {
+  pushDirective(t.document, {
+    action: 'resolve',
+    tbd_id: t.id,
+    unresolved: t.text,
+    resolution: t.proposed_resolution,
+    source: t.evidence ? 'measurement' : 'precedent',
+    evidence: t.evidence || t.precedent_ids || [],
+  })
+}
+for (const h of holdingRules) {
+  pushDirective(h.document, {
+    action: 'hold',
+    tbd_id: h.tbd_id,
+    unresolved: h.unresolved,
+    holding_rule_id: h.id,
+  })
+}
+for (const t of carryTargets) {
+  pushDirective(t.document, { action: 'carry', tbd_id: t.id, unresolved: t.text })
+}
+if (resolutionDirectives.size) {
+  const beforeMissing = new Set(writerMissing)
+  writerDirectives = resolutionDirectives
+  await reviseDocuments(new Map(), `R${outerRound}.resolve`, false)
+  writerDirectives = new Map()
+  // writer が応答しなかった文書の項目は決着していない。ここを区別せずに settled へ入れると、
+  // **応答しなかった writer が TBD を黙って消す**経路になる（前稿のまま残っているのに解決扱い）。
+  const failedDocs = new Set(
+    writerMissing.filter((m) => !beforeMissing.has(m)).map((m) => String(m).split('@')[0])
+  )
+  for (const [docKey, entries] of resolutionDirectives) {
+    if (failedDocs.has(docKey)) continue
+    for (const e of entries) settled.add(e.tbd_id)
   }
+  revisionLog.push({
+    revision_id: `R${outerRound}.resolve`,
+    trigger: ['先例裁定 / 計測解消 / 保持規則への変換'],
+    reason: `解消 ${autoResolvedBlocking.length + resolvedByMeasurement.length} 件 / 保持規則 ${holdingRules.length} 件の反映`,
+    changed_by: '人間必要性の判定パイプライン',
+  })
+  // 反映で本文と TBD 申告が変わったので、集計と構造検査を引き直す。引き直さないと、
+  // 返り値は反映前の件数を報告する（解消した項目が残って見え、新たに入った本文が未検査になる）。
+  const structResult = structuralFindings(documents)
+  const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
+  for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
+  const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
+  structural = [...structResult.findings, ...catFindings, ...tbdRenumbered]
+  structuralNotChecked = structResult.not_checked
+  recomputeTbd()
 }
 
 const { deferred: categoriesDeferred } = reconcileCategories(documents, requiredCategories)
@@ -2568,6 +2923,10 @@ if (documents.some((d) => d.kind === 'specifications' && !d.fixed)) {
 // 優先順: 監査の欠測 > 裁定の欠測 > 回数 backstop > 回答不能（unanswerable）> 残指摘 > clean。
 // unanswerable_findings は「escalation まで尽くしても digest 不変で残った」であり、従来の
 // unresolved_findings（単に残った）と区別して黙らずに終える。
+// blocking_over_capacity: 起票された blocking が人間ゲートの提示容量を超えている。
+// 提示の工夫では吸収できず、超えた分は「未提示のまま完了」に直結するので、
+// 起票側の較正失敗として返り値で申告する（別スクリプトの実行に委ねない）。
+const blockingOverCapacity = blockingTbd.length > GATE_CAPACITY_PER_ROUND * MAX_GATE_ROUNDS
 const verdict = missing.length
   ? 'audit_incomplete'
   : adjudication.unadjudicated.length
@@ -2578,6 +2937,10 @@ const verdict = missing.length
   ? 'unanswerable_findings'
   : allFailed.length
   ? 'unresolved_findings'
+  : blockingOverCapacity
+  ? 'blocking_over_capacity'
+  : blockingTbd.length
+  ? 'tbd_remaining'
   : 'clean'
 
 // 件数は null と 0 を区別する。null は「その観点が 1 件も検査されていない」、0 は「検査して指摘なし」。
@@ -2646,6 +3009,7 @@ return {
     summary: d.summary,
     items: d.items,
     referenced_ids: d.referenced,
+    trace: d.trace,
     traceability: d.traceability,
     tbd_items: d.tbd_items,
     categories_deferred: d.categories_deferred,
@@ -2660,7 +3024,40 @@ return {
   // digest は script が計算して付ける。司令塔に text からの導出をさせると、
   // 照合側（stableKey）と別の値（生 text など）が積まれ、提示済みが全件「未提示」に化ける。
   blocking_tbd_items: blockingTbd.map((t) => ({ ...t, digest: stableKey(String(t.text || '')) })),
+  // auto_resolved_blocking / resolved_by_measurement: 人間必要性の判定パイプラインが人間に
+  // 聞かずに決着させた項目。**本文への反映はこのラン内で済んでいる**（次周回に持ち越さない）。
+  // 司令塔は保存承認ゲートで決定として事後提示する — 依頼者はそこで覆せる。
   auto_resolved_blocking: autoResolvedBlocking,
+  resolved_by_measurement: resolvedByMeasurement,
+  // holding_rules: 提示済みでなお決まらない論点を、規範文（裁定までの保持規則）へ変換した
+  // 記録。文書側には規範文として入っている。
+  holding_rules: holdingRules,
+  // work_items: 保持規則に変換した論点の裁定そのもの。**文書には書かない**。司令塔が
+  // 保存時に Issue として起票する（規約は SKILL.md）。
+  work_items: workItems,
+  // audit_trail: 項目 ID → 根拠の対応と、このランで下した裁定の記録。納品文書には根拠句・
+  // 決定ログを書かないため、「どこから来たか」はここにしか無い。捏造監査と
+  // traceability 監査はこれと入力（input / answers / decisions / 前提）を突き合わせる。
+  // 形は draft.js の audit_trail（{ document, path, basis[] } の配列）を basis に入れ子にした
+  // ものである。Workflow B では裁定の記録が加わるため、配列ではなくオブジェクトになる。
+  audit_trail: {
+    basis: documents
+      .filter((d) => !d.fixed)
+      .map((d) => ({ document: d.key, path: d.path, basis: d.trace || [] })),
+    decisions,
+    tbd_answers_history: [
+      ...tbdAnswersHistory,
+      ...(tbdAnswers ? [{ round: outerRound, answers: tbdAnswers }] : []),
+    ],
+    auto_resolved: autoResolvedBlocking,
+    measured: resolvedByMeasurement,
+    holding_rules: holdingRules,
+    adjudication,
+  },
+  // blocking_over_capacity: 起票された blocking が提示容量（GATE_CAPACITY_PER_ROUND ×
+  // MAX_GATE_ROUNDS）を超えている。verdict にも現れるが、他の verdict と同時に成立しうるので
+  // 真偽値でも返す。
+  blocking_over_capacity: blockingOverCapacity,
   unpresented_blocking: gateBlocking.map((t) => ({
     ...t,
     digest: stableKey(String(t.text || '')),
@@ -2729,6 +3126,11 @@ return {
     blocking_tbd_count: blockingTbd.length,
     unpresented_blocking_count: gateBlocking.length,
     auto_resolved_blocking_count: autoResolvedBlocking.length,
+    resolved_by_measurement_count: resolvedByMeasurement.length,
+    holding_rules_count: holdingRules.length,
+    work_items_count: workItems.length,
+    blocking_capacity: GATE_CAPACITY_PER_ROUND * MAX_GATE_ROUNDS,
+    blocking_over_capacity: blockingOverCapacity,
     deferred_categories_count: categoriesDeferred.length,
     revision_backstop: REVISION_BACKSTOP,
     stuck_threshold: STUCK_THRESHOLD,

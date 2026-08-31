@@ -217,10 +217,12 @@ class SpecimenSelfOnlyStructureTests(unittest.TestCase):
         self.assertIn("const specimenSkipped = !specimenPaths.length", REFINE_SRC)
         self.assertIn("skip はしません", REFINE_SRC)
 
-    def test_skill_md_documents_the_recommendation(self):
-        skill_md = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("specimen_self_only", skill_md)
-        self.assertIn("自己出自", skill_md)
+    def test_the_recommendation_is_documented(self):
+        # 正の所在は references/workflow-io.md（Workflow B の内部機構）。SKILL.md は
+        # 呼び出し手順だけを持ち、内部機構の説明を二重に持たない。
+        doc = (SKILL / "references" / "workflow-io.md").read_text(encoding="utf-8")
+        self.assertIn("specimen_self_only", doc)
+        self.assertIn("自己出自", doc)
 
 
 if __name__ == "__main__":

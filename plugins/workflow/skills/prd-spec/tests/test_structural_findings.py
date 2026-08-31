@@ -77,8 +77,27 @@ def run_structural(docs, script: Path = DRAFT):
     return json.loads(out.stdout)
 
 
-def doc(kind, topic, markdown, ids=None, referenced=None, traceability=None, tbd=None, fixed=False):
-    return {
+_OMIT = object()
+
+
+def doc(
+    kind,
+    topic,
+    markdown,
+    ids=None,
+    referenced=None,
+    traceability=None,
+    tbd=None,
+    fixed=False,
+    trace=None,
+):
+    """trace の既定は「全 ID に根拠あり」。
+
+    根拠の所在検査（ST-NO-EVIDENCE）は全 ID に効くので、既定を空にすると
+    このファイルの全ケースに無関係な指摘が混ざる。trace=_OMIT を渡すと
+    キーごと省き、未申告（ST-NOTCHECKED-TRACE）のケースを作れる。
+    """
+    d = {
         "key": f"{kind}/{topic}",
         "kind": kind,
         "topic": topic,
@@ -89,6 +108,13 @@ def doc(kind, topic, markdown, ids=None, referenced=None, traceability=None, tbd
         "tbd_items": tbd or [],
         "fixed": fixed,
     }
+    if trace is not _OMIT:
+        d["trace"] = (
+            trace
+            if trace is not None
+            else [{"item_id": i, "kind": "input", "quote": "依頼文の該当箇所"} for i in (ids or [])]
+        )
+    return d
 
 
 def ids_of(result):
@@ -281,6 +307,42 @@ class StructuralFindingsTests(unittest.TestCase):
         # 「第14版」は版数。条番号として誤検出すると改稿が 1 周無駄になる。
         r = run_structural([doc("requirements", "auth", "FISC 安全対策基準 第14版 を参照した。", ids=[])])
         self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-UNVERIFIED")])
+
+    # ------------------------------------------------ 根拠の所在（trace）
+
+    def test_item_without_trace_is_reported(self):
+        # 本文に根拠句を書かない規約にした以上、根拠は trace にしか残らない。
+        # ここを検査しないと、根拠句を消した瞬間に捏造検査の入力が消える。
+        r = run_structural([doc("requirements", "auth", "### PR-A-001\n", ids=["PR-A-001"], trace=[])])
+        self.assertIn("ST-NO-EVIDENCE-PR-A-001", ids_of(r))
+
+    def test_item_with_trace_is_not_reported(self):
+        r = run_structural([doc("requirements", "auth", "### PR-A-001\n", ids=["PR-A-001"])])
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-NO-EVIDENCE")])
+
+    def test_missing_trace_field_is_not_checked_rather_than_pass(self):
+        # trace を返さなかった writer を「根拠あり」と読むと、未検査が合格に化ける。
+        r = run_structural([doc("requirements", "auth", "### PR-A-001\n", ids=["PR-A-001"], trace=_OMIT)])
+        self.assertIn("ST-NOTCHECKED-TRACE-requirements/auth", [n["id"] for n in r["not_checked"]])
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-NO-EVIDENCE")])
+
+    # ------------------------------------------ 本文に混ざった非規範の記述
+
+    def test_decision_source_annotation_in_body_is_reported(self):
+        r = run_structural(
+            [doc("requirements", "auth", "### PR-A-001\n方式は OIDC とする（既定: D-003）。", ids=["PR-A-001"])]
+        )
+        self.assertEqual(1, len([i for i in ids_of(r) if i.startswith("ST-NON-NORMATIVE")]))
+
+    def test_tbd_chapter_heading_in_body_is_reported(self):
+        r = run_structural([doc("requirements", "auth", "## 未確定事項\n\n- TBD-A-001\n", ids=[])])
+        self.assertEqual(1, len([i for i in ids_of(r) if i.startswith("ST-NON-NORMATIVE")]))
+
+    def test_normative_body_is_not_flagged_as_non_normative(self):
+        r = run_structural(
+            [doc("requirements", "auth", "### PR-A-001\n利用者を認証しなければならない。", ids=["PR-A-001"])]
+        )
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-NON-NORMATIVE")])
 
 
 class ScriptShapeTests(unittest.TestCase):
