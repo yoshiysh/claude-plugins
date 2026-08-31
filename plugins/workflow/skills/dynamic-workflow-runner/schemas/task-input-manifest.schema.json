@@ -4,7 +4,7 @@
   "title": "Dynamic Workflow Task Input Manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "workflow_id", "run_id", "task_id", "invocation_id", "context_policy", "requirements", "capability_snapshot", "capability_assessment", "fork_behavior", "result_contract", "inputs"],
+  "required": ["schema_version", "workflow_id", "run_id", "task_id", "invocation_id", "context_policy", "requirements", "capability_snapshot", "capability_assessment", "capability_requests", "fork_behavior", "node_result_schema", "result_contract", "output_contract", "inputs"],
   "properties": {
     "schema_version": { "const": "dynamic-workflow-task-input/v1" },
     "workflow_id": { "type": "string", "minLength": 1 },
@@ -27,16 +27,69 @@
       }
     },
     "capability_snapshot": { "$ref": "#/$defs/file_ref" },
+    "node_result_schema": { "$ref": "#/$defs/file_ref" },
     "capability_assessment": {
       "type": "object", "additionalProperties": false, "required": ["available", "reasons"],
       "properties": { "available": { "type": "boolean" }, "reasons": { "type": "array", "items": { "type": "string" } } }
+    },
+    "capability_requests": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["request_id", "status", "semantic_capabilities", "permissions", "reasons", "result_guard"],
+        "properties": {
+          "request_id": { "$ref": "#/$defs/semantic_id" },
+          "status": { "enum": ["inactive", "available", "unavailable"] },
+          "semantic_capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "permissions": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+          "reasons": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "result_guard": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["artifact_path", "pointer", "predicate", "expected"],
+                "properties": {
+                  "artifact_path": { "$ref": "#/$defs/relative_path" },
+                  "pointer": { "$ref": "#/$defs/json_pointer" },
+                  "predicate": { "const": "equals" },
+                  "expected": { "type": ["null", "string", "number", "boolean"] }
+                }
+              }
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "status": { "const": "unavailable" } } },
+            "then": { "properties": { "reasons": { "minItems": 1 }, "result_guard": { "type": "object" } } },
+            "else": { "properties": { "reasons": { "maxItems": 0 }, "result_guard": { "type": "null" } } }
+          }
+        ]
+      }
     },
     "result_contract": {
       "type": "object", "additionalProperties": false, "required": ["contract_sha256", "schema_sha256", "schema_path"],
       "properties": {
         "contract_sha256": { "$ref": "#/$defs/sha256" },
         "schema_sha256": { "$ref": "#/$defs/sha256" },
-        "schema_path": { "type": ["string", "null"] }
+        "schema_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "output_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result_path", "artifact_paths"],
+      "properties": {
+        "result_path": { "type": "string", "minLength": 1 },
+        "artifact_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "fork_behavior": {
@@ -69,6 +122,18 @@
             "properties": {
               "kind": { "const": "task_result" },
               "task_id": { "type": "string", "minLength": 1 },
+              "path": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "task_id", "alias", "path", "sha256"],
+            "properties": {
+              "kind": { "const": "artifact_projection" },
+              "task_id": { "type": "string", "minLength": 1 },
+              "alias": { "type": "string", "minLength": 1 },
               "path": { "type": "string", "minLength": 1 },
               "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
             }
@@ -156,6 +221,21 @@
   },
   "$defs": {
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "semantic_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "json_pointer": {
+      "type": "string",
+      "pattern": "^(?:/(?:[^~/]|~0|~1)*)*$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$"
+    },
     "file_ref": {
       "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
       "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" } }

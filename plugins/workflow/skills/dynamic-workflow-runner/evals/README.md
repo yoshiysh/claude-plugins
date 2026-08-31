@@ -6,7 +6,7 @@ routing 条件ではなく、fixture を識別するためだけに使う。
 
 ## Case の結合契約
 
-`evals.json` の23件すべてに安定した `case_id` がある。`fixtures/expected-mappings.json` と
+`evals.json` の35件すべてに安定した `case_id` がある。`fixtures/expected-mappings.json` と
 `actual-results.json` は同じ `case_id` を一度ずつ持ち、さらに `eval_id` と `eval_name` も一致
 しなければならない。配列の位置やファイル名から case を推測してはならない。
 
@@ -49,7 +49,7 @@ node /absolute/path/to/dynamic-workflow-runner/evals/run-fixtures.mjs
 同skillの決定的 `workflow-bridge.mjs prepare-call / validate-call` だけを使い、次を機械的に検査する。
 
 1. 3つのJSON文書がparseできること
-2. 23件の `case_id` / `eval_id` / `eval_name` / `files` がexactに1対1対応すること
+2. 35件の `case_id` / `eval_id` / `eval_name` / `files` がexactに1対1対応すること
 3. 全file参照がskill directory内の通常fileへ解決すること
 4. fixtureのraw SHA-256がmappingと一致すること
 5. `*.case.json` 内の `case_id` が外側のcaseと一致すること
@@ -62,6 +62,15 @@ node /absolute/path/to/dynamic-workflow-runner/evals/run-fixtures.mjs
 12. 別callerのschema-valid return bindingまたはreturn receiptをcrosswireしても拒否すること
 13. native Workflowを一度attemptしたcallは、失敗後もbridgeへfallbackせずnative実行回数1でrejectすること
 14. skill bridgeのtranslation input/receiptがworkflow call bindingを必須とし、欠落と別callerへのcrosswireを拒否すること
+15. translation reviewが実行controllerとexact ordered runner contract inventoryへ結合され、別copy、欠落、hash driftを拒否すること
+16. translated modeの実translator handleがreview input/receipt/outputへ事前固定され、crosswireとreviewer handle再利用を拒否すること
+17. artifact projectionがsource-selected fieldだけを凍結し、投影外contextとproducer driftを拒否すること
+18. data-dependent capability requestがprojection後に評価され、利用不能時のdomain fallback guardを強制すること
+19. collaboration operationの最小requirementと、relative transport path / absolute semantic pathの分離を確認すること
+20. semantic agent callsiteのexact visible inputを保ち、決定的pre/post transformを別境界へ分離すること
+21. raw agent schemaを後段normalization invariantで狭化せず、normalized artifact contractを別に持つこと
+22. source-authorizedなbounded conditional readを順序付きoptional artifactとして保持すること
+23. bounded `prefixItems`をtask/returnでindex別に検証し、validator実装もrunner review inventoryへ結合すること
 
 成功時のstdoutの `model_execution` はledgerから導出したstatus、実行variant数、grade済みcase数を
 出す。現在値は `not_executed` だが、部分実測なら `partial`、全件実測・grade済みなら `completed` に

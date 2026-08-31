@@ -88,9 +88,11 @@ placeholder が未解決、path が曖昧、source が実行開始前に変化�
 - call receiptからコピーした`caller_phase_ownership`全体。`pre_workflow`、`post_workflow`、`human_gates`を要約しない。
 - call receiptからコピーした`native_workflow_observation`全体。`attempted`、`available`、`observed_at`、`evidence`を保つ。
 - exact source path/hashとexecution manifest path/canonical hash。
+- translated modeでは親がtranslator invocationから得たexact `translator_handle`。direct modeでは`null`。
 
-review inputとreceiptのworkflow-call bindingは互いに一致し、`return_binding.workflow_call_sha256`とも同じraw hashでなければ
-ならない。controllerはskill_bridge init時に`--workflow-call <absolute-workflow-call.json>`を必須とし、call receipt、review
+review inputとreceiptのworkflow-call bindingおよび`translator_handle`は互いに一致し、review outputの
+`translator_handle`、`return_binding.workflow_call_sha256`とも同じ境界へ結合されなければならない。controllerは
+skill_bridge init時に`--workflow-call <absolute-workflow-call.json>`を必須とし、call receipt、review
 input、review receipt、manifestのexact一致を検査してからrun内`translation/workflow-call.json`へ凍結する。direct modeでは
 このfieldとCLI引数を受け付けない。
 
@@ -125,6 +127,9 @@ verified returnはpackage作成の入力には使えるが、それ自体は外�
 変換しない。source が agent 欠測を診断用の非success値に変換する分岐も、互換経路ではその
 source固有returnを再現せず `workflow_incomplete` に強化する。caller はその terminal state をそのまま
 ユーザーへ伝え、成功時専用の後続 phase を停止する。
+この安全強化はmanifestの`compatibility_normalizations`へsource line span、affected task、exact trigger、
+source behavior、維持するdomain outcomeを宣言し、fresh contract verifierがsourceと照合した場合だけ許可する。
+正常応答が返す`cannot-verify`等はtransport failureへ読み替えず、未宣言のfail-closed化もsilent driftとして拒否する。
 互換層の診断や run path を、source が返す業務 result の代用品にしない。
 
 ## v1 で意味保存できない graph

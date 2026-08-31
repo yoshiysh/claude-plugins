@@ -9,6 +9,21 @@ import { fileURLToPath } from "node:url";
 
 const evalDir = dirname(fileURLToPath(import.meta.url));
 const skillDir = resolve(evalDir, "..");
+const TRANSLATION_REVIEW_CONTRACT_FILES = [
+  "SKILL.md",
+  "agents/workflow-contract-verifier.md",
+  "references/claude-workflow-compatibility.md",
+  "references/portable-contract-extensions.md",
+  "references/runtime-contract.md",
+  "references/source-translation.md",
+  "schemas/task-input-manifest.schema.json",
+  "schemas/translation-review-input.schema.json",
+  "schemas/translation-review-receipt.schema.json",
+  "schemas/translation-review.schema.json",
+  "schemas/workflow-manifest.schema.json",
+  "scripts/json-schema-subset.mjs",
+  "scripts/workflow-control.mjs",
+];
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -36,6 +51,15 @@ function sortValue(value) {
 
 function canonicalJson(value) {
   return JSON.stringify(sortValue(value));
+}
+
+function runnerContract() {
+  const files = TRANSLATION_REVIEW_CONTRACT_FILES.map((relativePath) => {
+    const path = resolve(skillDir, relativePath);
+    return { path, sha256: sha256(readFileSync(path)) };
+  });
+  const document = { skill_root: skillDir, files };
+  return { ...document, canonical_sha256: sha256(canonicalJson(document)) };
 }
 
 function unique(values, label) {
@@ -334,6 +358,7 @@ function verifyTranslationCallBindings(cases, callByTemplate, inputSchema, recei
     const suppliedBinding = boundCall === null ? null : workflowCallBinding(boundCall);
     const reviewInput = {
       schema_version: "dynamic-workflow-translation-review-input/v1",
+      translator_handle: "fresh-workflow-translator",
       source: {
         path: targetCall.call.workflow.resolved_source.path,
         sha256: targetCall.call.workflow.resolved_source.sha256,
@@ -342,10 +367,12 @@ function verifyTranslationCallBindings(cases, callByTemplate, inputSchema, recei
         path: resolve(targetCall.caller_root, ".workflow-calls", "manifest.json"),
         canonical_sha256: sha256(`manifest:${fixture.mutation_id}`),
       },
+      runner_contract: runnerContract(),
     };
     const reviewReceipt = {
       schema_version: "dynamic-workflow-translation-review-receipt/v1",
       invocation_id: `translation-review:${fixture.mutation_id}`,
+      translator_handle: "fresh-workflow-translator",
       reviewer_handle: "fresh-translation-reviewer",
       context_policy: "fresh",
       parent_context_inherited: false,

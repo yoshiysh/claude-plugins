@@ -9,6 +9,23 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT = fileURLToPath(new URL("./workflow-control.mjs", import.meta.url));
 const BRIDGE_SCRIPT = fileURLToPath(new URL("./workflow-bridge.mjs", import.meta.url));
+const NODE_RESULT_SCHEMA = fileURLToPath(new URL("../schemas/node-result.schema.json", import.meta.url));
+const RUNNER_SKILL_ROOT = realpathSync(fileURLToPath(new URL("..", import.meta.url)));
+const TRANSLATION_REVIEW_CONTRACT_FILES = [
+  "SKILL.md",
+  "agents/workflow-contract-verifier.md",
+  "references/claude-workflow-compatibility.md",
+  "references/portable-contract-extensions.md",
+  "references/runtime-contract.md",
+  "references/source-translation.md",
+  "schemas/task-input-manifest.schema.json",
+  "schemas/translation-review-input.schema.json",
+  "schemas/translation-review-receipt.schema.json",
+  "schemas/translation-review.schema.json",
+  "schemas/workflow-manifest.schema.json",
+  "scripts/json-schema-subset.mjs",
+  "scripts/workflow-control.mjs",
+];
 
 function sha256(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -26,6 +43,15 @@ function sortValue(value) {
 
 function canonicalSha256(value) {
   return createHash("sha256").update(JSON.stringify(sortValue(value))).digest("hex");
+}
+
+function runnerContract() {
+  const files = TRANSLATION_REVIEW_CONTRACT_FILES.map((relativePath) => {
+    const path = join(RUNNER_SKILL_ROOT, relativePath);
+    return { path, sha256: sha256(path) };
+  });
+  const document = { skill_root: RUNNER_SKILL_ROOT, files };
+  return { ...document, canonical_sha256: canonicalSha256(document) };
 }
 
 function writeJson(path, value) {
@@ -159,6 +185,7 @@ function manifest(source, tasks, overrides = {}) {
     workflow_id: "portable-workflow",
     description: "A filename-independent workflow fixture.",
     translation_mode: "translated",
+    compatibility_normalizations: [],
     source: {
       path: source,
       sha256: sha256(source),
@@ -177,6 +204,39 @@ function manifest(source, tasks, overrides = {}) {
     ...overrides,
   };
 }
+
+test("validates declared compatibility normalizations without permitting silent semantic drift", () => {
+  const task = agentTask("inspect");
+  const validNormalization = {
+    normalization_id: "inspect-null-fallback",
+    kind: "agent_diagnostic_fallback_to_workflow_incomplete",
+    source_span: { start_line: 12, end_line: 18 },
+    affected_task_ids: ["inspect"],
+    triggers: ["agent_result_missing_or_null"],
+    source_behavior: "The source converts a missing agent result into a diagnostic placeholder.",
+    compatibility_terminal: "workflow_incomplete",
+    preserved_domain_outcomes: ["cannot-verify"],
+    safety_rationale: "A transport failure cannot satisfy the task result contract.",
+  };
+  const bridgeFixture = (normalization) => {
+    const paths = fixture([task]);
+    const { callPath } = writeWorkflowCall(paths);
+    enableBridge(paths, callPath, undefined, undefined, { compatibility_normalizations: [normalization] });
+    return paths;
+  };
+
+  const paths = bridgeFixture(validNormalization);
+  assert.equal(initialize(paths).status, "workflow_ready");
+
+  const direct = fixture([task], { compatibility_normalizations: [validNormalization] });
+  assert.match(initialize(direct, [], 1).message, /allowed only for translated skill_bridge/);
+
+  const unknownTask = bridgeFixture({ ...validNormalization, affected_task_ids: ["missing"] });
+  assert.match(initialize(unknownTask, [], 1).message, /unknown affected task/);
+
+  const invertedSpan = bridgeFixture({ ...validNormalization, source_span: { start_line: 18, end_line: 12 } });
+  assert.match(initialize(invertedSpan, [], 1).message, /source_span.end_line/);
+});
 
 function fixture(tasks, overrides = {}) {
   const sessionRoot = realpathSync(mkdtempSync(join(tmpdir(), "dynamic-workflow-runner-")));
@@ -216,14 +276,17 @@ function writeTranslationReview(paths, overrides = {}) {
   writeFileSync(paths.translationReviewPromptPath, "Independently verify the source-to-manifest translation.\n");
   const reviewInput = {
     schema_version: "dynamic-workflow-translation-review-input/v1",
+    translator_handle: translated ? "agent/translator" : null,
     source: { path: paths.source, sha256: sha256(paths.source) },
     manifest: { path: paths.manifestPath, canonical_sha256: canonicalSha256(sourceManifest) },
+    runner_contract: runnerContract(),
   };
   if (workflowCall !== undefined) reviewInput.workflow_call = workflowCall;
   writeJson(paths.translationReviewInputPath, reviewInput);
   const receipt = {
     schema_version: "dynamic-workflow-translation-review-receipt/v1",
     invocation_id: "translation-review-invocation",
+    translator_handle: translated ? "agent/translator" : null,
     reviewer_handle: "agent/contract-reviewer",
     context_policy: "fresh",
     parent_context_inherited: false,
@@ -247,6 +310,15 @@ function writeTranslationReview(paths, overrides = {}) {
     findings: [],
     ...overrides,
   });
+}
+
+function mutateTranslationReviewInput(paths, mutate) {
+  const reviewInput = JSON.parse(readFileSync(paths.translationReviewInputPath, "utf8"));
+  mutate(reviewInput);
+  writeJson(paths.translationReviewInputPath, reviewInput);
+  const receipt = JSON.parse(readFileSync(paths.translationReviewReceiptPath, "utf8"));
+  receipt.input_manifest.sha256 = sha256(paths.translationReviewInputPath);
+  writeJson(paths.translationReviewReceiptPath, receipt);
 }
 
 function initialize(paths, extra = [], expectedStatus = 0) {
@@ -365,6 +437,92 @@ function finishJsonArtifact(paths, taskId, invocationId, artifactPath, value) {
     errors: [],
   });
   return invoke(["finish", "--run-dir", paths.runDir, "--task", taskId, "--invocation", invocationId, "--result", resultPath]);
+}
+
+function projectionWorkflowTasks() {
+  const claimsDocument = {
+    type: "object",
+    additionalProperties: false,
+    required: ["claims"],
+    properties: {
+      claims: {
+        type: "array",
+        minItems: 1,
+        items: {
+          type: "object",
+          required: ["id", "text", "verify_method"],
+          properties: {
+            id: { type: "string" },
+            text: { type: "string" },
+            verify_method: { type: "string" },
+            secret_context: { type: "string" },
+          },
+        },
+      },
+    },
+  };
+  const verdictDocument = {
+    type: "object",
+    additionalProperties: false,
+    required: ["verdict", "evidence_file"],
+    properties: {
+      verdict: { enum: ["verified", "cannot-verify"] },
+      evidence_file: { type: "string", minLength: 1 },
+    },
+  };
+  const producer = agentTask("select", [], {
+    result_contract: jsonArtifactResultContract("artifacts/claims.json", claimsDocument),
+    artifact_paths: ["artifacts/claims.json"],
+    effect: "workspace_write",
+  });
+  const verifier = agentTask("verify", ["select"], {
+    inputs: [{
+      kind: "artifact_projection",
+      task_id: "select",
+      path: "artifacts/claims.json",
+      pointer: "/claims/0",
+      alias: "claim",
+      fields: { id: "/id", text: "/text", verify_method: "/verify_method" },
+    }],
+    capability_requests: [{
+      request_id: "claim-public-web-read",
+      when: { input_alias: "claim", pointer: "/verify_method", predicate: "equals", expected: "web-search" },
+      semantic_capabilities: ["public_web_read"],
+      permissions: ["public_web_read"],
+      on_unavailable: {
+        action: "dispatch_with_assessment",
+        result_guard: { artifact_path: "artifacts/verdict.json", pointer: "/verdict", predicate: "equals", expected: "cannot-verify" },
+      },
+    }],
+    result_contract: jsonArtifactResultContract("artifacts/verdict.json", verdictDocument),
+    artifact_paths: ["evidence/claim-0.md", "artifacts/verdict.json"],
+    effect: "workspace_write",
+  });
+  return { producer, verifier };
+}
+
+function writeProjectionVerifierResult(paths, verdict) {
+  const evidenceRelative = "evidence/claim-0.md";
+  const verdictRelative = "artifacts/verdict.json";
+  const evidenceAbsolute = join(paths.runDir, evidenceRelative);
+  mkdirSync(dirname(evidenceAbsolute), { recursive: true });
+  writeFileSync(evidenceAbsolute, "bounded evidence\n");
+  writeJson(join(paths.runDir, verdictRelative), { verdict, evidence_file: evidenceAbsolute });
+  const resultPath = join(paths.runDir, "results", "verify.json");
+  writeJson(resultPath, {
+    schema_version: "dynamic-workflow-node-result/v1",
+    task_id: "verify",
+    invocation_id: "invocation-verify",
+    outcome: "pass",
+    summary: "verification finished",
+    artifacts: [
+      { path: evidenceRelative, sha256: sha256(evidenceAbsolute) },
+      { path: verdictRelative, sha256: sha256(join(paths.runDir, verdictRelative)) },
+    ],
+    evidence: [evidenceAbsolute],
+    errors: [],
+  });
+  return { resultPath, evidenceAbsolute };
 }
 
 function writeWorkflowCall(paths, overrides = {}) {
@@ -919,6 +1077,31 @@ test("resolves arguments, files, results, and artifacts into controller-owned in
   const preparedProducer = invoke(["prepare", "--run-dir", paths.runDir, "--task", "producer", "--invocation", "invocation-producer"]);
   const producerInputs = JSON.parse(readFileSync(join(paths.runDir, preparedProducer.input_manifest_path), "utf8"));
   const externalSha256 = sha256(external);
+  assert.deepEqual(producerInputs.node_result_schema, {
+    path: "schemas/node-result.schema.json",
+    sha256: sha256(NODE_RESULT_SCHEMA),
+  });
+  assert.equal(
+    sha256(join(paths.runDir, producerInputs.node_result_schema.path)),
+    producerInputs.node_result_schema.sha256,
+  );
+  assert.deepEqual(producerInputs.result_contract, {
+    contract_sha256: canonicalSha256(producer.result_contract),
+    schema_sha256: producer.result_contract.schema.canonical_sha256,
+    schema_path: "inputs/schemas/producer.json",
+  });
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(paths.runDir, producerInputs.result_contract.schema_path), "utf8")),
+    producer.result_contract.schema.document,
+  );
+  assert.equal(
+    sha256(join(paths.runDir, producerInputs.result_contract.schema_path)),
+    producerInputs.result_contract.schema_sha256,
+  );
+  assert.deepEqual(producerInputs.output_contract, {
+    result_path: "results/producer.json",
+    artifact_paths: ["artifacts/producer.txt"],
+  });
   assert.deepEqual(producerInputs.inputs[0], { kind: "argument", key: "topic", value: "portable execution" });
   assert.deepEqual(producerInputs.inputs[1], {
     kind: "file",
@@ -952,6 +1135,209 @@ test("rejects drift in a controller-owned frozen input", () => {
   assert.equal(error.code, "input_drift");
 });
 
+test("projects only selected artifact fields and preserves absolute semantic paths over relative transport paths", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  const paths = fixture([producer, verifier]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "portable claim", verify_method: "web-search", secret_context: "must-not-leak" }],
+  });
+
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify"]);
+  const inputManifest = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  assert.deepEqual(inputManifest.inputs, [{
+    kind: "artifact_projection",
+    task_id: "select",
+    alias: "claim",
+    path: "inputs/projections/verify/0000.json",
+    sha256: inputManifest.inputs[0].sha256,
+  }]);
+  const projectionText = readFileSync(join(paths.runDir, inputManifest.inputs[0].path), "utf8");
+  assert.deepEqual(JSON.parse(projectionText), { id: "claim-0", text: "portable claim", verify_method: "web-search" });
+  assert.doesNotMatch(projectionText, /secret_context|must-not-leak/u);
+  assert.deepEqual(inputManifest.capability_requests, [{
+    request_id: "claim-public-web-read",
+    status: "unavailable",
+    semantic_capabilities: ["public_web_read"],
+    permissions: ["public_web_read"],
+    reasons: ["semantic capability unavailable: public_web_read", "permission unavailable: public_web_read"],
+    result_guard: { artifact_path: "artifacts/verdict.json", pointer: "/verdict", predicate: "equals", expected: "cannot-verify" },
+  }]);
+
+  invoke(["bind", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--agent", "agent/verify"]);
+  const wrong = writeProjectionVerifierResult(paths, "verified");
+  const guarded = invoke(["finish", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--result", wrong.resultPath], 1);
+  assert.equal(guarded.code, "capability_result_guard_failed");
+  const correct = writeProjectionVerifierResult(paths, "cannot-verify");
+  assert.equal(invoke(["finish", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--result", correct.resultPath]).status, "completed");
+  const verdict = JSON.parse(readFileSync(join(paths.runDir, "artifacts/verdict.json"), "utf8"));
+  assert.equal(verdict.evidence_file, correct.evidenceAbsolute);
+  assert.equal(JSON.parse(readFileSync(correct.resultPath, "utf8")).artifacts[0].path, "evidence/claim-0.md");
+});
+
+test("activates conditional capabilities only after projected data is frozen", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  const paths = fixture([producer, verifier]);
+  writeJson(paths.capabilitiesPath, capabilities({
+    semantic_capabilities: {
+      public_web_read: { availability: "supported", enforcement: "attested_not_enforced", constraints: {} },
+    },
+    permissions: {
+      public_web_read: { status: "granted", enforcement: "attested_not_enforced", scope: {} },
+    },
+  }));
+  writeTranslationReview(paths);
+  assert.deepEqual(JSON.parse(readFileSync(paths.manifestPath, "utf8")).required_capabilities, ["native_collaboration", "spawn", "collect_or_wait", "stable_handle"]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "portable claim", verify_method: "web-search", secret_context: "private" }],
+  });
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify"]);
+  const inputManifest = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  assert.equal(inputManifest.capability_requests[0].status, "available");
+  assert.equal(inputManifest.capability_requests[0].result_guard, null);
+  invoke(["bind", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--agent", "agent/verify"]);
+  const verified = writeProjectionVerifierResult(paths, "verified");
+  assert.equal(invoke(["finish", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--result", verified.resultPath]).status, "completed");
+});
+
+test("leaves a conditional capability request inactive when frozen projected data does not match", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  const paths = fixture([producer, verifier]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "portable claim", verify_method: "not-verifiable", secret_context: "private" }],
+  });
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify"]);
+  const inputManifest = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  assert.deepEqual(inputManifest.capability_requests, [{
+    request_id: "claim-public-web-read",
+    status: "inactive",
+    semantic_capabilities: ["public_web_read"],
+    permissions: ["public_web_read"],
+    reasons: [],
+    result_guard: null,
+  }]);
+  invoke(["bind", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--agent", "agent/verify"]);
+  const assessed = writeProjectionVerifierResult(paths, "verified");
+  assert.equal(invoke(["finish", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--result", assessed.resultPath]).status, "completed");
+});
+
+test("fails closed when an artifact projection pointer does not resolve", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  verifier.inputs[0].pointer = "/claims/99";
+  const paths = fixture([producer, verifier]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "portable claim", verify_method: "web-search", secret_context: "private" }],
+  });
+  const error = invoke(["prepare", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify"], 1);
+  assert.equal(error.code, "input_projection_failed");
+});
+
+test("evaluates an optional task condition through its declared projection without exposing the full artifact", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  verifier.required = false;
+  verifier.when = { task_id: "select", input_alias: "claim", pointer: "/id", predicate: "exists" };
+  const paths = fixture([producer, verifier]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "portable claim", verify_method: "web-search", secret_context: "must-not-leak" }],
+  });
+  const ready = invoke(["ready", "--run-dir", paths.runDir]);
+  assert.deepEqual(ready.ready.map((task) => task.id), ["verify"]);
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify"]);
+  const inputManifest = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  assert.deepEqual(inputManifest.inputs.map((input) => input.kind), ["artifact_projection"]);
+  assert.equal(inputManifest.inputs.some((input) => input.path === "artifacts/claims.json"), false);
+});
+
+test("skips an absent bounded slot through a projection condition before materializing its missing input", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  verifier.required = false;
+  verifier.inputs[0].pointer = "/claims/1";
+  verifier.when = { task_id: "select", input_alias: "claim", pointer: "/id", predicate: "exists" };
+  const paths = fixture([producer, verifier]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "only bounded slot", verify_method: "web-search", secret_context: "private" }],
+  });
+  const ready = invoke(["ready", "--run-dir", paths.runDir]);
+  assert.deepEqual(ready.ready, []);
+  const state = JSON.parse(readFileSync(join(paths.runDir, "workflow-state.json"), "utf8"));
+  assert.equal(state.tasks.verify.status, "skipped");
+  assert.equal(state.tasks.verify.input_manifest_path, null);
+});
+
+test("rejects producer drift after an artifact projection has been frozen", () => {
+  const { producer, verifier } = projectionWorkflowTasks();
+  const paths = fixture([producer, verifier]);
+  initialize(paths);
+  prepareAndBind(paths, "select", "invocation-select", "agent/select");
+  finishJsonArtifact(paths, "select", "invocation-select", "artifacts/claims.json", {
+    claims: [{ id: "claim-0", text: "version one", verify_method: "web-search", secret_context: "private" }],
+  });
+  invoke(["prepare", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify"]);
+  invoke(["bind", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--agent", "agent/verify"]);
+  writeJson(join(paths.runDir, "artifacts/claims.json"), {
+    claims: [{ id: "claim-0", text: "version two", verify_method: "web-search", secret_context: "private" }],
+  });
+  const result = writeProjectionVerifierResult(paths, "cannot-verify");
+  const error = invoke(["finish", "--run-dir", paths.runDir, "--task", "verify", "--invocation", "invocation-verify", "--result", result.resultPath], 1);
+  assert.equal(error.code, "input_drift");
+});
+
+test("rejects drift in the run-frozen common node-result schema", () => {
+  const paths = fixture([agentTask("inspect")]);
+  initialize(paths);
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "inspect", "--invocation", "invocation-inspect"]);
+  const input = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  writeFileSync(join(paths.runDir, input.node_result_schema.path), "{}\n");
+  const error = invoke(["status", "--run-dir", paths.runDir], 1);
+  assert.equal(error.code, "state_drift");
+  assert.match(error.message, /node-result schema hash mismatch/u);
+});
+
+test("rejects drift in a run-frozen inline task result schema", () => {
+  const paths = fixture([agentTask("inspect")]);
+  initialize(paths);
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "inspect", "--invocation", "invocation-inspect"]);
+  const input = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  assert.equal(input.result_contract.schema_path, "inputs/schemas/inspect.json");
+  writeFileSync(join(paths.runDir, input.result_contract.schema_path), "{}\n");
+  invoke(["bind", "--run-dir", paths.runDir, "--task", "inspect", "--invocation", "invocation-inspect", "--agent", "agent/inspect"]);
+  const resultPath = writeResult(paths, "inspect", "invocation-inspect", "pass");
+  const error = invoke([
+    "finish", "--run-dir", paths.runDir, "--task", "inspect", "--invocation", "invocation-inspect", "--result", resultPath,
+  ], 1);
+  assert.equal(error.code, "result_contract_drift");
+  assert.match(error.message, /frozen result schema changed/u);
+});
+
+test("rejects an absolute artifact path in the common node-result contract", () => {
+  const paths = fixture([agentTask("inspect", [], {
+    artifact_paths: ["artifacts/inspect.txt"],
+    effect: "workspace_write",
+  })]);
+  initialize(paths);
+  prepareAndBind(paths, "inspect", "invocation-inspect", "agent/inspect");
+  const resultPath = writeResult(paths, "inspect", "invocation-inspect", "pass");
+  const result = JSON.parse(readFileSync(resultPath, "utf8"));
+  result.artifacts[0].path = join(paths.runDir, result.artifacts[0].path);
+  writeJson(resultPath, result);
+  const error = invoke([
+    "finish", "--run-dir", paths.runDir, "--task", "inspect", "--invocation", "invocation-inspect", "--result", resultPath,
+  ], 1);
+  assert.equal(error.code, "unsafe_path");
+  assert.match(error.message, /must be relative/u);
+});
+
 test("rejects external input drift before invocation preparation", () => {
   const external = join(tmpdir(), `dynamic-workflow-drift-${process.pid}-${Date.now()}.txt`);
   writeFileSync(external, "version one\n");
@@ -981,6 +1367,61 @@ test("requires a fresh translation-review invocation receipt bound to the review
     paths.runDir,
   ], 1);
   assert.equal(error.code, "reviewer_not_independent");
+});
+
+test("binds translation review to the exact executing runner contract inventory", () => {
+  const wrongRoot = fixture([agentTask("inspect")]);
+  mutateTranslationReviewInput(wrongRoot, (input) => {
+    input.runner_contract.skill_root = wrongRoot.root;
+    input.runner_contract.canonical_sha256 = canonicalSha256({
+      skill_root: input.runner_contract.skill_root,
+      files: input.runner_contract.files,
+    });
+  });
+  assert.equal(initialize(wrongRoot, [], 1).code, "translation_review_crosswire");
+
+  const wrongHash = fixture([agentTask("inspect")]);
+  mutateTranslationReviewInput(wrongHash, (input) => {
+    input.runner_contract.files[0].sha256 = "0".repeat(64);
+    input.runner_contract.canonical_sha256 = canonicalSha256({
+      skill_root: input.runner_contract.skill_root,
+      files: input.runner_contract.files,
+    });
+  });
+  assert.equal(initialize(wrongHash, [], 1).code, "translation_review_crosswire");
+
+  const missingFile = fixture([agentTask("inspect")]);
+  mutateTranslationReviewInput(missingFile, (input) => {
+    input.runner_contract.files.pop();
+    input.runner_contract.canonical_sha256 = canonicalSha256({
+      skill_root: input.runner_contract.skill_root,
+      files: input.runner_contract.files,
+    });
+  });
+  assert.equal(initialize(missingFile, [], 1).code, "translation_review_crosswire");
+});
+
+test("binds translated provenance across review input, invocation receipt, and review output", () => {
+  const inputCrosswire = fixture([agentTask("inspect")]);
+  mutateTranslationReviewInput(inputCrosswire, (input) => {
+    input.translator_handle = "agent/substituted-translator";
+  });
+  assert.equal(initialize(inputCrosswire, [], 1).code, "translation_review_crosswire");
+
+  const receiptCrosswire = fixture([agentTask("inspect")]);
+  const receipt = JSON.parse(readFileSync(receiptCrosswire.translationReviewReceiptPath, "utf8"));
+  receipt.translator_handle = "agent/substituted-translator";
+  writeJson(receiptCrosswire.translationReviewReceiptPath, receipt);
+  assert.equal(initialize(receiptCrosswire, [], 1).code, "translation_review_crosswire");
+
+  const reusedHandle = fixture([agentTask("inspect")]);
+  const reusedReceipt = JSON.parse(readFileSync(reusedHandle.translationReviewReceiptPath, "utf8"));
+  reusedReceipt.reviewer_handle = reusedReceipt.translator_handle;
+  writeJson(reusedHandle.translationReviewReceiptPath, reusedReceipt);
+  assert.equal(initialize(reusedHandle, [], 1).code, "reviewer_not_independent");
+
+  const direct = fixture([agentTask("inspect")], { translation_mode: "direct" });
+  assert.equal(initialize(direct).status, "workflow_ready");
 });
 
 test("rejects a human gate as a conditional outcome source", () => {
@@ -1547,6 +1988,82 @@ test("validates result contracts at finish and rejects unsupported or unsafe sch
       "--run-dir", malformed.runDir,
     ], 1).code, "unsupported_result_schema");
   }
+});
+
+test("validates bounded Draft 2020-12 prefixItems tuples without widening additional items", () => {
+  const tupleDocument = {
+    type: "array",
+    prefixItems: [
+      { type: "string", const: "alpha" },
+      { type: "integer", minimum: 1 },
+    ],
+    items: false,
+    minItems: 2,
+    maxItems: 2,
+  };
+  const tupleTask = () => agentTask("tuple", [], {
+    result_contract: jsonArtifactResultContract("artifacts/tuple.json", tupleDocument),
+    artifact_paths: ["artifacts/tuple.json"],
+    effect: "workspace_write",
+  });
+
+  const valid = fixture([tupleTask()]);
+  initialize(valid);
+  prepareAndBind(valid, "tuple", "invocation-tuple", "agent/tuple");
+  assert.equal(finishJsonArtifact(valid, "tuple", "invocation-tuple", "artifacts/tuple.json", ["alpha", 7]).status, "completed");
+
+  for (const value of [["wrong", 7], ["alpha", 7, "extra"]]) {
+    const invalid = fixture([tupleTask()]);
+    initialize(invalid);
+    prepareAndBind(invalid, "tuple", "invocation-tuple", "agent/tuple");
+    const artifactPath = join(invalid.runDir, "artifacts/tuple.json");
+    writeJson(artifactPath, value);
+    const resultPath = join(invalid.runDir, "results/tuple.json");
+    writeJson(resultPath, {
+      schema_version: "dynamic-workflow-node-result/v1",
+      task_id: "tuple",
+      invocation_id: "invocation-tuple",
+      outcome: "pass",
+      summary: "tuple finished",
+      artifacts: [{ path: "artifacts/tuple.json", sha256: sha256(artifactPath) }],
+      evidence: [],
+      errors: [],
+    });
+    assert.equal(invoke([
+      "finish", "--run-dir", invalid.runDir, "--task", "tuple",
+      "--invocation", "invocation-tuple", "--result", resultPath,
+    ], 1).code, "result_contract_invalid");
+  }
+
+  for (const prefixItems of [{ type: "string" }, Array.from({ length: 101 }, () => ({ type: "string" }))]) {
+    const malformedDocument = { type: "array", prefixItems, items: false };
+    const malformed = fixture([agentTask("tuple", [], {
+      result_contract: jsonArtifactResultContract("artifacts/tuple.json", malformedDocument),
+      artifact_paths: ["artifacts/tuple.json"],
+    })]);
+    assert.equal(initialize(malformed, [], 1).code, "unsupported_result_schema");
+  }
+});
+
+test("accepts a prefixItems-bound typed workflow return", () => {
+  const paths = fixture([agentTask("inspect")]);
+  const { callPath } = writeWorkflowCall(paths);
+  enableBridge(
+    paths,
+    callPath,
+    { kind: "array", items: [{ kind: "literal", value: "alpha" }, { kind: "literal", value: 7 }] },
+    {
+      type: "array",
+      prefixItems: [{ const: "alpha" }, { type: "integer", minimum: 1 }],
+      items: false,
+      minItems: 2,
+      maxItems: 2,
+    },
+  );
+  finalizeSingleTaskRun(paths);
+  const output = join(paths.runDir, "workflow-return.json");
+  assert.equal(invokeBridge(["materialize", "--call", callPath, "--run-dir", paths.runDir, "--output", output]).status, "workflow_return_ready");
+  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).value, ["alpha", 7]);
 });
 
 test("uses one semantic identifier grammar in manifests and capability snapshots", () => {

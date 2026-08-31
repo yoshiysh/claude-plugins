@@ -410,6 +410,183 @@
         "native execution countはattempted済みの1である",
         "callerのpost-success phaseを開始しない"
       ]
+    },
+    {
+      "id": 24,
+      "case_id": "declared-diagnostic-normalization",
+      "name": "declared_transport_normalization_preserves_domain_outcomes",
+      "prompt": "選択済み caller の Workflow source は、正常な verifier 応答の cannot-verify を部分結果として継続し、agent 呼び出しが null の場合も診断用 cannot-verify を合成して続ける。Codex 互換経路へ翻訳・独立reviewして。",
+      "expected_output": "正常応答が返すdomain上のcannot-verifyはcompleted resultとして維持する。一方、null agent resultを診断用fallbackへ変えるsource分岐だけは、source span・affected task・trigger・preserved domain outcomeをcompatibility_normalizationsへ宣言してworkflow_incompleteへ安全強化する。fresh verifierは無条件なbyte同一性を要求せず、宣言された唯一の差分をsourceと照合してpassできる。未宣言の強化や通常cannot-verifyの拒否はsilent driftとして拒否する。",
+      "files": [],
+      "assertions": [
+        "compatibility_normalizationsを空省略せず明示する",
+        "null agent resultの診断fallbackをsource spanとtaskへ結合する",
+        "正常応答のcannot-verifyをdomain resultとして維持する",
+        "fresh verifierが宣言済み安全強化とsilent driftを区別する",
+        "未宣言のfail-closed変更をpassにしない"
+      ]
+    },
+    {
+      "id": 25,
+      "case_id": "runner-contract-review-binding",
+      "name": "translation_review_reads_exact_executing_runner_contract",
+      "prompt": "複数のworktreeとinstalled cacheに同名のdynamic-workflow-runnerがある環境で、選択済みcallerのWorkflow sourceを翻訳・独立reviewして。",
+      "expected_output": "translation-review inputは実行controllerのskill rootと、必須SKILL・role・reference・schema・controllerのexact ordered inventoryをabsolute path/raw hash/canonical hashで固定する。fresh reviewerはそのinventoryだけを読み、別worktreeやcacheの同名copyを代用しない。controllerはroot、file set/order、symlink、live hash、canonical hashの不一致をexecution前のtranslation_review_crosswireとして拒否する。",
+      "files": [],
+      "assertions": [
+        "review対象runner rootを実行controllerへexact bindする",
+        "必須contract file setと順序を固定する",
+        "全contract fileのraw hashとinventory canonical hashを検証する",
+        "別installまたはcache copyをreview根拠にしない",
+        "root/hash/file欠落のcrosswireをagent dispatch前に拒否する"
+      ]
+    },
+    {
+      "id": 26,
+      "case_id": "translator-provenance-binding",
+      "name": "translation_review_binds_actual_translator_identity",
+      "prompt": "選択済みcallerのWorkflow sourceをfresh translatorで変換し、別のfresh reviewerで独立reviewして。reviewerは親の会話履歴を継承しない。",
+      "expected_output": "親がtranslator invocationから得たexact handleをtranslation-review inputとreviewer invocation receiptへ起動前に固定し、review outputを含む三者一致をcontrollerが検査する。translated modeでは非nullかつreviewer handleと異なり、direct modeでは三者ともnullである。sentinel、別translator、input/receipt/output crosswire、translator/reviewer handle再利用はagent dispatch前に拒否する。",
+      "files": [],
+      "assertions": [
+        "実translator handleをreview inputへ事前固定する",
+        "同じtranslator handleをreview invocation receiptへ固定する",
+        "review outputを含む三者一致を検証する",
+        "translatorとreviewerのhandle再利用を拒否する",
+        "direct modeでは三者のtranslator_handleをnullにする"
+      ]
+    },
+    {
+      "id": 27,
+      "case_id": "semantic-path-transport-separation",
+      "name": "semantic_absolute_path_is_not_transport_artifact_path",
+      "prompt": "Workflow sourceはevidence fileをworkspaceDir配下へ書き、node envelopeでartifactを返す一方、verdictと最終returnのevidence_fileにはworkspaceDirから組み立てたabsolute pathを返す。互換manifestへ翻訳・reviewして。",
+      "expected_output": "artifact envelopeはrun-relative pathのexact setを使うが、source固有verdict/returnのevidence_fileはexact absolute stringを維持する。transport安全性を理由にsemantic fieldをrelativeへ変更したmanifestはsilent driftとしてreviseする。",
+      "files": [],
+      "assertions": [
+        "node envelopeのartifact pathをrun-relativeに保つ",
+        "source verdictのevidence_fileをabsoluteに保つ",
+        "return bindingでも同じsemantic stringを返す",
+        "transport pathとsemantic pathを混同しない"
+      ]
+    },
+    {
+      "id": 28,
+      "case_id": "source-exact-agent-input-projection",
+      "name": "agent_receives_only_source_selected_json_fields",
+      "prompt": "Workflow sourceはbounded selectedClaims[i]が存在するslotだけを起動し、verifier agentへid、text、verify_methodだけを渡す。上流artifactにはquestion、workspaceDir、他claim、private metadataも含まれる。互換manifestへ翻訳・reviewして。",
+      "expected_output": "consumerはvalidated producer JSONへのartifact_projectionを使い、base pointerと3 fieldのexact mapだけを宣言する。slot conditionもwhen.input_aliasで同じprojectionへ結合し、controllerが投影済みJSONだけを凍結する。agentへ条件評価用の上流artifact全体、source file、question、workspaceDir、sibling claimを渡さない。",
+      "files": [],
+      "assertions": [
+        "validated JSON artifactからcontrollerが投影する",
+        "agent-visible field setがid text verify_methodだけである",
+        "optional slot conditionをprojection aliasへ結合する",
+        "投影外fieldとsource fileを渡さない",
+        "producerまたはprojection driftを拒否する"
+      ]
+    },
+    {
+      "id": 29,
+      "case_id": "least-runtime-collaboration-capabilities",
+      "name": "manifest_requires_only_collaboration_operations_used_by_source",
+      "prompt": "Workflow sourceはagent spawn、wait、stable handleだけを使い、message、resume、interruptは呼ばない。互換manifestのruntime capabilityを設計・reviewして。",
+      "expected_output": "required_capabilitiesはcore 4だけを持つ。snapshotにmessage/resume/interruptが存在しても未使用operationを必須化せず、能力の過剰要求によるfalse unsupported_runtimeを防ぐ。",
+      "files": [],
+      "assertions": [
+        "core 4を必須にする",
+        "未使用messageを要求しない",
+        "未使用resumeを要求しない",
+        "未使用interruptを要求しない"
+      ]
+    },
+    {
+      "id": 30,
+      "case_id": "data-dependent-capability-domain-fallback",
+      "name": "conditional_capability_unavailability_preserves_domain_fallback",
+      "prompt": "各claimのverify_methodはweb-search、web-fetch、live-api、file-read、not-verifiableのいずれかで、sourceは該当toolが無ければverdict=cannot-verifyを返す。互換manifestへ翻訳・実行契約をreviewして。",
+      "expected_output": "全verifierへ同じ静的web capabilityを要求しない。artifact_projection確定後にcapability_requestsを評価し、availableなら通常実行、unavailableでもdispatchしてvalidated verdict artifactのcannot-verify guardを強制する。能力不足をtask skipやworkflow failureへ変えない。",
+      "files": [],
+      "assertions": [
+        "verify_method確定後に条件付き能力を評価する",
+        "能力利用可能時はguardを発火しない",
+        "能力不足時もagentをdispatchする",
+        "cannot-verify result guardをcontrollerが強制する",
+        "全slotへの静的web要求を拒否する"
+      ]
+    },
+    {
+      "id": 31,
+      "case_id": "unbounded-read-target-fails-closed",
+      "name": "unbounded_file_or_live_api_target_is_not_silently_authorized",
+      "prompt": "Workflow sourceはverify_method=file-readまたはlive-apiを返し得るが、agent引数には読取対象path/endpointのbounded scopeが含まれず、対象能力が無ければcannot-verifyを返す。互換manifestへ翻訳・reviewして。",
+      "expected_output": "translatorはworkspace全体や任意networkを暗黙許可しない。target scopeをsourceからboundedに結合できないため該当能力をunavailableとしてdomain cannot-verify guardへ落とす。sourceがそのfallbackを許さない別caseならrejected_sourceにする。",
+      "files": [],
+      "assertions": [
+        "暗黙workspace readを付与しない",
+        "暗黙unbounded network readを付与しない",
+        "source許容時だけcannot-verifyへ落とす",
+        "fallback非許容ならrejected_sourceにする"
+      ]
+    },
+    {
+      "id": 32,
+      "case_id": "semantic-agent-boundary-transform-separation",
+      "name": "deterministic_pre_post_transforms_do_not_expand_agent_inputs",
+      "prompt": "Workflow sourceは決定的selectorでagent引数を作り、root synthesizerへquestion、enriched verdicts、previousQuestionだけを渡し、その戻り値をmaxRoundsと合わせて決定的にfinalizeする。root roleは必要時だけ各verdictのbounded evidence fileをReadできる。互換manifestへ翻訳・reviewして。",
+      "expected_output": "selector、raw synthesizer、finalizerを入力境界ごとに分離する。raw synthesizerにはsource callsiteと同じquestion、enriched verdicts、previousQuestion、およびsource-authorizedなavailable/skipped evidence artifactだけを渡す。selector source、raw verifier artifact、maxRounds、finalization sourceを同じagentへ見せず、evidence readを一律禁止しない。",
+      "files": [],
+      "assertions": [
+        "semantic agent callsiteのexact input setを保存する",
+        "決定的pre post transformを別task artifactへ分離する",
+        "finalization引数とsource fileをraw synthesizerへ渡さない",
+        "source-authorized evidenceをoptional artifactで保持する",
+        "sourceにないread禁止またはresource追加を拒否する"
+      ]
+    },
+    {
+      "id": 33,
+      "case_id": "raw-schema-before-normalization",
+      "name": "raw_agent_schema_is_not_narrowed_by_downstream_normalization",
+      "prompt": "Workflow sourceのverifier raw schemaはevidence_fileを任意stringとして受理するが、agent呼び出し後にsourceがそのfieldをexact absolute pathへ上書きしてからroot synthesizerへ渡す。raw taskと後段contractを設計・reviewして。",
+      "expected_output": "raw verifier schemaは任意stringのままsource-exactに保つ。exact absolute pathのinvariantは別の正規化artifact/result contractで強制し、raw schemaへconstを追加してsource-valid responseを拒否しない。root synthesizerは正規化済みverdictだけを受け取る。",
+      "files": [],
+      "assertions": [
+        "raw source schemaをexactに保存する",
+        "後段invariantをraw schemaへ先取りしない",
+        "normalizationを別artifact contractへ置く",
+        "source-valid raw responseを受理する",
+        "consumerへnormalized verdictだけを渡す"
+      ]
+    },
+    {
+      "id": 34,
+      "case_id": "source-authorized-optional-evidence-read",
+      "name": "conditional_source_reads_are_preserved_as_bounded_optional_artifacts",
+      "prompt": "root roleはenriched verdictのnoteだけで不十分な場合に、そのverdictが指すbounded evidence fileをReadしてよい。fan-outはhard max付きで一部slotがskipされる。互換manifestでroot入力を構成・reviewして。",
+      "expected_output": "全bounded slotのevidenceをproducer順のoptional_artifactとしてrootへ渡し、available/skipped markerを保持する。root promptは必要時のみavailable evidenceをReadできるsource契約を維持する。skipをfailureにせず、workspace全体や未宣言fileへの探索権限も与えない。",
+      "files": [],
+      "assertions": [
+        "bounded evidenceだけをoptional artifactにする",
+        "available skippedとslot順を保持する",
+        "sourceのconditional readを禁止しない",
+        "skipped producerをfailureへ変えない",
+        "unbounded workspace readを追加しない"
+      ]
+    },
+    {
+      "id": 35,
+      "case_id": "bounded-prefix-items-contract",
+      "name": "bounded_prefix_items_is_reviewed_and_enforced",
+      "prompt": "Workflow sourceの正規化済みverdict配列と最終return配列は、slot indexごとに異なるexact evidence_fileを要求し、余剰要素を禁止する。Draft 2020-12 tuple schemaを互換manifestへ翻訳・reviewして。",
+      "expected_output": "task/return schemaはbounded prefixItemsとitems:falseでindex別contractを保持する。controllerは各prefix itemと余剰要素を検証し、malformedまたは100件超のprefixItemsをunsupportedとして止める。translation reviewのexact runner inventoryにはこの判定を実装するJSON Schema subset evaluatorを含め、controllerだけをreviewしてvalidatorを盲点にしない。",
+      "files": [],
+      "assertions": [
+        "index別prefix schemaを検証する",
+        "items falseで余剰要素を拒否する",
+        "prefixItemsを100件に制限する",
+        "taskとreturnの両contractで同じsubsetを使う",
+        "schema evaluatorをrunner review inventoryへ含める"
+      ]
     }
   ]
 }

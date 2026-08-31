@@ -141,6 +141,10 @@ sourceをimport、eval、実行しない。
 - task ごとの `requirements.semantic_capabilities`、`requirements.permissions`、`context_policy` を現在の
   snapshot と照合する。unknown / denied / unsupported は利用可能と推測しない。
 - `requirements.on_unavailable=skip_optional` は `required=false` にだけ許し、それ以外は開始前に停止する。
+- graph-level `required_capabilities`はcore 4とsourceが実際に使う追加operationだけにする。snapshotにある未使用の
+  `message` / `resume` / `interrupt`を必須化しない。
+- sourceがinput値ごとに能力不足をdomain fallbackへ変換する場合は、静的requirementsではなく投影済みinputへ結合した
+  `capability_requests`を使い、利用不能時のvalidated result guardを必須にする。
 
 ### 2. Source translation
 
@@ -157,13 +161,28 @@ sourceをimport、eval、実行しない。
    bounded data fan-outは全slotを静的列挙し、validated JSON artifact conditionとoptional fan-in markerへ変換できる。
    上限不明fan-out、unbounded loop / recursion、実行中のdata-dependent graph追加などv1へ意味保存できない処理は拒否する。
    agent/transport 失敗を最終業務successにしない診断分岐だけは、互換経路側でより厳しい
-   `workflow_incomplete` に正規化し、その分岐のsource固有returnはmaterializeしない。
+   `workflow_incomplete` に正規化し、その分岐のsource固有returnはmaterializeしない。この差分はmanifestの
+   `compatibility_normalizations`へsource span、affected task、trigger、維持するdomain outcomeとともに宣言する。
+   sourceがagentへ上流JSONの一部だけを渡すときは`artifact_projection`でexact field setだけをcontrollerに凍結させる。
+   source未指定field、source file、question、workspaceDir、sibling contextをagent inputへ追加しない。transport artifact pathと
+   source result内のsemantic absolute pathを別契約として保存する。bounded optional slotの有無も同じ投影で判定する場合は
+   `when.input_alias`を使い、条件評価のためだけにproducer artifact全体をtyped inputへ追加しない。
+   source内で決定的な前処理→agent call→決定的な後処理が連続する場合も、semantic agent taskへ前後処理用source、
+   中間artifact、最終化引数を同居させない。各agent taskのvisible inputはsourceの実callsite引数と、sourceがそのagentへ
+   明示的に許したoptional read targetだけに一致させ、決定的変換は依存関係を持つ別task/artifactへ分離する。
+   source agentのraw result schemaを、sourceが後段で上書き・正規化する値の`const`や狭いenumへ先取りしてはならない。
+   raw contractはsource schemaのまま受理し、正規化後の不変条件は後段artifact/result contractで検証する。
 5. 別 handle・fresh context の [workflow-contract-verifier.md](agents/workflow-contract-verifier.md) が、
    source と manifest の対応、上限、unsupported construct、write path を独立に確認する。
-6. reviewer の dispatch 前に exact prompt と source/manifest input manifest を保存する。skill_bridgeではinput/receiptを
+6. reviewer の dispatch 前に exact prompt と source/manifest input manifest を保存する。input manifestには、実際に
+   `init`を実行するrunner rootと、verifierが読むSKILL・role・reference・schema・controllerの必須file inventoryを
+   absolute path/raw SHA-256/canonical inventory hashで保存する。controllerはexact file set・順序・root confinement・
+   非symlink・live hashを照合し、別install copyや古いcacheを読んだreviewを拒否する。skill_bridgeではinput/receiptを
    call receiptのraw SHA-256、caller phase/gate ownership、native observationへexact bindする。`fork_turns=none`、
-   parent context 非継承、`translation_mode`、handle boundary、invocation ID、handle、prompt/input hash、時刻を
-   invocation receipt に記録する。init はそのbytesを書き換えず、original receiptも別hash lineageとして保持する。
+   parent context 非継承、`translation_mode`、handle boundary、invocation ID、translator/reviewer handle、prompt/input hash、時刻を
+   invocation receipt に記録する。translated modeの実translator handleをreview inputにも事前固定し、review outputを含む
+   三者一致とreviewer handleとの差をcontrollerが検証する。direct modeでは三者とも`null`にする。init はそのbytesを
+   書き換えず、original receiptも別hash lineageとして保持する。
 7. verifier が `pass` しなければ agent execution を開始しない。
 
 ### 3. Freeze and initialize
@@ -200,7 +219,8 @@ node [SKILL_DIR]/scripts/workflow-control.mjs ready --run-dir <run-root>
 各 task について:
 
 1. 次の完全なcommandで、重複起動を防ぐ reservation を先に記録する。controller は
-   `argument`、上流 `task_result`、上流 `artifact`、condition skipを明示markerにする`optional_task_result` / `optional_artifact`、
+   `argument`、上流 `task_result`、上流 `artifact`、validated JSONからexact fieldだけを抽出する`artifact_projection`、
+   condition skipを明示markerにする`optional_task_result` / `optional_artifact`、
    hash 固定した外部 `file` を解決し、task 別 input manifest を生成する。
 
    ```bash
@@ -210,8 +230,16 @@ node [SKILL_DIR]/scripts/workflow-control.mjs ready --run-dir <run-root>
      --invocation <stable-invocation-id>
    ```
 
-2. manifest の `prompt`、型付き `context_policy`、controller が返した input manifest path/hash、hash固定された
-   `result_contract` を subagent に渡して起動する。
+2. manifest の `prompt`、型付き `context_policy`、controller が返した input manifest path/hash を subagent に渡して
+   起動する。subagent は input manifest 内で hash 固定された共通 `node_result_schema` と task 固有
+   `result_contract.schema_path` の両方を読み、前者を output envelope、後者を semantic payload の契約として扱う。
+   inline / file-backed の別にかかわらず task 固有 schema 本文は controller-owned file として凍結され、hash だけを渡して
+   agent に manifest tree の暗黙探索を要求してはならない。
+   同じ input manifest の `output_contract` はresult pathと宣言済みartifact pathのexact setである。agentはfileを
+   run rootから解決して書くが、node-result envelopeの `artifacts[].path` にはabsolute pathではなく、このrun-relative
+   artifact pathをexactに記録する。
+   `artifact_projection`はcontroller-owned JSONだけを読み、producer原本を探索しない。`capability_requests` receiptが
+   `unavailable`なら、そのreasonとresult guardに従ってsource固有fallbackを返す。
 3. 起動後すぐ、次のcommandで実 handle を結び付ける。
 
    ```bash
@@ -224,8 +252,11 @@ node [SKILL_DIR]/scripts/workflow-control.mjs ready --run-dir <run-root>
 
 4. `{ "mode": "fresh" }` は `fork_turns=none` を使う。`recent` は exact turn 数を host が指定できる場合だけ、
    `all` は明記された場合だけ使う。指定を別 mode へ丸めない。
-5. subagent は割当 output path 以外を書き換えず、[node-result.schema.json](schemas/node-result.schema.json) に
-   従う JSON を保存する。
+5. subagent は割当 output path 以外を書き換えず、input manifest の `node_result_schema.path` を run root から解決し、
+   同 manifest の SHA-256 と一致することを確認してから、その schema に従う JSON を保存する。skill install tree 上の
+   [node-result.schema.json](schemas/node-result.schema.json) を直接参照して frozen contract を迂回してはならない。
+   output envelopeのartifact pathは `output_contract.artifact_paths` のexact run-relative setとし、absolute pathや
+   書込み時に解決したfilesystem pathを転記しない。
 6. 完了後、次のcommandを実行する。controller は共通 envelope に加えて task 固有
    `result_contract` を検証し、validation receipt を記録する。同じ invocation と同じ hash の再送は idempotent、
    異なる hash は conflict として拒否する。
@@ -368,11 +399,11 @@ final result や publish を成功扱いしない。
 - frozen manifest と capability snapshot が存在し、hash が state と一致する。
 - capability snapshot は観測時刻、source trust、secret-bearing、filesystem/tool/external mutation enforcement、
   fork behaviorを型付きで持ち、untrusted/secret-bearing時は必要な隔離がenforcedである。
-- translation review は別 handle の fresh invocation receipt、exact prompt/input hash、source hash、manifest canonical hash、
+- translation review は別 handle の fresh invocation receipt、input/receipt/outputで一致するtranslator handle、exact prompt/input hash、source hash、manifest canonical hash、
   invocation より後の review timestamp に結合されている。
-- prepare 済み task は controller-generated input manifest を持ち、宣言された argument/result/artifact/file の exact set と一致する。
+- prepare 済み task は controller-generated input manifest を持ち、宣言された argument/result/artifact/projection/file の exact set と一致する。
 - task input manifest は dispatch 時の current capability receipt、意味能力・permission・context assessment、
-  result contract hashに結合されている。
+  条件付きcapability request receipt、result contract hashに結合されている。
 - task 数、完了、失敗、skip、running の合計が一致し、optionalを含め failed / blocked / rejected が0。
 - completed / resolved task の result が共通 schema と task 固有 result contract の双方に適合し、state の result hash、
   schema hash、validation receipt と一致する。

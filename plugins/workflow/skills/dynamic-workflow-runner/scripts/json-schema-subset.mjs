@@ -3,7 +3,7 @@ const MAX_SCHEMA_EVALUATIONS = 10_000;
 
 const KEYWORDS = new Set([
   "$schema", "$id", "$defs", "$ref", "title", "description", "default", "examples",
-  "type", "const", "enum", "properties", "required", "additionalProperties", "items",
+  "type", "const", "enum", "properties", "required", "additionalProperties", "prefixItems", "items",
   "minItems", "maxItems", "uniqueItems", "minLength", "maxLength", "minimum",
   "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minProperties", "maxProperties",
   "format", "allOf", "anyOf", "oneOf", "not",
@@ -87,7 +87,14 @@ export function inspectJsonSchema(schema, root = schema, depth = 0, budget = { n
       Object.values(schema[key]).forEach((child) => inspectJsonSchema(child, root, depth + 1, budget));
     }
   }
-  if (schema.items !== undefined) inspectJsonSchema(schema.items, root, depth + 1, budget);
+  if (schema.prefixItems !== undefined) {
+    reject(Array.isArray(schema.prefixItems) && schema.prefixItems.length <= 100, "JSON Schema prefixItems must be an array with at most 100 schemas");
+    schema.prefixItems.forEach((child) => inspectJsonSchema(child, root, depth + 1, budget));
+  }
+  if (schema.items !== undefined) {
+    reject(typeof schema.items === "boolean" || (schema.items !== null && typeof schema.items === "object" && !Array.isArray(schema.items)), "JSON Schema items must be a schema or boolean");
+    if (typeof schema.items !== "boolean") inspectJsonSchema(schema.items, root, depth + 1, budget);
+  }
   if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean") inspectJsonSchema(schema.additionalProperties, root, depth + 1, budget);
   for (const key of ["allOf", "anyOf", "oneOf"]) {
     if (schema[key] !== undefined) {
@@ -141,7 +148,17 @@ export function jsonSchemaErrors(schema, value, root = schema, instancePath = "$
     if (schema.minItems !== undefined && value.length < schema.minItems) errors.push(`${instancePath}: too few items`);
     if (schema.maxItems !== undefined && value.length > schema.maxItems) errors.push(`${instancePath}: too many items`);
     if (schema.uniqueItems === true && new Set(value.map(canonical)).size !== value.length) errors.push(`${instancePath}: duplicate items`);
-    if (schema.items !== undefined) value.forEach((item, index) => errors.push(...jsonSchemaErrors(schema.items, item, root, `${instancePath}[${index}]`, refStack, budget)));
+    const prefixLength = schema.prefixItems?.length ?? 0;
+    for (let index = 0; index < Math.min(value.length, prefixLength); index += 1) {
+      errors.push(...jsonSchemaErrors(schema.prefixItems[index], value[index], root, `${instancePath}[${index}]`, refStack, budget));
+    }
+    const remainingStart = schema.prefixItems === undefined ? 0 : prefixLength;
+    if (schema.items === false && value.length > remainingStart) errors.push(`${instancePath}: additional items`);
+    else if (schema.items !== undefined && schema.items !== true) {
+      for (let index = remainingStart; index < value.length; index += 1) {
+        errors.push(...jsonSchemaErrors(schema.items, value[index], root, `${instancePath}[${index}]`, refStack, budget));
+      }
+    }
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const keys = Object.keys(value);

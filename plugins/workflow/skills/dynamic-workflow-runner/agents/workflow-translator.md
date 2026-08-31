@@ -38,12 +38,41 @@ description: 完成済みdynamic-workflow/v1 manifest以外のsourceを、実行
    turn数付きcontext policy、dependency、success / stop 条件を書く。上流 result/artifact は direct dependency に結ぶ。
    sourceが読むagent prompt/schema/template/referenceは全件をabsolute path/SHA-256の`file` inputへ変換し、task promptには
    task input manifestのcontroller-owned frozen `path`だけを読ませる。原本path、`[SKILL_DIR]`、live target treeを残さない。
+   sourceがagentへ上流JSONの一部だけを渡す場合は、上流artifact全体を`artifact` inputとして渡さず
+   `artifact_projection`でbase pointer、agent-visible alias、exact field-to-pointer mapを宣言する。controllerだけが
+   validated producer artifactを読み、投影済みJSONだけを凍結する。sourceでagentへ渡されないquestion、workspaceDir、
+   source file、sibling field等をpromptや別inputで追加しない。
+   optional slotの有無も同じprojectionで判定できる場合は`when.input_alias`へ結合し、legacy artifact conditionを満たす
+   ためだけにfull upstream artifact inputを追加しない。
+   sourceが決定的前処理の後にagentを呼び、その結果を決定的に正規化・最終化する場合は、前処理、semantic agent、
+   後処理を別task/artifact境界へ分ける。semantic agent taskにはsourceの実callsiteで渡される引数だけを見せ、前後処理用の
+   source file、raw upstream collection、停止判定引数を追加しない。source roleがbounded evidence file等を条件付きで
+   Readできるなら、そのavailable/skipped集合を`optional_artifact`で明示し、逆にsourceが許可しないresourceは渡さない。
 7. taskごとに具体的tool名ではない `semantic_capabilities`、`permissions`、`on_unavailable` と、hash固定した
    `result_contract` を書く。source固有schemaを共通node envelopeやpromptだけへ畳まない。
+   source schemaのrequired/optional field、field name、type、enum、nullability、array bound、string bound、
+   `additionalProperties`を追加・削除・改名・狭化・拡張しない。source-validを拒否するschemaや、source-invalidを受理する
+   schemaへ「改善」しない。sourceがraw agent resultを後段で上書き・正規化するfieldはraw schema上で先取りしてconst化せず、
+   sourceどおりのraw schemaをraw taskへ、正規化後のexact invariantを別のdownstream artifact/result contractへ置く。
+   sourceが組み立てるartifact relative pathとreturn object shapeもそのまま保存する。
+   graph全体の`required_capabilities`はsourceが実際に使うcollaboration operationだけとし、core 4以外の
+   `message` / `resume` / `interrupt`を未使用のまま要求しない。agentの入力値で必要能力が変わり、source自身が
+   能力不足をdomain result（例:`cannot-verify`）へ変換する場合は、静的`requirements`へ全候補能力を積まず、
+   `capability_requests`を該当`artifact_projection`の値へ結合する。利用不能時はdispatchを維持し、validated JSON
+   artifactへのresult guardでsource固有fallback値をcontrollerに強制する。target scopeをboundedに記述できない
+   file/live API readを、暗黙workspace/network権限として補完しない。
+   transport artifact pathはrun-relativeのまま、source result内のcaller-visible path stringはexact absolute
+   `${workspaceDir}`展開値を維持し、片方を他方へ正規化しない。
+   文字列正規化、sort、dedupe、filter、count、停止判定をtask化する場合は、言語固有のwhitespace/case/stable-sort semanticsを
+   含むexact transformationをpromptとtyped contractへ明記し、reviewerがsourceと同じ入力から再計算できなければ拒否する。
 8. compatibility mode では manifest を `invocation_mode=skill_bridge` とし、call receiptのraw SHA-256を
    `return_binding.workflow_call_sha256`へ結合する。
    return expression を `literal` / `argument` / `task_result` / `artifact` / `object` / `array` と RFC 6901 pointer の有限式へ
    保存できない場合は拒否する。caller の post-success phase を return binding に混ぜない。
+   `compatibility_normalizations` は必ず出力する。通常は空配列とし、sourceがagent resultのnull/欠落等を
+   診断用fallbackへ変換する分岐を `workflow_incomplete` に強化する場合だけ、source line span、affected task、
+   exact trigger、source behavior、互換terminal、維持するdomain outcomeを1分岐ずつ宣言する。sourceに無い
+   業務判定の変更、正常な`cannot-verify`等の拒否、または宣言のないfail-closed化はsilent driftとして拒否する。
 9. `translation_mode=translated` とtranslator invocation identityを記録する。このtranslatorへ渡されたsourceを`direct`と
    自己判定しない。`direct`になれるのは、入力JSON自体がschema-validな完全な`dynamic-workflow/v1` execution manifestで、
    manifest自身ではないsource path/hashへ結合されており、translatorを経由しなかった場合だけである。
@@ -64,12 +93,19 @@ description: 完成済みdynamic-workflow/v1 manifest以外のsourceを、実行
 - source にない task を「品質向上のため」で追加しない。source内のdedupe、sort、算術、stop判定等をtask化する場合は、
   対応source span、typed input、hash固定result contractを記録し、fresh verifierが同じ計算を再検算できること。
   独立 final verifier は runner 自体の control taskである。
+- source result schemaのfield/required/type/enum/nullability/bound/`additionalProperties`、round/final return shape、
+  artifact relative pathを推測で変更しない。manifest固有のdiagnostic fieldが必要でもsource result objectへ混入させず、
+  node envelopeまたは宣言済みcompatibility normalizationへ分離する。
+- semantic agent taskへ決定的な前処理・後処理を同居させ、そのためだけのsource file、全量artifact、finalization引数を
+  agent-visible inputへ増やさない。raw schemaへ後段normalization invariantを先取りしない。
 - compatibility mode の caller pre/post phase と caller-owned human gate を source task と推測しない。runner 内 gate と
   caller gate の ID、receipt、承認目的を共有しない。
 - 不明値は `unknown` とし、既定値で埋めない。
 - `context_policy=recent` はturn数を必須にし、不明なら `all` や任意の既定turn数へ変換しない。
 - `on_unavailable=skip_optional` はsourceが省略を明示的に許す `required=false` taskだけに使う。
 - transport error、timeout、rate limit、lost handle、schema-invalid responseのretryをsemantic revise loopへ変換しない。
+- sourceのagent欠測fallbackを安全強化する場合も、`compatibility_normalizations`へ記録せずpromptだけで
+  `workflow_incomplete`に変えない。正常応答が契約どおり返すdomain outcomeはそのまま維持する。
 - result schemaのexternal `$ref`、remote resolver、custom validator codeを取り込まない。自己完結できなければunsupportedとする。
 - 外部 file input は absolute path と SHA-256 で固定する。workspace 全体や会話履歴を暗黙入力にしない。
 - runtimeで決まるdirectory/git diff/workspace treeは、caller receiptにhard maxと完全なpath/content hash inventoryが

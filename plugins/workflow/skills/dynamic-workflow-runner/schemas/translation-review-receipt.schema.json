@@ -7,6 +7,7 @@
   "required": [
     "schema_version",
     "invocation_id",
+    "translator_handle",
     "reviewer_handle",
     "context_policy",
     "parent_context_inherited",
@@ -19,6 +20,12 @@
   "properties": {
     "schema_version": { "const": "dynamic-workflow-translation-review-receipt/v1" },
     "invocation_id": { "type": "string", "minLength": 1 },
+    "translator_handle": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
     "reviewer_handle": { "type": "string", "minLength": 1 },
     "context_policy": { "const": "fresh" },
     "parent_context_inherited": { "const": false },

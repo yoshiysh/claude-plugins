@@ -8,6 +8,7 @@
     "schema_version",
     "workflow_id",
     "translation_mode",
+    "compatibility_normalizations",
     "source",
     "arguments",
     "limits",
@@ -31,6 +32,13 @@
     "description": {
       "type": "string",
       "minLength": 1
+    },
+    "compatibility_normalizations": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/compatibility_normalization"
+      }
     },
     "source": {
       "type": "object",
@@ -165,6 +173,79 @@
       "minLength": 1,
       "pattern": "^(?:/|[A-Za-z]:[\\\\/])"
     },
+    "compatibility_normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "normalization_id",
+        "kind",
+        "source_span",
+        "affected_task_ids",
+        "triggers",
+        "source_behavior",
+        "compatibility_terminal",
+        "preserved_domain_outcomes",
+        "safety_rationale"
+      ],
+      "properties": {
+        "normalization_id": {
+          "$ref": "#/$defs/semantic_id"
+        },
+        "kind": {
+          "const": "agent_diagnostic_fallback_to_workflow_incomplete"
+        },
+        "source_span": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start_line", "end_line"],
+          "properties": {
+            "start_line": { "type": "integer", "minimum": 1 },
+            "end_line": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "affected_task_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/task_id" }
+        },
+        "triggers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "agent_result_missing_or_null",
+              "agent_result_schema_invalid",
+              "agent_transport_error",
+              "agent_timeout",
+              "agent_rate_limited",
+              "agent_handle_lost",
+              "required_artifact_missing_or_invalid"
+            ]
+          }
+        },
+        "source_behavior": {
+          "type": "string",
+          "minLength": 1
+        },
+        "compatibility_terminal": {
+          "const": "workflow_incomplete"
+        },
+        "preserved_domain_outcomes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "safety_rationale": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "base_task": {
       "type": "object",
       "required": ["id", "kind", "depends_on", "required"],
@@ -228,6 +309,29 @@
             "predicate": { "const": "equals" },
             "expected": { "type": ["null", "string", "number", "boolean"] }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task_id", "input_alias", "pointer", "predicate"],
+          "properties": {
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "input_alias": { "$ref": "#/$defs/semantic_id" },
+            "pointer": { "$ref": "#/$defs/json_pointer" },
+            "predicate": { "const": "exists" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["task_id", "input_alias", "pointer", "predicate", "expected"],
+          "properties": {
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "input_alias": { "$ref": "#/$defs/semantic_id" },
+            "pointer": { "$ref": "#/$defs/json_pointer" },
+            "predicate": { "const": "equals" },
+            "expected": { "type": ["null", "string", "number", "boolean"] }
+          }
         }
       ]
     },
@@ -282,6 +386,11 @@
             },
             "requirements": {
               "$ref": "#/$defs/task_requirements"
+            },
+            "capability_requests": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/capability_request" }
             },
             "result_contract": {
               "$ref": "#/$defs/result_contract"
@@ -352,6 +461,58 @@
         "permissions": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/semantic_id" } },
         "on_unavailable": { "enum": ["unsupported_runtime", "skip_optional"] }
       }
+    },
+    "capability_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "when", "semantic_capabilities", "permissions", "on_unavailable"],
+      "properties": {
+        "request_id": { "$ref": "#/$defs/semantic_id" },
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["input_alias", "pointer", "predicate", "expected"],
+          "properties": {
+            "input_alias": { "$ref": "#/$defs/semantic_id" },
+            "pointer": { "$ref": "#/$defs/json_pointer" },
+            "predicate": { "const": "equals" },
+            "expected": { "type": ["null", "string", "number", "boolean"] }
+          }
+        },
+        "semantic_capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/semantic_id" }
+        },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/semantic_id" }
+        },
+        "on_unavailable": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "result_guard"],
+          "properties": {
+            "action": { "const": "dispatch_with_assessment" },
+            "result_guard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact_path", "pointer", "predicate", "expected"],
+              "properties": {
+                "artifact_path": { "$ref": "#/$defs/relative_path" },
+                "pointer": { "$ref": "#/$defs/json_pointer" },
+                "predicate": { "const": "equals" },
+                "expected": { "type": ["null", "string", "number", "boolean"] }
+              }
+            }
+          }
+        }
+      },
+      "anyOf": [
+        { "properties": { "semantic_capabilities": { "minItems": 1 } } },
+        { "properties": { "permissions": { "minItems": 1 } } }
+      ]
     },
     "semantic_id": {
       "type": "string",
@@ -582,6 +743,25 @@
             "kind": { "const": "artifact" },
             "task_id": { "$ref": "#/$defs/task_id" },
             "path": { "$ref": "#/$defs/relative_path" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "task_id", "path", "pointer", "alias", "fields"],
+          "properties": {
+            "kind": { "const": "artifact_projection" },
+            "task_id": { "$ref": "#/$defs/task_id" },
+            "path": { "$ref": "#/$defs/relative_path" },
+            "pointer": { "$ref": "#/$defs/json_pointer" },
+            "alias": { "$ref": "#/$defs/semantic_id" },
+            "fields": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 64,
+              "propertyNames": { "$ref": "#/$defs/semantic_id" },
+              "additionalProperties": { "$ref": "#/$defs/json_pointer" }
+            }
           }
         },
         {

@@ -30,6 +30,7 @@ const TRANSLATION_REVIEW_FILE = "translation-review.json";
 const TRANSLATION_REVIEW_RECEIPT_FILE = "translation-review-receipt.json";
 const TRANSLATION_ORIGINAL_RECEIPT_FILE = "original-review-receipt.json";
 const TRANSLATION_WORKFLOW_CALL_FILE = "workflow-call.json";
+const NODE_RESULT_SCHEMA_FILE = "schemas/node-result.schema.json";
 const LOCK_FILE = ".workflow-control.lock";
 const RECOVERY_LOCK_FILE = ".workflow-control.recovery.lock";
 const LOCK_RECOVERY_DIRECTORY = "lock-recovery";
@@ -47,7 +48,7 @@ const RESERVED_ROOT_FILES = new Set([
   "final-review.json",
   "workflow-return.json",
 ].map(pathKey));
-const RESERVED_ROOT_DIRECTORIES = new Set(["inputs", "review", "translation", "capability-receipts", "gates", "handoffs", LOCK_RECOVERY_DIRECTORY].map(pathKey));
+const RESERVED_ROOT_DIRECTORIES = new Set(["inputs", "review", "translation", "schemas", "capability-receipts", "gates", "handoffs", LOCK_RECOVERY_DIRECTORY].map(pathKey));
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const SEMANTIC_ID_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
@@ -66,7 +67,31 @@ const CAPABILITY_KEYS = new Set([
   "resume",
   "interrupt",
 ]);
+const COMPATIBILITY_NORMALIZATION_TRIGGERS = new Set([
+  "agent_result_missing_or_null",
+  "agent_result_schema_invalid",
+  "agent_transport_error",
+  "agent_timeout",
+  "agent_rate_limited",
+  "agent_handle_lost",
+  "required_artifact_missing_or_invalid",
+]);
 const RUNNER_SKILL_ROOT = realpathSync(resolve(fileURLToPath(new URL("..", import.meta.url))));
+const TRANSLATION_REVIEW_CONTRACT_FILES = Object.freeze([
+  "SKILL.md",
+  "agents/workflow-contract-verifier.md",
+  "references/claude-workflow-compatibility.md",
+  "references/portable-contract-extensions.md",
+  "references/runtime-contract.md",
+  "references/source-translation.md",
+  "schemas/task-input-manifest.schema.json",
+  "schemas/translation-review-input.schema.json",
+  "schemas/translation-review-receipt.schema.json",
+  "schemas/translation-review.schema.json",
+  "schemas/workflow-manifest.schema.json",
+  "scripts/json-schema-subset.mjs",
+  "scripts/workflow-control.mjs",
+]);
 
 class WorkflowError extends Error {
   constructor(code, message) {
@@ -416,8 +441,13 @@ function validateCondition(condition, taskIds, dependencyIds, label) {
     return;
   }
   const hasExpected = Object.hasOwn(condition, "expected");
-  assertExactKeys(condition, new Set(["task_id", "artifact_path", "pointer", "predicate", ...(hasExpected ? ["expected"] : [])]), label);
-  condition.artifact_path = validateRelativePath(condition.artifact_path, `${label}.artifact_path`);
+  const usesArtifact = Object.hasOwn(condition, "artifact_path");
+  const usesProjection = Object.hasOwn(condition, "input_alias");
+  fail(usesArtifact !== usesProjection, "invalid_schema", `${label} must select exactly one artifact_path or input_alias source`);
+  const sourceKey = usesProjection ? "input_alias" : "artifact_path";
+  assertExactKeys(condition, new Set(["task_id", sourceKey, "pointer", "predicate", ...(hasExpected ? ["expected"] : [])]), label);
+  if (usesArtifact) condition.artifact_path = validateRelativePath(condition.artifact_path, `${label}.artifact_path`);
+  else fail(SEMANTIC_ID_PATTERN.test(condition.input_alias ?? ""), "invalid_schema", `${label}.input_alias is invalid`);
   validateJsonPointer(condition.pointer, `${label}.pointer`);
   fail(["exists", "equals"].includes(condition.predicate), "invalid_schema", `${label}.predicate is unsupported`);
   fail(condition.predicate === "equals" ? hasExpected : !hasExpected, "invalid_schema", `${label}.expected must appear exactly for predicate=equals`);
@@ -461,10 +491,13 @@ function validateTaskShape(task, taskIds) {
 }
 
 function validateAgentTask(task, baseKeys) {
-  assertExactKeys(task, new Set([...baseKeys, "prompt", "context_policy", "requirements", "result_contract", "inputs", "output_path", "artifact_paths", "effect", "approval_gate_id", "accepted_outcomes"]), task.id);
+  assertExactKeys(task, new Set([...baseKeys, "prompt", "context_policy", "requirements", "capability_requests", "result_contract", "inputs", "output_path", "artifact_paths", "effect", "approval_gate_id", "accepted_outcomes"]), task.id);
   assertString(task.prompt, `${task.id}.prompt`);
   validateContextPolicy(task.context_policy, `${task.id}.context_policy`);
   validateTaskRequirements(task.requirements, task.required, `${task.id}.requirements`);
+  fail(task.capability_requests === undefined || Array.isArray(task.capability_requests), "invalid_schema", `${task.id}.capability_requests must be an array`);
+  fail(new Set((task.capability_requests ?? []).map((request) => request.request_id)).size === (task.capability_requests ?? []).length, "invalid_schema", `${task.id}.capability_requests has duplicate request_id`);
+  (task.capability_requests ?? []).forEach((request, index) => validateCapabilityRequest(request, `${task.id}.capability_requests[${index}]`));
   validateResultContract(task.result_contract, `${task.id}.result_contract`);
   fail(Array.isArray(task.inputs), "invalid_schema", `${task.id}: inputs must be an array`);
   fail(new Set(task.inputs.map(canonicalJson)).size === task.inputs.length, "invalid_schema", `${task.id}: duplicate input`);
@@ -479,6 +512,11 @@ function validateAgentTask(task, baseKeys) {
   fail(new Set(task.artifact_paths.map(pathKey)).size === task.artifact_paths.length, "unsafe_path", `${task.id}: artifact_paths collide`);
   if (task.result_contract.target.kind === "json_artifact") {
     fail(task.artifact_paths.some((path) => pathKey(path) === pathKey(task.result_contract.target.artifact_path)), "invalid_graph", `${task.id}: result contract target must be a declared artifact`);
+  }
+  for (const request of task.capability_requests ?? []) {
+    const guardPath = request.on_unavailable.result_guard.artifact_path;
+    fail(task.artifact_paths.some((path) => pathKey(path) === pathKey(guardPath)), "invalid_graph", `${task.id}: capability result guard must target a declared artifact`);
+    fail(task.result_contract.target.kind === "json_artifact" && pathKey(task.result_contract.target.artifact_path) === pathKey(guardPath), "invalid_graph", `${task.id}: capability result guard must target the validated JSON artifact`);
   }
   fail(["read_only", "workspace_write"].includes(task.effect), "invalid_schema", `${task.id}: invalid effect`);
   fail(task.approval_gate_id === null || ID_PATTERN.test(task.approval_gate_id ?? ""), "invalid_schema", `${task.id}: invalid approval_gate_id`);
@@ -510,6 +548,32 @@ function validateTaskRequirements(requirements, required, label) {
   }
   fail(["unsupported_runtime", "skip_optional"].includes(requirements.on_unavailable), "invalid_schema", `${label}.on_unavailable is invalid`);
   fail(requirements.on_unavailable !== "skip_optional" || required === false, "invalid_schema", `${label}.skip_optional requires required=false`);
+}
+
+function validateCapabilityRequest(request, label) {
+  assertExactKeys(request, new Set(["request_id", "when", "semantic_capabilities", "permissions", "on_unavailable"]), label);
+  fail(SEMANTIC_ID_PATTERN.test(request.request_id ?? "") && request.request_id.length <= 160, "invalid_schema", `${label}.request_id is invalid`);
+  assertExactKeys(request.when, new Set(["input_alias", "pointer", "predicate", "expected"]), `${label}.when`);
+  fail(SEMANTIC_ID_PATTERN.test(request.when.input_alias ?? "") && request.when.input_alias.length <= 160, "invalid_schema", `${label}.when.input_alias is invalid`);
+  validateJsonPointer(request.when.pointer, `${label}.when.pointer`);
+  fail(request.when.predicate === "equals", "invalid_schema", `${label}.when.predicate must be equals`);
+  fail(request.when.expected === null || ["string", "number", "boolean"].includes(typeof request.when.expected), "invalid_schema", `${label}.when.expected must be a JSON scalar`);
+  canonicalJson(request.when.expected);
+  for (const key of ["semantic_capabilities", "permissions"]) {
+    validateStringArray(request[key], `${label}.${key}`);
+    fail(new Set(request[key]).size === request[key].length, "invalid_schema", `${label}.${key} has duplicates`);
+    request[key].forEach((value) => fail(value.length <= 160 && SEMANTIC_ID_PATTERN.test(value), "invalid_schema", `${label}.${key} has invalid semantic identifier ${value}`));
+  }
+  fail(request.semantic_capabilities.length + request.permissions.length > 0, "invalid_schema", `${label} must request at least one capability or permission`);
+  assertExactKeys(request.on_unavailable, new Set(["action", "result_guard"]), `${label}.on_unavailable`);
+  fail(request.on_unavailable.action === "dispatch_with_assessment", "invalid_schema", `${label}.on_unavailable.action must be dispatch_with_assessment`);
+  const guard = request.on_unavailable.result_guard;
+  assertExactKeys(guard, new Set(["artifact_path", "pointer", "predicate", "expected"]), `${label}.on_unavailable.result_guard`);
+  guard.artifact_path = validateRelativePath(guard.artifact_path, `${label}.on_unavailable.result_guard.artifact_path`);
+  validateJsonPointer(guard.pointer, `${label}.on_unavailable.result_guard.pointer`);
+  fail(guard.predicate === "equals", "invalid_schema", `${label}.on_unavailable.result_guard.predicate must be equals`);
+  fail(guard.expected === null || ["string", "number", "boolean"].includes(typeof guard.expected), "invalid_schema", `${label}.on_unavailable.result_guard.expected must be a JSON scalar`);
+  canonicalJson(guard.expected);
 }
 
 function validateResultContract(contract, label) {
@@ -629,14 +693,16 @@ function validateReturnBinding(binding, manifest) {
 
 function loadResultContractSchema(task, record, runDir) {
   const contract = task.result_contract;
-  if (contract.schema.kind === "inline") return contract.schema.document;
   fail(record.input_manifest_path !== null, "result_contract_missing", `${task.id}: input manifest is missing`);
   const inputManifest = readJson(assertPathInsideRun(runDir, record.input_manifest_path));
   const schemaPath = inputManifest.result_contract.schema_path;
   fail(typeof schemaPath === "string", "result_contract_missing", `${task.id}: frozen result schema path is missing`);
   const absolute = assertPathInsideRun(runDir, schemaPath);
   const snapshot = readJsonSnapshot(absolute);
-  fail(snapshot.sha256 === contract.schema.sha256, "result_contract_drift", `${task.id}: frozen result schema drifted`);
+  const expectedSha256 = contract.schema.kind === "inline"
+    ? contract.schema.canonical_sha256
+    : contract.schema.sha256;
+  fail(snapshot.sha256 === expectedSha256, "result_contract_drift", `${task.id}: frozen result schema drifted`);
   return snapshot.value;
 }
 
@@ -689,6 +755,21 @@ function validateInputRef(input, label) {
     assertExactKeys(input, new Set(["kind", "task_id", "path"]), label);
     fail(ID_PATTERN.test(input.task_id ?? ""), "invalid_schema", `${label}.task_id is invalid`);
     input.path = validateRelativePath(input.path, `${label}.path`);
+    return;
+  }
+  if (input.kind === "artifact_projection") {
+    assertExactKeys(input, new Set(["kind", "task_id", "path", "pointer", "alias", "fields"]), label);
+    fail(ID_PATTERN.test(input.task_id ?? ""), "invalid_schema", `${label}.task_id is invalid`);
+    input.path = validateRelativePath(input.path, `${label}.path`);
+    validateJsonPointer(input.pointer, `${label}.pointer`);
+    fail(SEMANTIC_ID_PATTERN.test(input.alias ?? "") && input.alias.length <= 160, "invalid_schema", `${label}.alias is invalid`);
+    fail(input.fields !== null && typeof input.fields === "object" && !Array.isArray(input.fields), "invalid_schema", `${label}.fields must be an object`);
+    const entries = Object.entries(input.fields);
+    fail(entries.length > 0 && entries.length <= 64, "invalid_schema", `${label}.fields must contain 1..64 entries`);
+    for (const [field, pointer] of entries) {
+      fail(SEMANTIC_ID_PATTERN.test(field) && field.length <= 160, "invalid_schema", `${label}.fields has invalid field ${field}`);
+      validateJsonPointer(pointer, `${label}.fields.${field}`);
+    }
     return;
   }
   if (input.kind === "file") {
@@ -746,7 +827,7 @@ function hasAncestor(taskId, ancestorId, taskMap, visited = new Set()) {
 }
 
 function validateManifest(manifest) {
-  const topKeys = new Set(["schema_version", "workflow_id", "description", "translation_mode", "invocation_mode", "source", "arguments", "limits", "required_capabilities", "independent_pairs", "tasks", "return_binding"]);
+  const topKeys = new Set(["schema_version", "workflow_id", "description", "translation_mode", "invocation_mode", "compatibility_normalizations", "source", "arguments", "limits", "required_capabilities", "independent_pairs", "tasks", "return_binding"]);
   assertExactKeys(manifest, topKeys, "manifest");
   fail(manifest.schema_version === "dynamic-workflow/v1", "unsupported_schema", "Unsupported manifest schema_version");
   fail(ID_PATTERN.test(manifest.workflow_id ?? ""), "invalid_schema", "Invalid workflow_id");
@@ -762,6 +843,7 @@ function validateManifest(manifest) {
   fail(manifest.tasks.length <= manifest.limits.max_tasks, "budget_exceeded", "Task count exceeds max_tasks");
   const taskIds = new Set(manifest.tasks.map((task) => task.id));
   fail(taskIds.size === manifest.tasks.length, "invalid_graph", "Duplicate task id");
+  validateCompatibilityNormalizations(manifest.compatibility_normalizations, manifest.translation_mode, invocationMode, taskIds);
   manifest.tasks.forEach((task) => validateTaskShape(task, taskIds));
   for (const task of manifest.tasks.filter((candidate) => candidate.kind === "agent")) {
     fail(!task.prompt.includes(manifest.source.path), "unsafe_prompt_input", `${task.id}: prompt references the live workflow source path`);
@@ -774,6 +856,47 @@ function validateManifest(manifest) {
     fail(manifest.return_binding === undefined, "invalid_schema", "return_binding requires invocation_mode=skill_bridge");
   }
   return manifest;
+}
+
+function validateCompatibilityNormalizations(normalizations, translationMode, invocationMode, taskIds) {
+  fail(Array.isArray(normalizations), "invalid_schema", "compatibility_normalizations must be an array");
+  fail(normalizations.length <= 128, "invalid_schema", "compatibility_normalizations exceeds 128 entries");
+  if (translationMode === "direct" || invocationMode !== "skill_bridge") {
+    fail(normalizations.length === 0, "invalid_schema", "compatibility_normalizations are allowed only for translated skill_bridge manifests");
+  }
+  const normalizationIds = new Set();
+  for (const normalization of normalizations) {
+    assertExactKeys(normalization, new Set([
+      "normalization_id",
+      "kind",
+      "source_span",
+      "affected_task_ids",
+      "triggers",
+      "source_behavior",
+      "compatibility_terminal",
+      "preserved_domain_outcomes",
+      "safety_rationale",
+    ]), "compatibility_normalization");
+    fail(SEMANTIC_ID_PATTERN.test(normalization.normalization_id ?? ""), "invalid_schema", "Invalid compatibility normalization id");
+    fail(!normalizationIds.has(normalization.normalization_id), "invalid_schema", `Duplicate compatibility normalization id: ${normalization.normalization_id}`);
+    normalizationIds.add(normalization.normalization_id);
+    fail(normalization.kind === "agent_diagnostic_fallback_to_workflow_incomplete", "invalid_schema", `Unsupported compatibility normalization kind: ${normalization.kind}`);
+    assertExactKeys(normalization.source_span, new Set(["start_line", "end_line"]), `compatibility_normalization:${normalization.normalization_id}:source_span`);
+    assertInteger(normalization.source_span.start_line, 1, Number.MAX_SAFE_INTEGER, `compatibility_normalization:${normalization.normalization_id}:source_span.start_line`);
+    assertInteger(normalization.source_span.end_line, normalization.source_span.start_line, Number.MAX_SAFE_INTEGER, `compatibility_normalization:${normalization.normalization_id}:source_span.end_line`);
+    fail(Array.isArray(normalization.affected_task_ids) && normalization.affected_task_ids.length > 0, "invalid_schema", `${normalization.normalization_id}: affected_task_ids must be non-empty`);
+    fail(new Set(normalization.affected_task_ids).size === normalization.affected_task_ids.length, "invalid_schema", `${normalization.normalization_id}: affected_task_ids has duplicates`);
+    normalization.affected_task_ids.forEach((taskId) => fail(taskIds.has(taskId), "invalid_graph", `${normalization.normalization_id}: unknown affected task ${taskId}`));
+    fail(Array.isArray(normalization.triggers) && normalization.triggers.length > 0, "invalid_schema", `${normalization.normalization_id}: triggers must be non-empty`);
+    fail(new Set(normalization.triggers).size === normalization.triggers.length, "invalid_schema", `${normalization.normalization_id}: triggers has duplicates`);
+    normalization.triggers.forEach((trigger) => fail(COMPATIBILITY_NORMALIZATION_TRIGGERS.has(trigger), "invalid_schema", `${normalization.normalization_id}: unsupported trigger ${trigger}`));
+    assertString(normalization.source_behavior, `${normalization.normalization_id}.source_behavior`);
+    fail(normalization.compatibility_terminal === "workflow_incomplete", "invalid_schema", `${normalization.normalization_id}: compatibility_terminal must be workflow_incomplete`);
+    fail(Array.isArray(normalization.preserved_domain_outcomes), "invalid_schema", `${normalization.normalization_id}: preserved_domain_outcomes must be an array`);
+    fail(new Set(normalization.preserved_domain_outcomes).size === normalization.preserved_domain_outcomes.length, "invalid_schema", `${normalization.normalization_id}: preserved_domain_outcomes has duplicates`);
+    normalization.preserved_domain_outcomes.forEach((outcome) => assertString(outcome, `${normalization.normalization_id}.preserved_domain_outcomes`));
+    assertString(normalization.safety_rationale, `${normalization.normalization_id}.safety_rationale`);
+  }
 }
 
 function validateSource(source) {
@@ -828,10 +951,15 @@ function validateGraph(manifest, taskIds) {
     if (task.when) {
       const conditionSource = taskMap.get(task.when.task_id);
       fail(conditionSource?.kind === "agent", "invalid_graph", `${task.id}: condition source must be an agent task`);
-      if (Object.hasOwn(task.when, "artifact_path")) {
+      if (Object.hasOwn(task.when, "artifact_path") || Object.hasOwn(task.when, "input_alias")) {
         fail(!conditionSource.accepted_outcomes.includes("revise"), "invalid_graph", `${task.id}: artifact condition source cannot have a revise outcome`);
-        fail(conditionSource.result_contract.target.kind === "json_artifact" && pathKey(conditionSource.result_contract.target.artifact_path) === pathKey(task.when.artifact_path), "invalid_graph", `${task.id}: artifact condition must use the source's validated JSON artifact`);
-        fail(task.inputs.some((input) => ["artifact", "optional_artifact"].includes(input.kind) && input.task_id === task.when.task_id && pathKey(input.path) === pathKey(task.when.artifact_path)), "invalid_graph", `${task.id}: artifact condition must also be a typed task input`);
+        if (Object.hasOwn(task.when, "artifact_path")) {
+          fail(conditionSource.result_contract.target.kind === "json_artifact" && pathKey(conditionSource.result_contract.target.artifact_path) === pathKey(task.when.artifact_path), "invalid_graph", `${task.id}: artifact condition must use the source's validated JSON artifact`);
+          fail(task.inputs.some((input) => ["artifact", "optional_artifact"].includes(input.kind) && input.task_id === task.when.task_id && pathKey(input.path) === pathKey(task.when.artifact_path)), "invalid_graph", `${task.id}: artifact condition must also be a typed task input`);
+        } else {
+          const projection = task.inputs.find((input) => input.kind === "artifact_projection" && input.alias === task.when.input_alias);
+          fail(projection !== undefined && projection.task_id === task.when.task_id, "invalid_graph", `${task.id}: projection condition must use a declared artifact_projection from its condition source`);
+        }
       }
     }
     if (task.kind === "agent" && task.approval_gate_id !== null) {
@@ -857,6 +985,8 @@ function validateGraph(manifest, taskIds) {
 
 function validateTaskInputs(task, manifest, tasks) {
   const dependencies = new Set(task.depends_on);
+  const projectionAliases = task.inputs.filter((input) => input.kind === "artifact_projection").map((input) => input.alias);
+  fail(new Set(projectionAliases).size === projectionAliases.length, "invalid_graph", `${task.id}: artifact projection aliases must be unique`);
   for (const input of task.inputs) {
     if (input.kind === "argument") {
       fail(Object.hasOwn(manifest.arguments, input.key), "invalid_graph", `${task.id}: unknown argument ${input.key}`);
@@ -872,9 +1002,15 @@ function validateTaskInputs(task, manifest, tasks) {
     const inputIsOptional = input.kind === "optional_task_result" || input.kind === "optional_artifact";
     const consumerSkipsWithProducer = task.when?.task_id === producer.id;
     fail(!producerCanSkip || inputIsOptional || consumerSkipsWithProducer, "invalid_graph", `${task.id}: skip-capable producer ${input.task_id} requires an optional input`);
-    if (input.kind === "artifact" || input.kind === "optional_artifact") {
+    if (input.kind === "artifact" || input.kind === "optional_artifact" || input.kind === "artifact_projection") {
       fail(producer.artifact_paths.includes(input.path), "invalid_graph", `${task.id}: undeclared artifact input ${input.path}`);
     }
+    if (input.kind === "artifact_projection") {
+      fail(producer.result_contract.target.kind === "json_artifact" && pathKey(producer.result_contract.target.artifact_path) === pathKey(input.path), "invalid_graph", `${task.id}: artifact projection must use the producer's validated JSON artifact`);
+    }
+  }
+  for (const request of task.capability_requests ?? []) {
+    fail(projectionAliases.includes(request.when.input_alias), "invalid_graph", `${task.id}: capability request references unknown projection alias ${request.when.input_alias}`);
   }
 }
 
@@ -973,18 +1109,28 @@ function validateCapabilitySnapshot(capabilities, manifest, enforceTaskRequireme
 }
 
 function assessTaskCapabilities(task, capabilities) {
-  const reasons = [];
-  for (const id of task.requirements.semantic_capabilities) {
-    if (capabilities.semantic_capabilities[id]?.availability !== "supported") reasons.push(`semantic capability unavailable: ${id}`);
-  }
-  for (const id of task.requirements.permissions) {
-    if (capabilities.permissions[id]?.status !== "granted") reasons.push(`permission unavailable: ${id}`);
-  }
+  const reasons = assessDeclaredCapabilities(task.requirements.semantic_capabilities, task.requirements.permissions, capabilities);
   const policy = task.context_policy;
   if (policy.mode === "fresh" && !(capabilities.context_support.fresh === true && capabilities.fork_behavior.model_context_inherited === false)) reasons.push("fresh context unavailable");
   if (policy.mode === "recent" && !(capabilities.context_support.recent.supported === true && capabilities.context_support.recent.max_turns !== null && capabilities.context_support.recent.max_turns >= policy.turns)) reasons.push(`recent(${policy.turns}) context unavailable`);
   if (policy.mode === "all" && capabilities.context_support.all !== true) reasons.push("all context unavailable");
   return { available: reasons.length === 0, reasons };
+}
+
+function assessDeclaredCapabilities(semanticCapabilities, permissions, capabilities) {
+  const reasons = [];
+  for (const id of semanticCapabilities) {
+    if (capabilities.semantic_capabilities[id]?.availability !== "supported") reasons.push(`semantic capability unavailable: ${id}`);
+  }
+  for (const id of permissions) {
+    if (capabilities.permissions[id]?.status !== "granted") reasons.push(`permission unavailable: ${id}`);
+  }
+  return reasons;
+}
+
+function validateTranslatorHandle(handle, translationMode, label) {
+  fail(handle === null || typeof handle === "string" && handle.length > 0, "invalid_schema", `${label} must be null or a non-empty string`);
+  fail(translationMode === "direct" ? handle === null : typeof handle === "string" && handle.length > 0, "translation_review_crosswire", `${label} does not match translation_mode=${translationMode}`);
 }
 
 function validateTranslationReview(review, manifest, manifestPath, receipt = undefined) {
@@ -999,7 +1145,10 @@ function validateTranslationReview(review, manifest, manifestPath, receipt = und
   assertDateTime(review.reviewed_at, "translation review reviewed_at");
   fail(review.translator_handle === null || review.translator_handle !== review.reviewer_handle, "reviewer_not_independent", "Translator and contract reviewer must use different handles");
   const expectedReceiptMode = manifest.translation_mode;
-  if (receipt !== undefined) fail(receipt.translation_mode === expectedReceiptMode, "translation_review_crosswire", "Translation receipt mode does not match manifest");
+  if (receipt !== undefined) {
+    fail(receipt.translation_mode === expectedReceiptMode, "translation_review_crosswire", "Translation receipt mode does not match manifest");
+    fail(receipt.translator_handle === review.translator_handle, "translation_review_crosswire", "Translation review translator handle differs from the invocation receipt");
+  }
   fail(manifest.translation_mode === "direct" ? review.translator_handle === null : review.translator_handle !== null, "translation_review_crosswire", "Translation mode does not match translator handle boundary");
   fail(review.verdict === "pass", "translation_review_failed", `Translation review verdict is ${review.verdict}`);
   validateStringArray(review.findings, "translation review findings");
@@ -1109,11 +1258,12 @@ function loadExternalWorkflowCall(options, manifest) {
 }
 
 function validateTranslationReviewInput(input, manifest, manifestPath, frozen = false, expectedWorkflowCall = null) {
-  const keys = new Set(["schema_version", "source", "manifest"]);
+  const keys = new Set(["schema_version", "translator_handle", "source", "manifest", "runner_contract"]);
   if (expectedWorkflowCall !== null) keys.add("workflow_call");
   assertExactKeys(input, keys, "translation review input");
   fail((expectedWorkflowCall === null) === (input.workflow_call === undefined), "translation_review_crosswire", "Translation review input workflow-call presence differs from invocation mode");
   fail(input.schema_version === "dynamic-workflow-translation-review-input/v1", "unsupported_schema", "Unsupported translation review input schema");
+  validateTranslatorHandle(input.translator_handle, manifest.translation_mode, "translation review input translator_handle");
   assertExactKeys(input.source, new Set(["path", "sha256"]), "translation review input source");
   assertExactKeys(input.manifest, new Set(["path", "canonical_sha256"]), "translation review input manifest");
   fail(input.source.path === manifest.source.path && input.source.sha256 === manifest.source.sha256, "translation_review_crosswire", "Translation review source input mismatch");
@@ -1122,11 +1272,35 @@ function validateTranslationReviewInput(input, manifest, manifestPath, frozen = 
     fail(input.manifest.path === manifestPath, "translation_review_crosswire", "Translation review manifest path mismatch");
   }
   fail(input.manifest.canonical_sha256 === sha256Text(canonicalJson(manifest)), "translation_review_crosswire", "Translation review manifest input hash mismatch");
+  validateTranslationReviewRunnerContract(input.runner_contract);
   if (expectedWorkflowCall !== null) validateWorkflowCallBinding(input.workflow_call, expectedWorkflowCall, "translation review input workflow_call");
 }
 
+function validateTranslationReviewRunnerContract(contract) {
+  assertExactKeys(contract, new Set(["skill_root", "files", "canonical_sha256"]), "translation review runner_contract");
+  fail(contract.skill_root === RUNNER_SKILL_ROOT, "translation_review_crosswire", "Translation review runner_contract.skill_root differs from the executing runner");
+  fail(Array.isArray(contract.files), "invalid_schema", "translation review runner_contract.files must be an array");
+  fail(contract.files.length === TRANSLATION_REVIEW_CONTRACT_FILES.length, "translation_review_crosswire", "Translation review runner_contract.files does not contain the exact required contract set");
+  const expectedPaths = TRANSLATION_REVIEW_CONTRACT_FILES.map((relativePath) => join(RUNNER_SKILL_ROOT, relativePath));
+  const actualPaths = [];
+  for (const [index, ref] of contract.files.entries()) {
+    assertExactKeys(ref, new Set(["path", "sha256"]), `translation review runner_contract.files[${index}]`);
+    assertString(ref.path, `translation review runner_contract.files[${index}].path`);
+    fail(SHA256_PATTERN.test(ref.sha256 ?? ""), "invalid_schema", `translation review runner_contract.files[${index}].sha256 is invalid`);
+    fail(ref.path === expectedPaths[index], "translation_review_crosswire", `Translation review runner contract file order/path mismatch at index ${index}`);
+    assertNoSymlinkAncestors(ref.path, "Translation review runner contract file", RUNNER_SKILL_ROOT);
+    fail(existsSync(ref.path) && statSync(ref.path).isFile() && !lstatSync(ref.path).isSymbolicLink(), "unsafe_path", `Translation review runner contract file must be a regular non-symlink file: ${ref.path}`);
+    fail(sha256File(ref.path) === ref.sha256, "translation_review_crosswire", `Translation review runner contract file hash mismatch: ${ref.path}`);
+    actualPaths.push(ref.path);
+  }
+  fail(new Set(actualPaths).size === actualPaths.length, "translation_review_crosswire", "Translation review runner contract files must be unique");
+  fail(SHA256_PATTERN.test(contract.canonical_sha256 ?? ""), "invalid_schema", "translation review runner_contract.canonical_sha256 is invalid");
+  const canonicalDocument = { skill_root: contract.skill_root, files: contract.files };
+  fail(contract.canonical_sha256 === sha256Text(canonicalJson(canonicalDocument)), "translation_review_crosswire", "Translation review runner contract canonical hash mismatch");
+}
+
 function validateReceiptShape(receipt, frozen = false, expectWorkflowCall = false) {
-  const keys = new Set(["schema_version", "invocation_id", "reviewer_handle", "context_policy", "parent_context_inherited", "translation_mode", "handle_boundary", "prompt", "input_manifest", "invoked_at"]);
+  const keys = new Set(["schema_version", "invocation_id", "translator_handle", "reviewer_handle", "context_policy", "parent_context_inherited", "translation_mode", "handle_boundary", "prompt", "input_manifest", "invoked_at"]);
   if (expectWorkflowCall) keys.add("workflow_call");
   if (frozen) {
     keys.add("original_receipt");
@@ -1138,6 +1312,8 @@ function validateReceiptShape(receipt, frozen = false, expectWorkflowCall = fals
   assertString(receipt.reviewer_handle, "translation review receipt reviewer_handle");
   fail(receipt.context_policy === "fresh" && receipt.parent_context_inherited === false, "reviewer_not_independent", "Translation reviewer must use fresh non-inherited context");
   fail(["direct", "translated"].includes(receipt.translation_mode), "invalid_schema", "translation review receipt translation_mode is invalid");
+  validateTranslatorHandle(receipt.translator_handle, receipt.translation_mode, "translation review receipt translator_handle");
+  fail(receipt.translator_handle === null || receipt.translator_handle !== receipt.reviewer_handle, "reviewer_not_independent", "Translation receipt translator and reviewer handles must differ");
   fail(["runtime_enforced", "attested_not_enforced"].includes(receipt.handle_boundary), "invalid_schema", "translation review receipt handle_boundary is invalid");
   for (const [key, ref] of [["prompt", receipt.prompt], ["input_manifest", receipt.input_manifest]]) {
     assertExactKeys(ref, new Set(["path", "sha256"]), `translation review receipt ${key}`);
@@ -1164,7 +1340,9 @@ function validateExternalTranslationReceipt(receipt, review, manifest, manifestP
     fail(sha256File(ref.path) === ref.sha256, "translation_review_crosswire", `Translation review receipt hash mismatch: ${ref.path}`);
   }
   if (workflowCall !== null) validateWorkflowCallBinding(receipt.workflow_call, workflowCall.binding, "translation review receipt workflow_call");
-  validateTranslationReviewInput(readJson(receipt.input_manifest.path), manifest, manifestPath, false, workflowCall?.binding ?? null);
+  const input = readJson(receipt.input_manifest.path);
+  validateTranslationReviewInput(input, manifest, manifestPath, false, workflowCall?.binding ?? null);
+  fail(input.translator_handle === receipt.translator_handle, "translation_review_crosswire", "Translation review input translator handle differs from the invocation receipt");
 }
 
 function validateFrozenTranslationReceipt(paths, review, manifest) {
@@ -1192,7 +1370,7 @@ function validateFrozenTranslationReceipt(paths, review, manifest) {
   fail(canonicalJson(receipt.original_receipt) === canonicalJson(expectedRefs.original_receipt), "translation_review_crosswire", "Original translation review receipt provenance mismatch");
   const originalReceipt = readJson(paths.translationOriginalReceipt);
   validateReceiptShape(originalReceipt, false, bridge);
-  for (const key of ["schema_version", "invocation_id", "reviewer_handle", "context_policy", "parent_context_inherited", "translation_mode", "handle_boundary", "invoked_at"]) {
+  for (const key of ["schema_version", "invocation_id", "translator_handle", "reviewer_handle", "context_policy", "parent_context_inherited", "translation_mode", "handle_boundary", "invoked_at"]) {
     fail(receipt[key] === originalReceipt[key], "translation_review_crosswire", `Frozen translation receipt changed ${key}`);
   }
   fail(receipt.prompt.sha256 === originalReceipt.prompt.sha256 && receipt.input_manifest.sha256 === originalReceipt.input_manifest.sha256, "translation_review_crosswire", "Frozen translation receipt changed reviewed bytes");
@@ -1200,9 +1378,13 @@ function validateFrozenTranslationReceipt(paths, review, manifest) {
     validateWorkflowCallBinding(receipt.workflow_call, frozenBinding, "frozen translation review receipt workflow_call");
     const originalExpected = workflowCallBinding(frozenCall.value, originalReceipt.workflow_call.receipt.path, frozenCall.sha256);
     validateWorkflowCallBinding(originalReceipt.workflow_call, originalExpected, "original translation review receipt workflow_call");
-    validateTranslationReviewInput(readJson(paths.translationInput), manifest, paths.manifest, true, originalReceipt.workflow_call);
+    const input = readJson(paths.translationInput);
+    validateTranslationReviewInput(input, manifest, paths.manifest, true, originalReceipt.workflow_call);
+    fail(input.translator_handle === receipt.translator_handle, "translation_review_crosswire", "Frozen translation review input translator handle differs from the invocation receipt");
   } else {
-    validateTranslationReviewInput(readJson(paths.translationInput), manifest, paths.manifest, true);
+    const input = readJson(paths.translationInput);
+    validateTranslationReviewInput(input, manifest, paths.manifest, true);
+    fail(input.translator_handle === receipt.translator_handle, "translation_review_crosswire", "Frozen translation review input translator handle differs from the invocation receipt");
   }
 }
 
@@ -1213,7 +1395,7 @@ function ensureSourceHash(manifest) {
   fail(sha256File(manifest.source.path) === manifest.source.sha256, "source_drift", "Source SHA-256 mismatch");
 }
 
-function initializeState(manifest, manifestSha, capabilitiesSha, capabilities, frozenParallel, effectiveParallel, effectiveAgentRuns) {
+function initializeState(manifest, manifestSha, capabilitiesSha, nodeResultSchemaSha, capabilities, frozenParallel, effectiveParallel, effectiveAgentRuns) {
   const tasks = Object.fromEntries(manifest.tasks.map((task) => [task.id, {
     status: "pending",
     invocation_id: null,
@@ -1236,6 +1418,7 @@ function initializeState(manifest, manifestSha, capabilitiesSha, capabilities, f
     workflow_id: manifest.workflow_id,
     manifest_sha256: manifestSha,
     capabilities_sha256: capabilitiesSha,
+    node_result_schema_sha256: nodeResultSchemaSha,
     frozen_max_parallel: frozenParallel,
     active_capabilities: { path: CAPABILITIES_FILE, sha256: capabilitiesSha },
     capability_receipts: [{ path: CAPABILITIES_FILE, sha256: capabilitiesSha, observed_at: capabilities.observed_at, recorded_at: isoNow() }],
@@ -1430,7 +1613,7 @@ function validateFinalReviewStateShape(state) {
 
 function validateStateInvariants(manifest, state, activeCapabilities, runDir) {
   const stateKeys = new Set([
-    "schema_version", "run_id", "workflow_id", "manifest_sha256", "capabilities_sha256",
+    "schema_version", "run_id", "workflow_id", "manifest_sha256", "capabilities_sha256", "node_result_schema_sha256",
     "frozen_max_parallel", "active_capabilities", "capability_receipts", "translation_review_sha256",
     "translation_review_receipt_sha256", "workflow_call_sha256", "effective_max_parallel", "effective_max_agent_runs",
     "agent_runs_prepared", "status", "created_at", "updated_at", "tasks", "final_review_invocation",
@@ -1466,6 +1649,7 @@ function validateStateInvariants(manifest, state, activeCapabilities, runDir) {
   fail(
     canonicalJson(initializationEvents[0].details) === canonicalJson({
       source_sha256: manifest.source.sha256,
+      node_result_schema_sha256: state.node_result_schema_sha256,
       frozen_max_parallel: state.frozen_max_parallel,
       effective_max_agent_runs: state.effective_max_agent_runs,
       capability_receipt: state.capability_receipts[0],
@@ -1528,6 +1712,7 @@ function statePaths(runDir) {
     translationInput: join(runDir, "translation", "review-input.json"),
     translationOriginalReceipt: join(runDir, "translation", TRANSLATION_ORIGINAL_RECEIPT_FILE),
     translationWorkflowCall: join(runDir, "translation", TRANSLATION_WORKFLOW_CALL_FILE),
+    nodeResultSchema: join(runDir, NODE_RESULT_SCHEMA_FILE),
   };
 }
 
@@ -1599,6 +1784,7 @@ function validateRunRootForMutation(runDir) {
     paths.translationPrompt,
     paths.translationInput,
     paths.translationOriginalReceipt,
+    paths.nodeResultSchema,
   ];
   for (const path of required) {
     assertNoSymlinkAncestors(path, "controller path", runDir);
@@ -1616,7 +1802,7 @@ function validateRunRootForMutation(runDir) {
 
 function loadRun(runDir) {
   const paths = statePaths(runDir);
-  fail(existsSync(paths.state) && existsSync(paths.manifest) && existsSync(paths.capabilities) && existsSync(paths.translationReview) && existsSync(paths.translationReviewReceipt) && existsSync(paths.translationPrompt) && existsSync(paths.translationInput) && existsSync(paths.translationOriginalReceipt), "run_missing", `Incomplete run directory: ${runDir}`);
+  fail(existsSync(paths.state) && existsSync(paths.manifest) && existsSync(paths.capabilities) && existsSync(paths.translationReview) && existsSync(paths.translationReviewReceipt) && existsSync(paths.translationPrompt) && existsSync(paths.translationInput) && existsSync(paths.translationOriginalReceipt) && existsSync(paths.nodeResultSchema), "run_missing", `Incomplete run directory: ${runDir}`);
   const manifest = validateManifest(readJson(paths.manifest));
   const state = readJson(paths.state);
   const bridge = (manifest.invocation_mode ?? "direct") === "skill_bridge";
@@ -1630,6 +1816,8 @@ function loadRun(runDir) {
   }
   fail(state.manifest_sha256 === sha256File(paths.manifest), "state_drift", "Frozen manifest hash mismatch");
   fail(state.capabilities_sha256 === sha256File(paths.capabilities), "state_drift", "Capability snapshot hash mismatch");
+  fail(state.node_result_schema_sha256 === sha256File(paths.nodeResultSchema), "state_drift", "Frozen node-result schema hash mismatch");
+  readJson(paths.nodeResultSchema);
   fail(state.active_capabilities !== null && typeof state.active_capabilities === "object", "state_drift", "Active capability receipt is missing");
   const capabilities = validateCapabilityReceiptLineage(state, runDir, manifest);
   fail(state.translation_review_sha256 === sha256File(paths.translationReview), "state_drift", "Translation review hash mismatch");
@@ -1680,6 +1868,30 @@ function conditionArtifactValue(task, state, runDir) {
   return jsonPointerLookup(artifactSnapshot.value, task.when.pointer);
 }
 
+function conditionProjectionValue(task, state, runDir) {
+  const input = task.inputs.find((candidate) => candidate.kind === "artifact_projection" && candidate.alias === task.when.input_alias);
+  fail(input !== undefined && input.task_id === task.when.task_id, "state_drift", `${task.id}: projection condition input is missing or cross-wired`);
+  const source = state.tasks[input.task_id];
+  fail(runDir !== undefined, "state_drift", `${task.id}: projection condition requires a run directory`);
+  const resultPath = assertPathInsideRun(runDir, source.result_path);
+  const result = readJsonSnapshot(resultPath);
+  fail(result.sha256 === source.result_sha256, "artifact_drift", `${task.id}: condition source result drifted`);
+  const artifact = result.value.artifacts.find((candidate) => candidate.path === input.path);
+  fail(artifact !== undefined, "result_crosswire", `${task.id}: condition projection artifact is missing from its producer result`);
+  const artifactPath = assertPathInsideRun(runDir, artifact.path);
+  const artifactSnapshot = readJsonSnapshot(artifactPath);
+  fail(artifactSnapshot.sha256 === artifact.sha256, "artifact_drift", `${task.id}: condition projection artifact drifted`);
+  const base = jsonPointerLookup(artifactSnapshot.value, input.pointer);
+  if (!base.found) return { found: false, value: undefined };
+  const projection = {};
+  for (const [field, pointer] of Object.entries(input.fields)) {
+    const selected = jsonPointerLookup(base.value, pointer);
+    fail(selected.found, "input_projection_failed", `${task.id}: condition projection field ${field} is missing for alias ${input.alias}`);
+    projection[field] = selected.value;
+  }
+  return jsonPointerLookup(projection, task.when.pointer);
+}
+
 function conditionState(task, state, runDir) {
   if (!task.when) {
     return "true";
@@ -1694,7 +1906,9 @@ function conditionState(task, state, runDir) {
   if (Object.hasOwn(task.when, "outcomes")) {
     return task.when.outcomes.includes(source.outcome) ? "true" : "false";
   }
-  const lookup = conditionArtifactValue(task, state, runDir);
+  const lookup = Object.hasOwn(task.when, "input_alias")
+    ? conditionProjectionValue(task, state, runDir)
+    : conditionArtifactValue(task, state, runDir);
   if (task.when.predicate === "exists") return lookup.found ? "true" : "false";
   return lookup.found && canonicalJson(lookup.value) === canonicalJson(task.when.expected) ? "true" : "false";
 }
@@ -1897,6 +2111,8 @@ function commandInit(options) {
     }
   }
   validateCapabilitySnapshot(capabilities, manifest);
+  const nodeResultSchemaSource = join(RUNNER_SKILL_ROOT, "schemas", "node-result.schema.json");
+  const nodeResultSchemaSnapshot = readJsonSnapshot(nodeResultSchemaSource);
   const translationReviewPath = resolve(requireOption(options, "translation-review"));
   const translationReviewReceiptPath = resolve(requireOption(options, "translation-review-receipt"));
   const translationReview = readJson(translationReviewPath);
@@ -1911,6 +2127,8 @@ function commandInit(options) {
     fail(unexpectedEntries.length === 0, "run_dir_not_clean", "Initial run-dir changed before initialization");
     atomicWriteJson(paths.manifest, manifest);
     freezeJsonSnapshot(capabilitySnapshot, paths.capabilities);
+    mkdirSync(dirname(paths.nodeResultSchema), { recursive: true, mode: 0o700 });
+    freezeJsonSnapshot(nodeResultSchemaSnapshot, paths.nodeResultSchema);
     copyFileSync(translationReviewPath, paths.translationReview);
     mkdirSync(dirname(paths.translationPrompt), { recursive: true, mode: 0o700 });
     copyFileSync(translationReviewReceipt.prompt.path, paths.translationPrompt);
@@ -1943,12 +2161,14 @@ function commandInit(options) {
     const frozenParallel = Math.min(manifest.limits.max_parallel, userMaxParallel);
     const effectiveParallel = Math.min(frozenParallel, capabilities.max_parallel);
     const effectiveAgentRuns = Math.min(manifest.limits.max_agent_runs, userMaxAgentRuns);
-    const state = initializeState(manifest, manifestSha, capabilitiesSha, frozenCapabilities, frozenParallel, effectiveParallel, effectiveAgentRuns);
+    const nodeResultSchemaSha = sha256File(paths.nodeResultSchema);
+    const state = initializeState(manifest, manifestSha, capabilitiesSha, nodeResultSchemaSha, frozenCapabilities, frozenParallel, effectiveParallel, effectiveAgentRuns);
     state.translation_review_sha256 = sha256File(paths.translationReview);
     state.translation_review_receipt_sha256 = sha256File(paths.translationReviewReceipt);
     state.workflow_call_sha256 = workflowCall?.snapshot.sha256 ?? null;
     appendEvent(state, "run_initialized", null, {
       source_sha256: manifest.source.sha256,
+      node_result_schema_sha256: state.node_result_schema_sha256,
       frozen_max_parallel: frozenParallel,
       effective_max_agent_runs: effectiveAgentRuns,
       capability_receipt: state.capability_receipts[0],
@@ -2057,6 +2277,35 @@ function getTask(run, taskId, expectedKind = undefined) {
   return { task, record: run.state.tasks[taskId] };
 }
 
+function describeArtifactProjection(run, runDir, task, input) {
+  const producer = run.state.tasks[input.task_id];
+  fail(["completed", "resolved"].includes(producer.status), "input_not_ready", `Input producer is not complete: ${input.task_id}`);
+  const resultPath = assertPathInsideRun(runDir, producer.result_path);
+  fail(sha256File(resultPath) === producer.result_sha256, "input_drift", `Producer result drifted: ${input.task_id}`);
+  const result = readJson(resultPath);
+  const artifact = result.artifacts.find((candidate) => candidate.path === input.path);
+  fail(artifact !== undefined, "input_crosswire", `Producer did not emit artifact: ${input.path}`);
+  const artifactPath = assertPathInsideRun(runDir, artifact.path);
+  fail(sha256File(artifactPath) === artifact.sha256, "input_drift", `Producer artifact drifted: ${input.path}`);
+  const document = readJson(artifactPath);
+  const base = jsonPointerLookup(document, input.pointer);
+  fail(base.found, "input_projection_failed", `${task.id}: projection base pointer is missing for alias ${input.alias}`);
+  const value = {};
+  for (const [field, pointer] of Object.entries(input.fields)) {
+    const selected = jsonPointerLookup(base.value, pointer);
+    fail(selected.found, "input_projection_failed", `${task.id}: projection field ${field} is missing for alias ${input.alias}`);
+    value[field] = selected.value;
+  }
+  const bytes = Buffer.from(canonicalJson(value), "utf8");
+  return {
+    kind: input.kind,
+    task_id: input.task_id,
+    alias: input.alias,
+    projection_bytes: bytes,
+    projection_sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
 function describeTaskInputs(run, runDir, task) {
   return task.inputs.map((input) => {
     if (input.kind === "argument") {
@@ -2088,6 +2337,7 @@ function describeTaskInputs(run, runDir, task) {
     fail(artifact !== undefined, "input_crosswire", `Producer did not emit artifact: ${input.path}`);
     const artifactPath = assertPathInsideRun(runDir, artifact.path);
     fail(sha256File(artifactPath) === artifact.sha256, "input_drift", `Producer artifact drifted: ${input.path}`);
+    if (input.kind === "artifact_projection") return describeArtifactProjection(run, runDir, task, input);
     return input.kind === "optional_artifact"
       ? { kind: input.kind, task_id: input.task_id, status: "available", source_path: artifact.path, source_sha256: artifact.sha256 }
       : { kind: "artifact", task_id: input.task_id, source_path: artifact.path, source_sha256: artifact.sha256 };
@@ -2097,6 +2347,15 @@ function describeTaskInputs(run, runDir, task) {
 function freezeTaskInputs(run, runDir, task) {
   return describeTaskInputs(run, runDir, task).map((input, index) => {
     if (input.kind === "argument" || input.status === "skipped") return input;
+    if (input.kind === "artifact_projection") {
+      const frozenPath = `inputs/projections/${task.id}/${String(index).padStart(4, "0")}.json`;
+      const destination = join(runDir, frozenPath);
+      mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+      atomicWriteBytes(destination, input.projection_bytes);
+      fail(!lstatSync(destination).isSymbolicLink() && statSync(destination).isFile(), "unsafe_path", `Frozen projection is not a regular file: ${frozenPath}`);
+      fail(sha256File(destination) === input.projection_sha256, "input_drift", `Frozen projection hash mismatch: ${frozenPath}`);
+      return { kind: input.kind, task_id: input.task_id, alias: input.alias, path: frozenPath, sha256: input.projection_sha256 };
+    }
     const sourcePath = isAbsolute(input.source_path) ? input.source_path : join(runDir, input.source_path);
     const bytes = readBoundedBytes(sourcePath);
     fail(createHash("sha256").update(bytes).digest("hex") === input.source_sha256, "input_drift", `Input changed while freezing: ${input.source_path}`);
@@ -2113,7 +2372,7 @@ function freezeTaskInputs(run, runDir, task) {
   });
 }
 
-function expectedFrozenTaskInputs(run, task, frozenInputs) {
+function expectedFrozenTaskInputs(run, runDir, task, frozenInputs) {
   fail(Array.isArray(frozenInputs) && frozenInputs.length === task.inputs.length, "input_crosswire", `${task.id}: frozen input count changed`);
   return task.inputs.map((input, index) => {
     if (input.kind === "argument") return { kind: "argument", key: input.key, value: run.manifest.arguments[input.key] };
@@ -2122,6 +2381,13 @@ function expectedFrozenTaskInputs(run, task, frozenInputs) {
       return input.kind === "optional_task_result"
         ? { kind: input.kind, task_id: input.task_id, status: "skipped", path: null, sha256: null }
         : { kind: input.kind, task_id: input.task_id, status: "skipped", path: input.path, sha256: null };
+    }
+    if (input.kind === "artifact_projection") {
+      const frozen = frozenInputs[index];
+      const projected = describeArtifactProjection(run, runDir, task, input);
+      const path = `inputs/projections/${task.id}/${String(index).padStart(4, "0")}.json`;
+      fail(frozen.sha256 === projected.projection_sha256, "input_drift", `${task.id}: projected input changed for alias ${input.alias}`);
+      return { kind: input.kind, task_id: input.task_id, alias: input.alias, path, sha256: projected.projection_sha256 };
     }
     const path = `inputs/files/${task.id}/${String(index).padStart(4, "0")}.bin`;
     if (input.kind === "file") {
@@ -2144,8 +2410,9 @@ function freezeResultContractSchema(runDir, task) {
   const sha256 = task.result_contract.schema.kind === "inline"
     ? task.result_contract.schema.canonical_sha256
     : task.result_contract.schema.sha256;
-  if (task.result_contract.schema.kind === "inline") return { schema_sha256: sha256, schema_path: null };
-  const bytes = readBoundedBytes(task.result_contract.schema.path);
+  const bytes = task.result_contract.schema.kind === "inline"
+    ? Buffer.from(canonicalJson(task.result_contract.schema.document), "utf8")
+    : readBoundedBytes(task.result_contract.schema.path);
   fail(createHash("sha256").update(bytes).digest("hex") === sha256, "result_contract_drift", `${task.id}: result schema changed while freezing`);
   const schemaPath = `inputs/schemas/${task.id}.json`;
   const destination = join(runDir, schemaPath);
@@ -2156,10 +2423,45 @@ function freezeResultContractSchema(runDir, task) {
   return { schema_sha256: sha256, schema_path: schemaPath };
 }
 
+function resolveCapabilityRequests(task, frozenInputs, runDir, capabilities) {
+  const projections = new Map(
+    frozenInputs
+      .filter((input) => input.kind === "artifact_projection")
+      .map((input) => [input.alias, input]),
+  );
+  return (task.capability_requests ?? []).map((request) => {
+    const projection = projections.get(request.when.input_alias);
+    fail(projection !== undefined, "input_crosswire", `${task.id}: capability request projection is missing: ${request.when.input_alias}`);
+    const projectionPath = assertPathInsideRun(runDir, projection.path);
+    fail(sha256File(projectionPath) === projection.sha256, "input_drift", `${task.id}: capability request projection drifted: ${projection.path}`);
+    const selected = jsonPointerLookup(readJson(projectionPath), request.when.pointer);
+    const active = selected.found && canonicalJson(selected.value) === canonicalJson(request.when.expected);
+    const base = {
+      request_id: request.request_id,
+      status: "inactive",
+      semantic_capabilities: request.semantic_capabilities,
+      permissions: request.permissions,
+      reasons: [],
+      result_guard: null,
+    };
+    if (!active) return base;
+    const reasons = assessDeclaredCapabilities(request.semantic_capabilities, request.permissions, capabilities);
+    if (reasons.length === 0) return { ...base, status: "available" };
+    return {
+      ...base,
+      status: "unavailable",
+      reasons,
+      result_guard: request.on_unavailable.result_guard,
+    };
+  });
+}
+
 function writeTaskInputManifest(run, runDir, task, invocationId) {
   const path = join(runDir, "inputs", `${task.id}.json`);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const frozenResultSchema = freezeResultContractSchema(runDir, task);
+  const frozenInputs = freezeTaskInputs(run, runDir, task);
+  const capabilityRequests = resolveCapabilityRequests(task, frozenInputs, runDir, run.capabilities);
   atomicWriteJson(path, {
     schema_version: "dynamic-workflow-task-input/v1",
     workflow_id: run.state.workflow_id,
@@ -2170,12 +2472,21 @@ function writeTaskInputManifest(run, runDir, task, invocationId) {
     requirements: task.requirements,
     capability_snapshot: run.state.active_capabilities,
     capability_assessment: assessTaskCapabilities(task, run.capabilities),
+    capability_requests: capabilityRequests,
     fork_behavior: run.capabilities.fork_behavior,
+    node_result_schema: {
+      path: NODE_RESULT_SCHEMA_FILE,
+      sha256: run.state.node_result_schema_sha256,
+    },
     result_contract: {
       contract_sha256: sha256Text(canonicalJson(task.result_contract)),
       ...frozenResultSchema,
     },
-    inputs: freezeTaskInputs(run, runDir, task),
+    output_contract: {
+      result_path: task.output_path,
+      artifact_paths: task.artifact_paths,
+    },
+    inputs: frozenInputs,
   });
   return {
     path: relative(runDir, path).split(sep).join("/"),
@@ -2280,7 +2591,7 @@ function validateTaskInputManifest(run, runDir, task, record) {
   const path = assertPathInsideRun(runDir, record.input_manifest_path);
   fail(sha256File(path) === record.input_manifest_sha256, "input_drift", `${task.id}: input manifest hash mismatch`);
   const inputManifest = readJson(path);
-  assertExactKeys(inputManifest, new Set(["schema_version", "workflow_id", "run_id", "task_id", "invocation_id", "context_policy", "requirements", "capability_snapshot", "capability_assessment", "fork_behavior", "result_contract", "inputs"]), `${task.id} input manifest`);
+  assertExactKeys(inputManifest, new Set(["schema_version", "workflow_id", "run_id", "task_id", "invocation_id", "context_policy", "requirements", "capability_snapshot", "capability_assessment", "capability_requests", "fork_behavior", "node_result_schema", "result_contract", "output_contract", "inputs"]), `${task.id} input manifest`);
   fail(inputManifest.schema_version === "dynamic-workflow-task-input/v1", "input_crosswire", `${task.id}: input schema mismatch`);
   fail(inputManifest.workflow_id === run.state.workflow_id && inputManifest.run_id === run.state.run_id, "input_crosswire", `${task.id}: input run identity mismatch`);
   fail(inputManifest.task_id === task.id && inputManifest.invocation_id === record.invocation_id, "input_crosswire", `${task.id}: input invocation mismatch`);
@@ -2292,21 +2603,44 @@ function validateTaskInputManifest(run, runDir, task, record) {
   fail(canonicalJson(inputManifest.capability_assessment) === canonicalJson(assessTaskCapabilities(task, dispatchCapabilities)), "input_crosswire", `${task.id}: capability assessment mismatch`);
   fail(inputManifest.capability_assessment.available === true, "unsupported_runtime", `${task.id}: unavailable capability was dispatched`);
   fail(canonicalJson(inputManifest.fork_behavior) === canonicalJson(dispatchCapabilities.fork_behavior), "input_crosswire", `${task.id}: fork behavior changed`);
+  fail(inputManifest.node_result_schema?.path === NODE_RESULT_SCHEMA_FILE, "input_crosswire", `${task.id}: node-result schema path is not canonical`);
+  fail(inputManifest.node_result_schema?.sha256 === run.state.node_result_schema_sha256, "input_crosswire", `${task.id}: node-result schema binding mismatch`);
+  const nodeResultSchemaPath = assertPathInsideRun(runDir, inputManifest.node_result_schema.path);
+  fail(sha256File(nodeResultSchemaPath) === inputManifest.node_result_schema.sha256, "input_drift", `${task.id}: node-result schema drifted`);
+  readJson(nodeResultSchemaPath);
   const schemaSha256 = task.result_contract.schema.kind === "inline" ? task.result_contract.schema.canonical_sha256 : task.result_contract.schema.sha256;
-  const expectedSchemaPath = task.result_contract.schema.kind === "inline" ? null : `inputs/schemas/${task.id}.json`;
+  const expectedSchemaPath = `inputs/schemas/${task.id}.json`;
   fail(canonicalJson(inputManifest.result_contract) === canonicalJson({
     contract_sha256: sha256Text(canonicalJson(task.result_contract)),
     schema_sha256: schemaSha256,
     schema_path: expectedSchemaPath,
   }), "input_crosswire", `${task.id}: result contract changed`);
-  if (expectedSchemaPath !== null) {
-    fail(sha256File(assertPathInsideRun(runDir, expectedSchemaPath)) === schemaSha256, "result_contract_drift", `${task.id}: frozen result schema changed`);
-  }
-  const expectedInputs = expectedFrozenTaskInputs(run, task, inputManifest.inputs);
+  fail(sha256File(assertPathInsideRun(runDir, expectedSchemaPath)) === schemaSha256, "result_contract_drift", `${task.id}: frozen result schema changed`);
+  fail(canonicalJson(inputManifest.output_contract) === canonicalJson({
+    result_path: task.output_path,
+    artifact_paths: task.artifact_paths,
+  }), "input_crosswire", `${task.id}: output contract changed`);
+  const expectedInputs = expectedFrozenTaskInputs(run, runDir, task, inputManifest.inputs);
   fail(canonicalJson(inputManifest.inputs) === canonicalJson(expectedInputs), "input_drift", `${task.id}: resolved inputs changed`);
   for (const input of inputManifest.inputs) {
     if (input.kind === "argument" || input.status === "skipped") continue;
     fail(sha256File(assertPathInsideRun(runDir, input.path)) === input.sha256, "input_drift", `${task.id}: frozen input changed: ${input.path}`);
+  }
+  const expectedCapabilityRequests = resolveCapabilityRequests(task, inputManifest.inputs, runDir, dispatchCapabilities);
+  fail(canonicalJson(inputManifest.capability_requests) === canonicalJson(expectedCapabilityRequests), "input_crosswire", `${task.id}: conditional capability assessment mismatch`);
+  return inputManifest;
+}
+
+function validateCapabilityResultGuards(task, inputManifest, result, runDir) {
+  for (const request of inputManifest.capability_requests.filter((candidate) => candidate.status === "unavailable")) {
+    const guard = request.result_guard;
+    fail(guard !== null, "capability_result_guard_failed", `${task.id}: unavailable capability request ${request.request_id} has no result guard`);
+    const artifact = result.artifacts.find((candidate) => pathKey(candidate.path) === pathKey(guard.artifact_path));
+    fail(artifact !== undefined, "capability_result_guard_failed", `${task.id}: guarded artifact is missing for ${request.request_id}`);
+    const artifactPath = assertPathInsideRun(runDir, artifact.path);
+    fail(sha256File(artifactPath) === artifact.sha256, "artifact_drift", `${task.id}: guarded artifact drifted for ${request.request_id}`);
+    const selected = jsonPointerLookup(readJson(artifactPath), guard.pointer);
+    fail(selected.found && canonicalJson(selected.value) === canonicalJson(guard.expected), "capability_result_guard_failed", `${task.id}: unavailable capability request ${request.request_id} must produce the declared fallback result`);
   }
 }
 
@@ -2323,7 +2657,8 @@ function commandFinish(options) {
     const resultSha = sha256File(expectedPath);
     if (TERMINAL.has(record.status) && record.invocation_id === invocationId && record.result_sha256 === resultSha) {
       ensureSourceHash(run.manifest);
-      validateTaskInputManifest(run, runDir, task, record);
+      const inputManifest = validateTaskInputManifest(run, runDir, task, record);
+      validateCapabilityResultGuards(task, inputManifest, result, runDir);
       revalidateResultContract(task, record, runDir);
       return { task_id: taskId, status: record.status, idempotent: true, result_sha256: resultSha };
     }
@@ -2336,7 +2671,8 @@ function commandFinish(options) {
     fail(record.status === "running", "invalid_transition", `${taskId} is not running`);
     fail(record.invocation_id === invocationId, "invocation_conflict", "Invocation id mismatch");
     ensureSourceHash(run.manifest);
-    validateTaskInputManifest(run, runDir, task, record);
+    const inputManifest = validateTaskInputManifest(run, runDir, task, record);
+    validateCapabilityResultGuards(task, inputManifest, result, runDir);
     const resultContractReceipt = validateResultContractValue(task, result, runDir, record);
     record.outcome = result.outcome;
     record.result_path = task.output_path;
@@ -2650,6 +2986,9 @@ function validateRunIntegrity(run, runDir) {
   if (run.state.capabilities_sha256 !== sha256File(run.paths.capabilities)) {
     errors.push("capabilities_sha256_mismatch");
   }
+  if (run.state.node_result_schema_sha256 !== sha256File(run.paths.nodeResultSchema)) {
+    errors.push("node_result_schema_sha256_mismatch");
+  }
   try {
     validateCapabilityReceiptLineage(run.state, runDir, run.manifest);
   } catch (error) {
@@ -2696,7 +3035,10 @@ function validateRunIntegrity(run, runDir) {
         if (sha256File(path) !== record.result_sha256) {
           errors.push(`result_sha256_mismatch:${task.id}`);
         }
-        validateNodeResult(readJson(path), task, record.invocation_id, runDir);
+        const result = readJson(path);
+        validateNodeResult(result, task, record.invocation_id, runDir);
+        const inputManifest = validateTaskInputManifest(run, runDir, task, record);
+        validateCapabilityResultGuards(task, inputManifest, result, runDir);
         revalidateResultContract(task, record, runDir);
       } catch (error) {
         errors.push(`${error.code ?? "result_error"}:${task.id}`);
@@ -2792,6 +3134,7 @@ function writeReviewStateSnapshot(run, runDir) {
     run_id: run.state.run_id,
     manifest_sha256: run.state.manifest_sha256,
     capabilities_sha256: run.state.capabilities_sha256,
+    node_result_schema_sha256: run.state.node_result_schema_sha256,
     active_capabilities: run.state.active_capabilities,
     capability_receipts: run.state.capability_receipts,
     translation_review_sha256: run.state.translation_review_sha256,

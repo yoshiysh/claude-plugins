@@ -61,6 +61,19 @@ workflow identity にしない。次の field を追加する。
   machine-readable shapeは [capabilities.schema.json](../schemas/capabilities.schema.json) の `$defs/task_requirements` と
   `$defs/context_policy` を参照する。
 - `translation_mode` は `direct` または `translated` だけを許す。
+- `compatibility_normalizations` は常に存在し、通常は空配列である。translated skill bridgeがsource内の
+  agent欠測用診断fallbackを`workflow_incomplete`へ安全強化する場合だけ、各entryへ一意ID、source line span、
+  affected task IDs、列挙済みtrigger、source behavior、維持するdomain outcomes、safety rationaleを保存する。
+  controllerはshape、ID、span、task参照、triggerを検査し、fresh contract verifierはsourceを再読して意味を照合する。
+  direct manifest、通常のdirect invocation、未宣言の意味変更では非空にしない。
+- `artifact_projection`はvalidated producer JSONからsourceがagentへ渡すfieldだけをcontrollerが抽出するinputである。
+  producer task/artifact、base pointer、alias、field pointer mapをmanifestへ固定し、agent-visible inputには投影済みJSONだけを置く。
+- `capability_requests`は投影済みinput valueに条件付けるdata-dependent capabilityである。利用不能時もsourceがdomain
+  fallbackを返すなら`dispatch_with_assessment`とvalidated JSON result guardを必須にする。
+- sourceの決定的pre/post transformとsemantic agent callは、agent-visible input setが同一でない限り別task/artifactにする。
+  semantic agentにはsource callsite引数とsource-authorized optional artifactだけを渡す。
+- raw agent result schemaとsource後段のnormalized artifact schemaを分ける。後段で上書きされるexact値をraw schemaへ
+  `const`等として先取りせず、normalized artifact側のcontractで強制する。
 
 ## Translation mode
 
@@ -77,13 +90,28 @@ workflow identity にしない。次の field を追加する。
 execution manifest canonical SHA-256、mode、invocation receiptをexact bindする。modeをfilename、拡張子、既知workflow名から
 推測してはならない。
 
+translation-review inputはさらに`runner_contract`を必須とし、実行controllerのskill rootと、レビューに必要な
+SKILL・role・reference・schema・controller、およびcontrollerがimportするcontract validatorのexact ordered file inventoryをabsolute path/raw SHA-256で持つ。
+`canonical_sha256`は`skill_root`と`files`だけのcanonical JSON hashである。controllerは実行中のroot、必須set/order、
+root内通常file・非symlink、live raw hash、canonical hashをinit時とfrozen resume時に再検査する。reviewerは同名の別
+worktree/install/cacheを探索して代用せず、このinventory内のbytesだけをrunner仕様の根拠にする。
+
+`translator_handle`はreview outputだけの自己申告にしない。translated modeでは親が得た実translator handleを
+translation-review inputとfresh reviewer invocation receiptへ事前固定し、controllerがreview outputを含む三者一致と
+reviewer handleとの差を検証する。direct modeでは三者とも`null`である。sentinel、別translator、reviewerとのhandle再利用、
+input/receipt/output間のcrosswireはagent execution前に拒否する。
+
 ## Task result contract
 
 task固有schemaはinline JSON Schemaまたはhash固定fileとして持つ。inline schemaの `canonical_sha256` はmanifestと同じ
 canonical JSON規則で `document` だけをhashした値、file schemaの `sha256` はraw bytesの値とする。
+dispatch時は両形式ともcontroller-owned task input schema fileへ凍結し、そのpath/hashをtask input manifestへ記録する。
+inline schemaはcanonical JSON bytesとして保存するため、凍結fileのraw SHA-256が`canonical_sha256`と一致する。
 schemaは自己完結させ、`$ref` は同じdocument内のfragmentだけを許す。remote URL、別file、dynamic reference resolver、
 custom validator code、network取得を必要とするformatはunsupportedとする。
 Node.js native RegExpには実行時間上限がないため、v1のtask固有schemaでは `pattern` もunsupportedとする。
+順序付きtupleはboundedなDraft 2020-12 `prefixItems`とboolean `items`を使える。各prefix schemaはindexごとに検査し、
+`items: false`はprefix外の要素を拒否する。prefix数、schema node数、evaluation数のcontroller上限を超えるschemaはunsupportedとする。
 文字列制約は `enum`、`const`、`minLength`、`maxLength` 等で表現し、正規表現が意味上必須なら
 translatorは安全で決定的なvalidatorを推測せず `rejected_source` とする。
 controllerはJSON入力を1ファイル8 MiBまでに制限し、schema評価も10,000 stepで停止する。
@@ -107,6 +135,15 @@ adapter実装ごとに解決できるが、unknown IDを利用可能と推測し
 - `unsupported_runtime`: required/optionalを問わず、task dispatch前に停止する。
 - `skip_optional`: sourceがその省略を意味上許し、かつ `required=false` のtaskだけを明示skipする。代替tool、別provider、
   単一agent、空resultへfallbackしない。
+
+`capability_requests`は静的`requirements`とは別で、prepare時に`artifact_projection`が凍結された後にだけ評価する。
+各requestは一意ID、input alias/RFC 6901 pointer/scalar equals条件、semantic capability/permission集合、
+`dispatch_with_assessment`、validated JSON artifactへのscalar equals result guardを持つ。条件不成立は`inactive`、能力充足は
+`available`、不足は理由付き`unavailable`としてtask input manifestへ固定する。`unavailable` taskをskip/停止せず、
+sourceが定めるfallback resultだけをcontrollerが受理する。guard対象はそのtaskのresult contractが検証するJSON artifactである。
+
+graph-level `required_capabilities`はcore 4を常に含み、追加の`message` / `resume` / `interrupt`はsourceがそのoperationを
+実際に使う場合だけ含める。snapshotに存在することはmanifest requirementの根拠にならない。
 
 runtime基盤能力とsemantic/permission/context inventoryのsnapshotは
 [capabilities.schema.json](../schemas/capabilities.schema.json) に従う。adapterはtask要求を現在のsnapshotへ照合し、semantic ID、

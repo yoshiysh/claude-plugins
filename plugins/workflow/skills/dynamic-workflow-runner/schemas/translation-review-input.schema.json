@@ -4,9 +4,15 @@
   "title": "Dynamic Workflow Translation Review Input",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "source", "manifest"],
+  "required": ["schema_version", "translator_handle", "source", "manifest", "runner_contract"],
   "properties": {
     "schema_version": { "const": "dynamic-workflow-translation-review-input/v1" },
+    "translator_handle": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -23,6 +29,21 @@
       "properties": {
         "path": { "type": "string", "minLength": 1 },
         "canonical_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "runner_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill_root", "files", "canonical_sha256"],
+      "properties": {
+        "skill_root": { "type": "string", "minLength": 1 },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/file_ref" }
+        },
+        "canonical_sha256": { "$ref": "#/$defs/sha256" }
       }
     },
     "workflow_call": { "$ref": "#/$defs/workflow_call_binding" }

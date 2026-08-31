@@ -41,12 +41,25 @@ task固有result contract、semantic capability/permission、turn数付きcontex
 `init` / `prepare` / `finish` / `verify` / `review-prepare` / `finalize` に統合されている。表現できないsource semanticsを
 promptへ退避せず `rejected_source` とする。
 
+translation reviewはsource/manifest/call lineageだけでなく、reviewerが参照したrunner契約自体も固定する。
+`translation-review-input.schema.json`の`runner_contract`を実行controllerのrootとexact ordered file inventoryへ結合し、
+controllerが各raw hashとinventory canonical hashを再計算する。別install copy、古いcache、欠落/余剰file、順序変更、
+symlink、live driftは`translation_review_crosswire`として最初のexecution agent dispatch前に停止する。
+inventoryにはcontroller本体だけでなく、controllerがimportしてtask/return contractを判定するJSON Schema subset evaluatorも
+含める。review対象外のvalidator実装へ安全性やschema意味論を委譲してはならない。
+translated modeのtranslator identityも、review input、fresh reviewer invocation receipt、review outputの
+`translator_handle`三者へ固定する。controllerは三者一致、translation modeのnull/non-null境界、reviewer handleとの分離を
+検査する。review output単独のattestationはtranslator provenanceとして受理しない。
+
 `when` はdirect dependencyであるagent taskの`result.outcome`に対する有限`outcomes`集合、または同taskの
 hash固定済み`json_artifact`へのRFC 6901 pointerを扱う。artifact条件は`exists`かJSON scalarへの`equals`だけで、
 condition artifactをconsumerのtyped inputにも必須とする。参照不能、invalid JSON、hash driftをfalseやunknownへ丸めない。
 outcome分岐は`pass` / `revise`だけであり、`failed` / `blocked`は修復分岐へ昇格させずrunをincompleteにする。
 sourceがtransport failureを非success診断値に変換する場合も、互換経路はその業務returnを合成せず
-`workflow_incomplete`へ強化する。正常応答が返すdomain上の非確定値だけをcompleted resultとして扱う。
+`workflow_incomplete`へ強化する。この差分はfrozen manifestの`compatibility_normalizations`へsource line span、
+affected task、exact trigger、source behavior、維持するdomain outcomeとともに宣言し、controllerのshape/task照合と
+fresh contract reviewのsource照合を通す。正常応答が返すdomain上の非確定値だけをcompleted resultとして扱い、
+宣言のないfail-closed化もsilent driftとして拒否する。
 
 各 agent task は `inputs` を明記する。`argument` はmanifestの`arguments` key、`task_result`と`artifact`は
 direct dependency、`file`はabsolute pathとSHA-256に結合する。bounded slotのfan-inだけは`optional_task_result` /
@@ -54,8 +67,28 @@ direct dependency、`file`はabsolute pathとSHA-256に結合する。bounded sl
 skipされた場合も`status=skipped`の明示markerを順序保持して渡す。
 producer failureやblockをoptionalで吸収しない。controller は prepare 時にそれらを解決して
 外部 file / upstream result / artifact の原本hashを照合してcontroller-owned copyへ凍結し、task input manifest を作る。
+共通node-result schemaとtask固有result schemaも同じ入力境界に含める。task固有schemaはinline / file-backedの別に
+かかわらずcontroller-owned fileへ凍結し、task input manifestのpath/hashからagentが本文を読めるようにする。
+hashだけ、またはnull pathだけを渡してfrozen manifest treeの探索をagentへ要求してはならない。
+task input manifestはさらにresult pathと宣言済みartifact pathのexact setを `output_contract` として持つ。
+agentは書込み時だけrun rootに対するabsolute pathへ解決し、共通envelopeにはexact run-relative artifact pathを記録する。
+absolute path、宣言外path、欠落pathはschema/controllerのどちらでもsuccessにしない。
 agent prompt に原本のfile path、workflow source path、caller skill tree、`[SKILL_DIR]`を残したmanifestは
 `unsafe_prompt_input`で拒否する。agentはprepare後のtask input manifestに記録されたfrozen pathだけを読む。
+上流validated JSONの一部だけがsource上のagent引数なら`artifact_projection`を使う。manifestはproducer artifact、
+base RFC 6901 pointer、alias、field-to-pointer mapを固定し、controllerが原本を読み、選択fieldだけのcanonical JSONを
+`inputs/projections/`へ凍結する。agent-visible task inputには原本artifact path/contentや投影外fieldを含めない。
+finish/final verificationではproducer result/artifact hashと投影値を再計算し、原本またはprojection driftを拒否する。
+`when.input_alias`は同じtaskに宣言された`artifact_projection`だけをcondition sourceにできる。controllerは投影値を
+agent dispatch前に評価し、base pointer不在をbounded slotのcondition falseとして扱う。一方、baseが存在するのに宣言fieldが
+欠ける場合は`input_projection_failed`で停止する。condition評価用のfull artifact inputを別途要求しない。
+source内の決定的前処理→agent call→決定的後処理は、入力可視性が異なる三つの境界として扱う。semantic agent taskは
+source callsite引数とsource-authorized optional read targetだけを受け取り、前後transform用source、全量artifact、
+finalization引数を受け取らない。sourceがbounded evidence readを許す場合は`optional_artifact`でproducer順と
+available/skippedを凍結する。raw agent result schemaはsource schemaのまま検証し、sourceが後段で上書き・正規化する
+不変条件はdownstream transform artifact/result contractで初めて強制する。
+順序付きtupleをsource-exactに固定する場合はboundedなDraft 2020-12 `prefixItems`と`items: false`を使える。
+controllerは最大100 prefix schema、全体1000 schema node、実行時10000 evaluationの上限内で各indexと余剰itemを検査する。
 manifest path/hash、context policy、観測済み fork behavior を invocation receiptへ入れる。prepare後の`finish`とfinal reviewは
 原本ではなく凍結copyとreceiptの task/run/invocation/hashを再検査する。原本path/hashのprovenanceはfrozen workflow manifestと
 controller stateだけに残し、agent-visible task input manifestには公開しない。
@@ -131,6 +164,16 @@ task-level `semantic_capabilities`、`permissions`、`on_unavailable` はportabl
 現在のsnapshot inventoryへ照合し、判定根拠をtask preflight receiptへ保存する。unknown/unsupported/deniedを利用可能と
 推測しない。具体的tool名はadapter内に留める。
 
+graph-level `required_capabilities`はcoreの`native_collaboration` / `spawn` / `collect_or_wait` / `stable_handle`に、
+sourceが実際に呼ぶ追加collaboration operationだけを加える。capability snapshotが`message` / `resume` / `interrupt`を
+観測していても、sourceが使わないoperationをmanifestの必須条件へ昇格しない。
+
+agent入力値に応じて外部読取能力が変わり、sourceが能力不足を正常domain fallbackへ変換する場合、taskの
+`capability_requests`を`artifact_projection` alias/pointerへ結合する。controllerはprojection freeze後に各requestを
+`inactive` / `available` / `unavailable`としてdispatch capability receiptへ固定する。`unavailable`でもtaskをdispatchし、
+宣言済みvalidated JSON artifactのpointerがsource固有fallback scalarと一致することを`finish`、idempotent再finish、
+run verificationで強制する。静的task requirementsの不足、optional task skip、transport failureと混同しない。
+
 全 control contract の `date-time` は RFC 3339 のうち、`T` と `Z` を大文字に固定し、秒は `00`–`59` とする
 canonical subsetを使う。小文字の `t` / `z` と leap-second表記 `:60` はschemaとcontrollerの両方で拒否し、数値offsetは許可する。
 
@@ -146,6 +189,9 @@ producer task を推測して巻き戻すことはなく、修復 loop は manif
 [task-result-contract.schema.json](../schemas/task-result-contract.schema.json) に従い、`finish` とfinal reviewの両方で
 hash固定schemaを適用する。schema/target/hashの欠落やvalidation errorは `workflow_incomplete` であり、空payload、
 free-form summary、`pass`へ変換しない。
+node-result envelopeの`artifacts[].path`はrun-relative transport identifierである。source固有JSONのfile path fieldや
+workflow returnが`${workspaceDir}`から構築するabsolute stringはsemantic valueであり、result schema/return bindingで
+exactに維持する。安全なtransport表現へ合わせる目的でsemantic fieldをrelativeへ書き換えない。
 v1のbounded JSON Schema subsetはnative RegExpの実行時間を保証できないため `pattern` を受理しない。
 JSON入力は1ファイル8 MiB、task-result schema評価は10,000 stepをcontroller ceilingとする。
 

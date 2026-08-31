@@ -2,6 +2,7 @@
   "schema_version": "dynamic-workflow/v1",
   "workflow_id": "portable-direct-research",
   "translation_mode": "direct",
+  "compatibility_normalizations": [],
   "description": "One bounded read-only research task",
   "source": {
     "path": "{{SOURCE_PATH}}",
