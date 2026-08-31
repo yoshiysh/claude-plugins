@@ -168,7 +168,7 @@ class NamespaceTbdTests(unittest.TestCase):
         """rebuildTbd は ID をキーに統合するので、その前に正規化されていなければ意味が無い。"""
         body = REFINE.read_text(encoding="utf-8")
         ns = body.index("namespaceTbd(documents)")
-        merge_call = body.index("} = rebuildTbd(")
+        merge_call = body.index("rebuildTbd(\n")
         self.assertLess(ns, merge_call, "正規化が rebuildTbd の呼び出しより後ろにあります")
 
     def test_draft_and_refine_share_the_same_implementation(self):

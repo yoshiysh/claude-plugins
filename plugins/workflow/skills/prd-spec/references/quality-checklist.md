@@ -17,9 +17,9 @@
 | 5 | 全項目に ID があり、仕様項目→要求 ID の紐付けが 100% | 機械（表と突合） | traceability.md §1–3 |
 | 6 | 要求文書に設計解が無く、仕様書に根拠不明の要求が無い | 目視 | prd-and-spec.md §3–4 |
 | 7 | スコープ外の節が非空である | 機械（見出し照合） | document-structure.md |
-| 8 | 全要求に根拠が付き、認められた根拠原本以外の出所が無い | 目視 | question-policy.md・fixed-premises.md |
+| 8 | 全要求に `audit_trail` の根拠があり、引用が原本に実在し、認められた根拠原本以外の出所が無い | 機械（ID と trace の突合 `ST-NO-EVIDENCE`）＋引用の照合 | question-policy.md・fixed-premises.md |
 | 9 | 必須の内容項目が揃い、該当なしは「該当なし＋根拠」形式 | 見出し照合 | document-structure.md |
-| 10 | TBD が確定要求と分離され、本文に勝手な数値が無い | TBD ID 照合＋目視 | traceability.md §4 |
+| 10 | 本文が規範だけで構成され（根拠句・決定ログ・経緯・未確定事項の章が無い）、決まっていない論点は保持規則として書かれている | 機械（`ST-NON-NORMATIVE`）＋目視 | document-structure.md §4 |
 | 11 | 改修案件で、保持すべき既存挙動が明示されている（該当時のみ） | 目視 | requirement-writing-rules.md §7 |
 | 12 | 期待挙動を規定しない冗長記述が無い（粒度の上限） | 目視 | requirement-writing-rules.md §7・prd-and-spec.md §7 |
 | 13 | 文脈ゼロの読者が各要求文を一意に解釈できる（golden rule） | 目視（fresh context 評価者自身が実演になる） | requirement-writing-rules.md |
@@ -33,10 +33,12 @@
 | S3 | 状態を持つ機能で、状態×イベントの未定義組み合わせが 0 または根拠付き「発生しない」 | 機械＋目視 | document-structure.md §6 |
 | S4 | 外部境界ごとにインタフェース記述がある | 目視 | requirement-writing-rules.md §8 |
 | S5 | 本文にコード・擬似コード・特定実装の指定が無い | 機械（コードブロック検出）＋目視 | requirement-writing-rules.md §8・prd-and-spec.md |
-| S6 | TBD が解消条件付きでのみ存在する | 機械（script 検査 `ST-TBD-NORESOLVE` ＋採点者確認） | requirement-writing-rules.md §8・traceability.md §4 |
+| S6 | 残った未確定事項が返り値側にのみ存在し、解消条件を持つ（本文側は保持規則の形） | 機械（script 検査 `ST-TBD-NORESOLVE` ＋採点者確認） | requirement-writing-rules.md §8・traceability.md §4 |
 
 ## 採点の規律
 
+- 採点の材料は生成文書と **Workflow の返り値（`audit_trail` / `holding_rules` / `work_items`）**
+  の両方である。根拠・裁定の記録は文書に無いので、文書だけを見て「根拠が無い」と採点しない。
 - 各項目は **pass / fail / not-applicable / not-checked** の四値で返す。not-checked を
   fail にも pass にも丸めない（未検査は 0 件ではない）。
 - fail には該当箇所の引用を付ける。引用の無い fail は採点として受け取らない。

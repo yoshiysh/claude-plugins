@@ -90,6 +90,31 @@ class TestReferenceScriptConstants(unittest.TestCase):
             self.assertIn(representative, extract_array(DRAFT, "OBSOLETE_TERMS"))
 
 
+class TestGateCapacityConstants(unittest.TestCase):
+    """提示容量の定数が Python 側（正）と JS 側（写し）で一致していること。
+
+    workflow script は import を書けず、Python の定数を参照できない。値を写すしかないので、
+    ずれたことを機械で捕まえる。ずれると、容量超過の申告（blocking_over_capacity）が
+    回帰ゲート（check_blocking_rate.py）と別の閾値で出て、どちらが正か決まらなくなる。
+    """
+
+    def test_capacity_constants_match(self):
+        py = (SKILL / "scripts" / "check_blocking_rate.py").read_text()
+        for py_name, js_name in (
+            ("GATE_CAPACITY_PER_ROUND", "GATE_CAPACITY_PER_ROUND"),
+            ("MAX_OUTER_ROUNDS", "MAX_GATE_ROUNDS"),
+        ):
+            py_v = re.search(rf"^{py_name} = (\d+)", py, re.M)
+            js_v = re.search(rf"^const {js_name} = (\d+)", REFINE, re.M)
+            self.assertIsNotNone(py_v, f"{py_name} が check_blocking_rate.py に無い")
+            self.assertIsNotNone(js_v, f"{js_name} が refine.js に無い")
+            self.assertEqual(py_v.group(1), js_v.group(1), f"{py_name} と {js_name} がずれている")
+
+    def test_capacity_is_reported_in_return_value(self):
+        # 計測を司令塔の任意行動にしない。走らせなければ超過に気づけない状態を作らない。
+        self.assertIn("blocking_over_capacity: blockingOverCapacity", REFINE)
+
+
 class TestDigestContract(unittest.TestCase):
     def test_blocking_items_carry_script_computed_digest(self):
         # digest は script が計算して返す（司令塔に text から作らせない）契約の固定

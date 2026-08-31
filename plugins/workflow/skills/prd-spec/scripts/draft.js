@@ -63,6 +63,30 @@ const TBD_ITEM = {
   required: ['id', 'text', 'blocking'],
 }
 
+// TRACE_ITEM: 項目 ID → 根拠原本の対応。納品文書の本文には根拠句を書かない規約に変えたため、
+// 「この記述はどこから来たか」はここにしか残らない。返り値では audit_trail として集約され、
+// fabrication 監査と traceability 監査の照合対象になる。本文から根拠句を消しただけで
+// trace を作らないと、捏造検査の入力そのものが消え、指摘 0 件が「健全」に化ける。
+const TRACE_ITEM = {
+  type: 'object',
+  properties: {
+    item_id: { type: 'string' },
+    // kind: 根拠原本の種別。認められた原本以外の出所（業界の常識・類似システムの慣行）は
+    // 列挙に無いので、そもそも申告できない。
+    kind: {
+      type: 'string',
+      enum: ['input', 'answers', 'tbd_answers', 'decision', 'premise', 'measurement', 'domain'],
+    },
+    // ref: 原本の中の識別子（D-003 / 前提 2 / 計測 M-001 / 観点名）。input のように識別子を
+    // 持たない原本では空でよい。
+    ref: { type: 'string' },
+    // quote: 原本からの引用。要約や言い換えではなく、原本に実在する文字列を写す
+    // （照合側は文字列一致で確かめるため、言い換えると根拠なしとして扱われる）。
+    quote: { type: 'string' },
+  },
+  required: ['item_id', 'kind', 'quote'],
+}
+
 const REQ_DOC_SCHEMA = {
   type: 'object',
   properties: {
@@ -71,6 +95,7 @@ const REQ_DOC_SCHEMA = {
     // 必ず本体と drift するので、writer には要約だけ返させ、目次は script が組み立てる。
     summary: { type: 'string' },
     requirement_items: { type: 'array', items: ID_ITEM },
+    trace: { type: 'array', items: TRACE_ITEM },
     tbd_items: { type: 'array', items: TBD_ITEM },
     categories_deferred: { type: 'array', items: { type: 'string' } },
     // referenced_ids: 本文で言及するがこの文書の項目ではない ID（他文書への参照、ID 体系の例示）。
@@ -78,7 +103,7 @@ const REQ_DOC_SCHEMA = {
     // され、writer は直しようのない指摘で改稿枠を空回りさせたうえ項目を捏造して埋める圧力を受ける。
     referenced_ids: { type: 'array', items: { type: 'string' } },
   },
-  required: ['markdown', 'summary', 'requirement_items', 'tbd_items'],
+  required: ['markdown', 'summary', 'requirement_items', 'trace', 'tbd_items'],
 }
 
 const SPEC_DOC_SCHEMA = {
@@ -87,6 +112,7 @@ const SPEC_DOC_SCHEMA = {
     markdown: { type: 'string' },
     summary: { type: 'string' },
     spec_items: { type: 'array', items: ID_ITEM },
+    trace: { type: 'array', items: TRACE_ITEM },
     traceability: {
       type: 'array',
       items: {
@@ -104,7 +130,7 @@ const SPEC_DOC_SCHEMA = {
     categories_deferred: { type: 'array', items: { type: 'string' } },
     referenced_ids: { type: 'array', items: { type: 'string' } },
   },
-  required: ['markdown', 'summary', 'spec_items', 'traceability', 'tbd_items'],
+  required: ['markdown', 'summary', 'spec_items', 'trace', 'traceability', 'tbd_items'],
 }
 
 // EXEC_SCHEMA: severity は blocking（着手できない）/ degraded（着手はできるが作り直しになりうる）。
@@ -787,9 +813,65 @@ function structuralFindings(docs) {
           quote: t.id,
           severity: 'degraded',
           issue: `着手を止める未確定事項 ${t.id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
-          fix: 'TBD 表に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
+          fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
         })
       }
+    }
+  }
+
+
+  // (7) 根拠の所在。納品文書の本文には根拠句を書かない規約（document-structure.md §4）に
+  //     したため、「どの記述がどこから来たか」は trace（→ audit_trail）にしか無い。trace が
+  //     欠けた項目は、本文からも返り値からも根拠を辿れず、出所不明の断定と区別できない。
+  //     ここを検査しないと、本文から根拠句を消した瞬間に fabrication 監査の入力が消え、
+  //     指摘 0 件が「健全」に化ける。
+  for (const d of docs) {
+    if (d.fixed) continue
+    if (!Array.isArray(d.trace)) {
+      notChecked.push({
+        id: `ST-NOTCHECKED-TRACE-${d.key}`,
+        issue: `${d.key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
+      })
+    } else {
+      const traced = new Set(d.trace.map((t) => t && t.item_id).filter(Boolean))
+      for (const id of d.ids) {
+        if (traced.has(id)) continue
+        out.push({
+          auditor: 'structural',
+          id: `ST-NO-EVIDENCE-${id}`,
+          document: d.key,
+          location: id,
+          quote: id,
+          issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
+          fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+        })
+      }
+    }
+  }
+
+  // (8) 本文に混ざった非規範の記述。納品文書に置いてよいのは規範文・ID・上位/姉妹文書への
+  //     参照・自明でない規則の 1 文 inline の why だけである。根拠句・決定ログ・採らなかった
+  //     案・未確定事項の章は、読み手（後続の実装者と AI）が従うべき規範を薄めるだけであり、
+  //     経緯は git commit / PR 本文に残す。文字列は旧規約が定めていた定型なので機械照合できる。
+  const NON_NORMATIVE = [
+    { re: /（既定[:：]/, what: '決定ログの出所表記' },
+    { re: /（スキル既定[:：]/, what: 'スキル既定の出所表記' },
+    { re: /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討|未確定事項|TBD)\s*$/, what: '経緯・未確定事項の章' },
+  ]
+  for (const d of docs) {
+    if (d.fixed || !d.markdown) continue
+    for (const p of NON_NORMATIVE) {
+      const hit = String(d.markdown).split('\n').find((ln) => p.re.test(ln))
+      if (!hit) continue
+      out.push({
+        auditor: 'structural',
+        id: `ST-NON-NORMATIVE-${d.key}-${p.what}`,
+        document: d.key,
+        location: '本文',
+        quote: hit.trim().slice(0, 60),
+        issue: `本文に${p.what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
+        fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
+      })
     }
   }
 
@@ -1133,6 +1215,7 @@ const documents = [
         : ids.map((id) => ({ id, heading: '' })),
       ids,
       referenced: r.result.referenced_ids || [],
+      trace: r.result.trace,
       traceability: [],
       tbd_items: r.result.tbd_items || [],
       categories_deferred: r.result.categories_deferred || [],
@@ -1152,6 +1235,7 @@ const documents = [
       items: (r.result.spec_items || []).length ? r.result.spec_items : ids.map((id) => ({ id, heading: '' })),
       ids,
       referenced: r.result.referenced_ids || [],
+      trace: r.result.trace,
       traceability: r.result.traceability || [],
       tbd_items: r.result.tbd_items || [],
       categories_deferred: r.result.categories_deferred || [],
@@ -1247,11 +1331,20 @@ return {
     summary: d.summary,
     items: d.items,
     referenced_ids: d.referenced,
+    // trace: 項目 ID → 根拠。Workflow B へそのまま渡す（本文には根拠句を書かないので、
+    // ここが欠けると根拠がどこにも残らない）。
+    trace: d.trace,
     traceability: d.traceability,
     tbd_items: d.tbd_items,
     categories_deferred: d.categories_deferred,
     fixed: d.fixed,
   })),
+  // audit_trail: 全文書の trace を 1 つに畳んだ監査証跡。「この記述はどこから来たか」を
+  // 成果物の外に置くための唯一の受け皿であり、fabrication 監査の照合対象でもある。
+  // 経緯そのものの永続化は保存時の git commit / PR 本文で行う（文書には残さない）。
+  audit_trail: documents
+    .filter((d) => !d.fixed)
+    .map((d) => ({ document: d.key, path: d.path, basis: d.trace || [] })),
   fixed_documents: fixedDocs.map((d) => ({ kind: d.kind, topic: d.topic, path: d.path || '' })),
   requirement_ids: documents.filter((d) => d.kind === 'requirements').flatMap((d) => d.ids),
   spec_ids: documents.filter((d) => d.kind === 'specifications').flatMap((d) => d.ids),
