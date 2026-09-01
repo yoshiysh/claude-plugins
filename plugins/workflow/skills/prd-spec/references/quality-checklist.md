@@ -21,7 +21,9 @@
 | 9 | 必須の内容項目が揃い、該当なしは「該当なし＋根拠」形式 | 見出し照合 | document-structure.md |
 | 10 | 本文が規範だけで構成され（根拠句・決定ログ・経緯・未確定事項の章が無い）、決まっていない論点は保持規則として書かれている | 機械（`ST-NON-NORMATIVE`）＋目視 | document-structure.md §4 |
 | 11 | 改修案件で、保持すべき既存挙動が明示されている（該当時のみ） | 目視 | requirement-writing-rules.md §7 |
-| 12 | 期待挙動を規定しない冗長記述が無い（粒度の上限） | 目視 | requirement-writing-rules.md §7・prd-and-spec.md §7 |
+| 12 | 期待挙動を規定しない冗長記述が無い（粒度の上限） | `scripts/check_unlinked_prose.py` が候補を列挙 → 目視裁定 | requirement-writing-rules.md §7・prd-and-spec.md §7 |
+
+#12 の補助: `python3 scripts/check_unlinked_prose.py <docs_dir>` が「定義・割当・例外・要求語彙との接続を持たない段落」を候補として列挙する。**候補は削除リストではない** — 実測較正（Alphora 7 文書）では候補の 89% が規範・前提の偽陽性で、真に過剰だったのは文書間で反復される定型句（読み手の宣言・「投資判断は依頼者が行う」の再演など）だけだった。機械削除・FAIL 化に使わず、writer が 1 段落ずつ「消してどの判断が変わるか」で裁定する。散文が多いこと自体は過剰の証拠にならない（要求文は総称文で、意味の大半は節導入の定義散文が担う）。
 | 13 | 文脈ゼロの読者が各要求文を一意に解釈できる（golden rule） | 目視（fresh context 評価者自身が実演になる） | requirement-writing-rules.md |
 
 ## 仕様書側の項目（対象が specifications のときに追加適用）
