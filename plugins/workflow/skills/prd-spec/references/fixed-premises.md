@@ -18,7 +18,7 @@
 | # | 前提 | 由来 |
 |---|---|---|
 | 1 | 生成文書の主たる読み手は後続の AI 作業者（実装・テスト設計を行う agent）である。人間が読めることも維持するが、記述の水準は AI 読者で決める | SKILL.md「候補のメタデータ化」・consumer 設計 |
-| 2 | 保存先の既定は `docs/requirements` / `docs/specifications`、途中成果物は `~/.claude/prd-spec-workspace/<案件>/`。変更は司令塔が `paths` args で行う | SKILL.md 手順 7 |
+| 2 | 保存先の既定は `docs/requirements` / `docs/specifications`、途中成果物は `~/.claude/prd-spec-workspace/<案件>/`。変更は司令塔が `paths` args で行う | SKILL.md 手順 6（保存） |
 | 3 | 生成対象（requirements / specifications のどちらか・両方）は依頼文の語から `references/document-splitting.md` §0 の判定表で決める | document-splitting.md §0 |
 | 4 | 要求文の記述規律（4 語尾の助動詞規約・曖昧語リスト・ID 体系・章構成の既定）は `references/requirement-writing-rules.md` / `traceability.md` / `document-structure.md` が定めるスキル既定の規律であり、案件ごとに依頼者へ確認しない。依頼文が別の規約を指定したときだけそちらを優先する | 各 reference |
 | 5 | 生成文書の本文に置くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけである（根拠句・出所表記・決定ログ・変更履歴・経緯・採らなかった案・未確定事項の章・TBD の候補を本文に書かない）。根拠は `trace`、経緯は保存時の commit / PR 本文に残す | document-structure.md §4 |
