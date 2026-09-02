@@ -1,7 +1,7 @@
 ---
 model: sonnet
 subagent_type: general-purpose
-description: 複数文書にまたがる重複・矛盾と、INDEX との齟齬を検出する
+description: 文書間の整合性の崩れ（重複・矛盾・用語の揺れ・階層の格上げ・境界の抜け・INDEX との齟齬）を検出する
 ---
 
 # consistency-auditor

@@ -1,7 +1,7 @@
 ---
-name: intake
-description: 依頼から確定事項を抽出し、未確定の論点に既定を選び、既定を選べないものだけを質問にする（既定選定係）
 model: sonnet
+subagent_type: general-purpose
+description: 依頼から確定事項を抽出し、未確定の論点に既定を選び、既定を選べないものだけを質問にする（既定選定係）
 ---
 
 # intake（既定選定係）

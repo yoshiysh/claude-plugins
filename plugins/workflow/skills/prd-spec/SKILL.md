@@ -7,7 +7,9 @@ description: >
   「これを仕様書に落として」「この PRD をレビューして」「要求から仕様書を起こして」といった依頼で
   使うこと。ドメインは問わず、助動詞規約・曖昧語の排除・ID とトレーサビリティ・未確定事項の
   解消を常時適用する。入力に無い要求を推測で埋めず、決めきれていない項目は先例・実測・
-  依頼者への質問のいずれかで run 内に解消してから完了する。関心事ごとに複数ファイルへ分割し、
+  依頼者への質問で run 内に解消する。それでも決まらない論点は「裁定が下るまで何をしてはならないか」
+  を定める規範文（保持規則）へ変換して本文に残し、裁定そのものは GitHub Issue として起票して
+  完了する。関心事ごとに複数ファイルへ分割し、
   ディレクトリごとの INDEX を導出する。既存コードの挙動説明（「この関数の仕様を教えて」）や、
   文書を伴わない実装・修正依頼には発火しない。
   要求・仕様の体裁を取らない一般ドキュメントの執筆（提案書・意思決定文書・README・ブログ・
@@ -476,21 +478,7 @@ Workflow({
 
 | パス | 役割 |
 |---|---|
-| `[SKILL_DIR]/agents/intake.md` | 初稿に要る情報の充足判定と質問生成 |
-| `[SKILL_DIR]/agents/domain-analyst.md` | 10 観点の三値判定と要求カテゴリの導出 |
-| `[SKILL_DIR]/agents/splitter.md` | 文書の分割案の作成 |
-| `[SKILL_DIR]/agents/req-writer.md` | requirements 文書の執筆・改稿 |
-| `[SKILL_DIR]/agents/spec-writer.md` | specification 文書の執筆・改稿 |
-| `[SKILL_DIR]/agents/executability-auditor.md` | 実行可能性の検査。blocking / degraded を付ける |
-| `[SKILL_DIR]/agents/clarity-auditor.md` | 曖昧語・助動詞規約・単一要求の検査 |
-| `[SKILL_DIR]/agents/traceability-auditor.md` | 紐付けの欠落と検証方法の実質の検査 |
-| `[SKILL_DIR]/agents/coverage-auditor.md` | 導出カテゴリの反映検査 |
-| `[SKILL_DIR]/agents/fabrication-auditor.md` | 根拠不明の断定の検出（`audit_trail` と入力を突き合わせる） |
-| `[SKILL_DIR]/agents/consistency-auditor.md` | 文書間の重複・矛盾・INDEX との齟齬・階層エスカレーションの検査 |
-| `[SKILL_DIR]/agents/validity-auditor.md` | 内容の妥当性（要求の筋・相互矛盾・欠落・宣言漏れ）の検査 |
-| `[SKILL_DIR]/agents/specimen-auditor.md` | 標本適用監査。各項目を実在の標本文書に適用する（初回と終端のみ） |
-| `[SKILL_DIR]/agents/ladder-judge.md` | **判定パイプライン段 1**: 監査指摘を failure kind で 4 分類する |
-| `[SKILL_DIR]/agents/measurement.md` | **判定パイプライン段 3**: 現物を読んで事実を確定する（段 2 の precedent-judge は refine.js 内のプロンプトで、契約は schemas 側にある） |
+| `[SKILL_DIR]/agents/` | 各 agent の役割は**各ファイルの frontmatter description が正**（ここに写しを持つと description を直すたびに drift する）。判定パイプラインの段対応: 段 1 = ladder-judge、段 3 = measurement。段 2 の precedent-judge は refine.js 内のプロンプトで、契約は schemas 側にある |
 | `[SKILL_DIR]/references/requirement-writing-rules.md` | 助動詞規約・曖昧語リスト・単一要求・根拠の申告・書き換え例 |
 | `[SKILL_DIR]/references/prd-and-spec.md` | **正**: 2 文書の目的と切り分け・**目的側の必須内容項目**・手段側の上限（設計解を書かない）・分量の決まり方・典拠の強度 |
 | `[SKILL_DIR]/references/document-structure.md` | **正**: 章立て・表と図の使い分け・状態遷移図と状態 × イベント表・**本文に書くのは規範だけという規律（§4）**。**何が必須の内容かは `prd-and-spec.md` §4** |
