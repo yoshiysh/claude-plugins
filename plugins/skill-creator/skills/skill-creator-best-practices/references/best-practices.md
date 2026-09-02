@@ -17,11 +17,12 @@
 14. [ハーネス設計 — モデルに面したインターフェースと状態](#14-ハーネス設計--モデルに面したインターフェースと状態)
 
 スキル本体の更新・新規スキル設計時の指標となる参照ドキュメント。
-以下のソースを統合している（§11 は 2026-07-29 取得の一次情報に基づく）：
+以下のソースを統合している（§11 は 2026-07-29 取得の一次情報に基づく。Fable 5.1 差分のみ 2026-09-02 取得）：
 - [anthropics/skills - skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
 - [Agent Skills Best Practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
 - [Prompting Claude Opus 5（公式・一次情報）](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)
 - [Prompting Claude Fable 5（公式・一次情報）](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)
+- [Prompting Claude Fable 5.1（公式・一次情報）](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1) — §11「Fable 5.1 での差分」の典拠（2026-09-02 取得）
 - [nyosegawa - skill-creator and orchestration skill](https://nyosegawa.com/posts/skill-creator-and-orchestration-skill/)
 - [Multi-agent coordination patterns](https://claude.com/blog/multi-agent-coordination-patterns)
 - [Orchestrate subagents at scale with dynamic workflows（公式・一次情報）](https://code.claude.com/docs/en/workflows)
