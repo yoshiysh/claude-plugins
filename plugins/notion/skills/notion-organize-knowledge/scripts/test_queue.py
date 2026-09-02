@@ -407,6 +407,38 @@ class QueueTest(unittest.TestCase):
         self.invoke(*complete, "--verification-json", json.dumps(self.registered_verification(application)))
         self.invoke(AUDIT, "--workspace", str(self.workspace), "--run-id", "run", "--phase", "final")
 
+    def test_paraphrased_body_verifies_by_structure_not_digest(self) -> None:
+        common, application = self.prepare_apply()
+        application["content_application"]["body_rendering"] = "paraphrase"
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        complete = (QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered")
+        measured = "sha256:" + "a" * 64
+
+        verification = self.registered_verification(application)
+        verification["content_verification"]["refetched_content_digest"] = measured
+        result = self.invoke(*complete, "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("paraphrase_structure_verified must be True", result["error"])
+
+        verification["content_verification"]["paraphrase_structure_verified"] = True
+        verification["content_verification"]["code_blocks_verbatim"] = True
+        verification["content_verification"]["refetched_content_digest"] = "not-a-digest"
+        result = self.invoke(*complete, "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("measured sha256", result["error"])
+
+        verification["content_verification"]["refetched_content_digest"] = measured
+        self.invoke(*complete, "--verification-json", json.dumps(verification))
+        self.invoke(AUDIT, "--workspace", str(self.workspace), "--run-id", "run", "--phase", "final")
+
+    def test_verbatim_body_still_requires_digest_equality(self) -> None:
+        common, application = self.prepare_apply()
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        verification = self.registered_verification(application)
+        verification["content_verification"]["refetched_content_digest"] = "sha256:" + "b" * 64
+        result = self.invoke(QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered", "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("refetched_content_digest must be", result["error"])
+
     def test_registration_rejects_a_placeholder_page_title(self) -> None:
         common, application = self.prepare_apply()
         self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))

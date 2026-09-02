@@ -22,6 +22,11 @@ CONTENT_APPLICATION_MODES = {
     "rebuild_ordered_notes",
 }
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# verbatim: the applied body reproduces ordered_blocks, so the refetched digest must equal the
+# source digest.  paraphrase: third-party copyrighted text is rewritten in the knowledge model's
+# own words, so the digest legitimately differs and structure (block count / order / images /
+# verbatim code blocks) is the verifiable contract instead.
+BODY_RENDERINGS = {"verbatim", "paraphrase"}
 
 
 def canonical_source_content_digest(content: dict[str, Any]) -> str:
@@ -128,6 +133,8 @@ def content_application_errors(job: dict[str, Any], application: Any, prefix: st
             errors.append(f"{prefix}.content_application.{key} must be {expected!r}")
     if applied.get("mode") not in CONTENT_APPLICATION_MODES:
         errors.append(f"{prefix}.content_application.mode is invalid")
+    if applied.get("body_rendering", "verbatim") not in BODY_RENDERINGS:
+        errors.append(f"{prefix}.content_application.body_rendering is invalid")
     return errors
 
 
@@ -140,11 +147,14 @@ def content_verification_errors(job: dict[str, Any], verification: Any, prefix: 
     applied = application.get("content_application") if isinstance(application, dict) else None
     if not isinstance(content, dict) or not isinstance(applied, dict):
         return [f"{prefix} cannot be checked without source_content and content_application"]
+    rendering = verification.get("body_rendering") or applied.get("body_rendering") or "verbatim"
+    if rendering not in BODY_RENDERINGS:
+        errors.append(f"{prefix}.body_rendering is invalid")
+        rendering = "verbatim"
     expected = {
         "status": "passed",
         "target_page_id": (application.get("page_identity") or {}).get("canonical_page_id"),
         "source_content_digest": content.get("digest"),
-        "refetched_content_digest": content.get("digest"),
         "source_content_block_count": len(content.get("ordered_blocks", [])),
         "applied_block_count": len(content.get("ordered_blocks", [])),
         "refetched_block_count": len(content.get("ordered_blocks", [])),
@@ -156,6 +166,14 @@ def content_verification_errors(job: dict[str, Any], verification: Any, prefix: 
         "summary_only_rejected": True,
         "operational_metadata_absent": True,
     }
+    if rendering == "verbatim":
+        expected["refetched_content_digest"] = content.get("digest")
+    else:
+        refetched_digest = verification.get("refetched_content_digest")
+        if not isinstance(refetched_digest, str) or not SHA256_RE.match(refetched_digest):
+            errors.append(f"{prefix}.refetched_content_digest must be the measured sha256 of the refetched blocks")
+        expected["paraphrase_structure_verified"] = True
+        expected["code_blocks_verbatim"] = True
     for key, expected_value in expected.items():
         if verification.get(key) != expected_value:
             errors.append(f"{prefix}.{key} must be {expected_value!r}")

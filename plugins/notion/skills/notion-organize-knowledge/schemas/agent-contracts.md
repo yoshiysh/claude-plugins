@@ -404,6 +404,7 @@ Queue の `--application-json` に渡す record は1 job分の次の形を使う
     "status": "applied",
     "target_page_id": "notion-page-id",
     "mode": "preserve_existing_in_place|append_missing_ordered_blocks|rebuild_ordered_notes",
+    "body_rendering": "verbatim|paraphrase",
     "source_content_digest": "sha256:<64 lowercase hex>",
     "source_content_block_count": 2,
     "applied_block_count": 2,
@@ -498,7 +499,10 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
         "source_content_order_preserved": true,
         "image_order_preserved": true,
         "summary_only_rejected": true,
-        "operational_metadata_absent": true
+        "operational_metadata_absent": true,
+        "body_rendering": "verbatim|paraphrase",
+        "paraphrase_structure_verified": "true (paraphrase only)",
+        "code_blocks_verbatim": "true (paraphrase only)"
       },
       "source_queue_cleanup": {
         "attempted": true,
