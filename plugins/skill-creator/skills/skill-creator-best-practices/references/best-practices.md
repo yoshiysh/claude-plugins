@@ -394,19 +394,30 @@ feedback.json で構造化フィードバック収集
 - [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、verified にはスコープを付け、却下した経路と実行した事実も state に残している（§14 ⑤）
 - [ ] supervisor の介入は redirect のみで、仮説を供給しない（§14 較正 3）
 
-### Claude 5 世代対応（対象モデルが Opus 5 / Fable 5 の場合）
+### Claude 5 世代対応（対象モデルが Opus 5 / Fable 5 / Fable 5.1 の場合）
 - [ ] 明示的な検証指示（「最後に検証せよ」「ダブルチェックせよ」）を削除した（§11）
 - [ ] 手順の hardcode・網羅的な書式ルール・防衛的な繰り返しを削った（§11）
 - [ ] 境界（何をしないか）と scope 制約は明示的に残した（§11）
 - [ ] 進捗報告に「ツール結果との突合」を要求している（長時間自律実行の場合）
 - [ ] 推論の生出力を要求する指示（reasoning echo）がない（Fable 5 で refusal を誘発）
 
+Fable 5.1 を対象にする場合はさらに（正本は §11「Fable 5.1 での差分」）:
+- [ ] effort sweep を 5.1 で再実施した（Fable 5 の sweep 結果を流用していない。medium / low への引き下げは eval で品質が保てた範囲のみ）
+- [ ] narration 抑制（「最終回答まで報告を保留」）と anti-formatting 指示を除去し、必要なら「いつ更新／書式を出すか」の 1 行に置換した
+- [ ] 長時間自律実行なら「autonomously（ユーザーは見ていない）」ブロックを入れ、曖昧な依頼で質問が減る trade-off を eval で確認した
+- [ ] 実装系スキルに「変更・テストを依頼範囲に限定する」指示があり、eval が未依頼変更・追加テストファイル数を見ている
+- [ ] agent loop / script が会話履歴を append-only にし、per-turn nudge は旧コピーを消さずに追加している
+- [ ] client 側で compaction するなら summarization 指示に保持 6 項目を列挙している
+- [ ] 要約・リサーチ系スキルに、引用の付け方を示す完全な正例が 1 件ある
+- [ ] low effort で運用するなら検索 nudge を入れる、または該当 turn だけ effort を上げる設計になっている
+
 ---
 
 ## 11. Claude 5 世代（Opus 5 / Fable 5）でのスキル設計
 
 一次情報: [Prompting Claude Opus 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5) /
-[Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)（2026-07-29 取得）。
+[Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)（2026-07-29 取得）/
+[Prompting Claude Fable 5.1](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)（2026-09-02 取得。差分は本節末尾「Fable 5.1 での差分」）。
 
 公式ガイドの核: 旧世代向けスキルは「often too prescriptive for Claude Fable 5 and can degrade
 output quality」。ただし方向は「無規定化」ではなく **削るものと残すもの（むしろ強化するもの）の
@@ -449,6 +460,60 @@ output quality」。ただし方向は「無規定化」ではなく **削るも
 - **Fable 5 をスキルの対象モデルにする場合**: 長 turn（数分〜数時間）前提でタイムアウト・
   非同期チェック（ブロックせず scheduled job で確認）を設計する。context 残量カウントを
   モデルに見せない（自発的な session 分割提案を誘発する）。
+
+### Fable 5.1 での差分（Fable 5 からの変更点）
+
+公式ガイドの前提: 「Your existing Claude Fable 5 prompts should perform well on Claude Fable 5.1
+without changes, but a handful of behavioral differences are worth knowing about」。上の「削る」
+「残す・強化する」の仕分けは 5.1 でも同じで、ここでは変わった点だけを書く。API ヘッダや SDK の
+書き方はスキルの領分ではないので、ハーネス側の設定が要る箇所は「公式ガイド参照」に留める。
+
+#### 削る／直す（5.1 で不要・有害になった指示）
+
+| 削る／直す指示 | 理由（公式ガイドより） |
+|---------|----------------------|
+| narration 抑制（「hold all findings for the final response」型） | 5.1 は既定で「fewer user-facing updates」。旧モデルの過剰報告を抑える行は、更新を要求する前にまず除去する |
+| anti-formatting（bullet・bold 抑制） | 5.1 は「uses bold less and is less likely to reach for headers, lists, or quotation marks」。除去するか、「いつ書式が適切か」を言う規則に置換する |
+| Fable 5 で較正した effort 既定値の持ち越し | 「effort level names don't correspond to the same amount of thinking across models」。sweep をやり直す |
+| compile-check 型の問い（「エラーなくコンパイルできるか」） | safeguard false positive を誘発しやすい。「Are there any bugs in this program?」型に言い換える |
+| tool 出力に base64 を返す設計 | context に入る base64 が false positive を誘発。取り除くのが推奨の修正 |
+| 履歴の書き換え（per-turn reminder の挿入・削除、旧 turn の要約置換、途中の system prompt 変更） | thinking block は「only in the exact conversation that produced them」で有効。prefix が変わると prompt cache が再開し、thinking block は無効になる（2026-08-31 以降作成のアカウントでは 400、`drop_block` を選んだ場合はブロック破棄。既存アカウントでも今から append-only にするのが公式推奨）。ハーネス側の対応が要る（公式ガイド参照） |
+
+#### 残す・強化する（5.1 で新たに要る指示）
+
+| 残す・追加する指示 | 理由 |
+|---------|------|
+| 進捗更新の要求 1 行（開始時に一言・作業中の短い更新・単独で読める recap） | 抑制指示を除去しても足りない場合に追加。pair programming 等の human-in-the-loop 向け。更新が UI に届くかはハーネスの表示設定に依存する（公式ガイド参照） |
+| tool 出力を UI が畳む／隠すなら、そのことをモデルに伝える | 伝えないと UI が表示しない出力を「見せる」ためにコマンドを走らせる |
+| tool call batching の nudge（「必要なものを私的に列挙し、依存しないものは 1 回で全部要求」） | coding / computer-use ループで、暗黙に必要な独立 call を 1 turn に 1 つずつ出すことがある。品質は変わらないが turn 数分のコスト。毎 turn 新規に追加し旧コピーは残す |
+| mannered prose の定義（比喩・飾りで直言を置き換える文体の禁止） | 5.1 は文が長く段落が少ない場合がある。短縮版「Please remove all mannered prose」も効く。user message 側が推奨 |
+| 引用の付け方を示す完全な正例 1 件（依頼・応答・正しい理由） | 要約時に原文を「without marking them as quotations」で再現しやすい。例中の tool 呼び出し行は自分の tool 名に置換する |
+| 「autonomously（ユーザーは見ていない。依頼済みの可逆行動は許可を求めず進める）」ブロック | 「Next, I'll …」と述べて止まる／「Shall I apply this?」と聞く挙動への対処。冒頭文がもっとも効くので原文のまま使う。曖昧な依頼で質問しにくくなる trade-off を自分のタスクで確認する |
+| 「Delivering work」scope ブロック（依頼が scope、勝手に狭めない・広げない・差し替えない） | 上と併用が公式推奨。長さを削るなら前者のみ残す |
+| 変更・テストを依頼範囲に限定する指示 | 近傍バグの修正・未依頼の拡張・必要以上のテストファイル commit が出る。指示で「drop substantially with no measurable change in task success」 |
+| compaction summary の保持項目 6 点（問題と解決、検討した選択肢、決定・制約の原文、現在地、未解決、再構成困難な詳細） | client 側で compaction する場合。ユーザー発言は原文に近く、モデル自身の説明は結論まで圧縮する |
+| low effort での検索 nudge（名前を認識することと現状を知ることは別。ユーザーの書いた名前で検索） | low では検索・retrieval tool を呼ばず記憶で答えやすい。該当 turn だけ effort を上げるのが最も簡単な場合もある |
+| 手術的編集の指示（結果が変わらないなら全体を書き直さない） | 5.1 は小変更でもファイル全体を書き直しやすい。出力トークンと時間のコスト |
+| xhigh / max での長い成果物: `max_tokens` に思考分の余地 + 「reasoning で全文を下書きしない」の note | 長い成果物を thinking で書いてから回答に書き直すことがある。まず high で運用し、測って品質が上がる場合のみ xhigh / max |
+| 未知のプログラミング言語には言語の説明・文書を context に入れる | safeguard false positive の低減 |
+| subagent 起動 tool は即 return、結果は後の user message で返し、待つための tool を別に持つ | coding タスクの測定で、lead を待たせないと平均完了時間が下がる（品質・トークン・コストは同程度）。「The model still often chooses to wait」。ハーネス側の設計 |
+| vision 作業に crop / zoom tool | 密なチャート等は「iteratively analyze, crop, and visually verify」で最良。container が重いなら crop tool 単体で大半の uplift |
+
+#### スキル作成フローへの含意
+
+- **effort sweep は 5.1 で再実施する**。`medium` は「roughly match Claude Fable 5 at lower cost」、`low` は
+  小モデルを高 effort で回す場面の比較対象に入れる。引き下げは「where your evals show quality holds」の範囲のみ。
+- **eval に 5.1 固有の失敗を assertion 化する**: turn 終了時に未完了の「次にやること」が残っていないか、
+  未依頼の変更・テストファイル数、要約中の、引用符を付けない原文の再現、小変更での全ファイル書き換え。
+- **進捗更新は「抑制指示の除去 → 必要なら要求 1 行」の順**。表示設定はハーネス側（公式ガイド参照）。
+- **agent loop / script は履歴を append-only にする**。返ってきた assistant turn は thinking 含めそのまま追加。
+  per-turn nudge は毎 turn 新しく追加し、旧コピーは byte-for-byte 残す。client compaction するなら
+  「summary 1 通 + 新しい user turn」に置き換えて他を replay しない。cache 読みが安くなったので早期
+  compaction の是非は測り直す。
+- **compaction を持つスキルは summarization 指示に保持 6 項目を列挙する**（server 側 compaction は既に対応）。
+- **script が tool 結果を組み立てるなら base64 を context に入れない**。
+- Fable 5 節の境界ブロック・scope 制約は 5.1 でも同じ。5.1 では公式が具体的なブロック文
+  （autonomously / Delivering work / 変更・テスト限定）を与えているので、agent prompt にはそれを流用する。
 
 ---
 
