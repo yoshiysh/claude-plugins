@@ -2693,6 +2693,14 @@ if (unpresentedBlocking.length) {
       '先例と一致するときだけ resolvable にする。「たぶんコードにあるはず」も計測ではない —',
       '読む対象を名指しできるときだけ measurable にする。',
       '',
+      'ただし「規範文書に書かれていない」ことを理由に novel にしてはならない。正本の文書に',
+      '定義が無いことと、現物に答えが無いことは別である。システムが現にその値を出している',
+      'なら、算式・境界・語彙・書式の答えはコードにあり measurable である（実測: 安全余裕の',
+      '算式・割引率の導出・乖離率の分子が「財務計算ルールに無い」という理由で novel に落ち、',
+      '実装を読めば全件確定するものが人間ゲートへ回った）。novel にしてよいのは、現物にも',
+      '答えが無い（まだ作られていない挙動）か、現物に複数の答えがあってどれを採るかが依頼者の',
+      '意図に属するときだけである。',
+      '',
       `# [DECISIONS]\n${JSON.stringify(decisions, null, 1)}`,
       `# [ANSWERS]\n${answers}`,
       `# [TBD_ANSWERS_HISTORY]\n${JSON.stringify(tbdAnswersHistory, null, 1)}`,
@@ -2742,7 +2750,10 @@ const MEASUREMENT_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        required: ['tbd_id', 'resolved', 'reason'],
+        // statement は resolved: true のときに本文へ反映する確定文そのもの。schema で必須に
+        // しないと agent は reason に結論を書いて statement を空にし、受理条件（statement 必須）
+        // で証拠付きの確定が黙って落ちる（実測: 6 件の evidence 付き resolved が 0 件に化けた）。
+        required: ['tbd_id', 'resolved', 'reason', 'statement'],
         properties: {
           tbd_id: { type: 'string' },
           resolved: { type: 'boolean' },
@@ -2792,7 +2803,7 @@ if (measurableBlocking.length) {
   )
   resolvedByMeasurement = measurableBlocking
     .map((t) => ({ item: t, r: byId.get(t.id) }))
-    .filter(({ r }) => r && r.resolved && r.statement && (r.evidence || []).length)
+    .filter(({ r }) => r && r.resolved && String(r.statement || '').trim() && (r.evidence || []).length)
     .map(({ item, r }) => ({
       ...item,
       proposed_resolution: r.statement,
@@ -2800,6 +2811,14 @@ if (measurableBlocking.length) {
       rationale: r.reason || '',
     }))
   const resolvedIds = new Set(resolvedByMeasurement.map((t) => t.id))
+  for (const t of measurableBlocking) {
+    const r = byId.get(t.id)
+    if (r && r.resolved && !resolvedIds.has(t.id)) {
+      log(
+        `計測解消: ${t.id} は resolved: true だが受理条件を満たさない（statement 空: ${!String(r.statement || '').trim()} / evidence 無し: ${!(r.evidence || []).length}）。ゲートへ戻します。`
+      )
+    }
+  }
   // 計測できなかった分はゲートへ戻す（黙って消さない）。
   gateBlocking = [...gateBlocking, ...measurableBlocking.filter((t) => !resolvedIds.has(t.id))]
   log(
