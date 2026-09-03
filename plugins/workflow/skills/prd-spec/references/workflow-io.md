@@ -15,6 +15,7 @@
 | args | 意味 |
 |---|---|
 | `skillDir` | スキルの実ディレクトリ絶対パス。script は自身の位置を解決できず、agent の Read パスがここでしか決まらない |
+| `args_file` | args 全文を書いた JSON ファイルの絶対パス。指定するとその中身を args として読み、inline に同じキーがあれば inline が勝つ。30KB を超える args を毎周回タイプし直さないための経路（Workflow A / B の両方で使える） |
 | `self_containment` | **参照方針を採る案件では必須。** executability-auditor へ渡り、「参照先を見れば分かること」を着手不能として数えさせない。渡さないと、外出しした語彙リストの数だけ誤検出が量産され、本物の欠落がその中に埋もれる |
 | `mode` | 手順 1 の判定。生成対象そのものを決める |
 | `input` / `answers` | 確定要求の根拠原本（fabrication-auditor が照合する）。`answers` は手順 2 で質問したランのみ |

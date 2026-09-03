@@ -227,7 +227,15 @@ const AUDIT_SCHEMA = {
   required: ['failed', 'checked'],
 }
 
-const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
+// args は 30〜70KB になる。司令塔がその全文を毎周回タイプし直すのは写し間違いの温床なので、
+// args_file にパスだけを渡して中身をここで読む経路を持たせる。ファイル側と inline 側の両方が
+// 与えられたら inline を上書きにする（明示した値が勝つ）。
+let parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
+if (parsedArgs.args_file) {
+  const fromFile = JSON.parse(require('fs').readFileSync(parsedArgs.args_file, 'utf8'))
+  const { args_file, ...inline } = parsedArgs
+  parsedArgs = { ...fromFile, ...inline }
+}
 
 const SKILL_DIR = parsedArgs.skillDir
 if (!SKILL_DIR) {
