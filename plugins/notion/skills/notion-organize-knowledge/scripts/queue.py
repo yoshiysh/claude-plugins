@@ -27,7 +27,8 @@ INPUT_KINDS = {
     "notion_page", "notion_children", "notion_database", "notion_search",
     "url_list_page", "url_list", "resume_run",
 }
-TERMINAL_STATES = {"registered", "unresolved", "deferred"}
+TERMINAL_STATES = {"registered", "unresolved", "deferred"}  # "deferred" kept for reading legacy runs only; new completions may not produce it
+NEW_COMPLETION_STATES = {"registered", "unresolved"}
 WORKING_STATE = "leased"
 SCHEDULABLE_STATES = {"ready", "waiting_retry", WORKING_STATE}
 ALL_STATES = {"ready", "waiting_retry", WORKING_STATE, *TERMINAL_STATES}
@@ -661,7 +662,7 @@ def parser() -> argparse.ArgumentParser:
     complete.add_argument("--job-id", required=True)
     complete.add_argument("--worker-id", required=True)
     complete.add_argument("--verifier-id", required=True)
-    complete.add_argument("--state", required=True, choices=sorted(TERMINAL_STATES))
+    complete.add_argument("--state", required=True, choices=sorted(NEW_COMPLETION_STATES))
     complete.add_argument("--verification-json", required=True)
     complete.set_defaults(func=cmd_complete)
 

@@ -527,6 +527,8 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
 
 Use `[SKILL_DIR]/scripts/queue.py` to create and mutate the only run ledger. `[SKILL_DIR]/scripts/validate_run_audit.py --workspace <workspace> --run-id <run> --phase preflight|progress|final` reads those same files; do not create a parallel manifest or hand-edit job JSON. `events.jsonl` is append-only audit history and is never written into Notion.
 
+`state: deferred` is a legacy terminal value that older runs may still carry on disk (e.g. `duplicate_delete_unavailable`); `queue.py complete` no longer accepts it as a new completion state — new duplicate-delete-unavailable cases complete as `unresolved` with `unresolved_reason: duplicate_delete_unavailable`. Readers must still tolerate an existing `deferred` job without erroring.
+
 ```json
 {
   "schema_version": 2,
@@ -535,7 +537,7 @@ Use `[SKILL_DIR]/scripts/queue.py` to create and mutate the only run ledger. `[S
   "input_kind": "notion_page|notion_children|notion_database|notion_search|url_list_page|url_list",
   "source": {},
   "domain": "example.com|null",
-  "state": "ready|waiting_retry|leased|registered|unresolved|deferred",
+  "state": "ready|waiting_retry|leased|registered|unresolved",
   "phase": "resolve|enrich|classify|apply|verify|done",
   "attempt_count": 0,
   "retry": null,

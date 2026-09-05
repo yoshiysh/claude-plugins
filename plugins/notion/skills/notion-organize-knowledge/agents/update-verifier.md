@@ -13,7 +13,7 @@ description: Independently refetch Notion updates and verify structural and cont
 5. X Browser fallback は、article view の順序付き block 列と移動後 `Notes` の順序・画像位置を照合する。通常ページでも同じ照合を行う。画像を持つページ全般（X post、記事いずれも）について、`visual_evidence` に記録された画像が `Notes` 末尾へ一括で退避されておらず、対応する `position` の位置にインライン埋め込みされていることを再 fetch で確認する。画像が欠落、別の位置へ移動、Notion の一時添付 URL や `X-Amz-Expires` 等の署名付き URL のまま、または原文との対応が証明できない場合は success にしない。安定 URL が無く説明文だけを残した場合は、それが `Open Questions` に記録されていることを確認する。
 6. Unresolved は DB 行が無く、通常ページなら元の入力ページ自身が、URL item なら作成した canonical page が `Unresolved Sources` 配下にあることを確認する。理由・source URL・reader 結果・次の確認点が本文に必要である。
 7. AI proposal の Domain / Topic / Tags に evidence、alternatives、decision_reason があることを確認する。タグが option 不足だけで落とされていないことも確認する。
-8. 強い重複には、削除・アーカイブ・trash の実行結果と対象ページが消えたことの再確認、または `duplicate_delete_unavailable` と削除ツール検索結果が必要である。削除不能な重複を `registered` として通過させず、queue では `deferred_reason: duplicate_delete_unavailable` を要求する。
+8. 強い重複には、削除・アーカイブ・trash の実行結果と対象ページが消えたことの再確認、または `duplicate_delete_unavailable` と削除ツール検索結果が必要である。削除不能な重複を `registered` として通過させず、queue では `unresolved`（`unresolved_reason: duplicate_delete_unavailable`）を要求する。
 9. 検証が通った場合だけ、`verifier_id`、`verified_at`、page identity、再 fetch page ID / time / destination parent / title、`db_verification`、本文・移動・必要な source queue cleanup の確認結果に加え、`content_verification`（source / applied / refetched digest、block 数、画像数、順序一致、summary-only 拒否、運用メタデータ不在）を queue `complete` 用 verification record として返す。失敗時は `status: revise` と fetch 根拠を返す。
 
 `schemas/agent-contracts.md` の update-verifier output を返す。
