@@ -24,6 +24,7 @@ from pathlib import Path
 GENERIC_READER_HOST = "r." + "ji" + "na.ai"
 GENERIC_READER_ENDPOINT = "https://" + GENERIC_READER_HOST + "/"
 X_OEMBED_ENDPOINT = "https://publish.x.com/oembed"
+KITESURF_HTML_ENDPOINT = "https://kitesurf.cloudflare.app/html"
 IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+(?:\?[^)]*)?)\)")
 TITLE_RE = re.compile(r"^Title:\s*(.+)$", re.MULTILINE)
 SOURCE_RE = re.compile(r"^URL Source:\s*(.+)$", re.MULTILINE)
@@ -101,6 +102,33 @@ class Browser4HTMLParser(HTMLParser):
             return
         if self._link_url is not None:
             self._link_text.append(data)
+
+
+class KitesurfHTMLParser(Browser4HTMLParser):
+    """Collect title, visible text, links, and image URLs from Kitesurf's rendered HTML."""
+
+    def __init__(self, source_url: str) -> None:
+        super().__init__(source_url)
+        self.title = ""
+        self.text_parts: list[str] = []
+        self._in_title = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "title":
+            self._in_title = True
+        super().handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "title":
+            self._in_title = False
+        super().handle_endtag(tag)
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title += data
+        if not self._skip_depth:
+            self.text_parts.append(data)
+        super().handle_data(data)
 
 
 def resolve_browser4_cli() -> str | None:
@@ -268,6 +296,94 @@ def run_browser4(url: str, timeout: int) -> dict[str, object]:
                 _browser4_command(cli, session, ["close"], min(timeout, 10))
             except Exception:  # noqa: BLE001 - cleanup must not mask the read result
                 pass
+
+
+def run_kitesurf(url: str, timeout: int) -> dict[str, object]:
+    """Read a public URL through Cloudflare's stateless Kitesurf rendering API.
+
+    Unlike Browser4, Kitesurf needs no local CLI/binary — it is a hosted, public,
+    unauthenticated HTTP endpoint (GET /html?url=...) that returns the page's
+    rendered (post-JS) HTML. This makes it a useful fallback tier even on hosts
+    where browser4-cli is not installed.
+    """
+    validate_public_http_url(url)
+    endpoint = f"{KITESURF_HTML_ENDPOINT}?{urllib.parse.urlencode({'url': url})}"
+    request = urllib.request.Request(endpoint, headers={"User-Agent": "codex-url-reader-skill/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            status_code = int(response.status)
+            body_html = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return {"status": "Failed", "reason": f"Kitesurf HTTP {exc.code}"}
+    except urllib.error.URLError as exc:
+        return {"status": "Failed", "reason": f"Kitesurf request failed: {exc.reason}"}
+    except OSError as exc:
+        return {"status": "Failed", "reason": f"Could not reach Kitesurf: {exc}"}
+
+    if status_code >= 400:
+        return {"status": "Failed", "reason": f"Kitesurf HTTP {status_code}"}
+    if not body_html.strip():
+        return {"status": "Failed", "reason": "Kitesurf returned an empty response"}
+
+    parser = KitesurfHTMLParser(url)
+    parser.feed(body_html)
+
+    title = _clean_browser4_text(parser.title)
+    markdown = _clean_browser4_text("\n".join(parser.text_parts))
+    markdown = _focus_browser4_content(title, markdown)
+    truncated = len(markdown) > MAX_BROWSER4_MARKDOWN_CHARS
+    if truncated:
+        markdown = markdown[:MAX_BROWSER4_MARKDOWN_CHARS].rstrip() + "\n\n[Kitesurf本文は上限文字数で切り詰めました]"
+
+    links: list[dict[str, str]] = []
+    seen_links: set[tuple[str, str]] = set()
+    for link in parser.links:
+        key = (link["text"], link["url"])
+        if key in seen_links or link["url"].startswith(("javascript:", "mailto:")):
+            continue
+        seen_links.add(key)
+        links.append(link)
+    image_links: list[dict[str, str]] = []
+    seen_images: set[str] = set()
+    for image in parser.image_links:
+        if image["url"] in seen_images:
+            continue
+        seen_images.add(image["url"])
+        image_links.append(image)
+
+    if looks_like_browser4_login_wall(title, markdown):
+        return {
+            "status": "Blocked",
+            "reason": "Kitesurf resolved the URL to a login wall",
+            "title": title,
+            "markdown": "",
+            "links": [],
+            "image_links": [],
+        }
+
+    useful_lines = [line for line in markdown.splitlines() if line.strip()]
+    if len(useful_lines) >= 5 or len(markdown) >= 200:
+        status = "Extracted"
+        reason = None
+    elif title or markdown or image_links:
+        status = "Partial" if markdown or title else "ImagesOnly"
+        reason = "Kitesurf returned only a small amount of page content"
+    else:
+        status = "Failed"
+        reason = "Kitesurf returned no usable page content"
+
+    warnings = []
+    if truncated:
+        warnings.append("Kitesurf body text was truncated at 50000 characters.")
+    return {
+        "status": status,
+        "reason": reason,
+        "title": title or None,
+        "markdown": markdown,
+        "links": links,
+        "image_links": image_links,
+        "warnings": warnings,
+    }
 
 
 def unwrap_reader_url(url: str) -> str:
@@ -804,6 +920,78 @@ def build_browser4_result(
     }
 
 
+def build_kitesurf_result(
+    input_url: str,
+    normalized_url: str,
+    timeout: int,
+    image_dir: str | None,
+    previous_attempts: list[dict[str, object]],
+    fallback_reason: str | None,
+) -> dict[str, object]:
+    capture = run_kitesurf(normalized_url, timeout)
+    status = str(capture.get("status") or "Failed")
+    reason = capture.get("reason")
+    attempt: dict[str, object] = {
+        "backend": "kitesurf",
+        "http_status": None,
+        "status": status,
+        "reason": reason,
+        "reader_url": normalized_url,
+    }
+    attempts = [*previous_attempts, attempt]
+    if status in {"Blocked", "Failed"}:
+        return {
+            "schema_version": RESULT_SCHEMA_VERSION,
+            "input_url": input_url,
+            "normalized_url": normalized_url,
+            "reader_backend": "kitesurf",
+            "http_status": None,
+            "reader_status": status,
+            "status_reason": reason,
+            "title": capture.get("title"),
+            "source_url": normalized_url,
+            "author_name": None,
+            "author_url": None,
+            "published_at_text": None,
+            "markdown": str(capture.get("markdown") or ""),
+            "links": capture.get("links") or [],
+            "image_links": capture.get("image_links") or [],
+            "downloaded_images": [],
+            "attempts": attempts,
+            "warnings": list(capture.get("warnings") or []),
+            "error": reason,
+            "raw_oembed": None,
+        }
+
+    images = list(capture.get("image_links") or [])
+    downloaded = download_images(images, Path(image_dir), timeout) if image_dir and status not in {"Blocked", "Failed"} else []
+    warnings = list(capture.get("warnings") or [])
+    if fallback_reason:
+        warnings.insert(0, f"Kitesurf fallback was used after: {fallback_reason}")
+    return {
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "input_url": input_url,
+        "normalized_url": normalized_url,
+        "reader_backend": "kitesurf",
+        "http_status": None,
+        "reader_status": status,
+        "status_reason": reason,
+        "title": capture.get("title"),
+        "source_url": normalized_url,
+        "author_name": None,
+        "author_url": None,
+        "published_at_text": None,
+        "markdown": str(capture.get("markdown") or ""),
+        "links": capture.get("links") or [],
+        "image_links": images,
+        "downloaded_images": downloaded,
+        "attempts": attempts,
+        "warnings": warnings,
+        "error": None,
+        "raw_oembed": None,
+    }
+
+
 def should_use_browser4_result(original: dict[str, object], browser4: dict[str, object]) -> bool:
     browser_status = browser4.get("reader_status")
     if browser_status not in {"Extracted", "Partial", "ImagesOnly"}:
@@ -866,6 +1054,37 @@ def apply_browser4_fallback(
     return attach_browser_fallback_requirement(result, normalized_url)
 
 
+def apply_kitesurf_fallback(
+    result: dict[str, object],
+    input_url: str,
+    normalized_url: str,
+    timeout: int,
+    image_dir: str | None,
+) -> dict[str, object]:
+    """Try Kitesurf (no local dependency) before falling back to Browser4."""
+    if result.get("reader_status") == "Extracted":
+        return result
+    previous_attempts = list(result.get("attempts") or [])
+    fallback_reason = str(result.get("error") or result.get("status_reason") or "previous reader did not provide complete content")
+    kitesurf_result = build_kitesurf_result(
+        input_url,
+        normalized_url,
+        timeout,
+        image_dir,
+        previous_attempts,
+        fallback_reason,
+    )
+    kitesurf_attempt = (kitesurf_result.get("attempts") or [])[-1]
+    if should_use_browser4_result(result, kitesurf_result):
+        return kitesurf_result
+    result["attempts"] = [*previous_attempts, kitesurf_attempt]
+    warnings = list(result.get("warnings") or [])
+    kitesurf_reason = kitesurf_result.get("status_reason") or kitesurf_result.get("error") or "no better content returned"
+    warnings.append(f"Kitesurf fallback did not improve the result: {kitesurf_reason}")
+    result["warnings"] = warnings
+    return result
+
+
 DOMAIN_ROUTES = (
     {"backend": "generic_reader", "matches": is_x_article_url, "handler": build_x_article_result},
     {"backend": "x_oembed", "matches": is_x_status_url, "handler": build_x_oembed_result},
@@ -879,8 +1098,10 @@ def build_result(input_url: str, timeout: int, image_dir: str | None) -> dict[st
         if route["matches"](normalized_url):
             result = route["handler"](input_url, normalized_url, timeout, image_dir)
             fallback_url = str(result.get("normalized_url") or normalized_url)
+            result = apply_kitesurf_fallback(result, input_url, fallback_url, timeout, image_dir)
             return apply_browser4_fallback(result, input_url, fallback_url, timeout, image_dir)
     result = build_generic_result(input_url, normalized_url, timeout, image_dir)
+    result = apply_kitesurf_fallback(result, input_url, normalized_url, timeout, image_dir)
     return apply_browser4_fallback(result, input_url, normalized_url, timeout, image_dir)
 
 
