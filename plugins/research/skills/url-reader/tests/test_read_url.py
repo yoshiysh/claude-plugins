@@ -103,6 +103,11 @@ Article body line five.
             mock.patch.object(read_url, "fetch_x_oembed", return_value=(200, payload, None)),
             mock.patch.object(
                 read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
+            mock.patch.object(
+                read_url,
                 "run_browser4",
                 return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
             ),
@@ -131,6 +136,11 @@ Article body line five.
             mock.patch.object(read_url, "fetch_x_oembed", return_value=(200, payload, None)),
             mock.patch.object(
                 read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
+            mock.patch.object(
+                read_url,
                 "run_browser4",
                 return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
             ),
@@ -156,6 +166,11 @@ Log in with Facebook
         # Browser4 が読める環境でだけ Extracted に上書きされて結果が環境依存になる。
         with (
             mock.patch.object(read_url, "post_generic_reader", return_value=(200, body)),
+            mock.patch.object(
+                read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
             mock.patch.object(
                 read_url,
                 "run_browser4",
@@ -214,6 +229,11 @@ Article body line five.
             mock.patch.object(read_url, "post_generic_reader", return_value=(403, "blocked")),
             mock.patch.object(
                 read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
+            mock.patch.object(
+                read_url,
                 "run_browser4",
                 return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
             ),
@@ -252,6 +272,11 @@ Article body line five.
             mock.patch.object(read_url, "post_generic_reader", return_value=(403, "blocked")),
             mock.patch.object(
                 read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
+            mock.patch.object(
+                read_url,
                 "run_browser4",
                 return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
             ),
@@ -266,6 +291,11 @@ Article body line five.
     def test_browser4_fallback_promotes_better_public_page_content(self):
         with (
             mock.patch.object(read_url, "post_generic_reader", return_value=(503, "unavailable")),
+            mock.patch.object(
+                read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
             mock.patch.object(
                 read_url,
                 "run_browser4",
@@ -285,7 +315,8 @@ Article body line five.
         self.assertEqual(result["reader_backend"], "browser4")
         self.assertEqual(result["reader_status"], "Extracted")
         self.assertEqual(result["attempts"][0]["backend"], "generic_reader")
-        self.assertEqual(result["attempts"][1]["backend"], "browser4")
+        self.assertEqual(result["attempts"][1]["backend"], "kitesurf")
+        self.assertEqual(result["attempts"][2]["backend"], "browser4")
         self.assertIn("Browser4 fallback was used", result["warnings"][0])
 
     def test_browser4_failure_is_recorded_without_replacing_original_result(self):
@@ -297,6 +328,11 @@ Short but useful title context.
 """
         with (
             mock.patch.object(read_url, "post_generic_reader", return_value=(200, generic_body)),
+            mock.patch.object(
+                read_url,
+                "run_kitesurf",
+                return_value={"status": "Failed", "reason": "kitesurf test stub"},
+            ),
             mock.patch.object(
                 read_url,
                 "run_browser4",
@@ -334,6 +370,109 @@ Other article
         )
 
         self.assertEqual(focused, "Article title\nArticle paragraph.")
+
+    def test_kitesurf_html_parser_extracts_title_text_links_and_images(self):
+        parser = read_url.KitesurfHTMLParser("https://example.com/article")
+        parser.feed(
+            "<html><head><title>Example Title</title></head><body>"
+            "<h1>Example Title</h1><p>Article paragraph.</p>"
+            '<a href="/source">Source</a><img src="/cover.jpg" alt="Cover">'
+            '<script>var ignored = "<img src=\\"https://example.com/ignored.jpg\\">";</script>'
+            "</body></html>"
+        )
+
+        self.assertEqual(parser.title, "Example Title")
+        self.assertIn("Article paragraph.", "".join(parser.text_parts))
+        self.assertEqual(parser.links, [{"text": "Source", "url": "https://example.com/source"}])
+        self.assertEqual(parser.image_links, [{"alt": "Cover", "url": "https://example.com/cover.jpg"}])
+
+    def test_kitesurf_fallback_promotes_content_when_generic_reader_fails(self):
+        with (
+            mock.patch.object(read_url, "post_generic_reader", return_value=(503, "unavailable")),
+            mock.patch.object(
+                read_url,
+                "run_kitesurf",
+                return_value={
+                    "status": "Extracted",
+                    "reason": None,
+                    "title": "Kitesurf Article",
+                    "markdown": "\n".join(
+                        ["Kitesurf Article"] + [f"Article line {i}." for i in range(1, 6)]
+                    ),
+                    "links": [],
+                    "image_links": [],
+                    "warnings": [],
+                },
+            ),
+            mock.patch.object(
+                read_url,
+                "run_browser4",
+                return_value={"status": "Failed", "reason": "browser4-cli is not installed"},
+            ),
+        ):
+            result = read_url.build_result("https://example.com/article", 5, None)
+
+        self.assertEqual(result["reader_backend"], "kitesurf")
+        self.assertEqual(result["reader_status"], "Extracted")
+        self.assertEqual(result["title"], "Kitesurf Article")
+        self.assertIn("Article line 3.", result["markdown"])
+        self.assertEqual(result["attempts"][0]["backend"], "generic_reader")
+        self.assertEqual(result["attempts"][1]["backend"], "kitesurf")
+
+    def test_kitesurf_parses_real_rendered_html_end_to_end(self):
+        kitesurf_html = (
+            "<html><head><title>Kitesurf Article</title></head><body>"
+            "<h1>Kitesurf Article</h1>"
+            "<p>Article line 1.</p><p>Article line 2.</p><p>Article line 3.</p>"
+            "<p>Article line 4.</p><p>Article line 5.</p>"
+            '<a href="/source">Source</a><img src="/cover.jpg" alt="Cover">'
+            "</body></html>"
+        )
+
+        class FakeResponse:
+            status = 200
+
+            def read(self) -> bytes:
+                return kitesurf_html.encode("utf-8")
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+        with mock.patch.object(read_url.urllib.request, "urlopen", return_value=FakeResponse()):
+            capture = read_url.run_kitesurf("https://example.com/article", 5)
+
+        self.assertEqual(capture["status"], "Extracted")
+        self.assertEqual(capture["title"], "Kitesurf Article")
+        self.assertIn("Article line 3.", capture["markdown"])
+        self.assertEqual(capture["links"], [{"text": "Source", "url": "https://example.com/source"}])
+        self.assertEqual(capture["image_links"], [{"alt": "Cover", "url": "https://example.com/cover.jpg"}])
+
+    def test_kitesurf_login_wall_is_blocked(self):
+        login_html = (
+            "<html><head><title>Sign in</title></head><body>"
+            "<p>Please log in</p><p>Email</p><p>Password</p>"
+            "</body></html>"
+        )
+
+        class FakeResponse:
+            status = 200
+
+            def read(self) -> bytes:
+                return login_html.encode("utf-8")
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *exc: object) -> None:
+                return None
+
+        with mock.patch.object(read_url.urllib.request, "urlopen", return_value=FakeResponse()):
+            capture = read_url.run_kitesurf("https://example.com/private", 5)
+
+        self.assertEqual(capture["status"], "Blocked")
 
 
 if __name__ == "__main__":
