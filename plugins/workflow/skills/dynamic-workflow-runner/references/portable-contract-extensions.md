@@ -68,6 +68,13 @@ workflow identity にしない。次の field を追加する。
   direct manifest、通常のdirect invocation、未宣言の意味変更では非空にしない。
 - `artifact_projection`はvalidated producer JSONからsourceがagentへ渡すfieldだけをcontrollerが抽出するinputである。
   producer task/artifact、base pointer、alias、field pointer mapをmanifestへ固定し、agent-visible inputには投影済みJSONだけを置く。
+- `when.artifact_path`はvalidated producer JSON上のcontroller-only条件であり、分岐値をagent-visible inputへmaterializeしない。
+  同じproducer/pathのfull artifact inputと、condition pointerの祖先・同一・子孫を選ぶprojectionは無効である。
+  同じartifactの非重複fieldだけを投影することはできる。
+  同じ投影値がsource callsite引数でもある場合だけ`when.input_alias`を使う。branchごとにfield presenceが違う場合は
+  input shapeごとのtaskを静的列挙し、空値やsentinelでshapeを偽装しない。
+  派生branchの意味対応はproducer contractとfresh translation reviewで検証する。`capability_requests`はcontroller-only条件ではなく
+  agent-visible `artifact_projection` aliasだけを参照する。
 - `capability_requests`は投影済みinput valueに条件付けるdata-dependent capabilityである。利用不能時もsourceがdomain
   fallbackを返すなら`dispatch_with_assessment`とvalidated JSON result guardを必須にする。
 - sourceの決定的pre/post transformとsemantic agent callは、agent-visible input setが同一でない限り別task/artifactにする。

@@ -63,6 +63,12 @@ condition評価のためだけに`artifact` / `optional_artifact`を追加し、
 controllerはprojection baseが無いslotをcondition falseとしてskipできるが、baseが存在するのに宣言fieldが欠ける場合は
 invalid projectionとして停止する。
 
+分岐判定fieldがsource agent callsiteへ渡されない場合は`when.artifact_path`を使う。これはvalidated producer JSONを
+controllerだけがhash検証して評価する条件であり、同じfull artifactやcondition pointerの祖先・同一・子孫を選ぶprojectionを
+consumerの`inputs`へ追加しない。同じartifactの非重複fieldはsource callsiteが受け取る場合だけ投影できる。
+分岐によりagent-visible fieldの有無が変わる場合は、各input shapeのtaskを有限個だけ静的列挙し、controller-onlyの
+scalar branchで一つを選ぶ。sourceがfieldを省略するbranchへ空文字、null、sentinelを注入して一つのtask shapeへ畳まない。
+
 このexact-input規則は一つのsource agent callの前後にも適用する。sourceが決定的前処理でagent引数を作り、agent resultを
 決定的後処理で正規化してから次のagentを呼ぶなら、前処理、semantic agent、後処理を別task/artifactへ分ける。
 semantic agent taskへ前後処理のsource file、全量中間artifact、finalization用引数を渡して一つに畳まない。source roleが
@@ -117,8 +123,8 @@ contextを要求するのにturn数が確定できない場合、`all` や固定
 
 - source自身のschemaとcaller引数に変更不能なhard maxがある
 - translatorが`0..maxItems-1`のslot task、edge、outputを最初のagent dispatch前に完全列挙する
-- 各slotはproducerのhash固定済み`json_artifact`をtyped inputに持ち、RFC 6901 pointerの`exists`または
-  JSON scalarへの`equals`だけで選択する
+- 各slotはproducerのhash固定済み`json_artifact`へのcontroller-only `when.artifact_path`、またはsource callsiteにも渡す
+  projectionへ結合した`when.input_alias`のRFC 6901 pointerを使い、`exists`またはJSON scalarへの`equals`だけで選択する
 - 実行しないslotは`condition_false`でskipし、agent invocationやoutputを作らない
 - downstream fan-inは`optional_task_result` / `optional_artifact`を使い、`available`と`skipped`を順序付きmarkerとして受け取る
 - optionalはcontrollerが明示的に認可・記録した`condition_false`または`capability_unavailable`

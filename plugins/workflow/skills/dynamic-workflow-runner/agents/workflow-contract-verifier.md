@@ -35,6 +35,12 @@ Codex互換変換後の契約に対して判定し、source bytecodeとの無条
   投影し、agent-visible frozen JSONにsource未指定field、sibling、source file、question、workspaceDir等が混入しないこと
 - projectionだけで決まるoptional slot conditionが`when.input_alias`へ結合され、condition評価を口実にfull producer
   artifactをagent inputへ再追加していないこと
+- source callsiteへ渡されない分岐専用fieldは`when.artifact_path`でcontroller-onlyに保たれ、consumer inputへprojectionや
+  artifactとして混入していないこと。同じproducer/pathのfull artifact、およびcondition pointerの祖先・同一・子孫を選ぶ
+  projectionがなく、非重複fieldだけがsource callsiteどおり投影されること。branchごとにagent-visible field presenceが異なる場合はinput shape別taskが静的列挙され、
+  sourceが省略するfieldを空文字、null、sentinelで合成していないこと
+- 派生branch artifactのproducer schemaがbranchとfield空性の関係を拘束し、sourceのarray length、join、filter等からbranch値を
+  reviewer自身が再計算できること。artifact hashだけを意味変換の正しさの証明にしていないこと
 - sourceの各semantic agent callsiteについて、agent-visible inputが実callsite引数とsource-authorized optional read targetの
   exact setであること。決定的な前処理・後処理を同じagent taskへ畳み、そのためのsource file、raw collection、停止判定引数を
   余計に見せていないこと。sourceが条件付きReadを許すbounded evidenceは`optional_artifact`として欠落/順序を保持すること

@@ -629,6 +629,16 @@ function validateJsonPointer(pointer, label) {
   fail(pointer.length <= 2048 && (pointer === "" || pointer.slice(1).split("/").length <= 64), "invalid_schema", `${label} is too large`);
 }
 
+function joinJsonPointers(base, relative) {
+  if (base === "") return relative;
+  if (relative === "") return base;
+  return `${base}${relative}`;
+}
+
+function jsonPointersOverlap(left, right) {
+  return left === "" || right === "" || left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
 function validateReturnExpression(expression, manifest, taskById, limits, counters, depth = 1, label = "return_binding.expression") {
   fail(depth <= limits.max_depth, "budget_exceeded", `${label} exceeds max_depth`);
   counters.nodes += 1;
@@ -955,8 +965,18 @@ function validateGraph(manifest, taskIds) {
         fail(!conditionSource.accepted_outcomes.includes("revise"), "invalid_graph", `${task.id}: artifact condition source cannot have a revise outcome`);
         if (Object.hasOwn(task.when, "artifact_path")) {
           fail(conditionSource.result_contract.target.kind === "json_artifact" && pathKey(conditionSource.result_contract.target.artifact_path) === pathKey(task.when.artifact_path), "invalid_graph", `${task.id}: artifact condition must use the source's validated JSON artifact`);
-          fail(task.inputs.some((input) => ["artifact", "optional_artifact"].includes(input.kind) && input.task_id === task.when.task_id && pathKey(input.path) === pathKey(task.when.artifact_path)), "invalid_graph", `${task.id}: artifact condition must also be a typed task input`);
+          const agentInputs = task.kind === "agent" ? task.inputs : [];
+          for (const input of agentInputs.filter((candidate) => candidate.task_id === task.when.task_id && pathKey(candidate.path ?? "") === pathKey(task.when.artifact_path))) {
+            fail(!["artifact", "optional_artifact"].includes(input.kind), "invalid_graph", `${task.id}: controller-only condition artifact cannot be exposed as a full agent input`);
+            if (input.kind === "artifact_projection") {
+              for (const pointer of Object.values(input.fields)) {
+                const effectivePointer = joinJsonPointers(input.pointer, pointer);
+                fail(!jsonPointersOverlap(effectivePointer, task.when.pointer), "invalid_graph", `${task.id}: controller-only condition pointer overlaps agent-visible projection ${input.alias}`);
+              }
+            }
+          }
         } else {
+          fail(task.kind === "agent", "invalid_graph", `${task.id}: projection condition requires agent task inputs`);
           const projection = task.inputs.find((input) => input.kind === "artifact_projection" && input.alias === task.when.input_alias);
           fail(projection !== undefined && projection.task_id === task.when.task_id, "invalid_graph", `${task.id}: projection condition must use a declared artifact_projection from its condition source`);
         }
@@ -1694,6 +1714,13 @@ function validateStateInvariants(manifest, state, activeCapabilities, runDir) {
       validateAgentInvocationLineage(task, record, state);
     } else {
       fail(record.invocation_id === null && record.agent_handle === null && record.result_path === null && record.result_sha256 === null && record.input_manifest_path === null && record.input_manifest_sha256 === null && record.outcome === null && record.result_contract_receipt === null && record.capability_assessment === null, "state_drift", `${task.id}: gate carries agent-only state`);
+    }
+    const conditionWasConsumed = task.when !== undefined && (
+      (task.kind === "agent" && record.invocation_id !== null) ||
+      (task.kind === "human_gate" && record.gate !== null)
+    );
+    if (conditionWasConsumed) {
+      fail(conditionState(task, state, runDir) === "true", "state_drift", `${task.id}: consumed condition is no longer true`);
     }
     if (TERMINAL.has(record.status)) validateTerminalTaskLineage(task, record, state, runDir);
   }

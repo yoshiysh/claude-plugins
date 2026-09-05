@@ -44,6 +44,11 @@ description: 完成済みdynamic-workflow/v1 manifest以外のsourceを、実行
    source file、sibling field等をpromptや別inputで追加しない。
    optional slotの有無も同じprojectionで判定できる場合は`when.input_alias`へ結合し、legacy artifact conditionを満たす
    ためだけにfull upstream artifact inputを追加しない。
+   source callsiteへ渡されないbranch stateは`when.artifact_path`でcontroller-onlyに評価し、consumer inputへ同じartifactや
+   condition pointerの祖先・同一・子孫を選ぶprojectionを足さない。同じartifactの非重複fieldだけはsource callsiteに合わせて
+   投影してよい。branchによりfield presenceが変わる場合はinput shape別taskを静的列挙し、空文字、null、sentinelで
+   sourceが省略したfieldを合成しない。派生branch artifactのproducer contractとpromptはbranch、field空性、source transformの
+   対応を固定し、fresh verifierがsource spanから再計算できるようにする。
    sourceが決定的前処理の後にagentを呼び、その結果を決定的に正規化・最終化する場合は、前処理、semantic agent、
    後処理を別task/artifact境界へ分ける。semantic agent taskにはsourceの実callsiteで渡される引数だけを見せ、前後処理用の
    source file、raw upstream collection、停止判定引数を追加しない。source roleがbounded evidence file等を条件付きで

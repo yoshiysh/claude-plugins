@@ -53,7 +53,11 @@ translated modeのtranslator identityも、review input、fresh reviewer invocat
 
 `when` はdirect dependencyであるagent taskの`result.outcome`に対する有限`outcomes`集合、または同taskの
 hash固定済み`json_artifact`へのRFC 6901 pointerを扱う。artifact条件は`exists`かJSON scalarへの`equals`だけで、
-condition artifactをconsumerのtyped inputにも必須とする。参照不能、invalid JSON、hash driftをfalseやunknownへ丸めない。
+`when.artifact_path`はcontroller-onlyの分岐入力でありconsumerのagent-visible `inputs`へ追加しない。
+controllerは同じproducer/pathのfull `artifact` / `optional_artifact` inputと、condition pointerの祖先・同一・子孫を
+選ぶ`artifact_projection`を拒否する。同じartifactの非重複fieldだけを投影することは許す。
+consumerが同じ値をsource callsite引数として受け取る場合だけ、必要fieldを`artifact_projection`で宣言し
+`when.input_alias`へ結合する。参照不能、invalid JSON、hash driftをfalseやunknownへ丸めない。
 outcome分岐は`pass` / `revise`だけであり、`failed` / `blocked`は修復分岐へ昇格させずrunをincompleteにする。
 sourceがtransport failureを非success診断値に変換する場合も、互換経路はその業務returnを合成せず
 `workflow_incomplete`へ強化する。この差分はfrozen manifestの`compatibility_normalizations`へsource line span、
@@ -82,6 +86,15 @@ finish/final verificationではproducer result/artifact hashと投影値を再�
 `when.input_alias`は同じtaskに宣言された`artifact_projection`だけをcondition sourceにできる。controllerは投影値を
 agent dispatch前に評価し、base pointer不在をbounded slotのcondition falseとして扱う。一方、baseが存在するのに宣言fieldが
 欠ける場合は`input_projection_failed`で停止する。condition評価用のfull artifact inputを別途要求しない。
+分岐判定だけに使うfieldは`when.artifact_path`でvalidated producer JSONからcontrollerが読み、task input manifestへ
+materializeしない。同じartifactから別のagent-visible fieldを投影する場合も、condition pointerと重なる祖先・同一・子孫を
+projectionへ含めない。分岐によりsource callsiteのagent-visible field有無が変わる場合は、入力shapeごとのtaskを静的列挙し、
+空文字、null、sentinelをsourceに存在しないfieldの代用品として注入しない。
+controllerはinvocationを作成済みのagent taskとdecision済みhuman gateについてconditionを再評価し、producer result/artifactの
+hash driftやtrueからの変化を拒否する。artifact hashはbytes/provenanceを固定するが、source transformから派生branchへの
+意味対応自体は証明しないため、producer result contractでbranchとfield空性を拘束し、fresh contract verifierがsourceから
+変換を再計算する。`capability_requests`はagent-visible `artifact_projection` alias専用であり、controller-only artifact条件を
+能力要求の入力へ流用しない。
 source内の決定的前処理→agent call→決定的後処理は、入力可視性が異なる三つの境界として扱う。semantic agent taskは
 source callsite引数とsource-authorized optional read targetだけを受け取り、前後transform用source、全量artifact、
 finalization引数を受け取らない。sourceがbounded evidence readを許す場合は`optional_artifact`でproducer順と

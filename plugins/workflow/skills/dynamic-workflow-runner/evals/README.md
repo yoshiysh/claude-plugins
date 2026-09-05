@@ -6,7 +6,7 @@ routing 条件ではなく、fixture を識別するためだけに使う。
 
 ## Case の結合契約
 
-`evals.json` の35件すべてに安定した `case_id` がある。`fixtures/expected-mappings.json` と
+`evals.json` の36件すべてに安定した `case_id` がある。`fixtures/expected-mappings.json` と
 `actual-results.json` は同じ `case_id` を一度ずつ持ち、さらに `eval_id` と `eval_name` も一致
 しなければならない。配列の位置やファイル名から case を推測してはならない。
 
@@ -49,7 +49,7 @@ node /absolute/path/to/dynamic-workflow-runner/evals/run-fixtures.mjs
 同skillの決定的 `workflow-bridge.mjs prepare-call / validate-call` だけを使い、次を機械的に検査する。
 
 1. 3つのJSON文書がparseできること
-2. 35件の `case_id` / `eval_id` / `eval_name` / `files` がexactに1対1対応すること
+2. 36件の `case_id` / `eval_id` / `eval_name` / `files` がexactに1対1対応すること
 3. 全file参照がskill directory内の通常fileへ解決すること
 4. fixtureのraw SHA-256がmappingと一致すること
 5. `*.case.json` 内の `case_id` が外側のcaseと一致すること
@@ -71,6 +71,7 @@ node /absolute/path/to/dynamic-workflow-runner/evals/run-fixtures.mjs
 21. raw agent schemaを後段normalization invariantで狭化せず、normalized artifact contractを別に持つこと
 22. source-authorizedなbounded conditional readを順序付きoptional artifactとして保持すること
 23. bounded `prefixItems`をtask/returnでindex別に検証し、validator実装もrunner review inventoryへ結合すること
+24. controller-only conditionをagent inputへ漏らさず、branchごとに異なるfield presenceを静的task shapeで保存すること
 
 成功時のstdoutの `model_execution` はledgerから導出したstatus、実行variant数、grade済みcase数を
 出す。現在値は `not_executed` だが、部分実測なら `partial`、全件実測・grade済みなら `completed` に

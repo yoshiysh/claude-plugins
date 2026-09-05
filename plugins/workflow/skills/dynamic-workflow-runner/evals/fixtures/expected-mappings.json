@@ -867,6 +867,25 @@
       "runtime_events": ["runner_schema_evaluator_bound", "prefix_items_validated", "typed_return_materialized"],
       "required_observations": ["index_specific_schema_enforced", "additional_items_rejected", "prefix_count_bounded", "task_and_return_subset_shared", "validator_in_runner_inventory"],
       "forbidden_observations": ["prefix_items_ignored", "additional_items_accepted", "unbounded_prefix_schema", "validator_outside_review_inventory", "manifest_weakened_to_homogeneous_items"]
+    },
+    {
+      "case_id": "controller-only-condition-input-shapes",
+      "eval_id": 36,
+      "eval_name": "branch_only_state_is_not_added_to_agent_inputs",
+      "input": null,
+      "files": [],
+      "fixture_sha256": {},
+      "expected_trigger": true,
+      "expected_route": "bridge",
+      "expected_bridge_executions": 1,
+      "expected_native_executions": 0,
+      "expected_caller_continuation": true,
+      "expected_return_status": "workflow_complete",
+      "expected_translation_mode": "translated",
+      "expected_terminal": "workflow_complete",
+      "runtime_events": ["feedback_branch_artifact_validated", "controller_only_condition_evaluated", "exact_input_shape_task_selected"],
+      "required_observations": ["branch_state_not_agent_visible", "condition_pointer_overlap_rejected", "disjoint_same_artifact_projection_allowed", "input_shape_tasks_statically_enumerated", "empty_feedback_branch_preserved", "source_omitted_field_not_synthesized"],
+      "forbidden_observations": ["condition_projection_leaked_to_agent", "condition_pointer_ancestor_or_descendant_exposed", "full_condition_artifact_exposed", "empty_feedback_field_injected", "sentinel_field_injected", "runtime_graph_growth"]
     }
   ]
 }

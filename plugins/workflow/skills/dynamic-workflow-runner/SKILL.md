@@ -167,6 +167,9 @@ sourceをimport、eval、実行しない。
    source未指定field、source file、question、workspaceDir、sibling contextをagent inputへ追加しない。transport artifact pathと
    source result内のsemantic absolute pathを別契約として保存する。bounded optional slotの有無も同じ投影で判定する場合は
    `when.input_alias`を使い、条件評価のためだけにproducer artifact全体をtyped inputへ追加しない。
+   source callsiteへ渡されないbranch stateは`when.artifact_path`でcontroller-onlyに評価し、同じfull artifactやcondition pointerと
+   重なるprojectionをagent inputへ入れない。同じartifactの非重複fieldだけはsource callsiteどおり投影できる。branchごとにagent-visible
+   field presenceが異なる場合はinput shape別taskを静的列挙し、省略fieldを空文字、null、sentinelで合成しない。
    source内で決定的な前処理→agent call→決定的な後処理が連続する場合も、semantic agent taskへ前後処理用source、
    中間artifact、最終化引数を同居させない。各agent taskのvisible inputはsourceの実callsite引数と、sourceがそのagentへ
    明示的に許したoptional read targetだけに一致させ、決定的変換は依存関係を持つ別task/artifactへ分離する。

@@ -909,7 +909,6 @@ test("expands bounded artifact slots and preserves skipped optional fan-in marke
     result_contract: jsonArtifactResultContract(artifactPath, planSchema),
   });
   const slot = (id, index) => agentTask(id, ["plan"], {
-    inputs: [{ kind: "artifact", task_id: "plan", path: artifactPath }],
     when: { task_id: "plan", artifact_path: artifactPath, pointer: `/items/${index}`, predicate: "exists" },
   });
   const aggregate = agentTask("aggregate", ["slot-0", "slot-1"], {
@@ -936,6 +935,223 @@ test("expands bounded artifact slots and preserves skipped optional fan-in marke
   assert.equal(invoke(["status", "--run-dir", paths.runDir], 1).code, "artifact_drift");
 });
 
+test("keeps artifact-only conditions controller-owned and out of agent-visible inputs", () => {
+  const artifactPath = "artifacts/plan.json";
+  const planSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", maxItems: 2, items: { type: "string" } } },
+  };
+  const producer = agentTask("plan", [], {
+    artifact_paths: [artifactPath],
+    effect: "workspace_write",
+    result_contract: jsonArtifactResultContract(artifactPath, planSchema),
+  });
+  const paths = fixture([
+    producer,
+    agentTask("slot", ["plan"], {
+      required: false,
+      when: { task_id: "plan", artifact_path: artifactPath, pointer: "/items/0", predicate: "exists" },
+    }),
+  ]);
+  initialize(paths);
+  prepareAndBind(paths, "plan", "invocation-plan", "agent/plan");
+  finishJsonArtifact(paths, "plan", "invocation-plan", artifactPath, { items: ["one"] });
+  assert.deepEqual(invoke(["ready", "--run-dir", paths.runDir]).ready.map((task) => task.id), ["slot"]);
+  const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", "slot", "--invocation", "invocation-slot"]);
+  const inputManifest = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+  assert.deepEqual(inputManifest.inputs, []);
+});
+
+test("revalidates a consumed controller-only condition after task preparation", () => {
+  const artifactPath = "artifacts/plan.json";
+  const planSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["enabled"],
+    properties: { enabled: { type: "boolean" } },
+  };
+  const producer = agentTask("plan", [], {
+    artifact_paths: [artifactPath],
+    effect: "workspace_write",
+    result_contract: jsonArtifactResultContract(artifactPath, planSchema),
+  });
+  const paths = fixture([
+    producer,
+    agentTask("slot", ["plan"], {
+      required: false,
+      when: { task_id: "plan", artifact_path: artifactPath, pointer: "/enabled", predicate: "equals", expected: true },
+    }),
+  ]);
+  initialize(paths);
+  prepareAndBind(paths, "plan", "invocation-plan", "agent/plan");
+  finishJsonArtifact(paths, "plan", "invocation-plan", artifactPath, { enabled: true });
+  invoke(["prepare", "--run-dir", paths.runDir, "--task", "slot", "--invocation", "invocation-slot"]);
+  writeJson(join(paths.runDir, artifactPath), { enabled: false });
+  assert.equal(invoke(["status", "--run-dir", paths.runDir], 1).code, "artifact_drift");
+});
+
+test("skips a false controller-only artifact condition without materializing task inputs", () => {
+  const artifactPath = "artifacts/plan.json";
+  const planSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", maxItems: 2, items: { type: "string" } } },
+  };
+  const producer = agentTask("plan", [], {
+    artifact_paths: [artifactPath],
+    effect: "workspace_write",
+    result_contract: jsonArtifactResultContract(artifactPath, planSchema),
+  });
+  const paths = fixture([
+    producer,
+    agentTask("slot", ["plan"], {
+      required: false,
+      when: { task_id: "plan", artifact_path: artifactPath, pointer: "/items/1", predicate: "exists" },
+    }),
+  ]);
+  initialize(paths);
+  prepareAndBind(paths, "plan", "invocation-plan", "agent/plan");
+  finishJsonArtifact(paths, "plan", "invocation-plan", artifactPath, { items: ["one"] });
+  assert.deepEqual(invoke(["ready", "--run-dir", paths.runDir]).ready, []);
+  const state = JSON.parse(readFileSync(join(paths.runDir, "workflow-state.json"), "utf8"));
+  assert.equal(state.tasks.slot.status, "skipped");
+  assert.equal(state.tasks.slot.input_manifest_path, null);
+});
+
+test("evaluates controller-only artifact conditions for human gates and revalidates a decision", () => {
+  const artifactPath = "artifacts/plan.json";
+  const planSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["enabled"],
+    properties: { enabled: { type: "boolean" } },
+  };
+  const gate = {
+    id: "approval",
+    kind: "human_gate",
+    depends_on: ["plan"],
+    required: true,
+    when: { task_id: "plan", artifact_path: artifactPath, pointer: "/enabled", predicate: "equals", expected: true },
+    action: "decide",
+    targets: ["local-draft"],
+    scope: ["decision-only"],
+    action_package: null,
+  };
+  const makePaths = () => fixture([
+    agentTask("plan", [], {
+      artifact_paths: [artifactPath],
+      effect: "workspace_write",
+      result_contract: jsonArtifactResultContract(artifactPath, planSchema),
+    }),
+    gate,
+  ]);
+
+  const unsupportedProjectionGate = fixture([
+    agentTask("plan", [], {
+      artifact_paths: [artifactPath],
+      effect: "workspace_write",
+      result_contract: jsonArtifactResultContract(artifactPath, planSchema),
+    }),
+    {
+      ...gate,
+      when: { task_id: "plan", input_alias: "visible", pointer: "/enabled", predicate: "equals", expected: true },
+    },
+  ]);
+  const projectionGateError = initialize(unsupportedProjectionGate, [], 1);
+  assert.equal(projectionGateError.code, "invalid_graph");
+  assert.match(projectionGateError.message, /projection condition requires agent task inputs/u);
+
+  const skipped = makePaths();
+  initialize(skipped);
+  prepareAndBind(skipped, "plan", "invocation-plan-skipped", "agent/plan-skipped");
+  finishJsonArtifact(skipped, "plan", "invocation-plan-skipped", artifactPath, { enabled: false });
+  const skippedStatus = invoke(["status", "--run-dir", skipped.runDir]);
+  assert.equal(skippedStatus.status, "workflow_execution_complete");
+  assert.equal(skippedStatus.counts.skipped, 1);
+
+  const approved = makePaths();
+  initialize(approved);
+  prepareAndBind(approved, "plan", "invocation-plan-approved", "agent/plan-approved");
+  finishJsonArtifact(approved, "plan", "invocation-plan-approved", artifactPath, { enabled: true });
+  assert.equal(invoke(["status", "--run-dir", approved.runDir]).status, "workflow_waiting_for_gate");
+  assert.equal(invoke(["approve", "--run-dir", approved.runDir, "--task", "approval", "--decision", "approve", "--actor", "user"]).status, "approved");
+  writeJson(join(approved.runDir, artifactPath), { enabled: false });
+  assert.equal(invoke(["status", "--run-dir", approved.runDir], 1).code, "artifact_drift");
+});
+
+test("statically selects the exact agent-visible input shape for conditional field presence", () => {
+  const artifactPath = "artifacts/feedback.json";
+  const feedbackSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["branch", "feedback"],
+    properties: {
+      branch: { enum: ["with_feedback", "without_feedback", "skip"] },
+      feedback: { type: "string" },
+    },
+    oneOf: [
+      { properties: { branch: { const: "with_feedback" }, feedback: { type: "string", minLength: 1 } } },
+      { properties: { branch: { const: "without_feedback" }, feedback: { const: "" } } },
+      { properties: { branch: { const: "skip" }, feedback: { const: "" } } },
+    ],
+  };
+  const deriveBranch = (failed, priorityFixes) => {
+    if (failed.length === 0) return { branch: "skip", feedback: "" };
+    const feedback = [...failed, ...priorityFixes].join("\n");
+    return { branch: feedback ? "with_feedback" : "without_feedback", feedback };
+  };
+  const cases = [
+    { failed: [], priorityFixes: [], expectedReady: [] },
+    { failed: [], priorityFixes: ["ignored after pass"], expectedReady: [] },
+    { failed: [""], priorityFixes: [], expectedReady: ["design-without-feedback"] },
+    { failed: [""], priorityFixes: ["fix order"], expectedReady: ["design-with-feedback"], expectedFeedback: "\nfix order" },
+    { failed: ["missing section"], priorityFixes: ["fix order"], expectedReady: ["design-with-feedback"], expectedFeedback: "missing section\nfix order" },
+  ];
+  for (const [index, branchCase] of cases.entries()) {
+    const producer = agentTask("feedback", [], {
+      artifact_paths: [artifactPath],
+      effect: "workspace_write",
+      result_contract: jsonArtifactResultContract(artifactPath, feedbackSchema),
+    });
+    const withFeedback = agentTask("design-with-feedback", ["feedback"], {
+      required: false,
+      inputs: [{
+        kind: "artifact_projection",
+        task_id: "feedback",
+        path: artifactPath,
+        pointer: "",
+        alias: "feedback",
+        fields: { feedback: "/feedback" },
+      }],
+      when: { task_id: "feedback", artifact_path: artifactPath, pointer: "/branch", predicate: "equals", expected: "with_feedback" },
+    });
+    const withoutFeedback = agentTask("design-without-feedback", ["feedback"], {
+      required: false,
+      when: { task_id: "feedback", artifact_path: artifactPath, pointer: "/branch", predicate: "equals", expected: "without_feedback" },
+    });
+    const paths = fixture([producer, withFeedback, withoutFeedback]);
+    initialize(paths);
+    prepareAndBind(paths, "feedback", `invocation-feedback-${index}`, `agent/feedback-${index}`);
+    const derived = deriveBranch(branchCase.failed, branchCase.priorityFixes);
+    finishJsonArtifact(paths, "feedback", `invocation-feedback-${index}`, artifactPath, derived);
+    assert.deepEqual(invoke(["ready", "--run-dir", paths.runDir]).ready.map((task) => task.id), branchCase.expectedReady);
+    if (branchCase.expectedReady.length === 0) continue;
+    const selected = branchCase.expectedReady[0];
+    const prepared = invoke(["prepare", "--run-dir", paths.runDir, "--task", selected, "--invocation", `invocation-design-${index}`]);
+    const inputManifest = JSON.parse(readFileSync(join(paths.runDir, prepared.input_manifest_path), "utf8"));
+    if (selected === "design-without-feedback") {
+      assert.deepEqual(inputManifest.inputs, []);
+    } else {
+      assert.deepEqual(inputManifest.inputs.map((input) => input.kind), ["artifact_projection"]);
+      const projected = JSON.parse(readFileSync(join(paths.runDir, inputManifest.inputs[0].path), "utf8"));
+      assert.deepEqual(projected, { feedback: branchCase.expectedFeedback });
+    }
+  }
+});
+
 test("rejects unsafe artifact conditions before execution", () => {
   const artifactPath = "artifacts/plan.json";
   const producer = agentTask("plan", [], {
@@ -943,11 +1159,6 @@ test("rejects unsafe artifact conditions before execution", () => {
     effect: "workspace_write",
     result_contract: jsonArtifactResultContract(artifactPath, { type: "object" }),
   });
-  const missingTypedInput = fixture([
-    producer,
-    agentTask("slot", ["plan"], { when: { task_id: "plan", artifact_path: artifactPath, pointer: "/items/0", predicate: "exists" } }),
-  ]);
-  assert.equal(invoke(["init", "--manifest", missingTypedInput.manifestPath, "--capabilities", missingTypedInput.capabilitiesPath, "--run-dir", missingTypedInput.runDir], 1).code, "invalid_graph");
 
   const objectEquality = fixture([
     producer,
@@ -958,8 +1169,88 @@ test("rejects unsafe artifact conditions before execution", () => {
   ]);
   assert.equal(invoke(["init", "--manifest", objectEquality.manifestPath, "--capabilities", objectEquality.capabilitiesPath, "--run-dir", objectEquality.runDir], 1).code, "invalid_schema");
 
+  for (const input of [
+    { kind: "artifact", task_id: "plan", path: artifactPath },
+    { kind: "optional_artifact", task_id: "plan", path: artifactPath },
+  ]) {
+    const fullArtifactLeak = fixture([
+      producer,
+      agentTask("slot", ["plan"], {
+        inputs: [input],
+        when: { task_id: "plan", artifact_path: artifactPath, pointer: "/branch", predicate: "equals", expected: "selected" },
+      }),
+    ]);
+    const error = initialize(fullArtifactLeak, [], 1);
+    assert.equal(error.code, "invalid_graph");
+    assert.match(error.message, /controller-only condition artifact cannot be exposed/u);
+  }
+
+  for (const [pointer, fieldPointer] of [["", "/branch"], ["", ""], ["/branch", "/detail"]]) {
+    const projectionLeak = fixture([
+      producer,
+      agentTask("slot", ["plan"], {
+        inputs: [{
+          kind: "artifact_projection",
+          task_id: "plan",
+          path: artifactPath,
+          pointer,
+          alias: "visible",
+          fields: { leaked: fieldPointer },
+        }],
+        when: { task_id: "plan", artifact_path: artifactPath, pointer: "/branch", predicate: "equals", expected: "selected" },
+      }),
+    ]);
+    const error = initialize(projectionLeak, [], 1);
+    assert.equal(error.code, "invalid_graph");
+    assert.match(error.message, /controller-only condition pointer overlaps/u);
+  }
+
+  const disjointProjection = fixture([
+    producer,
+    agentTask("slot", ["plan"], {
+      inputs: [{
+        kind: "artifact_projection",
+        task_id: "plan",
+        path: artifactPath,
+        pointer: "",
+        alias: "visible",
+        fields: { feedback: "/feedback" },
+      }],
+      when: { task_id: "plan", artifact_path: artifactPath, pointer: "/branch", predicate: "equals", expected: "selected" },
+    }),
+  ]);
+  assert.equal(initialize(disjointProjection).status, "workflow_ready");
+
+  const capabilityFromControllerCondition = fixture([
+    producer,
+    agentTask("slot", ["plan"], {
+      required: false,
+      when: { task_id: "plan", artifact_path: artifactPath, pointer: "/needs_web", predicate: "equals", expected: true },
+      result_contract: jsonArtifactResultContract("artifacts/verdict.json", {
+        type: "object",
+        additionalProperties: false,
+        required: ["verdict"],
+        properties: { verdict: { enum: ["verified", "cannot-verify"] } },
+      }),
+      artifact_paths: ["artifacts/verdict.json"],
+      effect: "workspace_write",
+      capability_requests: [{
+        request_id: "conditional-web",
+        when: { input_alias: "branch", pointer: "/needs_web", predicate: "equals", expected: true },
+        semantic_capabilities: ["public_web_read"],
+        permissions: ["public_web_read"],
+        on_unavailable: {
+          action: "dispatch_with_assessment",
+          result_guard: { artifact_path: "artifacts/verdict.json", pointer: "/verdict", predicate: "equals", expected: "cannot-verify" },
+        },
+      }],
+    }),
+  ]);
+  const capabilityConditionError = initialize(capabilityFromControllerCondition, [], 1);
+  assert.equal(capabilityConditionError.code, "invalid_graph");
+  assert.match(capabilityConditionError.message, /unknown projection alias branch/u);
+
   const conditionalSlot = agentTask("slot", ["plan"], {
-    inputs: [{ kind: "artifact", task_id: "plan", path: artifactPath }],
     when: { task_id: "plan", artifact_path: artifactPath, pointer: "/items/0", predicate: "exists" },
   });
   const nonOptionalFanIn = fixture([

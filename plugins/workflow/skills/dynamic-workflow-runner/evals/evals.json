@@ -587,6 +587,23 @@
         "taskとreturnの両contractで同じsubsetを使う",
         "schema evaluatorをrunner review inventoryへ含める"
       ]
+    },
+    {
+      "id": 36,
+      "case_id": "controller-only-condition-input-shapes",
+      "name": "branch_only_state_is_not_added_to_agent_inputs",
+      "prompt": "Workflow sourceはfailed配列が非空なら第2設計を実行する。ただしjoin/filter後のfeedbackが非空の時だけagent引数へfeedback fieldを追加し、failed=[\"\"]では第2設計を実行するがfeedback field自体を省略する。互換manifestへ翻訳・reviewして。",
+      "expected_output": "決定的transformがwith_feedback、without_feedback、skipのscalar branchをvalidated JSONへ出し、when.artifact_pathでcontroller-onlyに選ぶ。with/without feedbackはagent-visible input shape別の静的taskとして列挙し、without branchへ空feedback、branch field、producer artifactを渡さない。同じartifactからfeedbackだけを投影できるがcondition pointerと重なるprojectionは拒否する。when.input_aliasはsource callsiteも同じ投影値を受け取る場合だけ使う。",
+      "files": [],
+      "assertions": [
+        "branch-only fieldをcontroller-owned conditionにする",
+        "condition artifactをagent-visible inputへ追加しない",
+        "condition pointerと重なるprojectionを拒否する",
+        "同じartifactの非重複field projectionは許可する",
+        "field presence別にtaskを静的列挙する",
+        "failed empty stringの到達可能branchを保存する",
+        "空値やsentinelで省略fieldを合成しない"
+      ]
     }
   ]
 }
