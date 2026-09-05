@@ -30,7 +30,7 @@ queue/worker の責務分離は維持するが、通常の Notion ページを�
 - `source_queue_page_id` は URL-only list の親ページを示すだけであり、通常ページの `source_page_id` や canonical page の代替ではない。
 - `application.page_identity` と `verification.page_identity` を必ず記録する。既存ページでは `canonical_page_created: false`、通常のURL itemでは `canonical_page_created: true` とする。URL itemが強い重複で既存canonicalを再利用する場合は、`reused_existing_canonical: true`、`duplicate_of: <既存canonical page id>`、`canonical_page_created: false` を記録し、既存canonicalの再fetch・Index照合・入力URL cleanupを検証する。
 - URL item は canonical または Unresolved page の移動と ancestor 検証が成功した後、元の URL 行を最小差分で削除し、削除後 fetch で不在を確認する。通常ページには URL 行 cleanup を適用しない。
-- 強い重複を検出しても、通常ページの正本を勝手に新規作成しない。URL itemは既存 canonical candidateを再利用し、同一内容を表す代替出典URLを既存正本に追記できる場合は追記して入力URLをcleanupする。既存ページを再利用できず、削除・アーカイブも不能なら `deferred`（`deferred_reason: duplicate_delete_unavailable`）にする。重複ページをTopic Indexに登録しない。
+- 強い重複を検出しても、通常ページの正本を勝手に新規作成しない。URL itemは既存 canonical candidateを再利用し、同一内容を表す代替出典URLを既存正本に追記できる場合は追記して入力URLをcleanupする。既存ページを再利用できず、削除・アーカイブも不能なら `unresolved`（`unresolved_reason: duplicate_delete_unavailable`）にする。重複ページをTopic Indexに登録しない。
 
 ## 実行モデル
 
@@ -49,7 +49,8 @@ wakeup mechanism    automation heartbeat または AI/MCP を起動できる run
 - automation heartbeat は execution-capable runner として扱う。一度起動したら、単発の報告で終わらず、下記の dispatch loop を容量が埋まるまで実行する。
 
 ```text
-ready -> leased(resolve -> enrich -> classify -> apply -> verify) -> registered|unresolved|deferred
+ready -> leased(resolve -> enrich -> classify -> apply -> verify) -> registered|unresolved
+                 (unresolved には reason を必ず記録する。旧runの `deferred` は読み取り専用の legacy 終端状態として残る)
                  \-> waiting_retry -> ready
 ```
 
@@ -120,8 +121,8 @@ python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
 - in-app Browser fallback の取得手順・selector・`browser_capture` schema は `[SKILL_DIR]/references/in-app-browser-fallback.md` だけが定義する。この protocol は `url-reader` が代行できない「呼び出し側の agent が自分で実行する工程」なので、このスキルが自前で持つ（`url-reader` は別 plugin であり、そのファイルをパスで参照しても install 先では解決しない）。ここで再定義・再解釈しない。content-enricher が受け取った抽出済みブロック列（見出し・段落・コード・引用・リスト・表・リンク・画像）を元記事順のまま `Notes` に置き、プロフィール、反応数、誘導文、Browser audit を混ぜない。画像を先頭・末尾へまとめたり、画像 URL だけを別の節へ移したりしてはいけない。
 - 登録成功には `source_content.status: complete`、本文 digest、ordered block 数、画像数、`content_application`、独立 verifier による本文・画像順序の一致が必須である。取得本文が `Partial`、画像が欠落、または原文と適用本文の対応を確認できない場合は登録せず、根拠と不足を `Unresolved Sources` へ移す。
 - 根拠不足は DB に登録せず `Unresolved Sources` へ移す。理由、source URL、reader 結果、次の確認点を残す。
-- 同一 source URL、normalized URL、または Notion capture の強い重複は、代表ページだけを残す。重複ページは既定で削除・アーカイブ・trash を実行し、削除系ツールが初期一覧に無ければ `tool_search` で露出を試す。検索後も利用できない場合は削除した扱いにせず `duplicate_delete_unavailable` として記録し、対象 job を `deferred`（`deferred_reason: duplicate_delete_unavailable`）にして報告する。重複ページを Topic Index に登録しない。
+- 同一 source URL、normalized URL、または Notion capture の強い重複は、代表ページだけを残す。重複ページは既定で削除・アーカイブ・trash を実行し、削除系ツールが初期一覧に無ければ `tool_search` で露出を試す。検索後も利用できない場合は削除した扱いにせず `duplicate_delete_unavailable` として記録し、対象 job を `unresolved`（`unresolved_reason: duplicate_delete_unavailable`）にして報告する。重複ページを Topic Index に登録しない。
 
 ## 報告と完了条件
 
-途中報告では、progress audit を通った item だけを「ページ完了」と呼ぶ。queue に `ready` / `waiting_retry` / `leased` が残っていても、既に検証済み item の結果を否定しない。`leased` は worker id・phase・有効期限を併記し、expired lease を含む生の件数を稼働中と表現してはいけない。`バッチ完了` は final audit 成功時だけ使い、処理数、DB 登録数、Unresolved 数、deferred 数、残件、domain backoff、次に人間が見る項目を報告する。既存の terminal job に page identity、`application.knowledge_index`、`verification.db_verification` のいずれかが無い場合は旧結果を信頼せず、`reopen` で再検証する（旧契約の registered は Topic Index に行が無いまま終端化している可能性がある）。
+途中報告では、progress audit を通った item だけを「ページ完了」と呼ぶ。queue に `ready` / `waiting_retry` / `leased` が残っていても、既に検証済み item の結果を否定しない。`leased` は worker id・phase・有効期限を併記し、expired lease を含む生の件数を稼働中と表現してはいけない。`バッチ完了` は final audit 成功時だけ使い、処理数、DB 登録数、Unresolved 数（`unresolved_reason` ごとの内訳を含む）、残件、domain backoff、次に人間が見る項目を報告する。旧run由来の legacy `deferred` job が残っている場合はその件数も併記する。既存の terminal job に page identity、`application.knowledge_index`、`verification.db_verification` のいずれかが無い場合は旧結果を信頼せず、`reopen` で再検証する（旧契約の registered は Topic Index に行が無いまま終端化している可能性がある）。
