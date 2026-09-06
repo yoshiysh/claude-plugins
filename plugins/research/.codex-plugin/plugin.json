@@ -1,6 +1,6 @@
 {
     "name": "research",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "一次情報検証つき調査ツール群（search / reference / url-reader / dispatch）",
     "author": {
         "name": "yoshiysh"

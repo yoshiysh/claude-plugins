@@ -25,10 +25,11 @@ This is an execution-plane step for the agent, not a subprocess that `read_url.p
 1. Take `browser_fallback.canonical_url` verbatim. Do not reconstruct it from a status ID, an `i/article` ID, a username, or a page title. Confirm it is the normalized public URL preserved by `url-reader`.
 2. Open or navigate an in-app Browser tab to that URL. Do not use a search engine, another URL, or a substitute web reader.
 3. After navigation, record the final URL. Reject a redirect to a private/local host or a login wall. A normal public redirect is retained in the audit as `final_url`.
-4. Choose the content scope without dumping the whole page. For an X Article, require exactly one `[data-testid="twitterArticleReadView"]`; a count of zero or more than one is `not_found` / `failed`. For other pages, prefer one semantic `article`, then a meaningful `main`/`[role="main"]`, and exclude `nav`, `aside`, `footer`, recommendation blocks, login UI, and repeated chrome. Record the selector or locator used.
-5. From the selected scope only, extract ordered visible blocks: title/headings, paragraphs, code, quotes, lists, links, and real public images. For X Articles, accept `pbs.twimg.com/media/` images; for other pages, accept actual `img` URLs after public-URL validation. Never treat CSS/JS URL fragments as images.
-6. Normalize and deduplicate image URLs while retaining each image's source block index. Do not download login-page assets. Do not enter credentials or click through a login wall.
-7. Record the capture separately from page content:
+4. Choose the content scope without dumping the whole page. For an X Article, first check `[data-testid="twitterArticleReadView"]`; if exactly one exists, use it. X has removed this test-id from some Article page renders (confirmed 2026-09), so when it is absent, fall back to the page's single semantic `<article>` element instead of declaring `not_found` — an X Article page renders exactly one `<article>`, and it holds the full title/author/date/body. A count other than exactly one for whichever selector is used (`twitterArticleReadView` or `article`) is `not_found` / `failed`. For other (non-X-Article) pages, prefer one semantic `article`, then a meaningful `main`/`[role="main"]`, and exclude `nav`, `aside`, `footer`, recommendation blocks, login UI, and repeated chrome. Record the selector or locator actually used (`content_selector` must reflect it, not always the test-id string).
+5. When the `<article>` fallback was used for an X Article, its `innerText` carries a few dozen characters of trailing site-chrome after the real content ends (typically a "Go to Home" / `@<user>さん` / "Xを検索" tail, or the localized equivalent). Trim this trailing chrome before treating the remainder as article text; do not drop it silently without recording that a trim occurred.
+6. From the selected scope only, extract ordered visible blocks: title/headings, paragraphs, code, quotes, lists, links, and real public images. For X Articles, accept `pbs.twimg.com/media/` images; for other pages, accept actual `img` URLs after public-URL validation. Never treat CSS/JS URL fragments as images.
+7. Normalize and deduplicate image URLs while retaining each image's source block index. Do not download login-page assets. Do not enter credentials or click through a login wall.
+8. Record the capture separately from page content:
 
 ```json
 {
@@ -45,7 +46,7 @@ This is an execution-plane step for the agent, not a subprocess that `read_url.p
 }
 ```
 
-`status: success` requires a public final URL, a stable selected content scope (exactly one Article view for X Articles), and meaningful visible text. If those checks fail, preserve the reason and keep the source unresolved or partial; never infer missing text.
+`status: success` requires a public final URL, a stable selected content scope (exactly one Article view for X Articles, via `twitterArticleReadView` or the `article` fallback), and meaningful visible text. If those checks fail, preserve the reason and keep the source unresolved or partial; never infer missing text.
 
 ## Handoff rules
 
