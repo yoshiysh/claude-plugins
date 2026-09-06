@@ -2,6 +2,7 @@ import { Codex } from '@openai/codex-sdk';
 import { modelResolver } from './models.mjs';
 import { exactObject, backendKeys } from './inputs.mjs';
 import { workspacePolicy } from './workspaces.mjs';
+import { environmentPolicy } from './environment.mjs';
 
 // Transport only: keep the caller schema unchanged for runtime validation.
 const transportSchema = { type: 'object', properties: { json: { type: 'string' } },
@@ -13,19 +14,21 @@ export function codexBackend(config = {}) {
   const { cwd, modelMap = {}, codexPathOverride, model, modelReasoningEffort, CodexClass = Codex } = config;
   if (!cwd) throw new Error('explicit worker cwd required');
   const workspaces = workspacePolicy(cwd, config.workspace);
+  const environment = environmentPolicy(config.environment);
+  const prepare = async () => ({ ...await workspaces.prepare(), environment: await environment.prepare() });
   const resolveModel = modelResolver({ model, modelReasoningEffort, modelMap });
   const codex = new CodexClass({ codexPathOverride,
-    config: { features: { multi_agent: false }, model_provider: 'openai' } });
+    config: { features: { multi_agent: false }, model_provider: 'openai', ...environment.sdkConfig } });
   return {
     capabilities: workspaces.capabilities,
-    prepare: workspaces.prepare,
+    prepare,
     validate(options) {
       resolveModel(options.model);
       workspaces.validate(options);
     },
     async run(prompt, options, { signal, emit }) {
       const selection = resolveModel(options.model);
-      const policy = await workspaces.prepare();
+      const policy = await prepare();
       const directory = await workspaces.allocate(options, { signal, emit });
       emit({ type: 'model.selected', ...selection });
       const thread = codex.startThread({ workingDirectory: directory, skipGitRepoCheck: true,

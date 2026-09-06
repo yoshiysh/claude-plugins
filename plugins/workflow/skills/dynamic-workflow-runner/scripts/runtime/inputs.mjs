@@ -7,7 +7,7 @@ export function exactObject(value, keys, name) {
 }
 
 export const requestKeys = ['scriptPath', 'args'];
-export const backendKeys = ['cwd', 'modelMap', 'codexPathOverride', 'model', 'modelReasoningEffort', 'CodexClass', 'workspace'];
+export const backendKeys = ['cwd', 'modelMap', 'codexPathOverride', 'model', 'modelReasoningEffort', 'CodexClass', 'workspace', 'environment'];
 export const limitKeys = ['maxAgents', 'concurrency', 'timeoutMs', 'maxOutputBytes'];
 
 export function validateRequirements(requirements = [], capabilities = ['read-only', 'fresh-thread']) {

@@ -105,6 +105,23 @@ normal background process mechanism; no model-driven per-task polling is require
 
 ## Deliberate gaps / rollout gate
 
+### Optional command environment preflight
+
+Request `environment` accepts `path` (a PATH string of absolute, nonempty entries)
+and a nonempty `requiredCommands` array of simple executable names. Include hook
+dependencies such as rtk explicitly when the host uses them. No platform-specific
+directory is inserted automatically. The backend passes this PATH via per-instance
+SDK `shell_environment_policy.set.PATH`; global configuration is never edited.
+Missing executables fail before run creation and thread dispatch. Canonical executable
+paths and the selected PATH are recorded in request.json backendPolicy.environment.
+The check is repeated before dispatch, but does not prevent subsequent filesystem drift.
+
+This is an executable-file lookup, not execution in the actual worker sandbox or a
+proof of shell-startup/hook compatibility. Shell startup can still alter PATH; required
+commands do not automatically enumerate hook dependencies. Omitting environment retains
+host behavior and records host-default-unverified. No executable is run by preflight.
+Neither minimal injected context nor a hard inner-turn token limit is implemented.
+
 - No transparent replay/resume. A reused run directory is rejected. Failed runs list
   in-flight task IDs; abort delivery does not prove external effects were rolled back.
 - No live token hard cap: this SDK reports completed-turn usage, not a strict debit
