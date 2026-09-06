@@ -40,6 +40,16 @@ logs `model.selected` with its requested label, target and effort. With no expli
 default, `host-default` is recorded; the actual host-selected ID is not inferred.
 No Claude-to-Codex equivalence or target availability is implied.
 `limits` accepts maxAgents, concurrency, timeoutMs and maxOutputBytes.
+Unknown request, host, backend, and limit fields are rejected, including resume and
+permission overrides. `requirements` may be declared in source metadata and/or the
+host request; both are checked before run creation or agent dispatch. Only read-only
+and fresh-thread are currently supported requirement names. Callers must declare
+their needs, including capabilities hidden behind dynamically constructed options.
+As a conservative additional gate, literal option-shaped objects containing model,
+label or schema and known unsupported capability keys (e.g. isolation) are rejected
+across the whole source, even in inactive branches. This may reject similarly shaped
+domain data; it is not whole-program capability inference. Computed/indirect options
+still require truthful requirements and retain runtime validation.
 Run `node cli.mjs REQUEST.json --live --trusted-source`.
 
 Default limits are two agent calls, two concurrent workers and 60 seconds. The

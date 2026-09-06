@@ -34,6 +34,9 @@ SDK worker は fresh thread だが、cwd の指示やホスト設定までゼロ
    caller は `unsupported_runtime` として止める。外部サービス権限を filesystem 制限で代用しない。
 5. source の信頼性、worker cwd、利用するモデル対応表、実行上限を確認する。
    任意名・任意拡張子は許すが、Node vm は hostile source の強制 sandbox ではない。
+6. caller の必要機能を request の `requirements` に列挙する。source の meta にも宣言できる。
+   現在の対応値は `read-only`、`fresh-thread` のみ。それ以外は最初の呼出し前に拒否する。
+   動的に構成する option も宣言対象。source 全体の静的推定が完成したとは扱わない。
 
 ## JavaScript 実行経路
 

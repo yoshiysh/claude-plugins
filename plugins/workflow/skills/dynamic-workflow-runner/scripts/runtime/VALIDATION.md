@@ -62,3 +62,25 @@ line (the earlier verification command), not a discovered missing runtime depend
 That lexical warning is retained rather than silently suppressed. Independently,
 the actual runtime still requires Node, installed pinned npm dependencies and Codex
 authentication; installation alone is not verified as zero-setup execution.
+
+## Unsupported-input regression and live transport recheck
+
+Before the fix, a direct request with resumeFromRunId and a new runDir ran the source
+again; unsupported host permission fields were ignored. Unchanged pdca.js invoked its
+mock builder once before rejecting the runner's isolation option. These were reproduced
+without live inference.
+
+The regression checks now reject unknown request/host/backend/limit fields, reject
+unsupported declared requirements, and reject the unchanged PDCA literal isolation
+option before run creation and with zero backend calls. Static option detection is
+conservative and incomplete for computed options; caller requirements remain necessary.
+This is rejection coverage, not implementation of worktree, writes, approval or resume.
+
+One subsequent live smoke ran on 2026-09-06 from 10:57:17.634Z to 10:57:30.824Z:
+two calls, result `{"text":"workflow smoke","matches":true}`, inFlight empty.
+Input 18,759 + 18,788 = 37,547; output 21 + 15 = 36; cached input zero.
+Reasoning output is already included. Parent conversation usage is excluded.
+Both model events recorded host-default; explicit model/effort availability was not tested.
+No retries and no full PDCA/research/skill-creator live execution were performed.
+Temporary evidence directory:
+`/var/folders/j1/xj39qyh11db8zh2gh50ybkp40000gn/T/workflow-live-smoke-o5muvh/run`.

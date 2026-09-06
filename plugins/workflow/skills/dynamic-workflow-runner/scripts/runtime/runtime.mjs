@@ -4,12 +4,18 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
+import { exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
-export async function Workflow({ scriptPath, args = {} }, {
+export async function Workflow(request, host = {}) {
+  exactObject(request, requestKeys, 'Workflow request');
+  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', ...limitKeys], 'Workflow host');
+  validateRequirements(host.requirements);
+  const { scriptPath, args = {} } = request;
+  const {
   backend, runDir, trustedSource = false, maxAgents = 2, concurrency = 2,
   timeoutMs = 60000, maxOutputBytes = 1000000,
-} = {}) {
+  } = host;
   if (!trustedSource) throw new Error('trustedSource acknowledgement required; not a hostile-code sandbox');
   if (!backend || typeof backend.run !== 'function') throw new Error('backend.run required');
   for (const [key, value] of Object.entries({ maxAgents, concurrency, timeoutMs, maxOutputBytes }))
@@ -25,7 +31,7 @@ export async function Workflow({ scriptPath, args = {} }, {
   await mkdir(runDir, { mode: 0o700 });
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
-    sourceHash: hash(source), argsHash: hash(encodedArgs), meta,
+    sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [],
     limits: { maxAgents, concurrency, timeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
   let journal = Promise.resolve();
   let sequence = 0;
