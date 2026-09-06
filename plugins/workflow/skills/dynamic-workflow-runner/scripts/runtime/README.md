@@ -18,6 +18,17 @@ or schema-validated JSON. Backend failures and invalid outputs become null. Orde
 fan-out retains nulls. Configuration errors, resource limits and script exceptions
 fail the entire run; catching an agent error cannot bypass host limits.
 
+For structured results the SDK receives a fixed strict envelope `{json: string}`.
+The original role prompt is retained as a prefix, followed by transport instructions
+and the original JSON Schema. After parsing the envelope and its JSON string, the
+runtime validates against the unchanged source schema. Optional properties remain
+optional and additional properties are not silently forbidden. This is a transport
+adaptation, not byte-identical SDK prompt forwarding; malformed envelopes fail without
+retry. Text-only calls retain the original prompt and have no envelope.
+SDK error events are drained before surfacing failure, and cancellation listeners
+are detached when a turn ends, preventing later host aborts from hitting cleaned-up
+SDK child processes.
+
 This shape follows [Claude workflows](https://code.claude.com/docs/en/workflows).
 No filesystem, shell, module loading or clock/randomness API is intentionally exposed
 to the body. **Node vm is not a hostile-code security boundary. Only run reviewed,

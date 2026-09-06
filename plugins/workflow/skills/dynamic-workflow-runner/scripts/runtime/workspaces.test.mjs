@@ -61,7 +61,7 @@ test('unchanged PDCA JS completes through mock SDK with explicit write/worktree 
         else if (prompt.includes('/agents/verifier.md')) result = { condition_id: 'single', run_index: 1, measured: true, score: 1, criteria_checks: [] };
         else result = { mechanisms: [], criteria_validity: 'mock only', unmeasured: [], gap: '' };
         return { events: (async function* () {
-          yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(result) } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({json:JSON.stringify(result)}) } };
           yield { type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } };
         })() };
       } };
