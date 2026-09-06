@@ -29,6 +29,21 @@ INPUT_KINDS = {
 }
 TERMINAL_STATES = {"registered", "unresolved", "deferred"}  # "deferred" kept for reading legacy runs only; new completions may not produce it
 NEW_COMPLETION_STATES = {"registered", "unresolved"}
+# Fixed taxonomy for grouping Unresolved Sources by reason. Each unresolved
+# completion must classify into exactly one of these; the free-text
+# unresolved_reason stays as the human-readable detail. Keep in sync with
+# SKILL.md's taxonomy table and the Unresolved Sources reason subpages that
+# index-maintainer resolves/creates.
+UNRESOLVED_REASON_CATEGORIES = {
+    "paywall_or_membership",
+    "login_required_or_access_denied",
+    "not_primary_source",
+    "dead_or_removed",
+    "download_gate",
+    "insufficient_content",
+    "duplicate_delete_unavailable",
+    "no_source",
+}
 WORKING_STATE = "leased"
 SCHEDULABLE_STATES = {"ready", "waiting_retry", WORKING_STATE}
 ALL_STATES = {"ready", "waiting_retry", WORKING_STATE, *TERMINAL_STATES}
@@ -431,6 +446,11 @@ def validate_verification(job: dict[str, Any], state: str, verification: dict[st
     elif state == "unresolved":
         if not verification.get("unresolved_reason"):
             raise ValueError("unresolved verification requires unresolved_reason")
+        category = verification.get("unresolved_reason_category")
+        if category not in UNRESOLVED_REASON_CATEGORIES:
+            raise ValueError(
+                f"unresolved verification requires unresolved_reason_category to be one of {sorted(UNRESOLVED_REASON_CATEGORIES)}"
+            )
         if verification.get("move_verified") is not True:
             raise ValueError("unresolved verification requires move_verified=true")
     elif state == "deferred" and not verification.get("deferred_reason"):
