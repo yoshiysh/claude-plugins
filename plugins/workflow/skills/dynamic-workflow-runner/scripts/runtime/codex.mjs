@@ -1,24 +1,31 @@
 import { Codex } from '@openai/codex-sdk';
 import { modelResolver } from './models.mjs';
 import { exactObject, backendKeys } from './inputs.mjs';
+import { workspacePolicy } from './workspaces.mjs';
 
 // No aliases or automatic provider substitution. Caller owns the mapping.
 export function codexBackend(config = {}) {
   exactObject(config, backendKeys, 'Codex backend');
   const { cwd, modelMap = {}, codexPathOverride, model, modelReasoningEffort, CodexClass = Codex } = config;
   if (!cwd) throw new Error('explicit worker cwd required');
+  const workspaces = workspacePolicy(cwd, config.workspace);
   const resolveModel = modelResolver({ model, modelReasoningEffort, modelMap });
   const codex = new CodexClass({ codexPathOverride,
     config: { features: { multi_agent: false }, model_provider: 'openai' } });
   return {
+    capabilities: workspaces.capabilities,
+    prepare: workspaces.prepare,
     validate(options) {
       resolveModel(options.model);
+      workspaces.validate(options);
     },
     async run(prompt, options, { signal, emit }) {
       const selection = resolveModel(options.model);
+      const policy = await workspaces.prepare();
+      const directory = await workspaces.allocate(options, { signal, emit });
       emit({ type: 'model.selected', ...selection });
-      const thread = codex.startThread({ workingDirectory: cwd, skipGitRepoCheck: true,
-        sandboxMode: 'read-only', approvalPolicy: 'never', webSearchMode: 'disabled',
+      const thread = codex.startThread({ workingDirectory: directory, skipGitRepoCheck: true,
+        sandboxMode: policy.mode, approvalPolicy: 'never', webSearchMode: 'disabled',
         networkAccessEnabled: false, model: selection.model,
         modelReasoningEffort: selection.modelReasoningEffort });
       let answer, completed = false;

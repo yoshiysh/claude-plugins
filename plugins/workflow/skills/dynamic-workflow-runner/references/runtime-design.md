@@ -37,6 +37,10 @@ This release does not certify write-heavy skill-creator or research workflows.
 Deterministic tests cover source parsing, dependency order, null/schema behavior,
 deadlines, hard call limits, fresh threads, exact prompt forwarding, explicit model
 policy and invalid settings. A live smoke demonstrates transport only, not full
-caller equivalence. Use a lightweight read-only caller for the next integration test;
-record call count, usage and actual outcomes before expanding permissions.
+caller equivalence. Writable mode and worktree routing are opt-in host policy, with
+real Git/mock SDK coverage. Source owns artifact handoff; independent checkouts are
+not strict read isolation. The baseline is an explicit commit, never an implicit copy
+of dirty parent state. A bounded disposable-worktree live test remains required before
+claiming writable-agent behavior; full PDCA roles are still unverified. Record call
+count, usage and actual outcomes before expanding caller routing.
 Never launch an extra review workflow merely to execute an already-reviewed source.

@@ -7,14 +7,14 @@ export function exactObject(value, keys, name) {
 }
 
 export const requestKeys = ['scriptPath', 'args'];
-export const backendKeys = ['cwd', 'modelMap', 'codexPathOverride', 'model', 'modelReasoningEffort', 'CodexClass'];
+export const backendKeys = ['cwd', 'modelMap', 'codexPathOverride', 'model', 'modelReasoningEffort', 'CodexClass', 'workspace'];
 export const limitKeys = ['maxAgents', 'concurrency', 'timeoutMs', 'maxOutputBytes'];
 
-export function validateRequirements(requirements = []) {
+export function validateRequirements(requirements = [], capabilities = ['read-only', 'fresh-thread']) {
   if (!Array.isArray(requirements) || requirements.some(x => typeof x !== 'string'))
     throw new Error('requirements must be an array of strings');
   for (const capability of requirements) {
-    if (!['read-only', 'fresh-thread'].includes(capability))
+    if (!capabilities.includes(capability))
       throw new Error(`unsupported runtime requirement: ${capability}`);
   }
 }

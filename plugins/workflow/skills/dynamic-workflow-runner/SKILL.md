@@ -30,12 +30,14 @@ SDK worker は fresh thread だが、cwd の指示やホスト設定までゼロ
 1. native `Workflow` が実際に呼べるなら caller の native 経路を使う。設定フラグ名は能力の証明ではない。
 2. native を一度でも試行した call をこちらで再実行しない。timeout は未実行の証明にならない。
 3. caller が宣言した source と args を確認する。別 branch や例示から call を推測しない。
-4. 現 adapter は read-only worker 用。書込、厳密な tool allowlist、承認の転送、resume を必要とする
+4. worker は既定で read-only。明示許可した `workspace-write` と独立 Git worktree は opt-in。
+   厳密な tool allowlist、承認の転送、resume を必要とする
    caller は `unsupported_runtime` として止める。外部サービス権限を filesystem 制限で代用しない。
 5. source の信頼性、worker cwd、利用するモデル対応表、実行上限を確認する。
    任意名・任意拡張子は許すが、Node vm は hostile source の強制 sandbox ではない。
 6. caller の必要機能を request の `requirements` に列挙する。source の meta にも宣言できる。
-   現在の対応値は `read-only`、`fresh-thread` のみ。それ以外は最初の呼出し前に拒否する。
+   既定の対応値は `read-only`、`fresh-thread`。host の workspace 設定に応じて
+   `workspace-write`、`worktree` を追加する。未提供の機能は最初の呼出し前に拒否する。
    動的に構成する option も宣言対象。source 全体の静的推定が完成したとは扱わない。
 
 ## JavaScript 実行経路
@@ -43,6 +45,9 @@ SDK worker は fresh thread だが、cwd の指示やホスト設定までゼロ
 初回 setup と request 作成時だけ [実行仕様](scripts/runtime/README.md) を読む。
 request JSON に `scriptPath`、`args`、新規 `runDir`、worker `cwd` と必要なモデル設定・上限を記録する。
 モデル指定のある source には明示的な `modelMap` が必要。対応表の品質同等性は推測しない。
+書込許可は host が決め、source の要求だけでは昇格しない。worktree は host が指定した
+完全 commit hash から作り、元 checkout の未コミット変更は含めない。成果物の引継ぎは source が設計する。
+worktree は独立 checkout であり厳密な読取隔離ではない。作成物は失敗時も残し、自動 merge・削除しない。
 
 ```bash
 node [SKILL_DIR]/scripts/runtime/cli.mjs <request.json> --live --trusted-source

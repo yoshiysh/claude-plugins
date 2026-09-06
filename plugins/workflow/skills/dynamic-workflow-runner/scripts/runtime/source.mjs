@@ -18,7 +18,7 @@ function literal(node) {
   throw new Error('meta must contain only literal values');
 }
 
-export function compileSource(source) {
+export function compileSource(source, capabilities = ['read-only', 'fresh-thread']) {
   const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true });
   const first = ast.body[0];
   const declaration = first?.declaration;
@@ -27,7 +27,7 @@ export function compileSource(source) {
       declaration.declarations.length !== 1 || binding.id.name !== 'meta' || binding.init.type !== 'ObjectExpression')
     throw new Error('first statement must be export const meta = {...}');
   const meta = literal(binding.init);
-  validateRequirements(meta.requirements);
+  validateRequirements(meta.requirements, capabilities);
   if (typeof meta.name !== 'string' || !meta.name || typeof meta.description !== 'string' || !meta.description)
     throw new Error('meta requires name and description');
   function visit(node) {
@@ -39,6 +39,9 @@ export function compileSource(source) {
         .map(p => p.key.name ?? p.key.value);
       if (keys.some(k => ['model', 'label', 'schema'].includes(k))) {
         for (const key of ['isolation', 'tools', 'allowedTools', 'permissionMode', 'sandboxMode']) {
+          const property = node.properties.find(p => (p.key?.name ?? p.key?.value) === key && !p.computed);
+          if (key === 'isolation' && capabilities.includes('worktree') &&
+              property?.value.type === 'Literal' && property.value.value === 'worktree') continue;
           if (keys.includes(key)) throw new Error(`unsupported source capability option: ${key}`);
         }
       }

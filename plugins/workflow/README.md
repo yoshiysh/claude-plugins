@@ -20,11 +20,12 @@ Claude Code では caller plugin の `dependencies` から導入されます。C
 
 新 runtime は信頼済み source を JavaScript として実行し、Codex SDK の fresh thread へ
 `agent()` の exact prompt を渡します。モデル名と reasoning effort は明示的な対応表で指定します。
-初期 adapter は read-only で、call 数・並行数・期限を制限します。厳密な token 上限ではありません。
+adapter は既定で read-only。明示設定で workspace-write と完全 commit hash 起点の独立 worktree を使用できます。
+call 数・並行数・期限を制限しますが、厳密な token 上限ではありません。
 
 導入だけで native Workflow が追加されるわけではありません。既存 caller の旧 receipt 経路は
 まだ新 runtime へ自動移行していません。現時点の検証範囲は自動テストと小さな live smoke であり、
-全 caller の E2E、書込、承認転送、resume は未対応です。
+全 caller の E2E、書込の live 検証、承認転送、resume は未完了です。
 旧 manifest 手順は `skills/dynamic-workflow-runner/LEGACY.md` に隔離しています。
 
 詳細なフローは `skills/dynamic-workflow-runner/SKILL.md` を参照してください。

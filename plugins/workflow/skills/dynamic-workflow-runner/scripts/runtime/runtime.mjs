@@ -10,7 +10,8 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
   exactObject(request, requestKeys, 'Workflow request');
   exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', ...limitKeys], 'Workflow host');
-  validateRequirements(host.requirements);
+  const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
+  validateRequirements(host.requirements, capabilities);
   const { scriptPath, args = {} } = request;
   const {
   backend, runDir, trustedSource = false, maxAgents = 2, concurrency = 2,
@@ -23,7 +24,8 @@ export async function Workflow(request, host = {}) {
   if (maxAgents > 1000 || concurrency > 16) throw new Error('agent limits exceed supported maximum');
   const path = await realpath(scriptPath);
   const source = await readFile(path, 'utf8');
-  const { meta, body } = compileSource(source);
+  const { meta, body } = compileSource(source, capabilities);
+  const backendPolicy = await backend.prepare?.();
   const encodedArgs = JSON.stringify(args);
   if (encodedArgs === undefined) throw new Error('args must be JSON serializable');
   if (!runDir) throw new Error('new runDir required');
@@ -31,7 +33,7 @@ export async function Workflow(request, host = {}) {
   await mkdir(runDir, { mode: 0o700 });
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
-    sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [],
+    sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [], backendPolicy,
     limits: { maxAgents, concurrency, timeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
   let journal = Promise.resolve();
   let sequence = 0;
@@ -116,7 +118,9 @@ export async function Workflow(request, host = {}) {
           throw new Error('invalid agent arguments');
         if (Buffer.byteLength(prompt) > maxOutputBytes) throw new Error('prompt byte limit exceeded');
         for (const key of Object.keys(options))
-          if (!['model', 'label', 'phase', 'schema'].includes(key)) throw new Error(`unsupported agent option: ${key}`);
+          if (!['model', 'label', 'phase', 'schema', 'isolation'].includes(key)) throw new Error(`unsupported agent option: ${key}`);
+        if (options.isolation !== undefined && (options.isolation !== 'worktree' || !capabilities.includes('worktree')))
+          throw new Error('unsupported agent option: isolation');
         for (const key of ['model', 'label', 'phase'])
           if (options[key] !== undefined && typeof options[key] !== 'string') throw new Error(`invalid ${key}`);
         const validate = options.schema === undefined ? null : ajv.compile(options.schema);

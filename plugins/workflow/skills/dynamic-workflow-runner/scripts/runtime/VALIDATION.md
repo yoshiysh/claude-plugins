@@ -84,3 +84,24 @@ Both model events recorded host-default; explicit model/effort availability was 
 No retries and no full PDCA/research/skill-creator live execution were performed.
 Temporary evidence directory:
 `/var/folders/j1/xj39qyh11db8zh2gh50ybkp40000gn/T/workflow-live-smoke-o5muvh/run`.
+
+## Explicit workspace policy — local verification
+
+The default remains read-only. An explicit host policy can select workspace-write
+and provide an existing separate worktree root plus an exact commit baseline.
+Source requirements and literal isolation options are checked against that policy.
+Three added tests pass using actual temporary Git repositories:
+
+- Two concurrent isolated checkouts start from the committed baseline, not dirty
+  parent contents; changes in one do not modify the other or the parent checkout.
+- Invalid modes, incomplete configuration, symbolic baselines, overlapping paths and
+  pre-aborted allocation fail without worker dispatch.
+- Unmodified PDCA JavaScript completes Build → Run → Verify → Analyze through a mock
+  SDK (four calls). Only Run receives its own worktree. SDK options record writable
+  mode and approvals never. Mock role responses do not read actual role references;
+  this is routing/schema coverage, not full PDCA behavior or quality validation.
+
+No additional live inference was performed for this change. Actual writable-agent
+execution, approval forwarding, resume and unchanged-caller live E2E remain open.
+The SKILL entry and runtime documentation were aligned with this bounded capability;
+the formal skill-creator evaluation Workflow was not executed.

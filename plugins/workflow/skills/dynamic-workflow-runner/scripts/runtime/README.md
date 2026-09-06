@@ -12,7 +12,7 @@ the remaining body supports top-level await and return. The parser removes only 
 metadata statement by its AST source span, not regex or model translation. Names and
 extensions are arbitrary. Imports and additional exports fail before execution.
 
-The injected API is `agent(prompt,{model,label,phase,schema})`, `parallel(thunks)`,
+The injected API is `agent(prompt,{model,label,phase,schema,isolation})`, `parallel(thunks)`,
 `pipeline(items,fn)`, `phase(title)`, `log(message)`, and `args`. Agent results are text
 or schema-validated JSON. Backend failures and invalid outputs become null. Ordered
 fan-out retains nulls. Configuration errors, resource limits and script exceptions
@@ -42,11 +42,13 @@ No Claude-to-Codex equivalence or target availability is implied.
 `limits` accepts maxAgents, concurrency, timeoutMs and maxOutputBytes.
 Unknown request, host, backend, and limit fields are rejected, including resume and
 permission overrides. `requirements` may be declared in source metadata and/or the
-host request; both are checked before run creation or agent dispatch. Only read-only
-and fresh-thread are currently supported requirement names. Callers must declare
+host request; both are checked before run creation or agent dispatch. Default capabilities
+are read-only and fresh-thread; explicit workspace configuration can add workspace-write
+and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
 As a conservative additional gate, literal option-shaped objects containing model,
-label or schema and known unsupported capability keys (e.g. isolation) are rejected
+label or schema and unsupported capability keys are rejected (literal isolation:
+"worktree" is accepted only when the host provides worktree capability)
 across the whole source, even in inactive branches. This may reject similarly shaped
 domain data; it is not whole-program capability inference. Computed/indirect options
 still require truthful requirements and retain runtime validation.
@@ -59,7 +61,30 @@ The SDK uses its pinned CLI unless codexPathOverride is explicitly supplied.
 Normal local Codex authentication/configuration applies; no credential is copied into
 the source worker. Installed MCP tools and host policies need separate verification:
 read-only filesystem settings are NOT an external-service write prohibition.
-Do not use this initial adapter for workflows requiring tool allowlists or writes.
+Do not use this adapter for workflows requiring tool allowlists or approval forwarding.
+
+### Explicit writable and isolated checkouts
+
+The optional request `workspace` object accepts `mode` (read-only by default, or
+workspace-write), plus `worktreeRoot` and `baseCommit` together. `worktreeRoot` must
+be an existing absolute directory separate from the repository; `cwd` must be its
+repository root, and `baseCommit` must be an existing full lowercase commit hash,
+not a branch or HEAD. Host permission applies uniformly to all calls; source cannot
+escalate it. Network/search remain disabled and approvalPolicy remains never.
+
+With this policy, `agent(prompt, {isolation: "worktree", ...})` receives a unique
+detached Git checkout at that exact commit. Other agents use the original cwd.
+Dirty/untracked parent files are not copied. Source owns artifact transfer between
+workers; checkout isolation does not prevent reading absolute paths elsewhere.
+Only use trusted repositories: disabling Git hooks does not disable checkout filters.
+Worktrees are preserved after success, failure or cancellation; no automatic cleanup,
+merge, reset or retry occurs. Events record allocated/ready paths and baseline, and
+request.json records the canonical backend policy. Setup Git commands have their own
+10-second timeout; setup precedes the workflow execution deadline.
+
+Writable SDK options and unchanged PDCA control flow have mock-backed tests with real
+Git checkouts. Actual writable live-agent enforcement and full PDCA role execution
+remain unverified; do not infer those guarantees from the mock SDK.
 
 `request.json`, source.txt and events.jsonl contain source/args hashes, phases,
 task IDs, thread IDs, results, failures and completed-turn token usage. They may
