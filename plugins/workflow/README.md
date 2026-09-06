@@ -1,7 +1,8 @@
 # workflow
 
-Claude Code 向け skill の active `Workflow({ scriptPath, args })` callsite を、Codex の bounded
-multi-agent graph で fail-closed に実行する内部互換プラグイン。
+Claude Code 向け skill の active `Workflow({ scriptPath, args })` callsite を扱う内部プラグイン。
+現在は JavaScript 実行 runtime へ移行中です。source が worker の prompt と参照資料を所有し、
+runner が追加の LLM 変換担当・契約レビュアーを起動しない構成にしています。
 
 ## 収録スキル
 
@@ -17,9 +18,14 @@ native Workflow が現在の tool inventory に無いときだけ、この runne
 Claude Code では caller plugin の `dependencies` から導入されます。Codex は plugin dependency を
 自動導入しないため、対応済み caller plugin と `workflow` をそれぞれ一度 install してください。
 
-runner は workflow source を実行せずに読み、source と exact args に結合した bounded DAG へ変換します。
-上限不明の fan-out / loop、意味保存できない処理、外部更新の無承認実行、未検証 return は
-success に丸めず停止します。
+新 runtime は信頼済み source を JavaScript として実行し、Codex SDK の fresh thread へ
+`agent()` の exact prompt を渡します。モデル名と reasoning effort は明示的な対応表で指定します。
+初期 adapter は read-only で、call 数・並行数・期限を制限します。厳密な token 上限ではありません。
+
+導入だけで native Workflow が追加されるわけではありません。既存 caller の旧 receipt 経路は
+まだ新 runtime へ自動移行していません。現時点の検証範囲は自動テストと小さな live smoke であり、
+全 caller の E2E、書込、承認転送、resume は未対応です。
+旧 manifest 手順は `skills/dynamic-workflow-runner/LEGACY.md` に隔離しています。
 
 詳細なフローは `skills/dynamic-workflow-runner/SKILL.md` を参照してください。
 

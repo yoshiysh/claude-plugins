@@ -1,0 +1,11 @@
+export const meta = { name: 'two-step-smoke', description: 'Read-only literal generation and verification' }
+phase('Generate')
+const generated = await agent('Do not use tools or inspect files. Return exactly the text: workflow smoke')
+if (generated === null) throw new Error('generation failed')
+phase('Check')
+const checked = await agent(`Do not use tools or inspect files. Is this text exactly "workflow smoke"? ${JSON.stringify(generated)}`, {
+  schema: { type: 'object', properties: { matches: { type: 'boolean' } }, required: ['matches'], additionalProperties: false }
+})
+if (checked === null || checked.matches !== true || generated.trim() !== 'workflow smoke')
+  throw new Error('smoke verification failed')
+return { text: generated, matches: checked.matches }
