@@ -32,6 +32,26 @@ queue/worker の責務分離は維持するが、通常の Notion ページを�
 - URL item は canonical または Unresolved page の移動と ancestor 検証が成功した後、元の URL 行を最小差分で削除し、削除後 fetch で不在を確認する。通常ページには URL 行 cleanup を適用しない。
 - 強い重複を検出しても、通常ページの正本を勝手に新規作成しない。URL itemは既存 canonical candidateを再利用し、同一内容を表す代替出典URLを既存正本に追記できる場合は追記して入力URLをcleanupする。既存ページを再利用できず、削除・アーカイブも不能なら `unresolved`（`unresolved_reason: duplicate_delete_unavailable`）にする。重複ページをTopic Indexに登録しない。
 
+## Unresolved Sources の理由別グルーピング（必須）
+
+`Unresolved Sources` 配下は理由別のサブページで分ける。理由は自由記述の `unresolved_reason` に加え、次の固定 8 分類のどれか 1 つを `unresolved_reason_category` として必ず記録する（`queue.py complete --state unresolved` はこのフィールドが以下の値でなければ拒否する）。
+
+| category（機械可読） | サブページ名（日本語） | 典型例 |
+|---|---|---|
+| `paywall_or_membership` | 有料会員限定・パスワード保護 | 有料会員記事の途中まで、パスワード保護記事 |
+| `login_required_or_access_denied` | ログイン必須・アクセス拒否 | ログイン壁、Access Denied / Akamai 等の edge block |
+| `not_primary_source` | 検索結果ページのみ・一次情報未特定 | source URL が Google 検索クエリで一次情報が特定できない |
+| `dead_or_removed` | 削除済み・404 | リンク先が削除済み、404、リダイレクトのみ |
+| `download_gate` | ダウンロード誘導のみ | 本文が PDF/資料ダウンロード誘導だけで公開ページに本文が無い |
+| `insufficient_content` | 本文情報不足 | X Article の selector 不一致、実質的な本文が無い一行ポインタ |
+| `duplicate_delete_unavailable` | 重複（削除不可） | 強い重複だが削除・アーカイブ手段が無い |
+| `no_source` | 参照元URLなし・空ページ | 本文が空でURL/添付も無い |
+
+- `index-maintainer` はこの 8 サブページを `Unresolved Sources` 直下で検索し、無ければ作成して `unresolved_reason_pages`（category → page_id）を返す。
+- `page-normalizer` は `keep_in_inbox` のとき、対象ページ（通常ページ自身、または URL item の canonical page）を `Unresolved Sources` 直下ではなく該当 category のサブページ配下へ移動する。
+- `update-verifier` は再 fetch した destination が `unresolved_reason_category` に対応するサブページの配下であることを確認する。単に `Unresolved Sources` 配下というだけでは不十分。
+- どの分類にも当てはまらない理由が繰り返し出てくる場合は、新しい category を追加する前にユーザーに相談する（分類を増やしすぎるとグルーピングの意味が薄れる）。
+
 ## 実行モデル
 
 `workspace/` は Git 管理外の run state である。実行系は次の3層を明確に分ける。Python は**状態管理のみ**で、AI/MCP を実行できない shell の常駐化を worker と見なしてはいけない。

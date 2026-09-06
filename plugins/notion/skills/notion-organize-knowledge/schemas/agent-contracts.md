@@ -44,6 +44,16 @@
   "topic_index_data_source_id": "string|null",
   "topic_index_database_page_id": "string|null",
   "unresolved_sources_page_id": "string|null",
+  "unresolved_reason_pages": {
+    "paywall_or_membership": "string|null",
+    "login_required_or_access_denied": "string|null",
+    "not_primary_source": "string|null",
+    "dead_or_removed": "string|null",
+    "download_gate": "string|null",
+    "insufficient_content": "string|null",
+    "duplicate_delete_unavailable": "string|null",
+    "no_source": "string|null"
+  },
   "domains": [],
   "available_properties": [],
   "missing_properties": [],
@@ -268,6 +278,7 @@
       "page_id": "string",
       "destination_page_id": "string",
       "destination_path": "string",
+      "unresolved_reason_category": "paywall_or_membership|login_required_or_access_denied|not_primary_source|dead_or_removed|download_gate|insufficient_content|duplicate_delete_unavailable|no_source|null",
       "tool": "mcp__notion.notion_move_pages",
       "attempted": true,
       "result": "success|failed|skipped",
@@ -484,6 +495,8 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
       "temporary_image_url_found": false,
       "move_attempted": true,
       "move_verified": true,
+      "unresolved_reason": "string|null",
+      "unresolved_reason_category": "paywall_or_membership|login_required_or_access_denied|not_primary_source|dead_or_removed|download_gate|insufficient_content|duplicate_delete_unavailable|no_source|null",
       "content_verification": {
         "status": "passed",
         "target_page_id": "notion-page-id",
@@ -528,6 +541,8 @@ URL-only item では `mode: url_item`、`source_page_id: null`、作成した `c
 Use `[SKILL_DIR]/scripts/queue.py` to create and mutate the only run ledger. `[SKILL_DIR]/scripts/validate_run_audit.py --workspace <workspace> --run-id <run> --phase preflight|progress|final` reads those same files; do not create a parallel manifest or hand-edit job JSON. `events.jsonl` is append-only audit history and is never written into Notion.
 
 `state: deferred` is a legacy terminal value that older runs may still carry on disk (e.g. `duplicate_delete_unavailable`); `queue.py complete` no longer accepts it as a new completion state — new duplicate-delete-unavailable cases complete as `unresolved` with `unresolved_reason: duplicate_delete_unavailable`. Readers must still tolerate an existing `deferred` job without erroring.
+
+A new `unresolved` completion also requires `unresolved_reason_category` to be one of the fixed 8 values in `queue.py`'s `UNRESOLVED_REASON_CATEGORIES` (see `SKILL.md`'s taxonomy table) — `queue.py complete` rejects an unresolved completion missing or using an unlisted category. This is a `complete`-time check only: existing terminal jobs from before this taxonomy existed are not required to carry the field, so `validate_run_audit.py`'s read-time checks do not enforce it retroactively.
 
 ```json
 {

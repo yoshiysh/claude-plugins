@@ -445,6 +445,42 @@ class QueueTest(unittest.TestCase):
         self.invoke(QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "registered", "--verification-json", json.dumps(verification))
         self.invoke(AUDIT, "--workspace", str(self.workspace), "--run-id", "run", "--phase", "final")
 
+    def test_unresolved_completion_requires_a_reason_category_and_rejects_deferred(self) -> None:
+        self.create(max_workers=1)
+        self.enqueue("page", "https://example.com/paywalled")
+        self.invoke(QUEUE, "claim", "--workspace", str(self.workspace), "--run-id", "run", "--worker-id", "worker-a")
+        common = ("--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page", "--worker-id", "worker-a")
+        self.invoke(QUEUE, "advance", *common, "--phase", "enrich")
+        proposal = '{"classification":{"domain":"AI","topic":"Agents","evidence":["text"],"tags":[],"alternatives":[],"decision_reason":"text"}}'
+        self.invoke(QUEUE, "advance", *common, "--phase", "classify", "--proposal-json", proposal)
+        identity = {
+            "mode": "existing_page", "source_page_id": "page", "canonical_page_id": "page",
+            "canonical_page_created": False, "source_queue_page_id": None,
+        }
+        application = {"page_identity": identity, "action": "keep_in_inbox", "unresolved_reason": "paywalled: full body unavailable"}
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        verification = {
+            "verifier_id": "verifier-b", "verified_at": "2026-09-06T00:00:00Z",
+            "notion_refetch": {"page_id": "page", "fetched_at": "2026-09-06T00:00:00Z", "destination_parent_id": "unresolved-sources-paywall"},
+            "page_identity": identity,
+            "unresolved_reason": "paywalled: full body unavailable",
+            "move_verified": True,
+        }
+        # deferred is no longer an accepted new completion state (argparse itself rejects it).
+        rejected = subprocess.run(
+            ["python3", str(QUEUE), "complete", *common, "--verifier-id", "verifier-b", "--state", "deferred", "--verification-json", json.dumps(verification)],
+            text=True, capture_output=True,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("invalid choice", rejected.stderr)
+        # unresolved without a fixed-taxonomy category is rejected.
+        result = self.invoke(QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "unresolved", "--verification-json", json.dumps(verification), ok=False)
+        self.assertIn("unresolved_reason_category", result["error"])
+        verification["unresolved_reason_category"] = "paywall_or_membership"
+        self.invoke(QUEUE, "complete", *common, "--verifier-id", "verifier-b", "--state", "unresolved", "--verification-json", json.dumps(verification))
+        self.invoke(AUDIT, "--workspace", str(self.workspace), "--run-id", "run", "--phase", "final")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
