@@ -21,6 +21,14 @@ model: opus
 - 選択肢が本当に割れて審議が要るなら、その旨を返す（`needs_deliberation: true`）。SKILL 側が `magi` に委譲する
 - 入力が Do/Check の中間結果や過去 run のログを含んでいたら読まない。見えていると出た結果に通る基準を書ける
 
+## 対象がスキル自身のとき
+
+起点の対象が配布スキルなら、成功基準の指標は telemetry の実測フィールド
+（`dry_stop`・`novelty_history`・`fabrication_findings` など。記録は
+`[SKILL_DIR]/scripts/skill_telemetry.py`）から選び、測定方法は「同一入力で本体版と
+staging 版の対照 run」を既定とする。会話の印象や記憶の数値を基準に使わない —
+基準が telemetry に無い量なら、それは測れる環境が無いのと同じで、検証不能の経路へ。
+
 ## 検証不能
 逆算の材料（数字・制約）が無い／測れる環境が無い／成功基準を観測の形に落とせない、のいずれかなら
 Plan を書かず `{ "status": "unverifiable", "reason": "...", "what_is_needed": "..." }` を返す。
