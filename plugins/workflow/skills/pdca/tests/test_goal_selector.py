@@ -75,6 +75,45 @@ class TestGoalSelector(unittest.TestCase):
             self.assertIn("decided_at", rec)
 
 
+class TestAuditFollowups(unittest.TestCase):
+    """適合監査の基準外指摘 4 件の回帰化(型崩れの present 非対称 / 再裁定の無警告上書き /
+    select 表示が保存済み status を無視 / statement 連結空白は表示検証に含む)。"""
+
+    def test_型が契約外の値はpresentに数えない(self):
+        with tempfile.TemporaryDirectory() as td:
+            seed(td, {"a": BACKSTOP_RUN, "b": {"fabrication_findings": 1},
+                      "bad": {"fabrication_findings": "たくさん"}})
+            run(["select", "--skill", "prd-spec"], td)
+            r3 = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R3.json").read_text())
+            # "たくさん" は int 契約外 → 未計測扱い(present にも hit にも入れない)
+            self.assertEqual(r3["trace"]["present_runs"], ["a", "b"])
+            self.assertEqual(r3["trace"]["runs"], ["b"])
+
+    def test_裁定済みへのdecideはforceなしで拒否される(self):
+        with tempfile.TemporaryDirectory() as td:
+            seed(td, {"a": BACKSTOP_RUN})
+            run(["select", "--skill", "prd-spec"], td)
+            run(["decide", "--goal", "prd-spec-R1", "--status", "rejected", "--reason", "x"], td)
+            again = run(["decide", "--goal", "prd-spec-R1", "--status", "approved", "--reason", "y"], td)
+            self.assertNotEqual(again.returncode, 0)
+            self.assertIn("--force", again.stderr)
+            forced = run(["decide", "--goal", "prd-spec-R1", "--status", "approved",
+                          "--reason", "y", "--force"], td)
+            self.assertEqual(forced.returncode, 0)
+            rec = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R1.json").read_text())
+            self.assertEqual(rec["status"], "approved")
+
+    def test_selectの表示は保存済みstatusを反映する(self):
+        with tempfile.TemporaryDirectory() as td:
+            seed(td, {"a": BACKSTOP_RUN})
+            run(["select", "--skill", "prd-spec"], td)
+            run(["decide", "--goal", "prd-spec-R1", "--status", "done", "--reason", "x"], td)
+            out = run(["select", "--skill", "prd-spec"], td)
+            line = next(l for l in out.stdout.splitlines() if l.startswith("prd-spec-R1"))
+            self.assertIn("[done]", line)
+            self.assertIn("の run で 改稿上限", line)  # statement の連結空白
+
+
 class TestUnregisteredSkill(unittest.TestCase):
     def test_未登録スキルのselectはエラーで止まる(self):
         with tempfile.TemporaryDirectory() as td:

@@ -47,40 +47,40 @@ PURPOSE_REFS = {
 # 「対象スキルの範囲」参照）。述語は「問題の徴候」だけを書く（dry_stop=true のような
 # 成功状態は候補にしない）。impact / cost は 1-5 の凍結既定値で、根拠を各行に残す。
 RULES = [
-    {"id": "R1", "field": "verdict", "symptom": "改稿上限に到達して収束しないまま run が終わる",
+    {"id": "R1", "vtype": str, "field": "verdict", "symptom": "改稿上限に到達して収束しないまま run が終わる",
      "pred": lambda v: v == "revision_backstop_reached",
      "impact": 5, "impact_why": "収束はループ設計の主目的そのもの",
      "cost": 3, "cost_why": "機序特定に対照 run が要る"},
-    {"id": "R2", "field": "unpresented_blocking_count", "symptom": "未提示の blocking な未確定事項を残したまま run が終わる",
+    {"id": "R2", "vtype": int, "field": "unpresented_blocking_count", "symptom": "未提示の blocking な未確定事項を残したまま run が終わる",
      "pred": lambda v: isinstance(v, int) and v >= 1,
      "impact": 4, "impact_why": "人間ゲートに届かない裁定待ちは完成条件を壊す",
      "cost": 2, "cost_why": "提示経路の修正で足りることが多い"},
-    {"id": "R3", "field": "fabrication_findings", "symptom": "入力に無い内容の混入が検出される",
+    {"id": "R3", "vtype": int, "field": "fabrication_findings", "symptom": "入力に無い内容の混入が検出される",
      "pred": lambda v: isinstance(v, int) and v >= 1,
      "impact": 5, "impact_why": "捏造は成果物の信頼の根を壊す",
      "cost": 3, "cost_why": "権限・経路の設計変更に及ぶ"},
-    {"id": "R5", "field": "novelty_history", "symptom": "新規性が下がりきらないまま run が終わる",
+    {"id": "R5", "vtype": list, "field": "novelty_history", "symptom": "新規性が下がりきらないまま run が終わる",
      "pred": lambda v: isinstance(v, list) and len(v) > 0 and isinstance(v[-1], (int, float)) and v[-1] > 0,
      "impact": 3, "impact_why": "非収束の徴候だが R1 より弱い早期信号",
      "cost": 2, "cost_why": "判定器の調整で動くことが実証済み"},
-    {"id": "R6", "field": "revisions_used", "symptom": "改稿予算（backstop 3）を使い切る",
+    {"id": "R6", "vtype": int, "field": "revisions_used", "symptom": "改稿予算（backstop 3）を使い切る",
      "pred": lambda v: isinstance(v, int) and v >= 4,
      "impact": 3, "impact_why": "予算消費はコスト超過の直接指標",
      "cost": 2, "cost_why": "収束改善に相乗りできる"},
-    {"id": "R7", "field": "adjudicated", "symptom": "指摘が 1 件も fixed に至らず rejected か documented に流れる",
+    {"id": "R7", "vtype": dict, "field": "adjudicated", "symptom": "指摘が 1 件も fixed に至らず rejected か documented に流れる",
      "pred": lambda v: isinstance(v, dict) and v.get("fixed") == 0
      and (v.get("rejected", 0) or 0) + (v.get("documented", 0) or 0) >= 1,
      "impact": 3, "impact_why": "直されない指摘の在庫化は品質負債",
      "cost": 3, "cost_why": "裁定基準の見直しは影響範囲が広い"},
-    {"id": "R8", "field": "verdict", "symptom": "未確定事項を残して終わる",
+    {"id": "R8", "vtype": str, "field": "verdict", "symptom": "未確定事項を残して終わる",
      "pred": lambda v: v == "tbd_remaining",
      "impact": 2, "impact_why": "TBD 残しは設計上の正常経路でもある",
      "cost": 2, "cost_why": "review 1 周で解消できる"},
-    {"id": "R9", "field": "audit_incomplete", "symptom": "監査が未完のまま run が終わる",
+    {"id": "R9", "vtype": bool, "field": "audit_incomplete", "symptom": "監査が未完のまま run が終わる",
      "pred": lambda v: v is True,
      "impact": 4, "impact_why": "未検査を合格と読み違える入口になる",
      "cost": 2, "cost_why": "リトライ・欠測表示の修正が中心"},
-    {"id": "R10", "field": "writer_missing", "symptom": "writer 出力に欠落がある",
+    {"id": "R10", "vtype": int, "field": "writer_missing", "symptom": "writer 出力に欠落がある",
      "pred": lambda v: isinstance(v, int) and v >= 1,
      "impact": 4, "impact_why": "一度も直されていない指摘が残る",
      "cost": 2, "cost_why": "再試行経路の追加で足りる"},
@@ -131,12 +131,17 @@ def select(skill: str) -> list:
             value = runs[label].get(rule["field"])
             if value is None:
                 continue
+            # 型が契約外の値は判定不能 = 未計測と同じ扱い。述語任せにすると isinstance
+            # ガード付きの述語が例外を出さずに「非 hit（分母入り）」へ静かに丸め、壊れた
+            # 記録が hit 率を薄めて徴候を隠す — 欠測と同じ理屈で present から外す。
+            # bool は int のサブクラスなので、int 契約の規則から明示的に弾く。
+            if not isinstance(value, rule["vtype"]) or (
+                rule["vtype"] is int and isinstance(value, bool)
+            ):
+                continue
             present.append(label)
-            try:
-                if rule["pred"](value):
-                    hits.append(label)
-            except (TypeError, AttributeError):
-                continue  # 型が契約外の値は判定不能として present から外さない（保守的に非 hit）
+            if rule["pred"](value):
+                hits.append(label)
         if not hits:
             continue  # 徴候の実測が無い規則は候補を出さない（発明しない）
         frequency = round_half_up(1 + 4 * len(hits) / len(present))
@@ -145,7 +150,7 @@ def select(skill: str) -> list:
             "skill": skill,
             "rule": rule["id"],
             "statement": (
-                f"{skill} の run で{rule['symptom']}"
+                f"{skill} の run で {rule['symptom']}"
                 f"（{rule['field']} 該当 {len(hits)}/{len(present)} run）"
             ),
             "trace": {"runs": hits, "present_runs": present, "field": rule["field"],
@@ -165,15 +170,20 @@ def cmd_select(args) -> int:
     goals = select(args.skill)
     for g in goals:
         dest = out / f"{g['id']}.json"
+        stored = None
         if dest.exists():
             prev = json.loads(dest.read_text())
             if prev.get("status") != "pending":
-                continue  # 裁定済みの候補は上書きしない（拒否履歴を消さない）
-        dest.write_text(json.dumps(g, ensure_ascii=False, indent=1))
-    for g in goals:
-        s = g["score"]
-        print(f"{g['id']:16} score={s['value']:5} (I{s['impact']}×F{s['frequency']}÷C{s['cost']}) "
-              f"[{g['status']}] {g['statement']}")
+                stored = prev  # 裁定済みの候補は上書きしない（拒否履歴を消さない）
+        if stored is None:
+            dest.write_text(json.dumps(g, ensure_ascii=False, indent=1))
+        # 表示は保存済みレコードを正とする（計算し直した pending を出すと、裁定済みが
+        # 未裁定に見える）。裁定後に在庫が動いて statement が変わったときはその旨を添える。
+        shown = stored or g
+        s = shown["score"]
+        stale = " ※在庫が裁定時から変化" if stored and stored.get("statement") != g["statement"] else ""
+        print(f"{shown['id']:16} score={s['value']:5} (I{s['impact']}×F{s['frequency']}÷C{s['cost']}) "
+              f"[{shown['status']}] {shown['statement']}{stale}")
     if not goals:
         print("候補なし（在庫に徴候の実測が無い）")
     return 0
@@ -184,6 +194,11 @@ def cmd_decide(args) -> int:
     if not dest.exists():
         raise SystemExit(f"候補がありません: {dest}")
     g = json.loads(dest.read_text())
+    if g.get("status") != "pending" and not args.force:
+        raise SystemExit(
+            f"裁定済みです: {args.goal} は {g.get('status')}（{g.get('reason', '')}）。"
+            f"裁定を変えるなら --force を付けてください（無警告の上書きは履歴を消す）"
+        )
     g["status"] = args.status
     g["decided_at"] = datetime.now(timezone.utc).isoformat()
     g["reason"] = args.reason
@@ -215,6 +230,7 @@ def main(argv=None) -> int:
     de.add_argument("--goal", required=True)
     de.add_argument("--status", required=True, choices=["approved", "rejected", "done", "superseded"])
     de.add_argument("--reason", required=True)
+    de.add_argument("--force", action="store_true", help="裁定済みの候補を再裁定する（既定は拒否）")
     de.set_defaults(fn=cmd_decide)
     li = sub.add_parser("list", help="キューの全候補と status を表示する")
     li.set_defaults(fn=cmd_list)
