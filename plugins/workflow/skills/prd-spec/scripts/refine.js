@@ -2784,6 +2784,10 @@ if (measurableBlocking.length) {
       `Read ${SKILL_DIR}/agents/measurement.md for your full role instructions before doing anything else.`,
       `契約は ${SKILL_DIR}/schemas/agent-contracts.md §measurement を正とする。`,
       '',
+      'statement は全項目で必須フィールドである。resolved: false の項目では空文字 "" を返す',
+      '（省略すると返答全体が schema 不合格になり、同梱の確定分まで受理されない）。',
+      'resolved: true の項目では本文へ反映する確定文そのものを書く。',
+      '',
       '# [ITEMS] 計測で解消しうる未確定事項',
       JSON.stringify(
         measurableBlocking.map(({ id, text, document, measurement_target }) => ({
