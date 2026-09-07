@@ -44,3 +44,17 @@ of dirty parent state. A bounded disposable-worktree live test remains required 
 claiming writable-agent behavior; full PDCA roles are still unverified. Record call
 count, usage and actual outcomes before expanding caller routing.
 Never launch an extra review workflow merely to execute an already-reviewed source.
+
+## Context selection
+
+The parent declares host-owned context profiles and exact source-label assignments.
+Source still owns prompts and reference selection; no Codex-specific source option
+or filename convention is necessary. Request preflight validates profile shape and
+reference hashes; dispatch records the selected profile and requested settings.
+The implementation contract and rollout gates live in [CONTEXT.md](../scripts/runtime/CONTEXT.md).
+
+The initial implementation may suppress unrelated Memory, Apps and plugins, but must
+not overwrite inherited per-skill denial arrays, trim AGENTS rules, replace base
+instructions or pretend that file provenance proves tool availability. Individual
+skill/tool selection waits for a verified effective-inventory merge. Missing host
+context policy stays visibly unverified, not silently advertised as minimal.

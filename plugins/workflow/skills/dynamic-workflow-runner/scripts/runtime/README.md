@@ -51,6 +51,9 @@ logs `model.selected` with its requested label, target and effort. With no expli
 default, `host-default` is recorded; the actual host-selected ID is not inferred.
 No Claude-to-Codex equivalence or target availability is implied.
 `limits` accepts maxAgents, concurrency, timeoutMs and maxOutputBytes.
+Optional `context` maps exact source labels to per-role settings and hash-pinned
+reference inventories; read [the context contract](CONTEXT.md) when configuring it.
+It does not change source syntax or provide a complete skill/tool allowlist.
 Unknown request, host, backend, and limit fields are rejected, including resume and
 permission overrides. `requirements` may be declared in source metadata and/or the
 host request; both are checked before run creation or agent dispatch. Default capabilities
@@ -120,7 +123,8 @@ This is an executable-file lookup, not execution in the actual worker sandbox or
 proof of shell-startup/hook compatibility. Shell startup can still alter PATH; required
 commands do not automatically enumerate hook dependencies. Omitting environment retains
 host behavior and records host-default-unverified. No executable is run by preflight.
-Neither minimal injected context nor a hard inner-turn token limit is implemented.
+Per-role context suppression is opt-in and separately documented in CONTEXT.md.
+Complete minimal injected context and a hard inner-turn token limit are not implemented.
 
 - No transparent replay/resume. A reused run directory is rejected. Failed runs list
   in-flight task IDs; abort delivery does not prove external effects were rolled back.

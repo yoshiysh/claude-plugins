@@ -3,6 +3,7 @@ import { modelResolver } from './models.mjs';
 import { exactObject, backendKeys } from './inputs.mjs';
 import { workspacePolicy } from './workspaces.mjs';
 import { environmentPolicy } from './environment.mjs';
+import { contextPolicy } from './contexts.mjs';
 
 // Transport only: keep the caller schema unchanged for runtime validation.
 const transportSchema = { type: 'object', properties: { json: { type: 'string' } },
@@ -15,9 +16,11 @@ export function codexBackend(config = {}) {
   if (!cwd) throw new Error('explicit worker cwd required');
   const workspaces = workspacePolicy(cwd, config.workspace);
   const environment = environmentPolicy(config.environment);
-  const prepare = async () => ({ ...await workspaces.prepare(), environment: await environment.prepare() });
+  const context = contextPolicy(config.context);
+  const scopedContext = config.context !== undefined;
+  const prepare = async () => ({ ...await workspaces.prepare(), environment: await environment.prepare(), context: await context.prepare() });
   const resolveModel = modelResolver({ model, modelReasoningEffort, modelMap });
-  const codex = new CodexClass({ codexPathOverride,
+  const inheritedCodex = scopedContext ? null : new CodexClass({ codexPathOverride,
     config: { features: { multi_agent: false }, model_provider: 'openai', ...environment.sdkConfig } });
   return {
     capabilities: workspaces.capabilities,
@@ -25,12 +28,19 @@ export function codexBackend(config = {}) {
     validate(options) {
       resolveModel(options.model);
       workspaces.validate(options);
+      context.validate(options);
     },
     async run(prompt, options, { signal, emit }) {
       const selection = resolveModel(options.model);
+      context.validate(options);
       const policy = await prepare();
+      const selectedContext = await context.select(options);
+      const codex = !scopedContext ? inheritedCodex : new CodexClass({ codexPathOverride,
+        config: { ...selectedContext.sdkConfig, model_provider: 'openai', ...environment.sdkConfig,
+          features: { ...selectedContext.sdkConfig.features, multi_agent: false } } });
       const directory = await workspaces.allocate(options, { signal, emit });
       emit({ type: 'model.selected', ...selection });
+      if (scopedContext) emit({ type: 'context.selected', ...selectedContext.receipt });
       const thread = codex.startThread({ workingDirectory: directory, skipGitRepoCheck: true,
         sandboxMode: policy.mode, approvalPolicy: 'never', webSearchMode: 'disabled',
         networkAccessEnabled: false, model: selection.model,

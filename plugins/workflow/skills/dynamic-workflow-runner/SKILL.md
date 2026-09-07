@@ -25,6 +25,25 @@ caller が実際に到達した callsite から明示的に委譲する。direct
 source 自身が必要とするレビューは維持するが、runner 都合の translator・調整役・契約レビュアーは追加しない。
 SDK worker は fresh thread だが、cwd の指示やホスト設定までゼロになるとは主張しない。
 
+## Worker のコンテキストを決める
+
+親は worker を起動する前に、役割ごとの必要情報と依存機能を確認する。
+`context` を使う場合は source の既存 `agent(..., {label})` と host の
+`assignments` を一対一で照合し、役割に必要な profile を割り当てる。
+source に Codex 専用引数を足したり、ラベル名から必要機能を推測したりしない。
+動的ラベルもすべて割当が必要で、未割当は実行前に停止する。
+
+- 独立した役割に不要な個人 Memory は `off`。必要な知見は出典を持つ入力として source が渡す。
+- Apps／プラグインを必要としない役割だけ `off`。必要な役割では `inherit` を明示する。
+  `inherit` は利用可能性の保証ではない。必要な外部 tool allowlist 等は既存の未対応境界に従う。
+- profile の `references` には親が確認した絶対パスと SHA-256 を渡す。
+  runtime が検査するのはファイルの存在と内容の同一性。読むべき順序・箇所は source の prompt が指定する。
+- 親の SKILL 全文や会話を worker に追加しない。基本指示、適用される AGENTS 規則、権限、hook は削らない。
+
+詳細と request 例は [コンテキスト仕様](scripts/runtime/CONTEXT.md) を request 作成時に読む。
+未指定は `host-context-unverified`。設定を渡しただけで「必要情報だけが入った」「トークン削減済み」
+としない。個別 skill/tool の選別はまだ未対応であり、低い一覧上限で代用しない。
+
 ## 実行前の判断
 
 1. native `Workflow` が実際に呼べるなら caller の native 経路を使う。設定フラグ名は能力の証明ではない。
