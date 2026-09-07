@@ -64,7 +64,7 @@ class TestTrackStuck(unittest.TestCase):
     def _run(self, rounds, threshold=2):
         src = "\n".join(
             _extract_function(REFINE, n)
-            for n in ("stableKey", "findingDigest", "trackStuck")
+            for n in ("stableKey", "normalizeLocation", "findingDigest", "trackStuck")
         )
         with tempfile.TemporaryDirectory() as d:
             script = Path(d) / "t.mjs"
@@ -85,11 +85,11 @@ class TestTrackStuck(unittest.TestCase):
         self.assertEqual(rounds[2]["stuck"], ["CL-001"])  # 2 回連続の残存（survived 2）
         self.assertEqual(rounds[2]["survived"]["CL-001"], 2)
 
-    def test_issueが変わると数え直しで_stuckにならない(self):
+    def test_issueが変わっても同一箇所なら不動点として追跡する(self):
         rounds = self._run(
             [[_finding("CL-001")], [_finding("CL-001", issue="別の文面")], [_finding("CL-001", issue="別の文面")]]
         )
-        self.assertEqual(rounds[2]["stuck"], [])  # digest が変わった時点で初出扱い
+        self.assertEqual(rounds[2]["stuck"], ["CL-001"])  # 言い換えは前進ではない（kaizen A-1: digest は場所単位）
 
     def test_消えたdigestは再出現しても数え直し(self):
         f = _finding("CL-001")

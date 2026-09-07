@@ -56,7 +56,7 @@ class TestComputeNovelty(unittest.TestCase):
     def _run(self, rounds):
         src = "\n".join(
             _extract_function(REFINE, n)
-            for n in ("stableKey", "findingDigest", "computeNovelty")
+            for n in ("stableKey", "normalizeLocation", "findingDigest", "computeNovelty")
         )
         with tempfile.TemporaryDirectory() as d:
             script = Path(d) / "t.mjs"
@@ -70,19 +70,27 @@ class TestComputeNovelty(unittest.TestCase):
         return json.loads(out.stdout)
 
     def test_全指摘が既出digestのラウンドは_novelty_0(self):
-        a, b = _finding("CL-001"), _finding("CL-002", issue="別の指摘")
+        a, b = _finding("CL-001"), _finding("CL-002", issue="別の指摘", location="§2")
         history = self._run([[a, b], [a, b]])
         self.assertEqual(history, [2, 0])  # 2 ラウンド目で dry_stop が立つ側
 
     def test_新規指摘が混ざるラウンドは_novelty_が正(self):
         a = _finding("CL-001")
-        b = _finding("CL-002", issue="新表面の露出")
+        b = _finding("CL-002", issue="新表面の露出", location="§7 停止条件")
         history = self._run([[a], [a, b]])
         self.assertEqual(history, [1, 1])  # 既出 1 + 新規 1 → novelty 1（止まらない側）
 
-    def test_issueの文面が変わると新規として数える(self):
+    def test_issueの言い換えは新規として数えない(self):
         history = self._run([[_finding("CL-001")], [_finding("CL-001", issue="別の文面")]])
-        self.assertEqual(history, [1, 1])  # digest が変わった＝監査が判定し直した
+        self.assertEqual(history, [1, 0])  # 同一箇所への再指摘の言い換えは novelty に入れない（kaizen A-1）
+
+    def test_locationの表記ゆれは新規として数えない(self):
+        history = self._run([[_finding("CL-001", location="§4 / 検査範囲の限定")], [_finding("CL-001", location="§4・検査 範囲の限定")]])
+        self.assertEqual(history, [1, 0])  # 空白・記号・全半角のゆれは正規化で同一 digest（kaizen A-1。語順の入れ替えまでは吸収しない）
+
+    def test_別の場所への指摘は新規として数える(self):
+        history = self._run([[_finding("CL-001", location="§1")], [_finding("CL-002", location="§9 未踏の章")]])
+        self.assertEqual(history, [1, 1])  # 場所が違えば novelty（粗視化しても本物の新規は数える）
 
 
 class TestDryStopStructure(unittest.TestCase):

@@ -42,7 +42,7 @@ class TestValidateAdjudication(unittest.TestCase):
     def _run(self, adj, findings):
         src = "\n".join(
             _extract_function(REFINE, n)
-            for n in ("stableKey", "findingDigest", "validateAdjudication")
+            for n in ("stableKey", "normalizeLocation", "findingDigest", "validateAdjudication")
         )
         with tempfile.TemporaryDirectory() as d:
             script = Path(d) / "t.mjs"
@@ -89,7 +89,7 @@ class TestValidateAdjudication(unittest.TestCase):
         f = {"id": "A", "auditor": "clarity", "document": "requirements/auth", "location": "§1", "issue": "x"}
         # findingDigest(f) を裁定側が正しく echo した想定
         src = "\n".join(
-            _extract_function(REFINE, n) for n in ("stableKey", "findingDigest")
+            _extract_function(REFINE, n) for n in ("stableKey", "normalizeLocation", "findingDigest")
         )
         with tempfile.TemporaryDirectory() as d:
             script = Path(d) / "dg.mjs"
