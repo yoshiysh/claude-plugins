@@ -37,6 +37,8 @@ AI は思考しないが、思考は既存手順の組み合わせで模倣で�
 - [assets/plan-template.md](assets/plan-template.md) / [assets/run-table.md](assets/run-table.md) — Plan 雛形・run 表
 - [schemas/agent-contracts.md](schemas/agent-contracts.md) — agent 間契約と script の args / 返り値
 - agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（builder/runner/verifier/mechanism-analyst は `scripts/pdca.js` が、intake/evidence-collector/planner/plan-verifier は `scripts/pdca-plan.js` が Read させる。act-judge / revision-planner は司令塔が Act で呼ぶ）
+- [references/skill-kaizen.md](references/skill-kaizen.md) — **対象がこのリポジトリの配布スキル自身のときの運転手順**（telemetry の取り方・staging 対照 run・PR 経由の恒久化）。該当する起点ではこれを Read してから Plan に入る
+- [scripts/skill_telemetry.py](scripts/skill_telemetry.py) — スキル実行の telemetry 記録・集計（skill-kaizen の Check 入力）
 - [evals/evals.json](evals/evals.json) — テストケース 4 件（起点 3 モード + 誤発動）
 
 ## 起点の判定（3 モード）
