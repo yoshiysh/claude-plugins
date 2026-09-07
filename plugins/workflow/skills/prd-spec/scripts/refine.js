@@ -1189,12 +1189,27 @@ function ladderToTbd(entries) {
   }))
 }
 
+// normalizeLocation: 自由記述の location から表記だけの差（空白・記号・全半角・大小文字）を
+// 落とす。location は auditor の自己申告値で、同じ場所を指していても「§4 / 検査範囲の限定」と
+// 「検査範囲の限定（§4）」のように毎回書き方が揺れる。揺れが digest に入ると、同一箇所への
+// 再指摘が毎ラウンド novelty に計上され、乾き停止（novelty 0）に原理的に到達できない
+// （実測: 4 run 連続で dry_stop false・novelty 最終値 2〜5）。
+function normalizeLocation(loc) {
+  return String(loc || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s、。・．，,.\/>#§()（）「」『』\[\]【】:：;；\-—–_'"~〜｜|]+/g, '')
+}
+
 // findingDigest: 指摘の同一性を改稿を跨いで追跡するための安定キー（stableKey/FNV-1a を再利用）。
-// auditor + 宛先 + 場所 + issue 本文で導く。改稿で issue の文面が変われば別の指摘として数え直す
-// （文面が変わった＝監査が新しい稿を見て判定し直した、であり不動点ではない）。
+// auditor + 宛先 + 正規化した場所で導く。issue 本文は含めない — 文面は改稿のたびに auditor が
+// 書き直すため、本文を含めると同一論点の言い換えが毎回「新規」に数えられ、novelty が
+// auditor の言い回しの関数になる（乾き判定が注意依存に化ける）。粗視化の代償として、同一
+// auditor が同一箇所に出す別論点は 1 つに畳まれるが、その場合も指摘自体は改稿・裁定に届く
+// （digest は novelty / stuck の追跡キーであり、指摘の取捨には使われない）。
 function findingDigest(f) {
   return stableKey(
-    `${(f && f.auditor) || ''}|${(f && f.document) || ''}|${(f && f.location) || ''}|${(f && f.issue) || ''}`
+    `${(f && f.auditor) || ''}|${(f && f.document) || ''}|${normalizeLocation(f && f.location)}`
   )
 }
 
@@ -1898,6 +1913,35 @@ while (true) {
     }
   }
 
+  // (kaizen A-3) スコープの強制: スコープ監査のラウンドでは、範囲外への agent 指摘を
+  // コード側で落とす。buildScopeNote は「範囲外は起票しない」と頼むだけで、遵守は auditor の
+  // 注意に依存していた（範囲外起票を除外するコードは存在しなかった）。範囲外指摘が novelty に
+  // 入ると、改稿対象が収束しても監査面の別の場所から新規が湧き続け、乾き停止に到達できない。
+  // 落とした指摘は捨て置きにならない — 乾き停止後の終端網羅監査が全範囲を 1 回見る。
+  // 判定は document 一致 + 正規化 location の包含（どちらかが空なら document 一致のみで通す。
+  // 曖昧なら in-scope 側へ倒す = 指摘を落とす側を fail-closed にしない）。
+  if (lastRevisionFindings && lastRevisionFindings.length) {
+    const scopeRanges = lastRevisionFindings
+      .filter((f) => f && f.document)
+      .map((f) => ({ doc: f.document, loc: normalizeLocation(f.location) }))
+    const inScope = (f) => {
+      const fLoc = normalizeLocation(f.location)
+      return scopeRanges.some(
+        (s) => s.doc === f.document && (!s.loc || !fLoc || fLoc.includes(s.loc) || s.loc.includes(fLoc))
+      )
+    }
+    const before = allFailed.length
+    const outOfScope = allFailed.filter((f) => !f.unroutable && !inScope(f))
+    if (outOfScope.length) {
+      const oosDigests = new Set(outOfScope.map((f) => findingDigest(f)))
+      allFailed = allFailed.filter((f) => f.unroutable || !oosDigests.has(findingDigest(f)))
+      log(
+        `スコープ強制 (r${revisions}): 範囲外の agent 指摘 ${outOfScope.length} 件（全 ${before} 件中）を` +
+          '今ラウンドの改稿・novelty 対象から除外しました（終端の網羅監査が全範囲を確認します）。'
+      )
+    }
+  }
+
   // 構造検査は auditor の応答有無と無関係に必ず走る。集合差分と禁止語の混入は agent が
   // 落ちても検出される（この 2 つがこのスキルの契約そのものだから）。
   const structResult = structuralFindings(documents)
@@ -1945,22 +1989,6 @@ while (true) {
 
   if (allFailed.length === 0) break
 
-  // 乾き停止: このラウンドの指摘のうち、前ラウンドまでに見た digest 集合に無い新規指摘の
-  // 件数（novelty）を算出する。novelty 0 のラウンドが出たら、改稿予算が残っていても
-  // 改稿ループを抜けて終端（網羅監査→裁定）へ進む。停止は証拠側（乾き）に置き、
-  // REVISION_BACKSTOP は暴走防止の backstop としてだけ残す。
-  const novelty = computeNovelty(noveltySeen, allFailed)
-  noveltyHistory.push(novelty)
-  log(`Audit r${revisions}: novelty ${novelty} 件（前ラウンドまでに無い新規指摘の件数）`)
-  if (novelty === 0) {
-    dryStop = true
-    log(
-      '乾き停止: 新規指摘が 0 件のラウンドに達しました。改稿予算が残っていても改稿ループを抜け、' +
-        '終端（網羅監査→裁定）へ進みます。'
-    )
-    break
-  }
-
   // 不動点検出: 改稿を跨いで同一 digest のまま残る指摘を数え、STUCK_THRESHOLD 回連続で
   // 残ったものを stuck として通常改稿から外す。停止条件は「新規（active）指摘が尽きた」で、
   // 固定回数ではない（固定上限は「進んでいるのに切る」を起こした実績がある）。
@@ -1980,6 +2008,10 @@ while (true) {
   // スコープの梯子: writer に渡す前に専任 judge が failure kind で 4 分類する。
   // artifact / criteria だけを改稿ループへ流す。premise / question は改稿予算を消費させず、
   // 即座に blocking TBD（TBD-NI-）へ起票して needs_input 側に集める。
+  // (kaizen A-2) 分類は novelty 計算より先に行う。従来は novelty → ladder の順だったため、
+  // needs_input（人間ゲート行き）に初分類される指摘まで novelty に計上され、writer が
+  // 何を改稿しようと乾かない成分が混ざっていた（乾き判定の対象は「改稿ループがまだ
+  // 学んでいる指摘」だけであるべきで、ゲート行きの指摘は novelty ではなく TBD 側で数える）。
   const laddered = await classifyFindings(activeFindings, `ladder-judge-r${revisions}`)
   if (laddered.needsInput.length) {
     for (const f of laddered.needsInput) {
@@ -1994,6 +2026,23 @@ while (true) {
         'blocking TBD として起票しました（改稿予算は消費しません）。'
     )
   }
+
+  // 乾き停止: このラウンドの指摘（needs_input 除外後）のうち、前ラウンドまでに見た digest
+  // 集合に無い新規指摘の件数（novelty）を算出する。novelty 0 のラウンドが出たら、改稿予算が
+  // 残っていても改稿ループを抜けて終端（網羅監査→裁定）へ進む。停止は証拠側（乾き）に置き、
+  // REVISION_BACKSTOP は暴走防止の backstop としてだけ残す。
+  const novelty = computeNovelty(noveltySeen, allFailed)
+  noveltyHistory.push(novelty)
+  log(`Audit r${revisions}: novelty ${novelty} 件（前ラウンドまでに無い新規指摘の件数）`)
+  if (novelty === 0) {
+    dryStop = true
+    log(
+      '乾き停止: 新規指摘が 0 件のラウンドに達しました。改稿予算が残っていても改稿ループを抜け、' +
+        '終端（網羅監査→裁定）へ進みます。'
+    )
+    break
+  }
+
   const reviseTargets = laddered.toWriter
   if (!reviseTargets.length) {
     log('改稿対象の指摘（artifact / criteria）が 0 件のため、改稿ループを抜けて終端へ進みます。')
