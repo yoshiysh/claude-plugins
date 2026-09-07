@@ -4,6 +4,7 @@
 1. 決定性: 同一在庫で 2 回 select しても出力が変わらない（select はタイムスタンプを書かない）
 2. 欠測の扱い: field が None / 不在の run は present に数えない（欠測を非 hit に丸めない）
 3. 裁定の保全: decide 済み候補は再 select で上書きされない（拒否履歴を消さない）
+4. 対象の範囲: PURPOSE_REFS 未登録のスキルはエラーで止まる（既定の目的で trace を埋めない）
 """
 
 import json
@@ -29,7 +30,7 @@ def run(args, base):
 
 
 def seed(base, runs):
-    d = Path(base) / "telemetry" / "s"
+    d = Path(base) / "telemetry" / "prd-spec"
     d.mkdir(parents=True, exist_ok=True)
     for name, data in runs.items():
         (d / f"{name}.json").write_text(json.dumps(data))
@@ -39,22 +40,22 @@ class TestGoalSelector(unittest.TestCase):
     def test_同一在庫で2回selectしても出力が変わらない(self):
         with tempfile.TemporaryDirectory() as td:
             seed(td, {"a": BACKSTOP_RUN, "b": MISSING_RUN})
-            run(["select", "--skill", "s"], td)
+            run(["select", "--skill", "prd-spec"], td)
             goals = Path(td) / "kaizen" / "goals"
             first = {p.name: p.read_bytes() for p in goals.glob("*.json")}
-            run(["select", "--skill", "s"], td)
+            run(["select", "--skill", "prd-spec"], td)
             second = {p.name: p.read_bytes() for p in goals.glob("*.json")}
             self.assertEqual(first, second)
 
     def test_欠測runはpresentに数えない(self):
         with tempfile.TemporaryDirectory() as td:
             seed(td, {"a": BACKSTOP_RUN, "b": MISSING_RUN})
-            run(["select", "--skill", "s"], td)
-            r1 = json.loads((Path(td) / "kaizen" / "goals" / "s-R1.json").read_text())
+            run(["select", "--skill", "prd-spec"], td)
+            r1 = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R1.json").read_text())
             # b は verdict 欠測なので R1 の present は a のみ
             self.assertEqual(r1["trace"]["present_runs"], ["a"])
             self.assertEqual(r1["trace"]["runs"], ["a"])
-            r3 = json.loads((Path(td) / "kaizen" / "goals" / "s-R3.json").read_text())
+            r3 = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R3.json").read_text())
             # fabrication は両 run に存在し、hit は b のみ
             self.assertEqual(r3["trace"]["present_runs"], ["a", "b"])
             self.assertEqual(r3["trace"]["runs"], ["b"])
@@ -62,16 +63,27 @@ class TestGoalSelector(unittest.TestCase):
     def test_裁定済み候補は再selectで上書きされない(self):
         with tempfile.TemporaryDirectory() as td:
             seed(td, {"a": BACKSTOP_RUN})
-            run(["select", "--skill", "s"], td)
-            out = run(["decide", "--goal", "s-R1", "--status", "rejected", "--reason", "仕様として受容"], td)
+            run(["select", "--skill", "prd-spec"], td)
+            out = run(["decide", "--goal", "prd-spec-R1", "--status", "rejected", "--reason", "仕様として受容"], td)
             self.assertEqual(out.returncode, 0)
-            before = (Path(td) / "kaizen" / "goals" / "s-R1.json").read_bytes()
-            run(["select", "--skill", "s"], td)
-            after = (Path(td) / "kaizen" / "goals" / "s-R1.json").read_bytes()
+            before = (Path(td) / "kaizen" / "goals" / "prd-spec-R1.json").read_bytes()
+            run(["select", "--skill", "prd-spec"], td)
+            after = (Path(td) / "kaizen" / "goals" / "prd-spec-R1.json").read_bytes()
             self.assertEqual(before, after)
             rec = json.loads(after)
             self.assertEqual(rec["status"], "rejected")
             self.assertIn("decided_at", rec)
+
+
+class TestUnregisteredSkill(unittest.TestCase):
+    def test_未登録スキルのselectはエラーで止まる(self):
+        with tempfile.TemporaryDirectory() as td:
+            seed(td, {"a": BACKSTOP_RUN})
+            out = run(["select", "--skill", "unknown-skill"], td)
+            self.assertNotEqual(out.returncode, 0)
+            self.assertIn("未登録", out.stderr)
+            goals = Path(td) / "kaizen" / "goals"
+            self.assertFalse(goals.is_dir() and any(goals.iterdir()))
 
 
 if __name__ == "__main__":
