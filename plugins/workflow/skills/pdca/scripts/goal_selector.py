@@ -21,6 +21,13 @@ C6 裁定一周: decide が status / decided_at / reason を同ファイルへ�
 規則表の粒度と impact/cost の値は既定値（調整は要求変更にあたらない）。述語は在庫の
 指標だけを見る絶対条件で書く（在庫相対の述語は leave-one-out で hit 集合が不安定になり、
 新規在庫の追加が既存候補の意味を変えてしまう — plan-verifier の反証で実測済み）。
+
+== 対象スキルの範囲 ==
+現状の RULES の field 名は prd-spec（refine.js）の返り値スキーマそのもの。selector の
+機構（決定的選別・trace・裁定保全）は汎用だが、規則表と目的アンカーは対象スキルごとの
+持ち物である。新しいスキルを対象にするには PURPOSE_REFS への目的文の追加と、そのスキルの
+telemetry スキーマに合う規則の追加が要る。未登録スキルはエラーで止める
+（既定の目的で trace を埋めると、候補が実在しない目的へ trace する嘘になる）。
 """
 
 import argparse
@@ -30,9 +37,14 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-PURPOSE_REF = "文書生成の崩れ方を、書き手の注意ではなく構造で止める"
+# 対象スキルごとの目的アンカー（trace.purpose_ref の出所）。未登録スキルは select が
+# エラーで止める — 目的の無い候補を出すくらいなら止まる方が安い。
+PURPOSE_REFS = {
+    "prd-spec": "文書生成の崩れ方を、書き手の注意ではなく構造で止める",
+}
 
-# 規則表: field を見る述語と症状文。述語は「問題の徴候」だけを書く（dry_stop=true のような
+# 規則表: field を見る述語と症状文（現状は prd-spec の telemetry スキーマ前提 — docstring
+# 「対象スキルの範囲」参照）。述語は「問題の徴候」だけを書く（dry_stop=true のような
 # 成功状態は候補にしない）。impact / cost は 1-5 の凍結既定値で、根拠を各行に残す。
 RULES = [
     {"id": "R1", "field": "verdict", "symptom": "改稿上限に到達して収束しないまま run が終わる",
@@ -105,6 +117,12 @@ def select(skill: str) -> list:
     """在庫の決定的な関数として候補を返す。欠測（field が None / 不在）の run は
     当該規則の present に数えない — 欠測を非 hit（分母入り）にすると hit 率が薄まり、
     「測っていない」が「起きていない」に化ける。"""
+    if skill not in PURPOSE_REFS:
+        raise SystemExit(
+            f"未登録のスキルです: {skill}\n"
+            f"PURPOSE_REFS に目的アンカーを追加し、telemetry スキーマに合う規則を確認してから"
+            f"使ってください（登録済み: {', '.join(sorted(PURPOSE_REFS))}）"
+        )
     runs = load_inventory(skill)
     goals = []
     for rule in RULES:
@@ -131,7 +149,7 @@ def select(skill: str) -> list:
                 f"（{rule['field']} 該当 {len(hits)}/{len(present)} run）"
             ),
             "trace": {"runs": hits, "present_runs": present, "field": rule["field"],
-                      "purpose_ref": PURPOSE_REF},
+                      "purpose_ref": PURPOSE_REFS[skill]},
             "score": {"impact": rule["impact"], "impact_why": rule["impact_why"],
                       "frequency": frequency, "cost": rule["cost"], "cost_why": rule["cost_why"],
                       "value": round(rule["impact"] * frequency / rule["cost"], 2)},
