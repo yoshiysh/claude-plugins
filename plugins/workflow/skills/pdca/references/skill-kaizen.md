@@ -22,8 +22,11 @@ SKILL.md のままで、ここに書くのはスキル改善に固有の入出�
 
 ## 手順
 
-1. **観測**: `python3 [SKILL_DIR]/scripts/skill_telemetry.py summary --skill <対象>` で
-   傾向を出し、問題起点の statement を実測の言葉で書く（「〜な気がする」を起点にしない）。
+1. **観測**: `python3 [SKILL_DIR]/scripts/goal_selector.py select --skill <対象>` で
+   在庫から候補を選別し、pending 全件を一括提示して依頼者の裁定（approved / rejected /
+   done / superseded + 理由）を `decide` で記録する。approved の statement をそのまま
+   問題起点の入力にする（selector は在庫の決定的な関数であり、候補を発明しない。
+   傾向の目視だけしたいときは `skill_telemetry.py summary`）。
 2. **Plan**: SKILL.md どおり intake → evidence-collector → planner。両 agent には
    「対象がスキル自身のとき」の節が効く（事実 = telemetry + 対象スキルの実装、出典必須）。
    選択肢は改稿差分 3 点以内で構成させる。
