@@ -57,6 +57,9 @@ def extract(result: dict) -> dict:
         "adjudicated": summary.get("adjudicated"),
         "writer_missing": len(result.get("writer_missing") or []),
         "audit_incomplete": result.get("audit_incomplete"),
+        # (kaizen C3) 帰属判定用の内訳（refine.js の instr）。extract はホワイトリスト方式
+        # なので、この行が無いと refine.js 側で emit しても telemetry には現れない。
+        "instrumentation": summary.get("instrumentation"),
     }
 
 

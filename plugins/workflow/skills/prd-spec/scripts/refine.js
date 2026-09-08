@@ -2679,6 +2679,41 @@ const recomputeTbd = () => {
 }
 recomputeTbd()
 
+// (kaizen C3) 計装: unpresented_blocking の帰属判定に要る内訳を返り値へ emit する。
+// telemetry の unpresented_blocking_count は段 3 時点の gate 件数しか持たず、「未提示 blocking
+// が残る」という観測が自動解消の不発・起票の過剰・ID 振り直し churn・再入経路の不成立の
+// どれとも整合してしまい帰属が決まらない（kaizen 第 3 サイクルの plan-verifier 実測）。
+// 全キーを null で先置きし、実行されなかった段は「欠測」ではなく明示的 null（該当なし）で残す。
+// 変更は純加算に限る（既存の条件式・代入・agent プロンプトに触れない — これが「計装は run の
+// 挙動を変えない」という control 前提の機械判定条件になる）。
+const instr = {
+  entry_outer_round: outerRound,
+  entry_presented_count: presentedById.size,
+  stage2_input_count: null,
+  origin_breakdown: null,
+  stage_verdicts: null,
+  pj_returned_count: null,
+  classified_count: null,
+  measurable_dropped_no_target: null,
+  precedent_ids_counts: null,
+  measurement_accepted: null,
+  measurement_evidence_counts: null,
+  gate_blocking_count: null,
+  terminal_unpresented_count: null,
+  terminal_unpresented_no_record: null,
+  terminal_unpresented_digest_mismatch: null,
+  terminal_unpresented_new_or_renamed: null,
+}
+instr.stage2_input_count = unpresentedBlocking.length
+instr.origin_breakdown = {
+  tbd_ex: unpresentedBlocking.filter((t) => String(t.id).startsWith('TBD-EX-')).length,
+  tbd_ni: unpresentedBlocking.filter((t) => String(t.id).startsWith('TBD-NI-')).length,
+  writer_declared: unpresentedBlocking.filter(
+    (t) => !String(t.id).startsWith('TBD-EX-') && !String(t.id).startsWith('TBD-NI-')
+  ).length,
+}
+const instrEntryBlockingIds = new Set(blockingTbd.map((t) => t.id))
+
 // ------------------------------------------------ 人間必要性の判定パイプライン（段 2〜4）
 //
 // 段 1（ladder-judge）は改稿ループの中にある。ここは残った未確定事項を、人間に聞く前に
@@ -2786,6 +2821,17 @@ if (unpresentedBlocking.length) {
     `先例裁定: 未提示 blocking ${unpresentedBlocking.length} 件のうち、先例で解消 ${autoResolvedBlocking.length} 件 / ` +
       `計測で解消可能 ${measurableBlocking.length} 件 / 人間ゲート行き ${gateBlocking.length} 件。`
   )
+  // (kaizen C3) 段 2 の内訳。novel への落ちすぎ（機序 b）を読む分子は pjById（judge が実際に
+  // 返した分）であり、分母には classified_count を使う — judge の無応答・部分応答は
+  // 「novel が多い」ではなく「未分類が多い」として別枠で見える必要がある。
+  instr.pj_returned_count = (((pj || {}).classifications) || []).length
+  instr.classified_count = unpresentedBlocking.filter((t) => pjById.has(t.id)).length
+  instr.stage_verdicts = { resolvable: 0, measurable: 0, novel: 0, conflict: 0, irreversible: 0 }
+  for (const c of pjById.values()) {
+    if (instr.stage_verdicts[c.verdict] !== undefined) instr.stage_verdicts[c.verdict] += 1
+  }
+  instr.measurable_dropped_no_target = withVerdict('measurable').length - measurableBlocking.length
+  instr.precedent_ids_counts = autoResolvedBlocking.map((t) => (t.precedent_ids || []).length)
 }
 
 // 段 3: 計測解消。measurement agent はリポジトリを Read して事実を確定する係であり、
@@ -2878,7 +2924,15 @@ if (measurableBlocking.length) {
     `計測解消: ${measurableBlocking.length} 件のうち ${resolvedByMeasurement.length} 件を実測で確定し、` +
       `残り ${measurableBlocking.length - resolvedByMeasurement.length} 件は人間ゲートへ戻しました。`
   )
+  // (kaizen C3) 段 3 の内訳。証拠件数は経路ごとに別キー（先例 = precedent_ids_counts、
+  // 計測 = measurement_evidence_counts）で持ち、共通の has_evidence には潰さない
+  // （「該当なし」を「証拠なし」に化けさせないため）。
+  instr.measurement_accepted = resolvedByMeasurement.length
+  instr.measurement_evidence_counts = resolvedByMeasurement.map((t) => (t.evidence || []).length)
 }
+// (kaizen C3) 段 3 確定後の gate 件数。summary.unpresented_blocking_count と同値のはずで、
+// 一致しなければ計装か集計のどちらかが壊れている（適合監査の照合点）。
+instr.gate_blocking_count = gateBlocking.length
 
 // 段 4: 保持規則。既に提示したのに決まらない未確定事項は、聞き直しても決まらない（依頼者が
 // 決めていないものは、何回聞いても決まらない）。そのまま TBD として残すと、次工程は
@@ -2975,6 +3029,25 @@ if (resolutionDirectives.size) {
   structuralNotChecked = structResult.not_checked
   recomputeTbd()
 }
+
+// (kaizen C3) 終端内訳: resolve 反映と namespaceTbd の ID 振り直しを経た後の未提示 blocking
+// を分解する（resolve ブロックが実行されなかった run でも無条件に算出する — 条件内だけに
+// 置くと terminal_* が null になり「該当なし」と「未計測」が混ざる）。
+// new_or_renamed は「入口 blocking の ID 集合に無い ID」で、ID 振り直し churn と resolve 改稿
+// での新規申告が混成で入る。この計装では両者を分離できないため、名前で混成を明示する。
+// 読み方: no_record ∧ ¬new_or_renamed は「入口から居たが一度も提示されなかった」を意味する
+// （run 中に立った blocking は単発 run では提示できない — 再入経路の帰属に使う組合せ）。
+instr.terminal_unpresented_count = unpresentedBlocking.length
+instr.terminal_unpresented_no_record = unpresentedBlocking.filter(
+  (t) => !presentedById.get(t.id)
+).length
+instr.terminal_unpresented_digest_mismatch = unpresentedBlocking.filter((t) => {
+  const rec = presentedById.get(t.id)
+  return Boolean(rec && rec.digest && rec.digest !== stableKey(String(t.text || '')))
+}).length
+instr.terminal_unpresented_new_or_renamed = unpresentedBlocking.filter(
+  (t) => !instrEntryBlockingIds.has(t.id)
+).length
 
 const { deferred: categoriesDeferred } = reconcileCategories(documents, requiredCategories)
 
@@ -3213,5 +3286,6 @@ return {
       documented: adjudication.documented.length,
       unadjudicated: adjudication.unadjudicated.length,
     },
+    instrumentation: instr,
   },
 }
