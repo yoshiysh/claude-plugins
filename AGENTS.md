@@ -43,7 +43,10 @@ Codex は plugin サブツリーだけを取得し、symlink を落とす。実�
 | `plugins/<p>/.claude-plugin/plugin.json` | Claude Code 用。`dependencies` はこちらだけに書く |
 | `plugins/<p>/.codex-plugin/plugin.json` | Codex 用（[公式仕様](https://developers.openai.com/codex/plugins/build)で required）。Codex 仕様に無いフィールドは書かない |
 
-`dependencies` を除く共通フィールドは一致していなければならず、`verify_install.py` の L2 がそれを検査する。
+共通フィールドは一致していなければならず、`verify_install.py` の L2 がそれを検査する。
+専用フィールドは Claude の `dependencies`、Codex の `interface`。逆側への混入は拒否する。
+登録処理は Codex の表示情報を生成し、既存の `interface` は再登録でも保持する。
+L2 は既存の interface 未設定プラグインを許容するため、Codex の詳細な表示スキーマ検証とは別である。
 
 ## ディレクトリ構成
 

@@ -170,7 +170,7 @@ def write_marketplace(data: dict) -> None:
 
 
 def build_plugin_json(plugin: str, version: str, author: str, description: str,
-                      dependencies=None, claude_only: bool = True) -> str:
+                      dependencies=None, claude_only: bool = True, interface=None) -> str:
     data = {"name": plugin, "version": version}
     if description:
         data["description"] = description
@@ -179,6 +179,16 @@ def build_plugin_json(plugin: str, version: str, author: str, description: str,
         # 他 plugin のスキルを呼び出す場合に、その plugin の同時 install を保証する。
         # Codex には同等のフィールドが無いため .codex-plugin 側には書かない。
         data["dependencies"] = list(dependencies)
+    if not claude_only:
+        data["interface"] = interface if interface is not None else {
+            "displayName": plugin,
+            "shortDescription": description or plugin,
+            "longDescription": description or plugin,
+            "developerName": author,
+            "category": "Productivity",
+            "capabilities": [],
+            "defaultPrompt": ["このプラグインの対応範囲と使い方を教えて"],
+        }
     return json.dumps(data, indent=INDENT, ensure_ascii=False) + "\n"
 
 
@@ -225,7 +235,7 @@ def write_plugin_files(plugin: str, public_name: str, skill: str, version: str,
                        dependencies=None) -> dict:
     """ルート plugin dir に plugin.json を生成し、README は既存があれば保持する。
 
-    plugin.json は .claude-plugin/ と .codex-plugin/ の両方に同じ内容で書く。Claude Code は
+    plugin.json の共通フィールドは両環境で揃える。interface は Codex 専用として保持する。Claude Code は
     legacy 互換で .claude-plugin を読むが、Codex の公式仕様は .codex-plugin/plugin.json を
     required としているため、片方だけだと将来の regression で落ちる。
 
@@ -250,12 +260,21 @@ def write_plugin_files(plugin: str, public_name: str, skill: str, version: str,
                     pj.read_text(encoding="utf-8")).get("dependencies")
             except (json.JSONDecodeError, OSError):
                 pass
+    # Read before either write: malformed existing UI metadata must not be silently lost.
+    codex_path = PLUGINS_DIR / plugin / ".codex-plugin" / "plugin.json"
+    interface = None
+    if codex_path.is_file():
+        existing = json.loads(codex_path.read_text(encoding="utf-8"))
+        if "interface" in existing:
+            interface = existing["interface"]
+            if not isinstance(interface, dict):
+                raise ValueError("Codex interface must be an object")
     for manifest_dir in MANIFEST_DIRS:
         d = PLUGINS_DIR / plugin / manifest_dir
         d.mkdir(parents=True, exist_ok=True)
         (d / "plugin.json").write_text(
             build_plugin_json(plugin, version, author, description, dependencies,
-                              claude_only=(manifest_dir == ".claude-plugin")),
+                              claude_only=(manifest_dir == ".claude-plugin"), interface=interface),
             encoding="utf-8")
 
     readme_path = PLUGINS_DIR / plugin / "README.md"

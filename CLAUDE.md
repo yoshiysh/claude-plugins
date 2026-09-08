@@ -87,7 +87,7 @@ plugin の改名・削除で残骸になった旧 plugin は `tools/update-plugi
 plugins/
   git/                     # 例。chat / research / notion / skill-creator / pdca / workflow も同構成
     .claude-plugin/plugin.json         # Claude 用（dependencies はこちらだけ）
-    .codex-plugin/plugin.json          # Codex 用（共通フィールドのみ）
+    .codex-plugin/plugin.json          # Codex 用（共通フィールドと interface）
     README.md
     skills/commit/                     # ← 実体
     skills/pr-create/
@@ -140,7 +140,7 @@ python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 - `.claude/skills` は symlink なので、Git 上では旧 `.claude/skills/...` 実ファイル削除と symlink 追加が見えることがある。
 - `.claude-plugin/marketplace.json` の `name` を変えると `/plugin install <plugin>@<marketplace>` の marketplace 名も変わる。
-- `plugin.json` は `.claude-plugin/` と `.codex-plugin/` の 2 箇所にある。Codex の公式仕様は `.codex-plugin/plugin.json` を required としており、`.claude-plugin` が読めているのは undocumented な legacy 互換に乗っているだけなので、両方を維持する。内容は `dependencies` を除いて同一で、`verify_install.py` の L2 が一致を検査する。
+- `plugin.json` は `.claude-plugin/` と `.codex-plugin/` の 2 箇所にある。両方を維持し、共通フィールドは `verify_install.py` の L2 が一致を検査する。専用フィールドは Claude の `dependencies`、Codex の `interface` で、逆側への混入を拒否する。登録処理は Codex の表示情報を生成し、既存の `interface` は再登録でも保持する。L2 は既存の interface 未設定プラグインを許容するため、Codex の詳細な表示スキーマ検証とは別である。
 - Codex が `plugin.json` の未知フィールドを許容するかは未確認。Codex 仕様に無いフィールド（現状 `dependencies`）は `.codex-plugin/` 側に書かない。
 - **`.agents/skills/` を `find` で走査するときは `-L` を付ける。** 公開済みスキルは symlink なので、`find` は既定で中へ降りず、結果が静かに 0 件になる（`find -L .agents/skills -name '*.js'` のように書く）。同じ理由で `grep -r` も `-r` ではなく実体側（`plugins/`）か `-L` 相当の指定を使う。`make` の `$(wildcard .agents/skills/*/)` と Python の `Path.rglob` は symlink を辿るので影響を受けない（実測確認済み）。
 - `search` / `dispatch` / `skill-creator-best-practices` / `pdca` は native Workflow を優先し、それが無い
