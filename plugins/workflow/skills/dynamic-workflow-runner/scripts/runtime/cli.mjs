@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { Workflow } from './runtime.mjs';
-import { codexBackend } from './codex.mjs';
+import { executeWorkflow } from './adapter.mjs';
 import { exactObject, limitKeys } from './inputs.mjs';
 
 // One JSON request file avoids shell interpolation of workflow arguments.
@@ -14,8 +13,8 @@ try {
     'modelReasoningEffort', 'codexPathOverride', 'limits', 'requirements', 'workspace', 'environment', 'context'], 'CLI request');
   exactObject(request.limits ?? {}, limitKeys, 'limits');
   const { scriptPath, args, runDir, cwd, modelMap, model, modelReasoningEffort, codexPathOverride, limits = {} } = request;
-  const result = await Workflow({ scriptPath, args }, { ...limits, runDir, trustedSource: true, requirements: request.requirements,
-    backend: codexBackend({ cwd, modelMap, model, modelReasoningEffort, codexPathOverride, workspace: request.workspace, environment: request.environment, context: request.context }) });
+  const result = await executeWorkflow({ scriptPath, args }, { ...limits, runDir, trustedSource: true, requirements: request.requirements,
+    cwd, modelMap, model, modelReasoningEffort, codexPathOverride, workspace: request.workspace, environment: request.environment, context: request.context });
   process.stdout.write(JSON.stringify({ status: 'completed', runDir, result }) + '\n');
 } catch (error) {
   process.stderr.write(JSON.stringify({ status: 'failed', error: error.message }) + '\n');

@@ -58,3 +58,10 @@ not overwrite inherited per-skill denial arrays, trim AGENTS rules, replace base
 instructions or pretend that file provenance proves tool availability. Individual
 skill/tool selection waits for a verified effective-inventory merge. Missing host
 context policy stays visibly unverified, not silently advertised as minimal.
+# Common adapter revision
+
+The standard call shape is fixed; do not create caller-specific connection schemes.
+`scripts/runtime/adapter.mjs` owns shared CLI/bound-function execution and the default
+context policy. Source owns dynamic role labels, prompts and reference instructions.
+See [common adapter contract](../scripts/runtime/ADAPTER.md) for configuration, authority,
+selection and verification boundaries. No additional LLM role is introduced.

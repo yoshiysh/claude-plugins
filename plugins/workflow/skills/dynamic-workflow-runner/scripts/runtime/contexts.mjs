@@ -14,11 +14,12 @@ export function contextPolicy(input) {
     async prepare() { return { status: 'host-context-unverified' }; },
     async select() { return { sdkConfig: {}, receipt: { status: 'host-context-unverified' } }; },
   };
-  exactObject(input, ['profiles', 'assignments'], 'context');
+  exactObject(input, ['profiles', 'assignments', 'defaultProfile'], 'context');
   exactObject(input.profiles, Object.keys(input.profiles ?? {}), 'context.profiles');
   exactObject(input.assignments, Object.keys(input.assignments ?? {}), 'context.assignments');
   const profiles = new Map(), assignments = new Map(Object.entries(input.assignments));
-  if (!Object.keys(input.profiles).length || !assignments.size) throw Error('context requires profiles and assignments');
+  const defaultProfile = input.defaultProfile;
+  if (!Object.keys(input.profiles).length || (!assignments.size && defaultProfile === undefined)) throw Error('context requires profiles and assignments or defaultProfile');
   if (Object.keys(input.profiles).length > 32 || assignments.size > 256) throw Error('context inventory exceeds limit');
   for (const [id, value] of Object.entries(input.profiles)) {
     if (!name(id)) throw Error('invalid context profile name');
@@ -38,9 +39,11 @@ export function contextPolicy(input) {
   for (const [label, id] of assignments)
     if (typeof label !== 'string' || !label.trim() || label.length > 256 || !profiles.has(id))
       throw Error('invalid context label assignment');
+  if (defaultProfile !== undefined && (!name(defaultProfile) || !profiles.has(defaultProfile)))
+    throw Error('invalid default context profile');
 
   function validate(options) {
-    if (!assignments.has(options.label)) throw Error(`unassigned context label: ${options.label ?? '(missing)'}`);
+    if (!assignments.has(options.label) && defaultProfile === undefined) throw Error(`unassigned context label: ${options.label ?? '(missing)'}`);
   }
   // One immutable file snapshot per backend. Recheck before every dispatch. Keep
   // the in-flight first preparation shared when multiple callers arrive together.
@@ -70,6 +73,7 @@ export function contextPolicy(input) {
     return {
       status: 'configured-not-runtime-certified',
       profiles: Object.fromEntries(baseline), assignments: Object.fromEntries(assignments),
+      ...(defaultProfile === undefined ? {} : { defaultProfile }),
       boundary: 'File provenance and requested settings only. Not a tool allowlist, skill-discovery receipt, proof of reading, or token reduction measurement.',
     };
   }
@@ -78,12 +82,14 @@ export function contextPolicy(input) {
     async select(options) {
       validate(options);
       const policy = await prepare();
-      const id = assignments.get(options.label), profile = policy.profiles[id];
+      const assigned = assignments.has(options.label);
+      const id = assigned ? assignments.get(options.label) : defaultProfile, profile = policy.profiles[id];
       const sdkConfig = { features: {} };
       if (profile.memory === 'off') sdkConfig.memories = { use_memories: false, generate_memories: false };
       if (profile.apps === 'off') sdkConfig.features.apps = false;
       if (profile.plugins === 'off') { sdkConfig.features.plugins = false; sdkConfig.features.remote_plugin = false; }
       return { sdkConfig, receipt: { status: policy.status, label: options.label, profile: id,
+        selection: assigned ? 'exact-label' : 'host-default',
         settingsHash: sha256(JSON.stringify(sdkConfig)), settings: sdkConfig,
         references: profile.references, boundary: policy.boundary } };
     },

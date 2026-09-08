@@ -1,4 +1,4 @@
-# Per-role context policy — staged opt-in
+# Common and per-role context policy
 
 ## Responsibility and limits
 
@@ -16,8 +16,10 @@ sandbox. Do not use it to bypass mandatory instructions or suppress required too
 ## Request
 
 `context` is optional at the request/backend level, not an `agent()` option.
-Once supplied, every dispatched label must be assigned; there is no wildcard,
-implicit default, missing-label fallback, or source-controlled policy escalation.
+The common adapter supplies an explicit defaultProfile with Memory off and Apps/plugins
+inherited. No per-role assignments are required on that path. Low-level policy callers
+without a defaultProfile must assign every dispatched label. There is no implicit
+fallback, inferred role classification, or source-controlled policy escalation.
 All referenced profile names must exist. A profile explicitly supplies each field:
 
 ```json
@@ -50,6 +52,12 @@ strings, including dynamic labels, case and whitespace. Repeated calls may reuse
 label; every call still starts a fresh SDK thread. Profile identifiers use letters,
 digits, underscore, dot and dash with an alphanumeric first character (max 80).
 
+Optional `defaultProfile` names an existing profile and covers dynamically generated
+or absent labels without listing them in advance. Explicit assignments take precedence.
+The assignments object can be empty only when a valid defaultProfile is supplied.
+Its selection is recorded as host-default; exact matches are recorded as exact-label.
+This is a host-wide policy choice, not an assertion that all roles have identical needs.
+
 References are `{ "path": "<absolute path>", "sha256": "<64 lowercase hex>" }`.
 The parent computes the digest from the actual source-owned reference. Runtime
 canonicalizes paths, rejects missing/non-file/oversized references and duplicates,
@@ -75,10 +83,11 @@ not edited. This module does not set CODEX_HOME or change authentication.
 canonical reference hashes after preflight. Each scoped call emits `context.selected`
 with label, profile, requested settings, settings hash and reference inventory.
 Status is `configured-not-runtime-certified`, never `minimal` or `verified`.
-Missing context records `host-context-unverified` and retains prior behavior.
+Missing context at the low-level backend records `host-context-unverified`. The common
+adapter and CLI supply their documented default instead; see [adapter contract](ADAPTER.md).
 
-Unknown profile fields, malformed inventories and unknown labels are configuration
-errors. Bad references stop preflight before run-directory creation. A changed
+Unknown profile fields, malformed inventories and unknown labels without a declared
+defaultProfile are configuration errors. Bad references stop preflight before run-directory creation. A changed
 reference stops the affected dispatch; existing backend-error/null semantics apply
 to dispatch-time I/O failures. Already completed calls are not rolled back. No
 automatic retry or policy widening is allowed. All profile references are checked

@@ -4,6 +4,11 @@ This is a new executable runtime, not the existing source-to-manifest bridge.
 Existing skill routing is unchanged. Do not claim that installing this prototype
 enables native Workflow interception, resume, or unchanged execution of every caller.
 
+The [common adapter](ADAPTER.md) binds host settings once and accepts unchanged
+`Workflow({scriptPath,args})` calls. The one-shot CLI uses the same execution entry.
+Its default context suppresses personal Memory while preserving Apps/plugin dependencies;
+per-role inventories are optional, not required for every source.
+
 ## Contract
 
 `Workflow({scriptPath,args}, hostOptions)` executes a trusted script in a separate
@@ -128,6 +133,9 @@ Complete minimal injected context and a hard inner-turn token limit are not impl
 
 - No transparent replay/resume. A reused run directory is rejected. Failed runs list
   in-flight task IDs; abort delivery does not prove external effects were rolled back.
+  The read-only `checkpoint-audit.mjs` inspector and no-inference
+  `rehearseCheckpoint` diagnostic can examine trusted, quiescent historical runs;
+  neither grants permission to resume. See [resume design](RESUME-DESIGN.md).
 - No live token hard cap: this SDK reports completed-turn usage, not a strict debit
   reservation. Agent count/deadline limits are not token or billing guarantees.
 - No automatic retry, model substitution, per-agent tool allowlist, human approval

@@ -27,21 +27,21 @@ SDK worker は fresh thread だが、cwd の指示やホスト設定までゼロ
 
 ## Worker のコンテキストを決める
 
-親は worker を起動する前に、役割ごとの必要情報と依存機能を確認する。
-`context` を使う場合は source の既存 `agent(..., {label})` と host の
-`assignments` を一対一で照合し、役割に必要な profile を割り当てる。
-source に Codex 専用引数を足したり、ラベル名から必要機能を推測したりしない。
-動的ラベルもすべて割当が必要で、未割当は実行前に停止する。
+共通アダプターが既定のコンテキストを用意する。親が役割一覧や reference 一覧を
+スキルごとに再作成する必要はない。既定は個人 Memory を抑制し、依存機能を落とさないよう
+Apps／プラグインを保持する。source が必要な知識・reference を担当の prompt で指定する。
+動的ラベルやラベルなしの担当も同じ明示的な host default で動く。
+source に Codex 専用引数を足したり、ラベル名や自然文から必要機能を推測したりしない。
 
 - 独立した役割に不要な個人 Memory は `off`。必要な知見は出典を持つ入力として source が渡す。
 - Apps／プラグインを必要としない役割だけ `off`。必要な役割では `inherit` を明示する。
   `inherit` は利用可能性の保証ではない。必要な外部 tool allowlist 等は既存の未対応境界に従う。
-- profile の `references` には親が確認した絶対パスと SHA-256 を渡す。
+- ホストが reference の同一性検査を追加する場合だけ、profile の `references` に絶対パスと SHA-256 を渡す。
   runtime が検査するのはファイルの存在と内容の同一性。読むべき順序・箇所は source の prompt が指定する。
 - 親の SKILL 全文や会話を worker に追加しない。基本指示、適用される AGENTS 規則、権限、hook は削らない。
 
-詳細と request 例は [コンテキスト仕様](scripts/runtime/CONTEXT.md) を request 作成時に読む。
-未指定は `host-context-unverified`。設定を渡しただけで「必要情報だけが入った」「トークン削減済み」
+詳細は [コンテキスト仕様](scripts/runtime/CONTEXT.md) をホスト設定を変更するときだけ読む。
+個別割当は高度な任意設定であり、共通経路の必須入力ではない。設定を渡しただけで「必要情報だけが入った」「トークン削減済み」
 としない。個別 skill/tool の選別はまだ未対応であり、低い一覧上限で代用しない。
 
 ## 実行前の判断
@@ -60,6 +60,11 @@ source に Codex 専用引数を足したり、ラベル名から必要機能を
    動的に構成する option も宣言対象。source 全体の静的推定が完成したとは扱わない。
 
 ## JavaScript 実行経路
+
+共通ホストは [アダプター](scripts/runtime/ADAPTER.md) の `createWorkflow(host)` を一度設定する。
+以後、受け取る呼出しは `Workflow({scriptPath,args})` のまま。スキル名ごとの分岐や
+caller の専用改修を加えない。CLI も同じ `executeWorkflow` に合流する。
+これは呼出し先の関数を提供する実装であり、Codex の未登録 tool を自動捕捉する機能ではない。
 
 初回 setup と request 作成時だけ [実行仕様](scripts/runtime/README.md) を読む。
 request JSON に `scriptPath`、`args`、新規 `runDir`、worker `cwd` と必要なモデル設定・上限を記録する。
