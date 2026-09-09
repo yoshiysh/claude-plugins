@@ -15,7 +15,7 @@ SKILL.md のままで、ここに書くのはスキル改善に固有の入出�
   （goal は目的から導く。目的を Plan の中で発明しない）。
 - **telemetry**: 対象スキルの実行実測が `~/.claude/skill-telemetry/<skill>/` に
   1 run 以上あること。無ければまず通常運転の run を
-  `scripts/skill_telemetry.py record` で記録するところから（実測ゼロの改善は問題起点に
+  `python3 [SKILL_DIR]/scripts/skill_telemetry.py record` で記録するところから（実測ゼロの改善は問題起点に
   ならない — それは動機起点で、成功基準は provisional になる）。
 - **再現入力**: 同一入力で再実行できる args 一式（Workflow の wrapper script として保存
   しておく）。これが無いと対照測定が組めない。
