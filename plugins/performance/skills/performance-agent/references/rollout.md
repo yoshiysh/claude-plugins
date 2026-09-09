@@ -8,6 +8,9 @@
 
 ## Stage 2: passive collection (not enabled)
 
+明示実行のローカルsnapshot保存をプレビュー実装した。対応範囲と未解決の有効化条件は
+[収集契約](collection.md) を参照。自動収集とhook登録は未実装のままである。
+
 Codex/Claude等の各環境で取得できるイベントを実測して専用アダプターを追加する。
 hookは収集のきっかけであり、LLMスキルを毎イベント起動する場所ではない。
 公式の安定したusage経路を優先し、不安定なtranscript形式はversion別に検査する。
