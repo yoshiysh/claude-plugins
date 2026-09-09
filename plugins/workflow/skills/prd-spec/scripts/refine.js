@@ -1679,6 +1679,102 @@ const revisionLog = []
 
 let revisions = 0
 
+// (kaizen C4) attributionObserve: 改稿で追加された項目の trace.quote が根拠原本に文字列として
+// 実在するかを、LLM の判断を介さず分類する純データ関数（観測のみ。文書にも指摘にも触れない）。
+// 背景: fabrication は「原本に無い内容を、原本にあるかのように申告して本文へ足す」形で現れるが、
+// 現行の structuralFindings(7) は trace の存在だけを見て内容を照合しない。照合は quote 契約
+// （「原本に実在する文字列を写す」）により文字列一致で機械化できる。介入（再依頼・revert）は
+// 露出の実測が溜まるまで入れない — 偽陽性の規模を知らないまま副作用を入れないため。
+// 設計の要点（plan-verifier の反証由来）:
+// - added の母集団は「writer 申告 ∪ ID 集合差分」の和集合（片方の欠落・省略で母集団が縮む
+//   経路を作らない。両導出の不一致は derivation_disagreement として記録のみ）
+// - trace は同一 item_id に複数エントリを持ち得る。1 件でも一致すれば matched（帰属の必要条件は
+//   「支える原本が 1 つ実在する」こと）。エントリ単位の内訳は record に残す
+// - premise / measurement はプロセス内に引用可能な原本が無いので照合せず recorded_only とする。
+//   ただし kind_escape として別掲する（この kind を申告すれば照合を回避できる事実を隠さない）
+// - decision / domain の原本はオブジェクト。JSON.stringify を haystack にするとエスケープが
+//   正当な引用を落とすので、文字列値だけを再帰的に集めて結合する
+// - 正規化は NFKC + 空白連続の単一スペース化（削除ではない — 全削除は行境界を跨いだ偶然一致を
+//   作る）。NORM 後 20 文字未満の quote は too_short（短文は偶然一致と区別できない）
+// - exposure の定義: unattributed + too_short + no_trace の合計（recorded_only と matched は
+//   含めない）。この値が次サイクルの「未帰属追加の実測率」の分子になる
+function attributionObserve({ prev_ids, next_items, declared_added_ids, trace, origins }) {
+  const norm = (s) =>
+    String(s || '')
+      .normalize('NFKC')
+      .replace(/[\s　]+/g, ' ')
+      .trim()
+  const collectStrings = (v, out) => {
+    if (typeof v === 'string') out.push(v)
+    else if (Array.isArray(v)) for (const x of v) collectStrings(x, out)
+    else if (v && typeof v === 'object') for (const k of Object.keys(v)) collectStrings(v[k], out)
+    return out
+  }
+  const haystacks = {}
+  for (const kind of ['input', 'answers', 'tbd_answers']) haystacks[kind] = norm(origins[kind])
+  for (const kind of ['decision', 'domain']) haystacks[kind] = norm(collectStrings(origins[kind], []).join('\n'))
+  const NO_ORIGIN_KINDS = new Set(['premise', 'measurement'])
+  const MIN_QUOTE_NORM_LEN = 20
+
+  const prevSet = new Set(prev_ids || [])
+  const nextIds = (next_items || []).map((i) => i && i.id).filter(Boolean)
+  const diffAdded = nextIds.filter((id) => !prevSet.has(id))
+  const declared = (declared_added_ids || []).filter(Boolean)
+  const added = [...new Set([...declared, ...diffAdded])].filter((id) => nextIds.includes(id))
+  const derivationDisagreement =
+    declared.filter((id) => !diffAdded.includes(id)).length +
+    diffAdded.filter((id) => !declared.includes(id)).length
+
+  const records = []
+  for (const id of added) {
+    const entries = (trace || []).filter((t) => t && t.item_id === id)
+    if (!entries.length) {
+      records.push({ item_id: id, classification: 'no_trace', entries: [] })
+      continue // eslint-disable-line -- 分類済み項目を後段の照合へ流さない
+    }
+    const perEntry = entries.map((t) => {
+      const kind = String(t.kind || '')
+      if (NO_ORIGIN_KINDS.has(kind)) return { kind, verdict: 'recorded_only' }
+      const q = norm(t.quote)
+      if (q.length < MIN_QUOTE_NORM_LEN) return { kind, verdict: 'too_short', norm_len: q.length }
+      const hay = haystacks[kind]
+      if (!hay) return { kind, verdict: 'unattributed', reason: 'unknown_kind_or_empty_origin' }
+      return { kind, verdict: hay.includes(q) ? 'matched' : 'unattributed', norm_len: q.length }
+    })
+    const has = (v) => perEntry.some((e) => e.verdict === v)
+    const classification = has('matched')
+      ? 'matched'
+      : has('recorded_only')
+      ? 'recorded_only'
+      : has('unattributed')
+      ? 'unattributed'
+      : 'too_short'
+    // shielded: premise/measurement エントリの併記が unattributed エントリを classification 上
+    // 遮蔽している項目（監査の敵対 fixture F9 で発見）。分類は変えず（正当な premise 項目を
+    // exposure に混ぜない）、遮蔽の事実だけを別掲して観測から消えないようにする。
+    const shielded = classification === 'recorded_only' && has('unattributed')
+    records.push({ item_id: id, classification, shielded, entries: perEntry })
+  }
+  const count = (c) => records.filter((r) => r.classification === c).length
+  return {
+    records,
+    counters: {
+      added_total: added.length,
+      matched: count('matched'),
+      unattributed: count('unattributed'),
+      too_short: count('too_short'),
+      no_trace: count('no_trace'),
+      kind_escape: count('recorded_only'),
+      kind_escape_shielded: records.filter((r) => r.shielded).length,
+      derivation_disagreement: derivationDisagreement,
+      exposure: count('unattributed') + count('too_short') + count('no_trace'),
+    },
+  }
+}
+// 集約: 呼び出しは改稿ラウンド × 文書ごとに起きるので、record は round / document 付きで
+// 追記し、counters は最終集計時に records から再計算する（1 回分の形状を使い回さない）。
+const attributionRecords = []
+
 // forceAll: 人間ゲート②の回答を反映する最初のパスで使う。このパスは監査指摘ではなく回答が
 // 契機なので、findings が空でも全文書を引き直す必要がある（回答がどの文書に効くかは
 // 書いてみるまで決まらない）。findings で絞ると、反映パスが 1 文書も動かないまま通る。
@@ -1722,6 +1818,22 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
       }
       const idx = documents.findIndex((d) => d.key === doc.key)
       const items = kind === 'requirements' ? result.requirement_items || [] : result.spec_items || []
+      // (kaizen C4) 帰属の観測。前稿の ids は次の代入で失われるので、上書き前のここで捕捉する。
+      const gateObs = attributionObserve({
+        prev_ids: documents[idx].ids || [],
+        next_items: items,
+        declared_added_ids: ((result.item_delta || {}).added_items || []).map((a) => a && a.id),
+        trace: result.trace || [],
+        origins: {
+          input,
+          answers,
+          tbd_answers: [...tbdAnswersHistory.map((e) => e.answers), tbdAnswers].filter(Boolean).join('\n'),
+          decision: decisions,
+          domain: domainFindings,
+        },
+      })
+      for (const rec of gateObs.records)
+        attributionRecords.push({ round: revisionId, document: doc.key, ...rec })
       documents[idx] = {
         ...documents[idx],
         markdown: result.markdown,
@@ -2706,6 +2818,27 @@ const instr = {
   terminal_unpresented_no_record: null,
   terminal_unpresented_digest_mismatch: null,
   terminal_unpresented_new_or_renamed: null,
+  attribution: null,
+}
+// (kaizen C4) 帰属観測の集約。counters は records から再計算する（呼び出し 1 回分の counters を
+// 使い回さない）。exposure = unattributed + too_short + no_trace（matched / recorded_only を
+// 含めない）で、次サイクルの exposure × fab 裁定の突合の分子。
+{
+  const cnt = (c) => attributionRecords.filter((r) => r.classification === c).length
+  instr.attribution = {
+    mode: 'observe',
+    records: attributionRecords,
+    counters: {
+      added_total: attributionRecords.length,
+      matched: cnt('matched'),
+      unattributed: cnt('unattributed'),
+      too_short: cnt('too_short'),
+      no_trace: cnt('no_trace'),
+      kind_escape: cnt('recorded_only'),
+      kind_escape_shielded: attributionRecords.filter((r) => r.shielded).length,
+      exposure: cnt('unattributed') + cnt('too_short') + cnt('no_trace'),
+    },
+  }
 }
 instr.stage2_input_count = unpresentedBlocking.length
 instr.origin_breakdown = {
