@@ -253,10 +253,13 @@ if (!inputDocs.length) {
 // R<outer>.<rev> は revision_log（返り値のメタ情報）だけで使う識別子であり、**生成文書には書かない**。
 // 改稿の経緯は成果物ではなく実行の途中経過なので、本文にも変更履歴の章にも残さない。
 const outerRound = Number(parsedArgs.outer_round || 1)
-// MAX_OUTER_ROUNDS: 外側ループの上限（SKILL.md「最大 2 周」の script 側の対）。
-// 範囲外を黙って受けると、revision_log の R<outer>.<rev> と提示容量の前提
-// （check_blocking_rate.py の 20 件/周 × 2 周）が崩れたまま走る。
-const MAX_OUTER_ROUNDS = 2
+// MAX_OUTER_ROUNDS: 外側ループの暴走防止 backstop（較正された停止条件ではない）。
+// 停止の正条件は SKILL.md 手順 4 の乾き（今周回に first_seen の新規 blocking が 0）で、
+// この値は乾かないまま回り続ける事故を切るためだけにある。固定 2 周だった旧設計は
+// 「run 中の監査が新たに掘る NI はその run 内で提示できない」機序（kaizen 第 3 サイクル、
+// 計装 3 run で帰属確定）により unpres >= 1 を定常化させていた。提示容量の前提
+// （check_blocking_rate.py の 20 件/周 × 2 周）は MAX_GATE_ROUNDS が持ち、この値とは独立。
+const MAX_OUTER_ROUNDS = 5
 if (!Number.isInteger(outerRound) || outerRound < 1 || outerRound > MAX_OUTER_ROUNDS) {
   throw new Error(`args.outer_round が不正です: ${parsedArgs.outer_round}（1〜${MAX_OUTER_ROUNDS} の整数）`)
 }

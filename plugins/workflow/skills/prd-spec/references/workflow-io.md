@@ -78,9 +78,9 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 |---|---|
 | `documents` | 直前の返り値の `documents` から `markdown` を落とし、`draft_path`（手順 2 の書き出し先）を入れたもの。本文もパスも無い文書があると script が入口で落ちる（改稿が新規執筆に化けるのを防ぐ） |
 | `tbd_answers` | **今周回の**統合ゲートの回答。**空なら script は反映パスを飛ばす**（直す理由が無いまま全文書を書き直させない） |
-| `tbd_answers_history` | 過去周回の統合ゲート回答の累積。1 周目は `[]`。**2 周目は `next_args` が埋めるので手で作らない**（原本が欠けると過去回答由来の要求が fabrication の偽陽性になる） |
-| `presented_tbd_ids` | これまでに提示済みの TBD。`unpresented_blocking` の唯一の入力。`{ id, digest }` の形（`digest` は script が計算済みの値。生 text を入れると全件が「未提示」に化ける）。1 周目は初回ゲートで提示した分を `blocking_tbd_items[].digest` から転記して積む。**2 周目は `next_args` が埋めるので手で作らない** |
-| `outer_round` | 外側ループの周回（1 or 2）。`R<outer>.<rev>` は `revision_log`（返り値のメタ情報）だけで使い、**生成文書には書かない**。**カウンタは 2 つある**ことを取り違えない |
+| `tbd_answers_history` | 過去周回の統合ゲート回答の累積。1 周目は `[]`。**2 周目以降は `next_args` が埋めるので手で作らない**（原本が欠けると過去回答由来の要求が fabrication の偽陽性になる） |
+| `presented_tbd_ids` | これまでに提示済みの TBD。`unpresented_blocking` の唯一の入力。`{ id, digest }` の形（`digest` は script が計算済みの値。生 text を入れると全件が「未提示」に化ける）。1 周目は初回ゲートで提示した分を `blocking_tbd_items[].digest` から転記して積む。**2 周目以降は `next_args` が埋めるので手で作らない** |
+| `outer_round` | 外側ループの周回（1〜`MAX_OUTER_ROUNDS`）。`R<outer>.<rev>` は `revision_log`（返り値のメタ情報）だけで使い、**生成文書には書かない**。**カウンタは 2 つある**ことを取り違えない |
 | `paths` | 保存先ディレクトリ。**Workflow A に渡したものと同じ値**を渡す |
 | `draft_structural_findings` | Workflow A の `structural_findings`。渡さないと A の検査結果が誰にも読まれない |
 
@@ -144,7 +144,7 @@ specimen（標本適用監査）だけはコスト抑制のため初回監査と
 起きず、解消文が一度も書かれないまま「解消済み」として提示される。反映後は集計と構造検査を
 引き直す。段 2・3 は迷ったら人間ゲートへ倒し、agent が応答しなければ全件がゲート行きになる。
 
-外側ループの契約は変わらない（`outer_round` は最大 2 周、blocking TBD は統合ゲート経路）。
+外側ループの契約は変わらない（`outer_round` は乾き停止 + backstop `MAX_OUTER_ROUNDS`、blocking TBD は統合ゲート経路）。
 
 ## 6. 異常系・準正常系・正常系エッジ
 
