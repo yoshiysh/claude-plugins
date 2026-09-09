@@ -17,6 +17,10 @@ C4 在庫応答性: 在庫に run を足し引きすると、hit/present が RUL
 C5 score 再計算: score.value == impact * frequency / cost、
     frequency == round_half_up(1 + 4 * hit / present)（impact/cost は IMPACT_COST の凍結値）。
 C6 裁定一周: decide が status / decided_at / reason を同ファイルへ記録し、pending が残らない。
+監査の注記: (i) prd-spec 計装側の恒等式「stage_verdicts 合計 == classified_count」はコードの
+    不変条件ではない — judge が入力に無い tbd_id を返すと破れるため、破れは「judge の
+    ID 捏造」の検出器として読む。(ii) resolve が走らない run では stage2_input_count と
+    terminal_unpresented_count が定義上同値に縮退し、terminal 内訳は独立情報を持たない。
 
 規則表の粒度と impact/cost の値は既定値（調整は要求変更にあたらない）。述語は在庫の
 指標だけを見る絶対条件で書く（在庫相対の述語は leave-one-out で hit 集合が不安定になり、

@@ -102,7 +102,7 @@ class TestGateCapacityConstants(unittest.TestCase):
         py = (SKILL / "scripts" / "check_blocking_rate.py").read_text()
         for py_name, js_name in (
             ("GATE_CAPACITY_PER_ROUND", "GATE_CAPACITY_PER_ROUND"),
-            ("MAX_OUTER_ROUNDS", "MAX_GATE_ROUNDS"),
+            ("MAX_GATE_ROUNDS", "MAX_GATE_ROUNDS"),
         ):
             py_v = re.search(rf"^{py_name} = (\d+)", py, re.M)
             js_v = re.search(rf"^const {js_name} = (\d+)", REFINE, re.M)

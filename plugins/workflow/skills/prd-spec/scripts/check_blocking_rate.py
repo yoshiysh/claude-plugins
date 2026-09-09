@@ -24,8 +24,10 @@ import sys
 
 # 人間ゲート②の 1 回あたりの絞り込み閾値（SKILL.md「20 件を超えるなら blocking に絞る」）
 GATE_CAPACITY_PER_ROUND = 20
-# 外側ループの最大周回数（SKILL.md「最大 2 周」）
-MAX_OUTER_ROUNDS = 2
+# 提示容量の前提周回数（refine.js の MAX_GATE_ROUNDS と parity 検査される写し）。
+# 外側ループの実行上限 MAX_OUTER_ROUNDS（refine.js、乾き停止の backstop）とは別物 —
+# 旧名が同名で、ループ上限の変更時に parity を壊す/壊さないの判断を毎回誤らせた。
+MAX_GATE_ROUNDS = 2
 
 
 def analyze(tbd_items: list, warn_over: int, fail_over: int) -> dict:
@@ -54,7 +56,7 @@ def main() -> int:
     parser.add_argument(
         "--fail-over",
         type=int,
-        default=GATE_CAPACITY_PER_ROUND * MAX_OUTER_ROUNDS,
+        default=GATE_CAPACITY_PER_ROUND * MAX_GATE_ROUNDS,
         help="この件数を超えたら exit 1（既定: 全周回で提示しきれる上限）",
     )
     args = parser.parse_args()
