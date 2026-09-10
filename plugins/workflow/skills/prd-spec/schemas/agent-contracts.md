@@ -110,6 +110,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
   ],
   "categories_deferred": ["情報が未確定で章にできず TBD へ落としたカテゴリ名"],
   "referenced_ids": ["本文で言及するがこの文書の項目ではない ID"],
+  "vacant_ids": ["この文書の欠番 ID（採番済みだが項目が存在しない ID）"],
   "item_delta": {
     "after": 24,
     "net_added": 2,
@@ -137,6 +138,10 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 - `owner` / `due` はユーザーが指定していなければ空文字のままにする。埋めた風にしない。
 - **`referenced_ids`** に他文書の ID を入れる。複数文書化で他文書への言及は日常的に起きるため、
   ここに入れないと構造検査が申告漏れとして指摘し、直しようのない指摘で改稿枠を消費する。
+- **`vacant_ids`** に自文書の欠番 ID を入れる。欠番は実在の項目（items）でも他文書参照
+  （referenced_ids）でもない第三の類型で、表記規約が本文への列挙（「欠番」の語と同じ行に併記）を
+  要求する。どちらの申告も無いと構造検査（ST-UNDECLARED / ST-GAP-UNDECLARED）が毎 run
+  再検出する。実在の項目と重複して申告すると ST-VACANT-CONFLICT になる。
 - `summary` を空にしない。INDEX が「どのファイルに何が書いてあるか」を示せなくなる。
 
 ---
@@ -160,6 +165,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
   "tbd_items": [{ "id": "TBD-AUTH-002", "text": "...", "owner": "", "due": "", "blocking": false }],
   "categories_deferred": [],
   "referenced_ids": [],
+  "vacant_ids": [],
   "item_delta": { "after": 31, "net_added": 0, "added_items": [] }
 }
 ```
@@ -384,7 +390,8 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 | `ST-ORPHAN-REQ-` | 要求 ID がトレーサビリティ表に無い（実現する仕様が無い） |
 | `ST-ORPHAN-SPEC-` | 仕様項目 ID がトレーサビリティ表に無い（根拠が不明） |
 | `ST-DANGLING-` | 表が参照する ID がどの文書にも無い |
-| `ST-UNDECLARED-` | 本文にあるが ID 一覧にも `referenced_ids` にも無い |
+| `ST-UNDECLARED-` | 本文にあるが ID 一覧・`referenced_ids`・欠番（`vacant_ids` または「欠番」と同じ行の併記）のいずれにも無い |
+| `ST-VACANT-CONFLICT-` | `vacant_ids`（欠番）と ID 一覧（実在の項目）の両方に申告されている |
 | `ST-PHANTOM-` | ID 一覧にあるが本文に無い |
 | `ST-OBSOLETE-` | 廃止済み規制の語の混入（`references/citation-policy.md`） |
 | `ST-UNVERIFIED-` | 本文未確認の規格に条番号を付けた引用 |

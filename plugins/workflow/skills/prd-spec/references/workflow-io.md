@@ -83,6 +83,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 | `outer_round` | 外側ループの周回（1〜`MAX_OUTER_ROUNDS`）。`R<outer>.<rev>` は `revision_log`（返り値のメタ情報）だけで使い、**生成文書には書かない**。**カウンタは 2 つある**ことを取り違えない |
 | `paths` | 保存先ディレクトリ。**Workflow A に渡したものと同じ値**を渡す |
 | `draft_structural_findings` | Workflow A の `structural_findings`。渡さないと A の検査結果が誰にも読まれない |
+| `suppressed_finding_ids` | 過去 run の終端裁定で rejected（偽指摘）と分類された**構造検査**の指摘 ID の累積（例: `"ST-UNDECLARED-PR-X-003"`）。構造検査は無状態の算術なので、発火条件が本文に残る限り毎 run 同じ指摘を再起票する — この口が無いと棄却が run を跨いで効かない。**2 周目以降は `next_args` が埋める**。新規 run に持ち越すときは前 run の返り値 `suppressed_finding_ids_next` を転記する。対象は `auditor: 'structural'` の指摘に限る（LLM 監査者の指摘 ID は run ごとに振り直され、誤爆する） |
 
 ## 4.5 Workflow B の返り値のうち、司令塔が使うもの
 
@@ -93,6 +94,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 | `tbd_items` | 残った未確定事項。**完成条件はこれが 0 件**（SKILL.md「完成の定義」） |
 | `unpresented_blocking` | blocking かつ未提示。1 件以上なら統合ゲートで聞く（`first_seen_round` 付き） |
 | `auto_resolved_blocking` / `resolved_by_measurement` | 人間に聞かずに決着させた項目。**本文への反映はラン内で完了している**。保存承認ゲートで決定として事後提示する（依頼者は覆せる） |
+| `suppressed_findings` / `suppressed_finding_ids_next` | 前者は `suppressed_finding_ids` により集計前に畳んだ構造検査指摘（黙って消さない開示）。後者は今 run の rejected 裁定を合流させた累積で、**次の run（新規 run を含む）の `suppressed_finding_ids` にそのまま渡す** |
 | `holding_rules` | 提示済みでなお決まらず、保持規則（規範文）へ変換した論点。文書側には規範文として入っている |
 | `work_items` | 保持規則に対応する裁定の作業項目。**文書には書かない**。司令塔が Issue 化する |
 | `audit_trail` | 項目 ID → 根拠、決定ログ、裁定の記録。納品文書に根拠句を書かないので、ここが唯一の証跡 |
