@@ -16,8 +16,14 @@ MAX_BYTES = 16 * 1024 * 1024
 MAX_LINES = 100000
 MAX_RECORDS = 2000
 MAX_SESSIONS = 100
+MAX_SKIPPED = 100
 RETENTION_DAYS = 30
 FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens")
+# サイズ上限による不収集は「失敗」ではなく打ち切り（censoring）として ledger に残す。
+# 上限に当たるのは長い session、つまり最も高コストな観測ほど計測から消える系統的な偏りであり、
+# 黙って落とすと集計が安い側へ偏った事実ごと見えなくなる。データ整合性エラー（不正レコード等）
+# はこの分類に入れず従来どおり例外のまま伝播させる（壊れた入力を「大きすぎた」と混同しない）。
+CENSOR_REASONS = ("source_limit", "line_count_limit", "line_limit", "record_limit")
 
 
 def hashed(value):
@@ -116,14 +122,25 @@ def parse(host, path):
 
 
 def initial():
-    return {"version": 1, "sessions": {}}
+    return {"version": 1, "sessions": {}, "skipped": {}}
 
 
 def validate(state):
-    require(type(state) is dict and set(state) == {"version", "sessions"}
+    # "skipped" 導入前の既存 store（{"version","sessions"} のみ）は読み込み時に補完する。
+    # 旧形を拒否すると、更新した瞬間から過去の ledger 全体が読めなくなる。
+    require(type(state) is dict
+            and set(state) in ({"version", "sessions"}, {"version", "sessions", "skipped"})
             and type(state["version"]) is int and state["version"] == 1
             and type(state["sessions"]) is dict and len(state["sessions"]) <= MAX_SESSIONS,
             "invalid_native_store")
+    state.setdefault("skipped", {})
+    require(type(state["skipped"]) is dict and len(state["skipped"]) <= MAX_SKIPPED, "invalid_skip_store")
+    for key, row in state["skipped"].items():
+        require(digest(key) and type(row) is dict and set(row) == {
+            "host", "path_hash", "updated_at", "reason", "count"}, "invalid_skip_entry")
+        require(row["host"] in ("claude", "codex") and digest(row["path_hash"])
+                and natural(row["updated_at"]) and row["reason"] in CENSOR_REASONS
+                and natural(row["count"]) and row["count"] >= 1, "invalid_skip_metadata")
     count = 0
     for key, row in state["sessions"].items():
         require(digest(key) and type(row) is dict and set(row) == {
@@ -152,14 +169,40 @@ def validate(state):
 def summarize(state):
     sessions = list(state["sessions"].values())
     records = [u for row in sessions for u in row["records"].values()]
+    skipped = list(state.get("skipped", {}).values())
     return {"format": "performance-native-report/v1", "retained_sessions": len(sessions),
             "observed_usage_records": len(records),
             "usage": {k: sum(u[k] for u in records) for k in FIELDS} if records else None,
             "incomplete_sources": sum(row["incomplete"] for row in sessions),
             "missing_usage_events": sum(row["missing_usage"] for row in sessions),
+            # censored: 上限超過で観測から外れた session。usage 合計はこの分を含まないので、
+            # censored_sessions > 0 のとき合計は下方に偏っている（0 と「無い」を混同しない）。
+            "censored_sessions": len(skipped),
+            "censored_by_reason": {r: sum(1 for row in skipped if row["reason"] == r)
+                                   for r in CENSOR_REASONS if any(row["reason"] == r for row in skipped)},
             "measurement_complete": None, "quality": "unmeasured",
             "scope": "retained observed native usage; not billing, quota or context peak",
             "retention_days": RETENTION_DAYS}
+
+
+def record_skip(host, key, path_hash, reason, store):
+    """上限超過による不収集を打ち切りとして記録する。収集の代替ではなく欠測の可視化。"""
+    now = int(time.time())
+    with transaction(store, initial, validate) as state:
+        skipped = state["skipped"]
+        for old_key in list(skipped):
+            if skipped[old_key]["updated_at"] <= now - RETENTION_DAYS * 86400:
+                del skipped[old_key]
+        previous = skipped.pop(key, None)
+        count = (previous["count"] if previous and previous["reason"] == reason else 0) + 1
+        skipped[key] = {"host": host, "path_hash": path_hash, "updated_at": now,
+                        "reason": reason, "count": min(count, 2**63 - 1)}
+        while len(skipped) > MAX_SKIPPED:
+            victim = min((k for k in skipped if k != key), key=lambda k: skipped[k]["updated_at"])
+            del skipped[victim]
+        result = summarize(state)
+        result.update(status="censored", reason=reason)
+        return result
 
 
 def collect(host, path, session_id, store):
@@ -167,13 +210,20 @@ def collect(host, path, session_id, store):
     require(host in ("claude", "codex"), "unsupported_host")
     key = hashed(host + ":" + identity(session_id))
     path_hash = hashed(os.path.abspath(os.fspath(path)))
-    records, incomplete, updates, missing = parse(host, path)
+    try:
+        records, incomplete, updates, missing = parse(host, path)
+    except ValueError as error:
+        if str(error) in CENSOR_REASONS:
+            return record_skip(host, key, path_hash, str(error), store)
+        raise
     now = int(time.time())
     with transaction(store, initial, validate) as state:
         sessions = state["sessions"]
         for old_key in list(sessions):
             if sessions[old_key]["updated_at"] <= now - RETENTION_DAYS * 86400:
                 del sessions[old_key]
+        # 過去に打ち切られた session が収まる大きさで観測できたなら、打ち切り記録は解消する。
+        state["skipped"].pop(key, None)
         previous = sessions.get(key)
         if previous:
             require(previous["path_hash"] == path_hash, "session_path_conflict")
@@ -200,4 +250,6 @@ def report(store):
     with transaction(store, initial, validate, readonly=True) as state:
         cutoff = int(time.time()) - RETENTION_DAYS * 86400
         return summarize({"sessions": {k: v for k, v in state["sessions"].items()
+                                      if v["updated_at"] > cutoff},
+                          "skipped": {k: v for k, v in state["skipped"].items()
                                       if v["updated_at"] > cutoff}})

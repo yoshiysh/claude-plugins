@@ -16,14 +16,26 @@ groupのキーはproject/task_class/model/settings/quality_contract。値はそ�
 
 sampleの全キー：id（観測のdigest）、usage（input_tokens/cached_input_tokens/output_tokens）、
 duration_ms（非負整数またはnull）、status（completed/failed/unknown）、quality
-（passed/failed/unmeasured）、quality_evidence（digestまたはnull）、usage_evidence（digest）。
+（passed/failed/unmeasured）、quality_source（independent/producer）、
+quality_evidence（digestまたはnull）、usage_evidence（digest）。
 usageは不明ならnull。余分なキー・本文・pathは拒否。idとusage_evidenceは全sampleを通じて一意。
 usage_evidenceはファイル全体のhashを使い回さず、**単一観測を切り出した証拠**のdigestとする。
+quality_evidenceはidともusage_evidenceとも異なる値でなければならない（使い回しはschema拒否。
+品質を測っていないのに測った形だけ整える最短の抜け道を構造で塞ぐ）。
 入力提供者が実際の証拠との対応・独立sample・条件・品質評価を保証する。CLIはdigestの真正性や
 品質合格を自力で検証しないため、出力は常に調査/検証候補であって改善の認定ではない。
 
+**quality_sourceの意味**：independentは、品質判定の産物がsampleを生成した主体と**別の工程**
+（fresh contextの監査者・検証段・別スキルの判定器）で作られ、その産物のdigestを
+quality_evidenceにしていること。producerは生成主体の自己申告。生成者は自分の出力に通る判定を
+書けてしまうため、producer品質のsampleを含むcohortは候補の前提を満たさない（not_comparable側）。
+これはツールの検証能力の主張ではなく入力規約であり、independentの宣言が事実かは入力提供者の
+責任のまま残る — ただし宣言を必須にすることで「独立検証をしていない比較」が黙って候補に
+化ける経路は消える。kaizen運転との結線は[kaizen統合](kaizen-integration.md)を正とする。
+
 既定各3sample以上、最大各100。`--min-samples`は3〜100。
-全sampleがcompletedかつquality passed、品質証拠・usage・durationが既知でなければ候補なし。
+全sampleがcompletedかつquality passed（quality_source=independent）、品質証拠・usage・
+durationが既知でなければ候補なし。
 input+outputとdurationの下側中央値で比較し、cacheをinputに再加算しない。
 費用や統計的有意差を推定しない。基準中央値0は割合比較できないのでnot_comparable。
 `--threshold-percent`既定25（1〜1000）。増加があればinvestigate_regression、減少だけなら
