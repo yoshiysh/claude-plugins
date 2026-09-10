@@ -3,24 +3,35 @@
 ## Stage 1: offline measurement
 
 汎用の正規化レコードを中心とし、workflowは入力アダプターの1つだけにする。
-現行版はこの段階。実ログは集計値だけ照合し、匿名の合成fixtureで回帰テストする。
+実装済み。実ログは集計値だけ照合し、匿名の合成fixtureで回帰テストする。
 品質が同等という根拠が無ければ、安くなったことを改善とは呼ばない。
 
-## Stage 2: passive collection (not enabled)
+## Stage 2: passive collection (opt-in)
 
-明示実行のローカルsnapshot保存をプレビュー実装した。対応範囲と未解決の有効化条件は
-[収集契約](collection.md) を参照。自動収集とhook登録は未実装のままである。
+明示snapshotと増分ledgerを実装した。[snapshot契約](collection.md)と
+[増分収集・hook契約](incremental.md)を用途別に参照する。
+SDK用hook接続口に加え、[plugin同梱native hooks](native-hooks.md)を追加した。
+pluginのinstall/有効化でhook定義を読み込み、初回のproject許可まで収集はしない。
+Codexは現在のhook定義に対するホストの信頼承認も必要。
 
-Codex/Claude等の各環境で取得できるイベントを実測して専用アダプターを追加する。
+Codex exec JSON、Claude単発queryのadapterは公式仕様に基づく合成fixtureで検証する。
+Codex 0.153.4では隔離設定で実推論とnative hook発火・使用量照合を検証済み。
+常設設定と各host/versionでの照合は有効化前のゲートとして残す。
+Stopで終端usage未着の実測に対応し、[終了後収集](capture.md)を追加した。
+SDK用hook接続口のCodex SessionEndでは時間制限に収まらないworkerを起動しない。
+native経路は別の1秒制限workerを使い、最終回収保証とは区別する。
 hookは収集のきっかけであり、LLMスキルを毎イベント起動する場所ではない。
 公式の安定したusage経路を優先し、不安定なtranscript形式はversion別に検査する。
-本文は保存しない。既定local、保存先明示、retention/容量上限、排他、差分読込、
-重複イベント、並列、ログrotate、クラッシュ回復、無効化を実装してから有効化する。
+ledgerは本文を保存しない。明示producer実行の一時stdout保存は終了後収集契約を参照。
+local保存、保存先明示、retention/容量上限、排他、差分読込、
+重複イベント、rotate、クラッシュ回復、無効化を実装。常駐TTL掃除や失われたログの復元は行わない。
 収集の遅延・失敗件数も計測し、失敗しても本来の処理を妨げない。
 hooksの実環境への登録・信頼承認はユーザーが確認する。インストールだけで有効とは言わない。
 
 ## Stage 3: proactive suggestions (not enabled)
 
+比較・候補キュー・保留/却下・cooldownは実装済み。[候補契約](proposals.md)を参照。
+hookは候補をキューへ保存するだけであり、LLMを自動起動する機構ではない。
 同一project/task class/モデル/設定/品質基準の比較可能な実行群で候補を検出する。
 閾値と最低サンプル数は設定・検証対象とし、単発の差から原因や改善を断定しない。
 毎イベントLLMを起動せず、決定的な候補判定後、作業の区切りでのみ分析する。

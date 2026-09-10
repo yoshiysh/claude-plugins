@@ -1,4 +1,6 @@
 import fcntl
+import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -113,6 +115,120 @@ class CollectionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 collect.save(self.store, self.item | {"id": "2" * 64}, now=101)
         self.assertEqual(before, (self.store / "snapshots.json").read_bytes())
+
+    def test_abrupt_process_exit_before_replace_recovers(self):
+        collect.save(self.store, self.item, now=100)
+        before = (self.store / "snapshots.json").read_bytes()
+        program = (
+            "import sys,os; sys.path.insert(0,sys.argv[1]); import collect; "
+            "item=collect.snapshot('normalized',sys.argv[2]); "
+            "collect.os.replace=lambda *a: os._exit(71); "
+            "collect.save(sys.argv[3],item,now=101)"
+        )
+        result = subprocess.run([sys.executable, "-c", program, str(SCRIPTS),
+                                 str(self.source), str(self.store)], timeout=3)
+        self.assertEqual(result.returncode, 71)
+        self.assertTrue((self.store / collect.PENDING).is_file())
+        self.assertEqual(before, (self.store / "snapshots.json").read_bytes())
+        result = collect.save(self.store, self.item, now=102)
+        self.assertTrue(result["recovered_pending"])
+        self.assertTrue(result["duplicate"])
+        self.assertFalse((self.store / collect.PENDING).exists())
+        self.assertEqual(len(self.read()), 1)
+
+    def test_pending_symlink_and_hardlink_not_removed(self):
+        collect.save(self.store, self.item, now=100)
+        pending = self.store / collect.PENDING
+        pending.symlink_to(self.source)
+        with self.assertRaises(OSError):
+            collect.save(self.store, self.item, now=101)
+        self.assertTrue(pending.is_symlink())
+        pending.unlink()
+        os.link(self.source, pending)
+        with self.assertRaises(ValueError):
+            collect.save(self.store, self.item, now=101)
+        self.assertTrue(pending.exists())
+
+    def test_directory_fsync_failure_can_be_retried_without_duplicate(self):
+        real_fsync = os.fsync
+        count = 0
+        def fail_second(fd):
+            nonlocal count
+            count += 1
+            if count == 2:
+                raise OSError("directory fsync failed")
+            real_fsync(fd)
+        with patch.object(collect.os, "fsync", side_effect=fail_second):
+            with self.assertRaises(OSError):
+                collect.save(self.store, self.item, now=100)
+        self.assertEqual(len(self.read()), 1)
+        result = collect.save(self.store, self.item, now=101)
+        self.assertTrue(result["duplicate"])
+        self.assertEqual(len(self.read()), 1)
+
+    def test_unknown_files_and_corrupt_store_are_not_cleaned(self):
+        collect.save(self.store, self.item, now=100)
+        legacy = self.store / ".pending-unknown"
+        legacy.write_text("user-owned")
+        collect.save(self.store, self.item, now=101)
+        self.assertEqual(legacy.read_text(), "user-owned")
+        pending = self.store / collect.PENDING
+        pending.write_text("partial")
+        pending.chmod(0o600)
+        (self.store / "snapshots.json").write_text("corrupt")
+        with self.assertRaises(ValueError):
+            collect.save(self.store, self.item, now=102)
+        self.assertEqual(pending.read_text(), "partial")
+
+    def test_invalid_stored_reports_rejected_before_expiration(self):
+        collect.save(self.store, self.item, now=100)
+        target = self.store / "snapshots.json"
+        valid = json.loads(target.read_text())
+        reports = [{}, {"prompt": "SECRET_LOG_BODY"}]
+        for changes in ({"quality": "SECRET"}, {"observed_calls": True},
+                        {"measurement_complete": True}, {"usage": None},
+                        {"usage": self.item["report"]["usage"] | {"uncached_input_tokens": 99}},
+                        {"usage": self.item["report"]["usage"] | {"prompt": "SECRET"}}):
+            reports.append(self.item["report"] | changes)
+        for report in reports:
+            with self.subTest(report=report):
+                state = copy.deepcopy(valid)
+                state["records"][0]["report"] = report
+                target.write_text(json.dumps(state))
+                before = target.read_bytes()
+                with self.assertRaises(ValueError):
+                    collect.save(self.store, self.item | {"id": "0" * 64},
+                                 now=100 + 86401, retention_days=1)
+                self.assertEqual(before, target.read_bytes())
+
+    def test_new_invalid_snapshot_creates_no_store(self):
+        for changes in ({"report": {}}, {"prompt": "SECRET"}, {"id": "z" * 64}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                collect.save(self.store, self.item | changes, now=100)
+            self.assertFalse(self.store.exists())
+
+    def test_workflow_report_contract(self):
+        report = self.item["report"] | dict(execution_status="failed", started_calls=2,
+            calls_without_usage=1, calls_without_outcome=1, measurement_complete=False,
+            evidence_digest="a" * 64, duration_ms=None)
+        item = dict(adapter="workflow", report=report,
+                    id=hashlib.sha256(("workflow:" + "a" * 64).encode()).hexdigest())
+        collect.save(self.store, item, now=100)
+        self.assertTrue(collect.save(self.store, item, now=101)["duplicate"])
+        for changes in ({"started_calls": 0}, {"calls_without_outcome": 3},
+                        {"execution_status": "completed"}, {"measurement_complete": 0},
+                        {"duration_ms": float("nan")}, {"duplicates_ignored": 1},
+                        {"evidence_digest": "b" * 64}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                collect.save(self.store, item | {"report": report | changes}, now=102)
+
+    def test_cleanup_failure_releases_lock(self):
+        collect.save(self.store, self.item, now=100)
+        with patch.object(collect.os, "replace", side_effect=OSError("replace failed")), \
+             patch.object(collect.os, "unlink", side_effect=OSError("cleanup failed")):
+            with self.assertRaises(OSError):
+                collect.save(self.store, self.item, now=101)
+        self.assertTrue(collect.save(self.store, self.item, now=102)["recovered_pending"])
 
 
 if __name__ == "__main__":
