@@ -5,7 +5,7 @@
     "interface": {
         "displayName": "Performance",
         "shortDescription": "エージェント作業の使用量を証拠に基づいて計測",
-        "longDescription": "終了済みworkflowログと正規化JSONLを読み取り専用で集計します。欠損と品質未評価を明示し、改善候補の検討を支援します。hooksと自動提案は未有効です。",
+        "longDescription": "ログの読取集計、明示的なローカル増分収集、証拠条件を確認した比較候補の管理を支援します。欠損と品質未評価を明示します。hook接続口は既定無効で、自動LLM分析や外部送信は行いません。",
         "developerName": "yoshiysh",
         "category": "Productivity",
         "capabilities": [],
