@@ -124,6 +124,10 @@ const REQ_DOC_SCHEMA = {
     tbd_items: { type: 'array', items: TBD_ITEM },
     categories_deferred: { type: 'array', items: { type: 'string' } },
     referenced_ids: { type: 'array', items: { type: 'string' } },
+    // vacant_ids: この文書の欠番 ID（採番済みだが項目が存在しない ID）。表記規約が欠番の列挙を
+    // 要求するため、本文に現れるが items にも referenced_ids にも属さない。申告が無いと
+    // 構造検査が申告漏れとして毎 run 再検出する（#53）。
+    vacant_ids: { type: 'array', items: { type: 'string' } },
     // item_delta: 改稿の前後で項目が何件増えたか、増やした理由は何かを writer に申告させる。
     // 数えさせるのが目的である。監査指摘はすべて「足りない」の形で届くため、書き足すことが
     // 唯一の解決に見えるため、項目数は放っておくと単調に増える（減る契機がどこにも無い）。
@@ -171,6 +175,10 @@ const SPEC_DOC_SCHEMA = {
     tbd_items: { type: 'array', items: TBD_ITEM },
     categories_deferred: { type: 'array', items: { type: 'string' } },
     referenced_ids: { type: 'array', items: { type: 'string' } },
+    // vacant_ids: この文書の欠番 ID（採番済みだが項目が存在しない ID）。表記規約が欠番の列挙を
+    // 要求するため、本文に現れるが items にも referenced_ids にも属さない。申告が無いと
+    // 構造検査が申告漏れとして毎 run 再検出する（#53）。
+    vacant_ids: { type: 'array', items: { type: 'string' } },
     // item_delta: 改稿の前後で項目が何件増えたか、増やした理由は何かを writer に申告させる。
     // 数えさせるのが目的である。監査指摘はすべて「足りない」の形で届くため、書き足すことが
     // 唯一の解決に見えるため、項目数は放っておくと単調に増える（減る契機がどこにも無い）。
@@ -343,7 +351,35 @@ if (specimenSelfOnly) {
 }
 // draft_structural_findings: Workflow A の構造検査結果。ここで受け取らないと A の検査は
 // 計算されて捨てられ、初稿段階の ID 重複や廃止規制語が誰にも読まれないまま次へ進む。
-const draftStructural = parsedArgs.draft_structural_findings || []
+// suppressed_finding_ids: 過去の run の終端裁定で「偽指摘（rejected）」と分類された
+// **決定的な構造検査の指摘 ID**（例: "ST-UNDECLARED-PR-X-003"）。構造検査は無状態の算術で、
+// 発火条件が本文に残る限り毎 run 同じ指摘を再起票する一方、棄却は返り値の中の分類で終わり
+// run を跨いで持ち越されない（#53）。この口で司令塔（または next_args）が棄却済み ID を渡すと、
+// 当該 ID の構造検査指摘を集計前に畳む。対象を auditor: 'structural' に限るのは、LLM 監査者の
+// 指摘 ID（EX-001 等）は run ごとに振り直され、digest（auditor|document|location）も粗く、
+// ID や digest での抑止が別の本物の指摘を誤って畳みうるため。畳んだ件数と ID は log と
+// 返り値（suppressed_findings）に明示する — 黙って消さない。
+const suppressedFindingIds = new Set(parsedArgs.suppressed_finding_ids || [])
+const suppressedApplied = []
+function applySuppression(structResult) {
+  if (!suppressedFindingIds.size) return structResult
+  const kept = []
+  for (const f of structResult.findings || []) {
+    if (f && f.auditor === 'structural' && (suppressedFindingIds.has(f.id) || suppressedFindingIds.has(`${f.document}::${f.id}`))) {
+      suppressedApplied.push({ id: f.id, document: f.document })
+      continue
+    }
+    kept.push(f)
+  }
+  return { ...structResult, findings: kept }
+}
+const draftStructural = (parsedArgs.draft_structural_findings || []).filter((f) => {
+  if (f && f.auditor === 'structural' && (suppressedFindingIds.has(f.id) || suppressedFindingIds.has(`${f.document}::${f.id}`))) {
+    suppressedApplied.push({ id: f.id, document: f.document })
+    return false
+  }
+  return true
+})
 const reqDir = paths.requirements || 'docs/requirements'
 const specDir = paths.specifications || 'docs/specifications'
 
@@ -375,6 +411,7 @@ let documents = inputDocs.map((d) => ({
   items: d.items || [],
   ids: (d.items || []).map((i) => i.id).filter(Boolean),
   referenced: d.referenced_ids || [],
+  vacant: d.vacant_ids || [],
   // trace: 前工程（Workflow A / 前周回）が申告した項目 ID → 根拠。改稿で writer が返した
   // 値に置き換わる。undefined のまま渡すと構造検査が「未検査」を立てるので、欠落は
   // 「根拠あり」に化けずに申告される。
@@ -846,17 +883,31 @@ function structuralFindings(docs) {
     const inText = new Set(d.markdown.match(re) || [])
     const inList = new Set(d.ids)
     const referenced = new Set(d.referenced || [])
-    // 本文が「欠番」と同じ行に併記して宣言している ID は申告漏れではない。欠番の列挙は
-    // 表記規約が要求する記載であり、items（実在の項目）にも referenced_ids（他文書参照・
-    // 体系の例示）にも属さない第三の類型になる。判定は行単位の併記に絞る — 文書全体の
+    // 欠番（vacant）は items（実在の項目）にも referenced_ids（他文書参照・体系の例示）にも
+    // 属さない第三の類型であり、欠番の列挙は表記規約が要求する記載である。申告（vacant_ids）と
+    // 本文の行併記（「欠番」の語と同じ行にある ID）の和で認識する。行単位に絞るのは、文書全体の
     // includes で判定すると「欠番」の語が一度でもあれば全 ID が免除され、本物の申告漏れを
-    // 隠す。この除外が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する
+    // 隠すため。この認識が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する
     // （実測: 同一文書の review 3 run で同じ 6 件が再起票され、終端裁定が毎回同じ棄却を
     // 繰り返した。棄却は run を跨いで持ち越されないため、検査側で認識しない限り止まらない）。
-    const vacantDeclared = new Set()
+    const vacantDeclared = new Set(d.vacant || [])
     for (const line of d.markdown.split('\n')) {
       if (!line.includes('欠番')) continue
       for (const id of line.match(re) || []) vacantDeclared.add(id)
+    }
+    // 欠番と実在の両方に載る ID は矛盾（欠番は「割り当てられていない」の宣言であり、
+    // 実在する項目と両立しない）。どちらの申告が正しいか読み手に判断させない。
+    for (const id of d.fixed ? [] : new Set(d.vacant || [])) {
+      if (!inList.has(id)) continue
+      out.push({
+        auditor: 'structural',
+        id: `ST-VACANT-CONFLICT-${id}`,
+        document: d.key,
+        location: 'ID 一覧',
+        quote: id,
+        issue: `${label} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
+        fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
+      })
     }
     for (const id of d.fixed ? [] : inText) {
       if (inList.has(id) || referenced.has(id) || vacantDeclared.has(id)) continue
@@ -867,7 +918,7 @@ function structuralFindings(docs) {
         location: '本文',
         quote: id,
         issue: `${label} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
-        fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に入れる。`,
+        fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
       })
     }
     // (3b) 本文が引く TBD ID と、申告された tbd_items の突き合わせ。(3) と同じ理屈だが、
@@ -936,7 +987,7 @@ function structuralFindings(docs) {
           location: 'ID 一覧',
           quote: missingId,
           issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
-          fix: `${missingId} が欠番であることを本文に申告する（「欠番」の語と ID を同じ行に併記する。併記された ID は申告漏れの検査からも除外される）か、採番を詰めて欠番を無くす。`,
+          fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
         })
       }
     }
@@ -1272,6 +1323,7 @@ function buildNextArgs(ctx) {
         summary: d.summary,
         items: d.items,
         referenced_ids: d.referenced,
+        vacant_ids: d.vacant,
         traceability: d.traceability,
         tbd_items: d.tbd_items,
         categories_deferred: d.categories_deferred,
@@ -1288,6 +1340,11 @@ function buildNextArgs(ctx) {
     today: ctx.today,
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
+      : {}),
+    // 今 run までに rejected と裁定された構造検査指摘の累積。次周回はこれを畳み、
+    // 同じ偽指摘の再起票と再裁定を止める。
+    ...(ctx.suppressed_finding_ids && ctx.suppressed_finding_ids.length
+      ? { suppressed_finding_ids: ctx.suppressed_finding_ids }
       : {}),
   }
 }
@@ -1855,6 +1912,7 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
         items,
         ids: items.map((i) => i.id).filter(Boolean),
         referenced: result.referenced_ids || [],
+        vacant: result.vacant_ids || [],
         trace: result.trace,
         traceability: kind === 'specifications' ? result.traceability || [] : [],
         tbd_items: result.tbd_items || [],
@@ -2073,7 +2131,7 @@ while (true) {
 
   // 構造検査は auditor の応答有無と無関係に必ず走る。集合差分と禁止語の混入は agent が
   // 落ちても検出される（この 2 つがこのスキルの契約そのものだから）。
-  const structResult = structuralFindings(documents)
+  const structResult = applySuppression(structuralFindings(documents))
 
   // 構造検査は素の ID に対して走らせる（writer の採番ミスをそのまま指摘するため）。
   // そのうえで documents[].tbd_items を正規化し、rebuildTbd の ID キー統合が
@@ -2315,7 +2373,7 @@ while (true) {
     ]
 
     // 構造検査と TBD の正規化は算術なので、改稿のたびに必ず再計算する（このスキルの契約）。
-    const structResult = structuralFindings(documents)
+    const structResult = applySuppression(structuralFindings(documents))
     const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
     for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
     const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -2529,7 +2587,7 @@ let unanswerable = []
     missing = [...missing, ...re.missing]
 
     // 構造検査と TBD の正規化は算術なので、改稿のたびに必ず再計算する（このスキルの契約）。
-    const structResult = structuralFindings(documents)
+    const structResult = applySuppression(structuralFindings(documents))
     const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
     for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
     const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -2661,9 +2719,10 @@ function buildAdjudicationPrompt(remaining) {
 }
 
 let adjudication = { fixed: [], rejected: [], documented: [], unadjudicated: [] }
+let adjudicationRemaining = []
 {
   const seen = new Set()
-  const remaining = []
+  const remaining = adjudicationRemaining
   for (const f of [...allFailed, ...unanswerable]) {
     if (!f) continue
     const dg = f.digest || findingDigest(f)
@@ -2725,7 +2784,7 @@ let adjudication = { fixed: [], rejected: [], documented: [], unadjudicated: [] 
         await reviseDocuments(byDoc, revisionId, false)
 
         // 構造検査と TBD の正規化は算術なので、改稿のたびに必ず再計算する（このスキルの契約）。
-        const structResult = structuralFindings(documents)
+        const structResult = applySuppression(structuralFindings(documents))
         const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
         for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
         const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -3171,7 +3230,7 @@ if (resolutionDirectives.size) {
   })
   // 反映で本文と TBD 申告が変わったので、集計と構造検査を引き直す。引き直さないと、
   // 返り値は反映前の件数を報告する（解消した項目が残って見え、新たに入った本文が未検査になる）。
-  const structResult = structuralFindings(documents)
+  const structResult = applySuppression(structuralFindings(documents))
   const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
   for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
   const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -3258,6 +3317,22 @@ const nextPresented = (() => {
   for (const t of blockingTbd) m.set(t.id, { id: t.id, digest: stableKey(String(t.text || '')) })
   return [...m.values()]
 })()
+// 今 run の終端裁定で rejected と分類された構造検査の指摘 ID。次周回の suppressed_finding_ids へ
+// 合流させ、同じ偽指摘の再起票と再裁定を止める（digest は auditor|document|location で粗く、
+// 同一 location の複数指摘が 1 つの digest を共有するため、rejected digest に含まれる structural
+// 指摘の ID 単位で持ち越す）。
+if (suppressedApplied.length) {
+  const uniq = [...new Set(suppressedApplied.map((e) => e.id))]
+  log(`抑止: suppressed_finding_ids により構造検査指摘 ${suppressedApplied.length} 件を畳みました（${uniq.slice(0, 8).join(' / ')}${uniq.length > 8 ? ' …' : ''}）`)
+}
+const rejectedStructuralIds = (() => {
+  const rejectedDigests = new Set(adjudication.rejected.map((e) => e.digest))
+  const out = new Set(suppressedFindingIds)
+  for (const f of adjudicationRemaining) {
+    if (f && f.auditor === 'structural' && rejectedDigests.has(f.digest)) out.add(f.id)
+  }
+  return [...out].sort()
+})()
 const nextArgs = buildNextArgs({
   outer_round: outerRound,
   max_outer_rounds: MAX_OUTER_ROUNDS,
@@ -3281,6 +3356,7 @@ const nextArgs = buildNextArgs({
   paths,
   today,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
+  suppressed_finding_ids: rejectedStructuralIds,
 })
 
 return {
@@ -3304,6 +3380,7 @@ return {
     summary: d.summary,
     items: d.items,
     referenced_ids: d.referenced,
+    vacant_ids: d.vacant,
     trace: d.trace,
     traceability: d.traceability,
     tbd_items: d.tbd_items,
@@ -3386,6 +3463,11 @@ return {
   // 空でなければ verdict = 'adjudication_incomplete' に反映されている。
   adjudication,
   unroutable_findings: allFailed.filter((f) => f.unroutable),
+  // suppressed_findings: suppressed_finding_ids により集計前に畳んだ構造検査指摘。
+  // 黙って消さず、何をいくつ畳んだかをここで開示する。
+  suppressed_findings: suppressedApplied,
+  // suppressed_finding_ids_next: 次の run（next_args を使わない新規 run を含む）へ渡すべき累積。
+  suppressed_finding_ids_next: rejectedStructuralIds,
   categories_deferred: categoriesDeferred,
   // dry_stop: 乾き停止（novelty 0 のラウンドで改稿ループを抜けた）。novelty_history は
   // 各監査ラウンドの新規指摘件数の並び。backstop 到達との区別は verdict / dry_stop で読む。
@@ -3426,6 +3508,7 @@ return {
     work_items_count: workItems.length,
     blocking_capacity: GATE_CAPACITY_PER_ROUND * MAX_GATE_ROUNDS,
     blocking_over_capacity: blockingOverCapacity,
+    suppressed_findings_count: suppressedApplied.length,
     deferred_categories_count: categoriesDeferred.length,
     revision_backstop: REVISION_BACKSTOP,
     stuck_threshold: STUCK_THRESHOLD,
