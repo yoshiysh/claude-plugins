@@ -262,6 +262,34 @@ class StructuralFindingsTests(unittest.TestCase):
         r = run_structural([doc("requirements", "auth", "ID は `PR-<領域>-<連番>` の形式とする。", ids=[])])
         self.assertEqual([], r["findings"])
 
+    # -------------------------------------------------- 欠番宣言と申告漏れ
+
+    def test_vacant_id_declared_on_same_line_is_not_reported_as_undeclared(self):
+        # 欠番の列挙は表記規約が要求する記載であり、items にも referenced_ids にも属さない。
+        # 除外しないと欠番宣言を持つ文書で ST-UNDECLARED が run のたびに再発し、
+        # 終端裁定が同じ棄却を繰り返す（棄却は run を跨いで持ち越されない）。#53
+        body = "### PR-A-001 x\n### PR-A-003 y\nPR-A-002 は欠番である。再利用してはならない。\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"])])
+        self.assertEqual([], [i for i in ids_of(r) if "UNDECLARED" in i])
+
+    def test_vacancy_word_elsewhere_does_not_mask_real_undeclared_id(self):
+        # 「欠番」の語が文書のどこかにあるだけで全 ID が免除されると、本物の申告漏れが隠れる。
+        # 除外は ID と「欠番」が同じ行に併記されている場合に限る。
+        body = "採番には欠番がありうる。\n### PR-A-001 x\n### PR-A-002 y\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001"])])
+        self.assertIn("ST-UNDECLARED-PR-A-002", ids_of(r))
+
+    def test_gap_declared_on_vacancy_line_is_not_reported(self):
+        # (3c) も (3) と同じ行併記基準（vacantDeclared）で判定する。
+        body = "### PR-A-001 x\n### PR-A-003 y\nPR-A-002 は欠番である。\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"])])
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-GAP-UNDECLARED")])
+
+    def test_undeclared_gap_in_numbering_is_reported(self):
+        body = "### PR-A-001 x\n### PR-A-003 y\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"])])
+        self.assertIn("ST-GAP-UNDECLARED-PR-A-002", ids_of(r))
+
     # ------------------------------------------------------ not_checked
 
     def test_missing_requirements_side_is_reported_as_not_checked(self):
