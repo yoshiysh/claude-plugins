@@ -846,8 +846,20 @@ function structuralFindings(docs) {
     const inText = new Set(d.markdown.match(re) || [])
     const inList = new Set(d.ids)
     const referenced = new Set(d.referenced || [])
+    // 本文が「欠番」と同じ行に併記して宣言している ID は申告漏れではない。欠番の列挙は
+    // 表記規約が要求する記載であり、items（実在の項目）にも referenced_ids（他文書参照・
+    // 体系の例示）にも属さない第三の類型になる。判定は行単位の併記に絞る — 文書全体の
+    // includes で判定すると「欠番」の語が一度でもあれば全 ID が免除され、本物の申告漏れを
+    // 隠す。この除外が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する
+    // （実測: 同一文書の review 3 run で同じ 6 件が再起票され、終端裁定が毎回同じ棄却を
+    // 繰り返した。棄却は run を跨いで持ち越されないため、検査側で認識しない限り止まらない）。
+    const vacantDeclared = new Set()
+    for (const line of d.markdown.split('\n')) {
+      if (!line.includes('欠番')) continue
+      for (const id of line.match(re) || []) vacantDeclared.add(id)
+    }
     for (const id of d.fixed ? [] : inText) {
-      if (inList.has(id) || referenced.has(id)) continue
+      if (inList.has(id) || referenced.has(id) || vacantDeclared.has(id)) continue
       out.push({
         auditor: 'structural',
         id: `ST-UNDECLARED-${id}`,
@@ -897,8 +909,10 @@ function structuralFindings(docs) {
 
     // (3c) ID 連番の欠番の無申告。欠番そのものは許す（採番を詰める改稿を強制しない）が、
     //      無申告の欠番は「項目が削除された」のか「最初から無い」のか読み手が区別できず、
-    //      統合時の取りこぼしと見分けが付かない。本文に「欠番」の語と当該 ID が併記されて
-    //      いれば申告済みとして起票しない。固定文書は自己申告（ids）を持たないので対象外。
+    //      統合時の取りこぼしと見分けが付かない。本文に「欠番」の語と当該 ID が同じ行に
+    //      併記されていれば申告済みとして起票しない（(3) の除外と同じ vacantDeclared 基準。
+    //      基準を分けると「(3c) は通るのに (3) が落ちる」行またぎの取りこぼしが生じる）。
+    //      固定文書は自己申告（ids）を持たないので対象外。
     const gapPrefixes = new Map()
     for (const id of d.fixed ? [] : d.ids) {
       const m = /^(.*-)(\d+)$/.exec(id)
@@ -914,7 +928,7 @@ function structuralFindings(docs) {
       for (let n = sorted[0].n + 1; n < sorted[sorted.length - 1].n; n++) {
         if (present.has(n)) continue
         const missingId = `${gapPrefix}${String(n).padStart(width, '0')}`
-        if (d.markdown.includes('欠番') && d.markdown.includes(missingId)) continue
+        if (vacantDeclared.has(missingId)) continue
         out.push({
           auditor: 'structural',
           id: `ST-GAP-UNDECLARED-${missingId}`,
@@ -922,7 +936,7 @@ function structuralFindings(docs) {
           location: 'ID 一覧',
           quote: missingId,
           issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
-          fix: `${missingId} が欠番であることを本文に申告する（「欠番」の語と ID を併記し、その ID は referenced_ids に入れる）か、採番を詰めて欠番を無くす。`,
+          fix: `${missingId} が欠番であることを本文に申告する（「欠番」の語と ID を同じ行に併記する。併記された ID は申告漏れの検査からも除外される）か、採番を詰めて欠番を無くす。`,
         })
       }
     }
