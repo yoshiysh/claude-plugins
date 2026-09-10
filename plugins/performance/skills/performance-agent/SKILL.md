@@ -31,6 +31,8 @@ description: >
 5. 改善依頼なら、比較可能な証拠の範囲で観測と仮説を分離して提案する。
    複数実行の比較・提案キューを使う場合だけ[候補判定契約](references/proposals.md)を読む。
    根拠、最小変更、品質リスク、比較条件、成功基準を含める。候補を品質認定と呼ばず、自動改修しない。
+   品質側の telemetry（skill-kaizen 型の改善運転）と突合する場合は
+   [kaizen統合](references/kaizen-integration.md)の規約で group と quality_evidence を組み立てる。
 6. 計測不能なら理由を報告する。壊れた入力を0使用量や成功に置き換えない。
 7. 単一snapshotの保存を依頼された場合は[収集プレビュー契約](references/collection.md)を読む。
    ledgerとは別の専用保存先へ保存する。通常の計測では保存しない。snapshot同士を合算しない。

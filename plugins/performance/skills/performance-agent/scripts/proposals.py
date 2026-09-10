@@ -35,16 +35,27 @@ def compare(data, minimum=3, threshold_percent=25):
         token_values, durations = [], []
         for sample in cohort["samples"]:
             measure.require(type(sample) is dict and set(sample) == {
-                "id", "usage", "duration_ms", "status", "quality", "quality_evidence", "usage_evidence"}
+                "id", "usage", "duration_ms", "status", "quality", "quality_source",
+                "quality_evidence", "usage_evidence"}
                 and digest(sample["id"]) and sample["id"] not in seen
                 and digest(sample["usage_evidence"]) and sample["usage_evidence"] not in evidence_seen
                 and sample["status"] in ("completed", "failed", "unknown")
                 and sample["quality"] in ("passed", "failed", "unmeasured")
+                and sample["quality_source"] in ("independent", "producer")
                 and (sample["quality_evidence"] is None or digest(sample["quality_evidence"]))
                 and (sample["duration_ms"] is None or natural(sample["duration_ms"])), "sample_schema")
+            # 品質証拠は「別の産物」でなければならない。usage 証拠や観測 id の使い回しは、
+            # 品質を測っていないのに測った形だけ整える最短の抜け道になる（構造で塞ぐ）。
+            measure.require(sample["quality_evidence"] is None
+                            or sample["quality_evidence"] not in (sample["id"], sample["usage_evidence"]),
+                            "quality_evidence_reuse")
             seen.add(sample["id"])
             evidence_seen.add(sample["usage_evidence"])
+            # producer（sample を生成した主体の自己申告）の品質は候補の前提を満たさない。
+            # 「質を維持したまま」の質は、生成と別の工程（fresh 監査者・検証段）の産物で
+            # 裏付けられたときだけ比較の前提にできる（生成者は自分の出力に通る判定を書ける）。
             comparable &= (sample["status"] == "completed" and sample["quality"] == "passed"
+                           and sample["quality_source"] == "independent"
                            and sample["quality_evidence"] is not None and sample["duration_ms"] is not None
                            and sample["usage"] is not None)
             if sample["usage"] is not None:

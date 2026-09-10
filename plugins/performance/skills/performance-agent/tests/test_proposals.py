@@ -15,7 +15,8 @@ def comparison():
     def cohort(prefix, tokens):
         return {"group": dict(group), "samples": [dict(id=p.fingerprint([prefix, n]),
             usage=dict(input_tokens=tokens, cached_input_tokens=10, output_tokens=10), duration_ms=100,
-            status="completed", quality="passed", quality_evidence=p.fingerprint(["quality", prefix, n]),
+            status="completed", quality="passed", quality_source="independent",
+            quality_evidence=p.fingerprint(["quality", prefix, n]),
             usage_evidence=p.fingerprint(["usage", prefix, n])) for n in range(3)]}
     return dict(version=1, baseline=cohort("before", 100), candidate=cohort("after", 200))
 
@@ -63,6 +64,21 @@ class ProposalTests(unittest.TestCase):
         data = comparison()
         data["baseline"], data["candidate"] = data["candidate"], data["baseline"]
         self.assertEqual(p.compare(data)["reason"], "verify_reduction")
+
+    def test_producer_quality_is_not_comparable(self):
+        # 生成主体の自己申告品質（producer）は、値が passed でも候補の前提を満たさない。
+        data = comparison()
+        data["candidate"]["samples"][0]["quality_source"] = "producer"
+        self.assertEqual(p.compare(data)["status"], "not_comparable")
+
+    def test_quality_evidence_reuse_is_rejected(self):
+        # 品質証拠は usage 証拠・観測 id と別の産物でなければならない（使い回しは schema 拒否）。
+        for source in ("usage_evidence", "id"):
+            data = comparison()
+            sample = data["candidate"]["samples"][0]
+            sample["quality_evidence"] = sample[source]
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, "quality_evidence_reuse"):
+                p.compare(data)
 
     def test_missing_quality_or_usage_and_failed_execution_not_comparable(self):
         for change in ({"quality": "unmeasured"}, {"quality": "failed"}, {"quality_evidence": None},

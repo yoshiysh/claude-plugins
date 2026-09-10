@@ -109,8 +109,14 @@ class NativeTests(unittest.TestCase):
         self.source.unlink()
         self.write(claude())
         with patch.object(native, "MAX_BYTES", 1):
-            with self.assertRaisesRegex(ValueError, "source_limit"):
-                self.collect()
+            result = self.collect()
+            self.assertEqual(result["status"], "censored")
+            self.assertEqual(result["reason"], "source_limit")
+            self.assertEqual(result["censored_sessions"], 1)
+        # 上限内で観測できたら打ち切り記録は解消され、以後の report からも消える
+        recovered = self.collect()
+        self.assertEqual(recovered["status"], "collected")
+        self.assertEqual(recovered["censored_sessions"], 0)
 
     def test_retention_and_capacity(self):
         self.write(claude())

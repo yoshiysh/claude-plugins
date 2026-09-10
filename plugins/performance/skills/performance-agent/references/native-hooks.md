@@ -44,7 +44,11 @@ Stopで未到着のusageはSessionEnd/次のUserPromptSubmitで再読込でき�
 hookはstdin最大64KiB・最長1秒、収集子プロセス最長1秒、host側timeout3秒。
 stdout/stderrへ本文やモデル向け追加文脈を出さず、LLM・ネットワークを起動しない。
 未設定・無効化ならtranscriptを開かない。収集失敗は本来の作業を止めないが、収集成功とも扱わない。
-現在は最大16MiBの対象ファイルを再解析する方式で、差分読込ではない。上限超過は収集しない。
+現在は最大16MiBの対象ファイルを再解析する方式で、差分読込ではない。上限超過は収集しないが、
+打ち切り（censored）としてledgerに記録し、reportのcensored_sessions/censored_by_reasonに出す。
+上限に当たるのは長いsession=最も高コストな観測なので、censored_sessions > 0 の期間のusage合計は
+下方に偏っている。過去に収集済みのsessionが後から上限超過になった場合、既収集分はretainedに
+残ったままcensoredにも数えられる（二重の身分。以後の増分だけが欠測になっている状態を示す）。
 10万行・1行1MiB・保持100session/2000usage records・30日。容量超過時は古いsessionを除外する。
 定期削除ではなく、収集時に期限切れを除去し、reportは期限内だけを表示する。
 sourceの祖先ディレクトリは信頼済みであること。所有者・regular file・末端symlink禁止を検査する。
