@@ -41,7 +41,7 @@ const TELEMETRY_ENV = "CLAIM_GATE_TELEMETRY";
 // 上限を大きく取る意味が無い一方、これは利用者が応答を受け取る前に待つ時間そのものなので、
 // 先例（codex の stop gate: 900 秒）のような長さは opt-in の前提と合わない。
 // hooks.json の Stop エントリの timeout より小さいことが要件で、その差分が node 起動と
-// state 読みの余裕にあたる（順序の正本は hooks.json の description）。
+// state 読みの余裕にあたる（順序の正本は README「timeout の順序」）。
 const JUDGE_TIMEOUT_MS = 120 * 1000;
 
 // 判定器へ渡す本文の上限。超えた場合は切り落とさず flagged 周辺へ絞り込み、

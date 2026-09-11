@@ -10,6 +10,7 @@ opt-in（既定 off）・fail-open。**トグルを on にするまで、この�
 - [無効化する](#無効化する)
 - [状態ファイル](#状態ファイル)
 - [適合検査の実行](#適合検査の実行)
+- [timeout の順序（正本）](#timeout-の順序正本)
 - [Codex CLI での利用](#codex-cli-での利用)
 - [判定規約とその出所](#判定規約とその出所)
 - [fail-open](#fail-open)
@@ -131,18 +132,37 @@ node .../scripts/run_conformance.mjs --message "この設定はどこにも定�
 この検査が見ているのは **fixture の再現性**であって、ゲートの効果（検出率・誤ブロック率）
 ではない。効果はどこにも測っていない。
 
+## timeout の順序（正本）
+
+timeout は 3 箇所にあり、値そのものではなく**順序**が契約になっている。
+
+```
+JUDGE_TIMEOUT_MS（判定器上限） < hooks/hooks.json の timeout < CASE_TIMEOUT_MS（適合検査上限）
+```
+
+hook 全体の timeout を判定器上限より大きく取るのは、逆にすると harness 側の kill が常態化し、
+kill 時の挙動は未観測なので「全経路 fail-open」が script 側だけでは成り立たなくなるため。
+差分は node 起動と state 読みの余裕にあたる。数値を変えるときはこの順序を保つ。
+JSON にコメントを置けず、top-level の説明フィールドは Codex のパーサが拒否するため、
+この順序の正本は本 README に置く。
+
 ## Codex CLI での利用
 
-`.codex-plugin/plugin.json` に同じ Stop hook を宣言してあり、Codex CLI（plugin の hooks 宣言に
-対応した版）でも同じゲートが効く。実測済みの事実と未確認の事項を分けて書く。
+Stop hook の宣言は `hooks/hooks.json` の 1 箇所だけで、**Claude Code と Codex CLI の両方が
+同じファイルを読む**（書き写しはしない）。`.codex-plugin/plugin.json` は表示メタデータのみ。
 
-- **実測済み**（codex-cli 0.142.5、scratch CODEX_HOME での codex exec）: Stop hook の stdin は
-  Claude Code と同型（`last_assistant_message` / `session_id` / `cwd` を含む）で、
+実測済み（codex-cli 0.142.5、scratch CODEX_HOME に local marketplace から install して確認）:
+
+- plugin として install した状態で `hooks/hooks.json` の Stop hook が発火し、
+  `${CLAUDE_PLUGIN_ROOT}` は install 先の plugin root に展開される
+- stdin は Claude Code と同型（`last_assistant_message` / `session_id` / `cwd` を含む）で、
   `{"decision": "block", "reason": ...}` で排出が止まり reason がモデルに渡る。
-  hook 本体は無改修で動く。また stdin の `stop_hook_active: true` で block 後の再入を判別できる
-- **未確認**: plugin 経由で install したときの `${CLAUDE_PLUGIN_ROOT}` の展開（実測はファイル
-  直置きの hooks.json で行った。plugin 内 command hook の公式実例は無い）。展開されない場合も
-  hook は起動に失敗するだけで fail-open（排出は止まらない）
+  hook 本体は無改修で動く。stdin の `stop_hook_active: true` で block 後の再入を判別できる
+- Codex のパーサは hooks.json の top-level に `hooks` 以外のフィールドを許さない
+  （`description` を置くと parse warning で hook 全体が無効になる）。説明はこの README に置く
+
+注意:
+
 - B2 判定器は `claude -p` を spawn する。claude CLI が無い環境では unreachable → fail-open で
   全て通る（ゲートは実質 no-op になる。適合検査の `unreachable` で観測できる）
 - トグルは Claude Code と共通の `~/.claude/claim-gate/state.json` を読む

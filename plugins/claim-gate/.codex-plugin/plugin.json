@@ -15,20 +15,5 @@
         "defaultPrompt": [
             "claim-gate を有効化して"
         ]
-    },
-    "hooks": {
-        "hooks": {
-            "Stop": [
-                {
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-claim-gate-hook.mjs\"",
-                            "timeout": 150
-                        }
-                    ]
-                }
-            ]
-        }
     }
 }
