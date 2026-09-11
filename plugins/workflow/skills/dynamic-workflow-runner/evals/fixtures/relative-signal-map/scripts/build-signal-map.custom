@@ -1,0 +1,5 @@
+workflow signal-map {
+  task collect using agent fresh -> signals
+  task verify using independent agent fresh with signals -> checked
+  return checked
+}

@@ -1,0 +1,163 @@
+{
+  "schema_version": "dynamic-workflow-call-fixtures/v1",
+  "calls": [
+    {
+      "template_id": "orbit-deep-call",
+      "caller_root_ref": "evals/fixtures/orbit-market-scan",
+      "source_ref": "evals/fixtures/orbit-market-scan/scripts/phase-lens.pipeline",
+      "call": {
+        "schema_version": "dynamic-workflow-call/v1",
+        "call_id": "orbit-market-scan:deep:1",
+        "invoking_skill": {
+          "root": "{{SKILL_ROOT}}",
+          "skill_md": {
+            "path": "{{SKILL_MD_PATH}}",
+            "sha256": "{{SKILL_MD_SHA256}}"
+          }
+        },
+        "native_workflow_observation": {
+          "attempted": false,
+          "available": false,
+          "observed_at": "2026-08-21T00:00:00Z",
+          "evidence": ["Workflow is absent from the current callable tool inventory"]
+        },
+        "workflow": {
+          "declared_script_path": "[SKILL_DIR]/scripts/phase-lens.pipeline",
+          "resolved_source": {
+            "path": "{{SOURCE_PATH}}",
+            "sha256": "{{SOURCE_SHA256}}"
+          }
+        },
+        "arguments": {
+          "value": {
+            "universe": ["power-grid", "industrial-software"],
+            "horizon_days": 45,
+            "filters": {
+              "currencies": ["JPY", "USD"],
+              "include_sensors": true
+            },
+            "note": "preserve whitespace:  A  B"
+          },
+          "canonical_sha256": "{{ARGUMENTS_SHA256}}"
+        },
+        "caller_phase_ownership": {
+          "owner": "caller_skill",
+          "pre_workflow": ["collect-request"],
+          "post_workflow": ["write-summary"],
+          "human_gates": ["publish-check"]
+        }
+      }
+    },
+    {
+      "template_id": "relative-signal-call",
+      "caller_root_ref": "evals/fixtures/relative-signal-map",
+      "source_ref": "evals/fixtures/relative-signal-map/scripts/build-signal-map.custom",
+      "call": {
+        "schema_version": "dynamic-workflow-call/v1",
+        "call_id": "relative-signal-map:jp:1",
+        "invoking_skill": {
+          "root": "{{SKILL_ROOT}}",
+          "skill_md": {
+            "path": "{{SKILL_MD_PATH}}",
+            "sha256": "{{SKILL_MD_SHA256}}"
+          }
+        },
+        "native_workflow_observation": {
+          "attempted": false,
+          "available": false,
+          "observed_at": "2026-08-21T00:00:00Z",
+          "evidence": ["Workflow is absent from the current callable tool inventory"]
+        },
+        "workflow": {
+          "declared_script_path": "scripts/build-signal-map.custom",
+          "resolved_source": {
+            "path": "{{SOURCE_PATH}}",
+            "sha256": "{{SOURCE_SHA256}}"
+          }
+        },
+        "arguments": {
+          "value": {
+            "region": "JP",
+            "window": {
+              "start": "2026-07-01",
+              "end": "2026-08-01"
+            },
+            "thresholds": [0, 0.25, 1],
+            "nullable": null,
+            "enabled": false
+          },
+          "canonical_sha256": "{{ARGUMENTS_SHA256}}"
+        },
+        "caller_phase_ownership": {
+          "owner": "caller_skill",
+          "pre_workflow": [],
+          "post_workflow": ["return-signal-map"],
+          "human_gates": []
+        }
+      }
+    },
+    {
+      "template_id": "unsafe-bridge-call",
+      "caller_root_ref": "evals/fixtures/unsafe-bridge-caller",
+      "source_ref": "evals/fixtures/unsafe-bridge-caller/scripts/hostile.source",
+      "call": {
+        "schema_version": "dynamic-workflow-call/v1",
+        "call_id": "unsafe-bridge-caller:fixture:1",
+        "invoking_skill": {
+          "root": "{{SKILL_ROOT}}",
+          "skill_md": {
+            "path": "{{SKILL_MD_PATH}}",
+            "sha256": "{{SKILL_MD_SHA256}}"
+          }
+        },
+        "native_workflow_observation": {
+          "attempted": false,
+          "available": false,
+          "observed_at": "2026-08-21T00:00:00Z",
+          "evidence": ["Workflow is absent from the current callable tool inventory"]
+        },
+        "workflow": {
+          "declared_script_path": "[SKILL_DIR]/scripts/hostile.source",
+          "resolved_source": {
+            "path": "{{SOURCE_PATH}}",
+            "sha256": "{{SOURCE_SHA256}}"
+          }
+        },
+        "arguments": {
+          "value": { "scope": "fixture-only" },
+          "canonical_sha256": "{{ARGUMENTS_SHA256}}"
+        },
+        "caller_phase_ownership": {
+          "owner": "caller_skill",
+          "pre_workflow": [],
+          "post_workflow": [],
+          "human_gates": []
+        }
+      }
+    }
+  ],
+  "routing_cases": [
+    { "case_id": "implicit-cross-skill-bridge", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": "orbit-deep-call", "expected_route": "bridge", "expected_bridge_executions": 1, "expected_native_executions": 0 },
+    { "case_id": "relative-scriptpath-and-exact-args", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": "relative-signal-call", "expected_route": "bridge", "expected_bridge_executions": 1, "expected_native_executions": 0 },
+    { "case_id": "native-workflow-precedence", "active_workflow_callsite": true, "native_workflow_callable": true, "call_template_id": "orbit-deep-call", "expected_route": "native", "expected_bridge_executions": 0, "expected_native_executions": 1 },
+    { "case_id": "native-workflow-attempted-no-fallback", "active_workflow_callsite": true, "native_workflow_callable": false, "native_workflow_attempted": true, "call_template_id": "orbit-deep-call", "expected_route": "reject", "expected_bridge_executions": 0, "expected_native_executions": 1 },
+    { "case_id": "ordinary-script-is-not-workflow", "active_workflow_callsite": false, "native_workflow_callable": false, "call_template_id": null, "ordinary_script": true, "expected_route": "not_applicable", "expected_bridge_executions": 0, "expected_native_executions": 0 },
+    { "case_id": "missing-workflow-source", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": null, "caller_root_ref": "evals/fixtures/missing-source-caller", "declared_script_path": "[SKILL_DIR]/scripts/not-present.any", "expected_route": "reject", "expected_bridge_executions": 0, "expected_native_executions": 0 },
+    { "case_id": "ambiguous-workflow-source", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": null, "caller_root_ref": "evals/fixtures/ambiguous-source-caller", "declared_script_path": "request.preferred ?? request.fallback", "ambiguous": true, "expected_route": "reject", "expected_bridge_executions": 0, "expected_native_executions": 0 },
+    { "case_id": "caller-phase-and-gate-ownership", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": "orbit-deep-call", "expected_route": "bridge", "expected_bridge_executions": 1, "expected_native_executions": 0 },
+    { "case_id": "cross-skill-return-value", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": "relative-signal-call", "expected_route": "bridge", "expected_bridge_executions": 1, "expected_native_executions": 0 },
+    { "case_id": "return-binding-crosswire", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_ids": ["orbit-deep-call", "relative-signal-call"], "expected_route": "bridge", "expected_bridge_executions": 2, "expected_native_executions": 0 },
+    { "case_id": "implicit-bridge-unsupported-source", "active_workflow_callsite": true, "native_workflow_callable": false, "call_template_id": "unsafe-bridge-call", "expected_route": "bridge", "expected_bridge_executions": 1, "expected_native_executions": 0 },
+    { "case_id": "inactive-workflow-branch", "active_workflow_callsite": false, "native_workflow_callable": false, "call_template_id": "orbit-deep-call", "inactive_branch": true, "expected_route": "not_applicable", "expected_bridge_executions": 0, "expected_native_executions": 0 }
+  ],
+  "translation_binding_cases": [
+    { "mutation_id": "bridge-call-binding-valid", "call_template_id": "orbit-deep-call", "binding_call_template_id": "orbit-deep-call", "mutation": "none", "expected_binding": "accept" },
+    { "mutation_id": "bridge-call-binding-missing", "call_template_id": "orbit-deep-call", "binding_call_template_id": null, "mutation": "missing", "expected_binding": "reject" },
+    { "mutation_id": "bridge-call-binding-crosswire", "call_template_id": "orbit-deep-call", "binding_call_template_id": "relative-signal-call", "mutation": "crosswire", "expected_binding": "reject" }
+  ],
+  "negative_path_mutations": [
+    { "mutation_id": "root-escape", "caller_root_ref": "evals/fixtures/orbit-market-scan", "declared_script_path": "../outside.pipeline", "expected_route": "reject" },
+    { "mutation_id": "missing", "caller_root_ref": "evals/fixtures/orbit-market-scan", "declared_script_path": "scripts/missing.pipeline", "expected_route": "reject" },
+    { "mutation_id": "symlink", "expected_route": "reject" }
+  ]
+}

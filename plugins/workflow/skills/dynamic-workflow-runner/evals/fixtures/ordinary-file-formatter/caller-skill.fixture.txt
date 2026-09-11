@@ -1,0 +1,9 @@
+---
+name: ordinary-file-formatter
+description: Formats one local fixture by running its deterministic formatter script.
+---
+
+# Ordinary File Formatter
+
+Run `scripts/format-one.mjs` as an ordinary deterministic program. It is not a multi-agent graph,
+does not request resume semantics, and has no dynamic workflow callsite.

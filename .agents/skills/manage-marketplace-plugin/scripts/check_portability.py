@@ -42,6 +42,8 @@ EXIT_NO_SKILL = 3
 def scan_text_files(skill_root: Path):
     """スキル配下の .md ファイルを行単位で走査する（scripts 実体や評価データは除外）。"""
     for path in sorted(skill_root.rglob("*.md")):
+        if "node_modules" in path.relative_to(skill_root).parts:
+            continue
         rel = path.relative_to(skill_root)
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -60,6 +62,8 @@ def scan_script_files(skill_root: Path):
     seen = set()
     for pattern in ("*.sh", "*.py"):
         for path in sorted(skill_root.rglob(pattern)):
+            if "node_modules" in path.relative_to(skill_root).parts:
+                continue
             if not path.is_file():  # 壊れた symlink 等はスキップ
                 continue
             key = str(path.resolve())

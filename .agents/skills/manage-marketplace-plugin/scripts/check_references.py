@@ -77,6 +77,8 @@ def check_skill(skill: str) -> dict:
     findings = []
 
     for md in sorted(skill_root.rglob("*.md")):
+        if "node_modules" in md.relative_to(skill_root).parts:
+            continue
         try:
             lines = md.read_text(encoding="utf-8").splitlines()
         except (UnicodeDecodeError, OSError):

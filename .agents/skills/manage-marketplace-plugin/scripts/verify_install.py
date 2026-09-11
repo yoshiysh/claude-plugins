@@ -36,6 +36,7 @@ SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"   # 公開用プラグイン dir の置き場
 # .claude-plugin/plugin.json だけに載るフィールド（register_plugin.py と揃える）。
 CLAUDE_ONLY_FIELDS = ("dependencies",)
+CODEX_ONLY_FIELDS = ("interface",)
 
 EXIT_OK = 0
 EXIT_FAIL = 5          # 検証失敗（install 先で壊れる）
@@ -77,7 +78,8 @@ def l2_bundle_check(plugin: str) -> dict:
     if len(manifests) == 2:
         # dependencies は Claude 固有（Codex に同等機能が無く、未知フィールドの許容も
         # 明記されていない）。共通フィールドだけを比較する。
-        shared = {k: {kk: vv for kk, vv in m.items() if kk not in CLAUDE_ONLY_FIELDS}
+        shared = {k: {kk: vv for kk, vv in m.items()
+                      if kk not in (*CLAUDE_ONLY_FIELDS, *CODEX_ONLY_FIELDS)}
                   for k, m in manifests.items()}
         if shared[".claude-plugin"] != shared[".codex-plugin"]:
             findings.append(
@@ -87,6 +89,11 @@ def l2_bundle_check(plugin: str) -> dict:
             findings.append(
                 ".codex-plugin/plugin.json に Claude 固有フィールドが混入している: "
                 f"{sorted(manifests['.codex-plugin'].keys() & set(CLAUDE_ONLY_FIELDS))}")
+        if manifests[".claude-plugin"].keys() & set(CODEX_ONLY_FIELDS):
+            findings.append(".claude-plugin/plugin.json に Codex 固有フィールドが混入している")
+        if "interface" in manifests[".codex-plugin"] and not isinstance(
+                manifests[".codex-plugin"]["interface"], dict):
+            findings.append("Codex interface は object でなければならない")
 
     # 配布サブツリー全体の symlink 検査（これが本命の不変条件）
     for p in sorted(plugin_dir.rglob("*")):

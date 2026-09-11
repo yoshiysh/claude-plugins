@@ -28,6 +28,10 @@
         {
             "name": "workflow",
             "source": "./plugins/workflow"
+        },
+        {
+            "name": "performance",
+            "source": "./plugins/performance"
         }
     ]
 }

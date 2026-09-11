@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-action-handoff/v1",
+  "title": "Dynamic Workflow External Action Handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "handoff_id",
+    "workflow_id",
+    "run_id",
+    "package",
+    "final_review",
+    "workflow_gate",
+    "requested_action_ids",
+    "executor_capabilities",
+    "targets",
+    "scopes",
+    "approval_contract",
+    "execution_status",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-action-handoff/v1" },
+    "handoff_id": { "$ref": "#/$defs/handoff_id" },
+    "workflow_id": { "$ref": "#/$defs/id" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "package": { "$ref": "#/$defs/file_ref" },
+    "final_review": { "$ref": "#/$defs/file_ref" },
+    "workflow_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt", "meaning", "grants_external_authority"],
+      "properties": {
+        "receipt": { "$ref": "#/$defs/file_ref" },
+        "meaning": { "const": "workflow_semantic_confirmation_only" },
+        "grants_external_authority": { "const": false }
+      }
+    },
+    "requested_action_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/id" }
+    },
+    "executor_capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/semantic_id" }
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "approval_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "must_bind", "reuse_workflow_gate"],
+      "properties": {
+        "status": { "const": "required_after_handoff" },
+        "must_bind": {
+          "const": ["package_sha256", "action_ids", "targets", "scopes"]
+        },
+        "reuse_workflow_gate": { "const": false }
+      }
+    },
+    "execution_status": { "const": "not_authorized" },
+    "created_at": { "$ref": "#/$defs/canonical_date_time" }
+  },
+  "$defs": {
+    "handoff_id": {
+      "type": "string",
+      "pattern": "^handoff-[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "semantic_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$",
+      "maxLength": 160
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "canonical_date_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,9})?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$"
+    },
+    "file_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
