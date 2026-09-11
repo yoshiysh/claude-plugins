@@ -1,0 +1,8 @@
+{
+  "id": "false-03",
+  "expect": "block",
+  "source": "ledger",
+  "origin": "OBSERVATION.md 表 #3",
+  "note": "現物未読で語感から定義した。実際は adjudicated.documented と holding_rules_count の別集計だった",
+  "message": "終端裁定の documented は、直せずに保持規則へ落ちた件数のみを指します。それ以外の集計はありません。"
+}

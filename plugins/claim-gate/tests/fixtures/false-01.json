@@ -1,0 +1,8 @@
+{
+  "id": "false-01",
+  "expect": "block",
+  "source": "ledger",
+  "origin": "OBSERVATION.md 表 #1",
+  "note": "検証は buildWriterPrompt の 486〜546 行の範囲読み 1 回。556 行の [OTHER_DOCUMENTS] を見落として偽になった。fixture の文面には、当時と同じく検証手段の言明を置いていない（『関数を読んだ』と書くと全文読みの言明になり、判定器は裏付けありとして通す。それは規約どおりの挙動で、この fixture が測る対象ではない）",
+  "message": "writer は担当文書への指摘と前稿だけを受け取ります。他文書との関係は REQUIREMENTS_REVISED のみで、兄弟文書の本文は渡りません。"
+}

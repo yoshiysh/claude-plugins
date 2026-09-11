@@ -1,0 +1,8 @@
+{
+  "id": "paraphrase-02",
+  "expect": "block",
+  "source": "paraphrase",
+  "origin": "網羅型・別語彙",
+  "note": "「例外なく」で網羅を断定し、裏付けの言明を伴わない形",
+  "message": "この設定は例外なく hooks.json から読まれます。他の読み手は考慮されていません。"
+}

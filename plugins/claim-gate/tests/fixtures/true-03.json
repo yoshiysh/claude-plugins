@@ -1,0 +1,8 @@
+{
+  "id": "true-03",
+  "expect": "pass",
+  "source": "ledger",
+  "origin": "OBSERVATION.md 表 #6",
+  "note": "閉集合の全列挙で確かめた不在型主張。B1 に当たり、判定器が裏付けを認めて通す経路を測る",
+  "message": "phase() 呼び出しを全列挙して閉集合を確認し、ladder-judge.md も全文読みました。そのうえで、Audit と Revise の間に改稿の設計を行う工程はありません。ladder-judge は分類のみを返します。"
+}

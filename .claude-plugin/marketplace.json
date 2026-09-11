@@ -32,6 +32,10 @@
         {
             "name": "performance",
             "source": "./plugins/performance"
+        },
+        {
+            "name": "claim-gate",
+            "source": "./plugins/claim-gate"
         }
     ]
 }

@@ -1,0 +1,8 @@
+{
+  "id": "true-02",
+  "expect": "pass",
+  "source": "ledger",
+  "origin": "OBSERVATION.md 表 #5",
+  "note": "引用付きの存在型主張だが「いずれも」で網羅語彙に当たる。B1 ヒット後に判定器が裏付けを見て通す経路を測る",
+  "message": "REVISION_BACKSTOP=3、digest の不動点検出、多角化 escalation、終端裁定がいずれも実装されています。該当行は refine.js:214 / 1877 / 2003 / 2711 で、4 つとも定義箇所を直接読みました。"
+}

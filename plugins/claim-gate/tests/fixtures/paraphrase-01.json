@@ -1,0 +1,8 @@
+{
+  "id": "paraphrase-01",
+  "expect": "block",
+  "source": "paraphrase",
+  "origin": "false-01 と同型・別語彙",
+  "note": "台帳の語彙（無い / のみ）を使わずに不在を断定した形。決定的前段の中心リスクはこの素通り",
+  "message": "他文書を渡す経路は見当たりませんでした。writer は担当文書を見るだけの作りになっています。"
+}

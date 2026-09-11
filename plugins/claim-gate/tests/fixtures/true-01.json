@@ -1,0 +1,8 @@
+{
+  "id": "true-01",
+  "expect": "pass",
+  "source": "ledger",
+  "origin": "OBSERVATION.md 表 #4",
+  "note": "引用付きの存在型主張。B1 の不在・網羅語彙に当たらないため、判定器に届かずに通る想定。この 1 件は B2 の pass 経路を測っていない",
+  "message": "監査は 9 観点が並列に走ります。AUDITORS の定義（refine.js:1102-1118）と、それを呼ぶ pipeline() の該当行（refine.js:2440）を引用します。"
+}
