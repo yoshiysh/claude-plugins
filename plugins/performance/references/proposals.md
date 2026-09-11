@@ -3,10 +3,10 @@
 算術・候補判定は `proposals.py`、解釈は親。hookは候補を保存するだけでLLMを起動しない。
 
 ```sh
-python3 [SKILL_DIR]/scripts/proposals.py evaluate --input <comparison.json> --store <private-queue>
-python3 [SKILL_DIR]/scripts/proposals.py list --store <private-queue>
-python3 [SKILL_DIR]/scripts/proposals.py defer --id <fingerprint> --store <private-queue>
-python3 [SKILL_DIR]/scripts/proposals.py dismiss --id <fingerprint> --store <private-queue>
+python3 [PLUGIN_DIR]/scripts/proposals.py evaluate --input <comparison.json> --store <private-queue>
+python3 [PLUGIN_DIR]/scripts/proposals.py list --store <private-queue>
+python3 [PLUGIN_DIR]/scripts/proposals.py defer --id <fingerprint> --store <private-queue>
+python3 [PLUGIN_DIR]/scripts/proposals.py dismiss --id <fingerprint> --store <private-queue>
 ```
 
 入力はversion:1、baseline、candidateのみ。各cohortはgroupとsamplesのみ。

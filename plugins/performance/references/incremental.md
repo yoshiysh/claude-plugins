@@ -6,9 +6,9 @@
 別ディレクトリを使う。snapshotの合算や移行はしない。通常の読取計測は `measure.py` のまま。
 
 ```sh
-python3 [SKILL_DIR]/scripts/stream_collect.py collect normalized-v1 <events.jsonl> --stream-id <capture-id> --store <private-ledger>
-python3 [SKILL_DIR]/scripts/stream_collect.py report --store <private-ledger>
-python3 [SKILL_DIR]/scripts/stream_collect.py maintain --store <private-ledger> --retention-days 30
+python3 [PLUGIN_DIR]/scripts/stream_collect.py collect normalized-v1 <events.jsonl> --stream-id <capture-id> --store <private-ledger>
+python3 [PLUGIN_DIR]/scripts/stream_collect.py report --store <private-ledger>
+python3 [PLUGIN_DIR]/scripts/stream_collect.py maintain --store <private-ledger> --retention-days 30
 ```
 
 `report` は読取専用。観測をadapter・scope別に最大32群返し、残りは `omitted_groups` で示す。

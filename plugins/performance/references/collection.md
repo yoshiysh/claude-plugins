@@ -4,8 +4,8 @@
 通常の計測は引き続きmeasure.pyだけで行い、保存はしない。
 
 ```sh
-python3 [SKILL_DIR]/scripts/collect.py normalized <usage.jsonl> --store <private-directory>
-python3 [SKILL_DIR]/scripts/collect.py workflow <closed-run-directory> --store <private-directory>
+python3 [PLUGIN_DIR]/scripts/collect.py normalized <usage.jsonl> --store <private-directory>
+python3 [PLUGIN_DIR]/scripts/collect.py workflow <closed-run-directory> --store <private-directory>
 ```
 
 保存先は信頼する親ディレクトリ配下の専用領域。leafは所有者本人の0700 directory、

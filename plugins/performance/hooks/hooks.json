@@ -1,7 +1,7 @@
 {
   "hooks": {
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/skills/performance-agent/scripts/native_hook.py\"", "timeout": 3}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/skills/performance-agent/scripts/native_hook.py\"", "timeout": 3}]}],
-    "SessionEnd": [{"hooks": [{"type": "command", "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/skills/performance-agent/scripts/native_hook.py\"", "timeout": 3}]}]
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"", "timeout": 3}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"", "timeout": 3}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"", "timeout": 3}]}]
   }
 }

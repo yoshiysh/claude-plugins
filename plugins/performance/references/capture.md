@@ -8,7 +8,7 @@
 workflowファイル名は固定しない。引数はユーザーの許可範囲内で親が構成し、ログから生成しない。
 
 ```sh
-python3 [SKILL_DIR]/scripts/capture.py --adapter <adapter> --store <new-private-ledger> --timeout 60 -- <producer> <arguments...>
+python3 [PLUGIN_DIR]/scripts/capture.py --adapter <adapter> --store <new-private-ledger> --timeout 60 -- <producer> <arguments...>
 ```
 
 adapterは `codex-exec-v1`、`claude-query-v1`、`normalized-v1` の明示選択。

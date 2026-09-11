@@ -12,10 +12,10 @@ hook定義を確認・信頼承認する。承認や管理者ポリシーを迂�
 （policy の project="*"）を使う。設定と集計はモデルを呼ばない。
 
 ```sh
-python3 [SKILL_DIR]/scripts/native_hook.py enable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
-python3 [SKILL_DIR]/scripts/native_hook.py status
-python3 [SKILL_DIR]/scripts/native_hook.py disable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
-python3 [SKILL_DIR]/scripts/native_hook.py enable --host claude --all-projects --transcript-root <absolute-transcript-root>
+python3 [PLUGIN_DIR]/scripts/native_hook.py enable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
+python3 [PLUGIN_DIR]/scripts/native_hook.py status
+python3 [PLUGIN_DIR]/scripts/native_hook.py disable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
+python3 [PLUGIN_DIR]/scripts/native_hook.py enable --host claude --all-projects --transcript-root <absolute-transcript-root>
 ```
 
 Codexの場合は `--host codex`。標準候補はClaudeの `~/.claude/projects`、Codexの
