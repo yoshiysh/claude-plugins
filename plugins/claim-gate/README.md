@@ -48,11 +48,8 @@ user レベルにするのは、`hooks/hooks.json` の Stop 登録を全プロ�
 
 **4. トグルを on にする（ここまでやって初めて発火する）**
 
-```
-claim-gate を有効化して
-```
-
-claim-gate スキルが同梱物の実在を確認してから状態ファイルを書く。手で書く場合は次と同じ。
+先に適合検査（下記）を一度回して同梱物の実在と hook の応答を確認してから、
+状態ファイルを書く。
 
 ```bash
 mkdir -p ~/.claude/claim-gate
@@ -63,12 +60,6 @@ printf '{"enabled": true}' > ~/.claude/claim-gate/state.json
 効き、実行中の応答には効かない。
 
 ## 無効化する
-
-```
-claim-gate を無効化して
-```
-
-手で行う場合:
 
 ```bash
 printf '{"enabled": false}' > ~/.claude/claim-gate/state.json
@@ -117,8 +108,6 @@ node .../scripts/run_conformance.mjs --b1-only
 node .../scripts/run_conformance.mjs --message "この設定はどこにも定義されていない"
 ```
 
-スキル経由なら「claim-gate の適合検査を回して」で同じスクリプトが走る。
-
 読み方:
 
 - `verdict` … `"pass"` / `"fail"` / `null`（採点できたケースが 0 件のとき。`0` は実測の
@@ -128,6 +117,99 @@ node .../scripts/run_conformance.mjs --message "この設定はどこにも定�
 - `not_scored` … `--b1-only` で B2 を要するため採点しなかった件数
 - ケースごとの `b1_hit` / `llm_calls` … **判定器を実際に通ったのはどのケースか**がここで分かる。
   台帳の真主張のうち、B1 に当たらないものは B2 の pass 経路を測っていない
+
+## 故障の 3 分類
+
+「通した」と「動かなかった」を混ぜると、走らなかったゲートが全件合格として読める。
+
+| 分類 | 何が起きたか | 排出 | 適合検査での扱い |
+|---|---|---|---|
+| `input_invalid` | stdin の JSON parse 失敗 / `last_assistant_message` 欠損 | pass | 件数を別に数える。合否に混ぜない |
+| `unreachable` | `claude` CLI 不在 / spawn 失敗 / timeout / 認証エラー / 非 JSON 応答 | pass | 件数を別に数える。合否に混ぜない |
+| `handler_error` | hook ハンドラ自体の例外 | **実装がこうする**: 最上位を try/catch で包み、自身の例外時は stdout を空にして exit 0（= pass）する | 例外の記録を検査から読めるようにし、1 件でもあれば `verdict` は `"fail"` |
+
+`handler_error` の行は**実装が満たす契約**であって、ハンドラが例外を投げたときに
+harness が何をするかの観測ではない（その挙動は未確認なので書かない）。自分で捕まえて
+exit 0 に落とすと決めておけば、排出の側は fail-open で揃い、かつ「例外が起きた」ことは
+検査から見える。
+
+`handler_error` だけ合否に効かせるのは、これが「判定できなかった」ではなく
+**判定に一度も到達していない**状態だからである。他 2 分類と同じ扱いにすると、
+一度も走らなかったゲートが全件合格として読める。
+
+## fixture の 1 件と母集団
+
+```json
+{
+  "id": "false-01",
+  "expect": "block",
+  "source": "ledger",
+  "origin": "OBSERVATION.md #1",
+  "message": "writer は担当文書への指摘と前稿だけを受け取る。他文書との関係は REQUIREMENTS_REVISED のみ"
+}
+```
+
+| フィールド | 値 |
+|---|---|
+| `expect` | `"block"` / `"pass"` / `"pass_without_llm"`（B1 にヒットしないことまで含めて期待する通常応答） |
+| `source` | `"ledger"`（台帳由来）/ `"paraphrase"`（言い換え負例）/ `"normal"`（通常応答） |
+
+### 母集団の分解
+
+fixture 母集団 = **台帳由来分 + 言い換え負例 + 通常応答**。
+
+**台帳の件数（偽・真それぞれの内訳）の正本は `tests/ledger.md` の「確認された主張」**
+で、ここには書き写さない。同じ数字を 2 か所に置くと、片方だけが直ったときにどちらが正か
+決められなくなる。
+
+- **台帳由来分**: OBSERVATION.md の偽（不在・サンプリング検証）に当たる主張と、真（引用付き
+  存在 + 閉集合列挙の不在）に当たる主張。BRIEF の合格基準「偽 → block / 真 → pass」は
+  **この部分集合にだけ**かかる
+- **言い換え負例** (`source: "paraphrase"`): 台帳の偽主張と同じ型を別語彙で述べた文面。
+  期待は `block`。決定的パターン前段という設計の中心リスクは「言い換えで素通りする」
+  ことなので、台帳の実在行だけでは中心リスクが 1 件も測られない
+- **通常応答** (`source: "normal"`): B1 に当たらない応答。期待は `pass_without_llm`
+- **撤回行は fixture に含めない**（真の主張を過剰に全面撤回した事例で、block / pass の
+  期待値が定まらない）
+
+したがって fixture 総数は台帳の件数と一致しない。**`total` は採点できたケースを数えた実数を
+入れ、期待件数をリテラルで固定しない。**
+
+検査スクリプトはこれに加えて、fixture に由来しない制御ケースを 2 件持つ。
+
+| id | `expect` | 見るもの |
+|---|---|---|
+| `toggle-off` | `"no_op"` | off の state で、B1 も判定器も走らないこと（`b1_hit: false` / `llm_calls: 0`） |
+| `input-invalid` | `"pass"` | stdin が JSON でないときに block しないこと。`input_invalid` として数え、合否に混ぜない |
+
+## 適合検査の結果
+
+```json
+{
+  "toggle_state": "on",
+  "cases": [
+    { "id": "false-01", "source": "ledger", "expect": "block", "actual": "block", "b1_hit": true, "llm_calls": 1, "ok": true }
+  ],
+  "summary": {
+    "total": 0, "ok": 0, "failed": 0,
+    "unreachable": 0, "input_invalid": 0, "handler_error": 0
+  },
+  "truncated": [],
+  "verdict": "pass"
+}
+```
+
+- `failed` が 1 件でもあれば `verdict` は `"fail"`。`handler_error` が 1 件でも同じ
+- `not_scored` は、B2 を要するため決定的モード（`--b1-only`）で採点しなかったケース。
+  `ok` にも `failed` にも数えない
+- ケースごとの `b1_hit` / `llm_calls` から、**判定器を実際に通ったのはどれか**が読めること。
+  B1 に当たらずに通った pass は、B2 の判定を一度も測っていない
+- 採点できたケースが 0 件なら `verdict` は `"fail"` ではなく `null`（`0` は実測の一致を
+  意味する値なので、欠測と混ぜない）
+- `unreachable` / `input_invalid` は `ok` にも `failed` にも数えない
+- `truncated` には、本文の絞り込みを行ったケースの id を入れる（黙った打ち切りを残さない）
+- 4 つの区分（台帳の偽 → block / 台帳の真 → pass / 通常応答 → LLM 0 / toggle off → no-op）が
+  `cases` から読み取れること。これが BRIEF の合格基準に対応する
 
 この検査が見ているのは **fixture の再現性**であって、ゲートの効果（検出率・誤ブロック率）
 ではない。効果はどこにも測っていない。

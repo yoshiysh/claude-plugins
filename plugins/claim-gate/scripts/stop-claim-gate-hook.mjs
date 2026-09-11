@@ -25,7 +25,6 @@ import { fileURLToPath } from "node:url";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, "..");
 const JUDGE_AGENT_PATH = path.join(PLUGIN_ROOT, "agents", "claim-judge.md");
-const SCHEMAS_PATH = path.join(PLUGIN_ROOT, "skills", "claim-gate", "references", "schemas.md");
 
 // 判定器として起動された子プロセスに立てる env マーカー。
 // 子は env を継承するので、判定器の応答（"absence" / "none" 等を含む JSON）が
@@ -219,15 +218,6 @@ function runJudge(payload, cwd) {
   } catch {
     // 役割定義が読めないなら判定していない。通す。
     return { status: "unreachable", detail: `judge role definition unreadable: ${JUDGE_AGENT_PATH}` };
-  }
-
-  // 役割定義は入出力の形を schemas.md に委ねている。--safe-mode の子セッションは
-  // ファイルを読みに行けないので、正本の中身を spawn 側で読んで system prompt に添える。
-  // 契約を写し取らず同じファイルを渡すことで、schemas.md が正本のままになる。
-  try {
-    judgeRole += `\n\n---\n\n# データ契約（schemas.md の写しではなく、その全文）\n\n${fs.readFileSync(SCHEMAS_PATH, "utf8")}`;
-  } catch {
-    // 契約が読めなくても役割定義だけで判定は成り立つ。判定を止めない。
   }
 
   // --safe-mode: 子セッションで hooks / skills / CLAUDE.md / plugins を無効にする。

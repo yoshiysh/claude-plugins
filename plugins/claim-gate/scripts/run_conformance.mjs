@@ -3,7 +3,7 @@
 // claim-gate の適合検査。
 //
 // 算術と一致判定はすべてここが持つ。agent 側で集計させると台帳の判定が決定的でなくなり、
-// 再現可能なテストにならない（`skills/claim-gate/assets/operations.md` の契約）。
+// 再現可能なテストにならない（集計を agent に委ねない契約。README「適合検査の実行」参照）。
 //
 // 検査は fixture の再現性を見るものであって、ゲートの効果（検出率・誤ブロック率）の
 // 測定ではない。この出力から効果を読まないこと。
@@ -194,6 +194,35 @@ function scoreCase(fixture, run, observed, b1Only) {
   return { ok, scored: true, bucket: ok ? "ok" : "failed" };
 }
 
+
+// 同梱物の実在検査（旧 install-check agent の吸収）。hooks.json の Stop 登録が欠けると
+// 判定器一式が揃っていても hook は一度も起動しないため、存在だけでなく登録内容まで見る。
+// enable 状態（/plugin の user レベル enable）はここからは観測できないので測らない。
+function checkArtifacts() {
+  const items = [];
+  const add = (name, present, detail) => items.push({ name, present, detail: detail ?? null });
+
+  add("scripts/stop-claim-gate-hook.mjs", fs.existsSync(HOOK_PATH));
+  add("scripts/run_conformance.mjs", true, "実行中の本体");
+  add("tests/fixtures/", fs.existsSync(DEFAULT_FIXTURES));
+  add("agents/claim-judge.md", fs.existsSync(path.join(PLUGIN_ROOT, "agents", "claim-judge.md")));
+
+  const hooksJson = path.join(PLUGIN_ROOT, "hooks", "hooks.json");
+  if (!fs.existsSync(hooksJson)) {
+    add("hooks/hooks.json (Stop 登録)", false, "ファイルが無い");
+  } else {
+    try {
+      const d = JSON.parse(fs.readFileSync(hooksJson, "utf8"));
+      const stops = (d.hooks?.Stop ?? []).flatMap((e) => e.hooks ?? []);
+      const registered = stops.some((h) => h.type === "command" && String(h.command).includes("stop-claim-gate-hook.mjs"));
+      add("hooks/hooks.json (Stop 登録)", registered, registered ? null : "Stop に hook スクリプトを起動するエントリが無い");
+    } catch (e) {
+      add("hooks/hooks.json (Stop 登録)", false, `JSON parse 失敗: ${e.message}`);
+    }
+  }
+  return items;
+}
+
 function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.error) {
@@ -305,11 +334,18 @@ function main() {
     verdict = summary.failed === 0 && summary.handler_error === 0 && malformed.length === 0 ? "pass" : "fail";
   }
 
+  // 同梱物の欠落は「検査が走った範囲」の外で起きる故障なので、採点結果に関わらず fail に倒す。
+  const artifacts = checkArtifacts();
+  if (artifacts.some((a) => !a.present)) {
+    verdict = "fail";
+  }
+
   const output = {
     mode: options.b1Only ? "b1_only" : options.message !== null ? "single" : "full",
     toggle_state: options.toggle,
     fixtures_dir: options.fixtures,
     state_file: "検査用の一時ファイル（利用者の state file は読み書きしていない）",
+    artifacts,
     cases: results,
     malformed_fixtures: malformed,
     truncated: results.filter((r) => r.truncated).map((r) => r.id),
