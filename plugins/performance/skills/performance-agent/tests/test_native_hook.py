@@ -46,6 +46,41 @@ class NativeHookTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             native_hook.select_source("claude", self.event, [self.policy])
 
+    def test_all_projects_policy(self):
+        # "*" policy はどの cwd でも許可するが、transcript の許可 root 境界は維持される
+        wildcard = dict(host="claude", project="*", transcripts=str(self.logs), enabled=True)
+        other = self.root / "other"
+        other.mkdir()
+        event = {**self.event, "cwd": str(other)}
+        self.assertEqual(native_hook.select_source("claude", event, [wildcard]), self.source)
+        self.assertIsNone(native_hook.select_source("codex", event, [wildcard]))
+        outside = self.root / "outside.jsonl"
+        outside.write_text("{}\n")
+        self.assertIsNone(
+            native_hook.select_source("claude", {**event, "transcript_path": str(outside)}, [wildcard]))
+
+    def test_exact_disabled_beats_wildcard_enabled(self):
+        # 全体適用の下でも、cwd 一致の個別 disable（opt-out）が優先される
+        wildcard = dict(host="claude", project="*", transcripts=str(self.logs), enabled=True)
+        optout = {**self.policy, "enabled": False}
+        self.assertIsNone(native_hook.select_source("claude", self.event, [wildcard, optout]))
+        self.assertIsNone(native_hook.select_source("claude", self.event, [optout, wildcard]))
+        # 個別 enable + "*" disable では個別が勝って収集される
+        self.assertEqual(
+            native_hook.select_source(
+                "claude", self.event, [{**wildcard, "enabled": False}, self.policy]),
+            self.source)
+
+    def test_configure_all_projects(self):
+        data = self.root / "data"
+        result = native_hook.configure("claude", "*", self.logs, True, data)
+        self.assertEqual(result["project"], "*")
+        state = json.loads((data / "policy" / "state.json").read_text())
+        self.assertEqual(state["policies"][0]["project"], "*")
+        native_hook.configure("claude", "*", self.logs, False, data)
+        state = json.loads((data / "policy" / "state.json").read_text())
+        self.assertEqual([p["enabled"] for p in state["policies"]], [False])
+
     def test_configure_disable(self):
         data = self.root / "data"
         native_hook.configure("claude", self.project, self.logs, True, data)
