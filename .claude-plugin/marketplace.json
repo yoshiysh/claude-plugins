@@ -1,33 +1,37 @@
 {
-    "name": "yoshiysh-claude-plugins",
-    "description": "スキルを公開するマーケットプレイスです。",
-    "owner": {
-        "name": "yoshiysh"
+  "name": "yoshiysh-claude-plugins",
+  "description": "スキルを公開するマーケットプレイスです。",
+  "owner": {
+    "name": "yoshiysh"
+  },
+  "plugins": [
+    {
+      "name": "git",
+      "source": "./plugins/git"
     },
-    "plugins": [
-        {
-            "name": "git",
-            "source": "./plugins/git"
-        },
-        {
-            "name": "chat",
-            "source": "./plugins/chat"
-        },
-        {
-            "name": "research",
-            "source": "./plugins/research"
-        },
-        {
-            "name": "notion",
-            "source": "./plugins/notion"
-        },
-        {
-            "name": "skill-creator",
-            "source": "./plugins/skill-creator"
-        },
-        {
-            "name": "workflow",
-            "source": "./plugins/workflow"
-        }
-    ]
+    {
+      "name": "chat",
+      "source": "./plugins/chat"
+    },
+    {
+      "name": "research",
+      "source": "./plugins/research"
+    },
+    {
+      "name": "notion",
+      "source": "./plugins/notion"
+    },
+    {
+      "name": "skill-creator",
+      "source": "./plugins/skill-creator"
+    },
+    {
+      "name": "workflow",
+      "source": "./plugins/workflow"
+    },
+    {
+      "name": "claim-gate",
+      "source": "./plugins/claim-gate"
+    }
+  ]
 }
