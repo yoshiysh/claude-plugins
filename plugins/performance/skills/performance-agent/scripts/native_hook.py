@@ -25,10 +25,14 @@ def validate(value):
             and type(value["version"]) is int and value["version"] == 1
             and type(value["policies"]) is list and len(value["policies"]) <= 64, "policy")
     for p in value["policies"]:
+        # project はリテラル "*"（全プロジェクト。ユーザーの明示指定でのみ書かれる）か絶対パス。
+        # transcripts は "*" を認めない — 読む範囲の境界（許可 root 配下）は全体適用でも維持する。
         require(type(p) is dict and set(p) == {"host", "project", "transcripts", "enabled"}
                 and p["host"] in ("claude", "codex") and type(p["enabled"]) is bool
-                and all(type(p[k]) is str and Path(p[k]).is_absolute()
-                        for k in ("project", "transcripts")), "policy_entry")
+                and type(p["project"]) is str
+                and (p["project"] == "*" or Path(p["project"]).is_absolute())
+                and type(p["transcripts"]) is str and Path(p["transcripts"]).is_absolute(),
+                "policy_entry")
 
 
 def prepare(root):
@@ -40,15 +44,19 @@ def prepare(root):
 
 
 def configure(host, project, transcripts, enabled, root):
-    project, transcripts = Path(project).resolve(strict=True), Path(transcripts).resolve(strict=True)
-    require(project.is_dir() and transcripts.is_dir(), "directories_required")
+    # project="*" は全プロジェクト適用（--all-projects の明示指定でのみ渡る。推測で書かない）。
+    if project != "*":
+        project = str(Path(project).resolve(strict=True))
+        require(Path(project).is_dir(), "directories_required")
+    transcripts = Path(transcripts).resolve(strict=True)
+    require(transcripts.is_dir(), "directories_required")
     prepare(root)
     with transaction(root / "policy", initial, validate) as state:
-        entry = {"host": host, "project": str(project), "transcripts": str(transcripts), "enabled": enabled}
+        entry = {"host": host, "project": project, "transcripts": str(transcripts), "enabled": enabled}
         state["policies"] = [p for p in state["policies"]
-                             if (p["host"], p["project"]) != (host, str(project))] + [entry]
+                             if (p["host"], p["project"]) != (host, project)] + [entry]
     return {"status": "enabled" if enabled else "disabled", "host": host,
-            "project": str(project), "transcript_root": str(transcripts), "data_dir": str(root)}
+            "project": project, "transcript_root": str(transcripts), "data_dir": str(root)}
 
 
 def select_source(host, event, policies):
@@ -62,10 +70,15 @@ def select_source(host, event, policies):
     require(source.is_absolute() and not source.is_symlink(), "source_path")
     resolved = source.resolve(strict=True)
     cwd = Path(event["cwd"]).resolve(strict=True)
-    for p in policies:
-        if p["enabled"] and p["host"] == host and cwd == Path(p["project"]):
-            if resolved.is_relative_to(Path(p["transcripts"])):
-                return source
+    # cwd に完全一致する個別 policy が全体適用（"*"）より優先する。個別エントリが disabled なら
+    # "*" が enabled でも収集しない — 全体適用の下でもプロジェクト単位の opt-out を残すため。
+    # どちらの経路でも transcript は当該 policy の許可 root 配下に限る（読む範囲の境界は不変）。
+    exact = next((p for p in policies if p["host"] == host and p["project"] != "*"
+                  and cwd == Path(p["project"])), None)
+    chosen = exact if exact is not None else next(
+        (p for p in policies if p["host"] == host and p["project"] == "*"), None)
+    if chosen and chosen["enabled"] and resolved.is_relative_to(Path(chosen["transcripts"])):
+        return source
     return None
 
 
@@ -102,7 +115,10 @@ def main():
     for action in ("enable", "disable"):
         p = sub.add_parser(action)
         p.add_argument("--host", choices=("claude", "codex"), required=True)
-        p.add_argument("--project", required=True)
+        target = p.add_mutually_exclusive_group(required=True)
+        target.add_argument("--project")
+        target.add_argument("--all-projects", action="store_true",
+                            help="全プロジェクトに適用する（個別 policy が cwd 一致で優先する）")
         p.add_argument("--transcript-root", required=True)
     sub.add_parser("status")
     worker = sub.add_parser("worker")
@@ -111,7 +127,8 @@ def main():
     worker.add_argument("--session", required=True)
     args = parser.parse_args()
     if args.action in ("enable", "disable"):
-        result = configure(args.host, args.project, args.transcript_root, args.action == "enable", base())
+        target = "*" if args.all_projects else args.project
+        result = configure(args.host, target, args.transcript_root, args.action == "enable", base())
     elif args.action == "worker":
         import native_collect
         result = native_collect.collect(args.host, args.source, args.session, base() / "native-ledger")

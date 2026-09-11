@@ -8,18 +8,24 @@ hook定義を確認・信頼承認する。承認や管理者ポリシーを迂�
 
 ユーザー向け入口は `/performance:agent このプロジェクトの自動計測を有効にして`。
 親はhost、対象プロジェクト、許可するtranscriptルート、保存先を一度確認し、同梱CLIを実行する。
-全プロジェクトの一括有効化を推測しない。設定と集計はモデルを呼ばない。
+全プロジェクトの一括有効化を推測しない — ユーザーが明示的に依頼した場合だけ `--all-projects`
+（policy の project="*"）を使う。設定と集計はモデルを呼ばない。
 
 ```sh
 python3 [SKILL_DIR]/scripts/native_hook.py enable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
 python3 [SKILL_DIR]/scripts/native_hook.py status
 python3 [SKILL_DIR]/scripts/native_hook.py disable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
+python3 [SKILL_DIR]/scripts/native_hook.py enable --host claude --all-projects --transcript-root <absolute-transcript-root>
 ```
 
 Codexの場合は `--host codex`。標準候補はClaudeの `~/.claude/projects`、Codexの
 `$CODEX_HOME/sessions`（未設定なら `~/.codex/sessions`）だが、実在と設定を確認する。
 読込範囲はhookのcwdと一致する許可済みproject、および許可済みroot内の明示transcriptだけ。
-子ディレクトリのcwdは自動許可しない。subagent transcriptや履歴一覧を探索しない。
+子ディレクトリのcwdは自動許可しない。`--all-projects` はcwd一致検査だけを外し、transcriptが
+許可root配下にある境界は維持する。cwd一致の個別policyは"*"より常に優先するため、全体適用の
+下でも特定projectだけ `disable --project` でopt-outできる。cwd一致の個別policyが選ばれた
+ときはその個別policyのtranscript rootが適用される（"*"側の広いrootを継承しない）ため、
+個別enableの後に--all-projectsを重ねた場合も個別側のrootが生き続ける。subagent transcriptや履歴一覧を探索しない。
 
 保存先の既定は `~/.local/share/yoshiysh-performance`。任意の絶対パスを
 `PERFORMANCE_DATA_DIR` で指定できるが、設定コマンドとhost起動時に同じ値が必要。
