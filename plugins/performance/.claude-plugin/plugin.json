@@ -1,6 +1,6 @@
 {
     "name": "performance",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "エージェント作業の計測・分析と品質を維持するパフォーマンス改善を支援する",
     "author": {
         "name": "yoshiysh"
