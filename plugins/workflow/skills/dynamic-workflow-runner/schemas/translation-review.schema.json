@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-translation-review/v1",
+  "title": "Dynamic Workflow Translation Review",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_sha256",
+    "manifest_sha256",
+    "invocation_id",
+    "translator_handle",
+    "reviewer_handle",
+    "reviewed_at",
+    "verdict",
+    "findings"
+  ],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-translation-review/v1" },
+    "source_sha256": { "$ref": "#/$defs/sha256" },
+    "manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "invocation_id": { "type": "string", "minLength": 1 },
+    "translator_handle": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    },
+    "reviewer_handle": { "type": "string", "minLength": 1 },
+    "reviewed_at": { "$ref": "#/$defs/canonical_date_time" },
+    "verdict": { "enum": ["pass", "revise", "rejected_source"] },
+    "findings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "canonical_date_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,9})?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$"
+    },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

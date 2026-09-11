@@ -16,8 +16,8 @@
 
 ## 終了理由への向き合い方（Ground progress claims の延長）
 
-`termination_reason` が `converged` 以外（`stalled` / `max_rounds` /
-`budget_exhausted`）の場合、**それを取り繕わない**。以下のように正直に扱う:
+`termination_reason` が `converged` 以外（`stalled` / `max_rounds`）の場合、
+**それを取り繕わない**。以下のように正直に扱う:
 
 - `stalled`: どこまで分かっていて、何が最後まで解けなかったかを明示する。
   「これ以上ラウンドを重ねても進展しなかった」という事実自体も、有用な情報として
@@ -25,7 +25,6 @@
 - `max_rounds`: ラウンド上限に達しただけで、収束していない可能性があることを
   明示する。「未解決の論点」を`history` の最後のラウンドの `open_questions` から
   抽出して伝える。
-- `budget_exhausted`: トークン予算を使い切って打ち切ったことを明示する。
 
 `converged` の場合も、`history` の最後のラウンドで残っていた軽微な
 `open_questions`（本質に関わらないと判定されたもの）があれば「なお、〜は

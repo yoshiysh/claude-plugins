@@ -3,16 +3,33 @@ export const meta = {
   description:
     '一次情報検証つき調査ループ（claim 抽出 → claim ごと並列検証 → 合成、進捗ガード付き until-converged）',
   phases: [{ title: 'Extract' }, { title: 'Verify' }, { title: 'Synthesize' }],
+  codex_workflow_compatibility: {
+    schema_version: 'claude-workflow-model-portability/v1',
+    classification: 'portable_v1',
+    model_identity_semantics: 'non_load_bearing_scheduling_hint',
+    codex_translation: 'drop_declared_model_hint_preserve_role_and_result_contract',
+    quality_parity: 'not_guaranteed',
+    model_hints: {
+      claim_extractor: { requested_model: 'sonnet', role: 'extract bounded factual claims' },
+      source_verifier: { requested_model: 'sonnet', role: 'verify one pre-enumerated claim slot' },
+      root_cause_synthesizer: { requested_model: 'opus', role: 'synthesize only validated verdict inputs' },
+    },
+  },
+}
+
+function modelHint(callsite) {
+  const hint = meta.codex_workflow_compatibility.model_hints[callsite]
+  if (!hint) throw new Error(`undeclared model hint callsite: ${callsite}`)
+  return hint.requested_model
 }
 
 // DEFAULT_MAX_ROUNDS: 1 ラウンドで extractor 1 回 + claim 数分の verifier + synthesizer 1 回を
 // 消費する。5 ラウンドあれば「検証 → 新たな問い → 再検証」が 4 回連鎖する調査までカバーでき、
 // 暴走時には打ち切れる。voodoo constant であることを認める初期値であり、実績（収束までの
-// 平均ラウンド数）を見て調整する対象。args.maxRounds で都度上書き可能。
+// 平均ラウンド数）を見て調整する対象。args.maxRounds はこの上限内だけ変更できる。
 const DEFAULT_MAX_ROUNDS = 5
-
-// BUDGET_FLOOR: budget.total 指定時、この残量を下回ったらラウンドを開始しない。
-const BUDGET_FLOOR = 50_000
+const HARD_MAX_ROUNDS = 5
+const MAX_CLAIMS_PER_ROUND = 12
 
 // PRIORITY_ORDER: claim を spawn する順序。parallel() は同時実行数を harness 側の上限で
 // 絞るため、load-bearing な主張（high）を先に並べることで、打ち切り時に検証済みで残る
@@ -22,13 +39,16 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 }
 
 const CLAIMS_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     claims: {
       type: 'array',
+      maxItems: MAX_CLAIMS_PER_ROUND,
       items: {
         type: 'object',
+        additionalProperties: false,
         properties: {
-          id: { type: 'string' },
+          id: { type: 'string', minLength: 1, maxLength: 96 },
           text: { type: 'string' },
           kind: { type: 'string', enum: ['fact', 'inference'] },
           verify_method: {
@@ -55,6 +75,7 @@ const CLAIMS_SCHEMA = {
 
 const VERDICT_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     id: { type: 'string' },
     verdict: { type: 'string', enum: ['verified', 'refuted', 'cannot-verify'] },
@@ -189,7 +210,10 @@ if (!workspaceDir) {
   throw new Error('args.workspaceDir が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。')
 }
 
-const maxRounds = parsedArgs.maxRounds || DEFAULT_MAX_ROUNDS
+const maxRounds = parsedArgs.maxRounds ?? DEFAULT_MAX_ROUNDS
+if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > HARD_MAX_ROUNDS) {
+  throw new Error(`args.maxRounds は 1..${HARD_MAX_ROUNDS} の整数で指定してください。`)
+}
 
 // claimKey: 同一主張の再検証を防ぐ突合キー。extractor は毎ラウンド id を振り直すため
 // id では突合できない。空白の正規化のみに留め、それ以外は完全一致でしか同一と見なさない
@@ -208,7 +232,7 @@ let draft = ''
 // 良く見せる方向の誤り）。break したときだけ設定し、それ以外はループ後に解決する。
 let terminationReason = null
 
-while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)) {
+while (round < maxRounds) {
   round++
   const roundLabel = `r${round}`
 
@@ -216,7 +240,7 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
   const extracted = await agent(
     buildExtractPrompt(question, draft, previousQuestion, verdicts.map((v) => v.text)),
     {
-      model: 'sonnet',
+      model: modelHint('claim_extractor'),
       schema: CLAIMS_SCHEMA,
       phase: 'Extract',
       label: `extract-${roundLabel}`,
@@ -233,38 +257,36 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
   // 全 fresh claim に verifier を 1 件ずつ spawn する。ここが構造的保証の中核 ——
   // claims[] を走査して verifier を立てるのは script なので、「検証されないまま
   // レポートに混入する主張」は原理的に存在しえない。散文で禁止する必要がない。
-  const newVerdicts = (
-    await parallel(
-      fresh.map((claim) => () => {
-        const evidenceFile = `${workspaceDir}/evidence/${claim.id}.md`
+  const verifiedSlots = await parallel(
+      fresh.map((claim, claimIndex) => () => {
+        // agent が生成した claim.id を path や runtime label に使わない。round/slot は
+        // hard max から事前列挙できるため、Codex 互換層でも bounded graph に変換できる。
+        const evidenceFile = `${workspaceDir}/evidence/round-${round}/slot-${claimIndex}.md`
         return agent(buildVerifyPrompt(claim, evidenceFile), {
-          model: 'sonnet',
+          model: modelHint('source_verifier'),
           schema: VERDICT_SCHEMA,
           phase: 'Verify',
-          label: `verify-${claim.id}-${roundLabel}`,
-        }).then((v) =>
-          v
-            ? {
-                id: claim.id,
-                text: claim.text,
-                kind: claim.kind,
-                based_on: claim.based_on,
-                hedge: claim.hedge,
-                ...v,
-                evidence_file: v.evidence_file || evidenceFile,
-              }
-            : null
-        )
+          label: `verify-${roundLabel}-slot-${claimIndex}`,
+        }).then((verdict) => ({ claim, evidenceFile, verdict }))
       })
     )
-  ).filter(Boolean)
+  const newVerdicts = verifiedSlots
+    .filter(({ verdict }) => verdict)
+    .map(({ claim, evidenceFile, verdict }) => ({
+      ...verdict,
+      id: claim.id,
+      text: claim.text,
+      kind: claim.kind,
+      based_on: claim.based_on,
+      hedge: claim.hedge,
+      evidence_file: evidenceFile,
+    }))
 
   // agent が落ちた（null が返った）claim は verdict を得られていない。捏造せず
   // cannot-verify として明示的に積む（レポートの unverified_or_inconclusive に載る）。
-  const returnedIds = new Set(newVerdicts.map((v) => v.id))
-  const dropped = fresh
-    .filter((c) => !returnedIds.has(c.id))
-    .map((c) => ({
+  const dropped = verifiedSlots
+    .filter(({ verdict }) => !verdict)
+    .map(({ claim: c }) => ({
       id: c.id,
       text: c.text,
       kind: c.kind,
@@ -282,7 +304,7 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
 
   phase('Synthesize')
   const synth = await agent(buildSynthPrompt(question, verdicts, previousQuestion), {
-    model: 'opus',
+    model: modelHint('root_cause_synthesizer'),
     schema: SYNTH_SCHEMA,
     phase: 'Synthesize',
     label: `synthesize-${roundLabel}`,
@@ -320,10 +342,9 @@ while (round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)
   previousQuestion = synth.next_question
 }
 
-// break しなかった場合はループ条件で抜けている。どちらの条件で抜けたかを実態から判定する。
+// break しなかった場合は hard max に到達している。
 if (!terminationReason) {
-  terminationReason =
-    round >= maxRounds ? 'max_rounds' : round === 0 ? 'not_started' : 'budget_exhausted'
+  terminationReason = 'max_rounds'
 }
 
 const finalRound = rounds[rounds.length - 1]

@@ -1,0 +1,17 @@
+{
+    "name": "performance",
+    "version": "0.1.0",
+    "description": "エージェント作業の計測・分析と品質を維持するパフォーマンス改善を支援する",
+    "interface": {
+        "displayName": "Performance",
+        "shortDescription": "エージェント作業の使用量を証拠に基づいて計測",
+        "longDescription": "ログの読取集計、明示的なローカル増分収集、証拠条件を確認した比較候補の管理を支援します。欠損と品質未評価を明示します。hook接続口は既定無効で、自動LLM分析や外部送信は行いません。",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": ["この実行ログのトークン使用量と計測の欠損を確認して"]
+    },
+    "author": {
+        "name": "yoshiysh"
+    }
+}

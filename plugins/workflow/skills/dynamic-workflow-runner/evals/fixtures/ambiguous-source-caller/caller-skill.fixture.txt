@@ -1,0 +1,9 @@
+---
+name: ambiguous-source-caller
+description: Demonstrates a caller whose workflow source selection cannot be resolved deterministically.
+---
+
+# Ambiguous Source Caller
+
+Invoke `Workflow({ scriptPath: request.preferred ?? request.fallback, args: request.args })`.
+There is no single declared source or exact argument object until the caller resolves the expression.

@@ -103,7 +103,14 @@ subagent（Sonnet/Opus/Haiku）を回します。収束すれば途中で打ち�
 
 ## Step 2: Workflow を呼ぶ
 
-> **実行環境の前提**: このスキルは Claude Code の dynamic workflows に依存する。Codex では動作しない可能性が高い — `codex` CLI に workflow サブコマンドが無く、[Codex plugin の仕様](https://developers.openai.com/codex/plugins/build)にも `workflows/` サーフェスが無い（いずれも 2026-08 時点。Codex セッション内のツールセットを直接確認したものではない）。Codex で使う場合は、まず Workflow 相当のツールが露出しているか確認すること。
+> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
+> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
+> 内部互換層として自動利用する。ただし本sourceはFable 5をPlan/Evaluate/Synthesizeのload-bearingな
+> engineとして固定し、executor/verifier modelもその出力で選ぶ。runner v1 manifestはprovider/model identityを
+> 機械検証できないため、現在は最初のagent起動前に`rejected_source`となる。任意modelへ黙って置換しない。
+> native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
+>
+> **Codex v1 classification: `rejected_source_v1`**（load-bearing exact model semantics）。
 
 ```
 Workflow({
@@ -117,6 +124,10 @@ Workflow({
 
 `skillDir` には本スキルの実ディレクトリ（install 元によって変わる）を実パスで渡す。スクリプトは自身の位置を解決できず、subagent に渡す役割定義の Read パスがここでしか決まらない。
 
+Codex 互換経路で caller が所有する前処理は Step 0〜1、成功後処理は「結果の提示」、human gate は無し。
+現行v1の`rejected_source`をそのまま報告し、別modelの合成結果を作らない。将来runtimeがexact model capabilityを
+typed snapshotで証明できるか、sourceがmodel非依存のrole contractへ変わった場合だけ互換性を再評価する。
+
 Workflow はバックグラウンドで実行される（`Workflow` ツールの標準挙動）。完了すると
 `{ topic, rounds_run, termination_reason, synthesis, history }` が返る。
 
@@ -127,7 +138,8 @@ Workflow はバックグラウンドで実行される（`Workflow` ツールの
 ため、Coordinator 側で再整形する必要はない）。加えて以下を短く添える:
 
 - `termination_reason`: `converged`（収束）/ `stalled`（進捗なしで打ち切り）/
-  `max_rounds`（ラウンド上限到達）/ `budget_exhausted`（トークン予算到達）。
+  `max_rounds`（ラウンド上限到達）。実行量は `maxRounds` と `subagentsPerRoundCap` の
+  hard max で決定し、Workflow host の hidden budget global には依存しない。
   `converged` 以外の場合は**必ずその旨を明示する**（達成度を実態より良く見せない。
   `references/evaluator-role.md` の "Ground progress claims" 原則と同じ姿勢を
   Coordinator 自身にも適用する）。

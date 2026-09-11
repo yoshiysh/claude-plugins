@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dispatch-orchestrate',
   description:
-    'Fable 5 が計画・評価する複数ラウンドの subagent 委譲ループ（generator-verifier 分離 + loop-until-converged/stalled/budget）',
+    'Fable 5 が計画・評価する複数ラウンドの subagent 委譲ループ（generator-verifier 分離 + bounded loop-until-converged/stalled）',
   phases: [
     { title: 'Plan' },
     { title: 'Execute' },
@@ -15,16 +15,14 @@ export const meta = {
 // Fable 呼び出し2回（Plan/Evaluate）+ 複数 subagent を消費する。6ラウンドあれば
 // 通常 3〜4ラウンドで収束する難問の大半をカバーしつつ、暴走時に打ち切れる。
 // voodoo constant であることを認める初期値であり、固定値ではなく実績（収束までの
-// 平均ラウンド数）を見て調整する対象。args.maxRounds で都度上書き可能。
+// 平均ラウンド数）を見て調整する対象。args.maxRounds はこの上限内だけ変更できる。
 const DEFAULT_MAX_ROUNDS = 6
+const HARD_MAX_ROUNDS = 6
 
 // DEFAULT_SUBAGENTS_CAP: 1ラウンドの並列 fan-out が大きすぎるとレビュー困難・
-// コスト超過を招くための Fable への軟上限。args.subagentsPerRoundCap で上書き可能。
+// コスト超過を招くための上限。args.subagentsPerRoundCap はこの上限内だけ変更できる。
 const DEFAULT_SUBAGENTS_CAP = 6
-
-// BUDGET_FLOOR: budget.total 指定時、この残量を下回ったらラウンドを開始しない
-// （Workflow ツール自身の Loop-until-budget パターン例と同じ値を踏襲）。
-const BUDGET_FLOOR = 50_000
+const HARD_SUBAGENTS_CAP = 8
 
 const PLAN_SCHEMA = {
   type: 'object',
@@ -164,8 +162,14 @@ if (!SKILL_DIR) {
   return { error: 'args.skillDir が未指定です。SKILL.md Step 2 の呼び出し例に従ってください。' }
 }
 const topic = parsedArgs.topic
-const maxRounds = parsedArgs.maxRounds || DEFAULT_MAX_ROUNDS
-const subagentsCap = parsedArgs.subagentsPerRoundCap || DEFAULT_SUBAGENTS_CAP
+const maxRounds = parsedArgs.maxRounds ?? DEFAULT_MAX_ROUNDS
+const subagentsCap = parsedArgs.subagentsPerRoundCap ?? DEFAULT_SUBAGENTS_CAP
+if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > HARD_MAX_ROUNDS) {
+  return { error: `args.maxRounds は 1..${HARD_MAX_ROUNDS} の整数で指定してください。` }
+}
+if (!Number.isInteger(subagentsCap) || subagentsCap < 1 || subagentsCap > HARD_SUBAGENTS_CAP) {
+  return { error: `args.subagentsPerRoundCap は 1..${HARD_SUBAGENTS_CAP} の整数で指定してください。` }
+}
 
 // topic の空チェックを Plan ステップに進む前に行う。空のまま起動すると
 // Fable が「調査対象がない」ことに気づくまでに Plan+Evaluate+Synthesis の
@@ -182,7 +186,7 @@ const history = []
 let round = 0
 let status = 'continue'
 
-while (status === 'continue' && round < maxRounds && (!budget.total || budget.remaining() > BUDGET_FLOOR)) {
+while (status === 'continue' && round < maxRounds) {
   round++
   const roundLabel = `r${round}`
 
@@ -258,9 +262,7 @@ const terminationReason =
     ? 'converged'
     : status === 'stalled'
       ? 'stalled'
-      : round >= maxRounds
-        ? 'max_rounds'
-        : 'budget_exhausted'
+      : 'max_rounds'
 
 phase('Synthesize')
 const synthesis = await agent(buildSynthesisPrompt(topic, history, terminationReason), {

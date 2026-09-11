@@ -1,0 +1,6 @@
+workflow phase-lens {
+  task observe using agent fresh -> observation
+  task challenge using agent fresh with observation -> review
+  verify review with independent agent fresh
+  return { observation: observation, review: review }
+}

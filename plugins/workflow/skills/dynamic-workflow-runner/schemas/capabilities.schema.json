@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-capabilities/v1",
+  "title": "Dynamic Workflow Runtime Capabilities",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "native_collaboration",
+    "spawn",
+    "collect_or_wait",
+    "stable_handle",
+    "message",
+    "resume",
+    "interrupt",
+    "max_parallel",
+    "observed_at",
+    "filesystem_isolation",
+    "tool_isolation",
+    "external_mutation_enforcement",
+    "source_trust",
+    "secret_bearing",
+    "fork_behavior",
+    "semantic_capabilities",
+    "permissions",
+    "context_support",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-capabilities/v1" },
+    "native_collaboration": { "type": "boolean" },
+    "spawn": { "type": "boolean" },
+    "collect_or_wait": { "type": "boolean" },
+    "stable_handle": { "type": "boolean" },
+    "message": { "type": "boolean" },
+    "resume": { "type": "boolean" },
+    "interrupt": { "type": "boolean" },
+    "max_parallel": { "type": "integer", "minimum": 1, "maximum": 1024 },
+    "observed_at": { "$ref": "#/$defs/canonical_date_time" },
+    "filesystem_isolation": { "enum": ["enforced", "attested_not_enforced"] },
+    "tool_isolation": { "enum": ["enforced", "attested_not_enforced"] },
+    "external_mutation_enforcement": { "enum": ["enforced", "attested_not_enforced"] },
+    "source_trust": { "enum": ["trusted", "untrusted"] },
+    "secret_bearing": { "type": "boolean" },
+    "fork_behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_isolation", "model_context_inherited"],
+      "properties": {
+        "context_isolation": { "enum": ["enforced", "attested_not_enforced"] },
+        "model_context_inherited": { "type": "boolean" }
+      }
+    },
+    "semantic_capabilities": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/semantic_id" },
+      "additionalProperties": { "$ref": "#/$defs/semantic_capability_status" }
+    },
+    "permissions": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/semantic_id" },
+      "additionalProperties": { "$ref": "#/$defs/permission_status" }
+    },
+    "context_support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fresh", "recent", "all"],
+      "properties": {
+        "fresh": { "type": "boolean" },
+        "recent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supported", "max_turns"],
+          "properties": {
+            "supported": { "type": "boolean" },
+            "max_turns": { "type": ["integer", "null"], "minimum": 1, "maximum": 1000 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "supported": { "const": false } }, "required": ["supported"] },
+              "then": { "properties": { "max_turns": { "type": "null" } } }
+            },
+            {
+              "if": { "properties": { "supported": { "const": true } }, "required": ["supported"] },
+              "then": { "properties": { "max_turns": { "type": "integer" } } }
+            }
+          ]
+        },
+        "all": { "type": "boolean" }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "description": "Non-authoritative host observations. These values never satisfy a task requirement.",
+      "properties": {
+        "multi_agent_v2": {},
+        "collaboration_modes": {}
+      }
+    }
+  },
+  "$defs": {
+    "canonical_date_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,9})?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$"
+    },
+    "semantic_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "semantic_capability_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability"],
+      "properties": {
+        "availability": { "enum": ["supported", "limited", "unsupported"] },
+        "enforcement": { "enum": ["enforced", "attested_not_enforced", "unsupported"] },
+        "constraints": { "type": "object" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "permission_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "enforcement"],
+      "properties": {
+        "status": { "enum": ["granted", "denied", "requires_human_gate"] },
+        "enforcement": { "enum": ["enforced", "attested_not_enforced"] },
+        "scope": { "type": "object" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "context_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "fresh" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "turns"],
+          "properties": {
+            "mode": { "const": "recent" },
+            "turns": { "type": "integer", "minimum": 1, "maximum": 1000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "all" } }
+        }
+      ]
+    },
+    "task_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["semantic_capabilities", "permissions", "on_unavailable"],
+      "properties": {
+        "semantic_capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/semantic_id" },
+          "uniqueItems": true
+        },
+        "permissions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/semantic_id" },
+          "uniqueItems": true
+        },
+        "on_unavailable": { "enum": ["unsupported_runtime", "skip_optional"] }
+      }
+    }
+  }
+}
