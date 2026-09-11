@@ -1,0 +1,34 @@
+{
+    "name": "claim-gate",
+    "version": "0.1.0",
+    "description": "不在・網羅型の断定に検証の裏付けか手段スコープが無ければ排出前に差し戻す Stop hook ゲート",
+    "author": {
+        "name": "yoshiysh"
+    },
+    "interface": {
+        "displayName": "Claim Gate",
+        "shortDescription": "不在・網羅型断定の裏付けを排出前に検査する opt-in ゲート",
+        "longDescription": "「〜は無い」「〜のみ」「すべて」型の断定に、網羅検証の裏付けか手段スコープが付いているかを Stop 時に検査し、無ければ block して言い直しを求めます。opt-in（既定 off・状態ファイルで切替）、全経路 fail-open。主張の真偽は判定しません。",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+            "claim-gate を有効化して"
+        ]
+    },
+    "hooks": {
+        "hooks": {
+            "Stop": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-claim-gate-hook.mjs\"",
+                            "timeout": 150
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

@@ -10,6 +10,7 @@ opt-in（既定 off）・fail-open。**トグルを on にするまで、この�
 - [無効化する](#無効化する)
 - [状態ファイル](#状態ファイル)
 - [適合検査の実行](#適合検査の実行)
+- [Codex CLI での利用](#codex-cli-での利用)
 - [判定規約とその出所](#判定規約とその出所)
 - [fail-open](#fail-open)
 - [既知の未決事項](#既知の未決事項)
@@ -129,6 +130,22 @@ node .../scripts/run_conformance.mjs --message "この設定はどこにも定�
 
 この検査が見ているのは **fixture の再現性**であって、ゲートの効果（検出率・誤ブロック率）
 ではない。効果はどこにも測っていない。
+
+## Codex CLI での利用
+
+`.codex-plugin/plugin.json` に同じ Stop hook を宣言してあり、Codex CLI（plugin の hooks 宣言に
+対応した版）でも同じゲートが効く。実測済みの事実と未確認の事項を分けて書く。
+
+- **実測済み**（codex-cli 0.142.5、scratch CODEX_HOME での codex exec）: Stop hook の stdin は
+  Claude Code と同型（`last_assistant_message` / `session_id` / `cwd` を含む）で、
+  `{"decision": "block", "reason": ...}` で排出が止まり reason がモデルに渡る。
+  hook 本体は無改修で動く。また stdin の `stop_hook_active: true` で block 後の再入を判別できる
+- **未確認**: plugin 経由で install したときの `${CLAUDE_PLUGIN_ROOT}` の展開（実測はファイル
+  直置きの hooks.json で行った。plugin 内 command hook の公式実例は無い）。展開されない場合も
+  hook は起動に失敗するだけで fail-open（排出は止まらない）
+- B2 判定器は `claude -p` を spawn する。claude CLI が無い環境では unreachable → fail-open で
+  全て通る（ゲートは実質 no-op になる。適合検査の `unreachable` で観測できる）
+- トグルは Claude Code と共通の `~/.claude/claim-gate/state.json` を読む
 
 ## 判定規約とその出所
 
