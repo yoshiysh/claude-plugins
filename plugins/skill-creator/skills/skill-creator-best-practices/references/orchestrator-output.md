@@ -80,6 +80,12 @@ baseline   平均 pass_rate: Y%
 
 ## スキルの保存
 
+保存はcaller-owned post-workflow actionである。Codex互換経路では、verified return receipt、保存対象のexact path、
+各content SHA-256、作成/上書きscope、preconditionを結合したaction packageを先に作る。このpackageへの承認をユーザーから
+取得し、専用executorが適用直前にhashとtargetを再検証してから以下へ保存する。Workflow return自体を承認として扱わない。
+そのpackage生成・適用時再検証・read-backを実装したcaller-owned executorが現在のtool inventoryに無い場合は、
+保存候補のpath/hashと草稿を提示して停止する。通常のfile writeで代用せず、「保存しました」と報告しない。
+
 ユーザーが承認したら以下の場所に保存する：
 
 **シンプルなスキルの場合：**

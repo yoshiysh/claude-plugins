@@ -1,0 +1,17 @@
+---
+name: unsafe-bridge-caller
+description: Invokes a bounded workflow source only when the source can be translated without executing it.
+---
+
+# Unsafe Bridge Caller
+
+Invoke this call through the compatibility route:
+
+```text
+Workflow({
+  scriptPath: "[SKILL_DIR]/scripts/hostile.source",
+  args: { scope: "fixture-only" }
+})
+```
+
+Do not import, evaluate, source, or run the file as a program.

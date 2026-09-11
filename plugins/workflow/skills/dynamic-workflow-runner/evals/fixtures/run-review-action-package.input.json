@@ -1,0 +1,60 @@
+{
+  "schema_version": "dynamic-workflow-run-review-input/v1",
+  "workflow_id": "external-action-review",
+  "run_id": "run-review-action-package",
+  "manifest": {
+    "path": "workflow.manifest.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "capabilities": {
+    "path": "capabilities.json",
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "active_capabilities": {
+    "path": "capabilities.json",
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "capability_receipts": [
+    {
+      "path": "capability-receipts/initial.json",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "observed_at": "2026-08-21T00:00:00Z",
+      "recorded_at": "2026-08-21T00:00:01Z"
+    }
+  ],
+  "translation_review": {
+    "path": "translation-review.json",
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "translation_review_receipt": {
+    "path": "translation-review-receipt.json",
+    "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "state_snapshot": {
+    "path": "review-input/state.pre-review.json",
+    "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "results": [],
+  "gates": [
+    {
+      "task_id": "approve-pr",
+      "status": "approved",
+      "decision": "approve",
+      "actor": "operator",
+      "action": "create_pull_request",
+      "targets": ["github:owner/repository"],
+      "scope": ["pull_request:create"],
+      "action_package": {
+        "task_id": "prepare-pr",
+        "path": "artifacts/action-package.json",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "action_ids": ["create-pr"],
+        "executor_capabilities": ["github.pull_request.create"],
+        "targets": ["github:owner/repository"],
+        "scopes": ["pull_request:create"]
+      },
+      "external_authorization": false,
+      "requires_reapproval": true
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 {
     "name": "workflow",
-    "version": "0.2.4",
-    "description": "生成・改善ループを回す業務フロー系スキル（PDCA ループ実行、要求文書・仕様書の生成と監査、文書の言語化レビューと改稿）",
+    "version": "0.2.6",
+    "description": "生成・改善ループを回す業務フロー系スキル（PDCA ループ実行、要求文書・仕様書の生成と監査、文書の言語化レビューと改稿、Codex 向け Workflow 内部互換層）",
     "author": {
         "name": "yoshiysh"
     }

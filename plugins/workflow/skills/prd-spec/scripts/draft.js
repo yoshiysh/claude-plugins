@@ -102,6 +102,10 @@ const REQ_DOC_SCHEMA = {
     // 複数文書化で他文書 ID への言及は日常的に起きる。これが無いと正当な言及が「申告漏れ」と
     // され、writer は直しようのない指摘で改稿枠を空回りさせたうえ項目を捏造して埋める圧力を受ける。
     referenced_ids: { type: 'array', items: { type: 'string' } },
+    // vacant_ids: この文書の欠番 ID（採番済みだが項目が存在しない ID）。表記規約が欠番の列挙を
+    // 要求するため、本文に現れるが items にも referenced_ids にも属さない。申告が無いと
+    // 構造検査が申告漏れとして毎 run 再検出する（#53）。
+    vacant_ids: { type: 'array', items: { type: 'string' } },
   },
   required: ['markdown', 'summary', 'requirement_items', 'trace', 'tbd_items'],
 }
@@ -129,6 +133,10 @@ const SPEC_DOC_SCHEMA = {
     tbd_items: { type: 'array', items: TBD_ITEM },
     categories_deferred: { type: 'array', items: { type: 'string' } },
     referenced_ids: { type: 'array', items: { type: 'string' } },
+    // vacant_ids: この文書の欠番 ID（採番済みだが項目が存在しない ID）。表記規約が欠番の列挙を
+    // 要求するため、本文に現れるが items にも referenced_ids にも属さない。申告が無いと
+    // 構造検査が申告漏れとして毎 run 再検出する（#53）。
+    vacant_ids: { type: 'array', items: { type: 'string' } },
   },
   required: ['markdown', 'summary', 'spec_items', 'trace', 'traceability', 'tbd_items'],
 }
@@ -368,7 +376,8 @@ function buildReqPrompt(doc) {
     '統合時に片方が消える。消えた側が着手を止める項目でも、人間に提示されないまま完了する。',
     'この関心事の外側は書かない。他文書の担当範囲に踏み込むと同じ要求が複数文書に並び、',
     'consistency 監査で重複として毎回指摘される。他文書の ID に言及する必要があるときは',
-    'referenced_ids に入れること（入れないと申告漏れとして検出される）。',
+    'referenced_ids に入れること（入れないと申告漏れとして検出される）。欠番（採番済みだが項目が',
+    '存在しない ID）は本文に「欠番」の語と同じ行で列挙し、vacant_ids にも申告すること。',
     '',
     previous
       ? ['# [PREVIOUS] 既存の同名文書（これを下敷きに改稿する。指摘の無い箇所は維持すること）', previous].join('\n')
@@ -584,8 +593,34 @@ function structuralFindings(docs) {
     const inText = new Set(d.markdown.match(re) || [])
     const inList = new Set(d.ids)
     const referenced = new Set(d.referenced || [])
+    // 欠番（vacant）は items（実在の項目）にも referenced_ids（他文書参照・体系の例示）にも
+    // 属さない第三の類型であり、欠番の列挙は表記規約が要求する記載である。申告（vacant_ids）と
+    // 本文の行併記（「欠番」の語と同じ行にある ID）の和で認識する。行単位に絞るのは、文書全体の
+    // includes で判定すると「欠番」の語が一度でもあれば全 ID が免除され、本物の申告漏れを
+    // 隠すため。この認識が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する
+    // （実測: 同一文書の review 3 run で同じ 6 件が再起票され、終端裁定が毎回同じ棄却を
+    // 繰り返した。棄却は run を跨いで持ち越されないため、検査側で認識しない限り止まらない）。
+    const vacantDeclared = new Set(d.vacant || [])
+    for (const line of d.markdown.split('\n')) {
+      if (!line.includes('欠番')) continue
+      for (const id of line.match(re) || []) vacantDeclared.add(id)
+    }
+    // 欠番と実在の両方に載る ID は矛盾（欠番は「割り当てられていない」の宣言であり、
+    // 実在する項目と両立しない）。どちらの申告が正しいか読み手に判断させない。
+    for (const id of d.fixed ? [] : new Set(d.vacant || [])) {
+      if (!inList.has(id)) continue
+      out.push({
+        auditor: 'structural',
+        id: `ST-VACANT-CONFLICT-${id}`,
+        document: d.key,
+        location: 'ID 一覧',
+        quote: id,
+        issue: `${label} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
+        fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
+      })
+    }
     for (const id of d.fixed ? [] : inText) {
-      if (inList.has(id) || referenced.has(id)) continue
+      if (inList.has(id) || referenced.has(id) || vacantDeclared.has(id)) continue
       out.push({
         auditor: 'structural',
         id: `ST-UNDECLARED-${id}`,
@@ -593,7 +628,7 @@ function structuralFindings(docs) {
         location: '本文',
         quote: id,
         issue: `${label} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
-        fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に入れる。`,
+        fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
       })
     }
     // (3b) 本文が引く TBD ID と、申告された tbd_items の突き合わせ。(3) と同じ理屈だが、
@@ -635,8 +670,10 @@ function structuralFindings(docs) {
 
     // (3c) ID 連番の欠番の無申告。欠番そのものは許す（採番を詰める改稿を強制しない）が、
     //      無申告の欠番は「項目が削除された」のか「最初から無い」のか読み手が区別できず、
-    //      統合時の取りこぼしと見分けが付かない。本文に「欠番」の語と当該 ID が併記されて
-    //      いれば申告済みとして起票しない。固定文書は自己申告（ids）を持たないので対象外。
+    //      統合時の取りこぼしと見分けが付かない。本文に「欠番」の語と当該 ID が同じ行に
+    //      併記されていれば申告済みとして起票しない（(3) の除外と同じ vacantDeclared 基準。
+    //      基準を分けると「(3c) は通るのに (3) が落ちる」行またぎの取りこぼしが生じる）。
+    //      固定文書は自己申告（ids）を持たないので対象外。
     const gapPrefixes = new Map()
     for (const id of d.fixed ? [] : d.ids) {
       const m = /^(.*-)(\d+)$/.exec(id)
@@ -652,7 +689,7 @@ function structuralFindings(docs) {
       for (let n = sorted[0].n + 1; n < sorted[sorted.length - 1].n; n++) {
         if (present.has(n)) continue
         const missingId = `${gapPrefix}${String(n).padStart(width, '0')}`
-        if (d.markdown.includes('欠番') && d.markdown.includes(missingId)) continue
+        if (vacantDeclared.has(missingId)) continue
         out.push({
           auditor: 'structural',
           id: `ST-GAP-UNDECLARED-${missingId}`,
@@ -660,7 +697,7 @@ function structuralFindings(docs) {
           location: 'ID 一覧',
           quote: missingId,
           issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
-          fix: `${missingId} が欠番であることを本文に申告する（「欠番」の語と ID を併記し、その ID は referenced_ids に入れる）か、採番を詰めて欠番を無くす。`,
+          fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
         })
       }
     }
@@ -1215,6 +1252,7 @@ const documents = [
         : ids.map((id) => ({ id, heading: '' })),
       ids,
       referenced: r.result.referenced_ids || [],
+      vacant: r.result.vacant_ids || [],
       trace: r.result.trace,
       traceability: [],
       tbd_items: r.result.tbd_items || [],
@@ -1235,6 +1273,7 @@ const documents = [
       items: (r.result.spec_items || []).length ? r.result.spec_items : ids.map((id) => ({ id, heading: '' })),
       ids,
       referenced: r.result.referenced_ids || [],
+      vacant: r.result.vacant_ids || [],
       trace: r.result.trace,
       traceability: r.result.traceability || [],
       tbd_items: r.result.tbd_items || [],
@@ -1331,6 +1370,7 @@ return {
     summary: d.summary,
     items: d.items,
     referenced_ids: d.referenced,
+    vacant_ids: d.vacant,
     // trace: 項目 ID → 根拠。Workflow B へそのまま渡す（本文には根拠句を書かないので、
     // ここが欠けると根拠がどこにも残らない）。
     trace: d.trace,

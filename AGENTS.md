@@ -6,7 +6,7 @@ This file provides guidance to Codex when working in this repository.
 
 ## リポジトリ概要
 
-個人用の Claude/Codex skill と marketplace plugin を管理するリポジトリ。スキルは `.agents/skills/<name>` から参照する。Claude 用には `.claude/skills -> ../.agents/skills` の symlink が同じものを指している。
+Claude/Codex 向けの汎用スキルを marketplace plugin として管理・配布するリポジトリ。スキルは `.agents/skills/<name>` から参照する。Claude 用には `.claude/skills -> ../.agents/skills` の symlink が同じものを指している。
 
 ## 現在の実体
 
@@ -43,7 +43,10 @@ Codex は plugin サブツリーだけを取得し、symlink を落とす。実�
 | `plugins/<p>/.claude-plugin/plugin.json` | Claude Code 用。`dependencies` はこちらだけに書く |
 | `plugins/<p>/.codex-plugin/plugin.json` | Codex 用（[公式仕様](https://developers.openai.com/codex/plugins/build)で required）。Codex 仕様に無いフィールドは書かない |
 
-`dependencies` を除く共通フィールドは一致していなければならず、`verify_install.py` の L2 がそれを検査する。
+共通フィールドは一致していなければならず、`verify_install.py` の L2 がそれを検査する。
+専用フィールドは Claude の `dependencies`、Codex の `interface`。逆側への混入は拒否する。
+登録処理は Codex の表示情報を生成し、既存の `interface` は再登録でも保持する。
+L2 は既存の interface 未設定プラグインを許容するため、Codex の詳細な表示スキーマ検証とは別である。
 
 ## ディレクトリ構成
 
@@ -61,7 +64,7 @@ Codex は plugin サブツリーだけを取得し、symlink を落とす。実�
   config.toml
   hooks.json
 plugins/
-  git/                     # 例。chat / research / notion / skill-creator も同構成
+  git/                     # 例。chat / research / notion / skill-creator / workflow / performance も同構成
     .claude-plugin/plugin.json
     .codex-plugin/plugin.json
     README.md
@@ -85,7 +88,7 @@ plugins/
 `Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出する。
 
 ```bash
-make test         # 合否ゲート: 参照先の実在チェック + 全スキルの quick_validate + 各スキルの tests/ の unittest
+make test         # 合否ゲート: 参照・quick_validate・unittest・汎用 Node test・各 eval preflight
 make portability  # 配布 portability の一覧（合否ゲートではない）
 make check        # 上記 2 つをまとめて
 ```
@@ -108,6 +111,16 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 ```
 
 `notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
+
+`research` の search/dispatch、`skill-creator`、`workflow` の pdca / prd-spec / review-document の
+Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
+（runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
+caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
+runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
+dispatch、pdca、prd-spec、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
+
+`performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
+`plugins/performance/skills/performance-agent/references/native-hooks.md` を正とする。
 
 ## 注意点
 

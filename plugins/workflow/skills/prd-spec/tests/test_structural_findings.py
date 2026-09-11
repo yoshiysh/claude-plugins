@@ -86,6 +86,7 @@ def doc(
     markdown,
     ids=None,
     referenced=None,
+    vacant=None,
     traceability=None,
     tbd=None,
     fixed=False,
@@ -104,6 +105,7 @@ def doc(
         "markdown": markdown,
         "ids": ids or [],
         "referenced": referenced or [],
+        "vacant": vacant or [],
         "traceability": traceability or [],
         "tbd_items": tbd or [],
         "fixed": fixed,
@@ -261,6 +263,50 @@ class StructuralFindingsTests(unittest.TestCase):
     def test_id_template_placeholder_is_not_matched(self):
         r = run_structural([doc("requirements", "auth", "ID は `PR-<領域>-<連番>` の形式とする。", ids=[])])
         self.assertEqual([], r["findings"])
+
+    # -------------------------------------------------- 欠番宣言と申告漏れ
+
+    def test_vacant_id_declared_on_same_line_is_not_reported_as_undeclared(self):
+        # 欠番の列挙は表記規約が要求する記載であり、items にも referenced_ids にも属さない。
+        # 除外しないと欠番宣言を持つ文書で ST-UNDECLARED が run のたびに再発し、
+        # 終端裁定が同じ棄却を繰り返す（棄却は run を跨いで持ち越されない）。#53
+        body = "### PR-A-001 x\n### PR-A-003 y\nPR-A-002 は欠番である。再利用してはならない。\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"])])
+        self.assertEqual([], [i for i in ids_of(r) if "UNDECLARED" in i])
+
+    def test_vacancy_word_elsewhere_does_not_mask_real_undeclared_id(self):
+        # 「欠番」の語が文書のどこかにあるだけで全 ID が免除されると、本物の申告漏れが隠れる。
+        # 除外は ID と「欠番」が同じ行に併記されている場合に限る。
+        body = "採番には欠番がありうる。\n### PR-A-001 x\n### PR-A-002 y\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001"])])
+        self.assertIn("ST-UNDECLARED-PR-A-002", ids_of(r))
+
+    def test_gap_declared_on_vacancy_line_is_not_reported(self):
+        # (3c) も (3) と同じ行併記基準（vacantDeclared）で判定する。
+        body = "### PR-A-001 x\n### PR-A-003 y\nPR-A-002 は欠番である。\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"])])
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-GAP-UNDECLARED")])
+
+    def test_undeclared_gap_in_numbering_is_reported(self):
+        body = "### PR-A-001 x\n### PR-A-003 y\n"
+        r = run_structural([doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"])])
+        self.assertIn("ST-GAP-UNDECLARED-PR-A-002", ids_of(r))
+
+    def test_vacant_ids_declaration_silences_undeclared_and_gap(self):
+        # 一級の申告（vacant_ids）。行併記が無くても申告があれば欠番として扱う。
+        body = "### PR-A-001 x\n### PR-A-003 y\n以下の ID は割り当てない。\nPR-A-002\n"
+        r = run_structural(
+            [doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-003"], vacant=["PR-A-002"])]
+        )
+        self.assertEqual([], [i for i in ids_of(r) if "UNDECLARED" in i])
+
+    def test_vacant_id_also_declared_as_item_is_conflict(self):
+        # 欠番は「割り当てられていない」の宣言であり、実在の項目と両立しない。
+        body = "### PR-A-001 x\n### PR-A-002 y\n"
+        r = run_structural(
+            [doc("requirements", "auth", body, ids=["PR-A-001", "PR-A-002"], vacant=["PR-A-002"])]
+        )
+        self.assertIn("ST-VACANT-CONFLICT-PR-A-002", ids_of(r))
 
     # ------------------------------------------------------ not_checked
 

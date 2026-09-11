@@ -56,6 +56,15 @@ script を呼ぶ前に、司令塔（このスキルを読んでいる Claude）
 
 ## S3. Workflow の呼び出しと args の意味
 
+> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
+> native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
+> 内部互換層として自動利用するが、現行 `review-document.js` は runtime-generated な draft / workspace への
+> 書き込みを必須にするため runner v1 では agent 起動前に `rejected_source` となる（弱めて実行した
+> ことにしない）。native を試行後に error / timeout / invalid result となった場合も runner へ
+> fallback しない。caller の human gate は runner内gateに移さない。
+>
+> **Codex v1 classification: `rejected_source_v1`**（runtime-generated artifacts / FS 書き込み）。
+
 ```
 Workflow({
   scriptPath: "<このスキルの実ディレクトリ絶対パス>/scripts/review-document.js",
@@ -90,9 +99,9 @@ Workflow({
 
 ```
 Workflow({
-  scriptPath: "/Users/me/.claude/skills/review-document/scripts/review-document.js",
+  scriptPath: "<このスキルの実ディレクトリ絶対パス>/scripts/review-document.js",
   args: {
-    rubricPath: "/Users/me/.claude/skills/review-document/references/rubric.md",
+    rubricPath: "<このスキルの実ディレクトリ絶対パス>/references/rubric.md",
     mode: "review",
     targets: ["/Users/me/proj/docs/requirements/retrieval.md"],
     focus: null, constraints: null, stagingDir: null

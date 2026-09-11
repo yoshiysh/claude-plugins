@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-call/v1",
+  "title": "Claude Dynamic Workflow Compatibility Call",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "call_id",
+    "invoking_skill",
+    "native_workflow_observation",
+    "workflow",
+    "arguments",
+    "caller_phase_ownership"
+  ],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-call/v1" },
+    "call_id": { "$ref": "#/$defs/id" },
+    "invoking_skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "skill_md"],
+      "properties": {
+        "root": { "$ref": "#/$defs/absolute_path" },
+        "skill_md": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": { "$ref": "#/$defs/absolute_path" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "native_workflow_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempted", "available", "observed_at", "evidence"],
+      "properties": {
+        "attempted": { "const": false },
+        "available": { "const": false },
+        "observed_at": { "$ref": "#/$defs/canonical_date_time" },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared_script_path", "resolved_source"],
+      "properties": {
+        "declared_script_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "resolved_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": { "$ref": "#/$defs/absolute_path" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "canonical_sha256"],
+      "properties": {
+        "value": { "type": "object" },
+        "canonical_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "caller_phase_ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "pre_workflow", "post_workflow", "human_gates"],
+      "properties": {
+        "owner": { "const": "caller_skill" },
+        "pre_workflow": { "$ref": "#/$defs/phase_list" },
+        "post_workflow": { "$ref": "#/$defs/phase_list" },
+        "human_gates": { "$ref": "#/$defs/phase_list" }
+      }
+    }
+  },
+  "$defs": {
+    "canonical_date_time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d{1,9})?(?:Z|[+-](?:[01]\\d|2[0-3]):[0-5]\\d)$"
+    },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "absolute_path": { "type": "string", "minLength": 1, "pattern": "^(?:/|[A-Za-z]:[\\\\/])" },
+    "phase_list": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+    }
+  }
+}

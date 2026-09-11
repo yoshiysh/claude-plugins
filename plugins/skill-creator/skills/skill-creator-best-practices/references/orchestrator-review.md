@@ -103,6 +103,9 @@ staging に改稿を書きました（本体はまだ変えていません）。
 
 ## 承認後の適用手順
 
+この節はnative Workflowで完了したupdateだけに適用する。Codex runner v1のreview/updateはexecution前に
+`rejected_source`となるため、stagingや承認済み結果があると推定してこの手順へ進まない。
+
 承認を得てから、司令塔が次を行う。Workflow は実行中にユーザー入力を受け取れないため、
 この工程だけは script の外にある。
 

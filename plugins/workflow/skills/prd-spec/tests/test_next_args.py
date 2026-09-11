@@ -132,6 +132,22 @@ process.stdout.write(JSON.stringify(buildNextArgs(ctx)))
         na = self._run(_ctx(has_needs_input=False, has_unpresented_blocking=True))
         self.assertIsNotNone(na)
 
+    def test_suppressed_finding_ids_が持ち越される(self):
+        # 終端裁定で rejected と分類された構造検査指摘の ID 累積。持ち越さないと
+        # 無状態の構造検査が次周回で同じ偽指摘を再起票し、裁定が同じ棄却を繰り返す（#53）。
+        na = self._run(_ctx(suppressed_finding_ids=["ST-UNDECLARED-PR-A-002"]))
+        self.assertEqual(na["suppressed_finding_ids"], ["ST-UNDECLARED-PR-A-002"])
+
+    def test_suppressed_finding_ids_が空ならキー自体を出さない(self):
+        na = self._run(_ctx(suppressed_finding_ids=[]))
+        self.assertNotIn("suppressed_finding_ids", na)
+
+    def test_vacant_ids_が文書に載って持ち越される(self):
+        ctx = _ctx()
+        ctx["documents"][0]["vacant"] = ["PR-AUTH-002"]
+        na = self._run(ctx)
+        self.assertEqual(na["documents"][0]["vacant_ids"], ["PR-AUTH-002"])
+
     def test_周回上限と継続不要では_null(self):
         self.assertIsNone(self._run(_ctx(outer_round=2)))
         self.assertIsNone(self._run(_ctx(has_needs_input=False, has_unpresented_blocking=False)))

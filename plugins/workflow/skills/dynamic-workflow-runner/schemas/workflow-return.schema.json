@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/dynamic-workflow-return/v1",
+  "title": "Claude Dynamic Workflow Compatibility Return",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "call_id",
+    "workflow_id",
+    "run_id",
+    "status",
+    "value",
+    "receipt",
+    "caller_continuation"
+  ],
+  "properties": {
+    "schema_version": { "const": "dynamic-workflow-return/v1" },
+    "call_id": { "type": "string", "minLength": 1 },
+    "workflow_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "status": { "const": "workflow_complete" },
+    "value": true,
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_call_sha256",
+        "manifest_sha256",
+        "final_review_sha256",
+        "value_canonical_sha256",
+        "schema_sha256",
+        "materialized_at"
+      ],
+      "properties": {
+        "workflow_call_sha256": { "$ref": "#/$defs/sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "final_review_sha256": { "$ref": "#/$defs/sha256" },
+        "value_canonical_sha256": { "$ref": "#/$defs/sha256" },
+        "schema_sha256": { "$ref": "#/$defs/sha256" },
+        "materialized_at": { "$ref": "#/$defs/canonical_date_time" }
+      }
+    },
+    "caller_continuation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "owner", "invoking_skill_root", "post_workflow", "human_gates"],
+      "properties": {
+        "allowed": { "const": true },
+        "owner": { "const": "caller_skill" },
+        "invoking_skill_root": { "type": "string", "minLength": 1 },
+        "post_workflow": { "$ref": "#/$defs/phase_list" },
+        "human_gates": { "$ref": "#/$defs/phase_list" }
+      }
+    }
+  },
+  "$defs": {
+    "canonical_date_time": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 35
+    },
+    "sha256": { "type": "string", "minLength": 64, "maxLength": 64 },
+    "phase_list": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }
+  }
+}
