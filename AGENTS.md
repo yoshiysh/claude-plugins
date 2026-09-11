@@ -64,7 +64,7 @@ L2 は既存の interface 未設定プラグインを許容するため、Codex 
   config.toml
   hooks.json
 plugins/
-  git/                     # 例。chat / research / notion / skill-creator / pdca / workflow も同構成
+  git/                     # 例。chat / research / notion / skill-creator / workflow / performance も同構成
     .claude-plugin/plugin.json
     .codex-plugin/plugin.json
     README.md
@@ -112,11 +112,15 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
 
-`research` の search/dispatch、`skill-creator`、`pdca` の Workflow callsite は、native Workflow が無い
-Codex で `workflow:dynamic-workflow-runner` を内部利用する。Codex は plugin dependency を自動導入しないため、
-これらの caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
+`research` の search/dispatch、`skill-creator`、`workflow` の pdca / prd-spec / review-document の
+Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
+（runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
+caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
 runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
-dispatch、pdca、skill-creatorのreview/updateはexecution前にfail-closedする。
+dispatch、pdca、prd-spec、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
+
+`performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
+`plugins/performance/skills/performance-agent/references/native-hooks.md` を正とする。
 
 ## 注意点
 

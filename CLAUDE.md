@@ -11,7 +11,7 @@ This file provides guidance to Claude Code when working in this repository.
 スキル実体の置き場は「公開済みかどうか」で決まる。
 
 - **公開済み（plugin に属する）**: 実体は `plugins/<plugin>/skills/<name>/`。`.agents/skills/<name>` はそこへの相対 symlink（`../../plugins/<plugin>/skills/<name>`）。
-- **未公開・未登録**: 実体は `.agents/skills/<name>/`（現状は `manage-marketplace-plugin` と `prd-spec`）。
+- **未公開・未登録**: 実体は `.agents/skills/<name>/`（現状は `manage-marketplace-plugin` のみ）。
 - Claude からの参照: `.claude/skills -> ../.agents/skills`
 - Marketplace 定義: `.claude-plugin/marketplace.json`
 - Marketplace 名: `yoshiysh-claude-plugins`
@@ -88,7 +88,7 @@ plugin の改名・削除で残骸になった旧 plugin は `tools/update-plugi
 .claude-plugin/
   marketplace.json
 plugins/
-  git/                     # 例。chat / research / notion / skill-creator / pdca / workflow も同構成
+  git/                     # 例。chat / research / notion / skill-creator / workflow / performance も同構成
     .claude-plugin/plugin.json         # Claude 用（dependencies はこちらだけ）
     .codex-plugin/plugin.json          # Codex 用（共通フィールドと interface）
     README.md
