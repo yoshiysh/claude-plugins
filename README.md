@@ -1,6 +1,6 @@
 # claude-plugins
 
-個人用の Claude Code / Codex スキルを marketplace plugin として管理・配布するリポジトリ。
+Claude Code / Codex 向けの汎用スキル集。marketplace plugin として配布する。
 
 ## Plugins
 
@@ -22,6 +22,10 @@ claude plugin install <plugin>@yoshiysh-claude-plugins
 ```
 
 Claude Code のセッション内なら `/plugin install <plugin>@yoshiysh-claude-plugins`。
+
+## License
+
+[MIT](LICENSE)
 
 ## 開発
 
