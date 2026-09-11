@@ -16,13 +16,24 @@ skill-kaizen 型の改善運転（対象スキルの実行記録を telemetry �
 | project | リポジトリと対象範囲を固定する記述（remote URL + サブツリー） | `plugins/<plugin>/skills/<skill>` を含む 1 行テキスト |
 | task_class | **再現入力そのもの**。同一入力で再実行できる wrapper / 固定 args ファイル | kaizen 運転で保存している run wrapper script |
 | model | 実行に使ったモデル・推論設定の列挙 | workflow が起動する agent の model 指定を列挙した資料 |
-| settings | 対象スキル実装の版（commit SHA を含む条件資料） | `git rev-parse HEAD` を含む 1 行テキスト |
+| settings | 実装以外の実行条件（権限・runtime・cache 条件・背景コンテキスト） | 実行環境の条件を列挙した 1 行テキスト |
 | quality_contract | 品質判定の成文基準ファイル | 対象スキルの監査チェックリスト・成功基準文書 |
 
 task_class に「スキル名」のような緩い資料を使わない — 入力が違えば比較にならないことは
 kaizen 運転の対照測定（同一入力・独立ドラフト・対発行）と同じ理屈で、ここでも入力の同一性が
-比較可能性の土台になる。settings に commit SHA を入れるのは、チューニング差分の前後を
-別 cohort に分けるため（同 SHA 同士を比べても差は定義上出ない）。
+比較可能性の土台になる。
+
+**settings に実装の版（commit SHA）を入れない。** 比較器は group の完全一致を要求するので、
+実装版を group に混ぜると「改修前後の比較」が定義上 not_comparable になる（v1 時代の矛盾）。
+変更する実装版は comparison v2 の cohort ごとの `variant`（実装 fingerprint:
+`{digest, computed_at, drift}`、`schema_v2.validate_fingerprint` が形の正本）として渡す。
+group = 固定するもの、variant = 変えるもの、の分離が比較の前提になる（#60 §4）。
+model の資料には alias ではなく**実際に解決されたモデル**を記録する — alias の解決先が
+変わると、同じ資料のまま別条件を比べてしまう。
+
+v1（settings に commit SHA を含む既存 cohort）は観測 source として読める形を維持するが、
+改修前後の比較には使えない。session を推測で skill run に変換して v2 に持ち込むことも
+しない（帰属証拠が無い観測は unknown のまま）。
 
 ## sample の作り方
 

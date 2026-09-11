@@ -7,6 +7,7 @@ import sys
 import time
 
 import measure
+import schema_v2
 from private_state import digest, natural, transaction
 
 GROUP = {"project", "task_class", "model", "settings", "quality_contract"}
@@ -21,15 +22,23 @@ def compare(data, minimum=3, threshold_percent=25):
     measure.require(type(minimum) is int and 3 <= minimum <= 100
                     and type(threshold_percent) is int and 1 <= threshold_percent <= 1000, "invalid_policy")
     measure.require(type(data) is dict and set(data) == {"version", "baseline", "candidate"}
-                    and type(data["version"]) is int and data["version"] == 1, "comparison_schema")
-    groups, totals, seen, evidence_seen = [], [], set(), set()
+                    and type(data["version"]) is int and data["version"] in (1, 2), "comparison_schema")
+    # v1: group（settings に実装版を含む固定条件）の完全一致を要求する遺産形式。
+    #     実装を変えた前後は定義上比較できないため、観測 source としてのみ維持する。
+    # v2: group は固定条件だけを持ち、変更する実装版は cohort ごとの variant
+    #     （実装 fingerprint）に分離する。改修前後の比較はこちらで行う（#60 §4）。
+    version = data["version"]
+    cohort_keys = {"group", "samples"} if version == 1 else {"group", "variant", "samples"}
+    groups, variants, totals, seen, evidence_seen = [], [], [], set(), set()
     comparable = True
     for name in ("baseline", "candidate"):
         cohort = data[name]
-        measure.require(type(cohort) is dict and set(cohort) == {"group", "samples"}
+        measure.require(type(cohort) is dict and set(cohort) == cohort_keys
                         and type(cohort["group"]) is dict and set(cohort["group"]) == GROUP
                         and all(digest(v) for v in cohort["group"].values())
                         and type(cohort["samples"]) is list and len(cohort["samples"]) <= 100, "cohort_schema")
+        if version == 2:
+            variants.append(schema_v2.validate_fingerprint(cohort["variant"]))
         groups.append(cohort["group"])
         comparable &= len(cohort["samples"]) >= minimum
         token_values, durations = [], []
@@ -69,6 +78,9 @@ def compare(data, minimum=3, threshold_percent=25):
                        "duration_ms": statistics.median_low(durations) if durations else None})
     if not comparable or groups[0] != groups[1]:
         return {"status": "not_comparable"}
+    # v2 で variant が同一なら、それは実装差を測っていない（差が出ても条件の揺らぎ）。
+    if version == 2 and variants[0]["digest"] == variants[1]["digest"]:
+        return {"status": "not_comparable"}
     before, after = totals
     # Zero baseline has no percentage interpretation; do not fabricate one.
     if any(before[k] == 0 for k in before):
@@ -78,11 +90,13 @@ def compare(data, minimum=3, threshold_percent=25):
     if not increased and not decreased:
         return {"status": "no_material_change"}
     reason = "investigate_regression" if increased else "verify_reduction"
-    canonical = {"version": 1, **{name: data[name] | {
+    canonical = {"version": version, **{name: data[name] | {
         "samples": sorted(data[name]["samples"], key=lambda row: row["id"])}
         for name in ("baseline", "candidate")}}
     evidence = fingerprint(canonical)
-    return {"status": "candidate", "fingerprint": fingerprint([groups[0], reason]),
+    identity = [groups[0], reason] if version == 1 else [
+        groups[0], reason, variants[0]["digest"], variants[1]["digest"]]
+    return {"status": "candidate", "fingerprint": fingerprint(identity),
             "evidence": evidence, "reason": reason, "before": before, "after": after}
 
 
