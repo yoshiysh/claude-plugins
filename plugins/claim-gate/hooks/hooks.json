@@ -1,0 +1,16 @@
+{
+  "description": "claim-gate: Stop hook の主張ゲート。opt-in・既定 off・fail-open。この timeout は script 側の判定器上限 JUDGE_TIMEOUT_MS（scripts/stop-claim-gate-hook.mjs）より厳密に大きく取ってある（node 起動と state 読みの余裕込み）。逆にすると harness 側の kill が常態化し、kill 時の挙動は未観測なので『全経路 fail-open』が script 側だけでは成り立たなくなる。秒数そのものではなくこの順序が根拠。数値を変えるときは 3 者の順序（JUDGE_TIMEOUT_MS < この timeout < run_conformance の CASE_TIMEOUT_MS）を保つ。",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-claim-gate-hook.mjs\"",
+            "timeout": 150
+          }
+        ]
+      }
+    ]
+  }
+}

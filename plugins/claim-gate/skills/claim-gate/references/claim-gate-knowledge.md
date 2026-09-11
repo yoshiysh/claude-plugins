@@ -27,7 +27,8 @@ Claude Code の司令塔（main loop）が「〜が無い」「〜のみ」「�
 
 ## 確認された主張
 
-`[]` 内は確からしさ。
+`[]` 内は確からしさ。**台帳の件数（偽・真それぞれの内訳）の正本はこの節**で、
+`schemas.md` はここを参照する。数字を直すときはここだけを直す。
 
 - **[一次情報確認済み]** Stop hook は stdin の JSON で `session_id` / `last_assistant_message` /
   `cwd` を受け取る

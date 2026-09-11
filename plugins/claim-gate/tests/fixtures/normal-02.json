@@ -1,0 +1,7 @@
+{
+  "id": "normal-02",
+  "expect": "pass_without_llm",
+  "source": "normal",
+  "origin": "B1 非ヒットの通常応答（英語）",
+  "message": "The report generator reads its configuration from settings.json and writes a markdown summary next to it. I updated the template so the revision date appears in the header."
+}

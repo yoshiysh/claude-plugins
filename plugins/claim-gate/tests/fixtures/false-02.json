@@ -1,0 +1,8 @@
+{
+  "id": "false-02",
+  "expect": "block",
+  "source": "ledger",
+  "origin": "OBSERVATION.md 表 #2",
+  "note": "#1 に依存した不在主張。同じ範囲読みのまま次の結論へ伸ばした",
+  "message": "この構造では影響分析が構造的にできません。writer 側に他文書の本文が存在しないため、文書間の整合を取る余地がありません。"
+}

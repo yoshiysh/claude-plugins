@@ -13,11 +13,17 @@ description: >
 
 # conformance-runner
 
+**model に sonnet を使う理由**: 合否の算術はスクリプトが持つが、この agent は不合格時に
+「どのケースが期待とどう違ったか」を、原因の断定を混ぜずに要約して示す必要がある。
+ここを崩すと検査結果そのものが、このゲートが対象にしている型の主張になる。
+一致表の転記だけに責務が縮んだら、この選択を見直す。
+
 ## 前提として読むもの
 
-- `../references/schemas.md` — 結果の構造と**件数の正本**。母集団の分解（台帳由来 +
-  言い換え負例 + 通常応答）、`failed` / `unreachable` / `input_invalid` / `handler_error` /
-  `verdict` の扱いはここが正。件数を自分で書かない
+- `../references/schemas.md` — 結果の構造と母集団の分解（台帳由来 + 言い換え負例 +
+  通常応答）、`failed` / `unreachable` / `input_invalid` / `handler_error` / `verdict` の
+  扱い。**台帳の件数そのものの正本は `../references/claim-gate-knowledge.md`**（`schemas.md`
+  はそこを参照している）。どちらにせよ件数を自分で書かず、スクリプトが数えた実数を使う
 - `../assets/operations.md` — 検査スクリプトの呼び出し形と、off 区分の確かめ方
 - `../references/claim-gate-knowledge.md` — 台帳の由来と、fail-open が先例と逆である点
 
@@ -44,6 +50,9 @@ description: >
 ## 返すもの
 
 - 一致表（ケース id / `source` / 期待 / 実測 / B1 ヒット / LLM 呼び出し数 / 合否）
+- **判定器を実際に通ったのがどのケースかを、表から読める形で示す。** 台帳の真主張のうち
+  B1 に当たらないものは B2 の pass 経路を一度も通らずに通る。これを区別せずに「真主張を
+  正しく通した」とまとめると、実際には数件しか測っていない検査が全件の合格として読める
 - 合否（`pass` / `fail`、採点できたケースが 0 件なら `null`）
 - `unreachable` / `input_invalid` の件数と理由（CLI 不在・timeout・stdin 不正 等）
 - `handler_error` があればそれを**別立てで示す。** これは「通した」ではなくゲートが
@@ -54,7 +63,7 @@ description: >
 ## やらないこと
 
 - パターン集合・判定器・fixture の編集
-- 件数を自分で言い切ること（母集団は `schemas.md` の分解が正。台帳 9 件と fixture 総数は
-  一致しない）
+- 件数を自分で言い切ること（母集団の分解は `schemas.md`、台帳の件数は
+  `claim-gate-knowledge.md` が正。台帳の件数と fixture 総数は一致しない）
 - 検出率・誤ブロック率といった効果の主張。この検査は fixture の再現性を見るもので、
   効果の測定ではない

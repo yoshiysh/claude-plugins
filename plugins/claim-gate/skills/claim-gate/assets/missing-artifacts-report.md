@@ -36,6 +36,8 @@ claim-gate の同梱物が揃っていないため、操作は行わずに止め
 claim-gate の同梱物が揃っていないため、操作は行わずに止めました。
 
 実測（存在確認のみ。中身は見ていません）:
+- <plugin>/hooks/hooks.json : あります（Stop 登録あり。ただし Claude Code 側で
+  enable されているかは測っていません）
 - <plugin>/scripts/run_conformance.mjs : 見つかりません
 - <plugin>/tests/fixtures/ : 見つかりません
 - <plugin>/agents/claim-judge.md : あります

@@ -1,0 +1,7 @@
+{
+  "id": "normal-01",
+  "expect": "pass_without_llm",
+  "source": "normal",
+  "origin": "B1 非ヒットの通常応答（日本語）",
+  "message": "DCF の割引率は WACC を使います。計算式は docs/valuation.md の §3 に記載があります。入力値は data/ 配下の CSV から読み込みます。"
+}
