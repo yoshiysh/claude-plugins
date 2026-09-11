@@ -6,7 +6,7 @@ This file provides guidance to Codex when working in this repository.
 
 ## リポジトリ概要
 
-個人用の Claude/Codex skill と marketplace plugin を管理するリポジトリ。スキルは `.agents/skills/<name>` から参照する。Claude 用には `.claude/skills -> ../.agents/skills` の symlink が同じものを指している。
+Claude/Codex 向けの汎用スキルを marketplace plugin として管理・配布するリポジトリ。スキルは `.agents/skills/<name>` から参照する。Claude 用には `.claude/skills -> ../.agents/skills` の symlink が同じものを指している。
 
 ## 現在の実体
 
