@@ -72,6 +72,22 @@ Codexでは `/hooks` の信頼承認が別途必要です。各projectの設定�
 リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。
 この plugin は skill を持たない（hooks + scripts + README 構成）。操作の正本は本 README。
 
+## skill 実行単位の計測（#60）
+
+セッション単位の使用量収集に加え、**skill 実行単位**の帰属・レポート・比較を提供する。
+
+- データ契約: `scripts/schema_v2.py`（invocation / span / usage atom / coverage /
+  evaluation / experiment。系譜検証・単一所有 atom・宣言境界と実測の区別）
+- 明示入口の投影: `scripts/skill_events.py`（SKILL.md の Read は実行にしない。
+  複数 claim の call は按分せず未帰属で保持する）
+- レポート: `scripts/report_v2.py`（end-to-end・内訳・欠測は観測下限ラベル・
+  失敗費用・overhead 分離）
+- 比較・提案: `scripts/proposals.py` の comparison v2（固定条件 group と実装
+  fingerprint variant の分離、理由コード付き拒否、investigate_only への降格）
+- 対照実験: `scripts/experiment.py`（事前登録・recorded fixture の replay・
+  承認記録なしの実モデル実行は拒否）
+- ホスト能力の対応状況と限界: [host-capabilities.md](references/host-capabilities.md)
+
 ## 計測手順（旧 SKILL.md の正本）
 
 
