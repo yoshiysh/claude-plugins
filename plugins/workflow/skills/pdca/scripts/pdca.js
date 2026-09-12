@@ -35,6 +35,10 @@ const DEFAULT_MAX_CYCLES = 5
 // 2 回直して契約を満たさない harness は、Plan の measurement 自体が作れない要求に
 // なっている可能性が高く、run を発行しても測れない。境界で止めて Plan に戻す。
 const MAX_BUILD_REVISIONS = 2
+// MAX_REVISION_DIFFS: revise 1 周で許す差分の数。機序に対応しない変更が紛れると
+// 何が効いたのか分離できなくなるため、1 周の変更点を追跡可能な数に抑える。
+// SKILL.md・skill-kaizen.md の「3 点以内」はこの定数の言い換えで、正本はここ。
+const MAX_REVISION_DIFFS = 3
 
 // VERIFY_LENSES: 1 run に当てる検証の視点。1 人に全部見せると、その 1 人が持っていない
 // 失敗様式が素通りする。criteria=基準充足、authenticity=run が主張どおり実行されたか、
@@ -279,7 +283,7 @@ if (revisionDiffs.length && (!previous || !Array.isArray(previous.artifacts))) {
     evidence: '前周の artifacts / runs / mechanisms を args.previous に渡してください。無ければ revise ではなく新規の周です。',
   }
 }
-if (revisionDiffs.length > 3) {
+if (revisionDiffs.length > MAX_REVISION_DIFFS) {
   return {
     status: 'BLOCKED',
     reason: `revisionDiffs が ${revisionDiffs.length} 点あります（上限 3）。`,

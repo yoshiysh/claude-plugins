@@ -182,11 +182,12 @@ compaction 後の resume）で同じ裁定をやり直すか、一度棄却し�
 検証を通過した Plan をそのまま args に載せて workflow を起動する。この区間には人間ゲートが無く、
 条件ごとの fan-out・独立検証・集計が連なるので、順序と反復は script が持つ。
 
-> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
-> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用するが、現行`pdca.js`はconditionごとのworktree isolationとruntime-generated artifact pathを
-> 必須にするためrunner v1ではagent起動前に`rejected_source`となる。isolationやartifactを弱めて実行したことにしない。
-> native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
+> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
+> native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
+> 内部互換層として自動利用するが、現行 `pdca.js` は condition ごとの worktree isolation と
+> runtime-generated artifact path を必須にするため、runner v1 では agent 起動前に
+> `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
+> native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
 >
 > **Codex v1 classification: `rejected_source_v1`**（worktree isolation / runtime-generated artifacts）。
 
@@ -210,7 +211,7 @@ Workflow({
     budget: { maxRuns: 12, note: 'トークン・時間の上限は文章で' },  // maxRuns を超える発行は script が止める
     cycle: 1,                // 何周目か。revise のたびに +1。上限は script が持つ（既定 5。Act フェーズの backstop 参照）
     previous: null,          // revise のときだけ前周の返り値（artifacts / runs / check.mechanisms）をそのまま渡す
-    revisionDiffs: [],       // revise の差分（3 点以内。超えると script が止める）
+    revisionDiffs: [],       // revise の差分（上限は script の MAX_REVISION_DIFFS。超えると止まる）
     ledger: [],              // scripts/ledger.py read の出力（Plan フェーズまでの記録）
   },
 })
@@ -314,7 +315,7 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
 | 成功基準を満たし、`confidence` が `mechanism_identified` | **standardize** |
 | `check.mechanisms[]` が Plan の前提（環境・コーパス・タスク構造）の不成立を示す | **revise_plan**（pdca-plan.js へ戻る。findings を materials に渡して再立案） |
 | 問いそのものの価値・入力が崩れた（測っても使い道が無い、環境が用意できない） | **needs_input**（kind: data。問いの継続可否と不足入力をユーザーへ） |
-| 成功基準未達だが新しい `identified: true` の機序があり、予算内 | **revise_criteria**（測定・基準の差分 3 点以内で Do/Check 再実行） |
+| 成功基準未達だが新しい `identified: true` の機序があり、予算内 | **revise_criteria**（測定・基準の差分のみ（上限は script が持つ）で Do/Check 再実行） |
 | **この周で新しい identified 機序が 1 つも出なかった（乾いた）** | **stop**（証拠が乾いた。回数ではなくこれが本来の停止条件） |
 | `confidence` が `inconclusive` かつ測定設計の欠陥も特定できない | **stop**（判定不能。設計に戻る材料も無い） |
 | 予算（budget.maxRuns / トークン / 時間）到達、または script が BLOCKED | **stop**（どの停止条件に当たったか明記） |
@@ -338,7 +339,7 @@ act-judge の decision に従う（auto_executable なら事後報告、そう�
   （**ここだけ人間ゲート**）、その作業/スキル固有なら当該スキルのファイル、session 文脈の想起なら
   `memory/`。置き場所を決めずに残すと腐る
 - **revise_criteria**：`agents/revision-planner.md` に `check.mechanisms[]` と Plan を渡し、
-  **機序に対応する差分だけ**を 3 点以内で作らせる。差分を `revisionDiffs` に、前周の返り値を
+  **機序に対応する差分だけ**を script の上限内で作らせる。差分を `revisionDiffs` に、前周の返り値を
   `previous` に、`cycle` を +1 して Do/Check を再実行する
 - **revise_plan**：pdca-plan.js を再実行する。`materials` に前周の check（機序・criteria_validity・
   unmeasured）を渡し、planner が前提から立て直す。plan-verifier の検証も再度通る
