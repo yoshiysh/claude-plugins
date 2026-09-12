@@ -106,8 +106,12 @@ def compare(data, minimum=3, threshold_percent=25):
     # Zero baseline has no percentage interpretation; do not fabricate one.
     if any(before[k] == 0 for k in before if before[k] is not None):
         return {"status": "not_comparable", "reasons": ["zero_baseline"]}
-    increased = any((after[k] - before[k]) * 100 >= before[k] * threshold_percent for k in before)
-    decreased = any((before[k] - after[k]) * 100 >= before[k] * threshold_percent for k in before)
+    # 片側でも欠測（None）の指標は差の判定に使わない。0 に潰すと欠測が
+    # 「変化なし」や「激減」に化ける。tokens は上の usage_unobserved で保証済みなので、
+    # ここで落ちるのは duration のみ。
+    measurable = [k for k in before if before[k] is not None and after[k] is not None]
+    increased = any((after[k] - before[k]) * 100 >= before[k] * threshold_percent for k in measurable)
+    decreased = any((before[k] - after[k]) * 100 >= before[k] * threshold_percent for k in measurable)
     if not comparable and version == 1:
         # v1 の契約は維持: 前提を欠く比較は常に not_comparable（観測 source としての
         # 後方互換。降格の意味論は v2 だけが持つ）。
@@ -149,8 +153,13 @@ def validate(state):
                         and natural(item["at"]) and item["at"] <= state["updated_at"] and natural(item["until"])
                         and type(item["new_evidence"]) is bool, "invalid_proposal")
         for key in ("before", "after"):
+            # duration_ms は欠測（None）を許す。0 に潰すと「測れていない」が「一瞬で
+            # 終わった」に化けるため、欠測は欠測のまま queue に載せる。tokens は
+            # compare が usage_unobserved で早期拒否するので None はここまで来ない。
             measure.require(type(item[key]) is dict and set(item[key]) == {"tokens", "duration_ms"}
-                            and all(natural(v) for v in item[key].values()), "invalid_observation")
+                            and natural(item[key]["tokens"])
+                            and (item[key]["duration_ms"] is None or natural(item[key]["duration_ms"])),
+                            "invalid_observation")
         seen.add(item["fingerprint"])
 
 

@@ -12,6 +12,10 @@ USAGE_FIELDS = schema_v2.USAGE_FIELDS
 
 # performance 自身の計測費用を見分ける印。skill identity の plugin 名で引くのは、
 # atom の provider や evidence では「誰のための呼び出しか」が判別できないため。
+# 既知の限界: marketplace を跨いだ同名 plugin は overhead に誤分類される（識別に
+# marketplace を使わないのは、レポート側が「自分がどの marketplace から install
+# されたか」を実行時に知る経路を持たないため）。跨ぎ同名が実在する環境では
+# skill.scope / marketplace での追加判別が要る — その場合はこの定数を見直す。
 OVERHEAD_PLUGIN = "performance"
 
 

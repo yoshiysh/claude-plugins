@@ -119,5 +119,24 @@ class ProjectionContracts(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class LateAndReorderedEvents(unittest.TestCase):
+    def test_late_usage_after_end_does_not_change_status(self):
+        events = [start(), span("sp-1", "inv-1"), end(),
+                  usage("late-1", ["inv-1"], "sp-1", 77, at=300)]
+        run = skill_events.project_events(events)["run"]
+        self.assertEqual(run["invocations"][0]["status"], "completed")
+        self.assertEqual(run["invocations"][0]["ended_at"], 200)
+        self.assertEqual(schema_v2.exclusive_usage(run, "inv-1")["input_tokens"], 77)
+
+    def test_end_before_start_rejected(self):
+        with self.assertRaisesRegex(ValueError, "end_without_start"):
+            skill_events.project_events([end(), start()])
+
+    def test_span_end_without_start_rejected(self):
+        events = [start(), {"type": "span_end", "span_id": "ghost", "at": 5}]
+        with self.assertRaisesRegex(ValueError, "span_end_without_start"):
+            skill_events.project_events(events)
+
+
 if __name__ == "__main__":
     unittest.main()

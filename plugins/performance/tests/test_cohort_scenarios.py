@@ -104,5 +104,17 @@ class QueueWiring(unittest.TestCase):
         self.assertEqual(result["status"], "not_comparable")
 
 
+class NoneDurationQueue(unittest.TestCase):
+    def test_investigate_only_with_missing_duration_reaches_queue(self):
+        import tempfile
+        data = payload(n=2, cand_tokens=600, duration_ms=None)
+        result = proposals.compare(data)
+        self.assertEqual(result["reason"], "investigate_only")
+        with tempfile.TemporaryDirectory() as store:
+            outcome = proposals.update(store, result, now=1000)
+        self.assertEqual(outcome["status"], "queued")
+        self.assertIsNone(outcome["items"][0]["after"]["duration_ms"])
+
+
 if __name__ == "__main__":
     unittest.main()

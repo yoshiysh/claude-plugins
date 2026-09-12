@@ -129,5 +129,21 @@ class ReportContracts(unittest.TestCase):
         self.assertEqual(result["attempts"]["inv-1"]["success_rate"], 0.5)
 
 
+class WorkflowSpanShapes(unittest.TestCase):
+    def test_workflow_generate_and_run_spans_stay_in_totals(self):
+        run = {"invocations": [invocation("inv-1")],
+               "spans": [span("sp-p", "inv-1", "prepare"),
+                         span("sp-g", "inv-1", "workflow_generate"),
+                         span("sp-w", "inv-1", "workflow_run"),
+                         span("sp-f", "inv-1", "finalize")],
+               "atoms": [atom("c-p", "sp-p", 50), atom("c-g", "sp-g", 30),
+                         atom("c-w", "sp-w", 100), atom("c-f", "sp-f", 70)],
+               "coverage": {"inv-1": coverage()}, "evaluations": []}
+        result = report_v2.report(run)
+        self.assertEqual(result["skill_usage"]["input_tokens"], 250)
+        self.assertEqual(result["per_invocation"]["inv-1"]["inclusive"]
+                         ["input_tokens"], 250)
+
+
 if __name__ == "__main__":
     unittest.main()
