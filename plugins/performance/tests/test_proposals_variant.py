@@ -58,14 +58,14 @@ class CompareV2Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cohort_schema"):
             proposals.compare(data)
 
-    def test_v1_still_accepts_legacy_cohorts(self):
+    def test_drift_mode_accepts_variantless_cohorts(self):
         data = payload(cand_tokens=1000)
         data["mode"] = "drift"
         for name in ("baseline", "candidate"):
             del data[name]["variant"]
         self.assertEqual(proposals.compare(data)["status"], "no_material_change")
 
-    def test_v1_rejects_variant_key(self):
+    def test_drift_mode_rejects_variant_key(self):
         data = payload()
         data["mode"] = "drift"
         del data["candidate"]["variant"]

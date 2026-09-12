@@ -17,12 +17,11 @@ def base():
 
 
 def initial():
-    return {"version": 1, "policies": []}
+    return {"policies": []}
 
 
 def validate(value):
-    require(type(value) is dict and set(value) == {"version", "policies"}
-            and type(value["version"]) is int and value["version"] == 1
+    require(type(value) is dict and set(value) == {"policies"}
             and type(value["policies"]) is list and len(value["policies"]) <= 64, "policy")
     for p in value["policies"]:
         # project はリテラル "*"（全プロジェクト。ユーザーの明示指定でのみ書かれる）か絶対パス。

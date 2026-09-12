@@ -9,7 +9,7 @@ python3 [PLUGIN_DIR]/scripts/proposals.py defer --id <fingerprint> --store <priv
 python3 [PLUGIN_DIR]/scripts/proposals.py dismiss --id <fingerprint> --store <private-queue>
 ```
 
-入力はversion:1、baseline、candidateのみ。各cohortはgroupとsamplesのみ。
+入力は mode（"drift" か "variant"）、baseline、candidate のみ。各 cohort は group と samples（variant mode では variant も）。mode の意味と拒否理由コードの正本は scripts/proposals.py。
 groupのキーはproject/task_class/model/settings/quality_contract。値はそれぞれ同一条件を表す
 資料のSHA-256（64文字小文字hex）。モデル名は固定せず、実際のモデル・推論設定を条件資料に含める。
 5条件が双方で一致しなければnot_comparable。勝手に異なるモデルを同条件と読み替えない。

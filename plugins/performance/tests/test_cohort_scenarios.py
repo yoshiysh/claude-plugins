@@ -95,7 +95,7 @@ class QueueWiring(unittest.TestCase):
         self.assertEqual(outcome["status"], "queued")
         self.assertEqual(outcome["items"][0]["reason"], "investigate_only")
 
-    def test_v1_incomparable_never_reaches_queue(self):
+    def test_drift_incomparable_never_reaches_queue(self):
         data = payload(n=2, cand_tokens=600)
         data["mode"] = "drift"
         for name in ("baseline", "candidate"):
