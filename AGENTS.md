@@ -82,6 +82,14 @@ plugins/
 - 具体的な処理はできるだけ `scripts/` に寄せ、`SKILL.md` はフロー・分岐・完了条件を中心に保つ。
 - plugin 登録時は `manage-marketplace-plugin` のスクリプトを使う。
 - plugin author の既定値は `yoshiysh`。
+- 説明的なコメントは書かない。コメントは Why Driven な best-practices に従った形式で簡潔に
+  （書くのはコードから読めない制約・根拠だけ）。コメントはゼロが本来は望ましく、理由は
+  commit message / PR 本文へ置く。
+- 後方互換性は不要。保存データ・入力形式の migration や旧形式サポートは書かない
+  （形式の検証は構造で行い、合わない旧データは失敗させる）。marketplace 配布の
+  plugin version bump は互換性管理ではなく配布機構なので、この規則の対象外。
+- 途中で止めず完了まで実行する。人間ゲート（マージ・公開・予算承認）以外では止めない。
+  作業の分割や Issue 化で完了を先送りしない — Issue を切ることは望ましいことではない。
 
 ## 検証
 
