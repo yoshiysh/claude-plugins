@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import experiment
-import schema_v2
+import run_schema
 
 
 def fingerprint(digest):
@@ -43,7 +43,7 @@ def run(inv, output_tokens, status="completed", offset=0):
                                  "output_tokens": output_tokens},
                        "owner_span_id": f"sp-{inv}", "evidence": "sdk"}],
             "coverage": {inv: {d: {"state": "complete", "missing_reason": None}
-                               for d in schema_v2.COVERAGE_DIMENSIONS}},
+                               for d in run_schema.COVERAGE_DIMENSIONS}},
             "evaluations": []}
 
 

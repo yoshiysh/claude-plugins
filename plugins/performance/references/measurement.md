@@ -1,4 +1,4 @@
-# Measurement contract v1
+# Measurement contract
 
 ## 入力と出力
 
@@ -11,7 +11,7 @@ events.jsonl を読み、`measure.py normalized FILE` は正規化済み JSONL �
 正規化の1行は次の形（全キー必須、追加キー不可）。
 
 ```json
-{"version":1,"source":"example","run_id":"run-1","call_id":"call-1","input_tokens":100,"cached_input_tokens":40,"output_tokens":20}
+{"source":"example","run_id":"run-1","call_id":"call-1","input_tokens":100,"cached_input_tokens":40,"output_tokens":20}
 ```
 
 各行は単一呼出しの完了時点の差分使用量。累積スナップショットや親集計は投入しない。
@@ -21,7 +21,7 @@ source/run_id/call_id の組を一意なIDとする。同じIDの同じ値は1�
 各 token は0以上の整数（bool不可）、cache <= input。cacheはinputの内数。
 推定料金、account quota、context peak は計算しない。
 
-出力は performance-report/v1。usage の合計は観測した完了呼出しのみ。
+出力は performance-report。usage の合計は観測した完了呼出しのみ。
 観測できた呼出しが0件ならusageはnullであり、使用量ゼロとは判断しない。
 `uncached_input_tokens = input_tokens - cached_input_tokens` は算術差分であり請求額ではない。
 `measurement_complete` はworkflowの全started担当の完了使用量が1件ずつ揃ったときだけtrue。

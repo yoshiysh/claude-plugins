@@ -7,8 +7,8 @@ approval record while writing down exactly what remains unverified. Running
 live models is a separate, approved step — the refusal is the implementation
 of that boundary, not a stub for it.
 """
-import schema_v2
-import report_v2
+import run_schema
+import run_report
 from measure import require
 
 # 承認記録の必須欄。Issue #60 受け入れ条件: 実モデル評価はケース数・呼び出し数・
@@ -17,19 +17,19 @@ APPROVAL_FIELDS = ("case_count", "call_count", "budget", "approved_by", "approve
 
 
 def validate_protocol(protocol):
-    """事前登録プロトコル。variant・反復・実行順・品質許容は schema_v2 の契約で縛る。"""
-    schema_v2.validate_experiment(protocol)
+    """事前登録プロトコル。variant・反復・実行順・品質許容は run_schema の契約で縛る。"""
+    run_schema.validate_experiment(protocol)
     return protocol
 
 
 def _variant_aggregate(runs):
-    totals = {k: 0 for k in schema_v2.USAGE_FIELDS}
-    failure = {k: 0 for k in schema_v2.USAGE_FIELDS}
+    totals = {k: 0 for k in run_schema.USAGE_FIELDS}
+    failure = {k: 0 for k in run_schema.USAGE_FIELDS}
     attempts = 0
     completed = 0
     for run in runs:
-        result = report_v2.report(run)
-        for k in schema_v2.USAGE_FIELDS:
+        result = run_report.report(run)
+        for k in run_schema.USAGE_FIELDS:
             totals[k] += result["skill_usage"][k]
             failure[k] += result["failure_cost"][k]
         for stats in result["attempts"].values():
@@ -47,8 +47,8 @@ def _variant_aggregate(runs):
 def replay(protocol, fixture):
     """recorded fixture を決定的に集計する。
 
-    fixture は {variant_digest: [run, ...]} で、各 run は schema_v2 の run。
-    集計は report_v2 の算術のみ。ID の付け替え・atom の並べ替え・timestamp の
+    fixture は {variant_digest: [run, ...]} で、各 run は run_schema の run。
+    集計は run_report の算術のみ。ID の付け替え・atom の並べ替え・timestamp の
     一律オフセットは数値を変えない（変わるなら集計が識別子や順序に依存している）。
     """
     validate_protocol(protocol)
@@ -63,7 +63,7 @@ def replay(protocol, fixture):
     deltas = {}
     for d in others:
         row = {}
-        for k in schema_v2.USAGE_FIELDS:
+        for k in run_schema.USAGE_FIELDS:
             base = aggregates[baseline]["usage"][k]
             # ゼロ基準に百分率の解釈は無い（捏造しない）。
             row[k + "_pct"] = (

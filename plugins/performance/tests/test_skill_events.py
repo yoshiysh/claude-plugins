@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import schema_v2
+import run_schema
 import skill_events
 
 
@@ -47,7 +47,7 @@ class ScenarioS1(unittest.TestCase):
         cov = result["run"]["coverage"]["inv-1"]["boundary"]
         self.assertNotEqual(cov["state"], "complete")
         self.assertEqual(cov["missing_reason"], "declared_only")
-        schema_v2.validate_run(result["run"])
+        run_schema.validate_run(result["run"])
 
 
 class ScenarioS2(unittest.TestCase):
@@ -70,8 +70,8 @@ class ScenarioS3(unittest.TestCase):
         atom = run["atoms"][0]
         self.assertIsNone(atom["owner_span_id"])
         zero = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
-        self.assertEqual(schema_v2.exclusive_usage(run, "inv-P"), zero)
-        self.assertEqual(schema_v2.exclusive_usage(run, "inv-Q"), zero)
+        self.assertEqual(run_schema.exclusive_usage(run, "inv-P"), zero)
+        self.assertEqual(run_schema.exclusive_usage(run, "inv-Q"), zero)
 
 
 class ScenarioS4(unittest.TestCase):
@@ -85,9 +85,9 @@ class ScenarioS4(unittest.TestCase):
             end("inv-C", at=190), end("inv-P"),
         ]
         run = skill_events.project_events(events)["run"]
-        self.assertEqual(schema_v2.exclusive_usage(run, "inv-P")["input_tokens"], 100)
-        self.assertEqual(schema_v2.exclusive_usage(run, "inv-C")["input_tokens"], 300)
-        self.assertEqual(schema_v2.inclusive_usage(run, "inv-P")["input_tokens"], 400)
+        self.assertEqual(run_schema.exclusive_usage(run, "inv-P")["input_tokens"], 100)
+        self.assertEqual(run_schema.exclusive_usage(run, "inv-C")["input_tokens"], 300)
+        self.assertEqual(run_schema.inclusive_usage(run, "inv-P")["input_tokens"], 400)
 
 
 class ProjectionContracts(unittest.TestCase):
@@ -126,7 +126,7 @@ class LateAndReorderedEvents(unittest.TestCase):
         run = skill_events.project_events(events)["run"]
         self.assertEqual(run["invocations"][0]["status"], "completed")
         self.assertEqual(run["invocations"][0]["ended_at"], 200)
-        self.assertEqual(schema_v2.exclusive_usage(run, "inv-1")["input_tokens"], 77)
+        self.assertEqual(run_schema.exclusive_usage(run, "inv-1")["input_tokens"], 77)
 
     def test_end_before_start_rejected(self):
         with self.assertRaisesRegex(ValueError, "end_without_start"):

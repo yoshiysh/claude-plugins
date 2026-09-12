@@ -18,7 +18,7 @@ import hook_collect
 
 
 def usage(call="1", **changes):
-    return dict(version=1, source="SECRET", run_id="SECRET", call_id=call,
+    return dict(source="SECRET", run_id="SECRET", call_id=call,
                 input_tokens=100, cached_input_tokens=40, output_tokens=20) | changes
 
 
@@ -34,7 +34,7 @@ class IncrementalTests(unittest.TestCase):
         self.source.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
     def run_collect(self, **kwargs):
-        return sc.run(self.store, self.source, kwargs.pop("adapter", "normalized-v1"), "capture-1",
+        return sc.run(self.store, self.source, kwargs.pop("adapter", "normalized"), "capture-1",
                       now=kwargs.pop("now", 100), **kwargs)
 
     def state(self):
@@ -123,7 +123,7 @@ class IncrementalTests(unittest.TestCase):
         source.chmod(0o600)
         before = source.read_bytes()
         with self.assertRaises(ValueError):
-            sc.run(self.store, source, "normalized-v1", "capture-1", now=100)
+            sc.run(self.store, source, "normalized", "capture-1", now=100)
         self.assertEqual(source.read_bytes(), before)
         self.assertEqual([p.name for p in self.store.iterdir()], [".pending"])
 
@@ -149,7 +149,7 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(before, (self.store / "state.json").read_bytes())
         program = ("import sys,os;sys.path.insert(0,sys.argv[1]);import stream_collect,private_state;"
                    "private_state.os.replace=lambda *a:os._exit(71);"
-                   "stream_collect.run(sys.argv[2],sys.argv[3],'normalized-v1','capture-1',now=100)")
+                   "stream_collect.run(sys.argv[2],sys.argv[3],'normalized','capture-1',now=100)")
         result = subprocess.run([sys.executable, "-c", program, str(SCRIPTS), str(self.store), str(self.source)], timeout=5)
         self.assertEqual(result.returncode, 71)
         self.assertTrue((self.store / ".pending").exists())
@@ -162,7 +162,7 @@ class IncrementalTests(unittest.TestCase):
                 dict(type="turn.completed", usage=dict(input_tokens=100, cached_input_tokens=40, output_tokens=20)),
                 dict(type="turn.started"), dict(type="turn.failed", error={"message": "SECRET"})]
         self.write(rows)
-        self.assertEqual(self.run_collect(adapter="codex-exec-v1")["retained_observations"], 2)
+        self.assertEqual(self.run_collect(adapter="codex-exec")["retained_observations"], 2)
         observations = self.state()["rows"]
         self.assertEqual(observations[0]["usage"]["input_tokens"], 100)
         self.assertIsNone(observations[1]["usage"])
@@ -171,7 +171,7 @@ class IncrementalTests(unittest.TestCase):
     def test_codex_orphan_and_unknown_format_rejected(self):
         for rows in ([dict(type="turn.completed", usage={})], [dict(type="event_msg", payload={})]):
             self.write(rows)
-            self.assertEqual(self.run_collect(adapter="codex-exec-v1")["status"], "collection_failed")
+            self.assertEqual(self.run_collect(adapter="codex-exec")["status"], "collection_failed")
 
     def test_report_is_readonly_and_keeps_sources_separate(self):
         self.write([usage(), usage(source="OTHER", output_tokens=10)])
@@ -192,7 +192,7 @@ class IncrementalTests(unittest.TestCase):
         with (self.store / ".lock").open("rb") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             result = subprocess.run([sys.executable, str(SCRIPTS / "stream_collect.py"), "collect",
-                "normalized-v1", str(self.source), "--stream-id", "capture-1", "--store", str(self.store)],
+                "normalized", str(self.source), "--stream-id", "capture-1", "--store", str(self.store)],
                 capture_output=True, text=True, timeout=3)
             self.assertEqual(result.returncode, 1)
             self.assertFalse(json.loads(result.stdout)["failure_recorded"])
@@ -218,25 +218,25 @@ class IncrementalTests(unittest.TestCase):
         self.write([dict(type="assistant", message=dict(content="SECRET", usage=dict(output_tokens=999))),
                     dict(type="result", subtype="success", is_error=False, result="SECRET", usage=dict(
                         input_tokens=10, cache_creation_input_tokens=20, cache_read_input_tokens=70, output_tokens=30))])
-        self.assertEqual(self.run_collect(adapter="claude-query-v1")["retained_observations"], 1)
+        self.assertEqual(self.run_collect(adapter="claude-query")["retained_observations"], 1)
         self.assertEqual(self.state()["rows"][0]["usage"],
                          dict(input_tokens=100, cached_input_tokens=70, output_tokens=30))
 
     def test_claude_streaming_multiple_results_rejected(self):
         row = dict(type="result", subtype="success", is_error=False, usage={})
         self.write([row, row])
-        self.assertEqual(self.run_collect(adapter="claude-query-v1")["status"], "collection_failed")
+        self.assertEqual(self.run_collect(adapter="claude-query")["status"], "collection_failed")
         self.assertEqual(self.state()["rows"], [])
 
     def test_claude_crash_zero_not_counted_as_zero_usage(self):
         self.write([dict(type="result", subtype="error_during_execution", is_error=True, usage=dict(
             input_tokens=0, cache_creation_input_tokens=0, cache_read_input_tokens=0, output_tokens=0))])
-        self.run_collect(adapter="claude-query-v1")
+        self.run_collect(adapter="claude-query")
         self.assertIsNone(self.state()["rows"][0]["usage"])
 
     def test_hook_is_silent_and_uses_only_configured_paths(self):
         self.write([usage()])
-        config = dict(version=1, enabled=True, host="codex", cwd=str(self.root), adapter="normalized-v1",
+        config = dict(enabled=True, host="codex", cwd=str(self.root), adapter="normalized",
                       input=str(self.source), stream_id="capture-1", store=str(self.store), retention_days=30)
         event = dict(hook_event_name="Stop", cwd=str(self.root), transcript_path="/SECRET/not-allowed")
         args = hook_collect.command(config, event)
@@ -256,7 +256,7 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(before, (self.store / "state.json").read_bytes())
 
     def test_hook_timeout_and_failure_are_silent(self):
-        config = dict(version=1, enabled=True, host="codex", cwd=str(self.root), adapter="normalized-v1",
+        config = dict(enabled=True, host="codex", cwd=str(self.root), adapter="normalized",
                       input=str(self.source), stream_id="capture-1", store=str(self.store), retention_days=30)
         path = self.root / "config.json"
         path.write_text(json.dumps(config))

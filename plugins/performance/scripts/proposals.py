@@ -7,7 +7,7 @@ import sys
 import time
 
 import measure
-import schema_v2
+import run_schema
 from private_state import digest, natural, transaction
 
 GROUP = {"project", "task_class", "model", "settings", "quality_contract"}
@@ -21,14 +21,15 @@ def fingerprint(value):
 def compare(data, minimum=3, threshold_percent=25):
     measure.require(type(minimum) is int and 3 <= minimum <= 100
                     and type(threshold_percent) is int and 1 <= threshold_percent <= 1000, "invalid_policy")
-    measure.require(type(data) is dict and set(data) == {"version", "baseline", "candidate"}
-                    and type(data["version"]) is int and data["version"] in (1, 2), "comparison_schema")
-    # v1: group（settings に実装版を含む固定条件）の完全一致を要求する遺産形式。
-    #     実装を変えた前後は定義上比較できないため、観測 source としてのみ維持する。
-    # v2: group は固定条件だけを持ち、変更する実装版は cohort ごとの variant
-    #     （実装 fingerprint）に分離する。改修前後の比較はこちらで行う（#60 §4）。
-    version = data["version"]
-    cohort_keys = {"group", "samples"} if version == 1 else {"group", "variant", "samples"}
+    measure.require(type(data) is dict and set(data) == {"mode", "baseline", "candidate"}
+                    and data["mode"] in ("drift", "variant"), "comparison_schema")
+    # mode は比較の質問そのものを名指しする（番号ではなく）。
+    # drift:   同一実装のまま経時で悪化していないか。group（settings に実装版を含む
+    #          固定条件）の完全一致を要求する。実装を変えた前後は定義上比較できない。
+    # variant: 実装を変えた before/after。group は固定条件だけを持ち、変更する実装版は
+    #          cohort ごとの variant（実装 fingerprint）に分離する（#60 §4）。
+    mode = data["mode"]
+    cohort_keys = {"group", "samples"} if mode == "drift" else {"group", "variant", "samples"}
     groups, variants, totals, seen, evidence_seen = [], [], [], set(), set()
     comparable = True
     # 拒否・降格の理由コード。数値だけ返すと「なぜ比較にならないか」が読み手の推測に落ちる。
@@ -40,8 +41,8 @@ def compare(data, minimum=3, threshold_percent=25):
                         and type(cohort["group"]) is dict and set(cohort["group"]) == GROUP
                         and all(digest(v) for v in cohort["group"].values())
                         and type(cohort["samples"]) is list and len(cohort["samples"]) <= 100, "cohort_schema")
-        if version == 2:
-            variants.append(schema_v2.validate_fingerprint(cohort["variant"]))
+        if mode == "variant":
+            variants.append(run_schema.validate_fingerprint(cohort["variant"]))
         groups.append(cohort["group"])
         if len(cohort["samples"]) < minimum:
             comparable = False
@@ -97,8 +98,8 @@ def compare(data, minimum=3, threshold_percent=25):
         mismatched = sorted(k for k in GROUP if groups[0][k] != groups[1][k])
         return {"status": "not_comparable",
                 "reasons": ["group_mismatch:" + ",".join(mismatched)]}
-    # v2 で variant が同一なら、それは実装差を測っていない（差が出ても条件の揺らぎ）。
-    if version == 2 and variants[0]["digest"] == variants[1]["digest"]:
+    # variant mode で fingerprint が同一なら、それは実装差を測っていない（差が出ても条件の揺らぎ）。
+    if mode == "variant" and variants[0]["digest"] == variants[1]["digest"]:
         return {"status": "not_comparable", "reasons": ["variant_identical"]}
     before, after = totals
     if before["tokens"] is None or after["tokens"] is None:
@@ -112,23 +113,24 @@ def compare(data, minimum=3, threshold_percent=25):
     measurable = [k for k in before if before[k] is not None and after[k] is not None]
     increased = any((after[k] - before[k]) * 100 >= before[k] * threshold_percent for k in measurable)
     decreased = any((before[k] - after[k]) * 100 >= before[k] * threshold_percent for k in measurable)
-    if not comparable and version == 1:
-        # v1 の契約は維持: 前提を欠く比較は常に not_comparable（観測 source としての
-        # 後方互換。降格の意味論は v2 だけが持つ）。
+    if not comparable and mode == "drift":
+        # drift の契約: 前提を欠く比較は常に not_comparable。降格（investigate_only）の
+        # 意味論は variant mode だけが持つ — 経時監視で前提が欠けたら測り直すのが正で、
+        # 調査候補に変換する意味が無い。
         return {"status": "not_comparable", "reasons": sorted(set(reasons))}
     if not increased and not decreased:
         return {"status": "no_material_change"}
-    # v2: 差はあるが候補の前提（反復数・独立した品質証拠）を欠く場合は、品質維持改善と
-    # 認定せず調査候補に降格する（日常観測は調査候補の発見用 — Issue #60 §4）。
+    # variant: 差はあるが候補の前提（反復数・独立した品質証拠）を欠く場合は、品質維持
+    # 改善と認定せず調査候補に降格する（日常観測は調査候補の発見用 — Issue #60 §4）。
     if not comparable:
         reason = "investigate_only"
     else:
         reason = "investigate_regression" if increased else "verify_reduction"
-    canonical = {"version": version, **{name: data[name] | {
+    canonical = {"mode": mode, **{name: data[name] | {
         "samples": sorted(data[name]["samples"], key=lambda row: row["id"])}
         for name in ("baseline", "candidate")}}
     evidence = fingerprint(canonical)
-    identity = [groups[0], reason] if version == 1 else [
+    identity = [groups[0], reason] if mode == "drift" else [
         groups[0], reason, variants[0]["digest"], variants[1]["digest"]]
     return {"status": "candidate", "fingerprint": fingerprint(identity),
             "evidence": evidence, "reason": reason, "before": before, "after": after,
@@ -136,12 +138,12 @@ def compare(data, minimum=3, threshold_percent=25):
 
 
 def initial():
-    return {"version": 1, "updated_at": 0, "items": []}
+    return {"updated_at": 0, "items": []}
 
 
 def validate(state):
-    measure.require(type(state) is dict and set(state) == {"version", "updated_at", "items"}
-                    and type(state["version"]) is int and state["version"] == 1 and natural(state["updated_at"])
+    measure.require(type(state) is dict and set(state) == {"updated_at", "items"}
+                    and natural(state["updated_at"])
                     and type(state["items"]) is list and len(state["items"]) <= 100, "invalid_queue")
     seen = set()
     for item in state["items"]:

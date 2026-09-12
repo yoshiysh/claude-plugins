@@ -14,7 +14,7 @@ spec.loader.exec_module(measure)
 
 
 def record(**changes):
-    return dict(version=1, source="test", run_id="r", call_id="1",
+    return dict(source="test", run_id="r", call_id="1",
                 input_tokens=100, cached_input_tokens=40, output_tokens=20) | changes
 
 
@@ -54,7 +54,7 @@ class MeasurementTests(unittest.TestCase):
     def test_invalid_normalized_values(self):
         mutations = [dict(input_tokens=True), dict(input_tokens=-1), dict(input_tokens=1.5),
                      dict(cached_input_tokens=101), dict(output_tokens=None), dict(version=True),
-                     dict(version=2), dict(call_id=""), dict(extra="SECRET")]
+                     dict(version=1), dict(call_id=""), dict(extra="SECRET")]
         for mutation in mutations:
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 measure.aggregate([record(**mutation)])

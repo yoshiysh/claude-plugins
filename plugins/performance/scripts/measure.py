@@ -61,8 +61,7 @@ def aggregate(records):
     duplicates = 0
     sources = set()
     for row in records:
-        require(set(row) == {"version", "source", "run_id", "call_id", *FIELDS}, "invalid_keys")
-        require(type(row["version"]) is int and row["version"] == 1, "unsupported_version")
+        require(set(row) == {"source", "run_id", "call_id", *FIELDS}, "invalid_keys")
         for key in ("source", "run_id", "call_id"):
             require(type(row[key]) is str and 0 < len(row[key]) <= 256, "invalid_identity")
         sources.add(row["source"])
@@ -75,7 +74,7 @@ def aggregate(records):
         seen[key] = current
     total = {key: sum(row[key] for row in seen.values()) for key in FIELDS}
     total["uncached_input_tokens"] = total["input_tokens"] - total["cached_input_tokens"]
-    return {"format": "performance-report/v1", "observed_calls": len(seen),
+    return {"format": "performance-report", "observed_calls": len(seen),
             "duplicates_ignored": duplicates, "usage": total if seen else None,
             "measurement_complete": None, "quality": "unmeasured",
             "scope": "observed completed call usage; not billing, quota or context peak"}
@@ -122,7 +121,7 @@ def workflow(directory):
                     value = inner.get("usage")
                     if value is None or (type(value) is dict and any(k not in value for k in FIELDS)):
                         continue
-                    records.append({"version": 1, "source": "dynamic-workflow/v1",
+                    records.append({"source": "dynamic-workflow",
                                     "run_id": run_id, "call_id": str(ident), **usage(value)})
     # A successful return with unfinished calls is outside this adapter's closed-run contract.
     if events[-1]["type"] == "run.completed":

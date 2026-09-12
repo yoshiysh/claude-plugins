@@ -6,7 +6,7 @@
 別ディレクトリを使う。snapshotの合算や移行はしない。通常の読取計測は `measure.py` のまま。
 
 ```sh
-python3 [PLUGIN_DIR]/scripts/stream_collect.py collect normalized-v1 <events.jsonl> --stream-id <capture-id> --store <private-ledger>
+python3 [PLUGIN_DIR]/scripts/stream_collect.py collect normalized <events.jsonl> --stream-id <capture-id> --store <private-ledger>
 python3 [PLUGIN_DIR]/scripts/stream_collect.py report --store <private-ledger>
 python3 [PLUGIN_DIR]/scripts/stream_collect.py maintain --store <private-ledger> --retention-days 30
 ```
@@ -17,9 +17,9 @@ python3 [PLUGIN_DIR]/scripts/stream_collect.py maintain --store <private-ledger>
 
 | adapter | 入力と計上単位 | ID・除外境界 |
 |---|---|---|
-| normalized-v1 | [正規化契約](measurement.md)のJSONL、完了呼出しごとの差分 | source/run_id/call_idで重複排除。別sourceを合算しない |
-| codex-exec-v1 | `codex exec --json` または同形のSDKイベント、turn.completedのusage | capture-id/thread-id/turn序数。turn.failedはusage不明。item本文は破棄 |
-| claude-query-v1 | 単発queryのTypeScript SDK形JSONL、唯一のresult.usage | capture-id単位、main-loopのみ。assistantのplaceholderやsubagent本文は加算しない。error resultはusage不明 |
+| normalized | [正規化契約](measurement.md)のJSONL、完了呼出しごとの差分 | source/run_id/call_idで重複排除。別sourceを合算しない |
+| codex-exec | `codex exec --json` または同形のSDKイベント、turn.completedのusage | capture-id/thread-id/turn序数。turn.failedはusage不明。item本文は破棄 |
+| claude-query | 単発queryのTypeScript SDK形JSONL、唯一のresult.usage | capture-id単位、main-loopのみ。assistantのplaceholderやsubagent本文は加算しない。error resultはusage不明 |
 
 native adapterのcapture-idは **SDK/CLI呼出しごとに新しい一意ID**。同じ収集の再試行・同じログの
 物理的rotateでは維持する。別query/execのログへの差替え、resumeの別呼出しでは必ず変更する。

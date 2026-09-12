@@ -22,7 +22,7 @@ class CollectionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.store = self.root / "store"
         self.source = self.root / "usage.jsonl"
-        self.source.write_text(json.dumps(dict(version=1, source="SECRET", run_id="SECRET",
+        self.source.write_text(json.dumps(dict(source="SECRET", run_id="SECRET",
             call_id="SECRET", input_tokens=100, cached_input_tokens=20, output_tokens=10)) + "\n")
         self.item = collect.snapshot("normalized", self.source)
 

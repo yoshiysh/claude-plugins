@@ -11,7 +11,7 @@ workflowファイル名は固定しない。引数はユーザーの許可範囲
 python3 [PLUGIN_DIR]/scripts/capture.py --adapter <adapter> --store <new-private-ledger> --timeout 60 -- <producer> <arguments...>
 ```
 
-adapterは `codex-exec-v1`、`claude-query-v1`、`normalized-v1` の明示選択。
+adapterは `codex-exec`、`claude-query`、`normalized` の明示選択。
 producerはその形式のJSONLだけをstdoutへ出す。stderrは保存・表示せず破棄する。
 作業directory・認証・環境変数は呼出し元を継承するため、必要な設定隔離は親が行う。
 このラッパーはsandboxではない。許可されていないコマンドや高額な推論を安全にするものではない。

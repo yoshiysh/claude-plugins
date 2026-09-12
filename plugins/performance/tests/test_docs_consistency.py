@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import schema_v2
+import run_schema
 
 DOC = Path(__file__).resolve().parents[1] / "references" / "host-capabilities.md"
 
@@ -30,7 +30,7 @@ class DocsConsistency(unittest.TestCase):
         self.assertIn("awaiting_budget_approval", self.text)
 
     def test_boundary_evidence_values_match_schema(self):
-        for value in schema_v2.BOUNDARY_EVIDENCE:
+        for value in run_schema.BOUNDARY_EVIDENCE:
             if value == "declared":
                 continue
             # host_dispatch / explicit_entry は能力表の語彙として現れるはず

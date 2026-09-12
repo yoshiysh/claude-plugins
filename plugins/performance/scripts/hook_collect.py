@@ -32,9 +32,8 @@ def payload():
 
 
 def command(config, event):
-    required = {"version", "enabled", "host", "cwd", "adapter", "input", "stream_id", "store", "retention_days"}
+    required = {"enabled", "host", "cwd", "adapter", "input", "stream_id", "store", "retention_days"}
     measure.require(type(config) is dict and required <= set(config) <= required | {"proposal"}
-        and type(config["version"]) is int and config["version"] == 1
         and type(config["enabled"]) is bool, "config")
     if not config["enabled"]:
         return None

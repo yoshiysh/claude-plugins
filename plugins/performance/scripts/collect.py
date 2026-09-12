@@ -113,8 +113,7 @@ def save(directory, item, retention_days=30, max_records=1000, now=None):
                 data = stream.read(MAX_BYTES + 1)
             measure.require(len(data) <= MAX_BYTES, "store_limit")
             state = measure.decode(data)
-            measure.require(type(state) is dict and set(state) == {"version", "records"}
-                            and type(state["version"]) is int and state["version"] == 1
+            measure.require(type(state) is dict and set(state) == {"records"}
                             and type(state["records"]) is list, "invalid_store")
             records = state["records"]
         # Validate stored shape before retention, so corruption is never silently erased.
@@ -139,7 +138,7 @@ def save(directory, item, retention_days=30, max_records=1000, now=None):
         records.sort(key=lambda row: row["collected_at"])
         evicted = max(0, len(records) - max_records)
         records = records[-max_records:]
-        data = json.dumps({"version": 1, "records": records}, ensure_ascii=False).encode()
+        data = json.dumps({"records": records}, ensure_ascii=False).encode()
         measure.require(len(data) <= MAX_BYTES, "store_limit")
         # One reserved slot bounds crash leftovers; never sweep arbitrary filenames.
         pending = root / PENDING

@@ -20,13 +20,12 @@ METRICS = {"attempts", "successes", "failures", "bytes_read", "duplicates", "dur
 
 
 def initial():
-    return {"version": 1, "updated_at": 0, "rows": [], "streams": {},
+    return {"updated_at": 0, "rows": [], "streams": {},
             "metrics": dict.fromkeys(METRICS, 0)}
 
 
 def validate(state):
-    measure.require(type(state) is dict and set(state) == {"version", "updated_at", "rows", "streams", "metrics"}
-                    and type(state["version"]) is int and state["version"] == 1
+    measure.require(type(state) is dict and set(state) == {"updated_at", "rows", "streams", "metrics"}
                     and natural(state["updated_at"]), "invalid_ledger")
     metrics = state["metrics"]
     measure.require(type(metrics) is dict and set(metrics) == METRICS

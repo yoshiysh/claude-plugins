@@ -18,7 +18,7 @@ def comparison():
             status="completed", quality="passed", quality_source="independent",
             quality_evidence=p.fingerprint(["quality", prefix, n]),
             usage_evidence=p.fingerprint(["usage", prefix, n])) for n in range(3)]}
-    return dict(version=1, baseline=cohort("before", 100), candidate=cohort("after", 200))
+    return dict(mode="drift", baseline=cohort("before", 100), candidate=cohort("after", 200))
 
 
 class ProposalTests(unittest.TestCase):
@@ -43,8 +43,8 @@ class ProposalTests(unittest.TestCase):
         comparison_path = root / "comparison.json"
         comparison_path.write_text(json.dumps(comparison()))
         config = root / "hook.json"
-        config.write_text(json.dumps(dict(version=1, enabled=True, host="claude", cwd=str(root),
-            adapter="claude-query-v1", input=str(source), stream_id="synthetic-single-query",
+        config.write_text(json.dumps(dict(enabled=True, host="claude", cwd=str(root),
+            adapter="claude-query", input=str(source), stream_id="synthetic-single-query",
             store=str(root / "ledger"), retention_days=30,
             proposal=dict(input=str(comparison_path), store=str(self.store)))))
         script = Path(p.__file__).with_name("hook_collect.py")

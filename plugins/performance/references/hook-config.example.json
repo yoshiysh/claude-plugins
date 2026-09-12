@@ -1,9 +1,8 @@
 {
-  "version": 1,
   "enabled": false,
   "host": "codex",
   "cwd": "/absolute/project",
-  "adapter": "normalized-v1",
+  "adapter": "normalized",
   "input": "/absolute/input/events.jsonl",
   "stream_id": "replace-with-unique-capture-id",
   "store": "/absolute/private-ledger",

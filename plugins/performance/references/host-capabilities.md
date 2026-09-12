@@ -15,7 +15,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 | skill_boundary | skill 実行の開始・終了をホストが通知する | b（明示入口イベントの投影のみ。自動 dispatch 通知の実捕捉は未実証 = C1） | c |
 | call_linkage | model call が invocation に紐づく | b（`claimed_by` 申告の投影のみ） | c |
 | child_linkage | 子実行（subagent・子 skill）が親に紐づく | b（`parent_invocation_id` 申告の投影のみ） | c |
-| terminal_event | 実行の終了と status が観測できる | b（`skill_end` イベントの投影のみ） | b（codex-exec-v1 adapter の turn 終端） |
+| terminal_event | 実行の終了と status が観測できる | b（`skill_end` イベントの投影のみ） | b（codex-exec adapter の turn 終端） |
 | usage | call 単位の usage delta が取れる | a（native transcript の実捕捉 — 既存 ledger） | a（cumulative snapshot の delta 化 — 既存 ledger） |
 | notification | 改善候補をホストの応答境界で提示できる | b（queue に残す。応答境界への表示は未実装） | c（queue に残すのみ） |
 
@@ -23,7 +23,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 
 - 自動境界（tier a の skill_boundary）が無いホストでは、**明示実行入口**
   （`skill_events.py` の閉じたイベント集合）を使う
-- それも不可能なら session 観測（既存 v1 ledger）を維持し、skill 帰属は
+- それも不可能なら session 観測（既存のセッション単位 ledger）を維持し、skill 帰属は
   **unknown のまま**にする。session を推測で skill run に変換しない
 
 ## 未実証のまま残っているもの（censored）
@@ -43,4 +43,4 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 - 課金額推定・未観測 usage の補完は行わない
 - overhead（performance 自身の計測費用）の判別は plugin 名の一致で行うため、
   **別 marketplace の同名 plugin は overhead に誤分類され得る**（既知の限界。
-  詳細は `scripts/report_v2.py` の OVERHEAD_PLUGIN の注記）
+  詳細は `scripts/run_report.py` の OVERHEAD_PLUGIN の注記）

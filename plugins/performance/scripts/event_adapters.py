@@ -5,7 +5,7 @@ import json
 import measure
 from private_state import digest, natural
 
-ADAPTERS = ("normalized-v1", "codex-exec-v1", "claude-query-v1")
+ADAPTERS = ("normalized", "codex-exec", "claude-query")
 
 
 def identity(*values):
@@ -25,13 +25,13 @@ def validate(state):
 
 def project(adapter, event, state, stream):
     measure.require(adapter in ADAPTERS and type(event) is dict, "invalid_event")
-    if adapter == "normalized-v1":
+    if adapter == "normalized":
         report = measure.aggregate([event])
         return {"id": identity(adapter, event["source"], event["run_id"], event["call_id"]),
                 "scope": identity(adapter, event["source"]),
                 "usage": {k: report["usage"][k] for k in measure.FIELDS}, "status": "unknown"}
     kind = event.get("type")
-    if adapter == "codex-exec-v1":
+    if adapter == "codex-exec":
         if kind == "thread.started":
             measure.require(state["thread"] is None and type(event.get("thread_id")) is str
                             and 0 < len(event["thread_id"]) <= 256, "thread_start")

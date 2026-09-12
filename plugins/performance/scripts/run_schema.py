@@ -1,4 +1,4 @@
-"""v2 data contract: skill-invocation attribution, lineage, coverage, experiments.
+"""Skill-invocation data contract: attribution, lineage, coverage, experiments.
 
 Validation only — no I/O, no inference. Callers construct records from observed
 evidence; this module rejects records that could produce double counting,

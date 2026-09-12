@@ -1,4 +1,4 @@
-"""Explicit skill-execution events -> schema_v2 run. No transcript autodetection.
+"""Explicit skill-execution events -> run_schema run. No transcript autodetection.
 
 The projection only consumes events a host or the explicit entry wrapper
 declared; nothing is inferred from file reads, skill names in prose, or time
@@ -6,7 +6,7 @@ overlap. A SKILL.md read is recorded as evidence of reading, never of
 execution. Declared-only boundaries survive, but their coverage can never be
 complete — the distinction between declared and measured is kept, not fixed.
 """
-import schema_v2
+import run_schema
 from measure import require
 from private_state import natural
 
@@ -27,11 +27,11 @@ EVENT_TYPES = (
 
 
 def _span_kind_default(kind):
-    return kind if kind in schema_v2.SPAN_KINDS else "agent"
+    return kind if kind in run_schema.SPAN_KINDS else "agent"
 
 
 def project_events(events):
-    """イベント列を schema_v2.validate_run が通る run に投影する。
+    """イベント列を run_schema.validate_run が通る run に投影する。
 
     決定的: 同じ列からは同じ run が出る。skill_md_read だけの列からは
     invocation が 1 件も出ない（読込を実行扱いしない）。
@@ -68,14 +68,14 @@ def project_events(events):
                 "status": "running",
                 "boundary_evidence": event["boundary_evidence"],
             }
-            schema_v2.validate_invocation(row)
+            run_schema.validate_invocation(row)
             invocations.append(row)
             open_invocations[row["invocation_id"]] = row
             # coverage の初期値: 何も観測が揃っていない段階は unknown。
             # declared 境界は complete に到達する経路が無い（validate_run が拒む）。
             coverage[row["invocation_id"]] = {
                 d: {"state": "unknown", "missing_reason": "in_progress"}
-                for d in schema_v2.COVERAGE_DIMENSIONS
+                for d in run_schema.COVERAGE_DIMENSIONS
             }
             continue
 
@@ -137,7 +137,7 @@ def project_events(events):
     run = {"invocations": invocations, "spans": spans, "atoms": atoms,
            "coverage": coverage, "evaluations": []}
     if invocations:
-        schema_v2.validate_run(run)
+        run_schema.validate_run(run)
     else:
         require(not spans and not atoms, "orphan_records_without_invocation")
     return {"run": run, "skill_md_reads": md_reads}

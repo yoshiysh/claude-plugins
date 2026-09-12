@@ -122,15 +122,14 @@ def parse(host, path):
 
 
 def initial():
-    return {"version": 1, "sessions": {}, "skipped": {}}
+    return {"sessions": {}, "skipped": {}}
 
 
 def validate(state):
-    # "skipped" 導入前の既存 store（{"version","sessions"} のみ）は読み込み時に補完する。
+    # "skipped" 導入前の既存 store（"sessions" のみ）は読み込み時に補完する。
     # 旧形を拒否すると、更新した瞬間から過去の ledger 全体が読めなくなる。
     require(type(state) is dict
-            and set(state) in ({"version", "sessions"}, {"version", "sessions", "skipped"})
-            and type(state["version"]) is int and state["version"] == 1
+            and set(state) in ({"sessions"}, {"sessions", "skipped"})
             and type(state["sessions"]) is dict and len(state["sessions"]) <= MAX_SESSIONS,
             "invalid_native_store")
     state.setdefault("skipped", {})
@@ -170,7 +169,7 @@ def summarize(state):
     sessions = list(state["sessions"].values())
     records = [u for row in sessions for u in row["records"].values()]
     skipped = list(state.get("skipped", {}).values())
-    return {"format": "performance-native-report/v1", "retained_sessions": len(sessions),
+    return {"format": "performance-native-report", "retained_sessions": len(sessions),
             "observed_usage_records": len(records),
             "usage": {k: sum(u[k] for u in records) for k in FIELDS} if records else None,
             "incomplete_sources": sum(row["incomplete"] for row in sessions),

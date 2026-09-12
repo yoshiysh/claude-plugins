@@ -32,7 +32,7 @@ def fingerprint(digest):
 
 
 def payload(base_model="m", cand_model="m", n=3, cand_tokens=100, **sample_over):
-    return {"version": 2,
+    return {"mode": "variant",
             "baseline": {"group": group(base_model),
                          "variant": fingerprint("a" * 64),
                          "samples": [sample(f"b{i}", 1000) for i in range(n)]},
@@ -97,7 +97,7 @@ class QueueWiring(unittest.TestCase):
 
     def test_v1_incomparable_never_reaches_queue(self):
         data = payload(n=2, cand_tokens=600)
-        data["version"] = 1
+        data["mode"] = "drift"
         for name in ("baseline", "candidate"):
             del data[name]["variant"]
         result = proposals.compare(data)

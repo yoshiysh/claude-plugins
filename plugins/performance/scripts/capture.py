@@ -31,10 +31,10 @@ def drain(store, source, adapter, stream_id):
             cursor = state["streams"][key]
             offset, parser = cursor["offset"], cursor["parser"]
         if not result["pending_bytes"]:
-            if adapter == "codex-exec-v1":
+            if adapter == "codex-exec":
                 measure.require(parser["thread"] is not None and parser["turn"] > 0
                                 and not parser["active"], "missing_terminal")
-            elif adapter == "claude-query-v1":
+            elif adapter == "claude-query":
                 measure.require(parser["closed"], "missing_terminal")
             report = stream_collect.report(store)
             # This store is dedicated to this capture, not a historical shared ledger.

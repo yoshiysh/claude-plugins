@@ -25,7 +25,7 @@ class CaptureTests(unittest.TestCase):
     def invoke(self, text, exit_code=0, **kwargs):
         command = [sys.executable, '-c', 'import sys; sys.stdout.write(' + repr(text) +
                    '); sys.stdout.flush(); sys.exit(' + repr(exit_code) + ')']
-        return capture.run(command, 'codex-exec-v1', self.store, **kwargs)
+        return capture.run(command, 'codex-exec', self.store, **kwargs)
 
     def test_collects_after_exit_and_matches_usage(self):
         result = self.invoke(''.join(json.dumps(e) + '\n' for e in EVENTS))
@@ -53,7 +53,7 @@ class CaptureTests(unittest.TestCase):
         result = capture.run(
             [sys.executable, '-c', 'import json; print(json.dumps(' + repr(EVENTS[0]) +
              ')); print(json.dumps(' + repr(EVENTS[1]) + ')); print(' + repr(padding) +
-             '*3000,end=""); print(json.dumps(' + repr(EVENTS[-1]) + '))'], 'codex-exec-v1', self.store)
+             '*3000,end=""); print(json.dumps(' + repr(EVENTS[-1]) + '))'], 'codex-exec', self.store)
         self.assertEqual(result['status'], 'collected')
         self.assertGreater(result['report']['metrics']['attempts'], 1)
 
@@ -61,7 +61,7 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(self.invoke('x' * 1000, max_bytes=100)['status'], 'capture_failed')
         for name, command in [('timeout', [sys.executable, '-c', 'import time; time.sleep(5)']),
                               ('missing', ['/nonexistent/performance-producer'])]:
-            result = capture.run(command, 'codex-exec-v1', self.root / name, timeout=0.1)
+            result = capture.run(command, 'codex-exec', self.root / name, timeout=0.1)
             self.assertEqual(result['status'], 'capture_failed')
 
     def test_existing_store_is_not_modified(self):
@@ -76,7 +76,7 @@ class CaptureTests(unittest.TestCase):
         event = dict(type='result', subtype='success', is_error=False, usage=dict(input_tokens=10,
             cache_creation_input_tokens=5, cache_read_input_tokens=3, output_tokens=2))
         result = capture.run([sys.executable, '-c', 'print(' + repr(json.dumps(event)) + ')'],
-                             'claude-query-v1', self.store)
+                             'claude-query', self.store)
         self.assertEqual(result['status'], 'collected')
         self.assertEqual(result['report']['groups'][0]['usage']['input_tokens'], 18)
 
@@ -92,13 +92,13 @@ class CaptureTests(unittest.TestCase):
         command = [sys.executable, '-c', 'import sys; assert sys.argv[1] == ""; print(' +
                    repr(text) + ', end="")', '']
         with patch.object(capture, 'drain', side_effect=checked_drain):
-            result = capture.run(command, 'codex-exec-v1', self.store)
+            result = capture.run(command, 'codex-exec', self.store)
         self.assertEqual(result['status'], 'collected')
         self.assertEqual(seen, [0])
 
     def test_codex_session_end_skips_workers_but_stop_remains_available(self):
-        config = dict(version=1, enabled=True, host='codex', cwd=str(self.root),
-            adapter='codex-exec-v1', input=str(self.root / 'input'), stream_id='test',
+        config = dict(enabled=True, host='codex', cwd=str(self.root),
+            adapter='codex-exec', input=str(self.root / 'input'), stream_id='test',
             store=str(self.store), retention_days=30)
         event = dict(hook_event_name='SessionEnd', cwd=str(self.root))
         self.assertIsNone(hook_collect.command(config, event))

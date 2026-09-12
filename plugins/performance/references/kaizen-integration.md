@@ -24,15 +24,15 @@ kaizen 運転の対照測定（同一入力・独立ドラフト・対発行）�
 比較可能性の土台になる。
 
 **settings に実装の版（commit SHA）を入れない。** 比較器は group の完全一致を要求するので、
-実装版を group に混ぜると「改修前後の比較」が定義上 not_comparable になる（v1 時代の矛盾）。
-変更する実装版は comparison v2 の cohort ごとの `variant`（実装 fingerprint:
-`{digest, computed_at, drift}`、`schema_v2.validate_fingerprint` が形の正本）として渡す。
+実装版を group に混ぜると「改修前後の比較」が定義上 not_comparable になる（旧形式の矛盾）。
+変更する実装版は `mode: "variant"` 比較の cohort ごとの `variant`（実装 fingerprint:
+`{digest, computed_at, drift}`、`run_schema.validate_fingerprint` が形の正本）として渡す。
 group = 固定するもの、variant = 変えるもの、の分離が比較の前提になる（#60 §4）。
 model の資料には alias ではなく**実際に解決されたモデル**を記録する — alias の解決先が
 変わると、同じ資料のまま別条件を比べてしまう。
 
-v1（settings に commit SHA を含む既存 cohort）は観測 source として読める形を維持するが、
-改修前後の比較には使えない。session を推測で skill run に変換して v2 に持ち込むことも
+`mode: "drift"`（settings に実装版を含む固定条件の完全一致で、同一実装の経時劣化を見る比較）は残るが、
+改修前後の比較には使えない。session を推測で skill run に変換して variant 比較に持ち込むことも
 しない（帰属証拠が無い観測は unknown のまま）。
 
 ## sample の作り方

@@ -18,7 +18,7 @@ class CollectionCLITests(unittest.TestCase):
                         ignore=shutil.ignore_patterns("__pycache__"))
         self.store = self.root / "private store"
         self.source = self.root / "SECRET usage.jsonl"
-        self.source.write_text(json.dumps(dict(version=1, source="SECRET", run_id="SECRET",
+        self.source.write_text(json.dumps(dict(source="SECRET", run_id="SECRET",
             call_id="SECRET", input_tokens=100, cached_input_tokens=40, output_tokens=20)) + "\n")
 
     def invoke(self, adapter="normalized", source=None, script="collect.py"):

@@ -30,7 +30,7 @@ def fingerprint(digest):
 
 
 def payload(base_fp="a" * 64, cand_fp="b" * 64, cand_tokens=100):
-    return {"version": 2,
+    return {"mode": "variant",
             "baseline": {"group": group(), "variant": fingerprint(base_fp),
                          "samples": [sample(f"b{i}", 1000) for i in range(3)]},
             "candidate": {"group": group(), "variant": fingerprint(cand_fp),
@@ -52,7 +52,7 @@ class CompareV2Tests(unittest.TestCase):
         data["candidate"]["group"]["settings"] = h("other-settings")
         self.assertEqual(proposals.compare(data)["status"], "not_comparable")
 
-    def test_v2_requires_variant_key(self):
+    def test_variant_mode_requires_variant_key(self):
         data = payload()
         del data["candidate"]["variant"]
         with self.assertRaisesRegex(ValueError, "cohort_schema"):
@@ -60,14 +60,14 @@ class CompareV2Tests(unittest.TestCase):
 
     def test_v1_still_accepts_legacy_cohorts(self):
         data = payload(cand_tokens=1000)
-        data["version"] = 1
+        data["mode"] = "drift"
         for name in ("baseline", "candidate"):
             del data[name]["variant"]
         self.assertEqual(proposals.compare(data)["status"], "no_material_change")
 
     def test_v1_rejects_variant_key(self):
         data = payload()
-        data["version"] = 1
+        data["mode"] = "drift"
         del data["candidate"]["variant"]
         with self.assertRaisesRegex(ValueError, "cohort_schema"):
             proposals.compare(data)

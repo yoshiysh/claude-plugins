@@ -1,14 +1,14 @@
-"""End-to-end usage report over a schema_v2 run. Arithmetic only, no inference.
+"""End-to-end usage report over a run_schema run. Arithmetic only, no inference.
 
 The report never upgrades what it received: an unknown stays null (not zero),
 a failed attempt stays in the totals, the plugin's own overhead is shown next
 to — never inside — the measured skill's usage, and the grand total is labeled
 an observed lower bound whenever any coverage dimension is not complete.
 """
-import schema_v2
+import run_schema
 from measure import require
 
-USAGE_FIELDS = schema_v2.USAGE_FIELDS
+USAGE_FIELDS = run_schema.USAGE_FIELDS
 
 # performance 自身の計測費用を見分ける印。skill identity の plugin 名で引くのは、
 # atom の provider や evidence では「誰のための呼び出しか」が判別できないため。
@@ -25,7 +25,7 @@ def _add(target, usage):
 
 
 def report(run):
-    schema_v2.validate_run(run)
+    run_schema.validate_run(run)
     invocations = {r["invocation_id"]: r for r in run["invocations"]}
 
     per_invocation = {}
@@ -50,8 +50,8 @@ def report(run):
 
     for invocation_id, row in invocations.items():
         per_invocation[invocation_id] = {
-            "exclusive": schema_v2.exclusive_usage(run, invocation_id),
-            "inclusive": schema_v2.inclusive_usage(run, invocation_id),
+            "exclusive": run_schema.exclusive_usage(run, invocation_id),
+            "inclusive": run_schema.inclusive_usage(run, invocation_id),
             "status": row["status"],
             "wall_ms": (row["ended_at"] - row["started_at"])
                        if row["ended_at"] is not None else None,

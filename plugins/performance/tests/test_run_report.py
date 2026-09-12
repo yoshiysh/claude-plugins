@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import report_v2
-import schema_v2
+import run_report
+import run_schema
 
 
 def fingerprint():
@@ -40,7 +40,7 @@ def atom(call, owner, tokens):
 
 def coverage(state="complete", reason=None):
     return {d: {"state": state, "missing_reason": reason}
-            for d in schema_v2.COVERAGE_DIMENSIONS}
+            for d in run_schema.COVERAGE_DIMENSIONS}
 
 
 class ScenarioS5(unittest.TestCase):
@@ -51,7 +51,7 @@ class ScenarioS5(unittest.TestCase):
                "spans": [span("sp-1", "inv-1")],
                "atoms": [atom("c1", "sp-1", 500)],
                "coverage": {"inv-1": cov}, "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["skill_usage"]["input_tokens"], 500)
         self.assertEqual(result["total_label"], "observed_lower_bound")
         self.assertIsNone(result["unobserved_usage"])
@@ -68,7 +68,7 @@ class ScenarioS6(unittest.TestCase):
                "atoms": [atom("c-f", "sp-f", 200), atom("c-s", "sp-s", 300)],
                "coverage": {"inv-f": coverage(), "inv-s": coverage()},
                "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["skill_usage"]["input_tokens"], 500)
         self.assertEqual(result["failure_cost"]["input_tokens"], 200)
         stats = result["attempts"]["-|m|demo|demo|-"]
@@ -85,7 +85,7 @@ class ScenarioS7(unittest.TestCase):
                "atoms": [atom("c-p", "sp-p", 50), atom("c-a", "sp-a", 100),
                          atom("c-f", "sp-f", 70)],
                "coverage": {"inv-1": coverage()}, "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["per_invocation"]["inv-1"]["inclusive"]
                          ["input_tokens"], 220)
         self.assertEqual(result["skill_usage"]["input_tokens"], 220)
@@ -99,7 +99,7 @@ class ScenarioS8(unittest.TestCase):
                "atoms": [atom("c-1", "sp-1", 220), atom("c-o", "sp-o", 40)],
                "coverage": {"inv-1": coverage(), "inv-perf": coverage()},
                "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["skill_usage"]["input_tokens"], 220)
         self.assertEqual(result["overhead_usage"]["input_tokens"], 40)
 
@@ -111,7 +111,7 @@ class ReportContracts(unittest.TestCase):
                "atoms": [atom("c-1", "sp-1", 100),
                          atom("c-shared", None, 999)],
                "coverage": {"inv-1": coverage()}, "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["skill_usage"]["input_tokens"], 100)
         self.assertEqual(result["unattributed_usage"]["input_tokens"], 999)
 
@@ -123,7 +123,7 @@ class ReportContracts(unittest.TestCase):
                "coverage": {"inv-1": coverage(),
                             "inv-2": coverage("unknown", "in_progress")},
                "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["attempts"]["-|m|demo|demo|-"]["success_rate"], 0.5)
 
     def test_child_skill_calls_do_not_inflate_attempts(self):
@@ -140,7 +140,7 @@ class ReportContracts(unittest.TestCase):
                "spans": [], "atoms": [],
                "coverage": {k: coverage() for k in ("inv-p", "c1", "c2", "c3")},
                "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         parent = result["attempts"]["-|m|demo|demo|-"]
         self.assertEqual(parent["attempts"], 1)
         self.assertEqual(parent["success_rate"], 1.0)
@@ -159,7 +159,7 @@ class WorkflowSpanShapes(unittest.TestCase):
                "atoms": [atom("c-p", "sp-p", 50), atom("c-g", "sp-g", 30),
                          atom("c-w", "sp-w", 100), atom("c-f", "sp-f", 70)],
                "coverage": {"inv-1": coverage()}, "evaluations": []}
-        result = report_v2.report(run)
+        result = run_report.report(run)
         self.assertEqual(result["skill_usage"]["input_tokens"], 250)
         self.assertEqual(result["per_invocation"]["inv-1"]["inclusive"]
                          ["input_tokens"], 250)
