@@ -104,5 +104,43 @@ class Fingerprint(unittest.TestCase):
             self.assertNotEqual(host_capture.fingerprint_skill_dir(d, 1), one)
 
 
+class Notification(unittest.TestCase):
+    def _queue(self, d):
+        import proposals
+        store = Path(d) / "data" / "proposals"
+        store.parent.mkdir(parents=True, mode=0o700)
+        store.mkdir(mode=0o700)
+        result = {"status": "candidate", "fingerprint": "f" * 64,
+                  "evidence": "e" * 64, "reason": "verify_reduction",
+                  "before": {"tokens": 100, "duration_ms": 10},
+                  "after": {"tokens": 50, "duration_ms": 5}}
+        proposals.update(str(store), result, now=1000)
+
+    def test_presents_once_then_cooldown(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "data"
+            self._queue(d)
+            first = native_hook.present_notification(root, 10000)
+            self.assertIn("pending", first)
+            self.assertIsNone(native_hook.present_notification(root, 10001))
+            again = native_hook.present_notification(
+                root, 10001 + native_hook.PRESENT_COOLDOWN_S)
+            self.assertIn("pending", again)
+
+    def test_empty_queue_prints_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(native_hook.present_notification(
+                Path(d) / "data", 10000))
+
+    def test_presentation_does_not_mutate_queue(self):
+        import proposals
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "data"
+            self._queue(d)
+            native_hook.present_notification(root, 10000)
+            outcome = proposals.update(str(root / "proposals"), now=20000)
+            self.assertEqual(outcome["pending_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

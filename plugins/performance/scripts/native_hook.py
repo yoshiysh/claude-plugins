@@ -136,6 +136,42 @@ def select_source(host, event, policies):
     return None
 
 
+# 提示の再掲間隔。応答境界ごとに同じ候補を出すと通知が壁紙化するので、提示自体にも
+# 間隔を置く（dismiss/defer は queue 側の状態で別管理）。1 日は「次の作業セッションで
+# もう一度見える」最短の粒度。
+PRESENT_COOLDOWN_S = 86400
+
+
+def present_notification(root, now_s):
+    """pending の改善候補を最大 1 件、1 行で返す（無ければ None）。
+
+    UserPromptSubmit の stdout は host が Claude の文脈に足すので、これが
+    「通常の応答境界での提示」の実体になる。読むだけ — queue の状態は変えない
+    （dismiss/defer はユーザーの指示で proposals.py CLI が行う）。
+    """
+    import proposals
+    store = root / "proposals"
+    if not store.is_dir():
+        # queue が一度も作られていない = 提示するものが無い。存在しない store を
+        # ここで作らない（作るのは queue に書く側の仕事）。
+        return None
+    with transaction(store, proposals.initial, proposals.validate,
+                     readonly=True) as state:
+        pending = [r for r in state["items"] if r["state"] == "pending"]
+    if not pending:
+        return None
+    item = pending[0]
+    marker = root / "presented"
+    prepare(marker)
+    stamp = marker / (item["fingerprint"] + ".at")
+    if stamp.exists() and now_s - int(stamp.read_text()) < PRESENT_COOLDOWN_S:
+        return None
+    stamp.write_text(str(now_s))
+    return ("[performance] 改善候補が 1 件 pending です（reason: " + item["reason"]
+            + ", fingerprint: " + item["fingerprint"][:12] + "…）。"
+            + "詳細は proposals.py list、却下/保留は dismiss/defer。")
+
+
 def hook():
     # Codex documents PLUGIN_ROOT; both hosts document CLAUDE_PLUGIN_ROOT.
     host = "codex" if os.environ.get("PLUGIN_ROOT") else "claude"
@@ -146,6 +182,11 @@ def hook():
         if not any(p["enabled"] and p["host"] == host for p in policies):
             return
         event = payload()
+        if event.get("hook_event_name") == "UserPromptSubmit":
+            import time
+            line = present_notification(root, int(time.time()))
+            if line:
+                print(line)
         if dispatch_policy(host, event, policies):
             import time
             record_dispatch(event, root, int(time.time() * 1000))

@@ -17,7 +17,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 | child_linkage | 子実行（subagent・子 skill）が親に紐づく | b（`parent_invocation_id` 申告の投影のみ） | c |
 | terminal_event | 実行の終了と status が観測できる | b（`skill_end` イベントの投影のみ） | b（codex-exec adapter の turn 終端） |
 | usage | call 単位の usage delta が取れる | a（native transcript の実捕捉 — 既存 ledger） | a（cumulative snapshot の delta 化 — 既存 ledger） |
-| notification | 改善候補をホストの応答境界で提示できる | b（queue に残す。応答境界への表示は未実装） | c（queue に残すのみ） |
+| notification | 改善候補をホストの応答境界で提示できる | a（UserPromptSubmit hook の stdout 注入で pending 1 件を提示。提示間隔 1 日、queue の状態は読むだけで変えない） | c（queue に残すのみ） |
 
 ## 帰属の縮退規則
 
