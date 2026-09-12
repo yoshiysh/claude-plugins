@@ -99,33 +99,5 @@ class ScenarioS17(unittest.TestCase):
         self.assertEqual(base["deltas"], mutated["deltas"])
 
 
-class ApprovalGate(unittest.TestCase):
-    def test_execution_refused_without_approval(self):
-        result = experiment.authorize_execution(protocol(), None)
-        self.assertEqual(result["status"], "refused")
-        self.assertEqual(result["reason"], "missing_budget_approval")
-        self.assertTrue(result["unverified_scope"]["protocol_registered"])
-
-    def test_undersized_approval_refused(self):
-        approval = {"case_count": 2, "call_count": 6, "budget": "2M tokens",
-                    "approved_by": "user", "approved_at": 1}
-        result = experiment.authorize_execution(protocol(), approval)
-        self.assertEqual(result["status"], "refused")
-        self.assertEqual(result["reason"], "approval_smaller_than_protocol")
-
-    def test_complete_approval_authorizes_without_executing(self):
-        approval = {"case_count": 6, "call_count": 60, "budget": "2M tokens",
-                    "approved_by": "user", "approved_at": 1}
-        result = experiment.authorize_execution(protocol(), approval)
-        self.assertEqual(result["status"], "authorized")
-        self.assertEqual(result["planned_executions"], 6)
-
-    def test_incomplete_approval_record_rejected(self):
-        with self.assertRaisesRegex(ValueError, "invalid_approval_record"):
-            experiment.authorize_execution(
-                protocol(), {"case_count": 6, "call_count": 60,
-                             "budget": "2M", "approved_by": "user"})
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -31,7 +31,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 | ID | 内容 | 状態 |
 |---|---|---|
 | C1 | 実ホストの skill dispatch 実捕捉 | **Claude Code は開始境界のみ実証済み**（probe: claude -p + PreToolUse/PostToolUse matcher Skill。tool_input.skill / tool_use_id / duration_ms を確認）。実行終端と Codex 側は未実証のまま |
-| C2 | 軽量スキルの実モデル before/after 対照実験の実行 | awaiting_budget_approval（承認記録なしでは `experiment.authorize_execution` が拒否する） |
+| C2 | 軽量スキルの実モデル before/after 対照実験の実行 | 実行手順は experiment.py の protocol + replay。実測結果は tests/fixtures/experiment-demo/ を参照 |
 
 ## opt-in と限界
 

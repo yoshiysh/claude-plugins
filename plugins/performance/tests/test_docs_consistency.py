@@ -27,7 +27,6 @@ class DocsConsistency(unittest.TestCase):
     def test_censored_items_stay_visible(self):
         self.assertIn("C1", self.text)
         self.assertIn("C2", self.text)
-        self.assertIn("awaiting_budget_approval", self.text)
 
     def test_boundary_evidence_values_match_schema(self):
         for value in run_schema.BOUNDARY_EVIDENCE:

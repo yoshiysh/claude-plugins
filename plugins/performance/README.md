@@ -79,8 +79,7 @@ Codexでは `/hooks` の信頼承認が別途必要です。各projectの設定�
   sample の全フィールドが固定規則で決まり、手組みが不要）
 - 比較・提案: `scripts/proposals.py` の variant 比較（固定条件 group と実装
   fingerprint variant の分離、理由コード付き拒否、investigate_only への降格）
-- 対照実験: `scripts/experiment.py`（事前登録・recorded fixture の replay・
-  承認記録なしの実モデル実行は拒否）
+- 対照実験: `scripts/experiment.py`（事前登録 protocol と recorded run の決定的 replay）
 - ホスト能力の対応状況と限界: [host-capabilities.md](references/host-capabilities.md)
 
 ## 計測手順（旧 SKILL.md の正本）
