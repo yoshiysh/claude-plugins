@@ -3,9 +3,9 @@ export const meta = {
   description:
     'PDCA の Do/Check 区間（成果物の作成 → 対制御条件で反復実行 → 独立検証 → 機序分析 → 較正）を決定的に実行する',
   phases: [
-    { title: 'Build', detail: 'Plan の実行計画どおりに作り、測定点を埋め込む' },
-    { title: 'Measure', detail: '条件×反復ごとに実行し、別 agent が自己申告を使わず検証する' },
-    { title: 'Analyze', detail: '結果差の機序を builder とは別 agent が分析する' },
+    { title: 'Build', detail: 'Plan の実行計画どおりに作り、測定点を埋め込む（作った物は別 agent が measurement 契約と照合する）' },
+    { title: 'Measure', detail: '条件×反復ごとに実行し、視点の異なる複数の検証者が自己申告を使わず検証する' },
+    { title: 'Analyze', detail: '結果差の機序を独立した 2 名が出し、突き合わせの帰結を script が決める' },
   ],
 }
 
@@ -31,6 +31,30 @@ const MAX_CONDITIONS = 6
 // 当たった場合は「backstop 停止」であって「十分に回した」ではない。args.maxCycles で上書き可。
 const DEFAULT_MAX_CYCLES = 5
 
+// MAX_BUILD_REVISIONS: build-verifier の findings を受けて builder が作り直せる回数。
+// 2 回直して契約を満たさない harness は、Plan の measurement 自体が作れない要求に
+// なっている可能性が高く、run を発行しても測れない。境界で止めて Plan に戻す。
+const MAX_BUILD_REVISIONS = 2
+
+// VERIFY_LENSES: 1 run に当てる検証の視点。1 人に全部見せると、その 1 人が持っていない
+// 失敗様式が素通りする。criteria=基準充足、authenticity=run が主張どおり実行されたか、
+// contract=書かれた検証が実施されたか。score を返すのは criteria だけ（3 者が別々に点を
+// 付けると、どれを成績に使うかという裁量が生まれる）。
+const VERIFY_LENSES = ['criteria', 'authenticity', 'contract']
+
+// FULL_LENS_RUN_BUDGET: 全 run に 3 レンズを当てるのは run 数 × 3 の agent になる。
+// 発行 run がこれを超えたら、authenticity / contract は各条件の先頭 run だけに絞る
+// （条件ごとに最低 1 本は真正性と契約実施が見られる状態を保ちつつ、総数を線形に抑える）。
+// 6 は「2 条件 × 3 反復」= 機序を主張できる最小構成がちょうど収まる値。
+const FULL_LENS_RUN_BUDGET = 6
+
+// MECHANISM_ANALYSTS: 独立に機序を出す分析者の数。**2 で固定**で、可変にしていない
+// （下の突き合わせは A/B の 1 対 1 対応として定義されており、3 以上では未定義）。2 なのは、
+// 片方だけが言った機序を「単独出所」として区別できる最小構成だから。3 以上にすると多数決を
+// 持ち込むことになり、「2 人が見落とした欠陥を 1 人が見つけた」場合を捨てる規則が要る。
+const MECHANISM_ANALYSTS = 2
+const ANALYST_SEATS = ['A', 'B']
+
 const RUN_RECORD_SCHEMA = {
   type: 'object',
   required: ['condition_id', 'run_index', 'executed', 'observations'],
@@ -53,7 +77,10 @@ const VERIFY_SCHEMA = {
   properties: {
     condition_id: { type: 'string' },
     run_index: { type: 'number' },
+    lens: { type: 'string' },
     measured: { type: 'boolean' },
+    refs: { type: 'array', items: { type: 'number' } },
+    why_resolution_insufficient: { type: 'string' },
     unmeasured_reason: { type: 'string' },
     score: { type: 'number' },
     criteria_checks: {
@@ -106,6 +133,54 @@ const BUILD_SCHEMA = {
     measurement_points: { type: 'array', items: { type: 'string' } },
     shared_state_warnings: { type: 'array', items: { type: 'string' } },
     notes: { type: 'string' },
+  },
+}
+
+const BUILD_REVIEW_SCHEMA = {
+  type: 'object',
+  required: ['verdict', 'findings'],
+  properties: {
+    verdict: { type: 'string', enum: ['pass', 'revise'] },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['lens', 'severity', 'claim', 'why_it_breaks_measurement'],
+        properties: {
+          lens: { type: 'string' },
+          severity: { type: 'string', enum: ['blocker', 'major', 'minor'] },
+          claim: { type: 'string' },
+          why_it_breaks_measurement: { type: 'string' },
+          what_would_make_it_measurable: { type: 'string' },
+          refs: { type: 'array', items: { type: 'number' } },
+          why_resolution_insufficient: { type: 'string' },
+        },
+      },
+    },
+    non_findings: { type: 'array', items: { type: 'string' } },
+  },
+}
+
+// arbiter が返せるのは index の対応だけ。文言を返せるようにすると、統合の過程で
+// どちらの analyst も観測していない機序が生まれる経路ができる。
+const ARBITER_SCHEMA = {
+  type: 'object',
+  required: ['pairs'],
+  properties: {
+    pairs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['a', 'b'],
+        properties: {
+          a: { type: 'number' },
+          b: { type: 'number' },
+          why_same: { type: 'string' },
+        },
+      },
+    },
+    unpaired_a: { type: 'array', items: { type: 'number' } },
+    unpaired_b: { type: 'array', items: { type: 'number' } },
   },
 }
 
@@ -219,6 +294,37 @@ if (requestedRuns > MAX_RUNS_PER_CONDITION) {
 }
 const maxRuns = budget && typeof budget === 'object' ? Number(budget.maxRuns) || null : null
 
+// ledger は「この run で今までに何が決まったか」。省略時は空（初周・既存 caller の互換）。
+// 中身は scripts/ledger.py read の出力をそのまま渡す。書くのはこの script で、agent は読むだけ。
+const ledger = Array.isArray(parsedArgs.ledger) ? parsedArgs.ledger : []
+const ledgerEntries = []
+const resolvedSeqs = ledger.filter((e) => e.type === 'resolution').map((e) => e.seq)
+
+// verifier には裁定と findings だけを見せ、do_run / check（前周の score）は渡さない。
+const VERIFIER_LEDGER_TYPES = ['resolution', 'review_v']
+
+function ledgerText(types) {
+  const visible = types ? ledger.filter((e) => types.includes(e.type)) : ledger
+  if (!visible.length) return '[LEDGER]: (この run ではまだ記録がありません)'
+  return `[LEDGER]（読んでから書くこと。裁定済み（type: resolution）の論点を再提起するなら、その seq を refs に入れ、why_resolution_insufficient を書く）:\n${JSON.stringify(visible, null, 2)}`
+}
+
+function record(type, phaseName, summary, payload, refs) {
+  ledgerEntries.push({ type, phase: phaseName, summary, payload: payload || {}, refs: refs || [] })
+}
+
+// 参照の無い再提起はラベルを付けるだけで、落とさず severity も下げない。自動で消す経路は
+// 「生成物への異論を生成側の都合で消せる」構図になり、生成と検証の不変条件に反する。
+function labelRelitigation(findings) {
+  return (findings || []).map((f) => ({
+    ...f,
+    relitigated_without_reference:
+      resolvedSeqs.length > 0 &&
+      !(Array.isArray(f.refs) && f.refs.some((r) => resolvedSeqs.includes(r))) &&
+      !String(f.why_resolution_insufficient || '').trim(),
+  }))
+}
+
 function roleAgent(file, body, opts) {
   return agent(
     [
@@ -235,42 +341,113 @@ function roleAgent(file, body, opts) {
 
 phase('Build')
 
-const build = await roleAgent(
-  'builder.md',
-  [
-    `[PLAN]:\n${plan}`,
-    `[FIXED_ACROSS_CONDITIONS]:\n${fixed}`,
-    `[CONDITIONS]:\n${JSON.stringify(conditions, null, 2)}`,
-    revisionDiffs.length
-      ? `[REVISION_DIFFS]（前周の機序に対応する差分。これ以外を変更しないこと）:\n${revisionDiffs
-          .map((d, i) => `${i + 1}. ${d}`)
-          .join('\n')}`
-      : '',
-    previous
-      ? `[PREVIOUS_ARTIFACTS]（前周の成果物。これを土台にし、REVISION_DIFFS 以外は変えない）:\n${previous.artifacts.join('\n')}`
-      : '',
-    previous && previous.mechanisms
-      ? `[PREVIOUS_MECHANISMS]:\n${JSON.stringify(previous.mechanisms, null, 2)}`
-      : '',
-    '成果物を作り、Plan の測定方法が測れるよう測定点を埋め込むこと。' +
-      '採点はしない（採点は別 agent の仕事で、作った本人の自己申告は使わない）。',
-  ]
-    .filter(Boolean)
-    .join('\n\n'),
-  { model: 'opus', phase: 'Build', label: 'builder', schema: BUILD_SCHEMA }
-)
+// builder → build-verifier の until-pass ループ。run は 1 本ごとに予算を食うので、
+// 測定点が Plan の契約を満たしていない harness で全 run を回すのが最も高くつく失敗になる。
+// 作った本人が「測れる」と宣言して先へ進む経路をここで塞ぐ。
+let build = null
+let buildReview = null
+const buildAttempts = []
 
-if (!build) {
-  return {
-    status: 'BLOCKED',
-    reason: 'builder が結果を返しませんでした。',
-    evidence: '停止または API エラーの可能性があります。成果物が無い状態で測定へ進めません。',
+for (let attempt = 0; attempt <= MAX_BUILD_REVISIONS; attempt++) {
+  build = await roleAgent(
+    'builder.md',
+    [
+      `[PLAN]:\n${plan}`,
+      `[FIXED_ACROSS_CONDITIONS]:\n${fixed}`,
+      `[CONDITIONS]:\n${JSON.stringify(conditions, null, 2)}`,
+      ledgerText(),
+      revisionDiffs.length
+        ? `[REVISION_DIFFS]（前周の機序に対応する差分。これ以外を変更しないこと）:\n${revisionDiffs
+            .map((d, i) => `${i + 1}. ${d}`)
+            .join('\n')}`
+        : '',
+      previous
+        ? `[PREVIOUS_ARTIFACTS]（前周の成果物。これを土台にし、REVISION_DIFFS 以外は変えない）:\n${previous.artifacts.join('\n')}`
+        : '',
+      previous && previous.mechanisms
+        ? `[PREVIOUS_MECHANISMS]:\n${JSON.stringify(previous.mechanisms, null, 2)}`
+        : '',
+      buildReview
+        ? `[BUILD_FINDINGS]（前回の成果物への照合結果。blocker/major は全件解消すること）:\n${JSON.stringify(buildReview.findings, null, 2)}`
+        : '',
+      '成果物を作り、Plan の測定方法が測れるよう測定点を埋め込むこと。' +
+        '採点はしない（採点は別 agent の仕事で、作った本人の自己申告は使わない）。',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    { model: 'opus', phase: 'Build', label: `builder#${attempt + 1}`, schema: BUILD_SCHEMA }
+  )
+
+  if (!build) {
+    return {
+      status: 'BLOCKED',
+      reason: 'builder が結果を返しませんでした。',
+      evidence: '停止または API エラーの可能性があります。成果物が無い状態で測定へ進めません。',
+      ledger_entries: ledgerEntries,
+    }
   }
-}
 
-log(`成果物 ${build.artifacts.length} 件 / 測定点 ${build.measurement_points.length} 件`)
-if (build.shared_state_warnings && build.shared_state_warnings.length) {
-  log(`条件間で共有される恐れのある状態: ${build.shared_state_warnings.join(' / ')}`)
+  log(`成果物 ${build.artifacts.length} 件 / 測定点 ${build.measurement_points.length} 件`)
+  if (build.shared_state_warnings && build.shared_state_warnings.length) {
+    log(`条件間で共有される恐れのある状態: ${build.shared_state_warnings.join(' / ')}`)
+  }
+  record('build', 'Build', `成果物 ${build.artifacts.length} 件 / 測定点 ${build.measurement_points.length} 件（${attempt + 1} 回目）`, {
+    attempt: attempt + 1,
+    artifacts: build.artifacts,
+    measurement_points: build.measurement_points,
+    shared_state_warnings: build.shared_state_warnings || [],
+  })
+
+  buildReview = await roleAgent(
+    'build-verifier.md',
+    [
+      `[PLAN_MEASUREMENT]:\n${plan}`,
+      `[SUCCESS_CRITERIA]:\n${successCriteria}`,
+      `[CONDITIONS]:\n${JSON.stringify(conditions, null, 2)}`,
+      `[ARTIFACTS]:\n${build.artifacts.join('\n')}`,
+      `[MEASUREMENT_POINTS]:\n${build.measurement_points.join('\n')}`,
+      `[SHARED_STATE_WARNINGS]:\n${(build.shared_state_warnings || []).join('\n') || '(申告なし)'}`,
+      revisionDiffs.length
+        ? `[REVISION_DIFFS]:\n${revisionDiffs.map((d, i) => `${i + 1}. ${d}`).join('\n')}`
+        : '',
+      ledgerText(),
+      '成果物を自分で開いて、この harness で successCriteria が測れるかを照合すること。直さないこと。',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    { model: 'opus', phase: 'Build', label: `build-verify#${attempt + 1}`, schema: BUILD_REVIEW_SCHEMA }
+  )
+
+  if (!buildReview) {
+    return {
+      status: 'BLOCKED',
+      reason: 'build-verifier が結果を返しませんでした。',
+      evidence:
+        '成果物が measurement 契約を満たすか未確認のまま run を発行すると、測れない harness で予算を使い切ります。',
+      ledger_entries: ledgerEntries,
+    }
+  }
+
+  buildReview.findings = labelRelitigation(buildReview.findings)
+  const hardBuild = buildReview.findings.filter((f) => f.severity !== 'minor')
+  buildAttempts.push({ attempt: attempt + 1, verdict: buildReview.verdict, blockers_majors: hardBuild.length })
+  log(`成果物の照合 ${attempt + 1} 回目: ${buildReview.verdict}（blocker/major ${hardBuild.length} 件）`)
+  record('build_review', 'Build', `build-verifier ${attempt + 1} 回目: ${buildReview.verdict}（blocker/major ${hardBuild.length} 件）`, {
+    verdict: buildReview.verdict,
+    findings: buildReview.findings,
+  })
+
+  if (buildReview.verdict === 'pass' && hardBuild.length === 0) break
+
+  if (attempt === MAX_BUILD_REVISIONS) {
+    return {
+      status: 'BLOCKED',
+      reason: `成果物が ${MAX_BUILD_REVISIONS + 1} 回の照合で measurement 契約を満たしませんでした。`,
+      evidence: JSON.stringify(buildReview.findings.filter((f) => f.severity !== 'minor'), null, 2),
+      build_attempts: buildAttempts,
+      ledger_entries: ledgerEntries,
+    }
+  }
 }
 
 // ------------------------------------------------------------------ Measure
@@ -296,6 +473,20 @@ if (maxRuns !== null && runUnits.length > maxRuns) {
   }
 }
 log(`周回 ${cycle}/${MAX_CYCLES} / 条件 ${conditions.length} × 反復 ${runsPerCondition} = ${runUnits.length} run を実行します`)
+
+// レンズの縮退: 全 run に 3 レンズを当てると agent 数が run × 3 になる。発行 run が
+// FULL_LENS_RUN_BUDGET を超えたら、authenticity / contract は各条件の先頭 run だけに絞る。
+// 条件ごとに最低 1 本は真正性と契約実施が見られる状態は保つ。落としたことは黙らせない。
+const lensDegraded = runUnits.length > FULL_LENS_RUN_BUDGET
+function lensesFor(unit) {
+  if (!lensDegraded || unit.index === 1) return VERIFY_LENSES
+  return ['criteria']
+}
+if (lensDegraded) {
+  const note = `発行 ${runUnits.length} run が ${FULL_LENS_RUN_BUDGET} を超えたため、authenticity / contract レンズは各条件の 1 run 目のみに縮退`
+  truncations.push(note)
+  log(`上限により縮退: ${note}`)
+}
 
 const measured = await pipeline(runUnits, async (unit) => {
   const tag = `${unit.cond.id}#${unit.index}`
@@ -324,26 +515,103 @@ const measured = await pipeline(runUnits, async (unit) => {
   if (!record) return null
 
   // verifier には Plan ではなく successCriteria と観測記録だけを渡す。採用案への期待が
-  // 見えていると、期待に沿う読み方で採点できてしまう。
-  const verdict = await roleAgent(
-    'verifier.md',
-    [
-      `[SUCCESS_CRITERIA]:\n${successCriteria}`,
-      `[CONDITION_ID]: ${unit.cond.id}`,
-      `[RUN_INDEX]: ${unit.index}`,
-      `[ARTIFACTS]:\n${build.artifacts.join('\n')}`,
-      `[RUN_OBSERVATIONS]:\n${record.observations}`,
-      `[RAW_MEASUREMENTS]:\n${record.raw_measurements || '(なし)'}`,
-      '成果物と測定点を自分で確かめて採点すること。実行側の「できた」という申告は根拠にしない。' +
-        '確かめられなかった場合は measured=false と理由を返し、score を推定で埋めないこと。' +
-        '欠測を 0 点として混ぜると、測れなかったことが実測の劣位に化ける。',
-    ].join('\n\n'),
-    { model: 'sonnet', phase: 'Measure', label: `verify ${tag}`, schema: VERIFY_SCHEMA }
+  // 見えていると、期待に沿う読み方で採点できてしまう。レンズごとに別の agent が立つので、
+  // 1 人が持っていない失敗様式（実行の真正性・契約検証の未実施）が素通りしない。
+  const lenses = lensesFor(unit)
+  const lensPrompt = {
+    criteria: '成功基準を満たしたかを判定し、[METRIC] の実測値を score に入れること。',
+    authenticity:
+      'この run が主張どおりに実行されたかだけを判定すること。成果物・ログ・生の測定値・条件 id の' +
+      '辻褄が合わない、別条件の産物が混ざっている、実行の痕跡が無い場合は measured=false。score は返さない。',
+    contract:
+      '[SUCCESS_CRITERIA] に宣言された検証（突合・照合・再取得）が実施されたかだけを判定すること。' +
+      '実施の痕跡が無い検査を met=true にしない。score は返さない。',
+  }
+
+  const rawVerdicts = await parallel(
+    lenses.map((lens) => () =>
+      roleAgent(
+          'verifier.md',
+          [
+            `[SUCCESS_CRITERIA]:\n${successCriteria}`,
+            `[LENS]: ${lens}`,
+            `[CONDITION_ID]: ${unit.cond.id}`,
+            `[RUN_INDEX]: ${unit.index}`,
+            `[ARTIFACTS]:\n${build.artifacts.join('\n')}`,
+            `[RUN_OBSERVATIONS]:\n${record.observations}`,
+            `[RAW_MEASUREMENTS]:\n${record.raw_measurements || '(なし)'}`,
+            `[ANOMALIES]:\n${(record.anomalies || []).join('\n') || '(なし)'}`,
+            // verifier に見せる ledger は resolution / review_v だけ。do_run / check には
+            // 前周の score が載っており、見えていると期待に沿う読み方で採点できてしまう
+            // （verifier に Plan を見せないのと同じ理由を、別経路で塞ぐ）。
+            ledgerText(VERIFIER_LEDGER_TYPES),
+            lensPrompt[lens],
+            '成果物と測定点を自分で確かめること。実行側の「できた」という申告は根拠にしない。' +
+              '確かめられなかった場合は measured=false と理由を返し、score を推定で埋めないこと。' +
+              '欠測を 0 点として混ぜると、測れなかったことが実測の劣位に化ける。',
+          ].join('\n\n'),
+        { model: 'sonnet', phase: 'Measure', label: `verify ${tag} [${lens}]`, schema: VERIFY_SCHEMA }
+      )
+    )
   )
 
-  if (!verdict) return null
+  // レンズの帰属は dispatch 側が持つ。agent の自己申告（返り値の lens）に任せると、
+  // 申告漏れや取り違えで authenticity の返り値が criteria として扱われ、score の無い判定が
+  // 成績の位置に入る（結果は「measured だが score 欠落」という、正直な欠測に見える消え方）。
+  // filter の前に zip するのは、1 本が null を返した時点で位置の対応が壊れるため。
+  const verdicts = lenses
+    .map((lens, i) => (rawVerdicts[i] ? { ...rawVerdicts[i], lens } : null))
+    .filter(Boolean)
 
-  return { condition: unit.cond, index: unit.index, record, verdict }
+  if (!verdicts.length) return null
+
+  // 集計は script の算術。measured は適用した全レンズの一致（過半数ではない —
+  // レンズは別々の失敗様式を見ているので、多数決は「2 人が見ていない欠陥を 1 人が
+  // 見つけた」ケースを捨てる）。score は criteria レンズの値だけを使う。
+  const byLens = {}
+  for (const v of verdicts) byLens[v.lens] = v
+  // criteria レンズが落ちた run は「測れた」と言えない。他レンズの返り値を代わりに使うと、
+  // score を返さない契約の判定が成績の位置に入る。
+  const criteriaVerdict = byLens.criteria || null
+  const appliedLenses = verdicts.map((v) => v.lens)
+  const dissenting = verdicts.filter((v) => v.measured !== true)
+  const measuredAll = !!criteriaVerdict && verdicts.every((v) => v.measured === true)
+
+  const verdict = {
+    condition_id: unit.cond.id,
+    run_index: unit.index,
+    measured: measuredAll,
+    unmeasured_reason: measuredAll
+      ? undefined
+      : [
+          criteriaVerdict ? '' : 'criteria: このレンズの検証が返らなかった（score の出所が無い）',
+          ...dissenting.map(
+            (v) => `${v.lens}: ${v.unmeasured_reason || '(理由の記載なし)'}`
+          ),
+        ]
+          .filter(Boolean)
+          .join(' / '),
+    score: measuredAll ? criteriaVerdict.score : undefined,
+    criteria_checks: verdicts.flatMap((v) =>
+      (v.criteria_checks || []).map((c) => ({ ...c, lens: v.lens }))
+    ),
+    failure_mechanism_hint: verdicts
+      .map((v) => v.failure_mechanism_hint)
+      .filter(Boolean)
+      .join(' / '),
+    self_report_used: verdicts.some((v) => v.self_report_used === true),
+    lenses_applied: appliedLenses,
+    // レンズ間で判定が割れた事実は、平均に丸めず残す。割れたこと自体が測定設計の情報。
+    lens_disagreement:
+      dissenting.length > 0 && dissenting.length < verdicts.length
+        ? verdicts.map((v) => ({ lens: v.lens, measured: v.measured === true }))
+        : null,
+    relitigated_without_reference: labelRelitigation(verdicts).some(
+      (v) => v.relitigated_without_reference
+    ),
+  }
+
+  return { condition: unit.cond, index: unit.index, record, verdict, lens_verdicts: verdicts }
 })
 
 const results = measured.filter(Boolean)
@@ -353,6 +621,7 @@ if (!results.length) {
     status: 'BLOCKED',
     reason: '検証済みの run が 1 件もありません。',
     evidence: `発行 ${runUnits.length} run。停止・API エラー・実行不能のいずれかです。`,
+    ledger_entries: ledgerEntries,
   }
 }
 
@@ -398,8 +667,24 @@ const perCondition = conditions.map((cond) => {
     mean_score: mean(scores),
     spread: spread(scores),
     self_report_used: ok.some((r) => r.verdict.self_report_used === true),
+    // レンズ間で measured が割れた run。成績には出ないが、割れたこと自体が測定設計の情報。
+    lens_disagreements: mine
+      .filter((r) => r.verdict.lens_disagreement)
+      .map((r) => ({ run_index: r.index, lenses: r.verdict.lens_disagreement })),
   }
 })
+
+for (const r of results) {
+  record('do_run', 'Measure', `${r.condition.id}#${r.index}: ${r.verdict.measured ? `score=${r.verdict.score}` : '未測定'}`, {
+    condition_id: r.condition.id,
+    run_index: r.index,
+    measured: r.verdict.measured,
+    score: r.verdict.score ?? null,
+    lenses_applied: r.verdict.lenses_applied,
+    lens_disagreement: r.verdict.lens_disagreement,
+    unmeasured_reason: r.verdict.unmeasured_reason || null,
+  })
+}
 
 for (const c of perCondition) {
   if (c.returned < c.issued) {
@@ -410,6 +695,9 @@ for (const c of perCondition) {
   }
   if (c.unscored.length) {
     log(`${c.condition_id}: 測定済みだが score 欠落の run ${c.unscored.length} 件（成績に混ぜていません）`)
+  }
+  if (c.lens_disagreements.length) {
+    log(`${c.condition_id}: 検証レンズ間で判定が割れた run ${c.lens_disagreements.length} 件`)
   }
 }
 
@@ -439,8 +727,9 @@ phase('Analyze')
 
 // 機序分析は builder と別 agent・別モデル系統で行う。作った本人は自分の設計意図を
 // 機序として書きやすく、実際に起きたことと区別がつかなくなる。
-const analysis = await roleAgent(
-  'mechanism-analyst.md',
+// さらに MECHANISM_ANALYSTS 名が互いの出力を見ないまま独立に立つ。1 人だけが言った機序を
+// 「単独出所」として区別できないと、1 人の思い込みが identified として次の周の差分を決める。
+const analystPrompt = (seat) =>
   [
     `[SUCCESS_CRITERIA]:\n${successCriteria}`,
     `[PER_CONDITION_STATS]:\n${JSON.stringify(perCondition, null, 2)}`,
@@ -453,6 +742,8 @@ const analysis = await roleAgent(
         anomalies: r.record.anomalies || [],
         measured: r.verdict.measured,
         criteria_checks: r.verdict.criteria_checks,
+        lenses_applied: r.verdict.lenses_applied,
+        lens_disagreement: r.verdict.lens_disagreement,
         failure_mechanism_hint: r.verdict.failure_mechanism_hint || null,
       })),
       null,
@@ -461,23 +752,131 @@ const analysis = await roleAgent(
     previous && previous.mechanisms
       ? `[PREVIOUS_MECHANISMS]（前周までに挙がった機序。novelty 判定に使う）:\n${JSON.stringify(previous.mechanisms, null, 2)}`
       : '[PREVIOUS_MECHANISMS]: (初周のため無し。全機序が new: true)',
+    ledgerText(),
+    `[SEAT]: ${seat}（同じ入力で別の分析者が独立に立っている。相手の出力は渡らないし、` +
+      'あなたの出力も相手には渡らない。相手に寄せず、観測から独立に組み立てること）',
     '点数の要約ではなく、なぜその差が出たのかを述べること。' +
       '各機序に対して、それが外れる場合の別説明を必ず併記すること。' +
       '別説明を潰せていない機序は identified=false とすること。' +
       'さらに、測定指標がそもそも Plan の主張を捉えていたか（criteria_validity）と、' +
       '測れていないもの（unmeasured）を分けて返すこと。' +
       '各機序に new（この周で初めて立ったか）と、前提の不成立を示す場合は premise_defect を付けること。',
-  ].join('\n\n'),
-  { model: 'opus', phase: 'Analyze', label: 'mechanism-analyst', schema: MECHANISM_SCHEMA }
-)
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
-if (!analysis) {
+const analyses = (
+  await parallel(
+    Array.from({ length: MECHANISM_ANALYSTS }, (_, i) => () =>
+      roleAgent('mechanism-analyst.md', analystPrompt(ANALYST_SEATS[i]), {
+        model: 'opus',
+        phase: 'Analyze',
+        label: `mechanism-analyst ${ANALYST_SEATS[i]}`,
+        schema: MECHANISM_SCHEMA,
+      })
+    )
+  )
+).filter(Boolean)
+
+if (!analyses.length) {
   return {
     status: 'BLOCKED',
     reason: '機序分析が返りませんでした。',
     evidence: `検証済み run は ${results.length} 件あります。点数だけで Act を決めると、` +
       '次の周の差分が機序に紐づかなくなります。',
+    ledger_entries: ledgerEntries,
   }
+}
+
+// 突き合わせ: 対応付けは arbiter の判断（文の同一性を閾値で決めると、未較正の数値が
+// 採否を左右する）。その帰結（identified を維持するか単独出所に落とすか）は script の規則。
+// arbiter は index しか返せないので、どちらの analyst も出していない機序は入り込まない。
+const primary = analyses[0]
+const secondary = analyses.length > 1 ? analyses[1] : null
+let mechanisms
+let corroborationNote
+
+if (!secondary) {
+  // 片方が落ちた場合。独立の確認が取れていないので、identified は維持しない。
+  mechanisms = (primary.mechanisms || []).map((m) => ({
+    ...m,
+    identified: false,
+    corroboration: 'single_source',
+  }))
+  corroborationNote = '機序分析が 1 名しか返らなかったため、全機序を単独出所として identified: false に落としています'
+} else {
+  const pairing = await roleAgent(
+    'mechanism-arbiter.md',
+    [
+      `[ANALYST_A_MECHANISMS]:\n${JSON.stringify(
+        (primary.mechanisms || []).map((m, i) => ({ index: i, ...m })),
+        null,
+        2
+      )}`,
+      `[ANALYST_B_MECHANISMS]:\n${JSON.stringify(
+        (secondary.mechanisms || []).map((m, i) => ({ index: i, ...m })),
+        null,
+        2
+      )}`,
+      '同じ因果を主張している組だけを index の対応として返すこと。迷ったら組にしないこと。',
+    ].join('\n\n'),
+    { model: 'opus', phase: 'Analyze', label: 'mechanism-arbiter', schema: ARBITER_SCHEMA }
+  )
+
+  const pairs = pairing ? pairing.pairs || [] : []
+  const pairedA = new Map()
+  const usedB = new Set()
+  for (const p of pairs) {
+    const a = (primary.mechanisms || [])[p.a]
+    const b = (secondary.mechanisms || [])[p.b]
+    // 範囲外の index と 1 対多の対応は採らない（対応が壊れると単独出所が格上げされる）。
+    if (!a || !b || pairedA.has(p.a) || usedB.has(p.b)) continue
+    pairedA.set(p.a, { b, why_same: p.why_same || '' })
+    usedB.add(p.b)
+  }
+
+  mechanisms = []
+  for (let i = 0; i < (primary.mechanisms || []).length; i++) {
+    const m = primary.mechanisms[i]
+    const match = pairedA.get(i)
+    if (match) {
+      mechanisms.push({
+        ...m,
+        // 両者が独立に同定したときだけ identified を維持する。
+        identified: m.identified === true && match.b.identified === true,
+        corroboration: 'corroborated',
+        corroborated_by: match.b.statement,
+        // new は片方でも「前周にあった」と言えば false（水増しを避ける方向に倒す）。
+        new: m.new !== false && match.b.new !== false,
+        premise_defect: m.premise_defect === true || match.b.premise_defect === true,
+      })
+    } else {
+      mechanisms.push({ ...m, identified: false, corroboration: 'single_source' })
+    }
+  }
+  for (let j = 0; j < (secondary.mechanisms || []).length; j++) {
+    if (usedB.has(j)) continue
+    mechanisms.push({ ...secondary.mechanisms[j], identified: false, corroboration: 'single_source' })
+  }
+  const corroborated = mechanisms.filter((m) => m.corroboration === 'corroborated').length
+  corroborationNote = `機序 ${mechanisms.length} 件のうち ${corroborated} 件が 2 名の独立同定、残りは単独出所（identified: false に落としています）`
+  if (!pairing) {
+    corroborationNote += '。arbiter が返らなかったため対応は 0 件として扱っています'
+  }
+  log(corroborationNote)
+}
+
+// criteria_validity / unmeasured / gap は primary の判断を正とし、secondary の指摘は
+// 捨てずに unmeasured へ足す（測れていないものの申告は、少ない方に合わせると見落とす）。
+const analysis = {
+  mechanisms,
+  criteria_validity: secondary
+    ? `${primary.criteria_validity}\n[別の分析者の判断]: ${secondary.criteria_validity}`
+    : primary.criteria_validity,
+  unmeasured: Array.from(
+    new Set([...(primary.unmeasured || []), ...((secondary && secondary.unmeasured) || [])])
+  ),
+  gap: primary.gap || '',
 }
 
 // ------------------------------------------------------------------ 較正（script の算術）
@@ -519,6 +918,14 @@ for (const t of truncations) calibrationNotes.push(`上限により切り詰め:
 for (const c of perCondition) {
   if (c.unscored.length) calibrationNotes.push(`${c.condition_id}: score 欠落 ${c.unscored.length} 件は成績に含めていません`)
 }
+calibrationNotes.push(corroborationNote)
+for (const c of perCondition) {
+  if (c.lens_disagreements.length) {
+    calibrationNotes.push(
+      `${c.condition_id}: 検証レンズ間で判定が割れた run ${c.lens_disagreements.length} 件（measured は全レンズ一致のときのみ true）`
+    )
+  }
+}
 calibrationNotes.push(`周回 ${cycle}/${MAX_CYCLES}`)
 for (const c of perCondition) {
   if (c.spread !== null) calibrationNotes.push(`${c.condition_id}: 実測のばらつき幅 ${c.spread}`)
@@ -535,6 +942,21 @@ const runTable = results.map((r) => ({
   cost: r.record.cost || '(記録なし)',
   failure_mechanism: r.verdict.failure_mechanism_hint || '(なし)',
 }))
+
+const newIdentified = (analysis.mechanisms || []).filter(
+  (m) => m.identified === true && m.new !== false
+).length
+
+record('check', 'Analyze', `delta=${delta === null ? 'null' : delta} / confidence=${confidence} / 新しい identified 機序 ${newIdentified} 件`, {
+  per_condition: perCondition,
+  delta,
+  delta_basis: deltaBasis,
+  favored,
+  mechanisms: analysis.mechanisms,
+  criteria_validity: analysis.criteria_validity,
+  confidence,
+  new_identified_mechanisms: newIdentified,
+})
 
 return {
   status: 'ok',
@@ -561,10 +983,14 @@ return {
   runTable,
   cycle,
   max_cycles: MAX_CYCLES,
+  build_review: buildReview,
+  build_attempts: buildAttempts,
+  // 台帳へ積む entry。司令塔が編集せず scripts/ledger.py append へ流す（agent には書かせない）。
+  ledger_entries: ledgerEntries,
   // 乾き判定の材料（act-judge が使う）: この周で新しく特定された機序の数。
-  new_identified_mechanisms: (analysis.mechanisms || []).filter(
-    (m) => m.identified === true && m.new !== false
-  ).length,
+  // 単独出所の機序は identified: false なのでここに入らない（1 名しか言っていない機序を
+  // 根拠に周回を重ねない）。
+  new_identified_mechanisms: newIdentified,
   premise_defect_mechanisms: (analysis.mechanisms || []).filter(
     (m) => m.premise_defect === true
   ).length,

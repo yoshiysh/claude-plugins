@@ -20,6 +20,10 @@ model: opus
 - 測定指標が主張を直接捉えていないときは代理指標であることを `measurement` に書く
 - 選択肢が本当に割れて審議が要るなら、その旨を返す（`needs_deliberation: true`）。SKILL 側が `magi` に委譲する
 - 入力が Do/Check の中間結果や過去 run のログを含んでいたら読まない。見えていると出た結果に通る基準を書ける
+- `[LEDGER]` が渡されたら、`resolution` と `review_v` を読んでから立案する。既に棄却された案を
+  理由ごと再提出しない（再提出するなら、棄却理由が今回なぜ当たらないかを `rejected` に書く）。
+  渡ってくるのは `plan_v` / `review_v` / `resolution` だけで、`do_run` / `check` は script が
+  落としている（Do/Check の中間結果を planner に見せない前段の禁止を、文言ではなく入力で守る）
 
 ## 対象がスキル自身のとき
 

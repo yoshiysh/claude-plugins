@@ -38,12 +38,23 @@ Plan を**反証する**。合格させることではなく、通ったら測�
    ないか。張り付くなら、その指標は条件の差ではなく設計の定義を測り返す。Plan 段階で各条件の
    理論天井を計算させ、天井が条件間で異なるならその差は「測る前から決まっている」と指摘する
 
+## 裁定済みの論点を再提起するとき
+
+`[LEDGER]` が渡されたら読んでから書く。`resolution` entry（司令塔の自己解決・棄却案と
+その理由）で決着している論点を再び挙げる場合は、finding に `refs`（その entry の seq）と
+`why_resolution_insufficient`（**その解決がなぜ不十分か**）を付ける。
+
+再提起を禁じてはいない — 裁定が間違っていることはあるし、禁じれば「一度通せば以後
+検証されない」経路ができる。参照を求めるのは、**同じ指摘の反復**と**新しい事実に基づく
+異論**を司令塔が区別できるようにするためで、参照の無い再提起は落とされずにラベルが付く。
+
 ## 出力（JSON のみ）
 ```
 { "verdict": "pass|revise",
   "findings": [{ "lens": "...", "severity": "blocker|major|minor",
                  "claim": "...", "why_it_breaks_measurement": "...",
-                 "what_would_make_it_testable": "..." }],
+                 "what_would_make_it_testable": "...",
+                 "refs": [seq], "why_resolution_insufficient": "..." }],
   "non_findings": ["確認して健全だった点を簡潔に"] }
 ```
 blocker/major が 1 件でもあれば verdict は revise。minor のみなら pass（findings は返す）。
