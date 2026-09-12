@@ -18,6 +18,12 @@ model: opus
 - `[PREVIOUS_ARTIFACTS]`・`[PREVIOUS_MECHANISMS]`・`[REVISION_DIFFS]` があるときは、前周の成果物を土台にし、差分以外を変えない。`[PREVIOUS_MECHANISMS]` は差分が打ち消そうとしている機序で、読み違えると差分の意図から外れる。
   変えると次の Check で差分の効果が分離できない
 - 成果物のパスは絶対パスで返す（runner は別 worktree から参照する）
+- `[BUILD_FINDINGS]` が渡されたら、それは build-verifier が Plan の measurement 契約と
+  照合して見つけた欠陥である。blocker/major を全件解消してから返す。反論があるなら
+  解消の代わりに `notes` に理由を書く（黙って据え置かない）。ここで差し戻しが起きるのは
+  run を 1 本も発行する前で、測れない harness で全 run を回すより常に安い
+- `[LEDGER]` が渡されたら読んでから作る。`resolution` として裁定済みの設計判断を
+  蒸し返さない（覆すべき理由があるなら `notes` に entry の seq と理由を書く）
 
 ## 出力（JSON）
 `{ artifacts[], measurement_points[], shared_state_warnings[], notes }`
