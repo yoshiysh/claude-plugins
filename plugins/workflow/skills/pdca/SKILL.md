@@ -42,12 +42,29 @@ Plan → plan-verifier、Do → verifier、Act 判定 → act-judge はその実
 組み替えた Plan を再検証なしで Do に進めた — blocker を潰したと判断したのが Plan を書いた
 本人であり、これはこのスキルが禁じる自己採点の構図そのものだった）。
 
+**検証は 1 人に任せない。** 1 つの生成物に検証者を 1 人だけ当てると、その 1 人が持って
+いない失敗様式はそのまま素通りする。run の検証は視点の異なる 3 レンズ（基準充足 / 証拠の
+真正性 / 測定契約の実施）、機序分析は独立した 2 名、builder の成果物は run を発行する前に
+別 agent が Plan の measurement 契約と照合する。**視点の中身は agent の判断、足し合わせと
+縮退は script の算術**で、規則は [references/verification-lenses.md](references/verification-lenses.md)。
+
+**決めたことは台帳に残す。** agent は毎回 fresh context で立つので、前の agent が何を裁定した
+かを持っていない。結果として、一度潰した論点が無かったことになるか、決着済みの論点が予算を
+使って蒸し返されるかのどちらかが起きる。run ごとの追記型 ledger がこの両方を塞ぐ
+（[references/ledger.md](references/ledger.md)）。効かせ所は**反復の禁止であって検証の免除では
+ない** — 裁定済みの論点の再提起は正当で、求めるのは「その解決がなぜ不十分か」を entry を
+参照して述べることだけ。参照の無い再提起は落とさずラベルが付き、差し戻すかは司令塔が決める。
+
 ## ファイル構成
 
 - [references/operators.md](references/operators.md) — 思考オペレータカタログ（Plan が選ぶ）
+- [references/ledger.md](references/ledger.md) — run ledger（entry 型・書き手・再提起の扱い）
+- [references/verification-lenses.md](references/verification-lenses.md) — 検証の多視点化・集計規則・縮退規則・機序の突き合わせ
+- [references/shared-context.md](references/shared-context.md) — agent 間の文脈共有に ledger を採った根拠と、teams / bus へ移る条件
 - [assets/plan-template.md](assets/plan-template.md) / [assets/run-table.md](assets/run-table.md) — Plan 雛形・run 表
 - [schemas/agent-contracts.md](schemas/agent-contracts.md) — agent 間契約と script の args / 返り値
-- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（builder/runner/verifier/mechanism-analyst は `scripts/pdca.js` が、intake/evidence-collector/planner/plan-verifier は `scripts/pdca-plan.js` が Read させる。act-judge / revision-planner は司令塔が Act で呼ぶ）
+- agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [build-verifier](agents/build-verifier.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [mechanism-arbiter](agents/mechanism-arbiter.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（builder/build-verifier/runner/verifier/mechanism-analyst/mechanism-arbiter は `scripts/pdca.js` が、intake/evidence-collector/planner/plan-verifier は `scripts/pdca-plan.js` が Read させる。act-judge / revision-planner は司令塔が Act で呼ぶ）
+- [scripts/ledger.py](scripts/ledger.py) — run ledger の唯一の writer（seq 採番・型検査・改竄検出）
 - [references/skill-kaizen.md](references/skill-kaizen.md) — **対象がこのリポジトリの配布スキル自身のときの運転手順**（telemetry の取り方・staging 対照 run・PR 経由の恒久化）。該当する起点ではこれを Read してから Plan に入る
 - [scripts/skill_telemetry.py](scripts/skill_telemetry.py) — スキル実行の telemetry 記録・集計（skill-kaizen の Check 入力）
 - [scripts/goal_selector.py](scripts/goal_selector.py) — telemetry 在庫からの改善候補の選別と裁定記録（skill-kaizen 手順 1〈観測〉の自動化。候補は在庫の関数で、発明しない）
@@ -81,9 +98,26 @@ Workflow({
     input: '<起点の文（問題 / 動機 / 主張）>',
     materials: '<資料 URL・パス（任意）>',
     budget: { maxRuns: 8, cycles: 3 },
+    ledger: [],   // scripts/ledger.py read の出力。初周は空
   },
 })
 ```
+
+### run ledger の回し方（各 workflow の前後で 1 コマンドずつ）
+
+workflow runtime はファイルを書けないので、entry の構成は script、追記は
+`scripts/ledger.py` が行う。**agent には書かせない**（自筆の追記は欠落と後からの
+書き換えを検出できなくする）。司令塔がやるのは次の 2 つだけで、JSON は編集しない。
+
+```bash
+# workflow の後: 返り値の ledger_entries をそのまま追記する
+python3 <このスキルの絶対パス>/scripts/ledger.py append --path <workspace>/<run-id>/ledger.jsonl --json '<ledger_entries>'
+# 次の workflow の前: 読んで args.ledger に渡す
+python3 <このスキルの絶対パス>/scripts/ledger.py read --path <workspace>/<run-id>/ledger.jsonl
+```
+
+entry の型・再提起の扱いは [references/ledger.md](references/ledger.md)。`args.ledger` を
+省略すれば空として動くので、既存の呼び出しはそのまま通る。
 
 役割定義: [agents/intake.md](agents/intake.md)（起点判定・不足入力の問い返し）、
 [agents/evidence-collector.md](agents/evidence-collector.md)（`research:search` 委譲、出典付き事実のみ。
@@ -120,6 +154,17 @@ Plan の BLOCKED は「測定設計が予算内で健全にならなかった」
 「小さくなったから検証不要」に見える Plan ほど、縮めた本人には縮め損ないが見えない）。
 再検証のコストは Plan 1 周分で、迂回して事故ったときの Do/Check の run 消費より常に安い。
 
+裁定は散文の約束ではなく**構造で持つ**。再実行時に
+
+```js
+self_resolution: { method: '上の 1〜3 のどれか', reason: 'なぜそれを選んだか', rejected_alternatives: ['棄却した手と理由'] }
+```
+
+を args に載せる。pdca-plan.js は ledger に Plan の BLOCKED があるのに `resolution` entry も
+`self_resolution` も無い再実行を BLOCKED で止める。この記録が無いと、次の周（あるいは
+compaction 後の resume）で同じ裁定をやり直すか、一度棄却した class を無自覚に再試行する。
+`self_resolution` は script が `resolution` entry として ledger に積み、後続の agent が読む。
+
 これらで解決できず、続行にプロダクトの価値判断が要るときだけ needs_input にする。
 
 
@@ -137,11 +182,12 @@ Plan の BLOCKED は「測定設計が予算内で健全にならなかった」
 検証を通過した Plan をそのまま args に載せて workflow を起動する。この区間には人間ゲートが無く、
 条件ごとの fan-out・独立検証・集計が連なるので、順序と反復は script が持つ。
 
-> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
-> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用するが、現行`pdca.js`はconditionごとのworktree isolationとruntime-generated artifact pathを
-> 必須にするためrunner v1ではagent起動前に`rejected_source`となる。isolationやartifactを弱めて実行したことにしない。
-> native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
+> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
+> native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
+> 内部互換層として自動利用するが、現行 `pdca.js` は condition ごとの worktree isolation と
+> runtime-generated artifact path を必須にするため、runner v1 では agent 起動前に
+> `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
+> native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
 >
 > **Codex v1 classification: `rejected_source_v1`**（worktree isolation / runtime-generated artifacts）。
 
@@ -163,22 +209,29 @@ Workflow({
     fixed: '全条件で固定するもの（モデル・入力・環境・評価者）',
     runsPerCondition: 3,
     budget: { maxRuns: 12, note: 'トークン・時間の上限は文章で' },  // maxRuns を超える発行は script が止める
-    cycle: 1,                // 何周目か。revise のたびに +1。上限は script が持つ（3）
+    cycle: 1,                // 何周目か。revise のたびに +1。上限は script が持つ（既定 5。Act フェーズの backstop 参照）
     previous: null,          // revise のときだけ前周の返り値（artifacts / runs / check.mechanisms）をそのまま渡す
-    revisionDiffs: [],       // revise の差分（3 点以内。超えると script が止める）
+    revisionDiffs: [],       // revise の差分（上限は script の MAX_REVISION_DIFFS。超えると止まる）
+    ledger: [],              // scripts/ledger.py read の出力（Plan フェーズまでの記録）
   },
 })
 ```
 
-caller が所有する前処理は Plan フェーズとゲート①、成功後処理は結果提示と Act、human gate はゲート①②。
-これらをrunner内gateに移さない。現行Codex互換経路は`rejected_source`をそのまま報告し、Do/Checkの結果提示やActを開始しない。
-runner未install、`unsupported_runtime`、`workflow_incomplete`でも同様に止める。
+caller が所有する前処理は Plan フェーズ、成功後処理は結果提示と Act。人間ゲートはこの区間に
+無く、`.claude/rules/`・`CLAUDE.md` に触れる standardize（Act）と、`NEEDS_INPUT` /
+`UNVERIFIABLE` / `BLOCKED` の 3 経路だけがユーザーへ出る。これらを runner 内 gate に移さない。
+現行 Codex 互換経路は `rejected_source` をそのまま報告し、Do/Check の結果提示や Act を開始しない。
+runner 未 install、`unsupported_runtime`、`workflow_incomplete` でも同様に止める。
 
 条件が 1 本のときは対制御を組まず単一条件として回る（動機起点や非実験の問題起点はこれ）。
 反復上限・欠測の扱い・confidence の決め方は script が持つので、ここでは指定しない。
 
 script が構造で保証するもの：対制御の対発行（1 本の pipeline）／run ごとの worktree 分離／
-集計は算術のみ／欠測（`unmeasured`）と score 欠落（`unscored`）を別枠で数え成績に混ぜない／
+**builder の成果物は build-verifier の照合を通るまで run を 1 本も発行しない**（改稿上限 2、
+超えたら BLOCKED）／**run ごとの検証は 3 レンズで、measured は全レンズ一致のときだけ true**
+（レンズ間の不一致は `lens_disagreements` に残り、成績に丸めない）／**機序は独立した 2 名が
+出し、両者が同定したものだけ `identified: true`、片方だけのものは `single_source` として候補に
+残す**／集計は算術のみ／欠測（`unmeasured`）と score 欠落（`unscored`）を別枠で数え成績に混ぜない／
 `delta` の符号は `higher_is_better` から機械的に `favored` へ変換／反復・条件・周回の上限と
 切り詰めは `truncations` と log に出る／`budget.maxRuns` 超過は実行前に BLOCKED／
 revise は `previous` が無ければ BLOCKED（前周を土台にしない再実行を revise と呼ばない）。
@@ -190,7 +243,7 @@ revise は `previous` が無ければ BLOCKED（前周を土台にしない再�
 | `status` | `ok` / `BLOCKED`（理由と証拠つき） |
 | `do.artifacts[]` / `do.runs[]` | 作った物と、条件×反復ごとの実行記録 |
 | `check.results` / `check.gap` | 検証済みの測定値と、基準との差。`favored` が優劣（`higher_is_better` 反映済み）、`unmeasured` / `unscored` は成績外 |
-| `check.mechanisms[]` | 差が出た機序（点数とは分離。builder と別 agent が出す） |
+| `check.mechanisms[]` | 差が出た機序（点数とは分離。builder と別の、独立した 2 名が出す）。各要素の `corroboration` が `corroborated`（2 名が独立に同定）か `single_source`（片方のみ。`identified: false`）かを持つ |
 | `check.criteria_validity` | 基準自体が主張を捉えていたかの判定 |
 | `confidence` | `mechanism_identified` / `suggestive` / `inconclusive` |
 | `runTable[]` | 人間向け run 表の行 |
@@ -262,11 +315,16 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
 | 成功基準を満たし、`confidence` が `mechanism_identified` | **standardize** |
 | `check.mechanisms[]` が Plan の前提（環境・コーパス・タスク構造）の不成立を示す | **revise_plan**（pdca-plan.js へ戻る。findings を materials に渡して再立案） |
 | 問いそのものの価値・入力が崩れた（測っても使い道が無い、環境が用意できない） | **needs_input**（kind: data。問いの継続可否と不足入力をユーザーへ） |
-| 成功基準未達だが新しい `identified: true` の機序があり、予算内 | **revise_criteria**（測定・基準の差分 3 点以内で Do/Check 再実行） |
+| 成功基準未達だが新しい `identified: true` の機序があり、予算内 | **revise_criteria**（測定・基準の差分のみ（上限は script が持つ）で Do/Check 再実行） |
 | **この周で新しい identified 機序が 1 つも出なかった（乾いた）** | **stop**（証拠が乾いた。回数ではなくこれが本来の停止条件） |
 | `confidence` が `inconclusive` かつ測定設計の欠陥も特定できない | **stop**（判定不能。設計に戻る材料も無い） |
 | 予算（budget.maxRuns / トークン / 時間）到達、または script が BLOCKED | **stop**（どの停止条件に当たったか明記） |
 | 成功基準は満たしたが `criteria_validity` が「主張を捉えていない」 | **revise_criteria**（差分は基準の見直し。成果物は変えない） |
+
+**「乾いた」の判定は 2 名の独立同定を経た機序だけを数える。** 片方の分析者しか言っていない
+機序は `single_source` として残るが `identified: false` なので、`new_identified_mechanisms` には
+入らない。つまりこの stop 行は、1 名の思い込みを根拠に周回を重ねていた局面で立つようになる。
+候補が消えるわけではないので、stop の報告にはその機序を「単独出所で未確認」として添える。
 
 周回の上限（`maxCycles`、既定 5）は**較正された停止条件ではなく暴走の backstop** — 正常なループは
 乾き・前提崩れ・予算のどれかで先に止まる。backstop に当たって止まった場合はその旨を明記する
@@ -281,7 +339,7 @@ act-judge の decision に従う（auto_executable なら事後報告、そう�
   （**ここだけ人間ゲート**）、その作業/スキル固有なら当該スキルのファイル、session 文脈の想起なら
   `memory/`。置き場所を決めずに残すと腐る
 - **revise_criteria**：`agents/revision-planner.md` に `check.mechanisms[]` と Plan を渡し、
-  **機序に対応する差分だけ**を 3 点以内で作らせる。差分を `revisionDiffs` に、前周の返り値を
+  **機序に対応する差分だけ**を script の上限内で作らせる。差分を `revisionDiffs` に、前周の返り値を
   `previous` に、`cycle` を +1 して Do/Check を再実行する
 - **revise_plan**：pdca-plan.js を再実行する。`materials` に前周の check（機序・criteria_validity・
   unmeasured）を渡し、planner が前提から立て直す。plan-verifier の検証も再度通る
