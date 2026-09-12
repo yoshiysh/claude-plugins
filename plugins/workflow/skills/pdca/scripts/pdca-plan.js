@@ -163,7 +163,7 @@ phase('Intake')
 
 const intake = await roleAgent(
   'intake.md',
-  [`[USER_INPUT]:\n${userInput}`, `[MATERIALS]:\n${materials}`, `[BUDGET]:\n${budget}`, ledgerText(null)].join('\n\n'),
+  [`[USER_INPUT]:\n${userInput}`, `[MATERIALS]:\n${materials}`, `[BUDGET]:\n${budget}`, ledgerText(PLANNER_LEDGER_TYPES)].join('\n\n'),
   { phase: 'Intake', label: 'intake', schema: INTAKE_SCHEMA }
 )
 

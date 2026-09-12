@@ -17,6 +17,9 @@ verifier が再提起すること自体は正当で、封じてはならない �
 
 ## entry の型
 
+型の値の正本は `scripts/ledger.py` の `ENTRY_TYPES`。この表は意味（誰の出来事か・主な payload）の説明で、
+値を追加・変更するときは ENTRY_TYPES を先に直し、この表を追随させる。
+
 | type | 誰の出来事 | 主な payload |
 |---|---|---|
 | `plan_v` | planner が出した Plan の版 | 版番号、成功基準、採用案 |

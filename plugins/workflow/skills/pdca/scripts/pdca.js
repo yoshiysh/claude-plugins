@@ -286,8 +286,8 @@ if (revisionDiffs.length && (!previous || !Array.isArray(previous.artifacts))) {
 if (revisionDiffs.length > MAX_REVISION_DIFFS) {
   return {
     status: 'BLOCKED',
-    reason: `revisionDiffs が ${revisionDiffs.length} 点あります（上限 3）。`,
-    evidence: '差分が多いと次の Check でどれが効いたか分離できません。機序に対応する 3 点以内に絞ってください。',
+    reason: `revisionDiffs が ${revisionDiffs.length} 点あります（上限 ${MAX_REVISION_DIFFS}）。`,
+    evidence: `差分が多いと次の Check でどれが効いたか分離できません。機序に対応する ${MAX_REVISION_DIFFS} 点以内に絞ってください。`,
   }
 }
 
