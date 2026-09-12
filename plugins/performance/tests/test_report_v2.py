@@ -63,8 +63,7 @@ class ScenarioS6(unittest.TestCase):
     def test_failed_attempt_stays_in_totals(self):
         run = {"invocations": [
                    invocation("inv-f", root="inv-f", status="failed"),
-                   invocation("inv-s", parent="inv-f", root="inv-f",
-                              status="completed")],
+                   invocation("inv-s", root="inv-s", status="completed")],
                "spans": [span("sp-f", "inv-f"), span("sp-s", "inv-s")],
                "atoms": [atom("c-f", "sp-f", 200), atom("c-s", "sp-s", 300)],
                "coverage": {"inv-f": coverage(), "inv-s": coverage()},
@@ -72,7 +71,7 @@ class ScenarioS6(unittest.TestCase):
         result = report_v2.report(run)
         self.assertEqual(result["skill_usage"]["input_tokens"], 500)
         self.assertEqual(result["failure_cost"]["input_tokens"], 200)
-        stats = result["attempts"]["inv-f"]
+        stats = result["attempts"]["-|m|demo|demo|-"]
         self.assertEqual(stats["attempts"], 2)
         self.assertEqual(stats["success_rate"], 0.5)
 
@@ -119,14 +118,35 @@ class ReportContracts(unittest.TestCase):
     def test_open_invocation_lowers_success_rate(self):
         run = {"invocations": [
                    invocation("inv-1", status="completed"),
-                   invocation("inv-2", parent="inv-1", root="inv-1",
-                              status="running", ended=None)],
+                   invocation("inv-2", status="running", ended=None)],
                "spans": [], "atoms": [],
                "coverage": {"inv-1": coverage(),
                             "inv-2": coverage("unknown", "in_progress")},
                "evaluations": []}
         result = report_v2.report(run)
-        self.assertEqual(result["attempts"]["inv-1"]["success_rate"], 0.5)
+        self.assertEqual(result["attempts"]["-|m|demo|demo|-"]["success_rate"], 0.5)
+
+    def test_child_skill_calls_do_not_inflate_attempts(self):
+        # 親 1 回（成功）+ 別 skill の子 3 回（うち 1 失敗）。root 単位で数えると
+        # 4 試行・成功率 0.75 に見える形 — 親と子は別グループでなければならない。
+        run = {"invocations": [
+                   invocation("inv-p", status="completed"),
+                   invocation("c1", parent="inv-p", root="inv-p",
+                              plugin="child", status="completed"),
+                   invocation("c2", parent="inv-p", root="inv-p",
+                              plugin="child", status="failed"),
+                   invocation("c3", parent="inv-p", root="inv-p",
+                              plugin="child", status="completed")],
+               "spans": [], "atoms": [],
+               "coverage": {k: coverage() for k in ("inv-p", "c1", "c2", "c3")},
+               "evaluations": []}
+        result = report_v2.report(run)
+        parent = result["attempts"]["-|m|demo|demo|-"]
+        self.assertEqual(parent["attempts"], 1)
+        self.assertEqual(parent["success_rate"], 1.0)
+        child = result["attempts"]["inv-p|m|child|child|-"]
+        self.assertEqual(child["attempts"], 3)
+        self.assertAlmostEqual(child["success_rate"], 2 / 3)
 
 
 class WorkflowSpanShapes(unittest.TestCase):

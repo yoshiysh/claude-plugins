@@ -57,16 +57,21 @@ def report(run):
                        if row["ended_at"] is not None else None,
         }
 
-    # 試行の集計は root 単位。再試行は parent/root を共有する別 invocation として
-    # 記録される前提（schema_v2 の系譜検証がその形を強制する）。
-    roots = {}
+    # 試行の集計単位は (parent, skill identity)。再試行は「同じ親の下で同じ skill を
+    # もう一度呼んだもの」であり、root 単位で数えると通常の子スキル呼び出しまで
+    # 試行数に混ざる（親 1 回 + 子 3 回が 4 試行に見え、スキル全体の成功率と
+    # 子処理の成功率が合成される）。子は skill identity が違うので別グループになる。
+    groups = {}
     for row in run["invocations"]:
-        roots.setdefault(row["root_invocation_id"], []).append(row)
-    attempts_by_root = {}
-    for root_id, rows in roots.items():
-        closed = [r for r in rows if r["status"] in schema_v2.CLOSED_STATUSES]
-        completed = [r for r in closed if r["status"] == "completed"]
-        attempts_by_root[root_id] = {
+        s = row["skill"]
+        key = "|".join([row["parent_invocation_id"] or "-",
+                        s["marketplace"] or "-", s["plugin"],
+                        s["public_name"], s["scope"] or "-"])
+        groups.setdefault(key, []).append(row)
+    attempts_by_task = {}
+    for key, rows in groups.items():
+        completed = [r for r in rows if r["status"] == "completed"]
+        attempts_by_task[key] = {
             "attempts": len(rows),
             "completed": len(completed),
             # 終了していない試行を分母から外すと「まだ終わっていない」が
@@ -92,7 +97,7 @@ def report(run):
         "unattributed_usage": unattributed_total,
         "failure_cost": failure_cost,
         "per_invocation": per_invocation,
-        "attempts": attempts_by_root,
+        "attempts": attempts_by_task,
         "coverage_gaps": incomplete,
         "total_label": total_label,
         # unknown を数値に混ぜない: 観測できなかった量そのものは常に null。
