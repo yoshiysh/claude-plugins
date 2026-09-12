@@ -46,7 +46,15 @@ model: sonnet
   写している可能性）」を記録する。天井一致が多数の run で続くのは指標飽和のシグナルで、
   mechanism-analyst への最重要の hint になる
 
+- **採点は `[FROZEN_HARNESS]` の凍結物だけを参照する。** 参照する前に digest が凍結時のままかを
+  確かめ、`frozen_harness_digest_ok` に返す（確かめられなければ false）。違っていたら
+  `measured: false` とし、独自の判定基準で代替しない。採点物が run 中に変わっていたなら、
+  基準を満たして見えても「実行前に固定した基準で測った」ことにならない。
+  `class` が `llm_judge` のときは、凍結されているのが判定プロンプトと材料までであることを
+  踏まえる（同じ指示でも読みは揺れる。揺れを消した体で書かない）。
+  段の定義は [references/harness-freeze.md](../references/harness-freeze.md)
+
 ## 出力（JSON）
-`{ condition_id, run_index, lens, measured, unmeasured_reason, score, criteria_checks[{criterion, met, evidence}], failure_mechanism_hint, self_report_used, refs[], why_resolution_insufficient }`
+`{ condition_id, run_index, lens, measured, unmeasured_reason, score, frozen_harness_digest_ok, criteria_checks[{criterion, met, evidence}], failure_mechanism_hint, self_report_used, refs[], why_resolution_insufficient }`
 
 `lens` には `[LENS]` の値をそのまま返す（集計側がどのレンズの判定かを取り違えないため）。

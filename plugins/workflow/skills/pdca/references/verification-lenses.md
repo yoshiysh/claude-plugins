@@ -11,6 +11,7 @@
 - 縮退規則
 - 機序分析の複数視点と決定的マージ
 - builder 成果物の独立 verify
+- 凍結 harness の照合（誰が何を見るか）
 
 ## run verify の 3 レンズ
 
@@ -80,3 +81,19 @@ run は 1 本ごとに予算を食うので、測定点が契約を満たして�
 blocker/major があれば builder へ差し戻し、上限 `MAX_BUILD_REVISIONS`（`scripts/pdca.js`）
 まで改稿する。超えたら Measure に入らず BLOCKED で返す（欠けた測定点のまま run を
 発行しない）。
+
+## 凍結 harness の照合（誰が何を見るか）
+
+採点物（判定ロジック・期待値・hold-out・判定プロンプト）は Plan の成果物で、Do の前に
+`scripts/harness_freeze.py` が凍結する。**照合するのは凍結物を作っていない agent だけ**で、
+builder には在処を渡さない。機構と保証の段（構造 / 事後検出 / 強制でないこと）は
+[harness-freeze.md](harness-freeze.md)。
+
+| 誰が | 何を返すか | 破れたときの script の帰結 |
+|---|---|---|
+| build-verifier（レンズ 6） | `frozen_harness_digest_ok` / `frozen_harness_touched` | run を 1 本も発行せず BLOCKED（改稿ループに乗せない） |
+| build-verifier（レンズ 7） | 測定点が Plan に対応づき、出す値の範囲・除外が成果物の都合で決まっていないか（findings として） | blocker/major なら builder へ差し戻し（凍結物に触らずに結果を動かす経路はここで見る） |
+| verifier（各レンズ） | `frozen_harness_digest_ok` | その run は `measured: false`（欠測と同じ扱い。score を成績に入れない） |
+
+build 側を改稿ループに乗せないのは、凍結物が変わった状態の測定は後から救済できないため。
+測定点の不足は作り直せば直るが、採点物の同一性は run の後からは復元できない。

@@ -7,6 +7,7 @@
 """
 
 import json
+import pathlib
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,103 @@ class TestSkillTelemetry(unittest.TestCase):
             out = run(["summary", "--skill", "s"], td)
             self.assertEqual(out.returncode, 0)
             self.assertIn("dry_stop 到達 1/1", out.stdout)
+
+
+class TestCompare(unittest.TestCase):
+    """compare が対照 run の判定を機械側に持つことの契約。
+
+    押さえるのは 4 つ。
+    1. 片方の記録が無い対照は判定を返さず exit 2（対発行の記録の有無を検査する）
+    2. input_ref が一致しない（または未記録）対照も exit 2（同一入力性を検査する）
+    3. 指標が数値で取れない場合も exit 2（欠測を 0 に丸めて「差が無い」にしない）
+    4. 揃っていれば delta と favored を向きと閾値から機械的に決める
+    """
+
+    def _record(self, td, label, result, input_ref="args-v1"):
+        p = Path(td) / f"{label}.src.json"
+        p.write_text(json.dumps(result))
+        return run(
+            ["record", "--skill", "s", "--label", label, "--input-ref", input_ref, str(p)], td
+        )
+
+    def test_片方の記録が無い対照はexit2(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._record(td, "ctrl", {"summary": {"fabrication_findings": 3}})
+            out = run(
+                ["compare", "--skill", "s", "--control", "ctrl", "--treatment", "trt",
+                 "--metric", "fabrication_findings", "--lower-is-better", "--threshold", "0"], td
+            )
+            self.assertEqual(out.returncode, 2)
+
+    def test_input_refが一致しない対照はexit2(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._record(td, "ctrl", {"summary": {"fabrication_findings": 3}}, input_ref="args-v1")
+            self._record(td, "trt", {"summary": {"fabrication_findings": 1}}, input_ref="args-v2")
+            out = run(
+                ["compare", "--skill", "s", "--control", "ctrl", "--treatment", "trt",
+                 "--metric", "fabrication_findings", "--lower-is-better", "--threshold", "0"], td
+            )
+            self.assertEqual(out.returncode, 2)
+
+    def test_指標が数値で取れなければexit2(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._record(td, "ctrl", {"summary": {"fabrication_findings": 3}})
+            self._record(td, "trt", {"verdict": "clean"})
+            out = run(
+                ["compare", "--skill", "s", "--control", "ctrl", "--treatment", "trt",
+                 "--metric", "fabrication_findings", "--lower-is-better", "--threshold", "0"], td
+            )
+            self.assertEqual(out.returncode, 2)
+
+    def test_揃っていれば向きと閾値からfavoredを決める(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._record(td, "ctrl", {"summary": {"fabrication_findings": 3}})
+            self._record(td, "trt", {"summary": {"fabrication_findings": 1}})
+            out = run(
+                ["compare", "--skill", "s", "--control", "ctrl", "--treatment", "trt",
+                 "--metric", "fabrication_findings", "--lower-is-better", "--threshold", "0"], td
+            )
+            self.assertEqual(out.returncode, 0, out.stderr)
+            payload = json.loads(out.stdout)
+            self.assertEqual(payload["delta"], -2.0)
+            self.assertEqual(payload["favored"], "treatment")
+            # 同じ差でも向きが逆なら control 優位になる（向きを機械側が持つ）
+            flipped = run(
+                ["compare", "--skill", "s", "--control", "ctrl", "--treatment", "trt",
+                 "--metric", "fabrication_findings", "--higher-is-better", "--threshold", "0"], td
+            )
+            self.assertEqual(json.loads(flipped.stdout)["favored"], "control")
+            # 閾値を超えない差は tie（事前固定の閾値で判定する）
+            tied = run(
+                ["compare", "--skill", "s", "--control", "ctrl", "--treatment", "trt",
+                 "--metric", "fabrication_findings", "--lower-is-better", "--threshold", "5"], td
+            )
+            self.assertEqual(json.loads(tied.stdout)["favored"], "tie")
+
+    def test_frozen_manifestから基準を読む(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._record(td, "ctrl", {"summary": {"fabrication_findings": 3}})
+            self._record(td, "trt", {"summary": {"fabrication_findings": 1}})
+            manifest = pathlib.Path(td) / "MANIFEST.json"
+            manifest.write_text(json.dumps({
+                "criteria": {"metric": "fabrication_findings",
+                             "higher_is_better": False, "threshold": 0}}))
+            out = run(["compare", "--skill", "s", "--control", "ctrl",
+                       "--treatment", "trt",
+                       "--frozen-manifest", str(manifest)], td)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(json.loads(out.stdout)["favored"], "treatment")
+
+    def test_frozen_manifestと手入力の併用は拒否(self):
+        with tempfile.TemporaryDirectory() as td:
+            manifest = pathlib.Path(td) / "MANIFEST.json"
+            manifest.write_text(json.dumps({
+                "criteria": {"metric": "m", "higher_is_better": True,
+                             "threshold": 0}}))
+            out = run(["compare", "--skill", "s", "--control", "c",
+                       "--treatment", "t", "--frozen-manifest", str(manifest),
+                       "--metric", "other"], td)
+            self.assertEqual(out.returncode, 2)
 
 
 if __name__ == "__main__":

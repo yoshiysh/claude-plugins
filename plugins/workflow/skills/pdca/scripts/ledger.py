@@ -25,6 +25,7 @@ ENTRY_TYPES = (
     "plan_v",  # planner が出した Plan の版
     "review_v",  # plan-verifier / build-verifier / verifier の findings
     "resolution",  # 論点の裁定（司令塔の自己解決・棄却案とその理由）
+    "harness_frozen",  # 評価 harness の凍結（scripts/harness_freeze.py の digest と凍結時刻）
     "build",  # builder の成果物と測定点
     "build_review",  # build-verifier の判定
     "do_run",  # 条件 × 反復の実行と検証の結果

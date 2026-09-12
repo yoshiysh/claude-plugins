@@ -33,18 +33,36 @@ decision 規則）は SKILL.md のままで、ここに書くのはスキル改�
    傾向の目視だけしたいときは `skill_telemetry.py summary`）。
 2. **Plan**: SKILL.md どおり intake → evidence-collector → planner。両 agent には
    「対象がスキル自身のとき」の節が効く（事実 = telemetry + 対象スキルの実装、出典必須）。
-   選択肢は改稿差分 3 点以内で構成させる。
+   選択肢は改稿差分を `scripts/pdca.js` の `MAX_REVISION_DIFFS` 以内で構成させる（値の正本は定数側）。
 3. **Plan → Do**: SKILL.md と同じく人間ゲートは無い。plan-verifier の敵対的検証
    （blocker/major 0）が承認の代替なので、通過したら Plan の要約を**事後報告**して Do に進む
    （承認を待たない）。対象がスキル自身でもこれは変わらない — 自己適用だからといって
    人間の承認を挟むと、承認者は Plan を書いた本人と同じ文脈にいて、敵対的検証より弱い。
+   Do に渡す前に Plan の `measurement_harness` を凍結する（SKILL.md「評価 harness の凍結」）。
+   スキル改善では harness は telemetry の抽出・比較（`skill_telemetry.py` の呼び出しと
+   `--metric` / 向き / 閾値）で、これを staging 側で作り直せる状態にしておくと、
+   差分を入れた本人が判定の仕方も変えられてしまう。
 4. **Do（staging）**: 対象スキルの実体を対象リポジトリの外（scratchpad 等）へ複製し、
    採用案の差分だけを適用する。**本体は触らない。** 対象スキルが tests/ を持つなら
    staging で先に回す（仕様を意図的に変える差分は、テストの契約更新も同じ差分に含める）。
 5. **Check（対照 run）**: control（本体版）と treatment（staging 版）を**同一入力・
    独立ドラフト・対で**発行する。互いの作業ファイルを共有させない（run 間の相互影響の
-   遮断）。結果は両条件とも `skill_telemetry.py record` で記録してから、事前固定の
-   基準で判定する。
+   遮断）。結果は両条件とも `skill_telemetry.py record` で、**同じ `--input-ref`**
+   （再現入力の wrapper script のパス）を付けて記録する。判定は散文で読まず、script に返させる:
+
+   ```bash
+   python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
+     --control <本体版の label> --treatment <staging 版の label> \
+     --frozen-manifest <run-dir>/frozen/MANIFEST.json
+   ```
+
+   対で記録されているか・`input_ref` が一致するか・指標が両条件で数値として取れるかを
+   指標・向き・閾値は CLI に手で書かず、Plan 末尾で凍結した MANIFEST から読む
+   （手入力の経路を残すと、差分を入れた本人が Check 時に判定の仕方を選び直せる）。
+   `compare` が検査し、どれかが欠けたら判定を返さず exit 2 で止まる。ここを散文の手順に
+   しておくと、対発行・同一入力・事前固定の基準という 3 つの決定的処理を誰も検査しない
+   （pdca.js が `conditions` で機械的に持っているものが、この経路だけ実行者の自己申告になる）。
+   exit 2 は「差が無い」ではなく「測定が成立していない」なので、Act に進まず対照を組み直す。
 6. **Act**: SKILL.md の decision 規則どおり（判定は act-judge）。standardize の恒久化先は対象
    スキルの本体で、反映は **PR 経由**（マージは不変条件の人間ゲート）。PR 本文に
    run 表・機序・較正（n、束適用の未分離）をそのまま載せる。

@@ -42,6 +42,14 @@ Plan → plan-verifier、Do → verifier、Act 判定 → act-judge はその実
 組み替えた Plan を再検証なしで Do に進めた — blocker を潰したと判断したのが Plan を書いた
 本人であり、これはこのスキルが禁じる自己採点の構図そのものだった）。
 
+**生成者に採点材料も作らせない。** 不変条件は生成物だけでなく**それを測る物**にも当てる。
+builder が作るのは成果物と測定点（生の観測値を出す仕掛け）までで、その値を基準に照らして
+点にする物（判定ロジック・期待値・hold-out・判定プロンプト）は Plan の成果物として先に
+凍結し、builder には在処を渡さない。評価対象の作者が評価材料も作れると、成果物に通る基準を
+材料の側で作れてしまう（実測: 判定器が実装との一致しか示さず、実装が間違っていても pass した／
+hold-out が決定的スクリプトから再生成できて秘匿が成立していなかった）。機構と保証の強さは
+[references/harness-freeze.md](references/harness-freeze.md)。
+
 **検証は 1 人に任せない。** 1 つの生成物に検証者を 1 人だけ当てると、その 1 人が持って
 いない失敗様式はそのまま素通りする。run の検証は視点の異なる 3 レンズ（基準充足 / 証拠の
 真正性 / 測定契約の実施）、機序分析は独立した 2 名、builder の成果物は run を発行する前に
@@ -60,15 +68,17 @@ Plan → plan-verifier、Do → verifier、Act 判定 → act-judge はその実
 - [references/operators.md](references/operators.md) — 思考オペレータカタログ（Plan が選ぶ）
 - [references/ledger.md](references/ledger.md) — run ledger（entry 型・書き手・再提起の扱い）
 - [references/verification-lenses.md](references/verification-lenses.md) — 検証の多視点化・集計規則・縮退規則・機序の突き合わせ
+- [references/harness-freeze.md](references/harness-freeze.md) — 評価 harness の凍結（何を凍結し、誰から隠し、どこまでを保証と呼べるか）
 - [references/shared-context.md](references/shared-context.md) — agent 間の文脈共有に ledger を採った根拠と、teams / bus へ移る条件
 - [assets/plan-template.md](assets/plan-template.md) / [assets/run-table.md](assets/run-table.md) — Plan 雛形・run 表
 - [schemas/agent-contracts.md](schemas/agent-contracts.md) — agent 間契約と script の args / 返り値
 - agents: [intake](agents/intake.md) / [evidence-collector](agents/evidence-collector.md) / [planner](agents/planner.md) / [builder](agents/builder.md) / [build-verifier](agents/build-verifier.md) / [runner](agents/runner.md) / [verifier](agents/verifier.md) / [mechanism-analyst](agents/mechanism-analyst.md) / [mechanism-arbiter](agents/mechanism-arbiter.md) / [plan-verifier](agents/plan-verifier.md) / [act-judge](agents/act-judge.md) / [revision-planner](agents/revision-planner.md)（builder/build-verifier/runner/verifier/mechanism-analyst/mechanism-arbiter は `scripts/pdca.js` が、intake/evidence-collector/planner/plan-verifier は `scripts/pdca-plan.js` が Read させる。act-judge / revision-planner は司令塔が Act で呼ぶ）
 - [scripts/ledger.py](scripts/ledger.py) — run ledger の唯一の writer（seq 採番・型検査・改竄検出）
+- [scripts/harness_freeze.py](scripts/harness_freeze.py) — 評価 harness の凍結と照合（複製・digest・凍結時刻）
 - [references/skill-kaizen.md](references/skill-kaizen.md) — **対象がこのリポジトリの配布スキル自身のときの運転手順**（telemetry の取り方・staging 対照 run・PR 経由の恒久化）。該当する起点ではこれを Read してから Plan に入る
 - [scripts/skill_telemetry.py](scripts/skill_telemetry.py) — スキル実行の telemetry 記録・集計（skill-kaizen の Check 入力）
 - [scripts/goal_selector.py](scripts/goal_selector.py) — telemetry 在庫からの改善候補の選別と裁定記録（skill-kaizen 手順 1〈観測〉の自動化。候補は在庫の関数で、発明しない）
-- [evals/evals.json](evals/evals.json) — テストケース 4 件（起点 3 モード + 誤発動）
+- [evals/evals.json](evals/evals.json) — テストケース（起点 3 モード + 誤発動 + Act 判定）
 
 ## 起点の判定（3 モード）
 
@@ -86,9 +96,9 @@ Plan → plan-verifier、Do → verifier、Act 判定 → act-judge はその実
 ## Plan フェーズ（Workflow 呼び出し）
 
 Plan 区間は `scripts/pdca-plan.js` に閉じている。intake → evidence-collector → planner →
-**plan-verifier（敵対的検証）** → 改稿、の until-pass ループを script が持つ（改稿上限 2）。
+**plan-verifier（敵対的検証）** → 改稿、の until-pass ループを script が持つ（改稿上限は script の `MAX_PLAN_REVISIONS`（pdca-plan.js））。
 人間承認の代わりに、Plan を書いていない fresh context の verifier が「この Plan が使えない測定を
-生む理由」を 8 レンズ（正本は [agents/plan-verifier.md](agents/plan-verifier.md)。指標の崩壊・検証契約の実行可能性・交絡・停止条件の操作化・標本選択バイアス・独立性の証拠経路・水準整合・天井飽和）で反証し、blocker/major が 0 になるまで Do に進む分岐が無い。
+生む理由」を 9 レンズ（正本は [agents/plan-verifier.md](agents/plan-verifier.md)。指標の崩壊・検証契約の実行可能性・交絡・停止条件の操作化・標本選択バイアス・独立性の証拠経路・水準整合・天井飽和・harness の凍結可能性）で反証し、blocker/major が 0 になるまで Do に進む分岐が無い。
 
 ```js
 Workflow({
@@ -177,6 +187,31 @@ compaction 後の resume）で同じ裁定をやり直すか、一度棄却し�
 > ユーザーには「Plan が検証を通過したので Do に進む」ことを要約付きで**事後報告**する（黙って進めない）。
 > 動機起点の仮基準（provisional）もこの経路で通る — 仮であることは Check の基準確定で回収される。
 
+## 評価 harness の凍結（Plan と Do の境界）
+
+Plan が固定するのは基準の文だけでは足りない。基準を**測る物**が Do の中で作られると、実行前に
+固定したはずの基準が実行時に作り替えられる。Plan の `measurement_harness`
+（`class` / `entry` / `files[]` / `criteria{metric, 向き, threshold}`）を Do の前に凍結し、以降はその複製だけを実行・参照する。
+
+```bash
+python3 <このスキルの絶対パス>/scripts/harness_freeze.py freeze \
+  --run-dir <workspace>/<run-id> --source-root <harness の置き場> --json '<measurement_harness>'
+```
+
+返り値の `frozenHarness` を pdca.js の `args.frozenHarness` に、`ledger_entry`
+（`type: harness_frozen`）を編集せず `scripts/ledger.py append` に流す。凍結物は builder の
+作業ツリーの外に置かれ、**在処は builder に渡らない**（誰に渡すかの正本は
+references/harness-freeze.md の表）。二重凍結は script が拒否するので、凍結後に harness を差し替えたいときは Plan の
+作り直しとして新しい run-id で行う。
+
+**適用範囲の限界。** 凍結が強い保証になるのは測定が決定的スクリプトに落ちる class
+（`deterministic_script`）だけで、そこでは「同じ入力に同じ判定」が言える。LLM 判定
+（`llm_judge`）で得られるのは**凍結プロンプト + fresh judge** までで、判定の同一性は保証され
+ない（同じ指示と材料でも読みは揺れる）。揺れは `spread` と `confidence` に出るべきもので、
+凍結で消える性質のものではない。担保の段（**構造**＝非開示 / **事後検出**＝digest 照合 /
+**強制でないこと**）は [references/harness-freeze.md](references/harness-freeze.md) の保証表が正本で、
+結果の提示でそれより強い言い方をしない。
+
 ## Do/Check フェーズ（Workflow 呼び出し）
 
 検証を通過した Plan をそのまま args に載せて workflow を起動する。この区間には人間ゲートが無く、
@@ -189,7 +224,7 @@ compaction 後の resume）で同じ裁定をやり直すか、一度棄却し�
 > `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
 > native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
 >
-> **Codex v1 classification: `rejected_source_v1`**（worktree isolation / runtime-generated artifacts）。
+> **Codex v1 classification: `rejected_source`**（worktree isolation / runtime-generated artifacts）。
 
 ```js
 Workflow({
@@ -202,6 +237,7 @@ Workflow({
       metric: '<verifier が score に入れる指標名（例: 到達レベル数、action 数）>',
       higher_is_better: true,   // 指標の向き。false なら小さいほど良い（action 数・所要時間・エラー件数）
     },
+    frozenHarness: '<harness_freeze.py freeze が返した frozenHarness をそのまま。未指定は BLOCKED>',
     conditions: [
       { id: 'A', label: 'fresh session 型', spec: '条件 A の差分だけを記述' },
       { id: 'B', label: '継続型',           spec: '条件 B の差分だけを記述' },
@@ -209,7 +245,7 @@ Workflow({
     fixed: '全条件で固定するもの（モデル・入力・環境・評価者）',
     runsPerCondition: 3,
     budget: { maxRuns: 12, note: 'トークン・時間の上限は文章で' },  // maxRuns を超える発行は script が止める
-    cycle: 1,                // 何周目か。revise のたびに +1。上限は script が持つ（既定 5。Act フェーズの backstop 参照）
+    cycle: 1,                // 何周目か。revise のたびに +1。上限は script が持つ（`DEFAULT_MAX_CYCLES`。Act フェーズの backstop 参照）
     previous: null,          // revise のときだけ前周の返り値（artifacts / runs / check.mechanisms）をそのまま渡す
     revisionDiffs: [],       // revise の差分（上限は script の MAX_REVISION_DIFFS。超えると止まる）
     ledger: [],              // scripts/ledger.py read の出力（Plan フェーズまでの記録）
@@ -227,8 +263,10 @@ runner 未 install、`unsupported_runtime`、`workflow_incomplete` でも同様�
 反復上限・欠測の扱い・confidence の決め方は script が持つので、ここでは指定しない。
 
 script が構造で保証するもの：対制御の対発行（1 本の pipeline）／run ごとの worktree 分離／
-**builder の成果物は build-verifier の照合を通るまで run を 1 本も発行しない**（改稿上限 2、
-超えたら BLOCKED）／**run ごとの検証は 3 レンズで、measured は全レンズ一致のときだけ true**
+**評価 harness が凍結されていない呼び出しは Build に入らない**（`args.frozenHarness` 欠落は BLOCKED）／
+**builder の成果物は build-verifier の照合を通るまで run を 1 本も発行しない**（改稿上限は script の
+`MAX_BUILD_REVISIONS`、超えたら BLOCKED）／**凍結 harness の digest 照合が取れない・成果物が凍結物に
+触れている場合は run を 1 本も発行せず BLOCKED**／**run ごとの検証は `VERIFY_LENSES` の各レンズで行い、measured は全レンズ一致のときだけ true**
 （レンズ間の不一致は `lens_disagreements` に残り、成績に丸めない）／**機序は独立した 2 名が
 出し、両者が同定したものだけ `identified: true`、片方だけのものは `single_source` として候補に
 残す**／集計は算術のみ／欠測（`unmeasured`）と score 欠落（`unscored`）を別枠で数え成績に混ぜない／
@@ -326,7 +364,7 @@ decision は次の規則で決まる（適用は act-judge が行う）。規則
 入らない。つまりこの stop 行は、1 名の思い込みを根拠に周回を重ねていた局面で立つようになる。
 候補が消えるわけではないので、stop の報告にはその機序を「単独出所で未確認」として添える。
 
-周回の上限（`maxCycles`、既定 5）は**較正された停止条件ではなく暴走の backstop** — 正常なループは
+周回の上限（`maxCycles`、既定は script の `DEFAULT_MAX_CYCLES`）は**較正された停止条件ではなく暴走の backstop** — 正常なループは
 乾き・前提崩れ・予算のどれかで先に止まる。backstop に当たって止まった場合はその旨を明記する
 （「3 周で決まる」といった回数の根拠は存在しない。回数を停止条件に使った過去の設計は、
 前提の弱さが見えていても周回を消化する挙動を生んだ）。
@@ -362,10 +400,11 @@ act-judge の decision に従う（auto_executable なら事後報告、そう�
     "rejected": [{ "option": "案", "reason": "棄却理由" }],
     "success_criteria": { "text": "基準", "provisional": false },
     "measurement": "測定方法（何を固定し何を変えるか）",
+    "measurement_harness": { "class": "deterministic_script | llm_judge", "entry": "", "files": [], "criteria": { "metric": "", "higher_is_better": true, "threshold": 0 } },
     "stop_conditions": "予算・反復上限・達成条件",
     "operators_used": ["逆算", "対制御比較"]
   },
-  "do":   { "artifacts": [], "runs": [] },
+  "do":   { "artifacts": [], "runs": [], "frozen_harness": { "digest": "", "class": "", "entry": "" } },
   "check":{ "results": {}, "gap": "", "mechanisms": [], "criteria_validity": "" },
   "act":  { "decision": "standardize | revise | stop", "diffs": [], "next": "", "persist_to": "" },
   "confidence": "mechanism_identified | suggestive | inconclusive"
