@@ -1,0 +1,66 @@
+{
+ "note": "claude -p 'run the probe demo'（project skill probe-demo）1 実行での hook stdin 実測。行は観測した全 stdin key の部分集合（cwd・transcript_path 等のローカルパスは省いた。省いた key が存在した事実は keys_observed に残す）",
+ "keys_observed": {
+  "pre": [
+   "cwd",
+   "effort",
+   "hook_event_name",
+   "permission_mode",
+   "prompt_id",
+   "scratchpad_dir",
+   "session_id",
+   "tool_input",
+   "tool_name",
+   "tool_use_id",
+   "transcript_path"
+  ],
+  "stop": [
+   "background_tasks",
+   "cwd",
+   "effort",
+   "hook_event_name",
+   "last_assistant_message",
+   "permission_mode",
+   "prompt_id",
+   "scratchpad_dir",
+   "session_crons",
+   "session_id",
+   "stop_hook_active",
+   "transcript_path"
+  ]
+ },
+ "pre": [
+  {
+   "hook_event_name": "PreToolUse",
+   "session_id": "c644b430-1cff-4072-87ec-e2790f111042",
+   "tool_name": "Skill",
+   "tool_use_id": "toolu_01YJBgBqjMjTdCaFqfycieqj",
+   "tool_input": {
+    "skill": "probe-demo"
+   }
+  }
+ ],
+ "post": [
+  {
+   "hook_event_name": "PostToolUse",
+   "session_id": "c644b430-1cff-4072-87ec-e2790f111042",
+   "tool_name": "Skill",
+   "tool_use_id": "toolu_01YJBgBqjMjTdCaFqfycieqj",
+   "tool_input": {
+    "skill": "probe-demo"
+   },
+   "tool_response": {
+    "success": true,
+    "commandName": "probe-demo"
+   },
+   "duration_ms": 4
+  }
+ ],
+ "stop": [
+  {
+   "hook_event_name": "Stop",
+   "session_id": "c644b430-1cff-4072-87ec-e2790f111042",
+   "stop_hook_active": false
+  }
+ ]
+}

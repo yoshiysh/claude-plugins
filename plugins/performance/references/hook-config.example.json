@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "host": "codex",
+  "cwd": "/absolute/project",
+  "adapter": "normalized",
+  "input": "/absolute/input/events.jsonl",
+  "stream_id": "replace-with-unique-capture-id",
+  "store": "/absolute/private-ledger",
+  "retention_days": 30
+}
