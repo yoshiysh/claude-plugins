@@ -319,3 +319,22 @@ def exclusive_usage(run, invocation_id):
             for k in USAGE_FIELDS:
                 totals[k] += atom["usage"][k]
     return totals
+
+def inclusive_usage(run, invocation_id):
+    """invocation とその子孫の exclusive_usage の集合和。
+
+    atom の所有者は 1 つ（validate_run が保証）なので、子孫の exclusive を足しても
+    同じ atom が 2 回数えられる経路は無い。未帰属 atom はここにも入らない。
+    """
+    children = {}
+    for row in run["invocations"]:
+        children.setdefault(row["parent_invocation_id"], []).append(row["invocation_id"])
+    totals = {k: 0 for k in USAGE_FIELDS}
+    stack = [invocation_id]
+    while stack:
+        current = stack.pop()
+        part = exclusive_usage(run, current)
+        for k in USAGE_FIELDS:
+            totals[k] += part[k]
+        stack.extend(children.get(current, []))
+    return totals
