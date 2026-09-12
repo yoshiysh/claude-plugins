@@ -12,7 +12,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 
 | 能力 | 意味 | Claude Code | Codex CLI |
 |---|---|---|---|
-| skill_boundary | skill 実行の開始・終了をホストが通知する | b（明示入口イベントの投影のみ。自動 dispatch 通知の実捕捉は未実証 = C1） | c |
+| skill_boundary | skill 実行の開始・終了をホストが通知する | **開始は a**（PreToolUse/PostToolUse の matcher Skill で dispatch を実捕捉 — probe 実測済み、`host_capture.py`）。**終了は c** — PostToolUse は skill の読込完了であって実行終端ではないため、invocation は open のまま維持する | c |
 | call_linkage | model call が invocation に紐づく | b（`claimed_by` 申告の投影のみ） | c |
 | child_linkage | 子実行（subagent・子 skill）が親に紐づく | b（`parent_invocation_id` 申告の投影のみ） | c |
 | terminal_event | 実行の終了と status が観測できる | b（`skill_end` イベントの投影のみ） | b（codex-exec adapter の turn 終端） |
@@ -30,7 +30,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 
 | ID | 内容 | 状態 |
 |---|---|---|
-| C1 | 実ホスト（Claude Code / Codex）の skill dispatch 能力の実捕捉（tier a 化） | 未実証。実ホスト実行での probe が必要 |
+| C1 | 実ホストの skill dispatch 実捕捉 | **Claude Code は開始境界のみ実証済み**（probe: claude -p + PreToolUse/PostToolUse matcher Skill。tool_input.skill / tool_use_id / duration_ms を確認）。実行終端と Codex 側は未実証のまま |
 | C2 | 軽量スキルの実モデル before/after 対照実験の実行 | awaiting_budget_approval（承認記録なしでは `experiment.authorize_execution` が拒否する） |
 
 ## opt-in と限界

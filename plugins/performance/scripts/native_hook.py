@@ -58,6 +58,61 @@ def configure(host, project, transcripts, enabled, root):
             "project": project, "transcript_root": str(transcripts), "data_dir": str(root)}
 
 
+# dispatch 記録の上限。1 行 ~300B × 20000 で ~6MB。超過は黙って落とさず打ち切り
+# marker を 1 行残す（安い観測ほど残り高い観測が消える偏りを可視化する）。
+MAX_DISPATCH_RECORDS = 20000
+
+
+def dispatch_policy(host, event, policies):
+    """Skill dispatch（PreToolUse/PostToolUse, tool_name=Skill）が収集対象かを判定する。
+
+    session 収集と同じ policy で gate する — 有効化した覚えの無い捕捉を作らない。
+    """
+    if event.get("hook_event_name") not in ("PreToolUse", "PostToolUse"):
+        return False
+    if event.get("tool_name") != "Skill":
+        return False
+    for key in ("cwd", "session_id", "tool_use_id"):
+        if not (type(event.get(key)) is str and 0 < len(event[key]) <= 4096):
+            return False
+    cwd = Path(event["cwd"]).resolve(strict=True)
+    exact = next((p for p in policies if p["host"] == host and p["project"] != "*"
+                  and cwd == Path(p["project"])), None)
+    chosen = exact if exact is not None else next(
+        (p for p in policies if p["host"] == host and p["project"] == "*"), None)
+    return bool(chosen and chosen["enabled"])
+
+
+def record_dispatch(event, root, now_ms):
+    prepare(root / "dispatch")
+    path = root / "dispatch" / "records.jsonl"
+    lines = 0
+    if path.exists():
+        with path.open("rb") as f:
+            lines = sum(1 for _ in f)
+    if lines >= MAX_DISPATCH_RECORDS:
+        if lines == MAX_DISPATCH_RECORDS:
+            with path.open("a") as f:
+                f.write(json.dumps({"censored": "dispatch_record_limit"}) + "\n")
+        return
+    tool_input = event.get("tool_input") or {}
+    row = {
+        "captured_at": now_ms,
+        "event": event["hook_event_name"],
+        "session_id": event["session_id"],
+        "tool_use_id": event["tool_use_id"],
+        "cwd": event["cwd"],
+        "skill": str(tool_input.get("skill", "")),
+    }
+    if event["hook_event_name"] == "PostToolUse":
+        response = event.get("tool_response") or {}
+        row["success"] = response.get("success")
+        row["duration_ms"] = event.get("duration_ms")
+    with path.open("a") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    path.chmod(0o600)
+
+
 def select_source(host, event, policies):
     if event.get("hook_event_name") not in ("Stop", "SessionEnd", "UserPromptSubmit"):
         return None
@@ -91,6 +146,10 @@ def hook():
         if not any(p["enabled"] and p["host"] == host for p in policies):
             return
         event = payload()
+        if dispatch_policy(host, event, policies):
+            import time
+            record_dispatch(event, root, int(time.time() * 1000))
+            return
         source = select_source(host, event, policies)
         if source is None:
             return
