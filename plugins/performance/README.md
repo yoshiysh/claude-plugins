@@ -52,17 +52,18 @@ Claude/Codex両方の隔離marketplace installは成功しました。Codexの�
 
 ## Marketplaceからの自動計測
 
-install・plugin有効化の後、`/performance:agent このプロジェクトの自動計測を有効にして`
-と依頼します。対象と保存範囲を一度確認し、それ以降はhookが数値だけをローカルに保存します。
+install・plugin有効化の後、「このプロジェクトの自動計測を有効にして」と依頼します
+（実体は `scripts/native_hook.py enable`。手順の正本は下記の同梱hook契約）。
+対象と保存範囲を一度確認し、それ以降はhookが数値だけをローカルに保存します。
 Codexでは `/hooks` の信頼承認が別途必要です。各projectの設定ファイルへのhook転記や、
 他スキルへの組込みは不要です。詳細・無効化・容量制限は
 [同梱hook契約](references/native-hooks.md)を参照してください。
 
 ## ファイル配置
 
-このプラグインの `skills/` 配下がスキルの実体です。
-リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。
 この plugin は skill を持たない（hooks + scripts + README 構成）。操作の正本は本 README。
+収集の実体は `hooks/hooks.json` が起動する `scripts/` 配下のスクリプト群で、
+計測・比較・実験の各モジュールも同じ `scripts/` に置く。
 
 ## skill 実行単位の計測（#60）
 

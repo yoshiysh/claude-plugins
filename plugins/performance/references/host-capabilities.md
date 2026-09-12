@@ -41,3 +41,6 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 - 計測が止まっても対象作業は止まらない。計測の成功を偽らない（欠測は
   coverage の unknown / 観測下限ラベルとして残る）
 - 課金額推定・未観測 usage の補完は行わない
+- overhead（performance 自身の計測費用）の判別は plugin 名の一致で行うため、
+  **別 marketplace の同名 plugin は overhead に誤分類され得る**（既知の限界。
+  詳細は `scripts/report_v2.py` の OVERHEAD_PLUGIN の注記）
