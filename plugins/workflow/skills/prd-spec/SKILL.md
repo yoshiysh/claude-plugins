@@ -243,14 +243,11 @@ Agent(prompt: "Read [SKILL_DIR]/agents/splitter.md for your full role instructio
 
 ## 3. Workflow A を呼ぶ（draft.js）
 
-> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
-> native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用するが、現行 `draft.js` / `refine.js` は runtime-generated な draft / workspace への
-> 書き込みを必須にするため runner v1 では agent 起動前に `rejected_source` となる（弱めて実行した
-> ことにしない）。native を試行後に error / timeout / invalid result となった場合も runner へ
-> fallback しない。caller の human gate は runner内gateに移さない。
->
-> **Codex v1 classification: `rejected_source_v1`**（runtime-generated artifacts / FS 書き込み）。
+> **透過実行 route**: native `Workflow` が現在の tool inventory にあり、この call が未試行なら1回だけ使う。
+> native が無い Codex では `workflow:dynamic-workflow-runner` を内部利用し、同じ scriptPath と args を
+> JavaScript runtime へ渡す。ユーザーに runner の指定を求めない。
+> 必要な書込権限・モデル対応・機能・上限を設定し、実際の検査と実行結果で判断する。
+> native 試行後の error / timeout / invalid result は runner で再実行しない。caller の承認境界は維持する。
 
 ```
 Workflow({

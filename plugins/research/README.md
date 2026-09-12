@@ -21,8 +21,8 @@
 詳細なフローは `skills/<name>/SKILL.md` を参照してください。
 
 `search` / `dispatch` の Workflow callsite は native Workflow を優先し、それが無い Codex では
-`workflow:dynamic-workflow-runner` を内部利用します。searchはbounded v1 mappingの対象です。Fable 5のexact model semanticsを
-load-bearingにするdispatchはrunner v1で証明できないためexecution前にfail closedします。Claude Code は plugin dependency で
+`workflow:dynamic-workflow-runner` の JavaScript runtime を内部利用します。必要な権限・モデル対応・
+機能を設定し、実際の実行結果で可否を判断します。Claude Code は plugin dependency で
 `workflow` も導入しますが、Codex では `research` と `workflow` を一度ずつ install してください。
 
 ## 構成

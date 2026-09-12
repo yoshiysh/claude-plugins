@@ -99,6 +99,17 @@ plugins/
 
 ## 作業ルール
 
+### 現行の契約を一つに保つ
+
+同じ判断に複数の手順があると、呼び出し元によって動作と検証基準が分岐する。置き換えた実装・
+契約・資料・テストは参照元とともに削除し、後方互換の分岐や旧手順を配布物に残さない。
+過去の経緯は Git 履歴で確認する。外部利用者との互換性維持を明示的に依頼された場合だけ、
+対象と終了条件を定めて例外を扱う。
+
+コメントと文書は、コードだけでは分からない選択理由・制約・破ると起きる問題を記す。
+処理の読み上げ、変更履歴、未使用の将来案は削除する。重要な境界は理由を添え、可能なものは
+実行可能な検査にすることで、説明と実装のずれを防ぐ。
+
 - 編集は `.agents/skills/<name>/` から行う（公開済みスキルは symlink 越しに `plugins/` の実体を触ることになる）。`.claude/skills/` は symlink なので直接実体を増やさない。
 - 新規スキルは `.agents/skills/<name>/` に実体で作る。`plugins/` へ手で置かない（移動は `register_plugin.py` の仕事）。
 - `plugins/` 配下に symlink を作らない。
@@ -149,8 +160,10 @@ python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 - `search` / `dispatch` / `skill-creator-best-practices` / `pdca` は native Workflow を優先し、それが無い
   Codex では caller SKILL.md の active callsite から `workflow:dynamic-workflow-runner` を透過利用する。
   これは host-global interceptor ではないため、新たな Workflow caller には同じ native-first route契約を追加する。
-- runner v1でportable executionまで進めるのは `search` と `skill-creator-best-practices` のcreate modeだけ。
-  `dispatch`、`pdca`、review/updateは意味保存できないconstructを含むため、execution前にfail-closedする。
+- Codex で native Workflow が無い場合は、スキル名や mode による一律拒否をせず、
+  `workflow:dynamic-workflow-runner` の JavaScript runtime に同じ scriptPath と args を渡す。
+  書込・モデル対応・必要機能・実行上限は現在の作業に合わせて設定し、実行結果で可否を判断する。
+  native を試行済みの call は重複実行しない。承認境界と実際の機能不足は維持する。
 - Claude Code は caller plugin の `dependencies` から `workflow` を導入する。Codex に同等の自動依存導入は無いため、
   caller plugin と `workflow` を別々に一度 install する。
 

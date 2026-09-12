@@ -8,7 +8,7 @@ and domain review. The host owns process lifetime, accounting, and SDK policy.
 Do not reimplement source planning in a second model-driven control plane.
 
 The entry SKILL is parent-only. Runtime documentation is conditional setup material.
-Legacy graph contracts are maintenance-only. A worker receives the source's exact
+A worker receives the source's exact
 prompt, schema, and chosen model policy, not a parent-history fork. Referenced files
 remain subject to worker access and applicable local instructions; a path is neither
 an access grant nor proof the worker read the file. If evidence of reading matters,
@@ -24,13 +24,13 @@ request omit a model, record host-default, not an invented resolved model ID.
 Configured targets are not availability attestations; SDK/provider rejection remains
 a backend failure. No automatic cheaper/larger replacement or retry is permitted.
 
-## Rollout boundaries
+## One execution contract
 
-The JavaScript implementation is opt-in until caller routes have their native-once,
-source/args binding, and return semantics migrated and tested. Old receipt-based caller
-instructions do not authorize bypassing their checks. Keep existing run maintenance
-separate; do not build permanent backward-compatibility translation into the runtime.
-This release does not certify write-heavy skill-creator or research workflows.
+Callers use the JavaScript runtime when native Workflow is unavailable. Keeping a
+second translation contract would let identical calls acquire different semantics,
+so source prompts, arguments and return values remain the execution contract.
+Capability checks and measured results establish support; routing alone does not
+certify a caller's full workflow.
 
 ## Acceptance
 

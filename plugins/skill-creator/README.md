@@ -19,8 +19,8 @@
 詳細なフローは `skills/skill-creator-best-practices/SKILL.md` を参照してください。
 
 create / review / update の Workflow callsite は native Workflow を優先し、それが無い Codex では
-`workflow:dynamic-workflow-runner` を内部利用します。runner v1の対象はcreateだけです。live target treeを読むreviewと
-dynamic staging writeを持つupdateは意味保存できないためexecution前にfail closedします。Claude Code は plugin dependency で
+`workflow:dynamic-workflow-runner` の JavaScript runtime を全 mode で内部利用します。必要な権限・
+モデル対応・機能を設定し、実際の実行結果で可否を判断します。Claude Code は plugin dependency で
 `workflow` も導入しますが、Codex では `skill-creator` と `workflow` を一度ずつ install してください。
 
 ## 構成

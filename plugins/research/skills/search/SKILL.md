@@ -140,7 +140,7 @@ agent に渡す前に、以下は SKILL.md 側で判定して終了する。理�
 にコミットされてしまうリスクも残る。プロジェクトに依存しない `~/.claude/search-workspace/`
 を使えば、この gitignore 管理という問題自体が発生しない。
 
-native Workflow と Step 0.5（直接委譲）では、verifier を spawn する前にSKILL.md自身
+native Workflow・Codex の JavaScript runtime・Step 0.5（直接委譲）では、verifier を spawn する前にSKILL.md自身
 （script ではなく agent）が以下を行い `workspaceDir` を確定する：
 
 1. 調査依頼（委譲経路では検証対象の主張）から短い slug を作る（英数字・ハイフンのみ、
@@ -150,10 +150,8 @@ native Workflow と Step 0.5（直接委譲）では、verifier を spawn する
    （script は再現性のため日時を自ら生成できないので、ここは agent 側の責務）。
 3. `mkdir -p {workspaceDir}/evidence` を実行してから spawn に進む。
 
-Codex互換経路はこの3手順を実行しない。caller / hostがfresh session rootと、その配下のまだ存在しない
-execution run rootを選び、`workspaceDir`にはそのrun rootを渡す。call receipt確定前にも
-`workspaceDir`や`evidence/`を作成してはならない。runner初期化が空run rootを所有し、translatorが列挙した
-`evidence/round-{round}/slot-{index}.md`だけをcontroller管理下のartifactとして作る。
+Codex でもこの3手順で証拠用 workspaceDir を確定する。host の書込可能な領域内で、
+plugin cache と調査対象から分けて置く。ログ用 runDir は別の未使用パスとして runtime に渡す。
 
 ## Step 0.5: 委譲ヘッダ検出（SKILL.md が直接判定する分岐）
 
@@ -187,13 +185,11 @@ execution run rootを選び、`workspaceDir`にはそのrun rootを渡す。call
 
 ## Step 2: Workflow を呼ぶ
 
-> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
-> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用し、ユーザーに runner の指定を求めない。native を試行後に
-> error / timeout / invalid result となった場合は runner へ fallback しない。
->
-> **Codex v1 classification: `portable_v1`**。round、claim数、fan-outはhard maxを持ち、evidence pathは
-> agent生成IDではなく事前列挙可能なround/slotで決まる。host hidden globalには依存しない。
+> **透過実行 route**: native `Workflow` が現在の tool inventory にあり、この call が未試行なら1回だけ使う。
+> native が無い Codex では `workflow:dynamic-workflow-runner` を内部利用し、同じ scriptPath と args を
+> JavaScript runtime へ渡す。ユーザーに runner の指定を求めない。
+> 必要な書込権限・モデル対応・機能・上限を設定し、実際の検査と実行結果で判断する。
+> native 試行後の error / timeout / invalid result は runner で再実行しない。caller の承認境界は維持する。
 
 ```
 Workflow({
@@ -213,12 +209,12 @@ agent に渡す `agents/*.md` と `schemas/agent-contracts.md` の Read パス�
 `evidence_file`（`{workspaceDir}/evidence/round-{round}/slot-{index}.md`）を組み立て、verifier に渡す。
 agent が返す claim ID は内容上の識別子に限定し、path や runtime label には使わない。
 
-Codex 互換経路では、caller / host がplugin install/cacheと調査対象ツリーの外に用意するfresh execution
-run rootそのものを `workspaceDir` としてcall receipt 確定前に選び、そのexact pathを渡す。
-execution run rootは作成せず、親session rootだけを用意してrunner初期化まで空の境界を保つ。これにより plugin cache や調査対象ツリーを
-workflow agent が書き換えない。caller が所有する前処理は Step 0〜1、成功後処理は Step 3、
-human gate は無し。runner の verified return 以外で Step 3 へ進まない。runner 未install、
-`unsupported_runtime`、`rejected_source`、`workflow_incomplete` はそのまま報告し、合成した成功結果で継続しない。
+Codex 経路では plugin cache と調査対象ツリーの外に専用の `workspaceDir` を用意し、
+証拠ファイルを書ける承認済み workspace-write の host 設定を使う。runtime が新規作成する
+`runDir` はログ用の別パスにし、証拠の workspaceDir と混同しない。書込対象は証拠用領域に限定する。
+caller の前処理は Step 0〜1、成功後は Step 3、human gate は無し。
+runtime の正常終了と source の返り値を確認して Step 3 へ進む。未導入、機能不足、権限不足や
+実行失敗は具体的に報告し、合成した成功結果で継続しない。
 
 完了すると `{ question, rounds_run, termination_reason, report, verdicts, rounds }` が返る。
 

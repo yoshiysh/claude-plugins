@@ -12,34 +12,8 @@ export const meta = {
     { title: 'Grade' },
     { title: 'Analyze' },
   ],
-  codex_workflow_compatibility: {
-    schema_version: 'claude-workflow-model-portability/v1',
-    classification: 'portable_v1',
-    model_identity_semantics: 'non_load_bearing_scheduling_hint',
-    codex_translation: 'drop_declared_model_hint_preserve_role_and_result_contract',
-    quality_parity: 'not_guaranteed',
-    model_hints: {
-      criteria_generator: { requested_model: 'sonnet', role: 'generate validation criteria' },
-      criteria_complementer: { requested_model: 'sonnet', role: 'complete validation criteria' },
-      structure_designer: { requested_model: 'sonnet', role: 'design a bounded skill structure' },
-      structure_reviewer: { requested_model: 'sonnet', role: 'verify the proposed structure contract' },
-      initial_writer: { requested_model: 'opus', role: 'produce the initial skill artifact' },
-      script_reviewer: { requested_model: 'opus', role: 'verify a generated workflow source' },
-      test_generator: { requested_model: 'haiku', role: 'generate bounded evaluation cases' },
-      grader: { requested_model: 'sonnet', role: 'grade one pre-enumerated evaluation slot' },
-      quality_reviewer: { requested_model: 'opus', role: 'review criteria and trigger coverage' },
-      comparator: { requested_model: 'sonnet', role: 'compare one bounded output pair' },
-      analyzer: { requested_model: 'sonnet', role: 'analyze validated grading results' },
-      revision_writer: { requested_model: 'opus', role: 'revise the returned skill artifact' },
-    },
-  },
 }
 
-function modelHint(callsite) {
-  const hint = meta.codex_workflow_compatibility.model_hints[callsite]
-  if (!hint) throw new Error(`undeclared model hint callsite: ${callsite}`)
-  return hint.requested_model
-}
 
 // DELTA_THRESHOLD: with_skill と baseline の pass_rate 差がこの値未満なら「スキルが効いて
 // いない」と判定して改稿へ回す。SKILL.md の判定基準（delta >= 0.2 で合格）をそのまま定数化。
@@ -321,7 +295,7 @@ const criteriaGen = await roleAgent(
     `[REQUIREMENTS]:\n${requirements}`,
     knowledgeBlock,
   ].join('\n\n'),
-  { model: modelHint('criteria_generator'), phase: 'Criteria', label: 'criteria-gen' }
+  { model: 'sonnet', phase: 'Criteria', label: 'criteria-gen' }
 )
 
 // comp は gen の出力を入力に取るため直列。ここは並列にできない依存関係。
@@ -334,7 +308,7 @@ const criteriaComp = await roleAgent(
     knowledgeBlock,
     `[EXISTING_CRITERIA]:\n${criteriaGen}`,
   ].join('\n\n'),
-  { model: modelHint('criteria_complementer'), phase: 'Criteria', label: 'criteria-comp' }
+  { model: 'sonnet', phase: 'Criteria', label: 'criteria-comp' }
 )
 
 // criteria-comp は「統合後の完全リスト」を返す契約なので、これを確定版として扱う。
@@ -371,7 +345,7 @@ if (taskType === 'document' || architecture === 'workflow') {
       ]
         .filter(Boolean)
         .join('\n\n'),
-      { model: modelHint('structure_designer'), phase: 'Structure', label: `structure-design-${structureAttempts}` }
+      { model: 'sonnet', phase: 'Structure', label: `structure-design-${structureAttempts}` }
     )
 
     // Generator と Verifier は別 agent（自分の出力を自分で検証させない）。
@@ -385,7 +359,7 @@ if (taskType === 'document' || architecture === 'workflow') {
         `[STRUCTURE_PLAN]:\n${plan}`,
       ].join('\n\n'),
       {
-        model: modelHint('structure_reviewer'),
+        model: 'sonnet',
         schema: STRUCTURE_REVIEW_SCHEMA,
         phase: 'Structure',
         label: `structure-review-${structureAttempts}`,
@@ -422,7 +396,7 @@ let skillDraft = await roleAgent(
     knowledgeBlock,
     `[STRUCTURE_PLAN]:\n${structurePlan}`,
   ].join('\n\n'),
-  { model: modelHint('initial_writer'), phase: 'Write', label: 'write-initial' }
+  { model: 'opus', phase: 'Write', label: 'write-initial' }
 )
 
 if (!skillDraft) {
@@ -484,7 +458,7 @@ if (architecture === 'workflow') {
       `[WORKFLOW_SCRIPT]:\n${workflowScript}`,
     ].join('\n\n'),
     {
-      model: modelHint('script_reviewer'),
+      model: 'opus',
       phase: 'Review script',
       label: 'script-review',
       schema: SCRIPT_REVIEW_SCHEMA,
@@ -519,7 +493,7 @@ const testCases = await roleAgent(
     'assertions は後段の採点者が with_skill / baseline 双方の出力に対して pass/fail を' +
       '判定するための基準になるため、「〜している」と観測可能な形で書くこと。',
   ].join('\n'),
-  { model: modelHint('test_generator'), schema: TEST_CASES_SCHEMA, phase: 'Test', label: 'generate-tests' }
+  { model: 'haiku', schema: TEST_CASES_SCHEMA, phase: 'Test', label: 'generate-tests' }
 )
 
 const cases = testCases?.cases || []
@@ -610,7 +584,7 @@ while (true) {
             `[WITH_SKILL_OUTPUT]:\n${pair.with_skill}`,
             `[BASELINE_OUTPUT]:\n${pair.baseline}`,
           ].join('\n\n'),
-          { model: modelHint('grader'), schema: GRADING_SCHEMA, phase: 'Grade', label: `grade-${tc.id}-${iterLabel}` }
+          { model: 'sonnet', schema: GRADING_SCHEMA, phase: 'Grade', label: `grade-${tc.id}-${iterLabel}` }
         )
       })
     ),
@@ -623,7 +597,7 @@ while (true) {
           `[CRITERIA]:\n${criteria}`,
           `[TEST_CASES]:\n${JSON.stringify(cases, null, 2)}`,
         ].join('\n\n'),
-        { model: modelHint('quality_reviewer'), schema: REVIEW_SCHEMA, phase: 'Grade', label: `review-${iterLabel}` }
+        { model: 'opus', schema: REVIEW_SCHEMA, phase: 'Grade', label: `review-${iterLabel}` }
       ),
   ])
 
@@ -668,7 +642,7 @@ while (true) {
             `[OUTPUT_B]:\n${firstPair.baseline}`,
             `[ASSERTION_RATES]:\n${JSON.stringify({ with_skill: withSkillRate, baseline: baselineRate, delta }, null, 2)}`,
           ].join('\n\n'),
-          { model: modelHint('comparator'), phase: 'Analyze', label: `compare-${iterLabel}` }
+          { model: 'sonnet', phase: 'Analyze', label: `compare-${iterLabel}` }
         )
       : null
 
@@ -680,7 +654,7 @@ while (true) {
       `[GRADING_RESULTS]:\n${JSON.stringify(graded, null, 2)}`,
       `[COMPARATOR_RESULT]:\n${comparison || '(テスト1の出力ペアが揃わず比較を実施できなかった)'}`,
     ].join('\n\n'),
-    { model: modelHint('analyzer'), phase: 'Analyze', label: `analyze-${iterLabel}` }
+    { model: 'sonnet', phase: 'Analyze', label: `analyze-${iterLabel}` }
   )
 
   // 合格には「閾値を超えた」だけでなく「評価が揃った」ことを要求する。欠測を含む
@@ -781,7 +755,7 @@ while (true) {
         2
       )}`,
     ].join('\n\n'),
-    { model: modelHint('revision_writer'), phase: 'Write', label: `write-revise-${revision}` }
+    { model: 'opus', phase: 'Write', label: `write-revise-${revision}` }
   )
 
   // 改稿に失敗したら前の稿を保持したまま打ち切る（草稿を失わない）。

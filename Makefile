@@ -7,9 +7,7 @@ VALIDATOR := $(SKILLS_DIR)/skill-creator-best-practices/scripts/quick_validate.p
 PORTABILITY := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_portability.py
 REFERENCES := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_references.py
 
-# スキル一覧・tests ディレクトリはどちらも毎回導出する。ハードコードすると、スキルの
-# 追加・リネームのたびに検証対象から静かに漏れる（実例: worktree-sync → cleanup-branches の
-# リネーム時、unittest の 2 行だけがハードコードのまま残り make test が壊れた）。
+# スキルの追加・リネームで検証対象が静かに漏れないよう、一覧は実ファイルから導出する。
 SKILLS := $(notdir $(patsubst %/,%,$(wildcard $(SKILLS_DIR)/*/)))
 TEST_DIRS := $(wildcard $(SKILLS_DIR)/*/tests)
 SKILL_NODE_TEST_FILES := $(shell $(FIND) -L $(SKILLS_DIR) -name node_modules -prune -o -type f -path '*/scripts/*.test.mjs' -print 2>/dev/null)

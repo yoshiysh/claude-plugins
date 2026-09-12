@@ -103,14 +103,11 @@ subagent（Sonnet/Opus/Haiku）を回します。収束すれば途中で打ち�
 
 ## Step 2: Workflow を呼ぶ
 
-> **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
-> native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用する。ただし本sourceはFable 5をPlan/Evaluate/Synthesizeのload-bearingな
-> engineとして固定し、executor/verifier modelもその出力で選ぶ。runner v1 manifestはprovider/model identityを
-> 機械検証できないため、現在は最初のagent起動前に`rejected_source`となる。任意modelへ黙って置換しない。
-> native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
->
-> **Codex v1 classification: `rejected_source_v1`**（load-bearing exact model semantics）。
+> **透過実行 route**: native `Workflow` が現在の tool inventory にあり、この call が未試行なら1回だけ使う。
+> native が無い Codex では `workflow:dynamic-workflow-runner` を内部利用し、同じ scriptPath と args を
+> JavaScript runtime へ渡す。ユーザーに runner の指定を求めない。
+> 必要な書込権限・モデル対応・機能・上限を設定し、実際の検査と実行結果で判断する。
+> native 試行後の error / timeout / invalid result は runner で再実行しない。caller の承認境界は維持する。
 
 ```
 Workflow({
@@ -125,8 +122,9 @@ Workflow({
 `skillDir` には本スキルの実ディレクトリ（install 元によって変わる）を実パスで渡す。スクリプトは自身の位置を解決できず、subagent に渡す役割定義の Read パスがここでしか決まらない。
 
 Codex 互換経路で caller が所有する前処理は Step 0〜1、成功後処理は「結果の提示」、human gate は無し。
-現行v1の`rejected_source`をそのまま報告し、別modelの合成結果を作らない。将来runtimeがexact model capabilityを
-typed snapshotで証明できるか、sourceがmodel非依存のrole contractへ変わった場合だけ互換性を再評価する。
+source のモデルラベルは、役割に応じて現在利用できる Codex モデルへ modelMap で明示対応させる。
+対応は実行記録に残し、元 provider と同一または品質同等と主張しない。動的に選ばれるラベルも対応対象にする。
+runtime の正常終了と source の返り値を確認して結果提示へ進み、実際の失敗を成功として合成しない。
 
 Workflow はバックグラウンドで実行される（`Workflow` ツールの標準挙動）。完了すると
 `{ topic, rounds_run, termination_reason, synthesis, history }` が返る。

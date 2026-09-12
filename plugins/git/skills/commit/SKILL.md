@@ -1,11 +1,11 @@
 ---
 name: commit
 description: >
-  Analyzes staged changes, generates a Conventional Commits message, runs the repository's own
+  Selects task-related changes, generates a Conventional Commits message, runs the repository's own
   format/test/verify commands, and executes the commit. Use when the user explicitly asks to
   commit ("commit this", "コミットして"), or approves a plan whose immediate next step is a commit.
   Also use for a dry run when the user asks to preview a commit message without committing.
-  Does not stage files on its own, does not push, and does not create pull requests
+  Stages relevant changes when committing is authorized; does not push or create pull requests
   (use pr-create for that).
 ---
 
@@ -15,7 +15,7 @@ This skill analyzes staged changes, generates appropriate commit messages compli
 
 ## Overview
 
-1.  **Staging Verification**: Check if there are staged changes.
+1.  **Change Selection**: Inspect and stage only changes within the authorized task.
 2.  **Pre-Commit Validation**: Run the repository's own quality checks before committing.
 3.  **Message Generation**: Infers the intent from changes and generates a message.
 4.  **Message Verification**: A separate agent re-reads the diff and checks the message against it.
@@ -26,6 +26,7 @@ This skill analyzes staged changes, generates appropriate commit messages compli
 ### 0. Authority Check (CRITICAL)
 
 **Before proceeding, verify:**
+- For an explicit preview or dry run, follow Preview Mode without committing.
 - Did the USER explicitly say "Commit this"?
 - OR, did the USER explicitly approve a plan that included "Commit" as the *immediate next step*?
 
@@ -37,17 +38,29 @@ This skill analyzes staged changes, generates appropriate commit messages compli
 **IF YES:**
 - Proceed to Step 1.
 
-### 1. Staging Verification
+### 1. Change Selection
 
-First, check if there are staged changes.
+Inspect the index, working tree, and untracked paths before selecting changes.
 
 ```bash
-git diff --staged --name-only
+git status --short
+git diff --staged
+git diff
 ```
 
-- **CRITICAL**: If the output is empty, **STOP HERE** and inform the user "No staged changes found".
-- **PROHIBITED**: Do NOT run `git add .` on your own accord. Commit only what the user has explicitly staged.
-- **NOTE**: Ignore unstaged changes. Proceed without asking.
+Authorization to commit includes staging changes that clearly belong to that task.
+An empty index is not a reason to request approval again.
+
+- Use explicit paths with `git add -- <paths>`; include relevant deletions and new files.
+- Do not add unrelated edits, secrets, local artifacts, or verification outputs.
+- Preserve existing user staging. If staged changes fall outside the authorized scope,
+  or related and unrelated edits cannot be safely separated, ask about that conflict
+  rather than silently committing or unstaging them.
+- Inspect the final staged diff; if no relevant changes remain, report that there is
+  nothing to commit.
+
+The index determines what enters history. Selection must follow the user's task,
+not file proximity or whether a change happened to be staged already.
 
 ### 2. Pre-Commit Validation
 
@@ -126,7 +139,9 @@ git show --stat --oneline HEAD
 ```
 
 **Preview Mode**:
-If the user asks for a "Preview" or "Dry run", run Steps 1–4 and display the verified message
+If the user asks for a "Preview" or "Dry run", inspect the existing staged changes without
+changing the index or working tree. Run only non-mutating checks from Step 2 (skip
+formatters and re-staging), then Steps 3–4, and display the verified message
 (plus any mismatch the verifier found), but do NOT execute `git commit`. The verification is
 part of what a preview is for.
 

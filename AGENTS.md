@@ -14,7 +14,7 @@ Claude/Codex 向けの汎用スキルを marketplace plugin として管理・�
 
 - **公開済み（plugin に属する）**: 実体は `plugins/<plugin>/skills/<name>/`。`.agents/skills/<name>` はそこへの相対 symlink（`../../plugins/<plugin>/skills/<name>`）。
 - **未公開・未登録**: 実体は `.agents/skills/<name>/`（現状は `manage-marketplace-plugin` のみ）。
-- Marketplace 定義: `.claude-plugin/marketplace.json`（Codex も legacy パスとして読む）
+- Marketplace 定義: `.claude-plugin/marketplace.json`（Claude / Codex 共通）
 - Marketplace 名: `yoshiysh-claude-plugins`
 - 公開用 plugin: `plugins/<name>/`
 
@@ -75,6 +75,17 @@ plugins/
 
 ## 作業ルール
 
+### 現行の契約を一つに保つ
+
+同じ判断に複数の手順があると、呼び出し元によって動作と検証基準が分岐する。置き換えた実装・
+契約・資料・テストは参照元とともに削除し、後方互換の分岐や旧手順を配布物に残さない。
+過去の経緯は Git 履歴で確認する。外部利用者との互換性維持を明示的に依頼された場合だけ、
+対象と終了条件を定めて例外を扱う。
+
+コメントと文書は、コードだけでは分からない選択理由・制約・破ると起きる問題を記す。
+処理の読み上げ、変更履歴、未使用の将来案は削除する。重要な境界は理由を添え、可能なものは
+実行可能な検査にすることで、説明と実装のずれを防ぐ。
+
 - 編集は `.agents/skills/<name>/` から行う。
 - 新規スキルは `.agents/skills/<name>/` に実体で作る。`plugins/` へ手で置かない。
 - `plugins/` 配下に symlink を作らない。
@@ -116,8 +127,10 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
 （runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
 caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
-runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
-dispatch、pdca、prd-spec、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
+Codex で native Workflow が無い場合は、スキル名や mode による一律拒否をせず、
+`workflow:dynamic-workflow-runner` の JavaScript runtime に同じ scriptPath と args を渡す。
+書込・モデル対応・必要機能・実行上限は現在の作業に合わせて設定し、実行結果で可否を判断する。
+native を試行済みの call は重複実行しない。承認境界と実際の機能不足は維持する。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
 `plugins/performance/skills/performance-agent/references/native-hooks.md` を正とする。

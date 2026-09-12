@@ -1,8 +1,8 @@
 # JavaScript workflow runtime — experimental opt-in
 
-This is a new executable runtime, not the existing source-to-manifest bridge.
-Existing skill routing is unchanged. Do not claim that installing this prototype
-enables native Workflow interception, resume, or unchanged execution of every caller.
+This runtime executes trusted JavaScript workflows in a bounded host process.
+When native Workflow is unavailable, callers route the same scriptPath and args here.
+Installing it does not enable native tool interception, resume, or prove execution of every caller.
 
 The [common adapter](ADAPTER.md) binds host settings once and accepts unchanged
 `Workflow({scriptPath,args})` calls. The one-shot CLI uses the same execution entry.

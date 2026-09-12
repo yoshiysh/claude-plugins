@@ -11,7 +11,7 @@ description: >
 # Dynamic Workflow Runner
 
 親向けの内部入口。インストールだけで native tool を登録・横取りする仕組みではない。
-caller が実際に到達した callsite から明示的に委譲する。direct mode は保守・移行検証用であり、
+caller が実際に到達した callsite から明示的に委譲する。direct mode は保守・検証用であり、
 通常のユーザーに runner の指定を要求しない。
 
 ## 責務と読む範囲
@@ -83,14 +83,12 @@ source は JavaScript として実行する。LLM に manifest へ翻訳させ�
 `agent()` の失敗は null。null を許容するか停止するかは source が決める。上限超過は run 全体を失敗させる。
 caller の post-success phase と human gate は caller が所有し、runtime が代替しない。
 
-## 失敗・検証・移行
+## 失敗と検証
 
 - 失敗時だけ run の `events.jsonl` と [既知の検証範囲](scripts/runtime/VALIDATION.md) を読む。
   同じ runDir の再利用・自動再試行・失敗した native call の fallback はしない。
 - token 使用量は完了 turn の実測を示す。agent 数や timeout を token 上限と言い換えない。
 - 現在の実証は mock tests と小さな live smoke。既存 caller 全体の無変更 E2E は未検証。
-  既存 caller の旧 manifest receipt 指示を新 request と混ぜない。caller の移行前は自動切替しない。
-- 既存 manifest run の保守を明示的に求められた場合だけ [旧手順](LEGACY.md) を読む。
-  新規 JS run では旧契約・変換 prompt・旧最終レビューを読まない。
+  native Workflow が無い Codex ではこの JavaScript 経路を使い、実際の必要機能と権限を検査する。
 
 設計変更時の責務・受入基準は [設計](references/runtime-design.md) を参照する。通常実行では不要。

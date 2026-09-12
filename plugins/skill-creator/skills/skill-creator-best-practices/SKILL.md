@@ -165,16 +165,11 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 
 ## Phase 2-4: Workflow を呼ぶ（create）
 
-> **透過実行 route**: native `Workflow` を未試行なら1回だけ優先し、存在しないCodexでは`workflow:dynamic-workflow-runner`を内部利用する。native試行後はfallback しない。createはv1互換、review/updateは意味保存不能のためagent起動前に`rejected_source`。別modeへ自動縮退しない。callerのhuman gateはrunner内gateに移さない。active callsite到達時は必ず[Codex Workflow互換契約](references/codex-workflow-compatibility.md)を読む。
->
-> | call | Codex v1 classification |
-> | --- | --- |
-> | `build_skill.js` create | `portable_v1` |
-> | `review_skill.js` + `mode: review` | `rejected_source_v1` |
-> | `review_skill.js` + `mode: update` | `rejected_source_v1` |
->
-> **Codex v1 classification: `portable_v1`** for create only; review/updateは上表どおりfail closed。
-> **Codex v1 classification: `rejected_source_v1`** for `review_skill.js` in both review and update mode。
+> **透過実行 route（create / review / update 共通）**: native `Workflow` があり未試行なら1回だけ使う。
+> native が無い Codex では `workflow:dynamic-workflow-runner` の JavaScript runtime に同じ
+> scriptPath と args を渡す。mode による一律拒否や別 mode への縮退をしない。
+> native 試行後は fallback しない。caller の human gate は維持する。
+> active callsite 到達時は [Codex Workflow互換契約](references/codex-workflow-compatibility.md) を読む。
 
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」

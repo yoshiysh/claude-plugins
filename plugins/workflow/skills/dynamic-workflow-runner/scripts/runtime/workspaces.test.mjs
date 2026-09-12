@@ -49,17 +49,34 @@ test('invalid, overlapping and cancelled workspace requests cannot dispatch', as
   await assert.rejects(policy.allocate({ isolation: 'worktree' }, { signal: controller.signal, emit() { assert.fail('allocated after abort'); } }), /abort/i);
 });
 
-test('unchanged PDCA JS completes through mock SDK with explicit write/worktree policy', async t => {
-  const f = await fixture(t), starts = [];
+async function mockPdca(f, { rejectBuild = false } = {}) {
+  const starts = [], calls = [];
   class MockCodex {
     startThread(options) {
       starts.push(options);
       return { async runStreamed(prompt) {
+        const role = prompt.match(/\/agents\/([\w-]+)\.md/)?.[1];
+        const call = { role, prompt, options };
+        calls.push(call);
         let result;
-        if (prompt.includes('/agents/builder.md')) result = { artifacts: [], measurement_points: [] };
-        else if (prompt.includes('/agents/runner.md')) result = { condition_id: 'single', run_index: 1, executed: true, observations: 'mock observation' };
-        else if (prompt.includes('/agents/verifier.md')) result = { condition_id: 'single', run_index: 1, measured: true, score: 1, criteria_checks: [] };
-        else result = { mechanisms: [], criteria_validity: 'mock only', unmeasured: [], gap: '' };
+        if (role === 'builder') result = { artifacts: [], measurement_points: [] };
+        else if (role === 'build-verifier') result = rejectBuild
+          ? { verdict: 'revise', findings: [{ lens: 'contract', severity: 'blocker', claim: 'missing measurement', why_it_breaks_measurement: 'mock rejection' }] }
+          : { verdict: 'pass', findings: [] };
+        else if (role === 'runner') {
+          assert.equal(calls.at(-2).role, 'build-verifier');
+          assert.equal(await readFile(join(options.workingDirectory, 'baseline.txt'), 'utf8'), 'baseline');
+          await writeFile(join(options.workingDirectory, 'run-output.txt'), 'mock observation');
+          result = { condition_id: 'single', run_index: 1, executed: true, observations: 'mock observation' };
+        } else if (role === 'verifier') {
+          call.lens = prompt.match(/\[LENS\]: (\w+)/)?.[1];
+          result = { condition_id: 'single', run_index: 1, measured: true, criteria_checks: [],
+            ...(call.lens === 'criteria' ? { score: 1 } : {}) };
+        } else if (role === 'mechanism-analyst') {
+          call.seat = prompt.match(/\[SEAT\]: (\w+)/)?.[1];
+          result = { mechanisms: [], criteria_validity: `mock analyst ${call.seat} only`, unmeasured: [], gap: '' };
+        } else if (role === 'mechanism-arbiter') result = { pairs: [] };
+        else assert.fail(`unexpected PDCA role: ${role}`);
         return { events: (async function* () {
           yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({json:JSON.stringify(result)}) } };
           yield { type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } };
@@ -71,14 +88,51 @@ test('unchanged PDCA JS completes through mock SDK with explicit write/worktree 
     scriptPath: fileURLToPath(new URL('../../../pdca/scripts/pdca.js', import.meta.url)),
     args: { skillDir: '/mock/pdca', plan: 'mock only', runsPerCondition: 1,
       successCriteria: { text: 'mock match', metric: 'match', higher_is_better: true } },
-  }, { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 4, timeoutMs: 5000,
+  }, { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 9, timeoutMs: 10000,
     requirements: ['workspace-write', 'worktree'],
     backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, modelMap: { opus: 'mock', sonnet: 'mock' },
       workspace: { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit } }),
   });
+  return { result, starts, calls };
+}
+
+test('unchanged PDCA JS mock control-flow covers current roles and temporary worktree isolation only', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.cwd, 'baseline.txt'), 'user dirty checkout');
+  const { result, starts, calls } = await mockPdca(f);
   assert.equal(result.status, 'ok'); assert.equal(result.confidence, 'inconclusive');
-  assert.equal(starts.length, 4);
-  assert.notEqual(starts[1].workingDirectory, starts[0].workingDirectory);
-  assert.equal(starts[2].workingDirectory, starts[0].workingDirectory);
+  assert.equal(starts.length, 9);
+  assert.deepEqual(calls.map(c => c.role), ['builder', 'build-verifier', 'runner',
+    'verifier', 'verifier', 'verifier', 'mechanism-analyst', 'mechanism-analyst', 'mechanism-arbiter']);
+  assert.deepEqual(calls.filter(c => c.role === 'verifier').map(c => c.lens).sort(), ['authenticity', 'contract', 'criteria']);
+  const analysts = calls.filter(c => c.role === 'mechanism-analyst');
+  assert.deepEqual(analysts.map(c => c.seat).sort(), ['A', 'B']);
+  assert.ok(analysts.every(c => !c.prompt.includes('mock analyst')));
+  assert.equal(new Set(calls.map(c => c.options)).size, 9);
+  const runnerDirectory = calls.find(c => c.role === 'runner').options.workingDirectory;
+  assert.notEqual(runnerDirectory, f.cwd);
+  assert.equal(await readFile(join(runnerDirectory, 'run-output.txt'), 'utf8'), 'mock observation');
+  await assert.rejects(readFile(join(f.cwd, 'run-output.txt')), { code: 'ENOENT' });
+  assert.equal(await readFile(join(f.cwd, 'baseline.txt'), 'utf8'), 'user dirty checkout');
+  // The SDK canonicalizes cwd (e.g. /var to /private/var on macOS).
+  // This proves allocation/control-flow, not builder artifact delivery or live model behavior.
+  assert.ok(calls.filter(c => c.role !== 'runner').every(c => c.options.workingDirectory === starts[0].workingDirectory));
+  assert.equal(result.build_review.verdict, 'pass');
+  assert.equal(result.check.results.per_condition[0].measured_n, 1);
+  assert.equal(result.check.results.per_condition[0].mean_score, 1);
+  assert.deepEqual(result.ledger_entries.find(e => e.type === 'do_run').payload.lenses_applied,
+    ['criteria', 'authenticity', 'contract']);
   assert.ok(starts.every(x => x.sandboxMode === 'workspace-write' && x.approvalPolicy === 'never'));
+});
+
+test('PDCA build rejection exhausts bounded revisions without dispatching a runner', async t => {
+  const f = await fixture(t);
+  const { result, calls } = await mockPdca(f, { rejectBuild: true });
+  assert.equal(result.status, 'BLOCKED');
+  assert.match(result.reason, /measurement 契約/);
+  assert.deepEqual(calls.map(c => c.role), ['builder', 'build-verifier', 'builder', 'build-verifier', 'builder', 'build-verifier']);
+  assert.equal(result.build_attempts.length, 3);
+  assert.ok(result.build_attempts.every(a => a.verdict === 'revise' && a.blockers_majors === 1));
+  assert.ok(calls.filter(c => c.role === 'builder').slice(1).every(c => c.prompt.includes('[BUILD_FINDINGS]')));
+  assert.ok(!result.ledger_entries.some(e => e.type === 'do_run'));
 });

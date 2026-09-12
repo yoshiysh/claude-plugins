@@ -3,25 +3,8 @@ export const meta = {
   description:
     '一次情報検証つき調査ループ（claim 抽出 → claim ごと並列検証 → 合成、進捗ガード付き until-converged）',
   phases: [{ title: 'Extract' }, { title: 'Verify' }, { title: 'Synthesize' }],
-  codex_workflow_compatibility: {
-    schema_version: 'claude-workflow-model-portability/v1',
-    classification: 'portable_v1',
-    model_identity_semantics: 'non_load_bearing_scheduling_hint',
-    codex_translation: 'drop_declared_model_hint_preserve_role_and_result_contract',
-    quality_parity: 'not_guaranteed',
-    model_hints: {
-      claim_extractor: { requested_model: 'sonnet', role: 'extract bounded factual claims' },
-      source_verifier: { requested_model: 'sonnet', role: 'verify one pre-enumerated claim slot' },
-      root_cause_synthesizer: { requested_model: 'opus', role: 'synthesize only validated verdict inputs' },
-    },
-  },
 }
 
-function modelHint(callsite) {
-  const hint = meta.codex_workflow_compatibility.model_hints[callsite]
-  if (!hint) throw new Error(`undeclared model hint callsite: ${callsite}`)
-  return hint.requested_model
-}
 
 // DEFAULT_MAX_ROUNDS: 1 ラウンドで extractor 1 回 + claim 数分の verifier + synthesizer 1 回を
 // 消費する。5 ラウンドあれば「検証 → 新たな問い → 再検証」が 4 回連鎖する調査までカバーでき、
@@ -240,7 +223,7 @@ while (round < maxRounds) {
   const extracted = await agent(
     buildExtractPrompt(question, draft, previousQuestion, verdicts.map((v) => v.text)),
     {
-      model: modelHint('claim_extractor'),
+      model: 'sonnet',
       schema: CLAIMS_SCHEMA,
       phase: 'Extract',
       label: `extract-${roundLabel}`,
@@ -263,7 +246,7 @@ while (round < maxRounds) {
         // hard max から事前列挙できるため、Codex 互換層でも bounded graph に変換できる。
         const evidenceFile = `${workspaceDir}/evidence/round-${round}/slot-${claimIndex}.md`
         return agent(buildVerifyPrompt(claim, evidenceFile), {
-          model: modelHint('source_verifier'),
+          model: 'sonnet',
           schema: VERDICT_SCHEMA,
           phase: 'Verify',
           label: `verify-${roundLabel}-slot-${claimIndex}`,
@@ -304,7 +287,7 @@ while (round < maxRounds) {
 
   phase('Synthesize')
   const synth = await agent(buildSynthPrompt(question, verdicts, previousQuestion), {
-    model: modelHint('root_cause_synthesizer'),
+    model: 'opus',
     schema: SYNTH_SCHEMA,
     phase: 'Synthesize',
     label: `synthesize-${roundLabel}`,

@@ -184,12 +184,9 @@ compaction 後の resume）で同じ裁定をやり直すか、一度棄却し�
 
 > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
 > native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用するが、現行 `pdca.js` は condition ごとの worktree isolation と
-> runtime-generated artifact path を必須にするため、runner v1 では agent 起動前に
-> `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
+> 内部実行面として利用し、同じ `scriptPath` と `args` を JavaScript runtime へ渡す。
+> 実行可否は現在の runtime と host の機能検査・実行結果で判断する。
 > native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
->
-> **Codex v1 classification: `rejected_source_v1`**（worktree isolation / runtime-generated artifacts）。
 
 ```js
 Workflow({
@@ -220,8 +217,8 @@ Workflow({
 caller が所有する前処理は Plan フェーズ、成功後処理は結果提示と Act。人間ゲートはこの区間に
 無く、`.claude/rules/`・`CLAUDE.md` に触れる standardize（Act）と、`NEEDS_INPUT` /
 `UNVERIFIABLE` / `BLOCKED` の 3 経路だけがユーザーへ出る。これらを runner 内 gate に移さない。
-現行 Codex 互換経路は `rejected_source` をそのまま報告し、Do/Check の結果提示や Act を開始しない。
-runner 未 install、`unsupported_runtime`、`workflow_incomplete` でも同様に止める。
+runner 未 install、`unsupported_runtime`、`workflow_incomplete` など実際の実行失敗は
+その結果を報告し、成功した Do/Check や Act として扱わない。
 
 条件が 1 本のときは対制御を組まず単一条件として回る（動機起点や非実験の問題起点はこれ）。
 反復上限・欠測の扱い・confidence の決め方は script が持つので、ここでは指定しない。

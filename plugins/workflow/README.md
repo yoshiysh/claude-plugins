@@ -34,10 +34,10 @@ Claude Code では caller plugin の `dependencies` から導入されます。C
 adapter は既定で read-only。明示設定で workspace-write と完全 commit hash 起点の独立 worktree を使用できます。
 call 数・並行数・期限を制限しますが、厳密な token 上限ではありません。
 
-導入だけで native Workflow が追加されるわけではありません。既存 caller の旧 receipt 経路は
-まだ新 runtime へ自動移行していません。現時点の検証範囲は自動テストと小さな live smoke であり、
+導入だけで native Workflow が追加されるわけではありません。native が無い Codex では caller が
+同じ scriptPath と args を新 JavaScript runtime へ渡します。旧分類による一律停止は行いません。
+現時点の検証範囲は自動テストと小さな live 実行であり、
 全 caller の E2E、書込の live 検証、承認転送、resume は未完了です。
-旧 manifest 手順は `skills/dynamic-workflow-runner/LEGACY.md` に隔離しています。
 
 詳細なフローは `skills/dynamic-workflow-runner/SKILL.md` を参照してください。
 
