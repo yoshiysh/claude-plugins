@@ -28,6 +28,9 @@ USAGE_FIELDS = ("input_tokens", "cached_input_tokens", "output_tokens")
 
 # 終了欠落は成功にしない: ended_at が無い invocation に許される status はこの 2 つだけ。
 OPEN_STATUSES = ("running", "unknown")
+# censored の ended_at は「完了時刻」ではなく「観測の打ち切り時刻（cutoff）」。
+# 打ち切り点の代表例は turn 境界（Stop）。この値から所要時間を導かないのは
+# 読み手（cohort / run_report）の契約で、そこにだけ書く。
 CLOSED_STATUSES = ("completed", "failed", "cancelled", "censored")
 
 SPAN_KINDS = (

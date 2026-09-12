@@ -83,6 +83,54 @@ def dispatch_policy(host, event, policies):
     return bool(chosen and chosen["enabled"])
 
 
+def stop_record_policy(host, event, policies):
+    """Stop を dispatch store に記録するかの判定。session 収集と同じ policy を共有する。
+
+    stop_hook_active の Stop も記録する — その Stop で応答が実際に終わったかは
+    観測できないが、「この時刻に turn 境界の観測があった」こと自体は事実で、
+    cutoff の意味論（観測境界。完了ではない）はそれで足りる。フラグは行に残す。
+    """
+    if event.get("hook_event_name") != "Stop":
+        return False
+    for key in ("cwd", "session_id"):
+        if not (type(event.get(key)) is str and 0 < len(event[key]) <= 4096):
+            return False
+    cwd = Path(event["cwd"]).resolve(strict=True)
+    exact = next((p for p in policies if p["host"] == host and p["project"] != "*"
+                  and cwd == Path(p["project"])), None)
+    chosen = exact if exact is not None else next(
+        (p for p in policies if p["host"] == host and p["project"] == "*"), None)
+    return bool(chosen and chosen["enabled"])
+
+
+def record_stop(event, root, now_ms):
+    _append_record(root, {
+        "captured_at": now_ms,
+        "event": "Stop",
+        "session_id": event["session_id"],
+        "cwd": event["cwd"],
+        "stop_hook_active": bool(event.get("stop_hook_active")),
+    })
+
+
+def _append_record(root, row):
+    import json as _json
+    prepare(root / "dispatch")
+    path = root / "dispatch" / "records.jsonl"
+    lines = 0
+    if path.exists():
+        with path.open("rb") as f:
+            lines = sum(1 for _ in f)
+    if lines >= MAX_DISPATCH_RECORDS:
+        if lines == MAX_DISPATCH_RECORDS:
+            with path.open("a") as f:
+                f.write(_json.dumps({"censored": "dispatch_record_limit"}) + "\n")
+        return
+    with path.open("a") as f:
+        f.write(_json.dumps(row, ensure_ascii=False) + "\n")
+    path.chmod(0o600)
+
+
 def record_dispatch(event, root, now_ms):
     prepare(root / "dispatch")
     path = root / "dispatch" / "records.jsonl"
@@ -111,6 +159,8 @@ def record_dispatch(event, root, now_ms):
     with path.open("a") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
     path.chmod(0o600)
+    # 記録本体は上の直書きのまま（_append_record と重ねない — 行数検査を 2 回
+    # 走らせない）。Stop 側だけが _append_record を使う。
 
 
 def select_source(host, event, policies):
@@ -191,6 +241,10 @@ def hook():
             import time
             record_dispatch(event, root, int(time.time() * 1000))
             return
+        if stop_record_policy(host, event, policies):
+            import time
+            record_stop(event, root, int(time.time() * 1000))
+            # Stop は session 収集（select_source 経路）も担うので return しない
         source = select_source(host, event, policies)
         if source is None:
             return

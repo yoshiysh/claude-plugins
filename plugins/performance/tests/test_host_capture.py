@@ -142,5 +142,83 @@ class Notification(unittest.TestCase):
             self.assertEqual(outcome["pending_count"], 1)
 
 
+def stop_row(session="s", at=2000, active=False):
+    return {"captured_at": at, "event": "Stop", "session_id": session,
+            "cwd": "/proj", "stop_hook_active": active}
+
+
+def pre_row(session="s", tool="toolu_1", at=1000, skill="demo"):
+    return {"captured_at": at, "event": "PreToolUse", "session_id": session,
+            "tool_use_id": tool, "cwd": "/proj", "skill": skill}
+
+
+FP = {"demo": {"digest": "a" * 64, "computed_at": 1, "drift": None}}
+
+
+class CensoredClose(unittest.TestCase):
+    def test_first_same_session_stop_closes_as_censored(self):
+        converted = host_capture.to_events(
+            [pre_row(), stop_row(at=2000), stop_row(at=3000)], FP)
+        run = skill_events.project_events(converted["events"])["run"]
+        inv = run["invocations"][0]
+        self.assertEqual(inv["status"], "censored")
+        self.assertEqual(inv["ended_at"], 2000)
+        boundary = run["coverage"]["toolu_1"]["boundary"]
+        self.assertEqual(boundary["state"], "partial")
+        self.assertEqual(boundary["missing_reason"],
+                         "end_censored_at_turn_boundary")
+
+    def test_other_session_or_earlier_stop_does_not_close(self):
+        for stops in ([stop_row(session="other")], [stop_row(at=500)]):
+            converted = host_capture.to_events([pre_row()] + stops, FP)
+            run = skill_events.project_events(converted["events"])["run"]
+            self.assertEqual(run["invocations"][0]["status"], "running")
+            self.assertIsNone(run["invocations"][0]["ended_at"])
+
+    def test_later_dispatch_closes_at_its_own_next_stop(self):
+        records = [pre_row(tool="toolu_1", at=1000), stop_row(at=2000),
+                   pre_row(tool="toolu_2", at=2500), stop_row(at=4000)]
+        converted = host_capture.to_events(records, FP)
+        run = skill_events.project_events(converted["events"])["run"]
+        ends = {r["invocation_id"]: r["ended_at"] for r in run["invocations"]}
+        self.assertEqual(ends, {"toolu_1": 2000, "toolu_2": 4000})
+
+    def test_censored_run_yields_no_derived_duration(self):
+        import cohort
+        import run_report
+        converted = host_capture.to_events([pre_row(), stop_row(at=2000)], FP)
+        run = skill_events.project_events(converted["events"])["run"]
+        sample = cohort.sample_from_run(run)
+        self.assertIsNone(sample["duration_ms"])
+        self.assertEqual(sample["status"], "unknown")
+        report = run_report.report(run)
+        self.assertIsNone(report["per_invocation"]["toolu_1"]["wall_ms"])
+
+
+class StopRecording(unittest.TestCase):
+    def test_policy_gated_and_row_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            event = {"hook_event_name": "Stop", "cwd": d, "session_id": "s-1",
+                     "stop_hook_active": True}
+            self.assertTrue(native_hook.stop_record_policy(
+                "claude", event, [policy(d)]))
+            self.assertFalse(native_hook.stop_record_policy(
+                "claude", event, [policy(d, enabled=False)]))
+            root = Path(d) / "data"
+            native_hook.record_stop(event, root, 5000)
+            loaded = host_capture.load_records(
+                root / "dispatch" / "records.jsonl")
+            row = loaded["records"][0]
+            self.assertEqual(row["event"], "Stop")
+            self.assertTrue(row["stop_hook_active"])
+
+    def test_non_stop_event_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            event = {"hook_event_name": "SessionEnd", "cwd": d,
+                     "session_id": "s-1"}
+            self.assertFalse(native_hook.stop_record_policy(
+                "claude", event, [policy(d)]))
+
+
 if __name__ == "__main__":
     unittest.main()

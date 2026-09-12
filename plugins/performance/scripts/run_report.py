@@ -53,8 +53,11 @@ def report(run):
             "exclusive": run_schema.exclusive_usage(run, invocation_id),
             "inclusive": run_schema.inclusive_usage(run, invocation_id),
             "status": row["status"],
+            # censored の ended_at は cutoff。壁時計時間として報告すると打ち切りが
+            # 所要時間に化けるので、open と同じく欠測にする。
             "wall_ms": (row["ended_at"] - row["started_at"])
-                       if row["ended_at"] is not None else None,
+                       if row["ended_at"] is not None and row["status"] != "censored"
+                       else None,
         }
 
     # 試行の集計単位は (parent, skill identity)。再試行は「同じ親の下で同じ skill を

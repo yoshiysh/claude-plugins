@@ -85,8 +85,14 @@ def project_events(events):
             row["ended_at"] = event["at"]
             row["status"] = event["status"]
             evidence = row["boundary_evidence"]
-            boundary_state = "complete" if evidence in ("host_dispatch", "explicit_entry") else "partial"
-            boundary_reason = None if boundary_state == "complete" else "declared_only"
+            if event["status"] == "censored":
+                # 終端は cutoff（観測境界）であって skill の終端イベントではない。
+                # 開始が host 観測でも、境界の両端が揃ったとは言えない。
+                boundary_state, boundary_reason = "partial", "end_censored_at_turn_boundary"
+            elif evidence in ("host_dispatch", "explicit_entry"):
+                boundary_state, boundary_reason = "complete", None
+            else:
+                boundary_state, boundary_reason = "partial", "declared_only"
             coverage[row["invocation_id"]]["boundary"] = {
                 "state": boundary_state, "missing_reason": boundary_reason}
             continue

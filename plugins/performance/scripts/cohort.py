@@ -29,10 +29,14 @@ def _run_status(run):
 
 
 def _duration_ms(run):
-    ends = [r["ended_at"] for r in run["invocations"]]
-    if any(e is None for e in ends):
+    # censored の ended_at は cutoff（観測の打ち切り時刻）で、完了時刻ではない。
+    # ここから所要時間を導くと「短い skill ほど長く見える」向きの系統誤差になる
+    # ので、censored を 1 件でも含む run の duration は欠測のまま（open と同じ）。
+    if any(r["ended_at"] is None or r["status"] == "censored"
+           for r in run["invocations"]):
         return None
-    return max(ends) - min(r["started_at"] for r in run["invocations"])
+    return max(r["ended_at"] for r in run["invocations"]) - min(
+        r["started_at"] for r in run["invocations"])
 
 
 def _quality(run):

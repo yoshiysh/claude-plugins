@@ -50,10 +50,13 @@ def to_events(records, fingerprints):
     """
     events = []
     unresolved = []
+    stops = sorted((r for r in records if r["event"] == "Stop"),
+                   key=lambda r: r["captured_at"])
     for row in records:
         if row["event"] != "PreToolUse":
             # PostToolUse は load 終端。invocation の終端ではないので skill_end に
-            # しない（したら「読込完了」が「実行成功」に化ける）。
+            # しない（したら「読込完了」が「実行成功」に化ける）。Stop は下で
+            # cutoff としてだけ使う。
             continue
         name = row["skill"]
         if name not in fingerprints:
@@ -70,4 +73,17 @@ def to_events(records, fingerprints):
             "boundary_evidence": "host_dispatch",
             "at": row["captured_at"],
         })
+        # 同一 session で dispatch より後の最初の Stop = censoring cutoff。
+        # スキルの仕事がそこで終わった観測ではない（turn 境界での観測の打ち切り）
+        # ので status は censored。cutoff の意味は status が運び、ended_at は
+        # 打ち切り時刻になる — 派生 duration を作らないのは下流（cohort/report）の
+        # 責務で、そこが本変更の安全性の全体（Plan v4 findings）。
+        cutoff = next((s for s in stops
+                       if s["session_id"] == row["session_id"]
+                       and s["captured_at"] > row["captured_at"]), None)
+        if cutoff is not None:
+            events.append({"type": "skill_end",
+                           "invocation_id": row["tool_use_id"],
+                           "status": "censored",
+                           "at": cutoff["captured_at"]})
     return {"events": events, "unresolved": unresolved}
