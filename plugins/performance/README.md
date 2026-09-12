@@ -75,6 +75,8 @@ Codexでは `/hooks` の信頼承認が別途必要です。各projectの設定�
   複数 claim の call は按分せず未帰属で保持する）
 - レポート: `scripts/run_report.py`（end-to-end・内訳・欠測は観測下限ラベル・
   失敗費用・overhead 分離）
+- 観測→比較の配線: `scripts/cohort.py`（run + evaluation から compare 入力を機械導出。
+  sample の全フィールドが固定規則で決まり、手組みが不要）
 - 比較・提案: `scripts/proposals.py` の variant 比較（固定条件 group と実装
   fingerprint variant の分離、理由コード付き拒否、investigate_only への降格）
 - 対照実験: `scripts/experiment.py`（事前登録・recorded fixture の replay・
