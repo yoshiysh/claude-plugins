@@ -11,7 +11,7 @@ import schema_v2
 from private_state import digest, natural, transaction
 
 GROUP = {"project", "task_class", "model", "settings", "quality_contract"}
-REASONS = {"investigate_regression", "verify_reduction"}
+REASONS = {"investigate_regression", "verify_reduction", "investigate_only"}
 
 
 def fingerprint(value):
@@ -31,6 +31,9 @@ def compare(data, minimum=3, threshold_percent=25):
     cohort_keys = {"group", "samples"} if version == 1 else {"group", "variant", "samples"}
     groups, variants, totals, seen, evidence_seen = [], [], [], set(), set()
     comparable = True
+    # 拒否・降格の理由コード。数値だけ返すと「なぜ比較にならないか」が読み手の推測に落ちる。
+    reasons = []
+    quality_evidence_by_cohort = []
     for name in ("baseline", "candidate"):
         cohort = data[name]
         measure.require(type(cohort) is dict and set(cohort) == cohort_keys
@@ -40,7 +43,9 @@ def compare(data, minimum=3, threshold_percent=25):
         if version == 2:
             variants.append(schema_v2.validate_fingerprint(cohort["variant"]))
         groups.append(cohort["group"])
-        comparable &= len(cohort["samples"]) >= minimum
+        if len(cohort["samples"]) < minimum:
+            comparable = False
+            reasons.append(f"insufficient_repetitions:{name}")
         token_values, durations = [], []
         for sample in cohort["samples"]:
             measure.require(type(sample) is dict and set(sample) == {
@@ -60,6 +65,10 @@ def compare(data, minimum=3, threshold_percent=25):
                             "quality_evidence_reuse")
             seen.add(sample["id"])
             evidence_seen.add(sample["usage_evidence"])
+            if sample["quality"] == "unmeasured":
+                reasons.append("quality_unmeasured")
+            elif sample["quality_source"] != "independent":
+                reasons.append("quality_not_independent")
             # producer（sample を生成した主体の自己申告）の品質は候補の前提を満たさない。
             # 「質を維持したまま」の質は、生成と別の工程（fresh 監査者・検証段）の産物で
             # 裏付けられたときだけ比較の前提にできる（生成者は自分の出力に通る判定を書ける）。
@@ -76,20 +85,41 @@ def compare(data, minimum=3, threshold_percent=25):
                 durations.append(sample["duration_ms"])
         totals.append({"tokens": statistics.median_low(token_values) if token_values else None,
                        "duration_ms": statistics.median_low(durations) if durations else None})
-    if not comparable or groups[0] != groups[1]:
-        return {"status": "not_comparable"}
+        quality_evidence_by_cohort.append(
+            {s["quality_evidence"] for s in cohort["samples"] if s["quality_evidence"] is not None})
+    # hard reject: 理由コード付きで比較そのものを拒否する（降格ではない）。
+    # 品質証拠を baseline と candidate が共有している場合、「質を維持した」の質が
+    # 同じ産物 1 つで二重に証明されている — 片側は測っていない（AC: 使い回しを通さない）。
+    if quality_evidence_by_cohort[0] & quality_evidence_by_cohort[1]:
+        return {"status": "not_comparable",
+                "reasons": ["quality_evidence_reuse_across_cohorts"]}
+    if groups[0] != groups[1]:
+        mismatched = sorted(k for k in GROUP if groups[0][k] != groups[1][k])
+        return {"status": "not_comparable",
+                "reasons": ["group_mismatch:" + ",".join(mismatched)]}
     # v2 で variant が同一なら、それは実装差を測っていない（差が出ても条件の揺らぎ）。
     if version == 2 and variants[0]["digest"] == variants[1]["digest"]:
-        return {"status": "not_comparable"}
+        return {"status": "not_comparable", "reasons": ["variant_identical"]}
     before, after = totals
+    if before["tokens"] is None or after["tokens"] is None:
+        return {"status": "not_comparable", "reasons": ["usage_unobserved"]}
     # Zero baseline has no percentage interpretation; do not fabricate one.
-    if any(before[k] == 0 for k in before):
-        return {"status": "not_comparable"}
+    if any(before[k] == 0 for k in before if before[k] is not None):
+        return {"status": "not_comparable", "reasons": ["zero_baseline"]}
     increased = any((after[k] - before[k]) * 100 >= before[k] * threshold_percent for k in before)
     decreased = any((before[k] - after[k]) * 100 >= before[k] * threshold_percent for k in before)
+    if not comparable and version == 1:
+        # v1 の契約は維持: 前提を欠く比較は常に not_comparable（観測 source としての
+        # 後方互換。降格の意味論は v2 だけが持つ）。
+        return {"status": "not_comparable", "reasons": sorted(set(reasons))}
     if not increased and not decreased:
         return {"status": "no_material_change"}
-    reason = "investigate_regression" if increased else "verify_reduction"
+    # v2: 差はあるが候補の前提（反復数・独立した品質証拠）を欠く場合は、品質維持改善と
+    # 認定せず調査候補に降格する（日常観測は調査候補の発見用 — Issue #60 §4）。
+    if not comparable:
+        reason = "investigate_only"
+    else:
+        reason = "investigate_regression" if increased else "verify_reduction"
     canonical = {"version": version, **{name: data[name] | {
         "samples": sorted(data[name]["samples"], key=lambda row: row["id"])}
         for name in ("baseline", "candidate")}}
@@ -97,7 +127,8 @@ def compare(data, minimum=3, threshold_percent=25):
     identity = [groups[0], reason] if version == 1 else [
         groups[0], reason, variants[0]["digest"], variants[1]["digest"]]
     return {"status": "candidate", "fingerprint": fingerprint(identity),
-            "evidence": evidence, "reason": reason, "before": before, "after": after}
+            "evidence": evidence, "reason": reason, "before": before, "after": after,
+            "reasons": sorted(set(reasons))}
 
 
 def initial():
@@ -140,7 +171,7 @@ def update(store, candidate=None, decision=None, item_id=None, cooldown=86400, n
         elif candidate is not None and candidate["status"] == "candidate":
             item = next((r for r in state["items"] if r["fingerprint"] == candidate["fingerprint"]), None)
             if item is None or (candidate["evidence"] != item["evidence"] and now >= item["until"]):
-                new = {k: v for k, v in candidate.items() if k != "status"}
+                new = {k: v for k, v in candidate.items() if k not in ("status", "reasons")}
                 new.update(state="pending", at=now, until=now + cooldown, new_evidence=item is not None)
                 if item is None:
                     measure.require(len(state["items"]) < 100, "queue_full")
