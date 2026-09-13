@@ -313,8 +313,7 @@ Workflow({
       focus: "<任意。Issue 本文・見てほしい観点>"
     },
     intent: "<update のときの変更意図。update では必須>",
-    stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>",
-    maxRevisions: "<任意。script が定義する上限内の非負整数。省略時の既定も script が持つ>"
+    stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>"
   }
 })
 ```
@@ -322,14 +321,17 @@ Workflow({
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
 どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
 agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
-`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`maxRevisions` が script の上限内の非負整数でない、
-`stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。曖昧なまま
-走らせると、対象も範囲も定まらないレビューが「結果」として返るため。
+`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`stagingDir` が対象スキルの配下を指している
+場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-**観点の一覧・反証者の立て方・多数決の閾値・改稿の上限・staging の既定値は
-`scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が
-2 箇所に存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。
-中身を知りたいときは script を読む。
+`maxRevisions` は**廃止された**（後方互換なしの破壊的変更。渡すと script が落ちる）。打ち切りは回数
+ではなく進捗で決まる — 未解消の指摘が 0 件になるか、前の巡から 1 件も動かなくなるまで回る。回数は
+「直っているか」と無関係で、上限到達時に「解ける途中」と「解けない指摘」を区別しないため。暴走は
+workflow runtime の agent 起動上限が外側で止めており、内側に二重の打ち切りを置かない。
+
+**観点の一覧・反証者の立て方・多数決の閾値・打ち切りの判定・staging の既定値は
+`scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
+存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。中身は script を読む。
 
 完了すると以下が返る（フィールドの意味は[入出力の定義](#入出力の定義)を見る）：
 
@@ -362,18 +364,18 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` を提示し、反映してよいか確認する（blocker 判定は `remaining` + `new` + `reclassified`） |
-| `needs_human_decision` | 残った blocker（未検証の blocker を含む）を提示し、staging を残して判断を仰ぐ。自動反映しない |
+| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（`remaining` + `new` + `reclassified` のうち updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本 — major 以上は script がループ内で解消済み — この verdict で提示に残るのは minor のみで、major 以上が残った場合は verdict 自体が `needs_human_decision` になる） |
+| `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、`REVISE_SEVERITIES` 相当（major 以上）の未解消指摘が前の巡から 1 件も動かなくなった（解消も新規も無い＝同じ入力では収束しない）とき。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
 
-`unverified`（反証者の有効票が足りず、確定にも棄却にもできなかった指摘）は
-`confirmed` が空でも黙って落とさない。「未検証」と「問題なし」を同じ表示にすると、
-見られていない箇所が「見て問題が無かった」に化ける。これは update でも同じで、
-再検証後の `staging.unverified` も必ず提示する。**未検証の blocker が 1 件でもあれば
-`applied_to_staging` にはならない**（検証が足りないことは改稿で直せないため、
-script は改稿を繰り返さず `needs_human_decision` へ倒す）。
+`unverified`（反証者の有効票が足りず、確定にも棄却にもできなかった指摘）は `confirmed` が
+空でも黙って落とさない。「未検証」と「問題なし」を同じ表示にすると、見られていない箇所が
+「見て問題が無かった」に化ける。update でも同じで、再検証後の `staging.unverified` も必ず提示する。
+**未検証の blocker が 1 件でもあれば `applied_to_staging` にはならない**（検証が足りないことは
+改稿で直せないため、script は改稿を繰り返さず `needs_human_decision` へ倒す）。この blocker ゲートの
+正本はここで、以降の節は参照だけを置く。
 
 ## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
 
@@ -388,11 +390,11 @@ script は改稿を繰り返さず `needs_human_decision` へ倒す）。
 
 `references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する。
 
-本体への反映は**承認後に司令塔が行う**。Workflow は実行中にユーザー入力を受け取れないため、
-script は staging に書くところで必ず止まる。コピー対象・非承認時の扱い・staging の性質は
-すべて参照先に書いてある（要点をここにも置くと、手順が 2 箇所に分かれて食い違う）。
-
-完了条件：ユーザーが反映を承認して本体へコピーしたか、非承認で終了したか、どちらかが確定すること。
+本体への反映は**承認後に司令塔が行う**（script は staging に書くところで必ず止まる）。司令塔の役割は
+Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・承認後に `staging.changed_files` を
+機械コピーする、の 3 つだけで、**staging の内容は書かない**（minor の文言修正もユーザーの追加指示も、
+新しい `intent` での update 再実行に一本化）。指紋照合・コピー対象・非承認時の扱い・純化の理由とコストは
+参照先が正本。完了条件は、非承認で終了・指紋一致でコピー・指紋不一致でコピー拒否のいずれかが確定すること。
 
 ## 入出力の定義
 
@@ -426,7 +428,7 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 
 ### update
 
-- **入力**：review の入力すべて＋変更意図（必須）、任意で staging の出力先・改稿上限
+- **入力**：review の入力すべて＋変更意図（必須）、任意で staging の出力先
 - **出力**：staging に書かれた改稿一式と、再検証の突き合わせ結果。**本体は承認まで触らない。**
 
 | フィールド | 中身 |
@@ -484,7 +486,7 @@ references/    # orchestrator-requirements / orchestrator-output / orchestrator-
 scripts/       # build_skill.js  — create の Workflow 本体
                # review_skill.js — review/update 本体（観点一覧 FINDERS の唯一の正）
                # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
-               # package_skill.py / quick_validate.py / utils.py
+               # package_skill.py / quick_validate.py / diff_findings.py / utils.py
 ```
 
 各ファイルの詳細な役割は、それを Read させている script と `references/schemas.md` が持つ
