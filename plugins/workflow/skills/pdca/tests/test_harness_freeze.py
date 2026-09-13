@@ -150,6 +150,24 @@ class HarnessFreezeTest(unittest.TestCase):
                          {"metric": "pass_rate", "higher_is_better": True,
                           "threshold": 0})
 
+    def test_freeze出力にcriteriaが含まれる(self):
+        import json as _json
+        out = self.freeze(SPEC)
+        frozen = _json.loads(out.stdout)["frozenHarness"]
+        self.assertEqual(frozen["criteria"]["metric"], "pass_rate")
+
+    def test_MANIFESTのcriteria書き換えはverifyで落ちる(self):
+        import json as _json
+        out = self.freeze(SPEC)
+        frozen = _json.loads(out.stdout)["frozenHarness"]
+        manifest_path = pathlib.Path(frozen["path"]) / "MANIFEST.json"
+        manifest = _json.loads(manifest_path.read_text())
+        manifest["criteria"]["threshold"] = 999
+        manifest_path.write_text(_json.dumps(manifest))
+        result = run("verify", "--run-dir", frozen["path"],
+                     "--expect", frozen["digest"])
+        self.assertEqual(result.returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

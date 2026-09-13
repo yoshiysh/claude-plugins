@@ -43,9 +43,9 @@ script が BLOCKED で止める（自己解決を経ない再立案を構造で�
 
 ```
 { skillDir, plan, successCriteria:{text, metric, higher_is_better},
-  frozenHarness:{path, entry, digest, class}（harness_freeze.py freeze の出力。未指定・不完全は Build 前に BLOCKED）,
+  frozenHarness:{path, entry, digest, class, criteria}（harness_freeze.py freeze の出力。未指定・不完全・criteria と successCriteria の不一致は Build 前に BLOCKED）,
   conditions[{id,label,spec}], fixed,
-  runsPerCondition, budget:{maxRuns, note}, cycle, maxCycles?（backstop・既定 5）, previous (前周の返り値をそのまま。script が do.artifacts / check.mechanisms を解決する), revisionDiffs[],
+  runsPerCondition, budget:{maxRuns, note}, cycle, maxCycles?（backstop。既定は script の `DEFAULT_MAX_CYCLES`）, previous (前周の返り値をそのまま。script が do.artifacts / check.mechanisms を解決する), revisionDiffs[],
   ledger?（scripts/ledger.py read の出力。省略時は空） }
 ```
 
@@ -69,7 +69,7 @@ script が BLOCKED で止める（自己解決を経ない再立案を構造で�
 ```
 freeze --run-dir <workspace>/<run-id> --source-root <harness の置き場>
        --json {class: deterministic_script|llm_judge, entry, files[], criteria{metric, higher_is_better, threshold}}
-出力: { frozenHarness{path, entry, digest, class, file_count},
+出力: { frozenHarness{path, entry, digest, class, criteria, file_count},
         ledger_entry{type:"harness_frozen", phase, summary, payload{class,entry,files[],criteria,digest,frozen_at,source_root}} }
 verify --run-dir <...> [--expect <digest>]
 出力: { ok, digest, current_digest, frozen_at, class, changed[] }（不一致は exit 1）

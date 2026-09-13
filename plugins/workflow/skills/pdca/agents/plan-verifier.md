@@ -39,7 +39,7 @@ Plan を**反証する**。合格させることではなく、通ったら測�
    理論天井を計算させ、天井が条件間で異なるならその差は「測る前から決まっている」と指摘する
 
 9. **harness の凍結可能性**: 成功基準が、Do の前に凍結できる実行物まで降りているか。
-   `measurement_harness`（`class` / `entry` / `files[]`）が無い、あるいは中身が「builder が
+   `measurement_harness`（`class` / `entry` / `files[]` / `criteria{metric, higher_is_better, threshold}`）が無い、あるいは中身が「builder が
    測定できるようにする」で終わっている Plan は finding。採点物を Do の中で作らせると、
    実行前に固定したはずの基準が実行時に作り替えられる（実測: 判定器が実装との一致しか示さず、
    実装が間違っていても pass した／hold-out が決定的スクリプトから再生成できて秘匿が

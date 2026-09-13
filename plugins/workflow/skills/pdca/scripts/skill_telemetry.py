@@ -146,12 +146,20 @@ def cmd_compare(args) -> int:
             return 2
         manifest = json.loads(Path(args.frozen_manifest).read_text())
         criteria = manifest.get("criteria")
-        if not isinstance(criteria, dict):
+        # MANIFEST は凍結の産物だが、渡されたパスが本物の凍結物である保証はこの層に
+        # 無い（digest の照合は harness_freeze.py verify の仕事）。ここでは形だけを
+        # 厳密に検査し、壊れた値を判定に流さない。
+        if (not isinstance(criteria, dict)
+                or not str(criteria.get("metric") or "").strip()
+                or not isinstance(criteria.get("higher_is_better"), bool)
+                or not isinstance(criteria.get("threshold"), (int, float))
+                or isinstance(criteria.get("threshold"), bool)):
             print(json.dumps({"ok": False,
-                              "reason": "MANIFEST に criteria がありません（凍結し直しが必要）"},
+                              "reason": "MANIFEST の criteria が不正か欠けています（凍結し直しが必要）。"
+                                        "改竄検査は harness_freeze.py verify で行ってください"},
                              ensure_ascii=False), file=sys.stderr)
             return 2
-        args.metric = criteria["metric"]
+        args.metric = str(criteria["metric"]).strip()
         args.higher_is_better = criteria["higher_is_better"]
         args.threshold = float(criteria["threshold"])
     elif not all(manual):

@@ -59,15 +59,21 @@ def _digest_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _aggregate_digest(files: list[dict]) -> str:
-    """ファイル単位の digest を、パス順に固定して 1 本に畳む。
+def _aggregate_digest(files: list[dict], spec: dict) -> str:
+    """ファイル単位の digest と判定契約（class/entry/criteria）を 1 本に畳む。
 
     並び順を sorted で固定しないと、同じ内容の harness が呼び出し順で別 digest になり、
-    「変更された」と「並びが違う」を区別できなくなる。
+    「変更された」と「並びが違う」を区別できなくなる。criteria を digest に含めるのは、
+    ファイルは無傷のまま MANIFEST の判定値だけを書き換える改竄も detect したいため
+    （ファイル digest だけだと、凍結の要である「判定の仕方」が digest の外に居る）。
     """
     h = hashlib.sha256()
     for f in sorted(files, key=lambda x: x["path"]):
         h.update(f"{f['path']}:{f['digest']}\n".encode("utf-8"))
+    contract = json.dumps(
+        {"class": spec["class"], "entry": spec["entry"], "criteria": spec["criteria"]},
+        sort_keys=True, separators=(",", ":"))
+    h.update(contract.encode("utf-8"))
     return h.hexdigest()
 
 
@@ -153,7 +159,7 @@ def cmd_freeze(args) -> int:
         shutil.copy2(src, dest)
         recorded.append({"path": rel, "digest": _digest_file(dest)})
 
-    digest = _aggregate_digest(recorded)
+    digest = _aggregate_digest(recorded, spec)
     frozen_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     manifest = {
         "class": spec["class"],
@@ -174,6 +180,7 @@ def cmd_freeze(args) -> int:
                     "entry": spec["entry"],
                     "digest": digest,
                     "class": spec["class"],
+                    "criteria": spec["criteria"],
                     "file_count": len(recorded),
                 },
                 "ledger_entry": {
@@ -222,7 +229,10 @@ def cmd_verify(args) -> int:
         if now != entry["digest"]:
             changed.append({"path": entry["path"], "reason": "内容が変わっている"})
 
-    digest = _aggregate_digest(current) if len(current) == len(manifest.get("files", [])) else None
+    spec_now = {"class": manifest.get("class"), "entry": manifest.get("entry"),
+                "criteria": manifest.get("criteria")}
+    digest = (_aggregate_digest(current, spec_now)
+              if len(current) == len(manifest.get("files", [])) else None)
     ok = not changed and digest == manifest.get("digest")
     if args.expect and args.expect != manifest.get("digest"):
         ok = False

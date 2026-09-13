@@ -186,6 +186,17 @@ class TestCompare(unittest.TestCase):
                        "--metric", "other"], td)
             self.assertEqual(out.returncode, 2)
 
+    def test_不正なcriteriaのmanifestはexit2(self):
+        with tempfile.TemporaryDirectory() as td:
+            manifest = pathlib.Path(td) / "MANIFEST.json"
+            manifest.write_text(json.dumps({
+                "criteria": {"metric": "m", "higher_is_better": "yes",
+                             "threshold": 0}}))
+            out = run(["compare", "--skill", "s", "--control", "c",
+                       "--treatment", "t",
+                       "--frozen-manifest", str(manifest)], td)
+            self.assertEqual(out.returncode, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -83,7 +83,7 @@ const RUN_RECORD_SCHEMA = {
 // 実測の劣位に化ける。score は measured=true のときだけ意味を持つ契約。
 const VERIFY_SCHEMA = {
   type: 'object',
-  required: ['condition_id', 'run_index', 'measured', 'criteria_checks'],
+  required: ['condition_id', 'run_index', 'measured', 'criteria_checks', 'frozen_harness_digest_ok'],
   properties: {
     condition_id: { type: 'string' },
     run_index: { type: 'number' },
@@ -245,16 +245,39 @@ if (
   !String(frozenHarness.path || '').trim() ||
   !String(frozenHarness.entry || '').trim() ||
   !String(frozenHarness.digest || '').trim() ||
-  !FROZEN_HARNESS_CLASSES.includes(frozenHarness.class)
+  !FROZEN_HARNESS_CLASSES.includes(frozenHarness.class) ||
+  !frozenHarness.criteria ||
+  typeof frozenHarness.criteria !== 'object' ||
+  !String(frozenHarness.criteria.metric || '').trim() ||
+  typeof frozenHarness.criteria.higher_is_better !== 'boolean' ||
+  typeof frozenHarness.criteria.threshold !== 'number'
 ) {
   return {
     status: 'BLOCKED',
     reason: 'args.frozenHarness が未指定または不完全です（評価 harness が凍結されていません）。',
     evidence:
       'Plan の最後に scripts/harness_freeze.py freeze を実行し、返り値の frozenHarness ' +
-      `（path / entry / digest / class∈{${FROZEN_HARNESS_CLASSES.join(' | ')}}）をそのまま渡してください。` +
+      `（path / entry / digest / class∈{${FROZEN_HARNESS_CLASSES.join(' | ')}} / criteria）をそのまま渡してください。` +
       '採点物が Do の中で作られると、実行前に固定したはずの基準が実行時に作り替えられます' +
       '（references/harness-freeze.md）。',
+  }
+}
+// 凍結 criteria と successCriteria の機械照合。ここが無いと、凍結は MANIFEST に
+// 書かれるだけで、実運転の判定（verifier が見る [METRIC] と向き）は呼び出し側の
+// 手入力のまま — 差分を入れた本人が Check 時に指標と向きを選び直せる（凍結が
+// 防ごうとした事故の同型）。threshold は successCriteria の型に無いので、凍結値を
+// そのまま正として下流の文言に使う。
+if (
+  frozenHarness.criteria.metric !== sc.metric ||
+  frozenHarness.criteria.higher_is_better !== sc.higher_is_better
+) {
+  return {
+    status: 'BLOCKED',
+    reason: '凍結された criteria と args.successCriteria が一致しません。',
+    evidence:
+      `凍結: metric=${frozenHarness.criteria.metric} / higher_is_better=${frozenHarness.criteria.higher_is_better}、` +
+      `args: metric=${sc.metric} / higher_is_better=${sc.higher_is_better}。` +
+      '判定基準を変えたい場合は Plan に戻って凍結し直してください（新しい run-id で）。',
   }
 }
 // builder には class だけを伝える（在処は伝えない）。run/verify 側には全部渡す。
