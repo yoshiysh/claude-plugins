@@ -1,15 +1,18 @@
-"""手直し再検証の指摘突き合わせ。同一性キーの唯一の定義。
+"""指摘の同一性キーの正本。
 
-review_skill.js の keyOf/normPath はこのキーと一致していなければならない
-（ズレると script 側の resolved/new 判定と司令塔側の new 判定が別の答えを出す）。
-定義を 2 か所に書かないため、正規化のアルゴリズムはここが正本で、散文の手順書は
-このスクリプトを実行するだけにする。
+review_skill.js の keyOf / normPath はこのキーと一致していなければならない。ズレると、
+同じ「同じ指摘か」の問いに 2 つの答えが生まれる —— script の resolved / new の突き合わせと、
+改稿ループの乾き判定（前巡の未解消集合と一致したら打ち切る）が、どちらもこのキーで動く。
+定義を 2 か所に書かないため、正規化のアルゴリズムはここが正本で、散文は参照するだけにする。
+
+指摘の 2 つの配列を突き合わせたいときは、この実装をなぞらずここを実行する
+（正規化の目視再現は件数が増えるほど揺れる）。
 
 入力: JSON を stdin から
   {"reverify_confirmed": [finding, ...], "already_presented": [finding, ...]}
-  finding は少なくとも category / file / claim を持つ。
-出力: {"new": [...], "matched": [...]} を stdout へ。new が「手直しが持ち込んだ
-可能性のある指摘」で、コピー可否のゲート判定はこの配列を見る。
+  finding は少なくとも category / file / claim を持つ。キー名は入力の出所を縛らない
+  （confirmed と unverified を区別しない汎用の突き合わせ）。
+出力: {"new": [...], "matched": [...]} を stdout へ。
 """
 import json
 import re

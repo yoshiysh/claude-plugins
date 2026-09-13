@@ -15,10 +15,10 @@ export const meta = {
 // 確定にも棄却にも回さず unverified として残す。
 const MIN_VALID_VOTES = 2
 
-// 再改稿の上限。REVISE_SEVERITIES を major まで広げた結果、1 回目の改稿では拾い切れない
-// 指摘が増えるため 2 回まで待つ。2 回直しても major 以上が残るなら、指摘の解釈か要件側の
-// 問題である可能性が高く、同じ入力で回し続けても収束しない。上限に達したら人間へ返す。
-const MAX_REVISIONS = 2
+// 再改稿に回数上限を持たない。回数は「直っているか」と無関係な量で、上限に達した時点で
+// 残った指摘が解ける途中だったのか解けない指摘だったのかを区別しない。代わりに進捗で止める
+// （下の「乾き判定」）。暴走の backstop は workflow runtime が持つ agent 起動上限が外側に
+// 既にあり、内側に二重の打ち切りを置くと「どちらで止まったのか」が結果から読めなくなる。
 // REVISE_SEVERITIES: updater へ再入させる指摘の重さ。実測で major の new が司令塔の
 // 手修正（設計外の運用）に流れていたのは、ここが 'blocker' のみで major が
 // 「提示するだけ」に落ちていたため。minor まで戻すと文言の好みで周回が尽きるので
@@ -179,12 +179,12 @@ if (skillPath.startsWith(`${stagingDir}/`)) {
   )
 }
 
-const maxRevisions = parsedArgs.maxRevisions ?? MAX_REVISIONS
-// 上限が数値でないまま while に入ると、比較が常に false になって改稿が 1 回で黙って終わるか、
-// 逆に打ち切りが効かなくなる。どちらも「上限がある」という保証が消えるので起動時に落とす。
-if (!Number.isInteger(maxRevisions) || maxRevisions < 0 || maxRevisions > MAX_REVISIONS) {
+// args.maxRevisions は受け取らない（後方互換を切った破壊的変更）。渡されても黙って無視すると
+// 「上限を指定したつもり」で走ることになるため、明示的に落とす。停止は回数ではなく進捗で決まる。
+if (parsedArgs.maxRevisions !== undefined) {
   throw new Error(
-    `args.maxRevisions は 0..${MAX_REVISIONS} の整数です（受領: ${JSON.stringify(parsedArgs.maxRevisions)}）。`
+    'args.maxRevisions は廃止されました。改稿の打ち切りは回数ではなく進捗で決まります' +
+      '（未解消の指摘が 0 件になるか、前巡から 1 件も動かなくなるまで回す）。引数を外してください。'
   )
 }
 
@@ -506,8 +506,8 @@ function byCategory(missing, confirmed) {
 // 粗いキーだけが一致したものは possibly_rephrased として残し、人間が判断する材料にする。
 // ファイル表記は `./SKILL.md` と `SKILL.md` のような揺れが出る。文字列一致で突き合わせる
 // 以上、揺れは resolved を unobserved に倒す（安全側だが誤判定）。先頭の `./` だけ正規化する。
-// この正規化の正本は scripts/diff_findings.py（司令塔の手直し突き合わせと同一キー）。
-// 片方だけ変えると resolved/new の判定が script と司令塔で別の答えになる。
+// この正規化の正本は scripts/diff_findings.py。片方だけ変えると、同じ「同じ指摘か」の問いに
+// 2 つの答えが生まれる（resolved/new の突き合わせと、下の乾き判定がどちらもこのキーで動く）。
 const normPath = (p) => String(p).replace(/^\.\//, '')
 
 function keyOf(f) {
@@ -578,11 +578,16 @@ let latest = base
 let latestSource = 'before'
 let afterCategories = null
 let verdict = null
+// 前巡の未解消指摘の同一性キー集合。null は「まだ 1 巡もしていない」で、比較対象が無い。
+// 乾き判定（前巡と 1 件も違わなければ打ち切る）のためだけに持つ。
+let prevUnresolvedKeys = null
 
-// 静的な上限つきループ。`while (true)` だと打ち切りが break の書き漏れ 1 つで消えるが、
-// この形なら条件が上限を保証し、break はすべて「早く抜ける」方向にしか効かない。
-// maxRevisions が 0 でも初回の改稿は 1 度走る（0 は「再改稿しない」という意味）。
-while (revision <= maxRevisions) {
+// 回数上限を持たないループ。出口は下の break だけで、全部が名前を持つ:
+// update_failed（改稿 agent 欠測）/ reverify_incomplete（再検証の観点欠測）/
+// needs_human_decision（未検証・未観測の blocker、または乾き）/ applied_to_staging（未解消 0 件）。
+// 回数で切らないのは、回数が「直っているか」と無関係な量で、上限到達時に「解ける途中だった」と
+// 「解けない指摘だった」を区別しないため。進捗が止まったことを集合比較で確かめて止める。
+while (true) {
   phase('Update')
   // confirmed が 0 件でも updater は走らせる。intent は必須引数であり、
   // 「レビューでは問題が出ないが依頼された変更はある」場合（Issue 起点の更新が典型）に
@@ -805,21 +810,29 @@ while (revision <= maxRevisions) {
     break
   }
 
-  if (revision >= maxRevisions) {
-    // 上限到達。同じ指摘が 2 度残るなら、指摘の解釈か要件側の問題である可能性が高く、
-    // script で回し続けても収束しない。判断材料を添えて人間へ返す。
-    log(`${REVISE_SEVERITIES.join('/')} ${unresolved.length} 件が残ったまま改稿上限に達しました。`)
+  // 乾き判定。未解消指摘の同一性キー集合が前巡から動かなかった（1 件も解消されず、新規も
+  // 出なかった）なら、同じ入力で回し続けても結果は変わらない。キーは keyOf（= diff_findings.py
+  // と同じ規則。正規化を別に書き起こすと判定が 2 つになる）。
+  // possibly_rephrased は文言が変わると厳密キーも変わるため「動いた」と出る。これは意図した
+  // 挙動で、文言が変わったなら updater は実際に手を入れており、まだ乾いていない。
+  const unresolvedKeys = new Set(unresolved.map(keyOf))
+  const dried =
+    prevUnresolvedKeys !== null &&
+    prevUnresolvedKeys.size === unresolvedKeys.size &&
+    [...unresolvedKeys].every((k) => prevUnresolvedKeys.has(k))
+  // 1 件の指摘が present_in_original の揺れで introduced と preexisting を行き来すると、
+  // 集合が毎巡変わって乾き判定が効かない。そこで止まらないのは承知のうえで、外側の agent
+  // 起動上限に任せる（内側に回数上限を戻すと、乾きと暴走の区別がまた消える）。
+  if (dried) {
+    log(
+      `${REVISE_SEVERITIES.join('/')} ${unresolved.length} 件が前回の改稿から 1 件も動きませんでした` +
+        '（解消も新規も無し）。同じ入力では収束しないため人間の判断へ返します。'
+    )
     verdict = 'needs_human_decision'
     break
   }
+  prevUnresolvedKeys = unresolvedKeys
   revision++
-}
-
-// ループ条件で抜けた（break を通らなかった）場合の保険。verdict が null のまま返すと、
-// 司令塔は「どの表にも無い値」を受け取り、提示の分岐が裁量に落ちる。
-if (verdict === null) {
-  log('改稿上限に達したまま判定が確定しませんでした。人間の判断へ回します。')
-  verdict = 'needs_human_decision'
 }
 
 return result(verdict, latest, latestSource, afterCategories, staging, revision)
