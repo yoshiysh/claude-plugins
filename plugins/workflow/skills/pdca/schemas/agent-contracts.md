@@ -12,11 +12,11 @@ planner 系は Plan 系のみ、runner と mechanism-arbiter には渡さない�
 |---|---|---|
 | intake | 起点の文、資料 | `{origin_mode, statement, has_environment, user_success_definition, budget, questions[], materials[]}` |
 | evidence-collector | intake 出力 | `{facts[{statement,source,date}], unverified[{statement,status,why}], constraints_observed[]}` |
-| planner | intake + evidence 出力 | Plan（`assets/plan-template.md`）+ `operators_used[]` + `operator_outputs` ／ または `{status:"unverifiable", reason, what_is_needed}` ／ `needs_deliberation` |
-| builder | `[PLAN] [FIXED_ACROSS_CONDITIONS] [CONDITIONS] [PREVIOUS_ARTIFACTS?] [PREVIOUS_MECHANISMS?] [REVISION_DIFFS?] [BUILD_FINDINGS?]` | `{artifacts[], measurement_points[], shared_state_warnings[], notes}` |
-| build-verifier | `[PLAN_MEASUREMENT] [SUCCESS_CRITERIA] [CONDITIONS] [ARTIFACTS] [MEASUREMENT_POINTS] [SHARED_STATE_WARNINGS] [REVISION_DIFFS?]` | `{verdict: pass\|revise, findings[{lens,severity,claim,why_it_breaks_measurement,what_would_make_it_measurable,refs[],why_resolution_insufficient}], non_findings[]}` |
-| runner | `[PLAN] [FIXED] [CONDITION] [ARTIFACTS] [MEASUREMENT_POINTS] [RUN_INDEX] [BUDGET]` | `{condition_id, run_index, executed, observations, raw_measurements, cost, anomalies[]}` |
-| verifier | `[SUCCESS_CRITERIA]（text + METRIC + 向き） [LENS]（criteria\|authenticity\|contract） [CONDITION_ID] [RUN_INDEX] [ARTIFACTS] [RUN_OBSERVATIONS] [RAW_MEASUREMENTS] [ANOMALIES]` | `{condition_id, run_index, lens, measured, unmeasured_reason, score（criteria レンズのみ）, criteria_checks[{criterion,met,evidence}], failure_mechanism_hint, self_report_used, refs[], why_resolution_insufficient}` |
+| planner | intake + evidence 出力 | Plan（`assets/plan-template.md`。`measurement_harness{class,entry,criteria,files[]}` を含む）+ `operators_used[]` + `operator_outputs` ／ または `{status:"unverifiable", reason, what_is_needed}` ／ `needs_deliberation` |
+| builder | `[PLAN] [FIXED_ACROSS_CONDITIONS] [CONDITIONS] [SCORING_HARNESS]（class のみ。在処は渡さない） [PREVIOUS_ARTIFACTS?] [PREVIOUS_MECHANISMS?] [REVISION_DIFFS?] [BUILD_FINDINGS?]` | `{artifacts[], measurement_points[], shared_state_warnings[], notes}` |
+| build-verifier | `[PLAN_MEASUREMENT] [SUCCESS_CRITERIA] [CONDITIONS] [ARTIFACTS] [MEASUREMENT_POINTS] [SHARED_STATE_WARNINGS] [FROZEN_HARNESS] [REVISION_DIFFS?]` | `{verdict: pass\|revise, frozen_harness_digest_ok, frozen_harness_touched, findings[{lens,severity,claim,why_it_breaks_measurement,what_would_make_it_measurable,refs[],why_resolution_insufficient}], non_findings[]}` |
+| runner | `[PLAN] [FIXED] [CONDITION] [ARTIFACTS] [MEASUREMENT_POINTS] [FROZEN_HARNESS] [RUN_INDEX] [BUDGET]` | `{condition_id, run_index, executed, observations, raw_measurements, cost, anomalies[]}` |
+| verifier | `[SUCCESS_CRITERIA]（text + METRIC + 向き） [LENS]（criteria\|authenticity\|contract） [CONDITION_ID] [RUN_INDEX] [ARTIFACTS] [RUN_OBSERVATIONS] [RAW_MEASUREMENTS] [ANOMALIES] [FROZEN_HARNESS]` | `{condition_id, run_index, lens, measured, unmeasured_reason, score（criteria レンズのみ）, frozen_harness_digest_ok, criteria_checks[{criterion,met,evidence}], failure_mechanism_hint, self_report_used, refs[], why_resolution_insufficient}` |
 | mechanism-analyst（2 名が独立） | `[SUCCESS_CRITERIA] [PER_CONDITION_STATS] [DELTA] [RUN_DETAILS] [SEAT]` | `{mechanisms[{statement,evidence,alternative_explanations[],identified,new,premise_defect}], criteria_validity, unmeasured[], gap}` |
 | mechanism-arbiter | `[ANALYST_A_MECHANISMS] [ANALYST_B_MECHANISMS]`（index 付き） | `{pairs[{a,b,why_same}], unpaired_a[], unpaired_b[]}`（index のみ。機序の文言は返さない） |
 | plan-verifier | Plan JSON | `{verdict: pass\|revise, findings[{lens,severity,claim,why_it_breaks_measurement,what_would_make_it_testable,refs[],why_resolution_insufficient}], non_findings[]}` |
@@ -42,15 +42,17 @@ script が BLOCKED で止める（自己解決を経ない再立案を構造で�
 ## pdca.js の args
 
 ```
-{ skillDir, plan, successCriteria:{text, metric, higher_is_better}, conditions[{id,label,spec}], fixed,
-  runsPerCondition, budget:{maxRuns, note}, cycle, maxCycles?（backstop・既定 5）, previous (前周の返り値をそのまま。script が do.artifacts / check.mechanisms を解決する), revisionDiffs[],
+{ skillDir, plan, successCriteria:{text, metric, higher_is_better},
+  frozenHarness:{path, entry, digest, class, criteria}（harness_freeze.py freeze の出力。未指定・不完全・criteria と successCriteria の不一致は Build 前に BLOCKED）,
+  conditions[{id,label,spec}], fixed,
+  runsPerCondition, budget:{maxRuns, note}, cycle, maxCycles?（backstop。既定は script の `DEFAULT_MAX_CYCLES`）, previous (前周の返り値をそのまま。script が do.artifacts / check.mechanisms を解決する), revisionDiffs[],
   ledger?（scripts/ledger.py read の出力。省略時は空） }
 ```
 
 ## script の返り値
 ```
 { status:"ok"|"BLOCKED", reason?, evidence?,
-  do:{artifacts[], measurement_points[], runs[]},
+  do:{artifacts[], measurement_points[], frozen_harness:{digest, class, entry}, runs[]},
   check:{results:{per_condition[{condition_id,label,issued,returned,measured_n,unmeasured[],unscored[],mean_score,spread,self_report_used,lens_disagreements[]}],
                   metric, higher_is_better, delta, delta_basis, favored}, gap, mechanisms[], criteria_validity, unmeasured[]},
   confidence:"mechanism_identified"|"suggestive"|"inconclusive", calibration_notes[], runTable[],
@@ -58,6 +60,20 @@ script が BLOCKED で止める（自己解決を経ない再立案を構造で�
   build_review, build_attempts[], ledger_entries[] }
 ```
 `delta: null` は測れていない（引き分けではない）。`favored` は `higher_is_better` を反映済み。
+
+`args.frozenHarness` は必須である（返り値ではなく入力側の変更）。欠けている呼び出しは Build に
+入らず BLOCKED になる。任意項目にすると、渡し忘れた run が「凍結したつもり」で通り、凍結が
+散文の約束に戻る（[references/harness-freeze.md](../references/harness-freeze.md)）。
+
+## 凍結 harness の args / 出力（scripts/harness_freeze.py）
+```
+freeze --run-dir <workspace>/<run-id> --source-root <harness の置き場>
+       --json {class: deterministic_script|llm_judge, entry, files[], criteria{metric, higher_is_better, threshold}}
+出力: { frozenHarness{path, entry, digest, class, criteria, file_count},
+        ledger_entry{type:"harness_frozen", phase, summary, payload{class,entry,files[],criteria,digest,frozen_at,source_root}} }
+verify --run-dir <...> [--expect <digest>]
+出力: { ok, digest, current_digest, frozen_at, class, changed[] }（不一致は exit 1）
+```
 
 既存フィールドは名前も意味も変えていない（追加のみ）。ただし `mechanisms[]` の各要素に
 `corroboration`（`corroborated` / `single_source`）が増え、**単独出所の機序は `identified: false`**

@@ -28,6 +28,26 @@ run は 1 本ごとに予算を食う。測定点が契約を満たしていな�
    挙がっていないのに実在しないか
 5. **`[REVISION_DIFFS]` の局在**（revise 周のみ）: 差分以外が前周から変わっていないか。
    変わっていれば次の Check で何が効いたか分離できない
+6. **凍結 harness の不可侵**: 成果物が `[FROZEN_HARNESS]` の採点物（判定ロジック・期待値・
+   hold-out・判定プロンプト）を**含む・複製する・再生成する・上書きする**経路が無いか。
+   builder は在処を渡されていないが、渡していないことは到達できないことと同じではない
+   （builder は worktree で分離されていない）。ここは強制ではなく事後検出の段で、
+   だから見る。判定は 2 つの真偽値で返す:
+   - `frozen_harness_digest_ok`: プロンプトに書かれた `harness_freeze.py verify` の行を
+     **そのまま実行**して一致したか（パスを組み替えない。`verify` は `--run-dir` に
+     run-dir でも凍結ディレクトリ自体でも受け付ける）。実行できなかった場合も false
+     （確かめられていないことを true にしない）
+   - `frozen_harness_touched`: 成果物側に上の経路があるか
+   どちらかが破れていれば script は run を 1 本も発行せず BLOCKED で止める（改稿では直らない
+   種類の欠陥で、凍結物が変わった状態の測定は後から救済できない）。保証の段の定義は
+   [references/harness-freeze.md](../references/harness-freeze.md)
+7. **測定点の独立性**: `[MEASUREMENT_POINTS]` が、builder の成果物の作り方と**独立に**
+   決まっているか。具体的には、各測定点が `[PLAN_MEASUREMENT]` / `[SUCCESS_CRITERIA]` の
+   どの項目に対応するかを辿れるか、Plan に無い測定点が builder の裁量で足されていないか、
+   出す値の範囲・粒度・除外条件が成果物の都合（得意な入力だけを記録する、失敗した試行を
+   計上しない、単位を有利な側に丸める）で決まっていないか。凍結 harness に触らなくても、
+   **凍結された採点器に有利な生の値だけを流し込めば結果は動く**ので、レンズ 6 とは別の
+   失敗様式になる。対応の辿れない測定点・Plan 外の除外は finding にする
 
 ## 守ること
 - **直さない。** 修正案を書かず、finding と「何があれば契約を満たすか」だけを返す
@@ -41,6 +61,8 @@ run は 1 本ごとに予算を食う。測定点が契約を満たしていな�
 ## 出力（JSON のみ）
 ```
 { "verdict": "pass|revise",
+  "frozen_harness_digest_ok": true,
+  "frozen_harness_touched": false,
   "findings": [{ "lens": "...", "severity": "blocker|major|minor",
                  "claim": "...", "why_it_breaks_measurement": "...",
                  "what_would_make_it_measurable": "...",
@@ -48,3 +70,5 @@ run は 1 本ごとに予算を食う。測定点が契約を満たしていな�
   "non_findings": ["確認して健全だった点"] }
 ```
 blocker/major が 1 件でもあれば verdict は revise。minor のみなら pass（findings は返す）。
+`frozen_harness_digest_ok` / `frozen_harness_touched` は verdict とは別に必ず返す（凍結の
+照合は改稿ループではなく Measure 開始前の停止判断に使われるため）。
