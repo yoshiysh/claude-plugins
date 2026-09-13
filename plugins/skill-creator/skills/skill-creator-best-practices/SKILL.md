@@ -362,8 +362,8 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` を提示し、反映してよいか確認する（blocker 判定は `remaining` + `new` + `reclassified`） |
-| `needs_human_decision` | 残った blocker（未検証の blocker を含む）を提示し、staging を残して判断を仰ぐ。自動反映しない |
+| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋（手直しの有無）を添えて提示し、反映してよいか確認する（`remaining` + `new` + `reclassified` のうち updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本 — major 以上は script がループ内で解消済み — この verdict で提示に残るのは minor のみで、major 以上が残った場合は verdict 自体が `needs_human_decision` になる） |
+| `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、改稿上限到達時に残った `REVISE_SEVERITIES` 相当（major 以上）の指摘。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
@@ -389,10 +389,11 @@ script は改稿を繰り返さず `needs_human_decision` へ倒す）。
 `references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する。
 
 本体への反映は**承認後に司令塔が行う**。Workflow は実行中にユーザー入力を受け取れないため、
-script は staging に書くところで必ず止まる。コピー対象・非承認時の扱い・staging の性質は
-すべて参照先に書いてある（要点をここにも置くと、手順が 2 箇所に分かれて食い違う）。
+script は staging に書くところで必ず止まる。反映前の指紋照合と手直しの再検証、コピー対象、
+非承認時の扱い、staging の性質はすべて参照先にある（要点をここにも置くと 2 箇所で食い違う）。
 
-完了条件：ユーザーが反映を承認して本体へコピーしたか、非承認で終了したか、どちらかが確定すること。
+完了条件：非承認で終了したか、承認を得たうえで反映直前の指紋が一致（または不一致なら手直しの
+再検証を通し blocker が無いことを確認）してから本体へコピーしたか、どちらかが確定すること。
 
 ## 入出力の定義
 
@@ -484,7 +485,7 @@ references/    # orchestrator-requirements / orchestrator-output / orchestrator-
 scripts/       # build_skill.js  — create の Workflow 本体
                # review_skill.js — review/update 本体（観点一覧 FINDERS の唯一の正）
                # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
-               # package_skill.py / quick_validate.py / utils.py
+               # package_skill.py / quick_validate.py / diff_findings.py / utils.py
 ```
 
 各ファイルの詳細な役割は、それを Read させている script と `references/schemas.md` が持つ

@@ -15,9 +15,15 @@ export const meta = {
 // 確定にも棄却にも回さず unverified として残す。
 const MIN_VALID_VOTES = 2
 
-// 再改稿の上限。1 回直しても blocker が残るなら、指摘の解釈か要件側の問題である可能性が高く、
-// 同じ入力で回し続けても収束しない。上限に達したら人間へ返す。
-const MAX_REVISIONS = 1
+// 再改稿の上限。REVISE_SEVERITIES を major まで広げた結果、1 回目の改稿では拾い切れない
+// 指摘が増えるため 2 回まで待つ。2 回直しても major 以上が残るなら、指摘の解釈か要件側の
+// 問題である可能性が高く、同じ入力で回し続けても収束しない。上限に達したら人間へ返す。
+const MAX_REVISIONS = 2
+// REVISE_SEVERITIES: updater へ再入させる指摘の重さ。実測で major の new が司令塔の
+// 手修正（設計外の運用）に流れていたのは、ここが 'blocker' のみで major が
+// 「提示するだけ」に落ちていたため。minor まで戻すと文言の好みで周回が尽きるので
+// major までにする。この配列が再入規則の正本（SKILL.md はここを参照する）。
+const REVISE_SEVERITIES = ['blocker', 'major']
 
 // finder 1 体が返す指摘数の上限。指摘ごとに複数の独立反証を起動するため、
 // schema 側で制限しないと runtime data がそのまま無界の fan-out になる。
@@ -500,6 +506,8 @@ function byCategory(missing, confirmed) {
 // 粗いキーだけが一致したものは possibly_rephrased として残し、人間が判断する材料にする。
 // ファイル表記は `./SKILL.md` と `SKILL.md` のような揺れが出る。文字列一致で突き合わせる
 // 以上、揺れは resolved を unobserved に倒す（安全側だが誤判定）。先頭の `./` だけ正規化する。
+// この正規化の正本は scripts/diff_findings.py（司令塔の手直し突き合わせと同一キー）。
+// 片方だけ変えると resolved/new の判定が script と司令塔で別の答えになる。
 const normPath = (p) => String(p).replace(/^\.\//, '')
 
 function keyOf(f) {
@@ -787,10 +795,12 @@ while (revision <= maxRevisions) {
     break
   }
 
-  // reclassified は「改稿が持ち込んだ」ものではないが、ドラフトに実在する確定 blocker ではある。
+  // reclassified は「改稿が持ち込んだ」ものではないが、ドラフトに実在する確定指摘ではある。
   // new から外すのは提示上の分類であって、承認判断から外す理由にはならない。
-  const blockers = [...remaining, ...introduced, ...reclassified].filter((f) => f.severity === 'blocker')
-  if (blockers.length === 0) {
+  const unresolved = [...remaining, ...introduced, ...reclassified].filter((f) =>
+    REVISE_SEVERITIES.includes(f.severity)
+  )
+  if (unresolved.length === 0) {
     verdict = 'applied_to_staging'
     break
   }
@@ -798,7 +808,7 @@ while (revision <= maxRevisions) {
   if (revision >= maxRevisions) {
     // 上限到達。同じ指摘が 2 度残るなら、指摘の解釈か要件側の問題である可能性が高く、
     // script で回し続けても収束しない。判断材料を添えて人間へ返す。
-    log(`blocker ${blockers.length} 件が残ったまま改稿上限に達しました。`)
+    log(`${REVISE_SEVERITIES.join('/')} ${unresolved.length} 件が残ったまま改稿上限に達しました。`)
     verdict = 'needs_human_decision'
     break
   }
