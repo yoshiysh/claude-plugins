@@ -1,6 +1,9 @@
 # agent 間の入出力契約
 
-**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§precedent-judge](#precedent-judge) · [§measurement](#measurement) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
+**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§precedent-judge](#precedent-judge) · [§measurement](#measurement) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
+
+ロールと責務の境界（検証者は判定と事実指摘のみ、文案の起草は生成側）は
+`schemas/role-map.md` を正とする。
 
 各 agent が返す形の正。`scripts/draft.js` と `scripts/refine.js` にも同じ定義が JSON Schema と
 して埋まっており、writer / auditor はそちらで構造化出力を強制される。このファイルは**文書側の
@@ -340,6 +343,61 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 
 ---
 
+## §resolver
+
+`scripts/refine.js` が、stuck 指摘（改稿を繰り返しても解消しない指摘）と、precedent-judge が
+`resolvable` と分類した TBD について呼ぶ**生成側の起草係**。検査者の指摘（issue + direction）を
+入力に、解消候補（選択肢・文案・トレードオフ）を起草する。役割の詳細は `agents/resolver.md`。
+
+```json
+{
+  "proposals": [
+    {
+      "digest": "受け取った digest をそのまま（照合キー。書き換えない）",
+      "options": [
+        {
+          "summary": "候補の要旨 1 行（書き直し / 統合 / 削除 / TBD 起票 / 既定への追認のどれか）",
+          "draft_text": "任意。writer が下敷きにできる文案（根拠原本にある内容だけで書く）",
+          "tradeoff": "この候補を採ると何を失うか・何が残るか"
+        }
+      ],
+      "recommended": 0
+    }
+  ]
+}
+```
+
+- 反例が構成できない指摘には、**「反例が構成できない事実」を報告するにとどめる**。指摘の真偽を
+  裁定しない（それは adjudicator の領分）。
+- すべての候補は resolver-verifier の検証を通ってから writer に渡る。検証を通らなかった候補は
+  script が落とす。
+
+---
+
+## §resolver-verifier
+
+`scripts/refine.js` が resolver の直後に呼ぶ**検証係**。役割の詳細は `agents/resolver-verifier.md`。
+
+```json
+{
+  "verdicts": [
+    {
+      "digest": "対象候補の digest",
+      "option_index": 0,
+      "verdict": "pass | reject",
+      "reason": "判定の根拠 1 行（pass にも必須）"
+    }
+  ]
+}
+```
+
+- 判定条件は (a) decisions と矛盾しない (b) 原本に無い事実を捏造していない (c) direction と
+  整合する、の 3 つ。1 つでも破れば reject。
+- **reject された候補・判定の無い候補は writer に渡らない**（fail-closed）。
+- 候補の書き直し・改良案の提示はしない（検証者が書くと、その文を誰も検証しない）。
+
+---
+
 ## §precedent-judge
 
 `scripts/refine.js` が未提示 blocking をまとめて 1 体に渡す。**人間必要性の判定パイプライン
@@ -352,7 +410,6 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
       "tbd_id": "TBD-AUTH-001",
       "verdict": "resolvable | measurable | novel | conflict | irreversible",
       "precedent_ids": ["D-003"],
-      "proposed_resolution": "先例を当てはめた解消文（resolvable のとき）",
       "measurement_target": "何を読めば決まるか（measurable のとき）",
       "rationale": "分類の根拠 1 行"
     }
@@ -360,9 +417,12 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 }
 ```
 
+**判定（verdict と precedent_ids）だけを返す。解消文は書かない** — resolvable の解消文の起草は
+§resolver の責務であり、judge が文案まで書くと「先例の当てはめ」が実質の新規裁定に化ける。
+
 | verdict | 意味 | 行き先 |
 |---|---|---|
-| `resolvable` | 決定ログ・回答履歴に同型の先例があり、当てはめれば解消する | 同一ラン内で本文へ反映 |
+| `resolvable` | 決定ログ・回答履歴に同型の先例があり、当てはめれば解消する | §resolver が解消文を起草 → §resolver-verifier の検証 → 同一ラン内で本文へ反映 |
 | `measurable` | 現物（実装・設定・既存文書）が答えを持つ | §measurement へ |
 | `novel` | 先例が無い / 類推に飛躍がある | 人間ゲート |
 | `conflict` | 当てはまりうる先例同士が逆の判断を含む | 人間ゲート |
