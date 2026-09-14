@@ -211,6 +211,14 @@ const SPEC_DOC_SCHEMA = {
 // checked を必須にしているのは、何も見ずに failed: [] を返す経路を残さないため。
 // severity は executability と validity が使う（blocking / degraded。validity は fail-open/
 // fail-closed の適用範囲の重なり — 前提 7 — に blocking を付ける）。
+// direction: 解消の方向のみ（enum）。旧 fix（自由記述の解消案）は廃止した — 検査者の文案は
+// writer をアンカリングさせ、根拠からではなく文案から書かせる（schemas/role-map.md を正とする）。
+// direction_note は方向の補足 1 行（50 字目安）に限り、文案・候補値・改訂文を書かせない
+// （契約は schemas/agent-contracts.md）。
+const AUDIT_DIRECTIONS = [
+  'relax', 'tighten', 'make_measurable', 'choose_one', 'merge_or_split',
+  'align_terms', 'add_trace', 'remove', 'document_decision', 'needs_human',
+]
 const AUDIT_SCHEMA = {
   type: 'object',
   properties: {
@@ -224,14 +232,15 @@ const AUDIT_SCHEMA = {
           location: { type: 'string' },
           quote: { type: 'string' },
           issue: { type: 'string' },
-          fix: { type: 'string' },
+          direction: { type: 'string', enum: AUDIT_DIRECTIONS },
+          direction_note: { type: 'string' },
           severity: { type: 'string', enum: ['blocking', 'degraded'] },
           // repro: 判定が割れる具体入力（またはその構成手順）。degraded 指摘にも必須の契約
           // （schemas/agent-contracts.md）。schema の required にはしない — writer が該当なしと
           // 判断したときに schema 違反で応答ごと失う経路を作らない（既存の enum 不採用と同じ理由）。
           repro: { type: 'string' },
         },
-        required: ['id', 'location', 'quote', 'issue', 'fix'],
+        required: ['id', 'location', 'quote', 'issue', 'direction'],
       },
     },
     checked: { type: 'string' },
@@ -534,6 +543,11 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
   if (findings && findings.length) {
     tail.push('# [FINDINGS] 解消すべき監査指摘', JSON.stringify(findings, null, 2), '')
     tail.push(
+      '各指摘の `direction` は解消の方向（緩める・強める・削除する等）であり、文案ではない。',
+      '**具体的な文はあなたが根拠原本から起草する**（検査者は文案を書かない契約 — role-map.md）。',
+      '`resolver_proposals` が付いた指摘には、検証済みの解消候補（生成側 resolver の起草・',
+      'resolver-verifier の検証を通過したもの）が添えてある。採用してもよいし、根拠に照らして',
+      'より良い形に書き直してもよい。',
       '指摘の解消のために新しい要求を創作してはならない。情報が未確定なら TBD として立て、',
       'そのカテゴリ名を categories_deferred に入れること。',
       '`ladder_kind: "criteria"` の指摘は判定基準・既定の欠落である。書き手が決められる既定なら',
@@ -1230,7 +1244,9 @@ function execToTbd(findings) {
       // キーに issue を含める。document|location だけだと、同じ章に対する複数の指摘が
       // 同一 ID に潰れ、片方が黙って消える（draft.js と同じ規約にすること）。
       id: `TBD-EX-${stableKey(`${f.document}|${f.location}|${f.issue}`)}`,
-      text: `${f.issue}（想定される解消: ${f.fix}）`,
+      // text は issue の要旨のみ。監査者由来の解消案を焼き込まない（writer のアンカリング防止。
+      // 解消候補は resolver の出力が candidates に digest 参照付きで入る経路だけを使う）。
+      text: `${f.issue}`,
       owner: '',
       due: '',
       blocking: true,
@@ -1249,7 +1265,8 @@ function execToTbd(findings) {
 function ladderToTbd(entries) {
   return entries.map(({ kind, finding: f }) => ({
     id: `TBD-NI-${stableKey(`${f.document}|${f.location}|${f.issue}`)}`,
-    text: `${f.issue || f.text || '(指摘本文なし)'}（想定される解消: ${f.fix || '依頼者の決定'}）`,
+    // text は issue の要旨のみ（解消案の焼き込みは execToTbd と同じ理由で行わない）。
+    text: `${f.issue || f.text || '(指摘本文なし)'}`,
     owner: '',
     due: '',
     blocking: true,
@@ -1434,8 +1451,9 @@ async function classifyFindings(findings, label) {
       '',
       '# [FINDINGS] 分類対象（digest で照合される。digest を書き換えない）',
       JSON.stringify(
-        withDigest.map(({ digest, auditor, document, location, quote, issue, fix, severity }) => ({
-          digest, auditor, document, location, quote, issue, fix, severity,
+        withDigest.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity }) => ({
+          // fix は構造検査（script 生成の決定的指摘）だけが持つ。LLM auditor は direction。
+          digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity,
         })),
         null,
         2

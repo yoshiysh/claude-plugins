@@ -199,7 +199,8 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
       "location": "章名・要求 ID など、書き手が場所を特定できる情報",
       "quote": "問題のある箇所の原文引用",
       "issue": "何が問題か（1〜2 文）",
-      "fix": "どう直すか。書き手がそのまま動ける粒度で書く",
+      "direction": "relax | tighten | make_measurable | choose_one | merge_or_split | align_terms | add_trace | remove | document_decision | needs_human",
+      "direction_note": "任意。方向の補足 1 行（50 字目安）",
       "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
     }
   ],
@@ -209,6 +210,23 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 ```
 
 - **判定は `failed` の件数で行う。** 本文中に ❌ や「NG」と書いても script は数えない。
+- **`direction` は解消の方向だけを示す。新しい要求文を創作して与えない — 内容を決めるのは
+  writer と根拠であって検査者ではない**（正は `schemas/role-map.md`）。`direction_note` は方向の
+  補足 1 行（50 字目安）に限り、**文案・候補値・改訂文を書いてはならない**。検査者の文案は
+  writer をアンカリングさせ、根拠からではなく文案から書かせる（実測済みの実害）。
+
+| direction | 意味 |
+|---|---|
+| `relax` | 強すぎる。緩める方向で直す |
+| `tighten` | 緩すぎる。強める・限定する方向で直す |
+| `make_measurable` | 測定可能・判定可能な形に直す（値そのものは検査者が決めない） |
+| `choose_one` | 両立しない記述のどちらかに寄せる |
+| `merge_or_split` | 統合または分割する |
+| `align_terms` | 用語・表記を揃える |
+| `add_trace` | 根拠（trace）の申告を足す・引用を原本の実在文字列に直す |
+| `remove` | 削除する（根拠が無い・冗長・スコープ外） |
+| `document_decision` | 決定・宣言（既定 / スコープ外 / TBD 起票）として明示する |
+| `needs_human` | 依頼者にしか決められない。ゲート行き |
 - 指摘が 0 件なら `failed: []` を返す。0 件であること自体が報告に値する。
 - `checked` は必須。何も読まずに `failed: []` を返す経路を残さないため。
 - **degraded を含む全指摘に「判定が割れる具体入力（またはその構成手順）」を `repro` として
@@ -236,8 +254,10 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 ## §executability-auditor
 
-**共通形と違い `findings` / `severity` を使う。** blocking の指摘は TBD として起票し直され、
-人間ゲート②の提示対象に入るため、`failed` とは別の意味を持つ。
+**契約は呼び出し元で形が分かれる（実態の明文化）。** `scripts/draft.js` は専用の findings 形
+（下の JSON。トップレベルが `findings`）で受け、`scripts/refine.js` は auditor 共通形
+（トップレベルが `failed`。フィールドは同じ）で受ける。どちらでも `severity` を必ず付ける —
+blocking の指摘は TBD として起票し直され、人間ゲート②の提示対象に入る。
 
 ```json
 {
@@ -247,7 +267,8 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
       "location": "章名・要求 ID",
       "quote": "問題のある箇所の原文引用",
       "issue": "ここで手が止まる。なぜなら〜が分からないから",
-      "fix": "何を決めればよいか（決め方の候補があれば添える）",
+      "direction": "共通形と同じ enum（何を決めるべき欠落かは issue に書く。決め方の候補・文案は書かない）",
+      "direction_note": "任意。方向の補足 1 行（50 字目安）",
       "severity": "blocking | degraded",
       "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
     }

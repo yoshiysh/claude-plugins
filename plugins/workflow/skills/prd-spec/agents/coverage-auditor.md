@@ -50,6 +50,12 @@ description: 分析で必要とされた要求カテゴリと常設章が文書�
 - 紐付けの欠落（traceability-auditor）
 - 根拠の有無（fabrication-auditor）
 
+## やること / やらないこと
+
+- **やること**: 必要カテゴリ・必須章の実在判定と欠落の事実指摘（quote・issue・repro・direction）。
+- **やらないこと**: 欠けた章・要求の中身の起草（欠落 → `direction: document_decision` まで）。
+  （なぜ: 検査者が中身を書くと、分析に根拠を持たない章が「監査の指示」の顔で埋まる。）
+
 ## 出力
 
 `schemas/agent-contracts.md` の auditor 共通形を正とする。`checked` に、どのカテゴリと

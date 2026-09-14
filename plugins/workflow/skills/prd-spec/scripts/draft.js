@@ -146,6 +146,13 @@ const SPEC_DOC_SCHEMA = {
 
 // EXEC_SCHEMA: severity は blocking（着手できない）/ degraded（着手はできるが作り直しになりうる）。
 // blocking だけを TBD として起票し直し、人間ゲート②の提示対象に入れる。
+// direction: 解消の方向のみ（enum。refine.js の AUDIT_DIRECTIONS と同じ列挙）。旧 fix
+// （自由記述の解消案）は廃止した — 検査者の文案は writer をアンカリングさせる
+// （schemas/role-map.md を正とする）。direction_note は方向の補足 1 行に限る。
+const AUDIT_DIRECTIONS = [
+  'relax', 'tighten', 'make_measurable', 'choose_one', 'merge_or_split',
+  'align_terms', 'add_trace', 'remove', 'document_decision', 'needs_human',
+]
 const EXEC_SCHEMA = {
   type: 'object',
   properties: {
@@ -158,10 +165,11 @@ const EXEC_SCHEMA = {
           location: { type: 'string' },
           quote: { type: 'string' },
           issue: { type: 'string' },
-          fix: { type: 'string' },
+          direction: { type: 'string', enum: AUDIT_DIRECTIONS },
+          direction_note: { type: 'string' },
           severity: { type: 'string', enum: ['blocking', 'degraded'] },
         },
-        required: ['id', 'location', 'quote', 'issue', 'fix', 'severity'],
+        required: ['id', 'location', 'quote', 'issue', 'direction', 'severity'],
       },
     },
     checked: { type: 'string' },
@@ -940,7 +948,9 @@ function execToTbd(findings) {
       // （「単位が無い」と「失敗時の挙動が無い」）が同一 ID に潰れ、片方が黙って消える。
       // issue は指摘の内容そのものなので、同一指摘は再実行しても同じキーになる。
       id: `TBD-EX-${stableKey(`${f.document}|${f.location}|${f.issue}`)}`,
-      text: `${f.issue}（想定される解消: ${f.fix}）`,
+      // text は issue の要旨のみ。監査者由来の解消案を焼き込まない（writer のアンカリング防止。
+      // 解消候補は resolver の出力が candidates に digest 参照付きで入る経路だけを使う）。
+      text: `${f.issue}`,
       owner: '',
       due: '',
       blocking: true,
