@@ -2,7 +2,9 @@
 
 This is a new executable runtime, not the existing source-to-manifest bridge.
 Existing skill routing is unchanged. Do not claim that installing this prototype
-enables native Workflow interception, resume, or unchanged execution of every caller.
+enables native Workflow interception or unchanged execution of every caller.
+Explicit opt-in checkpoint/resume is limited to the new quiescent-boundary protocol;
+historical runs cannot be resumed.
 
 The [common adapter](ADAPTER.md) binds host settings once and accepts unchanged
 `Workflow({scriptPath,args})` calls. The one-shot CLI uses the same execution entry.
@@ -59,7 +61,7 @@ No Claude-to-Codex equivalence or target availability is implied.
 Optional `context` maps exact source labels to per-role settings and hash-pinned
 reference inventories; read [the context contract](CONTEXT.md) when configuring it.
 It does not change source syntax or provide a complete skill/tool allowlist.
-Unknown request, host, backend, and limit fields are rejected, including resume and
+Unknown request, host, backend, and limit fields are rejected, including legacy resume and
 permission overrides. `requirements` may be declared in source metadata and/or the
 host request; both are checked before run creation or agent dispatch. Default capabilities
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
@@ -111,6 +113,58 @@ contain private data; run directories/files use owner-only modes. Full tool outp
 are not relayed. The CLI emits only the terminal result. Await it through the host's
 normal background process mechanism; no model-driven per-task polling is required.
 
+## Explicit checkpoint and continuation
+
+Reviewed source can add `await checkpoint('after-review')` at an actual engineering
+boundary. It must have no pending agent calls. `phase()` remains informational and
+does not become a checkpoint. An agent result alone cannot establish that all source
+processing and parallel work at an engineering boundary has finished.
+
+Enable the protocol with this host/adapter/CLI configuration (paths are illustrative):
+
+```json
+{
+  "checkpoint": {
+    "files": ["/absolute/reference.md", "/absolute/output.md"],
+    "dependenciesComplete": true,
+    "stopAfter": "after-review"
+  }
+}
+```
+
+Every listed file must already exist. List all source/worker reference files, artifacts,
+configuration and executable dependencies whose identity matters; an empty array is
+an explicit declaration of no file dependencies, not automatic discovery. Completion
+of this inventory and external evidence freshness remain operator responsibilities.
+SDK calls require explicit model and reasoning selection and an explicit `environment`.
+Custom backends must provide `resumeIdentity` or a stable `checkpoint.backendIdentity`,
+and their `run()` resolution must mean that the backend operation and its child processes
+are finished. Runtime code cannot independently certify a custom backend's side effects.
+
+The named boundary durably seals the run and returns `{status:"checkpoint", ...}`.
+To continue, use a **new** `runDir`, identical source, args, limits, dependency inventory
+and backend settings, and add:
+
+```json
+{"resume":{"previousRun":"/absolute/previous-run","freshness":"verified"}}
+```
+
+The operator must actually recheck freshness before declaring `verified`. Keep
+`checkpoint` configured; `stopAfter` may name a later boundary or be omitted to finish.
+The consumed historical boundary is replayed without stopping again. CLI uses its usual
+`--live --trusted-source` flags and reports top-level `status:"checkpoint"` when stopped.
+No inference is dispatched until the entire historical control-flow transcript matches.
+Successful results and original reply order are replayed; cumulative agent/output budgets
+and the remaining execution deadline carry forward. Replay consumes deadline but does not
+debit historical agent/output usage twice. This is not a token/billing hard cap.
+
+Continuation claims a permanent, single-use `continuation.lock` in its predecessor.
+The original evidence files are never appended or replaced. A failed continuation
+consumes its predecessor too: do not delete the lock to retry unknown effects. A crash,
+failed/null output, unsealed journal, changed input/artifact or identity mismatch cannot
+be automatically resumed. There is no reconciliation override in this version.
+See [protocol and verification boundaries](RESUME-DESIGN.md).
+
 ## Deliberate gaps / rollout gate
 
 ### Optional command environment preflight
@@ -131,11 +185,11 @@ host behavior and records host-default-unverified. No executable is run by prefl
 Per-role context suppression is opt-in and separately documented in CONTEXT.md.
 Complete minimal injected context and a hard inner-turn token limit are not implemented.
 
-- No transparent replay/resume. A reused run directory is rejected. Failed runs list
+- No transparent or arbitrary-crash resume. A reused run directory is rejected. Failed runs list
   in-flight task IDs; abort delivery does not prove external effects were rolled back.
   The read-only `checkpoint-audit.mjs` inspector and no-inference
   `rehearseCheckpoint` diagnostic can examine trusted, quiescent historical runs;
-  neither grants permission to resume. See [resume design](RESUME-DESIGN.md).
+  neither grants permission to resume. Only new sealed checkpoints use the opt-in protocol.
 - No live token hard cap: this SDK reports completed-turn usage, not a strict debit
   reservation. Agent count/deadline limits are not token or billing guarantees.
 - No automatic retry, model substitution, per-agent tool allowlist, human approval

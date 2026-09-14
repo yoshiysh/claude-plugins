@@ -10,13 +10,14 @@ import { Workflow } from './runtime.mjs';
 import { codexBackend } from './codex.mjs';
 import { compileSource } from './source.mjs';
 
-test('unknown resume, permission and budget settings fail before source or backend access', async () => {
+test('unknown authority/budget settings and incomplete resume fail before source or backend access', async () => {
   const request = { scriptPath: '/missing' };
   const host = { trustedSource: true, backend: { run() { throw Error('must not call'); } } };
   for (const key of ['resumeFromRunId', 'resume', 'approvalPolicy'])
     await assert.rejects(Workflow({ ...request, [key]: true }, host), /unsupported Workflow request field/);
-  for (const key of ['resume', 'sandboxMode', 'approvalPolicy', 'maxTokens'])
+  for (const key of ['sandboxMode', 'approvalPolicy', 'maxTokens'])
     await assert.rejects(Workflow(request, { ...host, [key]: true }), /unsupported Workflow host field/);
+  await assert.rejects(Workflow(request, { ...host, runDir: '/unused', resume: true }), /checkpoint must be an object/);
   for (const requirement of ['worktree', 'workspace-write', 'approval-forwarding', 'resume'])
     await assert.rejects(Workflow(request, { ...host, requirements: [requirement] }), /unsupported runtime requirement/);
   for (const key of ['sandboxMode', 'approvalPolicy', 'resumeFromRunId'])
