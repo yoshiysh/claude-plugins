@@ -365,8 +365,8 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 ## review/update の入出力
 
 `scripts/review_skill.js` が finder / refuter / updater と交換する契約。
-**観点の一覧・反証者の観点・閾値そのものは script の `FINDERS` / `PERSPECTIVES` /
-`MIN_VALID_VOTES` / `MAX_REVISIONS` が唯一の正**なので、ここには写さない。
+**観点の一覧・反証者の観点・閾値・改稿ループの停止条件は script の `FINDERS` / `PERSPECTIVES` /
+`MIN_VALID_VOTES` / `REVISE_SEVERITIES` が唯一の正**なので、ここには写さない。
 ここが定義するのはフィールドの形と、その形が保証していることだけ。
 
 ### finder の出力（FINDINGS_SCHEMA）
