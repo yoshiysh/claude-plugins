@@ -448,7 +448,36 @@ let documents = inputDocs.map((d) => ({
   }
 }
 
-const CONTEXT_BLOCK = [
+// sources_path: 司令塔が run 前に workspace へ書き出した根拠正本（過去周回のゲート②回答など）
+// のパス（任意）。指定時は、全文を必要とする role（writer / fabrication-auditor）にだけ
+// 「まず Read せよ」を指示し、他 role の CONTEXT からは history 全文を落として要旨 1 行に
+// 置き換える（12 文書 × 7 観点のプロンプトが周回のたびに history 全文を抱えて肥大するため）。
+// 未指定時は現行どおりインライン（後方互換）。
+const sourcesPath = String(parsedArgs.sources_path || '').trim()
+
+// buildContextBlock: CONTEXT を role 別に組む。
+// - decisions: auditor / judge 系には `id: topic = value` の 1 行形式のみ（why / reversibility を
+//   落とす — 検査に要るのは「何が決まっているか」で、経緯は判定材料にさせない）。writer と
+//   adjudicator と resolver（生成・裁定側）には全フィールドを維持する。
+// - tbd_answers_history: sources_path 指定時、writer / fabrication 以外には要旨 1 行のみ。
+const decisionsOneLine = (list) =>
+  (list || []).map((d) => `${d.id}: ${d.topic} = ${d.value}`).join('\n') || '(決定なし)'
+
+function buildContextBlock(role) {
+  const fullDecisions = role === 'writer' || role === 'adjudicator' || role === 'resolver'
+  const historyInline = !sourcesPath
+  const tbdAnswersSection =
+    [
+      ...(historyInline
+        ? tbdAnswersHistory.map((e) => `## 第 ${e.round} 周回の回答\n${e.answers}`)
+        : tbdAnswersHistory.length
+        ? [`回答済み TBD の周回 ${tbdAnswersHistory.length} 件、正本: ${sourcesPath}`]
+        : []),
+      tbdAnswers ? `## 今周回の回答\n${tbdAnswers}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n') || '(未確定事項への回答なし)'
+  return [
   '# [MODE] 実行モード',
   mode,
   '',
@@ -464,16 +493,11 @@ const CONTEXT_BLOCK = [
   answers,
   '',
   '# [TBD_ANSWERS] 人間ゲート②の回答（確定要求の根拠その 3。過去周回の回答も含む）',
-  [
-    ...tbdAnswersHistory.map((e) => `## 第 ${e.round} 周回の回答\n${e.answers}`),
-    tbdAnswers ? `## 今周回の回答\n${tbdAnswers}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n') || '(未確定事項への回答なし)',
+  tbdAnswersSection,
   '',
   '# [DECISIONS] 決定ログ（確定要求の根拠その 4。既定として選ばれた書き方・進め方）',
   '出所は `（既定: D-N）` と表記する。書式と使ってよい範囲は references/question-policy.md を正とする。',
-  JSON.stringify(decisions, null, 2),
+  fullDecisions ? JSON.stringify(decisions, null, 2) : decisionsOneLine(decisions),
   '',
   '# [TBD_ITEMS] 現時点の未確定事項',
   JSON.stringify(inputTbdItems, null, 2),
@@ -496,7 +520,16 @@ const CONTEXT_BLOCK = [
   '根拠にはならない。詳細は references/requirement-writing-rules.md §4「既存実装は根拠にならない」。',
   'INPUT / ANSWERS / TBD_ANSWERS / DECISIONS に根拠が無い要求を書いてはならない。回答されなかった項目を',
   '推測で埋めず、TBD のまま残すこと。「分からない」と回答された項目も TBD のまま残す。',
-].join('\n')
+  ].join('\n')
+}
+
+// CONTEXT_BLOCK: 生成側（writer / resolver）向けの全量版。role 別の縮約は buildContextBlock を使う。
+const CONTEXT_BLOCK = buildContextBlock('writer')
+
+// sourcesReadNote: sources_path 指定時に、全文を要する role（writer / fabrication）へ入れる指示。
+const sourcesReadNote = sourcesPath
+  ? `まず ${sourcesPath} を Read すること（過去周回のゲート②回答の正本。引用・照合はこの原本に対して行う）。`
+  : ''
 
 const RULES = [
   `規律は ${SKILL_DIR}/references/requirement-writing-rules.md ・`,
@@ -592,6 +625,7 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     `Read ${SKILL_DIR}/agents/${role}.md for your full role instructions before doing anything else.`,
     RULES,
     `契約は ${SKILL_DIR}/schemas/agent-contracts.md §${role} を正とする。`,
+    ...(sourcesReadNote ? [sourcesReadNote] : []),
     '',
     CONTEXT_BLOCK,
     '',
@@ -688,7 +722,7 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
       ''
     )
   } else {
-    head.push(CONTEXT_BLOCK, '')
+    head.push(buildContextBlock('auditor'), '')
   }
 
   if (auditor.name === 'specimen') {
@@ -701,6 +735,7 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
   }
 
   if (auditor.name === 'fabrication') {
+    if (sourcesReadNote) head.push(sourcesReadNote, '')
     head.push(
       '# [TRACE] 項目 ID → 根拠原本の引用（本文には根拠句を書かない規約なので、根拠はここにある）',
       JSON.stringify(
@@ -1359,6 +1394,7 @@ function buildNextArgs(ctx) {
     self_containment: ctx.self_containment,
     paths: ctx.paths,
     today: ctx.today,
+    ...(ctx.sources_path ? { sources_path: ctx.sources_path } : {}),
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
       : {}),
@@ -2552,7 +2588,7 @@ function buildResolverPrompt(items) {
     `契約は ${SKILL_DIR}/schemas/agent-contracts.md §resolver を正とする。`,
     RULES,
     '',
-    CONTEXT_BLOCK,
+    buildContextBlock('resolver'),
     '',
     '# [FINDINGS] 解消候補を起草する対象（digest は照合キー。書き換えない）',
     JSON.stringify(
@@ -2577,7 +2613,7 @@ function buildVerifierPrompt(items, proposals) {
     `Read ${SKILL_DIR}/agents/resolver-verifier.md for your full role instructions before doing anything else.`,
     `契約は ${SKILL_DIR}/schemas/agent-contracts.md §resolver-verifier を正とする。`,
     '',
-    CONTEXT_BLOCK,
+    buildContextBlock('auditor'),
     '',
     '# [FINDINGS] 候補の対象になった指摘（direction との整合の物差し）',
     JSON.stringify(
@@ -2826,7 +2862,7 @@ function buildAdjudicationPrompt(remaining) {
     '',
     RULES,
     '',
-    CONTEXT_BLOCK,
+    buildContextBlock('adjudicator'),
     '',
     '# [REMAINING_FINDINGS] 裁定対象（digest で照合される。digest を書き換えない）',
     JSON.stringify(remaining, null, 2),
@@ -3514,6 +3550,7 @@ const nextArgs = buildNextArgs({
   self_containment: selfContainment,
   paths,
   today,
+  sources_path: sourcesPath,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
   suppressed_finding_ids: rejectedStructuralIds,
 })

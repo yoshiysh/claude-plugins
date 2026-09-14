@@ -336,6 +336,13 @@ needs_input（TBD-NI）は初回に聞き切れる種類のものではなく、
    （全文を args で中継すると 12 文書で 24 万文字を超え、司令塔が本文を書き写す経路そのものが
    劣化点になる）。writer は `draft_path` を Read して本文を得る。`review` / `expand` で既存
    文書を改稿する周回は `path` が下敷きになるので不要。対象リポジトリには書かない。
+   - **根拠正本も同様に workspace へ書き出し、`sources_path` で渡す（2 周目以降・回答履歴が
+     あるとき）。** 過去周回のゲート②回答を
+     `~/.claude/prd-spec-workspace/<案件>/sources/r<outer_round>.md` に周回ラベル付きで Write し、
+     そのパスを args の `sources_path` に入れる。script は全文を要する role（writer /
+     fabrication-auditor）にだけ「まず Read せよ」を指示し、他 role の CONTEXT からは history
+     全文を落として要旨 1 行に置き換える（プロンプト肥大の抑制）。未指定なら従来どおり
+     `tbd_answers_history` がインラインで配られる（後方互換）。
 3. **Workflow B を呼ぶ。**
 
 ```
@@ -356,6 +363,7 @@ Workflow({
     domain_findings: [...], required_categories: [...],
     draft_structural_findings: <Workflow A の structural_findings をそのまま>,
     self_containment: "<手順 4 で合意した参照方針。無い案件では空文字>",
+    sources_path: "<workspace に書き出した根拠正本のパス。1 周目・履歴なしなら渡さない>",
     paths: { requirements: "docs/requirements", specifications: "docs/specifications" },
     today: "<date +%Y-%m-%d>"
     // audit_rounds は通常渡さない（渡すのは途中死からの復旧時だけ。workflow-io.md §3）
