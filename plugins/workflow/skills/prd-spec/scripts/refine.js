@@ -2800,9 +2800,12 @@ const ADJUDICATION_SCHEMA = {
           digest: { type: 'string' },
           target_document: { type: 'string' },
           target_section: { type: 'string' },
-          text: { type: 'string' },
+          // text（転記文の文案）は廃止した。裁定者は判定（転記先と理由）までを返し、
+          // 転記文の起草は転記改稿時の writer が reason + direction から行う
+          // （検証されない文案を本文へ直行させない — schemas/role-map.md）。
+          reason: { type: 'string' },
         },
-        required: ['digest', 'target_document', 'text'],
+        required: ['digest', 'target_document', 'reason'],
       },
     },
   },
@@ -2816,8 +2819,10 @@ function buildAdjudicationPrompt(remaining) {
     '',
     '- fixed: 実は既に解消済み・誤残留である。現在の本文を確認し、解消している根拠を evidence に書く。',
     '- rejected: 偽指摘である。reason 必須（理由の無い棄却は無効として未裁定に戻される）。',
-    '- documented: 意図した制約である。文書の「検査範囲の限定」等の該当節へ転記すべき内容を text に、',
-    '  転記先を target_document（文書キーまたはパス）と target_section に指定する。',
+    '- documented: 意図した制約である。転記先を target_document（文書キーまたはパス）と',
+    '  target_section に、なぜ意図した制約と言えるかを reason に書く。**転記文の文案は書かない** —',
+    '  文案の起草は転記改稿時の writer の責務である（あなたが書いた文は誰にも検証されずに本文へ',
+    '  入ることになる）。',
     '',
     RULES,
     '',
@@ -2876,13 +2881,17 @@ let adjudicationRemaining = []
           continue
         }
         if (!byDoc.has(doc.key)) byDoc.set(doc.key, [])
+        // 転記文はここに無い。writer が reason + direction（と、あれば resolver 候補）から
+        // 起草する — 裁定者の文案を検証なしで本文へ直行させない（schemas/role-map.md）。
         byDoc.get(doc.key).push({
           auditor: 'adjudication',
           id: `ADJ-${e.digest}`,
           document: doc.key,
           location: e.target_section || '検査範囲の限定',
-          issue: '終端裁定で「意図した制約（documented）」と分類された。該当節へ転記する。',
-          fix: e.text,
+          issue:
+            '終端裁定で「意図した制約（documented）」と分類された。裁定の理由: ' +
+            `${e.reason}。この制約が意図したものであることを該当節へ規範文として転記する（文案はあなたが起草する）。`,
+          direction: 'document_decision',
         })
       }
       if (byDoc.size) {
