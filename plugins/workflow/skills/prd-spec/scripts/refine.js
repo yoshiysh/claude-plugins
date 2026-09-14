@@ -622,7 +622,7 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     )
   }
   return [
-    `Read ${SKILL_DIR}/agents/${role}.md for your full role instructions before doing anything else.`,
+    `Read ${SKILL_DIR}/agents/writer-common.md and then ${SKILL_DIR}/agents/${role}.md for your full role instructions before doing anything else.`,
     RULES,
     `契約は ${SKILL_DIR}/schemas/agent-contracts.md §${role} を正とする。`,
     ...(sourcesReadNote ? [sourcesReadNote] : []),
