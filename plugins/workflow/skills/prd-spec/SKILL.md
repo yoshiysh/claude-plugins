@@ -511,6 +511,7 @@ Workflow({
 | `[SKILL_DIR]/references/question-policy.md` | **正**: 聞くか既定かの判定手順・決定ログ（decisions）の書式と受理条件・既定にしてはならないもの |
 | `[SKILL_DIR]/references/quality-checklist.md` | 生成物の絶対品質チェックリスト（外部規範由来・出典付き）。各項目の定義の正は既存 references にある |
 | `[SKILL_DIR]/schemas/agent-contracts.md` | agent 間の入出力契約（TBD・trace・precedent-judge・measurement を含む） |
+| `[SKILL_DIR]/schemas/role-map.md` | **正**: 全 role の責務対応表（1 role = 1 責務。検証者は判定と事実指摘のみ、文案の起草は生成側）。agent md と食い違ったらこちらに合わせる |
 | `[SKILL_DIR]/scripts/draft.js` | Workflow A（初稿 + 実行可能性検査 + 構造検査 + `audit_trail`） |
 | `[SKILL_DIR]/scripts/refine.js` | Workflow B（改稿 + 監査ループ + 判定パイプライン段 2〜4 + INDEX 組み立て） |
 | `[SKILL_DIR]/scripts/check_blocking_rate.py` | **正**: 人間ゲートの提示容量の定数。返り値 JSON に対する回帰ゲートとしても使う（欠測は exit 2 で「未計測」） |
