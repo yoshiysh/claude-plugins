@@ -110,16 +110,18 @@ class TestStopConditionStructure(unittest.TestCase):
         self.assertIn("backstopReached = true", REFINE)
         self.assertIn("'revision_backstop_reached'", REFINE)
 
-    def test_activeが尽きたらループを抜けてescalationへ(self):
+    def test_activeが尽きたらループを抜けてresolverバッチへ(self):
         self.assertIn("const STUCK_THRESHOLD = 2", REFINE)
         self.assertIn("if (!activeFindings.length) {", REFINE)
 
-    def test_escalation_はバッチ1回きりで_unanswerable_を区別する(self):
-        self.assertEqual(REFINE.count("escalation_pass: true"), 1)
+    def test_resolver_はバッチ1回きりで_unanswerable_を区別する(self):
+        self.assertEqual(REFINE.count("resolver_pass: true"), 1)
         self.assertIn("'unanswerable_findings'", REFINE)
-        # 3 レンズ（意図 / 実装者の手順 / 反例の構成）が並列で定義されている
-        for lens in ("intent", "implementer", "counterexample"):
-            self.assertIn(f"name: '{lens}'", REFINE)
+        # resolver（起草）→ resolver-verifier（検証）の 2 段が配線され、
+        # 検証を通過した候補だけが writer に渡る（fail-closed）
+        self.assertIn("runResolveCandidates", REFINE)
+        self.assertIn("resolver-verifier", REFINE)
+        self.assertIn("resolver_proposals", REFINE)
 
 
 if __name__ == "__main__":

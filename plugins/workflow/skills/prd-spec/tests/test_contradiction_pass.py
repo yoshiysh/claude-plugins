@@ -104,7 +104,7 @@ class TestContradictionPassStructure(unittest.TestCase):
         self.assertIn("| 7 |", premises)
         self.assertIn("fail-closed", premises)
         # 参照側（writer / validity）も前提 7 を指している
-        self.assertIn("前提 7", (SKILL / "agents" / "spec-writer.md").read_text())
+        self.assertIn("前提 7", (SKILL / "agents" / "writer-common.md").read_text())
         self.assertIn("前提 7", (SKILL / "agents" / "validity-auditor.md").read_text())
 
 

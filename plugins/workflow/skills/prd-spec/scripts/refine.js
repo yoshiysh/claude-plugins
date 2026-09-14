@@ -9,6 +9,10 @@ export const meta = {
   ],
 }
 
+// ロールと責務の対応（誰が生成し、誰が検証するか）は schemas/role-map.md を正とする。
+// 検証者（auditor / judge 系）は判定と事実指摘のみを返し、文案の起草は生成側
+// （writer / resolver）が担う — 1 role = 1 責務。
+//
 // 停止条件は「乾き停止（novelty 0）+ 不動点検出」が主で、回数は backstop に格下げした
 // （実測: 固定上限 2 回は「進んでいるのに切る」を起こし、non-blocking 指摘は改稿しても
 // 総数がほぼ減らなかった — 生成量 ≈ 消化量。回数で切っても直る見込みとは無関係だから。
@@ -16,7 +20,7 @@ export const meta = {
 // 「新規指摘が尽きた」を script が novelty として算出する乾き停止を主条件に据えた）。
 //
 // STUCK_THRESHOLD: ある指摘が「改稿を経ても同一 digest のまま残る」ことがこの回数連続したら
-// stuck（回答不能候補）とマークし、通常の改稿ループから外して多角化 escalation（1 回きり）へ回す。
+// stuck（回答不能候補）とマークし、通常の改稿ループから外して resolver → resolver-verifier のバッチ処理（1 回きり）へ回す。
 const STUCK_THRESHOLD = 2
 // REVISION_BACKSTOP: 総改稿回数の予算。run7 の実測で、不動点検出は「毎回新しい指摘が湧く」
 // 通常ケースでは一度も発火せず（同一 digest の再来ではなく新表面の露出が支配的）、backstop 8 まで
@@ -207,6 +211,14 @@ const SPEC_DOC_SCHEMA = {
 // checked を必須にしているのは、何も見ずに failed: [] を返す経路を残さないため。
 // severity は executability と validity が使う（blocking / degraded。validity は fail-open/
 // fail-closed の適用範囲の重なり — 前提 7 — に blocking を付ける）。
+// direction: 解消の方向のみ（enum）。旧 fix（自由記述の解消案）は廃止した — 検査者の文案は
+// writer をアンカリングさせ、根拠からではなく文案から書かせる（schemas/role-map.md を正とする）。
+// direction_note は方向の補足 1 行（50 字目安）に限り、文案・候補値・改訂文を書かせない
+// （契約は schemas/agent-contracts.md）。
+const AUDIT_DIRECTIONS = [
+  'relax', 'tighten', 'make_measurable', 'choose_one', 'merge_or_split',
+  'align_terms', 'add_trace', 'remove', 'document_decision', 'needs_human',
+]
 const AUDIT_SCHEMA = {
   type: 'object',
   properties: {
@@ -220,14 +232,15 @@ const AUDIT_SCHEMA = {
           location: { type: 'string' },
           quote: { type: 'string' },
           issue: { type: 'string' },
-          fix: { type: 'string' },
+          direction: { type: 'string', enum: AUDIT_DIRECTIONS },
+          direction_note: { type: 'string' },
           severity: { type: 'string', enum: ['blocking', 'degraded'] },
           // repro: 判定が割れる具体入力（またはその構成手順）。degraded 指摘にも必須の契約
           // （schemas/agent-contracts.md）。schema の required にはしない — writer が該当なしと
           // 判断したときに schema 違反で応答ごと失う経路を作らない（既存の enum 不採用と同じ理由）。
           repro: { type: 'string' },
         },
-        required: ['id', 'location', 'quote', 'issue', 'fix'],
+        required: ['id', 'location', 'quote', 'issue', 'direction'],
       },
     },
     checked: { type: 'string' },
@@ -435,7 +448,36 @@ let documents = inputDocs.map((d) => ({
   }
 }
 
-const CONTEXT_BLOCK = [
+// sources_path: 司令塔が run 前に workspace へ書き出した根拠正本（過去周回のゲート②回答など）
+// のパス（任意）。指定時は、全文を必要とする role（writer / fabrication-auditor）にだけ
+// 「まず Read せよ」を指示し、他 role の CONTEXT からは history 全文を落として要旨 1 行に
+// 置き換える（12 文書 × 7 観点のプロンプトが周回のたびに history 全文を抱えて肥大するため）。
+// 未指定時は現行どおりインライン（後方互換）。
+const sourcesPath = String(parsedArgs.sources_path || '').trim()
+
+// buildContextBlock: CONTEXT を role 別に組む。
+// - decisions: auditor / judge 系には `id: topic = value` の 1 行形式のみ（why / reversibility を
+//   落とす — 検査に要るのは「何が決まっているか」で、経緯は判定材料にさせない）。writer と
+//   adjudicator と resolver（生成・裁定側）には全フィールドを維持する。
+// - tbd_answers_history: sources_path 指定時、writer / fabrication 以外には要旨 1 行のみ。
+const decisionsOneLine = (list) =>
+  (list || []).map((d) => `${d.id}: ${d.topic} = ${d.value}`).join('\n') || '(決定なし)'
+
+function buildContextBlock(role) {
+  const fullDecisions = role === 'writer' || role === 'adjudicator' || role === 'resolver'
+  const historyInline = !sourcesPath
+  const tbdAnswersSection =
+    [
+      ...(historyInline
+        ? tbdAnswersHistory.map((e) => `## 第 ${e.round} 周回の回答\n${e.answers}`)
+        : tbdAnswersHistory.length
+        ? [`回答済み TBD の周回 ${tbdAnswersHistory.length} 件、正本: ${sourcesPath}`]
+        : []),
+      tbdAnswers ? `## 今周回の回答\n${tbdAnswers}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n') || '(未確定事項への回答なし)'
+  return [
   '# [MODE] 実行モード',
   mode,
   '',
@@ -451,16 +493,11 @@ const CONTEXT_BLOCK = [
   answers,
   '',
   '# [TBD_ANSWERS] 人間ゲート②の回答（確定要求の根拠その 3。過去周回の回答も含む）',
-  [
-    ...tbdAnswersHistory.map((e) => `## 第 ${e.round} 周回の回答\n${e.answers}`),
-    tbdAnswers ? `## 今周回の回答\n${tbdAnswers}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n') || '(未確定事項への回答なし)',
+  tbdAnswersSection,
   '',
   '# [DECISIONS] 決定ログ（確定要求の根拠その 4。既定として選ばれた書き方・進め方）',
   '出所は `（既定: D-N）` と表記する。書式と使ってよい範囲は references/question-policy.md を正とする。',
-  JSON.stringify(decisions, null, 2),
+  fullDecisions ? JSON.stringify(decisions, null, 2) : decisionsOneLine(decisions),
   '',
   '# [TBD_ITEMS] 現時点の未確定事項',
   JSON.stringify(inputTbdItems, null, 2),
@@ -483,7 +520,16 @@ const CONTEXT_BLOCK = [
   '根拠にはならない。詳細は references/requirement-writing-rules.md §4「既存実装は根拠にならない」。',
   'INPUT / ANSWERS / TBD_ANSWERS / DECISIONS に根拠が無い要求を書いてはならない。回答されなかった項目を',
   '推測で埋めず、TBD のまま残すこと。「分からない」と回答された項目も TBD のまま残す。',
-].join('\n')
+  ].join('\n')
+}
+
+// CONTEXT_BLOCK: 生成側（writer / resolver）向けの全量版。role 別の縮約は buildContextBlock を使う。
+const CONTEXT_BLOCK = buildContextBlock('writer')
+
+// sourcesReadNote: sources_path 指定時に、全文を要する role（writer / fabrication）へ入れる指示。
+const sourcesReadNote = sourcesPath
+  ? `まず ${sourcesPath} を Read すること（過去周回のゲート②回答の正本。引用・照合はこの原本に対して行う）。`
+  : ''
 
 const RULES = [
   `規律は ${SKILL_DIR}/references/requirement-writing-rules.md ・`,
@@ -530,6 +576,11 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
   if (findings && findings.length) {
     tail.push('# [FINDINGS] 解消すべき監査指摘', JSON.stringify(findings, null, 2), '')
     tail.push(
+      '各指摘の `direction` は解消の方向（緩める・強める・削除する等）であり、文案ではない。',
+      '**具体的な文はあなたが根拠原本から起草する**（検査者は文案を書かない契約 — role-map.md）。',
+      '`resolver_proposals` が付いた指摘には、検証済みの解消候補（生成側 resolver の起草・',
+      'resolver-verifier の検証を通過したもの）が添えてある。採用してもよいし、根拠に照らして',
+      'より良い形に書き直してもよい。',
       '指摘の解消のために新しい要求を創作してはならない。情報が未確定なら TBD として立て、',
       'そのカテゴリ名を categories_deferred に入れること。',
       '`ladder_kind: "criteria"` の指摘は判定基準・既定の欠落である。書き手が決められる既定なら',
@@ -571,9 +622,10 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     )
   }
   return [
-    `Read ${SKILL_DIR}/agents/${role}.md for your full role instructions before doing anything else.`,
+    `Read ${SKILL_DIR}/agents/writer-common.md and then ${SKILL_DIR}/agents/${role}.md for your full role instructions before doing anything else.`,
     RULES,
     `契約は ${SKILL_DIR}/schemas/agent-contracts.md §${role} を正とする。`,
+    ...(sourcesReadNote ? [sourcesReadNote] : []),
     '',
     CONTEXT_BLOCK,
     '',
@@ -670,7 +722,7 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
       ''
     )
   } else {
-    head.push(CONTEXT_BLOCK, '')
+    head.push(buildContextBlock('auditor'), '')
   }
 
   if (auditor.name === 'specimen') {
@@ -683,6 +735,7 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
   }
 
   if (auditor.name === 'fabrication') {
+    if (sourcesReadNote) head.push(sourcesReadNote, '')
     head.push(
       '# [TRACE] 項目 ID → 根拠原本の引用（本文には根拠句を書かない規約なので、根拠はここにある）',
       JSON.stringify(
@@ -1226,7 +1279,9 @@ function execToTbd(findings) {
       // キーに issue を含める。document|location だけだと、同じ章に対する複数の指摘が
       // 同一 ID に潰れ、片方が黙って消える（draft.js と同じ規約にすること）。
       id: `TBD-EX-${stableKey(`${f.document}|${f.location}|${f.issue}`)}`,
-      text: `${f.issue}（想定される解消: ${f.fix}）`,
+      // text は issue の要旨のみ。監査者由来の解消案を焼き込まない（writer のアンカリング防止。
+      // 解消候補は resolver の出力が candidates に digest 参照付きで入る経路だけを使う）。
+      text: `${f.issue}`,
       owner: '',
       due: '',
       blocking: true,
@@ -1245,7 +1300,8 @@ function execToTbd(findings) {
 function ladderToTbd(entries) {
   return entries.map(({ kind, finding: f }) => ({
     id: `TBD-NI-${stableKey(`${f.document}|${f.location}|${f.issue}`)}`,
-    text: `${f.issue || f.text || '(指摘本文なし)'}（想定される解消: ${f.fix || '依頼者の決定'}）`,
+    // text は issue の要旨のみ（解消案の焼き込みは execToTbd と同じ理由で行わない）。
+    text: `${f.issue || f.text || '(指摘本文なし)'}`,
     owner: '',
     due: '',
     blocking: true,
@@ -1338,6 +1394,7 @@ function buildNextArgs(ctx) {
     self_containment: ctx.self_containment,
     paths: ctx.paths,
     today: ctx.today,
+    ...(ctx.sources_path ? { sources_path: ctx.sources_path } : {}),
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
       : {}),
@@ -1430,8 +1487,9 @@ async function classifyFindings(findings, label) {
       '',
       '# [FINDINGS] 分類対象（digest で照合される。digest を書き換えない）',
       JSON.stringify(
-        withDigest.map(({ digest, auditor, document, location, quote, issue, fix, severity }) => ({
-          digest, auditor, document, location, quote, issue, fix, severity,
+        withDigest.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity }) => ({
+          // fix は構造検査（script 生成の決定的指摘）だけが持つ。LLM auditor は direction。
+          digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity,
         })),
         null,
         2
@@ -1949,7 +2007,7 @@ let structuralNotChecked = []
 let fixedFindings = []
 let execFindings = []
 // 不動点検出の状態。stuckTracker は digest → 連続残存ラウンド数。stuckFindings は
-// STUCK_THRESHOLD 回連続で同一 digest のまま残り、通常改稿から外して escalation へ回す指摘。
+// STUCK_THRESHOLD 回連続で同一 digest のまま残り、通常改稿から外して resolver のバッチ処理へ回す指摘。
 let stuckTracker = {}
 let stuckFindings = []
 let backstopReached = false
@@ -2187,7 +2245,7 @@ while (true) {
   if (!activeFindings.length) {
     log(
       `全 ${stuckFindings.length} 件が stuck（${STUCK_THRESHOLD} 回連続で同一 digest のまま残存）。` +
-        '改稿ループを停止し、多角化 escalation（1 回きり）へ回します。'
+        '改稿ループを停止し、resolver → resolver-verifier のバッチ処理（1 回きり）へ回します。'
     )
     break
   }
@@ -2246,7 +2304,7 @@ while (true) {
   }
   if (stuckFindings.length) {
     log(
-      `stuck 指摘 ${stuckFindings.length} 件を通常改稿から外しました（escalation で一括処理します）。` +
+      `stuck 指摘 ${stuckFindings.length} 件を通常改稿から外しました（resolver のバッチ処理で一括処理します）。` +
         `active ${activeFindings.length} 件で改稿を続けます。`
     )
   }
@@ -2395,7 +2453,7 @@ while (true) {
   }
 }
 
-// ------------------------------------------- 監査 1 パスの再利用ヘルパ（escalation 再監査・終端網羅監査用）
+// ------------------------------------------- 監査 1 パスの再利用ヘルパ（resolver 後の再監査・終端網羅監査用）
 //
 // 主ループの発行規約（consistency は 2 文書未満で未実施 / traceability は requirements 無しで
 // 未実施 / runWithRetry の部分リトライ）をそのまま踏襲する。byName（観点別サマリ）は
@@ -2454,78 +2512,187 @@ async function runAuditPass(label, auditorNames, scopeNote) {
   return { findings, missing: passMissing }
 }
 
-// ------------------------------------------- stuck 指摘の多角化 escalation（バッチ 1 回きり）
+// ------------------------------------------- resolver（生成）→ resolver-verifier（検証）の 2 段
 //
-// 不動点検出で stuck になった指摘は、同じレンズ（同じ auditor 契約 × 同じ writer プロンプト）を
-// 何度回しても digest が変わらないことが実証された指摘である。エラーで終わる前に 1 回だけ、
-// 異なるレンズを明示した 3 本の agent に並列で解消案を出させ、writer にその一式を渡して最終改稿を
-// 行う。escalation は指摘ごとではなくバッチで 1 回（stuck 全件をまとめて処理）。
-// それでも同一 digest のまま残った指摘は unanswerable として verdict に明示する（黙らない）。
+// 解消候補の起草は生成側（resolver）の責務であり、その候補は検証側（resolver-verifier）を
+// 通ってから writer に渡る — 1 role = 1 責務（schemas/role-map.md）。旧・多角化 escalation
+// （3 レンズ並列の解消案）はレンズを resolver の起草観点として吸収した。「指摘が偽である論証」
+// （counterexample レンズの真偽判定兼務）は resolver から外し、「反例が構成できない事実の報告」
+// までに留める（真偽の裁定は adjudicator の領分）。
+// 使い所は 2 つ: (1) stuck 指摘のバッチ処理（1 回きり）、(2) precedent-judge が resolvable と
+// 分類した TBD の解消文の起草。
 
-const ESCALATION_LENSES = [
-  {
-    name: 'intent',
-    instruction:
-      '要求の意図から見る。この指摘が守ろうとしている価値（誰の何が壊れるのか）に遡り、記述の形を変えてその価値を満たす案を出す。',
-  },
-  {
-    name: 'implementer',
-    instruction:
-      '実装者の手順から見る。この文書だけを渡された実装者が実際に手を動かす順序を書き下し、その手順のどこで指摘が実害になるかから解消案を導く。実害にならないなら、その論証を proposal に書く。',
-  },
-  {
-    name: 'counterexample',
-    instruction:
-      '反例の構成から見る。指摘が正しいとしたときに判定が割れる具体入力を構成し、その入力を境界にした記述への書き換え案を出す。構成できないなら「指摘が偽である」根拠として書く。',
-  },
-]
-
-const ESCALATION_SCHEMA = {
+const RESOLVER_SCHEMA = {
   type: 'object',
   properties: {
     proposals: {
       type: 'array',
       items: {
         type: 'object',
-        properties: { digest: { type: 'string' }, proposal: { type: 'string' } },
-        required: ['digest', 'proposal'],
+        properties: {
+          digest: { type: 'string' },
+          options: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string' },
+                draft_text: { type: 'string' },
+                tradeoff: { type: 'string' },
+              },
+              required: ['summary', 'tradeoff'],
+            },
+          },
+          recommended: { type: 'number' },
+        },
+        required: ['digest', 'options'],
       },
     },
   },
   required: ['proposals'],
 }
 
-function buildEscalationPrompt(lens, stuckList) {
-  const docKeys = new Set(stuckList.map((f) => f.document).filter(Boolean))
-  const bodies = documents
-    .filter((d) => docKeys.has(d.key))
-    .map((d) => `## ${d.path}（key: ${d.key} / ${d.concern}）\n\n${bodyOf(d)}`)
-    .join('\n\n---\n\n')
+const VERIFIER_SCHEMA = {
+  type: 'object',
+  properties: {
+    verdicts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          digest: { type: 'string' },
+          option_index: { type: 'number' },
+          verdict: { type: 'string', enum: ['pass', 'reject'] },
+          reason: { type: 'string' },
+        },
+        required: ['digest', 'option_index', 'verdict', 'reason'],
+      },
+    },
+  },
+  required: ['verdicts'],
+}
+
+function relevantBodies(items) {
+  const docKeys = new Set(items.map((f) => f.document).filter(Boolean))
+  return (
+    documents
+      .filter((d) => docKeys.has(d.key))
+      .map((d) => `## ${d.path}（key: ${d.key} / ${d.concern}）\n\n${bodyOf(d)}`)
+      .join('\n\n---\n\n') || '(本文なし)'
+  )
+}
+
+function buildResolverPrompt(items) {
   return [
-    'あなたは、改稿を繰り返しても解消しなかった監査指摘（stuck）の解消案を出す分析者である。',
-    `今回のレンズ: ${lens.instruction}`,
-    '他のレンズは別の agent が並列で担当している。このレンズ以外の観点からの提案はしない。',
+    `Read ${SKILL_DIR}/agents/resolver.md for your full role instructions before doing anything else.`,
+    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §resolver を正とする。`,
     RULES,
     '',
-    CONTEXT_BLOCK,
+    buildContextBlock('resolver'),
     '',
-    '# [STUCK_FINDINGS] 解消案を出す対象（digest ごとに 1 案。digest は書き換えない）',
+    '# [FINDINGS] 解消候補を起草する対象（digest は照合キー。書き換えない）',
     JSON.stringify(
-      stuckList.map(({ digest, auditor, document, location, quote, issue, fix, severity }) => ({
-        digest, auditor, document, location, quote, issue, fix, severity,
+      items.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, severity, text }) => ({
+        digest, auditor, document, location, quote, issue: issue || text, direction, direction_note, severity,
       })),
       null,
       2
     ),
     '',
-    '# [DOCUMENTS] 当該文書',
-    bodies || '(本文なし)',
+    '# [DOCUMENTS] 当該文書の現本文（候補はここからの差分として意味を持つ）',
+    relevantBodies(items),
     '',
-    'proposals に { digest, proposal } を返す。proposal は writer がそのまま実行できる粒度で書き、',
-    '書き直し・統合・削除・TBD 起票のどれかを明示する。新しい要求の創作は解消案にならない。',
-    '解消不能と判断した指摘には、その理由を proposal に書く。',
+    'proposals に digest ごとの options（summary / draft_text? / tradeoff）を返す。',
+    '候補は根拠原本の範囲内で組む。指摘の真偽は裁定しない — 反例が構成できないときは、その事実の',
+    '報告に留める。',
   ].join('\n')
 }
+
+function buildVerifierPrompt(items, proposals) {
+  return [
+    `Read ${SKILL_DIR}/agents/resolver-verifier.md for your full role instructions before doing anything else.`,
+    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §resolver-verifier を正とする。`,
+    '',
+    buildContextBlock('auditor'),
+    '',
+    '# [FINDINGS] 候補の対象になった指摘（direction との整合の物差し）',
+    JSON.stringify(
+      items.map(({ digest, document, location, issue, direction, direction_note, text }) => ({
+        digest, document, location, issue: issue || text, direction, direction_note,
+      })),
+      null,
+      2
+    ),
+    '',
+    '# [PROPOSALS] 検証対象の候補（digest × option_index 単位で全件判定する）',
+    JSON.stringify(proposals, null, 2),
+    '',
+    '# [DOCUMENTS] 当該文書の現本文（捏造判定の原本の一部）',
+    relevantBodies(items),
+    '',
+    'verdicts に { digest, option_index, verdict, reason } を全候補分返す。判定条件は',
+    '(a) decisions と矛盾しない (b) 原本に無い事実を捏造していない (c) direction と整合する。',
+    '候補の書き直しはしない。',
+  ].join('\n')
+}
+
+// runResolveCandidates: resolver → resolver-verifier の 2 段を実行し、検証を通過した候補だけを
+// digest → options[] の Map で返す。reject された候補・判定の無い候補は writer に渡さない
+// （fail-closed。検証されていない文案を成果物経路に入れない）。
+async function runResolveCandidates(items, label) {
+  const out = new Map()
+  if (!items.length) return out
+  const res = await agent(buildResolverPrompt(items), {
+    model: 'opus',
+    schema: RESOLVER_SCHEMA,
+    phase: 'Revise',
+    label: `resolver-${label}`,
+  })
+  const proposals = (((res || {}).proposals) || []).filter(
+    (p) => p && p.digest && Array.isArray(p.options) && p.options.length
+  )
+  if (!proposals.length) {
+    log(`resolver (${label}): 候補が返りませんでした（0 件として続行します）。`)
+    return out
+  }
+  const ver = await agent(buildVerifierPrompt(items, proposals), {
+    model: 'sonnet',
+    schema: VERIFIER_SCHEMA,
+    phase: 'Revise',
+    label: `resolver-verifier-${label}`,
+  })
+  const passed = new Set(
+    (((ver || {}).verdicts) || [])
+      .filter((v) => v && v.verdict === 'pass' && v.digest && Number.isInteger(v.option_index))
+      .map((v) => `${v.digest}#${v.option_index}`)
+  )
+  let rejected = 0
+  for (const p of proposals) {
+    const options = p.options
+      .map((o, i) => ({ ...o, option_index: i, recommended: p.recommended === i }))
+      .filter((o) => {
+        const ok = passed.has(`${p.digest}#${o.option_index}`)
+        if (!ok) rejected++
+        return ok
+      })
+    if (options.length) out.set(p.digest, options)
+  }
+  log(
+    `resolver (${label}): 候補 ${proposals.reduce((n, p) => n + p.options.length, 0)} 件のうち ` +
+      `検証通過 ${[...out.values()].reduce((n, o) => n + o.length, 0)} 件 / 不通過（reject または判定なし） ${rejected} 件。` +
+      '不通過の候補は writer に渡しません。'
+  )
+  return out
+}
+
+// formatOptions: 検証済み候補を writer / TBD candidates 向けの 1 行表現に整形する。
+// digest 参照を先頭に付け、どの指摘への候補かを機械で辿れるようにする。
+const formatOptions = (digest, options) =>
+  options.map(
+    (o) =>
+      `[${digest}#${o.option_index}]${o.recommended ? '（推奨）' : ''} ${o.summary}` +
+      `${o.draft_text ? ` / 文案: ${o.draft_text}` : ''}（トレードオフ: ${o.tradeoff}）`
+  )
 
 let unanswerable = []
 {
@@ -2534,43 +2701,27 @@ let unanswerable = []
   if (stillStuck.length) {
     phase('Revise')
     log(
-      `stuck 指摘 ${stillStuck.length} 件に対し、多角化 escalation をバッチで 1 回だけ行います` +
-        '（3 レンズ並列 → writer 最終改稿 → スコープ再監査）。'
+      `stuck 指摘 ${stillStuck.length} 件に対し、resolver → resolver-verifier の 2 段をバッチで 1 回だけ行います` +
+        '（候補の起草 → 検証 → writer 最終改稿 → スコープ再監査）。'
     )
-    const lensResults = await runWithRetry(
-      'Escalation lenses',
-      ESCALATION_LENSES,
-      (lens, attempt) =>
-        agent(buildEscalationPrompt(lens, stillStuck), {
-          model: 'opus',
-          schema: ESCALATION_SCHEMA,
-          phase: 'Revise',
-          label: `escalate-${lens.name}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
-        }).then((result) => ({ lens: lens.name, result: result || null })),
-      (r) => r && r.result
-    )
-    const proposals = []
-    for (const e of lensResults) {
-      if (!e || !e.result) continue
-      for (const p of e.result.proposals || []) proposals.push({ lens: e.lens, ...p })
-    }
+    const verified = await runResolveCandidates(stillStuck, `stuck-r${revisions + 1}`)
     revisions++
     const revisionId = `R${outerRound}.${revisions}`
     revisionLog.push({
       revision_id: revisionId,
       trigger: [...new Set(stillStuck.map((f) => f.id))].slice(0, 50),
-      reason: `stuck 指摘 ${stillStuck.length} 件の多角化 escalation（バッチ 1 回きり）`,
+      reason: `stuck 指摘 ${stillStuck.length} 件の resolver 候補付き最終改稿（バッチ 1 回きり）`,
       changed_by: '監査指摘の解消',
-      escalation_pass: true,
+      resolver_pass: true,
     })
     const byDoc = new Map()
     for (const f of stillStuck) {
       if (!f.document) continue
-      const attach = proposals.filter((p) => p.digest === f.digest)
+      const options = verified.get(f.digest) || []
       if (!byDoc.has(f.document)) byDoc.set(f.document, [])
       byDoc.get(f.document).push({
         ...f,
-        escalation_proposals: attach.map((p) => `【レンズ: ${p.lens}】${p.proposal}`),
+        resolver_proposals: formatOptions(f.digest, options),
       })
     }
     await reviseDocuments(byDoc, revisionId, false)
@@ -2578,11 +2729,11 @@ let unanswerable = []
     // 再監査は stuck を起票した観点だけ・当該範囲だけ（スコープ監査）。
     const names = new Set(stillStuck.map((f) => f.auditor).filter((n) => n && n !== 'structural'))
     log(
-      'スコープ監査の対象範囲（escalation 再監査）: ' +
+      'スコープ監査の対象範囲（resolver 後の再監査）: ' +
         [...new Set(stillStuck.map((f) => `${f.document}:${f.location || ''}`))].join(' / ')
     )
     const re = names.size
-      ? await runAuditPass(`Audit escalation r${revisions}`, names, buildScopeNote(stillStuck))
+      ? await runAuditPass(`Audit resolver r${revisions}`, names, buildScopeNote(stillStuck))
       : { findings: [], missing: [] }
     missing = [...missing, ...re.missing]
 
@@ -2604,14 +2755,14 @@ let unanswerable = []
     for (const f of re.findings) {
       allFailed.push(f)
       if (f.auditor === 'executability' && f.severity === 'blocking') execFindings.push(f)
-      // escalation 後も digest 不変で残った指摘は unanswerable（従来の unresolved と区別する）
+      // resolver 候補付き改稿の後も digest 不変で残った指摘は unanswerable（従来の unresolved と区別する）
       if (stuckDigests.has(findingDigest(f))) unanswerable.push({ ...f, digest: findingDigest(f) })
     }
     for (const f of structural) if (!fixedKeys.has(f.document)) allFailed.push(f)
     log(
       unanswerable.length
-        ? `escalation 後も ${unanswerable.length} 件が同一 digest のまま残りました。unanswerable として明示して終了します。`
-        : 'escalation で stuck 指摘はすべて digest が変化しました（解消または再定式化）。'
+        ? `resolver 候補付き改稿の後も ${unanswerable.length} 件が同一 digest のまま残りました。unanswerable として明示して終了します。`
+        : 'resolver 候補付き改稿で stuck 指摘はすべて digest が変化しました（解消または再定式化）。'
     )
   }
 }
@@ -2685,9 +2836,12 @@ const ADJUDICATION_SCHEMA = {
           digest: { type: 'string' },
           target_document: { type: 'string' },
           target_section: { type: 'string' },
-          text: { type: 'string' },
+          // text（転記文の文案）は廃止した。裁定者は判定（転記先と理由）までを返し、
+          // 転記文の起草は転記改稿時の writer が reason + direction から行う
+          // （検証されない文案を本文へ直行させない — schemas/role-map.md）。
+          reason: { type: 'string' },
         },
-        required: ['digest', 'target_document', 'text'],
+        required: ['digest', 'target_document', 'reason'],
       },
     },
   },
@@ -2701,12 +2855,14 @@ function buildAdjudicationPrompt(remaining) {
     '',
     '- fixed: 実は既に解消済み・誤残留である。現在の本文を確認し、解消している根拠を evidence に書く。',
     '- rejected: 偽指摘である。reason 必須（理由の無い棄却は無効として未裁定に戻される）。',
-    '- documented: 意図した制約である。文書の「検査範囲の限定」等の該当節へ転記すべき内容を text に、',
-    '  転記先を target_document（文書キーまたはパス）と target_section に指定する。',
+    '- documented: 意図した制約である。転記先を target_document（文書キーまたはパス）と',
+    '  target_section に、なぜ意図した制約と言えるかを reason に書く。**転記文の文案は書かない** —',
+    '  文案の起草は転記改稿時の writer の責務である（あなたが書いた文は誰にも検証されずに本文へ',
+    '  入ることになる）。',
     '',
     RULES,
     '',
-    CONTEXT_BLOCK,
+    buildContextBlock('adjudicator'),
     '',
     '# [REMAINING_FINDINGS] 裁定対象（digest で照合される。digest を書き換えない）',
     JSON.stringify(remaining, null, 2),
@@ -2761,13 +2917,17 @@ let adjudicationRemaining = []
           continue
         }
         if (!byDoc.has(doc.key)) byDoc.set(doc.key, [])
+        // 転記文はここに無い。writer が reason + direction（と、あれば resolver 候補）から
+        // 起草する — 裁定者の文案を検証なしで本文へ直行させない（schemas/role-map.md）。
         byDoc.get(doc.key).push({
           auditor: 'adjudication',
           id: `ADJ-${e.digest}`,
           document: doc.key,
           location: e.target_section || '検査範囲の限定',
-          issue: '終端裁定で「意図した制約（documented）」と分類された。該当節へ転記する。',
-          fix: e.text,
+          issue:
+            '終端裁定で「意図した制約（documented）」と分類された。裁定の理由: ' +
+            `${e.reason}。この制約が意図したものであることを該当節へ規範文として転記する（文案はあなたが起草する）。`,
+          direction: 'document_decision',
         })
       }
       if (byDoc.size) {
@@ -2951,7 +3111,9 @@ const PRECEDENT_SCHEMA = {
             enum: ['resolvable', 'measurable', 'novel', 'conflict', 'irreversible'],
           },
           precedent_ids: { type: 'array', items: { type: 'string' } },
-          proposed_resolution: { type: 'string' },
+          // proposed_resolution は廃止した。judge は判定（verdict / precedent_ids）だけを返し、
+          // resolvable の解消文の起草は resolver（生成側）→ resolver-verifier（検証）が担う
+          // （1 role = 1 責務。schemas/role-map.md）。
           // measurement_target: measurable のときに「何を読めば決まるか」を書く。
           // 書けないなら、それは計測ではなく推測なので novel に落ちる。
           measurement_target: { type: 'string' },
@@ -2973,8 +3135,8 @@ if (unpresentedBlocking.length) {
       '',
       'verdict の基準:',
       '- resolvable: 決定ログ・回答・過去周回の回答履歴に同型の先例があり、その判断をそのまま',
-      '  当てはめれば解消する（先例の ID を precedent_ids に、当てはめた解消文を',
-      '  proposed_resolution に書く）。',
+      '  当てはめれば解消する（先例の ID を precedent_ids に書く。**解消文は書かない** —',
+      '  起草は resolver の責務であり、あなたは判定だけを返す）。',
       '- measurable: 依頼者の意図ではなく現物（リポジトリの実装・設定・既存文書）が答えを',
       '  持っており、読めば確定する（何を読めば決まるかを measurement_target に書く）。',
       '- novel: 先例が無い、または先例からの類推に飛躍がある。',
@@ -3016,12 +3178,45 @@ if (unpresentedBlocking.length) {
         return {
           ...t,
           precedent_ids: c.precedent_ids || [],
-          proposed_resolution: c.proposed_resolution || '',
           measurement_target: c.measurement_target || '',
           rationale: c.rationale || '',
         }
       })
-  autoResolvedBlocking = withVerdict('resolvable')
+  // resolvable の解消文は resolver（生成側）が起草し、resolver-verifier の検証を通す
+  // （judge の proposed_resolution は廃止 — 判定係の文案は誰にも検証されずに本文へ直行していた）。
+  // 検証済みの文案（draft_text）を得られなかった項目は自動解消しない — 文案の無い「解消」は
+  // 申告だけが残って本文に反映できないため、人間ゲートへ返す。
+  const resolvableCandidates = withVerdict('resolvable')
+  autoResolvedBlocking = []
+  if (resolvableCandidates.length) {
+    const items = resolvableCandidates.map((t) => ({
+      digest: t.id,
+      document: t.document,
+      location: t.location || '',
+      issue: t.text,
+      direction: 'document_decision',
+      direction_note: `先例 ${(t.precedent_ids || []).join(' / ') || '(ID なし)'} の当てはめ`,
+    }))
+    const verified = await runResolveCandidates(items, 'precedent')
+    for (const t of resolvableCandidates) {
+      const options = verified.get(t.id) || []
+      const pick = options.find((o) => o.recommended && o.draft_text) || options.find((o) => o.draft_text)
+      if (!pick) continue
+      autoResolvedBlocking.push({
+        ...t,
+        proposed_resolution: pick.draft_text,
+        // 解消候補は candidates に digest 参照付きで残す（text には混ぜない）。
+        candidates: formatOptions(t.id, options),
+      })
+    }
+    const droppedToGate = resolvableCandidates.length - autoResolvedBlocking.length
+    if (droppedToGate) {
+      log(
+        `先例裁定: resolvable ${resolvableCandidates.length} 件のうち ${droppedToGate} 件は検証済みの解消文を` +
+          '得られなかったため自動解消せず、人間ゲートへ返します。'
+      )
+    }
+  }
   // 読む対象を名指しできない measurable は計測ではなく推測なので、ゲートへ返す。
   measurableBlocking = withVerdict('measurable').filter((t) => t.measurement_target)
   const handled = new Set([...autoResolvedBlocking, ...measurableBlocking].map((t) => t.id))
@@ -3275,7 +3470,7 @@ if (documents.some((d) => d.kind === 'specifications' && !d.fixed)) {
 // audit_incomplete と unresolved_findings が排他だと、監査が欠けたうえに指摘も残っている
 // 状態で後者が verdict から見えなくなるため。
 // 優先順: 監査の欠測 > 裁定の欠測 > 回数 backstop > 回答不能（unanswerable）> 残指摘 > clean。
-// unanswerable_findings は「escalation まで尽くしても digest 不変で残った」であり、従来の
+// unanswerable_findings は「resolver のバッチ処理まで尽くしても digest 不変で残った」であり、従来の
 // unresolved_findings（単に残った）と区別して黙らずに終える。
 // blocking_over_capacity: 起票された blocking が人間ゲートの提示容量を超えている。
 // 提示の工夫では吸収できず、超えた分は「未提示のまま完了」に直結するので、
@@ -3355,6 +3550,7 @@ const nextArgs = buildNextArgs({
   self_containment: selfContainment,
   paths,
   today,
+  sources_path: sourcesPath,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
   suppressed_finding_ids: rejectedStructuralIds,
 })
@@ -3457,7 +3653,7 @@ return {
   fixed_findings: fixedFindings,
   unresolved: allFailed,
   has_unresolved: allFailed.length > 0,
-  // unanswerable: 多角化 escalation 後も同一 digest のまま残った指摘（回答不能）。
+  // unanswerable: resolver 候補付き改稿の後も同一 digest のまま残った指摘（回答不能）。
   unanswerable,
   // adjudication: 終端裁定の三値分類。unadjudicated が空であることを script が検証済みで、
   // 空でなければ verdict = 'adjudication_incomplete' に反映されている。
