@@ -1,6 +1,10 @@
 # Plan 雛形（起点別）
 
-共通の契約: 事実と目標を分ける／分析（機序・制約・前提）／選択肢 2 案以上、各案に機序／採用基準と棄却理由／成功基準と測定方法を実行前に固定／停止条件／使ったオペレータ。
+共通の契約: 事実と目標を分ける／分析（機序・制約・前提）／選択肢 2 案以上、各案に機序／採用基準と棄却理由／成功基準と測定方法を実行前に固定／**測る物（measurement_harness）まで降ろす**／停止条件／使ったオペレータ。
+
+`measurement_harness: { class: deterministic_script|llm_judge, entry, files[], criteria{metric, higher_is_better, threshold} }` は全起点で必須。criteria も凍結対象（判定値を CLI 手入力に残さない）。
+Do の前に `scripts/harness_freeze.py` が凍結し、builder には在処を渡さない
+（[references/harness-freeze.md](../references/harness-freeze.md)）。
 
 ## 問題起点
 ```
@@ -15,6 +19,7 @@ chosen: [案] / basis: [採用基準]
 rejected: [案 / 理由]
 success_criteria: { text, metric, higher_is_better, provisional: false }
 measurement: [何を固定し何を変えるか。対制御が組めないなら施策前後の同一指標]
+measurement_harness: { class, entry, files[], criteria }
 stop_conditions: { maxRuns, cycles, 達成条件 }
 operators_used: [...]
 ```
@@ -29,6 +34,7 @@ options: [最小試作の範囲の候補。各案に「これで現状が作れ�
 chosen / rejected
 success_criteria: { text, metric, higher_is_better, provisional: true }   ← Check で確定
 measurement: [1 周目は単一条件。観測点だけ決める]
+measurement_harness: { class, entry, files[], criteria }   ← 仮基準でも凍結する
 stop_conditions
 operators_used: [類推, 反証, 較正, ...]
 ```
@@ -44,6 +50,7 @@ options: [候補構造ごとの条件設計]
 chosen / rejected
 success_criteria: { text, metric, higher_is_better, provisional: false }
 measurement: { conditions[], fixed, runsPerCondition }
+measurement_harness: { class, entry, files[], criteria }
 stop_conditions
 operators_used: [事実確認, 逆算, 反証, 対制御比較, 較正]
 ```

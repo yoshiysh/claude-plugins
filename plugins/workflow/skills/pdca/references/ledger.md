@@ -1,7 +1,8 @@
 # run ledger（追記型台帳）
 
 1 run に 1 本、`workspace/<run-id>/ledger.jsonl` を置く。Plan の改稿・verifier の findings・
-棄却案と棄却理由・司令塔の自己解決裁定・Do/Check/Act の結果が**起きた順**に並ぶ。
+棄却案と棄却理由・司令塔の自己解決裁定・評価 harness の凍結・Do/Check/Act の結果が
+**起きた順**に並ぶ。
 
 ## 何のためにあるか
 
@@ -25,6 +26,7 @@ verifier が再提起すること自体は正当で、封じてはならない �
 | `plan_v` | planner が出した Plan の版 | 版番号、成功基準、採用案 |
 | `review_v` | plan-verifier / build-verifier / verifier の findings | lens、severity、claim |
 | `resolution` | 論点の裁定（司令塔の自己解決、棄却案とその理由） | method、reason、rejected_alternatives |
+| `harness_frozen` | 評価 harness の凍結（`scripts/harness_freeze.py freeze` の出力） | digest、frozen_at、class、entry、files |
 | `build` | builder の成果物と測定点 | artifacts、measurement_points |
 | `build_review` | build-verifier の判定 | verdict、findings |
 | `do_run` | 条件 × 反復の実行と検証 | condition_id、run_index、measured、score |
@@ -45,6 +47,9 @@ workflow runtime にはファイル IO が無いため、経路は 2 段にな�
 
 1. `scripts/pdca-plan.js` / `scripts/pdca.js` が、各 agent の返り値から entry を
    **script の算術で**構成し、返り値の `ledger_entries[]` に載せる
+1b. `scripts/harness_freeze.py freeze` は `harness_frozen` entry を同じ形
+   （`ledger_entry`）で返す。凍結は workflow の外（Plan と Do の境界）で起きるので、
+   entry の出所も script だが pdca 系 js ではない
 2. 司令塔がその JSON を**編集せずそのまま** writer に流す:
 
 ```bash
