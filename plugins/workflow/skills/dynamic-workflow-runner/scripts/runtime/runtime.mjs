@@ -5,11 +5,13 @@ import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
 import { exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
+import { resumableWorkflow } from './resume.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
   exactObject(request, requestKeys, 'Workflow request');
-  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', ...limitKeys], 'Workflow host');
+  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'checkpoint', 'resume', ...limitKeys], 'Workflow host');
+  if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host);
   const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
   validateRequirements(host.requirements, capabilities);
   const { scriptPath, args = {} } = request;

@@ -23,6 +23,16 @@ export function codexBackend(config = {}) {
   const inheritedCodex = scopedContext ? null : new CodexClass({ codexPathOverride,
     config: { features: { multi_agent: false }, model_provider: 'openai', ...environment.sdkConfig } });
   return {
+    resumeIdentity: { backend: 'codex-sdk-v1', model: model ?? null, modelMap,
+      modelReasoningEffort: modelReasoningEffort ?? null, codexPathOverride: codexPathOverride ?? null },
+    validateCheckpointPolicy() {
+      if (config.environment === undefined) throw Error('checkpoint protocol requires explicit worker environment');
+    },
+    validateCheckpoint(options) {
+      const selected = resolveModel(options.model);
+      if (!selected.model || !selected.modelReasoningEffort)
+        throw Error('checkpoint protocol requires explicit model and reasoning effort');
+    },
     capabilities: workspaces.capabilities,
     prepare,
     validate(options) {

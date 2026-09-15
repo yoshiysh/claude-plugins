@@ -1,86 +1,100 @@
-# Safe resume design — not enabled
+# Quiescent checkpoint resume — experimental opt-in
 
-## Status and inspection
+## Implemented boundary
 
-The runtime still rejects resume execution. `checkpoint-audit.mjs` is a read-only
-evidence inspector, not a replay backend or an authorization gate. Run:
+`resume.mjs` implements `quiescent-checkpoint-v1` behind an explicit `checkpoint`
+host configuration. The common adapter and CLI forward this configuration and the
+optional `resume` object. Existing source without this opt-in keeps the old runtime.
+This does not enable caller routing, mutate any skill source, or resume old runs.
+See [configuration and source API](README.md#explicit-checkpoint-and-continuation).
 
-```sh
-node checkpoint-audit.mjs /absolute/path/to/previous/run
-```
+Source must explicitly `await checkpoint(label)`. Worker admission must be empty,
+and runtime queue/in-flight inventory must be empty. Any failed, null or schema-invalid
+historical result prevents sealing even if the source handled that null. The backend
+promise must represent drained operation completion, as the SDK backend does; a custom
+backend must honor this contract. An arbitrary agent await, `phase()` or a log line is
+not a certified source boundary.
 
-It checks the source and args hashes, journal sequence and lifecycle, result schemas,
-and terminal in-flight inventory. It reports completed historical result candidates
-separately from started, failed or null-result tasks. `executable` is always false.
-The evidence digest detects changes relative to a recorded digest; it does not
-authenticate an operator-controlled journal or prove artifact freshness. All input
-files must be read from a trusted, quiescent run directory. The inspector does not
-lock the files or provide an atomic cross-file snapshot.
+The selected `stopAfter` boundary records a sealed terminal checkpoint and stops the
+worker. Other explicit checkpoints pass through. Only that sealed terminal checkpoint
+can be resumed; crashes and deadline failures, including crashes during seal creation,
+are not retryable. No automatic effect reconciliation is implemented.
 
-## Why the existing run cannot be blindly replayed
+## Durable evidence and continuation
 
-The current runtime queues journal appends without awaiting durability before backend
-dispatch and source reply. It logs started calls, but not every accepted queued call
-and its full prompt, nor the moment a reply was delivered to the source. A missing
-thread ID or result cannot prove that no inference, filesystem write or external
-operation happened. Existing source/args hashes do not bind mutable reference files.
+1. Source/request files and a hash-chained journal are written with file fsync;
+   run directory creation/file entries and checkpoint seal are directory-synced.
+2. Every accepted call stores its complete prompt/options before queue admission.
+   Dispatch intent is synced before backend invocation. Results and ordered reply
+   release are synced before source replies. Journal failures poison dispatch.
+3. Checkpoint sealing requires no pending work, records cumulative call/output usage,
+   remaining execution milliseconds and dependency file hashes, then writes a seal
+   binding source, request and final journal digest. No later journal event is allowed
+   for an executable stopped run. A failure after the boundary but before safe stop
+   either has no seal or a later failure event and is rejected.
+4. Resume canonicalizes the predecessor directory and exclusively creates its
+   `continuation.lock`. A failed acquisition never removes another owner's lock.
+   Validation failure before successor ownership releases only this attempt's lock.
+   After successor creation the claim is permanent, including on failure. A successor
+   can be resumed only if it reaches its own new sealed checkpoint.
+5. A new directory records the predecessor digest and copies the validated historical
+   transcript (prior stops become passed checkpoints). Original evidence is untouched.
+   The predecessor directory gains only the single-use continuation claim.
+6. Trusted control flow reexecutes from the beginning. Each agent prompt/options/id,
+   phase/log and checkpoint must match the recorded interaction order. Historical
+   replies use validated results in their recorded release order, not completion or
+   admission order. No live dispatch is admitted until the whole transcript reaches
+   the exact prior boundary. The source executes the already-read, identity-checked
+   source bytes, not a subsequent reread of a mutable path.
 
-Never fabricate a missing result, retry an ambiguous task, or replace it with null
-to force progress. Failed and null-result tasks also need outcome reconciliation.
-Read-only filesystem mode alone does not prove external services had no effects.
-Legacy results remain evidence until dependencies and outcomes are independently
-bound. No caller-specific exception is justified by a familiar phase or label.
+## Identity, freshness and limits
 
-## Required protocol for a future executable checkpoint
+Source and args hashes, runtime/backend implementation and package-lock hashes,
+source worker PATH/Node version, capabilities, declared requirements, backend policy,
+model mapping/reasoning, file inventory and configured limits must match. SDK calls
+require explicit model/reasoning and worker environment. Host-default model/environment
+selection is not considered pinned. The full file inventory is explicit; files must
+exist when a run starts and are hashed again at the boundary, during resume validation,
+and before opening live admission after replay.
 
-1. **Write-ahead journal:** durably record every accepted call and its prompt/options
-   digest, then a dispatch intent before the backend may act. Persist each result and
-   the ordered reply-release event before allowing source continuation. Journal I/O
-   failure must stop new dispatch, not merely fail finalization.
-2. **Quiet checkpoint:** close admission, drain accepted work, and certify that no
-   task or backend process is unresolved. A crash between dispatch intent and a
-   durable result is ambiguous and requires reconciliation, never an automatic retry.
-3. **Execution identity:** bind source/args, runtime/protocol version, capability,
-   model selection and reasoning policy, worker environment and source-declared
-   references/artifacts. Require an explicit freshness decision for live evidence;
-   absence of declarations is not proof of no dependencies.
-4. **Transcript replay:** reexecute only the trusted JavaScript control flow, with
-   historical agent calls fulfilled from validated results. Match each prompt and
-   options before reuse; preserve recorded reply ordering, including concurrency.
-   Do not dispatch any new backend work until the entire prior transcript boundary
-   has matched. Promise races and data-dependent branches make an ID-only cache unsafe.
-5. **New-run ownership:** never append to the original run. Acquire an exclusive
-   continuation lease and record predecessor digest, checkpoint boundary and remaining
-   budget. Do not reset or increase budget silently. An interrupted continuation is
-   itself another ambiguous run requiring a new audit.
-6. **Effect reconciliation:** bind any operator decision to an exact task and its
-   evidence. Distinguish externally verified completion, verified not-dispatched and
-   genuinely unknown outcomes. General approval to continue is not evidence of an
-   outcome. Cross-host and writable-worktree artifact transfer remain explicit.
+The inventory must include relevant configuration, reference/artifact and executable
+files. Paths alone in environment policy are not binary-content identity. Neither a
+file inventory nor code hashing enumerates all host config, installed plugins, service
+state, authentication or mutable network evidence. The operator's
+`dependenciesComplete: true` and `freshness: "verified"` declarations are necessary
+trust assumptions, not machine-certified completeness or fresh external state. Live
+evidence requires an actual renewed check; if that changes an input file, continuation
+is rejected and a new analysis is required.
 
-## Acceptance gates
+Calls and output bytes carry forward cumulatively. Replay does not count them twice.
+Execution deadline carries the previous remaining milliseconds and replay consumes
+that allowance. Offline pause and preflight/setup time are outside the execution
+deadline, matching the runtime's setup/execution distinction. Configured limits cannot
+be changed during continuation; no budget increase/reset or token-cap guarantee exists.
 
-Before execution is enabled, fault-injection tests must cover every journal/dispatch/
-reply boundary, parallel out-of-order completions and races, source/prompt/args/model/
-reference drift, torn or edited journals, a running predecessor, simultaneous resume
-attempts, schema failures, and unchanged budget accounting. Counting backend calls
-must prove zero redispatch of completed work and zero new dispatch before transcript
-validation. Mock proof must be followed by one small, separately authorized live test;
-the heavy review workflow must not be the first executable resume experiment.
+## Verification and limitations
 
-The audit tests cover only evidence inspection. They do not satisfy these execution
-gates. Neither this design nor an inspector result claims exactly-once remote effects.
-# Diagnostic rehearsal (not executable resume)
+`resume.test.mjs` uses mock backends and real JavaScript workers. It exercises ordinary
+continuation without historical redispatch; reverse parallel completion and Promise.race;
+multi-checkpoint budget carryover; source/args/backend/file/budget drift; failed/null and
+pending work; missing/torn/edited evidence; simultaneous continuation claims and retained
+single-use locks; common adapter SDK mocks; and write/fsync faults at accepted, dispatch,
+result, reply and checkpoint events. Prior non-opt-in runtime/audit/rehearsal tests remain
+separate regression coverage. These are not exhaustive distributed crash proofs.
 
-`checkpoint-rehearsal.mjs` exports `rehearseCheckpoint({previousRun, runDir,
-trustedSource: true})`. It executes the saved trusted JavaScript with a backend
-that can only return recorded successful results. It accepts no SDK or external
-backend. A prompt/options mismatch is fatal; the first missing or unresolved
-outcome stops execution. Output is written to a new, exclusive run directory.
-`modelCalls: 0` describes this diagnostic only, not the historical run.
+Use trusted, quiescent run directories. Hashes detect inconsistent/torn evidence but do
+not authenticate operator-controlled files against a coordinated rewrite. Filesystem
+checks are not an atomic filesystem snapshot and cannot prevent later external mutation.
+Do not claim arbitrary JavaScript determinism, exactly-once remote side effects, hostile
+code isolation, cross-host transfer, automatic reconciliation or universal resume.
+No live LLM resume experiment is included. A small separately authorized live test is a
+rollout gate; the heavy review workflow must not be the first such experiment.
 
-Use only quiescent, trusted evidence directories: reads are not a locked atomic
-snapshot, and the saved source is read again by the worker launcher. The audit
-fingerprint is not an authenticity guarantee. Rehearsal cannot certify freshness
-of referenced files, absence of external effects, or historical reply-delivery
-ordering. It must never be promoted to a live continuation permit.
+## Legacy diagnostics remain non-executable
+
+`checkpoint-audit.mjs` inspects old evidence read-only. `checkpoint-rehearsal.mjs`
+reexecutes saved trusted JavaScript with recorded successful results and no external
+backend, stopping at the first unknown call. Their `executable: false` is unchanged.
+Legacy journals do not establish complete accepted-call, reply-release, dependency or
+effect histories and cannot be promoted to executable checkpoints. Do not synthesize
+missing results or replace unknown effects with null to force progress.
