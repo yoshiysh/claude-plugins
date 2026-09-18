@@ -23,6 +23,7 @@ description: >
 5. 候補ごとに反証を行い、`confirmed`、`rejected`、`unverified` に分ける。
 6. 全観点の走査が終わるまで終了しない。指摘が見つかっても早期終了しない。
 7. 明示的な修正依頼がない限り、ファイル、ブランチ、commit、push、merge は変更しない。PR 対象では、レビューコメントの投稿は既定で許可された状態変更として扱う。ユーザーが「投稿しない」「候補だけ」など明示した場合は投稿しない。
+8. 指摘ごとに `claim`、直接確認した `evidence`、反証結果、`confidence`、severity の対応を記録する。条件付き推論や一次資料・実行確認のない環境依存の主張は `medium` 以下とし、`confirmed` にする場合も条件と未検証範囲を本文に明記する。
 
 ## 出力
 
@@ -35,6 +36,19 @@ PR を対象にした場合は、各確定コメントを GitHub の review comm
 `path`、`line`、`side` を渡す。投稿できない環境では投稿を試みず、同じコメントを Codex の
 `::code-comment{title="..." body="..." file="..." start=... end=... priority=...}`
 形式で返し、未投稿であることを summary に明記する。
+
+投稿後は API レスポンスを検証し、`comment_id`、`commit_id`、`path`、要求した `line`、
+API が返した `line` または `original_line`、`side`、`delivery` を記録する。API が `line=null`
+でも `original_line` / `original_position` で解決された場合は、その差を未検証ではなく投稿結果の
+メタデータとして残す。行位置を解決できない場合は投稿せず `candidate_only` にする。
+
+severity と confidence は独立に決めるが、次を必ず守る。
+
+- `blocker` / `major` は、差分・対象ファイル・一次資料・再現結果のいずれかを直接引用する。
+- 環境変数、ホスト仕様、外部 API の挙動などを実行確認していない条件付き主張は `confidence=medium`
+  以下にし、未確認の条件を本文に書く。確認できないまま断定的な `high` にはしない。
+- 根拠が条件付きで、影響が未測定なら `unverified` として残す。`confirmed` は「問題の存在」を
+  根拠から確認できた場合だけにする。
 
 各コメントは次を含める。
 
@@ -52,6 +66,8 @@ inline 候補とは別に、次を summary に含める。
 - 確定・棄却・未検証の件数
 - 未検証の理由
 - 観点ごとのカバレッジ
+- 観点ごとの `scanned_files`、未読ファイル、実行した検証、未検証理由
+- 各確定指摘の evidence、反証結果、confidence と severity の対応
 
 問題が 0 件でも、走査した観点と未検証項目を示す。未検証を「問題なし」として扱わない。
 

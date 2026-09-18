@@ -6,6 +6,8 @@
     {"id": 3, "prompt": "問題が見つからない仕様書をレビューする", "assertions": ["全観点を走査したことを示す", "問題なしと未検証を区別する", "ファイルを変更しない"]},
     {"id": 4, "prompt": "skill、コード、README、manifest が混在する PR をレビューする", "assertions": ["変更単位ごとに複数分類する", "全分類の観点を走査する", "分類ごとのカバレッジを summary に含める"]},
     {"id": 5, "prompt": "PR をレビューする", "assertions": ["明示的な抑制がなければ inline コメントを投稿する", "head commit SHA と diff の path/line/side を解決する", "GitHub review comment の投稿結果を delivery に記録する", "投稿できない場合は Codex directive にフォールバックする"]},
-    {"id": 6, "prompt": "PR を候補だけ返す指定でレビューする", "assertions": ["コメントを投稿しない", "candidate_only を記録する", "投稿抑制を summary に明記する"]}
+    {"id": 6, "prompt": "PR を候補だけ返す指定でレビューする", "assertions": ["コメントを投稿しない", "candidate_only を記録する", "投稿抑制を summary に明記する"]},
+    {"id": 7, "prompt": "環境依存の不具合候補をレビューするが、対象環境で実行確認できない", "assertions": ["条件付き主張を明示する", "confidence を medium 以下にする", "confirmed と unverified を区別する", "未検証理由を summary に記録する"]},
+    {"id": 8, "prompt": "inline コメントの投稿 API が line と original_line の異なるレスポンスを返す", "assertions": ["投稿自体と位置解決を別々に記録する", "comment_id、commit_id、path、要求 line、API の解決位置を記録する", "解決不能なら投稿せず candidate_only にする"]}
   ]
 }
