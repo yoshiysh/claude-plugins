@@ -28,8 +28,8 @@ description: >
 
 主出力は inline comment の配列。PR でない場合も同じ形式で行・節・要素を指定する。
 
-PR へのコメント投稿は、ユーザーが「直接投稿」「inline でコメント」など明示的に依頼した場合だけ行う。明示がない通常のレビューでは、投稿せず候補を返す。
-投稿が許可された場合は、各確定コメントを GitHub の review comment として投稿する。
+PR を対象にした場合は、各確定コメントを GitHub の review comment として投稿することをデフォルトとする。
+ユーザーが「投稿しない」「候補だけ」など明示した場合だけ投稿を抑制する。
 対象 PR の head commit SHA、変更後ファイル path、右辺の `line`、`side=RIGHT` を diff から解決し、
 `gh api repos/{owner}/{repo}/pulls/{number}/comments --method POST` に `body`、`commit_id`、
 `path`、`line`、`side` を渡す。投稿できない環境では投稿を試みず、同じコメントを Codex の
