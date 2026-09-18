@@ -1,0 +1,13 @@
+{
+  "mode": "plan|apply|verify",
+  "target": {"kinds": ["skill|code|specification|prd|document"], "scope": "full|diff", "ref": ""},
+  "changes": [{"file": "", "finding_ids": [], "reason": ""}],
+  "resolved": [],
+  "remaining": [],
+  "new": [],
+  "unverified": [],
+  "out_of_scope": [],
+  "verification": {"passed": [], "failed": [], "not_run": []},
+  "comment_replies": [{"comment_id": "", "login": "", "body": "", "posted": false}],
+  "status": "planned|applied|verified|needs_review|blocked"
+}
