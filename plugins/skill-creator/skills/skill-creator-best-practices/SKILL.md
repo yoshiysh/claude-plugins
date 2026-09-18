@@ -165,16 +165,16 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 
 ## Phase 2-4: Workflow を呼ぶ（create）
 
-> **透過実行 route**: native `Workflow` を未試行なら1回だけ優先し、存在しないCodexでは`workflow:dynamic-workflow-runner`を内部利用する。native試行後はfallback しない。createはv1互換、review/updateは意味保存不能のためagent起動前に`rejected_source`。別modeへ自動縮退しない。callerのhuman gateはrunner内gateに移さない。active callsite到達時は必ず[Codex Workflow互換契約](references/codex-workflow-compatibility.md)を読む。
+> **透過実行 route**: 経路選択（native か Codex 互換層か停止か）は `scripts/select_runtime.js` が
+> 決める。判定条件を散文から読み取って自己適用しない（「未試行か」の状態追跡が実行者の記憶に
+> 乗ると、同じ呼び出しでも経路がブレる）。出力の `selected_runtime` をそのまま使い、
+> `halt: true` なら agent を 1 体も起動せず `rejected_reason` を伝えて止める。
+> caller の human gate は runner 内 gate に移さない。判定の根拠と mapping は
+> [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
 >
-> | call | Codex v1 classification |
-> | --- | --- |
-> | `build_skill.js` create | `portable_v1` |
-> | `review_skill.js` + `mode: review` | `rejected_source_v1` |
-> | `review_skill.js` + `mode: update` | `rejected_source_v1` |
->
-> **Codex v1 classification: `portable_v1`** for create only; review/updateは上表どおりfail closed。
-> **Codex v1 classification: `rejected_source_v1`** for `review_skill.js` in both review and update mode。
+> ```bash
+> node [SKILL_DIR]/scripts/select_runtime.js --mode create --native-available --runner-installed
+> ```
 
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」
@@ -188,6 +188,7 @@ Workflow({
     requirementsSummary: "<トリガー条件・対象ユーザーの要約>",
     taskType: "document | procedure | data",
     architecture: "coordinator | workflow",
+    uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま>,
     domainKnowledge: {          // 任意。要件整理で「要る」と判定したときだけ
       summary: "...",
       claims: [{ claim: "...", strength: "一次情報確認済み|実務慣行|未確認", source: "..." }],
@@ -202,6 +203,11 @@ Workflow({
   }
 })
 ```
+
+`uncheckedItems` は**必須**。機械検査が判定できないと宣言した項目（id つき）を reviewer へ運ぶ
+唯一の経路で、script はファイルを開けないため args でしか渡せない。渡し忘れると script は
+起動直後に落ちる（「委譲する項目が無い」と読んで静かに通すと、実施されない検査が合格になる）。
+出力は**加工せずそのまま**渡す（id の正本は `scripts/quick_validate.py`）。
 
 `domainKnowledge` は **要件整理で「要る」と判定したときだけ**渡す。渡すと criteria-gen・
 writer・reviewer のプロンプトへ注入され、writer は `references/<領域>-knowledge.md` として
@@ -227,7 +233,7 @@ writer・reviewer のプロンプトへ注入され、writer は `references/<�
 
 | verdict | 意味 |
 |---|---|
-| `passed` | 全テストケースが採点され、reviewer も応答し、delta >= 0.2 かつ失格 0 件 |
+| `passed` | 全テストケースが採点され、reviewer も応答し、delta が `DELTA_THRESHOLD` 以上かつ失格 0 件 |
 | `needs_human_decision` | 評価は揃ったが、改稿上限に達しても閾値に届かなかった（品質の問題） |
 | `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係）。workflow では reviewer 欠測のみが該当 |
 | `revision_failed` | 改稿 agent が応答しなかった |
@@ -239,25 +245,19 @@ script-reviewer（別 context）がそれを検査する。合否は **reviewer�
 script の判定を先に見る（評価が揃わなくても script の失格は報告する）。
 script-reviewer が落ちたときも「失格 0 件」とは読まず `script_review_incomplete` で返す。
 
-**Workflow 型では with_skill / baseline の delta 評価を行わない。** この測定の前提は「with_skill は
+**Workflow 型では with_skill / baseline の delta 評価を行わない。** 測定の前提は「with_skill は
 方法論を持ち baseline は持たない」だが、Workflow 型の方法論は script 側にあり、評価時点の script は
-ディスク上に無く、しかも評価 subagent には Workflow ツール自体が無い（実測）。出る数字は方法論の差では
-なく「script が保存済みか」を測ることになるため、走らせない。実効性の実測は**保存後に人間が 1 回
-回して測る**（「統合・改善ループ・ユーザーへの提示（create）」の eval-viewer 手順）。
-
-script が失格でもこのループでは改稿しない。script-reviewer は Write 直後に 1 回だけ走る設計で、
-再検証の経路が無いまま writer を回すと直ったか確かめずに次へ進むことになる。指摘を添えて返し、
-人間が判断する。
+ディスク上に無く、評価 subagent には Workflow ツール自体が無い（実測）。出る数字は方法論の差ではなく
+「script が保存済みか」を測るため走らせない。実効性は**保存後に人間が 1 回回して測る**
+（「統合・改善ループ・ユーザーへの提示（create）」の eval-viewer 手順）。script が失格でもこの
+ループでは改稿しない（再検証の経路が無いまま writer を回すと直ったか確かめずに次へ進む）。
 
 `architecture` は `taskType`（`document` / `procedure` / `data` というドメイン分類）とは**別軸**。
 取り違えると構成設計フェーズの有無が変わるため、`build_skill.js` は不正な値を受けたら即座に落ちる。
 
-`passed` は「閾値を超えた」だけでなく**評価が揃った**ことも要求する。落ちた agent の分を
-欠測として扱わず平均に含めると、生き残った少数の結果から出た数字が全体の成績に見える
-（3 件中 2 件が落ちて 1 件だけ delta 0.9 を返すと平均も 0.9 になる）。reviewer も同じで、
-応答が無い状態を「失格 0 件」と読むと「レビューされていない」が「レビューを通った」に化ける。
-1 件も採点できなかったときの `delta` は `0` ではなく `null` を返す（`0` は実測の引き分けを
-意味する値なので、欠測をそこに丸めない）。
+`passed` は「閾値を超えた」だけでなく**評価が揃った**ことも要求する。欠測を平均に含めると、
+生き残った少数の結果が全体の成績に見え、reviewer 欠測は「レビューを通った」に化ける。
+測れなかった `delta` は `0`（実測の引き分け）ではなく `null` で返す。
 
 ### script が構造として保証すること
 
@@ -267,33 +267,25 @@ script が失格でもこのループでは改稿しない。script-reviewer は
 |---|---|
 | with_skill と baseline が必ず対で走る | 全テストケース分を 1 つの `parallel()` にまとめて発行。直列化も片側だけの実行も起こりえない |
 | pass_rate と delta が正確 | 集計は script の算術。LLM に平均を出させない |
-| 閾値判定がぶれない | `delta >= 0.2 && reviewer.failed.length === 0` という式。目分量が入らない |
+| 閾値判定がぶれない | `delta >= DELTA_THRESHOLD && 失格 0 件` という式。閾値の数値は script の定数 1 箇所にあり、目分量が入らない |
+| 判定の書き写しに依存しない | 失格は `failed[]` だけでなく判定フィールド（`criteria_checks[].result` / `trigger_checks[].expectation_met` / `unchecked_judgments[].verdict`）を script が直接走査して合算する（`judgmentFailures`） |
+| 委譲した項目が黙って落ちない | 機械判定できない項目は id つきで prompt へ注入され、返ってこなかった id を script が集合の差で拾って失格にする |
 | 改稿が無限に続かない | 上限に達したら打ち切り、判断材料を添えて司令塔へ返す |
 | 構成の差し戻しが止まる | designer → reviewer を上限付きで反復。未解決の指摘は `structure.unresolved` に載せて返す |
 | Generator と Verifier が別 agent | designer と reviewer、writer と reviewer をそれぞれ別 spawn |
 | テストが改稿を跨いで同一 | テストケース生成はループの外。pass_rate の変化が「スキルの改善」だけを反映する |
 | 出力欠損を成績に混ぜない | 片側の出力が欠けたペアは採点に回さず `ungraded_cases` として数える |
-| 検証結果が書式に左右されない | reviewer 系は schema で `failed[]` を返す。markdown 中の ❌ を script が数えない |
+| 検証結果が書式に左右されない | 判定は schema のフィールドで受ける。markdown 中の ❌ を script が数えない |
 
 ### 判定を script に閉じない箇所
 
-`verdict: needs_human_decision` は「実装レベルの修正では届かなかった」という報告であって、
-失敗の宣告ではない。「統合・改善ループ・ユーザーへの提示（create）」でユーザーに提示し、要件・基準（要件整理・Criteria 相当）まで遡るかを
-人間が決める。script はそこを自動で判断しない。
+`verdict: needs_human_decision` は「実装レベルの修正では届かなかった」という報告で、失敗の宣告
+ではない。要件・基準まで遡るかを人間が決める（提示手順は `references/orchestrator-output.md`）。
 
 ### eval-viewer の生成
 
-Workflow 完了後、以下のコマンドをユーザーに案内する（実行はユーザーが行う）：
-
-```bash
-# 評価結果をワークスペースに保存
-python3 [SKILL_DIR]/scripts/run_eval.py \
-  --skill-path .claude/skills/[スキル名] --iteration 1
-
-# review.html を生成してブラウザで確認
-python3 [SKILL_DIR]/eval-viewer/generate_review.py \
-  .claude/skills/[スキル名]-workspace/iteration-1 --output review.html
-```
+Workflow 完了後にユーザーへ案内するコマンドは `references/orchestrator-output.md`
+「eval-viewer によるレビュー」が正本（ここに書き写すと片方だけが古くなる）。
 
 ## Phase 2: Workflow を呼ぶ（review/update）
 
@@ -312,6 +304,7 @@ Workflow({
       diffRef: "<scope=diff のときの git 範囲指定。例 main...HEAD>",
       focus: "<任意。Issue 本文・見てほしい観点>"
     },
+    uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま。必須>,
     intent: "<update のときの変更意図。update では必須>",
     stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>"
   }
@@ -321,13 +314,13 @@ Workflow({
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
 どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
 agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
-`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`stagingDir` が対象スキルの配下を指している
-場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
+`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`uncheckedItems` が無いか形式が不正、
+`stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-`maxRevisions` は**廃止された**（後方互換なしの破壊的変更。渡すと script が落ちる）。打ち切りは回数
-ではなく進捗で決まる — 未解消の指摘が 0 件になるか、前の巡から 1 件も動かなくなるまで回る。回数は
-「直っているか」と無関係で、上限到達時に「解ける途中」と「解けない指摘」を区別しないため。暴走は
-workflow runtime の agent 起動上限が外側で止めており、内側に二重の打ち切りを置かない。
+`maxRevisions` は**廃止された**（後方互換なしの破壊的変更。渡すと script が落ちる）。打ち切りは
+進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。回数は「直っているか」と
+無関係で、上限到達時に「解ける途中」と「解けない指摘」を区別しない。暴走は workflow runtime の
+agent 起動上限が外側で止める。
 
 **観点の一覧・反証者の立て方・多数決の閾値・打ち切りの判定・staging の既定値は
 `scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
@@ -339,6 +332,7 @@ workflow runtime の agent 起動上限が外側で止めており、内側に�
 {
   mode, target, verdict,
   findings: { confirmed[], rejected[], unverified[] },
+  unchecked_failures: [],
   findings_source: "before" | "after",
   by_category: { before, after },
   staging: { dir, changed_files[], resolved[], remaining[], new[],
@@ -356,16 +350,16 @@ workflow runtime の agent 起動上限が外側で止めており、内側に�
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `clean` | 確定も未検証も無いと伝える。棄却の件数は添える |
-| `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` の件数も必ず添える |
+| `clean` | 確定も未検証も、委譲項目の未達も無いと伝える。棄却の件数は添える |
+| `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数も必ず添える |
 | `review_incomplete` | `by_category.before` が `null` の観点を名指しし、見ていないと伝える。合格と読ませない |
 
 **update:**
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（`remaining` + `new` + `reclassified` のうち updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本 — major 以上は script がループ内で解消済み — この verdict で提示に残るのは minor のみで、major 以上が残った場合は verdict 自体が `needs_human_decision` になる） |
-| `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、`REVISE_SEVERITIES` 相当（major 以上）の未解消指摘が前の巡から 1 件も動かなくなった（解消も新規も無い＝同じ入力では収束しない）とき。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
+| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（`remaining` + `new` + `reclassified` のうち updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本 — そこに含まれる severity は script がループ内で解消済みなので、この verdict で提示に残るのはそれ以外の軽い指摘だけ。含まれる severity が残った場合は verdict 自体が `needs_human_decision` になる） |
+| `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、`REVISE_SEVERITIES` に含まれる severity の未解消指摘が前の巡から 1 件も動かなくなった（解消も新規も無い＝同じ入力では収束しない）とき。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
@@ -416,6 +410,7 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 | `findings.confirmed[]` | 反証を生き残った指摘 |
 | `findings.rejected[]` | 過半数の反証で棄却された指摘 |
 | `findings.unverified[]` | 有効票が足りず、確定にも棄却にもできなかった指摘 |
+| `unchecked_failures[]` | 機械検査が判定できないと宣言した項目のうち、担当観点が未達と判定したもの・判定を返さなかったもの。反証を通していないので `confirmed` には混ぜない。合格にならない判定の集合は script の `UNCHECKED_BLOCKING` が正本 |
 | `findings_source` | `"before"` 固定。review では 1 回しか検査しないため、出所は常に最初のパス |
 | `by_category.before` | 観点ごとの確定件数。finder が落ちた観点は件数ではなく `null`（＝欠測） |
 | `by_category.after` | `null` 固定。review では Reverify のパス自体が走らない（欠測ではない） |
@@ -486,6 +481,7 @@ references/    # orchestrator-requirements / orchestrator-output / orchestrator-
 scripts/       # build_skill.js  — create の Workflow 本体
                # review_skill.js — review/update 本体（観点一覧 FINDERS の唯一の正）
                # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
+               # select_runtime.js — Workflow 呼び出し前の経路選択（native / 互換層 / 停止）
                # package_skill.py / quick_validate.py / diff_findings.py / utils.py
 ```
 

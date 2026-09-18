@@ -3,6 +3,17 @@
 司令塔が Workflow の完了後に単独実行する手順。改善ループは Workflow
 （`scripts/build_skill.js`）で完結済みで、その戻り値を受けてここから始まる。
 
+## 目次
+
+- [verdict ごとの扱い](#統合保存ガイド)（このすぐ下）
+- [Workflow 型スキルの実効性測定（保存後）](#workflow-型スキルの実効性測定保存後)
+- [ユーザーへの提示フォーマット](#ユーザーへの提示フォーマット)
+- [スキルの保存](#スキルの保存)
+- [バリデーションの実行](#バリデーションの実行)
+- [eval-viewer によるレビュー（任意・推奨）](#eval-viewer-によるレビュー任意推奨)
+- [description 最適化ループ（任意）](#description-最適化ループ任意)
+- [スキルのパッケージング（任意）](#スキルのパッケージング任意)
+
 Workflow の `verdict` が `passed` 以外の場合は合格として提示しない。いずれも `skill_draft` には
 直近の有効な稿が入っているので、草稿を失うことはない。
 
@@ -62,7 +73,10 @@ with_skill 平均 pass_rate: X%
 baseline   平均 pass_rate: Y%
 改善幅（delta）: +Z%
 
-定性チェック：✅ X項目合格 / ⚠️ Y項目要確認 / ❌ Z項目
+定性チェック：合格 X項目 / 要確認 Y項目 / 失格 Z項目
+  （失格は `iterations[].review.criteria_checks` の `fail`・`trigger_checks` の
+   `expectation_met: false`・`unchecked_judgments` の未達を script が合算した数。
+   reviewer の `failed[]` の件数ではない）
 
 ### スキル本文
 [SKILL.md の内容]
@@ -123,6 +137,12 @@ evals.json が未生成の場合は、`references/schemas.md` のフォーマッ
 
 ```bash
 python [SKILL_DIR]/scripts/quick_validate.py .claude/skills/[スキル名]
+```
+
+機械では判定できない項目の一覧（Workflow の `uncheckedItems` へ渡すもの）は同じスクリプトが出す。
+
+```bash
+python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked
 ```
 
 チェック項目：

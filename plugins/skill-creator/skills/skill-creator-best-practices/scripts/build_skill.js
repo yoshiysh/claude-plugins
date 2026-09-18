@@ -42,8 +42,17 @@ function modelHint(callsite) {
 }
 
 // DELTA_THRESHOLD: with_skill と baseline の pass_rate 差がこの値未満なら「スキルが効いて
-// いない」と判定して改稿へ回す。SKILL.md の判定基準（delta >= 0.2 で合格）をそのまま定数化。
+// いない」と判定して改稿へ回す。**この値の正本はここ 1 箇所**。SKILL.md・references は
+// 定数名で参照するだけで数値を書き写さない（同じ閾値が 2 箇所にあると、片方だけ動いたときに
+// どちらが実際のゲートなのかを読者が決められなくなる）。
 const DELTA_THRESHOLD = 0.2
+
+// UNCHECKED_BLOCKING: quick_validate.py が機械判定できないと宣言した項目について、
+// reviewer の判定がこれらのどれかなら合格させない。`unknown`（判定できなかった）と
+// `partial`（部分的）を `fail` と同格にするのは、どちらも「その項目を満たしている」と
+// 言えていない点で同じだから。区別すると、満たせなかったものが中間の名前で通り抜ける。
+// **この集合の正本はここ 1 箇所**（SKILL.md / schemas.md は名前で参照する）。
+const UNCHECKED_BLOCKING = ['fail', 'partial', 'unknown']
 
 // MAX_REVISIONS: 改稿の上限。1 回改稿しても閾値に届かないなら実装レベルではなく計画レベル
 // （要件・基準）の問題である可能性が高く、script 内で回し続けても収束しない。上限に達したら
@@ -58,6 +67,58 @@ const MAX_STRUCTURE_ATTEMPTS = 2
 // script が数える形にすると、書式のゆらぎで合否が変わる代理指標ゲートになる（§12）。
 // 判定そのものを契約フィールドとして受け取り、script はその値だけを見る。
 const VERDICT = { type: 'string', enum: ['ok', 'warn', 'fail'] }
+
+// 判定フィールドと failed[] の関係。schema は判定そのもの（VERDICT / boolean）を項目ごとに
+// 受け取るが、ゲートが failed[] しか見ないと、判定を failed[] へ書き写す作業が agent の裁量に
+// 残る。書き写しが落ちても script からは「失格 0 件」と同じ形に見えるため、⚠️ と ❌ を数える
+// 代理指標ゲートを schema に置き換えた意味が半分失われる。judgmentFailures は判定フィールドを
+// script が直接走査して失格へ足す（failed[] は agent が言葉で補足する場所として残す）。
+//
+// STRUCTURE / REVIEW の双方から同じ関数を呼ぶ。同型の昇格を 2 回書くと、片方だけが
+// 新しいフィールドに追随して判定が分岐する。
+function judgmentFailures(result, specs) {
+  if (!result) return []
+  const out = []
+  for (const spec of specs) {
+    for (const row of result[spec.field] || []) {
+      if (spec.isFail(row)) out.push(`${spec.label}: ${spec.describe(row)}`)
+    }
+  }
+  return out
+}
+
+// 同じ失格が failed[] と判定フィールドの両方から出たときに二重に数えない。
+const mergeFailures = (...lists) => [...new Set(lists.flat().filter(Boolean))]
+
+const STRUCTURE_JUDGMENTS = [
+  {
+    field: 'checks',
+    label: '構成チェック失格',
+    isFail: (c) => c?.result === 'fail',
+    describe: (c) => `${c.name} — ${c.rationale}`,
+  },
+]
+
+const REVIEW_JUDGMENTS = [
+  {
+    field: 'criteria_checks',
+    label: '基準未充足',
+    isFail: (c) => c?.result === 'fail',
+    describe: (c) => `${c.name} — ${c.rationale}`,
+  },
+  {
+    field: 'trigger_checks',
+    label: 'トリガー判定',
+    isFail: (c) => c?.expectation_met === false,
+    describe: (c) => `${c.test_id} — ${c.rationale}`,
+  },
+  {
+    field: 'unchecked_judgments',
+    label: '機械判定できない項目',
+    isFail: (c) => UNCHECKED_BLOCKING.includes(c?.verdict),
+    describe: (c) => `${c.id}（${c.verdict}）— ${c.evidence}`,
+  },
+]
 
 const STRUCTURE_REVIEW_SCHEMA = {
   type: 'object',
@@ -109,12 +170,29 @@ const REVIEW_SCHEMA = {
         required: ['test_id', 'expectation_met', 'rationale'],
       },
     },
+    // quick_validate.py が「機械では判定できない」と宣言した項目の判定。id は args で
+    // 渡された一覧（正本は quick_validate.py の UNCHECKED_ITEMS）と突き合わせるため、
+    // 返ってこなかった id は script が未判定として失格に変換する。
+    unchecked_judgments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          verdict: { type: 'string', enum: ['pass', 'partial', 'fail', 'unknown'] },
+          evidence: { type: 'string' },
+        },
+        required: ['id', 'verdict', 'evidence'],
+      },
+    },
     failed: { type: 'array', items: { type: 'string' } },
     warnings: { type: 'array', items: { type: 'string' } },
     priority_improvements: { type: 'array', items: { type: 'string' } },
     report: { type: 'string' },
   },
-  required: ['criteria_checks', 'failed', 'report'],
+  // trigger_checks を必須にする（破壊的変更）。任意のままだと、description の発火可否という
+  // ゲート対象の判定が「返さなければ無かったこと」にできる。
+  required: ['criteria_checks', 'trigger_checks', 'unchecked_judgments', 'failed', 'report'],
 }
 
 // Workflow 型スキルの script 検証。reviewer 系と同じく failed[] を構造化して受け取る
@@ -184,33 +262,75 @@ const TEST_CASES_SCHEMA = {
   required: ['cases'],
 }
 
-const SUMMARY_SIDE = {
+// ASSERTION_RESULT: grader が返すのは 1 アサーション 1 側あたりの判定だけ。
+const ASSERTION_RESULT = {
   type: 'object',
   properties: {
-    pass: { type: 'number' },
-    partial: { type: 'number' },
-    fail: { type: 'number' },
-    pass_rate: { type: 'number' },
+    result: { type: 'string', enum: ['pass', 'partial', 'fail'] },
+    evidence: { type: 'string' },
   },
-  required: ['pass_rate'],
+  required: ['result', 'evidence'],
 }
 
+// GRADING_SCHEMA（破壊的変更）: pass_rate / delta を required から外し、grader には
+// 判定だけを返させる。算術（partial を 0.5 点として数える・side 間の差を取る）は script が行う。
+// 自己申告の pass_rate を受け取ると、判定の内訳と数値が食い違っていても script からは
+// 検出できず、しかも数値の方だけがゲートに入る（§5 確定的処理はスクリプトへ）。
 const GRADING_SCHEMA = {
   type: 'object',
   properties: {
     eval_id: { type: 'string' },
-    assertions: { type: 'array' },
-    summary: {
-      type: 'object',
-      properties: {
-        with_skill: SUMMARY_SIDE,
-        baseline: SUMMARY_SIDE,
-        delta: { type: 'number' },
+    assertions: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+          with_skill: ASSERTION_RESULT,
+          baseline: ASSERTION_RESULT,
+        },
+        required: ['text', 'with_skill', 'baseline'],
       },
-      required: ['with_skill', 'baseline', 'delta'],
     },
   },
-  required: ['eval_id', 'summary'],
+  required: ['eval_id', 'assertions'],
+}
+
+// PARTIAL_WEIGHT: partial を pass の何点として数えるか。**この値の正本はここ 1 箇所**。
+// agents/grader.md には書かない（grader は数えない側になったので、持っていても使い道が無く、
+// 持たせると「grader が計算した点数」という経路が復活する）。
+const PARTIAL_WEIGHT = 0.5
+
+// 1 side の pass_rate を script が出す。判定が欠けているアサーションは 0 点でも除外でもなく
+// null（測れない）に倒す — 欠測を 0 点に丸めると、返ってこなかった判定が「満たしていない」
+// という実測値として delta に入る。
+function sideRate(assertions, side) {
+  const results = assertions.map((a) => a?.[side]?.result)
+  if (!results.length || results.some((r) => !['pass', 'partial', 'fail'].includes(r))) return null
+  const score = results.reduce(
+    (sum, r) => sum + (r === 'pass' ? 1 : r === 'partial' ? PARTIAL_WEIGHT : 0),
+    0
+  )
+  return score / results.length
+}
+
+// grader の戻り値に、script が算出した集計を付けて返す。locals に留めると、analyzer へ渡す
+// [GRADING_RESULTS] と戻り値の iterations[].gradings から pass_rate が消える（旧 schema では
+// grader が入れていた）。下流の提示・分析が数字を失わないよう、行そのものに載せる。
+function withComputedSummary(grading) {
+  if (!grading) return null
+  const assertions = grading.assertions || []
+  const withSkill = sideRate(assertions, 'with_skill')
+  const baseline = sideRate(assertions, 'baseline')
+  return {
+    ...grading,
+    summary: {
+      with_skill: { pass_rate: withSkill },
+      baseline: { pass_rate: baseline },
+      delta: withSkill === null || baseline === null ? null : withSkill - baseline,
+    },
+  }
 }
 
 // EVAL_BOUNDARY: with_skill / baseline の両方に必ず入れる境界ブロック。
@@ -242,6 +362,29 @@ const requirements = parsedArgs.requirements
 if (!requirements || typeof requirements !== 'string' || !requirements.trim()) {
   throw new Error('args.requirements が空です。手順 2 で構造化した要件全体を渡してください。')
 }
+
+// uncheckedItems: quick_validate.py が「機械では判定できない」と宣言した項目の一覧。
+// 司令塔が `python3 scripts/quick_validate.py --emit-unchecked` の出力をそのまま渡す。
+// script はファイルを読めないので、委譲の中身をここへ運ぶ経路は args しかない。
+// 必須にしているのは、渡されないときに「委譲する項目が無い」と「渡し忘れ」を区別できず、
+// 前者として静かに通ると、この委譲が実施されないまま合格が出るため。
+const uncheckedItems = parsedArgs.uncheckedItems
+if (!Array.isArray(uncheckedItems) || uncheckedItems.some((x) => !x || !x.id || !x.item)) {
+  throw new Error(
+    'args.uncheckedItems が未指定か形式が不正です。' +
+      '`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力（[{id, item}]）を' +
+      'そのまま渡してください。'
+  )
+}
+const uncheckedIds = uncheckedItems.map((x) => x.id)
+const uncheckedBlock = [
+  '[UNCHECKED_ITEMS] 機械検査が判定できないと宣言した項目（id つき）',
+  JSON.stringify(uncheckedItems, null, 2),
+  '',
+  `上の id **すべて**について \`unchecked_judgments\` を返すこと（${uncheckedIds.join(' / ')}）。`,
+  `判定は pass / partial / fail / unknown の 4 値で、${UNCHECKED_BLOCKING.join(' / ')} は合格に`,
+  'ならない。返ってこなかった id は script が未判定として失格に数える（黙って落とす経路を残さない）。',
+].join('\n')
 
 const taskType = parsedArgs.taskType || 'document'
 // architecture は taskType（ドメイン分類）とは別軸。「誰が plan を握るか」を決める。
@@ -395,7 +538,9 @@ if (taskType === 'document' || architecture === 'workflow') {
     structurePlan = plan
     structureReview = review
 
-    const failed = review?.failed || []
+    // failed[] と checks[].result の両方を見る。reviewer が fail を付けた項目を failed[] へ
+    // 書き写さなかった run では、この行が無いと差し戻しが起きない。
+    const failed = mergeFailures(review?.failed || [], judgmentFailures(review, STRUCTURE_JUDGMENTS))
     if (!failed.length) {
       log(`構成案が検証を通過しました（${structureAttempts} 回目）`)
       break
@@ -618,16 +763,22 @@ while (true) {
       roleAgent(
         'reviewer.md',
         [
+          // reviewer.md はベストプラクティスの正本（references/best-practices.md）を自分で
+          // Read する。基準表を agent 側に書き写さないための参照なので、起点のパスが要る。
+          `[SKILL_DIR] = ${SKILL_DIR}`,
           `[PERSONA_REVIEWER]:\n${persona('reviewer')}`,
           `[SKILL_DRAFT]:\n${skillDraft}`,
           `[CRITERIA]:\n${criteria}`,
           `[TEST_CASES]:\n${JSON.stringify(cases, null, 2)}`,
+          uncheckedBlock,
         ].join('\n\n'),
         { model: modelHint('quality_reviewer'), schema: REVIEW_SCHEMA, phase: 'Grade', label: `review-${iterLabel}` }
       ),
   ])
 
-  const graded = gradings.filter(Boolean)
+  // 集計は script が行う。grader は判定だけを返し、pass_rate / delta はここで算出して
+  // 行に載せる（下流の analyzer と戻り値が同じ数字を見る）。
+  const graded = gradings.filter(Boolean).map(withComputedSummary)
   const ungraded = evalCases.length - graded.length
 
   // 評価が揃ったかを、合否を計算する前に判定する。agent が落ちた分を欠測として扱わず
@@ -640,12 +791,25 @@ while (true) {
   // pass_rate の集計は script が行う。LLM に平均を出させない（§5 確定的処理はスクリプトへ）。
   // 1 件も採点できなかった場合は 0 ではなく null を返す。0 は「measured tie」を意味する
   // 実データの値であり、欠測をそこに丸めると両者が区別できなくなる。
-  const mean = (nums) => (nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null)
+  // null（判定が欠けていて測れなかったケース）を平均に混ぜない。混ぜると欠測が 0 点として
+  // 効き、測れなかったことが「効果が無かった」に化ける。
+  const mean = (nums) => {
+    const xs = nums.filter((n) => typeof n === 'number')
+    return xs.length === nums.length && xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
+  }
   const withSkillRate = mean(graded.map((g) => g.summary.with_skill.pass_rate))
   const baselineRate = mean(graded.map((g) => g.summary.baseline.pass_rate))
   const delta = withSkillRate === null || baselineRate === null ? null : withSkillRate - baselineRate
 
-  const reviewFailures = review?.failed || []
+  // reviewer が返さなかった id は未判定として失格に変換する。判定フィールドを走査するだけでは
+  // 「返ってこなかった項目」は現れない（不在は走査に写らない）ので、集合の差でしか取れない。
+  const judgedIds = new Set((review?.unchecked_judgments || []).map((j) => j.id))
+  const unjudged = review ? uncheckedIds.filter((id) => !judgedIds.has(id)) : []
+  const reviewFailures = mergeFailures(
+    review?.failed || [],
+    judgmentFailures(review, REVIEW_JUDGMENTS),
+    unjudged.map((id) => `機械判定できない項目: ${id}（判定が返ってこなかった）`)
+  )
 
   // Analyze は with_skill / baseline の出力比較なので、評価を回さない Workflow 型では
   // 入力そのものが存在しない。comparator / analyzer を空入力で起動すると、比較していない
@@ -730,6 +894,8 @@ while (true) {
       verdict = 'script_review_incomplete'
       break
     }
+    // SCRIPT_REVIEW は判定フィールド（verdict）を script が直接読んでおり、failed[] だけに
+    // 依存していない。STRUCTURE / REVIEW に judgmentFailures を入れたのは、この形へ揃えるため。
     if (scriptReview.verdict !== 'ok' || scriptReview.failed.length > 0) {
       verdict = 'script_rejected'
       break
