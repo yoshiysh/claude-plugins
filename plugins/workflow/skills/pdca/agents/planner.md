@@ -18,6 +18,14 @@ model: opus
   動機起点では `provisional: true` を付け、1 周目の Check で確定することを明記する
 - 動機起点の `facts` は空のまま。現状を作るのは 1 周目の Do
 - 測定指標が主張を直接捉えていないときは代理指標であることを `measurement` に書く
+- **成功基準は「測る物」まで降ろす。** `measurement_harness` として `{ class, entry, files[], criteria{metric, higher_is_better, threshold} }`
+  を出す（`class` は `deterministic_script` か `llm_judge`。`files[]` は判定スクリプト・
+  fixture・期待値・hold-out・判定プロンプトの実体）。これは Plan の成果物で、Do の前に
+  `scripts/harness_freeze.py` が凍結する。builder に採点物を作らせると、成果物の作者が
+  採点材料の作者にもなり、成果物に通る基準を材料の側で作れてしまう。
+  `llm_judge` を選ぶ場合は、凍結できるのが判定プロンプトと材料までであること（判定の
+  同一性は保証されない）を `measurement` に明記する
+  （[references/harness-freeze.md](../references/harness-freeze.md)）
 - 選択肢が本当に割れて審議が要るなら、その旨を返す（`needs_deliberation: true`）。SKILL 側が `magi` に委譲する
 - 入力が Do/Check の中間結果や過去 run のログを含んでいたら読まない。見えていると出た結果に通る基準を書ける
 - `[LEDGER]` が渡されたら、`resolution` と `review_v` を読んでから立案する。既に棄却された案を

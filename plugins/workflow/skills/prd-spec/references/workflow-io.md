@@ -126,7 +126,7 @@ specimen（標本適用監査）だけはコスト抑制のため初回監査と
 
 1. blocking が残っていれば**矛盾解消専用の追加改稿を 1 回きり**（validity / executability の
    2 観点だけで再確認。ループしない）。
-2. stuck が残っていれば**多角化 escalation を 1 回だけ**（3 レンズ並列 → 最終改稿 → 再監査）。
+2. stuck が残っていれば **resolver → resolver-verifier のバッチ処理を 1 回だけ**（解消候補の起草 → 検証 → 候補付きの最終改稿 → 再監査。役割の境界は `schemas/role-map.md`）。
    なお digest 不変なら `unanswerable` として返り、verdict は `unanswerable_findings`。
 3. 収束後に**終端の網羅監査を全観点で 1 回だけ**行う（指摘起因の再監査は範囲限定のため）。
 4. **終端裁定**: 残った全指摘を裁定 agent が三値（fixed / rejected / documented）に分類し、

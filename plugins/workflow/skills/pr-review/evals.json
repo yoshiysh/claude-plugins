@@ -1,0 +1,11 @@
+{
+  "skill_name": "pr-review",
+  "evals": [
+    {"id": 1, "prompt": "変更差分のあるコードをレビューし、複数観点を走査して inline comment と summary を返す", "assertions": ["最初の指摘で終了しない", "位置と優先度付きの確定指摘を返す", "走査観点を列挙する"]},
+    {"id": 2, "prompt": "曖昧で対象ファイルも範囲もない『これをレビューして』に応答する", "assertions": ["対象と範囲を確認する", "推測でレビューを開始しない"]},
+    {"id": 3, "prompt": "問題が見つからない仕様書をレビューする", "assertions": ["全観点を走査したことを示す", "問題なしと未検証を区別する", "ファイルを変更しない"]},
+    {"id": 4, "prompt": "skill、コード、README、manifest が混在する PR をレビューする", "assertions": ["変更単位ごとに複数分類する", "全分類の観点を走査する", "分類ごとのカバレッジを summary に含める"]},
+    {"id": 5, "prompt": "PR をレビューする", "assertions": ["明示的な抑制がなければ inline コメントを投稿する", "head commit SHA と diff の path/line/side を解決する", "GitHub review comment の投稿結果を delivery に記録する", "投稿できない場合は Codex directive にフォールバックする"]},
+    {"id": 6, "prompt": "PR を候補だけ返す指定でレビューする", "assertions": ["コメントを投稿しない", "candidate_only を記録する", "投稿抑制を summary に明記する"]}
+  ]
+}

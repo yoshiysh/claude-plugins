@@ -42,6 +42,13 @@ description: 要求・仕様項目・検証方法の紐付けの欠落を検出�
 - 章の過不足（coverage-auditor）
 - 根拠の有無（fabrication-auditor）
 
+## やること / やらないこと
+
+- **やること**: 紐付け・検証方法・ステータスの妥当性の判定と事実指摘
+  （quote・issue・repro・direction）。
+- **やらないこと**: 検証方法の文面・表の行の中身の起草（欠落の指摘は `direction` まで）。
+  （なぜ: 検査者が検証方法を書くと、要求を読んでいない者の文がテスト設計の正になる。）
+
 ## 出力
 
 `schemas/agent-contracts.md` の auditor 共通形を正とする。`checked` に実際に照合した範囲を書く。

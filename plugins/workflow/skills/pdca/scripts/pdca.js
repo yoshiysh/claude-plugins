@@ -59,6 +59,12 @@ const FULL_LENS_RUN_BUDGET = 6
 const MECHANISM_ANALYSTS = 2
 const ANALYST_SEATS = ['A', 'B']
 
+// FROZEN_HARNESS_CLASSES: 凍結された評価 harness の class。保証の強さが class で変わるので
+// （deterministic_script は同じ判定を返す / llm_judge は同じ指示と材料までしか保証しない）、
+// 値は scripts/harness_freeze.py の HARNESS_CLASSES と一致させる。意味の正本は
+// references/harness-freeze.md の保証表。
+const FROZEN_HARNESS_CLASSES = ['deterministic_script', 'llm_judge']
+
 const RUN_RECORD_SCHEMA = {
   type: 'object',
   required: ['condition_id', 'run_index', 'executed', 'observations'],
@@ -77,7 +83,7 @@ const RUN_RECORD_SCHEMA = {
 // 実測の劣位に化ける。score は measured=true のときだけ意味を持つ契約。
 const VERIFY_SCHEMA = {
   type: 'object',
-  required: ['condition_id', 'run_index', 'measured', 'criteria_checks'],
+  required: ['condition_id', 'run_index', 'measured', 'criteria_checks', 'frozen_harness_digest_ok'],
   properties: {
     condition_id: { type: 'string' },
     run_index: { type: 'number' },
@@ -87,6 +93,9 @@ const VERIFY_SCHEMA = {
     why_resolution_insufficient: { type: 'string' },
     unmeasured_reason: { type: 'string' },
     score: { type: 'number' },
+    // 参照した凍結 harness が凍結時の digest と一致したか。false は「採点物が run 中に
+    // 変わっていた」の申告で、script はその run を measured=false に落とす。
+    frozen_harness_digest_ok: { type: 'boolean' },
     criteria_checks: {
       type: 'array',
       items: {
@@ -140,11 +149,16 @@ const BUILD_SCHEMA = {
   },
 }
 
+// frozen_harness_digest_ok / frozen_harness_touched を required にしてあるのは、
+// 凍結の照合を「返ってきたら見る」任意項目にすると、返らなかった run が黙って通るため。
+// 照合するのは builder ではなく build-verifier（生成者の自己申告にしない）。
 const BUILD_REVIEW_SCHEMA = {
   type: 'object',
-  required: ['verdict', 'findings'],
+  required: ['verdict', 'findings', 'frozen_harness_digest_ok', 'frozen_harness_touched'],
   properties: {
     verdict: { type: 'string', enum: ['pass', 'revise'] },
+    frozen_harness_digest_ok: { type: 'boolean' },
+    frozen_harness_touched: { type: 'boolean' },
     findings: {
       type: 'array',
       items: {
@@ -219,6 +233,61 @@ if (
   )
 }
 const successCriteria = `${sc.text}\n[METRIC]: ${sc.metric}（${sc.higher_is_better ? '大きいほど良い' : '小さいほど良い'}）`
+
+// 凍結された評価 harness。Plan の最後に scripts/harness_freeze.py freeze が作り、その
+// frozenHarness をそのまま渡す。**欠けていたら Build に入らない**（fail-closed）。
+// 任意項目にすると、渡し忘れた run が「凍結したつもり」で通り、凍結は散文の約束になる。
+// path を builder に渡さないのがこの機構の要なので、受け取りは script の変数に留める。
+const frozenHarness = parsedArgs.frozenHarness
+if (
+  !frozenHarness ||
+  typeof frozenHarness !== 'object' ||
+  !String(frozenHarness.path || '').trim() ||
+  !String(frozenHarness.entry || '').trim() ||
+  !String(frozenHarness.digest || '').trim() ||
+  !FROZEN_HARNESS_CLASSES.includes(frozenHarness.class) ||
+  !frozenHarness.criteria ||
+  typeof frozenHarness.criteria !== 'object' ||
+  !String(frozenHarness.criteria.metric || '').trim() ||
+  typeof frozenHarness.criteria.higher_is_better !== 'boolean' ||
+  typeof frozenHarness.criteria.threshold !== 'number'
+) {
+  return {
+    status: 'BLOCKED',
+    reason: 'args.frozenHarness が未指定または不完全です（評価 harness が凍結されていません）。',
+    evidence:
+      'Plan の最後に scripts/harness_freeze.py freeze を実行し、返り値の frozenHarness ' +
+      `（path / entry / digest / class∈{${FROZEN_HARNESS_CLASSES.join(' | ')}} / criteria）をそのまま渡してください。` +
+      '採点物が Do の中で作られると、実行前に固定したはずの基準が実行時に作り替えられます' +
+      '（references/harness-freeze.md）。',
+  }
+}
+// 凍結 criteria と successCriteria の機械照合。ここが無いと、凍結は MANIFEST に
+// 書かれるだけで、実運転の判定（verifier が見る [METRIC] と向き）は呼び出し側の
+// 手入力のまま — 差分を入れた本人が Check 時に指標と向きを選び直せる（凍結が
+// 防ごうとした事故の同型）。threshold は successCriteria の型に無いので、凍結値を
+// そのまま正として下流の文言に使う。
+if (
+  frozenHarness.criteria.metric !== sc.metric ||
+  frozenHarness.criteria.higher_is_better !== sc.higher_is_better
+) {
+  return {
+    status: 'BLOCKED',
+    reason: '凍結された criteria と args.successCriteria が一致しません。',
+    evidence:
+      `凍結: metric=${frozenHarness.criteria.metric} / higher_is_better=${frozenHarness.criteria.higher_is_better}、` +
+      `args: metric=${sc.metric} / higher_is_better=${sc.higher_is_better}。` +
+      '判定基準を変えたい場合は Plan に戻って凍結し直してください（新しい run-id で）。',
+  }
+}
+// builder には class だけを伝える（在処は伝えない）。run/verify 側には全部渡す。
+const frozenHarnessText = [
+  `[FROZEN_HARNESS]（Plan で凍結済み。読み取り専用。書き換え・再生成・複製をしない）:`,
+  `path: ${frozenHarness.path}`,
+  `entry: ${frozenHarness.entry}`,
+  `digest: ${frozenHarness.digest}`,
+  `class: ${frozenHarness.class}`,
+].join('\n')
 
 const rawConditions = Array.isArray(parsedArgs.conditions) ? parsedArgs.conditions : []
 const conditions = rawConditions.length
@@ -376,6 +445,14 @@ for (let attempt = 0; attempt <= MAX_BUILD_REVISIONS; attempt++) {
         : '',
       '成果物を作り、Plan の測定方法が測れるよう測定点を埋め込むこと。' +
         '採点はしない（採点は別 agent の仕事で、作った本人の自己申告は使わない）。',
+      // 在処は渡さない。渡すのは「採点物は自分の担当外」という境界だけ。
+      `[SCORING_HARNESS]: この run の採点物（判定ロジック・期待値・hold-out・判定プロンプト）は ` +
+        `Plan の段で凍結済み（class=${frozenHarness.class}）で、あなたの作業ツリーの外にある。` +
+        '在処は渡していない。探さない・複製しない・自分で作らない。' +
+        'あなたが作るのは成果物と測定点（生の観測値を出す仕掛け）までで、' +
+        'その値を基準に照らして点にする物は作らない（評価対象の作者が評価材料も作ると、' +
+        'このスキルが禁じている自己採点になる）。' +
+        '測定点の形が凍結物と噛み合わないと思ったら、勝手に採点物を作らず notes に書くこと。',
     ]
       .filter(Boolean)
       .join('\n\n'),
@@ -414,8 +491,15 @@ for (let attempt = 0; attempt <= MAX_BUILD_REVISIONS; attempt++) {
       revisionDiffs.length
         ? `[REVISION_DIFFS]:\n${revisionDiffs.map((d, i) => `${i + 1}. ${d}`).join('\n')}`
         : '',
+      frozenHarnessText,
       ledgerText(),
-      '成果物を自分で開いて、この harness で successCriteria が測れるかを照合すること。直さないこと。',
+      '成果物を自分で開いて、この harness で successCriteria が測れるかを照合すること。直さないこと。' +
+        `あわせて凍結物の照合を行うこと: (1) 次をそのまま実行し` +
+        `（パスを組み替えないこと）、一致を \`frozen_harness_digest_ok\` に返す:\n` +
+        `python3 ${SKILL_DIR}/scripts/harness_freeze.py verify --run-dir ${frozenHarness.path} --expect ${frozenHarness.digest}\n` +
+        '（実行できなかった場合も false。' +
+        '確かめられていないことを true にしない）。(2) 成果物が凍結 harness を含む・複製する・' +
+        '再生成する・上書きするかを見て `frozen_harness_touched` に返す。',
     ]
       .filter(Boolean)
       .join('\n\n'),
@@ -433,12 +517,42 @@ for (let attempt = 0; attempt <= MAX_BUILD_REVISIONS; attempt++) {
   }
 
   buildReview.findings = labelRelitigation(buildReview.findings)
+
+  // 凍結が破れているなら run を 1 本も出さない。改稿で直る類の欠陥ではないので、
+  // build 改稿ループに乗せずここで止める（凍結物が変わった状態で測ると、測っているのは
+  // 「実行前に固定した基準」ではなくなり、その run は後から救済できない）。
+  if (buildReview.frozen_harness_digest_ok !== true || buildReview.frozen_harness_touched === true) {
+    record('build_review', 'Build', '凍結 harness の照合に失敗したため Measure に入らず停止', {
+      frozen_harness_digest_ok: buildReview.frozen_harness_digest_ok,
+      frozen_harness_touched: buildReview.frozen_harness_touched,
+      digest: frozenHarness.digest,
+    })
+    return {
+      status: 'BLOCKED',
+      reason:
+        buildReview.frozen_harness_touched === true
+          ? '成果物が凍結された評価 harness に触れています。'
+          : '凍結された評価 harness の digest 照合が取れませんでした。',
+      evidence:
+        `期待 digest: ${frozenHarness.digest} / build-verifier の照合: ` +
+        `digest_ok=${buildReview.frozen_harness_digest_ok}, touched=${buildReview.frozen_harness_touched}。` +
+        '凍結物の在処と digest は Plan の成果物で、Do で変える対象ではありません' +
+        '（references/harness-freeze.md の保証表）。',
+      build_review: buildReview,
+      build_attempts: buildAttempts,
+      ledger_entries: ledgerEntries,
+    }
+  }
+
   const hardBuild = buildReview.findings.filter((f) => f.severity !== 'minor')
   buildAttempts.push({ attempt: attempt + 1, verdict: buildReview.verdict, blockers_majors: hardBuild.length })
   log(`成果物の照合 ${attempt + 1} 回目: ${buildReview.verdict}（blocker/major ${hardBuild.length} 件）`)
   record('build_review', 'Build', `build-verifier ${attempt + 1} 回目: ${buildReview.verdict}（blocker/major ${hardBuild.length} 件）`, {
     verdict: buildReview.verdict,
     findings: buildReview.findings,
+    frozen_harness_digest: frozenHarness.digest,
+    frozen_harness_digest_ok: buildReview.frozen_harness_digest_ok,
+    frozen_harness_touched: buildReview.frozen_harness_touched,
   })
 
   if (buildReview.verdict === 'pass' && hardBuild.length === 0) break
@@ -505,6 +619,10 @@ const measured = await pipeline(runUnits, async (unit) => {
       `[MEASUREMENT_POINTS]:\n${build.measurement_points.join('\n')}`,
       `[RUN_INDEX]: ${unit.index}`,
       `[BUDGET]: ${budgetText}`,
+      frozenHarnessText,
+      '測定は `[FROZEN_HARNESS]` の凍結された入口だけで行うこと（同等の処理を自分で書き直さない。' +
+        '書き直した時点で、測っているのは Plan が固定した測定ではなくなる）。' +
+        '凍結物を書き換えない。',
       'この条件だけを実行し、観測した事実を記録すること。' +
         '他の条件の実行結果・session・cache・作業ディレクトリを参照しないこと。' +
         '条件間で状態が漏れると、測っている差が条件の差ではなくなる。' +
@@ -548,8 +666,12 @@ const measured = await pipeline(runUnits, async (unit) => {
             // verifier に見せる ledger は resolution / review_v だけ。do_run / check には
             // 前周の score が載っており、見えていると期待に沿う読み方で採点できてしまう
             // （verifier に Plan を見せないのと同じ理由を、別経路で塞ぐ）。
+            frozenHarnessText,
             ledgerText(VERIFIER_LEDGER_TYPES),
             lensPrompt[lens],
+            '採点・照合は `[FROZEN_HARNESS]` の凍結物だけを参照して行うこと。参照する前に digest が' +
+              '凍結時のままかを確かめ、`frozen_harness_digest_ok` に返す（確かめられなければ false）。' +
+              '違っていれば measured=false とし、独自の判定基準で代替しないこと。',
             '成果物と測定点を自分で確かめること。実行側の「できた」という申告は根拠にしない。' +
               '確かめられなかった場合は measured=false と理由を返し、score を推定で埋めないこと。' +
               '欠測を 0 点として混ぜると、測れなかったことが実測の劣位に化ける。',
@@ -579,7 +701,11 @@ const measured = await pipeline(runUnits, async (unit) => {
   const criteriaVerdict = byLens.criteria || null
   const appliedLenses = verdicts.map((v) => v.lens)
   const dissenting = verdicts.filter((v) => v.measured !== true)
-  const measuredAll = !!criteriaVerdict && verdicts.every((v) => v.measured === true)
+  // 凍結物が run 中に変わっていたと申告されたら、その run は基準を満たして見えても
+  // 「実行前に固定した基準で測った」ことにならない。measured を落とす扱いは欠測と同じ。
+  const frozenTampered = verdicts.some((v) => v.frozen_harness_digest_ok === false)
+  const measuredAll =
+    !!criteriaVerdict && !frozenTampered && verdicts.every((v) => v.measured === true)
 
   const verdict = {
     condition_id: unit.cond.id,
@@ -589,6 +715,9 @@ const measured = await pipeline(runUnits, async (unit) => {
       ? undefined
       : [
           criteriaVerdict ? '' : 'criteria: このレンズの検証が返らなかった（score の出所が無い）',
+          frozenTampered
+            ? `凍結 harness の digest が ${frozenHarness.digest} と一致しないと申告された（採点物が run 中に変わっている）`
+            : '',
           ...dissenting.map(
             (v) => `${v.lens}: ${v.unmeasured_reason || '(理由の記載なし)'}`
           ),
@@ -930,6 +1059,11 @@ for (const c of perCondition) {
     )
   }
 }
+calibrationNotes.push(
+  frozenHarness.class === 'llm_judge'
+    ? `採点は凍結 harness（class=llm_judge、digest=${frozenHarness.digest.slice(0, 12)}）。凍結されているのは判定プロンプトと材料までで、判定の同一性は保証されない`
+    : `採点は凍結 harness（class=${frozenHarness.class}、digest=${frozenHarness.digest.slice(0, 12)}）`
+)
 calibrationNotes.push(`周回 ${cycle}/${MAX_CYCLES}`)
 for (const c of perCondition) {
   if (c.spread !== null) calibrationNotes.push(`${c.condition_id}: 実測のばらつき幅 ${c.spread}`)
@@ -967,6 +1101,14 @@ return {
   do: {
     artifacts: build.artifacts,
     measurement_points: build.measurement_points,
+    // 何で採点したかを結果と一緒に残す。class は保証の強さを読み手が下げるための情報で、
+    // llm_judge なら「凍結プロンプト + fresh judge」までしか主張できない
+    // （references/harness-freeze.md）。
+    frozen_harness: {
+      digest: frozenHarness.digest,
+      class: frozenHarness.class,
+      entry: frozenHarness.entry,
+    },
     runs: results.map((r) => ({
       condition_id: r.condition.id,
       run_index: r.index,

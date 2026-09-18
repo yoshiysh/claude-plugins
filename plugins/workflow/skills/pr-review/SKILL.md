@@ -1,0 +1,62 @@
+---
+name: pr-review
+description: >
+  [What] 対象を分類し、複数観点を網羅して根拠付きの inline comment と summary を返す。
+  [When] Use when PR、変更差分、既存ファイル、skill、コード、仕様書、PRD、README などのレビューを求められたとき。
+  skill、コード、仕様書、PRD、README などを複数の独立した観点から網羅的にレビューし、
+  確認済みの問題を inline comment 形式と全体 summary で返す。最初の指摘で終了せず、
+  対象分類に応じた全観点を走査し、指摘ごとに根拠・影響・優先度・確信度を付ける。
+  明示的な修正依頼がない限りファイルを変更しない。
+---
+
+# PR Review
+
+対象を先に分類し、観点ごとの検査をすべて完了してから結果を返す汎用レビュー。PR の diff、
+ローカルのファイル、ディレクトリ、貼り付けられた文書を扱う。
+
+## 実行規則
+
+1. 対象、範囲（full / diff）、基準ブランチまたは比較対象を確定する。
+2. 対象をファイルまたは変更単位で `skill`、`code`、`specification`、`prd`、`document` に分類する。1つの PR に複数種別が含まれる場合は複数分類を保持する。
+3. `references/review-lenses.md` の共通観点と、分類された**すべて**の対象別観点を走査する。
+4. 各観点で見つけた候補を、該当箇所・期待・実際・影響の証拠付きで記録する。
+5. 候補ごとに反証を行い、`confirmed`、`rejected`、`unverified` に分ける。
+6. 全観点の走査が終わるまで終了しない。指摘が見つかっても早期終了しない。
+7. 明示的な修正依頼がない限り、ファイル、ブランチ、commit、push、merge は変更しない。PR 対象では、レビューコメントの投稿は既定で許可された状態変更として扱う。ユーザーが「投稿しない」「候補だけ」など明示した場合は投稿しない。
+
+## 出力
+
+主出力は inline comment の配列。PR でない場合も同じ形式で行・節・要素を指定する。
+
+PR を対象にした場合は、各確定コメントを GitHub の review comment として投稿することをデフォルトとする。
+ユーザーが「投稿しない」「候補だけ」など明示した場合だけ投稿を抑制する。
+対象 PR の head commit SHA、変更後ファイル path、右辺の `line`、`side=RIGHT` を diff から解決し、
+`gh api repos/{owner}/{repo}/pulls/{number}/comments --method POST` に `body`、`commit_id`、
+`path`、`line`、`side` を渡す。投稿できない環境では投稿を試みず、同じコメントを Codex の
+`::code-comment{title="..." body="..." file="..." start=... end=... priority=...}`
+形式で返し、未投稿であることを summary に明記する。
+
+各コメントは次を含める。
+
+- `severity`: `blocker` / `major` / `minor` / `nit`
+- `confidence`: `high` / `medium` / `low`
+- `location`: ファイルと行、または文書の節
+- `body`: 問題、根拠、影響、修正方針
+- `status`: `confirmed` のみを inline 候補にする
+- `delivery`: `posted` / `codex_directive` / `candidate_only`
+
+inline 候補とは別に、次を summary に含める。
+
+- 対象分類（複数可）とレビュー範囲
+- 走査した全観点
+- 確定・棄却・未検証の件数
+- 未検証の理由
+- 観点ごとのカバレッジ
+
+問題が 0 件でも、走査した観点と未検証項目を示す。未検証を「問題なし」として扱わない。
+
+## 境界
+
+- レビューと修正を同じ実行に混ぜない。修正はユーザーが明示した場合だけ別フローで行う。
+- 一般知識だけで事実を断定しない。対象ファイル、diff、一次資料を根拠にする。
+- 観点を省略した場合は、summary に理由を明記する。

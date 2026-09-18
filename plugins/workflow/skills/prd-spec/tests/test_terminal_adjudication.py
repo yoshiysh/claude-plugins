@@ -64,7 +64,7 @@ class TestValidateAdjudication(unittest.TestCase):
         adj = {
             "fixed": [{"digest": "d1", "evidence": "本文 §2 で既に解消済み"}],
             "rejected": [{"digest": "d2", "reason": "偽指摘。repro の入力で判定は割れない"}],
-            "documented": [{"digest": "d3", "target_document": "requirements/auth", "text": "意図した制約"}],
+            "documented": [{"digest": "d3", "target_document": "requirements/auth", "reason": "意図した制約である根拠"}],
         }
         got = self._run(adj, findings)
         self.assertEqual([e["digest"] for e in got["fixed"]], ["d1"])

@@ -12,7 +12,7 @@ export function workflowContext() {
     assignments: {}, defaultProfile: 'workflow' };
 }
 
-const hostKeys = [...backendKeys, 'trustedSource', 'requirements', ...limitKeys];
+const hostKeys = [...backendKeys, 'trustedSource', 'requirements', 'checkpoint', 'resume', ...limitKeys];
 function snapshot(host, directoryKey) {
   exactObject(host, [...hostKeys, directoryKey], 'adapter host');
   if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required');
@@ -33,7 +33,8 @@ export function executeWorkflow(request, host) {
   if (owned.context === null) throw Error('context must be an object');
   const limits = Object.fromEntries(limitKeys.filter(k => Object.hasOwn(owned, k)).map(k => [k, owned[k]]));
   return runWorkflow(ownedRequest, { ...limits, backend: codexBackend(backendConfig),
-    trustedSource: true, runDir: owned.runDir, requirements: owned.requirements });
+    trustedSource: true, runDir: owned.runDir, requirements: owned.requirements,
+    checkpoint: owned.checkpoint, resume: owned.resume });
 }
 
 // Configure the host once. Each call keeps the standard {scriptPath,args} shape,

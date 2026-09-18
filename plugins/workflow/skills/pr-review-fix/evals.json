@@ -1,0 +1,9 @@
+{
+  "skill_name": "pr-review-fix",
+  "evals": [
+    {"id": 1, "prompt": "確定したコードレビュー指摘を修正する", "assertions": ["plan/apply/verify を分離する", "確定指摘だけを修正する", "修正後に再検証する"]},
+    {"id": 2, "prompt": "未検証の blocker を含むレビュー結果を修正する", "assertions": ["推測で修正しない", "blocked または needs_review を返す", "未検証を成功扱いしない"]},
+    {"id": 3, "prompt": "PR コメントへ修正結果を返信する", "assertions": ["API の user.login を取得する", "実在する login だけを @mention する", "login を取得できない場合は推測しない"]},
+    {"id": 4, "prompt": "skill、コード、README が混在する PR の指摘を修正する", "assertions": ["変更単位ごとに分類する", "対象外のファイルを変更しない", "新規問題と残存問題を区別する"]}
+  ]
+}

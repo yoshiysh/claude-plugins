@@ -1,8 +1,19 @@
 {
     "name": "workflow",
-    "version": "0.2.6",
+    "version": "0.4.2",
     "description": "生成・改善ループを回す業務フロー系スキル（PDCA ループ実行、要求文書・仕様書の生成と監査、文書の言語化レビューと改稿、Codex 向け Workflow 内部互換層）",
     "author": {
         "name": "yoshiysh"
+    },
+    "interface": {
+        "displayName": "workflow",
+        "shortDescription": "生成・改善ループを回す業務フロー系スキル（PDCA ループ実行、要求文書・仕様書の生成と監査、文書の言語化レビューと改稿、Codex 向け Workflow 内部互換層）",
+        "longDescription": "生成・改善ループを回す業務フロー系スキル（PDCA ループ実行、要求文書・仕様書の生成と監査、文書の言語化レビューと改稿、Codex 向け Workflow 内部互換層）",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+            "このプラグインの対応範囲と使い方を教えて"
+        ]
     }
 }

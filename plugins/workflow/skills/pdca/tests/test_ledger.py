@@ -1,10 +1,11 @@
 """ledger.py の追記・読み出し・改竄検出の契約テスト。
 
-押さえるのは 4 つ。
+押さえるのは 5 つ。
 1. seq は台帳の行数で採番され、呼び出し側の申告では動かない
 2. 追記は既存行を一切変えない（append-only）
 3. 行の削除・並べ替えは validate / read で落ちる（黙って通らない）
 4. 未知の type と必須欄の欠落は追記前に落ち、壊れた entry がファイルに入らない
+5. `harness_frozen`（凍結の記録）が型として通り、type で引ける
 """
 
 import json
@@ -77,6 +78,23 @@ class LedgerTest(unittest.TestCase):
         )
         entries = json.loads(run("read", "--path", str(self.path), "--types", "resolution").stdout)
         self.assertEqual([e["type"] for e in entries], ["resolution"])
+
+    def test_harness_frozen_entry_is_accepted(self):
+        # 凍結は harness_freeze.py が行い、その出力の ledger_entry がここへ流れる。
+        # 型が閉じているので、追加を忘れると凍結の記録だけが台帳に載らない。
+        result = self.append(
+            [
+                {
+                    "type": "harness_frozen",
+                    "phase": "Plan",
+                    "summary": "評価 harness を凍結（digest=abc123456789）",
+                    "payload": {"digest": "abc", "frozen_at": "2026-01-01T00:00:00+00:00"},
+                }
+            ]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        entries = json.loads(run("read", "--path", str(self.path), "--types", "harness_frozen").stdout)
+        self.assertEqual(entries[0]["payload"]["digest"], "abc")
 
     def test_stdin_payload_is_accepted(self):
         run(
