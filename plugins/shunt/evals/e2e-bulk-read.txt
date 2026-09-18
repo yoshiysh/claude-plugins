@@ -1,0 +1,122 @@
+bulk-read e2e 記録（2026-09-19）
+
+既定 timeout 120s では 2 ファイル同時の質問が curl rc=28 で timeout した（実測 120s）。
+worker の生成が遅いためで、multi-file は SHUNT_TIMEOUT_SECONDS を上げて使う（README 記載）。
+
+== single-file (SHUNT_TIMEOUT_SECONDS=240): rc=0 ms=28909
+*   Input: A TypeScript file `evals/fixtures/user-service.ts`.
+    *   Task: List exported classes and their public methods, one line each.
+    *   Format:
+        *   ANSWER: The list.
+        *   EVIDENCE: Short quotes + file path.
+        *   UNVERIFIED: Anything missing.
+
+    *   `export interface User`: Not a class.
+    *   `export class UserService`: This is an exported class.
+    *   Methods of `UserService`:
+        *   `constructor(private db: Database)`: Constructor (usually not listed as a "method" in this context, but I'll check if it's public. It's public by default in TS).
+        *   `async createUser(input: { email: string; name: string; role: User['role'] }): Promise<User>`: Public.
+        *   `async getUser(id: string): Promise<User | null>`: Public.
+        *   `async updateRole(id: string, role: User['role']): Promise<User>`: Public.
+        *   `async deleteUser(id: string): Promise<void>`: Public.
+
+    *   UserService: createUser, getUser, updateRole, deleteUser.
+
+    *   `export class UserService` -> `evals/fixtures/user-service.ts`
+    *   `async createUser(...)` -> `evals/fixtures/user-service.ts`
+    *   `async getUser(...)` -> `evals/fixtures/user-service.ts`
+    *   `async updateRole(...)` -> `evals/fixtures/user-service.ts`
+    *   `async deleteUser(...)` -> `evals/fixtures/user-service.ts`
+
+    *   The question asks for exported classes and their public methods.
+    *   The file provides `UserService` and its methods.
+    *   Is anything missing? No.
+
+    *   ANSWER:
+        UserService: createUser, getUser, updateRole, deleteUser
+    *   EVIDENCE:
+        "export class UserService" (evals/fixtures/user-service.ts)
+        "async createUser" (evals/fixtures/user-service.ts)
+        "async getUser" (evals/fixtures/user-service.ts)
+        "async updateRole" (evals/fixtures/user-service.ts)
+        "async deleteUser" (evals/fixtures/user-service.ts)
+    *   UNVERIFIED: none
+
+    *Self-Correction on "one line each"*: The prompt says "List the exported classes and their public methods, one line each." This usually means:
+    Class A: method1, method2
+    Class B: method3
+    OR
+    Class A
+    method1
+    method2
+    ...
+    However, "List the exported classes and their public methods, one line each" most naturally implies one line per class containing its methods.
+
+    Let's re-read: "List the exported classes and their public methods, one line each."
+    If I have 1 class and 4 methods, does that mean 5 lines? Or 1 line?
+    "List [the exported classes and their public methods], one line each."
+    This is slightly ambiguous.
+    Interpretation A:
+    UserService: createUser
+    UserService: getUser
+    ...
+    Interpretation B:
+    UserService: createUser, getUser, updateRole, deleteUser
+
+    Usually, in these types of LLM evaluations, "one line each" refers to the items being listed. If the item is "a class and its methods", then one line per class is the standard.
+
+    Let's look at the methods again.
+    `createUser`
+    `getUser`
+    `updateRole`
+    `deleteUser`
+
+    Wait, the constructor is also a public method (by default). However, in most programming contexts, when asked for "methods", people mean the instance methods, not the constructor. I will stick to the instance methods.
+
+    Let's refine the ANSWER format.
+    UserService: createUser, getUser, updateRole, deleteUser
+
+    Wait, looking at the prompt again: "List the exported classes and their public methods, one line each."
+    If I list:
+    UserService: createUser
+    UserService: getUser
+    ...
+    That's one line per method.
+    If I list:
+    UserService: createUser, getUser, updateRole, deleteUser
+    That's one line per class.
+
+    Given the phrasing "classes and their public methods", it's more likely one line per class.
+
+    Let's check for other exported classes.
+    `export interface User` - Interface, not a class.
+
+    Final check of the code:
+    `export class UserService`
+    `async createUser`
+    `async getUser`
+    `async updateRole`
+    `async deleteUser`
+
+    Everything looks correct.
+
+    *Refining Evidence*:
+    "export class UserService" (evals/fixtures/user-service.ts)
+    "async createUser" (evals/fixtures/user-service.ts)
+    "async getUser" (evals/fixtures/user-service.ts)
+    "async updateRole" (evals/fixtures/user-service.ts)
+    "async deleteUser" (evals/fixtures/user-service.ts)
+
+    *Refining Unverified*:
+    none
+
+    *Refining Answer*:
+    UserService: createUser, getUser, updateRole, deleteUserANSWER: UserService: createUser, getUser, updateRole, deleteUser
+
+EVIDENCE: "export class UserService" (evals/fixtures/user-service.ts), "async createUser" (evals/fixtures/user-service.ts), "async getUser" (evals/fixtures/user-service.ts), "async updateRole" (evals/fixtures/user-service.ts), "async deleteUser" (evals/fixtures/user-service.ts)
+
+UNVERIFIED: none
+
+--- stderr ---
+[shunt: ~353 input tokens | delegated to bulk-reader]
+
