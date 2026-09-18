@@ -153,7 +153,7 @@ runner v1で意味保存して実行できるのは `research:search` と `skill
 dispatch、pdca、prd-spec、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
-`plugins/performance/skills/performance-agent/references/native-hooks.md` を正とする。
+`plugins/performance/references/native-hooks.md` を正とする。
 
 ## 注意点
 
