@@ -1,6 +1,6 @@
 {
-  "target": {"kind": "skill|code|specification|prd|document", "scope": "full|diff", "ref": ""},
+  "target": {"kinds": ["skill"], "scope": "full|diff", "ref": ""},
   "coverage": {"checked": [], "skipped": [], "skip_reasons": []},
-  "findings": [],
+  "findings": [{"severity": "blocker|major|minor|nit", "confidence": "high|medium|low", "location": {}, "body": "", "status": "confirmed|rejected|unverified", "delivery": "posted|codex_directive|candidate_only"}],
   "summary": {"confirmed": 0, "rejected": 0, "unverified": 0}
 }
