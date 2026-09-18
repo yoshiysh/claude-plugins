@@ -17,8 +17,8 @@ description: >
 ## 実行規則
 
 1. 対象、範囲（full / diff）、基準ブランチまたは比較対象を確定する。
-2. 対象を `skill`、`code`、`specification`、`prd`、`document` のいずれかに分類する。
-3. `references/review-lenses.md` の共通観点と対象別観点を**すべて**走査する。
+2. 対象をファイルまたは変更単位で `skill`、`code`、`specification`、`prd`、`document` に分類する。1つの PR に複数種別が含まれる場合は複数分類を保持する。
+3. `references/review-lenses.md` の共通観点と、分類された**すべて**の対象別観点を走査する。
 4. 各観点で見つけた候補を、該当箇所・期待・実際・影響の証拠付きで記録する。
 5. 候補ごとに反証を行い、`confirmed`、`rejected`、`unverified` に分ける。
 6. 全観点の走査が終わるまで終了しない。指摘が見つかっても早期終了しない。
@@ -28,6 +28,14 @@ description: >
 
 主出力は inline comment の配列。PR でない場合も同じ形式で行・節・要素を指定する。
 
+PR へのコメント投稿は、ユーザーが「直接投稿」「inline でコメント」など明示的に依頼した場合だけ行う。明示がない通常のレビューでは、投稿せず候補を返す。
+投稿が許可された場合は、各確定コメントを GitHub の review comment として投稿する。
+対象 PR の head commit SHA、変更後ファイル path、右辺の `line`、`side=RIGHT` を diff から解決し、
+`gh api repos/{owner}/{repo}/pulls/{number}/comments --method POST` に `body`、`commit_id`、
+`path`、`line`、`side` を渡す。投稿できない環境では投稿を試みず、同じコメントを Codex の
+`::code-comment{title="..." body="..." file="..." start=... end=... priority=...}`
+形式で返し、未投稿であることを summary に明記する。
+
 各コメントは次を含める。
 
 - `severity`: `blocker` / `major` / `minor` / `nit`
@@ -35,10 +43,11 @@ description: >
 - `location`: ファイルと行、または文書の節
 - `body`: 問題、根拠、影響、修正方針
 - `status`: `confirmed` のみを inline 候補にする
+- `delivery`: `posted` / `codex_directive` / `candidate_only`
 
 inline 候補とは別に、次を summary に含める。
 
-- 対象分類とレビュー範囲
+- 対象分類（複数可）とレビュー範囲
 - 走査した全観点
 - 確定・棄却・未検証の件数
 - 未検証の理由
