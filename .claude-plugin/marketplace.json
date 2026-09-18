@@ -36,10 +36,6 @@
         {
             "name": "claim-gate",
             "source": "./plugins/claim-gate"
-        },
-        {
-            "name": "pr-review",
-            "source": "./plugins/pr-review"
         }
     ]
 }
