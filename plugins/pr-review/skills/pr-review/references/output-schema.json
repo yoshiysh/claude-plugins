@@ -1,0 +1,6 @@
+{
+  "target": {"kind": "skill|code|specification|prd|document", "scope": "full|diff", "ref": ""},
+  "coverage": {"checked": [], "skipped": [], "skip_reasons": []},
+  "findings": [],
+  "summary": {"confirmed": 0, "rejected": 0, "unverified": 0}
+}
