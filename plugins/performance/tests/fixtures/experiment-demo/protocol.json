@@ -1,0 +1,31 @@
+{
+ "fixed_conditions": {
+  "case_snapshot": "sum-squares-1-20",
+  "quality_contract": "result contains SUM=2870",
+  "runtime": "claude-cli -p json max-turns6",
+  "permissions": "default",
+  "background_context": "fresh scratch project",
+  "resolved_model": "claude-haiku-4-5-20251001",
+  "effort": "cli-default",
+  "cache_condition": "cli-default"
+ },
+ "variants": [
+  {
+   "digest": "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da",
+   "computed_at": 1789230582717,
+   "drift": null
+  },
+  {
+   "digest": "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775",
+   "computed_at": 1789230582717,
+   "drift": null
+  }
+ ],
+ "case_ids": [
+  "sum-squares"
+ ],
+ "repetitions": 3,
+ "execution_order": "alternating",
+ "quality_tolerance": "pass 率の低下なし（全 run が SUM=2870 を含む）",
+ "stop_budget": "6 runs / 500k tokens / 15 min"
+}

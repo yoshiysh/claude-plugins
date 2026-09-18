@@ -1,0 +1,108 @@
+"""End-to-end usage report over a run_schema run. Arithmetic only, no inference.
+
+The report never upgrades what it received: an unknown stays null (not zero),
+a failed attempt stays in the totals, the plugin's own overhead is shown next
+to — never inside — the measured skill's usage, and the grand total is labeled
+an observed lower bound whenever any coverage dimension is not complete.
+"""
+import run_schema
+from measure import require
+
+USAGE_FIELDS = run_schema.USAGE_FIELDS
+
+# performance 自身の計測費用を見分ける印。skill identity の plugin 名で引くのは、
+# atom の provider や evidence では「誰のための呼び出しか」が判別できないため。
+# 既知の限界: marketplace を跨いだ同名 plugin は overhead に誤分類される（識別に
+# marketplace を使わないのは、レポート側が「自分がどの marketplace から install
+# されたか」を実行時に知る経路を持たないため）。跨ぎ同名が実在する環境では
+# skill.scope / marketplace での追加判別が要る — その場合はこの定数を見直す。
+OVERHEAD_PLUGIN = "performance"
+
+
+def _add(target, usage):
+    for k in USAGE_FIELDS:
+        target[k] += usage[k]
+
+
+def report(run):
+    run_schema.validate_run(run)
+    invocations = {r["invocation_id"]: r for r in run["invocations"]}
+
+    per_invocation = {}
+    skill_total = {k: 0 for k in USAGE_FIELDS}
+    overhead_total = {k: 0 for k in USAGE_FIELDS}
+    unattributed_total = {k: 0 for k in USAGE_FIELDS}
+    failure_cost = {k: 0 for k in USAGE_FIELDS}
+
+    span_owner = {s["span_id"]: s["invocation_id"] for s in run["spans"]}
+    for atom in run["atoms"]:
+        owner_span = atom["owner_span_id"]
+        if owner_span is None:
+            _add(unattributed_total, atom["usage"])
+            continue
+        invocation = invocations[span_owner[owner_span]]
+        if invocation["skill"]["plugin"] == OVERHEAD_PLUGIN:
+            _add(overhead_total, atom["usage"])
+        else:
+            _add(skill_total, atom["usage"])
+        if invocation["status"] == "failed":
+            _add(failure_cost, atom["usage"])
+
+    for invocation_id, row in invocations.items():
+        per_invocation[invocation_id] = {
+            "exclusive": run_schema.exclusive_usage(run, invocation_id),
+            "inclusive": run_schema.inclusive_usage(run, invocation_id),
+            "status": row["status"],
+            # censored の ended_at は cutoff。壁時計時間として報告すると打ち切りが
+            # 所要時間に化けるので、open と同じく欠測にする。
+            "wall_ms": (row["ended_at"] - row["started_at"])
+                       if row["ended_at"] is not None and row["status"] != "censored"
+                       else None,
+        }
+
+    # 試行の集計単位は (parent, skill identity)。再試行は「同じ親の下で同じ skill を
+    # もう一度呼んだもの」であり、root 単位で数えると通常の子スキル呼び出しまで
+    # 試行数に混ざる（親 1 回 + 子 3 回が 4 試行に見え、スキル全体の成功率と
+    # 子処理の成功率が合成される）。子は skill identity が違うので別グループになる。
+    groups = {}
+    for row in run["invocations"]:
+        s = row["skill"]
+        key = "|".join([row["parent_invocation_id"] or "-",
+                        s["marketplace"] or "-", s["plugin"],
+                        s["public_name"], s["scope"] or "-"])
+        groups.setdefault(key, []).append(row)
+    attempts_by_task = {}
+    for key, rows in groups.items():
+        completed = [r for r in rows if r["status"] == "completed"]
+        attempts_by_task[key] = {
+            "attempts": len(rows),
+            "completed": len(completed),
+            # 終了していない試行を分母から外すと「まだ終わっていない」が
+            # 「成功率が高い」に化けるので、分母は全試行のまま。
+            "success_rate": (len(completed) / len(rows)) if rows else None,
+        }
+
+    # coverage: 1 次元でも complete でなければ、総量は完全な合計ではなく観測下限。
+    incomplete = []
+    for invocation_id, cov in run["coverage"].items():
+        for dimension, state in cov.items():
+            if state["state"] != "complete":
+                incomplete.append({"invocation_id": invocation_id,
+                                   "dimension": dimension,
+                                   "state": state["state"],
+                                   "missing_reason": state["missing_reason"]})
+
+    total_label = "complete" if not incomplete else "observed_lower_bound"
+
+    return {
+        "skill_usage": skill_total,
+        "overhead_usage": overhead_total,
+        "unattributed_usage": unattributed_total,
+        "failure_cost": failure_cost,
+        "per_invocation": per_invocation,
+        "attempts": attempts_by_task,
+        "coverage_gaps": incomplete,
+        "total_label": total_label,
+        # unknown を数値に混ぜない: 観測できなかった量そのものは常に null。
+        "unobserved_usage": None,
+    }

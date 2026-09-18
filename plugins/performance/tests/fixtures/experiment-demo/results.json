@@ -1,0 +1,56 @@
+{
+ "variants": {
+  "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da": {
+   "usage": {
+    "input_tokens": 161499,
+    "cached_input_tokens": 121490,
+    "output_tokens": 3817
+   },
+   "failure_cost": {
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "output_tokens": 0
+   },
+   "attempts": 3,
+   "completed": 3,
+   "success_rate": 1.0
+  },
+  "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775": {
+   "usage": {
+    "input_tokens": 257193,
+    "cached_input_tokens": 226891,
+    "output_tokens": 1979
+   },
+   "failure_cost": {
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "output_tokens": 0
+   },
+   "attempts": 3,
+   "completed": 3,
+   "success_rate": 1.0
+  }
+ },
+ "baseline": "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da",
+ "deltas": {
+  "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775": {
+   "input_tokens_pct": 59.253618,
+   "cached_input_tokens_pct": 86.756935,
+   "output_tokens_pct": -48.153
+  }
+ },
+ "mode": "replay",
+ "unverified_scope": "実モデルでの効果測定（recorded fixture の再集計であり、実行そのものの観測ではない）",
+ "comparison": {
+  "status": "candidate",
+  "reason": "investigate_regression",
+  "before": {
+   "tokens": 54850,
+   "duration_ms": 13123
+  },
+  "after": {
+   "tokens": 86282,
+   "duration_ms": 9512
+  }
+ }
+}

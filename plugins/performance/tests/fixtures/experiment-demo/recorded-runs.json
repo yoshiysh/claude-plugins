@@ -1,0 +1,486 @@
+{
+ "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da": [
+  {
+   "invocations": [
+    {
+     "invocation_id": "run-a1",
+     "parent_invocation_id": null,
+     "root_invocation_id": "run-a1",
+     "skill": {
+      "marketplace": null,
+      "plugin": "demo",
+      "public_name": "demo",
+      "scope": "/private/tmp/claude-501/-Users-yoshi-github-yoshiysh-stock-valuation-dcf--claude-worktrees-nvidia-arc-harness-article-402004/51dc56eb-a847-494f-b02b-4be08edbf4e1/scratchpad/c2-experiment/variant-a"
+     },
+     "fingerprint": {
+      "digest": "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da",
+      "computed_at": 1789230582717,
+      "drift": null
+     },
+     "started_at": 1789230582718,
+     "ended_at": 1789230595841,
+     "status": "completed",
+     "boundary_evidence": "explicit_entry"
+    }
+   ],
+   "spans": [
+    {
+     "span_id": "sp-run-a1",
+     "invocation_id": "run-a1",
+     "kind": "agent",
+     "started_at": 1789230582718,
+     "ended_at": 1789230595841
+    }
+   ],
+   "atoms": [
+    {
+     "call_identity": "0dc0d805-815a-4e39-977e-10cc250b7f10",
+     "host": "claude",
+     "provider": "anthropic",
+     "source_epoch": 1789230582718,
+     "usage": {
+      "input_tokens": 53486,
+      "cached_input_tokens": 26255,
+      "output_tokens": 1144
+     },
+     "owner_span_id": "sp-run-a1",
+     "evidence": "claude-p-json:edc03541-4aed-4c98-bb67-b3c7532dfce5"
+    }
+   ],
+   "coverage": {
+    "run-a1": {
+     "boundary": {
+      "state": "complete",
+      "missing_reason": null
+     },
+     "call": {
+      "state": "partial",
+      "missing_reason": "single_top_level_call_only"
+     },
+     "child": {
+      "state": "unknown",
+      "missing_reason": "subagent_usage_not_split"
+     },
+     "usage": {
+      "state": "complete",
+      "missing_reason": null
+     }
+    }
+   },
+   "evaluations": [
+    {
+     "case_id": "sum-squares",
+     "contract_version": "1",
+     "verifier_version": "grep-SUM=2870",
+     "artifact_refs": [
+      "run-a1.json"
+     ],
+     "verdict": "pass",
+     "evidence_independent": true
+    }
+   ]
+  },
+  {
+   "invocations": [
+    {
+     "invocation_id": "run-a2",
+     "parent_invocation_id": null,
+     "root_invocation_id": "run-a2",
+     "skill": {
+      "marketplace": null,
+      "plugin": "demo",
+      "public_name": "demo",
+      "scope": "/private/tmp/claude-501/-Users-yoshi-github-yoshiysh-stock-valuation-dcf--claude-worktrees-nvidia-arc-harness-article-402004/51dc56eb-a847-494f-b02b-4be08edbf4e1/scratchpad/c2-experiment/variant-a"
+     },
+     "fingerprint": {
+      "digest": "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da",
+      "computed_at": 1789230582717,
+      "drift": null
+     },
+     "started_at": 1789230582719,
+     "ended_at": 1789230597321,
+     "status": "completed",
+     "boundary_evidence": "explicit_entry"
+    }
+   ],
+   "spans": [
+    {
+     "span_id": "sp-run-a2",
+     "invocation_id": "run-a2",
+     "kind": "agent",
+     "started_at": 1789230582719,
+     "ended_at": 1789230597321
+    }
+   ],
+   "atoms": [
+    {
+     "call_identity": "11cc3eda-482f-4676-b7d2-1142882eaaef",
+     "host": "claude",
+     "provider": "anthropic",
+     "source_epoch": 1789230582719,
+     "usage": {
+      "input_tokens": 54514,
+      "cached_input_tokens": 47618,
+      "output_tokens": 1322
+     },
+     "owner_span_id": "sp-run-a2",
+     "evidence": "claude-p-json:d3b800ac-aecb-450b-b1b0-afe67e6b3037"
+    }
+   ],
+   "coverage": {
+    "run-a2": {
+     "boundary": {
+      "state": "complete",
+      "missing_reason": null
+     },
+     "call": {
+      "state": "partial",
+      "missing_reason": "single_top_level_call_only"
+     },
+     "child": {
+      "state": "unknown",
+      "missing_reason": "subagent_usage_not_split"
+     },
+     "usage": {
+      "state": "complete",
+      "missing_reason": null
+     }
+    }
+   },
+   "evaluations": [
+    {
+     "case_id": "sum-squares",
+     "contract_version": "1",
+     "verifier_version": "grep-SUM=2870",
+     "artifact_refs": [
+      "run-a2.json"
+     ],
+     "verdict": "pass",
+     "evidence_independent": true
+    }
+   ]
+  },
+  {
+   "invocations": [
+    {
+     "invocation_id": "run-a3",
+     "parent_invocation_id": null,
+     "root_invocation_id": "run-a3",
+     "skill": {
+      "marketplace": null,
+      "plugin": "demo",
+      "public_name": "demo",
+      "scope": "/private/tmp/claude-501/-Users-yoshi-github-yoshiysh-stock-valuation-dcf--claude-worktrees-nvidia-arc-harness-article-402004/51dc56eb-a847-494f-b02b-4be08edbf4e1/scratchpad/c2-experiment/variant-a"
+     },
+     "fingerprint": {
+      "digest": "1b24dbd5eee8f3cc77589b0c71b789cc06a0ff76a508d5453a82e3342b9c97da",
+      "computed_at": 1789230582717,
+      "drift": null
+     },
+     "started_at": 1789230582720,
+     "ended_at": 1789230593761,
+     "status": "completed",
+     "boundary_evidence": "explicit_entry"
+    }
+   ],
+   "spans": [
+    {
+     "span_id": "sp-run-a3",
+     "invocation_id": "run-a3",
+     "kind": "agent",
+     "started_at": 1789230582720,
+     "ended_at": 1789230593761
+    }
+   ],
+   "atoms": [
+    {
+     "call_identity": "7a90b95e-1251-4359-bf1e-741e47f3548a",
+     "host": "claude",
+     "provider": "anthropic",
+     "source_epoch": 1789230582720,
+     "usage": {
+      "input_tokens": 53499,
+      "cached_input_tokens": 47617,
+      "output_tokens": 1351
+     },
+     "owner_span_id": "sp-run-a3",
+     "evidence": "claude-p-json:50c10a31-0ebc-4555-8a4b-9e71c0441951"
+    }
+   ],
+   "coverage": {
+    "run-a3": {
+     "boundary": {
+      "state": "complete",
+      "missing_reason": null
+     },
+     "call": {
+      "state": "partial",
+      "missing_reason": "single_top_level_call_only"
+     },
+     "child": {
+      "state": "unknown",
+      "missing_reason": "subagent_usage_not_split"
+     },
+     "usage": {
+      "state": "complete",
+      "missing_reason": null
+     }
+    }
+   },
+   "evaluations": [
+    {
+     "case_id": "sum-squares",
+     "contract_version": "1",
+     "verifier_version": "grep-SUM=2870",
+     "artifact_refs": [
+      "run-a3.json"
+     ],
+     "verdict": "pass",
+     "evidence_independent": true
+    }
+   ]
+  }
+ ],
+ "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775": [
+  {
+   "invocations": [
+    {
+     "invocation_id": "run-b1",
+     "parent_invocation_id": null,
+     "root_invocation_id": "run-b1",
+     "skill": {
+      "marketplace": null,
+      "plugin": "demo",
+      "public_name": "demo",
+      "scope": "/private/tmp/claude-501/-Users-yoshi-github-yoshiysh-stock-valuation-dcf--claude-worktrees-nvidia-arc-harness-article-402004/51dc56eb-a847-494f-b02b-4be08edbf4e1/scratchpad/c2-experiment/variant-b"
+     },
+     "fingerprint": {
+      "digest": "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775",
+      "computed_at": 1789230582717,
+      "drift": null
+     },
+     "started_at": 1789230582718,
+     "ended_at": 1789230593523,
+     "status": "completed",
+     "boundary_evidence": "explicit_entry"
+    }
+   ],
+   "spans": [
+    {
+     "span_id": "sp-run-b1",
+     "invocation_id": "run-b1",
+     "kind": "agent",
+     "started_at": 1789230582718,
+     "ended_at": 1789230593523
+    }
+   ],
+   "atoms": [
+    {
+     "call_identity": "1a8ce04d-1ac8-4911-98d4-1432da4a6dbf",
+     "host": "claude",
+     "provider": "anthropic",
+     "source_epoch": 1789230582718,
+     "usage": {
+      "input_tokens": 86663,
+      "cached_input_tokens": 76274,
+      "output_tokens": 746
+     },
+     "owner_span_id": "sp-run-b1",
+     "evidence": "claude-p-json:0037a370-446d-4dac-83e8-dc5bd7320338"
+    }
+   ],
+   "coverage": {
+    "run-b1": {
+     "boundary": {
+      "state": "complete",
+      "missing_reason": null
+     },
+     "call": {
+      "state": "partial",
+      "missing_reason": "single_top_level_call_only"
+     },
+     "child": {
+      "state": "unknown",
+      "missing_reason": "subagent_usage_not_split"
+     },
+     "usage": {
+      "state": "complete",
+      "missing_reason": null
+     }
+    }
+   },
+   "evaluations": [
+    {
+     "case_id": "sum-squares",
+     "contract_version": "1",
+     "verifier_version": "grep-SUM=2870",
+     "artifact_refs": [
+      "run-b1.json"
+     ],
+     "verdict": "pass",
+     "evidence_independent": true
+    }
+   ]
+  },
+  {
+   "invocations": [
+    {
+     "invocation_id": "run-b2",
+     "parent_invocation_id": null,
+     "root_invocation_id": "run-b2",
+     "skill": {
+      "marketplace": null,
+      "plugin": "demo",
+      "public_name": "demo",
+      "scope": "/private/tmp/claude-501/-Users-yoshi-github-yoshiysh-stock-valuation-dcf--claude-worktrees-nvidia-arc-harness-article-402004/51dc56eb-a847-494f-b02b-4be08edbf4e1/scratchpad/c2-experiment/variant-b"
+     },
+     "fingerprint": {
+      "digest": "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775",
+      "computed_at": 1789230582717,
+      "drift": null
+     },
+     "started_at": 1789230582719,
+     "ended_at": 1789230591307,
+     "status": "completed",
+     "boundary_evidence": "explicit_entry"
+    }
+   ],
+   "spans": [
+    {
+     "span_id": "sp-run-b2",
+     "invocation_id": "run-b2",
+     "kind": "agent",
+     "started_at": 1789230582719,
+     "ended_at": 1789230591307
+    }
+   ],
+   "atoms": [
+    {
+     "call_identity": "bd296354-d499-4458-bbce-2806b1e0d45c",
+     "host": "claude",
+     "provider": "anthropic",
+     "source_epoch": 1789230582719,
+     "usage": {
+      "input_tokens": 85722,
+      "cached_input_tokens": 75807,
+      "output_tokens": 560
+     },
+     "owner_span_id": "sp-run-b2",
+     "evidence": "claude-p-json:0e30f429-d3b9-47bd-b190-e8b0ccaa70b1"
+    }
+   ],
+   "coverage": {
+    "run-b2": {
+     "boundary": {
+      "state": "complete",
+      "missing_reason": null
+     },
+     "call": {
+      "state": "partial",
+      "missing_reason": "single_top_level_call_only"
+     },
+     "child": {
+      "state": "unknown",
+      "missing_reason": "subagent_usage_not_split"
+     },
+     "usage": {
+      "state": "complete",
+      "missing_reason": null
+     }
+    }
+   },
+   "evaluations": [
+    {
+     "case_id": "sum-squares",
+     "contract_version": "1",
+     "verifier_version": "grep-SUM=2870",
+     "artifact_refs": [
+      "run-b2.json"
+     ],
+     "verdict": "pass",
+     "evidence_independent": true
+    }
+   ]
+  },
+  {
+   "invocations": [
+    {
+     "invocation_id": "run-b3",
+     "parent_invocation_id": null,
+     "root_invocation_id": "run-b3",
+     "skill": {
+      "marketplace": null,
+      "plugin": "demo",
+      "public_name": "demo",
+      "scope": "/private/tmp/claude-501/-Users-yoshi-github-yoshiysh-stock-valuation-dcf--claude-worktrees-nvidia-arc-harness-article-402004/51dc56eb-a847-494f-b02b-4be08edbf4e1/scratchpad/c2-experiment/variant-b"
+     },
+     "fingerprint": {
+      "digest": "2adfe631f194a327aa639296849d0e2b2889f4a4b80d8ab1824839e5fe45e775",
+      "computed_at": 1789230582717,
+      "drift": null
+     },
+     "started_at": 1789230582720,
+     "ended_at": 1789230592232,
+     "status": "completed",
+     "boundary_evidence": "explicit_entry"
+    }
+   ],
+   "spans": [
+    {
+     "span_id": "sp-run-b3",
+     "invocation_id": "run-b3",
+     "kind": "agent",
+     "started_at": 1789230582720,
+     "ended_at": 1789230592232
+    }
+   ],
+   "atoms": [
+    {
+     "call_identity": "0e9d48e6-af6a-49fd-939f-91d382035155",
+     "host": "claude",
+     "provider": "anthropic",
+     "source_epoch": 1789230582720,
+     "usage": {
+      "input_tokens": 84808,
+      "cached_input_tokens": 74810,
+      "output_tokens": 673
+     },
+     "owner_span_id": "sp-run-b3",
+     "evidence": "claude-p-json:5adf438e-bb95-498e-a65a-f5c00137a890"
+    }
+   ],
+   "coverage": {
+    "run-b3": {
+     "boundary": {
+      "state": "complete",
+      "missing_reason": null
+     },
+     "call": {
+      "state": "partial",
+      "missing_reason": "single_top_level_call_only"
+     },
+     "child": {
+      "state": "unknown",
+      "missing_reason": "subagent_usage_not_split"
+     },
+     "usage": {
+      "state": "complete",
+      "missing_reason": null
+     }
+    }
+   },
+   "evaluations": [
+    {
+     "case_id": "sum-squares",
+     "contract_version": "1",
+     "verifier_version": "grep-SUM=2870",
+     "artifact_refs": [
+      "run-b3.json"
+     ],
+     "verdict": "pass",
+     "evidence_independent": true
+    }
+   ]
+  }
+ ]
+}
