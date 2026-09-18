@@ -29,6 +29,17 @@ const REVISE_SEVERITIES = ['blocker', 'major']
 // schema 側で制限しないと runtime data がそのまま無界の fan-out になる。
 const MAX_FINDINGS_PER_FINDER = 8
 
+// UNCHECKED_BLOCKING: quick_validate.py が機械判定できないと宣言した項目について、
+// 担当 finder の判定がこれらのどれかなら未解消として残す。`unknown`（判定できなかった）と
+// `partial`（部分的）を `fail` と同格に置くのは、どちらも「満たしている」と言えていない点で
+// 同じだからで、区別すると満たせなかったものが中間の名前で verdict を通り抜ける。
+// **この集合の正本はここ 1 箇所**（SKILL.md / schemas.md は名前で参照する）。
+const UNCHECKED_BLOCKING = ['fail', 'partial', 'unknown']
+
+// 未判定・fail/partial から作る指摘の重さ。REVISE_SEVERITIES に含まれる値にしてあるので、
+// 未解消のまま applied_to_staging にはならず、改稿ループへ戻る。
+const UNCHECKED_SEVERITY = 'major'
+
 const SEVERITY = { type: 'string', enum: ['blocker', 'major', 'minor'] }
 
 const FINDINGS_SCHEMA = {
@@ -65,6 +76,30 @@ const FINDINGS_SCHEMA = {
     note: { type: 'string' },
   },
   required: ['findings', 'scanned_files', 'unreadable'],
+}
+
+// UNCHECKED_ITEMS を担当する観点だけに足す追加契約。全 finder に required で持たせると、
+// その項目を見る立場に無い観点（why-driven など）が判定をでっち上げることになる。
+const UNCHECKED_JUDGMENT_FIELD = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      verdict: { type: 'string', enum: ['pass', 'partial', 'fail', 'unknown'] },
+      evidence: { type: 'string' },
+    },
+    required: ['id', 'verdict', 'evidence'],
+  },
+}
+
+function findingsSchemaFor(finder) {
+  if (!finder.owns_unchecked) return FINDINGS_SCHEMA
+  return {
+    ...FINDINGS_SCHEMA,
+    properties: { ...FINDINGS_SCHEMA.properties, unchecked_judgments: UNCHECKED_JUDGMENT_FIELD },
+    required: [...FINDINGS_SCHEMA.required, 'unchecked_judgments'],
+  }
 }
 
 // 反証の結果は三値で受け取る。boolean だと「読めなかった」を false（反証できなかった）に
@@ -145,6 +180,28 @@ if (scope === 'diff' && (!diffRef || !String(diffRef).trim())) {
 }
 
 const focus = target.focus || null
+
+// uncheckedItems: quick_validate.py が「機械では判定できない」と宣言した項目。
+// 司令塔が `python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま渡す。
+// script はファイルを開けないので、この委譲を運ぶ経路は args しかない。必須にしているのは、
+// 未指定を「委譲する項目が無い」と読むと、実施されていない検査が黙って通るため。
+const uncheckedItems = parsedArgs.uncheckedItems
+if (!Array.isArray(uncheckedItems) || uncheckedItems.some((x) => !x || !x.id || !x.item)) {
+  throw new Error(
+    'args.uncheckedItems が未指定か形式が不正です。' +
+      '`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力（[{id, item}]）を' +
+      'そのまま渡してください。'
+  )
+}
+const uncheckedIds = uncheckedItems.map((x) => x.id)
+const uncheckedBlock = [
+  '[UNCHECKED_ITEMS] 機械検査が判定できないと宣言した項目（id つき）',
+  JSON.stringify(uncheckedItems, null, 2),
+  '',
+  `上の id **すべて**について \`unchecked_judgments\` を返すこと（${uncheckedIds.join(' / ')}）。`,
+  `判定は pass / partial / fail / unknown の 4 値で、${UNCHECKED_BLOCKING.join(' / ')} は未解消として`,
+  '扱われる。返ってこなかった id は script が未判定として指摘に変換する。',
+].join('\n')
 
 const intent = parsedArgs.intent
 if (mode === 'update' && (!intent || !String(intent).trim())) {
@@ -248,6 +305,9 @@ const FINDERS = [
   },
   {
     id: 'best-practices',
+    // この観点だけが UNCHECKED_ITEMS の判定を担う。項目の中身（検証者経路・発火実測・
+    // 参照整合）がどれもガイド照合と同じ読み方で、他の観点は見る立場に無い。
+    owns_unchecked: true,
     title: 'ベストプラクティス準拠',
     guide: [
       `${SKILL_DIR}/references/best-practices.md と`,
@@ -356,8 +416,11 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind) {
           `[CATEGORY]: ${f.id} — ${f.title}`,
           `[CATEGORY_GUIDE]:\n${f.guide}`,
           scopeBlock(scopeKind),
-        ].join('\n\n'),
-        { model: 'sonnet', schema: FINDINGS_SCHEMA, phase: phaseTitle, label: `find-${f.id}-${passLabel}` }
+          f.owns_unchecked ? uncheckedBlock : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        { model: 'sonnet', schema: findingsSchemaFor(f), phase: phaseTitle, label: `find-${f.id}-${passLabel}` }
       ).then((res) => ({ category: f.id, res }))
     )
   ).then((raw) => {
@@ -365,6 +428,11 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind) {
     const findings = []
     const missing = []
     const scannedByCategory = {}
+    // 委譲した項目の未達。build_skill.js の judgmentFailures と同じ原則で、判定フィールドを
+    // script が直接走査し、返ってこなかった id は集合の差で拾う（不在は走査に写らないため）。
+    // 反証には回さない —— これは finder の主張ではなく、委譲した項目に判定が付いたか
+    // どうかという script 側の事実で、反証者が「実害が無い」と落とせる種類のものではない。
+    const uncheckedFailures = []
     for (const f of FINDERS) {
       const row = rows.find((r) => r.category === f.id)
       if (!row || !row.res) {
@@ -402,13 +470,44 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind) {
             typeof item.present_in_original === 'boolean' ? item.present_in_original : undefined,
         })
       })
+      if (f.owns_unchecked) {
+        const judgments = row.res.unchecked_judgments || []
+        const judged = new Set(judgments.map((j) => j.id))
+        for (const j of judgments) {
+          if (UNCHECKED_BLOCKING.includes(j.verdict)) {
+            uncheckedFailures.push({
+              id: `${passLabel}-unchecked-${j.id}`,
+              category: f.id,
+              file: 'SKILL.md',
+              location: `機械判定できない項目: ${j.id}`,
+              claim: `委譲項目 ${j.id} が満たされていない（判定: ${j.verdict}）`,
+              evidence: j.evidence,
+              severity: UNCHECKED_SEVERITY,
+              suggested_fix: `${uncheckedItems.find((x) => x.id === j.id)?.item || j.id} を満たす経路を設ける`,
+            })
+          }
+        }
+        for (const id of uncheckedIds.filter((x) => !judged.has(x))) {
+          uncheckedFailures.push({
+            id: `${passLabel}-unchecked-${id}`,
+            category: f.id,
+            file: 'SKILL.md',
+            location: `機械判定できない項目: ${id}`,
+            claim: `委譲項目 ${id} の判定が返ってこなかった（未判定）`,
+            evidence: '(判定なし)',
+            severity: UNCHECKED_SEVERITY,
+            suggested_fix: `${uncheckedItems.find((x) => x.id === id)?.item || id} を判定する`,
+          })
+        }
+        log(`観点 ${f.id}: 委譲項目の未達 ${uncheckedFailures.length} 件（${passLabel}）`)
+      }
       const checked = items.filter((it) => typeof it.present_in_original === 'boolean').length
       log(
         `観点 ${f.id}: 指摘 ${items.length} 件 / 読んだファイル ${scannedByCategory[f.id].length} 件（${passLabel}）` +
           (scopeKind === 'draft' ? ` / 原本照合 ${checked}/${items.length}` : '')
       )
     }
-    return { findings, missing, scannedByCategory }
+    return { findings, missing, scannedByCategory, uncheckedFailures }
   })
 }
 
@@ -536,9 +635,12 @@ if (reviewIncomplete) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
 }
 
-function result(verdict, findings, findingsSource, afterCategories, staging, revisionsUsed) {
+function result(verdict, findings, findingsSource, afterCategories, staging, revisionsUsed, uncheckedFailures) {
   return {
     mode,
+    // 委譲項目の未達。findings と分けているのは、反証を通っていないため
+    // （confirmed に混ぜると「3 体の反証を生き残った指摘」という意味が薄まる）。
+    unchecked_failures: uncheckedFailures || [],
     target: { skillPath, scope, diffRef: diffRef || null, focus },
     verdict,
     findings,
@@ -556,12 +658,16 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
 if (mode === 'review') {
   // 確定が 0 件でも未検証が残っていれば clean とは言わない。未検証を clean に丸めると、
   // 「未検証と問題なしを区別する」ために置いた 3 バケットが結果表示で 1 つに戻る。
+  // 委譲項目の未達も clean を妨げる。機械検査が判定せず、委譲先も判定しなかった項目が
+  // 残っているなら、見ていない箇所があるという点で未検証と同じ。
   const verdict = reviewIncomplete
     ? 'review_incomplete'
-    : base.confirmed.length === 0 && base.unverified.length === 0
+    : base.confirmed.length === 0 &&
+        base.unverified.length === 0 &&
+        first.uncheckedFailures.length === 0
       ? 'clean'
       : 'findings'
-  return result(verdict, base, 'before', null, null, 0)
+  return result(verdict, base, 'before', null, null, 0, first.uncheckedFailures)
 }
 
 // -------------------------------------------------------------------------------- Update
@@ -569,8 +675,11 @@ if (mode === 'review') {
 // 観点が欠けたまま改稿しない。部分的な絵から書き換えるのは、見えていない箇所を
 // 「問題なし」と決めつけて手を入れるのと同じで、止まる方が安全。
 if (reviewIncomplete) {
-  return result('review_incomplete', base, 'before', null, null, 0)
+  return result('review_incomplete', base, 'before', null, null, 0, first.uncheckedFailures)
 }
+
+// 最後に完了した検査パスの委譲項目未達。update では Reverify の結果で上書きする。
+let latestUnchecked = first.uncheckedFailures
 
 let revision = 0
 let staging = null
@@ -802,8 +911,11 @@ while (true) {
 
   // reclassified は「改稿が持ち込んだ」ものではないが、ドラフトに実在する確定指摘ではある。
   // new から外すのは提示上の分類であって、承認判断から外す理由にはならない。
-  const unresolved = [...remaining, ...introduced, ...reclassified].filter((f) =>
-    REVISE_SEVERITIES.includes(f.severity)
+  // 委譲項目の未達も未解消に数える。改稿で満たせる種類のもの（検証者経路を足す・参照を
+  // 整合させる）なので、ループへ戻す。
+  latestUnchecked = after.uncheckedFailures
+  const unresolved = [...remaining, ...introduced, ...reclassified, ...after.uncheckedFailures].filter(
+    (f) => REVISE_SEVERITIES.includes(f.severity)
   )
   if (unresolved.length === 0) {
     verdict = 'applied_to_staging'
@@ -835,4 +947,4 @@ while (true) {
   revision++
 }
 
-return result(verdict, latest, latestSource, afterCategories, staging, revision)
+return result(verdict, latest, latestSource, afterCategories, staging, revision, latestUnchecked)

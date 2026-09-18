@@ -61,34 +61,26 @@ assets に分離するもの：[ファイル名：内容]
 ### ⚠️ 懸念点
 ```
 
-### structure-reviewer の出力（構成レビューレポート）
+### structure-reviewer の出力（STRUCTURE_REVIEW_SCHEMA）
 
+```json
+{
+  "checks": [
+    { "name": "A. 要件との整合性", "result": "ok | warn | fail", "rationale": "根拠（構成案からの引用）" },
+    { "name": "B. 実現可能性", "result": "ok | warn | fail", "rationale": "..." },
+    { "name": "C. 情報の流れ", "result": "ok | warn | fail", "rationale": "..." },
+    { "name": "D. 目次・nav の同期", "result": "ok | warn | fail", "rationale": "..." }
+  ],
+  "failed": ["言葉で補足する問題の要点"],
+  "warnings": ["要確認の点"],
+  "priority_fixes": ["先に直すべき箇所"],
+  "report": "構成レビューレポート本文（散文）"
+}
 ```
-## 構成レビューレポート
 
-### A. 要件との整合性
-結果: ✅ / ⚠️ / ❌
-根拠: ...
-
-### B. 実現可能性
-結果: ✅ / ⚠️ / ❌
-根拠: ...
-
-### C. 情報の流れ
-結果: ✅ / ⚠️ / ❌
-根拠: ...
-
-### D. 目次・nav の同期
-結果: ✅ / ⚠️ / ❌
-根拠: ...
-
-### 総合判定
-通過: X/4 項目
-❌ の項目: [リスト]
-⚠️ の項目: [リスト]
-構成の修正が必要か: はい / いいえ
-優先度高い修正点: ...
-```
+`checks[].result` が判定の契約で、`fail` は `build_skill.js` が直接走査して差し戻しに回す
+（`failed[]` への転記に依存しない）。`name` は項目ごとに区別できる文字列にする
+（同名の `fail` が複数あると script 側の重複除去で 1 件に畳まれる）。
 
 ---
 
@@ -191,42 +183,54 @@ phase('[phase 名]')
       "with_skill": { "result": "pass|fail|partial", "evidence": "根拠" },
       "baseline":   { "result": "pass|fail|partial", "evidence": "根拠" }
     }
-  ],
-  "summary": {
-    "with_skill": { "pass": 2, "partial": 1, "fail": 0, "pass_rate": 0.83 },
-    "baseline":   { "pass": 1, "partial": 0, "fail": 2, "pass_rate": 0.33 },
-    "delta": 0.50
-  }
+  ]
 }
 ```
 
-partial は pass の 0.5 点として pass_rate を計算する。
-3件の grading 結果を平均して最終 delta を算出する。
+**grader は集計を返さない（破壊的変更。旧 schema の `summary` は required から外れた）。**
+`pass_rate` / `delta` は `scripts/build_skill.js` が算出して各 grading 行へ付け足す
+（`summary.with_skill.pass_rate` / `summary.baseline.pass_rate` / `summary.delta`）。
+partial の重み（`PARTIAL_WEIGHT`）と側間の差の定義は script の 1 箇所だけにある。
 
-### reviewer の出力（定性チェックレポート）
+自己申告の数値を受け取ると、判定の内訳と数値が食い違っていても突き合わせる材料が無く、
+ゲートに入るのは数値の方になる。判定だけを受け取れば内訳と数字は常に一致する。
+判定が 1 つでも欠けている側の `pass_rate` は `0` ではなく `null`（測れなかった）。
 
+### reviewer の出力（REVIEW_SCHEMA）
+
+```json
+{
+  "criteria_checks": [
+    { "name": "基準名", "result": "ok | warn | fail", "rationale": "根拠（対象テキストの引用）" }
+  ],
+  "trigger_checks": [
+    { "test_id": "テストケースの id", "expectation_met": true, "rationale": "判断と理由" }
+  ],
+  "unchecked_judgments": [
+    { "id": "UNCHECKED_ITEMS の id", "verdict": "pass | partial | fail | unknown", "evidence": "根拠" }
+  ],
+  "failed": ["言葉で補足する失格の要点"],
+  "warnings": ["要確認"],
+  "priority_improvements": ["優先度の高い改善点"],
+  "report": "散文の検証レポート本文"
+}
 ```
-## 検証レポート
 
-### 基準チェック
-#### [基準名]
-結果: ✅ / ⚠️ / ❌
-根拠: （テキストの該当箇所を引用、またはなぜ不足しているか）
+| フィールド | 必須 | 保証していること |
+|---|---|---|
+| `criteria_checks[].result` | ○ | 基準ごとの判定。script が `fail` を直接走査して失格に足す |
+| `trigger_checks` | ○（破壊的変更で追加） | 任意のままだと、description の発火可否という判定を「返さなければ無かったこと」にできる |
+| `trigger_checks[].expectation_met` | ○ | `false` を script が直接走査して失格に足す |
+| `unchecked_judgments` | ○（破壊的変更で追加） | 機械検査が判定しないと宣言した項目の判定。返ってこなかった id は script が集合の差で拾い、未判定として失格にする |
+| `failed[]` | ○ | 判定フィールドの**言い換えではなく補足**。ここへの書き漏れで失格が消えることはない |
 
-### ワークフロー設計チェック（Sub-agent を使う設計の場合のみ）
-[各項目を ✅ / ⚠️ / ❌ で判定]
+**判定は判定フィールドが正で、`failed[]` は要約**。ゲートが `failed[]` だけを見ると、判定を
+そこへ書き写す作業が agent の裁量に残り、落ちても script からは「失格 0 件」と同じ形に見える。
+昇格の実装は `build_skill.js` の `judgmentFailures`（STRUCTURE / REVIEW の双方が同じ関数を呼ぶ）。
+`unchecked_judgments` のどの verdict が合格にならないかは script の `UNCHECKED_BLOCKING` が正本。
 
-### トリガー判定
-テスト1: 発動する / しない / 不明　理由: ...
-テスト2: 発動する / しない / 不明　理由: ...
-テスト3: 誤発動リスク あり / なし　理由: ...
-
-### 総合判定
-通過: X/Y 項目
-❌ の項目: [リスト]
-⚠️ の項目: [リスト]
-優先度高い改善点: ...
-```
+同じことが `STRUCTURE_REVIEW_SCHEMA` の `checks[].result` にも当てはまる（`fail` は
+script が直接失格へ回し、`failed[]` への転記に依存しない）。
 
 ---
 
@@ -397,6 +401,21 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
 | `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本にもそのまま存在するか。script はこれで `new` と `preexisting` を分ける。原本が読めなければ省略 |
+| `unchecked_judgments` | ○（担当観点のみ） | `[UNCHECKED_ITEMS]` の各 id に対する `pass` / `partial` / `fail` / `unknown` と根拠。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本 |
+
+#### 委譲項目（[UNCHECKED_ITEMS]）の受け渡し
+
+```json
+{ "unchecked_judgments": [ { "id": "verifier-path", "verdict": "fail", "evidence": "..." } ] }
+```
+
+- **id 一覧の正本は `scripts/quick_validate.py` の `UNCHECKED_ITEMS`**。workflow script は
+  ファイルを開けないので、司令塔が `--emit-unchecked` の出力を `args.uncheckedItems` へ
+  そのまま渡し、script が prompt へ verbatim 注入する。js 側に id を書き写さない。
+- 合格にならない verdict の集合は script の `UNCHECKED_BLOCKING` が正本
+  （`fail` と `partial` と `unknown` は同格。どれも「満たしている」と言えていない）。
+- 返ってこなかった id は script が集合の差で拾い、未判定として失格／未解消に変換する。
+  委譲を散文で宣言するだけだと、受け取った側が落としても出力に現れず誰にも分からない。
 
 ### refuter の出力（REFUTE_SCHEMA）
 
@@ -435,6 +454,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
   "target": { "skillPath": "/abs/path", "scope": "full", "diffRef": null, "focus": null },
   "verdict": "applied_to_staging",
   "findings": { "confirmed": [], "rejected": [], "unverified": [] },
+  "unchecked_failures": [],
   "findings_source": "after",
   "by_category": { "before": { "why-driven": 1 }, "after": { "why-driven": 0 } },
   "staging": {
@@ -450,6 +470,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | フィールド | 意味 |
 |---|---|
 | `findings_source` | `findings` が最後に完了した検査パスのどちらか（`before` = 改稿前 / `after` = 再検証後） |
+| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「3 体の反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る |
 | `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
 | `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない |
