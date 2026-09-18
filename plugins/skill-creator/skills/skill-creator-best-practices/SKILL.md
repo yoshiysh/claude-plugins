@@ -290,7 +290,8 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 > そのブロックと `scripts/select_runtime.js` 冒頭コメント）。`halt: true` なら review_skill.js を
 > 起動せず `rejected_reason` を伝えて止める。review / update は runner v1 では `rejected_source`
 > になる（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
-> `node [SKILL_DIR]/scripts/select_runtime.js --mode review|update --native-available|--no-native --runner-installed|--no-runner`
+> `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
+> （update は `--mode update`。native が無い環境では `--no-native`、runner 未 install なら `--no-runner` に置き換える — フラグは環境の実測で選ぶ）
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
