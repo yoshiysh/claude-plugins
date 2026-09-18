@@ -294,6 +294,10 @@ baseline版実行  → grading.json（PASS/FAILと根拠）
 test スコアでベストを選択（過学習防止）
 ```
 
+上の数値はダイジェスト（何が起きるかの概観）。実行時に使う具体値の正本は
+[orchestrator-output.md](orchestrator-output.md)「description 最適化ループ」と
+`scripts/run_loop.py` の既定値で、値が変わってもここを追随させる必要はない。
+
 ---
 
 ## 7. アーキテクチャパターンの選択
