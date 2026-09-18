@@ -37,8 +37,13 @@ PR コメントに返信する場合は、まず GitHub API から対象コメ�
 login を推測したり、表示名を login として扱ったりしない。取得できた場合だけ本文の先頭に
 `@login` を付ける。取得できない場合はメンションを作らず、未解決の理由を報告する。
 
-返信は、修正内容・検証結果・残存事項を短く記載する。PR への返信、commit、push、merge は、
-ユーザーがその操作を明示的に許可した場合だけ実行する。
+返信は、修正内容・検証結果・残存事項を短く記載する。対象コメントは
+`GET /repos/{owner}/{repo}/pulls/{pull_number}/comments` で取得し、実際の `id` と
+`user.login` を対応づける。スレッド返信は同じ PR review comments endpoint に
+`POST` し、`body` と `in_reply_to=<comment_id>` を渡す（CLI では
+`gh api repos/{owner}/{repo}/pulls/{pull_number}/comments --method POST -f body=... -F in_reply_to=<comment_id>`）。
+レスポンスの comment id と投稿結果を記録し、対象 id が不明な場合は返信せず未解決として報告する。
+PR への返信、commit、push、merge は、ユーザーがその操作を明示的に許可した場合だけ実行する。
 
 ## 出力
 

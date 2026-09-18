@@ -188,12 +188,33 @@ def validate_workflow_script(js_path: Path) -> list:
 # 何を見ていないかを毎回明示する。適否がスキルの機能（何を生み出し誰が使うか）に依存する
 # 項目は、機械判定にすると代理指標ゲートになる（best-practices.md §12）ため、ここでは
 # 判定せず設計レビューへ送る。
-_UNCHECKED = [
-    "生成物を、それを生成した agent 以外が検証する経路があるか"
-    "（状態変更・下流で行動の根拠になる出力を持つスキルに適用。agents/ の有無では判定しない）",
-    "その検証が状態変更の前に置かれているか",
-    "description が実際に狙ったリクエストで発火するか（evals での実測が必要）",
-    "参照ファイルの内容が SKILL.md の記述と整合しているか",
+#
+# 各項目に id を持たせているのは、送り先（reviewer / finder）がどれを判定したかを
+# script が集合比較できるようにするため。「設計レビューで見てください」と散文で書くだけの
+# 委譲は、受け取った側が黙って落としても誰にも分からない（落ちた項目は出力に現れない）。
+# id 付きで渡し、返ってきた id の集合と突き合わせれば、未判定は欠落として機械的に出る。
+#
+# **この一覧がこの委譲の唯一の正本**。workflow script はファイルを開けないので、
+# 司令塔が `--emit-unchecked` の出力をそのまま args へ渡し、script がそれを
+# prompt へ verbatim 注入して集合比較する。js 側に id を書き写さない（写すとズレる）。
+UNCHECKED_ITEMS = [
+    {
+        "id": "verifier-path",
+        "item": "生成物を、それを生成した agent 以外が検証する経路があるか"
+        "（状態変更・下流で行動の根拠になる出力を持つスキルに適用。agents/ の有無では判定しない）",
+    },
+    {
+        "id": "verifier-before-mutation",
+        "item": "その検証が状態変更の前に置かれているか",
+    },
+    {
+        "id": "description-triggers",
+        "item": "description が実際に狙ったリクエストで発火するか（evals での実測が必要）",
+    },
+    {
+        "id": "reference-consistency",
+        "item": "参照ファイルの内容が SKILL.md の記述と整合しているか",
+    },
 ]
 
 
@@ -213,8 +234,8 @@ def _print_result(errors: list, warnings: list, verbose: bool, has_agents: bool 
 
     if verbose:
         print("  ── このスクリプトが見ていない項目（設計レビューで確認する）")
-        for item in _UNCHECKED:
-            print(f"  SKIP:  {item}")
+        for entry in UNCHECKED_ITEMS:
+            print(f"  SKIP:  [{entry['id']}] {entry['item']}")
         if not has_agents:
             print("  SKIP:  agents/ が無いため agent 関連の検査を実行していない"
                   "（無いこと自体が欠落でありうる。上記 1 件目を参照）")
@@ -222,11 +243,27 @@ def _print_result(errors: list, warnings: list, verbose: bool, has_agents: bool 
 
 if __name__ == "__main__":
     import argparse
+    import json
 
     parser = argparse.ArgumentParser(description="SKILL.md の基本バリデーション")
-    parser.add_argument("skill_dir", help="スキルディレクトリのパス")
+    # skill_dir を任意にしているのは --emit-unchecked が対象を必要としないため。
+    # create 経路では args を組み立てる時点で対象スキルがまだディスクに無く、
+    # 対象必須にすると委譲の受け渡しだけのために存在しないパスを渡すことになる。
+    parser.add_argument("skill_dir", nargs="?", help="スキルディレクトリのパス")
     parser.add_argument("--verbose", "-v", action="store_true", help="警告の詳細を表示")
+    parser.add_argument(
+        "--emit-unchecked",
+        action="store_true",
+        help="機械判定できない項目を id 付き JSON で出力する（workflow の args へそのまま渡す）",
+    )
     args = parser.parse_args()
+
+    if args.emit_unchecked:
+        print(json.dumps(UNCHECKED_ITEMS, ensure_ascii=False))
+        sys.exit(0)
+
+    if not args.skill_dir:
+        parser.error("skill_dir を指定してください（--emit-unchecked のときだけ省略できます）")
 
     ok = validate_skill(args.skill_dir, args.verbose)
     sys.exit(0 if ok else 1)
