@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
             "timeout": 3
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
             "timeout": 3
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
             "timeout": 3
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
             "timeout": 3
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
             "timeout": 3
           }
         ]
