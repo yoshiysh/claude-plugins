@@ -10,6 +10,7 @@
 | `pdca` | `/workflow:pdca` | Plan→Do→Check→Act を契約・検証付きで回す |
 | `prd-spec` | `/workflow:prd-spec` | 要求文書・仕様書を日本語で作成・レビューする |
 | `review-document` | `/workflow:review-document` | 文書の言語化レビューと改稿 |
+| `pr-review` | `/workflow:pr-review` | PR、コード、skill、PRD、仕様書、README などを複数観点で網羅的にレビューする |
 | `dynamic-workflow-runner` | 内部専用 | caller skill が native Workflow 不在時に透過利用する compatibility layer |
 
 ## 使い方
