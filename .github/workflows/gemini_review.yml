@@ -225,7 +225,12 @@ jobs:
           # 実測上限に 1.5 倍弱の余裕を足した 15 に絞る。free tier の RPM 具体値は
           # ai.google.dev/gemini-api/docs/rate-limits に一覧化がなく AI Studio の
           # dashboard 参照が必要で一次情報として確認できなかったため、実測ベースの
-          # 値に留める。
+          # 値に留める。ただし大型 diff は file-by-file 走査を挟むため 15 turn では
+          # 完走できず FatalTurnLimitedError で未完に終わる（実測 run 35462553867）。
+          # file-by-file 走査は 1 リクエストの入力を絞る（TPM 対策）代わりに turn
+          # 数を要するトレードオフなので、大型 diff のときだけ turns を引き上げる。
+          # turns は 1 turn ≥ 1 リクエストとして RPM/RPD を消費するため、引き上げは
+          # 大型 diff のときに限定し、通常 PR は 15 のまま消費を抑える。
           #
           # truncateToolOutputThreshold 100000（文字数、tokenではない）:
           # gemini-cli の packages/core/src/scheduler/tool-executor.ts
@@ -238,7 +243,7 @@ jobs:
           # 差分本体が予算超過の原因である以上そのトレードオフは成立しない。
           settings: |-
             {
-              "model": { "maxSessionTurns": 15 },
+              "model": { "maxSessionTurns": ${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }} },
               "tools": { "truncateToolOutputThreshold": 100000 },
               "experimental": { "dynamicModelConfiguration": true },
               "modelConfigs": {
@@ -412,7 +417,7 @@ jobs:
           github_pr_number: ${{ github.event.pull_request.number || github.event.issue.number }}
           settings: |-
             {
-              "model": { "maxSessionTurns": 15 },
+              "model": { "maxSessionTurns": ${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }} },
               "tools": { "truncateToolOutputThreshold": 100000 },
               "mcpServers": {
                 "github": {
