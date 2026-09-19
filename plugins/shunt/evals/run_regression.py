@@ -73,7 +73,20 @@ def run_suite(suite) -> list:
         except json.JSONDecodeError:
             verdict = {"decision": "INVALID", "reason": out.stdout[:120]}
         reason = verdict.get("reason", "")
-        resolved_by = "model" if trace_grew else ("fallback" if "fallback line rule" in reason else "code")
+        # gemini.sh's shunt_decide appends to SHUNT_TRACE_FILE on every HTTP 200
+        # response, even one whose body fails the responseSchema/enum check
+        # (empty or malformed decision) — in that case shunt_decide still
+        # returns 1, and the hook falls back to the line rule. So trace growth
+        # alone does not prove the model's verdict was used: a fallback case
+        # can grow the trace too. The hook's own "fallback line rule" reason
+        # text is the authoritative signal for which path was taken and must
+        # be checked first.
+        if "fallback line rule" in reason:
+            resolved_by = "fallback"
+        elif trace_grew:
+            resolved_by = "model"
+        else:
+            resolved_by = "code"
         rows.append({
             "suite": suite["hook"], "id": e["id"], "name": e["name"],
             "upstream": e["expected_decision"], "fork": verdict.get("decision"),

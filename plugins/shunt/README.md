@@ -7,7 +7,7 @@ A Claude Code plugin that shunts I/O-heavy work to a cheaper worker model, savin
 > 1. **Transport**: the AiKA / Portal CLI backend is replaced by the AI Studio Gemini API (`scripts/lib/gemini.sh`). Auth is one env var: `CLAUDE_PLUGINS_GEMINI_API_KEY`. No Portal deployment needed.
 > 2. **Routing**: the hooks keep upstream's deterministic guards verbatim, but the final "block iff > 350 lines" judgment becomes a typed model decision (enum `allow|block` via `responseSchema`, prompt frozen in `scripts/lib/decide-prompt.txt`). Line count is a proxy — `head file` reads 10 lines whatever the file's size. When the model can't be consulted, the hook falls back to the upstream line rule and says so in its reason.
 >
-> Measured on the upstream 17-case hook eval corpus (`evals/run_regression.py` → `evals/regression.md`): 14/17 identical, 3 divergences — all `head`/`tail` cases upstream blocked on file size alone. Model-gate latency ≈1.2s per consulted read (only paid on files over the small-file threshold); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
+> Measured on the upstream hook eval corpus, 34 cases across both hooks (`evals/run_regression.py` → `evals/regression.md`): 28/34 identical, 6 divergences — 3 on the `check-bash-read` side (`head`/`tail` cases upstream blocked on file size alone) and 3 on the `check-file-size` side (threshold-boundary and `SHUNT_MIN_LINES` env-override cases). Model-gate latency ≈1.2s per consulted read (only paid on files over the small-file threshold); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
 
 ## How it works
 
@@ -51,10 +51,11 @@ shunt/
 │   └── code-writer/
 │       └── SKILL.md         # When/how to call code-write
 └── evals/
-    ├── run.sh                # Runs hook + transport evals (51 tests)
+    ├── run_regression.py     # Runs both hooks against the upstream eval corpus, writes regression.json/.md
     ├── hook-evals.json       # Read hook test cases (17)
     ├── bash-hook-evals.json  # Bash hook test cases (17)
-    ├── transport-evals.sh    # upstream transport tests (Portal CLI stub — not wired to gemini.sh yet)
+    ├── regression.json       # Latest run_regression.py output (machine-readable)
+    ├── regression.md         # Latest run_regression.py output (table + diffs)
     ├── evals.json            # End-to-end skill test cases (3)
     ├── benchmarks.json       # Token savings scenarios (4)
     └── fixtures/             # Test fixture files
@@ -120,11 +121,12 @@ All settings are environment variables — add them to the `env` block in `.clau
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SHUNT_MIN_LINES` | `350` | Line count above which the Read hook blocks and redirects |
-| `SHUNT_PORTAL_INSTANCE` | CLI default | Portal instance name or URL to invoke against |
-| `SHUNT_MAX_PAYLOAD_BYTES` | `400000` (`120000` on Linux) | Request ceiling, since input travels through argv |
-| `SHUNT_TIMEOUT_SECONDS` | `180` | Timeout for one action invocation |
-| `SHUNT_BULK_READER_MODE_ID` | — | Pin a specific mode id if the name is ambiguous |
-| `SHUNT_CODE_WRITER_MODE_ID` | — | Pin a specific mode id if the name is ambiguous |
+| `SHUNT_MAX_PAYLOAD_BYTES` | `400000` | Request ceiling; the payload travels in the HTTP request body, not argv |
+| `SHUNT_TIMEOUT_SECONDS` | `120` | Timeout for one worker (`bulk-read`/`code-write`) invocation |
+| `SHUNT_GEMINI_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id used for both worker calls and the gate decision |
+| `SHUNT_DECIDE_TIMEOUT_SECONDS` | `8` | Timeout for the gate's `shunt_decide` call; on expiry the hook falls back to the line rule |
+| `SHUNT_TRACE_FILE` | — | When set, append one JSON line per gate consultation (model, http status, decision, judged input, token usage) |
+| `SHUNT_GEMINI_ENDPOINT` | `https://generativelanguage.googleapis.com/v1beta` | AI Studio API base URL |
 
 ## What doesn't get delegated
 
@@ -137,12 +139,15 @@ The plugin is designed to know when NOT to delegate:
 ## Evals
 
 ```bash
-# Hook routing + transport plumbing — needs no Portal access
-bash evals/run.sh
-
-# Also re-measure token savings against the real modes — needs portal-cli auth
-bash evals/run.sh --benchmark
+# Regenerate the hook regression table (needs CLAUDE_PLUGINS_GEMINI_API_KEY)
+python3 evals/run_regression.py
 ```
+
+This runs both hooks (`check-bash-read`, `check-file-size`) against the upstream 17+17-case eval
+corpus and writes `evals/regression.json` (machine-readable) and `evals/regression.md` (table +
+diff list), classifying each case as resolved by `model` (proven via `SHUNT_TRACE_FILE`), `code`
+(a deterministic guard short-circuited before the model), or `fallback` (the model could not be
+consulted or returned an unusable response, so the upstream line rule decided).
 
 ## Benchmarks
 

@@ -45,7 +45,7 @@ shunt_tmpfile message_file || exit 1
 for path in "${paths[@]}"; do
   {
     printf '<file path="%s">\n' "$path"
-    cat "$path"
+    cat -- "$path" || exit 1
     printf '</file>\n\n'
   } >> "$message_file"
 done

@@ -51,14 +51,31 @@ shunt_preflight() {
 
 # POST one generateContent request. $1 = request-body file, $2 = response file.
 # Returns curl's exit code; HTTP status lands in SHUNT_HTTP_STATUS.
+#
+# curl's own stderr (timeout, DNS, TLS failures) used to be discarded outright,
+# which made those failures indistinguishable from a clean-but-wrong HTTP 200.
+# Route it to SHUNT_TRACE_FILE when one is configured (so it lands next to the
+# decision trace an operator is already reading); otherwise let it through to
+# this process's stderr instead of swallowing it.
 shunt_gemini_post() {
   local body_file="$1" out_file="$2"
+  local curl_err
+  shunt_tmpfile curl_err || return 1
   SHUNT_HTTP_STATUS=$(curl -sS -o "$out_file" -w '%{http_code}' \
     --max-time "$SHUNT_TIMEOUT_SECONDS" \
     -H "Content-Type: application/json" \
     -H "x-goog-api-key: $CLAUDE_PLUGINS_GEMINI_API_KEY" \
     -X POST "$SHUNT_GEMINI_ENDPOINT/models/$SHUNT_GEMINI_MODEL:generateContent" \
-    --data @"$body_file" 2>/dev/null)
+    --data @"$body_file" 2>"$curl_err")
+  local rc=$?
+  if [ -s "$curl_err" ]; then
+    if [ -n "${SHUNT_TRACE_FILE:-}" ]; then
+      { printf 'curl_stderr: '; cat -- "$curl_err"; } >> "$SHUNT_TRACE_FILE" 2>/dev/null
+    else
+      cat -- "$curl_err" >&2
+    fi
+  fi
+  return "$rc"
 }
 
 # Runs one ephemeral worker turn and prints the answer text.
@@ -105,18 +122,28 @@ shunt_invoke() {
 # silently converted into a judgment).
 shunt_decide() {
   local command_str="$1" path_str="$2" lines_str="$3"
-  local prompt_file body_file out_file decision
+  local body_file out_file decision template
   local prompt_template="${SHUNT_DECIDE_PROMPT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/decide-prompt.txt}"
 
   [ -f "$prompt_template" ] || { echo "Error: decide prompt not found: $prompt_template" >&2; return 1; }
-  shunt_tmpfile prompt_file || return 1
-  sed -e "s|{{COMMAND}}|$(printf '%s' "$command_str" | sed 's/[|&]/\\&/g')|" \
-      -e "s|{{PATH}}|$(printf '%s' "$path_str" | sed 's/[|&]/\\&/g')|" \
-      -e "s|{{LINES}}|$lines_str|" "$prompt_template" > "$prompt_file"
+
+  # command_str/path_str are untrusted (attacker-controlled Bash/Read tool
+  # input) and this decision gates an allow/block security judgment, so they
+  # must be substituted as data, never as sed pattern/replacement text. A
+  # command containing backslashes, newlines, `|` or `&` used to corrupt the
+  # sed s|..|..| expression (or make sed itself fail silently past its rc
+  # check), which could send a malformed prompt — or flip the gate the wrong
+  # way — on exactly the inputs most worth gating. Bash's ${var//lit/repl}
+  # does no glob/regex interpretation of the replacement text, so it carries
+  # arbitrary bytes through unchanged.
+  template=$(cat -- "$prompt_template") || return 1
+  template="${template//\{\{COMMAND\}\}/$command_str}"
+  template="${template//\{\{PATH\}\}/$path_str}"
+  template="${template//\{\{LINES\}\}/$lines_str}"
 
   shunt_tmpfile body_file || return 1
   shunt_tmpfile out_file || return 1
-  jq -n --rawfile msg "$prompt_file" '{
+  jq -n --arg msg "$template" '{
     contents: [{parts: [{text: $msg}]}],
     generationConfig: {
       temperature: 0, maxOutputTokens: 16,
@@ -134,10 +161,15 @@ shunt_decide() {
   # SHUNT_TRACE_FILE: append one JSON line per consultation with response-derived
   # metadata (usage token counts come from the API, not from this script), so a
   # harness can prove the decision came from a model round-trip rather than
-  # inferring it from latency.
+  # inferring it from latency. The judged input (command/path/lines) is
+  # included too, so an operator can audit which input produced an allow
+  # without re-deriving it from timing — the API key never goes anywhere near
+  # this line.
   if [ -n "${SHUNT_TRACE_FILE:-}" ]; then
     jq -c --arg model "$SHUNT_GEMINI_MODEL" --arg http "${SHUNT_HTTP_STATUS:-}" --arg decision "$decision" \
-      '{model: $model, http: $http, decision: $decision, usage: (.usageMetadata // null), responseId: (.responseId // null)}' \
+      --arg command "$command_str" --arg path "$path_str" --arg lines "$lines_str" \
+      '{model: $model, http: $http, decision: $decision, command: $command, path: $path, lines: $lines,
+        usage: (.usageMetadata // null), responseId: (.responseId // null)}' \
       "$out_file" >> "$SHUNT_TRACE_FILE" 2>/dev/null
   fi
 

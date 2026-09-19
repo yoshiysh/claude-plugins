@@ -17,5 +17,5 @@ Modifications in this fork:
   fallback when the model cannot be consulted.
 - scripts/bulk-read: worker output contract added (ANSWER / EVIDENCE /
   UNVERIFIED sections).
-- evals/run-regression.sh: regression harness comparing upstream and fork
+- evals/run_regression.py: regression harness comparing upstream and fork
   decisions over the upstream bash-hook eval corpus.
