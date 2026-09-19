@@ -159,41 +159,234 @@ jobs:
           fi
 
       # スキル資産（plugins/*/skills/ 配下、SKILL.md、agents|references|schemas 配下の md）
-      # に触れた PR では、レビュー観点に best-practices 照合を追加する。判定はここで
-      # 決定的に行い、prompt 側は判定結果を受け取るだけにする。
+      # に触れた PR では、正本 best-practices.md の関連箇所を flash-lite に「行範囲だけ」
+      # 選ばせ、逐語で抽出して prompt へ注入する（規範文の生成・要約はさせない）。
+      # 選択が得られない場合は全文 Read へ fail-open する。公開前チェックリストは
+      # 選択対象にせず常に逐語で含める（見出しの行範囲は grep で動的に特定する —
+      # ハードコードすると正本の編集で狂う）。
       - name: Detect skill asset changes
         id: skill_check
         if: steps.mode.outputs.kind == 'review'
+        env:
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
         run: |
+          BP=plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md
           files=$(gh pr diff "${PR_NUMBER}" --name-only \
             | grep -E '^plugins/[^/]+/skills/|(^|/)SKILL\.md$|(^|/)agents/[^/]+\.md$|(^|/)references/[^/]+\.md$|(^|/)schemas/[^/]+\.md$' \
             || true)
-          if [ -n "$files" ]; then
-            echo "skill_touched=true" >> "$GITHUB_OUTPUT"
-            {
-              echo "note<<SKILL_NOTE_EOF"
-              echo ""
-              echo "## 追加観点: スキル資産の best-practices 照合"
-              echo ""
-              echo "この PR は以下のスキル資産を変更している。リポジトリ内の正本"
-              echo "\`plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md\`"
-              echo "を read_file で読み、末尾の公開前チェックリスト（該当する場合は §11〜§14 も）と"
-              echo "照合すること。逸脱があれば該当項目名を挙げて指摘する。正本の規範文がそのまま"
-              echo "書き写されている箇所があれば、単一正本違反として指摘する。"
-              echo ""
-              echo "変更されたスキル資産:"
-              echo "$files" | sed 's/^/- /'
-              echo "SKILL_NOTE_EOF"
-            } >> "$GITHUB_OUTPUT"
-          else
+
+          if [ -z "$files" ]; then
             echo "skill_touched=false" >> "$GITHUB_OUTPUT"
             echo "note=" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          echo "skill_touched=true" >> "$GITHUB_OUTPUT"
+          mkdir -p .gemini-input
+          numbered=$(cat -n "$BP")
+
+          schema='{"type":"object","properties":{"selections":{"type":"array","items":{"type":"object","properties":{"section":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"why_applicable":{"type":"string"}},"required":["section","start_line","end_line","why_applicable"]}}},"required":["selections"]}'
+
+          prompt=$(jq -n --arg files "$files" --arg body "$numbered" '
+            "変更されたスキルファイル:\n" + $files + "\n\n" +
+            "正本 best-practices.md（cat -n 形式、行番号付き）:\n" + $body + "\n\n" +
+            "変更内容に照らして関連する節を選び、行範囲を返せ。規範文そのものを" +
+            "生成・要約するな。行範囲の選択のみ行うこと。"')
+
+          req=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
+            '{contents:[{parts:[{text:$prompt}]}],
+              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
+
+          resp=$(curl -sS \
+            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "$req" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+            || true)
+
+          selections=$(printf '%s' "$resp" \
+            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+            | jq -c '.selections // empty' 2>/dev/null || true)
+
+          out=.gemini-input/best-practices-excerpts.txt
+          : > "$out"
+          fail_open=false
+          if [ -z "$selections" ] || [ "$selections" = "null" ] || [ "$selections" = "[]" ]; then
+            fail_open=true
+            echo "fail-open: flash-lite の逐語抽出選択が不成立だったため、正本の全文を read_file で読むこと。" >> "$out"
+          else
+            echo "$selections" | jq -c '.[]' | while IFS= read -r sel; do
+              section=$(printf '%s' "$sel" | jq -r '.section')
+              start=$(printf '%s' "$sel" | jq -r '.start_line')
+              end=$(printf '%s' "$sel" | jq -r '.end_line')
+              {
+                echo "[${section} ${start}-${end}]"
+                sed -n "${start},${end}p" "$BP"
+                echo ""
+              } >> "$out"
+            done
+          fi
+
+          heading_line=$(grep -n '^## 10\. チェックリスト' "$BP" | cut -d: -f1)
+          if [ -n "$heading_line" ]; then
+            next_line=$(awk -v s="$heading_line" 'NR>s && /^## /{print NR; exit}' "$BP")
+            if [ -n "$next_line" ]; then
+              end_line=$((next_line - 1))
+            else
+              end_line=$(wc -l < "$BP")
+            fi
+            {
+              echo "[公開前チェックリスト ${heading_line}-${end_line}]"
+              sed -n "${heading_line},${end_line}p" "$BP"
+            } >> "$out"
+          fi
+
+          {
+            echo "note<<SKILL_NOTE_EOF"
+            echo ""
+            echo "## 追加観点: スキル資産の best-practices 照合"
+            echo ""
+            echo "この PR は以下のスキル資産を変更している:"
+            echo "$files" | sed 's/^/- /'
+            echo ""
+            echo "正本: \`$BP\`。抜粋に無い観点を疑うときはここを読め。"
+            echo ""
+            if [ "$fail_open" = "true" ]; then
+              echo "逐語抽出に失敗したため、正本を read_file で全文読んで照合すること。"
+            else
+              echo "[BEST_PRACTICES_EXCERPTS] は正本からの逐語抜粋。これと照合して逸脱が"
+              echo "あれば該当項目名を挙げて指摘する。正本の規範文がそのまま書き写されている"
+              echo "箇所があれば、単一正本違反として指摘する。"
+            fi
+            echo ""
+            echo "[BEST_PRACTICES_EXCERPTS]"
+            cat "$out"
+            echo "SKILL_NOTE_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Record the review start time
         id: review_start
         if: steps.mode.outputs.kind == 'review'
         run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # レビュー対象を機械的に絞る。除外はロックファイル・生成物/フィクスチャ・
+      # バイナリに限定し、黙って消さず理由付きで prompt へ転記させる
+      # （欠測を成功に変換しない）。
+      - name: Build the filtered diff for review
+        id: filtered_diff
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          mkdir -p .gemini-input/review-diff
+          gh pr diff "${PR_NUMBER}" > "${RUNNER_TEMP}/review-pr.diff"
+          awk -v outdir=.gemini-input/review-diff '
+            /^diff --git /{ name=$4; sub(/^b\//,"",name); gsub("/","__",name);
+                            f=outdir "/" name ".diff" }
+            f { print > f }
+          ' "${RUNNER_TEMP}/review-pr.diff"
+
+          # ロックファイル: 依存解決の機械的出力で、ロジックのレビューに寄与しない。
+          lockfile_pattern='(^|/)(.*\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|uv\.lock)$'
+          # 生成物・フィクスチャ: テスト用の固定データで、変更の意図を反映しない。
+          generated_pattern='(^|/)fixtures/|(^|/)evals/\.fixtures/|\.snap$'
+
+          : > .gemini-input/review-diff/excluded.txt
+          : > .gemini-input/review-diff/index.txt
+          for f in .gemini-input/review-diff/*.diff; do
+            [ -e "$f" ] || continue
+            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
+            reason=""
+            if printf '%s' "$path" | grep -qE "$lockfile_pattern"; then
+              reason="lockfile"
+            elif printf '%s' "$path" | grep -qE "$generated_pattern"; then
+              reason="generated/fixture"
+            elif grep -q '^Binary files ' "$f"; then
+              reason="binary"
+            fi
+            if [ -n "$reason" ]; then
+              echo "$path ($reason)" >> .gemini-input/review-diff/excluded.txt
+              rm -f "$f"
+            else
+              echo "$path $(wc -c < "$f")" >> .gemini-input/review-diff/index.txt
+            fi
+          done
+
+      # 二段スクリーニング: 機械的変更だけを flash-lite に判定させ、レビュー対象を
+      # deep_review 分だけに絞る。判定基準は除外側に倒し、迷えば deep_review。
+      # 較正: skip 判定から run 単位で決定的に 1〜2 件を deep_review へ昇格し、
+      # skip 判定の妥当性を実測する（GITHUB_RUN_ID をシードにした md5sum+sort。
+      # self-hosted runner での `shuf --random-source` の可用性が未確認なため、
+      # より広く存在する md5sum の組み合わせで決定性を担保する）。
+      - name: Screen files for review depth
+        id: screen
+        if: steps.mode.outputs.kind == 'review'
+        env:
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
+        run: |
+          : > .gemini-input/review-diff/deep_review.txt
+          : > .gemini-input/review-diff/skipped.txt
+          : > .gemini-input/review-diff/calibration.txt
+
+          files=$(ls .gemini-input/review-diff/*.diff 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            exit 0
+          fi
+
+          payload=$(for f in $files; do
+            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
+            jq -n --arg path "$path" --rawfile diff "$f" '{path:$path, diff:$diff}'
+          done | jq -s .)
+
+          schema='{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"verdict":{"type":"string","enum":["deep_review","skip"]},"reason":{"type":"string"}},"required":["path","verdict","reason"]}}},"required":["files"]}'
+
+          prompt=$(jq -n --argjson files "$payload" '
+            "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
+            "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
+            "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
+            ($files | tostring)')
+
+          body=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
+            '{contents:[{parts:[{text:$prompt}]}],
+              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
+
+          resp=$(curl -sS \
+            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "$body" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+            || true)
+
+          verdicts=$(printf '%s' "$resp" \
+            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+            | jq -c '.files // empty' 2>/dev/null || true)
+
+          if [ -z "$verdicts" ] || [ "$verdicts" = "null" ]; then
+            echo "fail-open: lite 判定が失敗（応答不成立）したため全ファイルを deep_review とする" \
+              >> .gemini-input/review-diff/skipped.txt
+            for f in $files; do
+              awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p' \
+                >> .gemini-input/review-diff/deep_review.txt
+            done
+            exit 0
+          fi
+
+          echo "$verdicts" | jq -r '.[] | select(.verdict=="deep_review") | .path' \
+            >> .gemini-input/review-diff/deep_review.txt
+          echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | "\(.path) — \(.reason)"' \
+            >> .gemini-input/review-diff/skipped.txt
+
+          skip_paths=$(echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | .path')
+          skip_count=$(printf '%s\n' "$skip_paths" | grep -c . || true)
+          n=1
+          [ "$skip_count" -ge 3 ] && n=2
+          if [ "$skip_count" -gt 0 ]; then
+            promoted=$(printf '%s\n' "$skip_paths" | while IFS= read -r p; do
+              [ -n "$p" ] || continue
+              h=$(printf '%s:%s' "${GITHUB_RUN_ID}" "$p" | md5sum | awk '{print $1}')
+              echo "$h $p"
+            done | sort | head -n "$n" | awk '{print $2}')
+            printf '%s\n' "$promoted" >> .gemini-input/review-diff/deep_review.txt
+            printf '%s\n' "$promoted" >> .gemini-input/review-diff/calibration.txt
+          fi
 
       - name: Run Gemini review
         id: review
@@ -319,11 +512,27 @@ jobs:
             性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
             設計・可読性への実質的な指摘を優先する。
 
-            ${{ steps.model.outputs.large_diff == 'true' && '## 差分が大きい（120KB 超）\n\n get_diff で全文を一括取得しない。まず method="get" で概要とファイル一覧を確認し、ファイル単位で差分を読み進める。一度に全体を読もうとして入力トークン予算を使い切ると、このレビュー自体が完走できない。\n' || '' }}
+            ## 差分の読み方
+
+            `get_diff` で全文を一括取得しない。差分は事前に機械的な絞り込みと
+            二段スクリーニングを経て `.gemini-input/review-diff/` に用意してある。
+
+            - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
+              一覧（1 行 1 パス）。各ファイルの diff は
+              `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
+            - `.gemini-input/review-diff/excluded.txt` — ロックファイル・生成物/
+              フィクスチャ・バイナリとして機械的に除外したファイルと理由
+            - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
+              判定して精読対象から外したファイルと理由
+            - `.gemini-input/review-diff/calibration.txt` — skip 判定から較正のため
+              deep_review に昇格させたファイル（deep_review.txt にも含まれる）
+
             ## 手順
 
-            1. `mcp_github_pull_request_read` を method="get" と method="get_diff" で
-               呼び、概要と差分を取得する（差分が大きい場合は上記の分割方針に従う）
+            1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
+               だけを取得する（差分本体は上記のファイルから読む）
+            1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む。
+                取捨選択しない
             2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
                出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
             3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
@@ -363,6 +572,19 @@ jobs:
                ## 🔍 General Feedback
 
                - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+               ## 🙈 レビュー対象外（機械的変更）
+
+               `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
+               フィクスチャ・バイナリとして機械的に除外）と
+               `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
+               判定して精読対象から外した理由）を、ファイルごとの理由とともに
+               列挙する。どちらも 0 件なら「なし」と書く。
+
+               `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
+               較正のため deep_review に昇格済み。それらについては「これは較正
+               サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
+               このセクションに追記する
 
             ## 厳守する制約
 
@@ -405,6 +627,12 @@ jobs:
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # primary の失敗と同じ「分」の TPM/RPM 窓のまま下位モデルを叩くと、
+      # 同じ枯渇が即座に再発しうる。1 分待って別の窓に入れてから再試行する。
+      - name: Wait before the fallback model
+        if: steps.review_retry.outputs.run == 'true'
+        run: sleep 60
 
       - name: Run Gemini review (fallback model)
         id: review_fallback
@@ -451,18 +679,26 @@ jobs:
             性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
             設計・可読性への実質的な指摘を優先する。
 
-            ## 差分が大きい場合
+            ## 差分の読み方
 
-            get_diff で全文を一括取得しない。まず method="get" で概要とファイル
-            一覧を確認し、ファイル単位で差分を読み進める。一度に全体を読もうと
-            して入力トークン予算を使い切ると、このレビュー自体が完走できない。
-            この再実行は日次クォータ枯渇後の下位モデルによる再試行のため、
-            なおさら入力を絞ること。
+            `get_diff` で全文を一括取得しない。差分は事前の絞り込みで
+            `.gemini-input/review-diff/` に用意してある。この再実行は日次クォータ
+            枯渇後の下位モデルによる再試行のため、なおさら入力を絞ること。
+
+            - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
+              一覧（1 行 1 パス）。各ファイルの diff は
+              `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
+            - `.gemini-input/review-diff/excluded.txt` — 機械的に除外したファイルと理由
+            - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
+              判定して精読対象から外したファイルと理由
+            - `.gemini-input/review-diff/calibration.txt` — 較正のため deep_review に
+              昇格させたファイル
 
             ## 手順
 
-            1. `mcp_github_pull_request_read` を method="get" と method="get_diff" で
-               呼び、概要と差分を取得する（上記の分割方針に従う）
+            1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
+               だけを取得する（差分本体は上記のファイルから読む）
+            1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む
             2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
                出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
             3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
@@ -502,6 +738,19 @@ jobs:
                ## 🔍 General Feedback
 
                - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+               ## 🙈 レビュー対象外（機械的変更）
+
+               `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
+               フィクスチャ・バイナリとして機械的に除外）と
+               `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
+               判定して精読対象から外した理由）を、ファイルごとの理由とともに
+               列挙する。どちらも 0 件なら「なし」と書く。
+
+               `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
+               較正のため deep_review に昇格済み。それらについては「これは較正
+               サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
+               このセクションに追記する
 
             ## 厳守する制約
 
