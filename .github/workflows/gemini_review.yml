@@ -144,6 +144,38 @@ jobs:
               > .gemini-input/must-read.txt
           fi
 
+      # スキル資産（plugins/*/skills/ 配下、SKILL.md、agents|references|schemas 配下の md）
+      # に触れた PR では、レビュー観点に best-practices 照合を追加する。判定はここで
+      # 決定的に行い、prompt 側は判定結果を受け取るだけにする。
+      - name: Detect skill asset changes
+        id: skill_check
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          files=$(gh pr diff "${PR_NUMBER}" --name-only \
+            | grep -E '^plugins/[^/]+/skills/|(^|/)SKILL\.md$|(^|/)agents/[^/]+\.md$|(^|/)references/[^/]+\.md$|(^|/)schemas/[^/]+\.md$' \
+            || true)
+          if [ -n "$files" ]; then
+            echo "skill_touched=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "note<<SKILL_NOTE_EOF"
+              echo ""
+              echo "## 追加観点: スキル資産の best-practices 照合"
+              echo ""
+              echo "この PR は以下のスキル資産を変更している。リポジトリ内の正本"
+              echo "\`plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md\`"
+              echo "を read_file で読み、末尾の公開前チェックリスト（該当する場合は §11〜§14 も）と"
+              echo "照合すること。逸脱があれば該当項目名を挙げて指摘する。正本の規範文がそのまま"
+              echo "書き写されている箇所があれば、単一正本違反として指摘する。"
+              echo ""
+              echo "変更されたスキル資産:"
+              echo "$files" | sed 's/^/- /'
+              echo "SKILL_NOTE_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "skill_touched=false" >> "$GITHUB_OUTPUT"
+            echo "note=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Record the review start time
         id: review_start
         if: steps.mode.outputs.kind == 'review'
@@ -292,6 +324,7 @@ jobs:
 
             指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
             確認できなかったことは推測で埋めず、確認できていないと書く。
+            ${{ steps.skill_check.outputs.note }}
 
       # run-gemini-cli は MCP 呼び出しの失敗（review write エラー等）をステップの
       # 成否に反映しない。ここで実際にレビューが投稿されたかを GitHub 側の事実で

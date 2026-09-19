@@ -47,6 +47,7 @@
   寄せているか（500 行を大きく超えて肥大化していないか）。
 - スキル参照は SKILL.md から 1 階層で完結しているか（孫参照で情報が分断されて
   いないか）。
+- 詳細基準の正本は `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md` — スキル資産の diff ではそちらを読む。
 
 ### 6. コメントと後方互換
 
