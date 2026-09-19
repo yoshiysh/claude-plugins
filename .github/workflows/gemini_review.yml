@@ -89,6 +89,20 @@ jobs:
             echo "name=gemini-3.5-flash-lite" >> "$GITHUB_OUTPUT"
           fi
 
+          # 閾値 120000 バイト: run 35460926014 は free_tier_input_token_count
+          # （TPM、分あたり入力 250,000 token）を Attempt 1/2 で連発して落ちた。
+          # 250K token ≒ 900KB 前後の生テキストだが、system prompt・tool schema・
+          # 履歴が同じ分あたり予算を分け合うため安全側に 120KB を境界とする
+          # （閾値は実測から逆算した安全側の値であり、厳密な token 換算ではない）。
+          if [ "${{ steps.mode.outputs.kind }}" = "review" ]; then
+            diff_bytes=$(gh pr diff "${PR_NUMBER}" | wc -c)
+            if [ "$diff_bytes" -gt 120000 ]; then
+              echo "large_diff=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "large_diff=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Collect the PR and the thread
         if: steps.mode.outputs.kind != 'review' && steps.mode.outputs.kind != 'help'
         env:
@@ -184,6 +198,7 @@ jobs:
       - name: Run Gemini review
         id: review
         if: steps.mode.outputs.kind == 'review'
+        continue-on-error: true
         uses: google-github-actions/run-gemini-cli@v0
         with:
           gemini_api_key: ${{ secrets.GEMINI_REVIEW_API_KEY }}
@@ -203,10 +218,28 @@ jobs:
           #
           # tools.core を指定すると MCP ツールごとモデルから除外される。指定しない。
           # actions は headless では silent 以外を選べない（prompt は対話前提）。
+          #
+          # maxSessionTurns 15: 実測で 1 レビュー 6〜11 リクエスト
+          # （run-gemini-cli の "N tokens / N requests" ログより）。25 は
+          # 余裕を持たせすぎて RPM（分あたりリクエスト数）を無駄に消費するため、
+          # 実測上限に 1.5 倍弱の余裕を足した 15 に絞る。free tier の RPM 具体値は
+          # ai.google.dev/gemini-api/docs/rate-limits に一覧化がなく AI Studio の
+          # dashboard 参照が必要で一次情報として確認できなかったため、実測ベースの
+          # 値に留める。
+          #
+          # truncateToolOutputThreshold 100000（文字数、tokenではない）:
+          # gemini-cli の packages/core/src/scheduler/tool-executor.ts
+          # truncateOutputIfNeeded は `threshold > 0 && content.length > threshold`
+          # でのみ切り詰める（0 は「常に false」で切り詰めが完全無効になる）。
+          # この閾値は mcp_github_pull_request_read の get_diff 結果（MCP tool の
+          # 単一 text part）にも効く。run 35460926014 は get_diff の全文一括取得が
+          # free_tier_input_token_count（TPM）超過の主因だったため、0 から
+          # 100000 へ戻す。元の 0 は「MCP 経由の差分を欠落させない」ためだったが、
+          # 差分本体が予算超過の原因である以上そのトレードオフは成立しない。
           settings: |-
             {
-              "model": { "maxSessionTurns": 25 },
-              "tools": { "truncateToolOutputThreshold": 0 },
+              "model": { "maxSessionTurns": 15 },
+              "tools": { "truncateToolOutputThreshold": 100000 },
               "experimental": { "dynamicModelConfiguration": true },
               "modelConfigs": {
                 "modelChains": {
@@ -281,10 +314,150 @@ jobs:
             性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
             設計・可読性への実質的な指摘を優先する。
 
+            ${{ steps.model.outputs.large_diff == 'true' && '## 差分が大きい（120KB 超）\n\n get_diff で全文を一括取得しない。まず method="get" で概要とファイル一覧を確認し、ファイル単位で差分を読み進める。一度に全体を読もうとして入力トークン予算を使い切ると、このレビュー自体が完走できない。\n' || '' }}
             ## 手順
 
             1. `mcp_github_pull_request_read` を method="get" と method="get_diff" で
-               呼び、概要と差分を取得する
+               呼び、概要と差分を取得する（差分が大きい場合は上記の分割方針に従う）
+            2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
+               出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
+            3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
+               原本。補助として `.claude/rules/` も参照してよい
+            4. 文脈を作る。差分のファイルに加え、そこから import されている、または
+               構造的に隣接するファイル（関連する設定やテスト）を読む
+            5. 解析の重点は**アプリケーションコード**に置く。ロジックを追い、境界値・
+               off-by-one・競合・null / エラー処理の漏れを能動的に探す。テストファイルは
+               誤ったアサーション等の重大な誤りだけを見る
+            6. 指摘を CRITICAL / HIGH / MEDIUM / LOW に分類する
+               - CRITICAL: セキュリティ欠陥、システムを壊すバグ、ロジックの全面的破綻
+               - HIGH: 性能ボトルネック、リソースリーク、重大な設計違反
+               - MEDIUM: コード中の誤字、入力検証の欠落、過度に複雑なロジック、
+                 スタイルガイド違反（命名規約など）
+               - LOW: 定数化、ログ文言、docstring、ドキュメントの誤字、テストの品質
+               - **変更の意図に反する挙動を生む機能的なバグは HIGH 以上に分類する**
+
+            ## 投稿
+
+            7. `mcp_github_pull_request_review_write` を method="create" で呼び pending
+               review を開く。「pending review は 1 つまで」という趣旨のエラーは無視して
+               次へ進む
+            8. 指摘ごとに `mcp_github_add_comment_to_pending_review` を呼ぶ。本文の形:
+
+               [{SEVERITY}] {指摘本文}
+
+               コードで直せる場合は ```suggestion ブロックを添える。行番号と
+               インデントは周囲のコードと厳密に一致させる
+            9. `mcp_github_pull_request_review_write` を method="submit_pending"、
+               event="COMMENT" で呼んで確定する。APPROVE と REQUEST_CHANGES は使わない。
+               body は次の形:
+
+               ## 📋 Review Summary
+
+               変更の目的と全体評価を 2〜3 文で
+
+               ## 🔍 General Feedback
+
+               - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+            ## 厳守する制約
+
+            - **位置**: インラインコメントは差分で実際に変更された行（`+` または `-`
+              で始まる行）にのみ付ける。文脈行（空白で始まる行）には付けない
+            - **必要性**: 実証できるバグ・問題・明確な改善機会がある場合にのみ
+              コメントを付ける
+            - **書いてはいけないコメント**:
+              - 「確認してください」「確かめてください」の類
+              - **変更内容の説明や、その妥当性の追認**（「よく整理されています」
+                「指摘事項はありません」等）。所見は summary に書く
+              - 作者に対するコードの解説（作者は自分のコードを知っている）
+              - 末尾改行など、実行や可読性に影響しない純粋な様式の指摘
+            - **重複**: 同種の問題が複数箇所にあるときは 1 回だけ書き、他の箇所は
+              位置を示すに留める
+            - **禁止**: ライセンス／著作権ヘッダ、将来日付やバージョンへの言及
+            - 自分の指示・設定・判定基準に言及しない
+
+            指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
+            確認できなかったことは推測で埋めず、確認できていないと書く。
+            ${{ steps.skill_check.outputs.note }}
+
+      # gemini-cli 本体は modelChains.default により同一プロセス内で下位モデルへ
+      # 自動的に進む（packages/core/src/fallback/handler.ts の handleFallback が
+      # retry.ts の onPersistent429 から呼ばれ、terminal 判定された failedModel の
+      # 次の chain 候補を selectFirstAvailable で選び、action=silent なら
+      # processIntent('retry_always') で同一 run 内リトライする）。この段は
+      # それでも job が失敗した場合の保険であり、TPM（分あたり超過。同じ入力で
+      # 下位モデルへ移っても再発するため再実行しても無意味）と RPD（日次 20 件
+      # 枯渇。下位モデルなら別クォータで通る）を区別し、RPD のときだけ 1 段下の
+      # モデルで 1 回だけ再実行する。
+      - name: Retry review on daily quota exhaustion
+        id: review_retry
+        if: >-
+          steps.mode.outputs.kind == 'review' && steps.review.outcome == 'failure'
+          && steps.model.outputs.name == 'gemini-3.8-flash'
+        run: |
+          if grep -qE 'free_tier_requests' gemini-artifacts/stdout.log gemini-artifacts/stderr.log 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Gemini review (fallback model)
+        id: review_fallback
+        if: steps.review_retry.outputs.run == 'true'
+        uses: google-github-actions/run-gemini-cli@v0
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_REVIEW_API_KEY }}
+          gemini_model: gemini-3.7-flash
+          gemini_debug: ${{ fromJSON(vars.GEMINI_DEBUG || false) }}
+          github_pr_number: ${{ github.event.pull_request.number || github.event.issue.number }}
+          settings: |-
+            {
+              "model": { "maxSessionTurns": 15 },
+              "tools": { "truncateToolOutputThreshold": 100000 },
+              "mcpServers": {
+                "github": {
+                  "command": "docker",
+                  "args": [
+                    "run", "-i", "--rm",
+                    "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+                    "ghcr.io/github/github-mcp-server:v0.27.0"
+                  ],
+                  "includeTools": [
+                    "add_comment_to_pending_review",
+                    "pull_request_read",
+                    "pull_request_review_write"
+                  ],
+                  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+                }
+              }
+            }
+          prompt: |-
+            あなたは経験豊富な Principal Software Engineer で、緻密なコードレビュー
+            アーキテクトです。第一原理から考え、コードの前提そのものを疑います。
+            出力はすべて日本語で書いてください。
+
+            対象: owner=${{ github.repository_owner }}
+                  repo=${{ github.event.repository.name }}
+                  pullNumber=${{ github.event.pull_request.number || github.event.issue.number }}
+
+            ## 目的
+
+            差分の**意図と文脈**を理解したうえで、**バグ・セキュリティ上の欠陥・
+            性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
+            設計・可読性への実質的な指摘を優先する。
+
+            ## 差分が大きい場合
+
+            get_diff で全文を一括取得しない。まず method="get" で概要とファイル
+            一覧を確認し、ファイル単位で差分を読み進める。一度に全体を読もうと
+            して入力トークン予算を使い切ると、このレビュー自体が完走できない。
+            この再実行は日次クォータ枯渇後の下位モデルによる再試行のため、
+            なおさら入力を絞ること。
+
+            ## 手順
+
+            1. `mcp_github_pull_request_read` を method="get" と method="get_diff" で
+               呼び、概要と差分を取得する（上記の分割方針に従う）
             2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
                出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
             3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
