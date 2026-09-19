@@ -26,9 +26,9 @@ jobs:
                     github.event.comment.author_association) &&
            (github.event_name == 'pull_request_review_comment' ||
             github.event.issue.pull_request)) }}
-    # 元ワークフローは self-hosted だが、claude-plugins に self-hosted runner は無く
-    # public repo なので hosted runner で足りる。docker は ubuntu-latest に標準搭載。
-    runs-on: ubuntu-latest
+    # runner は tools/provision-gh-runner --repo yoshiysh/claude-plugins --target wsl:winbox
+    # で登録する（未登録の間は job が queue で待つ）。
+    runs-on: [self-hosted, linux]
     permissions:
       contents: write
       issues: write
