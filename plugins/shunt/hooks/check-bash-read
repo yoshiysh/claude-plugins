@@ -1,0 +1,63 @@
+#!/bin/bash
+# Block Bash commands that read large files, redirect to /bulk-reader skill
+# Catches cat/head/tail/less/more that bypass the Read hook
+#
+# Fork note: the structural guards below (empty command, pipes, redirects,
+# non-read commands, missing files) are kept verbatim from upstream — they are
+# deterministic and cheap, and code decides what code can decide. Only the
+# final judgment ("is this particular read worth delegating?") moves from a
+# bare line-count comparison to a typed model decision (shunt_decide), because
+# line count is a proxy: it misfires on minified files and says nothing about
+# whether the read is a bulk ingest or a legitimate direct read. Small files
+# stay allow without a model call, so the added latency is only paid on reads
+# upstream would have blocked anyway. If the model cannot be consulted, the
+# hook falls back to the upstream line rule and says so in the reason — a
+# missing judgment is reported, never silently converted into one.
+
+MIN_LINES="${SHUNT_MIN_LINES:-350}"
+case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
+
+input=$(cat)
+
+command=$(echo "$input" | jq -r '.tool_input.command // empty')
+[ -z "$command" ] && { echo '{"decision": "allow"}'; exit 0; }
+
+# Skip piped commands (cat file | grep) — those are targeted reads
+echo "$command" | grep -qE '\|' && { echo '{"decision": "allow"}'; exit 0; }
+
+# Skip redirections (cat file > out) — not a read-into-context operation
+echo "$command" | grep -qE '>' && { echo '{"decision": "allow"}'; exit 0; }
+
+# Extract file path from read commands, stripping flags (e.g. cat -n, head -100)
+file_path=""
+if echo "$command" | grep -qE '^(cat|head|tail|less|more) '; then
+  # Remove the command name, then strip any flags (-n, -100, --number, etc.)
+  args=$(echo "$command" | sed -E 's/^(cat|head|tail|less|more) +//')
+  for arg in $args; do
+    case "$arg" in
+      -*) continue ;;
+      *)  file_path=$(echo "$arg" | tr -d '"'"'"); break ;;
+    esac
+  done
+fi
+
+[ -z "$file_path" ] && { echo '{"decision": "allow"}'; exit 0; }
+[ ! -f "$file_path" ] && { echo '{"decision": "allow"}'; exit 0; }
+
+lines=$(wc -l < "$file_path" 2>/dev/null | tr -d ' ' || echo "0")
+if [ "$lines" -le "$MIN_LINES" ]; then
+  echo '{"decision": "allow"}'
+  exit 0
+fi
+
+. "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
+
+if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines"); then
+  if [ "$verdict" = "allow" ]; then
+    echo '{"decision": "allow"}'
+  else
+    echo "{\"decision\": \"block\", \"reason\": \"Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of cat/head/tail. If you need exact content for editing, re-read just the section you need.\"}"
+  fi
+else
+  echo "{\"decision\": \"block\", \"reason\": \"File is ${lines} lines (threshold: ${MIN_LINES}); model gate unavailable, so this is the fallback line rule. Use the /bulk-reader skill to delegate this read instead of cat/head/tail.\"}"
+fi
