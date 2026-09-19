@@ -406,6 +406,12 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # primary の失敗と同じ「分」の TPM/RPM 窓のまま下位モデルを叩くと、
+      # 同じ枯渇が即座に再発しうる。1 分待って別の窓に入れてから再試行する。
+      - name: Wait before the fallback model
+        if: steps.review_retry.outputs.run == 'true'
+        run: sleep 60
+
       - name: Run Gemini review (fallback model)
         id: review_fallback
         if: steps.review_retry.outputs.run == 'true'
