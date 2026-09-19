@@ -159,36 +159,110 @@ jobs:
           fi
 
       # スキル資産（plugins/*/skills/ 配下、SKILL.md、agents|references|schemas 配下の md）
-      # に触れた PR では、レビュー観点に best-practices 照合を追加する。判定はここで
-      # 決定的に行い、prompt 側は判定結果を受け取るだけにする。
+      # に触れた PR では、正本 best-practices.md の関連箇所を flash-lite に「行範囲だけ」
+      # 選ばせ、逐語で抽出して prompt へ注入する（規範文の生成・要約はさせない）。
+      # 選択が得られない場合は全文 Read へ fail-open する。公開前チェックリストは
+      # 選択対象にせず常に逐語で含める（見出しの行範囲は grep で動的に特定する —
+      # ハードコードすると正本の編集で狂う）。
       - name: Detect skill asset changes
         id: skill_check
         if: steps.mode.outputs.kind == 'review'
+        env:
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
         run: |
+          BP=plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md
           files=$(gh pr diff "${PR_NUMBER}" --name-only \
             | grep -E '^plugins/[^/]+/skills/|(^|/)SKILL\.md$|(^|/)agents/[^/]+\.md$|(^|/)references/[^/]+\.md$|(^|/)schemas/[^/]+\.md$' \
             || true)
-          if [ -n "$files" ]; then
-            echo "skill_touched=true" >> "$GITHUB_OUTPUT"
-            {
-              echo "note<<SKILL_NOTE_EOF"
-              echo ""
-              echo "## 追加観点: スキル資産の best-practices 照合"
-              echo ""
-              echo "この PR は以下のスキル資産を変更している。リポジトリ内の正本"
-              echo "\`plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md\`"
-              echo "を read_file で読み、末尾の公開前チェックリスト（該当する場合は §11〜§14 も）と"
-              echo "照合すること。逸脱があれば該当項目名を挙げて指摘する。正本の規範文がそのまま"
-              echo "書き写されている箇所があれば、単一正本違反として指摘する。"
-              echo ""
-              echo "変更されたスキル資産:"
-              echo "$files" | sed 's/^/- /'
-              echo "SKILL_NOTE_EOF"
-            } >> "$GITHUB_OUTPUT"
-          else
+
+          if [ -z "$files" ]; then
             echo "skill_touched=false" >> "$GITHUB_OUTPUT"
             echo "note=" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          echo "skill_touched=true" >> "$GITHUB_OUTPUT"
+          mkdir -p .gemini-input
+          numbered=$(cat -n "$BP")
+
+          schema='{"type":"object","properties":{"selections":{"type":"array","items":{"type":"object","properties":{"section":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"why_applicable":{"type":"string"}},"required":["section","start_line","end_line","why_applicable"]}}},"required":["selections"]}'
+
+          prompt=$(jq -n --arg files "$files" --arg body "$numbered" '
+            "変更されたスキルファイル:\n" + $files + "\n\n" +
+            "正本 best-practices.md（cat -n 形式、行番号付き）:\n" + $body + "\n\n" +
+            "変更内容に照らして関連する節を選び、行範囲を返せ。規範文そのものを" +
+            "生成・要約するな。行範囲の選択のみ行うこと。"')
+
+          req=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
+            '{contents:[{parts:[{text:$prompt}]}],
+              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
+
+          resp=$(curl -sS \
+            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "$req" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+            || true)
+
+          selections=$(printf '%s' "$resp" \
+            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+            | jq -c '.selections // empty' 2>/dev/null || true)
+
+          out=.gemini-input/best-practices-excerpts.txt
+          : > "$out"
+          fail_open=false
+          if [ -z "$selections" ] || [ "$selections" = "null" ] || [ "$selections" = "[]" ]; then
+            fail_open=true
+            echo "fail-open: flash-lite の逐語抽出選択が不成立だったため、正本の全文を read_file で読むこと。" >> "$out"
+          else
+            echo "$selections" | jq -c '.[]' | while IFS= read -r sel; do
+              section=$(printf '%s' "$sel" | jq -r '.section')
+              start=$(printf '%s' "$sel" | jq -r '.start_line')
+              end=$(printf '%s' "$sel" | jq -r '.end_line')
+              {
+                echo "[${section} ${start}-${end}]"
+                sed -n "${start},${end}p" "$BP"
+                echo ""
+              } >> "$out"
+            done
+          fi
+
+          heading_line=$(grep -n '^## 10\. チェックリスト' "$BP" | cut -d: -f1)
+          if [ -n "$heading_line" ]; then
+            next_line=$(awk -v s="$heading_line" 'NR>s && /^## /{print NR; exit}' "$BP")
+            if [ -n "$next_line" ]; then
+              end_line=$((next_line - 1))
+            else
+              end_line=$(wc -l < "$BP")
+            fi
+            {
+              echo "[公開前チェックリスト ${heading_line}-${end_line}]"
+              sed -n "${heading_line},${end_line}p" "$BP"
+            } >> "$out"
+          fi
+
+          {
+            echo "note<<SKILL_NOTE_EOF"
+            echo ""
+            echo "## 追加観点: スキル資産の best-practices 照合"
+            echo ""
+            echo "この PR は以下のスキル資産を変更している:"
+            echo "$files" | sed 's/^/- /'
+            echo ""
+            echo "正本: \`$BP\`。抜粋に無い観点を疑うときはここを読め。"
+            echo ""
+            if [ "$fail_open" = "true" ]; then
+              echo "逐語抽出に失敗したため、正本を read_file で全文読んで照合すること。"
+            else
+              echo "[BEST_PRACTICES_EXCERPTS] は正本からの逐語抜粋。これと照合して逸脱が"
+              echo "あれば該当項目名を挙げて指摘する。正本の規範文がそのまま書き写されている"
+              echo "箇所があれば、単一正本違反として指摘する。"
+            fi
+            echo ""
+            echo "[BEST_PRACTICES_EXCERPTS]"
+            cat "$out"
+            echo "SKILL_NOTE_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Record the review start time
         id: review_start
