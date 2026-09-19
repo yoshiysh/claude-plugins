@@ -121,6 +121,17 @@ plugins/
   誤りを構造（正本参照・script による配達・型/スキーマ検査）で不可能にできるなら構造を
   直し、防御コメントはその後で削除する。構造で防げず注意書きだけが唯一のガードになる
   場合のみ、why-driven の 1 行として残す。
+- fan-out する workflow は agent ごとにモデルと effort を明示指定する。`opts.model` 等を
+  省略した場合の既定はセッションモデルの継承であり、継承 = 最上位モデル × 体数分の消費に
+  なる。enum 判定・機械的照合のような役割は小さいモデル + 低 effort で足り、最上位モデルは
+  司令塔と統合判断だけに使う。さらに、多数の agent が同じコーパスを読む workflow では各体に
+  冷読みさせない — 抽出役 1 体が行番号つき evidence pack を 1 回作って各体へ配り、各体は
+  引用行のピンポイント再読だけ行う。共有部分は prompt の先頭に置いて prefix を揃え、
+  プロンプトキャッシュを効かせる（実測: `opts.model` を省略した ad-hoc 監査 workflow は
+  60 agent 全てが Fable 5 を継承し、同じ 10 ファイルを冷読みして cache 生成入力 9.3M
+  token・cache 読み 28M token を消費し、5 時間のレート制限窓を約 3 分で使い切った。一方
+  claude-plugins 配布の skill-creator scripts は反証役を claude-sonnet-5 に固定しており
+  問題を起こしていない）。
 
 ## 検証
 
