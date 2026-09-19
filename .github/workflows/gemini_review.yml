@@ -195,6 +195,125 @@ jobs:
         if: steps.mode.outputs.kind == 'review'
         run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # レビュー対象を機械的に絞る。除外はロックファイル・生成物/フィクスチャ・
+      # バイナリに限定し、黙って消さず理由付きで prompt へ転記させる
+      # （欠測を成功に変換しない）。
+      - name: Build the filtered diff for review
+        id: filtered_diff
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          mkdir -p .gemini-input/review-diff
+          gh pr diff "${PR_NUMBER}" > "${RUNNER_TEMP}/review-pr.diff"
+          awk -v outdir=.gemini-input/review-diff '
+            /^diff --git /{ name=$4; sub(/^b\//,"",name); gsub("/","__",name);
+                            f=outdir "/" name ".diff" }
+            f { print > f }
+          ' "${RUNNER_TEMP}/review-pr.diff"
+
+          # ロックファイル: 依存解決の機械的出力で、ロジックのレビューに寄与しない。
+          lockfile_pattern='(^|/)(.*\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|uv\.lock)$'
+          # 生成物・フィクスチャ: テスト用の固定データで、変更の意図を反映しない。
+          generated_pattern='(^|/)fixtures/|(^|/)evals/\.fixtures/|\.snap$'
+
+          : > .gemini-input/review-diff/excluded.txt
+          : > .gemini-input/review-diff/index.txt
+          for f in .gemini-input/review-diff/*.diff; do
+            [ -e "$f" ] || continue
+            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
+            reason=""
+            if printf '%s' "$path" | grep -qE "$lockfile_pattern"; then
+              reason="lockfile"
+            elif printf '%s' "$path" | grep -qE "$generated_pattern"; then
+              reason="generated/fixture"
+            elif grep -q '^Binary files ' "$f"; then
+              reason="binary"
+            fi
+            if [ -n "$reason" ]; then
+              echo "$path ($reason)" >> .gemini-input/review-diff/excluded.txt
+              rm -f "$f"
+            else
+              echo "$path $(wc -c < "$f")" >> .gemini-input/review-diff/index.txt
+            fi
+          done
+
+      # 二段スクリーニング: 機械的変更だけを flash-lite に判定させ、レビュー対象を
+      # deep_review 分だけに絞る。判定基準は除外側に倒し、迷えば deep_review。
+      # 較正: skip 判定から run 単位で決定的に 1〜2 件を deep_review へ昇格し、
+      # skip 判定の妥当性を実測する（GITHUB_RUN_ID をシードにした md5sum+sort。
+      # self-hosted runner での `shuf --random-source` の可用性が未確認なため、
+      # より広く存在する md5sum の組み合わせで決定性を担保する）。
+      - name: Screen files for review depth
+        id: screen
+        if: steps.mode.outputs.kind == 'review'
+        env:
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
+        run: |
+          : > .gemini-input/review-diff/deep_review.txt
+          : > .gemini-input/review-diff/skipped.txt
+          : > .gemini-input/review-diff/calibration.txt
+
+          files=$(ls .gemini-input/review-diff/*.diff 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            exit 0
+          fi
+
+          payload=$(for f in $files; do
+            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
+            jq -n --arg path "$path" --rawfile diff "$f" '{path:$path, diff:$diff}'
+          done | jq -s .)
+
+          schema='{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"verdict":{"type":"string","enum":["deep_review","skip"]},"reason":{"type":"string"}},"required":["path","verdict","reason"]}}},"required":["files"]}'
+
+          prompt=$(jq -n --argjson files "$payload" '
+            "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
+            "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
+            "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
+            ($files | tostring)')
+
+          body=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
+            '{contents:[{parts:[{text:$prompt}]}],
+              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
+
+          resp=$(curl -sS \
+            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "$body" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+            || true)
+
+          verdicts=$(printf '%s' "$resp" \
+            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+            | jq -c '.files // empty' 2>/dev/null || true)
+
+          if [ -z "$verdicts" ] || [ "$verdicts" = "null" ]; then
+            echo "fail-open: lite 判定が失敗（応答不成立）したため全ファイルを deep_review とする" \
+              >> .gemini-input/review-diff/skipped.txt
+            for f in $files; do
+              awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p' \
+                >> .gemini-input/review-diff/deep_review.txt
+            done
+            exit 0
+          fi
+
+          echo "$verdicts" | jq -r '.[] | select(.verdict=="deep_review") | .path' \
+            >> .gemini-input/review-diff/deep_review.txt
+          echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | "\(.path) — \(.reason)"' \
+            >> .gemini-input/review-diff/skipped.txt
+
+          skip_paths=$(echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | .path')
+          skip_count=$(printf '%s\n' "$skip_paths" | grep -c . || true)
+          n=1
+          [ "$skip_count" -ge 3 ] && n=2
+          if [ "$skip_count" -gt 0 ]; then
+            promoted=$(printf '%s\n' "$skip_paths" | while IFS= read -r p; do
+              [ -n "$p" ] || continue
+              h=$(printf '%s:%s' "${GITHUB_RUN_ID}" "$p" | md5sum | awk '{print $1}')
+              echo "$h $p"
+            done | sort | head -n "$n" | awk '{print $2}')
+            printf '%s\n' "$promoted" >> .gemini-input/review-diff/deep_review.txt
+            printf '%s\n' "$promoted" >> .gemini-input/review-diff/calibration.txt
+          fi
+
       - name: Run Gemini review
         id: review
         if: steps.mode.outputs.kind == 'review'
@@ -319,11 +438,27 @@ jobs:
             性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
             設計・可読性への実質的な指摘を優先する。
 
-            ${{ steps.model.outputs.large_diff == 'true' && '## 差分が大きい（120KB 超）\n\n get_diff で全文を一括取得しない。まず method="get" で概要とファイル一覧を確認し、ファイル単位で差分を読み進める。一度に全体を読もうとして入力トークン予算を使い切ると、このレビュー自体が完走できない。\n' || '' }}
+            ## 差分の読み方
+
+            `get_diff` で全文を一括取得しない。差分は事前に機械的な絞り込みと
+            二段スクリーニングを経て `.gemini-input/review-diff/` に用意してある。
+
+            - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
+              一覧（1 行 1 パス）。各ファイルの diff は
+              `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
+            - `.gemini-input/review-diff/excluded.txt` — ロックファイル・生成物/
+              フィクスチャ・バイナリとして機械的に除外したファイルと理由
+            - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
+              判定して精読対象から外したファイルと理由
+            - `.gemini-input/review-diff/calibration.txt` — skip 判定から較正のため
+              deep_review に昇格させたファイル（deep_review.txt にも含まれる）
+
             ## 手順
 
-            1. `mcp_github_pull_request_read` を method="get" と method="get_diff" で
-               呼び、概要と差分を取得する（差分が大きい場合は上記の分割方針に従う）
+            1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
+               だけを取得する（差分本体は上記のファイルから読む）
+            1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む。
+                取捨選択しない
             2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
                出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
             3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
@@ -363,6 +498,19 @@ jobs:
                ## 🔍 General Feedback
 
                - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+               ## 🙈 レビュー対象外（機械的変更）
+
+               `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
+               フィクスチャ・バイナリとして機械的に除外）と
+               `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
+               判定して精読対象から外した理由）を、ファイルごとの理由とともに
+               列挙する。どちらも 0 件なら「なし」と書く。
+
+               `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
+               較正のため deep_review に昇格済み。それらについては「これは較正
+               サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
+               このセクションに追記する
 
             ## 厳守する制約
 
@@ -457,18 +605,26 @@ jobs:
             性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
             設計・可読性への実質的な指摘を優先する。
 
-            ## 差分が大きい場合
+            ## 差分の読み方
 
-            get_diff で全文を一括取得しない。まず method="get" で概要とファイル
-            一覧を確認し、ファイル単位で差分を読み進める。一度に全体を読もうと
-            して入力トークン予算を使い切ると、このレビュー自体が完走できない。
-            この再実行は日次クォータ枯渇後の下位モデルによる再試行のため、
-            なおさら入力を絞ること。
+            `get_diff` で全文を一括取得しない。差分は事前の絞り込みで
+            `.gemini-input/review-diff/` に用意してある。この再実行は日次クォータ
+            枯渇後の下位モデルによる再試行のため、なおさら入力を絞ること。
+
+            - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
+              一覧（1 行 1 パス）。各ファイルの diff は
+              `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
+            - `.gemini-input/review-diff/excluded.txt` — 機械的に除外したファイルと理由
+            - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
+              判定して精読対象から外したファイルと理由
+            - `.gemini-input/review-diff/calibration.txt` — 較正のため deep_review に
+              昇格させたファイル
 
             ## 手順
 
-            1. `mcp_github_pull_request_read` を method="get" と method="get_diff" で
-               呼び、概要と差分を取得する（上記の分割方針に従う）
+            1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
+               だけを取得する（差分本体は上記のファイルから読む）
+            1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む
             2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
                出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
             3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
@@ -508,6 +664,19 @@ jobs:
                ## 🔍 General Feedback
 
                - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+               ## 🙈 レビュー対象外（機械的変更）
+
+               `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
+               フィクスチャ・バイナリとして機械的に除外）と
+               `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
+               判定して精読対象から外した理由）を、ファイルごとの理由とともに
+               列挙する。どちらも 0 件なら「なし」と書く。
+
+               `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
+               較正のため deep_review に昇格済み。それらについては「これは較正
+               サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
+               このセクションに追記する
 
             ## 厳守する制約
 
