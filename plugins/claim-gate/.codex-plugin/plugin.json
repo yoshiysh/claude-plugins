@@ -1,6 +1,6 @@
 {
     "name": "claim-gate",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "不在・網羅型の断定に検証の裏付けか手段スコープが無ければ排出前に差し戻す Stop hook ゲート",
     "author": {
         "name": "yoshiysh"
