@@ -84,7 +84,7 @@ jobs:
         run: |
           if [ "${{ steps.mode.outputs.kind }}" = "review" ] \
              && gh pr diff "${PR_NUMBER}" --name-only | grep -qE '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$'; then
-            echo "name=gemini-3.6-flash" >> "$GITHUB_OUTPUT"
+            echo "name=gemini-3.8-flash" >> "$GITHUB_OUTPUT"
           else
             echo "name=gemini-3.5-flash-lite" >> "$GITHUB_OUTPUT"
           fi
@@ -190,6 +190,13 @@ jobs:
           gemini_model: ${{ steps.model.outputs.name }}
           gemini_debug: ${{ fromJSON(vars.GEMINI_DEBUG || false) }}
           github_pr_number: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # modelDefinitions が無いと gemini-cli は 3.6/3.7/3.8-flash や 3.5-flash-lite を
+          # 「Gemini 3 系」と認識できず（models.ts の isGemini3Model は
+          # dynamicModelConfiguration 有効時、modelConfigService の modelDefinitions が
+          # 持つ family=="gemini-3" でしか判定しない。defaultModelConfigs.ts の既定表には
+          # これらの新しいモデル名が無い）、modelChains.default ごと無視されて単一モデル
+          # chain に落ちる。実測でも TerminalQuotaError（日次枯渇）時に下位モデルへ進まず
+          # job が失敗したため、下の modelConfigs.modelDefinitions で明示している。
           # MCP サーバは https://github.com/github/github-mcp-server
           # v1.8.0 は gemini-cli がツールを discover できない（実測 0 件）ので v0.27.0 で固定する。
           # ツール名は mcp_{serverName}_{toolName} の FQN になる。素の名前では解決されない。
@@ -205,14 +212,21 @@ jobs:
                 "modelChains": {
                   "default": [
                     {
-                      "model": "gemini-3.6-flash",
+                      "model": "gemini-3.8-flash",
                       "actions": { "terminal": "silent", "transient": "silent",
                                    "not_found": "silent", "unknown": "silent" },
                       "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
                                             "not_found": "terminal", "unknown": "terminal" }
                     },
                     {
-                      "model": "gemini-3.5-flash",
+                      "model": "gemini-3.7-flash",
+                      "actions": { "terminal": "silent", "transient": "silent",
+                                   "not_found": "silent", "unknown": "silent" },
+                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
+                                            "not_found": "terminal", "unknown": "terminal" }
+                    },
+                    {
+                      "model": "gemini-3.6-flash",
                       "actions": { "terminal": "silent", "transient": "silent",
                                    "not_found": "silent", "unknown": "silent" },
                       "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
@@ -227,6 +241,12 @@ jobs:
                                             "not_found": "terminal", "unknown": "terminal" }
                     }
                   ]
+                },
+                "modelDefinitions": {
+                  "gemini-3.8-flash": { "family": "gemini-3" },
+                  "gemini-3.7-flash": { "family": "gemini-3" },
+                  "gemini-3.6-flash": { "family": "gemini-3" },
+                  "gemini-3.5-flash-lite": { "family": "gemini-3" }
                 }
               },
               "mcpServers": {
