@@ -31,14 +31,23 @@ echo "$command" | grep -qE '>' && { echo '{"decision": "allow"}'; exit 0; }
 # Extract file path from read commands, stripping flags (e.g. cat -n, head -100)
 file_path=""
 if echo "$command" | grep -qE '^(cat|head|tail|less|more) '; then
-  # Remove the command name, then strip any flags (-n, -100, --number, etc.)
+  # Remove the command name, then strip any flags (-n, -100, --number, etc.).
+  # Tokenizing with plain `for arg in $args` word-splits on every space,
+  # which breaks a quoted path containing a space (`cat "dir name/file.txt"`)
+  # into two bogus tokens ("dir and name/file.txt") — the lookup then misses
+  # the real file and silently falls through to allow. `xargs -n1` performs
+  # shell-style quote-aware splitting (one token per line, quotes consumed)
+  # without evaluating the text, so a quoted path with an embedded space
+  # comes out as a single token while staying inert against command
+  # substitution or glob expansion.
   args=$(echo "$command" | sed -E 's/^(cat|head|tail|less|more) +//')
-  for arg in $args; do
+  while IFS= read -r arg; do
+    [ -z "$arg" ] && continue
     case "$arg" in
       -*) continue ;;
-      *)  file_path=$(echo "$arg" | tr -d '"'"'"); break ;;
+      *)  file_path="$arg"; break ;;
     esac
-  done
+  done < <(printf '%s' "$args" | xargs -n1 2>/dev/null)
 fi
 
 [ -z "$file_path" ] && { echo '{"decision": "allow"}'; exit 0; }
@@ -52,7 +61,7 @@ fi
 
 . "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
 
-if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines"); then
+if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines" "$MIN_LINES"); then
   if [ "$verdict" = "allow" ]; then
     echo '{"decision": "allow"}'
   else

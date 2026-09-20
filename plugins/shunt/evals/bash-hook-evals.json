@@ -137,6 +137,14 @@
       "fixture": null,
       "expected_decision": "allow",
       "reason": "Parser bug: -n and 5 are separate args, 5 is treated as file path — file '5' won't exist so allow"
+    },
+    {
+      "id": 18,
+      "name": "cat-quoted-path-with-space",
+      "input": { "tool_input": { "command": "cat \"{{FIXTURES}}/dir name/large.txt\"" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "Quoted path containing a space — word-split-on-space parsing must not break this into two bogus tokens and fall through to allow"
     }
   ]
 }

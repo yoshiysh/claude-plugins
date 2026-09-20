@@ -36,10 +36,17 @@ def fixture_path(lines: int) -> str:
 
 
 def make_named_fixtures():
-    """bash-hook-evals はコマンド文字列内の {{FIXTURES}}/large.txt 等を名前で参照する。"""
+    """bash-hook-evals はコマンド文字列内の {{FIXTURES}}/large.txt 等を名前で参照する。
+
+    "dir name/large.txt" はスペース入りパスの word-split バグ（check-bash-read
+    の quoted-path 引数パース）の回帰用フィクスチャ — サブディレクトリ名自体に
+    スペースを含める。
+    """
     os.makedirs(FIXTURES, exist_ok=True)
-    for name, lines in (("large.txt", 800), ("small.txt", 100), ("medium.txt", 250), ("over.txt", 351)):
+    for name, lines in (("large.txt", 800), ("small.txt", 100), ("medium.txt", 250), ("over.txt", 351),
+                        ("dir name/large.txt", 800)):
         p = os.path.join(FIXTURES, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
         with open(p, "w") as f:
             f.write("".join(f"line {i}\n" for i in range(1, lines + 1)))
 

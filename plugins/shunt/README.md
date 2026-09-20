@@ -7,7 +7,7 @@ A Claude Code plugin that shunts I/O-heavy work to a cheaper worker model, savin
 > 1. **Transport**: the AiKA / Portal CLI backend is replaced by the AI Studio Gemini API (`scripts/lib/gemini.sh`). Auth is one env var: `CLAUDE_PLUGINS_GEMINI_API_KEY`. No Portal deployment needed.
 > 2. **Routing**: the hooks keep upstream's deterministic guards verbatim, but the final "block iff > 350 lines" judgment becomes a typed model decision (enum `allow|block` via `responseSchema`, prompt frozen in `scripts/lib/decide-prompt.txt`). Line count is a proxy — `head file` reads 10 lines whatever the file's size. When the model can't be consulted, the hook falls back to the upstream line rule and says so in its reason.
 >
-> Measured on the upstream hook eval corpus, 34 cases across both hooks (`evals/run_regression.py` → `evals/regression.md`): 28/34 identical, 6 divergences — 3 on the `check-bash-read` side (`head`/`tail` cases upstream blocked on file size alone) and 3 on the `check-file-size` side (threshold-boundary and `SHUNT_MIN_LINES` env-override cases). Model-gate latency ≈1.2s per consulted read (only paid on files over the small-file threshold); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
+> Measured on the upstream hook eval corpus, 35 cases across both hooks (`evals/run_regression.py` → `evals/regression.md`): 35/35 identical. The gate prompt now passes the operator-configured `SHUNT_MIN_LINES` threshold as context (`{{MIN_LINES}}` in `decide-prompt.txt`), which resolved the divergences from an earlier measurement where the model judged bulk-vs-targeted without knowing what threshold the operator had set. Model-gate latency ≈1.2-1.4s per consulted read (only paid on files over the small-file threshold); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
 
 ## How it works
 
@@ -53,7 +53,7 @@ shunt/
 └── evals/
     ├── run_regression.py     # Runs both hooks against the upstream eval corpus, writes regression.json/.md
     ├── hook-evals.json       # Read hook test cases (17)
-    ├── bash-hook-evals.json  # Bash hook test cases (17)
+    ├── bash-hook-evals.json  # Bash hook test cases (18)
     ├── regression.json       # Latest run_regression.py output (machine-readable)
     ├── regression.md         # Latest run_regression.py output (table + diffs)
     ├── evals.json            # End-to-end skill test cases (3)
@@ -143,7 +143,7 @@ The plugin is designed to know when NOT to delegate:
 python3 evals/run_regression.py
 ```
 
-This runs both hooks (`check-bash-read`, `check-file-size`) against the upstream 17+17-case eval
+This runs both hooks (`check-bash-read`, `check-file-size`) against the upstream 18+17-case eval
 corpus and writes `evals/regression.json` (machine-readable) and `evals/regression.md` (table +
 diff list), classifying each case as resolved by `model` (proven via `SHUNT_TRACE_FILE`), `code`
 (a deterministic guard short-circuited before the model), or `fallback` (the model could not be
