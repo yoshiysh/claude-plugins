@@ -36,6 +36,10 @@
         {
             "name": "claim-gate",
             "source": "./plugins/claim-gate"
+        },
+        {
+            "name": "ooda",
+            "source": "./.agents/skills/ooda"
         }
     ]
 }
