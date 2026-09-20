@@ -1,6 +1,6 @@
 ---
 name: bulk-reader
-description: "Delegate bulk file reading to the Gemini worker. Use when you need to read files >350 lines, answer questions across 3+ files, or summarize large diffs."
+description: "Delegates bulk file reading to the Gemini worker. Use when you need to read files >350 lines, answer questions across 3+ files, or summarize large diffs."
 ---
 
 ```bash
