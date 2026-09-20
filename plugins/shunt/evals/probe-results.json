@@ -1,0 +1,56 @@
+{
+ "gemma-4-26b-a4b-it": {
+  "A_schema_enum": {
+   "status": 200,
+   "ms": 1140,
+   "text": "{\"decision\": \"allow\"}",
+   "finish": "STOP"
+  },
+  "B_single_token": {
+   "status": 200,
+   "ms": 911,
+   "text": "The",
+   "finish": "MAX_TOKENS"
+  },
+  "C_logprobs": {
+   "status": 400,
+   "error": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Logprobs is not enabled for this model\",\n    \"status\": \"INVALID_ARGUMENT\"\n  }\n}\n"
+  }
+ },
+ "gemma-4-31b-it": {
+  "A_schema_enum": {
+   "status": 200,
+   "ms": 21504,
+   "text": "{\n  \"decision\": \"block",
+   "finish": "MAX_TOKENS"
+  },
+  "B_single_token": {
+   "status": 200,
+   "ms": 20555,
+   "text": "*",
+   "finish": "MAX_TOKENS"
+  },
+  "C_logprobs": {
+   "status": 400,
+   "error": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Logprobs is not enabled for this model\",\n    \"status\": \"INVALID_ARGUMENT\"\n  }\n}\n"
+  }
+ },
+ "gemini-3.5-flash-lite": {
+  "A_schema_enum": {
+   "status": 200,
+   "ms": 853,
+   "text": "Here is",
+   "finish": "MAX_TOKENS"
+  },
+  "B_single_token": {
+   "status": 200,
+   "ms": 591,
+   "text": "",
+   "finish": "MAX_TOKENS"
+  },
+  "C_logprobs": {
+   "status": 400,
+   "error": "{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"Logprobs is not enabled for this model\",\n    \"status\": \"INVALID_ARGUMENT\"\n  }\n}\n"
+  }
+ }
+}
