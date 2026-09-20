@@ -608,14 +608,18 @@ jobs:
             ${{ steps.skill_check.outputs.note }}
 
       # gemini-cli 本体は modelChains.default により同一プロセス内で下位モデルへ
-      # 自動的に進む（packages/core/src/fallback/handler.ts の handleFallback が
-      # retry.ts の onPersistent429 から呼ばれ、terminal 判定された failedModel の
-      # 次の chain 候補を selectFirstAvailable で選び、action=silent なら
-      # processIntent('retry_always') で同一 run 内リトライする）。この段は
-      # それでも job が失敗した場合の保険であり、TPM（分あたり超過。同じ入力で
-      # 下位モデルへ移っても再発するため再実行しても無意味）と RPD（日次 20 件
-      # 枯渇。下位モデルなら別クォータで通る）を区別し、RPD のときだけ 1 段下の
-      # モデルで 1 回だけ再実行する。
+      # 自動的に進む（packages/core/src/availability/policyHelpers.ts の
+      # resolvePolicyChain。ただし custom modelChains は
+      # experimental.dynamicModelConfiguration が true の run でしか読まれず
+      # （同ファイル L83 の分岐、false だと legacy path が policyCatalog.ts の
+      # 固定 chain に落ちて custom chain を無視する）、上の primary step は
+      # それを満たしている。この段はそれでも 4 段の chain 全体が尽きた場合の
+      # 保険で、chain を 2 段目（3.7-flash）から再走し、3.6 → lite（isLastResort）
+      # まで降格できるようにする。lite は fallback の開始モデルではなく chain の
+      # 終端として置くことで、lite 単体でも枯渇したときの取りこぼしを防ぐ。
+      # TPM（分あたり超過。同じ入力で下位モデルへ移っても再発するため再実行
+      # しても無意味）と RPD（日次 20 件枯渇。別モデルなら別クォータで通る）を
+      # 区別し、RPD のときだけ 1 回だけ再実行する。
       - name: Retry review on daily quota exhaustion
         id: review_retry
         if: >-
@@ -643,10 +647,53 @@ jobs:
           gemini_model: gemini-3.7-flash
           gemini_debug: ${{ fromJSON(vars.GEMINI_DEBUG || false) }}
           github_pr_number: ${{ github.event.pull_request.number || github.event.issue.number }}
+          # lite は「開始モデル」ではなく「chain の終端」にする。primary と同じ
+          # dynamicModelConfiguration + modelDefinitions + modelChains を持たせ、
+          # custom chain（3.7 → 3.6 → lite、lite が isLastResort）を採用させる。
+          # これらが無いと gemini-3.7-flash は regex 判定（legacy path, models.ts
+          # の isGemini3Model）だけで "gemini-3 系" とみなされ、
+          # policyCatalog.ts の固定 chain（isLastResort=gemini-3.5-flash、つまり
+          # primary で RPD 枯渇済みのモデル）に乗ってしまい、この保険が無意味に
+          # なる。開始モデルを 3.8 でなく 3.7 にするのは、primary が 3.8 の枠を
+          # 使い切った直後に同じモデルへ 1 リクエスト無駄撃ちしないため。
           settings: |-
             {
               "model": { "maxSessionTurns": ${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }} },
               "tools": { "truncateToolOutputThreshold": 100000 },
+              "experimental": { "dynamicModelConfiguration": true },
+              "modelConfigs": {
+                "modelChains": {
+                  "default": [
+                    {
+                      "model": "gemini-3.7-flash",
+                      "actions": { "terminal": "silent", "transient": "silent",
+                                   "not_found": "silent", "unknown": "silent" },
+                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
+                                            "not_found": "terminal", "unknown": "terminal" }
+                    },
+                    {
+                      "model": "gemini-3.6-flash",
+                      "actions": { "terminal": "silent", "transient": "silent",
+                                   "not_found": "silent", "unknown": "silent" },
+                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
+                                            "not_found": "terminal", "unknown": "terminal" }
+                    },
+                    {
+                      "model": "gemini-3.5-flash-lite",
+                      "isLastResort": true,
+                      "actions": { "terminal": "silent", "transient": "silent",
+                                   "not_found": "silent", "unknown": "silent" },
+                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
+                                            "not_found": "terminal", "unknown": "terminal" }
+                    }
+                  ]
+                },
+                "modelDefinitions": {
+                  "gemini-3.7-flash": { "family": "gemini-3" },
+                  "gemini-3.6-flash": { "family": "gemini-3" },
+                  "gemini-3.5-flash-lite": { "family": "gemini-3" }
+                }
+              },
               "mcpServers": {
                 "github": {
                   "command": "docker",
@@ -683,7 +730,7 @@ jobs:
 
             `get_diff` で全文を一括取得しない。差分は事前の絞り込みで
             `.gemini-input/review-diff/` に用意してある。この再実行は日次クォータ
-            枯渇後の下位モデルによる再試行のため、なおさら入力を絞ること。
+            枯渇後の chain 再走（3.7 → 3.6 → lite）のため、なおさら入力を絞ること。
 
             - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
               一覧（1 行 1 パス）。各ファイルの diff は
