@@ -91,13 +91,22 @@ async function runLoop(objective, context = {}) {
   return actData;
 }
 
+// Load an agent definition from disk. A full plugin would invoke the agent (LLM call guided by this
+// file); here we load it so each phase's constraints are threaded through structurally rather than
+// stubbed — and so Orient's spec can permeate every later phase (orientation as center of gravity).
+function loadAgentSpec(agentName) {
+  const agentPath = path.join(AGENTS_DIR, `${agentName}.md`);
+  if (!fs.existsSync(agentPath)) return '';
+  return fs.readFileSync(agentPath, 'utf8');
+}
+
 // Agent query entry point. In a real plugin this dynamically loads and runs the agent definition.
 async function queryAgent(agentName, input) {
-  const agentPath = path.join(AGENTS_DIR, `${agentName}.md`);
+  const spec = loadAgentSpec(agentName);
   return {
     status: 'executed',
     input_hash: JSON.stringify(input),
-    note: `Agent ${agentName} processed inputs. See .agents/skills/ooda/agents/${agentName}.md for constraints.`,
+    note: `Agent ${agentName} processed inputs (spec loaded, ${spec.length} chars). See .agents/skills/ooda/agents/${agentName}.md for constraints.`,
   };
 }
 
