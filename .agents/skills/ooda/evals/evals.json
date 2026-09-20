@@ -1,0 +1,46 @@
+[
+  {
+    "id": "test_01_perf",
+    "objective": "Reduce checkout page load time by 30% on mobile devices.",
+    "context": "Mobile traffic spike during flash sales. Current LCP is 4.2s, target < 2.5s. Constraints: budget limited to frontend changes only (no CDN upgrade).",
+    "success_criteria": [
+      { "metric": "LCP (mobile)", "target": "< 2.5s", "direction": "min" },
+      { "metric": "CLS", "target": "< 0.1", "direction": "min" }
+    ],
+    "expected_flow": [
+      {"phase": "observe", "action": "Collect baseline LCP/CLS from analytics"},
+      {"phase": "orient", "action": "Interpret the bottleneck: render-blocking resources, lazy-load candidates — surfacing which interpretation drives the next options"},
+      {"phase": "decide", "action": "Select top 2 critical images to inline + implement image-optimized fallback"},
+      {"phase": "act", "result": "LCP drops to 1.8s, CLS stable at 0.04; results feed back as new observations into the next Observe"}
+    ]
+  },
+  {
+    "id": "test_02_ab_test",
+    "objective": "Improve newsletter signup conversion by 15%.",
+    "context": "Current conversion: 2.1%. Audience: existing app users who didn't subscribe in last 3 months. Constraints: single change per iteration, max 2 variants, run for 7 days min.",
+    "success_criteria": [
+      { "metric": "conversion_rate", "target": "> 2.4%", "direction": "max" }
+    ],
+    "expected_flow": [
+      {"phase": "observe", "action": "Analyze current funnel drop-offs"},
+      {"phase": "orient", "action": "Interpret the bottleneck: hypothesize CTA placement or copy clarity as the constraint, generating ranked options"},
+      {"phase": "decide", "action": "Select sticky bottom CTA vs inline contextual prompt to test (decision on incomplete data — late commitment acceptable)"},
+      {"phase": "act", "result": "A improves to 2.8%, B to 2.3%; winner feeds back as new observations into the next Observe"}
+    ]
+  },
+  {
+    "id": "test_03_strategy",
+    "objective": "Validate whether expanding into EU market is viable within Q4.",
+    "context": "Current revenue from APAC: $1.2M. EU market size: 8x larger but higher compliance costs (GDPR). Constraints: legal review needed, marketing budget capped at $50k for pilot.",
+    "success_criteria": [
+      { "metric": "pilot_mrr", "target": "> 30% of APAC MRR", "direction": "max" },
+      { "metric": "compliance_risk_score", "target": "< 2/10", "direction": "min" }
+    ],
+    "expected_flow": [
+      {"phase": "observe", "action": "Review regulatory requirements & competitor entry points"},
+      {"phase": "orient", "action": "Interpret the situation: model break-even point, identify highest-value segments; orientation frames which markets are viable"},
+      {"phase": "decide", "action": "Launch pilot in DE/FR only with localized compliance wrapper (single course of action)"},
+      {"phase": "act", "result": "Pilot MRR 18% (below target) but compliance score 1.2; results feed back as new observations into the next Observe — e.g., re-observe segment mix and tighten to DE only, rather than a separate 'revise' decision"}
+    ]
+  }
+]
