@@ -1,0 +1,46 @@
+[
+  {
+    "id": "test_01_perf",
+    "objective": "Reduce checkout page load time by 30% on mobile devices.",
+    "context": "Mobile traffic spike during flash sales. Current LCP is 4.2s, target < 2.5s. Constraints: budget limited to frontend changes only (no CDN upgrade).",
+    "success_criteria": [
+      { "metric": "LCP (mobile)", "target": "< 2.5s", "direction": "min" },
+      { "metric": "CLS", "target": "< 0.1", "direction": "min" }
+    ],
+    "expected_flow": [
+      {"phase": "observe", "action": "Collect baseline LCP/CLS from analytics"},
+      {"phase": "orient", "action": "Identify render-blocking resources, identify lazy-load candidates"},
+      {"phase": "decide", "action": "Select top 2 critical images to inline + implement image-optimized fallback"},
+      {"phase": "act", "result": "LCP drops to 1.8s, CLS stable at 0.04"}
+    ]
+  },
+  {
+    "id": "test_02_ab_test",
+    "objective": "Improve newsletter signup conversion by 15%.",
+    "context": "Current conversion: 2.1%. Audience: existing app users who didn't subscribe in last 3 months. Constraints: single change per iteration, max 2 variants, run for 7 days min.",
+    "success_criteria": [
+      { "metric": "conversion_rate", "target": "> 2.4%", "direction": "max" }
+    ],
+    "expected_flow": [
+      {"phase": "observe", "action": "Analyze current funnel drop-offs"},
+      {"phase": "orient", "action": "Hypothesize: CTA placement or copy clarity is bottleneck"},
+      {"phase": "decide", "action": "Test A: sticky bottom CTA. Test B: inline contextual prompt"},
+      {"phase": "act", "result": "A improves to 2.8%, B to 2.3%. Winner: A"}
+    ]
+  },
+  {
+    "id": "test_03_strategy",
+    "objective": "Validate whether expanding into EU market is viable within Q4.",
+    "context": "Current revenue from APAC: $1.2M. EU market size: 8x larger but higher compliance costs (GDPR). Constraints: legal review needed, marketing budget capped at $50k for pilot.",
+    "success_criteria": [
+      { "metric": "pilot_mrr", "target": "> 30% of APAC MRR", "direction": "max" },
+      { "metric": "compliance_risk_score", "target": "< 2/10", "direction": "min" }
+    ],
+    "expected_flow": [
+      {"phase": "observe", "action": "Review regulatory requirements & competitor entry points"},
+      {"phase": "orient", "action": "Model break-even point, identify highest-value segments"},
+      {"phase": "decide", "action": "Launch pilot in DE/FR only with localized compliance wrapper"},
+      {"phase": "act", "result": "Pilot MRR 18% (missed target), but compliance score 1.2. Decision: revise targeting & expand to DE only next cycle"}
+    ]
+  }
+]
