@@ -8,8 +8,7 @@ ledger lets each cycle build on prior observations instead of re-deriving them f
 
 import json
 import os
-from datetime import datetime
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 LEDGER_FILE = ".ledger.jsonl"
 
@@ -42,19 +41,6 @@ def save_ledger(entries: list[dict]) -> None:
         for entry in entries:
             f.write(json.dumps(entry) + "\n")
 
-def get_next_run_id() -> int:
-    """Get next unique run ID based on current max."""
-    ledger = load_ledger()
-    if not ledger:
-        return 0
-    return max(e.get("run_id", 0) for e in ledger) + 1
-
-def check_duplicate(run_id: int, phase: str) -> bool:
-    """Check if a specific run+phase was already attempted, so known-bad attempts are not repeated."""
-    for entry in load_ledger():
-        if entry.get("run_id") == run_id and entry.get("phase") == phase:
-            return True
-    return False
 
 def log_run(run_id: int, phase: str, output_hash: str, summary: str):
     """Log a single run step."""

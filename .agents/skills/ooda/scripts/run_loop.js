@@ -25,8 +25,9 @@ const AGENTS_DIR = path.join(SKILL_DIR, 'agents');
 const LEDGER_FILE = path.join('.ledger.jsonl');
 
 // Shared JSONL ledger contract (single-writer agreement). run_loop.js writes and ledger.py reads,
-// so both must use one schema: { run_id, phase, output_hash, summary, timestamp }. This matches
-// scripts/ledger.py exactly; without it the two files would fight over incompatible field names.
+// so both must use one schema: { run_id, phase, output_hash, summary, timestamp }. Field NAMES match;
+// write strategy differs — run_loop.js overwrites the whole in-memory array per call while ledger.py
+// appends per entry. Both preserve order/continuity for single-writer sequential use.
 function summarizePhase(phase, output) {
   if (typeof output === 'string') return `phase ${phase}: ${output.slice(0, 200)}`;
   const keys = Object.keys(output || {});
@@ -63,7 +64,7 @@ function saveLedger(entries) {
 // ledger.py can report/analyze continuity across iterations (Boyd noted the loop "skips memory").
 async function runLoop(objective, context = {}) {
   const ledger = loadLedger();
-  let seq = ledger.length; // monotonic run_id across iterations (matches ledger.py get_next_run_id)
+  let seq = ledger.length; // monotonic run_id across iterations
 
   console.log(`[OODA] Starting iteration #${seq + 1}`);
 
