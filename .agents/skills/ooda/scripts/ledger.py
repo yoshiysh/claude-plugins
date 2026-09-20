@@ -48,11 +48,20 @@ def log_run(run_id: int, phase: str, output_hash: str, summary: str):
     save_ledger(entries)
 
 def get_report(run_id_range=None) -> dict:
-    """Generate structured report from ledger."""
+    """Generate structured report from ledger. If run_id_range is given, only entries whose
+    run_id is <= that value are included (inclusive upper bound)."""
     ledger = load_ledger()
     if not ledger:
         return {"status": "empty", "runs": []}
-    
+
+    if run_id_range is not None:
+        try:
+            limit = int(run_id_range)
+        except (TypeError, ValueError):
+            limit = None  # non-integer input falls back to the full report
+        if limit is not None:
+            ledger = [e for e in ledger if e["run_id"] <= limit]
+
     runs_by_phase = {}
     for e in ledger:
         pid = e["run_id"]
