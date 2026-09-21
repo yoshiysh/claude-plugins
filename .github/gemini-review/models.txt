@@ -1,0 +1,10 @@
+# gemini-cli の -m 強制指定 + headless 実行では custom modelChains による
+# in-process 降格が発火しない（実測: CI での RPD 枯渇時に降格ゼロで exit 1、
+# ローカル再現で chain 先頭 404 でも降格ゼロ）。よって降格順はこのファイルで
+# 明示し、run-review.sh が 1 段ずつ外側から試す。
+#
+# 1 行 1 モデル。降格順（先頭が最優先）。# から始まる行と空行は無視する。
+gemini-3.8-flash
+gemini-3.7-flash
+gemini-3.6-flash
+gemini-3.5-flash-lite
