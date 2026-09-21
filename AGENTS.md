@@ -12,8 +12,9 @@ This file provides guidance to Codex when working in this repository.
 
 ```bash
 codex plugin marketplace add yoshiysh/claude-plugins
-codex plugin add <plugin-name>@yoshiysh-claude-plugins
 ```
+
+マーケットプレイスを登録したら、ChatGPT デスクトップの Plugin Directory から `yoshiysh-claude-plugins` を開き、必要な plugin を選んでインストールする。
 
 Codex は `.claude-plugin/plugin.json` の `dependencies` を見ないため、依存 plugin は自動で入らない。依存は推移的に辿って全部 install する（例: `notion` は `research` に依存し、`research` は `workflow` に依存するので、`notion` には `research` と `workflow` の両方が要る）。plugin ごとの依存は次で確認する。
 
