@@ -63,7 +63,7 @@ script を呼ぶ前に、司令塔（このスキルを読んでいる Claude）
 > ことにしない）。native を試行後に error / timeout / invalid result となった場合も runner へ
 > fallback しない。caller の human gate は runner内gateに移さない。
 >
-> **Codex v1 classification: `rejected_source_v1`**（runtime-generated artifacts / FS 書き込み）。
+> **Codex classification: `rejected_source`**（runtime-generated artifacts / FS 書き込み）。
 
 ```
 Workflow({

@@ -110,7 +110,7 @@ subagent（Sonnet/Opus/Haiku）を回します。収束すれば途中で打ち�
 > 機械検証できないため、現在は最初のagent起動前に`rejected_source`となる。任意modelへ黙って置換しない。
 > native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
 >
-> **Codex v1 classification: `rejected_source_v1`**（load-bearing exact model semantics）。
+> **Codex classification: `rejected_source`**（load-bearing exact model semantics）。
 
 ```
 Workflow({
