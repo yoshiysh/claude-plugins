@@ -225,6 +225,30 @@
       "fixture": null,
       "expected_decision": "allow",
       "reason": "Without -c the shell runs the file as a script instead of printing it, so there is nothing to gate."
+    },
+    {
+      "id": 29,
+      "name": "bash-O-option-wrapped-cat-large",
+      "input": { "tool_input": { "command": "bash -O extglob -c 'cat {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "-O takes a separate shopt name; skipping it must still reach -c and gate the wrapped read."
+    },
+    {
+      "id": 30,
+      "name": "bash-rcfile-wrapped-cat-large",
+      "input": { "tool_input": { "command": "bash --rcfile {{FIXTURES}}/small.txt -c 'cat {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "--rcfile takes a separate file argument; it must not be mistaken for the command or stop the unwrap before -c."
+    },
+    {
+      "id": 31,
+      "name": "bash-sh-two-level-nested-cat-large",
+      "input": { "tool_input": { "command": "bash -c \"sh -c 'cat {{FIXTURES}}/large.txt'\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Two nested wrappers with alternating quote styles unwrap to the inner read."
     }
   ]
 }

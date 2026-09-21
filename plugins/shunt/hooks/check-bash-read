@@ -3,8 +3,9 @@
 # Catches cat/head/tail/less/more that bypass the Read hook
 #
 # Fork note: the structural guards below (empty command, pipes, redirects,
-# non-read commands, missing files) are kept verbatim from upstream — they are
-# deterministic and cheap, and code decides what code can decide. Only the
+# non-read commands, missing files) are kept from upstream, with shell -c
+# unwrapping and absolute-path reduction added before the non-read check —
+# they are deterministic and cheap, and code decides what code can decide. Only the
 # final judgment ("is this particular read worth delegating?") moves from a
 # bare line-count comparison to a typed model decision (shunt_decide), because
 # line count is a proxy: it misfires on minified files and says nothing about
@@ -35,10 +36,12 @@ echo "$command" | grep -qE '\|' && exit 0
 echo "$command" | grep -qE '>' && exit 0
 
 # A blocked read gets retried as `sh -c 'more file'` or `/usr/bin/more file`.
-# Unwrap shell -c wrappers (any shell path, combined flags such as -lc, nested
-# up to 3 deep) and reduce the first word to its basename so the checks below
-# see the read itself. This runs after the pipe/redirect checks because
-# tokenizing keeps only the -c string, dropping a `| grep` outside the wrapper.
+# Unwrap shell -c wrappers (any shell path, combined flags such as -lc) and
+# reduce the first word to its basename so the checks below see the read itself.
+# Only two nesting levels (alternating quote styles) unwrap: xargs does not
+# treat backslash as an escape inside double quotes, so a third level fails to
+# tokenize and falls through to allow. This runs after the pipe/redirect checks
+# because tokenizing keeps only the -c string, dropping a `| grep` outside it.
 for _ in 1 2 3; do
   first="${command%%[[:space:]]*}"
   case "${first##*/}" in sh|bash|zsh|dash|ksh) ;; *) break ;; esac
@@ -47,7 +50,7 @@ for _ in 1 2 3; do
     if [ -n "$shell_tok" ]; then shell_tok=""; continue; fi
     if [ -n "$skip_next" ]; then skip_next=""; continue; fi
     case "$tok" in
-      -o|+o) skip_next=1; continue ;;
+      -o|+o|-O|+O|--rcfile|--init-file|--emulate) skip_next=1; continue ;;
       --*)   continue ;;
       -*c*)  want_c=1; continue ;;
       -*|+*) continue ;;
