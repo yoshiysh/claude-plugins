@@ -220,7 +220,7 @@ references/harness-freeze.md の表）。二重凍結は script が拒否する�
 > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
 > native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
 > 内部互換層として自動利用するが、現行 `pdca.js` は condition ごとの worktree isolation と
-> runtime-generated artifact path を必須にするため、runner v1 では agent 起動前に
+> runtime-generated artifact path を必須にするため、runner では agent 起動前に
 > `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
 > native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
 >

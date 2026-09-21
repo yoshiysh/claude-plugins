@@ -106,7 +106,7 @@ subagent（Sonnet/Opus/Haiku）を回します。収束すれば途中で打ち�
 > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、このcallが未試行なら
 > native を1回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
 > 内部互換層として自動利用する。ただし本sourceはFable 5をPlan/Evaluate/Synthesizeのload-bearingな
-> engineとして固定し、executor/verifier modelもその出力で選ぶ。runner v1 manifestはprovider/model identityを
+> engineとして固定し、executor/verifier modelもその出力で選ぶ。runner manifestはprovider/model identityを
 > 機械検証できないため、現在は最初のagent起動前に`rejected_source`となる。任意modelへ黙って置換しない。
 > native を試行後にerror / timeout / invalid result となった場合も runner へ fallback しない。
 >
