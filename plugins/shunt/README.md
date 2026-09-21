@@ -2,22 +2,13 @@
 
 A Claude Code plugin that shunts I/O-heavy work to a cheaper worker model, saving tokens on large file reads and boilerplate generation.
 
-> **Fork of [spotify/portal-ai-plugins](https://github.com/spotify/portal-ai-plugins) `plugins/shunt`** (Apache-2.0, see NOTICE for the pinned upstream commit and the change list). Two changes:
->
-> 1. **Transport**: the AiKA / Portal CLI backend is replaced by the AI Studio Gemini API (`scripts/lib/gemini.sh`). Auth is one env var: `CLAUDE_PLUGINS_GEMINI_API_KEY`. No Portal deployment needed.
-> 2. **Routing**: the hooks keep upstream's deterministic guards verbatim, but the final "block iff > 350 lines" judgment becomes a typed model decision (enum `allow|block` via `responseSchema`, prompt frozen in `scripts/lib/decide-prompt.txt`) on two axes, not just line count:
->    - **Cost** (how much the command actually ingests): a proxy fix for the fact that `head file` reads 10 lines whatever the file's size, so bounded reads (`head`/`tail`/`sed`/`awk` ranges, piped `| head`) are judged on the slice they actually emit, not the file's total length.
->    - **Fidelity** (how much the content's meaning survives a cheap worker's summary): the gate is shown a real sample — the file's first 40 lines, each truncated to 200 chars, injected via `<file_sample>` — so it can tell simple, repetitive content (logs, generated output, enumerated data) from content with non-trivial control flow or concurrency logic. Simple content past the threshold delegates (block); complex content stays in Claude's own context even past the threshold (allow), because a cheap summary is exactly where a race condition or an off-by-one would get flattened away. The sample is real file content, never inferred from the filename or extension, and is wrapped in its own tag so it is judged as data, not read as instructions.
->
->    When the model can't be consulted, the hook falls back to the upstream line rule and says so in its reason.
->
-> Measured on the upstream hook eval corpus plus 4 new two-axis cases against real code/log fixtures (`evals/run_regression.py` → `evals/regression.md`), 39 cases across both hooks: 36/39 identical to the upstream line-count rule, with 3 intentional divergences — `head`/`head -N`/`tail` (no count) reads of large files, all of which emit only a fixed small slice regardless of file size and so allow on the cost axis alone. The 4 added cases pin the fidelity axis directly: a real 405-line file with lock/retry/circuit-breaker logic allows past the threshold, a real 400-line access log blocks past the threshold, a small `head` slice of the complex file allows on cost alone, and a small simple CSV allows on cost alone. These labels document the two-axis design's intent on hand-picked fixtures — they are not a measurement of fidelity-judgment accuracy on a broader corpus, since the eval corpus doesn't (yet) sample real-world code/log diversity. Model-gate latency ≈1.3-1.6s per consulted read (only paid on files over the small-file threshold, and now includes the sample in the request body); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
+> **Fork of [spotify/portal-ai-plugins](https://github.com/spotify/portal-ai-plugins) `plugins/shunt`** (Apache-2.0). NOTICE records the pinned upstream commit and the list of modifications. The worker runs on the AI Studio Gemini API instead of upstream's AiKA / Portal CLI, and the hooks' final block decision is made by a model gate instead of a line count (see [Hooks](#hooks)).
 
 ## How it works
 
 Three layers, from hard gate to soft suggestion:
 
-1. **Hooks** block Claude from reading large files and redirect to the bulk-reader skill
+1. **Hooks** gate reads of large files: a read the gate judges to be a bulk read is blocked and redirected to the bulk-reader skill
 2. **Scripts** handle the worker invocation and output cleanup
 3. **Skills** tell Claude when and how to call the scripts
 
@@ -31,38 +22,20 @@ Delegation goes through the AI Studio Gemini API — one `generateContent` call 
 - `curl`
 - An AI Studio API key, exported as `CLAUDE_PLUGINS_GEMINI_API_KEY` in your shell profile. The scripts send it as a request header and never place it in URLs or logs.
 
-Model selection: `SHUNT_GEMINI_MODEL` (default `gemma-4-26b-a4b-it` — the probe in `evals/probe-results.json` records why). Worker timeout: `SHUNT_TIMEOUT_SECONDS` (default 120; raise it for multi-file questions). Gate timeout: `SHUNT_DECIDE_TIMEOUT_SECONDS` (default 8; on expiry the hook falls back to the line rule and says so).
+Other settings are under [Configuration](#configuration).
 
-## Plugin structure
+## Where things live
 
 ```
-shunt/
-├── .claude-plugin/
-│   └── plugin.json          # Plugin manifest (name, description, version)
-├── hooks/
-│   ├── hooks.json           # Hook registration (PreToolUse matchers)
-│   ├── check-file-size      # Gates Read on large files (typed model decision)
-│   └── check-bash-read      # Gates cat/head/tail on large files (typed model decision)
-├── scripts/
-│   ├── lib/
-│   │   ├── gemini.sh        # Shared AI Studio plumbing + typed gate decision
-│   │   └── decide-prompt.txt # Frozen gate prompt
-│   ├── bulk-read            # Invokes the bulk-reader mode
-│   └── code-write           # Invokes the code-writer mode
-├── skills/
-│   ├── bulk-reader/
-│   │   └── SKILL.md         # When/how to call bulk-read
-│   └── code-writer/
-│       └── SKILL.md         # When/how to call code-write
-└── evals/
-    ├── run_regression.py     # Runs both hooks against the upstream eval corpus, writes regression.json/.md
-    ├── hook-evals.json       # Read hook test cases (17)
-    ├── bash-hook-evals.json  # Bash hook test cases (22, incl. 4 real-fixture fidelity-axis cases)
-    ├── regression.json       # Latest run_regression.py output (machine-readable)
-    ├── regression.md         # Latest run_regression.py output (table + diffs)
-    ├── evals.json            # End-to-end skill test cases (3)
-    ├── benchmarks.json       # Token savings scenarios (4)
-    └── fixtures/             # Real code/log/data fixtures for fidelity-axis eval cases
+hooks/check-file-size          # Read hook
+hooks/check-bash-read          # Bash hook
+scripts/lib/gemini.sh          # AI Studio calls and the gate decision (shunt_decide)
+scripts/lib/decide-prompt.txt  # Gate prompt
+scripts/bulk-read              # Worker call for bulk-reader
+scripts/code-write             # Worker call for code-writer
+skills/bulk-reader/SKILL.md    # When/how Claude calls bulk-read
+skills/code-writer/SKILL.md    # When/how Claude calls code-write
+evals/                         # Eval corpora, regression harness and results (see Evals)
 ```
 
 ## Scripts
@@ -103,20 +76,30 @@ context.
 
 ## Hooks
 
+Both hooks allow small files without calling any model. For a file over `SHUNT_MIN_LINES`, a model gate (`shunt_decide`, prompt in `scripts/lib/decide-prompt.txt`) returns `allow` or `block` on two axes:
+
+- **Cost** — how much the command actually ingests. A bounded read such as `head file` is judged on the slice it emits, not on the file's length.
+- **Fidelity** — whether the content survives a cheap summary. When the cost is over the threshold, the gate is instructed to block simple, repetitive content (logs, generated output, enumerated data) and to allow content with non-trivial control flow or concurrency logic, so Claude reads that directly.
+
+To judge fidelity, the gate sends the first few dozen lines of the file, each truncated, to the Gemini API (the limits are set in the hook scripts). The prompt wraps the command, path and sample in their own tags and tells the model to treat them as data, not instructions. If the model cannot be consulted (including a `SHUNT_DECIDE_TIMEOUT_SECONDS` expiry), the hook blocks by the line rule and says so in its reason.
+
 ### check-file-size (Read hook)
 
-Fires on every `Read` tool call. Blocks full-file reads on files exceeding `MIN_LINES` (default: 350, configurable via `SHUNT_MIN_LINES` env var). Allows through:
+Fires on every `Read` tool call. Allows through without the gate:
 - Targeted reads (offset or limit set)
-- Files under the threshold
 - Nonexistent files (let Read handle the error)
+- Files at or under `SHUNT_MIN_LINES`
 
 ### check-bash-read (Bash hook)
 
-Fires on every `Bash` tool call. Catches `cat`, `head`, `tail`, `less`, `more` on large files. Allows through:
-- Piped commands (`cat file | grep`) — targeted reads
-- Redirections (`cat file > out`) — not reading into context
-- Commands with flags that indicate targeted reads
-- Non-read commands (`git status`, `grep`, etc.)
+Fires on every `Bash` tool call. Allows through without the gate:
+- Commands containing a pipe (`cat file | grep`)
+- Commands containing a redirection (`cat file > out`)
+- Commands whose first word is not a read command (which commands count, and the wrappers that are seen through, are under [Known limitations](#known-limitations))
+- Reads whose file argument is missing or not an existing file
+- Files at or under `SHUNT_MIN_LINES`
+
+Flags such as `head -100` do not by themselves allow a read; the gate judges them on the cost axis.
 
 ### Running under Codex
 
@@ -130,11 +113,11 @@ All settings are environment variables — add them to the `env` block in `.clau
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `SHUNT_MIN_LINES` | `350` | Line count above which the Read hook blocks and redirects |
+| `SHUNT_MIN_LINES` | `350` | Line count above which both hooks consult the model gate |
 | `SHUNT_MAX_PAYLOAD_BYTES` | `400000` | Request ceiling; the payload travels in the HTTP request body, not argv |
-| `SHUNT_TIMEOUT_SECONDS` | `120` | Timeout for one worker (`bulk-read`/`code-write`) invocation |
-| `SHUNT_GEMINI_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id used for both worker calls and the gate decision |
-| `SHUNT_DECIDE_TIMEOUT_SECONDS` | `8` | Timeout for the gate's `shunt_decide` call; on expiry the hook falls back to the line rule |
+| `SHUNT_TIMEOUT_SECONDS` | `120` | Timeout for one worker (`bulk-read`/`code-write`) invocation; raise it for multi-file questions |
+| `SHUNT_GEMINI_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id used for both worker calls and the gate decision (`evals/probe-results.json` records why this default) |
+| `SHUNT_DECIDE_TIMEOUT_SECONDS` | `8` | Timeout for the gate's `shunt_decide` call |
 | `SHUNT_TRACE_FILE` | — | When set, append one JSON line per gate consultation (model, http status, decision, judged input, token usage) |
 | `SHUNT_GEMINI_ENDPOINT` | `https://generativelanguage.googleapis.com/v1beta` | AI Studio API base URL |
 
@@ -143,7 +126,7 @@ All settings are environment variables — add them to the `env` block in `.clau
 The plugin is designed to know when NOT to delegate:
 - **Debugging** — requires Claude's reasoning, not a summary
 - **Editing** — Claude needs exact content in context; use targeted reads (offset/limit)
-- **Small files** — delegation overhead exceeds savings under 350 lines
+- **Small files** — delegation overhead exceeds savings at or under `SHUNT_MIN_LINES`
 - **Architectural decisions** — judgment calls stay on Claude
 
 ## Evals
@@ -153,12 +136,11 @@ The plugin is designed to know when NOT to delegate:
 python3 evals/run_regression.py
 ```
 
-This runs both hooks (`check-bash-read`, `check-file-size`) against the upstream 22+17-case eval
-corpus (18 upstream + 4 real-fixture fidelity-axis cases for `check-bash-read`) and writes
-`evals/regression.json` (machine-readable) and `evals/regression.md` (table + diff list),
-classifying each case as resolved by `model` (proven via `SHUNT_TRACE_FILE`), `code` (a
-deterministic guard short-circuited before the model), or `fallback` (the model could not be
-consulted or returned an unusable response, so the upstream line rule decided).
+This runs both hooks against `evals/bash-hook-evals.json` and `evals/hook-evals.json` and writes
+`evals/regression.json` (machine-readable) and `evals/regression.md` (table + diff list). Each
+case is labeled by what decided it: `model` (the gate answered), `code` (a deterministic guard
+decided before the model), or `fallback` (the model could not be consulted or returned an
+unusable response, so the line rule decided).
 
 ## Benchmarks
 
@@ -175,9 +157,10 @@ Mean bulk-read savings: **90%**
 
 ## Known limitations
 
-- **The Bash gate matches the command's first word only** — `cat`/`head`/`tail`/`less`/`more`, after unwrapping `sh`/`bash`/`zsh`/`dash`/`ksh -c` and reducing an absolute path to its name. Reads through `sed -n` or `awk`, behind a prefix (`env more file`, `cd dir && cat file`), or in a script file pass ungated.
+- **The Bash gate matches the command's first word only** — `cat`/`head`/`tail`/`less`/`more`, after unwrapping `sh`/`bash`/`zsh`/`dash`/`ksh -c` and reducing an absolute path to its name. Reads through `sed -n` or `awk`, behind a prefix (`env more file`, `cd dir && cat file`), or in a script file pass ungated. Up to three wrapper levels unwrap, but a level that needs escaped quotes inside another level's quotes fails to tokenize and passes ungated. Shell options that take a separate argument are skipped with their argument only for `-o`/`+o`/`-O`/`+O`/`--rcfile`/`--init-file`/`--emulate`.
+- **Gate latency** — each read over `SHUNT_MIN_LINES` waits for one gate call, about 1.3–1.6 s per model-decided case in `evals/regression.json`.
 - **Under Codex, only the Bash gate has fired** — in the Codex runs tested, every file read went through the shell and `check-file-size` (the `Read` matcher) never fired. Codex's own reads are often `sed -n '1,240p' <file>`, which the Bash gate does not match.
 - **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.
-- **Request size** — the payload travels in the HTTP request body (no `ARG_MAX` limit), but shunt still refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` (default 400 KB) to stay under the model's context window with headroom. Split into smaller batches.
-- **Invocation timeout** — shunt caps one action invocation at `SHUNT_TIMEOUT_SECONDS` (default 180). Very large generations can exceed it; raise the timeout or split the spec into smaller calls.
-- **Fidelity-axis labels are documented intent, not a measured accuracy rate** — the 4 real-fixture cases in `bash-hook-evals.json` pin the two-axis design's behavior on hand-picked examples (one genuinely complex file, one genuinely simple one). The upstream eval corpus otherwise uses synthetic filler text, so this fork cannot yet report how often the fidelity judgment agrees with a human reader across a broad, representative sample of real code and logs — only that it behaves as designed on these specific fixtures.
+- **Request size** — the payload travels in the HTTP request body (no `ARG_MAX` limit), but shunt still refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` to stay under the model's context window with headroom. Split into smaller batches.
+- **Invocation timeout** — shunt caps one action invocation at `SHUNT_TIMEOUT_SECONDS`. Very large generations can exceed it; raise the timeout or split the spec into smaller calls.
+- **Fidelity-axis labels are documented intent, not a measured accuracy rate** — the real-fixture cases in `bash-hook-evals.json` pin the two-axis design's behavior on hand-picked examples. The upstream eval corpus otherwise uses synthetic filler text, so this fork cannot yet report how often the fidelity judgment agrees with a human reader across a broad, representative sample of real code and logs — only that it behaves as designed on these specific fixtures.
