@@ -82,12 +82,20 @@ jobs:
       - name: Pick the model
         id: model
         run: |
+          # models_file: 降格チェーンの起点を PR の中身で切り替える。実コードに
+          # 触れない PR は最初から lite 単体（chain 無し）にして、上位モデルの
+          # 乏しい RPD を消費しない。実コードに触れる PR だけ
+          # .github/gemini-review/models.txt のフルチェーンを使う。
           if [ "${{ steps.mode.outputs.kind }}" = "review" ] \
              && gh pr diff "${PR_NUMBER}" --name-only | grep -qE '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$'; then
             echo "name=gemini-3.8-flash" >> "$GITHUB_OUTPUT"
+            echo ".github/gemini-review/models.txt" > "${RUNNER_TEMP}/models.txt.path"
           else
             echo "name=gemini-3.5-flash-lite" >> "$GITHUB_OUTPUT"
+            echo "gemini-3.5-flash-lite" > "${RUNNER_TEMP}/lite-only-models.txt"
+            echo "${RUNNER_TEMP}/lite-only-models.txt" > "${RUNNER_TEMP}/models.txt.path"
           fi
+          echo "models_file=$(cat "${RUNNER_TEMP}/models.txt.path")" >> "$GITHUB_OUTPUT"
 
           # 閾値 120000 バイト: run 35460926014 は free_tier_input_token_count
           # （TPM、分あたり入力 250,000 token）を Attempt 1/2 で連発して落ちた。
@@ -388,437 +396,165 @@ jobs:
             printf '%s\n' "$promoted" >> .gemini-input/review-diff/calibration.txt
           fi
 
-      - name: Run Gemini review
+      # gemini-cli 本体（google-github-actions/run-gemini-cli@v0）は使わず、
+      # 直接 CLI を叩く。理由: -m 強制指定 + headless 実行では settings.json の
+      # modelChains.default による in-process 降格が発火しない（実測: CI での
+      # RPD 枯渇時に降格ゼロ・exit 1、ローカル再現で chain 先頭 404 でも降格
+      # ゼロ）。-m を渡さない場合は router が custom chain を無視して自律選択
+      # するため、どちらの経路でも in-process chain には頼れない。よってモデル
+      # 降格は .github/gemini-review/run-review.sh の明示ループが担う。
+      - name: Install gemini-cli
+        if: steps.mode.outputs.kind == 'review'
+        run: npm install --silent --no-audit --prefer-offline --global @google/gemini-cli@latest
+
+      - name: Prepare the review prompt and settings
+        id: review_prep
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          mkdir -p "${RUNNER_TEMP}"
+          cat > "${RUNNER_TEMP}/review-prompt.md" <<'PROMPT_EOF'
+          あなたは経験豊富な Principal Software Engineer で、緻密なコードレビュー
+          アーキテクトです。第一原理から考え、コードの前提そのものを疑います。
+          出力はすべて日本語で書いてください。
+
+          対象: owner=${{ github.repository_owner }}
+                repo=${{ github.event.repository.name }}
+                pullNumber=${{ github.event.pull_request.number || github.event.issue.number }}
+
+          ## 目的
+
+          差分の**意図と文脈**を理解したうえで、**バグ・セキュリティ上の欠陥・
+          性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
+          設計・可読性への実質的な指摘を優先する。
+
+          ## 差分の読み方
+
+          `get_diff` で全文を一括取得しない。差分は事前に機械的な絞り込みと
+          二段スクリーニングを経て `.gemini-input/review-diff/` に用意してある。
+
+          - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
+            一覧（1 行 1 パス）。各ファイルの diff は
+            `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
+          - `.gemini-input/review-diff/excluded.txt` — ロックファイル・生成物/
+            フィクスチャ・バイナリとして機械的に除外したファイルと理由
+          - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
+            判定して精読対象から外したファイルと理由
+          - `.gemini-input/review-diff/calibration.txt` — skip 判定から較正のため
+            deep_review に昇格させたファイル（deep_review.txt にも含まれる）
+
+          ## 手順
+
+          1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
+             だけを取得する（差分本体は上記のファイルから読む）
+          1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む。
+              取捨選択しない
+          2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
+             出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
+          3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
+             原本。補助として `.claude/rules/` も参照してよい
+          4. 文脈を作る。差分のファイルに加え、そこから import されている、または
+             構造的に隣接するファイル（関連する設定やテスト）を読む
+          5. 解析の重点は**アプリケーションコード**に置く。ロジックを追い、境界値・
+             off-by-one・競合・null / エラー処理の漏れを能動的に探す。テストファイルは
+             誤ったアサーション等の重大な誤りだけを見る
+          6. 指摘を CRITICAL / HIGH / MEDIUM / LOW に分類する
+             - CRITICAL: セキュリティ欠陥、システムを壊すバグ、ロジックの全面的破綻
+             - HIGH: 性能ボトルネック、リソースリーク、重大な設計違反
+             - MEDIUM: コード中の誤字、入力検証の欠落、過度に複雑なロジック、
+               スタイルガイド違反（命名規約など）
+             - LOW: 定数化、ログ文言、docstring、ドキュメントの誤字、テストの品質
+             - **変更の意図に反する挙動を生む機能的なバグは HIGH 以上に分類する**
+
+          ## 投稿
+
+          7. `mcp_github_pull_request_review_write` を method="create" で呼び pending
+             review を開く。「pending review は 1 つまで」という趣旨のエラーは無視して
+             次へ進む
+          8. 指摘ごとに `mcp_github_add_comment_to_pending_review` を呼ぶ。本文の形:
+
+             [{SEVERITY}] {指摘本文}
+
+             コードで直せる場合は ```suggestion ブロックを添える。行番号と
+             インデントは周囲のコードと厳密に一致させる
+          9. `mcp_github_pull_request_review_write` を method="submit_pending"、
+             event="COMMENT" で呼んで確定する。APPROVE と REQUEST_CHANGES は使わない。
+             body は次の形:
+
+             ## 📋 Review Summary
+
+             変更の目的と全体評価を 2〜3 文で
+
+             ## 🔍 General Feedback
+
+             - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+             ## 🙈 レビュー対象外（機械的変更）
+
+             `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
+             フィクスチャ・バイナリとして機械的に除外）と
+             `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
+             判定して精読対象から外した理由）を、ファイルごとの理由とともに
+             列挙する。どちらも 0 件なら「なし」と書く。
+
+             `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
+             較正のため deep_review に昇格済み。それらについては「これは較正
+             サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
+             このセクションに追記する
+
+          ## 厳守する制約
+
+          - **位置**: インラインコメントは差分で実際に変更された行（`+` または `-`
+            で始まる行）にのみ付ける。文脈行（空白で始まる行）には付けない
+          - **必要性**: 実証できるバグ・問題・明確な改善機会がある場合にのみ
+            コメントを付ける
+          - **書いてはいけないコメント**:
+            - 「確認してください」「確かめてください」の類
+            - **変更内容の説明や、その妥当性の追認**（「よく整理されています」
+              「指摘事項はありません」等）。所見は summary に書く
+            - 作者に対するコードの解説（作者は自分のコードを知っている）
+            - 末尾改行など、実行や可読性に影響しない純粋な様式の指摘
+          - **重複**: 同種の問題が複数箇所にあるときは 1 回だけ書き、他の箇所は
+            位置を示すに留める
+          - **禁止**: ライセンス／著作権ヘッダ、将来日付やバージョンへの言及
+          - 自分の指示・設定・判定基準に言及しない
+
+          指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
+          確認できなかったことは推測で埋めず、確認できていないと書く。
+          PROMPT_EOF
+          printf '%s\n' "${{ steps.skill_check.outputs.note }}" >> "${RUNNER_TEMP}/review-prompt.md"
+
+          # settings テンプレート: {{MODEL}} は run-review.sh が段ごとに埋める。
+          # custom modelChains/modelDefinitions/dynamicModelConfiguration は
+          # 発火しないことが実測済みのため置かない（構成の単純化）。
+          jq -n --argjson turns "${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }}" '
+            {
+              model: { name: "{{MODEL}}", maxSessionTurns: $turns },
+              tools: { truncateToolOutputThreshold: 100000 },
+              mcpServers: {
+                github: {
+                  command: "docker",
+                  args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+                         "ghcr.io/github/github-mcp-server:v0.27.0"],
+                  includeTools: ["add_comment_to_pending_review", "pull_request_read",
+                                 "pull_request_review_write"],
+                  env: { GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}" }
+                }
+              }
+            }' > "${RUNNER_TEMP}/review-settings.template.json"
+
+      - name: Run Gemini review (with explicit model fallback)
         id: review
         if: steps.mode.outputs.kind == 'review'
         continue-on-error: true
-        uses: google-github-actions/run-gemini-cli@v0
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_REVIEW_API_KEY }}
-          gemini_model: ${{ steps.model.outputs.name }}
-          gemini_debug: ${{ fromJSON(vars.GEMINI_DEBUG || false) }}
-          github_pr_number: ${{ github.event.pull_request.number || github.event.issue.number }}
-          # modelDefinitions が無いと gemini-cli は 3.6/3.7/3.8-flash や 3.5-flash-lite を
-          # 「Gemini 3 系」と認識できず（models.ts の isGemini3Model は
-          # dynamicModelConfiguration 有効時、modelConfigService の modelDefinitions が
-          # 持つ family=="gemini-3" でしか判定しない。defaultModelConfigs.ts の既定表には
-          # これらの新しいモデル名が無い）、modelChains.default ごと無視されて単一モデル
-          # chain に落ちる。実測でも TerminalQuotaError（日次枯渇）時に下位モデルへ進まず
-          # job が失敗したため、下の modelConfigs.modelDefinitions で明示している。
-          # MCP サーバは https://github.com/github/github-mcp-server
-          # v1.8.0 は gemini-cli がツールを discover できない（実測 0 件）ので v0.27.0 で固定する。
-          # ツール名は mcp_{serverName}_{toolName} の FQN になる。素の名前では解決されない。
-          #
-          # tools.core を指定すると MCP ツールごとモデルから除外される。指定しない。
-          # actions は headless では silent 以外を選べない（prompt は対話前提）。
-          #
-          # maxSessionTurns 15: 実測で 1 レビュー 6〜11 リクエスト
-          # （run-gemini-cli の "N tokens / N requests" ログより）。25 は
-          # 余裕を持たせすぎて RPM（分あたりリクエスト数）を無駄に消費するため、
-          # 実測上限に 1.5 倍弱の余裕を足した 15 に絞る。free tier の RPM 具体値は
-          # ai.google.dev/gemini-api/docs/rate-limits に一覧化がなく AI Studio の
-          # dashboard 参照が必要で一次情報として確認できなかったため、実測ベースの
-          # 値に留める。ただし大型 diff は file-by-file 走査を挟むため 15 turn では
-          # 完走できず FatalTurnLimitedError で未完に終わる（実測 run 35462553867）。
-          # file-by-file 走査は 1 リクエストの入力を絞る（TPM 対策）代わりに turn
-          # 数を要するトレードオフなので、大型 diff のときだけ turns を引き上げる。
-          # turns は 1 turn ≥ 1 リクエストとして RPM/RPD を消費するため、引き上げは
-          # 大型 diff のときに限定し、通常 PR は 15 のまま消費を抑える。
-          #
-          # truncateToolOutputThreshold 100000（文字数、tokenではない）:
-          # gemini-cli の packages/core/src/scheduler/tool-executor.ts
-          # truncateOutputIfNeeded は `threshold > 0 && content.length > threshold`
-          # でのみ切り詰める（0 は「常に false」で切り詰めが完全無効になる）。
-          # この閾値は mcp_github_pull_request_read の get_diff 結果（MCP tool の
-          # 単一 text part）にも効く。run 35460926014 は get_diff の全文一括取得が
-          # free_tier_input_token_count（TPM）超過の主因だったため、0 から
-          # 100000 へ戻す。元の 0 は「MCP 経由の差分を欠落させない」ためだったが、
-          # 差分本体が予算超過の原因である以上そのトレードオフは成立しない。
-          settings: |-
-            {
-              "model": { "maxSessionTurns": ${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }} },
-              "tools": { "truncateToolOutputThreshold": 100000 },
-              "experimental": { "dynamicModelConfiguration": true },
-              "modelConfigs": {
-                "modelChains": {
-                  "default": [
-                    {
-                      "model": "gemini-3.8-flash",
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    },
-                    {
-                      "model": "gemini-3.7-flash",
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    },
-                    {
-                      "model": "gemini-3.6-flash",
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    },
-                    {
-                      "model": "gemini-3.5-flash-lite",
-                      "isLastResort": true,
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    }
-                  ]
-                },
-                "modelDefinitions": {
-                  "gemini-3.8-flash": { "family": "gemini-3" },
-                  "gemini-3.7-flash": { "family": "gemini-3" },
-                  "gemini-3.6-flash": { "family": "gemini-3" },
-                  "gemini-3.5-flash-lite": { "family": "gemini-3" }
-                }
-              },
-              "mcpServers": {
-                "github": {
-                  "command": "docker",
-                  "args": [
-                    "run", "-i", "--rm",
-                    "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
-                    "ghcr.io/github/github-mcp-server:v0.27.0"
-                  ],
-                  "includeTools": [
-                    "add_comment_to_pending_review",
-                    "pull_request_read",
-                    "pull_request_review_write"
-                  ],
-                  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
-                }
-              }
-            }
-          prompt: |-
-            あなたは経験豊富な Principal Software Engineer で、緻密なコードレビュー
-            アーキテクトです。第一原理から考え、コードの前提そのものを疑います。
-            出力はすべて日本語で書いてください。
-
-            対象: owner=${{ github.repository_owner }}
-                  repo=${{ github.event.repository.name }}
-                  pullNumber=${{ github.event.pull_request.number || github.event.issue.number }}
-
-            ## 目的
-
-            差分の**意図と文脈**を理解したうえで、**バグ・セキュリティ上の欠陥・
-            性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
-            設計・可読性への実質的な指摘を優先する。
-
-            ## 差分の読み方
-
-            `get_diff` で全文を一括取得しない。差分は事前に機械的な絞り込みと
-            二段スクリーニングを経て `.gemini-input/review-diff/` に用意してある。
-
-            - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
-              一覧（1 行 1 パス）。各ファイルの diff は
-              `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
-            - `.gemini-input/review-diff/excluded.txt` — ロックファイル・生成物/
-              フィクスチャ・バイナリとして機械的に除外したファイルと理由
-            - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
-              判定して精読対象から外したファイルと理由
-            - `.gemini-input/review-diff/calibration.txt` — skip 判定から較正のため
-              deep_review に昇格させたファイル（deep_review.txt にも含まれる）
-
-            ## 手順
-
-            1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
-               だけを取得する（差分本体は上記のファイルから読む）
-            1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む。
-                取捨選択しない
-            2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
-               出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
-            3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
-               原本。補助として `.claude/rules/` も参照してよい
-            4. 文脈を作る。差分のファイルに加え、そこから import されている、または
-               構造的に隣接するファイル（関連する設定やテスト）を読む
-            5. 解析の重点は**アプリケーションコード**に置く。ロジックを追い、境界値・
-               off-by-one・競合・null / エラー処理の漏れを能動的に探す。テストファイルは
-               誤ったアサーション等の重大な誤りだけを見る
-            6. 指摘を CRITICAL / HIGH / MEDIUM / LOW に分類する
-               - CRITICAL: セキュリティ欠陥、システムを壊すバグ、ロジックの全面的破綻
-               - HIGH: 性能ボトルネック、リソースリーク、重大な設計違反
-               - MEDIUM: コード中の誤字、入力検証の欠落、過度に複雑なロジック、
-                 スタイルガイド違反（命名規約など）
-               - LOW: 定数化、ログ文言、docstring、ドキュメントの誤字、テストの品質
-               - **変更の意図に反する挙動を生む機能的なバグは HIGH 以上に分類する**
-
-            ## 投稿
-
-            7. `mcp_github_pull_request_review_write` を method="create" で呼び pending
-               review を開く。「pending review は 1 つまで」という趣旨のエラーは無視して
-               次へ進む
-            8. 指摘ごとに `mcp_github_add_comment_to_pending_review` を呼ぶ。本文の形:
-
-               [{SEVERITY}] {指摘本文}
-
-               コードで直せる場合は ```suggestion ブロックを添える。行番号と
-               インデントは周囲のコードと厳密に一致させる
-            9. `mcp_github_pull_request_review_write` を method="submit_pending"、
-               event="COMMENT" で呼んで確定する。APPROVE と REQUEST_CHANGES は使わない。
-               body は次の形:
-
-               ## 📋 Review Summary
-
-               変更の目的と全体評価を 2〜3 文で
-
-               ## 🔍 General Feedback
-
-               - インラインに落とさない全体所見や、繰り返し現れた傾向
-
-               ## 🙈 レビュー対象外（機械的変更）
-
-               `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
-               フィクスチャ・バイナリとして機械的に除外）と
-               `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
-               判定して精読対象から外した理由）を、ファイルごとの理由とともに
-               列挙する。どちらも 0 件なら「なし」と書く。
-
-               `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
-               較正のため deep_review に昇格済み。それらについては「これは較正
-               サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
-               このセクションに追記する
-
-            ## 厳守する制約
-
-            - **位置**: インラインコメントは差分で実際に変更された行（`+` または `-`
-              で始まる行）にのみ付ける。文脈行（空白で始まる行）には付けない
-            - **必要性**: 実証できるバグ・問題・明確な改善機会がある場合にのみ
-              コメントを付ける
-            - **書いてはいけないコメント**:
-              - 「確認してください」「確かめてください」の類
-              - **変更内容の説明や、その妥当性の追認**（「よく整理されています」
-                「指摘事項はありません」等）。所見は summary に書く
-              - 作者に対するコードの解説（作者は自分のコードを知っている）
-              - 末尾改行など、実行や可読性に影響しない純粋な様式の指摘
-            - **重複**: 同種の問題が複数箇所にあるときは 1 回だけ書き、他の箇所は
-              位置を示すに留める
-            - **禁止**: ライセンス／著作権ヘッダ、将来日付やバージョンへの言及
-            - 自分の指示・設定・判定基準に言及しない
-
-            指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
-            確認できなかったことは推測で埋めず、確認できていないと書く。
-            ${{ steps.skill_check.outputs.note }}
-
-      # gemini-cli 本体は modelChains.default により同一プロセス内で下位モデルへ
-      # 自動的に進む（packages/core/src/availability/policyHelpers.ts の
-      # resolvePolicyChain。ただし custom modelChains は
-      # experimental.dynamicModelConfiguration が true の run でしか読まれず
-      # （同ファイル L83 の分岐、false だと legacy path が policyCatalog.ts の
-      # 固定 chain に落ちて custom chain を無視する）、上の primary step は
-      # それを満たしている。この段はそれでも 4 段の chain 全体が尽きた場合の
-      # 保険で、chain を 2 段目（3.7-flash）から再走し、3.6 → lite（isLastResort）
-      # まで降格できるようにする。lite は fallback の開始モデルではなく chain の
-      # 終端として置くことで、lite 単体でも枯渇したときの取りこぼしを防ぐ。
-      # TPM（分あたり超過。同じ入力で下位モデルへ移っても再発するため再実行
-      # しても無意味）と RPD（日次 20 件枯渇。別モデルなら別クォータで通る）を
-      # 区別し、RPD のときだけ 1 回だけ再実行する。
-      - name: Retry review on daily quota exhaustion
-        id: review_retry
-        if: >-
-          steps.mode.outputs.kind == 'review' && steps.review.outcome == 'failure'
-          && steps.model.outputs.name == 'gemini-3.8-flash'
         run: |
-          if grep -qE 'free_tier_requests' gemini-artifacts/stdout.log gemini-artifacts/stderr.log 2>/dev/null; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # primary の失敗と同じ「分」の TPM/RPM 窓のまま下位モデルを叩くと、
-      # 同じ枯渇が即座に再発しうる。1 分待って別の窓に入れてから再試行する。
-      - name: Wait before the fallback model
-        if: steps.review_retry.outputs.run == 'true'
-        run: sleep 60
-
-      - name: Run Gemini review (fallback model)
-        id: review_fallback
-        if: steps.review_retry.outputs.run == 'true'
-        uses: google-github-actions/run-gemini-cli@v0
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_REVIEW_API_KEY }}
-          gemini_model: gemini-3.7-flash
-          gemini_debug: ${{ fromJSON(vars.GEMINI_DEBUG || false) }}
-          github_pr_number: ${{ github.event.pull_request.number || github.event.issue.number }}
-          # lite は「開始モデル」ではなく「chain の終端」にする。primary と同じ
-          # dynamicModelConfiguration + modelDefinitions + modelChains を持たせ、
-          # custom chain（3.7 → 3.6 → lite、lite が isLastResort）を採用させる。
-          # これらが無いと gemini-3.7-flash は regex 判定（legacy path, models.ts
-          # の isGemini3Model）だけで "gemini-3 系" とみなされ、
-          # policyCatalog.ts の固定 chain（isLastResort=gemini-3.5-flash、つまり
-          # primary で RPD 枯渇済みのモデル）に乗ってしまい、この保険が無意味に
-          # なる。開始モデルを 3.8 でなく 3.7 にするのは、primary が 3.8 の枠を
-          # 使い切った直後に同じモデルへ 1 リクエスト無駄撃ちしないため。
-          settings: |-
-            {
-              "model": { "maxSessionTurns": ${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }} },
-              "tools": { "truncateToolOutputThreshold": 100000 },
-              "experimental": { "dynamicModelConfiguration": true },
-              "modelConfigs": {
-                "modelChains": {
-                  "default": [
-                    {
-                      "model": "gemini-3.7-flash",
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    },
-                    {
-                      "model": "gemini-3.6-flash",
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    },
-                    {
-                      "model": "gemini-3.5-flash-lite",
-                      "isLastResort": true,
-                      "actions": { "terminal": "silent", "transient": "silent",
-                                   "not_found": "silent", "unknown": "silent" },
-                      "stateTransitions": { "terminal": "terminal", "transient": "sticky_retry",
-                                            "not_found": "terminal", "unknown": "terminal" }
-                    }
-                  ]
-                },
-                "modelDefinitions": {
-                  "gemini-3.7-flash": { "family": "gemini-3" },
-                  "gemini-3.6-flash": { "family": "gemini-3" },
-                  "gemini-3.5-flash-lite": { "family": "gemini-3" }
-                }
-              },
-              "mcpServers": {
-                "github": {
-                  "command": "docker",
-                  "args": [
-                    "run", "-i", "--rm",
-                    "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
-                    "ghcr.io/github/github-mcp-server:v0.27.0"
-                  ],
-                  "includeTools": [
-                    "add_comment_to_pending_review",
-                    "pull_request_read",
-                    "pull_request_review_write"
-                  ],
-                  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
-                }
-              }
-            }
-          prompt: |-
-            あなたは経験豊富な Principal Software Engineer で、緻密なコードレビュー
-            アーキテクトです。第一原理から考え、コードの前提そのものを疑います。
-            出力はすべて日本語で書いてください。
-
-            対象: owner=${{ github.repository_owner }}
-                  repo=${{ github.event.repository.name }}
-                  pullNumber=${{ github.event.pull_request.number || github.event.issue.number }}
-
-            ## 目的
-
-            差分の**意図と文脈**を理解したうえで、**バグ・セキュリティ上の欠陥・
-            性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
-            設計・可読性への実質的な指摘を優先する。
-
-            ## 差分の読み方
-
-            `get_diff` で全文を一括取得しない。差分は事前の絞り込みで
-            `.gemini-input/review-diff/` に用意してある。この再実行は日次クォータ
-            枯渇後の chain 再走（3.7 → 3.6 → lite）のため、なおさら入力を絞ること。
-
-            - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
-              一覧（1 行 1 パス）。各ファイルの diff は
-              `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
-            - `.gemini-input/review-diff/excluded.txt` — 機械的に除外したファイルと理由
-            - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
-              判定して精読対象から外したファイルと理由
-            - `.gemini-input/review-diff/calibration.txt` — 較正のため deep_review に
-              昇格させたファイル
-
-            ## 手順
-
-            1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
-               だけを取得する（差分本体は上記のファイルから読む）
-            1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む
-            2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
-               出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
-            3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
-               原本。補助として `.claude/rules/` も参照してよい
-            4. 文脈を作る。差分のファイルに加え、そこから import されている、または
-               構造的に隣接するファイル（関連する設定やテスト）を読む
-            5. 解析の重点は**アプリケーションコード**に置く。ロジックを追い、境界値・
-               off-by-one・競合・null / エラー処理の漏れを能動的に探す。テストファイルは
-               誤ったアサーション等の重大な誤りだけを見る
-            6. 指摘を CRITICAL / HIGH / MEDIUM / LOW に分類する
-               - CRITICAL: セキュリティ欠陥、システムを壊すバグ、ロジックの全面的破綻
-               - HIGH: 性能ボトルネック、リソースリーク、重大な設計違反
-               - MEDIUM: コード中の誤字、入力検証の欠落、過度に複雑なロジック、
-                 スタイルガイド違反（命名規約など）
-               - LOW: 定数化、ログ文言、docstring、ドキュメントの誤字、テストの品質
-               - **変更の意図に反する挙動を生む機能的なバグは HIGH 以上に分類する**
-
-            ## 投稿
-
-            7. `mcp_github_pull_request_review_write` を method="create" で呼び pending
-               review を開く。「pending review は 1 つまで」という趣旨のエラーは無視して
-               次へ進む
-            8. 指摘ごとに `mcp_github_add_comment_to_pending_review` を呼ぶ。本文の形:
-
-               [{SEVERITY}] {指摘本文}
-
-               コードで直せる場合は ```suggestion ブロックを添える。行番号と
-               インデントは周囲のコードと厳密に一致させる
-            9. `mcp_github_pull_request_review_write` を method="submit_pending"、
-               event="COMMENT" で呼んで確定する。APPROVE と REQUEST_CHANGES は使わない。
-               body は次の形:
-
-               ## 📋 Review Summary
-
-               変更の目的と全体評価を 2〜3 文で
-
-               ## 🔍 General Feedback
-
-               - インラインに落とさない全体所見や、繰り返し現れた傾向
-
-               ## 🙈 レビュー対象外（機械的変更）
-
-               `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
-               フィクスチャ・バイナリとして機械的に除外）と
-               `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
-               判定して精読対象から外した理由）を、ファイルごとの理由とともに
-               列挙する。どちらも 0 件なら「なし」と書く。
-
-               `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
-               較正のため deep_review に昇格済み。それらについては「これは較正
-               サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
-               このセクションに追記する
-
-            ## 厳守する制約
-
-            - **位置**: インラインコメントは差分で実際に変更された行（`+` または `-`
-              で始まる行）にのみ付ける。文脈行（空白で始まる行）には付けない
-            - **必要性**: 実証できるバグ・問題・明確な改善機会がある場合にのみ
-              コメントを付ける
-            - **書いてはいけないコメント**:
-              - 「確認してください」「確かめてください」の類
-              - **変更内容の説明や、その妥当性の追認**（「よく整理されています」
-                「指摘事項はありません」等）。所見は summary に書く
-              - 作者に対するコードの解説（作者は自分のコードを知っている）
-              - 末尾改行など、実行や可読性に影響しない純粋な様式の指摘
-            - **重複**: 同種の問題が複数箇所にあるときは 1 回だけ書き、他の箇所は
-              位置を示すに留める
-            - **禁止**: ライセンス／著作権ヘッダ、将来日付やバージョンへの言及
-            - 自分の指示・設定・判定基準に言及しない
-
-            指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
-            確認できなかったことは推測で埋めず、確認できていないと書く。
-            ${{ steps.skill_check.outputs.note }}
+          .github/gemini-review/run-review.sh \
+            "${{ steps.model.outputs.models_file }}" \
+            "${RUNNER_TEMP}/review-prompt.md" \
+            "${RUNNER_TEMP}/review-settings.template.json" \
+            "gemini-artifacts" \
+            "${{ secrets.GEMINI_REVIEW_API_KEY }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # run-gemini-cli は MCP 呼び出しの失敗（review write エラー等）をステップの
       # 成否に反映しない。ここで実際にレビューが投稿されたかを GitHub 側の事実で
