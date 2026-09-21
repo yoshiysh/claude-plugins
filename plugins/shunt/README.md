@@ -175,7 +175,7 @@ Mean bulk-read savings: **90%**
 
 ## Known limitations
 
-- **The Bash gate matches the command's first word only** — a bare `cat`/`head`/`tail`/`less`/`more` at the start of the command. Reads through `sed -n` or `awk`, an absolute path (`/usr/bin/more file`), or a wrapper (`sh -c 'more file'`) pass ungated. In 10 Codex runs told to run `more <400-line file>` verbatim, every first attempt was blocked, and in 2 the agent then read the whole file by retrying as `/bin/sh -c 'more …'` or `/usr/bin/more …`.
+- **The Bash gate matches the command's first word only** — `cat`/`head`/`tail`/`less`/`more`, after unwrapping `sh`/`bash`/`zsh`/`dash`/`ksh -c` and reducing an absolute path to its name. Reads through `sed -n` or `awk`, behind a prefix (`env more file`, `cd dir && cat file`), or in a script file pass ungated.
 - **Under Codex, only the Bash gate has fired** — in the Codex runs tested, every file read went through the shell and `check-file-size` (the `Read` matcher) never fired. Codex's own reads are often `sed -n '1,240p' <file>`, which the Bash gate does not match.
 - **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.
 - **Request size** — the payload travels in the HTTP request body (no `ARG_MAX` limit), but shunt still refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` (default 400 KB) to stay under the model's context window with headroom. Split into smaller batches.

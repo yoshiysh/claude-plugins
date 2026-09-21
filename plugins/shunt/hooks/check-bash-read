@@ -34,6 +34,33 @@ echo "$command" | grep -qE '\|' && exit 0
 # Skip redirections (cat file > out) — not a read-into-context operation
 echo "$command" | grep -qE '>' && exit 0
 
+# A blocked read gets retried as `sh -c 'more file'` or `/usr/bin/more file`.
+# Unwrap shell -c wrappers (any shell path, combined flags such as -lc, nested
+# up to 3 deep) and reduce the first word to its basename so the checks below
+# see the read itself. This runs after the pipe/redirect checks because
+# tokenizing keeps only the -c string, dropping a `| grep` outside the wrapper.
+for _ in 1 2 3; do
+  first="${command%%[[:space:]]*}"
+  case "${first##*/}" in sh|bash|zsh|dash|ksh) ;; *) break ;; esac
+  inner=""; want_c=""; skip_next=""; shell_tok=1
+  while IFS= read -r tok; do
+    if [ -n "$shell_tok" ]; then shell_tok=""; continue; fi
+    if [ -n "$skip_next" ]; then skip_next=""; continue; fi
+    case "$tok" in
+      -o|+o) skip_next=1; continue ;;
+      --*)   continue ;;
+      -*c*)  want_c=1; continue ;;
+      -*|+*) continue ;;
+    esac
+    [ -n "$want_c" ] && inner="$tok"
+    break
+  done < <(printf '%s' "$command" | xargs -n1 2>/dev/null)
+  [ -z "$inner" ] && break
+  command="$inner"
+done
+first="${command%%[[:space:]]*}"
+command="${first##*/}${command#"$first"}"
+
 # Extract file path from read commands, stripping flags (e.g. cat -n, head -100)
 file_path=""
 if echo "$command" | grep -qE '^(cat|head|tail|less|more) '; then
