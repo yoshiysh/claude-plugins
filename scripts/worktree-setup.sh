@@ -19,11 +19,5 @@ command -v npm >/dev/null || {
   exit 1
 }
 
-cutoff="$(python3 - <<'PY'
-from datetime import datetime, timedelta, timezone
-print((datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ'))
-PY
-)"
-
-echo "worktree setup: installing only package versions published no later than $cutoff"
-npm ci --ignore-scripts --no-audit --no-fund --before="$cutoff" --prefix "$runtime_dir"
+echo "worktree setup: installing packages subject to runtime/.npmrc min-release-age=7"
+npm ci --ignore-scripts --no-audit --no-fund --prefix "$runtime_dir"
