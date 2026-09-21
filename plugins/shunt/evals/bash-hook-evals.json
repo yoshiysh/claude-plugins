@@ -177,6 +177,86 @@
       "fixture": null,
       "expected_decision": "allow",
       "reason": "Cost axis: real 60-line simple CSV export, well under the 350-line threshold — allowed regardless of the fidelity axis because the volume never clears the gate."
+    },
+    {
+      "id": 23,
+      "name": "sh-c-wrapped-more-large",
+      "input": { "tool_input": { "command": "/bin/sh -c 'more {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Bypass seen in Codex after a block: the same read wrapped in /bin/sh -c must be judged as the inner read."
+    },
+    {
+      "id": 24,
+      "name": "absolute-path-more-large",
+      "input": { "tool_input": { "command": "/usr/bin/more {{FIXTURES}}/large.txt" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Bypass seen in Codex after a block: an absolute path to the read command must match like the bare name."
+    },
+    {
+      "id": 25,
+      "name": "zsh-lc-wrapped-cat-large",
+      "input": { "tool_input": { "command": "/bin/zsh -lc \"cat {{FIXTURES}}/large.txt\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Combined flags (-lc) still carry -c, so the wrapped read is unwrapped and gated."
+    },
+    {
+      "id": 26,
+      "name": "sh-c-wrapped-cat-small",
+      "input": { "tool_input": { "command": "sh -c 'cat {{FIXTURES}}/small.txt'" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Unwrapping must not change the verdict for a small file."
+    },
+    {
+      "id": 27,
+      "name": "sh-c-wrapped-cat-piped-outside",
+      "input": { "tool_input": { "command": "sh -c 'cat {{FIXTURES}}/large.txt' | head -5" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "A pipe outside the wrapper is a targeted read, same as the unwrapped cat-pipe case."
+    },
+    {
+      "id": 28,
+      "name": "sh-runs-script-file",
+      "input": { "tool_input": { "command": "sh {{FIXTURES}}/large.txt" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Without -c the shell runs the file as a script instead of printing it, so there is nothing to gate."
+    },
+    {
+      "id": 29,
+      "name": "bash-O-option-wrapped-cat-large",
+      "input": { "tool_input": { "command": "bash -O extglob -c 'cat {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "-O takes a separate shopt name; skipping it must still reach -c and gate the wrapped read."
+    },
+    {
+      "id": 30,
+      "name": "bash-rcfile-wrapped-cat-large",
+      "input": { "tool_input": { "command": "bash --rcfile {{FIXTURES}}/small.txt -c 'cat {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "--rcfile takes a separate file argument; it must not be mistaken for the command or stop the unwrap before -c."
+    },
+    {
+      "id": 31,
+      "name": "bash-sh-two-level-nested-cat-large",
+      "input": { "tool_input": { "command": "bash -c \"sh -c 'cat {{FIXTURES}}/large.txt'\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Two nested wrappers with alternating quote styles unwrap to the inner read."
+    },
+    {
+      "id": 32,
+      "name": "bash-sh-escaped-quote-cat-large",
+      "input": { "tool_input": { "command": "bash -c \"sh -c \\\"cat {{FIXTURES}}/large.txt\\\"\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Escaped quotes cannot be safely tokenized by xargs; the wrapper must fail closed instead of allowing the read."
     }
   ]
 }

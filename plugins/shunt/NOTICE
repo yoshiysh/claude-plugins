@@ -10,12 +10,19 @@ Modifications in this fork:
 - scripts/lib/aika.sh (Portal CLI / AiKA transport) removed and replaced by
   scripts/lib/gemini.sh (AI Studio generativelanguage API, key via
   CLAUDE_PLUGINS_GEMINI_API_KEY header auth, payload via request body).
-- hooks/check-bash-read, hooks/check-file-size: the deterministic structural
-  guards are upstream-verbatim; the final line-count judgment is replaced by a
-  typed model decision (scripts/lib/gemini.sh shunt_decide, prompt frozen in
-  scripts/lib/decide-prompt.txt), with the upstream line rule as the declared
-  fallback when the model cannot be consulted.
+- hooks/check-bash-read, hooks/check-file-size: the final line-count judgment
+  is replaced by a typed model decision (scripts/lib/gemini.sh shunt_decide,
+  prompt frozen in scripts/lib/decide-prompt.txt), with the upstream line rule
+  as the declared fallback when the model cannot be consulted. The decision
+  also receives the file's first 40 lines (each cut to 200 characters) as a
+  sample for judging content complexity.
+- hooks/check-bash-read: shell -c wrappers (sh/bash/zsh/dash/ksh) are
+  unwrapped and an absolute command path is reduced to its name before the
+  read check.
+- hooks/check-bash-read, hooks/check-file-size: allow is signalled by empty
+  output instead of a JSON allow decision.
 - scripts/bulk-read: worker output contract added (ANSWER / EVIDENCE /
   UNVERIFIED sections).
 - evals/run_regression.py: regression harness comparing upstream and fork
-  decisions over the upstream bash-hook eval corpus.
+  decisions over both hook eval corpora (evals/bash-hook-evals.json,
+  evals/hook-evals.json), with added real-fixture cases under evals/fixtures/.

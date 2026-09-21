@@ -3,8 +3,9 @@
 # Catches cat/head/tail/less/more that bypass the Read hook
 #
 # Fork note: the structural guards below (empty command, pipes, redirects,
-# non-read commands, missing files) are kept verbatim from upstream — they are
-# deterministic and cheap, and code decides what code can decide. Only the
+# non-read commands, missing files) are kept from upstream, with shell -c
+# unwrapping and absolute-path reduction added before the non-read check —
+# they are deterministic and cheap, and code decides what code can decide. Only the
 # final judgment ("is this particular read worth delegating?") moves from a
 # bare line-count comparison to a typed model decision (shunt_decide), because
 # line count is a proxy: it misfires on minified files and says nothing about
@@ -13,6 +14,12 @@
 # upstream would have blocked anyway. If the model cannot be consulted, the
 # hook falls back to the upstream line rule and says so in the reason — a
 # missing judgment is reported, never silently converted into one.
+#
+# Allow is signalled by exiting 0 with empty stdout. Codex rejects every JSON
+# allow form (decision:allow/approve, permissionDecision:allow without
+# updatedInput) as an invalid hook result; empty output is the only no-op both
+# Codex and Claude Code accept. Block keeps the legacy decision:block form,
+# which both hosts honor.
 
 MIN_LINES="${SHUNT_MIN_LINES:-350}"
 case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
@@ -20,13 +27,51 @@ case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
 input=$(cat)
 
 command=$(echo "$input" | jq -r '.tool_input.command // empty')
-[ -z "$command" ] && { echo '{"decision": "allow"}'; exit 0; }
+[ -z "$command" ] && exit 0
 
 # Skip piped commands (cat file | grep) — those are targeted reads
-echo "$command" | grep -qE '\|' && { echo '{"decision": "allow"}'; exit 0; }
+echo "$command" | grep -qE '\|' && exit 0
 
 # Skip redirections (cat file > out) — not a read-into-context operation
-echo "$command" | grep -qE '>' && { echo '{"decision": "allow"}'; exit 0; }
+echo "$command" | grep -qE '>' && exit 0
+
+# xargs cannot preserve escaped quotes inside a quoted shell -c argument. If
+# such syntax is present, parsing the wrapper could turn a real read into an
+# unrecognised command and allow it through. Keep the gate fail-closed for
+# these inputs; callers can retry with a simpler shell command.
+if printf '%s' "$command" | grep -qE '\\["'"'"']'; then
+  echo '{"decision": "block", "reason": "Shell wrapper contains escaped quotes that cannot be safely parsed; retry without nested quoting or use the /bulk-reader skill."}'
+  exit 0
+fi
+
+# A blocked read gets retried as `sh -c 'more file'` or `/usr/bin/more file`.
+# Unwrap shell -c wrappers (any shell path, combined flags such as -lc) and
+# reduce the first word to its basename so the checks below see the read itself.
+# Only two nesting levels (alternating quote styles) unwrap: xargs does not
+# treat backslash as an escape inside double quotes, so a third level fails to
+# tokenize and falls through to allow. This runs after the pipe/redirect checks
+# because tokenizing keeps only the -c string, dropping a `| grep` outside it.
+for _ in 1 2 3; do
+  first="${command%%[[:space:]]*}"
+  case "${first##*/}" in sh|bash|zsh|dash|ksh) ;; *) break ;; esac
+  inner=""; want_c=""; skip_next=""; shell_tok=1
+  while IFS= read -r tok; do
+    if [ -n "$shell_tok" ]; then shell_tok=""; continue; fi
+    if [ -n "$skip_next" ]; then skip_next=""; continue; fi
+    case "$tok" in
+      -o|+o|-O|+O|--rcfile|--init-file|--emulate) skip_next=1; continue ;;
+      --*)   continue ;;
+      -*c*)  want_c=1; continue ;;
+      -*|+*) continue ;;
+    esac
+    [ -n "$want_c" ] && inner="$tok"
+    break
+  done < <(printf '%s' "$command" | xargs -n1 2>/dev/null)
+  [ -z "$inner" ] && break
+  command="$inner"
+done
+first="${command%%[[:space:]]*}"
+command="${first##*/}${command#"$first"}"
 
 # Extract file path from read commands, stripping flags (e.g. cat -n, head -100)
 file_path=""
@@ -50,12 +95,11 @@ if echo "$command" | grep -qE '^(cat|head|tail|less|more) '; then
   done < <(printf '%s' "$args" | xargs -n1 2>/dev/null)
 fi
 
-[ -z "$file_path" ] && { echo '{"decision": "allow"}'; exit 0; }
-[ ! -f "$file_path" ] && { echo '{"decision": "allow"}'; exit 0; }
+[ -z "$file_path" ] && exit 0
+[ ! -f "$file_path" ] && exit 0
 
 lines=$(wc -l < "$file_path" 2>/dev/null | tr -d ' ' || echo "0")
 if [ "$lines" -le "$MIN_LINES" ]; then
-  echo '{"decision": "allow"}'
   exit 0
 fi
 
@@ -68,9 +112,7 @@ fi
 sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
 
 if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines" "$MIN_LINES" "$sample"); then
-  if [ "$verdict" = "allow" ]; then
-    echo '{"decision": "allow"}'
-  else
+  if [ "$verdict" != "allow" ]; then
     echo "{\"decision\": \"block\", \"reason\": \"Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of cat/head/tail. If you need exact content for editing, re-read just the section you need.\"}"
   fi
 else
