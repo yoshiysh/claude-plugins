@@ -1,6 +1,6 @@
 ---
 name: code-writer
-description: "Delegates boilerplate code generation to the Gemini worker. Use for tests, config, docstrings, type stubs, or any generation where >80% is predictable from reference files."
+description: "Delegates boilerplate code generation to the Gemini worker. Use for tests, config, docstrings, type stubs, or any generation where more than 80% is predictable from reference files."
 ---
 
 ```bash

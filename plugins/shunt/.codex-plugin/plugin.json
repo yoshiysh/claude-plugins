@@ -1,0 +1,30 @@
+{
+    "name": "shunt",
+    "displayName": "Shunt",
+    "version": "0.1.0",
+    "description": "Shunts I/O-heavy work to a Gemini worker (AI Studio) to save tokens. Hooks gate large file reads with a typed model decision and redirect to bulk-reader/code-writer scripts. Fork of spotify/portal-ai-plugins shunt.",
+    "author": {
+        "name": "yoshiysh"
+    },
+    "homepage": "https://github.com/yoshiysh/claude-plugins",
+    "repository": "https://github.com/yoshiysh/claude-plugins",
+    "license": "Apache-2.0",
+    "keywords": [
+        "token-optimization",
+        "model-routing",
+        "delegation",
+        "gemini"
+    ],
+    "skills": "./skills/",
+    "interface": {
+        "displayName": "Shunt",
+        "shortDescription": "大きなファイルの読み取りとボイラープレート生成を Gemini worker へ委譲してトークンを節約",
+        "longDescription": "閾値を超える行数のファイル読み取りを hook がモデルゲートで判定し、一括読み取りと判断したものを bulk-reader へ誘導します。bulk-read / code-write はファイル内容を AI Studio の Gemini API へ送信して要約・生成を受け取ります。ゲート判定でもファイル先頭の一部を同 API へ送信します。AI Studio の API キーが必要です。",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+            "このリポジトリの大きなファイルを bulk-reader で読んで、何をしているか要約して"
+        ]
+    }
+}

@@ -20,6 +20,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prose import prose_pattern
+
 SKILL = Path(__file__).resolve().parents[1]
 REFINE = (SKILL / "scripts" / "refine.js").read_text()
 CONTRACTS = (SKILL / "schemas" / "agent-contracts.md").read_text()
@@ -41,22 +43,22 @@ class TestContractExists(unittest.TestCase):
             self.assertIn(f"`{kind}`", CONTRACTS)
 
     def test_表に無い状況は_needs_input_decision_に落とす(self):
-        self.assertIn("表に無い状況は `question`（`needs_input(decision)`）に落とす", CONTRACTS)
+        self.assertRegex(CONTRACTS, prose_pattern("表に無い状況は `question`（`needs_input(decision)`）に落とす"))
         self.assertIn("規則を発明しない", CONTRACTS)
 
     def test_行に優先順位がある(self):
         self.assertIn("複数行に当たるときは番号の小さい行を採る", CONTRACTS)
 
     def test_criteria_は_writer_が既定を提案し_decisions_候補として返す(self):
-        self.assertIn("writer が既定を提案し、decisions 候補", CONTRACTS)
+        self.assertRegex(CONTRACTS, prose_pattern("writer が既定を提案し、decisions 候補"))
 
     def test_rationale_は必須(self):
-        self.assertIn("分類の根拠（1 行必須）", CONTRACTS)
+        self.assertRegex(CONTRACTS, prose_pattern("分類の根拠（1 行必須）"))
 
     def test_agent_md_が実在し分類専任である(self):
         self.assertTrue(AGENT_MD.exists())
         body = AGENT_MD.read_text()
-        self.assertIn("別 spawn", body)
+        self.assertRegex(body, prose_pattern("別 spawn"))
         self.assertIn("分類だけを行う", body)
         self.assertIn("rationale", body)
 

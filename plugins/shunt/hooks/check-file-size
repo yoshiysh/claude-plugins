@@ -5,7 +5,8 @@
 # Fork note: same treatment as check-bash-read — deterministic guards
 # (targeted reads, missing files, small files) are upstream-verbatim; the
 # final line-count judgment becomes a typed model decision with the upstream
-# rule as the declared fallback.
+# rule as the declared fallback. Allow is empty stdout for the same host
+# compatibility reason documented in check-bash-read.
 
 MIN_LINES="${SHUNT_MIN_LINES:-350}"
 case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
@@ -18,29 +19,27 @@ limit=$(echo "$input" | jq -r '.tool_input.limit // empty')
 
 # Allow targeted reads (offset or limit set) — Claude already knows what it needs
 if [ -n "$offset" ] || [ -n "$limit" ]; then
-  echo '{"decision": "allow"}'
   exit 0
 fi
 
 # Allow if file doesn't exist or path is empty
 if [ -z "$file_path" ] || [ ! -f "$file_path" ]; then
-  echo '{"decision": "allow"}'
   exit 0
 fi
 
 # Allow small files — delegation overhead isn't worth it
 lines=$(wc -l < "$file_path" 2>/dev/null | tr -d ' ' || echo "0")
 if [ "$lines" -le "$MIN_LINES" ]; then
-  echo '{"decision": "allow"}'
   exit 0
 fi
 
 . "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
 
-if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "Read ${file_path}" "$file_path" "$lines" "$MIN_LINES"); then
-  if [ "$verdict" = "allow" ]; then
-    echo '{"decision": "allow"}'
-  else
+# Fidelity-axis input: see check-bash-read for why this is capped and real.
+sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
+
+if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "Read ${file_path}" "$file_path" "$lines" "$MIN_LINES" "$sample"); then
+  if [ "$verdict" != "allow" ]; then
     echo "{\"decision\": \"block\", \"reason\": \"Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of reading it directly. If you need exact content for editing, re-read with an offset/limit for just the section you need.\"}"
   fi
 else

@@ -18,6 +18,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prose import prose_pattern
+
 SKILL = Path(__file__).resolve().parents[1]
 REFINE = (SKILL / "scripts" / "refine.js").read_text(encoding="utf-8")
 DRAFT = (SKILL / "scripts" / "draft.js").read_text(encoding="utf-8")
@@ -99,13 +101,13 @@ class RoleMapTests(unittest.TestCase):
             "writer（転記改稿）",
             "司令塔（SKILL.md）",
         ):
-            self.assertIn(f"| {role} |", ROLE_MAP, f"role-map.md に {role} の行が無い")
+            self.assertRegex(ROLE_MAP, prose_pattern(f"| {role} |"), f"role-map.md に {role} の行が無い")
         # 監査 7 観点 + specimen が 1 行で宣言されている
         for auditor in ("executability", "clarity", "traceability", "coverage", "fabrication", "consistency", "validity", "specimen"):
             self.assertIn(auditor, ROLE_MAP)
 
     def test_the_norm_is_stated(self):
-        self.assertIn("1 role = 1 責務", ROLE_MAP)
+        self.assertRegex(ROLE_MAP, prose_pattern("1 role = 1 責務"))
         self.assertIn("判定と事実指摘のみ", ROLE_MAP)
 
     def test_scripts_and_skill_reference_the_role_map(self):
