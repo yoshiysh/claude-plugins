@@ -20,4 +20,4 @@ command -v npm >/dev/null || {
 }
 
 echo "worktree setup: installing packages subject to runtime/.npmrc min-release-age=7"
-npm ci --ignore-scripts --no-audit --no-fund --prefix "$runtime_dir"
+npm ci --ignore-scripts --no-fund --prefix "$runtime_dir"
