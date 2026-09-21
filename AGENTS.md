@@ -170,7 +170,7 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 - `plugin.json` は `.claude-plugin/` と `.codex-plugin/` の 2 箇所にある。両方を維持し、共通フィールドは `verify_install.py` の L2 が一致を検査する。専用フィールドは Claude の `dependencies`、Codex の `interface` で、逆側への混入を拒否する（[Codex 仕様](https://developers.openai.com/codex/plugins/build)に無いフィールドは `.codex-plugin/` 側に書かない）。登録処理は Codex の `interface` を生成し、既存の `interface` は再登録でも保持する。L2 の合格は Codex の表示スキーマに対する検証を含まない。
 - **`.agents/skills/` を `find` で走査するときは `-L` を付ける。** 公開済みスキルは symlink なので、`find` は既定で中へ降りず、結果が静かに 0 件になる（`find -L .agents/skills -name '*.js'` のように書く）。同じ理由で `grep -r` も `-r` ではなく実体側（`plugins/`）か `-L` 相当の指定を使う。`make` の `$(wildcard .agents/skills/*/)` と Python の `Path.rglob` は symlink を辿るので影響を受けない。
 - Workflow を使う caller スキルは native Workflow を優先し、それが無い Codex では caller SKILL.md の active callsite から `workflow:dynamic-workflow-runner` を透過利用する（runner を参照しているスキルは `grep -rl dynamic-workflow-runner plugins/*/skills | cut -d/ -f1-4 | sort -u | grep -v '/dynamic-workflow-runner$'` で列挙できる）。これは host-global interceptor ではないため、新たな Workflow caller には同じ native-first route 契約を追加する。
-- runner は意味保存して実行できない graph を最初の execution agent の dispatch 前に拒否する。拒否の基準は `plugins/workflow/skills/dynamic-workflow-runner/references/claude-workflow-compatibility.md` の「v1 で意味保存できない graph」を正とする。
+- runner は意味保存して実行できない graph を最初の execution agent の dispatch 前に拒否する。拒否の基準は `plugins/workflow/skills/dynamic-workflow-runner/references/claude-workflow-compatibility.md` の互換性基準を正とする。
 - `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は `plugins/performance/references/native-hooks.md` を正とする。
 
 ## 言語
