@@ -120,12 +120,9 @@ Fires on every `Bash` tool call. Catches `cat`, `head`, `tail`, `less`, `more` o
 
 ### Running under Codex
 
-The same plugin installs into Codex from this marketplace (`codex plugin add shunt@yoshiysh-claude-plugins`). Differences from Claude Code:
-
-- Codex runs plugin hooks only after they are trusted. Approve them once in an interactive `codex` session; `codex exec` skips untrusted hooks without reporting it.
-- `check-file-size` never fires: Codex has no `Read` tool, so every file read goes through the shell and only `check-bash-read` applies.
-- Codex often reads files with `sed -n '1,240p' <file>`. `check-bash-read` gates `cat`/`head`/`tail`/`less`/`more` only, so those reads pass ungated.
-- The `env` block in `.claude/settings.json` is not read by Codex. Export the variables below in the shell Codex starts from.
+1. `codex plugin add shunt@yoshiysh-claude-plugins`
+2. Start `codex` interactively once and approve shunt's hooks. Until they are approved, `codex exec` does not run them and does not say so.
+3. Export the variables under [Configuration](#configuration) in the shell that launches Codex. Codex does not read the `env` block in `.claude/settings.json`.
 
 ## Configuration
 
@@ -178,6 +175,8 @@ Mean bulk-read savings: **90%**
 
 ## Known limitations
 
+- **The Bash gate matches the command's first word only** — `cat`/`head`/`tail`/`less`/`more` at the start of the command. Reads through `sed -n`, `awk`, or a wrapper such as `sh -c 'more file'` pass ungated. After a block, an agent told to run a command verbatim has been observed retrying it inside `/bin/sh -c` and reading the whole file.
+- **Under Codex, only the Bash gate has fired** — in the Codex runs tested, every file read went through the shell and `check-file-size` (the `Read` matcher) never fired. Codex's own reads are often `sed -n '1,240p' <file>`, which the Bash gate does not match.
 - **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.
 - **Request size** — the payload travels in the HTTP request body (no `ARG_MAX` limit), but shunt still refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` (default 400 KB) to stay under the model's context window with headroom. Split into smaller batches.
 - **Invocation timeout** — shunt caps one action invocation at `SHUNT_TIMEOUT_SECONDS` (default 180). Very large generations can exceed it; raise the timeout or split the spec into smaller calls.
