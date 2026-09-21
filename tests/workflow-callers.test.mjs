@@ -94,6 +94,7 @@ test('every active Workflow callsite has an explicit semantic portability classi
     ['workflow/prd-spec/scripts/draft.js', 'rejected_source'],
     ['workflow/prd-spec/scripts/refine.js', 'rejected_source'],
     ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
+    ['workflow/ooda/scripts/ooda.js', 'portable'],
     ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
     ['research/search/scripts/investigate.js', 'portable'],
     ['skill-creator/skill-creator-best-practices/scripts/build_skill.js', 'portable'],
@@ -116,19 +117,23 @@ test('every active Workflow callsite has an explicit semantic portability classi
   assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered callsites must match exactly')
 })
 
-test('portable research source is bounded and independent of hidden host state', () => {
+test('portable sources avoid hidden host state and the research source stays bounded', () => {
   const sourcePath = join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js')
   const source = readFileSync(sourcePath, 'utf8')
-  for (const forbidden of [
-    /\bbudget\s*\./,
-    /\bprocess\s*\./,
-    /Math\.random\s*\(/,
-    /Date\.now\s*\(/,
-    /\beval\s*\(/,
-    /new\s+Function\s*\(/,
-    /import\s*\(/,
-  ]) {
-    assert.doesNotMatch(source, forbidden, `${sourcePath}: portable source depends on hidden or executable host state`)
+  const sourcePaths = [sourcePath, join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js')]
+  for (const path of sourcePaths) {
+    const portableSource = readFileSync(path, 'utf8')
+    for (const forbidden of [
+      /\bbudget\s*\./,
+      /\bprocess\s*\./,
+      /Math\.random\s*\(/,
+      /Date\.now\s*\(/,
+      /\beval\s*\(/,
+      /new\s+Function\s*\(/,
+      /import\s*\(/,
+    ]) {
+      assert.doesNotMatch(portableSource, forbidden, `${path}: portable source depends on hidden or executable host state`)
+    }
   }
   assert.match(source, /const HARD_MAX_ROUNDS = \d+/)
   assert.match(source, /const MAX_CLAIMS_PER_ROUND = \d+/)
@@ -140,6 +145,7 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   const sourcePaths = [
     join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
     join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'build_skill.js'),
+    join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
   ]
   for (const sourcePath of sourcePaths) {
     const source = readFileSync(sourcePath, 'utf8')

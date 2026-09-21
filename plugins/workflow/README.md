@@ -8,6 +8,7 @@
 | スキル | 呼び出し | 説明 |
 |---|---|---|
 | `pdca` | `/workflow:pdca` | Plan→Do→Check→Act を契約・検証付きで回す |
+| `ooda` | `/workflow:ooda` | 状況が読めない課題で Observe→Orient→Decide→Act を 1 周ずつ回し、観測を独立検証してから次の周へ戻す |
 | `prd-spec` | `/workflow:prd-spec` | 要求文書・仕様書を日本語で作成・レビューする |
 | `review-document` | `/workflow:review-document` | 文書の言語化レビューと改稿 |
 | `pr-review` | `/workflow:pr-review` | PR、コード、skill、PRD、仕様書、README などを複数観点で網羅的にレビューする |
@@ -18,6 +19,7 @@
 
 ```
 /workflow:pdca <依頼内容>
+/workflow:ooda <依頼内容>
 /workflow:prd-spec <依頼内容>
 ```
 
