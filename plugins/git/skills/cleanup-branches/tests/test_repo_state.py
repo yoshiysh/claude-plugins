@@ -226,9 +226,9 @@ class PrimaryBranchNamesTests(unittest.TestCase):
     self.assertNotIn("feature/x", names)
 
 
-class BackupTagTests(unittest.TestCase):
-  def test_delete_local_creates_backup_tag_before_deleting(self):
-    """削除前に退避タグを打ち、結果に含める。"""
+class LocalDeletionTests(unittest.TestCase):
+  def test_delete_local_deletes_without_backup_tag(self):
+    """取り込み済みは primary ref に内容があるので、退避タグを打たずにそのまま消す。"""
     calls = []
 
     def fake_run(cmd, **_):
@@ -245,10 +245,9 @@ class BackupTagTests(unittest.TestCase):
         [repo_state.BranchInfo("fix/a", "develop に取り込み済み", merged_via="ancestor")]
       )
 
-    self.assertEqual(calls[0][:2], ["git", "tag"])
-    self.assertEqual(calls[1], ["git", "branch", "-d", "fix/a"])
+    self.assertEqual(calls, [["git", "branch", "-d", "fix/a"]])
     self.assertEqual(results[0]["status"], "deleted")
-    self.assertTrue(results[0]["backup_tag"].startswith("deleted-branches/fix-a-"))
+    self.assertNotIn("backup_tag", results[0])
 
   def test_squash_merged_uses_force_delete_flag(self):
     """merged_via が pr（squash 等で -d が拒否される）なら -D を使う。"""
@@ -268,14 +267,14 @@ class BackupTagTests(unittest.TestCase):
         [repo_state.BranchInfo("fix/squashed", "PR が merged", merged_via="pr")]
       )
 
-    self.assertEqual(calls[1], ["git", "branch", "-D", "fix/squashed"])
+    self.assertEqual(calls, [["git", "branch", "-D", "fix/squashed"]])
 
-  def test_tag_failure_aborts_deletion(self):
-    """退避タグの作成に失敗したら削除自体を中止する（復元手段が無いまま消さない）。"""
+  def test_refused_deletion_is_reported_as_skipped(self):
+    """git branch が削除を拒否したら skipped として理由を返す。"""
     def fake_run(cmd, **_):
       class Failed:
-        returncode = 128
-        stderr = "tag already exists"
+        returncode = 1
+        stderr = "error: the branch 'fix/a' is not fully merged"
 
       return Failed()
 
@@ -285,7 +284,7 @@ class BackupTagTests(unittest.TestCase):
       )
 
     self.assertEqual(results[0]["status"], "skipped")
-    self.assertIn("退避タグ作成に失敗", results[0]["detail"])
+    self.assertIn("not fully merged", results[0]["detail"])
 
 
 class RemoteDeletionTests(unittest.TestCase):
