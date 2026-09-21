@@ -17,6 +17,11 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, ".fixtures")
+# Real, hand-written fixture files (evals/fixtures/) used by the two-axis
+# (cost x fidelity) eval cases below. Unlike FIXTURES (.fixtures/), these are
+# never synthetically overwritten — the whole point is that the gate samples
+# their real content to judge complexity, not a generic "line N" filler.
+REAL_FIXTURES = os.path.join(HERE, "fixtures")
 TRACE = os.path.join(FIXTURES, "trace.jsonl")
 
 SUITES = [
@@ -58,7 +63,9 @@ def run_suite(suite) -> list:
     for e in evals:
         tool_input = {}
         for k, v in e["input"]["tool_input"].items():
-            tool_input[k] = v.replace("{{FIXTURES}}", FIXTURES) if isinstance(v, str) else v
+            if isinstance(v, str):
+                v = v.replace("{{FIXTURES}}", FIXTURES).replace("{{REAL_FIXTURES}}", REAL_FIXTURES)
+            tool_input[k] = v
         fixture = e.get("fixture")
         if fixture and "file_path" in tool_input and "{{FIXTURES}}" not in e["input"]["tool_input"].get("file_path", ""):
             pass

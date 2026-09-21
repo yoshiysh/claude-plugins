@@ -145,6 +145,38 @@
       "fixture": { "lines": 800 },
       "expected_decision": "block",
       "reason": "Quoted path containing a space — word-split-on-space parsing must not break this into two bogus tokens and fall through to allow"
+    },
+    {
+      "id": 19,
+      "name": "cat-complex-code-over-threshold",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/connection-pool.ts" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Fidelity axis: real 405-line file with race-sensitive lock/retry/circuit-breaker logic in its sampled head. A cheap worker's summary would flatten exactly the details (lock ordering, half-open probe exclusivity) that make this code correct, so the gate should keep it in context even past the line threshold."
+    },
+    {
+      "id": 20,
+      "name": "cat-simple-log-over-threshold",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/access-log.txt" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Fidelity axis: real 400-line access log, one repetitive record shape per line. A worker's summary loses nothing a human or Claude would act on, so once the cost axis clears the threshold this should delegate."
+    },
+    {
+      "id": 21,
+      "name": "head-complex-code-small-slice",
+      "input": { "tool_input": { "command": "head -30 {{REAL_FIXTURES}}/connection-pool.ts" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Cost axis: head -30 only ingests 30 lines regardless of the file's 405-line total, so this stays under threshold and allows on cost alone — independent of the file's complexity."
+    },
+    {
+      "id": 22,
+      "name": "cat-simple-data-under-threshold",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/user-export.csv" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Cost axis: real 60-line simple CSV export, well under the 350-line threshold — allowed regardless of the fidelity axis because the volume never clears the gate."
     }
   ]
 }

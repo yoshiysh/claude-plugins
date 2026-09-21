@@ -6,7 +6,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1241,
+  "latency_ms": 1577,
   "diff": false,
   "upstream_reason": "Plain cat on large file — should block"
  },
@@ -17,7 +17,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 34,
+  "latency_ms": 31,
   "diff": false,
   "upstream_reason": "Small file — not worth delegating"
  },
@@ -28,7 +28,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1208,
+  "latency_ms": 1307,
   "diff": false,
   "upstream_reason": "cat with -n flag — should still block"
  },
@@ -39,7 +39,7 @@
   "upstream": "block",
   "fork": "allow",
   "resolved_by": "model",
-  "latency_ms": 1295,
+  "latency_ms": 1300,
   "diff": true,
   "upstream_reason": "head on large file — should block"
  },
@@ -50,7 +50,7 @@
   "upstream": "block",
   "fork": "allow",
   "resolved_by": "model",
-  "latency_ms": 1238,
+  "latency_ms": 1341,
   "diff": true,
   "upstream_reason": "head -100 — still a bulk read, block"
  },
@@ -59,10 +59,10 @@
   "id": 6,
   "name": "tail-large-file",
   "upstream": "block",
-  "fork": "block",
+  "fork": "allow",
   "resolved_by": "model",
-  "latency_ms": 1206,
-  "diff": false,
+  "latency_ms": 1417,
+  "diff": true,
   "upstream_reason": "tail on large file — should block"
  },
  {
@@ -72,7 +72,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1339,
+  "latency_ms": 1299,
   "diff": false,
   "upstream_reason": "less on large file — should block"
  },
@@ -83,7 +83,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 57,
+  "latency_ms": 17,
   "diff": false,
   "upstream_reason": "Piped command — targeted read"
  },
@@ -94,7 +94,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 22,
+  "latency_ms": 16,
   "diff": false,
   "upstream_reason": "Redirect — copying file, not reading into context"
  },
@@ -105,7 +105,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 16,
+  "latency_ms": 17,
   "diff": false,
   "upstream_reason": "Not a file read command"
  },
@@ -127,7 +127,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1348,
+  "latency_ms": 1336,
   "diff": false,
   "upstream_reason": "Quoted path — should still be caught"
  },
@@ -138,7 +138,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 30,
+  "latency_ms": 29,
   "diff": false,
   "upstream_reason": "File doesn't exist — let Bash handle the error"
  },
@@ -149,7 +149,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 10,
+  "latency_ms": 9,
   "diff": false,
   "upstream_reason": "Empty command — pass through"
  },
@@ -160,7 +160,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 10,
+  "latency_ms": 9,
   "diff": false,
   "upstream_reason": "No command field — pass through"
  },
@@ -171,7 +171,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1510,
+  "latency_ms": 1430,
   "diff": false,
   "upstream_reason": "more on large file — only regex-matched command without coverage"
  },
@@ -182,7 +182,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 35,
+  "latency_ms": 33,
   "diff": false,
   "upstream_reason": "Parser bug: -n and 5 are separate args, 5 is treated as file path — file '5' won't exist so allow"
  },
@@ -193,9 +193,53 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1311,
+  "latency_ms": 1448,
   "diff": false,
   "upstream_reason": "Quoted path containing a space — word-split-on-space parsing must not break this into two bogus tokens and fall through to allow"
+ },
+ {
+  "suite": "check-bash-read",
+  "id": 19,
+  "name": "cat-complex-code-over-threshold",
+  "upstream": "allow",
+  "fork": "allow",
+  "resolved_by": "model",
+  "latency_ms": 1406,
+  "diff": false,
+  "upstream_reason": "Fidelity axis: real 405-line file with race-sensitive lock/retry/circuit-breaker logic in its sampled head. A cheap worker's summary would flatten exactly the details (lock ordering, half-open probe exclusivity) that make this code correct, so the gate should keep it in context even past the line threshold."
+ },
+ {
+  "suite": "check-bash-read",
+  "id": 20,
+  "name": "cat-simple-log-over-threshold",
+  "upstream": "block",
+  "fork": "block",
+  "resolved_by": "model",
+  "latency_ms": 1326,
+  "diff": false,
+  "upstream_reason": "Fidelity axis: real 400-line access log, one repetitive record shape per line. A worker's summary loses nothing a human or Claude would act on, so once the cost axis clears the threshold this should delegate."
+ },
+ {
+  "suite": "check-bash-read",
+  "id": 21,
+  "name": "head-complex-code-small-slice",
+  "upstream": "allow",
+  "fork": "allow",
+  "resolved_by": "model",
+  "latency_ms": 1418,
+  "diff": false,
+  "upstream_reason": "Cost axis: head -30 only ingests 30 lines regardless of the file's 405-line total, so this stays under threshold and allows on cost alone — independent of the file's complexity."
+ },
+ {
+  "suite": "check-bash-read",
+  "id": 22,
+  "name": "cat-simple-data-under-threshold",
+  "upstream": "allow",
+  "fork": "allow",
+  "resolved_by": "code",
+  "latency_ms": 34,
+  "diff": false,
+  "upstream_reason": "Cost axis: real 60-line simple CSV export, well under the 350-line threshold — allowed regardless of the fidelity axis because the volume never clears the gate."
  },
  {
   "suite": "check-file-size",
@@ -204,7 +248,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 30,
+  "latency_ms": 22,
   "diff": false,
   "upstream_reason": "File under threshold — delegation overhead not worth it"
  },
@@ -215,7 +259,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 23,
+  "latency_ms": 21,
   "diff": false,
   "upstream_reason": "Exactly at threshold (<=350) — should not block"
  },
@@ -226,7 +270,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1297,
+  "latency_ms": 1568,
   "diff": false,
   "upstream_reason": "One line over threshold — should block"
  },
@@ -237,7 +281,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1199,
+  "latency_ms": 1311,
   "diff": false,
   "upstream_reason": "Well over threshold — clear delegation candidate"
  },
@@ -248,7 +292,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1249,
+  "latency_ms": 1381,
   "diff": false,
   "upstream_reason": "Very large file — blocked regardless of extension"
  },
@@ -259,7 +303,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 29,
+  "latency_ms": 25,
   "diff": false,
   "upstream_reason": "Empty file — nothing to delegate"
  },
@@ -270,7 +314,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 21,
+  "latency_ms": 17,
   "diff": false,
   "upstream_reason": "Offset set — targeted read, allow through"
  },
@@ -281,7 +325,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 19,
+  "latency_ms": 17,
   "diff": false,
   "upstream_reason": "Limit set — targeted read, allow through"
  },
@@ -292,7 +336,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 19,
+  "latency_ms": 16,
   "diff": false,
   "upstream_reason": "Both offset and limit — definitely a targeted read"
  },
@@ -303,7 +347,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 18,
+  "latency_ms": 15,
   "diff": false,
   "upstream_reason": "File doesn't exist — let Read handle the error"
  },
@@ -314,7 +358,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 18,
+  "latency_ms": 16,
   "diff": false,
   "upstream_reason": "Empty path — pass through"
  },
@@ -325,7 +369,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 19,
+  "latency_ms": 15,
   "diff": false,
   "upstream_reason": "No file_path field — pass through gracefully"
  },
@@ -336,7 +380,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 19,
+  "latency_ms": 14,
   "diff": false,
   "upstream_reason": "offset:0 treated as targeted — known bypass, documenting behavior"
  },
@@ -347,7 +391,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 19,
+  "latency_ms": 15,
   "diff": false,
   "upstream_reason": "limit:0 treated as targeted — known bypass, documenting behavior"
  },
@@ -358,7 +402,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1179,
+  "latency_ms": 1315,
   "diff": false,
   "upstream_reason": "SHUNT_MIN_LINES=200 overrides default — 250-line file should block"
  },
@@ -369,7 +413,7 @@
   "upstream": "allow",
   "fork": "allow",
   "resolved_by": "code",
-  "latency_ms": 31,
+  "latency_ms": 27,
   "diff": false,
   "upstream_reason": "SHUNT_MIN_LINES=500 overrides default — 351-line file should be allowed"
  },
@@ -380,7 +424,7 @@
   "upstream": "block",
   "fork": "block",
   "resolved_by": "model",
-  "latency_ms": 1303,
+  "latency_ms": 1615,
   "diff": false,
   "upstream_reason": "Non-numeric SHUNT_MIN_LINES falls back to 350 — 351-line file blocked"
  }

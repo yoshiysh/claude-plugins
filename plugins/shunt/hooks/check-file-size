@@ -37,7 +37,10 @@ fi
 
 . "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
 
-if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "Read ${file_path}" "$file_path" "$lines" "$MIN_LINES"); then
+# Fidelity-axis input: see check-bash-read for why this is capped and real.
+sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
+
+if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "Read ${file_path}" "$file_path" "$lines" "$MIN_LINES" "$sample"); then
   if [ "$verdict" = "allow" ]; then
     echo '{"decision": "allow"}'
   else

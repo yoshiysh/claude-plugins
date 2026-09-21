@@ -116,12 +116,16 @@ shunt_invoke() {
 
 # Typed routing decision (jev-style: state in, one enum choice out).
 #   $1 command string  $2 resolved path  $3 line count  $4 configured min-lines threshold
+#   $5 file sample (optional) — real lines from the file's start, used to
+#      judge content complexity (fidelity axis) instead of guessing from the
+#      path/extension. Caller is responsible for bounding it (line count and
+#      per-line length); this function passes it through as-is.
 # Prints exactly "allow" or "block" and returns 0. Any transport or schema
 # failure returns 1 with nothing on stdout — the caller owns the fallback and
 # must record that the model was not consulted (a missing judgment must not be
 # silently converted into a judgment).
 shunt_decide() {
-  local command_str="$1" path_str="$2" lines_str="$3" min_lines_str="${4:-350}"
+  local command_str="$1" path_str="$2" lines_str="$3" min_lines_str="${4:-350}" sample_str="${5:-}"
   local body_file out_file decision template
 
   local prompt_template="${SHUNT_DECIDE_PROMPT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/decide-prompt.txt}"
@@ -149,6 +153,7 @@ shunt_decide() {
   template="${template//\{\{PATH\}\}/$path_str}"
   template="${template//\{\{LINES\}\}/$lines_str}"
   template="${template//\{\{MIN_LINES\}\}/$min_lines_str}"
+  template="${template//\{\{FILE_SAMPLE\}\}/$sample_str}"
 
   shunt_tmpfile body_file || return 1
   shunt_tmpfile out_file || return 1
@@ -175,10 +180,13 @@ shunt_decide() {
   # without re-deriving it from timing — the API key never goes anywhere near
   # this line.
   if [ -n "${SHUNT_TRACE_FILE:-}" ]; then
+    local sample_included=false
+    [ -n "$sample_str" ] && sample_included=true
     jq -c --arg model "$SHUNT_GEMINI_MODEL" --arg http "${SHUNT_HTTP_STATUS:-}" --arg decision "$decision" \
       --arg command "$command_str" --arg path "$path_str" --arg lines "$lines_str" --arg min_lines "$min_lines_str" \
+      --argjson sample_included "$sample_included" \
       '{model: $model, http: $http, decision: $decision, command: $command, path: $path, lines: $lines,
-        min_lines: $min_lines, usage: (.usageMetadata // null), responseId: (.responseId // null)}' \
+        min_lines: $min_lines, sample_included: $sample_included, usage: (.usageMetadata // null), responseId: (.responseId // null)}' \
       "$out_file" >> "$SHUNT_TRACE_FILE" 2>/dev/null
   fi
 
