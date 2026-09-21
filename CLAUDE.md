@@ -130,6 +130,12 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 
 ## 検証
 
+Codex Desktop の Worktree を使う場合は、ローカル環境のセットアップスクリプトに
+`scripts/worktree-setup.sh` を指定する。依存関係が未導入の Worktree だけが `npm ci` を実行し、
+`--before` で公開から 7 日未満の package version を拒否する。`.worktreeinclude` には Worktree
+へコピーするローカル設定（`.env` / `.env.local`）を列挙する。秘密情報を含むため、追加するパスは
+必要最小限に保つ。
+
 `Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出する（`.agents/skills/` に参照が無いスキルは検証対象に入らない）。
 
 ```bash
