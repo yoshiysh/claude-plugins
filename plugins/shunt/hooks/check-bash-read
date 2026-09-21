@@ -61,7 +61,13 @@ fi
 
 . "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
 
-if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines" "$MIN_LINES"); then
+# Fidelity-axis input: real lines from the file's start, capped at 40 lines
+# and 200 chars/line so a minified or single-huge-line file can't blow the
+# request payload. The model judges content complexity from this fragment
+# instead of guessing from the filename/extension.
+sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
+
+if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines" "$MIN_LINES" "$sample"); then
   if [ "$verdict" = "allow" ]; then
     echo '{"decision": "allow"}'
   else

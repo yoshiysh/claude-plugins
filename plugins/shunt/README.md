@@ -5,9 +5,13 @@ A Claude Code plugin that shunts I/O-heavy work to a cheaper worker model, savin
 > **Fork of [spotify/portal-ai-plugins](https://github.com/spotify/portal-ai-plugins) `plugins/shunt`** (Apache-2.0, see NOTICE for the pinned upstream commit and the change list). Two changes:
 >
 > 1. **Transport**: the AiKA / Portal CLI backend is replaced by the AI Studio Gemini API (`scripts/lib/gemini.sh`). Auth is one env var: `CLAUDE_PLUGINS_GEMINI_API_KEY`. No Portal deployment needed.
-> 2. **Routing**: the hooks keep upstream's deterministic guards verbatim, but the final "block iff > 350 lines" judgment becomes a typed model decision (enum `allow|block` via `responseSchema`, prompt frozen in `scripts/lib/decide-prompt.txt`). Line count is a proxy — `head file` reads 10 lines whatever the file's size. When the model can't be consulted, the hook falls back to the upstream line rule and says so in its reason.
+> 2. **Routing**: the hooks keep upstream's deterministic guards verbatim, but the final "block iff > 350 lines" judgment becomes a typed model decision (enum `allow|block` via `responseSchema`, prompt frozen in `scripts/lib/decide-prompt.txt`) on two axes, not just line count:
+>    - **Cost** (how much the command actually ingests): a proxy fix for the fact that `head file` reads 10 lines whatever the file's size, so bounded reads (`head`/`tail`/`sed`/`awk` ranges, piped `| head`) are judged on the slice they actually emit, not the file's total length.
+>    - **Fidelity** (how much the content's meaning survives a cheap worker's summary): the gate is shown a real sample — the file's first 40 lines, each truncated to 200 chars, injected via `<file_sample>` — so it can tell simple, repetitive content (logs, generated output, enumerated data) from content with non-trivial control flow or concurrency logic. Simple content past the threshold delegates (block); complex content stays in Claude's own context even past the threshold (allow), because a cheap summary is exactly where a race condition or an off-by-one would get flattened away. The sample is real file content, never inferred from the filename or extension, and is wrapped in its own tag so it is judged as data, not read as instructions.
 >
-> Measured on the upstream hook eval corpus, 35 cases across both hooks (`evals/run_regression.py` → `evals/regression.md`): 33/35 identical, with 2 intentional divergences on `head`/`head -N` reads of large files. Upstream blocks these on file length alone; the fork's prompt instead judges the volume actually ingested into context (`head` reads a fixed slice regardless of file size), so it allows them. The gate prompt now passes the operator-configured `SHUNT_MIN_LINES` threshold as context (`{{MIN_LINES}}` in `decide-prompt.txt`) and applies it to that estimated ingested volume, not the raw file length — a `cat` of a file just over the threshold still blocks. Model-gate latency ≈1.2-1.4s per consulted read (only paid on files over the small-file threshold); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
+>    When the model can't be consulted, the hook falls back to the upstream line rule and says so in its reason.
+>
+> Measured on the upstream hook eval corpus plus 4 new two-axis cases against real code/log fixtures (`evals/run_regression.py` → `evals/regression.md`), 39 cases across both hooks: 36/39 identical to the upstream line-count rule, with 3 intentional divergences — `head`/`head -N`/`tail` (no count) reads of large files, all of which emit only a fixed small slice regardless of file size and so allow on the cost axis alone. The 4 added cases pin the fidelity axis directly: a real 405-line file with lock/retry/circuit-breaker logic allows past the threshold, a real 400-line access log blocks past the threshold, a small `head` slice of the complex file allows on cost alone, and a small simple CSV allows on cost alone. These labels document the two-axis design's intent on hand-picked fixtures — they are not a measurement of fidelity-judgment accuracy on a broader corpus, since the eval corpus doesn't (yet) sample real-world code/log diversity. Model-gate latency ≈1.3-1.6s per consulted read (only paid on files over the small-file threshold, and now includes the sample in the request body); worker calls (`bulk-read`) run tens of seconds for real files — raise `SHUNT_TIMEOUT_SECONDS` for multi-file questions.
 
 ## How it works
 
@@ -53,12 +57,12 @@ shunt/
 └── evals/
     ├── run_regression.py     # Runs both hooks against the upstream eval corpus, writes regression.json/.md
     ├── hook-evals.json       # Read hook test cases (17)
-    ├── bash-hook-evals.json  # Bash hook test cases (18)
+    ├── bash-hook-evals.json  # Bash hook test cases (22, incl. 4 real-fixture fidelity-axis cases)
     ├── regression.json       # Latest run_regression.py output (machine-readable)
     ├── regression.md         # Latest run_regression.py output (table + diffs)
     ├── evals.json            # End-to-end skill test cases (3)
     ├── benchmarks.json       # Token savings scenarios (4)
-    └── fixtures/             # Test fixture files
+    └── fixtures/             # Real code/log/data fixtures for fidelity-axis eval cases
 ```
 
 ## Scripts
@@ -143,10 +147,11 @@ The plugin is designed to know when NOT to delegate:
 python3 evals/run_regression.py
 ```
 
-This runs both hooks (`check-bash-read`, `check-file-size`) against the upstream 18+17-case eval
-corpus and writes `evals/regression.json` (machine-readable) and `evals/regression.md` (table +
-diff list), classifying each case as resolved by `model` (proven via `SHUNT_TRACE_FILE`), `code`
-(a deterministic guard short-circuited before the model), or `fallback` (the model could not be
+This runs both hooks (`check-bash-read`, `check-file-size`) against the upstream 22+17-case eval
+corpus (18 upstream + 4 real-fixture fidelity-axis cases for `check-bash-read`) and writes
+`evals/regression.json` (machine-readable) and `evals/regression.md` (table + diff list),
+classifying each case as resolved by `model` (proven via `SHUNT_TRACE_FILE`), `code` (a
+deterministic guard short-circuited before the model), or `fallback` (the model could not be
 consulted or returned an unusable response, so the upstream line rule decided).
 
 ## Benchmarks
@@ -167,3 +172,4 @@ Mean bulk-read savings: **90%**
 - **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.
 - **Request size** — the payload travels in the HTTP request body (no `ARG_MAX` limit), but shunt still refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` (default 400 KB) to stay under the model's context window with headroom. Split into smaller batches.
 - **Invocation timeout** — shunt caps one action invocation at `SHUNT_TIMEOUT_SECONDS` (default 180). Very large generations can exceed it; raise the timeout or split the spec into smaller calls.
+- **Fidelity-axis labels are documented intent, not a measured accuracy rate** — the 4 real-fixture cases in `bash-hook-evals.json` pin the two-axis design's behavior on hand-picked examples (one genuinely complex file, one genuinely simple one). The upstream eval corpus otherwise uses synthetic filler text, so this fork cannot yet report how often the fidelity judgment agrees with a human reader across a broad, representative sample of real code and logs — only that it behaves as designed on these specific fixtures.
