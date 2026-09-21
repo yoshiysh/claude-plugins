@@ -5,7 +5,7 @@ export const meta = {
   phases: [{ title: 'Extract' }, { title: 'Verify' }, { title: 'Synthesize' }],
   codex_workflow_compatibility: {
     schema_version: 'claude-workflow-model-portability/v1',
-    classification: 'portable_v1',
+    classification: 'portable',
     model_identity_semantics: 'non_load_bearing_scheduling_hint',
     codex_translation: 'drop_declared_model_hint_preserve_role_and_result_contract',
     quality_parity: 'not_guaranteed',

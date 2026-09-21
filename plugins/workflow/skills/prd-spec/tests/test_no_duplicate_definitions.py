@@ -29,6 +29,8 @@
 import unittest
 from pathlib import Path
 
+from prose import prose_pattern
+
 SKILL = Path(__file__).resolve().parents[1]
 
 # name -> (定義が書かれていれば必ず現れる文字列の集合)
@@ -57,15 +59,20 @@ def target_files():
     )
 
 
+def defining_files(members):
+    patterns = [prose_pattern(m) for m in members]
+    return [
+        str(f.relative_to(SKILL))
+        for f in target_files()
+        if all(p.search(f.read_text(encoding="utf-8")) for p in patterns)
+    ]
+
+
 class NoDuplicateDefinitionsTests(unittest.TestCase):
     def test_each_concept_is_defined_in_at_most_one_file(self):
         for name, members in CANONICAL_SETS.items():
             with self.subTest(concept=name):
-                hits = [
-                    str(f.relative_to(SKILL))
-                    for f in target_files()
-                    if all(m in f.read_text(encoding="utf-8") for m in members)
-                ]
+                hits = defining_files(members)
                 self.assertLessEqual(
                     len(hits),
                     1,
@@ -82,11 +89,7 @@ class NoDuplicateDefinitionsTests(unittest.TestCase):
         """
         for name, members in CANONICAL_SETS.items():
             with self.subTest(concept=name):
-                hits = [
-                    str(f.relative_to(SKILL))
-                    for f in target_files()
-                    if all(m in f.read_text(encoding="utf-8") for m in members)
-                ]
+                hits = defining_files(members)
                 self.assertEqual(
                     len(hits),
                     1,

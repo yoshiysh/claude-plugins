@@ -165,13 +165,13 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 
 ## Phase 2-4: Workflow を呼ぶ（create）
 
-> **透過実行 route**（create / review / update で同じ判定を通す。引数と出力の意味は
-> `scripts/select_runtime.js` 冒頭コメントが正本）: 経路選択（native か Codex 互換層か停止か）は
-> その script が決める。判定条件を散文から読み取って自己適用しない（「未試行か」の状態追跡が
-> 実行者の記憶に乗ると、同じ呼び出しでも経路がブレる）。出力の `selected_runtime` をそのまま使い、
-> `halt: true` なら agent を 1 体も起動せず `rejected_reason` を伝えて止める。caller の human gate は
-> runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
+> **透過実行 route**（create / review / update で同じ判定を通す。引数と出力の意味は `scripts/select_runtime.js` 冒頭コメントが正本）:
+> 経路（native `Workflow` / native が無い Codex での `workflow:dynamic-workflow-runner` / 停止）はその script が決め、
+> 判定条件を散文から読み取って自己適用しない（「未試行か」の状態追跡が実行者の記憶に乗ると、同じ呼び出しでも経路がブレる）。
+> 出力の `selected_runtime` をそのまま使い、`halt: true` なら agent を 1 体も起動せず `rejected_reason` を伝えて止める。
+> native 試行後の失敗は runner へ fallback しない。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode create --native-available --runner-installed`
+> **Codex classification: `portable`**（`build_skill.js` create）。
 
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」
@@ -286,12 +286,12 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 
 ## Phase 2: Workflow を呼ぶ（review/update）
 
-> **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本は
-> そのブロックと `scripts/select_runtime.js` 冒頭コメント）。`halt: true` なら review_skill.js を
-> 起動せず `rejected_reason` を伝えて止める。review / update は runner v1 では `rejected_source`
+> **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
+> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review / update は runner では `rejected_source`
 > になる（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
 > （update は `--mode update`。native が無い環境では `--no-native`、runner 未 install なら `--no-runner` に置き換える — フラグは環境の実測で選ぶ）
+> **Codex classification: `rejected_source`**（`review_skill.js` の review / update 両 mode）。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
