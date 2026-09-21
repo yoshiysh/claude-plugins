@@ -18,8 +18,8 @@ PR が merged か、パッチが既に取り込まれているか（`git cherry`
 cherry-pick / rebase で取り込まれ、履歴も PR も残らないブランチだけが該当する。
 
 削除の安全性はコマンドではなく分類で担保する。auto は primary refs のいずれかに取り込み済みの
-ものだけ、needs_decision は取り込まれていないものだけが入る。加えて、削除直前に退避タグ
-（`deleted-branches/<branch>-<timestamp>`）を打ち、reflog に依存しない復元手段を残す。
+ものだけ、needs_decision は取り込まれていないものだけが入る。auto の内容は primary ref に
+既にあるため、削除しても失われるものは無い。
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 
 # gh の 1 回の問い合わせで取得する PR 数。このリポジトリの総 PR 数（1000 未満）を
@@ -545,15 +544,8 @@ def build_report(roots: list[Path]) -> Report:
   return report
 
 
-def backup_tag_name(branch_name: str) -> str:
-  safe = branch_name.replace("/", "-")
-  ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-  return f"deleted-branches/{safe}-{ts}"
-
-
 def delete_local(candidates: list[BranchInfo]) -> list[dict[str, str]]:
-  """分類結果に紐づく削除方法をここで選ぶ。削除前に退避タグを打ち、reflog に依存しない
-  復元手段を残す。失敗時は直前に作ったタグを消して参照を汚さない。
+  """分類結果に紐づく削除方法をここで選ぶ。
 
   呼び出し側にブランチ名だけを渡させると、`-d` で拒否された squash merge 済みを
   人手で `-D` し直す運用になり、未取り込みのものを巻き込む余地が生まれる。
@@ -561,28 +553,13 @@ def delete_local(candidates: list[BranchInfo]) -> list[dict[str, str]]:
   """
   results = []
   for branch in candidates:
-    tag = backup_tag_name(branch.name)
-    tag_proc = subprocess.run(
-      ["git", "tag", tag, branch.name], capture_output=True, text=True, check=False
-    )
-    if tag_proc.returncode != 0:
-      results.append({
-        "branch": branch.name, "status": "skipped",
-        "detail": f"退避タグ作成に失敗したため削除を中止: {tag_proc.stderr.strip()}",
-      })
-      continue
-
     flag = "-D" if branch.merged_via == "pr" else "-d"
     proc = subprocess.run(
       ["git", "branch", flag, branch.name], capture_output=True, text=True, check=False
     )
     if proc.returncode == 0:
-      results.append({
-        "branch": branch.name, "status": "deleted",
-        "detail": branch.reason, "backup_tag": tag,
-      })
+      results.append({"branch": branch.name, "status": "deleted", "detail": branch.reason})
     else:
-      subprocess.run(["git", "tag", "-d", tag], capture_output=True, text=True, check=False)
       results.append({
         "branch": branch.name, "status": "skipped",
         "detail": f"{branch.reason} -> {proc.stderr.strip()}",
