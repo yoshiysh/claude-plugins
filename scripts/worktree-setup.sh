@@ -19,5 +19,5 @@ command -v npm >/dev/null || {
   exit 1
 }
 
-echo "worktree setup: installing packages subject to runtime/.npmrc min-release-age=7"
+echo "worktree setup: installing packages subject to repository .npmrc min-release-age=7"
 (cd "$runtime_dir" && npm ci --ignore-scripts --no-fund)

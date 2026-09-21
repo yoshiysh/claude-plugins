@@ -132,7 +132,7 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 
 Codex Desktop の Worktree を使う場合は、ローカル環境のセットアップスクリプトに
 `scripts/worktree-setup.sh` を指定する。依存関係が未導入の Worktree だけが `npm ci` を実行し、runtime の
-`.npmrc` にある `min-release-age=7` で公開から 7 日未満の package version を拒否する。`.worktreeinclude` には Worktree
+リポジトリ root の `.npmrc` にある `min-release-age=7` で全ての npm 実行について公開から 7 日未満の package version を拒否する。`.worktreeinclude` には Worktree
 へコピーするローカル設定（`.env` / `.env.local`）を列挙する。秘密情報を含むため、追加するパスは
 必要最小限に保つ。
 
