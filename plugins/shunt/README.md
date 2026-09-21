@@ -118,6 +118,15 @@ Fires on every `Bash` tool call. Catches `cat`, `head`, `tail`, `less`, `more` o
 - Commands with flags that indicate targeted reads
 - Non-read commands (`git status`, `grep`, etc.)
 
+### Running under Codex
+
+The same plugin installs into Codex from this marketplace (`codex plugin add shunt@yoshiysh-claude-plugins`). Differences from Claude Code:
+
+- Codex runs plugin hooks only after they are trusted. Approve them once in an interactive `codex` session; `codex exec` skips untrusted hooks without reporting it.
+- `check-file-size` never fires: Codex has no `Read` tool, so every file read goes through the shell and only `check-bash-read` applies.
+- Codex often reads files with `sed -n '1,240p' <file>`. `check-bash-read` gates `cat`/`head`/`tail`/`less`/`more` only, so those reads pass ungated.
+- The `env` block in `.claude/settings.json` is not read by Codex. Export the variables below in the shell Codex starts from.
+
 ## Configuration
 
 All settings are environment variables — add them to the `env` block in `.claude/settings.json`.

@@ -83,7 +83,7 @@ def run_suite(suite) -> list:
         ms = int((time.time() - t0) * 1000)
         trace_grew = (os.path.getsize(TRACE) if os.path.exists(TRACE) else 0) > before
         try:
-            verdict = json.loads(out.stdout)
+            verdict = json.loads(out.stdout) if out.stdout.strip() else {"decision": "allow"}
         except json.JSONDecodeError:
             verdict = {"decision": "INVALID", "reason": out.stdout[:120]}
         reason = verdict.get("reason", "")
