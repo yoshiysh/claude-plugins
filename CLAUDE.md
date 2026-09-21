@@ -4,30 +4,24 @@ This file provides guidance to Claude Code when working in this repository.
 
 ## リポジトリ概要
 
-Claude/Codex 向けの汎用スキルを marketplace plugin として管理・配布するリポジトリ。スキルは `.agents/skills/<name>` から参照し、Claude 用には `.claude/skills` symlink 経由で同じものを見る。
+Claude/Codex 向けの汎用スキルを marketplace plugin として管理・配布するリポジトリ。
 
 ## 現在の実体
 
 スキル実体の置き場は「公開済みかどうか」で決まる。
 
 - **公開済み（plugin に属する）**: 実体は `plugins/<plugin>/skills/<name>/`。`.agents/skills/<name>` はそこへの相対 symlink（`../../plugins/<plugin>/skills/<name>`）。
-- **未公開・未登録**: 実体は `.agents/skills/<name>/`（現状は `manage-marketplace-plugin` のみ）。
+- **未公開・未登録**: 実体は `.agents/skills/<name>/`（symlink でないもの。`ls -F .agents/skills | grep -v '@$'` で列挙できる）。
 - Claude からの参照: `.claude/skills -> ../.agents/skills`
 - Marketplace 定義: `.claude-plugin/marketplace.json`
 - Marketplace 名: `yoshiysh-claude-plugins`
 - 公開用 plugin: `plugins/<name>/`
 
-新規スキルは従来どおり `.agents/skills/` に実体で作る。`manage-marketplace-plugin` で公開した瞬間に、`register_plugin.py` が実体を `plugins/` 側へ移し、`.agents/skills/<name>` を逆向き symlink に置き換える。
+`manage-marketplace-plugin` で公開した瞬間に、`register_plugin.py` が実体を `plugins/` 側へ移し、`.agents/skills/<name>` を逆向き symlink に置き換える。
 
-### なぜ実体が plugins/ 側なのか（symlink ではない理由）
+### 実体が plugins/ 側にある理由
 
-**配布サブツリー（`plugins/<plugin>/` 配下）に symlink を置いてはいけない。**
-
-- Claude Code は plugin dir をキャッシュへコピーする際、同一 marketplace 内を指す symlink を dereference する（[公式仕様](https://code.claude.com/docs/en/plugins-reference) "Share files within a marketplace with symlinks"）。以前の `plugins/<plugin>/skills/<name> -> ../../../.claude/skills/<name>` はこの仕様に沿った正しい構成だった。
-- しかし Codex は plugin サブツリーだけを取得し、symlink を落とす。実測では `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/skills/` が空になり、`plugin.json` は読めているのにスキルが 1 つも入らなかった。
-- 両方で動く構成は「配布サブツリーに symlink を置かない」形しかないため、実体を `plugins/` 側に置き、リポジトリ内の開発用参照を symlink にする向きに反転した。
-
-つまりこれは設計ミスの修正ではなく、Codex 互換のための譲歩である。
+作業ルールの「`plugins/` 配下に symlink を作らない」はこれが理由: Codex は plugin サブツリーだけを取得して symlink を落とすため、`plugin.json` は読めても `skills/` が空のまま install される。実体を `plugins/` 側に置き、開発用の参照を `.agents/skills/` の symlink にしているのはこのため。
 
 ディレクトリ名は実体名に揃える（公開名は frontmatter の `name` が担う。install 先のキャッシュはこのディレクトリ名で作られるため、`../<兄弟スキル>/` 参照を壊さないように名前を保つ）。
 
@@ -35,67 +29,24 @@ Claude/Codex 向けの汎用スキルを marketplace plugin として管理・�
 
 実体は常に 1 箇所。symlink が使えない以上、複数 plugin での共有はコピーになり drift するため禁止する（`register_plugin.py` が exit 4 で止める）。別 plugin のスキルが必要な場合は:
 
-1. `.claude-plugin/plugin.json` の `dependencies` にその plugin を宣言する（Claude Code が同時 install する。Codex に同等機能は無いので手動 install 前提）。
+1. `.claude-plugin/plugin.json` の `dependencies` にその plugin を宣言する（Claude Code が同時 install する。Codex での扱いは AGENTS.md）。
 2. 呼び出しは**スキル呼び出し**で行う。相手のファイルをパス参照したりスクリプトを直接実行したりしない（install 先では別ディレクトリに展開されるため解決しない）。
 3. 呼び出し側の agent が自分で実行する必要がある手順書だけは、自前の `references/` に持つ。
 
-実例: `notion-organize-knowledge` は `url-reader` を `research:url-reader` として呼び出し、`dependencies: ["research"]` を宣言し、caller 実行が必須な in-app Browser fallback protocol だけ自前の `references/in-app-browser-fallback.md` に持っている。
+実例: `notion-organize-knowledge` は `url-reader` をスキル呼び出し（`$url-reader`）で使い、`dependencies: ["research"]` を宣言し、caller 実行が必須な in-app Browser fallback protocol だけ自前の `references/in-app-browser-fallback.md` に持っている。
 
 ## 収録スキル
 
-実体はすべて `.agents/skills/<ディレクトリ>`。plugin はカテゴリ単位（`git` / `chat` / `research` / `notion` / `skill-creator` / `workflow` / `performance`）でまとめ、呼び出し名は `plugin:skill` になる。スキルの公開名（frontmatter の `name`）がディレクトリ名と異なる場合があり、その対応は「公開名」列に示す。
+一覧はこの文書に書き写さず、正本から毎回得る。
 
-| ディレクトリ | 公開名（呼び出し） | 用途 | plugin |
-|---|---|---|---|
-| `chat` | `chat:fable` | Fable 5 を壁打ち相手に技術相談し、整形して relay する | `chat` |
-| `chat-rigorous` | `chat:rigorous` | 反証耐性の高い分析ワークフローを instructions で強制する壁打ち | `chat` |
-| `cleanup-branches` | `git:cleanup-branches` | マージ済みブランチと作業状態を掃除し worktree を主ブランチに同期する | `git` |
-| `commit` | `git:commit` | staged 変更から Conventional Commits メッセージを生成しコミットする | `git` |
-| `dispatch` | `research:dispatch` | Fable 5 が計画・評価し、Workflow スクリプトが subagent を反復実行する | `research` |
-| `dynamic-workflow-runner` | —（内部専用） | Claude 向け Workflow callsite を Codex の bounded multi-agent graph へ適合させる | `workflow` |
-| `manage-marketplace-plugin` | —（未登録） | 既存スキルを marketplace plugin として登録・更新・検証する | 未登録 |
-| `notion-organize-knowledge` | `notion:organize-knowledge` | Notion の capture queue を根拠付きで整理し検証付きで書き込む | `notion` |
-| `pdca` | `workflow:pdca` | Plan→Do→Check→Act を契約・検証付きで回す | `workflow` |
-| `performance-agent` | `performance:agent` | エージェント作業のトークン使用量を opt-in 計測し、品質を維持した改善候補を扱う | `performance` |
-| `pr-create` | `git:pr-create` | diff を解析して PR タイトル・本文を生成し draft PR を作る | `git` |
-| `prd-spec` | `workflow:prd-spec` | 要求文書・仕様書を日本語で作成/レビューする。要求文書は認識が一致する状態、仕様書は実装が一意に決まる状態まで聞き返して詰める。関心事ごとに複数ファイルへ分割し INDEX を導出する | `workflow` |
-| `reference` | `research:reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） | `research` |
-| `review-document` | `workflow:review-document` | 文書の言語化レビューと改稿 | `workflow` |
-| `search` | `research:search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む | `research` |
-| `skill-creator-best-practices` | `skill-creator:best-practices` | マルチエージェントでスキルを作成（create）・評価（review）・更新（update）する | `skill-creator` |
-| `url-reader` | `research:url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する | `research` |
+- plugin 一覧: `.claude-plugin/marketplace.json` の `plugins`
+- plugin ごとのスキル: `ls plugins/<plugin>/skills`（スキルを持たない plugin もある）と各 plugin の `README.md`
+- 開発用の参照一覧: `ls .agents/skills`
+- 公開名: 各 `SKILL.md` frontmatter の `name`（`grep -m1 '^name:' plugins/*/skills/*/SKILL.md`）。呼び出し名は `<plugin>:<name>` になる。
 
-frontmatter の `name` はディレクトリ名より優先される（plugin スキルの公式仕様）。ディレクトリ名 ≠ 公開名のスキルは `chat`（→`fable`）、`chat-rigorous`（→`rigorous`）、`notion-organize-knowledge`（→`organize-knowledge`）、`skill-creator-best-practices`（→`best-practices`）の 4 つ。
+frontmatter の `name` はディレクトリ名より優先される（plugin スキルの公式仕様）。呼び出し名を書くときはディレクトリ名から推測せず frontmatter を見る。
 
-Marketplace に登録された plugin は次の形でインストールできる。
-
-```bash
-/plugin install <plugin-name>@yoshiysh-claude-plugins
-```
-
-plugin の改名・削除で残骸になった旧 plugin は `tools/update-plugins` がカタログ照合で検出して uninstall する（新 plugin の install は手動）。
-
-## ディレクトリ構成
-
-```text
-.agents/skills/
-  manage-marketplace-plugin/          # 未登録スキルはここが実体
-  commit -> ../../plugins/git/skills/commit          # 公開済みは plugins/ への symlink
-  ...                                                # 他の公開済みスキルも同様
-.claude/
-  settings.json
-  skills -> ../.agents/skills
-.claude-plugin/
-  marketplace.json
-plugins/
-  git/                     # 例。chat / research / notion / skill-creator / workflow / performance も同構成
-    .claude-plugin/plugin.json         # Claude 用（dependencies はこちらだけ）
-    .codex-plugin/plugin.json          # Codex 用（共通フィールドと interface）
-    README.md
-    skills/commit/                     # ← 実体
-    skills/pr-create/
-    skills/cleanup-branches/
-```
+install 手順は `README.md` の「インストール」を参照。plugin の改名・削除で残骸になった旧 plugin は `tools/update-plugins` がカタログ照合で検出して uninstall する（新 plugin の install は手動）。
 
 ## 作業ルール
 
@@ -179,7 +130,7 @@ plugins/
 
 ## 検証
 
-`Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出するので、スキルを追加しても検証対象に入れ忘れることはない。
+`Makefile` が入口。対象スキルは `.agents/skills/*/` から毎回導出する（`.agents/skills/` に参照が無いスキルは検証対象に入らない）。
 
 ```bash
 make test         # 合否ゲート: 参照・quick_validate・unittest・汎用 Node test・各 eval preflight
@@ -187,42 +138,34 @@ make portability  # 配布 portability の一覧（install 先で壊れる「書
 make check        # 上記 2 つをまとめて
 ```
 
-`make test` は `check_references.py`（参照先の実在チェック）を含む。これは合否ゲートで、全スキルで 0 件になることを確認済み。`[SKILL_DIR]/...`・markdown リンク・リポジトリ絶対パス参照を見て、存在しない参照先があれば exit 1 で落とす。プレースホルダ（`<f>` / `...` / `${}`）は除外しているため誤検知は出ない。
+`make test` は `check_references.py`（参照先の実在チェック）を含み、存在しない参照先があれば exit 1 で落ちる。
 
-`make portability` を合否ゲートにしていないのは、`check_portability.py` が blocker を検出しても exit 0 を返すことと、既知の false positive が 2 件（`manage-marketplace-plugin` の自己参照 `external_script`、`cleanup-branches` の設定例中の `env_build`）あるため。詳細は `skills-audit.md` §4.1b。
+`make portability` は合否ゲートではない。`check_portability.py` は blocker を検出しても exit 0 を返し、既知の false positive もあるため、出力の `BLOCKER` 行は人が読んで判断する。既知の false positive は `skills-audit.md` §4.1b を参照。
 
 個別スキルだけを見るとき:
 
 ```bash
-python3 .claude/skills/skill-creator-best-practices/scripts/quick_validate.py .agents/skills/<name> --verbose
-python3 .claude/skills/manage-marketplace-plugin/scripts/check_portability.py --skill <name>
-python3 .claude/skills/manage-marketplace-plugin/scripts/check_references.py --skill <name>
+python3 .agents/skills/skill-creator-best-practices/scripts/quick_validate.py .agents/skills/<name> --verbose
+python3 .agents/skills/manage-marketplace-plugin/scripts/check_portability.py --skill <name>
+python3 .agents/skills/manage-marketplace-plugin/scripts/check_references.py --skill <name>
 ```
 
 Marketplace 登録後の install 検証:
 
 ```bash
-python3 .claude/skills/manage-marketplace-plugin/scripts/verify_install.py --plugin <plugin-name>
+python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plugin <plugin-name>
 ```
-
-`make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。`.claude/settings.json` 側には検証 hook は無く、通知系（Notification / Stop）のみ。
 
 `quick_validate.py` が通っても全項目の合格ではない。検証者の有無・description の実発火など機械判定できない項目は `SKIP:` として毎回申告されるので、公開前にはそこを設計レビューで見る。
 
 ## 注意点
 
-- `.claude/skills` は symlink なので、Git 上では旧 `.claude/skills/...` 実ファイル削除と symlink 追加が見えることがある。
 - `.claude-plugin/marketplace.json` の `name` を変えると `/plugin install <plugin>@<marketplace>` の marketplace 名も変わる。
-- `plugin.json` は `.claude-plugin/` と `.codex-plugin/` の 2 箇所にある。両方を維持し、共通フィールドは `verify_install.py` の L2 が一致を検査する。専用フィールドは Claude の `dependencies`、Codex の `interface` で、逆側への混入を拒否する。登録処理は Codex の表示情報を生成し、既存の `interface` は再登録でも保持する。L2 は既存の interface 未設定プラグインを許容するため、Codex の詳細な表示スキーマ検証とは別である。
-- Codex が `plugin.json` の未知フィールドを許容するかは未確認。Codex 仕様に無いフィールド（現状 `dependencies`）は `.codex-plugin/` 側に書かない。
-- **`.agents/skills/` を `find` で走査するときは `-L` を付ける。** 公開済みスキルは symlink なので、`find` は既定で中へ降りず、結果が静かに 0 件になる（`find -L .agents/skills -name '*.js'` のように書く）。同じ理由で `grep -r` も `-r` ではなく実体側（`plugins/`）か `-L` 相当の指定を使う。`make` の `$(wildcard .agents/skills/*/)` と Python の `Path.rglob` は symlink を辿るので影響を受けない（実測確認済み）。
-- `search` / `dispatch` / `skill-creator-best-practices` / `pdca` は native Workflow を優先し、それが無い
-  Codex では caller SKILL.md の active callsite から `workflow:dynamic-workflow-runner` を透過利用する。
-  これは host-global interceptor ではないため、新たな Workflow caller には同じ native-first route契約を追加する。
-- runner v1でportable executionまで進めるのは `search` と `skill-creator-best-practices` のcreate modeだけ。
-  `dispatch`、`pdca`、review/updateは意味保存できないconstructを含むため、execution前にfail-closedする。
-- Claude Code は caller plugin の `dependencies` から `workflow` を導入する。Codex に同等の自動依存導入は無いため、
-  caller plugin と `workflow` を別々に一度 install する。
+- `plugin.json` は `.claude-plugin/` と `.codex-plugin/` の 2 箇所にある。両方を維持し、共通フィールドは `verify_install.py` の L2 が一致を検査する。専用フィールドは Claude の `dependencies`、Codex の `interface` で、逆側への混入を拒否する（[Codex 仕様](https://developers.openai.com/codex/plugins/build)に無いフィールドは `.codex-plugin/` 側に書かない）。登録処理は Codex の `interface` を生成し、既存の `interface` は再登録でも保持する。L2 の合格は Codex の表示スキーマに対する検証を含まない。
+- **`.agents/skills/` を `find` で走査するときは `-L` を付ける。** 公開済みスキルは symlink なので、`find` は既定で中へ降りず、結果が静かに 0 件になる（`find -L .agents/skills -name '*.js'` のように書く）。同じ理由で `grep -r` も `-r` ではなく実体側（`plugins/`）か `-L` 相当の指定を使う。`make` の `$(wildcard .agents/skills/*/)` と Python の `Path.rglob` は symlink を辿るので影響を受けない。
+- Workflow を使う caller スキルは native Workflow を優先し、それが無い Codex では caller SKILL.md の active callsite から `workflow:dynamic-workflow-runner` を透過利用する（runner を参照しているスキルは `grep -rl dynamic-workflow-runner plugins/*/skills | cut -d/ -f1-4 | sort -u | grep -v '/dynamic-workflow-runner$'` で列挙できる）。これは host-global interceptor ではないため、新たな Workflow caller には同じ native-first route 契約を追加する。
+- runner は意味保存して実行できない graph を最初の execution agent の dispatch 前に拒否する。拒否の基準は `plugins/workflow/skills/dynamic-workflow-runner/references/claude-workflow-compatibility.md` の「v1 で意味保存できない graph」を正とする。
+- `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は `plugins/performance/references/native-hooks.md` を正とする。
 
 ## 言語
 
