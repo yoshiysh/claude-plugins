@@ -5,24 +5,27 @@ register_plugin.py（登録）＋ claude plugin validate（構造=L1）だけで
 「install 先で実際に解決・展開されるか」は確認できない。本スクリプトは：
 
 - L2（バンドル解決・読み取り専用）：ルートの plugin dir を辿り、Claude 用・Codex 用
-  両方の plugin.json が揃って内容一致すること／各スキルが SKILL.md を持つこと／
-  **配布サブツリーに symlink が 1 つも無いこと**を確認する。
+  両方の plugin.json が揃って内容一致すること／配布コンポーネント（skills・agents・hooks）を
+  1 つ以上持つこと／各スキルが SKILL.md を持つこと／hooks 定義が解釈でき、command が参照する
+  同梱ファイルが実在すること／**配布サブツリーに symlink が 1 つも無いこと**を確認する。
 - L3（隔離 install スモーク）：一時 marketplace を複製し、HOME を一時ディレクトリに
   差し替えて `claude plugin marketplace add` + `install` を実行する。
-  キャッシュにバンドルが展開され、`claude plugin details` でスキルが認識されることを確認する。
+  キャッシュに各コンポーネントの資産が実体として展開され、`claude plugin details` の
+  Component inventory がそのコンポーネントを 1 件以上数えることを確認する。
   HOME を隔離するため**ユーザーの実 ~/.claude/plugins を一切変更しない**。終了時に確実に後始末する。
 
 plugin はカテゴリ単位で複数スキルを持ちうる（例: plugins/git/skills/{commit,pr-create,...}）。
 skills/ 配下のディレクトリ名と公開名は異なってよい（frontmatter の name が優先される仕様のため）。
+スキルを持たず hooks だけを配る plugin もある（例: claim-gate・performance）。
 
 L4（実データでの実行）は入力・認証が対象ごとに異なるため本スクリプトには含めない。
 司令塔が AskUserQuestion で入力を聞き、install 済みバンドルに対して実行する（SKILL.md 参照）。
 """
 
 import argparse
-import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -42,13 +45,122 @@ EXIT_OK = 0
 EXIT_FAIL = 5          # 検証失敗（install 先で壊れる）
 EXIT_NO_PLUGIN = 3     # 登録されたプラグイン dir が無い
 
+DEFAULT_HOOKS = "hooks/hooks.json"
+INVENTORY_LABELS = {"skills": "Skills", "agents": "Agents", "hooks": "Hooks"}
+INVENTORY_RE = re.compile(r"^\s*(Skills|Agents|Hooks|MCP servers|LSP servers) \((\d+)\)", re.M)
+HOOK_ASSET_RE = re.compile(
+    r"\$(?:\{(?:PLUGIN_ROOT:-\$)?CLAUDE_PLUGIN_ROOT\}|CLAUDE_PLUGIN_ROOT\b)/([^\s\"';&|<>)]+)")
+
+
+def claude_manifest(plugin: str) -> dict:
+    """.claude-plugin/plugin.json を返す。読めない場合の指摘は L2 の manifest 検査が出す。"""
+    pj = PLUGINS_DIR / plugin / ".claude-plugin" / "plugin.json"
+    try:
+        meta = json.loads(pj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def declared_paths(value) -> list[str]:
+    """manifest のパス宣言（文字列か文字列の配列）を plugin root 相対の正規形で返す。"""
+    items = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    return [os.path.normpath(v) for v in items if isinstance(v, str)]
+
 
 def skill_entries(plugin: str) -> list[Path]:
-    """plugins/<plugin>/skills/ 配下のスキルエントリを列挙する。"""
-    skills_dir = PLUGINS_DIR / plugin / "skills"
-    if not skills_dir.is_dir():
-        return []
-    return sorted(p for p in skills_dir.iterdir() if not p.name.startswith("."))
+    """skills/ と manifest の skills 宣言が指す dir 配下のスキルエントリを列挙する。"""
+    plugin_dir = PLUGINS_DIR / plugin
+    roots = dict.fromkeys(["skills", *declared_paths(claude_manifest(plugin).get("skills"))])
+    entries = set()
+    for root in roots:
+        root_dir = plugin_dir / root
+        if root_dir.is_dir():
+            entries.update(p for p in root_dir.iterdir() if not p.name.startswith("."))
+    return sorted(entries)
+
+
+def agent_entries(plugin: str) -> list[Path]:
+    """agents/ と manifest の agents 宣言が指す agent 定義（*.md）を列挙する。"""
+    plugin_dir = PLUGINS_DIR / plugin
+    entries = set()
+    for decl in dict.fromkeys(["agents", *declared_paths(claude_manifest(plugin).get("agents"))]):
+        path = plugin_dir / decl
+        if path.is_dir():
+            entries.update(p for p in path.glob("*.md") if not p.name.startswith("."))
+        elif path.is_file():
+            entries.add(path)
+    return sorted(entries)
+
+
+def hook_bundle(plugin: str) -> tuple[list[str], list[str]]:
+    """hooks 定義を検査し、(指摘, install 先に実在すべき同梱資産の root 相対パス) を返す。
+
+    Claude Code と Codex は同じ hooks/hooks.json を読む。Codex のパーサは top-level に
+    hooks 以外のフィールドがあると hook 全体を無効にする（claim-gate README の実測）。
+    """
+    plugin_dir = PLUGINS_DIR / plugin
+    declared = claude_manifest(plugin).get("hooks")
+    findings, assets = [], []
+    if isinstance(declared, dict):
+        findings.append("plugin.json のインライン hooks 宣言は検証できない（hooks.json に分離する）")
+    sources = [DEFAULT_HOOKS] if (plugin_dir / DEFAULT_HOOKS).is_file() else []
+    sources += [p for p in declared_paths(declared) if p not in sources]
+    for rel in sources:
+        path = plugin_dir / rel
+        try:
+            config = json.loads(path.read_text(encoding="utf-8"))
+        except OSError:
+            findings.append(f"宣言された hooks ファイルが無い: {rel}")
+            continue
+        except json.JSONDecodeError as e:
+            findings.append(f"{rel} が不正な JSON: {e}")
+            continue
+        assets.append(rel)
+        if not isinstance(config, dict) or not isinstance(config.get("hooks"), dict):
+            findings.append(f"{rel} に hooks オブジェクトが無い")
+            continue
+        if config.keys() - {"hooks"}:
+            findings.append(
+                f"{rel} の top-level に hooks 以外のフィールドがある: "
+                f"{sorted(config.keys() - {'hooks'})}（Codex で hook 全体が無効になる）")
+        handlers = 0
+        for event, groups in config["hooks"].items():
+            for group in groups if isinstance(groups, list) else [None]:
+                group_hooks = group.get("hooks") if isinstance(group, dict) else None
+                if not isinstance(group_hooks, list) or not group_hooks:
+                    findings.append(f"{rel} の {event} に hooks 配列が無い")
+                    continue
+                for handler in group_hooks:
+                    handlers += 1
+                    command = handler.get("command") if isinstance(handler, dict) else None
+                    if not isinstance(handler, dict) or not handler.get("type"):
+                        findings.append(f"{rel} の {event} に type の無い hook がある")
+                    elif handler["type"] == "command" and not isinstance(command, str):
+                        findings.append(f"{rel} の {event} に command の無い command hook がある")
+                    for asset in HOOK_ASSET_RE.findall(command if isinstance(command, str) else ""):
+                        asset = os.path.normpath(asset)
+                        if asset == ".." or asset.startswith(("../", "/")):
+                            findings.append(f"{rel} の {event} が plugin root 外を参照している: {asset}")
+                        elif not (plugin_dir / asset).exists():
+                            findings.append(f"{rel} の {event} が参照する同梱ファイルが無い: {asset}")
+                        elif asset not in assets:
+                            assets.append(asset)
+        if not handlers:
+            findings.append(f"{rel} に hook が 1 つも無い")
+    return findings, assets
+
+
+def plugin_components(plugin: str) -> tuple[dict[str, list[str]], list[str]]:
+    """配布コンポーネントごとの install 先で実在すべき root 相対パスと、hooks の指摘を返す。"""
+    plugin_dir = PLUGINS_DIR / plugin
+    hook_findings, hook_assets = hook_bundle(plugin)
+    components = {
+        "skills": [str(p.relative_to(plugin_dir)) for p in skill_entries(plugin)],
+        "agents": [str(p.relative_to(plugin_dir)) for p in agent_entries(plugin)],
+        "hooks": hook_assets,
+    }
+    return {k: v for k, v in components.items() if v}, hook_findings
 
 
 def l2_bundle_check(plugin: str) -> dict:
@@ -102,13 +214,16 @@ def l2_bundle_check(plugin: str) -> dict:
                 f"配布サブツリーに symlink がある: {p.relative_to(plugin_dir)} "
                 f"-> {os.readlink(p)}（Codex の install 先で中身ごと落ちる）")
 
-    entries = skill_entries(plugin)
-    if not entries:
-        findings.append(f"skills/ 配下にスキルエントリが無い: {plugin_dir / 'skills'}")
-    for entry in entries:
-        if not (entry / "SKILL.md").is_file():
-            findings.append(f"skills/{entry.name}/SKILL.md が無い")
-    return {"passed": not findings, "findings": findings}
+    components, hook_findings = plugin_components(plugin)
+    findings.extend(hook_findings)
+    if not components:
+        findings.append(
+            "配布コンポーネントが無い: skills/・agents/*.md・hooks/hooks.json と "
+            "plugin.json の skills/agents/hooks 宣言のいずれも見つからない")
+    for rel in components.get("skills", []):
+        if not (plugin_dir / rel / "SKILL.md").is_file():
+            findings.append(f"{rel}/SKILL.md が無い")
+    return {"passed": not findings, "findings": findings, "components": sorted(components)}
 
 
 def declared_dependencies(plugin: str) -> list[str]:
@@ -135,8 +250,56 @@ def _run(cmd, env, timeout=120):
     return r.returncode, out
 
 
+def installed_root(home: str, marketplace: str, plugin: str) -> Path | None:
+    """install キャッシュ上の plugin root（cache/<marketplace>/<plugin>/<version>）を返す。"""
+    found = sorted(Path(home, ".claude", "plugins", "cache", marketplace, plugin)
+                   .glob("*/.claude-plugin/plugin.json"))
+    return found[0].parent.parent if found else None
+
+
+def is_real_file(path: Path) -> bool:
+    return path.is_file() and not path.is_symlink()
+
+
+def is_real_path(path: Path) -> bool:
+    return path.exists() and not path.is_symlink()
+
+
+def l3_component_check(root: Path | None, components: dict[str, list[str]],
+                       details_rc: int, details_out: str) -> dict:
+    """install 先の資産の実在と、details の Component inventory による認識を突き合わせる。"""
+    if root is None:
+        return {"passed": False, "installed_root": None}
+    per_skill = {}
+    for rel in components.get("skills", []):
+        skill_dir = root / rel
+        scripts = [s for s in sorted((skill_dir / "scripts").iterdir())
+                   if not s.is_dir()] if (skill_dir / "scripts").is_dir() else []
+        per_skill[Path(rel).name] = {
+            "bundled_skill_md": is_real_file(skill_dir / "SKILL.md"),
+            "bundled_scripts": [s.name for s in scripts],
+            "bundled_scripts_real": all(is_real_file(s) for s in scripts),
+        }
+    hooks = {rel: is_real_path(root / rel) for rel in components.get("hooks", [])}
+    agents = {rel: is_real_file(root / rel) for rel in components.get("agents", [])}
+    inventory = {label: int(n) for label, n in INVENTORY_RE.findall(details_out)}
+    details_ok = details_rc == 0 and all(
+        inventory.get(INVENTORY_LABELS[kind], 0) > 0 for kind in components)
+    assets_ok = all(v["bundled_skill_md"] and v["bundled_scripts_real"]
+                    for v in per_skill.values()) and all(
+        (*hooks.values(), *agents.values()))
+    return {
+        "skills": per_skill,
+        "hooks": hooks,
+        "agents": agents,
+        "inventory": inventory,
+        "details_ok": details_ok,
+        "passed": bool(components) and assets_ok and details_ok,
+    }
+
+
 def l3_isolated_install(plugin: str) -> dict:
-    """HOME を隔離して実際に install し、バンドル展開とスキル認識を確認する。
+    """HOME を隔離して実際に install し、バンドル展開とコンポーネント認識を確認する。
 
     実ホームを汚さないため HOME を一時ディレクトリに差し替える。終了時に全て削除する。
     """
@@ -178,38 +341,10 @@ def l3_isolated_install(plugin: str) -> dict:
         if rc != 0:
             return result
 
-        # 各スキルの SKILL.md がキャッシュ上で実体（symlink でない）として展開されたか
-        all_ok = True
-        per_skill = {}
-        for entry in skill_entries(plugin):
-            cache = glob.glob(
-                f"{tmp_home}/.claude/plugins/cache/**/skills/{entry.name}/SKILL.md",
-                recursive=True)
-            skill_md_ok = (bool(cache) and Path(cache[0]).is_file()
-                           and not Path(cache[0]).is_symlink())
-            # バンドルされた scripts も実体か（あれば）
-            cache_dir = Path(cache[0]).parent if cache else None
-            scripts_ok = True
-            bundled_scripts = []
-            if cache_dir and (cache_dir / "scripts").is_dir():
-                for s in (cache_dir / "scripts").iterdir():
-                    if s.is_dir():
-                        continue  # __pycache__ などのディレクトリは対象外
-                    bundled_scripts.append(s.name)
-                    if s.is_symlink() or not s.is_file():
-                        scripts_ok = False
-            per_skill[entry.name] = {
-                "bundled_skill_md": skill_md_ok,
-                "bundled_scripts": bundled_scripts,
-                "bundled_scripts_real": scripts_ok,
-            }
-            all_ok = all_ok and skill_md_ok and scripts_ok
-        result["skills"] = per_skill
-        # skill 認識
+        components, _ = plugin_components(plugin)
         rc, out = _run(["claude", "plugin", "details", f"{plugin}@{mpname}"], env)
-        details_ok = rc == 0 and ("Skills" in out)
-        result["details_ok"] = details_ok
-        result["passed"] = all_ok and details_ok and bool(per_skill)
+        result.update(l3_component_check(
+            installed_root(tmp_home, mpname, plugin), components, rc, out))
         return result
     finally:
         # 後始末（実ホームは触っていないので tmp を消すだけ）

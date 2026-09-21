@@ -208,25 +208,30 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 ```json
 {
   "plugin": "<name>",
-  "l2_bundle_check": { "passed": true, "findings": [] },
+  "l2_bundle_check": { "passed": true, "findings": [], "components": ["hooks", "skills"] },
   "l3_isolated_install": {
     "passed": true,
     "steps": [["marketplace add", 0, "..."], ["install", 0, "..."]],
     "skills": {
-      "<公開名>": {
+      "<skills/ 配下のディレクトリ名>": {
         "bundled_skill_md": true,
         "bundled_scripts": ["..."],
         "bundled_scripts_real": true
       }
     },
+    "hooks": { "hooks/hooks.json": true, "scripts/<hook が参照する同梱ファイル>": true },
+    "agents": { "agents/<name>.md": true },
+    "inventory": { "Skills": 1, "Agents": 0, "Hooks": 1, "MCP servers": 0, "LSP servers": 0 },
     "details_ok": true
   },
   "overall_passed": true
 }
 ```
 
-- **L2**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致すること／`skills/` 配下の各スキルが SKILL.md を持つこと／**配布サブツリーに symlink が 1 つも無いこと**（読み取り専用）。plugin は複数スキルを持ちうる。
-- **L3**：HOME を一時ディレクトリに差し替えた**実 install**。キャッシュにバンドルが実体（symlink でない）として展開され、`claude plugin details` でスキル認識されるか。**実ホーム ~/.claude は変更しない**（終了時に一時ディレクトリごと後始末）。
+- **配布コンポーネント**：skills（`skills/` と plugin.json の `skills` 宣言が指す dir 配下）・agents（`agents/*.md` と `agents` 宣言）・hooks（`hooks/hooks.json` と `hooks` のパス宣言）。plugin は検出したコンポーネントの分だけ検証される。スキルを持たない hooks だけの plugin も正当。どれも無ければ L2 で失敗する。
+- **L2**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致すること／配布コンポーネントが 1 つ以上あること／各スキルが SKILL.md を持つこと／hooks 定義が JSON として読め、top-level が `hooks` だけで（Codex のパーサは他のフィールドがあると hook 全体を無効にする）、hook が 1 つ以上あり、command が `${CLAUDE_PLUGIN_ROOT}/…`・`$CLAUDE_PLUGIN_ROOT/…`・`${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/…` で参照する同梱ファイル（ディレクトリ可）が plugin root 内に実在すること／**配布サブツリーに symlink が 1 つも無いこと**（読み取り専用）。plugin.json のインライン hooks 宣言は検証できないため失敗扱い。
+- **L3**：HOME を一時ディレクトリに差し替えた**実 install**。キャッシュの plugin root（`cache/<marketplace>/<plugin>/<version>`）に各コンポーネントの資産（SKILL.md・スキルの scripts・hooks.json と hook が参照するファイル・agent 定義）が実体（symlink でない）として展開され、`claude plugin details` の Component inventory がそのコンポーネントを 1 件以上数えるか（`details_ok`）。**実ホーム ~/.claude は変更しない**（終了時に一時ディレクトリごと後始末）。
+- install キャッシュに plugin root が見つからない場合、L3 の判定部分は `{"passed": false, "installed_root": null}` だけを返す（`steps` は付く。`skills` / `hooks` / `agents` / `inventory` / `details_ok` は含まない）。
 - 終了コード：0=overall_passed / 5=検証失敗 / 3=登録 plugin dir 不在。
 - L4（実データ実行）は本スクリプト外。司令塔が AskUserQuestion で入力を聞いて実行する。
 
@@ -238,7 +243,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 status: ok | failed
 overall_passed: true | false
 l2: <findings の要約。問題なければ「解決OK」>
-l3: <install 成否・バンドル展開・skill 認識の要約>
+l3: <install 成否・バンドル展開・コンポーネント認識の要約>
 note: <overall_passed=false のとき、何が install 先で壊れるかと対処>
 ```
 
