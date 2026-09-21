@@ -224,7 +224,7 @@ references/harness-freeze.md の表）。二重凍結は script が拒否する�
 > `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
 > native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
 >
-> **Codex v1 classification: `rejected_source`**（worktree isolation / runtime-generated artifacts）。
+> **Codex v1 classification: `rejected_source_v1`**（worktree isolation / runtime-generated artifacts）。
 
 ```js
 Workflow({

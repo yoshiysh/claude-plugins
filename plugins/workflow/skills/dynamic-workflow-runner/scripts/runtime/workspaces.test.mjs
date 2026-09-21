@@ -51,15 +51,23 @@ test('invalid, overlapping and cancelled workspace requests cannot dispatch', as
 
 test('unchanged PDCA JS completes through mock SDK with explicit write/worktree policy', async t => {
   const f = await fixture(t), starts = [];
+  const roleResults = {
+    'builder.md': { artifacts: [], measurement_points: [] },
+    'build-verifier.md': { verdict: 'pass', findings: [], frozen_harness_digest_ok: true, frozen_harness_touched: false },
+    'runner.md': { condition_id: 'single', run_index: 1, executed: true, observations: 'mock observation' },
+    'verifier.md': { condition_id: 'single', run_index: 1, measured: true, score: 1, criteria_checks: [], frozen_harness_digest_ok: true },
+    'mechanism-analyst.md': { mechanisms: [{ statement: 'mock mechanism', evidence: 'mock observation',
+      alternative_explanations: [], identified: true }], criteria_validity: 'mock only', unmeasured: [], gap: '' },
+    'mechanism-arbiter.md': { pairs: [{ a: 0, b: 0 }] },
+  };
   class MockCodex {
     startThread(options) {
-      starts.push(options);
+      const start = { ...options };
+      starts.push(start);
       return { async runStreamed(prompt) {
-        let result;
-        if (prompt.includes('/agents/builder.md')) result = { artifacts: [], measurement_points: [] };
-        else if (prompt.includes('/agents/runner.md')) result = { condition_id: 'single', run_index: 1, executed: true, observations: 'mock observation' };
-        else if (prompt.includes('/agents/verifier.md')) result = { condition_id: 'single', run_index: 1, measured: true, score: 1, criteria_checks: [] };
-        else result = { mechanisms: [], criteria_validity: 'mock only', unmeasured: [], gap: '' };
+        start.role = prompt.match(/\/agents\/([a-z-]+\.md)/)[1];
+        const result = roleResults[start.role];
+        assert.ok(result, `unmocked PDCA role: ${start.role}`);
         return { events: (async function* () {
           yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({json:JSON.stringify(result)}) } };
           yield { type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } };
@@ -70,15 +78,22 @@ test('unchanged PDCA JS completes through mock SDK with explicit write/worktree 
   const result = await Workflow({
     scriptPath: fileURLToPath(new URL('../../../pdca/scripts/pdca.js', import.meta.url)),
     args: { skillDir: '/mock/pdca', plan: 'mock only', runsPerCondition: 1,
-      successCriteria: { text: 'mock match', metric: 'match', higher_is_better: true } },
-  }, { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 4, timeoutMs: 5000,
+      successCriteria: { text: 'mock match', metric: 'match', higher_is_better: true },
+      frozenHarness: { path: '/mock/run/frozen', entry: 'score.py', digest: 'mock-digest', class: 'deterministic_script',
+        criteria: { metric: 'match', higher_is_better: true, threshold: 1 } } },
+  }, { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 16, timeoutMs: 5000,
     requirements: ['workspace-write', 'worktree'],
     backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, modelMap: { opus: 'mock', sonnet: 'mock' },
       workspace: { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit } }),
   });
   assert.equal(result.status, 'ok'); assert.equal(result.confidence, 'inconclusive');
-  assert.equal(starts.length, 4);
-  assert.notEqual(starts[1].workingDirectory, starts[0].workingDirectory);
-  assert.equal(starts[2].workingDirectory, starts[0].workingDirectory);
+  assert.deepEqual(result.check.mechanisms.map(m => m.corroboration), ['corroborated']);
+  const roleCounts = {};
+  for (const s of starts) roleCounts[s.role] = (roleCounts[s.role] ?? 0) + 1;
+  assert.deepEqual(roleCounts, { 'builder.md': 1, 'build-verifier.md': 1, 'runner.md': 1, 'verifier.md': 3,
+    'mechanism-analyst.md': 2, 'mechanism-arbiter.md': 1 });
+  const [runner] = starts.filter(s => s.role === 'runner.md'), shared = starts.filter(s => s.role !== 'runner.md');
+  assert.ok(shared.every(s => s.workingDirectory !== runner.workingDirectory));
+  assert.equal(new Set(shared.map(s => s.workingDirectory)).size, 1);
   assert.ok(starts.every(x => x.sandboxMode === 'workspace-write' && x.approvalPolicy === 'never'));
 });

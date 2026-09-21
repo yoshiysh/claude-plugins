@@ -40,12 +40,12 @@ test('every Workflow caller declares the native-first transparent Codex route', 
     )
     assert.match(
       caller.source,
-      /fallback しない/,
+      /fallback\s*しない/,
       `${caller.skillMd}: native-attempt failure boundary is missing`
     )
     assert.match(
       caller.source,
-      /runner内gateに移さない|human gate は無し/,
+      /runner\s*内\s*gate\s*に移さない|human\s*gate\s*は無し/,
       `${caller.skillMd}: caller gate ownership is missing`
     )
 
@@ -167,7 +167,7 @@ test('rejected sources document the load-bearing construct that v1 cannot preser
     'utf8'
   )
   assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
-  assert.match(creator, /mode: update[\s\S]*rejected_source[\s\S]*runtimeで決まる複数file/)
+  assert.match(creator, /mode: update[\s\S]*rejected_source[\s\S]*runtime\s*で決まる複数\s*file/)
 })
 
 test('the compatibility runner remains internal-only', () => {

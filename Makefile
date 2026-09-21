@@ -11,10 +11,16 @@ REFERENCES := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_references.p
 # 追加・リネームのたびに検証対象から静かに漏れる（実例: worktree-sync → cleanup-branches の
 # リネーム時、unittest の 2 行だけがハードコードのまま残り make test が壊れた）。
 SKILLS := $(notdir $(patsubst %/,%,$(wildcard $(SKILLS_DIR)/*/)))
-TEST_DIRS := $(wildcard $(SKILLS_DIR)/*/tests)
+# plugins/*/tests の深さに限るのは、plugins/*/skills/*/tests を SKILLS_DIR 経由と二重に走らせないため。
+# unittest は test_*.py を持つ dir だけに絞る（0 件の discover は Python 3.12 以降 exit 5 で失敗する）。
+PLUGINS_DIR := plugins
+PLUGIN_TEST_ROOTS := $(wildcard $(PLUGINS_DIR)/*/tests)
+PLUGIN_TEST_DIRS := $(patsubst %/,%,$(sort $(dir $(wildcard $(PLUGINS_DIR)/*/tests/test_*.py))))
+TEST_DIRS := $(wildcard $(SKILLS_DIR)/*/tests) $(PLUGIN_TEST_DIRS)
 SKILL_NODE_TEST_FILES := $(shell $(FIND) -L $(SKILLS_DIR) -name node_modules -prune -o -type f -path '*/scripts/*.test.mjs' -print 2>/dev/null)
+PLUGIN_NODE_TEST_FILES := $(if $(PLUGIN_TEST_ROOTS),$(shell $(FIND) $(PLUGIN_TEST_ROOTS) -name node_modules -prune -o -type f -name '*.test.mjs' -print 2>/dev/null))
 REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 2>/dev/null)
-NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
+NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
 .PHONY: test portability references check runtime-deps
