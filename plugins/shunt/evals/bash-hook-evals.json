@@ -249,6 +249,14 @@
       "fixture": null,
       "expected_decision": "block",
       "reason": "Two nested wrappers with alternating quote styles unwrap to the inner read."
+    },
+    {
+      "id": 32,
+      "name": "bash-sh-escaped-quote-cat-large",
+      "input": { "tool_input": { "command": "bash -c \"sh -c \\\"cat {{FIXTURES}}/large.txt\\\"\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Escaped quotes cannot be safely tokenized by xargs; the wrapper must fail closed instead of allowing the read."
     }
   ]
 }

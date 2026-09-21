@@ -35,6 +35,15 @@ echo "$command" | grep -qE '\|' && exit 0
 # Skip redirections (cat file > out) — not a read-into-context operation
 echo "$command" | grep -qE '>' && exit 0
 
+# xargs cannot preserve escaped quotes inside a quoted shell -c argument. If
+# such syntax is present, parsing the wrapper could turn a real read into an
+# unrecognised command and allow it through. Keep the gate fail-closed for
+# these inputs; callers can retry with a simpler shell command.
+if printf '%s' "$command" | grep -qE '\\["'"'"']'; then
+  echo '{"decision": "block", "reason": "Shell wrapper contains escaped quotes that cannot be safely parsed; retry without nested quoting or use the /bulk-reader skill."}'
+  exit 0
+fi
+
 # A blocked read gets retried as `sh -c 'more file'` or `/usr/bin/more file`.
 # Unwrap shell -c wrappers (any shell path, combined flags such as -lc) and
 # reduce the first word to its basename so the checks below see the read itself.
