@@ -2,7 +2,7 @@
 // Workflow 呼び出し前の経路選択。native `Workflow` を使うのか、Codex 互換層
 // （workflow:dynamic-workflow-runner）を使うのか、どちらも使わず停止するのかを決める。
 //
-// なぜ script なのか: この判定は「試行済みか」「native があるか」「mode が runner v1 で
+// なぜ script なのか: この判定は「試行済みか」「native があるか」「mode が runner で
 // 意味保存できるか」という状態と集合の突き合わせで、判断の余地が無い。散文の分岐条件として
 // 置くと、司令塔が自分の記憶で状態を追うことになり、同じ呼び出しでも実行のたびに経路が
 // ブレる（fallback 禁止のような「1 回だけ」規則は、回数を覚えている主体が必要）。
@@ -21,7 +21,7 @@
 //     "rejected_reason": null | "<理由>", "halt": true|false }
 // halt: true のとき execution agent を 1 体も起動しない。未実施と理由をユーザーへ伝えて止める。
 
-// runner v1 が意味保存できない mode。理由は references/codex-workflow-compatibility.md の
+// runner が意味保存できない mode。理由は references/codex-workflow-compatibility.md の
 // 「review / update mapping」にある（対象 tree が runtime で決まり、call receipt に
 // file inventory / content hash / staging の単一 owner が無い）。この配列がその規則の正本。
 const RUNNER_REJECTED_MODES = ['review', 'update']
@@ -68,7 +68,7 @@ function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled
   if (RUNNER_REJECTED_MODES.includes(mode)) {
     return {
       selected_runtime: null,
-      rejected_reason: `rejected_source: mode=${mode} は runner v1 では意味保存できない`,
+      rejected_reason: `rejected_source: mode=${mode} は runner では意味保存できない`,
       halt: true,
     }
   }

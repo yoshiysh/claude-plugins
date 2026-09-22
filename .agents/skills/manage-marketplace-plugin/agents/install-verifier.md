@@ -24,8 +24,8 @@ python3 [SKILL_DIR]/scripts/verify_install.py --plugin <plugin_name>
 
 `[SKILL_DIR]` は司令塔が埋め込むこのスキル（manage-marketplace-plugin）の絶対パス。スクリプトは L2＋L3 を行い、`references/schemas.md` の「verify_install.py の出力」形式の JSON を返す。
 
-- **L2（bundle 解決）**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致／各 `skills/<name>` が SKILL.md を持つ／**配布サブツリーに symlink が 1 つも無い**／dangling symlink の有無
-- **L3（隔離 install）**：HOME を一時ディレクトリに差し替えて実際に `claude plugin marketplace add` + `install` を実行し、キャッシュにバンドルが**実体として**展開され、`claude plugin details` でスキルが認識されることを確認する。**実ホーム ~/.claude/plugins は変更されない**（スクリプトが終了時に一時ディレクトリごと後始末する）。
+- **L2（bundle 解決）**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致／配布コンポーネント（skills・agents・hooks）が 1 つ以上ある／各 `skills/<name>` が SKILL.md を持つ／hooks 定義が読め、hook が参照する同梱ファイルが実在する／**配布サブツリーに symlink が 1 つも無い**／dangling symlink の有無。hooks だけの plugin（スキル無し）も正当
+- **L3（隔離 install）**：HOME を一時ディレクトリに差し替えて実際に `claude plugin marketplace add` + `install` を実行し、キャッシュに各コンポーネントの資産が**実体として**展開され、`claude plugin details` の Component inventory がそれを認識していることを確認する。**実ホーム ~/.claude/plugins は変更されない**（スクリプトが終了時に一時ディレクトリごと後始末する）。
 
 ### ステップ2：結果を解釈して報告する
 
@@ -38,6 +38,6 @@ python3 [SKILL_DIR]/scripts/verify_install.py --plugin <plugin_name>
 status: ok | failed
 overall_passed: true | false
 l2: <findings の要約。問題なければ「解決OK」>
-l3: <install 成否・バンドル展開・skill 認識の要約>
+l3: <install 成否・バンドル展開・コンポーネント認識の要約>
 note: <overall_passed=false のとき、何が install 先で壊れるかと対処>
 ```

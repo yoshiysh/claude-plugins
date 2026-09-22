@@ -367,8 +367,21 @@ if (requestedRuns > MAX_RUNS_PER_CONDITION) {
 }
 const maxRuns = budget && typeof budget === 'object' ? Number(budget.maxRuns) || null : null
 
-// ledger は「この run で今までに何が決まったか」。省略時は空（初周・既存 caller の互換）。
-// 中身は scripts/ledger.py read の出力をそのまま渡す。書くのはこの script で、agent は読むだけ。
+// ledger は「この run で今までに何が決まったか」。省略時（undefined/null）は空として動く
+// （初周・既存 caller の互換）。省略ではなく非配列（プレースホルダ文字列など）が渡された場合は
+// 黙って空に落とさず BLOCKED で止める — 搬送に失敗した ledger を「記録なし」として静かに
+// 通すと、裁定済みの論点が無かったことになる再燃防止の欠測を成功として扱ってしまう。
+if (parsedArgs.ledger !== undefined && parsedArgs.ledger !== null && !Array.isArray(parsedArgs.ledger)) {
+  return {
+    status: 'BLOCKED',
+    reason: 'args.ledger が配列ではありません。',
+    evidence:
+      `python3 ${SKILL_DIR}/scripts/ledger.py read --digest --path <workspace>/<run-id>/ledger.jsonl の出力（JSON 配列）をそのまま args.ledger に渡してください。` +
+      '初周など記録が無い場合は args.ledger を省略してください（省略時は空配列として動きます）。',
+    ledger_entries: [],
+  }
+}
+// 中身は scripts/ledger.py read（既定は --digest）の出力をそのまま渡す。書くのはこの script で、agent は読むだけ。
 const ledger = Array.isArray(parsedArgs.ledger) ? parsedArgs.ledger : []
 const ledgerEntries = []
 const resolvedSeqs = ledger.filter((e) => e.type === 'resolution').map((e) => e.seq)

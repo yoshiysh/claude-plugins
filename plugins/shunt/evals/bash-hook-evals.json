@@ -1,0 +1,262 @@
+{
+  "skill_name": "shunt",
+  "description": "Evals for the check-bash-read PreToolUse hook",
+  "evals": [
+    {
+      "id": 1,
+      "name": "cat-large-file",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "Plain cat on large file — should block"
+    },
+    {
+      "id": 2,
+      "name": "cat-small-file",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/small.txt" } },
+      "fixture": { "lines": 100 },
+      "expected_decision": "allow",
+      "reason": "Small file — not worth delegating"
+    },
+    {
+      "id": 3,
+      "name": "cat-with-flag",
+      "input": { "tool_input": { "command": "cat -n {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "cat with -n flag — should still block"
+    },
+    {
+      "id": 4,
+      "name": "head-large-file",
+      "input": { "tool_input": { "command": "head {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "head on large file — should block"
+    },
+    {
+      "id": 5,
+      "name": "head-with-count",
+      "input": { "tool_input": { "command": "head -100 {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "head -100 — still a bulk read, block"
+    },
+    {
+      "id": 6,
+      "name": "tail-large-file",
+      "input": { "tool_input": { "command": "tail {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "tail on large file — should block"
+    },
+    {
+      "id": 7,
+      "name": "less-large-file",
+      "input": { "tool_input": { "command": "less {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "less on large file — should block"
+    },
+    {
+      "id": 8,
+      "name": "cat-pipe",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt | grep export" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "allow",
+      "reason": "Piped command — targeted read"
+    },
+    {
+      "id": 9,
+      "name": "cat-redirect",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt > /tmp/out.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "allow",
+      "reason": "Redirect — copying file, not reading into context"
+    },
+    {
+      "id": 10,
+      "name": "non-read-command",
+      "input": { "tool_input": { "command": "git status" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Not a file read command"
+    },
+    {
+      "id": 11,
+      "name": "grep-command",
+      "input": { "tool_input": { "command": "grep -n 'export' {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "allow",
+      "reason": "grep is a targeted search — not caught"
+    },
+    {
+      "id": 12,
+      "name": "cat-quoted-path",
+      "input": { "tool_input": { "command": "cat \"{{FIXTURES}}/large.txt\"" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "Quoted path — should still be caught"
+    },
+    {
+      "id": 13,
+      "name": "cat-nonexistent",
+      "input": { "tool_input": { "command": "cat /tmp/shunt-does-not-exist.txt" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "File doesn't exist — let Bash handle the error"
+    },
+    {
+      "id": 14,
+      "name": "empty-command",
+      "input": { "tool_input": { "command": "" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Empty command — pass through"
+    },
+    {
+      "id": 15,
+      "name": "missing-command-field",
+      "input": { "tool_input": {} },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "No command field — pass through"
+    },
+    {
+      "id": 16,
+      "name": "more-large-file",
+      "input": { "tool_input": { "command": "more {{FIXTURES}}/large.txt" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "more on large file — only regex-matched command without coverage"
+    },
+    {
+      "id": 17,
+      "name": "head-n-space-count",
+      "input": { "tool_input": { "command": "head -n 5 {{FIXTURES}}/large.txt" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Parser bug: -n and 5 are separate args, 5 is treated as file path — file '5' won't exist so allow"
+    },
+    {
+      "id": 18,
+      "name": "cat-quoted-path-with-space",
+      "input": { "tool_input": { "command": "cat \"{{FIXTURES}}/dir name/large.txt\"" } },
+      "fixture": { "lines": 800 },
+      "expected_decision": "block",
+      "reason": "Quoted path containing a space — word-split-on-space parsing must not break this into two bogus tokens and fall through to allow"
+    },
+    {
+      "id": 19,
+      "name": "cat-complex-code-over-threshold",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/connection-pool.ts" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Fidelity axis: real 405-line file with race-sensitive lock/retry/circuit-breaker logic in its sampled head. A cheap worker's summary would flatten exactly the details (lock ordering, half-open probe exclusivity) that make this code correct, so the gate should keep it in context even past the line threshold."
+    },
+    {
+      "id": 20,
+      "name": "cat-simple-log-over-threshold",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/access-log.txt" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Fidelity axis: real 400-line access log, one repetitive record shape per line. A worker's summary loses nothing a human or Claude would act on, so once the cost axis clears the threshold this should delegate."
+    },
+    {
+      "id": 21,
+      "name": "head-complex-code-small-slice",
+      "input": { "tool_input": { "command": "head -30 {{REAL_FIXTURES}}/connection-pool.ts" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Cost axis: head -30 only ingests 30 lines regardless of the file's 405-line total, so this stays under threshold and allows on cost alone — independent of the file's complexity."
+    },
+    {
+      "id": 22,
+      "name": "cat-simple-data-under-threshold",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/user-export.csv" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Cost axis: real 60-line simple CSV export, well under the 350-line threshold — allowed regardless of the fidelity axis because the volume never clears the gate."
+    },
+    {
+      "id": 23,
+      "name": "sh-c-wrapped-more-large",
+      "input": { "tool_input": { "command": "/bin/sh -c 'more {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Bypass seen in Codex after a block: the same read wrapped in /bin/sh -c must be judged as the inner read."
+    },
+    {
+      "id": 24,
+      "name": "absolute-path-more-large",
+      "input": { "tool_input": { "command": "/usr/bin/more {{FIXTURES}}/large.txt" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Bypass seen in Codex after a block: an absolute path to the read command must match like the bare name."
+    },
+    {
+      "id": 25,
+      "name": "zsh-lc-wrapped-cat-large",
+      "input": { "tool_input": { "command": "/bin/zsh -lc \"cat {{FIXTURES}}/large.txt\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Combined flags (-lc) still carry -c, so the wrapped read is unwrapped and gated."
+    },
+    {
+      "id": 26,
+      "name": "sh-c-wrapped-cat-small",
+      "input": { "tool_input": { "command": "sh -c 'cat {{FIXTURES}}/small.txt'" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Unwrapping must not change the verdict for a small file."
+    },
+    {
+      "id": 27,
+      "name": "sh-c-wrapped-cat-piped-outside",
+      "input": { "tool_input": { "command": "sh -c 'cat {{FIXTURES}}/large.txt' | head -5" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "A pipe outside the wrapper is a targeted read, same as the unwrapped cat-pipe case."
+    },
+    {
+      "id": 28,
+      "name": "sh-runs-script-file",
+      "input": { "tool_input": { "command": "sh {{FIXTURES}}/large.txt" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Without -c the shell runs the file as a script instead of printing it, so there is nothing to gate."
+    },
+    {
+      "id": 29,
+      "name": "bash-O-option-wrapped-cat-large",
+      "input": { "tool_input": { "command": "bash -O extglob -c 'cat {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "-O takes a separate shopt name; skipping it must still reach -c and gate the wrapped read."
+    },
+    {
+      "id": 30,
+      "name": "bash-rcfile-wrapped-cat-large",
+      "input": { "tool_input": { "command": "bash --rcfile {{FIXTURES}}/small.txt -c 'cat {{FIXTURES}}/large.txt'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "--rcfile takes a separate file argument; it must not be mistaken for the command or stop the unwrap before -c."
+    },
+    {
+      "id": 31,
+      "name": "bash-sh-two-level-nested-cat-large",
+      "input": { "tool_input": { "command": "bash -c \"sh -c 'cat {{FIXTURES}}/large.txt'\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Two nested wrappers with alternating quote styles unwrap to the inner read."
+    },
+    {
+      "id": 32,
+      "name": "bash-sh-escaped-quote-cat-large",
+      "input": { "tool_input": { "command": "bash -c \"sh -c \\\"cat {{FIXTURES}}/large.txt\\\"\"" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Escaped quotes cannot be safely tokenized by xargs; the wrapper must fail closed instead of allowing the read."
+    }
+  ]
+}

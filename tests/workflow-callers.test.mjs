@@ -40,12 +40,12 @@ test('every Workflow caller declares the native-first transparent Codex route', 
     )
     assert.match(
       caller.source,
-      /fallback しない/,
+      /fallback\s*しない/,
       `${caller.skillMd}: native-attempt failure boundary is missing`
     )
     assert.match(
       caller.source,
-      /runner内gateに移さない|human gate は無し/,
+      /runner\s*内\s*gate\s*に移さない|human\s*gate\s*は無し/,
       `${caller.skillMd}: caller gate ownership is missing`
     )
 
@@ -89,15 +89,16 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/pdca/scripts/pdca.js', 'rejected_source_v1'],
-    ['workflow/pdca/scripts/pdca-plan.js', 'rejected_source_v1'],
-    ['workflow/prd-spec/scripts/draft.js', 'rejected_source_v1'],
-    ['workflow/prd-spec/scripts/refine.js', 'rejected_source_v1'],
-    ['workflow/review-document/scripts/review-document.js', 'rejected_source_v1'],
-    ['research/dispatch/scripts/orchestrate.js', 'rejected_source_v1'],
-    ['research/search/scripts/investigate.js', 'portable_v1'],
-    ['skill-creator/skill-creator-best-practices/scripts/build_skill.js', 'portable_v1'],
-    ['skill-creator/skill-creator-best-practices/scripts/review_skill.js', 'rejected_source_v1'],
+    ['workflow/pdca/scripts/pdca.js', 'rejected_source'],
+    ['workflow/pdca/scripts/pdca-plan.js', 'rejected_source'],
+    ['workflow/prd-spec/scripts/draft.js', 'rejected_source'],
+    ['workflow/prd-spec/scripts/refine.js', 'rejected_source'],
+    ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
+    ['workflow/ooda/scripts/ooda.js', 'portable'],
+    ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
+    ['research/search/scripts/investigate.js', 'portable'],
+    ['skill-creator/skill-creator-best-practices/scripts/build_skill.js', 'portable'],
+    ['skill-creator/skill-creator-best-practices/scripts/review_skill.js', 'rejected_source'],
   ])
   const observed = new Set()
 
@@ -110,25 +111,29 @@ test('every active Workflow callsite has an explicit semantic portability classi
       const classification = expected.get(key)
       assert.ok(classification, `${key}: add an explicit portability classification`)
       observed.add(key)
-      assert.match(caller.source, new RegExp(`Codex v1 classification: .*${classification}`))
+      assert.match(caller.source, new RegExp(`Codex classification: .*${classification}`))
     }
   }
   assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered callsites must match exactly')
 })
 
-test('portable research source is bounded and independent of hidden host state', () => {
+test('portable sources avoid hidden host state and the research source stays bounded', () => {
   const sourcePath = join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js')
   const source = readFileSync(sourcePath, 'utf8')
-  for (const forbidden of [
-    /\bbudget\s*\./,
-    /\bprocess\s*\./,
-    /Math\.random\s*\(/,
-    /Date\.now\s*\(/,
-    /\beval\s*\(/,
-    /new\s+Function\s*\(/,
-    /import\s*\(/,
-  ]) {
-    assert.doesNotMatch(source, forbidden, `${sourcePath}: portable source depends on hidden or executable host state`)
+  const sourcePaths = [sourcePath, join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js')]
+  for (const path of sourcePaths) {
+    const portableSource = readFileSync(path, 'utf8')
+    for (const forbidden of [
+      /\bbudget\s*\./,
+      /\bprocess\s*\./,
+      /Math\.random\s*\(/,
+      /Date\.now\s*\(/,
+      /\beval\s*\(/,
+      /new\s+Function\s*\(/,
+      /import\s*\(/,
+    ]) {
+      assert.doesNotMatch(portableSource, forbidden, `${path}: portable source depends on hidden or executable host state`)
+    }
   }
   assert.match(source, /const HARD_MAX_ROUNDS = \d+/)
   assert.match(source, /const MAX_CLAIMS_PER_ROUND = \d+/)
@@ -140,6 +145,7 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   const sourcePaths = [
     join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
     join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'build_skill.js'),
+    join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
   ]
   for (const sourcePath of sourcePaths) {
     const source = readFileSync(sourcePath, 'utf8')
@@ -157,17 +163,17 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
 
 test('rejected sources document the load-bearing construct that v1 cannot preserve', () => {
   const dispatch = readFileSync(join(pluginsRoot, 'research', 'skills', 'dispatch', 'SKILL.md'), 'utf8')
-  assert.match(dispatch, /rejected_source_v1[\s\S]*load-bearing exact model semantics/)
+  assert.match(dispatch, /rejected_source[\s\S]*load-bearing exact model semantics/)
 
   const pdca = readFileSync(join(pluginsRoot, 'workflow', 'skills', 'pdca', 'SKILL.md'), 'utf8')
-  assert.match(pdca, /rejected_source_v1[\s\S]*worktree isolation \/ runtime-generated artifacts/)
+  assert.match(pdca, /rejected_source[\s\S]*worktree isolation \/ runtime-generated artifacts/)
 
   const creator = readFileSync(
     join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'references', 'codex-workflow-compatibility.md'),
     'utf8'
   )
   assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
-  assert.match(creator, /mode: update[\s\S]*rejected_source[\s\S]*runtimeで決まる複数file/)
+  assert.match(creator, /mode: update[\s\S]*rejected_source[\s\S]*runtime\s*で決まる複数\s*file/)
 })
 
 test('the compatibility runner remains internal-only', () => {

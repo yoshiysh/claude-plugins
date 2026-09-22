@@ -1,0 +1,65 @@
+{
+  "skill_name": "ooda",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "フラッシュセールのたびにモバイルの購入ページが重くなってる気がする。LCP を見ると 4 秒台のときもあるけど、何が効いてるのかまだ分からない。CDN は触れなくてフロントだけいじれる。OODA で、見ながら手を打って決め直していきたい。",
+      "expected_output": "ooda が発火し、新規 run として ledger.py read --allow-missing → ooda.js（objective / context / constraints / ledger を args に渡す）→ ledger.py append（stdin）の順で 1 周を回す。ユーザーには status・各フェーズの要点・verified/rejected の内訳が返る。",
+      "files": [],
+      "assertions": [
+        "ooda スキルが発火し、pdca や magi に回していないか",
+        "transcript の Workflow 呼び出しで scriptPath が scripts/ooda.js を指し、args.objective が空でない文字列になっているか",
+        "Workflow 呼び出しの前に ledger.py read --allow-missing を実行し、その出力（[]）が args.ledger に配列として渡っているか",
+        "Workflow の返り値の orient が、status: ok で evidence が空でない option をちょうど 3 つ持つか、status が INSUFFICIENT_DATA で返り値に decide と act が含まれていないかのどちらかか",
+        "Workflow の返り値の act.new_observations の各要素に source があり、返り値の verification.verified の各要素が act.new_observations のどれかと observation・source の両方で一致しているか",
+        "Workflow の返り値の ledger_entries が ledger.py append に stdin（heredoc）で渡され、append が exit 0 を返しているか",
+        "ユーザーへの報告に status、各フェーズの要点、verified と rejected の件数と rejected の理由が含まれているか"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "本番 API のレイテンシが昨日から断続的に跳ねてる。原因はまだ絞れてない。前に 1 周だけ OODA を回した記録が添付の api-latency-ledger.jsonl にあるので、それを ~/.claude/ooda-workspace/2026-09-21-api-latency/ledger.jsonl に置いて続きの 2 周目を回して。",
+      "expected_output": "ooda が発火し、添付 ledger を run の ledger.jsonl として使い、--allow-missing を付けずに read して 2 周目を回す。返り値の iteration は 2。前周の verified（1 秒超クエリ 0 件）は Observe の材料になり、rejected（source が空の推測）は材料にならない。",
+      "files": ["evals/fixtures/api-latency-ledger.jsonl"],
+      "assertions": [
+        "既存 ledger を読む ledger.py read に --allow-missing が付いておらず、exit 0 で 5 entry の配列を返しているか",
+        "Workflow の返り値の iteration が 2 で、append 後の ledger.jsonl の新しい entry の iteration がすべて 2 になっているか",
+        "Workflow の返り値の observe（baseline_metrics・current_state・gaps_identified のいずれか）に前周の verified「1 秒超のクエリは 1 時間で 0 件」の内容が反映され、前周の rejected「たぶん DB は無関係」が事実として書かれていないか",
+        "Workflow の返り値の decide.selected_option（選ばれた案の description 文字列）が、前周の方針「DB のスロークエリログを有効化して採取する」と意味で同じ方針かを grader が判定する（Orient は周ごとに案の文言を作り直すので文字列一致では判定しない）。意味で同じなら decide.rationale が前周の verified_results のどこが変わったかを述べているか、違うならその時点で合格とする"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "EU 展開を年内に試すべきか判断したい。規制とか競合の状況がまだ全然見えてなくて、材料も手元にほとんどない。状況を観察しながら方針を決め直す進め方でお願い。",
+      "expected_output": "ooda が発火する。Observe は値を作らず gaps を出す。Orient が insufficient_data を返せば script は INSUFFICIENT_DATA で止まり、ok を返せば 3 案で 1 周を回す。どちらでも status と返り値の中身が契約どおりに揃い、ledger に記録が残る。",
+      "files": [],
+      "assertions": [
+        "ooda スキルが発火しているか",
+        "Workflow の返り値の observe.gaps_identified が空でなく、baseline_metrics の各要素に source が付いているか",
+        "Workflow の返り値の status と中身が次の対応のどれかに一致しているか: INSUFFICIENT_DATA なら orient.status が insufficient_data・missing_data が空でない・decide と act が無い／ok なら orient.options が 3 件で decide・act・verification がある／BLOCKED なら reason が空でない",
+        "ユーザーへの報告が返り値の status と一致し、status が ok でない場合は理由（missing_data または reason）を返したうえで次の周の Workflow を呼んでいないか",
+        "append 後の ledger.jsonl に、返り値の ledger_entries と同じ phase 列（例: INSUFFICIENT_DATA なら observe・orient）の entry が iteration 1 で記録されているか"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "ニュースレター登録の CTA を 2 パターン作って、登録率で A/B テストしたい。成功基準は先に決めて、1 週間測って効果を比べたい。",
+      "expected_output": "ooda は発火しない。成功基準を事前に固定して施策を測る改善・検証ループなので pdca を案内（または pdca が発火）する。",
+      "files": [],
+      "assertions": [
+        "transcript に scripts/ooda.js を scriptPath にした Workflow 呼び出しが無いか",
+        "pdca を使う（または案内する）形になっているか"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "認証基盤を自前実装のまま拡張するか外部 IdP に移行するか、方式を決めたい。推進・懐疑の両方の立場から審議してほしい。",
+      "expected_output": "ooda は発火しない。方式そのものの審議なので magi を案内（または magi が発火）する。",
+      "files": [],
+      "assertions": [
+        "transcript に scripts/ooda.js を scriptPath にした Workflow 呼び出しが無いか",
+        "magi を使う（または案内する）形になっているか"
+      ]
+    }
+  ]
+}

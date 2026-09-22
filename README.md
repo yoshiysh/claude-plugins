@@ -11,8 +11,12 @@ Claude Code / Codex 向けの汎用スキル集。marketplace plugin として�
 | `research` | 一次情報検証つき調査（search）・多角深掘り（dispatch）・URL 読み取り（url-reader） |
 | `notion` | Notion の capture queue を根拠付きで整理・登録 |
 | `skill-creator` | マルチエージェントでスキルを作成・評価・更新 |
-| `workflow` | PDCA ループ実行（pdca）・要求文書/仕様書の作成（prd-spec）・文書レビュー（review-document）・Codex 向け Workflow 互換層 |
+| `workflow` | PDCA ループ実行（pdca）・要求文書/仕様書の作成（prd-spec）・文書レビュー（review-document）・PR 等の多観点レビューと指摘修正（pr-review / pr-review-fix）・Codex 向け Workflow 互換層 |
 | `performance` | エージェント作業のトークン使用量の opt-in 計測と、品質を維持した改善候補の提示 |
+| `claim-gate` | 不在・網羅型の断定に裏付けか手段スコープが無ければ排出前に差し戻す Stop hook（opt-in・既定 off） |
+| `shunt` | 大きなファイルの読み込みとボイラープレート生成を Gemini worker へ委譲してトークンを節約する（`CLAUDE_PLUGINS_GEMINI_API_KEY` が必要） |
+
+各 plugin の詳細は `plugins/<plugin>/README.md`。
 
 ## インストール
 
@@ -29,4 +33,4 @@ Claude Code のセッション内なら `/plugin install <plugin>@yoshiysh-claud
 
 ## 開発
 
-構成・作業ルール・検証は [CLAUDE.md](CLAUDE.md)（Codex 向けは [AGENTS.md](AGENTS.md)）を参照。検証の入口は `make check`。
+構成・作業ルール・検証は [CLAUDE.md](CLAUDE.md)（Codex での差分は [AGENTS.md](AGENTS.md)）を参照。検証の入口は `make check`。

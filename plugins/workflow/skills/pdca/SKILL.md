@@ -108,7 +108,7 @@ Workflow({
     input: '<起点の文（問題 / 動機 / 主張）>',
     materials: '<資料 URL・パス（任意）>',
     budget: { maxRuns: 8, cycles: 3 },
-    ledger: [],   // scripts/ledger.py read の出力。初周は空
+    ledger: [],   // scripts/ledger.py read --digest の出力。初周は空
   },
 })
 ```
@@ -122,12 +122,26 @@ workflow runtime はファイルを書けないので、entry の構成は scrip
 ```bash
 # workflow の後: 返り値の ledger_entries をそのまま追記する
 python3 <このスキルの絶対パス>/scripts/ledger.py append --path <workspace>/<run-id>/ledger.jsonl --json '<ledger_entries>'
-# 次の workflow の前: 読んで args.ledger に渡す
-python3 <このスキルの絶対パス>/scripts/ledger.py read --path <workspace>/<run-id>/ledger.jsonl
+# 次の workflow の前: 縮約形で読んで args.ledger に渡す（既定）
+python3 <このスキルの絶対パス>/scripts/ledger.py read --digest --path <workspace>/<run-id>/ledger.jsonl
 ```
 
-entry の型・再提起の扱いは [references/ledger.md](references/ledger.md)。`args.ledger` を
-省略すれば空として動くので、既存の呼び出しはそのまま通る。
+搬送は `--digest`（各 entry を `{seq, type, phase, refs, summary}` に縮約。payload の全文は
+落とす）を既定にする。run が進むほど ledger は肥大し（review_v の findings 全文などで
+数十〜百 KB 台に達しうる）、全文をそのまま渡す運転規約だと司令塔が搬送を諦めて
+`args.ledger = []` で省略する事態が起きる — これは再燃防止機構の実質バイパスになる。
+entry の payload を精査したい agent（builder / build-verifier / mechanism-analyst / plan-verifier。
+表は [references/ledger.md](references/ledger.md)）がいる場合だけ、`--digest` を外した全文形を使う。
+ledger ファイルの絶対パスも args に渡しておけば、必要になった agent がその場で全文を読める。
+
+`pdca-plan.js` / `pdca.js` は縮約形・全文形のどちらの配列も受理する（どちらも同じ
+`{seq, type, phase, refs, summary, ...}` 形の配列のため）。`args.ledger` を省略すれば空として
+動くので、既存の呼び出しはそのまま通る。**配列でない値（プレースホルダ文字列など）が
+渡された場合は黙って空に落とさず `BLOCKED` で止まる** — 搬送に失敗した ledger を「記録なし」
+として静かに通すと、裁定済みの論点が無かったことになる再燃防止の欠測が成功として扱われて
+しまうため（実際に 2 回発生した事故）。
+
+entry の型・再提起の扱いは [references/ledger.md](references/ledger.md)。
 
 役割定義: [agents/intake.md](agents/intake.md)（起点判定・不足入力の問い返し）、
 [agents/evidence-collector.md](agents/evidence-collector.md)（`research:search` 委譲、出典付き事実のみ。
@@ -220,11 +234,11 @@ references/harness-freeze.md の表）。二重凍結は script が拒否する�
 > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
 > native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
 > 内部互換層として自動利用するが、現行 `pdca.js` は condition ごとの worktree isolation と
-> runtime-generated artifact path を必須にするため、runner v1 では agent 起動前に
+> runtime-generated artifact path を必須にするため、runner では agent 起動前に
 > `rejected_source` となる。isolation や artifact を弱めて実行したことにしない。
 > native の試行後に error / timeout / invalid result となった場合も runner へ fallback しない。
 >
-> **Codex v1 classification: `rejected_source`**（worktree isolation / runtime-generated artifacts）。
+> **Codex classification: `rejected_source`**（worktree isolation / runtime-generated artifacts）。
 
 ```js
 Workflow({
@@ -248,7 +262,7 @@ Workflow({
     cycle: 1,                // 何周目か。revise のたびに +1。上限は script が持つ（`DEFAULT_MAX_CYCLES`。Act フェーズの backstop 参照）
     previous: null,          // revise のときだけ前周の返り値（artifacts / runs / check.mechanisms）をそのまま渡す
     revisionDiffs: [],       // revise の差分（上限は script の MAX_REVISION_DIFFS。超えると止まる）
-    ledger: [],              // scripts/ledger.py read の出力（Plan フェーズまでの記録）
+    ledger: [],              // scripts/ledger.py read --digest の出力（Plan フェーズまでの記録）
   },
 })
 ```

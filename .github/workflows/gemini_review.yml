@@ -1,0 +1,714 @@
+name: Gemini Mention Review
+
+# PR オープン時の一次レビューと @gemini-cli への応答。呼び方の一覧は help モードが出す。
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+
+# メンションは run_id で毎回別グループにする。束ねると待機中の run が後続に
+# 上書きされ、返信が黙って落ちるため。
+concurrency:
+  group: gemini-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request' && 'auto' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  gemini:
+    if: >-
+      ${{ (github.event_name == 'pull_request' &&
+           github.event.pull_request.draft == false) ||
+          (github.event.sender.type == 'User' &&
+           startsWith(github.event.comment.body, '@gemini-cli') &&
+           contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                    github.event.comment.author_association) &&
+           (github.event_name == 'pull_request_review_comment' ||
+            github.event.issue.pull_request)) }}
+    # runner は tools/provision-gh-runner --repo yoshiysh/claude-plugins --target wsl:winbox
+    # で登録する（未登録の間は job が queue で待つ）。
+    runs-on: [self-hosted, linux]
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GEMINI_CLI_TRUST_WORKSPACE: 'true'
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+      THREAD_ROOT_ID: ${{ github.event.comment.in_reply_to_id || github.event.comment.id }}
+    steps:
+      - name: Acknowledge the mention
+        if: github.event_name != 'pull_request'
+        run: |
+          if [ "${{ github.event_name }}" = "issue_comment" ]; then
+            scope=issues
+          else
+            scope=pulls
+          fi
+          gh api -X POST \
+            "repos/${{ github.repository }}/${scope}/comments/${{ github.event.comment.id }}/reactions" \
+            -f content=eyes --silent
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Decide the mode
+        id: mode
+        env:
+          REQUEST_BODY: ${{ github.event.comment.body }}
+        run: |
+          command=$(printf '%s' "$REQUEST_BODY" | head -1 \
+                    | sed -nE 's/^@gemini-cli[[:space:]]+([a-z]+).*/\1/p')
+          case "${{ github.event_name }}:${command}" in
+            *:review)                      kind=review ;;
+            pull_request:*)                kind=review ;;
+            pull_request_review_comment:*) kind=thread ;;
+            *:summary)                     kind=summary ;;
+            *:help)                        kind=help ;;
+            *)                             kind=comment ;;
+          esac
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+
+      # 上位モデルは RPD 20（1 レビュー 6〜11 リクエストなので 1 日 2 回程度）。
+      # 実コードに触らない PR で使い切ると、本当に見てほしい PR が下位に落ちる。
+      - name: Pick the model
+        id: model
+        run: |
+          # models_file: 降格チェーンの起点を PR の中身で切り替える。実コードに
+          # 触れない PR は最初から lite 単体（chain 無し）にして、上位モデルの
+          # 乏しい RPD を消費しない。実コードに触れる PR だけ
+          # .github/gemini-review/models.txt のフルチェーンを使う。
+          if [ "${{ steps.mode.outputs.kind }}" = "review" ] \
+             && gh pr diff "${PR_NUMBER}" --name-only | grep -qE '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$'; then
+            echo "name=gemini-3.8-flash" >> "$GITHUB_OUTPUT"
+            echo ".github/gemini-review/models.txt" > "${RUNNER_TEMP}/models.txt.path"
+          else
+            echo "name=gemini-3.5-flash-lite" >> "$GITHUB_OUTPUT"
+            echo "gemini-3.5-flash-lite" > "${RUNNER_TEMP}/lite-only-models.txt"
+            echo "${RUNNER_TEMP}/lite-only-models.txt" > "${RUNNER_TEMP}/models.txt.path"
+          fi
+          echo "models_file=$(cat "${RUNNER_TEMP}/models.txt.path")" >> "$GITHUB_OUTPUT"
+
+          # 閾値 120000 バイト: run 35460926014 は free_tier_input_token_count
+          # （TPM、分あたり入力 250,000 token）を Attempt 1/2 で連発して落ちた。
+          # 250K token ≒ 900KB 前後の生テキストだが、system prompt・tool schema・
+          # 履歴が同じ分あたり予算を分け合うため安全側に 120KB を境界とする
+          # （閾値は実測から逆算した安全側の値であり、厳密な token 換算ではない）。
+          if [ "${{ steps.mode.outputs.kind }}" = "review" ]; then
+            diff_bytes=$(gh pr diff "${PR_NUMBER}" | wc -c)
+            if [ "$diff_bytes" -gt 120000 ]; then
+              echo "large_diff=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "large_diff=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+      - name: Collect the PR and the thread
+        if: steps.mode.outputs.kind != 'review' && steps.mode.outputs.kind != 'help'
+        env:
+          REQUEST_BODY: ${{ github.event.comment.body }}
+        run: |
+          mkdir -p .gemini-input/diff
+          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" \
+            --jq '{number,title,state,base:.base.ref,head:.head.ref,changed_files,additions,deletions,body}' \
+            > .gemini-input/pr.json
+          gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" --paginate \
+            --jq '[.[]|{id,in_reply_to_id,path,line,user:.user.login,created_at,body}]' \
+            > .gemini-input/review-comments.json
+          if [ -n "$REQUEST_BODY" ]; then
+            printf '%s' "$REQUEST_BODY" > .gemini-input/request.md
+          else
+            echo "この PR の一次レビュー。" > .gemini-input/request.md
+          fi
+          gh pr view "${PR_NUMBER}" --json commits \
+            --jq '.commits[]|"\(.oid[0:8]) \(.messageHeadline)"' > .gemini-input/commits.txt
+
+          if [ "${{ steps.mode.outputs.kind }}" = "thread" ]; then
+            gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments" --paginate \
+              | jq --argjson root "${THREAD_ROOT_ID}" \
+                '[.[]|select(.id==$root or .in_reply_to_id==$root)
+                     |if .id==$root
+                      then {id,path,line,user:.user.login,created_at,diff_hunk,body}
+                      else {id,user:.user.login,created_at,body} end]' \
+              > .gemini-input/thread.json
+          else
+            echo '[]' > .gemini-input/thread.json
+          fi
+
+          gh pr diff "${PR_NUMBER}" > "${RUNNER_TEMP}/pr.diff"
+          awk -v outdir=.gemini-input/diff '
+            /^diff --git /{ name=$4; sub(/^b\//,"",name); gsub("/","__",name);
+                            f=outdir "/" name ".diff" }
+            f { print > f }
+          ' "${RUNNER_TEMP}/pr.diff"
+          # glob は先頭がドットのファイルに当たらない。.github/... のような変更が
+          # まるごと見えなくなる。
+          find .gemini-input/diff -type f -name '*.diff' -exec wc -c {} + \
+            > .gemini-input/diff-index.txt 2>/dev/null || true
+
+          # 閾値 30KB: 入力 12KB の実測が 40.7K tokens / 4 requests。30KB 上乗せしても
+          # 分あたり 250K に収まる見込み。実消費はログに出るので実績で調整する。
+          if [ "${{ steps.mode.outputs.kind }}" != "thread" ] \
+             || [ "$(wc -c < "${RUNNER_TEMP}/pr.diff")" -le 30000 ]; then
+            find .gemini-input/diff -type f -name '*.diff' | sort \
+              > .gemini-input/must-read.txt
+          else
+            jq -r '[.[].path]|unique|.[]|select(.!=null)' .gemini-input/thread.json \
+              | sed 's|/|__|g; s|^|.gemini-input/diff/|; s|$|.diff|' \
+              > .gemini-input/must-read.txt
+          fi
+
+      # スキル資産（plugins/*/skills/ 配下、SKILL.md、agents|references|schemas 配下の md）
+      # に触れた PR では、正本 best-practices.md の関連箇所を flash-lite に「行範囲だけ」
+      # 選ばせ、逐語で抽出して prompt へ注入する（規範文の生成・要約はさせない）。
+      # 選択が得られない場合は全文 Read へ fail-open する。公開前チェックリストは
+      # 選択対象にせず常に逐語で含める（見出しの行範囲は grep で動的に特定する —
+      # ハードコードすると正本の編集で狂う）。
+      - name: Detect skill asset changes
+        id: skill_check
+        if: steps.mode.outputs.kind == 'review'
+        env:
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
+        run: |
+          BP=plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md
+          files=$(gh pr diff "${PR_NUMBER}" --name-only \
+            | grep -E '^plugins/[^/]+/skills/|(^|/)SKILL\.md$|(^|/)agents/[^/]+\.md$|(^|/)references/[^/]+\.md$|(^|/)schemas/[^/]+\.md$' \
+            || true)
+
+          if [ -z "$files" ]; then
+            echo "skill_touched=false" >> "$GITHUB_OUTPUT"
+            echo "note=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "skill_touched=true" >> "$GITHUB_OUTPUT"
+          mkdir -p .gemini-input
+          numbered=$(cat -n "$BP")
+
+          schema='{"type":"object","properties":{"selections":{"type":"array","items":{"type":"object","properties":{"section":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"why_applicable":{"type":"string"}},"required":["section","start_line","end_line","why_applicable"]}}},"required":["selections"]}'
+
+          prompt=$(jq -n --arg files "$files" --arg body "$numbered" '
+            "変更されたスキルファイル:\n" + $files + "\n\n" +
+            "正本 best-practices.md（cat -n 形式、行番号付き）:\n" + $body + "\n\n" +
+            "変更内容に照らして関連する節を選び、行範囲を返せ。規範文そのものを" +
+            "生成・要約するな。行範囲の選択のみ行うこと。"')
+
+          req=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
+            '{contents:[{parts:[{text:$prompt}]}],
+              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
+
+          resp=$(curl -sS \
+            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "$req" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+            || true)
+
+          selections=$(printf '%s' "$resp" \
+            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+            | jq -c '.selections // empty' 2>/dev/null || true)
+
+          out=.gemini-input/best-practices-excerpts.txt
+          : > "$out"
+          fail_open=false
+          if [ -z "$selections" ] || [ "$selections" = "null" ] || [ "$selections" = "[]" ]; then
+            fail_open=true
+            echo "fail-open: flash-lite の逐語抽出選択が不成立だったため、正本の全文を read_file で読むこと。" >> "$out"
+          else
+            echo "$selections" | jq -c '.[]' | while IFS= read -r sel; do
+              section=$(printf '%s' "$sel" | jq -r '.section')
+              start=$(printf '%s' "$sel" | jq -r '.start_line')
+              end=$(printf '%s' "$sel" | jq -r '.end_line')
+              {
+                echo "[${section} ${start}-${end}]"
+                sed -n "${start},${end}p" "$BP"
+                echo ""
+              } >> "$out"
+            done
+          fi
+
+          heading_line=$(grep -n '^## 10\. チェックリスト' "$BP" | cut -d: -f1)
+          if [ -n "$heading_line" ]; then
+            next_line=$(awk -v s="$heading_line" 'NR>s && /^## /{print NR; exit}' "$BP")
+            if [ -n "$next_line" ]; then
+              end_line=$((next_line - 1))
+            else
+              end_line=$(wc -l < "$BP")
+            fi
+            {
+              echo "[公開前チェックリスト ${heading_line}-${end_line}]"
+              sed -n "${heading_line},${end_line}p" "$BP"
+            } >> "$out"
+          fi
+
+          {
+            echo "note<<SKILL_NOTE_EOF"
+            echo ""
+            echo "## 追加観点: スキル資産の best-practices 照合"
+            echo ""
+            echo "この PR は以下のスキル資産を変更している:"
+            echo "$files" | sed 's/^/- /'
+            echo ""
+            echo "正本: \`$BP\`。抜粋に無い観点を疑うときはここを読め。"
+            echo ""
+            if [ "$fail_open" = "true" ]; then
+              echo "逐語抽出に失敗したため、正本を read_file で全文読んで照合すること。"
+            else
+              echo "[BEST_PRACTICES_EXCERPTS] は正本からの逐語抜粋。これと照合して逸脱が"
+              echo "あれば該当項目名を挙げて指摘する。正本の規範文がそのまま書き写されている"
+              echo "箇所があれば、単一正本違反として指摘する。"
+            fi
+            echo ""
+            echo "[BEST_PRACTICES_EXCERPTS]"
+            cat "$out"
+            echo "SKILL_NOTE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Record the review start time
+        id: review_start
+        if: steps.mode.outputs.kind == 'review'
+        run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      # レビュー対象を機械的に絞る。除外はロックファイル・生成物/フィクスチャ・
+      # バイナリに限定し、黙って消さず理由付きで prompt へ転記させる
+      # （欠測を成功に変換しない）。
+      - name: Build the filtered diff for review
+        id: filtered_diff
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          mkdir -p .gemini-input/review-diff
+          gh pr diff "${PR_NUMBER}" > "${RUNNER_TEMP}/review-pr.diff"
+          awk -v outdir=.gemini-input/review-diff '
+            /^diff --git /{ name=$4; sub(/^b\//,"",name); gsub("/","__",name);
+                            f=outdir "/" name ".diff" }
+            f { print > f }
+          ' "${RUNNER_TEMP}/review-pr.diff"
+
+          # ロックファイル: 依存解決の機械的出力で、ロジックのレビューに寄与しない。
+          lockfile_pattern='(^|/)(.*\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|uv\.lock)$'
+          # 生成物・フィクスチャ: テスト用の固定データで、変更の意図を反映しない。
+          generated_pattern='(^|/)fixtures/|(^|/)evals/\.fixtures/|\.snap$'
+
+          : > .gemini-input/review-diff/excluded.txt
+          : > .gemini-input/review-diff/index.txt
+          for f in .gemini-input/review-diff/*.diff; do
+            [ -e "$f" ] || continue
+            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
+            reason=""
+            if printf '%s' "$path" | grep -qE "$lockfile_pattern"; then
+              reason="lockfile"
+            elif printf '%s' "$path" | grep -qE "$generated_pattern"; then
+              reason="generated/fixture"
+            elif grep -q '^Binary files ' "$f"; then
+              reason="binary"
+            fi
+            if [ -n "$reason" ]; then
+              echo "$path ($reason)" >> .gemini-input/review-diff/excluded.txt
+              rm -f "$f"
+            else
+              echo "$path $(wc -c < "$f")" >> .gemini-input/review-diff/index.txt
+            fi
+          done
+
+      # 二段スクリーニング: 機械的変更だけを flash-lite に判定させ、レビュー対象を
+      # deep_review 分だけに絞る。判定基準は除外側に倒し、迷えば deep_review。
+      # 較正: skip 判定から run 単位で決定的に 1〜2 件を deep_review へ昇格し、
+      # skip 判定の妥当性を実測する（GITHUB_RUN_ID をシードにした md5sum+sort。
+      # self-hosted runner での `shuf --random-source` の可用性が未確認なため、
+      # より広く存在する md5sum の組み合わせで決定性を担保する）。
+      - name: Screen files for review depth
+        id: screen
+        if: steps.mode.outputs.kind == 'review'
+        env:
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
+        run: |
+          : > .gemini-input/review-diff/deep_review.txt
+          : > .gemini-input/review-diff/skipped.txt
+          : > .gemini-input/review-diff/calibration.txt
+
+          files=$(ls .gemini-input/review-diff/*.diff 2>/dev/null || true)
+          if [ -z "$files" ]; then
+            exit 0
+          fi
+
+          payload=$(for f in $files; do
+            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
+            jq -n --arg path "$path" --rawfile diff "$f" '{path:$path, diff:$diff}'
+          done | jq -s .)
+
+          schema='{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"verdict":{"type":"string","enum":["deep_review","skip"]},"reason":{"type":"string"}},"required":["path","verdict","reason"]}}},"required":["files"]}'
+
+          prompt=$(jq -n --argjson files "$payload" '
+            "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
+            "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
+            "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
+            ($files | tostring)')
+
+          body=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
+            '{contents:[{parts:[{text:$prompt}]}],
+              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
+
+          resp=$(curl -sS \
+            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d "$body" \
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+            || true)
+
+          verdicts=$(printf '%s' "$resp" \
+            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+            | jq -c '.files // empty' 2>/dev/null || true)
+
+          if [ -z "$verdicts" ] || [ "$verdicts" = "null" ]; then
+            echo "fail-open: lite 判定が失敗（応答不成立）したため全ファイルを deep_review とする" \
+              >> .gemini-input/review-diff/skipped.txt
+            for f in $files; do
+              awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p' \
+                >> .gemini-input/review-diff/deep_review.txt
+            done
+            exit 0
+          fi
+
+          echo "$verdicts" | jq -r '.[] | select(.verdict=="deep_review") | .path' \
+            >> .gemini-input/review-diff/deep_review.txt
+          echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | "\(.path) — \(.reason)"' \
+            >> .gemini-input/review-diff/skipped.txt
+
+          skip_paths=$(echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | .path')
+          skip_count=$(printf '%s\n' "$skip_paths" | grep -c . || true)
+          n=1
+          [ "$skip_count" -ge 3 ] && n=2
+          if [ "$skip_count" -gt 0 ]; then
+            promoted=$(printf '%s\n' "$skip_paths" | while IFS= read -r p; do
+              [ -n "$p" ] || continue
+              h=$(printf '%s:%s' "${GITHUB_RUN_ID}" "$p" | md5sum | awk '{print $1}')
+              echo "$h $p"
+            done | sort | head -n "$n" | awk '{print $2}')
+            printf '%s\n' "$promoted" >> .gemini-input/review-diff/deep_review.txt
+            printf '%s\n' "$promoted" >> .gemini-input/review-diff/calibration.txt
+          fi
+
+      # gemini-cli 本体（google-github-actions/run-gemini-cli@v0）は使わず、
+      # 直接 CLI を叩く。理由: -m 強制指定 + headless 実行では settings.json の
+      # modelChains.default による in-process 降格が発火しない（実測: CI での
+      # RPD 枯渇時に降格ゼロ・exit 1、ローカル再現で chain 先頭 404 でも降格
+      # ゼロ）。-m を渡さない場合は router が custom chain を無視して自律選択
+      # するため、どちらの経路でも in-process chain には頼れない。よってモデル
+      # 降格は .github/gemini-review/run-review.sh の明示ループが担う。
+      - name: Install gemini-cli
+        if: steps.mode.outputs.kind == 'review'
+        run: npm install --silent --no-audit --prefer-offline --global @google/gemini-cli@latest
+
+      - name: Prepare the review prompt and settings
+        id: review_prep
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          mkdir -p "${RUNNER_TEMP}"
+          cat > "${RUNNER_TEMP}/review-prompt.md" <<'PROMPT_EOF'
+          あなたは経験豊富な Principal Software Engineer で、緻密なコードレビュー
+          アーキテクトです。第一原理から考え、コードの前提そのものを疑います。
+          出力はすべて日本語で書いてください。
+
+          対象: owner=${{ github.repository_owner }}
+                repo=${{ github.event.repository.name }}
+                pullNumber=${{ github.event.pull_request.number || github.event.issue.number }}
+
+          ## 目的
+
+          差分の**意図と文脈**を理解したうえで、**バグ・セキュリティ上の欠陥・
+          性能上のボトルネック・不明瞭さ**を洗い出す。様式の好みより、ロジック・
+          設計・可読性への実質的な指摘を優先する。
+
+          ## 差分の読み方
+
+          `get_diff` で全文を一括取得しない。差分は事前に機械的な絞り込みと
+          二段スクリーニングを経て `.gemini-input/review-diff/` に用意してある。
+
+          - `.gemini-input/review-diff/deep_review.txt` — 今回精読すべきファイル
+            一覧（1 行 1 パス）。各ファイルの diff は
+            `.gemini-input/review-diff/<パスの / を __ に置換>.diff` にある
+          - `.gemini-input/review-diff/excluded.txt` — ロックファイル・生成物/
+            フィクスチャ・バイナリとして機械的に除外したファイルと理由
+          - `.gemini-input/review-diff/skipped.txt` — flash-lite が機械的変更と
+            判定して精読対象から外したファイルと理由
+          - `.gemini-input/review-diff/calibration.txt` — skip 判定から較正のため
+            deep_review に昇格させたファイル（deep_review.txt にも含まれる）
+
+          ## 手順
+
+          1. `mcp_github_pull_request_read` を method="get" で呼び、PR の概要
+             だけを取得する（差分本体は上記のファイルから読む）
+          1a. `deep_review.txt` に列挙された各ファイルの diff を全部読む。
+              取捨選択しない
+          2. `.gemini/config.yaml` を読む。`comment_severity_threshold` 未満の指摘は
+             出さない。`ignore_patterns` に一致するファイルはレビュー対象から外す
+          3. `.gemini/styleguide.md` を読む。これがこのリポジトリのレビュー基準の
+             原本。補助として `.claude/rules/` も参照してよい
+          4. 文脈を作る。差分のファイルに加え、そこから import されている、または
+             構造的に隣接するファイル（関連する設定やテスト）を読む
+          5. 解析の重点は**アプリケーションコード**に置く。ロジックを追い、境界値・
+             off-by-one・競合・null / エラー処理の漏れを能動的に探す。テストファイルは
+             誤ったアサーション等の重大な誤りだけを見る
+          6. 指摘を CRITICAL / HIGH / MEDIUM / LOW に分類する
+             - CRITICAL: セキュリティ欠陥、システムを壊すバグ、ロジックの全面的破綻
+             - HIGH: 性能ボトルネック、リソースリーク、重大な設計違反
+             - MEDIUM: コード中の誤字、入力検証の欠落、過度に複雑なロジック、
+               スタイルガイド違反（命名規約など）
+             - LOW: 定数化、ログ文言、docstring、ドキュメントの誤字、テストの品質
+             - **変更の意図に反する挙動を生む機能的なバグは HIGH 以上に分類する**
+
+          ## 投稿
+
+          7. `mcp_github_pull_request_review_write` を method="create" で呼び pending
+             review を開く。「pending review は 1 つまで」という趣旨のエラーは無視して
+             次へ進む
+          8. 指摘ごとに `mcp_github_add_comment_to_pending_review` を呼ぶ。本文の形:
+
+             [{SEVERITY}] {指摘本文}
+
+             コードで直せる場合は ```suggestion ブロックを添える。行番号と
+             インデントは周囲のコードと厳密に一致させる
+          9. `mcp_github_pull_request_review_write` を method="submit_pending"、
+             event="COMMENT" で呼んで確定する。APPROVE と REQUEST_CHANGES は使わない。
+             body は次の形:
+
+             ## 📋 Review Summary
+
+             変更の目的と全体評価を 2〜3 文で
+
+             ## 🔍 General Feedback
+
+             - インラインに落とさない全体所見や、繰り返し現れた傾向
+
+             ## 🙈 レビュー対象外（機械的変更）
+
+             `.gemini-input/review-diff/excluded.txt`（ロックファイル・生成物/
+             フィクスチャ・バイナリとして機械的に除外）と
+             `.gemini-input/review-diff/skipped.txt`（flash-lite が機械的変更と
+             判定して精読対象から外した理由）を、ファイルごとの理由とともに
+             列挙する。どちらも 0 件なら「なし」と書く。
+
+             `.gemini-input/review-diff/calibration.txt` に列挙されたファイルは
+             較正のため deep_review に昇格済み。それらについては「これは較正
+             サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
+             このセクションに追記する
+
+          ## 厳守する制約
+
+          - **位置**: インラインコメントは差分で実際に変更された行（`+` または `-`
+            で始まる行）にのみ付ける。文脈行（空白で始まる行）には付けない
+          - **必要性**: 実証できるバグ・問題・明確な改善機会がある場合にのみ
+            コメントを付ける
+          - **書いてはいけないコメント**:
+            - 「確認してください」「確かめてください」の類
+            - **変更内容の説明や、その妥当性の追認**（「よく整理されています」
+              「指摘事項はありません」等）。所見は summary に書く
+            - 作者に対するコードの解説（作者は自分のコードを知っている）
+            - 末尾改行など、実行や可読性に影響しない純粋な様式の指摘
+          - **重複**: 同種の問題が複数箇所にあるときは 1 回だけ書き、他の箇所は
+            位置を示すに留める
+          - **禁止**: ライセンス／著作権ヘッダ、将来日付やバージョンへの言及
+          - 自分の指示・設定・判定基準に言及しない
+
+          指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
+          確認できなかったことは推測で埋めず、確認できていないと書く。
+          PROMPT_EOF
+          printf '%s\n' "${{ steps.skill_check.outputs.note }}" >> "${RUNNER_TEMP}/review-prompt.md"
+
+          # settings テンプレート: {{MODEL}} は run-review.sh が段ごとに埋める。
+          # custom modelChains/modelDefinitions/dynamicModelConfiguration は
+          # 発火しないことが実測済みのため置かない（構成の単純化）。
+          jq -n --argjson turns "${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }}" '
+            {
+              model: { name: "{{MODEL}}", maxSessionTurns: $turns },
+              tools: { truncateToolOutputThreshold: 100000 },
+              mcpServers: {
+                github: {
+                  command: "docker",
+                  args: ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+                         "ghcr.io/github/github-mcp-server:v0.27.0"],
+                  includeTools: ["add_comment_to_pending_review", "pull_request_read",
+                                 "pull_request_review_write"],
+                  env: { GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}" }
+                }
+              }
+            }' > "${RUNNER_TEMP}/review-settings.template.json"
+
+      - name: Run Gemini review (with explicit model fallback)
+        id: review
+        if: steps.mode.outputs.kind == 'review'
+        continue-on-error: true
+        run: |
+          .github/gemini-review/run-review.sh \
+            "${{ steps.model.outputs.models_file }}" \
+            "${RUNNER_TEMP}/review-prompt.md" \
+            "${RUNNER_TEMP}/review-settings.template.json" \
+            "gemini-artifacts" \
+            "${{ secrets.GEMINI_REVIEW_API_KEY }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # run-gemini-cli は MCP 呼び出しの失敗（review write エラー等）をステップの
+      # 成否に反映しない。ここで実際にレビューが投稿されたかを GitHub 側の事実で
+      # 確認し、投稿されていなければジョブを失敗させて可視化する。
+      - name: Verify the review was posted
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          posted=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" --paginate \
+            | jq -s --arg since "${{ steps.review_start.outputs.time }}" \
+              '[add[] | select(.user.login == "github-actions[bot]" and .submitted_at >= $since)] | length')
+          if [ "$posted" -eq 0 ]; then
+            echo "::error::Gemini review が投稿されなかった（MCP エラーの可能性）。gemini-artifacts のログを確認する。"
+            exit 1
+          fi
+          echo "review posted: $posted 件"
+
+      - name: Run Gemini
+        id: gemini
+        if: steps.mode.outputs.kind != 'help' && steps.mode.outputs.kind != 'review'
+        uses: google-github-actions/run-gemini-cli@v0
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_REVIEW_API_KEY }}
+          gemini_model: gemini-3.5-flash-lite
+          gemini_debug: ${{ fromJSON(vars.GEMINI_DEBUG || false) }}
+          settings: |-
+            {
+              "model": { "maxSessionTurns": 20 },
+              "tools": { "core": ["read_file", "glob", "search_file_content"] }
+            }
+          prompt: |-
+            あなたはこのリポジトリのコードレビュアーです。日本語で答えてください。
+
+            手元にあるもの:
+            - `.gemini-input/request.md` — 今回の呼びかけ本文
+            - `.gemini-input/must-read.txt` — 必ず読む差分ファイルの一覧
+            - `.gemini-input/thread.json` — スレッドの経緯（thread のときだけ中身がある）
+            - `.gemini-input/pr.json` — PR の概要
+            - `.gemini-input/commits.txt` — コミット一覧（変更の意図はここに出る）
+            - `.gemini-input/diff-index.txt` — 変更ファイルと各差分のサイズ
+            - `.gemini-input/diff/<パスの / を __ に置換>.diff` — ファイル単位の差分
+            - `.gemini-input/review-comments.json` — 全レビューコメント
+            - リポジトリの実ファイル（read_file / glob / search_file_content で読める）
+
+            まず `request.md` と `must-read.txt` に挙がっている差分を**全部読む**。
+            何を読むかはこちらで決めてあるので取捨選択しない。足りなければ
+            `diff-index.txt` から選んで追加で開く。判断に要るものを読まずに憶測で
+            書くことはしない。読めていないなら読めていないと書く。
+
+            判断基準は `.gemini/styleguide.md` と `.claude/rules/` を読んで使う。
+            相手の言い分も自分の前回の発言も鵜呑みにせず、実ファイルで確認する。
+
+            今回のモード: ${{ steps.mode.outputs.kind }}
+
+            モードが `review` のとき — 出力は次の JSON だけ。前後に文章を付けない。
+            findings は実際に直す価値のあるものに絞る。無ければ空配列にする。
+            line は差分の新しい側の行番号で、その差分に現れる行だけを指す。
+
+            ```json
+            {
+              "summary": "変更の要約と全体所見（Markdown 可）",
+              "findings": [
+                {"path": "src/foo.py", "line": 42, "body": "指摘の本文（Markdown 可）"}
+              ]
+            }
+            ```
+
+            モードが `summary` のとき — 変更の要約だけを出力する。指摘は書かない。
+
+            モードが `comment` または `thread` のとき — 返信本文だけを出力する。
+            前置きも見出しも要らない。出力はそのまま投稿される。
+
+            `thread` のときは、本文の最終行に判定を 1 行だけ追加する:
+            RESOLUTION: RESOLVED   … このスレッドの指摘が対応済み・妥当と確認でき、
+                                     ラリーを続ける必要がないとき
+            RESOLUTION: CONTINUE   … 追加の対応・回答・修正が必要なとき
+            迷ったら CONTINUE。RESOLVED は、対応内容を実ファイルや Issue の実在で
+            確認できた場合に限る。この行は投稿前に取り除かれ、RESOLVED のときだけ
+            スレッドが resolve される。
+
+      - name: Post the help
+        if: steps.mode.outputs.kind == 'help'
+        run: |
+          cat > "${RUNNER_TEMP}/help.md" <<'MD'
+          | 呼び方 | 動き |
+          | --- | --- |
+          | （PR を開く） | 一次レビューを自動で行う |
+          | `@gemini-cli review` | 現在の状態でレビューし、summary と行単位の指摘を出す |
+          | `@gemini-cli summary` | 変更の要約だけを出す |
+          | `@gemini-cli <質問>` | PR コメントとして答える |
+          | `@gemini-cli <質問>`（レビュースレッド内） | そのスレッドに答える |
+          | `@gemini-cli help` | これ |
+          MD
+          gh api -X POST "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            -F "body=@${RUNNER_TEMP}/help.md"
+
+      - name: Post the reply
+        if: >-
+          steps.mode.outputs.kind != 'review' && steps.mode.outputs.kind != 'help'
+          && steps.gemini.outputs.summary != ''
+        env:
+          BODY: ${{ steps.gemini.outputs.summary }}
+        run: |
+          printf '%s' "$BODY" > "${RUNNER_TEMP}/reply.md"
+          if [ "${{ steps.mode.outputs.kind }}" = "thread" ]; then
+            verdict=$(tail -1 "${RUNNER_TEMP}/reply.md" | grep -oE '^RESOLUTION: (RESOLVED|CONTINUE)$' || true)
+            if [ -n "$verdict" ]; then
+              sed -i '$d' "${RUNNER_TEMP}/reply.md"
+            fi
+            gh api -X POST \
+              "repos/${{ github.repository }}/pulls/${PR_NUMBER}/comments/${THREAD_ROOT_ID}/replies" \
+              -F "body=@${RUNNER_TEMP}/reply.md"
+            if [ "$verdict" = "RESOLUTION: RESOLVED" ]; then
+              # resolve できるのは bot 自身が起点のスレッドだけ。人間のスレッドは人間が閉じる。
+              info=$(gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved comments(first:1){nodes{databaseId author{login}}}}}}}}' \
+                -f o="${{ github.repository_owner }}" -f r="${{ github.event.repository.name }}" -F n="${PR_NUMBER}")
+              tid=$(echo "$info" | jq -r --argjson root "${THREAD_ROOT_ID}" \
+                '.data.repository.pullRequest.reviewThreads.nodes[] | select(.comments.nodes[0].databaseId == $root and .comments.nodes[0].author.login == "github-actions" and (.isResolved | not)) | .id')
+              if [ -n "$tid" ]; then
+                gh api graphql -f query='mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}' -f t="$tid"
+                echo "thread resolved: $tid"
+              else
+                echo "resolve 対象外（bot 起点でない / 解決済み / 特定不能）"
+              fi
+            fi
+          else
+            gh api -X POST \
+              "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              -F "body=@${RUNNER_TEMP}/reply.md"
+          fi
+
+      - name: Report token usage
+        if: always()
+        run: |
+          jq -r '.stats.models|to_entries[]|"\(.key): \(.value.tokens.total) tokens / \(.value.api.totalRequests) requests"' \
+            gemini-artifacts/stdout.log 2>/dev/null || echo "stats なし"
+          jq -r '.stats.tools.byName|to_entries[]|"\(.key): \(.value.count) 回"' \
+            gemini-artifacts/stdout.log 2>/dev/null || true
+          [ -f .gemini-input/must-read.txt ] \
+            && echo "must-read: $(wc -l < .gemini-input/must-read.txt) 件" || true
+
+      - name: Dump the gemini artifacts
+        if: always()
+        run: |
+          echo "--- stdout ---"; tail -c 2500 gemini-artifacts/stdout.log || true
+          echo "--- stderr ---"; tail -c 2500 gemini-artifacts/stderr.log || true
+          if [ "${{ steps.mode.outputs.kind }}" != "review" ] \
+             && [ "${{ steps.mode.outputs.kind }}" != "help" ] \
+             && [ -z "${{ steps.gemini.outputs.summary }}" ]; then
+            case "${{ github.event_name }}" in
+              issue_comment) scope=issues ;;
+              pull_request_review_comment) scope=pulls ;;
+              *) exit 0 ;;
+            esac
+            gh api -X POST \
+              "repos/${{ github.repository }}/${scope}/comments/${{ github.event.comment.id }}/reactions" \
+              -f content=confused --silent
+          fi
