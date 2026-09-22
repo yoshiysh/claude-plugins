@@ -13,6 +13,7 @@ import shutil
 import unittest
 from pathlib import Path
 
+from prose import prose_pattern
 from test_structural_findings import DRAFT, REFINE, doc, ids_of, run_structural
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -135,8 +136,8 @@ class DeclarationGapInValidityAuditorTests(unittest.TestCase):
     VALIDITY = (SKILL / "agents" / "validity-auditor.md").read_text(encoding="utf-8")
 
     def test_declaration_gap_section_exists(self):
-        self.assertIn("### 4. 宣言漏れ", self.VALIDITY)
-        self.assertIn("検出する 4 種", self.VALIDITY)
+        self.assertRegex(self.VALIDITY, prose_pattern("### 4. 宣言漏れ"))
+        self.assertRegex(self.VALIDITY, prose_pattern("検出する 4 種"))
 
     def test_item_list_sources_are_the_existing_references(self):
         # 新規カタログを作らず、既存 2 ファイルの項目リストを正とする契約。
@@ -144,11 +145,17 @@ class DeclarationGapInValidityAuditorTests(unittest.TestCase):
         self.assertIn("document-structure.md", self.VALIDITY)
 
     def test_fix_is_fixed_to_two_way_choice(self):
-        self.assertIn("スコープ外宣言を追加するか、要求を追加するかの二択を writer に委ねる", self.VALIDITY)
+        self.assertRegex(
+            self.VALIDITY, prose_pattern("スコープ外宣言を追加するか、要求を追加するかの二択を writer に委ねる")
+        )
 
     def test_severity_is_degraded(self):
-        section = self.VALIDITY[self.VALIDITY.index("### 4. 宣言漏れ") :]
-        section = section[: section.index("## 見ないもの")]
+        start = prose_pattern("### 4. 宣言漏れ").search(self.VALIDITY)
+        self.assertIsNotNone(start)
+        section = self.VALIDITY[start.start() :]
+        end = prose_pattern("## 見ないもの").search(section)
+        self.assertIsNotNone(end)
+        section = section[: end.start()]
         self.assertIn("`degraded`", section)
 
 

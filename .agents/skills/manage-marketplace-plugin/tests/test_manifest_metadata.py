@@ -1,5 +1,6 @@
 import json
 import runpy
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ class ManifestMetadataTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         self.writer = REGISTER["write_plugin_files"]
         self.check = VERIFY["l2_bundle_check"]
         for function in (self.writer, self.check, VERIFY["skill_entries"]):

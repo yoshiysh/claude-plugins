@@ -22,6 +22,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prose import prose_pattern
+
 SKILL = Path(__file__).resolve().parents[1]
 REFINE = (SKILL / "scripts" / "refine.js").read_text()
 
@@ -104,8 +106,8 @@ class TestContradictionPassStructure(unittest.TestCase):
         self.assertIn("| 7 |", premises)
         self.assertIn("fail-closed", premises)
         # 参照側（writer / validity）も前提 7 を指している
-        self.assertIn("前提 7", (SKILL / "agents" / "writer-common.md").read_text())
-        self.assertIn("前提 7", (SKILL / "agents" / "validity-auditor.md").read_text())
+        self.assertRegex((SKILL / "agents" / "writer-common.md").read_text(), prose_pattern("前提 7"))
+        self.assertRegex((SKILL / "agents" / "validity-auditor.md").read_text(), prose_pattern("前提 7"))
 
 
 if __name__ == "__main__":

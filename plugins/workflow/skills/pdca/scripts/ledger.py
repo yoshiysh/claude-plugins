@@ -85,6 +85,15 @@ def read_entries(path: Path) -> list[dict]:
     return entries
 
 
+DIGEST_FIELDS = ("seq", "type", "phase", "refs", "summary")
+
+
+def digest_entry(entry: dict) -> dict:
+    """entry を搬送用に縮約する。summary はそのまま（縮約の位置づけそのもの）、
+    payload の全文だけを落とす。"""
+    return {field: entry.get(field) for field in DIGEST_FIELDS}
+
+
 def append_entries(path: Path, new_entries: list) -> list[dict]:
     """既存行を一切変えずに追記する。追記前に既存行を検証し、壊れていれば書かない。"""
     existing = read_entries(path)
@@ -122,6 +131,11 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("read", help="entry を JSON array で出す")
     rp.add_argument("--path", required=True)
     rp.add_argument("--types", default=None, help="カンマ区切りで型を絞る")
+    rp.add_argument(
+        "--digest",
+        action="store_true",
+        help="各 entry を {seq, type, phase, refs, summary} に縮約する（payload の全文は落とす）。搬送用の既定形",
+    )
 
     vp = sub.add_parser("validate", help="台帳の整合（seq の連番・型・必須欄）を検査する")
     vp.add_argument("--path", required=True)
@@ -139,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.types:
                 wanted = {t.strip() for t in args.types.split(",") if t.strip()}
                 entries = [e for e in entries if e.get("type") in wanted]
+            if args.digest:
+                entries = [digest_entry(e) for e in entries]
             print(json.dumps(entries, ensure_ascii=False))
             return 0
         entries = read_entries(path)

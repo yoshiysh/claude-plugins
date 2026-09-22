@@ -192,7 +192,7 @@ execution run rootを選び、`workspaceDir`にはそのrun rootを渡す。call
 > 内部互換層として自動利用し、ユーザーに runner の指定を求めない。native を試行後に
 > error / timeout / invalid result となった場合は runner へ fallback しない。
 >
-> **Codex v1 classification: `portable_v1`**。round、claim数、fan-outはhard maxを持ち、evidence pathは
+> **Codex classification: `portable`**。round、claim数、fan-outはhard maxを持ち、evidence pathは
 > agent生成IDではなく事前列挙可能なround/slotで決まる。host hidden globalには依存しない。
 
 ```

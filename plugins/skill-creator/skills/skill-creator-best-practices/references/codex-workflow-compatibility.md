@@ -42,15 +42,15 @@ node [SKILL_DIR]/scripts/select_runtime.js \
 
 ## review / update mapping
 
-どの mode が runner v1 で拒否されるかの**値の正本は `scripts/select_runtime.js` の
+どの mode が runner で拒否されるかの**値の正本は `scripts/select_runtime.js` の
 `RUNNER_REJECTED_MODES`**。以下はその理由で、判定は script が返す。
 
 - caller の前処理は Phase 1、成功後処理は Phase 3。
 - Phase 1 の対象・範囲・意図確認と、update 時の Phase 3 適用承認は caller が所有し、runner 内 gate に移さない。
-- `mode: review` は現行runner v1では `rejected_source` とする。対象skill treeはruntimeで決まり、full/diffとも
+- `mode: review` は現行runnerでは `rejected_source` とする。対象skill treeはruntimeで決まり、full/diffとも
   file inventory、件数/bytes上限、各content hash、git diff snapshotがcall receiptに無い。finder/refuterがlive treeを
   暗黙入力として読むmanifestへ変換してはならない。
-- `mode: update` は現行runner v1では `rejected_source` とする。sourceはruntimeで決まる複数fileをstaging mirrorへ書き、改稿ごとに
+- `mode: update` は現行runnerでは `rejected_source` とする。sourceはruntimeで決まる複数fileをstaging mirrorへ書き、改稿ごとに
   同じpathを上書きする一方、manifestは全artifact pathの事前列挙と単一ownerを要求する。outer Phase 3の適用gateもsource内packageではない。
   translatorがstaging/action package/gateを捏造すると意味が変わるため、最初のexecution agentを起動しない。
 - review/updateはnative Workflowがある環境だけ従来経路を使う。Codexでは別modeへ自動縮退せず、未実施と拒否理由を伝えて止める。

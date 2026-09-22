@@ -1,0 +1,124 @@
+#!/bin/bash
+# Delegate boilerplate generation to the code-writer worker (Gemini via AI Studio)
+# Usage: code-write --spec "write tests for UserService" --reference ref.test.ts --target out.test.ts
+
+. "$(cd "$(dirname "$0")" && pwd)/lib/gemini.sh"
+
+MODE_NAME="code-writer"
+
+spec=""
+reference=""
+target=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --spec)      spec="$2"; shift 2 ;;
+    --reference) reference="$2"; shift 2 ;;
+    --target)    target="$2"; shift 2 ;;
+    *)           shift ;;
+  esac
+done
+
+if [ -z "$spec" ]; then
+  echo "Error: --spec is required" >&2
+  exit 1
+fi
+
+# A bare spec would generate context-free code that matches nothing in the
+# project — fail loudly rather than write plausible-looking output.
+if [ -z "$reference" ]; then
+  echo "Error: --reference is required — pass a file whose patterns the output should match." >&2
+  echo "For a follow-up, reference the file the previous call just generated." >&2
+  exit 1
+fi
+if [ ! -f "$reference" ]; then
+  echo "Error: reference file not found: $reference" >&2
+  exit 1
+fi
+
+shunt_preflight || exit 1
+shunt_tmpfile message_file || exit 1
+shunt_tmpfile answer_file || exit 1
+
+printf 'Spec: %s\n\nReference:\n' "$spec" > "$message_file"
+cat "$reference" >> "$message_file"
+
+shunt_invoke "$MODE_NAME" "$message_file" > "$answer_file" || exit 1
+
+# Strip only an OUTER markdown fence pair the model sometimes wraps the whole
+# answer in, despite instructions. `sed '/^```/d'` used to delete every line
+# starting with ``` unconditionally, which corrupts any generated file whose
+# own content legitimately contains a fenced block (e.g. a markdown doc, a
+# docstring with an example, a test fixture) by silently dropping those
+# interior lines. Only the first and last line of the answer are candidates
+# for stripping; everything between is left untouched.
+clean=$(awk '
+  { lines[NR] = $0 }
+  END {
+    start = 1; end = NR
+    if (NR > 0 && lines[1] ~ /^```/) start = 2
+    if (NR >= start && lines[NR] ~ /^```/) end = NR - 1
+    for (i = start; i <= end; i++) print lines[i]
+  }
+' "$answer_file")
+
+# Write to target or stdout
+if [ -n "$target" ]; then
+  echo "$clean" > "$target"
+  echo "Wrote $(wc -l < "$target" | tr -d ' ') lines to $target" >&2
+
+  # A generated file that doesn't parse is worse than no file — the caller
+  # would only discover it later, at edit or run time, with less context on
+  # what went wrong. Run whatever deterministic syntax check the extension
+  # supports and fail loudly on a real syntax error; an unrecognized
+  # extension is reported as unverified rather than silently treated as a
+  # pass (a missing check must not read as a passing one).
+  case "$target" in
+    *.sh|*.bash)
+      if bash -n "$target"; then
+        echo "[shunt: syntax check passed (bash -n) for $target]" >&2
+      else
+        echo "Error: syntax check failed (bash -n) for $target" >&2
+        exit 1
+      fi
+      ;;
+    *.py)
+      if ! command -v python3 >/dev/null 2>&1; then
+        echo "[shunt: syntax check skipped — python3 not found; $target is unverified]" >&2
+      elif python3 -m py_compile "$target"; then
+        echo "[shunt: syntax check passed (py_compile) for $target]" >&2
+      else
+        echo "Error: syntax check failed (py_compile) for $target" >&2
+        exit 1
+      fi
+      ;;
+    *.js|*.mjs)
+      if ! command -v node >/dev/null 2>&1; then
+        echo "[shunt: syntax check skipped — node not found; $target is unverified]" >&2
+      elif node --check "$target"; then
+        echo "[shunt: syntax check passed (node --check) for $target]" >&2
+      else
+        echo "Error: syntax check failed (node --check) for $target" >&2
+        exit 1
+      fi
+      ;;
+    *.json)
+      if ! command -v jq >/dev/null 2>&1; then
+        echo "[shunt: syntax check skipped — jq not found; $target is unverified]" >&2
+      elif jq -e . "$target" >/dev/null; then
+        echo "[shunt: syntax check passed (jq -e .) for $target]" >&2
+      else
+        echo "Error: syntax check failed (jq -e .) for $target" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      echo "[shunt: no syntax checker for this extension — $target is unverified]" >&2
+      ;;
+  esac
+else
+  echo "$clean"
+fi
+
+# Token usage to stderr
+echo "[shunt: delegated to $MODE_NAME]" >&2
