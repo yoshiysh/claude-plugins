@@ -19,7 +19,7 @@ MAX_ATOMS = 65536
 MAX_INVOCATIONS = 4096
 MAX_CASES = 1024
 MAX_VARIANTS = 16
-# 反復は各 variant 3 回以上が候補判定の最低条件（Issue #60 §4）。上限は交互実行の
+    # 反復は各 variant 3 回以上が候補判定の最低条件。上限は交互実行の
 # 実行計画が現実的に収まる範囲。
 MIN_REPETITIONS = 3
 MAX_REPETITIONS = 100
@@ -44,7 +44,7 @@ SPAN_KINDS = (
 )
 
 # 境界証拠: 宣言（LLM 自己申告・SKILL.md 読込・名前の一致・時刻の重なり）は実測と
-# 区別する（Issue #60 §1）。declared だけの invocation は coverage.boundary が
+    # 区別する。declared だけの invocation は coverage.boundary が
 # complete になれない。
 BOUNDARY_EVIDENCE = ("host_dispatch", "explicit_entry", "declared")
 
@@ -153,7 +153,7 @@ def validate_atom(value):
             and all(natural(usage[k]) for k in USAGE_FIELDS), "invalid_atom_usage")
     require(usage["cached_input_tokens"] <= usage["input_tokens"], "cache_exceeds_input")
     # 所有者は 1 つ、または未帰属。複数スキルが共有する call は任意配分せず
-    # owner_span_id = None（shared/unattributed）で保持する（Issue #60 §3）。
+    # owner_span_id = None（shared/unattributed）で保持する。
     _optional_id(value["owner_span_id"], "invalid_atom")
     require(type(value["evidence"]) is str and value["evidence"], "invalid_atom")
     return value
@@ -203,7 +203,7 @@ def validate_experiment(value):
             "invalid_experiment")
     fixed = value["fixed_conditions"]
     # 固定条件: case snapshot・品質契約・runtime・権限・背景・モデル・cache 条件
-    # （Issue #60 §4）。resolved_model は alias でなく実際の解決モデル。
+    # resolved_model は alias でなく実際の解決モデル。
     require(type(fixed) is dict and set(fixed) == {
         "case_snapshot", "quality_contract", "runtime", "permissions",
         "background_context", "resolved_model", "effort", "cache_condition"},

@@ -121,7 +121,7 @@ def compare(data, minimum=3, threshold_percent=25):
     if not increased and not decreased:
         return {"status": "no_material_change"}
     # variant: 差はあるが候補の前提（反復数・独立した品質証拠）を欠く場合は、品質維持
-    # 改善と認定せず調査候補に降格する（日常観測は調査候補の発見用 — Issue #60 §4）。
+    # 改善と認定せず調査候補に降格する（日常観測は調査候補の発見用）。
     if not comparable:
         reason = "investigate_only"
     else:
