@@ -23,7 +23,7 @@ EVENT_TYPES = (
 )
 
 # usage イベントの claimed_by が複数 invocation を指した場合、按分せず未帰属で保持する。
-# 按分は任意の重みを要求し、その重みの根拠を観測が持たないため（Issue #60 §3）。
+# 按分は任意の重みを要求し、その重みの根拠を観測が持たないため。
 
 
 def _span_kind_default(kind):

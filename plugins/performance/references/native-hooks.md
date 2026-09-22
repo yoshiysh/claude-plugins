@@ -33,6 +33,14 @@ plugin更新で消えるcacheには保存しない。policyには許可パスを
 本文・生ID・パス・モデル名を保存しない。両方private権限、ローカル保存のみ。
 pluginの無効化/uninstallは今後のhook発火を止める。既存のローカル記録を勝手に削除しない。
 
+## Bulk-read probe (observation)
+
+measurement hook とは別に、`PreToolUse`(matcher `Read`) で大きな読み取りを検測する観測専用
+hook を同梱する。実体は `scripts/bulk_read_probe.py`、本文は
+`references/bulk-read-probe.md`。本文を読まず byte だけの `stat`・パスはハッシュ化・ローカル
+記録のみで、ツールコールを阻止しない（常に observation）。host 差・trust・閾値の補正・委譲実装は
+この本文正本が持つ。
+
 ## Input and accounting boundary
 
 Claudeはassistant message IDごとに最新usageへ更新し、fresh+cache creation+cache readを入力とする。

@@ -162,6 +162,25 @@ Marketplace 登録後の install 検証:
 python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plugin <plugin-name>
 ```
 
+`make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。
+
+## インストール
+
+```bash
+/plugin install <plugin-name>@yoshiysh-claude-plugins
+```
+
+`notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
+
+`research` の search/dispatch、`skill-creator`、`workflow` の pdca / prd-spec / review-document の
+Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
+（runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
+caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
+runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
+dispatch、pdca、prd-spec、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
+
+`performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
+`plugins/performance/references/native-hooks.md` を正とする。
 `quick_validate.py` が通っても全項目の合格ではない。検証者の有無・description の実発火など機械判定できない項目は `SKIP:` として毎回申告されるので、公開前にはそこを設計レビューで見る。
 
 ## 注意点
