@@ -124,7 +124,7 @@ All settings are environment variables — add them to the `env` block in `.clau
 | `SHUNT_DECIDE_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id for the gate decision (`shunt_decide`); it must return the enum within `SHUNT_DECIDE_TIMEOUT_SECONDS` (`evals/probe-results.json` records why this default) |
 | `SHUNT_WORKER_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id for the worker calls (`bulk-read`/`code-write`) |
 | `SHUNT_DECIDE_TIMEOUT_SECONDS` | `8` | Timeout for the gate's `shunt_decide` call |
-| `SHUNT_TRACE_FILE` | — | When set, append one JSON line per gate consultation (model, http status, decision, judged input, token usage) |
+| `SHUNT_TRACE_FILE` | — | When set, append one JSON line per gate API attempt, including failed ones: model, http status, curl exit code, API error status (e.g. `RESOURCE_EXHAUSTED`), outcome (`decided`, `http_error`, `transport_error` or `invalid_response`), decision, judged input and token usage. Reads decided without an API call write nothing |
 | `SHUNT_GEMINI_ENDPOINT` | `https://generativelanguage.googleapis.com/v1beta` | AI Studio API base URL |
 
 ## What doesn't get delegated
@@ -146,13 +146,21 @@ This runs both hooks against `evals/bash-hook-evals.json` and `evals/hook-evals.
 `evals/regression.json` (machine-readable) and `evals/regression.md` (table + diff list). Each
 case is labeled by what decided it: `model` (the gate answered), `code` (a deterministic guard
 decided before the model), or `fallback` (the model could not be consulted or returned an
-unusable response, so the line rule decided).
+unusable response, so the line rule decided). The `http` and `error_status` columns come from the
+trace line of that case's API attempt, so a fallback shows its cause (for example `429`
+`RESOURCE_EXHAUSTED`).
+
+The harness runs cases one at a time and waits at least `SHUNT_REGRESSION_MIN_INTERVAL_SECONDS`
+(default `4.5`) after a case that called the API before starting the next case. The default
+keeps the run near 13 requests per minute: in an unpaced run, HTTP 429 began after about 14 gate
+calls in a minute. Raise it if 429s still appear. The total wait is printed in the run summary.
 
 The deterministic tests need no API key and no network:
 
 ```bash
 bash evals/test_hook_redirects_fallback.sh                                  # redirect handling and fallback reasons
 env -u CLAUDE_PLUGINS_GEMINI_API_KEY bash evals/test_decide_prompt_injection.sh  # gate prompt substitution
+bash evals/test_decide_trace.sh                                             # one trace line per gate API attempt
 bash evals/test_code_write_fences.sh                                        # code-write fence stripping
 ```
 

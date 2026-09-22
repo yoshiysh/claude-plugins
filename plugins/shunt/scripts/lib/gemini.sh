@@ -55,13 +55,15 @@ shunt_preflight() {
 
 # POST one generateContent request. $1 = request-body file, $2 = response file,
 # $3 = model id.
-# Returns curl's exit code; HTTP status lands in SHUNT_HTTP_STATUS.
+# Returns curl's exit code; HTTP status lands in SHUNT_HTTP_STATUS and curl's
+# own stderr in SHUNT_CURL_STDERR.
 #
-# curl's own stderr (timeout, DNS, TLS failures) used to be discarded outright,
+# curl's stderr (timeout, DNS, TLS failures) used to be discarded outright,
 # which made those failures indistinguishable from a clean-but-wrong HTTP 200.
-# Route it to SHUNT_TRACE_FILE when one is configured (so it lands next to the
-# decision trace an operator is already reading); otherwise let it through to
-# this process's stderr instead of swallowing it.
+# It is handed back rather than printed here so each caller can report it
+# where its operator looks: shunt_decide folds it into its single trace line
+# (a raw text line would break the trace's one-JSON-line-per-attempt format),
+# shunt_invoke prints it with its own error.
 shunt_gemini_post() {
   local body_file="$1" out_file="$2" model="$3"
   local curl_err
@@ -73,13 +75,7 @@ shunt_gemini_post() {
     -X POST "$SHUNT_GEMINI_ENDPOINT/models/$model:generateContent" \
     --data @"$body_file" 2>"$curl_err")
   local rc=$?
-  if [ -s "$curl_err" ]; then
-    if [ -n "${SHUNT_TRACE_FILE:-}" ]; then
-      { printf 'curl_stderr: '; cat -- "$curl_err"; } >> "$SHUNT_TRACE_FILE" 2>/dev/null
-    else
-      cat -- "$curl_err" >&2
-    fi
-  fi
+  SHUNT_CURL_STDERR=$(cat -- "$curl_err" 2>/dev/null)
   return "$rc"
 }
 
@@ -105,6 +101,7 @@ shunt_invoke() {
 
   shunt_gemini_post "$body_file" "$out_file" "$SHUNT_WORKER_MODEL"
   local rc=$?
+  [ -n "${SHUNT_CURL_STDERR:-}" ] && printf '%s\n' "$SHUNT_CURL_STDERR" >&2
   if [ "$rc" -ne 0 ] || [ "${SHUNT_HTTP_STATUS:-000}" != "200" ]; then
     echo "Error: $mode_name call failed (curl rc=$rc, HTTP ${SHUNT_HTTP_STATUS:-n/a})" >&2
     jq -r '.error.message // empty' "$out_file" 2>/dev/null | head -2 >&2
@@ -195,30 +192,52 @@ shunt_decide() {
 
   SHUNT_TIMEOUT_SECONDS="${SHUNT_DECIDE_TIMEOUT_SECONDS:-8}" shunt_gemini_post "$body_file" "$out_file" "$SHUNT_DECIDE_MODEL"
   local rc=$?
-  [ "$rc" -eq 0 ] && [ "${SHUNT_HTTP_STATUS:-000}" = "200" ] || return 1
+  local http="${SHUNT_HTTP_STATUS:-}" outcome
+  # curl reports 000 when no HTTP response arrived at all.
+  [ "$http" = "000" ] && http=""
 
-  decision=$(jq -r '[.candidates[0].content.parts[]?.text // empty] | join("") | fromjson? | .decision // empty' "$out_file" 2>/dev/null)
+  decision=""
+  if [ "$rc" -ne 0 ] || [ -z "$http" ]; then
+    outcome=transport_error
+  elif [ "$http" != "200" ]; then
+    outcome=http_error
+  else
+    decision=$(jq -r '[.candidates[0].content.parts[]?.text // empty] | join("") | fromjson? | .decision // empty' "$out_file" 2>/dev/null)
+    case "$decision" in
+      allow|block) outcome=decided ;;
+      *) decision=""; outcome=invalid_response ;;
+    esac
+  fi
 
-  # SHUNT_TRACE_FILE: append one JSON line per consultation with response-derived
-  # metadata (usage token counts come from the API, not from this script), so a
-  # harness can prove the decision came from a model round-trip rather than
-  # inferring it from latency. The judged input (command/path/lines) is
-  # included too, so an operator can audit which input produced an allow
-  # without re-deriving it from timing — the API key never goes anywhere near
-  # this line.
+  # SHUNT_TRACE_FILE: append exactly one JSON line per API attempt, failed or
+  # not, so a harness can tell a model decision from a fallback and see why a
+  # fallback happened (e.g. 429 RESOURCE_EXHAUSTED) instead of inferring it
+  # from latency. Usage token counts and responseId come from the API, not from
+  # this script. The judged input (command/path/lines/purpose) is included so
+  # an operator can audit which input produced an allow. The response body is
+  # parsed leniently: a transport failure leaves it empty or non-JSON, and the
+  # line must still be written. The API key never goes anywhere near this line.
   if [ -n "${SHUNT_TRACE_FILE:-}" ]; then
     local sample_included=false
     [ -n "$sample_str" ] && sample_included=true
-    jq -c --arg model "$SHUNT_DECIDE_MODEL" --arg http "${SHUNT_HTTP_STATUS:-}" --arg decision "$decision" \
+    jq -nc --rawfile raw "$out_file" \
+      --arg model "$SHUNT_DECIDE_MODEL" --arg http "$http" --argjson curl_rc "$rc" \
+      --arg outcome "$outcome" --arg decision "$decision" --arg curl_error "${SHUNT_CURL_STDERR:-}" \
       --arg command "$command_str" --arg path "$path_str" --arg lines "$lines_str" --arg min_lines "$min_lines_str" \
       --arg purpose "$purpose_str" --argjson sample_included "$sample_included" \
-      '{model: $model, http: $http, decision: $decision, command: $command, path: $path, lines: $lines,
-        min_lines: $min_lines, purpose: $purpose, sample_included: $sample_included, usage: (.usageMetadata // null), responseId: (.responseId // null)}' \
-      "$out_file" >> "$SHUNT_TRACE_FILE" 2>/dev/null
+      '($raw | fromjson? // {}) as $r
+       | (if ($r | type) == "object" then $r else {} end) as $r
+       | {model: $model, http: $http, curl_rc: $curl_rc,
+          error_status: (if ($r.error | type) == "object" then ($r.error.status // null) else null end),
+          outcome: $outcome, decision: $decision,
+          curl_error: (if $curl_error == "" then null else $curl_error end),
+          command: $command, path: $path, lines: $lines, min_lines: $min_lines, purpose: $purpose,
+          sample_included: $sample_included, usage: ($r.usageMetadata // null), responseId: ($r.responseId // null)}' \
+      >> "$SHUNT_TRACE_FILE" 2>/dev/null
+  elif [ -n "${SHUNT_CURL_STDERR:-}" ]; then
+    printf '%s\n' "$SHUNT_CURL_STDERR" >&2
   fi
 
-  case "$decision" in
-    allow|block) printf '%s\n' "$decision"; return 0 ;;
-    *) return 1 ;;
-  esac
+  [ "$outcome" = decided ] || return 1
+  printf '%s\n' "$decision"
 }
