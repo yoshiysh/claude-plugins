@@ -96,6 +96,50 @@ class LedgerTest(unittest.TestCase):
         entries = json.loads(run("read", "--path", str(self.path), "--types", "harness_frozen").stdout)
         self.assertEqual(entries[0]["payload"]["digest"], "abc")
 
+    def test_digest_keeps_seq_and_type_matching_full_read(self):
+        # digest は搬送用の縮約であって、seq / type の対応が full read とずれてはならない
+        # （後段が「どの entry の話か」を追えなくなる）。
+        self.append(
+            [
+                {"type": "plan_v", "phase": "Plan", "summary": "v1"},
+                {
+                    "type": "review_v",
+                    "phase": "Plan",
+                    "summary": "findings 2 件",
+                    "payload": {"lens": "confound", "severity": "major", "claim": "根拠不足"},
+                    "refs": [1],
+                },
+            ]
+        )
+        full = json.loads(run("read", "--path", str(self.path)).stdout)
+        digest = json.loads(run("read", "--digest", "--path", str(self.path)).stdout)
+        self.assertEqual([e["seq"] for e in full], [e["seq"] for e in digest])
+        self.assertEqual([e["type"] for e in full], [e["type"] for e in digest])
+        self.assertEqual([e["summary"] for e in full], [e["summary"] for e in digest])
+
+    def test_digest_drops_payload(self):
+        self.append(
+            [
+                {
+                    "type": "review_v",
+                    "phase": "Plan",
+                    "summary": "findings 1 件",
+                    "payload": {"lens": "confound", "severity": "major", "claim": "根拠不足" * 50},
+                }
+            ]
+        )
+        digest = json.loads(run("read", "--digest", "--path", str(self.path)).stdout)
+        self.assertNotIn("payload", digest[0])
+
+    def test_digest_shrinks_a_large_real_run_ledger(self):
+        # 実測値の記録: pdca-workspace の実 run（20 entry・review_v の全文を含む）で
+        # 縮約が実際に効くことを確認する。フィクスチャは tests/fixtures/sample_ledger.jsonl。
+        fixture = Path(__file__).resolve().parent / "fixtures" / "sample_ledger.jsonl"
+        full_bytes = len(run("read", "--path", str(fixture)).stdout.encode("utf-8"))
+        digest_bytes = len(run("read", "--digest", "--path", str(fixture)).stdout.encode("utf-8"))
+        self.assertGreater(full_bytes, 50_000)  # 実 run が大きいことの前提を確認
+        self.assertLess(digest_bytes, full_bytes // 5)  # 5 分の 1 未満に縮む
+
     def test_stdin_payload_is_accepted(self):
         run(
             "append",

@@ -60,10 +60,33 @@ python3 [SKILL_DIR]/scripts/ledger.py append --path <workspace>/<run-id>/ledger.
 書き換えを検出する（`validate` サブコマンド）。次の workflow 呼び出しの前に
 
 ```bash
-python3 [SKILL_DIR]/scripts/ledger.py read --path <workspace>/<run-id>/ledger.jsonl
+python3 [SKILL_DIR]/scripts/ledger.py read --digest --path <workspace>/<run-id>/ledger.jsonl
 ```
 
 の出力を `args.ledger` に渡す。渡さなければ空として動く（初周・既存 caller の互換）。
+
+### 搬送は縮約形（`--digest`）を既定にする
+
+run を重ねるほど ledger は肥大する（`review_v` の findings は claim・why_it_breaks_measurement
+などを含み 1 entry で数 KB になりうる）。全文をそのまま渡す運転規約だと、司令塔が搬送の
+手間・コンテキスト消費を嫌って `args.ledger = []` で省略する事態が起き、これは ledger が
+塞ぐはずの再燃防止（一度裁定した論点が次の周で無かったことになる／決着済みの論点が
+再提起され議論を繰り返す）を実質バイパスする。`--digest` は各 entry を
+`{seq, type, phase, refs, summary}` に縮約する。`summary`（1〜2 文）はそのまま残す —
+summary 自体が「この entry が何の出来事か」を伝える縮約であり、落とすのは
+`payload` の全文（findings の詳細・plan 本文など）だけ。
+
+全文が要るのは、entry の payload を実際に精査する agent（builder / build-verifier /
+mechanism-analyst / plan-verifier — 上の「誰に何を見せるか」表で「全部」を持つ役割）が
+いる場合だけで、そのときは `--digest` を外した全文形を渡す。ledger ファイルの絶対パスを
+args に含めておけば、縮約形で立ち上がった agent でも必要になった時点でファイルを直接
+読める。
+
+`pdca-plan.js` / `pdca.js` はどちらの形（縮約・全文）も同じ「entry の配列」として受理する。
+一方、**配列でない値**（プレースホルダ文字列や誤って直書きした要約テキストなど）が
+`args.ledger` に渡された場合は、黙って空配列に落とさず `BLOCKED` で止める。読み取り失敗を
+「記録なし」として静かに通すと、初周と区別がつかなくなり、まさに ledger が防ぐはずの
+欠測が成功として扱われてしまう。
 
 ## 誰に何を見せるか（全文ではない）
 
