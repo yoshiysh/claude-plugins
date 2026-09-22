@@ -57,6 +57,7 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
