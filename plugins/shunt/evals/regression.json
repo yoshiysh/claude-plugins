@@ -497,14 +497,14 @@
   "suite": "check-bash-read",
   "id": 39,
   "name": "cat-simple-log-exact-purpose",
-  "upstream": "allow",
-  "fork": "allow",
+  "upstream": "block",
+  "fork": "block",
   "resolved_by": "model",
   "latency_ms": 1347,
   "http": "200",
   "error_status": null,
   "diff": false,
-  "upstream_reason": "Purpose axis: same 400-line log as case 20, but the stated purpose needs exact order and timestamps, which a worker's summary drops — keep it in context."
+  "upstream_reason": "A purpose is agent-supplied and cannot relax the gate for a bulk read of simple repetitive content; use a targeted range read for exact order and timestamps."
  },
  {
   "suite": "check-bash-read",

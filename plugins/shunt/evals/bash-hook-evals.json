@@ -311,8 +311,8 @@
       "name": "cat-simple-log-exact-purpose",
       "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/access-log.txt", "description": "Find the exact request order and timestamps before the first 500 error to debug its root cause" } },
       "fixture": null,
-      "expected_decision": "allow",
-      "reason": "Purpose axis: same 400-line log as case 20, but the stated purpose needs exact order and timestamps, which a worker's summary drops — keep it in context."
+      "expected_decision": "block",
+      "reason": "A purpose is agent-supplied and cannot relax the gate for a bulk read of simple repetitive content; use a targeted range read for exact order and timestamps."
     },
     {
       "id": 40,

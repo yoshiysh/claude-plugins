@@ -45,7 +45,7 @@ API を叩きうるケースの間は 4.5 秒空けて実行した（SHUNT_REGRE
 | check-bash-read | 36 | cat-large-append-to-file | allow | allow | code |  |  | 38 |
 | check-bash-read | 37 | cat-large-both-to-file | allow | allow | code |  |  | 18 |
 | check-bash-read | 38 | sh-c-wrapped-cat-large-stderr-to-devnull | block | block | model | 200 |  | 1363 |
-| check-bash-read | 39 | cat-simple-log-exact-purpose | allow | allow | model | 200 |  | 1347 |
+| check-bash-read | 39 | cat-simple-log-exact-purpose | block | block | model | 200 |  | 1347 |
 | check-bash-read | 40 | cat-simple-log-overview-purpose | block | block | model | 200 |  | 1418 |
 | check-file-size | 1 | small-file | allow | allow | code |  |  | 45 |
 | check-file-size | 2 | boundary-exact-350 | allow | allow | code |  |  | 21 |
