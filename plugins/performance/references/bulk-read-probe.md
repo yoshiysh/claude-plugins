@@ -23,14 +23,14 @@
 ```text
 plugins/performance/
   hooks/hooks.json                     # PreToolUse(matcher Read) を追記
-  scripts/
+  hooks/
     bulk-read-probe/run.py                 # 共通実行層のセンサー（観測専用）
   references/
     bulk-read-probe.md                 # 本文（このファイル）
     native-hooks.md                    # measurement hook の正本（参照維持）
 ```
 
-`hooks/hooks.json` の PreToolUse は `${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/
+`hooks/hooks.json` の PreToolUse は `${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/
 bulk-read-probe/run.py` を呼ぶ。`${CLAUDE_PLUGIN_ROOT}` の展開は既存の `event-collector/run.py` と同一経路
 なので、Claude/Codex 両方で plugin 配布時に解決される（`native-hooks.md` 受入証拠済み）。
 

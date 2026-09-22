@@ -62,8 +62,9 @@ Codexでは `/hooks` の信頼承認が別途必要です。各projectの設定�
 ## ファイル配置
 
 この plugin は skill を持たない（hooks + scripts + README 構成）。操作の正本は本 README。
-収集の実体は `hooks/hooks.json` が起動する `scripts/` 配下のスクリプト群で、
-計測・比較・実験の各モジュールも同じ `scripts/` に置く。
+収集の実体は `hooks/hooks.json` が起動する `hooks/event-collector/` と
+`hooks/bulk-read-probe/` 配下のスクリプト群で、
+計測用の共通モジュールは `scripts/` に置く。
 
 ## skill 実行単位の計測（#60）
 
