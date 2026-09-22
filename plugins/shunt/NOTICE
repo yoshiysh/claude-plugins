@@ -15,7 +15,11 @@ Modifications in this fork:
   prompt frozen in scripts/lib/decide-prompt.txt), with the upstream line rule
   as the declared fallback when the model cannot be consulted. The decision
   also receives the file's first 40 lines (each cut to 200 characters) as a
-  sample for judging content complexity.
+  sample for judging content complexity. The Bash hook also passes the tool
+  call's description (cut to 300 characters) as the read's stated purpose.
+- hooks/check-bash-read: only a redirect of stdout to a file skips the read
+  check; upstream skipped any command containing `>`, including stderr-only
+  redirects.
 - hooks/check-bash-read: shell -c wrappers (sh/bash/zsh/dash/ksh) are
   unwrapped and an absolute command path is reduced to its name before the
   read check.

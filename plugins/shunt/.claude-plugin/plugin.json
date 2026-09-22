@@ -1,7 +1,7 @@
 {
   "name": "shunt",
   "displayName": "Shunt",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shunts I/O-heavy work to a Gemini worker (AI Studio) to save tokens. Hooks gate large file reads with a typed model decision and redirect to bulk-reader/code-writer scripts. Fork of spotify/portal-ai-plugins shunt.",
   "author": {
     "name": "yoshiysh"

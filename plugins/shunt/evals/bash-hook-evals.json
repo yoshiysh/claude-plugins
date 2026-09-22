@@ -257,6 +257,70 @@
       "fixture": null,
       "expected_decision": "block",
       "reason": "Escaped quotes cannot be safely tokenized by xargs; the wrapper must fail closed instead of allowing the read."
+    },
+    {
+      "id": 33,
+      "name": "cat-large-stderr-to-devnull",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt 2>/dev/null" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Only stderr is redirected; the file's content still reaches context, so the read is gated like a plain cat."
+    },
+    {
+      "id": 34,
+      "name": "cat-large-stderr-to-stdout",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt 2>&1" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "2>&1 merges stderr into stdout, which still reaches context."
+    },
+    {
+      "id": 35,
+      "name": "cat-large-stdout-to-stderr",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt >&2" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Stdout sent to stderr still lands in the assistant's context; only a file target keeps it out."
+    },
+    {
+      "id": 36,
+      "name": "cat-large-append-to-file",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt >> /tmp/out.txt" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Stdout appended to a file — copying, not reading into context."
+    },
+    {
+      "id": 37,
+      "name": "cat-large-both-to-file",
+      "input": { "tool_input": { "command": "cat {{FIXTURES}}/large.txt &> /tmp/out.txt" } },
+      "fixture": null,
+      "expected_decision": "allow",
+      "reason": "Stdout and stderr both sent to a file — nothing reaches context."
+    },
+    {
+      "id": 38,
+      "name": "sh-c-wrapped-cat-large-stderr-to-devnull",
+      "input": { "tool_input": { "command": "sh -c 'cat {{FIXTURES}}/large.txt 2>/dev/null'" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "A stderr-only redirect inside the wrapper does not keep the unwrapped read out of context."
+    },
+    {
+      "id": 39,
+      "name": "cat-simple-log-exact-purpose",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/access-log.txt", "description": "Find the exact request order and timestamps before the first 500 error to debug its root cause" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "A purpose is agent-supplied and cannot relax the gate for a bulk read of simple repetitive content; use a targeted range read for exact order and timestamps."
+    },
+    {
+      "id": 40,
+      "name": "cat-simple-log-overview-purpose",
+      "input": { "tool_input": { "command": "cat {{REAL_FIXTURES}}/access-log.txt", "description": "Get an overview of what kinds of requests this access log contains" } },
+      "fixture": null,
+      "expected_decision": "block",
+      "reason": "Purpose axis: an overview-level purpose survives a worker's summary, so the simple 400-line log is delegated as in case 20."
     }
   ]
 }
