@@ -631,6 +631,7 @@ const originalConfirmed = base.confirmed
 
 const beforeCategories = byCategory(first.missing, base.confirmed)
 const reviewIncomplete = first.missing.length > 0
+let reverifyProvenance = null
 if (reviewIncomplete) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
 }
@@ -651,6 +652,19 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // before.<観点> が null なのは「走ったがその観点の担当が応答しなかった」で、意味が違う。
     by_category: { before: beforeCategories, after: afterCategories },
     staging,
+    // runner 経由の update では action package の発行条件になる。Reverify が走らなかった
+    // outcome を completed と偽装しないため、after の全観点が観測済みのときだけ true にする。
+    reverify_receipt:
+      mode === 'update' && staging && afterCategories && reverifyProvenance
+        ? {
+            phase: 'Reverify',
+            staging_dir: staging.dir,
+            fresh_thread: true,
+            completed: Object.values(afterCategories).every((value) => Number.isSafeInteger(value)),
+            by_category: afterCategories,
+            ...reverifyProvenance,
+          }
+        : null,
     revisions_used: revisionsUsed,
   }
 }
@@ -698,6 +712,7 @@ let prevUnresolvedKeys = null
 // 「解けない指摘だった」を区別しないため。進捗が止まったことを集合比較で確かめて止める。
 while (true) {
   phase('Update')
+  const updaterThreadId = `update-r${revision + 1}`
   // confirmed が 0 件でも updater は走らせる。intent は必須引数であり、
   // 「レビューでは問題が出ないが依頼された変更はある」場合（Issue 起点の更新が典型）に
   // confirmed の有無で門を作ると、update が黙って何もしないモードになる。
@@ -746,7 +761,7 @@ while (true) {
     ]
       .filter(Boolean)
       .join('\n\n'),
-    { model: 'opus', schema: UPDATE_SCHEMA, phase: 'Update', label: `update-r${revision + 1}` }
+    { model: 'opus', schema: UPDATE_SCHEMA, phase: 'Update', label: updaterThreadId }
   )
 
   if (!changed) {
@@ -775,7 +790,9 @@ while (true) {
   }
 
   phase('Reverify')
-  const after = await runFinders(stagingDir, 'Reverify', `p2r${revision + 1}`, 'draft')
+  const reverifyPassLabel = `p2r${revision + 1}`
+  const freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
+  const after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
   if (after.missing.length > 0) {
     // 再検証で観点が欠けた状態を「残存 0 件」と読むと、直っていないものが直ったことになる。
     staging = {
@@ -893,6 +910,7 @@ while (true) {
   latest = post
   latestSource = 'after'
   afterCategories = byCategory(after.missing, post.confirmed)
+  reverifyProvenance = { updater_thread_id: updaterThreadId, fresh_thread_id: freshThreadId }
 
   // 未検証の blocker は「検証が足りない」であって「直っていない」ではない。改稿を繰り返しても
   // 有効票は増えないので、ここで再改稿に回すと予算だけを消費する。人間の判断へ倒す。

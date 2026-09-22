@@ -6,14 +6,16 @@ import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
 import { exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
 import { resumableWorkflow } from './resume.mjs';
+import { finalizeUpdateContract, prepareUpdateContract, UPDATE_REQUIREMENTS, verifyUpdateTarget } from './update-contract.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
   exactObject(request, requestKeys, 'Workflow request');
-  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'checkpoint', 'resume', ...limitKeys], 'Workflow host');
+  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'updateContract', 'checkpoint', 'resume', ...limitKeys], 'Workflow host');
   if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host);
   const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
   validateRequirements(host.requirements, capabilities);
+  const update = host.updateContract === undefined ? null : await prepareUpdateContract(host.updateContract, capabilities);
   const { scriptPath, args = {} } = request;
   const {
   backend, runDir, trustedSource = false, maxAgents = 2, concurrency = 2,
@@ -36,6 +38,8 @@ export async function Workflow(request, host = {}) {
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
     sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [], backendPolicy,
+    ...(update === null ? {} : { updateContract: { targetDir: update.targetDir, stagingDir: update.stagingDir,
+      sourceManifest: update.sourceManifest, requirements: UPDATE_REQUIREMENTS } }),
     limits: { maxAgents, concurrency, timeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
   let journal = Promise.resolve();
   let sequence = 0;
@@ -53,6 +57,7 @@ export async function Workflow(request, host = {}) {
   const abort = new AbortController();
   const queue = [];
   const inflight = new Set();
+  const observedAgentLabels = new Set();
   let calls = 0, active = 0, settled = false, outputBytes = 0;
   record({ type: 'run.started' });
   return new Promise((resolve, reject) => {
@@ -63,6 +68,24 @@ export async function Workflow(request, host = {}) {
       clearTimeout(timer);
       abort.abort();
       worker.kill('SIGKILL');
+      if (update !== null) {
+        try {
+          // This runs for source errors too. A failed source must not conceal a direct
+          // mutation of the caller-owned tree behind an otherwise useful error message.
+          await verifyUpdateTarget(update);
+          if (!error) {
+            const actionPackage = await finalizeUpdateContract(update, result, observedAgentLabels);
+            if (actionPackage !== null) {
+              await writeFile(join(runDir, 'update-action-package.json'), JSON.stringify(actionPackage, null, 2), { mode: 0o600 });
+              result = Object.freeze({ source_result: result, action_package: actionPackage });
+            } else {
+              result = Object.freeze({ source_result: result, action_package: null });
+            }
+          }
+        } catch (contractError) {
+          error = error ?? contractError;
+        }
+      }
       record({ type: error ? 'run.failed' : 'run.completed', error: error?.message, result,
         inFlight: [...inflight], calls });
       try { await journal; } catch (e) { error = e; }
@@ -72,6 +95,7 @@ export async function Workflow(request, host = {}) {
       while (!settled && active < concurrency && queue.length) {
         const task = queue.shift();
         active++; inflight.add(task.id);
+        if (update !== null && typeof task.options.label === 'string') observedAgentLabels.add(task.options.label);
         record({ type: 'agent.started', id: task.id, promptHash: hash(task.prompt), options: task.options });
         Promise.resolve().then(() => backend.run(task.prompt, task.options, {
           signal: abort.signal,
