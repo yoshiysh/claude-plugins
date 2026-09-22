@@ -23,7 +23,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, "..");
+const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, "../..");
 const JUDGE_AGENT_PATH = path.join(PLUGIN_ROOT, "agents", "claim-judge.md");
 
 // 判定器として起動された子プロセスに立てる env マーカー。

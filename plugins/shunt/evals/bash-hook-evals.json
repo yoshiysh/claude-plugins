@@ -1,6 +1,6 @@
 {
   "skill_name": "shunt",
-  "description": "Evals for the check-bash-read PreToolUse hook",
+  "description": "Evals for the bash-read-gate PreToolUse hook",
   "evals": [
     {
       "id": 1,

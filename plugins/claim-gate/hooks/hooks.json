@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-claim-gate-hook.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/claim-gate/run.mjs\"",
             "timeout": 150
           }
         ]

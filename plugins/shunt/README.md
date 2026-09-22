@@ -27,8 +27,8 @@ Other settings are under [Configuration](#configuration).
 ## Where things live
 
 ```
-hooks/check-file-size          # Read hook
-hooks/check-bash-read          # Bash hook
+hooks/read-gate          # Read hook
+hooks/bash-read-gate          # Bash hook
 scripts/lib/gemini.sh          # AI Studio calls and the gate decision (shunt_decide)
 scripts/lib/decide-prompt.txt  # Gate prompt
 scripts/bulk-read              # Worker call for bulk-reader
@@ -88,14 +88,14 @@ If the model cannot be consulted, the hook blocks by the line rule and says so i
 - **Worker unavailable** (API key, `jq` or `curl` missing) — `/bulk-reader` cannot run either, so the reason points only to a targeted read: `sed -n 'START,ENDp' <file>` or Read with offset/limit.
 - **Gate call failed** (request error, `SHUNT_DECIDE_TIMEOUT_SECONDS` expiry, unusable answer) — the reason offers `/bulk-reader` and the targeted read.
 
-### check-file-size (Read hook)
+### read-gate (Read hook)
 
 Fires on every `Read` tool call. Allows through without the gate:
 - Targeted reads (offset or limit set)
 - Nonexistent files (let Read handle the error)
 - Files at or under `SHUNT_MIN_LINES`
 
-### check-bash-read (Bash hook)
+### bash-read-gate (Bash hook)
 
 Fires on every `Bash` tool call. Allows through without the gate:
 - Commands containing a pipe (`cat file | grep`)
@@ -183,7 +183,7 @@ Mean bulk-read savings: **90%**
 - **The redirect check is a string scan, not a shell parse** — a `>` inside a quoted argument (`cat "a>b"`) or in a later segment of a compound command (`cat BIG; echo hi > x`) is read as stdout sent to a file, so the read passes ungated. Compound commands, `sed`/`awk` reads and pipes are not gated at all.
 - **The purpose is untrusted context** — the Bash gate reads `description` as context for the decision, but it never allows simple, repetitive bulk content based on that self-report alone. Use targeted reads for exact log entries.
 - **Gate latency** — each read over `SHUNT_MIN_LINES` waits for one gate call, about 1.3–1.6 s per model-decided case in `evals/regression.json`.
-- **Under Codex, only the Bash gate has fired** — in the Codex runs tested, every file read went through the shell and `check-file-size` (the `Read` matcher) never fired. Codex's own reads are often `sed -n '1,240p' <file>`, which the Bash gate does not match.
+- **Under Codex, only the Bash gate has fired** — in the Codex runs tested, every file read went through the shell and `read-gate` (the `Read` matcher) never fired. Codex's own reads are often `sed -n '1,240p' <file>`, which the Bash gate does not match.
 - **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.
 - **Request size** — the payload travels in the HTTP request body (no `ARG_MAX` limit), but shunt still refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` to stay under the model's context window with headroom. Split into smaller batches.
 - **Invocation timeout** — shunt caps one action invocation at `SHUNT_TIMEOUT_SECONDS`. Very large generations can exceed it; raise the timeout or split the spec into smaller calls.

@@ -2,11 +2,11 @@
 # Block full-file reads on large files, redirect to /bulk-reader skill
 # Self-contained: all routing logic lives here, no CLAUDE.md needed
 #
-# Fork note: same treatment as check-bash-read — deterministic guards
+# Fork note: same treatment as bash-read-gate — deterministic guards
 # (targeted reads, missing files, small files) are upstream-verbatim; the
 # final line-count judgment becomes a typed model decision with the upstream
 # rule as the declared fallback. Allow is empty stdout for the same host
-# compatibility reason documented in check-bash-read.
+# compatibility reason documented in bash-read-gate.
 
 MIN_LINES="${SHUNT_MIN_LINES:-350}"
 case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
@@ -33,14 +33,14 @@ if [ "$lines" -le "$MIN_LINES" ]; then
   exit 0
 fi
 
-. "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
+. "$(cd "$(dirname "$0")/../../scripts/lib" && pwd)/gemini.sh"
 
-# Fidelity-axis input: see check-bash-read for why this is capped and real.
+# Fidelity-axis input: see bash-read-gate for why this is capped and real.
 sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
 
 block() { printf '{"decision": "block", "reason": "%s"}\n' "$1"; }
 
-# Fallback reasons split the same way as check-bash-read: a failed preflight
+# Fallback reasons split the same way as bash-read-gate: a failed preflight
 # rules out /bulk-reader too. Read carries no purpose field, so the gate gets
 # an empty (unknown) purpose.
 if ! shunt_preflight >/dev/null 2>&1; then

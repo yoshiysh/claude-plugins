@@ -28,10 +28,10 @@ import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, "..");
-const HOOK_PATH = path.join(SCRIPT_DIR, "stop-claim-gate-hook.mjs");
+const HOOK_PATH = path.join(PLUGIN_ROOT, "hooks", "claim-gate", "run.mjs");
 const DEFAULT_FIXTURES = path.join(PLUGIN_ROOT, "tests", "fixtures");
 
-// 1 件あたりの上限。hook 側の JUDGE_TIMEOUT_MS（stop-claim-gate-hook.mjs）に node 起動分を
+// 1 件あたりの上限。hook 側の JUDGE_TIMEOUT_MS（hooks/claim-gate/run.mjs）に node 起動分を
 // 足した値より大きく取る。小さくすると検査側の kill が unreachable と見分けられなくなる。
 const CASE_TIMEOUT_MS = 180 * 1000;
 
@@ -202,7 +202,7 @@ function checkArtifacts() {
   const items = [];
   const add = (name, present, detail) => items.push({ name, present, detail: detail ?? null });
 
-  add("scripts/stop-claim-gate-hook.mjs", fs.existsSync(HOOK_PATH));
+  add("hooks/claim-gate/run.mjs", fs.existsSync(HOOK_PATH));
   add("scripts/run_conformance.mjs", true, "実行中の本体");
   add("tests/fixtures/", fs.existsSync(DEFAULT_FIXTURES));
   add("agents/claim-judge.md", fs.existsSync(path.join(PLUGIN_ROOT, "agents", "claim-judge.md")));
@@ -214,7 +214,7 @@ function checkArtifacts() {
     try {
       const d = JSON.parse(fs.readFileSync(hooksJson, "utf8"));
       const stops = (d.hooks?.Stop ?? []).flatMap((e) => e.hooks ?? []);
-      const registered = stops.some((h) => h.type === "command" && String(h.command).includes("stop-claim-gate-hook.mjs"));
+      const registered = stops.some((h) => h.type === "command" && String(h.command).includes("hooks/claim-gate/run.mjs"));
       add("hooks/hooks.json (Stop 登録)", registered, registered ? null : "Stop に hook スクリプトを起動するエントリが無い");
     } catch (e) {
       add("hooks/hooks.json (Stop 登録)", false, `JSON parse 失敗: ${e.message}`);

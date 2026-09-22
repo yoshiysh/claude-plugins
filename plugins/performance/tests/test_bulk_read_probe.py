@@ -10,9 +10,10 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+HOOK = Path(__file__).resolve().parents[1] / "hooks" / "bulk-read-probe" / "run.py"
 sys.path.insert(0, str(SCRIPTS))
 
-spec = importlib.util.spec_from_file_location("bulk_read_probe", SCRIPTS / "bulk_read_probe.py")
+spec = importlib.util.spec_from_file_location("bulk_read_probe", HOOK)
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
@@ -26,7 +27,7 @@ def run_main(event, data_dir):
         real_stdin = sys.stdin
         sys.stdin = patched
         try:
-            return probe.main(["bulk_read_probe.py"])
+            return probe.main(["run.py"])
         finally:
             sys.stdin = real_stdin
     finally:
@@ -133,8 +134,8 @@ class BulkReadProbeTests(unittest.TestCase):
                  "tool_input": {"file_path": str(self.big)}, "tool_use_id": "x", "cwd": str(self.proj)}
         env = dict(os.environ)
         env["BULK_READ_DATA_DIR"] = str(self.data)
-        proc = subprocess.run([sys.executable, "-E", "-s", "-B", str(SCRIPTS / "bulk_read_probe.py")],
-                              input=json.dumps(event).encode(), capture_output=True, env=env, cwd=str(SCRIPTS))
+        proc = subprocess.run([sys.executable, "-E", "-s", "-B", str(HOOK)],
+                              input=json.dumps(event).encode(), capture_output=True, env=env, cwd=str(HOOK.parent))
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout, b"")
 

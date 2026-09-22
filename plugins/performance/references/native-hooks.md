@@ -12,10 +12,10 @@ hook定義を確認・信頼承認する。承認や管理者ポリシーを迂�
 （policy の project="*"）を使う。設定と集計はモデルを呼ばない。
 
 ```sh
-python3 [PLUGIN_DIR]/scripts/native_hook.py enable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
-python3 [PLUGIN_DIR]/scripts/native_hook.py status
-python3 [PLUGIN_DIR]/scripts/native_hook.py disable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
-python3 [PLUGIN_DIR]/scripts/native_hook.py enable --host claude --all-projects --transcript-root <absolute-transcript-root>
+python3 [PLUGIN_DIR]/hooks/event-collector/run.py enable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
+python3 [PLUGIN_DIR]/hooks/event-collector/run.py status
+python3 [PLUGIN_DIR]/hooks/event-collector/run.py disable --host claude --project <absolute-project> --transcript-root <absolute-transcript-root>
+python3 [PLUGIN_DIR]/hooks/event-collector/run.py enable --host claude --all-projects --transcript-root <absolute-transcript-root>
 ```
 
 Codexの場合は `--host codex`。標準候補はClaudeの `~/.claude/projects`、Codexの
@@ -36,7 +36,7 @@ pluginの無効化/uninstallは今後のhook発火を止める。既存のロー
 ## Bulk-read probe (observation)
 
 measurement hook とは別に、`PreToolUse`(matcher `Read`) で大きな読み取りを検測する観測専用
-hook を同梱する。実体は `scripts/bulk_read_probe.py`、本文は
+hook を同梱する。実体は `hooks/bulk-read-probe/run.py`、本文は
 `references/bulk-read-probe.md`。本文を読まず byte だけの `stat`・パスはハッシュ化・ローカル
 記録のみで、ツールコールを阻止しない（常に observation）。host 差・trust・閾値の補正・委譲実装は
 この本文正本が持つ。

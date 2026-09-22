@@ -53,7 +53,7 @@ Claude/Codex両方の隔離marketplace installは成功しました。Codexの�
 ## Marketplaceからの自動計測
 
 install・plugin有効化の後、「このプロジェクトの自動計測を有効にして」と依頼します
-（実体は `scripts/native_hook.py enable`。手順の正本は下記の同梱hook契約）。
+（実体は `hooks/event-collector/run.py enable`。手順の正本は下記の同梱hook契約）。
 対象と保存範囲を一度確認し、それ以降はhookが数値だけをローカルに保存します。
 Codexでは `/hooks` の信頼承認が別途必要です。各projectの設定ファイルへのhook転記や、
 他スキルへの組込みは不要です。詳細・無効化・容量制限は

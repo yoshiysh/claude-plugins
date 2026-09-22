@@ -1,6 +1,6 @@
 {
   "skill_name": "shunt",
-  "description": "Evals for the check-file-size PreToolUse hook",
+  "description": "Evals for the read-gate PreToolUse hook",
   "evals": [
     {
       "id": 1,

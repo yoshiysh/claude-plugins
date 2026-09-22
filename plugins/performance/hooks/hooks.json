@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/event-collector/run.py\"",
             "timeout": 3
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/event-collector/run.py\"",
             "timeout": 3
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/event-collector/run.py\"",
             "timeout": 3
           }
         ]
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/event-collector/run.py\"",
             "timeout": 3
           }
         ]
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/bulk_read_probe.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/bulk-read-probe/run.py\"",
             "timeout": 5
           }
         ]
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/native_hook.py\"",
+            "command": "python3 -E -s -B \"${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/event-collector/run.py\"",
             "timeout": 3
           }
         ]

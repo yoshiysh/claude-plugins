@@ -7,6 +7,8 @@ import stat
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+
 from hook_collect import payload
 from measure import require
 from private_state import transaction

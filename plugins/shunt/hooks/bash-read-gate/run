@@ -164,7 +164,7 @@ if [ "$lines" -le "$MIN_LINES" ]; then
   exit 0
 fi
 
-. "$(cd "$(dirname "$0")/../scripts/lib" && pwd)/gemini.sh"
+. "$(cd "$(dirname "$0")/../../scripts/lib" && pwd)/gemini.sh"
 
 # Fidelity-axis input: real lines from the file's start, capped at 40 lines
 # and 200 chars/line so a minified or single-huge-line file can't blow the

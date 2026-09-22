@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-file-size"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/read-gate/run"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-bash-read"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/bash-read-gate/run"
           }
         ]
       }
