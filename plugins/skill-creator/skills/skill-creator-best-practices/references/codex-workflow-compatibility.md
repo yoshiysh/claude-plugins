@@ -13,7 +13,7 @@ create / review / update の active `Workflow(...)` callsite に到達した場�
 node [SKILL_DIR]/scripts/select_runtime.js \
   --mode create|review|update \
   --native-available|--no-native [--native-attempted] \
-  --runner-installed|--no-runner
+  --runner-installed|--no-runner [--update-contract] [--runner-capability <name>]
 # → { "selected_runtime": "native" | "dynamic-workflow-runner" | null,
 #     "rejected_reason": null | "...", "halt": true|false }
 ```
@@ -42,15 +42,22 @@ node [SKILL_DIR]/scripts/select_runtime.js \
 
 ## review / update mapping
 
-どの mode が runner で拒否されるかの**値の正本は `scripts/select_runtime.js` の
-`RUNNER_REJECTED_MODES`**。以下はその理由で、判定は script が返す。
+どの mode が runner で拒否されるか、また update に必要な capability の**値の正本は
+`scripts/select_runtime.js` の `RUNNER_REJECTED_MODES` / `UPDATE_RUNNER_REQUIREMENTS`**。以下は
+その理由で、判定は script が返す。
 
 - caller の前処理は Phase 1、成功後処理は Phase 3。
 - Phase 1 の対象・範囲・意図確認と、update 時の Phase 3 適用承認は caller が所有し、runner 内 gate に移さない。
 - `mode: review` は現行runnerでは `rejected_source` とする。対象skill treeはruntimeで決まり、full/diffとも
   file inventory、件数/bytes上限、各content hash、git diff snapshotがcall receiptに無い。finder/refuterがlive treeを
   暗黙入力として読むmanifestへ変換してはならない。
-- `mode: update` は現行runnerでは `rejected_source` とする。sourceはruntimeで決まる複数fileをstaging mirrorへ書き、改稿ごとに
-  同じpathを上書きする一方、manifestは全artifact pathの事前列挙と単一ownerを要求する。outer Phase 3の適用gateもsource内packageではない。
-  translatorがstaging/action package/gateを捏造すると意味が変わるため、最初のexecution agentを起動しない。
-- review/updateはnative Workflowがある環境だけ従来経路を使う。Codexでは別modeへ自動縮退せず、未実施と拒否理由を伝えて止める。
+- `mode: update` は、runner が `staging-write` / `artifact-manifest` / `fresh-reverify` /
+  `hash-bound-action-package` を全て capability inventory で宣言し、caller が target と未作成の
+  staging を分離した `updateContract` を渡すことを `--update-contract` で明示した場合だけ実行する。runtime は target の事前 hash
+  manifest、target 不変、完全 staging mirror、`changed_files` と実差分の一致、fresh Reverify receipt を
+  検査してから action package を発行する。receipt は空でない distinct `updater_thread_id` と
+  `fresh_thread_id` を持つ fresh Reverify provenance でなければならず、runtime がこの run で観測した
+  agent `label` と一致しなければならない。package は承認を持たず、本体適用は caller の Phase 3 に残る。
+- capability / `updateContract` のどちらかが欠ける Codex では update を別 mode や generic
+  `workspace-write` へ自動縮退させず、未実施として拒否する。review は引き続き native Workflow が
+  ある環境だけ従来経路を使う。

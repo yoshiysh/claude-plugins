@@ -67,6 +67,20 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
+`update` is an explicit opt-in protocol, not a generic writable workspace. The host must
+provide all of `staging-write`, `artifact-manifest`, `fresh-reverify`, and
+`hash-bound-action-package`, plus an `updateContract` with separate absolute `targetDir`
+and initially absent `stagingDir`. The runtime snapshots the target before dispatch and
+rejects any target drift. An `applied_to_staging` source result must contain a complete
+fresh-thread `reverify_receipt` (`fresh_thread: true`) and a `changed_files` list exactly matching the resulting complete
+staging mirror. The receipt must contain nonempty, distinct `updater_thread_id` and
+`fresh_thread_id` labels that this runtime observed while dispatching agents; it is canonicalized after staging exists, so macOS `/var` and
+`/private/var` spellings identify the same directory. Only then does the runtime emit `update-action-package.json` and return
+`{source_result, action_package}`. The package binds every changed file to before/after
+hashes but never copies it to the target: the caller must obtain approval, recheck hashes,
+and mechanically apply only the listed files. Backends that cannot attest every capability
+must not advertise them, so this route remains rejected rather than degrading to generic
+`workspace-write`.
 As a conservative additional gate, literal option-shaped objects containing model,
 label or schema and unsupported capability keys are rejected (literal isolation:
 "worktree" is accepted only when the host provides worktree capability)

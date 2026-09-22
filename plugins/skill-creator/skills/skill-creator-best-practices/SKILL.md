@@ -287,11 +287,14 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 > **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review / update は runner では `rejected_source`
-> になる（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
+> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review は runner では
+> `rejected_source` のまま。update は `staging-write` / `artifact-manifest` / `fresh-reverify` /
+> `hash-bound-action-package` を runner が capability inventory で全て宣言し、caller が target と未作成 staging を
+> 分離した `updateContract` を渡せる場合だけ実行できる。どれか欠ける環境では `rejected_source` で止める
+> （根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
 > （update は `--mode update`。native が無い環境では `--no-native`、runner 未 install なら `--no-runner` に置き換える — フラグは環境の実測で選ぶ）
-> **Codex classification: `rejected_source`**（`review_skill.js` の review / update 両 mode）。
+> **Codex classification: `conditional`**（`review_skill.js`: review は `rejected_source`、update は capability-gated）。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」

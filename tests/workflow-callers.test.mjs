@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import test from 'node:test'
@@ -98,7 +99,7 @@ test('every active Workflow callsite has an explicit semantic portability classi
     ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
     ['research/search/scripts/investigate.js', 'portable'],
     ['skill-creator/skill-creator-best-practices/scripts/build_skill.js', 'portable'],
-    ['skill-creator/skill-creator-best-practices/scripts/review_skill.js', 'rejected_source'],
+    ['skill-creator/skill-creator-best-practices/scripts/review_skill.js', 'conditional'],
   ])
   const observed = new Set()
 
@@ -161,7 +162,7 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   }
 })
 
-test('rejected sources document the load-bearing construct that v1 cannot preserve', () => {
+test('rejected and capability-gated sources document their runtime boundary', () => {
   const dispatch = readFileSync(join(pluginsRoot, 'research', 'skills', 'dispatch', 'SKILL.md'), 'utf8')
   assert.match(dispatch, /rejected_source[\s\S]*load-bearing exact model semantics/)
 
@@ -173,7 +174,47 @@ test('rejected sources document the load-bearing construct that v1 cannot preser
     'utf8'
   )
   assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
-  assert.match(creator, /mode: update[\s\S]*rejected_source[\s\S]*runtime\s*で決まる複数\s*file/)
+  assert.match(creator, /mode: update[\s\S]*staging-write[\s\S]*artifact-manifest[\s\S]*fresh-reverify[\s\S]*hash-bound-action-package/)
+  assert.match(creator, /target[\s\S]*staging[\s\S]*updateContract/)
+})
+
+test('skill-creator update fails closed until every update capability is negotiated', () => {
+  const selector = join(
+    pluginsRoot,
+    'skill-creator',
+    'skills',
+    'skill-creator-best-practices',
+    'scripts',
+    'select_runtime.js'
+  )
+  const select = (capabilities = []) => JSON.parse(execFileSync(process.execPath, [
+    selector,
+    '--mode', 'update',
+    '--no-native',
+    '--runner-installed',
+    ...capabilities.flatMap((capability) => ['--runner-capability', capability]),
+  ], { encoding: 'utf8' }))
+  const missing = select()
+  assert.equal(missing.selected_runtime, null)
+  assert.equal(missing.halt, true)
+  assert.match(missing.rejected_reason, /staging-write, artifact-manifest, fresh-reverify, hash-bound-action-package/)
+
+  const permitted = select(['staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'])
+  assert.equal(permitted.selected_runtime, null)
+  assert.equal(permitted.halt, true)
+  assert.match(permitted.rejected_reason, /updateContract/)
+
+  const contracted = JSON.parse(execFileSync(process.execPath, [
+    selector,
+    '--mode', 'update',
+    '--no-native',
+    '--runner-installed',
+    '--update-contract',
+    ...['staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package']
+      .flatMap((capability) => ['--runner-capability', capability]),
+  ], { encoding: 'utf8' }))
+  assert.equal(contracted.selected_runtime, 'dynamic-workflow-runner')
+  assert.equal(contracted.halt, false)
 })
 
 test('the compatibility runner remains internal-only', () => {

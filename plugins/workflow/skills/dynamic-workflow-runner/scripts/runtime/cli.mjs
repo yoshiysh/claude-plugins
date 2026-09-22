@@ -10,10 +10,11 @@ try {
     throw new Error('usage: node cli.mjs REQUEST.json --live --trusted-source');
   const request = JSON.parse(await readFile(requestPath, 'utf8'));
   exactObject(request, ['scriptPath', 'args', 'runDir', 'cwd', 'modelMap', 'model',
-    'modelReasoningEffort', 'codexPathOverride', 'limits', 'requirements', 'workspace', 'environment', 'context', 'checkpoint', 'resume'], 'CLI request');
+    'modelReasoningEffort', 'codexPathOverride', 'limits', 'requirements', 'updateContract', 'workspace', 'environment', 'context', 'checkpoint', 'resume'], 'CLI request');
   exactObject(request.limits ?? {}, limitKeys, 'limits');
   const { scriptPath, args, runDir, cwd, modelMap, model, modelReasoningEffort, codexPathOverride, limits = {} } = request;
   const result = await executeWorkflow({ scriptPath, args }, { ...limits, runDir, trustedSource: true, requirements: request.requirements,
+    updateContract: request.updateContract,
     cwd, modelMap, model, modelReasoningEffort, codexPathOverride, workspace: request.workspace, environment: request.environment, context: request.context,
     checkpoint: request.checkpoint, resume: request.resume });
   const status = request.checkpoint && result?.status === 'checkpoint' && result.runDir === runDir ? 'checkpoint' : 'completed';
