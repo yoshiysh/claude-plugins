@@ -1,4 +1,4 @@
-"""Observation-mode PreToolUse probe for large Read calls (Issue #65).
+"""Observation-mode PreToolUse probe for large Read calls.
 
 Non-blocking and local-only. On a Read tool call this stats the target file's
 size WITHOUT reading content, then appends a hashed record to a private ledger so
@@ -31,8 +31,6 @@ DEFAULT_DATA_DIR = "~/.local/share/yoshiysh-performance/bulk-read"
 
 
 def threshold_bytes():
-    # Observation-mode starting point only. The issue fixes no universal line count,
-    # so this is calibrated from measured sizes, not treated as the answer.
     override = os.environ.get("BULK_READ_THRESHOLD_BYTES")
     if override and override.strip():
         try:
@@ -95,10 +93,6 @@ def safe_size(path):
             os.close(fd)
         except OSError:
             pass
-    # Owner match + regular file + no symlink on the final component is enough to
-    # stat a target safely. We deliberately do NOT reuse the private store's
-    # "no group/other bits" mode check: legitimate source files are usually 0o644,
-    # and that check exists for our own write stores, not for reading sizes.
     if not (stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
             and info.st_nlink == 1):
         return None
@@ -169,7 +163,7 @@ def hash_path(text):
 
 
 def main(argv):
-    host = None  # None => auto-detect from the event; --host overrides it
+    host = None
     rest = list(argv[1:])
     while rest:
         token = rest.pop(0)

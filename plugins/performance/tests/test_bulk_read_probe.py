@@ -18,7 +18,6 @@ spec.loader.exec_module(probe)
 
 
 def run_main(event, data_dir):
-    """Invoke main() with event on stdin and isolated storage; return exit code."""
     old_env = os.environ.get("BULK_READ_DATA_DIR")
     os.environ["BULK_READ_DATA_DIR"] = str(data_dir)
     try:
@@ -82,7 +81,6 @@ class BulkReadProbeTests(unittest.TestCase):
         self.assertIsNone(probe.safe_size(str(self.proj / "missing.py")))
         link = self.proj / "alias.py"
         link.symlink_to(self.big)
-        # O_NOFOLLOW: a symlink on the final component is never followed.
         self.assertIsNone(probe.safe_size(str(link)))
 
     def test_large_read_logs_hashed_record(self):
@@ -95,12 +93,10 @@ class BulkReadProbeTests(unittest.TestCase):
         self.assertEqual(record["host"], "claude")
         self.assertEqual(record["tool"], "Read")
         self.assertEqual(record["bytes"], self.big.stat().st_size)
-        # Path is hashed, never stored raw; no body, no model name.
         self.assertEqual(record["path"], hashlib.sha256(str(self.big.resolve()).encode()).hexdigest())
         self.assertNotIn("content", record)
 
     def test_main_detects_codex_host(self):
-        # main() auto-detects the host from the event when --host is not given.
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read",
                  "tool_input": {"file_path": str(self.big)}, "turn_id": "t1",
                  "model": "sonnet-5", "cwd": str(self.proj)}
@@ -119,7 +115,6 @@ class BulkReadProbeTests(unittest.TestCase):
         self.assertEqual(read_logs(self.data), [])
 
     def test_threshold_override(self):
-        # A below-default file is logged when the threshold is lowered via env.
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read",
                  "tool_input": {"file_path": str(self.tiny)}, "tool_use_id": "x", "cwd": str(self.proj)}
         os.environ["BULK_READ_THRESHOLD_BYTES"] = "1"
@@ -134,7 +129,6 @@ class BulkReadProbeTests(unittest.TestCase):
         self.assertEqual(run_main(12345, self.data), 0)
 
     def test_non_blocking_via_subprocess(self):
-        # Mirror how the host invokes the hook: JSON on stdin, nothing model-facing on stdout.
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read",
                  "tool_input": {"file_path": str(self.big)}, "tool_use_id": "x", "cwd": str(self.proj)}
         env = dict(os.environ)

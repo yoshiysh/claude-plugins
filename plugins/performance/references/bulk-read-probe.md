@@ -1,6 +1,6 @@
-# 案件別 bulk-read 委譲のプロブ（観測専用）
+# 案件別 bulk-read 委譲のプローブ（観測専用）
 
-Issue #65 の第一弾。大きな `Read` を検出して軽量 worker に委譲するか判定するための
+大きな `Read` を検出して軽量 worker に委譲するか判定するための
 **観測/提案モードの hook** 実装。親のコンテキスト膨張を抑制する責務分離を、測定可能な
 形で導入するためのセンサー。実行中のツールコールを阻止することはしない（observation）。
 
@@ -16,8 +16,8 @@ Issue #65 の第一弾。大きな `Read` を検出して軽量 worker に委譲
 
 ## 配置と配布
 
-`performance` plugin の plugin 同梱 hook（Issue #65 実装順序の「共通 plugin の委譲実行機能と
-hook」）。既存の measurement hook（UserPromptSubmit/Stop/SessionEnd → `native_hook.py`）と同じ
+`performance` plugin に同梱する hook。既存の measurement hook（UserPromptSubmit/Stop/SessionEnd
+→ `native_hook.py`）と同じ
 `hooks/hooks.json` に `PreToolUse` を追加形で載せる。両ホストとも default discovery で読み込む。
 
 ```text
@@ -63,20 +63,20 @@ bulk_read_probe.py` を呼ぶ。`${CLAUDE_PLUGIN_ROOT}` の展開は既存の `n
 - **非読取**: `stat` のみ。本文を読まない・外部へ送らない。
 - **保存**: `~/.local/share/yoshiysh-performance/bulk-read/`（`BULK_READ_DATA_DIR` で上書き）。
   private dir（0o700・owner match・group/other 権限なし）に JSONL 追記。10MiB 超過時は
-  `.1` に rotate（バックアップ1のみ）。retention の完全実装は次段階。
+  `.1` に rotate（バックアップ1のみ）。保持期間は未実装。
 - **非ブロック**: observation のため常に `permissionDecision: allow`（= stdout なし）。誤検知が
   作業を止めない。
 
 ## しきい値の補正
 
-既定 `DEFAULT_THRESHOLD_BYTES = 20000` は観測開始点であり、正解ではない。Issue は「350行を普遍的な
-正解として固定しない」ので、実測した size 分布から決める。`BULK_READ_THRESHOLD_BYTES` で上書き可
+既定 `DEFAULT_THRESHOLD_BYTES = 20000` は観測開始点であり、正解ではない。350行を普遍的な
+正解として固定せず、実測した size 分布から決める。`BULK_READ_THRESHOLD_BYTES` で上書き可
 能（キャリブレーション用）。`probe.log` の分布を見て、委譲効果と誤検知を測定した後、固定値へ固める。
 
-## 次段階（本 Issue の範囲外）
+## 委譲実装
 
 このプロブは**センサー**まで。実際の「軽量 worker への委譲実行」は共通実行層の別実装とし、
-`dynamic-workflow-runner` を必須にせず hook から直接呼べる構成で導入する（Issue 実装順序2〜3）。
+`dynamic-workflow-runner` を必須にせず hook から直接呼べる構成で導入する。
 ここでは測定と提案のみで完結する。
 
 ## 検証
