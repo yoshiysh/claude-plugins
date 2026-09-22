@@ -19,7 +19,7 @@ MAX_ATOMS = 65536
 MAX_INVOCATIONS = 4096
 MAX_CASES = 1024
 MAX_VARIANTS = 16
-    # 反復は各 variant 3 回以上が候補判定の最低条件。上限は交互実行の
+# 反復は各 variant 3 回以上が候補判定の最低条件。上限は交互実行の
 # 実行計画が現実的に収まる範囲。
 MIN_REPETITIONS = 3
 MAX_REPETITIONS = 100
@@ -44,7 +44,7 @@ SPAN_KINDS = (
 )
 
 # 境界証拠: 宣言（LLM 自己申告・SKILL.md 読込・名前の一致・時刻の重なり）は実測と
-    # 区別する。declared だけの invocation は coverage.boundary が
+# 区別する。declared だけの invocation は coverage.boundary が
 # complete になれない。
 BOUNDARY_EVIDENCE = ("host_dispatch", "explicit_entry", "declared")
 
