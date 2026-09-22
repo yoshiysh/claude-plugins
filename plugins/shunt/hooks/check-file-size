@@ -38,10 +38,17 @@ fi
 # Fidelity-axis input: see check-bash-read for why this is capped and real.
 sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
 
-if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "Read ${file_path}" "$file_path" "$lines" "$MIN_LINES" "$sample"); then
+block() { printf '{"decision": "block", "reason": "%s"}\n' "$1"; }
+
+# Fallback reasons split the same way as check-bash-read: a failed preflight
+# rules out /bulk-reader too. Read carries no purpose field, so the gate gets
+# an empty (unknown) purpose.
+if ! shunt_preflight >/dev/null 2>&1; then
+  block "File is ${lines} lines (threshold: ${MIN_LINES}); the delegation worker is unavailable (API key, jq or curl missing), so the model gate cannot run and this is the fallback line rule. Re-read with an offset/limit for just the section you need."
+elif verdict=$(shunt_decide "Read ${file_path}" "$file_path" "$lines" "$MIN_LINES" "$sample" ""); then
   if [ "$verdict" != "allow" ]; then
-    echo "{\"decision\": \"block\", \"reason\": \"Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of reading it directly. If you need exact content for editing, re-read with an offset/limit for just the section you need.\"}"
+    block "Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of reading it directly. If you need exact content for editing, re-read with an offset/limit for just the section you need."
   fi
 else
-  echo "{\"decision\": \"block\", \"reason\": \"File is ${lines} lines (threshold: ${MIN_LINES}); model gate unavailable, so this is the fallback line rule. Use the /bulk-reader skill to delegate this read, or re-read with an offset/limit for just the section you need.\"}"
+  block "File is ${lines} lines (threshold: ${MIN_LINES}); the model gate could not be consulted (request failed, timed out, or returned no usable decision), so this is the fallback line rule. Use the /bulk-reader skill to delegate this read, or re-read with an offset/limit for just the section you need."
 fi

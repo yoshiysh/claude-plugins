@@ -79,9 +79,14 @@ context.
 Both hooks allow small files without calling any model. For a file over `SHUNT_MIN_LINES`, a model gate (`shunt_decide`, prompt in `scripts/lib/decide-prompt.txt`) returns `allow` or `block` on two axes:
 
 - **Cost** — how much the command actually ingests. A bounded read such as `head file` is judged on the slice it emits, not on the file's length.
-- **Fidelity** — whether the content survives a cheap summary. When the cost is over the threshold, the gate is instructed to block simple, repetitive content (logs, generated output, enumerated data) and to allow content with non-trivial control flow or concurrency logic, so Claude reads that directly.
+- **Fidelity** — whether the content survives a cheap summary. When the cost is over the threshold, the gate is instructed to allow content with non-trivial control flow or concurrency logic, so Claude reads that directly. Simple, repetitive content (logs, generated output, enumerated data) is blocked when the read's purpose is overview-level or unknown, and allowed when the purpose needs exact order, timestamps or values (debugging, root-cause analysis, exact extraction, editing).
 
-To judge fidelity, the gate sends the first few dozen lines of the file, each truncated, to the Gemini API (the limits are set in the hook scripts). The prompt wraps the command, path and sample in their own tags and tells the model to treat them as data, not instructions. If the model cannot be consulted (including a `SHUNT_DECIDE_TIMEOUT_SECONDS` expiry), the hook blocks by the line rule and says so in its reason.
+To judge fidelity, the gate sends the first few dozen lines of the file, each truncated, to the Gemini API (the limits are set in the hook scripts). For Bash, the purpose is the tool call's `description`, cut to 300 characters; Read has no purpose field, so its purpose is unknown. The prompt wraps the command, path, purpose and sample in their own tags and tells the model to treat them as data, not instructions.
+
+If the model cannot be consulted, the hook blocks by the line rule and says so in its reason. The reason depends on why:
+
+- **Worker unavailable** (API key, `jq` or `curl` missing) — `/bulk-reader` cannot run either, so the reason points only to a targeted read: `sed -n 'START,ENDp' <file>` or Read with offset/limit.
+- **Gate call failed** (request error, `SHUNT_DECIDE_TIMEOUT_SECONDS` expiry, unusable answer) — the reason offers `/bulk-reader` and the targeted read.
 
 ### check-file-size (Read hook)
 
@@ -94,7 +99,7 @@ Fires on every `Read` tool call. Allows through without the gate:
 
 Fires on every `Bash` tool call. Allows through without the gate:
 - Commands containing a pipe (`cat file | grep`)
-- Commands containing a redirection (`cat file > out`)
+- Commands whose stdout is redirected to a file (`cat file > out`, `>>`, `1>`, `&>`). A stderr-only redirect (`2>/dev/null`, `2>&1`) or stdout sent to `&2`, `/dev/stdout`, `/dev/stderr` or `/dev/tty` still puts the content in context, so those reads are gated
 - Commands whose first word is not a read command (which commands count, and the wrappers that are seen through, are under [Known limitations](#known-limitations))
 - Reads whose file argument is missing or not an existing file
 - Files at or under `SHUNT_MIN_LINES`
@@ -116,7 +121,8 @@ All settings are environment variables — add them to the `env` block in `.clau
 | `SHUNT_MIN_LINES` | `350` | Line count above which both hooks consult the model gate |
 | `SHUNT_MAX_PAYLOAD_BYTES` | `400000` | Request ceiling; the payload travels in the HTTP request body, not argv |
 | `SHUNT_TIMEOUT_SECONDS` | `120` | Timeout for one worker (`bulk-read`/`code-write`) invocation; raise it for multi-file questions |
-| `SHUNT_GEMINI_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id used for both worker calls and the gate decision (`evals/probe-results.json` records why this default) |
+| `SHUNT_DECIDE_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id for the gate decision (`shunt_decide`); it must return the enum within `SHUNT_DECIDE_TIMEOUT_SECONDS` (`evals/probe-results.json` records why this default) |
+| `SHUNT_WORKER_MODEL` | `gemma-4-26b-a4b-it` | AI Studio model id for the worker calls (`bulk-read`/`code-write`) |
 | `SHUNT_DECIDE_TIMEOUT_SECONDS` | `8` | Timeout for the gate's `shunt_decide` call |
 | `SHUNT_TRACE_FILE` | — | When set, append one JSON line per gate consultation (model, http status, decision, judged input, token usage) |
 | `SHUNT_GEMINI_ENDPOINT` | `https://generativelanguage.googleapis.com/v1beta` | AI Studio API base URL |
@@ -142,6 +148,14 @@ case is labeled by what decided it: `model` (the gate answered), `code` (a deter
 decided before the model), or `fallback` (the model could not be consulted or returned an
 unusable response, so the line rule decided).
 
+The deterministic tests need no API key and no network:
+
+```bash
+bash evals/test_hook_redirects_fallback.sh                                  # redirect handling and fallback reasons
+env -u CLAUDE_PLUGINS_GEMINI_API_KEY bash evals/test_decide_prompt_injection.sh  # gate prompt substitution
+bash evals/test_code_write_fences.sh                                        # code-write fence stripping
+```
+
 ## Benchmarks
 
 Tested against a 162K-line Java monorepo:
@@ -158,6 +172,8 @@ Mean bulk-read savings: **90%**
 ## Known limitations
 
 - **The Bash gate matches the command's first word only** — `cat`/`head`/`tail`/`less`/`more`, after unwrapping `sh`/`bash`/`zsh`/`dash`/`ksh -c` and reducing an absolute path to its name. Reads through `sed -n` or `awk`, behind a prefix (`env more file`, `cd dir && cat file`), or in a script file pass ungated. Up to three wrapper levels unwrap, but a level that needs escaped quotes inside another level's quotes fails to tokenize and passes ungated. Shell options that take a separate argument are skipped with their argument only for `-o`/`+o`/`-O`/`+O`/`--rcfile`/`--init-file`/`--emulate`.
+- **The redirect check is a string scan, not a shell parse** — a `>` inside a quoted argument (`cat "a>b"`) or in a later segment of a compound command (`cat BIG; echo hi > x`) is read as stdout sent to a file, so the read passes ungated. Compound commands, `sed`/`awk` reads and pipes are not gated at all.
+- **The purpose is the agent's own words** — the Bash gate reads `description` as the read's purpose, so an agent can state a debugging or exact-extraction purpose and argue its way into an allow.
 - **Gate latency** — each read over `SHUNT_MIN_LINES` waits for one gate call, about 1.3–1.6 s per model-decided case in `evals/regression.json`.
 - **Under Codex, only the Bash gate has fired** — in the Codex runs tested, every file read went through the shell and `check-file-size` (the `Read` matcher) never fired. Codex's own reads are often `sed -n '1,240p' <file>`, which the Bash gate does not match.
 - **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.

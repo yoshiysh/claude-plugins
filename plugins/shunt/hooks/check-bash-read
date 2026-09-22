@@ -24,23 +24,82 @@
 MIN_LINES="${SHUNT_MIN_LINES:-350}"
 case "$MIN_LINES" in ''|*[!0-9]*) MIN_LINES=350 ;; esac
 
+block() { printf '{"decision": "block", "reason": "%s"}\n' "$1"; }
+
+# Walks every redirect operator in $1 (pure string scan, nothing is evaluated)
+# and sets:
+#   REDIR_STDOUT_TO_FILE — non-empty when the last stdout redirect points at a
+#     real file, i.e. the read's output never reaches the assistant's context.
+#     stderr-only redirects (2>/dev/null, 2>&1) leave stdout on the terminal,
+#     and stdout sent to &1/&2 or /dev/stdout|stderr|tty still lands in
+#     context, so neither counts.
+#   REDIR_STRIPPED — $1 with each redirect operator and its target removed, so
+#     path extraction cannot mistake "2>/dev/null" for the file being read.
+# Digits glued to a preceding word (file2>out) belong to that word, as in the
+# shell, not to the redirect.
+scan_redirects() {
+  local rest="$1" out="" m fd op target pre dest="" has_dest="" sq="'"
+  local re="([0-9]*)(&>>|&>|>>|>&|>)[[:space:]]*(\"[^\"]*\"|${sq}[^${sq}]*${sq}|[^[:space:]<>|;&\"${sq}()]*)"
+  while [[ $rest =~ $re ]]; do
+    m="${BASH_REMATCH[0]}"; fd="${BASH_REMATCH[1]}"; op="${BASH_REMATCH[2]}"; target="${BASH_REMATCH[3]}"
+    pre="${rest%%"$m"*}"
+    rest="${rest:$(( ${#pre} + ${#m} ))}"
+    if [ -n "$fd" ] && [ -n "$pre" ] && [[ "${pre: -1}" != [[:space:]] ]]; then
+      pre="$pre$fd"; fd=""
+    fi
+    out+="$pre "
+    target="${target#[\"$sq]}"; target="${target%[\"$sq]}"
+    case "$op" in
+      '&>'|'&>>')
+        if [ -z "$fd" ]; then dest="$target"; has_dest=1; fi ;;
+      '>&')
+        if [[ "$target" =~ ^[0-9]+$ ]]; then
+          if [ "${fd:-1}" = 1 ]; then dest="&$target"; has_dest=1; fi
+        elif [ "${fd:-1}" = 1 ]; then
+          dest="$target"; has_dest=1
+        fi ;;
+      *)
+        if [ "${fd:-1}" = 1 ]; then dest="$target"; has_dest=1; fi ;;
+    esac
+  done
+  REDIR_STRIPPED="$out$rest"
+  REDIR_STDOUT_TO_FILE=""
+  if [ -n "$has_dest" ]; then
+    case "$dest" in
+      ''|'&'[0-9]*|/dev/stdout|/dev/stderr|/dev/tty|/dev/fd/1|/dev/fd/2) ;;
+      *) REDIR_STDOUT_TO_FILE=1 ;;
+    esac
+  fi
+}
+
 input=$(cat)
 
 command=$(echo "$input" | jq -r '.tool_input.command // empty')
 [ -z "$command" ] && exit 0
 
+# The agent's own statement of what the command is for; the gate weighs it
+# when deciding whether a summary would lose what the read is meant to find.
+# Bounded like the file sample so it cannot blow up the request.
+purpose=$(echo "$input" | jq -r '.tool_input.description // empty')
+purpose="${purpose:0:300}"
+
 # Skip piped commands (cat file | grep) — those are targeted reads
 echo "$command" | grep -qE '\|' && exit 0
 
-# Skip redirections (cat file > out) — not a read-into-context operation
-echo "$command" | grep -qE '>' && exit 0
+# Skip reads whose stdout goes to a file (cat file > out) — not a
+# read-into-context operation. The scan runs on the original string, before
+# shell -c unwrapping: an inner -c string is a substring of it, so a redirect
+# inside the wrapper (sh -c 'cat f > out') and one outside it
+# (sh -c 'cat f' > out) are both seen here.
+scan_redirects "$command"
+[ -n "$REDIR_STDOUT_TO_FILE" ] && exit 0
 
 # xargs cannot preserve escaped quotes inside a quoted shell -c argument. If
 # such syntax is present, parsing the wrapper could turn a real read into an
 # unrecognised command and allow it through. Keep the gate fail-closed for
 # these inputs; callers can retry with a simpler shell command.
 if printf '%s' "$command" | grep -qE '\\["'"'"']'; then
-  echo '{"decision": "block", "reason": "Shell wrapper contains escaped quotes that cannot be safely parsed; retry without nested quoting or use the /bulk-reader skill."}'
+  block "Shell wrapper contains escaped quotes that cannot be safely parsed; retry without nested quoting or use the /bulk-reader skill."
   exit 0
 fi
 
@@ -72,10 +131,12 @@ for _ in 1 2 3; do
 done
 first="${command%%[[:space:]]*}"
 command="${first##*/}${command#"$first"}"
+scan_redirects "$command"
+read_command="$REDIR_STRIPPED"
 
 # Extract file path from read commands, stripping flags (e.g. cat -n, head -100)
 file_path=""
-if echo "$command" | grep -qE '^(cat|head|tail|less|more) '; then
+if echo "$read_command" | grep -qE '^(cat|head|tail|less|more) '; then
   # Remove the command name, then strip any flags (-n, -100, --number, etc.).
   # Tokenizing with plain `for arg in $args` word-splits on every space,
   # which breaks a quoted path containing a space (`cat "dir name/file.txt"`)
@@ -85,7 +146,7 @@ if echo "$command" | grep -qE '^(cat|head|tail|less|more) '; then
   # without evaluating the text, so a quoted path with an embedded space
   # comes out as a single token while staying inert against command
   # substitution or glob expansion.
-  args=$(echo "$command" | sed -E 's/^(cat|head|tail|less|more) +//')
+  args=$(echo "$read_command" | sed -E 's/^(cat|head|tail|less|more) +//')
   while IFS= read -r arg; do
     [ -z "$arg" ] && continue
     case "$arg" in
@@ -111,10 +172,16 @@ fi
 # instead of guessing from the filename/extension.
 sample=$(head -40 -- "$file_path" 2>/dev/null | cut -c1-200)
 
-if shunt_preflight >/dev/null 2>&1 && verdict=$(shunt_decide "$command" "$file_path" "$lines" "$MIN_LINES" "$sample"); then
+# A failed preflight means the worker cannot run either, so that fallback must
+# not point at /bulk-reader; only a failed decide call leaves the worker
+# possibly usable. head -n is itself gated, so the targeted read offered is
+# sed -n or Read with offset/limit.
+if ! shunt_preflight >/dev/null 2>&1; then
+  block "File is ${lines} lines (threshold: ${MIN_LINES}); the delegation worker is unavailable (API key, jq or curl missing), so the model gate cannot run and this is the fallback line rule. Read only the section you need with sed -n 'START,ENDp' <file> or the Read tool with offset/limit."
+elif verdict=$(shunt_decide "$command" "$file_path" "$lines" "$MIN_LINES" "$sample" "$purpose"); then
   if [ "$verdict" != "allow" ]; then
-    echo "{\"decision\": \"block\", \"reason\": \"Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of cat/head/tail. If you need exact content for editing, re-read just the section you need.\"}"
+    block "Model gate judged this a bulk read (${lines} lines). Use the /bulk-reader skill to delegate this read instead of cat/head/tail. If you need exact content for editing, re-read just the section you need."
   fi
 else
-  echo "{\"decision\": \"block\", \"reason\": \"File is ${lines} lines (threshold: ${MIN_LINES}); model gate unavailable, so this is the fallback line rule. Use the /bulk-reader skill to delegate this read instead of cat/head/tail.\"}"
+  block "File is ${lines} lines (threshold: ${MIN_LINES}); the model gate could not be consulted (request failed, timed out, or returned no usable decision), so this is the fallback line rule. Use the /bulk-reader skill to delegate this read, or read only the section you need with sed -n 'START,ENDp' <file> or the Read tool with offset/limit."
 fi
