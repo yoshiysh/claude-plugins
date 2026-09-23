@@ -10,7 +10,7 @@ marketplace 経由で install されると、プラグインは <plugin>/skills/
 - self_hardcode      : 自己参照のリポジトリ固定パス（.claude/skills/<name>/...）。
                        → [SKILL_DIR]/ 基準へ直すべき（symlink 不要）。
 - external_script    : スキル外の自己完結スクリプト参照（リポジトリ直下 /scripts/foo.sh 等）。
-                       → スキル内 scripts/ への symlink で同梱可能（bundleable）。
+                       → 実体をスキル内 scripts/ へコピーして同梱する。
 - env_build          : 専用 CLI、外部認証、ビルド手順などのローカル環境依存。symlink では運べない（配布不可の警告）。
 - script_internal_dep: スキル内スクリプト（.sh/.py）が内部で別スクリプトを cwd 相対で呼ぶ。
                        → 自分の場所基準（$(dirname "$0") / Path(__file__).parent）へ。共有
@@ -26,10 +26,11 @@ import json
 import re
 import sys
 from pathlib import Path
+from path_safety import find_project_root, guard_skill_root, ensure_within, validate_name
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = SKILL_DIR.parent.parent.parent
+PROJECT_ROOT = find_project_root(SCRIPT_DIR)
 SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 
 # .claude/skills/<name>/scripts/ から リポジトリ直下 /scripts/ までの相対深さ。
@@ -81,6 +82,7 @@ def scan_script_files(skill_root: Path):
 
 def detect(name: str) -> dict:
     skill_root = SKILLS_DIR / name
+    guard_skill_root(skill_root, SKILLS_DIR, PROJECT_ROOT / "plugins", PROJECT_ROOT)
     findings = []
 
     # 種別判定用の正規表現
@@ -119,9 +121,8 @@ def detect(name: str) -> dict:
                 )
             elif root_script.is_file():
                 remediation = (
-                    f"スキル内に symlink を貼って同梱: "
-                    f".claude/skills/{name}/scripts/{fname} -> {ROOT_SCRIPTS_REL}/{fname} "
-                    f"＋参照を [SKILL_DIR]/scripts/{fname} に変更"
+                    f"スクリプト本体をスキル内 scripts/{fname} にコピーして同梱し、"
+                    f"参照を [SKILL_DIR]/scripts/{fname} に変更"
                 )
             else:
                 remediation = "参照先スクリプトが /scripts/ にもスキル内にも無い。手動確認が必要"
@@ -196,6 +197,14 @@ def main() -> None:
         description="登録対象スキルの配布 portability を静的スキャンする")
     parser.add_argument("--skill", required=True, help="対象スキル名")
     args = parser.parse_args()
+
+    try:
+        ensure_within(SKILLS_DIR, SKILLS_DIR, PROJECT_ROOT)
+        validate_name(args.skill, "skill")
+        guard_skill_root(SKILLS_DIR / args.skill, SKILLS_DIR, PROJECT_ROOT / "plugins", PROJECT_ROOT)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(5)
 
     skill_md = SKILLS_DIR / args.skill / "SKILL.md"
     if not skill_md.is_file():

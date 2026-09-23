@@ -3,12 +3,14 @@ import os
 import runpy
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 VERIFY = runpy.run_path(str(SCRIPTS / "verify_install.py"))
 HOOK_COMMAND = 'node "${CLAUDE_PLUGIN_ROOT}/scripts/gate.mjs"'
 CODEX_COMMAND = 'python3 "${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/gate.py"'
@@ -63,6 +65,21 @@ class L2ComponentTests(unittest.TestCase):
         self.write("hooks/hooks.json", json.dumps(hooks_config(CODEX_COMMAND)))
         self.write("scripts/gate.py")
         self.assertTrue(self.check()["passed"])
+
+    def test_nested_hook_script_is_bundled_and_resolved(self):
+        command = '${CLAUDE_PLUGIN_ROOT}/hooks/read-gate/bin/run'
+        self.write("hooks/hooks.json", json.dumps(hooks_config(command)))
+        self.write("hooks/read-gate/bin/run")
+        result = self.check()
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["components"], ["hooks"])
+
+    def test_missing_nested_hook_script_fails(self):
+        command = '${CLAUDE_PLUGIN_ROOT}/hooks/read-gate/bin/run'
+        self.write("hooks/hooks.json", json.dumps(hooks_config(command)))
+        result = self.check()
+        self.assertFalse(result["passed"])
+        self.assertIn("hooks/read-gate/bin/run", " ".join(result["findings"]))
 
     def test_hook_referencing_missing_script_fails(self):
         self.write("hooks/hooks.json", json.dumps(hooks_config()))
@@ -258,23 +275,23 @@ class L3ComponentTests(unittest.TestCase):
 
     def test_hook_only_install_passes_when_assets_and_inventory_match(self):
         self.write("hooks/hooks.json")
-        self.write("scripts/gate.mjs")
-        components = {"hooks": ["hooks/hooks.json", "scripts/gate.mjs"]}
+        self.write("hooks/read-gate/bin/run")
+        components = {"hooks": ["hooks/hooks.json", "hooks/read-gate/bin/run"]}
         self.assertTrue(self.check(self.installed, components, 0, inventory(hooks=1))["passed"])
 
     def test_hook_only_install_fails_when_hooks_not_recognized(self):
         self.write("hooks/hooks.json")
-        self.write("scripts/gate.mjs")
-        components = {"hooks": ["hooks/hooks.json", "scripts/gate.mjs"]}
+        self.write("hooks/read-gate/bin/run")
+        components = {"hooks": ["hooks/hooks.json", "hooks/read-gate/bin/run"]}
         result = self.check(self.installed, components, 0, inventory(hooks=0))
         self.assertFalse(result["details_ok"])
         self.assertFalse(result["passed"])
 
     def test_hook_script_missing_from_install_fails(self):
         self.write("hooks/hooks.json")
-        components = {"hooks": ["hooks/hooks.json", "scripts/gate.mjs"]}
+        components = {"hooks": ["hooks/hooks.json", "hooks/read-gate/bin/run"]}
         result = self.check(self.installed, components, 0, inventory(hooks=1))
-        self.assertFalse(result["hooks"]["scripts/gate.mjs"])
+        self.assertFalse(result["hooks"]["hooks/read-gate/bin/run"])
         self.assertFalse(result["passed"])
 
     def test_skill_install_requires_skill_md_and_recognition(self):
@@ -287,8 +304,8 @@ class L3ComponentTests(unittest.TestCase):
 
     def test_directory_hook_asset_is_verified(self):
         self.write("hooks/hooks.json")
-        self.write("lib/gate.py")
-        components = {"hooks": ["hooks/hooks.json", "lib"]}
+        self.write("hooks/read-gate/bin/run")
+        components = {"hooks": ["hooks/hooks.json", "hooks/read-gate/bin"]}
         self.assertTrue(self.check(self.installed, components, 0, inventory(hooks=1))["passed"])
         self.assertFalse(self.check(self.installed, {"hooks": ["hooks/hooks.json", "missing"]},
                                     0, inventory(hooks=1))["passed"])

@@ -33,10 +33,11 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import NamedTuple
+from path_safety import find_project_root, ensure_within, guard_plugin_root, guard_tree, validate_name
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = SKILL_DIR.parent.parent.parent
+PROJECT_ROOT = find_project_root(SCRIPT_DIR)
 SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"   # 公開用プラグイン dir の置き場
 # .claude-plugin/plugin.json だけに載るフィールド（register_plugin.py と揃える）。
@@ -453,6 +454,15 @@ def main() -> None:
                     help="検証対象の plugin 名（旧 --skill も受け付ける）")
     args = ap.parse_args()
     plugin = args.plugin
+
+    try:
+        ensure_within(PLUGINS_DIR, PLUGINS_DIR, PROJECT_ROOT)
+        validate_name(plugin, "plugin")
+        guard_plugin_root(PLUGINS_DIR / plugin, PLUGINS_DIR, PROJECT_ROOT)
+        guard_tree(PLUGINS_DIR / plugin, [PLUGINS_DIR], PROJECT_ROOT, reject_symlinks=True)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(5)
 
     if not (PLUGINS_DIR / plugin / ".claude-plugin" / "plugin.json").exists():
         print(f"ERROR: 登録された plugin dir が見つかりません: {PLUGINS_DIR / plugin}",

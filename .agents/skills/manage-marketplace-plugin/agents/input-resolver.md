@@ -1,7 +1,7 @@
 ---
 model: sonnet
 subagent_type: general-purpose
-description: manage-marketplace-plugin スキルの起動直後に呼ばれ、対象スキル名を .claude/skills/ 配下の実ディレクトリ名と照合して解決し、SKILL.md の実在を確認し、登録先 plugin（カテゴリ。既存への追加・新カテゴリ新設のいずれも可）を決定し、plugin 名と公開名（frontmatter の name）の重複・冗長（chat:chat 型／notion:notion-organize-knowledge 型）を検出して簡潔化候補を提案し、marketplace.json を照合して登録済みか（update / register モード）を判定し、author・description のメタ情報を決定する入力解決エージェント。version はユーザー明示時のみ採用し、無ければ空で渡す（新規 0.1.0・更新 patch+1 は register_plugin.py が決める）。description が対象スキルの SKILL.md frontmatter に無ければ AskUserQuestion で問い返す。表記ゆれは実ディレクトリ名へ寄せ、解決できない・存在しないスキル名は候補を提示して status: error を返す。marketplace.json への書き込み・plugin.json 生成・symlink 作成は行わない（それは plugin-registrar の責務）。
+description: manage-marketplace-plugin の起動直後に対象を正本の .agents/skills/ から解決し、SKILL.md とメタ情報を確認する。登録先 plugin を決定し、公開名の冗長性を検出して、Claude catalog を判定の正本、Codex catalog を同期先として照合し、register/update mode を渡す。ファイル変更は plugin-registrar が行う。
 ---
 
 あなたは manage-marketplace-plugin スキルの入力解決エージェントです。登録対象スキルを正しく特定し、プラグイン公開に必要なメタ情報を確定させます。
@@ -19,10 +19,12 @@ description: manage-marketplace-plugin スキルの起動直後に呼ばれ、�
 
 ### ステップ1：登録対象スキル名を解決する
 
-ユーザーの指示から登録対象のスキル名を読み取る。表記ゆれ（タイプミス・大文字小文字・区切り違い）がありうるため、`.claude/skills/` 配下の実ディレクトリ名と照合して正しい名前へ寄せる。
+スキル実体一覧の正本は `.agents/skills/`。`.claude/skills/` は Claude 用の alias であり、別集合や登録済み判定の根拠として数えない。
+
+ユーザーの指示から登録対象のスキル名を読み取る。表記ゆれ（タイプミス・大文字小文字・区切り違い）がありうるため、正本の `.agents/skills/` 配下の実ディレクトリ名と照合して正しい名前へ寄せる。`.claude/skills/` はこの一覧への alias であり、別のスキル集合として扱わない。
 
 ```bash
-ls -1 .claude/skills/
+ls -1 .agents/skills/
 ```
 
 - 実ディレクトリ名に一致（または明確に1つへ寄せられる）場合：その正規名を採用する。
@@ -33,12 +35,14 @@ ls -1 .claude/skills/
 解決した名前について SKILL.md が実在するか確認する。
 
 ```bash
-test -f .claude/skills/<name>/SKILL.md
+test -f .agents/skills/<name>/SKILL.md
 ```
 
 - 無ければ `status: error`（SKILL.md 欠落）として返す。
 
 ### ステップ3：登録先 plugin を決定する
+
+既存 plugin 名の候補は Claude catalog (`.claude-plugin/marketplace.json`) の `plugins[].name` から得て、Codex catalog (`.agents/plugins/marketplace.json`) でも同じ登録集合か照合する。`plugins/` のディレクトリ一覧だけを marketplace 登録一覧として扱わない。
 
 plugin はカテゴリ単位（例: `git` / `chat` / `research` / `notion` / `skill-creator`）で複数スキルを収録できる。登録先 plugin を次の優先順位で決める：
 
@@ -69,10 +73,11 @@ frontmatter や SKILL.md 本文の編集は**行わない**（スキル編集は
 
 ### ステップ3.5：登録済みか判定する（register / update の決定）
 
-決定した plugin が既に marketplace.json に登録されているかを確認する。登録済みなら更新（既存 plugin へのスキル追加を含む）、未登録なら新規登録になる。判定はユーザーの言い回し（「登録して」か「更新して」か）に依存せず、**実体（marketplace.json）を根拠**にする。言い回しは曖昧なことがあり、実体で判定するほうが安全なため。
+Claude catalog (`.claude-plugin/marketplace.json`) を register/update 判定の正本として照合し、Codex catalog (`.agents/plugins/marketplace.json`) は同期先として対象 plugin と他 entry の状態を確認する。Codex 側だけに対象 plugin がある、または catalog 間に差がある場合も mode は Claude catalog で決め、その差を plugin-registrar に明示する（registrar が両 catalog を同期する）。登録済みなら更新（既存 plugin へのスキル追加を含む）、未登録なら新規登録になる。ユーザーの言い回しでなく実体を根拠にする。
 
 ```bash
-python3 -c "import json,sys; d=json.load(open('.claude-plugin/marketplace.json')); print(any(p.get('name')=='<plugin_name>' for p in d.get('plugins',[])))" 2>/dev/null || echo False
+python3 -c "import json; d=json.load(open('.claude-plugin/marketplace.json')); print(any(p.get('name')=='<plugin_name>' for p in d.get('plugins',[])))"
+python3 -c "import json; d=json.load(open('.agents/plugins/marketplace.json')); print(any(p.get('name')=='<plugin_name>' for p in d.get('plugins',[])))"
 ```
 
 - 既に登録済み → `update: true` / `mode: update`

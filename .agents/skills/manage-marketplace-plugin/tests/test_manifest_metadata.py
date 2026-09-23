@@ -1,12 +1,14 @@
 import json
 import runpy
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 REGISTER = runpy.run_path(str(SCRIPTS / "register_plugin.py"))
 VERIFY = runpy.run_path(str(SCRIPTS / "verify_install.py"))
 
@@ -20,7 +22,8 @@ class ManifestMetadataTests(unittest.TestCase):
         self.writer = REGISTER["write_plugin_files"]
         self.check = VERIFY["l2_bundle_check"]
         for function in (self.writer, self.check, VERIFY["skill_entries"]):
-            self.enterContext(patch.dict(function.__globals__, PLUGINS_DIR=self.root))
+            self.enterContext(patch.dict(
+                function.__globals__, PLUGINS_DIR=self.root, PROJECT_ROOT=self.root))
         skill = self.root / "demo" / "skills" / "demo"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text("---\nname: demo\ndescription: demo\n---\n")
@@ -46,6 +49,8 @@ class ManifestMetadataTests(unittest.TestCase):
         self.assertNotIn("interface", claude)
         self.assertNotIn("dependencies", codex)
         self.assertEqual(codex["interface"]["developerName"], "author")
+        self.assertTrue(self.path("codex").is_file())
+        self.assertFalse((self.root / "demo" / "plugin.json").exists())
         self.assertTrue(self.check("demo")["passed"])
 
     def test_update_preserves_custom_ui(self):
