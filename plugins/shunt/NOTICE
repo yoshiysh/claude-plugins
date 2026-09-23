@@ -10,20 +10,20 @@ Modifications in this fork:
 - scripts/lib/aika.sh (Portal CLI / AiKA transport) removed and replaced by
   scripts/lib/gemini.sh (AI Studio generativelanguage API, key via
   CLAUDE_PLUGINS_GEMINI_API_KEY header auth, payload via request body).
-- hooks/check-bash-read, hooks/check-file-size: the final line-count judgment
+- hooks/bash-read-gate, hooks/read-gate: the final line-count judgment
   is replaced by a typed model decision (scripts/lib/gemini.sh shunt_decide,
   prompt frozen in scripts/lib/decide-prompt.txt), with the upstream line rule
   as the declared fallback when the model cannot be consulted. The decision
   also receives the file's first 40 lines (each cut to 200 characters) as a
   sample for judging content complexity. The Bash hook also passes the tool
   call's description (cut to 300 characters) as the read's stated purpose.
-- hooks/check-bash-read: only a redirect of stdout to a file skips the read
+- hooks/bash-read-gate: only a redirect of stdout to a file skips the read
   check; upstream skipped any command containing `>`, including stderr-only
   redirects.
-- hooks/check-bash-read: shell -c wrappers (sh/bash/zsh/dash/ksh) are
+- hooks/bash-read-gate: shell -c wrappers (sh/bash/zsh/dash/ksh) are
   unwrapped and an absolute command path is reduced to its name before the
   read check.
-- hooks/check-bash-read, hooks/check-file-size: allow is signalled by empty
+- hooks/bash-read-gate, hooks/read-gate: allow is signalled by empty
   output instead of a JSON allow decision.
 - scripts/bulk-read: worker output contract added (ANSWER / EVIDENCE /
   UNVERIFIED sections).

@@ -1,4 +1,4 @@
-"""Regression harness: upstream の hook eval 2 系（check-bash-read 17 件 / check-file-size 17 件）を
+"""Regression harness: upstream の hook eval 2 系（bash-read-gate 17 件 / read-gate 17 件）を
 fork の hook に通し、上流ラベル（= 上流実装の挙動）と fork の判定を並記した回帰表を出す。
 
 閾値判定はしない。上流ラベルの生成元は置換対象の行数規則そのものなので、一致率は
@@ -34,9 +34,9 @@ TRACE = os.path.join(FIXTURES, "trace.jsonl")
 MIN_INTERVAL = float(os.environ.get("SHUNT_REGRESSION_MIN_INTERVAL_SECONDS", "4.5"))
 
 SUITES = [
-    {"hook": "check-bash-read", "evals": "bash-hook-evals.json",
+    {"hook": "bash-read-gate", "evals": "bash-hook-evals.json",
      "payload_key": "command", "fixture_name": lambda lines: "large.txt" if lines >= 350 else "small.txt"},
-    {"hook": "check-file-size", "evals": "hook-evals.json",
+    {"hook": "read-gate", "evals": "hook-evals.json",
      "payload_key": None, "fixture_name": None},
 ]
 
@@ -52,7 +52,7 @@ def fixture_path(lines: int) -> str:
 def make_named_fixtures():
     """bash-hook-evals はコマンド文字列内の {{FIXTURES}}/large.txt 等を名前で参照する。
 
-    "dir name/large.txt" はスペース入りパスの word-split バグ（check-bash-read
+    "dir name/large.txt" はスペース入りパスの word-split バグ（bash-read-gate
     の quoted-path 引数パース）の回帰用フィクスチャ — サブディレクトリ名自体に
     スペースを含める。
     """
@@ -94,7 +94,7 @@ def pace(pacing: dict) -> None:
 
 
 def run_suite(suite, pacing: dict) -> list:
-    hook = os.path.join(HERE, "..", "hooks", suite["hook"])
+    hook = os.path.join(HERE, "..", "hooks", suite["hook"], "run")
     evals = json.load(open(os.path.join(HERE, suite["evals"])))["evals"]
     rows = []
     for e in evals:

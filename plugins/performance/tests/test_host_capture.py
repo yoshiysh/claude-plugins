@@ -1,13 +1,18 @@
 import json
+import importlib.util
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 import host_capture
-import native_hook
 import skill_events
+
+spec = importlib.util.spec_from_file_location("event_collector", ROOT / "hooks" / "event-collector" / "run.py")
+event_collector = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(event_collector)
 
 
 def policy(project, enabled=True):
@@ -29,24 +34,24 @@ def dispatch_event(cwd, event="PreToolUse", skill="demo"):
 class DispatchPolicy(unittest.TestCase):
     def test_gated_by_same_policy_as_sessions(self):
         with tempfile.TemporaryDirectory() as d:
-            self.assertTrue(native_hook.dispatch_policy(
+            self.assertTrue(event_collector.dispatch_policy(
                 "claude", dispatch_event(d), [policy(d)]))
-            self.assertFalse(native_hook.dispatch_policy(
+            self.assertFalse(event_collector.dispatch_policy(
                 "claude", dispatch_event(d), [policy(d, enabled=False)]))
-            self.assertFalse(native_hook.dispatch_policy(
+            self.assertFalse(event_collector.dispatch_policy(
                 "claude", dispatch_event(d), []))
 
     def test_only_skill_tool_captured(self):
         with tempfile.TemporaryDirectory() as d:
             row = dispatch_event(d)
             row["tool_name"] = "Bash"
-            self.assertFalse(native_hook.dispatch_policy("claude", row, [policy(d)]))
+            self.assertFalse(event_collector.dispatch_policy("claude", row, [policy(d)]))
 
     def test_record_and_reload(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "data"
-            native_hook.record_dispatch(dispatch_event(d), root, 1000)
-            native_hook.record_dispatch(dispatch_event(d, "PostToolUse"), root, 1042)
+            event_collector.record_dispatch(dispatch_event(d), root, 1000)
+            event_collector.record_dispatch(dispatch_event(d, "PostToolUse"), root, 1042)
             loaded = host_capture.load_records(root / "dispatch" / "records.jsonl")
             self.assertEqual(len(loaded["records"]), 2)
             self.assertEqual(loaded["records"][1]["duration_ms"], 42)
@@ -55,16 +60,16 @@ class DispatchPolicy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "data"
             path = root / "dispatch" / "records.jsonl"
-            native_hook.prepare(root / "dispatch")
+            event_collector.prepare(root / "dispatch")
             filler = json.dumps({"captured_at": 1, "event": "PreToolUse",
                                  "session_id": "s", "tool_use_id": "t",
                                  "cwd": d, "skill": "x"})
-            path.write_text((filler + "\n") * native_hook.MAX_DISPATCH_RECORDS)
-            native_hook.record_dispatch(dispatch_event(d), root, 2000)
+            path.write_text((filler + "\n") * event_collector.MAX_DISPATCH_RECORDS)
+            event_collector.record_dispatch(dispatch_event(d), root, 2000)
             loaded = host_capture.load_records(path)
             self.assertEqual(loaded["censored"], ["dispatch_record_limit"])
             self.assertEqual(len(loaded["records"]),
-                             native_hook.MAX_DISPATCH_RECORDS)
+                             event_collector.MAX_DISPATCH_RECORDS)
 
 
 class Conversion(unittest.TestCase):
@@ -120,16 +125,16 @@ class Notification(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "data"
             self._queue(d)
-            first = native_hook.present_notification(root, 10000)
+            first = event_collector.present_notification(root, 10000)
             self.assertIn("pending", first)
-            self.assertIsNone(native_hook.present_notification(root, 10001))
-            again = native_hook.present_notification(
-                root, 10001 + native_hook.PRESENT_COOLDOWN_S)
+            self.assertIsNone(event_collector.present_notification(root, 10001))
+            again = event_collector.present_notification(
+                root, 10001 + event_collector.PRESENT_COOLDOWN_S)
             self.assertIn("pending", again)
 
     def test_empty_queue_prints_nothing(self):
         with tempfile.TemporaryDirectory() as d:
-            self.assertIsNone(native_hook.present_notification(
+            self.assertIsNone(event_collector.present_notification(
                 Path(d) / "data", 10000))
 
     def test_presentation_does_not_mutate_queue(self):
@@ -137,7 +142,7 @@ class Notification(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d) / "data"
             self._queue(d)
-            native_hook.present_notification(root, 10000)
+            event_collector.present_notification(root, 10000)
             outcome = proposals.update(str(root / "proposals"), now=20000)
             self.assertEqual(outcome["pending_count"], 1)
 
@@ -200,12 +205,12 @@ class StopRecording(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             event = {"hook_event_name": "Stop", "cwd": d, "session_id": "s-1",
                      "stop_hook_active": True}
-            self.assertTrue(native_hook.stop_record_policy(
+            self.assertTrue(event_collector.stop_record_policy(
                 "claude", event, [policy(d)]))
-            self.assertFalse(native_hook.stop_record_policy(
+            self.assertFalse(event_collector.stop_record_policy(
                 "claude", event, [policy(d, enabled=False)]))
             root = Path(d) / "data"
-            native_hook.record_stop(event, root, 5000)
+            event_collector.record_stop(event, root, 5000)
             loaded = host_capture.load_records(
                 root / "dispatch" / "records.jsonl")
             row = loaded["records"][0]
@@ -216,7 +221,7 @@ class StopRecording(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             event = {"hook_event_name": "SessionEnd", "cwd": d,
                      "session_id": "s-1"}
-            self.assertFalse(native_hook.stop_record_policy(
+            self.assertFalse(event_collector.stop_record_policy(
                 "claude", event, [policy(d)]))
 
 

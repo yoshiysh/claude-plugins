@@ -1,6 +1,6 @@
 [
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 1,
   "name": "cat-large-file",
   "upstream": "block",
@@ -13,7 +13,7 @@
   "upstream_reason": "Plain cat on large file — should block"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 2,
   "name": "cat-small-file",
   "upstream": "allow",
@@ -26,7 +26,7 @@
   "upstream_reason": "Small file — not worth delegating"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 3,
   "name": "cat-with-flag",
   "upstream": "block",
@@ -39,7 +39,7 @@
   "upstream_reason": "cat with -n flag — should still block"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 4,
   "name": "head-large-file",
   "upstream": "block",
@@ -52,7 +52,7 @@
   "upstream_reason": "head on large file — should block"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 5,
   "name": "head-with-count",
   "upstream": "block",
@@ -65,7 +65,7 @@
   "upstream_reason": "head -100 — still a bulk read, block"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 6,
   "name": "tail-large-file",
   "upstream": "block",
@@ -78,7 +78,7 @@
   "upstream_reason": "tail on large file — should block"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 7,
   "name": "less-large-file",
   "upstream": "block",
@@ -91,7 +91,7 @@
   "upstream_reason": "less on large file — should block"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 8,
   "name": "cat-pipe",
   "upstream": "allow",
@@ -104,7 +104,7 @@
   "upstream_reason": "Piped command — targeted read"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 9,
   "name": "cat-redirect",
   "upstream": "allow",
@@ -117,7 +117,7 @@
   "upstream_reason": "Redirect — copying file, not reading into context"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 10,
   "name": "non-read-command",
   "upstream": "allow",
@@ -130,7 +130,7 @@
   "upstream_reason": "Not a file read command"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 11,
   "name": "grep-command",
   "upstream": "allow",
@@ -143,7 +143,7 @@
   "upstream_reason": "grep is a targeted search — not caught"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 12,
   "name": "cat-quoted-path",
   "upstream": "block",
@@ -156,7 +156,7 @@
   "upstream_reason": "Quoted path — should still be caught"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 13,
   "name": "cat-nonexistent",
   "upstream": "allow",
@@ -169,7 +169,7 @@
   "upstream_reason": "File doesn't exist — let Bash handle the error"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 14,
   "name": "empty-command",
   "upstream": "allow",
@@ -182,7 +182,7 @@
   "upstream_reason": "Empty command — pass through"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 15,
   "name": "missing-command-field",
   "upstream": "allow",
@@ -195,7 +195,7 @@
   "upstream_reason": "No command field — pass through"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 16,
   "name": "more-large-file",
   "upstream": "block",
@@ -208,7 +208,7 @@
   "upstream_reason": "more on large file — only regex-matched command without coverage"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 17,
   "name": "head-n-space-count",
   "upstream": "allow",
@@ -221,7 +221,7 @@
   "upstream_reason": "Parser bug: -n and 5 are separate args, 5 is treated as file path — file '5' won't exist so allow"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 18,
   "name": "cat-quoted-path-with-space",
   "upstream": "block",
@@ -234,7 +234,7 @@
   "upstream_reason": "Quoted path containing a space — word-split-on-space parsing must not break this into two bogus tokens and fall through to allow"
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 19,
   "name": "cat-complex-code-over-threshold",
   "upstream": "allow",
@@ -247,7 +247,7 @@
   "upstream_reason": "Fidelity axis: real 405-line file with race-sensitive lock/retry/circuit-breaker logic in its sampled head. A cheap worker's summary would flatten exactly the details (lock ordering, half-open probe exclusivity) that make this code correct, so the gate should keep it in context even past the line threshold."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 20,
   "name": "cat-simple-log-over-threshold",
   "upstream": "block",
@@ -260,7 +260,7 @@
   "upstream_reason": "Fidelity axis: real 400-line access log, one repetitive record shape per line. A worker's summary loses nothing a human or Claude would act on, so once the cost axis clears the threshold this should delegate."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 21,
   "name": "head-complex-code-small-slice",
   "upstream": "allow",
@@ -273,7 +273,7 @@
   "upstream_reason": "Cost axis: head -30 only ingests 30 lines regardless of the file's 405-line total, so this stays under threshold and allows on cost alone — independent of the file's complexity."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 22,
   "name": "cat-simple-data-under-threshold",
   "upstream": "allow",
@@ -286,7 +286,7 @@
   "upstream_reason": "Cost axis: real 60-line simple CSV export, well under the 350-line threshold — allowed regardless of the fidelity axis because the volume never clears the gate."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 23,
   "name": "sh-c-wrapped-more-large",
   "upstream": "block",
@@ -299,7 +299,7 @@
   "upstream_reason": "Bypass seen in Codex after a block: the same read wrapped in /bin/sh -c must be judged as the inner read."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 24,
   "name": "absolute-path-more-large",
   "upstream": "block",
@@ -312,7 +312,7 @@
   "upstream_reason": "Bypass seen in Codex after a block: an absolute path to the read command must match like the bare name."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 25,
   "name": "zsh-lc-wrapped-cat-large",
   "upstream": "block",
@@ -325,7 +325,7 @@
   "upstream_reason": "Combined flags (-lc) still carry -c, so the wrapped read is unwrapped and gated."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 26,
   "name": "sh-c-wrapped-cat-small",
   "upstream": "allow",
@@ -338,7 +338,7 @@
   "upstream_reason": "Unwrapping must not change the verdict for a small file."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 27,
   "name": "sh-c-wrapped-cat-piped-outside",
   "upstream": "allow",
@@ -351,7 +351,7 @@
   "upstream_reason": "A pipe outside the wrapper is a targeted read, same as the unwrapped cat-pipe case."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 28,
   "name": "sh-runs-script-file",
   "upstream": "allow",
@@ -364,7 +364,7 @@
   "upstream_reason": "Without -c the shell runs the file as a script instead of printing it, so there is nothing to gate."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 29,
   "name": "bash-O-option-wrapped-cat-large",
   "upstream": "block",
@@ -377,7 +377,7 @@
   "upstream_reason": "-O takes a separate shopt name; skipping it must still reach -c and gate the wrapped read."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 30,
   "name": "bash-rcfile-wrapped-cat-large",
   "upstream": "block",
@@ -390,7 +390,7 @@
   "upstream_reason": "--rcfile takes a separate file argument; it must not be mistaken for the command or stop the unwrap before -c."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 31,
   "name": "bash-sh-two-level-nested-cat-large",
   "upstream": "block",
@@ -403,7 +403,7 @@
   "upstream_reason": "Two nested wrappers with alternating quote styles unwrap to the inner read."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 32,
   "name": "bash-sh-escaped-quote-cat-large",
   "upstream": "block",
@@ -416,7 +416,7 @@
   "upstream_reason": "Escaped quotes cannot be safely tokenized by xargs; the wrapper must fail closed instead of allowing the read."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 33,
   "name": "cat-large-stderr-to-devnull",
   "upstream": "block",
@@ -429,7 +429,7 @@
   "upstream_reason": "Only stderr is redirected; the file's content still reaches context, so the read is gated like a plain cat."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 34,
   "name": "cat-large-stderr-to-stdout",
   "upstream": "block",
@@ -442,7 +442,7 @@
   "upstream_reason": "2>&1 merges stderr into stdout, which still reaches context."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 35,
   "name": "cat-large-stdout-to-stderr",
   "upstream": "block",
@@ -455,7 +455,7 @@
   "upstream_reason": "Stdout sent to stderr still lands in the assistant's context; only a file target keeps it out."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 36,
   "name": "cat-large-append-to-file",
   "upstream": "allow",
@@ -468,7 +468,7 @@
   "upstream_reason": "Stdout appended to a file — copying, not reading into context."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 37,
   "name": "cat-large-both-to-file",
   "upstream": "allow",
@@ -481,7 +481,7 @@
   "upstream_reason": "Stdout and stderr both sent to a file — nothing reaches context."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 38,
   "name": "sh-c-wrapped-cat-large-stderr-to-devnull",
   "upstream": "block",
@@ -494,7 +494,7 @@
   "upstream_reason": "A stderr-only redirect inside the wrapper does not keep the unwrapped read out of context."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 39,
   "name": "cat-simple-log-exact-purpose",
   "upstream": "block",
@@ -507,7 +507,7 @@
   "upstream_reason": "A purpose is agent-supplied and cannot relax the gate for a bulk read of simple repetitive content; use a targeted range read for exact order and timestamps."
  },
  {
-  "suite": "check-bash-read",
+  "suite": "bash-read-gate",
   "id": 40,
   "name": "cat-simple-log-overview-purpose",
   "upstream": "block",
@@ -520,7 +520,7 @@
   "upstream_reason": "Purpose axis: an overview-level purpose survives a worker's summary, so the simple 400-line log is delegated as in case 20."
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 1,
   "name": "small-file",
   "upstream": "allow",
@@ -533,7 +533,7 @@
   "upstream_reason": "File under threshold — delegation overhead not worth it"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 2,
   "name": "boundary-exact-350",
   "upstream": "allow",
@@ -546,7 +546,7 @@
   "upstream_reason": "Exactly at threshold (<=350) — should not block"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 3,
   "name": "just-over-threshold",
   "upstream": "block",
@@ -559,7 +559,7 @@
   "upstream_reason": "One line over threshold — should block"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 4,
   "name": "large-file",
   "upstream": "block",
@@ -572,7 +572,7 @@
   "upstream_reason": "Well over threshold — clear delegation candidate"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 5,
   "name": "very-large-file",
   "upstream": "block",
@@ -585,7 +585,7 @@
   "upstream_reason": "Very large file — blocked regardless of extension"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 6,
   "name": "empty-file",
   "upstream": "allow",
@@ -598,7 +598,7 @@
   "upstream_reason": "Empty file — nothing to delegate"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 7,
   "name": "targeted-read-offset",
   "upstream": "allow",
@@ -611,7 +611,7 @@
   "upstream_reason": "Offset set — targeted read, allow through"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 8,
   "name": "targeted-read-limit",
   "upstream": "allow",
@@ -624,7 +624,7 @@
   "upstream_reason": "Limit set — targeted read, allow through"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 9,
   "name": "targeted-read-both",
   "upstream": "allow",
@@ -637,7 +637,7 @@
   "upstream_reason": "Both offset and limit — definitely a targeted read"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 10,
   "name": "nonexistent-file",
   "upstream": "allow",
@@ -650,7 +650,7 @@
   "upstream_reason": "File doesn't exist — let Read handle the error"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 11,
   "name": "empty-filepath",
   "upstream": "allow",
@@ -663,7 +663,7 @@
   "upstream_reason": "Empty path — pass through"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 12,
   "name": "missing-filepath-field",
   "upstream": "allow",
@@ -676,7 +676,7 @@
   "upstream_reason": "No file_path field — pass through gracefully"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 13,
   "name": "offset-zero",
   "upstream": "allow",
@@ -689,7 +689,7 @@
   "upstream_reason": "offset:0 treated as targeted — known bypass, documenting behavior"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 14,
   "name": "limit-zero",
   "upstream": "allow",
@@ -702,7 +702,7 @@
   "upstream_reason": "limit:0 treated as targeted — known bypass, documenting behavior"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 15,
   "name": "env-override-lower",
   "upstream": "block",
@@ -715,7 +715,7 @@
   "upstream_reason": "SHUNT_MIN_LINES=200 overrides default — 250-line file should block"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 16,
   "name": "env-override-higher",
   "upstream": "allow",
@@ -728,7 +728,7 @@
   "upstream_reason": "SHUNT_MIN_LINES=500 overrides default — 351-line file should be allowed"
  },
  {
-  "suite": "check-file-size",
+  "suite": "read-gate",
   "id": 17,
   "name": "env-non-numeric-fallback",
   "upstream": "block",

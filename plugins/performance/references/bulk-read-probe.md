@@ -17,21 +17,21 @@
 ## 配置と配布
 
 `performance` plugin に同梱する hook。既存の measurement hook（UserPromptSubmit/Stop/SessionEnd
-→ `native_hook.py`）と同じ
+→ `event-collector/run.py`）と同じ
 `hooks/hooks.json` に `PreToolUse` を追加形で載せる。両ホストとも default discovery で読み込む。
 
 ```text
 plugins/performance/
   hooks/hooks.json                     # PreToolUse(matcher Read) を追記
-  scripts/
-    bulk_read_probe.py                 # 共通実行層のセンサー（観測専用）
+  hooks/
+    bulk-read-probe/run.py                 # 共通実行層のセンサー（観測専用）
   references/
     bulk-read-probe.md                 # 本文（このファイル）
     native-hooks.md                    # measurement hook の正本（参照維持）
 ```
 
-`hooks/hooks.json` の PreToolUse は `${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/
-bulk_read_probe.py` を呼ぶ。`${CLAUDE_PLUGIN_ROOT}` の展開は既存の `native_hook.py` と同一経路
+`hooks/hooks.json` の PreToolUse は `${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/
+bulk-read-probe/run.py` を呼ぶ。`${CLAUDE_PLUGIN_ROOT}` の展開は既存の `event-collector/run.py` と同一経路
 なので、Claude/Codex 両方で plugin 配布時に解決される（`native-hooks.md` 受入証拠済み）。
 
 ## 両ホストの PreToolUse 入力差
@@ -42,7 +42,7 @@ bulk_read_probe.py` を呼ぶ。`${CLAUDE_PLUGIN_ROOT}` の展開は既存の `n
 | ツール情報 | `tool_name`, `tool_input`（Read→`file_path`） | `tool_name`, `tool_input`（local function tool は引数そのまま） |
 | 判断出力 | `hookSpecificOutput.permissionDecision`（allow/deny/ask/defer）+ `updatedInput` | 同形＋旧 `{decision:block, reason}`、`systemMessage` |
 
-`bulk_read_probe.py` は `turn_id` の有無で host を判定し（なければ claude）、`tool_input`
+`bulk-read-probe/run.py` は `turn_id` の有無で host を判定し（なければ claude）、`tool_input`
 から `file_path` / `path` / 生文字列の順で対象パスを抽出する。未対応形でもクラッシュせず exit 0
 で流す（観測はブロックしない）。
 
