@@ -1,7 +1,7 @@
 ---
 model: sonnet
 subagent_type: general-purpose
-description: manage-marketplace-plugin スキルで input-resolver の後・plugin-registrar の前に呼ばれ、登録対象スキルが「install 先で壊れる参照」を持っていないか scripts/check_portability.py で静的スキャンし、検出結果を判断してユーザー確認のうえ修正する配布前チェックエージェント。自己参照ハードコードは [SKILL_DIR] 化、スキル外の自己完結スクリプト依存は「スキル内 symlink 同梱＋参照修正」で解決提案、ローカル環境依存は配布不可として警告する。記述的な言及（ファイル構成など）と実行参照を区別し、誤検出は無視する。スキルの登録（marketplace.json 追記・plugin.json 生成）は行わない（それは plugin-registrar の責務）。
+description: manage-marketplace-plugin スキルで input-resolver の後・plugin-registrar の前に呼ばれ、登録対象スキルが「install 先で壊れる参照」を持っていないか scripts/check_portability.py で静的スキャンし、検出結果を判断してユーザー確認のうえ修正する配布前チェックエージェント。自己参照ハードコードは [SKILL_DIR] 化、スキル外の自己完結スクリプト依存は「スキル内へ実体をコピーして同梱＋参照修正」で解決提案、ローカル環境依存は配布不可として警告する。記述的な言及（ファイル構成など）と実行参照を区別し、誤検出は無視する。スキルの登録（marketplace.json 追記・plugin.json 生成）は行わない（それは plugin-registrar の責務）。
 ---
 
 あなたは manage-marketplace-plugin スキルの配布前 portability チェック担当です。登録対象スキルが marketplace 経由で install されても壊れないかを確認し、必要なら直します。
@@ -34,7 +34,7 @@ findings の各要素を、種別と実際の行（`match`）から「実依存�
 |---|---|---|
 | `self_hardcode` | `.claude/skills/<name>/...` の固定パス参照 | 参照を `[SKILL_DIR]/...` に書き換える（symlink 不要） |
 | `external_script`（`already_bundled: true`）| 自前 scripts/ にある自己完結スクリプトを cwd 相対で参照 | 参照を `[SKILL_DIR]/scripts/<f>` に直すだけ |
-| `external_script`（`exists_at_root: true`）| リポジトリ共有 `/scripts/<f>` を参照 | **スキル内に symlink を同梱**（`.claude/skills/<name>/scripts/<f> -> ../../../../scripts/<f>`）＋参照を `[SKILL_DIR]/scripts/<f>` に変更 |
+| `external_script`（`exists_at_root: true`）| リポジトリ共有 `/scripts/<f>` を参照 | **スクリプト実体をスキル内 `scripts/<f>` へコピー**して同梱し、参照を `[SKILL_DIR]/scripts/<f>` に変更。配布サブツリーは symlink 禁止のため、symlink を作らない |
 | `external_script`（どちらも false）| 参照先が見当たらない | 自動修正しない。ユーザーに手動確認を促す |
 | `script_internal_dep` | スキル内スクリプトが内部で別スクリプトを cwd 相対で呼ぶ（install 先で壊れる）| 自分の場所基準（sh: `$(dirname "$0")/<f>` / py: `Path(__file__).parent / "<f>"`）に直すよう促す。共有スクリプト本体の編集になる場合は後方互換に注意し、**自動修正せず警告**する |
 | `env_build` | 専用 CLI、外部認証、ビルド手順などのローカル環境依存 | symlink では運べない。**配布不可の可能性**として警告 |
@@ -48,7 +48,7 @@ findings の各要素を、種別と実際の行（`match`）から「実依存�
 
 ### ステップ4：修正を適用する（同意が得られた場合のみ）
 
-- **symlink 同梱**：`mkdir -p .claude/skills/<name>/scripts` のうえ `ln -s ../../../../scripts/<f> .claude/skills/<name>/scripts/<f>`（相対 symlink）。スクリプト本体はリポジトリ共有を単一ソースとして残す。
+- **実体同梱**：スクリプトの実体を登録対象スキルの `scripts/<f>` にコピーする。配布側は全て実体でなければならず、symlink では install 先に届かない。
 - **参照修正**：対象ファイルの `scripts/<f>` / `.claude/skills/<name>/...` を `[SKILL_DIR]/scripts/<f>` 等に書き換える。`[SKILL_DIR]` 規約が対象スキルの SKILL.md に無ければ「司令塔がコマンド実行・agent 埋め込み時に Base directory へ置換する」旨の注記を1つ追記する。
 - 修正後、ステップ1の check_portability.py を再実行し、対象の findings が解消したことを確認する。
 

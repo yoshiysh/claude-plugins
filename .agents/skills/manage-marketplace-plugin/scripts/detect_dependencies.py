@@ -17,11 +17,12 @@ import json
 import re
 import sys
 from pathlib import Path
+from path_safety import find_project_root, guard_skill_root, ensure_within, validate_name
 
 # .claude/skills/manage-marketplace-plugin/scripts から3つ上がリポジトリルート。
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = SKILL_DIR.parent.parent.parent
+PROJECT_ROOT = find_project_root(SCRIPT_DIR)
 SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 
 # 走査対象の拡張子（テキスト系のみ）。
@@ -32,8 +33,11 @@ def all_skill_names() -> list:
     """SKILL.md を持つ実在スキル名の一覧。"""
     if not SKILLS_DIR.is_dir():
         return []
-    return sorted(p.name for p in SKILLS_DIR.iterdir()
-                  if (p / "SKILL.md").is_file())
+    entries = sorted(SKILLS_DIR.iterdir())
+    for path in entries:
+        if path.is_symlink() or path.is_dir():
+            guard_skill_root(path, SKILLS_DIR, PROJECT_ROOT / "plugins", PROJECT_ROOT)
+    return [p.name for p in entries if p.is_dir() and (p / "SKILL.md").is_file()]
 
 
 def scan_for_mentions(skill: str, pool: list) -> dict:
@@ -43,6 +47,7 @@ def scan_for_mentions(skill: str, pool: list) -> dict:
     名前はハイフンを含むため `[\\w-]` 境界で部分一致を防ぐ。
     """
     root = SKILLS_DIR / skill
+    guard_skill_root(root, SKILLS_DIR, PROJECT_ROOT / "plugins", PROJECT_ROOT)
     patterns = {dep: re.compile(r"(?<![\w-])" + re.escape(dep) + r"(?![\w-])")
                 for dep in pool}
     hits = {}
@@ -69,6 +74,14 @@ def main() -> None:
     ap.add_argument("--skill", required=True, help="検査対象スキル名")
     args = ap.parse_args()
     target = args.skill
+
+    try:
+        ensure_within(SKILLS_DIR, SKILLS_DIR, PROJECT_ROOT)
+        validate_name(target, "skill")
+        guard_skill_root(SKILLS_DIR / target, SKILLS_DIR, PROJECT_ROOT / "plugins", PROJECT_ROOT)
+    except ValueError as exc:
+        print(json.dumps({"status": "error", "skill": target, "error": str(exc)}, ensure_ascii=False))
+        sys.exit(5)
 
     if not (SKILLS_DIR / target / "SKILL.md").is_file():
         print(json.dumps({"status": "error", "skill": target,

@@ -1,23 +1,11 @@
 ---
 name: manage-marketplace-plugin
 description: >
-  このリポジトリ内の既存スキル（.claude/skills/ 配下に実体があるもの）を、リポジトリ自身の
-  marketplace.json（ルートの .claude-plugin/marketplace.json）にプラグインとして登録・更新・公開するスキル。
-  plugin はカテゴリ単位（git / chat / research / notion / skill-creator 等）で複数スキルを収録でき、
-  既存カテゴリ plugin へのスキル追加にも対応する。未登録 plugin なら新規登録し、
-  登録済みなら更新する（version は明示が無ければ patch を自動インクリメント）。
-  marketplace.json への非破壊追記／更新、プラグインディレクトリと plugin.json（Claude 用・Codex 用の 2 系統）の生成、
-  README の雛形作成、スキル実体の plugins/ 配下への移動と開発用の逆 symlink 作成、install 先を模した検証までを自動化する。
-  対象スキルが別スキルを呼び出す連鎖依存を持つ場合は、未登録の依存スキルなら同一プラグインの skills 配下へ取り込み、
-  既に別 plugin に属するなら dependencies 宣言＋スキル呼び出しで解く（実体の複製はしない）。
-  「url-reader を research plugin に追加して」「既存スキルをプラグインとして公開して」
-  「このスキルを marketplace に登録して」「〇〇を /plugin で入れられるようにして」
-  「登録済みの 〇〇 を更新して／再公開して」「〇〇 の version を上げて公開し直して」
-  などのリクエストで使うこと。登録・更新対象スキル名への言及があれば積極的に使う。
-  既存の marketplace.json エントリ・README は壊さない非破壊・冪等が既定（更新時は plugin.json の version を上げ、
-  plugin.json と逆 symlink を現状へ再同期する）。
-  スキル本体（SKILL.md）の作成・編集は対象外（それは skill-creator-best-practices の役割）。
-  marketplace.json の内容閲覧のみ・プラグインのアンインストール・公開済みプラグインの削除も対象外。
+  .agents/skills/ を正本とするこのリポジトリのスキルを、Claude と Codex の marketplace（.claude-plugin/marketplace.json と .agents/plugins/marketplace.json）へ登録・更新する。
+  既存カテゴリ plugin への追加と新規 plugin の作成に対応し、両 catalog と Claude/Codex の plugin.json、README、開発用 symlink を同期して install 先を検証する。
+  version の指定がなければ更新時に patch を上げる。スキルが別スキルを呼ぶ場合、未登録の依存は同一 plugin に含め、別 plugin の依存は dependencies 宣言とスキル呼び出しで解決する（実体は複製しない）。
+  「スキルを marketplace に登録／公開して」「既存 plugin に追加して」「登録済み plugin を更新／再公開して」など、登録・更新対象への言及がある依頼で使う。
+  marketplace.json の閲覧のみ、アンインストール、公開済み plugin の削除、およびスキル本体の作成・編集は対象外（後者は skill-creator-best-practices の役割）。
 ---
 
 # マーケットプレイス・プラグイン登録／更新スキル
@@ -30,7 +18,7 @@ SKILL.md はフロー進行（誰に何を渡すか・分岐・完了条件）�
 
 ## 何のためのスキルか（Why）
 
-`.agents/skills/<name>/` にあるスキルを社内マーケットプレイス（ルートの `.claude-plugin/marketplace.json`）で配布するには、毎回 marketplace.json への追記・プラグインディレクトリ作成・plugin.json/README 生成・スキル実体の移動・検証を手作業で行う必要がある。手作業では既存 plugins 配列の誤上書き・JSON 破壊・重複登録・実体の取り違えが起きやすい。本スキルはこれらを非破壊・冪等なスクリプトに寄せ、**実体を常に1箇所**に保ったまま安全に公開する。
+`.agents/skills/<name>/` にあるスキルを Claude と Codex の marketplace で配布するには、2つの catalog への追記・プラグインディレクトリ作成・plugin.json/README 生成・スキル実体の移動・検証が必要になる。手作業では既存 entries の誤上書き・JSON 破壊・重複登録・実体の取り違えが起きやすい。本スキルはこれらを非破壊・冪等なスクリプトに寄せ、**実体を常に1箇所**に保ったまま安全に公開する。
 
 配布サブツリー（`plugins/<plugin>/` 配下）には symlink を置かない。Claude Code は同一 marketplace 内を指す symlink を dereference するが、Codex は plugin サブツリーだけを取得して symlink を落とすため、`skills/` が空のまま install が「成功」してしまう（実測）。そのため公開時にスキル実体を `plugins/` へ移し、リポジトリ内の開発用参照（`.agents/skills/<name>`）を symlink にする向きにしている。
 
@@ -43,7 +31,7 @@ SKILL.md はフロー進行（誰に何を渡すか・分岐・完了条件）�
   │
   ▼
 agents/input-resolver（sonnet）
-  │  スキル名の表記ゆれを .claude/skills/ 実ディレクトリ名と照合して解決
+  │  スキル名の表記ゆれを .agents/skills/ のスキルディレクトリ名と照合して解決
   │  SKILL.md 実在確認 / 登録先 plugin（既存追加・新カテゴリ新設・同名新規）の決定
   │  plugin 名と公開名の重複・冗長（chat:chat / notion:notion-* 型）を検出したら
   │  簡潔化候補つきで AskUserQuestion 確認
@@ -76,7 +64,9 @@ agents/plugin-registrar（sonnet）
   │
   ├─ exit 2（marketplace.json 破損）  → 中断して手動修正を案内
   ├─ exit 3（SKILL.md 欠落）          → 設置不備として終了
-  ├─ exit 4（update=false なのに既存）→ --update を付けて再実行（非破壊。報告に記載）
+  ├─ exit 4（衝突）                 → stderr を確認し、更新で解決する衝突ならユーザーへ明示確認
+  │                                    同意後のみ --update で再実行。それ以外は中断して指示を待つ
+  ├─ exit 5（名前形式不正／path逸脱）→ 許可形式または checkout 外の root/write destination を伝えて修正を依頼
   │
   ▼  exit 0（added / updated）
 agents/install-verifier（sonnet）
@@ -145,9 +135,11 @@ plugin-registrar は `scripts/register_plugin.py` を実行し、JSON レポー�
 
 - `update=true`（input-resolver が登録済みと判定）の場合は `--update` を付けて実行する。これが**更新の正常系**で、register_plugin.py が version を patch+1（ユーザー version 明示時はそれ）に上げ、plugin.json と逆 symlink を現状へ再同期し、レポートの `marketplace_entry: updated` と `version` / `version_bump` を返す。
 - `update=false`（未登録）の場合は `--update` なしで実行する。これが**新規登録の正常系**（`marketplace_entry: added` / version 0.1.0）。
-- 万一 `update=false` で実行したのに既存だった場合（exit 4）は、`--update` を付けて**そのまま再実行する**。理由：このスキルの契約は「未登録なら登録、登録済みなら更新」であり、既存だったと判明した時点で正しい操作は更新に決まる。`--update` は非破壊（marketplace.json の他エントリを保持し、手書き README を上書きせず、version を patch+1 するだけ）なので、聞いて得られるのは同じ答えだけ。input-resolver の判定とズレていた事実は最終報告に載せる（黙って呑み込まない）。
+- 万一 `update=false` で実行したのに既存だった場合（exit 4）は、input-resolver の判定とズレているため中断し、**更新してよいかユーザーへ明示確認する**。同意後のみ `--update` を付けて再実行し、拒否なら終了する。他の exit 4（実体の不整合など）は自動再試行せず、stderr の原因を伝えてユーザーの指示を待つ。
 
 登録/更新が異常終了（破損 JSON・SKILL.md 欠落・想定外衝突）した場合は、自動修復していない旨と対処方法を伝えて終了する（後続の検証には進まない）。報告では「新規登録」か「更新（version X→Y）」かを明示する。
+
+`register_plugin.py` は Claude の `.claude-plugin/marketplace.json` と Codex の `.agents/plugins/marketplace.json` を同じ `plugins/<plugin>` 実体に同期する。管理対象の Codex catalog source は `{ "source": "local", "path": "./plugins/<plugin>" }`。未対応の source kind は誤った schema を書き換えないよう exit 2 で拒否する。entry の不足 policy は `installation: AVAILABLE` / `authentication: ON_INSTALL` で補い、category は既存値または Codex manifest の値を使う。既存 Codex-only entries・top-level metadata・既存 entry の policy/category は保つ。登録レポートの `actions.codex_marketplace` で追加・更新・維持した entry を確認する。
 
 ### ステップ4：install-verifier を呼ぶ（登録後検証 L2＋L3）
 
@@ -175,17 +167,19 @@ install-verifier は `scripts/verify_install.py` を実行し、L2（バンド�
 
 ## 設計上の不変条件（守るべきルール）
 
-- **非破壊**：marketplace.json の既存 `plugins` 配列要素・他トップレベルキー（name / description / owner）は保持する。既存の plugin.json・README.md は上書きしない。これは他人が登録済みのプラグイン定義や手書き README を壊さないため。
+- **既存 metadata の保持**：Claude catalog の既存 entry にある未知フィールドと、Codex catalog の独自 entries・top-level metadata・既存 policy/category は保持する。plugin.json は更新時に再生成し、既存 Codex `interface` と未指定の description/dependencies を引き継ぐが、それ以外の独自フィールドは引き継がない。手書き README は上書きしない。
+- **Claude/Codex catalog 同期**：`.claude-plugin/marketplace.json` を plugin 集合の正本とし、その entries を `.agents/plugins/marketplace.json` に反映する。両 catalog は同じ `plugins/<name>` 実体を参照する。Codex catalog の独自 entries と top-level metadata は保持する。
 - **冪等**：同じスキルを2回登録しても marketplace.json のエントリは重複せず、既に移動済みのスキルは `relocate: "kept"` になる。再実行は安全（登録済みなら更新として扱われる）。
-- **登録済みは更新（破壊しない）**：既に登録済みのスキルは新規登録ではなく更新として扱い、plugin.json の version を上げて plugin.json / 逆 symlink を現状へ再同期する。手書き README は上書きしない。
+- **登録済みは更新**：既に登録済みのスキルは新規登録ではなく更新として扱い、plugin.json を再生成して version とマニフェストを同期し、逆 symlink を現状へ再同期する。既存 Codex `interface` と未指定の description/dependencies は引き継ぎ、手書き README は上書きしない。
 - **配布サブツリーに symlink を置かない**：`plugins/<plugin>/` 配下は全て実体でなければならない。Claude Code は同一 marketplace 内を指す symlink を dereference するが、Codex は plugin サブツリーだけを取得して symlink を落とすため、`skills/` が空のまま install が「成功」する（実測）。この不変条件が本スキルで最も重要。
 - **公開は実体の移動**：登録時にスキル実体を `.agents/skills/<skill>` から `plugins/<plugin>/skills/<skill>` へ移し、`.agents/skills/<skill>` を移動先への相対 symlink に置き換える。開発中は `.agents/skills/` に実体、公開後は `plugins/` に実体、という向きになる。
 - **ディレクトリ名は実体名**：公開名（`/plugin:skill` の skill 部分）は frontmatter の `name` が担うため、ディレクトリ名を公開名に変えない。install 先のキャッシュはこのディレクトリ名で作られるため、`[SKILL_DIR]/../<兄弟スキル>/` のようなディレクトリ名参照が名前の変更で壊れる。
 - **実在確認の前置**：登録前に対象スキルの `SKILL.md` の実在を確認する。存在しないスキルを登録すると壊れたプラグインが公開されるため。
 - **破損は中断**：marketplace.json が壊れた JSON の場合は自動修復せず中断する（他人のエントリを失う恐れがあるため）。不在は新規作成と明確に区別する。
+- **directory 名は検証してから使う**：plugin 名と `--skill` / `--bundle-skill` / `--as` の directory 名は、小文字英数字をハイフンで区切る形式に限定する。path を組み立てる前に検証し、解決後の参照先も `.agents/skills/` または対象 plugin の `skills/` 配下にあることを確認する。外れた値や symlink は fail-closed で拒否する。
 - **本体は単一ソース**：スキル実体は常に 1 箇所。symlink が使えない以上、複数 plugin での共有はコピーになり drift するため、既に別 plugin に属するスキルの同梱は exit 4 で中断する。
 - **plugin 間依存は宣言と呼び出しで解く**：別 plugin のスキルが必要な場合は `--depends-on <plugin>` で `.claude-plugin/plugin.json` の `dependencies` に宣言し、呼び出し側はスキル呼び出しを使う（相手のファイルをパス参照しない）。Codex に同等機能は無いため、Codex では依存 plugin を手動 install する前提になる。
-- **マニフェストは 2 系統**：`.claude-plugin/plugin.json` と `.codex-plugin/plugin.json` の両方を生成する。`dependencies` は Claude 側だけに書く（Codex 仕様に無く、未知フィールドの許容も明記されていないため）。それ以外のフィールドは一致させる。
+- **Codex manifest は互換 fallback**：このリポジトリは `.claude-plugin/plugin.json` と `.codex-plugin/plugin.json` を生成する。Codex の portable 形式は plugin root の `plugin.json` が正規入口で、`.codex-plugin/plugin.json` は root manifest を使わない既存形式の互換 fallback。新規 portable 形式への移行は別途必要。`dependencies` は Claude 側だけに書き、それ以外の共通フィールドは揃える。
 
 ## 前提・制約
 
@@ -197,7 +191,7 @@ install-verifier は `scripts/verify_install.py` を実行し、L2（バンド�
 ## ファイル構成
 
 ```
-.claude/skills/manage-marketplace-plugin/
+.agents/skills/manage-marketplace-plugin/
   SKILL.md                  このファイル（フロー進行）
   agents/
     input-resolver.md       スキル名解決・実在確認・登録/更新判定・メタ情報決定（sonnet）

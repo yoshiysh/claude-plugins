@@ -394,6 +394,8 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 新しい `intent` での update 再実行に一本化）。指紋照合・コピー対象・非承認時の扱い・純化の理由とコストは
 参照先が正本。完了条件は、非承認で終了・指紋一致でコピー・指紋不一致でコピー拒否のいずれかが確定すること。
 
+スキルを新規 plugin に登録する場合、既存 plugin に追加する場合、または plugin 配布内容を更新する場合は、承認済みスキル変更の反映後に `manage-marketplace-plugin` が同一環境で利用可能ならそれを呼び、Claude と Codex の catalog を同期する。Claude の `.claude-plugin/marketplace.json` と OpenAI 仕様の `.agents/plugins/marketplace.json` は同じ `plugins/<name>` 実体を参照する。catalog や manifest をこのスキルから直接編集しない。manage スキルが利用できない環境では未公開 skill への依存を仮定せず、plugin 公開・catalog 同期が別途必要と明示する。Codex 側の schema・entry policy・既存 metadata 保持は `manage-marketplace-plugin` の登録処理を正とする。
+
 ## 入出力の定義
 
 description に書いた 3 つの守備範囲と 1 対 1 で対応する。

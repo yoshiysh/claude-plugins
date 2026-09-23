@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """既存スキルをリポジトリの marketplace.json にプラグインとして登録するスクリプト。
 
-`plugins/<plugin>/` に公開用のプラグインディレクトリを作り、そこに manifest
-（`.claude-plugin/plugin.json` と `.codex-plugin/plugin.json` の両方）と README を生成し、
+`plugins/<plugin>/` に公開用のプラグインディレクトリを作り、そこに Claude manifest と Codex の
+互換 fallback manifest（`.claude-plugin/plugin.json` と `.codex-plugin/plugin.json`）および README を生成し、
 **スキル実体を `.agents/skills/<skill>` から `plugins/<plugin>/skills/<公開名>` へ移動**して、
 `.agents/skills/<skill>` を移動先への相対 symlink に置き換える。marketplace.json の plugins には
 {name, source: "./plugins/<plugin>"} を非破壊で追記する。
@@ -39,27 +39,28 @@ plugin はカテゴリ単位で複数スキルを収録できる（例: plugins/
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
+from path_safety import find_project_root, guard_plugin_root, guard_skill_root, guard_tree
 
-# このファイルの位置を起点にパスを解決する（cwd 非依存）。
-# .claude/skills/manage-marketplace-plugin/scripts から3つ上がリポジトリルート。
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = SKILL_DIR.parent.parent.parent
+PROJECT_ROOT = find_project_root(SCRIPT_DIR)
 
-SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 # スキルの開発用置き場（実体または plugins/ への symlink）。編集はこちら側から行う。
 AGENTS_SKILLS_DIR = PROJECT_ROOT / ".agents" / "skills"
 MARKETPLACE_PATH = PROJECT_ROOT / ".claude-plugin" / "marketplace.json"
+CODEX_MARKETPLACE_PATH = PROJECT_ROOT / ".agents" / "plugins" / "marketplace.json"
 # 公開用プラグインディレクトリの置き場（ルート直下を散らかさないよう plugins/ に集約）。
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 # .agents/skills/ から plugins/<plugin>/skills/<name> までの相対深さ（.. を2つ）。
 BACKLINK_PREFIX = (os.pardir, os.pardir)
-# manifest を置くディレクトリ。Claude は .claude-plugin、Codex は .codex-plugin を読む。
+# Codex 用 .codex-plugin/plugin.json は、root plugin.json を使わない既存形式の互換 fallback。
 MANIFEST_DIRS = (".claude-plugin", ".codex-plugin")
 # Claude 側だけに書くフィールド。Claude Code は未知フィールドを無視すると明記しているが、
 # Codex 側にその保証が無いため、Codex 仕様に無い項目は .codex-plugin へ入れない。
@@ -73,6 +74,12 @@ DEFAULT_MARKETPLACE = {
     "plugins": [],
 }
 
+DEFAULT_CODEX_MARKETPLACE = {
+    "name": "yoshiysh-claude-plugins",
+    "interface": {"displayName": "Yoshiysh Plugins"},
+    "plugins": [],
+}
+
 # 4スペースインデント（既存 marketplace.json / plugin.json の様式に合わせる）。
 INDENT = 4
 
@@ -80,6 +87,9 @@ EXIT_OK = 0
 EXIT_CORRUPT = 2     # marketplace.json が壊れた JSON
 EXIT_NO_SKILL = 3    # 対象スキルの SKILL.md が無い
 EXIT_CONFLICT = 4    # 同名エントリ衝突（--update 未指定）/ 想定外の実体
+EXIT_INVALID = 5    # 名前形式または許可 path root が不正
+PLUGIN_NAME_PATTERN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+SKILL_DIR_NAME_PATTERN = PLUGIN_NAME_PATTERN
 
 
 def fail(exit_code: int, *lines: str) -> None:
@@ -88,13 +98,112 @@ def fail(exit_code: int, *lines: str) -> None:
     sys.exit(exit_code)
 
 
+def validate_plugin_name(name: str) -> str:
+    """Accept lowercase kebab-case names before using them in filesystem paths."""
+    if not isinstance(name, str) or not re.fullmatch(PLUGIN_NAME_PATTERN, name):
+        fail(EXIT_INVALID,
+             f"ERROR: plugin 名が許可形式ではありません: {name!r}",
+             "  小文字英数字をハイフンで区切った名前を指定してください。")
+    return name
+
+
+def validate_skill_dir_name(name: str, option: str = "skill") -> str:
+    """Accept existing lowercase kebab-case skill directory names only."""
+    if not isinstance(name, str) or not re.fullmatch(SKILL_DIR_NAME_PATTERN, name):
+        fail(EXIT_INVALID,
+             f"ERROR: {option} 名が許可形式ではありません: {name!r}",
+             "  小文字英数字をハイフンで区切った名前を指定してください。")
+    return name
+
+
+def ensure_path_within(path: Path, roots: list[Path], label: str) -> Path:
+    """Reject symlink-resolved paths outside their designated repository roots."""
+    try:
+        resolved = path.resolve()
+        resolved_roots = [root.resolve() for root in roots]
+    except (OSError, RuntimeError):
+        fail(EXIT_INVALID, f"ERROR: {label} の実パスを安全に解決できません: {path}")
+    if not any(resolved == root or root in resolved.parents for root in resolved_roots):
+        fail(EXIT_INVALID, f"ERROR: {label} が許可されたディレクトリの外を指しています: {path}")
+    return path
+
+
+def ensure_project_path(path: Path, label: str) -> Path:
+    return ensure_path_within(path, [PROJECT_ROOT], label)
+
+
+def preflight_file_path(path: Path, label: str) -> Path:
+    """Reject symlinks and invalid parent shapes before reading or writing a file."""
+    try:
+        relative = path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        fail(EXIT_INVALID, f"ERROR: {label} が checkout 外です: {path}")
+    current = PROJECT_ROOT
+    if current.is_symlink() or not current.is_dir():
+        fail(EXIT_INVALID, f"ERROR: checkout root が通常ディレクトリではありません: {current}")
+    for part in relative.parts[:-1]:
+        current = current / part
+        if current.is_symlink():
+            fail(EXIT_INVALID, f"ERROR: {label} の親ディレクトリに symlink は使えません: {current}")
+        if current.exists() and not current.is_dir():
+            fail(EXIT_INVALID, f"ERROR: {label} の親がディレクトリではありません: {current}")
+    if path.is_symlink():
+        fail(EXIT_INVALID, f"ERROR: {label} に symlink は使えません: {path}")
+    if path.exists() and not path.is_file():
+        fail(EXIT_INVALID, f"ERROR: {label} が通常ファイルではありません: {path}")
+    return ensure_project_path(path, label)
+
+
+def validate_repository_roots() -> None:
+    for root, label in ((AGENTS_SKILLS_DIR, ".agents/skills"),
+                        (PLUGINS_DIR, "plugins"),
+                        (MARKETPLACE_PATH.parent, ".claude-plugin"),
+                        (CODEX_MARKETPLACE_PATH.parent, ".agents/plugins")):
+        ensure_project_path(root, label)
+
+
+def plugin_dir_path(plugin: str) -> Path:
+    validate_plugin_name(plugin)
+    path = PLUGINS_DIR / plugin
+    guard_plugin_root(path, PLUGINS_DIR, PROJECT_ROOT)
+    return ensure_path_within(path, [PLUGINS_DIR], "plugin directory")
+
+
+def plugin_skills_path(plugin: str) -> Path:
+    plugin_dir = plugin_dir_path(plugin)
+    path = plugin_dir / "skills"
+    if path.is_symlink():
+        fail(EXIT_INVALID, f"ERROR: plugin skills directory に symlink は使えません: {path}")
+    if path.exists() and not path.is_dir():
+        fail(EXIT_INVALID, f"ERROR: plugin skills path がディレクトリではありません: {path}")
+    return ensure_path_within(path, [plugin_dir], "plugin skills directory")
+
+
+def skill_source_path(name: str) -> Path:
+    validate_skill_dir_name(name)
+    return ensure_path_within(AGENTS_SKILLS_DIR / name, skill_source_roots(), "skill directory")
+
+
 def verify_skill_exists(name: str) -> None:
     """対象スキルの SKILL.md 実在を確認する。無ければ中断。"""
-    skill_md = SKILLS_DIR / name / "SKILL.md"
+    validate_skill_dir_name(name)
+    source = skill_source_path(name)
+    skill_md = ensure_path_within(source / "SKILL.md", skill_source_roots(), "SKILL.md")
     if not skill_md.is_file():
         fail(EXIT_NO_SKILL,
              f"ERROR: 対象スキルの SKILL.md が見つかりません: {skill_md}",
              "  登録対象スキルがリポジトリに実在するか確認してください。")
+
+
+def skill_source_roots() -> list[Path]:
+    roots = [AGENTS_SKILLS_DIR]
+    if PLUGINS_DIR.is_dir():
+        roots.extend(
+            plugin_skills_path(plugin_dir.name)
+            for plugin_dir in PLUGINS_DIR.iterdir()
+            if plugin_dir.is_dir() and re.fullmatch(PLUGIN_NAME_PATTERN, plugin_dir.name)
+        )
+    return roots
 
 
 def frontmatter_name(skill: str) -> str:
@@ -103,7 +212,8 @@ def frontmatter_name(skill: str) -> str:
     公開名（skills/ 配下のエントリ名）の既定値。frontmatter の name が
     ディレクトリ名より優先される公式仕様に合わせ、公開名も name に揃える。
     """
-    skill_md = SKILLS_DIR / skill / "SKILL.md"
+    skill_md = ensure_path_within(skill_source_path(skill) / "SKILL.md",
+                                  skill_source_roots(), "SKILL.md")
     try:
         text = skill_md.read_text(encoding="utf-8")
     except OSError:
@@ -122,6 +232,7 @@ def load_marketplace() -> tuple[dict, bool]:
     - 不在 → (雛形, True)
     - 破損 → 中断（他人のエントリを失わないため自動修復しない）
     """
+    preflight_file_path(MARKETPLACE_PATH, "Claude marketplace file")
     if not MARKETPLACE_PATH.exists():
         return json.loads(json.dumps(DEFAULT_MARKETPLACE)), True
     try:
@@ -138,6 +249,10 @@ def load_marketplace() -> tuple[dict, bool]:
              "ERROR: marketplace.json のトップレベルがオブジェクトではありません。")
     if not isinstance(data.get("plugins"), list):
         data["plugins"] = []  # plugins キーが無い/不正なら空配列で補う（他キーは保持）
+    names = [entry.get("name") for entry in data["plugins"] if isinstance(entry, dict)]
+    names = [name for name in names if isinstance(name, str)]
+    if len(names) != len(set(names)):
+        fail(EXIT_CORRUPT, "ERROR: marketplace.json に重複した plugin name があります。")
     return data, False
 
 
@@ -155,18 +270,220 @@ def merge_marketplace_entry(data: dict, plugin: str, update: bool) -> str:
                 fail(EXIT_CONFLICT,
                      f"ERROR: plugin '{plugin}' は既に marketplace.json に登録済みです。",
                      "  更新（スキル追加を含む）の場合は --update を付けて再実行してください。")
-            plugins[i] = entry  # 冪等: 内容を正規形に揃える
+            plugins[i] = {**p, **entry}
             return "updated"
     plugins.append(entry)
     return "added"
 
 
 def write_marketplace(data: dict) -> None:
+    preflight_file_path(MARKETPLACE_PATH, "Claude marketplace destination")
     MARKETPLACE_PATH.parent.mkdir(parents=True, exist_ok=True)
     MARKETPLACE_PATH.write_text(
         json.dumps(data, indent=INDENT, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+
+def load_codex_marketplace() -> tuple[dict, bool]:
+    """Read the Codex repository plugin catalog, creating its initial shape when absent."""
+    preflight_file_path(CODEX_MARKETPLACE_PATH, "Codex marketplace file")
+    if not CODEX_MARKETPLACE_PATH.exists():
+        return json.loads(json.dumps(DEFAULT_CODEX_MARKETPLACE)), True
+    try:
+        data = json.loads(CODEX_MARKETPLACE_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        fail(EXIT_CORRUPT,
+             "ERROR: Codex marketplace.json が壊れた JSON です。",
+             f"  path: {CODEX_MARKETPLACE_PATH}", f"  detail: {e}")
+    if not isinstance(data, dict):
+        fail(EXIT_CORRUPT, "ERROR: Codex marketplace.json のトップレベルがオブジェクトではありません。")
+    if not isinstance(data.get("name"), str) or not data["name"]:
+        fail(EXIT_CORRUPT, "ERROR: Codex marketplace.json に name がありません。")
+    interface = data.get("interface")
+    if (not isinstance(interface, dict)
+            or not isinstance(interface.get("displayName"), str)
+            or not interface["displayName"].strip()):
+        fail(EXIT_CORRUPT,
+             "ERROR: Codex marketplace.json に空でない interface.displayName がありません。")
+    plugins = data.get("plugins")
+    if not isinstance(plugins, list):
+        fail(EXIT_CORRUPT, "ERROR: Codex marketplace.json の plugins が配列ではありません。")
+    names = [p.get("name") for p in plugins if isinstance(p, dict)]
+    if len(names) != len(plugins) or any(not isinstance(n, str) or not n for n in names):
+        fail(EXIT_CORRUPT, "ERROR: Codex marketplace.json の plugins に不正な entry があります。")
+    if len(names) != len(set(names)):
+        fail(EXIT_CORRUPT, "ERROR: Codex marketplace.json に重複した plugin name があります。")
+    def invalid_source(entry: dict, reason: str) -> None:
+        fail(EXIT_CORRUPT,
+             f"ERROR: Codex catalog entry '{entry['name']}' の source が不正です: {reason}")
+
+    def validate_remote_url(value: object) -> bool:
+        if not isinstance(value, str) or not value.strip() or any(c.isspace() for c in value):
+            return False
+        try:
+            parsed = urlparse(value)
+            hostname = parsed.hostname or ""
+            parsed.port
+            if ":" in hostname:
+                ipaddress.ip_address(hostname)
+                hostname_valid = True
+            else:
+                label = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                hostname_valid = bool(re.fullmatch(rf"{label}(?:\.{label})*\.?", hostname))
+        except ValueError:
+            return False
+        authority = parsed.netloc.rsplit("@", 1)[-1]
+        return (parsed.scheme in {"https", "http", "ssh", "git"}
+                and bool(parsed.netloc) and hostname_valid and not authority.endswith(":"))
+
+    def validate_local_path(value: object, entry: dict) -> None:
+        if not isinstance(value, str) or not value.startswith("./"):
+            invalid_source(entry, "local path は './' 相対である必要があります")
+        resolved = (PROJECT_ROOT / value).resolve()
+        try:
+            resolved.relative_to(PROJECT_ROOT.resolve())
+        except ValueError:
+            invalid_source(entry, f"local path が marketplace root の外を指しています: {value}")
+
+    for entry in plugins:
+        source = entry.get("source")
+        policy = entry.get("policy")
+        if isinstance(source, str):
+            validate_local_path(source, entry)
+        elif isinstance(source, dict) and isinstance(source.get("source"), str):
+            kind = source["source"]
+            if kind == "local":
+                validate_local_path(source.get("path"), entry)
+            elif kind == "url":
+                if not validate_remote_url(source.get("url")):
+                    invalid_source(entry, "url source に有効な url が必要です")
+            elif kind == "git-subdir":
+                if not validate_remote_url(source.get("url")):
+                    invalid_source(entry, "git-subdir source に有効な url が必要です")
+                path_value = source.get("path")
+                if (not isinstance(path_value, str) or not path_value.startswith("./")
+                        or "\\" in path_value
+                        or ".." in Path(path_value).parts):
+                    invalid_source(entry, "git-subdir path は './' 相対である必要があります")
+                if any(not isinstance(source[k], str) or not source[k].strip()
+                       for k in ("ref", "sha") if k in source):
+                    invalid_source(entry, "git-subdir ref/sha は空でない文字列である必要があります")
+            elif kind == "npm":
+                if not isinstance(source.get("package"), str) or not source["package"].strip():
+                    invalid_source(entry, "npm source に package が必要です")
+                if any(not isinstance(source[k], str) or not source[k].strip()
+                       for k in ("version", "registry") if k in source):
+                    invalid_source(entry, "npm version/registry は空でない文字列である必要があります")
+                if "registry" in source:
+                    try:
+                        registry = urlparse(source["registry"])
+                        port = registry.port
+                        hostname = registry.hostname or ""
+                    except ValueError as exc:
+                        invalid_source(entry, f"npm registry URL が不正です: {exc}")
+                    host_label = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                    if ":" in hostname:
+                        try:
+                            ipaddress.ip_address(hostname)
+                            hostname_valid = True
+                        except ValueError:
+                            hostname_valid = False
+                    else:
+                        hostname_valid = bool(re.fullmatch(
+                            rf"{host_label}(?:\.{host_label})*\.?", hostname))
+                    authority = registry.netloc.rsplit("@", 1)[-1]
+                    if (registry.scheme != "https" or not hostname or any(c.isspace() for c in hostname)
+                            or not hostname_valid or authority.endswith(":")
+                            or (port is not None and not 1 <= port <= 65535)
+                            or "@" in registry.netloc or registry.username is not None
+                            or registry.password is not None or registry.query or registry.fragment):
+                        invalid_source(entry, "npm registry は有効な host/port を持ち、userinfo/query/fragment を含まない HTTPS URL が必要です")
+            else:
+                invalid_source(entry, f"未知の source type: {kind}")
+        else:
+            invalid_source(entry, "未対応の source 形式です")
+        if policy is not None and not isinstance(policy, dict):
+            fail(EXIT_CORRUPT, f"ERROR: Codex catalog entry '{entry['name']}' の policy が不正です。")
+        policy = policy or {}
+        if "installation" in policy and (not isinstance(policy["installation"], str)
+                or policy["installation"] not in {"AVAILABLE", "INSTALLED_BY_DEFAULT", "NOT_AVAILABLE"}):
+            fail(EXIT_CORRUPT,
+                 f"ERROR: Codex catalog entry '{entry['name']}' の installation policy が不正です: {policy['installation']}")
+        if "authentication" in policy and (not isinstance(policy["authentication"], str)
+                or not policy["authentication"].strip()):
+            fail(EXIT_CORRUPT,
+                 f"ERROR: Codex catalog entry '{entry['name']}' の authentication policy が空です。")
+        if "category" in entry and (not isinstance(entry["category"], str) or not entry["category"]):
+            fail(EXIT_CORRUPT, f"ERROR: Codex catalog entry '{entry['name']}' の category がありません。")
+        entry["policy"] = {"installation": "AVAILABLE", "authentication": "ON_INSTALL", **policy}
+    return data, False
+
+
+def codex_category(plugin: str, existing: dict | None) -> str:
+    """Use the catalog's existing category, then plugin UI metadata, then the default."""
+    category = existing.get("category") if isinstance(existing, dict) else None
+    if isinstance(category, str) and category:
+        return category
+    path = plugin_dir_path(plugin) / ".codex-plugin" / "plugin.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")).get("interface", {}).get("category")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        value = None
+    return value if isinstance(value, str) and value else "Productivity"
+
+
+def merge_codex_catalog(data: dict, claude_marketplace: dict) -> dict:
+    """Sync Claude-listed plugins into the Codex catalog while retaining unrelated entries."""
+    entries = data["plugins"]
+    by_name = {entry["name"]: entry for entry in entries}
+    actions = {"added": [], "updated": [], "kept": []}
+    for claude_entry in claude_marketplace["plugins"]:
+        if not isinstance(claude_entry, dict) or not isinstance(claude_entry.get("name"), str):
+            continue
+        name = claude_entry["name"]
+        validate_plugin_name(name)
+        current = by_name.get(name)
+        current = current if isinstance(current, dict) else None
+        if current and "policy" in current and not isinstance(current["policy"], dict):
+            fail(EXIT_CORRUPT, f"ERROR: Codex catalog entry '{name}' の policy がオブジェクトではありません。")
+        policy = dict(current.get("policy", {})) if current else {}
+        policy.setdefault("installation", "AVAILABLE")
+        policy.setdefault("authentication", "ON_INSTALL")
+        canonical = {
+            "name": name,
+            "source": {"source": "local", "path": f"./plugins/{name}"},
+            "policy": policy,
+        }
+        if current and "category" in current and not isinstance(current["category"], str):
+            fail(EXIT_CORRUPT, f"ERROR: Codex catalog entry '{name}' の category が文字列ではありません。")
+        if current is None or not current.get("category"):
+            canonical["category"] = codex_category(name, current)
+        if current is None:
+            entries.append(canonical)
+            by_name[name] = canonical
+            actions["added"].append(name)
+            continue
+        merged = {**current, **canonical}
+        if merged != current:
+            current.clear()
+            current.update(merged)
+            actions["updated"].append(name)
+        else:
+            actions["kept"].append(name)
+    for entry in entries:
+        entry.setdefault("category", "Productivity")
+    return actions
+
+
+def write_codex_marketplace(data: dict) -> None:
+    ensure_project_path(CODEX_MARKETPLACE_PATH, "Codex marketplace destination")
+    CODEX_MARKETPLACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CODEX_MARKETPLACE_PATH.write_text(
+        json.dumps(data, indent=INDENT, ensure_ascii=False) + "\n", encoding="utf-8")
+    written = json.loads(CODEX_MARKETPLACE_PATH.read_text(encoding="utf-8"))
+    if written != data:
+        fail(EXIT_CORRUPT, "ERROR: Codex marketplace.json の書き込み後 readback が一致しません。")
 
 
 def build_plugin_json(plugin: str, version: str, author: str, description: str,
@@ -236,54 +553,60 @@ def write_plugin_files(plugin: str, public_name: str, skill: str, version: str,
     """ルート plugin dir に plugin.json を生成し、README は既存があれば保持する。
 
     plugin.json の共通フィールドは両環境で揃える。interface は Codex 専用として保持する。Claude Code は
-    legacy 互換で .claude-plugin を読むが、Codex の公式仕様は .codex-plugin/plugin.json を
-    required としているため、片方だけだと将来の regression で落ちる。
+    Codex portable 形式の root plugin.json ではなく、既存の .codex-plugin/plugin.json
+    compatibility fallback を生成する。portable root manifest 化は別途必要。
 
     戻り値: {"plugin_json": "created", "readme": "created"|"kept"}
     """
+    plugin_dir_path(plugin)
     # 既存カテゴリ plugin への追加登録で description 未指定のとき、
     # 既存 plugin.json の description（plugin 全体の説明）を消さない。
     if not description:
-        pj = PLUGINS_DIR / plugin / MANIFEST_DIRS[0] / "plugin.json"
+        pj = plugin_dir_path(plugin) / MANIFEST_DIRS[0] / "plugin.json"
         if pj.is_file():
             try:
                 description = json.loads(
                     pj.read_text(encoding="utf-8")).get("description", "")
             except (json.JSONDecodeError, OSError):
                 pass
-    # dependencies 未指定なら既存の宣言を落とさない（description と同じ扱い）。
-    if dependencies is None:
-        pj = PLUGINS_DIR / plugin / MANIFEST_DIRS[0] / "plugin.json"
-        if pj.is_file():
-            try:
-                dependencies = json.loads(
-                    pj.read_text(encoding="utf-8")).get("dependencies")
-            except (json.JSONDecodeError, OSError):
-                pass
+    pj = plugin_dir_path(plugin) / MANIFEST_DIRS[0] / "plugin.json"
+    existing_claude = json.loads(pj.read_text(encoding="utf-8")) if pj.is_file() else {}
+    if not isinstance(existing_claude, dict):
+        raise ValueError("Claude plugin manifest must be an object")
+    existing_dependencies = existing_claude.get("dependencies", [])
+    if not isinstance(existing_dependencies, list) or any(not isinstance(d, str) for d in existing_dependencies):
+        raise ValueError("Claude dependencies must be an array of strings")
+    dependencies = list(dict.fromkeys([*existing_dependencies, *(dependencies or [])]))
     # Read before either write: malformed existing UI metadata must not be silently lost.
-    codex_path = PLUGINS_DIR / plugin / ".codex-plugin" / "plugin.json"
+    plugin_dir = plugin_dir_path(plugin)
+    codex_path = plugin_dir / ".codex-plugin" / "plugin.json"
     interface = None
     if codex_path.is_file():
         existing = json.loads(codex_path.read_text(encoding="utf-8"))
+        if not isinstance(existing, dict):
+            raise ValueError("Codex plugin manifest must be an object")
         if "interface" in existing:
             interface = existing["interface"]
             if not isinstance(interface, dict):
                 raise ValueError("Codex interface must be an object")
-    for manifest_dir in MANIFEST_DIRS:
-        d = PLUGINS_DIR / plugin / manifest_dir
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "plugin.json").write_text(
-            build_plugin_json(plugin, version, author, description, dependencies,
-                              claude_only=(manifest_dir == ".claude-plugin"), interface=interface),
-            encoding="utf-8")
-
-    readme_path = PLUGINS_DIR / plugin / "README.md"
-    if readme_path.exists():
+            category = interface.get("category")
+            if category is not None and (not isinstance(category, str) or not category.strip()):
+                raise ValueError("Codex interface.category must be a non-empty string")
+    outputs = {
+        ensure_project_path(plugin_dir / manifest_dir / "plugin.json", "plugin manifest destination"):
+        build_plugin_json(plugin, version, author, description, dependencies,
+                          claude_only=(manifest_dir == ".claude-plugin"), interface=interface)
+        for manifest_dir in MANIFEST_DIRS
+    }
+    readme_path = ensure_project_path(plugin_dir / "README.md", "plugin README destination")
+    readme_content = None if readme_path.exists() else build_readme(plugin, public_name, skill, description, bundled_skills)
+    for path, content in outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    if readme_content is None:
         readme_action = "kept"  # 既存 README を上書きしない（手書き保護）
     else:
-        readme_path.write_text(
-            build_readme(plugin, public_name, skill, description, bundled_skills),
-            encoding="utf-8")
+        readme_path.write_text(readme_content, encoding="utf-8")
         readme_action = "created"
     return {"plugin_json": "created", "readme": readme_action}
 
@@ -300,10 +623,16 @@ def relocate_skill(plugin: str, entry_name: str, skill: str) -> str:
 
     戻り値: "created" | "migrated" | "kept"
     """
-    skills_subdir = PLUGINS_DIR / plugin / "skills"
+    validate_skill_dir_name(entry_name, "--as")
+    validate_skill_dir_name(skill, "--skill")
+    skills_subdir = plugin_skills_path(plugin)
     skills_subdir.mkdir(parents=True, exist_ok=True)
-    dest = skills_subdir / entry_name
-    src = AGENTS_SKILLS_DIR / skill
+    dest = ensure_path_within(skills_subdir / entry_name,
+                              [skills_subdir, AGENTS_SKILLS_DIR], "plugin skill entry")
+    src = skill_source_path(skill)
+    ensure_project_path(src, "skill relocation source")
+    ensure_project_path(dest, "skill relocation destination")
+    ensure_project_path(src.parent, "skill backlink destination")
     backlink_target = os.path.join(*BACKLINK_PREFIX, "plugins", plugin, "skills", entry_name)
 
     dest_is_entity = dest.is_dir() and not dest.is_symlink()
@@ -343,18 +672,24 @@ def relocate_skill(plugin: str, entry_name: str, skill: str) -> str:
 
 def verify_entity(plugin: str, entry_name: str) -> bool:
     """配布側が実体として存在し、SKILL.md を持つかを検証する。"""
-    entry = PLUGINS_DIR / plugin / "skills" / entry_name
+    validate_skill_dir_name(entry_name, "--as")
+    skills_root = plugin_skills_path(plugin)
+    entry = skills_root / entry_name
     if entry.is_symlink() or not entry.is_dir():
         return False
-    return (entry / "SKILL.md").is_file()
+    entry = ensure_path_within(entry, [skills_root], "plugin skill entry")
+    return ensure_path_within(entry / "SKILL.md", [skills_root], "SKILL.md").is_file()
 
 
 def owning_plugin(skill: str):
     """スキル実体が既にどの plugin に属しているかを返す。未登録なら None。"""
+    validate_skill_dir_name(skill, "--bundle-skill")
     if not PLUGINS_DIR.is_dir():
         return None
     for plugin_dir in sorted(PLUGINS_DIR.iterdir()):
-        entry = plugin_dir / "skills" / skill
+        if not re.fullmatch(PLUGIN_NAME_PATTERN, plugin_dir.name):
+            continue
+        entry = plugin_skills_path(plugin_dir.name) / skill
         if entry.is_dir() and not entry.is_symlink():
             return plugin_dir.name
     return None
@@ -366,7 +701,7 @@ def find_symlinks(plugin: str) -> list[str]:
     配布サブツリーに symlink があると Codex の install 先で中身が落ちる。
     「壊れた symlink が無いか」ではなく「symlink が 1 つも無いか」を見るのが要点。
     """
-    plugin_dir = PLUGINS_DIR / plugin
+    plugin_dir = plugin_dir_path(plugin)
     if not plugin_dir.is_dir():
         return []
     return sorted(
@@ -377,7 +712,7 @@ def find_symlinks(plugin: str) -> list[str]:
 
 def read_existing_version(plugin: str):
     """既存 plugin.json から version を読む。無ければ None。"""
-    pj = PLUGINS_DIR / plugin / ".claude-plugin" / "plugin.json"
+    pj = plugin_dir_path(plugin) / ".claude-plugin" / "plugin.json"
     if pj.is_file():
         try:
             return json.loads(pj.read_text(encoding="utf-8")).get("version")
@@ -415,6 +750,89 @@ def resolve_version(plugin: str, explicit, exists: bool):
     return "0.1.0", "default(0.1.0)"
 
 
+def preflight_plugin_inputs(plugin: str) -> None:
+    plugin_dir = plugin_dir_path(plugin)
+    for manifest_dir in MANIFEST_DIRS:
+        path = preflight_file_path(plugin_dir / manifest_dir / "plugin.json", "plugin manifest destination")
+        if not path.exists():
+            continue
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(f"{path} must contain a JSON object")
+        if manifest_dir == ".claude-plugin":
+            deps = value.get("dependencies", [])
+            if not isinstance(deps, list) or any(not isinstance(dep, str) for dep in deps):
+                raise ValueError(f"{path} dependencies must be an array of strings")
+        else:
+            interface = value.get("interface")
+            if interface is not None and not isinstance(interface, dict):
+                raise ValueError(f"{path} interface must be an object")
+            if isinstance(interface, dict):
+                category = interface.get("category")
+                if category is not None and (not isinstance(category, str) or not category.strip()):
+                    raise ValueError(f"{path} interface.category must be a non-empty string")
+    preflight_file_path(plugin_dir / "README.md", "plugin README destination")
+
+
+def preflight_catalog_manifests(marketplace: dict) -> None:
+    for entry in marketplace["plugins"]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            continue
+        name = validate_plugin_name(entry["name"])
+        plugin_dir = plugin_dir_path(name)
+        for manifest_dir in MANIFEST_DIRS:
+            path = preflight_file_path(plugin_dir / manifest_dir / "plugin.json", "catalog manifest input")
+            if not path.exists():
+                continue
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(value, dict):
+                raise ValueError(f"{path} must contain a JSON object")
+            if manifest_dir == ".codex-plugin" and "interface" in value and not isinstance(value["interface"], dict):
+                raise ValueError(f"{path} interface must be an object")
+            if manifest_dir == ".codex-plugin" and isinstance(value.get("interface"), dict):
+                category = value["interface"].get("category")
+                if category is not None and (not isinstance(category, str) or not category.strip()):
+                    raise ValueError(f"{path} interface.category must be a non-empty string")
+            if manifest_dir == ".claude-plugin":
+                dependencies = value.get("dependencies", [])
+                if not isinstance(dependencies, list) or any(not isinstance(dep, str) for dep in dependencies):
+                    raise ValueError(f"{path} dependencies must be an array of strings")
+
+
+def preflight_relocations(plugin: str, relocations: list[tuple[str, str]]) -> None:
+    plugin_dir_path(plugin)
+    skills_root = plugin_skills_path(plugin)
+    destinations = [str((skills_root / entry_name).resolve()) for _, entry_name in relocations]
+    if len(destinations) != len(set(destinations)):
+        fail(EXIT_CONFLICT, "ERROR: 複数の relocation が同じ plugin skill destination を指定しています。")
+    leftovers = find_symlinks(plugin)
+    if leftovers:
+        fail(EXIT_CONFLICT,
+             f"ERROR: plugin 配下に既存 symlink があるため書き込み前に中断します: {leftovers[0]}")
+    for source_name, entry_name in relocations:
+        src = skill_source_path(source_name)
+        try:
+            guard_skill_root(src, AGENTS_SKILLS_DIR, PLUGINS_DIR, PROJECT_ROOT)
+            if src.is_symlink():
+                guard_tree(src.resolve(), [src.resolve()], PROJECT_ROOT, reject_symlinks=True)
+            else:
+                guard_tree(src, [src], PROJECT_ROOT, reject_symlinks=True)
+        except ValueError as exc:
+            fail(EXIT_CONFLICT, f"ERROR: unsafe relocation source tree: {exc}")
+        dest = ensure_path_within(skills_root / entry_name,
+                                  [skills_root, AGENTS_SKILLS_DIR], "plugin skill entry")
+        src_is_entity = src.is_dir() and not src.is_symlink()
+        dest_is_entity = dest.is_dir() and not dest.is_symlink()
+        if src_is_entity and dest_is_entity:
+            fail(EXIT_CONFLICT, f"ERROR: relocation preflight found duplicate entities: {src} and {dest}")
+        if not src_is_entity and not (dest_is_entity and (src.is_symlink() or not src.exists())):
+            fail(EXIT_CONFLICT, f"ERROR: relocation preflight found invalid source state: {src}")
+        if dest.exists() and not dest_is_entity and not dest.is_symlink():
+            fail(EXIT_CONFLICT, f"ERROR: relocation destination is not a skill directory: {dest}")
+        if src.is_symlink() and src.exists() and not dest_is_entity:
+            fail(EXIT_CONFLICT, f"ERROR: relocation source is a symlink without destination entity: {src}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="既存スキルを marketplace.json にプラグイン登録する")
@@ -450,12 +868,29 @@ def main() -> None:
                         help="ファイルに書き込まず、行う操作のみ報告する")
     args = parser.parse_args()
 
-    skill = args.skill
-    plugin = args.plugin or skill
+    try:
+        validate_repository_roots()
+    except ValueError as exc:
+        fail(EXIT_INVALID, f"ERROR: unsafe repository path: {exc}")
+
+    skill = validate_skill_dir_name(args.skill, "--skill")
+    plugin = validate_plugin_name(args.plugin or skill)
+    requested_bundle_skills = [validate_skill_dir_name(dep, "--bundle-skill")
+                               for dep in args.bundle_skill]
+    args.depends_on = [validate_plugin_name(dep) for dep in args.depends_on]
+    link_name = validate_skill_dir_name(args.link_name, "--as") if args.link_name else skill
+    try:
+        plugin_dir_path(plugin)
+        skills_root = plugin_skills_path(plugin)
+        for entry_name in [link_name, *requested_bundle_skills]:
+            ensure_path_within(skills_root / entry_name,
+                               [skills_root, AGENTS_SKILLS_DIR], "plugin skill entry")
+    except ValueError as exc:
+        fail(EXIT_INVALID, f"ERROR: unsafe plugin destination: {exc}")
 
     # 同梱依存スキル（重複除去・本体除外・入力順を保持）
     bundle_skills = []
-    for dep in args.bundle_skill:
+    for dep in requested_bundle_skills:
         if dep and dep != skill and dep not in bundle_skills:
             bundle_skills.append(dep)
 
@@ -474,16 +909,40 @@ def main() -> None:
                  f"依存元スキルを {owner} plugin へ移してください。")
 
     # symlink 名は明示（--as）> スキル実体ディレクトリ名。公開名は frontmatter の name。
-    link_name = args.link_name or skill
     public_name = frontmatter_name(skill)
 
-    # 2. marketplace.json 読み込み（破損中断・不在は新規）
+    # 2. Both catalogs are validated before either is changed.
     data, created_new = load_marketplace()
+    codex_data, codex_created_new = load_codex_marketplace()
+    try:
+        preflight_catalog_manifests(data)
+    except (ValueError, json.JSONDecodeError, OSError) as exc:
+        fail(EXIT_CORRUPT, f"ERROR: 既存 catalog manifest が不正です: {exc}")
     exists = any(isinstance(p, dict) and p.get("name") == plugin
                  for p in data["plugins"])
 
     # version を解決（明示 > 更新時 patch+1 > 新規 0.1.0）
     version, version_bump = resolve_version(plugin, args.version, exists)
+
+    if exists and not args.update:
+        fail(EXIT_CONFLICT,
+             f"ERROR: plugin '{plugin}' は既に marketplace.json に登録済みです（--update が必要）。")
+    planned_marketplace = json.loads(json.dumps(data))
+    claude_action = merge_marketplace_entry(planned_marketplace, plugin, update=args.update)
+    codex_actions = merge_codex_catalog(codex_data, planned_marketplace)
+    try:
+        preflight_plugin_inputs(plugin)
+        preflight_file_path(MARKETPLACE_PATH, "Claude marketplace destination")
+        preflight_file_path(CODEX_MARKETPLACE_PATH, "Codex marketplace destination")
+        skills_root = plugin_skills_path(plugin)
+        ensure_project_path(skills_root, "plugin skills destination")
+        for entry_name in (link_name, *bundle_skills):
+            ensure_project_path(skills_root / entry_name, "plugin skill relocation destination")
+        for name in (skill, *bundle_skills):
+            ensure_project_path(skill_source_path(name), "skill relocation source")
+        preflight_relocations(plugin, [(skill, link_name), *((dep, dep) for dep in bundle_skills)])
+    except (ValueError, json.JSONDecodeError, OSError) as exc:
+        fail(EXIT_CORRUPT, f"ERROR: 既存 plugin manifest または保存先が不正です: {exc}")
 
     if args.dry_run:
         if exists and not args.update:
@@ -494,15 +953,17 @@ def main() -> None:
             "dry_run": True,
             "created_new": created_new,
             "marketplace_path": str(MARKETPLACE_PATH),
+            "codex_marketplace_path": str(CODEX_MARKETPLACE_PATH),
             "plugin": plugin,
             "skill": skill,
             "public_name": public_name,
             "version": version,
             "version_bump": version_bump,
             "planned_actions": {
-                "marketplace_entry": "updated" if exists else "added",
+                "marketplace_entry": claude_action,
+                "codex_marketplace": codex_actions,
                 "plugin_json": f"would_create (version {version})",
-                "readme": "would_keep" if (PLUGINS_DIR / plugin / "README.md").exists()
+                "readme": "would_keep" if (plugin_dir_path(plugin) / "README.md").exists()
                           else "would_create",
                 "relocate": f".agents/skills/{skill} -> ./plugins/{plugin}/skills/{link_name} "
                             f"（実体を移動し、.agents/skills/{skill} を逆 symlink に置換）",
@@ -519,9 +980,11 @@ def main() -> None:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         sys.exit(EXIT_OK)
 
-    # 3. marketplace.json へ非破壊マージ（衝突は exit 4）
-    entry_action = merge_marketplace_entry(data, plugin, update=args.update)
+    # 3. Write both catalogs from the validated plan, keeping Codex-only entries intact.
+    data = planned_marketplace
+    entry_action = claude_action
     write_marketplace(data)
+    write_codex_marketplace(codex_data)
 
     # 4-5. plugin.json / README 生成・スキル実体の移動（本体）
     file_actions = write_plugin_files(plugin, public_name, skill, version,
@@ -548,6 +1011,7 @@ def main() -> None:
         "dry_run": False,
         "created_new": created_new,
         "marketplace_path": str(MARKETPLACE_PATH),
+        "codex_marketplace_path": str(CODEX_MARKETPLACE_PATH),
         "plugin": plugin,
         "skill": skill,
         "public_name": public_name,
@@ -555,6 +1019,7 @@ def main() -> None:
         "version_bump": version_bump,
         "actions": {
             "marketplace_entry": entry_action,
+            "codex_marketplace": codex_actions,
             "plugin_json": file_actions["plugin_json"],
             "readme": file_actions["readme"],
             "relocate": relocate_action,
