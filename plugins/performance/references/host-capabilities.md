@@ -43,7 +43,7 @@ tier b を「実証」と呼ばない。宣言された境界と実測は区別�
 
 ## opt-in と限界
 
-- 収集は明示 enable（`native_hook.py enable`）まで一切始まらない。既定 off
+- 収集は明示 enable（`event-collector/run.py enable`）まで一切始まらない。既定 off
 - hook は bounded な収集・集計・重複排除まで。**hook から新規モデル実行・
   スキル編集・外部送信は発生しない**
 - 計測が止まっても対象作業は止まらない。計測の成功を偽らない（欠測は

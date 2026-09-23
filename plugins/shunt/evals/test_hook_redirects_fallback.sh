@@ -1,7 +1,7 @@
 #!/bin/bash
 # Deterministic tests for the hooks' redirect handling and fallback reasons.
 #
-# check-bash-read used to skip every command containing `>`, so a stderr-only
+# bash-read-gate used to skip every command containing `>`, so a stderr-only
 # redirect (`cat big.log 2>/dev/null`) bypassed the gate even though the file
 # still lands in the assistant's context. Only stdout sent to a real file means
 # "not a read into context". The fallback reasons are pinned too: when the
@@ -17,8 +17,8 @@
 
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASH_HOOK="$HERE/../hooks/check-bash-read"
-READ_HOOK="$HERE/../hooks/check-file-size"
+BASH_HOOK="$HERE/../hooks/bash-read-gate/run"
+READ_HOOK="$HERE/../hooks/read-gate/run"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/shunt-hook-test.XXXXXX") || exit 1
 trap '/bin/rm -rf "$tmp"' EXIT
