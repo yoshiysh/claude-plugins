@@ -632,6 +632,7 @@ const originalConfirmed = base.confirmed
 const beforeCategories = byCategory(first.missing, base.confirmed)
 const reviewIncomplete = first.missing.length > 0
 let reverifyProvenance = null
+let reverifyMissing = []
 if (reviewIncomplete) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
 }
@@ -651,6 +652,7 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // before は最初の Find、after は Reverify。after が null なのは「そのパスが走らなかった」、
     // before.<観点> が null なのは「走ったがその観点の担当が応答しなかった」で、意味が違う。
     by_category: { before: beforeCategories, after: afterCategories },
+    reverify_missing: reverifyMissing,
     staging,
     // runner 経由の update では action package の発行条件になる。Reverify が走らなかった
     // outcome を completed と偽装しないため、after の全観点が観測済みのときだけ true にする。
@@ -790,9 +792,17 @@ while (true) {
   }
 
   phase('Reverify')
-  const reverifyPassLabel = `p2r${revision + 1}`
-  const freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
-  const after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+  let reverifyPassLabel = `p2r${revision + 1}`
+  let freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
+  let after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+  reverifyMissing = after.missing
+  if (after.missing.length > 0) {
+    log(`再検証の欠測（${after.missing.join(', ')}）を保持したまま、全体を 1 回だけ再試行します。`)
+    reverifyPassLabel = `${reverifyPassLabel}-retry`
+    freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
+    after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+    reverifyMissing = after.missing
+  }
   if (after.missing.length > 0) {
     // 再検証で観点が欠けた状態を「残存 0 件」と読むと、直っていないものが直ったことになる。
     staging = {
@@ -807,7 +817,10 @@ while (true) {
       reclassified: [],
       out_of_scope: [],
       preexisting: [],
+      reverify_missing: after.missing,
     }
+    afterCategories = byCategory(after.missing, [])
+    reverifyProvenance = { updater_thread_id: updaterThreadId, fresh_thread_id: freshThreadId }
     verdict = 'reverify_incomplete'
     break
   }
@@ -906,6 +919,7 @@ while (true) {
     reclassified,
     out_of_scope: outOfScope,
     preexisting,
+    reverify_missing: [],
   }
   latest = post
   latestSource = 'after'

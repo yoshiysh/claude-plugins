@@ -12,7 +12,7 @@ export function workflowContext() {
     assignments: {}, defaultProfile: 'workflow' };
 }
 
-const hostKeys = [...backendKeys, 'trustedSource', 'requirements', 'updateContract', 'checkpoint', 'resume', ...limitKeys];
+const hostKeys = [...backendKeys, 'trustedSource', 'requirements', 'checkpoint', 'resume', ...limitKeys];
 function snapshot(host, directoryKey) {
   exactObject(host, [...hostKeys, directoryKey], 'adapter host');
   if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required');
@@ -34,7 +34,6 @@ export function executeWorkflow(request, host) {
   const limits = Object.fromEntries(limitKeys.filter(k => Object.hasOwn(owned, k)).map(k => [k, owned[k]]));
   return runWorkflow(ownedRequest, { ...limits, backend: codexBackend(backendConfig),
     trustedSource: true, runDir: owned.runDir, requirements: owned.requirements,
-    updateContract: owned.updateContract,
     checkpoint: owned.checkpoint, resume: owned.resume });
 }
 

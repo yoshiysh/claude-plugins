@@ -57,7 +57,13 @@ Unknown source labels and malformed mappings fail before the call starts. Each c
 logs `model.selected` with its requested label, target and effort. With no explicit
 default, `host-default` is recorded; the actual host-selected ID is not inferred.
 No Claude-to-Codex equivalence or target availability is implied.
-`limits` accepts maxAgents, concurrency, timeoutMs and maxOutputBytes.
+`limits` accepts maxAgents, concurrency, timeoutMs, agentTimeoutMs and maxOutputBytes.
+`agentTimeoutMs` bounds each backend call. An omitted value defaults to 80% of
+`timeoutMs` for one-shot runs; checkpoint/resume preserves its previous whole-workflow
+deadline behavior and defaults to `timeoutMs`. A timed-out agent is aborted, recorded as `agent.timeout`, and returns
+`null` to the source so the source can preserve the missing observation and decide
+whether a bounded retry is safe. The workflow-level `timeoutMs` remains fail-closed
+for the whole run.
 Optional `context` maps exact source labels to per-role settings and hash-pinned
 reference inventories; read [the context contract](CONTEXT.md) when configuring it.
 It does not change source syntax or provide a complete skill/tool allowlist.
@@ -67,20 +73,10 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
-`update` is an explicit opt-in protocol, not a generic writable workspace. The host must
-provide all of `staging-write`, `artifact-manifest`, `fresh-reverify`, and
-`hash-bound-action-package`, plus an `updateContract` with separate absolute `targetDir`
-and initially absent `stagingDir`. The runtime snapshots the target before dispatch and
-rejects any target drift. An `applied_to_staging` source result must contain a complete
-fresh-thread `reverify_receipt` (`fresh_thread: true`) and a `changed_files` list exactly matching the resulting complete
-staging mirror. The receipt must contain nonempty, distinct `updater_thread_id` and
-`fresh_thread_id` labels that this runtime observed while dispatching agents; it is canonicalized after staging exists, so macOS `/var` and
-`/private/var` spellings identify the same directory. Only then does the runtime emit `update-action-package.json` and return
-`{source_result, action_package}`. The package binds every changed file to before/after
-hashes but never copies it to the target: the caller must obtain approval, recheck hashes,
-and mechanically apply only the listed files. Backends that cannot attest every capability
-must not advertise them, so this route remains rejected rather than degrading to generic
-`workspace-write`.
+Codex runner `review` and `update` are unsupported. The selector and runtime reject these
+modes before backend preparation, run-directory creation, or agent dispatch; capability
+declarations and `updateContract` cannot enable them. Skill updates must use a supported
+native Workflow route.
 As a conservative additional gate, literal option-shaped objects containing model,
 label or schema and unsupported capability keys are rejected (literal isolation:
 "worktree" is accepted only when the host provides worktree capability)

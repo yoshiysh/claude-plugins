@@ -49,6 +49,20 @@ test('invalid, overlapping and cancelled workspace requests cannot dispatch', as
   await assert.rejects(policy.allocate({ isolation: 'worktree' }, { signal: controller.signal, emit() { assert.fail('allocated after abort'); } }), /abort/i);
 });
 
+test('workspace policies never advertise update capabilities', async t => {
+  const f = await fixture(t);
+  const writable = workspacePolicy(f.cwd, { mode: 'workspace-write' });
+  assert.deepEqual(writable.capabilities, ['read-only', 'fresh-thread', 'workspace-write']);
+  await writable.prepare();
+
+  const readOnly = workspacePolicy(f.cwd, {});
+  assert.deepEqual(readOnly.capabilities, ['read-only', 'fresh-thread']);
+  await readOnly.prepare();
+
+  const contract = { targetDir: join(f.cwd, 'target'), stagingDir: join(f.cwd, 'staging') };
+  assert.throws(() => codexBackend({ cwd: f.cwd, updateContract: contract }), /unsupported Codex backend field: updateContract/);
+});
+
 test('unchanged PDCA JS completes through mock SDK with explicit write/worktree policy', async t => {
   const f = await fixture(t), starts = [];
   const roleResults = {

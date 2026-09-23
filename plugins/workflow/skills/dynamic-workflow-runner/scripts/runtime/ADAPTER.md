@@ -13,7 +13,8 @@ const Workflow = createWorkflow({
   modelMap: explicitHostModelMap,
   maxAgents: 2,
   concurrency: 2,
-  timeoutMs: 60000
+  timeoutMs: 60000,
+  agentTimeoutMs: 48000
 });
 const result = await Workflow({ scriptPath, args });
 ```
@@ -30,6 +31,10 @@ snapshotted so concurrent calls and later caller mutations do not share mutable 
 Each run has its own backend. Results are returned unchanged, without a new envelope.
 Limits are per Workflow call, not a global budget across calls. This adapter does not
 add native tool registration, global interception, approval forwarding or resume.
+`agentTimeoutMs` bounds each backend call; for this one-shot adapter, when omitted it
+defaults to 80% of `timeoutMs`. A timed-out call is aborted and returned to the source as `null`, while
+the runtime journal records `agent.timeout`; the workflow-level `timeoutMs` still
+fails the whole run when its deadline is reached.
 
 The one-shot CLI delegates to `executeWorkflow(request, host)` in this same module.
 It accepts an explicit runDir rather than allocating one. Low-level `runtime.mjs`

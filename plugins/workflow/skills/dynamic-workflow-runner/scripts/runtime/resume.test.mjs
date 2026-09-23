@@ -52,6 +52,39 @@ test('checkpoint chain retains cumulative call and time budget without charging 
   assert.deepEqual(f.invoked, ['a', 'b']);
 });
 
+test('checkpoint and resume reject update workflows before execution', async t => {
+  const f = await fixture(t, `await agent('a'); await checkpoint('one'); return await agent('b');`);
+  const stopped = await f.run();
+  const updateCapabilities = ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest',
+    'fresh-reverify', 'hash-bound-action-package'];
+  let prepared = 0;
+  const updateBackend = { ...f.host.backend, capabilities: updateCapabilities, prepare() { prepared++; } };
+
+  await assert.rejects(f.run({ updateContract: {} }), /unsupported Workflow host field: updateContract/);
+  await assert.rejects(f.run({ backend: updateBackend, requirements: updateCapabilities.slice(2), resume: resume(stopped) }),
+    /update workflows are not supported/);
+  await assert.rejects(f.run({}, { mode: 'update' }), /update workflows are not supported/);
+  await writeFile(f.scriptPath, `export const meta={name:'resume',description:'test',requirements:${JSON.stringify(updateCapabilities.slice(2))}};\nawait agent('a'); await checkpoint('one');`);
+  await assert.rejects(f.run({ backend: updateBackend, resume: resume(stopped) }),
+    /update workflows are not supported/);
+
+  assert.deepEqual(f.invoked, ['a']);
+  assert.equal(prepared, 0);
+  await assert.rejects(stat(join(f.dir, 'run-2')), { code: 'ENOENT' });
+  await assert.rejects(stat(join(f.dir, 'run-3')), { code: 'ENOENT' });
+  await assert.rejects(stat(join(f.dir, 'run-4')), { code: 'ENOENT' });
+  await assert.rejects(stat(join(f.dir, 'run-5')), { code: 'ENOENT' });
+});
+
+test('checkpoint agent default remains bounded only by the workflow deadline', async t => {
+  let calls = 0;
+  const f = await fixture(t, `return await agent('slow');`, {
+    backend: { run: async () => { calls++; await new Promise(resolve => setTimeout(resolve, 1250)); return 'done'; } },
+  });
+  assert.equal(await f.run({ timeoutMs: 1500 }), 'done');
+  assert.equal(calls, 1);
+});
+
 test('source, args, policy, file and budget drift fail before backend invocation', async t => {
   for (const variant of ['source', 'args', 'backend', 'file', 'budget', 'freshness']) {
     const f = await fixture(t, `await agent('a'); await checkpoint('one'); return await agent('b');`);

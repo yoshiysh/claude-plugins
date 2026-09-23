@@ -15,30 +15,21 @@
 // 使い方:
 //   node scripts/select_runtime.js --mode create --native-available --runner-installed
 //   node scripts/select_runtime.js --mode review --no-native --runner-installed
-//   node scripts/select_runtime.js --mode update --no-native --runner-installed --update-contract \\
-//     --runner-capability staging-write --runner-capability artifact-manifest \\
-//     --runner-capability fresh-reverify --runner-capability hash-bound-action-package
+//   node scripts/select_runtime.js --mode update --no-native --runner-installed
 //
 // 出力（JSON 1 行）:
 //   { "selected_runtime": "native" | "dynamic-workflow-runner" | null,
 //     "rejected_reason": null | "<理由>", "halt": true|false }
 // halt: true のとき execution agent を 1 体も起動しない。未実施と理由をユーザーへ伝えて止める。
 
-// review は live tree の入力凍結をまだ持たないため拒否する。update は下の capability
-// 契約を満たす runner だけが実行できる。mode 名だけで許可すると、古い runner が staging
-// の完全性・再検証・適用境界を持たないまま呼ばれるため、この集合と capability が正本になる。
-const RUNNER_REJECTED_MODES = ['review']
-const UPDATE_RUNNER_REQUIREMENTS = [
-  'staging-write',
-  'artifact-manifest',
-  'fresh-reverify',
-  'hash-bound-action-package',
-]
+// review inputs are not frozen and update's staging, manifest, reverify, and apply boundaries
+// are incomplete. Capability declarations cannot prove those invariants, so both modes stop.
+const RUNNER_REJECTED_MODES = ['review', 'update']
 
 const MODES = ['create', 'review', 'update']
 
 function parse(argv) {
-  const out = { mode: null, nativeAvailable: null, nativeAttempted: false, runnerInstalled: null, runnerCapabilities: [], updateContract: false }
+  const out = { mode: null, nativeAvailable: null, nativeAttempted: false, runnerInstalled: null }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--mode') out.mode = argv[++i]
@@ -47,8 +38,6 @@ function parse(argv) {
     else if (a === '--native-attempted') out.nativeAttempted = true
     else if (a === '--runner-installed') out.runnerInstalled = true
     else if (a === '--no-runner') out.runnerInstalled = false
-    else if (a === '--runner-capability') out.runnerCapabilities.push(argv[++i])
-    else if (a === '--update-contract') out.updateContract = true
     else throw new Error(`未知の引数: ${a}`)
   }
   if (!MODES.includes(out.mode)) {
@@ -58,12 +47,10 @@ function parse(argv) {
   // 「native は無い」と決めると、あるのに runner へ倒す経路ができる。
   if (out.nativeAvailable === null) throw new Error('--native-available か --no-native が必要です')
   if (out.runnerInstalled === null) throw new Error('--runner-installed か --no-runner が必要です')
-  if (out.runnerCapabilities.some(capability => typeof capability !== 'string' || !capability))
-    throw new Error('--runner-capability には空でない capability 名が必要です')
   return out
 }
 
-function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled, runnerCapabilities, updateContract }) {
+function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled }) {
   if (nativeAvailable && !nativeAttempted) {
     return { selected_runtime: 'native', rejected_reason: null, halt: false }
   }
@@ -90,23 +77,6 @@ function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled
       selected_runtime: null,
       rejected_reason: 'dynamic-workflow-runner が未 install',
       halt: true,
-    }
-  }
-  if (mode === 'update') {
-    const missing = UPDATE_RUNNER_REQUIREMENTS.filter(capability => !runnerCapabilities.includes(capability))
-    if (missing.length > 0) {
-      return {
-        selected_runtime: null,
-        rejected_reason: `rejected_source: mode=update に必要な runner capability が不足（${missing.join(', ')}）`,
-        halt: true,
-      }
-    }
-    if (!updateContract) {
-      return {
-        selected_runtime: null,
-        rejected_reason: 'rejected_source: mode=update には caller が分離済み updateContract を渡す必要がある',
-        halt: true,
-      }
     }
   }
   return { selected_runtime: 'dynamic-workflow-runner', rejected_reason: null, halt: false }

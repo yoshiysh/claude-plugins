@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, writeFile, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Workflow } from './runtime.mjs';
@@ -82,47 +82,68 @@ test('final return and prompt are byte bounded', async t => {
     { run: async () => { calls++; return ''; } }, { maxOutputBytes: 100 }), /prompt byte/);
   assert.equal(calls, 0);
 });
-test('deadline aborts a pending backend without claiming completion', async t => {
+test('agent timeout aborts a pending backend and records a null result', async t => {
   let aborted = false;
-  await assert.rejects(run(t, `return await agent('x');`, {
+  const { result, events } = await run(t, `return await agent('x');`, {
     run: async (_, __, { signal }) => new Promise(() => {
       signal.addEventListener('abort', () => { aborted = true; });
     }),
-  }, { timeoutMs: 200 }), /deadline/);
+  }, { timeoutMs: 200 });
+  assert.equal(result, null);
   assert.equal(aborted, true);
+  assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
+});
+test('agent timeout returns null, records timeout, and aborts only that backend call', async t => {
+  let aborted = false;
+  const { result, events } = await run(t, `return await agent('slow');`, {
+    run: async (_, __, { signal }) => new Promise(() => {
+      signal.addEventListener('abort', () => { aborted = true; });
+    }),
+  }, { timeoutMs: 1000, agentTimeoutMs: 25 });
+  assert.equal(result, null);
+  assert.equal(aborted, true);
+  assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
+  assert.equal(events.at(-1).type, 'run.completed');
 });
 test('trust acknowledgement is required before opening source', async () => {
   await assert.rejects(Workflow({ scriptPath: '/missing' }, { backend: { run() {} } }), /trustedSource/);
 });
 
-test('update contract returns a hash-bound action package without applying it', async t => {
+test('update workflows fail closed before backend preparation, run creation, and dispatch', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-update-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const root = await realpath(dir);
-  const target = join(root, 'target'), staging = join(root, 'staging'), scriptPath = join(root, 'update.flow');
-  await mkdir(target);
-  await writeFile(join(target, 'SKILL.md'), 'before\n');
-  await writeFile(scriptPath, `${header}await agent('update',{label:'update-r1'}); return await agent('reverify',{label:'p2r1'});`);
-  const receipt = { phase: 'Reverify', staging_dir: staging, fresh_thread: true, completed: true, by_category: { quality: 0 }, updater_thread_id: 'update-r1', fresh_thread_id: 'p2r1' };
-  const result = await Workflow({ scriptPath }, {
-    backend: {
-      capabilities: ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'],
-      async run(prompt) {
-        if (prompt === 'update') {
-          await cp(target, staging, { recursive: true });
-          await writeFile(join(staging, 'SKILL.md'), 'after\n');
-          return 'updated';
-        }
-        return { verdict: 'applied_to_staging', reverify_receipt: receipt,
-          staging: { dir: staging, changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: ['intent'] }] } };
-      },
-    },
-    trustedSource: true, runDir: join(root, 'run'), timeoutMs: 3000,
-    requirements: ['staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'],
-    updateContract: { targetDir: target, stagingDir: staging },
-  });
-  assert.equal(result.source_result.verdict, 'applied_to_staging');
-  assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
-  assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'before\n');
-  assert.equal(await readFile(join(root, 'run', 'update-action-package.json'), 'utf8').then(JSON.parse).then(x => x.apply.owner), 'caller');
+  const root = await realpath(dir), scriptPath = join(root, 'update.flow');
+  const capabilities = ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'];
+  const cases = [
+    { name: 'args-mode', args: { mode: 'update' } },
+    { name: 'backend-contract', backendContract: { targetDir: '/target', stagingDir: '/staging' } },
+    { name: 'host-requirements', host: { requirements: capabilities.slice(2) } },
+    { name: 'backend-capabilities', backendCapabilities: capabilities },
+    { name: 'source-requirements', source: `${header.replace("description:'test workflow'", `description:'test workflow',requirements:${JSON.stringify(capabilities.slice(2))}`)}return 1;`,
+      backendCapabilities: capabilities },
+  ];
+  for (const variant of cases) {
+    let prepared = 0, dispatched = 0;
+    const runDir = join(root, `run-${variant.name}`);
+    await writeFile(scriptPath, variant.source ?? `${header}return 1;`);
+    const backend = { run() { dispatched++; }, prepare() { prepared++; },
+      ...(variant.backendContract ? { updateContract: variant.backendContract } : {}),
+      ...(variant.backendCapabilities ? { capabilities: variant.backendCapabilities } : {}) };
+    await assert.rejects(Workflow({ scriptPath, args: variant.args ?? {} }, {
+      backend, trustedSource: true, runDir, ...variant.host,
+    }), /update workflows are not supported|unsupported Workflow host field/);
+    assert.equal(prepared, 0, variant.name);
+    assert.equal(dispatched, 0, variant.name);
+    await assert.rejects(realpath(runDir), { code: 'ENOENT' }, variant.name);
+  }
+});
+
+test('agent timeout defaults to 80% of the workflow deadline', async t => {
+  const { result, events } = await run(t, `return await agent('slow');`, {
+    run: async (_, __, { signal }) => new Promise(resolve => {
+      signal.addEventListener('abort', () => resolve('too late'));
+    }),
+  }, { timeoutMs: 1000 });
+  assert.equal(result, null);
+  assert.equal(events.find(event => event.type === 'agent.timeout').timeoutMs, 800);
 });

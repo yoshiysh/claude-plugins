@@ -6,6 +6,8 @@ import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
 import { exactObject, validateRequirements } from './inputs.mjs';
+import { rejectUpdateWorkflow } from './update-guard.mjs';
+import { runAgent } from './agent-run.mjs';
 
 const PROTOCOL = 'quiescent-checkpoint-v1';
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -31,7 +33,7 @@ async function filesSnapshot(paths) {
 }
 async function implementationHash() {
   // Bind runtime/worker, backend policy implementation and pinned dependencies.
-  const names = ['runtime.mjs', 'resume.mjs', 'worker.mjs', 'source.mjs', 'inputs.mjs',
+  const names = ['runtime.mjs', 'resume.mjs', 'agent-run.mjs', 'worker.mjs', 'source.mjs', 'inputs.mjs',
     'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'package-lock.json'];
   return hash(json(await Promise.all(names.map(async name =>
     [name, hash(await readFile(new URL(name, import.meta.url)))]))));
@@ -87,6 +89,7 @@ function validateHistory(request, events, seal) {
 }
 
 export async function resumableWorkflow(request, host) {
+  rejectUpdateWorkflow(request, host);
   if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required');
   const { backend, runDir } = host;
   if (!backend || typeof backend.run !== 'function') throw Error('backend.run required');
@@ -101,7 +104,9 @@ export async function resumableWorkflow(request, host) {
   if (!backendIdentity || (typeof backendIdentity !== 'string' && typeof backendIdentity !== 'object'))
     throw Error('checkpoint backend identity required');
   const limits = { maxAgents: host.maxAgents ?? 2, concurrency: host.concurrency ?? 2,
-    timeoutMs: host.timeoutMs ?? 60000, maxOutputBytes: host.maxOutputBytes ?? 1000000 };
+    timeoutMs: host.timeoutMs ?? 60000,
+    agentTimeoutMs: host.agentTimeoutMs ?? (host.timeoutMs ?? 60000),
+    maxOutputBytes: host.maxOutputBytes ?? 1000000 };
   for (const [key, value] of Object.entries(limits))
     if (!Number.isSafeInteger(value) || value < 1) throw Error(`invalid ${key}`);
   if (limits.maxAgents > 1000 || limits.concurrency > 16) throw Error('agent limits exceed supported maximum');
@@ -112,6 +117,7 @@ export async function resumableWorkflow(request, host) {
   const argsText = json(request.args ?? {});
   if (argsText === undefined) throw Error('args must be JSON serializable');
   const { meta, body } = compileSource(source, capabilities);
+  rejectUpdateWorkflow(request, host, meta.requirements);
   const backendPolicy = await backend.prepare?.() ?? null;
   backend.validateCheckpointPolicy?.();
   const identity = { protocol: PROTOCOL, implementationHash: await implementationHash(), sourceHash: hash(source),
@@ -236,8 +242,13 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
           if (settled || poisoned) return;
           let result;
           try {
-            result = await backend.run(task.prompt, task.options, { signal: abort.signal,
+            const outcome = await runAgent({ backend, task, signal: abort.signal,
+              remainingMs: availableMs - (performance.now() - start), timeoutMs: limits.agentTimeoutMs,
               emit: event => { if (!settled && active.has(task.id)) record({ type: 'agent.event', id: task.id, event }).catch(finish); } });
+            if (outcome.timedOut) {
+              await record({ type: 'agent.timeout', id: task.id, timeoutMs: outcome.timeoutMs });
+              result = null;
+            } else result = outcome.result;
           } catch (error) {
             if (settled) return;
             tainted = true;

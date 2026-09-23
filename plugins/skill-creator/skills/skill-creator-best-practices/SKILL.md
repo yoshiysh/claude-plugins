@@ -287,14 +287,12 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 > **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review は runner では
-> `rejected_source` のまま。update は `staging-write` / `artifact-manifest` / `fresh-reverify` /
-> `hash-bound-action-package` を runner が capability inventory で全て宣言し、caller が target と未作成 staging を
-> 分離した `updateContract` を渡せる場合だけ実行できる。どれか欠ける環境では `rejected_source` で止める
-> （根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
-> `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
-> （update は `--mode update`。native が無い環境では `--no-native`、runner 未 install なら `--no-runner` に置き換える — フラグは環境の実測で選ぶ）
-> **Codex classification: `conditional`**（`review_skill.js`: review は `rejected_source`、update は capability-gated）。
+> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review と update は Codex runner では
+> `rejected_source` で停止する。update の staging 境界、追加・削除を含む差分 manifest、caller 側の適用経路が未完成で、
+> capability の宣言だけでは安全性を保証できない（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
+> review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
+> update の runner 例: `node [SKILL_DIR]/scripts/select_runtime.js --mode update --no-native --runner-installed`（`halt: true` で停止する）。
+> **Codex classification: review/update は runner で `rejected_source`**。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
@@ -342,9 +340,12 @@ agent 起動上限が外側で止める。
   unchecked_failures: [],
   findings_source: "before" | "after",
   by_category: { before, after },
+  reverify_missing: [],
+  reverify_receipt: { phase, staging_dir, fresh_thread, completed, by_category,
+                      updater_thread_id, fresh_thread_id } | null,
   staging: { dir, changed_files[], resolved[], remaining[], new[],
              unverified[], possibly_rephrased[], unobserved[],
-             reclassified[], out_of_scope[], preexisting[] } | null,
+             reclassified[], out_of_scope[], preexisting[], reverify_missing[] } | null,
   revisions_used
 }
 ```
@@ -370,6 +371,10 @@ agent 起動上限が外側で止める。
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
+
+`reverify_missing` は Reverify で応答しなかった、または読めなかった観点の一覧。
+空でない場合は再検証が完了していないため、`reverify_incomplete` となり、
+`reverify_receipt.completed` も `false` になる。最初の試行で欠測があった場合は、全観点を一度だけ再試行した後の最終一覧が残る。
 
 `unverified`（反証者の有効票が足りず、確定にも棄却にもできなかった指摘）は `confirmed` が
 空でも黙って落とさない。「未検証」と「問題なし」を同じ表示にすると、見られていない箇所が
