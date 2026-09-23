@@ -9,6 +9,7 @@ const inside = (root, path) => { const rel = relative(root, path); return rel ==
 export function workspacePolicy(cwd, input = {}) {
   exactObject(input, ['mode', 'worktreeRoot', 'baseCommit'], 'workspace');
   const { mode = 'read-only', worktreeRoot, baseCommit } = input;
+  if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw Error('worker cwd must be an absolute path');
   if (!['read-only', 'workspace-write'].includes(mode)) throw Error('unsupported workspace mode');
   if ((worktreeRoot === undefined) !== (baseCommit === undefined)) throw Error('worktreeRoot and baseCommit are required together');
   if (worktreeRoot !== undefined && (typeof worktreeRoot !== 'string' || !isAbsolute(worktreeRoot) ||

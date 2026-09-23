@@ -457,11 +457,20 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
   "unchecked_failures": [],
   "findings_source": "after",
   "by_category": { "before": { "why-driven": 1 }, "after": { "why-driven": 0 } },
+  "reverify_missing": [],
+  "reverify_receipt": {
+    "phase": "Reverify", "staging_dir": "/abs/path-workspace/staging",
+    "fresh_thread": true, "completed": true,
+    "by_category": { "why-driven": 0 },
+    "updater_thread_id": "update-sonnet-p1",
+    "fresh_thread_id": "find-why-driven-p2r1"
+  },
   "staging": {
     "dir": "/abs/path-workspace/staging",
     "changed_files": [],
     "resolved": [], "remaining": [], "new": [],
-    "unverified": [], "possibly_rephrased": [], "unobserved": []
+    "unverified": [], "possibly_rephrased": [], "unobserved": [],
+    "reclassified": [], "out_of_scope": [], "preexisting": [], "reverify_missing": []
   },
   "revisions_used": 0
 }
@@ -473,6 +482,8 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「3 体の反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る |
 | `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
+| `reverify_missing` | Reverify の欠測観点。最初の試行で欠測があれば全観点を一度だけ再試行し、その後も欠測が残れば `reverify_incomplete` として保持する |
+| `reverify_receipt` | update の Reverify 完了証跡。`completed: false` または欠測がある場合、runner は action package を発行しない |
 | `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない |
 | `possibly_rephrased` | 観点とファイルは一致するが主張の文言が変わり、機械的には `new` になったもの。`new` にも残る |
 | `unobserved` | 再検証でそのファイルを同じ観点の担当が読んでいないため、`resolved` に数えられないもの |

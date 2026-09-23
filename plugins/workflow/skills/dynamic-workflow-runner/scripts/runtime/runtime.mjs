@@ -6,27 +6,31 @@ import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
 import { exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
 import { resumableWorkflow } from './resume.mjs';
+import { rejectUpdateWorkflow } from './update-guard.mjs';
+import { runAgent } from './agent-run.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
   exactObject(request, requestKeys, 'Workflow request');
   exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'checkpoint', 'resume', ...limitKeys], 'Workflow host');
+  rejectUpdateWorkflow(request, host);
   if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host);
   const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
   validateRequirements(host.requirements, capabilities);
   const { scriptPath, args = {} } = request;
   const {
   backend, runDir, trustedSource = false, maxAgents = 2, concurrency = 2,
-  timeoutMs = 60000, maxOutputBytes = 1000000,
+  timeoutMs = 60000, agentTimeoutMs = Math.max(1, Math.floor(timeoutMs * 0.8)), maxOutputBytes = 1000000,
   } = host;
   if (!trustedSource) throw new Error('trustedSource acknowledgement required; not a hostile-code sandbox');
   if (!backend || typeof backend.run !== 'function') throw new Error('backend.run required');
-  for (const [key, value] of Object.entries({ maxAgents, concurrency, timeoutMs, maxOutputBytes }))
+  for (const [key, value] of Object.entries({ maxAgents, concurrency, timeoutMs, agentTimeoutMs, maxOutputBytes }))
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`invalid ${key}`);
   if (maxAgents > 1000 || concurrency > 16) throw new Error('agent limits exceed supported maximum');
   const path = await realpath(scriptPath);
   const source = await readFile(path, 'utf8');
   const { meta, body } = compileSource(source, capabilities);
+  rejectUpdateWorkflow(request, host, meta.requirements);
   const backendPolicy = await backend.prepare?.();
   const encodedArgs = JSON.stringify(args);
   if (encodedArgs === undefined) throw new Error('args must be JSON serializable');
@@ -36,7 +40,7 @@ export async function Workflow(request, host = {}) {
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
     sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [], backendPolicy,
-    limits: { maxAgents, concurrency, timeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
+    limits: { maxAgents, concurrency, timeoutMs, agentTimeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
   let journal = Promise.resolve();
   let sequence = 0;
   const record = event => {
@@ -54,6 +58,7 @@ export async function Workflow(request, host = {}) {
   const queue = [];
   const inflight = new Set();
   let calls = 0, active = 0, settled = false, outputBytes = 0;
+  const deadlineAt = performance.now() + timeoutMs;
   record({ type: 'run.started' });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error('workflow deadline exceeded')), timeoutMs);
@@ -73,11 +78,16 @@ export async function Workflow(request, host = {}) {
         const task = queue.shift();
         active++; inflight.add(task.id);
         record({ type: 'agent.started', id: task.id, promptHash: hash(task.prompt), options: task.options });
-        Promise.resolve().then(() => backend.run(task.prompt, task.options, {
-          signal: abort.signal,
+        runAgent({ backend, task, signal: abort.signal, remainingMs: deadlineAt - performance.now(),
+          timeoutMs: agentTimeoutMs,
           emit: event => { if (!settled) record({ type: 'agent.event', id: task.id, event }); },
-        })).then(result => {
+        }).then(({ result, timedOut, timeoutMs: effectiveTimeoutMs }) => {
           if (settled) return;
+          if (timedOut) {
+            record({ type: 'agent.timeout', id: task.id, timeoutMs: effectiveTimeoutMs });
+            worker.send({ type: 'reply', id: task.id, result: null });
+            return;
+          }
           if (result !== null && task.validate && !task.validate(result)) {
             record({ type: 'agent.invalid_output', id: task.id, errors: task.validate.errors });
             result = null;

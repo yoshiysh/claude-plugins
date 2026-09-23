@@ -58,6 +58,8 @@ source に Codex 専用引数を足したり、ラベル名や自然文から必
    既定の対応値は `read-only`、`fresh-thread`。host の workspace 設定に応じて
    `workspace-write`、`worktree` を追加する。未提供の機能は最初の呼出し前に拒否する。
    動的に構成する option も宣言対象。source 全体の静的推定が完成したとは扱わない。
+   `review` と `update` は Codex runner では未対応で、selector と runtime の両方が
+   execution 前に拒否する。capability や `updateContract` の宣言で有効化する経路はない。
 
 ## JavaScript 実行経路
 

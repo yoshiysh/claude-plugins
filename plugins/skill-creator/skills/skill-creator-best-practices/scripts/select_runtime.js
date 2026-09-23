@@ -15,15 +15,15 @@
 // 使い方:
 //   node scripts/select_runtime.js --mode create --native-available --runner-installed
 //   node scripts/select_runtime.js --mode review --no-native --runner-installed
+//   node scripts/select_runtime.js --mode update --no-native --runner-installed
 //
 // 出力（JSON 1 行）:
 //   { "selected_runtime": "native" | "dynamic-workflow-runner" | null,
 //     "rejected_reason": null | "<理由>", "halt": true|false }
 // halt: true のとき execution agent を 1 体も起動しない。未実施と理由をユーザーへ伝えて止める。
 
-// runner が意味保存できない mode。理由は references/codex-workflow-compatibility.md の
-// 「review / update mapping」にある（対象 tree が runtime で決まり、call receipt に
-// file inventory / content hash / staging の単一 owner が無い）。この配列がその規則の正本。
+// review inputs are not frozen and update's staging, manifest, reverify, and apply boundaries
+// are incomplete. Capability declarations cannot prove those invariants, so both modes stop.
 const RUNNER_REJECTED_MODES = ['review', 'update']
 
 const MODES = ['create', 'review', 'update']

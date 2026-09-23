@@ -57,7 +57,13 @@ Unknown source labels and malformed mappings fail before the call starts. Each c
 logs `model.selected` with its requested label, target and effort. With no explicit
 default, `host-default` is recorded; the actual host-selected ID is not inferred.
 No Claude-to-Codex equivalence or target availability is implied.
-`limits` accepts maxAgents, concurrency, timeoutMs and maxOutputBytes.
+`limits` accepts maxAgents, concurrency, timeoutMs, agentTimeoutMs and maxOutputBytes.
+`agentTimeoutMs` bounds each backend call. An omitted value defaults to 80% of
+`timeoutMs` for one-shot runs; checkpoint/resume preserves its previous whole-workflow
+deadline behavior and defaults to `timeoutMs`. A timed-out agent is aborted, recorded as `agent.timeout`, and returns
+`null` to the source so the source can preserve the missing observation and decide
+whether a bounded retry is safe. The workflow-level `timeoutMs` remains fail-closed
+for the whole run.
 Optional `context` maps exact source labels to per-role settings and hash-pinned
 reference inventories; read [the context contract](CONTEXT.md) when configuring it.
 It does not change source syntax or provide a complete skill/tool allowlist.
@@ -67,6 +73,10 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
+Codex runner `review` and `update` are unsupported. The selector and runtime reject these
+modes before backend preparation, run-directory creation, or agent dispatch; capability
+declarations and `updateContract` cannot enable them. Skill updates must use a supported
+native Workflow route.
 As a conservative additional gate, literal option-shaped objects containing model,
 label or schema and unsupported capability keys are rejected (literal isolation:
 "worktree" is accepted only when the host provides worktree capability)

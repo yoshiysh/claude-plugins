@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import test from 'node:test'
@@ -161,7 +162,7 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   }
 })
 
-test('rejected sources document the load-bearing construct that v1 cannot preserve', () => {
+test('rejected sources document their runtime boundary', () => {
   const dispatch = readFileSync(join(pluginsRoot, 'research', 'skills', 'dispatch', 'SKILL.md'), 'utf8')
   assert.match(dispatch, /rejected_source[\s\S]*load-bearing exact model semantics/)
 
@@ -173,7 +174,38 @@ test('rejected sources document the load-bearing construct that v1 cannot preser
     'utf8'
   )
   assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
-  assert.match(creator, /mode: update[\s\S]*rejected_source[\s\S]*runtime\s*で決まる複数\s*file/)
+  assert.match(creator, /mode: update[\s\S]*常に `rejected_source`/)
+})
+
+test('skill-creator update is rejected by the Codex runner regardless of capability declarations', () => {
+  const selector = join(
+    pluginsRoot,
+    'skill-creator',
+    'skills',
+    'skill-creator-best-practices',
+    'scripts',
+    'select_runtime.js'
+  )
+  const select = (...args) => JSON.parse(execFileSync(process.execPath, [
+    selector,
+    '--mode', 'update',
+    '--no-native',
+    '--runner-installed',
+    ...args,
+  ], { encoding: 'utf8' }))
+  const rejected = select()
+  assert.equal(rejected.selected_runtime, null)
+  assert.equal(rejected.halt, true)
+  assert.match(rejected.rejected_reason, /rejected_source: mode=update/)
+
+  const native = JSON.parse(execFileSync(process.execPath, [
+    selector,
+    '--mode', 'update',
+    '--native-available',
+    '--runner-installed',
+  ], { encoding: 'utf8' }))
+  assert.equal(native.selected_runtime, 'native')
+  assert.equal(native.halt, false)
 })
 
 test('the compatibility runner remains internal-only', () => {

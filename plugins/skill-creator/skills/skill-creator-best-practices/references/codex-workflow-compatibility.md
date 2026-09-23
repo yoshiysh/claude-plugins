@@ -22,7 +22,7 @@ node [SKILL_DIR]/scripts/select_runtime.js \
 `selected_runtime` の値を Workflow 呼び出しにそのまま使う（読み替えない）。
 
 1. 現在の tool inventory に native `Workflow` があり、この call が未試行なら native を1回だけ使う。
-2. native が存在しない Codex では `workflow:dynamic-workflow-runner` を内部互換層として利用し、ユーザーに runner の指定を求めない。
+2. native が存在しない Codex では、対応 mode に `workflow:dynamic-workflow-runner` を内部互換層として利用し、ユーザーに runner の指定を求めない。review / update は runner で拒否する。
 3. native を試行後に error / timeout / invalid result となった call は runner へ fallback しない。
    **理由**: native はどの phase まで進んだか（どの副作用が残っているか）を呼び出し側から
    確定できず、同じ call を runner で再実行すると部分実行の上に二重実行が重なる。加えて
@@ -42,15 +42,15 @@ node [SKILL_DIR]/scripts/select_runtime.js \
 
 ## review / update mapping
 
-どの mode が runner で拒否されるかの**値の正本は `scripts/select_runtime.js` の
-`RUNNER_REJECTED_MODES`**。以下はその理由で、判定は script が返す。
+runner で拒否される mode の**正本は `scripts/select_runtime.js` の `RUNNER_REJECTED_MODES`**。
+以下は拒否理由で、判定は script が返す。
 
 - caller の前処理は Phase 1、成功後処理は Phase 3。
 - Phase 1 の対象・範囲・意図確認と、update 時の Phase 3 適用承認は caller が所有し、runner 内 gate に移さない。
 - `mode: review` は現行runnerでは `rejected_source` とする。対象skill treeはruntimeで決まり、full/diffとも
   file inventory、件数/bytes上限、各content hash、git diff snapshotがcall receiptに無い。finder/refuterがlive treeを
   暗黙入力として読むmanifestへ変換してはならない。
-- `mode: update` は現行runnerでは `rejected_source` とする。sourceはruntimeで決まる複数fileをstaging mirrorへ書き、改稿ごとに
-  同じpathを上書きする一方、manifestは全artifact pathの事前列挙と単一ownerを要求する。outer Phase 3の適用gateもsource内packageではない。
-  translatorがstaging/action package/gateを捏造すると意味が変わるため、最初のexecution agentを起動しない。
-- review/updateはnative Workflowがある環境だけ従来経路を使う。Codexでは別modeへ自動縮退せず、未実施と拒否理由を伝えて止める。
+- `mode: update` は Codex runner で常に `rejected_source` とする。staging だけに書ける workspace 境界、
+  追加・削除を含む action manifest、late side-effect を隔離する timeout 境界、caller が承認後に適用する
+  経路が未完成である。能力の自己申告だけではこれらを保証できず、generic `workspace-write` への
+  自動縮退も許可しない。native Workflow は native の経路として選択する。
