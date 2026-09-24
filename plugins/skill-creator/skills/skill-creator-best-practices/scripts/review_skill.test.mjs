@@ -8,13 +8,13 @@ const source = await readFile(new URL('./review_skill.js', import.meta.url), 'ut
 const { body } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 
-async function run(mode, agent = async () => null) {
+async function run(mode, agent = async () => null, target = { scope: 'full' }) {
   const phases = [];
   const context = createContext({
     args: {
       skillDir: '/mock/skill-creator',
       mode,
-      target: { skillPath: '/mock/target', scope: 'full' },
+      target: { skillPath: '/mock/target', ...target },
       uncheckedItems: [],
       ...(mode === 'update' ? { intent: INTENT } : {}),
       stagingDir: '/mock/target-workspace/staging',
@@ -59,10 +59,10 @@ test('update reverify finders receive intent verbatim', async () => {
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
-function intentMismatchAgent(presentInOriginal, findingLabels = ['find-why-driven-p2r1']) {
+function intentMismatchAgent(presentInOriginal, findingLabels = ['find-why-driven-p2r1'], file = 'SKILL.md') {
   const calls = [];
   const mismatch = {
-    file: 'SKILL.md',
+    file,
     location: 'L1',
     claim: 'revision does not satisfy intent',
     evidence: 'quoted',
@@ -92,14 +92,15 @@ test('intent mismatch with present_in_original false re-enters the update loop',
   assert.equal(result.revisions_used, 1);
 });
 
-test('intent mismatch with present_in_original true is preexisting and stops the loop', async () => {
-  const { agent, calls } = intentMismatchAgent(true);
-  const { result } = await run('update', agent);
+test('diff scope keeps an intent mismatch on an unchanged, unscanned file unresolved', async () => {
+  const labels = ['find-why-driven-p2r1', 'find-why-driven-p2r2'];
+  const { agent, calls } = intentMismatchAgent(false, labels, 'references/untouched.md');
+  const { result } = await run('update', agent, { scope: 'diff', diffRef: 'main...HEAD' });
   const updaters = calls.filter(c => c.label.startsWith('update-')).map(c => c.label);
-  assert.deepEqual(updaters, ['update-r1']);
-  assert.equal(result.staging.preexisting.length, 1);
-  assert.equal(result.staging.new.length, 0);
-  assert.equal(result.verdict, 'applied_to_staging');
+  assert.deepEqual(updaters, ['update-r1', 'update-r2']);
+  assert.equal(result.staging.out_of_scope.length, 0);
+  assert.equal(result.staging.new.length, 1);
+  assert.equal(result.verdict, 'needs_human_decision');
 });
 
 test('intent is absent from update Find and from every review prompt', async () => {
