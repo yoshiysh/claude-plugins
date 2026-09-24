@@ -144,7 +144,7 @@ Helps with documents
 - 「〜の場合に使う」より「〜なら使うこと」のスタイルが有効
 - 競合しそうなスキルと明確に区別できる表現を入れる
 - 除外条件（対象外）も明記する
-- GPT-6 blog は逆に「as short as possible while making it clear when the model should use them」を勧める。押し強めを既定とし、そこからは 2 点だけ採る: When を領域の列挙で広げない（悪例「Use when working with databases, queries, models, or persistence.」）、重要な When を前に置く（スキルが増えると「Codex starts shortening their descriptions」）
+- GPT-6 blog は逆に「as short as possible while making it clear when the model should use them」を勧める。押し強めを既定とし、そこからは 2 点だけ採る: When を領域の列挙で広げない（悪例「Use when working with databases, queries, models, or persistence.」）、重要な When を前に置く（スキルが増えると「Codex starts shortening their descriptions」からの推論）
 - 長さ・語調の変更は、trigger eval（§6「description 最適化ループ」）で実測して改善したときだけ採る
 
 ### 命名規則
@@ -161,8 +161,8 @@ Helps with documents
 
 model と effort は、その agent を起動する側の 1 箇所に書く。Workflow の script が起動する agent は
 `agent()` opts の `model` / `effort`（省略するとセッションの値を継承する）、Agent ツールで起動する
-agent は agents/*.md frontmatter の `model:`。両方に書くと、片方だけ更新されたときにどちらが効くのか
-読み手が決められない。
+agent は agents/*.md frontmatter の `model:`。両方に書くと、片方だけ更新されたときにどちらが効くか
+決まらない。
 
 | タスクの性質 | モデル |
 |------------|--------|
@@ -180,7 +180,7 @@ effort の選び方:
   既定値は [§11](#11-claude-5-世代の指示設計--世代共通の原則)「モデル別の分岐」
 - `xhigh` / `max` は品質の向上を測れた作業だけに使う。思考を減らしたいなら prompt の指示ではなく
   effort を下げる（Opus 5.5 docs「more reliably than prompt instructions do」）
-- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（Workflow ツールの contract）
+- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明）
 - GPT-6 の移行指針は逆に「Preserve your current effective reasoning effort where supported」とするが、
   Claude 側の測り直しを採る
 - 指示の密度は、それを読むモデルで決める（GPT-6 blog「Guidance that helps Sol or Luna may overconstrain
@@ -208,8 +208,8 @@ Consistent formatting ensures the viewer can parse results.
 
 例外：スキーマのフィールド名一致など「崖の近く」のクリティカルな箇所では制約も必要。
 
-「必ず」「一切」のような強い一般禁止語は、モデルごとに効き方の向きが違っても結論は同じになる。
-- Claude: 理由を添えた規則が初めての状況にも適用される。止まり方は停止の種類を名指しして制御する（§11 P2）
+「必ず」「一切」のような強い一般禁止語について:
+- Claude: 理由を添えた規則を書く（Anthropic skill-creator「explain to the model why ... in lieu of heavy-handed musty MUSTs」）。止まり方は停止の種類を名指しして制御する（§11 P2）
 - GPT-6: 旧モデル向けの強い境界は「Astra could take it too seriously and may stop work」、不明瞭・
   矛盾した指示も「may cause the model to pause and block work early」
 - 共通: 不可逆・破壊的操作の確認だけは強く残し（Opus 5.5 docs「keep your own confirmation step for
@@ -463,22 +463,22 @@ feedback.json で構造化フィードバック収集
 |---|---|---|
 | P1 | 完了条件を作業の前に書く。最初の実装の後にレビューで止まることを要件にしない | blog「Name the finish line」。GPT-6 blog も「define completion before starting」とし、途中レビューの要件は「pull the model toward an earlier stopping point」 |
 | P2 | 止まってよい停止（入力なしに進めない・破壊的操作の前）と、止まってほしくない停止（次の手順を宣言して turn を終える等）を名指しする。強い禁止は不可逆操作の確認だけに残す | 名指しされた停止に反応する（Opus 5.5 docs）。blog の例「Stop and ask only when you can't continue without me, or before anything destructive」。禁止語の効き方は §3「Why-driven prompt design」 |
-| P3 | 旧世代の弱さ補償を削る: 明示的な検証・ダブルチェックの指示、think carefully 型の思考指示、reasoning echo（推論を回答本文に書かせる）、手順の hardcode・網羅的な書式ルール・防衛的な繰り返し | 自己検証は既定の挙動で、指示は over-verification になる（Opus 5 docs。GPT-6 blog も「the same instructions can lead to unnecessary testing」）。思考量の制御は effort で、この種の行の除去を Opus 5.5 docs はチャットの system prompt に、blog は保存済みの指示にも勧める。推論を本文に書かせると `reasoning_extraction` refusal になりうる。手順の網羅は今は品質の上限になる（GPT-6 blog「overly specific guidance can now hinder results」） |
+| P3 | 旧世代の弱さ補償を削る: 同じ agent に再確認・ダブルチェックさせる指示、think carefully 型の思考指示、reasoning echo（推論を回答本文に書かせる）、手順の hardcode・網羅的な書式ルール・防衛的な繰り返し | 自己検証は既定の挙動で、指示は over-verification になる（Opus 5 docs。GPT-6 blog も「the same instructions can lead to unnecessary testing」）。生成者と別の verifier は P7。思考量の制御は effort で、この種の行の除去を Opus 5.5 docs はチャットの system prompt に、blog は保存済みの指示にも勧める。推論を本文に書かせると `reasoning_extraction` refusal になりうる。手順の網羅は今は品質の上限になる（GPT-6 blog「overly specific guidance can now hinder results」） |
 | P4 | 参照は「何のときに何を見るか」のポインタにし、一律の事前読込・事前リサーチを強制しない。緩く指定された多ソース作業にだけ「関係する出典を先に見る」1 文を置く | GPT-6 blog の悪例「Before every edit, read architecture.md, ...」と良例「Use architecture.md for service boundaries, ...」。Opus 5.5 は着手が早く、その 1 文で正答が増えた（docs） |
 | P5 | effort を agent / stage ごとに明示し、自前 eval で sweep する | §3「model と effort は役割ごとに組で選ぶ」 |
 | P6 | 指示の密度は、それを読むモデルで決める | 同上 |
-| P7 | 委譲は「いつ・どれだけ」を書き（independent で sizeable な作業だけ・決定的な spawn 上限）、返った結果は証拠を確かめて受け取る。検証は生成者と別の fresh-context verifier が行う（§3） | 委譲の傾向はモデルで逆を向く（Claude 5 世代は積極的で小タスクへの委譲がコストを倍にし、GPT-6 は「may delegate less often than desired」）ので量を書く。blog「check its evidence before you accept it」。Fable 5 docs「Separate, fresh-context verifier subagents tend to outperform self-critique」 |
+| P7 | 委譲は「いつ・どれだけ」を書き（independent で sizeable な作業だけ・決定的な spawn 上限）、返った結果は証拠を確かめて受け取る。検証は生成者と別の fresh-context verifier が行う（§3） | 委譲の傾向はモデルで逆を向く（Opus 5・Fable 5 は積極的で小タスクではコストと時間が何倍にもなり、GPT-6 は「may delegate less often than desired」）ので量を書く。blog「check its evidence before you accept it」。Fable 5 docs「Separate, fresh-context verifier subagents tend to outperform self-critique」 |
 | P8 | 長時間・無人の run では text だけの turn 終了を完了とみなさず、タスク一覧をファイルで更新させ、自動継続は 2–3 回で止める。進捗の主張はツール結果と突合させ、確認できなかったことは見た場所とともに書かせる | Opus 5.5 docs「Treat a text-only end of turn as a report rather than as proof the task is done」。blog「Mark anything you couldn't confirm, and say where you looked」。突合の指示は Fable 5 docs のテストで捏造ステータス報告をほぼ排除した |
 
 削らずに残すもの:
 - 境界と scope 制約（「修正は指示されるまでしない」型、頼まれた範囲を広げない・狭めない）。Fable 5 は頼まれていない行動（メール下書き・防衛的 git backup が公式の実例）を、Opus 5 は scope の自己拡張をしうる
-- 依頼の意図（「Give the reason, not only the request」）と、出力の長さ・narration の明示（effort では制御できない。「Lead with the outcome」型）
+- 依頼の意図（Fable 5 docs「Give the reason, not only the request」）と、出力の長さ・narration の明示（effort では制御できない。Opus 5・Fable 5 docs「Lead with the outcome」型）
 - メモリは 1 教訓 1 ファイル + 既存更新・重複禁止・誤り削除で管理する（Fable 5 は過去 run の教訓参照で特に性能が上がる）
 - レビューは全件を報告させ別パスでフィルタする（「high-severity のみ」と書くと文字どおり従い検出が減る）。フィルタ段の無い単発のレビューなら blog の例「List only problems you'd block the merge for」の形でよい
 
 ### モデル別の分岐
 
-原則は共通で、既定値と次の挙動だけが分かれる（出典は各モデルの公式 prompting guide）。
+原則は共通で、既定値と次の挙動だけが分かれる（出典は各モデルの prompting guide）。
 
 | 項目 | 分岐 |
 |---|---|
@@ -499,9 +499,9 @@ feedback.json で構造化フィードバック収集
 
 ### スキル作成フローへの含意
 
-- **degrees of freedom（§1・公式 best practices）はこの世代でも健在**。崖の近く（不可逆操作・スキーマ厳密一致）は low freedom のまま
+- **degrees of freedom（公式 best practices）はこの世代でも健在**。崖の近く（不可逆操作・スキーマ厳密一致）は low freedom のまま
 - **削るかは eval で決める**。公式も「consider removing older instructions **if default performance is better**」と条件付き。削る前に baseline（旧指示のまま）を取り、削った版と比べる（§6）
-- **対象モデルが変わったら effort を sweep し直し**（P5）、上表の固有の失敗（turn 途中の停止・未依頼の変更・引用符なしの原文再現・小変更での全書き換え）を eval の assertion に入れる
+- **対象モデルが変わったら effort を sweep し直し**（P5）、上表の固有の失敗を eval の assertion に入れる
 
 ---
 
