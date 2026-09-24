@@ -8,6 +8,7 @@ import { exactObject, requestKeys, limitKeys, validateRequirements } from './inp
 import { resumableWorkflow } from './resume.mjs';
 import { rejectUpdateWorkflow } from './update-guard.mjs';
 import { runAgent } from './agent-run.mjs';
+import { createRunWorkspace } from './run-workspace.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
@@ -37,9 +38,13 @@ export async function Workflow(request, host = {}) {
   if (!runDir) throw new Error('new runDir required');
   // Exclusive directory: no overwrite, implicit resume, or replay of side effects.
   await mkdir(runDir, { mode: 0o700 });
+  const workspace = typeof backendPolicy?.cwd === 'string'
+    ? await createRunWorkspace({ projectRoot: backendPolicy.cwd, workflowName: meta.name, runDir })
+    : null;
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
     sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [], backendPolicy,
+    workspace,
     limits: { maxAgents, concurrency, timeoutMs, agentTimeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
   let journal = Promise.resolve();
   let sequence = 0;
@@ -60,6 +65,7 @@ export async function Workflow(request, host = {}) {
   let calls = 0, active = 0, settled = false, outputBytes = 0;
   const deadlineAt = performance.now() + timeoutMs;
   record({ type: 'run.started' });
+  if (workspace) record({ type: 'workspace.created', path: workspace.path });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error('workflow deadline exceeded')), timeoutMs);
     async function finish(error, result) {
@@ -140,6 +146,6 @@ export async function Workflow(request, host = {}) {
         queue.push({ ...message, validate }); pump();
       } catch (error) { finish(error); }
     });
-    worker.send({ type: 'start', args: JSON.parse(encodedArgs), meta, body });
+    worker.send({ type: 'start', args: JSON.parse(encodedArgs), meta, body, workspace });
   });
 }

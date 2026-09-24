@@ -147,3 +147,34 @@ test('agent timeout defaults to 80% of the workflow deadline', async t => {
   assert.equal(result, null);
   assert.equal(events.find(event => event.type === 'agent.timeout').timeoutMs, 800);
 });
+
+test('source passes role-specific evidence paths through one retained per-run workspace', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-runtime-shared-workspace-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const scriptPath = join(root, 'evidence.flow'), runDir = join(root, 'run');
+  await writeFile(scriptPath, `export const meta = {name:'evidence-review',description:'shared evidence files',requirements:['workspace-write']};
+    const evidencePath = workspace.path + '/research-notes.md';
+    await agent('write ' + evidencePath, {label:'research'});
+    return await agent('read only ' + evidencePath, {label:'review'});`);
+  const backend = {
+    capabilities: ['read-only', 'fresh-thread', 'workspace-write'],
+    async prepare() { return { cwd: root }; },
+    async run(prompt) {
+      const path = prompt.match(/(?:write|read only) (.+)$/)?.[1];
+      assert.ok(path);
+      if (prompt.startsWith('write ')) {
+        await writeFile(path, 'role evidence\\n');
+        return 'written';
+      }
+      return await readFile(path, 'utf8');
+    },
+  };
+  const result = await Workflow({ scriptPath }, { backend, trustedSource: true, runDir, requirements: ['workspace-write'] });
+  const receipt = JSON.parse(await readFile(join(runDir, 'request.json'), 'utf8'));
+  const events = (await readFile(join(runDir, 'events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(result, 'role evidence\\n');
+  assert.equal(receipt.workspace.path.startsWith(join(await realpath(root), 'dynamic-workflows', 'workspace', 'evidence-review') + '/'), true);
+  assert.notEqual(receipt.workspace.path, runDir);
+  assert.equal(await readFile(join(receipt.workspace.path, 'research-notes.md'), 'utf8'), 'role evidence\\n');
+  assert.equal(events.some(event => event.type === 'workspace.created' && event.path === receipt.workspace.path), true);
+});
