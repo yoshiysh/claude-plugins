@@ -160,9 +160,11 @@ Helps with documents
 ### model と effort は役割ごとに組で選ぶ
 
 model と effort は、その agent を起動する側の 1 箇所に書く。Workflow の script が起動する agent は
-`agent()` opts の `model` / `effort`（省略するとセッションの値を継承する）、Agent ツールで起動する
-agent は agents/*.md frontmatter の `model:`。両方に書くと、片方だけ更新されたときにどちらが効くか
-決まらない。
+`agent()` opts の `model` / `effort`（省略時はセッションの値）。Agent ツールで起動する
+登録済み subagent（`.claude/agents/`、plugin の `agents/` など）は定義の frontmatter `model:` / `effort:`
+（Agent 呼び出しは effort を取らず、plugin でも効く）。script が prompt として渡す skill 内の
+agents/*.md の frontmatter は効かない。opts と agent ファイルの frontmatter の両方に書くと、
+片方だけの更新でどちらが効くか決まらない。
 
 | タスクの性質 | モデル |
 |------------|--------|
@@ -180,7 +182,7 @@ effort の選び方:
   既定値は [§11](#11-claude-5-世代の指示設計--世代共通の原則)「モデル別の分岐」
 - `xhigh` / `max` は品質の向上を測れた作業だけに使う。思考を減らしたいなら prompt の指示ではなく
   effort を下げる（Opus 5.5 docs「more reliably than prompt instructions do」）
-- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（effort は workflow-authoring の `agent()` opts 説明、model は AGENTS.md の実測の規則）
+- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明、AGENTS.md の実測）
 - GPT-6 の移行指針は逆に「Preserve your current effective reasoning effort where supported」とするが、
   Claude 側の測り直しを採る
 - 指示の密度は、それを読むモデルで決める（GPT-6 blog「Guidance that helps Sol or Luna may overconstrain
@@ -413,7 +415,7 @@ feedback.json で構造化フィードバック収集
 
 - [ ] SKILL.md がフロー制御のみを持っている
 - [ ] 各エージェントが単一責務を持っている
-- [ ] agent ごとの model と effort が、起動する側の 1 箇所に明示されている（§3）
+- [ ] model と effort: 指示の較正 P5
 - [ ] schemas.md でエージェント間の入出力が定義されている
 - [ ] assets/ に参照データが分離されている
 - [ ] Generator と Verifier が別エージェントになっている
@@ -422,7 +424,7 @@ feedback.json で構造化フィードバック収集
 
 ### テスト
 - [ ] 最低3件の評価テストケースを作成した
-- [ ] agent ごとの model × effort を明示し、その組で eval した（§3）
+- [ ] model × effort の eval: 指示の較正 P5
 - [ ] 実際のユースケースでテストした
 
 ### ループ・反復を持つスキル（改稿 / 審査 / 実験の繰り返しがある場合）
@@ -442,7 +444,7 @@ feedback.json で構造化フィードバック収集
 - [ ] P2: 止まってよい停止・止まるべきでない停止が名指しされ、強い禁止は不可逆操作の確認だけに残っている（§11）
 - [ ] P3: 旧世代の弱さ補償の指示を、baseline 比較の eval で確かめてから削った（§11）
 - [ ] P4: 参照の読込が文脈付きポインタになっている（§11）
-- [ ] P5（agent を起動する場合）: effort が agent / stage ごとに明示され、自前 eval で sweep されている（§3）
+- [ ] P5（agent を起動する場合）: model と effort が agent / stage ごとに起動する側の 1 箇所で明示され、その組を自前 eval で sweep した（§3）
 - [ ] P6（agent を起動する場合）: 指示の密度を、それを読むモデルごとに決めた（§3）
 - [ ] P7（委譲する場合）: 委譲の「いつ・どれだけ」が明示され、返ってきた結果は証拠を確かめてから受け取る（§11）
 - [ ] P8: 長時間の run はタスク一覧をファイルに持ち、自動継続に上限があり、確認できなかったことを報告させる（§11）
@@ -482,7 +484,7 @@ feedback.json で構造化フィードバック収集
 
 | 項目 | 分岐 |
 |---|---|
-| effort の既定値 | Opus 5.5 は `medium`（Opus 5 は `high`）、Fable 5.1 は `high`。既定から始めて他の水準を測る |
+| effort の既定値 | Opus 5.5 は `medium`（Opus 5 は `high`）、Fable 5.1 は `high` |
 | 進捗更新と書式 | Opus 5.5 は更新を書き、一部が text だけで turn を終える（P8）。Fable 5.1 は更新が少なく（「fewer user-facing updates」）bold・見出し・リストも使いにくい。抑える旧指示を除き、足りなければ「いつ更新・書式を出すか」の 1 行を足す |
 | turn 途中の停止 | Fable 5.1 は「Next, I'll …」と述べて止まる、依頼済みの手順の許可を求める。長時間自律実行には公式の autonomously ブロックを原文のまま使い、質問が減る trade-off を確かめる |
 | scope・テスト | Fable 5.1 は未依頼の修正・拡張・テストファイルを出す。依頼範囲に限る指示で「drop substantially」。eval でその数を見る |
@@ -778,10 +780,10 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 
 ### 規模とコスト
 
-- 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧めている
+- 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧める
 - size guideline（`/config`）は Claude が狙う agent 数の目安。`small` < 5 / `medium` < 15（既定）/ `large` < 50 / `unrestricted`
 - 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）
-- **モデルと `effort` は既定でセッションの値**。役割ごとの選び方は §3「model と effort は役割ごとに組で選ぶ」
+- モデルと `effort`: §3
 
 規模はタスクに合わせる。「バグを探して」なら finder 数体＋単票 verify、「徹底的に監査して」なら finder を増やし 3〜5 票の adversarial pass と統合ステージを置く。
 
