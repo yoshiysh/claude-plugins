@@ -1,5 +1,4 @@
 ---
-subagent_type: general-purpose
 description: 要件・構成案・検証レポートをもとにSKILL.mdの初稿または修正稿を執筆する
 ---
 

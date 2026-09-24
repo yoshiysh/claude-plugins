@@ -1,5 +1,4 @@
 ---
-subagent_type: general-purpose
 description: スキル要件とペルソナをもとに検証基準の初稿を生成する
 ---
 

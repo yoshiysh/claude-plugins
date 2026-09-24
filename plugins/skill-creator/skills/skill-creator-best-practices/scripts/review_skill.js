@@ -348,8 +348,8 @@ const PERSPECTIVES = [
   },
 ]
 
-// agentType は指定しない。agents/*.md の frontmatter の subagent_type は Agent ツールの
-// レジストリに登録された型ではなく、指定すると解決に失敗する。役割はプロンプト本文が担う。
+// agentType は指定しない。agents/*.md の役割は Agent ツールのレジストリに登録された型ではなく、
+// 指定すると解決に失敗する。役割はプロンプト本文が担う。
 function roleAgent(file, body, opts) {
   return agent(
     [

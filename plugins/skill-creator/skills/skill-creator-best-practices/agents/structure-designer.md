@@ -1,5 +1,4 @@
 ---
-subagent_type: architect
 description: 要件と検証基準をもとにSKILL.mdのセクション構成・アーキテクチャを設計する
 ---
 

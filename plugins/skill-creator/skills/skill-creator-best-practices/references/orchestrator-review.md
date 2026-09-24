@@ -263,6 +263,7 @@ symlink を置くと、取得側によっては symlink が落ちて中身が空
 
 ### agent の frontmatter は既存と同じフィールドに揃える
 
-新設 agent の frontmatter は `model` / `subagent_type` / `description` のみ。
+新設 agent の frontmatter は `description` のみ。model / effort は起動する script の `agent()` opts に書く
+（`references/best-practices.md` §3「model と effort は役割ごとに組で選ぶ」）。
 配布先ごとに解釈の異なるフィールドを増やすと、片方の plugin 定義にしか無い項目が
 できて整合が崩れる。
