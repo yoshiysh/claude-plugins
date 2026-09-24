@@ -1,6 +1,7 @@
 // Explicit quiescent-boundary protocol. Legacy journals are never executable.
 import { fork } from 'node:child_process';
-import { open, readFile, realpath, mkdir, rm, stat } from 'node:fs/promises';
+import { constants, promises as fsPromises } from 'node:fs';
+import { lstat, readFile, realpath, mkdir, rm, stat } from 'node:fs/promises';
 import { join, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
@@ -8,19 +9,26 @@ import { compileSource } from './source.mjs';
 import { exactObject, validateRequirements } from './inputs.mjs';
 import { rejectUpdateWorkflow } from './update-guard.mjs';
 import { runAgent } from './agent-run.mjs';
+import { createRunWorkspace, reuseRunWorkspace, snapshotRunWorkspace } from './run-workspace.mjs';
 
 const PROTOCOL = 'quiescent-checkpoint-v1';
 const hash = value => createHash('sha256').update(value).digest('hex');
 const json = value => JSON.stringify(value);
 const same = (a, b) => json(a) === json(b);
-const maxEvidenceBytes = 32 * 1024 * 1024;
+export const maxEvidenceBytes = 32 * 1024 * 1024;
+const evidenceReadChunkBytes = 64 * 1024;
+
+function sameEvidenceFile(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode &&
+    left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+}
 
 async function syncDirectory(path) {
-  const file = await open(path, 'r');
+  const file = await fsPromises.open(path, 'r');
   try { await file.sync(); } finally { await file.close(); }
 }
 async function durableFile(path, content) {
-  const file = await open(path, 'wx', 0o600);
+  const file = await fsPromises.open(path, 'wx', 0o600);
   try { await file.writeFile(content); await file.sync(); } finally { await file.close(); }
 }
 async function filesSnapshot(paths) {
@@ -34,16 +42,35 @@ async function filesSnapshot(paths) {
 async function implementationHash() {
   // Bind runtime/worker, backend policy implementation and pinned dependencies.
   const names = ['runtime.mjs', 'resume.mjs', 'agent-run.mjs', 'worker.mjs', 'source.mjs', 'inputs.mjs',
-    'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'package-lock.json'];
+    'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'run-workspace.mjs', 'package-lock.json'];
   return hash(json(await Promise.all(names.map(async name =>
     [name, hash(await readFile(new URL(name, import.meta.url)))]))));
 }
 async function readEvidence(root, name) {
-  const path = await realpath(join(root, name));
-  if (path !== join(root, name)) throw Error('checkpoint evidence symlinks are not supported');
-  const info = await stat(path);
+  const path = join(root, name);
+  if (await realpath(path) !== path) throw Error('checkpoint evidence symlinks are not supported');
+  const info = await lstat(path);
   if (!info.isFile() || info.size > maxEvidenceBytes) throw Error('invalid checkpoint evidence file');
-  return readFile(path, 'utf8');
+  if (typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_NONBLOCK !== 'number')
+    throw Error('safe checkpoint evidence reads require O_NOFOLLOW and O_NONBLOCK support');
+  const file = await fsPromises.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const opened = await file.stat();
+    if (!opened.isFile() || !sameEvidenceFile(info, opened)) throw Error('checkpoint evidence changed before read');
+    const content = Buffer.alloc(info.size);
+    let bytesRead = 0;
+    while (bytesRead < info.size) {
+      const length = Math.min(evidenceReadChunkBytes, info.size - bytesRead);
+      const result = await file.read(content, bytesRead, length, bytesRead);
+      if (!result.bytesRead) throw Error('checkpoint evidence changed while reading (short read)');
+      bytesRead += result.bytesRead;
+    }
+    const [current, pathInfo] = await Promise.all([file.stat(), lstat(path)]);
+    if (!current.isFile() || !pathInfo.isFile() || pathInfo.isSymbolicLink() ||
+        !sameEvidenceFile(opened, current) || !sameEvidenceFile(opened, pathInfo))
+      throw Error('checkpoint evidence changed while reading');
+    return content.toString('utf8');
+  } finally { await file.close(); }
 }
 
 function validateHistory(request, events, seal) {
@@ -73,13 +100,14 @@ function validateHistory(request, events, seal) {
       released.add(event.id);
     } else if (event.type === 'checkpoint.passed' || event.type === 'checkpoint.stopped') {
       if (accepted.size !== released.size || event.calls !== calls) throw Error('checkpoint is not quiescent');
-    } else if (!['run.started', 'agent.event', 'phase', 'log'].includes(event.type)) {
+    } else if (!['run.started', 'workspace.created', 'agent.event', 'phase', 'log'].includes(event.type)) {
       throw Error(`unresolved checkpoint event: ${event.type}`);
     }
   }
   const boundary = events.at(-1);
   if (!boundary || boundary.type !== 'checkpoint.stopped' || boundary.digest !== seal.journalDigest ||
-      calls !== boundary.calls || accepted.size !== released.size || !same(boundary.files, seal.files))
+      calls !== boundary.calls || accepted.size !== released.size || !same(boundary.files, seal.files) ||
+      !Array.isArray(boundary.workspace) || !same(boundary.workspace, seal.workspace))
     throw Error('no sealed quiescent checkpoint');
   if (calls > request.limits.maxAgents || !Number.isSafeInteger(boundary.outputBytes) || boundary.outputBytes < 0 ||
       boundary.outputBytes > request.limits.maxOutputBytes || !Number.isSafeInteger(boundary.remainingMs) ||
@@ -124,7 +152,7 @@ export async function resumableWorkflow(request, host) {
     argsHash: hash(argsText), sourceWorkerEnvironment: { PATH: process.env.PATH, node: process.version },
     capabilities, requirements: host.requirements ?? [], backendIdentity, backendPolicy,
     limits, dependencyPaths: policy.files };
-  let previous, lease, leaseAcquired = false, claimed = false;
+  let previous, workspace = null, lease, leaseAcquired = false, claimed = false;
   try {
     if (host.resume !== undefined) {
       exactObject(host.resume, ['previousRun', 'freshness'], 'resume');
@@ -138,15 +166,23 @@ export async function resumableWorkflow(request, host) {
         ['request.json', 'events.jsonl', 'checkpoint.json', 'source.txt'].map(name => readEvidence(root, name)));
       const old = JSON.parse(requestText), seal = JSON.parse(sealText);
       if (!eventsText.endsWith('\n')) throw Error('torn checkpoint journal');
+      if (typeof backendPolicy?.cwd === 'string') workspace = await reuseRunWorkspace({
+        projectRoot: backendPolicy.cwd, workflowName: meta.name, workspace: old.identity?.workspace, runDir });
+      identity.workspace = workspace;
       if (seal.requestHash !== hash(requestText) || seal.sourceHash !== hash(savedSource) || savedSource !== source ||
           !same(old.identity, identity)) throw Error('checkpoint execution identity mismatch');
       const events = eventsText.trimEnd().split('\n').map(JSON.parse);
       const checked = validateHistory(old, events, seal);
       if (!same(await filesSnapshot(policy.files), seal.files)) throw Error('checkpoint dependency/artifact drift');
+      if (!same(await snapshotRunWorkspace(workspace?.path), seal.workspace)) throw Error('checkpoint workspace drift');
       previous = { root, events, ...checked, digest: hash(requestText + eventsText + sealText) };
     }
     const initialFiles = await filesSnapshot(policy.files);
     await mkdir(runDir, { mode: 0o700 });
+    if (!host.resume && typeof backendPolicy?.cwd === 'string') {
+      workspace = await createRunWorkspace({ projectRoot: backendPolicy.cwd, workflowName: meta.name, runDir });
+      identity.workspace = workspace;
+    } else if (!host.resume) identity.workspace = null;
     // A predecessor is permanently consumed once a new run owns continuation.
     // Failures after this point require reconciliation, not lease deletion/retry.
     if (lease) {
@@ -159,10 +195,10 @@ export async function resumableWorkflow(request, host) {
     const requestText = json({ protocol: PROTOCOL, identity, scriptPath: path, args: JSON.parse(argsText),
       meta, limits, initialFiles, predecessor: previous ? { runDir: previous.root, digest: previous.digest } : null });
     await durableFile(join(runDir, 'request.json'), requestText);
-    const journal = await open(join(runDir, 'events.jsonl'), 'wx', 0o600);
+    const journal = await fsPromises.open(join(runDir, 'events.jsonl'), 'wx', 0o600);
     await syncDirectory(runDir);
     try { return await execute({ backend, runDir, policy, limits, meta, body, argsText, source,
-      requestText, previous, journal, capabilities }); }
+      requestText, previous, journal, capabilities, workspace }); }
     finally { await journal.close(); }
   } finally {
     if (leaseAcquired && !claimed) await rm(lease, { recursive: true, force: true });
@@ -170,7 +206,7 @@ export async function resumableWorkflow(request, host) {
 }
 
 async function execute({ backend, runDir, policy, limits, meta, body, argsText, source,
-  requestText, previous, journal, capabilities }) {
+  requestText, previous, journal, capabilities, workspace }) {
   let sequence = 0, digest = '', io = Promise.resolve(), poisoned;
   const record = event => {
     const next = io.then(async () => {
@@ -190,7 +226,10 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
       if (payload.type === 'checkpoint.stopped') payload.type = 'checkpoint.passed';
       await record(payload);
     }
-  } else await record({ type: 'run.started' });
+  } else {
+    await record({ type: 'run.started' });
+    if (workspace) await record({ type: 'workspace.created', path: workspace.path });
+  }
   const transcript = previous?.events.filter(e => ['agent.accepted', 'reply.released',
     'checkpoint.passed', 'checkpoint.stopped', 'phase', 'log'].includes(e.type)) ?? [];
   let cursor = 0, replaying = Boolean(previous);
@@ -303,6 +342,8 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
             if (cursor !== transcript.length) throw Error('historical transcript not fully consumed');
             // Recheck immediately before opening live admission.
             if (!same(await filesSnapshot(policy.files), previous.boundary.files)) throw Error('checkpoint dependency/artifact drift');
+            if (!same(await snapshotRunWorkspace(workspace?.path), previous.boundary.workspace))
+              throw Error('checkpoint workspace drift');
             replaying = false;
           }
           send(message.id, null); releaseReplay(); return;
@@ -323,14 +364,15 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
         if (active.size || queue.length || tainted) throw Error('checkpoint requires quiescent successful outcomes');
         const stopped = policy.stopAfter === message.label;
         const files = await filesSnapshot(policy.files);
+        const workspaceFiles = await snapshotRunWorkspace(workspace?.path);
         const remainingMs = Math.floor(availableMs - (performance.now() - start));
         if (remainingMs <= 0) throw Error('workflow deadline exceeded');
         await record({ type: stopped ? 'checkpoint.stopped' : 'checkpoint.passed', id: message.id,
-          label: message.label, calls, outputBytes, remainingMs, files });
+          label: message.label, calls, outputBytes, remainingMs, files, workspace: workspaceFiles });
         if (settled) return;
         if (stopped) {
           await durableFile(join(runDir, 'checkpoint.json'), json({ protocol: PROTOCOL, journalDigest: digest,
-            requestHash: hash(requestText), sourceHash: hash(source), files }));
+            requestHash: hash(requestText), sourceHash: hash(source), files, workspace: workspaceFiles }));
           await syncDirectory(runDir);
           if (settled) return;
           return finish(null, { status: 'checkpoint', runDir, label: message.label, calls, remainingMs }, true);
@@ -349,6 +391,6 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
     worker.on('message', message => {
       admission = admission.then(() => receive(message)); admission.catch(finish);
     });
-    worker.send({ type: 'start', args: JSON.parse(argsText), meta, body, checkpoints: true });
+    worker.send({ type: 'start', args: JSON.parse(argsText), meta, body, checkpoints: true, workspace });
   });
 }

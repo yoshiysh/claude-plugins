@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm, mkdir, stat, open } from 'node:fs/promises';
+import { constants, promises as fsPromises } from 'node:fs';
+import { mkdtemp, writeFile, readFile, rm, mkdir, stat, open, chmod, truncate, unlink, symlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Workflow } from './runtime.mjs';
+import { maxEvidenceBytes } from './resume.mjs';
 import { executeWorkflow } from './adapter.mjs';
 
 async function fixture(t, body, extra = {}) {
@@ -30,6 +32,59 @@ test('checkpoint stops then replays completed work and dispatches only new work'
   assert.deepEqual(f.invoked, ['first', 'first second']);
   await assert.rejects(f.run({ resume: resume(stopped) }), /EEXIST/);
   assert.ok((await stat(join(stopped.runDir, 'continuation.lock'))).isDirectory());
+});
+
+test('checkpoint continuation retains the shared evidence workspace', async t => {
+  const f = await fixture(t, `const path=workspace.path+'/evidence.md'; await agent('write '+path); await checkpoint('one'); return await agent('read '+path);`, {
+    backend: {
+      prepare: async () => ({ cwd: f.dir }),
+      async run(prompt) {
+        const [, operation, path] = prompt.match(/^(write|read) (.+)$/) ?? [];
+        if (operation === 'write') return writeFile(path, 'shared evidence').then(() => 'written');
+        if (operation === 'read') return readFile(path, 'utf8');
+        throw Error('unexpected prompt');
+      },
+    },
+  });
+  const stopped = await f.run();
+  const saved = JSON.parse(await readFile(join(stopped.runDir, 'request.json'), 'utf8'));
+  assert.ok(saved.identity.workspace.path.startsWith(join(await realpath(f.dir), 'dynamic-workflows', 'workspace', 'resume') + '/'));
+  assert.equal(await readFile(join(saved.identity.workspace.path, 'evidence.md'), 'utf8'), 'shared evidence');
+  assert.equal(await f.run({ resume: resume(stopped) }), 'shared evidence');
+  const continued = JSON.parse(await readFile(join(f.dir, 'run-2', 'request.json'), 'utf8'));
+  assert.equal(continued.identity.workspace.path, saved.identity.workspace.path);
+  const events = (await readFile(join(f.dir, 'run-2', 'events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(events.filter(event => event.type === 'workspace.created').length, 1);
+});
+
+test('workspace edits, additions, removals and directory-mode changes reject resume before live dispatch', async t => {
+  const changes = ['edit', 'add', 'remove', ...(process.platform === 'win32' ? [] : ['root-mode', 'nested-mode'])];
+  for (const change of changes) {
+    const dispatched = [];
+    const f = await fixture(t, `const path=workspace.path+'/nested/evidence.md'; await agent('write '+path); await checkpoint('one'); return await agent('live');`, {
+      backend: {
+        prepare: async () => ({ cwd: f.dir }),
+        async run(prompt) {
+          dispatched.push(prompt);
+          const path = prompt.match(/^write (.+)$/)?.[1];
+          if (!path) throw Error(`unexpected prompt: ${prompt}`);
+          await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+          return writeFile(path, 'sealed').then(() => 'written');
+        },
+      },
+    });
+    const stopped = await f.run();
+    const saved = JSON.parse(await readFile(join(stopped.runDir, 'request.json'), 'utf8'));
+    const file = join(saved.identity.workspace.path, 'nested', 'evidence.md');
+    if (change === 'edit') await writeFile(file, 'changed');
+    if (change === 'add') await writeFile(join(saved.identity.workspace.path, 'extra.md'), 'added');
+    if (change === 'remove') await rm(file);
+    if (change === 'root-mode') await chmod(saved.identity.workspace.path, 0o755);
+    if (change === 'nested-mode') await chmod(dirname(file), 0o755);
+    await assert.rejects(f.run({ resume: resume(stopped) }), /checkpoint workspace drift/, change);
+    assert.equal(dispatched.length, 1, change);
+    assert.match(dispatched[0], /^write /, change);
+  }
 });
 
 test('parallel out-of-order completion and race branch replay preserves transcript', async t => {
@@ -196,4 +251,80 @@ test('write and fsync faults at every task/checkpoint boundary prevent unsafe re
       } finally { writeMock.mock.restore(); syncMock.mock.restore(); await handle.close(); }
     }
   }
+});
+
+test('oversized checkpoint evidence is rejected before backend dispatch', async t => {
+  const f = await fixture(t, `await agent('a'); await checkpoint('one'); return await agent('b');`);
+  const stopped = await f.run();
+  await truncate(join(stopped.runDir, 'request.json'), maxEvidenceBytes + 1);
+  await assert.rejects(f.run({ resume: resume(stopped) }), /invalid checkpoint evidence file/);
+  assert.deepEqual(f.invoked, ['a']);
+});
+
+test('checkpoint evidence growth during fd reads is bounded and rejected', async t => {
+  const f = await fixture(t, `await agent('a'); await checkpoint('one'); return await agent('b');`);
+  const stopped = await f.run();
+  const evidencePath = join(await realpath(stopped.runDir), 'request.json');
+  const capturedSize = (await stat(evidencePath)).size;
+  const originalOpen = fsPromises.open;
+  let requestedBytes = 0, grew = false, readFileUsed = false;
+  t.mock.method(fsPromises, 'open', async function(path, flags, ...args) {
+    const handle = await originalOpen(path, flags, ...args);
+    if (path !== evidencePath) return handle;
+    const originalRead = handle.read.bind(handle);
+    handle.read = async (buffer, offset, length, position) => {
+      requestedBytes += length;
+      if (!grew) {
+        grew = true;
+        await fsPromises.truncate(evidencePath, capturedSize + 64 * 1024 * 1024);
+      }
+      return originalRead(buffer, offset, length, position);
+    };
+    const originalReadFile = handle.readFile.bind(handle);
+    handle.readFile = async (...readArgs) => {
+      readFileUsed = true;
+      return originalReadFile(...readArgs);
+    };
+    return handle;
+  });
+  await assert.rejects(f.run({ resume: resume(stopped) }), /checkpoint evidence changed while reading/);
+  assert.equal(grew, true);
+  assert.ok(requestedBytes > 0);
+  assert.ok(requestedBytes <= capturedSize);
+  assert.equal(readFileUsed, false);
+  assert.deepEqual(f.invoked, ['a']);
+});
+
+test('checkpoint evidence replaced by a symlink is opened with no-follow flags and never read', {
+  skip: typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_NONBLOCK !== 'number',
+}, async t => {
+  const f = await fixture(t, `await agent('a'); await checkpoint('one'); return await agent('b');`);
+  const stopped = await f.run();
+  const evidencePath = join(await realpath(stopped.runDir), 'request.json');
+  const replacement = join(f.dir, 'replacement.txt');
+  await writeFile(replacement, 'outside evidence');
+  const originalOpen = fsPromises.open;
+  let swapped = false, readCalls = 0;
+  t.mock.method(fsPromises, 'open', async function(path, flags, ...args) {
+    if (path === evidencePath) {
+      swapped = true;
+      assert.notEqual(flags & constants.O_NOFOLLOW, 0);
+      assert.notEqual(flags & constants.O_NONBLOCK, 0);
+      await unlink(evidencePath);
+      await symlink(replacement, evidencePath);
+    }
+    const handle = await originalOpen(path, flags, ...args);
+    if (path === evidencePath) {
+      const originalRead = handle.read.bind(handle);
+      handle.read = async (...readArgs) => {
+        readCalls++;
+        return originalRead(...readArgs);
+      };
+    }
+    return handle;
+  });
+  await assert.rejects(f.run({ resume: resume(stopped) }));
+  assert.equal(swapped, true);
+  assert.equal(readCalls, 0);
+  assert.deepEqual(f.invoked, ['a']);
 });

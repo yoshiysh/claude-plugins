@@ -75,6 +75,19 @@ request JSON に `scriptPath`、`args`、新規 `runDir`、worker `cwd` と必�
 完全 commit hash から作り、元 checkout の未コミット変更は含めない。成果物の引継ぎは source が設計する。
 worktree は独立 checkout であり厳密な読取隔離ではない。作成物は失敗時も残し、自動 merge・削除しない。
 
+Codex backend が `prepare()` から `cwd` を返す場合、各 run に
+`<cwd>/dynamic-workflows/workspace/<workflow-slug>/<run-id>` を作成し、source に
+`workspace.path` として渡す。source VM に filesystem API はなく、source が自分でファイルを
+作成することはできない。source は host sandbox が `workspace-write` を許可する agent/tool に
+役割別の通常ファイルを作成させ、各 prompt には担当に必要なパスだけを渡す。書込可否は
+host sandbox に依存する。ファイル内容は自動で prompt に載らず、役割ごとの OS-level 読取 ACL
+も提供しない。workspace は run 終了後も保持される。書込可能な共通 workspace と
+`isolation: "worktree"` の agent は共有パスを使えないため、dispatch 前に拒否される。
+この配布 checkout 内では `.gitignore` が nested workspace を除外するが、外部 cwd への
+ignore 適用は保証しない。checkpoint snapshot は静的 symlink・特殊ファイルと観測できた
+変更を拒否するが、Node の pathname-based traversal は同一ユーザーの悪意ある並行置換を
+防ぐ security boundary ではない。Codex SDK sandbox での実書込挙動は live 検証していない。
+
 ```bash
 node [SKILL_DIR]/scripts/runtime/cli.mjs <request.json> --live --trusted-source
 ```
