@@ -180,7 +180,7 @@ effort の選び方:
   既定値は [§11](#11-claude-5-世代の指示設計--世代共通の原則)「モデル別の分岐」
 - `xhigh` / `max` は品質の向上を測れた作業だけに使う。思考を減らしたいなら prompt の指示ではなく
   effort を下げる（Opus 5.5 docs「more reliably than prompt instructions do」）
-- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明）
+- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（effort は workflow-authoring の `agent()` opts 説明、model は AGENTS.md の実測の規則）
 - GPT-6 の移行指針は逆に「Preserve your current effective reasoning effort where supported」とするが、
   Claude 側の測り直しを採る
 - 指示の密度は、それを読むモデルで決める（GPT-6 blog「Guidance that helps Sol or Luna may overconstrain
