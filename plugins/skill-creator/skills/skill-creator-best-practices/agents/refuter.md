@@ -22,6 +22,10 @@ description: review/update の Verify / Reverify フェーズで finder の指�
 ### 指摘
 [FINDING]
 
+### 改稿の意図
+[INTENT]（update の Reverify のときだけ渡される。指摘が意図との不一致を主張しているなら、
+この文と照らして反証する。意図を知らずに判定すると、その種の指摘を根拠なく落とすことになる）
+
 ---
 
 ## やること
