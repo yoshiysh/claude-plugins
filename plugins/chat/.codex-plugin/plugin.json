@@ -1,7 +1,18 @@
 {
     "name": "chat",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "author": {
         "name": "yoshiysh"
+    },
+    "interface": {
+        "displayName": "chat",
+        "shortDescription": "chat",
+        "longDescription": "chat",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+            "このプラグインの対応範囲と使い方を教えて"
+        ]
     }
 }
