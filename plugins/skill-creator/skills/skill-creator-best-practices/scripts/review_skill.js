@@ -385,6 +385,7 @@ function scopeBlock(kind) {
         '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
         '[TARGET_DIR] で実際に読んだものだけ。原本は相対パスが同じなので混ぜると観測の有無が狂う）。'
     )
+    if (mode === 'update') lines.push(`[INTENT]:\n${intent}`)
   } else {
     lines.push(`[SCOPE]: ${scope}`)
     lines.push(
