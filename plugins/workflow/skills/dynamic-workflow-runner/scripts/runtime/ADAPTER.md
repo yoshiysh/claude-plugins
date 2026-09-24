@@ -45,7 +45,9 @@ paths in each agent prompt. Write access depends on the host's Codex backend san
 configuration; `workspace.path` is only the handoff location. The runtime does not
 provide role-level read isolation. `workspace-write` cannot be combined
 with an agent's `isolation: "worktree"` because those workers would not share the path.
-This Codex SDK filesystem handoff has not been verified in a live sandbox.
+Workspace writes were observed in one live smoke, but this does not establish general
+sandbox isolation or full PDCA execution; see the [runtime README](README.md) for the
+smoke evidence and snapshot limits.
 
 The one-shot CLI delegates to `executeWorkflow(request, host)` in this same module.
 It accepts an explicit runDir rather than allocating one. Low-level `runtime.mjs`

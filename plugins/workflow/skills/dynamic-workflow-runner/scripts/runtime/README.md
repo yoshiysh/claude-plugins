@@ -128,11 +128,15 @@ before SDK dispatch because the shared directory is outside the isolated checkou
 Workspaces are retained after success, failure and cancellation. In this repository,
 `.gitignore` excludes matching nested workspace directories under this checkout; that
 rule does not affect workspaces created in arbitrary external repositories. Actual
-Codex SDK sandbox enforcement for this handoff has not been live-verified.
+Codex SDK live smoke on PR head `8121b554` used `@openai/codex-sdk` 0.153.4: one agent
+wrote 40 bytes to `workspace.path/probe.txt`, and the runtime completed. This verifies
+the write handoff only in that environment, not general sandbox isolation or full PDCA
+role execution. The snapshot's 32 MiB content cap and manifest limits apply only when
+a snapshot is taken or validated; they are not write-time quotas. Retained workspaces
+have no aggregate quota or automatic pruning.
 
-Writable SDK options and unchanged PDCA control flow have mock-backed tests with real
-Git checkouts. Actual writable live-agent enforcement and full PDCA role execution
-remain unverified; do not infer those guarantees from the mock SDK.
+Writable SDK options and unchanged PDCA control flow also have mock-backed tests with
+real Git checkouts. Do not infer general sandbox isolation from the live smoke or mocks.
 
 `request.json`, source.txt and events.jsonl contain source/args hashes, phases,
 task IDs, thread IDs, results, failures and completed-turn token usage. They may
