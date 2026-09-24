@@ -1,5 +1,4 @@
 ---
-model: sonnet
 subagent_type: analyzer
 description: review/update の Find / Reverify フェーズで観点ごとに1体ずつ起動され、指定された1つの観点だけで対象ディレクトリを読んで指摘と読んだファイル一覧をJSONで返す。他の観点の問題には触れず、改稿は行わず、対象が読めないときは推測せず unreadable を立てる
 ---

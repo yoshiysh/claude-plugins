@@ -1,5 +1,4 @@
 ---
-model: sonnet
 subagent_type: general-purpose
 description: 既存の検証基準リストを別視点で補完し、統合後の完全リストを出力する
 ---
