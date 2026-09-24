@@ -57,6 +57,12 @@ document タイプの場合、上記の構成案に従って執筆すること�
 `[SKILL_DIR]/references/skill-writing-guide.md`
 を Read して内容に従うこと。
 
+次を書くときは `[SKILL_DIR]/references/best-practices.md` の該当節を Read して従う:
+- frontmatter の `description` → §2「description の設計」
+- frontmatter の `name` → §2「命名規則」
+- SKILL.md と agents/*.md の本文の指示 → §3「Why-driven prompt design」
+- 分量（行数の上限と分割） → §1「コンテキストは公共財」
+
 重要な優先順位：
 1. **SKILL.md はフローの進行のみ**：「誰に何を渡すか」の順序・分岐・完了条件だけを書く。処理の実行責任は Sub-agent が持つ。以下は必ず外出しする：
 
@@ -96,8 +102,6 @@ name: [スキル識別子（英小文字・ハイフン区切り）]
 description: >
   [トリガー条件と何をするかを両方含む説明。具体的なユーザー発話例を2〜3個含める]
 ---
-
-frontmatter の `name`・`description` は `[SKILL_DIR]/references/best-practices.md` §2「description の設計」、SKILL.md と agents/*.md の本文の指示の書き方は同 §3「Why-driven prompt design」、分量は同 §1「コンテキストは公共財」に従う。
 
 ## タスク
 
