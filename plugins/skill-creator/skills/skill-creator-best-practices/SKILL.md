@@ -18,7 +18,9 @@ description: >
 
 各 Sub Agent のプロンプトは `agents/` 配下の個別ファイルに定義されている。
 実行順序・並列・集約・閾値判定は Workflow スクリプト（`scripts/build_skill.js` /
-`scripts/review_skill.js`）が握る。司令塔が担うのは、その前後にある人間ゲートだけ。
+`scripts/review_skill.js`）が握る。司令塔が担うのは、その前後にある人間ゲートだけで、
+Agent ツールで agent を直接起動しない。成果物の本文は司令塔ではなく agent が生成し、agent の起動は
+script の多数決・欠測検出を通す必要がある（散文で起動すると、欠けた観点や応答しなかった agent が合格に化ける）。
 
 ## 目次
 
@@ -39,9 +41,8 @@ description: >
 
 ## モード判定
 
-**このスキルが起動したら、他のどの節より先にここで経路を決める。** 経路の無い依頼を
-「とりあえず自分でやる」に落とすと、Workflow を通らない単発のレビューが判定として
-出てしまう（実際に起きた事故がこの節の理由）。判定は必ず下表のどれかに落とす。
+**このスキルが起動したら、他のどの節より先にここで経路を決める。** 判定は下表のどれかに落とす。
+経路の無い依頼を「とりあえず自分でやる」に落とすと、Workflow を通らない単発のレビューが判定として出てしまう。
 
 | 依頼の形 | モード | 進む先 |
 |---|---|---|
@@ -55,8 +56,7 @@ description: >
 **複数行に一致したときの優先順位**：作成・評価・更新の**実体を伴う行**（上 4 行）を優先し、
 それらに 1 行も当たらないときだけ「対象外」「判定不能」を選ぶ。上 4 行の中で `review` と
 `update` の両方に読めるなら `review` を選ぶ。依頼文に「作って」と「見て」が同居するなら、
-まだ存在しないものを作るのが主目的なので `create`。この規則が無いと、複数に当たった時点で
-選択が実行者の裁量に落ち、最も安直な行（対象外）が既定になる。
+まだ存在しないものを作るのが主目的なので `create`。規則が無いと、最も安直な行（対象外）が既定になる。
 
 `review` と `update` の分かれ目は「直す許可が出ているか」だけ。`review` に倒したときは
 結果提示で「このまま update で直すこともできる」と添える（読み違えて `update` に入ると、承認していない改稿が staging に残る）。
@@ -110,19 +110,9 @@ Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 �
   ※ 詳細手順： references/orchestrator-review.md を Read すること
 ```
 
-図を分けているのは、review では Update / Reverify が動かず **何も書かれない**ことを 1 本の図では読み取れないため。
-
-**なぜ review/update も script にするか**: この区間も fan-out・反証の集計・閾値判定・
-条件付き再実行の連なりで、途中に人間の判断が要らない。散文で「観点ごとに見て」「怪しい
-指摘は落として」と書くと、観点の抜けも取捨の基準も実行者の裁量に落ちる。script にすれば
-観点の集合・多数決・未検証の扱いが構造として決まる。
-
-review と改稿の間に人間ゲートを置かないのも同じ理由（止めると指摘の選別が裁量に戻る）。
-**本体ファイルは承認まで一切書き換えない**ため、途中に止める必要が無い。
+review と改稿の間に人間ゲートは置かない。本体ファイルは承認まで書き換えないため、途中で止める必要が無い。
 
 ## Phase 1: 要件整理とペルソナ設計（create）
-
-**Agent ツールは呼び出さない。司令塔が単独で行う。**
 
 `references/orchestrator-requirements.md` を Read し、手順に従って実行する。
 ドメイン知識の要否判定と収集（domainKnowledge の組み立て）も同参照先の手順に含まれる。
@@ -131,9 +121,7 @@ review と改稿の間に人間ゲートを置かないのも同じ理由（止�
 
 ## Phase 1: 対象と範囲の確認（review/update）
 
-**Agent ツールは呼び出さない。司令塔が単独で行う。確認は 1 回にまとめる。**
-
-ここでペルソナ承認ゲートは置かない。review/update の観点は script の `FINDERS` が
+確認は 1 回にまとめる。ここでペルソナ承認ゲートは置かない。review/update の観点は script の `FINDERS` が
 持っており、ユーザーに選ばせる余地が無いため、聞くべきことは対象と範囲だけになる。
 
 依頼文から次を埋め、埋まらないものだけをまとめて 1 回聞き返す。
@@ -242,12 +230,9 @@ script-reviewer（別 context）がそれを検査する。合否は **reviewer�
 script の判定を先に見る（評価が揃わなくても script の失格は報告する）。
 script-reviewer が落ちたときも「失格 0 件」とは読まず `script_review_incomplete` で返す。
 
-**Workflow 型では with_skill / baseline の delta 評価を行わない。** 測定の前提は「with_skill は
-方法論を持ち baseline は持たない」だが、Workflow 型の方法論は script 側にあり、評価時点の script は
-ディスク上に無く、評価 subagent には Workflow ツール自体が無い（実測）。出る数字は方法論の差ではなく
-「script が保存済みか」を測るため走らせない。実効性は**保存後に人間が 1 回回して測る**
-（「統合・改善ループ・ユーザーへの提示（create）」の eval-viewer 手順）。script が失格でもこの
-ループでは改稿しない（再検証の経路が無いまま writer を回すと直ったか確かめずに次へ進む）。
+**Workflow 型では with_skill / baseline の delta 評価を行わない。** 評価時点の script はディスク上に無く、
+出る数字が方法論の差ではなく「script が保存済みか」を測るため。実効性は保存後に人間が 1 回回して測る
+（`references/orchestrator-output.md`「Workflow 型スキルの実効性測定（保存後）」）。
 
 `architecture` は `taskType`（`document` / `procedure` / `data` というドメイン分類）とは**別軸**。
 取り違えると構成設計フェーズの有無が変わるため、`build_skill.js` は不正な値を受けたら即座に落ちる。
@@ -255,24 +240,6 @@ script-reviewer が落ちたときも「失格 0 件」とは読まず `script_r
 `passed` は「閾値を超えた」だけでなく**評価が揃った**ことも要求する。欠測を平均に含めると、
 生き残った少数の結果が全体の成績に見え、reviewer 欠測は「レビューを通った」に化ける。
 測れなかった `delta` は `0`（実測の引き分け）ではなく `null` で返す。
-
-### script が構造として保証すること
-
-散文の手順書で担保していたものを、実行構造そのものに置き換えた対応表。
-
-| 保証 | 実現方法 |
-|---|---|
-| with_skill と baseline が必ず対で走る | 全テストケース分を 1 つの `parallel()` にまとめて発行。直列化も片側だけの実行も起こりえない |
-| pass_rate と delta が正確 | 集計は script の算術。LLM に平均を出させない |
-| 閾値判定がぶれない | `delta >= DELTA_THRESHOLD && 失格 0 件` という式。閾値の数値は script の定数 1 箇所にあり、目分量が入らない |
-| 判定の書き写しに依存しない | 失格は `failed[]` だけでなく判定フィールド（`criteria_checks[].result` / `trigger_checks[].expectation_met` / `unchecked_judgments[].verdict`）を script が直接走査して合算する（`judgmentFailures`） |
-| 委譲した項目が黙って落ちない | 機械判定できない項目は id つきで prompt へ注入され、返ってこなかった id を script が集合の差で拾って失格にする |
-| 改稿が無限に続かない | 上限に達したら打ち切り、判断材料を添えて司令塔へ返す |
-| 構成の差し戻しが止まる | designer → reviewer を上限付きで反復。未解決の指摘は `structure.unresolved` に載せて返す |
-| Generator と Verifier が別 agent | designer と reviewer、writer と reviewer をそれぞれ別 spawn |
-| テストが改稿を跨いで同一 | テストケース生成はループの外。pass_rate の変化が「スキルの改善」だけを反映する |
-| 出力欠損を成績に混ぜない | 片側の出力が欠けたペアは採点に回さず `ungraded_cases` として数える |
-| 検証結果が書式に左右されない | 判定は schema のフィールドで受ける。markdown 中の ❌ を script が数えない |
 
 ### 判定を script に閉じない箇所
 
@@ -322,10 +289,8 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
 `diffRef` が無い、`mode: "update"` なのに `intent` が無い、`uncheckedItems` が無いか形式が不正、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-`maxRevisions` は**廃止された**（後方互換なしの破壊的変更。渡すと script が落ちる）。打ち切りは
-進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。回数は「直っているか」と
-無関係で、上限到達時に「解ける途中」と「解けない指摘」を区別しない。暴走は workflow runtime の
-agent 起動上限が外側で止める。
+改稿の打ち切りは回数ではなく進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。
+暴走は workflow runtime の agent 起動上限が外側で止める。
 
 **観点の一覧・反証者の立て方・多数決の閾値・打ち切りの判定・staging の既定値は
 `scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
@@ -385,14 +350,12 @@ agent 起動上限が外側で止める。
 
 ## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
 
-**Agent ツールは呼び出さない。司令塔が単独で行う。** 改善ループは Workflow（`scripts/build_skill.js`）が内包しており、
-ここでやり直す場合も `resumeFromRunId` で Workflow を再実行する（散文で agent を起動し直さない）。
+改善ループは Workflow（`scripts/build_skill.js`）が内包しており、やり直す場合も `resumeFromRunId` で
+Workflow を再実行する。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
 
 ## Phase 3: 結果の提示と適用（review/update）
-
-**Agent ツールは呼び出さない。司令塔が単独で行う。**
 
 `references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する。
 
@@ -502,7 +465,6 @@ scripts/       # build_skill.js  — create の Workflow 本体
 
 ## 設計上の制約
 
-パス・staging・新設ファイルの置き場・agent frontmatter に関する制約は
-`references/orchestrator-review.md` の「設計上の制約」節にまとめてある。
-review/update を実行する前に、「結果の提示と適用（review/update）」と同じタイミングで一度 Read すること。
-ここに要約を置かないのは、制約の本文が 2 箇所に分かれると片方だけが更新されるため。
+パス・staging・新設ファイルの置き場・agent frontmatter の制約は `references/orchestrator-review.md`
+「設計上の制約」節が正本。`stagingDir` を指定するときと staging を本体へ適用するときは staging の制約を、
+このスキルに agent や reference を足すときは置き場と frontmatter の制約を見る。
