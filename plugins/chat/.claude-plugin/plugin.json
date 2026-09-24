@@ -1,6 +1,7 @@
 {
     "name": "chat",
     "version": "0.2.2",
+    "description": "Claude Fable 5 相当の壁打ち相談を提供するプラグイン。",
     "author": {
         "name": "yoshiysh"
     }
