@@ -447,7 +447,7 @@ feedback.json で構造化フィードバック収集
 - [ ] P5（agent を起動する場合）: model と effort が agent / stage ごとに起動する側の 1 箇所で明示され、その組を自前 eval で sweep した（§3）
 - [ ] P6（agent を起動する場合）: 指示の密度を、それを読むモデルごとに決めた（§3）
 - [ ] P7（委譲する場合）: 委譲の「いつ・どれだけ」が明示され、返ってきた結果は証拠を確かめてから受け取る（§11）
-- [ ] P8: 長時間の run はタスク一覧をファイルに持ち、自動継続に上限があり、確認できなかったことを報告させる（§11）
+- [ ] P8: 長時間の run はタスク一覧を永続させ、自動継続に上限があり、未確認を報告させる（§11）
 - [ ] 対象モデルの固有の挙動（§11「モデル別の分岐」）を確認した
 
 ---
@@ -470,7 +470,7 @@ feedback.json で構造化フィードバック収集
 | P5 | effort を agent / stage ごとに明示し、自前 eval で sweep する | §3「model と effort は役割ごとに組で選ぶ」 |
 | P6 | 指示の密度は、それを読むモデルで決める | 同上 |
 | P7 | 委譲は「いつ・どれだけ」を書き（independent で sizeable な作業だけ・決定的な spawn 上限）、返った結果は証拠を確かめて受け取る。検証は生成者と別の fresh-context verifier が行う（§3） | 委譲の傾向はモデルで逆を向く（Opus 5・Fable 5 は積極的で小タスクではコストと時間が何倍にもなり、GPT-6 は「may delegate less often than desired」）ので量を書く。blog「check its evidence before you accept it」。Fable 5 docs「Separate, fresh-context verifier subagents tend to outperform self-critique」 |
-| P8 | 長時間・無人の run では text だけの turn 終了を完了とみなさず、タスク一覧をファイルで更新させ、自動継続は 2–3 回で止める。進捗の主張はツール結果と突合させ、確認できなかったことは見た場所とともに書かせる | Opus 5.5 docs「Treat a text-only end of turn as a report rather than as proof the task is done」。blog「Mark anything you couldn't confirm, and say where you looked」。突合の指示は Fable 5 docs のテストで捏造ステータス報告をほぼ排除した |
+| P8 | 長時間・無人の run では text だけの turn 終了を完了とみなさず、タスク一覧を消えない場所（to-do tool かファイル）で更新させ、自動継続は 2–3 回で止める。進捗の主張はツール結果と突合させ、未確認のことは見た場所とともに書かせる | Opus 5.5 docs「Treat a text-only end of turn as a report rather than as proof the task is done」。blog「Mark anything you couldn't confirm, and say where you looked」。突合の指示は Fable 5 docs のテストで捏造ステータス報告をほぼ排除した |
 
 削らずに残すもの:
 - 境界と scope 制約（「修正は指示されるまでしない」型、頼まれた範囲を広げない・狭めない）。Fable 5 は頼まれていない行動（メール下書き・防衛的 git backup が公式の実例）を、Opus 5 は scope の自己拡張をしうる

@@ -1,5 +1,4 @@
 ---
-model: opus
 subagent_type: general-purpose
 description: >
   Workflow 型スキルの生成時、writer が出力した workflow script を fresh context で読み、

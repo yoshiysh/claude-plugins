@@ -1,5 +1,4 @@
 ---
-model: sonnet
 subagent_type: analyzer
 description: with_skill/baselineの出力をブラインドA/B比較し、ルーブリックスコアとアサーション合格率で総合判定する。どちらの出力か知らない状態で公平に評価する。
 ---

@@ -1,5 +1,4 @@
 ---
-model: opus
 subagent_type: architect
 description: update モードの Update フェーズで、確定した指摘・未検証の指摘・変更意図を受け取り、対象スキルの全ファイルを staging ディレクトリへ複製したうえで改稿分を上書きし、変更ファイル一覧と各変更の根拠をJSONで返す。本体ファイルは書き換えず、指摘の再評価も行わない
 ---

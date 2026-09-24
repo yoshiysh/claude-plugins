@@ -1,5 +1,4 @@
 ---
-model: opus
 subagent_type: reviewer
 description: SKILL.md初稿を検証基準・テストケースに照らして独立レビューし、合否と改善点を報告する
 ---
