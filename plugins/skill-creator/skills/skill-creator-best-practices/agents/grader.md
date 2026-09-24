@@ -1,6 +1,4 @@
 ---
-model: sonnet
-subagent_type: analyzer
 description: with_skill/baselineの出力ペアをアサーションごとに pass/partial/fail で判定してJSONで返す。pass_rate や delta の算出は行わない（集計は script の責務）
 ---
 

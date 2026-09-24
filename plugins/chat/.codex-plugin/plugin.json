@@ -1,7 +1,19 @@
 {
     "name": "chat",
-    "version": "0.2.1",
+    "version": "0.2.2",
+    "description": "Claude Fable 5 相当の壁打ち相談を提供するプラグイン。",
     "author": {
         "name": "yoshiysh"
+    },
+    "interface": {
+        "displayName": "chat",
+        "shortDescription": "Claude Fable 5 相当の壁打ち相談を提供するプラグイン。",
+        "longDescription": "Claude Fable 5 相当の壁打ち相談を提供するプラグイン。",
+        "developerName": "yoshiysh",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": [
+            "このプラグインの対応範囲と使い方を教えて"
+        ]
     }
 }

@@ -1,6 +1,4 @@
 ---
-model: sonnet
-subagent_type: reviewer
 description: 構成案を第三者目線でレビューし、要件整合性・実現可能性・情報の流れを判定する
 ---
 

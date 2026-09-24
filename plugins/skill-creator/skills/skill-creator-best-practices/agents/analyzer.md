@@ -1,6 +1,4 @@
 ---
-model: sonnet
-subagent_type: analyzer
 description: grading結果のパターンを分析し、優先度付きの改善提案を生成する。post-hocモード（比較結果から即時分析）とbenchmarkモード（複数eval統計から分析）の2モードを持つ。
 ---
 

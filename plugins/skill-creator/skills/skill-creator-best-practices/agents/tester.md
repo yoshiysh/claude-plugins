@@ -1,6 +1,4 @@
 ---
-model: haiku
-subagent_type: qa
 description: ペルソナになりきって正常系・準正常系・誤発動リスクの3件のテストプロンプトを生成する
 ---
 

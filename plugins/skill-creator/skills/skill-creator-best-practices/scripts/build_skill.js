@@ -435,10 +435,8 @@ if (!Number.isInteger(maxRevisions) || maxRevisions < 0 || maxRevisions > MAX_RE
   throw new Error(`args.maxRevisions は 0..${MAX_REVISIONS} の整数で指定してください。`)
 }
 
-// agentType は指定しない。agents/*.md の frontmatter には subagent_type（analyzer / architect /
-// qa / reviewer）が書かれているが、これらは Agent ツールのレジストリに登録された型ではなく、
-// 指定すると解決に失敗する。役割はプロンプト本文（各 agents/*.md）が担っているので、
-// model だけを渡して既定の subagent で実行する。
+// agentType は指定しない。agents/*.md の役割は Agent ツールのレジストリに登録された型ではなく、
+// 指定すると解決に失敗する。役割はプロンプト本文が担う。
 function roleAgent(file, body, opts) {
   return agent(
     [`Read ${SKILL_DIR}/agents/${file} for your full role instructions before doing anything else.`,

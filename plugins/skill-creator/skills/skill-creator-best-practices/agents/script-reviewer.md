@@ -1,6 +1,4 @@
 ---
-model: opus
-subagent_type: general-purpose
 description: >
   Workflow 型スキルの生成時、writer が出力した workflow script を fresh context で読み、
   起動前に落ちる書き方・barrier の誤用・集計と欠測の扱い・人間ゲートの位置を検査する。

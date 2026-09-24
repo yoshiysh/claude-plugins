@@ -2,8 +2,7 @@
 
 ## 目次
 - [SKILL.md の必須構造](#skillmd-の必須構造)
-- [命名規則](#命名規則)
-- [description の書き方（最重要）](#description-の書き方最重要)
+- [description と命名](#description-と命名)
 - [本文の書き方](#本文の書き方)
 - [マルチエージェント設計の原則](#マルチエージェント設計の原則)
 - [document タイプの追加ルール](#document-タイプの追加ルール)
@@ -22,9 +21,9 @@
 
 ```
 ---
-name: スキル識別子（英小文字・ハイフン区切り・最大64文字）
+name: スキル識別子
 description: >
-  [3人称で記述。最大1024文字。[What]+[When]の両方を含む]
+  [name・description の規則は references/best-practices.md §2]
 ---
 
 # スキル名
@@ -80,59 +79,18 @@ Criteria → Structure → Write → Test → Evaluate
 
 ---
 
-## 命名規則
+## description と命名
 
-- gerund 形式を推奨：`processing-pdfs`、`analyzing-spreadsheets`、`editing-guide`
-- lowercase / numbers / hyphens のみ（最大64文字）
-- 曖昧な名前は避ける：`helper`、`utils`、`tools`、`data`、`files`
-
----
-
-## description の書き方（最重要）
-
-description はスキルが「いつ自動で呼ばれるか」を決める唯一の手がかり。
-
-**必須ルール：**
-- **3人称で書く**（"I can help" や "You can use" は禁止）
-- [What]（何をするか）+ [When]（いつ使うか）の両方を含む
-- 最大1024文字・XML タグ禁止
-- 競合しそうなスキルと区別できる表現を入れる
-- 除外条件（対象外）も明記する
-- 「少し押し強め」に書く（Claudeはスキルを使わなすぎる傾向がある）
-
-**良い例：**
-```
-PDF ファイルのテキスト抽出・フォーム入力・結合・分割を行うスキル。
-「この PDF からデータを抜いて」「PDF にパスワードをかけて」「複数の PDF を1つにまとめて」
-といったリクエストで使うこと。.pdf ファイルへの言及があれば積極的に使う。
-月報や Word 文書は対象外。
-```
-
-**悪い例：**
-```
-ドキュメントを処理するスキル。
-```
+description の必須ルール・発火の書き方・命名規則の正本は `references/best-practices.md` §2「description の設計」。
 
 ---
 
 ## 本文の書き方
 
-### Why-driven prompt design
+### Why-driven と長さの目安
 
-MUST/NEVER を並べるのではなく、理由を説明する。
-
-| NG（Must-driven） | OK（Why-driven） |
-|-------------------|-----------------|
-| ALWAYS validate before submission. | Validation prevents API errors that waste tokens. |
-| NEVER skip the formatting step. | Consistent formatting ensures the viewer can parse results. |
-
-例外：スキーマのフィールド名一致など「崖の近く」のクリティカルな箇所では制約も必要。
-
-### 長さの目安
-
-- SKILL.md 本体：**500行以内**（超えたら references/ に分割）
-- 参照ファイルは SKILL.md から **1レベル深さまで**（それ以上ネストすると Claude が部分的にしか読まない）
-- 参照ファイルが **100行を超える場合は冒頭に目次を入れる**
+Why-driven の書き方は `references/best-practices.md` §3「Why-driven prompt design」、長さの目安
+（SKILL.md の行数・参照の深さ・目次）は同 §1「コンテキストは公共財」「参照ファイルの深さ制限」が正本。
 
 ### 選択肢を絞る
 
@@ -188,9 +146,9 @@ scripts/          → 確定的処理（実行エンジン）
 - Claude が変換ロジックを agent の本文に直書きしている場合は scripts に切り出すサイン
 
 **他スキルのパイプライン呼び出し：**
-- 別スキルの呼び出しも agent の責務。SKILL.md から直接呼ばない
+- 別スキルの呼び出しを agent に委譲するかは `references/best-practices.md` §11 P7 に従う
 - 例：`update-confluence-page` では `existing-page-fetcher` agent が `fetch-confluence-page` スキルを呼ぶ
-- 別スキルを呼ぶ agent は「呼び出しの責任を持つ単一責務 agent」として切り出す
+- 委譲する場合、その agent は「呼び出しの責任を持つ単一責務 agent」にする
 - 別スキルを呼ぶ際は、そのスキルの出力フォーマット（YAML フロントマター等）から必要なフィールドを取り出す
 
 **出力フォーマットの後続スキル向け設計：**
@@ -222,7 +180,7 @@ don't は推論可能なだけでは守られない —— 「オーケストレ
 - 各 agent は「1入力 → 1出力」
 - 判断・変換・生成を1つのエージェントに混在させない
 - Generator と Verifier は別エージェント（自分の出力を自分で検証しない）
-- フロントマターで `model:` を指定する（SKILL.md にモデルを書かない）
+- model と effort は起動する側の 1 箇所に書く（`references/best-practices.md` §3「model と effort は役割ごとに組で選ぶ」）
 
 ### assets の分離
 
@@ -381,18 +339,13 @@ evals.json のフォーマットは `references/schemas.md` を参照。
 
 | 失敗 | 対策 |
 |------|------|
-| description が抽象的すぎてトリガーされない | [What]+[When] を具体的なユーザー発話で示す |
-| description が1人称になっている | 3人称で書く（"Processes..." の形式） |
 | 指示が多すぎてモデルが迷う | 優先順位を明示する（「最重要は〜」） |
-| MUST/NEVER を多用する | 理由を説明する（Why-driven） |
 | SKILL.md にドメイン知識を詰め込む | agents/ / assets/ / references/ に分離。変換ルール・定型メッセージ・設定値・URL はすべて外出しする |
 | SKILL.md に変換ルール表を書く | references/ または assets/ に分離。SKILL.md は「○○変換スクリプトを実行する」とだけ書く |
 | SKILL.md に定型エラーメッセージを書く | assets/error-messages.md 等に分離。SKILL.md はエラー種別の分岐だけ書く |
 | agents/ に参照データを直書きする | 参照データは assets/ に置き、agent が Read する設計にする |
-| 確定的な処理を Claude に任せる | scripts/ にスクリプトとして実装し、agents/ 経由で呼ぶ |
-| SKILL.md が直接スクリプトを呼ぶ | スクリプト呼び出しも Sub-agent の責務。SKILL.md は「agent を呼ぶ」とだけ書く |
-| 「シンプルだから Sub-agent 不要」と判断する | 処理の複雑さに関係なく常に Sub-agent に切り出す。SKILL.md はフローの進行のみ |
-| 参照が深くネストしている | SKILL.md から1レベル深さまでに制限 |
+| 確定的な処理を Claude に任せる | scripts/ にスクリプトとして実装する |
+| 小さな処理まで Sub-agent に切り出す | 委譲は独立した大きな作業に限る（`references/best-practices.md` §11 P7） |
 | 選択肢を多く提示しすぎる | デフォルトを1つ示し、例外だけ補足 |
 | エラー時の記述がなく止まる | 「〜の場合は〜して続ける」を入れる |
 | 非エンジニアが読めない | 技術用語に括弧で補足を入れる |
@@ -408,6 +361,5 @@ evals.json のフォーマットは `references/schemas.md` を参照。
 | 支えの無い概念を語だけ導入している | **その語が成立するのに要る仕組みが他にあるかを確かめる。** 無いなら語も入れない。置き場の無い概念は、読み手がどう扱えばよいか決められない |
 | 実務で通っている名前がある概念を、自前の説明だけで書いている | **既知の名前を併記する**（「軸を宣言して直積から起こす（いわゆる MECE）」）。読み手が持っている知識に接続でき、説明より短い。**指す実体がスキル内にあるときだけ**行う — 実体の無い語は上の行に当たる |
 | 変換ロジックを agent 本文に Claude が直書きしている | scripts/ に確定的処理を切り出し、agent はそれを呼ぶだけにする |
-| 別スキルと同じ処理を重複実装している | 既存スキルをパイプライン呼び出しで再利用する。専用 agent に呼び出しを委譲する |
-| SKILL.md から直接別スキルを呼んでいる | 別スキルの呼び出しも agent の責務。SKILL.md はその agent を呼ぶとだけ書く |
+| 別スキルと同じ処理を重複実装している | 既存スキルをパイプライン呼び出しで再利用する |
 | 後続スキルが必要とするフィールドを出力に含めていない | 要件整理で後続スキルの入力要件を確認し、出力フォーマットに必要フィールドを最初から含める |

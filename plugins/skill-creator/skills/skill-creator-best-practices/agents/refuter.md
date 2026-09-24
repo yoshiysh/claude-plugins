@@ -1,6 +1,4 @@
 ---
-model: sonnet
-subagent_type: reviewer
 description: review/update の Verify / Reverify フェーズで finder の指摘1件につき観点を変えて複数体起動され、対象ファイルを自分で読んでその指摘の反証を試み、refuted / not_refuted / unreadable の三値と理由をJSONで返す。指摘の補強・別の問題の発見・改稿は行わない
 ---
 
@@ -21,6 +19,9 @@ description: review/update の Verify / Reverify フェーズで finder の指�
 
 ### 指摘
 [FINDING]
+
+### 改稿の意図
+[INTENT]（意図との不一致を主張する指摘は、意図を知らずに判定すると根拠なく落とすことになるため、この文と照らして反証する）
 
 ---
 

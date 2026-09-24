@@ -2,10 +2,7 @@
 name: best-practices
 description: >
   スキルの作成（create）・既存スキルや直近変更の評価（review）・評価にもとづく改稿（update）を、
-  マルチエージェントの Workflow で実行する。create は要件整理・検証基準生成・構成設計・執筆・
-  テスト・評価を分担して新規スキルを生成し、review は観点別の指摘出しと独立した反証を経て
-  生き残った指摘だけを構造化して返し、update はその指摘と変更意図から staging へ改稿して
-  同じ観点で再検証し、人間の承認後に本体へ反映する。「スキルをマルチエージェントで作りたい」
+  マルチエージェントの Workflow で実行する。「スキルをマルチエージェントで作りたい」
   「品質チェック付きでスキルを作って」「このスキルを best-practices に沿ってるか評価して」
   「直近の変更をレビューして」「Issue に沿ってこのスキルを更新して」といったリクエストで使うこと。
   既存スキルの実行、通常のチャット質問への回答、SKILL.md を伴わない一般のコードレビューは対象外。
@@ -18,7 +15,9 @@ description: >
 
 各 Sub Agent のプロンプトは `agents/` 配下の個別ファイルに定義されている。
 実行順序・並列・集約・閾値判定は Workflow スクリプト（`scripts/build_skill.js` /
-`scripts/review_skill.js`）が握る。司令塔が担うのは、その前後にある人間ゲートだけ。
+`scripts/review_skill.js`）が握る。司令塔が担うのは、その前後にある人間ゲートだけで、
+Agent ツールで agent を直接起動しない。成果物の本文は司令塔ではなく agent が生成し、agent の起動は
+script の集計・欠測検出を通す必要がある（散文で起動すると、欠けた観点や応答しなかった agent が合格に化ける）。
 
 ## 目次
 
@@ -39,9 +38,8 @@ description: >
 
 ## モード判定
 
-**このスキルが起動したら、他のどの節より先にここで経路を決める。** 経路の無い依頼を
-「とりあえず自分でやる」に落とすと、Workflow を通らない単発のレビューが判定として
-出てしまう（実際に起きた事故がこの節の理由）。判定は必ず下表のどれかに落とす。
+**このスキルが起動したら、他のどの節より先にここで経路を決める。** 判定は下表のどれかに落とす。
+経路の無い依頼を「とりあえず自分でやる」に落とすと、Workflow を通らない単発のレビューが判定として出てしまう。
 
 | 依頼の形 | モード | 進む先 |
 |---|---|---|
@@ -55,8 +53,7 @@ description: >
 **複数行に一致したときの優先順位**：作成・評価・更新の**実体を伴う行**（上 4 行）を優先し、
 それらに 1 行も当たらないときだけ「対象外」「判定不能」を選ぶ。上 4 行の中で `review` と
 `update` の両方に読めるなら `review` を選ぶ。依頼文に「作って」と「見て」が同居するなら、
-まだ存在しないものを作るのが主目的なので `create`。この規則が無いと、複数に当たった時点で
-選択が実行者の裁量に落ち、最も安直な行（対象外）が既定になる。
+まだ存在しないものを作るのが主目的なので `create`。規則が無いと、最も安直な行（対象外）が既定になる。
 
 `review` と `update` の分かれ目は「直す許可が出ているか」だけ。`review` に倒したときは
 結果提示で「このまま update で直すこともできる」と添える（読み違えて `update` に入ると、承認していない改稿が staging に残る）。
@@ -68,7 +65,6 @@ description: >
 ```
 要件整理とペルソナ設計（司令塔が単独で実行・人間ゲート）
   └─ 要件を構造化 → ドメイン知識を確認（条件付き）→ ペルソナを推論 → ユーザーに確認
-  ※ 詳細手順： references/orchestrator-requirements.md を Read すること
 
 Workflow を呼ぶ（scripts/build_skill.js が全て内包）
   Criteria → Structure → Write（+ Review script）→ Test → Evaluate → Grade → Analyze
@@ -76,13 +72,12 @@ Workflow を呼ぶ（scripts/build_skill.js が全て内包）
 
 統合・改善ループ・ユーザーへの提示（司令塔が単独で実行・人間ゲート）
   └─ pass_rate と定性レポートをユーザーに提示 → 承認後に保存
-  ※ 詳細手順： references/orchestrator-output.md を Read すること
 ```
 
 **review:**
 
 ```
-対象と範囲の確認（司令塔が単独で実行・人間ゲート／確認は 1 回）
+対象と範囲の確認（司令塔が単独で実行・人間ゲート）
 
 Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェーズだけ）
   Find     観点別 finder を並列で fan-out（観点の一覧は script の FINDERS が唯一の正）
@@ -91,13 +86,12 @@ Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェー
 
 結果の提示（司令塔が単独で実行）
   └─ 確定・棄却・未検証を件数ごと提示。直すかどうかは人間が決める
-  ※ 詳細手順： references/orchestrator-review.md を Read すること
 ```
 
 **update:**
 
 ```
-対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート／確認は 1 回）
+対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート）
 
 Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 つ続く）
   Find     観点別 finder を並列で fan-out
@@ -107,22 +101,11 @@ Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 �
 
 結果の提示と適用（司令塔が単独で実行・人間ゲート）
   └─ 解消/残存/新規/未検証を提示 → 承認後に司令塔が staging を本体へ反映
-  ※ 詳細手順： references/orchestrator-review.md を Read すること
 ```
 
-図を分けているのは、review では Update / Reverify が動かず **何も書かれない**ことを 1 本の図では読み取れないため。
-
-**なぜ review/update も script にするか**: この区間も fan-out・反証の集計・閾値判定・
-条件付き再実行の連なりで、途中に人間の判断が要らない。散文で「観点ごとに見て」「怪しい
-指摘は落として」と書くと、観点の抜けも取捨の基準も実行者の裁量に落ちる。script にすれば
-観点の集合・多数決・未検証の扱いが構造として決まる。
-
-review と改稿の間に人間ゲートを置かないのも同じ理由（止めると指摘の選別が裁量に戻る）。
-**本体ファイルは承認まで一切書き換えない**ため、途中に止める必要が無い。
+review と改稿の間に人間ゲートは置かない。本体ファイルは承認まで書き換えないため、途中で止める必要が無い。
 
 ## Phase 1: 要件整理とペルソナ設計（create）
-
-**Agent ツールは呼び出さない。司令塔が単独で行う。**
 
 `references/orchestrator-requirements.md` を Read し、手順に従って実行する。
 ドメイン知識の要否判定と収集（domainKnowledge の組み立て）も同参照先の手順に含まれる。
@@ -131,12 +114,10 @@ review と改稿の間に人間ゲートを置かないのも同じ理由（止�
 
 ## Phase 1: 対象と範囲の確認（review/update）
 
-**Agent ツールは呼び出さない。司令塔が単独で行う。確認は 1 回にまとめる。**
-
-ここでペルソナ承認ゲートは置かない。review/update の観点は script の `FINDERS` が
+確認は 1 回にまとめる。ここでペルソナ承認ゲートは置かない。review/update の観点は script の `FINDERS` が
 持っており、ユーザーに選ばせる余地が無いため、聞くべきことは対象と範囲だけになる。
 
-依頼文から次を埋め、埋まらないものだけをまとめて 1 回聞き返す。
+依頼文から次を埋め、埋まらないものだけをまとめて聞き返す。
 
 | 項目 | 意味 | 既定 |
 |---|---|---|
@@ -242,12 +223,9 @@ script-reviewer（別 context）がそれを検査する。合否は **reviewer�
 script の判定を先に見る（評価が揃わなくても script の失格は報告する）。
 script-reviewer が落ちたときも「失格 0 件」とは読まず `script_review_incomplete` で返す。
 
-**Workflow 型では with_skill / baseline の delta 評価を行わない。** 測定の前提は「with_skill は
-方法論を持ち baseline は持たない」だが、Workflow 型の方法論は script 側にあり、評価時点の script は
-ディスク上に無く、評価 subagent には Workflow ツール自体が無い（実測）。出る数字は方法論の差ではなく
-「script が保存済みか」を測るため走らせない。実効性は**保存後に人間が 1 回回して測る**
-（「統合・改善ループ・ユーザーへの提示（create）」の eval-viewer 手順）。script が失格でもこの
-ループでは改稿しない（再検証の経路が無いまま writer を回すと直ったか確かめずに次へ進む）。
+**Workflow 型では with_skill / baseline の delta 評価を行わない。** 評価時点の script はディスク上に無く、
+出る数字が方法論の差ではなく「script が保存済みか」を測るため。実効性は保存後に人間が 1 回回して測る
+（`references/orchestrator-output.md`「Workflow 型スキルの実効性測定（保存後）」）。
 
 `architecture` は `taskType`（`document` / `procedure` / `data` というドメイン分類）とは**別軸**。
 取り違えると構成設計フェーズの有無が変わるため、`build_skill.js` は不正な値を受けたら即座に落ちる。
@@ -255,24 +233,6 @@ script-reviewer が落ちたときも「失格 0 件」とは読まず `script_r
 `passed` は「閾値を超えた」だけでなく**評価が揃った**ことも要求する。欠測を平均に含めると、
 生き残った少数の結果が全体の成績に見え、reviewer 欠測は「レビューを通った」に化ける。
 測れなかった `delta` は `0`（実測の引き分け）ではなく `null` で返す。
-
-### script が構造として保証すること
-
-散文の手順書で担保していたものを、実行構造そのものに置き換えた対応表。
-
-| 保証 | 実現方法 |
-|---|---|
-| with_skill と baseline が必ず対で走る | 全テストケース分を 1 つの `parallel()` にまとめて発行。直列化も片側だけの実行も起こりえない |
-| pass_rate と delta が正確 | 集計は script の算術。LLM に平均を出させない |
-| 閾値判定がぶれない | `delta >= DELTA_THRESHOLD && 失格 0 件` という式。閾値の数値は script の定数 1 箇所にあり、目分量が入らない |
-| 判定の書き写しに依存しない | 失格は `failed[]` だけでなく判定フィールド（`criteria_checks[].result` / `trigger_checks[].expectation_met` / `unchecked_judgments[].verdict`）を script が直接走査して合算する（`judgmentFailures`） |
-| 委譲した項目が黙って落ちない | 機械判定できない項目は id つきで prompt へ注入され、返ってこなかった id を script が集合の差で拾って失格にする |
-| 改稿が無限に続かない | 上限に達したら打ち切り、判断材料を添えて司令塔へ返す |
-| 構成の差し戻しが止まる | designer → reviewer を上限付きで反復。未解決の指摘は `structure.unresolved` に載せて返す |
-| Generator と Verifier が別 agent | designer と reviewer、writer と reviewer をそれぞれ別 spawn |
-| テストが改稿を跨いで同一 | テストケース生成はループの外。pass_rate の変化が「スキルの改善」だけを反映する |
-| 出力欠損を成績に混ぜない | 片側の出力が欠けたペアは採点に回さず `ungraded_cases` として数える |
-| 検証結果が書式に左右されない | 判定は schema のフィールドで受ける。markdown 中の ❌ を script が数えない |
 
 ### 判定を script に閉じない箇所
 
@@ -322,10 +282,8 @@ agent の Read はこの値だけを頼りにする）。不正な `mode` / `sco
 `diffRef` が無い、`mode: "update"` なのに `intent` が無い、`uncheckedItems` が無いか形式が不正、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-`maxRevisions` は**廃止された**（後方互換なしの破壊的変更。渡すと script が落ちる）。打ち切りは
-進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。回数は「直っているか」と
-無関係で、上限到達時に「解ける途中」と「解けない指摘」を区別しない。暴走は workflow runtime の
-agent 起動上限が外側で止める。
+改稿の打ち切りは回数ではなく進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。
+暴走は workflow runtime の agent 起動上限が外側で止める。
 
 **観点の一覧・反証者の立て方・多数決の閾値・打ち切りの判定・staging の既定値は
 `scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
@@ -366,7 +324,7 @@ agent 起動上限が外側で止める。
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（`remaining` + `new` + `reclassified` のうち updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本 — そこに含まれる severity は script がループ内で解消済みなので、この verdict で提示に残るのはそれ以外の軽い指摘だけ。含まれる severity が残った場合は verdict 自体が `needs_human_decision` になる） |
+| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本） |
 | `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、`REVISE_SEVERITIES` に含まれる severity の未解消指摘が前の巡から 1 件も動かなくなった（解消も新規も無い＝同じ入力では収束しない）とき。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
@@ -385,14 +343,12 @@ agent 起動上限が外側で止める。
 
 ## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
 
-**Agent ツールは呼び出さない。司令塔が単独で行う。** 改善ループは Workflow（`scripts/build_skill.js`）が内包しており、
-ここでやり直す場合も `resumeFromRunId` で Workflow を再実行する（散文で agent を起動し直さない）。
+改善ループは Workflow（`scripts/build_skill.js`）が内包しており、やり直す場合も `resumeFromRunId` で
+Workflow を再実行する。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
 
 ## Phase 3: 結果の提示と適用（review/update）
-
-**Agent ツールは呼び出さない。司令塔が単独で行う。**
 
 `references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する。
 
@@ -404,18 +360,17 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 
 ## 入出力の定義
 
-description に書いた 3 つの守備範囲と 1 対 1 で対応する。
+モードごとの入力と返り値。どの依頼がどのモードに進むか・対象外かは[モード判定](#モード判定)の表が正本。
 
 ### create
 
 - **入力**：作りたいスキルの説明（自然言語・日本語可）。例：「月報を自動生成するスキルが欲しい」「PDF を要約するスキルを作って」
 - **出力**：`SKILL.md`（スキル本体）／ `evals/evals.json`（テストケース3件）／ マルチエージェント設計なら `agents/` `assets/` `schemas/` ／ `architecture: "workflow"` なら `scripts/[スキル名].js`（**配布される実体はこの script なので、保存時に必ず一緒に書き出す**。Workflow の戻り値 `workflow_script` に入っている）
-- **発火条件**：「スキルを作りたい」「スキルを設計して」「〜を自動化するスキル」
 
 ### review
 
 - **入力**：対象スキルの実パス、範囲（`full` か `diff` + git の範囲指定）、任意の焦点（Issue 本文・観点）
-- **出力**：**ファイルは 1 バイトも書き換えない。** 返るのは次のフィールドだけ。
+- **出力**：返るのは次のフィールドだけ。
 
 | フィールド | 中身 |
 |---|---|
@@ -431,12 +386,11 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 
   `null` は 2 階層で意味が違う。`after === null` は「そのパスが走らなかった」（正常）、
   `before.<観点> === null` は「走ったがその担当が応答しなかった」（欠測）。
-- **発火条件**：「このスキルを best-practices に沿ってるか評価して」「直近の変更をレビューして」
 
 ### update
 
 - **入力**：review の入力すべて＋変更意図（必須）、任意で staging の出力先
-- **出力**：staging に書かれた改稿一式と、再検証の突き合わせ結果。**本体は承認まで触らない。**
+- **出力**：staging に書かれた改稿一式と、再検証の突き合わせ結果。
 
 | フィールド | 中身 |
 |---|---|
@@ -450,7 +404,7 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
 | `staging.unobserved[]` | 再検証時にそのファイルを誰も読んでいないため、消えたのか見られていないのかが分からない指摘。`resolved` には数えない。blocker が含まれる場合は `unverified` の blocker と同様に自動確定せず `needs_human_decision` になる |
 | `staging.reclassified[]` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` には入れない |
 | `staging.preexisting[]` | 再検証で新しく出たが、引用が改稿前の原本にもそのまま存在する確定指摘。改稿前の検査が見落とした既存の問題なので `new` には入れず、blocker 判定にも入れない（提示はする） |
-| `staging.out_of_scope[]` | `scope: "diff"` のときだけ。改稿前に読まれたファイルにも今回変更したファイルにも無い場所で再検証が見つけた確定指摘。元からあった可能性が高いので提示だけし、blocker 判定には入れない（`full` では常に空） |
+| `staging.out_of_scope[]` | `scope: "diff"` で差分の範囲外に出た確定指摘。何を入れ何を入れないかは [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) の `out_of_scope` が正本 |
 | `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
 | `by_category.before` | 改稿前（Find）の観点別確定件数。欠測観点は `null` |
 | `by_category.after` | 再検証（Reverify）の観点別確定件数。Reverify が完了していなければ `null` |
@@ -459,15 +413,6 @@ description に書いた 3 つの守備範囲と 1 対 1 で対応する。
   `resolved` / `remaining` / `new` は改稿を 2 回以上重ねても**常に最初の確定指摘と
   突き合わせる**。直前のラウンドと比べると、1 度直った指摘がぶり返しても「元から無かった」
   ことになる。
-- **発火条件**：「Issue に沿ってこのスキルを更新して」「指摘を反映して直して」
-
-### 3 モード共通の対象外
-
-上の 3 節はそれぞれ独立した返り値を持つ。以下はどのモードにも経路が無い。
-
-- 既存スキルの実行そのもの（このスキルはスキルを作る・見る・直すためのもの）
-- 通常のチャット質問への回答
-- SKILL.md を伴わない一般のコードレビュー（対象が「スキル」でないなら経路が無い）
 
 ## ユーザーへの話し方
 
@@ -502,7 +447,7 @@ scripts/       # build_skill.js  — create の Workflow 本体
 
 ## 設計上の制約
 
-パス・staging・新設ファイルの置き場・agent frontmatter に関する制約は
-`references/orchestrator-review.md` の「設計上の制約」節にまとめてある。
-review/update を実行する前に、「結果の提示と適用（review/update）」と同じタイミングで一度 Read すること。
-ここに要約を置かないのは、制約の本文が 2 箇所に分かれると片方だけが更新されるため。
+パス・staging・新設ファイルの置き場・agent frontmatter の制約は `references/orchestrator-review.md`
+「設計上の制約」節が正本。`stagingDir` を指定するときと staging を本体へ適用するときは staging の制約を、
+`skillDir` / `target.skillPath` を渡すときはパスの制約を、
+このスキルに agent や reference を足すときは置き場と frontmatter の制約を見る。

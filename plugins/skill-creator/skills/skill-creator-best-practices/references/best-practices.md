@@ -11,18 +11,18 @@
 8. [Human-in-the-Loop の設計](#8-human-in-the-loop-の設計)
 9. [よくある失敗パターン](#9-よくある失敗パターン)
 10. [チェックリスト（スキル公開前の確認）](#10-チェックリストスキル公開前の確認)
-11. [Claude 5 世代（Opus 5 / Fable 5）でのスキル設計](#11-claude-5-世代opus-5--fable-5-でのスキル設計)
+11. [Claude 5 世代の指示設計 — 世代共通の原則](#11-claude-5-世代の指示設計--世代共通の原則)
 12. [制約の較正 — right altitude と代理指標の排除](#12-制約の較正--right-altitude-と代理指標の排除)
 13. [オーケストレーション層の決定化 — Workflow 実行型](#13-オーケストレーション層の決定化--workflow-実行型)
 14. [ハーネス設計 — モデルに面したインターフェースと状態](#14-ハーネス設計--モデルに面したインターフェースと状態)
 
 スキル本体の更新・新規スキル設計時の指標となる参照ドキュメント。
-以下のソースを統合している（§11 は 2026-07-29 取得の一次情報に基づく。Fable 5.1 差分のみ 2026-09-02 取得）：
+以下のソースを統合している：
 - [anthropics/skills - skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
 - [Agent Skills Best Practices](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)
-- [Prompting Claude Opus 5（公式・一次情報）](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)
-- [Prompting Claude Fable 5（公式・一次情報）](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)
-- [Prompting Claude Fable 5.1（公式・一次情報）](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1) — §11「Fable 5.1 での差分」の典拠（2026-09-02 取得）
+- Claude 5 世代の公式 prompting guide（一次情報。Opus 5・Fable 5 は 2026-07-29、Opus 5.5・Fable 5.1 は 2026-09-24 取得）: [Opus 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5) / [Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5) / [Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5) / [Fable 5.1](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)
+- [Getting the most out of Opus 5.5（claude.dev blog）](https://claude.dev/blog/getting-the-most-out-of-opus-5-5/)（2026-09-24 取得）
+- GPT-6 の公式指針（Claude 側の補強。衝突する点は Claude 側を採る。2026-09-24 取得）: [Rethinking skills and prompts for GPT-6 Astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) / [Model guidance](https://developers.openai.com/api/docs/guides/latest-model)
 - [nyosegawa - skill-creator and orchestration skill](https://nyosegawa.com/posts/skill-creator-and-orchestration-skill/)
 - [Multi-agent coordination patterns](https://claude.com/blog/multi-agent-coordination-patterns)
 - [Orchestrate subagents at scale with dynamic workflows（公式・一次情報）](https://code.claude.com/docs/en/workflows)
@@ -59,6 +59,7 @@ SKILL.md は「誰に何を渡すか」だけを定義する。
 - ドメイン知識（HTML仕様・コンポーネント詳細・業務ルール）は agents/ や assets/ に分離
 - 判断ロジックは Sub-agent の責務
 - SKILL.md にドメイン知識が混在し始めたら分割のサイン
+- 複数のワークフローを持つスキルでは、SKILL.md を支援文書と script を指す minimal router にする（GPT-6 blog「a minimal router that points to supporting docs and scripts」）
 
 **MVC的な責務分離**
 
@@ -102,6 +103,17 @@ SKILL.md → reference.md
 100行を超える参照ファイルには **目次を冒頭に入れる**。
 Claude が部分読みした場合でも全体像を把握できる。
 
+### 文書は 1 つの正本を型の中で更新する
+
+スキル内の文書（SKILL.md・agents・references・生成物）の肥大化と写しは、読み手（agent）の文脈を
+消費し、検証者の攻撃面を広げ、更新のたびに不整合を生む。
+
+- **単一文書を現在の正として直接更新する。** 版ごとの複製や全文の作り直しをしない（どちらが正か決められなくなる）
+- **1 つの事実・決定は 1 箇所だけに書き、他からは参照する。** 担当ごとの成果物に共通の目的・制約を複写しない
+- **文書の型（節構成と各節の責務）を先に決め、更新はその中で行う。** 節を足すのは既存の節で扱えない理由があるときだけ
+- **分量に上限の目安を持つ。** 超えたら追記ではなく統合・削除で収める
+- **説明的なコメントを書かない。** 残すのはコードだけでは読み取れない制約（例: この文字を除去対象に足すと照合が壊れる）と、理由が判断に効く規則の why 1 文だけ。版・経緯は §12
+
 ---
 
 ## 2. description の設計
@@ -132,6 +144,8 @@ Helps with documents
 - 「〜の場合に使う」より「〜なら使うこと」のスタイルが有効
 - 競合しそうなスキルと明確に区別できる表現を入れる
 - 除外条件（対象外）も明記する
+- GPT-6 blog は逆に「as short as possible while making it clear when the model should use them」を勧める。押し強めを既定とし、そこからは 2 点だけ採る: When を領域の列挙で広げない（悪例「Use when working with databases, queries, models, or persistence.」）、重要な When を前に置く（スキルが増えると「Codex starts shortening their descriptions」からの推論）
+- 長さ・語調の変更は、trigger eval（§6「description 最適化ループ」）で実測して改善したときだけ採る
 
 ### 命名規則
 
@@ -143,20 +157,14 @@ Helps with documents
 
 ## 3. Sub-agent 設計
 
-### フロントマターでモデルを指定
+### model と effort は役割ごとに組で選ぶ
 
-各エージェントファイルの冒頭に記述。SKILL.md にモデルを書かなくてよくなる。
-
-```markdown
----
-model: sonnet
----
-
-# agent-name
-...
-```
-
-### モデル選定基準
+model と effort は、その agent を起動する側の 1 箇所に書く。Workflow の script が起動する agent は
+`agent()` opts の `model` / `effort`（省略時はセッションの値）。Agent ツールで起動する
+登録済み subagent（`.claude/agents/`、plugin の `agents/` など）は定義の frontmatter `model:` / `effort:`
+（Agent 呼び出しは effort を取らず、plugin でも効く）。script が prompt として渡す skill 内の
+agents/*.md の frontmatter は効かない。opts と agent ファイルの frontmatter の両方に書くと、
+片方だけの更新でどちらが効くか決まらない。
 
 | タスクの性質 | モデル |
 |------------|--------|
@@ -167,7 +175,18 @@ model: sonnet
 
 Haiku は処理が完全に定型化できてから適用する。曖昧さや推論が残る場合は Sonnet 以上。
 Fable は単純なタスクに使うと能力を過小評価する（コストも見合わない）。「以前なら人が数時間〜数日かける仕事」に投入する。
-Opus 5 / Fable 5 向けの指示設計は [§11](#11-claude-5-世代opus-5--fable-5-でのスキル設計) を参照。
+
+effort の選び方:
+- 既定値や旧モデルの設定を持ち越さず明示し、自前 eval で複数の水準を測る。水準名はモデル間で同じ
+  思考量を意味しない（Opus 5.5・Fable 5.1 docs「Effort level names don't correspond to the same amount of thinking across models」）。
+  既定値は [§11](#11-claude-5-世代の指示設計--世代共通の原則)「モデル別の分岐」
+- `xhigh` / `max` は品質の向上を測れた作業だけに使う。思考を減らしたいなら prompt の指示ではなく
+  effort を下げる（Opus 5.5 docs「more reliably than prompt instructions do」）
+- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明、AGENTS.md の実測）
+- GPT-6 の移行指針は逆に「Preserve your current effective reasoning effort where supported」とするが、
+  Claude 側の測り直しを採る
+- 指示の密度は、それを読むモデルで決める（GPT-6 blog「Guidance that helps Sol or Luna may overconstrain
+  GPT-6 Astra」）。上位モデル向けに削った指示でも、sonnet / haiku で動く agent の手順は eval なしに削らない
 
 ### 単一責務の原則
 
@@ -190,6 +209,13 @@ Consistent formatting ensures the viewer can parse results.
 ```
 
 例外：スキーマのフィールド名一致など「崖の近く」のクリティカルな箇所では制約も必要。
+
+「必ず」「一切」のような強い一般禁止語について:
+- Claude: 理由を添えた規則を書く（Anthropic skill-creator「explain to the model why ... in lieu of heavy-handed musty MUSTs」）。止まり方は停止の種類を名指しして制御する（§11 P2）
+- GPT-6: 旧モデル向けの強い境界は「Astra could take it too seriously and may stop work」、不明瞭・
+  矛盾した指示も「may cause the model to pause and block work early」
+- 共通: 不可逆・破壊的操作の確認だけは強く残し（Opus 5.5 docs「keep your own confirmation step for
+  risky or irreversible actions」）、それ以外の禁止は理由付きの 1 文にする
 
 ---
 
@@ -281,6 +307,9 @@ baseline版実行  → grading.json（PASS/FAILと根拠）
           analyzer.md でパターン分析・改善提案
 ```
 
+採点物（評価するスキル・eval セット）は複製して採点しない。実行前に置き場所のまま digest を記録し、
+各 run の直前に照合して、不一致なら run しない。複製を採点すると、採点した物と出す物が同じだという保証が消える。
+
 ### description 最適化ループ
 
 ```
@@ -348,7 +377,7 @@ feedback.json で構造化フィードバック収集
 | 参照が深くネストしている | SKILL.md から1レベル深さまでに制限 |
 | description が抽象的 | [What] + [When] を具体的なユーザー発話で示す |
 | 選択肢を多く提示しすぎる | デフォルトを1つ示し、例外だけ補足する |
-| MUST/NEVER を多用する | 理由を説明する（Why-driven） |
+| MUST/NEVER を多用する | 理由を説明する（§3 Why-driven） |
 | 評価なしで実装する | eval-first：テストケースを先に作る |
 | スキーマ定義がない | schemas.md を先に書く |
 | 確定的処理を LLM に任せる | scripts/ にスクリプトとして実装する |
@@ -377,7 +406,7 @@ feedback.json で構造化フィードバック収集
 - [ ] **生成物を、それを生成した agent 以外が検証する経路がある** — 状態を変える（コミット・
       PR 作成・外部書き込み・ファイル変更）か、出力が下流で行動の根拠になるスキルに適用する。
       `agents/` の有無で判断しない。**単体スキルで検証者が 1 つも無い状態こそが、この項目の
-      不合格**（§3・§11）
+      不合格**（§3・§11 P7）
 - [ ] 検証は状態変更の**前**に置かれている — 事後検証は既に起きた変更を報告するだけで、
       push 後の履歴訂正や通知済みレビュアーへの周知はやり直せない
 - [ ] 改善ループ（評価 → 修正 → 再評価）が設計されている（eval を持つスキルの場合）
@@ -386,7 +415,7 @@ feedback.json で構造化フィードバック収集
 
 - [ ] SKILL.md がフロー制御のみを持っている
 - [ ] 各エージェントが単一責務を持っている
-- [ ] フロントマターでモデルが指定されている
+- [ ] model と effort: 指示の較正 P5
 - [ ] schemas.md でエージェント間の入出力が定義されている
 - [ ] assets/ に参照データが分離されている
 - [ ] Generator と Verifier が別エージェントになっている
@@ -395,7 +424,7 @@ feedback.json で構造化フィードバック収集
 
 ### テスト
 - [ ] 最低3件の評価テストケースを作成した
-- [ ] Sonnet と Opus でテストした
+- [ ] model × effort の eval: 指示の較正 P5
 - [ ] 実際のユースケースでテストした
 
 ### ループ・反復を持つスキル（改稿 / 審査 / 実験の繰り返しがある場合）
@@ -410,132 +439,77 @@ feedback.json で構造化フィードバック収集
 - [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、verified にはスコープを付け、却下した経路と実行した事実も state に残している（§14 ⑤）
 - [ ] supervisor の介入は redirect のみで、仮説を供給しない（§14 較正 3）
 
-### Claude 5 世代対応（対象モデルが Opus 5 / Fable 5 / Fable 5.1 の場合）
-- [ ] 明示的な検証指示（「最後に検証せよ」「ダブルチェックせよ」）を削除した（§11）
-- [ ] 手順の hardcode・網羅的な書式ルール・防衛的な繰り返しを削った（§11）
-- [ ] 境界（何をしないか）と scope 制約は明示的に残した（§11）
-- [ ] 進捗報告に「ツール結果との突合」を要求している（長時間自律実行の場合）
-- [ ] 推論の生出力を要求する指示（reasoning echo）がない（Fable 5 で refusal を誘発）
-
-Fable 5.1 を対象にする場合はさらに（正本は §11「Fable 5.1 での差分」）:
-- [ ] effort sweep を 5.1 で再実施した（Fable 5 の sweep 結果を流用していない。medium / low への引き下げは eval で品質が保てた範囲のみ）
-- [ ] narration 抑制（「最終回答まで報告を保留」）と anti-formatting 指示を除去し、必要なら「いつ更新／書式を出すか」の 1 行に置換した
-- [ ] 長時間自律実行なら「autonomously（ユーザーは見ていない）」ブロックを入れ、曖昧な依頼で質問が減る trade-off を eval で確認した
-- [ ] 実装系スキルに「変更・テストを依頼範囲に限定する」指示があり、eval が未依頼変更・追加テストファイル数を見ている
-- [ ] agent loop / script が会話履歴を append-only にし、per-turn nudge は旧コピーを消さずに追加している
-- [ ] client 側で compaction するなら summarization 指示に保持 6 項目を列挙している
-- [ ] 要約・リサーチ系スキルに、引用の付け方を示す完全な正例が 1 件ある
-- [ ] low effort で運用するなら検索 nudge を入れる、または該当 turn だけ effort を上げる設計になっている
+### 指示の較正（agent への指示を書く全スキル。§11 の原則）
+- [ ] P1: 完了条件が作業の前に書かれている（§11）
+- [ ] P2: 止まってよい停止・止まるべきでない停止が名指しされ、強い禁止は不可逆操作の確認だけに残っている（§11）
+- [ ] P3: 旧世代の弱さ補償の指示を、baseline 比較の eval で確かめてから削った（§11）
+- [ ] P4: 参照の読込が文脈付きポインタになっている（§11）
+- [ ] P5（agent を起動する場合）: model と effort が agent / stage ごとに起動する側の 1 箇所で明示され、その組を自前 eval で sweep した（§3）
+- [ ] P6（agent を起動する場合）: 指示の密度を、それを読むモデルごとに決めた（§3）
+- [ ] P7（委譲する場合）: 委譲の「いつ・どれだけ」が明示され、返ってきた結果は証拠を確かめてから受け取る（§11）
+- [ ] P8: 長時間の run はタスク一覧を永続させ、自動継続に上限があり、未確認を報告させる（§11）
+- [ ] 対象モデルの固有の挙動（§11「モデル別の分岐」）を確認した
 
 ---
 
-## 11. Claude 5 世代（Opus 5 / Fable 5）でのスキル設計
+## 11. Claude 5 世代の指示設計 — 世代共通の原則
 
-一次情報: [Prompting Claude Opus 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5) /
-[Prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)（2026-07-29 取得）/
-[Prompting Claude Fable 5.1](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)（2026-09-02 取得。差分は本節末尾「Fable 5.1 での差分」）。
+一次情報: 冒頭の Claude 5 世代 prompting guide・claude.dev blog・GPT-6 の公式指針。
 
-公式ガイドの核: 旧世代向けスキルは「often too prescriptive for Claude Fable 5 and can degrade
-output quality」。ただし方向は「無規定化」ではなく **削るものと残すもの（むしろ強化するもの）の
-仕分け** である。
+旧世代向けスキルは「often too prescriptive for Claude Fable 5 and can degrade output quality」。方向は無規定化ではなく、
+弱さの補償を削り、完了条件・境界・委譲の基準を明示すること。Opus 5.5 も「Existing Claude Opus 5 prompts should perform well without changes」。
 
-### 削る（旧モデルの弱さを補っていた指示）
+### 原則
 
-| 削る指示 | 理由（公式ガイドより） |
-|---------|----------------------|
-| 明示的な検証ステップ（「最後に検証せよ」「subagent で検証せよ」） | Opus 5 は指示なしで自己検証する。指示があると over-verification でトークン浪費 |
-| 「ダブルチェックせよ」「再確認してから回答せよ」 | 自己修正はデフォルト挙動。指示が重なりコスト増・品質向上なし |
-| 手順の hardcode・網羅的な書式ルール・防衛的な繰り返し | 弱い計画能力の補償だった。今は品質の上限になる |
-| 挙動を1つずつ列挙する指示 | 指示追従が強く、短い方針1つで足りる（「brief instruction beats enumeration」） |
-| 事前リサーチ強制（「全部調べて計画してから着手」） | 高 effort ではモデル自身が context 収集・自己検証する。二重コスト。「When you have enough information to act, act」で置き換える |
-| レビュー指示の「high-severity のみ報告」「保守的に」 | 文字通り従い検出数が減る。全件報告させ別パスでフィルタする |
-| 推論の生出力を要求（「思考過程を回答に書け」） | Fable 5 では reasoning_extraction refusal を誘発し Opus 4.8 への fallback 増加 |
+| # | 書く・削る | なぜ（出典） |
+|---|---|---|
+| P1 | 完了条件を作業の前に書く。最初の実装の後にレビューで止まることを要件にしない | blog「Name the finish line」。GPT-6 blog も「define completion before starting」とし、途中レビューの要件は「pull the model toward an earlier stopping point」 |
+| P2 | 止まってよい停止（入力なしに進めない・破壊的操作の前）と、止まってほしくない停止（次の手順を宣言して turn を終える等）を名指しする。強い禁止は不可逆操作の確認だけに残す | 名指しされた停止に反応する（Opus 5.5 docs）。blog の例「Stop and ask only when you can't continue without me, or before anything destructive」。禁止語の効き方は §3「Why-driven prompt design」 |
+| P3 | 旧世代の弱さ補償を削る: 同じ agent に再確認・ダブルチェックさせる指示、think carefully 型の思考指示、reasoning echo（推論を回答本文に書かせる）、手順の hardcode・網羅的な書式ルール・防衛的な繰り返し | 自己検証は既定の挙動で、指示は over-verification になる（Opus 5 docs。GPT-6 blog も「the same instructions can lead to unnecessary testing」）。生成者と別の verifier は P7。思考量の制御は effort で、この種の行の除去を Opus 5.5 docs はチャットの system prompt に、blog は保存済みの指示にも勧める。推論を本文に書かせると `reasoning_extraction` refusal になりうる。手順の網羅は今は品質の上限になる（GPT-6 blog「overly specific guidance can now hinder results」） |
+| P4 | 参照は「何のときに何を見るか」のポインタにし、一律の事前読込・事前リサーチを強制しない。緩く指定された多ソース作業にだけ「関係する出典を先に見る」1 文を置く | GPT-6 blog の悪例「Before every edit, read architecture.md, ...」と良例「Use architecture.md for service boundaries, ...」。Opus 5.5 は着手が早く、その 1 文で正答が増えた（docs） |
+| P5 | effort を agent / stage ごとに明示し、自前 eval で sweep する | §3「model と effort は役割ごとに組で選ぶ」 |
+| P6 | 指示の密度は、それを読むモデルで決める | 同上 |
+| P7 | 委譲は「いつ・どれだけ」を書き（independent で sizeable な作業だけ・決定的な spawn 上限）、返った結果は証拠を確かめて受け取る。検証は生成者と別の fresh-context verifier が行う（§3） | 委譲の傾向はモデルで逆を向く（Opus 5・Fable 5 は積極的で小タスクではコストと時間が何倍にもなり、GPT-6 は「may delegate less often than desired」）ので量を書く。blog「check its evidence before you accept it」。Fable 5 docs「Separate, fresh-context verifier subagents tend to outperform self-critique」 |
+| P8 | 長時間・無人の run では text だけの turn 終了を完了とみなさず、タスク一覧を消えない場所（to-do tool かファイル）で更新させ、自動継続は 2–3 回で止める。進捗の主張はツール結果と突合させ、未確認のことは見た場所とともに書かせる | Opus 5.5 docs「Treat a text-only end of turn as a report rather than as proof the task is done」。blog「Mark anything you couldn't confirm, and say where you looked」。突合の指示は Fable 5 docs のテストで捏造ステータス報告をほぼ排除した |
 
-### 残す・強化する
+削らずに残すもの:
+- 境界と scope 制約（「修正は指示されるまでしない」型、頼まれた範囲を広げない・狭めない）。Fable 5 は頼まれていない行動（メール下書き・防衛的 git backup が公式の実例）を、Opus 5 は scope の自己拡張をしうる
+- 依頼の意図（Fable 5 docs「Give the reason, not only the request」）と、出力の長さ・narration の明示（effort では制御できない。Opus 5・Fable 5 docs「Lead with the outcome」型）
+- メモリは 1 教訓 1 ファイル + 既存更新・重複禁止・誤り削除で管理する（Fable 5 は過去 run の教訓参照で特に性能が上がる）
+- レビューは全件を報告させ別パスでフィルタする（「high-severity のみ」と書くと文字どおり従い検出が減る）。フィルタ段の無い単発のレビューなら blog の例「List only problems you'd block the merge for」の形でよい
 
-| 残す指示 | 理由 |
-|---------|------|
-| 境界ブロック（「問題の報告が deliverable。修正は指示されるまでしない」） | Fable 5 は頼まれていない行動を取ることがある（勝手なメール下書き・防衛的 git backup が公式の実例） |
-| scope 制約（「頼まれた範囲で。勝手に広げない・狭めない」） | Opus 5 はタスクの scope を自己判断で拡張しうる |
-| 進捗報告の証拠突合（「各主張をツール結果と突合してから報告」） | 公式テストで捏造ステータス報告をほぼ排除。長時間自律実行では必須級 |
-| subagent 委譲の基準・上限 | 両モデルとも旧世代より委譲に積極的。小タスクへの委譲はコスト倍増。「genuinely independent で sizeable な作業のみ」+ 決定的な spawn 上限 |
-| fresh-context の verifier subagent | 「Separate, fresh-context verifier subagents tend to outperform self-critique」— Generator-Verifier 分離（§3）は 5 世代でも有効 |
-| Why（依頼の意図・誰のためか） | 「Give the reason, not only the request」— 意図が長時間実行中の各判断の質を上げる |
-| 出力の長さ・narration の較正 | verbosity は effort では制御できない。プロンプトで明示する（「Lead with the outcome」型） |
-| メモリ機構（1 教訓 1 ファイル + 既存更新・重複禁止・誤り削除） | Fable 5 は過去 run の教訓参照で特に性能が上がる |
+### モデル別の分岐
+
+原則は共通で、既定値と次の挙動だけが分かれる（出典は各モデルの prompting guide）。
+
+| 項目 | 分岐 |
+|---|---|
+| effort の既定値 | Opus 5.5 は `medium`（Opus 5 は `high`）、Fable 5.1 は `high` |
+| 進捗更新と書式 | Opus 5.5 は更新を書き、一部が text だけで turn を終える（P8）。Fable 5.1 は更新が少なく（「fewer user-facing updates」）bold・見出し・リストも使いにくい。抑える旧指示を除き、足りなければ「いつ更新・書式を出すか」の 1 行を足す |
+| turn 途中の停止 | Fable 5.1 は「Next, I'll …」と述べて止まる、依頼済みの手順の許可を求める。長時間自律実行には公式の autonomously ブロックを原文のまま使い、質問が減る trade-off を確かめる |
+| scope・テスト | Fable 5.1 は未依頼の修正・拡張・テストファイルを出す。依頼範囲に限る指示で「drop substantially」。eval でその数を見る |
+| 会話履歴 | Fable 5.1 では append-only にする（per-turn nudge は毎 turn 足し、旧コピーは残す）。書き換えると prompt cache と thinking block が無効になる |
+| tool call batching | Fable 5.1 は独立な call を 1 turn に 1 つずつ出すことがある。「要るものを列挙し、依存しないものは 1 回で要求する」nudge を置く |
+| mannered prose | Fable 5.1 は長文・少段落になりうる。飾りで直言を置き換える文体を定義して禁じる（「Please remove all mannered prose」） |
+| 引用 | Fable 5.1 は要約で原文を引用符なしに再現しやすい。引用の付け方の完全な正例を 1 件置く |
+| compaction | Fable 5.1 で client 側 compaction をするなら、summary に保持 6 項目（問題と解決・検討した選択肢・決定と制約の原文・現在地・未解決・再構成困難な詳細）を列挙する |
+| 編集・長い成果物 | Fable 5.1 は小変更でもファイル全体を書き直すので手術的編集を指示する。xhigh / max では長い成果物を thinking で下書きしがちなので、まず high で運用する |
+| safeguard false positive | Fable 5.1 では tool 結果に base64 を入れない。compile-check 型の問いは「Are there any bugs in this program?」型にする。未知の言語は説明・文書を context に入れる |
+| low effort | Fable 5.1 は low で検索せず記憶で答えやすい。検索 nudge を置くか、その turn だけ effort を上げる |
+| 長 turn | Fable 5 は長 turn 前提でタイムアウトと非同期チェックを設計し、context 残量を見せない（session 分割の提案を誘発する） |
+| 視覚入力 | Opus 5.5 では旧モデル向けの視覚 scaffolding が要るか測り直す |
 
 ### スキル作成フローへの含意
 
-- **degrees of freedom（§1・公式 best practices）は 5 世代でも健在**。崖の近く（不可逆操作・
-  スキーマ厳密一致）は low freedom のまま。削るのは「open field に引いてあったガードレール」だけ。
-- **eval-first がより重要になる**: 「削って良くなったか」は eval でしか判定できない。公式も
-  「consider removing older instructions **if default performance is better**」と条件付き。
-  既存スキルの 5 世代移行では、削る前に baseline（旧指示のまま）を取り、削った版と比較する。
-- **effort は再較正する**: 旧モデルから引き継いだ effort 既定値は当てにならない。low/medium が
-  旧世代 xhigh を超えることがあるため、自前 eval で effort sweep をやり直す。
-- **Fable 5 をスキルの対象モデルにする場合**: 長 turn（数分〜数時間）前提でタイムアウト・
-  非同期チェック（ブロックせず scheduled job で確認）を設計する。context 残量カウントを
-  モデルに見せない（自発的な session 分割提案を誘発する）。
-
-### Fable 5.1 での差分（Fable 5 からの変更点）
-
-公式ガイドの前提: 「Your existing Claude Fable 5 prompts should perform well on Claude Fable 5.1
-without changes, but a handful of behavioral differences are worth knowing about」。上の「削る」
-「残す・強化する」の仕分けは 5.1 でも同じで、ここでは変わった点だけを書く。API ヘッダや SDK の
-書き方はスキルの領分ではないので、ハーネス側の設定が要る箇所は「公式ガイド参照」に留める。
-
-#### 削る／直す（5.1 で不要・有害になった指示）
-
-| 削る／直す指示 | 理由（公式ガイドより） |
-|---------|----------------------|
-| narration 抑制（「hold all findings for the final response」型） | 5.1 は既定で「fewer user-facing updates」。旧モデルの過剰報告を抑える行は、更新を要求する前にまず除去する |
-| anti-formatting（bullet・bold 抑制） | 5.1 は「uses bold less and is less likely to reach for headers, lists, or quotation marks」。除去するか、「いつ書式が適切か」を言う規則に置換する |
-| Fable 5 で較正した effort 既定値の持ち越し | 「effort level names don't correspond to the same amount of thinking across models」。sweep をやり直す |
-| compile-check 型の問い（「エラーなくコンパイルできるか」） | safeguard false positive を誘発しやすい。「Are there any bugs in this program?」型に言い換える |
-| tool 出力に base64 を返す設計 | context に入る base64 が false positive を誘発。取り除くのが推奨の修正 |
-| 履歴の書き換え（per-turn reminder の挿入・削除、旧 turn の要約置換、途中の system prompt 変更） | thinking block は「only in the exact conversation that produced them」で有効。prefix が変わると prompt cache が再開し、thinking block は無効になる（2026-08-31 以降作成のアカウントでは 400、`drop_block` を選んだ場合はブロック破棄。既存アカウントでも今から append-only にするのが公式推奨）。ハーネス側の対応が要る（公式ガイド参照） |
-
-#### 残す・強化する（5.1 で新たに要る指示）
-
-| 残す・追加する指示 | 理由 |
-|---------|------|
-| 進捗更新の要求 1 行（開始時に一言・作業中の短い更新・単独で読める recap） | 抑制指示を除去しても足りない場合に追加。pair programming 等の human-in-the-loop 向け。更新が UI に届くかはハーネスの表示設定に依存する（公式ガイド参照） |
-| tool 出力を UI が畳む／隠すなら、そのことをモデルに伝える | 伝えないと UI が表示しない出力を「見せる」ためにコマンドを走らせる |
-| tool call batching の nudge（「必要なものを私的に列挙し、依存しないものは 1 回で全部要求」） | coding / computer-use ループで、暗黙に必要な独立 call を 1 turn に 1 つずつ出すことがある。品質は変わらないが turn 数分のコスト。毎 turn 新規に追加し旧コピーは残す |
-| mannered prose の定義（比喩・飾りで直言を置き換える文体の禁止） | 5.1 は文が長く段落が少ない場合がある。短縮版「Please remove all mannered prose」も効く。user message 側が推奨 |
-| 引用の付け方を示す完全な正例 1 件（依頼・応答・正しい理由） | 要約時に原文を「without marking them as quotations」で再現しやすい。例中の tool 呼び出し行は自分の tool 名に置換する |
-| 「autonomously（ユーザーは見ていない。依頼済みの可逆行動は許可を求めず進める）」ブロック | 「Next, I'll …」と述べて止まる／「Shall I apply this?」と聞く挙動への対処。冒頭文がもっとも効くので原文のまま使う。曖昧な依頼で質問しにくくなる trade-off を自分のタスクで確認する |
-| 「Delivering work」scope ブロック（依頼が scope、勝手に狭めない・広げない・差し替えない） | 上と併用が公式推奨。長さを削るなら前者のみ残す |
-| 変更・テストを依頼範囲に限定する指示 | 近傍バグの修正・未依頼の拡張・必要以上のテストファイル commit が出る。指示で「drop substantially with no measurable change in task success」 |
-| compaction summary の保持項目 6 点（問題と解決、検討した選択肢、決定・制約の原文、現在地、未解決、再構成困難な詳細） | client 側で compaction する場合。ユーザー発言は原文に近く、モデル自身の説明は結論まで圧縮する |
-| low effort での検索 nudge（名前を認識することと現状を知ることは別。ユーザーの書いた名前で検索） | low では検索・retrieval tool を呼ばず記憶で答えやすい。該当 turn だけ effort を上げるのが最も簡単な場合もある |
-| 手術的編集の指示（結果が変わらないなら全体を書き直さない） | 5.1 は小変更でもファイル全体を書き直しやすい。出力トークンと時間のコスト |
-| xhigh / max での長い成果物: `max_tokens` に思考分の余地 + 「reasoning で全文を下書きしない」の note | 長い成果物を thinking で書いてから回答に書き直すことがある。まず high で運用し、測って品質が上がる場合のみ xhigh / max |
-| 未知のプログラミング言語には言語の説明・文書を context に入れる | safeguard false positive の低減 |
-| subagent 起動 tool は即 return、結果は後の user message で返し、待つための tool を別に持つ | coding タスクの測定で、lead を待たせないと平均完了時間が下がる（品質・トークン・コストは同程度）。「The model still often chooses to wait」。ハーネス側の設計 |
-| vision 作業に crop / zoom tool | 密なチャート等は「iteratively analyze, crop, and visually verify」で最良。container が重いなら crop tool 単体で大半の uplift |
-
-#### スキル作成フローへの含意
-
-- **effort sweep は 5.1 で再実施する**。`medium` は「roughly match Claude Fable 5 at lower cost」、`low` は
-  小モデルを高 effort で回す場面の比較対象に入れる。引き下げは「where your evals show quality holds」の範囲のみ。
-- **eval に 5.1 固有の失敗を assertion 化する**: turn 終了時に未完了の「次にやること」が残っていないか、
-  未依頼の変更・テストファイル数、要約中の、引用符を付けない原文の再現、小変更での全ファイル書き換え。
-- **進捗更新は「抑制指示の除去 → 必要なら要求 1 行」の順**。表示設定はハーネス側（公式ガイド参照）。
-- **agent loop / script は履歴を append-only にする**。返ってきた assistant turn は thinking 含めそのまま追加。
-  per-turn nudge は毎 turn 新しく追加し、旧コピーは byte-for-byte 残す。client compaction するなら
-  「summary 1 通 + 新しい user turn」に置き換えて他を replay しない。cache 読みが安くなったので早期
-  compaction の是非は測り直す。
-- **compaction を持つスキルは summarization 指示に保持 6 項目を列挙する**（server 側 compaction は既に対応）。
-- **script が tool 結果を組み立てるなら base64 を context に入れない**。
-- Fable 5 節の境界ブロック・scope 制約は 5.1 でも同じ。5.1 では公式が具体的なブロック文
-  （autonomously / Delivering work / 変更・テスト限定）を与えているので、agent prompt にはそれを流用する。
+- **degrees of freedom（公式 best practices）はこの世代でも健在**。崖の近く（不可逆操作・スキーマ厳密一致）は low freedom のまま
+- **削るかは eval で決める**。公式も「consider removing older instructions **if default performance is better**」と条件付き。削る前に baseline（旧指示のまま）を取り、削った版と比べる（§6）
+- **対象モデルが変わったら effort を sweep し直し**（P5）、上表の固有の失敗を eval の assertion に入れる
 
 ---
 
 ## 12. 制約の較正 — right altitude と代理指標の排除
 
-一次情報: [Effective context engineering for AI agents（Anthropic Engineering）](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)（2026-07-29 取得）。§11 の「削る/残す」仕分けを、検証ゲート・機械チェックの設計に適用したもの。
+一次情報: [Effective context engineering for AI agents（Anthropic Engineering）](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)（2026-07-29 取得）。§11 の原則（P3 旧世代の弱さ補償を削る）を、検証ゲート・機械チェックの設計に適用したもの。
 
 ### right altitude（公式の中核原則）
 
@@ -565,11 +539,15 @@ without changes, but a handful of behavioral differences are worth knowing about
 （verifier の verdict と evidence）、権限境界（承認 marker — 捏造防止が目的なら厳格書式が正解）、
 禁止事項の混入検出（精密に定義できるもの）。
 
+**測定手段は主張に釣り合わせる**: 成文の基準への適合（規則に沿うか・要求を満たすか）は、生成者と別の
+fresh な監査者が本文を読んで照合するのを既定にし、決定的 checker（行数・grep・schema・テスト）は
+機械で決まる部分にだけ使う。
+
 ### 制約は失敗から育てる（前方修正のみ）
 
 公式 Skill best practices の実践知: 最良のスキルは「数行 + gotcha 1 個」から始まり、実際の
-失敗に当たるたびに追記されて育つ。逆向き（想像した失敗に先回りして制約を積む）は §11 の
-「削る」対象を量産する。制約を足すときは「どの実失敗を防ぐか」を、削るときは eval baseline を
+失敗に当たるたびに追記されて育つ。逆向き（想像した失敗に先回りして制約を積む）は §11 P3 の
+削る対象を量産する。制約を足すときは「どの実失敗を防ぐか」を、削るときは eval baseline を
 根拠にする（§6 eval-first）。
 
 ### 撤去弁明・来歴をドキュメントに残さない
@@ -577,8 +555,8 @@ without changes, but a handful of behavioral differences are worth knowing about
 「〜の検証は行わない。なぜなら以前は〜」という否定形の記述は、変更時点のレビュアーへの説明で
 あって次の読者への情報ではない。経緯は commit message / PR に書き（git blame で辿れる）、
 契約・スキル本文は**現在の要件の肯定形だけ**にする。公式 anti-pattern「time-sensitive
-information を本文に置かない」の変種。コード内に残す why コメントは「コードだけでは読み取れ
-ない制約」（例: この文字を除去対象に足すと照合が壊れる）に限る。
+information を本文に置かない」の変種。版番号・改稿メモ・指摘への対応表・棄却の経緯も本文に入れない。
+判断の記録が要るなら ledger / PR に置く。
 
 ---
 
@@ -802,10 +780,10 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 
 ### 規模とコスト
 
-- 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧めている
+- 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧める
 - size guideline（`/config`）は Claude が狙う agent 数の目安。`small` < 5 / `medium` < 15（既定）/ `large` < 50 / `unrestricted`
 - 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）
-- **モデルは既定でセッションのモデル**。安く済むステージだけ明示的に落とす。`effort` も同様（機械的なステージは `low`、最も難しい verify / judge だけ上げる）
+- モデルと `effort`: §3
 
 規模はタスクに合わせる。「バグを探して」なら finder 数体＋単票 verify、「徹底的に監査して」なら finder を増やし 3〜5 票の adversarial pass と統合ステージを置く。
 
@@ -836,7 +814,7 @@ NVIDIA AVO（Claude Opus 5 で ARC-AGI-3 public set 183 レベル全問）はこ
 論文も memory・supervisor・lineage の個別寄与を測っていないため、「ハーネスで同じモデルが何倍になったか」
 の数字として使えない。AVO から持ち込めるのは構造（⑤ の例）だけ。
 
-§5（決定的処理の分離）・§11（fresh-context verifier・メモリ）・§13（orchestration の決定化）は
+§5（決定的処理の分離）・§11（P7 の fresh-context verifier・メモリ）・§13（orchestration の決定化）は
 ハーネスの「誰が回すか」側を扱っている。本節はその先、**モデルに何を見せ、状態をどこに置くか**を
 扱う。NOOA は Python クラスという形でこれを実現しているが、スキルに持ち込むのは形ではなく原理
 （Claude Code のスキルは Python クラスではない）。
@@ -848,7 +826,7 @@ NVIDIA AVO（Claude Opus 5 で ARC-AGI-3 public set 183 レベル全問）はこ
 | ① | **状態は履歴ではなくオブジェクトに**（NOOA explicit object state / InfiAgent「history ではなく state」/ File-as-Bus「thin control over thick state」） | 現在の状態（phase・決定・制約・未解決・成果物パス）を state ファイルか script 変数に持つ。agent に渡すのは「現在の状態 + 直近の固定幅」であって transcript ではない。再開は state から。**切るのはタスク/レベル境界であって試行単位ではない**（④ との粒度の違い。較正 1） | §13 の script 変数。MAGI の `state.json` + Phase Capsule |
 | ② | **参照渡し — ツール結果を context に往復させない**（NOOA pass by reference） | subagent は全文をファイルに書き、親へは要約 + findings + パスだけ返す。script は判定に要る結果だけを出力する（案内文・進捗ナレーションを混ぜない）。NOOA は transcript が追記専用になり prefill cache が効き続けることでトークンを半減させた | §13「中間結果の置き場 = script 変数」。token-budget の「親へ戻す出力を選別」 |
 | ④ | **reasoning を捨てない。compaction は truncation ではない**（OpenAI） | ステップ間で「なぜそう決めたか」を落とすと、agent は毎ターン問題を一から解釈し直す（公式ハーネスの 13.3% の主因）。同じタスクの再試行で agent を作り直すと同じことが起きる（較正 1）。capsule には決定・制約・根拠・未解決・却下案を残し、要約のために削らない。古い方から捨てる rolling truncation は初期の観察を失い、満杯付近で動く時間を長くする | token-budget の NG リスト（Hard Constraints / concerns / Sources は削らない） |
-| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route。AVO は正しさ検査を通りスコアを維持/改善した候補だけを git commit し、失敗は 0 点で lineage に残す） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。**verified にはスコープ（どの条件下で観測したか）を必ず付ける** — 無スコープの verified は後段で反証されても捨てられず探索を抑圧する（較正 2）。試して却下した案、実行した事実も state に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する。rule に抽象化したとき落ちる情報は生の手順側に残す（較正 4） | §11 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
+| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route。AVO は正しさ検査を通りスコアを維持/改善した候補だけを git commit し、失敗は 0 点で lineage に残す） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。**verified にはスコープ（どの条件下で観測したか）を必ず付ける** — 無スコープの verified は後段で反証されても捨てられず探索を抑圧する（較正 2）。試して却下した案、実行した事実も state に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する。rule に抽象化したとき落ちる情報は生の手順側に残す（較正 4） | §11 P7 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
 
 NOOA の残り 2 つは本書で既出: code as action（複数操作を 1 本のコードに）は §5、
 model-callable harness API / agent 自身が curation するメモリは §11「1 教訓 1 ファイル + 既存更新・
@@ -926,8 +904,8 @@ AVO の ARC-AGI-3 設計は公開情報が原理レベルまでしかない（�
   公開ベンチマークは意図的に素朴なハーネスを使う（欠点を見えやすくするため）ので、そのスコアは
   商用ハーネス下の性能を表さない
 - ハーネスを整えても長時間委任の劣化は消えない（DELEGATE-52: フロンティアモデルでも長時間
-  ワークフローで文書内容の平均 25% が破損）。長く走らせる設計ではなく、§11 の「小さい agent
-  への fan-out」で区切る。⑤ は区切りの手段ではなく、区切った先で永続化を受理する条件
+  ワークフローで文書内容の平均 25% が破損）。長く走らせる設計ではなく、§13「resume の意味論」の
+  小さい agent への fan-out で区切る。⑤ は区切りの手段ではなく、区切った先で永続化を受理する条件
 
 ### 持ち込まないもの
 

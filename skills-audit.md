@@ -392,8 +392,7 @@ Phase 2 → 2.5 → 3 → 4 は「fan-out → 集約 → 閾値判定 → 条件
 Workflow が返す `verdict: needs_human_decision`（改稿上限に達しても閾値に届かなかった）は
 失敗の宣告ではなく、要件・基準まで遡るかを人間が決めるための報告として Phase 5 に渡る。
 
-**agentType を渡していない点**: `agents/*.md` の frontmatter には `subagent_type`
-（analyzer / architect / qa / reviewer）が書かれているが、これらは Agent ツールのレジストリに
+**agentType を渡していない点**: `agents/*.md` の役割は Agent ツールのレジストリに
 登録された型ではなく、指定すると解決に失敗する。役割はプロンプト本文が担っているため、
 `model` だけを渡して既定の subagent で実行している。
 
