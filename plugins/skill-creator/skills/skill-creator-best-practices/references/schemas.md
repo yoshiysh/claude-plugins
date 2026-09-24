@@ -400,7 +400,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `findings[].severity` | ○ | `blocker` / `major` / `minor`。update の打ち切り判定に使う |
 | `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
-| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本にもそのまま存在するか。script はこれで `new` と `preexisting` を分ける。原本が読めなければ省略 |
+| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本の同じファイルにもそのまま存在し、かつ指摘が成立する条件（参照先・前提）が改稿で変わっていなければ `true`、それ以外は `false`。`[INTENT]` との不一致を指摘するものは、前提である意図が改稿で与えられたので常に `false`。原本が読めなければ省略する（分からないものを `false` にしない）。script はこれで `new` と `preexisting` を分ける |
 | `unchecked_judgments` | ○（担当観点のみ） | `[UNCHECKED_ITEMS]` の各 id に対する `pass` / `partial` / `fail` / `unknown` と根拠。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本 |
 
 #### 委譲項目（[UNCHECKED_ITEMS]）の受け渡し

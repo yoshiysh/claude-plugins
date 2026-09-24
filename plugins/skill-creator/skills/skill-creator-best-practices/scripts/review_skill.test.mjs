@@ -53,13 +53,13 @@ function respondingAgent() {
 test('update reverify finders receive intent verbatim', async () => {
   const { agent, calls } = respondingAgent();
   const { result } = await run('update', agent);
-  const reverify = calls.filter(c => c.label.startsWith('find-') && c.label.endsWith('-p2r1'));
+  const reverify = calls.filter(c => c.label.startsWith('find-') && /-p2r\d+(-retry)?$/.test(c.label));
   assert.ok(reverify.length > 0);
   for (const c of reverify) assert.ok(c.prompt.includes(`[INTENT]:\n${INTENT}`), c.label);
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
-function intentMismatchAgent(presentInOriginal) {
+function intentMismatchAgent(presentInOriginal, findingLabels = ['find-why-driven-p2r1']) {
   const calls = [];
   const mismatch = {
     file: 'SKILL.md',
@@ -71,12 +71,12 @@ function intentMismatchAgent(presentInOriginal) {
     present_in_original: presentInOriginal,
   };
   const agent = async (prompt, opts) => {
-    calls.push({ prompt, label: opts.label });
+    calls.push({ prompt, label: opts.label, phase: opts.phase });
     if (opts.label.startsWith('update-')) {
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
     }
     if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
-    const findings = opts.label === 'find-why-driven-p2r1' ? [mismatch] : [];
+    const findings = findingLabels.includes(opts.label) ? [mismatch] : [];
     return { findings, scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [] };
   };
   return { agent, calls };
@@ -99,6 +99,7 @@ test('intent mismatch with present_in_original true is preexisting and stops the
   assert.deepEqual(updaters, ['update-r1']);
   assert.equal(result.staging.preexisting.length, 1);
   assert.equal(result.staging.new.length, 0);
+  assert.equal(result.verdict, 'applied_to_staging');
 });
 
 test('intent is absent from update Find and from every review prompt', async () => {
@@ -108,8 +109,20 @@ test('intent is absent from update Find and from every review prompt', async () 
   assert.ok(find.length > 0);
   for (const c of find) assert.ok(!c.prompt.includes('[INTENT]'), c.label);
 
-  const review = respondingAgent();
+  const review = intentMismatchAgent(false, ['find-why-driven-p1']);
   await run('review', review.agent);
-  assert.ok(review.calls.length > 0);
+  assert.ok(review.calls.some(c => c.label.startsWith('refute-')));
   for (const c of review.calls) assert.ok(!c.prompt.includes('[INTENT]'), c.label);
+});
+
+test('update refuters receive intent only in Reverify', async () => {
+  const { agent, calls } = intentMismatchAgent(false, ['find-why-driven-p1', 'find-why-driven-p2r1']);
+  await run('update', agent);
+  const refuters = calls.filter(c => c.label.startsWith('refute-'));
+  const verify = refuters.filter(c => c.phase === 'Verify');
+  const reverify = refuters.filter(c => c.phase === 'Reverify');
+  assert.ok(verify.length > 0);
+  assert.ok(reverify.length > 0);
+  for (const c of verify) assert.ok(!c.prompt.includes('[INTENT]'), c.label);
+  for (const c of reverify) assert.ok(c.prompt.includes(`[INTENT]:\n${INTENT}`), c.label);
 });

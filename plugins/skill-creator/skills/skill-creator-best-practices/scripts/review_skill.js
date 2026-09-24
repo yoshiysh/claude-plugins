@@ -379,9 +379,7 @@ function scopeBlock(kind) {
     // 見落とした既存の問題を「改稿が持ち込んだ」と報告すると、承認判断が歪む（実際に起きた）。
     lines.push(`[ORIGINAL_DIR]: ${skillPath}`)
     lines.push(
-      '各指摘について、evidence の引用が [ORIGINAL_DIR] の同じファイルにもそのまま存在するかを' +
-        '確認し present_in_original に true / false で返すこと。原本が読めなければ省略する。' +
-        '引用が同じでも、指摘が成立する条件（参照先・前提）が改稿で変わったなら false。' +
+      `各指摘の present_in_original を ${SKILL_DIR}/references/schemas.md の「finder の出力（FINDINGS_SCHEMA）」の定義に従って返すこと。` +
         '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
         '[TARGET_DIR] で実際に読んだものだけ。原本は相対パスが同じなので混ぜると観測の有無が狂う）。'
     )
@@ -540,7 +538,10 @@ function verifyFindings(findings, phaseTitle, passLabel) {
                 null,
                 2
               )}`,
-            ].join('\n\n'),
+              mode === 'update' && phaseTitle === 'Reverify' ? `[INTENT]:\n${intent}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
             {
               model: 'sonnet',
               schema: REFUTE_SCHEMA,
