@@ -404,7 +404,7 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `staging.unobserved[]` | 再検証時にそのファイルを誰も読んでいないため、消えたのか見られていないのかが分からない指摘。`resolved` には数えない。blocker が含まれる場合は `unverified` の blocker と同様に自動確定せず `needs_human_decision` になる |
 | `staging.reclassified[]` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` には入れない |
 | `staging.preexisting[]` | 再検証で新しく出たが、引用が改稿前の原本にもそのまま存在する確定指摘。改稿前の検査が見落とした既存の問題なので `new` には入れず、blocker 判定にも入れない（提示はする） |
-| `staging.out_of_scope[]` | `scope: "diff"` のときだけ。改稿前に読まれたファイルにも今回変更したファイルにも無い場所で再検証が見つけた確定指摘。元からあった可能性が高いので提示だけし、blocker 判定には入れない（`full` では常に空） |
+| `staging.out_of_scope[]` | `scope: "diff"` で差分の範囲外に出た確定指摘。何を入れ何を入れないかは [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) の `out_of_scope` が正本 |
 | `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
 | `by_category.before` | 改稿前（Find）の観点別確定件数。欠測観点は `null` |
 | `by_category.after` | 再検証（Reverify）の観点別確定件数。Reverify が完了していなければ `null` |
