@@ -117,6 +117,42 @@ test('diff scope keeps a finding with present_in_original omitted on an unchange
   assert.equal(result.verdict, 'needs_human_decision');
 });
 
+test('diff scope treats an unchanged, unscanned file finding as out of scope', async () => {
+  const { agent, calls } = reverifyFindingAgent({
+    file: 'references/untouched.md',
+    location: 'L1',
+    claim: 'comment restates what the code does',
+    evidence: 'quoted',
+    severity: 'major',
+    suggested_fix: 'drop the comment',
+    present_in_original: true,
+  }, ['find-why-driven-p2r1']);
+  const { result } = await run('update', agent, { scope: 'diff', diffRef: 'main...HEAD' });
+  const updaters = calls.filter(c => c.label.startsWith('update-')).map(c => c.label);
+  assert.deepEqual(updaters, ['update-r1']);
+  assert.equal(result.staging.out_of_scope.length, 1);
+  assert.equal(result.staging.new.length, 0);
+  assert.equal(result.verdict, 'applied_to_staging');
+});
+
+test('diff scope treats the same finding on a changed file as preexisting', async () => {
+  const { agent, calls } = reverifyFindingAgent({
+    file: 'SKILL.md',
+    location: 'L1',
+    claim: 'comment restates what the code does',
+    evidence: 'quoted',
+    severity: 'major',
+    suggested_fix: 'drop the comment',
+    present_in_original: true,
+  }, ['find-why-driven-p2r1']);
+  const { result } = await run('update', agent, { scope: 'diff', diffRef: 'main...HEAD' });
+  const updaters = calls.filter(c => c.label.startsWith('update-')).map(c => c.label);
+  assert.deepEqual(updaters, ['update-r1']);
+  assert.equal(result.staging.preexisting.length, 1);
+  assert.equal(result.staging.out_of_scope.length, 0);
+  assert.equal(result.verdict, 'applied_to_staging');
+});
+
 test('reverify finding already present in the original is preexisting and does not re-enter the loop', async () => {
   const { agent, calls } = reverifyFindingAgent({
     file: 'SKILL.md',

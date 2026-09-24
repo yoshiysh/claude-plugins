@@ -851,8 +851,8 @@ while (true) {
           ].map(normPath)
         )
       : null
-  // 範囲外が原本と同一なのは updater の changed_files に漏れが無い場合だけなので、
-  // finder が原本での存在を確かめた（true）指摘以外は範囲内に戻す。
+  // true 以外を範囲外に出さないのは、changed_files の申告漏れに加え、[INTENT] 未達の指摘は
+  // 原本と同一のファイルでも false になり、範囲外に出すと未達が隠れるため。
   const isInScope = (f) =>
     inScope === null || inScope.has(normPath(f.file)) || f.present_in_original !== true
 
