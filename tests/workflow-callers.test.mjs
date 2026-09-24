@@ -70,7 +70,7 @@ test('every Workflow caller declares the native-first transparent Codex route', 
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {
   const pluginNames = new Set(workflowCallers().map((caller) => caller.pluginName))
   for (const pluginName of pluginNames) {
-    // workflow plugin 自身が caller を含む構成（pdca / prd-spec / review-document を収録）では
+    // workflow plugin 自身が caller を含む構成（prd-spec / review-document を収録）では
     // 自己依存は宣言できないので免除する。runner は同 plugin 内に同梱されている。
     if (pluginName === 'workflow') continue
     const pluginRoot = join(pluginsRoot, pluginName)
@@ -90,8 +90,6 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/pdca/scripts/pdca.js', 'rejected_source'],
-    ['workflow/pdca/scripts/pdca-plan.js', 'rejected_source'],
     ['workflow/prd-spec/scripts/draft.js', 'rejected_source'],
     ['workflow/prd-spec/scripts/refine.js', 'rejected_source'],
     ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
@@ -165,9 +163,6 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
 test('rejected sources document their runtime boundary', () => {
   const dispatch = readFileSync(join(pluginsRoot, 'research', 'skills', 'dispatch', 'SKILL.md'), 'utf8')
   assert.match(dispatch, /rejected_source[\s\S]*load-bearing exact model semantics/)
-
-  const pdca = readFileSync(join(pluginsRoot, 'workflow', 'skills', 'pdca', 'SKILL.md'), 'utf8')
-  assert.match(pdca, /rejected_source[\s\S]*worktree isolation \/ runtime-generated artifacts/)
 
   const creator = readFileSync(
     join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'references', 'codex-workflow-compatibility.md'),

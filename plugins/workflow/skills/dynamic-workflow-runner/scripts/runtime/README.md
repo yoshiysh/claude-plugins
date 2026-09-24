@@ -113,9 +113,9 @@ merge, reset or retry occurs. Events record allocated/ready paths and baseline, 
 request.json records the canonical backend policy. Setup Git commands have their own
 10-second timeout; setup precedes the workflow execution deadline.
 
-Writable SDK options and unchanged PDCA control flow have mock-backed tests with real
-Git checkouts. Actual writable live-agent enforcement and full PDCA role execution
-remain unverified; do not infer those guarantees from the mock SDK.
+Writable SDK options and a two-role fixture (one worktree writer, one shared-checkout
+reader) have mock-backed tests with real Git checkouts. Actual writable live-agent
+enforcement remains unverified; do not infer that guarantee from the mock SDK.
 
 `request.json`, source.txt and events.jsonl contain source/args hashes, phases,
 task IDs, thread IDs, results, failures and completed-turn token usage. They may

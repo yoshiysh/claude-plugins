@@ -1,78 +1,50 @@
 # skill-kaizen: pdca を配布スキル自身に適用する運転手順
 
-対象が「このリポジトリの配布スキル（Workflow を持つもの）」であるときの、pdca 一周の
-司令塔手順。ループの契約（Plan の事前固定・作る側と測る側の分離・人間ゲートの位置・
-decision 規則）は SKILL.md のままで、ここに書くのはスキル改善に固有の入出力の取り方だけである。
+対象が「このリポジトリの配布スキルと、その再現入力」であるときの、pdca 一周の司令塔手順。
+ループの不変条件（完了条件の事前固定・作る側と測る側の分離・人間ゲートの位置）は SKILL.md と
+`[SKILL_DIR]/scripts/pdca_state.py` のままで、ここに書くのはスキル改善に固有の入出力の取り方だけである。
 
-この手順が要るのは、スキル改善の Do/Check が「文書を書く」ではなく「**staging 版スキルで
-基準入力を再実行して本体版と比べる**」形を取るため。第 1 サイクル（prd-spec の乾き停止、
-2026-09）で実証した手順の定型化であり、各段は実績がある。
+この手順が要るのは、スキル改善の作業と検証が「文書を書く」ではなく「**staging 版スキルで
+基準入力を再実行して本体版と比べる**」形を取るため。
 
-## 前提（Plan より先に揃える）
+## 前提（criteria-author を呼ぶ前に揃える）
 
-- **目的アンカー**: Plan の goal が trace する上位目的。対象スキルの要求文書（PRD）の
-  目的章を使う。無ければ 1〜3 行の運営目的を依頼者と合意してから始める
-  （goal は目的から導く。目的を Plan の中で発明しない）。
-- **telemetry**: 対象スキルの実行実測が `~/.claude/skill-telemetry/<skill>/` に
-  1 run 以上あること。無ければまず通常運転の run を
-  `python3 [SKILL_DIR]/scripts/skill_telemetry.py record` で記録するところから（実測ゼロの改善は問題起点に
-  ならない — それは動機起点で、成功基準は provisional になる）。
-- **ledger の置き場**: この run の `ledger.jsonl`（workspace 配下）。Plan → Do → Act の各
-  workflow の前後で `scripts/ledger.py` を read / append する（SKILL.md「run ledger の回し方」）。
-  staging 対照 run は同じ run の中で条件が 2 本並ぶので、どちらの結果がどの裁定に紐づくかは
-  台帳で辿る。
-- **再現入力**: 同一入力で再実行できる args 一式（Workflow の wrapper script として保存
-  しておく）。これが無いと対照測定が組めない。
+- **目的アンカー**: 完了条件が trace する上位目的。対象スキルの要求文書（PRD）の
+  目的章を使う。無ければ 1〜3 行の運営目的を依頼者と合意してから始め、`init` の資料に渡す
+  （完了条件は目的から導く。目的を完了条件の中で発明しない）。
+- **run-dir**: この run の `pdca_state.py` の run-dir（対象の作業ツリーの外）。staging 対照 run は
+  同じ run の中で条件が 2 本並ぶので、どちらの結果がどの記録に紐づくかは `ledger.jsonl` で辿る。
+- **再現入力**: 対象スキルを同一入力で再実行できる入力一式。これが無いと対照測定が組めない。
+  `init` の資料に渡す。
+- **実測**: 対象スキルの実行実測の記録と対照 run の判定は、実測を持つスキル側の手順に従う
+  （prd-spec なら [prd-spec の telemetry.md](../../prd-spec/references/telemetry.md)）。
 
 ## 手順
 
-1. **観測**: `python3 [SKILL_DIR]/scripts/goal_selector.py select --skill <対象>` で
-   在庫から候補を選別し、pending 全件を一括提示して依頼者の裁定（approved / rejected /
-   done / superseded + 理由）を `decide` で記録する。approved の statement をそのまま
-   問題起点の入力にする（selector は在庫の決定的な関数であり、候補を発明しない。
-   傾向の目視だけしたいときは `skill_telemetry.py summary`）。
-2. **Plan**: SKILL.md どおり intake → evidence-collector → planner。両 agent には
-   「対象がスキル自身のとき」の節が効く（事実 = telemetry + 対象スキルの実装、出典必須）。
-   選択肢は改稿差分を `scripts/pdca.js` の `MAX_REVISION_DIFFS` 以内で構成させる（値の正本は定数側）。
-3. **Plan → Do**: SKILL.md と同じく人間ゲートは無い。plan-verifier の敵対的検証
-   （blocker/major 0）が承認の代替なので、通過したら Plan の要約を**事後報告**して Do に進む
-   （承認を待たない）。対象がスキル自身でもこれは変わらない — 自己適用だからといって
-   人間の承認を挟むと、承認者は Plan を書いた本人と同じ文脈にいて、敵対的検証より弱い。
-   Do に渡す前に Plan の `measurement_harness` を凍結する（SKILL.md「評価 harness の凍結」）。
-   スキル改善では harness は telemetry の抽出・比較（`skill_telemetry.py` の呼び出しと
-   `--metric` / 向き / 閾値）で、これを staging 側で作り直せる状態にしておくと、
-   差分を入れた本人が判定の仕方も変えられてしまう。
-4. **Do（staging）**: 対象スキルの実体を対象リポジトリの外（scratchpad 等）へ複製し、
+1. **完了条件**: SKILL.md どおり criteria-author が完了条件文書を書く。事実は実測と対象スキルの
+   実装から取り、出典を付ける。変更の範囲は完了条件と理由付きの除外で決まり、差分数の上限は置かない。
+2. **完了条件 → 作業**: SKILL.md と同じく人間ゲートは無い。criteria-verifier（scope・design）の
+   反証を通して `fix` したら、完了条件の要約を**事後報告**して作業に進む（承認を待たない）。
+   対象がスキル自身でもこれは変わらない — 自己適用だからといって人間の承認を挟むと、承認者は
+   完了条件を書いた本人と同じ文脈にいて、反証より弱い。スキル改善では測定手段は実測の抽出・
+   比較で、比較の基準ファイルは観点の `means.ref` に挙げる。`fix` がその digest を元の場所で
+   記録するので、差分を入れた本人が判定の仕方を変えると検証の記録で拒否される。
+3. **作業（staging）**: 対象スキルの実体を対象リポジトリの外（scratchpad 等）へ複製し、
    採用案の差分だけを適用する。**本体は触らない。** 対象スキルが tests/ を持つなら
    staging で先に回す（仕様を意図的に変える差分は、テストの契約更新も同じ差分に含める）。
-5. **Check（対照 run）**: control（本体版）と treatment（staging 版）を**同一入力・
-   独立ドラフト・対で**発行する。互いの作業ファイルを共有させない（run 間の相互影響の
-   遮断）。結果は両条件とも `skill_telemetry.py record` で、**同じ `--input-ref`**
-   （再現入力の wrapper script のパス）を付けて記録する。判定は散文で読まず、script に返させる:
-
-   ```bash
-   python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
-     --control <本体版の label> --treatment <staging 版の label> \
-     --frozen-manifest <run-dir>/frozen/MANIFEST.json
-   ```
-
-   対で記録されているか・`input_ref` が一致するか・指標が両条件で数値として取れるかを
-   指標・向き・閾値は CLI に手で書かず、Plan 末尾で凍結した MANIFEST から読む
-   （手入力の経路を残すと、差分を入れた本人が Check 時に判定の仕方を選び直せる）。
-   `compare` が検査し、どれかが欠けたら判定を返さず exit 2 で止まる。ここを散文の手順に
-   しておくと、対発行・同一入力・事前固定の基準という 3 つの決定的処理を誰も検査しない
-   （pdca.js が `conditions` で機械的に持っているものが、この経路だけ実行者の自己申告になる）。
-   exit 2 は「差が無い」ではなく「測定が成立していない」なので、Act に進まず対照を組み直す。
-6. **Act**: SKILL.md の decision 規則どおり（判定は act-judge）。standardize の恒久化先は対象
-   スキルの本体で、反映は **PR 経由**（マージは不変条件の人間ゲート）。PR 本文に
-   run 表・機序・較正（n、束適用の未分離）をそのまま載せる。
+4. **完了判定と恒久化**: completion-judge と `close` で完了を決める。恒久化先は対象スキルの
+   本体で、反映は **PR 経由**（マージは人間ゲート）。PR 本文に観点ごとの結果と、測れて
+   いないものをそのまま載せる。
 
 ## この運転に固有の注意
 
 - **運転手と対象を分ける**: pdca 自身を対象にする改善は、pdca を別の対象で最低 1 周
-  運転して telemetry を作ってからにする（エンジンの測定基準が自分ごと動くのを避ける）。
+  運転して実測を作ってからにする（エンジンの測定基準が自分ごと動くのを避ける）。
+- **control は残っている実測を先に使う**: 本体版の値は、同じ入力の実測が残っていればそれを使い、
+  本体版を再実行するのは実測が無いときだけにする。再実行は run 数と費用を倍にし、比較のための
+  周回が膨らむ。
 - **staging のベースを固定する**: 対照の意味は「差分以外が同一」で決まる。control と
   treatment は同じコミットから作り、途中で main が進んでも run 中は追随しない。
-  standardize 時に本体へ再適用し、他の変更を巻き戻していないかを diff で確認する。
-- **telemetry が無い主張は事実にしない**: 過去 run の記憶・会話ログの数値は unverified。
+  恒久化の時に本体へ再適用し、他の変更を巻き戻していないかを diff で確認する。
+- **実測が無い主張は事実にしない**: 過去 run の記憶・会話ログの数値は unverified。
   記録が消えていたら、その run は「無かった」ではなく「未計測」として扱う。

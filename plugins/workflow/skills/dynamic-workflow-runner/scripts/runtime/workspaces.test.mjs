@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { workspacePolicy } from './workspaces.mjs';
@@ -63,51 +62,37 @@ test('workspace policies never advertise update capabilities', async t => {
   assert.throws(() => codexBackend({ cwd: f.cwd, updateContract: contract }), /unsupported Codex backend field: updateContract/);
 });
 
-test('unchanged PDCA JS completes through mock SDK with explicit write/worktree policy', async t => {
+test('a worktree writer and a shared-checkout reader complete through mock SDK with explicit write/worktree policy', async t => {
   const f = await fixture(t), starts = [];
-  const roleResults = {
-    'builder.md': { artifacts: [], measurement_points: [] },
-    'build-verifier.md': { verdict: 'pass', findings: [], frozen_harness_digest_ok: true, frozen_harness_touched: false },
-    'runner.md': { condition_id: 'single', run_index: 1, executed: true, observations: 'mock observation' },
-    'verifier.md': { condition_id: 'single', run_index: 1, measured: true, score: 1, criteria_checks: [], frozen_harness_digest_ok: true },
-    'mechanism-analyst.md': { mechanisms: [{ statement: 'mock mechanism', evidence: 'mock observation',
-      alternative_explanations: [], identified: true }], criteria_validity: 'mock only', unmeasured: [], gap: '' },
-    'mechanism-arbiter.md': { pairs: [{ a: 0, b: 0 }] },
-  };
+  const scriptPath = join(f.root, 'two-roles.flow');
+  await writeFile(scriptPath, `export const meta = {name:'two-roles',description:'worktree writer and shared reader'};
+    const RESULT = {type:'object',properties:{done:{type:'boolean'}},required:['done'],additionalProperties:false};
+    const written = await agent('Read /mock/agents/writer.md', {model:'opus',label:'writer',schema:RESULT,isolation:'worktree'});
+    const read = await agent('Read /mock/agents/reader.md', {model:'sonnet',label:'reader',schema:RESULT});
+    return {status:'ok',written,read};`);
   class MockCodex {
     startThread(options) {
       const start = { ...options };
       starts.push(start);
       return { async runStreamed(prompt) {
         start.role = prompt.match(/\/agents\/([a-z-]+\.md)/)[1];
-        const result = roleResults[start.role];
-        assert.ok(result, `unmocked PDCA role: ${start.role}`);
         return { events: (async function* () {
-          yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({json:JSON.stringify(result)}) } };
+          yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({json:JSON.stringify({ done: true })}) } };
           yield { type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } };
         })() };
       } };
     }
   }
-  const result = await Workflow({
-    scriptPath: fileURLToPath(new URL('../../../pdca/scripts/pdca.js', import.meta.url)),
-    args: { skillDir: '/mock/pdca', plan: 'mock only', runsPerCondition: 1,
-      successCriteria: { text: 'mock match', metric: 'match', higher_is_better: true },
-      frozenHarness: { path: '/mock/run/frozen', entry: 'score.py', digest: 'mock-digest', class: 'deterministic_script',
-        criteria: { metric: 'match', higher_is_better: true, threshold: 1 } } },
-  }, { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 16, timeoutMs: 5000,
+  const result = await Workflow({ scriptPath, args: {} },
+    { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 4, timeoutMs: 5000,
     requirements: ['workspace-write', 'worktree'],
     backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, modelMap: { opus: 'mock', sonnet: 'mock' },
       workspace: { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit } }),
   });
-  assert.equal(result.status, 'ok'); assert.equal(result.confidence, 'inconclusive');
-  assert.deepEqual(result.check.mechanisms.map(m => m.corroboration), ['corroborated']);
-  const roleCounts = {};
-  for (const s of starts) roleCounts[s.role] = (roleCounts[s.role] ?? 0) + 1;
-  assert.deepEqual(roleCounts, { 'builder.md': 1, 'build-verifier.md': 1, 'runner.md': 1, 'verifier.md': 3,
-    'mechanism-analyst.md': 2, 'mechanism-arbiter.md': 1 });
-  const [runner] = starts.filter(s => s.role === 'runner.md'), shared = starts.filter(s => s.role !== 'runner.md');
-  assert.ok(shared.every(s => s.workingDirectory !== runner.workingDirectory));
-  assert.equal(new Set(shared.map(s => s.workingDirectory)).size, 1);
+  assert.deepEqual(result, { status: 'ok', written: { done: true }, read: { done: true } });
+  assert.deepEqual(starts.map(s => s.role), ['writer.md', 'reader.md']);
+  const [writer, reader] = starts;
+  assert.notEqual(writer.workingDirectory, reader.workingDirectory);
+  assert.equal(reader.workingDirectory, await realpath(f.cwd));
   assert.ok(starts.every(x => x.sandboxMode === 'workspace-write' && x.approvalPolicy === 'never'));
 });
