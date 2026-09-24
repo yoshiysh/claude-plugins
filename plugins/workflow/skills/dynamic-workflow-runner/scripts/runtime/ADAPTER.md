@@ -46,7 +46,7 @@ configuration; `workspace.path` is only the handoff location. The runtime does n
 provide role-level read isolation. `workspace-write` cannot be combined
 with an agent's `isolation: "worktree"` because those workers would not share the path.
 Workspace writes were observed in one live smoke, but this does not establish general
-sandbox isolation or full PDCA execution; see the [runtime README](README.md) for the
+sandbox isolation or full caller end-to-end behavior; see the [runtime README](README.md) for the
 smoke evidence and snapshot limits.
 
 The one-shot CLI delegates to `executeWorkflow(request, host)` in this same module.
