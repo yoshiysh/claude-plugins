@@ -851,10 +851,10 @@ while (true) {
           ].map(normPath)
         )
       : null
-  // 範囲外のファイルは改稿で触れていないので原本と同一。そこで present_in_original が false の
-  // 指摘は元からあったものではなく、意図の未達か改稿が参照先を変えた結果なので範囲内に戻す。
+  // 範囲外が原本と同一なのは updater の changed_files に漏れが無い場合だけなので、
+  // finder が原本での存在を確かめた（true）指摘以外は範囲内に戻す。
   const isInScope = (f) =>
-    inScope === null || inScope.has(normPath(f.file)) || f.present_in_original === false
+    inScope === null || inScope.has(normPath(f.file)) || f.present_in_original !== true
 
   // 「消えた」ように見える指摘のうち、再検証でそのファイルを誰も開かなかったものは
   // resolved に数えない。読まなかっただけかもしれず、それを解消として数えると
