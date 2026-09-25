@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """スキル実行の telemetry を記録・集計する（kaizen 運転の Check 入力）。
 
-pdca をスキル自身に適用する（問題起点の対象が配布スキルである）とき、Plan の「事実」と
-Check の測定値はこのファイルが書き出す実測 JSON を正とする。会話ログや記憶を事実の
+配布スキル自身を改善の対象にするとき、改善前の「事実」と対照 run の測定値は
+このファイルが書き出す実測 JSON を正とする。会話ログや記憶を事実の
 出所にすると、run の詳細が session とともに消え、次のサイクルが同じ抽出を手書きで
 やり直すことになる（実測: kaizen 第 1 サイクルまでは毎回インライン抽出だった）。
 
-対象は Workflow 返り値（prd-spec の refine.js / pdca.js など、構造化 summary を返す
-script）。task output（{"result": ...} で包まれた形）と素の result の両方を受け付ける。
+対象は Workflow 返り値（prd-spec の refine.js など、構造化 summary を返す script）。task output（{"result": ...} で包まれた形）と素の result の両方を受け付ける。
 
 使い方:
   skill_telemetry.py record --skill prd-spec --label run6 --variant "main+fix" \
       --input-ref runner/run6-args.sh <output.json>
   skill_telemetry.py summary --skill prd-spec
   skill_telemetry.py compare --skill prd-spec --control run6-main --treatment run6-staging \
-      --metric fabrication_findings --lower-is-better --threshold 0
+      --criteria-file criteria.json
 
 `compare` は対照 run の判定を機械側に置く。対で記録されているか・同一入力（input_ref の
 一致）か・指標が両条件で数値として取れるかを検査し、どれかが欠けたら判定を返さず exit 2
@@ -133,30 +132,26 @@ def cmd_compare(args) -> int:
     2. 両者の input_ref が一致するか（同一入力性）
     3. 指標が両者で数値として取れるか（欠測を 0 に丸めない）
     """
-    # 判定基準の解決。凍結 MANIFEST があればそこから読む — 差分を入れた本人が
-    # Check 時に指標・向き・閾値を CLI で選び直す経路（凍結が防ごうとした事故の
-    # 同型）を塞ぐ。手入力 3 値との併用は曖昧なので拒否する。
+    # 基準ファイルから読むと、差分を入れた本人が Check 時に指標・向き・閾値を CLI で
+    # 選び直す経路を塞げる。手入力 3 値との併用は曖昧なので拒否する。
     manual = [args.metric is not None, args.higher_is_better is not None,
               args.threshold is not None]
-    if args.frozen_manifest is not None:
+    if args.criteria_file is not None:
         if any(manual):
             print(json.dumps({"ok": False,
-                              "reason": "--frozen-manifest と手入力の基準（--metric / 向き / --threshold）は併用できません"},
+                              "reason": "--criteria-file と手入力の基準（--metric / 向き / --threshold）は併用できません"},
                              ensure_ascii=False), file=sys.stderr)
             return 2
-        manifest = json.loads(Path(args.frozen_manifest).read_text())
-        criteria = manifest.get("criteria")
-        # MANIFEST は凍結の産物だが、渡されたパスが本物の凍結物である保証はこの層に
-        # 無い（digest の照合は harness_freeze.py verify の仕事）。ここでは形だけを
-        # 厳密に検査し、壊れた値を判定に流さない。
+        criteria = json.loads(Path(args.criteria_file).read_text()).get("criteria")
+        # 基準ファイルが改変されていないかはこの層では分からない（digest の照合は呼び出し側の
+        # 仕事）。ここでは形だけを厳密に検査し、壊れた値を判定に流さない。
         if (not isinstance(criteria, dict)
                 or not str(criteria.get("metric") or "").strip()
                 or not isinstance(criteria.get("higher_is_better"), bool)
                 or not isinstance(criteria.get("threshold"), (int, float))
                 or isinstance(criteria.get("threshold"), bool)):
             print(json.dumps({"ok": False,
-                              "reason": "MANIFEST の criteria が不正か欠けています（凍結し直しが必要）。"
-                                        "改竄検査は harness_freeze.py verify で行ってください"},
+                              "reason": "基準ファイルの criteria が不正か欠けています"},
                              ensure_ascii=False), file=sys.stderr)
             return 2
         args.metric = str(criteria["metric"]).strip()
@@ -164,7 +159,7 @@ def cmd_compare(args) -> int:
         args.threshold = float(criteria["threshold"])
     elif not all(manual):
         print(json.dumps({"ok": False,
-                          "reason": "--frozen-manifest か、--metric / 向き / --threshold の 3 点を渡してください"},
+                          "reason": "--criteria-file か、--metric / 向き / --threshold の 3 点を渡してください"},
                          ensure_ascii=False), file=sys.stderr)
         return 2
     src = telemetry_dir() / args.skill
@@ -272,17 +267,17 @@ def main(argv=None) -> int:
     cp.add_argument("--control", required=True, help="本体版の run label")
     cp.add_argument("--treatment", required=True, help="staging 版の run label")
     cp.add_argument(
-        "--frozen-manifest",
+        "--criteria-file",
         default=None,
-        help="凍結 harness の MANIFEST.json。指定時は metric / 向き / threshold を"
-             "凍結値から読む（手入力の 3 引数とは併用不可）",
+        help="criteria{metric, higher_is_better, threshold} を持つ JSON。指定時は"
+             "基準をここから読む（手入力の 3 引数とは併用不可）",
     )
-    cp.add_argument("--metric", default=None, help="判定に使う記録フィールド名（--frozen-manifest 無しのとき必須）")
+    cp.add_argument("--metric", default=None, help="判定に使う記録フィールド名（--criteria-file 無しのとき必須）")
     cp.add_argument(
         "--threshold",
         type=float,
         default=None,
-        help="この差を超えて初めて優劣を言う（--frozen-manifest 無しのとき必須）",
+        help="この差を超えて初めて優劣を言う（--criteria-file 無しのとき必須）",
     )
     direction = cp.add_mutually_exclusive_group(required=False)
     direction.add_argument("--higher-is-better", dest="higher_is_better", action="store_true", default=None)

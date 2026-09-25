@@ -24,7 +24,7 @@ C6 裁定一周: decide が status / decided_at / reason を同ファイルへ�
 
 規則表の粒度と impact/cost の値は既定値（調整は要求変更にあたらない）。述語は在庫の
 指標だけを見る絶対条件で書く（在庫相対の述語は leave-one-out で hit 集合が不安定になり、
-新規在庫の追加が既存候補の意味を変えてしまう — plan-verifier の反証で実測済み）。
+新規在庫の追加が既存候補の意味を変えてしまう — 反証レビューで実測済み）。
 
 == 対象スキルの範囲 ==
 現状の RULES の field 名は prd-spec（refine.js）の返り値スキーマそのもの。selector の

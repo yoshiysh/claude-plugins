@@ -518,10 +518,13 @@ Workflow({
 | `[SKILL_DIR]/references/fixed-premises.md` | **正**: スキルが固定する前提の一覧（案件ごとに問い直さない） |
 | `[SKILL_DIR]/references/question-policy.md` | **正**: 聞くか既定かの判定手順・決定ログ（decisions）の書式と受理条件・既定にしてはならないもの |
 | `[SKILL_DIR]/references/quality-checklist.md` | 生成物の絶対品質チェックリスト（外部規範由来・出典付き）。各項目の定義の正は既存 references にある |
+| `[SKILL_DIR]/references/telemetry.md` | このスキル自身を改善するときの実測の記録・改善候補の選別・対照 run の判定の手順 |
 | `[SKILL_DIR]/schemas/agent-contracts.md` | agent 間の入出力契約（TBD・trace・precedent-judge・measurement を含む） |
 | `[SKILL_DIR]/schemas/role-map.md` | **正**: 全 role の責務対応表（1 role = 1 責務。検証者は判定と事実指摘のみ、文案の起草は生成側）。agent md と食い違ったらこちらに合わせる |
 | `[SKILL_DIR]/scripts/draft.js` | Workflow A（初稿 + 実行可能性検査 + 構造検査 + `audit_trail`） |
 | `[SKILL_DIR]/scripts/refine.js` | Workflow B（改稿 + 監査ループ + 判定パイプライン段 2〜4 + INDEX 組み立て） |
+| `[SKILL_DIR]/scripts/skill_telemetry.py` | 実行実測の記録・集計・対照 run の判定（`compare` は測定が成立しなければ exit 2） |
+| `[SKILL_DIR]/scripts/goal_selector.py` | telemetry 在庫からの改善候補の選別と裁定の記録（候補を発明しない） |
 | `[SKILL_DIR]/scripts/check_blocking_rate.py` | **正**: 人間ゲートの提示容量の定数。返り値 JSON に対する回帰ゲートとしても使う（欠測は exit 2 で「未計測」） |
 | `[SKILL_DIR]/tests/` | 回帰テスト群。`python3 -m unittest discover [SKILL_DIR]/tests` で全実行する |
 | `[SKILL_DIR]/evals/evals.json` | テストケース |

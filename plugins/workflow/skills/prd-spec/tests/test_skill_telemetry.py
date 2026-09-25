@@ -161,40 +161,40 @@ class TestCompare(unittest.TestCase):
             )
             self.assertEqual(json.loads(tied.stdout)["favored"], "tie")
 
-    def test_frozen_manifestから基準を読む(self):
+    def test_criteria_fileから基準を読む(self):
         with tempfile.TemporaryDirectory() as td:
             self._record(td, "ctrl", {"summary": {"fabrication_findings": 3}})
             self._record(td, "trt", {"summary": {"fabrication_findings": 1}})
-            manifest = pathlib.Path(td) / "MANIFEST.json"
-            manifest.write_text(json.dumps({
+            criteria_file = pathlib.Path(td) / "criteria.json"
+            criteria_file.write_text(json.dumps({
                 "criteria": {"metric": "fabrication_findings",
                              "higher_is_better": False, "threshold": 0}}))
             out = run(["compare", "--skill", "s", "--control", "ctrl",
                        "--treatment", "trt",
-                       "--frozen-manifest", str(manifest)], td)
+                       "--criteria-file", str(criteria_file)], td)
             self.assertEqual(out.returncode, 0, out.stderr)
             self.assertEqual(json.loads(out.stdout)["favored"], "treatment")
 
-    def test_frozen_manifestと手入力の併用は拒否(self):
+    def test_criteria_fileと手入力の併用は拒否(self):
         with tempfile.TemporaryDirectory() as td:
-            manifest = pathlib.Path(td) / "MANIFEST.json"
-            manifest.write_text(json.dumps({
+            criteria_file = pathlib.Path(td) / "criteria.json"
+            criteria_file.write_text(json.dumps({
                 "criteria": {"metric": "m", "higher_is_better": True,
                              "threshold": 0}}))
             out = run(["compare", "--skill", "s", "--control", "c",
-                       "--treatment", "t", "--frozen-manifest", str(manifest),
+                       "--treatment", "t", "--criteria-file", str(criteria_file),
                        "--metric", "other"], td)
             self.assertEqual(out.returncode, 2)
 
-    def test_不正なcriteriaのmanifestはexit2(self):
+    def test_不正なcriteriaの基準ファイルはexit2(self):
         with tempfile.TemporaryDirectory() as td:
-            manifest = pathlib.Path(td) / "MANIFEST.json"
-            manifest.write_text(json.dumps({
+            criteria_file = pathlib.Path(td) / "criteria.json"
+            criteria_file.write_text(json.dumps({
                 "criteria": {"metric": "m", "higher_is_better": "yes",
                              "threshold": 0}}))
             out = run(["compare", "--skill", "s", "--control", "c",
                        "--treatment", "t",
-                       "--frozen-manifest", str(manifest)], td)
+                       "--criteria-file", str(criteria_file)], td)
             self.assertEqual(out.returncode, 2)
 
 

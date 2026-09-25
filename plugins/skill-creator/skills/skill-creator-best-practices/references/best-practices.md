@@ -644,12 +644,6 @@ fan-out する既存スキルは「それを指して同じことをする workf
 化ける。判定表（行の優先順位つき）を書き、適用は生成側と別の judge agent が行い、表に無い
 状況で規則を発明せず `needs_input`（decision）で返す。
 
-参照実装は `pdca` スキル（別 plugin）: 乾き判定（機序の novelty マーキング → script が件数算出 →
-judge が stop 行を適用）、梯子（revise_criteria / revise_plan / needs_input）、backstop
-（maxCycles 既定 5、明記付き）まで構造化されている。これらは全て実運用の失敗
-（§14 較正の追試ループ）から §12 の手順で育てた制約であり、新しいスキルに足すときも
-同じく「実失敗 → 制約」の順で入れる。
-
 ### `scripts/` は 2 つの別の層を指す（混同しない）
 
 同じ `scripts/` でも、担っている層が違う。

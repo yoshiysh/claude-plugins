@@ -130,13 +130,14 @@ Workspaces are retained after success, failure and cancellation. In this reposit
 rule does not affect workspaces created in arbitrary external repositories. Actual
 Codex SDK live smoke on PR head `8121b554` used `@openai/codex-sdk` 0.153.4: one agent
 wrote 40 bytes to `workspace.path/probe.txt`, and the runtime completed. This verifies
-the write handoff only in that environment, not general sandbox isolation or full PDCA
+the write handoff only in that environment, not general sandbox isolation or full caller
 role execution. The snapshot's 32 MiB content cap and manifest limits apply only when
 a snapshot is taken or validated; they are not write-time quotas. Retained workspaces
 have no aggregate quota or automatic pruning.
 
-Writable SDK options and unchanged PDCA control flow also have mock-backed tests with
-real Git checkouts. Do not infer general sandbox isolation from the live smoke or mocks.
+Writable SDK options and the rejection of workspace-write plus worktree isolation also
+have mock-backed tests with real Git checkouts. Do not infer general sandbox isolation
+from the live smoke or mocks.
 
 `request.json`, source.txt and events.jsonl contain source/args hashes, phases,
 task IDs, thread IDs, results, failures and completed-turn token usage. They may
