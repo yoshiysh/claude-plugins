@@ -540,7 +540,12 @@ class State:
             return stuck
         if any(e["data"].get("refused") for e in self.ledger.of("continue")):
             return "stop:auto_continue"
+        budget = self.last_fix["data"]["budget"] if self.last_fix else None
+        if budget and self.elapsed() > budget["wall_seconds"]:
+            return "stop:time_budget"
         if self.reopened():
+            if budget and self.next_writer_opens_round and self.rounds_used >= budget["rounds"]:
+                return "stop:rounds"
             written = self.ledger.last("criteria_written")
             findings = self.criteria_findings_after_fix()
             if written is None or (findings and written["seq"] < findings[-1]["seq"]):
@@ -552,9 +557,7 @@ class State:
             missing = [a for a in ASPECTS if a not in reviews]
             return f"criteria-verifier:{missing[0]}" if missing else "fix"
         criteria = self.criteria()
-        if self.elapsed() > criteria["budget"]["wall_seconds"]:
-            return "stop:time_budget"
-        out_of_rounds = self.rounds_used >= criteria["budget"]["rounds"]
+        out_of_rounds = self.rounds_used >= budget["rounds"]
         if not self.ledger.of("work", after=self.fix_seq):
             return "stop:rounds" if self.next_writer_opens_round and out_of_rounds else "writer"
         verdicts = self.verdicts(criteria)
@@ -851,6 +854,9 @@ def fix_problem(state: State, sha: str | None) -> str | None:
 def cmd_fix(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
+    nxt = state.next()
+    if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
+        raise StateError(f"停止中（next = {nxt}）")
     criteria = state.criteria()
     sha = state.criteria_sha()
     problem = fix_problem(state, sha)
@@ -858,7 +864,7 @@ def cmd_fix(args) -> int:
         raise StateError(problem)
     means = [{"viewpoint": vp["id"], "ref": str(user_path(vp["means"]["ref"])), "sha256": digest(user_path(vp["means"]["ref"]))}
              for cond in criteria["conditions"] for vp in cond["viewpoints"] if "ref" in vp["means"]]
-    state.ledger.append("fix", {"criteria_sha256": sha, "means": means})
+    state.ledger.append("fix", {"criteria_sha256": sha, "means": means, "budget": criteria["budget"]})
     return emit({"fixed": sha, "means": means, "next": State(state.run_dir).next()})
 
 

@@ -1,5 +1,7 @@
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -7,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parents[1]
@@ -138,6 +141,18 @@ class Run:
     def next(self):
         return self.ok("status")["next"]
 
+    def after(self, seconds: int):
+        module = load_module()
+        started = datetime.fromisoformat(json.loads((self.dir / "ledger.jsonl").read_text().splitlines()[0])["ts"])
+        module.now = lambda: started + timedelta(seconds=seconds)
+        return module
+
+    def main_at(self, seconds: int, *args):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = self.after(seconds).main([*args, "--run-dir", str(self.dir)])
+        return code, json.loads(err.getvalue()) if err.getvalue().strip() else None
+
 
 def forge(run: Run, kind: str, data: dict, brief_id: str | None = None) -> None:
     path = run.dir / "ledger.jsonl"
@@ -268,17 +283,47 @@ class TestBrokenPaths(Base):
         self.assertEqual(r.next(), "stop:rounds")
         self.assertIn("停止中", r.refused("brief", "--role", "writer", "--conditions", "C1"))
 
-    def test_roundsを使い切った後の再fixでnextがwriterを指さない(self):
+    def test_roundsを使い切った後はcriteriaが再オープンされても直しに進まない(self):
         r = self.run_(rounds=1)
         r.fixed()
         r.work()
         r.verify("C1-V1", "v", status="fail", findings=[finding(layer="設計", target="criteria.json")])
-        r.author(criteria=r.criteria(excluded=[{"item": "CI", "reason": "依頼に無い"}]))
+        self.assertEqual(r.next(), "stop:rounds")
+        self.assertIn("停止中", r.refused("brief", "--role", "criteria-author"))
+        self.assertIn("停止中", r.refused("brief", "--role", "writer", "--conditions", "C1"))
+
+    def test_wall_secondsを過ぎたらcriteriaが再オープンされても直しに進まない(self):
+        r = self.run_()
+        r.init()
+        r.author(criteria=r.criteria(budget={"rounds": 3, "wall_seconds": 3600}))
+        r.review("scope")
+        r.review("design")
+        r.ok("fix")
+        r.work()
+        r.verify("C1-V1", "v", status="fail", findings=[finding(layer="設計", target="criteria.json")])
+        self.assertEqual(r.next(), "criteria-author")
+        self.assertEqual(r.after(3601).State(r.dir).next(), "stop:time_budget")
+        code, err = r.main_at(3601, "brief", "--role", "criteria-author")
+        self.assertEqual(code, 1)
+        self.assertIn("停止中", err["error"])
+
+    def test_wall_secondsを過ぎたら発行済みのレビューが揃っていてもfixしない(self):
+        r = self.run_()
+        r.init()
+        r.author(criteria=r.criteria(budget={"rounds": 3, "wall_seconds": 3600}))
+        r.review("scope")
+        r.review("design")
+        r.ok("fix")
+        r.work()
+        r.verify("C1-V1", "v", status="fail", findings=[finding(layer="設計", target="criteria.json")])
+        r.author(agent="a2", criteria=r.criteria(budget={"rounds": 3, "wall_seconds": 99999}))
         r.review("scope", agent="s2")
         r.review("design", agent="d2")
-        r.ok("fix")
-        self.assertEqual(r.next(), "stop:rounds")
-        self.assertIn("停止中", r.refused("brief", "--role", "writer", "--conditions", "C1"))
+        self.assertEqual(r.next(), "fix")
+        code, err = r.main_at(3601, "fix")
+        self.assertEqual(code, 1)
+        self.assertIn("stop:time_budget", err["error"])
+        self.assertEqual(r.after(3601).State(r.dir).next(), "stop:time_budget")
 
     def test_scriptが付けるキーを含む出力を拒否する(self):
         r = self.run_()
