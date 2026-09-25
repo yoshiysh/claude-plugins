@@ -66,7 +66,7 @@ class Run:
     def goal(self, **over):
         lines = [line for line in (self.dir / "request.md").read_text().splitlines() if line.strip()]
         phrases = [{"id": f"P{i}", "quote": line, "reading": "字義どおり"} for i, line in enumerate(lines, 1)]
-        return {"system": system(), "phrases": phrases} | over
+        return {"boundary": boundary(self), "system": system(), "phrases": phrases} | over
 
     def scope(self, **over):
         return {"conditions": [condition()], "excluded": [], "human_gates": ["マージ"]} | over
@@ -208,6 +208,11 @@ def asking(goal, index=0, ask="往復は PR ごとか全体か"):
     phrase = {k: v for k, v in goal["phrases"][index].items() if k != "reading"} | {"question": question(ask)}
     goal["phrases"][index] = phrase
     return goal
+
+
+def boundary(run, outside=None):
+    return {"object": "docs 配下の文書", "roots": [str(SKILL), str(run.root)],
+            "outside": outside or {"reading": "依頼は docs の外に及ばない"}}
 
 
 def kind(kid="K1", **over):
@@ -643,6 +648,52 @@ class TestGoal(Base):
                 self.assertIn("enumerate", r.refused("record", "--file", str(path)))
         r.write("goal", r.goal(system=system(kind(enumerate={"cwd": str(self.root), "command": "ls"}))))
         r.ok("record", "--file", str(path))
+
+    def test_境界は実在する絶対パスで列挙は境界の中に限る(self):
+        r = self.run_()
+        r.init()
+        outside = self.root.parent
+        cases = {"相対": r.goal(boundary=boundary(r) | {"roots": ["docs"]}),
+                 "空": r.goal(boundary=boundary(r) | {"roots": []}),
+                 "外の列挙": r.goal(boundary=boundary(r) | {"roots": [str(SKILL)]},
+                                   system=system(kind(enumerate={"cwd": str(self.root), "command": "ls"})))}
+        for name, doc in cases.items():
+            with self.subTest(name):
+                brief, path = self.submit(r, "goal", doc)
+                self.assertIn("roots", r.refused("record", "--file", str(path)))
+        self.assertTrue(outside.is_dir())
+
+    def test_境界の外に及ぶかの問いは中だけと広げる選択肢の両方を持つ(self):
+        r = self.run_()
+        r.init()
+        only_inside = {"question": {"ask": "外まで及ぶか", "options": [{"id": "a", "text": "中だけ"}, {"id": "b", "text": "これも中"}]}}
+        missing = {"question": {"ask": "外まで及ぶか", "options": [{"id": "a", "text": "中だけ"},
+                                                               {"id": "b", "text": "外も", "widen": [str(self.root / "none")]}]}}
+        for name, outside, expected in (("広げる選択肢が無い", only_inside, "両方"), ("無い場所", missing, "widen")):
+            with self.subTest(name):
+                brief, path = self.submit(r, "goal", r.goal(boundary=boundary(r, outside)))
+                self.assertIn(expected, r.refused("record", "--file", str(path)))
+
+    def test_境界を広げる答えはゴールの書き手に回り広げた後は聞き直さない(self):
+        r = self.run_()
+        r.init()
+        wider = self.root / "wider"
+        wider.mkdir()
+        ask = {"question": {"ask": "docs の外まで及ぶか", "options": [{"id": "a", "text": "docs の中だけ"},
+                                                                  {"id": "b", "text": "wider まで", "widen": [str(wider)]}]}}
+        r.author("goal", doc=r.goal(boundary=boundary(r, ask) | {"roots": [str(SKILL)]}))
+        r.review("goal")
+        self.assertEqual([q["id"] for q in r.ok("status")["ask_human"]], ["B"])
+        out = r.ok("answer", "--question", "B", "--option", "b")
+        self.assertEqual(out["recorded_answer"]["widen"], [str(wider.resolve())])
+        self.assertEqual(out["next"], "goal-framer:goal")
+        self.assertIn("wider", json.dumps(r.ok("status")["criteria_open"], ensure_ascii=False))
+        r.author("goal", agent="g2", doc=r.goal(boundary=boundary(r, ask) | {"roots": [str(SKILL), str(self.root)]}))
+        r.review("goal", agent="rg2")
+        self.assertEqual(r.next(), "criteria-author:scope")
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        self.assertEqual(brief["boundary"]["roots"], [str(SKILL.resolve()), str(self.root.resolve())])
+        self.assertIn("読まない", brief["boundary"]["rule"])
 
     def test_範囲の文書はゴールの全種類を条件か除外に対応させる(self):
         r = self.run_()

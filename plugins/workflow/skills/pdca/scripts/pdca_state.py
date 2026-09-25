@@ -30,6 +30,9 @@ LAYERS = ("ゴール", "範囲の導出", "設計", "実装")
 LAYER_OF = {"goal": "ゴール", "scope": "範囲の導出", "design": "設計"}
 REVIEW_LAYERS = {"goal": ("ゴール",), "scope": ("ゴール", "範囲の導出"), "design": ("ゴール", "範囲の導出", "設計")}
 ASK_LAYERS = ("ゴール", "範囲の導出")
+BOUNDARY = "B"
+BOUNDARY_RULE = ("boundary.roots の外（他のリポジトリ・ホームの設定・認証情報を含む）を読まない。外が要ると判断したら、"
+                 "読まずに指摘か問いにする。人間が境界を広げるまで、外は範囲に無い")
 ANSWER_SOURCE = "answer:"
 SEVERITIES = ("blocking", "non_blocking")
 MEANS_KINDS = ("audit", "script", "test", "command")
@@ -62,7 +65,7 @@ def shaped(fields: dict) -> tuple:
 DATA_SCHEMA = {
     "init": ({"request_sha256": TEXT, "materials": list_of(shaped({"path": TEXT, "sha256": TEXT}))}, {}),
     "amend": ({"request_sha256": TEXT}, {}),
-    "answer": ({"question": TEXT, "ask": TEXT, "answer": TEXT}, {"option": TEXT}),
+    "answer": ({"question": TEXT, "ask": TEXT, "answer": TEXT}, {"option": TEXT, "widen": list_of(TEXT)}),
     "brief": ({"role": one_of(ROLES)}, {"aspect": one_of(ASPECTS), "conditions": list_of(TEXT), "viewpoint": TEXT,
                                          "mode": one_of(("smoke", "verify")), "report_sha256": TEXT}),
     "criteria_written": ({"aspect": one_of(ASPECTS), "sha256": TEXT, "agent": TEXT},
@@ -110,6 +113,12 @@ FINDING = {
 OPTION = {"id": "a", "text": "人間が選ぶ答え（1 つの読み方）", "kinds": ["（任意）この答えで範囲に入る種類の ID"]}
 SHAPES = {
     "goal": {
+        "boundary": {
+            "object": "依頼が変える対象（1 文。依頼か資料が名指しするものから引く）",
+            "roots": ["その対象のディレクトリの絶対パス（ここより外は列挙も読みもしない）"],
+            "outside": {"reading": ("依頼が境界の外に及ばないなら、その読み方。及ぶかが割れるなら reading の代わりに "
+                                    "question: {ask, options: [{id, text}（境界の中だけ）, {id, text, widen: [広げる先の絶対パス]}]}")},
+        },
         "system": {
             "flow": "依頼が指すものを出力に置いた流れ（入力 → 工程 → 判断の分岐 → 出力）",
             "closure": "流れの上の要素がどれか 1 つの種類に入り、一覧の外に無いと言える性質",
@@ -350,13 +359,13 @@ def validate_findings(findings: object, where: str) -> list[dict]:
     return findings
 
 
-def validate_options(options: object, where: str, kinds: dict | None) -> None:
+def validate_options(options: object, where: str, kinds: dict | None, widen: bool = False) -> None:
     if not isinstance(options, list) or len(options) < 2:
         raise StateError(f"{where} は 2 つ以上の選択肢の配列（選択肢を書くのは問いを立てた agent で、司令塔は逐語で中継する）")
     ids = set()
     for i, o in enumerate(options):
         w = f"{where}[{i}]"
-        require_keys(o, w, {"id", "text"}, {"kinds"})
+        require_keys(o, w, {"id", "text"}, {"widen"} if widen else {"kinds"})
         if nonempty_str(o["id"], f"{w}.id") in ids:
             raise StateError(f"{w}.id {o['id']!r} が重複している")
         ids.add(o["id"])
@@ -366,6 +375,24 @@ def validate_options(options: object, where: str, kinds: dict | None) -> None:
             unknown = sorted(set(o["kinds"]) - set(kinds)) if kinds is not None else []
             if unknown:
                 raise StateError(f"{w}.kinds が system.kinds に無い種類を指す: {', '.join(unknown)}")
+        if "widen" in o:
+            if not isinstance(o["widen"], list) or not o["widen"]:
+                raise StateError(f"{w}.widen は広げる先のディレクトリの絶対パスの配列")
+            for raw in o["widen"]:
+                existing_dir(raw, f"{w}.widen")
+    if widen and (all("widen" in o for o in options) or not any("widen" in o for o in options)):
+        raise StateError(f"{where} は境界の中だけの選択肢と、widen で広げる選択肢の両方を持つ")
+
+
+def existing_dir(raw: object, where: str) -> Path:
+    path = user_path(nonempty_str(raw, where))
+    if not path.is_absolute() or not path.is_dir():
+        raise StateError(f"{where} が存在するディレクトリでない（絶対パスで書く）: {raw}")
+    return path.resolve()
+
+
+def boundary_roots(goal: dict) -> list[Path]:
+    return [user_path(r).resolve() for r in goal["boundary"]["roots"]]
 
 
 def source_text(run_dir: Path, materials: list[dict], answers: dict, raw: str) -> str:
@@ -442,10 +469,34 @@ def squeeze(text: str) -> str:
     return "".join(text.split())
 
 
+def validate_boundary(obj: object, seen: set) -> list[Path]:
+    b = require_keys(obj, "boundary", {"object", "roots", "outside"})
+    nonempty_str(b["object"], "boundary.object")
+    if not isinstance(b["roots"], list) or not b["roots"]:
+        raise StateError("boundary.roots が 0 件")
+    roots = [existing_dir(raw, "boundary.roots") for raw in b["roots"]]
+    outside = require_keys(b["outside"], "boundary.outside", set(), {"reading", "question"})
+    if len(outside) != 1:
+        raise StateError("boundary.outside は reading（外に及ばない）か question（及ぶかが割れる）のどちらか 1 つを持つ")
+    if "reading" in outside:
+        nonempty_str(outside["reading"], "boundary.outside.reading")
+    else:
+        q = require_keys(outside["question"], "boundary.outside.question", {"ask", "options"})
+        nonempty_str(q["ask"], "boundary.outside.question.ask")
+        validate_options(q["options"], "boundary.outside.question.options", None, widen=True)
+        claim_id(BOUNDARY, "boundary.outside.question", seen)
+    return roots
+
+
 def validate_goal(obj: object, run_dir: Path) -> dict:
-    require_keys(obj, DOCS["goal"], {"system", "phrases"})
+    require_keys(obj, DOCS["goal"], {"boundary", "system", "phrases"})
     seen: set = set()
+    roots = validate_boundary(obj["boundary"], seen)
     kinds = validate_system(obj["system"], seen)
+    for kid, k in kinds.items():
+        cwd = user_path(k["enumerate"]["cwd"]).resolve()
+        if not any(cwd.is_relative_to(root) for root in roots):
+            raise StateError(f"種類 {kid} の enumerate.cwd が boundary.roots の外にある: {k['enumerate']['cwd']}")
     phrases = obj["phrases"]
     if not isinstance(phrases, list) or not phrases:
         raise StateError("phrases が 0 件")
@@ -473,9 +524,11 @@ def validate_goal(obj: object, run_dir: Path) -> dict:
 
 
 def asks_of(goal: dict) -> list[dict]:
-    return [{"id": ph["id"], "ask": ph["question"]["ask"],
-             "options": [{"id": o["id"], "text": o["text"]} for o in ph["question"]["options"]]}
-            for ph in goal["phrases"] if "question" in ph]
+    outside = goal["boundary"]["outside"]
+    questions = ([(BOUNDARY, outside["question"])] if "question" in outside else []) + \
+        [(ph["id"], ph["question"]) for ph in goal["phrases"] if "question" in ph]
+    return [{"id": qid, "ask": q["ask"], "options": [{"id": o["id"], "text": o["text"]} for o in q["options"]]}
+            for qid, q in questions]
 
 
 def validate_scope(obj: object, run_dir: Path, materials: list[dict], goal: dict, answers: dict) -> dict:
@@ -758,7 +811,7 @@ class State:
         written = self.written(aspect)
         if written is None:
             return True
-        if aspect == "goal" and self.ledger.of("amend", after=written["seq"]):
+        if aspect == "goal" and (self.ledger.of("amend", after=written["seq"]) or self.unwidened()):
             return True
         if aspect != "goal" and written["seq"] < self.written(ASPECTS[ASPECTS.index(aspect) - 1])["seq"]:
             return True
@@ -766,6 +819,16 @@ class State:
 
     def ready(self, aspect: str) -> bool:
         return not self.needs_author(aspect) and self.current_review(aspect) is not None
+
+    def unwidened(self) -> list[str]:
+        wanted = [w for a in self.answers().values() for w in a.get("widen", [])]
+        if not wanted or not self.doc_path("goal").is_file():
+            return []
+        try:
+            roots = [user_path(r).resolve() for r in read_json(self.doc_path("goal"))["boundary"]["roots"]]
+        except (StateError, KeyError, TypeError):
+            return wanted
+        return [w for w in wanted if not any(user_path(w).resolve().is_relative_to(r) for r in roots)]
 
     def finding_asks(self) -> list[dict]:
         asks = []
@@ -792,6 +855,8 @@ class State:
         amend, written = self.ledger.last("amend"), self.written("goal")
         if amend and (written is None or amend["seq"] > written["seq"]):
             items.append({"target": REQUEST, "claim": "amend で足した依頼が goal.json に未反映"})
+        if self.unwidened():
+            items.append({"target": DOCS["goal"], "claim": f"人間が広げた境界が boundary.roots に未反映: {', '.join(self.unwidened())}"})
         return items
 
     def sizes(self) -> dict:
@@ -987,6 +1052,10 @@ def cmd_answer(args) -> int:
             raise StateError(f"{question['id']} に選択肢 {args.option!r} が無い（選択肢: "
                              f"{', '.join(o['id'] for o in question['options'])}）")
         data |= {"answer": option["text"], "option": option["id"]}
+        if question["id"] == BOUNDARY:
+            full = next(o for o in state.goal()["boundary"]["outside"]["question"]["options"] if o["id"] == option["id"])
+            if "widen" in full:
+                data["widen"] = [str(user_path(w).resolve()) for w in full["widen"]]
     else:
         data["answer"] = read_request(args.text_file)
     state.ledger.append("answer", data)
@@ -1097,6 +1166,8 @@ def cmd_brief(args) -> int:
         brief["document_rules"] = str(SKILL_DIR / "agents" / "writer.md")
     if role in AUTHORS:
         brief["shape"] = SHAPES[args.aspect]
+    if role != "goal-framer" and state.written("goal"):
+        brief["boundary"] = {"roots": [str(r) for r in boundary_roots(state.goal())], "rule": BOUNDARY_RULE}
     if role == "completion-judge":
         status_file = out_dir / f"{brief_id}.status.json"
         status_file.write_text(json.dumps(state.status(), ensure_ascii=False), encoding="utf-8")
