@@ -632,10 +632,10 @@ class State:
         found = [e for e in self.ledger.of("criteria_written") if e["data"]["aspect"] == aspect]
         return found[-1] if found else None
 
-    def current_review(self, aspect: str) -> dict | None:
+    def current_review(self, aspect: str, since_amend: bool = True) -> dict | None:
         upto = ASPECTS[:ASPECTS.index(aspect) + 1]
         marks = [e["seq"] for e in self.ledger.of("amend", "criteria_written")
-                 if e["kind"] == "amend" or e["data"]["aspect"] in upto]
+                 if (e["kind"] == "amend" and since_amend) or (e["kind"] != "amend" and e["data"]["aspect"] in upto)]
         found = [e for e in self.ledger.of("criteria_review", after=max(marks, default=0))
                  if e["data"]["aspect"] == aspect and e["data"]["reviewed_sha256"] == self.doc_sha(aspect)]
         return found[-1] if found else None
@@ -643,7 +643,7 @@ class State:
     def routed_findings(self, aspect: str) -> list[dict]:
         written = self.written(aspect)
         after = written["seq"] if written else 0
-        reviews = [r for r in map(self.current_review, ASPECTS) if r and r["seq"] > after]
+        reviews = [r for r in (self.current_review(a, since_amend=False) for a in ASPECTS) if r and r["seq"] > after]
         entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
         return [f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]]
 

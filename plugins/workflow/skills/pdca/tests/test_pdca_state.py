@@ -701,6 +701,18 @@ class TestRequest(Base):
         r.ok("fix")
         r.brief("writer", "--conditions", "C1")
 
+    def test_amendの後も前周の指摘が範囲の書き手のbriefに渡る(self):
+        r = self.run_()
+        r.init()
+        r.author()
+        r.review("scope", findings=[finding(layer="範囲の導出", target="scope.json"),
+                                    finding(layer="範囲の導出", target="scope.json", severity="non_blocking")])
+        extra = self.root / "more.txt"
+        extra.write_text("README も直して\n")
+        r.ok("amend", "--request-file", str(extra))
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        self.assertEqual([f["severity"] for f in brief["prior_findings"]], ["blocking", "non_blocking"])
+
     def test_fixの前のamendも範囲の書き手に回る(self):
         r = self.run_()
         r.scoped()
