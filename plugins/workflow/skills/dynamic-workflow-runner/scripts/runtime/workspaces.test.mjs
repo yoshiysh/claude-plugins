@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -26,7 +26,7 @@ async function fixture(t) {
 test('worktrees use an explicit immutable baseline and retain independent outputs', async t => {
   const f = await fixture(t), events = [];
   await writeFile(join(f.cwd, 'baseline.txt'), 'user dirty checkout');
-  const policy = workspacePolicy(f.cwd, { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit });
+  const policy = workspacePolicy(f.cwd, { mode: 'read-only', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit });
   const context = { signal: new AbortController().signal, emit: event => events.push(event) };
   const [a, b] = await Promise.all([policy.allocate({ isolation: 'worktree' }, context), policy.allocate({ isolation: 'worktree' }, context)]);
   assert.notEqual(a, b);
@@ -35,6 +35,31 @@ test('worktrees use an explicit immutable baseline and retain independent output
   assert.equal(await readFile(join(b, 'baseline.txt'), 'utf8'), 'baseline');
   assert.equal(await readFile(join(f.cwd, 'baseline.txt'), 'utf8'), 'user dirty checkout');
   assert.equal(events.filter(e => e.type === 'workspace.ready').length, 2);
+});
+
+test('a queued worktree setup checks cancellation before allocating its directory', async t => {
+  const f = await fixture(t), events = [];
+  const policy = workspacePolicy(f.cwd, { mode: 'read-only', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit });
+  const queuedController = new AbortController();
+  let queuedResult;
+  const first = policy.allocate({ isolation: 'worktree' }, {
+    signal: new AbortController().signal,
+    emit(event) {
+      events.push(event);
+      if (event.type === 'workspace.allocated' && !queuedResult) {
+        queuedResult = policy.allocate({ isolation: 'worktree' }, {
+          signal: queuedController.signal,
+          emit: queuedEvent => events.push(queuedEvent),
+        }).then(value => ({ value }), error => ({ error }));
+        queueMicrotask(() => queuedController.abort());
+      }
+    },
+  });
+  await first;
+  const result = await queuedResult;
+  assert.match(result.error?.message ?? '', /abort/i);
+  assert.equal(events.filter(event => event.type === 'workspace.allocated').length, 1);
+  assert.equal(events.filter(event => event.type === 'workspace.ready').length, 1);
 });
 
 test('invalid, overlapping and cancelled workspace requests cannot dispatch', async t => {
@@ -62,37 +87,23 @@ test('workspace policies never advertise update capabilities', async t => {
   assert.throws(() => codexBackend({ cwd: f.cwd, updateContract: contract }), /unsupported Codex backend field: updateContract/);
 });
 
-test('a worktree writer and a shared-checkout reader complete through mock SDK with explicit write/worktree policy', async t => {
+test('workspace-write rejects a worktree-isolated dispatch before opening its SDK thread', async t => {
   const f = await fixture(t), starts = [];
-  const scriptPath = join(f.root, 'two-roles.flow');
-  await writeFile(scriptPath, `export const meta = {name:'two-roles',description:'worktree writer and shared reader'};
-    const RESULT = {type:'object',properties:{done:{type:'boolean'}},required:['done'],additionalProperties:false};
-    const written = await agent('Read /mock/agents/writer.md', {model:'opus',label:'writer',schema:RESULT,isolation:'worktree'});
-    const read = await agent('Read /mock/agents/reader.md', {model:'sonnet',label:'reader',schema:RESULT});
-    return {status:'ok',written,read};`);
   class MockCodex {
     startThread(options) {
-      const start = { ...options };
-      starts.push(start);
-      return { async runStreamed(prompt) {
-        start.role = prompt.match(/\/agents\/([a-z-]+\.md)/)[1];
-        return { events: (async function* () {
-          yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({json:JSON.stringify({ done: true })}) } };
-          yield { type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } };
-        })() };
-      } };
+      starts.push(options);
+      return { async runStreamed() { return { events: (async function* () {
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'done' } };
+        yield { type: 'turn.completed', usage: {} };
+      })() }; } };
     }
   }
-  const result = await Workflow({ scriptPath, args: {} },
-    { trustedSource: true, runDir: join(f.root, 'run'), maxAgents: 4, timeoutMs: 5000,
-    requirements: ['workspace-write', 'worktree'],
-    backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, modelMap: { opus: 'mock', sonnet: 'mock' },
+  const scriptPath = join(f.root, 'flow.js');
+  await writeFile(scriptPath, `export const meta={name:'handoff',description:'test',requirements:['workspace-write','worktree']}; await agent('shared'); return await agent('isolated',{isolation:'worktree'});`);
+  await assert.rejects(Workflow({ scriptPath, args: {} }, {
+    trustedSource: true, runDir: join(f.root, 'run'), requirements: ['workspace-write', 'worktree'],
+    backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, model: 'test-model', modelReasoningEffort: 'low',
       workspace: { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit } }),
-  });
-  assert.deepEqual(result, { status: 'ok', written: { done: true }, read: { done: true } });
-  assert.deepEqual(starts.map(s => s.role), ['writer.md', 'reader.md']);
-  const [writer, reader] = starts;
-  assert.notEqual(writer.workingDirectory, reader.workingDirectory);
-  assert.equal(reader.workingDirectory, await realpath(f.cwd));
-  assert.ok(starts.every(x => x.sandboxMode === 'workspace-write' && x.approvalPolicy === 'never'));
+  }), /workspace-write cannot use worktree isolation/);
+  assert.equal(starts.length, 1);
 });

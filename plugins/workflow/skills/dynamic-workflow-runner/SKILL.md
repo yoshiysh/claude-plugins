@@ -75,6 +75,15 @@ request JSON に `scriptPath`、`args`、新規 `runDir`、worker `cwd` と必�
 完全 commit hash から作り、元 checkout の未コミット変更は含めない。成果物の引継ぎは source が設計する。
 worktree は独立 checkout であり厳密な読取隔離ではない。作成物は失敗時も残し、自動 merge・削除しない。
 
+Codex backend が `prepare()` から `cwd` を返す場合、各 run に
+`<cwd>/dynamic-workflows/workspace/<workflow-slug>/<run-id>` を作成し、source に
+`workspace.path` として渡す。source VM に filesystem API はないため、host sandbox が
+`workspace-write` を許可する agent/tool にファイルを書かせ、各 prompt には担当に必要な
+path を渡す。内容は自動で prompt に載らず、共有 workspace に role-level read ACL はない。
+`workspace-write` と `isolation: "worktree"` は併用できず、dispatch 前に拒否する。
+live smoke の実証範囲と snapshot/security の制限は [runtime README](scripts/runtime/README.md)
+を参照する。
+
 ```bash
 node [SKILL_DIR]/scripts/runtime/cli.mjs <request.json> --live --trusted-source
 ```

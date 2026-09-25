@@ -55,7 +55,7 @@ test('bound standard calls preserve args, prompts and return shape across arbitr
   assert.deepEqual([...prompts].sort(), ['one', 'three', 'two']);
   assert.equal(configs.length, 3);
   assert.ok(configs.every(x => x.config.memories.use_memories === false && x.config.features.plugins === undefined));
-  const runs = (await readdir(dir, { withFileTypes: true })).filter(x => x.isDirectory());
+  const runs = (await readdir(dir, { withFileTypes: true })).filter(x => x.isDirectory() && x.name !== 'dynamic-workflows');
   assert.equal(runs.length, 2);
   for (const entry of runs) {
     const receipt = JSON.parse(await readFile(join(dir, entry.name, 'request.json'), 'utf8'));
