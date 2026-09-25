@@ -523,6 +523,20 @@ class TestViewpoints(Base):
 
 
 class TestScoringMaterial(Base):
+    def test_controlsを持つ観点はmeans_refが無ければ拒否する(self):
+        for kind in ("script", "audit"):
+            with self.subTest(kind=kind):
+                (self.root / kind).mkdir()
+                r = Run(self.root / kind, controlled=True)
+                r.init()
+                bad = r.criteria()
+                means = bad["conditions"][0]["viewpoints"][1]["means"]
+                means["kind"] = kind
+                del means["ref"]
+                _, brief = r.brief("criteria-author")
+                (r.dir / "criteria.json").write_text(json.dumps(bad, ensure_ascii=False))
+                self.assertIn("means.ref", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
+
     def test_fix後のcriteria_jsonの書き換えを検出する(self):
         r = self.run_()
         r.fixed()

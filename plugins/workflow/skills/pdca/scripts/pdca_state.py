@@ -59,7 +59,7 @@ CRITERIA_SHAPE = {
         "source": {"path": "request.md か init で登録した資料のパス", "quote": "その中の逐語の引用"},
         "viewpoints": [{
             "id": "C1-V1", "check": "何を確かめるか",
-            "means": {"kind": "|".join(MEANS_KINDS), "ref": "測定手段の絶対パス（任意）",
+            "means": {"kind": "|".join(MEANS_KINDS), "ref": "測定手段の絶対パス（controls があれば必須）",
                       "pass_if": {"op": "|".join(PASS_OPS), "value": 0}},
             "controls": [{"input": "正解が分かっている入力", "expected": "その入力で出るべき値"}],
         }],
@@ -298,6 +298,8 @@ def validate_criteria(obj: object, run_dir: Path, materials: list[dict]) -> dict
                 raise StateError(f"{v}.controls は配列である必要がある")
             if means["kind"] in CONTROLLED_MEANS and not controls:
                 raise StateError(f"{v}: kind が {means['kind']} なのに controls が無い")
+            if controls and "ref" not in means:
+                raise StateError(f"{v}: controls があるのに means.ref が無い（smoke で実行する測定手段を指す）")
             for k, control in enumerate(controls):
                 require_keys(control, f"{v}.controls[{k}]", {"input", "expected"})
                 nonempty_str(control["input"], f"{v}.controls[{k}].input")
