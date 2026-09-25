@@ -634,6 +634,18 @@ class State:
             return []
         return self.written("scope")["data"]["asks"]
 
+    def answered_kinds(self) -> set:
+        answered = set()
+        for w in self.ledger.of("criteria_written"):
+            if w["data"]["aspect"] != "scope" or not w["data"]["asks"]:
+                continue
+            passed = [r for r in self.ledger.of("criteria_review", after=w["seq"])
+                      if r["data"]["aspect"] == "scope" and r["data"]["reviewed_sha256"] == w["data"]["sha256"]
+                      and not any(f["severity"] == "blocking" for f in r["data"]["findings"])]
+            if passed and self.ledger.of("amend", after=passed[0]["seq"]):
+                answered |= {a["kind"] for a in w["data"]["asks"]}
+        return answered
+
     def criteria_open(self) -> list[dict]:
         items = [f for a in ASPECTS for f in self.routed_findings(a) if f["severity"] == "blocking"]
         amend, written = self.ledger.last("amend"), self.written("scope")
@@ -963,6 +975,9 @@ def cmd_record(args) -> int:
         data = {"aspect": aspect, "sha256": state.doc_sha(aspect), "agent": agent}
         if aspect == "scope":
             data["asks"] = asks_of(state.scope())
+            again = sorted(state.answered_kinds() & {a["kind"] for a in data["asks"]})
+            if again:
+                raise StateError(f"人間の答えを amend で受けた種類に ask が残っている: {', '.join(again)}")
         else:
             state.criteria()
         entry = state.ledger.append("criteria_written", data, bid)

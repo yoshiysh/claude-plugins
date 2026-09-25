@@ -574,10 +574,24 @@ class TestSystem(Base):
         answer = self.root / "answer.txt"
         answer.write_text("設定は入れない\n")
         self.assertEqual(r.ok("amend", "--request-file", str(answer))["next"], "criteria-author:scope")
+        brief, path = self.submit_scope(r, r.scope(system=system(kind(), asked), conditions=[condition()]))
+        self.assertIn("K2", r.refused("record", "--file", str(path)))
         r.author(agent="a2", doc=r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()],
                                          excluded=[{"item": "設定", "kinds": ["K2"], "reason": "人間が入れないと答えた"}]))
         r.review("scope", agent="s2")
         self.assertEqual(r.next(), "criteria-author:design")
+
+    def test_聞く前のamendでは問いを残した範囲を記録できる(self):
+        r = self.run_()
+        r.init()
+        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
+        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        extra = self.root / "more.txt"
+        extra.write_text("README も直して\n")
+        r.ok("amend", "--request-file", str(extra))
+        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        r.review("scope")
+        self.assertEqual(r.next(), "ask_human")
 
     def test_fixの後に人間に聞く種類を足しても台帳を読める(self):
         r = self.run_()
