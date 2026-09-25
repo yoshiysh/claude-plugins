@@ -641,6 +641,39 @@ class TestSeparation(Base):
         (r.dir / "criteria.json").write_text(json.dumps(bad, ensure_ascii=False))
         self.assertIn("逐語", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
 
+    def test_briefが渡したrequestの絶対パスをsource_pathに書いたcriteriaを受け付ける(self):
+        r = self.run_()
+        r.init()
+        _, brief = r.brief("criteria-author")
+        criteria = r.criteria()
+        criteria["conditions"][0]["source"]["path"] = brief["request"]["path"]
+        (r.dir / "criteria.json").write_text(json.dumps(criteria, ensure_ascii=False))
+        self.assertEqual(r.record(brief, {"agent": "a"})["recorded"], "criteria_written")
+
+    def test_run_dirのrequest_md以外をrequestとして受け付けない(self):
+        r = self.run_()
+        r.init()
+        _, brief = r.brief("criteria-author")
+        elsewhere = self.root / "other"
+        elsewhere.mkdir()
+        copy = elsewhere / "request.md"
+        copy.write_text(REQUEST)
+        note = r.dir / "note.md"
+        note.write_text(REQUEST)
+        link = r.dir / "link.md"
+        link.symlink_to(copy)
+        for raw in (copy, note, link):
+            criteria = r.criteria()
+            criteria["conditions"][0]["source"]["path"] = str(raw)
+            (r.dir / "criteria.json").write_text(json.dumps(criteria, ensure_ascii=False))
+            self.assertIn("登録した資料ではない", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
+        (r.dir / "request.md").unlink()
+        (r.dir / "request.md").symlink_to(copy)
+        criteria = r.criteria()
+        criteria["conditions"][0]["source"]["path"] = str(copy.resolve())
+        (r.dir / "criteria.json").write_text(json.dumps(criteria, ensure_ascii=False))
+        self.assertIn("登録した資料ではない", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
+
     def test_roundsが5を超えるcriteriaを拒否する(self):
         r = self.run_()
         r.init()

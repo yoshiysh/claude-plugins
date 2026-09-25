@@ -250,6 +250,8 @@ def source_file(run_dir: Path, materials: list[dict], raw: str) -> Path:
     if raw == REQUEST:
         return run_dir / REQUEST
     candidate = user_path(raw).resolve()
+    if candidate == run_dir.resolve() / REQUEST:
+        return run_dir / REQUEST
     for m in materials:
         root = Path(m["path"])
         if candidate == root or (root.is_dir() and candidate.is_relative_to(root)):
