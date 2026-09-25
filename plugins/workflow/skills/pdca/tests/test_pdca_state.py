@@ -214,6 +214,15 @@ class TestBrokenPaths(Base):
         unmet = {u["viewpoint"]: u["status"] for u in r.ok("status")["unmet"]}
         self.assertEqual(unmet["C1-V2"], "fail")
 
+    def test_not_doneの申告はobservedがpass_ifを満たしてもpassにならない(self):
+        r = self.run_(controlled=True)
+        r.fixed()
+        r.smoke()
+        r.work()
+        r.verify("C1-V2", "v", status="not_done", observed=1)
+        unmet = {u["viewpoint"]: u["status"] for u in r.ok("status")["unmet"]}
+        self.assertEqual(unmet.get("C1-V2"), "not_done")
+
     def test_決定的な観点が1回passすればcloseできる(self):
         r = self.run_(controlled=True)
         r.fixed()

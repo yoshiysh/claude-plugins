@@ -342,7 +342,7 @@ def effective_status(vp: dict, reported: str, observed: object, findings: list) 
     if any(f["severity"] == "blocking" for f in findings):
         return "fail"
     pass_if = vp["means"].get("pass_if")
-    if pass_if is None:
+    if pass_if is None or reported == "not_done":
         return reported
     if not number(observed):
         return "not_done"
