@@ -480,7 +480,7 @@ class TestDocuments(Base):
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         self.assertEqual([f["layer"] for f in brief["prior_findings"]], ["範囲の導出"])
 
-    def test_文書ごとに周回を数え交互に書いても非収束を検出する(self):
+    def test_範囲と測定を交互に書いても測定の文書の非収束を検出する(self):
         r = self.run_()
         r.scoped()
         both = [finding(layer="範囲の導出", target="scope.json"), finding(layer="設計", target="design.json")]
