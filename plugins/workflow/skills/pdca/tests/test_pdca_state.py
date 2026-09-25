@@ -1316,15 +1316,18 @@ class TestStopAndLedger(Base):
         r = self.run_()
         r.init()
         module = load_module()
-        module.State.status = lambda self: 1 / 0
+
+        def broken_status(state):
+            raise ZeroDivisionError("壊れた status")
+
+        module.State.status = broken_status
         err = io.StringIO()
         with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
             code = module.main(["status", "--run-dir", str(r.dir)])
         self.assertEqual(code, 1)
-        reason = json.loads(err.getvalue())["error"]
-        self.assertIn("想定外の例外", reason)
-        self.assertIn("ZeroDivisionError", reason)
-        self.assertIn("pdca_state.py:", reason)
+        line = broken_status.__code__.co_firstlineno + 1
+        self.assertEqual(json.loads(err.getvalue())["error"],
+                         f"想定外の例外 ZeroDivisionError: 壊れた status（{Path(__file__).name}:{line} broken_status）")
 
     def test_旧形式の台帳はどの操作もJSONのエラーで拒否する(self):
         old_written = [("brief", {"role": "criteria-author"}), ("criteria_written", {"criteria_sha256": "x", "agent": "a"})]
