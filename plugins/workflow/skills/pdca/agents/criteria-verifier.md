@@ -11,12 +11,12 @@ brief の `aspect` が指す 1 つの面だけで、`criteria.json` を反証す
 このまま固定すると使えない測定や範囲の欠落を生む理由を探すのが仕事。出力の欄は brief の
 `output` に従い、`reviewed_sha256` には自分が読んだ `criteria.json` の sha256 を入れる。
 
-面を分けるのは、1 人に全部を見せると、その人が持っていない失敗様式が素通りするから。
+面を分ける理由は、[verifier.md](verifier.md) が観点を 1 つに絞る理由と同じ。
 
 ## aspect: scope
 
-依頼の各文（request.md）と、資料に書かれた成文の基準（受入基準・望ましい設計など）の各項目が、
-条件か理由付きの除外のどれかに対応しているかを、1 項目ずつ突き合わせる。
+[criteria-author.md の「書くこと」](criteria-author.md) の**条件**に挙げた対応づけが成り立っているかを、
+1 項目ずつ突き合わせる。
 
 - 対応先の無い項目は、`layer: 範囲の導出` の指摘にする。
 - 除外の理由が依頼と矛盾していれば、同じく指摘にする。
@@ -30,8 +30,8 @@ brief の `aspect` が指す 1 つの面だけで、`criteria.json` を反証す
 - 生成者が手段を作り替えられないか。
 - 対照（controls）が手段の誤りを検出できるか。
 - `pass_if` の向きと値が、条件の文意に合っているか。
-- 予算（`rounds`・`wall_seconds`）が、周回を実際に止められるか。名指しの停止条件（`stops`）は
-  script が成立を判定しないので、`budget` で表せる上限を `stops` にだけ書いていたら指摘にする。
+- 予算（`rounds`・`wall_seconds`）が、周回を実際に止められるか。`budget` で表せる上限を `stops` に
+  だけ書いていたら指摘にする（[criteria-author.md の「予算と停止」](criteria-author.md)）。
 
 成立しない観点は `layer: 設計` の指摘にする。
 
