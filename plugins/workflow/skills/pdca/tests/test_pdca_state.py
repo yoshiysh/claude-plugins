@@ -1162,6 +1162,19 @@ class TestStopAndLedger(Base):
             self.assertIn("budget", r.refused(*args))
         self.assertEqual((r.dir / "ledger.jsonl").read_text(), before)
 
+    def test_kindかroleが文字列でない台帳をJSONのエラーで拒否する(self):
+        for name, (kind_, data) in {"kind": (["brief"], {"role": "writer", "conditions": ["C1"]}),
+                                    "role": ("brief", {"role": ["writer"], "conditions": ["C1"]})}.items():
+            (self.root / name).mkdir()
+            r = Run(self.root / name)
+            r.init()
+            forge(r, kind_, data, brief_id="b2")
+            with self.subTest(name):
+                proc = subprocess.run([sys.executable, str(SCRIPT), "status", "--run-dir", str(r.dir)],
+                                      capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 1, proc.stderr)
+                self.assertIn("error", json.loads(proc.stderr))
+
     def test_旧形式の台帳はどの操作もJSONのエラーで拒否する(self):
         old_written = [("brief", {"role": "criteria-author"}), ("criteria_written", {"criteria_sha256": "x", "agent": "a"})]
         old_review = [("brief", {"role": "criteria-author", "aspect": "scope"}),

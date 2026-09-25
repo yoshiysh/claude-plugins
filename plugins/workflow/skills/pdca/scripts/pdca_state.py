@@ -226,7 +226,7 @@ class Ledger:
                 raise StateError(f"{where}: seq は {lineno} であるべきところ {entry['seq']!r}（行の削除・並べ替え）")
             if entry["prev_sha256"] != prev:
                 raise StateError(f"{where}: prev_sha256 が直前の行と一致しない（行の書き換え）")
-            if entry["kind"] not in DATA_KEYS:
+            if not isinstance(entry["kind"], str) or entry["kind"] not in DATA_KEYS:
                 raise StateError(f"{where}: 未知の kind {entry['kind']!r}")
             check_data(entry, where)
             entries.append(entry)
@@ -270,7 +270,7 @@ def check_data(entry: dict, where: str) -> None:
         for i, m in enumerate(data["materials"]):
             require_keys(m, f"{where}.data.materials[{i}]", {"path", "sha256"})
     if kind == "brief":
-        if data["role"] not in BRIEF_KEYS:
+        if not isinstance(data["role"], str) or data["role"] not in BRIEF_KEYS:
             raise StateError(f"{where}: 未知の role {data['role']!r}")
         require_keys(data, f"{where}.data", {"role"} | BRIEF_KEYS[data["role"]])
     if "aspect" in data and data["aspect"] not in ASPECTS:
