@@ -11,25 +11,12 @@ import argparse
 import hashlib
 import json
 import sys
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 
-DATA_KEYS = {
-    "init": ({"request_sha256", "materials"}, set()),
-    "amend": ({"request_sha256"}, {"answers"}),
-    "brief": ({"role"}, {"aspect", "conditions", "viewpoint", "mode", "report_sha256"}),
-    "criteria_written": ({"aspect", "sha256", "agent"}, {"asks"}),
-    "criteria_review": ({"aspect", "reviewed_sha256", "findings", "agent"}, set()),
-    "fix": ({"documents", "means", "budget"}, set()),
-    "work": ({"conditions", "outputs", "agent"}, set()),
-    "smoke": ({"viewpoint", "passed", "controls", "agent"}, set()),
-    "verification": ({"viewpoint", "reported", "status", "observed", "evidence", "findings", "agent"}, set()),
-    "judgment": ({"verdict", "open", "reason", "agent"}, set()),
-    "continue": ({"count", "next"}, {"refused"}),
-    "close": ({"documents", "human_gates"}, set()),
-}
 BRIEF_KEYS = {"criteria-author": {"aspect"}, "criteria-verifier": {"aspect"}, "writer": {"conditions"},
               "verifier": {"viewpoint", "mode"}, "completion-judge": {"report_sha256"}}
 ROLES = tuple(BRIEF_KEYS)
@@ -44,6 +31,50 @@ MEANS_KINDS = ("audit", "script", "test", "command")
 CONTROLLED_MEANS = ("script", "test", "command")
 PASS_OPS = (">=", "<=", "==")
 VERIFY_STATUSES = ("pass", "fail", "not_done")
+TEXT = ("空でない文字列", lambda v: isinstance(v, str) and bool(v.strip()))
+PATH = ("空でない文字列", lambda v: isinstance(v, str) and v != "")
+FLAG = ("真偽値", lambda v: isinstance(v, bool))
+ANY = ("任意の値", lambda v: True)
+
+
+def natural(least: int) -> tuple:
+    return (f"{least} 以上の整数", lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= least)
+
+
+def one_of(values: tuple) -> tuple:
+    return (f"{'|'.join(values)} のどれか", lambda v: isinstance(v, str) and v in values)
+
+
+def list_of(item: tuple) -> tuple:
+    return (f"{item[0]} の配列", lambda v: isinstance(v, list) and all(item[1](x) for x in v))
+
+
+def shaped(fields: dict) -> tuple:
+    return (f"{{{', '.join(fields)}}} だけを持つ object",
+            lambda v: isinstance(v, dict) and set(v) == set(fields) and all(t[1](v[k]) for k, t in fields.items()))
+
+
+DATA_SCHEMA = {
+    "init": ({"request_sha256": TEXT, "materials": list_of(shaped({"path": TEXT, "sha256": TEXT}))}, {}),
+    "amend": ({"request_sha256": TEXT}, {"answers": list_of(TEXT)}),
+    "brief": ({"role": one_of(ROLES)}, {"aspect": one_of(ASPECTS), "conditions": list_of(TEXT), "viewpoint": TEXT,
+                                         "mode": one_of(("smoke", "verify")), "report_sha256": TEXT}),
+    "criteria_written": ({"aspect": one_of(ASPECTS), "sha256": TEXT, "agent": TEXT},
+                         {"asks": list_of(shaped({"kind": TEXT, "ask": TEXT}))}),
+    "criteria_review": ({"aspect": one_of(ASPECTS), "reviewed_sha256": TEXT, "findings": list_of(ANY), "agent": TEXT}, {}),
+    "fix": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)),
+             "means": list_of(shaped({"viewpoint": TEXT, "ref": PATH, "sha256": TEXT})),
+             "budget": shaped({"rounds": natural(1), "wall_seconds": natural(1)})}, {}),
+    "work": ({"conditions": list_of(TEXT), "outputs": list_of(PATH), "agent": TEXT}, {}),
+    "smoke": ({"viewpoint": TEXT, "passed": FLAG, "controls": list_of(shaped({"input": ANY, "observed": ANY})),
+               "agent": TEXT}, {}),
+    "verification": ({"viewpoint": TEXT, "reported": one_of(VERIFY_STATUSES), "status": one_of(VERIFY_STATUSES),
+                      "observed": ANY, "evidence": ANY, "findings": list_of(ANY), "agent": TEXT}, {}),
+    "judgment": ({"verdict": one_of(("complete", "not_complete")), "open": list_of(TEXT), "reason": ANY,
+                  "agent": TEXT}, {}),
+    "continue": ({"count": natural(0), "next": TEXT}, {"refused": FLAG}),
+    "close": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)), "human_gates": list_of(TEXT)}, {}),
+}
 ALWAYS_VIEWPOINTS = {
     "R-REQUEST": "依頼原文と成果物を直接照らし合わせ、依頼の各文が満たされているか",
     "R-OUTSIDE": "条件に書かれていない所（範囲外のファイル・既存の利用者・他のスキル）への影響",
@@ -226,7 +257,7 @@ class Ledger:
                 raise StateError(f"{where}: seq は {lineno} であるべきところ {entry['seq']!r}（行の削除・並べ替え）")
             if entry["prev_sha256"] != prev:
                 raise StateError(f"{where}: prev_sha256 が直前の行と一致しない（行の書き換え）")
-            if not isinstance(entry["kind"], str) or entry["kind"] not in DATA_KEYS:
+            if not isinstance(entry["kind"], str) or entry["kind"] not in DATA_SCHEMA:
                 raise StateError(f"{where}: 未知の kind {entry['kind']!r}")
             if "brief_id" in entry:
                 nonempty_str(entry["brief_id"], f"{where}.brief_id")
@@ -265,41 +296,17 @@ def check_data(entry: dict, where: str) -> None:
     except (TypeError, ValueError) as exc:
         raise StateError(f"{where}: ts が ISO 8601 の時刻でない") from exc
     kind, data = entry["kind"], entry["data"]
-    require_keys(data, f"{where}.data", *DATA_KEYS[kind])
-    if kind == "init":
-        if not isinstance(data["materials"], list):
-            raise StateError(f"{where}.data.materials は配列である必要がある")
-        for i, m in enumerate(data["materials"]):
-            require_keys(m, f"{where}.data.materials[{i}]", {"path", "sha256"})
+    required, optional = DATA_SCHEMA[kind]
+    require_keys(data, f"{where}.data", set(required), set(optional))
+    for key, (desc, ok) in (required | optional).items():
+        if key in data and not ok(data[key]):
+            raise StateError(f"{where}.data.{key} は {desc}（旧形式や手書きの台帳は読まない）")
     if kind == "brief":
-        if not isinstance(data["role"], str) or data["role"] not in BRIEF_KEYS:
-            raise StateError(f"{where}: 未知の role {data['role']!r}")
         require_keys(data, f"{where}.data", {"role"} | BRIEF_KEYS[data["role"]])
-    for key in ("agent", "viewpoint"):
-        if key in data:
-            nonempty_str(data[key], f"{where}.data.{key}")
-    if "mode" in data and data["mode"] not in ("smoke", "verify"):
-        raise StateError(f"{where}: mode が smoke か verify でない")
-    if kind == "work" and not (isinstance(data["outputs"], list) and all(isinstance(o, str) for o in data["outputs"])):
-        raise StateError(f"{where}.data.outputs は文字列の配列")
-    if kind == "criteria_written" and "asks" in data:
-        if not isinstance(data["asks"], list):
-            raise StateError(f"{where}.data.asks は配列")
-        for i, a in enumerate(data["asks"]):
-            require_keys(a, f"{where}.data.asks[{i}]", {"kind", "ask"})
-            nonempty_str(a["kind"], f"{where}.data.asks[{i}].kind")
-    if "aspect" in data and data["aspect"] not in ASPECTS:
-        raise StateError(f"{where}: aspect が {ASPECTS} のどれでもない（旧形式の台帳は読まない）")
-    if kind == "amend" and "answers" in data:
-        string_list(data["answers"], f"{where}.data.answers")
     if kind == "criteria_written" and ("asks" in data) != (data["aspect"] == "scope"):
         raise StateError(f"{where}: asks は scope の criteria_written だけが持つ")
     if "findings" in data:
         validate_findings(data["findings"], f"{where}.data")
-    if kind in ("fix", "close"):
-        require_keys(data["documents"], f"{where}.documents", set(ASPECTS))
-    if kind == "fix":
-        require_keys(data["budget"], f"{where}.budget", {"rounds", "wall_seconds"})
 
 
 def validate_findings(findings: object, where: str) -> list[dict]:
@@ -1180,6 +1187,11 @@ def main(argv: list[str] | None = None) -> int:
         return args.fn(args)
     except (StateError, OSError, UnicodeDecodeError) as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 1
+    except Exception as exc:
+        frame = traceback.extract_tb(exc.__traceback__)[-1]
+        reason = f"想定外の例外 {type(exc).__name__}: {exc}（{Path(frame.filename).name}:{frame.lineno} {frame.name}）"
+        print(json.dumps({"error": reason}, ensure_ascii=False), file=sys.stderr)
         return 1
 
 

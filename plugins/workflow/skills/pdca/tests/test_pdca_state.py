@@ -1248,6 +1248,72 @@ class TestStopAndLedger(Base):
                 self.assertEqual(proc.returncode, 1, proc.stderr)
                 self.assertIn("error", json.loads(proc.stderr))
 
+    def test_台帳のどの欄を想定外の型にしても読む段階の検査で拒否する(self):
+        r = self.run_(controlled=True)
+        r.init()
+        extra = self.root / "more.txt"
+        extra.write_text("README も直して\n")
+        r.ok("amend", "--request-file", str(extra))
+        r.author()
+        r.review("scope", findings=[finding(layer="範囲の導出", target="scope.json", severity="non_blocking")])
+        r.author("design")
+        r.review("design")
+        r.ok("fix")
+        r.ok("continue")
+        r.smoke()
+        r.work()
+        r.verify_all("r1")
+        r.ok("record", "--file", str(r.judge()[1]))
+        r.ok("close")
+        free = {("verification", ("data", "observed")), ("verification", ("data", "evidence")),
+                ("judgment", ("data", "reason")), ("smoke", ("data", "controls", "*", "input")),
+                ("smoke", ("data", "controls", "*", "observed"))}
+
+        def nodes(obj, path=()):
+            items = obj.items() if isinstance(obj, dict) else enumerate(obj) if isinstance(obj, list) else ()
+            for key, value in items:
+                yield path + (key,)
+                yield from nodes(value, path + (key,))
+
+        ledger = r.dir / "ledger.jsonl"
+        original = ledger.read_text()
+        module = load_module()
+        for i, line in enumerate(original.splitlines()):
+            entry = json.loads(line)
+            for path in nodes(entry):
+                shape = tuple("*" if isinstance(k, int) else k for k in path)
+                if path == ("prev_sha256",) or (entry["kind"], shape) in free:
+                    continue
+                with self.subTest(seq=i + 1, kind=entry["kind"], path=shape):
+                    entries = [json.loads(x) for x in original.splitlines()]
+                    holder = entries[i]
+                    for key in path[:-1]:
+                        holder = holder[key]
+                    holder[path[-1]] = {"x": [1]}
+                    lines, prev = [], ""
+                    for e in entries:
+                        e["prev_sha256"] = prev
+                        lines.append(json.dumps(e, ensure_ascii=False))
+                        prev = hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
+                    ledger.write_text("\n".join(lines) + "\n")
+                    with self.assertRaises(module.StateError):
+                        module.Ledger(r.dir)
+        ledger.write_text(original)
+
+    def test_想定外の例外もexit1とJSONのエラーで返し型と位置を含める(self):
+        r = self.run_()
+        r.init()
+        module = load_module()
+        module.State.status = lambda self: 1 / 0
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = module.main(["status", "--run-dir", str(r.dir)])
+        self.assertEqual(code, 1)
+        reason = json.loads(err.getvalue())["error"]
+        self.assertIn("想定外の例外", reason)
+        self.assertIn("ZeroDivisionError", reason)
+        self.assertIn("pdca_state.py:", reason)
+
     def test_旧形式の台帳はどの操作もJSONのエラーで拒否する(self):
         old_written = [("brief", {"role": "criteria-author"}), ("criteria_written", {"criteria_sha256": "x", "agent": "a"})]
         old_review = [("brief", {"role": "criteria-author", "aspect": "scope"}),
