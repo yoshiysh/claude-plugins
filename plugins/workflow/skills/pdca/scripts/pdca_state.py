@@ -74,7 +74,8 @@ SHAPES = {
             "flow": "依頼が指すものを出力に置いた流れ（入力 → 工程 → 出力）",
             "closure": "流れの上の要素がどれか 1 つの種類に入り、一覧の外に無いと言える性質",
             "kinds": [{"id": "K1", "kind": "種類の定義（性質で書く）",
-                       "enumerate": "インスタンスを列挙する決定的な短いコマンド（パスは絶対パス）",
+                       "enumerate": {"cwd": "コマンドを実行するディレクトリの絶対パス",
+                                     "command": "インスタンスを列挙する決定的な短いコマンド"},
                        "known": ["（任意）列挙に必ず出る既知のインスタンス"],
                        "ask": "（任意）範囲に入れるかが価値判断なら、人間への問い"}],
         },
@@ -340,7 +341,11 @@ def validate_system(obj: object, seen: set) -> dict[str, dict]:
         require_keys(k, w, {"id", "kind", "enumerate"}, {"known", "ask"})
         claim_id(k["id"], f"{w}.id", seen)
         nonempty_str(k["kind"], f"{w}.kind")
-        nonempty_str(k["enumerate"], f"{w}.enumerate")
+        enum = require_keys(k["enumerate"], f"{w}.enumerate", {"cwd", "command"})
+        nonempty_str(enum["command"], f"{w}.enumerate.command")
+        cwd = user_path(nonempty_str(enum["cwd"], f"{w}.enumerate.cwd"))
+        if not cwd.is_absolute() or not cwd.is_dir():
+            raise StateError(f"{w}.enumerate.cwd が存在するディレクトリでない（絶対パスで書く）: {enum['cwd']}")
         if "known" in k:
             string_list(k["known"], f"{w}.known")
         if "ask" in k:

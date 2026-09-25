@@ -185,7 +185,7 @@ def finding(layer="実装", severity="blocking", target="docs/a.md"):
 
 
 def kind(kid="K1", **over):
-    return {"id": kid, "kind": "docs 配下の文書", "enumerate": "ls docs"} | over
+    return {"id": kid, "kind": "docs 配下の文書", "enumerate": {"cwd": str(SKILL), "command": "ls"}} | over
 
 
 def system(*kinds):
@@ -556,6 +556,19 @@ class TestSystem(Base):
         r.write("scope", r.scope(system=system(), conditions=[condition()],
                                  excluded=[{"item": "x", "kinds": ["K8"], "reason": "依頼に無い"}]))
         self.assertIn("K8", r.refused("record", "--file", str(path)))
+
+    def test_列挙は実在する絶対パスのcwdとコマンドに分けなければ拒否する(self):
+        r = self.run_()
+        r.init()
+        cases = {"相対": {"cwd": "docs", "command": "ls"},
+                 "不在": {"cwd": str(self.root / "missing"), "command": "ls"},
+                 "文字列": "ls docs"}
+        for name, enumerate_ in cases.items():
+            with self.subTest(name):
+                brief, path = self.submit_scope(r, r.scope(system=system(kind(enumerate=enumerate_))))
+                self.assertIn("enumerate", r.refused("record", "--file", str(path)))
+        r.write("scope", r.scope(system=system(kind(enumerate={"cwd": str(self.root), "command": "ls"}))))
+        r.ok("record", "--file", str(path))
 
     def test_人間に聞く種類は範囲の反証の後にまとめてask_humanで止まる(self):
         r = self.run_()
