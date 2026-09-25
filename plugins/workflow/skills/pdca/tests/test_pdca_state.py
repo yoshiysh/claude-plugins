@@ -616,6 +616,26 @@ class TestSystem(Base):
         answer.write_text("設定は入れない\n")
         self.assertIn("ask_human", r.refused("amend", "--request-file", str(answer), "--answers", "K2"))
 
+    def test_読み方の問いを持つ範囲の指摘はcriteria_openに出て答えのamendは書き手に回る(self):
+        r = self.run_()
+        r.init()
+        r.author()
+        question = finding(layer="範囲の導出", target="scope.json") | {"ask": "2 行目は起動の指示か"}
+        _, brief = r.brief("criteria-verifier", "--aspect", "scope")
+        path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
+                                "findings": [question | {"severity": "non_blocking"}]})
+        self.assertIn("ask", r.refused("record", "--file", str(path)))
+        r.review("scope", findings=[question])
+        status = r.ok("status")
+        self.assertEqual(status["next"], "criteria-author:scope")
+        self.assertEqual([f.get("ask") for f in status["criteria_open"]], ["2 行目は起動の指示か"])
+        answer = self.root / "answer.txt"
+        answer.write_text("起動の指示ではない\n")
+        self.assertEqual(r.ok("amend", "--request-file", str(answer))["next"], "criteria-author:scope")
+        r.author(agent="a2")
+        r.review("scope", agent="s2")
+        self.assertEqual(r.next(), "criteria-author:design")
+
     def test_聞く前のamendでは問いを残した範囲を記録できる(self):
         r = self.run_()
         r.init()

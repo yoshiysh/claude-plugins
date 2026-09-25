@@ -64,7 +64,8 @@ python3 $S close --run-dir <run-dir>
    反証する → `fix`。
 3. writer が作る → verifier が観点ごとに 1 agent ずつ検証する（対照を持つ観点は先に smoke）。
 4. 各 `record` と `status` が返す `next` に従う。`writer` なら次の周、`criteria-author:<aspect>` なら
-   その文書の直し、`ask_human` なら「人間の境界」に従い、`stop:*` なら止めて報告する。
+   その文書の直し（その前に、読み方の問いを人間に聞いてもよい。「人間の境界」）、`ask_human` なら
+   「人間の境界」に従い、`stop:*` なら止めて報告する。
 5. 全観点が pass になったら、最終報告案をファイルに書いて completion-judge に渡し、complete なら `close`。
 
 各 agent は `brief` → `invoke` で起動 → `record` の順で回す。ターンを text だけで終えようとして
@@ -110,6 +111,9 @@ python3 $S close --run-dir <run-dir>
   `ask_human` になる。`status` の `ask_human` を種類の単位でまとめて 1 回聞き、答えを `amend --answers
   <答えた種類 ID>…` で記録する（反証の前に聞くと、検証者が種類を見つけるたびに聞き直す）。答えでない
   発言には `--answers` を付けない。付けた種類は答えたものとして扱われ、以後その問いを残せない。
+- `criteria_open` の範囲の指摘が `ask`（依頼の読み方の問い）を持つときは、書き手に回す前に人間に
+  聞いてもよく、聞かずに回してもよい。聞いたら答えを `--answers` なしの `amend` で記録する
+  （`--answers` は `ask_human` の系の種類の問い専用）。
 - 方法論の行き詰まり（測定手段が成立しない等）は人間の境界ではない。検証者の指摘として、
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら

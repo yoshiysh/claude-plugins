@@ -105,7 +105,7 @@ COMMON_OUTPUT = {
 OUTPUT = {
     "criteria-author": {},
     "criteria-verifier": {"aspect": "brief の aspect", "reviewed_sha256": "レビューした文書の sha256",
-                          "findings": [FINDING]},
+                          "findings": [FINDING | {"ask": "（任意。blocking の範囲の導出だけ）人間に聞けば決まる依頼の読み方の問い"}]},
     "writer": {"outputs": ["作った・直した成果物のパス"]},
     "verify": {"viewpoint": "brief の観点 ID", "status": "|".join(VERIFY_STATUSES),
                "observed": "means.pass_if があれば観測した数値、無ければ null", "evidence": "確かめた方法と結果",
@@ -294,13 +294,15 @@ def validate_findings(findings: object, where: str) -> list[dict]:
         w = f"{where}.findings[{i}]"
         if isinstance(f, dict) and ("layer" not in f or "target" not in f):
             raise StateError(f"{w}: 指摘に layer か target が無い")
-        require_keys(f, w, set(FINDING))
-        for key in FINDING:
+        require_keys(f, w, set(FINDING), {"ask"})
+        for key in f:
             nonempty_str(f[key], f"{w}.{key}")
         if f["severity"] not in SEVERITIES:
             raise StateError(f"{w}.severity は {SEVERITIES} のどれか")
         if f["layer"] not in LAYERS:
             raise StateError(f"{w}.layer は {LAYERS} のどれか")
+        if "ask" in f and (f["severity"], f["layer"]) != ("blocking", LAYER_OF["scope"]):
+            raise StateError(f"{w}.ask は blocking の {LAYER_OF['scope']} の指摘だけが持てる")
     return findings
 
 
