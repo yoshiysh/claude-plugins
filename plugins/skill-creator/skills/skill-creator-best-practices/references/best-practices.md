@@ -441,7 +441,7 @@ feedback.json で構造化フィードバック収集
 ### ハーネス（状態を持つ・長時間走る・agent を跨ぐスキルの場合）
 基準の正本は `criteria-by-task.md`「ハーネス」節。ここでは構造で保証すべき 3 点だけ挙げる。
 - [ ] 現在の状態が会話履歴ではなく作業場の文書と state ファイル／script 変数にあり、再開はそこから始まる。session を切るのは Phase 境界で、再試行では切らない（§14 ①④）
-- [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、verified にはスコープを付け、却下した経路と実行した事実も state に残している（§14 ⑤）
+- [ ] 永続状態への書き込みを verifier の再取得証拠で gate し、verified にはスコープを付け、却下した経路と実行した事実も作業場の文書に残している（§14 ⑤・「作業場と文書」）
 - [ ] supervisor（司令塔と別の agent 役）の介入は redirect のみで、仮説を供給しない（§14 較正 3）
 
 ### 指示の較正（agent への指示を書く全スキル。§11 の原則）
@@ -829,8 +829,8 @@ NVIDIA AVO（Claude Opus 5 で ARC-AGI-3 public set 183 レベル全問）はこ
 |---|---|---|---|
 | ① | **状態は履歴ではなくオブジェクトに**（NOOA explicit object state / InfiAgent「history ではなく state」/ File-as-Bus「thin control over thick state」） | 現在の状態を、内容（決定・制約・未解決）は作業場の文書に、制御（phase・文書のパス）は state ファイルか script 変数に持つ（下記「作業場と文書」）。agent に渡すのは「現在の状態 + 直近の固定幅」であって transcript ではない。再開は state から。**切るのはタスク/レベル境界であって試行単位ではない**（④ との粒度の違い。較正 1） | §13 の script 変数。MAGI の `state.json` + Phase Capsule |
 | ② | **参照渡し — ツール結果を context に往復させない**（NOOA pass by reference） | subagent は全文を担当の文書（下記「作業場と文書」）に書き、親へは要約 + findings + パスだけ返す。script は判定に要る結果だけを出力する（案内文・進捗ナレーションを混ぜない）。NOOA は transcript が追記専用になり prefill cache が効き続けることでトークンを半減させた | §13「中間結果の置き場 = script 変数」。token-budget の「親へ戻す出力を選別」 |
-| ④ | **reasoning を捨てない。compaction は truncation ではない**（OpenAI） | ステップ間で「なぜそう決めたか」を落とすと、agent は毎ターン問題を一から解釈し直す（公式ハーネスの 13.3% の主因）。同じタスクの再試行で agent を作り直すと同じことが起きる（較正 1）。capsule には決定・制約・根拠・未解決・却下案を残し、要約のために削らない。古い方から捨てる rolling truncation は初期の観察を失い、満杯付近で動く時間を長くする | token-budget の NG リスト（Hard Constraints / concerns / Sources は削らない） |
-| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route。AVO は正しさ検査を通りスコアを維持/改善した候補だけを git commit し、失敗は 0 点で lineage に残す） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。**verified にはスコープ（どの条件下で観測したか）を必ず付ける** — 無スコープの verified は後段で反証されても捨てられず探索を抑圧する（較正 2）。試して却下した案、実行した事実も state に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する。rule に抽象化したとき落ちる情報は生の手順側に残す（較正 4） | §11 P7 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
+| ④ | **reasoning を捨てない。compaction は truncation ではない**（OpenAI） | ステップ間で「なぜそう決めたか」を落とすと、agent は毎ターン問題を一から解釈し直す（公式ハーネスの 13.3% の主因）。同じタスクの再試行で agent を作り直すと同じことが起きる（較正 1）。Phase 間の引き継ぎ（capsule）は作業場の文書で行い（Phase ごとに分けるなら対象項目ごとの文書として分ける）、決定・制約・根拠・未解決・却下案を残し、要約のために削らない。古い方から捨てる rolling truncation は初期の観察を失い、満杯付近で動く時間を長くする | token-budget の NG リスト（Hard Constraints / concerns / Sources は削らない） |
+| ⑤ | **検証済みだけを永続化し、却下経路も状態に残す**（Argus verification → review → commit / rejected route。AVO は正しさ検査を通りスコアを維持/改善した候補だけを git commit し、失敗は 0 点で lineage に残す） | DB 登録・索引・`resolved`・メモリへの書き込みは、生成側と別 context の verifier が再取得した証拠を持つ record だけを script が受理する（§13 表の Verified commit）。**verified にはスコープ（どの条件下で観測したか）を必ず付ける** — 無スコープの verified は後段で反証されても捨てられず探索を抑圧する（較正 2）。試して却下した案、実行した事実も作業場の文書に書く — 無いと次のループや resume で同じ失敗を繰り返すか二重実行する。rule に抽象化したとき落ちる情報は生の手順側に残す（較正 4） | §11 P7 fresh-context verifier（検証の独立性）。本項はその出力を**受理する条件**を足す |
 
 NOOA の残り 2 つは本書で既出: code as action（複数操作を 1 本のコードに）は §5、
 model-callable harness API / agent 自身が curation するメモリは §11「1 教訓 1 ファイル + 既存更新・
@@ -853,8 +853,9 @@ model-callable harness API / agent 自身が curation するメモリは §11「
 
 agent を跨ぐスキルは、1 回の作業（topic）ごとに作業場を 1 つ持ち、agent が生成する内容（①の決定・
 制約・未解決・却下案、②の全文）を関心ごとの文書に置く。script 変数と state ファイルに置くのは制御
-（phase・判定・各文書のパス）だけ。Workflow 型の script はファイルに触れないので、内容は agent が
-文書に書き、script は schema の戻り値で判定とパスを受け取り、次の agent にパスを渡す。
+（phase・判定と、判定の材料になる schema の構造化出力（findings・件数）・各文書のパス）だけで、全文と
+散文の要約は文書に置く。Workflow 型の script はファイルに触れないので、内容は agent が文書に書き、
+script は schema の戻り値で判定の材料とパスを受け取り、次の agent にパスを渡す。
 
 - **置き場は配布の形で決める。** リポジトリに置くスキルは gitignore したスキル直下の
   `workspace/{slug}/`。plugin として配布するスキルは `~/.claude/<スキル名>-workspace/{slug}/`
