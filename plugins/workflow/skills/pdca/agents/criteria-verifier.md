@@ -24,7 +24,8 @@ brief の `aspect` が指す 1 つの面だけで、`criteria.json` を反証す
 - 未実施: 検証の記録が無い観点と、`pass_if` のある観点で数値の無い `observed` は `not_done` になり、
   close できない。
 - 対照: `controls` を持つ観点は、smoke が期待値どおりに出るまで検証を記録しない。
-- 分離: author・scope・design、writer と verifier、観点ごとの verifier は別の agent でないと記録しない。
+- 分離: author・scope・design が別の agent でなければ fix を拒否し、同じ周の writer と verifier、
+  観点ごとの verifier が別でなければ記録を拒否する（agent の同一性は出力の自己申告）。
 - 停止: `budget` の周回数と経過時間、同じ layer の blocking が減らない周の連続で止める。
 
 ## blocking の基準
