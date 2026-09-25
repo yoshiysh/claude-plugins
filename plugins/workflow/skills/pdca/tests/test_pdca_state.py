@@ -510,6 +510,9 @@ class TestDocuments(Base):
         self.assertEqual(r.next(), "criteria-verifier:scope")
         r.review("scope", agent="s2")
         self.assertEqual(r.next(), "criteria-author:design")
+        r.author("design", agent="a4")
+        r.review("design", agent="d3", findings=[stuck])
+        self.assertEqual(r.next(), "stop:non_converging:設計")
 
     def test_範囲と測定を交互に書いても測定の文書の非収束を検出する(self):
         r = self.run_()
@@ -630,7 +633,7 @@ class TestSystem(Base):
         r.init()
         reading = {"id": "Q1", "quote": "依頼に無い句", "ask": "x"}
         brief, path = self.submit_scope(r, r.scope(readings=[reading]))
-        self.assertIn("readings", r.refused("record", "--file", str(path)))
+        self.assertIn("readings[0].quote", r.refused("record", "--file", str(path)))
 
     def test_ask_humanの間の答えでないamendでは問いを残せて再び聞く(self):
         r = self.run_()
