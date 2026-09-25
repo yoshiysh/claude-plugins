@@ -148,10 +148,10 @@ class Run:
         return module
 
     def main_at(self, seconds: int, *args):
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
             code = self.after(seconds).main([*args, "--run-dir", str(self.dir)])
-        return code, json.loads(err.getvalue()) if err.getvalue().strip() else None
+        return code, json.loads((out if code == 0 else err).getvalue())
 
 
 def forge(run: Run, kind: str, data: dict, brief_id: str | None = None) -> None:
@@ -303,6 +303,13 @@ class TestBrokenPaths(Base):
         self.assertEqual(r.next(), "stop:rounds")
         self.assertIn("停止中", r.refused("brief", "--role", "criteria-author"))
         self.assertIn("停止中", r.refused("brief", "--role", "writer", "--conditions", "C1"))
+        status = r.ok("status")
+        self.assertIsNone(status["unmet"])
+        self.assertEqual(status["rounds"], {"used": 1, "budget": 1})
+        self.assertEqual([f["layer"] for f in status["criteria_open"]], ["設計"])
+        extra = self.root / "more.txt"
+        extra.write_text("予算を増やして続けて\n")
+        self.assertEqual(r.ok("amend", "--request-file", str(extra))["next"], "stop:rounds")
 
     def test_wall_secondsを過ぎたらcriteriaが再オープンされても直しに進まない(self):
         r = self.run_()
@@ -318,6 +325,10 @@ class TestBrokenPaths(Base):
         code, err = r.main_at(3601, "brief", "--role", "criteria-author")
         self.assertEqual(code, 1)
         self.assertIn("停止中", err["error"])
+        code, status = r.main_at(3601, "status")
+        self.assertEqual((code, status["next"], status["unmet"]), (0, "stop:time_budget", None))
+        self.assertEqual(status["elapsed"], "elapsed 3601s / 3600s")
+        self.assertEqual([f["claim"] for f in status["criteria_open"]], ["欠けている"])
 
     def test_wall_secondsを過ぎたら発行済みのレビューが揃っていてもfixしない(self):
         r = self.run_()

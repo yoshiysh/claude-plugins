@@ -460,6 +460,20 @@ class State:
     def fixed(self) -> bool:
         return not self.reopened()
 
+    def fixed_budget(self) -> dict | None:
+        return self.last_fix["data"]["budget"] if self.last_fix else None
+
+    def criteria_open(self) -> list[dict]:
+        basis = self.reviews_basis()
+        found = [f for e in self.ledger.of("criteria_review", after=basis) for f in e["data"]["findings"]]
+        found += [f for e in self.criteria_findings_after_fix() if e["seq"] > basis
+                  for f in e["data"]["findings"] if f["layer"] in CRITERIA_LAYERS]
+        items = [f for f in found if f["severity"] == "blocking"]
+        amend, written = self.ledger.last("amend"), self.ledger.last("criteria_written")
+        if amend and (written is None or amend["seq"] > written["seq"]):
+            items.append({"target": REQUEST, "claim": "amend で足した依頼が criteria.json に未反映"})
+        return items
+
     def reviews_basis(self) -> int:
         marks = [e["seq"] for e in self.ledger.of("amend", "criteria_written")]
         return max(marks) if marks else 0
@@ -545,7 +559,7 @@ class State:
             return stuck
         if any(e["data"].get("refused") for e in self.ledger.of("continue")):
             return "stop:auto_continue"
-        budget = self.last_fix["data"]["budget"] if self.last_fix else None
+        budget = self.fixed_budget()
         if budget and self.elapsed() > budget["wall_seconds"]:
             return "stop:time_budget"
         if self.reopened():
@@ -581,13 +595,17 @@ class State:
     def status(self) -> dict:
         report = {"next": self.next(), "criteria_fixed": self.fixed(),
                   "auto_continue": {"count": self.auto_continues(), "max": MAX_AUTO_CONTINUE},
-                  "findings": self.finding_counts(), "regressions": self.regressions(), "unmet": []}
-        if self.fixed():
+                  "findings": self.finding_counts(), "regressions": self.regressions(), "unmet": None}
+        budget = self.fixed_budget()
+        if budget:
+            report["rounds"] = {"used": self.rounds_used, "budget": budget["rounds"]}
+            report["elapsed"] = f"elapsed {self.elapsed()}s / {budget['wall_seconds']}s"
+        if not self.fixed():
+            report["criteria_open"] = self.criteria_open()
+        else:
             criteria = self.criteria()
             report["unmet"] = [{"condition": v["condition"], "viewpoint": vid, "status": v["status"]}
                                for vid, v in self.verdicts(criteria).items() if v["status"] != "pass"]
-            report["rounds"] = {"used": self.rounds_used, "budget": criteria["budget"]["rounds"]}
-            report["elapsed"] = f"elapsed {self.elapsed()}s / {criteria['budget']['wall_seconds']}s"
             report["stops"] = criteria["stops"]
             report["human_gates"] = criteria["human_gates"]
         return report
@@ -635,7 +653,7 @@ def cmd_amend(args) -> int:
     joined = current if current.endswith("\n") else current + "\n"
     request.write_text(joined + "\n" + text, encoding="utf-8")
     state.ledger.append("amend", {"request_sha256": digest(request)})
-    return emit({"recorded_request": text})
+    return emit({"recorded_request": text, "next": State(state.run_dir).next()})
 
 
 def prior_findings(state: State, role: str, conditions: list, viewpoint: str | None, aspect: str | None) -> list[dict]:
@@ -891,9 +909,10 @@ def cmd_continue(args) -> int:
         raise StateError(f"自動継続が上限 {MAX_AUTO_CONTINUE} 回に達した。以後 next は stop:auto_continue")
     status = state.status()
     state.ledger.append("continue", {"count": count + 1, "next": nxt})
-    items = ", ".join(f"{u['viewpoint']}={u['status']}" for u in status["unmet"]) or "（観点は充足、判定が未了）"
-    if not status["criteria_fixed"]:
+    if status["unmet"] is None:
         items = "完了条件が未固定"
+    else:
+        items = ", ".join(f"{u['viewpoint']}={u['status']}" for u in status["unmet"]) or "（観点は充足、判定が未了）"
     return emit({"continuation": CONTINUE.format(items=items, next=nxt), "count": count + 1})
 
 
