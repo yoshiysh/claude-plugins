@@ -493,6 +493,24 @@ class TestDocuments(Base):
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         self.assertEqual([f["layer"] for f in brief["prior_findings"]], ["範囲の導出"])
 
+    def test_測定の設計の指摘が2版続けて減らなければ範囲の書き手に回る(self):
+        r = self.run_()
+        r.scoped()
+        stuck = finding(layer="設計", target="design.json")
+        r.author("design")
+        r.review("design", findings=[stuck])
+        self.assertEqual(r.next(), "criteria-author:design")
+        r.author("design", agent="a2")
+        r.review("design", agent="d2", findings=[stuck])
+        self.assertEqual(r.next(), "criteria-author:scope")
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        self.assertEqual([f["layer"] for f in brief["prior_findings"]], ["設計"])
+        r.write("scope", r.scope())
+        r.record(brief, {"agent": "a3"})
+        self.assertEqual(r.next(), "criteria-verifier:scope")
+        r.review("scope", agent="s2")
+        self.assertEqual(r.next(), "criteria-author:design")
+
     def test_範囲と測定を交互に書いても測定の文書の非収束を検出する(self):
         r = self.run_()
         r.scoped()

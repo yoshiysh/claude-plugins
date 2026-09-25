@@ -657,7 +657,19 @@ class State:
         after = written["seq"] if written else 0
         reviews = [r for r in (self.current_review(a, since_amend=False) for a in ASPECTS) if r and r["seq"] > after]
         entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
-        return [f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]]
+        found = [f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]]
+        stuck = self.design_stuck() if aspect == "scope" else None
+        if stuck:
+            found += [f for f in stuck["data"]["findings"] if f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"]]
+        return found
+
+    def design_stuck(self) -> dict | None:
+        reviews = [e for e in self.ledger.of("criteria_review") if e["data"]["aspect"] == "design"][-2:]
+        counts = [sum(f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"] for f in e["data"]["findings"])
+                  for e in reviews]
+        if len(counts) == 2 and 0 < counts[0] <= counts[1] and self.written("scope")["seq"] < reviews[-1]["seq"]:
+            return reviews[-1]
+        return None
 
     def needs_author(self, aspect: str) -> bool:
         written = self.written(aspect)
@@ -681,7 +693,10 @@ class State:
         return {k for e in self.ledger.of("amend") for k in e["data"].get("answers", [])}
 
     def criteria_open(self) -> list[dict]:
-        items = [f for a in ASPECTS for f in self.routed_findings(a) if f["severity"] == "blocking"]
+        items = []
+        for f in (f for a in ASPECTS for f in self.routed_findings(a) if f["severity"] == "blocking"):
+            if f not in items:
+                items.append(f)
         amend, written = self.ledger.last("amend"), self.written("scope")
         if amend and (written is None or amend["seq"] > written["seq"]):
             items.append({"target": REQUEST, "claim": "amend で足した依頼が scope.json に未反映"})
