@@ -374,7 +374,7 @@ class TestBrokenPaths(Base):
         self.assertEqual([f["layer"] for f in status["criteria_open"]], ["設計"])
         extra = self.root / "more.txt"
         extra.write_text("予算を増やして続けて\n")
-        self.assertEqual(r.ok("amend", "--request-file", str(extra))["next"], "stop:rounds")
+        self.assertIn("新しい run", r.refused("amend", "--request-file", str(extra)))
 
     def test_wall_secondsを過ぎたらcriteriaが再オープンされても直しに進まない(self):
         r = self.run_()
@@ -695,6 +695,75 @@ class TestGoal(Base):
         self.assertEqual(brief["boundary"]["roots"], [str(SKILL.resolve()), str(self.root.resolve())])
         self.assertIn("読まない", brief["boundary"]["rule"])
 
+    def test_依存する段階は分けて回すかを聞き選んだ段階をゴールに反映させる(self):
+        r = self.run_()
+        r.init()
+        stages = {"list": [{"id": "S1", "what": "指針を更新する", "needs": []},
+                           {"id": "S2", "what": "更新した指針で各文書を直す", "needs": ["S1"]}],
+                  "this_run": ["S1", "S2"],
+                  "question": {"ask": "段階ごとに分けて回すか", "options": [
+                      {"id": "a", "text": "1 回で全部", "stages": ["S1", "S2"]},
+                      {"id": "b", "text": "先に指針だけ", "stages": ["S1"]}]}}
+        bad = json.loads(json.dumps(stages))
+        bad["question"]["options"][1]["stages"] = ["S2"]
+        brief, path = self.submit(r, "goal", r.goal(stages=bad))
+        self.assertIn("S1", r.refused("record", "--file", str(path)))
+        r.write("goal", r.goal(stages=stages))
+        r.ok("record", "--file", str(path))
+        r.review("goal")
+        self.assertEqual([q["id"] for q in r.ok("status")["ask_human"]], ["S"])
+        out = r.ok("answer", "--question", "S", "--option", "b")
+        self.assertEqual((out["recorded_answer"]["stages"], out["next"]), (["S1"], "goal-framer:goal"))
+        r.author("goal", agent="g2", doc=r.goal(stages=stages | {"this_run": ["S1"]}))
+        r.review("goal", agent="rg2")
+        self.assertEqual(r.next(), "criteria-author:scope")
+
+    def test_選択肢だけを変えた問いは聞き直し同じ問いの出し直しは聞き直さない(self):
+        r = self.run_()
+        r.init()
+        r.author("goal", doc=asking(r.goal()))
+        r.review("goal")
+        r.ok("answer", "--question", "P1", "--option", "a")
+        r.author()
+        r.review("scope", findings=[finding(layer="ゴール", target="goal.json")])
+        changed = asking(r.goal())
+        changed["phrases"][0]["question"]["options"][0]["text"] = "PR ごと（レビューの往復だけ）"
+        r.author("goal", agent="g2", doc=changed)
+        r.review("goal", agent="rg2")
+        self.assertEqual([q["id"] for q in r.ok("status")["ask_human"]], ["P1"])
+        (self.root / "b").mkdir()
+        r2 = Run(self.root / "b")
+        r2.framed()
+        r2.author()
+        same = finding(layer="範囲の導出", target="scope.json") | {"ask": finding_ask()}
+        r2.review("scope", findings=[same])
+        r2.ok("answer", "--question", r2.ok("status")["ask_human"][0]["id"], "--option", "a")
+        _, brief = r2.brief("criteria-author", "--aspect", "scope")
+        self.assertEqual(brief["prior_findings"][0]["answer"], "PR ごと")
+        r2.write("scope", r2.scope())
+        r2.record(brief, {"agent": "a2"})
+        r2.review("scope", agent="s2", findings=[same])
+        self.assertEqual(r2.next(), "criteria-author:scope")
+
+    def test_成果物の検証者の指摘は問いを持てない(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        _, brief = r.brief("verifier", "--viewpoint", "C1-V1")
+        path = r.submit(brief, {"agent": "v", "viewpoint": "C1-V1", "status": "fail", "observed": None, "evidence": "x",
+                                "findings": [finding(layer="範囲の導出", target="scope.json") | {"ask": finding_ask()}]})
+        self.assertIn("criteria-verifier", r.refused("record", "--file", str(path)))
+
+    def test_境界はファイルでも広げられる(self):
+        r = self.run_()
+        r.init()
+        note = self.root / "CLAUDE.md"
+        note.write_text("x\n")
+        ask = {"question": {"ask": "外まで及ぶか", "options": [{"id": "a", "text": "中だけ"},
+                                                             {"id": "b", "text": "CLAUDE.md まで", "widen": [str(note)]}]}}
+        brief, path = self.submit(r, "goal", r.goal(boundary=boundary(r, ask)))
+        r.ok("record", "--file", str(path))
+
     def test_範囲の文書はゴールの全種類を条件か除外に対応させる(self):
         r = self.run_()
         r.init()
@@ -722,7 +791,8 @@ class TestGoal(Base):
         self.assertIn("選択肢", r.refused("answer", "--question", "P1", "--option", "z"))
         self.assertIn("どちらか 1 つ", r.refused("answer", "--question", "P1"))
         out = r.ok("answer", "--question", "P1", "--option", "a")
-        self.assertEqual(out["recorded_answer"], {"question": "P1", "ask": "往復は PR ごとか全体か", "answer": "PR ごと", "option": "a"})
+        recorded = {k: v for k, v in out["recorded_answer"].items() if k != "question_sha256"}
+        self.assertEqual(recorded, {"question": "P1", "ask": "往復は PR ごとか全体か", "answer": "PR ごと", "option": "a"})
         self.assertEqual(out["next"], "criteria-author:scope")
         self.assertEqual((r.dir / "request.md").read_text(), REQUEST)
         _, brief = r.brief("criteria-author", "--aspect", "scope")

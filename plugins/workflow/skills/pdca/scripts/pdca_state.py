@@ -31,6 +31,7 @@ LAYER_OF = {"goal": "ゴール", "scope": "範囲の導出", "design": "設計"}
 REVIEW_LAYERS = {"goal": ("ゴール",), "scope": ("ゴール", "範囲の導出"), "design": ("ゴール", "範囲の導出", "設計")}
 ASK_LAYERS = ("ゴール", "範囲の導出")
 BOUNDARY = "B"
+STAGES = "S"
 BOUNDARY_RULE = ("boundary.roots の外（他のリポジトリ・ホームの設定・認証情報を含む）を読まない。外が要ると判断したら、"
                  "読まずに指摘か問いにする。人間が境界を広げるまで、外は範囲に無い")
 ANSWER_SOURCE = "answer:"
@@ -65,7 +66,8 @@ def shaped(fields: dict) -> tuple:
 DATA_SCHEMA = {
     "init": ({"request_sha256": TEXT, "materials": list_of(shaped({"path": TEXT, "sha256": TEXT}))}, {}),
     "amend": ({"request_sha256": TEXT}, {}),
-    "answer": ({"question": TEXT, "ask": TEXT, "answer": TEXT}, {"option": TEXT, "widen": list_of(TEXT)}),
+    "answer": ({"question": TEXT, "question_sha256": TEXT, "ask": TEXT, "answer": TEXT},
+               {"option": TEXT, "widen": list_of(TEXT), "stages": list_of(TEXT)}),
     "brief": ({"role": one_of(ROLES)}, {"aspect": one_of(ASPECTS), "conditions": list_of(TEXT), "viewpoint": TEXT,
                                          "mode": one_of(("smoke", "verify")), "report_sha256": TEXT}),
     "criteria_written": ({"aspect": one_of(ASPECTS), "sha256": TEXT, "agent": TEXT},
@@ -115,9 +117,17 @@ SHAPES = {
     "goal": {
         "boundary": {
             "object": "依頼が変える対象（1 文。依頼か資料が名指しするものから引く）",
-            "roots": ["その対象のディレクトリの絶対パス（ここより外は列挙も読みもしない）"],
+            "roots": ["その対象のディレクトリかファイルの絶対パス（ここより外は列挙も読みもしない）"],
             "outside": {"reading": ("依頼が境界の外に及ばないなら、その読み方。及ぶかが割れるなら reading の代わりに "
                                     "question: {ask, options: [{id, text}（境界の中だけ）, {id, text, widen: [広げる先の絶対パス]}]}")},
+        },
+        "stages": {
+            "list": [{"id": "S1", "what": "後の段階が入力にする成果物を作る段階", "needs": []},
+                     {"id": "S2", "what": "S1 の成果物を入力にする段階", "needs": ["S1"]}],
+            "this_run": ["この run が受け持つ段階の ID（依存する段階の手前で切るときは前の段階だけ）"],
+            "question": {"ask": "（任意）段階ごとに分けて回すかを聞く問い",
+                         "options": [{"id": "a", "text": "1 回で全部", "stages": ["S1", "S2"]},
+                                     {"id": "b", "text": "先に S1 だけ", "stages": ["S1"]}]},
         },
         "system": {
             "flow": "依頼が指すものを出力に置いた流れ（入力 → 工程 → 判断の分岐 → 出力）",
@@ -333,10 +343,10 @@ def check_data(entry: dict, where: str) -> None:
     if kind == "criteria_written" and ("asks" in data) != (data["aspect"] == "goal"):
         raise StateError(f"{where}: asks は goal の criteria_written だけが持つ")
     if "findings" in data:
-        validate_findings(data["findings"], f"{where}.data")
+        validate_findings(data["findings"], f"{where}.data", kind == "criteria_review")
 
 
-def validate_findings(findings: object, where: str) -> list[dict]:
+def validate_findings(findings: object, where: str, allow_ask: bool) -> list[dict]:
     if not isinstance(findings, list):
         raise StateError(f"{where}.findings は配列である必要がある")
     for i, f in enumerate(findings):
@@ -350,6 +360,8 @@ def validate_findings(findings: object, where: str) -> list[dict]:
             raise StateError(f"{w}.severity は {SEVERITIES} のどれか")
         if f["layer"] not in LAYERS:
             raise StateError(f"{w}.layer は {LAYERS} のどれか")
+        if "ask" in f and not allow_ask:
+            raise StateError(f"{w}.ask は criteria-verifier の指摘だけが持てる（この指摘は人間に届かない）")
         if "ask" in f:
             if f["severity"] != "blocking" or f["layer"] not in ASK_LAYERS:
                 raise StateError(f"{w}.ask は blocking の {'か'.join(ASK_LAYERS)} の指摘だけが持てる")
@@ -359,13 +371,14 @@ def validate_findings(findings: object, where: str) -> list[dict]:
     return findings
 
 
-def validate_options(options: object, where: str, kinds: dict | None, widen: bool = False) -> None:
+def validate_options(options: object, where: str, kinds: dict | None, widen: bool = False,
+                     stages: dict | None = None) -> None:
     if not isinstance(options, list) or len(options) < 2:
         raise StateError(f"{where} は 2 つ以上の選択肢の配列（選択肢を書くのは問いを立てた agent で、司令塔は逐語で中継する）")
     ids = set()
     for i, o in enumerate(options):
         w = f"{where}[{i}]"
-        require_keys(o, w, {"id", "text"}, {"widen"} if widen else {"kinds"})
+        require_keys(o, w, {"id", "text"}, {"widen"} if widen else {"stages"} if stages is not None else {"kinds"})
         if nonempty_str(o["id"], f"{w}.id") in ids:
             raise StateError(f"{w}.id {o['id']!r} が重複している")
         ids.add(o["id"])
@@ -379,16 +392,58 @@ def validate_options(options: object, where: str, kinds: dict | None, widen: boo
             if not isinstance(o["widen"], list) or not o["widen"]:
                 raise StateError(f"{w}.widen は広げる先のディレクトリの絶対パスの配列")
             for raw in o["widen"]:
-                existing_dir(raw, f"{w}.widen")
+                existing_path(raw, f"{w}.widen")
+        if stages is not None:
+            check_stage_set(o.get("stages"), f"{w}.stages", stages)
     if widen and (all("widen" in o for o in options) or not any("widen" in o for o in options)):
         raise StateError(f"{where} は境界の中だけの選択肢と、widen で広げる選択肢の両方を持つ")
 
 
-def existing_dir(raw: object, where: str) -> Path:
+def existing_path(raw: object, where: str) -> Path:
     path = user_path(nonempty_str(raw, where))
-    if not path.is_absolute() or not path.is_dir():
-        raise StateError(f"{where} が存在するディレクトリでない（絶対パスで書く）: {raw}")
+    if not path.is_absolute() or not path.exists():
+        raise StateError(f"{where} が存在するディレクトリかファイルでない（絶対パスで書く）: {raw}")
     return path.resolve()
+
+
+def check_stage_set(value: object, where: str, stages: dict) -> set:
+    string_list(value, where)
+    chosen = set(value)
+    unknown = sorted(chosen - set(stages))
+    if unknown or not chosen:
+        raise StateError(f"{where} は stages.list の ID の空でない集合（未知: {', '.join(unknown)}）")
+    missing = sorted({n for sid in chosen for n in stages[sid]["needs"]} - chosen)
+    if missing:
+        raise StateError(f"{where} が、入力にする前の段階 {', '.join(missing)} を含まない")
+    return chosen
+
+
+def validate_stages(obj: object, seen: set) -> dict:
+    st = require_keys(obj, "stages", {"list", "this_run"}, {"question"})
+    if not isinstance(st["list"], list) or len(st["list"]) < 2:
+        raise StateError("stages.list は 2 つ以上の段階（段階が 1 つなら stages を書かない）")
+    table: dict = {}
+    for i, stage in enumerate(st["list"]):
+        w = f"stages.list[{i}]"
+        require_keys(stage, w, {"id", "what", "needs"})
+        claim_id(stage["id"], f"{w}.id", seen)
+        nonempty_str(stage["what"], f"{w}.what")
+        string_list(stage["needs"], f"{w}.needs")
+        if set(stage["needs"]) - set(table):
+            raise StateError(f"{w}.needs は、この段階より前に書いた段階の ID の配列")
+        table[stage["id"]] = stage
+    check_stage_set(st["this_run"], "stages.this_run", table)
+    if "question" in st:
+        q = require_keys(st["question"], "stages.question", {"ask", "options"})
+        nonempty_str(q["ask"], "stages.question.ask")
+        validate_options(q["options"], "stages.question.options", None, stages=table)
+        claim_id(STAGES, "stages.question", seen)
+    return table
+
+
+def question_sha(q: dict) -> str:
+    body = {"ask": q["ask"], "options": [{"id": o["id"], "text": o["text"]} for o in q["options"]]}
+    return sha256_bytes(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8"))
 
 
 def boundary_roots(goal: dict) -> list[Path]:
@@ -474,7 +529,7 @@ def validate_boundary(obj: object, seen: set) -> list[Path]:
     nonempty_str(b["object"], "boundary.object")
     if not isinstance(b["roots"], list) or not b["roots"]:
         raise StateError("boundary.roots が 0 件")
-    roots = [existing_dir(raw, "boundary.roots") for raw in b["roots"]]
+    roots = [existing_path(raw, "boundary.roots") for raw in b["roots"]]
     outside = require_keys(b["outside"], "boundary.outside", set(), {"reading", "question"})
     if len(outside) != 1:
         raise StateError("boundary.outside は reading（外に及ばない）か question（及ぶかが割れる）のどちらか 1 つを持つ")
@@ -489,9 +544,11 @@ def validate_boundary(obj: object, seen: set) -> list[Path]:
 
 
 def validate_goal(obj: object, run_dir: Path) -> dict:
-    require_keys(obj, DOCS["goal"], {"boundary", "system", "phrases"})
+    require_keys(obj, DOCS["goal"], {"boundary", "system", "phrases"}, {"stages"})
     seen: set = set()
     roots = validate_boundary(obj["boundary"], seen)
+    if "stages" in obj:
+        validate_stages(obj["stages"], seen)
     kinds = validate_system(obj["system"], seen)
     for kid, k in kinds.items():
         cwd = user_path(k["enumerate"]["cwd"]).resolve()
@@ -525,7 +582,9 @@ def validate_goal(obj: object, run_dir: Path) -> dict:
 
 def asks_of(goal: dict) -> list[dict]:
     outside = goal["boundary"]["outside"]
+    stages = goal.get("stages", {})
     questions = ([(BOUNDARY, outside["question"])] if "question" in outside else []) + \
+        ([(STAGES, stages["question"])] if "question" in stages else []) + \
         [(ph["id"], ph["question"]) for ph in goal["phrases"] if "question" in ph]
     return [{"id": qid, "ask": q["ask"], "options": [{"id": o["id"], "text": o["text"]} for o in q["options"]]}
             for qid, q in questions]
@@ -793,7 +852,11 @@ class State:
         after = written["seq"] if written else 0
         reviews = [r for r in (self.latest_review(a) for a in ASPECTS) if r and r["seq"] > after]
         entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
-        found = [f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]]
+        by_sha = {a["question_sha256"]: a["answer"] for a in self.answers().values()}
+        found = []
+        for f in (f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]):
+            sha = question_sha({"ask": f["ask"]["question"], "options": f["ask"]["options"]}) if "ask" in f else None
+            found.append(f | {"answer": by_sha[sha]} if sha in by_sha else f)
         stuck = self.design_stuck() if aspect == "scope" else None
         if stuck:
             found += [f for f in stuck["data"]["findings"] if f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"]]
@@ -811,7 +874,7 @@ class State:
         written = self.written(aspect)
         if written is None:
             return True
-        if aspect == "goal" and (self.ledger.of("amend", after=written["seq"]) or self.unwidened()):
+        if aspect == "goal" and (self.ledger.of("amend", after=written["seq"]) or self.unreflected()):
             return True
         if aspect != "goal" and written["seq"] < self.written(ASPECTS[ASPECTS.index(aspect) - 1])["seq"]:
             return True
@@ -820,15 +883,23 @@ class State:
     def ready(self, aspect: str) -> bool:
         return not self.needs_author(aspect) and self.current_review(aspect) is not None
 
-    def unwidened(self) -> list[str]:
-        wanted = [w for a in self.answers().values() for w in a.get("widen", [])]
-        if not wanted or not self.doc_path("goal").is_file():
+    def unreflected(self) -> list[str]:
+        answers = list(self.answers().values())
+        wanted = [w for a in answers for w in a.get("widen", [])]
+        chosen = [a["stages"] for a in answers if "stages" in a]
+        if not (wanted or chosen) or not self.doc_path("goal").is_file():
             return []
         try:
-            roots = [user_path(r).resolve() for r in read_json(self.doc_path("goal"))["boundary"]["roots"]]
-        except (StateError, KeyError, TypeError):
-            return wanted
-        return [w for w in wanted if not any(user_path(w).resolve().is_relative_to(r) for r in roots)]
+            goal = read_json(self.doc_path("goal"))
+            roots = [user_path(r).resolve() for r in goal["boundary"]["roots"]]
+            this_run = set(goal.get("stages", {}).get("this_run", []))
+        except (StateError, KeyError, TypeError, AttributeError):
+            return ["goal.json を読めない"]
+        items = [f"人間が広げた境界が boundary.roots に未反映: {w}" for w in wanted
+                 if not any(user_path(w).resolve().is_relative_to(r) for r in roots)]
+        if chosen and set(chosen[-1]) != this_run:
+            items.append(f"人間が選んだ段階が stages.this_run に未反映: {', '.join(chosen[-1])}")
+        return items
 
     def finding_asks(self) -> list[dict]:
         asks = []
@@ -837,15 +908,15 @@ class State:
             for i, f in enumerate(review["data"]["findings"] if review else []):
                 if f["severity"] == "blocking" and "ask" in f:
                     asks.append({"id": f"{review['brief_id']}#{i}", "ask": f["ask"]["question"],
-                                 "options": f["ask"]["options"]})
+                                 "options": [{"id": o["id"], "text": o["text"]} for o in f["ask"]["options"]]})
         return asks
 
     def pending_asks(self) -> list[dict]:
         asks = self.finding_asks()
         if self.ready("goal"):
             asks += self.written("goal")["data"]["asks"]
-        answered = self.answers()
-        return [q for q in asks if q["id"] not in answered or answered[q["id"]]["ask"] != q["ask"]]
+        answered = {a["question_sha256"] for a in self.answers().values()}
+        return [q for q in asks if question_sha(q) not in answered]
 
     def criteria_open(self) -> list[dict]:
         items = []
@@ -855,8 +926,7 @@ class State:
         amend, written = self.ledger.last("amend"), self.written("goal")
         if amend and (written is None or amend["seq"] > written["seq"]):
             items.append({"target": REQUEST, "claim": "amend で足した依頼が goal.json に未反映"})
-        if self.unwidened():
-            items.append({"target": DOCS["goal"], "claim": f"人間が広げた境界が boundary.roots に未反映: {', '.join(self.unwidened())}"})
+        items += [{"target": DOCS["goal"], "claim": claim} for claim in self.unreflected()]
         return items
 
     def sizes(self) -> dict:
@@ -1025,6 +1095,9 @@ def cmd_init(args) -> int:
 def cmd_amend(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
+    nxt = state.next()
+    if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
+        raise StateError(f"停止か完了の後の run には足せない（next = {nxt}）。新しい run で init する")
     text = read_request(args.request_file)
     request = state.run_dir / REQUEST
     current = request.read_text(encoding="utf-8")
@@ -1045,17 +1118,21 @@ def cmd_answer(args) -> int:
         raise StateError(f"ask_human で待っていない問い: {args.question}（待っている問い: {', '.join(pending)}）")
     if (args.option is None) == (args.text_file is None):
         raise StateError("--option（選ばれた選択肢の ID）か --text-file（選択肢に無い答えの原文）のどちらか 1 つを取る")
-    data = {"question": question["id"], "ask": question["ask"]}
+    data = {"question": question["id"], "question_sha256": question_sha(question), "ask": question["ask"]}
     if args.option is not None:
         option = next((o for o in question["options"] if o["id"] == args.option), None)
         if option is None:
             raise StateError(f"{question['id']} に選択肢 {args.option!r} が無い（選択肢: "
                              f"{', '.join(o['id'] for o in question['options'])}）")
         data |= {"answer": option["text"], "option": option["id"]}
-        if question["id"] == BOUNDARY:
-            full = next(o for o in state.goal()["boundary"]["outside"]["question"]["options"] if o["id"] == option["id"])
+        if question["id"] in (BOUNDARY, STAGES):
+            goal = state.goal()
+            q = goal["boundary"]["outside"]["question"] if question["id"] == BOUNDARY else goal["stages"]["question"]
+            full = next(o for o in q["options"] if o["id"] == option["id"])
             if "widen" in full:
                 data["widen"] = [str(user_path(w).resolve()) for w in full["widen"]]
+            if "stages" in full:
+                data["stages"] = full["stages"]
     else:
         data["answer"] = read_request(args.text_file)
     state.ledger.append("answer", data)
@@ -1210,7 +1287,7 @@ def cmd_record(args) -> int:
     if out["prompt_extra"] != "":
         raise StateError("prompt_extra が空でない（agent が invoke 以外の文を受け取った）")
     if "findings" in out:
-        validate_findings(out["findings"], role)
+        validate_findings(out["findings"], role, role == "criteria-verifier")
     bid = brief["brief_id"]
     aspect = brief["data"].get("aspect")
     if role in AUTHORS:
