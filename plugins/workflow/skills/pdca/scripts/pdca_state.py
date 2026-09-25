@@ -395,6 +395,9 @@ class State:
                 consumed.add(e["brief_id"])
             elif "brief_id" in e:
                 raise StateError(f"{where}: {e['kind']} は brief_id を持たない")
+            if e["kind"] == "fix":
+                require_keys(e["data"], where, {"criteria_sha256", "means", "budget"})
+                require_keys(e["data"]["budget"], f"{where}.budget", {"rounds", "wall_seconds"})
             if e["kind"] in ("fix", "close"):
                 before = State(self.run_dir, self.ledger.prefix(e["seq"] - 1))
                 problem = fix_problem(before, e["data"]["criteria_sha256"]) if e["kind"] == "fix" else close_problem(before)

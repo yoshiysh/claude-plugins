@@ -165,6 +165,18 @@ def forge(run: Run, kind: str, data: dict, brief_id: str | None = None) -> None:
     path.write_text(path.read_text() + json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def rewrite(run: Run, kind: str, mutate) -> None:
+    path = run.dir / "ledger.jsonl"
+    entries = [json.loads(line) for line in path.read_text().splitlines()]
+    mutate(next(e for e in entries if e["kind"] == kind)["data"])
+    lines, prev = [], ""
+    for e in entries:
+        e["prev_sha256"] = prev
+        lines.append(json.dumps(e, ensure_ascii=False))
+        prev = hashlib.sha256(lines[-1].encode("utf-8")).hexdigest()
+    path.write_text("\n".join(lines) + "\n")
+
+
 def finding(layer="実装", severity="blocking", target="docs/a.md"):
     return {"target": target, "severity": severity, "layer": layer, "claim": "欠けている", "evidence": "L1"}
 
@@ -721,7 +733,8 @@ class TestStopAndLedger(Base):
         r = self.run_()
         r.init()
         r.author()
-        forge(r, "fix", {"criteria_sha256": sha(r.dir / "criteria.json"), "means": []})
+        forge(r, "fix", {"criteria_sha256": sha(r.dir / "criteria.json"), "means": [],
+                         "budget": {"rounds": 3, "wall_seconds": 7200}})
         self.assertIn("成立していない", r.refused("status"))
 
     def test_97_末尾改行の無い台帳を拒否する(self):
@@ -778,6 +791,20 @@ class TestStopAndLedger(Base):
         r.dir.mkdir()
         for sub in ("status", "fix", "continue", "close"):
             self.assertIn("init の前", r.refused(sub))
+
+    def test_budgetの無いfix行はどの操作も追記前にJSONのエラーで拒否する(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        _, brief = r.brief("verifier", "--viewpoint", "C1-V1")
+        rewrite(r, "fix", lambda data: data.pop("budget"))
+        before = (r.dir / "ledger.jsonl").read_text()
+        path = r.submit(brief, {"agent": "v", "viewpoint": "C1-V1", "status": "pass", "observed": None,
+                                "evidence": "x", "findings": []})
+        self.assertIn("budget", r.refused("record", "--file", str(path)))
+        for args in (("status",), ("continue",), ("fix",), ("brief", "--role", "verifier", "--viewpoint", "R-REQUEST")):
+            self.assertIn("budget", r.refused(*args))
+        self.assertEqual((r.dir / "ledger.jsonl").read_text(), before)
 
     def test_使用済みのbrief_idを拒否する(self):
         r = self.run_()
