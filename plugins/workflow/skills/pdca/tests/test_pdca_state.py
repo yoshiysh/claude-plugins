@@ -212,6 +212,21 @@ class TestBrokenPaths(Base):
         self.assertNotIn("受入基準", text)
         self.assertEqual(brief["request"]["sha256"], sha(r.dir / "request.md"))
 
+    def test_文書や指摘を書く役のbriefは文書の規則の正本を渡す(self):
+        r = self.run_()
+        r.init()
+        _, author = r.brief("criteria-author")
+        self.assertEqual(author["document_rules"], str(SKILL / "agents" / "writer.md"))
+        r.author()
+        _, reviewer = r.brief("criteria-verifier", "--aspect", "scope")
+        self.assertEqual(reviewer["document_rules"], str(SKILL / "agents" / "writer.md"))
+        r.review("scope", agent="s0")
+        r.review("design")
+        r.ok("fix")
+        r.work()
+        _, verifier = r.brief("verifier", "--viewpoint", "C1-V1")
+        self.assertEqual(verifier["document_rules"], str(SKILL / "agents" / "writer.md"))
+
     def test_前周の指摘をbriefがledgerから載せる(self):
         r = self.run_()
         r.init()
@@ -583,6 +598,24 @@ class TestScoringMaterial(Base):
         self.assertEqual(out["means"], [{"viewpoint": "C1-V2", "ref": str(r.harness), "sha256": sha(r.harness)}])
         copies = [p for p in r.dir.rglob("*") if p.is_file() and p.read_bytes() == r.harness.read_bytes()]
         self.assertEqual(copies, [])
+
+    def test_fix後の対照の入力の書き換えを検出する(self):
+        r = self.run_(controlled=True)
+        fixture = self.root / "fixture"
+        fixture.mkdir()
+        (fixture / "pr.json").write_text("{}\n")
+        criteria = r.criteria()
+        criteria["conditions"][0]["viewpoints"][1]["controls"][0]["ref"] = str(fixture)
+        r.init()
+        r.author(criteria=criteria)
+        r.review("scope")
+        r.review("design")
+        out = r.ok("fix")
+        self.assertIn({"viewpoint": "C1-V2", "ref": str(fixture), "sha256": load_module().digest(fixture)}, out["means"])
+        (fixture / "pr.json").write_text('{"forged": true}\n')
+        _, brief = r.brief("verifier", "--viewpoint", "C1-V2")
+        path = r.submit(brief, {"agent": "s", "viewpoint": "C1-V2", "controls": [{"input": "既知の PR", "observed": 1}]})
+        self.assertIn(str(fixture), r.refused("record", "--file", str(path)))
 
 
 class TestSeparation(Base):

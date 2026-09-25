@@ -21,6 +21,7 @@ KINDS = (
     "work", "smoke", "verification", "judgment", "continue", "close",
 )
 ROLES = ("criteria-author", "criteria-verifier", "writer", "verifier", "completion-judge")
+DOCUMENT_READERS = ("criteria-author", "criteria-verifier", "verifier")
 ASPECTS = ("scope", "design")
 LAYERS = ("範囲の導出", "設計", "実装")
 CRITERIA_LAYERS = ("範囲の導出", "設計")
@@ -61,7 +62,8 @@ CRITERIA_SHAPE = {
             "id": "C1-V1", "check": "何を確かめるか",
             "means": {"kind": "|".join(MEANS_KINDS), "ref": "測定手段の絶対パス（controls があれば必須）",
                       "pass_if": {"op": "|".join(PASS_OPS), "value": 0}},
-            "controls": [{"input": "正解が分かっている入力", "expected": "その入力で出るべき値"}],
+            "controls": [{"input": "正解が分かっている入力", "expected": "その入力で出るべき値",
+                          "ref": "入力がファイルかディレクトリなら、その絶対パス"}],
         }],
     }],
     "excluded": [{"item": "範囲に入れないもの", "reason": "入れない理由"}],
@@ -303,8 +305,12 @@ def validate_criteria(obj: object, run_dir: Path, materials: list[dict]) -> dict
             if controls and "ref" not in means:
                 raise StateError(f"{v}: controls があるのに means.ref が無い（smoke で実行する測定手段を指す）")
             for k, control in enumerate(controls):
-                require_keys(control, f"{v}.controls[{k}]", {"input", "expected"})
+                require_keys(control, f"{v}.controls[{k}]", {"input", "expected"}, {"ref"})
                 nonempty_str(control["input"], f"{v}.controls[{k}].input")
+                if "ref" in control:
+                    ref = user_path(nonempty_str(control["ref"], f"{v}.controls[{k}].ref"))
+                    if not ref.is_absolute() or not ref.exists():
+                        raise StateError(f"{v}.controls[{k}].ref が存在しない（絶対パスで書く）: {control['ref']}")
         for raw_id in ids:
             nonempty_str(raw_id, f"{w} の ID")
             if raw_id.startswith("R-"):
@@ -754,6 +760,8 @@ def cmd_brief(args) -> int:
     })
     if (state.run_dir / CRITERIA).is_file() or role == "criteria-author":
         brief["criteria"] = {"path": str((state.run_dir / CRITERIA).resolve()), "sha256": state.criteria_sha()}
+    if role in DOCUMENT_READERS:
+        brief["document_rules"] = str(SKILL_DIR / "agents" / "writer.md")
     if role == "criteria-author":
         brief["criteria_shape"] = CRITERIA_SHAPE
     if role == "completion-judge":
@@ -769,7 +777,7 @@ def cmd_brief(args) -> int:
 def check_means(state: State, vid: str) -> None:
     for m in state.last_fix["data"]["means"]:
         if m["viewpoint"] == vid and digest(Path(m["ref"])) != m["sha256"]:
-            raise StateError(f"means.ref の digest が fix 時と違う: {m['ref']}")
+            raise StateError(f"means.ref か controls の ref の digest が fix 時と違う: {m['ref']}")
 
 
 def cmd_record(args) -> int:
@@ -887,8 +895,9 @@ def cmd_fix(args) -> int:
     problem = fix_problem(state, sha)
     if problem:
         raise StateError(problem)
-    means = [{"viewpoint": vp["id"], "ref": str(user_path(vp["means"]["ref"])), "sha256": digest(user_path(vp["means"]["ref"]))}
-             for cond in criteria["conditions"] for vp in cond["viewpoints"] if "ref" in vp["means"]]
+    refs = [(vp["id"], raw) for cond in criteria["conditions"] for vp in cond["viewpoints"]
+            for raw in [vp["means"].get("ref")] + [c.get("ref") for c in vp.get("controls", [])] if raw]
+    means = [{"viewpoint": vid, "ref": str(user_path(raw)), "sha256": digest(user_path(raw))} for vid, raw in refs]
     state.ledger.append("fix", {"criteria_sha256": sha, "means": means, "budget": criteria["budget"]})
     return emit({"fixed": sha, "means": means, "next": State(state.run_dir).next()})
 
