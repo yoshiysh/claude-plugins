@@ -64,9 +64,7 @@ class Run:
         return self.ok("init", "--request-file", str(request), "--material", str(self.material))
 
     def scope(self, **over):
-        return {"conditions": [{"id": "C1", "statement": "往復が減る",
-                                "source": {"path": "request.md", "quote": "PR の往復を減らしたい"}}],
-                "excluded": [], "human_gates": ["マージ"]} | over
+        return {"system": system(), "conditions": [condition()], "excluded": [], "human_gates": ["マージ"]} | over
 
     def design(self, **over):
         viewpoints = [{"id": "C1-V1", "condition": "C1", "check": "往復回数を数える", "means": {"kind": "audit"}}]
@@ -184,6 +182,20 @@ def rewrite(run: Run, kind: str, mutate) -> None:
 
 def finding(layer="実装", severity="blocking", target="docs/a.md"):
     return {"target": target, "severity": severity, "layer": layer, "claim": "欠けている", "evidence": "L1"}
+
+
+def kind(kid="K1", **over):
+    return {"id": kid, "kind": "docs 配下の文書", "enumerate": "ls docs"} | over
+
+
+def system(*kinds):
+    return {"flow": "依頼 → docs の編集 → PR", "closure": "PR が変えるのは docs 配下の文書だけ",
+            "kinds": list(kinds) or [kind()]}
+
+
+def condition(cid="C1", kinds=("K1",)):
+    return {"id": cid, "statement": "往復が減る", "kinds": list(kinds),
+            "source": {"path": "request.md", "quote": "PR の往復を減らしたい"}}
 
 
 class Base(unittest.TestCase):
@@ -509,6 +521,73 @@ class TestDocuments(Base):
         sizes = r.ok("status")["sizes"]
         self.assertNotIn("check", sizes)
         self.assertEqual(sizes["design.json"], len((r.dir / "design.json").read_text()))
+
+
+class TestSystem(Base):
+    def submit_scope(self, r, doc):
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        r.write("scope", doc)
+        return brief, r.submit(brief, {"agent": "a"})
+
+    def test_範囲の文書は系の種類の一覧が無ければ拒否する(self):
+        r = self.run_()
+        r.init()
+        doc = r.scope()
+        doc.pop("system", None)
+        brief, path = self.submit_scope(r, doc)
+        self.assertIn("system", brief["shape"])
+        self.assertIn("system", r.refused("record", "--file", str(path)))
+
+    def test_条件にも除外にも対応しない種類を拒否する(self):
+        r = self.run_()
+        r.init()
+        doc = r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()])
+        brief, path = self.submit_scope(r, doc)
+        self.assertIn("K2", r.refused("record", "--file", str(path)))
+        doc["excluded"] = [{"item": "設定", "kinds": ["K2"], "reason": "依頼に無い"}]
+        r.write("scope", doc)
+        r.ok("record", "--file", str(path))
+
+    def test_種類の一覧に無い種類を指す条件と除外を拒否する(self):
+        r = self.run_()
+        r.init()
+        brief, path = self.submit_scope(r, r.scope(system=system(), conditions=[condition(kinds=("K1", "K9"))]))
+        self.assertIn("K9", r.refused("record", "--file", str(path)))
+        r.write("scope", r.scope(system=system(), conditions=[condition()],
+                                 excluded=[{"item": "x", "kinds": ["K8"], "reason": "依頼に無い"}]))
+        self.assertIn("K8", r.refused("record", "--file", str(path)))
+
+    def test_人間に聞く種類は範囲の反証の後にまとめてask_humanで止まる(self):
+        r = self.run_()
+        r.init()
+        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
+        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        self.assertEqual(r.next(), "criteria-verifier:scope")
+        r.review("scope")
+        status = r.ok("status")
+        self.assertEqual(status["next"], "ask_human")
+        self.assertEqual(status["ask_human"], [{"kind": "K2", "ask": "設定も範囲に入れるか"}])
+        self.assertIn("ask_human", r.refused("brief", "--role", "criteria-author", "--aspect", "design"))
+        self.assertIn("ask_human", r.refused("brief", "--role", "criteria-author", "--aspect", "scope"))
+        self.assertIn("ask_human", r.refused("fix"))
+        self.assertIn("ask_human", r.refused("continue"))
+        answer = self.root / "answer.txt"
+        answer.write_text("設定は入れない\n")
+        self.assertEqual(r.ok("amend", "--request-file", str(answer))["next"], "criteria-author:scope")
+        r.author(agent="a2", doc=r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()],
+                                         excluded=[{"item": "設定", "kinds": ["K2"], "reason": "人間が入れないと答えた"}]))
+        r.review("scope", agent="s2")
+        self.assertEqual(r.next(), "criteria-author:design")
+
+    def test_fixの後に人間に聞く種類を足しても台帳を読める(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="範囲の導出", target="scope.json")])
+        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
+        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        r.review("scope", agent="s2")
+        self.assertEqual(r.ok("status")["next"], "ask_human")
 
 
 class TestRequest(Base):
@@ -1025,7 +1104,7 @@ class TestStopAndLedger(Base):
     def test_旧形式の台帳はどの操作もJSONのエラーで拒否する(self):
         old_written = [("brief", {"role": "criteria-author"}), ("criteria_written", {"criteria_sha256": "x", "agent": "a"})]
         old_review = [("brief", {"role": "criteria-author", "aspect": "scope"}),
-                      ("criteria_written", {"aspect": "scope", "sha256": "x", "agent": "a"}),
+                      ("criteria_written", {"aspect": "scope", "sha256": "x", "agent": "a", "asks": []}),
                       ("brief", {"role": "criteria-verifier", "aspect": "scope"}),
                       ("criteria_review", {"aspect": "scope", "reviewed_sha256": "x", "verdict": "pass",
                                            "findings": [], "agent": "s"})]

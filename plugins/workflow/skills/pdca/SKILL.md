@@ -31,6 +31,7 @@ criteria-author が決める。全 run に一律に課すと、依頼に無い�
 | 依頼原文を書き直さずに全 agent へ届ける | 言い換えが入ると、検証者は依頼に対する欠落を検出できない | `init` `amend` `brief` |
 | 生成者と検証者を別 agent にする | 生成者は自分の出力に通る判定を書ける | `record` `fix` |
 | 完了条件と採点物（`means.ref` と `controls` の `ref` が指す元の場所）を、作業の前に digest で固定する | 作業の中で基準や採点物が作り替えられる | `fix` `record` |
+| 範囲の文書の系の種類を、どれも条件か除外に対応させる。価値判断の種類は人間の答えまで測定へ進めない | 系の要素が黙って範囲から落ちる。書き手が人間の代わりに範囲を決める | `record` `fix` |
 | 宣言した検証を実施しなかったら `not_done` | 測れなかったことが合格に化ける | `status` `close` |
 | 予算（周回数・経過時間）・非収束・自動継続で止める | 周回がいくらでも伸びる | `brief` `fix` `continue` `status` |
 | 完了は、固定した完了条件と別の判定役で決める | text だけで終わるターンが完了扱いになる | `close` |
@@ -57,12 +58,13 @@ python3 $S close --run-dir <run-dir>
 
 1. `init`（後から発言が来たら `amend`）。返った `recorded_request` を、最初の報告で「依頼として
    記録した原文」としてユーザーに示す。
-2. 完了条件は 2 つの文書に書く。criteria-author が範囲の文書（scope.json: 条件・除外・人間ゲート）を
-   書き、criteria-verifier が scope で反証する → 通ったら criteria-author が測定の文書（design.json:
-   観点・測定手段・対照・予算・停止）を書き、別の criteria-verifier が design で反証する → `fix`。
+2. 完了条件は 2 つの文書に書く。criteria-author が範囲の文書（scope.json: 系の種類の一覧・条件・
+   除外・人間ゲート）を書き、criteria-verifier が scope で反証する → 通ったら criteria-author が測定の
+   文書（design.json: 観点・測定手段・対照・予算・停止）を書き、別の criteria-verifier が design で
+   反証する → `fix`。
 3. writer が作る → verifier が観点ごとに 1 agent ずつ検証する（対照を持つ観点は先に smoke）。
 4. 各 `record` と `status` が返す `next` に従う。`writer` なら次の周、`criteria-author:<aspect>` なら
-   その文書の直し、`stop:*` なら止めて報告する。
+   その文書の直し、`ask_human` なら「人間の境界」に従い、`stop:*` なら止めて報告する。
 5. 全観点が pass になったら、最終報告案をファイルに書いて completion-judge に渡し、complete なら `close`。
 
 各 agent は `brief` → `invoke` で起動 → `record` の順で回す。ターンを text だけで終えようとして
@@ -89,7 +91,8 @@ python3 $S close --run-dir <run-dir>
   - 周回の形: 同じ原因を持つ指摘は 1 周でまとめて直す。他の条件が前提にする条件（現状を作る試作
     など）は、先に writer に渡す（前提が無いまま測ると not_done が並ぶ）。
   - 成果物が複数あって互いに依存するときは、PFD（どの工程がどの成果物を入力にしてどの成果物を
-    出すか）を描いて、上の分け方と順を決めてもよい。必須の成果物ではない。
+    出すか）を描いて、上の分け方と順を決めてもよい。必須の成果物ではない（範囲を導く PFD は別の
+    用途で、criteria-author が scope.json に描く）。
   - writer のモデル、人間への提示。
 - **決めない**: 完了条件、検証観点、測定手段、予算、合否。これらは criteria-author が書き、
   criteria-verifier が反証し、script が判定する。司令塔がこれらを決めると、検証観点が場当たりになり、
@@ -103,6 +106,9 @@ python3 $S close --run-dir <run-dir>
   `await_human` になる。
 - プロダクトの価値に関わる判断（問いを続ける価値、目標や許容リスクの変更、予算の増額）は、
   人間に返す。
+- 範囲に入れるかが価値判断になる系の種類（scope.json の `ask`）は、scope の反証が通った後に `next` が
+  `ask_human` になる。`status` の `ask_human` を種類の単位でまとめて 1 回聞き、答えを `amend` で記録する
+  （反証の前に聞くと、検証者が種類を見つけるたびに聞き直す）。
 - 方法論の行き詰まり（測定手段が成立しない等）は人間の境界ではない。検証者の指摘として、
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら
@@ -134,6 +140,8 @@ script の構造では防げず、読み手が知っておくべきもの。
   辻褄を合わせて書き足した記録は検出できない。
 - **agent の同一性と起動文**: 生成者と検証者の分離は、出力の `agent` と `prompt_extra` の自己申告に
   依存する。同じ agent に別の役割の brief を続けて渡すことは防げない。
+- **系の種類の一覧の完全性**: script は種類と条件・除外の対応だけを検査し、列挙のコマンドを実行
+  しない。一覧の外に要素が無いことは、scope の反証だけが見る。
 - **名指しの停止条件**: design.json の `stops` は、script が成立を判定しない（`status` に表示する
   だけ）。当たったと判断したら、司令塔が止めて人間に報告する。
 - **人間ゲートと自動継続**: どちらも司令塔が `close`・`continue` を呼ぶ前提で、script はマージや公開、
