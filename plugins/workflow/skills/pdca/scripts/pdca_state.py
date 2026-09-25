@@ -16,11 +16,23 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 
-KINDS = (
-    "init", "amend", "brief", "criteria_written", "criteria_review", "fix",
-    "work", "smoke", "verification", "judgment", "continue", "close",
-)
-ROLES = ("criteria-author", "criteria-verifier", "writer", "verifier", "completion-judge")
+DATA_KEYS = {
+    "init": ({"request_sha256", "materials"}, set()),
+    "amend": ({"request_sha256"}, set()),
+    "brief": ({"role"}, {"aspect", "conditions", "viewpoint", "mode", "report_sha256"}),
+    "criteria_written": ({"aspect", "sha256", "agent"}, set()),
+    "criteria_review": ({"aspect", "reviewed_sha256", "findings", "agent"}, set()),
+    "fix": ({"documents", "means", "budget"}, set()),
+    "work": ({"conditions", "outputs", "agent"}, set()),
+    "smoke": ({"viewpoint", "passed", "controls", "agent"}, set()),
+    "verification": ({"viewpoint", "reported", "status", "observed", "evidence", "findings", "agent"}, set()),
+    "judgment": ({"verdict", "open", "reason", "agent"}, set()),
+    "continue": ({"count", "next"}, {"refused"}),
+    "close": ({"documents", "human_gates"}, set()),
+}
+BRIEF_KEYS = {"criteria-author": {"aspect"}, "criteria-verifier": {"aspect"}, "writer": {"conditions"},
+              "verifier": {"viewpoint", "mode"}, "completion-judge": {"report_sha256"}}
+ROLES = tuple(BRIEF_KEYS)
 DOCUMENT_READERS = ("criteria-author", "criteria-verifier", "verifier")
 ASPECTS = ("scope", "design")
 DOCS = {"scope": "scope.json", "design": "design.json"}
@@ -204,8 +216,9 @@ class Ledger:
                 raise StateError(f"{where}: seq は {lineno} であるべきところ {entry['seq']!r}（行の削除・並べ替え）")
             if entry["prev_sha256"] != prev:
                 raise StateError(f"{where}: prev_sha256 が直前の行と一致しない（行の書き換え）")
-            if entry["kind"] not in KINDS:
+            if entry["kind"] not in DATA_KEYS:
                 raise StateError(f"{where}: 未知の kind {entry['kind']!r}")
+            check_data(entry, where)
             entries.append(entry)
             prev = sha256_bytes(line.encode("utf-8"))
         if not entries or entries[0]["kind"] != "init":
@@ -232,6 +245,32 @@ class Ledger:
     def last(self, *kinds: str, after: int = 0) -> dict | None:
         found = self.of(*kinds, after=after)
         return found[-1] if found else None
+
+
+def check_data(entry: dict, where: str) -> None:
+    try:
+        datetime.fromisoformat(entry["ts"])
+    except (TypeError, ValueError) as exc:
+        raise StateError(f"{where}: ts が ISO 8601 の時刻でない") from exc
+    kind, data = entry["kind"], entry["data"]
+    require_keys(data, f"{where}.data", *DATA_KEYS[kind])
+    if kind == "init":
+        if not isinstance(data["materials"], list):
+            raise StateError(f"{where}.data.materials は配列である必要がある")
+        for i, m in enumerate(data["materials"]):
+            require_keys(m, f"{where}.data.materials[{i}]", {"path", "sha256"})
+    if kind == "brief":
+        if data["role"] not in BRIEF_KEYS:
+            raise StateError(f"{where}: 未知の role {data['role']!r}")
+        require_keys(data, f"{where}.data", {"role"} | BRIEF_KEYS[data["role"]])
+    if "aspect" in data and data["aspect"] not in ASPECTS:
+        raise StateError(f"{where}: aspect が {ASPECTS} のどれでもない（旧形式の台帳は読まない）")
+    if "findings" in data:
+        validate_findings(data["findings"], f"{where}.data")
+    if kind in ("fix", "close"):
+        require_keys(data["documents"], f"{where}.documents", set(ASPECTS))
+    if kind == "fix":
+        require_keys(data["budget"], f"{where}.budget", {"rounds", "wall_seconds"})
 
 
 def validate_findings(findings: object, where: str) -> list[dict]:
@@ -422,10 +461,6 @@ class State:
                 consumed.add(e["brief_id"])
             elif "brief_id" in e:
                 raise StateError(f"{where}: {e['kind']} は brief_id を持たない")
-            if e["kind"] == "fix":
-                require_keys(e["data"], where, {"documents", "means", "budget"})
-                require_keys(e["data"]["documents"], f"{where}.documents", set(ASPECTS))
-                require_keys(e["data"]["budget"], f"{where}.budget", {"rounds", "wall_seconds"})
             if e["kind"] in ("fix", "close"):
                 pinned = e["data"]["documents"] if e["kind"] == "fix" else None
                 before = State(self.run_dir, self.ledger.prefix(e["seq"] - 1), pinned)

@@ -1009,6 +1009,27 @@ class TestStopAndLedger(Base):
             self.assertIn("budget", r.refused(*args))
         self.assertEqual((r.dir / "ledger.jsonl").read_text(), before)
 
+    def test_旧形式の台帳はどの操作もJSONのエラーで拒否する(self):
+        old_written = [("brief", {"role": "criteria-author"}), ("criteria_written", {"criteria_sha256": "x", "agent": "a"})]
+        old_review = [("brief", {"role": "criteria-author", "aspect": "scope"}),
+                      ("criteria_written", {"aspect": "scope", "sha256": "x", "agent": "a"}),
+                      ("brief", {"role": "criteria-verifier", "aspect": "scope"}),
+                      ("criteria_review", {"aspect": "scope", "reviewed_sha256": "x", "verdict": "pass",
+                                           "findings": [], "agent": "s"})]
+        for name, lines in (("written", old_written), ("review", old_review)):
+            (self.root / name).mkdir()
+            r = Run(self.root / name)
+            r.init()
+            for n, (kind, data) in enumerate(lines, start=2):
+                forge(r, kind, data, brief_id=f"b{n}" if kind == "brief" else f"b{n - 1}")
+            for args in (("status",), ("continue",), ("fix",), ("close",),
+                         ("brief", "--role", "criteria-author", "--aspect", "scope")):
+                with self.subTest(ledger=name, args=args):
+                    proc = subprocess.run([sys.executable, str(SCRIPT), *args, "--run-dir", str(r.dir)],
+                                          capture_output=True, text=True)
+                    self.assertEqual(proc.returncode, 1, proc.stderr)
+                    self.assertIn("error", json.loads(proc.stderr))
+
     def test_使用済みのbrief_idを拒否する(self):
         r = self.run_()
         r.fixed()
