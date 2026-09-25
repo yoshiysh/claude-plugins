@@ -47,7 +47,7 @@ run-dir は対象の作業ツリーの外に置く。ユーザーの発言は、
 S=[SKILL_DIR]/scripts/pdca_state.py
 python3 $S init --run-dir <run-dir> --request-file <依頼原文> --material <資料のパス>   # 資料は複数可
 python3 $S amend --run-dir <run-dir> --request-file <後から来た発言>
-python3 $S brief --run-dir <run-dir> --role <役割> [--conditions <条件 ID>…] [--viewpoint <観点 ID>] [--aspect <scope か design>] [--report-file <最終報告案>]
+python3 $S brief --run-dir <run-dir> --role <役割> [--aspect <scope か design>] [--conditions <条件 ID>…] [--viewpoint <観点 ID>] [--report-file <最終報告案>]
 python3 $S record --run-dir <run-dir> --file <agent の出力>
 python3 $S fix --run-dir <run-dir>
 python3 $S status --run-dir <run-dir>
@@ -57,11 +57,12 @@ python3 $S close --run-dir <run-dir>
 
 1. `init`（後から発言が来たら `amend`）。返った `recorded_request` を、最初の報告で「依頼として
    記録した原文」としてユーザーに示す。
-2. criteria-author が完了条件文書を書く → criteria-verifier が scope と design を別 agent で反証する →
-   両方 pass で `fix`。
+2. 完了条件は 2 つの文書に書く。criteria-author が範囲の文書（scope.json: 条件・除外・人間ゲート）を
+   書き、criteria-verifier が scope で反証する → 通ったら criteria-author が測定の文書（design.json:
+   観点・測定手段・対照・予算・停止）を書き、別の criteria-verifier が design で反証する → `fix`。
 3. writer が作る → verifier が観点ごとに 1 agent ずつ検証する（対照を持つ観点は先に smoke）。
-4. 各 `record` と `status` が返す `next` に従う。`writer` なら次の周、`criteria-author` なら完了条件の
-   直し、`stop:*` なら止めて報告する。
+4. 各 `record` と `status` が返す `next` に従う。`writer` なら次の周、`criteria-author:<aspect>` なら
+   その文書の直し、`stop:*` なら止めて報告する。
 5. 全観点が pass になったら、最終報告案をファイルに書いて completion-judge に渡し、complete なら `close`。
 
 各 agent は `brief` → `invoke` で起動 → `record` の順で回す。ターンを text だけで終えようとして
@@ -104,7 +105,7 @@ python3 $S close --run-dir <run-dir>
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら
   `criteria_open`）を人間に報告する。止まった run は `amend` しても再開しない。予算の増額が承認されたら、
-  新しい run-dir で `init` し直し、前の run の request.md を `--request-file` に、criteria.json と
+  新しい run-dir で `init` し直し、前の run の request.md を `--request-file` に、scope.json・design.json・
   ledger.jsonl を `--material` に渡す。
 
 ## 結果の提示
@@ -131,7 +132,7 @@ script の構造では防げず、読み手が知っておくべきもの。
   辻褄を合わせて書き足した記録は検出できない。
 - **agent の同一性と起動文**: 生成者と検証者の分離は、出力の `agent` と `prompt_extra` の自己申告に
   依存する。同じ agent に別の役割の brief を続けて渡すことは防げない。
-- **名指しの停止条件**: `criteria.json` の `stops` は、script が成立を判定しない（`status` に表示する
+- **名指しの停止条件**: design.json の `stops` は、script が成立を判定しない（`status` に表示する
   だけ）。当たったと判断したら、司令塔が止めて人間に報告する。
 - **人間ゲートと自動継続**: どちらも司令塔が `close`・`continue` を呼ぶ前提で、script はマージや公開、
   `continue` を呼ばずに終わるターンを止められない。

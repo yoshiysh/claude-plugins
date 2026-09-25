@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """pdca の状態を run-dir に持ち、どの呼び出しを受けるかを決める。
 
-ledger.jsonl を書くのはこの script だけ。agent と司令塔が書くのは、criteria.json（criteria-author）と
-out/<brief_id>.json（各 agent）だけ。
+ledger.jsonl を書くのはこの script だけ。agent と司令塔が書くのは、scope.json と design.json
+（criteria-author）と out/<brief_id>.json（各 agent）だけ。
 """
 
 from __future__ import annotations
@@ -23,8 +23,10 @@ KINDS = (
 ROLES = ("criteria-author", "criteria-verifier", "writer", "verifier", "completion-judge")
 DOCUMENT_READERS = ("criteria-author", "criteria-verifier", "verifier")
 ASPECTS = ("scope", "design")
+DOCS = {"scope": "scope.json", "design": "design.json"}
 LAYERS = ("範囲の導出", "設計", "実装")
-CRITERIA_LAYERS = ("範囲の導出", "設計")
+LAYER_OF = {"scope": "範囲の導出", "design": "設計"}
+REVIEW_LAYERS = {"scope": ("範囲の導出",), "design": ("範囲の導出", "設計")}
 SEVERITIES = ("blocking", "non_blocking")
 MEANS_KINDS = ("audit", "script", "test", "command")
 CONTROLLED_MEANS = ("script", "test", "command")
@@ -43,33 +45,34 @@ CONTINUE = "未充足の項目が残っている: {items}。完了を宣言せ�
 
 LEDGER = "ledger.jsonl"
 REQUEST = "request.md"
-CRITERIA = "criteria.json"
 OUT = "out"
 ENTRY_KEYS = {"seq", "ts", "prev_sha256", "kind", "brief_id", "data"}
 SCRIPT_KEYS = {"seq", "ts", "prev_sha256"}
 FINDING = {
-    "target": "指摘の対象のパス（layer が範囲の導出か設計なら criteria.json）",
+    "target": "指摘の対象のパス（完了条件の文書への指摘なら、その文書）",
     "severity": "|".join(SEVERITIES),
     "layer": "|".join(LAYERS),
     "claim": "何が欠けているか・何が誤っているか",
     "evidence": "根拠の所在（パスと行、または実行したコマンドと出力）",
 }
-CRITERIA_SHAPE = {
-    "conditions": [{
-        "id": "C1", "statement": "満たすべき状態",
-        "source": {"path": "request.md か init で登録した資料のパス", "quote": "その中の逐語の引用"},
+SHAPES = {
+    "scope": {
+        "conditions": [{"id": "C1", "statement": "満たすべき状態",
+                        "source": {"path": "request.md か init で登録した資料のパス", "quote": "その中の逐語の引用"}}],
+        "excluded": [{"item": "範囲に入れないもの", "reason": "入れない理由"}],
+        "human_gates": ["マージ", "公開"],
+    },
+    "design": {
         "viewpoints": [{
-            "id": "C1-V1", "check": "何を確かめるか",
+            "id": "C1-V1", "condition": "scope.json の条件 ID", "check": "何を確かめるか",
             "means": {"kind": "|".join(MEANS_KINDS), "ref": "測定手段の絶対パス（controls があれば必須）",
                       "pass_if": {"op": "|".join(PASS_OPS), "value": 0}},
             "controls": [{"input": "正解が分かっている入力", "expected": "その入力で出るべき値",
                           "ref": "入力がファイルかディレクトリなら、その絶対パス"}],
         }],
-    }],
-    "excluded": [{"item": "範囲に入れないもの", "reason": "入れない理由"}],
-    "budget": {"rounds": MAX_ROUNDS, "wall_seconds": 7200},
-    "stops": ["名指しの停止条件"],
-    "human_gates": ["マージ", "公開"],
+        "budget": {"rounds": MAX_ROUNDS, "wall_seconds": 7200},
+        "stops": ["名指しの停止条件"],
+    },
 }
 COMMON_OUTPUT = {
     "role": "brief の role",
@@ -79,8 +82,8 @@ COMMON_OUTPUT = {
 }
 OUTPUT = {
     "criteria-author": {},
-    "criteria-verifier": {"aspect": "brief の aspect", "reviewed_sha256": "レビューした criteria.json の sha256",
-                          "verdict": "pass|fail", "findings": [FINDING]},
+    "criteria-verifier": {"aspect": "brief の aspect", "reviewed_sha256": "レビューした文書の sha256",
+                          "findings": [FINDING]},
     "writer": {"outputs": ["作った・直した成果物のパス"]},
     "verify": {"viewpoint": "brief の観点 ID", "status": "|".join(VERIFY_STATUSES),
                "observed": "means.pass_if があれば観測した数値、無ければ null", "evidence": "確かめた方法と結果",
@@ -262,85 +265,100 @@ def source_file(run_dir: Path, materials: list[dict], raw: str) -> Path:
     raise StateError(f"source.path {raw!r} は request.md か init で登録した資料ではない")
 
 
-def validate_criteria(obj: object, run_dir: Path, materials: list[dict]) -> dict:
-    require_keys(obj, CRITERIA, {"conditions", "excluded", "budget", "stops", "human_gates"})
+def claim_id(raw: object, where: str, seen: set) -> None:
+    nonempty_str(raw, where)
+    if raw.startswith("R-"):
+        raise StateError(f"ID {raw!r} は R- で始まる（R- は script が毎回入れる観点に予約）")
+    if raw in seen:
+        raise StateError(f"ID {raw!r} が重複している")
+    seen.add(raw)
+
+
+def string_list(value: object, where: str) -> None:
+    if not isinstance(value, list) or not all(isinstance(s, str) and s.strip() for s in value):
+        raise StateError(f"{where} は空でない文字列の配列")
+
+
+def validate_scope(obj: object, run_dir: Path, materials: list[dict]) -> dict:
+    require_keys(obj, DOCS["scope"], {"conditions", "excluded", "human_gates"})
     conditions = obj["conditions"]
     if not isinstance(conditions, list) or not conditions:
         raise StateError("conditions が 0 件")
     seen: set = set()
     for i, cond in enumerate(conditions):
         w = f"conditions[{i}]"
-        require_keys(cond, w, {"id", "statement", "source", "viewpoints"})
-        ids = [cond["id"]]
+        require_keys(cond, w, {"id", "statement", "source"})
+        claim_id(cond["id"], f"{w}.id", seen)
         nonempty_str(cond["statement"], f"{w}.statement")
         require_keys(cond["source"], f"{w}.source", {"path", "quote"})
         quote = nonempty_str(cond["source"]["quote"], f"{w}.source.quote")
         text = source_file(run_dir, materials, nonempty_str(cond["source"]["path"], f"{w}.source.path")).read_text(encoding="utf-8")
         if quote not in text:
             raise StateError(f"{w}.source.quote が {cond['source']['path']} に逐語で無い")
-        viewpoints = cond["viewpoints"]
-        if not isinstance(viewpoints, list) or not viewpoints:
-            raise StateError(f"{w}: 観点が 0 の条件がある")
-        for j, vp in enumerate(viewpoints):
-            v = f"{w}.viewpoints[{j}]"
-            require_keys(vp, v, {"id", "check", "means"}, {"controls"})
-            ids.append(vp["id"])
-            nonempty_str(vp["check"], f"{v}.check")
-            means = require_keys(vp["means"], f"{v}.means", {"kind"}, {"ref", "pass_if"})
-            if means["kind"] not in MEANS_KINDS:
-                raise StateError(f"{v}.means.kind は {MEANS_KINDS} のどれか")
-            if "ref" in means:
-                ref = user_path(nonempty_str(means["ref"], f"{v}.means.ref"))
-                if not ref.is_absolute() or not ref.exists():
-                    raise StateError(f"{v}.means.ref が存在しない（絶対パスで書く）: {means['ref']}")
-            if "pass_if" in means:
-                pass_if = require_keys(means["pass_if"], f"{v}.means.pass_if", {"op", "value"})
-                if pass_if["op"] not in PASS_OPS or not number(pass_if["value"]):
-                    raise StateError(f"{v}.means.pass_if は op {PASS_OPS} と数値の value")
-            controls = vp.get("controls", [])
-            if not isinstance(controls, list):
-                raise StateError(f"{v}.controls は配列である必要がある")
-            if means["kind"] in CONTROLLED_MEANS and not controls:
-                raise StateError(f"{v}: kind が {means['kind']} なのに controls が無い")
-            if controls and "ref" not in means:
-                raise StateError(f"{v}: controls があるのに means.ref が無い（smoke で実行する測定手段を指す）")
-            for k, control in enumerate(controls):
-                require_keys(control, f"{v}.controls[{k}]", {"input", "expected"}, {"ref"})
-                nonempty_str(control["input"], f"{v}.controls[{k}].input")
-                if "ref" in control:
-                    ref = user_path(nonempty_str(control["ref"], f"{v}.controls[{k}].ref"))
-                    if not ref.is_absolute() or not ref.exists():
-                        raise StateError(f"{v}.controls[{k}].ref が存在しない（絶対パスで書く）: {control['ref']}")
-        for raw_id in ids:
-            nonempty_str(raw_id, f"{w} の ID")
-            if raw_id.startswith("R-"):
-                raise StateError(f"ID {raw_id!r} は R- で始まる（R- は script が毎回入れる観点に予約）")
-            if raw_id in seen:
-                raise StateError(f"ID {raw_id!r} が重複している")
-            seen.add(raw_id)
     if not isinstance(obj["excluded"], list):
         raise StateError("excluded は配列である必要がある")
     for i, ex in enumerate(obj["excluded"]):
         require_keys(ex, f"excluded[{i}]", {"item", "reason"})
         nonempty_str(ex["item"], f"excluded[{i}].item")
         nonempty_str(ex["reason"], f"excluded[{i}].reason")
+    string_list(obj["human_gates"], "human_gates")
+    return obj
+
+
+def validate_design(obj: object, scope: dict) -> dict:
+    require_keys(obj, DOCS["design"], {"viewpoints", "budget", "stops"})
+    viewpoints = obj["viewpoints"]
+    if not isinstance(viewpoints, list) or not viewpoints:
+        raise StateError("viewpoints が 0 件")
+    conditions = {c["id"] for c in scope["conditions"]}
+    seen = set(conditions)
+    for j, vp in enumerate(viewpoints):
+        v = f"viewpoints[{j}]"
+        require_keys(vp, v, {"id", "condition", "check", "means"}, {"controls"})
+        claim_id(vp["id"], f"{v}.id", seen)
+        if vp["condition"] not in conditions:
+            raise StateError(f"{v}.condition {vp['condition']!r} は scope.json の条件に無い")
+        nonempty_str(vp["check"], f"{v}.check")
+        means = require_keys(vp["means"], f"{v}.means", {"kind"}, {"ref", "pass_if"})
+        if means["kind"] not in MEANS_KINDS:
+            raise StateError(f"{v}.means.kind は {MEANS_KINDS} のどれか")
+        if "ref" in means:
+            ref = user_path(nonempty_str(means["ref"], f"{v}.means.ref"))
+            if not ref.is_absolute() or not ref.exists():
+                raise StateError(f"{v}.means.ref が存在しない（絶対パスで書く）: {means['ref']}")
+        if "pass_if" in means:
+            pass_if = require_keys(means["pass_if"], f"{v}.means.pass_if", {"op", "value"})
+            if pass_if["op"] not in PASS_OPS or not number(pass_if["value"]):
+                raise StateError(f"{v}.means.pass_if は op {PASS_OPS} と数値の value")
+        controls = vp.get("controls", [])
+        if not isinstance(controls, list):
+            raise StateError(f"{v}.controls は配列である必要がある")
+        if means["kind"] in CONTROLLED_MEANS and not controls:
+            raise StateError(f"{v}: kind が {means['kind']} なのに controls が無い")
+        if controls and "ref" not in means:
+            raise StateError(f"{v}: controls があるのに means.ref が無い（smoke で実行する測定手段を指す）")
+        for k, control in enumerate(controls):
+            require_keys(control, f"{v}.controls[{k}]", {"input", "expected"}, {"ref"})
+            nonempty_str(control["input"], f"{v}.controls[{k}].input")
+            if "ref" in control:
+                ref = user_path(nonempty_str(control["ref"], f"{v}.controls[{k}].ref"))
+                if not ref.is_absolute() or not ref.exists():
+                    raise StateError(f"{v}.controls[{k}].ref が存在しない（絶対パスで書く）: {control['ref']}")
+    uncovered = sorted(conditions - {vp["condition"] for vp in viewpoints})
+    if uncovered:
+        raise StateError(f"観点が 0 の条件がある: {', '.join(uncovered)}")
     budget = require_keys(obj["budget"], "budget", {"rounds", "wall_seconds"})
     for key in ("rounds", "wall_seconds"):
         if not isinstance(budget[key], int) or isinstance(budget[key], bool) or budget[key] < 1:
             raise StateError(f"budget.{key} は 1 以上の整数")
     if budget["rounds"] > MAX_ROUNDS:
         raise StateError(f"budget.rounds が MAX_ROUNDS = {MAX_ROUNDS} を超える")
-    for key in ("stops", "human_gates"):
-        if not isinstance(obj[key], list) or not all(isinstance(s, str) and s.strip() for s in obj[key]):
-            raise StateError(f"{key} は空でない文字列の配列")
+    string_list(obj["stops"], "stops")
     return obj
 
 
 def viewpoints_of(criteria: dict) -> dict[str, dict]:
-    table = {}
-    for cond in criteria["conditions"]:
-        for vp in cond["viewpoints"]:
-            table[vp["id"]] = {**vp, "condition": cond["id"]}
+    table = {vp["id"]: vp for vp in criteria["viewpoints"]}
     for vid, check in ALWAYS_VIEWPOINTS.items():
         table[vid] = {"id": vid, "check": check, "means": {"kind": "audit"}, "condition": None}
     return table
@@ -366,8 +384,9 @@ def effective_status(vp: dict, reported: str, observed: object, findings: list) 
 
 
 class State:
-    def __init__(self, run_dir: Path, ledger: Ledger | None = None):
+    def __init__(self, run_dir: Path, ledger: Ledger | None = None, pinned: dict | None = None):
         self.run_dir = run_dir
+        self.pinned = pinned
         self.ledger = ledger or Ledger(run_dir)
         init = self.ledger.entries[0]["data"]
         self.materials = init["materials"]
@@ -404,18 +423,21 @@ class State:
             elif "brief_id" in e:
                 raise StateError(f"{where}: {e['kind']} は brief_id を持たない")
             if e["kind"] == "fix":
-                require_keys(e["data"], where, {"criteria_sha256", "means", "budget"})
+                require_keys(e["data"], where, {"documents", "means", "budget"})
+                require_keys(e["data"]["documents"], f"{where}.documents", set(ASPECTS))
                 require_keys(e["data"]["budget"], f"{where}.budget", {"rounds", "wall_seconds"})
             if e["kind"] in ("fix", "close"):
-                before = State(self.run_dir, self.ledger.prefix(e["seq"] - 1))
-                problem = fix_problem(before, e["data"]["criteria_sha256"]) if e["kind"] == "fix" else close_problem(before)
+                pinned = e["data"]["documents"] if e["kind"] == "fix" else None
+                before = State(self.run_dir, self.ledger.prefix(e["seq"] - 1), pinned)
+                problem = fix_problem(before) if e["kind"] == "fix" else close_problem(before)
                 if problem:
                     raise StateError(f"{where}: この {e['kind']} は記録の時点で成立していない（{problem}）")
 
     def _assign_rounds(self) -> None:
         self.round_of: dict[int, int] = {}
         self.criteria_round_of: dict[int, int] = {}
-        work_round = criteria_round = 0
+        work_round = 0
+        criteria_round = dict.fromkeys(ASPECTS, 0)
         verified_since_work = True
         for e in self.ledger.entries:
             if e["kind"] == "work":
@@ -429,21 +451,36 @@ class State:
             elif e["kind"] == "smoke":
                 self.round_of[e["seq"]] = work_round
             elif e["kind"] == "criteria_written":
-                criteria_round += 1
+                criteria_round[e["data"]["aspect"]] += 1
             elif e["kind"] == "criteria_review":
-                self.criteria_round_of[e["seq"]] = criteria_round
+                self.criteria_round_of[e["seq"]] = criteria_round[e["data"]["aspect"]]
         self.rounds_used = work_round
         self.next_writer_opens_round = verified_since_work
 
-    def criteria_sha(self) -> str | None:
-        path = self.run_dir / CRITERIA
+    def doc_path(self, aspect: str) -> Path:
+        return self.run_dir / DOCS[aspect]
+
+    def doc_sha(self, aspect: str) -> str | None:
+        if self.pinned:
+            return self.pinned[aspect]
+        path = self.doc_path(aspect)
         return digest(path) if path.is_file() else None
 
-    def criteria(self) -> dict:
-        path = self.run_dir / CRITERIA
+    def docs(self) -> dict:
+        return {a: self.doc_sha(a) for a in ASPECTS}
+
+    def read_doc(self, aspect: str) -> object:
+        path = self.doc_path(aspect)
         if not path.is_file():
-            raise StateError("criteria.json が無い")
-        return validate_criteria(read_json(path), self.run_dir, self.materials)
+            raise StateError(f"{DOCS[aspect]} が無い")
+        return read_json(path)
+
+    def scope(self) -> dict:
+        return validate_scope(self.read_doc("scope"), self.run_dir, self.materials)
+
+    def criteria(self) -> dict:
+        scope = self.scope()
+        return scope | validate_design(self.read_doc("design"), scope)
 
     def window_open(self) -> bool:
         return self.last_fix is None or any(
@@ -451,12 +488,15 @@ class State:
         )
 
     def check_criteria_digest(self) -> None:
-        if not self.window_open() and self.criteria_sha() != self.last_fix["data"]["criteria_sha256"]:
-            raise StateError("criteria.json の digest が最後の fix と一致しない（固定後の書き換え）")
+        if self.window_open():
+            return
+        changed = [DOCS[a] for a in ASPECTS if self.doc_sha(a) != self.last_fix["data"]["documents"][a]]
+        if changed:
+            raise StateError(f"{', '.join(changed)} の digest が最後の fix と一致しない（固定後の書き換え）")
 
     def criteria_findings_after_fix(self) -> list[dict]:
         return [e for e in self.ledger.of("verification", after=self.fix_seq)
-                if any(f["severity"] == "blocking" and f["layer"] in CRITERIA_LAYERS for f in e["data"]["findings"])]
+                if any(f["severity"] == "blocking" and f["layer"] in LAYER_OF.values() for f in e["data"]["findings"])]
 
     def reopened(self) -> bool:
         if self.last_fix is None:
@@ -471,28 +511,42 @@ class State:
     def fixed_budget(self) -> dict | None:
         return self.last_fix["data"]["budget"] if self.last_fix else None
 
+    def written(self, aspect: str) -> dict | None:
+        found = [e for e in self.ledger.of("criteria_written") if e["data"]["aspect"] == aspect]
+        return found[-1] if found else None
+
+    def current_review(self, aspect: str) -> dict | None:
+        upto = ASPECTS[:ASPECTS.index(aspect) + 1]
+        marks = [e["seq"] for e in self.ledger.of("amend", "criteria_written")
+                 if e["kind"] == "amend" or e["data"]["aspect"] in upto]
+        found = [e for e in self.ledger.of("criteria_review", after=max(marks, default=0))
+                 if e["data"]["aspect"] == aspect and e["data"]["reviewed_sha256"] == self.doc_sha(aspect)]
+        return found[-1] if found else None
+
+    def routed_findings(self, aspect: str) -> list[dict]:
+        written = self.written(aspect)
+        after = written["seq"] if written else 0
+        reviews = [r for r in map(self.current_review, ASPECTS) if r and r["seq"] > after]
+        entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
+        return [f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]]
+
+    def needs_author(self, aspect: str) -> bool:
+        written = self.written(aspect)
+        if written is None:
+            return True
+        if aspect == "design" and written["seq"] < self.written("scope")["seq"]:
+            return True
+        return any(f["severity"] == "blocking" for f in self.routed_findings(aspect))
+
+    def ready(self, aspect: str) -> bool:
+        return not self.needs_author(aspect) and self.current_review(aspect) is not None
+
     def criteria_open(self) -> list[dict]:
-        basis = self.reviews_basis()
-        found = [f for e in self.ledger.of("criteria_review", after=basis) for f in e["data"]["findings"]]
-        found += [f for e in self.criteria_findings_after_fix() if e["seq"] > basis
-                  for f in e["data"]["findings"] if f["layer"] in CRITERIA_LAYERS]
-        items = [f for f in found if f["severity"] == "blocking"]
-        amend, written = self.ledger.last("amend"), self.ledger.last("criteria_written")
+        items = [f for a in ASPECTS for f in self.routed_findings(a) if f["severity"] == "blocking"]
+        amend, written = self.ledger.last("amend"), self.written("scope")
         if amend and (written is None or amend["seq"] > written["seq"]):
-            items.append({"target": REQUEST, "claim": "amend で足した依頼が criteria.json に未反映"})
+            items.append({"target": REQUEST, "claim": "amend で足した依頼が scope.json に未反映"})
         return items
-
-    def reviews_basis(self) -> int:
-        marks = [e["seq"] for e in self.ledger.of("amend", "criteria_written")]
-        return max(marks) if marks else 0
-
-    def current_reviews(self, sha: str | None = None) -> dict[str, dict]:
-        sha = sha or self.criteria_sha()
-        latest = {}
-        for e in self.ledger.of("criteria_review", after=self.reviews_basis()):
-            if e["data"]["reviewed_sha256"] == sha:
-                latest[e["data"]["aspect"]] = e
-        return latest
 
     def current_round(self) -> int:
         works = self.ledger.of("work", after=self.fix_seq)
@@ -512,20 +566,17 @@ class State:
                       "reported": vid in latest} for vid, vp in table.items()}
 
     def finding_counts(self) -> dict:
-        crit: dict[int, dict] = {}
-        for e in self.ledger.of("criteria_review"):
-            bucket = crit.setdefault(self.criteria_round_of[e["seq"]], {layer: 0 for layer in LAYERS})
+        series: dict[str, dict] = {name: {} for name in (*ASPECTS, "verification")}
+        for e in self.ledger.of("criteria_review", "verification"):
+            if e["kind"] == "verification":
+                name, r = "verification", self.round_of[e["seq"]]
+            else:
+                name, r = e["data"]["aspect"], self.criteria_round_of[e["seq"]]
+            bucket = series[name].setdefault(r, dict.fromkeys(LAYERS, 0))
             for f in e["data"]["findings"]:
                 if f["severity"] == "blocking":
                     bucket[f["layer"]] += 1
-        ver: dict[int, dict] = {}
-        for e in self.ledger.of("verification"):
-            bucket = ver.setdefault(self.round_of[e["seq"]], {layer: 0 for layer in LAYERS})
-            for f in e["data"]["findings"]:
-                if f["severity"] == "blocking":
-                    bucket[f["layer"]] += 1
-        return {"criteria_review": [{"round": r, "blocking": c} for r, c in sorted(crit.items())],
-                "verification": [{"round": r, "blocking": c} for r, c in sorted(ver.items())]}
+        return {name: [{"round": r, "blocking": c} for r, c in sorted(rows.items())] for name, rows in series.items()}
 
     def regressions(self) -> list[dict]:
         by_round: dict[int, dict] = {}
@@ -540,8 +591,8 @@ class State:
 
     def non_converging(self) -> str | None:
         counts = self.finding_counts()
-        for series in ("criteria_review", "verification"):
-            rows = [row["blocking"] for row in counts[series]]
+        for series in counts.values():
+            rows = [row["blocking"] for row in series]
             for layer in LAYERS:
                 seq = [row[layer] for row in rows]
                 for a, b, c in zip(seq, seq[1:], seq[2:]):
@@ -573,16 +624,12 @@ class State:
         if self.reopened():
             if budget and self.next_writer_opens_round and self.rounds_used >= budget["rounds"]:
                 return "stop:rounds"
-            written = self.ledger.last("criteria_written")
-            findings = self.criteria_findings_after_fix()
-            if written is None or (findings and written["seq"] < findings[-1]["seq"]):
-                return "criteria-author"
-            reviews = self.current_reviews()
-            if any(r["data"]["verdict"] != "pass" or any(f["severity"] == "blocking" for f in r["data"]["findings"])
-                   for r in reviews.values()):
-                return "criteria-author"
-            missing = [a for a in ASPECTS if a not in reviews]
-            return f"criteria-verifier:{missing[0]}" if missing else "fix"
+            for aspect in ASPECTS:
+                if self.needs_author(aspect):
+                    return f"criteria-author:{aspect}"
+                if self.current_review(aspect) is None:
+                    return f"criteria-verifier:{aspect}"
+            return "fix"
         criteria = self.criteria()
         out_of_rounds = self.rounds_used >= budget["rounds"]
         if not self.ledger.of("work", after=self.fix_seq):
@@ -666,10 +713,7 @@ def cmd_amend(args) -> int:
 
 def prior_findings(state: State, role: str, conditions: list, viewpoint: str | None, aspect: str | None) -> list[dict]:
     if role == "criteria-author":
-        reviews = state.ledger.of("criteria_review", after=state.reviews_basis())
-        found = [f for e in reviews for f in e["data"]["findings"]]
-        return found + [f for e in state.criteria_findings_after_fix() for f in e["data"]["findings"]
-                        if f["layer"] in CRITERIA_LAYERS]
+        return state.routed_findings(aspect)
     if role == "criteria-verifier":
         prev = [e for e in state.ledger.of("criteria_review") if e["data"]["aspect"] == aspect]
         return prev[-1]["data"]["findings"] if prev else []
@@ -697,18 +741,19 @@ def cmd_brief(args) -> int:
     viewpoints = args.viewpoint or []
     if len(viewpoints) != (1 if role == "verifier" else 0):
         raise StateError("--viewpoint は verifier が 1 つだけ取る")
-    if (args.aspect is not None) != (role == "criteria-verifier"):
-        raise StateError("--aspect は criteria-verifier が必ず取る")
+    if (args.aspect is not None) != (role in ("criteria-author", "criteria-verifier")):
+        raise StateError("--aspect は criteria-author と criteria-verifier が必ず取る")
     if (args.report_file is not None) != (role == "completion-judge"):
         raise StateError("--report-file は completion-judge が必ず取る")
     brief: dict = {"role": role}
     record = {"role": role}
-    if role == "criteria-author":
-        if state.fixed():
-            raise StateError("fix 済みで、criteria 層の未解決の指摘も amend も無い")
-    elif role == "criteria-verifier":
-        if state.ledger.last("criteria_written") is None:
-            raise StateError("criteria-author の記録がまだ無い")
+    if args.aspect:
+        if role == "criteria-author" and state.fixed():
+            raise StateError("fix 済みで、完了条件の文書への未解決の指摘も amend も無い")
+        if args.aspect == "design" and not state.ready("scope"):
+            raise StateError("範囲の文書が scope の反証を通っていない（測定の文書は範囲を固めてから）")
+        if role == "criteria-verifier" and state.needs_author(args.aspect):
+            raise StateError(f"{DOCS[args.aspect]} が未記録か、範囲の書き直しか指摘への直しが済んでいない")
         brief["aspect"] = record["aspect"] = args.aspect
     else:
         if not state.fixed():
@@ -758,12 +803,12 @@ def cmd_brief(args) -> int:
         "output": COMMON_OUTPUT | OUTPUT[brief.get("mode", role)],
         "prior_findings": prior_findings(state, role, conditions, viewpoints[0] if viewpoints else None, args.aspect),
     })
-    if (state.run_dir / CRITERIA).is_file() or role == "criteria-author":
-        brief["criteria"] = {"path": str((state.run_dir / CRITERIA).resolve()), "sha256": state.criteria_sha()}
+    reads = ("scope",) if args.aspect == "scope" else ASPECTS
+    brief["documents"] = {a: {"path": str(state.doc_path(a).resolve()), "sha256": state.doc_sha(a)} for a in reads}
     if role in DOCUMENT_READERS:
         brief["document_rules"] = str(SKILL_DIR / "agents" / "writer.md")
     if role == "criteria-author":
-        brief["criteria_shape"] = CRITERIA_SHAPE
+        brief["shape"] = SHAPES[args.aspect]
     if role == "completion-judge":
         status_file = out_dir / f"{brief_id}.status.json"
         status_file.write_text(json.dumps(state.status(), ensure_ascii=False), encoding="utf-8")
@@ -808,19 +853,19 @@ def cmd_record(args) -> int:
     if "findings" in out:
         validate_findings(out["findings"], role)
     bid = brief["brief_id"]
+    aspect = brief["data"].get("aspect")
     if role == "criteria-author":
-        state.criteria()
-        entry = state.ledger.append("criteria_written", {"criteria_sha256": state.criteria_sha(), "agent": agent}, bid)
+        state.scope() if aspect == "scope" else state.criteria()
+        entry = state.ledger.append("criteria_written", {"aspect": aspect, "sha256": state.doc_sha(aspect), "agent": agent}, bid)
     elif role == "criteria-verifier":
-        if out["aspect"] != brief["data"]["aspect"]:
+        if out["aspect"] != aspect:
             raise StateError("aspect が brief と違う")
-        if out["verdict"] not in ("pass", "fail"):
-            raise StateError("verdict は pass か fail")
-        if out["reviewed_sha256"] != state.criteria_sha():
-            raise StateError("レビューした criteria の digest が現行と違う")
-        written = state.ledger.last("criteria_written")
-        if written and written["data"]["agent"] == agent:
-            raise StateError("criteria-verifier が criteria-author と同じ agent")
+        if out["reviewed_sha256"] != state.doc_sha(aspect):
+            raise StateError(f"レビューした {DOCS[aspect]} の digest が現行と違う")
+        if state.written(aspect)["data"]["agent"] == agent:
+            raise StateError("criteria-verifier が、レビューした文書の criteria-author と同じ agent")
+        if any(f["layer"] not in REVIEW_LAYERS[aspect] for f in out["findings"]):
+            raise StateError(f"{aspect} のレビューが出せる layer は {REVIEW_LAYERS[aspect]}")
         entry = state.ledger.append("criteria_review", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
     elif role == "writer":
         if not isinstance(out["outputs"], list) or not all(isinstance(p, str) and p for p in out["outputs"]):
@@ -865,22 +910,16 @@ def cmd_record(args) -> int:
     return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": State(state.run_dir).next()})
 
 
-def fix_problem(state: State, sha: str | None) -> str | None:
-    written = state.ledger.last("criteria_written")
-    if written is None:
-        return "criteria-author の記録が無い"
-    findings = state.criteria_findings_after_fix()
-    if findings and written["seq"] < findings[-1]["seq"]:
-        return "criteria 層の指摘の後に criteria-author が直していない"
-    reviews = state.current_reviews(sha)
-    missing = [a for a in ASPECTS if a not in reviews or reviews[a]["data"]["verdict"] != "pass"]
-    if missing:
-        return f"現行の criteria に対する pass が揃っていない: {', '.join(missing)}"
-    if any(f["severity"] == "blocking" for r in reviews.values() for f in r["data"]["findings"]):
-        return "blocking の指摘が残っている"
-    agents = [reviews["scope"]["data"]["agent"], reviews["design"]["data"]["agent"], written["data"]["agent"]]
-    if len(set(agents)) != len(agents):
-        return "scope の担当・design の担当・author のうち 2 つが同じ agent"
+def fix_problem(state: State) -> str | None:
+    for aspect in ASPECTS:
+        if state.needs_author(aspect):
+            return f"{DOCS[aspect]} が書かれていないか、指摘への直しが済んでいない"
+        if state.current_review(aspect) is None:
+            return f"現行の {DOCS[aspect]} に対するレビューが揃っていない: {aspect}"
+    reviewers = [state.current_review(a)["data"]["agent"] for a in ASPECTS]
+    authors = {state.written(a)["data"]["agent"] for a in ASPECTS}
+    if len(set(reviewers)) != len(reviewers) or authors & set(reviewers):
+        return "scope と design のレビュアーが同じ agent か、レビュアーが書き手と同じ agent"
     return None
 
 
@@ -891,15 +930,15 @@ def cmd_fix(args) -> int:
     if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
         raise StateError(f"停止中（next = {nxt}）")
     criteria = state.criteria()
-    sha = state.criteria_sha()
-    problem = fix_problem(state, sha)
+    problem = fix_problem(state)
     if problem:
         raise StateError(problem)
-    refs = [(vp["id"], raw) for cond in criteria["conditions"] for vp in cond["viewpoints"]
+    refs = [(vp["id"], raw) for vp in criteria["viewpoints"]
             for raw in [vp["means"].get("ref")] + [c.get("ref") for c in vp.get("controls", [])] if raw]
     means = [{"viewpoint": vid, "ref": str(user_path(raw)), "sha256": digest(user_path(raw))} for vid, raw in refs]
-    state.ledger.append("fix", {"criteria_sha256": sha, "means": means, "budget": criteria["budget"]})
-    return emit({"fixed": sha, "means": means, "next": State(state.run_dir).next()})
+    documents = state.docs()
+    state.ledger.append("fix", {"documents": documents, "means": means, "budget": criteria["budget"]})
+    return emit({"fixed": documents, "means": means, "next": State(state.run_dir).next()})
 
 
 def cmd_status(args) -> int:
@@ -949,7 +988,7 @@ def cmd_close(args) -> int:
     if problem:
         raise StateError(problem)
     criteria = state.criteria()
-    state.ledger.append("close", {"criteria_sha256": state.criteria_sha(), "human_gates": criteria["human_gates"]})
+    state.ledger.append("close", {"documents": state.docs(), "human_gates": criteria["human_gates"]})
     return emit({"closed": True, "human_gates": criteria["human_gates"], "status": State(state.run_dir).status()})
 
 
