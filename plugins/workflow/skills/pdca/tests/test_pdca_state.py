@@ -64,7 +64,8 @@ class Run:
         return self.ok("init", "--request-file", str(request), "--material", str(self.material))
 
     def scope(self, **over):
-        return {"system": system(), "conditions": [condition()], "excluded": [], "human_gates": ["マージ"]} | over
+        return {"system": system(), "readings": [], "conditions": [condition()], "excluded": [],
+                "human_gates": ["マージ"]} | over
 
     def design(self, **over):
         viewpoints = [{"id": "C1-V1", "condition": "C1", "check": "往復回数を数える", "means": {"kind": "audit"}}]
@@ -570,44 +571,59 @@ class TestSystem(Base):
         r.write("scope", r.scope(system=system(kind(enumerate={"cwd": str(self.root), "command": "ls"}))))
         r.ok("record", "--file", str(path))
 
-    def test_人間に聞く種類は範囲の反証の後にまとめてask_humanで止まる(self):
+    def test_割れる句と価値判断の種類は範囲の反証の前にまとめてask_humanで聞く(self):
         r = self.run_()
         r.init()
         asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
-        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        self.assertEqual(r.next(), "criteria-verifier:scope")
-        r.review("scope")
+        reading = {"id": "Q1", "quote": "PR の往復を減らしたい", "ask": "往復は PR ごとか全体か"}
+        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()], readings=[reading]))
         status = r.ok("status")
         self.assertEqual(status["next"], "ask_human")
-        self.assertEqual(status["ask_human"], [{"kind": "K2", "ask": "設定も範囲に入れるか"}])
-        self.assertIn("ask_human", r.refused("brief", "--role", "criteria-author", "--aspect", "design"))
-        self.assertIn("ask_human", r.refused("brief", "--role", "criteria-author", "--aspect", "scope"))
-        self.assertIn("ask_human", r.refused("fix"))
-        self.assertIn("ask_human", r.refused("continue"))
+        self.assertEqual(status["ask_human"], [{"id": "K2", "ask": "設定も範囲に入れるか"},
+                                               {"id": "Q1", "ask": "往復は PR ごとか全体か"}])
+        for args in (("brief", "--role", "criteria-verifier", "--aspect", "scope"),
+                     ("brief", "--role", "criteria-author", "--aspect", "scope"), ("fix",), ("continue",)):
+            self.assertIn("ask_human", r.refused(*args))
         answer = self.root / "answer.txt"
-        answer.write_text("設定は入れない\n")
+        answer.write_text("設定は入れない。往復は PR ごと\n")
         self.assertIn("K9", r.refused("amend", "--request-file", str(answer), "--answers", "K9"))
-        self.assertEqual(r.ok("amend", "--request-file", str(answer), "--answers", "K2")["next"],
+        self.assertEqual(r.ok("amend", "--request-file", str(answer), "--answers", "K2", "Q1")["next"],
                          "criteria-author:scope")
-        brief, path = self.submit_scope(r, r.scope(system=system(kind(), asked), conditions=[condition()]))
-        self.assertIn("K2", r.refused("record", "--file", str(path)))
+        brief, path = self.submit_scope(r, r.scope(system=system(kind(), kind("K2", kind="設定")),
+                                                   conditions=[condition()], readings=[reading],
+                                                   excluded=[{"item": "設定", "kinds": ["K2"], "reason": "答え"}]))
+        self.assertIn("Q1", r.refused("record", "--file", str(path)))
         r.author(agent="a2", doc=r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()],
                                          excluded=[{"item": "設定", "kinds": ["K2"], "reason": "人間が入れないと答えた"}]))
+        self.assertEqual(r.next(), "criteria-verifier:scope")
         r.review("scope", agent="s2")
         self.assertEqual(r.next(), "criteria-author:design")
+
+    def test_割れる句も価値判断の種類も無ければ聞かずに範囲の反証へ進む(self):
+        r = self.run_()
+        r.init()
+        r.author()
+        status = r.ok("status")
+        self.assertEqual(status["next"], "criteria-verifier:scope")
+        self.assertNotIn("ask_human", status)
+
+    def test_割れる句の引用が依頼に逐語で無ければ拒否する(self):
+        r = self.run_()
+        r.init()
+        reading = {"id": "Q1", "quote": "依頼に無い句", "ask": "x"}
+        brief, path = self.submit_scope(r, r.scope(readings=[reading]))
+        self.assertIn("readings", r.refused("record", "--file", str(path)))
 
     def test_ask_humanの間の答えでないamendでは問いを残せて再び聞く(self):
         r = self.run_()
         r.init()
         asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
         r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        r.review("scope")
         extra = self.root / "more.txt"
         extra.write_text("README も直して\n")
         r.ok("amend", "--request-file", str(extra))
         r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        r.review("scope", agent="s2")
-        self.assertEqual(r.ok("status")["ask_human"], [{"kind": "K2", "ask": "設定も範囲に入れるか"}])
+        self.assertEqual(r.ok("status")["ask_human"], [{"id": "K2", "ask": "設定も範囲に入れるか"}])
 
     def test_answersはask_humanで待っている種類だけを取る(self):
         r = self.run_()
@@ -636,18 +652,6 @@ class TestSystem(Base):
         r.review("scope", agent="s2")
         self.assertEqual(r.next(), "criteria-author:design")
 
-    def test_聞く前のamendでは問いを残した範囲を記録できる(self):
-        r = self.run_()
-        r.init()
-        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
-        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        extra = self.root / "more.txt"
-        extra.write_text("README も直して\n")
-        r.ok("amend", "--request-file", str(extra))
-        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        r.review("scope")
-        self.assertEqual(r.next(), "ask_human")
-
     def test_fixの後に人間に聞く種類を足しても台帳を読める(self):
         r = self.run_()
         r.fixed()
@@ -655,7 +659,6 @@ class TestSystem(Base):
         r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="範囲の導出", target="scope.json")])
         asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
         r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        r.review("scope", agent="s2")
         self.assertEqual(r.ok("status")["next"], "ask_human")
 
     def test_ask_humanの間に止まってもstatusは保留中の問いを出す(self):
@@ -665,10 +668,9 @@ class TestSystem(Base):
         r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="範囲の導出", target="scope.json")])
         asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
         r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        r.review("scope", agent="s2")
         code, status = r.main_at(99999, "status")
         self.assertEqual((code, status["next"]), (0, "stop:time_budget"))
-        self.assertEqual(status["ask_human"], [{"kind": "K2", "ask": "設定も範囲に入れるか"}])
+        self.assertEqual(status["ask_human"], [{"id": "K2", "ask": "設定も範囲に入れるか"}])
 
 
 class TestRequest(Base):
@@ -1243,8 +1245,7 @@ class TestStopAndLedger(Base):
         def asks(r):
             r.init()
             r.author()
-            r.review("scope")
-            rewrite(r, "criteria_written", lambda data: data.update(asks=[{"kind": ["K2"], "ask": "q"}]))
+            rewrite(r, "criteria_written", lambda data: data.update(asks=[{"id": ["K2"], "ask": "q"}]))
             answer = r.root / "answer.txt"
             answer.write_text("入れない\n")
             return ("amend", "--request-file", str(answer), "--answers", "K2")

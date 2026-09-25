@@ -60,7 +60,7 @@ DATA_SCHEMA = {
     "brief": ({"role": one_of(ROLES)}, {"aspect": one_of(ASPECTS), "conditions": list_of(TEXT), "viewpoint": TEXT,
                                          "mode": one_of(("smoke", "verify")), "report_sha256": TEXT}),
     "criteria_written": ({"aspect": one_of(ASPECTS), "sha256": TEXT, "agent": TEXT},
-                         {"asks": list_of(shaped({"kind": TEXT, "ask": TEXT}))}),
+                         {"asks": list_of(shaped({"id": TEXT, "ask": TEXT}))}),
     "criteria_review": ({"aspect": one_of(ASPECTS), "reviewed_sha256": TEXT, "findings": list_of(ANY), "agent": TEXT}, {}),
     "fix": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)),
              "means": list_of(shaped({"viewpoint": TEXT, "ref": PATH, "sha256": TEXT})),
@@ -110,6 +110,8 @@ SHAPES = {
                        "known": ["（任意）列挙に必ず出る既知のインスタンス"],
                        "ask": "（任意）範囲に入れるかが価値判断なら、人間への問い"}],
         },
+        "readings": [{"id": "Q1", "quote": "読み方が 1 通りに決まらない依頼の句（request.md に逐語）",
+                      "ask": "どう読むかを人間に聞く問い"}],
         "conditions": [{"id": "C1", "statement": "満たすべき状態", "kinds": ["（任意）範囲にする種類の ID"],
                         "source": {"path": "request.md か init で登録した資料のパス", "quote": "その中の逐語の引用"}}],
         "excluded": [{"item": "範囲に入れないもの", "kinds": ["（任意）範囲に入れない種類の ID"], "reason": "入れない理由"}],
@@ -392,13 +394,23 @@ def covered_kinds(items: list[dict], where: str, kinds: dict[str, dict]) -> set:
 
 
 def asks_of(scope: dict) -> list[dict]:
-    return [{"kind": k["id"], "ask": k["ask"]} for k in scope["system"]["kinds"] if "ask" in k]
+    return [{"id": q["id"], "ask": q["ask"]} for q in scope["system"]["kinds"] + scope["readings"] if "ask" in q]
 
 
 def validate_scope(obj: object, run_dir: Path, materials: list[dict]) -> dict:
-    require_keys(obj, DOCS["scope"], {"system", "conditions", "excluded", "human_gates"})
+    require_keys(obj, DOCS["scope"], {"system", "readings", "conditions", "excluded", "human_gates"})
     seen: set = set()
     kinds = validate_system(obj["system"], seen)
+    if not isinstance(obj["readings"], list):
+        raise StateError("readings は配列である必要がある")
+    request = (run_dir / REQUEST).read_text(encoding="utf-8")
+    for i, q in enumerate(obj["readings"]):
+        w = f"readings[{i}]"
+        require_keys(q, w, {"id", "quote", "ask"})
+        claim_id(q["id"], f"{w}.id", seen)
+        nonempty_str(q["ask"], f"{w}.ask")
+        if nonempty_str(q["quote"], f"{w}.quote") not in request:
+            raise StateError(f"{w}.quote が request.md に逐語で無い")
     conditions = obj["conditions"]
     if not isinstance(conditions, list) or not conditions:
         raise StateError("conditions が 0 件")
@@ -419,7 +431,7 @@ def validate_scope(obj: object, run_dir: Path, materials: list[dict]) -> dict:
         nonempty_str(ex["item"], f"excluded[{i}].item")
         nonempty_str(ex["reason"], f"excluded[{i}].reason")
     covered = covered_kinds(conditions, "conditions", kinds) | covered_kinds(obj["excluded"], "excluded", kinds)
-    open_kinds = sorted(set(kinds) - covered - {a["kind"] for a in asks_of(obj)})
+    open_kinds = sorted(set(kinds) - covered - {a["id"] for a in asks_of(obj)})
     if open_kinds:
         raise StateError(f"条件にも除外にも対応しない種類がある: {', '.join(open_kinds)}")
     string_list(obj["human_gates"], "human_gates")
@@ -661,11 +673,11 @@ class State:
         return not self.needs_author(aspect) and self.current_review(aspect) is not None
 
     def pending_asks(self) -> list[dict]:
-        if not self.ready("scope"):
+        if self.needs_author("scope"):
             return []
         return self.written("scope")["data"]["asks"]
 
-    def answered_kinds(self) -> set:
+    def answered(self) -> set:
         return {k for e in self.ledger.of("amend") for k in e["data"].get("answers", [])}
 
     def criteria_open(self) -> list[dict]:
@@ -761,10 +773,10 @@ class State:
             for aspect in ASPECTS:
                 if self.needs_author(aspect):
                     return f"criteria-author:{aspect}"
-                if self.current_review(aspect) is None:
-                    return f"criteria-verifier:{aspect}"
                 if aspect == "scope" and self.pending_asks():
                     return "ask_human"
+                if self.current_review(aspect) is None:
+                    return f"criteria-verifier:{aspect}"
             return "fix"
         criteria = self.criteria()
         out_of_rounds = self.rounds_used >= budget["rounds"]
@@ -844,7 +856,7 @@ def cmd_amend(args) -> int:
     text = read_request(args.request_file)
     data = {}
     if args.answers:
-        waiting = {a["kind"] for a in state.pending_asks()} if state.next() == "ask_human" else set()
+        waiting = {a["id"] for a in state.pending_asks()} if state.next() == "ask_human" else set()
         if not waiting:
             raise StateError("--answers は next が ask_human のときだけ取る")
         unknown = sorted(set(args.answers) - waiting)
@@ -1006,9 +1018,9 @@ def cmd_record(args) -> int:
         data = {"aspect": aspect, "sha256": state.doc_sha(aspect), "agent": agent}
         if aspect == "scope":
             data["asks"] = asks_of(state.scope())
-            again = sorted(state.answered_kinds() & {a["kind"] for a in data["asks"]})
+            again = sorted(state.answered() & {a["id"] for a in data["asks"]})
             if again:
-                raise StateError(f"人間の答えを amend で受けた種類に ask が残っている: {', '.join(again)}")
+                raise StateError(f"人間の答えを amend で受けた問いが残っている: {', '.join(again)}")
         else:
             state.criteria()
         entry = state.ledger.append("criteria_written", data, bid)
@@ -1070,10 +1082,10 @@ def fix_problem(state: State) -> str | None:
     for aspect in ASPECTS:
         if state.needs_author(aspect):
             return f"{DOCS[aspect]} が書かれていないか、指摘への直しが済んでいない"
+        if aspect == "scope" and state.pending_asks():
+            return "人間の答えを待つ問いがある（ask_human）"
         if state.current_review(aspect) is None:
             return f"現行の {DOCS[aspect]} に対するレビューが揃っていない: {aspect}"
-        if aspect == "scope" and state.pending_asks():
-            return "人間の答えを待つ種類がある（ask_human）"
     reviewers = [state.current_review(a)["data"]["agent"] for a in ASPECTS]
     authors = {state.written(a)["data"]["agent"] for a in ASPECTS}
     if len(set(reviewers)) != len(reviewers) or authors & set(reviewers):

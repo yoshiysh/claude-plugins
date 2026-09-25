@@ -58,10 +58,10 @@ python3 $S close --run-dir <run-dir>
 
 1. `init`（後から発言が来たら `amend`）。返った `recorded_request` を、最初の報告で「依頼として
    記録した原文」としてユーザーに示す。
-2. 完了条件は 2 つの文書に書く。criteria-author が範囲の文書（scope.json: 系の種類の一覧・条件・
-   除外・人間ゲート）を書き、criteria-verifier が scope で反証する → 通ったら criteria-author が測定の
-   文書（design.json: 観点・測定手段・対照・予算・停止）を書き、別の criteria-verifier が design で
-   反証する → `fix`。
+2. 完了条件は 2 つの文書に書く。criteria-author が範囲の文書（scope.json: 系の種類の一覧・読み方の
+   問い・条件・除外・人間ゲート）を書き、問いがあれば人間に聞き、criteria-verifier が scope で反証する
+   → 通ったら criteria-author が測定の文書（design.json: 観点・測定手段・対照・予算・停止）を書き、
+   別の criteria-verifier が design で反証する → `fix`。
 3. writer が作る → verifier が観点ごとに 1 agent ずつ検証する（対照を持つ観点は先に smoke）。
 4. 各 `record` と `status` が返す `next` に従う。`writer` なら次の周、`criteria-author:<aspect>` なら
    その文書の直し（その前に、読み方の問いを人間に聞いてもよい。「人間の境界」）、`ask_human` なら
@@ -107,19 +107,20 @@ python3 $S close --run-dir <run-dir>
   `await_human` になる。
 - プロダクトの価値に関わる判断（問いを続ける価値、目標や許容リスクの変更、予算の増額）は、
   人間に返す。
-- 範囲に入れるかが価値判断になる系の種類（scope.json の `ask`）は、scope の反証が通った後に `next` が
-  `ask_human` になる。`status` の `ask_human` を種類の単位でまとめて 1 回聞き、答えを `amend --answers
-  <答えた種類 ID>…` で記録する（反証の前に聞くと、検証者が種類を見つけるたびに聞き直す）。答えでない
-  発言には `--answers` を付けない。付けた種類は答えたものとして扱われ、以後その問いを残せない。
+- 範囲の文書に、読み方が割れる依頼の句（scope.json の `readings`）か、範囲に入れるかが価値判断に
+  なる系の種類（`ask`）があれば、反証の前に `next` が `ask_human` になる。`status` の `ask_human` を
+  まとめて 1 回聞き、答えを `amend --answers <答えた問いの ID>…` で記録する（反証の後まで待つと、割れた
+  読み方が検証者との周回になる）。問いが無ければ聞かずに反証へ進む。答えでない発言には `--answers` を
+  付けない。付けた問いは答えたものとして扱われ、以後残せない。
 - `criteria_open` の範囲の指摘が `ask`（依頼の読み方の問い）を持つときは、書き手に回す前に人間に
   聞いてもよく、聞かずに回してもよい。聞いたら答えを `--answers` なしの `amend` で記録する
-  （`--answers` は `ask_human` の系の種類の問い専用）。
+  （`--answers` は `ask_human` の問い専用）。
 - 方法論の行き詰まり（測定手段が成立しない等）は人間の境界ではない。検証者の指摘として、
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら
-  `criteria_open`。保留中の問いがあれば `ask_human`）を人間に報告する。止まった run は `amend` しても再開しない。予算の増額が承認されたら、
-  新しい run-dir で `init` し直し、前の run の request.md を `--request-file` に、scope.json・design.json・
-  ledger.jsonl を `--material` に渡す。
+  `criteria_open`。保留中の問いがあれば `ask_human`）を人間に報告する。止まった run は `amend` しても
+  再開しない。予算の増額が承認されたら、新しい run-dir で `init` し直し、前の run の request.md を
+  `--request-file` に、scope.json・design.json・ledger.jsonl を `--material` に渡す。
 
 ## 結果の提示
 
