@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """pdca の状態を run-dir に持ち、どの呼び出しを受けるかを決める。
 
-ledger.jsonl を書くのはこの script だけ。agent と司令塔が書くのは、scope.json と design.json
-（criteria-author）と out/<brief_id>.json（各 agent）だけ。
+ledger.jsonl を書くのはこの script だけ。agent が書くのは、goal.json（goal-framer）、scope.json と
+design.json（criteria-author）、out/<brief_id>.json（各 agent）だけ。司令塔は何も書かない。
 """
 
 from __future__ import annotations
@@ -17,15 +17,20 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 
-BRIEF_KEYS = {"criteria-author": {"aspect"}, "criteria-verifier": {"aspect"}, "writer": {"conditions"},
-              "verifier": {"viewpoint", "mode"}, "completion-judge": {"report_sha256"}}
+BRIEF_KEYS = {"goal-framer": {"aspect"}, "criteria-author": {"aspect"}, "criteria-verifier": {"aspect"},
+              "writer": {"conditions"}, "verifier": {"viewpoint", "mode"}, "completion-judge": {"report_sha256"}}
 ROLES = tuple(BRIEF_KEYS)
-DOCUMENT_READERS = ("criteria-author", "criteria-verifier", "verifier")
-ASPECTS = ("scope", "design")
-DOCS = {"scope": "scope.json", "design": "design.json"}
-LAYERS = ("範囲の導出", "設計", "実装")
-LAYER_OF = {"scope": "範囲の導出", "design": "設計"}
-REVIEW_LAYERS = {"scope": ("範囲の導出",), "design": ("範囲の導出", "設計")}
+AUTHORS = ("goal-framer", "criteria-author")
+DOCUMENT_READERS = ("goal-framer", "criteria-author", "criteria-verifier", "verifier")
+ASPECTS = ("goal", "scope", "design")
+DOCS = {"goal": "goal.json", "scope": "scope.json", "design": "design.json"}
+NAMES = {"goal": "ゴールの文書", "scope": "範囲の文書", "design": "測定の文書"}
+AUTHOR_OF = {"goal": "goal-framer", "scope": "criteria-author", "design": "criteria-author"}
+LAYERS = ("ゴール", "範囲の導出", "設計", "実装")
+LAYER_OF = {"goal": "ゴール", "scope": "範囲の導出", "design": "設計"}
+REVIEW_LAYERS = {"goal": ("ゴール",), "scope": ("ゴール", "範囲の導出"), "design": ("ゴール", "範囲の導出", "設計")}
+ASK_LAYERS = ("ゴール", "範囲の導出")
+ANSWER_SOURCE = "answer:"
 SEVERITIES = ("blocking", "non_blocking")
 MEANS_KINDS = ("audit", "script", "test", "command")
 CONTROLLED_MEANS = ("script", "test", "command")
@@ -56,11 +61,13 @@ def shaped(fields: dict) -> tuple:
 
 DATA_SCHEMA = {
     "init": ({"request_sha256": TEXT, "materials": list_of(shaped({"path": TEXT, "sha256": TEXT}))}, {}),
-    "amend": ({"request_sha256": TEXT}, {"answers": list_of(TEXT)}),
+    "amend": ({"request_sha256": TEXT}, {}),
+    "answer": ({"question": TEXT, "ask": TEXT, "answer": TEXT}, {"option": TEXT}),
     "brief": ({"role": one_of(ROLES)}, {"aspect": one_of(ASPECTS), "conditions": list_of(TEXT), "viewpoint": TEXT,
                                          "mode": one_of(("smoke", "verify")), "report_sha256": TEXT}),
     "criteria_written": ({"aspect": one_of(ASPECTS), "sha256": TEXT, "agent": TEXT},
-                         {"asks": list_of(shaped({"id": TEXT, "ask": TEXT}))}),
+                         {"asks": list_of(shaped({"id": TEXT, "ask": TEXT,
+                                                  "options": list_of(shaped({"id": TEXT, "text": TEXT}))}))}),
     "criteria_review": ({"aspect": one_of(ASPECTS), "reviewed_sha256": TEXT, "findings": list_of(ANY),
                          "notes": list_of(TEXT), "agent": TEXT}, {}),
     "fix": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)),
@@ -94,27 +101,32 @@ OUT = "out"
 ENTRY_KEYS = {"seq", "ts", "prev_sha256", "kind", "brief_id", "data"}
 SCRIPT_KEYS = {"seq", "ts", "prev_sha256"}
 FINDING = {
-    "target": "指摘の対象のパス（完了条件の文書への指摘なら、その文書）",
+    "target": "指摘の対象のパス（ゴールか完了条件の文書への指摘なら、その文書）",
     "severity": "|".join(SEVERITIES),
     "layer": "|".join(LAYERS),
     "claim": "何が欠けているか・何が誤っているか",
     "evidence": "根拠の所在（パスと行、または実行したコマンドと出力）",
 }
+OPTION = {"id": "a", "text": "人間が選ぶ答え（1 つの読み方）", "kinds": ["（任意）この答えで範囲に入る種類の ID"]}
 SHAPES = {
-    "scope": {
+    "goal": {
         "system": {
-            "flow": "依頼が指すものを出力に置いた流れ（入力 → 工程 → 出力）",
+            "flow": "依頼が指すものを出力に置いた流れ（入力 → 工程 → 判断の分岐 → 出力）",
             "closure": "流れの上の要素がどれか 1 つの種類に入り、一覧の外に無いと言える性質",
             "kinds": [{"id": "K1", "kind": "種類の定義（性質で書く）",
                        "enumerate": {"cwd": "コマンドを実行するディレクトリの絶対パス",
                                      "command": "インスタンスを列挙する決定的な短いコマンド"},
-                       "known": ["（任意）列挙に必ず出る既知のインスタンス"],
-                       "ask": "（任意）範囲に入れるかが価値判断なら、人間への問い"}],
+                       "known": ["（任意）列挙に必ず出る既知のインスタンス"]}],
         },
-        "readings": [{"id": "Q1", "quote": "読み方が 1 通りに決まらない依頼の句（request.md に逐語）",
-                      "ask": "どう読むかを人間に聞く問い"}],
-        "conditions": [{"id": "C1", "statement": "満たすべき状態", "kinds": ["（任意）範囲にする種類の ID"],
-                        "source": {"path": "request.md か init で登録した資料のパス", "quote": "その中の逐語の引用"}}],
+        "phrases": [{"id": "P1", "quote": "依頼の句（request.md に逐語。全句をつなぐと request.md 全体）",
+                     "reading": "読み方が 1 通りに決まるなら、その読み方"},
+                    {"id": "P2", "quote": "読み方が割れる句",
+                     "question": {"ask": "人間に聞く問い", "options": [OPTION, OPTION | {"id": "b"}]}}],
+    },
+    "scope": {
+        "conditions": [{"id": "C1", "statement": "満たすべき状態", "kinds": ["（任意）範囲にする goal.json の種類の ID"],
+                        "source": {"path": f"request.md か init で登録した資料のパスか {ANSWER_SOURCE}<問いの ID>",
+                                   "quote": "その中の逐語の引用"}}],
         "excluded": [{"item": "範囲に入れないもの", "kinds": ["（任意）範囲に入れない種類の ID"], "reason": "入れない理由"}],
         "human_gates": ["マージ", "公開"],
     },
@@ -137,9 +149,11 @@ COMMON_OUTPUT = {
     "prompt_extra": "invoke の文以外に受け取った文を逐語で。無ければ空文字列",
 }
 OUTPUT = {
+    "goal-framer": {},
     "criteria-author": {},
     "criteria-verifier": {"aspect": "brief の aspect", "reviewed_sha256": "レビューした文書の sha256",
-                          "findings": [FINDING | {"ask": "（任意。blocking の範囲の導出だけ）人間に聞けば決まる依頼の読み方の問い"}],
+                          "findings": [FINDING | {"ask": {"question": f"（任意。blocking の {'か'.join(ASK_LAYERS)} だけ）人間に聞けば決まる依頼の読み方の問い",
+                                                          "options": [OPTION, OPTION | {"id": "b"}]}}],
                           "notes": ["司令塔あての報告（環境で確かめられなかったこと・確かめて問題が無かったこと）。書き手には渡らない"]},
     "writer": {"outputs": ["作った・直した成果物のパス"]},
     "verify": {"viewpoint": "brief の観点 ID", "status": "|".join(VERIFY_STATUSES),
@@ -157,7 +171,7 @@ RECORD_KINDS = ("criteria_written", "criteria_review", "work", "smoke", "verific
 def record_kind(brief_data: dict) -> str:
     if brief_data["role"] == "verifier":
         return "smoke" if brief_data["mode"] == "smoke" else "verification"
-    return {"criteria-author": "criteria_written", "criteria-verifier": "criteria_review",
+    return {"goal-framer": "criteria_written", "criteria-author": "criteria_written", "criteria-verifier": "criteria_review",
             "writer": "work", "completion-judge": "judgment"}[brief_data["role"]]
 
 
@@ -307,8 +321,8 @@ def check_data(entry: dict, where: str) -> None:
             raise StateError(f"{where}.data.{key} は {desc}（旧形式や手書きの台帳は読まない）")
     if kind == "brief":
         require_keys(data, f"{where}.data", {"role"} | BRIEF_KEYS[data["role"]])
-    if kind == "criteria_written" and ("asks" in data) != (data["aspect"] == "scope"):
-        raise StateError(f"{where}: asks は scope の criteria_written だけが持つ")
+    if kind == "criteria_written" and ("asks" in data) != (data["aspect"] == "goal"):
+        raise StateError(f"{where}: asks は goal の criteria_written だけが持つ")
     if "findings" in data:
         validate_findings(data["findings"], f"{where}.data")
 
@@ -321,15 +335,46 @@ def validate_findings(findings: object, where: str) -> list[dict]:
         if isinstance(f, dict) and ("layer" not in f or "target" not in f):
             raise StateError(f"{w}: 指摘に layer か target が無い")
         require_keys(f, w, set(FINDING), {"ask"})
-        for key in f:
+        for key in FINDING:
             nonempty_str(f[key], f"{w}.{key}")
         if f["severity"] not in SEVERITIES:
             raise StateError(f"{w}.severity は {SEVERITIES} のどれか")
         if f["layer"] not in LAYERS:
             raise StateError(f"{w}.layer は {LAYERS} のどれか")
-        if "ask" in f and (f["severity"], f["layer"]) != ("blocking", LAYER_OF["scope"]):
-            raise StateError(f"{w}.ask は blocking の {LAYER_OF['scope']} の指摘だけが持てる")
+        if "ask" in f:
+            if f["severity"] != "blocking" or f["layer"] not in ASK_LAYERS:
+                raise StateError(f"{w}.ask は blocking の {'か'.join(ASK_LAYERS)} の指摘だけが持てる")
+            ask = require_keys(f["ask"], f"{w}.ask", {"question", "options"})
+            nonempty_str(ask["question"], f"{w}.ask.question")
+            validate_options(ask["options"], f"{w}.ask.options", None)
     return findings
+
+
+def validate_options(options: object, where: str, kinds: dict | None) -> None:
+    if not isinstance(options, list) or len(options) < 2:
+        raise StateError(f"{where} は 2 つ以上の選択肢の配列（選択肢を書くのは問いを立てた agent で、司令塔は逐語で中継する）")
+    ids = set()
+    for i, o in enumerate(options):
+        w = f"{where}[{i}]"
+        require_keys(o, w, {"id", "text"}, {"kinds"} if kinds is not None else frozenset())
+        if nonempty_str(o["id"], f"{w}.id") in ids:
+            raise StateError(f"{w}.id {o['id']!r} が重複している")
+        ids.add(o["id"])
+        nonempty_str(o["text"], f"{w}.text")
+        if "kinds" in o:
+            string_list(o["kinds"], f"{w}.kinds")
+            unknown = sorted(set(o["kinds"]) - set(kinds))
+            if unknown:
+                raise StateError(f"{w}.kinds が system.kinds に無い種類を指す: {', '.join(unknown)}")
+
+
+def source_text(run_dir: Path, materials: list[dict], answers: dict, raw: str) -> str:
+    if raw.startswith(ANSWER_SOURCE):
+        qid = raw[len(ANSWER_SOURCE):]
+        if qid not in answers:
+            raise StateError(f"source.path {raw!r} の問いに人間の答えが記録されていない")
+        return answers[qid]["answer"]
+    return source_file(run_dir, materials, raw).read_text(encoding="utf-8")
 
 
 def source_file(run_dir: Path, materials: list[dict], raw: str) -> Path:
@@ -343,7 +388,7 @@ def source_file(run_dir: Path, materials: list[dict], raw: str) -> Path:
         if candidate == root or (root.is_dir() and candidate.is_relative_to(root)):
             if candidate.is_file():
                 return candidate
-    raise StateError(f"source.path {raw!r} は request.md か init で登録した資料ではない")
+    raise StateError(f"source.path {raw!r} は request.md か init で登録した資料か {ANSWER_SOURCE}<問いの ID> ではない")
 
 
 def claim_id(raw: object, where: str, seen: set) -> None:
@@ -368,7 +413,7 @@ def validate_system(obj: object, seen: set) -> dict[str, dict]:
         raise StateError("system.kinds が 0 件")
     for i, k in enumerate(obj["kinds"]):
         w = f"system.kinds[{i}]"
-        require_keys(k, w, {"id", "kind", "enumerate"}, {"known", "ask"})
+        require_keys(k, w, {"id", "kind", "enumerate"}, {"known"})
         claim_id(k["id"], f"{w}.id", seen)
         nonempty_str(k["kind"], f"{w}.kind")
         enum = require_keys(k["enumerate"], f"{w}.enumerate", {"cwd", "command"})
@@ -378,8 +423,6 @@ def validate_system(obj: object, seen: set) -> dict[str, dict]:
             raise StateError(f"{w}.enumerate.cwd が存在するディレクトリでない（絶対パスで書く）: {enum['cwd']}")
         if "known" in k:
             string_list(k["known"], f"{w}.known")
-        if "ask" in k:
-            nonempty_str(k["ask"], f"{w}.ask")
     return {k["id"]: k for k in obj["kinds"]}
 
 
@@ -390,29 +433,55 @@ def covered_kinds(items: list[dict], where: str, kinds: dict[str, dict]) -> set:
             string_list(item["kinds"], f"{where}[{i}].kinds")
             unknown = sorted(set(item["kinds"]) - set(kinds))
             if unknown:
-                raise StateError(f"{where}[{i}].kinds が system.kinds に無い種類を指す: {', '.join(unknown)}")
+                raise StateError(f"{where}[{i}].kinds が goal.json の system.kinds に無い種類を指す: {', '.join(unknown)}")
             found |= set(item["kinds"])
     return found
 
 
-def asks_of(scope: dict) -> list[dict]:
-    return [{"id": q["id"], "ask": q["ask"]} for q in scope["system"]["kinds"] + scope["readings"] if "ask" in q]
+def squeeze(text: str) -> str:
+    return "".join(text.split())
 
 
-def validate_scope(obj: object, run_dir: Path, materials: list[dict]) -> dict:
-    require_keys(obj, DOCS["scope"], {"system", "readings", "conditions", "excluded", "human_gates"})
+def validate_goal(obj: object, run_dir: Path) -> dict:
+    require_keys(obj, DOCS["goal"], {"system", "phrases"})
     seen: set = set()
     kinds = validate_system(obj["system"], seen)
-    if not isinstance(obj["readings"], list):
-        raise StateError("readings は配列である必要がある")
-    request = (run_dir / REQUEST).read_text(encoding="utf-8")
-    for i, q in enumerate(obj["readings"]):
-        w = f"readings[{i}]"
-        require_keys(q, w, {"id", "quote", "ask"})
-        claim_id(q["id"], f"{w}.id", seen)
-        nonempty_str(q["ask"], f"{w}.ask")
-        if nonempty_str(q["quote"], f"{w}.quote") not in request:
-            raise StateError(f"{w}.quote が request.md に逐語で無い")
+    phrases = obj["phrases"]
+    if not isinstance(phrases, list) or not phrases:
+        raise StateError("phrases が 0 件")
+    for i, ph in enumerate(phrases):
+        w = f"phrases[{i}]"
+        require_keys(ph, w, {"id", "quote"}, {"reading", "question"})
+        claim_id(ph["id"], f"{w}.id", seen)
+        nonempty_str(ph["quote"], f"{w}.quote")
+        if ("reading" in ph) == ("question" in ph):
+            raise StateError(f"{w} は reading（読み方が 1 通り）か question（割れる）のどちらか 1 つを持つ")
+        if "reading" in ph:
+            nonempty_str(ph["reading"], f"{w}.reading")
+        else:
+            q = require_keys(ph["question"], f"{w}.question", {"ask", "options"})
+            nonempty_str(q["ask"], f"{w}.question.ask")
+            validate_options(q["options"], f"{w}.question.options", kinds)
+    request = squeeze((run_dir / REQUEST).read_text(encoding="utf-8"))
+    joined = squeeze("".join(ph["quote"] for ph in phrases))
+    if joined != request:
+        at = next((i for i, (a, b) in enumerate(zip(joined, request)) if a != b), min(len(joined), len(request)))
+        raise StateError(f"phrases の quote を順につなぐと request.md と一致しない（空白を除いて {at} 文字目から。"
+                         f"request.md は「{request[at:at + 20]}」、つないだ quote は「{joined[at:at + 20]}」）。"
+                         "句は request.md を頭から終わりまで漏れなく重ならずに分ける")
+    return obj
+
+
+def asks_of(goal: dict) -> list[dict]:
+    return [{"id": ph["id"], "ask": ph["question"]["ask"],
+             "options": [{"id": o["id"], "text": o["text"]} for o in ph["question"]["options"]]}
+            for ph in goal["phrases"] if "question" in ph]
+
+
+def validate_scope(obj: object, run_dir: Path, materials: list[dict], goal: dict, answers: dict) -> dict:
+    require_keys(obj, DOCS["scope"], {"conditions", "excluded", "human_gates"})
+    kinds = {k["id"]: k for k in goal["system"]["kinds"]}
+    seen: set = set(kinds) | {ph["id"] for ph in goal["phrases"]}
     conditions = obj["conditions"]
     if not isinstance(conditions, list) or not conditions:
         raise StateError("conditions が 0 件")
@@ -423,9 +492,9 @@ def validate_scope(obj: object, run_dir: Path, materials: list[dict]) -> dict:
         nonempty_str(cond["statement"], f"{w}.statement")
         require_keys(cond["source"], f"{w}.source", {"path", "quote"})
         quote = nonempty_str(cond["source"]["quote"], f"{w}.source.quote")
-        text = source_file(run_dir, materials, nonempty_str(cond["source"]["path"], f"{w}.source.path")).read_text(encoding="utf-8")
-        if quote not in text:
-            raise StateError(f"{w}.source.quote が {cond['source']['path']} に逐語で無い")
+        raw = nonempty_str(cond["source"]["path"], f"{w}.source.path")
+        if quote not in source_text(run_dir, materials, answers, raw):
+            raise StateError(f"{w}.source.quote が {raw} に逐語で無い")
     if not isinstance(obj["excluded"], list):
         raise StateError("excluded は配列である必要がある")
     for i, ex in enumerate(obj["excluded"]):
@@ -433,9 +502,9 @@ def validate_scope(obj: object, run_dir: Path, materials: list[dict]) -> dict:
         nonempty_str(ex["item"], f"excluded[{i}].item")
         nonempty_str(ex["reason"], f"excluded[{i}].reason")
     covered = covered_kinds(conditions, "conditions", kinds) | covered_kinds(obj["excluded"], "excluded", kinds)
-    open_kinds = sorted(set(kinds) - covered - {a["id"] for a in asks_of(obj)})
+    open_kinds = sorted(set(kinds) - covered)
     if open_kinds:
-        raise StateError(f"条件にも除外にも対応しない種類がある: {', '.join(open_kinds)}")
+        raise StateError(f"goal.json の種類のうち、条件にも除外にも対応しないものがある: {', '.join(open_kinds)}")
     string_list(obj["human_gates"], "human_gates")
     return obj
 
@@ -606,16 +675,22 @@ class State:
             raise StateError(f"{DOCS[aspect]} が無い")
         return read_json(path)
 
+    def goal(self) -> dict:
+        return validate_goal(self.read_doc("goal"), self.run_dir)
+
     def scope(self) -> dict:
-        return validate_scope(self.read_doc("scope"), self.run_dir, self.materials)
+        return validate_scope(self.read_doc("scope"), self.run_dir, self.materials, self.goal(), self.answers())
 
     def criteria(self) -> dict:
         scope = self.scope()
         return scope | validate_design(self.read_doc("design"), scope)
 
+    def answers(self) -> dict:
+        return {e["data"]["question"]: e["data"] for e in self.ledger.of("answer")}
+
     def window_open(self) -> bool:
         return self.last_fix is None or any(
-            e["data"]["role"] == "criteria-author" for e in self.ledger.of("brief", after=self.fix_seq)
+            e["data"]["role"] in AUTHORS for e in self.ledger.of("brief", after=self.fix_seq)
         )
 
     def check_criteria_digest(self) -> None:
@@ -646,18 +721,24 @@ class State:
         found = [e for e in self.ledger.of("criteria_written") if e["data"]["aspect"] == aspect]
         return found[-1] if found else None
 
-    def current_review(self, aspect: str, since_amend: bool = True) -> dict | None:
+    def current_review(self, aspect: str) -> dict | None:
         upto = ASPECTS[:ASPECTS.index(aspect) + 1]
         marks = [e["seq"] for e in self.ledger.of("amend", "criteria_written")
-                 if (e["kind"] == "amend" and since_amend) or (e["kind"] != "amend" and e["data"]["aspect"] in upto)]
+                 if e["kind"] == "amend" or e["data"]["aspect"] in upto]
         found = [e for e in self.ledger.of("criteria_review", after=max(marks, default=0))
+                 if e["data"]["aspect"] == aspect and e["data"]["reviewed_sha256"] == self.doc_sha(aspect)]
+        return found[-1] if found else None
+
+    def latest_review(self, aspect: str) -> dict | None:
+        written = self.written(aspect)
+        found = [e for e in self.ledger.of("criteria_review", after=written["seq"] if written else 0)
                  if e["data"]["aspect"] == aspect and e["data"]["reviewed_sha256"] == self.doc_sha(aspect)]
         return found[-1] if found else None
 
     def routed_findings(self, aspect: str) -> list[dict]:
         written = self.written(aspect)
         after = written["seq"] if written else 0
-        reviews = [r for r in (self.current_review(a, since_amend=False) for a in ASPECTS) if r and r["seq"] > after]
+        reviews = [r for r in (self.latest_review(a) for a in ASPECTS) if r and r["seq"] > after]
         entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
         found = [f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]]
         stuck = self.design_stuck() if aspect == "scope" else None
@@ -677,31 +758,40 @@ class State:
         written = self.written(aspect)
         if written is None:
             return True
-        if aspect == "scope" and self.ledger.of("amend", after=written["seq"]):
+        if aspect == "goal" and self.ledger.of("amend", after=written["seq"]):
             return True
-        if aspect == "design" and written["seq"] < self.written("scope")["seq"]:
+        if aspect != "goal" and written["seq"] < self.written(ASPECTS[ASPECTS.index(aspect) - 1])["seq"]:
             return True
         return any(f["severity"] == "blocking" for f in self.routed_findings(aspect))
 
     def ready(self, aspect: str) -> bool:
         return not self.needs_author(aspect) and self.current_review(aspect) is not None
 
-    def pending_asks(self) -> list[dict]:
-        if self.needs_author("scope"):
-            return []
-        return self.written("scope")["data"]["asks"]
+    def finding_asks(self) -> list[dict]:
+        asks = []
+        for aspect in ASPECTS:
+            review = self.latest_review(aspect)
+            for i, f in enumerate(review["data"]["findings"] if review else []):
+                if f["severity"] == "blocking" and "ask" in f:
+                    asks.append({"id": f"{review['brief_id']}#{i}", "ask": f["ask"]["question"],
+                                 "options": f["ask"]["options"]})
+        return asks
 
-    def answered(self) -> set:
-        return {k for e in self.ledger.of("amend") for k in e["data"].get("answers", [])}
+    def pending_asks(self) -> list[dict]:
+        asks = self.finding_asks()
+        if self.ready("goal"):
+            asks += self.written("goal")["data"]["asks"]
+        answered = self.answers()
+        return [q for q in asks if q["id"] not in answered or answered[q["id"]]["ask"] != q["ask"]]
 
     def criteria_open(self) -> list[dict]:
         items = []
         for f in (f for a in ASPECTS for f in self.routed_findings(a) if f["severity"] == "blocking"):
             if f not in items:
                 items.append(f)
-        amend, written = self.ledger.last("amend"), self.written("scope")
+        amend, written = self.ledger.last("amend"), self.written("goal")
         if amend and (written is None or amend["seq"] > written["seq"]):
-            items.append({"target": REQUEST, "claim": "amend で足した依頼が scope.json に未反映"})
+            items.append({"target": REQUEST, "claim": "amend で足した依頼が goal.json に未反映"})
         return items
 
     def sizes(self) -> dict:
@@ -737,7 +827,7 @@ class State:
                 name, r = e["data"]["aspect"], self.criteria_round_of[e["seq"]]
             bucket = series[name].setdefault(r, dict.fromkeys(LAYERS, 0))
             for f in e["data"]["findings"]:
-                if f["severity"] == "blocking":
+                if f["severity"] == "blocking" and "ask" not in f:
                     bucket[f["layer"]] += 1
         return {name: [{"round": r, "blocking": c} for r, c in sorted(rows.items())] for name, rows in series.items()}
 
@@ -787,11 +877,11 @@ class State:
         if self.reopened():
             if budget and self.next_writer_opens_round and self.rounds_used >= budget["rounds"]:
                 return "stop:rounds"
+            if self.pending_asks():
+                return "ask_human"
             for aspect in ASPECTS:
                 if self.needs_author(aspect):
-                    return f"criteria-author:{aspect}"
-                if aspect == "scope" and self.pending_asks():
-                    return "ask_human"
+                    return f"{AUTHOR_OF[aspect]}:{aspect}"
                 if self.current_review(aspect) is None:
                     return f"criteria-verifier:{aspect}"
             return "fix"
@@ -871,25 +961,41 @@ def cmd_amend(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
     text = read_request(args.request_file)
-    data = {}
-    if args.answers:
-        waiting = {a["id"] for a in state.pending_asks()} if state.next() == "ask_human" else set()
-        if not waiting:
-            raise StateError("--answers は next が ask_human のときだけ取る")
-        unknown = sorted(set(args.answers) - waiting)
-        if unknown:
-            raise StateError(f"--answers に ask_human で待っていない種類がある: {', '.join(unknown)}")
-        data["answers"] = args.answers
     request = state.run_dir / REQUEST
     current = request.read_text(encoding="utf-8")
     joined = current if current.endswith("\n") else current + "\n"
     request.write_text(joined + "\n" + text, encoding="utf-8")
-    state.ledger.append("amend", {"request_sha256": digest(request)} | data)
+    state.ledger.append("amend", {"request_sha256": digest(request)})
     return emit({"recorded_request": text, "next": State(state.run_dir).next()})
 
 
+def cmd_answer(args) -> int:
+    state = State(user_path(args.run_dir))
+    state.check_criteria_digest()
+    if state.next() != "ask_human":
+        raise StateError(f"answer は next が ask_human のときだけ取る（next = {state.next()}）")
+    pending = {q["id"]: q for q in state.pending_asks()}
+    question = pending.get(args.question)
+    if question is None:
+        raise StateError(f"ask_human で待っていない問い: {args.question}（待っている問い: {', '.join(pending)}）")
+    if (args.option is None) == (args.text_file is None):
+        raise StateError("--option（選ばれた選択肢の ID）か --text-file（選択肢に無い答えの原文）のどちらか 1 つを取る")
+    data = {"question": question["id"], "ask": question["ask"]}
+    if args.option is not None:
+        option = next((o for o in question["options"] if o["id"] == args.option), None)
+        if option is None:
+            raise StateError(f"{question['id']} に選択肢 {args.option!r} が無い（選択肢: "
+                             f"{', '.join(o['id'] for o in question['options'])}）")
+        data |= {"answer": option["text"], "option": option["id"]}
+    else:
+        data["answer"] = read_request(args.text_file)
+    state.ledger.append("answer", data)
+    after = State(state.run_dir)
+    return emit({"recorded_answer": data, "next": after.next(), "ask_human": after.pending_asks()})
+
+
 def prior_findings(state: State, role: str, conditions: list, viewpoint: str | None, aspect: str | None) -> list[dict]:
-    if role == "criteria-author":
+    if role in ("goal-framer", "criteria-author"):
         return state.routed_findings(aspect)
     if role == "criteria-verifier":
         prev = [e for e in state.ledger.of("criteria_review") if e["data"]["aspect"] == aspect]
@@ -907,7 +1013,7 @@ def prior_findings(state: State, role: str, conditions: list, viewpoint: str | N
 def cmd_brief(args) -> int:
     state = State(user_path(args.run_dir))
     role = args.role
-    if role != "criteria-author":
+    if role not in AUTHORS:
         state.check_criteria_digest()
     nxt = state.next()
     if nxt.startswith("stop:") or nxt in WAITING:
@@ -918,17 +1024,21 @@ def cmd_brief(args) -> int:
     viewpoints = args.viewpoint or []
     if len(viewpoints) != (1 if role == "verifier" else 0):
         raise StateError("--viewpoint は verifier が 1 つだけ取る")
-    if (args.aspect is not None) != (role in ("criteria-author", "criteria-verifier")):
-        raise StateError("--aspect は criteria-author と criteria-verifier が必ず取る")
+    if (args.aspect is not None) != (role in (*AUTHORS, "criteria-verifier")):
+        raise StateError("--aspect は goal-framer・criteria-author・criteria-verifier が必ず取る")
+    if role in AUTHORS and AUTHOR_OF[args.aspect] != role:
+        raise StateError(f"{DOCS[args.aspect]} を書くのは {AUTHOR_OF[args.aspect]}")
     if (args.report_file is not None) != (role == "completion-judge"):
         raise StateError("--report-file は completion-judge が必ず取る")
     brief: dict = {"role": role}
     record = {"role": role}
     if args.aspect:
-        if role == "criteria-author" and state.fixed():
+        if role in AUTHORS and state.fixed():
             raise StateError("fix 済みで、完了条件の文書への未解決の指摘も amend も無い")
-        if args.aspect == "design" and not state.ready("scope"):
-            raise StateError("範囲の文書が scope の反証を通っていない（測定の文書は範囲を固めてから）")
+        index = ASPECTS.index(args.aspect)
+        if index and not state.ready(ASPECTS[index - 1]):
+            prev = ASPECTS[index - 1]
+            raise StateError(f"{NAMES[prev]}が {prev} の反証を通っていない（{NAMES[args.aspect]}は前の文書を固めてから）")
         if role == "criteria-verifier" and state.needs_author(args.aspect):
             raise StateError(f"{DOCS[args.aspect]} が未記録か、範囲の書き直しか指摘への直しが済んでいない")
         brief["aspect"] = record["aspect"] = args.aspect
@@ -979,12 +1089,13 @@ def cmd_brief(args) -> int:
         "materials": state.materials,
         "output": COMMON_OUTPUT | OUTPUT[brief.get("mode", role)],
         "prior_findings": prior_findings(state, role, conditions, viewpoints[0] if viewpoints else None, args.aspect),
+        "answers": list(state.answers().values()),
     })
-    reads = ("scope",) if args.aspect == "scope" else ASPECTS
+    reads = ASPECTS[:ASPECTS.index(args.aspect) + 1] if args.aspect else ASPECTS
     brief["documents"] = {a: {"path": str(state.doc_path(a).resolve()), "sha256": state.doc_sha(a)} for a in reads}
     if role in DOCUMENT_READERS:
         brief["document_rules"] = str(SKILL_DIR / "agents" / "writer.md")
-    if role == "criteria-author":
+    if role in AUTHORS:
         brief["shape"] = SHAPES[args.aspect]
     if role == "completion-judge":
         status_file = out_dir / f"{brief_id}.status.json"
@@ -1020,7 +1131,7 @@ def cmd_record(args) -> int:
     role = brief["data"]["role"]
     if out.get("role") != role:
         raise StateError(f"ロールが brief と違う: brief は {role}")
-    if role != "criteria-author":
+    if role not in AUTHORS:
         state.check_criteria_digest()
     shape = brief["data"].get("mode") if role == "verifier" else role
     require_keys(out, f"{role} の出力", set(COMMON_OUTPUT) | set(OUTPUT[shape]))
@@ -1031,13 +1142,16 @@ def cmd_record(args) -> int:
         validate_findings(out["findings"], role)
     bid = brief["brief_id"]
     aspect = brief["data"].get("aspect")
-    if role == "criteria-author":
+    if role in AUTHORS:
+        others = {e["data"]["agent"] for e in state.ledger.of("criteria_written")
+                  if (e["data"]["aspect"] == "goal") != (aspect == "goal")}
+        if agent in others:
+            raise StateError("ゴールの文書の書き手と、範囲・測定の文書の書き手が同じ agent")
         data = {"aspect": aspect, "sha256": state.doc_sha(aspect), "agent": agent}
-        if aspect == "scope":
-            data["asks"] = asks_of(state.scope())
-            again = sorted(state.answered() & {a["id"] for a in data["asks"]})
-            if again:
-                raise StateError(f"人間の答えを amend で受けた問いが残っている: {', '.join(again)}")
+        if aspect == "goal":
+            data["asks"] = asks_of(state.goal())
+        elif aspect == "scope":
+            state.scope()
         else:
             state.criteria()
         entry = state.ledger.append("criteria_written", data, bid)
@@ -1098,17 +1212,17 @@ def cmd_record(args) -> int:
 
 
 def fix_problem(state: State) -> str | None:
+    if state.pending_asks():
+        return "人間の答えを待つ問いがある（ask_human）"
     for aspect in ASPECTS:
         if state.needs_author(aspect):
             return f"{DOCS[aspect]} が書かれていないか、指摘への直しが済んでいない"
-        if aspect == "scope" and state.pending_asks():
-            return "人間の答えを待つ問いがある（ask_human）"
         if state.current_review(aspect) is None:
             return f"現行の {DOCS[aspect]} に対するレビューが揃っていない: {aspect}"
     reviewers = [state.current_review(a)["data"]["agent"] for a in ASPECTS]
     authors = {state.written(a)["data"]["agent"] for a in ASPECTS}
     if len(set(reviewers)) != len(reviewers) or authors & set(reviewers):
-        return "scope と design のレビュアーが同じ agent か、レビュアーが書き手と同じ agent"
+        return "goal・scope・design のレビュアーに同じ agent がいるか、レビュアーが書き手と同じ agent"
     return None
 
 
@@ -1118,10 +1232,10 @@ def cmd_fix(args) -> int:
     nxt = state.next()
     if nxt.startswith("stop:") or nxt in WAITING:
         raise StateError(f"停止中（next = {nxt}）")
-    criteria = state.criteria()
     problem = fix_problem(state)
     if problem:
         raise StateError(problem)
+    criteria = state.criteria()
     refs = [(vp["id"], raw) for vp in criteria["viewpoints"]
             for raw in [vp["means"].get("ref")] + [c.get("ref") for c in vp.get("controls", [])] if raw]
     means = [{"viewpoint": vid, "ref": str(user_path(raw)), "sha256": digest(user_path(raw))} for vid, raw in refs]
@@ -1196,7 +1310,10 @@ def build_parser() -> Parser:
     p.add_argument("--material", action="append")
     p = command("amend", cmd_amend)
     p.add_argument("--request-file", required=True)
-    p.add_argument("--answers", nargs="+")
+    p = command("answer", cmd_answer)
+    p.add_argument("--question", required=True)
+    p.add_argument("--option")
+    p.add_argument("--text-file")
     p = command("brief", cmd_brief)
     p.add_argument("--role", required=True, choices=ROLES)
     p.add_argument("--conditions", nargs="+")

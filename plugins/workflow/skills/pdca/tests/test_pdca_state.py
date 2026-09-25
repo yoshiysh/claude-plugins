@@ -63,9 +63,13 @@ class Run:
         request.write_text(text)
         return self.ok("init", "--request-file", str(request), "--material", str(self.material))
 
+    def goal(self, **over):
+        lines = [line for line in (self.dir / "request.md").read_text().splitlines() if line.strip()]
+        phrases = [{"id": f"P{i}", "quote": line, "reading": "字義どおり"} for i, line in enumerate(lines, 1)]
+        return {"system": system(), "phrases": phrases} | over
+
     def scope(self, **over):
-        return {"system": system(), "readings": [], "conditions": [condition()], "excluded": [],
-                "human_gates": ["マージ"]} | over
+        return {"conditions": [condition()], "excluded": [], "human_gates": ["マージ"]} | over
 
     def design(self, **over):
         viewpoints = [{"id": "C1-V1", "condition": "C1", "check": "往復回数を数える", "means": {"kind": "audit"}}]
@@ -91,7 +95,7 @@ class Run:
         (self.dir / f"{aspect}.json").write_text(json.dumps(doc, ensure_ascii=False))
 
     def author(self, aspect="scope", agent=None, doc=None):
-        _, brief = self.brief("criteria-author", "--aspect", aspect)
+        _, brief = self.brief("goal-framer" if aspect == "goal" else "criteria-author", "--aspect", aspect)
         self.write(aspect, doc or getattr(self, aspect)())
         return self.record(brief, {"agent": agent or f"author-{aspect}"})
 
@@ -101,8 +105,13 @@ class Run:
                                    "reviewed_sha256": sha(self.dir / f"{aspect}.json"), "findings": list(findings),
                                    "notes": []})
 
-    def scoped(self):
+    def framed(self):
         self.init()
+        self.author("goal")
+        self.review("goal")
+
+    def scoped(self):
+        self.framed()
         self.author("scope")
         self.review("scope")
 
@@ -186,6 +195,21 @@ def finding(layer="実装", severity="blocking", target="docs/a.md"):
     return {"target": target, "severity": severity, "layer": layer, "claim": "欠けている", "evidence": "L1"}
 
 
+def question(ask="往復は PR ごとか全体か"):
+    return {"ask": ask, "options": [{"id": "a", "text": "PR ごと"}, {"id": "b", "text": "全体"}]}
+
+
+def finding_ask(ask="往復は PR ごとか全体か"):
+    q = question(ask)
+    return {"question": q["ask"], "options": q["options"]}
+
+
+def asking(goal, index=0, ask="往復は PR ごとか全体か"):
+    phrase = {k: v for k, v in goal["phrases"][index].items() if k != "reading"} | {"question": question(ask)}
+    goal["phrases"][index] = phrase
+    return goal
+
+
 def kind(kid="K1", **over):
     return {"id": kid, "kind": "docs 配下の文書", "enumerate": {"cwd": str(SKILL), "command": "ls"}} | over
 
@@ -225,7 +249,7 @@ class TestBrokenPaths(Base):
         r.fixed()
         _, brief = r.brief("writer", "--conditions", "C1")
         self.assertEqual(brief["documents"], {a: {"path": str((r.dir / f"{a}.json").resolve()),
-                                                  "sha256": sha(r.dir / f"{a}.json")} for a in ("scope", "design")})
+                                                  "sha256": sha(r.dir / f"{a}.json")} for a in ("goal", "scope", "design")})
         text = json.dumps(brief, ensure_ascii=False)
         self.assertNotIn("PR の往復を減らしたい", text)
         self.assertNotIn("受入基準", text)
@@ -233,7 +257,7 @@ class TestBrokenPaths(Base):
 
     def test_文書や指摘を書く役のbriefは文書の規則の正本を渡す(self):
         r = self.run_()
-        r.init()
+        r.framed()
         _, author = r.brief("criteria-author", "--aspect", "scope")
         self.assertEqual(author["document_rules"], str(SKILL / "agents" / "writer.md"))
         r.author()
@@ -249,7 +273,7 @@ class TestBrokenPaths(Base):
 
     def test_前周の指摘をbriefがledgerから載せる(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author()
         r.review("scope", findings=[finding(layer="範囲の導出", target="scope.json")])
         _, brief = r.brief("criteria-author", "--aspect", "scope")
@@ -414,7 +438,7 @@ class TestDocuments(Base):
         r.ok("fix")
         reviews = [json.loads(line)["data"]["aspect"] for line in (r.dir / "ledger.jsonl").read_text().splitlines()
                    if json.loads(line)["kind"] == "criteria_review"]
-        self.assertEqual(reviews, ["scope", "design", "design"])
+        self.assertEqual(reviews, ["goal", "scope", "design", "design"])
 
     def test_範囲を直したら測定の文書を開き直す(self):
         r = self.run_()
@@ -434,7 +458,7 @@ class TestDocuments(Base):
 
     def test_測定の文書は範囲がscopeの反証を通るまで書けない(self):
         r = self.run_()
-        r.init()
+        r.framed()
         self.assertIn("範囲", r.refused("brief", "--role", "criteria-author", "--aspect", "design"))
         r.author()
         self.assertIn("範囲", r.refused("brief", "--role", "criteria-author", "--aspect", "design"))
@@ -444,24 +468,24 @@ class TestDocuments(Base):
 
     def test_範囲の書き手と検証者のbriefは測定の文書を渡さない(self):
         r = self.run_()
-        r.init()
+        r.framed()
         _, author = r.brief("criteria-author", "--aspect", "scope")
         r.write("scope", r.scope())
         r.record(author, {"agent": "a"})
         _, reviewer = r.brief("criteria-verifier", "--aspect", "scope")
         for brief in (author, reviewer):
-            self.assertEqual(list(brief["documents"]), ["scope"])
+            self.assertEqual(list(brief["documents"]), ["goal", "scope"])
             self.assertNotIn("design.json", json.dumps(brief, ensure_ascii=False))
             self.assertNotIn("viewpoints", json.dumps(brief, ensure_ascii=False))
         r.record(reviewer, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
                             "findings": [], "notes": []})
         _, design_author = r.brief("criteria-author", "--aspect", "design")
-        self.assertEqual(list(design_author["documents"]), ["scope", "design"])
+        self.assertEqual(list(design_author["documents"]), ["goal", "scope", "design"])
         self.assertIn("viewpoints", design_author["shape"])
 
     def test_測定の文書は範囲の全条件を観点で覆い範囲に無い条件を指さない(self):
         r = self.run_()
-        r.init()
+        r.framed()
         two = r.scope()
         two["conditions"].append({"id": "C2", "statement": "docs だけ変える",
                                   "source": {"path": "request.md", "quote": "変更は docs/ だけにしてほしい。"}})
@@ -477,7 +501,7 @@ class TestDocuments(Base):
 
     def test_検証者の司令塔あての報告は指摘と別の欄で返り書き手に渡らない(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author()
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         body = {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
@@ -491,7 +515,7 @@ class TestDocuments(Base):
 
     def test_範囲のレビューは範囲の導出の指摘だけを出せる(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author()
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
@@ -543,15 +567,15 @@ class TestDocuments(Base):
 
     def test_recordとstatusは文書と観点ごとのcheckの文字数を返す(self):
         r = self.run_()
-        r.init()
+        r.framed()
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         r.write("scope", r.scope())
-        scope_chars = len((r.dir / "scope.json").read_text())
-        self.assertEqual(r.record(brief, {"agent": "a"})["sizes"], {"scope.json": scope_chars})
+        goal_chars, scope_chars = (len((r.dir / f"{a}.json").read_text()) for a in ("goal", "scope"))
+        self.assertEqual(r.record(brief, {"agent": "a"})["sizes"], {"goal.json": goal_chars, "scope.json": scope_chars})
         r.review("scope")
         out = r.author("design")
         design_chars = len((r.dir / "design.json").read_text())
-        expected = {"scope.json": scope_chars, "design.json": design_chars, "check": {"C1-V1": len("往復回数を数える")}}
+        expected = {"goal.json": goal_chars, "scope.json": scope_chars, "design.json": design_chars, "check": {"C1-V1": len("往復回数を数える")}}
         self.assertEqual(out["sizes"], expected)
         self.assertEqual(r.ok("status")["sizes"], expected)
         r.write("design", r.design(stops=["未記録の書き換え"]))
@@ -560,39 +584,52 @@ class TestDocuments(Base):
         self.assertEqual(sizes["design.json"], len((r.dir / "design.json").read_text()))
 
 
-class TestSystem(Base):
-    def submit_scope(self, r, doc):
-        _, brief = r.brief("criteria-author", "--aspect", "scope")
-        r.write("scope", doc)
-        return brief, r.submit(brief, {"agent": "a"})
+class TestGoal(Base):
+    def submit(self, r, aspect, doc):
+        _, brief = r.brief("goal-framer" if aspect == "goal" else "criteria-author", "--aspect", aspect)
+        r.write(aspect, doc)
+        return brief, r.submit(brief, {"agent": f"a-{aspect}"})
 
-    def test_範囲の文書は系の種類の一覧が無ければ拒否する(self):
+    def test_ゴールの文書は系の種類の一覧と句が無ければ拒否する(self):
         r = self.run_()
         r.init()
-        doc = r.scope()
-        doc.pop("system", None)
-        brief, path = self.submit_scope(r, doc)
-        self.assertIn("system", brief["shape"])
-        self.assertIn("system", r.refused("record", "--file", str(path)))
+        for key in ("system", "phrases"):
+            with self.subTest(key):
+                doc = r.goal()
+                doc.pop(key)
+                brief, path = self.submit(r, "goal", doc)
+                self.assertIn(key, brief["shape"])
+                self.assertIn(key, r.refused("record", "--file", str(path)))
 
-    def test_条件にも除外にも対応しない種類を拒否する(self):
+    def test_句を順につなぐと依頼全体にならなければ拒否する(self):
         r = self.run_()
         r.init()
-        doc = r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()])
-        brief, path = self.submit_scope(r, doc)
-        self.assertIn("K2", r.refused("record", "--file", str(path)))
-        doc["excluded"] = [{"item": "設定", "kinds": ["K2"], "reason": "依頼に無い"}]
-        r.write("scope", doc)
+        full = r.goal()
+        cases = {"欠け": full["phrases"][:1], "順序": full["phrases"][::-1],
+                 "言い換え": [full["phrases"][0], full["phrases"][1] | {"quote": "docs だけ変えて"}]}
+        for name, phrases in cases.items():
+            with self.subTest(name):
+                brief, path = self.submit(r, "goal", r.goal(phrases=phrases))
+                self.assertIn("request.md と一致しない", r.refused("record", "--file", str(path)))
+        split = [{"id": "P1", "quote": "PR の往復を", "reading": "x"}, {"id": "P2", "quote": "減らしたい。 変更は", "reading": "x"},
+                 {"id": "P3", "quote": "docs/ だけにしてほしい。", "reading": "x"}]
+        r.write("goal", r.goal(phrases=split))
         r.ok("record", "--file", str(path))
 
-    def test_種類の一覧に無い種類を指す条件と除外を拒否する(self):
+    def test_句は読みか問いのどちらか1つを持ち問いは選択肢を2つ以上持つ(self):
         r = self.run_()
         r.init()
-        brief, path = self.submit_scope(r, r.scope(system=system(), conditions=[condition(kinds=("K1", "K9"))]))
-        self.assertIn("K9", r.refused("record", "--file", str(path)))
-        r.write("scope", r.scope(system=system(), conditions=[condition()],
-                                 excluded=[{"item": "x", "kinds": ["K8"], "reason": "依頼に無い"}]))
-        self.assertIn("K8", r.refused("record", "--file", str(path)))
+        both = r.goal()
+        both["phrases"][0]["question"] = question()
+        one_option = asking(r.goal())
+        one_option["phrases"][0]["question"]["options"].pop()
+        stray_kind = asking(r.goal())
+        stray_kind["phrases"][0]["question"]["options"][0]["kinds"] = ["K9"]
+        for name, doc, expected in (("両方", both, "どちらか 1 つ"), ("選択肢 1 つ", one_option, "2 つ以上"),
+                                    ("種類", stray_kind, "K9")):
+            with self.subTest(name):
+                brief, path = self.submit(r, "goal", doc)
+                self.assertIn(expected, r.refused("record", "--file", str(path)))
 
     def test_列挙は実在する絶対パスのcwdとコマンドに分けなければ拒否する(self):
         r = self.run_()
@@ -602,111 +639,152 @@ class TestSystem(Base):
                  "文字列": "ls docs"}
         for name, enumerate_ in cases.items():
             with self.subTest(name):
-                brief, path = self.submit_scope(r, r.scope(system=system(kind(enumerate=enumerate_))))
+                brief, path = self.submit(r, "goal", r.goal(system=system(kind(enumerate=enumerate_))))
                 self.assertIn("enumerate", r.refused("record", "--file", str(path)))
-        r.write("scope", r.scope(system=system(kind(enumerate={"cwd": str(self.root), "command": "ls"}))))
+        r.write("goal", r.goal(system=system(kind(enumerate={"cwd": str(self.root), "command": "ls"}))))
         r.ok("record", "--file", str(path))
 
-    def test_割れる句と価値判断の種類は範囲の反証の前にまとめてask_humanで聞く(self):
+    def test_範囲の文書はゴールの全種類を条件か除外に対応させる(self):
         r = self.run_()
         r.init()
-        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
-        reading = {"id": "Q1", "quote": "PR の往復を減らしたい", "ask": "往復は PR ごとか全体か"}
-        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()], readings=[reading]))
+        r.author("goal", doc=r.goal(system=system(kind(), kind("K2", kind="設定"))))
+        r.review("goal")
+        brief, path = self.submit(r, "scope", r.scope())
+        self.assertIn("K2", r.refused("record", "--file", str(path)))
+        r.write("scope", r.scope(conditions=[condition(kinds=("K1", "K9"))]))
+        self.assertIn("K9", r.refused("record", "--file", str(path)))
+        r.write("scope", r.scope(excluded=[{"item": "設定", "kinds": ["K2"], "reason": "依頼に無い"}]))
+        r.ok("record", "--file", str(path))
+
+    def test_ゴールの問いは反証を通った後にまとめて聞き選んだ選択肢の文を依頼と別に記録する(self):
+        r = self.run_()
+        r.init()
+        r.author("goal", doc=asking(r.goal()))
+        self.assertEqual(r.next(), "criteria-verifier:goal")
+        r.review("goal")
         status = r.ok("status")
         self.assertEqual(status["next"], "ask_human")
-        self.assertEqual(status["ask_human"], [{"id": "K2", "ask": "設定も範囲に入れるか"},
-                                               {"id": "Q1", "ask": "往復は PR ごとか全体か"}])
-        for args in (("brief", "--role", "criteria-verifier", "--aspect", "scope"),
-                     ("brief", "--role", "criteria-author", "--aspect", "scope"), ("fix",), ("continue",)):
+        self.assertEqual(status["ask_human"], [{"id": "P1", "ask": "往復は PR ごとか全体か", "options": question()["options"]}])
+        for args in (("brief", "--role", "criteria-author", "--aspect", "scope"), ("fix",), ("continue",)):
             self.assertIn("ask_human", r.refused(*args))
-        answer = self.root / "answer.txt"
-        answer.write_text("設定は入れない。往復は PR ごと\n")
-        self.assertIn("K9", r.refused("amend", "--request-file", str(answer), "--answers", "K9"))
-        self.assertEqual(r.ok("amend", "--request-file", str(answer), "--answers", "K2", "Q1")["next"],
-                         "criteria-author:scope")
-        brief, path = self.submit_scope(r, r.scope(system=system(kind(), kind("K2", kind="設定")),
-                                                   conditions=[condition()], readings=[reading],
-                                                   excluded=[{"item": "設定", "kinds": ["K2"], "reason": "答え"}]))
-        self.assertIn("Q1", r.refused("record", "--file", str(path)))
-        r.author(agent="a2", doc=r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()],
-                                         excluded=[{"item": "設定", "kinds": ["K2"], "reason": "人間が入れないと答えた"}]))
+        self.assertIn("P9", r.refused("answer", "--question", "P9", "--option", "a"))
+        self.assertIn("選択肢", r.refused("answer", "--question", "P1", "--option", "z"))
+        self.assertIn("どちらか 1 つ", r.refused("answer", "--question", "P1"))
+        out = r.ok("answer", "--question", "P1", "--option", "a")
+        self.assertEqual(out["recorded_answer"], {"question": "P1", "ask": "往復は PR ごとか全体か", "answer": "PR ごと", "option": "a"})
+        self.assertEqual(out["next"], "criteria-author:scope")
+        self.assertEqual((r.dir / "request.md").read_text(), REQUEST)
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        self.assertEqual([a["answer"] for a in brief["answers"]], ["PR ごと"])
+        r.write("scope", r.scope(conditions=[condition(), {"id": "C2", "statement": "PR ごとに数える",
+                                                          "source": {"path": "answer:P1", "quote": "PR ごと"}}]))
+        r.record(brief, {"agent": "a"})
         self.assertEqual(r.next(), "criteria-verifier:scope")
-        r.review("scope", agent="s2")
-        self.assertEqual(r.next(), "criteria-author:design")
 
-    def test_割れる句も価値判断の種類も無ければ聞かずに範囲の反証へ進む(self):
+    def test_選択肢に無い答えは原文を記録する(self):
         r = self.run_()
         r.init()
-        r.author()
-        status = r.ok("status")
-        self.assertEqual(status["next"], "criteria-verifier:scope")
-        self.assertNotIn("ask_human", status)
-
-    def test_割れる句の引用が依頼に逐語で無ければ拒否する(self):
-        r = self.run_()
-        r.init()
-        reading = {"id": "Q1", "quote": "依頼に無い句", "ask": "x"}
-        brief, path = self.submit_scope(r, r.scope(readings=[reading]))
-        self.assertIn("readings[0].quote", r.refused("record", "--file", str(path)))
-
-    def test_ask_humanの間の答えでないamendでは問いを残せて再び聞く(self):
-        r = self.run_()
-        r.init()
-        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
-        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        extra = self.root / "more.txt"
-        extra.write_text("README も直して\n")
-        r.ok("amend", "--request-file", str(extra))
-        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        self.assertEqual(r.ok("status")["ask_human"], [{"id": "K2", "ask": "設定も範囲に入れるか"}])
-
-    def test_answersはask_humanで待っている種類だけを取る(self):
-        r = self.run_()
-        r.init()
+        r.author("goal", doc=asking(r.goal()))
+        r.review("goal")
         answer = self.root / "answer.txt"
-        answer.write_text("設定は入れない\n")
-        self.assertIn("ask_human", r.refused("amend", "--request-file", str(answer), "--answers", "K2"))
+        answer.write_text("直近 3 か月の PR だけ\n")
+        out = r.ok("answer", "--question", "P1", "--text-file", str(answer))
+        self.assertEqual(out["recorded_answer"]["answer"], "直近 3 か月の PR だけ\n")
+        self.assertNotIn("option", out["recorded_answer"])
 
-    def test_読み方の問いを持つ範囲の指摘はcriteria_openに出て答えのamendは書き手に回る(self):
+    def test_問いが無ければ聞かずに範囲の書き手へ進み答えを取らない(self):
         r = self.run_()
-        r.init()
-        r.author()
-        question = finding(layer="範囲の導出", target="scope.json") | {"ask": "2 行目は起動の指示か"}
-        _, brief = r.brief("criteria-verifier", "--aspect", "scope")
-        path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
-                                "findings": [question | {"severity": "non_blocking"}], "notes": []})
-        self.assertIn("ask", r.refused("record", "--file", str(path)))
-        r.review("scope", findings=[question])
+        r.framed()
         status = r.ok("status")
         self.assertEqual(status["next"], "criteria-author:scope")
-        self.assertEqual([f.get("ask") for f in status["criteria_open"]], ["2 行目は起動の指示か"])
-        answer = self.root / "answer.txt"
-        answer.write_text("起動の指示ではない\n")
-        self.assertEqual(r.ok("amend", "--request-file", str(answer))["next"], "criteria-author:scope")
+        self.assertNotIn("ask_human", status)
+        self.assertIn("ask_human", r.refused("answer", "--question", "P1", "--option", "a"))
+
+    def test_答えた問いの文を変えたゴールは再び聞く(self):
+        r = self.run_()
+        r.init()
+        r.author("goal", doc=asking(r.goal()))
+        r.review("goal")
+        r.ok("answer", "--question", "P1", "--option", "a")
+        r.author()
+        r.review("scope", findings=[finding(layer="ゴール", target="goal.json")])
+        self.assertEqual(r.next(), "goal-framer:goal")
+        r.author("goal", agent="g2", doc=asking(r.goal()))
+        r.review("goal", agent="rg2")
+        self.assertEqual(r.next(), "criteria-author:scope")
+        r.author("goal", agent="g3", doc=asking(r.goal(), ask="往復はレビューの往復か"))
+        r.review("goal", agent="rg3")
+        self.assertEqual(r.ok("status")["ask_human"][0]["ask"], "往復はレビューの往復か")
+
+    def test_ゴールの指摘はゴールの書き手に回り範囲と測定を開き直す(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="ゴール", target="goal.json")])
+        self.assertEqual(r.next(), "goal-framer:goal")
+        r.author("goal", agent="g2")
+        r.review("goal", agent="rg2")
+        self.assertEqual(r.next(), "criteria-author:scope")
         r.author(agent="a2")
         r.review("scope", agent="s2")
         self.assertEqual(r.next(), "criteria-author:design")
 
-    def test_fixの後に人間に聞く種類を足しても台帳を読める(self):
+    def test_ゴールの書き手と範囲の書き手が同じagentなら拒否する(self):
         r = self.run_()
-        r.fixed()
-        r.work()
-        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="範囲の導出", target="scope.json")])
-        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
-        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
-        self.assertEqual(r.ok("status")["next"], "ask_human")
+        r.init()
+        r.author("goal", agent="same")
+        r.review("goal")
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        r.write("scope", r.scope())
+        self.assertIn("同じ agent", r.refused("record", "--file", str(r.submit(brief, {"agent": "same"}))))
+        self.assertIn("goal-framer", r.refused("brief", "--role", "criteria-author", "--aspect", "goal"))
+
+    def test_指摘の問いは選択肢を持ちblockingのゴールか範囲の導出だけが持てる(self):
+        r = self.run_()
+        r.framed()
+        r.author()
+        _, brief = r.brief("criteria-verifier", "--aspect", "scope")
+        asked = finding(layer="範囲の導出", target="scope.json") | {"ask": finding_ask()}
+        cases = {"non_blocking": asked | {"severity": "non_blocking"},
+                 "選択肢 1 つ": asked | {"ask": {"question": "q", "options": question()["options"][:1]}},
+                 "文字列": asked | {"ask": "2 行目は起動の指示か"}}
+        for name, bad in cases.items():
+            with self.subTest(name):
+                path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
+                                        "findings": [bad], "notes": []})
+                self.assertIn("ask", r.refused("record", "--file", str(path)))
+
+    def test_問いを持つ指摘は人間に聞いてから書き手に回り非収束に数えない(self):
+        r = self.run_()
+        r.framed()
+        for n in range(3):
+            r.author(agent=f"a{n}")
+            r.review("scope", agent=f"s{n}",
+                     findings=[finding(layer="範囲の導出", target="scope.json") | {"ask": finding_ask(f"問い {n}")}])
+            status = r.ok("status")
+            self.assertEqual(status["next"], "ask_human")
+            self.assertEqual(status["ask_human"][0]["ask"], f"問い {n}")
+            self.assertEqual(r.ok("answer", "--question", status["ask_human"][0]["id"], "--option", "b")["next"],
+                             "criteria-author:scope")
+            _, brief = r.brief("criteria-author", "--aspect", "scope")
+            self.assertEqual(brief["answers"][-1]["ask"], f"問い {n}")
+            r.write("scope", r.scope())
+            r.record(brief, {"agent": f"b{n}"})
+            r.review("scope", agent=f"t{n}")
+        self.assertEqual(r.next(), "criteria-author:design")
+        self.assertEqual([row["blocking"]["範囲の導出"] for row in r.ok("status")["findings"]["scope"]], [0] * 6)
 
     def test_ask_humanの間に止まってもstatusは保留中の問いを出す(self):
         r = self.run_()
         r.fixed()
         r.work()
-        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="範囲の導出", target="scope.json")])
-        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
-        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="ゴール", target="goal.json")])
+        r.author("goal", agent="g2", doc=asking(r.goal()))
+        r.review("goal", agent="rg2")
+        self.assertEqual(r.next(), "ask_human")
         code, status = r.main_at(99999, "status")
         self.assertEqual((code, status["next"]), (0, "stop:time_budget"))
-        self.assertEqual(status["ask_human"], [{"id": "K2", "ask": "設定も範囲に入れるか"}])
+        self.assertEqual([q["id"] for q in status["ask_human"]], ["P1"])
 
 
 class TestRequest(Base):
@@ -721,17 +799,23 @@ class TestRequest(Base):
         (r.dir / "request.md").write_text("言い換えた依頼\n")
         self.assertIn("request.md", r.refused("brief", "--role", "criteria-author", "--aspect", "scope"))
 
-    def test_amendの後は範囲の書き手に回り再レビューを経るまでwriterを呼べない(self):
+    def test_amendの後はゴールの書き手に回り再レビューを経るまでwriterを呼べない(self):
         r = self.run_()
         r.fixed()
         extra = self.root / "more.txt"
         extra.write_text("README も直して\n")
         out = r.ok("amend", "--request-file", str(extra))
         self.assertEqual(out["recorded_request"], "README も直して\n")
-        self.assertEqual(out["next"], "criteria-author:scope")
+        self.assertEqual(out["next"], "goal-framer:goal")
         self.assertIn("fix されていない", r.refused("brief", "--role", "writer", "--conditions", "C1"))
-        self.assertIn("scope.json", r.refused("brief", "--role", "criteria-verifier", "--aspect", "scope"))
-        self.assertIn("scope.json", r.refused("fix"))
+        self.assertIn("ゴールの文書", r.refused("brief", "--role", "criteria-verifier", "--aspect", "scope"))
+        self.assertIn("goal.json", r.refused("fix"))
+        _, brief = r.brief("goal-framer", "--aspect", "goal")
+        r.write("goal", r.goal(phrases=r.goal()["phrases"][:2]))
+        self.assertIn("request.md と一致しない", r.refused("record", "--file", str(r.submit(brief, {"agent": "g2"}))))
+        r.write("goal", r.goal())
+        r.record(brief, {"agent": "g2"})
+        r.review("goal", agent="rg2")
         r.author(agent="a2")
         r.review("scope", agent="s2")
         r.author("design", agent="a3")
@@ -741,22 +825,24 @@ class TestRequest(Base):
 
     def test_amendの後も前周の指摘が範囲の書き手のbriefに渡る(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author()
         r.review("scope", findings=[finding(layer="範囲の導出", target="scope.json"),
                                     finding(layer="範囲の導出", target="scope.json", severity="non_blocking")])
         extra = self.root / "more.txt"
         extra.write_text("README も直して\n")
         r.ok("amend", "--request-file", str(extra))
+        r.author("goal", agent="g2")
+        r.review("goal", agent="rg2")
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         self.assertEqual([f["severity"] for f in brief["prior_findings"]], ["blocking", "non_blocking"])
 
-    def test_fixの前のamendも範囲の書き手に回る(self):
+    def test_fixの前のamendもゴールの書き手に回る(self):
         r = self.run_()
         r.scoped()
         extra = self.root / "more.txt"
         extra.write_text("README も直して\n")
-        self.assertEqual(r.ok("amend", "--request-file", str(extra))["next"], "criteria-author:scope")
+        self.assertEqual(r.ok("amend", "--request-file", str(extra))["next"], "goal-framer:goal")
         self.assertIn("範囲", r.refused("brief", "--role", "criteria-author", "--aspect", "design"))
 
     def test_initは依頼原文を写して返し資料は複製しない(self):
@@ -791,7 +877,8 @@ class TestInputShape(Base):
                    for name, p in sub.choices.items()}
         self.assertEqual(options, {
             "init": {"--run-dir", "--request-file", "--material"},
-            "amend": {"--run-dir", "--request-file", "--answers"},
+            "amend": {"--run-dir", "--request-file"},
+            "answer": {"--run-dir", "--question", "--option", "--text-file"},
             "brief": {"--run-dir", "--role", "--conditions", "--viewpoint", "--aspect", "--report-file"},
             "record": {"--run-dir", "--file"},
             "fix": {"--run-dir"}, "status": {"--run-dir"}, "continue": {"--run-dir"}, "close": {"--run-dir"},
@@ -799,7 +886,7 @@ class TestInputShape(Base):
 
     def test_prompt_extraが空でない出力を拒否する(self):
         r = self.run_()
-        r.init()
+        r.framed()
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         r.write("scope", r.scope())
         path = Path(brief["out"])
@@ -809,7 +896,7 @@ class TestInputShape(Base):
 
     def test_invokeはテンプレートの文だけ(self):
         r = self.run_()
-        r.init()
+        r.framed()
         out, brief = r.brief("criteria-author", "--aspect", "scope")
         module = load_module()
         self.assertEqual(out["invoke"], module.INVOKE.format(brief=out["brief"], agent=brief["agent_file"], out=brief["out"]))
@@ -830,7 +917,7 @@ class TestOrder(Base):
 
     def test_layerかtargetの無い指摘を拒否する(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author()
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         bad = finding()
@@ -853,7 +940,7 @@ class TestOrder(Base):
 
     def test_fixは2人のレビュアーが同じか書き手と同じagentなら拒否する(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author()
         r.review("scope", agent="same")
         r.author("design")
@@ -1007,7 +1094,7 @@ class TestSeparation(Base):
 
     def test_criteria_verifierがauthorと同じなら拒否する(self):
         r = self.run_()
-        r.init()
+        r.framed()
         r.author(agent="same")
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         path = r.submit(brief, {"agent": "same", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
@@ -1016,7 +1103,7 @@ class TestSeparation(Base):
 
     def test_quoteが逐語でなければ拒否する(self):
         r = self.run_()
-        r.init()
+        r.framed()
         bad = r.scope()
         bad["conditions"][0]["source"]["quote"] = "往復を減らす"
         _, brief = r.brief("criteria-author", "--aspect", "scope")
@@ -1025,7 +1112,7 @@ class TestSeparation(Base):
 
     def test_briefが渡したrequestの絶対パスをsource_pathに書いたcriteriaを受け付ける(self):
         r = self.run_()
-        r.init()
+        r.framed()
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         scope = r.scope()
         scope["conditions"][0]["source"]["path"] = brief["request"]["path"]
@@ -1034,7 +1121,7 @@ class TestSeparation(Base):
 
     def test_run_dirのrequest_md以外をrequestとして受け付けない(self):
         r = self.run_()
-        r.init()
+        r.framed()
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         elsewhere = self.root / "other"
         elsewhere.mkdir()
@@ -1048,13 +1135,13 @@ class TestSeparation(Base):
             scope = r.scope()
             scope["conditions"][0]["source"]["path"] = str(raw)
             r.write("scope", scope)
-            self.assertIn("登録した資料ではない", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
+            self.assertIn("登録した資料か", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
         (r.dir / "request.md").unlink()
         (r.dir / "request.md").symlink_to(copy)
         scope = r.scope()
         scope["conditions"][0]["source"]["path"] = str(copy.resolve())
         r.write("scope", scope)
-        self.assertIn("登録した資料ではない", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
+        self.assertIn("登録した資料か", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
 
     def test_roundsが5を超える測定の文書を拒否する(self):
         r = self.run_()
@@ -1071,7 +1158,7 @@ class TestResidualReferences(unittest.TestCase):
         r"|(?<![\w-])(intake|evidence-collector|planner|builder|build-verifier|runner|mechanism-analyst"
         r"|mechanism-arbiter|plan-verifier|act-judge|revision-planner)(?![\w-])"
         r"|MAX_REVISION_DIFFS|MAX_PLAN_REVISIONS|MAX_BUILD_REVISIONS|DEFAULT_MAX_CYCLES|VERIFY_LENSES"
-        r"|measurement_harness|frozenHarness|criteria\.json|criteria_shape"
+        r"|measurement_harness|frozenHarness|criteria\.json|criteria_shape|readings|--answers|answered\("
     )
 
     def test_削除した名前がpdcaの文書に残っていない(self):
@@ -1143,7 +1230,7 @@ class TestStopAndLedger(Base):
     def test_検証を経ずに追記したcloseを拒否する(self):
         r = self.run_()
         r.fixed()
-        forge(r, "close", {"documents": {a: sha(r.dir / f"{a}.json") for a in ("scope", "design")},
+        forge(r, "close", {"documents": {a: sha(r.dir / f"{a}.json") for a in ("goal", "scope", "design")},
                            "human_gates": ["マージ"]})
         self.assertIn("成立していない", r.refused("status"))
 
@@ -1159,7 +1246,7 @@ class TestStopAndLedger(Base):
         r = self.run_()
         r.scoped()
         r.author("design")
-        forge(r, "fix", {"documents": {a: sha(r.dir / f"{a}.json") for a in ("scope", "design")}, "means": [],
+        forge(r, "fix", {"documents": {a: sha(r.dir / f"{a}.json") for a in ("goal", "scope", "design")}, "means": [],
                          "budget": {"rounds": 3, "wall_seconds": 7200}})
         self.assertIn("成立していない", r.refused("status"))
 
@@ -1279,12 +1366,10 @@ class TestStopAndLedger(Base):
             return ("brief", "--role", "verifier", "--viewpoint", "R-REQUEST")
 
         def asks(r):
-            r.init()
+            r.framed()
             r.author()
-            rewrite(r, "criteria_written", lambda data: data.update(asks=[{"id": ["K2"], "ask": "q"}]))
-            answer = r.root / "answer.txt"
-            answer.write_text("入れない\n")
-            return ("amend", "--request-file", str(answer), "--answers", "K2")
+            rewrite(r, "criteria_written", lambda data: data.update(asks=[{"id": ["P2"], "ask": "q", "options": []}]))
+            return ("answer", "--question", "P2", "--option", "a")
 
         for case in (brief_id, mode, viewpoint, agent, outputs, asks):
             (self.root / case.__name__).mkdir()
@@ -1303,6 +1388,9 @@ class TestStopAndLedger(Base):
         extra = self.root / "more.txt"
         extra.write_text("README も直して\n")
         r.ok("amend", "--request-file", str(extra))
+        r.author("goal", doc=asking(r.goal()))
+        r.review("goal")
+        r.ok("answer", "--question", "P1", "--option", "a")
         r.author()
         r.review("scope", findings=[finding(layer="範囲の導出", target="scope.json", severity="non_blocking")])
         r.author("design")
