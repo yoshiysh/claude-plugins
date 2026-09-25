@@ -770,7 +770,7 @@ class State:
             report["elapsed"] = f"elapsed {self.elapsed()}s / {budget['wall_seconds']}s"
         if not self.fixed():
             report["criteria_open"] = self.criteria_open()
-            if report["next"] == "ask_human":
+            if self.pending_asks():
                 report["ask_human"] = self.pending_asks()
         else:
             criteria = self.criteria()

@@ -638,6 +638,18 @@ class TestSystem(Base):
         r.review("scope", agent="s2")
         self.assertEqual(r.ok("status")["next"], "ask_human")
 
+    def test_ask_humanの間に止まってもstatusは保留中の問いを出す(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="範囲の導出", target="scope.json")])
+        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
+        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        r.review("scope", agent="s2")
+        code, status = r.main_at(99999, "status")
+        self.assertEqual((code, status["next"]), (0, "stop:time_budget"))
+        self.assertEqual(status["ask_human"], [{"kind": "K2", "ask": "設定も範囲に入れるか"}])
+
 
 class TestRequest(Base):
     def test_initの前のbriefを拒否する(self):

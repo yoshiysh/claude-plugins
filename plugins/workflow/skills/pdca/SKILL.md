@@ -113,7 +113,7 @@ python3 $S close --run-dir <run-dir>
 - 方法論の行き詰まり（測定手段が成立しない等）は人間の境界ではない。検証者の指摘として、
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら
-  `criteria_open`）を人間に報告する。止まった run は `amend` しても再開しない。予算の増額が承認されたら、
+  `criteria_open`。保留中の問いがあれば `ask_human`）を人間に報告する。止まった run は `amend` しても再開しない。予算の増額が承認されたら、
   新しい run-dir で `init` し直し、前の run の request.md を `--request-file` に、scope.json・design.json・
   ledger.jsonl を `--material` に渡す。
 
