@@ -95,6 +95,8 @@ python3 $S close --run-dir <run-dir>
     出すか）を描いて、上の分け方と順を決めてもよい。必須の成果物ではない（範囲を導く PFD は別の
     用途で、criteria-author が scope.json に描く）。
   - writer のモデル、人間への提示。
+  - criteria-verifier の `notes` は `record` の返り値で司令塔にだけ届く（書き手には渡らない）。環境の
+    制約で反証が成り立っていないと書かれていれば、人間に報告する。
 - **決めない**: 完了条件、検証観点、測定手段、予算、合否。これらは criteria-author が書き、
   criteria-verifier が反証し、script が判定する。司令塔がこれらを決めると、検証観点が場当たりになり、
   何を見れば網羅かを誰も突き合わせられない。

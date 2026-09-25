@@ -61,7 +61,8 @@ DATA_SCHEMA = {
                                          "mode": one_of(("smoke", "verify")), "report_sha256": TEXT}),
     "criteria_written": ({"aspect": one_of(ASPECTS), "sha256": TEXT, "agent": TEXT},
                          {"asks": list_of(shaped({"id": TEXT, "ask": TEXT}))}),
-    "criteria_review": ({"aspect": one_of(ASPECTS), "reviewed_sha256": TEXT, "findings": list_of(ANY), "agent": TEXT}, {}),
+    "criteria_review": ({"aspect": one_of(ASPECTS), "reviewed_sha256": TEXT, "findings": list_of(ANY),
+                         "notes": list_of(TEXT), "agent": TEXT}, {}),
     "fix": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)),
              "means": list_of(shaped({"viewpoint": TEXT, "ref": PATH, "sha256": TEXT})),
              "budget": shaped({"rounds": natural(1), "wall_seconds": natural(1)})}, {}),
@@ -138,7 +139,8 @@ COMMON_OUTPUT = {
 OUTPUT = {
     "criteria-author": {},
     "criteria-verifier": {"aspect": "brief の aspect", "reviewed_sha256": "レビューした文書の sha256",
-                          "findings": [FINDING | {"ask": "（任意。blocking の範囲の導出だけ）人間に聞けば決まる依頼の読み方の問い"}]},
+                          "findings": [FINDING | {"ask": "（任意。blocking の範囲の導出だけ）人間に聞けば決まる依頼の読み方の問い"}],
+                          "notes": ["司令塔あての報告（環境で確かめられなかったこと・確かめて問題が無かったこと）。書き手には渡らない"]},
     "writer": {"outputs": ["作った・直した成果物のパス"]},
     "verify": {"viewpoint": "brief の観点 ID", "status": "|".join(VERIFY_STATUSES),
                "observed": "means.pass_if があれば観測した数値、無ければ null", "evidence": "確かめた方法と結果",
@@ -1046,6 +1048,7 @@ def cmd_record(args) -> int:
             raise StateError(f"レビューした {DOCS[aspect]} の digest が現行と違う")
         if state.written(aspect)["data"]["agent"] == agent:
             raise StateError("criteria-verifier が、レビューした文書の criteria-author と同じ agent")
+        string_list(out["notes"], "notes")
         if any(f["layer"] not in REVIEW_LAYERS[aspect] for f in out["findings"]):
             raise StateError(f"{aspect} のレビューが出せる layer は {REVIEW_LAYERS[aspect]}")
         entry = state.ledger.append("criteria_review", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
@@ -1090,7 +1093,8 @@ def cmd_record(args) -> int:
             raise StateError("open は complete なら空、not_complete なら当たった項目を挙げる")
         entry = state.ledger.append("judgment", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
     after = State(state.run_dir)
-    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()})
+    notes = {"notes": out["notes"]} if role == "criteria-verifier" else {}
+    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()} | notes)
 
 
 def fix_problem(state: State) -> str | None:

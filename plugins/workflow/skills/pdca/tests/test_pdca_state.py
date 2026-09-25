@@ -98,7 +98,8 @@ class Run:
     def review(self, aspect, agent=None, findings=()):
         _, brief = self.brief("criteria-verifier", "--aspect", aspect)
         return self.record(brief, {"agent": agent or f"rev-{aspect}", "aspect": aspect,
-                                   "reviewed_sha256": sha(self.dir / f"{aspect}.json"), "findings": list(findings)})
+                                   "reviewed_sha256": sha(self.dir / f"{aspect}.json"), "findings": list(findings),
+                                   "notes": []})
 
     def scoped(self):
         self.init()
@@ -453,7 +454,7 @@ class TestDocuments(Base):
             self.assertNotIn("design.json", json.dumps(brief, ensure_ascii=False))
             self.assertNotIn("viewpoints", json.dumps(brief, ensure_ascii=False))
         r.record(reviewer, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
-                            "findings": []})
+                            "findings": [], "notes": []})
         _, design_author = r.brief("criteria-author", "--aspect", "design")
         self.assertEqual(list(design_author["documents"]), ["scope", "design"])
         self.assertIn("viewpoints", design_author["shape"])
@@ -474,13 +475,27 @@ class TestDocuments(Base):
         r.write("design", stray)
         self.assertIn("C9", r.refused("record", "--file", str(r.submit(brief, {"agent": "a"}))))
 
+    def test_検証者の司令塔あての報告は指摘と別の欄で返り書き手に渡らない(self):
+        r = self.run_()
+        r.init()
+        r.author()
+        _, brief = r.brief("criteria-verifier", "--aspect", "scope")
+        body = {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
+                "findings": [finding(layer="範囲の導出", target="scope.json")]}
+        self.assertIn("notes", r.refused("record", "--file", str(r.submit(brief, body))))
+        out = r.record(brief, body | {"notes": ["列挙のコマンドの実行が拒否された"]})
+        self.assertEqual(out["notes"], ["列挙のコマンドの実行が拒否された"])
+        _, author = r.brief("criteria-author", "--aspect", "scope")
+        self.assertEqual(len(author["prior_findings"]), 1)
+        self.assertNotIn("列挙のコマンド", json.dumps(author, ensure_ascii=False))
+
     def test_範囲のレビューは範囲の導出の指摘だけを出せる(self):
         r = self.run_()
         r.init()
         r.author()
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
-                                "findings": [finding(layer="設計", target="design.json")]})
+                                "findings": [finding(layer="設計", target="design.json")], "notes": []})
         self.assertIn("layer", r.refused("record", "--file", str(path)))
 
     def test_測定の検証者の範囲の導出の指摘は範囲の書き手に回る(self):
@@ -660,7 +675,7 @@ class TestSystem(Base):
         question = finding(layer="範囲の導出", target="scope.json") | {"ask": "2 行目は起動の指示か"}
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
-                                "findings": [question | {"severity": "non_blocking"}]})
+                                "findings": [question | {"severity": "non_blocking"}], "notes": []})
         self.assertIn("ask", r.refused("record", "--file", str(path)))
         r.review("scope", findings=[question])
         status = r.ok("status")
@@ -821,7 +836,7 @@ class TestOrder(Base):
         bad = finding()
         del bad["layer"]
         path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
-                                "findings": [bad]})
+                                "findings": [bad], "notes": []})
         self.assertIn("layer か target", r.refused("record", "--file", str(path)))
 
     def test_scopeとdesignの片方だけではfixできない(self):
@@ -996,7 +1011,7 @@ class TestSeparation(Base):
         r.author(agent="same")
         _, brief = r.brief("criteria-verifier", "--aspect", "scope")
         path = r.submit(brief, {"agent": "same", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
-                                "findings": []})
+                                "findings": [], "notes": []})
         self.assertIn("author と同じ", r.refused("record", "--file", str(path)))
 
     def test_quoteが逐語でなければ拒否する(self):
