@@ -1195,6 +1195,59 @@ class TestStopAndLedger(Base):
                 self.assertEqual(proc.returncode, 1, proc.stderr)
                 self.assertIn("error", json.loads(proc.stderr))
 
+    def test_引きに使う欄が文字列でない台帳をJSONのエラーで拒否する(self):
+        def brief_id(r):
+            r.init()
+            forge(r, "brief", {"role": "writer", "conditions": ["C1"]}, brief_id=["b2"])
+            return ("status",)
+
+        def mode(r):
+            r.init()
+            forge(r, "brief", {"role": "verifier", "viewpoint": "R-REQUEST", "mode": ["verify"]}, brief_id="b2")
+            out = r.root / "out.json"
+            out.write_text(json.dumps({"role": "verifier", "brief_id": "b2", "agent": "v", "prompt_extra": ""}))
+            return ("record", "--file", str(out))
+
+        def viewpoint(r):
+            r.init()
+            forge(r, "brief", {"role": "verifier", "viewpoint": "R-REQUEST", "mode": "verify"}, brief_id="b2")
+            forge(r, "verification", {"viewpoint": ["R-REQUEST"], "reported": "pass", "status": "pass",
+                                      "observed": None, "evidence": "x", "findings": [], "agent": "v"}, brief_id="b2")
+            return ("status",)
+
+        def agent(r):
+            r.scoped()
+            r.author("design")
+            r.review("design")
+            rewrite(r, "criteria_written", lambda data: data.update(agent=["a"]))
+            return ("fix",)
+
+        def outputs(r):
+            r.fixed()
+            r.work()
+            rewrite(r, "work", lambda data: data.update(outputs=[["docs"]]))
+            return ("brief", "--role", "verifier", "--viewpoint", "R-REQUEST")
+
+        def asks(r):
+            r.init()
+            r.author()
+            r.review("scope")
+            rewrite(r, "criteria_written", lambda data: data.update(asks=[{"kind": ["K2"], "ask": "q"}]))
+            answer = r.root / "answer.txt"
+            answer.write_text("入れない\n")
+            return ("amend", "--request-file", str(answer), "--answers", "K2")
+
+        for case in (brief_id, mode, viewpoint, agent, outputs, asks):
+            (self.root / case.__name__).mkdir()
+            r = Run(self.root / case.__name__)
+            args = case(r)
+            with self.subTest(case.__name__):
+                proc = subprocess.run([sys.executable, str(SCRIPT), *args, "--run-dir", str(r.dir)],
+                                      capture_output=True, text=True)
+                self.assertNotIn("Traceback", proc.stderr, proc.stderr.splitlines()[-1:])
+                self.assertEqual(proc.returncode, 1, proc.stderr)
+                self.assertIn("error", json.loads(proc.stderr))
+
     def test_旧形式の台帳はどの操作もJSONのエラーで拒否する(self):
         old_written = [("brief", {"role": "criteria-author"}), ("criteria_written", {"criteria_sha256": "x", "agent": "a"})]
         old_review = [("brief", {"role": "criteria-author", "aspect": "scope"}),

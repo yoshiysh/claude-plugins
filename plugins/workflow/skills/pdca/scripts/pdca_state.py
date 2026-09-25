@@ -228,6 +228,8 @@ class Ledger:
                 raise StateError(f"{where}: prev_sha256 が直前の行と一致しない（行の書き換え）")
             if not isinstance(entry["kind"], str) or entry["kind"] not in DATA_KEYS:
                 raise StateError(f"{where}: 未知の kind {entry['kind']!r}")
+            if "brief_id" in entry:
+                nonempty_str(entry["brief_id"], f"{where}.brief_id")
             check_data(entry, where)
             entries.append(entry)
             prev = sha256_bytes(line.encode("utf-8"))
@@ -273,6 +275,19 @@ def check_data(entry: dict, where: str) -> None:
         if not isinstance(data["role"], str) or data["role"] not in BRIEF_KEYS:
             raise StateError(f"{where}: 未知の role {data['role']!r}")
         require_keys(data, f"{where}.data", {"role"} | BRIEF_KEYS[data["role"]])
+    for key in ("agent", "viewpoint"):
+        if key in data:
+            nonempty_str(data[key], f"{where}.data.{key}")
+    if "mode" in data and data["mode"] not in ("smoke", "verify"):
+        raise StateError(f"{where}: mode が smoke か verify でない")
+    if kind == "work" and not (isinstance(data["outputs"], list) and all(isinstance(o, str) for o in data["outputs"])):
+        raise StateError(f"{where}.data.outputs は文字列の配列")
+    if kind == "criteria_written" and "asks" in data:
+        if not isinstance(data["asks"], list):
+            raise StateError(f"{where}.data.asks は配列")
+        for i, a in enumerate(data["asks"]):
+            require_keys(a, f"{where}.data.asks[{i}]", {"kind", "ask"})
+            nonempty_str(a["kind"], f"{where}.data.asks[{i}].kind")
     if "aspect" in data and data["aspect"] not in ASPECTS:
         raise StateError(f"{where}: aspect が {ASPECTS} のどれでもない（旧形式の台帳は読まない）")
     if kind == "amend" and "answers" in data:
