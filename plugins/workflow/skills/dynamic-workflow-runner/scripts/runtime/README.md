@@ -207,8 +207,8 @@ See [protocol and verification boundaries](RESUME-DESIGN.md).
 
 Request `environment` accepts `path` (a PATH string of absolute, nonempty entries)
 and a nonempty `requiredCommands` array of simple executable names. Include hook
-dependencies such as rtk explicitly when the host uses them. No platform-specific
-directory is inserted automatically. The backend passes this PATH via per-instance
+dependencies explicitly when the host uses them. No platform-specific directory is
+inserted automatically. The backend passes this PATH via per-instance
 SDK `shell_environment_policy.set.PATH`; global configuration is never edited.
 Missing executables fail before run creation and thread dispatch. Canonical executable
 paths and the selected PATH are recorded in request.json backendPolicy.environment.
