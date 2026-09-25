@@ -47,7 +47,7 @@ run-dir は対象の作業ツリーの外に置く。ユーザーの発言は、
 ```bash
 S=[SKILL_DIR]/scripts/pdca_state.py
 python3 $S init --run-dir <run-dir> --request-file <依頼原文> --material <資料のパス>   # 資料は複数可
-python3 $S amend --run-dir <run-dir> --request-file <後から来た発言>
+python3 $S amend --run-dir <run-dir> --request-file <後から来た発言> [--answers <答えた種類 ID>…]
 python3 $S brief --run-dir <run-dir> --role <役割> [--aspect <scope か design>] [--conditions <条件 ID>…] [--viewpoint <観点 ID>] [--report-file <最終報告案>]
 python3 $S record --run-dir <run-dir> --file <agent の出力>
 python3 $S fix --run-dir <run-dir>
@@ -107,8 +107,9 @@ python3 $S close --run-dir <run-dir>
 - プロダクトの価値に関わる判断（問いを続ける価値、目標や許容リスクの変更、予算の増額）は、
   人間に返す。
 - 範囲に入れるかが価値判断になる系の種類（scope.json の `ask`）は、scope の反証が通った後に `next` が
-  `ask_human` になる。`status` の `ask_human` を種類の単位でまとめて 1 回聞き、答えを `amend` で記録する
-  （反証の前に聞くと、検証者が種類を見つけるたびに聞き直す）。
+  `ask_human` になる。`status` の `ask_human` を種類の単位でまとめて 1 回聞き、答えを `amend --answers
+  <答えた種類 ID>…` で記録する（反証の前に聞くと、検証者が種類を見つけるたびに聞き直す）。答えでない
+  発言には `--answers` を付けない。付けた種類は答えたものとして扱われ、以後その問いを残せない。
 - 方法論の行き詰まり（測定手段が成立しない等）は人間の境界ではない。検証者の指摘として、
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら

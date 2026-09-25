@@ -586,13 +586,35 @@ class TestSystem(Base):
         self.assertIn("ask_human", r.refused("continue"))
         answer = self.root / "answer.txt"
         answer.write_text("設定は入れない\n")
-        self.assertEqual(r.ok("amend", "--request-file", str(answer))["next"], "criteria-author:scope")
+        self.assertIn("K9", r.refused("amend", "--request-file", str(answer), "--answers", "K9"))
+        self.assertEqual(r.ok("amend", "--request-file", str(answer), "--answers", "K2")["next"],
+                         "criteria-author:scope")
         brief, path = self.submit_scope(r, r.scope(system=system(kind(), asked), conditions=[condition()]))
         self.assertIn("K2", r.refused("record", "--file", str(path)))
         r.author(agent="a2", doc=r.scope(system=system(kind(), kind("K2", kind="設定")), conditions=[condition()],
                                          excluded=[{"item": "設定", "kinds": ["K2"], "reason": "人間が入れないと答えた"}]))
         r.review("scope", agent="s2")
         self.assertEqual(r.next(), "criteria-author:design")
+
+    def test_ask_humanの間の答えでないamendでは問いを残せて再び聞く(self):
+        r = self.run_()
+        r.init()
+        asked = kind("K2", kind="設定", ask="設定も範囲に入れるか")
+        r.author(doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        r.review("scope")
+        extra = self.root / "more.txt"
+        extra.write_text("README も直して\n")
+        r.ok("amend", "--request-file", str(extra))
+        r.author(agent="a2", doc=r.scope(system=system(kind(), asked), conditions=[condition()]))
+        r.review("scope", agent="s2")
+        self.assertEqual(r.ok("status")["ask_human"], [{"kind": "K2", "ask": "設定も範囲に入れるか"}])
+
+    def test_answersはask_humanで待っている種類だけを取る(self):
+        r = self.run_()
+        r.init()
+        answer = self.root / "answer.txt"
+        answer.write_text("設定は入れない\n")
+        self.assertIn("ask_human", r.refused("amend", "--request-file", str(answer), "--answers", "K2"))
 
     def test_聞く前のamendでは問いを残した範囲を記録できる(self):
         r = self.run_()
@@ -687,7 +709,7 @@ class TestInputShape(Base):
                    for name, p in sub.choices.items()}
         self.assertEqual(options, {
             "init": {"--run-dir", "--request-file", "--material"},
-            "amend": {"--run-dir", "--request-file"},
+            "amend": {"--run-dir", "--request-file", "--answers"},
             "brief": {"--run-dir", "--role", "--conditions", "--viewpoint", "--aspect", "--report-file"},
             "record": {"--run-dir", "--file"},
             "fix": {"--run-dir"}, "status": {"--run-dir"}, "continue": {"--run-dir"}, "close": {"--run-dir"},

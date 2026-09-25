@@ -18,7 +18,7 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 
 DATA_KEYS = {
     "init": ({"request_sha256", "materials"}, set()),
-    "amend": ({"request_sha256"}, set()),
+    "amend": ({"request_sha256"}, {"answers"}),
     "brief": ({"role"}, {"aspect", "conditions", "viewpoint", "mode", "report_sha256"}),
     "criteria_written": ({"aspect", "sha256", "agent"}, {"asks"}),
     "criteria_review": ({"aspect", "reviewed_sha256", "findings", "agent"}, set()),
@@ -275,6 +275,8 @@ def check_data(entry: dict, where: str) -> None:
         require_keys(data, f"{where}.data", {"role"} | BRIEF_KEYS[data["role"]])
     if "aspect" in data and data["aspect"] not in ASPECTS:
         raise StateError(f"{where}: aspect が {ASPECTS} のどれでもない（旧形式の台帳は読まない）")
+    if kind == "amend" and "answers" in data:
+        string_list(data["answers"], f"{where}.data.answers")
     if kind == "criteria_written" and ("asks" in data) != (data["aspect"] == "scope"):
         raise StateError(f"{where}: asks は scope の criteria_written だけが持つ")
     if "findings" in data:
@@ -640,16 +642,7 @@ class State:
         return self.written("scope")["data"]["asks"]
 
     def answered_kinds(self) -> set:
-        answered = set()
-        for w in self.ledger.of("criteria_written"):
-            if w["data"]["aspect"] != "scope" or not w["data"]["asks"]:
-                continue
-            passed = [r for r in self.ledger.of("criteria_review", after=w["seq"])
-                      if r["data"]["aspect"] == "scope" and r["data"]["reviewed_sha256"] == w["data"]["sha256"]
-                      and not any(f["severity"] == "blocking" for f in r["data"]["findings"])]
-            if passed and self.ledger.of("amend", after=passed[0]["seq"]):
-                answered |= {a["kind"] for a in w["data"]["asks"]}
-        return answered
+        return {k for e in self.ledger.of("amend") for k in e["data"].get("answers", [])}
 
     def criteria_open(self) -> list[dict]:
         items = [f for a in ASPECTS for f in self.routed_findings(a) if f["severity"] == "blocking"]
@@ -825,11 +818,20 @@ def cmd_amend(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
     text = read_request(args.request_file)
+    data = {}
+    if args.answers:
+        waiting = {a["kind"] for a in state.pending_asks()} if state.next() == "ask_human" else set()
+        if not waiting:
+            raise StateError("--answers は next が ask_human のときだけ取る")
+        unknown = sorted(set(args.answers) - waiting)
+        if unknown:
+            raise StateError(f"--answers に ask_human で待っていない種類がある: {', '.join(unknown)}")
+        data["answers"] = args.answers
     request = state.run_dir / REQUEST
     current = request.read_text(encoding="utf-8")
     joined = current if current.endswith("\n") else current + "\n"
     request.write_text(joined + "\n" + text, encoding="utf-8")
-    state.ledger.append("amend", {"request_sha256": digest(request)})
+    state.ledger.append("amend", {"request_sha256": digest(request)} | data)
     return emit({"recorded_request": text, "next": State(state.run_dir).next()})
 
 
@@ -1139,6 +1141,7 @@ def build_parser() -> Parser:
     p.add_argument("--material", action="append")
     p = command("amend", cmd_amend)
     p.add_argument("--request-file", required=True)
+    p.add_argument("--answers", nargs="+")
     p = command("brief", cmd_brief)
     p.add_argument("--role", required=True, choices=ROLES)
     p.add_argument("--conditions", nargs="+")
