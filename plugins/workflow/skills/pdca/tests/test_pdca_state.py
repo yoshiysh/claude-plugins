@@ -753,6 +753,15 @@ class TestGoal(Base):
                 path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
                                         "findings": [bad], "notes": []})
                 self.assertIn("ask", r.refused("record", "--file", str(path)))
+        with_kinds = finding_ask()
+        with_kinds["options"][0]["kinds"] = ["K9"]
+        path = r.submit(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
+                                "findings": [asked | {"ask": with_kinds}], "notes": []})
+        self.assertIn("K9", r.refused("record", "--file", str(path)))
+        with_kinds["options"][0]["kinds"] = ["K1"]
+        r.record(brief, {"agent": "s", "aspect": "scope", "reviewed_sha256": sha(r.dir / "scope.json"),
+                         "findings": [asked | {"ask": with_kinds}], "notes": []})
+        self.assertEqual(r.next(), "ask_human")
 
     def test_問いを持つ指摘は人間に聞いてから書き手に回り非収束に数えない(self):
         r = self.run_()

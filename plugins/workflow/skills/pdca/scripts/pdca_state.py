@@ -356,14 +356,14 @@ def validate_options(options: object, where: str, kinds: dict | None) -> None:
     ids = set()
     for i, o in enumerate(options):
         w = f"{where}[{i}]"
-        require_keys(o, w, {"id", "text"}, {"kinds"} if kinds is not None else frozenset())
+        require_keys(o, w, {"id", "text"}, {"kinds"})
         if nonempty_str(o["id"], f"{w}.id") in ids:
             raise StateError(f"{w}.id {o['id']!r} が重複している")
         ids.add(o["id"])
         nonempty_str(o["text"], f"{w}.text")
         if "kinds" in o:
             string_list(o["kinds"], f"{w}.kinds")
-            unknown = sorted(set(o["kinds"]) - set(kinds))
+            unknown = sorted(set(o["kinds"]) - set(kinds)) if kinds is not None else []
             if unknown:
                 raise StateError(f"{w}.kinds が system.kinds に無い種類を指す: {', '.join(unknown)}")
 
@@ -1165,6 +1165,10 @@ def cmd_record(args) -> int:
         string_list(out["notes"], "notes")
         if any(f["layer"] not in REVIEW_LAYERS[aspect] for f in out["findings"]):
             raise StateError(f"{aspect} のレビューが出せる layer は {REVIEW_LAYERS[aspect]}")
+        kinds = {k["id"]: k for k in state.goal()["system"]["kinds"]}
+        for i, f in enumerate(out["findings"]):
+            if "ask" in f:
+                validate_options(f["ask"]["options"], f"findings[{i}].ask.options", kinds)
         entry = state.ledger.append("criteria_review", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
     elif role == "writer":
         if not isinstance(out["outputs"], list) or not all(isinstance(p, str) and p for p in out["outputs"]):
