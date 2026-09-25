@@ -84,7 +84,7 @@ OUTPUT = {
                "observed": "means.pass_if があれば観測した数値、無ければ null", "evidence": "確かめた方法と結果",
                "findings": [FINDING]},
     "smoke": {"viewpoint": "brief の観点 ID", "controls": [{"input": "controls の input", "observed": "その input で観測した値"}]},
-    "completion-judge": {"verdict": "complete|not_complete", "open": ["完了していない項目"],
+    "completion-judge": {"verdict": "complete|not_complete", "open": ["完了していない項目（complete なら空）"],
                          "reason": "判定の根拠"},
 }
 
@@ -97,6 +97,10 @@ def record_kind(brief_data: dict) -> str:
         return "smoke" if brief_data["mode"] == "smoke" else "verification"
     return {"criteria-author": "criteria_written", "criteria-verifier": "criteria_review",
             "writer": "work", "completion-judge": "judgment"}[brief_data["role"]]
+
+
+def judged_complete(judgment: dict | None) -> bool:
+    return judgment is not None and judgment["data"]["verdict"] == "complete" and not judgment["data"]["open"]
 
 
 class StateError(Exception):
@@ -562,7 +566,7 @@ class State:
         judgment = self.ledger.last("judgment", after=last_verification)
         if judgment is None:
             return "completion-judge"
-        if judgment["data"]["verdict"] == "complete":
+        if judged_complete(judgment):
             return "close"
         return "stop:rounds" if out_of_rounds else "writer"
 
@@ -817,8 +821,10 @@ def cmd_record(args) -> int:
     else:
         if out["verdict"] not in ("complete", "not_complete"):
             raise StateError("verdict は complete か not_complete")
-        if not isinstance(out["open"], list):
-            raise StateError("open は配列")
+        if not isinstance(out["open"], list) or not all(isinstance(o, str) and o.strip() for o in out["open"]):
+            raise StateError("open は空でない文字列の配列")
+        if (out["verdict"] == "complete") != (not out["open"]):
+            raise StateError("open は complete なら空、not_complete なら当たった項目を挙げる")
         entry = state.ledger.append("judgment", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
     return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": State(state.run_dir).next()})
 
@@ -890,8 +896,8 @@ def close_problem(state: State) -> str | None:
         return f"最新の work に対する最新の検証で pass でない観点がある: {', '.join(pending)}"
     last_verification = state.round_entries("verification")[-1]["seq"]
     judgment = state.ledger.last("judgment", after=last_verification)
-    if judgment is None or judgment["data"]["verdict"] != "complete":
-        return "completion-judge の最新の判定が complete でない"
+    if not judged_complete(judgment):
+        return "completion-judge の最新の判定が、open の無い complete でない"
     return None
 
 

@@ -126,11 +126,14 @@ class Run:
             observed = 1 if vid == "C1-V2" else None
             self.verify(vid, f"{tag}-{vid}", status=status, observed=observed)
 
-    def judge(self, verdict="complete"):
+    def judge(self, verdict="complete", open_items=None):
         report = self.root / "report.md"
         report.write_text("完了した")
         _, brief = self.brief("completion-judge", "--report-file", str(report))
-        return self.record(brief, {"agent": "judge", "verdict": verdict, "open": [], "reason": "突き合わせた"})
+        if open_items is None:
+            open_items = [] if verdict == "complete" else ["R-OUTSIDE の報告が無い"]
+        body = {"agent": "judge", "verdict": verdict, "open": open_items, "reason": "突き合わせた"}
+        return brief, self.submit(brief, body)
 
     def next(self):
         return self.ok("status")["next"]
@@ -230,7 +233,7 @@ class TestBrokenPaths(Base):
         r.work()
         r.verify_all("r1")
         self.assertEqual(r.next(), "completion-judge")
-        r.judge()
+        r.ok("record", "--file", str(r.judge()[1]))
         self.assertEqual(r.ok("close")["human_gates"], ["マージ"])
         self.assertEqual(r.next(), "await_human")
 
@@ -608,8 +611,28 @@ class TestStopAndLedger(Base):
         r.work()
         r.verify_all("r1")
         self.assertIn("complete", r.refused("close"))
-        r.judge(verdict="not_complete")
+        r.ok("record", "--file", str(r.judge(verdict="not_complete")[1]))
         self.assertIn("complete", r.refused("close"))
+
+    def test_openが空でないcompleteの判定を記録せずcloseもできない(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify_all("r1")
+        brief, path = r.judge(verdict="complete", open_items=["unmet requirement"])
+        self.assertIn("open", r.refused("record", "--file", str(path)))
+        forge(r, "judgment", {"verdict": "complete", "open": ["unmet requirement"], "reason": "x", "agent": "judge"},
+              brief_id=brief["brief_id"])
+        self.assertNotEqual(r.next(), "close")
+        self.assertIn("open", r.refused("close"))
+
+    def test_openが空のnot_completeの判定を記録しない(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify_all("r1")
+        _, path = r.judge(verdict="not_complete", open_items=[])
+        self.assertIn("open", r.refused("record", "--file", str(path)))
 
     def test_途中の行の書き換えを検出する(self):
         r = self.run_()
