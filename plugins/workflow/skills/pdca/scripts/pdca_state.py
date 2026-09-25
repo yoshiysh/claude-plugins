@@ -569,6 +569,8 @@ class State:
         written = self.written(aspect)
         if written is None:
             return True
+        if aspect == "scope" and self.ledger.of("amend", after=written["seq"]):
+            return True
         if aspect == "design" and written["seq"] < self.written("scope")["seq"]:
             return True
         return any(f["severity"] == "blocking" for f in self.routed_findings(aspect))

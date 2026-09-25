@@ -523,18 +523,31 @@ class TestRequest(Base):
         (r.dir / "request.md").write_text("言い換えた依頼\n")
         self.assertIn("request.md", r.refused("brief", "--role", "criteria-author", "--aspect", "scope"))
 
-    def test_amendの後は再レビューを経るまでwriterを呼べない(self):
+    def test_amendの後は範囲の書き手に回り再レビューを経るまでwriterを呼べない(self):
         r = self.run_()
         r.fixed()
         extra = self.root / "more.txt"
         extra.write_text("README も直して\n")
-        self.assertEqual(r.ok("amend", "--request-file", str(extra))["recorded_request"], "README も直して\n")
+        out = r.ok("amend", "--request-file", str(extra))
+        self.assertEqual(out["recorded_request"], "README も直して\n")
+        self.assertEqual(out["next"], "criteria-author:scope")
         self.assertIn("fix されていない", r.refused("brief", "--role", "writer", "--conditions", "C1"))
-        self.assertIn("レビューが揃っていない", r.refused("fix"))
+        self.assertIn("scope.json", r.refused("brief", "--role", "criteria-verifier", "--aspect", "scope"))
+        self.assertIn("scope.json", r.refused("fix"))
+        r.author(agent="a2")
         r.review("scope", agent="s2")
+        r.author("design", agent="a3")
         r.review("design", agent="d2")
         r.ok("fix")
         r.brief("writer", "--conditions", "C1")
+
+    def test_fixの前のamendも範囲の書き手に回る(self):
+        r = self.run_()
+        r.scoped()
+        extra = self.root / "more.txt"
+        extra.write_text("README も直して\n")
+        self.assertEqual(r.ok("amend", "--request-file", str(extra))["next"], "criteria-author:scope")
+        self.assertIn("範囲", r.refused("brief", "--role", "criteria-author", "--aspect", "design"))
 
     def test_initは依頼原文を写して返し資料は複製しない(self):
         r = self.run_()
