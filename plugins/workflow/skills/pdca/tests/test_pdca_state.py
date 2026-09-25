@@ -492,6 +492,24 @@ class TestDocuments(Base):
                 r.review("scope", agent=f"s{n}")
         self.assertTrue(r.next().startswith("stop:non_converging"), r.next())
 
+    def test_recordとstatusは文書と観点ごとのcheckの文字数を返す(self):
+        r = self.run_()
+        r.init()
+        _, brief = r.brief("criteria-author", "--aspect", "scope")
+        r.write("scope", r.scope())
+        scope_chars = len((r.dir / "scope.json").read_text())
+        self.assertEqual(r.record(brief, {"agent": "a"})["sizes"], {"scope.json": scope_chars})
+        r.review("scope")
+        out = r.author("design")
+        design_chars = len((r.dir / "design.json").read_text())
+        expected = {"scope.json": scope_chars, "design.json": design_chars, "check": {"C1-V1": len("往復回数を数える")}}
+        self.assertEqual(out["sizes"], expected)
+        self.assertEqual(r.ok("status")["sizes"], expected)
+        r.write("design", r.design(stops=["未記録の書き換え"]))
+        sizes = r.ok("status")["sizes"]
+        self.assertNotIn("check", sizes)
+        self.assertEqual(sizes["design.json"], len((r.dir / "design.json").read_text()))
+
 
 class TestRequest(Base):
     def test_initの前のbriefを拒否する(self):

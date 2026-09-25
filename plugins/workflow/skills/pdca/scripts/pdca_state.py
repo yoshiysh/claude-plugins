@@ -548,6 +548,13 @@ class State:
             items.append({"target": REQUEST, "claim": "amend で足した依頼が scope.json に未反映"})
         return items
 
+    def sizes(self) -> dict:
+        report = {DOCS[a]: len(self.doc_path(a).read_text(encoding="utf-8")) for a in ASPECTS if self.doc_path(a).is_file()}
+        design = self.written("design")
+        if design and self.doc_sha("design") == design["data"]["sha256"]:
+            report["check"] = {vp["id"]: len(vp["check"]) for vp in self.read_doc("design")["viewpoints"]}
+        return report
+
     def current_round(self) -> int:
         works = self.ledger.of("work", after=self.fix_seq)
         return self.round_of[works[-1]["seq"]] if works else 0
@@ -650,7 +657,8 @@ class State:
     def status(self) -> dict:
         report = {"next": self.next(), "criteria_fixed": self.fixed(),
                   "auto_continue": {"count": self.auto_continues(), "max": MAX_AUTO_CONTINUE},
-                  "findings": self.finding_counts(), "regressions": self.regressions(), "unmet": None}
+                  "findings": self.finding_counts(), "regressions": self.regressions(), "unmet": None,
+                  "sizes": self.sizes()}
         budget = self.fixed_budget()
         if budget:
             report["rounds"] = {"used": self.rounds_used, "budget": budget["rounds"]}
@@ -907,7 +915,8 @@ def cmd_record(args) -> int:
         if (out["verdict"] == "complete") != (not out["open"]):
             raise StateError("open は complete なら空、not_complete なら当たった項目を挙げる")
         entry = state.ledger.append("judgment", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
-    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": State(state.run_dir).next()})
+    after = State(state.run_dir)
+    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()})
 
 
 def fix_problem(state: State) -> str | None:
