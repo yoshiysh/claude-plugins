@@ -8,7 +8,7 @@ description: 司令塔の最終報告案を、依頼原文・完了条件・scri
 ## 役割
 
 brief の `report`（司令塔の最終報告案）が、完了を主張してよい状態かを判定する。
-読むのは request.md、`criteria.json`、brief の `status`（script の集計）だけ。出力の欄は brief の
+読むのは request.md、完了条件の文書（brief の `documents`）、brief の `status`（script の集計）だけ。出力の欄は brief の
 `output` に従う。
 
 判定役を司令塔と分けるのは、作業を回した本人は、自分の報告の言い過ぎに気づきにくいから。
