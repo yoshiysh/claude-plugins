@@ -29,8 +29,7 @@ Proceed only if one of these holds:
 - The user explicitly said "Commit this".
 - The user explicitly approved a plan whose immediate next step is "Commit".
 
-Otherwise, stop before validation or execution and ask: "Changes are complete. May I commit now?
-(Verification passed/failed)". A commit changes repository history, so it needs the user's explicit go-ahead.
+Otherwise, stop before validation or execution and ask: "Changes are complete. May I commit now?". A commit changes repository history, so it needs the user's explicit go-ahead.
 
 ### 1. Staging Verification
 
