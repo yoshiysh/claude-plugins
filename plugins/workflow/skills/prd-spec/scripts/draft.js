@@ -204,7 +204,11 @@ if (!['new', 'review', 'expand'].includes(mode)) {
 // split_plan: 人間ゲート①でユーザーが承認した分割案。執筆側が自律的に分けると、同じ案件を
 // 再実行するたびにファイル構成が変わる。だから構成は args で固定して渡す。
 const splitPlan = parsedArgs.split_plan || {}
+// existing_docs は本文（markdown）かパス（path）のどちらかで持つ。パスで渡された文書は、書き手が
+// 自分で Read する。本文を args に埋めると、司令塔が数十万字を書き写す経路が生まれ、写し間違いを
+// 誰も検出できない。
 const existingDocs = parsedArgs.existing_docs || []
+const hasBody = (d) => Boolean(d.markdown || d.path)
 
 // self_containment: 「何を文書に書き写し、何を参照にとどめるか」の合意。
 // これを executability-auditor に渡さないと、参照方針を採る案件で「文書だけでは 1 語も
@@ -234,12 +238,12 @@ if (mode === 'new') {
     throw new Error('args.split_plan に requirements も specifications もありません。人間ゲート①で承認された分割案をそのまま渡してください。')
   }
 } else if (mode === 'expand') {
-  if (!existingDocs.some((d) => d.kind === 'requirements' && d.markdown)) {
+  if (!existingDocs.some((d) => d.kind === 'requirements' && hasBody(d))) {
     throw new Error('mode=expand には kind="requirements" の existing_docs が必要です。展開元が無いまま新規執筆に化けるのを防ぐため、ここで打ち切ります。')
   }
   targets = ['specifications']
 } else {
-  const kinds = [...new Set(existingDocs.filter((d) => d.markdown).map((d) => d.kind))]
+  const kinds = [...new Set(existingDocs.filter(hasBody).map((d) => d.kind))]
   if (!kinds.length) {
     throw new Error('mode=review には本文を持つ existing_docs が必要です。レビュー対象が無いまま新規執筆に化けるのを防ぐため、ここで打ち切ります。')
   }
@@ -293,7 +297,7 @@ for (const kind of targets) {
 // レビュー対象だった本文がどの返り値にも現れないまま消える。
 {
   const orphanExisting = existingDocs
-    .filter((d) => targets.includes(d.kind) && d.markdown)
+    .filter((d) => targets.includes(d.kind) && hasBody(d))
     .filter((d) => !(splitPlan[d.kind] || []).some((p) => p.topic === d.topic))
   if (orphanExisting.length) {
     throw new Error(
@@ -306,8 +310,9 @@ for (const kind of targets) {
 
 const docKey = (kind, topic) => `${kind}/${topic}`
 const previousOf = (kind, topic) => {
-  const hit = existingDocs.find((d) => d.kind === kind && d.topic === topic && d.markdown)
-  return hit ? hit.markdown : null
+  const hit = existingDocs.find((d) => d.kind === kind && d.topic === topic && hasBody(d))
+  if (!hit) return null
+  return hit.markdown || `${hit.path} を Read し、その全文を既存の同名文書として扱うこと（ここには写していない）。`
 }
 // 対象外の種別は「入力として固定」する。改稿もしないし生成もしない。
 const fixedDocs = existingDocs.filter((d) => !targets.includes(d.kind) && d.markdown)
