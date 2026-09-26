@@ -7,6 +7,7 @@
 **目次**: [1. Workflow A の args](#1-workflow-a-の-args) · [2. Workflow A の返り値](#2-workflow-a-の返り値)
 · [3. 途中死からの復旧](#3-途中死からの復旧) · [4. Workflow B の args](#4-workflow-b-の-args)
 · [5. Workflow B の内部機構](#5-workflow-b-の内部機構) · [6. 異常系・準正常系・正常系エッジ](#6-異常系準正常系正常系エッジ)
+· [7. 本文の検査（doc_check.mjs）](#7-本文の検査doc_checkmjs)
 
 ---
 
@@ -24,7 +25,9 @@
 | `tbd_items` | 未回答項目の持ち越し。確定要求に混ぜないため |
 | `domain_findings` | 三値判定と根拠。「リスクと影響」章に非該当を根拠付きで残すのに要る |
 | `required_categories` | 導出カテゴリ。writer が反映し coverage-auditor が実在を検査する |
-| `existing_docs` | `review` / `expand` で Read した既存文書。渡した側だけが対象になる |
+| `existing_docs` | `review` / `expand` で Read した既存文書。渡した側だけが対象になる。`path` 必須（agent も checker もパスから読む。`markdown` だけの文書は入口で止まる）。`line_count`（`wc -l` の値）を添えると、書き手への区切り読みの単位が決まる |
+| `draft_dir` | writer が初稿を Write する workspace の絶対パス。返り値の `documents[].draft_path` がその書き出し先で、以後の agent はここを Read する（本文をプロンプトに埋めない）。checker の入力も `<draft_dir>/checks/` に書かれる |
+| `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定値は script の表（refine.js の `AUDITORS` / `ROLE_OPTS`、draft.js の `ROLE_OPTS`）で、実測で較正する前提の出発点である（判断を要する係は opus / medium、1 文ずつ見て見落としが成果物の欠陥に直結する executability と fabrication だけ opus / high、照合の観点は sonnet / medium、checker は sonnet / low）。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る |
 | `today` | `YYYY-MM-DD`。文書中に日付が要るときの基準日。script 内では日時生成が禁止されているため args で渡すしかない |
 
 ## 2. Workflow A の返り値
@@ -32,7 +35,9 @@
 | 項目 | 読み方 |
 |---|---|
 | **`gate2_skippable`** | **統合ゲートで質問のために止まるか（偽なら止まる）の唯一の判定。** 件数から再判定しない。真でも初稿サマリと決定ログの報告は行う（報告のみで直行） |
-| `gate2_reason` | `no_blocking`（聞くことが無い）/ `blocking_present`（聞く項目がある）/ `structural_presentation_required`（`ST-DUP` / `ST-OBSOLETE` が残っており提示が要る）/ `executability_incomplete`（**検査が完了していないので飛ばせない**） |
+| `gate2_reason` | `no_blocking`（聞くことが無い）/ `blocking_present`（聞く項目がある）/ `structural_presentation_required`（`ST-DUP` / `ST-OBSOLETE` が残っており提示が要る）/ `executability_incomplete` / `structural_incomplete`（**検査が完了していないので飛ばせない**。後者は構造検査の checker が実行できなかった） |
+| `documents[]` | 本文は含まない。`draft_path` が writer の書き出したファイル（checker が行数を照合済み）、`line_count` が checker の数えた行数。Workflow B の `documents` にそのまま渡す |
+| `missing_checks` | 構造検査（checker）を実行できなかったパス。空でなければ `structural_findings` の 0 件は「未検査」である |
 | `blocking_tbd_ids` | **まだ誰にも提示していない生の一覧。** この時点では `presented_tbd_ids` が存在しないため「未提示」は自明であり、`unpresented_blocking` はここでは算出されない |
 | `executability.findings[].severity` | `blocking`（着手できない）/ `degraded`（着手はできるが後で作り直しになりうる）。blocking は script が TBD として起票し直し、`tbd_items` に含めている（ID は `TBD-EX-` 始まり） |
 | `executability.missing` | 応答しなかった検査。**「指摘 0 件」と読まない。** 名指しで提示する |
@@ -76,8 +81,11 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 
 | args | 意味 |
 |---|---|
-| `documents` | 直前の返り値の `documents` から `markdown` を落とし、`draft_path`（手順 2 の書き出し先）を入れたもの。本文もパスも無い文書があると script が入口で落ちる（改稿が新規執筆に化けるのを防ぐ） |
-| `tbd_answers` | **今周回の**統合ゲートの回答。**空なら script は反映パスを飛ばす**（直す理由が無いまま全文書を書き直させない） |
+| `documents` | 直前の返り値の `documents` をそのまま（本文は含まれない。`draft_path` / `line_count` / `trace` を落とさない）。パス（`draft_path` / `path`）の無い文書があると script が入口で落ちる（agent は本文をパスからしか読めない）。`markdown` を持っていても script は読まない。行数は script が入口で checker に数えさせる |
+| `draft_dir` | writer が改稿稿を書く workspace の絶対パス。改稿ごとに前稿を `<kind>-<topic>.<R番号>.md` へ複写させて必要な箇所だけを Edit させる（全文を書き直させない）。checker が数えたファイルの行数と writer の `line_count` が合わない改稿は採用しない（前稿を維持し `writer_missing` に載る） |
+| `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定値は §1 の同じ行を見よ。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る。監査役には読み方 `read`（`locate` / `full`）も指定できる（例: `{"consistency": {"read": "full"}}`。既定は consistency / coverage が `locate`、他は `full`。監査役以外への `read` は入口で止まる） |
+| `bulk_read_path` | 任意。shunt plugin の `scripts/bulk-read` の絶対パス。渡すと `read: locate` の監査役が全範囲監査（初回と終端）で、安いモデルに候補箇所の逐語引用だけを探させ、引用を元ファイルで完全一致で特定してその節を原文で読んで判定する。script が割り当てた抜き取り範囲も全文読みして見落としを測る。bulk-read は script が組に分けて実行させる（1 組の送信量の見積もりを shunt の上限 400,000 バイトの半分以下に抑え、1 文書で超えるものは行範囲の片に分ける。時間切れの組だけ半分に割って 1 回再実行する）。未指定・行数やバイト数の分からない文書があるときは全文の区切り読みに戻る（`summary.locator` に `full_fallback` と理由が残る）。実行時に失敗した組はその組の文書だけを全文読みに戻す（`summary.locator` の `group_*`）。固定文書は全文読みに戻さず、見出し索引から要る節を読ませる。スコープ監査は変わらず変更範囲だけを読む。`next_args` に引き継がれる |
+| `tbd_answers` | **今周回の**統合ゲートの回答。**空なら script は反映パスを飛ばす**（直す理由が無いまま全文書を書き直させない）。回答の空でない各行が既知の TBD ID を名指ししていれば、その TBD を持つ文書だけを反映パスで引き直す（要求文書が変われば仕様書は紐付けの追随のため引き直す）。ID を含まない行が 1 行でもあれば全文書を引き直す |
 | `tbd_answers_history` | 過去周回の統合ゲート回答の累積。1 周目は `[]`。**2 周目以降は `next_args` が埋めるので手で作らない**（原本が欠けると過去回答由来の要求が fabrication の偽陽性になる） |
 | `presented_tbd_ids` | これまでに提示済みの TBD。`unpresented_blocking` の唯一の入力。`{ id, digest }` の形（`digest` は script が計算済みの値。生 text を入れると全件が「未提示」に化ける）。1 周目は初回ゲートで提示した分を `blocking_tbd_items[].digest` から転記して積む。**2 周目以降は `next_args` が埋めるので手で作らない** |
 | `outer_round` | 外側ループの周回（1〜`MAX_OUTER_ROUNDS`）。`R<outer>.<rev>` は `revision_log`（返り値のメタ情報）だけで使い、**生成文書には書かない**。**カウンタは 2 つある**ことを取り違えない |
@@ -90,10 +98,13 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 | 項目 | 読み方 |
 |---|---|
 | `verdict` | `clean` / `audit_incomplete` / `adjudication_incomplete` / `revision_backstop_reached` / `unanswerable_findings` / `unresolved_findings` / `blocking_over_capacity` / `tbd_remaining` |
+| `missing_auditors` | 応答しなかった監査役（`<観点>@<対象>`。対象は文書キー、consistency だけ `ALL`）と、構造検査を実行できなかったパス（`checker@<改稿 ID>`）。どちらも「0 件」と読まない。後者があれば `structural_not_checked` に `ST-NOTCHECKED-CHECKER` が載る |
+| `documents[]` | 本文は含まない。`draft_path` が最新の稿（checker が行数を照合済み）、`line_count` が checker の数えた行数。**保存は `draft_path` を `path` へ複写して行う**（SKILL.md 手順 6） |
 | `summary.*_findings` | 観点ごとの件数。**`null` は「0 件」ではなく「未検査」** |
+| `summary.locator` | locate 読みを割り当てた監査役ごとの実績（`calls` / `locate` / `full_fallback` と `fallback_reasons` / `unreported` / `sampled_chunks` / `locator_quotes` / `locator_unmatched` / `findings_via_locator` / `locator_misses` / `locator_miss_rate`、組ごとの `groups` / `group_split_ok` / `group_full_fallback` / `group_unreported` / `group_fallback_reasons`）。`full_fallback` は呼び出し単位の件数で、組単位の全文読みは `group_full_fallback` に数える。`locator_misses` は抜き取り範囲でだけ見つかった指摘の件数を script が数えたもの（自己申告は `locator_misses_reported`）。抜き取りは文書の一部なので、見落とし率は下限の目安として読む。verdict には影響しない |
 | `tbd_items` | 残った未確定事項。**完成条件はこれが 0 件**（SKILL.md「完成の定義」） |
 | `unpresented_blocking` | blocking かつ未提示。1 件以上なら統合ゲートで聞く（`first_seen_round` 付き） |
-| `auto_resolved_blocking` / `resolved_by_measurement` | 人間に聞かずに決着させた項目。**本文への反映はラン内で完了している**。保存承認ゲートで決定として事後提示する（依頼者は覆せる） |
+| `auto_resolved_blocking` / `resolved_by_measurement` | 人間に聞かずに決着させた項目。**本文への反映はラン内で完了している**。保存の事後報告で決定として提示する（依頼者は覆せる） |
 | `suppressed_findings` / `suppressed_finding_ids_next` | 前者は `suppressed_finding_ids` により集計前に畳んだ構造検査指摘（黙って消さない開示）。後者は今 run の rejected 裁定を合流させた累積で、**次の run（新規 run を含む）の `suppressed_finding_ids` にそのまま渡す** |
 | `holding_rules` | 提示済みでなお決まらず、保持規則（規範文）へ変換した論点。文書側には規範文として入っている |
 | `work_items` | 保持規則に対応する裁定の作業項目。**文書には書かない**。司令塔が Issue 化する |
@@ -106,6 +117,10 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 Workflow B は `AUDITORS` の全観点の監査を並列で発行する（欠測分の部分リトライを含む）。**観点ごとの対象範囲と並列の形は
 `scripts/refine.js` の `AUDITORS` が唯一の正**（ここに内訳を書くと二重管理になり必ずズレる）。
 返り値の `summary` が観点ごとの件数（未検査は `null`）を返すので、読む側に内訳の知識は要らない。
+validity と specimen は文書ごとに 1 体で走る。他文書は ID 一覧と見出し索引（checker が書き出す）で
+渡し、突き合わせに要る節だけを読ませる。文書間の矛盾は文書の並び順で報告する側を 1 つに決める
+（固定文書との矛盾は常に対象文書の側）。固定文書（このランの対象外）は、どの役割にも全文を読ませず、
+見出し索引から要る節だけを読ませる。
 specimen（標本適用監査）だけはコスト抑制のため初回監査と終端の網羅監査のみ参加し、標本が無い
 ランでは skip される（欠測ではなく `specimen_skipped: true`。標本は `specimen_paths` で渡す。
 省略時は fixed 文書を使う）。自己出自（同一 workspace）以外を最低 1 件含めることを推奨し、
@@ -161,11 +176,41 @@ specimen（標本適用監査）だけはコスト抑制のため初回監査と
 | 分析後 | 全観点が `不明` | 準正常系 | 「判定できなかった」と正直に提示し質問に回す。業界知識で埋めない |
 | 分析後 | ユーザーが分割案を否定 | 正常系 | 指示された分割で執筆する。提案を押し通さない |
 | 初稿後 | `blocking_over_capacity` が真 | 準正常系 | 提示の工夫では吸収できない。`references/traceability.md` §4 の基準で起票側を絞る |
-| ループ中 | 新規 blocking が判明 | 正常系 | `unpresented_blocking` として返る（`first_seen_round` 付き）。周回 1 なら統合ゲートへ戻る |
+| ループ中 | 新規 blocking が判明 | 正常系 | `unpresented_blocking` として返る（`first_seen_round` 付き）。backstop 未到達なら統合ゲートへ戻る |
 | ループ中 | 監査が失格 0 件だが未確定事項が残る | 正常系 | **「完成しました」と提示しない。**「あと N 個決まれば着手できます」と伝える |
 | 終端 | 計測で確定できなかった | 正常系 | 人間ゲートへ戻る。実測できなかったことを推測で埋めない |
 | 実行中 | agent が応答しない（一部） | 異常系 | script が落ちた分だけを 1 回出し直す。それでも返らなければ欠測として報告される |
 | 実行中 | 出した agent が全件応答しない | 異常系 | script は再実行しない（セッション上限・レート制限を疑う）。**上限の解除後に resume する** |
 | ループ中 | auditor が応答しない | 異常系 | 「失格 0 件」と読まない。`missing_auditors` を名指しで提示（出し直し後もなお返らなかったもの） |
-| 保存前 | 分割数が実行のたびに変わる | 準正常系 | 分割案は人間が承認したものを使う。承認と違う構成で保存しない |
+| 保存前 | 分割数が実行のたびに変わる | 準正常系 | 分割案は `decisions` に載った裁定を使う。裁定と違う構成で保存しない |
 | 保存前 | INDEX だけが既存で本体が無い（またはその逆） | 準正常系 | 齟齬として報告する。INDEX は導出物なので本体に合わせて再生成する |
+
+## 7. 本文の検査（doc_check.mjs）
+
+Workflow script はファイルを読めず、writer は本文を返さない。本文を要する決定的な検査（構造検査・
+行数・前稿との変更範囲）は `scripts/doc_check.mjs` が正本で、script は checker agent（安いモデル）に
+入力 JSON を書かせてこの CLI を実行させ、出力だけを受け取る。
+
+```
+node <SKILL_DIR>/scripts/doc_check.mjs <input.json>   # 相対パスは実行時のカレントディレクトリ基準
+```
+
+| 入力 `documents[]` | 意味 |
+|---|---|
+| `key` / `kind` / `topic` / `fixed` | 文書の識別と種別 |
+| `path` | 検査する本文のファイル（現在の稿） |
+| `prev_path` | 任意。前稿のファイル。渡すと `changed_ranges` を返す |
+| `ids` / `referenced` / `vacant` / `traceability` / `tbd_items` / `trace` | 構造検査の照合に使う申告（`trace` は `item_id` だけ。無ければ未検査として扱う） |
+| `extract_ids` | 任意。申告の無い固定文書の ID を本文から抽出して補う |
+| 入力（最上位） | `index_dir`（任意。各文書の見出し索引「開始行-終了行 見出し」を書き出す先）/ `index_extra`（任意。検査はせず索引だけを書くファイル。run の外の標本文書） |
+
+| 出力 | 意味 |
+|---|---|
+| `documents[]` | `key` / `path` / `exists` / `line_count`（最終行も数えた行数）/ `newline_count`（`wc -l` と同じ数え方）/ `byte_size`（UTF-8 のバイト数。locate 読みの組分けに使う）/ `changed_ranges`（前稿が無ければ `null`、変更なしは `[]`）/ `ids_in_text`（`extract_ids` のときだけ）/ `index_path` / `index_lines`（`index_dir` のときだけ） |
+| `structural` | `{ findings, not_checked }` の短い形。`findings` は同じ種別・同じ文書が続く指摘をまとめた `{ c: 種別, d: 文書キー, a: [引数の組, ...] }` の列、`not_checked` は `{ c, a }`。文面（`id` / `issue` / `fix` など）は出力に載せず、script が同じ表（`FINDING_TEXT`。doc_check.mjs と両 script に逐語で同じもの）から組み立てる — checker は出力を書き写して返すので、文面を載せると写す量が数百 KB になる。読めなかった文書は `ST-NOTCHECKED-BODY-<key>` として `not_checked` に載る（CLI は落ちない） |
+| `index_extra` | `index_extra` を渡したときだけ。`{ path, exists, line_count, index_path, index_lines }` の配列 |
+| `input_digest` / `output_digest` | 入力と出力をキー順正規化した JSON の digest。script が同じ値を計算し、checker の写し間違い（入力の欠け・指摘の脱落）を検出する。一致しなければそのパスは「検査を実行できなかった」として扱う |
+
+入力が壊れている（`documents` が配列でない・`key` / `kind` / `path` が欠ける）ときだけ非ゼロで終わる。
+**本文を読まない算術（TBD の名前空間化・`categories_deferred` の照合・抑止・INDEX の組み立て）は
+script 側に残す** — checker が失敗しても `rebuildTbd` の前提（ID の名前空間化）が崩れないようにするため。

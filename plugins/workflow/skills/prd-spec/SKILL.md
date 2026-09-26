@@ -32,18 +32,16 @@ description: >
 | **仕様書**（手段側） | **実装が一意に決まること** | 設計・実装・検証ができる量。**設計解は書かない** |
 
 この 2 つを取り違えると分量が壊れる。要求文書の分量を決めるのは関係者の数と合意の重さで
-あり、仕様書は**委ねないために書く**ので短さを目標にできない（正は `prd-and-spec.md` §7）。
+あり、仕様書は**委ねないために必要なことだけを書く** — 推測させる余地も、読み手の次の行動を
+変えない記述も残さない（正は `prd-and-spec.md` §7）。
 
 ### 完成条件は「未確定事項（TBD）0 件」である
 
 > **保証すべきなのは「残っている TBD が 0 件」である。**
 
-TBD が並んだ文書からは次工程が始まらない。かといって推測で埋めるのはそれ以上に悪い。この 2 つ
-は長く両立しないと考えられ、完成条件は「未提示の blocking が 0 件」（＝聞くだけは聞いた）に
-置かれていた。**依頼者が決めていないことは、何回聞いても決まらない**からである。
-
-その前提は今も正しい。変わったのは書き方の方である。決まらない論点は、**裁定が下るまで
-何をしてはならないか**という規範文（**保持規則**）へ変換できる。
+TBD が並んだ文書からは次工程が始まらない。かといって推測で埋めるのはそれ以上に悪い。
+依頼者が決めていないことは、何回聞いても決まらない。そこで決まらない論点は、裁定が下るまで
+何をしてはならないかという規範文（**保持規則**）へ変換する。
 
 - 悪い: 「上限金額は未定（TBD-BILL-002）」← 次工程は勝手に決めるか止まるかしかない
 - 良い: 「上限金額の裁定が下るまで、金額を伴う自動処理を新しい画面へ拡大してはならない。」
@@ -268,8 +266,9 @@ Workflow({
     tbd_items: [{ id: "TBD-001", text: "...", owner: "", due: "", blocking: true }],
     domain_findings: [{ aspect: "...", verdict: "該当|非該当|不明", evidence: "..." }],
     required_categories: ["..."],
-    existing_docs: [{ kind: "requirements", topic: "auth", path: "...", markdown: "..." }],
+    existing_docs: [{ kind: "requirements", topic: "auth", path: "..." }],
     paths: { requirements: "docs/requirements", specifications: "docs/specifications" },
+    draft_dir: "<絶対パス: ~/.claude/prd-spec-workspace/<案件>/drafts/r1 を展開したもの>",
     self_containment: "<何を文書に書き写し、何を参照にとどめるかの合意>",
     today: "<Bash の `date +%Y-%m-%d` で取得した日付>"
   }
@@ -282,6 +281,9 @@ Workflow({
 - `skillDir` — script は自身の位置を解決できず、agent の Read パスがここでしか決まらない。
 - `today` — `date +%Y-%m-%d` の実行結果を渡す（script 内では日時生成が禁止）。推測で書かない。
 - `paths` — Workflow B に**同じ値**を渡す。違えると本文と INDEX が別ディレクトリに分裂する。
+- `draft_dir` — writer が初稿・改稿稿を Write する workspace の絶対パス（Write は `~` を展開しない）。
+  agent へは本文ではなくこのファイルのパスが渡る（全文をプロンプトに埋めると 1 呼び出しが数十万字に
+  膨らむ）。`existing_docs` も `path` で渡す（`markdown` だけの文書は入口で止まる）。
 - `self_containment` — 参照方針を採る案件では必須。渡さないと、外出しした語彙リストの数だけ
   「着手不能」の誤検出が量産され、本物の欠落がその中に埋もれる。
 
@@ -330,19 +332,17 @@ needs_input（TBD-NI）は初回に聞き切れる種類のものではなく、
      記録する**（段 4 で保持規則に変換される）。推測で埋めない。
    - 提示した TBD の `{ id, digest }` を `presented_tbd_ids` に積む（前周までの分と合算する。
      digest は `blocking_tbd_items[]` に script が計算済みの値を転記する）。
-2. **初稿を workspace に書き出す。** `documents[]` の `markdown` を 1 文書ずつ
-   `~/.claude/prd-spec-workspace/<案件>/drafts/r<outer_round>/<kind>-<topic>.md` に Write し、
-   各文書の `draft_path` にそのパスを入れ、**args の `documents` からは `markdown` を落とす**
-   （全文を args で中継すると 12 文書で 24 万文字を超え、司令塔が本文を書き写す経路そのものが
-   劣化点になる）。writer は `draft_path` を Read して本文を得る。`review` / `expand` で既存
-   文書を改稿する周回は `path` が下敷きになるので不要。対象リポジトリには書かない。
+2. **初稿は writer が `draft_dir` に書き出し済みである。** 返り値の `documents[]` は本文を含まず、
+   `draft_path`（書き出したファイル）と `line_count` を持つので、**args の `documents` にそのまま
+   渡す**（全文を args で中継すると 12 文書で 24 万文字を超え、司令塔が本文を書き写す経路そのものが
+   劣化点になる）。司令塔が本文を Read して中継したり Write し直したりしない。対象リポジトリには書かない。
    - **根拠正本も同様に workspace へ書き出し、`sources_path` で渡す（2 周目以降・回答履歴が
-     あるとき）。** 過去周回のゲート②回答を
+     あるとき）。** 過去周回の統合ゲートの回答を
      `~/.claude/prd-spec-workspace/<案件>/sources/r<outer_round>.md` に周回ラベル付きで Write し、
      そのパスを args の `sources_path` に入れる。script は全文を要する role（writer /
      fabrication-auditor）にだけ「まず Read せよ」を指示し、他 role の CONTEXT からは history
-     全文を落として要旨 1 行に置き換える（プロンプト肥大の抑制）。未指定なら従来どおり
-     `tbd_answers_history` がインラインで配られる（後方互換）。
+     全文を落として要旨 1 行に置き換える（プロンプト肥大の抑制）。未指定なら
+     `tbd_answers_history` がインラインで配られる。
 3. **Workflow B を呼ぶ。**
 
 ```
@@ -356,7 +356,7 @@ Workflow({
     decisions: <直前の decisions（統合ゲートで上書き・追加された分を反映したもの）>,
     tbd_answers: "<今周回の統合ゲートの回答。質問で止まらなかったなら空文字>",
     tbd_answers_history: <前周回の返り値の tbd_answers_history をそのまま。1 周目は []>,
-    documents: <直前の documents（markdown を落とし draft_path を入れたもの。trace はそのまま）>,
+    documents: <直前の documents をそのまま（draft_path・line_count・trace を落とさない）>,
     tbd_items: <直前の tbd_items をそのまま>,
     presented_tbd_ids: [{ id: "TBD-001", digest: "<blocking_tbd_items[].digest を転記>" }, ...],
     outer_round: 1,
@@ -365,6 +365,8 @@ Workflow({
     self_containment: "<手順 4 で合意した参照方針。無い案件では空文字>",
     sources_path: "<workspace に書き出した根拠正本のパス。1 周目・履歴なしなら渡さない>",
     paths: { requirements: "docs/requirements", specifications: "docs/specifications" },
+    draft_dir: "<絶対パス: 改稿稿の書き出し先。~/.claude/prd-spec-workspace/<案件>/drafts/r<outer_round> を展開したもの>",
+    bulk_read_path: "<任意。インストール済み shunt plugin の scripts/bulk-read の絶対パス（例: ls -d ~/.claude/plugins/cache/*/shunt/*/scripts/bulk-read の最新版を展開したもの）。無ければ渡さない>",
     today: "<date +%Y-%m-%d>"
     // audit_rounds は通常渡さない（渡すのは途中死からの復旧時だけ。workflow-io.md §3）
   }
@@ -375,7 +377,8 @@ Workflow({
 段 2〜4）は `references/workflow-io.md` §4〜5 を正とする。** 取り違えると壊れ方が分かりにくい
 ものだけ挙げる。
 
-- `tbd_answers` — **今周回の**回答。空なら script は反映パスを飛ばす。
+- `tbd_answers` — **今周回の**回答。空なら script は反映パスを飛ばす。1 行ごとに、答える TBD の ID で書き始める（例: `TBD-RAUTH-001: 30 分とする`）。全行が ID を持てば、script はその TBD を持つ文書だけを反映パスで引き直す。ID の無い行が 1 行でもあると、どの文書に効くか決まらないので全文書を引き直す（書き手 1 体ずつの費用がかかる）。
+- `bulk_read_path` — consistency / coverage の全範囲監査で、安いモデルに候補箇所を探させて監査役の読む量を減らす口（`workflow-io.md` §4）。渡さなくても監査は全文読みで完走する。
 - `presented_tbd_ids` — `{ id, digest }` の形（digest は script が計算済みの値。生 text を
   入れると全件が「未提示」に化ける）。**2 周目以降は `next_args` が埋めるので手で作らない**。
 - `documents[].trace` — 落とさない。落とすと根拠の対応が消え、構造検査が全項目を未検査にする。
@@ -444,7 +447,8 @@ Workflow({
      EARS 語尾の不揃い・検証不能な参照が入っていた。再監査で捕まった）。修正回数が
      少ないことは検査を省く理由にならない。
 8. 保存の実行規則。
-   - 各文書 → `documents[].path`。INDEX → `index_paths.*` に `index.*` の内容をそのまま
+   - 各文書（`fixed` を除く）→ `documents[].draft_path` を `documents[].path` へ `cp` する（返り値に
+     本文は無く、最新の稿は `draft_path` にだけある）。INDEX → `index_paths.*` に `index.*` の内容をそのまま
      書き出す。**INDEX は導出物であり、手書きしない**（手書きの目次は必ず本体と drift する）。
      `index` にその kind のキーが無いランでは**再生成しない**（既存のものを残す）。
    - **経緯は commit と PR 本文に残す。** 文書に決定ログも経緯も書かない以上、「なぜこの規範に

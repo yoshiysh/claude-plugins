@@ -40,36 +40,60 @@ const MAX_GATE_ROUNDS = 2
 
 // AUDITORS の scope: 'each' = 全文書に 1 体ずつ / 'requirements' | 'specifications' = その種別だけ /
 // 'all' = 全文書をまとめて 1 体。consistency だけが 'all' なのは、重複・矛盾・INDEX との齟齬は
-// 単一文書の中では原理的に見えないため。他の 5 観点は 1 文書で判定が閉じるので fan-out する。
+// 単一文書の中では原理的に見えないため（本文は locate 読みで安いモデルに探させる）。
+// validity と specimen は文書ごとに 1 体にしている。1 体に全文書を持たせると、固定文書まで含めた
+// 全文を読み込んだ文脈が毎ターン読み直され、1 体で数十万トークンの文脈に達する（実測: validity 1 体が
+// 文脈 80 万・キャッシュ読み 1,660 万トークン）。文書間の突き合わせは、他文書の見出し索引を渡して
+// 必要な節だけを読ませることで残す。
+// model / effort は既定値であり、args.role_opts で run ごとに上書きできる（実測で較正する前提）。
+// 省略するとセッションの設定（xhigh 等）を継承し、照合だけの観点まで最重量で走る（実測: 9 文書の
+// 1 run で 349 呼び出しが利用上限に 2 回達した）。
+// - 照合・列挙の観点は sonnet / medium
+// - 判断を要する観点は opus / medium。公式の指針（platform docs「optimizing for cost and
+//   intelligence」）では知識作業で medium は high と同等の結果を出し、出力トークンは入力の 5 倍の
+//   単価で agent のループの中で積み上がる
+// - executability と fabrication だけ opus / high に残す。1 文ずつ「着手できるか」「根拠が原本に
+//   あるか」を見る観点で、見落としがそのまま成果物の欠陥（着手不能・捏造）になり、代償が大きい
+// read: 全範囲監査での本文の読み方。'locate' は安いモデル（shunt の bulk-read）に候補箇所の逐語引用
+// だけを選ばせ、監査役はその箇所と抜き取り範囲を原文で読んで判定する。'full' は監査役が全文を区切り読みする。
+// locate にするのは、判定に要る箇所が文書のごく一部に集まる観点（consistency: 定義・数値・順序の
+// 突き合わせ / coverage: カテゴリと章の実在）だけ。全文の一文ずつを見る観点（clarity・executability・
+// fabrication・validity・specimen）と、script 側の ID 照合に乗る traceability は full のまま。
 const AUDITORS = [
-  { name: 'executability', file: 'executability-auditor.md', model: 'opus', scope: 'each' },
-  { name: 'clarity', file: 'clarity-auditor.md', model: 'sonnet', scope: 'each' },
-  { name: 'traceability', file: 'traceability-auditor.md', model: 'sonnet', scope: 'specifications' },
-  { name: 'coverage', file: 'coverage-auditor.md', model: 'sonnet', scope: 'requirements' },
-  { name: 'fabrication', file: 'fabrication-auditor.md', model: 'opus', scope: 'each' },
-  { name: 'consistency', file: 'consistency-auditor.md', model: 'sonnet', scope: 'all' },
+  { name: 'executability', file: 'executability-auditor.md', model: 'opus', effort: 'high', scope: 'each', read: 'full' },
+  { name: 'clarity', file: 'clarity-auditor.md', model: 'sonnet', effort: 'medium', scope: 'each', read: 'full' },
+  { name: 'traceability', file: 'traceability-auditor.md', model: 'sonnet', effort: 'medium', scope: 'specifications', read: 'full' },
+  { name: 'coverage', file: 'coverage-auditor.md', model: 'sonnet', effort: 'medium', scope: 'requirements', read: 'locate' },
+  { name: 'fabrication', file: 'fabrication-auditor.md', model: 'opus', effort: 'high', scope: 'each', read: 'full' },
+  { name: 'consistency', file: 'consistency-auditor.md', model: 'sonnet', effort: 'medium', scope: 'all', read: 'locate' },
   // validity: 内容の妥当性（筋・矛盾・欠落）。書式・規律の監査を全通過した筋の悪い要求を
   // 止める最後の観点。事後レビュー頼みだと実施されないことが実測されたため観点に組み込んだ。
-  { name: 'validity', file: 'validity-auditor.md', model: 'opus', scope: 'all' },
+  { name: 'validity', file: 'validity-auditor.md', model: 'opus', effort: 'medium', scope: 'each', read: 'full' },
   // specimen: 標本適用監査。生成文書の各項目を実在の標本文書に実際に適用し、判定不能・
   // 適用時矛盾を検出する。内部監査が見逃す共通原因「文書を読むだけで、使ってみない」を
   // 塞ぐために導入された（実測: 全監査通過後の独立レビューが判定不能 4 件を検出した）。
-  // scope 'kind' は文書 kind ごとに 1 体（要求と仕様で適用の物差しが違うため）。
   // コスト抑制のため毎改稿のスコープ監査には参加せず、初回監査と終端の網羅監査だけ参加する。
-  { name: 'specimen', file: 'specimen-auditor.md', model: 'opus', scope: 'kind' },
+  { name: 'specimen', file: 'specimen-auditor.md', model: 'opus', effort: 'medium', scope: 'each', read: 'full' },
 ]
 
-const OBSOLETE_TERMS = ['21 cfr 820.30', 'design input', 'design output', 'design history file']
-const UNVERIFIABLE_STANDARDS = ['IEC 62304', 'ISO 14971', 'ISO 13485', 'JIS T 2304', 'FISC']
-const CLAUSE_REF = '(?:(?:§|Clause|Section|箇条)\\s*\\d|第\\s*\\d+(?:\\.\\d+)*\\s*(?:節|条|項))'
-// TBD ID を本文から拾う。要求 ID と別に持つのは、この検査が効く先が違うからである。
-// 要求 ID の申告漏れはトレーサビリティを壊すが、TBD の申告漏れは**完成条件そのもの**を壊す。
-const TBD_ID_IN_TEXT = /\bTBD-[A-Z][A-Z0-9]*-\d+\b/g
-
-const ID_IN_TEXT = {
-  requirements: /\bPR-[A-Z][A-Z0-9]*-\d+\b/g,
-  specifications: /\bSP-[A-Z][A-Z0-9]*-\d+\b/g,
+// ROLE_OPTS: auditor 以外の role の model / effort の既定値（args.role_opts で上書きできる）。
+// 配分を 1 箇所で変えられるよう、agent() は必ずここか AUDITORS から opts を取る。判断を要する係も
+// medium に置く理由は AUDITORS の注記と同じ（writer は判断より転記が主）。
+const ROLE_OPTS = {
+  writer: { model: 'opus', effort: 'medium' },
+  ladderJudge: { model: 'sonnet', effort: 'medium' },
+  resolver: { model: 'opus', effort: 'medium' },
+  resolverVerifier: { model: 'opus', effort: 'medium' },
+  adjudicator: { model: 'opus', effort: 'medium' },
+  precedentJudge: { model: 'opus', effort: 'medium' },
+  measurement: { model: 'opus', effort: 'medium' },
+  // checker: 与えた JSON をファイルに書き doc_check.mjs を実行して出力を返すだけの係。判断をしない。
+  checker: { model: 'sonnet', effort: 'low' },
 }
+
+// 本文を読む検査（禁止語・ID 抽出・語尾など）の定数と関数は scripts/doc_check.mjs が正本である。
+// Workflow script はファイルを読めないので、checker agent にその CLI を実行させて結果を受け取る
+// （runDocChecks）。
 
 
 const ID_ITEM = {
@@ -121,7 +145,11 @@ const TRACE_ITEM = {
 const REQ_DOC_SCHEMA = {
   type: 'object',
   properties: {
-    markdown: { type: 'string' },
+    // 本文（markdown）は返させない。writer は改稿稿のファイルを Edit し、script は本文を受け取らない
+    // （返させると文書全体を Write と返り値で 2 度出力させることになる）。
+    // line_count: [WRITE_BACK] のファイルに対する `wc -l` の値。required にしない — 欠落で応答
+    // ごと失わず、欠落は書き出し未確認として script が扱う（reportedLineCount）。
+    line_count: { type: 'number' },
     summary: { type: 'string' },
     requirement_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
@@ -153,13 +181,17 @@ const REQ_DOC_SCHEMA = {
       required: ['after', 'net_added'],
     },
   },
-  required: ['markdown', 'summary', 'requirement_items', 'trace', 'tbd_items'],
+  required: ['summary', 'requirement_items', 'trace', 'tbd_items'],
 }
 
 const SPEC_DOC_SCHEMA = {
   type: 'object',
   properties: {
-    markdown: { type: 'string' },
+    // 本文（markdown）は返させない。writer は改稿稿のファイルを Edit し、script は本文を受け取らない
+    // （返させると文書全体を Write と返り値で 2 度出力させることになる）。
+    // line_count: [WRITE_BACK] のファイルに対する `wc -l` の値。required にしない — 欠落で応答
+    // ごと失わず、欠落は書き出し未確認として script が扱う（reportedLineCount）。
+    line_count: { type: 'number' },
     summary: { type: 'string' },
     spec_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
@@ -204,7 +236,7 @@ const SPEC_DOC_SCHEMA = {
       required: ['after', 'net_added'],
     },
   },
-  required: ['markdown', 'summary', 'spec_items', 'trace', 'traceability', 'tbd_items'],
+  required: ['summary', 'spec_items', 'trace', 'traceability', 'tbd_items'],
 }
 
 // AUDIT_SCHEMA: 6 auditor 共通。判定は failed[] の件数で受け取る（markdown 中の ❌ を数えない）。
@@ -239,41 +271,71 @@ const AUDIT_SCHEMA = {
           // （schemas/agent-contracts.md）。schema の required にはしない — writer が該当なしと
           // 判断したときに schema 違反で応答ごと失う経路を作らない（既存の enum 不採用と同じ理由）。
           repro: { type: 'string' },
+          // action: 冗長指摘の処置（delete / merge_into:<ID> / replace_with_reference:<文書#ID>）。
+          // 引数を取る形があるので enum にしない。writer は direction より具体的な処置としてこれに従う。
+          action: { type: 'string' },
+          // found_via: locate 読みの監査で、その指摘をどちらの読みで見つけたか。sample は locator の
+          // 引用に現れなかった箇所での発見（= locator の見落とし）。full 読みの監査では付けない。
+          found_via: { type: 'string', enum: ['locator', 'sample'] },
         },
         required: ['id', 'location', 'quote', 'issue', 'direction'],
       },
     },
     checked: { type: 'string' },
+    // read_mode 以下は locate 読みを割り当てた監査だけが返す任意項目（他の観点の契約は変えない）。
+    // 件数の正は script 側で数え直す（locator_misses は found_via: 'sample' の件数から導く）。
+    read_mode: { type: 'string', enum: ['locate', 'full', 'full_fallback'] },
+    read_fallback_reason: { type: 'string' },
+    locator_quotes: { type: 'number' },
+    locator_unmatched: { type: 'number' },
+    locator_misses: { type: 'number' },
+    // locate_groups: bulk-read の組（script が送信量の上限に収まるよう束ねた単位）ごとの結果。
+    locate_groups: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          group: { type: 'string' },
+          status: { type: 'string', enum: ['ok', 'split_ok', 'full_fallback'] },
+          reason: { type: 'string' },
+        },
+        required: ['group', 'status'],
+      },
+    },
   },
   required: ['failed', 'checked'],
 }
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 
-const SKILL_DIR = parsedArgs.skillDir
-if (!SKILL_DIR) {
-  throw new Error('args.skillDir が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。')
+// role_opts: 司令塔が run ごとに役割の model / effort を上書きする口。表の値は既定であって、
+// 点検が軽い・判断が易しいと分かっている run で下げ、難所で上げる判断は呼び出す側が持つ。
+// 未知の役割名や値は止める（黙って既定に落ちると、指定したつもりの配分が効かない）。
+const MODELS = ['haiku', 'sonnet', 'opus']
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+// READ_MODES: 監査役の本文の読み方（AUDITORS の read）。read を持たない役割（書き手・判定役）への
+// 指定は止める — 読み方を切り替える口が無い役割に渡すと、指定したつもりで何も変わらない。
+const READ_MODES = ['locate', 'full']
+function applyRoleOverrides(tables, overrides) {
+  const applied = {}
+  for (const [name, o] of Object.entries(overrides || {})) {
+    const target = tables.find((t) => t[name])
+    if (!target) throw new Error(`args.role_opts の役割名が不明です: "${name}"`)
+    if (!o || typeof o !== 'object') throw new Error(`args.role_opts.${name} はオブジェクトで渡してください`)
+    if (o.model !== undefined && !MODELS.includes(o.model)) throw new Error(`args.role_opts.${name}.model が不正です: "${o.model}"`)
+    if (o.effort !== undefined && !EFFORTS.includes(o.effort)) throw new Error(`args.role_opts.${name}.effort が不正です: "${o.effort}"`)
+    if (o.read !== undefined && !READ_MODES.includes(o.read)) throw new Error(`args.role_opts.${name}.read が不正です: "${o.read}"`)
+    if (o.read !== undefined && !('read' in target[name])) throw new Error(`args.role_opts.${name}.read は読み方を持つ監査役にだけ指定できます`)
+    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}), ...(o.read ? { read: o.read } : {}) }
+    Object.assign(target[name], next)
+    applied[name] = { ...target[name] }
+  }
+  return applied
 }
+const AUDITOR_BY_NAME = Object.fromEntries(AUDITORS.map((a) => [a.name, a]))
+const roleOverrides = applyRoleOverrides([ROLE_OPTS, AUDITOR_BY_NAME], parsedArgs.role_opts)
+if (Object.keys(roleOverrides).length) log(`role_opts で上書きした配分: ${JSON.stringify(roleOverrides)}`)
 
-const input = parsedArgs.input
-if (!input || typeof input !== 'string' || !input.trim()) {
-  throw new Error('args.input が空です。依頼文の全文を args.input に渡してください。')
-}
-
-const today = parsedArgs.today
-if (!today) {
-  throw new Error('args.today が未指定です。日付を推測で書かないため、ここで打ち切ります。')
-}
-
-const inputDocs = parsedArgs.documents || []
-if (!inputDocs.length) {
-  throw new Error('args.documents が空です。draft.js の返り値 documents をそのまま渡してください（初稿なしで改稿は始められません）。')
-}
-
-// outer_round: SKILL.md が持つ外側ループの周回カウンタ（1 or 2）。ユーザーには聞かない。
-// R<outer>.<rev> は revision_log（返り値のメタ情報）だけで使う識別子であり、**生成文書には書かない**。
-// 改稿の経緯は成果物ではなく実行の途中経過なので、本文にも変更履歴の章にも残さない。
-const outerRound = Number(parsedArgs.outer_round || 1)
 // MAX_OUTER_ROUNDS: 外側ループの暴走防止 backstop（較正された停止条件ではない）。
 // 停止の正条件は SKILL.md 手順 4 の乾き（今周回に first_seen の新規 blocking が 0）で、
 // この値は乾かないまま回り続ける事故を切るためだけにある。固定 2 周だった旧設計は
@@ -281,9 +343,67 @@ const outerRound = Number(parsedArgs.outer_round || 1)
 // 計装 3 run で帰属確定）により unpres >= 1 を定常化させていた。提示容量の前提
 // （check_blocking_rate.py の 20 件/周 × 2 周）は MAX_GATE_ROUNDS が持ち、この値とは独立。
 const MAX_OUTER_ROUNDS = 5
-if (!Number.isInteger(outerRound) || outerRound < 1 || outerRound > MAX_OUTER_ROUNDS) {
-  throw new Error(`args.outer_round が不正です: ${parsedArgs.outer_round}（1〜${MAX_OUTER_ROUNDS} の整数）`)
+
+// entryErrors: 入口で止める args の不備を 1 箇所で列挙する。関数にしてあるのは、返り値の
+// next_args（buildNextArgs）がこの検査をそのまま通ることを tests が確かめるため — 次周回の
+// args が入口で落ちると、司令塔が手組みに戻り、転記ミスの経路が復活する。
+function entryErrors(a) {
+  const errs = []
+  if (!a.skillDir) errs.push('args.skillDir が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。')
+  if (!a.input || typeof a.input !== 'string' || !a.input.trim()) {
+    errs.push('args.input が空です。依頼文の全文を args.input に渡してください。')
+  }
+  if (!a.today) errs.push('args.today が未指定です。日付を推測で書かないため、ここで打ち切ります。')
+  const docs = a.documents || []
+  if (!docs.length) {
+    errs.push('args.documents が空です。draft.js の返り値 documents をそのまま渡してください（初稿なしで改稿は始められません）。')
+  }
+  const round = Number(a.outer_round || 1)
+  if (!Number.isInteger(round) || round < 1 || round > MAX_OUTER_ROUNDS) {
+    errs.push(`args.outer_round が不正です: ${a.outer_round}（1〜${MAX_OUTER_ROUNDS} の整数）`)
+  }
+  // agent に本文を渡す経路はパスだけである（プロンプトへ本文を埋めない。実測: 改稿後の文書を
+  // インラインで渡した監査プロンプトが 39 万字に達した）。Read できるパスが無い文書は、
+  // agent に見せる手段が無いので入口で止める。
+  const orphan = docs.filter((d) => !d || (!d.draft_path && !d.path))
+  if (orphan.length) {
+    errs.push(
+      `args.documents に参照先（draft_path / path）の無い文書があります: ${orphan
+        .map((d) => d && d.key)
+        .join(' / ')}。agent は本文をパスから Read するため、パスの無い文書は監査も改稿もできません。`
+    )
+  }
+  // draft_dir: writer が改稿稿を書き出す workspace のディレクトリ（絶対パス）。
+  const draftDir = String(a.draft_dir || '').trim().replace(/\/+$/, '')
+  if (docs.some((d) => d && !d.fixed) && !draftDir.startsWith('/')) {
+    errs.push(
+      `args.draft_dir が絶対パスではありません: "${draftDir}"。writer は改稿稿を workspace へ複写して Edit し、` +
+        'agent は以後そのパスを Read する。Write / Edit は ~ を展開しないため絶対パスで渡してください。'
+    )
+  }
+  const bulkReadPath = String(a.bulk_read_path || '').trim()
+  if (bulkReadPath && !bulkReadPath.startsWith('/')) {
+    errs.push(
+      `args.bulk_read_path が絶対パスではありません: "${bulkReadPath}"。監査役は Bash でこのパスをそのまま実行するため、` +
+        'インストール済み shunt plugin の scripts/bulk-read を展開した絶対パスで渡してください。'
+    )
+  }
+  return errs
 }
+{
+  const errs = entryErrors(parsedArgs)
+  if (errs.length) throw new Error(errs.join('\n'))
+}
+
+const SKILL_DIR = parsedArgs.skillDir
+const input = parsedArgs.input
+const today = parsedArgs.today
+const inputDocs = parsedArgs.documents
+
+// outer_round: SKILL.md が持つ外側ループの周回カウンタ（1 or 2）。ユーザーには聞かない。
+// R<outer>.<rev> は revision_log（返り値のメタ情報）だけで使う識別子であり、**生成文書には書かない**。
+// 改稿の経緯は成果物ではなく実行の途中経過なので、本文にも変更履歴の章にも残さない。
+const outerRound = Number(parsedArgs.outer_round || 1)
 // auditRounds: agent 監査を実施するラウンド数。既定は全ラウンド（抑制しない）。
 const auditRounds = Number(parsedArgs.audit_rounds || REVISION_BACKSTOP + 1)
 
@@ -398,14 +518,12 @@ const specDir = paths.specifications || 'docs/specifications'
 
 // documents: draft.js の返り値のうち **メタ情報だけ** を受け取る。
 //
-// **本文（markdown）は args で渡さない。** 12 文書で 24 万文字を超えることがあり、
-// それを args に載せると、呼び出し側（SKILL.md）が全文を書き写して中継することになる。
-// workflow script はファイルを読めないが **agent は読める** ので、本文は draft_path を
-// writer に Read させて取り込む。この分担なら args は数 KB で済む。
-//
-// 構造検査は本文を必要とするが、回答反映パス（forceAll）が全文書を必ず writer に通すため、
-// 監査へ入る時点では返ってきた markdown が script の手元に揃っている。初稿段階の構造検査は
-// Workflow A で済んでおり、その結果は draft_structural_findings で受け取る。
+// **本文（markdown）は args でも writer の返り値でも受け取らない。** 12 文書で 24 万文字を
+// 超えることがあり、args に載せると呼び出し側が全文を書き写して中継し、返り値に載せると
+// writer が改稿のたびに全文を出力する。workflow script はファイルを読めないが **agent は読める**
+// ので、本文は draft_path を agent に Read させ、本文を要する決定的な検査（構造検査・行数・
+// 変更範囲）は checker agent が scripts/doc_check.mjs を実行して結果だけを返す。
+// 旧形式の args が markdown を持っていても読まない（読む口を残すと、本文を中継する経路が戻る）。
 //
 // fixed（このランの対象外として固定入力にした文書）は改稿も監査もしない — ユーザーが
 // 確定済みとして渡した文書を黙って書き換えないため。ただし consistency の文脈には入れる。
@@ -418,8 +536,8 @@ let documents = inputDocs.map((d) => ({
   // draft_path: 初稿の本文が置いてあるパス。writer はここを Read して改稿する。
   // 省略時は path（保存先）を見る — review / expand で既存文書を改稿する経路がこれにあたる。
   draft_path: d.draft_path || d.path || '',
-  // markdown は原則として空で始まり、writer が返した時点で埋まる。
-  markdown: d.markdown || '',
+  // line_count: 本文の行数（改行で終わらない最終行も 1 行と数える）。checker が数え直して上書きする。
+  ...(Number.isInteger(d.line_count) ? { line_count: d.line_count } : {}),
   summary: d.summary || '',
   items: d.items || [],
   ids: (d.items || []).map((i) => i.id).filter(Boolean),
@@ -435,18 +553,16 @@ let documents = inputDocs.map((d) => ({
   fixed: Boolean(d.fixed),
 }))
 
-// 本文もパスも無い文書があると、writer は何を改稿すればよいか分からないまま書き始める
-// （＝新規執筆に化ける）。入口で止める。
-{
-  const orphan = documents.filter((d) => !d.markdown && !d.draft_path)
-  if (orphan.length) {
-    throw new Error(
-      `args.documents に本文（markdown）も参照先（draft_path）も無い文書があります: ${orphan
-        .map((d) => d.key)
-        .join(' / ')}。改稿の下敷きが無いまま新規執筆に化けるのを防ぐため、ここで打ち切ります。`
-    )
-  }
-}
+// draft_dir: writer が改稿稿を書き出す workspace のディレクトリ（絶対パス。検査は entryErrors）。
+// 改稿のたびに別ファイルへ複写して Edit させるのは、読んだ前稿を上書きすると書き出しの失敗で
+// 唯一の写しが壊れるため。保存先（path）へは書かせない — そこへの書き出しは人間の承認後に司令塔が行う。
+const draftDir = String(parsedArgs.draft_dir || '').trim().replace(/\/+$/, '')
+const revisedDraftPath = (doc, revisionId) => `${draftDir}/${doc.kind}-${doc.topic}.${revisionId}.md`
+
+// bulk_read_path: shunt の bulk-read スクリプトの絶対パス（任意）。渡されると、read: 'locate' の
+// 監査役は全範囲監査でこれを使って候補箇所の逐語引用を集めてから原文を読む。未指定なら全文の
+// 区切り読みに戻し、返り値の summary.locator に full_fallback として残す（黙って読み方を変えない）。
+const bulkReadPath = String(parsedArgs.bulk_read_path || '').trim()
 
 // sources_path: 司令塔が run 前に workspace へ書き出した根拠正本（過去周回のゲート②回答など）
 // のパス（任意）。指定時は、全文を必要とする role（writer / fabrication-auditor）にだけ
@@ -483,20 +599,20 @@ function buildContextBlock(role) {
   '',
   '# [SKILL_PREMISES] スキルが固定する前提（案件ごとに問い直さない）',
   `${SKILL_DIR}/references/fixed-premises.md を Read し、そこに列挙された前提を執筆・検査の`,
-  '枠組みとして使うこと。前提由来の書き方の選択は根拠欄に `（スキル既定: 前提 N）` と書く。',
+  '枠組みとして使うこと。前提由来の書き方の選択は trace に `{ kind: "premise", ref: "前提 N" }` で申告し、本文には書かない。',
   '前提は案件の確定要求の根拠にはならない（区別は同ファイルの末尾節を正とする）。',
   '',
   '# [INPUT] 依頼文（確定要求の根拠その 1）',
   input,
   '',
-  '# [ANSWERS] 人間ゲート①の回答（確定要求の根拠その 2）',
+  '# [ANSWERS] 事前分析の質問への回答（確定要求の根拠その 2）',
   answers,
   '',
-  '# [TBD_ANSWERS] 人間ゲート②の回答（確定要求の根拠その 3。過去周回の回答も含む）',
+  '# [TBD_ANSWERS] 統合ゲートの回答（確定要求の根拠その 3。過去周回の回答も含む）',
   tbdAnswersSection,
   '',
   '# [DECISIONS] 決定ログ（確定要求の根拠その 4。既定として選ばれた書き方・進め方）',
-  '出所は `（既定: D-N）` と表記する。書式と使ってよい範囲は references/question-policy.md を正とする。',
+  '決定を根拠にした項目は trace に `{ kind: "decision", ref: "D-N" }` で申告し、本文には出所を書かない。使ってよい範囲は references/question-policy.md を正とする。',
   fullDecisions ? JSON.stringify(decisions, null, 2) : decisionsOneLine(decisions),
   '',
   '# [TBD_ITEMS] 現時点の未確定事項',
@@ -531,11 +647,68 @@ const sourcesReadNote = sourcesPath
   ? `まず ${sourcesPath} を Read すること（過去周回のゲート②回答の正本。引用・照合はこの原本に対して行う）。`
   : ''
 
-const RULES = [
-  `規律は ${SKILL_DIR}/references/requirement-writing-rules.md ・`,
-  `${SKILL_DIR}/references/document-structure.md ・${SKILL_DIR}/references/traceability.md ・`,
-  `${SKILL_DIR}/references/document-splitting.md ・${SKILL_DIR}/references/citation-policy.md を正とする。`,
-].join('\n')
+// ------------------------------------------------------- 役割ファイルと契約の渡し方
+//
+// この区間は scripts/draft.js と scripts/refine.js で逐語で同一である（一致と行範囲は
+// tests/test_prompt_budget.py が検査する）。
+// ROLE_HEADER_BEGIN
+// CONTRACT_LINES: schemas/agent-contracts.md の節の行範囲（1 始まり・両端を含む）。このファイルは
+// 500 行を超え、行範囲の無い Read は shunt の gate（350 行超）に止められて 1 ターン無駄になる。
+// § の名前だけを渡すと agent はファイル全体を探して読む — validity・clarity などは固有の節を
+// 持たず共通形を使うので、存在しない節を探し回ることになる。値は見出しから導いたもので、
+// 実ファイルの見出しとの一致をテストが照合する（ファイルを直したらこの表も直す）。
+const CONTRACT_LINES = {
+  'req-writer': [99, 156],
+  'spec-writer': [157, 200],
+  auditor: [201, 281],
+  'executability-auditor': [282, 324],
+  'ladder-judge': [325, 370],
+  resolver: [371, 401],
+  'resolver-verifier': [402, 425],
+  'precedent-judge': [426, 461],
+  measurement: [462, 487],
+}
+
+// READ_SCOPE: 読んでよい範囲の宣言。役割に要る指示と契約は roleHeader が渡すもので完結している。
+// スキル自身の実装や他の役割の指示を読んでも判断は変わらず、読んだ分は以後の全ターンの文脈に
+// 載り続ける（実測: measurement 1 体が SKILL.md・scripts/・references を読み回って Bash 42 回・
+// キャッシュ読み 1,540 万トークン）。
+const READ_SCOPE =
+  '読む範囲: 上の役割ファイルと契約の範囲、このプロンプトが名指しするファイルと行範囲だけを読む。' +
+  'このスキルの SKILL.md・scripts/・他の役割の agents/*.md・名指しされていない references/ と schemas/ は' +
+  'この役割の範囲外なので読まない（読んでも判断は変わらず、読んだ量だけ以後の全ターンが重くなる）。' +
+  'ここで範囲外とする references/ は、このプロンプトと役割ファイルのどちらも名指ししていないものに限る。' +
+  '役割ファイルが references/ の節を指しているときは、それを読む — 添えられた行範囲だけを offset/limit で読む。'
+
+// roleHeader: 役割ファイル（いずれも 350 行未満なので 1 回で読める）と契約の節を渡す冒頭。
+function roleHeader(skillDir, roleFiles, contractKey) {
+  const range = CONTRACT_LINES[contractKey]
+  if (!range) throw new Error(`契約の節が未定義の役割です: ${contractKey}`)
+  const files = roleFiles.map((f) => `${skillDir}/agents/${f}`)
+  return [
+    `Read ${files.join(' and then ')} for your full role instructions before doing anything else.`,
+    `契約（返り値の形）: Read ${skillDir}/schemas/agent-contracts.md offset=${range[0]} limit=${range[1] - range[0] + 1}（この範囲だけが契約。ファイルの他の節は読まない）。`,
+    READ_SCOPE,
+  ].join('\n')
+}
+
+// RULES_NOTE: 執筆・監査の規律の正本。どれも必要な節だけを読めば足りる。350 行を超える
+// document-structure.md（407 行）を行範囲なしで Read すると gate に止められる。
+function rulesNote(skillDir) {
+  return [
+    `規律は ${skillDir}/references/requirement-writing-rules.md ・`,
+    `${skillDir}/references/document-structure.md ・${skillDir}/references/traceability.md ・`,
+    `${skillDir}/references/document-splitting.md ・${skillDir}/references/citation-policy.md を正とする。`,
+    'いずれも通読しない。判断に要る節だけを見出しの Grep（`^## `）で探し、300 行以内の offset/limit で Read する。',
+  ].join('\n')
+}
+// INLINE_SCOPE: 役割ファイルを持たず、指示と材料をプロンプトに収めた係（先例裁定・終端裁定）の宣言。
+const INLINE_SCOPE =
+  '読む範囲: 役割の指示と材料はこのプロンプトで完結している。このスキルの SKILL.md・scripts/・agents/・' +
+  'schemas/ と、名指しされていない references/ は読まない（読んでも判断は変わらず、読んだ量だけ以後の全ターンが重くなる）。'
+// ROLE_HEADER_END
+
+const RULES = rulesNote(SKILL_DIR)
 
 // areaCode / tbdPrefix: draft.js と同じ規約でなければならない。ここがずれると、改稿のたびに
 // ID の領域コードが変わり、本文中の表記と ID 一覧が食い違う。
@@ -545,22 +718,483 @@ const areaCode = (t) => {
 }
 const tbdPrefix = (doc) => `TBD-${doc.kind === 'requirements' ? 'R' : 'S'}${areaCode(doc.topic)}-`
 
-// bodyOf: 本文が手元に無い文書は、検査 agent に Read させる。改稿を通った文書は writer が
-// 返した markdown が入っているので、この分岐に入るのは fixed 文書（このランの対象外）だけ。
-const bodyOf = (d) => (d.markdown ? d.markdown : `（本文は ${d.draft_path} にある。Read すること）`)
+// ------------------------------------------------------- 本文の渡し方（パスのみ）
+//
+// この区間の関数は scripts/draft.js に逐語で複製されている（一致は tests/test_prompt_budget.py が検査する）。
+// 行数と変更範囲の計算は本文を要するので scripts/doc_check.mjs にある。
+//
+// READ_CHUNK_LINES: 1 回の Read の上限行数。shunt の PreToolUse gate は 350 行を超える無制限 Read を
+// 止めて要約器へ回しうるため、その手前で区切る。監査者は要約ではなく逐語を見なければならない。
+const READ_CHUNK_LINES = 300
 
-// 他文書は「重複を作らないための参照」なので、本文が手元に無ければパスと要約で足りる
-// （writer は必要ならそのパスを Read できる）。全文を常に載せると、12 文書のプロンプトが
-// それぞれ他 11 文書分を抱えて肥大する。
+// readInstruction: 本文の代わりにプロンプトへ入れる Read 指示。行数が分からないときも
+// 「一度に全体を読め」とは書かない — 350 行を超える一括 Read は gate に止められるため。
+// ranges を渡すと、その範囲だけを読ませる（空配列は「今回変更なし」）。
+function readInstruction(path, lineCount, ranges) {
+  const chunks = (start, end) => {
+    const out = []
+    for (let s = start; s <= end; s += READ_CHUNK_LINES) {
+      out.push(`- Read ${path} offset=${s} limit=${Math.min(READ_CHUNK_LINES, end - s + 1)}`)
+    }
+    return out
+  }
+  if (Array.isArray(ranges)) {
+    if (!ranges.length) {
+      return `本文: ${path}（今回の改稿で変更された節は無い。照合に要る箇所だけを ${READ_CHUNK_LINES} 行以内の offset/limit で Read すること）`
+    }
+    const out = [`本文: ${path}（次の範囲だけを Read すること。全体は読まない）`]
+    for (const r of ranges) {
+      if (r.deleted) {
+        out.push(`- 削除された節「${r.heading || '(冒頭)'}」（${r.start} 行目の直前にあった。削除で生じた欠落・参照切れだけを確かめる）`)
+      } else {
+        out.push(`節「${r.heading || '(冒頭)'}」: ${r.start}〜${r.end} 行`, ...chunks(r.start, r.end))
+      }
+    }
+    return out.join('\n')
+  }
+  if (lineCount && lineCount <= READ_CHUNK_LINES) return `本文: ${path}（${lineCount} 行。Read すること）`
+  if (lineCount) {
+    return [`本文: ${path}（${lineCount} 行。1 回の Read で全体を読まず、次の単位で順に Read すること）`, ...chunks(1, lineCount)].join('\n')
+  }
+  return `本文: ${path}（行数未確認。1 回の Read で全体を読まず、offset/limit を付けて ${READ_CHUNK_LINES} 行ずつ末尾まで順に Read すること）`
+}
+
+// ------------------------------------------------------- 本文の渡し方ここまで
+
+// bodyOf: 本文はプロンプトに入れず、draft_path を Read させる。
+// docLineCount: 行数は checker（doc_check.mjs）が数えた値を使う。checker が走っていない文書は
+// 呼び出し側が渡した documents[].line_count を使い、それも無ければ区切り読みも抜き取り範囲も
+// 決められず全文読みへ戻る。
+const docLineCount = (d) => (Number.isInteger(d.line_count) ? d.line_count : null)
+const bodyOf = (d) => readInstruction(d.draft_path, docLineCount(d))
+
+// lastRevisedId: 直近の改稿の revisionId。スコープ監査は、この改稿で書き換わった文書の
+// 変更範囲（changed_ranges）だけを読ませる。
+let lastRevisedId = null
+
+// auditBodyOf: スコープ監査では変更された節の行範囲だけを読ませる。変更範囲を計算できなかった
+// 文書（checker が走らなかった・前稿を読めなかった — changed_ranges が null）は全体を区切って読ませる。
+function auditBodyOf(d, scoped) {
+  if (!scoped) return bodyOf(d)
+  if (d.revised_in !== lastRevisedId) return readInstruction(d.draft_path, docLineCount(d), [])
+  if (!Array.isArray(d.changed_ranges)) return bodyOf(d)
+  return readInstruction(d.draft_path, docLineCount(d), d.changed_ranges)
+}
+
+// indexInstruction: 本文を通読させずに、見出し索引から要る節だけを読ませる指示。索引は checker が
+// doc_check.mjs で書き出した「開始-終了 見出し」の一覧。他文書・固定文書は突き合わせの参照先で
+// あって読む対象そのものではないので、全文を読ませる理由が無い（実測: validity 1 体が固定文書 3 件を
+// 含む全文書を通読し、文脈が 80 万トークンに達した）。checker が走らず索引が無いときも全文読みには
+// 戻さず、見出しを Grep で列挙させる。
+function indexInstruction(d) {
+  const body = `本文 ${d.draft_path} は、要る節だけを索引の行範囲で ${READ_CHUNK_LINES} 行以内の offset/limit で Read する。全体は読まない。`
+  if (!d.index_path) {
+    return `見出し索引なし: ${d.draft_path} を Grep（パターン \`^#{2,4} \`・行番号付き）して見出しと行番号を列挙する。${body}`
+  }
+  const lines = Number(d.index_lines) || 0
+  const head = `見出し索引: ${d.index_path}（${lines || '行数未確認'} 行。各行が「開始行-終了行 見出し」）`
+  if (lines && lines <= READ_CHUNK_LINES) return `${head}を Read する。${body}`
+  const chunks = []
+  for (let st = 1; st <= (lines || READ_CHUNK_LINES); st += READ_CHUNK_LINES) {
+    chunks.push(`- Read ${d.index_path} offset=${st} limit=${READ_CHUNK_LINES}`)
+  }
+  return [`${head}を次の単位で Read する。${body}`, ...chunks].join('\n')
+}
+
+// 他文書は「重複を作らないための参照」なので、要約と見出し索引で足りる。全体の区切り読みを
+// 指示すると writer ごとに全文書を読み直すことになるため、要る節だけを読ませる。
 function otherDocsContext(self) {
   return documents
     .filter((d) => d.key !== self.key)
-    .map((d) =>
-      d.markdown
-        ? `## ${d.path}（${d.concern}）\n\n${d.markdown}`
-        : `## ${d.path}（${d.concern}）\n\n要約: ${d.summary || '(なし)'}\n本文: ${d.draft_path} を Read すること`
-    )
+    .map((d) => `## ${d.path}（${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n要約: ${d.summary || '(なし)'}\n${indexInstruction(d)}`)
     .join('\n\n---\n\n')
+}
+
+// crossDocSection: 文書ごとに 1 体で走る観点（validity / specimen）に、他文書との突き合わせの材料を
+// 渡す。本文ではなく ID 一覧と見出し索引を渡し、引用・参照している節だけを読ませる。
+// 文書間の矛盾は両側の監査から見えるので、報告する側を文書の並び順で 1 つに決める（両側が報告すると
+// 件数が二重になり、2 つの writer が逆向きに直しうる）。固定文書は監査されないので、固定文書との
+// 矛盾は常にこちら側が報告する。
+function crossDocSection(self) {
+  const order = new Map(documents.map((d, i) => [d.key, i]))
+  const others = documents.filter((d) => d.key !== self.key)
+  if (!others.length) return []
+  const owned = (d) => d.fixed || order.get(d.key) > order.get(self.key)
+  const entry = (d) =>
+    [
+      `## ${d.key}（${d.path}・${d.concern || '関心事の記載なし'}）${d.fixed ? '【このランの対象外・変更不可】' : ''}`,
+      `ID: ${(d.ids || []).join(' ') || '(申告なし)'}`,
+      indexInstruction(d),
+    ].join('\n')
+  return [
+    '# [OTHER_DOCUMENTS] 同じ案件の他文書（突き合わせの参照先。監査対象ではない）',
+    '監査対象は上の [DOCUMENTS] の 1 文書だけである。他文書は、対象文書が参照・依存している節と、',
+    '同じ対象について定めている節だけを、索引の行範囲で読む。他文書の問題そのものは指摘しない。',
+    `文書間の矛盾を報告するのは、相手が次の文書のときだけ: ${others.filter(owned).map((d) => d.key).join(' / ') || '(なし)'}。`,
+    'それ以外の文書との矛盾は相手側の監査が報告するので、ここでは報告しない。',
+    '',
+    others.map(entry).join('\n\n'),
+    '',
+  ]
+}
+
+// ------------------------------------------------------- locate 読み（安いモデルが探し、監査役が原文で判定する）
+//
+// 大きな文書を監査役（高価なモデル）に全文読ませる代わりに、shunt の bulk-read（Gemini）に候補箇所の
+// 逐語引用だけを選ばせる。安いモデルに任せるのは「どこを見るか」の選択に限り、判定・要約はさせない。
+// 判定に使う原文は、引用を Grep の完全一致で元ファイルに見つけ、その節を Read した監査役だけが持つ。
+// 安いモデルが選ばなかった部分は、script が割り当てた抜き取り範囲を監査役が全文読みして見落としを測る。
+
+// MISS_SAMPLE_SMALL_DOC_LINES / MISS_SAMPLE_CHUNKS_*: 見落とし測定の抜き取り量。600 行以下の文書は
+// 300 行の塊 1 つ（= 文書の半分以上）で足りる。それを超える文書は 2 塊にとどめる — 塊を増やすほど
+// 全文読みに近づき、locate にした意味（監査役の読む量を減らす）が消えるため。1 run で文書あたり
+// 最大 600 行の追加読みと引き換えに、locator の見落とし率を run ごとに実測できる。
+const MISS_SAMPLE_SMALL_DOC_LINES = 600
+const MISS_SAMPLE_CHUNKS_SMALL = 1
+const MISS_SAMPLE_CHUNKS_LARGE = 2
+
+// locatorSampleRanges: 見落とし測定のために全文読みさせる塊（READ_CHUNK_LINES 行単位）を決める。
+// 選び方は文書キーと版の FNV-1a ハッシュだけで決まる（Math.random / Date を使わない）— 同じ入力で
+// 再実行すれば同じ範囲を読むので、見落とし率の差が抜き取り位置の揺れではなく locator の差になる。
+// 版が変われば選ばれる塊も変わりうるので、周回を重ねると文書の別の場所が抜き取られる。
+function locatorSampleRanges(docKey, revision, lineCount) {
+  const total = Math.ceil((lineCount || 0) / READ_CHUNK_LINES)
+  if (!total) return []
+  const want = Math.min(total, lineCount <= MISS_SAMPLE_SMALL_DOC_LINES ? MISS_SAMPLE_CHUNKS_SMALL : MISS_SAMPLE_CHUNKS_LARGE)
+  const picked = []
+  for (let salt = 0; picked.length < want; salt++) {
+    const text = `${docKey}|${revision}|${salt}`
+    let h = 2166136261
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i)
+      h = Math.imul(h, 16777619)
+    }
+    const idx = (h >>> 0) % total
+    if (!picked.includes(idx)) picked.push(idx)
+  }
+  return picked
+    .sort((a, b) => a - b)
+    .map((i) => ({ start: i * READ_CHUNK_LINES + 1, end: Math.min(lineCount, (i + 1) * READ_CHUNK_LINES) }))
+}
+
+// LOCATE_GROUP_MAX_BYTES: 1 回の bulk-read で送る量の上限（本文・ファイル枠・問いの合計の見積もり）。
+// shunt の上限は SHUNT_MAX_PAYLOAD_BYTES=400000（shunt 0.1.1 の scripts/lib/gemini.sh 29 行目）で、
+// 超えると送らずに失敗する（実測: 全文書を 1 回で送り 481,051 バイトで失敗）。同じ run で別の呼び出しが
+// curl の時間切れ SHUNT_TIMEOUT_SECONDS=120（同 25 行目）にも掛かったので、上限の半分に抑えて
+// 1 回の処理量も減らす。値は既定であり、時間切れの実績（summary.locator.group_status）で較正する。
+const LOCATE_GROUP_MAX_BYTES = 200000
+// LOCATE_PART_MAX_BYTES: 上限を超える 1 文書を行範囲で分けるときの 1 片の目安。行あたりのバイト数は
+// 平均から見積もるので、表の多い区間では実際の片が見積もりより大きくなる。組の上限の半分にして、
+// 見積もりの 2 倍に膨らんでも組の上限に収まるようにする。
+const LOCATE_PART_MAX_BYTES = 100000
+// LOCATE_FILE_OVERHEAD_BYTES: bulk-read が 1 ファイルごとに足す `<file path="…">` と `</file>` と改行
+// （パスのバイト数は別に足す）。LOCATE_PROMPT_OVERHEAD_BYTES: 問いの前置きと回答形式の指示
+// （ANSWER / EVIDENCE / UNVERIFIED の 4 行）の分（問い本体のバイト数は別に足す）。
+const LOCATE_FILE_OVERHEAD_BYTES = 32
+const LOCATE_PROMPT_OVERHEAD_BYTES = 400
+
+// utf8Bytes: 文字列の UTF-8 バイト数（workflow script には Buffer が無い）。送信量の上限はバイトで
+// 決まり、日本語は 1 字 3 バイト前後なので、文字数で代用すると送信量を 3 分の 1 に見積もる。
+function utf8Bytes(text) {
+  let n = 0
+  for (const ch of String(text)) {
+    const c = ch.codePointAt(0)
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4
+  }
+  return n
+}
+
+// locateGroups: bulk-read の呼び出し単位を決める。組ごとの送信量の見積もりが LOCATE_GROUP_MAX_BYTES を
+// 超えないように文書を束ね、1 文書で超えるものは行範囲の片（chunk ファイル）に分ける。各組には時間切れの
+// ときに 1 回だけ使う半分ずつの組（halves）を前もって決めておく — 監査役に分け方を考えさせない。
+// 並びは大きい順の first-fit（同じ大きさは key 順）で、同じ入力なら同じ組になる。
+function locateGroups(docs, questionBytes, chunkDir) {
+  const indexNameOf = (key) => String(key).replace(/[^A-Za-z0-9._-]+/g, '__')
+  const fileBytes = (file, bytes) => bytes + utf8Bytes(file) + LOCATE_FILE_OVERHEAD_BYTES
+  const chunks = []
+  const partsOf = (d, start, end, maxBytes) => {
+    const perLine = d.byteSize / Math.max(1, d.lineCount)
+    const span = Math.max(1, Math.floor(maxBytes / Math.max(1, perLine)))
+    const out = []
+    for (let a = start; a <= end; a += span) {
+      const b = Math.min(end, a + span - 1)
+      const file = `${chunkDir}/${indexNameOf(d.key)}.${a}-${b}.md`
+      if (!chunks.some((c) => c.file === file)) chunks.push({ src: d.draft_path, start: a, end: b, file })
+      out.push({ key: d.key, file, start: a, end: b, bytes: fileBytes(file, Math.ceil(perLine * (b - a + 1))) })
+    }
+    return out
+  }
+  const budget = LOCATE_GROUP_MAX_BYTES - LOCATE_PROMPT_OVERHEAD_BYTES - questionBytes
+  const items = []
+  for (const d of docs) {
+    const whole = { key: d.key, file: d.draft_path, start: 1, end: d.lineCount, bytes: fileBytes(d.draft_path, d.byteSize) }
+    if (whole.bytes <= budget) items.push(whole)
+    else items.push(...partsOf(d, 1, d.lineCount, Math.min(LOCATE_PART_MAX_BYTES, budget)))
+  }
+  items.sort((x, y) => y.bytes - x.bytes || (x.key < y.key ? -1 : x.key > y.key ? 1 : x.start - y.start))
+  const bins = []
+  for (const it of items) {
+    const bin = bins.find((b) => b.bytes + it.bytes <= budget)
+    if (bin) {
+      bin.items.push(it)
+      bin.bytes += it.bytes
+    } else bins.push({ items: [it], bytes: it.bytes })
+  }
+  const groups = bins.map((b, i) => {
+    let halves
+    if (b.items.length > 1) {
+      halves = [[], []]
+      b.items.forEach((it, k) => halves[k % 2].push(it))
+    } else {
+      const it = b.items[0]
+      const d = docs.find((x) => x.key === it.key)
+      const mid = Math.floor((it.start + it.end) / 2)
+      halves = it.end > it.start ? [partsOf(d, it.start, mid, Infinity), partsOf(d, mid + 1, it.end, Infinity)] : null
+    }
+    return { id: `G${i + 1}`, bytes: b.bytes + LOCATE_PROMPT_OVERHEAD_BYTES + questionBytes, items: b.items, halves }
+  })
+  return { groups, chunks }
+}
+
+// auditReadPlan: この監査呼び出しの読み方を script が決める。locate にできない理由があれば
+// full_fallback とその理由を返す（呼び出し側は理由を返り値に残す）。
+// - スコープ監査（scoped）は変更範囲だけを読む既存の経路のまま（locate を掛けない）
+// - bulk_read_path が無ければ locator を走らせる手段が無い
+// - 行数の分からない対象文書があると抜き取り範囲を割り当てられない。見落としを測れない locate は
+//   「読まなかった部分」を申告できないので、全文読みに戻す（固定文書は抜き取り対象外なので問わない）
+// - バイト数の分からない対象文書があると、送信量の上限に収まる組を作れない（固定文書は bulk-read に
+//   送らず、索引から要る節を読ませる）
+function auditReadPlan(read, scoped, bulkPath, docs, questionBytes, chunkDir) {
+  if (read !== 'locate' || scoped) return { mode: 'full' }
+  if (!bulkPath) return { mode: 'full_fallback', reason: 'bulk_read_path_unset' }
+  const unknown = docs.filter((d) => !d.fixed && !d.lineCount)
+  if (unknown.length) return { mode: 'full_fallback', reason: `line_count_unknown: ${unknown.map((d) => d.key).join(', ')}` }
+  const noBytes = docs.filter((d) => !d.fixed && !d.byteSize)
+  if (noBytes.length) return { mode: 'full_fallback', reason: `byte_size_unknown: ${noBytes.map((d) => d.key).join(', ')}` }
+  const sendable = docs.filter((d) => d.lineCount && d.byteSize)
+  return {
+    mode: 'locate',
+    samples: docs
+      .filter((d) => !d.fixed)
+      .map((d) => ({ key: d.key, path: d.draft_path, ranges: locatorSampleRanges(d.key, d.revision, d.lineCount) })),
+    chunkDir,
+    ...locateGroups(sendable, questionBytes || 0, chunkDir),
+  }
+}
+
+// locateQuestion: bulk-read に渡す問い。各監査役のチェックリストのうち「どこを見るか」だけを問い、
+// 判定（矛盾か・欠落か）と言い換えを禁じる。引用を 1 行以内の原文の部分文字列に限るのは、監査役が
+// Grep の完全一致で元ファイルの行を特定するため（表の複数行や要約は一致しない）。
+function locateQuestion(auditorName, categories) {
+  const contract = [
+    '各引用は、ファイル内に実在する 1 行以内の連続した部分文字列を一字一句そのまま写し、ファイルパスを添えること。',
+    '要約・言い換え・補足・正誤や矛盾や欠落の判断・評価は一切書かないこと。引用の列挙だけを返すこと。',
+    '該当が無い項目は none とだけ書くこと。',
+  ]
+  if (auditorName === 'consistency') {
+    return [
+      '次の文書群から、以下のいずれかに当たる箇所をすべて原文のまま引用して列挙せよ。',
+      '(1) 用語を定義している箇所、または同じものを別の語で呼んでいる箇所',
+      '(2) 数値・上限・下限・期限・回数・時間を定めている箇所',
+      '(3) 順序・優先順位・適用範囲・禁止・義務を定めている箇所のうち、別の文書も同じ対象について述べているもの（両方の文書の箇所を引用する）',
+      '(4) 他の文書・INDEX・上位文書を参照している箇所',
+      ...contract,
+    ].join('\n')
+  }
+  if (auditorName === 'coverage') {
+    return [
+      '次の文書から、以下を原文のまま引用して列挙せよ。',
+      `(1) 次の各カテゴリについて、それを扱っている章見出しまたは要求文。カテゴリ一覧: ${JSON.stringify(categories || [])}`,
+      '    カテゴリごとに見出しを付け、見つからないカテゴリは「カテゴリ名: none」と書く。',
+      '(2) 文書中のすべての章見出し（## / ### / #### で始まる行）',
+      '(3) 「該当なし」「非該当」「対象外」と書かれている箇所',
+      ...contract,
+    ].join('\n')
+  }
+  throw new Error(`locate 読みの問いが未定義の監査役です: ${auditorName}`)
+}
+
+// locateDocumentsSection: locate 読みの [DOCUMENTS] 節。bulk-read は script が決めた組ごとに実行させる。
+// 組が実行時に失敗しても、その組の文書だけを全文読みへ戻せるよう、区切り読みの一覧（[FALLBACK]）を
+// 必ず添える — 読まずに済ませる経路を作らない。固定文書は bulk-read に送っても全文読みには戻さず、
+// 索引から要る節を読ませる。
+function locateDocumentsSection(plan, docs, bulkPath, question) {
+  const quote = (p) => `'${String(p).replace(/'/g, `'\\''`)}'`
+  const sampleLines = plan.samples.flatMap((s) =>
+    s.ranges.map((r) => `- ${s.key}: Read ${s.path} offset=${r.start} limit=${r.end - r.start + 1}`)
+  )
+  const groups = plan.groups || []
+  const chunks = plan.chunks || []
+  const run = (items) => `${quote(bulkPath)} --question "$(cat ${quote(`${qDir(plan)}/locate-question.txt`)})" --paths ${items.map((it) => quote(it.file)).join(' ')}`
+  const label = (it) => (it.start === 1 && it.file === docs.find((d) => d.key === it.key).draft_path ? it.key : `${it.key} ${it.start}〜${it.end} 行`)
+  const groupBlocks = groups.map((g) =>
+    [
+      `### ${g.id}（見積もり ${g.bytes} バイト: ${g.items.map(label).join(' / ')}）`,
+      '```bash',
+      run(g.items),
+      '```',
+      ...(g.halves
+        ? [
+            `時間切れ（標準エラーに \`curl rc=28\` または \`timed out\`）のときだけ、次の 2 つを 1 回ずつ実行する:`,
+            '```bash',
+            run(g.halves[0]),
+            run(g.halves[1]),
+            '```',
+          ]
+        : []),
+    ].join('\n')
+  )
+  return [
+    '# [DOCUMENTS] 監査対象（読み方: locate）',
+    '安いモデル（bulk-read）に候補箇所の逐語引用だけを探させ、判定はあなたが原文を読んで行う。',
+    'bulk-read の出力は「どこを読むか」の手掛かりであって、判定の根拠ではない。',
+    '',
+    docs.map((d) => `- ${d.key}: ${d.draft_path}（${d.concern || '関心事の記載なし'}）${d.fixed ? '【このランの対象外・変更不可】' : ''}`).join('\n'),
+    '',
+    '## 手順 0: 問いと分割ファイルを書き出す（Bash でそのまま実行する。問いの文言を変えない）',
+    '```bash',
+    `mkdir -p ${quote(qDir(plan))}`,
+    `cat > ${quote(`${qDir(plan)}/locate-question.txt`)} <<'LOCATE_Q'`,
+    question,
+    'LOCATE_Q',
+    ...chunks.map((c) => `sed -n '${c.start},${c.end}p' ${quote(c.src)} > ${quote(c.file)}`),
+    '```',
+    '',
+    `## 手順 1: 組ごとに候補箇所の逐語引用を集める（shunt の送信量の上限に収まるよう script が ${groups.length} 組に分けた。1 組ずつ実行する）`,
+    ...groupBlocks,
+    '使うのは出力の EVIDENCE 節の引用だけである。ANSWER / UNVERIFIED の記述は判定材料にしない。',
+    '組ごとの結果を locate_groups に { group, status, reason } で記録する。status は、1 回で通れば "ok"、',
+    '時間切れで 2 つに分けて両方通れば "split_ok"。分けても通らない・時間切れ以外で失敗した（0 以外の終了・',
+    'API キーが無い・上限超過・EVIDENCE 節が無い）ときは、その組の文書だけを末尾の [FALLBACK] で全文読みし、',
+    '"full_fallback" と reason を記録する。**他の組の結果は捨てない。** 全組が full_fallback になったときだけ、',
+    'read_mode: "full_fallback" と read_fallback_reason を返す。',
+    '**どの場合も、読まずに判定してはならない。**',
+    '',
+    '## 手順 2: 引用を原文で確かめてから判定する',
+    '- 各引用から 1 行に収まる特徴的な部分文字列を選び、Grep（固定文字列・行番号付き）で元の文書（分割ファイルではない）を検索して行番号を得る。',
+    `- 見つかった行を含む節（直前の ### / #### 見出しから次の同格の見出しの手前まで）を、${READ_CHUNK_LINES} 行以内の offset/limit で Read する。`,
+    '- 判定は Read した原文だけから行う。指摘の quote も Read した原文から写す（引用をそのまま使わない）。',
+    '- 元ファイルに逐語で見つからない引用は捨て、その件数を locator_unmatched に数える。',
+    '- 引用が無いことは不在の証拠にならない。欠落・不在を指摘するときは、Grep で `^#{2,4} ` の見出しを自分で全列挙し、関係しうる節を Read して確かめる。',
+    '',
+    '## 手順 3: 見落としの抜き取り（script が割り当てた範囲。手順 1 の結果に関わらず全文を読む）',
+    ...(sampleLines.length ? sampleLines : ['- （抜き取り対象の文書なし）']),
+    'この範囲にも同じ観点を適用する。指摘には found_via を付ける — 手順 1 の引用が指していた箇所での指摘は "locator"、',
+    '引用が指していなかった箇所で抜き取りによって見つけた指摘は "sample"（= locator の見落とし）。',
+    '',
+    '## 返り値に加えるもの',
+    '- read_mode: "locate"（全組が失敗して全文読みに戻したときは "full_fallback" と read_fallback_reason）',
+    '- locate_groups: 組ごとの { group, status, reason }',
+    '- locator_quotes: EVIDENCE 節の引用の件数 / locator_unmatched: 逐語で見つからず捨てた件数 / locator_misses: found_via が "sample" の指摘件数',
+    '- checked: 手順 2 で Read した範囲・手順 3 で Read した範囲・全文読みに戻した組を列挙し、それ以外の範囲は読んでいないことを明記する（読まなかった部分を申告しないと、網羅したように見える）',
+    '',
+    '## [FALLBACK] 全文の区切り読み（組が失敗したとき、その組の文書だけに使う）',
+    docs.map((d) => `### ${d.key}\n${d.fixed ? indexInstruction(d) : readInstruction(d.draft_path, d.lineCount)}`).join('\n\n'),
+  ].join('\n')
+}
+
+// qDir: 問いと分割ファイルの置き場（監査の呼び出しごとに別。並列の呼び出しが同じファイルを書かないように）。
+const qDir = (plan) => plan.chunkDir
+
+// fullFallbackNote: locate を割り当てた監査役を全文読みに戻したときの注記。理由は script が決めて
+// 返り値にも残すので、監査役には read_mode を申告させるだけにする。
+function fullFallbackNote(reason) {
+  return [
+    `# [READ_MODE] full_fallback（理由: ${reason}）`,
+    'この監査は本来 locate 読みの割り当てだが、上の理由で全文の区切り読みに戻している。',
+    '下の [DOCUMENTS] の指示どおり全文を読み、返り値の read_mode に "full_fallback" を入れること。',
+  ].join('\n')
+}
+
+// summarizeLocator: locate を割り当てた監査の実績を監査役ごとに集計する。件数の正は script 側で
+// 数える — locator_misses は自己申告の数ではなく found_via: 'sample' の指摘件数から導く（自己申告の
+// 数は reported に並べるだけ）。判定（verdict）には使わない — 見落とし率を run ごとに見えるようにする計測である。
+// locator_miss_rate: locate 読みの全指摘に占める sample 由来（locator の見落とし）の割合。抜き取りは
+// 文書の一部しか読まないので、真の見落としはこれより多くありうる（下限の目安として読む）。
+function summarizeLocator(records) {
+  const out = {}
+  for (const rec of records) {
+    const s = (out[rec.auditor] = out[rec.auditor] || {
+      calls: 0,
+      locate: 0,
+      full_fallback: 0,
+      unreported: 0,
+      fallback_reasons: [],
+      sampled_chunks: 0,
+      locator_quotes: 0,
+      locator_unmatched: 0,
+      findings_via_locator: 0,
+      locator_misses: 0,
+      locator_misses_reported: 0,
+      locator_miss_rate: null,
+      // 組ごとの結果（locate 読みの呼び出しの中で組単位に全文読みへ戻した件数）。既存の full_fallback は
+      // 呼び出し単位の件数のままにして、以前の run と比べられるようにする。
+      groups: 0,
+      group_split_ok: 0,
+      group_full_fallback: 0,
+      group_unreported: 0,
+      group_fallback_reasons: [],
+    })
+    s.calls++
+    const result = rec.result || {}
+    const reason =
+      rec.plan.mode === 'full_fallback' ? rec.plan.reason : result.read_mode === 'full_fallback' ? result.read_fallback_reason || 'reported_by_auditor' : null
+    if (reason) {
+      s.full_fallback++
+      if (!s.fallback_reasons.includes(reason)) s.fallback_reasons.push(reason)
+      continue
+    }
+    if (result.read_mode !== 'locate') {
+      s.unreported++
+      continue
+    }
+    s.locate++
+    s.sampled_chunks += (rec.plan.samples || []).reduce((n, x) => n + x.ranges.length, 0)
+    const reported = new Map((result.locate_groups || []).filter((g) => g && g.group).map((g) => [g.group, g]))
+    for (const g of rec.plan.groups || []) {
+      s.groups++
+      const r = reported.get(g.id)
+      if (!r) s.group_unreported++
+      else if (r.status === 'split_ok') s.group_split_ok++
+      else if (r.status === 'full_fallback') {
+        s.group_full_fallback++
+        const why = r.reason || 'reported_by_auditor'
+        if (!s.group_fallback_reasons.includes(why)) s.group_fallback_reasons.push(why)
+      }
+    }
+    s.locator_quotes += Number(result.locator_quotes) || 0
+    s.locator_unmatched += Number(result.locator_unmatched) || 0
+    s.locator_misses_reported += Number(result.locator_misses) || 0
+    for (const f of result.failed || []) {
+      if (f && f.found_via === 'sample') s.locator_misses++
+      else s.findings_via_locator++
+    }
+  }
+  for (const s of Object.values(out)) {
+    const total = s.findings_via_locator + s.locator_misses
+    s.locator_miss_rate = total ? s.locator_misses / total : null
+  }
+  return out
+}
+
+// locateDocOf: locate 読みの計画に要る文書のメタ情報。行数は手元の本文から数えられるときだけ持つ。
+// 版は改稿の revisionId（未改稿なら読み元のパス）— 抜き取り範囲のハッシュ入力になる。
+const locateDocOf = (d) => ({
+  key: d.key,
+  concern: d.concern,
+  draft_path: d.draft_path,
+  fixed: d.fixed,
+  revision: d.revised_in || d.draft_path,
+  lineCount: docLineCount(d),
+  byteSize: Number.isInteger(d.byte_size) ? d.byte_size : null,
+  index_path: d.index_path || null,
+  index_lines: d.index_lines || null,
+})
+
+// locatorRecords: locate を割り当てた（full_fallback を含む）全範囲監査の結果。summary.locator の材料。
+const locatorRecords = []
+function recordLocator(r) {
+  if (r && r.plan && r.plan.mode !== 'full' && r.result) locatorRecords.push({ auditor: r.auditor, plan: r.plan, result: r.result })
 }
 
 // writerDirectives: 人間必要性の判定パイプライン（段 2〜4）が決めた「この TBD をこう解消する /
@@ -568,6 +1202,65 @@ function otherDocsContext(self) {
 // 未確定事項の決着）ので [FINDINGS] に混ぜない — 混ぜると writer は「指摘の解消」として扱い、
 // 決着した内容を新しい要求として書き足す方向へ流れる。
 let writerDirectives = new Map()
+
+// previousMetadata: 前稿について script が持っている申告の全体。writer は本文を通読しないので、
+// 触っていない項目の申告をここから写させる（渡さないと、読んでいない項目は返り値の一覧から
+// 落ち、構造検査が申告漏れ・根拠なしとして大量に起票する）。本文ではなくメタ情報なので、
+// プロンプトに本文を埋めない規約には触れない。
+function previousMetadata(doc) {
+  const isReq = doc.kind === 'requirements'
+  return {
+    summary: doc.summary || '',
+    [isReq ? 'requirement_items' : 'spec_items']: doc.items || [],
+    trace: Array.isArray(doc.trace) ? doc.trace : null,
+    ...(isReq ? {} : { traceability: doc.traceability || [] }),
+    tbd_items: doc.tbd_items || [],
+    categories_deferred: doc.categories_deferred || [],
+    referenced_ids: doc.referenced || [],
+    vacant_ids: doc.vacant || [],
+  }
+}
+
+// editInPlaceSection: 改稿は前稿の複写に Edit を当てて行わせる。全文を Write し直させると、
+// 数か所の修正のために 1000 行の文書を区切り読みで通読し（ターンごとに伸びる文脈を読み直す）、
+// 全文を出力することになる（実測: writer が run の cache read の約 45% を消費）。加えて全文の
+// 書き直しは触っていない文言まで揺らし、変更範囲（= 次のスコープ監査の範囲）を広げる。
+function editInPlaceSection(doc, revisionId) {
+  const next = revisedDraftPath(doc, revisionId)
+  const quote = (p) => `'${String(p).replace(/'/g, `'\\''`)}'`
+  const answersPass = String(revisionId).endsWith('.0')
+  return [
+    '# [WRITE_BACK] 改稿稿の書き出し（前稿を複写して必要な箇所だけを Edit する。全文を書き直さない）',
+    `前稿: ${doc.draft_path}（${docLineCount(doc) ? `${docLineCount(doc)} 行` : '行数未確認'}）`,
+    `改稿稿: ${next}`,
+    '1. Bash で前稿を改稿稿へ複写する。前稿そのものは書き換えない（書き出しに失敗したとき唯一の写しが壊れる）。',
+    `   cp ${quote(doc.draft_path)} ${quote(next)}`,
+    '2. 直す箇所だけを探して読む。指摘・決着の対象の ID・見出し・quote の特徴的な部分を Grep（固定文字列・行番号付き）で',
+    `   改稿稿の中から探し、その節だけを ${READ_CHUNK_LINES} 行以内の offset/limit で Read する。全体を通読しない。`,
+    ...(answersPass
+      ? ['   [TBD_ANSWERS] の回答が効く箇所は、[PREVIOUS_METADATA] の tbd_items の ID と回答に出てくる語で Grep して探す。']
+      : []),
+    '   Edit は同じ会話で Read していないファイルを拒む。最初の Edit の前に、改稿稿（前稿ではない）の該当範囲を Read すること。',
+    '3. Edit で必要な箇所だけを置き換える。指摘の無い箇所の文言は変えない — 言い回しを整えるだけの変更も入れない',
+    '   （変わった節がそのまま次の監査範囲になり、触っていない箇所まで再監査される）。**Write で全文を書き直さない。**',
+    '4. 確かめるのは Edit した範囲だけにする（その範囲を offset/limit で Read する）。書き終えた稿を全体に読み直さない —',
+    '   行数・ID の申告と本文の突き合わせ・構造は script が checker で検査し、変わった範囲は次の監査が読む。',
+    '   通読し直すと、読んだ文書全体が以後のターンに載り続ける（実測: 書き手 1 体が全文を 4 回に分けて読み直していた）。',
+    `5. \`wc -l < ${quote(next)}\` を実行し、出た整数を返り値の line_count に入れる。`,
+    '本文は返り値に入れない。script は改稿稿のファイルを検査し（行数が line_count と合わなければ書き出しの失敗として',
+    'この改稿を採用しない）、以後の監査と次周回もこのファイルを Read する。',
+    '前稿を読めない・複写に失敗した場合は、推測で書き始めず、その事実を summary に書いて line_count を返さないこと',
+    '（前稿の無い改稿は新規執筆に化ける）。',
+    `保存先（${doc.path}）には書かない — 保存先への書き出しは人間の承認後に司令塔が行う。`,
+    '',
+    '# [PREVIOUS_METADATA] 前稿の申告（返り値はこれを改稿後の状態に更新した全体で返す）',
+    '項目一覧・trace・tbd_items・referenced_ids・vacant_ids・traceability は差分ではなく**文書全体の一覧**で返す。',
+    '触っていない項目の要素はここから一字一句そのまま写す（script は本文から ID を独立に抽出して一覧と突き合わせる',
+    'ので、写し漏れは申告漏れ・根拠なしとして指摘される）。',
+    'trace が null のときは前稿の申告が無い。その場合に限り、全項目の trace を根拠原本から組み直して返す。',
+    JSON.stringify(previousMetadata(doc), null, 1),
+  ]
+}
 
 function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
   const isReq = doc.kind === 'requirements'
@@ -581,6 +1274,8 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
       '`resolver_proposals` が付いた指摘には、検証済みの解消候補（生成側 resolver の起草・',
       'resolver-verifier の検証を通過したもの）が添えてある。採用してもよいし、根拠に照らして',
       'より良い形に書き直してもよい。',
+      '`action` が付いた指摘は冗長の指摘である。delete / merge_into:<ID> / replace_with_reference:<文書#ID> の',
+      '処置をそのまま適用する（読み手の次の行動を変えない記述なので、書き直して残さない）。',
       '指摘の解消のために新しい要求を創作してはならない。情報が未確定なら TBD として立て、',
       'そのカテゴリ名を categories_deferred に入れること。',
       '`ladder_kind: "criteria"` の指摘は判定基準・既定の欠落である。書き手が決められる既定なら',
@@ -622,9 +1317,8 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     )
   }
   return [
-    `Read ${SKILL_DIR}/agents/writer-common.md and then ${SKILL_DIR}/agents/${role}.md for your full role instructions before doing anything else.`,
+    roleHeader(SKILL_DIR, ['writer-common.md', `${role}.md`], role),
     RULES,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §${role} を正とする。`,
     ...(sourcesReadNote ? [sourcesReadNote] : []),
     '',
     CONTEXT_BLOCK,
@@ -635,15 +1329,7 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     `ID の領域プレフィックス: ${isReq ? 'PR' : 'SP'}-${areaCode(doc.topic)}-`,
     `未確定事項の ID: ${tbdPrefix(doc)}001 の形で振ること（この形以外で振らない）。`,
     '',
-    '# [PREVIOUS] 前稿（これを改稿する。指摘の無い箇所は維持すること）',
-    doc.markdown
-      ? doc.markdown
-      : [
-          `**前稿は ${doc.draft_path} にある。まず Read すること。**`,
-          '本文がここに埋め込まれていないのは、12 文書分の全文を引数で受け渡すと呼び出し側が',
-          '全文を書き写して中継することになるためである。読み込めなかった場合は、推測で書き',
-          '始めず、読み込めなかった事実を返すこと（前稿の無い改稿は新規執筆に化ける）。',
-        ].join('\n'),
+    ...editInPlaceSection(doc, revisionId),
     '',
     '# [OTHER_DOCUMENTS] 同じ案件の他文書（重複を作らないための参照。ここは書き換えない）',
     otherDocsContext(doc) || '(他文書なし)',
@@ -676,28 +1362,34 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     '修正では足りなかったのかを書くこと。**数えてから足す**ためであり、増やしてはならないという',
     '意味ではない（本当に足りなければ足す）。',
     '',
-    ...(doc.draft_path && doc.draft_path !== doc.path
-      ? [
-          '# [WRITE_BACK] 最終稿の書き出し',
-          `改稿後の本文（返り値の markdown と同一内容）を ${doc.draft_path} に Write すること。`,
-          '次周回はこのパスを下敷き（draft_path）として参照するため、書き出しが無いと再開時に前稿へ巻き戻る。',
-          `保存先（${doc.path}）には書かない — そこへの書き出しは人間の承認後に司令塔が行う。`,
-          '',
-        ]
-      : []),
     ...tail,
   ].join('\n')
 }
 
 function buildAuditPrompt(auditor, task, deferred, scopeNote) {
+  // スコープ監査（scopeNote あり）は変更された節の行範囲だけを読ませ、網羅監査は全体を区切って読ませる。
+  const narrowed = Boolean(scopeNote)
   const scoped =
     auditor.scope === 'all'
-      ? documents.map((d) => `## ${d.path}（${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n${bodyOf(d)}`).join('\n\n---\n\n')
-      : task.docs.map((d) => `## ${d.path}（${d.concern}）\n\n${bodyOf(d)}`).join('\n\n---\n\n')
+      ? // 固定文書は突き合わせの参照先なので、索引から要る節だけを読ませる（全文を読ませない）。
+        documents
+          .map((d) => `## ${d.path}（${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n${d.fixed ? indexInstruction(d) : auditBodyOf(d, narrowed)}`)
+          .join('\n\n---\n\n')
+      : task.docs.map((d) => `## ${d.path}（${d.concern}）\n\n${auditBodyOf(d, narrowed)}`).join('\n\n---\n\n')
+  // 読み方は script が決め、task に残す（結果の集計で「何を割り当てたか」を自己申告に頼らないため）。
+  const locateDocs = (auditor.scope === 'all' ? documents : task.docs).map(locateDocOf)
+  const question = auditor.read === 'locate' ? locateQuestion(auditor.name, requiredCategories) : ''
+  const chunkDir = `${draftDir}/locate/${auditor.name}-${String(task.target).replace(/[^A-Za-z0-9._-]+/g, '__')}`
+  const plan = auditReadPlan(auditor.read, narrowed, bulkReadPath, locateDocs, utf8Bytes(question), chunkDir)
+  task.readPlan = plan
+  const documentsSection =
+    plan.mode === 'locate'
+      ? [locateDocumentsSection(plan, locateDocs, bulkReadPath, question)]
+      : [...(plan.mode === 'full_fallback' ? [fullFallbackNote(plan.reason), ''] : []), '# [DOCUMENTS] 監査対象', scoped]
 
   const head = [
-    `Read ${SKILL_DIR}/agents/${auditor.file} for your full role instructions before doing anything else.`,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §${auditor.name}-auditor を正とする。`,
+    // executability だけが固有の契約節を持ち、他の観点は auditor 共通形で返す。
+    roleHeader(SKILL_DIR, [auditor.file], auditor.name === 'executability' ? 'executability-auditor' : 'auditor'),
     '',
   ]
 
@@ -727,8 +1419,9 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
 
   if (auditor.name === 'specimen') {
     head.push(
-      '# [SPECIMENS] 実在の標本文書（各項目をここへ実際に適用する。Read すること）',
-      specimenPaths.map((p) => `- ${p}`).join('\n'),
+      '# [SPECIMENS] 実在の標本文書（各項目をここへ実際に適用する）',
+      '標本は通読しない。各項目の適用に要る節（その項目が判定する対象を記述している節）を索引で探し、その範囲だけを読む。',
+      specimenPaths.map((p) => `## ${p}\n${indexInstruction(specimenIndexOf(p))}`).join('\n\n'),
       '標本は判定装置のテスト入力であり、監査対象ではない（標本自体の品質は指摘しない）。',
       ''
     )
@@ -769,12 +1462,15 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
     )
   }
 
+  // validity / specimen は文書ごとに 1 体なので、他文書は索引で渡して要る節だけを読ませる。
+  const crossDoc = auditor.scope === 'each' && (auditor.name === 'validity' || auditor.name === 'specimen') ? crossDocSection(task.docs[0]) : []
+
   return [
     ...head,
     ...(scopeNote ? [scopeNote, ''] : []),
-    '# [DOCUMENTS] 監査対象',
-    scoped,
+    ...documentsSection,
     '',
+    ...crossDoc,
     '# [CATEGORIES_DEFERRED] 情報が未確定のため TBD として起票済みのカテゴリ',
     JSON.stringify(deferred, null, 2),
     'ここに挙がっているカテゴリは、章として書かれていなくても「反映漏れ」として扱わないこと。',
@@ -787,476 +1483,318 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
   ].join('\n')
 }
 
-// ------------------------------------------------------- 構造検査（draft/refine 共通）
+// ------------------------------------------------------- 本文の検査（checker 経由。draft/refine 共通）
 //
-// この関数は scripts/draft.js に**逐語で複製**されている。workflow script は import を
-// 書けないため共有できない。片方だけ直すと A と B で判定が食い違い、初稿で通った文書が
-// 改稿後に落ちる（またはその逆）。直すときは必ず両方を同じ内容にすること。
-//
-// docs は [{ key, kind, topic, markdown, ids, referenced, traceability, fixed }] の正規化済み配列。
-// 戻り値は { findings, not_checked }。not_checked は「材料が無くて実行できなかった検査」で、
-// 失格ではない。これを返さないと、片側の文書が対象外のランで「検査して 0 件」と
-// 「そもそも検査していない」が区別できず、後者が合格として提示される。
-function structuralFindings(docs) {
-  const out = []
-  const notChecked = []
-  const reqDocs = docs.filter((d) => d.kind === 'requirements')
-  const specDocs = docs.filter((d) => d.kind === 'specifications')
-  // 申告済み TBD の全体集合。固定文書の申告も数える（その TBD は実在するため）。
-  const tbdDeclaredAll = new Set(
-    docs.flatMap((d) => (d.tbd_items || []).map((t) => t && t.id).filter(Boolean))
-  )
+// 本文を要する決定的な検査（構造検査・行数・変更範囲）の正本は scripts/doc_check.mjs である。
+// workflow script はファイルを読めないので、checker agent に入力を渡してその CLI を実行させ、
+// 出力だけを受け取る。この区間の関数は scripts/draft.js に逐語で複製されている（workflow script は
+// import を書けない。一致と doc_check.mjs 側の定義との一致は tests/test_doc_check.py が検査する）。
 
-  // (1) 文書を跨いだ ID の重複。複数文書化で新たに必要になった検査。同じ ID を 2 文書が
-  //     定義すると、トレーサビリティ表がどちらを指すか決まらず、紐付け自体が意味を失う。
-  const owners = new Map()
-  for (const d of docs) {
-    for (const id of d.ids) {
-      if (!owners.has(id)) owners.set(id, [])
-      if (!owners.get(id).includes(d.key)) owners.get(id).push(d.key)
-    }
+// canonicalJson: キーを並べ替えた JSON（doc_check.mjs と同じ定義）。checker は入力を書き写し、
+// 出力を構造化して返すので、キー順や空白が変わっても同じ文字列になる形で digest を比べる。
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value).filter((k) => value[k] !== undefined).sort()
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`
   }
-  for (const [id, keys] of owners) {
-    if (keys.length < 2) continue
-    out.push({
-      auditor: 'structural',
-      id: `ST-DUP-${id}`,
-      document: keys[0],
-      location: 'ID 一覧',
-      quote: id,
-      issue: `ID ${id} が ${keys.join(' / ')} の複数文書で定義されている。ID は文書を跨いで一意でなければ、トレーサビリティ表がどちらの項目を指しているか決まらない。`,
-      fix: `領域プレフィックスを文書の topic に対応させて振り直す（${keys[1]} 側を別の領域名にする）。`,
-    })
-  }
-
-  // (1b) TBD ID の文書跨ぎ重複。分割文書は並列で執筆されるため、互いの採番を知らない
-  //      writer が同じ TBD-003 を別の論点に振りうる。統合時に片方が黙って消え、
-  //      消えた側が blocking だと「聞くべき項目が最初から存在しなかった」ことになる。
-  const tbdOwners = new Map()
-  for (const d of docs) {
-    for (const t of d.tbd_items || []) {
-      if (!t || !t.id) continue
-      if (!tbdOwners.has(t.id)) tbdOwners.set(t.id, [])
-      const rec = tbdOwners.get(t.id)
-      if (!rec.some((r) => r.key === d.key)) rec.push({ key: d.key, text: t.text })
-    }
-  }
-  for (const [id, recs] of tbdOwners) {
-    if (recs.length < 2) continue
-    out.push({
-      auditor: 'structural',
-      id: `ST-DUP-TBD-${id}`,
-      document: recs[0].key,
-      location: '未確定事項',
-      quote: id,
-      issue: `TBD ${id} が ${recs.map((r) => r.key).join(' / ')} の複数文書から別々の内容で申告されている（「${recs[0].text}」と「${recs[1].text}」）。統合時に片方が消えるため、消えた側が着手を止める項目でも人間に提示されない。`,
-      fix: 'TBD の番号にも文書の領域プレフィックスを付けて振り直す（例 TBD-AUTH-001）。',
-    })
-  }
-
-  // (2) 片側にしか現れない ID。requirements の ID 集合 / specifications の ID 集合 /
-  //     トレーサビリティ表の 3 集合を**文書を跨いで**照合する。ここがこのスキルの背骨。
-  if (!reqDocs.length || !specDocs.length) {
-    notChecked.push({
-      id: 'ST-NOTCHECKED-CROSSREF',
-      issue:
-        `${!reqDocs.length ? 'requirements' : 'specifications'} 文書が本ランの対象に含まれないため、` +
-        '要求 ID と仕様項目 ID の突き合わせを実行していない。「指摘 0 件」ではなく「未検査」である。',
-    })
-  }
-  if (reqDocs.length && specDocs.length) {
-    const reqIds = new Set(reqDocs.flatMap((d) => d.ids))
-    const specIds = new Set(specDocs.flatMap((d) => d.ids))
-    const links = specDocs.flatMap((d) => (d.traceability || []).map((l) => ({ ...l, from: d.key })))
-    const linkedReq = new Set(links.map((l) => l.requirement_id).filter(Boolean))
-    const linkedSpec = new Set(links.map((l) => l.spec_id).filter(Boolean))
-
-    for (const id of reqIds) {
-      if (linkedReq.has(id)) continue
-      const owner = (owners.get(id) || ['requirements'])[0]
-      out.push({
-        auditor: 'structural',
-        id: `ST-ORPHAN-REQ-${id}`,
-        document: owner,
-        location: 'トレーサビリティ表',
-        quote: id,
-        issue: `要求 ${id} がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。`,
-        fix: `${id} を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。`,
-      })
-    }
-    for (const id of specIds) {
-      if (linkedSpec.has(id)) continue
-      const owner = (owners.get(id) || ['specifications'])[0]
-      out.push({
-        auditor: 'structural',
-        id: `ST-ORPHAN-SPEC-${id}`,
-        document: owner,
-        location: 'トレーサビリティ表',
-        quote: id,
-        issue: `仕様項目 ${id} が自文書のトレーサビリティ表に現れない（＝根拠となる要求が不明の仕様）。`,
-        fix: `${id} の根拠となる要求 ID を紐付ける。根拠が無いのであれば仕様項目を削除する。`,
-      })
-    }
-    for (const link of links) {
-      if (link.requirement_id && !reqIds.has(link.requirement_id)) {
-        out.push({
-          auditor: 'structural',
-          id: `ST-DANGLING-REQ-${link.requirement_id}`,
-          document: link.from,
-          location: 'トレーサビリティ表',
-          quote: link.requirement_id,
-          issue: `トレーサビリティ表が要求 ${link.requirement_id} を参照しているが、どの requirements 文書の要求一覧にも存在しない。`,
-          fix: `いずれかの requirements 文書に ${link.requirement_id} を実在させるか、表の行を正しい要求 ID に直す。`,
-        })
-      }
-      if (link.spec_id && !specIds.has(link.spec_id)) {
-        out.push({
-          auditor: 'structural',
-          id: `ST-DANGLING-SPEC-${link.spec_id}`,
-          document: link.from,
-          location: 'トレーサビリティ表',
-          quote: link.spec_id,
-          issue: `トレーサビリティ表が仕様項目 ${link.spec_id} を参照しているが、仕様書に存在しない。`,
-          fix: `${link.spec_id} を本文に実在させるか、表の行を正しい仕様項目 ID に直す。`,
-        })
-      }
-    }
-  }
-
-  for (const d of docs) {
-    if (!d.markdown) continue
-
-    // (3) 申告された ID 一覧と、本文に実在する ID の突き合わせ。(2) の集合差分は agent の
-    //     自己申告同士を比べているだけなので、本文を独立に見るこの検査が無いと
-    //     「本文にあるのに一覧にも表にも載せなかった ID」を検出できない。
-    //     固定文書（本ランの対象外・既存本文をそのまま持つもの）は agent の自己申告が
-    //     存在しないので、この検査の対象にしない（申告漏れは申告があって初めて定義できる）。
-    const re = ID_IN_TEXT[d.kind]
-    const label = d.kind === 'requirements' ? '要求' : '仕様項目'
-    const inText = new Set(d.markdown.match(re) || [])
-    const inList = new Set(d.ids)
-    const referenced = new Set(d.referenced || [])
-    // 欠番（vacant）は items（実在の項目）にも referenced_ids（他文書参照・体系の例示）にも
-    // 属さない第三の類型であり、欠番の列挙は表記規約が要求する記載である。申告（vacant_ids）と
-    // 本文の行併記（「欠番」の語と同じ行にある ID）の和で認識する。行単位に絞るのは、文書全体の
-    // includes で判定すると「欠番」の語が一度でもあれば全 ID が免除され、本物の申告漏れを
-    // 隠すため。この認識が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する
-    // （実測: 同一文書の review 3 run で同じ 6 件が再起票され、終端裁定が毎回同じ棄却を
-    // 繰り返した。棄却は run を跨いで持ち越されないため、検査側で認識しない限り止まらない）。
-    const vacantDeclared = new Set(d.vacant || [])
-    for (const line of d.markdown.split('\n')) {
-      if (!line.includes('欠番')) continue
-      for (const id of line.match(re) || []) vacantDeclared.add(id)
-    }
-    // 欠番と実在の両方に載る ID は矛盾（欠番は「割り当てられていない」の宣言であり、
-    // 実在する項目と両立しない）。どちらの申告が正しいか読み手に判断させない。
-    for (const id of d.fixed ? [] : new Set(d.vacant || [])) {
-      if (!inList.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-VACANT-CONFLICT-${id}`,
-        document: d.key,
-        location: 'ID 一覧',
-        quote: id,
-        issue: `${label} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
-        fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
-      })
-    }
-    for (const id of d.fixed ? [] : inText) {
-      if (inList.has(id) || referenced.has(id) || vacantDeclared.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-UNDECLARED-${id}`,
-        document: d.key,
-        location: '本文',
-        quote: id,
-        issue: `${label} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
-        fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
-      })
-    }
-    // (3b) 本文が引く TBD ID と、申告された tbd_items の突き合わせ。(3) と同じ理屈だが、
-    //      壊れる先が違う。申告に載らない TBD は blocking の集計から外れるため、
-    //      本文に「まだ決まっていない」と書いてあるのに **未提示の blocking が 0 件**という
-    //      完成判定を素通りする。決まっていないことを決まった風に提示する状態そのものであり、
-    //      このスキルが防ぐと宣言した失敗に該当する。だから agent の判断に委ねず算術で押さえる。
-    const tbdInText = new Set(d.markdown.match(TBD_ID_IN_TEXT) || [])
-    for (const id of d.fixed ? [] : tbdInText) {
-      // 申告は文書を跨いで有効。仕様書が要求文書の TBD を引くのは、ID が文書を跨いで一意で
-      // あることの帰結であり正しい参照である。ここを文書ローカルで突き合わせると、その参照が
-      // すべて「申告漏れ」に化け、writer が直せない指摘を抱えて改稿枠を空回りさせる
-      // （実測: 6 文書の初稿で 15 件の誤検出）。守りたいのは「どの文書にも申告されていない
-      // TBD が blocking の集計から外れること」なので、全文書の申告の和で判定する。
-      if (tbdDeclaredAll.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-UNDECLARED-TBD-${id}`,
-        document: d.key,
-        location: '未確定事項',
-        quote: id,
-        issue: `未確定事項 ${id} が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。`,
-        fix: `${id} を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
-      })
-    }
-
-    for (const id of d.fixed ? [] : inList) {
-      if (inText.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-PHANTOM-${id}`,
-        document: d.key,
-        location: '本文',
-        quote: id,
-        issue: `${label} ${id} が ID 一覧に申告されているが、本文に存在しない。読み手はこの ID の中身を確認できない。`,
-        fix: `${id} を本文に実在させるか、ID 一覧から外す。`,
-      })
-    }
-
-    // (3c) ID 連番の欠番の無申告。欠番そのものは許す（採番を詰める改稿を強制しない）が、
-    //      無申告の欠番は「項目が削除された」のか「最初から無い」のか読み手が区別できず、
-    //      統合時の取りこぼしと見分けが付かない。本文に「欠番」の語と当該 ID が同じ行に
-    //      併記されていれば申告済みとして起票しない（(3) の除外と同じ vacantDeclared 基準。
-    //      基準を分けると「(3c) は通るのに (3) が落ちる」行またぎの取りこぼしが生じる）。
-    //      固定文書は自己申告（ids）を持たないので対象外。
-    const gapPrefixes = new Map()
-    for (const id of d.fixed ? [] : d.ids) {
-      const m = /^(.*-)(\d+)$/.exec(id)
-      if (!m) continue
-      if (!gapPrefixes.has(m[1])) gapPrefixes.set(m[1], [])
-      gapPrefixes.get(m[1]).push({ n: Number(m[2]), w: m[2].length })
-    }
-    for (const [gapPrefix, nums] of gapPrefixes) {
-      if (nums.length < 2) continue
-      const sorted = [...nums].sort((a, b) => a.n - b.n)
-      const width = sorted[sorted.length - 1].w
-      const present = new Set(sorted.map((e) => e.n))
-      for (let n = sorted[0].n + 1; n < sorted[sorted.length - 1].n; n++) {
-        if (present.has(n)) continue
-        const missingId = `${gapPrefix}${String(n).padStart(width, '0')}`
-        if (vacantDeclared.has(missingId)) continue
-        out.push({
-          auditor: 'structural',
-          id: `ST-GAP-UNDECLARED-${missingId}`,
-          document: d.key,
-          location: 'ID 一覧',
-          quote: missingId,
-          issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
-          fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
-        })
-      }
-    }
-
-    // (4) 廃止済み規制の語。完全一致なので機械検査が正しい形（agent の善意に載せない）。
-    const lower = d.markdown.toLowerCase()
-    for (const term of OBSOLETE_TERMS) {
-      if (!lower.includes(term)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-OBSOLETE-${d.key}-${term.replace(/[^a-z0-9]/g, '')}`,
-        document: d.key,
-        location: '本文',
-        quote: term,
-        issue: `「${term}」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。`,
-        fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。',
-      })
-    }
-    // DHF は略語。'design history file' が既に検出されていれば同じ記述を 2 件に数えない。
-    if (!lower.includes('design history file') && /\bDHF\b/.test(d.markdown)) {
-      out.push({
-        auditor: 'structural',
-        id: `ST-OBSOLETE-${d.key}-dhf`,
-        document: d.key,
-        location: '本文',
-        quote: 'DHF',
-        issue: '「DHF（design history file）」は現行の規制文言ではない。QMSR は DHF ではなく "medical device file" の語を使う。',
-        fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記する。',
-      })
-    }
-
-    // (5) 本文を確認できていない有料規格の条番号引用。規格名の直後に節番号が続く形だけを拾う。
-    for (const std of UNVERIFIABLE_STANDARDS) {
-      const pattern = new RegExp(`${std}[^。\\n]{0,20}?${CLAUSE_REF}`)
-      if (!pattern.test(d.markdown)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-UNVERIFIED-${d.key}-${std.replace(/[^A-Za-z0-9]/g, '')}`,
-        document: d.key,
-        location: '本文',
-        quote: std,
-        issue: `${std} の条番号を引用している。この規格は本文を確認できていないため、条番号の内容を裏付けられない。誤った条番号の引用は、規格に触れないことより有害である。`,
-        fix: `条番号を落とし、規格名と大まかな射程だけを述べる形に直す（例:「${std} の考え方に基づく」）。または引用自体を削除する。`,
-      })
-    }
-
-    // (6) 品質チェックリストが「機械」と宣言する検査の script 実装。いずれも severity は
-    //     degraded（着手は止めない）で、fix は方向のみを示す。機械的に判別できない行は
-    //     起票しない — 偽陽性は writer の改稿枠を空回りさせるため、取りこぼしより有害である。
-    if (d.kind === 'specifications' && !d.fixed) {
-      // (6a) 仕様項目の単位の自己宣言。何を 1 仕様項目とするかを本文の一箇所で宣言していないと、
-      //      読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。
-      //      宣言の実在だけを機械判定する（宣言内容の妥当性は厳密に判定できないので検査しない）。
-      if (!/仕様項目の単位|(1\s*(つの)?|一つの)仕様項目とす/.test(d.markdown)) {
-        out.push({
-          auditor: 'structural',
-          id: `ST-NOUNIT-${d.key}`,
-          document: d.key,
-          location: '対象範囲',
-          quote: '(単位の宣言なし)',
-          severity: 'degraded',
-          issue: '何を 1 つの仕様項目として切り出すかの宣言が本文に無い。単位が宣言されていないと、読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。',
-          fix: '本文の一箇所（対象範囲の章など）に、機械的に判別できる形で単位を宣言する（例:「本書は `####` 見出し 1 つを 1 仕様項目とする」）。requirement-writing-rules.md §8 を正とする。',
-        })
-      }
-    }
-    if (d.kind === 'requirements' && !d.fixed) {
-      // (6b) 要求文の語尾照合。4 語尾は活用形（五段動詞「含まなければならない」「置かなければ
-      //      ならない」等）に対応するため後方一致（なければならない / てはならない /
-      //      ことが望ましい / てもよい）で判定する。literal 照合（「〜しなければならない」の
-      //      丸ごと一致）は五段動詞の語尾を偽陽性にするので使わない。規範の意図が機械的に
-      //      判別できる文だけを起票し、である調の宣言文・表・注記・根拠欄は対象にしない
-      //      （除外判定が機械的にできない行も起票しない — 偽陽性回避を優先する）。
-      const bodyLines = d.markdown.split('\n')
-      const idHeadings = []
-      for (let i = 0; i < bodyLines.length; i++) {
-        const hm = /^(#{1,6})\s/.exec(bodyLines[i])
-        if (!hm) continue
-        const hIds = bodyLines[i].match(ID_IN_TEXT.requirements)
-        if (hIds) idHeadings.push({ line: i, level: hm[1].length, id: hIds[0] })
-      }
-      const levelCount = new Map()
-      for (const h of idHeadings) levelCount.set(h.level, (levelCount.get(h.level) || 0) + 1)
-      let baseLevel = 0
-      for (const [lv, c] of levelCount) {
-        if (!baseLevel || c > levelCount.get(baseLevel) || (c === levelCount.get(baseLevel) && lv < baseLevel)) baseLevel = lv
-      }
-      const MODAL_OK = /(なければならない|てはならない|ことが望ましい|てもよい)$/
-      const MODAL_INTENT = /(すべきである|すべきだ|する必要がある|することとする|ものとする|推奨する|推奨される|必須である|すること)$/
-      for (let k = 0; k < idHeadings.length; k++) {
-        if (idHeadings[k].level !== baseLevel) continue
-        const start = idHeadings[k].line + 1
-        let end = bodyLines.length
-        for (let i = start; i < bodyLines.length; i++) {
-          if (/^#{1,6}\s/.test(bodyLines[i])) { end = i; break }
-        }
-        let sent = 0
-        for (let i = start; i < end; i++) {
-          const t = bodyLines[i].trim()
-          if (!t || /^[|>\-*`#!（(※]/.test(t) || /^注/.test(t) || t.includes('根拠')) continue
-          for (const s of t.split('。')) {
-            const body = s.trim()
-            if (!body) continue
-            sent++
-            if (MODAL_OK.test(body)) continue
-            if (!MODAL_INTENT.test(body)) continue
-            out.push({
-              auditor: 'structural',
-              id: `ST-MODAL-${idHeadings[k].id}-${sent}`,
-              document: d.key,
-              location: idHeadings[k].id,
-              quote: body.slice(-40),
-              severity: 'degraded',
-              issue: `要求 ${idHeadings[k].id} の本文に、規範の意図を持つのに 4 語尾（〜しなければならない / 〜してはならない / 〜することが望ましい / 〜してもよい）のいずれでも終わらない文がある。区分（必須 / 禁止 / 推奨 / 許容）が読み手に決まらない。`,
-              fix: '文意に対応する 4 語尾のいずれかで文を終える（requirement-writing-rules.md §1 を正とする）。',
-            })
-          }
-        }
-      }
-      // (6c) ID を含む見出しのレベルが文書内で不統一。基準レベル（最頻値。同数なら浅い方）
-      //      以外に ID 見出しが散在すると、読み手が「章の中の区分」と「個別項目」を階層で
-      //      見分けられず、目次の機械生成でも構造が崩れる。
-      if (levelCount.size > 1) {
-        for (const h of idHeadings) {
-          if (h.level === baseLevel) continue
-          out.push({
-            auditor: 'structural',
-            id: `ST-IDHEADING-${h.id}`,
-            document: d.key,
-            location: '見出し',
-            quote: h.id,
-            severity: 'degraded',
-            issue: `ID を含む見出しのレベルが文書内で不統一（${h.id} はレベル ${h.level}、この文書の基準はレベル ${baseLevel}）。読み手が「章の中の区分」と「個別項目」を階層で見分けられない。`,
-            fix: '個別項目の見出しレベルを文書内で統一する（document-structure.md §2.6 は `####` を基準とする）。',
-          })
-        }
-      }
-      // (6d) 解消条件の無い blocking TBD。何が決まればこの項目が解消するかが書かれていないと、
-      //      「着手を止める」とだけ言われた読み手は先へ進む条件を知れない。「解消」の語の
-      //      実在で機械判定する（申告 text か、本文中で当該 ID と同じ行にあるかのいずれか）。
-      for (const t of d.tbd_items || []) {
-        if (!t || !t.blocking || !t.id) continue
-        if (String(t.text || '').includes('解消')) continue
-        if (bodyLines.some((ln) => ln.includes(t.id) && ln.includes('解消'))) continue
-        out.push({
-          auditor: 'structural',
-          id: `ST-TBD-NORESOLVE-${t.id}`,
-          document: d.key,
-          location: '未確定事項',
-          quote: t.id,
-          severity: 'degraded',
-          issue: `着手を止める未確定事項 ${t.id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
-          fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
-        })
-      }
-    }
-  }
-
-
-  // (7) 根拠の所在。納品文書の本文には根拠句を書かない規約（document-structure.md §4）に
-  //     したため、「どの記述がどこから来たか」は trace（→ audit_trail）にしか無い。trace が
-  //     欠けた項目は、本文からも返り値からも根拠を辿れず、出所不明の断定と区別できない。
-  //     ここを検査しないと、本文から根拠句を消した瞬間に fabrication 監査の入力が消え、
-  //     指摘 0 件が「健全」に化ける。
-  for (const d of docs) {
-    if (d.fixed) continue
-    if (!Array.isArray(d.trace)) {
-      notChecked.push({
-        id: `ST-NOTCHECKED-TRACE-${d.key}`,
-        issue: `${d.key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
-      })
-    } else {
-      const traced = new Set(d.trace.map((t) => t && t.item_id).filter(Boolean))
-      for (const id of d.ids) {
-        if (traced.has(id)) continue
-        out.push({
-          auditor: 'structural',
-          id: `ST-NO-EVIDENCE-${id}`,
-          document: d.key,
-          location: id,
-          quote: id,
-          issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
-          fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
-        })
-      }
-    }
-  }
-
-  // (8) 本文に混ざった非規範の記述。納品文書に置いてよいのは規範文・ID・上位/姉妹文書への
-  //     参照・自明でない規則の 1 文 inline の why だけである。根拠句・決定ログ・採らなかった
-  //     案・未確定事項の章は、読み手（後続の実装者と AI）が従うべき規範を薄めるだけであり、
-  //     経緯は git commit / PR 本文に残す。文字列は旧規約が定めていた定型なので機械照合できる。
-  const NON_NORMATIVE = [
-    { re: /（既定[:：]/, what: '決定ログの出所表記' },
-    { re: /（スキル既定[:：]/, what: 'スキル既定の出所表記' },
-    { re: /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討|未確定事項|TBD)\s*$/, what: '経緯・未確定事項の章' },
-  ]
-  for (const d of docs) {
-    if (d.fixed || !d.markdown) continue
-    for (const p of NON_NORMATIVE) {
-      const hit = String(d.markdown).split('\n').find((ln) => p.re.test(ln))
-      if (!hit) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-NON-NORMATIVE-${d.key}-${p.what}`,
-        document: d.key,
-        location: '本文',
-        quote: hit.trim().slice(0, 60),
-        issue: `本文に${p.what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
-        fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
-      })
-    }
-  }
-
-  return { findings: out, not_checked: notChecked }
+  return JSON.stringify(value === undefined ? null : value)
 }
+
+// checkerDoc: doc_check.mjs に渡す 1 文書。検査が読むフィールドだけに絞る — checker は入力を
+// 書き写すので、量がそのまま出力トークンと写し間違いの機会になる（trace は item_id だけで足りる）。
+function checkerDoc(d, prevPath) {
+  return {
+    key: d.key,
+    kind: d.kind,
+    topic: d.topic,
+    path: d.draft_path,
+    ...(prevPath ? { prev_path: prevPath } : {}),
+    fixed: Boolean(d.fixed),
+    ids: d.ids || [],
+    referenced: d.referenced || [],
+    vacant: d.vacant || [],
+    traceability: (d.traceability || []).filter(Boolean).map((l) => ({ requirement_id: l.requirement_id, spec_id: l.spec_id })),
+    tbd_items: (d.tbd_items || []).filter(Boolean).map((t) => ({ id: t.id, text: t.text, blocking: t.blocking })),
+    ...(Array.isArray(d.trace) ? { trace: d.trace.map((t) => ({ item_id: t ? t.item_id : undefined })) } : {}),
+    ...(d.extract_ids ? { extract_ids: true } : {}),
+  }
+}
+
+const CHECK_SCHEMA = {
+  type: 'object',
+  properties: {
+    ok: { type: 'boolean' },
+    error: { type: 'string' },
+    output: { type: 'object' },
+  },
+  required: ['ok'],
+}
+
+// checkerPrompt: checker は判断をしない。書いて・実行して・出力を返すだけにする（判断させると、
+// 検査結果の取捨が agent の注意に依存する）。
+function checkerPrompt(input, file, skillDir) {
+  const quote = (p) => `'${String(p).replace(/'/g, `'\\''`)}'`
+  const dir = file.slice(0, file.lastIndexOf('/'))
+  return [
+    'あなたは checker である。判断・要約・手直しはしない。次の 3 手順だけを行う。',
+    `1. Bash で書き出し先を作る: mkdir -p ${quote(dir)}`,
+    `2. 末尾の [INPUT] の JSON を 1 文字も変えずに Write で ${file} に書く（整形し直さない・省略しない・要約しない）。`,
+    '3. Bash で次を実行する（cd しない。相対パスは今のカレントディレクトリ基準で解決される）:',
+    `   node ${quote(`${skillDir}/scripts/doc_check.mjs`)} ${quote(file)}`,
+    '終了コードが 0 なら、標準出力の JSON を parse した値をそのまま output に入れて ok: true を返す',
+    '（フィールドを足さない・削らない・言い換えない。script が digest で写しを照合する）。',
+    '0 以外なら ok: false とし、標準エラーの内容を error に入れて返す。直してやり直さない。',
+    '',
+    '# [INPUT]',
+    JSON.stringify(input),
+  ].join('\n')
+}
+
+// 構造検査の文面。doc_check.mjs は指摘を短い形（種別・文書・引数）で出し、文面はここで組み立てる。
+// 以下の FINDING_TEXT_BEGIN〜END は scripts/doc_check.mjs の同区間の逐語の写しである（workflow script は
+// import を書けない。一致は tests/test_doc_check.py が検査する）。
+// FINDING_TEXT_BEGIN
+const KIND_LABEL = { R: '要求', S: '仕様項目' }
+const FINDING_TEXT = {
+  DUP: (id, keys) => ({
+    id: `ST-DUP-${id}`,
+    location: 'ID 一覧',
+    quote: id,
+    issue: `ID ${id} が ${keys.join(' / ')} の複数文書で定義されている。ID は文書を跨いで一意でなければ、トレーサビリティ表がどちらの項目を指しているか決まらない。`,
+    fix: `領域プレフィックスを文書の topic に対応させて振り直す（${keys[1]} 側を別の領域名にする）。`,
+  }),
+  DUP_TBD: (id, keys, text0, text1) => ({
+    id: `ST-DUP-TBD-${id}`,
+    location: '未確定事項',
+    quote: id,
+    issue: `TBD ${id} が ${keys.join(' / ')} の複数文書から別々の内容で申告されている（「${text0}」と「${text1}」）。統合時に片方が消えるため、消えた側が着手を止める項目でも人間に提示されない。`,
+    fix: 'TBD の番号にも文書の領域プレフィックスを付けて振り直す（例 TBD-AUTH-001）。',
+  }),
+  ORPHAN_REQ: (id) => ({
+    id: `ST-ORPHAN-REQ-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `要求 ${id} がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。`,
+    fix: `${id} を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。`,
+  }),
+  ORPHAN_SPEC: (id) => ({
+    id: `ST-ORPHAN-SPEC-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `仕様項目 ${id} が自文書のトレーサビリティ表に現れない（＝根拠となる要求が不明の仕様）。`,
+    fix: `${id} の根拠となる要求 ID を紐付ける。根拠が無いのであれば仕様項目を削除する。`,
+  }),
+  DANGLING_REQ: (id) => ({
+    id: `ST-DANGLING-REQ-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `トレーサビリティ表が要求 ${id} を参照しているが、どの requirements 文書の要求一覧にも存在しない。`,
+    fix: `いずれかの requirements 文書に ${id} を実在させるか、表の行を正しい要求 ID に直す。`,
+  }),
+  DANGLING_SPEC: (id) => ({
+    id: `ST-DANGLING-SPEC-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `トレーサビリティ表が仕様項目 ${id} を参照しているが、仕様書に存在しない。`,
+    fix: `${id} を本文に実在させるか、表の行を正しい仕様項目 ID に直す。`,
+  }),
+  VACANT_CONFLICT: (k, id) => ({
+    id: `ST-VACANT-CONFLICT-${id}`,
+    location: 'ID 一覧',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
+    fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
+  }),
+  UNDECLARED: (k, id) => ({
+    id: `ST-UNDECLARED-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
+    fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
+  }),
+  UNDECLARED_TBD: (id) => ({
+    id: `ST-UNDECLARED-TBD-${id}`,
+    location: '未確定事項',
+    quote: id,
+    issue: `未確定事項 ${id} が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。`,
+    fix: `${id} を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
+  }),
+  PHANTOM: (k, id) => ({
+    id: `ST-PHANTOM-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が ID 一覧に申告されているが、本文に存在しない。読み手はこの ID の中身を確認できない。`,
+    fix: `${id} を本文に実在させるか、ID 一覧から外す。`,
+  }),
+  GAP: (missingId) => ({
+    id: `ST-GAP-UNDECLARED-${missingId}`,
+    location: 'ID 一覧',
+    quote: missingId,
+    issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
+    fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
+  }),
+  OBSOLETE: (term, docKey) => ({
+    id: `ST-OBSOLETE-${docKey}-${term.replace(/[^a-z0-9]/g, '')}`,
+    location: '本文',
+    quote: term,
+    issue: `「${term}」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。`,
+    fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。',
+  }),
+  OBSOLETE_DHF: (docKey) => ({
+    id: `ST-OBSOLETE-${docKey}-dhf`,
+    location: '本文',
+    quote: 'DHF',
+    issue: '「DHF（design history file）」は現行の規制文言ではない。QMSR は DHF ではなく "medical device file" の語を使う。',
+    fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記する。',
+  }),
+  UNVERIFIED: (std, docKey) => ({
+    id: `ST-UNVERIFIED-${docKey}-${std.replace(/[^A-Za-z0-9]/g, '')}`,
+    location: '本文',
+    quote: std,
+    issue: `${std} の条番号を引用している。この規格は本文を確認できていないため、条番号の内容を裏付けられない。誤った条番号の引用は、規格に触れないことより有害である。`,
+    fix: `条番号を落とし、規格名と大まかな射程だけを述べる形に直す（例:「${std} の考え方に基づく」）。または引用自体を削除する。`,
+  }),
+  NOUNIT: (docKey) => ({
+    id: `ST-NOUNIT-${docKey}`,
+    location: '対象範囲',
+    quote: '(単位の宣言なし)',
+    severity: 'degraded',
+    issue: '何を 1 つの仕様項目として切り出すかの宣言が本文に無い。単位が宣言されていないと、読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。',
+    fix: '本文の一箇所（対象範囲の章など）に、機械的に判別できる形で単位を宣言する（例:「本書は `####` 見出し 1 つを 1 仕様項目とする」）。requirement-writing-rules.md §8 を正とする。',
+  }),
+  MODAL: (id, sent, quote) => ({
+    id: `ST-MODAL-${id}-${sent}`,
+    location: id,
+    quote,
+    severity: 'degraded',
+    issue: `要求 ${id} の本文に、規範の意図を持つのに 4 語尾（〜しなければならない / 〜してはならない / 〜することが望ましい / 〜してもよい）のいずれでも終わらない文がある。区分（必須 / 禁止 / 推奨 / 許容）が読み手に決まらない。`,
+    fix: '文意に対応する 4 語尾のいずれかで文を終える（requirement-writing-rules.md §1 を正とする）。',
+  }),
+  IDHEADING: (id, level, baseLevel) => ({
+    id: `ST-IDHEADING-${id}`,
+    location: '見出し',
+    quote: id,
+    severity: 'degraded',
+    issue: `ID を含む見出しのレベルが文書内で不統一（${id} はレベル ${level}、この文書の基準はレベル ${baseLevel}）。読み手が「章の中の区分」と「個別項目」を階層で見分けられない。`,
+    fix: '個別項目の見出しレベルを文書内で統一する（document-structure.md §2.6 は `####` を基準とする）。',
+  }),
+  TBD_NORESOLVE: (id) => ({
+    id: `ST-TBD-NORESOLVE-${id}`,
+    location: '未確定事項',
+    quote: id,
+    severity: 'degraded',
+    issue: `着手を止める未確定事項 ${id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
+    fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
+  }),
+  NO_EVIDENCE: (id) => ({
+    id: `ST-NO-EVIDENCE-${id}`,
+    location: id,
+    quote: id,
+    issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
+    fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+  }),
+  NON_NORMATIVE: (what, quote, docKey) => ({
+    id: `ST-NON-NORMATIVE-${docKey}-${what}`,
+    location: '本文',
+    quote,
+    issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
+    fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
+  }),
+  NC_CROSSREF: (kind) => ({
+    id: 'ST-NOTCHECKED-CROSSREF',
+    issue:
+      `${kind} 文書が本ランの対象に含まれないため、` +
+      '要求 ID と仕様項目 ID の突き合わせを実行していない。「指摘 0 件」ではなく「未検査」である。',
+  }),
+  NC_TRACE: (key) => ({
+    id: `ST-NOTCHECKED-TRACE-${key}`,
+    issue: `${key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
+  }),
+  NC_BODY: (key, p) => ({
+    id: `ST-NOTCHECKED-BODY-${key}`,
+    issue: `${key} の本文 ${p} を読めなかったため、本文を使う検査（申告と本文の突き合わせ・禁止語・語尾）を実行していない。「指摘 0 件」ではなく「未検査」である。`,
+  }),
+}
+
+// expandStructural: 短い形の { findings, not_checked } を文面付きの形に戻す。短い形の findings は
+// 「同じ種別・同じ文書が続く指摘」を 1 要素にまとめた { c, d, a: [引数の組, ...] } の列で、
+// 展開すると引数の組 1 つが指摘 1 件になる（順序は CLI が検出した順のまま）。文面付きの各要素は
+// { auditor: 'structural', id, document, location, quote, severity?, issue, fix }、not_checked は
+// { id, issue }。未知の種別は例外にする（黙って落とすと、指摘が「0 件」に化ける）。
+function expandStructural(compact) {
+  const make = (c, args) => {
+    const t = FINDING_TEXT[c]
+    if (!t) throw new Error(`構造検査の未知の種別です: ${JSON.stringify(c)}`)
+    return t(...(args || []))
+  }
+  const findings = []
+  for (const g of compact.findings || []) {
+    for (const args of (g && g.a) || []) {
+      const t = make(g.c, args)
+      findings.push({
+        auditor: 'structural',
+        id: t.id,
+        document: g.d,
+        location: t.location,
+        quote: t.quote,
+        ...(t.severity ? { severity: t.severity } : {}),
+        issue: t.issue,
+        fix: t.fix,
+      })
+    }
+  }
+  return { findings, not_checked: (compact.not_checked || []).map((n) => make(n && n.c, n && n.a)) }
+}
+// FINDING_TEXT_END
+
+// verifyCheck: checker の返り値を受理してよいかを script が決める。schema では写し間違い（指摘の
+// 脱落・入力の欠け）を検出できないので、doc_check.mjs が出した digest と script が計算した digest を
+// 照合する。受理できなければ「検査を実行できなかった」として扱う（0 件に読み替えない）。
+function verifyCheck(res, input) {
+  if (!res) return { ok: false, reason: 'checker が応答しなかった' }
+  if (!res.ok || !res.output) return { ok: false, reason: `doc_check.mjs の実行に失敗した: ${res.error || '(理由の記載なし)'}` }
+  const out = res.output
+  if (out.input_digest !== stableKey(canonicalJson(input))) {
+    return { ok: false, reason: 'checker が書いた入力が渡した JSON と一致しない（input_digest 不一致）' }
+  }
+  if (!Array.isArray(out.documents) || !out.structural || !Array.isArray(out.structural.findings) || !Array.isArray(out.structural.not_checked)) {
+    return { ok: false, reason: 'doc_check.mjs の出力の形が契約と違う' }
+  }
+  // index_extra は渡したときだけ出力に載る（canonicalJson は undefined のキーを落とすので、無いときの digest は変わらない）。
+  if (out.output_digest !== stableKey(canonicalJson({ documents: out.documents, structural: out.structural, index_extra: out.index_extra }))) {
+    return { ok: false, reason: 'checker が返した出力が CLI の出力と一致しない（output_digest 不一致）' }
+  }
+  const byKey = new Map(out.documents.map((d) => [d.key, d]))
+  const lost = input.documents.filter((d) => !byKey.has(d.key)).map((d) => d.key)
+  if (lost.length) return { ok: false, reason: `出力に無い文書がある: ${lost.join(' / ')}` }
+  // digest は短い形のまま照合し、受理した後で文面を組み立てる（文面は digest の外にあるので、
+  // checker の写しに文面を含める必要が無い）。未知の種別は写し間違いと同じく受理しない。
+  let structural
+  try {
+    structural = expandStructural(out.structural)
+  } catch (e) {
+    return { ok: false, reason: `構造検査の出力を展開できない: ${e && e.message ? e.message : e}` }
+  }
+  return { ok: true, byKey, structural, indexExtra: Array.isArray(out.index_extra) ? out.index_extra : [] }
+}
+
+// reportedLineCount: writer が返した `wc -l` の値。欠けていれば null（書き出し未確認）。
+function reportedLineCount(result) {
+  if (!result || result.line_count === undefined || result.line_count === null) return null
+  const n = Number(String(result.line_count).trim())
+  return Number.isInteger(n) ? n : null
+}
+
+// lineCountConfirmed: writer が申告した行数と、checker が実ファイルで数えた行数の照合。
+// `wc -l` は改行の数なので、末尾が改行で終わらないファイルでは 1 少ない。どちらかに一致すれば
+// 受理する。ファイルが無ければ受理しない（以後の agent はファイルしか読めない）。
+function lineCountConfirmed(reported, fileCheck) {
+  if (reported === null || !fileCheck || !fileCheck.exists) return false
+  return reported === fileCheck.newline_count || reported === fileCheck.line_count
+}
+
+// ------------------------------------------------------- 本文の検査ここまで
 
 // execToTbd: blocking の実行可能性指摘を TBD として起票し直す（draft/refine 共通）。
 // ID は文書・箇所から決まる安定キーにする。連番にすると、指摘が 1 件増減しただけで
@@ -1352,7 +1890,8 @@ function computeNovelty(seenDigests, findings) {
 // 完全な args を script が組み立てる。司令塔に 30〜70KB の args JSON を手組みさせると転記ミスが
 // 混入する（digest の劣化・history の渡し忘れは実測済みの故障モード）ので、置換箇所を
 // tbd_answers の "<<ANSWER_HERE>>" 1 点に絞る。script は FS を触れないため本文は持たせず、
-// writer が draft_path へ Write 済みの文書は markdown を空にして draft_path 参照で渡す。
+// 全文書を draft_path 参照で渡す（line_count も添える — 次周回の入口で区切り読みの単位が決まる）。
+// 出力は entryErrors をそのまま通らなければならない（tests が確かめる）。
 function buildNextArgs(ctx) {
   if (ctx.outer_round >= ctx.max_outer_rounds) return null
   if (!ctx.has_needs_input && !ctx.has_unpresented_blocking) return null
@@ -1365,21 +1904,23 @@ function buildNextArgs(ctx) {
     tbd_answers: '<<ANSWER_HERE>>',
     tbd_answers_history: ctx.tbd_answers_history,
     documents: ctx.documents.map((d) => {
-      // writer は draft_path が保存先 path と別のときだけ最終稿を Write する（保存先への直書きは
-      // 人間ゲートを迂回するため指示しない）。Write 済みなら markdown を空にでき、args が痩せる。
-      const wroteBack = Boolean(d.draft_path && d.draft_path !== d.path)
+      // 本文は常に draft_path（writer が最後に書き、checker が行数を照合済みのファイル。
+      // 一度も改稿されていない文書は入力のパス）から読ませる。args に本文を載せない。
       return {
         key: d.key,
         kind: d.kind,
         topic: d.topic,
         concern: d.concern,
         path: d.path,
-        draft_path: wroteBack ? d.draft_path : d.path,
-        markdown: wroteBack ? '' : d.markdown,
+        draft_path: d.draft_path || d.path,
+        ...(Number.isInteger(d.line_count) ? { line_count: d.line_count } : {}),
         summary: d.summary,
         items: d.items,
         referenced_ids: d.referenced,
         vacant_ids: d.vacant,
+        // trace: 改稿の writer は本文を通読せず、触っていない項目の申告を前稿のメタ情報から写す。
+        // 落とすと次周回の writer は根拠を写せず、全項目が根拠なしとして指摘される。
+        trace: d.trace,
         traceability: d.traceability,
         tbd_items: d.tbd_items,
         categories_deferred: d.categories_deferred,
@@ -1395,6 +1936,9 @@ function buildNextArgs(ctx) {
     paths: ctx.paths,
     today: ctx.today,
     ...(ctx.sources_path ? { sources_path: ctx.sources_path } : {}),
+    ...(ctx.draft_dir ? { draft_dir: ctx.draft_dir } : {}),
+    ...(ctx.role_opts ? { role_opts: ctx.role_opts } : {}),
+    ...(ctx.bulk_read_path ? { bulk_read_path: ctx.bulk_read_path } : {}),
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
       : {}),
@@ -1478,30 +2022,9 @@ const LADDER_SCHEMA = {
   required: ['classified'],
 }
 
-async function classifyFindings(findings, label) {
-  const withDigest = findings.map((f) => ({ ...f, digest: f.digest || findingDigest(f) }))
-  const res = await agent(
-    [
-      `Read ${SKILL_DIR}/agents/ladder-judge.md for your full role instructions before doing anything else.`,
-      `判定表と契約は ${SKILL_DIR}/schemas/agent-contracts.md §ladder-judge を正とする。`,
-      '',
-      '# [FINDINGS] 分類対象（digest で照合される。digest を書き換えない）',
-      JSON.stringify(
-        withDigest.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity }) => ({
-          // fix は構造検査（script 生成の決定的指摘）だけが持つ。LLM auditor は direction。
-          digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity,
-        })),
-        null,
-        2
-      ),
-    ].join('\n'),
-    { model: 'sonnet', schema: LADDER_SCHEMA, phase: 'Audit', label }
-  )
-  const kindByDigest = new Map(
-    (((res || {}).classified) || [])
-      .filter((e) => e && e.digest && LADDER_KINDS.includes(e.kind))
-      .map((e) => [e.digest, e.kind])
-  )
+// partitionLadder: ladder-judge の分類で改稿経路（toWriter）と人間ゲート経路（needsInput）に分ける。
+// 指摘は丸ごと渡す — severity: degraded の冗長指摘の action もここで落とさずに writer へ届く。
+function partitionLadder(withDigest, kindByDigest) {
   const toWriter = []
   const needsInput = []
   for (const f of withDigest) {
@@ -1511,6 +2034,34 @@ async function classifyFindings(findings, label) {
     // 改稿経路そのものを止めない（欠測を needs_input に読み替えると偽の質問が人間へ飛ぶ）。
     else toWriter.push({ ...f, ladder_kind: kind || 'artifact' })
   }
+  return { toWriter, needsInput }
+}
+
+async function classifyFindings(findings, label) {
+  const withDigest = findings.map((f) => ({ ...f, digest: f.digest || findingDigest(f) }))
+  const res = await agent(
+    [
+      roleHeader(SKILL_DIR, ['ladder-judge.md'], 'ladder-judge'),
+      '判定表は上の契約の範囲にある。',
+      '',
+      '# [FINDINGS] 分類対象（digest で照合される。digest を書き換えない）',
+      JSON.stringify(
+        withDigest.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity, action }) => ({
+          // fix は構造検査（script 生成の決定的指摘）だけが持つ。LLM auditor は direction。
+          digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity, action,
+        })),
+        null,
+        2
+      ),
+    ].join('\n'),
+    { ...ROLE_OPTS.ladderJudge, schema: LADDER_SCHEMA, phase: 'Audit', label }
+  )
+  const kindByDigest = new Map(
+    (((res || {}).classified) || [])
+      .filter((e) => e && e.digest && LADDER_KINDS.includes(e.kind))
+      .map((e) => [e.digest, e.kind])
+  )
+  const { toWriter, needsInput } = partitionLadder(withDigest, kindByDigest)
   const unclassified = withDigest.filter((f) => !kindByDigest.has(f.digest)).length
   if (unclassified > 0) {
     log(
@@ -1811,7 +2362,7 @@ let revisions = 0
 // (kaizen C4) attributionObserve: 改稿で追加された項目の trace.quote が根拠原本に文字列として
 // 実在するかを、LLM の判断を介さず分類する純データ関数（観測のみ。文書にも指摘にも触れない）。
 // 背景: fabrication は「原本に無い内容を、原本にあるかのように申告して本文へ足す」形で現れるが、
-// 現行の structuralFindings(7) は trace の存在だけを見て内容を照合しない。照合は quote 契約
+// doc_check.mjs の structuralFindings(7) は trace の存在だけを見て内容を照合しない。照合は quote 契約
 // （「原本に実在する文字列を写す」）により文字列一致で機械化できる。介入（再依頼・revert）は
 // 露出の実測が溜まるまで入れない — 偽陽性の規模を知らないまま副作用を入れないため。
 // 設計の要点（plan-verifier の反証由来）:
@@ -1904,18 +2455,114 @@ function attributionObserve({ prev_ids, next_items, declared_added_ids, trace, o
 // 追記し、counters は最終集計時に records から再計算する（1 回分の形状を使い回さない）。
 const attributionRecords = []
 
+// ------------------------------------------------------- checker の実行（refine 側）
+//
+// checkerMissing: 検査を実行できなかったパス。監査役の欠測（missing）は監査ラウンドごとに
+// 組み直されるので、そこへ混ぜると次のラウンドで消える。別に貯め、返り値で合流させる。
+const checkerMissing = []
+// lastCheck: 直近の checker の結果。構造検査の指摘・行数・変更範囲はここから取る。
+let lastCheck = null
+
+async function runDocChecks(label, prevPaths) {
+  if (!draftDir) {
+    checkerMissing.push(`checker@${label}`)
+    return { ok: false, label, reason: 'draft_dir が無く、checker の入力を書き出す先が無い' }
+  }
+  // index_dir: 各文書の見出し索引の書き出し先。監査役・writer は他文書や固定文書を通読せず、索引から
+  // 要る節だけを読む。index_extra: run の外の標本文書（索引だけが要る）。
+  const docPaths = new Set(documents.map((d) => d.draft_path))
+  const extra = specimenPaths.filter((p) => !docPaths.has(p))
+  const input = {
+    documents: documents.map((d) => checkerDoc(d, prevPaths && prevPaths.get(d.key))),
+    index_dir: `${draftDir}/checks/index`,
+    ...(extra.length ? { index_extra: extra } : {}),
+  }
+  const file = `${draftDir}/checks/${label}.json`
+  const [check] = await runWithRetry(
+    `構造検査 ${label}`,
+    [input],
+    (inp, attempt) =>
+      agent(checkerPrompt(inp, file, SKILL_DIR), {
+        ...ROLE_OPTS.checker,
+        schema: CHECK_SCHEMA,
+        phase: 'Audit',
+        label: `checker-${label}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
+      }).then((res) => verifyCheck(res, inp)),
+    (r) => r && r.ok
+  )
+  const result = { ...(check || { ok: false, reason: 'checker が応答しなかった' }), label }
+  if (!result.ok) {
+    checkerMissing.push(`checker@${label}`)
+    log(`構造検査 ${label}: 実行できませんでした（${result.reason}）。このパスの構造検査は「0 件」ではなく「未検査」として扱います。`)
+  }
+  return result
+}
+
+// structuralOf: checker の結果を構造検査の形（findings / not_checked）で返す。実行できなかった
+// パスは指摘 0 件ではなく未検査として not_checked に載せる。
+function structuralOf(check) {
+  if (check && check.ok) {
+    return applySuppression({ findings: check.structural.findings, not_checked: check.structural.not_checked })
+  }
+  return {
+    findings: [],
+    not_checked: [
+      {
+        id: 'ST-NOTCHECKED-CHECKER',
+        issue:
+          `構造検査を実行できなかった（${check ? `${check.label}: ${check.reason}` : '未実行'}）。` +
+          'ID の照合・本文の検査は「指摘 0 件」ではなく「未検査」である。',
+      },
+    ],
+  }
+}
+
+// applyCheck: checker が実ファイルで数えた行数を正とし、今回改稿した文書には変更範囲を付ける。
+// 見出し索引とバイト数も受け取る（索引は他文書・固定文書を節単位で読ませるため、バイト数は locate 読みの
+// 送信量を組むため）。
+function applyCheck(check, revisedKeys) {
+  if (!check || !check.ok) return
+  for (const d of documents) {
+    const c = check.byKey.get(d.key)
+    if (!c || !c.exists) continue
+    d.line_count = c.line_count
+    d.byte_size = Number.isInteger(c.byte_size) ? c.byte_size : null
+    d.index_path = c.index_path || null
+    d.index_lines = c.index_lines || null
+    if (revisedKeys.has(d.key)) d.changed_ranges = c.changed_ranges
+  }
+  for (const x of check.indexExtra || []) {
+    if (x && x.path) specimenIndex.set(x.path, { draft_path: x.path, index_path: x.index_path || null, index_lines: x.index_lines || null })
+  }
+}
+
+// specimenIndex / specimenIndexOf: 標本の見出し索引。run の文書なら文書の索引を、run の外の標本なら
+// checker が index_extra として書いた索引を使う。どちらも無ければ Grep で見出しを列挙させる。
+const specimenIndex = new Map()
+function specimenIndexOf(p) {
+  const d = documents.find((x) => x.draft_path === p || x.path === p)
+  if (d) return d
+  return specimenIndex.get(p) || { draft_path: p, index_path: null, index_lines: null }
+}
+
 // forceAll: 人間ゲート②の回答を反映する最初のパスで使う。このパスは監査指摘ではなく回答が
-// 契機なので、findings が空でも全文書を引き直す必要がある（回答がどの文書に効くかは
-// 書いてみるまで決まらない）。findings で絞ると、反映パスが 1 文書も動かないまま通る。
+// 契機なので、findings が空でも引き直す必要がある。findings で絞ると、反映パスが 1 文書も
+// 動かないまま通る。true は全文書、Set は回答が名指しした文書だけ（answerTargets）。Set のときも
+// 要求文書が改稿されれば仕様書は紐付けの追随のために引き直す（下の規則がそのまま効く）。
 async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
   // requirements を先に流し切ってから specifications に入る。仕様項目は文書を跨いだ
   // 要求 ID を引くため、要求側の増減が確定するまで紐付けを直しようがない。
   let requirementsRevised = false
+  lastRevisedId = revisionId
+  // staged: writer が line_count を返した改稿。ファイルの照合（checker）を通るまでは仮の採用で、
+  // 通らなければ before へ戻す。
+  const staged = []
 
   const runFor = async (kind) => {
     const subset = documents.filter((d) => d.kind === kind && !d.fixed)
     const targetsForRound = subset.filter((d) => {
-      if (forceAll) return true
+      if (forceAll === true) return true
+      if (forceAll instanceof Set && forceAll.has(d.key)) return true
       // 未確定事項の決着（段 2〜4）は指摘 0 件でも引き直す契機である。指摘の有無だけで
       // 絞ると、決着の反映パスが 1 文書も動かないまま「反映済み」として返る。
       if ((writerDirectives.get(d.key) || []).length) return true
@@ -1930,43 +2577,35 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
       targetsForRound,
       (doc, attempt) =>
         agent(buildWriterPrompt(doc, findingsByDoc.get(doc.key) || [], revisionId, requirementsRevised), {
-          model: 'opus',
+          ...ROLE_OPTS.writer,
           schema: kind === 'requirements' ? REQ_DOC_SCHEMA : SPEC_DOC_SCHEMA,
           phase: revisionId.endsWith('.0') ? 'Reflect' : 'Revise',
           label: `${kind === 'requirements' ? 'req' : 'spec'}-${doc.topic}-${revisionId}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
         }).then((result) => ({ doc, result: result || null })),
-      (r) => r && r.result && r.result.markdown
+      (r) => r && r.result && reportedLineCount(r.result) !== null
     )
     for (const { doc, result } of results) {
-      if (!result || !result.markdown) {
+      if (reportedLineCount(result) === null) {
         // 改稿が返らなければ前稿を維持する。空で上書きすると改稿前より悪化する。
         // ただし「直そうとして直らなかった」と「一度も直されていない」は区別して返す。
         writerMissing.push(`${doc.key}@${revisionId}`)
-        log(`改稿 ${revisionId}: ${doc.key} の writer が応答せず、前稿を維持しました。`)
+        log(`改稿 ${revisionId}: ${doc.key} の writer が応答しないか line_count を返さず、前稿を維持しました。`)
         continue
       }
       const idx = documents.findIndex((d) => d.key === doc.key)
+      const before = documents[idx]
       const items = kind === 'requirements' ? result.requirement_items || [] : result.spec_items || []
-      // (kaizen C4) 帰属の観測。前稿の ids は次の代入で失われるので、上書き前のここで捕捉する。
-      const gateObs = attributionObserve({
-        prev_ids: documents[idx].ids || [],
-        next_items: items,
-        declared_added_ids: ((result.item_delta || {}).added_items || []).map((a) => a && a.id),
-        trace: result.trace || [],
-        origins: {
-          input,
-          answers,
-          tbd_answers: [...tbdAnswersHistory.map((e) => e.answers), tbdAnswers].filter(Boolean).join('\n'),
-          decision: decisions,
-          domain: domainFindings,
-        },
-      })
-      for (const rec of gateObs.records)
-        attributionRecords.push({ round: revisionId, document: doc.key, ...rec })
       documents[idx] = {
-        ...documents[idx],
-        markdown: result.markdown,
-        summary: result.summary || documents[idx].summary,
+        ...before,
+        draft_path: revisedDraftPath(doc, revisionId),
+        revised_in: revisionId,
+        // 変更範囲と行数は checker が前稿と改稿稿のファイルから計算して入れる（applyCheck）。
+        // 索引とバイト数も前稿のものなので外す（残すと改稿稿を前稿の行範囲で読ませる）。
+        changed_ranges: null,
+        index_path: null,
+        index_lines: null,
+        byte_size: null,
+        summary: result.summary || before.summary,
         items,
         ids: items.map((i) => i.id).filter(Boolean),
         referenced: result.referenced_ids || [],
@@ -1977,22 +2616,100 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
         categories_deferred: result.categories_deferred || [],
         item_delta: result.item_delta || null,
       }
+      staged.push({ key: doc.key, idx, before, result, items })
       if (kind === 'requirements') requirementsRevised = true
     }
   }
 
   await runFor('requirements')
   await runFor('specifications')
+
+  // 書き出しの照合と構造検査を 1 回の checker でまとめて行う。前稿のパスを渡すと、変更範囲が
+  // 前稿と改稿稿のファイルから計算される（手元に本文を持たないので、ファイル同士で比べる）。
+  const prevOf = (list) => new Map(list.map((s) => [s.key, s.before.draft_path]))
+  let check = await runDocChecks(revisionId, prevOf(staged))
+  let accepted = staged
+  if (check.ok) {
+    // 書き出しが確かめられない改稿は採用しない。以後の agent はファイルしか読めないので、
+    // 申告とファイルが食い違うと、監査は writer が申告したのと別の本文を見る。
+    const rejected = staged.filter((s) => !lineCountConfirmed(reportedLineCount(s.result), check.byKey.get(s.key)))
+    for (const s of rejected) {
+      const c = check.byKey.get(s.key)
+      writerMissing.push(`${s.key}@${revisionId}`)
+      log(
+        `改稿 ${revisionId}: ${s.key} の書き出しを確認できません（line_count ${s.result.line_count} / ` +
+          `ファイル ${c && c.exists ? `${c.newline_count} 改行` : '無し'}）。前稿を維持しました。`
+      )
+      documents[s.idx] = s.before
+    }
+    if (rejected.length) {
+      accepted = staged.filter((s) => !rejected.includes(s))
+      // 戻した文書の本文で検査し直す。採用しなかった稿の検査結果を残すと、指摘が実在しない本文を指す。
+      check = await runDocChecks(`${revisionId}-recheck`, prevOf(accepted))
+    }
+  }
+  // checker が走らなかったパスは照合できないが、改稿は採用する（ファイルは writer が書いている）。
+  // 行数は writer の申告で代用し、変更範囲は分からないので全体を区切って読ませる（changed_ranges: null）。
+  if (!check.ok) {
+    for (const s of accepted) documents[s.idx].line_count = reportedLineCount(s.result)
+  }
+  applyCheck(check, new Set(accepted.map((s) => s.key)))
+  lastCheck = check
+
+  for (const s of accepted) {
+    // (kaizen C4) 帰属の観測。前稿の ids は before に残っている。
+    const gateObs = attributionObserve({
+      prev_ids: s.before.ids || [],
+      next_items: s.items,
+      declared_added_ids: ((s.result.item_delta || {}).added_items || []).map((a) => a && a.id),
+      trace: s.result.trace || [],
+      origins: {
+        input,
+        answers,
+        tbd_answers: [...tbdAnswersHistory.map((e) => e.answers), tbdAnswers].filter(Boolean).join('\n'),
+        decision: decisions,
+        domain: domainFindings,
+      },
+    })
+    for (const rec of gateObs.records) attributionRecords.push({ round: revisionId, document: s.key, ...rec })
+  }
   return requirementsRevised
 }
 
 // 回答が来ているときだけ反映パスを走らせる。人間ゲート②を飛ばした（blocking 0 件の）ランで
 // 空の反映パスを回すと、直す理由が無いまま opus が全文書を書き直し、初稿が理由なく変わる。
+// answerTargets: 今周回の回答が効く文書。回答の空でない各行が、既知の TBD の ID を 1 つ以上
+// 名指ししているときに限り、その TBD を持つ文書に絞る。1 行でも宛先の決まらない行（ID を含まない
+// 決定・前置き）があれば null を返し、全文書を引き直す — 回答がどの文書に効くかを script は本文から
+// 判断できないので、決められないときは反映漏れの側に倒さない。絞れれば、回答と無関係な文書に
+// writer を 1 体ずつ出さずに済む（opus の writer 1 体は前稿の該当箇所を探して読むだけでも重い）。
+function answerTargets(answersText) {
+  const owner = new Map()
+  const keyOf = (ref) => (documents.find((d) => d.key === ref || d.path === ref || d.draft_path === ref) || {}).key
+  for (const d of documents) for (const t of d.tbd_items || []) if (t && t.id) owner.set(t.id, d.key)
+  for (const t of inputTbdItems) if (t && t.id && keyOf(t.document)) owner.set(t.id, keyOf(t.document))
+  const keys = new Set()
+  for (const line of String(answersText).split('\n').map((l) => l.trim()).filter(Boolean)) {
+    const ids = (line.match(/\bTBD-[A-Z][A-Z0-9]*-[A-Za-z0-9]+\b/g) || []).filter((id) => owner.has(id))
+    if (!ids.length) return null
+    for (const id of ids) keys.add(owner.get(id))
+  }
+  return keys.size ? keys : null
+}
+
 if (tbdAnswers) {
-  await reviseDocuments(new Map(), `R${outerRound}.0`, true)
+  const reflectTargets = answerTargets(tbdAnswers)
+  if (reflectTargets) log(`回答の反映: 回答が名指しした TBD を持つ文書だけを引き直します（${[...reflectTargets].join(' / ')}）。`)
+  await reviseDocuments(new Map(), `R${outerRound}.0`, reflectTargets || true)
   revisionLog.push({ revision_id: `R${outerRound}.0`, trigger: ['人間ゲート②の回答'], reason: 'TBD 回答の反映', changed_by: 'user 回答の反映' })
 } else {
   log('人間ゲート②の回答が空のため、反映パスを飛ばして監査から始めます。')
+}
+// 反映パスを通らなかったランでも、監査の前に一度 checker を通して行数と構造検査を得る
+// （行数が無いと区切り読みと locate の抜き取り範囲が決まらず、構造検査が無いと改稿の契機が欠ける）。
+if (!lastCheck) {
+  lastCheck = await runDocChecks(`R${outerRound}.initial`, new Map())
+  applyCheck(lastCheck, new Set())
 }
 
 // ---------------------------------------------------------------- Audit / Revise ループ
@@ -2059,10 +2776,8 @@ while (true) {
         continue
       }
       if (revisions > 0 || lastRevisionFindings) continue
-      for (const kind of ['requirements', 'specifications']) {
-        const subset = auditable.filter((d) => d.kind === kind)
-        if (subset.length) tasks.push({ auditor, target: `KIND:${kind}`, docs: subset })
-      }
+      // 文書ごとに 1 体（全文書を 1 体に持たせると文脈が文書の総量まで膨らむ。AUDITORS の注記）。
+      for (const d of auditable) tasks.push({ auditor, target: d.key, docs: [d] })
       continue
     }
     if (auditor.scope === 'all') {
@@ -2110,14 +2825,16 @@ while (true) {
     (task, attempt) =>
       agent(buildAuditPrompt(task.auditor, task, deferred, roundScopeNote), {
         model: task.auditor.model,
+        effort: task.auditor.effort,
         schema: AUDIT_SCHEMA,
         phase: 'Audit',
         label: `${task.auditor.name}-${task.target}-r${revisions}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
-      }).then((result) => ({ auditor: task.auditor.name, target: task.target, result: result || null })),
+      }).then((result) => ({ auditor: task.auditor.name, target: task.target, plan: task.readPlan, result: result || null })),
     (r) => r && r.result
   )
 
   const received = wrapped.filter(Boolean)
+  for (const r of received) recordLocator(r)
   // agent 監査を実施しなかったラウンドでは missing / byName を更新しない。ここで空の tasks を
   // 元に組み直すと、expected が 0 になって summary の各観点が「検査して 0 件」に化ける。
   // 実施した最後のラウンドの結果を保持するのが正しい（未実施を 0 件と読ませない）。
@@ -2148,7 +2865,7 @@ while (true) {
       // 指摘の宛先は script が決める。単一文書を見た auditor の指摘は必ずその文書のもので、
       // agent の自己申告を信じると綴り違いで宛先を失い、改稿に回らないまま unresolved に落ちる。
       let docKey = r.target
-      if (r.target === 'ALL' || String(r.target).startsWith('KIND:')) {
+      if (r.target === 'ALL') {
         docKey = pathToKey.get(finding.document) || (docKeys.has(finding.document) ? finding.document : null)
       }
       const routed = { auditor: r.auditor, ...finding, document: docKey, unroutable: !docKey }
@@ -2188,8 +2905,9 @@ while (true) {
   }
 
   // 構造検査は auditor の応答有無と無関係に必ず走る。集合差分と禁止語の混入は agent が
-  // 落ちても検出される（この 2 つがこのスキルの契約そのものだから）。
-  const structResult = applySuppression(structuralFindings(documents))
+  // 落ちても検出される（この 2 つがこのスキルの契約そのものだから）。本文を読む算術なので、
+  // 直前の改稿（または入口）で checker が doc_check.mjs を実行した結果を使う。
+  const structResult = structuralOf(lastCheck)
 
   // 構造検査は素の ID に対して走らせる（writer の採番ミスをそのまま指摘するため）。
   // そのうえで documents[].tbd_items を正規化し、rebuildTbd の ID キー統合が
@@ -2388,6 +3106,7 @@ while (true) {
       (task, attempt) =>
         agent(buildAuditPrompt(task.auditor, task, deferred), {
           model: task.auditor.model,
+          effort: task.auditor.effort,
           schema: AUDIT_SCHEMA,
           phase: 'Audit',
           label: `${task.auditor.name}-${task.target}-r${revisions}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
@@ -2414,7 +3133,7 @@ while (true) {
       byName[r.auditor].received++
       for (const finding of r.result.failed || []) {
         let docKey = r.target
-        if (r.target === 'ALL' || String(r.target).startsWith('KIND:')) {
+        if (r.target === 'ALL') {
           docKey = pathToKey.get(finding.document) || (docKeys.has(finding.document) ? finding.document : null)
         }
         const routed = { auditor: r.auditor, ...finding, document: docKey, unroutable: !docKey }
@@ -2431,7 +3150,7 @@ while (true) {
     ]
 
     // 構造検査と TBD の正規化は算術なので、改稿のたびに必ず再計算する（このスキルの契約）。
-    const structResult = applySuppression(structuralFindings(documents))
+    const structResult = structuralOf(lastCheck)
     const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
     for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
     const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -2463,13 +3182,10 @@ async function runAuditPass(label, auditorNames, scopeNote) {
   const { deferred } = reconcileCategories(documents, requiredCategories)
   const tasks = []
   for (const auditor of AUDITORS.filter((a) => !auditorNames || auditorNames.has(a.name))) {
-    // specimen は文書 kind ごとに 1 体。標本が無ければ skip（specimen_skipped として返す）。
+    // specimen は文書ごとに 1 体。標本が無ければ skip（specimen_skipped として返す）。
     if (auditor.name === 'specimen') {
       if (specimenSkipped) continue
-      for (const kind of ['requirements', 'specifications']) {
-        const subset = auditable.filter((d) => d.kind === kind)
-        if (subset.length) tasks.push({ auditor, target: `KIND:${kind}`, docs: subset })
-      }
+      for (const d of auditable) tasks.push({ auditor, target: d.key, docs: [d] })
       continue
     }
     if (auditor.scope === 'all') {
@@ -2487,20 +3203,22 @@ async function runAuditPass(label, auditorNames, scopeNote) {
     (task, attempt) =>
       agent(buildAuditPrompt(task.auditor, task, deferred, scopeNote), {
         model: task.auditor.model,
+        effort: task.auditor.effort,
         schema: AUDIT_SCHEMA,
         phase: 'Audit',
         label: `${task.auditor.name}-${task.target}-${label.replace(/\s+/g, '-')}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
-      }).then((result) => ({ auditor: task.auditor.name, target: task.target, result: result || null })),
+      }).then((result) => ({ auditor: task.auditor.name, target: task.target, plan: task.readPlan, result: result || null })),
     (r) => r && r.result
   )
   const received = wrapped.filter(Boolean).filter((r) => r.result)
+  for (const r of received) recordLocator(r)
   const docKeys = new Set(documents.map((d) => d.key))
   const pathToKey = new Map(documents.map((d) => [d.path, d.key]))
   const findings = []
   for (const r of received) {
     for (const finding of r.result.failed || []) {
       let docKey = r.target
-      if (r.target === 'ALL' || String(r.target).startsWith('KIND:')) {
+      if (r.target === 'ALL') {
         docKey = pathToKey.get(finding.document) || (docKeys.has(finding.document) ? finding.document : null)
       }
       findings.push({ auditor: r.auditor, ...finding, document: docKey, unroutable: !docKey })
@@ -2572,20 +3290,26 @@ const VERIFIER_SCHEMA = {
   required: ['verdicts'],
 }
 
+// relevantBodies: 指摘の宛先の文書だけを、指摘の箇所に絞って読ませる。解消候補の起草・検証に要るのは
+// 指摘の節とその前後であり、文書の通読ではない。
 function relevantBodies(items) {
   const docKeys = new Set(items.map((f) => f.document).filter(Boolean))
   return (
     documents
       .filter((d) => docKeys.has(d.key))
-      .map((d) => `## ${d.path}（key: ${d.key} / ${d.concern}）\n\n${bodyOf(d)}`)
+      .map((d) => `## ${d.path}（key: ${d.key} / ${d.concern}）\n\n${indexInstruction(d)}`)
       .join('\n\n---\n\n') || '(本文なし)'
-  )
+  ) + FINDING_READ_NOTE
 }
+
+// FINDING_READ_NOTE: 指摘を起点に本文を読ませる手順。quote の完全一致で行を特定し、その節だけを読む。
+const FINDING_READ_NOTE =
+  '\n\n各指摘の箇所は、quote（無ければ location の ID・見出し）を Grep（固定文字列・行番号付き）で document の本文から探し、' +
+  `その行を含む節だけを索引の行範囲で ${READ_CHUNK_LINES} 行以内の offset/limit で Read する。文書を通読しない。`
 
 function buildResolverPrompt(items) {
   return [
-    `Read ${SKILL_DIR}/agents/resolver.md for your full role instructions before doing anything else.`,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §resolver を正とする。`,
+    roleHeader(SKILL_DIR, ['resolver.md'], 'resolver'),
     RULES,
     '',
     buildContextBlock('resolver'),
@@ -2610,8 +3334,7 @@ function buildResolverPrompt(items) {
 
 function buildVerifierPrompt(items, proposals) {
   return [
-    `Read ${SKILL_DIR}/agents/resolver-verifier.md for your full role instructions before doing anything else.`,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §resolver-verifier を正とする。`,
+    roleHeader(SKILL_DIR, ['resolver-verifier.md'], 'resolver-verifier'),
     '',
     buildContextBlock('auditor'),
     '',
@@ -2643,7 +3366,7 @@ async function runResolveCandidates(items, label) {
   const out = new Map()
   if (!items.length) return out
   const res = await agent(buildResolverPrompt(items), {
-    model: 'opus',
+    ...ROLE_OPTS.resolver,
     schema: RESOLVER_SCHEMA,
     phase: 'Revise',
     label: `resolver-${label}`,
@@ -2656,7 +3379,7 @@ async function runResolveCandidates(items, label) {
     return out
   }
   const ver = await agent(buildVerifierPrompt(items, proposals), {
-    model: 'sonnet',
+    ...ROLE_OPTS.resolverVerifier,
     schema: VERIFIER_SCHEMA,
     phase: 'Revise',
     label: `resolver-verifier-${label}`,
@@ -2738,7 +3461,7 @@ let unanswerable = []
     missing = [...missing, ...re.missing]
 
     // 構造検査と TBD の正規化は算術なので、改稿のたびに必ず再計算する（このスキルの契約）。
-    const structResult = applySuppression(structuralFindings(documents))
+    const structResult = structuralOf(lastCheck)
     const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
     for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
     const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -2852,10 +3575,11 @@ function buildAdjudicationPrompt(remaining) {
   return [
     'あなたは終端裁定（adjudication）の裁定者である。改稿ループ終了時に残った監査指摘の全件を、',
     '次の三値のいずれかに分類する。未裁定のまま残す指摘があってはならない（全件をどれかに入れる）。',
+    INLINE_SCOPE,
     '',
     '- fixed: 実は既に解消済み・誤残留である。現在の本文を確認し、解消している根拠を evidence に書く。',
     '- rejected: 偽指摘である。reason 必須（理由の無い棄却は無効として未裁定に戻される）。',
-    '- documented: 意図した制約である。転記先を target_document（文書キーまたはパス）と',
+    '- documented: 意図した制約であり、かつ現在の本文の規範からは読み取れない。本文の既存規範から既に読み取れるなら fixed にする。転記先を target_document（文書キーまたはパス）と',
     '  target_section に、なぜ意図した制約と言えるかを reason に書く。**転記文の文案は書かない** —',
     '  文案の起草は転記改稿時の writer の責務である（あなたが書いた文は誰にも検証されずに本文へ',
     '  入ることになる）。',
@@ -2867,10 +3591,12 @@ function buildAdjudicationPrompt(remaining) {
     '# [REMAINING_FINDINGS] 裁定対象（digest で照合される。digest を書き換えない）',
     JSON.stringify(remaining, null, 2),
     '',
-    '# [DOCUMENTS] 現在の文書',
+    // 全文書の通読はさせない。裁定に要るのは各指摘の箇所の現状だけである（fixed の根拠も
+    // rejected の理由も、その節を読めば書ける）。
+    '# [DOCUMENTS] 現在の文書（指摘の箇所だけを読む）',
     documents
-      .map((d) => `## ${d.path}（key: ${d.key} / ${d.concern}）\n\n${bodyOf(d)}`)
-      .join('\n\n---\n\n'),
+      .map((d) => `## ${d.path}（key: ${d.key} / ${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n${indexInstruction(d)}`)
+      .join('\n\n---\n\n') + FINDING_READ_NOTE,
   ].join('\n')
 }
 
@@ -2895,7 +3621,7 @@ let adjudicationRemaining = []
         '（fixed / rejected / documented）に分類します。'
     )
     const adjRaw = await agent(buildAdjudicationPrompt(remaining), {
-      model: 'opus',
+      ...ROLE_OPTS.adjudicator,
       schema: ADJUDICATION_SCHEMA,
       phase: 'Finalize',
       label: 'adjudicator',
@@ -2926,7 +3652,7 @@ let adjudicationRemaining = []
           location: e.target_section || '検査範囲の限定',
           issue:
             '終端裁定で「意図した制約（documented）」と分類された。裁定の理由: ' +
-            `${e.reason}。この制約が意図したものであることを該当節へ規範文として転記する（文案はあなたが起草する）。`,
+            `${e.reason}。この制約が意図したものであることを該当節へ規範文として転記する（文案はあなたが起草する）。既存の規範文の適用範囲を限定する書き換えで表せるなら、新しい文を足さずにそちらを採る。`,
           direction: 'document_decision',
         })
       }
@@ -2944,7 +3670,7 @@ let adjudicationRemaining = []
         await reviseDocuments(byDoc, revisionId, false)
 
         // 構造検査と TBD の正規化は算術なので、改稿のたびに必ず再計算する（このスキルの契約）。
-        const structResult = applySuppression(structuralFindings(documents))
+        const structResult = structuralOf(lastCheck)
         const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
         for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
         const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -3132,6 +3858,7 @@ if (unpresentedBlocking.length) {
     [
       'あなたは先例裁定係。未提示の blocking TBD それぞれについて、人間に聞く必要が本当に',
       'あるかを判定する。',
+      INLINE_SCOPE,
       '',
       'verdict の基準:',
       '- resolvable: 決定ログ・回答・過去周回の回答履歴に同型の先例があり、その判断をそのまま',
@@ -3165,7 +3892,7 @@ if (unpresentedBlocking.length) {
         1
       )}`,
     ].join('\n'),
-    { model: 'sonnet', schema: PRECEDENT_SCHEMA, phase: 'Finalize', label: 'precedent-judge' }
+    { ...ROLE_OPTS.precedentJudge, schema: PRECEDENT_SCHEMA, phase: 'Finalize', label: 'precedent-judge' }
   )
   const pjById = new Map(
     (((pj || {}).classifications) || []).filter((c) => c && c.tbd_id).map((c) => [c.tbd_id, c])
@@ -3280,8 +4007,12 @@ let resolvedByMeasurement = []
 if (measurableBlocking.length) {
   const mm = await agent(
     [
-      `Read ${SKILL_DIR}/agents/measurement.md for your full role instructions before doing anything else.`,
-      `契約は ${SKILL_DIR}/schemas/agent-contracts.md §measurement を正とする。`,
+      roleHeader(SKILL_DIR, ['measurement.md'], 'measurement'),
+      // 読む対象を項目ごとの measurement_target に限る。問いの答えは依頼元の現物にあり、このスキルの
+      // 実装（SKILL_DIR 配下）には無い — そこを読んで「run の仕組み」を理解しても、どの項目も確定しない。
+      '読む対象: 各項目の measurement_target が名指しする現物（依頼元のリポジトリの実装・設定・既存文書）と、',
+      'それを探すための Grep / Glob だけ。' + `${SKILL_DIR} 配下（このスキル自身）は測定対象ではないので読まない。`,
+      'measurement_target で見つからなければ、周辺を広く読み回らず resolved: false で返す。',
       '',
       'statement は全項目で必須フィールドである。resolved: false の項目では空文字 "" を返す',
       '（省略すると返答全体が schema 不合格になり、同梱の確定分まで受理されない）。',
@@ -3299,7 +4030,7 @@ if (measurableBlocking.length) {
         1
       ),
     ].join('\n'),
-    { model: 'sonnet', schema: MEASUREMENT_SCHEMA, phase: 'Finalize', label: 'measurement' }
+    { ...ROLE_OPTS.measurement, schema: MEASUREMENT_SCHEMA, phase: 'Finalize', label: 'measurement' }
   )
   const byId = new Map(
     (((mm || {}).resolutions) || []).filter((r) => r && r.tbd_id).map((r) => [r.tbd_id, r])
@@ -3425,7 +4156,7 @@ if (resolutionDirectives.size) {
   })
   // 反映で本文と TBD 申告が変わったので、集計と構造検査を引き直す。引き直さないと、
   // 返り値は反映前の件数を報告する（解消した項目が残って見え、新たに入った本文が未検査になる）。
-  const structResult = applySuppression(structuralFindings(documents))
+  const structResult = structuralOf(lastCheck)
   const { findings: tbdRenumbered, byKey: tbdByKey } = namespaceTbd(documents)
   for (const d of documents) d.tbd_items = tbdByKey[d.key] || []
   const { findings: catFindings } = reconcileCategories(documents, requiredCategories)
@@ -3476,7 +4207,10 @@ if (documents.some((d) => d.kind === 'specifications' && !d.fixed)) {
 // 提示の工夫では吸収できず、超えた分は「未提示のまま完了」に直結するので、
 // 起票側の較正失敗として返り値で申告する（別スクリプトの実行に委ねない）。
 const blockingOverCapacity = blockingTbd.length > GATE_CAPACITY_PER_ROUND * MAX_GATE_ROUNDS
-const verdict = missing.length
+// missingAll: 監査役の欠測と、構造検査（checker）を実行できなかったパス。後者も「検査していない」
+// であり、指摘 0 件と読ませない。
+const missingAll = [...missing, ...checkerMissing]
+const verdict = missingAll.length
   ? 'audit_incomplete'
   : adjudication.unadjudicated.length
   ? 'adjudication_incomplete'
@@ -3551,11 +4285,15 @@ const nextArgs = buildNextArgs({
   paths,
   today,
   sources_path: sourcesPath,
+  draft_dir: draftDir,
+  role_opts: parsedArgs.role_opts,
+  bulk_read_path: bulkReadPath,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
   suppressed_finding_ids: rejectedStructuralIds,
 })
 
 return {
+  role_opts_applied: roleOverrides,
   status: 'OK',
   verdict,
   mode,
@@ -3572,7 +4310,10 @@ return {
     topic: d.topic,
     concern: d.concern,
     path: d.path,
-    markdown: d.markdown,
+    // 本文は返さない。draft_path が最新の稿（checker が行数を照合済み）であり、保存は司令塔が
+    // このファイルを documents[].path へ複写して行う。
+    draft_path: d.draft_path,
+    ...(Number.isInteger(d.line_count) ? { line_count: d.line_count } : {}),
     summary: d.summary,
     items: d.items,
     referenced_ids: d.referenced,
@@ -3643,8 +4384,8 @@ return {
   // specimen_self_only: 標本が自己出自文書のみ（多様性不足の申告。skip はしていない）。
   specimen_self_only: specimenSelfOnly,
   specimen_paths: specimenPaths,
-  missing_auditors: missing,
-  audit_incomplete: missing.length > 0,
+  missing_auditors: missingAll,
+  audit_incomplete: missingAll.length > 0,
   writer_missing: writerMissing,
   structural_findings: structural,
   // structural_not_checked: 材料が無くて実行できなかった検査。「0 件」と混同させない。
@@ -3716,5 +4457,8 @@ return {
       unadjudicated: adjudication.unadjudicated.length,
     },
     instrumentation: instr,
+    // locator: locate 読みを割り当てた全範囲監査の実績（監査役ごと）。full_fallback の理由・locator の
+    // 引用件数・逐語で見つからなかった件数・抜き取りで見つかった見落とし件数。verdict には使わない。
+    locator: summarizeLocator(locatorRecords),
   },
 }

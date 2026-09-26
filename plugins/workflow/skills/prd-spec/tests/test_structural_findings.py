@@ -1,12 +1,14 @@
-"""scripts/draft.js・refine.js の structuralFindings() の回帰テスト。
+"""scripts/doc_check.mjs の structuralFindings() の回帰テスト。
 
 この関数は agent の判断に一切依存せず、集合演算と文字列検査だけで契約違反を出す。
 スキルが売りにしている保証 —「片側にしか現れない ID を必ず検出する」「廃止済み規制の語を
 必ず検出する」「文書を跨いだ ID 重複を検出する」— がここに載っているため、壊れると
 「監査を通った」と表示されたまま契約が破れる。
 
-関数は 2 つの script に**逐語で複製**されている（workflow script は import を書けない）。
-片方だけ直すと初稿と改稿で判定が食い違うので、一致することもテストする。
+以前は draft.js と refine.js に逐語で複製していた（workflow script は import を書けない）。
+本文を script の手元に置かない設計にしたため、正本は doc_check.mjs 1 箇所に移り、両 script は
+checker agent 経由でこの CLI を実行する。両 script が同じ判定をすることは「どちらも自前の
+複製を持たず、checker に委ねている」ことで保証し、それをテストする。
 """
 
 import json
@@ -20,53 +22,25 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 DRAFT = SCRIPTS / "draft.js"
 REFINE = SCRIPTS / "refine.js"
-
-CONST_START = "const OBSOLETE_TERMS"
-CONST_END = "const ID_IN_TEXT"
-FUNC_START = "function structuralFindings"
+DOC_CHECK = SCRIPTS / "doc_check.mjs"
 
 
-def _extract_pure_part(source: str) -> str:
-    """定数群と structuralFindings 本体だけを取り出す（agent/parallel に触れない部分）。"""
-    lines = source.split("\n")
-
-    const_from = next(i for i, l in enumerate(lines) if l.startswith(CONST_START))
-    # ID_IN_TEXT はオブジェクトリテラルなので、トップレベルの閉じ括弧まで含める。
-    const_open = next(i for i, l in enumerate(lines) if l.startswith(CONST_END))
-    const_to = next(i for i in range(const_open, len(lines)) if lines[i] == "}")
-
-    func_from = next(i for i, l in enumerate(lines) if l.startswith(FUNC_START))
-    func_to = next(i for i in range(func_from + 1, len(lines)) if lines[i] == "}")
-
-    return "\n".join(lines[const_from : const_to + 1] + [""] + lines[func_from : func_to + 1])
-
-
-def _extract_function(source: str) -> str:
-    """structuralFindings の本体だけを取り出す（定数のコメントは script ごとに違ってよい）。"""
-    lines = source.split("\n")
-    s = next(i for i, l in enumerate(lines) if l.startswith(FUNC_START))
-    e = next(i for i in range(s + 1, len(lines)) if lines[i] == "}")
-    return "\n".join(lines[s : e + 1])
-
-
-def _constant_values(source: str) -> dict:
-    """判定に効く定数の値だけを取り出す（コメントを除いた実体の比較用）。"""
-    out = {}
-    for name in ("OBSOLETE_TERMS", "UNVERIFIABLE_STANDARDS", "CLAUSE_REF", "TBD_ID_IN_TEXT"):
-        m = re.search(rf"^const {name} = (.+)$", source, re.M)
-        out[name] = m.group(1) if m else None
-    m = re.search(r"^const ID_IN_TEXT = \{(.*?)^\}", source, re.M | re.S)
-    out["ID_IN_TEXT"] = re.sub(r"\s+", "", m.group(1)) if m else None
-    return out
+def _delegates_to_checker(script: Path) -> bool:
+    src = script.read_text(encoding="utf-8")
+    return "function structuralFindings" not in src and "checkerPrompt(" in src and "verifyCheck(" in src
 
 
 def run_structural(docs, script: Path = DRAFT):
-    """structuralFindings(docs) を Node で実行して {findings, not_checked} を返す。"""
-    pure = _extract_pure_part(script.read_text(encoding="utf-8"))
+    """structuralFindings(docs) を doc_check.mjs から import して実行し {findings, not_checked} を返す。
+
+    script は「その script が判定を doc_check.mjs に委ねていること」を確かめるために受け取る
+    （自前の複製を持っていれば、両 script の判定が食い違いうる）。
+    """
+    assert _delegates_to_checker(script), f"{script.name} が構造検査を checker に委ねていない"
     harness = (
-        pure
-        + "\nconst __docs = JSON.parse(process.argv[2])\n"
-        + "console.log(JSON.stringify(structuralFindings(__docs)))\n"
+        f"import {{ structuralFindings }} from {json.dumps(DOC_CHECK.as_uri())}\n"
+        "const __docs = JSON.parse(process.argv[2])\n"
+        "console.log(JSON.stringify(structuralFindings(__docs)))\n"
     )
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "pure.mjs"
@@ -394,20 +368,20 @@ class StructuralFindingsTests(unittest.TestCase):
 class ScriptShapeTests(unittest.TestCase):
     """script 側の前提が崩れていないか。"""
 
-    def test_structural_findings_is_identical_in_both_scripts(self):
-        # 逐語複製が崩れると、初稿で通った文書が改稿後に落ちる（またはその逆）。
-        self.assertEqual(
-            _extract_function(DRAFT.read_text(encoding="utf-8")),
-            _extract_function(REFINE.read_text(encoding="utf-8")),
-        )
+    def test_structural_findings_has_a_single_source(self):
+        # 複製が崩れると、初稿で通った文書が改稿後に落ちる（またはその逆）。複製をやめ、
+        # 両 script が doc_check.mjs に委ねていることで一致を保証する。
+        self.assertIn("function structuralFindings", DOC_CHECK.read_text(encoding="utf-8"))
+        for path in (DRAFT, REFINE):
+            self.assertTrue(_delegates_to_checker(path), path.name)
 
-    def test_detection_constants_are_identical_in_both_scripts(self):
+    def test_detection_constants_live_only_in_doc_check(self):
         # 禁止語リストや ID の抽出パターンが片方だけ更新されると、初稿と改稿で
-        # 検出結果が食い違う。コメントの違いは許すが、値は一致していなければならない。
-        self.assertEqual(
-            _constant_values(DRAFT.read_text(encoding="utf-8")),
-            _constant_values(REFINE.read_text(encoding="utf-8")),
-        )
+        # 検出結果が食い違う。値の実体は doc_check.mjs だけに置く。
+        for name in ("OBSOLETE_TERMS", "UNVERIFIABLE_STANDARDS", "CLAUSE_REF", "TBD_ID_IN_TEXT", "ID_IN_TEXT"):
+            self.assertRegex(DOC_CHECK.read_text(encoding="utf-8"), rf"(?m)^const {name} = ", name)
+            for path in (DRAFT, REFINE):
+                self.assertNotRegex(path.read_text(encoding="utf-8"), rf"(?m)^const {name} = ", f"{path.name}:{name}")
 
     def test_scripts_do_not_use_forbidden_runtime_apis(self):
         # workflow script では Date.now() / Math.random() / 引数なし new Date() が throw する。

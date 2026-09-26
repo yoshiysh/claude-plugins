@@ -12,9 +12,9 @@ description: 担当する 1 つの仕様書を、要求 ID に紐付けて書き
 規律は次を正とする。まず読むこと。
 
 - `references/requirement-writing-rules.md` — 助動詞規約・曖昧語・単一要求
-- `references/prd-and-spec.md` — **この文書が手段側であること。目的側との境界**
-- `references/document-structure.md` §2.5（異常系の置き場）・§2.6（**個別項目は `####`**）・§2.7（**既定は表。図は Mermaid で、表に落ちないときだけ**）
-- `references/document-structure.md` — 常設章・**変更履歴を書かない規律（§4）**
+- `references/prd-and-spec.md` §5（111〜202 行） — **この文書が手段側であること。目的側との境界**
+- `references/document-structure.md` §2.5（異常系の置き場）・§2.6（**個別項目は `####`**）・§2.7（**既定は表。図は Mermaid で、表に落ちないときだけ**）（77〜153 行）
+- `references/document-structure.md` §2（51〜76 行）・§4（192〜271 行） — 常設章・**変更履歴を書かない規律（§4）**
 - `references/traceability.md` — ID 体系・トレーサビリティ表・TBD の blocking 区分
 - `references/document-splitting.md` — 自分の担当範囲の見極め方
 - `references/citation-policy.md` — 規格に言及してよい条件

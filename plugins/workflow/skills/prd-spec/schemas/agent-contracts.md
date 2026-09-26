@@ -100,9 +100,14 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 `scripts/draft.js` / `scripts/refine.js` が文書ごとに呼ぶ。**担当は 1 文書だけ。**
 
+**本文は返り値に入れない。** 本文（常設章は `references/document-structure.md` を正とする）は
+`[WRITE_BACK]` のファイルにだけ書く — 初稿は Write、改稿は前稿を複写して Edit（`agents/writer-common.md`）。
+script は本文を受け取らず、checker がファイルを検査する。返り値は次のメタ情報で、一覧は改稿でも
+**文書全体の一覧**を返す（差分ではない。触っていない項目は `[PREVIOUS_METADATA]` から写す）。
+
 ```json
 {
-  "markdown": "要求文書の本文（常設章は references/document-structure.md を正とする）",
+  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（ファイルの行数と合わなければ script はその稿を採用しない）",
   "summary": "この文書に何が書いてあるかの 1〜2 文。INDEX の文書一覧に使われる",
   "requirement_items": [{ "id": "PR-AUTH-001", "heading": "多要素認証" }],
   "trace": [
@@ -151,9 +156,11 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 ## §spec-writer
 
+本文を返り値に入れない・一覧は文書全体で返す点は §req-writer と同じ。
+
 ```json
 {
-  "markdown": "仕様書の本文",
+  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（ファイルの行数と合わなければ script はその稿を採用しない）",
   "summary": "この文書に何が書いてあるかの 1〜2 文",
   "spec_items": [{ "id": "SP-AUTH-001", "heading": "認証トークンの発行" }],
   "trace": [{ "item_id": "SP-AUTH-001", "kind": "decision", "ref": "D-003", "quote": "..." }],
@@ -193,6 +200,8 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 ## auditor 共通形（clarity / traceability / coverage / fabrication / consistency）
 
+validity / specimen もこの形で返す（severity は executability と同じ blocking / degraded）。
+
 ```json
 {
   "failed": [
@@ -207,8 +216,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
       "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
     }
   ],
-  "checked": "実際に検査した範囲（何を読み、何を見たか）",
-  "note": "任意。補足があれば"
+  "checked": "実際に検査した範囲（何を読み、何を見たか）"
 }
 ```
 
@@ -239,6 +247,22 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 - `document` は**渡された文書のキーをそのまま使う**。綴りを変えると宛先を失い、改稿に回らない。
 - `[CATEGORIES_DEFERRED]` に挙がっているカテゴリは、章として無くても反映漏れとして扱わない。
 
+### locate 読みの追加項目（consistency / coverage の全範囲監査で locate を割り当てられたときだけ）
+
+いずれも任意項目で、他の auditor の契約は変わらない。割り当ての有無と理由は script が決めて
+返り値の `summary.locator` に残す。件数の正も script 側で数え直す（`locator_misses` は
+`found_via: "sample"` の指摘件数から導く）。verdict には使わない。
+
+| 項目 | 意味 |
+|---|---|
+| `read_mode` | `locate` / `full` / `full_fallback`。locate を割り当てられて bulk-read が失敗し全文読みに戻したら `full_fallback` |
+| `read_fallback_reason` | `full_fallback` にした理由（終了コード・API キー不在・EVIDENCE 節なし など） |
+| `locator_quotes` | bulk-read の EVIDENCE 節の引用件数 |
+| `locator_unmatched` | 元ファイルに逐語で見つからず捨てた引用の件数 |
+| `locator_misses` | `found_via: "sample"` の指摘件数（自己申告。script は数え直す） |
+| `failed[].found_via` | `locator`（引用が指していた箇所で見つけた）/ `sample`（script が割り当てた抜き取り範囲でだけ見つけた = locator の見落とし） |
+| `locate_groups[]` | bulk-read の呼び出し単位（script が送信量の上限に収まるよう文書を束ねた組）ごとの結果。`{ group, status, reason? }` で、`status` は `ok` / `split_ok`（時間切れで半分に割って再実行し通った）/ `full_fallback`（その組だけ全文読みに戻した） |
+
 ### 各 auditor の担当範囲
 
 | auditor | 見るもの | 見ないもの |
@@ -260,7 +284,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 **契約は呼び出し元で形が分かれる（実態の明文化）。** `scripts/draft.js` は専用の findings 形
 （下の JSON。トップレベルが `findings`）で受け、`scripts/refine.js` は auditor 共通形
 （トップレベルが `failed`。フィールドは同じ）で受ける。どちらでも `severity` を必ず付ける —
-blocking の指摘は TBD として起票し直され、人間ゲート②の提示対象に入る。
+blocking の指摘は TBD として起票し直され、統合ゲートの提示対象に入る。
 
 ```json
 {
@@ -273,7 +297,8 @@ blocking の指摘は TBD として起票し直され、人間ゲート②の提
       "direction": "共通形と同じ enum（何を決めるべき欠落かは issue に書く。決め方の候補・文案は書かない）",
       "direction_note": "任意。方向の補足 1 行（50 字目安）",
       "severity": "blocking | degraded",
-      "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
+      "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）",
+      "action": "冗長指摘のみ。delete | merge_into:<ID> | replace_with_reference:<文書#ID> のどれか 1 つ"
     }
   ],
   "checked": "実際に読んだ範囲"
@@ -462,7 +487,9 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 
 ## §structural（script が生成する finding）
 
-`structuralFindings()` が返す。agent は生成しない。戻り値は `{ findings, not_checked }`。
+`scripts/doc_check.mjs` が検出する。agent は生成しない。戻り値は `{ findings, not_checked }`。
+CLI の出力は種別と引数だけの短い形（`{ c, d, a }`）で、文面（`issue` / `fix` など）は script が
+同じ表（`FINDING_TEXT`）から組み立てる。下の `id` は組み立てた後の形である。
 
 | `id` の接頭辞 | 検出内容 |
 |---|---|
