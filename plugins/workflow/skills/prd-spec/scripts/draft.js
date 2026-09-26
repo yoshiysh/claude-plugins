@@ -29,6 +29,14 @@ const OBSOLETE_TERMS = ['21 cfr 820.30', 'design input', 'design output', 'desig
 const UNVERIFIABLE_STANDARDS = ['IEC 62304', 'ISO 14971', 'ISO 13485', 'JIS T 2304', 'FISC']
 const CLAUSE_REF = '(?:(?:§|Clause|Section|箇条)\\s*\\d|第\\s*\\d+(?:\\.\\d+)*\\s*(?:節|条|項))'
 
+// ROLE_OPTS: 各 role の model / effort。省略するとセッションの設定（xhigh 等）を継承し、
+// 初稿の全呼び出しが最重量で走る。配分を 1 箇所で変えられるよう agent() は必ずここから取る。
+const ROLE_OPTS = {
+  reqWriter: { model: 'opus', effort: 'medium' },
+  specWriter: { model: 'opus', effort: 'medium' },
+  executability: { model: 'opus', effort: 'high' },
+}
+
 // ID_IN_TEXT: 本文に実在する ID を agent の申告とは独立に抽出するためのパターン。
 // これが無いと集合差分は「agent が申告した ID 一覧」と「agent が書いた表」を比べるだけになり、
 // 両者が同じ自己申告に由来するため循環する。
@@ -94,6 +102,9 @@ const REQ_DOC_SCHEMA = {
   type: 'object',
   properties: {
     markdown: { type: 'string' },
+    // line_count: [WRITE_BACK] のファイルに対する `wc -l` の値。required にしない — 欠落で応答
+    // ごと失わず、欠落は書き出し未確認として script が扱う（writeConfirmed）。
+    line_count: { type: 'number' },
     // summary: requirements/INDEX.md の「文書一覧」に script が並べる。手書きの目次は
     // 必ず本体と drift するので、writer には要約だけ返させ、目次は script が組み立てる。
     summary: { type: 'string' },
@@ -117,6 +128,9 @@ const SPEC_DOC_SCHEMA = {
   type: 'object',
   properties: {
     markdown: { type: 'string' },
+    // line_count: [WRITE_BACK] のファイルに対する `wc -l` の値。required にしない — 欠落で応答
+    // ごと失わず、欠落は書き出し未確認として script が扱う（writeConfirmed）。
+    line_count: { type: 'number' },
     summary: { type: 'string' },
     spec_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
@@ -168,6 +182,8 @@ const EXEC_SCHEMA = {
           direction: { type: 'string', enum: AUDIT_DIRECTIONS },
           direction_note: { type: 'string' },
           severity: { type: 'string', enum: ['blocking', 'degraded'] },
+          // action: 冗長指摘の処置（delete / merge_into:<ID> / replace_with_reference:<文書#ID>）。
+          action: { type: 'string' },
         },
         required: ['id', 'location', 'quote', 'issue', 'direction', 'severity'],
       },
@@ -209,6 +225,28 @@ const splitPlan = parsedArgs.split_plan || {}
 // 誰も検出できない。
 const existingDocs = parsedArgs.existing_docs || []
 const hasBody = (d) => Boolean(d.markdown || d.path)
+// agent に本文を渡す経路はパスだけである（プロンプトへ本文を埋めない）。markdown だけで渡された
+// 既存文書は agent が読めないので入口で止める（markdown は script の構造検査用に併記してよい）。
+{
+  const bodyOnly = existingDocs.filter((d) => d && d.markdown && !d.path)
+  if (bodyOnly.length) {
+    throw new Error(
+      `existing_docs に path の無い文書があります: ${bodyOnly.map((d) => `${d.kind}/${d.topic}`).join(' / ')}。` +
+        'agent は本文をパスから Read するため、path を付けて渡してください。'
+    )
+  }
+}
+
+// draft_dir: writer が初稿を書き出す workspace のディレクトリ（絶対パス）。以後の agent（実行可能性の
+// 検査・仕様書の writer・Workflow B）は本文をこのファイルから Read する。対象リポジトリには書かない。
+const draftDir = String(parsedArgs.draft_dir || '').trim().replace(/\/+$/, '')
+if (!draftDir.startsWith('/')) {
+  throw new Error(
+    `args.draft_dir が絶対パスではありません: "${draftDir}"。writer は初稿を workspace へ Write し、` +
+      'agent は以後そのパスを Read する。Write は ~ を展開しないため絶対パスで渡してください。'
+  )
+}
+const draftPathOf = (kind, topic) => `${draftDir}/${kind}-${topic}.md`
 
 // self_containment: 「何を文書に書き写し、何を参照にとどめるか」の合意。
 // これを executability-auditor に渡さないと、参照方針を採る案件で「文書だけでは 1 語も
@@ -312,10 +350,11 @@ const docKey = (kind, topic) => `${kind}/${topic}`
 const previousOf = (kind, topic) => {
   const hit = existingDocs.find((d) => d.kind === kind && d.topic === topic && hasBody(d))
   if (!hit) return null
-  return hit.markdown || `${hit.path} を Read し、その全文を既存の同名文書として扱うこと（ここには写していない）。`
+  return `${readInstruction(hit.path, hit.markdown ? lineTotal(hit.markdown) : null)}\nその全文を既存の同名文書として扱うこと（ここには写していない）。`
 }
-// 対象外の種別は「入力として固定」する。改稿もしないし生成もしない。
-const fixedDocs = existingDocs.filter((d) => !targets.includes(d.kind) && d.markdown)
+// 対象外の種別は「入力として固定」する。改稿もしないし生成もしない。path だけで渡された文書も
+// 含める（本文が手元に無い分、script の構造検査は申告済みの items / ids しか使えない）。
+const fixedDocs = existingDocs.filter((d) => !targets.includes(d.kind) && hasBody(d))
 
 const CONTEXT_BLOCK = [
   '# [MODE] 実行モード',
@@ -374,6 +413,69 @@ const RULES = [
   `${SKILL_DIR}/references/document-splitting.md ・${SKILL_DIR}/references/citation-policy.md を正とする。`,
 ].join('\n')
 
+// ------------------------------------------------------- 本文の渡し方（パスのみ）
+//
+// この区間の関数は scripts/refine.js に逐語で複製されている（一致は tests/test_function_parity.py が検査する）。
+//
+// READ_CHUNK_LINES: 1 回の Read の上限行数。shunt の PreToolUse gate は 350 行を超える無制限 Read を
+// 止めて要約器へ回しうるため、その手前で区切る。監査者は要約ではなく逐語を見なければならない。
+const READ_CHUNK_LINES = 300
+
+// newlineCount: `wc -l` と同じ数え方（改行の数）。writer が返す line_count との照合に使う。
+function newlineCount(md) {
+  return (String(md || '').match(/\n/g) || []).length
+}
+
+// lineTotal: offset/limit の範囲計算に使う行数（末尾に改行が無い最終行も 1 行と数える）。
+function lineTotal(md) {
+  const s = String(md || '')
+  if (!s) return 0
+  return newlineCount(s) + (s.endsWith('\n') ? 0 : 1)
+}
+
+// readInstruction: 本文の代わりにプロンプトへ入れる Read 指示。行数が分からないときも
+// 「一度に全体を読め」とは書かない — 350 行を超える一括 Read は gate に止められるため。
+// ranges を渡すと、その範囲だけを読ませる（空配列は「今回変更なし」）。
+function readInstruction(path, lineCount, ranges) {
+  const chunks = (start, end) => {
+    const out = []
+    for (let s = start; s <= end; s += READ_CHUNK_LINES) {
+      out.push(`- Read ${path} offset=${s} limit=${Math.min(READ_CHUNK_LINES, end - s + 1)}`)
+    }
+    return out
+  }
+  if (Array.isArray(ranges)) {
+    if (!ranges.length) {
+      return `本文: ${path}（今回の改稿で変更された節は無い。照合に要る箇所だけを ${READ_CHUNK_LINES} 行以内の offset/limit で Read すること）`
+    }
+    const out = [`本文: ${path}（次の範囲だけを Read すること。全体は読まない）`]
+    for (const r of ranges) {
+      if (r.deleted) {
+        out.push(`- 削除された節「${r.heading || '(冒頭)'}」（${r.start} 行目の直前にあった。削除で生じた欠落・参照切れだけを確かめる）`)
+      } else {
+        out.push(`節「${r.heading || '(冒頭)'}」: ${r.start}〜${r.end} 行`, ...chunks(r.start, r.end))
+      }
+    }
+    return out.join('\n')
+  }
+  if (lineCount && lineCount <= READ_CHUNK_LINES) return `本文: ${path}（${lineCount} 行。Read すること）`
+  if (lineCount) {
+    return [`本文: ${path}（${lineCount} 行。1 回の Read で全体を読まず、次の単位で順に Read すること）`, ...chunks(1, lineCount)].join('\n')
+  }
+  return `本文: ${path}（行数未確認。1 回の Read で全体を読まず、offset/limit を付けて ${READ_CHUNK_LINES} 行ずつ末尾まで順に Read すること）`
+}
+
+// ------------------------------------------------------- 本文の渡し方ここまで
+
+// writeConfirmed: writer が [WRITE_BACK] のファイルへ返り値と同じ本文を書いたかの照合。
+// line_count は `wc -l` の出力（改行数）。返り値に無い末尾改行を Write 時に足す書き方があるので、
+// 改行数と行数のどちらかに一致すれば受理する。欠けていれば書き出し未確認として扱う。
+function writeConfirmed(result) {
+  if (!result || result.line_count === undefined || result.line_count === null) return false
+  const n = Number(String(result.line_count).trim())
+  return Number.isInteger(n) && (n === newlineCount(result.markdown) || n === lineTotal(result.markdown))
+}
+
 function buildReqPrompt(doc) {
   const previous = previousOf('requirements', doc.topic)
   return [
@@ -398,6 +500,12 @@ function buildReqPrompt(doc) {
     previous
       ? ['# [PREVIOUS] 既存の同名文書（これを下敷きに改稿する。指摘の無い箇所は維持すること）', previous].join('\n')
       : '# 新規執筆（前稿なし）',
+    '',
+    '# [WRITE_BACK] 初稿の書き出し',
+    `本文（返り値の markdown と同一内容）を ${draftPathOf('requirements', doc.topic)} に Write すること。`,
+    `Write の後に \`wc -l < ${draftPathOf('requirements', doc.topic)}\` を実行し、出た整数を返り値の line_count に入れること。`,
+    '以後の agent はこのファイルを Read する（本文をプロンプトで渡さない）。line_count が返り値の markdown と',
+    '食い違うと書き出しの失敗として扱われる。保存先（パス欄）には書かない — 保存は人間の承認後に司令塔が行う。',
   ].join('\n')
 }
 
@@ -427,6 +535,12 @@ function buildSpecPrompt(doc, requirementsContext) {
     previous
       ? ['# [PREVIOUS] 既存の同名文書（これを下敷きに改稿する。指摘の無い箇所は維持すること）', previous].join('\n')
       : '# 新規執筆（前稿なし）',
+    '',
+    '# [WRITE_BACK] 初稿の書き出し',
+    `本文（返り値の markdown と同一内容）を ${draftPathOf('specifications', doc.topic)} に Write すること。`,
+    `Write の後に \`wc -l < ${draftPathOf('specifications', doc.topic)}\` を実行し、出た整数を返り値の line_count に入れること。`,
+    '以後の agent はこのファイルを Read する（本文をプロンプトで渡さない）。line_count が返り値の markdown と',
+    '食い違うと書き出しの失敗として扱われる。保存先（パス欄）には書かない — 保存は人間の承認後に司令塔が行う。',
   ].join('\n')
 }
 
@@ -451,7 +565,7 @@ function buildExecPrompt(doc) {
       '(指定なし。文書本体と、文書が参照先として明示しているファイルの範囲で判定すること)',
     '',
     `# [DOCUMENT] ${doc.key}`,
-    doc.markdown,
+    readInstruction(doc.draft_path, lineTotal(doc.markdown)),
     '',
     '各指摘は「ここで手が止まる。なぜなら〜が分からないから」の形で書き、severity に',
     'blocking（着手できない）か degraded（着手はできるが後で作り直しになりうる）を必ず付けること。',
@@ -1180,31 +1294,39 @@ if (targets.includes('requirements')) {
     splitPlan.requirements,
     (doc, attempt) =>
       agent(buildReqPrompt(doc), {
-        model: 'opus',
+        ...ROLE_OPTS.reqWriter,
         schema: REQ_DOC_SCHEMA,
         phase: 'Write requirements',
         label: `req-${doc.topic}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
       }).then((result) => ({ doc, result: result || null })),
-    (r) => r && r.result && r.result.markdown
+    (r) => r && r.result && r.result.markdown && writeConfirmed(r.result)
   )
 } else {
   reqResults = existingDocs
-    .filter((d) => d.kind === 'requirements' && d.markdown)
-    .map((d) => ({ doc: d, result: { markdown: d.markdown, summary: d.summary || '', requirement_items: [], tbd_items: [], fixed: true } }))
+    .filter((d) => d.kind === 'requirements' && hasBody(d))
+    .map((d) => ({ doc: d, result: { markdown: d.markdown || '', summary: d.summary || '', requirement_items: d.items || [], tbd_items: [], fixed: true } }))
 }
 
-const reqFailed = reqResults.filter((r) => !r.result || !r.result.markdown).map((r) => `req-writer@${r.doc.topic}`)
+// writerFailed: 本文が返らない、または [WRITE_BACK] の書き出しを確認できない（line_count 不一致）。
+// 後者も失敗に数えるのは、以後の agent がファイルしか読めず、手元の本文と別物を監査することになるため。
+const writerFailed = (r) => !r.result || (!r.result.fixed && (!r.result.markdown || !writeConfirmed(r.result)))
+const reqFailed = reqResults.filter(writerFailed).map((r) => `req-writer@${r.doc.topic}`)
 if (targets.includes('requirements') && reqFailed.length) {
   // 文書が返らなかったのに空の器を返すと、後段が「空の要求文書が完成した」と読む。捏造せず止める。
   return blocked(
-    `req-writer が ${reqFailed.join(' / ')} を返しませんでした。文書を捏造しないため、ここで打ち切ります。`,
+    `req-writer が ${reqFailed.join(' / ')} を返さないか、書き出しを確認できませんでした。文書を捏造しないため、ここで打ち切ります。`,
     { writer_missing: reqFailed }
   )
 }
 
+// 仕様書の writer には全 requirements の本文ではなく Read 指示を渡す（本文をプロンプトに埋めると
+// 仕様書の数だけ全要求文書が複製される）。
 const requirementsContext = reqResults
-  .filter((r) => r.result && r.result.markdown)
-  .map((r) => `## ${reqDir}/${r.doc.topic}.md\n\n${r.result.markdown}`)
+  .filter((r) => r.result)
+  .map((r) => {
+    const src = r.result.fixed ? r.doc.path : draftPathOf('requirements', r.doc.topic)
+    return `## ${reqDir}/${r.doc.topic}.md\n\n${readInstruction(src, r.result.markdown ? lineTotal(r.result.markdown) : null)}`
+  })
   .join('\n\n---\n\n')
 
 // ---------------------------------------------------------------- Write specifications
@@ -1223,23 +1345,23 @@ if (targets.includes('specifications')) {
     splitPlan.specifications,
     (doc, attempt) =>
       agent(buildSpecPrompt(doc, requirementsContext), {
-        model: 'opus',
+        ...ROLE_OPTS.specWriter,
         schema: SPEC_DOC_SCHEMA,
         phase: 'Write specifications',
         label: `spec-${doc.topic}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
       }).then((result) => ({ doc, result: result || null })),
-    (r) => r && r.result && r.result.markdown
+    (r) => r && r.result && r.result.markdown && writeConfirmed(r.result)
   )
 } else {
   specResults = existingDocs
-    .filter((d) => d.kind === 'specifications' && d.markdown)
-    .map((d) => ({ doc: d, result: { markdown: d.markdown, summary: d.summary || '', spec_items: [], traceability: [], tbd_items: [], fixed: true } }))
+    .filter((d) => d.kind === 'specifications' && hasBody(d))
+    .map((d) => ({ doc: d, result: { markdown: d.markdown || '', summary: d.summary || '', spec_items: d.items || [], traceability: [], tbd_items: [], fixed: true } }))
 }
 
-const specFailed = specResults.filter((r) => !r.result || !r.result.markdown).map((r) => `spec-writer@${r.doc.topic}`)
+const specFailed = specResults.filter(writerFailed).map((r) => `spec-writer@${r.doc.topic}`)
 if (targets.includes('specifications') && specFailed.length) {
   return blocked(
-    `spec-writer が ${specFailed.join(' / ')} を返しませんでした。仕様書は未作成として扱ってください。`,
+    `spec-writer が ${specFailed.join(' / ')} を返さないか、書き出しを確認できませんでした。仕様書は未作成として扱ってください。`,
     { writer_missing: specFailed }
   )
 }
@@ -1263,6 +1385,7 @@ const documents = [
       topic: r.doc.topic,
       concern: r.doc.concern || '',
       path: r.doc.path || `${reqDir}/${r.doc.topic}.md`,
+      draft_path: r.result.fixed ? r.doc.path : draftPathOf('requirements', r.doc.topic),
       markdown: r.result.markdown,
       summary: r.result.summary || '',
       items: (r.result.requirement_items || []).length
@@ -1286,6 +1409,7 @@ const documents = [
       topic: r.doc.topic,
       concern: r.doc.concern || '',
       path: r.doc.path || `${specDir}/${r.doc.topic}.md`,
+      draft_path: r.result.fixed ? r.doc.path : draftPathOf('specifications', r.doc.topic),
       markdown: r.result.markdown,
       summary: r.result.summary || '',
       items: (r.result.spec_items || []).length ? r.result.spec_items : ids.map((id) => ({ id, heading: '' })),
@@ -1312,7 +1436,7 @@ const execResults = await runWithRetry(
   documents.filter((d) => !d.fixed),
   (doc, attempt) =>
     agent(buildExecPrompt(doc), {
-      model: 'opus',
+      ...ROLE_OPTS.executability,
       schema: EXEC_SCHEMA,
       phase: 'Executability',
       label: `exec-${doc.key}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
@@ -1384,6 +1508,8 @@ return {
     topic: d.topic,
     concern: d.concern,
     path: d.path,
+    // draft_path: writer が Write し line_count で照合済みのファイル。Workflow B はこれを Read する。
+    draft_path: d.draft_path,
     markdown: d.markdown,
     summary: d.summary,
     items: d.items,

@@ -41,23 +41,38 @@ const MAX_GATE_ROUNDS = 2
 // AUDITORS の scope: 'each' = 全文書に 1 体ずつ / 'requirements' | 'specifications' = その種別だけ /
 // 'all' = 全文書をまとめて 1 体。consistency だけが 'all' なのは、重複・矛盾・INDEX との齟齬は
 // 単一文書の中では原理的に見えないため。他の 5 観点は 1 文書で判定が閉じるので fan-out する。
+// model / effort は明示する。省略するとセッションの設定（xhigh 等）を継承し、照合だけの観点まで
+// 最重量で走る（実測: 9 文書の 1 run で 349 呼び出しが利用上限に 2 回達した）。
+// 照合・列挙の観点は sonnet / medium、判断を要する観点は opus / high に置く。
 const AUDITORS = [
-  { name: 'executability', file: 'executability-auditor.md', model: 'opus', scope: 'each' },
-  { name: 'clarity', file: 'clarity-auditor.md', model: 'sonnet', scope: 'each' },
-  { name: 'traceability', file: 'traceability-auditor.md', model: 'sonnet', scope: 'specifications' },
-  { name: 'coverage', file: 'coverage-auditor.md', model: 'sonnet', scope: 'requirements' },
-  { name: 'fabrication', file: 'fabrication-auditor.md', model: 'opus', scope: 'each' },
-  { name: 'consistency', file: 'consistency-auditor.md', model: 'sonnet', scope: 'all' },
+  { name: 'executability', file: 'executability-auditor.md', model: 'opus', effort: 'high', scope: 'each' },
+  { name: 'clarity', file: 'clarity-auditor.md', model: 'sonnet', effort: 'medium', scope: 'each' },
+  { name: 'traceability', file: 'traceability-auditor.md', model: 'sonnet', effort: 'medium', scope: 'specifications' },
+  { name: 'coverage', file: 'coverage-auditor.md', model: 'sonnet', effort: 'medium', scope: 'requirements' },
+  { name: 'fabrication', file: 'fabrication-auditor.md', model: 'opus', effort: 'high', scope: 'each' },
+  { name: 'consistency', file: 'consistency-auditor.md', model: 'sonnet', effort: 'medium', scope: 'all' },
   // validity: 内容の妥当性（筋・矛盾・欠落）。書式・規律の監査を全通過した筋の悪い要求を
   // 止める最後の観点。事後レビュー頼みだと実施されないことが実測されたため観点に組み込んだ。
-  { name: 'validity', file: 'validity-auditor.md', model: 'opus', scope: 'all' },
+  { name: 'validity', file: 'validity-auditor.md', model: 'opus', effort: 'high', scope: 'all' },
   // specimen: 標本適用監査。生成文書の各項目を実在の標本文書に実際に適用し、判定不能・
   // 適用時矛盾を検出する。内部監査が見逃す共通原因「文書を読むだけで、使ってみない」を
   // 塞ぐために導入された（実測: 全監査通過後の独立レビューが判定不能 4 件を検出した）。
   // scope 'kind' は文書 kind ごとに 1 体（要求と仕様で適用の物差しが違うため）。
   // コスト抑制のため毎改稿のスコープ監査には参加せず、初回監査と終端の網羅監査だけ参加する。
-  { name: 'specimen', file: 'specimen-auditor.md', model: 'opus', scope: 'kind' },
+  { name: 'specimen', file: 'specimen-auditor.md', model: 'opus', effort: 'high', scope: 'kind' },
 ]
+
+// ROLE_OPTS: auditor 以外の role の model / effort。配分を 1 箇所で変えられるよう、agent() は
+// 必ずここか AUDITORS から opts を取る（writer は判断より転記が主なので effort は medium）。
+const ROLE_OPTS = {
+  writer: { model: 'opus', effort: 'medium' },
+  ladderJudge: { model: 'sonnet', effort: 'medium' },
+  resolver: { model: 'opus', effort: 'high' },
+  resolverVerifier: { model: 'opus', effort: 'high' },
+  adjudicator: { model: 'opus', effort: 'high' },
+  precedentJudge: { model: 'opus', effort: 'high' },
+  measurement: { model: 'opus', effort: 'high' },
+}
 
 const OBSOLETE_TERMS = ['21 cfr 820.30', 'design input', 'design output', 'design history file']
 const UNVERIFIABLE_STANDARDS = ['IEC 62304', 'ISO 14971', 'ISO 13485', 'JIS T 2304', 'FISC']
@@ -122,6 +137,9 @@ const REQ_DOC_SCHEMA = {
   type: 'object',
   properties: {
     markdown: { type: 'string' },
+    // line_count: [WRITE_BACK] のファイルに対する `wc -l` の値。required にしない — 欠落で応答
+    // ごと失わず、欠落は書き出し未確認として script が扱う（writeConfirmed）。
+    line_count: { type: 'number' },
     summary: { type: 'string' },
     requirement_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
@@ -160,6 +178,9 @@ const SPEC_DOC_SCHEMA = {
   type: 'object',
   properties: {
     markdown: { type: 'string' },
+    // line_count: [WRITE_BACK] のファイルに対する `wc -l` の値。required にしない — 欠落で応答
+    // ごと失わず、欠落は書き出し未確認として script が扱う（writeConfirmed）。
+    line_count: { type: 'number' },
     summary: { type: 'string' },
     spec_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
@@ -239,6 +260,9 @@ const AUDIT_SCHEMA = {
           // （schemas/agent-contracts.md）。schema の required にはしない — writer が該当なしと
           // 判断したときに schema 違反で応答ごと失う経路を作らない（既存の enum 不採用と同じ理由）。
           repro: { type: 'string' },
+          // action: 冗長指摘の処置（delete / merge_into:<ID> / replace_with_reference:<文書#ID>）。
+          // 引数を取る形があるので enum にしない。writer は direction より具体的な処置としてこれに従う。
+          action: { type: 'string' },
         },
         required: ['id', 'location', 'quote', 'issue', 'direction'],
       },
@@ -435,18 +459,31 @@ let documents = inputDocs.map((d) => ({
   fixed: Boolean(d.fixed),
 }))
 
-// 本文もパスも無い文書があると、writer は何を改稿すればよいか分からないまま書き始める
-// （＝新規執筆に化ける）。入口で止める。
+// agent に本文を渡す経路はパスだけである（プロンプトへ本文を埋めない。実測: 改稿後の文書を
+// インラインで渡した監査プロンプトが 39 万字に達した）。Read できるパスが無い文書は、
+// 本文を args で持っていても agent に見せる手段が無いので入口で止める。
 {
-  const orphan = documents.filter((d) => !d.markdown && !d.draft_path)
+  const orphan = inputDocs.filter((d) => !d.draft_path && !d.path)
   if (orphan.length) {
     throw new Error(
-      `args.documents に本文（markdown）も参照先（draft_path）も無い文書があります: ${orphan
+      `args.documents に参照先（draft_path / path）の無い文書があります: ${orphan
         .map((d) => d.key)
-        .join(' / ')}。改稿の下敷きが無いまま新規執筆に化けるのを防ぐため、ここで打ち切ります。`
+        .join(' / ')}。agent は本文をパスから Read するため、パスの無い文書は監査も改稿もできません。`
     )
   }
 }
+
+// draft_dir: writer が改稿稿を書き出す workspace のディレクトリ（絶対パス）。改稿のたびに
+// 別ファイルへ書かせるのは、読んだ前稿を上書きすると書き出しの失敗で唯一の写しが壊れるため。
+// 保存先（path）へは書かせない — そこへの書き出しは人間の承認後に司令塔が行う。
+const draftDir = String(parsedArgs.draft_dir || '').trim().replace(/\/+$/, '')
+if (documents.some((d) => !d.fixed) && !draftDir.startsWith('/')) {
+  throw new Error(
+    `args.draft_dir が絶対パスではありません: "${draftDir}"。writer は改稿稿を workspace へ Write し、` +
+      'agent は以後そのパスを Read する。Write は ~ を展開しないため絶対パスで渡してください。'
+  )
+}
+const revisedDraftPath = (doc, revisionId) => `${draftDir}/${doc.kind}-${doc.topic}.${revisionId}.md`
 
 // sources_path: 司令塔が run 前に workspace へ書き出した根拠正本（過去周回のゲート②回答など）
 // のパス（任意）。指定時は、全文を必要とする role（writer / fabrication-auditor）にだけ
@@ -545,20 +582,145 @@ const areaCode = (t) => {
 }
 const tbdPrefix = (doc) => `TBD-${doc.kind === 'requirements' ? 'R' : 'S'}${areaCode(doc.topic)}-`
 
-// bodyOf: 本文が手元に無い文書は、検査 agent に Read させる。改稿を通った文書は writer が
-// 返した markdown が入っているので、この分岐に入るのは fixed 文書（このランの対象外）だけ。
-const bodyOf = (d) => (d.markdown ? d.markdown : `（本文は ${d.draft_path} にある。Read すること）`)
+// ------------------------------------------------------- 本文の渡し方（パスのみ）
+//
+// この区間の関数は scripts/draft.js に逐語で複製されている（一致は tests/test_function_parity.py が検査する）。
+//
+// READ_CHUNK_LINES: 1 回の Read の上限行数。shunt の PreToolUse gate は 350 行を超える無制限 Read を
+// 止めて要約器へ回しうるため、その手前で区切る。監査者は要約ではなく逐語を見なければならない。
+const READ_CHUNK_LINES = 300
 
-// 他文書は「重複を作らないための参照」なので、本文が手元に無ければパスと要約で足りる
-// （writer は必要ならそのパスを Read できる）。全文を常に載せると、12 文書のプロンプトが
-// それぞれ他 11 文書分を抱えて肥大する。
+// newlineCount: `wc -l` と同じ数え方（改行の数）。writer が返す line_count との照合に使う。
+function newlineCount(md) {
+  return (String(md || '').match(/\n/g) || []).length
+}
+
+// lineTotal: offset/limit の範囲計算に使う行数（末尾に改行が無い最終行も 1 行と数える）。
+function lineTotal(md) {
+  const s = String(md || '')
+  if (!s) return 0
+  return newlineCount(s) + (s.endsWith('\n') ? 0 : 1)
+}
+
+// readInstruction: 本文の代わりにプロンプトへ入れる Read 指示。行数が分からないときも
+// 「一度に全体を読め」とは書かない — 350 行を超える一括 Read は gate に止められるため。
+// ranges を渡すと、その範囲だけを読ませる（空配列は「今回変更なし」）。
+function readInstruction(path, lineCount, ranges) {
+  const chunks = (start, end) => {
+    const out = []
+    for (let s = start; s <= end; s += READ_CHUNK_LINES) {
+      out.push(`- Read ${path} offset=${s} limit=${Math.min(READ_CHUNK_LINES, end - s + 1)}`)
+    }
+    return out
+  }
+  if (Array.isArray(ranges)) {
+    if (!ranges.length) {
+      return `本文: ${path}（今回の改稿で変更された節は無い。照合に要る箇所だけを ${READ_CHUNK_LINES} 行以内の offset/limit で Read すること）`
+    }
+    const out = [`本文: ${path}（次の範囲だけを Read すること。全体は読まない）`]
+    for (const r of ranges) {
+      if (r.deleted) {
+        out.push(`- 削除された節「${r.heading || '(冒頭)'}」（${r.start} 行目の直前にあった。削除で生じた欠落・参照切れだけを確かめる）`)
+      } else {
+        out.push(`節「${r.heading || '(冒頭)'}」: ${r.start}〜${r.end} 行`, ...chunks(r.start, r.end))
+      }
+    }
+    return out.join('\n')
+  }
+  if (lineCount && lineCount <= READ_CHUNK_LINES) return `本文: ${path}（${lineCount} 行。Read すること）`
+  if (lineCount) {
+    return [`本文: ${path}（${lineCount} 行。1 回の Read で全体を読まず、次の単位で順に Read すること）`, ...chunks(1, lineCount)].join('\n')
+  }
+  return `本文: ${path}（行数未確認。1 回の Read で全体を読まず、offset/limit を付けて ${READ_CHUNK_LINES} 行ずつ末尾まで順に Read すること）`
+}
+
+// changedLineRanges: 前稿と改稿の差分を、見出し（## / ### / ####）で区切った節の単位で返す。
+// 節は「見出し文字列 + 出現順」で対応づける — 位置で対応づけると、1 節の挿入で後続の全節が
+// 変更扱いになり、スコープ監査が全文監査に戻る。返す行番号は改稿（next）側の 1 始まり。
+// 削除された節は幅 0 の { start, end: start - 1, deleted: true } で、元あった位置を示す。
+function changedLineRanges(prevMarkdown, nextMarkdown) {
+  const sectionsOf = (md) => {
+    const lines = String(md || '').split('\n')
+    if (lines.length && lines[lines.length - 1] === '') lines.pop()
+    const out = []
+    const seen = new Map()
+    let inFence = false
+    let cur = { heading: '', start: 1, body: [] }
+    const close = (end) => {
+      if (end < cur.start) return
+      const n = (seen.get(cur.heading) || 0) + 1
+      seen.set(cur.heading, n)
+      out.push({ key: `${cur.heading}#${n}`, heading: cur.heading, start: cur.start, end, text: cur.body.join('\n') })
+    }
+    lines.forEach((ln, i) => {
+      if (/^\s*(```|~~~)/.test(ln)) inFence = !inFence
+      if (!inFence && /^#{2,4}\s/.test(ln)) {
+        close(i)
+        cur = { heading: ln.trim(), start: i + 1, body: [] }
+      }
+      cur.body.push(ln)
+    })
+    close(lines.length)
+    return out
+  }
+  const prev = sectionsOf(prevMarkdown)
+  const next = sectionsOf(nextMarkdown)
+  const prevText = new Map(prev.map((sec) => [sec.key, sec.text]))
+  const nextByKey = new Map(next.map((sec) => [sec.key, sec]))
+  const merged = []
+  for (const sec of next.filter((x) => prevText.get(x.key) !== x.text)) {
+    const last = merged[merged.length - 1]
+    if (last && sec.start <= last.end + 1) {
+      last.end = Math.max(last.end, sec.end)
+      last.heading = [last.heading, sec.heading].filter(Boolean).join(' / ')
+    } else {
+      merged.push({ start: sec.start, end: sec.end, heading: sec.heading })
+    }
+  }
+  const deleted = []
+  prev.forEach((sec, i) => {
+    if (nextByKey.has(sec.key)) return
+    let at = 1
+    for (let j = i - 1; j >= 0; j--) {
+      const kept = nextByKey.get(prev[j].key)
+      if (kept) {
+        at = kept.end + 1
+        break
+      }
+    }
+    deleted.push({ start: at, end: at - 1, heading: sec.heading, deleted: true })
+  })
+  return [...merged, ...deleted].sort((a, b) => a.start - b.start || Number(Boolean(a.deleted)) - Number(Boolean(b.deleted)))
+}
+
+// ------------------------------------------------------- 本文の渡し方ここまで
+
+// bodyOf: 本文はプロンプトに入れず、draft_path を Read させる。行数は手元の markdown から
+// 計算できるときだけ添える（args から来た文書は writer を通るまで本文が手元に無い）。
+const bodyOf = (d) => readInstruction(d.draft_path, d.markdown ? lineTotal(d.markdown) : null)
+
+// lastRevisedId: 直近の改稿の revisionId。スコープ監査は、この改稿で書き換わった文書の
+// 変更範囲（changed_ranges）だけを読ませる。
+let lastRevisedId = null
+
+// auditBodyOf: スコープ監査では変更された節の行範囲だけを読ませる。前稿が手元に無く
+// 差分を計算できなかった文書（changed_ranges が null）は全体を区切って読ませる。
+function auditBodyOf(d, scoped) {
+  if (!scoped) return bodyOf(d)
+  if (d.revised_in !== lastRevisedId) return readInstruction(d.draft_path, lineTotal(d.markdown), [])
+  if (!Array.isArray(d.changed_ranges)) return bodyOf(d)
+  return readInstruction(d.draft_path, lineTotal(d.markdown), d.changed_ranges)
+}
+
+// 他文書は「重複を作らないための参照」なので、パスと要約で足りる。全体の区切り読みを指示すると
+// writer ごとに全文書を読み直すことになるため、要る箇所だけを読ませる。
 function otherDocsContext(self) {
   return documents
     .filter((d) => d.key !== self.key)
-    .map((d) =>
-      d.markdown
-        ? `## ${d.path}（${d.concern}）\n\n${d.markdown}`
-        : `## ${d.path}（${d.concern}）\n\n要約: ${d.summary || '(なし)'}\n本文: ${d.draft_path} を Read すること`
+    .map(
+      (d) =>
+        `## ${d.path}（${d.concern}）\n\n要約: ${d.summary || '(なし)'}\n` +
+        `本文: ${d.draft_path}（重複の確認に要る箇所だけを ${READ_CHUNK_LINES} 行以内の offset/limit で Read すること）`
     )
     .join('\n\n---\n\n')
 }
@@ -581,6 +743,8 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
       '`resolver_proposals` が付いた指摘には、検証済みの解消候補（生成側 resolver の起草・',
       'resolver-verifier の検証を通過したもの）が添えてある。採用してもよいし、根拠に照らして',
       'より良い形に書き直してもよい。',
+      '`action` が付いた指摘は冗長の指摘である。delete / merge_into:<ID> / replace_with_reference:<文書#ID> の',
+      '処置をそのまま適用する（読み手の次の行動を変えない記述なので、書き直して残さない）。',
       '指摘の解消のために新しい要求を創作してはならない。情報が未確定なら TBD として立て、',
       'そのカテゴリ名を categories_deferred に入れること。',
       '`ladder_kind: "criteria"` の指摘は判定基準・既定の欠落である。書き手が決められる既定なら',
@@ -636,14 +800,8 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     `未確定事項の ID: ${tbdPrefix(doc)}001 の形で振ること（この形以外で振らない）。`,
     '',
     '# [PREVIOUS] 前稿（これを改稿する。指摘の無い箇所は維持すること）',
-    doc.markdown
-      ? doc.markdown
-      : [
-          `**前稿は ${doc.draft_path} にある。まず Read すること。**`,
-          '本文がここに埋め込まれていないのは、12 文書分の全文を引数で受け渡すと呼び出し側が',
-          '全文を書き写して中継することになるためである。読み込めなかった場合は、推測で書き',
-          '始めず、読み込めなかった事実を返すこと（前稿の無い改稿は新規執筆に化ける）。',
-        ].join('\n'),
+    readInstruction(doc.draft_path, doc.markdown ? lineTotal(doc.markdown) : null),
+    '読み込めなかった場合は、推測で書き始めず、読み込めなかった事実を返すこと（前稿の無い改稿は新規執筆に化ける）。',
     '',
     '# [OTHER_DOCUMENTS] 同じ案件の他文書（重複を作らないための参照。ここは書き換えない）',
     otherDocsContext(doc) || '(他文書なし)',
@@ -676,24 +834,24 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     '修正では足りなかったのかを書くこと。**数えてから足す**ためであり、増やしてはならないという',
     '意味ではない（本当に足りなければ足す）。',
     '',
-    ...(doc.draft_path && doc.draft_path !== doc.path
-      ? [
-          '# [WRITE_BACK] 最終稿の書き出し',
-          `改稿後の本文（返り値の markdown と同一内容）を ${doc.draft_path} に Write すること。`,
-          '次周回はこのパスを下敷き（draft_path）として参照するため、書き出しが無いと再開時に前稿へ巻き戻る。',
-          `保存先（${doc.path}）には書かない — そこへの書き出しは人間の承認後に司令塔が行う。`,
-          '',
-        ]
-      : []),
+    '# [WRITE_BACK] 改稿稿の書き出し',
+    `改稿後の本文（返り値の markdown と同一内容）を ${revisedDraftPath(doc, revisionId)} に Write すること。`,
+    `Write の後に \`wc -l < ${revisedDraftPath(doc, revisionId)}\` を実行し、出た整数を返り値の line_count に入れること。`,
+    '以後の監査と次周回はこのファイルを Read する（本文をプロンプトで渡さない）。line_count が返り値の markdown と',
+    '食い違うと書き出しの失敗として扱われ、この改稿は採用されない。',
+    `保存先（${doc.path}）と前稿（${doc.draft_path}）には書かない — 保存先への書き出しは人間の承認後に司令塔が行う。`,
+    '',
     ...tail,
   ].join('\n')
 }
 
 function buildAuditPrompt(auditor, task, deferred, scopeNote) {
+  // スコープ監査（scopeNote あり）は変更された節の行範囲だけを読ませ、網羅監査は全体を区切って読ませる。
+  const narrowed = Boolean(scopeNote)
   const scoped =
     auditor.scope === 'all'
-      ? documents.map((d) => `## ${d.path}（${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n${bodyOf(d)}`).join('\n\n---\n\n')
-      : task.docs.map((d) => `## ${d.path}（${d.concern}）\n\n${bodyOf(d)}`).join('\n\n---\n\n')
+      ? documents.map((d) => `## ${d.path}（${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n${auditBodyOf(d, narrowed)}`).join('\n\n---\n\n')
+      : task.docs.map((d) => `## ${d.path}（${d.concern}）\n\n${auditBodyOf(d, narrowed)}`).join('\n\n---\n\n')
 
   const head = [
     `Read ${SKILL_DIR}/agents/${auditor.file} for your full role instructions before doing anything else.`,
@@ -1352,7 +1510,7 @@ function computeNovelty(seenDigests, findings) {
 // 完全な args を script が組み立てる。司令塔に 30〜70KB の args JSON を手組みさせると転記ミスが
 // 混入する（digest の劣化・history の渡し忘れは実測済みの故障モード）ので、置換箇所を
 // tbd_answers の "<<ANSWER_HERE>>" 1 点に絞る。script は FS を触れないため本文は持たせず、
-// writer が draft_path へ Write 済みの文書は markdown を空にして draft_path 参照で渡す。
+// 全文書を draft_path 参照で渡す。
 function buildNextArgs(ctx) {
   if (ctx.outer_round >= ctx.max_outer_rounds) return null
   if (!ctx.has_needs_input && !ctx.has_unpresented_blocking) return null
@@ -1365,17 +1523,16 @@ function buildNextArgs(ctx) {
     tbd_answers: '<<ANSWER_HERE>>',
     tbd_answers_history: ctx.tbd_answers_history,
     documents: ctx.documents.map((d) => {
-      // writer は draft_path が保存先 path と別のときだけ最終稿を Write する（保存先への直書きは
-      // 人間ゲートを迂回するため指示しない）。Write 済みなら markdown を空にでき、args が痩せる。
-      const wroteBack = Boolean(d.draft_path && d.draft_path !== d.path)
+      // 本文は常に draft_path（writer が最後に Write し、line_count で照合済みのファイル。
+      // 一度も改稿されていない文書は入力のパス）から読ませる。args に本文を載せない。
       return {
         key: d.key,
         kind: d.kind,
         topic: d.topic,
         concern: d.concern,
         path: d.path,
-        draft_path: wroteBack ? d.draft_path : d.path,
-        markdown: wroteBack ? '' : d.markdown,
+        draft_path: d.draft_path || d.path,
+        markdown: '',
         summary: d.summary,
         items: d.items,
         referenced_ids: d.referenced,
@@ -1395,6 +1552,7 @@ function buildNextArgs(ctx) {
     paths: ctx.paths,
     today: ctx.today,
     ...(ctx.sources_path ? { sources_path: ctx.sources_path } : {}),
+    ...(ctx.draft_dir ? { draft_dir: ctx.draft_dir } : {}),
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
       : {}),
@@ -1478,30 +1636,9 @@ const LADDER_SCHEMA = {
   required: ['classified'],
 }
 
-async function classifyFindings(findings, label) {
-  const withDigest = findings.map((f) => ({ ...f, digest: f.digest || findingDigest(f) }))
-  const res = await agent(
-    [
-      `Read ${SKILL_DIR}/agents/ladder-judge.md for your full role instructions before doing anything else.`,
-      `判定表と契約は ${SKILL_DIR}/schemas/agent-contracts.md §ladder-judge を正とする。`,
-      '',
-      '# [FINDINGS] 分類対象（digest で照合される。digest を書き換えない）',
-      JSON.stringify(
-        withDigest.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity }) => ({
-          // fix は構造検査（script 生成の決定的指摘）だけが持つ。LLM auditor は direction。
-          digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity,
-        })),
-        null,
-        2
-      ),
-    ].join('\n'),
-    { model: 'sonnet', schema: LADDER_SCHEMA, phase: 'Audit', label }
-  )
-  const kindByDigest = new Map(
-    (((res || {}).classified) || [])
-      .filter((e) => e && e.digest && LADDER_KINDS.includes(e.kind))
-      .map((e) => [e.digest, e.kind])
-  )
+// partitionLadder: ladder-judge の分類で改稿経路（toWriter）と人間ゲート経路（needsInput）に分ける。
+// 指摘は丸ごと渡す — severity: degraded の冗長指摘の action もここで落とさずに writer へ届く。
+function partitionLadder(withDigest, kindByDigest) {
   const toWriter = []
   const needsInput = []
   for (const f of withDigest) {
@@ -1511,6 +1648,34 @@ async function classifyFindings(findings, label) {
     // 改稿経路そのものを止めない（欠測を needs_input に読み替えると偽の質問が人間へ飛ぶ）。
     else toWriter.push({ ...f, ladder_kind: kind || 'artifact' })
   }
+  return { toWriter, needsInput }
+}
+
+async function classifyFindings(findings, label) {
+  const withDigest = findings.map((f) => ({ ...f, digest: f.digest || findingDigest(f) }))
+  const res = await agent(
+    [
+      `Read ${SKILL_DIR}/agents/ladder-judge.md for your full role instructions before doing anything else.`,
+      `判定表と契約は ${SKILL_DIR}/schemas/agent-contracts.md §ladder-judge を正とする。`,
+      '',
+      '# [FINDINGS] 分類対象（digest で照合される。digest を書き換えない）',
+      JSON.stringify(
+        withDigest.map(({ digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity, action }) => ({
+          // fix は構造検査（script 生成の決定的指摘）だけが持つ。LLM auditor は direction。
+          digest, auditor, document, location, quote, issue, direction, direction_note, fix, severity, action,
+        })),
+        null,
+        2
+      ),
+    ].join('\n'),
+    { ...ROLE_OPTS.ladderJudge, schema: LADDER_SCHEMA, phase: 'Audit', label }
+  )
+  const kindByDigest = new Map(
+    (((res || {}).classified) || [])
+      .filter((e) => e && e.digest && LADDER_KINDS.includes(e.kind))
+      .map((e) => [e.digest, e.kind])
+  )
+  const { toWriter, needsInput } = partitionLadder(withDigest, kindByDigest)
   const unclassified = withDigest.filter((f) => !kindByDigest.has(f.digest)).length
   if (unclassified > 0) {
     log(
@@ -1904,6 +2069,15 @@ function attributionObserve({ prev_ids, next_items, declared_added_ids, trace, o
 // 追記し、counters は最終集計時に records から再計算する（1 回分の形状を使い回さない）。
 const attributionRecords = []
 
+// writeConfirmed: writer が [WRITE_BACK] のファイルへ返り値と同じ本文を書いたかの照合。
+// line_count は `wc -l` の出力（改行数）。返り値に無い末尾改行を Write 時に足す書き方があるので、
+// 改行数と行数のどちらかに一致すれば受理する。欠けていれば書き出し未確認として扱う。
+function writeConfirmed(result) {
+  if (!result || result.line_count === undefined || result.line_count === null) return false
+  const n = Number(String(result.line_count).trim())
+  return Number.isInteger(n) && (n === newlineCount(result.markdown) || n === lineTotal(result.markdown))
+}
+
 // forceAll: 人間ゲート②の回答を反映する最初のパスで使う。このパスは監査指摘ではなく回答が
 // 契機なので、findings が空でも全文書を引き直す必要がある（回答がどの文書に効くかは
 // 書いてみるまで決まらない）。findings で絞ると、反映パスが 1 文書も動かないまま通る。
@@ -1911,6 +2085,7 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
   // requirements を先に流し切ってから specifications に入る。仕様項目は文書を跨いだ
   // 要求 ID を引くため、要求側の増減が確定するまで紐付けを直しようがない。
   let requirementsRevised = false
+  lastRevisedId = revisionId
 
   const runFor = async (kind) => {
     const subset = documents.filter((d) => d.kind === kind && !d.fixed)
@@ -1930,12 +2105,12 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
       targetsForRound,
       (doc, attempt) =>
         agent(buildWriterPrompt(doc, findingsByDoc.get(doc.key) || [], revisionId, requirementsRevised), {
-          model: 'opus',
+          ...ROLE_OPTS.writer,
           schema: kind === 'requirements' ? REQ_DOC_SCHEMA : SPEC_DOC_SCHEMA,
           phase: revisionId.endsWith('.0') ? 'Reflect' : 'Revise',
           label: `${kind === 'requirements' ? 'req' : 'spec'}-${doc.topic}-${revisionId}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
         }).then((result) => ({ doc, result: result || null })),
-      (r) => r && r.result && r.result.markdown
+      (r) => r && r.result && r.result.markdown && writeConfirmed(r.result)
     )
     for (const { doc, result } of results) {
       if (!result || !result.markdown) {
@@ -1943,6 +2118,16 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
         // ただし「直そうとして直らなかった」と「一度も直されていない」は区別して返す。
         writerMissing.push(`${doc.key}@${revisionId}`)
         log(`改稿 ${revisionId}: ${doc.key} の writer が応答せず、前稿を維持しました。`)
+        continue
+      }
+      // 書き出しが確かめられない改稿は採用しない。以後の agent はファイルしか読めないので、
+      // 手元の markdown とファイルが食い違うと、監査は script が検査したのと別の本文を見る。
+      if (!writeConfirmed(result)) {
+        writerMissing.push(`${doc.key}@${revisionId}`)
+        log(
+          `改稿 ${revisionId}: ${doc.key} の書き出しを確認できません（line_count ${result.line_count} / ` +
+            `返り値の本文 ${newlineCount(result.markdown)} 行）。前稿を維持しました。`
+        )
         continue
       }
       const idx = documents.findIndex((d) => d.key === doc.key)
@@ -1963,9 +2148,18 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
       })
       for (const rec of gateObs.records)
         attributionRecords.push({ round: revisionId, document: doc.key, ...rec })
+      const prevMarkdown = documents[idx].markdown
+      if (!prevMarkdown) {
+        log(`改稿 ${revisionId}: ${doc.key} は前稿が手元に無く差分を計算できないため、次のスコープ監査では全体を区切って読ませます。`)
+      }
       documents[idx] = {
         ...documents[idx],
         markdown: result.markdown,
+        draft_path: revisedDraftPath(doc, revisionId),
+        revised_in: revisionId,
+        // 前稿が手元に無い（args から path だけで来た）文書は差分を計算できないので null にし、
+        // 次のスコープ監査では全体を区切って読ませる。
+        changed_ranges: prevMarkdown ? changedLineRanges(prevMarkdown, result.markdown) : null,
         summary: result.summary || documents[idx].summary,
         items,
         ids: items.map((i) => i.id).filter(Boolean),
@@ -2110,6 +2304,7 @@ while (true) {
     (task, attempt) =>
       agent(buildAuditPrompt(task.auditor, task, deferred, roundScopeNote), {
         model: task.auditor.model,
+        effort: task.auditor.effort,
         schema: AUDIT_SCHEMA,
         phase: 'Audit',
         label: `${task.auditor.name}-${task.target}-r${revisions}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
@@ -2388,6 +2583,7 @@ while (true) {
       (task, attempt) =>
         agent(buildAuditPrompt(task.auditor, task, deferred), {
           model: task.auditor.model,
+          effort: task.auditor.effort,
           schema: AUDIT_SCHEMA,
           phase: 'Audit',
           label: `${task.auditor.name}-${task.target}-r${revisions}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
@@ -2487,6 +2683,7 @@ async function runAuditPass(label, auditorNames, scopeNote) {
     (task, attempt) =>
       agent(buildAuditPrompt(task.auditor, task, deferred, scopeNote), {
         model: task.auditor.model,
+        effort: task.auditor.effort,
         schema: AUDIT_SCHEMA,
         phase: 'Audit',
         label: `${task.auditor.name}-${task.target}-${label.replace(/\s+/g, '-')}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
@@ -2643,7 +2840,7 @@ async function runResolveCandidates(items, label) {
   const out = new Map()
   if (!items.length) return out
   const res = await agent(buildResolverPrompt(items), {
-    model: 'opus',
+    ...ROLE_OPTS.resolver,
     schema: RESOLVER_SCHEMA,
     phase: 'Revise',
     label: `resolver-${label}`,
@@ -2656,7 +2853,7 @@ async function runResolveCandidates(items, label) {
     return out
   }
   const ver = await agent(buildVerifierPrompt(items, proposals), {
-    model: 'sonnet',
+    ...ROLE_OPTS.resolverVerifier,
     schema: VERIFIER_SCHEMA,
     phase: 'Revise',
     label: `resolver-verifier-${label}`,
@@ -2895,7 +3092,7 @@ let adjudicationRemaining = []
         '（fixed / rejected / documented）に分類します。'
     )
     const adjRaw = await agent(buildAdjudicationPrompt(remaining), {
-      model: 'opus',
+      ...ROLE_OPTS.adjudicator,
       schema: ADJUDICATION_SCHEMA,
       phase: 'Finalize',
       label: 'adjudicator',
@@ -3165,7 +3362,7 @@ if (unpresentedBlocking.length) {
         1
       )}`,
     ].join('\n'),
-    { model: 'sonnet', schema: PRECEDENT_SCHEMA, phase: 'Finalize', label: 'precedent-judge' }
+    { ...ROLE_OPTS.precedentJudge, schema: PRECEDENT_SCHEMA, phase: 'Finalize', label: 'precedent-judge' }
   )
   const pjById = new Map(
     (((pj || {}).classifications) || []).filter((c) => c && c.tbd_id).map((c) => [c.tbd_id, c])
@@ -3299,7 +3496,7 @@ if (measurableBlocking.length) {
         1
       ),
     ].join('\n'),
-    { model: 'sonnet', schema: MEASUREMENT_SCHEMA, phase: 'Finalize', label: 'measurement' }
+    { ...ROLE_OPTS.measurement, schema: MEASUREMENT_SCHEMA, phase: 'Finalize', label: 'measurement' }
   )
   const byId = new Map(
     (((mm || {}).resolutions) || []).filter((r) => r && r.tbd_id).map((r) => [r.tbd_id, r])
@@ -3551,6 +3748,7 @@ const nextArgs = buildNextArgs({
   paths,
   today,
   sources_path: sourcesPath,
+  draft_dir: draftDir,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
   suppressed_finding_ids: rejectedStructuralIds,
 })

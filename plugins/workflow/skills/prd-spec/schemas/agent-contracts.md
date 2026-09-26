@@ -103,6 +103,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 ```json
 {
   "markdown": "要求文書の本文（常設章は references/document-structure.md を正とする）",
+  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（本文と合わなければ script はその稿を採用しない）",
   "summary": "この文書に何が書いてあるかの 1〜2 文。INDEX の文書一覧に使われる",
   "requirement_items": [{ "id": "PR-AUTH-001", "heading": "多要素認証" }],
   "trace": [
@@ -154,6 +155,7 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 ```json
 {
   "markdown": "仕様書の本文",
+  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（本文と合わなければ script はその稿を採用しない）",
   "summary": "この文書に何が書いてあるかの 1〜2 文",
   "spec_items": [{ "id": "SP-AUTH-001", "heading": "認証トークンの発行" }],
   "trace": [{ "item_id": "SP-AUTH-001", "kind": "decision", "ref": "D-003", "quote": "..." }],
@@ -273,7 +275,8 @@ blocking の指摘は TBD として起票し直され、人間ゲート②の提
       "direction": "共通形と同じ enum（何を決めるべき欠落かは issue に書く。決め方の候補・文案は書かない）",
       "direction_note": "任意。方向の補足 1 行（50 字目安）",
       "severity": "blocking | degraded",
-      "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
+      "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）",
+      "action": "冗長指摘のみ。delete | merge_into:<ID> | replace_with_reference:<文書#ID> のどれか 1 つ"
     }
   ],
   "checked": "実際に読んだ範囲"

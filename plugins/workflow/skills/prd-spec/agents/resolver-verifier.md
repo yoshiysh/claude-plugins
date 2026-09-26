@@ -1,5 +1,5 @@
 ---
-model: sonnet
+model: opus
 subagent_type: general-purpose
 description: resolver が起草した解消候補を、決定との整合・捏造の有無・direction との整合で検証する
 ---

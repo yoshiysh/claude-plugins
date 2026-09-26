@@ -7,8 +7,8 @@
 押さえるのは 4 つ。
 1. tbd_answers がプレースホルダで、outer_round が +1 されている
 2. presented_tbd_ids が digest 込みの完全形でそのまま入る
-3. writer が draft_path へ Write 済みの文書は markdown が空になり draft_path 参照で渡る
-   （draft_path が保存先 path と同じ文書は markdown を保持する — path へは Write させない）
+3. 全文書が markdown 空・draft_path 参照で渡る（本文を args にもプロンプトにも載せない。
+   改稿されていない review 経路の文書は保存先 path がそのまま draft_path になる）
 4. 周回上限・継続不要（needs_input も未提示 blocking も無い）では null
 """
 
@@ -124,9 +124,10 @@ process.stdout.write(JSON.stringify(buildNextArgs(ctx)))
         auth = next(d for d in na["documents"] if d["key"] == "requirements/auth")
         self.assertEqual(auth["markdown"], "")
         self.assertEqual(auth["draft_path"], "/ws/drafts/r1/requirements-auth.md")
-        # draft_path が保存先 path と同じ文書（review 経路）は本文を保持する
+        # draft_path が保存先 path と同じ文書（review 経路）も本文を載せず、パスで渡す
         base = next(d for d in na["documents"] if d["key"] == "requirements/base")
-        self.assertEqual(base["markdown"], "# 既存本文")
+        self.assertEqual(base["markdown"], "")
+        self.assertEqual(base["draft_path"], "docs/requirements/base.md")
 
     def test_unpresented_blocking_だけでも組み立てる(self):
         na = self._run(_ctx(has_needs_input=False, has_unpresented_blocking=True))
@@ -159,8 +160,10 @@ class TestNextArgsWiring(unittest.TestCase):
 
     def test_writer_に最終稿の_Write_が指示される(self):
         # script は FS を触れないため、draft への書き出しは writer の仕事として明記される
-        self.assertIn("[WRITE_BACK] 最終稿の書き出し", REFINE)
-        self.assertIn("doc.draft_path && doc.draft_path !== doc.path", REFINE)
+        # 書き出しは常に指示され、先は改稿ごとの workspace ファイル（保存先 path ではない）
+        self.assertIn("[WRITE_BACK] 改稿稿の書き出し", REFINE)
+        self.assertIn("revisedDraftPath(doc, revisionId)", REFINE)
+        self.assertNotIn("doc.draft_path && doc.draft_path !== doc.path", REFINE)
 
 
 if __name__ == "__main__":

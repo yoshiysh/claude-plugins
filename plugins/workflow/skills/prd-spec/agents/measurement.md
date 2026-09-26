@@ -1,5 +1,5 @@
 ---
-model: sonnet
+model: opus
 subagent_type: general-purpose
 description: 未確定事項のうち「現物を読めば決まる」ものについて、リポジトリを実測して事実を確定する。確定できなかったものは確定できなかったと返す
 ---
