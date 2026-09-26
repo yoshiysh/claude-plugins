@@ -173,8 +173,7 @@ def detect_sync_base() -> str:
   """Step 5（新規ブランチ作成）の起点ブランチを決める。
 
   プロジェクト側に `.claude/detect-base-branch.sh`（現在のブランチから適切なベース
-  ブランチを検出するスクリプト。resolve-conflict・create-pr スキルが既に使っている）が
-  あれば優先する。無ければ origin の default branch（多くの場合 main）にフォールバックする。
+  ブランチを検出するスクリプト）があれば優先する。無ければ origin の default branch（多くの場合 main）にフォールバックする。
   """
   local_script = Path(".claude/detect-base-branch.sh")
   if local_script.is_file():

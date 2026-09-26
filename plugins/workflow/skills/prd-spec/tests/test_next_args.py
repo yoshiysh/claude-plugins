@@ -7,9 +7,11 @@
 押さえるのは 4 つ。
 1. tbd_answers がプレースホルダで、outer_round が +1 されている
 2. presented_tbd_ids が digest 込みの完全形でそのまま入る
-3. writer が draft_path へ Write 済みの文書は markdown が空になり draft_path 参照で渡る
-   （draft_path が保存先 path と同じ文書は markdown を保持する — path へは Write させない）
+3. 全文書が markdown を持たず draft_path 参照で渡る（本文を args にもプロンプトにも載せない。
+   改稿されていない review 経路の文書は保存先 path がそのまま draft_path になる）。line_count と
+   trace は持ち越す（改稿の writer は本文を通読せず、前稿の申告を写すため）
 4. 周回上限・継続不要（needs_input も未提示 blocking も無い）では null
+5. 返した args が次周回の入口検査（entryErrors）をそのまま通る
 """
 
 import json
@@ -50,8 +52,10 @@ def _ctx(**over):
                 "topic": "auth",
                 "concern": "認証",
                 "path": "docs/requirements/auth.md",
-                "draft_path": "/ws/drafts/r1/requirements-auth.md",
-                "markdown": "# 本文",
+                "draft_path": "/ws/drafts/r1/requirements-auth.R1.2.md",
+                "line_count": 812,
+                "markdown": "# 旧形式の args が持っていた本文",
+                "trace": [{"item_id": "PR-AUTH-001", "kind": "input", "quote": "多要素認証を必須とする"}],
                 "summary": "要約",
                 "items": [{"id": "PR-AUTH-001", "heading": "多要素認証"}],
                 "referenced": [],
@@ -119,14 +123,24 @@ process.stdout.write(JSON.stringify(buildNextArgs(ctx)))
         na = self._run(_ctx())
         self.assertEqual(na["presented_tbd_ids"], [{"id": "TBD-RAUTH-001", "digest": "abc1234"}])
 
-    def test_Write済み文書は_markdown_空で_draft_path_参照(self):
+    def test_Write済み文書は_markdown_を持たず_draft_path_参照(self):
         na = self._run(_ctx())
         auth = next(d for d in na["documents"] if d["key"] == "requirements/auth")
-        self.assertEqual(auth["markdown"], "")
-        self.assertEqual(auth["draft_path"], "/ws/drafts/r1/requirements-auth.md")
-        # draft_path が保存先 path と同じ文書（review 経路）は本文を保持する
+        self.assertNotIn("markdown", auth)
+        self.assertEqual(auth["draft_path"], "/ws/drafts/r1/requirements-auth.R1.2.md")
+        self.assertEqual(auth["line_count"], 812)
+        # draft_path が保存先 path と同じ文書（review 経路）も本文を載せず、パスで渡す
         base = next(d for d in na["documents"] if d["key"] == "requirements/base")
-        self.assertEqual(base["markdown"], "# 既存本文")
+        self.assertNotIn("markdown", base)
+        self.assertNotIn("line_count", base)  # 数えていない行数を作らない
+        self.assertEqual(base["draft_path"], "docs/requirements/base.md")
+
+    def test_trace_が持ち越される(self):
+        # 改稿の writer は本文を通読せず、触っていない項目の trace を前稿の申告から写す。
+        # 落とすと次周回で全項目が根拠なし（ST-NO-EVIDENCE）として指摘される。
+        na = self._run(_ctx())
+        auth = next(d for d in na["documents"] if d["key"] == "requirements/auth")
+        self.assertEqual(auth["trace"][0]["item_id"], "PR-AUTH-001")
 
     def test_unpresented_blocking_だけでも組み立てる(self):
         na = self._run(_ctx(has_needs_input=False, has_unpresented_blocking=True))
@@ -153,14 +167,54 @@ process.stdout.write(JSON.stringify(buildNextArgs(ctx)))
         self.assertIsNone(self._run(_ctx(has_needs_input=False, has_unpresented_blocking=False)))
 
 
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class TestNextArgsPassesEntry(unittest.TestCase):
+    """next_args をそのまま次周回の args に渡したとき、入口検査で落ちないこと。"""
+
+    def _errors(self, ctx):
+        src = "\n".join(
+            [
+                next(l for l in REFINE.split("\n") if l.startswith("const MAX_OUTER_ROUNDS = ")),
+                _extract_function(REFINE, "entryErrors"),
+                _extract_function(REFINE, "buildNextArgs"),
+            ]
+        )
+        harness = """
+const ctx = JSON.parse(process.argv[2])
+const na = buildNextArgs(ctx)
+// 司令塔が置換する唯一の箇所を埋めてから入口検査に通す
+process.stdout.write(JSON.stringify(entryErrors({ ...na, tbd_answers: '回答' })))
+"""
+        with tempfile.TemporaryDirectory() as d:
+            script = Path(d) / "t.mjs"
+            script.write_text(src + harness)
+            out = subprocess.run(
+                ["node", str(script), json.dumps(ctx)], capture_output=True, text=True, check=True
+            )
+        return json.loads(out.stdout)
+
+    def test_next_args_は入口検査を通る(self):
+        self.assertEqual(self._errors(_ctx(draft_dir="/ws/drafts/r1")), [])
+
+    def test_入口検査は不備を拾う(self):
+        # 検査が何も見ていない（常に空を返す）のでないことを、draft_dir 欠落で確かめる。
+        self.assertTrue(any("draft_dir" in e for e in self._errors(_ctx())))
+
+    def test_入口で本文を読まない(self):
+        body = _extract_function(REFINE, "entryErrors")
+        self.assertNotIn(".markdown", body)
+
+
 class TestNextArgsWiring(unittest.TestCase):
     def test_返り値に_next_args_が載る(self):
         self.assertIn("next_args: nextArgs", REFINE)
 
     def test_writer_に最終稿の_Write_が指示される(self):
         # script は FS を触れないため、draft への書き出しは writer の仕事として明記される
-        self.assertIn("[WRITE_BACK] 最終稿の書き出し", REFINE)
-        self.assertIn("doc.draft_path && doc.draft_path !== doc.path", REFINE)
+        # 書き出しは常に指示され、先は改稿ごとの workspace ファイル（保存先 path ではない）
+        self.assertIn("[WRITE_BACK] 改稿稿の書き出し", REFINE)
+        self.assertIn("revisedDraftPath(doc, revisionId)", REFINE)
+        self.assertNotIn("doc.draft_path && doc.draft_path !== doc.path", REFINE)
 
 
 if __name__ == "__main__":

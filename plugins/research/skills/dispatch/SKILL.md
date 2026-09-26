@@ -157,7 +157,7 @@ Workflow はバックグラウンドで実行される（`Workflow` ツールの
 
 ## モデル交代時の更新ポイント
 
-Fable 5 は現行フラッグシップ。次期モデルへ交代する際は、`scripts/orchestrate.js` 内の
+本スキルは Claude Fable 5 を前提に書かれている。モデルを交代する際は、`scripts/orchestrate.js` 内の
 `model: 'fable'` を差し替え、`references/fable-orchestration-prompting-guide.md` を
 新モデルの prompting guide に基づいて更新する（`chat/agents/sounding-board-consultant.md`
 と同じ更新ポイント。本スキル名にモデル名を含めていないのはこの更新を名前変更なしで

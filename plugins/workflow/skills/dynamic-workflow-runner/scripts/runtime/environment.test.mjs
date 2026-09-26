@@ -31,7 +31,7 @@ test('backend checks environment before thread dispatch and passes scoped SDK ov
     constructor(input) {options=input;}
     startThread() {starts++; throw Error('must not dispatch');}
   }
-  const backend=codexBackend({cwd:'/tmp',CodexClass:Fake,environment:{path:'/no-such-runtime-directory',requiredCommands:['node','rtk']}});
+  const backend=codexBackend({cwd:'/tmp',CodexClass:Fake,environment:{path:'/no-such-runtime-directory',requiredCommands:['node','missing-runtime-command']}});
   await assert.rejects(backend.prepare(),/unavailable/);
   await assert.rejects(backend.run('x',{}, {emit(){}}),/unavailable/);
   assert.equal(starts,0);

@@ -1,0 +1,195 @@
+{
+  "structural": {
+    "findings": [
+      {
+        "auditor": "structural",
+        "id": "ST-ORPHAN-REQ-PR-AUTH-003",
+        "document": "requirements/auth",
+        "location": "トレーサビリティ表",
+        "quote": "PR-AUTH-003",
+        "issue": "要求 PR-AUTH-003 がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。",
+        "fix": "PR-AUTH-003 を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-ORPHAN-REQ-PR-AUTH-004",
+        "document": "requirements/auth",
+        "location": "トレーサビリティ表",
+        "quote": "PR-AUTH-004",
+        "issue": "要求 PR-AUTH-004 がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。",
+        "fix": "PR-AUTH-004 を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-ORPHAN-REQ-PR-BASE-001",
+        "document": "requirements/base",
+        "location": "トレーサビリティ表",
+        "quote": "PR-BASE-001",
+        "issue": "要求 PR-BASE-001 がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。",
+        "fix": "PR-BASE-001 を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-ORPHAN-SPEC-SP-AUTH-004",
+        "document": "specifications/auth",
+        "location": "トレーサビリティ表",
+        "quote": "SP-AUTH-004",
+        "issue": "仕様項目 SP-AUTH-004 が自文書のトレーサビリティ表に現れない（＝根拠となる要求が不明の仕様）。",
+        "fix": "SP-AUTH-004 の根拠となる要求 ID を紐付ける。根拠が無いのであれば仕様項目を削除する。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-DANGLING-REQ-PR-AUTH-099",
+        "document": "specifications/auth",
+        "location": "トレーサビリティ表",
+        "quote": "PR-AUTH-099",
+        "issue": "トレーサビリティ表が要求 PR-AUTH-099 を参照しているが、どの requirements 文書の要求一覧にも存在しない。",
+        "fix": "いずれかの requirements 文書に PR-AUTH-099 を実在させるか、表の行を正しい要求 ID に直す。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-UNDECLARED-TBD-TBD-RAUTH-009",
+        "document": "requirements/auth",
+        "location": "未確定事項",
+        "quote": "TBD-RAUTH-009",
+        "issue": "未確定事項 TBD-RAUTH-009 が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。",
+        "fix": "TBD-RAUTH-009 を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-PHANTOM-PR-AUTH-004",
+        "document": "requirements/auth",
+        "location": "本文",
+        "quote": "PR-AUTH-004",
+        "issue": "要求 PR-AUTH-004 が ID 一覧に申告されているが、本文に存在しない。読み手はこの ID の中身を確認できない。",
+        "fix": "PR-AUTH-004 を本文に実在させるか、ID 一覧から外す。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-OBSOLETE-requirements/auth-21cfr82030",
+        "document": "requirements/auth",
+        "location": "本文",
+        "quote": "21 cfr 820.30",
+        "issue": "「21 cfr 820.30」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。",
+        "fix": "現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-MODAL-PR-AUTH-001-2",
+        "document": "requirements/auth",
+        "location": "PR-AUTH-001",
+        "quote": "設定は管理者が行うものとする",
+        "severity": "degraded",
+        "issue": "要求 PR-AUTH-001 の本文に、規範の意図を持つのに 4 語尾（〜しなければならない / 〜してはならない / 〜することが望ましい / 〜してもよい）のいずれでも終わらない文がある。区分（必須 / 禁止 / 推奨 / 許容）が読み手に決まらない。",
+        "fix": "文意に対応する 4 語尾のいずれかで文を終える（requirement-writing-rules.md §1 を正とする）。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-TBD-NORESOLVE-TBD-RAUTH-001",
+        "document": "requirements/auth",
+        "location": "未確定事項",
+        "quote": "TBD-RAUTH-001",
+        "severity": "degraded",
+        "issue": "着手を止める未確定事項 TBD-RAUTH-001 に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。",
+        "fix": "tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-GAP-UNDECLARED-SP-AUTH-002",
+        "document": "specifications/auth",
+        "location": "ID 一覧",
+        "quote": "SP-AUTH-002",
+        "issue": "ID 連番に欠番がある（SP-AUTH-002）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。",
+        "fix": "SP-AUTH-002 が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-UNVERIFIED-specifications/auth-IEC62304",
+        "document": "specifications/auth",
+        "location": "本文",
+        "quote": "IEC 62304",
+        "issue": "IEC 62304 の条番号を引用している。この規格は本文を確認できていないため、条番号の内容を裏付けられない。誤った条番号の引用は、規格に触れないことより有害である。",
+        "fix": "条番号を落とし、規格名と大まかな射程だけを述べる形に直す（例:「IEC 62304 の考え方に基づく」）。または引用自体を削除する。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-NOUNIT-specifications/auth",
+        "document": "specifications/auth",
+        "location": "対象範囲",
+        "quote": "(単位の宣言なし)",
+        "severity": "degraded",
+        "issue": "何を 1 つの仕様項目として切り出すかの宣言が本文に無い。単位が宣言されていないと、読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。",
+        "fix": "本文の一箇所（対象範囲の章など）に、機械的に判別できる形で単位を宣言する（例:「本書は `####` 見出し 1 つを 1 仕様項目とする」）。requirement-writing-rules.md §8 を正とする。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-OBSOLETE-requirements/base-designhistoryfile",
+        "document": "requirements/base",
+        "location": "本文",
+        "quote": "design history file",
+        "issue": "「design history file」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。",
+        "fix": "現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-NO-EVIDENCE-PR-AUTH-003",
+        "document": "requirements/auth",
+        "location": "PR-AUTH-003",
+        "quote": "PR-AUTH-003",
+        "issue": "PR-AUTH-003 に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。",
+        "fix": "根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-NON-NORMATIVE-requirements/auth-経緯・未確定事項の章",
+        "document": "requirements/auth",
+        "location": "本文",
+        "quote": "## 未確定事項",
+        "issue": "本文に経緯・未確定事項の章が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。",
+        "fix": "当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。"
+      },
+      {
+        "auditor": "structural",
+        "id": "ST-NON-NORMATIVE-specifications/auth-決定ログの出所表記",
+        "document": "specifications/auth",
+        "location": "本文",
+        "quote": "方式は OIDC とする（既定: D-001）。",
+        "issue": "本文に決定ログの出所表記が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。",
+        "fix": "当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。"
+      }
+    ],
+    "not_checked": []
+  },
+  "documents": [
+    {
+      "key": "requirements/auth",
+      "line_count": 18,
+      "newline_count": 18,
+      "changed_ranges": null
+    },
+    {
+      "key": "specifications/auth",
+      "line_count": 16,
+      "newline_count": 16,
+      "changed_ranges": [
+        {
+          "start": 8,
+          "end": 16,
+          "heading": "#### SP-AUTH-001 入力 / #### SP-AUTH-004 検証 / #### SP-AUTH-003 失敗"
+        },
+        {
+          "start": 12,
+          "end": 11,
+          "heading": "#### SP-AUTH-002 出力",
+          "deleted": true
+        }
+      ]
+    },
+    {
+      "key": "requirements/base",
+      "line_count": 4,
+      "newline_count": 3,
+      "changed_ranges": null
+    }
+  ]
+}
