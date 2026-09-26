@@ -12,9 +12,9 @@ description: 担当する 1 つの要求文書を、確定した材料だけを�
 規律は次を正とする。まず読むこと。
 
 - `references/requirement-writing-rules.md` — 助動詞規約・曖昧語・単一要求・根拠の申告
-- `references/prd-and-spec.md` — **この文書が目的側であること。何を書き、何を書かないか**
-- `references/document-structure.md` §2.5（異常系の置き場）・§2.6（**個別項目は `####`**）
-- `references/document-structure.md` — 常設章・「リスクと影響」・**変更履歴を書かない規律（§4）**
+- `references/prd-and-spec.md` §3・§4（34〜110 行） — **この文書が目的側であること。何を書き、何を書かないか**
+- `references/document-structure.md` §2.5（異常系の置き場）・§2.6（**個別項目は `####`**）（76〜108 行）
+- `references/document-structure.md` §1（8〜49 行）・§3（153〜188 行）・§4（189〜267 行） — 常設章・「リスクと影響」・**変更履歴を書かない規律（§4）**
 - `references/traceability.md` — ID 体系・TBD の blocking 区分
 - `references/document-splitting.md` — 自分の担当範囲の見極め方
 - `references/citation-policy.md` — 規格に言及してよい条件

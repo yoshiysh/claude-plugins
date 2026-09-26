@@ -113,12 +113,144 @@ class TestAgentOptsAreExplicit(unittest.TestCase):
         refine = _role_opts(REFINE)
         self.assertEqual(refine["writer"], ("opus", "medium"))
         self.assertEqual(refine["ladderJudge"], ("sonnet", "medium"))
+        # 判断を要する係は opus / medium（公式の指針: 知識作業で medium は high と同等、出力は入力の 5 倍の単価）
         for judge in ["resolver", "resolverVerifier", "adjudicator", "precedentJudge", "measurement"]:
-            self.assertEqual(refine[judge], ("opus", "high"), judge)
+            self.assertEqual(refine[judge], ("opus", "medium"), judge)
+        self.assertEqual(refine["checker"], ("sonnet", "low"))
         draft = _role_opts(DRAFT)
         self.assertEqual(draft["reqWriter"], ("opus", "medium"))
         self.assertEqual(draft["specWriter"], ("opus", "medium"))
         self.assertEqual(draft["executability"], ("opus", "high"))
+
+
+    def test_監査役の配分表(self):
+        m = re.search(r"const AUDITORS = \[(.*?)\n\]", REFINE, re.S)
+        table = {
+            name: (model, effort, scope)
+            for name, model, effort, scope in re.findall(
+                r"\{ name: '(\w+)', file: '[^']+', model: '(\w+)', effort: '(\w+)', scope: '(\w+)'", m.group(1)
+            )
+        }
+        # 1 文ずつ見て、見落としが成果物の欠陥（着手不能・捏造）に直結する 2 観点だけ high
+        self.assertEqual(table["executability"][:2], ("opus", "high"))
+        self.assertEqual(table["fabrication"][:2], ("opus", "high"))
+        self.assertEqual(table["validity"][:2], ("opus", "medium"))
+        self.assertEqual(table["specimen"][:2], ("opus", "medium"))
+        for mech in ("clarity", "traceability", "coverage", "consistency"):
+            self.assertEqual(table[mech][:2], ("sonnet", "medium"), mech)
+        # validity / specimen は文書ごとに 1 体（全文書を 1 体に持たせない）
+        self.assertEqual(table["validity"][2], "each")
+        self.assertEqual(table["specimen"][2], "each")
+        self.assertEqual([n for n, v in table.items() if v[2] == "all"], ["consistency"])
+
+    def test_既定値は_role_opts_で上書きできると明記されている(self):
+        io = (SKILL / "references" / "workflow-io.md").read_text()
+        self.assertTrue("既定値" in io and "実測で較正する" in io)
+        self.assertIn("args.role_opts", REFINE[: REFINE.index("const AUDITORS = [")])
+
+
+# 契約ファイルの節の行範囲（見出しから導く）。コードフェンスの中の見出しは数えない。
+def _sections(path: Path, level: int = 2):
+    lines = path.read_text().split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    heads, fence = [], False
+    for i, ln in enumerate(lines, 1):
+        if re.match(r"^\s*(```|~~~)", ln):
+            fence = not fence
+        if not fence and re.match(rf"^#{{{level}}} ", ln):
+            heads.append((i, ln))
+    return [(ln, n, (heads[k + 1][0] - 1 if k + 1 < len(heads) else len(lines))) for k, (n, ln) in enumerate(heads)]
+
+
+class TestRoleHeader(unittest.TestCase):
+    """agent に渡すのは役割ファイルと契約の節だけ。スキルの実装や他役割の指示を探させない。"""
+
+    def _block(self, src):
+        return src[src.index("// ROLE_HEADER_BEGIN") : src.index("// ROLE_HEADER_END")]
+
+    def test_draft_と_refine_で逐語一致(self):
+        self.assertEqual(self._block(DRAFT), self._block(REFINE))
+
+    def test_契約の行範囲は実ファイルの見出しと一致(self):
+        contracts = SKILL / "schemas" / "agent-contracts.md"
+        by_heading = {h: (a, b) for h, a, b in _sections(contracts)}
+        expected = {
+            "req-writer": by_heading["## §req-writer"],
+            "spec-writer": by_heading["## §spec-writer"],
+            "auditor": next(v for h, v in by_heading.items() if h.startswith("## auditor 共通形")),
+            "executability-auditor": by_heading["## §executability-auditor"],
+            "ladder-judge": by_heading["## §ladder-judge"],
+            "resolver": by_heading["## §resolver"],
+            "resolver-verifier": by_heading["## §resolver-verifier"],
+            "precedent-judge": by_heading["## §precedent-judge"],
+            "measurement": by_heading["## §measurement"],
+        }
+        m = re.search(r"const CONTRACT_LINES = \{(.*?)\n\}", REFINE, re.S)
+        got = {k.strip("'"): (int(a), int(b)) for k, a, b in re.findall(r"([\w'-]+): \[(\d+), (\d+)\]", m.group(1))}
+        self.assertEqual(got, expected, f"CONTRACT_LINES を次に直す: {expected}")
+
+    def test_契約を名前だけで指す指示が残っていない(self):
+        for name, src in SOURCES.items():
+            code = "\n".join(ln for _, ln in _code_lines(src))
+            self.assertNotRegex(code, r"agent-contracts\.md §", name)
+            self.assertNotIn("for your full role instructions", code.replace("`Read ${files.join(' and then ')} for your full role instructions", ""), name)
+
+    def test_Read_指示の対象は役割ファイルと行範囲付きの契約と短い参照だけ(self):
+        # スクリプト・SKILL.md・350 行を超えるファイルを行範囲なしで読ませる指示が無いこと。
+        for name, src in SOURCES.items():
+            code = "\n".join(ln for _, ln in _code_lines(src))
+            for m in re.finditer(r"\$\{(?:SKILL_DIR|skillDir)\}/([\w./-]+)", code):
+                rel = m.group(1)
+                # doc_check.mjs は checker が実行するもので、読ませるものではない
+                if rel == "scripts/doc_check.mjs":
+                    continue
+                self.assertFalse(rel.startswith("scripts/"), f"{name}: {rel}")
+                self.assertNotEqual(rel, "SKILL.md", name)
+                target = SKILL / rel
+                if target.is_file() and len(target.read_text().splitlines()) > 350:
+                    line = code[code.rfind("\n", 0, m.start()) + 1 : code.find("\n", m.end())]
+                    self.assertTrue(
+                        "offset=" in line or "通読しない" in code[m.start() : m.start() + 400],
+                        f"{name}: 350 行を超える {rel} を行範囲なしで指している: {line.strip()}",
+                    )
+
+    def test_読む範囲の宣言が全役割に入る(self):
+        header = self._block(REFINE)
+        self.assertIn("SKILL.md・scripts/・他の役割の agents/*.md", header)
+        body = _extract_function(REFINE, "roleHeader")
+        self.assertIn("READ_SCOPE", body)
+        self.assertIn("offset=${range[0]}", body)
+        # 役割ファイルは 1 回で読める長さ（350 行未満）
+        for f in (SKILL / "agents").glob("*.md"):
+            self.assertLess(len(f.read_text().splitlines()), 350, f.name)
+
+    def test_役割ファイルが指す大きな参照には行範囲が付く(self):
+        # 350 行を超える参照を行範囲なしで指すと、agent は全体を Read して gate に止められる。
+        big = {
+            "prd-and-spec.md": _sections(SKILL / "references" / "prd-and-spec.md"),
+            "document-structure.md": _sections(SKILL / "references" / "document-structure.md"),
+        }
+        roles = ["coverage-auditor", "executability-auditor", "fabrication-auditor", "req-writer", "spec-writer", "validity-auditor", "writer-common"]
+        for role in roles:
+            for ln in (SKILL / "agents" / f"{role}.md").read_text().splitlines():
+                named = [n for n in big if n in ln]
+                if not named:
+                    continue
+                pairs = [(int(a), int(b)) for a, b in re.findall(r"(\d+)〜(\d+) 行", ln)]
+                self.assertTrue(pairs, f"{role}: 行範囲が無い: {ln.strip()}")
+                starts = {a for n in named for _, a, _ in big[n]}
+                ends = {b for n in named for _, _, b in big[n]}
+                for a, b in pairs:
+                    # 書いた範囲は節の境界に揃う（連続する複数の節をまとめてもよい）
+                    self.assertIn(a, starts, f"{role}: {ln.strip()}")
+                    self.assertIn(b, ends, f"{role}: {ln.strip()}")
+
+    def test_measurement_は計測対象だけを読む(self):
+        body = REFINE[REFINE.index("roleHeader(SKILL_DIR, ['measurement.md'], 'measurement')") :][:800]
+        self.assertIn("measurement_target が名指しする現物", body)
+        self.assertIn("配下（このスキル自身）は測定対象ではないので読まない", body)
+        self.assertIn("## 読む対象", (SKILL / "agents" / "measurement.md").read_text())
 
 
 class TestNoBodyInPrompts(unittest.TestCase):

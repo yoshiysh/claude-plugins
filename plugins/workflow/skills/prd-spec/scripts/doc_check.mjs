@@ -107,6 +107,210 @@ function changedLineRanges(prevMarkdown, nextMarkdown) {
   return [...merged, ...deleted].sort((a, b) => a.start - b.start || Number(Boolean(a.deleted)) - Number(Boolean(b.deleted)))
 }
 
+// ------------------------------------------------------- 構造検査の文面（draft/refine と共有）
+//
+// CLI は指摘を { c: 種別, d: 文書キー, a: 引数 } の短い形で出し、文面（id / location / quote /
+// severity / issue / fix）はこの表から組み立てる。checker agent は CLI の出力を 1 字ずつ書き写して
+// 返すので、指摘ごとに同じ説明文を載せると出力が数百 KB に膨らみ、写すトークンと写し間違いの
+// 機会がそのまま増える（実測: 実 run の下書きで 311〜415 KB）。
+// 文面は TBD-EX / TBD-NI の ID・novelty の digest・抑止の照合キーに入るので、組み立て結果は
+// 以前の文面と 1 字も違ってはならない（tests/test_doc_check.py が golden と照合する）。
+// この区間は scripts/refine.js と scripts/draft.js に逐語で複製されている（workflow script は
+// import を書けない。一致は tests/test_doc_check.py が検査する）。
+// FINDING_TEXT_BEGIN
+const KIND_LABEL = { R: '要求', S: '仕様項目' }
+const FINDING_TEXT = {
+  DUP: (id, keys) => ({
+    id: `ST-DUP-${id}`,
+    location: 'ID 一覧',
+    quote: id,
+    issue: `ID ${id} が ${keys.join(' / ')} の複数文書で定義されている。ID は文書を跨いで一意でなければ、トレーサビリティ表がどちらの項目を指しているか決まらない。`,
+    fix: `領域プレフィックスを文書の topic に対応させて振り直す（${keys[1]} 側を別の領域名にする）。`,
+  }),
+  DUP_TBD: (id, keys, text0, text1) => ({
+    id: `ST-DUP-TBD-${id}`,
+    location: '未確定事項',
+    quote: id,
+    issue: `TBD ${id} が ${keys.join(' / ')} の複数文書から別々の内容で申告されている（「${text0}」と「${text1}」）。統合時に片方が消えるため、消えた側が着手を止める項目でも人間に提示されない。`,
+    fix: 'TBD の番号にも文書の領域プレフィックスを付けて振り直す（例 TBD-AUTH-001）。',
+  }),
+  ORPHAN_REQ: (id) => ({
+    id: `ST-ORPHAN-REQ-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `要求 ${id} がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。`,
+    fix: `${id} を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。`,
+  }),
+  ORPHAN_SPEC: (id) => ({
+    id: `ST-ORPHAN-SPEC-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `仕様項目 ${id} が自文書のトレーサビリティ表に現れない（＝根拠となる要求が不明の仕様）。`,
+    fix: `${id} の根拠となる要求 ID を紐付ける。根拠が無いのであれば仕様項目を削除する。`,
+  }),
+  DANGLING_REQ: (id) => ({
+    id: `ST-DANGLING-REQ-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `トレーサビリティ表が要求 ${id} を参照しているが、どの requirements 文書の要求一覧にも存在しない。`,
+    fix: `いずれかの requirements 文書に ${id} を実在させるか、表の行を正しい要求 ID に直す。`,
+  }),
+  DANGLING_SPEC: (id) => ({
+    id: `ST-DANGLING-SPEC-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `トレーサビリティ表が仕様項目 ${id} を参照しているが、仕様書に存在しない。`,
+    fix: `${id} を本文に実在させるか、表の行を正しい仕様項目 ID に直す。`,
+  }),
+  VACANT_CONFLICT: (k, id) => ({
+    id: `ST-VACANT-CONFLICT-${id}`,
+    location: 'ID 一覧',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
+    fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
+  }),
+  UNDECLARED: (k, id) => ({
+    id: `ST-UNDECLARED-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
+    fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
+  }),
+  UNDECLARED_TBD: (id) => ({
+    id: `ST-UNDECLARED-TBD-${id}`,
+    location: '未確定事項',
+    quote: id,
+    issue: `未確定事項 ${id} が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。`,
+    fix: `${id} を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
+  }),
+  PHANTOM: (k, id) => ({
+    id: `ST-PHANTOM-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が ID 一覧に申告されているが、本文に存在しない。読み手はこの ID の中身を確認できない。`,
+    fix: `${id} を本文に実在させるか、ID 一覧から外す。`,
+  }),
+  GAP: (missingId) => ({
+    id: `ST-GAP-UNDECLARED-${missingId}`,
+    location: 'ID 一覧',
+    quote: missingId,
+    issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
+    fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
+  }),
+  OBSOLETE: (term, docKey) => ({
+    id: `ST-OBSOLETE-${docKey}-${term.replace(/[^a-z0-9]/g, '')}`,
+    location: '本文',
+    quote: term,
+    issue: `「${term}」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。`,
+    fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。',
+  }),
+  OBSOLETE_DHF: (docKey) => ({
+    id: `ST-OBSOLETE-${docKey}-dhf`,
+    location: '本文',
+    quote: 'DHF',
+    issue: '「DHF（design history file）」は現行の規制文言ではない。QMSR は DHF ではなく "medical device file" の語を使う。',
+    fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記する。',
+  }),
+  UNVERIFIED: (std, docKey) => ({
+    id: `ST-UNVERIFIED-${docKey}-${std.replace(/[^A-Za-z0-9]/g, '')}`,
+    location: '本文',
+    quote: std,
+    issue: `${std} の条番号を引用している。この規格は本文を確認できていないため、条番号の内容を裏付けられない。誤った条番号の引用は、規格に触れないことより有害である。`,
+    fix: `条番号を落とし、規格名と大まかな射程だけを述べる形に直す（例:「${std} の考え方に基づく」）。または引用自体を削除する。`,
+  }),
+  NOUNIT: (docKey) => ({
+    id: `ST-NOUNIT-${docKey}`,
+    location: '対象範囲',
+    quote: '(単位の宣言なし)',
+    severity: 'degraded',
+    issue: '何を 1 つの仕様項目として切り出すかの宣言が本文に無い。単位が宣言されていないと、読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。',
+    fix: '本文の一箇所（対象範囲の章など）に、機械的に判別できる形で単位を宣言する（例:「本書は `####` 見出し 1 つを 1 仕様項目とする」）。requirement-writing-rules.md §8 を正とする。',
+  }),
+  MODAL: (id, sent, quote) => ({
+    id: `ST-MODAL-${id}-${sent}`,
+    location: id,
+    quote,
+    severity: 'degraded',
+    issue: `要求 ${id} の本文に、規範の意図を持つのに 4 語尾（〜しなければならない / 〜してはならない / 〜することが望ましい / 〜してもよい）のいずれでも終わらない文がある。区分（必須 / 禁止 / 推奨 / 許容）が読み手に決まらない。`,
+    fix: '文意に対応する 4 語尾のいずれかで文を終える（requirement-writing-rules.md §1 を正とする）。',
+  }),
+  IDHEADING: (id, level, baseLevel) => ({
+    id: `ST-IDHEADING-${id}`,
+    location: '見出し',
+    quote: id,
+    severity: 'degraded',
+    issue: `ID を含む見出しのレベルが文書内で不統一（${id} はレベル ${level}、この文書の基準はレベル ${baseLevel}）。読み手が「章の中の区分」と「個別項目」を階層で見分けられない。`,
+    fix: '個別項目の見出しレベルを文書内で統一する（document-structure.md §2.6 は `####` を基準とする）。',
+  }),
+  TBD_NORESOLVE: (id) => ({
+    id: `ST-TBD-NORESOLVE-${id}`,
+    location: '未確定事項',
+    quote: id,
+    severity: 'degraded',
+    issue: `着手を止める未確定事項 ${id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
+    fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
+  }),
+  NO_EVIDENCE: (id) => ({
+    id: `ST-NO-EVIDENCE-${id}`,
+    location: id,
+    quote: id,
+    issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
+    fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+  }),
+  NON_NORMATIVE: (what, quote, docKey) => ({
+    id: `ST-NON-NORMATIVE-${docKey}-${what}`,
+    location: '本文',
+    quote,
+    issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
+    fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
+  }),
+  NC_CROSSREF: (kind) => ({
+    id: 'ST-NOTCHECKED-CROSSREF',
+    issue:
+      `${kind} 文書が本ランの対象に含まれないため、` +
+      '要求 ID と仕様項目 ID の突き合わせを実行していない。「指摘 0 件」ではなく「未検査」である。',
+  }),
+  NC_TRACE: (key) => ({
+    id: `ST-NOTCHECKED-TRACE-${key}`,
+    issue: `${key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
+  }),
+  NC_BODY: (key, p) => ({
+    id: `ST-NOTCHECKED-BODY-${key}`,
+    issue: `${key} の本文 ${p} を読めなかったため、本文を使う検査（申告と本文の突き合わせ・禁止語・語尾）を実行していない。「指摘 0 件」ではなく「未検査」である。`,
+  }),
+}
+
+// expandStructural: 短い形の { findings, not_checked } を文面付きの形に戻す。短い形の findings は
+// 「同じ種別・同じ文書が続く指摘」を 1 要素にまとめた { c, d, a: [引数の組, ...] } の列で、
+// 展開すると引数の組 1 つが指摘 1 件になる（順序は CLI が検出した順のまま）。文面付きの各要素は
+// { auditor: 'structural', id, document, location, quote, severity?, issue, fix }、not_checked は
+// { id, issue }。未知の種別は例外にする（黙って落とすと、指摘が「0 件」に化ける）。
+function expandStructural(compact) {
+  const make = (c, args) => {
+    const t = FINDING_TEXT[c]
+    if (!t) throw new Error(`構造検査の未知の種別です: ${JSON.stringify(c)}`)
+    return t(...(args || []))
+  }
+  const findings = []
+  for (const g of compact.findings || []) {
+    for (const args of (g && g.a) || []) {
+      const t = make(g.c, args)
+      findings.push({
+        auditor: 'structural',
+        id: t.id,
+        document: g.d,
+        location: t.location,
+        quote: t.quote,
+        ...(t.severity ? { severity: t.severity } : {}),
+        issue: t.issue,
+        fix: t.fix,
+      })
+    }
+  }
+  return { findings, not_checked: (compact.not_checked || []).map((n) => make(n && n.c, n && n.a)) }
+}
+// FINDING_TEXT_END
+
 // ------------------------------------------------------- 構造検査（draft/refine 共通）
 //
 // 正本はこのファイルだけである。draft.js / refine.js は checker agent 経由でこの CLI を
@@ -117,7 +321,7 @@ function changedLineRanges(prevMarkdown, nextMarkdown) {
 // 戻り値は { findings, not_checked }。not_checked は「材料が無くて実行できなかった検査」で、
 // 失格ではない。これを返さないと、片側の文書が対象外のランで「検査して 0 件」と
 // 「そもそも検査していない」が区別できず、後者が合格として提示される。
-function structuralFindings(docs) {
+function structuralCompact(docs) {
   const out = []
   const notChecked = []
   const reqDocs = docs.filter((d) => d.kind === 'requirements')
@@ -138,15 +342,7 @@ function structuralFindings(docs) {
   }
   for (const [id, keys] of owners) {
     if (keys.length < 2) continue
-    out.push({
-      auditor: 'structural',
-      id: `ST-DUP-${id}`,
-      document: keys[0],
-      location: 'ID 一覧',
-      quote: id,
-      issue: `ID ${id} が ${keys.join(' / ')} の複数文書で定義されている。ID は文書を跨いで一意でなければ、トレーサビリティ表がどちらの項目を指しているか決まらない。`,
-      fix: `領域プレフィックスを文書の topic に対応させて振り直す（${keys[1]} 側を別の領域名にする）。`,
-    })
+    out.push({ c: 'DUP', d: keys[0], a: [id, keys] })
   }
 
   // (1b) TBD ID の文書跨ぎ重複。分割文書は並列で執筆されるため、互いの採番を知らない
@@ -163,26 +359,13 @@ function structuralFindings(docs) {
   }
   for (const [id, recs] of tbdOwners) {
     if (recs.length < 2) continue
-    out.push({
-      auditor: 'structural',
-      id: `ST-DUP-TBD-${id}`,
-      document: recs[0].key,
-      location: '未確定事項',
-      quote: id,
-      issue: `TBD ${id} が ${recs.map((r) => r.key).join(' / ')} の複数文書から別々の内容で申告されている（「${recs[0].text}」と「${recs[1].text}」）。統合時に片方が消えるため、消えた側が着手を止める項目でも人間に提示されない。`,
-      fix: 'TBD の番号にも文書の領域プレフィックスを付けて振り直す（例 TBD-AUTH-001）。',
-    })
+    out.push({ c: 'DUP_TBD', d: recs[0].key, a: [id, recs.map((r) => r.key), recs[0].text, recs[1].text] })
   }
 
   // (2) 片側にしか現れない ID。requirements の ID 集合 / specifications の ID 集合 /
   //     トレーサビリティ表の 3 集合を**文書を跨いで**照合する。ここがこのスキルの背骨。
   if (!reqDocs.length || !specDocs.length) {
-    notChecked.push({
-      id: 'ST-NOTCHECKED-CROSSREF',
-      issue:
-        `${!reqDocs.length ? 'requirements' : 'specifications'} 文書が本ランの対象に含まれないため、` +
-        '要求 ID と仕様項目 ID の突き合わせを実行していない。「指摘 0 件」ではなく「未検査」である。',
-    })
+    notChecked.push({ c: 'NC_CROSSREF', a: [!reqDocs.length ? 'requirements' : 'specifications'] })
   }
   if (reqDocs.length && specDocs.length) {
     const reqIds = new Set(reqDocs.flatMap((d) => d.ids))
@@ -194,51 +377,19 @@ function structuralFindings(docs) {
     for (const id of reqIds) {
       if (linkedReq.has(id)) continue
       const owner = (owners.get(id) || ['requirements'])[0]
-      out.push({
-        auditor: 'structural',
-        id: `ST-ORPHAN-REQ-${id}`,
-        document: owner,
-        location: 'トレーサビリティ表',
-        quote: id,
-        issue: `要求 ${id} がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。`,
-        fix: `${id} を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。`,
-      })
+      out.push({ c: 'ORPHAN_REQ', d: owner, a: [id] })
     }
     for (const id of specIds) {
       if (linkedSpec.has(id)) continue
       const owner = (owners.get(id) || ['specifications'])[0]
-      out.push({
-        auditor: 'structural',
-        id: `ST-ORPHAN-SPEC-${id}`,
-        document: owner,
-        location: 'トレーサビリティ表',
-        quote: id,
-        issue: `仕様項目 ${id} が自文書のトレーサビリティ表に現れない（＝根拠となる要求が不明の仕様）。`,
-        fix: `${id} の根拠となる要求 ID を紐付ける。根拠が無いのであれば仕様項目を削除する。`,
-      })
+      out.push({ c: 'ORPHAN_SPEC', d: owner, a: [id] })
     }
     for (const link of links) {
       if (link.requirement_id && !reqIds.has(link.requirement_id)) {
-        out.push({
-          auditor: 'structural',
-          id: `ST-DANGLING-REQ-${link.requirement_id}`,
-          document: link.from,
-          location: 'トレーサビリティ表',
-          quote: link.requirement_id,
-          issue: `トレーサビリティ表が要求 ${link.requirement_id} を参照しているが、どの requirements 文書の要求一覧にも存在しない。`,
-          fix: `いずれかの requirements 文書に ${link.requirement_id} を実在させるか、表の行を正しい要求 ID に直す。`,
-        })
+        out.push({ c: 'DANGLING_REQ', d: link.from, a: [link.requirement_id] })
       }
       if (link.spec_id && !specIds.has(link.spec_id)) {
-        out.push({
-          auditor: 'structural',
-          id: `ST-DANGLING-SPEC-${link.spec_id}`,
-          document: link.from,
-          location: 'トレーサビリティ表',
-          quote: link.spec_id,
-          issue: `トレーサビリティ表が仕様項目 ${link.spec_id} を参照しているが、仕様書に存在しない。`,
-          fix: `${link.spec_id} を本文に実在させるか、表の行を正しい仕様項目 ID に直す。`,
-        })
+        out.push({ c: 'DANGLING_SPEC', d: link.from, a: [link.spec_id] })
       }
     }
   }
@@ -252,7 +403,7 @@ function structuralFindings(docs) {
     //     固定文書（本ランの対象外・既存本文をそのまま持つもの）は agent の自己申告が
     //     存在しないので、この検査の対象にしない（申告漏れは申告があって初めて定義できる）。
     const re = ID_IN_TEXT[d.kind]
-    const label = d.kind === 'requirements' ? '要求' : '仕様項目'
+    const kindCode = d.kind === 'requirements' ? 'R' : 'S'
     const inText = new Set(d.markdown.match(re) || [])
     const inList = new Set(d.ids)
     const referenced = new Set(d.referenced || [])
@@ -272,27 +423,11 @@ function structuralFindings(docs) {
     // 実在する項目と両立しない）。どちらの申告が正しいか読み手に判断させない。
     for (const id of d.fixed ? [] : new Set(d.vacant || [])) {
       if (!inList.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-VACANT-CONFLICT-${id}`,
-        document: d.key,
-        location: 'ID 一覧',
-        quote: id,
-        issue: `${label} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
-        fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
-      })
+      out.push({ c: 'VACANT_CONFLICT', d: d.key, a: [kindCode, id] })
     }
     for (const id of d.fixed ? [] : inText) {
       if (inList.has(id) || referenced.has(id) || vacantDeclared.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-UNDECLARED-${id}`,
-        document: d.key,
-        location: '本文',
-        quote: id,
-        issue: `${label} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
-        fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
-      })
+      out.push({ c: 'UNDECLARED', d: d.key, a: [kindCode, id] })
     }
     // (3b) 本文が引く TBD ID と、申告された tbd_items の突き合わせ。(3) と同じ理屈だが、
     //      壊れる先が違う。申告に載らない TBD は blocking の集計から外れるため、
@@ -307,28 +442,12 @@ function structuralFindings(docs) {
       // （実測: 6 文書の初稿で 15 件の誤検出）。守りたいのは「どの文書にも申告されていない
       // TBD が blocking の集計から外れること」なので、全文書の申告の和で判定する。
       if (tbdDeclaredAll.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-UNDECLARED-TBD-${id}`,
-        document: d.key,
-        location: '未確定事項',
-        quote: id,
-        issue: `未確定事項 ${id} が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。`,
-        fix: `${id} を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
-      })
+      out.push({ c: 'UNDECLARED_TBD', d: d.key, a: [id] })
     }
 
     for (const id of d.fixed ? [] : inList) {
       if (inText.has(id)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-PHANTOM-${id}`,
-        document: d.key,
-        location: '本文',
-        quote: id,
-        issue: `${label} ${id} が ID 一覧に申告されているが、本文に存在しない。読み手はこの ID の中身を確認できない。`,
-        fix: `${id} を本文に実在させるか、ID 一覧から外す。`,
-      })
+      out.push({ c: 'PHANTOM', d: d.key, a: [kindCode, id] })
     }
 
     // (3c) ID 連番の欠番の無申告。欠番そのものは許す（採番を詰める改稿を強制しない）が、
@@ -353,15 +472,7 @@ function structuralFindings(docs) {
         if (present.has(n)) continue
         const missingId = `${gapPrefix}${String(n).padStart(width, '0')}`
         if (vacantDeclared.has(missingId)) continue
-        out.push({
-          auditor: 'structural',
-          id: `ST-GAP-UNDECLARED-${missingId}`,
-          document: d.key,
-          location: 'ID 一覧',
-          quote: missingId,
-          issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
-          fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
-        })
+        out.push({ c: 'GAP', d: d.key, a: [missingId] })
       }
     }
 
@@ -369,42 +480,18 @@ function structuralFindings(docs) {
     const lower = d.markdown.toLowerCase()
     for (const term of OBSOLETE_TERMS) {
       if (!lower.includes(term)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-OBSOLETE-${d.key}-${term.replace(/[^a-z0-9]/g, '')}`,
-        document: d.key,
-        location: '本文',
-        quote: term,
-        issue: `「${term}」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。`,
-        fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。',
-      })
+      out.push({ c: 'OBSOLETE', d: d.key, a: [term, d.key] })
     }
     // DHF は略語。'design history file' が既に検出されていれば同じ記述を 2 件に数えない。
     if (!lower.includes('design history file') && /\bDHF\b/.test(d.markdown)) {
-      out.push({
-        auditor: 'structural',
-        id: `ST-OBSOLETE-${d.key}-dhf`,
-        document: d.key,
-        location: '本文',
-        quote: 'DHF',
-        issue: '「DHF（design history file）」は現行の規制文言ではない。QMSR は DHF ではなく "medical device file" の語を使う。',
-        fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記する。',
-      })
+      out.push({ c: 'OBSOLETE_DHF', d: d.key, a: [d.key] })
     }
 
     // (5) 本文を確認できていない有料規格の条番号引用。規格名の直後に節番号が続く形だけを拾う。
     for (const std of UNVERIFIABLE_STANDARDS) {
       const pattern = new RegExp(`${std}[^。\\n]{0,20}?${CLAUSE_REF}`)
       if (!pattern.test(d.markdown)) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-UNVERIFIED-${d.key}-${std.replace(/[^A-Za-z0-9]/g, '')}`,
-        document: d.key,
-        location: '本文',
-        quote: std,
-        issue: `${std} の条番号を引用している。この規格は本文を確認できていないため、条番号の内容を裏付けられない。誤った条番号の引用は、規格に触れないことより有害である。`,
-        fix: `条番号を落とし、規格名と大まかな射程だけを述べる形に直す（例:「${std} の考え方に基づく」）。または引用自体を削除する。`,
-      })
+      out.push({ c: 'UNVERIFIED', d: d.key, a: [std, d.key] })
     }
 
     // (6) 品質チェックリストが「機械」と宣言する検査の script 実装。いずれも severity は
@@ -415,16 +502,7 @@ function structuralFindings(docs) {
       //      読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。
       //      宣言の実在だけを機械判定する（宣言内容の妥当性は厳密に判定できないので検査しない）。
       if (!/仕様項目の単位|(1\s*(つの)?|一つの)仕様項目とす/.test(d.markdown)) {
-        out.push({
-          auditor: 'structural',
-          id: `ST-NOUNIT-${d.key}`,
-          document: d.key,
-          location: '対象範囲',
-          quote: '(単位の宣言なし)',
-          severity: 'degraded',
-          issue: '何を 1 つの仕様項目として切り出すかの宣言が本文に無い。単位が宣言されていないと、読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。',
-          fix: '本文の一箇所（対象範囲の章など）に、機械的に判別できる形で単位を宣言する（例:「本書は `####` 見出し 1 つを 1 仕様項目とする」）。requirement-writing-rules.md §8 を正とする。',
-        })
+        out.push({ c: 'NOUNIT', d: d.key, a: [d.key] })
       }
     }
     if (d.kind === 'requirements' && !d.fixed) {
@@ -467,16 +545,7 @@ function structuralFindings(docs) {
             sent++
             if (MODAL_OK.test(body)) continue
             if (!MODAL_INTENT.test(body)) continue
-            out.push({
-              auditor: 'structural',
-              id: `ST-MODAL-${idHeadings[k].id}-${sent}`,
-              document: d.key,
-              location: idHeadings[k].id,
-              quote: body.slice(-40),
-              severity: 'degraded',
-              issue: `要求 ${idHeadings[k].id} の本文に、規範の意図を持つのに 4 語尾（〜しなければならない / 〜してはならない / 〜することが望ましい / 〜してもよい）のいずれでも終わらない文がある。区分（必須 / 禁止 / 推奨 / 許容）が読み手に決まらない。`,
-              fix: '文意に対応する 4 語尾のいずれかで文を終える（requirement-writing-rules.md §1 を正とする）。',
-            })
+            out.push({ c: 'MODAL', d: d.key, a: [idHeadings[k].id, sent, body.slice(-40)] })
           }
         }
       }
@@ -486,16 +555,7 @@ function structuralFindings(docs) {
       if (levelCount.size > 1) {
         for (const h of idHeadings) {
           if (h.level === baseLevel) continue
-          out.push({
-            auditor: 'structural',
-            id: `ST-IDHEADING-${h.id}`,
-            document: d.key,
-            location: '見出し',
-            quote: h.id,
-            severity: 'degraded',
-            issue: `ID を含む見出しのレベルが文書内で不統一（${h.id} はレベル ${h.level}、この文書の基準はレベル ${baseLevel}）。読み手が「章の中の区分」と「個別項目」を階層で見分けられない。`,
-            fix: '個別項目の見出しレベルを文書内で統一する（document-structure.md §2.6 は `####` を基準とする）。',
-          })
+          out.push({ c: 'IDHEADING', d: d.key, a: [h.id, h.level, baseLevel] })
         }
       }
       // (6d) 解消条件の無い blocking TBD。何が決まればこの項目が解消するかが書かれていないと、
@@ -505,16 +565,7 @@ function structuralFindings(docs) {
         if (!t || !t.blocking || !t.id) continue
         if (String(t.text || '').includes('解消')) continue
         if (bodyLines.some((ln) => ln.includes(t.id) && ln.includes('解消'))) continue
-        out.push({
-          auditor: 'structural',
-          id: `ST-TBD-NORESOLVE-${t.id}`,
-          document: d.key,
-          location: '未確定事項',
-          quote: t.id,
-          severity: 'degraded',
-          issue: `着手を止める未確定事項 ${t.id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
-          fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
-        })
+        out.push({ c: 'TBD_NORESOLVE', d: d.key, a: [t.id] })
       }
     }
   }
@@ -528,23 +579,12 @@ function structuralFindings(docs) {
   for (const d of docs) {
     if (d.fixed) continue
     if (!Array.isArray(d.trace)) {
-      notChecked.push({
-        id: `ST-NOTCHECKED-TRACE-${d.key}`,
-        issue: `${d.key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
-      })
+      notChecked.push({ c: 'NC_TRACE', a: [d.key] })
     } else {
       const traced = new Set(d.trace.map((t) => t && t.item_id).filter(Boolean))
       for (const id of d.ids) {
         if (traced.has(id)) continue
-        out.push({
-          auditor: 'structural',
-          id: `ST-NO-EVIDENCE-${id}`,
-          document: d.key,
-          location: id,
-          quote: id,
-          issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
-          fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
-        })
+        out.push({ c: 'NO_EVIDENCE', d: d.key, a: [id] })
       }
     }
   }
@@ -563,19 +603,18 @@ function structuralFindings(docs) {
     for (const p of NON_NORMATIVE) {
       const hit = String(d.markdown).split('\n').find((ln) => p.re.test(ln))
       if (!hit) continue
-      out.push({
-        auditor: 'structural',
-        id: `ST-NON-NORMATIVE-${d.key}-${p.what}`,
-        document: d.key,
-        location: '本文',
-        quote: hit.trim().slice(0, 60),
-        issue: `本文に${p.what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
-        fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
-      })
+      out.push({ c: 'NON_NORMATIVE', d: d.key, a: [p.what, hit.trim().slice(0, 60), d.key] })
     }
   }
 
-  return { findings: out, not_checked: notChecked }
+  // 同じ種別・同じ文書が続く指摘を 1 要素にまとめる（ORPHAN / GAP は数百件が連続する）。
+  const grouped = []
+  for (const f of out) {
+    const last = grouped[grouped.length - 1]
+    if (last && last.c === f.c && last.d === f.d) last.a.push(f.a)
+    else grouped.push({ c: f.c, d: f.d, a: [f.a] })
+  }
+  return { findings: grouped, not_checked: notChecked }
 }
 
 function stableKey(text) {
@@ -599,6 +638,52 @@ function canonicalJson(value) {
   }
   return JSON.stringify(value === undefined ? null : value)
 }
+
+// structuralFindings: 文面付きの形で返す版（tests と、文面を直接見たい呼び出し側のため）。
+// CLI の出力は structuralCompact の短い形で、文面は受け取った側が expandStructural で組み立てる。
+function structuralFindings(docs) {
+  return expandStructural(structuralCompact(docs))
+}
+
+// headingIndex: 見出し（## / ### / ####。コードフェンスの中は除く）ごとの行範囲。範囲は次の同格以上の
+// 見出しの手前まで（## はその下の ### / #### を含む）。行番号は 1 始まり。
+function headingIndex(md) {
+  const lines = String(md || '').split('\n')
+  if (lines.length && lines[lines.length - 1] === '') lines.pop()
+  const heads = []
+  let inFence = false
+  lines.forEach((ln, i) => {
+    if (/^\s*(```|~~~)/.test(ln)) inFence = !inFence
+    const m = !inFence && /^(#{2,4})\s/.exec(ln)
+    if (m) heads.push({ level: m[1].length, start: i + 1, heading: ln.trim() })
+  })
+  return heads.map((h, k) => {
+    const next = heads.slice(k + 1).find((x) => x.level <= h.level)
+    return { ...h, end: next ? next.start - 1 : lines.length }
+  })
+}
+
+// writeIndex: 見出しと行範囲の一覧を index_dir に書き、そのパスと行数を返す。監査役・writer は
+// 他文書や固定文書の本文を通読する代わりにこれを読み、要る節だけを行範囲で Read する。本文を
+// 出力に載せないので、checker が書き写す量は増えない。書けなければ null（呼び出し側は Grep で
+// 見出しを列挙させる経路に戻る）。
+function writeIndex(indexDir, name, docPath, md) {
+  const entries = headingIndex(md)
+  const text =
+    [`# 見出し索引: ${docPath}（${lineTotal(md)} 行。各行は「開始-終了 見出し」。本文はこの範囲を offset/limit で Read する）`]
+      .concat(entries.map((e) => `${e.start}-${e.end} ${e.heading}`))
+      .join('\n') + '\n'
+  const file = path.join(String(indexDir), `${name}.index.md`)
+  try {
+    fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true })
+    fs.writeFileSync(path.resolve(file), text)
+    return { index_path: file, index_lines: lineTotal(text) }
+  } catch {
+    return null
+  }
+}
+
+const indexName = (key) => String(key).replace(/[^A-Za-z0-9._-]+/g, '__')
 
 function readBody(p) {
   try {
@@ -635,18 +720,29 @@ function runChecks(input) {
       newline_count: cur.exists ? newlineCount(cur.text) : null,
       // 前稿が読めないときは null（呼び出し側は全体を区切って読ませる）。空配列は「変更なし」。
       changed_ranges: cur.exists && prev && prev.exists ? changedLineRanges(prev.text, cur.text) : null,
+      // byte_size: UTF-8 のバイト数。bulk-read の 1 回の送信量（shunt の上限はバイトで決まる）の計算に使う。
+      // 日本語は 1 字 3 バイト前後なので、文字数で代用すると送信量を 3 分の 1 に見積もる。
+      byte_size: cur.exists ? Buffer.byteLength(cur.text, 'utf8') : null,
       ...(d.extract_ids ? { ids_in_text: inText } : {}),
+      ...(cur.exists && input.index_dir ? writeIndex(input.index_dir, indexName(d.key), d.path, cur.text) || {} : {}),
     })
   }
-  const structural = structuralFindings(docs)
+  // index_extra: 検査対象ではないが索引だけが要るファイル（run の外の標本文書など）。
+  const extra = (input.index_extra || []).map((p, i) => {
+    const cur = readBody(p)
+    return {
+      path: p,
+      exists: cur.exists,
+      line_count: cur.exists ? lineTotal(cur.text) : null,
+      ...(cur.exists && input.index_dir ? writeIndex(input.index_dir, `extra-${i + 1}`, p, cur.text) || {} : {}),
+    }
+  })
+  const structural = structuralCompact(docs)
   for (const d of perDoc) {
     if (d.exists) continue
-    structural.not_checked.push({
-      id: `ST-NOTCHECKED-BODY-${d.key}`,
-      issue: `${d.key} の本文 ${d.path} を読めなかったため、本文を使う検査（申告と本文の突き合わせ・禁止語・語尾）を実行していない。「指摘 0 件」ではなく「未検査」である。`,
-    })
+    structural.not_checked.push({ c: 'NC_BODY', a: [d.key, d.path] })
   }
-  const body = { documents: perDoc, structural }
+  const body = { documents: perDoc, structural, ...(extra.length ? { index_extra: extra } : {}) }
   return { input_digest: stableKey(canonicalJson(input)), ...body, output_digest: stableKey(canonicalJson(body)) }
 }
 
@@ -685,6 +781,10 @@ export {
   lineTotal,
   changedLineRanges,
   structuralFindings,
+  structuralCompact,
+  expandStructural,
+  FINDING_TEXT,
+  headingIndex,
   stableKey,
   canonicalJson,
   runChecks,

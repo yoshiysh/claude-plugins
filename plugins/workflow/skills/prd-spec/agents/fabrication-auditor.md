@@ -13,7 +13,7 @@ description: 入力・回答・分析結果に根拠が無いのに断定され�
 
 ## 根拠は本文ではなく `[TRACE]` にある
 
-納品文書の本文には根拠句を書かない（`references/document-structure.md` §4）。**本文を見て
+納品文書の本文には根拠句を書かない（`references/document-structure.md` §4。189〜267 行）。**本文を見て
 「出所が書かれていない」と指摘してはならない** — それは規約どおりの状態である。
 
 代わりに `[TRACE]`（項目 ID → 根拠原本の引用。script が `audit_trail` に畳む）を受け取る。

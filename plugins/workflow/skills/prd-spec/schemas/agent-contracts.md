@@ -200,6 +200,8 @@ script は本文を受け取らず、checker がファイルを検査する。�
 
 ## auditor 共通形（clarity / traceability / coverage / fabrication / consistency）
 
+validity / specimen もこの形で返す（severity は executability と同じ blocking / degraded）。
+
 ```json
 {
   "failed": [
@@ -260,6 +262,7 @@ script は本文を受け取らず、checker がファイルを検査する。�
 | `locator_unmatched` | 元ファイルに逐語で見つからず捨てた引用の件数 |
 | `locator_misses` | `found_via: "sample"` の指摘件数（自己申告。script は数え直す） |
 | `failed[].found_via` | `locator`（引用が指していた箇所で見つけた）/ `sample`（script が割り当てた抜き取り範囲でだけ見つけた = locator の見落とし） |
+| `locate_groups[]` | bulk-read の呼び出し単位（script が送信量の上限に収まるよう文書を束ねた組）ごとの結果。`{ group, status, reason? }` で、`status` は `ok` / `split_ok`（時間切れで半分に割って再実行し通った）/ `full_fallback`（その組だけ全文読みに戻した） |
 
 ### 各 auditor の担当範囲
 
@@ -485,7 +488,9 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 
 ## §structural（script が生成する finding）
 
-`structuralFindings()` が返す。agent は生成しない。戻り値は `{ findings, not_checked }`。
+`scripts/doc_check.mjs` が検出する。agent は生成しない。戻り値は `{ findings, not_checked }`。
+CLI の出力は種別と引数だけの短い形（`{ c, d, a }`）で、文面（`issue` / `fix` など）は script が
+同じ表（`FINDING_TEXT`）から組み立てる。下の `id` は組み立てた後の形である。
 
 | `id` の接頭辞 | 検出内容 |
 |---|---|

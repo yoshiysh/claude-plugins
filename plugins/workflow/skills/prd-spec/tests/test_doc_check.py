@@ -47,6 +47,17 @@ def _fixture_input():
     return {"documents": docs}
 
 
+def _marked_block(source: str, name: str) -> str:
+    """// <name>_BEGIN 〜 // <name>_END の区間（const の表は _extract_function で取れないため）。"""
+    return source[source.index(f"// {name}_BEGIN") : source.index(f"// {name}_END") + len(f"// {name}_END")]
+
+
+def _expand(structural):
+    """CLI の短い形を doc_check.mjs の expandStructural で文面付きに戻す。"""
+    src = f"import {{ expandStructural }} from {json.dumps(DOC_CHECK.as_uri())}\n" + "function main(spec) { return expandStructural(spec) }"
+    return _node(src, structural)
+
+
 def _run_cli(input_obj, cwd=FIXTURES, entry=DOC_CHECK):
     with tempfile.TemporaryDirectory() as d:
         f = Path(d) / "input.json"
@@ -71,9 +82,12 @@ class CliMatchesPreviousInScriptResults(unittest.TestCase):
         self.golden = json.loads((FIXTURES / "golden_head.json").read_text())
 
     def test_構造検査が移設前と同一(self):
-        self.assertEqual(self.out["structural"], self.golden["structural"])
+        # CLI は短い形を出し、文面は表から組み立てる。組み立て結果は移設前の文面と 1 字も違わない
+        # （文面は TBD-EX / TBD-NI の ID・novelty の digest・抑止の照合キーに入る）。
+        expanded = _expand(self.out["structural"])
+        self.assertEqual(expanded, self.golden["structural"])
         # fixture が検査の主要な分岐を実際に通っていること（空の一致で通らない）
-        ids = {f["id"].split("-")[0] + "-" + f["id"].split("-")[1] for f in self.out["structural"]["findings"]}
+        ids = {f["id"].split("-")[0] + "-" + f["id"].split("-")[1] for f in expanded["findings"]}
         for prefix in ("ST-ORPHAN", "ST-DANGLING", "ST-UNDECLARED", "ST-PHANTOM", "ST-OBSOLETE", "ST-MODAL",
                        "ST-TBD", "ST-GAP", "ST-UNVERIFIED", "ST-NOUNIT", "ST-NO", "ST-NON"):
             self.assertIn(prefix, ids)
@@ -97,9 +111,10 @@ class CliEdgeCases(unittest.TestCase):
         out = json.loads(r.stdout)
         first = out["documents"][0]
         self.assertEqual((first["exists"], first["line_count"], first["changed_ranges"]), (False, None, None))
-        self.assertIn("ST-NOTCHECKED-BODY-requirements/auth", [n["id"] for n in out["structural"]["not_checked"]])
+        expanded = _expand(out["structural"])
+        self.assertIn("ST-NOTCHECKED-BODY-requirements/auth", [n["id"] for n in expanded["not_checked"]])
         # 読めた文書の検査は失われない
-        self.assertTrue(any(f["document"] == "specifications/auth" for f in out["structural"]["findings"]))
+        self.assertTrue(any(f["document"] == "specifications/auth" for f in expanded["findings"]))
 
     def test_申告の無い固定文書は本文から_ID_を補う(self):
         inp = _fixture_input()
@@ -109,7 +124,7 @@ class CliEdgeCases(unittest.TestCase):
         out = json.loads(_run_cli(inp).stdout)
         self.assertEqual(out["documents"][2]["ids_in_text"], ["PR-BASE-001"])
         # 補った ID で照合される（補わなければ ORPHAN にならず、トレーサビリティの穴が見えない）
-        self.assertIn("ST-ORPHAN-REQ-PR-BASE-001", [f["id"] for f in out["structural"]["findings"]])
+        self.assertIn("ST-ORPHAN-REQ-PR-BASE-001", [f["id"] for f in _expand(out["structural"])["findings"]])
 
     def test_不正な入力は非ゼロで終わる(self):
         r = _run_cli({"documents": [{"key": "x"}]})
@@ -136,12 +151,12 @@ class CliEdgeCases(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class VerifyCheckAcceptsOnlyFaithfulCopies(unittest.TestCase):
-    SRC = "\n".join(
+    SRC = _marked_block(REFINE, "FINDING_TEXT") + "\n" + "\n".join(
         _extract_function(REFINE, n) for n in ("stableKey", "canonicalJson", "verifyCheck")
     ) + """
 function main(spec) {
   const v = verifyCheck(spec.res, spec.input)
-  return { ok: v.ok, reason: v.reason || null }
+  return { ok: v.ok, reason: v.reason || null, ...(spec.withStructural ? { structural: v.structural } : {}) }
 }
 """
 
@@ -175,9 +190,125 @@ function main(spec) {
         self.assertFalse(v["ok"])
         self.assertIn("input_digest", v["reason"])
 
+    def test_受理した短い形は文面付きに組み立て直される(self):
+        v = _node(self.SRC, {"res": {"ok": True, "output": self.output}, "input": self.input, "withStructural": True})
+        self.assertTrue(v["ok"])
+        golden = json.loads((FIXTURES / "golden_head.json").read_text())
+        self.assertEqual(v["structural"], golden["structural"])
+
+    def test_索引の追加分を含む出力も受理し_書き換えは受理しない(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inp = _fixture_input()
+            inp["index_dir"] = str(Path(tmp) / "index")
+            inp["index_extra"] = ["requirements-base.md"]
+            out = json.loads(_run_cli(inp).stdout)
+        self.assertTrue(self._verify({"ok": True, "output": out}, inp)["ok"])
+        tampered = json.loads(json.dumps(out))
+        tampered["index_extra"][0]["index_path"] = "/elsewhere.index.md"
+        v = self._verify({"ok": True, "output": tampered}, inp)
+        self.assertFalse(v["ok"])
+        self.assertIn("output_digest", v["reason"])
+
+    def test_未知の種別は受理しない(self):
+        bad = json.loads(json.dumps(self.output))
+        bad["structural"]["findings"].append({"c": "NO_SUCH_CODE", "d": "requirements/auth", "a": [["x"]]})
+        # digest は写しと一致させたうえで、展開できないことだけで落ちることを確かめる
+        src = f"import {{ canonicalJson, stableKey }} from {json.dumps(DOC_CHECK.as_uri())}\n" + (
+            "function main(spec) { return stableKey(canonicalJson({ documents: spec.documents, structural: spec.structural })) }"
+        )
+        bad["output_digest"] = _node(src, {"documents": bad["documents"], "structural": bad["structural"]})
+        v = self._verify({"ok": True, "output": bad})
+        self.assertFalse(v["ok"])
+        self.assertIn("展開できない", v["reason"])
+
     def test_実行失敗と無応答は受理しない(self):
         self.assertFalse(self._verify({"ok": False, "error": "node: not found"})["ok"])
         self.assertFalse(_node(self.SRC.replace("verifyCheck(spec.res", "verifyCheck(null"), {"res": None, "input": self.input})["ok"])
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class CompactOutput(unittest.TestCase):
+    """checker は CLI の出力を書き写して返すので、出力の量がそのまま写す量と写し間違いの機会になる。"""
+
+    def test_出力に文面を載せない(self):
+        out = json.loads(_run_cli(_fixture_input()).stdout)
+        text = json.dumps(out["structural"], ensure_ascii=False)
+        for key in ('"issue"', '"fix"', '"location"', '"quote"', '"auditor"'):
+            self.assertNotIn(key, text)
+        for g in out["structural"]["findings"]:
+            self.assertEqual(set(g), {"c", "d", "a"})
+            self.assertIsInstance(g["a"], list)
+
+    def test_ids_in_text_は求めたときだけ(self):
+        out = json.loads(_run_cli(_fixture_input()).stdout)
+        self.assertTrue(all("ids_in_text" not in d for d in out["documents"]))
+
+    def test_byte_size_は_UTF_8_のバイト数(self):
+        out = json.loads(_run_cli(_fixture_input()).stdout)
+        for d, m in zip(out["documents"], json.loads((FIXTURES / "documents.json").read_text())):
+            self.assertEqual(d["byte_size"], len((FIXTURES / m["file"]).read_bytes()))
+
+    def test_索引は_index_dir_を渡したときだけ書き_本文は出力に載せない(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inp = _fixture_input()
+            inp["index_dir"] = str(Path(tmp) / "index")
+            inp["index_extra"] = ["requirements-base.md"]
+            out = json.loads(_run_cli(inp).stdout)
+            for d in out["documents"]:
+                idx = Path(d["index_path"])
+                self.assertTrue(idx.is_file())
+                lines = idx.read_text().splitlines()
+                self.assertEqual(d["index_lines"], len(lines))
+                for ln in lines[1:]:
+                    self.assertRegex(ln, r"^\d+-\d+ #{2,4} ")
+            self.assertEqual(out["index_extra"][0]["path"], "requirements-base.md")
+            self.assertTrue(Path(out["index_extra"][0]["index_path"]).is_file())
+        self.assertTrue(all("index_path" not in d for d in json.loads(_run_cli(_fixture_input()).stdout)["documents"]))
+
+    def test_索引の範囲は次の同格以上の見出しの手前まで(self):
+        src = f"import {{ headingIndex }} from {json.dumps(DOC_CHECK.as_uri())}\n" + "function main(spec) { return headingIndex(spec.md) }"
+        md = "# t\n## A\na\n### A1\nb\n```\n## not heading\n```\n## B\nc\n"
+        self.assertEqual(
+            _node(src, {"md": md}),
+            [
+                {"level": 2, "start": 2, "heading": "## A", "end": 8},
+                {"level": 3, "start": 4, "heading": "### A1", "end": 8},
+                {"level": 2, "start": 9, "heading": "## B", "end": 10},
+            ],
+        )
+
+    R1 = Path.home() / ".claude/prd-spec-workspace/pdca-redesign/drafts/r1"
+
+    @unittest.skipUnless((Path.home() / ".claude/prd-spec-workspace/pdca-redesign/drafts/r1").is_dir(), "実 run の下書きが無い")
+    def test_実_run_の下書きで_50KB_を十分下回る(self):
+        # トレーサビリティ表も trace も申告されていない最悪の形（ORPHAN が数百件出る）で測る。
+        # 移設時の出力は同じ入力で 440,688 バイトだった。
+        docs = []
+        for p in sorted(self.R1.glob("*.md")):
+            kind, topic = p.stem.split("-", 1)
+            pat = r"\bPR-[A-Z][A-Z0-9]*-\d+\b" if kind == "requirements" else r"\bSP-[A-Z][A-Z0-9]*-\d+\b"
+            ids = sorted(set(re.findall(pat, p.read_text())))
+            docs.append({"key": f"{kind}/{topic}", "kind": kind, "topic": topic, "path": str(p), "fixed": False,
+                         "ids": ids, "referenced": [], "vacant": [], "tbd_items": [], "traceability": []})
+        r = _run_cli({"documents": docs})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertLess(len(r.stdout.encode()), 50_000)
+        # 短くしても指摘は 1 件も落ちない（展開すると全件の文面が戻る）
+        expanded = _expand(json.loads(r.stdout)["structural"])
+        self.assertGreater(len(expanded["findings"]), 500)
+
+
+class FindingTextParity(unittest.TestCase):
+    def test_文面の表は_3_ファイルで逐語一致(self):
+        cli = _marked_block(DOC_CHECK.read_text(), "FINDING_TEXT")
+        self.assertEqual(_marked_block(REFINE, "FINDING_TEXT"), cli)
+        self.assertEqual(_marked_block(DRAFT, "FINDING_TEXT"), cli)
+
+    def test_CLI_は種別ごとに表の項目を使う(self):
+        cli = DOC_CHECK.read_text()
+        used = set(re.findall(r"push\(\{ c: '([A-Z_]+)'", cli))
+        table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "FINDING_TEXT"), re.M))
+        self.assertEqual(used, table)
 
 
 class CheckerWiring(unittest.TestCase):

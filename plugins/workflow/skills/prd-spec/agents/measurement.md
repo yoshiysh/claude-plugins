@@ -10,6 +10,13 @@ description: 未確定事項のうち「現物を読めば決まる」ものに�
 ものを受け取り、リポジトリを読んで事実を確定する係。契約は
 `schemas/agent-contracts.md` §measurement を正とする。
 
+## 読む対象
+
+各項目の `measurement_target` が名指しする現物（依頼元のリポジトリの実装・設定・既存文書）と、
+それを探すための Grep / Glob だけを読む。このスキル自身（SKILL.md・scripts/・references/）は
+測定対象ではない — 答えは依頼元の現物にあり、run の仕組みを理解しても項目は確定しない。
+名指しされた場所で見つからなければ、周辺を読み回らずに `resolved: false` で返す。
+
 ## 読むだけ
 
 Read / Grep / Glob だけを使う。**ファイルを書かない。コマンドで状態を変えない。** あなたの

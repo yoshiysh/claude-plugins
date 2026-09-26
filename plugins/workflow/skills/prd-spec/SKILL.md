@@ -380,7 +380,7 @@ Workflow({
 段 2〜4）は `references/workflow-io.md` §4〜5 を正とする。** 取り違えると壊れ方が分かりにくい
 ものだけ挙げる。
 
-- `tbd_answers` — **今周回の**回答。空なら script は反映パスを飛ばす。
+- `tbd_answers` — **今周回の**回答。空なら script は反映パスを飛ばす。1 行ごとに、答える TBD の ID で書き始める（例: `TBD-RAUTH-001: 30 分とする`）。全行が ID を持てば、script はその TBD を持つ文書だけを反映パスで引き直す。ID の無い行が 1 行でもあると、どの文書に効くか決まらないので全文書を引き直す（書き手 1 体ずつの費用がかかる）。
 - `bulk_read_path` — consistency / coverage の全範囲監査で、安いモデルに候補箇所を探させて監査役の読む量を減らす口（`workflow-io.md` §4）。渡さなくても監査は全文読みで完走する。
 - `presented_tbd_ids` — `{ id, digest }` の形（digest は script が計算済みの値。生 text を
   入れると全件が「未提示」に化ける）。**2 周目以降は `next_args` が埋めるので手で作らない**。

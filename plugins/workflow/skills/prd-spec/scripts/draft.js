@@ -416,11 +416,68 @@ const CONTEXT_BLOCK = [
   '全体像を出して「何が足りないか」を見えるようにすることである。',
 ].join('\n')
 
-const RULES = [
-  `規律は ${SKILL_DIR}/references/requirement-writing-rules.md ・`,
-  `${SKILL_DIR}/references/document-structure.md ・${SKILL_DIR}/references/traceability.md ・`,
-  `${SKILL_DIR}/references/document-splitting.md ・${SKILL_DIR}/references/citation-policy.md を正とする。`,
-].join('\n')
+// ------------------------------------------------------- 役割ファイルと契約の渡し方
+//
+// この区間は scripts/draft.js と scripts/refine.js で逐語で同一である（一致と行範囲は
+// tests/test_prompt_budget.py が検査する）。
+// ROLE_HEADER_BEGIN
+// CONTRACT_LINES: schemas/agent-contracts.md の節の行範囲（1 始まり・両端を含む）。このファイルは
+// 500 行を超え、行範囲の無い Read は shunt の gate（350 行超）に止められて 1 ターン無駄になる。
+// § の名前だけを渡すと agent はファイル全体を探して読む — validity・clarity などは固有の節を
+// 持たず共通形を使うので、存在しない節を探し回ることになる。値は見出しから導いたもので、
+// 実ファイルの見出しとの一致をテストが照合する（ファイルを直したらこの表も直す）。
+const CONTRACT_LINES = {
+  'req-writer': [99, 156],
+  'spec-writer': [157, 200],
+  auditor: [201, 282],
+  'executability-auditor': [283, 325],
+  'ladder-judge': [326, 371],
+  resolver: [372, 402],
+  'resolver-verifier': [403, 426],
+  'precedent-judge': [427, 462],
+  measurement: [463, 488],
+}
+
+// READ_SCOPE: 読んでよい範囲の宣言。役割に要る指示と契約は roleHeader が渡すもので完結している。
+// スキル自身の実装や他の役割の指示を読んでも判断は変わらず、読んだ分は以後の全ターンの文脈に
+// 載り続ける（実測: measurement 1 体が SKILL.md・scripts/・references を読み回って Bash 42 回・
+// キャッシュ読み 1,540 万トークン）。
+const READ_SCOPE =
+  '読む範囲: 上の役割ファイルと契約の範囲、このプロンプトが名指しするファイルと行範囲だけを読む。' +
+  'このスキルの SKILL.md・scripts/・他の役割の agents/*.md・名指しされていない references/ と schemas/ は' +
+  'この役割の範囲外なので読まない（読んでも判断は変わらず、読んだ量だけ以後の全ターンが重くなる）。' +
+  'ここで範囲外とする references/ は、このプロンプトと役割ファイルのどちらも名指ししていないものに限る。' +
+  '役割ファイルが references/ の節を指しているときは、それを読む — 添えられた行範囲だけを offset/limit で読む。'
+
+// roleHeader: 役割ファイル（いずれも 350 行未満なので 1 回で読める）と契約の節を渡す冒頭。
+function roleHeader(skillDir, roleFiles, contractKey) {
+  const range = CONTRACT_LINES[contractKey]
+  if (!range) throw new Error(`契約の節が未定義の役割です: ${contractKey}`)
+  const files = roleFiles.map((f) => `${skillDir}/agents/${f}`)
+  return [
+    `Read ${files.join(' and then ')} for your full role instructions before doing anything else.`,
+    `契約（返り値の形）: Read ${skillDir}/schemas/agent-contracts.md offset=${range[0]} limit=${range[1] - range[0] + 1}（この範囲だけが契約。ファイルの他の節は読まない）。`,
+    READ_SCOPE,
+  ].join('\n')
+}
+
+// RULES_NOTE: 執筆・監査の規律の正本。どれも必要な節だけを読めば足りる。350 行を超える
+// document-structure.md（407 行）を行範囲なしで Read すると gate に止められる。
+function rulesNote(skillDir) {
+  return [
+    `規律は ${skillDir}/references/requirement-writing-rules.md ・`,
+    `${skillDir}/references/document-structure.md ・${skillDir}/references/traceability.md ・`,
+    `${skillDir}/references/document-splitting.md ・${skillDir}/references/citation-policy.md を正とする。`,
+    'いずれも通読しない。判断に要る節だけを見出しの Grep（`^## `）で探し、300 行以内の offset/limit で Read する。',
+  ].join('\n')
+}
+// INLINE_SCOPE: 役割ファイルを持たず、指示と材料をプロンプトに収めた係（先例裁定・終端裁定）の宣言。
+const INLINE_SCOPE =
+  '読む範囲: 役割の指示と材料はこのプロンプトで完結している。このスキルの SKILL.md・scripts/・agents/・' +
+  'schemas/ と、名指しされていない references/ は読まない（読んでも判断は変わらず、読んだ量だけ以後の全ターンが重くなる）。'
+// ROLE_HEADER_END
+
+const RULES = rulesNote(SKILL_DIR)
 
 // ------------------------------------------------------- 本文の渡し方（パスのみ）
 //
@@ -533,6 +590,203 @@ function checkerPrompt(input, file, skillDir) {
   ].join('\n')
 }
 
+// 構造検査の文面。doc_check.mjs は指摘を短い形（種別・文書・引数）で出し、文面はここで組み立てる。
+// 以下の FINDING_TEXT_BEGIN〜END は scripts/doc_check.mjs の同区間の逐語の写しである（workflow script は
+// import を書けない。一致は tests/test_doc_check.py が検査する）。
+// FINDING_TEXT_BEGIN
+const KIND_LABEL = { R: '要求', S: '仕様項目' }
+const FINDING_TEXT = {
+  DUP: (id, keys) => ({
+    id: `ST-DUP-${id}`,
+    location: 'ID 一覧',
+    quote: id,
+    issue: `ID ${id} が ${keys.join(' / ')} の複数文書で定義されている。ID は文書を跨いで一意でなければ、トレーサビリティ表がどちらの項目を指しているか決まらない。`,
+    fix: `領域プレフィックスを文書の topic に対応させて振り直す（${keys[1]} 側を別の領域名にする）。`,
+  }),
+  DUP_TBD: (id, keys, text0, text1) => ({
+    id: `ST-DUP-TBD-${id}`,
+    location: '未確定事項',
+    quote: id,
+    issue: `TBD ${id} が ${keys.join(' / ')} の複数文書から別々の内容で申告されている（「${text0}」と「${text1}」）。統合時に片方が消えるため、消えた側が着手を止める項目でも人間に提示されない。`,
+    fix: 'TBD の番号にも文書の領域プレフィックスを付けて振り直す（例 TBD-AUTH-001）。',
+  }),
+  ORPHAN_REQ: (id) => ({
+    id: `ST-ORPHAN-REQ-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `要求 ${id} がどの specification 文書のトレーサビリティ表にも現れない（＝この要求を実現する仕様項目が無い）。`,
+    fix: `${id} を実現する仕様項目をいずれかの specification 文書に追加して紐付けるか、実現しないのであれば requirements 側でスコープ外として明記する。情報が未確定なら TBD として起票する。`,
+  }),
+  ORPHAN_SPEC: (id) => ({
+    id: `ST-ORPHAN-SPEC-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `仕様項目 ${id} が自文書のトレーサビリティ表に現れない（＝根拠となる要求が不明の仕様）。`,
+    fix: `${id} の根拠となる要求 ID を紐付ける。根拠が無いのであれば仕様項目を削除する。`,
+  }),
+  DANGLING_REQ: (id) => ({
+    id: `ST-DANGLING-REQ-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `トレーサビリティ表が要求 ${id} を参照しているが、どの requirements 文書の要求一覧にも存在しない。`,
+    fix: `いずれかの requirements 文書に ${id} を実在させるか、表の行を正しい要求 ID に直す。`,
+  }),
+  DANGLING_SPEC: (id) => ({
+    id: `ST-DANGLING-SPEC-${id}`,
+    location: 'トレーサビリティ表',
+    quote: id,
+    issue: `トレーサビリティ表が仕様項目 ${id} を参照しているが、仕様書に存在しない。`,
+    fix: `${id} を本文に実在させるか、表の行を正しい仕様項目 ID に直す。`,
+  }),
+  VACANT_CONFLICT: (k, id) => ({
+    id: `ST-VACANT-CONFLICT-${id}`,
+    location: 'ID 一覧',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が vacant_ids（欠番）と ID 一覧（実在の項目）の両方に申告されている。欠番は「割り当てられていない」の宣言であり、実在する項目と両立しない。`,
+    fix: `${id} が実在するなら vacant_ids から外し、欠番なら ID 一覧から外して本文の項目を削除する。`,
+  }),
+  UNDECLARED: (k, id) => ({
+    id: `ST-UNDECLARED-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が本文に現れているが、返り値の ID 一覧に含まれていない。一覧から漏れた ID は照合対象から外れ、紐付けの欠落が検出されないまま通る。`,
+    fix: `${id} を ID 一覧に加える。他文書の ID を参照しているだけ、または ID 体系の例示であって実在の項目ではない場合は referenced_ids に、この文書の欠番であるなら vacant_ids に入れる（本文で「欠番」と同じ行に併記されている ID も欠番として扱われる）。`,
+  }),
+  UNDECLARED_TBD: (id) => ({
+    id: `ST-UNDECLARED-TBD-${id}`,
+    location: '未確定事項',
+    quote: id,
+    issue: `未確定事項 ${id} が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。`,
+    fix: `${id} を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
+  }),
+  PHANTOM: (k, id) => ({
+    id: `ST-PHANTOM-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `${KIND_LABEL[k]} ${id} が ID 一覧に申告されているが、本文に存在しない。読み手はこの ID の中身を確認できない。`,
+    fix: `${id} を本文に実在させるか、ID 一覧から外す。`,
+  }),
+  GAP: (missingId) => ({
+    id: `ST-GAP-UNDECLARED-${missingId}`,
+    location: 'ID 一覧',
+    quote: missingId,
+    issue: `ID 連番に欠番がある（${missingId}）のに、本文に欠番の申告が無い。無申告の欠番は「項目が削除された」のか「統合時に取りこぼした」のか読み手が区別できない。`,
+    fix: `${missingId} が欠番であることを申告する（vacant_ids に入れる、または本文で「欠番」の語と同じ行に併記する。どちらも申告漏れの検査から除外される）か、採番を詰めて欠番を無くす。`,
+  }),
+  OBSOLETE: (term, docKey) => ({
+    id: `ST-OBSOLETE-${docKey}-${term.replace(/[^a-z0-9]/g, '')}`,
+    location: '本文',
+    quote: term,
+    issue: `「${term}」は現行の規制文言ではない。21 CFR 820.30 Design Controls は QMSR（2026-02-02 施行）で [Reserved] 化され、現行 Part 820 本文にこの語は出現しない。現行規制の引用として書くと誤りになる。`,
+    fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記し、現行規則の引用として提示しない。',
+  }),
+  OBSOLETE_DHF: (docKey) => ({
+    id: `ST-OBSOLETE-${docKey}-dhf`,
+    location: '本文',
+    quote: 'DHF',
+    issue: '「DHF（design history file）」は現行の規制文言ではない。QMSR は DHF ではなく "medical device file" の語を使う。',
+    fix: '現行規制の根拠として書いているなら削除する。設計モデルとして言及したいのであれば「歴史的な設計統制モデル」であることを同じ段落に明記する。',
+  }),
+  UNVERIFIED: (std, docKey) => ({
+    id: `ST-UNVERIFIED-${docKey}-${std.replace(/[^A-Za-z0-9]/g, '')}`,
+    location: '本文',
+    quote: std,
+    issue: `${std} の条番号を引用している。この規格は本文を確認できていないため、条番号の内容を裏付けられない。誤った条番号の引用は、規格に触れないことより有害である。`,
+    fix: `条番号を落とし、規格名と大まかな射程だけを述べる形に直す（例:「${std} の考え方に基づく」）。または引用自体を削除する。`,
+  }),
+  NOUNIT: (docKey) => ({
+    id: `ST-NOUNIT-${docKey}`,
+    location: '対象範囲',
+    quote: '(単位の宣言なし)',
+    severity: 'degraded',
+    issue: '何を 1 つの仕様項目として切り出すかの宣言が本文に無い。単位が宣言されていないと、読み手ごとに項目の切り出し方が変わり、件数・網羅の判定が文書間で揃わない。',
+    fix: '本文の一箇所（対象範囲の章など）に、機械的に判別できる形で単位を宣言する（例:「本書は `####` 見出し 1 つを 1 仕様項目とする」）。requirement-writing-rules.md §8 を正とする。',
+  }),
+  MODAL: (id, sent, quote) => ({
+    id: `ST-MODAL-${id}-${sent}`,
+    location: id,
+    quote,
+    severity: 'degraded',
+    issue: `要求 ${id} の本文に、規範の意図を持つのに 4 語尾（〜しなければならない / 〜してはならない / 〜することが望ましい / 〜してもよい）のいずれでも終わらない文がある。区分（必須 / 禁止 / 推奨 / 許容）が読み手に決まらない。`,
+    fix: '文意に対応する 4 語尾のいずれかで文を終える（requirement-writing-rules.md §1 を正とする）。',
+  }),
+  IDHEADING: (id, level, baseLevel) => ({
+    id: `ST-IDHEADING-${id}`,
+    location: '見出し',
+    quote: id,
+    severity: 'degraded',
+    issue: `ID を含む見出しのレベルが文書内で不統一（${id} はレベル ${level}、この文書の基準はレベル ${baseLevel}）。読み手が「章の中の区分」と「個別項目」を階層で見分けられない。`,
+    fix: '個別項目の見出しレベルを文書内で統一する（document-structure.md §2.6 は `####` を基準とする）。',
+  }),
+  TBD_NORESOLVE: (id) => ({
+    id: `ST-TBD-NORESOLVE-${id}`,
+    location: '未確定事項',
+    quote: id,
+    severity: 'degraded',
+    issue: `着手を止める未確定事項 ${id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
+    fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
+  }),
+  NO_EVIDENCE: (id) => ({
+    id: `ST-NO-EVIDENCE-${id}`,
+    location: id,
+    quote: id,
+    issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
+    fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+  }),
+  NON_NORMATIVE: (what, quote, docKey) => ({
+    id: `ST-NON-NORMATIVE-${docKey}-${what}`,
+    location: '本文',
+    quote,
+    issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
+    fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
+  }),
+  NC_CROSSREF: (kind) => ({
+    id: 'ST-NOTCHECKED-CROSSREF',
+    issue:
+      `${kind} 文書が本ランの対象に含まれないため、` +
+      '要求 ID と仕様項目 ID の突き合わせを実行していない。「指摘 0 件」ではなく「未検査」である。',
+  }),
+  NC_TRACE: (key) => ({
+    id: `ST-NOTCHECKED-TRACE-${key}`,
+    issue: `${key} が trace を申告していないため、項目 ID と根拠の対応を検査していない。「根拠あり」ではなく「未検査」である。`,
+  }),
+  NC_BODY: (key, p) => ({
+    id: `ST-NOTCHECKED-BODY-${key}`,
+    issue: `${key} の本文 ${p} を読めなかったため、本文を使う検査（申告と本文の突き合わせ・禁止語・語尾）を実行していない。「指摘 0 件」ではなく「未検査」である。`,
+  }),
+}
+
+// expandStructural: 短い形の { findings, not_checked } を文面付きの形に戻す。短い形の findings は
+// 「同じ種別・同じ文書が続く指摘」を 1 要素にまとめた { c, d, a: [引数の組, ...] } の列で、
+// 展開すると引数の組 1 つが指摘 1 件になる（順序は CLI が検出した順のまま）。文面付きの各要素は
+// { auditor: 'structural', id, document, location, quote, severity?, issue, fix }、not_checked は
+// { id, issue }。未知の種別は例外にする（黙って落とすと、指摘が「0 件」に化ける）。
+function expandStructural(compact) {
+  const make = (c, args) => {
+    const t = FINDING_TEXT[c]
+    if (!t) throw new Error(`構造検査の未知の種別です: ${JSON.stringify(c)}`)
+    return t(...(args || []))
+  }
+  const findings = []
+  for (const g of compact.findings || []) {
+    for (const args of (g && g.a) || []) {
+      const t = make(g.c, args)
+      findings.push({
+        auditor: 'structural',
+        id: t.id,
+        document: g.d,
+        location: t.location,
+        quote: t.quote,
+        ...(t.severity ? { severity: t.severity } : {}),
+        issue: t.issue,
+        fix: t.fix,
+      })
+    }
+  }
+  return { findings, not_checked: (compact.not_checked || []).map((n) => make(n && n.c, n && n.a)) }
+}
+// FINDING_TEXT_END
+
 // verifyCheck: checker の返り値を受理してよいかを script が決める。schema では写し間違い（指摘の
 // 脱落・入力の欠け）を検出できないので、doc_check.mjs が出した digest と script が計算した digest を
 // 照合する。受理できなければ「検査を実行できなかった」として扱う（0 件に読み替えない）。
@@ -546,13 +800,22 @@ function verifyCheck(res, input) {
   if (!Array.isArray(out.documents) || !out.structural || !Array.isArray(out.structural.findings) || !Array.isArray(out.structural.not_checked)) {
     return { ok: false, reason: 'doc_check.mjs の出力の形が契約と違う' }
   }
-  if (out.output_digest !== stableKey(canonicalJson({ documents: out.documents, structural: out.structural }))) {
+  // index_extra は渡したときだけ出力に載る（canonicalJson は undefined のキーを落とすので、無いときの digest は変わらない）。
+  if (out.output_digest !== stableKey(canonicalJson({ documents: out.documents, structural: out.structural, index_extra: out.index_extra }))) {
     return { ok: false, reason: 'checker が返した出力が CLI の出力と一致しない（output_digest 不一致）' }
   }
   const byKey = new Map(out.documents.map((d) => [d.key, d]))
   const lost = input.documents.filter((d) => !byKey.has(d.key)).map((d) => d.key)
   if (lost.length) return { ok: false, reason: `出力に無い文書がある: ${lost.join(' / ')}` }
-  return { ok: true, byKey, structural: out.structural }
+  // digest は短い形のまま照合し、受理した後で文面を組み立てる（文面は digest の外にあるので、
+  // checker の写しに文面を含める必要が無い）。未知の種別は写し間違いと同じく受理しない。
+  let structural
+  try {
+    structural = expandStructural(out.structural)
+  } catch (e) {
+    return { ok: false, reason: `構造検査の出力を展開できない: ${e && e.message ? e.message : e}` }
+  }
+  return { ok: true, byKey, structural, indexExtra: Array.isArray(out.index_extra) ? out.index_extra : [] }
 }
 
 // reportedLineCount: writer が返した `wc -l` の値。欠けていれば null（書き出し未確認）。
@@ -578,6 +841,8 @@ function writeBackLines(file) {
   return [
     `本文を ${file} に Write すること。本文は返り値に入れない（script は本文を受け取らない）。`,
     `Write の後に \`wc -l < ${file}\` を実行し、出た整数を返り値の line_count に入れること。`,
+    '書いた本文を Read し直して確かめない。行数・ID の申告と本文の突き合わせ・構造は script が checker で検査する',
+    '（通読し直すと、文書全体が以後のターンに載り続ける）。',
     '以後の agent はこのファイルを Read する（本文をプロンプトで渡さない）。line_count がファイルの行数と',
     '食い違うと書き出しの失敗として扱われる。保存先（パス欄）には書かない — 保存は人間の承認後に司令塔が行う。',
   ]
@@ -586,9 +851,8 @@ function writeBackLines(file) {
 function buildReqPrompt(doc) {
   const previous = previousOf('requirements', doc.topic)
   return [
-    `Read ${SKILL_DIR}/agents/req-writer.md for your full role instructions before doing anything else.`,
+    roleHeader(SKILL_DIR, ['writer-common.md', 'req-writer.md'], 'req-writer'),
     RULES,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §req-writer を正とする。`,
     '',
     CONTEXT_BLOCK,
     '',
@@ -616,9 +880,8 @@ function buildReqPrompt(doc) {
 function buildSpecPrompt(doc, requirementsContext) {
   const previous = previousOf('specifications', doc.topic)
   return [
-    `Read ${SKILL_DIR}/agents/spec-writer.md for your full role instructions before doing anything else.`,
+    roleHeader(SKILL_DIR, ['writer-common.md', 'spec-writer.md'], 'spec-writer'),
     RULES,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §spec-writer を正とする。`,
     '',
     CONTEXT_BLOCK,
     '',
@@ -647,8 +910,7 @@ function buildSpecPrompt(doc, requirementsContext) {
 
 function buildExecPrompt(doc) {
   return [
-    `Read ${SKILL_DIR}/agents/executability-auditor.md for your full role instructions before doing anything else.`,
-    `契約は ${SKILL_DIR}/schemas/agent-contracts.md §executability-auditor を正とする。`,
+    roleHeader(SKILL_DIR, ['executability-auditor.md'], 'executability-auditor'),
     '',
     '（この役割前提の正は agents/executability-auditor.md。ここは注入用の要約で、食い違ったら agent md 側に従うこと）',
     'あなたはこの文書を渡された実装担当者である。仕様の意図を知らず、書いてあるとおりにしか',
@@ -949,18 +1211,32 @@ if (targets.includes('requirements') && reqFailed.length) {
   )
 }
 
-// 仕様書の writer には全 requirements の本文ではなく Read 指示を渡す（本文をプロンプトに埋めると
-// 仕様書の数だけ全要求文書が複製される）。
-const requirementsContext = reqResults
-  .filter((r) => r.result)
-  .map((r) => {
-    const src = r.result.fixed ? r.doc.path : draftPathOf('requirements', r.doc.topic)
-    // 行数は writer の `wc -l`（固定文書は args の line_count）。末尾が改行で終わらない最終行は数に
-    // 入らないが、区切り読みの単位を決めるだけなので、ここで checker を 1 回余分に回さない。
-    const lines = r.result.fixed ? r.doc.line_count : reportedLineCount(r.result)
-    return `## ${reqDir}/${r.doc.topic}.md\n\n${readInstruction(src, Number.isInteger(lines) ? lines : null)}`
-  })
-  .join('\n\n---\n\n')
+// 仕様書の writer には requirements の本文ではなく、ID と見出しの一覧と Read 指示を渡す（本文を
+// プロンプトに埋めると仕様書の数だけ全要求文書が複製される）。全体を読ませるのは、その仕様書が
+// 実現する（covers に挙がる）要求文書だけにする。他の要求文書と固定文書は紐付けの確認先なので、
+// 要る節だけを探して読ませる（全文書を通読させると、仕様書の数だけ全要求文書を読み直すことになる）。
+// covers が分割案に無いときは、どれを実現するか決まらないので固定文書以外を全体読みさせる。
+const requirementsContextFor = (spec) => {
+  const covers = new Set(spec.covers || [])
+  return reqResults
+    .filter((r) => r.result)
+    .map((r) => {
+      const src = r.result.fixed ? r.doc.path : draftPathOf('requirements', r.doc.topic)
+      // 行数は writer の `wc -l`（固定文書は args の line_count）。末尾が改行で終わらない最終行は数に
+      // 入らないが、区切り読みの単位を決めるだけなので、ここで checker を 1 回余分に回さない。
+      const lines = r.result.fixed ? r.doc.line_count : reportedLineCount(r.result)
+      const items = (r.result.requirement_items || []).filter((i) => i && i.id)
+      const whole = !r.result.fixed && (!covers.size || covers.has(r.doc.topic))
+      return [
+        `## ${reqDir}/${r.doc.topic}.md${r.result.fixed ? '（このランの対象外・変更不可）' : ''}`,
+        `ID と見出し: ${items.map((i) => `${i.id} ${i.heading || ''}`.trim()).join(' / ') || '(申告なし。本文の ID を Grep で拾う)'}`,
+        whole
+          ? readInstruction(src, Number.isInteger(lines) ? lines : null)
+          : `本文: ${src}（紐付けに要る要求の節だけを ID・見出しの Grep（固定文字列・行番号付き）で探し、${READ_CHUNK_LINES} 行以内の offset/limit で Read する。全体は読まない）`,
+      ].join('\n')
+    })
+    .join('\n\n---\n\n')
+}
 
 // ---------------------------------------------------------------- Write specifications
 
@@ -977,7 +1253,7 @@ if (targets.includes('specifications')) {
     '仕様書の執筆',
     splitPlan.specifications,
     (doc, attempt) =>
-      agent(buildSpecPrompt(doc, requirementsContext), {
+      agent(buildSpecPrompt(doc, requirementsContextFor(doc)), {
         ...ROLE_OPTS.specWriter,
         schema: SPEC_DOC_SCHEMA,
         phase: 'Write specifications',
