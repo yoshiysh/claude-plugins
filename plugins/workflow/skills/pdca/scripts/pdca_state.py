@@ -165,7 +165,8 @@ COMMON_OUTPUT = {
     "role": "brief の role",
     "brief_id": "brief の brief_id",
     "agent": "自分の識別子。起動ごとに一意な文字列を自分で決め、同じ起動の中では同じ値を使う",
-    "prompt_extra": "invoke の文以外に受け取った文を逐語で。無ければ空文字列",
+    "prompt_extra": ("起動した側が invoke の文に書き足した文（依頼の言い換え・仮説・解決策・範囲など、作業の中身に関わるもの）を"
+                     "逐語で。無ければ空文字列。実行環境が付ける結果の返し方の指示は含めない"),
 }
 OUTPUT = {
     "goal-framer": {},
