@@ -1,6 +1,6 @@
 {
     "name": "git",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "description": "Git ワークフロー支援（commit / pr-create / cleanup-branches）",
     "author": {
         "name": "yoshiysh"

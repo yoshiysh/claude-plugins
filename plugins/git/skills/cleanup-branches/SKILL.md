@@ -172,8 +172,7 @@ python3 [SKILL_DIR]/scripts/repo_state.py purge-workspace --sessions "id1,id2"
 ## [ACTION] Step 5: 同期とブランチ作成
 
 **起点ブランチの決定**: プロジェクト側に `.claude/detect-base-branch.sh`（現在のブランチから
-適切なベースブランチを検出するスクリプト。`resolve-conflict`・`create-pr` スキルが既に使って
-いる）があれば、`repo_state.py` がそれを優先して使う（`report` 出力の `sync_base` で確認できる）。
+適切なベースブランチを検出するスクリプト）があれば、`repo_state.py` がそれを優先して使う（`report` 出力の `sync_base` で確認できる）。
 無ければ `origin/HEAD` の default branch（多くの場合 `main`）にフォールバックする。
 
 未コミットの変更があれば先に `git stash`（Step 7 で戻す）。

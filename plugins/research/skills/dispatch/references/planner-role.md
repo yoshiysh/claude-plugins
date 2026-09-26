@@ -46,8 +46,8 @@
 
 **`model: 'fable'` を選んだ場合の追加義務（Execute ロール限定・重要）**: 公式の
 Fable 5 prompting guide は「Fable 5 は他モデルより無許可の行動（頼まれていない
-コミット、防御的なブランチ作成等）を取る傾向がある」と明記している
-（`fable-orchestration-prompting-guide.md` 参照）。したがって `model: 'fable'` の
+コミット、防御的なブランチ作成等）を取る傾向がある」と明記している。したがって `model: 'fable'` の
+Execute subagent には、下記の境界指示を prompt 本文へそのまま埋め込む
 （他モデルの subagent には不要——Sonnet/Opus/Haiku にこの傾向が明記されているわけではないため、
 一律に埋め込むと冗長になる）。
 
