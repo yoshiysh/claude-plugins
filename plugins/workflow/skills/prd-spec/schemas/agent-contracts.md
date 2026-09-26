@@ -241,6 +241,21 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 - `document` は**渡された文書のキーをそのまま使う**。綴りを変えると宛先を失い、改稿に回らない。
 - `[CATEGORIES_DEFERRED]` に挙がっているカテゴリは、章として無くても反映漏れとして扱わない。
 
+### locate 読みの追加項目（consistency / coverage の全範囲監査で locate を割り当てられたときだけ）
+
+いずれも任意項目で、他の auditor の契約は変わらない。割り当ての有無と理由は script が決めて
+返り値の `summary.locator` に残す。件数の正も script 側で数え直す（`locator_misses` は
+`found_via: "sample"` の指摘件数から導く）。verdict には使わない。
+
+| 項目 | 意味 |
+|---|---|
+| `read_mode` | `locate` / `full` / `full_fallback`。locate を割り当てられて bulk-read が失敗し全文読みに戻したら `full_fallback` |
+| `read_fallback_reason` | `full_fallback` にした理由（終了コード・API キー不在・EVIDENCE 節なし など） |
+| `locator_quotes` | bulk-read の EVIDENCE 節の引用件数 |
+| `locator_unmatched` | 元ファイルに逐語で見つからず捨てた引用の件数 |
+| `locator_misses` | `found_via: "sample"` の指摘件数（自己申告。script は数え直す） |
+| `failed[].found_via` | `locator`（引用が指していた箇所で見つけた）/ `sample`（script が割り当てた抜き取り範囲でだけ見つけた = locator の見落とし） |
+
 ### 各 auditor の担当範囲
 
 | auditor | 見るもの | 見ないもの |

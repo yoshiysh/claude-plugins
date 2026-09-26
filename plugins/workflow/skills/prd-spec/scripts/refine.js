@@ -44,22 +44,27 @@ const MAX_GATE_ROUNDS = 2
 // model / effort は明示する。省略するとセッションの設定（xhigh 等）を継承し、照合だけの観点まで
 // 最重量で走る（実測: 9 文書の 1 run で 349 呼び出しが利用上限に 2 回達した）。
 // 照合・列挙の観点は sonnet / medium、判断を要する観点は opus / high に置く。
+// read: 全範囲監査での本文の読み方。'locate' は安いモデル（shunt の bulk-read）に候補箇所の逐語引用
+// だけを選ばせ、監査役はその箇所と抜き取り範囲を原文で読んで判定する。'full' は監査役が全文を区切り読みする。
+// locate にするのは、判定に要る箇所が文書のごく一部に集まる観点（consistency: 定義・数値・順序の
+// 突き合わせ / coverage: カテゴリと章の実在）だけ。全文の一文ずつを見る観点（clarity・executability・
+// fabrication・validity・specimen）と、script 側の ID 照合に乗る traceability は full のまま。
 const AUDITORS = [
-  { name: 'executability', file: 'executability-auditor.md', model: 'opus', effort: 'high', scope: 'each' },
-  { name: 'clarity', file: 'clarity-auditor.md', model: 'sonnet', effort: 'medium', scope: 'each' },
-  { name: 'traceability', file: 'traceability-auditor.md', model: 'sonnet', effort: 'medium', scope: 'specifications' },
-  { name: 'coverage', file: 'coverage-auditor.md', model: 'sonnet', effort: 'medium', scope: 'requirements' },
-  { name: 'fabrication', file: 'fabrication-auditor.md', model: 'opus', effort: 'high', scope: 'each' },
-  { name: 'consistency', file: 'consistency-auditor.md', model: 'sonnet', effort: 'medium', scope: 'all' },
+  { name: 'executability', file: 'executability-auditor.md', model: 'opus', effort: 'high', scope: 'each', read: 'full' },
+  { name: 'clarity', file: 'clarity-auditor.md', model: 'sonnet', effort: 'medium', scope: 'each', read: 'full' },
+  { name: 'traceability', file: 'traceability-auditor.md', model: 'sonnet', effort: 'medium', scope: 'specifications', read: 'full' },
+  { name: 'coverage', file: 'coverage-auditor.md', model: 'sonnet', effort: 'medium', scope: 'requirements', read: 'locate' },
+  { name: 'fabrication', file: 'fabrication-auditor.md', model: 'opus', effort: 'high', scope: 'each', read: 'full' },
+  { name: 'consistency', file: 'consistency-auditor.md', model: 'sonnet', effort: 'medium', scope: 'all', read: 'locate' },
   // validity: 内容の妥当性（筋・矛盾・欠落）。書式・規律の監査を全通過した筋の悪い要求を
   // 止める最後の観点。事後レビュー頼みだと実施されないことが実測されたため観点に組み込んだ。
-  { name: 'validity', file: 'validity-auditor.md', model: 'opus', effort: 'high', scope: 'all' },
+  { name: 'validity', file: 'validity-auditor.md', model: 'opus', effort: 'high', scope: 'all', read: 'full' },
   // specimen: 標本適用監査。生成文書の各項目を実在の標本文書に実際に適用し、判定不能・
   // 適用時矛盾を検出する。内部監査が見逃す共通原因「文書を読むだけで、使ってみない」を
   // 塞ぐために導入された（実測: 全監査通過後の独立レビューが判定不能 4 件を検出した）。
   // scope 'kind' は文書 kind ごとに 1 体（要求と仕様で適用の物差しが違うため）。
   // コスト抑制のため毎改稿のスコープ監査には参加せず、初回監査と終端の網羅監査だけ参加する。
-  { name: 'specimen', file: 'specimen-auditor.md', model: 'opus', effort: 'high', scope: 'kind' },
+  { name: 'specimen', file: 'specimen-auditor.md', model: 'opus', effort: 'high', scope: 'kind', read: 'full' },
 ]
 
 // ROLE_OPTS: auditor 以外の role の model / effort。配分を 1 箇所で変えられるよう、agent() は
@@ -263,11 +268,21 @@ const AUDIT_SCHEMA = {
           // action: 冗長指摘の処置（delete / merge_into:<ID> / replace_with_reference:<文書#ID>）。
           // 引数を取る形があるので enum にしない。writer は direction より具体的な処置としてこれに従う。
           action: { type: 'string' },
+          // found_via: locate 読みの監査で、その指摘をどちらの読みで見つけたか。sample は locator の
+          // 引用に現れなかった箇所での発見（= locator の見落とし）。full 読みの監査では付けない。
+          found_via: { type: 'string', enum: ['locator', 'sample'] },
         },
         required: ['id', 'location', 'quote', 'issue', 'direction'],
       },
     },
     checked: { type: 'string' },
+    // read_mode 以下は locate 読みを割り当てた監査だけが返す任意項目（他の観点の契約は変えない）。
+    // 件数の正は script 側で数え直す（locator_misses は found_via: 'sample' の件数から導く）。
+    read_mode: { type: 'string', enum: ['locate', 'full', 'full_fallback'] },
+    read_fallback_reason: { type: 'string' },
+    locator_quotes: { type: 'number' },
+    locator_unmatched: { type: 'number' },
+    locator_misses: { type: 'number' },
   },
   required: ['failed', 'checked'],
 }
@@ -279,6 +294,9 @@ const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 // 未知の役割名や値は止める（黙って既定に落ちると、指定したつもりの配分が効かない）。
 const MODELS = ['haiku', 'sonnet', 'opus']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+// READ_MODES: 監査役の本文の読み方（AUDITORS の read）。read を持たない役割（書き手・判定役）への
+// 指定は止める — 読み方を切り替える口が無い役割に渡すと、指定したつもりで何も変わらない。
+const READ_MODES = ['locate', 'full']
 function applyRoleOverrides(tables, overrides) {
   const applied = {}
   for (const [name, o] of Object.entries(overrides || {})) {
@@ -287,7 +305,9 @@ function applyRoleOverrides(tables, overrides) {
     if (!o || typeof o !== 'object') throw new Error(`args.role_opts.${name} はオブジェクトで渡してください`)
     if (o.model !== undefined && !MODELS.includes(o.model)) throw new Error(`args.role_opts.${name}.model が不正です: "${o.model}"`)
     if (o.effort !== undefined && !EFFORTS.includes(o.effort)) throw new Error(`args.role_opts.${name}.effort が不正です: "${o.effort}"`)
-    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}) }
+    if (o.read !== undefined && !READ_MODES.includes(o.read)) throw new Error(`args.role_opts.${name}.read が不正です: "${o.read}"`)
+    if (o.read !== undefined && !('read' in target[name])) throw new Error(`args.role_opts.${name}.read は読み方を持つ監査役にだけ指定できます`)
+    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}), ...(o.read ? { read: o.read } : {}) }
     Object.assign(target[name], next)
     applied[name] = { ...target[name] }
   }
@@ -467,6 +487,7 @@ let documents = inputDocs.map((d) => ({
   draft_path: d.draft_path || d.path || '',
   // markdown は原則として空で始まり、writer が返した時点で埋まる。
   markdown: d.markdown || '',
+  ...(Number.isInteger(d.line_count) ? { line_count: d.line_count } : {}),
   summary: d.summary || '',
   items: d.items || [],
   ids: (d.items || []).map((i) => i.id).filter(Boolean),
@@ -507,6 +528,17 @@ if (documents.some((d) => !d.fixed) && !draftDir.startsWith('/')) {
   )
 }
 const revisedDraftPath = (doc, revisionId) => `${draftDir}/${doc.kind}-${doc.topic}.${revisionId}.md`
+
+// bulk_read_path: shunt の bulk-read スクリプトの絶対パス（任意）。渡されると、read: 'locate' の
+// 監査役は全範囲監査でこれを使って候補箇所の逐語引用を集めてから原文を読む。未指定なら全文の
+// 区切り読みに戻し、返り値の summary.locator に full_fallback として残す（黙って読み方を変えない）。
+const bulkReadPath = String(parsedArgs.bulk_read_path || '').trim()
+if (bulkReadPath && !bulkReadPath.startsWith('/')) {
+  throw new Error(
+    `args.bulk_read_path が絶対パスではありません: "${bulkReadPath}"。監査役は Bash でこのパスをそのまま実行するため、` +
+      'インストール済み shunt plugin の scripts/bulk-read を展開した絶対パスで渡してください。'
+  )
+}
 
 // sources_path: 司令塔が run 前に workspace へ書き出した根拠正本（過去周回のゲート②回答など）
 // のパス（任意）。指定時は、全文を必要とする role（writer / fabrication-auditor）にだけ
@@ -720,7 +752,10 @@ function changedLineRanges(prevMarkdown, nextMarkdown) {
 
 // bodyOf: 本文はプロンプトに入れず、draft_path を Read させる。行数は手元の markdown から
 // 計算できるときだけ添える（args から来た文書は writer を通るまで本文が手元に無い）。
-const bodyOf = (d) => readInstruction(d.draft_path, d.markdown ? lineTotal(d.markdown) : null)
+// docLineCount: 手元に本文が無い文書（初回の Workflow B など）は、呼び出し側が wc -l で数えた
+// documents[].line_count を使う。無いと区切り読みも抜き取り範囲も決められず全文読みへ戻る。
+const docLineCount = (d) => (d.markdown ? lineTotal(d.markdown) : Number.isInteger(d.line_count) ? d.line_count : null)
+const bodyOf = (d) => readInstruction(d.draft_path, docLineCount(d))
 
 // lastRevisedId: 直近の改稿の revisionId。スコープ監査は、この改稿で書き換わった文書の
 // 変更範囲（changed_ranges）だけを読ませる。
@@ -746,6 +781,223 @@ function otherDocsContext(self) {
         `本文: ${d.draft_path}（重複の確認に要る箇所だけを ${READ_CHUNK_LINES} 行以内の offset/limit で Read すること）`
     )
     .join('\n\n---\n\n')
+}
+
+// ------------------------------------------------------- locate 読み（安いモデルが探し、監査役が原文で判定する）
+//
+// 大きな文書を監査役（高価なモデル）に全文読ませる代わりに、shunt の bulk-read（Gemini）に候補箇所の
+// 逐語引用だけを選ばせる。安いモデルに任せるのは「どこを見るか」の選択に限り、判定・要約はさせない。
+// 判定に使う原文は、引用を Grep の完全一致で元ファイルに見つけ、その節を Read した監査役だけが持つ。
+// 安いモデルが選ばなかった部分は、script が割り当てた抜き取り範囲を監査役が全文読みして見落としを測る。
+
+// MISS_SAMPLE_SMALL_DOC_LINES / MISS_SAMPLE_CHUNKS_*: 見落とし測定の抜き取り量。600 行以下の文書は
+// 300 行の塊 1 つ（= 文書の半分以上）で足りる。それを超える文書は 2 塊にとどめる — 塊を増やすほど
+// 全文読みに近づき、locate にした意味（監査役の読む量を減らす）が消えるため。1 run で文書あたり
+// 最大 600 行の追加読みと引き換えに、locator の見落とし率を run ごとに実測できる。
+const MISS_SAMPLE_SMALL_DOC_LINES = 600
+const MISS_SAMPLE_CHUNKS_SMALL = 1
+const MISS_SAMPLE_CHUNKS_LARGE = 2
+
+// locatorSampleRanges: 見落とし測定のために全文読みさせる塊（READ_CHUNK_LINES 行単位）を決める。
+// 選び方は文書キーと版の FNV-1a ハッシュだけで決まる（Math.random / Date を使わない）— 同じ入力で
+// 再実行すれば同じ範囲を読むので、見落とし率の差が抜き取り位置の揺れではなく locator の差になる。
+// 版が変われば選ばれる塊も変わりうるので、周回を重ねると文書の別の場所が抜き取られる。
+function locatorSampleRanges(docKey, revision, lineCount) {
+  const total = Math.ceil((lineCount || 0) / READ_CHUNK_LINES)
+  if (!total) return []
+  const want = Math.min(total, lineCount <= MISS_SAMPLE_SMALL_DOC_LINES ? MISS_SAMPLE_CHUNKS_SMALL : MISS_SAMPLE_CHUNKS_LARGE)
+  const picked = []
+  for (let salt = 0; picked.length < want; salt++) {
+    const text = `${docKey}|${revision}|${salt}`
+    let h = 2166136261
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i)
+      h = Math.imul(h, 16777619)
+    }
+    const idx = (h >>> 0) % total
+    if (!picked.includes(idx)) picked.push(idx)
+  }
+  return picked
+    .sort((a, b) => a - b)
+    .map((i) => ({ start: i * READ_CHUNK_LINES + 1, end: Math.min(lineCount, (i + 1) * READ_CHUNK_LINES) }))
+}
+
+// auditReadPlan: この監査呼び出しの読み方を script が決める。locate にできない理由があれば
+// full_fallback とその理由を返す（呼び出し側は理由を返り値に残す）。
+// - スコープ監査（scoped）は変更範囲だけを読む既存の経路のまま（locate を掛けない）
+// - bulk_read_path が無ければ locator を走らせる手段が無い
+// - 行数の分からない対象文書があると抜き取り範囲を割り当てられない。見落としを測れない locate は
+//   「読まなかった部分」を申告できないので、全文読みに戻す（固定文書は抜き取り対象外なので問わない）
+function auditReadPlan(read, scoped, bulkPath, docs) {
+  if (read !== 'locate' || scoped) return { mode: 'full' }
+  if (!bulkPath) return { mode: 'full_fallback', reason: 'bulk_read_path_unset' }
+  const unknown = docs.filter((d) => !d.fixed && !d.lineCount)
+  if (unknown.length) return { mode: 'full_fallback', reason: `line_count_unknown: ${unknown.map((d) => d.key).join(', ')}` }
+  return {
+    mode: 'locate',
+    samples: docs
+      .filter((d) => !d.fixed)
+      .map((d) => ({ key: d.key, path: d.draft_path, ranges: locatorSampleRanges(d.key, d.revision, d.lineCount) })),
+  }
+}
+
+// locateQuestion: bulk-read に渡す問い。各監査役のチェックリストのうち「どこを見るか」だけを問い、
+// 判定（矛盾か・欠落か）と言い換えを禁じる。引用を 1 行以内の原文の部分文字列に限るのは、監査役が
+// Grep の完全一致で元ファイルの行を特定するため（表の複数行や要約は一致しない）。
+function locateQuestion(auditorName, categories) {
+  const contract = [
+    '各引用は、ファイル内に実在する 1 行以内の連続した部分文字列を一字一句そのまま写し、ファイルパスを添えること。',
+    '要約・言い換え・補足・正誤や矛盾や欠落の判断・評価は一切書かないこと。引用の列挙だけを返すこと。',
+    '該当が無い項目は none とだけ書くこと。',
+  ]
+  if (auditorName === 'consistency') {
+    return [
+      '次の文書群から、以下のいずれかに当たる箇所をすべて原文のまま引用して列挙せよ。',
+      '(1) 用語を定義している箇所、または同じものを別の語で呼んでいる箇所',
+      '(2) 数値・上限・下限・期限・回数・時間を定めている箇所',
+      '(3) 順序・優先順位・適用範囲・禁止・義務を定めている箇所のうち、別の文書も同じ対象について述べているもの（両方の文書の箇所を引用する）',
+      '(4) 他の文書・INDEX・上位文書を参照している箇所',
+      ...contract,
+    ].join('\n')
+  }
+  if (auditorName === 'coverage') {
+    return [
+      '次の文書から、以下を原文のまま引用して列挙せよ。',
+      `(1) 次の各カテゴリについて、それを扱っている章見出しまたは要求文。カテゴリ一覧: ${JSON.stringify(categories || [])}`,
+      '    カテゴリごとに見出しを付け、見つからないカテゴリは「カテゴリ名: none」と書く。',
+      '(2) 文書中のすべての章見出し（## / ### / #### で始まる行）',
+      '(3) 「該当なし」「非該当」「対象外」と書かれている箇所',
+      ...contract,
+    ].join('\n')
+  }
+  throw new Error(`locate 読みの問いが未定義の監査役です: ${auditorName}`)
+}
+
+// locateDocumentsSection: locate 読みの [DOCUMENTS] 節。bulk-read が実行時に失敗しても同じ呼び出しの
+// 中で全文読みへ戻れるよう、区切り読みの一覧（[FALLBACK]）も必ず添える — 読まずに済ませる経路を作らない。
+function locateDocumentsSection(plan, docs, bulkPath, question) {
+  const quote = (p) => `'${String(p).replace(/'/g, `'\\''`)}'`
+  const sampleLines = plan.samples.flatMap((s) =>
+    s.ranges.map((r) => `- ${s.key}: Read ${s.path} offset=${r.start} limit=${r.end - r.start + 1}`)
+  )
+  return [
+    '# [DOCUMENTS] 監査対象（読み方: locate）',
+    '安いモデル（bulk-read）に候補箇所の逐語引用だけを探させ、判定はあなたが原文を読んで行う。',
+    'bulk-read の出力は「どこを読むか」の手掛かりであって、判定の根拠ではない。',
+    '',
+    docs.map((d) => `- ${d.key}: ${d.draft_path}（${d.concern || '関心事の記載なし'}）${d.fixed ? '【このランの対象外・変更不可】' : ''}`).join('\n'),
+    '',
+    '## 手順 1: 候補箇所の逐語引用を集める（問いの文言を変えずに Bash でそのまま実行する）',
+    '```bash',
+    `${quote(bulkPath)} --question "$(cat <<'LOCATE_Q'`,
+    question,
+    'LOCATE_Q',
+    `)" --paths ${docs.map((d) => quote(d.draft_path)).join(' ')}`,
+    '```',
+    '使うのは出力の EVIDENCE 節の引用だけである。ANSWER / UNVERIFIED の記述は判定材料にしない。',
+    'コマンドが 0 以外で終わった・API キーが無いと出た・EVIDENCE 節が無い場合は、手順 2〜3 を捨てて',
+    '末尾の [FALLBACK] に従い全文を区切り読みし、read_mode: "full_fallback" と read_fallback_reason を返すこと。',
+    '**どの場合も、読まずに判定してはならない。**',
+    '',
+    '## 手順 2: 引用を原文で確かめてから判定する',
+    '- 各引用から 1 行に収まる特徴的な部分文字列を選び、Grep（固定文字列・行番号付き）でそのファイル内を検索して行番号を得る。',
+    `- 見つかった行を含む節（直前の ### / #### 見出しから次の同格の見出しの手前まで）を、${READ_CHUNK_LINES} 行以内の offset/limit で Read する。`,
+    '- 判定は Read した原文だけから行う。指摘の quote も Read した原文から写す（引用をそのまま使わない）。',
+    '- 元ファイルに逐語で見つからない引用は捨て、その件数を locator_unmatched に数える。',
+    '- 引用が無いことは不在の証拠にならない。欠落・不在を指摘するときは、Grep で `^#{2,4} ` の見出しを自分で全列挙し、関係しうる節を Read して確かめる。',
+    '',
+    '## 手順 3: 見落としの抜き取り（script が割り当てた範囲。手順 1 の結果に関わらず全文を読む）',
+    ...(sampleLines.length ? sampleLines : ['- （抜き取り対象の文書なし）']),
+    'この範囲にも同じ観点を適用する。指摘には found_via を付ける — 手順 1 の引用が指していた箇所での指摘は "locator"、',
+    '引用が指していなかった箇所で抜き取りによって見つけた指摘は "sample"（= locator の見落とし）。',
+    '',
+    '## 返り値に加えるもの',
+    '- read_mode: "locate"（手順 1 が失敗して全文読みに戻したときは "full_fallback" と read_fallback_reason）',
+    '- locator_quotes: EVIDENCE 節の引用の件数 / locator_unmatched: 逐語で見つからず捨てた件数 / locator_misses: found_via が "sample" の指摘件数',
+    '- checked: 手順 2 で Read した範囲・手順 3 で Read した範囲を列挙し、それ以外の範囲は読んでいないことを明記する（読まなかった部分を申告しないと、網羅したように見える）',
+    '',
+    '## [FALLBACK] 全文の区切り読み（手順 1 が失敗したときだけ使う）',
+    docs.map((d) => `### ${d.key}\n${readInstruction(d.draft_path, d.lineCount)}`).join('\n\n'),
+  ].join('\n')
+}
+
+// fullFallbackNote: locate を割り当てた監査役を全文読みに戻したときの注記。理由は script が決めて
+// 返り値にも残すので、監査役には read_mode を申告させるだけにする。
+function fullFallbackNote(reason) {
+  return [
+    `# [READ_MODE] full_fallback（理由: ${reason}）`,
+    'この監査は本来 locate 読みの割り当てだが、上の理由で全文の区切り読みに戻している。',
+    '下の [DOCUMENTS] の指示どおり全文を読み、返り値の read_mode に "full_fallback" を入れること。',
+  ].join('\n')
+}
+
+// summarizeLocator: locate を割り当てた監査の実績を監査役ごとに集計する。件数の正は script 側で
+// 数える — locator_misses は自己申告の数ではなく found_via: 'sample' の指摘件数から導く（自己申告の
+// 数は reported に並べるだけ）。判定（verdict）には使わない — 見落とし率を run ごとに見えるようにする計測である。
+// locator_miss_rate: locate 読みの全指摘に占める sample 由来（locator の見落とし）の割合。抜き取りは
+// 文書の一部しか読まないので、真の見落としはこれより多くありうる（下限の目安として読む）。
+function summarizeLocator(records) {
+  const out = {}
+  for (const rec of records) {
+    const s = (out[rec.auditor] = out[rec.auditor] || {
+      calls: 0,
+      locate: 0,
+      full_fallback: 0,
+      unreported: 0,
+      fallback_reasons: [],
+      sampled_chunks: 0,
+      locator_quotes: 0,
+      locator_unmatched: 0,
+      findings_via_locator: 0,
+      locator_misses: 0,
+      locator_misses_reported: 0,
+      locator_miss_rate: null,
+    })
+    s.calls++
+    const result = rec.result || {}
+    const reason =
+      rec.plan.mode === 'full_fallback' ? rec.plan.reason : result.read_mode === 'full_fallback' ? result.read_fallback_reason || 'reported_by_auditor' : null
+    if (reason) {
+      s.full_fallback++
+      if (!s.fallback_reasons.includes(reason)) s.fallback_reasons.push(reason)
+      continue
+    }
+    if (result.read_mode !== 'locate') {
+      s.unreported++
+      continue
+    }
+    s.locate++
+    s.sampled_chunks += (rec.plan.samples || []).reduce((n, x) => n + x.ranges.length, 0)
+    s.locator_quotes += Number(result.locator_quotes) || 0
+    s.locator_unmatched += Number(result.locator_unmatched) || 0
+    s.locator_misses_reported += Number(result.locator_misses) || 0
+    for (const f of result.failed || []) {
+      if (f && f.found_via === 'sample') s.locator_misses++
+      else s.findings_via_locator++
+    }
+  }
+  for (const s of Object.values(out)) {
+    const total = s.findings_via_locator + s.locator_misses
+    s.locator_miss_rate = total ? s.locator_misses / total : null
+  }
+  return out
+}
+
+// locateDocOf: locate 読みの計画に要る文書のメタ情報。行数は手元の本文から数えられるときだけ持つ。
+// 版は改稿の revisionId（未改稿なら読み元のパス）— 抜き取り範囲のハッシュ入力になる。
+const locateDocOf = (d) => ({
+  key: d.key,
+  concern: d.concern,
+  draft_path: d.draft_path,
+  fixed: d.fixed,
+  revision: d.revised_in || d.draft_path,
+  lineCount: docLineCount(d),
+})
+
+// locatorRecords: locate を割り当てた（full_fallback を含む）全範囲監査の結果。summary.locator の材料。
+const locatorRecords = []
+function recordLocator(r) {
+  if (r && r.plan && r.plan.mode !== 'full' && r.result) locatorRecords.push({ auditor: r.auditor, plan: r.plan, result: r.result })
 }
 
 // writerDirectives: 人間必要性の判定パイプライン（段 2〜4）が決めた「この TBD をこう解消する /
@@ -823,7 +1075,7 @@ function buildWriterPrompt(doc, findings, revisionId, requirementsRevised) {
     `未確定事項の ID: ${tbdPrefix(doc)}001 の形で振ること（この形以外で振らない）。`,
     '',
     '# [PREVIOUS] 前稿（これを改稿する。指摘の無い箇所は維持すること）',
-    readInstruction(doc.draft_path, doc.markdown ? lineTotal(doc.markdown) : null),
+    readInstruction(doc.draft_path, docLineCount(doc)),
     '読み込めなかった場合は、推測で書き始めず、読み込めなかった事実を返すこと（前稿の無い改稿は新規執筆に化ける）。',
     '',
     '# [OTHER_DOCUMENTS] 同じ案件の他文書（重複を作らないための参照。ここは書き換えない）',
@@ -875,6 +1127,14 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
     auditor.scope === 'all'
       ? documents.map((d) => `## ${d.path}（${d.concern}）${d.fixed ? '【このランの対象外・変更不可】' : ''}\n\n${auditBodyOf(d, narrowed)}`).join('\n\n---\n\n')
       : task.docs.map((d) => `## ${d.path}（${d.concern}）\n\n${auditBodyOf(d, narrowed)}`).join('\n\n---\n\n')
+  // 読み方は script が決め、task に残す（結果の集計で「何を割り当てたか」を自己申告に頼らないため）。
+  const locateDocs = (auditor.scope === 'all' ? documents : task.docs).map(locateDocOf)
+  const plan = auditReadPlan(auditor.read, narrowed, bulkReadPath, locateDocs)
+  task.readPlan = plan
+  const documentsSection =
+    plan.mode === 'locate'
+      ? [locateDocumentsSection(plan, locateDocs, bulkReadPath, locateQuestion(auditor.name, requiredCategories))]
+      : [...(plan.mode === 'full_fallback' ? [fullFallbackNote(plan.reason), ''] : []), '# [DOCUMENTS] 監査対象', scoped]
 
   const head = [
     `Read ${SKILL_DIR}/agents/${auditor.file} for your full role instructions before doing anything else.`,
@@ -953,8 +1213,7 @@ function buildAuditPrompt(auditor, task, deferred, scopeNote) {
   return [
     ...head,
     ...(scopeNote ? [scopeNote, ''] : []),
-    '# [DOCUMENTS] 監査対象',
-    scoped,
+    ...documentsSection,
     '',
     '# [CATEGORIES_DEFERRED] 情報が未確定のため TBD として起票済みのカテゴリ',
     JSON.stringify(deferred, null, 2),
@@ -1577,6 +1836,7 @@ function buildNextArgs(ctx) {
     ...(ctx.sources_path ? { sources_path: ctx.sources_path } : {}),
     ...(ctx.draft_dir ? { draft_dir: ctx.draft_dir } : {}),
     ...(ctx.role_opts ? { role_opts: ctx.role_opts } : {}),
+    ...(ctx.bulk_read_path ? { bulk_read_path: ctx.bulk_read_path } : {}),
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
       : {}),
@@ -2332,11 +2592,12 @@ while (true) {
         schema: AUDIT_SCHEMA,
         phase: 'Audit',
         label: `${task.auditor.name}-${task.target}-r${revisions}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
-      }).then((result) => ({ auditor: task.auditor.name, target: task.target, result: result || null })),
+      }).then((result) => ({ auditor: task.auditor.name, target: task.target, plan: task.readPlan, result: result || null })),
     (r) => r && r.result
   )
 
   const received = wrapped.filter(Boolean)
+  for (const r of received) recordLocator(r)
   // agent 監査を実施しなかったラウンドでは missing / byName を更新しない。ここで空の tasks を
   // 元に組み直すと、expected が 0 になって summary の各観点が「検査して 0 件」に化ける。
   // 実施した最後のラウンドの結果を保持するのが正しい（未実施を 0 件と読ませない）。
@@ -2711,10 +2972,11 @@ async function runAuditPass(label, auditorNames, scopeNote) {
         schema: AUDIT_SCHEMA,
         phase: 'Audit',
         label: `${task.auditor.name}-${task.target}-${label.replace(/\s+/g, '-')}${attempt > 1 ? `-retry${attempt - 1}` : ''}`,
-      }).then((result) => ({ auditor: task.auditor.name, target: task.target, result: result || null })),
+      }).then((result) => ({ auditor: task.auditor.name, target: task.target, plan: task.readPlan, result: result || null })),
     (r) => r && r.result
   )
   const received = wrapped.filter(Boolean).filter((r) => r.result)
+  for (const r of received) recordLocator(r)
   const docKeys = new Set(documents.map((d) => d.key))
   const pathToKey = new Map(documents.map((d) => [d.path, d.key]))
   const findings = []
@@ -3774,6 +4036,7 @@ const nextArgs = buildNextArgs({
   sources_path: sourcesPath,
   draft_dir: draftDir,
   role_opts: parsedArgs.role_opts,
+  bulk_read_path: bulkReadPath,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
   suppressed_finding_ids: rejectedStructuralIds,
 })
@@ -3940,5 +4203,8 @@ return {
       unadjudicated: adjudication.unadjudicated.length,
     },
     instrumentation: instr,
+    // locator: locate 読みを割り当てた全範囲監査の実績（監査役ごと）。full_fallback の理由・locator の
+    // 引用件数・逐語で見つからなかった件数・抜き取りで見つかった見落とし件数。verdict には使わない。
+    locator: summarizeLocator(locatorRecords),
   },
 }

@@ -78,9 +78,10 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 
 | args | 意味 |
 |---|---|
-| `documents` | 直前の返り値の `documents` から `markdown` を落としたもの（`draft_path` はそのまま）。パス（`draft_path` / `path`）の無い文書があると script が入口で落ちる（agent は本文をパスからしか読めない） |
+| `documents` | 直前の返り値の `documents` から `markdown` を落としたもの（`draft_path` はそのまま）。パス（`draft_path` / `path`）の無い文書があると script が入口で落ちる（agent は本文をパスからしか読めない）。手元に本文が無い周回（初回など）は各文書に `line_count`（`wc -l` の値）を付ける。無いと区切り読みと locate の抜き取り範囲が決まらず、全文読みに戻る |
 | `draft_dir` | writer が改稿稿を Write する workspace の絶対パス。改稿ごとに `<kind>-<topic>.<R番号>.md` の別ファイルへ書かせ、`wc -l` の `line_count` が本文と合わない改稿は採用しない（前稿を維持し `writer_missing` に載る） |
-| `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定は script の表。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る |
+| `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定は script の表。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る。監査役には読み方 `read`（`locate` / `full`）も指定できる（例: `{"consistency": {"read": "full"}}`。既定は consistency / coverage が `locate`、他は `full`。監査役以外への `read` は入口で止まる） |
+| `bulk_read_path` | 任意。shunt plugin の `scripts/bulk-read` の絶対パス。渡すと `read: locate` の監査役が全範囲監査（初回と終端）で、安いモデルに候補箇所の逐語引用だけを探させ、引用を元ファイルで完全一致で特定してその節を原文で読んで判定する。script が割り当てた抜き取り範囲も全文読みして見落としを測る。未指定・行数不明の文書がある・実行時に bulk-read が失敗したときは全文の区切り読みに戻る（`summary.locator` に `full_fallback` と理由が残る）。スコープ監査は変わらず変更範囲だけを読む。`next_args` に引き継がれる |
 | `tbd_answers` | **今周回の**統合ゲートの回答。**空なら script は反映パスを飛ばす**（直す理由が無いまま全文書を書き直させない） |
 | `tbd_answers_history` | 過去周回の統合ゲート回答の累積。1 周目は `[]`。**2 周目以降は `next_args` が埋めるので手で作らない**（原本が欠けると過去回答由来の要求が fabrication の偽陽性になる） |
 | `presented_tbd_ids` | これまでに提示済みの TBD。`unpresented_blocking` の唯一の入力。`{ id, digest }` の形（`digest` は script が計算済みの値。生 text を入れると全件が「未提示」に化ける）。1 周目は初回ゲートで提示した分を `blocking_tbd_items[].digest` から転記して積む。**2 周目以降は `next_args` が埋めるので手で作らない** |
@@ -95,6 +96,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 |---|---|
 | `verdict` | `clean` / `audit_incomplete` / `adjudication_incomplete` / `revision_backstop_reached` / `unanswerable_findings` / `unresolved_findings` / `blocking_over_capacity` / `tbd_remaining` |
 | `summary.*_findings` | 観点ごとの件数。**`null` は「0 件」ではなく「未検査」** |
+| `summary.locator` | locate 読みを割り当てた監査役ごとの実績（`calls` / `locate` / `full_fallback` と `fallback_reasons` / `unreported` / `sampled_chunks` / `locator_quotes` / `locator_unmatched` / `findings_via_locator` / `locator_misses` / `locator_miss_rate`）。`locator_misses` は抜き取り範囲でだけ見つかった指摘の件数を script が数えたもの（自己申告は `locator_misses_reported`）。抜き取りは文書の一部なので、見落とし率は下限の目安として読む。verdict には影響しない |
 | `tbd_items` | 残った未確定事項。**完成条件はこれが 0 件**（SKILL.md「完成の定義」） |
 | `unpresented_blocking` | blocking かつ未提示。1 件以上なら統合ゲートで聞く（`first_seen_round` 付き） |
 | `auto_resolved_blocking` / `resolved_by_measurement` | 人間に聞かずに決着させた項目。**本文への反映はラン内で完了している**。保存承認ゲートで決定として事後提示する（依頼者は覆せる） |

@@ -200,6 +200,9 @@ const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 // 未知の役割名や値は止める（黙って既定に落ちると、指定したつもりの配分が効かない）。
 const MODELS = ['haiku', 'sonnet', 'opus']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+// READ_MODES: 監査役の本文の読み方（AUDITORS の read）。read を持たない役割（書き手・判定役）への
+// 指定は止める — 読み方を切り替える口が無い役割に渡すと、指定したつもりで何も変わらない。
+const READ_MODES = ['locate', 'full']
 function applyRoleOverrides(tables, overrides) {
   const applied = {}
   for (const [name, o] of Object.entries(overrides || {})) {
@@ -208,7 +211,9 @@ function applyRoleOverrides(tables, overrides) {
     if (!o || typeof o !== 'object') throw new Error(`args.role_opts.${name} はオブジェクトで渡してください`)
     if (o.model !== undefined && !MODELS.includes(o.model)) throw new Error(`args.role_opts.${name}.model が不正です: "${o.model}"`)
     if (o.effort !== undefined && !EFFORTS.includes(o.effort)) throw new Error(`args.role_opts.${name}.effort が不正です: "${o.effort}"`)
-    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}) }
+    if (o.read !== undefined && !READ_MODES.includes(o.read)) throw new Error(`args.role_opts.${name}.read が不正です: "${o.read}"`)
+    if (o.read !== undefined && !('read' in target[name])) throw new Error(`args.role_opts.${name}.read は読み方を持つ監査役にだけ指定できます`)
+    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}), ...(o.read ? { read: o.read } : {}) }
     Object.assign(target[name], next)
     applied[name] = { ...target[name] }
   }

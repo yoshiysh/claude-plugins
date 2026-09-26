@@ -370,6 +370,7 @@ Workflow({
     sources_path: "<workspace に書き出した根拠正本のパス。1 周目・履歴なしなら渡さない>",
     paths: { requirements: "docs/requirements", specifications: "docs/specifications" },
     draft_dir: "<絶対パス: 改稿稿の書き出し先。~/.claude/prd-spec-workspace/<案件>/drafts/r<outer_round> を展開したもの>",
+    bulk_read_path: "<任意。インストール済み shunt plugin の scripts/bulk-read の絶対パス（例: ls -d ~/.claude/plugins/cache/*/shunt/*/scripts/bulk-read の最新版を展開したもの）。無ければ渡さない>",
     today: "<date +%Y-%m-%d>"
     // audit_rounds は通常渡さない（渡すのは途中死からの復旧時だけ。workflow-io.md §3）
   }
@@ -381,6 +382,7 @@ Workflow({
 ものだけ挙げる。
 
 - `tbd_answers` — **今周回の**回答。空なら script は反映パスを飛ばす。
+- `bulk_read_path` — consistency / coverage の全範囲監査で、安いモデルに候補箇所を探させて監査役の読む量を減らす口（`workflow-io.md` §4）。渡さなくても監査は全文読みで完走する。
 - `presented_tbd_ids` — `{ id, digest }` の形（digest は script が計算済みの値。生 text を
   入れると全件が「未提示」に化ける）。**2 周目以降は `next_args` が埋めるので手で作らない**。
 - `documents[].trace` — 落とさない。落とすと根拠の対応が消え、構造検査が全項目を未検査にする。
