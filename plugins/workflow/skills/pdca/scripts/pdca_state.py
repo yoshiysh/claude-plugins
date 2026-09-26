@@ -437,13 +437,17 @@ def validate_stages(obj: object, seen: set) -> dict:
         q = require_keys(st["question"], "stages.question", {"ask", "options"})
         nonempty_str(q["ask"], "stages.question.ask")
         validate_options(q["options"], "stages.question.options", None, stages=table)
-        claim_id(STAGES, "stages.question", seen)
+        pass
     return table
 
 
 def question_sha(q: dict) -> str:
     body = {"ask": q["ask"], "options": [{"id": o["id"], "text": o["text"]} for o in q["options"]]}
     return sha256_bytes(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8"))
+
+
+def ask_sha(finding: dict) -> str:
+    return question_sha({"ask": finding["ask"]["question"], "options": finding["ask"]["options"]})
 
 
 def boundary_roots(goal: dict) -> list[Path]:
@@ -477,6 +481,8 @@ def claim_id(raw: object, where: str, seen: set) -> None:
     nonempty_str(raw, where)
     if raw.startswith("R-"):
         raise StateError(f"ID {raw!r} は R- で始まる（R- は script が毎回入れる観点に予約）")
+    if raw in (BOUNDARY, STAGES):
+        raise StateError(f"ID {raw!r} は境界と段階の問いに予約されている")
     if raw in seen:
         raise StateError(f"ID {raw!r} が重複している")
     seen.add(raw)
@@ -539,20 +545,20 @@ def validate_boundary(obj: object, seen: set) -> list[Path]:
         q = require_keys(outside["question"], "boundary.outside.question", {"ask", "options"})
         nonempty_str(q["ask"], "boundary.outside.question.ask")
         validate_options(q["options"], "boundary.outside.question.options", None, widen=True)
-        claim_id(BOUNDARY, "boundary.outside.question", seen)
+        pass
     return roots
 
 
 def validate_goal(obj: object, run_dir: Path) -> dict:
     require_keys(obj, DOCS["goal"], {"boundary", "system", "phrases"}, {"stages"})
-    seen: set = set()
+    seen: set = {BOUNDARY, STAGES}
     roots = validate_boundary(obj["boundary"], seen)
     if "stages" in obj:
         validate_stages(obj["stages"], seen)
     kinds = validate_system(obj["system"], seen)
     for kid, k in kinds.items():
         cwd = user_path(k["enumerate"]["cwd"]).resolve()
-        if not any(cwd.is_relative_to(root) for root in roots):
+        if not any(cwd.is_relative_to(root) if root.is_dir() else cwd == root.parent for root in roots):
             raise StateError(f"種類 {kid} の enumerate.cwd が boundary.roots の外にある: {k['enumerate']['cwd']}")
     phrases = obj["phrases"]
     if not isinstance(phrases, list) or not phrases:
@@ -791,7 +797,7 @@ class State:
         return validate_goal(self.read_doc("goal"), self.run_dir)
 
     def scope(self) -> dict:
-        return validate_scope(self.read_doc("scope"), self.run_dir, self.materials, self.goal(), self.answers())
+        return validate_scope(self.read_doc("scope"), self.run_dir, self.materials, self.goal(), self.answers_by_id())
 
     def criteria(self) -> dict:
         scope = self.scope()
@@ -799,6 +805,16 @@ class State:
 
     def answers(self) -> dict:
         return {e["data"]["question"]: e["data"] for e in self.ledger.of("answer")}
+
+    def answers_by_id(self) -> dict:
+        table = self.answers()
+        by_sha = {a["question_sha256"]: a for a in table.values()}
+        written = self.written("goal")
+        current = (written["data"]["asks"] if written else []) + self.finding_asks()
+        for q in current:
+            if q["id"] not in table and question_sha(q) in by_sha:
+                table[q["id"]] = by_sha[question_sha(q)]
+        return table
 
     def window_open(self) -> bool:
         return self.last_fix is None or any(
@@ -852,11 +868,11 @@ class State:
         after = written["seq"] if written else 0
         reviews = [r for r in (self.latest_review(a) for a in ASPECTS) if r and r["seq"] > after]
         entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
-        by_sha = {a["question_sha256"]: a["answer"] for a in self.answers().values()}
+        by_sha = {a["question_sha256"]: a for a in self.answers().values()}
         found = []
         for f in (f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]):
-            sha = question_sha({"ask": f["ask"]["question"], "options": f["ask"]["options"]}) if "ask" in f else None
-            found.append(f | {"answer": by_sha[sha]} if sha in by_sha else f)
+            a = by_sha.get(ask_sha(f)) if "ask" in f else None
+            found.append(f | {"answer": a["answer"], "answer_source": ANSWER_SOURCE + a["question"]} if a else f)
         stuck = self.design_stuck() if aspect == "scope" else None
         if stuck:
             found += [f for f in stuck["data"]["findings"] if f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"]]
@@ -884,6 +900,8 @@ class State:
         return not self.needs_author(aspect) and self.current_review(aspect) is not None
 
     def unreflected(self) -> list[str]:
+        if self.pinned:
+            return []
         answers = list(self.answers().values())
         wanted = [w for a in answers for w in a.get("widen", [])]
         chosen = [a["stages"] for a in answers if "stages" in a]
@@ -916,7 +934,9 @@ class State:
         if self.ready("goal"):
             asks += self.written("goal")["data"]["asks"]
         answered = {a["question_sha256"] for a in self.answers().values()}
-        return [q for q in asks if question_sha(q) not in answered]
+        pending = [q for q in asks if question_sha(q) not in answered]
+        framing = [q for q in pending if q["id"] in (BOUNDARY, STAGES)]
+        return framing or pending
 
     def criteria_open(self) -> list[dict]:
         items = []
@@ -955,6 +975,7 @@ class State:
 
     def finding_counts(self) -> dict:
         series: dict[str, dict] = {name: {} for name in (*ASPECTS, "verification")}
+        answered = {a["question_sha256"] for a in self.answers().values()}
         for e in self.ledger.of("criteria_review", "verification"):
             if e["kind"] == "verification":
                 name, r = "verification", self.round_of[e["seq"]]
@@ -962,7 +983,7 @@ class State:
                 name, r = e["data"]["aspect"], self.criteria_round_of[e["seq"]]
             bucket = series[name].setdefault(r, dict.fromkeys(LAYERS, 0))
             for f in e["data"]["findings"]:
-                if f["severity"] == "blocking" and "ask" not in f:
+                if f["severity"] == "blocking" and ("ask" not in f or ask_sha(f) in answered):
                     bucket[f["layer"]] += 1
         return {name: [{"round": r, "blocking": c} for r, c in sorted(rows.items())] for name, rows in series.items()}
 
@@ -1004,6 +1025,10 @@ class State:
         stuck = self.non_converging()
         if stuck:
             return stuck
+        answered = self.ledger.last("answer")
+        if answered and self.unreflected() and len([e for e in self.ledger.of("criteria_written", after=answered["seq"])
+                                                    if e["data"]["aspect"] == "goal"]) >= 2:
+            return "stop:non_converging:ゴール"
         if any(e["data"].get("refused") for e in self.ledger.of("continue")):
             return "stop:auto_continue"
         budget = self.fixed_budget()
@@ -1142,7 +1167,9 @@ def cmd_answer(args) -> int:
 
 def prior_findings(state: State, role: str, conditions: list, viewpoint: str | None, aspect: str | None) -> list[dict]:
     if role in ("goal-framer", "criteria-author"):
-        return state.routed_findings(aspect)
+        extra = [{"target": DOCS["goal"], "severity": "blocking", "layer": LAYER_OF["goal"], "claim": claim,
+                  "evidence": "人間の答え（brief の answers）"} for claim in state.unreflected()] if aspect == "goal" else []
+        return state.routed_findings(aspect) + extra
     if role == "criteria-verifier":
         prev = [e for e in state.ledger.of("criteria_review") if e["data"]["aspect"] == aspect]
         return prev[-1]["data"]["findings"] if prev else []

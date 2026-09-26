@@ -884,7 +884,7 @@ class TestGoal(Base):
                          "findings": [asked | {"ask": with_kinds}], "notes": []})
         self.assertEqual(r.next(), "ask_human")
 
-    def test_問いを持つ指摘は人間に聞いてから書き手に回り非収束に数えない(self):
+    def test_問いを持つ指摘は人間に聞いてから書き手に回り答えるまで非収束に数えない(self):
         r = self.run_()
         r.framed()
         for n in range(3):
@@ -894,6 +894,7 @@ class TestGoal(Base):
             status = r.ok("status")
             self.assertEqual(status["next"], "ask_human")
             self.assertEqual(status["ask_human"][0]["ask"], f"問い {n}")
+            self.assertEqual(status["findings"]["scope"][-1]["blocking"]["範囲の導出"], 0)
             self.assertEqual(r.ok("answer", "--question", status["ask_human"][0]["id"], "--option", "b")["next"],
                              "criteria-author:scope")
             _, brief = r.brief("criteria-author", "--aspect", "scope")
@@ -902,7 +903,72 @@ class TestGoal(Base):
             r.record(brief, {"agent": f"b{n}"})
             r.review("scope", agent=f"t{n}")
         self.assertEqual(r.next(), "criteria-author:design")
-        self.assertEqual([row["blocking"]["範囲の導出"] for row in r.ok("status")["findings"]["scope"]], [0] * 6)
+        self.assertEqual([row["blocking"]["範囲の導出"] for row in r.ok("status")["findings"]["scope"]], [1, 0] * 3)
+
+    def test_答え済みの問いを持つ指摘の出し直しは非収束に数える(self):
+        r = self.run_()
+        r.framed()
+        same = finding(layer="範囲の導出", target="scope.json") | {"ask": finding_ask()}
+        r.author()
+        r.review("scope", findings=[same])
+        r.ok("answer", "--question", r.ok("status")["ask_human"][0]["id"], "--option", "a")
+        for n in range(2):
+            r.author(agent=f"a{n}")
+            r.review("scope", agent=f"s{n}", findings=[same])
+        self.assertEqual(r.next(), "stop:non_converging:範囲の導出")
+
+    def test_句のIDに境界と段階の問いのIDを使えない(self):
+        r = self.run_()
+        r.init()
+        doc = asking(r.goal())
+        doc["phrases"][0]["id"] = "B"
+        brief, path = self.submit(r, "goal", doc)
+        self.assertIn("予約", r.refused("record", "--file", str(path)))
+
+    def test_IDを変えて出し直した問いの答えも引ける(self):
+        r = self.run_()
+        r.init()
+        r.author("goal", doc=asking(r.goal()))
+        r.review("goal")
+        r.ok("answer", "--question", "P1", "--option", "a")
+        r.author()
+        r.review("scope", findings=[finding(layer="ゴール", target="goal.json")])
+        renamed = asking(r.goal())
+        renamed["phrases"][0]["id"] = "P9"
+        r.author("goal", agent="g2", doc=renamed)
+        r.review("goal", agent="rg2")
+        self.assertEqual(r.next(), "criteria-author:scope")
+        r.author(agent="a2", doc=r.scope(conditions=[condition(), {"id": "C2", "statement": "PR ごと",
+                                                                  "source": {"path": "answer:P9", "quote": "PR ごと"}}]))
+
+    def test_fixの後に段階の答えを変えても台帳を読めて反映すれば進む(self):
+        r = self.run_()
+        r.init()
+        stages = {"list": [{"id": "S1", "what": "指針", "needs": []}, {"id": "S2", "what": "各文書", "needs": ["S1"]}],
+                  "this_run": ["S1", "S2"],
+                  "question": {"ask": "分けるか", "options": [{"id": "a", "text": "全部", "stages": ["S1", "S2"]},
+                                                            {"id": "b", "text": "S1 だけ", "stages": ["S1"]}]}}
+        r.author("goal", doc=r.goal(stages=stages))
+        r.review("goal")
+        r.ok("answer", "--question", "S", "--option", "a")
+        r.author()
+        r.review("scope")
+        r.author("design")
+        r.review("design")
+        r.ok("fix")
+        r.work()
+        r.verify("R-REQUEST", "q", status="fail", findings=[finding(layer="ゴール", target="goal.json")])
+        again = json.loads(json.dumps(stages))
+        again["question"]["ask"] = "分けて回すか"
+        r.author("goal", agent="g2", doc=r.goal(stages=again))
+        r.review("goal", agent="rg2")
+        r.ok("answer", "--question", "S", "--option", "b")
+        self.assertEqual(r.next(), "goal-framer:goal")
+        _, brief = r.brief("goal-framer", "--aspect", "goal")
+        self.assertIn("S1", json.dumps(brief["prior_findings"], ensure_ascii=False))
+        r.write("goal", r.goal(stages=again | {"this_run": ["S1"]}))
+        r.record(brief, {"agent": "g3"})
+        self.assertEqual(r.next(), "criteria-verifier:goal")
 
     def test_ask_humanの間に止まってもstatusは保留中の問いを出す(self):
         r = self.run_()
