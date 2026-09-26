@@ -26,6 +26,7 @@
 | `required_categories` | 導出カテゴリ。writer が反映し coverage-auditor が実在を検査する |
 | `existing_docs` | `review` / `expand` で Read した既存文書。渡した側だけが対象になる。`path` 必須（agent はパスから Read する。`markdown` は script の構造検査用に併記してよい） |
 | `draft_dir` | writer が初稿を Write する workspace の絶対パス。返り値の `documents[].draft_path` がその書き出し先で、以後の agent はここを Read する（本文をプロンプトに埋めない） |
+| `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定は script の表。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る |
 | `today` | `YYYY-MM-DD`。文書中に日付が要るときの基準日。script 内では日時生成が禁止されているため args で渡すしかない |
 
 ## 2. Workflow A の返り値
@@ -79,6 +80,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 |---|---|
 | `documents` | 直前の返り値の `documents` から `markdown` を落としたもの（`draft_path` はそのまま）。パス（`draft_path` / `path`）の無い文書があると script が入口で落ちる（agent は本文をパスからしか読めない） |
 | `draft_dir` | writer が改稿稿を Write する workspace の絶対パス。改稿ごとに `<kind>-<topic>.<R番号>.md` の別ファイルへ書かせ、`wc -l` の `line_count` が本文と合わない改稿は採用しない（前稿を維持し `writer_missing` に載る） |
+| `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定は script の表。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る |
 | `tbd_answers` | **今周回の**統合ゲートの回答。**空なら script は反映パスを飛ばす**（直す理由が無いまま全文書を書き直させない） |
 | `tbd_answers_history` | 過去周回の統合ゲート回答の累積。1 周目は `[]`。**2 周目以降は `next_args` が埋めるので手で作らない**（原本が欠けると過去回答由来の要求が fabrication の偽陽性になる） |
 | `presented_tbd_ids` | これまでに提示済みの TBD。`unpresented_blocking` の唯一の入力。`{ id, digest }` の形（`digest` は script が計算済みの値。生 text を入れると全件が「未提示」に化ける）。1 周目は初回ゲートで提示した分を `blocking_tbd_items[].digest` から転記して積む。**2 周目以降は `next_args` が埋めるので手で作らない** |

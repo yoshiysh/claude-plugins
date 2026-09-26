@@ -274,6 +274,29 @@ const AUDIT_SCHEMA = {
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 
+// role_opts: 司令塔が run ごとに役割の model / effort を上書きする口。表の値は既定であって、
+// 点検が軽い・判断が易しいと分かっている run で下げ、難所で上げる判断は呼び出す側が持つ。
+// 未知の役割名や値は止める（黙って既定に落ちると、指定したつもりの配分が効かない）。
+const MODELS = ['haiku', 'sonnet', 'opus']
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+function applyRoleOverrides(tables, overrides) {
+  const applied = {}
+  for (const [name, o] of Object.entries(overrides || {})) {
+    const target = tables.find((t) => t[name])
+    if (!target) throw new Error(`args.role_opts の役割名が不明です: "${name}"`)
+    if (!o || typeof o !== 'object') throw new Error(`args.role_opts.${name} はオブジェクトで渡してください`)
+    if (o.model !== undefined && !MODELS.includes(o.model)) throw new Error(`args.role_opts.${name}.model が不正です: "${o.model}"`)
+    if (o.effort !== undefined && !EFFORTS.includes(o.effort)) throw new Error(`args.role_opts.${name}.effort が不正です: "${o.effort}"`)
+    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}) }
+    Object.assign(target[name], next)
+    applied[name] = { ...target[name] }
+  }
+  return applied
+}
+const AUDITOR_BY_NAME = Object.fromEntries(AUDITORS.map((a) => [a.name, a]))
+const roleOverrides = applyRoleOverrides([ROLE_OPTS, AUDITOR_BY_NAME], parsedArgs.role_opts)
+if (Object.keys(roleOverrides).length) log(`role_opts で上書きした配分: ${JSON.stringify(roleOverrides)}`)
+
 const SKILL_DIR = parsedArgs.skillDir
 if (!SKILL_DIR) {
   throw new Error('args.skillDir が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。')
@@ -1553,6 +1576,7 @@ function buildNextArgs(ctx) {
     today: ctx.today,
     ...(ctx.sources_path ? { sources_path: ctx.sources_path } : {}),
     ...(ctx.draft_dir ? { draft_dir: ctx.draft_dir } : {}),
+    ...(ctx.role_opts ? { role_opts: ctx.role_opts } : {}),
     ...(ctx.specimen_paths_arg && ctx.specimen_paths_arg.length
       ? { specimen_paths: ctx.specimen_paths_arg }
       : {}),
@@ -3749,11 +3773,13 @@ const nextArgs = buildNextArgs({
   today,
   sources_path: sourcesPath,
   draft_dir: draftDir,
+  role_opts: parsedArgs.role_opts,
   specimen_paths_arg: parsedArgs.specimen_paths || [],
   suppressed_finding_ids: rejectedStructuralIds,
 })
 
 return {
+  role_opts_applied: roleOverrides,
   status: 'OK',
   verdict,
   mode,

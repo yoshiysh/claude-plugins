@@ -382,3 +382,37 @@ class TestWriteBackIsVerified(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoleOverrideTest(unittest.TestCase):
+    """role_opts: 既定の表を run ごとに上書きでき、不正な指定は止まる。"""
+
+    def _run(self, src_name, tables_js, overrides):
+        src = (SKILL / "scripts" / src_name).read_text()
+        s = src.index("const MODELS = [")
+        e = src.index("\nconst ", src.index("function applyRoleOverrides("))
+        code = src[s:e] + f"\nconst tables = {tables_js};\n" + (
+            "try { const a = applyRoleOverrides(tables, " + json.dumps(overrides) + ");"
+            " console.log(JSON.stringify({ok: a, tables})) } catch (err) { console.log(JSON.stringify({err: err.message})) }"
+        )
+        out = subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True)
+        return json.loads(out.stdout)
+
+    def test_上書きが表に反映される(self):
+        for name in ("refine.js", "draft.js"):
+            r = self._run(name, "[{writer: {model: 'opus', effort: 'medium'}}, {clarity: {model: 'sonnet', effort: 'medium'}}]",
+                          {"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}})
+            self.assertEqual(r["tables"][1]["clarity"], {"model": "sonnet", "effort": "low"})
+            self.assertEqual(r["tables"][0]["writer"], {"model": "sonnet", "effort": "medium"})
+
+    def test_未知の役割と不正な値は止まる(self):
+        for bad in ({"nope": {"effort": "low"}}, {"writer": {"effort": "extreme"}}, {"writer": {"model": "gpt"}}, {"writer": "low"}):
+            r = self._run("refine.js", "[{writer: {model: 'opus', effort: 'medium'}}]", bad)
+            self.assertIn("err", r, bad)
+
+    def test_両スクリプトの実装が一致する(self):
+        def body(n):
+            src = (SKILL / "scripts" / n).read_text()
+            s = src.index("const MODELS = [")
+            return src[s:src.index("\nconst ", src.index("function applyRoleOverrides("))]
+        self.assertEqual(body("refine.js"), body("draft.js"))

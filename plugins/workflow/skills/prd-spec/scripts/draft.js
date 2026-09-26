@@ -195,6 +195,28 @@ const EXEC_SCHEMA = {
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 
+// role_opts: 司令塔が run ごとに役割の model / effort を上書きする口。表の値は既定であって、
+// 点検が軽い・判断が易しいと分かっている run で下げ、難所で上げる判断は呼び出す側が持つ。
+// 未知の役割名や値は止める（黙って既定に落ちると、指定したつもりの配分が効かない）。
+const MODELS = ['haiku', 'sonnet', 'opus']
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+function applyRoleOverrides(tables, overrides) {
+  const applied = {}
+  for (const [name, o] of Object.entries(overrides || {})) {
+    const target = tables.find((t) => t[name])
+    if (!target) throw new Error(`args.role_opts の役割名が不明です: "${name}"`)
+    if (!o || typeof o !== 'object') throw new Error(`args.role_opts.${name} はオブジェクトで渡してください`)
+    if (o.model !== undefined && !MODELS.includes(o.model)) throw new Error(`args.role_opts.${name}.model が不正です: "${o.model}"`)
+    if (o.effort !== undefined && !EFFORTS.includes(o.effort)) throw new Error(`args.role_opts.${name}.effort が不正です: "${o.effort}"`)
+    const next = { ...(o.model ? { model: o.model } : {}), ...(o.effort ? { effort: o.effort } : {}) }
+    Object.assign(target[name], next)
+    applied[name] = { ...target[name] }
+  }
+  return applied
+}
+const roleOverrides = applyRoleOverrides([ROLE_OPTS], parsedArgs.role_opts)
+if (Object.keys(roleOverrides).length) log(`role_opts で上書きした配分: ${JSON.stringify(roleOverrides)}`)
+
 const SKILL_DIR = parsedArgs.skillDir
 if (!SKILL_DIR) {
   throw new Error('args.skillDir が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。')
@@ -1498,6 +1520,7 @@ log(
 )
 
 return {
+  role_opts_applied: roleOverrides,
   status: 'OK',
   verdict: execMissing.length ? 'executability_incomplete' : 'drafted',
   mode,
