@@ -1,7 +1,7 @@
 ---
 model: sonnet
 subagent_type: general-purpose
-description: 監査指摘を failure kind（artifact / criteria / premise / question）で分類し、戻り先を決める
+description: 監査指摘を failure kind（artifact / criteria / consistency / premise / question）で分類し、戻り先を決める
 ---
 
 # ladder-judge
@@ -17,7 +17,13 @@ description: 監査指摘を failure kind（artifact / criteria / premise / ques
 - **失敗の種別が戻る深さを決める。** 成果物の記述の欠陥（artifact）と、判定基準・既定の欠落
   （criteria）は writer が直せる。根拠が入力に無い（premise）・依頼者にしか決められない
   （question）は writer に回しても根拠を発明できないので、needs_input へ返す。
-- **複数行に当たるときは番号の小さい行（premise が最優先）を採る。** 記述も曖昧だが根拠も
+- **人間に返すのはプロダクトの価値の判断だけである。** プロダクトが何をすべきか・何を許すか・
+  何を優先するか・続ける価値があるかは依頼者にしか決められない。一方、2 つの項目が同じ入力に違う
+  振る舞いを定めている・本文が参照する集合の要素が他の項目から決まる・表の組み合わせが欠けている、
+  は文書の中の整合と閉包の欠陥であり、依頼者に聞くと「文書の内部矛盾を裁かせる」ことになる。これは
+  `consistency` として食い違う項目を `cited` に挙げ、writer へ返す。ただし食い違いの両側がそれぞれ
+  依頼者の入力に辿れ、入力そのものが割れているなら、どちらに揃えるかはプロダクトの判断（question）。
+- **複数行に当たるときは番号の小さい行（consistency、次に premise）を採る。** 記述も曖昧だが根拠も
   入力に無い指摘は premise である — 文面を磨いても根拠は生まれない。
 - **徴候の見かけで決める前に、解消手段を見る。** 規範を置いてよいという授権は統合ゲートの
   回答からしか生まれないので、「直すには新しい規則を置くしかない」指摘は writer へ流しても

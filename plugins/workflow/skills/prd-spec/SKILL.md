@@ -19,7 +19,7 @@ description: >
 
 # prd-spec（要求文書・仕様書の作成とレビュー）
 
-**目次**: [目的（完成の定義）](#目的完成の定義) · [人間に聞く前に落とす（判定パイプライン）](#人間に聞く前に落とす判定パイプライン) · [このスキルが防ぐ失敗](#このスキルが防ぐ失敗) · [対象外・起動条件](#対象外起動条件) · [全体フロー](#全体フロー) · [1. モードを判定する](#1-モードを判定する) · [2. 事前分析を発行する](#2-事前分析を発行する3-agent-並列) · [3. Workflow A を呼ぶ](#3-workflow-a-を呼ぶdraftjs) · [4〜5. 統合ゲートと Workflow B](#45-統合ゲート人間ゲートと-workflow-b) · [6. 結果を提示して保存する](#6-結果を提示して保存する保存と事後報告) · [入出力の定義](#入出力の定義) · [注意事項](#注意事項) · [参照ファイル構成](#参照ファイル構成)
+**目次**: [目的（完成の定義）](#目的完成の定義) · [人間に聞く前に落とす（判定パイプライン）](#人間に聞く前に落とす判定パイプライン) · [このスキルが防ぐ失敗](#このスキルが防ぐ失敗) · [対象外・起動条件](#対象外起動条件) · [全体フロー](#全体フロー) · [1. モードを判定する](#1-モードを判定する) · [2. 事前分析を発行する](#2-事前分析を発行する4-agent-並列) · [3. Workflow A を呼ぶ](#3-workflow-a-を呼ぶdraftjs) · [4〜5. 統合ゲートと Workflow B](#45-統合ゲート人間ゲートと-workflow-b) · [6. 結果を提示して保存する](#6-結果を提示して保存する保存と事後報告) · [入出力の定義](#入出力の定義) · [注意事項](#注意事項) · [参照ファイル構成](#参照ファイル構成)
 
 ## 目的（完成の定義）
 
@@ -96,6 +96,11 @@ git commit / PR 本文・保持規則と `work_items`）は `references/document
 司令塔が既定で決めて決定として事後提示する。人間の境界はプロダクト価値と不変条件
 （`.claude/rules/`・`CLAUDE.md` への書き込み、PR のマージ、外部公開）だけである。
 
+- **文書の中の整合と閉包の欠陥は人間に届けない。** 状態 × イベント表・判定表・工程の流れの構造検査
+  （`ST-STATE-` / `ST-DT-` / `ST-FLOW-`）は writer へ直接返り、ladder-judge は食い違う項目を名指し
+  できる指摘を `consistency` として writer へ、precedent-judge は同じ型の TBD を `internal` として
+  書き手の解消経路へ回す。executability も `resolved_by: writer` の着手不能を TBD にしない。
+  どれも、2 つの項目が同じ入力に違う振る舞いを定めているような欠陥を依頼者に裁かせないためである。
 - **段 2・3 は迷ったら人間ゲートへ倒す。** 自動裁定の偽陽性は依頼者の決定を勝手に置き換える
   事故であり、余計に聞く偽陰性より重い。judge が応答しなければ全件がゲート行きになる。
 - **段 2・3 の決着は同じラン内で本文へ反映される。** 次周回に持ち越す設計にすると、未提示
@@ -145,7 +150,7 @@ git commit / PR 本文・保持規則と `work_items`）は `references/document
 ```
 司令塔（Workflow の外。SKILL.md の指示であって構造ではない）
 
-  1 モード判定 → 2 事前分析 3 agent 並列（質問 0 件なら止まらない）→ 3 Workflow A
+  1 モード判定 → 2 事前分析 4 agent 並列（質問 0 件なら止まらない）→ 3 Workflow A
   → 4 統合ゲート（1 回にまとめて聞く）→ 5 Workflow B
   → 新規露出の blocking が残ったときだけ 4 へ戻る（乾くまで。backstop 5 周・例外経路）→ 6 保存と事後報告
 
@@ -190,9 +195,9 @@ Workflow B（refine.js が順序を握る）  Reflect → Audit → Revise → F
 例: /prd-spec 社内の勤怠申請ツールの要件をまとめたい。承認フローは部長承認のみ。
 ```
 
-## 2. 事前分析を発行する（3 agent 並列）
+## 2. 事前分析を発行する（4 agent 並列）
 
-同一ターンに 3 つの Agent 呼び出しを発行する。
+同一ターンに 4 つの Agent 呼び出しを発行する。
 
 ```
 Agent(prompt: "Read [SKILL_DIR]/agents/intake.md for your full role instructions before doing anything else.
@@ -218,9 +223,18 @@ Agent(prompt: "Read [SKILL_DIR]/agents/splitter.md for your full role instructio
                <mode>
                # 既存文書（review / expand のみ。kind / topic / パス / 1 行要約）
                <existing_docs の一覧>")
+
+Agent(prompt: "Read [SKILL_DIR]/agents/flow-framer.md for your full role instructions before doing anything else.
+               契約は [SKILL_DIR]/schemas/agent-contracts.md §flow-framer を正とする。
+               # 依頼文
+               <text>
+               # モード
+               <mode>
+               # 既存文書（review / expand のみ。パス）
+               <existing_docs のパス>")
 ```
 
-> **並列にしてよい根拠**: 3 者は依頼文（＋レビュー/展開モードでは既存文書）だけを入力に、
+> **並列にしてよい根拠**: 4 者は依頼文（＋レビュー/展開モードでは既存文書）だけを入力に、
 > **異なる軸を見ており、一方の結論が他方の入力にならない**（依存があるのに並列にすると、
 > 後段が空の入力で推測を始める）。
 
@@ -228,6 +242,11 @@ Agent(prompt: "Read [SKILL_DIR]/agents/splitter.md for your full role instructio
   添える。根拠が無いものは `不明` として TBD になる（`references/domain-analysis.md`）。
 - **intake は質問係ではなく既定選定係である。** 論点を確定 / 決定（`decisions` に起票）/ 質問に
   仕分ける。判定手順は `references/question-policy.md` が正。**質問 0 件が目標値**。
+- **flow-framer は対象の工程の流れ（入力・工程・判断・出力）を描く。** 返り値を手順 3・5 の `flow` に
+  そのまま渡す。writer は各項目をその要素に当て、構造検査が「どの項目も当たらない工程」「行き先の無い
+  判断の値」を拾う — 書かれなかった工程や分岐は、流れが無いと文書のどこにも現れず、依頼者への質問に
+  化けて戻ってくる（実測: 6 文書で 12 問、ほぼ全件が文書内の不整合だった）。形と閉包が崩れた flow は
+  Workflow A の入口で止まるので、そのときは flow-framer に理由を渡して描き直させる。
 - splitter の分割案は司令塔が裁定する。複数案が出たら**小規模案件は割らない**原則で選び、
   選んだ事実を決定として `decisions` に足す（統合ゲートで異議を受ける）。
 - **`review` / `expand` では splitter に既存文書の一覧を渡し、既存の topic を維持する。**
@@ -266,6 +285,7 @@ Workflow({
     tbd_items: [{ id: "TBD-001", text: "...", owner: "", due: "", blocking: true }],
     domain_findings: [{ aspect: "...", verdict: "該当|非該当|不明", evidence: "..." }],
     required_categories: ["..."],
+    flow: <手順 2 の flow-framer の返り値をそのまま>,
     existing_docs: [{ kind: "requirements", topic: "auth", path: "..." }],
     paths: { requirements: "docs/requirements", specifications: "docs/specifications" },
     draft_dir: "<絶対パス: ~/.claude/prd-spec-workspace/<案件>/drafts/r1 を展開したもの>",
@@ -361,6 +381,7 @@ Workflow({
     presented_tbd_ids: [{ id: "TBD-001", digest: "<blocking_tbd_items[].digest を転記>" }, ...],
     outer_round: 1,
     domain_findings: [...], required_categories: [...],
+    flow: <手順 2 の flow をそのまま>,
     draft_structural_findings: <Workflow A の structural_findings をそのまま>,
     self_containment: "<手順 4 で合意した参照方針。無い案件では空文字>",
     sources_path: "<workspace に書き出した根拠正本のパス。1 周目・履歴なしなら渡さない>",
