@@ -1,0 +1,13 @@
+[
+  {"key": "requirements/auth", "kind": "requirements", "topic": "auth", "file": "requirements-auth.md",
+   "ids": ["PR-AUTH-001", "PR-AUTH-003", "PR-AUTH-004"], "referenced": [], "vacant": [],
+   "traceability": [], "tbd_items": [{"id": "TBD-RAUTH-001", "text": "上限値", "blocking": true}],
+   "trace": [{"item_id": "PR-AUTH-001"}, {"item_id": "PR-AUTH-004"}], "fixed": false},
+  {"key": "specifications/auth", "kind": "specifications", "topic": "auth", "file": "specifications-auth.md",
+   "prev_file": "specifications-auth.prev.md",
+   "ids": ["SP-AUTH-001", "SP-AUTH-003", "SP-AUTH-004"], "referenced": ["PR-AUTH-001"], "vacant": [],
+   "traceability": [{"requirement_id": "PR-AUTH-001", "spec_id": "SP-AUTH-001"}, {"requirement_id": "PR-AUTH-099", "spec_id": "SP-AUTH-003"}],
+   "tbd_items": [], "trace": [{"item_id": "SP-AUTH-001"}, {"item_id": "SP-AUTH-003"}, {"item_id": "SP-AUTH-004"}], "fixed": false},
+  {"key": "requirements/base", "kind": "requirements", "topic": "base", "file": "requirements-base.md",
+   "ids": ["PR-BASE-001"], "referenced": [], "vacant": [], "traceability": [], "tbd_items": [], "fixed": true}
+]

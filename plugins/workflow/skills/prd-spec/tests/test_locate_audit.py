@@ -49,8 +49,6 @@ SRC = "\n".join(
     + [
         _extract_function(REFINE, fn)
         for fn in [
-            "newlineCount",
-            "lineTotal",
             "readInstruction",
             "locatorSampleRanges",
             "auditReadPlan",
@@ -337,12 +335,14 @@ if __name__ == "__main__":
 
 
 class DocLineCountTest(unittest.TestCase):
-    """本文が手元に無い文書は args の line_count で行数を得る（初回監査が全文読みへ戻らないように）。"""
+    """行数は checker が数えた値（documents[].line_count）から取る（初回監査が全文読みへ戻らないように）。
 
-    def test_markdown_が無ければ_line_count_を使う(self):
+    本文は script の手元に無い。旧形式の args が markdown を持っていても行数の材料にしない。
+    """
+
+    def test_line_count_だけを使う(self):
         src = (SKILL / "scripts" / "refine.js").read_text()
         fn = next(l for l in src.split("\n") if l.startswith("const docLineCount ="))
-        lt = src[src.index("function newlineCount("):src.index("\n}\n", src.index("function lineTotal(")) + 3]
-        code = lt + "\n" + fn + "\nconsole.log(JSON.stringify([docLineCount({markdown:'a\\nb\\n'}), docLineCount({markdown:'', line_count: 1002}), docLineCount({markdown:''})]))"
+        code = fn + "\nconsole.log(JSON.stringify([docLineCount({markdown:'a\\nb\\n'}), docLineCount({markdown:'', line_count: 1002}), docLineCount({markdown:''})]))"
         out = subprocess.run(["node", "-e", code], capture_output=True, text=True, check=True)
-        self.assertEqual(json.loads(out.stdout), [2, 1002, None])
+        self.assertEqual(json.loads(out.stdout), [None, 1002, None])

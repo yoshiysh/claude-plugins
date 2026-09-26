@@ -25,7 +25,7 @@
 | 2 | domain-analyst | 検証（三値判定） | 10 観点の該当判定と根拠の提示 | 各観点を該当 / 非該当 / 不明で判定し、入力からの根拠を添える | 要求カテゴリの中身の起草 | 分析係が要求を書くと、入力に無い要求が「分析結果」の顔で確定する |
 | 3 | splitter | 生成（構成案） | 文書分割案の起草 | topic / concern / covers の分割案を出す | 分割案の自己承認・本文の執筆 | 承認まで持つと、再実行のたびに構成が変わり既存文書が消える |
 | 4 | req-writer / spec-writer | 生成 | 担当 1 文書の本文の起草・改稿 | 根拠原本だけから本文・trace・TBD を書く。指摘は direction を手がかりに自分で文案を決める | 監査判定・他文書の執筆・（[WRITE_BACK] 指定外の）ファイル書き込み | writer が判定を兼ねると自己承認になり、検査されていない版が成果物になる |
-| 5 | structural（script） | 検証（決定的算術） | 集合差分・禁止語の機械検査 | ID / TBD / trace の突き合わせと完全一致の語彙検査。決定的な指摘（是正手順を含む）を出す | 意味の判定・LLM 呼び出し | 算術を agent の善意に載せると、落ちた auditor が「指摘 0 件」に化ける |
+| 5 | structural（script） | 検証（決定的算術） | 集合差分・禁止語の機械検査 | ID / TBD / trace の突き合わせと完全一致の語彙検査。決定的な指摘（是正手順を含む）を出す。本文を読む部分は `scripts/doc_check.mjs` が正本で、checker agent はそれを実行して出力を返すだけ（digest で写しを照合する） | 意味の判定（checker も判定・取捨・要約をしない） | 算術を agent の善意に載せると、落ちた auditor が「指摘 0 件」に化ける |
 | 6 | 7 観点 auditor（executability / clarity / traceability / coverage / fabrication / consistency / validity / specimen） | 検証 | 担当観点の欠陥の判定と事実指摘 | quote・issue・repro と `direction`（解消の方向）を返す | 解消文・候補値・改訂文案の起草（`direction_note` は方向の補足 1 行まで） | 検査者の文案に writer がアンカリングし、根拠ではなく文案から書く（実測） |
 | 7 | ladder-judge | 検証（分類） | 指摘の failure kind 分類（戻り先の決定） | artifact / criteria / premise / question の 4 分類と rationale | 指摘の修正・棄却・解消案の起草 | 分類係が直し始めると、needs_input へ返すべき指摘が改稿予算を消費する |
 | 8 | resolver | 生成 | 指摘・TBD に対する解消候補の起草 | finding（issue + direction）と根拠から、選択肢（summary / draft_text / tradeoff）を起草する | 指摘の真偽の裁定（反例が構成できない**事実の報告**まで。偽と断ずるのは adjudicator） | 起草役が裁定を兼ねると、候補を出したくない指摘が「偽」に分類される |

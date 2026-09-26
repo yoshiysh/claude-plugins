@@ -335,11 +335,10 @@ needs_input（TBD-NI）は初回に聞き切れる種類のものではなく、
      記録する**（段 4 で保持規則に変換される）。推測で埋めない。
    - 提示した TBD の `{ id, digest }` を `presented_tbd_ids` に積む（前周までの分と合算する。
      digest は `blocking_tbd_items[]` に script が計算済みの値を転記する）。
-2. **初稿は writer が `draft_dir` に書き出し済みである。** 返り値の `documents[]` には
-   `draft_path`（書き出したファイル）が入っているので、**args の `documents` からは `markdown`
-   を落とし、`draft_path` はそのまま渡す**（全文を args で中継すると 12 文書で 24 万文字を超え、
-   司令塔が本文を書き写す経路そのものが劣化点になる）。司令塔が本文を Write し直さない。
-   対象リポジトリには書かない。
+2. **初稿は writer が `draft_dir` に書き出し済みである。** 返り値の `documents[]` は本文を含まず、
+   `draft_path`（書き出したファイル）と `line_count` を持つので、**args の `documents` にそのまま
+   渡す**（全文を args で中継すると 12 文書で 24 万文字を超え、司令塔が本文を書き写す経路そのものが
+   劣化点になる）。司令塔が本文を Read して中継したり Write し直したりしない。対象リポジトリには書かない。
    - **根拠正本も同様に workspace へ書き出し、`sources_path` で渡す（2 周目以降・回答履歴が
      あるとき）。** 過去周回のゲート②回答を
      `~/.claude/prd-spec-workspace/<案件>/sources/r<outer_round>.md` に周回ラベル付きで Write し、
@@ -360,7 +359,7 @@ Workflow({
     decisions: <直前の decisions（統合ゲートで上書き・追加された分を反映したもの）>,
     tbd_answers: "<今周回の統合ゲートの回答。質問で止まらなかったなら空文字>",
     tbd_answers_history: <前周回の返り値の tbd_answers_history をそのまま。1 周目は []>,
-    documents: <直前の documents（markdown を落としたもの。draft_path と trace はそのまま）>,
+    documents: <直前の documents をそのまま（draft_path・line_count・trace を落とさない）>,
     tbd_items: <直前の tbd_items をそのまま>,
     presented_tbd_ids: [{ id: "TBD-001", digest: "<blocking_tbd_items[].digest を転記>" }, ...],
     outer_round: 1,
@@ -451,7 +450,8 @@ Workflow({
      EARS 語尾の不揃い・検証不能な参照が入っていた。再監査で捕まった）。修正回数が
      少ないことは検査を省く理由にならない。
 8. 保存の実行規則。
-   - 各文書 → `documents[].path`。INDEX → `index_paths.*` に `index.*` の内容をそのまま
+   - 各文書（`fixed` を除く）→ `documents[].draft_path` を `documents[].path` へ `cp` する（返り値に
+     本文は無く、最新の稿は `draft_path` にだけある）。INDEX → `index_paths.*` に `index.*` の内容をそのまま
      書き出す。**INDEX は導出物であり、手書きしない**（手書きの目次は必ず本体と drift する）。
      `index` にその kind のキーが無いランでは**再生成しない**（既存のものを残す）。
    - **経緯は commit と PR 本文に残す。** 文書に決定ログも経緯も書かない以上、「なぜこの規範に

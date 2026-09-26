@@ -100,10 +100,14 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 `scripts/draft.js` / `scripts/refine.js` が文書ごとに呼ぶ。**担当は 1 文書だけ。**
 
+**本文は返り値に入れない。** 本文（常設章は `references/document-structure.md` を正とする）は
+`[WRITE_BACK]` のファイルにだけ書く — 初稿は Write、改稿は前稿を複写して Edit（`agents/writer-common.md`）。
+script は本文を受け取らず、checker がファイルを検査する。返り値は次のメタ情報で、一覧は改稿でも
+**文書全体の一覧**を返す（差分ではない。触っていない項目は `[PREVIOUS_METADATA]` から写す）。
+
 ```json
 {
-  "markdown": "要求文書の本文（常設章は references/document-structure.md を正とする）",
-  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（本文と合わなければ script はその稿を採用しない）",
+  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（ファイルの行数と合わなければ script はその稿を採用しない）",
   "summary": "この文書に何が書いてあるかの 1〜2 文。INDEX の文書一覧に使われる",
   "requirement_items": [{ "id": "PR-AUTH-001", "heading": "多要素認証" }],
   "trace": [
@@ -152,10 +156,11 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 ## §spec-writer
 
+本文を返り値に入れない・一覧は文書全体で返す点は §req-writer と同じ。
+
 ```json
 {
-  "markdown": "仕様書の本文",
-  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（本文と合わなければ script はその稿を採用しない）",
+  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（ファイルの行数と合わなければ script はその稿を採用しない）",
   "summary": "この文書に何が書いてあるかの 1〜2 文",
   "spec_items": [{ "id": "SP-AUTH-001", "heading": "認証トークンの発行" }],
   "trace": [{ "item_id": "SP-AUTH-001", "kind": "decision", "ref": "D-003", "quote": "..." }],

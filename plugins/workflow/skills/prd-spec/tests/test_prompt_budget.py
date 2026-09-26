@@ -6,9 +6,9 @@
 
 押さえるのは 5 つ。
 1. draft.js / refine.js の全 agent() が model と effort を明示する（表から取る）
-2. プロンプトを組むコードが本文（.markdown）を埋め込まない（構造検査などの非プロンプト処理は許可リスト）
+2. プロンプトを組むコードが本文（.markdown）を埋め込まない（script は本文を持たない。draft.js の入口検査だけが許可リスト）
 3. readInstruction は 300 行を超える本文を offset/limit の区切り読みで指示する
-4. changedLineRanges がスコープ監査で読ませる行範囲を正しく返す
+4. changedLineRanges（doc_check.mjs）がスコープ監査で読ませる行範囲を正しく返す
 5. 冗長指摘（degraded + action）が writer の改稿対象に届く
 """
 
@@ -23,6 +23,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1]
 DRAFT = (SKILL / "scripts" / "draft.js").read_text()
 REFINE = (SKILL / "scripts" / "refine.js").read_text()
+DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
 SOURCES = {"draft.js": DRAFT, "refine.js": REFINE}
 
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
@@ -121,27 +122,12 @@ class TestAgentOptsAreExplicit(unittest.TestCase):
 
 
 class TestNoBodyInPrompts(unittest.TestCase):
-    # 本文を使ってよい非プロンプト処理（script の構造検査）。
-    ALLOWED_FUNCTIONS = {"structuralFindings"}
-    # 行数計算・真偽判定・データの受け渡しに限った .markdown の使い方。
-    WRAPPERS = [
-        r"[\w.\[\]]+\.markdown \? (?=lineTotal)",
-        r"lineTotal\([\w.\[\]]*\.markdown\)",
-        r"newlineCount\([\w.\[\]]*\.markdown\)",
-        r"changedLineRanges\(prevMarkdown, result\.markdown\)",
-    ]
+    # 本文を使ってよい非プロンプト処理。構造検査は doc_check.mjs へ移ったので、script 側には無い。
+    ALLOWED_FUNCTIONS = set()
+    WRAPPERS = []
+    # 本文を渡してきた旧形式の existing_docs を入口で止めるための参照だけを許す（読んで使わない）。
     PLUMBING = [
-        r"^\s*markdown: [\w.]+\.markdown,?$",
-        r"^\s*markdown: [\w.]+\.markdown \|\| '',?$",
-        r"^\s*const prevMarkdown = documents\[idx\]\.markdown$",
-        r"^\s*if \(!result \|\| !result\.markdown\) \{$",
-        r"^\s*\(r\) => r && r\.result && r\.result\.markdown && writeConfirmed\(r\.result\)$",
-        r"^const hasBody = \(d\) => Boolean\(d\.markdown \|\| d\.path\)$",
         r"^\s*const bodyOnly = existingDocs\.filter\(\(d\) => d && d\.markdown && !d\.path\)$",
-        r"^const writerFailed = .*!r\.result\.markdown \|\| !writeConfirmed\(r\.result\)\)\)$",
-        r"^\s*\.map\(\(d\) => \(\{ doc: d, result: \{ markdown: d\.markdown \|\| '',",
-        r"^\s*if \(declared\.length \|\| !result\.fixed \|\| !result\.markdown\) return declared$",
-        r"^\s*return \[\.\.\.new Set\(result\.markdown\.match\(ID_IN_TEXT\[kind\]\) \|\| \[\]\)\]$",
     ]
 
     def _function_spans(self, src):
@@ -193,8 +179,6 @@ def _run_node(source: str, harness: str, spec) -> object:
 READ_SRC = "\n".join(
     [
         _extract_const(REFINE, "READ_CHUNK_LINES"),
-        _extract_function(REFINE, "newlineCount"),
-        _extract_function(REFINE, "lineTotal"),
         _extract_function(REFINE, "readInstruction"),
     ]
 )
@@ -238,31 +222,45 @@ process.stdout.write(JSON.stringify(readInstruction(spec.path, spec.lines, spec.
         self.assertRegex(REFINE, r"function readInstruction\(path, lineCount, ranges\)")
 
     def test_draft_と_refine_で逐語一致(self):
-        for fn in ["newlineCount", "lineTotal", "readInstruction", "writeConfirmed"]:
+        for fn in [
+            "readInstruction",
+            "reportedLineCount",
+            "lineCountConfirmed",
+            "canonicalJson",
+            "checkerDoc",
+            "checkerPrompt",
+            "verifyCheck",
+        ]:
             self.assertEqual(_extract_function(DRAFT, fn), _extract_function(REFINE, fn), fn)
         self.assertEqual(_extract_const(DRAFT, "READ_CHUNK_LINES"), _extract_const(REFINE, "READ_CHUNK_LINES"))
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class TestWriteConfirmed(unittest.TestCase):
+    """writer が申告した `wc -l` と、checker が実ファイルで数えた行数の照合。"""
+
     H = """
 const spec = JSON.parse(process.argv[2])
-process.stdout.write(JSON.stringify(spec.cases.map((c) => writeConfirmed(c))))
+process.stdout.write(JSON.stringify(spec.cases.map((c) => lineCountConfirmed(reportedLineCount(c.result), c.file))))
 """
 
     def test_line_count_照合(self):
-        src = READ_SRC + "\n" + _extract_function(REFINE, "writeConfirmed")
+        src = _extract_function(REFINE, "reportedLineCount") + "\n" + _extract_function(REFINE, "lineCountConfirmed")
+        # file は doc_check.mjs が返す 1 文書分（newline_count = wc -l / line_count = 最終行も数えた行数）。
+        ends_with_newline = {"exists": True, "newline_count": 2, "line_count": 2}  # "a\nb\n"
+        no_trailing_newline = {"exists": True, "newline_count": 1, "line_count": 2}  # "a\nb"
         cases = [
-            {"markdown": "a\nb\n", "line_count": 2},  # 末尾改行あり: wc -l = 2
-            {"markdown": "a\nb", "line_count": 1},  # 返り値どおり Write: wc -l = 1
-            {"markdown": "a\nb", "line_count": 2},  # Write 時に末尾改行が足された
-            {"markdown": "a\nb", "line_count": "  2"},  # wc -l の前置空白
-            {"markdown": "a\nb"},  # 欠落
-            {"markdown": "a\nb", "line_count": None},
-            {"markdown": "a\nb", "line_count": 4},  # 2 行ずれ
+            {"result": {"line_count": 2}, "file": ends_with_newline},  # 末尾改行あり: wc -l = 2
+            {"result": {"line_count": 1}, "file": no_trailing_newline},  # wc -l = 1
+            {"result": {"line_count": 2}, "file": no_trailing_newline},  # 行数で申告した
+            {"result": {"line_count": "  2"}, "file": no_trailing_newline},  # wc -l の前置空白
+            {"result": {}, "file": no_trailing_newline},  # 欠落
+            {"result": {"line_count": None}, "file": no_trailing_newline},
+            {"result": {"line_count": 4}, "file": no_trailing_newline},  # 2 行ずれ
+            {"result": {"line_count": 2}, "file": {"exists": False, "newline_count": None, "line_count": None}},  # ファイルが無い
         ]
         out = _run_node(src, self.H, {"cases": cases})
-        self.assertEqual(out, [True, True, True, True, False, False, False])
+        self.assertEqual(out, [True, True, True, True, False, False, False, False])
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
@@ -293,7 +291,8 @@ process.stdout.write(JSON.stringify(changedLineRanges(spec.prev, spec.next)))
     )
 
     def _run(self, prev, nxt):
-        return _run_node(_extract_function(REFINE, "changedLineRanges"), self.H, {"prev": prev, "next": nxt})
+        src = f"import {{ changedLineRanges }} from {json.dumps(DOC_CHECK.as_uri())}"
+        return _run_node(src, self.H, {"prev": prev, "next": nxt})
 
     def test_変更なしは空(self):
         self.assertEqual(self._run(self.BASE, self.BASE), [])
@@ -373,7 +372,9 @@ class TestWriteBackIsVerified(unittest.TestCase):
         for src in (DRAFT, REFINE):
             self.assertIn("line_count: { type: 'number' }", src)
             self.assertIn("wc -l <", src)
-            self.assertIn("writeConfirmed(r.result)", src)
+            self.assertIn("reportedLineCount(r.result) !== null", src)
+            # 申告だけでは受理しない。checker が実ファイルで数えた行数と照合する。
+            self.assertIn("lineCountConfirmed(", src.split("function lineCountConfirmed(")[0] + src.split("function lineCountConfirmed(")[1].split("\n}\n", 1)[1])
 
     def test_draft_dir_は絶対パスを要求する(self):
         for src in (DRAFT, REFINE):
