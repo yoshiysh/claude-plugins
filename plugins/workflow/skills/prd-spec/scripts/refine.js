@@ -599,20 +599,20 @@ function buildContextBlock(role) {
   '',
   '# [SKILL_PREMISES] スキルが固定する前提（案件ごとに問い直さない）',
   `${SKILL_DIR}/references/fixed-premises.md を Read し、そこに列挙された前提を執筆・検査の`,
-  '枠組みとして使うこと。前提由来の書き方の選択は根拠欄に `（スキル既定: 前提 N）` と書く。',
+  '枠組みとして使うこと。前提由来の書き方の選択は trace に `{ kind: "premise", ref: "前提 N" }` で申告し、本文には書かない。',
   '前提は案件の確定要求の根拠にはならない（区別は同ファイルの末尾節を正とする）。',
   '',
   '# [INPUT] 依頼文（確定要求の根拠その 1）',
   input,
   '',
-  '# [ANSWERS] 人間ゲート①の回答（確定要求の根拠その 2）',
+  '# [ANSWERS] 事前分析の質問への回答（確定要求の根拠その 2）',
   answers,
   '',
-  '# [TBD_ANSWERS] 人間ゲート②の回答（確定要求の根拠その 3。過去周回の回答も含む）',
+  '# [TBD_ANSWERS] 統合ゲートの回答（確定要求の根拠その 3。過去周回の回答も含む）',
   tbdAnswersSection,
   '',
   '# [DECISIONS] 決定ログ（確定要求の根拠その 4。既定として選ばれた書き方・進め方）',
-  '出所は `（既定: D-N）` と表記する。書式と使ってよい範囲は references/question-policy.md を正とする。',
+  '決定を根拠にした項目は trace に `{ kind: "decision", ref: "D-N" }` で申告し、本文には出所を書かない。使ってよい範囲は references/question-policy.md を正とする。',
   fullDecisions ? JSON.stringify(decisions, null, 2) : decisionsOneLine(decisions),
   '',
   '# [TBD_ITEMS] 現時点の未確定事項',
@@ -660,13 +660,13 @@ const sourcesReadNote = sourcesPath
 const CONTRACT_LINES = {
   'req-writer': [99, 156],
   'spec-writer': [157, 200],
-  auditor: [201, 282],
-  'executability-auditor': [283, 325],
-  'ladder-judge': [326, 371],
-  resolver: [372, 402],
-  'resolver-verifier': [403, 426],
-  'precedent-judge': [427, 462],
-  measurement: [463, 488],
+  auditor: [201, 281],
+  'executability-auditor': [282, 324],
+  'ladder-judge': [325, 370],
+  resolver: [371, 401],
+  'resolver-verifier': [402, 425],
+  'precedent-judge': [426, 461],
+  measurement: [462, 487],
 }
 
 // READ_SCOPE: 読んでよい範囲の宣言。役割に要る指示と契約は roleHeader が渡すもので完結している。
@@ -3579,7 +3579,7 @@ function buildAdjudicationPrompt(remaining) {
     '',
     '- fixed: 実は既に解消済み・誤残留である。現在の本文を確認し、解消している根拠を evidence に書く。',
     '- rejected: 偽指摘である。reason 必須（理由の無い棄却は無効として未裁定に戻される）。',
-    '- documented: 意図した制約である。転記先を target_document（文書キーまたはパス）と',
+    '- documented: 意図した制約であり、かつ現在の本文の規範からは読み取れない。本文の既存規範から既に読み取れるなら fixed にする。転記先を target_document（文書キーまたはパス）と',
     '  target_section に、なぜ意図した制約と言えるかを reason に書く。**転記文の文案は書かない** —',
     '  文案の起草は転記改稿時の writer の責務である（あなたが書いた文は誰にも検証されずに本文へ',
     '  入ることになる）。',
@@ -3652,7 +3652,7 @@ let adjudicationRemaining = []
           location: e.target_section || '検査範囲の限定',
           issue:
             '終端裁定で「意図した制約（documented）」と分類された。裁定の理由: ' +
-            `${e.reason}。この制約が意図したものであることを該当節へ規範文として転記する（文案はあなたが起草する）。`,
+            `${e.reason}。この制約が意図したものであることを該当節へ規範文として転記する（文案はあなたが起草する）。既存の規範文の適用範囲を限定する書き換えで表せるなら、新しい文を足さずにそちらを採る。`,
           direction: 'document_decision',
         })
       }

@@ -104,7 +104,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 | `summary.locator` | locate 読みを割り当てた監査役ごとの実績（`calls` / `locate` / `full_fallback` と `fallback_reasons` / `unreported` / `sampled_chunks` / `locator_quotes` / `locator_unmatched` / `findings_via_locator` / `locator_misses` / `locator_miss_rate`、組ごとの `groups` / `group_split_ok` / `group_full_fallback` / `group_unreported` / `group_fallback_reasons`）。`full_fallback` は呼び出し単位の件数で、組単位の全文読みは `group_full_fallback` に数える。`locator_misses` は抜き取り範囲でだけ見つかった指摘の件数を script が数えたもの（自己申告は `locator_misses_reported`）。抜き取りは文書の一部なので、見落とし率は下限の目安として読む。verdict には影響しない |
 | `tbd_items` | 残った未確定事項。**完成条件はこれが 0 件**（SKILL.md「完成の定義」） |
 | `unpresented_blocking` | blocking かつ未提示。1 件以上なら統合ゲートで聞く（`first_seen_round` 付き） |
-| `auto_resolved_blocking` / `resolved_by_measurement` | 人間に聞かずに決着させた項目。**本文への反映はラン内で完了している**。保存承認ゲートで決定として事後提示する（依頼者は覆せる） |
+| `auto_resolved_blocking` / `resolved_by_measurement` | 人間に聞かずに決着させた項目。**本文への反映はラン内で完了している**。保存の事後報告で決定として提示する（依頼者は覆せる） |
 | `suppressed_findings` / `suppressed_finding_ids_next` | 前者は `suppressed_finding_ids` により集計前に畳んだ構造検査指摘（黙って消さない開示）。後者は今 run の rejected 裁定を合流させた累積で、**次の run（新規 run を含む）の `suppressed_finding_ids` にそのまま渡す** |
 | `holding_rules` | 提示済みでなお決まらず、保持規則（規範文）へ変換した論点。文書側には規範文として入っている |
 | `work_items` | 保持規則に対応する裁定の作業項目。**文書には書かない**。司令塔が Issue 化する |
@@ -176,13 +176,13 @@ specimen（標本適用監査）だけはコスト抑制のため初回監査と
 | 分析後 | 全観点が `不明` | 準正常系 | 「判定できなかった」と正直に提示し質問に回す。業界知識で埋めない |
 | 分析後 | ユーザーが分割案を否定 | 正常系 | 指示された分割で執筆する。提案を押し通さない |
 | 初稿後 | `blocking_over_capacity` が真 | 準正常系 | 提示の工夫では吸収できない。`references/traceability.md` §4 の基準で起票側を絞る |
-| ループ中 | 新規 blocking が判明 | 正常系 | `unpresented_blocking` として返る（`first_seen_round` 付き）。周回 1 なら統合ゲートへ戻る |
+| ループ中 | 新規 blocking が判明 | 正常系 | `unpresented_blocking` として返る（`first_seen_round` 付き）。backstop 未到達なら統合ゲートへ戻る |
 | ループ中 | 監査が失格 0 件だが未確定事項が残る | 正常系 | **「完成しました」と提示しない。**「あと N 個決まれば着手できます」と伝える |
 | 終端 | 計測で確定できなかった | 正常系 | 人間ゲートへ戻る。実測できなかったことを推測で埋めない |
 | 実行中 | agent が応答しない（一部） | 異常系 | script が落ちた分だけを 1 回出し直す。それでも返らなければ欠測として報告される |
 | 実行中 | 出した agent が全件応答しない | 異常系 | script は再実行しない（セッション上限・レート制限を疑う）。**上限の解除後に resume する** |
 | ループ中 | auditor が応答しない | 異常系 | 「失格 0 件」と読まない。`missing_auditors` を名指しで提示（出し直し後もなお返らなかったもの） |
-| 保存前 | 分割数が実行のたびに変わる | 準正常系 | 分割案は人間が承認したものを使う。承認と違う構成で保存しない |
+| 保存前 | 分割数が実行のたびに変わる | 準正常系 | 分割案は `decisions` に載った裁定を使う。裁定と違う構成で保存しない |
 | 保存前 | INDEX だけが既存で本体が無い（またはその逆） | 準正常系 | 齟齬として報告する。INDEX は導出物なので本体に合わせて再生成する |
 
 ## 7. 本文の検査（doc_check.mjs）

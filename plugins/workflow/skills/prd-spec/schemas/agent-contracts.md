@@ -216,8 +216,7 @@ validity / specimen もこの形で返す（severity は executability と同じ
       "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
     }
   ],
-  "checked": "実際に検査した範囲（何を読み、何を見たか）",
-  "note": "任意。補足があれば"
+  "checked": "実際に検査した範囲（何を読み、何を見たか）"
 }
 ```
 
@@ -285,7 +284,7 @@ validity / specimen もこの形で返す（severity は executability と同じ
 **契約は呼び出し元で形が分かれる（実態の明文化）。** `scripts/draft.js` は専用の findings 形
 （下の JSON。トップレベルが `findings`）で受け、`scripts/refine.js` は auditor 共通形
 （トップレベルが `failed`。フィールドは同じ）で受ける。どちらでも `severity` を必ず付ける —
-blocking の指摘は TBD として起票し直され、人間ゲート②の提示対象に入る。
+blocking の指摘は TBD として起票し直され、統合ゲートの提示対象に入る。
 
 ```json
 {
