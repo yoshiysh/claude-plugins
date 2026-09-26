@@ -492,7 +492,7 @@ process.stdout.write(JSON.stringify({ writer: out.toWriter, contradiction: contr
         self.assertIn("action: { type: 'string' }", REFINE)
         self.assertIn("action: { type: 'string' }", DRAFT)
         self.assertIn("`action` が付いた指摘は冗長の指摘である", REFINE)
-        self.assertRegex(REFINE, r"const \{ toWriter, needsInput \} = partitionLadder\(withDigest, kindByDigest\)")
+        self.assertRegex(REFINE, r"const parted = partitionLadder\(withDigest, kindByDigest, citedByDigest\)")
         self.assertIn("const reviseTargets = laddered.toWriter", REFINE)
         auditor = (SKILL / "agents" / "executability-auditor.md").read_text()
         for word in ["delete", "merge_into:", "replace_with_reference:", "severity: degraded"]:

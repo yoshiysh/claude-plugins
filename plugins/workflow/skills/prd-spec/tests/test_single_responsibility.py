@@ -138,6 +138,7 @@ const tbdAnswers = ''
 const tbdAnswersHistory = [{ round: 1, answers: 'SECRET_HISTORY_BODY' }]
 const spec = JSON.parse(process.argv[2])
 const sourcesPath = spec.sources_path
+const flow = null
 const decisionsOneLine = (list) =>
   (list || []).map((d) => `${d.id}: ${d.topic} = ${d.value}`).join('\\n') || '(決定なし)'
 """
@@ -146,7 +147,7 @@ const decisionsOneLine = (list) =>
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class ContextBlockTests(unittest.TestCase):
     def _run(self, role, sources_path):
-        src = HARNESS + _extract_function(REFINE, "buildContextBlock") + (
+        src = HARNESS + _extract_function(REFINE, "flowContext") + "\n" + _extract_function(REFINE, "buildContextBlock") + (
             "\nprocess.stdout.write(JSON.stringify(buildContextBlock(spec.role)))"
         )
         with tempfile.TemporaryDirectory() as d:

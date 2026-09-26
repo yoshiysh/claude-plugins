@@ -25,6 +25,7 @@
 | `tbd_items` | 未回答項目の持ち越し。確定要求に混ぜないため |
 | `domain_findings` | 三値判定と根拠。「リスクと影響」章に非該当を根拠付きで残すのに要る |
 | `required_categories` | 導出カテゴリ。writer が反映し coverage-auditor が実在を検査する |
+| `flow` | 任意。flow-framer の返り値（工程の流れ。形は `schemas/agent-contracts.md` §flow-framer）。writer が各項目を要素に `flow_refs` で当て、構造検査が当たっていない要素を `ST-FLOW-UNATTACHED-` として返す。**形と閉包（行き先の無い判断の値・実在しない行き先・辿り着けない要素・行き先の無い工程）が崩れていると入口で止まる**（writer には flow を直す手段が無い）。渡さない run では当てはめの検査が `ST-NOTCHECKED-FLOW` になる |
 | `existing_docs` | `review` / `expand` で Read した既存文書。渡した側だけが対象になる。`path` 必須（agent も checker もパスから読む。`markdown` だけの文書は入口で止まる）。`line_count`（`wc -l` の値）を添えると、書き手への区切り読みの単位が決まる |
 | `draft_dir` | writer が初稿を Write する workspace の絶対パス。返り値の `documents[].draft_path` がその書き出し先で、以後の agent はここを Read する（本文をプロンプトに埋めない）。checker の入力も `<draft_dir>/checks/` に書かれる |
 | `role_opts` | 任意。役割ごとの model / effort の上書き（例: `{"clarity": {"effort": "low"}, "writer": {"model": "sonnet"}}`）。既定値は script の表（refine.js の `AUDITORS` / `ROLE_OPTS`、draft.js の `ROLE_OPTS`）で、実測で較正する前提の出発点である（判断を要する係は opus / medium、1 文ずつ見て見落としが成果物の欠陥に直結する executability と fabrication だけ opus / high、照合の観点は sonnet / medium、checker は sonnet / low）。点検が軽い run で下げ、難所で上げる判断は呼び出す側が持つ。未知の役割名・値は入口で止まる。適用した値は返り値の `role_opts_applied` に出る |
@@ -39,7 +40,7 @@
 | `documents[]` | 本文は含まない。`draft_path` が writer の書き出したファイル（checker が行数を照合済み）、`line_count` が checker の数えた行数。Workflow B の `documents` にそのまま渡す |
 | `missing_checks` | 構造検査（checker）を実行できなかったパス。空でなければ `structural_findings` の 0 件は「未検査」である |
 | `blocking_tbd_ids` | **まだ誰にも提示していない生の一覧。** この時点では `presented_tbd_ids` が存在しないため「未提示」は自明であり、`unpresented_blocking` はここでは算出されない |
-| `executability.findings[].severity` | `blocking`（着手できない）/ `degraded`（着手はできるが後で作り直しになりうる）。blocking は script が TBD として起票し直し、`tbd_items` に含めている（ID は `TBD-EX-` 始まり） |
+| `executability.findings[].severity` | `blocking`（着手できない）/ `degraded`（着手はできるが後で作り直しになりうる）。blocking は script が TBD として起票し直し、`tbd_items` に含めている（ID は `TBD-EX-` 始まり）。ただし `resolved_by: writer`（文書内の食い違い・閉じていない集合）の blocking は TBD にせず、`EX-WRITER-` として `structural_findings` に入れる（Workflow B の初回改稿の対象になる） |
 | `executability.missing` | 応答しなかった検査。**「指摘 0 件」と読まない。** 名指しで提示する |
 | `categories_deferred` | **`required_categories` に含まれるものだけ**が入る。writer が別名を返したら`ST-UNKNOWN-CATEGORY-<名前>` として構造検査に出し、下流へは渡さない — このリストはcoverage-auditor への免罪符なので、導出カテゴリに無い名前は何も免除せず、「deferred にあるのに TBD が無い」検査で偽の指摘に化ける |
 | `structural_findings` | 初稿段階の構造検査。**`ST-DUP` と `ST-OBSOLETE` は統合ゲートで提示する** — 前者は分割案の ID 体系の問題でユーザー判断が要り、後者は廃止済み規制の混入だから。それ以外は `draft_structural_findings` として Workflow B に渡し、初回改稿の契機に合流させる |
@@ -91,6 +92,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/refine.js", resumeFromRunId: "<Run I
 | `outer_round` | 外側ループの周回（1〜`MAX_OUTER_ROUNDS`）。`R<outer>.<rev>` は `revision_log`（返り値のメタ情報）だけで使い、**生成文書には書かない**。**カウンタは 2 つある**ことを取り違えない |
 | `paths` | 保存先ディレクトリ。**Workflow A に渡したものと同じ値**を渡す |
 | `draft_structural_findings` | Workflow A の `structural_findings`。渡さないと A の検査結果が誰にも読まれない |
+| `flow` | Workflow A に渡したものと同じ（§1）。改稿の writer が項目を当て直し、checker が当たり方を検査する。**2 周目以降は `next_args` が埋める** |
 | `suppressed_finding_ids` | 過去 run の終端裁定で rejected（偽指摘）と分類された**構造検査**の指摘 ID の累積（例: `"ST-UNDECLARED-PR-X-003"`）。構造検査は無状態の算術なので、発火条件が本文に残る限り毎 run 同じ指摘を再起票する — この口が無いと棄却が run を跨いで効かない。**2 周目以降は `next_args` が埋める**。新規 run に持ち越すときは前 run の返り値 `suppressed_finding_ids_next` を転記する。対象は `auditor: 'structural'` の指摘に限る（LLM 監査者の指摘 ID は run ごとに振り直され、誤爆する） |
 
 ## 4.5 Workflow B の返り値のうち、司令塔が使うもの
@@ -131,8 +133,10 @@ specimen（標本適用監査）だけはコスト抑制のため初回監査と
 いても終端へ進む（返り値 `dry_stop: true` / `novelty_history`）。同一 digest のまま 2 回連続で
 残った指摘は stuck として通常改稿から外れる。回数は backstop（`REVISION_BACKSTOP`）だけ残り、
 到達すると verdict に `revision_backstop_reached` が立つ。改稿前には専任の ladder-judge が
-指摘を failure kind で 4 分類し（**人間必要性の判定パイプラインの段 1**。判定表は
-`schemas/agent-contracts.md` §ladder-judge が正）、`artifact` / `criteria` だけを writer に流す。
+指摘を failure kind で 5 分類し（**人間必要性の判定パイプラインの段 1**。判定表は
+`schemas/agent-contracts.md` §ladder-judge が正）、`artifact` / `criteria` / `consistency` だけを writer に流す。
+状態 × イベント表・判定表・工程の流れの構造検査（`ST-STATE-` / `ST-DT-` / `ST-FLOW-`）は文書内の整合と
+閉包の欠陥なので、judge を通さず writer へ流す。
 `premise` / `question` は改稿予算を消費させず blocking TBD（`TBD-NI-`）として起票される。
 **この TBD-NI も段 2（precedent-judge）の対象である** — 「依頼者にしか決められない」と分類
 しただけで先例照合を免れると、同型の質問が周回のたびに人間へ戻る。段 2 で `resolvable` と
@@ -152,7 +156,7 @@ specimen（標本適用監査）だけはコスト抑制のため初回監査と
 
 | 段 | 係 | 判定 | 決着 |
 |---|---|---|---|
-| 2 | precedent-judge | 既裁定と同型か | `resolvable` は同一ラン内で本文へ反映 |
+| 2 | precedent-judge | 既裁定と同型か / 文書内の整合の問題か | `resolvable` と `internal`（`cited` の項目を書き手が揃える）は同一ラン内で本文へ反映。`auto_resolved_blocking[].resolved_as` が `internal` のものは後者 |
 | 3 | measurement | 現物を読めば決まるか | 証拠付きで確定した分を同一ラン内で本文へ反映 |
 | 4 | script（算術） | 提示済みでなお決まらないか | 保持規則へ変換し、裁定は `work_items` へ |
 
@@ -201,8 +205,9 @@ node <SKILL_DIR>/scripts/doc_check.mjs <input.json>   # 相対パスは実行時
 | `path` | 検査する本文のファイル（現在の稿） |
 | `prev_path` | 任意。前稿のファイル。渡すと `changed_ranges` を返す |
 | `ids` / `referenced` / `vacant` / `traceability` / `tbd_items` / `trace` | 構造検査の照合に使う申告（`trace` は `item_id` だけ。無ければ未検査として扱う） |
+| `flow_refs` | 任意。項目 ID → 工程の流れの要素 ID（`{ item_id, ref }`） |
 | `extract_ids` | 任意。申告の無い固定文書の ID を本文から抽出して補う |
-| 入力（最上位） | `index_dir`（任意。各文書の見出し索引「開始行-終了行 見出し」を書き出す先）/ `index_extra`（任意。検査はせず索引だけを書くファイル。run の外の標本文書） |
+| 入力（最上位） | `flow`（任意。キーが無ければ工程への当たり方を検査しない。`null` なら `ST-NOTCHECKED-FLOW` を返す。オブジェクトなら形と閉包と当たり方を検査する）/ `index_dir`（任意。各文書の見出し索引「開始行-終了行 見出し」を書き出す先）/ `index_extra`（任意。検査はせず索引だけを書くファイル。run の外の標本文書） |
 
 | 出力 | 意味 |
 |---|---|

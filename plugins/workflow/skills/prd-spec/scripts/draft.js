@@ -58,6 +58,15 @@ const TBD_ITEM = {
 // 「この記述はどこから来たか」はここにしか残らない。返り値では audit_trail として集約され、
 // fabrication 監査と traceability 監査の照合対象になる。本文から根拠句を消しただけで
 // trace を作らないと、捏造検査の入力そのものが消え、指摘 0 件が「健全」に化ける。
+// FLOW_REF_ITEM: 項目 ID → 工程の流れ（flow）の要素 ID。根拠（trace）とは別に持つ — flow は flow-framer が
+// 入力から描いた軸であって根拠原本ではなく、trace に混ぜると根拠の検査（NO_EVIDENCE・捏造監査）が
+// flow への当てはめを根拠と数える。本文には何も書かない。
+const FLOW_REF_ITEM = {
+  type: 'object',
+  properties: { item_id: { type: 'string' }, ref: { type: 'string' } },
+  required: ['item_id', 'ref'],
+}
+
 const TRACE_ITEM = {
   type: 'object',
   properties: {
@@ -91,6 +100,7 @@ const REQ_DOC_SCHEMA = {
     summary: { type: 'string' },
     requirement_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
+    flow_refs: { type: 'array', items: FLOW_REF_ITEM },
     tbd_items: { type: 'array', items: TBD_ITEM },
     categories_deferred: { type: 'array', items: { type: 'string' } },
     // referenced_ids: 本文で言及するがこの文書の項目ではない ID（他文書への参照、ID 体系の例示）。
@@ -116,6 +126,7 @@ const SPEC_DOC_SCHEMA = {
     summary: { type: 'string' },
     spec_items: { type: 'array', items: ID_ITEM },
     trace: { type: 'array', items: TRACE_ITEM },
+    flow_refs: { type: 'array', items: FLOW_REF_ITEM },
     traceability: {
       type: 'array',
       items: {
@@ -164,6 +175,10 @@ const EXEC_SCHEMA = {
           direction: { type: 'string', enum: AUDIT_DIRECTIONS },
           direction_note: { type: 'string' },
           severity: { type: 'string', enum: ['blocking', 'degraded'] },
+          // resolved_by: blocking の指摘を誰が閉じるか。requester はプロダクトの価値の判断（人間ゲートへ）、
+          // writer は文書内の食い違い・閉じていない集合（他の項目と根拠から書き手が揃える。TBD にしない）。
+          // 欠けたら requester として扱う（黙って人間から外すより、余計に聞く方が軽い）。
+          resolved_by: { type: 'string', enum: ['requester', 'writer'] },
           // action: 冗長指摘の処置（delete / merge_into:<ID> / replace_with_reference:<文書#ID>）。
           action: { type: 'string' },
         },
@@ -269,6 +284,11 @@ const decisions = parsedArgs.decisions || []
 const inputTbdItems = parsedArgs.tbd_items || []
 const domainFindings = parsedArgs.domain_findings || []
 const requiredCategories = parsedArgs.required_categories || []
+// flow: flow-framer が描いた工程の流れ（契約は schemas/agent-contracts.md の flow-framer 節）。各項目を当てる軸で、
+// 当たっていない工程・行き先の無い分岐値を構造検査が拾う。任意だが、渡さない run では当てはめの検査が
+// 「未検査」になる。崩れた flow はここで止める — writer には flow を直す手段が無く、直らない指摘で
+// 改稿枠を空回りさせるだけになる。
+const flow = parsedArgs.flow === undefined || parsedArgs.flow === null ? null : parsedArgs.flow
 
 // targets: このランで生成してよい文書種別。ここが制御フローに現れていないと、
 // 「既存の要求文書をレビューして」の依頼で頼まれていない仕様書が丸ごと新規生成され、
@@ -365,6 +385,25 @@ const previousOf = (kind, topic) => {
 // 含める（本文が手元に無い分、script の構造検査は申告済みの items / ids しか使えない）。
 const fixedDocs = existingDocs.filter((d) => !targets.includes(d.kind) && hasBody(d))
 
+// flowContext: writer へ渡す工程の流れ。要素の一覧と、項目を flow_refs で当てる指示だけを渡す（本文には
+// 要素 ID も流れの説明も書かせない。流れは項目を当てる軸であって、読み手に向けた規範ではない）。
+function flowContext(f) {
+  if (!f) return ['# [FLOW] 工程の流れ', '(渡されていない。flow_refs は空配列で返す)']
+  const elements = (f.elements || []).filter(Boolean).map((el) => ({
+    id: el.id,
+    type: el.type,
+    label: el.label,
+    ...(Array.isArray(el.next) && el.next.length ? { next: el.next } : {}),
+    ...(Array.isArray(el.branches) ? { branches: el.branches.filter(Boolean).map((b) => ({ value: b.value, next: b.next })) } : {}),
+  }))
+  return [
+    '# [FLOW] 工程の流れ（flow-framer が依頼から描いた入力・工程・判断・出力。項目を当てる軸）',
+    '各項目を、それが振る舞いを定める要素に flow_refs（{ item_id, ref: 要素 ID }）で当てる。1 項目が複数の要素に当たってよい。',
+    'どの項目も当たらない要素・判断の値は構造検査が指摘する。本文には要素 ID を書かない。flow は根拠ではないので trace には入れない。',
+    JSON.stringify(elements),
+  ]
+}
+
 const CONTEXT_BLOCK = [
   '# [MODE] 実行モード',
   `${mode}（このランで作成してよい文書種別: ${targets.join(' / ')}）`,
@@ -395,6 +434,8 @@ const CONTEXT_BLOCK = [
   '',
   '# [SPLIT_PLAN] 採用した分割案（司令塔の裁定。decisions に載っている。この構成から外れないこと）',
   JSON.stringify(splitPlan, null, 2),
+  '',
+  ...flowContext(flow),
   '',
   '# [TODAY] 文書中に日付を書く必要が生じたときの基準日（推測で日付を書かない）',
   today,
@@ -427,15 +468,15 @@ const CONTEXT_BLOCK = [
 // 持たず共通形を使うので、存在しない節を探し回ることになる。値は見出しから導いたもので、
 // 実ファイルの見出しとの一致をテストが照合する（ファイルを直したらこの表も直す）。
 const CONTRACT_LINES = {
-  'req-writer': [99, 156],
-  'spec-writer': [157, 200],
-  auditor: [201, 281],
-  'executability-auditor': [282, 324],
-  'ladder-judge': [325, 370],
-  resolver: [371, 401],
-  'resolver-verifier': [402, 425],
-  'precedent-judge': [426, 461],
-  measurement: [462, 487],
+  'req-writer': [129, 191],
+  'spec-writer': [192, 237],
+  auditor: [238, 318],
+  'executability-auditor': [319, 367],
+  'ladder-judge': [368, 418],
+  resolver: [419, 449],
+  'resolver-verifier': [450, 473],
+  'precedent-judge': [474, 511],
+  measurement: [512, 537],
 }
 
 // READ_SCOPE: 読んでよい範囲の宣言。役割に要る指示と契約は roleHeader が渡すもので完結している。
@@ -462,7 +503,7 @@ function roleHeader(skillDir, roleFiles, contractKey) {
 }
 
 // RULES_NOTE: 執筆・監査の規律の正本。どれも必要な節だけを読めば足りる。350 行を超える
-// document-structure.md（407 行）を行範囲なしで Read すると gate に止められる。
+// document-structure.md（400 行超）を行範囲なしで Read すると gate に止められる。
 function rulesNote(skillDir) {
   return [
     `規律は ${skillDir}/references/requirement-writing-rules.md ・`,
@@ -556,6 +597,7 @@ function checkerDoc(d, prevPath) {
     traceability: (d.traceability || []).filter(Boolean).map((l) => ({ requirement_id: l.requirement_id, spec_id: l.spec_id })),
     tbd_items: (d.tbd_items || []).filter(Boolean).map((t) => ({ id: t.id, text: t.text, blocking: t.blocking })),
     ...(Array.isArray(d.trace) ? { trace: d.trace.map((t) => ({ item_id: t ? t.item_id : undefined })) } : {}),
+    ...(Array.isArray(d.flow_refs) && d.flow_refs.length ? { flow_refs: d.flow_refs.filter(Boolean).map((r) => ({ item_id: r.item_id, ref: r.ref })) } : {}),
     ...(d.extract_ids ? { extract_ids: true } : {}),
   }
 }
@@ -740,6 +782,147 @@ const FINDING_TEXT = {
     issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
     fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
   }),
+  FLOW_SHAPE: (key, detail) => ({
+    id: `ST-FLOW-SHAPE-${key}`,
+    location: '工程の流れ（flow）',
+    quote: key,
+    issue: `工程の流れの形が契約に合わない（${detail}）。流れは各項目を当てる軸であり、形が崩れていると閉じているかを判定できない。`,
+    fix: 'flow-framer の出力を、その契約（schemas/agent-contracts.md の flow-framer 節）の形に直して渡し直す（文書の改稿では直らない）。',
+  }),
+  FLOW_BRANCH_OPEN: (id, value) => ({
+    id: `ST-FLOW-BRANCH-OPEN-${id}-${value}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${value}`,
+    issue: `判断 ${id} の値「${value}」に行き先が無い。行き先の無い値は、誰も振る舞いを決めていない枝になる。`,
+    fix: `値「${value}」の行き先の要素を flow に描く。その値が起こりえないなら branches から外し、外せる根拠を closure に書く。`,
+  }),
+  FLOW_DANGLING: (from, to) => ({
+    id: `ST-FLOW-DANGLING-${from}-${to}`,
+    location: '工程の流れ（flow）',
+    quote: `${from} → ${to}`,
+    issue: `流れの要素 ${from} の行き先 ${to} が flow の要素一覧に無い。`,
+    fix: `${to} を要素として描くか、行き先を実在する要素に直す。`,
+  }),
+  FLOW_UNREACHABLE: (id) => ({
+    id: `ST-FLOW-UNREACHABLE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `流れの要素 ${id} へ、どの入力からも辿り着けない。辿り着けない工程は、描いてあっても実行されない。`,
+    fix: `${id} へ入る辺を描くか、実行されないなら要素ごと外す。`,
+  }),
+  FLOW_DEADEND: (id) => ({
+    id: `ST-FLOW-DEADEND-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `流れの要素 ${id} は出力ではないのに行き先が無い。中断点の後の戻り先や終わり方が決まっていない。`,
+    fix: `${id} の次の要素（戻り先・終了）を描くか、流れの終わりなら type を output にする。`,
+  }),
+  FLOW_UNATTACHED: (id, label) => ({
+    id: `ST-FLOW-UNATTACHED-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id} ${label}`,
+    issue: `流れの要素 ${id}（${label}）に、どの項目も当てられていない（flow_refs に現れない）。当たる項目の無い工程は、実装が何をしても仕様違反にならない。`,
+    fix: `${id} を扱う項目の flow_refs に ${id} を加える。扱う項目が無ければその工程の振る舞いを定める項目を足す（根拠が入力に無いなら TBD として起票する）。`,
+  }),
+  FLOW_UNKNOWN_REF: (itemId, ref) => ({
+    id: `ST-FLOW-UNKNOWN-REF-${itemId}-${ref}`,
+    location: itemId,
+    quote: ref,
+    issue: `項目 ${itemId} の flow_refs が指す ${ref} は flow の要素一覧に無い。`,
+    fix: `${ref} を flow に実在する要素 ID に直す。`,
+  }),
+  STATE_NOAXIS: (docKey, section) => ({
+    id: `ST-STATE-NOAXIS-${docKey}-${section}`,
+    location: section,
+    quote: '(対象のイベントの宣言なし)',
+    issue: '状態 × イベント表の前にイベントの軸（「> 対象のイベント:」の行）が無い。軸が無いと、どの組み合わせが欠けているかを判定できない。',
+    fix: '表の直前にイベントの集合を「> 対象のイベント: E1 … / E2 …」の形で置く（document-structure.md §6）。',
+  }),
+  STATE_MISSING: (docKey, s, e) => ({
+    id: `ST-STATE-MISSING-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」でイベント「${e}」が起きたときの行き先が、表にも図にも無い。書かれていない組み合わせは、実装者ごとに違う振る舞いになる。`,
+    fix: `「${s} × ${e}」の行を足す。起こりえないなら次の状態を「—」、定義済みか列を「発生しない」にする。`,
+  }),
+  STATE_NONDET: (docKey, s, e, targets) => ({
+    id: `ST-STATE-NONDET-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e} → ${targets}`,
+    issue: `状態「${s}」でイベント「${e}」が起きたときの次の状態が 1 つに決まらない（${targets}）。同じ入力に 2 つの行き先があると、どちらを実装しても仕様に合う。`,
+    fix: '行き先を 1 つにする。条件で分かれるなら、その条件をイベントとして軸に足して行を分ける。',
+  }),
+  STATE_HIDDEN: (docKey, s, e, other) => ({
+    id: `ST-STATE-HIDDEN-${docKey}-${s}-${e}-${other}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}: ${other}`,
+    issue: `状態「${s}」×「${e}」の行の定義済みか列が、次の状態とは別の状態「${other}」への移り方を書いている。表の外に書いた遷移は、網羅と一意の検査から漏れる。`,
+    fix: `「${other}」へ移る遷移は、それを起こすイベントの行（または図の辺）として書く。定義済みか列には仕様項目 ID だけを置く。`,
+  }),
+  STATE_DIAGRAM_CONFLICT: (docKey, s, e, tableTo, diagramTo) => ({
+    id: `ST-STATE-DIAGRAM-CONFLICT-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」×「${e}」の行き先が、表では「${tableTo}」、状態遷移図では「${diagramTo}」になっている。どちらが正か決まらない。`,
+    fix: '表と図のどちらか一方にだけ書く（主フローは図、それ以外は表。document-structure.md §6）。両方に残すなら行き先を揃える。',
+  }),
+  STATE_UNREACHABLE: (docKey, s) => ({
+    id: `ST-STATE-UNREACHABLE-${docKey}-${s}`,
+    location: '状態とイベント',
+    quote: s,
+    issue: `状態「${s}」へ、初期状態から表と図のどの遷移を辿っても着かない。`,
+    fix: `「${s}」へ入る遷移を書くか、存在しない状態なら軸と図から外す。`,
+  }),
+  STATE_DEADEND: (docKey, s) => ({
+    id: `ST-STATE-DEADEND-${docKey}-${s}`,
+    location: '状態とイベント',
+    quote: s,
+    issue: `状態「${s}」から出る遷移が表にも図にも無く、終端（\`--> [*]\`）でもない。この状態に入ると抜けられない。`,
+    fix: `「${s}」から出る遷移を書くか、終端なら図に「${s} --> [*]」を書く。`,
+  }),
+  STATE_AXIS: (docKey, s, e, what, value) => ({
+    id: `ST-STATE-AXIS-${docKey}-${s}-${e}-${what}`,
+    location: '状態とイベント',
+    quote: value,
+    issue: `状態 × イベント表の${what}「${value}」が、宣言した軸（対象の状態 / 対象のイベント / 図の状態）に無い。軸の外の値は網羅と一意の検査に乗らない。`,
+    fix: `「${value}」を軸の値に揃える（イベントは記号か名前をそのまま書く。次の状態は状態名を 1 つだけ書き、補足は書かない。終端へ移るなら、図で \`--> [*]\` を持つ状態の名前を書く）。`,
+  }),
+  STATE_NO_NEXT: (docKey, s, e) => ({
+    id: `ST-STATE-NO-NEXT-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」×「${e}」の行は定義済みとされているのに、次の状態が書かれていない。`,
+    fix: '次の状態を 1 つ書く。留まるなら現在の状態名を書く。起こりえないなら定義済みか列を「発生しない」にする。',
+  }),
+  DT_GAP: (docKey, label, combo) => ({
+    id: `ST-DT-GAP-${docKey}-${label}-${combo}`,
+    location: label,
+    quote: combo,
+    issue: `判定表「${label}」に、条件の組み合わせ「${combo}」に当たる行が無い（上記以外の行も無い）。`,
+    fix: 'その組み合わせの行を足すか、「上記以外」の行で結果を定める。起こりえない組み合わせなら、起こりえない旨を結果に書いた行を置く。',
+  }),
+  DT_OVERLAP: (docKey, label, combo, rowA, rowB) => ({
+    id: `ST-DT-OVERLAP-${docKey}-${label}-${combo}`,
+    location: label,
+    quote: combo,
+    issue: `判定表「${label}」の ${rowA} 行目と ${rowB} 行目が、同じ組み合わせ「${combo}」に当たり、結果が違う。どちらを採るか決まらない。`,
+    fix: '条件の値を分けて、1 つの組み合わせが 1 行にだけ当たるようにする。',
+  }),
+  DT_VALUE: (docKey, label, cond, value) => ({
+    id: `ST-DT-VALUE-${docKey}-${label}-${cond}-${value}`,
+    location: label,
+    quote: value,
+    issue: `判定表「${label}」の条件「${cond}」の値「${value}」が、宣言した値の集合に無い。`,
+    fix: `値を「> 条件の値: ${cond} = …」で宣言した値に揃えるか、宣言に足す。`,
+  }),
+  NC_FLOW: () => ({
+    id: 'ST-NOTCHECKED-FLOW',
+    issue: '工程の流れ（flow）が渡されていないため、各工程に項目が当たっているかを検査していない。「指摘 0 件」ではなく「未検査」である。',
+  }),
+  NC_DTABLE: (key, label, n) => ({
+    id: `ST-NOTCHECKED-DTABLE-${key}-${label}`,
+    issue: `${key} の判定表「${label}」は条件の組み合わせが ${n} 通りあり、網羅の検査を実行していない。「指摘 0 件」ではなく「未検査」である。`,
+  }),
   NC_CROSSREF: (kind) => ({
     id: 'ST-NOTCHECKED-CROSSREF',
     issue:
@@ -786,6 +969,96 @@ function expandStructural(compact) {
   return { findings, not_checked: (compact.not_checked || []).map((n) => make(n && n.c, n && n.a)) }
 }
 // FINDING_TEXT_END
+
+// 工程の流れ（flow）の形と閉包。scripts/doc_check.mjs の同区間の逐語の写しである（入口で崩れた flow を止めるため。
+// 一致は tests/test_doc_check.py が検査する）。
+// FLOW_GRAPH_BEGIN
+function flowGraphCompact(flow) {
+  // 型の一覧は関数の中に置く（refine.js は入口検査でこの関数を定義位置より前から呼ぶ。外の const は巻き上がらない）。
+  const FLOW_TYPES = ['input', 'step', 'decision', 'output']
+  const out = []
+  const shape = (key, detail) => out.push({ c: 'FLOW_SHAPE', d: 'flow', a: [key, detail] })
+  if (!flow || typeof flow !== 'object' || !Array.isArray(flow.elements)) {
+    shape('elements', 'elements が配列ではない')
+    return out
+  }
+  const kindNames = new Set()
+  for (const k of Array.isArray(flow.kinds) ? flow.kinds : []) {
+    if (!k || !k.name || !String(k.definition || '').trim()) shape(`kind-${(k && k.name) || '?'}`, '種類に name と definition が揃っていない')
+    else kindNames.add(k.name)
+  }
+  if (!kindNames.size) shape('kinds', '要素の種類（kinds）が 1 つも定義されていない')
+  if (!String(flow.closure || '').trim()) shape('closure', '一覧の外に要素が無いと言える根拠（closure）が無い')
+  const byId = new Map()
+  const noId = flow.elements.filter((el) => !el || !el.id).length
+  if (noId) shape('id', `id の無い要素が ${noId} 件ある`)
+  for (const el of flow.elements.filter((x) => x && x.id)) {
+    if (byId.has(el.id)) shape(`dup-${el.id}`, `要素 ID ${el.id} が重複している`)
+    byId.set(el.id, el)
+    if (!FLOW_TYPES.includes(el.type)) shape(`type-${el.id}`, `${el.id} の type が ${FLOW_TYPES.join(' / ')} のいずれでもない`)
+    if (!kindNames.has(el.kind)) shape(`kind-of-${el.id}`, `${el.id} の kind が kinds に定義されていない`)
+    const branches = Array.isArray(el.branches) ? el.branches : []
+    if (el.type === 'decision' && branches.length < 2) shape(`branches-${el.id}`, `判断 ${el.id} の値が 2 つ未満`)
+    if (el.type !== 'decision' && branches.length) shape(`branches-${el.id}`, `判断でない ${el.id} が branches を持つ`)
+  }
+  const types = new Set([...byId.values()].map((el) => el.type))
+  if (!types.has('input')) shape('no-input', '入力（type: input）が無い')
+  if (!types.has('output')) shape('no-output', '出力（type: output）が無い')
+  const nextOf = new Map()
+  for (const el of byId.values()) {
+    const targets = []
+    for (const to of Array.isArray(el.next) ? el.next : []) targets.push(to)
+    for (const b of el.type === 'decision' && Array.isArray(el.branches) ? el.branches : []) {
+      if (!b || !b.next) out.push({ c: 'FLOW_BRANCH_OPEN', d: 'flow', a: [el.id, String((b && b.value) || '?')] })
+      else targets.push(b.next)
+    }
+    for (const to of targets) {
+      if (!byId.has(to)) out.push({ c: 'FLOW_DANGLING', d: 'flow', a: [el.id, to] })
+    }
+    nextOf.set(el.id, targets.filter((to) => byId.has(to)))
+    if (el.type !== 'output' && el.type !== 'decision' && !targets.length) out.push({ c: 'FLOW_DEADEND', d: 'flow', a: [el.id] })
+  }
+  const seen = new Set()
+  const queue = [...byId.values()].filter((el) => el.type === 'input').map((el) => el.id)
+  while (queue.length) {
+    const id = queue.shift()
+    if (seen.has(id)) continue
+    seen.add(id)
+    queue.push(...(nextOf.get(id) || []))
+  }
+  if (types.has('input')) {
+    for (const id of byId.keys()) if (!seen.has(id)) out.push({ c: 'FLOW_UNREACHABLE', d: 'flow', a: [id] })
+  }
+  return out
+}
+// FLOW_GRAPH_END
+
+// 入口の flow 検査。FINDING_TEXT と FLOW_GRAPH の定義より後でなければ呼べない（const は巻き上がらない）。
+{
+  const errs = flow ? expandStructural({ findings: flowGraphCompact(flow).map((f) => ({ c: f.c, d: f.d, a: [f.a] })) }).findings : []
+  if (errs.length) {
+    throw new Error(
+      'args.flow が閉じていません。flow-framer の出力を直してから渡してください:\n' + errs.map((f) => `- ${f.id}: ${f.issue}`).join('\n')
+    )
+  }
+}
+
+// flowForCheck: checker に渡す flow。doc_check.mjs が読むフィールドだけに絞る（checker は入力を書き写す）。
+function flowForCheck(f) {
+  if (!f) return null
+  return {
+    elements: (f.elements || []).filter(Boolean).map((el) => ({
+      id: el.id,
+      type: el.type,
+      kind: el.kind,
+      label: el.label,
+      ...(Array.isArray(el.next) ? { next: el.next } : {}),
+      ...(Array.isArray(el.branches) ? { branches: el.branches.filter(Boolean).map((b) => ({ value: b.value, next: b.next })) } : {}),
+    })),
+    kinds: (f.kinds || []).filter(Boolean).map((k) => ({ name: k.name, definition: k.definition })),
+    closure: f.closure,
+  }
+}
 
 // verifyCheck: checker の返り値を受理してよいかを script が決める。schema では写し間違い（指摘の
 // 脱落・入力の欠け）を検出できないので、doc_check.mjs が出した digest と script が計算した digest を
@@ -953,7 +1226,7 @@ function stableKey(text) {
 
 function execToTbd(findings) {
   return findings
-    .filter((f) => f.severity === 'blocking')
+    .filter((f) => f.severity === 'blocking' && f.resolved_by !== 'writer')
     .map((f) => ({
       // キーに issue を含める。document|location だけだと、同じ章に対する複数の指摘
       // （「単位が無い」と「失敗時の挙動が無い」）が同一 ID に潰れ、片方が黙って消える。
@@ -1300,6 +1573,7 @@ const documents = [
       referenced: r.result.referenced_ids || [],
       vacant: r.result.vacant_ids || [],
       trace: r.result.trace,
+      flow_refs: r.result.flow_refs || [],
       traceability: [],
       tbd_items: r.result.tbd_items || [],
       categories_deferred: r.result.categories_deferred || [],
@@ -1323,6 +1597,7 @@ const documents = [
       referenced: r.result.referenced_ids || [],
       vacant: r.result.vacant_ids || [],
       trace: r.result.trace,
+      flow_refs: r.result.flow_refs || [],
       traceability: r.result.traceability || [],
       tbd_items: r.result.tbd_items || [],
       categories_deferred: r.result.categories_deferred || [],
@@ -1336,7 +1611,7 @@ const documents = [
 // 書き出しの照合・行数・構造検査を 1 回の checker でまとめて行う。本文は script の手元に無いので、
 // 本文を読む検査は checker が scripts/doc_check.mjs を実行した結果だけを使う。
 const checkerMissing = []
-const checkInput = { documents: documents.map((d) => checkerDoc(d)) }
+const checkInput = { documents: documents.map((d) => checkerDoc(d)), flow: flowForCheck(flow) }
 const [checkRaw] = await runWithRetry(
   '構造検査',
   [checkInput],
@@ -1419,6 +1694,13 @@ const notChecked = check.ok
       },
     ]
 const execTbd = execToTbd(execFindings)
+// 書き手が閉じる着手不能（文書内の食い違い・閉じていない集合）は TBD にせず、Workflow B の初回の改稿対象へ
+// 渡す（draft_structural_findings 経由）。人間ゲートに並べると、依頼者は文書の内部矛盾を裁くことになる。
+structural.push(
+  ...execFindings
+    .filter((f) => f.severity === 'blocking' && f.resolved_by === 'writer')
+    .map((f) => ({ ...f, id: `EX-WRITER-${stableKey(`${f.document}|${f.location}|${f.issue}`)}` }))
+)
 
 const { items: namespacedTbd, findings: tbdRenumbered } = namespaceTbd(documents)
 structural.push(...tbdRenumbered)
@@ -1484,6 +1766,8 @@ return {
     // trace: 項目 ID → 根拠。Workflow B へそのまま渡す（本文には根拠句を書かないので、
     // ここが欠けると根拠がどこにも残らない）。
     trace: d.trace,
+    // flow_refs: 項目 ID → flow の要素 ID。Workflow B へそのまま渡す（落とすと全工程が未割当として指摘される）。
+    flow_refs: d.flow_refs || [],
     traceability: d.traceability,
     tbd_items: d.tbd_items,
     categories_deferred: d.categories_deferred,

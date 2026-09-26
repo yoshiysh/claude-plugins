@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§precedent-judge](#precedent-judge) · [§measurement](#measurement) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
+**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§flow-framer](#flow-framer) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§precedent-judge](#precedent-judge) · [§measurement](#measurement) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
 
 ロールと責務の境界（検証者は判定と事実指摘のみ、文案の起草は生成側）は
 `schemas/role-map.md` を正とする。
@@ -9,8 +9,9 @@
 して埋まっており、writer / auditor はそちらで構造化出力を強制される。このファイルは**文書側の
 正**であり、両者が食い違った場合は script のスキーマを直したうえでここを更新する。
 
-`intake` / `domain-analyst` / `splitter` は SKILL.md が Agent ツールで直接呼ぶため、script の
-スキーマ強制がかからない。この 3 つはここが唯一の契約になる。
+`intake` / `domain-analyst` / `splitter` / `flow-framer` は SKILL.md が Agent ツールで直接呼ぶため、
+script のスキーマ強制がかからない。この 4 つはここが唯一の契約になる（flow-framer の出力だけは
+`args.flow` として draft.js / refine.js の入口で形と閉包を検査される）。
 
 ---
 
@@ -96,6 +97,35 @@ SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（�
 
 ---
 
+## §flow-framer
+
+対象システムの工程の流れ（PFD）。司令塔が `args.flow` としてそのまま Workflow A / B に渡す。
+
+```json
+{
+  "elements": [
+    { "id": "F-001", "type": "input", "kind": "外から入るもの", "label": "依頼文", "next": ["F-002"] },
+    {
+      "id": "F-002", "type": "decision", "kind": "判断", "label": "対象外の依頼か",
+      "branches": [{ "value": "対象外", "next": "F-009" }, { "value": "対象内", "next": "F-003" }]
+    },
+    { "id": "F-009", "type": "output", "kind": "返すもの", "label": "対象外の旨の 1 文" }
+  ],
+  "kinds": [{ "name": "判断", "definition": "値によって次の工程が変わる要素" }],
+  "closure": "一覧の外に要素が無いと言える根拠（確かめたことと推測を分けて書く）"
+}
+```
+
+- `id` は `F-<連番>` で一意。`type` は `input` / `step` / `decision` / `output` のいずれか。
+- `kind` は `kinds[].name` のどれか 1 つ。`kinds[]` は `name` と `definition`（性質）を持つ。
+- `decision` は `branches` に 2 つ以上の `{ value, next }` を持ち、どの値にも `next` がある。
+  それ以外の要素は `next`（行き先 ID の配列）を持ち、`output` だけが行き先を持たなくてよい。
+- どの要素にも `input` から辿り着け、`next` はどれも実在する要素を指す。
+- 入口の検査（`ST-FLOW-SHAPE-` / `-BRANCH-OPEN-` / `-DANGLING-` / `-UNREACHABLE-` / `-DEADEND-`）に
+  1 件でも当たると、Workflow A / B は始まらない。
+
+---
+
 ## §req-writer
 
 `scripts/draft.js` / `scripts/refine.js` が文書ごとに呼ぶ。**担当は 1 文書だけ。**
@@ -113,6 +143,7 @@ script は本文を受け取らず、checker がファイルを検査する。�
   "trace": [
     { "item_id": "PR-AUTH-001", "kind": "input", "ref": "", "quote": "根拠原本からの引用（そのまま写す）" }
   ],
+  "flow_refs": [{ "item_id": "PR-AUTH-001", "ref": "F-003" }],
   "tbd_items": [
     { "id": "TBD-AUTH-001", "text": "決めるべき論点", "owner": "", "due": "", "blocking": true, "candidates": ["決め方の候補（任意）"] }
   ],
@@ -135,6 +166,10 @@ script は本文を受け取らず、checker がファイルを検査する。�
   `quote` は原本に実在する文字列をそのまま写す（要約・言い換えは照合できず、根拠なしとして
   扱われる）。**全項目に必要**である — trace の無い項目は構造検査が `ST-NO-EVIDENCE-<id>` を
   立てる。
+- **`flow_refs` は項目 ID → 工程の流れ（`args.flow`）の要素 ID。** 項目が振る舞いを定める要素に当てる
+  （1 項目が複数の要素に当たってよい）。根拠ではないので `trace` とは別に持つ。本文には要素 ID を
+  書かない。どの項目も当たらない要素は構造検査が `ST-FLOW-UNATTACHED-` として返す。flow が渡されない
+  run では空配列で返す。
 - `requirement_items` は本文に実在する ID を**すべて**列挙する。script が本文から正規表現で
   独立に抽出して突き合わせるので、抜けると欠陥として検出される。
 - **`tbd_items[].id` は `TBD-<領域>-<連番>`。** 各文書は並列に書かれ互いの採番を知らないため、
@@ -164,6 +199,7 @@ script は本文を受け取らず、checker がファイルを検査する。�
   "summary": "この文書に何が書いてあるかの 1〜2 文",
   "spec_items": [{ "id": "SP-AUTH-001", "heading": "認証トークンの発行" }],
   "trace": [{ "item_id": "SP-AUTH-001", "kind": "decision", "ref": "D-003", "quote": "..." }],
+  "flow_refs": [{ "item_id": "SP-AUTH-001", "ref": "F-004" }],
   "traceability": [
     {
       "requirement_id": "PR-AUTH-001",
@@ -188,6 +224,7 @@ script は本文を受け取らず、checker がファイルを検査する。�
   `quote` は原本に実在する文字列をそのまま写す（要約・言い換えは照合できず、根拠なしとして
   扱われる）。**全項目に必要**である — trace の無い項目は構造検査が `ST-NO-EVIDENCE-<id>` を
   立てる。
+- `flow_refs` は §req-writer と同じ。
 - `traceability`（要求 ID → 仕様 ID の対応表）は `trace`（項目 ID → 根拠）とは別物である。
   前者は文書に載る階層の対応で、後者は文書に載らない根拠の対応である。
 - `traceability` は**この文書がカバーする要求の分だけ**を持つ。全要求を書き写すと他の仕様文書と
@@ -297,6 +334,7 @@ blocking の指摘は TBD として起票し直され、統合ゲートの提示
       "direction": "共通形と同じ enum（何を決めるべき欠落かは issue に書く。決め方の候補・文案は書かない）",
       "direction_note": "任意。方向の補足 1 行（50 字目安）",
       "severity": "blocking | degraded",
+      "resolved_by": "requester | writer（blocking のとき。誰が閉じるか）",
       "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）",
       "action": "冗長指摘のみ。delete | merge_into:<ID> | replace_with_reference:<文書#ID> のどれか 1 つ"
     }
@@ -310,6 +348,11 @@ blocking の指摘は TBD として起票し直され、統合ゲートの提示
 | `blocking` | **着手できない。** 決めてもらわないと 1 行も書けない。人間に質問として提示される |
 | `degraded` | 着手はできるが、後で作り直しになりうる |
 
+- **`resolved_by` は、手が止まる理由が何で閉じるかを書く。** `requester` はプロダクトの価値（何を
+  すべきか・何を許すか・何を優先するか）の判断が要るもの。`writer` は文書の中の食い違い・閉じて
+  いない集合で、他の項目と根拠から書き手が揃えられるもの（例: 2 つの項目が同じ入力に違う振る舞いを
+  定めている・本文が参照する集合の要素が他の項目から決まる）。`writer` の指摘は TBD にならず改稿の
+  対象へ回る。欠けたら `requester` として扱われる。
 - **degraded 指摘にも「判定が割れる具体入力（またはその構成手順）」を `repro` として添付する。
   書けない指摘は起票しない**（auditor 共通形と同じ較正。仕上げの好みを degraded に流し込ませない）。
 - **既に TBD として起票されている項目は指摘しない。** それは正しく扱われている状態である。
@@ -332,7 +375,7 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 ```json
 {
   "classified": [
-    { "digest": "受け取った digest をそのまま", "kind": "artifact | criteria | premise | question", "rationale": "分類の根拠（1 行必須）" }
+    { "digest": "受け取った digest をそのまま", "kind": "artifact | criteria | consistency | premise | question", "cited": ["consistency のとき。食い違う項目の ID・箇所"], "rationale": "分類の根拠（1 行必須）" }
   ]
 }
 ```
@@ -341,6 +384,7 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 
 | 優先 | kind | 徴候 | 戻り先 |
 |---|---|---|---|
+| 0 | `consistency` | 指摘が文書の中の整合・閉包の欠陥である（2 つの項目が同じ入力に違う振る舞いを定める・本文が参照する集合の要素が他の項目から決まる・表の組み合わせが欠ける）。食い違う項目を `cited` に挙げられる | writer 改稿。`cited` の項目を突き合わせ、根拠が上位文書・入力に辿れる側に揃える。TBD にしない |
 | 1 | `premise` | 指摘の解消に要る根拠が入力・前提（INPUT / ANSWERS / TBD_ANSWERS / DECISIONS）のどこにも無い | `needs_input`（data）。改稿予算を消費させず blocking TBD として起票 |
 | 2 | `question` | 依頼者にしか決められない（外部に波及する値・要求そのものの取捨） | `needs_input`（decision）。同上 |
 | 3 | `criteria` | 判定基準・既定の欠落。決定ログに既定を要する | writer 改稿。書き手が決められる既定なら writer が既定を提案し、decisions 候補（`tbd_items[].candidates`）として返す |
@@ -361,6 +405,10 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
   次ラウンドの fabrication 監査が blocking 化し、結局同じゲートへ 1 周遅れで着くことである。
   逆に、既にある決定・前提・本文を**指して**追認できる既定は `criteria` のまま writer が
   提案できる（3 行は生きている）。指せる文言を挙げられないなら、それは追認ではなく発明である。
+- **`consistency` はプロダクトの価値の判断を含まないときだけ採る。** 食い違いの両側がそれぞれ依頼者の
+  入力に辿れ、入力そのものが割れているなら、どちらに揃えるかはプロダクトの判断なので `question` に
+  する。`cited` を挙げられない指摘も `consistency` にしない。状態 × イベント表・判定表・工程の流れの
+  構造検査（`ST-STATE-` / `ST-DT-` / `ST-FLOW-`）は script がこの judge を通さず writer へ流す。
 - **表に無い状況は `question`（`needs_input(decision)`）に落とす。規則を発明しない。**
 - `rationale` は必須（1 行）。書けない分類は根拠が無い。
 - `digest` は書き換えない（script が照合キーに使う）。分類が欠けた finding は script が
@@ -433,8 +481,9 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
   "classifications": [
     {
       "tbd_id": "TBD-AUTH-001",
-      "verdict": "resolvable | measurable | novel | conflict | irreversible",
+      "verdict": "resolvable | internal | measurable | novel | conflict | irreversible",
       "precedent_ids": ["D-003"],
+      "cited": ["internal のとき。食い違う項目の ID"],
       "measurement_target": "何を読めば決まるか（measurable のとき）",
       "rationale": "分類の根拠 1 行"
     }
@@ -448,6 +497,7 @@ TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコ�
 | verdict | 意味 | 行き先 |
 |---|---|---|
 | `resolvable` | 決定ログ・回答履歴に同型の先例があり、当てはめれば解消する | §resolver が解消文を起草 → §resolver-verifier の検証 → 同一ラン内で本文へ反映 |
+| `internal` | 問いがプロダクトの価値ではなく文書の中の整合・閉包である（`cited` の項目が食い違う）。入力そのものが割れているなら当たらない | `resolvable` と同じ経路（書き手が `cited` を揃える）。`cited` が空なら採らず人間ゲート |
 | `measurable` | 現物（実装・設定・既存文書）が答えを持つ | §measurement へ |
 | `novel` | 先例が無い / 類推に飛躍がある | 人間ゲート |
 | `conflict` | 当てはまりうる先例同士が逆の判断を含む | 人間ゲート |
@@ -505,8 +555,15 @@ CLI の出力は種別と引数だけの短い形（`{ c, d, a }`）で、文面
 | `ST-UNVERIFIED-` | 本文未確認の規格に条番号を付けた引用 |
 | `ST-NO-EVIDENCE-` | 項目 ID に対応する `trace`（根拠）が申告されていない |
 | `ST-NON-NORMATIVE-` | 本文に根拠句・決定ログ・経緯・未確定事項の章が混ざっている |
+| `ST-STATE-` | 状態 × イベント表の欠け（`MISSING`）・同じ入力に 2 つの行き先（`NONDET`）・定義済みか列に書いた別の遷移（`HIDDEN`）・表と図の食い違い（`DIAGRAM-CONFLICT`）・到達できない状態（`UNREACHABLE`）・出口の無い状態（`DEADEND`）・軸の外の値（`AXIS`）・次の状態の欠け（`NO-NEXT`）・イベントの軸の宣言なし（`NOAXIS`）。書式は `references/document-structure.md` §6 |
+| `ST-DT-` | 判定表の組み合わせの欠け（`GAP`）・重なり（`OVERLAP`）・宣言外の値（`VALUE`）。書式は `references/document-structure.md` §2.8 |
+| `ST-FLOW-` | 工程の流れの要素に項目が当たっていない（`UNATTACHED`）・`flow_refs` が実在しない要素を指す（`UNKNOWN-REF`）。形と閉包の欠陥（§flow-framer）は入口で止まる |
+
+`ST-STATE-` / `ST-DT-` / `ST-FLOW-` は文書内の整合と閉包の欠陥であり、依頼者に聞く論点ではない。
+refine.js は ladder-judge を通さずに writer の改稿対象へ流す。
 
 `not_checked` は**失格ではなく「材料が無くて実行できなかった検査」**。
 `ST-NOTCHECKED-CROSSREF` は、片方の kind の文書が対象に含まれず ID 照合が成立しなかったこと
 を示す。`ST-NOTCHECKED-TRACE-<文書>` は、その文書が `trace` を申告せず根拠の対応を検査できな
-かったことを示す（「根拠あり」ではない）。**「指摘 0 件」と混同させないため、別配列で返す。**
+かったことを示す（「根拠あり」ではない）。`ST-NOTCHECKED-FLOW` は flow が渡されず工程への当たり方を
+検査していないこと、`ST-NOTCHECKED-DTABLE-` は判定表の組み合わせが多すぎて網羅を検査していないことを示す。**「指摘 0 件」と混同させないため、別配列で返す。**

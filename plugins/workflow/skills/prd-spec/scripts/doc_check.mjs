@@ -264,6 +264,147 @@ const FINDING_TEXT = {
     issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
     fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
   }),
+  FLOW_SHAPE: (key, detail) => ({
+    id: `ST-FLOW-SHAPE-${key}`,
+    location: '工程の流れ（flow）',
+    quote: key,
+    issue: `工程の流れの形が契約に合わない（${detail}）。流れは各項目を当てる軸であり、形が崩れていると閉じているかを判定できない。`,
+    fix: 'flow-framer の出力を、その契約（schemas/agent-contracts.md の flow-framer 節）の形に直して渡し直す（文書の改稿では直らない）。',
+  }),
+  FLOW_BRANCH_OPEN: (id, value) => ({
+    id: `ST-FLOW-BRANCH-OPEN-${id}-${value}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${value}`,
+    issue: `判断 ${id} の値「${value}」に行き先が無い。行き先の無い値は、誰も振る舞いを決めていない枝になる。`,
+    fix: `値「${value}」の行き先の要素を flow に描く。その値が起こりえないなら branches から外し、外せる根拠を closure に書く。`,
+  }),
+  FLOW_DANGLING: (from, to) => ({
+    id: `ST-FLOW-DANGLING-${from}-${to}`,
+    location: '工程の流れ（flow）',
+    quote: `${from} → ${to}`,
+    issue: `流れの要素 ${from} の行き先 ${to} が flow の要素一覧に無い。`,
+    fix: `${to} を要素として描くか、行き先を実在する要素に直す。`,
+  }),
+  FLOW_UNREACHABLE: (id) => ({
+    id: `ST-FLOW-UNREACHABLE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `流れの要素 ${id} へ、どの入力からも辿り着けない。辿り着けない工程は、描いてあっても実行されない。`,
+    fix: `${id} へ入る辺を描くか、実行されないなら要素ごと外す。`,
+  }),
+  FLOW_DEADEND: (id) => ({
+    id: `ST-FLOW-DEADEND-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `流れの要素 ${id} は出力ではないのに行き先が無い。中断点の後の戻り先や終わり方が決まっていない。`,
+    fix: `${id} の次の要素（戻り先・終了）を描くか、流れの終わりなら type を output にする。`,
+  }),
+  FLOW_UNATTACHED: (id, label) => ({
+    id: `ST-FLOW-UNATTACHED-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id} ${label}`,
+    issue: `流れの要素 ${id}（${label}）に、どの項目も当てられていない（flow_refs に現れない）。当たる項目の無い工程は、実装が何をしても仕様違反にならない。`,
+    fix: `${id} を扱う項目の flow_refs に ${id} を加える。扱う項目が無ければその工程の振る舞いを定める項目を足す（根拠が入力に無いなら TBD として起票する）。`,
+  }),
+  FLOW_UNKNOWN_REF: (itemId, ref) => ({
+    id: `ST-FLOW-UNKNOWN-REF-${itemId}-${ref}`,
+    location: itemId,
+    quote: ref,
+    issue: `項目 ${itemId} の flow_refs が指す ${ref} は flow の要素一覧に無い。`,
+    fix: `${ref} を flow に実在する要素 ID に直す。`,
+  }),
+  STATE_NOAXIS: (docKey, section) => ({
+    id: `ST-STATE-NOAXIS-${docKey}-${section}`,
+    location: section,
+    quote: '(対象のイベントの宣言なし)',
+    issue: '状態 × イベント表の前にイベントの軸（「> 対象のイベント:」の行）が無い。軸が無いと、どの組み合わせが欠けているかを判定できない。',
+    fix: '表の直前にイベントの集合を「> 対象のイベント: E1 … / E2 …」の形で置く（document-structure.md §6）。',
+  }),
+  STATE_MISSING: (docKey, s, e) => ({
+    id: `ST-STATE-MISSING-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」でイベント「${e}」が起きたときの行き先が、表にも図にも無い。書かれていない組み合わせは、実装者ごとに違う振る舞いになる。`,
+    fix: `「${s} × ${e}」の行を足す。起こりえないなら次の状態を「—」、定義済みか列を「発生しない」にする。`,
+  }),
+  STATE_NONDET: (docKey, s, e, targets) => ({
+    id: `ST-STATE-NONDET-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e} → ${targets}`,
+    issue: `状態「${s}」でイベント「${e}」が起きたときの次の状態が 1 つに決まらない（${targets}）。同じ入力に 2 つの行き先があると、どちらを実装しても仕様に合う。`,
+    fix: '行き先を 1 つにする。条件で分かれるなら、その条件をイベントとして軸に足して行を分ける。',
+  }),
+  STATE_HIDDEN: (docKey, s, e, other) => ({
+    id: `ST-STATE-HIDDEN-${docKey}-${s}-${e}-${other}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}: ${other}`,
+    issue: `状態「${s}」×「${e}」の行の定義済みか列が、次の状態とは別の状態「${other}」への移り方を書いている。表の外に書いた遷移は、網羅と一意の検査から漏れる。`,
+    fix: `「${other}」へ移る遷移は、それを起こすイベントの行（または図の辺）として書く。定義済みか列には仕様項目 ID だけを置く。`,
+  }),
+  STATE_DIAGRAM_CONFLICT: (docKey, s, e, tableTo, diagramTo) => ({
+    id: `ST-STATE-DIAGRAM-CONFLICT-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」×「${e}」の行き先が、表では「${tableTo}」、状態遷移図では「${diagramTo}」になっている。どちらが正か決まらない。`,
+    fix: '表と図のどちらか一方にだけ書く（主フローは図、それ以外は表。document-structure.md §6）。両方に残すなら行き先を揃える。',
+  }),
+  STATE_UNREACHABLE: (docKey, s) => ({
+    id: `ST-STATE-UNREACHABLE-${docKey}-${s}`,
+    location: '状態とイベント',
+    quote: s,
+    issue: `状態「${s}」へ、初期状態から表と図のどの遷移を辿っても着かない。`,
+    fix: `「${s}」へ入る遷移を書くか、存在しない状態なら軸と図から外す。`,
+  }),
+  STATE_DEADEND: (docKey, s) => ({
+    id: `ST-STATE-DEADEND-${docKey}-${s}`,
+    location: '状態とイベント',
+    quote: s,
+    issue: `状態「${s}」から出る遷移が表にも図にも無く、終端（\`--> [*]\`）でもない。この状態に入ると抜けられない。`,
+    fix: `「${s}」から出る遷移を書くか、終端なら図に「${s} --> [*]」を書く。`,
+  }),
+  STATE_AXIS: (docKey, s, e, what, value) => ({
+    id: `ST-STATE-AXIS-${docKey}-${s}-${e}-${what}`,
+    location: '状態とイベント',
+    quote: value,
+    issue: `状態 × イベント表の${what}「${value}」が、宣言した軸（対象の状態 / 対象のイベント / 図の状態）に無い。軸の外の値は網羅と一意の検査に乗らない。`,
+    fix: `「${value}」を軸の値に揃える（イベントは記号か名前をそのまま書く。次の状態は状態名を 1 つだけ書き、補足は書かない。終端へ移るなら、図で \`--> [*]\` を持つ状態の名前を書く）。`,
+  }),
+  STATE_NO_NEXT: (docKey, s, e) => ({
+    id: `ST-STATE-NO-NEXT-${docKey}-${s}-${e}`,
+    location: '状態とイベント',
+    quote: `${s} × ${e}`,
+    issue: `状態「${s}」×「${e}」の行は定義済みとされているのに、次の状態が書かれていない。`,
+    fix: '次の状態を 1 つ書く。留まるなら現在の状態名を書く。起こりえないなら定義済みか列を「発生しない」にする。',
+  }),
+  DT_GAP: (docKey, label, combo) => ({
+    id: `ST-DT-GAP-${docKey}-${label}-${combo}`,
+    location: label,
+    quote: combo,
+    issue: `判定表「${label}」に、条件の組み合わせ「${combo}」に当たる行が無い（上記以外の行も無い）。`,
+    fix: 'その組み合わせの行を足すか、「上記以外」の行で結果を定める。起こりえない組み合わせなら、起こりえない旨を結果に書いた行を置く。',
+  }),
+  DT_OVERLAP: (docKey, label, combo, rowA, rowB) => ({
+    id: `ST-DT-OVERLAP-${docKey}-${label}-${combo}`,
+    location: label,
+    quote: combo,
+    issue: `判定表「${label}」の ${rowA} 行目と ${rowB} 行目が、同じ組み合わせ「${combo}」に当たり、結果が違う。どちらを採るか決まらない。`,
+    fix: '条件の値を分けて、1 つの組み合わせが 1 行にだけ当たるようにする。',
+  }),
+  DT_VALUE: (docKey, label, cond, value) => ({
+    id: `ST-DT-VALUE-${docKey}-${label}-${cond}-${value}`,
+    location: label,
+    quote: value,
+    issue: `判定表「${label}」の条件「${cond}」の値「${value}」が、宣言した値の集合に無い。`,
+    fix: `値を「> 条件の値: ${cond} = …」で宣言した値に揃えるか、宣言に足す。`,
+  }),
+  NC_FLOW: () => ({
+    id: 'ST-NOTCHECKED-FLOW',
+    issue: '工程の流れ（flow）が渡されていないため、各工程に項目が当たっているかを検査していない。「指摘 0 件」ではなく「未検査」である。',
+  }),
+  NC_DTABLE: (key, label, n) => ({
+    id: `ST-NOTCHECKED-DTABLE-${key}-${label}`,
+    issue: `${key} の判定表「${label}」は条件の組み合わせが ${n} 通りあり、網羅の検査を実行していない。「指摘 0 件」ではなく「未検査」である。`,
+  }),
   NC_CROSSREF: (kind) => ({
     id: 'ST-NOTCHECKED-CROSSREF',
     issue:
@@ -311,6 +452,455 @@ function expandStructural(compact) {
 }
 // FINDING_TEXT_END
 
+// ------------------------------------------------------- 工程の流れ（flow）の形と閉包
+//
+// flow は flow-framer が初稿の前に描く PFD で、各項目を当てる軸になる（契約は
+// schemas/agent-contracts.md の flow-framer 節）。軸が閉じていなければ「どの工程にも項目が当たっている」
+// は何も保証しないので、形と閉包は算術で押さえる。draft.js / refine.js は入口でこの区間を使い、
+// 崩れた flow では書き始めない（writer には flow を直す手段が無く、改稿枠を空回りさせるだけになる）。
+// この区間は scripts/draft.js と scripts/refine.js に逐語で複製されている（一致は tests/test_doc_check.py が検査する）。
+// FLOW_GRAPH_BEGIN
+function flowGraphCompact(flow) {
+  // 型の一覧は関数の中に置く（refine.js は入口検査でこの関数を定義位置より前から呼ぶ。外の const は巻き上がらない）。
+  const FLOW_TYPES = ['input', 'step', 'decision', 'output']
+  const out = []
+  const shape = (key, detail) => out.push({ c: 'FLOW_SHAPE', d: 'flow', a: [key, detail] })
+  if (!flow || typeof flow !== 'object' || !Array.isArray(flow.elements)) {
+    shape('elements', 'elements が配列ではない')
+    return out
+  }
+  const kindNames = new Set()
+  for (const k of Array.isArray(flow.kinds) ? flow.kinds : []) {
+    if (!k || !k.name || !String(k.definition || '').trim()) shape(`kind-${(k && k.name) || '?'}`, '種類に name と definition が揃っていない')
+    else kindNames.add(k.name)
+  }
+  if (!kindNames.size) shape('kinds', '要素の種類（kinds）が 1 つも定義されていない')
+  if (!String(flow.closure || '').trim()) shape('closure', '一覧の外に要素が無いと言える根拠（closure）が無い')
+  const byId = new Map()
+  const noId = flow.elements.filter((el) => !el || !el.id).length
+  if (noId) shape('id', `id の無い要素が ${noId} 件ある`)
+  for (const el of flow.elements.filter((x) => x && x.id)) {
+    if (byId.has(el.id)) shape(`dup-${el.id}`, `要素 ID ${el.id} が重複している`)
+    byId.set(el.id, el)
+    if (!FLOW_TYPES.includes(el.type)) shape(`type-${el.id}`, `${el.id} の type が ${FLOW_TYPES.join(' / ')} のいずれでもない`)
+    if (!kindNames.has(el.kind)) shape(`kind-of-${el.id}`, `${el.id} の kind が kinds に定義されていない`)
+    const branches = Array.isArray(el.branches) ? el.branches : []
+    if (el.type === 'decision' && branches.length < 2) shape(`branches-${el.id}`, `判断 ${el.id} の値が 2 つ未満`)
+    if (el.type !== 'decision' && branches.length) shape(`branches-${el.id}`, `判断でない ${el.id} が branches を持つ`)
+  }
+  const types = new Set([...byId.values()].map((el) => el.type))
+  if (!types.has('input')) shape('no-input', '入力（type: input）が無い')
+  if (!types.has('output')) shape('no-output', '出力（type: output）が無い')
+  const nextOf = new Map()
+  for (const el of byId.values()) {
+    const targets = []
+    for (const to of Array.isArray(el.next) ? el.next : []) targets.push(to)
+    for (const b of el.type === 'decision' && Array.isArray(el.branches) ? el.branches : []) {
+      if (!b || !b.next) out.push({ c: 'FLOW_BRANCH_OPEN', d: 'flow', a: [el.id, String((b && b.value) || '?')] })
+      else targets.push(b.next)
+    }
+    for (const to of targets) {
+      if (!byId.has(to)) out.push({ c: 'FLOW_DANGLING', d: 'flow', a: [el.id, to] })
+    }
+    nextOf.set(el.id, targets.filter((to) => byId.has(to)))
+    if (el.type !== 'output' && el.type !== 'decision' && !targets.length) out.push({ c: 'FLOW_DEADEND', d: 'flow', a: [el.id] })
+  }
+  const seen = new Set()
+  const queue = [...byId.values()].filter((el) => el.type === 'input').map((el) => el.id)
+  while (queue.length) {
+    const id = queue.shift()
+    if (seen.has(id)) continue
+    seen.add(id)
+    queue.push(...(nextOf.get(id) || []))
+  }
+  if (types.has('input')) {
+    for (const id of byId.keys()) if (!seen.has(id)) out.push({ c: 'FLOW_UNREACHABLE', d: 'flow', a: [id] })
+  }
+  return out
+}
+// FLOW_GRAPH_END
+
+// ------------------------------------------------------- 状態 × イベント表と判定表の検査
+//
+// 状態機械と判定規則は、項目ごとの散文で書くと「同じ入力に 2 つの行き先」「分岐の値に行き先が無い」
+// 「条件が重なる」を読み手が照合するしかなく、実 run では依頼者への質問に化けて人間ゲートへ届いた
+// （6 文書で 12 問。ほぼ全件が文書内の不整合だった）。表の形を document-structure.md §6 / §2.8 に
+// 固定し、網羅・一意・到達を算術で検査する。機械的に読めない表は検査しない（偽陽性は改稿枠を空回りさせる）。
+
+const cellsOf = (line) => {
+  const t = line.trim()
+  if (!t.startsWith('|')) return null
+  return t.replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+}
+const isSeparator = (cells) => cells && cells.length && cells.every((c) => /^:?-{2,}:?$/.test(c))
+const splitAxis = (s) => String(s).split(/\s+\/\s+/).map((x) => x.trim()).filter(Boolean)
+const BLANK_CELL = /^(—|-|–|―|なし)?$/
+
+// sectionsOf2: `## ` 見出しで区切った節（コードフェンスの中は見出しとして扱わない）。
+function sectionsOf2(md) {
+  const lines = String(md || '').split('\n')
+  const secs = []
+  let cur = { heading: '', start: 0, lines: [] }
+  let inFence = false
+  lines.forEach((ln, i) => {
+    if (/^\s*(```|~~~)/.test(ln)) inFence = !inFence
+    if (!inFence && /^##\s/.test(ln)) {
+      secs.push(cur)
+      cur = { heading: ln.replace(/^##\s+/, '').trim(), start: i, lines: [] }
+    }
+    cur.lines.push(ln)
+  })
+  secs.push(cur)
+  return secs
+}
+
+// tablesOf: 節の中のパイプ表（見出し行 + 区切り行 + 本体）。行番号は文書全体の 1 始まり。
+function tablesOf(sec) {
+  const tables = []
+  let lastHeading = sec.heading
+  for (let i = 0; i < sec.lines.length; i++) {
+    const hm = /^#{2,6}\s+(.*)$/.exec(sec.lines[i])
+    if (hm) lastHeading = hm[1].trim()
+    const header = cellsOf(sec.lines[i])
+    if (!header || !isSeparator(cellsOf(sec.lines[i + 1] || ''))) continue
+    const rows = []
+    let j = i + 2
+    for (; j < sec.lines.length; j++) {
+      const cells = cellsOf(sec.lines[j])
+      if (!cells) break
+      rows.push({ line: sec.start + j + 1, cells })
+    }
+    tables.push({ line: sec.start + i + 1, heading: lastHeading, header, rows })
+    i = j - 1
+  }
+  return tables
+}
+
+// quoteParagraphs: 節の中の引用段落（連続する `>` 行を 1 つに連結したもの）。軸の宣言が複数行に折れていても
+// 拾う。宣言の書き出し（「対象の状態:」「条件の値:」など）の行と空の `>` 行は新しい段落を始める —
+// 続けて並べた 2 つの宣言を 1 つに連結すると、状態の軸の末尾にイベントの宣言が混ざる。
+const AXIS_START = /^(対象[^:：]{0,6}(状態|イベント)|条件の値)\s*[:：]/
+function quoteParagraphs(sec) {
+  const paras = []
+  let cur = null
+  for (const ln of sec.lines) {
+    const m = /^\s*>\s?(.*)$/.exec(ln)
+    if (m) {
+      const t = m[1].trim()
+      if (cur !== null && (!t || AXIS_START.test(t))) {
+        paras.push(cur)
+        cur = null
+      }
+      // 和文の折り返しは空白を挟まずにつなぐ（挟むと「件数が 増える」になり、表のイベント名と一致しない）。
+      if (t) cur = cur === null ? t : /[\x00-\x7f]$/.test(cur) || /^[\x00-\x7f]/.test(t) ? `${cur} ${t}` : `${cur}${t}`
+      continue
+    }
+    if (cur !== null) paras.push(cur)
+    cur = null
+  }
+  if (cur !== null) paras.push(cur)
+  return paras
+}
+
+// stateDiagramOf: 節の中の mermaid stateDiagram の辺。`A --> B : ラベル` だけを読む
+// （state 定義・note・複合状態は読まない。読めない行は辺として数えない）。
+function stateDiagramOf(sec) {
+  const edges = []
+  let inFence = false
+  let isState = false
+  let found = false
+  for (const ln of sec.lines) {
+    if (/^\s*(```|~~~)/.test(ln)) {
+      inFence = !inFence
+      isState = false
+      continue
+    }
+    if (!inFence) continue
+    if (/^\s*stateDiagram/.test(ln)) {
+      isState = true
+      found = true
+      continue
+    }
+    if (!isState) continue
+    const m = /^\s*(.+?)\s*-->\s*(.+?)\s*$/.exec(ln)
+    if (!m || /^\s*%%/.test(ln)) continue
+    const [to, ...rest] = m[2].split(/\s*:\s*/)
+    edges.push({ from: m[1].trim(), to: to.trim(), label: rest.join(':').trim() })
+  }
+  return found ? edges : null
+}
+
+// namesIn: 文字列に現れる状態名（長い名前から照合し、照合済みの箇所は二重に数えない）。
+function namesIn(text, names) {
+  let rest = String(text || '')
+  const hits = []
+  for (const n of [...names].sort((a, b) => b.length - a.length)) {
+    if (!n || !rest.includes(n)) continue
+    hits.push(n)
+    rest = rest.split(n).join('\u0000')
+  }
+  return hits
+}
+
+function stateCheck(d, sec, out, fallbackEdges) {
+  const tables = tablesOf(sec).filter((t) => {
+    const h = t.header
+    return h.includes('現在の状態') && h.includes('次の状態') && h.some((c) => c.includes('イベント'))
+  })
+  // 図が同じ節に無ければ、文書に 1 つだけある図を使う（図と表を別の ## 節に置いた文書で、到達・出口・
+  // 表と図の突き合わせが黙って検査されなくなるのを防ぐ）。図が複数あって節で決まらないときは使わない。
+  const edges = stateDiagramOf(sec) || fallbackEdges || null
+  if (!tables.length) return
+  const paras = quoteParagraphs(sec)
+  const axisOf = (re) => {
+    const p = paras.find((x) => re.test(x))
+    return p ? splitAxis(p.replace(re, '')) : null
+  }
+  const declaredStates = axisOf(/^対象[^:：]{0,6}状態\s*[:：]\s*/)
+  const eventItems = axisOf(/^対象[^:：]{0,6}イベント\s*[:：]\s*/)
+  const events = (eventItems || []).map((s) => {
+    const m = /^([A-Z][A-Z0-9]*\d+)\s+(.+)$/.exec(s)
+    return m ? { code: m[1], name: m[2].trim(), label: m[1] } : { code: '', name: s, label: s }
+  })
+  const squash = (x) => String(x || '').replace(/\s+/g, '')
+  const eventOf = (cell) => {
+    const c = String(cell || '').trim()
+    return events.find((e) => (e.code && (c === e.code || squash(c) === squash(`${e.code} ${e.name}`))) || squash(c) === squash(e.name)) || null
+  }
+  const diagramEdges = (edges || []).filter((e) => e.from !== '[*]' || e.to !== '[*]')
+  const terminal = new Set(diagramEdges.filter((e) => e.to === '[*]').map((e) => e.from))
+  const diagramStates = new Set(diagramEdges.flatMap((e) => [e.from, e.to]).filter((s) => s !== '[*]'))
+  const tableStates = new Set(tables.flatMap((t) => t.rows.map((r) => r.cells[t.header.indexOf('現在の状態')])))
+  const axisStates = declaredStates || (edges ? [...diagramStates] : [...tableStates])
+  const allStates = new Set([...axisStates, ...diagramStates])
+  const key = d.key
+  if (!events.length) {
+    out.push({ c: 'STATE_NOAXIS', d: key, a: [key, sec.heading || '(冒頭)'] })
+  }
+  // cells: (状態, イベント) → { targets: Set, noop, open, from: 'table' }。図の辺でイベントに当たるものは別に持つ。
+  const cells = new Map()
+  const cellOf = (s, e) => {
+    const k = `${s}\u0000${e}`
+    if (!cells.has(k)) cells.set(k, { s, e, targets: new Set(), noop: false, open: false })
+    return cells.get(k)
+  }
+  const transitions = []
+  for (const t of tables) {
+    const col = (pred) => t.header.findIndex(pred)
+    const cS = col((c) => c === '現在の状態')
+    const cE = col((c) => c.includes('イベント'))
+    const cN = col((c) => c === '次の状態')
+    const cD = col((c) => c.includes('定義済み'))
+    for (const r of t.rows) {
+      const s = r.cells[cS] || ''
+      const eCell = r.cells[cE] || ''
+      const next = r.cells[cN] || ''
+      const note = cD >= 0 ? r.cells[cD] || '' : ''
+      if (!allStates.has(s)) out.push({ c: 'STATE_AXIS', d: key, a: [key, s, eCell, '現在の状態', s] })
+      const ev = events.length ? eventOf(eCell) : { label: eCell }
+      if (!ev) {
+        out.push({ c: 'STATE_AXIS', d: key, a: [key, s, eCell, 'イベント', eCell] })
+        continue
+      }
+      const cell = cellOf(s, ev.label)
+      if (note.includes('発生しない') || next.startsWith('発生しない')) {
+        cell.noop = true
+        continue
+      }
+      if (/❌|未定義/.test(note)) {
+        cell.open = true
+        if (!/TBD-[A-Z]/.test(note)) out.push({ c: 'STATE_NO_NEXT', d: key, a: [key, s, ev.label] })
+        continue
+      }
+      const named = namesIn(next, allStates)
+      if (!named.length) {
+        if (BLANK_CELL.test(next.trim())) out.push({ c: 'STATE_NO_NEXT', d: key, a: [key, s, ev.label] })
+        else out.push({ c: 'STATE_AXIS', d: key, a: [key, s, ev.label, '次の状態', next] })
+        continue
+      }
+      for (const n of named) {
+        cell.targets.add(n)
+        transitions.push({ from: s, to: n })
+      }
+      for (const other of namesIn(note, allStates)) {
+        if (other === s || named.includes(other)) continue
+        out.push({ c: 'STATE_HIDDEN', d: key, a: [key, s, ev.label, other] })
+      }
+    }
+  }
+  // 図の辺のうち、ラベルが軸のイベント（記号か名前）で始まるものを (状態, イベント) の遷移として読む。
+  // それ以外の辺はイベントでない条件による主フローであり、表とは突き合わせない。
+  const diagramByCell = new Map()
+  for (const e of diagramEdges) {
+    if (e.from === '[*]' || e.to === '[*]') continue
+    transitions.push({ from: e.from, to: e.to })
+    const ev = events.find((x) => (x.code && new RegExp(`^${x.code}(?![0-9])`).test(e.label)) || (x.name && e.label.startsWith(x.name)))
+    if (!ev) continue
+    const k = `${e.from}\u0000${ev.label}`
+    if (!diagramByCell.has(k)) diagramByCell.set(k, { s: e.from, e: ev.label, targets: new Set() })
+    diagramByCell.get(k).targets.add(e.to)
+  }
+  for (const cell of cells.values()) {
+    const g = diagramByCell.get(`${cell.s}\u0000${cell.e}`)
+    if (cell.targets.size > 1) out.push({ c: 'STATE_NONDET', d: key, a: [key, cell.s, cell.e, [...cell.targets].join(' / ')] })
+    if (g && (cell.noop || [...g.targets].some((t) => !cell.targets.has(t)) || (cell.targets.size && [...cell.targets].some((t) => !g.targets.has(t))))) {
+      const tableTo = cell.noop ? '発生しない' : cell.open ? '未定義' : [...cell.targets].join(' / ')
+      out.push({ c: 'STATE_DIAGRAM_CONFLICT', d: key, a: [key, cell.s, cell.e, tableTo, [...g.targets].join(' / ')] })
+    }
+  }
+  for (const g of diagramByCell.values()) {
+    if (cells.has(`${g.s}\u0000${g.e}`)) continue
+    if (g.targets.size > 1) out.push({ c: 'STATE_NONDET', d: key, a: [key, g.s, g.e, [...g.targets].join(' / ')] })
+  }
+  if (events.length) {
+    for (const s of axisStates) {
+      for (const e of events) {
+        if (cells.has(`${s}\u0000${e.label}`) || diagramByCell.has(`${s}\u0000${e.label}`)) continue
+        out.push({ c: 'STATE_MISSING', d: key, a: [key, s, e.label] })
+      }
+    }
+  }
+  // 到達と出口は初期状態（[*] --> X）を持つ図があるときだけ判定する。初期状態が無いと起点が決まらない。
+  const initial = diagramEdges.filter((e) => e.from === '[*]').map((e) => e.to)
+  if (initial.length) {
+    const nexts = new Map()
+    for (const t of transitions) {
+      if (!nexts.has(t.from)) nexts.set(t.from, new Set())
+      nexts.get(t.from).add(t.to)
+    }
+    const seen = new Set()
+    const queue = [...initial]
+    while (queue.length) {
+      const s = queue.shift()
+      if (seen.has(s)) continue
+      seen.add(s)
+      queue.push(...(nexts.get(s) || []))
+    }
+    for (const s of allStates) {
+      if (!seen.has(s)) out.push({ c: 'STATE_UNREACHABLE', d: key, a: [key, s] })
+      const exits = [...(nexts.get(s) || [])].filter((to) => to !== s)
+      if (!terminal.has(s) && !exits.length) out.push({ c: 'STATE_DEADEND', d: key, a: [key, s] })
+    }
+  }
+}
+
+// 判定表: 見出しに「条件: 名前」の列が 1 つ以上と「結果」の列を持つ表（document-structure.md §2.8）。
+// 各条件の値の集合は「> 条件の値: 名前 = a / b」の宣言、無ければ列に現れた値から取る。
+const DT_WILDCARD = /^(\*|—|-|–|任意)?$/
+const DT_MAX_COMBOS = 4096
+function decisionCheck(d, sec, out, notChecked) {
+  const domains = new Map()
+  for (const p of quoteParagraphs(sec)) {
+    const m = /^条件の値\s*[:：]\s*(.+?)\s*=\s*(.+)$/.exec(p)
+    if (m) domains.set(m[1].trim(), splitAxis(m[2]))
+  }
+  const seenLabels = new Map()
+  for (const t of tablesOf(sec)) {
+    const condCols = t.header.map((c, i) => ({ i, m: /^条件\s*[:：]\s*(.+)$/.exec(c) })).filter((x) => x.m)
+    const resCol = t.header.findIndex((c) => /^結果/.test(c))
+    if (!condCols.length || resCol < 0) continue
+    const n = (seenLabels.get(t.heading) || 0) + 1
+    seenLabels.set(t.heading, n)
+    const label = n > 1 ? `${t.heading}#${n}` : t.heading
+    const conds = condCols.map((x) => ({ i: x.i, name: x.m[1].trim() }))
+    const rows = t.rows.map((r, k) => ({
+      no: k + 1,
+      vals: conds.map((c) => String(r.cells[c.i] || '').trim()),
+      res: String(r.cells[resCol] || '').trim(),
+    }))
+    const isElse = (r) => r.vals[0] === '上記以外' || r.vals.every((v) => DT_WILDCARD.test(v))
+    const specific = rows.filter((r) => !isElse(r))
+    const hasElse = rows.some(isElse)
+    const doms = conds.map((c, ci) => {
+      const declared = domains.get(c.name)
+      if (declared) {
+        for (const r of specific) {
+          const v = r.vals[ci]
+          if (!DT_WILDCARD.test(v) && !declared.includes(v)) out.push({ c: 'DT_VALUE', d: d.key, a: [d.key, label, c.name, v] })
+        }
+        return declared
+      }
+      return [...new Set(specific.map((r) => r.vals[ci]).filter((v) => !DT_WILDCARD.test(v)))]
+    })
+    const matches = (r, combo) => r.vals.every((v, ci) => DT_WILDCARD.test(v) || v === combo[ci])
+    const comboText = (combo) => conds.map((c, ci) => `${c.name}=${combo[ci]}`).join(', ')
+    const total = doms.reduce((p, x) => p * Math.max(1, x.length), 1)
+    if (total > DT_MAX_COMBOS) {
+      notChecked.push({ c: 'NC_DTABLE', a: [d.key, label, total] })
+      continue
+    }
+    let combos = [[]]
+    for (const dom of doms) combos = combos.flatMap((pre) => (dom.length ? dom : ['']).map((v) => [...pre, v]))
+    for (const combo of combos) {
+      const hit = specific.filter((r) => matches(r, combo))
+      if (!hit.length && !hasElse) out.push({ c: 'DT_GAP', d: d.key, a: [d.key, label, comboText(combo)] })
+      const results = new Set(hit.map((r) => r.res))
+      if (results.size > 1) {
+        const a = hit[0]
+        const b = hit.find((r) => r.res !== a.res)
+        out.push({ c: 'DT_OVERLAP', d: d.key, a: [d.key, label, comboText(combo), a.no, b.no] })
+      }
+    }
+  }
+}
+
+// formalCompact: 文書ごとの状態機械・判定表の検査と、flow への項目の当たり方の検査。
+// flow が undefined（入力に flow キーが無い）なら flow の検査を行わない。null は「渡されるはずが
+// 無かった」ではなく「無い」の申告なので未検査として返す。
+function formalCompact(docs, flow) {
+  const out = []
+  const notChecked = []
+  for (const d of docs) {
+    if (d.fixed || !d.markdown) continue
+    const secs = sectionsOf2(d.markdown)
+    const diagrams = secs.map((sec) => stateDiagramOf(sec)).filter(Boolean)
+    const fallback = diagrams.length === 1 ? diagrams[0] : null
+    for (const sec of secs) {
+      stateCheck(d, sec, out, fallback)
+      decisionCheck(d, sec, out, notChecked)
+    }
+  }
+  if (flow === null) {
+    if (docs.some((d) => !d.fixed)) notChecked.push({ c: 'NC_FLOW', a: [] })
+  } else if (flow !== undefined) {
+    out.push(...flowGraphCompact(flow))
+    const elements = Array.isArray(flow && flow.elements) ? flow.elements.filter((el) => el && el.id) : []
+    const known = new Set(elements.map((el) => el.id))
+    const attachedBy = new Map()
+    for (const d of docs) {
+      for (const r of Array.isArray(d.flow_refs) ? d.flow_refs : []) {
+        if (!r || !r.ref) continue
+        if (!known.has(r.ref)) {
+          out.push({ c: 'FLOW_UNKNOWN_REF', d: d.key, a: [r.item_id || '?', r.ref] })
+          continue
+        }
+        if (!attachedBy.has(r.ref)) attachedBy.set(r.ref, new Set())
+        attachedBy.get(r.ref).add(d.key)
+      }
+    }
+    // 当たっていない要素は、隣の要素に項目を当てている文書へ返す（その工程の関心事を持っている
+    // 可能性が最も高い）。隣にも無ければ最初の非固定の仕様書、無ければ最初の非固定の文書へ返す。
+    const editable = docs.filter((d) => !d.fixed)
+    const fallback = (editable.find((d) => d.kind === 'specifications') || editable[0] || {}).key
+    const neighbours = new Map(elements.map((el) => [el.id, new Set()]))
+    for (const el of elements) {
+      const targets = [...(Array.isArray(el.next) ? el.next : []), ...(Array.isArray(el.branches) ? el.branches.map((b) => b && b.next) : [])]
+      for (const to of targets) {
+        if (!neighbours.has(to)) continue
+        neighbours.get(el.id).add(to)
+        neighbours.get(to).add(el.id)
+      }
+    }
+    for (const el of elements) {
+      if (attachedBy.has(el.id)) continue
+      const near = [...neighbours.get(el.id)].flatMap((n) => [...(attachedBy.get(n) || [])])
+      const owner = editable.map((d) => d.key).find((k) => near.includes(k)) || fallback
+      if (owner) out.push({ c: 'FLOW_UNATTACHED', d: owner, a: [el.id, String(el.label || '')] })
+    }
+  }
+  return { findings: out, not_checked: notChecked }
+}
+
 // ------------------------------------------------------- 構造検査（draft/refine 共通）
 //
 // 正本はこのファイルだけである。draft.js / refine.js は checker agent 経由でこの CLI を
@@ -321,7 +911,7 @@ function expandStructural(compact) {
 // 戻り値は { findings, not_checked }。not_checked は「材料が無くて実行できなかった検査」で、
 // 失格ではない。これを返さないと、片側の文書が対象外のランで「検査して 0 件」と
 // 「そもそも検査していない」が区別できず、後者が合格として提示される。
-function structuralCompact(docs) {
+function structuralCompact(docs, flow) {
   const out = []
   const notChecked = []
   const reqDocs = docs.filter((d) => d.kind === 'requirements')
@@ -607,6 +1197,12 @@ function structuralCompact(docs) {
     }
   }
 
+  // (9) 状態 × イベント表・判定表・工程の流れ（flow）の閉包。文書内の整合と閉包の欠陥であり、
+  //     依頼者に聞く論点ではない（writer が表と項目を直せば閉じる）。
+  const formal = formalCompact(docs, flow)
+  out.push(...formal.findings)
+  notChecked.push(...formal.not_checked)
+
   // 同じ種別・同じ文書が続く指摘を 1 要素にまとめる（ORPHAN / GAP は数百件が連続する）。
   const grouped = []
   for (const f of out) {
@@ -641,8 +1237,8 @@ function canonicalJson(value) {
 
 // structuralFindings: 文面付きの形で返す版（tests と、文面を直接見たい呼び出し側のため）。
 // CLI の出力は structuralCompact の短い形で、文面は受け取った側が expandStructural で組み立てる。
-function structuralFindings(docs) {
-  return expandStructural(structuralCompact(docs))
+function structuralFindings(docs, flow) {
+  return expandStructural(structuralCompact(docs, flow))
 }
 
 // headingIndex: 見出し（## / ### / ####。コードフェンスの中は除く）ごとの行範囲。範囲は次の同格以上の
@@ -737,7 +1333,7 @@ function runChecks(input) {
       ...(cur.exists && input.index_dir ? writeIndex(input.index_dir, `extra-${i + 1}`, p, cur.text) || {} : {}),
     }
   })
-  const structural = structuralCompact(docs)
+  const structural = structuralCompact(docs, 'flow' in input ? input.flow : undefined)
   for (const d of perDoc) {
     if (d.exists) continue
     structural.not_checked.push({ c: 'NC_BODY', a: [d.key, d.path] })
@@ -783,6 +1379,8 @@ export {
   structuralFindings,
   structuralCompact,
   expandStructural,
+  flowGraphCompact,
+  formalCompact,
   FINDING_TEXT,
   headingIndex,
   stableKey,
