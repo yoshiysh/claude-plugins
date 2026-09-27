@@ -1,13 +1,54 @@
 {
+ "closure": "依頼文の工程を列挙した",
  "elements": [
-  {"id": "F-001", "type": "input", "kind": "外から入るもの", "label": "ログイン要求", "next": ["F-002"], "source": {"input": "ログイン"}},
-  {"id": "F-002", "type": "step", "kind": "工程", "label": "承認", "next": ["F-003"], "source": {"decision": "D-001"}},
-  {"id": "F-003", "type": "output", "kind": "返すもの", "label": "結果", "source": [{"open": "O-001"}]}
+  {
+   "id": "F-001",
+   "kind": "外から入るもの",
+   "label": "ログイン要求",
+   "next": [
+    "F-002"
+   ],
+   "source": {
+    "input": "ログイン"
+   },
+   "type": "input"
+  },
+  {
+   "id": "F-002",
+   "kind": "工程",
+   "label": "承認",
+   "next": [
+    "F-003"
+   ],
+   "source": {
+    "decision": "D-001"
+   },
+   "type": "step"
+  },
+  {
+   "id": "F-003",
+   "kind": "返すもの",
+   "label": "結果",
+   "source": [
+    {
+     "open": "O-001"
+    }
+   ],
+   "type": "output"
+  }
  ],
  "kinds": [
-  {"name": "外から入るもの", "definition": "外部から流れに入るもの"},
-  {"name": "工程", "definition": "入力を変換する処理"},
-  {"name": "返すもの", "definition": "流れの外へ出るもの"}
- ],
- "closure": "依頼文の工程を列挙した"
+  {
+   "definition": "外部から流れに入るもの",
+   "name": "外から入るもの"
+  },
+  {
+   "definition": "入力を変換する処理",
+   "name": "工程"
+  },
+  {
+   "definition": "流れの外へ出るもの",
+   "name": "返すもの"
+  }
+ ]
 }

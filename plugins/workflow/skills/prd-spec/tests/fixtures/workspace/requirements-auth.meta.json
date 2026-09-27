@@ -1,11 +1,31 @@
 {
- "trace": [
-  {"item_id": "PR-AUTH-001", "kind": "input", "quote": "ログイン"},
-  {"item_id": "PR-AUTH-002", "kind": "flow", "ref": "F-002"},
-  {"item_id": "PR-AUTH-003", "kind": "input", "quote": "通知"}
- ],
  "tbd": [
-  {"id": "TBD-RAUTH-001", "text": "承認された操作の実行主体。解消: 依頼者の回答", "blocking": true},
-  {"id": "TBD-RAUTH-002", "text": "記録の保存先。解消: 依頼者の回答", "blocking": true}
+  {
+   "blocking": true,
+   "id": "TBD-RAUTH-001",
+   "text": "承認された操作の実行主体。解消: 依頼者の回答"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-RAUTH-002",
+   "text": "記録の保存先。解消: 依頼者の回答"
+  }
+ ],
+ "trace": [
+  {
+   "item_id": "PR-AUTH-001",
+   "kind": "input",
+   "quote": "ログイン"
+  },
+  {
+   "item_id": "PR-AUTH-002",
+   "kind": "flow",
+   "ref": "F-002"
+  },
+  {
+   "item_id": "PR-AUTH-003",
+   "kind": "input",
+   "quote": "通知"
+  }
  ]
 }

@@ -35,6 +35,16 @@ def _ok(ws, *args):
     return json.loads(r.stdout)
 
 
+def _put(ws, ledger, body, *args):
+    r = subprocess.run(
+        ["node", str(DOC_CHECK), "put", "--ledger", ledger, *args, "--workspace", str(ws)],
+        input=json.dumps(body, ensure_ascii=False), capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise AssertionError(r.stderr)
+    return json.loads(r.stdout)
+
+
 def _edit(ws, name, old, new):
     p = Path(ws) / name
     text = p.read_text()
@@ -106,9 +116,7 @@ class SnapshotAndDiff(_Workspace):
 
     def test_trace_だけの変更と項目の追加と削除も出る(self):
         d1 = self._save("audited-1")
-        meta = json.loads((self.ws / "requirements-auth.meta.json").read_text())
-        meta["trace"][0]["quote"] = "ログインする"
-        (self.ws / "requirements-auth.meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+        _put(self.ws, "meta", {"trace": [{"item_id": "PR-AUTH-001", "kind": "input", "quote": "ログインする"}]}, "--doc", "requirements/auth")
         _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "#### PR-AUTH-004 監査\n\nシステムは監査ログを記録しなければならない。\n\n#### PR-AUTH-003 通知")
         _edit(self.ws, "specifications-auth.md", "#### SP-AUTH-002 承認処理\n\nPR-AUTH-002 と PR-AUTH-009 を実現する。\n", "")
         _, body = self._diff("audited-1", d1)
@@ -235,11 +243,11 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
 
     def test_出典の欠落と実在しない出典と形の崩れを拾う(self):
-        flow = json.loads((self.ws / "flow.json").read_text())
-        del flow["elements"][0]["source"]
-        flow["elements"][1]["source"] = {"decision": "D-099"}
-        flow["elements"][2]["source"] = [{"open": "O-001", "input": "結果"}]
-        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False))
+        els = json.loads((self.ws / "flow.json").read_text())["elements"]
+        del els[0]["source"]
+        els[1]["source"] = {"decision": "D-099"}
+        els[2]["source"] = [{"open": "O-001", "input": "結果"}]
+        _put(self.ws, "flow", {"elements": els})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 3)
         self.assertEqual(
             _findings(self.ws, "flow.json"),
@@ -247,16 +255,14 @@ class FlowAndConflicts(_Workspace):
         )
 
     def test_resolutions_の_ID_も出典として数える(self):
-        flow = json.loads((self.ws / "flow.json").read_text())
-        flow["elements"][1]["source"] = {"decision": "R-001"}
-        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False))
-        (self.ws / "resolutions.json").write_text(json.dumps({"resolutions": [{"id": "R-001"}]}))
+        el = json.loads((self.ws / "flow.json").read_text())["elements"][1]
+        _put(self.ws, "flow", {"elements": [{**el, "source": {"decision": "R-001"}}]})
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "R-001"}]})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
 
     def test_閉包の崩れも拾う(self):
-        flow = json.loads((self.ws / "flow.json").read_text())
-        flow["elements"][1]["next"] = ["F-404"]
-        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False))
+        el = json.loads((self.ws / "flow.json").read_text())["elements"][1]
+        _put(self.ws, "flow", {"elements": [{**el, "next": ["F-404"]}]})
         _ok(self.ws, "flow")
         self.assertIn("ST-FLOW-DANGLING-F-002-F-404", _findings(self.ws, "flow.json"))
 

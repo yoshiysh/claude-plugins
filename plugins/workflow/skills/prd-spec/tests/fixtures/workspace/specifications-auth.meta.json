@@ -1,7 +1,15 @@
 {
+ "tbd": [],
  "trace": [
-  {"item_id": "SP-AUTH-001", "kind": "flow", "ref": "F-001"},
-  {"item_id": "SP-AUTH-002", "kind": "flow", "ref": "F-003"}
- ],
- "tbd": []
+  {
+   "item_id": "SP-AUTH-001",
+   "kind": "flow",
+   "ref": "F-001"
+  },
+  {
+   "item_id": "SP-AUTH-002",
+   "kind": "flow",
+   "ref": "F-003"
+  }
+ ]
 }
