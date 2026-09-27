@@ -127,15 +127,16 @@ PR-CLEANUP-059 への指摘は無い（3 ファイルとも `059` を検索し�
 > direction: **tighten**）
 > quote: 「システムは、基準ブランチ以外で取り込み済みと確かめられないブランチのうち、remote で削除済みの
 > ローカルブランチと remote のブランチを、要判断に分類しなければならない。」
-> issue: 「trace の引用 input L136『`remote.needs_decision`（未取り込みで remote に残存）: CLOSED PR や
+> issue（抜粋）: 「trace の引用 input L136『`remote.needs_decision`（未取り込みで remote に残存）: CLOSED PR や
 > PR の無いブランチ。』は remote 側の要判断を CLOSED PR か PR の無いブランチに限っているが、本文は取り込み済みと
 > 確かめられない remote ブランチ全部を要判断にしており、基準ブランチを base とする open の PR の head である
 > remote ブランチまで問いかけと承認済み削除の対象に入る。」
 > direction_note: 「要判断に含める remote ブランチを、trace の引用が述べる範囲に限る（§用語 の要判断の定義も
 > 同じ範囲に揃える）」
 
-r2 のこの指摘（direction: tighten、根拠は入力 L136）を受けて 2 パス目の writer が本文を
-「PR が CLOSED であるか PR が無いと確かめられた」まで狭めた。その狭めた文面に対して、r3-gr
+r2 の指摘の後、2 パス目の writer が本文を「PR が CLOSED であるか PR が無いと確かめられた」まで狭めた
+（r2 と r3 の quote の差分より。writer が r2-gr-001 に直接応じたことを示す記録は W には無い）。その
+狭めた文面に対して、r3-gr
 （`evidence/r3-gr-requirements__cleanup-branches.json`）が今度は入力 L57 を根拠に direction: **relax**
 （同じ限定を外す）を指摘した。
 
@@ -145,10 +146,11 @@ r2 のこの指摘（direction: tighten、根拠は入力 L136）を受けて 2 
 > …分類は安全側（要判断）に寄る』と定めた場合を要判断から外しており、入力に違反している。」
 
 つまり、同じ grounding という役が監査のパスごとに異なる入力行（r2 は input L136、r3 は input L57）を
-根拠に、互いに逆向きの指示（r2: 絞れ / r3: 広げろ）を出し、writer はそのつど従っている。これが r3 の
-blocking として最後まで残った。r3-gr の `checked` 欄はこの範囲（`diff-audited-2` の changed 8 件・
-added 1 件）を原文で読んだことを記しており、PR-CLEANUP-059 と §用語がその changed に含まれることは
-確認できるが、そこから言えるのは「2 パス目の改稿でこの 2 項目の文面が変わった」ことまでである。
+根拠に、互いに逆向きの指示（r2: 絞れ / r3: 広げろ）を出している。writer は r2 の指摘の後に改稿し、
+r3 の指摘は段 8 の上限（2 パス）により反映されないまま残った（run4 は r3 の後 `resolver:final` だけが
+走っている）。r3-gr の `checked` 欄は、段 8 の範囲監査として `diff-audited-2` の changed 8 件・added 1 件を
+原文で読んだことを記しており、PR-CLEANUP-059 と §用語がその changed に含まれることは確認できるが、そこから
+言えるのは「2 パス目の改稿でこの 2 項目の文面が変わった」ことまでである。
 
 r3-gr は同じ `checked` 欄で、「merged の PR の head と名前で一致しマージ後の commit を持つ remote ブランチ
 （PR-CLEANUP-063 で取り込み済みから外れ、MERGED なので 059 の要判断にも当たらない）」の行き先が無いことを
@@ -158,16 +160,16 @@ r3-gr は同じ `checked` 欄で、「merged の PR の head と名前で一致�
 
 ### 4.1 next_args の手動転記
 
-観測: next_args は G0 後 17,757 文字（約 17.8KB）・G0-2 後 16,727 文字（約 16.7KB）・G1 後 21,780 文字
-（約 21.8KB）で、いずれも `state.flow`（流れ図の全要素）を含む。司令塔はこの JSON を 3 回、手で
+観測: next_args は G0 後 17,757 文字（約 17.8K 文字）・G0-2 後 16,727 文字（約 16.7K 文字）・G1 後 21,780
+文字（約 21.8K 文字）で、いずれも `state.flow`（流れ図の全要素）を含む。司令塔はこの JSON を 3 回、手で
 Workflow の args に逐語転記した。
 
-制約: `workflow-io.md` は「`scripts/prd.js` は…段の順序・起動の条件・上限・返り値の検査だけを持つ
-Workflow script である。ファイルを読めないので、分岐に使う値（件数・ID・digest・flow 本体）はすべて
-agent の返り値から受け取り、`next_args.state` に載せて返す」としている（§1）。つまり state をファイル
-経由にしない今の形は、`prd.js` 自身がファイルを読めないという制約に沿った意図どおりの設計であり、
-`grep -n "state_path\|readFile" scripts/prd.js` の該当 0 件（`orchestrator-log.md` に記載）はその
-結果である。
+制約: `workflow-io.md` は冒頭（「## 1. args」より前）で「`scripts/prd.js` は段の順序・起動の条件・上限・
+返り値の検査だけを持つ Workflow script である。ファイルを読めないので、分岐に使う値（件数・ID・digest・
+flow 本体）はすべて agent の返り値から受け取り、`next_args.state` に載せて返す」としている。つまり
+state をファイル経由にしない今の形は、`prd.js` 自身がファイルを読めないという制約に沿った意図どおりの
+設計であり、`grep -n "state_path\|readFile" scripts/prd.js` の該当 0 件（`evidence/orchestrator-log.md`
+に記載）はその結果である。
 
 影響: `workflow-io.md` §1 は依頼文を args に入れない理由を「司令塔が手で組む args が数十万字になり、
 写し間違いがそのまま入力になる」としている。next_args の手動転記は規模は一桁小さいが同じ形の危険
@@ -192,7 +194,8 @@ agent 側に持たせ、`prd.js` の返り値（ひいては次呼び出しの `
 一方で input_all 33,647,837 のうち cache_read が 31,129,356（約 92.5%）を占め、output は 46,287 と
 input_all に比べて極小（46,287 / 33,647,837 ≈ 0.14%）。
 
-影響: agent 1 体あたりの初回ターンの入力（Read の前の基底文脈）が約 63K でほぼ一定、以降のターンの
+影響: agent 1 体あたりの初回ターンの入力トークン数（Read の前の基底文脈）は 62.6K〜67.6K（平均約 64.2K、
+中央値約 63.8K。`evidence/usage.json` の `per_agent` 24 件から算出）とほぼ一定で、以降のターンの
 入力のほとんどが cache_read という構造になっている。トークン量（コストではない。モデル単価は入れていない）
 は、この基底文脈がほぼ一定という条件のもとでは、エージェントのターン数と相関する。24 agent の
 per_agent データで turns と（input + cache_read + cache_creation）の相関係数を計算すると r ≈ 0.986
@@ -206,9 +209,9 @@ per_agent データで turns と（input + cache_read + cache_creation）の相�
 足したところ、r3-gr が今度は入力 L57 を根拠に同じ限定を外すよう指摘した（direction: relax）、という
 連鎖の結果である。r1 の findings にはこの項目への指摘が無い。段 8 の上限 2 パスで blocked に落ちたこと
 自体は設計どおりの動作であり、それ自体を欠陥とは書かない。改善候補として書けるのは、grounding の
-`direction_note` が指摘のたびに入力内の 1 か所（L136 または L57）だけを根拠にしており、同じ規範（要判断
-の remote ブランチの範囲）に関わる入力内の競合する複数行（L136 と L57）を突き合わせていない、という点で
-ある。
+issue／direction_note が指摘のたびに入力内の 1 か所（r2 は issue 欄で L136、r3 は issue 欄で L57）だけを
+根拠にしており、同じ規範（要判断の remote ブランチの範囲）に関わる入力内の複数行（L136 と L57。両者は
+場合分けとして両立しうる）を、findings の記述で見た範囲では突き合わせていない、という点である。
 
 ### 4.4 skill_telemetry.py が prd-spec の現行の返り値を読めない（#109 が持ち込んだ回帰）
 
@@ -250,16 +253,14 @@ per_agent データで turns と（input + cache_read + cache_creation）の相�
 
 ### 4.6 W/tmp に版の控えが 18 本残った
 
-観測: `orchestrator-log.md`（追記分）によれば、`W/tmp/` に agent が作ったファイルが 18 本残っている
+観測: `evidence/orchestrator-log.md`（追記分）によれば、`W/tmp/` に agent が作ったファイルが 18 本残っている
 （ls で確認）。内訳は生成用の Python script 5 本（`gen.py`・`apply3a.py`・`gen_meta_u1.py`・`gen6.py`・
 `rev7.py`）と、版の控え 13 本（`flow.bak`/`pre3a2`/`pre3a3`/`flow_min.json`、
 `questions.bak`/`pre6` の json・md、`resolutions.bak`/`pre3a2`/`pre3a3`/`pre6`/`pre9.json`）。
 どの役が作ったかは transcript で確認していない。
 
-この観測は #109 の PR 本文が問題に挙げているという指摘（版ごとのコピーを作っていたことを問題視し、
-「版コピーは作らない」としている）と合わせて見るべきものだが、PR 本文そのものはこの試走の evidence
-には含まれておらず独立に確認していない。書くならスコープを絞って「#109 の PR 本文によれば」とする
-必要がある観測であり、ここではその出所の限定を明記したうえで記録するにとどめる。
+#109 の PR 本文は「同じファイルを Edit で直す。版コピーは作らない。」としている
+（`evidence/orchestrator-log.md` 末尾の逐語引用より）。
 
 ## 5. 残したもの
 
