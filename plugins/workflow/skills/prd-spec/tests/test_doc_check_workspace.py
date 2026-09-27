@@ -7,11 +7,12 @@ W/checks/<label>.snapshot.json に書く項目ごとの hash と比べて出す�
 2. --expect の digest が違えば（snapshot の items を書き換えた場合も）失敗し、古い diff の結果も残さない
 3. audited- のラベルは --role auditor が無ければ保存しない。snapshot の digest と tree-digest は同じ木で一致する
 4. doc は曖昧語・開いた TBD の断定・参照先の実在を拾い、複合語や保持規則は拾わない
-5. flow は出典の欠落と実在しない出典を拾い、conflicts は同じ target の組を列挙する
+5. flow は出典の欠落と実在しない出典を拾い、flow.json の内容の sha256 を出す。conflicts は同じ target の組を列挙する
 6. stdout には件数・digest・パスだけを出す
 7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる
 """
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -243,6 +244,17 @@ class DocChecks(_Workspace):
 class FlowAndConflicts(_Workspace):
     def test_出典の揃った流れは指摘なし(self):
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
+
+    def test_指摘0件で中身の違うflowはcontent_sha256で区別できる(self):
+        before = _ok(self.ws, "flow")
+        el = json.loads((self.ws / "flow.json").read_text())["elements"][1]
+        _put(self.ws, "flow", {"elements": [{"id": el["id"], "label": el["label"] + "（別の名前）"}]})
+        after = _ok(self.ws, "flow")
+        self.assertEqual((before["findings"], after["findings"]), (0, 0))
+        self.assertEqual(before["digest"], after["digest"])
+        self.assertNotEqual(before["content_sha256"], after["content_sha256"])
+        self.assertEqual(after["content_sha256"], hashlib.sha256((self.ws / "flow.json").read_bytes()).hexdigest())
+        self.assertEqual(after["open"], len(json.loads((self.ws / "open.json").read_text())["open"]))
 
     def test_出典の欠落と実在しない出典と形の崩れを拾う(self):
         els = json.loads((self.ws / "flow.json").read_text())["elements"]

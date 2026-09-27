@@ -6,7 +6,7 @@
 3. 依頼文・回答・証拠のファイルに逐語で無い引用を含む put は、何も書かずに止まる
 4. meta の trace は item_id 単位で置き換わり、他の項目の trace は変わらない
 5. verifications の sha256 は put の時点のファイルから取り、検証を始めた版と違えば書かない
-6. questions は resolutions.json から問いを導出し、同じ台帳からは同じバイト列になる
+6. questions は resolutions.json から問いを導出し、同じ台帳からは同じバイト列になる。--check は検査だけで何も書かない
 """
 
 import hashlib
@@ -434,6 +434,18 @@ class Questions(_Workspace):
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-001").returncode, 1)
         self.assertEqual(self._derived(), before)
         self.assertEqual([p.name for p in self.ws.iterdir() if p.name.endswith(".tmp")], [])
+
+    def test_checkは形だけを検査して何も書かない(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        ok = _ok(self.ws, "questions", "--ids", "RS-001", "--check")
+        self.assertEqual((ok["check"], ok["ids"], ok["questions"], ok["findings"]), (True, ["RS-001"], 1, 0))
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "options": RESOLUTION_Q["options"][:1]}]})
+        r = _run(self.ws, "questions", "--ids", "RS-001", "--check")
+        bad = json.loads(r.stdout)
+        self.assertEqual((r.returncode, bad["questions"], bad["findings"], bad["bad_ids"]), (0, 0, 1, ["RS-001"]))
+        self.assertIn("候補が 1 個", r.stderr)
+        self.assertFalse((self.ws / "questions.json").exists())
+        self.assertFalse((self.ws / "questions.md").exists())
 
     def test_問いの無い_ID_は止まる(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "ruling": "internal"}]})

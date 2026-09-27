@@ -49,7 +49,7 @@ writer はそれを根拠に規範を書き、捏造になる。`{input}` の引
 `flow.json` と `open.json` は `doc_check put` で書き、直すときも put で要素を置き換える（要らなくなった要素は
 `del` で消す。形と理由は契約の「## 共通の約束」）。要素の `type` を変えるときは、新しい型が持てない欄（decision を
 やめるなら `branches`、decision にするなら `next`）に `null` を送って消す（残すと put が拒否する）。書き終えたら doc_check の `flow` を実行し、指摘が 0 件になるまで
-直す。形・到達・出典の欠陥が残った
-flow は script の閉包検査で止まり、初稿が始まらない（書き手には flow を直す手段が無い）。3 回直しても残るなら、
-残ったまま返す（件数は返り値に入る）。最後に `conflicts` を実行する。組の中身は判定しない（それは resolver の
+直す。最後に実行した `flow` の stdout を加工せずに返す。指摘が残った stdout は script が止め、初稿が始まらない
+（書き手には flow を直す手段が無い）。3 回直しても残るなら、残ったまま返す。最後に `conflicts` を実行し、その stdout も
+加工せずに返す（flow の本体は返さない。script は stdout の `content_sha256` を verifier の stdout と照合する）。組の中身は判定しない（それは resolver の
 仕事で、ここで判定すると組を選ぶ人と裁く人が同じになる）。

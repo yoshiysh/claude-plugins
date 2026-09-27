@@ -57,6 +57,8 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   ここで作る。司令塔が縮めると、その要約は誰にも検証されないまま依頼者の判断材料になる。
 - 候補の数は `doc_check questions` が検査する（選択式の表示の制約による）。自由記述の欄は表示側が自動で付けるので、
   候補に「その他」を入れない。
+- 問いを出したら、返る前に `doc_check questions --ids <問いにした ID> --check` を実行し、stdout を加工せずに返す。
+  形の崩れた問いは、ゲートで司令塔が導出するときに初めて落ちると、戻る段が無く run の外で止まる。
 
 ## 段ごとの仕事（プロンプトが段を指定する）
 
@@ -71,7 +73,8 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   回答の逐語を `answer` に入れて put し、`flow_effect` の分だけ flow の要素を put（消すなら del）する。候補の外の自由記述は、どの問いへの答えかを
   対応づけ、その ID を返り値の `free_text` に入れる（解釈を含むので verifier が検証する）。反映で価値に関わる
   新しい矛盾が出たら、プロンプトが続きの問いを許すときだけ `question` にし、許さないときは `hold` にする。
-  flow.json を変えたら、更新後の flow 本体を返す（script が閉包検査をやり直す）。
+  最後に doc_check の `flow` を実行し（flow.json を変えなくても）、stdout を加工せずに返す（flow の本体は返さない。
+  script がその `content_sha256` を verifier の実行した stdout と照合し、指摘が残れば差し戻す）。
 - **段 6（決定が要る指摘）**: route が `decision` の指摘と、writer の meta の新しい TBD を 6 種で裁定する。続けて、
   この段で裁定した resolution を、当てる単位と項目ごとに `routes.json` にまとめる（writer はそのうち verifier が
   合格させた resolution だけを当てる）。route が `writer` の指摘は扱わない。それは script が項目ごとに束ねて

@@ -8,9 +8,9 @@
    項目の当たっていない要素）を検出する
 2. 状態 × イベント表の網羅・一意・到達・表と図の一致を検出し、「発生しない」を定義済みと数える
 3. 判定表の組み合わせの欠け・重なりを検出する
-4. 短い形で出力され、flow の検査区間が doc_check.mjs と prd.js で逐語一致する
-5. prd.js が flow-framer と回答を当てた resolver の返り値の flow に閉包検査を当て、閉じない flow では
-   初稿を始めない（経路は tests/test_prd_stages.py が走らせて確かめる）
+4. 短い形で出力される
+5. 閉包検査は doc_check.mjs の 1 か所だけにあり、prd.js は写しを持たず state に flow の本体を載せない
+   （doc_check の stdout で閉じない flow では初稿を始めない経路は tests/test_prd_stages.py が走らせて確かめる）
 """
 
 import json
@@ -268,14 +268,9 @@ class CompactAndParity(unittest.TestCase):
         self.assertTrue({"STATE_MISSING", "STATE_NONDET", "FLOW_UNATTACHED"} <= codes)
         self.assertNotIn("issue", r.stdout)
 
-    def test_flow_の検査区間が_doc_check_と_prd_で逐語一致(self):
-        # prd.js は import を書けないので、閉包検査を写しで持つ。写しがずれると、doc_check が通した flow を
-        # script が止める（またはその逆）。
-        self.assertEqual(_marked_block(PRD, "FLOW_GRAPH"), _marked_block(DOC_CHECK.read_text(), "FLOW_GRAPH"))
-
-    def test_prd_は返り値の_flow_に閉包検査を当てる(self):
-        self.assertIn("flowDefects(r.flow)", PRD)
-        self.assertIn("return blocked(`流れが閉じていません。初稿を始めません", PRD)
+    def test_prd_は閉包検査の写しも_flow_の本体も持たない(self):
+        self.assertNotIn("FLOW_GRAPH_BEGIN", PRD)
+        self.assertNotIn("state.flow =", PRD)
 
     def test_新しい種別は文面の表にある(self):
         cli = DOC_CHECK.read_text()

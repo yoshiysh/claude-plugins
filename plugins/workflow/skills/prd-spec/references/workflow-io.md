@@ -3,8 +3,8 @@
 **目次**: [1. args](#1-args) · [2. model と effort の既定](#2-model-と-effort-の既定) · [3. 返り値と再実行](#3-返り値と再実行) · [4. 段と起動の条件](#4-段と起動の条件) · [5. 本流から外れた状態](#5-本流から外れた状態) · [6. doc_check の CLI](#6-doc_check-の-cli)
 
 `scripts/prd.js` は段の順序・起動の条件・上限・返り値の検査だけを持つ Workflow script である。ファイルを読めない
-ので、分岐に使う値（件数・ID・digest・flow 本体）はすべて agent の返り値から受け取り、`next_args.state` に載せて
-返す。各 agent が読み書きするファイルの形は `schemas/agent-contracts.md` を正とする。
+ので、分岐に使う値（件数・ID・digest）はすべて agent の返り値から受け取り、`next_args.state` に載せて
+返す。本体（flow・台帳・文書）は W にだけ置き、state には flow.json の内容の sha256（`flow_digest`）のような digest を載せる。各 agent が読み書きするファイルの形は `schemas/agent-contracts.md` を正とする。
 
 ## 1. args
 
@@ -18,8 +18,12 @@
 | `state` | `from` が `1` 以外のとき、前の run の `next_args.state` をそのまま渡す |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
 
-依頼文は args に入れない（`W/input.md` にある）。args に全文を入れると、司令塔が手で組む args が数十万字に
-なり、写し間違いがそのまま入力になる。
+**司令塔が args に打ち直すのは ID・件数・digest に限る。** 本文や本体の JSON は W に置き、args にはそのパスか
+digest を載せる。司令塔は args と `next_args` を打ち直して渡すので、本体を載せると、打ち直す量と写し間違いの機会が
+その大きさに比例して増え、写し間違いがそのまま次の段の入力になる（実測: 2026-09-27 の試走で、next_args の 61〜85% が
+prd.js のどこからも読まれない `state.flow` だった）。依頼文を args に入れず `W/input.md` に置くのも、この規則の 1 つの例である。
+script が本体の中身を確かめる必要があるときは、本体を運ばずに、生成者と別の agent がそれぞれ実行した doc_check の
+stdout の digest を突き合わせる（flow は `doc_check flow` の `content_sha256`）。
 
 ## 2. model と effort の既定
 
@@ -66,7 +70,7 @@
   `next_args` が付く。セッション上限なら解除してから渡す。監査の基準の digest が合わない・上限の 2 パスを
   使い切った、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
-  書き終えた版が違った、のような食い違いである。run は止めないが、事後報告に添える。
+  書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、のような食い違いである。事後報告に添える。flow の食い違いだけは run を blocked にし（違う flow を見た検証を台帳に入れないため）、それ以外は run を止めない。
 - `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルや
   分量の目安を超えたファイルを数えた、など。行には件数と一覧のファイルのパスだけを載せる）。run は止めず、事後報告に添える。`integrity` に混ぜないのは、その件数を改善候補の
   選別（`scripts/goal_selector.py` の R4）が照合の食い違いとして数えるからである。
@@ -78,11 +82,11 @@
 | 段 | 起動する agent | 起動の条件・上限 | 次 |
 |---|---|---|---|
 | 1 | intake | 常に | writer の単位が循環・未知の依存を持つ、固定の文書が単位に入る、既存文書がどの単位にも無い → blocked |
-| 2 | flow-framer | 常に。返り値の flow に script が閉包検査を当て、欠陥があれば 1 回だけ差し戻す | 閉じなければ blocked（初稿を始めない） |
-| 3 | resolver | open と組がどちらも 0 件なら起動しない | — |
-| 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため） | 不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` は問い、それ以外は保持規則に変えて、もう検証しない |
+| 2 | flow-framer | 常に。返った `doc_check flow` の stdout の指摘が 0 件でなければ 1 回だけ差し戻す | 閉じなければ blocked（初稿を始めない）。0 件なら `content_sha256` を `state.flow_digest` にする |
+| 3 | resolver | open と組がどちらも 0 件なら起動しない。問いを出したのに `questions --check` の stdout が無いか不合格なら 1 回だけ差し戻す（3a・3a'・6 も同じ） | 直らなければ blocked |
+| 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、指摘が 1 件以上でも blocked（3av・6v も同じ）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` は問い、それ以外は保持規則に変えて、もう検証しない |
 | G0 | — | 問いが 1 件以上 | `needs_answers`（`from: 3a`） |
-| 3a | resolver（自由記述があれば verifier） | G0 の後 | 続きの問いは 1 回だけ（`answers/g0-2.md`）。それを超える問いは保持規則 |
+| 3a | resolver → verifier（候補の選択だけの回答でも起動する。回答を当てた resolver が返す `doc_check flow` の stdout を照合するため） | G0 の後。resolver の stdout の指摘が 0 件でなければ 1 回だけ差し戻す | 続きの問いは 1 回だけ（`answers/g0-2.md`）。それを超える問いは保持規則 |
 | 4 | writer | 単位の依存の向きに波を作り、同じ波は並列 | 応答しない単位があれば blocked（一度も書かれていない文書を監査しない） |
 | 5 | implementer・grounding（文書ごと）、cross-doc（全文書で 1 体。指名） | 常に。`entry: existing` は 3 の後ここへ | cross-doc が `audited-1` を返さなければ blocked |
 | 6 | resolver → verifier | decision の指摘も新しい TBD も 0 件なら起動しない。writer の指摘はここを通らず段 7 へ | 1 パス目の問いは G1、2 パス目の問いは保持規則 |
@@ -115,7 +119,7 @@
 
 | モード | 実行する役 | 何をするか |
 |---|---|---|
-| `flow` / `conflicts` | flow-framer | 流れの形・閉包・出典の検査 / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
+| `flow` / `conflicts` | flow-framer（`flow` は回答を当てる resolver と resolver-verifier も） | 流れの形・閉包・出典の検査（stdout に指摘の件数・`open.json` の件数・flow.json の内容の `content_sha256`） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定 |
 | `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
@@ -124,7 +128,7 @@
 | `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。型の外の欄・`FIELD_LIMITS` を超える欄・経緯の印・欄の条件に合わない要素・逐語でない引用が 1 件でもあれば何も書かない |
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
-| `questions --ids <RS-…>` | 司令塔（`needs_answers` で問いを出す前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する |
+| `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
 | `report` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、

@@ -8,8 +8,9 @@
 ## 共通の約束
 
 - **入力はパスで受け取り、返り値は小さく保つ。** 返り値に載せるのは、script が次の段の分岐に使う件数・ID・
-  digest と、flow-framer と resolver が返す flow 本体だけである。文書の本文や JSON の全量を返すと、script を
-  経由して次の agent のプロンプトに載り、同じ内容に 2 度費用を払う。中身は W のファイルに書く。
+  digest と、doc_check の stdout をそのままだけである。文書の本文や JSON の全量（flow の本体も）を返すと、script を
+  経由して next_args と次の agent のプロンプトに載り、司令塔がそれを打ち直す（why は `references/workflow-io.md` §1）。
+  中身は W のファイルに書く。
 - **書いてよいのは、下の表で自分が書き手になっているファイルだけ。** 他のファイルは別の役が所有しており、
   そこを書き換えると、その役の検証の前提（sha256・digest の照合）が崩れる。作業用の script や一時ファイルは、
   プロンプトの「作業用ディレクトリ」（`W/tmp/<label>/`）にだけ置く（表の `tmp/<label>/` の行）。
@@ -76,9 +77,9 @@
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
-| `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ。put / del で書く | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
+| `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
-| `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
+| `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（`expand` の固定の文書の meta は、司令塔が S0 で put する） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
@@ -253,10 +254,10 @@
   `output` だけが行き先を持たなくてよい。どの要素にも `input` から辿り着ける。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
 
-返り値（flow 本体は script が閉包検査に使う）:
+返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow": { "elements": [], "kinds": [], "closure": "" }, "open": 5, "pairs": 2, "flow_findings": 0, "flow_digest": "…", "conflicts_digest": "…" }
+{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\"}", "conflicts_check": "{\"pairs\":2,…}" }
 ```
 
 ## §resolver
@@ -295,7 +296,8 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
   "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "sha256": "書き終えた resolutions.json の sha256",
-  "flow": "回答を flow に当てたときだけ、更新後の flow 本体"
+  "flow_check": "回答を当てる段（3a・3a'）では必ず、他の段では flow.json を変えたときだけ、最後に実行した doc_check flow の stdout",
+  "questions_check": "問いを出したときだけ、返る前に実行した doc_check questions --ids <問いの ID> --check の stdout"
 }
 ```
 
@@ -304,6 +306,8 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   閉じた ID の集合（開いている TBD の算出に使う）を next_args に載せ、渡した対象のうち `about` に現れないものを
   裁定漏れとして数える。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID（verifier の検証対象になる）。
+- `flow_check` の指摘が 0 件でないとき、`questions_check` が無いか問いの ID を検査していないか不合格のとき、script は
+  1 回だけ差し戻し、直らなければ blocked にする。
 
 ## §resolver-verifier
 
@@ -312,8 +316,12 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 put の stdout の値をそのまま入れる:
 
 ```json
-{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "decisions_sha256": "…" }
+{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "decisions_sha256": "…", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
 ```
+
+`flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
+違う（生成者が検査した後に flow.json が変わった）か、指摘が 1 件でもあれば、script はその段を blocked にする。
+script はファイルを読めないので、生成者が 0 件と申告した flow を確かめる手段は、別の agent の実行した検査しかない。
 
 ## §writer
 

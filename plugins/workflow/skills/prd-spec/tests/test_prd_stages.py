@@ -34,34 +34,52 @@ const logs = []
 let sha = 'rs-0'
 let shaN = 0
 const nulls = new Set(spec.null_labels || [])
-const FLOW = {
-  elements: [
-    { id: 'F-001', type: 'input', kind: 'k', label: 'in', next: ['F-002'], source: { input: 'x' } },
-    { id: 'F-002', type: 'output', kind: 'k', label: 'out', source: { input: 'y' } },
-  ],
-  kinds: [{ name: 'k', definition: 'd' }],
-  closure: 'c',
-}
-const BROKEN_FLOW = { elements: [{ id: 'F-001', type: 'step', kind: 'k', label: 'x', source: { input: 'x' } }], kinds: [{ name: 'k', definition: 'd' }], closure: 'c' }
+// long_digests: sha256・digest を実物と同じ 64 字にする（next_args の上限テストで字数を実測に合わせるため）。
+const H = (x) => (spec.long_digests ? String(x).padEnd(64, '0') : x)
+// flowSha: stub の世界での flow.json の内容の sha256。next_args をまたぐ run では state.flow_digest から引き継ぐ。
+let flowSha = (spec.args.state && spec.args.state.flow_digest) || null
+const at = (key, stage) => (spec[key] || {})[stage]
+const flowStdout = (findings, sha) => JSON.stringify({ findings, open: spec.flow_open || 0, path: 'checks/flow.json', digest: 'fd', content_sha256: sha })
 const ids = (text, re) => [...new Set(String(text).match(re) || [])]
 const about = (id) => ({ open: `O-${id}` })
 function respond(prompt, label) {
   const base = label.replace(/#retry$/, '')
   const [role, stage, target] = base.split(':')
-  if (role === 'intake') return { decisions: 3, open: 0, decisions_sha256: 'd', units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
-  if (role === 'flow-framer') return { flow: spec.broken_flow ? BROKEN_FLOW : FLOW, open: spec.flow_open || 0, pairs: 0, flow_findings: 0, flow_digest: 'f', conflicts_digest: 'c' }
+  if (role === 'intake') return { decisions: 3, open: 0, decisions_sha256: H('d'), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+  if (role === 'flow-framer') {
+    flowSha = H(`f-${stage || 'framer'}`)
+    return { flow_check: flowStdout(spec.broken_flow ? 1 : 0, flowSha), conflicts_check: JSON.stringify({ pairs: 0, path: 'checks/conflicts.json', digest: 'c' }) }
+  }
   if (role === 'resolver') {
-    sha = `rs-${++shaN}`
-    const q = ((spec.questions_at || {})[stage] || []).map((id) => ({ id, about: about(id) }))
-    const ruled = ((spec.ruled_at || {})[stage] || []).map((id) => ({ id, about: about(id) }))
-    const holds = ((spec.holds_at || {})[stage] || []).map((id) => ({ id, about: about(id) }))
-    return { ruled, questions: q, holds, supersedes: [], free_text: (spec.free_text_at || {})[stage] || [], routes: (spec.routes_at || {})[stage] || [], sha256: sha }
+    sha = H(`rs-${++shaN}`)
+    const q = (at('questions_at', stage) || []).map((id) => ({ id, about: about(id) }))
+    const ruled = (at('ruled_at', stage) || []).map((id) => ({ id, about: about(id) }))
+    const holds = (at('holds_at', stage) || []).map((id) => ({ id, about: about(id) }))
+    const out = { ruled, questions: q, holds, supersedes: [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], sha256: sha }
+    const checked = at('questions_check_ids_at', stage) || (stage.endsWith('-questions') ? ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g) : q.map((x) => x.id))
+    if (checked.length) {
+      const bad = (spec.bad_questions_at || []).includes(stage) ? 1 : 0
+      out.questions_check = JSON.stringify({ check: true, ids: checked, questions: checked.length - bad, findings: bad, bad_ids: bad ? [checked[0]] : [] })
+    }
+    const returnsFlow = ["3a", "3a'"].includes(stage) || stage.endsWith('-flow') || at('flow_sha_at', stage) !== undefined
+    if (returnsFlow && !(spec.no_flow_check_at || []).includes(stage)) {
+      if (at('flow_sha_at', stage) !== undefined) flowSha = H(at('flow_sha_at', stage))
+      out.flow_check = flowStdout(at('flow_findings_at', stage) || 0, flowSha)
+    }
+    return out
   }
   if (role === 'verifier') {
     const asked = ids(prompt.split('検証する resolution の ID:')[1].split('\n')[0], /RS-\d+/g)
-    const fail = (spec.verifier_fail || {})[stage] || []
+    const fail = at('verifier_fail', stage) || []
     const failIds = fail.map((f) => f.id)
-    return { pass: asked.filter((i) => !failIds.includes(i)), fail, resolutions_sha256: sha, decisions_sha256: 'd' }
+    const seen = at('verifier_flow_sha_at', stage) !== undefined ? H(at('verifier_flow_sha_at', stage)) : flowSha
+    return {
+      pass: [...asked.filter((i) => !failIds.includes(i)), ...(at('verifier_extra_pass', stage) || [])],
+      fail,
+      resolutions_sha256: sha,
+      decisions_sha256: H('d'),
+      flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen),
+    }
   }
   if (role === 'writer') {
     const revise = stage.endsWith('revise') || target === 'revise'
@@ -69,7 +87,7 @@ function respond(prompt, label) {
     const docs = (spec.units || [{ id: 'U-1', docs: ['requirements/x'] }]).find((u) => u.id === unit).docs
     return {
       unit,
-      docs: docs.map((key) => ({ key, digest: `w-${key}`, doc_check_findings: 0, doc_check_blocking: 0 })),
+      docs: docs.map((key) => ({ key, digest: H(`w-${key}`), doc_check_findings: 0, doc_check_blocking: 0 })),
       changed_items: revise ? ((spec.writer_changed_by_unit || {})[unit] || spec.writer_changed || ['PR-X-001']) : [],
       open_tbd: spec.open_tbd || [],
       new_tbd: revise ? [] : spec.new_tbd || [],
@@ -84,11 +102,13 @@ function respond(prompt, label) {
     const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
+      // files は snapshot の stdout に無い一覧で、script が一覧を notices に写したら next_args の上限テストが落ちるように置く。
+      const listed = (count, kind) => Array.from({ length: count }, (_, i) => `tmp/writer__U-1__draft/${kind}-${String(i).padStart(3, '0')}.pre${i}.json`)
       const found = {
-        stray: { count: (spec.stray_at || {})[stage] || 0, path: `checks/audited-${n}.stray.json` },
-        size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json` },
+        stray: { count: (spec.stray_at || {})[stage] || 0, path: `checks/audited-${n}.stray.json`, files: listed((spec.stray_at || {})[stage] || 0, 'stray') },
+        size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json`, files: listed((spec.size_over_at || {})[stage] || 0, 'size') },
       }
-      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1', ...found }) }
+      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: H('a1'), ...found }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
       else {
         const changed = (spec.diff || {})[stage] || spec.writer_changed || ['PR-X-001']
@@ -96,9 +116,9 @@ function respond(prompt, label) {
         const byDoc = (spec.by_doc || {})[stage] || { [firstDoc]: { changed, added: [], removed: [] } }
         out.designated = {
           diff: { stdout: '{}', changed, added: [], removed: [], by_doc: byDoc },
-          audited: JSON.stringify({ digest: `a${n}`, ...found }),
+          audited: JSON.stringify({ digest: H(`a${n}`), ...found }),
           doc_check: JSON.stringify({ blocking: 0 }),
-          tree_digest: JSON.stringify({ digest: `t${n}` }),
+          tree_digest: JSON.stringify({ digest: H(`t${n}`) }),
         }
       }
     }
@@ -208,7 +228,7 @@ class Stages(unittest.TestCase):
         self.assertEqual(r2["result"]["status"], "done")
         self.assertEqual(r2["labels"][0], "resolver:3a")
         self.assertFalse(has(r2["labels"], "intake"))
-        self.assertFalse(has(r2["labels"], "verifier:3av"), "候補の選択だけの回答は verifier に通さない")
+        self.assertIn("verifier:3av", r2["labels"], "回答を flow に当てた段では、候補の選択だけでも verifier が flow を照合する")
 
     def test_自由記述の回答はverifierに通す(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
@@ -380,14 +400,7 @@ class Stages(unittest.TestCase):
     def test_任意のfromからその段に進む(self):
         state = {
             "units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}],
-            "flow": {
-                "elements": [
-                    {"id": "F-001", "type": "input", "kind": "k", "label": "i", "next": ["F-002"], "source": {"input": "x"}},
-                    {"id": "F-002", "type": "output", "kind": "k", "label": "o", "source": {"input": "y"}},
-                ],
-                "kinds": [{"name": "k", "definition": "d"}],
-                "closure": "c",
-            },
+            "flow_digest": "f-framer",
             "counts": {"decisions": 1, "open": 0, "pairs": 0},
         }
         for frm, first in (("4", "writer:U-1:draft"), ("5", "implementer:r1:requirements/x"), ("3", "verifier:3v")):
@@ -517,6 +530,141 @@ class Notices(unittest.TestCase):
     def test_verifierの照合はresolutions_sha256で行う(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
         self.assertEqual(r["result"]["integrity"], [])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FlowDigest(unittest.TestCase):
+    def test_stateはflowの本体を持たずflow_frameの内容のsha256を運ぶ(self):
+        res = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        self.assertEqual(res["status"], "needs_answers")
+        self.assertNotIn("flow", res["next_args"]["state"])
+        self.assertEqual(res["next_args"]["state"]["flow_digest"], "f-framer")
+
+    def test_verifierが見たflowの内容が違えばintegrityに入れてblocked(self):
+        r = run({"args": args(), "verifier_flow_sha_at": {"3v": "f-other"}})
+        res = r["result"]
+        self.assertEqual(res["status"], "blocked")
+        self.assertEqual(res["next_args"]["from"], "3")
+        self.assertEqual(len(res["integrity"]), 1)
+        self.assertIn("f-other", res["integrity"][0])
+        self.assertFalse(has(r["labels"], "writer"))
+
+    def test_verifierのflowに指摘があれば内容が一致してもblocked(self):
+        r = run({"args": args(), "verifier_flow_findings_at": {"3v": 1}})
+        res = r["result"]
+        self.assertEqual(res["status"], "blocked")
+        self.assertEqual(res["integrity"], [])
+        self.assertIn("指摘が 1 件", res["reason"])
+        self.assertFalse(has(r["labels"], "writer"))
+
+    def test_照合に落ちたverifierの合否は取り込まない(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "verifier_flow_sha_at": {"3v": "f-other"}})
+        self.assertNotIn("RS-001", r["result"]["next_args"]["state"].get("passed", []))
+
+    def test_3aでは候補の選択だけでもverifierが起動する(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}})
+        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:"))], ["resolver:3a", "verifier:3av"])
+        self.assertEqual(r["result"]["status"], "done")
+
+    def test_3aでflowを変えたresolverのsha256をverifierと照合する(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        ok = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}})
+        self.assertEqual(ok["result"]["status"], "done")
+        stale = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "verifier_flow_sha_at": {"3av": "f-framer"}})
+        self.assertEqual(stale["result"]["status"], "blocked")
+        self.assertEqual(stale["result"]["next_args"]["from"], "3a")
+
+    def test_3aでflowの指摘を返したresolverは1回だけ差し戻す(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        fixed = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_findings_at": {"3a": 2}})
+        self.assertIn("resolver:3a-flow", fixed["labels"])
+        self.assertEqual(fixed["result"]["status"], "done")
+        broken = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_findings_at": {"3a": 2, "3a-flow": 1}})
+        self.assertEqual(broken["result"]["status"], "blocked")
+        self.assertFalse(has(broken["labels"], "verifier:3av"))
+
+    def test_3aでflowのstdoutを返さないresolverは差し戻す(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "no_flow_check_at": ["3a", "3a-flow"]})
+        self.assertIn("resolver:3a-flow", r["labels"])
+        self.assertEqual(r["result"]["status"], "blocked")
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class QuestionsCheck(unittest.TestCase):
+    def test_形の検査に落ちた問いは1回差し戻し直ればneeds_answers(self):
+        r = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "bad_questions_at": ["3"]})
+        self.assertIn("resolver:3-questions", r["labels"])
+        [again] = [p["prompt"] for p in r["prompts"] if p["label"] == "resolver:3-questions"]
+        self.assertIn("questions --workspace /tmp/prd-w --ids RS-001 --check", again)
+        self.assertEqual(r["result"]["status"], "needs_answers")
+        self.assertEqual(r["result"]["question_ids"], ["RS-001"])
+
+    def test_差し戻しでも直らなければblocked(self):
+        r = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "bad_questions_at": ["3", "3-questions"]})
+        self.assertEqual(r["result"]["status"], "blocked")
+        self.assertEqual(r["result"]["next_args"]["from"], "3")
+        self.assertEqual(sum(1 for l in r["labels"] if l.startswith("resolver:3-questions")), 1)
+
+    def test_別の問いを検査したstdoutは合格にしない(self):
+        r = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}, "questions_check_ids_at": {"3": ["RS-001"]}})
+        [again] = [p["prompt"] for p in r["prompts"] if p["label"] == "resolver:3-questions"]
+        self.assertIn("RS-002", again)
+        self.assertEqual(r["result"]["status"], "needs_answers")
+
+    def test_問いが無ければ検査を求めない(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        self.assertNotIn("resolver:3-questions", r["labels"])
+
+
+# NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の
+# G1 の next_args のうち flow 以外が 6,998 字だったこと。後の段が state を増やしても上げない（増えた分は ID・件数・digest に絞る）。
+NEXT_ARGS_MAX_CHARS = 8_000
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class NextArgsBudget(unittest.TestCase):
+    """前回の試走の G1 と同じ規模（問い 13・about 28・passed 82 以上・pending の findings 11・束 3・単位 1）で、
+    stray 100 件と SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 の next_args が上限に収まる。"""
+
+    DOC = "requirements/cleanup-branches"
+
+    def _size(self, res):
+        self.assertEqual(res["status"], "needs_answers", res.get("reason"))
+        return len(json.dumps(res["next_args"], ensure_ascii=False))
+
+    def test_各ゲートのnext_argsが上限に収まる(self):
+        rs = lambda a, b: [f"RS-{i:03d}" for i in range(a, b + 1)]
+        units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
+        g0 = run({
+            "args": args(), "units": units, "flow_open": 1, "long_digests": True,
+            "ruled_at": {"3": rs(1, 12)}, "questions_at": {"3": rs(13, 21)},
+            "verifier_extra_pass": {"3v": [f"D-{i:03d}" for i in range(1, 16)] + [f"F-{i:03d}" for i in range(1, 41)]},
+        })["result"]
+        g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
+        writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
+        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
+        items = ["PR-CLEANUP-BRANCHES-001"] * 3 + ["PR-CLEANUP-BRANCHES-002"] * 3 + ["PR-CLEANUP-BRANCHES-003"] * 2
+        g1 = run({
+            "args": g02["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)},
+            "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
+            "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
+            "questions_at": {"6": rs(23, 25)},
+            "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]},
+        })["result"]
+
+        state = g1["next_args"]["state"]
+        self.assertEqual(len(state["questions"]), 13)
+        self.assertEqual(len(state["about"]), 28)
+        self.assertGreaterEqual(len(state["passed"]), 82)
+        self.assertEqual(len(state["pending"]["findings"]), 11)
+        self.assertEqual(len(state["pending"]["bundles"]), 3)
+        self.assertEqual(len(state["units"]), 1)
+        self.assertTrue(any("100 件" in n for n in state["notices"]) and any("SIZE_BUDGET" in n for n in state["notices"]), state["notices"])
+        for gate, res in (("G0", g0), ("G0-2", g02), ("G1", g1)):
+            with self.subTest(gate=gate):
+                self.assertLess(self._size(res), NEXT_ARGS_MAX_CHARS)
 
 
 # 段ごとに、その段を通るシナリオと、その段で最初に起動する agent の label。

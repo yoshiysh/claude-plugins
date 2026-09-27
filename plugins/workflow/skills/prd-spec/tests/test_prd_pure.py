@@ -145,9 +145,11 @@ class Pure(unittest.TestCase):
 
     def test_stateErrorsは入口ごとに要る値を挙げる(self):
         self.assertEqual(value("stateErrors('1', {})"), [])
-        errs = value("stateErrors('8', {units: [], flow: {}})")
+        errs = value("stateErrors('8', {units: [], flow_digest: 'f'})")
         self.assertTrue(any("state.audit" in e for e in errs))
         self.assertTrue(any("state.revised" in e for e in errs))
+        self.assertFalse(any("flow" in e for e in errs))
+        self.assertEqual(value("stateErrors('4', {units: [], flow: {}})"), ['from "4" には state.flow_digest が要ります'])
         self.assertIn("段の境界", value("stateErrors('x', {})")[0])
 
     def test_rolesByItemは観点を重ねて持つ(self):

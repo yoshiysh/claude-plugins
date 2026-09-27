@@ -88,7 +88,8 @@ Workflow({
 })
 ```
 
-依頼文は args に入れない（W/input.md にある）。model / effort は全役に既定があり、`role_opts` で上書きできる
+args に打ち直すのは ID・件数・digest と、返った `next_args` だけにする（依頼文は W/input.md に、flow などの本体は W に
+ある。why は `references/workflow-io.md` §1）。model / effort は全役に既定があり、`role_opts` で上書きできる
 （`references/workflow-io.md` §2）。返り値の `status` で次を決める。
 
 - **`needs_answers`**（G0・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`

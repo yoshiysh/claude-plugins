@@ -457,12 +457,9 @@ function expandStructural(compact) {
 //
 // flow は flow-framer が初稿の前に描く PFD で、各項目を当てる軸になる（契約は
 // schemas/agent-contracts.md の flow-framer 節）。軸が閉じていなければ「どの工程にも項目が当たっている」
-// は何も保証しないので、形と閉包は算術で押さえる。prd.js は flow-framer と resolver の返り値にこの区間を当て、
-// 崩れた flow では書き始めない（writer には flow を直す手段が無く、改稿枠を空回りさせるだけになる）。
-// この区間は scripts/prd.js に逐語で複製されている（import を書けないため。一致は tests/test_formal_checks.py が検査する）。
-// FLOW_GRAPH_BEGIN
+// は何も保証しないので、形と閉包は算術で押さえる。prd.js は flow モードの stdout の指摘が 0 件でない flow では
+// 書き始めない（writer には flow を直す手段が無く、改稿枠を空回りさせるだけになる）。
 function flowGraphCompact(flow) {
-  // 型の一覧は関数の中に置く（写し先の script が定義位置より前から呼んでも動くように。外の const は巻き上がらない）。
   const FLOW_TYPES = ['input', 'step', 'decision', 'output']
   const out = []
   const shape = (key, detail) => out.push({ c: 'FLOW_SHAPE', d: 'flow', a: [key, detail] })
@@ -519,7 +516,6 @@ function flowGraphCompact(flow) {
   }
   return out
 }
-// FLOW_GRAPH_END
 
 // ------------------------------------------------------- 状態 × イベント表と判定表の検査
 //
@@ -1913,7 +1909,8 @@ function wsDel(ws, opts) {
 const QUESTION_OPTIONS = { min: 2, max: 4 }
 
 // questions: 問いの文面の正本は resolutions.json の question・options だけにし、依頼者に見せる 2 つの形は
-// ここで導出する（手で書くと写しが増え、片方だけ直されて食い違う）。
+// ここで導出する（手で書くと写しが増え、片方だけ直されて食い違う）。--check は同じ検査だけを行い、何も書かない
+// （問いを出した resolver が返る前に確かめる。導出はゲートの時点で pending の全件に対して司令塔が行う）。
 function wsQuestions(ws, opts) {
   if (!opts.ids || !opts.ids.length) throw new LedgerRejected('questions には --ids RS-… が要ります')
   const [listName, key] = Object.entries(ledgerOf('resolutions').lists)[0]
@@ -1929,6 +1926,10 @@ function wsQuestions(ws, opts) {
     else if (options.length < QUESTION_OPTIONS.min || options.length > QUESTION_OPTIONS.max) bad.push(`${id}: 候補が ${options.length} 個です（${QUESTION_OPTIONS.min}〜${QUESTION_OPTIONS.max} 個）`)
     else if (options.some((o) => !o || typeof o.label !== 'string' || typeof o.description !== 'string' || typeof o.flow_effect !== 'string')) bad.push(`${id}: 候補に label・description・flow_effect の無いものがあります`)
     else qs.push({ id, q, options })
+  }
+  if (opts.check) {
+    if (bad.length) process.stderr.write(`${bad.join('\n')}\n`)
+    return { check: true, ids: [...new Set(opts.ids)], questions: qs.length, findings: bad.length, bad_ids: bad.map((b) => b.split(':')[0]) }
   }
   if (bad.length) throw new LedgerRejected(`問いを導出できません（何も書いていません）:\n${bad.join('\n')}`)
   const md = qs
@@ -2318,7 +2319,8 @@ function wsFlow(ws) {
   const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds), ...flowHistoryCompact(flow)]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
-  return { findings: body.findings.length, path: writeCheck(ws, 'flow.json', { ...body, digest }), digest }
+  // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
+  return { findings: body.findings.length, open: openIds.size, path: writeCheck(ws, 'flow.json', { ...body, digest }), digest, content_sha256: ledgerSha(ws, 'flow') }
 }
 
 // conflicts: 同じ target を持つ決定どうし、決定と flow の要素（id か label が target に一致）の組を列挙する。
@@ -2630,6 +2632,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--live') o.live = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--expect-resolutions') o.expectResolutions = take()
     else if (a === '--expect-decisions') o.expectDecisions = take()
+    else if (a === '--check') o.check = true
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o
