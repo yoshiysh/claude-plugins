@@ -34,7 +34,7 @@
 | `decisions.json`、`plan.json` | intake。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ） | [§intake](#intake) | — |
 | `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
-| `resolutions.json`、`routes.json`、`questions.md`、`report.md` | resolver | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
+| `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ）、`questions.md`、`report.md` | resolver | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `verifications.json` | resolver-verifier | [決定の台帳](#決定の台帳) | 同上 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
@@ -195,11 +195,15 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 **questions.md** は依頼者にそのまま見せる。問い 1 つにつき `## <RS-ID>` の節を置き、問い（1 論点・専門用語なし）、
 依頼文を探したが答えが無かったこと、候補ごとの「選ばれたら何が変わるか」を書く。
 
-**routes.json**（段 6。writer が直す指摘を、単位と項目で束ねたもの）
+**routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
 
 ```json
-{ "routes": [{ "id": "RT-001", "unit": "U-1", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "findings": ["r1-im-requirements__auth-002"], "resolutions": ["RS-007"] }] }
+{ "routes": [{ "id": "RT-001", "unit": "U-1", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "resolutions": ["RS-007"] }] }
 ```
+
+- 持つのは resolution を伴う項目だけである。route が `writer` の指摘は載せない。それは script が項目 ID ごとに
+  束ねて writer へ直接渡す（[§writer](#writer)）。段 6 が起動しないとき（decision の指摘も新しい TBD も 0 件）は
+  routes.json は書かれず、writer の指摘はそれでも改稿に届く。
 
 **report.md** は依頼者にそのまま見せる事後報告。方法論として決めたこと（resolutions の `method`）、保持規則と
 Issue の文案、上位文書の改訂文案を書く。
@@ -208,13 +212,19 @@ Issue の文案、上位文書の改訂文案を書く。
 
 ```json
 {
-  "ruled": ["RS-001"], "questions": ["RS-004"], "holds": ["RS-006"], "supersedes": ["D-003"],
-  "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
+  "ruled": [{ "id": "RS-001", "about": { "open": "O-001" } }],
+  "questions": [{ "id": "RS-004", "about": { "tbd": "TBD-RAUTH-002" } }],
+  "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
+  "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "sha256": "書き終えた resolutions.json の sha256",
   "flow": "回答を flow に当てたときだけ、更新後の flow 本体"
 }
 ```
 
+- `ruled`・`questions`・`holds` の `about` は、resolutions の `about` と同じ形で書く。script はファイルを読めない
+  ので、どの open・組・指摘・TBD が閉じたかはここからしか分からない。script はこれと verifier の合格を突き合わせて、
+  閉じた ID の集合（開いている TBD の算出に使う）を next_args に載せ、渡した対象のうち `about` に現れないものを
+  裁定漏れとして数える。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID（verifier の検証対象になる）。
 
 ## §resolver-verifier
@@ -230,8 +240,12 @@ script が渡す検証対象の ID。書くもの: `W/verifications.json`。返�
 
 入力（パス）: `W/input.md`、`W/answers/*.md`、`W/decisions.json`、`W/flow.json`、`W/plan.json`、
 `W/resolutions.json` と合格した ID の一覧、無効な決定の ID、自分の単位の文書と meta、依存先の単位の文書、
-開いている TBD の ID（script が解消済みを除いて算出したもの）。改稿では加えて `W/routes.json` のうち自分の
-担当の ID と、単位の文書ごとの改稿前の digest。
+開いている TBD の ID（script が解消済みを除いて算出したもの）。改稿では加えて、単位の文書ごとの改稿前の
+digest と、次の 2 つ。
+
+- route が `writer` の指摘の ID を、script が項目 ID ごとに束ねたもの（`[{ "item_id": "PR-AUTH-003", "doc": "requirements/auth", "findings": ["r1-im-requirements__auth-002"] }]`）。
+  中身は `W/findings/*.json` から ID で読む。段 6 が起動しなくても渡る。
+- `W/routes.json` のうち自分の担当の ID（段 6 で resolver が起動したときだけ）。
 
 書くもの: `W/<kind>-<topic>.md` と `W/<kind>-<topic>.meta.json`（自分の単位の文書だけ）。
 
@@ -263,11 +277,15 @@ script が渡す検証対象の ID。書くもの: `W/verifications.json`。返�
   "changed_items": ["PR-AUTH-003", "requirements/auth§用語", "requirements/auth§(meta)", "TBD-RAUTH-002"],
   "open_tbd": ["TBD-RAUTH-001"],
   "new_tbd": ["TBD-RAUTH-002"],
+  "applied_findings": ["r1-im-requirements__auth-002"],
   "applied_routes": ["RT-001"],
   "resolutions_sha256": "読んだ resolutions.json の sha256"
 }
 ```
 
+- `applied_findings` は当てた writer の指摘の ID、`applied_routes` は当てた routes.json の ID。段 6 が起動せず
+  routes.json を渡されなかったときは、`applied_routes` は空配列にする。script は渡した ID とこの 2 つを比べ、
+  当たっていない分を残りとして数える。初稿では両方とも空配列でよい。
 - `changed_items` は doc_check の snapshot と同じ項目キーで書く: ID を持つ項目は ID、ID を持たない節は
   `<文書キー>§<見出し>`（同じ見出しが続けば `#2`）、冒頭は `<文書キー>§(冒頭)`、meta の trace・TBD 以外は
   `<文書キー>§(meta)`、TBD の候補は TBD の ID。script はこれを段 8 の diff と文字列で比べる。形が違うと、
@@ -293,9 +311,9 @@ shunt が使えない環境では全文を読む。範囲を絞った監査（�
 
 | 観点 | 見るもの | 見ないもの |
 |---|---|---|
-| implementer | 1 項目の中: 着手できるか、上位（要求・目的）に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係 |
+| implementer | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
 | grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
-| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、上位文書の範囲の拡大、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
 | doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
 doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。
@@ -354,7 +372,8 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 - 迷ったら `decision`。決定が要る指摘を writer に回すと、writer が根拠の無い規則を書き、段 8 の grounding で
   捏造として戻るまで 1 パスを失う。writer で直せる指摘を resolver に回しても、resolver が `internal` か `method`
   で裁定して返すだけで済む。
-- `decision` の指摘は resolver が裁定する（段 6）。`writer` の指摘は script が項目ごとに束ね、そのまま改稿へ回る。
+- `decision` の指摘は resolver が裁定する（段 6）。`writer` の指摘は script が項目ごとに束ね、routes.json を通らずに
+  そのまま改稿へ回る。
 
 ### 指名されたとき
 

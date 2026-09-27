@@ -59,8 +59,10 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   新しい矛盾が出たら、プロンプトが続きの問いを許すときだけ `question` にし、許さないときは `hold` にする。
   flow.json を変えたら、更新後の flow 本体を返す（script が閉包検査をやり直す）。
 - **段 6（決定が要る指摘）**: route が `decision` の指摘と、writer の meta の新しい TBD を 6 種で裁定する。続けて、
-  script が項目ごとに束ねて渡した `writer` の指摘と、この段で裁定した resolution を、単位と項目ごとに
-  `routes.json` にまとめる（writer はそのうち verifier が合格させた resolution だけを当てる）。
+  この段で裁定した resolution を、当てる単位と項目ごとに `routes.json` にまとめる（writer はそのうち verifier が
+  合格させた resolution だけを当てる）。route が `writer` の指摘は扱わない。それは script が項目ごとに束ねて
+  直接 writer に渡すので、この段が起動しないとき（decision も新しい TBD も 0 件）にも改稿に届く。ここで
+  重ねて束ねると、同じ指摘が 2 つの経路で届き、writer が 2 度当てる。
 - **8'（最後のパス）で出た問い**: 聞くゲートが残っていないので `hold` にする。`hold.item_ids` にその論点に触れる
   項目 ID を入れ、Issue の文案を書く。
 - **段 9（事後報告）**: `report.md` に、方法論として決めたこと、保持規則と Issue の文案、上位文書（固定の文書・
