@@ -289,8 +289,9 @@ class CompactAndParity(unittest.TestCase):
             self.assertEqual(normalized(DRAFT, name), normalized(REFINE, name), name)
 
     def test_新しい種別は文面の表にある(self):
-        table = _marked_block(DOC_CHECK.read_text(), "FINDING_TEXT")
-        used = set(re.findall(r"c: '([A-Z_]+)'", DOC_CHECK.read_text()))
+        cli = DOC_CHECK.read_text()
+        table = _marked_block(cli, "FINDING_TEXT") + _marked_block(cli, "WORKSPACE_TEXT")
+        used = set(re.findall(r"c: '([A-Z_]+)'", cli))
         for code in used:
             self.assertIn(f"  {code}: (", table, code)
 

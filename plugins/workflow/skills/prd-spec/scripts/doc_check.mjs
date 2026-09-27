@@ -5,9 +5,14 @@
 // 6 文書・333〜1002 行の run で writer が cache read の約 45% を消費）。本文を読む検査を
 // ここへ移し、checker agent にこの CLI を実行させて結果だけを受け取る。
 //
-// 使い方: node doc_check.mjs <input.json>（相対パスは実行時のカレントディレクトリ基準）
-// 入出力の契約は references/workflow-io.md §7 を正とする。
+// 使い方は 2 つある。
+// - node doc_check.mjs <input.json>（相対パスは実行時のカレントディレクトリ基準）。入出力の契約は
+//   references/workflow-io.md §7 を正とする。
+// - node doc_check.mjs <mode> --workspace <W> [...]。workspace を直接読むモード。mode は
+//   flow / conflicts / doc / snapshot / diff / tree-digest。結果は W/checks/ に書き、stdout には
+//   件数・digest・書いたパスだけを出す（下の「workspace モード」の節）。
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -811,12 +816,17 @@ function decisionCheck(d, sec, out, notChecked) {
     const isElse = (r) => r.vals[0] === '上記以外' || r.vals.every((v) => DT_WILDCARD.test(v))
     const specific = rows.filter((r) => !isElse(r))
     const hasElse = rows.some(isElse)
+    // 宣言外の値は (条件, 値) ごとに 1 件にする。行ごとに出すと、同じ値が 4 行にあれば同じ id の指摘が
+    // 4 件になり、writer への指摘と報告の件数が水増しされる（行番号は id に入らない）。
+    const reported = new Set()
     const doms = conds.map((c, ci) => {
       const declared = domains.get(c.name)
       if (declared) {
         for (const r of specific) {
           const v = r.vals[ci]
-          if (!DT_WILDCARD.test(v) && !declared.includes(v)) out.push({ c: 'DT_VALUE', d: d.key, a: [d.key, label, c.name, v] })
+          if (DT_WILDCARD.test(v) || declared.includes(v) || reported.has(`${c.name}\u0000${v}`)) continue
+          reported.add(`${c.name}\u0000${v}`)
+          out.push({ c: 'DT_VALUE', d: d.key, a: [d.key, label, c.name, v] })
         }
         return declared
       }
@@ -1342,6 +1352,594 @@ function runChecks(input) {
   return { input_digest: stableKey(canonicalJson(input)), ...body, output_digest: stableKey(canonicalJson(body)) }
 }
 
+// ======================================================= workspace モード
+//
+// 文書は W/<kind>-<topic>.md の 1 本だけを持ち、writer が Edit で直接更新する。項目 ID と参照 ID は
+// 本文から導出し、本文から取れない trace と TBD の候補だけを W/<kind>-<topic>.meta.json に置く（本文と
+// meta に同じ ID を二重に持つと、Edit のたびに両方を直すことになり、ずれを検査で拾う手間が増える）。
+// Workflow script はファイルを読めないので、このモードは起動済みの agent が実行し、結果は W/checks/ の
+// ファイルと stdout の digest で受け渡す。stdout に指摘の文面を出さないのは、agent に書き写させると
+// 写すトークンと写し間違いの機会がそのまま増えるため。
+//
+// meta.json: { "trace": [{ "item_id", "kind", "ref"? }], "tbd": [{ "id", "text", "blocking" }], "fixed"? }
+// - kind が "flow" の trace は、その項目を flow の要素 ref に当てた申告として扱う。
+// - fixed: true の文書（expand の要求文書など）は ID の定義元として数えるが、書き手の欠陥は検査しない。
+// flow.json の各要素の source: { "input": "依頼文の引用" } / { "decision": "D-001" } / { "open": "O-001" }
+// のどれか 1 つ（複数なら配列）。引用が依頼文に実在するかは resolver-verifier が見る（ここでは形と ID の実在だけ）。
+
+// WORKSPACE_TEXT_BEGIN
+const WORKSPACE_TEXT = {
+  FLOW_NOSOURCE: (id) => ({
+    id: `ST-FLOW-NOSOURCE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `流れの要素 ${id} に出典（source）が無い。flow は項目を当てる原本になるので、出典の無い要素は根拠の無い記述のまま文書に流れ込む。`,
+    fix: `${id} に source として依頼文の引用（input）・決定の ID（decision）・未決の ID（open）のどれかを付ける。どれも付けられないなら依頼から辿れない要素なので、外すか open に起票する。`,
+  }),
+  FLOW_SOURCE_SHAPE: (id) => ({
+    id: `ST-FLOW-SOURCE-SHAPE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `流れの要素 ${id} の source が { input } / { decision } / { open } のどれか 1 つの形になっていない。形が決まらないと、出典が実在するかを照合できない。`,
+    fix: 'source を { "input": "引用" } / { "decision": "D-…" } / { "open": "…" } のどれかにする（複数あるなら配列にする）。',
+  }),
+  FLOW_SOURCE_UNKNOWN: (id, kind, ref) => ({
+    id: `ST-FLOW-SOURCE-UNKNOWN-${id}-${ref}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${kind} ${ref}`,
+    issue: `流れの要素 ${id} が出典に挙げた ${ref} が ${kind === 'decision' ? 'decisions.json にも resolutions.json にも' : 'open.json に'}無い。実在しない出典は、出典が無いのと同じである。`,
+    fix: `${ref} を実在する ID に直すか、出典を付け直す。`,
+  }),
+  AMBIGUOUS: (docKey, itemId, word, quote) => ({
+    id: `ST-AMBIGUOUS-${docKey}-${itemId}-${word}`,
+    location: itemId,
+    quote,
+    issue: `項目 ${itemId} の文に曖昧語「${word}」がある。どこからが満たしたことになるかが読み手で割れ、テストを設計できない。`,
+    fix: '測定できる形（値・単位・境界を含むか・超えたときの挙動）に書き換える。値が決まっていないなら数値を置かず、未決として扱う（requirement-writing-rules.md §2・§2.6）。',
+  }),
+  TBD_ASSERT: (docKey, tbdId, where, quote) => ({
+    id: `ST-TBD-ASSERT-${docKey}-${tbdId}-${where}`,
+    location: where,
+    quote,
+    issue: `開いている未決 ${tbdId} に触れる文が、裁定を待つ形ではなく断定で終わっている。決まっていないことを決まったこととして書くと、読み手はそれを要求として実装する。`,
+    fix: `裁定が下るまで何をしてはならないか（保持規則）の形に書き換える（例:「${tbdId} の裁定が下るまで、〜してはならない」）。${tbdId} が裁定済みなら、開いている未決の一覧から外すよう返り値で伝える。`,
+  }),
+  REF_UNDEFINED: (docKey, id) => ({
+    id: `ST-REF-UNDEFINED-${docKey}-${id}`,
+    location: '本文',
+    quote: id,
+    issue: `本文が ${id} を参照しているが、workspace のどの文書にも ${id} を見出しに持つ項目が無く、欠番の申告も無い。読み手は参照先の中身を確認できない。`,
+    fix: `${id} を見出しに持つ項目を置くか、参照を実在する ID に直す。欠番なら「欠番」の語と同じ行に ${id} を書く。`,
+  }),
+}
+// WORKSPACE_TEXT_END
+
+const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest']
+const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
+const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+class DigestMismatch extends Error {}
+
+const sha256 = (text) => crypto.createHash('sha256').update(text).digest('hex')
+const digestOf = (value) => sha256(canonicalJson(value))
+const listOf = (value, key) => (Array.isArray(value) ? value : value && Array.isArray(value[key]) ? value[key] : [])
+
+// readJsonFile: 無いファイルは null。壊れた JSON は例外にする（黙って「無い」と扱うと、
+// 検査が素通りしたのか材料が無かったのかが区別できなくなる）。
+function readJsonFile(file) {
+  let text
+  try {
+    text = fs.readFileSync(file, 'utf8')
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return null
+    throw e
+  }
+  try {
+    return JSON.parse(text)
+  } catch (e) {
+    throw new Error(`${path.basename(file)} を JSON として読めません: ${e.message}`)
+  }
+}
+
+function workspaceDocs(ws) {
+  return fs
+    .readdirSync(ws)
+    .filter((n) => DOC_FILE.test(n))
+    .sort()
+    .map((name) => {
+      const [, kind, topic] = DOC_FILE.exec(name)
+      const metaName = name.replace(/\.md$/, '.meta.json')
+      const meta = readJsonFile(path.join(ws, metaName))
+      if (meta !== null && (typeof meta !== 'object' || Array.isArray(meta))) throw new Error(`${metaName} がオブジェクトではありません`)
+      return { key: `${kind}/${topic}`, kind, topic, path: name, markdown: fs.readFileSync(path.join(ws, name), 'utf8'), meta }
+    })
+}
+
+// itemSections: 見出し（# 〜 ######。コードフェンスの中は除く）ごとの区間。見出しに自文書の種別の ID を
+// 持つ区間はその ID を key にし、持たない区間は「§見出し」を key にする（同じ key が続けば #2, #3）。
+// 区間の text は末尾の空白行を落とす（項目の間の空行の出し入れを変更と数えないため）。
+function itemSections(md, kind) {
+  const lines = String(md || '').split('\n')
+  const out = []
+  const seen = new Map()
+  let inFence = false
+  let cur = { heading: null, start: 1, lines: [] }
+  const close = () => {
+    if (cur.heading === null && !cur.lines.some((l) => l.trim())) return
+    const ids = cur.heading ? cur.heading.match(ID_IN_TEXT[kind]) || [] : []
+    const base = ids.length ? ids[0] : `§${cur.heading === null ? '(冒頭)' : cur.heading.replace(/^#+\s*/, '').trim()}`
+    const n = (seen.get(base) || 0) + 1
+    seen.set(base, n)
+    out.push({ key: n > 1 ? `${base}#${n}` : base, id: ids.length ? ids[0] : null, start: cur.start, lines: cur.lines, text: cur.lines.join('\n').replace(/\s+$/, '') })
+  }
+  lines.forEach((ln, i) => {
+    if (/^\s*(```|~~~)/.test(ln)) inFence = !inFence
+    else if (!inFence && /^#{1,6}\s/.test(ln)) {
+      close()
+      cur = { heading: ln.trim(), start: i + 1, lines: [] }
+    }
+    cur.lines.push(ln)
+  })
+  close()
+  return out
+}
+
+// docItems: snapshot に載せる項目ごとの hash。ID の項目は本文の区間とその項目の trace を合わせて hash する
+// （根拠だけを差し替えた変更も監査の範囲に入れるため）。TBD の候補は TBD の ID を key にし、meta の残りは
+// 「<文書>§(meta)」にまとめる。ID を持たない区間の key には文書キーを前に付ける（文書を跨いで一意にするため）。
+function docItems(d) {
+  const meta = d.meta || {}
+  const trace = Array.isArray(meta.trace) ? meta.trace : []
+  const secs = itemSections(d.markdown, d.kind)
+  const idKeys = new Set(secs.filter((s) => s.id && s.key === s.id).map((s) => s.id))
+  const items = {}
+  for (const s of secs) {
+    const own = s.id && s.key === s.id
+    items[own ? s.key : `${d.key}${s.key}`] = digestOf({ text: s.text, trace: own ? trace.filter((t) => t && t.item_id === s.id) : [] })
+  }
+  if (d.meta) {
+    const tbd = Array.isArray(meta.tbd) ? meta.tbd : []
+    for (const t of tbd) if (t && t.id) items[String(t.id)] = digestOf(t)
+    const rest = { ...meta, trace: trace.filter((t) => !t || !idKeys.has(t.item_id)), tbd: tbd.filter((t) => !t || !t.id) }
+    items[`${d.key}§(meta)`] = digestOf(rest)
+  }
+  return items
+}
+
+// snapshotOf: { 文書キー: { 項目 key: hash } }。この形の digest が tree digest であり、snapshot --save が
+// 返す digest と tree-digest が返す digest は、同じ木なら同じ文字列になる（ラベルやパスを入れない）。
+function snapshotOf(wsDocs) {
+  return Object.fromEntries(wsDocs.map((d) => [d.key, docItems(d)]))
+}
+
+// traceabilityOf: 「要求 ID」と「仕様項目 ID」の列を持つ表の行から紐付けを導出する。1 つのセルに複数の
+// ID があれば組をすべて作る。両方の ID が揃わない行は紐付けとして数えない（片側だけの行を数えると、
+// 根拠の無い仕様項目が「紐付け済み」に化ける）。
+function traceabilityOf(md) {
+  const links = []
+  const lines = new Set()
+  for (const sec of sectionsOf2(md)) {
+    for (const t of tablesOf(sec)) {
+      const rc = t.header.findIndex((c) => /要求\s*ID/.test(c))
+      const sc = t.header.findIndex((c) => /仕様(項目)?\s*ID/.test(c))
+      if (rc < 0 || sc < 0) continue
+      lines.add(t.line)
+      for (const r of t.rows) {
+        lines.add(r.line)
+        const reqs = String(r.cells[rc] || '').match(ID_IN_TEXT.requirements) || []
+        const specs = String(r.cells[sc] || '').match(ID_IN_TEXT.specifications) || []
+        for (const q of reqs) for (const s of specs) links.push({ requirement_id: q, spec_id: s })
+      }
+    }
+  }
+  return { links, lines }
+}
+
+// deriveDocs: structuralCompact が読む形に正規化する。ids は見出しに現れる自文書の種別の ID、referenced は
+// 本文のそれ以外の自種別の ID。この導出では申告と本文の突き合わせ（UNDECLARED / PHANTOM）は起こりえないので、
+// 代わりに参照先の実在を REF_UNDEFINED で検査する。
+function deriveDocs(wsDocs) {
+  return wsDocs.map((d) => {
+    const secs = itemSections(d.markdown, d.kind)
+    const ids = [...new Set(secs.map((s) => s.id).filter(Boolean))]
+    const idSet = new Set(ids)
+    const inText = [...new Set(d.markdown.match(ID_IN_TEXT[d.kind]) || [])]
+    const trace = d.meta ? (Array.isArray(d.meta.trace) ? d.meta.trace : []) : undefined
+    const tr = d.kind === 'specifications' ? traceabilityOf(d.markdown) : { links: [], lines: new Set() }
+    return {
+      key: d.key,
+      kind: d.kind,
+      topic: d.topic,
+      path: d.path,
+      markdown: d.markdown,
+      ids,
+      referenced: inText.filter((id) => !idSet.has(id)),
+      vacant: [],
+      traceability: tr.links,
+      traceLines: tr.lines,
+      tbd_items: d.meta && Array.isArray(d.meta.tbd) ? d.meta.tbd : [],
+      trace,
+      flow_refs: (trace || []).filter((t) => t && t.kind === 'flow' && t.ref).map((t) => ({ item_id: t.item_id, ref: t.ref })),
+      fixed: Boolean(d.meta && d.meta.fixed),
+    }
+  })
+}
+
+// 曖昧語（requirement-writing-rules.md §2）。偽陽性は writer の内部ループを空回りさせるので、複合語の
+// 一部になる語（同等・等しい・これまで など）は外す。「まで」と「前後」は数量に付いたときだけ拾う
+// （「裁定が下るまで」は保持規則の定型であり、境界の曖昧さではない）。
+const AMBIGUOUS_JA = [
+  ['適切', /適切[にな]/],
+  ['必要に応じて', /必要に応じて/],
+  ['可能な限り', /可能な限り/],
+  ['柔軟に', /柔軟に/],
+  ['速やかに', /速やかに/],
+  ['原則として', /原則として/],
+  ['等', /(?<![同平均対上高初劣優一二三中下特何彼])等(?![しくい価号級式分辺間])/],
+  ['など', /など/],
+  ['十分な', /十分な/],
+  ['適宜', /適宜/],
+  ['基本的に', /基本的に/],
+  ['高速に', /高速に/],
+  ['使いやすい', /使いやすい/],
+  ['安定した', /安定した/],
+  ['極力', /極力/],
+  ['なるべく', /なるべく/],
+  ['場合によっては', /場合によっては/],
+  ['想定される', /想定される/],
+  ['考慮する', /考慮す/],
+  ['まで', /\d[\d.,]*\s*[^\s\d。、）)]{0,4}まで/],
+  ['最大', /最大/],
+  ['最小', /最小/],
+  ['程度', /程度/],
+  ['前後', /\d[\d.,]*\s*[^\s\d。、）)]{0,4}前後/],
+]
+const AMBIGUOUS_EN =
+  /\b(minimi[sz]e|maximi[sz]e|optimi[sz]e|fast|prompt|quick|rapid|user-friendly|easy|intuitive|sufficient|adequate|appropriate|approximately|about|around|usually|typically|normally|as needed|as required|if necessary|etc|and so on|including but not limited to)\b/i
+const CJK = /[぀-ヿ㐀-鿿]/
+
+// 開いている TBD に触れる文の断定。裁定を待つ語（まで・裁定・解消 など）を含まず、禁止・許容以外の
+// 断定の語尾（〜しなければならない・〜する・〜である など）で終わる文だけを拾う。名詞で終わる文
+// （「TBD-X を参照」）は断定とも保持とも読めないので拾わない（偽陽性より取りこぼしを選ぶ）。
+const HOLD_MARKER = /(まで|裁定|決まる|決まっ|決まら|解消|保留|未定|未決|未確定)/
+const HOLD_END = /(てはならない|てもよい)$/
+const ASSERT_END = /(なければならない|ことが望ましい|ない|です|ます|である|だ|た|[うくぐすつぬぶむる])$/
+
+function sentencesOf(line) {
+  return line.split('。').map((s) => s.trim()).filter(Boolean)
+}
+
+// workspaceExtraCompact: workspace モードだけで当てる検査（参照先の実在・曖昧語・開いた TBD の断定）。
+function workspaceExtraCompact(docs, openTbd) {
+  const out = []
+  const defined = new Set(docs.flatMap((d) => d.ids))
+  const vacantAll = new Set()
+  for (const d of docs) {
+    for (const ln of d.markdown.split('\n')) {
+      if (!ln.includes('欠番')) continue
+      for (const re of Object.values(ID_IN_TEXT)) for (const id of ln.match(re) || []) vacantAll.add(id)
+    }
+  }
+  // 参照先の種別の文書が 1 つも無いときは、その種別の参照を検査しない（NC_CROSSREF と同じ理由。
+  // 要求文書を書く前の仕様書では、要求 ID の参照がすべて未定義に化ける）。
+  const kindsPresent = new Set(docs.map((d) => d.kind))
+  const open = new Set(openTbd)
+  for (const d of docs) {
+    if (d.fixed) continue
+    const refSeen = new Set()
+    let inFence = false
+    d.markdown.split('\n').forEach((ln, i) => {
+      if (/^\s*(```|~~~)/.test(ln)) inFence = !inFence
+      if (inFence || /^\s*(```|~~~)/.test(ln) || d.traceLines.has(i + 1)) return
+      for (const [kind, re] of Object.entries(ID_IN_TEXT)) {
+        if (!kindsPresent.has(kind)) continue
+        for (const id of ln.match(re) || []) {
+          if (defined.has(id) || vacantAll.has(id) || refSeen.has(id)) continue
+          refSeen.add(id)
+          out.push({ c: 'REF_UNDEFINED', d: d.key, a: [d.key, id] })
+        }
+      }
+    })
+    for (const s of itemSections(d.markdown, d.kind)) {
+      const where = s.id || s.key
+      const ambSeen = new Set()
+      const tbdSeen = new Set()
+      let fence = false
+      s.lines.forEach((ln, k) => {
+        if (/^\s*(```|~~~)/.test(ln)) {
+          fence = !fence
+          return
+        }
+        const t = ln.trim()
+        if (fence || !t || k === 0 && /^#/.test(t) || /^>/.test(t)) return
+        const isTable = t.startsWith('|')
+        for (const sent of sentencesOf(t)) {
+          if (s.id) {
+            const words = CJK.test(sent) ? AMBIGUOUS_JA.filter(([, re]) => re.test(sent)).map(([w]) => w) : [(sent.match(AMBIGUOUS_EN) || [])[1]].filter(Boolean).map((w) => w.toLowerCase())
+            for (const w of words) {
+              if (ambSeen.has(w)) continue
+              ambSeen.add(w)
+              out.push({ c: 'AMBIGUOUS', d: d.key, a: [d.key, s.id, w, sent.slice(-60)] })
+            }
+          }
+          if (isTable) continue
+          const body = sent.replace(/[（(][^（）()]*[）)]\s*$/, '').replace(/[。．.、,\s]+$/, '')
+          if (HOLD_MARKER.test(sent) || HOLD_END.test(body) || !ASSERT_END.test(body)) continue
+          for (const id of sent.match(TBD_ID_IN_TEXT) || []) {
+            if (!open.has(id) || tbdSeen.has(id)) continue
+            tbdSeen.add(id)
+            out.push({ c: 'TBD_ASSERT', d: d.key, a: [d.key, id, where, sent.slice(-60)] })
+          }
+        }
+      })
+    }
+  }
+  return out
+}
+
+// flowSourceCompact: flow の各要素の出典の形と、挙げた決定・未決の ID の実在。
+function flowSourceCompact(flow, decisionIds, openIds) {
+  const out = []
+  for (const el of listOf(flow, 'elements')) {
+    if (!el || !el.id) continue
+    const sources = Array.isArray(el.source) ? el.source : el.source ? [el.source] : []
+    if (!sources.length) {
+      out.push({ c: 'FLOW_NOSOURCE', d: 'flow', a: [el.id] })
+      continue
+    }
+    for (const s of sources) {
+      const kinds = s && typeof s === 'object' && !Array.isArray(s) ? ['input', 'decision', 'open'].filter((k) => String(s[k] ?? '').trim()) : []
+      if (kinds.length !== 1) {
+        out.push({ c: 'FLOW_SOURCE_SHAPE', d: 'flow', a: [el.id] })
+        continue
+      }
+      const ref = String(s[kinds[0]]).trim()
+      if (kinds[0] === 'decision' && !decisionIds.has(ref)) out.push({ c: 'FLOW_SOURCE_UNKNOWN', d: 'flow', a: [el.id, 'decision', ref] })
+      if (kinds[0] === 'open' && !openIds.has(ref)) out.push({ c: 'FLOW_SOURCE_UNKNOWN', d: 'flow', a: [el.id, 'open', ref] })
+    }
+  }
+  return out
+}
+
+// groupCompact: { c, d, a } の列を、同じ (c, d, a) を 1 件にしてから、続く同じ種別・同じ文書でまとめる。
+function groupCompact(list) {
+  const seen = new Set()
+  const grouped = []
+  for (const f of list) {
+    const k = canonicalJson([f.c, f.d, f.a])
+    if (seen.has(k)) continue
+    seen.add(k)
+    const last = grouped[grouped.length - 1]
+    if (last && last.c === f.c && last.d === f.d) last.a.push(f.a)
+    else grouped.push({ c: f.c, d: f.d, a: [f.a] })
+  }
+  return grouped
+}
+
+// expandWorkspace: expandStructural と同じ展開を、workspace モードの種別も含めた表で行う。
+function expandWorkspace(compact) {
+  const table = { ...FINDING_TEXT, ...WORKSPACE_TEXT }
+  const make = (c, args) => {
+    const t = table[c]
+    if (!t) throw new Error(`構造検査の未知の種別です: ${JSON.stringify(c)}`)
+    return t(...(args || []))
+  }
+  const findings = []
+  for (const g of compact.findings || []) {
+    for (const args of (g && g.a) || []) {
+      const t = make(g.c, args)
+      findings.push({ id: t.id, document: g.d, location: t.location, quote: t.quote, ...(t.severity ? { severity: t.severity } : {}), issue: t.issue, fix: t.fix })
+    }
+  }
+  return { findings, not_checked: (compact.not_checked || []).map((n) => make(n && n.c, n && n.a)) }
+}
+
+function writeCheck(ws, name, content) {
+  const rel = `checks/${name}`
+  fs.mkdirSync(path.join(ws, 'checks'), { recursive: true })
+  fs.writeFileSync(path.join(ws, rel), `${JSON.stringify(content, null, 1)}\n`)
+  return rel
+}
+
+function decisionIdsOf(ws) {
+  const ids = [...listOf(readJsonFile(path.join(ws, 'decisions.json')), 'decisions'), ...listOf(readJsonFile(path.join(ws, 'resolutions.json')), 'resolutions')]
+  return new Set(ids.filter((x) => x && x.id).map((x) => String(x.id)))
+}
+
+function selectDocs(keys, wanted) {
+  for (const k of wanted) if (!keys.includes(k)) throw new Error(`--doc ${k} は workspace にありません（あるのは ${keys.join(' / ') || 'なし'}）`)
+  return wanted.length ? wanted : keys
+}
+
+function wsFlow(ws) {
+  const flow = readJsonFile(path.join(ws, 'flow.json'))
+  if (flow === null) throw new Error('flow.json がありません')
+  const openIds = new Set(listOf(readJsonFile(path.join(ws, 'open.json')), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds)]
+  const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
+  const digest = digestOf(body)
+  return { findings: body.findings.length, path: writeCheck(ws, 'flow.json', { ...body, digest }), digest }
+}
+
+// conflicts: 同じ target を持つ決定どうし、決定と flow の要素（id か label が target に一致）の組を列挙する。
+// 組の探索を resolver の生成に任せると探索の量に上限が無くなるので、ここで閉集合にして resolver には
+// 判定だけをさせる。target の無い決定は組を作れないので untargeted として件数とともに返す（見ていないものを宣言する）。
+function wsConflicts(ws) {
+  const decisions = readJsonFile(path.join(ws, 'decisions.json'))
+  if (decisions === null) throw new Error('decisions.json がありません')
+  const flow = readJsonFile(path.join(ws, 'flow.json'))
+  const ds = listOf(decisions, 'decisions')
+    .filter((x) => x && x.id)
+    .map((x) => ({ id: String(x.id), targets: [...new Set((Array.isArray(x.targets) ? x.targets : []).map((t) => String(t).trim()).filter(Boolean))] }))
+  const els = listOf(flow, 'elements').filter((el) => el && el.id)
+  const pairs = []
+  for (let i = 0; i < ds.length; i++) {
+    for (let j = i + 1; j < ds.length; j++) {
+      const shared = ds[i].targets.filter((t) => ds[j].targets.includes(t))
+      if (shared.length) pairs.push({ kind: 'decision-decision', a: ds[i].id, b: ds[j].id, targets: shared.sort() })
+    }
+    for (const el of els) {
+      const shared = ds[i].targets.filter((t) => t === String(el.id) || t === String(el.label || '').trim())
+      if (shared.length) pairs.push({ kind: 'decision-flow', a: ds[i].id, b: String(el.id), targets: shared.sort() })
+    }
+  }
+  pairs.sort((x, y) => x.kind.localeCompare(y.kind) || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
+  const untargeted = ds.filter((x) => !x.targets.length).map((x) => x.id).sort()
+  const body = { pairs, untargeted, flow_checked: flow !== null }
+  const digest = digestOf(body)
+  return {
+    pairs: pairs.length,
+    decision_pairs: pairs.filter((p) => p.kind === 'decision-decision').length,
+    flow_pairs: pairs.filter((p) => p.kind === 'decision-flow').length,
+    untargeted: untargeted.length,
+    flow_checked: flow !== null,
+    path: writeCheck(ws, 'conflicts.json', { ...body, digest }),
+    digest,
+  }
+}
+
+// doc: 文書の構造検査に、参照先の実在・曖昧語・開いた TBD の断定を加える。開いている TBD は --open-tbd
+// （script が解消済みを除いて算出したもの）を正とし、無ければ meta の TBD の候補の和を使う（どちらを
+// 使ったかを結果に書く）。--doc を付けると、その文書の指摘だけを別のファイルに書く（並列の writer が
+// 同じ結果ファイルを奪い合わないため。検査そのものは文書を跨いで全体に当てる）。
+function wsDoc(ws, opts) {
+  const wsDocs = workspaceDocs(ws)
+  if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
+  const selected = selectDocs(wsDocs.map((d) => d.key), opts.doc)
+  const docs = deriveDocs(wsDocs)
+  const openTbd = opts.openTbd
+    ? { source: 'args', ids: [...new Set(opts.openTbd)].sort() }
+    : { source: 'meta', ids: [...new Set(docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))].sort() }
+  const flow = readJsonFile(path.join(ws, 'flow.json'))
+  const structural = structuralCompact(docs, flow)
+  const open = new Set(openTbd.ids)
+  const kept = structural.findings
+    .map((g) => (g.c === 'UNDECLARED_TBD' ? { ...g, a: g.a.filter((a) => !open.has(a[0])) } : g))
+    .filter((g) => g.a.length)
+  const all = [...kept, ...groupCompact(workspaceExtraCompact(docs, openTbd.ids))]
+  const expanded = expandWorkspace({ findings: opts.doc.length ? all.filter((g) => selected.includes(g.d)) : all, not_checked: structural.not_checked })
+  const tree = digestOf(snapshotOf(wsDocs))
+  const body = {
+    tree_digest: tree,
+    documents: docs.map((d) => ({ key: d.key, path: d.path, fixed: d.fixed, line_count: lineTotal(d.markdown), byte_size: Buffer.byteLength(d.markdown, 'utf8'), ids: d.ids })),
+    open_tbd: openTbd,
+    findings: expanded.findings,
+    not_checked: expanded.not_checked,
+  }
+  const digest = digestOf(body)
+  const name = opts.doc.length ? `doc.${selected.map(indexName).join('+')}.json` : 'doc.json'
+  const degraded = expanded.findings.filter((f) => f.severity === 'degraded').length
+  return {
+    findings: expanded.findings.length,
+    blocking: expanded.findings.length - degraded,
+    degraded,
+    not_checked: expanded.not_checked.length,
+    path: writeCheck(ws, name, { ...body, digest }),
+    digest,
+    tree_digest: tree,
+  }
+}
+
+// snapshot --save: 項目ごとの hash を checks/<label>.snapshot.json に書く。audited- で始まるラベルは
+// --role auditor のときだけ保存する。CLI は呼び出し元を識別できないので、これは書き手が監査の基準を
+// 取り違えて上書きする事故を防ぐだけである。基準の差し替えを検出するのは diff の --expect の照合。
+function wsSnapshot(ws, opts) {
+  const label = opts.save
+  if (!label) throw new Error('snapshot には --save <label> が要ります')
+  if (!LABEL.test(label)) throw new Error(`ラベルは英数字と . _ - だけにしてください: ${label}`)
+  if (label.startsWith('audited-') && opts.role !== 'auditor') {
+    throw new Error('audited- で始まるラベルは --role auditor のときだけ保存できます（監査の基準は監査役だけが保存する）')
+  }
+  const wsDocs = workspaceDocs(ws)
+  const items = snapshotOf(wsDocs)
+  const digest = digestOf(items)
+  const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
+  const rel = writeCheck(ws, `${label}.snapshot.json`, { label, digest, docs })
+  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest }
+}
+
+// diff --against <label> --expect <digest>: 保存した snapshot と今の木を項目の単位で比べる。snapshot の
+// digest はファイルの items から計算し直し、ファイルに書かれた digest と --expect の両方に一致しなければ
+// 失敗にする（どちらか一方との照合だと、items を書き換えたファイルを受け入れてしまう）。失敗したときは
+// 以前の diff の結果ファイルも消す（古い結果を今回の結果として読ませないため）。
+function wsDiff(ws, opts) {
+  if (!opts.against || !opts.expect) throw new Error('diff には --against <label> と --expect <digest> が要ります')
+  if (!LABEL.test(opts.against)) throw new Error(`ラベルは英数字と . _ - だけにしてください: ${opts.against}`)
+  const outRel = `checks/diff-${opts.against}.json`
+  const snap = readJsonFile(path.join(ws, 'checks', `${opts.against}.snapshot.json`))
+  if (snap === null) throw new Error(`checks/${opts.against}.snapshot.json がありません`)
+  const prev = Object.fromEntries(Object.entries((snap && snap.docs) || {}).map(([k, v]) => [k, (v && v.items) || {}]))
+  const recomputed = digestOf(prev)
+  if (recomputed !== snap.digest || recomputed !== opts.expect) {
+    fs.rmSync(path.join(ws, outRel), { force: true })
+    throw new DigestMismatch(`snapshot ${opts.against} の digest が一致しません（--expect ${opts.expect} / 記録 ${snap.digest} / 再計算 ${recomputed}）`)
+  }
+  const cur = snapshotOf(workspaceDocs(ws))
+  const byDoc = {}
+  const all = { changed: [], added: [], removed: [] }
+  for (const key of [...new Set([...Object.keys(prev), ...Object.keys(cur)])].sort()) {
+    const p = prev[key] || {}
+    const c = cur[key] || {}
+    const r = {
+      changed: Object.keys(c).filter((k) => k in p && p[k] !== c[k]).sort(),
+      added: Object.keys(c).filter((k) => !(k in p)).sort(),
+      removed: Object.keys(p).filter((k) => !(k in c)).sort(),
+    }
+    if (!r.changed.length && !r.added.length && !r.removed.length) continue
+    byDoc[key] = r
+    for (const f of Object.keys(all)) all[f].push(...r[f])
+  }
+  for (const f of Object.keys(all)) all[f] = [...new Set(all[f])].sort()
+  const tree = digestOf(cur)
+  const rel = writeCheck(ws, `diff-${opts.against}.json`, { against: opts.against, expect: opts.expect, tree_digest: tree, ...all, by_doc: byDoc })
+  return { changed: all.changed.length, added: all.added.length, removed: all.removed.length, path: rel, tree_digest: tree }
+}
+
+// tree-digest: 今の木の digest。--doc を付けるとその文書だけの digest（snapshot の docs[key].digest と同じ値）。
+function wsTreeDigest(ws, opts) {
+  const wsDocs = workspaceDocs(ws)
+  const items = snapshotOf(wsDocs)
+  const selected = selectDocs(Object.keys(items), opts.doc)
+  const subset = Object.fromEntries(selected.map((k) => [k, items[k]]))
+  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0) }
+}
+
+function parseWorkspaceArgs(argv) {
+  const o = { doc: [] }
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    const take = () => {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new Error(`${a} に値がありません`)
+      return v
+    }
+    if (a === '--workspace' || a === '-w') o.workspace = take()
+    else if (a === '--save') o.save = take()
+    else if (a === '--against') o.against = take()
+    else if (a === '--expect') o.expect = take()
+    else if (a === '--role') o.role = take()
+    else if (a === '--doc') o.doc.push(take())
+    else if (a === '--open-tbd') o.openTbd = take().split(',').map((s) => s.trim()).filter(Boolean)
+    else throw new Error(`不明な引数です: ${a}`)
+  }
+  return o
+}
+
+// runWorkspace: stdout に出す 1 行分のオブジェクトを返す（件数・digest・書いたパスだけ）。
+function runWorkspace(mode, argv) {
+  const opts = parseWorkspaceArgs(argv)
+  if (!opts.workspace) throw new Error('--workspace <W> が要ります')
+  const ws = path.resolve(opts.workspace)
+  if (!fs.existsSync(ws) || !fs.statSync(ws).isDirectory()) throw new Error(`workspace がディレクトリではありません: ${opts.workspace}`)
+  if (mode === 'flow') return wsFlow(ws)
+  if (mode === 'conflicts') return wsConflicts(ws)
+  if (mode === 'doc') return wsDoc(ws, opts)
+  if (mode === 'snapshot') return wsSnapshot(ws, opts)
+  if (mode === 'diff') return wsDiff(ws, opts)
+  if (mode === 'tree-digest') return wsTreeDigest(ws, opts)
+  throw new Error(`不明なモードです: ${mode}`)
+}
+
 // import したときは実行しない（tests が関数を直接呼ぶ）。main の判定は実パスで比べる —
 // plugin のパスは symlink を含みうるので、文字列比較だと黙って何も出力しない CLI になる。
 const invokedDirectly = (() => {
@@ -1352,10 +1950,19 @@ const invokedDirectly = (() => {
   }
 })()
 
-if (invokedDirectly) {
+if (invokedDirectly && WS_MODES.includes(process.argv[2])) {
+  // 失敗は非ゼロで終える。--expect の不一致だけは 3 にして、壊れた入力（1）と区別できるようにする。
+  const mode = process.argv[2]
+  try {
+    process.stdout.write(`${JSON.stringify(runWorkspace(mode, process.argv.slice(3)))}\n`)
+  } catch (e) {
+    process.stderr.write(`doc_check ${mode}: ${e && e.message ? e.message : e}\n`)
+    process.exit(e instanceof DigestMismatch ? 3 : 1)
+  }
+} else if (invokedDirectly) {
   const file = process.argv[2]
   if (!file) {
-    process.stderr.write('usage: node doc_check.mjs <input.json>\n')
+    process.stderr.write(`usage: node doc_check.mjs <input.json> | node doc_check.mjs <${WS_MODES.join('|')}> --workspace <W>\n`)
     process.exit(2)
   }
   try {
@@ -1386,4 +1993,7 @@ export {
   stableKey,
   canonicalJson,
   runChecks,
+  WORKSPACE_TEXT,
+  itemSections,
+  runWorkspace,
 }

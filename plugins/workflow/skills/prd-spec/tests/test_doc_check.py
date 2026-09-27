@@ -305,10 +305,14 @@ class FindingTextParity(unittest.TestCase):
         self.assertEqual(_marked_block(DRAFT, "FINDING_TEXT"), cli)
 
     def test_CLI_は種別ごとに表の項目を使う(self):
+        # workspace モードだけの種別は WORKSPACE_TEXT に置く（FINDING_TEXT は draft.js / refine.js と逐語一致を
+        # 保つため増やせない）。2 つの表は重ならず、和が CLI の使う種別と一致する。
         cli = DOC_CHECK.read_text()
         used = set(re.findall(r"push\(\{ c: '([A-Z_]+)'", cli))
         table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "FINDING_TEXT"), re.M))
-        self.assertEqual(used, table)
+        ws_table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "WORKSPACE_TEXT"), re.M))
+        self.assertFalse(table & ws_table)
+        self.assertEqual(used, table | ws_table)
 
 
 class CheckerWiring(unittest.TestCase):
