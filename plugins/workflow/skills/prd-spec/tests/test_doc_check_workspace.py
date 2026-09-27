@@ -147,7 +147,9 @@ class SnapshotAndDiff(_Workspace):
 
     def test_stdout_は件数と_digest_とパスだけ(self):
         out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor")
-        self.assertEqual(set(out), {"label", "docs", "items", "path", "digest", "stray"})
+        self.assertEqual(set(out), {"label", "docs", "items", "path", "digest", "stray", "sizes", "size_over"})
+        self.assertEqual(set(out["stray"]), {"count", "path"})
+        self.assertEqual(set(out["size_over"]), {"count", "path"})
         out = _ok(self.ws, "diff", "--against", "audited-1", "--expect", out["digest"])
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
@@ -279,9 +281,111 @@ class FlowAndConflicts(_Workspace):
         )
         self.assertEqual(body["untargeted"], ["D-003"])
 
+    def test_前回と同じ形の経緯の入ったclosureはFLOW_HISTORYになる(self):
+        # 2026-09-27 の試走の closure（1,229 字）の最小の再現。put は経緯の印を拒否するので、put 以外で書かれた形を置く。
+        flow = json.loads((self.ws / "flow.json").read_text())
+        flow["closure"] = ("確かめたこと: 種類は type と 1 対 1 に対応する。 回答の反映（段 3a）: O-011 は回答（RS-011）で行き先が"
+                           "決まったので、未決の終端 F-092 を除いた。 回答の反映（段 3a'）: F-014 の失敗の枝を F-029 へ向けた。")
+        flow["elements"][1]["label"] = "承認（段 3a で足した）"
+        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        out = _ok(self.ws, "flow")
+        ids = _findings(self.ws, "flow.json")
+        self.assertIn("ST-FLOW-HISTORY-closure", ids)
+        self.assertIn("ST-FLOW-HISTORY-F-002.label", ids)
+        self.assertEqual(out["findings"], 2)
+
     def test_decisions_が無ければ失敗する(self):
         (self.ws / "decisions.json").unlink()
         self.assertEqual(_run(self.ws, "conflicts").returncode, 1)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class TreeFindings(_Workspace):
+    """snapshot・tree-digest の所見（stray と分量）。一覧は checks/ に書き、stdout は件数とパスだけにする。"""
+
+    def _plan_docs(self, *keys):
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["docs"] = [{"key": k, "concern": "c", "covers": [], "fixed": False} for k in keys]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+
+    def _stray(self, *args):
+        out = _ok(self.ws, "tree-digest", *args)
+        return out["stray"], json.loads((self.ws / out["stray"]["path"]).read_text())["stray"]
+
+    def test_planに無い文書はstrayで_topicに点を含むplanの文書は出ない(self):
+        shutil.copy(self.ws / "requirements-auth.md", self.ws / "requirements-auth.v1.md")
+        shutil.copy(self.ws / "requirements-auth.meta.json", self.ws / "requirements-auth.v1.meta.json")
+        shutil.copy(self.ws / "requirements-auth.md", self.ws / "requirements-auth-v2.md")
+        self._plan_docs("requirements/auth", "specifications/auth", "requirements/auth.v1")
+        count, listed = self._stray()
+        self.assertEqual(listed, ["requirements-auth-v2.md"])
+        self.assertEqual(count["count"], 1)
+
+    def test_planから外した文書とそのmetaはstrayになる(self):
+        self._plan_docs("requirements/auth")
+        self.assertEqual(self._stray()[1], ["specifications-auth.md", "specifications-auth.meta.json"])
+
+    def test_strayが100件でもstdoutは件数とパスだけ(self):
+        (self.ws / "tmp" / "resolver__3a").mkdir(parents=True)
+        for i in range(100):
+            (self.ws / "tmp" / "resolver__3a" / f"gen{i:03}.py").write_text("x")
+        r = _run(self.ws, "tree-digest")
+        out = json.loads(r.stdout)
+        self.assertEqual(out["stray"], {"count": 100, "path": "checks/stray.json"})
+        self.assertNotIn("gen0", r.stdout)
+        self.assertEqual(len(json.loads((self.ws / "checks" / "stray.json").read_text())["stray"]), 100)
+
+    def test_planが無ければ止まる(self):
+        (self.ws / "plan.json").unlink()
+        for mode in (("tree-digest",), ("snapshot", "--save", "x")):
+            with self.subTest(mode=mode[0]):
+                r = _run(self.ws, *mode)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("plan.json", r.stderr)
+        self.assertFalse((self.ws / "checks" / "x.snapshot.json").exists())
+
+    def test_SIZE_BUDGETを超えるファイルはSIZE_OVERに出る(self):
+        code = f"import {{ SIZE_BUDGET }} from {json.dumps(DOC_CHECK.as_uri())}; console.log(SIZE_BUDGET.document)"
+        budget = int(subprocess.run(["node", "--input-type=module", "-e", code], capture_output=True, text=True, check=True).stdout)
+        out = _ok(self.ws, "snapshot", "--save", "x")
+        self.assertEqual(out["size_over"]["count"], 0)
+        self.assertIn("decisions.json", out["sizes"])
+        with (self.ws / "requirements-auth.md").open("a") as f:
+            f.write("あ" * budget)
+        out = _ok(self.ws, "snapshot", "--save", "x")
+        self.assertEqual(out["size_over"], {"count": 1, "path": "checks/sizes.json"})
+        over = json.loads((self.ws / "checks" / "sizes.json").read_text())["over"]
+        self.assertEqual([o["file"] for o in over], ["requirements-auth.md"])
+        self.assertEqual(over[0]["budget"], budget)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Report(_Workspace):
+    HOLD = {"rule": "上限の裁定が下るまで、自動承認を設けてはならない", "issue_draft": "## 裁定してほしいこと\n上限を決める。\n\n```\n例\n```", "item_ids": ["PR-AUTH-002"]}
+
+    def _resolutions(self):
+        _put(self.ws, "resolutions", {"resolutions": [
+            {"id": "RS-001", "ruling": "method", "value": "文書を 1 つにまとめる", "why": "関心事が分かれていない"},
+            {"id": "RS-002", "ruling": "hold", "hold": self.HOLD, "upstream_revision": "基盤の要求の PR-BASE-001 に上限を足す"},
+            {"id": "RS-003", "ruling": "internal", "value": "F-002 に揃える"},
+        ]})
+
+    def test_同じresolutionsから同じバイト列を出す(self):
+        self._resolutions()
+        out = _ok(self.ws, "report")
+        first = (self.ws / "report.md").read_bytes()
+        self.assertEqual((out["method"], out["holds"], out["upstream_revisions"]), (1, 1, 1))
+        _ok(self.ws, "report")
+        self.assertEqual((self.ws / "report.md").read_bytes(), first)
+        text = first.decode()
+        for part in ("RS-001: 文書を 1 つにまとめる（関心事が分かれていない）", self.HOLD["rule"], "PR-AUTH-002", "````markdown\n## 裁定してほしいこと", "基盤の要求の PR-BASE-001 に上限を足す"):
+            self.assertIn(part, text)
+        self.assertNotIn("F-002 に揃える", text)
+
+    def test_resolutionsが無くても型どおりに0件を書く(self):
+        out = _ok(self.ws, "report")
+        self.assertEqual((out["method"], out["holds"], out["upstream_revisions"]), (0, 0, 0))
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 3)
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

@@ -42,7 +42,9 @@
   "questions_json_path": "needs_answers のとき W/questions.json（選択式で出すための同じ問い）",
   "answers_path": "needs_answers のとき W/answers/g0.md・g0-2.md・g1.md のどれか",
   "question_ids": ["RS-004"],
-  "report_path": "done（と、上限に達した blocked）のとき W/report.md",
+  "report_path": "done（と、上限に達した blocked）のとき W/report.md（司令塔が doc_check report で導出してから見せる）",
+  "remaining_blocking": ["上限に達した blocked のとき、残った blocking の指摘の ID"],
+  "doc_blocking": "上限に達した blocked のとき、残った doc_check の blocking の件数",
   "next_args": "needs_answers と、やり直せる blocked のとき。そのまま渡す args",
   "tree_digest": "最後の監査が見た木の digest（done のとき）",
   "open_tbd": ["開いている TBD の ID"],
@@ -65,8 +67,8 @@
   使い切った、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
   書き終えた版が違った、のような食い違いである。run は止めないが、事後報告に添える。
-- `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルを
-  `stray` として返した、など）。run は止めず、事後報告に添える。`integrity` に混ぜないのは、その件数を改善候補の
+- `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルや
+  分量の目安を超えたファイルを数えた、など。行には件数と一覧のファイルのパスだけを載せる）。run は止めず、事後報告に添える。`integrity` に混ぜないのは、その件数を改善候補の
   選別（`scripts/goal_selector.py` の R4）が照合の食い違いとして数えるからである。
 - `undeclared` は、writer が申告せずに変えた項目を文書ごとに並べたもの。監査は追加で当てているが、申告の漏れ
   そのものは writer の契約違反なので、事後報告と合わせて見る。
@@ -87,7 +89,7 @@
 | G1 | — | 1 パス目の段 6 で問いが出た | `needs_answers`（`from: 3a'`） |
 | 7 | writer（変更がある単位だけ） | writer の指摘・routes・doc_check の指摘・前回の書き込みの後に決まった裁定のどれかがある単位 | 何も無ければ 9 へ |
 | 8 | grounding（変えた文書）、implementer・cross-doc（その観点が指摘した項目が変わったとき）。1 体を指名 | 改稿の後は必ず | 申告に無い変更があれば、それが起きた文書ごとに（diff の `by_doc` で分け、その文書の申告を引いて）implementer と grounding を追加で起動。blocking が残れば 6 へ（2 パスまで）、それでも残れば blocked |
-| 9 | resolver（report.md） | done の直前。上限で blocked のときは、残った論点の保持規則と Issue の文案を書いてから | — |
+| 9 | —（上限で blocked のときだけ resolver が残った論点を保持規則と Issue の文案にする） | done の直前 | 事後報告は司令塔が `doc_check report` で導出する |
 
 範囲を絞った監査の基準は `audited-<n>` の snapshot で、script が保存時の digest を持ち、指名された監査役が
 `diff --expect` で照合する。writer の申告と木全体の diff を script が比べるので、生成した側だけに監査の範囲を
@@ -115,14 +117,15 @@
 |---|---|---|
 | `flow` / `conflicts` | flow-framer | 流れの形・閉包・出典の検査 / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定 |
-| `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。stdout の `stray` に、W に所有表（契約の「W のファイルと書き手」）に無いファイルと `tmp/` に残ったものを出す。`--live` に挙げた label の `tmp/` は動作中として除く |
+| `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
-| `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray` は snapshot と同じ |
+| `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray`・`sizes`・`size_over` は snapshot と同じ |
 | `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く |
-| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。引用の照合に 1 件でも落ちたら何も書かない |
+| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。型の外の欄・`FIELD_LIMITS` を超える欄・経緯の印・欄の条件に合わない要素・逐語でない引用が 1 件でもあれば何も書かない |
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…>` | 司令塔（`needs_answers` で問いを出す前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する |
+| `report` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、
 fixture テストがこの形で移設前の結果との一致を確かめている。

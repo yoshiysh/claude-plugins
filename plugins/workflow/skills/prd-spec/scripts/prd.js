@@ -11,7 +11,7 @@ export const meta = {
     { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当てる' },
     { title: 'Decide', detail: '段 6: 決定が要る指摘と新しい TBD を裁定する' },
     { title: 'Revise', detail: '段 7・8: 改稿し、変えた範囲だけを監査する（上限 2 パス）' },
-    { title: 'Report', detail: '段 9: 事後報告を書く' },
+    { title: 'Report', detail: '段 9: 上限で止まったときは残った論点を保持規則にする（事後報告は司令塔が doc_check report で導出する）' },
   ],
 }
 
@@ -920,11 +920,17 @@ function liveDirs(plan, round) {
   return plan.map((p) => fileKey(auditorLabel(p, round))).join(',')
 }
 
-// noteStray: W に所有表に無いファイルは照合の食い違いではない所見なので、integrity ではなく notices に置く
-// （integrity の件数は goal_selector の R4 が照合の食い違いとして数える）。
-function noteStray(audited, label) {
-  const stray = Array.isArray(audited.stray) ? audited.stray : []
-  if (stray.length) state.notices = [...(state.notices || []), `監査の基準 ${label} の時点で、W に所有表に無いファイルがあった: ${stray.join(', ')}`]
+// noteAudited: 所有表に無いファイルと分量の目安の超過は照合の食い違いではない所見なので、integrity ではなく
+// notices に置く（integrity の件数は goal_selector の R4 が照合の食い違いとして数える）。一覧は載せず件数とパスだけにする。
+function noteAudited(audited, label) {
+  const found = [
+    ['stray', 'W に所有表に無いファイル'],
+    ['size_over', '分量の目安（SIZE_BUDGET）を超えたファイル'],
+  ]
+  for (const [key, what] of found) {
+    const f = audited[key]
+    if (f && Number.isInteger(f.count) && f.count > 0) state.notices = [...(state.notices || []), `監査の基準 ${label} の時点で、${what}が ${f.count} 件あった（${W}/${f.path}）`]
+  }
 }
 
 function auditDocs() {
@@ -982,7 +988,7 @@ async function stage5() {
   if (!audited || !audited.digest) return blocked('cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした。どの版を監査したかの記録が無いまま進めません', '5')
   state.audit = { n: 1, digest: audited.digest }
   state.tree_digest = audited.digest
-  noteStray(audited, 'audited-1')
+  noteAudited(audited, 'audited-1')
   const findings = recordFindings(plan, results)
   setPending(findings, docCheck, [])
   return '6'
@@ -1137,7 +1143,7 @@ async function stage8() {
   state.undeclared = undeclared
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
-  noteStray(audited, `audited-${round}`)
+  noteAudited(audited, `audited-${round}`)
   const findings = recordFindings(allPlan, allResults)
   const docCheck = parseStdout(d.doc_check)
   setPending(findings, docCheck, carried)
@@ -1155,7 +1161,7 @@ async function stage8() {
 }
 
 // finalHold: 2 パス目の監査の後に残った blocking。改稿の枠が残っていないので文書に反映せず、決定が要るものは
-// 保持規則と Issue の文案（触れる項目 ID 付き）に変え、事後報告と合わせて blocked で返す。
+// 保持規則と Issue の文案（触れる項目 ID 付き）に変えて blocked で返す。残った blocking の一覧は返り値にだけ置く。
 async function finalHold(blocking, newTbd) {
   phase('Report')
   const decision = state.pending.decision || []
@@ -1165,13 +1171,12 @@ async function finalHold(blocking, newTbd) {
     'resolver',
     resolverPrompt(
       label,
-      '9（blocked）',
+      '上限の後（blocked）',
       [
         `上限の ${MAX_PASSES} パスを使い切り、blocking が ${blocking} 件残った。文書は直さない。`,
         decision.length || newTbd.length
           ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にし、hold.item_ids にその論点に触れる項目 ID、hold.issue_draft に Issue の文案を書く。`
           : '',
-        `続けて ${W}/report.md に事後報告を書き、残った blocking（${list(state.pending.blocking)}、doc_check ${state.pending.doc_blocking} 件）を列挙する。`,
       ]
         .filter(Boolean)
         .join('\n')
@@ -1188,18 +1193,9 @@ async function finalHold(blocking, newTbd) {
   })
 }
 
+// stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。
 async function stage9() {
   phase('Report')
-  const label = 'resolver:9'
-  const r = await once(
-    label,
-    'resolver',
-    resolverPrompt(label, '9（事後報告）', `${W}/report.md に事後報告を書く（resolver.md の「段 9」）。裁定の新規は作らない。`),
-    RESOLVER_SCHEMA,
-    'Report'
-  )
-  if (!r) return blocked('resolver（段 9 の事後報告）が応答しませんでした', '9')
-  absorbResolver(r)
   return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: EXISTING.filter((d) => d.fixed).map((d) => d.key) })
 }
 

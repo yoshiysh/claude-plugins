@@ -58,6 +58,14 @@ class RoleMapTests(unittest.TestCase):
         self.assertIn("1 role = 1 責務", ROLE_MAP)
         self.assertIn("判定と事実指摘のみ", ROLE_MAP)
 
+    def test_resolverの行に段9と事後報告が無い(self):
+        # 事後報告は doc_check report の導出物で、生成する役を持たない。
+        row = next(l for l in ROLE_MAP.splitlines() if _row_pattern("resolver").match(l))
+        stages = row.split("|")[1]
+        self.assertNotIn("9", stages)
+        self.assertNotIn("事後報告", row)
+        self.assertIn("doc_check report", next(l for l in ROLE_MAP.splitlines() if _row_pattern("司令塔").match(l)))
+
     def test_scripts_and_skill_reference_the_role_map(self):
         self.assertIn("schemas/role-map.md", PRD)
         self.assertIn("role-map.md", (SKILL / "SKILL.md").read_text(encoding="utf-8"))

@@ -93,7 +93,8 @@ Workflow({
 
 - **`needs_answers`**（G0・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
-  実行である。`questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
+  実行である。exit 0 で終わらなければ、問いを出さずに同じコマンドを流し直す（2 つのファイルの片方だけが新しい
+  ことがある）。`questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
   `header`・`question`・`options` の文面は**変えずに**渡す）。選択式で答えやすくするためで、文面を縮めたり
   言い換えたりすると、その要約は誰にも検証されないまま依頼者の判断材料になる。背景を読みたいと言われたら
   `questions_path` の本文をそのまま見せる。回答は `<ID>: <選ばれた label>` の行（自由記述や注記があればその文を
@@ -101,8 +102,9 @@ Workflow({
   回答の無い問いを既定で埋めたりしない。回答の解釈は resolver が行い、候補の外の自由記述は verifier が検証する。
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
-  しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば、その事後報告（残った blocking と
-  保持規則・Issue の文案）をそのまま見せる。blocked のまま保存しない。
+  しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば、下の「事後報告」と同じく
+  `doc_check report` で導出してそのまま見せ、残った blocking（返り値の `remaining_blocking`・`doc_blocking`）を
+  並べて見せる。blocked のまま保存しない。
 - **`done`**: 下の「保存」へ進む。
 
 再実行は `from`（段の境界）で行い、Workflow の resume に頼らない。状態はすべて W のファイルと `next_args.state`
@@ -116,8 +118,9 @@ Workflow({
 
 1. **照合**: `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
    `tree_digest` を文字列で比べる。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
-   している版は監査されていない。同じ出力の `stray`（W に所有表に無いファイル。版の控えや残った作業用の script）が
-   空でなければ、保存は止めずに、その一覧を事後報告に添える。
+   している版は監査されていない。同じ出力の `stray`（W に所有表に無いファイル。版の控えや残った作業用の script）の
+   件数が 0 でなければ、保存は止めずに、`stray.path` のファイルの一覧を事後報告に添える。続けて
+   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む）。
 2. **INDEX**: `node [SKILL_DIR]/scripts/doc_check.mjs index --workspace <W> --req-dir <要求の保存先> --spec-dir <仕様の保存先> --open-tbd "<返り値の open_tbd をカンマで>"`
    を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す。INDEX は導出物で、手で書くと本体と
    ずれる。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも `fixed` として置く。
@@ -126,10 +129,10 @@ Workflow({
    新規の文書に化けて元の文書が古いまま残る）。INDEX の `--req-dir`・`--spec-dir` も保存先に合わせる。`fixed` の文書は写さない。meta は写さない（根拠は W と commit に残る）。
    - 新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
-4. **事後報告**: `W/report.md` をそのまま見せる。方法論として決めたこと・保持規則・Issue の文案がそこにある。
+4. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
    できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
-   `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、など）である。
+   `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
 5. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。
 6. **経緯は commit と PR に残す**: 文書には決定ログも経緯も書かない（`references/document-structure.md` §4）。

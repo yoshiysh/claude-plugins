@@ -40,6 +40,12 @@ def _ok(ws, mode, *args, stdin=None, doc_check=DOC_CHECK):
     return json.loads(r.stdout)
 
 
+def _stray_list(ws, out):
+    listed = json.loads((Path(ws) / out["stray"]["path"]).read_text(encoding="utf-8"))["stray"]
+    assert out["stray"]["count"] == len(listed), out
+    return listed
+
+
 def _section(text, heading):
     start = text.index(f"\n{heading}\n")
     end = text.find("\n## ", start + 1)
@@ -78,13 +84,13 @@ class Stray(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_所有表に無いファイルだけがstrayに出る(self):
-        self.assertEqual(_ok(self.ws, "snapshot", "--save", "x")["stray"], STRAY)
-        self.assertEqual(_ok(self.ws, "tree-digest")["stray"], STRAY)
+        self.assertEqual(_stray_list(self.ws, _ok(self.ws, "snapshot", "--save", "x")), STRAY)
+        self.assertEqual(_stray_list(self.ws, _ok(self.ws, "tree-digest")), STRAY)
 
     def test_liveのlabelの作業用ディレクトリは出ない(self):
         out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r1__x,resolver__3a")
-        self.assertEqual(out["stray"], [s for s in STRAY if not s.startswith("tmp/")])
-        self.assertIn("tmp/resolver__3a/apply3a.py", _ok(self.ws, "tree-digest", "--live", "resolver__3b")["stray"])
+        self.assertEqual(_stray_list(self.ws, out), [s for s in STRAY if not s.startswith("tmp/")])
+        self.assertIn("tmp/resolver__3a/apply3a.py", _stray_list(self.ws, _ok(self.ws, "tree-digest", "--live", "resolver__3b")))
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
@@ -107,7 +113,7 @@ class OwnershipComesFromContract(unittest.TestCase):
         self._tmp.cleanup()
 
     def _stray(self):
-        return _ok(self.ws, "tree-digest", doc_check=self.doc_check)["stray"]
+        return _stray_list(self.ws, _ok(self.ws, "tree-digest", doc_check=self.doc_check))
 
     def test_表に行を足すとそのファイルはstrayでなくなる(self):
         text = CONTRACTS.read_text(encoding="utf-8")
@@ -201,21 +207,46 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
             ws = Path(td) / "W"
             shutil.copytree(FIXTURE, ws)
             for r in body["resolutions"]:
-                _touch(ws, r["answer"]["path"], f"{r['id']}: {r['answer']['quote']}\n")
-                for e in r["evidence"]:
+                if "answer" in r:
+                    _touch(ws, r["answer"]["path"], f"{r['id']}: {r['answer']['quote']}\n")
+                for e in r.get("evidence", []):
                     self.assertTrue(e["file"].startswith(self.EVIDENCE_ROOT), e["file"])
                     e["file"] = str(Path(td) / "repo" / e["file"][len(self.EVIDENCE_ROOT) :])
                     lines = [""] * max(e["line"], e.get("end", e["line"]))
                     lines[e["line"] - 1] = e["quote"]
                     _touch(td, e["file"], "\n".join(lines) + "\n")
             _ok(ws, "put", "--ledger", "resolutions", stdin=body)
-            out = _ok(ws, "questions", "--ids", ",".join(r["id"] for r in body["resolutions"]))
-            self.assertEqual(out["questions"], len(body["resolutions"]))
+            asked = [r["id"] for r in body["resolutions"] if "question" in r]
+            self.assertTrue(asked)
+            self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked))["questions"], len(asked))
+            self.assertEqual(_ok(ws, "report")["holds"], sum(1 for r in body["resolutions"] if r["ruling"] == "hold"))
 
     def test_候補の数の上限はdoc_checkにだけある(self):
         self.assertRegex(SOURCE, r"const QUESTION_OPTIONS = \{ min: \d+, max: \d+ \}")
         for p in [CONTRACTS, *SKILL.glob("agents/*.md"), *SKILL.glob("references/*.md"), SKILL / "SKILL.md"]:
             self.assertIsNone(re.search(r"2\s*[〜～\-]\s*4\s*個", p.read_text(encoding="utf-8")), p.name)
+
+
+class LimitsLiveInDocCheck(unittest.TestCase):
+    """欄の字数の上限と分量の目安の数値は doc_check にだけあり、契約・agents・文書には写さない。"""
+
+    def _numbers(self, const):
+        block = re.search(rf"const {const} = \{{(.*?)\}}", SOURCE, re.S).group(1)
+        return {int(n) for n in re.findall(r":\s*(\d+)", block)}
+
+    def test_数値は契約とagentsに無い(self):
+        nums = self._numbers("FIELD_LIMITS") | self._numbers("SIZE_BUDGET")
+        self.assertGreater(len(nums), 8)
+        files = [CONTRACTS, SKILL / "SKILL.md", *SKILL.glob("agents/*.md"), *SKILL.glob("schemas/*.md"), *SKILL.glob("references/*.md")]
+        for p in files:
+            text = p.read_text(encoding="utf-8").replace(",", "")
+            for n in nums:
+                self.assertIsNone(re.search(rf"(?<![\d.]){n}\s*(字|バイト|bytes?)", text), f"{p.name}: {n}")
+
+    def test_契約は上限の正本を名前で指す(self):
+        common = _section(CONTRACTS.read_text(encoding="utf-8"), "## 共通の約束")
+        self.assertIn("FIELD_LIMITS", common)
+        self.assertIn("SIZE_BUDGET", common)
 
 
 class LedgerFileNamesComeFromLedgers(unittest.TestCase):

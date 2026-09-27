@@ -87,16 +87,33 @@ writer はこの meta を `doc_check put --ledger meta --doc requirements/notifi
 **保存**: `tree-digest` を返り値の `tree_digest` と照合し、`doc_check index` の出力を `docs/requirements/INDEX.md`
 と `docs/specifications/INDEX.md` へ逐語で写し、文書を保存先へ写す。
 
-**事後報告（`report.md` をそのまま見せる。例）**:
+**事後報告（`doc_check report` で導出した `report.md` をそのまま見せる。例）**:
 
-```
-方法論として決めたこと
-- RS-004（method）: 通知の文面は件名に申請番号を含める形式にした。異議があれば覆せます。
+`````markdown
+# 事後報告
 
-保持規則と Issue の文案
-- RS-005（hold）: 金額の上限。PR-EXPENSE-004 に保持規則として入れました。
-  Issue の文案: 「経費申請の金額の上限を決める。決まるまで自動承認は設けない（PR-EXPENSE-004）。」
-```
+## 方法論として決めたこと
+
+- RS-004: 通知の文面は件名に申請番号を含める（件名だけで申請を特定できる）
+
+## 保持規則と Issue の文案
+
+### RS-005
+
+**保持規則**: 金額の上限の裁定が下るまで、金額を伴う自動承認を設けてはならない
+
+**触れる項目**: PR-EXPENSE-004
+
+**Issue の文案**:
+
+````markdown
+経費申請の金額の上限を決める。決まるまで自動承認は設けない（PR-EXPENSE-004）。
+````
+
+## 上位文書の改訂の文案
+
+0 件。
+`````
 
 開いている TBD（返り値の `open_tbd`）が 0 件なので、「このまま次工程に着手できます」と伝える。Issue は承認を
 得てから起票する。

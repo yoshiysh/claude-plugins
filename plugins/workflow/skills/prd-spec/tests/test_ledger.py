@@ -11,6 +11,8 @@
 
 import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +22,14 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workspace"
+CONTRACTS = SKILL / "schemas" / "agent-contracts.md"
+
+
+def _exported(expr):
+    """doc_check.mjs が export する定数を JSON で取り出す（数値や欄の一覧をテストに写さないため）。"""
+    code = f"import * as m from {json.dumps(DOC_CHECK.as_uri())}; console.log(JSON.stringify({expr}))"
+    r = subprocess.run(["node", "--input-type=module", "-e", code], capture_output=True, text=True, check=True)
+    return json.loads(r.stdout)
 
 
 def _run(ws, mode, *args, stdin=None):
@@ -192,11 +202,12 @@ class Verbatim(_Workspace):
     def test_回答に無い引用は拒否し_回答にあれば通す(self):
         (self.ws / "answers").mkdir()
         (self.ws / "answers" / "g0.md").write_text("RS-001: 画面に出してください\n")
-        bad = {"resolutions": [{"id": "RS-001", "answer": {"path": "answers/g0.md", "quote": "メールで"}}]}
-        self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin=bad)
+        bad = {"resolutions": [{**RESOLUTION_Q, "answer": {"path": "answers/g0.md", "quote": "メールで"}}]}
+        r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin=bad)
+        self.assertIn("逐語", r.stderr)
         self._unchanged_after("requirements-auth.meta.json", "put", "--ledger", "meta", "--doc", "requirements/auth",
                               stdin={"trace": [{"item_id": "PR-AUTH-001", "kind": "answers", "quote": "メールで"}]})
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": {"path": "answers/g0.md", "quote": "画面に出して"}}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "answer": {"path": "answers/g0.md", "quote": "画面に出して"}}]})
 
     def test_evidence_は行の範囲で照合する(self):
         src = Path(self._tmp.name) / "impl.py"
@@ -295,7 +306,8 @@ class Verifications(_Workspace):
 
 
 class FieldMerge(_Workspace):
-    """put は同じキーの要素に、送った最上位の欄だけを上書きする。欄を消すのは null だけで、送らない欄は残る。"""
+    """put は同じキーの要素に、送った最上位の欄だけを上書きする。欄を消すのは null だけで、送らない欄は残る。
+    型や ruling を変えて、その型に無い欄が残る put は、欄の条件で拒否される。"""
 
     def _res(self):
         return json.loads((self.ws / "resolutions.json").read_text())["resolutions"]
@@ -312,15 +324,17 @@ class FieldMerge(_Workspace):
             self.assertEqual(r[k], RESOLUTION_Q[k], k)
         self.assertEqual(r["value"], "結果は画面に出す")
 
-    def test_送らない欄は古い値が残り_nullを送れば消える(self):
+    def test_rulingを変えて古い欄を送らなければ拒否し_nullを送れば通る(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "hold"}]})
-        self.assertIn("options", self._res()[0], "送らなかった options は残る（消したつもりでも消えない）")
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "question": None, "options": None}]})
-        r = self._res()[0]
-        self.assertNotIn("options", r)
-        self.assertNotIn("question", r)
-        self.assertEqual(r["ruling"], "hold")
+        hold = {"rule": "返し方の裁定が下るまで、結果を返してはならない", "issue_draft": "返し方を決める", "item_ids": ["PR-AUTH-001"]}
+        r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "hold", "hold": hold}]})
+        self.assertIn("question・options", r.stderr)
+        self.assertIn("null", r.stderr)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "hold", "hold": hold, "question": None, "options": None}]})
+        res = self._res()[0]
+        self.assertNotIn("options", res)
+        self.assertNotIn("question", res)
+        self.assertEqual(res["ruling"], "hold")
 
     def test_引用を持つ欄もnullで消せる(self):
         (self.ws / "answers").mkdir()
@@ -330,13 +344,12 @@ class FieldMerge(_Workspace):
         self.assertNotIn("answer", self._res()[0])
         _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-001", "quote": None}]})
 
-    def test_再検証で合格にしてもfail_kindはnullを送るまで残る(self):
+    def test_再検証で合格にしてfail_kindを残すputは拒否し_nullを送れば通る(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal"}]})
         args = ("--ledger", "verifications", "--expect-resolutions", _sha(self.ws / "resolutions.json"), "--expect-decisions", _sha(self.ws / "decisions.json"))
         _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "mapping", "reason": "r"}]})
-        _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "reason": "r2"}]})
-        item = json.loads((self.ws / "verifications.json").read_text())["items"][0]
-        self.assertEqual((item["verdict"], item["fail_kind"]), ("pass", "mapping"))
+        r = self._unchanged_after("verifications.json", "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "reason": "r2"}]})
+        self.assertIn("fail_kind", r.stderr)
         _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "fail_kind": None, "reason": "r2"}]})
         self.assertNotIn("fail_kind", json.loads((self.ws / "verifications.json").read_text())["items"][0])
 
@@ -426,6 +439,251 @@ class Questions(_Workspace):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "ruling": "internal"}]})
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-009").returncode, 1)
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-404").returncode, 1)
+
+
+def _limit_body(path_key, text):
+    """FIELD_LIMITS の鍵（<台帳>.<配列>.<欄> か <台帳>.<欄>）に text を入れた put の入力。"""
+    parts = path_key.split(".")
+    if len(parts) == 2:
+        return parts[0], {parts[1]: text}
+    ledger, lst, field = parts
+    base = {
+        ("decisions", "decisions"): {"id": "D-009"},
+        ("open", "open"): {"id": "O-009"},
+        ("resolutions", "resolutions"): {"id": "RS-009", "ruling": "internal"},
+        ("verifications", "items"): {"id": "D-001", "verdict": "pass"},
+        ("flow", "elements"): {"id": "F-001"},
+        ("flow", "kinds"): {"name": "工程"},
+    }[(ledger, lst)]
+    return ledger, {lst: [{**base, field: text}]}
+
+
+class FieldTypes(_Workspace):
+    """put は型の外の欄・上限を超える欄・経緯の印を持つ欄を、何も書かずに拒否する。"""
+
+    def _put(self, ledger, body):
+        extra = ()
+        if ledger == "verifications":
+            extra = ("--expect-resolutions", _ok(self.ws, "sha", "--ledger", "resolutions")["sha256"],
+                     "--expect-decisions", _ok(self.ws, "sha", "--ledger", "decisions")["sha256"])
+        return ("--ledger", ledger, *extra), body
+
+    def test_上限ちょうどは通り_1字超えると拒否する(self):
+        for key, limit in _exported("m.FIELD_LIMITS").items():
+            with self.subTest(field=key):
+                ledger, over = _limit_body(key, "字" * (limit + 1))
+                args, body = self._put(ledger, over)
+                r = self._unchanged_after(f"{ledger}.json", "put", *args, stdin=body)
+                self.assertIn(f"{limit} 字", r.stderr)
+                ledger, fit = _limit_body(key, "字" * limit)
+                _ok(self.ws, "put", *self._put(ledger, fit)[0], stdin=fit)
+
+    def test_型の外の欄は拒否する(self):
+        cases = [
+            ("decisions.json", ("--ledger", "decisions"), {"decisions": [{"id": "D-001", "note": "経緯"}]}),
+            ("flow.json", ("--ledger", "flow"), {"elements": [{"id": "F-001", "history": "前の行き先"}]}),
+            ("open.json", ("--ledger", "open"), {"open": [{"id": "O-001", "memo": None}]}),
+            ("requirements-auth.meta.json", ("--ledger", "meta", "--doc", "requirements/auth"), {"tbd": [{"id": "TBD-RAUTH-001", "status": "open"}]}),
+        ]
+        for name, args, body in cases:
+            with self.subTest(file=name):
+                r = self._unchanged_after(name, "put", *args, stdin=body)
+                self.assertIn("欄ではありません", r.stderr)
+
+    def test_経緯の印を持つ自由記述の欄は拒否する(self):
+        el = {"id": "F-002"}
+        cases = [
+            ("flow", {"closure": "工程を列挙した。回答の反映（段 3a、RS-020）: F-029 を足した。"}),
+            ("flow", {"closure": "G0-2 の回答で F-020 の枝を除いた"}),
+            ("flow", {"elements": [{**el, "label": "承認（段 3a で足した）"}]}),
+            ("flow", {"kinds": [{"name": "工程", "definition": "3a' で分けた処理"}]}),
+            ("decisions", {"decisions": [{"id": "D-001", "why": "G1 の問いで決まった"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-im-requirements__auth-002 への対応"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "続けるか止めるかは価値の判断で、段 3a では続きの問いを聞けない"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "段 9 で聞くゲートが残っていないため保持規則にした"}]}),
+            ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "O-011 は回答の反映で行き先が決まった"}]}),
+        ]
+        for ledger, body in cases:
+            with self.subTest(body=body):
+                r = self._unchanged_after(f"{ledger}.json", "put", "--ledger", ledger, stdin=body)
+                self.assertIn("経緯の印", r.stderr)
+
+    def test_分野の普通の語は経緯の印にしない(self):
+        with (self.ws / "input.md").open("a") as f:
+            f.write("\nコミット 3a9f0c1 を基準にする。\n")
+        _ok(self.ws, "put", "--ledger", "flow", stdin={
+            "closure": "新旧の設定を併存させる。旧版の設定は v2 への移行で消す。",
+            "elements": [{"id": "F-002", "label": "API v2 への切替"}, {"id": "F-001", "source": {"input": "コミット 3a9f0c1 を基準にする"}}],
+            "kinds": [{"name": "工程", "definition": "2 段階認証を含む入力の変換"}],
+        })
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [
+            {"id": "RS-001", "ruling": "internal", "why": "RS-232 の配線と、改稿前の版の手順書（第 3 版）の段組みに合わせる。G10 と 3ab の型番も同じ"}]})
+        _ok(self.ws, "flow")
+        self.assertFalse(any("HISTORY" in i for i in json.loads((self.ws / "checks" / "flow.json").read_text())["findings"]))
+
+
+class Cases(_Workspace):
+    """欄の条件: 型や ruling ごとに持つ欄・持てない欄を宣言し、マージした後の要素で検査する。"""
+
+    HOLD = {"rule": "返し方の裁定が下るまで、結果を返してはならない", "issue_draft": "返し方を決める", "item_ids": ["PR-AUTH-001"]}
+
+    def _answer(self):
+        (self.ws / "answers").mkdir(exist_ok=True)
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        return {"path": "answers/g0.md", "quote": "RS-001: 画面"}
+
+    def _rejected(self, body, *words):
+        r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin=body)
+        for w in words:
+            self.assertIn(w, r.stderr)
+
+    def test_questionからinternalに変えてoptionsを残すと拒否し_nullで通る(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        self._rejected({"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "画面"}]}, "question・options", "null")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "画面", "question": None, "options": None}]})
+
+    def test_回答の前のquestionはvalueを持てず_answerと一緒なら通る(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        self._rejected({"resolutions": [{"id": "RS-001", "value": "結果は画面に出す"}]}, "value")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "value": "結果は画面に出す", "answer": self._answer()}]})
+
+    def test_holdはvalueを持てずholdが要る(self):
+        self._rejected({"resolutions": [{"id": "RS-002", "ruling": "hold", "hold": self.HOLD, "value": "画面"}]}, "value")
+        self._rejected({"resolutions": [{"id": "RS-002", "ruling": "hold"}]}, "hold が要ります")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-002", "ruling": "hold", "hold": self.HOLD}]})
+
+    def test_answerはquestionだけが持てる(self):
+        self._rejected({"resolutions": [{"id": "RS-003", "ruling": "internal", "answer": self._answer()}]}, "answer")
+        self._rejected({"resolutions": [{"id": "RS-003", "answer": self._answer()}]}, "answer")
+
+    def test_questionは問いと候補が要り_未知のrulingは拒否する(self):
+        self._rejected({"resolutions": [{"id": "RS-004", "ruling": "question"}]}, "question・options が要ります")
+        self._rejected({"resolutions": [{"id": "RS-004", "ruling": "questoin"}]}, "questoin")
+
+    def test_decisionからstepに変えてbranchesを残すと拒否し_nullで通る(self):
+        branches = [{"value": "可", "next": "F-003"}, {"value": "否", "next": "F-003"}]
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": branches, "next": None}]})
+        r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "step", "next": ["F-003"]}]})
+        self.assertIn("branches", r.stderr)
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "step", "next": ["F-003"], "branches": None}]})
+
+    def test_decisionはnextを持てない(self):
+        r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": []}]})
+        self.assertIn("next", r.stderr)
+
+
+def _json_after(text, marker):
+    m = re.search(re.escape(marker) + r"[^\n]*\n\n```json\n(.*?)\n```", text, re.S)
+    return json.loads(m.group(1))
+
+
+class ContractExamplesUseLedgerFields(unittest.TestCase):
+    """契約の JSON の例に出るキーが、すべて LEDGERS の欄の一覧にある（例と型の正本がずれない）。"""
+
+    @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+    def test_例のキーはLEDGERSの欄にある(self):
+        ledgers = _exported("Object.fromEntries(Object.entries(m.LEDGERS).map(([k, v]) => [k, { lists: v.lists, scalars: Object.keys(v.scalars), fields: v.fields }]))")
+        text = CONTRACTS.read_text(encoding="utf-8")
+        flow_sec = text[text.index("\n## §flow-framer\n"):]
+        examples = {
+            "decisions": _json_after(text, "**decisions.json**"),
+            "resolutions": _json_after(text, "**resolutions.json**"),
+            "verifications": _json_after(text, "**verifications.json**"),
+            "open": json.loads(re.search(r"\*\*open\.json\*\*\n\n```json\n(.*?)\n```", text, re.S).group(1)),
+            "routes": _json_after(text, "**routes.json**"),
+            "meta": _json_after(text, "**meta.json**"),
+            "flow": json.loads(re.search(r"```json\n(.*?)\n```", flow_sec, re.S).group(1)),
+        }
+        self.assertEqual(set(examples), set(ledgers))
+        for name, ex in examples.items():
+            spec = ledgers[name]
+            self.assertEqual(set(ex) - set(spec["lists"]) - set(spec["scalars"]), set(), name)
+            for lst in spec["lists"]:
+                for el in ex.get(lst, []):
+                    with self.subTest(ledger=name, list=lst, el=el.get(spec["lists"][lst])):
+                        self.assertEqual(set(el) - set(spec["fields"][lst]), set())
+
+
+def _drop_privileges():
+    os.setgid(65534)
+    os.setuid(65534)
+
+
+class AtomicWrite(_Workspace):
+    """書き込みか rename の途中で落ちても、元のファイルは変わらず、一時名のファイルも残らない。"""
+
+    def _read_only_run(self, *args, stdin=None):
+        """W に書けない利用者として実行する。root は読み取り専用のディレクトリにも書けるので、権限を落とす。"""
+        if os.geteuid() == 0:
+            for p in [Path(self._tmp.name), *Path(self._tmp.name).rglob("*")]:
+                p.chmod(0o755 if p.is_dir() else 0o644)
+            kw = {"preexec_fn": _drop_privileges}
+        else:
+            self.ws.chmod(0o555)
+            self.addCleanup(self.ws.chmod, 0o755)
+            kw = {}
+        return subprocess.run(["node", str(DOC_CHECK), *args, "--workspace", str(self.ws)],
+                              input=None if stdin is None else json.dumps(stdin, ensure_ascii=False), capture_output=True, text=True, **kw)
+
+    def _tmps(self):
+        return [p.name for p in self.ws.rglob("*.tmp")]
+
+    def test_書き込みで落ちたputは台帳を変えず一時名も残さない(self):
+        before = (self.ws / "decisions.json").read_bytes()
+        r = self._read_only_run("put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-001", "value": "承認は 2 人で行う"}]})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("EACCES", r.stderr)
+        self.assertEqual((self.ws / "decisions.json").read_bytes(), before)
+        self.assertEqual(self._tmps(), [])
+
+    def test_書き込みで落ちたquestionsは2ファイルとも変えない(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        _ok(self.ws, "questions", "--ids", "RS-001")
+        before = [(self.ws / n).read_bytes() for n in ("questions.md", "questions.json")]
+        (self.ws / "questions.md").write_text("手で直した")
+        before[0] = (self.ws / "questions.md").read_bytes()
+        r = self._read_only_run("questions", "--ids", "RS-001")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("EACCES", r.stderr)
+        self.assertEqual([(self.ws / n).read_bytes() for n in ("questions.md", "questions.json")], before)
+        self.assertEqual(self._tmps(), [])
+
+    def _write_atomic(self, *pairs):
+        code = (f"import {{ writeAtomic }} from {json.dumps(DOC_CHECK.as_uri())};"
+                f"try {{ writeAtomic(...{json.dumps([[str(f), t] for f, t in pairs])}); process.exit(0) }} catch (e) {{ console.error(e.code); process.exit(7) }}")
+        return subprocess.run(["node", "--input-type=module", "-e", code], capture_output=True, text=True)
+
+    def test_2本目の一時名の書き込みで落ちたら1本目の一時名も消す(self):
+        first = self.ws / "decisions.json"
+        before = first.read_bytes()
+        r = self._write_atomic((first, "x"), (self.ws / "missing" / "questions.json", "y"))
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertIn("ENOENT", r.stderr)
+        self.assertEqual(first.read_bytes(), before)
+        self.assertEqual(self._tmps(), [])
+
+    def test_renameで落ちたら元は変わらず一時名も残らない(self):
+        target = self.ws / "decisions.json"
+        blocker = self.ws / "routes.json"
+        blocker.mkdir()
+        before = target.read_bytes()
+        code = (f"import {{ writeAtomic }} from {json.dumps(DOC_CHECK.as_uri())};"
+                f"try {{ writeAtomic([{json.dumps(str(blocker))}, 'x'], [{json.dumps(str(target))}, 'y']); process.exit(0) }} catch {{ process.exit(7) }}")
+        r = subprocess.run(["node", "--input-type=module", "-e", code], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertTrue(blocker.is_dir())
+        self.assertEqual(target.read_bytes(), before)
+        self.assertEqual(self._tmps(), [])
+
+    def test_renameで落ちたquestionsは2ファイルとも変えない(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        (self.ws / "questions.md").mkdir()
+        (self.ws / "questions.json").write_text("前の導出物")
+        r = _run(self.ws, "questions", "--ids", "RS-001")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertTrue((self.ws / "questions.md").is_dir())
+        self.assertEqual((self.ws / "questions.json").read_text(), "前の導出物")
+        self.assertEqual(self._tmps(), [])
 
 
 if __name__ == "__main__":

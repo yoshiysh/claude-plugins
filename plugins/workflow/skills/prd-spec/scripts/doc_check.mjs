@@ -1384,6 +1384,13 @@ const WORKSPACE_TEXT = {
     issue: `流れの要素 ${id} が出典に挙げた ${ref} が ${kind === 'decision' ? `${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも` : `${ledgerOf('open').file()} に`}無い。実在しない出典は、出典が無いのと同じである。`,
     fix: `${ref} を実在する ID に直すか、出典を付け直す。`,
   }),
+  FLOW_HISTORY: (where, mark) => ({
+    id: `ST-FLOW-HISTORY-${where}`,
+    location: '工程の流れ（flow）',
+    quote: `${where}: ${mark}`,
+    issue: `流れの ${where} に経緯の印「${mark}」がある。経緯が混ざると、どれが現行の値か読み手が区別できない。`,
+    fix: `${where} を現行の値だけに書き直す。判断の記録は resolutions と commit に置く。`,
+  }),
   AMBIGUOUS: (docKey, itemId, word, quote) => ({
     id: `ST-AMBIGUOUS-${docKey}-${itemId}-${word}`,
     location: itemId,
@@ -1408,8 +1415,9 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha']
+const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha', 'report']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
+const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 class DigestMismatch extends Error {}
@@ -1437,18 +1445,66 @@ function readJsonFile(file) {
 
 // 台帳は ID 単位の put / del だけで書く。全体を読んで書き戻す更新は再実行で結果が変わり、復元点として
 // 版の控えが要る原因になった。lists は配列名とその要素のキー、groupBy の配列は同じキーの行をまとめて置き換える。
+// fields は要素が持てる欄の閉集合（型の外の欄は put が拒否する）。cases は、by が返す行ごとに must（持つ）・
+// never（持てない）欄を宣言する。欄単位のマージでは型や ruling を変えても古い欄が残るので、残りを構造で止める。
+const OTHER_RULING = { never: ['question', 'options', 'answer', 'hold'] }
 const LEDGERS = {
-  decisions: { file: () => 'decisions.json', lists: { decisions: 'id' }, scalars: {} },
-  open: { file: () => 'open.json', lists: { open: 'id' }, scalars: {} },
-  resolutions: { file: () => 'resolutions.json', lists: { resolutions: 'id' }, scalars: {} },
+  decisions: {
+    file: () => 'decisions.json',
+    lists: { decisions: 'id' },
+    scalars: {},
+    fields: { decisions: ['id', 'topic', 'value', 'why', 'source', 'quote', 'ref', 'layer', 'targets', 'reversibility'] },
+  },
+  open: { file: () => 'open.json', lists: { open: 'id' }, scalars: {}, fields: { open: ['id', 'text', 'searched', 'by', 'targets'] } },
+  resolutions: {
+    file: () => 'resolutions.json',
+    lists: { resolutions: 'id' },
+    scalars: {},
+    fields: {
+      resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision'],
+    },
+    cases: {
+      resolutions: {
+        by: (r) => (r.ruling === undefined ? '（ruling なし）' : r.ruling === 'question' ? `question（answer ${r.answer === undefined ? 'なし' : 'あり'}）` : r.ruling),
+        rows: {
+          'question（answer なし）': { must: ['question', 'options'], never: ['answer', 'value', 'hold'] },
+          'question（answer あり）': { must: ['question', 'options'], never: ['hold'] },
+          hold: { must: ['hold'], never: ['question', 'options', 'answer', 'value'] },
+          precedent: OTHER_RULING,
+          internal: OTHER_RULING,
+          measured: OTHER_RULING,
+          method: OTHER_RULING,
+          '（ruling なし）': OTHER_RULING,
+        },
+      },
+    },
+  },
   verifications: {
     file: () => 'verifications.json',
     lists: { items: 'id' },
     scalars: { resolutions_sha256: 'string', decisions_sha256: 'string' },
     filled: ['resolutions_sha256', 'decisions_sha256'],
+    fields: { items: ['id', 'verdict', 'fail_kind', 'reason', 'digest'] },
+    cases: {
+      items: {
+        by: (it) => (it.verdict === undefined ? '（verdict なし）' : it.verdict),
+        rows: { fail: {}, pass: { never: ['fail_kind'] }, '（verdict なし）': { never: ['fail_kind'] } },
+      },
+    },
   },
-  routes: { file: () => 'routes.json', lists: { routes: 'id' }, scalars: {} },
-  flow: { file: () => 'flow.json', lists: { elements: 'id', kinds: 'name' }, scalars: { closure: 'string' } },
+  routes: { file: () => 'routes.json', lists: { routes: 'id' }, scalars: {}, fields: { routes: ['id', 'unit', 'doc', 'item_id', 'resolutions'] } },
+  flow: {
+    file: () => 'flow.json',
+    lists: { elements: 'id', kinds: 'name' },
+    scalars: { closure: 'string' },
+    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches'], kinds: ['name', 'definition'] },
+    cases: {
+      elements: {
+        by: (el) => (el.type === 'decision' ? 'decision' : 'decision 以外'),
+        rows: { decision: { never: ['next'] }, 'decision 以外': { never: ['branches'] } },
+      },
+    },
+  },
   meta: {
     file: (doc) => {
       const m = /^(requirements|specifications)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(String(doc || ''))
@@ -1458,8 +1514,31 @@ const LEDGERS = {
     lists: { tbd: 'id', trace: 'item_id' },
     groupBy: ['trace'],
     scalars: { fixed: 'boolean' },
+    fields: { tbd: ['id', 'text', 'blocking', 'candidates'], trace: ['item_id', 'kind', 'quote', 'ref'] },
   },
 }
+
+// FIELD_LIMITS: 自由記述の欄の字数の上限（<台帳>.<配列>.<欄>、スカラーは <台帳>.<欄>）。根拠は 2026-09-27 の試走の p90〜最大
+// （why p90 252 / 最大 337、reason p90 151 / 最大 262、label 最大 62）。closure は経緯を除いた 448 字の上（経緯込みで 1,229 字）。
+const FIELD_LIMITS = {
+  'flow.closure': 500,
+  'flow.elements.label': 80,
+  'flow.kinds.definition': 100,
+  'decisions.decisions.why': 150,
+  'resolutions.resolutions.why': 300,
+  'open.open.text': 150,
+  'open.open.searched': 100,
+  'verifications.items.reason': 250,
+}
+
+// 経緯の印は prd-spec の工程にしか出ない語に限る。版・旧・v2・RS-232 のような語は案件の分野にも出るので印に
+// しない（偽陽性で put が止まるより、取りこぼしを選ぶ）。
+const HISTORY_FIELDS = ['flow.closure', 'flow.elements.label', 'flow.kinds.definition', 'decisions.decisions.why', 'resolutions.resolutions.why', 'verifications.items.reason']
+const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])3a'?(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])G0-2(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])G1(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)-/, /回答の反映/]
+
+// SIZE_BUDGET: ファイルのバイト数の目安（合否ではない）。仮の値として 2026-09-27 の cleanup-branches の試走の台帳を
+// 正規形に直した実測を置いた。段 3・5 が意図して生成物を太らせるので、試走し直した実測で決め直す。
+const SIZE_BUDGET = { resolutions: 64241, meta: 25654, document: 23378, flow: 20734, verifications: 19165, decisions: 6887, open: 5029, routes: 655 }
 
 class LedgerRejected extends Error {}
 
@@ -1599,6 +1678,65 @@ function verbatimRejects(ws, name, body) {
   return bad
 }
 
+function historyMark(text) {
+  for (const re of HISTORY_MARKS) {
+    const m = re.exec(String(text))
+    if (m) return m[0]
+  }
+  return null
+}
+
+function proseRejects(where, pathKey, value) {
+  if (typeof value !== 'string') return []
+  const bad = []
+  const limit = FIELD_LIMITS[pathKey]
+  if (limit !== undefined && [...value].length > limit) bad.push(`${where}: ${[...value].length} 字で上限の ${limit} 字を超えています。追記ではなく統合・削除で縮めてください`)
+  const mark = HISTORY_FIELDS.includes(pathKey) ? historyMark(value) : null
+  if (mark) bad.push(`${where}: 経緯の印「${mark}」があります。現行の値だけを書き、判断の記録は resolutions と commit に置いてください`)
+  return bad
+}
+
+// fieldRejects: 送られた欄だけを見る（型の外の欄・字数・経緯の印）。null は欄を消す指示なので型の中なら通す。
+function fieldRejects(name, body) {
+  const spec = ledgerOf(name)
+  const bad = []
+  for (const [list, key] of Object.entries(spec.lists)) {
+    const allowed = spec.fields[list]
+    for (const el of body[list] || []) {
+      for (const [k, v] of Object.entries(el)) {
+        const where = `${list} ${el[key]} の ${k}`
+        if (!allowed.includes(k)) bad.push(`${where}: 台帳 ${name} の ${list} の欄ではありません（欄は ${allowed.join(' / ')}）`)
+        else bad.push(...proseRejects(where, `${name}.${list}.${k}`, v))
+      }
+    }
+  }
+  for (const k of Object.keys(spec.scalars)) if (k in body) bad.push(...proseRejects(k, `${name}.${k}`, body[k]))
+  return bad
+}
+
+// caseRejects: マージした後の要素のうち、この put が触れたものを欄の条件で見る。
+function caseRejects(name, next, body) {
+  const spec = ledgerOf(name)
+  const bad = []
+  for (const [list, c] of Object.entries(spec.cases || {})) {
+    const key = spec.lists[list]
+    const touched = new Set((body[list] || []).map((el) => el[key]))
+    for (const el of next[list].filter((x) => touched.has(x[key]))) {
+      const row = c.by(el)
+      const rule = Object.hasOwn(c.rows, row) ? c.rows[row] : null
+      if (!rule) {
+        bad.push(`${list} ${el[key]}: ${row} は ${Object.keys(c.rows).join(' / ')} のどれでもありません`)
+        continue
+      }
+      const extra = (rule.never || []).filter((k) => k in el)
+      const lack = (rule.must || []).filter((k) => !(k in el))
+      if (extra.length) bad.push(`${list} ${el[key]}: ${row} では ${extra.join('・')} を持てません。消すには、その欄に null を送ってください`)
+      if (lack.length) bad.push(`${list} ${el[key]}: ${row} では ${lack.join('・')} が要ります`)
+    }
+  }
+  return bad
+}
+
 function groupRows(rows, key) {
   const groups = new Map()
   for (const r of rows) {
@@ -1723,6 +1861,8 @@ function wsPut(ws, opts, stdin) {
   }
   if (body && typeof body === 'object' && !Array.isArray(body)) for (const k of spec.filled || []) delete body[k]
   checkShape(name, body, '標準入力', true)
+  const shapeBad = fieldRejects(name, body)
+  if (shapeBad.length) throw new LedgerRejected(`欄の検査に落ちました（何も書いていません）:\n${shapeBad.join('\n')}`)
   const bad = verbatimRejects(ws, name, body)
   if (bad.length) throw new LedgerRejected(`逐語の照合に落ちました（何も書いていません）:\n${bad.join('\n')}`)
   const cur = readLedger(ws, name, opts.doc[0]) || emptyLedger(spec)
@@ -1741,6 +1881,8 @@ function wsPut(ws, opts, stdin) {
     tally[!(k in next) ? 'added' : next[k] === body[k] ? 'unchanged' : 'replaced'].push(k)
     next[k] = body[k]
   }
+  const caseBad = caseRejects(name, next, body)
+  if (caseBad.length) throw new LedgerRejected(`欄の条件に落ちました（何も書いていません）:\n${caseBad.join('\n')}`)
   if (name === 'verifications') next = fillVerifications(ws, opts, next, body)
   const text = ledgerText(next)
   const p = path.join(ws, file)
@@ -1808,6 +1950,43 @@ function wsQuestions(ws, opts) {
     md: { path: 'questions.md', sha256: sha256Bytes(Buffer.from(md)) },
     json: { path: 'questions.json', sha256: sha256Bytes(Buffer.from(json)) },
   }
+}
+
+const fenceOf = (text) => '`'.repeat(Math.max(4, ...(String(text).match(/`+/g) || []).map((m) => m.length + 1)))
+
+// report: 事後報告は resolutions.json の method・hold・upstream_revision から導出する。手で書くと、同じ事実を
+// resolutions と 2 か所に持ち、型も決まらない。
+function wsReport(ws) {
+  const [listName] = Object.keys(ledgerOf('resolutions').lists)
+  const rs = listOf(readLedger(ws, 'resolutions'), listName)
+  const method = rs.filter((r) => r.ruling === 'method')
+  const holds = rs.filter((r) => r.ruling === 'hold')
+  const upstream = rs.filter((r) => r.upstream_revision != null)
+  const block = (label, text) => {
+    const fence = fenceOf(text)
+    return [`**${label}**:`, '', `${fence}markdown`, String(text ?? ''), fence, '']
+  }
+  const md = [
+    '# 事後報告',
+    '',
+    '## 方法論として決めたこと',
+    '',
+    ...(method.length ? method.map((r) => `- ${r.id}: ${r.value ?? ''}（${r.why ?? ''}）`) : ['0 件。']),
+    '',
+    '## 保持規則と Issue の文案',
+    '',
+    ...(holds.length ? [] : ['0 件。', '']),
+    ...holds.flatMap((r) => {
+      const h = r.hold || {}
+      return [`### ${r.id}`, '', `**保持規則**: ${h.rule ?? ''}`, '', `**触れる項目**: ${(Array.isArray(h.item_ids) ? h.item_ids : []).join('、') || '（なし）'}`, '', ...block('Issue の文案', h.issue_draft)]
+    }),
+    '## 上位文書の改訂の文案',
+    '',
+    ...(upstream.length ? [] : ['0 件。', '']),
+    ...upstream.flatMap((r) => [`### ${r.id}`, '', ...block('改訂の文案', r.upstream_revision)]),
+  ].join('\n')
+  writeAtomic([path.join(ws, 'report.md'), md])
+  return { path: 'report.md', method: method.length, holds: holds.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)) }
 }
 
 function workspaceDocs(ws) {
@@ -2068,6 +2247,19 @@ function flowSourceCompact(flow, decisionIds, openIds) {
   return out
 }
 
+// flowHistoryCompact: put 以外の経路で入った経緯の印を、put と同じ欄と印で拾う。
+function flowHistoryCompact(flow) {
+  const out = []
+  const scan = (where, pathKey, text) => {
+    const mark = HISTORY_FIELDS.includes(pathKey) ? historyMark(text ?? '') : null
+    if (mark) out.push({ c: 'FLOW_HISTORY', d: 'flow', a: [where, mark] })
+  }
+  scan('closure', 'flow.closure', flow && flow.closure)
+  for (const el of listOf(flow, 'elements')) if (el && el.id) scan(`${el.id}.label`, 'flow.elements.label', el.label)
+  for (const k of listOf(flow, 'kinds')) if (k && k.name) scan(`${k.name}.definition`, 'flow.kinds.definition', k.definition)
+  return out
+}
+
 // groupCompact: { c, d, a } の列を、同じ (c, d, a) を 1 件にしてから、続く同じ種別・同じ文書でまとめる。
 function groupCompact(list) {
   const seen = new Set()
@@ -2104,7 +2296,7 @@ function expandWorkspace(compact) {
 function writeCheck(ws, name, content) {
   const rel = `checks/${name}`
   fs.mkdirSync(path.join(ws, 'checks'), { recursive: true })
-  fs.writeFileSync(path.join(ws, rel), `${JSON.stringify(content, null, 1)}\n`)
+  writeAtomic([path.join(ws, rel), `${JSON.stringify(content, null, 1)}\n`])
   return rel
 }
 
@@ -2123,7 +2315,7 @@ function wsFlow(ws) {
   const flow = readLedger(ws, 'flow')
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds)]
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds), ...flowHistoryCompact(flow)]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
   return { findings: body.findings.length, path: writeCheck(ws, 'flow.json', { ...body, digest }), digest }
@@ -2232,8 +2424,18 @@ function ownedPatterns() {
   }
 }
 
+// planDocFiles: 文書と meta は plan.json の docs[].key から導いた名前だけを置いてよいものにする。所有表の
+// パターンでは、版名を付けた写し（requirements-auth-v2.md）と正当な topic を区別できない。
+function planDocFiles(ws) {
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  if (plan === null) throw new Error('plan.json がありません。置いてよい文書のファイル名が決まらないので、stray を判定できません')
+  const keys = listOf(plan, 'docs').map((d) => d && d.key)
+  return new Set(keys.flatMap((k) => [`${String(k).replace('/', '-')}.md`, ledgerOf('meta').file(k)]))
+}
+
 function strayFiles(ws, live) {
   const { files, workDirs } = ownedPatterns()
+  const docs = planDocFiles(ws)
   const alive = new Set(live || [])
   const out = []
   const walk = (rel) => {
@@ -2242,12 +2444,31 @@ function strayFiles(ws, live) {
       if (e.isDirectory()) walk(r)
       else {
         const work = workDirs.map((re) => re.exec(r)).find(Boolean)
-        if (work ? !alive.has(work[1]) : !files.some((re) => re.test(r))) out.push(r)
+        const stray = work ? !alive.has(work[1]) : DOC_PREFIX.test(r) ? !docs.has(r) : !files.some((re) => re.test(r))
+        if (stray) out.push(r)
       }
     }
   }
   walk('')
   return out.sort()
+}
+
+// sizesOf: 台帳と文書のファイルごとのバイト数。SIZE_BUDGET は目安なので、超えても止めずに数えるだけにする。
+function sizesOf(ws, wsDocs) {
+  const entries = [
+    ...Object.keys(LEDGERS).filter((n) => n !== 'meta').map((n) => [n, ledgerOf(n).file()]),
+    ...wsDocs.flatMap((d) => [['document', d.path], ['meta', ledgerOf('meta').file(d.key)]]),
+  ].filter(([, f]) => fs.existsSync(path.join(ws, f)))
+  const sizes = Object.fromEntries(entries.map(([, f]) => [f, fs.statSync(path.join(ws, f)).size]))
+  const over = entries.filter(([n, f]) => sizes[f] > SIZE_BUDGET[n]).map(([n, f]) => ({ file: f, bytes: sizes[f], budget: SIZE_BUDGET[n] }))
+  return { sizes, size_over: { count: over.length, path: writeCheck(ws, 'sizes.json', { budget: SIZE_BUDGET, sizes, over }) } }
+}
+
+// treeFindings: snapshot と tree-digest の所見。一覧は checks/ に書き、stdout には件数とパスだけを出す
+// （一覧を stdout に載せると、script が notices に入れて next_args が上限なしに膨らむ）。
+function treeFindings(ws, wsDocs, live) {
+  const stray = strayFiles(ws, live)
+  return { stray: { count: stray.length, path: writeCheck(ws, 'stray.json', { stray }) }, ...sizesOf(ws, wsDocs) }
 }
 
 // snapshot --save: 項目ごとの hash を checks/<label>.snapshot.json に書く。audited- で始まるラベルは
@@ -2261,11 +2482,12 @@ function wsSnapshot(ws, opts) {
     throw new Error('audited- で始まるラベルは --role auditor のときだけ保存できます（監査の基準は監査役だけが保存する）')
   }
   const wsDocs = workspaceDocs(ws)
+  const found = treeFindings(ws, wsDocs, opts.live)
   const items = snapshotOf(wsDocs)
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
   const rel = writeCheck(ws, `${label}.snapshot.json`, { label, digest, docs })
-  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, stray: strayFiles(ws, opts.live) }
+  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, ...found }
 }
 
 // diff --against <label> --expect <digest>: 保存した snapshot と今の木を項目の単位で比べる。snapshot の
@@ -2311,7 +2533,7 @@ function wsTreeDigest(ws, opts) {
   const items = snapshotOf(wsDocs)
   const selected = selectDocs(Object.keys(items), opts.doc)
   const subset = Object.fromEntries(selected.map((k) => [k, items[k]]))
-  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0), stray: strayFiles(ws, opts.live) }
+  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0), ...treeFindings(ws, wsDocs, opts.live) }
 }
 
 // index: 保存先の 2 つの INDEX（references/document-splitting.md §6）を W の文書から導出し、
@@ -2429,6 +2651,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'del') return wsDel(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
+  if (mode === 'report') return wsReport(ws)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -2488,4 +2711,8 @@ export {
   WORKSPACE_TEXT,
   itemSections,
   runWorkspace,
+  LEDGERS,
+  FIELD_LIMITS,
+  SIZE_BUDGET,
+  writeAtomic,
 }

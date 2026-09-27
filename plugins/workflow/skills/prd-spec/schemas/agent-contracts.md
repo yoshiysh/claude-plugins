@@ -24,7 +24,8 @@
   - **put の意味（どの台帳でも同じ）**: キーが同じ要素には、送った最上位の欄だけがその場で上書きされ、送らなかった
     欄は元の値のまま残る。変える欄だけを送ればよい（要素を丸ごと送り直すと、読み違えた欄や送り忘れた欄で既存の値を
     壊す）。欄を消すときは、その欄に `null` を送る。送らないだけでは消えず、古い値が黙って残る。スカラーも同じで、
-    `null` で消える。例外は `LEDGERS` で `groupBy` とした配列（meta の `trace`）で、1 つのキーに複数の行があって
+    `null` で消える。型や `ruling` を変えて、その型が持てない欄が残る put は、`LEDGERS` の欄の条件で拒否され、
+    消すべき欄の名前がエラーに出る。例外は `LEDGERS` で `groupBy` とした配列（meta の `trace`）で、1 つのキーに複数の行があって
     行を区別できないので、同じキーの行の組を丸ごと置き換える。
   - put は引用を `input.md`・回答・`evidence` のファイルと逐語で照合し、1 件でも合わなければ何も書かずに
     exit 1 で終わる。照合の script を自作しない。
@@ -37,6 +38,17 @@
   - 全文を作り直すと、既存の記述を削る圧力が働かず、文書が単調に肥大化する（実測: 別のスキルで、計画の JSON を毎回
     全文で作り直したら 19K 字から 48K 字に膨らんだ）。
   - 戻す手段は、台帳なら put の冪等性、文書なら doc_check の `snapshot` と `diff` が持っている。
+- **生成物（台帳・flow・meta・findings・文書）に、版・経緯・改稿メモ・指摘への対応・棄却の経緯を書かない。**
+  判断の記録は resolutions（裁定）と commit / PR に置く。経緯が混ざると、どれが現行の値か読み手が区別できず、
+  読むたびに文脈を消費し、検証者の攻撃面が広がる。put は自由記述の欄にある工程の印（段・ゲート・指摘の ID）を拒否する。
+- **1 つの事実・決定は 1 か所にだけ書き、他は ID で参照する。** 単位ごと・文書ごとの成果物に、共通の目的・
+  制約を写さない。写しは片方だけ直されて食い違う。
+- **型（欄・節）は、この契約と `references/document-structure.md` が決めたものだけを使う。** 新しい欄や節は、
+  既存の欄で扱えない理由があるときだけ足す。自由な欄に何でも書けると、経緯や重複がそこに溜まる（実測: flow の
+  `closure` に回答の反映の経緯が追記され続けた）。put は台帳の型の外の欄を拒否する。
+- **分量に上限の目安を持ち、超えたら追記ではなく統合・削除で直す。** 肥大化には利点が無い。読み手の文脈を
+  消費し、攻撃面を広げ、更新の不整合を生む。欄の字数の上限は doc_check の `FIELD_LIMITS`（超えた put は拒否される）、
+  ファイルの大きさの目安は `SIZE_BUDGET`（超えたファイルは `snapshot` の `size_over` に数えられる）が正である。
 - **台帳の sha256 は `doc_check sha --ledger <台帳> --workspace <W>` の stdout の `sha256` で取る。** writer が読んだ版と
   verifier が検証した版を、script が文字列比較で照合するため、全員が同じ取り方をする。値はファイルの
   `shasum -a 256` と同じで、まだ無い台帳は空の台帳（put が書く正規形）の値になる（段 3 で open も組も 0 件のとき、
@@ -52,9 +64,11 @@
 ## W のファイルと書き手
 
 この表の 1 列目（バッククォートで囲んだパターン）が、W に置いてよいファイルの正本である。`<…>` はドットを
-含まない 1 つの名前、`*` は 1 階層の任意の名前を表す。doc_check の `snapshot`・`tree-digest` はこの列を実行時に
-読み、合わないファイルと `tmp/` に残ったものを `stray` として返す。書き手の所有そのものは強制されないので、
-守られなかったときに何で気づくかを右端に書く。
+含まない 1 つの名前、`*` は 1 階層の任意の名前を表す。ただし文書と meta（`requirements-`・`specifications-` で
+始まるファイル）は、`plan.json` の `docs[].key` から導いた名前だけを置いてよい（パターンでは、版名を付けた写しと
+正当な topic を区別できない）。doc_check の `snapshot`・`tree-digest` はこの列と `plan.json` を実行時に読み、
+合わないファイルと `tmp/` に残ったものを `checks/stray.json` に書いて、stdout の `stray` に件数とパスを出す
+（`plan.json` が無ければ止まる）。書き手の所有そのものは強制されないので、守られなかったときに何で気づくかを右端に書く。
 
 | ファイル | 書き手 | 形 | 守られなかったときの検出 |
 |---|---|---|---|
@@ -63,13 +77,18 @@
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
 | `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ。put / del で書く | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
-| `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ）、`report.md` | resolver。resolutions と routes は put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
+| `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
+| `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（`expand` の固定の文書の meta は、司令塔が S0 で put する） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
 | `tmp/<label>/` | その label の呼び出しの agent だけ。返る前に自分で消す。他の label の tmp は読まない | 作業用の script・一時ファイル | 残ったものは `snapshot`・`tree-digest` の `stray` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
+
+見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`、`plan.json` に載った文書の中身（中身は snapshot と
+監査が見る）。`questions` の 2 ファイルは、1 本目の rename の後に 2 本目が落ちると片方だけが新しくなる
+（同じコマンドを流し直せば両方そろう）。
 
 司令塔は decisions・resolutions・answers の中身を起草しない。依頼者の言葉と agent の出力を、そのまま運ぶ。
 
@@ -112,8 +131,8 @@
     {
       "id": "RS-001",
       "about": { "open": "O-001" },
-      "ruling": "precedent | internal | measured | method | question | hold",
-      "value": "決まった内容（question は回答が当たってから、hold は書かない）",
+      "ruling": "question",
+      "value": "決まった内容（question は回答が当たってから）",
       "why": "裁定の根拠（1〜2 文）",
       "evidence": [{ "file": "/repo/src/approve.ts", "line": 42, "end": 43, "quote": "実在する文字列をそのまま" }],
       "supersedes": "D-003（決定を覆すときだけ）",
@@ -124,8 +143,15 @@
         { "label": "案 A", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" },
         { "label": "案 B", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }
       ],
-      "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" },
-      "hold": { "rule": "〜の裁定が下るまで、…してはならない", "issue_draft": "Issue の本文案", "item_ids": ["その論点に触れる項目 ID"] }
+      "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" }
+    },
+    {
+      "id": "RS-002",
+      "about": { "tbd": "TBD-RAUTH-002" },
+      "ruling": "hold",
+      "why": "価値の判断だが、聞くゲートが残っていない",
+      "hold": { "rule": "〜の裁定が下るまで、…してはならない", "issue_draft": "Issue の本文案", "item_ids": ["その論点に触れる項目 ID"] },
+      "upstream_revision": "上位文書（固定の文書・ラン外の文書）の改訂が要るときだけ、その改訂の文案"
     }
   ]
 }
@@ -133,7 +159,10 @@
 
 - `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
   `{verification}`（3v で不合格になった決定・要素の ID）のどれか 1 つ。
-- 6 つの `ruling` の意味と順序は `agents/resolver.md` が正。`question`・`options` は `question` だけ、`hold` は `hold` だけに付く。
+- `ruling` は `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
+  `agents/resolver.md` が正。どの `ruling` がどの欄を持てるかは doc_check の `LEDGERS` の欄の条件が正で、put が
+  検査する。回答が当たっても `ruling` は `question` のままにし、回答の前後は `answer` の有無で分ける（依頼者が
+  決めた値と resolver が決めた値を、台帳の上で区別するため）。
 - `evidence[].file` は絶対パスにする。put はそのファイルを開き、`line` 行目から `end` 行目（無ければ `line` 行目だけ）を
   改行でつないだ文字列が `quote` を含むかを照合し、読めない相対パスは拒否する。
 - 問いの文面の正本は `question` と `options` だけである。依頼者に見せる `questions.md`・`questions.json` は、ここから
@@ -154,7 +183,7 @@
 ```
 
 - 同じ ID を再検証したときは、その ID の項目に put する。不合格から合格に変わったら `fail_kind` に `null` を送って
-  消す（put は送らなかった欄を残すので、送らないと合格の項目に古い不合格の理由が残る）。
+  消す（`fail_kind` は `fail` だけが持てるので、残すと put が拒否する）。
 - `resolutions_sha256`・`decisions_sha256` は put が埋め、最後に検証した版の値になる。put には検証を始めたときに
   取った値を `--expect-resolutions`・`--expect-decisions` で渡す。今のファイルがその版と違えば、put は何も書かない
   （検証していない版の値を合格の記録に残さないため）。`F-` の項目には、put がその時点の流れの要素の digest を
@@ -234,7 +263,7 @@
 
 入力（パス）: 上流の全部（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・resolutions・
 verifications・precedent）と、段ごとに script が渡す対象の ID。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
-の更新。put）、`W/routes.json`（段 6。put）、`W/report.md`（段 9）、`W/flow.json`（回答を当てるときだけ。put / del）。
+の更新。put）、`W/routes.json`（段 6。put）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
 **questions.md・questions.json** は、resolutions.json の `question`・`options` から `doc_check questions --ids <RS-…>` が
 導出する。司令塔が問いを出す前に実行する。questions.md は依頼者にそのまま見せる本文、questions.json は選択式の表示
@@ -253,8 +282,9 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   束ねて writer へ直接渡す（[§writer](#writer)）。段 6 が起動しないとき（decision の指摘も新しい TBD も 0 件）は
   routes.json は書かれず、writer の指摘はそれでも改稿に届く。
 
-**report.md** は依頼者にそのまま見せる事後報告。方法論として決めたこと（resolutions の `method`）、保持規則と
-Issue の文案、上位文書の改訂文案を書く。
+**report.md** は依頼者にそのまま見せる事後報告で、`doc_check report` が resolutions の `method`（value・why）、
+`hold`（rule・item_ids・issue_draft）、`upstream_revision` から導出する。resolver は書かない（同じ事実を resolutions
+と 2 か所に持つと、片方だけ直されて食い違う）。
 
 返り値:
 
@@ -439,7 +469,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --live <label,…> --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
 
 - `--live` には、同じ段で並んで動いている監査役の label を script が並べる（その作業用ディレクトリを `stray` に
-  数えないため）。snapshot の `stray` は、script が返り値の `notices` に入れる。
+  数えないため）。snapshot の `stray`・`size_over` の件数とパスは、script が返り値の `notices` に入れる。
 - diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。
 - `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま `designated.diff_error` に入れて返す。監査の基準が
   差し替わっているので、その上で出した判定は何と比べたのかが分からない。
@@ -500,7 +530,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `ST-TBD-ASSERT-` | 開いている TBD に触れる文が断定の語尾で終わる |
 | `ST-STATE-` | 状態 × イベント表の欠け・非決定・図との食い違い・到達不能・出口なし・軸の外の値（書式は `references/document-structure.md` §6） |
 | `ST-DT-` | 判定表の組み合わせの欠け・重なり・宣言外の値（書式は同 §2.8） |
-| `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典、項目が当たっていない要素、実在しない要素への当て |
+| `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典、経緯の印（`ST-FLOW-HISTORY-`）、項目が当たっていない要素、実在しない要素への当て |
 
 `not_checked` は失格ではなく「材料が無くて実行できなかった検査」である。`ST-NOTCHECKED-TRACE-<文書>` は meta が
 無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いことを示す。「指摘 0 件」と混同させない

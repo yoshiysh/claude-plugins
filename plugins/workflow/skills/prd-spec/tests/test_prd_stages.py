@@ -84,8 +84,11 @@ function respond(prompt, label) {
     const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
-      const stray = (spec.stray_at || {})[stage] || []
-      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1', stray }) }
+      const found = {
+        stray: { count: (spec.stray_at || {})[stage] || 0, path: 'checks/stray.json' },
+        size_over: { count: (spec.size_over_at || {})[stage] || 0, path: 'checks/sizes.json' },
+      }
+      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1', ...found }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
       else {
         const changed = (spec.diff || {})[stage] || spec.writer_changed || ['PR-X-001']
@@ -93,7 +96,7 @@ function respond(prompt, label) {
         const byDoc = (spec.by_doc || {})[stage] || { [firstDoc]: { changed, added: [], removed: [] } }
         out.designated = {
           diff: { stdout: '{}', changed, added: [], removed: [], by_doc: byDoc },
-          audited: JSON.stringify({ digest: `a${n}`, stray }),
+          audited: JSON.stringify({ digest: `a${n}`, ...found }),
           doc_check: JSON.stringify({ blocking: 0 }),
           tree_digest: JSON.stringify({ digest: `t${n}` }),
         }
@@ -185,7 +188,7 @@ class Stages(unittest.TestCase):
         self.assertTrue(has(labels, "verifier:3v"), "3v は open も組も 0 件でも必ず起動する")
         self.assertFalse(has(labels, "resolver:6"), "decision の指摘も新しい TBD も 0 件なら段 6 は起動しない")
         self.assertFalse(has(labels, "writer:U-1:revise"))
-        self.assertEqual(labels[-1], "resolver:9")
+        self.assertFalse(has(labels, "resolver:9"), "事後報告は導出物なので生成する役を起動しない")
         self.assertEqual(r["result"]["report_path"], "/tmp/prd-w/report.md")
         self.assertIsNone(r["result"]["next_args"])
 
@@ -286,6 +289,9 @@ class Stages(unittest.TestCase):
         self.assertEqual(sum(1 for l in r["labels"] if l.startswith("writer:U-1:revise")), 2)
         self.assertIn("resolver:final", r["labels"])
         self.assertEqual(res["remaining_blocking"], ["r3-gr-requirements__x-001"])
+        self.assertEqual(res["report_path"], "/tmp/prd-w/report.md")
+        [final] = [p["prompt"] for p in r["prompts"] if p["label"] == "resolver:final"]
+        self.assertNotIn("report.md", final)
 
     def test_2パス目の問いは保持規則にしてゲートにしない(self):
         spec = {
@@ -467,20 +473,29 @@ class CommonContract(unittest.TestCase):
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class Notices(unittest.TestCase):
-    def test_段5のstrayはnoticesに入りintegrityに入らない(self):
-        r = run({"args": args(), "stray_at": {"r1": ["tmp/x/a.py"]}})
+    def test_段5のstrayはnoticesに件数とパスだけが入りintegrityに入らない(self):
+        r = run({"args": args(), "stray_at": {"r1": 100}})
         res = r["result"]
         self.assertEqual(res["status"], "done")
         self.assertEqual(len(res["notices"]), 1)
-        self.assertIn("tmp/x/a.py", res["notices"][0])
+        self.assertIn("100 件", res["notices"][0])
+        self.assertIn("/tmp/prd-w/checks/stray.json", res["notices"][0])
         self.assertEqual(res["integrity"], [])
 
     def test_段8のstrayはnoticesに入りintegrityに入らない(self):
-        spec = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}, "stray_at": {"r2": ["resolutions.pre6.json"]}}
+        spec = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}, "stray_at": {"r2": 1}}
         r = run(spec)
         res = r["result"]
         self.assertEqual(res["status"], "done")
-        self.assertTrue(any("resolutions.pre6.json" in n and "audited-2" in n for n in res["notices"]), res["notices"])
+        self.assertTrue(any("checks/stray.json" in n and "audited-2" in n for n in res["notices"]), res["notices"])
+        self.assertEqual(res["integrity"], [])
+
+    def test_SIZE_OVERはnoticesに入りintegrityに入らない(self):
+        r = run({"args": args(), "size_over_at": {"r1": 2}})
+        res = r["result"]
+        self.assertEqual(len(res["notices"]), 1)
+        self.assertIn("SIZE_BUDGET", res["notices"][0])
+        self.assertIn("/tmp/prd-w/checks/sizes.json", res["notices"][0])
         self.assertEqual(res["integrity"], [])
 
     def test_strayが無ければnoticesは空(self):
@@ -512,7 +527,6 @@ STAGE_CASES = {
     "6": ({"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "blocking": False}]}, "ruled_at": {"6": ["RS-010"]}}, "resolver:6"),
     "7": ({"findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}}, "writer:U-1:revise"),
     "8": ({"findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}}, "grounding:r2:requirements/x"),
-    "9": ({}, "resolver:9"),
 }
 
 
@@ -539,6 +553,12 @@ class EveryEntry(unittest.TestCase):
         for stage, (extra, label) in STAGE_CASES.items():
             with self.subTest(stage=stage):
                 self.assertEqual(self._recover({"args": args(), **extra}, label, stage)["status"], "done")
+
+    def test_段9から再開すると誰も起動せずにdoneになる(self):
+        r = run({"args": args(**{"from": "9", "state": {"units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}], "tree_digest": "t2"}})})
+        self.assertIsNone(r["error"], r["error"])
+        self.assertEqual(r["labels"], [])
+        self.assertEqual((r["result"]["status"], r["result"]["report_path"], r["result"]["tree_digest"]), ("done", "/tmp/prd-w/report.md", "t2"))
 
     def test_回答の反映の段から再開できる(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
