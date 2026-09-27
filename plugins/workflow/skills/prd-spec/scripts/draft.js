@@ -1077,8 +1077,8 @@ function verifyCheck(res, input) {
   if (out.output_digest !== stableKey(canonicalJson({ documents: out.documents, structural: out.structural, index_extra: out.index_extra }))) {
     return { ok: false, reason: 'checker が返した出力が CLI の出力と一致しない（output_digest 不一致）' }
   }
-  const byKey = new Map(out.documents.map((d) => [d.key, d]))
-  const lost = input.documents.filter((d) => !byKey.has(d.key)).map((d) => d.key)
+  const byKey = Object.fromEntries(out.documents.map((d) => [d.key, d]))
+  const lost = input.documents.filter((d) => !Object.hasOwn(byKey, d.key)).map((d) => d.key)
   if (lost.length) return { ok: false, reason: `出力に無い文書がある: ${lost.join(' / ')}` }
   // digest は短い形のまま照合し、受理した後で文面を組み立てる（文面は digest の外にあるので、
   // checker の写しに文面を含める必要が無い）。未知の種別は写し間違いと同じく受理しない。
@@ -1629,7 +1629,7 @@ if (check.ok) {
   // 書き出しが確かめられない初稿は採用しない。以後の agent はファイルしか読めないので、
   // 申告とファイルが食い違うと、監査は writer が申告したのと別の本文を見る。
   const unconfirmed = documents
-    .filter((d) => !d.fixed && !lineCountConfirmed(d.reported_line_count, check.byKey.get(d.key)))
+    .filter((d) => !d.fixed && !lineCountConfirmed(d.reported_line_count, check.byKey[d.key]))
     .map((d) => `${d.kind === 'requirements' ? 'req' : 'spec'}-writer@${d.topic}`)
   if (unconfirmed.length) {
     return blocked(
@@ -1638,7 +1638,7 @@ if (check.ok) {
     )
   }
   for (const d of documents) {
-    const c = check.byKey.get(d.key)
+    const c = check.byKey[d.key]
     if (c && c.exists) d.line_count = c.line_count
     if (d.extract_ids && c) {
       d.ids = c.ids_in_text || []

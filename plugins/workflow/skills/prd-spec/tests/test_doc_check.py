@@ -336,7 +336,7 @@ class CheckerWiring(unittest.TestCase):
 
     def test_不採用の稿は検査し直す(self):
         body = REFINE[REFINE.index("async function reviseDocuments(") :]
-        self.assertIn("lineCountConfirmed(reportedLineCount(s.result), check.byKey.get(s.key))", body)
+        self.assertIn("lineCountConfirmed(reportedLineCount(s.result), check.byKey[s.key])", body)
         self.assertIn("runDocChecks(`${revisionId}-recheck`", body)
 
 

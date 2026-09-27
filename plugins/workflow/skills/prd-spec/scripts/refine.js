@@ -2037,8 +2037,8 @@ function verifyCheck(res, input) {
   if (out.output_digest !== stableKey(canonicalJson({ documents: out.documents, structural: out.structural, index_extra: out.index_extra }))) {
     return { ok: false, reason: 'checker が返した出力が CLI の出力と一致しない（output_digest 不一致）' }
   }
-  const byKey = new Map(out.documents.map((d) => [d.key, d]))
-  const lost = input.documents.filter((d) => !byKey.has(d.key)).map((d) => d.key)
+  const byKey = Object.fromEntries(out.documents.map((d) => [d.key, d]))
+  const lost = input.documents.filter((d) => !Object.hasOwn(byKey, d.key)).map((d) => d.key)
   if (lost.length) return { ok: false, reason: `出力に無い文書がある: ${lost.join(' / ')}` }
   // digest は短い形のまま照合し、受理した後で文面を組み立てる（文面は digest の外にあるので、
   // checker の写しに文面を含める必要が無い）。未知の種別は写し間違いと同じく受理しない。
@@ -2814,7 +2814,7 @@ function structuralOf(check) {
 function applyCheck(check, revisedKeys) {
   if (!check || !check.ok) return
   for (const d of documents) {
-    const c = check.byKey.get(d.key)
+    const c = check.byKey[d.key]
     if (!c || !c.exists) continue
     d.line_count = c.line_count
     d.byte_size = Number.isInteger(c.byte_size) ? c.byte_size : null
@@ -2924,9 +2924,9 @@ async function reviseDocuments(findingsByDoc, revisionId, forceAll) {
   if (check.ok) {
     // 書き出しが確かめられない改稿は採用しない。以後の agent はファイルしか読めないので、
     // 申告とファイルが食い違うと、監査は writer が申告したのと別の本文を見る。
-    const rejected = staged.filter((s) => !lineCountConfirmed(reportedLineCount(s.result), check.byKey.get(s.key)))
+    const rejected = staged.filter((s) => !lineCountConfirmed(reportedLineCount(s.result), check.byKey[s.key]))
     for (const s of rejected) {
-      const c = check.byKey.get(s.key)
+      const c = check.byKey[s.key]
       writerMissing.push(`${s.key}@${revisionId}`)
       log(
         `改稿 ${revisionId}: ${s.key} の書き出しを確認できません（line_count ${s.result.line_count} / ` +
