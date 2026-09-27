@@ -105,11 +105,7 @@ def validate_skill(skill_dir: str, verbose: bool = False) -> bool:
         for agent_file in agents_dir.glob("*.md"):
             agent_content = agent_file.read_text(encoding="utf-8")
             if not agent_content.startswith("---"):
-                warnings.append(f"agents/{agent_file.name} にフロントマターがありません（model: の指定を推奨）")
-            else:
-                agent_fields, _ = parse_frontmatter(agent_content)
-                if "model" not in agent_fields:
-                    warnings.append(f"agents/{agent_file.name} に model: フィールドがありません")
+                warnings.append(f"agents/{agent_file.name} にフロントマターがありません（description: の記載を推奨）")
 
     # scripts/ 配下の workflow script（`export const meta` で始まる .js）を検査する。
     # 構文と「起動前に落ちる書き方」は静的に判定できるので、ここで潰しておく。

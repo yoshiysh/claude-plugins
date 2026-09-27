@@ -1,6 +1,4 @@
 ---
-model: opus
-subagent_type: general-purpose
 description: 要件・構成案・検証レポートをもとにSKILL.mdの初稿または修正稿を執筆する
 ---
 
@@ -57,40 +55,40 @@ document タイプの場合、上記の構成案に従って執筆すること�
 `[SKILL_DIR]/references/skill-writing-guide.md`
 を Read して内容に従うこと。
 
+次を書くときは `[SKILL_DIR]/references/best-practices.md` の該当節を Read して従う:
+- frontmatter の `description` → §2「description の設計」
+- frontmatter の `name` → §2「命名規則」
+- SKILL.md と agents/*.md の本文の指示 → §3「Why-driven prompt design」
+- 分量（行数の上限と分割） → §1「コンテキストは公共財」
+
 重要な優先順位：
-1. description を最重要視する：3人称で書く・[What]+[When] を含む・除外条件を明記する
-2. 理由を説明する：「〜すること」だけでなく「なぜそうするか」を書く（Why-driven）
-3. **SKILL.md はフローの進行のみ**：「誰に何を渡すか」の順序・分岐・完了条件だけを書く。処理の実行責任は Sub-agent が持つ。以下は必ず外出しする：
+1. **SKILL.md はフローの進行のみ**：「誰に何を渡すか」の順序・分岐・完了条件だけを書く。以下は必ず外出しする：
 
    > **`ARCHITECTURE` が `workflow` のときはこの原則の適用先が変わる。** 実行順序を握るのは SKILL.md ではなく script なので、SKILL.md には「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出し」「返り値の解釈と人間への提示」だけを書く。**区間の内側の手順を散文で再掲しない**（script が唯一の正になり、二重管理は必ずズレる）。以下の外出し規則は変わらず適用する。
 
    - 変換ルール・マッピング表 → `references/` または `assets/`
    - 定型エラーメッセージ・案内文 → `references/` または `assets/`
    - 設定値・URL・閾値 → `assets/`
-   - 確定的な処理（変換・計算・フォーマット・スクリプト呼び出し） → `agents/` 経由で `scripts/` を呼ぶ
+   - 確定的な処理（変換・計算・フォーマット） → `scripts/`
    - ドメイン知識（API仕様・業務ルール・変換ロジック） → `agents/` または `references/`
    - **`[DOMAIN_KNOWLEDGE]` が渡されている場合、その内容を `references/<領域>-knowledge.md`
      として書き出す。** 渡された強度の区別（一次情報確認済み / 実務慣行 / 未確認）と
      「書いてはならないこと」の一覧を**そのまま保つ**こと。強度を落として平坦な事実の列挙に
      すると、根拠のある記述と無い記述を後から見分けられなくなり、このファイルを置いた意味が
      消える。生成するスキルの agent には、このファイルを Read させる指示を入れる
-   - 「スクリプトを呼ぶかどうか」の判断も Sub-agent の責務。SKILL.md に書かない
    - SKILL.md に具体的なコマンド・正規表現・API パスが現れたら分割のサイン
-4. **agents/ の設計原則**：各 agent は「1入力 → 1出力」の単一責務を持つ。単純な情報収集スキルでも必ず Sub-agent に切り出す。以下を明示する：
-   - frontmatter に `model:`・`subagent_type:`・`description:` を必ず記載する
+2. **agents/ の設計原則**：各 agent は「1入力 → 1出力」の単一責務を持つ。どの作業を agent に委譲するかは `[SKILL_DIR]/references/best-practices.md` §11「原則」P7 に従う。以下を明示する：
+   - frontmatter に `description:` を記載する。model / effort はここに書かず起動する側に書く（best-practices.md §3「model と effort は役割ごとに組で選ぶ」）
    - **agent の description には3要素を含める**：
      - [What] いつ呼ばれるか（前のステップの agent 名 or スキルの起動タイミング）
      - [What] 何をするか（単一の責務を1行で）
      - [When/Not] 除外条件（何をしないか・エラー時はどうするか）
-   - **Why-driven で書く**：指示の理由を添える（なぜそのコマンドを使うか、なぜその順番か等）
    - 処理の指示だけを含む（参照データは `assets/` を Read させる）
-   - 確定的な変換処理は `scripts/` に実装し、agent がそれを呼ぶ（Claude が変換ロジックを agent 本文に直書きしない）
-   - 別スキルをパイプライン呼び出しできる場合は agent から呼ぶことで重複実装を避ける
+   - 確定的な変換処理は `scripts/` に実装する（Claude が変換ロジックを agent 本文に直書きしない）。それを agent と SKILL.md のどちらから呼ぶかは P7 に従う
+   - 別スキルをパイプライン呼び出しできる場合は呼び出して重複実装を避ける。その呼び出しを agent に委譲するかは P7 に従う
    - schemas.md でエージェント間の入出力フォーマットを先に定義する
-5. 非エンジニア向けなら：専門用語を避け、コピペできる手順にする
-6. 500行以内に収める。超える場合は references/ / assets/ に分割する
-7. タスク種別が `document` の場合：実際の入力例と出力例をセットで1パターン以上含める（「省略」は禁止）
-8. name は kebab-case・gerund 形式（processing-pdfs など）を推奨する
+3. 非エンジニア向けなら：専門用語を避け、コピペできる手順にする
+4. タスク種別が `document` の場合：実際の入力例と出力例をセットで1パターン以上含める（「省略」は禁止）
 
 ## 必須構造
 

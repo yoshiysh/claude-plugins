@@ -57,7 +57,13 @@ Unknown source labels and malformed mappings fail before the call starts. Each c
 logs `model.selected` with its requested label, target and effort. With no explicit
 default, `host-default` is recorded; the actual host-selected ID is not inferred.
 No Claude-to-Codex equivalence or target availability is implied.
-`limits` accepts maxAgents, concurrency, timeoutMs and maxOutputBytes.
+`limits` accepts maxAgents, concurrency, timeoutMs, agentTimeoutMs and maxOutputBytes.
+`agentTimeoutMs` bounds each backend call. An omitted value defaults to 80% of
+`timeoutMs` for one-shot runs; checkpoint/resume preserves its previous whole-workflow
+deadline behavior and defaults to `timeoutMs`. A timed-out agent is aborted, recorded as `agent.timeout`, and returns
+`null` to the source so the source can preserve the missing observation and decide
+whether a bounded retry is safe. The workflow-level `timeoutMs` remains fail-closed
+for the whole run.
 Optional `context` maps exact source labels to per-role settings and hash-pinned
 reference inventories; read [the context contract](CONTEXT.md) when configuring it.
 It does not change source syntax or provide a complete skill/tool allowlist.
@@ -100,8 +106,10 @@ Do not use this adapter for workflows requiring tool allowlists or approval forw
 
 ### Explicit writable and isolated checkouts
 
-The optional request `workspace` object accepts `mode` (read-only by default, or
-workspace-write), plus `worktreeRoot` and `baseCommit` together. `worktreeRoot` must
+The host's Codex backend `workspace` configuration accepts `mode` (read-only by default, or
+workspace-write), plus `worktreeRoot` and `baseCommit` together. `workspace.mode` is a
+host-side sandbox setting; the source-visible frozen `workspace.path` only identifies a
+handoff directory and cannot change backend permissions. `worktreeRoot` must
 be an existing absolute directory separate from the repository; `cwd` must be its
 repository root, and `baseCommit` must be an existing full lowercase commit hash,
 not a branch or HEAD. Host permission applies uniformly to all calls; source cannot
@@ -117,9 +125,29 @@ merge, reset or retry occurs. Events record allocated/ready paths and baseline, 
 request.json records the canonical backend policy. Setup Git commands have their own
 10-second timeout; setup precedes the workflow execution deadline.
 
-Writable SDK options and unchanged PDCA control flow have mock-backed tests with real
-Git checkouts. Actual writable live-agent enforcement and full PDCA role execution
-remain unverified; do not infer those guarantees from the mock SDK.
+When `backend.prepare()` supplies an absolute `cwd`, the runtime creates one retained
+workspace at `<cwd>/dynamic-workflows/workspace/<workflow-slug>/<run-id>` and exposes
+its frozen `{path}` object to the source as `workspace`. All ordinary agent calls in
+that run can use the same directory. The source VM has no filesystem API and cannot
+create files itself. It can ask an agent/tool with host sandbox permission to write
+role-specific ordinary files, then pass each agent only the paths it needs; the runtime
+does not copy file contents into prompts or enforce role-level filesystem ACLs. Write
+access depends on the host sandbox configuration. Agents that can access the workspace
+can read other files there. `workspace-write` plus per-agent worktree isolation is rejected
+before SDK dispatch because the shared directory is outside the isolated checkout.
+Workspaces are retained after success, failure and cancellation. In this repository,
+`.gitignore` excludes matching nested workspace directories under this checkout; that
+rule does not affect workspaces created in arbitrary external repositories. Actual
+Codex SDK live smoke on PR head `8121b554` used `@openai/codex-sdk` 0.153.4: one agent
+wrote 40 bytes to `workspace.path/probe.txt`, and the runtime completed. This verifies
+the write handoff only in that environment, not general sandbox isolation or full caller
+role execution. The snapshot's 32 MiB content cap and manifest limits apply only when
+a snapshot is taken or validated; they are not write-time quotas. Retained workspaces
+have no aggregate quota or automatic pruning.
+
+Writable SDK options and the rejection of workspace-write plus worktree isolation also
+have mock-backed tests with real Git checkouts. Do not infer general sandbox isolation
+from the live smoke or mocks.
 
 `request.json`, source.txt and events.jsonl contain source/args hashes, phases,
 task IDs, thread IDs, results, failures and completed-turn token usage. They may
@@ -146,8 +174,12 @@ Enable the protocol with this host/adapter/CLI configuration (paths are illustra
 }
 ```
 
-Every listed file must already exist. List all source/worker reference files, artifacts,
-configuration and executable dependencies whose identity matters; an empty array is
+Every listed file must already exist. List all source/worker reference files, external artifacts,
+configuration and executable dependencies whose identity matters; the generated run workspace
+is snapshotted and sealed separately by the runtime. Snapshot checks reject static symlinks,
+special files and observed changes, but use pathname-based Node filesystem operations: they are
+not a security boundary against hostile code or a same-user process concurrently replacing nested
+workspace paths. An empty array is
 an explicit declaration of no file dependencies, not automatic discovery. Completion
 of this inventory and external evidence freshness remain operator responsibilities.
 SDK calls require explicit model and reasoning selection and an explicit `environment`.
@@ -185,8 +217,8 @@ See [protocol and verification boundaries](RESUME-DESIGN.md).
 
 Request `environment` accepts `path` (a PATH string of absolute, nonempty entries)
 and a nonempty `requiredCommands` array of simple executable names. Include hook
-dependencies such as rtk explicitly when the host uses them. No platform-specific
-directory is inserted automatically. The backend passes this PATH via per-instance
+dependencies explicitly when the host uses them. No platform-specific directory is
+inserted automatically. The backend passes this PATH via per-instance
 SDK `shell_environment_policy.set.PATH`; global configuration is never edited.
 Missing executables fail before run creation and thread dispatch. Canonical executable
 paths and the selected PATH are recorded in request.json backendPolicy.environment.

@@ -400,7 +400,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `findings[].severity` | ○ | `blocker` / `major` / `minor`。update の打ち切り判定に使う |
 | `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
-| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本にもそのまま存在するか。script はこれで `new` と `preexisting` を分ける。原本が読めなければ省略 |
+| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本の同じファイルにもそのまま存在し、かつ指摘が成立する条件（参照先・前提）が改稿で変わっていなければ `true`、それ以外は `false`。`[INTENT]` との不一致を指摘するものは、前提である意図が改稿で与えられたので常に `false`。原本が読めなければ省略する（分からないものを `false` にしない）。script はこれで `new` と `preexisting` を分け、diff scope では `out_of_scope` に入れるかも決める（「review_skill.js の戻り値」の `out_of_scope` を参照） |
 | `unchecked_judgments` | ○（担当観点のみ） | `[UNCHECKED_ITEMS]` の各 id に対する `pass` / `partial` / `fail` / `unknown` と根拠。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本 |
 
 #### 委譲項目（[UNCHECKED_ITEMS]）の受け渡し
@@ -457,11 +457,20 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
   "unchecked_failures": [],
   "findings_source": "after",
   "by_category": { "before": { "why-driven": 1 }, "after": { "why-driven": 0 } },
+  "reverify_missing": [],
+  "reverify_receipt": {
+    "phase": "Reverify", "staging_dir": "/abs/path-workspace/staging",
+    "fresh_thread": true, "completed": true,
+    "by_category": { "why-driven": 0 },
+    "updater_thread_id": "update-sonnet-p1",
+    "fresh_thread_id": "find-why-driven-p2r1"
+  },
   "staging": {
     "dir": "/abs/path-workspace/staging",
     "changed_files": [],
     "resolved": [], "remaining": [], "new": [],
-    "unverified": [], "possibly_rephrased": [], "unobserved": []
+    "unverified": [], "possibly_rephrased": [], "unobserved": [],
+    "reclassified": [], "out_of_scope": [], "preexisting": [], "reverify_missing": []
   },
   "revisions_used": 0
 }
@@ -473,7 +482,10 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「3 体の反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る |
 | `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
+| `reverify_missing` | Reverify の欠測観点。最初の試行で欠測があれば全観点を一度だけ再試行し、その後も欠測が残れば `reverify_incomplete` として保持する |
+| `reverify_receipt` | update の Reverify 完了証跡。`completed: false` または欠測がある場合、runner は action package を発行しない |
 | `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない |
 | `possibly_rephrased` | 観点とファイルは一致するが主張の文言が変わり、機械的には `new` になったもの。`new` にも残る |
 | `unobserved` | 再検証でそのファイルを同じ観点の担当が読んでいないため、`resolved` に数えられないもの |
+| `out_of_scope` | `scope: "diff"` のときだけ。改稿前に読まれたファイルにも今回変更したファイルにも無い場所で再検証が見つけた確定指摘。`present_in_original: true` の指摘だけが入り、提示だけして blocker 判定には入れない（`full` では常に空）。`false` や省略の指摘は、updater が変更を `changed_files` に申告し漏らした場合や意図の未達を隠さないよう、ここには入れず `new` として未解消に数える |
 | `revisions_used` | **再**改稿の回数。初回の改稿は含まない |

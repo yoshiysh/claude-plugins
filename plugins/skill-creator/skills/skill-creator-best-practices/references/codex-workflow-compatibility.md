@@ -22,7 +22,7 @@ node [SKILL_DIR]/scripts/select_runtime.js \
 `selected_runtime` の値を Workflow 呼び出しにそのまま使う（読み替えない）。
 
 1. 現在の tool inventory に native `Workflow` があり、この call が未試行なら native を1回だけ使う。
-2. native が存在しない Codex では `workflow:dynamic-workflow-runner` を内部互換層として利用し、ユーザーに runner の指定を求めない。
+2. native が存在しない Codex では、対応 mode に `workflow:dynamic-workflow-runner` を内部互換層として利用し、ユーザーに runner の指定を求めない。review / update は runner で拒否する。
 3. native を試行後に error / timeout / invalid result となった call は runner へ fallback しない。
    **理由**: native はどの phase まで進んだか（どの副作用が残っているか）を呼び出し側から
    確定できず、同じ call を runner で再実行すると部分実行の上に二重実行が重なる。加えて

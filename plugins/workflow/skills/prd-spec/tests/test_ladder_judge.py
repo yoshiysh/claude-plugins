@@ -64,8 +64,8 @@ class TestContractExists(unittest.TestCase):
 
 
 class TestRefineWiring(unittest.TestCase):
-    def test_4値のenumがschemaにある(self):
-        self.assertIn("const LADDER_KINDS = ['artifact', 'criteria', 'premise', 'question']", REFINE)
+    def test_5値のenumがschemaにある(self):
+        self.assertIn("const LADDER_KINDS = ['artifact', 'criteria', 'consistency', 'premise', 'question']", REFINE)
 
     def test_premise_question_は_needs_input_へ_分類欠測は_writer_へ(self):
         self.assertIn("if (kind === 'premise' || kind === 'question') needsInput.push", REFINE)

@@ -73,4 +73,4 @@ gh pr create --title "<Verified Title>" --body "<Verified Body>" --draft
 
 If successful, the PR URL is output. Present this URL to the user.
 
-**CRITICAL**: The final output to the user (URL and status) must be in **JAPANESE**.
+Report the PR URL and status to the user in Japanese.

@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .browser4-cli/
+**/dynamic-workflows/workspace/
 
 # direnv: 実値（ホストのアドレス・ユーザー名）が入るため追跡しない。
 # テンプレートは ansible/.envrc.example

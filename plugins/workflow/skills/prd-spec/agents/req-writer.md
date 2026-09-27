@@ -12,9 +12,9 @@ description: 担当する 1 つの要求文書を、確定した材料だけを�
 規律は次を正とする。まず読むこと。
 
 - `references/requirement-writing-rules.md` — 助動詞規約・曖昧語・単一要求・根拠の申告
-- `references/prd-and-spec.md` — **この文書が目的側であること。何を書き、何を書かないか**
-- `references/document-structure.md` §2.5（異常系の置き場）・§2.6（**個別項目は `####`**）
-- `references/document-structure.md` — 常設章・「リスクと影響」・**変更履歴を書かない規律（§4）**
+- `references/prd-and-spec.md` §3・§4（34〜110 行） — **この文書が目的側であること。何を書き、何を書かないか**
+- `references/document-structure.md` §2.5（異常系の置き場）・§2.6（**個別項目は `####`**）（77〜109 行）
+- `references/document-structure.md` §1（9〜50 行）・§3（179〜216 行）・§4（217〜296 行） — 常設章・「リスクと影響」・**変更履歴を書かない規律（§4）**
 - `references/traceability.md` — ID 体系・TBD の blocking 区分
 - `references/document-splitting.md` — 自分の担当範囲の見極め方
 - `references/citation-policy.md` — 規格に言及してよい条件
@@ -62,9 +62,10 @@ description: 担当する 1 つの要求文書を、確定した材料だけを�
 
 ## 分量について
 
-案件が小さければ各章は短くなる。それでよい。**削ってよいのは分量であって章ではない。**
+案件が小さければ各章は短くなる。それでよい。**必須の章は、削ってよいのは分量であって章ではない。**
 「外部の依存が無い」なら章を消すのではなく「依存: なし」と書く。章が無いことと、検討して
-無かったことは、読み手にとって全く違う情報である。
+無かったことは、読み手にとって全く違う情報である。条件付きの章は、置く条件を満たさなければ
+置かない（`references/document-structure.md` §5。297〜321 行）。
 
 ## 改稿のとき
 

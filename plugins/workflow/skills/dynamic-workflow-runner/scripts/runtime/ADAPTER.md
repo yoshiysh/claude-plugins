@@ -13,7 +13,8 @@ const Workflow = createWorkflow({
   modelMap: explicitHostModelMap,
   maxAgents: 2,
   concurrency: 2,
-  timeoutMs: 60000
+  timeoutMs: 60000,
+  agentTimeoutMs: 48000
 });
 const result = await Workflow({ scriptPath, args });
 ```
@@ -30,6 +31,23 @@ snapshotted so concurrent calls and later caller mutations do not share mutable 
 Each run has its own backend. Results are returned unchanged, without a new envelope.
 Limits are per Workflow call, not a global budget across calls. This adapter does not
 add native tool registration, global interception, approval forwarding or resume.
+`agentTimeoutMs` bounds each backend call; for this one-shot adapter, when omitted it
+defaults to 80% of `timeoutMs`. A timed-out call is aborted and returned to the source as `null`, while
+the runtime journal records `agent.timeout`; the workflow-level `timeoutMs` still
+fails the whole run when its deadline is reached.
+
+When the configured backend's `prepare()` returns an absolute `cwd`, runtime creates a
+retained `<cwd>/dynamic-workflows/workspace/<workflow-slug>/<run-id>` directory and
+exposes `{path}` as `workspace` to the source. The source VM has no filesystem API and
+cannot create files itself. It should ask an agent/tool with host sandbox write
+permission to create role-specific ordinary evidence files, then pass only role-relevant
+paths in each agent prompt. Write access depends on the host's Codex backend sandbox
+configuration; `workspace.path` is only the handoff location. The runtime does not
+provide role-level read isolation. `workspace-write` cannot be combined
+with an agent's `isolation: "worktree"` because those workers would not share the path.
+Workspace writes were observed in one live smoke, but this does not establish general
+sandbox isolation or full caller end-to-end behavior; see the [runtime README](README.md) for the
+smoke evidence and snapshot limits.
 
 The one-shot CLI delegates to `executeWorkflow(request, host)` in this same module.
 It accepts an explicit runDir rather than allocating one. Low-level `runtime.mjs`

@@ -39,8 +39,10 @@ adapter は既定で read-only。明示設定で workspace-write と完全 commi
 call 数・並行数・期限を制限しますが、厳密な token 上限ではありません。
 
 導入だけで native Workflow が追加されるわけではありません。既存 caller の旧 receipt 経路は
-まだ新 runtime へ自動移行していません。現時点の検証範囲は自動テストと小さな live smoke であり、
-全 caller の E2E、書込の live 検証、承認転送、resume は未完了です。
+まだ新 runtime へ自動移行していません。検証範囲は自動テストと、単一 agent による workspace
+書込の live smoke です。一般的な sandbox 隔離保証、全 caller の live E2E、承認転送、
+resume の live E2E は未検証です。workspace の検証範囲と上限は runtime の
+[README](skills/dynamic-workflow-runner/scripts/runtime/README.md) を参照してください。
 旧 manifest 手順は `skills/dynamic-workflow-runner/LEGACY.md` に隔離しています。
 
 詳細なフローは `skills/dynamic-workflow-runner/SKILL.md` を参照してください。

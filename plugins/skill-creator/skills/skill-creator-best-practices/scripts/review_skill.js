@@ -348,8 +348,8 @@ const PERSPECTIVES = [
   },
 ]
 
-// agentType は指定しない。agents/*.md の frontmatter の subagent_type は Agent ツールの
-// レジストリに登録された型ではなく、指定すると解決に失敗する。役割はプロンプト本文が担う。
+// agentType は指定しない。agents/*.md の役割は Agent ツールのレジストリに登録された型ではなく、
+// 指定すると解決に失敗する。役割はプロンプト本文が担う。
 function roleAgent(file, body, opts) {
   return agent(
     [
@@ -379,12 +379,11 @@ function scopeBlock(kind) {
     // 見落とした既存の問題を「改稿が持ち込んだ」と報告すると、承認判断が歪む（実際に起きた）。
     lines.push(`[ORIGINAL_DIR]: ${skillPath}`)
     lines.push(
-      '各指摘について、evidence の引用が [ORIGINAL_DIR] の同じファイルにもそのまま存在するかを' +
-        '確認し present_in_original に true / false で返すこと。原本が読めなければ省略する。' +
-        '引用が同じでも、指摘が成立する条件（参照先・前提）が改稿で変わったなら false。' +
+      `各指摘の present_in_original を ${SKILL_DIR}/references/schemas.md の「finder の出力（FINDINGS_SCHEMA）」の定義に従って返すこと。` +
         '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
         '[TARGET_DIR] で実際に読んだものだけ。原本は相対パスが同じなので混ぜると観測の有無が狂う）。'
     )
+    if (mode === 'update') lines.push(`[INTENT]:\n${intent}`)
   } else {
     lines.push(`[SCOPE]: ${scope}`)
     lines.push(
@@ -539,7 +538,10 @@ function verifyFindings(findings, phaseTitle, passLabel) {
                 null,
                 2
               )}`,
-            ].join('\n\n'),
+              mode === 'update' && phaseTitle === 'Reverify' ? `[INTENT]:\n${intent}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n\n'),
             {
               model: 'sonnet',
               schema: REFUTE_SCHEMA,
@@ -632,6 +634,7 @@ const originalConfirmed = base.confirmed
 const beforeCategories = byCategory(first.missing, base.confirmed)
 const reviewIncomplete = first.missing.length > 0
 let reverifyProvenance = null
+let reverifyMissing = []
 if (reviewIncomplete) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
 }
@@ -651,6 +654,7 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // before は最初の Find、after は Reverify。after が null なのは「そのパスが走らなかった」、
     // before.<観点> が null なのは「走ったがその観点の担当が応答しなかった」で、意味が違う。
     by_category: { before: beforeCategories, after: afterCategories },
+    reverify_missing: reverifyMissing,
     staging,
     // runner 経由の update では action package の発行条件になる。Reverify が走らなかった
     // outcome を completed と偽装しないため、after の全観点が観測済みのときだけ true にする。
@@ -790,9 +794,17 @@ while (true) {
   }
 
   phase('Reverify')
-  const reverifyPassLabel = `p2r${revision + 1}`
-  const freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
-  const after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+  let reverifyPassLabel = `p2r${revision + 1}`
+  let freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
+  let after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+  reverifyMissing = after.missing
+  if (after.missing.length > 0) {
+    log(`再検証の欠測（${after.missing.join(', ')}）を保持したまま、全体を 1 回だけ再試行します。`)
+    reverifyPassLabel = `${reverifyPassLabel}-retry`
+    freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
+    after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+    reverifyMissing = after.missing
+  }
   if (after.missing.length > 0) {
     // 再検証で観点が欠けた状態を「残存 0 件」と読むと、直っていないものが直ったことになる。
     staging = {
@@ -807,7 +819,10 @@ while (true) {
       reclassified: [],
       out_of_scope: [],
       preexisting: [],
+      reverify_missing: after.missing,
     }
+    afterCategories = byCategory(after.missing, [])
+    reverifyProvenance = { updater_thread_id: updaterThreadId, fresh_thread_id: freshThreadId }
     verdict = 'reverify_incomplete'
     break
   }
@@ -836,7 +851,10 @@ while (true) {
           ].map(normPath)
         )
       : null
-  const isInScope = (f) => inScope === null || inScope.has(normPath(f.file))
+  // true 以外を範囲外に出さないのは、changed_files の申告漏れに加え、[INTENT] 未達の指摘は
+  // 原本と同一のファイルでも false になり、範囲外に出すと未達が隠れるため。
+  const isInScope = (f) =>
+    inScope === null || inScope.has(normPath(f.file)) || f.present_in_original !== true
 
   // 「消えた」ように見える指摘のうち、再検証でそのファイルを誰も開かなかったものは
   // resolved に数えない。読まなかっただけかもしれず、それを解消として数えると
@@ -906,6 +924,7 @@ while (true) {
     reclassified,
     out_of_scope: outOfScope,
     preexisting,
+    reverify_missing: [],
   }
   latest = post
   latestSource = 'after'

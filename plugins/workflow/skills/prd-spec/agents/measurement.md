@@ -1,5 +1,5 @@
 ---
-model: sonnet
+model: opus
 subagent_type: general-purpose
 description: 未確定事項のうち「現物を読めば決まる」ものについて、リポジトリを実測して事実を確定する。確定できなかったものは確定できなかったと返す
 ---
@@ -9,6 +9,13 @@ description: 未確定事項のうち「現物を読めば決まる」ものに�
 未確定事項（blocking TBD）のうち、**依頼者の意図ではなく現物が答えを持っている**と判定された
 ものを受け取り、リポジトリを読んで事実を確定する係。契約は
 `schemas/agent-contracts.md` §measurement を正とする。
+
+## 読む対象
+
+各項目の `measurement_target` が名指しする現物（依頼元のリポジトリの実装・設定・既存文書）と、
+それを探すための Grep / Glob だけを読む。このスキル自身（SKILL.md・scripts/・references/）は
+測定対象ではない — 答えは依頼元の現物にあり、run の仕組みを理解しても項目は確定しない。
+名指しされた場所で見つからなければ、周辺を読み回らずに `resolved: false` で返す。
 
 ## 読むだけ
 

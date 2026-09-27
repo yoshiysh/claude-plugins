@@ -28,10 +28,12 @@ error_message: <status: error のときのみ。候補名や欠落理由を含�
 
 - `skill_name`: ユーザー入力の表記ゆれを `.claude/skills/` 実ディレクトリ名へ寄せた正規名。
 - `plugin_name`: 登録先 plugin（カテゴリ）。優先順位は「ユーザー明示 → 既に `plugins/*/skills/<skill_name>` を持つ plugin → AskUserQuestion で確認」。スキルの公開名（frontmatter の `name`）とは別物。
-- `mode` / `update`: **marketplace.json を plugin_name で照合した実体ベースの判定**。plugin が登録済みなら `update / true`（既存カテゴリ plugin へのスキル追加を含む）、未登録（または marketplace.json 不在）なら `register / false`。ユーザーの言い回しではなく実体で決める。
+- `mode` / `update`: Claude catalog (`.claude-plugin/marketplace.json`) を判定の正本として plugin_name を照合する。Codex catalog (`.agents/plugins/marketplace.json`) も照合し、片側だけの登録や矛盾は registrar に伝える。Claude catalog で登録済みなら `update / true`（既存カテゴリ plugin へのスキル追加を含む）、未登録なら `register / false`。ユーザーの言い回しではなく実体で決める。
 - `version`: **ユーザーが明示した場合のみ**値を入れる。無指定なら空のまま渡す（新規=`0.1.0`／更新=既存 version の patch+1 を register_plugin.py が決めるため、ここで `0.1.0` を埋めない）。
 - `author`: ユーザー指定が無ければデフォルト `yoshiysh`。
 - `description`: ユーザー指定 → 対象 SKILL.md frontmatter の description → AskUserQuestion の順で確定。空のまま渡さない。
+
+Codex marketplace の既存 `plugins[].source` は公式形式を検証し、Claude catalog にない entry も保持する。受理するのは checkout 内 `./` local path 文字列、`{source: "local", path: "./…"}`、`{source: "url", url: "…"}`、`{source: "git-subdir", url: "…", path: "./…", ref?: "…", sha?: "…"}`、`{source: "npm", package: "…", version?: "…", registry?: "…"}`。npm `registry` は省略可能で、指定時は whitespace を含まない有効な hostname/port を持ち、userinfo/query/fragment を含まない HTTPS URL とする。不明な source type、必須値欠落、checkout 外 local path は破損として中断する。
 
 ---
 
@@ -52,7 +54,7 @@ error_message: <status: error のときのみ。候補名や欠落理由を含�
       "line": 23,
       "match": "<該当行（先頭160字）>",
       "remediation": "<推奨対応>",
-      "script": "<external_script のみ：ファイル名>",
+      "script": "<external_script / script_internal_dep のみ：ファイル名>",
       "exists_at_root": true,
       "already_bundled": false
     }
@@ -60,7 +62,7 @@ error_message: <status: error のときのみ。候補名や欠落理由を含�
 }
 ```
 
-- `has_blockers`：self_hardcode / external_script / env_build のいずれかがあれば true。
+- `has_blockers`：self_hardcode / external_script / script_internal_dep / env_build のいずれかがあれば true。
 - 検出は候補出し（broad net）。記述的言及か実依存かの最終判断は portability-checker が行う。
 
 ---
@@ -91,7 +93,7 @@ note: <補足>
   "dependency_candidates": {
     "<dep-skill>": {
       "referenced_by": "<どのスキルが言及したか（推移的検出のため対象自身とは限らない）>",
-      "occurrences": [ { "file": "<相対パス>", "line": 12, "match": "<該当行先頭160字>" } ]
+      "occurrences": [ { "file": "<相対パス>", "line": 12, "text": "<該当行先頭160字>" } ]
     }
   }
 }
@@ -140,8 +142,10 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 | version     | input-resolver | version（空のことがある） |
 | author      | input-resolver | author      |
 | description | input-resolver | description |
-| bundle_skills | dependency-resolver（司令塔が確認後に確定）| bundle_skills |
+| bundle_skills | dependency-resolver（`rationale` に根拠がある確定済みの実依存）| bundle_skills |
 | depends_on | dependency-resolver | cross_plugin_dependencies[].owning_plugin（重複除去）|
+
+`bundle_skills` は dependency-resolver が `rationale` に呼び出し根拠を示して確定した対象であり、司令塔は改めて同梱可否を確認せず渡す。未分類の曖昧候補は `needs_confirmation` に残し、その候補だけを司令塔が確認してから採否を決める。`cross_plugin_dependencies` も依存先が特定済みなら再確認しない。
 
 これらを `scripts/register_plugin.py` の引数 `--skill / --plugin / --author / --description` に対応させて実行する。
 `--update` は `update=true` のときだけ付ける。`--version` は version が空でない（ユーザー明示）ときだけ付ける（空なら付けず、スクリプトに新規 0.1.0／更新 patch+1 を決めさせる）。
@@ -160,6 +164,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
   "dry_run": false,
   "created_new": false,
   "marketplace_path": "<絶対パス>/.claude-plugin/marketplace.json",
+  "codex_marketplace_path": "<絶対パス>/.agents/plugins/marketplace.json",
   "plugin": "<登録先 plugin 名>",
   "skill": "<スキル実体ディレクトリ名>",
   "public_name": "<公開名（frontmatter の name。無ければスキル名）>",
@@ -167,6 +172,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
   "version_bump": "0.1.0 -> patch+1 | explicit | default(0.1.0)",
   "actions": {
     "marketplace_entry": "added | updated",
+    "codex_marketplace": { "added": ["..."], "updated": ["..."], "kept": ["..."] },
     "plugin_json": "created",
     "readme": "created | kept",
     "relocate": "created | migrated | kept"
@@ -183,6 +189,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 ```
 
 - `public_name`: 呼び出し名 `/plugin:skill` の skill 部分。`skills/` 配下のディレクトリ名は実体名を保つ（install 先キャッシュのディレクトリ名になるため、`../<兄弟スキル>/` 参照を壊さない）。
+- `codex_marketplace`: Claude catalog の plugin 集合を Codex catalog へ同期した結果。既存 Codex-only entries と top-level metadata は保持し、既存 entry の policy/category は維持して不足フィールドだけ補う。
 - `actions.relocate`: `created`=未登録スキルを移動／`migrated`=旧 symlink レイアウトから反転／`kept`=既に移動済み。
 - `leftover_symlinks`: `plugins/<plugin>/` 配下に残った symlink の相対パス。**常に空でなければならない**（残っていると Codex の install 先で中身ごと落ちる）。`bundle_ok` は `entities_ok` かつこれが空であること。
 
@@ -197,7 +204,8 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 | 0 | 成功（added または updated）| レポートをそのまま報告 |
 | 2 | marketplace.json が破損 | 自動修復せず中断。手動修正→再実行を案内 |
 | 3 | 対象スキルの SKILL.md が無い | 設置不備として欠落パスを案内 |
-| 4 | `--update` 未指定なのに既存と衝突 | input-resolver の判定とズレ。ユーザーに更新可否を確認し --update で再実行 |
+| 4 | 既存 catalog entry との衝突（`--update` 未指定）、依存スキルが別 plugin 所属、relocation preflight の二重実体・移動元欠落・不正状態など実体不整合 | `--update` 未指定時だけ更新可否をユーザーに明示確認。別 plugin 所属は共有不可の説明に従って対処し、その他は自動再試行せず stderr を説明して指示を待つ。preflight は catalog / manifest の書き込み前に全対象を検査する |
+| 5 | plugin / skill directory 名（`--depends-on` を含む）が許可形式でない、または許可 root / write destination が checkout 外へ解決される | fail-closed で中断し、入力または symlink 配置の修正を案内 |
 
 ---
 

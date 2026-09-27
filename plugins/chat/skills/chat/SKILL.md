@@ -217,6 +217,6 @@ spec.md 更新も、スキル自身の workspace 配下への書き込みに閉�
 
 ## モデル交代時の更新ポイント
 
-Fable 5 は現行フラッグシップ。次期モデルへ交代する際は、
+本スキルは Claude Fable 5 を前提に書かれている。モデルを交代する際は、
 `references/target-model-prompting-guide.md` と `agents/sounding-board-consultant.md` の
 `model:` frontmatter を差し替える（詳細は各ファイル冒頭のコメント参照）。

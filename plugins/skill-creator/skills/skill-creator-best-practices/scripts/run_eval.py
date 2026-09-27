@@ -39,6 +39,7 @@ def run_single_query(
     timeout: int,
     project_root: str,
     model: str | None = None,
+    effort: str | None = None,
 ) -> bool:
     """Run a single query and return whether the skill was triggered.
 
@@ -76,6 +77,8 @@ def run_single_query(
         ]
         if model:
             cmd.extend(["--model", model])
+        if effort:
+            cmd.extend(["--effort", effort])
 
         # Remove CLAUDECODE env var to allow nesting claude -p inside a
         # Claude Code session. The guard is for interactive terminal conflicts;
@@ -191,6 +194,7 @@ def run_eval(
     runs_per_query: int = 1,
     trigger_threshold: float = 0.5,
     model: str | None = None,
+    effort: str | None = None,
 ) -> dict:
     """Run the full eval set and return results."""
     results = []
@@ -207,6 +211,7 @@ def run_eval(
                     timeout,
                     str(project_root),
                     model,
+                    effort,
                 )
                 future_to_info[future] = (item, run_idx)
 
@@ -266,6 +271,7 @@ def main():
     parser.add_argument("--runs-per-query", type=int, default=3, help="Number of runs per query")
     parser.add_argument("--trigger-threshold", type=float, default=0.5, help="Trigger rate threshold")
     parser.add_argument("--model", default=None, help="Model to use for claude -p (default: user's configured model)")
+    parser.add_argument("--effort", default=None, help="Effort level for claude -p (default: the model's default)")
     parser.add_argument("--verbose", action="store_true", help="Print progress to stderr")
     args = parser.parse_args()
 
@@ -293,6 +299,7 @@ def main():
         runs_per_query=args.runs_per_query,
         trigger_threshold=args.trigger_threshold,
         model=args.model,
+        effort=args.effort,
     )
 
     if args.verbose:

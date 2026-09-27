@@ -8,7 +8,7 @@ export function exactObject(value, keys, name) {
 
 export const requestKeys = ['scriptPath', 'args'];
 export const backendKeys = ['cwd', 'modelMap', 'codexPathOverride', 'model', 'modelReasoningEffort', 'CodexClass', 'workspace', 'environment', 'context'];
-export const limitKeys = ['maxAgents', 'concurrency', 'timeoutMs', 'maxOutputBytes'];
+export const limitKeys = ['maxAgents', 'concurrency', 'timeoutMs', 'agentTimeoutMs', 'maxOutputBytes'];
 
 export function validateRequirements(requirements = [], capabilities = ['read-only', 'fresh-thread']) {
   if (!Array.isArray(requirements) || requirements.some(x => typeof x !== 'string'))

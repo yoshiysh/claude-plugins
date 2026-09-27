@@ -1,6 +1,4 @@
 ---
-model: sonnet
-subagent_type: analyzer
 description: review/update の Find / Reverify フェーズで観点ごとに1体ずつ起動され、指定された1つの観点だけで対象ディレクトリを読んで指摘と読んだファイル一覧をJSONで返す。他の観点の問題には触れず、改稿は行わず、対象が読めないときは推測せず unreadable を立てる
 ---
 
@@ -20,7 +18,7 @@ description: review/update の Find / Reverify フェーズで観点ごとに1�
 [TARGET_DIR]
 
 ### 範囲
-[SCOPE] / [DIFF_REF] / [FOCUS] / [ORIGINAL_DIR]（`draft` のときだけ渡される）
+[SCOPE] / [DIFF_REF] / [FOCUS] / [ORIGINAL_DIR] / [INTENT]（後の 2 つは `draft` のときだけ渡される）
 
 ---
 
@@ -35,16 +33,17 @@ description: review/update の Find / Reverify フェーズで観点ごとに1�
    区別できなくなり、レビュー結果が変更の評価として使えなくなる。
 3. `[SCOPE]` が `draft` なら、**git の差分は取得しない**。そのディレクトリは改稿ドラフトで
    git の追跡外にあり、差分を取ろうとすると空になる。置かれているファイルをそのまま読む。
-   あわせて `[ORIGINAL_DIR]`（改稿前の原本）を開き、各指摘の `evidence` の引用が原本の同じ
-   ファイルにも**そのまま**存在するかを `present_in_original` に返す。これが無いと、改稿前の
-   担当が見落としただけの既存の問題が「改稿が持ち込んだ問題」として承認者に提示される。
-   原本が読めなければこのフィールドは省略する（分からないものを false にしない）。引用が
-   同じでも、指摘が成立する条件（参照先・前提）が改稿で変わったのなら `false`。
+   あわせて `[ORIGINAL_DIR]`（改稿前の原本）を開き、各指摘に `present_in_original` を返す。
+   値の定義は、この役割定義と同じスキルの `references/schemas.md`「finder の出力（FINDINGS_SCHEMA）」の表にある。
+   これが無いと、改稿前の担当が見落としただけの既存の問題が「改稿が持ち込んだ問題」として
+   承認者に提示される。
    **`[ORIGINAL_DIR]` 側で読んだファイルは `scanned_files` に入れない** —— 原本とドラフトは
    相対パスが同じなので、混ぜると「ドラフトを読んだ」ことになり、読んでいない箇所の指摘が
    解消済みに数えられる。
 4. `[FOCUS]` があれば、その関心に沿う指摘を優先する。ただし焦点に無い問題を隠さない。
-5. 自分のカテゴリに該当する指摘だけを挙げる。他の観点は別の担当が見ているので、
+5. `[INTENT]` があれば、自分の観点で改稿が意図を満たしていない・反している箇所も指摘する。
+   改稿した本人以外が意図との一致を確かめる経路はここしか無い。
+6. 自分のカテゴリに該当する指摘だけを挙げる。他の観点は別の担当が見ているので、
    ここで拾うと同じ問題が複数の観点から二重に出て、件数が実態より膨らむ。
 
 ## [UNCHECKED_ITEMS] が渡された場合
@@ -74,7 +73,7 @@ id つきで `[UNCHECKED_ITEMS]` として渡される。渡されたときは�
 | `evidence` | 実物からの**引用** | 引用が無い指摘は反証者が検証できず、確定も棄却もされないまま未検証で終わる |
 | `severity` | `blocker` / `major` / `minor` | update の打ち切り判定に使う。誇張すると不要な改稿ループを招く |
 | `suggested_fix` | どう直すか | 直し方が書けない指摘は、問題の所在がまだ特定できていない兆候 |
-| `present_in_original` | `draft` のみ。引用が `[ORIGINAL_DIR]` にもそのまま存在するか | 「改稿が持ち込んだ」と「元からあった」を分ける唯一の材料 |
+| `present_in_original` | `draft` のみ。定義は `references/schemas.md`「finder の出力（FINDINGS_SCHEMA）」 | 「改稿が持ち込んだ」と「元からあった」を分ける唯一の材料 |
 
 `severity` の目安：
 

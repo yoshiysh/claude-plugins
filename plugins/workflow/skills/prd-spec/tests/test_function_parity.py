@@ -6,7 +6,7 @@ workflow script は import を書けないため、draft.js と refine.js は一
 だけ source_finding_id が落ちる drift が起きた（フル実行評価で検出）。
 
 また OBSOLETE_TERMS / UNVERIFIABLE_STANDARDS は citation-policy.md（正と宣言）と
-両 script の 3 箇所に実体があるが、reference⇔script の一致は誰も検査していなかった。
+scripts/doc_check.mjs（構造検査の正本。両 script は checker 経由でこれを実行する）に実体がある。
 citation-policy.md に語を足しても script が黙って検査しない退行をここで固定する。
 """
 
@@ -17,6 +17,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parent.parent
 DRAFT = (SKILL / "scripts" / "draft.js").read_text()
 REFINE = (SKILL / "scripts" / "refine.js").read_text()
+DOC_CHECK = (SKILL / "scripts" / "doc_check.mjs").read_text()
 CITATION = (SKILL / "references" / "citation-policy.md").read_text()
 
 
@@ -64,7 +65,7 @@ class TestReplicatedFunctions(unittest.TestCase):
 
 class TestReferenceScriptConstants(unittest.TestCase):
     def test_obsolete_terms_appear_in_citation_policy(self):
-        for script_name, src in (("draft.js", DRAFT), ("refine.js", REFINE)):
+        for script_name, src in (("doc_check.mjs", DOC_CHECK),):
             for term in extract_array(src, "OBSOLETE_TERMS"):
                 self.assertIn(
                     term.lower(),
@@ -73,7 +74,7 @@ class TestReferenceScriptConstants(unittest.TestCase):
                 )
 
     def test_unverifiable_standards_appear_in_citation_policy(self):
-        for script_name, src in (("draft.js", DRAFT), ("refine.js", REFINE)):
+        for script_name, src in (("doc_check.mjs", DOC_CHECK),):
             for term in extract_array(src, "UNVERIFIABLE_STANDARDS"):
                 self.assertIn(
                     term,
@@ -87,7 +88,7 @@ class TestReferenceScriptConstants(unittest.TestCase):
         # md 側の列挙全体を機械抽出するのは書式に脆いので、両 script の定数一致
         # （test_structural_findings 側）+ 本テストの片方向包含 + この代表語の存在で固定する。
         for representative in ("design history file", "21 cfr 820.30"):
-            self.assertIn(representative, extract_array(DRAFT, "OBSOLETE_TERMS"))
+            self.assertIn(representative, extract_array(DOC_CHECK, "OBSOLETE_TERMS"))
 
 
 class TestGateCapacityConstants(unittest.TestCase):

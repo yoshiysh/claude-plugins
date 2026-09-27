@@ -24,14 +24,15 @@ test('unknown authority/budget settings and incomplete resume fail before source
     assert.throws(() => codexBackend({ cwd: '/tmp', [key]: true }), /unsupported Codex backend field/);
 });
 
-test('unchanged PDCA source rejects isolation before builder and before run creation', async t => {
+test('worktree isolation in the source is rejected before any agent and before run creation', async t => {
   const root = await mkdtemp(join(tmpdir(), 'workflow-preflight-'));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const scriptPath = join(root, 'isolated.flow');
+  await writeFile(scriptPath, `export const meta = {name:'isolated',description:'worktree writer'};
+    await agent('x', {model:'opus',isolation:'worktree'}); return 1;`);
   let calls = 0;
-  await assert.rejects(Workflow({
-    scriptPath: fileURLToPath(new URL('../../../pdca/scripts/pdca.js', import.meta.url)),
-    args: {},
-  }, { backend: { run() { calls++; } }, runDir: join(root, 'run'), trustedSource: true }),
+  await assert.rejects(Workflow({ scriptPath, args: {} },
+    { backend: { run() { calls++; } }, runDir: join(root, 'run'), trustedSource: true }),
   /unsupported source capability option: isolation/);
   assert.equal(calls, 0);
   await assert.rejects(access(join(root, 'run')), { code: 'ENOENT' });

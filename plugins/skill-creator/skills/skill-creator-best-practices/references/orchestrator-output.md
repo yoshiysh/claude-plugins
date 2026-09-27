@@ -111,7 +111,7 @@ baseline   平均 pass_rate: Y%
 ```
 .claude/skills/[スキル名]/
 ├── SKILL.md
-├── agents/              （Sub-agent プロンプトファイル・各ファイルに model: フロントマター）
+├── agents/              （Sub-agent プロンプトファイル）
 ├── assets/              （変化しない参照データ）
 └── schemas/
     └── agent-contracts.md  （エージェント間の入出力契約）

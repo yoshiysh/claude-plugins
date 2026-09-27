@@ -82,14 +82,28 @@ test('final return and prompt are byte bounded', async t => {
     { run: async () => { calls++; return ''; } }, { maxOutputBytes: 100 }), /prompt byte/);
   assert.equal(calls, 0);
 });
-test('deadline aborts a pending backend without claiming completion', async t => {
+test('agent timeout aborts a pending backend and records a null result', async t => {
   let aborted = false;
-  await assert.rejects(run(t, `return await agent('x');`, {
+  const { result, events } = await run(t, `return await agent('x');`, {
     run: async (_, __, { signal }) => new Promise(() => {
       signal.addEventListener('abort', () => { aborted = true; });
     }),
-  }, { timeoutMs: 200 }), /deadline/);
+  }, { timeoutMs: 200 });
+  assert.equal(result, null);
   assert.equal(aborted, true);
+  assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
+});
+test('agent timeout returns null, records timeout, and aborts only that backend call', async t => {
+  let aborted = false;
+  const { result, events } = await run(t, `return await agent('slow');`, {
+    run: async (_, __, { signal }) => new Promise(() => {
+      signal.addEventListener('abort', () => { aborted = true; });
+    }),
+  }, { timeoutMs: 1000, agentTimeoutMs: 25 });
+  assert.equal(result, null);
+  assert.equal(aborted, true);
+  assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
+  assert.equal(events.at(-1).type, 'run.completed');
 });
 test('trust acknowledgement is required before opening source', async () => {
   await assert.rejects(Workflow({ scriptPath: '/missing' }, { backend: { run() {} } }), /trustedSource/);
@@ -125,4 +139,74 @@ test('update contract returns a hash-bound action package without applying it', 
   assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
   assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'before\n');
   assert.equal(await readFile(join(root, 'run', 'update-action-package.json'), 'utf8').then(JSON.parse).then(x => x.apply.owner), 'caller');
+});
+
+test('update workflows fail closed before backend preparation, run creation, and dispatch', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-update-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const root = await realpath(dir), scriptPath = join(root, 'update.flow');
+  const capabilities = ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'];
+  const cases = [
+    { name: 'args-mode', args: { mode: 'update' } },
+    { name: 'backend-contract', backendContract: { targetDir: '/target', stagingDir: '/staging' } },
+    { name: 'host-requirements', host: { requirements: capabilities.slice(2) } },
+    { name: 'backend-capabilities', backendCapabilities: capabilities },
+    { name: 'source-requirements', source: `${header.replace("description:'test workflow'", `description:'test workflow',requirements:${JSON.stringify(capabilities.slice(2))}`)}return 1;`,
+      backendCapabilities: capabilities },
+  ];
+  for (const variant of cases) {
+    let prepared = 0, dispatched = 0;
+    const runDir = join(root, `run-${variant.name}`);
+    await writeFile(scriptPath, variant.source ?? `${header}return 1;`);
+    const backend = { run() { dispatched++; }, prepare() { prepared++; },
+      ...(variant.backendContract ? { updateContract: variant.backendContract } : {}),
+      ...(variant.backendCapabilities ? { capabilities: variant.backendCapabilities } : {}) };
+    await assert.rejects(Workflow({ scriptPath, args: variant.args ?? {} }, {
+      backend, trustedSource: true, runDir, ...variant.host,
+    }), /update workflows are not supported|unsupported Workflow host field/);
+    assert.equal(prepared, 0, variant.name);
+    assert.equal(dispatched, 0, variant.name);
+    await assert.rejects(realpath(runDir), { code: 'ENOENT' }, variant.name);
+  }
+});
+
+test('agent timeout defaults to 80% of the workflow deadline', async t => {
+  const { result, events } = await run(t, `return await agent('slow');`, {
+    run: async (_, __, { signal }) => new Promise(resolve => {
+      signal.addEventListener('abort', () => resolve('too late'));
+    }),
+  }, { timeoutMs: 1000 });
+  assert.equal(result, null);
+  assert.equal(events.find(event => event.type === 'agent.timeout').timeoutMs, 800);
+});
+
+test('source passes role-specific evidence paths through one retained per-run workspace', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'workflow-runtime-shared-workspace-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const scriptPath = join(root, 'evidence.flow'), runDir = join(root, 'run');
+  await writeFile(scriptPath, `export const meta = {name:'evidence-review',description:'shared evidence files',requirements:['workspace-write']};
+    const evidencePath = workspace.path + '/research-notes.md';
+    await agent('write ' + evidencePath, {label:'research'});
+    return await agent('read only ' + evidencePath, {label:'review'});`);
+  const backend = {
+    capabilities: ['read-only', 'fresh-thread', 'workspace-write'],
+    async prepare() { return { cwd: root }; },
+    async run(prompt) {
+      const path = prompt.match(/(?:write|read only) (.+)$/)?.[1];
+      assert.ok(path);
+      if (prompt.startsWith('write ')) {
+        await writeFile(path, 'role evidence\\n');
+        return 'written';
+      }
+      return await readFile(path, 'utf8');
+    },
+  };
+  const result = await Workflow({ scriptPath }, { backend, trustedSource: true, runDir, requirements: ['workspace-write'] });
+  const receipt = JSON.parse(await readFile(join(runDir, 'request.json'), 'utf8'));
+  const events = (await readFile(join(runDir, 'events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(result, 'role evidence\\n');
+  assert.equal(receipt.workspace.path.startsWith(join(await realpath(root), 'dynamic-workflows', 'workspace', 'evidence-review') + '/'), true);
+  assert.notEqual(receipt.workspace.path, runDir);
+  assert.equal(await readFile(join(receipt.workspace.path, 'research-notes.md'), 'utf8'), 'role evidence\\n');
+  assert.equal(events.some(event => event.type === 'workspace.created' && event.path === receipt.workspace.path), true);
 });

@@ -53,7 +53,8 @@ model/effort pairs, snapshots policy, and emits model.selected for each SDK call
 
 Repository verification exited 0 with 106 Node tests, 41 Python tests and 36 fixture
 preflights. The four adapter/model tests were rerun after the final effort assertion
-and passed. No additional live inference or model-driven reviewer was started.
+and passed. No additional live inference for model/effort mapping or model-driven
+reviewer was started.
 The earlier smoke above predates model.selected logging and is not evidence of a live
 model/effort mapping test. Caller migration and unchanged-caller E2E remain open.
 
@@ -74,7 +75,8 @@ The regression checks now reject unknown request/host/backend/limit fields, reje
 unsupported declared requirements, and reject the unchanged PDCA literal isolation
 option before run creation and with zero backend calls. Static option detection is
 conservative and incomplete for computed options; caller requirements remain necessary.
-This is rejection coverage, not implementation of worktree, writes, approval or resume.
+These checks cover rejection paths; they do not establish live worktree behavior,
+general sandbox isolation, approval forwarding or resume.
 
 One subsequent live smoke ran on 2026-09-06 from 10:57:17.634Z to 10:57:30.824Z:
 two calls, result `{"text":"workflow smoke","matches":true}`, inFlight empty.
@@ -101,7 +103,9 @@ Three added tests pass using actual temporary Git repositories:
   mode and approvals never. Mock role responses do not read actual role references;
   this is routing/schema coverage, not full PDCA behavior or quality validation.
 
-No additional live inference was performed for this change. Actual writable-agent
-execution, approval forwarding, resume and unchanged-caller live E2E remain open.
+The live workspace-write smoke is documented in the [runtime README](README.md).
+General sandbox isolation,
+approval forwarding, full PDCA execution, unchanged-caller live E2E and resume live E2E
+remain unverified.
 The SKILL entry and runtime documentation were aligned with this bounded capability;
 the formal skill-creator evaluation Workflow was not executed.

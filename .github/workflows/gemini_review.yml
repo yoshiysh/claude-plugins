@@ -339,32 +339,37 @@ jobs:
             exit 0
           fi
 
-          payload=$(for f in $files; do
+          payload_file="${RUNNER_TEMP}/screen-files.json"
+          : > "$payload_file"
+          for f in $files; do
             path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
             jq -n --arg path "$path" --rawfile diff "$f" '{path:$path, diff:$diff}'
-          done | jq -s .)
+          done | jq -s . > "$payload_file"
 
           schema='{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"verdict":{"type":"string","enum":["deep_review","skip"]},"reason":{"type":"string"}},"required":["path","verdict","reason"]}}},"required":["files"]}'
 
-          prompt=$(jq -n --argjson files "$payload" '
-            "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
-            "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
-            "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
-            ($files | tostring)')
+          request_file="${RUNNER_TEMP}/screen-request.json"
+          jq -n --slurpfile files "$payload_file" --argjson schema "$schema" '
+            {contents:[{parts:[{text:(
+              "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
+              "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
+              "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
+              ($files[0] | tostring)
+            )}]}],
+             generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}' \
+            > "$request_file"
 
-          body=$(jq -n --arg prompt "$prompt" --argjson schema "$schema" \
-            '{contents:[{parts:[{text:$prompt}]}],
-              generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}')
-
-          resp=$(curl -sS \
+          response_file="${RUNNER_TEMP}/screen-response.json"
+          : > "$response_file"
+          curl -sS \
             -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
             -H 'Content-Type: application/json' \
-            -d "$body" \
+            --data-binary "@$request_file" \
+            -o "$response_file" \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
-            || true)
+            || true
 
-          verdicts=$(printf '%s' "$resp" \
-            | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null \
+          verdicts=$(jq -r '.candidates[0].content.parts[0].text // empty' "$response_file" 2>/dev/null \
             | jq -c '.files // empty' 2>/dev/null || true)
 
           if [ -z "$verdicts" ] || [ "$verdicts" = "null" ]; then

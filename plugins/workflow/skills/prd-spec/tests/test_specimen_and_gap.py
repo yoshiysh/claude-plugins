@@ -125,9 +125,15 @@ class SpecimenAuditorStructureTests(unittest.TestCase):
             REFINE_SRC,
         )
 
-    def test_kind_targets_are_routed_by_finding_document(self):
-        # KIND: ターゲットの指摘は finding.document で宛先解決される（宛先を失うと改稿に回らない）。
-        self.assertIn("String(r.target).startsWith('KIND:')", REFINE_SRC)
+    def test_specimen_is_issued_per_document(self):
+        # 文書ごとに 1 体。kind ごとに全文書を 1 体へ持たせると、文脈が文書の総量まで膨らむ。
+        # 宛先は target（文書キー）で決まり、自己申告の document 綴りに依存しない。
+        self.assertNotIn("KIND:", REFINE_SRC)
+        m = re.search(r"const AUDITORS = \[(.*?)\n\]", REFINE_SRC, re.S)
+        self.assertRegex(m.group(1), r"name: 'specimen'.*scope: 'each'")
+        run_audit_pass = REFINE_SRC[REFINE_SRC.index("async function runAuditPass") :]
+        run_audit_pass = run_audit_pass[: run_audit_pass.index("const wrapped")]
+        self.assertIn("for (const d of auditable) tasks.push({ auditor, target: d.key, docs: [d] })", run_audit_pass)
 
 
 class DeclarationGapInValidityAuditorTests(unittest.TestCase):

@@ -20,7 +20,7 @@ skill-kaizen 型の改善運転（対象スキルの実行記録を telemetry �
 | quality_contract | 品質判定の成文基準ファイル | 対象スキルの監査チェックリスト・成功基準文書 |
 
 task_class に「スキル名」のような緩い資料を使わない — 入力が違えば比較にならないことは
-kaizen 運転の対照測定（同一入力・独立ドラフト・対発行）と同じ理屈で、ここでも入力の同一性が
+kaizen 運転の比較（同一入力・独立ドラフト・対発行）と同じ理屈で、ここでも入力の同一性が
 比較可能性の土台になる。
 
 **settings に実装の版（commit SHA）を入れない。** 比較器は group の完全一致を要求するので、
@@ -72,7 +72,7 @@ quality = passed  ⇔  verdict ∈ {clean, tbd_remaining}
 - `proposals.py` が出すのは「コスト差の調査/検証候補」まで。品質の維持そのものの認定は
   しない（quality passed は入力であり、その真正性は quality_evidence の産物側にある）。
 - 候補を改修に進めるかは kaizen 運転側の判断で、そこでは通常の contract
-  （成功基準の事前固定・生成と検証の分離・standardize の人間ゲート）に従う。
+  （完了条件の事前固定・生成と検証の分離・マージの人間ゲート）に従う。
 - 分析自身の使用量は別 capture で測る（proposals.md と同じ。分析コスト 0 とはしない）。
 - report の `censored_sessions` が 0 でない期間の ledger 合計は下方に偏っている。打ち切りが
   出ている条件でのコスト比較は、その事実を比較資料に明記してから行う。

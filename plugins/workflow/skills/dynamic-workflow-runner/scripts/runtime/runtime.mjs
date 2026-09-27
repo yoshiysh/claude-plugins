@@ -7,40 +7,63 @@ import { compileSource } from './source.mjs';
 import { exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
 import { resumableWorkflow } from './resume.mjs';
 import { finalizeUpdateContract, prepareUpdateContract, UPDATE_REQUIREMENTS, verifyUpdateTarget } from './update-contract.mjs';
+import { runAgent } from './agent-run.mjs';
+import { createRunWorkspace } from './run-workspace.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
   exactObject(request, requestKeys, 'Workflow request');
   exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'updateContract', 'checkpoint', 'resume', ...limitKeys], 'Workflow host');
   if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host);
+  const hostRequirements = Array.isArray(host.requirements) ? host.requirements : [];
+  const backendCapabilities = Array.isArray(host.backend?.capabilities) ? host.backend.capabilities : [];
+  const updateRequestedBeforeValidation = request.args?.mode === 'update' || host.backend?.updateContract !== undefined ||
+    [...hostRequirements, ...backendCapabilities].some(requirement => UPDATE_REQUIREMENTS.includes(requirement));
+  if (updateRequestedBeforeValidation && host.updateContract === undefined)
+    throw Error('update workflows are not supported without an explicit updateContract and negotiated capabilities');
   const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
   validateRequirements(host.requirements, capabilities);
   const update = host.updateContract === undefined ? null : await prepareUpdateContract(host.updateContract, capabilities);
   const { scriptPath, args = {} } = request;
   const {
   backend, runDir, trustedSource = false, maxAgents = 2, concurrency = 2,
-  timeoutMs = 60000, maxOutputBytes = 1000000,
+  timeoutMs = 60000, agentTimeoutMs = Math.max(1, Math.floor(timeoutMs * 0.8)), maxOutputBytes = 1000000,
   } = host;
   if (!trustedSource) throw new Error('trustedSource acknowledgement required; not a hostile-code sandbox');
   if (!backend || typeof backend.run !== 'function') throw new Error('backend.run required');
-  for (const [key, value] of Object.entries({ maxAgents, concurrency, timeoutMs, maxOutputBytes }))
+  for (const [key, value] of Object.entries({ maxAgents, concurrency, timeoutMs, agentTimeoutMs, maxOutputBytes }))
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`invalid ${key}`);
   if (maxAgents > 1000 || concurrency > 16) throw new Error('agent limits exceed supported maximum');
   const path = await realpath(scriptPath);
   const source = await readFile(path, 'utf8');
-  const { meta, body } = compileSource(source, capabilities);
+  const { meta, body } = compileSource(source, [...capabilities, ...UPDATE_REQUIREMENTS]);
+  validateRequirements(meta.requirements, capabilities);
+  const sourceRequirements = Array.isArray(meta.requirements) ? meta.requirements : [];
+  const declaredRequirements = [
+    ...(Array.isArray(host.requirements) ? host.requirements : []),
+    ...(Array.isArray(backend?.capabilities) ? backend.capabilities : []),
+    ...sourceRequirements,
+  ];
+  const updateRequested = request.args?.mode === 'update' || host.backend?.updateContract !== undefined ||
+    declaredRequirements.some(requirement => UPDATE_REQUIREMENTS.includes(requirement));
+  if (updateRequested && update === null)
+    throw Error('update workflows are not supported without an explicit updateContract and negotiated capabilities');
   const backendPolicy = await backend.prepare?.();
   const encodedArgs = JSON.stringify(args);
   if (encodedArgs === undefined) throw new Error('args must be JSON serializable');
   if (!runDir) throw new Error('new runDir required');
   // Exclusive directory: no overwrite, implicit resume, or replay of side effects.
   await mkdir(runDir, { mode: 0o700 });
+  const workspace = typeof backendPolicy?.cwd === 'string'
+    ? await createRunWorkspace({ projectRoot: backendPolicy.cwd, workflowName: meta.name, runDir })
+    : null;
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
     sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [], backendPolicy,
     ...(update === null ? {} : { updateContract: { targetDir: update.targetDir, stagingDir: update.stagingDir,
       sourceManifest: update.sourceManifest, requirements: UPDATE_REQUIREMENTS } }),
-    limits: { maxAgents, concurrency, timeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
+    workspace,
+    limits: { maxAgents, concurrency, timeoutMs, agentTimeoutMs, maxOutputBytes } }, null, 2), { mode: 0o600 });
   let journal = Promise.resolve();
   let sequence = 0;
   const record = event => {
@@ -59,7 +82,9 @@ export async function Workflow(request, host = {}) {
   const inflight = new Set();
   const observedAgentLabels = new Set();
   let calls = 0, active = 0, settled = false, outputBytes = 0;
+  const deadlineAt = performance.now() + timeoutMs;
   record({ type: 'run.started' });
+  if (workspace) record({ type: 'workspace.created', path: workspace.path });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error('workflow deadline exceeded')), timeoutMs);
     async function finish(error, result) {
@@ -97,11 +122,16 @@ export async function Workflow(request, host = {}) {
         active++; inflight.add(task.id);
         if (update !== null && typeof task.options.label === 'string') observedAgentLabels.add(task.options.label);
         record({ type: 'agent.started', id: task.id, promptHash: hash(task.prompt), options: task.options });
-        Promise.resolve().then(() => backend.run(task.prompt, task.options, {
-          signal: abort.signal,
+        runAgent({ backend, task, signal: abort.signal, remainingMs: deadlineAt - performance.now(),
+          timeoutMs: agentTimeoutMs,
           emit: event => { if (!settled) record({ type: 'agent.event', id: task.id, event }); },
-        })).then(result => {
+        }).then(({ result, timedOut, timeoutMs: effectiveTimeoutMs }) => {
           if (settled) return;
+          if (timedOut) {
+            record({ type: 'agent.timeout', id: task.id, timeoutMs: effectiveTimeoutMs });
+            worker.send({ type: 'reply', id: task.id, result: null });
+            return;
+          }
           if (result !== null && task.validate && !task.validate(result)) {
             record({ type: 'agent.invalid_output', id: task.id, errors: task.validate.errors });
             result = null;
@@ -154,6 +184,6 @@ export async function Workflow(request, host = {}) {
         queue.push({ ...message, validate }); pump();
       } catch (error) { finish(error); }
     });
-    worker.send({ type: 'start', args: JSON.parse(encodedArgs), meta, body });
+    worker.send({ type: 'start', args: JSON.parse(encodedArgs), meta, body, workspace });
   });
 }

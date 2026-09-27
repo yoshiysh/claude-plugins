@@ -3,12 +3,14 @@ import os
 import runpy
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
 VERIFY = runpy.run_path(str(SCRIPTS / "verify_install.py"))
 HOOK_COMMAND = 'node "${CLAUDE_PLUGIN_ROOT}/scripts/gate.mjs"'
 CODEX_COMMAND = 'python3 "${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts/gate.py"'

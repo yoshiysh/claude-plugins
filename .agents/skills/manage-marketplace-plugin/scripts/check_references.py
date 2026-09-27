@@ -26,10 +26,12 @@ import json
 import re
 import sys
 from pathlib import Path
+from path_safety import (find_project_root, guard_skill_root, guard_plugin_root,
+                         ensure_within, validate_name)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = SKILL_DIR.parent.parent.parent
+PROJECT_ROOT = find_project_root(SCRIPT_DIR)
 SKILLS_DIR = PROJECT_ROOT / ".agents" / "skills"
 PLUGINS_DIR = PROJECT_ROOT / "plugins"
 
@@ -65,14 +67,31 @@ def owning_plugin_skills_dir(skill: str):
     """スキルが属する plugin の skills/ を返す。未登録なら None。"""
     if not PLUGINS_DIR.is_dir():
         return None
-    for plugin_dir in sorted(PLUGINS_DIR.iterdir()):
-        if (plugin_dir / "skills" / skill).is_dir():
-            return plugin_dir / "skills"
+    plugin_dirs = sorted(PLUGINS_DIR.iterdir())
+    for plugin_dir in plugin_dirs:
+        if not plugin_dir.is_dir() and not plugin_dir.is_symlink():
+            continue
+        guard_plugin_root(plugin_dir, PLUGINS_DIR, PROJECT_ROOT)
+    for plugin_dir in plugin_dirs:
+        if not plugin_dir.is_dir():
+            continue
+        skills_dir = plugin_dir / "skills"
+        if skills_dir.is_symlink():
+            raise ValueError(f"plugin skills root must not be a symlink: {skills_dir}")
+        ensure_within(skills_dir, plugin_dir, PROJECT_ROOT)
+        if not skills_dir.is_dir():
+            continue
+        ensure_within(skills_dir / skill, skills_dir, PROJECT_ROOT)
+        if (skills_dir / skill).is_symlink():
+            raise ValueError(f"published skill root must not be a symlink: {skills_dir / skill}")
+        if (skills_dir / skill).is_dir():
+            return skills_dir
     return None
 
 
 def check_skill(skill: str) -> dict:
     skill_root = SKILLS_DIR / skill
+    guard_skill_root(skill_root, SKILLS_DIR, PLUGINS_DIR, PROJECT_ROOT)
     siblings_dir = owning_plugin_skills_dir(skill)
     findings = []
 
@@ -141,17 +160,37 @@ def main() -> None:
     ap.add_argument("--quiet", action="store_true", help="壊れた参照だけを表示する")
     args = ap.parse_args()
 
+    try:
+        ensure_within(SKILLS_DIR, SKILLS_DIR, PROJECT_ROOT)
+        ensure_within(PLUGINS_DIR, PLUGINS_DIR, PROJECT_ROOT)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(5)
+
     if args.skill:
+        try:
+            validate_name(args.skill, "skill")
+            guard_skill_root(SKILLS_DIR / args.skill, SKILLS_DIR, PLUGINS_DIR, PROJECT_ROOT)
+        except ValueError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            sys.exit(5)
         if not (SKILLS_DIR / args.skill / "SKILL.md").is_file():
             print(f"ERROR: 対象スキルが見つかりません: {SKILLS_DIR / args.skill}",
                   file=sys.stderr)
             sys.exit(EXIT_NO_SKILL)
         skills = [args.skill]
     else:
-        skills = sorted(p.name for p in SKILLS_DIR.iterdir()
-                        if (p / "SKILL.md").is_file())
+        entries = sorted(SKILLS_DIR.iterdir())
+        for path in entries:
+            if path.is_symlink() or path.is_dir():
+                guard_skill_root(path, SKILLS_DIR, PLUGINS_DIR, PROJECT_ROOT)
+        skills = [p.name for p in entries if p.is_dir() and (p / "SKILL.md").is_file()]
 
-    reports = [check_skill(s) for s in skills]
+    try:
+        reports = [check_skill(s) for s in skills]
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(5)
     total = sum(r["broken"] for r in reports)
     for r in reports:
         if args.quiet and not r["broken"]:
