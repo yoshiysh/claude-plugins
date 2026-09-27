@@ -3,7 +3,7 @@
   "env": {
     "BASH_DEFAULT_TIMEOUT_MS": "600000",
     "BASH_MAX_TIMEOUT_MS": "600000",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5[1m]",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5[1m]",
     "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "true",
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
@@ -113,16 +113,6 @@
           {
             "type": "command",
             "command": "[ \"$(uname)\" = \"Darwin\" ] && osascript -e 'display notification \"タスク完了\" with title \"Claude Code\"' && afplay -v 0.3 /System/Library/Sounds/Sosumi.aiff || true"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ \"${CLAUDE_THINK_EN:-1}\" = \"0\" ] || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Do your internal reasoning, planning, and scratch notes in English. Write every message addressed to the user in Japanese. Keep code, identifiers, file paths, commands, and quoted source text in their original language. Files and documents you create or edit keep the language of their surroundings; this rule does not change them.\"}}'"
           }
         ]
       }
