@@ -1,569 +1,426 @@
 # agent 間の入出力契約
 
-**目次**: [§intake](#intake) · [§domain-analyst](#domain-analyst) · [§splitter](#splitter) · [§flow-framer](#flow-framer) · [§req-writer](#req-writer) · [§spec-writer](#spec-writer) · [auditor 共通形（clarity / traceability / coverage / fabrication / consistency）](#auditor-共通形clarity--traceability--coverage--fabrication--consistency) · [§executability-auditor](#executability-auditor) · [§ladder-judge](#ladder-judge) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§precedent-judge](#precedent-judge) · [§measurement](#measurement) · [§structural（script が生成する finding）](#structuralscript-が生成する-finding)
+**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [§intake](#intake) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
 
-ロールと責務の境界（検証者は判定と事実指摘のみ、文案の起草は生成側）は
-`schemas/role-map.md` を正とする。
+各 agent が読むファイル・書くファイル・返す値の正本。役割と責務の境界は `schemas/role-map.md` を正とする。
+`agents/*.md` は振る舞いを書き、形はここを指す。
 
-各 agent が返す形の正。`scripts/draft.js` と `scripts/refine.js` にも同じ定義が JSON Schema と
-して埋まっており、writer / auditor はそちらで構造化出力を強制される。このファイルは**文書側の
-正**であり、両者が食い違った場合は script のスキーマを直したうえでここを更新する。
+## 共通の約束
 
-`intake` / `domain-analyst` / `splitter` / `flow-framer` は SKILL.md が Agent ツールで直接呼ぶため、
-script のスキーマ強制がかからない。この 4 つはここが唯一の契約になる（flow-framer の出力だけは
-`args.flow` として draft.js / refine.js の入口で形と閉包を検査される）。
+- **入力はパスで受け取り、返り値は小さく保つ。** 返り値に載せるのは、script が次の段の分岐に使う件数・ID・
+  digest と、flow-framer と resolver が返す flow 本体だけである。文書の本文や JSON の全量を返すと、script を
+  経由して次の agent のプロンプトに載り、同じ内容に 2 度費用を払う。中身は W のファイルに書く。
+- **書いてよいのは、下の表で自分が書き手になっているファイルだけ。** 作業用の script や一時ファイルは
+  `W/tmp/` に置く。他のファイルは別の役が所有しており、そこを書き換えると、その役の検証の前提
+  （sha256・digest の照合）が崩れる。
+- **ハッシュは `shasum -a 256 <file>` の先頭 64 桁で取る。** writer が読んだ版と verifier が検証した版を、
+  script が文字列比較で照合するため、全員が同じ取り方をする。
+- **doc_check は `node <SKILL_DIR>/scripts/doc_check.mjs <mode> --workspace <W> …` で実行する。** 結果は
+  `W/checks/` に書かれ、stdout には件数・digest・パスが 1 行の JSON で出る。実装を読む必要は無い。
+- **`references/` は指された節だけを読む。** 見出しの行を Grep で探し、その節を offset/limit で Read する。
+  350 行を超えるファイル（`prd-and-spec.md`・`document-structure.md`）を全体で Read すると読み込みの gate に
+  止められ、通っても読んだ全文が以後のターンすべてに載り続ける。
+- 文書のキーは `<kind>/<topic>`（例 `requirements/auth`）、ファイルは `W/<kind>-<topic>.md`。キーをファイル名に
+  使うときは、英数字・`.`・`_`・`-` 以外の並びを `__` に置き換える（`requirements__auth`。doc_check と同じ変換）。
 
----
+## W のファイルと書き手
 
-## §intake
+所有表は約束であって強制されない。守られなかったときに何で気づくかを右端に書く。
 
-SKILL.md が事前分析（手順 2）で呼ぶ。**論点を確定 / 決定（既定）/ 質問の 3 つに仕分ける**
-既定選定係。判定手順は `references/question-policy.md` を正とする。
+| ファイル | 書き手 | 形 | 守られなかったときの検出 |
+|---|---|---|---|
+| `input.md`、`answers/g0.md`・`answers/g1.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
+| `precedent.json` | 司令塔 | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }` | — |
+| `decisions.json`、`plan.json` | intake。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
+| `open.json` | intake、flow-framer（追記だけ） | [§intake](#intake) | — |
+| `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
+| `resolutions.json`、`routes.json`、`questions.md`、`report.md` | resolver | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
+| `verifications.json` | resolver-verifier | [決定の台帳](#決定の台帳) | 同上 |
+| `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
+| `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
+| `checks/*.json` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
+
+司令塔は decisions・resolutions・answers の中身を起草しない。依頼者の言葉と agent の出力を、そのまま運ぶ。
+
+## 決定の台帳
+
+決定の台帳は、`decisions.json` と、`resolutions.json` のうち `verifications.json` で合格したものを合わせたもの
+である。`supersedes` で置き換えられた決定は無効で、script が無効な ID の一覧を writer と監査役に渡す。
+
+**decisions.json**（intake が書く）
 
 ```json
 {
-  "known": ["確定している事項（根拠となる原文の引用付き。実装先行の案件では [依頼] / [実装の現状] のラベルを付ける）"],
   "decisions": [
     {
       "id": "D-001",
       "topic": "何についての決定か（1 行）",
-      "value": "選んだ既定",
-      "why": "なぜこの既定か（上位互換 / 正しさ不変 / 標準的選択 のどれか）",
-      "source": "default",
-      "reversibility": "変更するとき何を直せばよいか（1 行）"
-    }
-  ],
-  "questions": [
-    {
-      "text": "ユーザーへの質問文（1 問 1 論点）",
-      "searched": "依頼文のどこを探して答えが無かったか",
-      "candidates": ["選びやすくするための候補。無ければ空配列"]
+      "value": "決めた内容",
+      "why": "なぜこの値か。source が input なら依頼文のどの記述か、default なら 上位互換 / 正しさ不変 / 標準的選択 のどれか",
+      "source": "input | default | precedent",
+      "quote": "source が input のとき。input.md に実在する文字列をそのまま写す",
+      "ref": "source が precedent のとき。<precedent のパス>#<ID>",
+      "layer": "要求 | 手段",
+      "targets": ["この決定が関わる流れの要素・状態の名前（例 F-002、承認の主体）"],
+      "reversibility": "変えるとき何を直せばよいか（1 行）"
     }
   ]
 }
 ```
 
-- **`questions` は既定を選べないものだけ**（question-policy.md §判定手順 4 の 2 条件を
-  両方満たすもの）。0 件が目標値。旧 `blocks_draft` は廃止 — 質問に残る時点で blocking である。
-- 依頼文に答えがある論点・固定前提にある事項を質問に入れてはならない。
-- 依頼文に無いことを `known` に入れてはならない。既定で埋めてはならないもの
-  （案件の要求そのもの・外部に波及する値・依頼者が保留を明示した事項）を `decisions` に
-  入れてはならない。
+- `layer` は、プロダクトが何を達成するか（要求）か、それをどう実現するか（手段）か。writer は `手段` の決定を
+  要求文書に書かない。
+- `targets` は doc_check の `conflicts` が「同じ target を持つ決定どうし」「target が流れの要素の id か label と
+  一致する決定と要素」の組を列挙するのに使う。名前が揃わないと組が見つからず、矛盾が初稿まで残る。
 
----
-
-## §domain-analyst
-
-観点の定義は `references/domain-analysis.md` を正とする。
+**resolutions.json**（resolver が書く）
 
 ```json
 {
-  "findings": [
-    { "aspect": "10 観点のいずれか", "verdict": "該当 | 非該当 | 不明", "evidence": "入力のどの記述から判定したか" }
-  ],
-  "required_categories": ["該当した観点から導出した、案件固有の要求カテゴリ"],
-  "question_candidates": ["不明の観点をユーザーに尋ねるための質問文"]
+  "resolutions": [
+    {
+      "id": "RS-001",
+      "about": { "open": "O-001" },
+      "ruling": "precedent | internal | measured | method | question | hold",
+      "value": "決まった内容（question は回答が当たってから、hold は書かない）",
+      "why": "裁定の根拠（1〜2 文）",
+      "evidence": [{ "file": "パス", "line": 42, "quote": "実在する文字列をそのまま" }],
+      "supersedes": "D-003（決定を覆すときだけ）",
+      "layer": "要求 | 手段",
+      "targets": ["decisions と同じ意味"],
+      "options": [{ "label": "案 A", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }],
+      "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" },
+      "hold": { "rule": "〜の裁定が下るまで、…してはならない", "issue_draft": "Issue の本文案", "item_ids": ["その論点に触れる項目 ID"] }
+    }
+  ]
 }
 ```
 
-- `findings` は 10 観点**すべて**を返す（該当したものだけ返すと「検討していない」と
-  「検討して非該当」が区別できなくなる）。
-- `evidence` を空にしてはならない。書けないなら `verdict` は `不明`。
-- `required_categories` は案件の言葉で具体化する（例示表の語をそのまま貼らない）。
+- `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
+  `{verification}`（3v で不合格になった決定・要素の ID）のどれか 1 つ。
+- 6 つの `ruling` の意味と順序は `agents/resolver.md` が正。`options` は `question` だけ、`hold` は `hold` だけに付く。
+- 回答を当てるときは、その問いの resolution に `answer` と `value` を足す。ID は変えない（writer の trace が回答の
+  前後で同じ ID を指し続けるため）。
 
----
-
-## §splitter
-
-分割の指針は `references/document-splitting.md` を正とする。
+**verifications.json**（resolver-verifier が書く）
 
 ```json
 {
-  "requirements": [
-    { "topic": "auth", "concern": "認証と権限", "rationale": "なぜこの単位で切るか" }
-  ],
-  "specifications": [
-    { "topic": "auth", "concern": "認証と権限", "covers": ["auth"], "rationale": "..." }
-  ],
-  "notes": "分割にあたって迷った点・ユーザーに確認したい点"
+  "sha256": "検証した resolutions.json の sha256",
+  "decisions_sha256": "検証した decisions.json の sha256",
+  "items": [
+    { "id": "RS-001 | D-004 | F-007", "verdict": "pass | fail", "fail_kind": "value_as_method | not_reproduced | insufficient_grounds | mapping", "reason": "判定の根拠 1 行（pass にも書く）" }
+  ]
 }
 ```
 
-- **`topic` は英字始まりの kebab-case**（英小文字・数字・ハイフンのみ）。script が ID の領域
-  コードを作るため、数字始まりや ASCII 以外は使えない。
-- 異なる `topic` が同じ領域コードにならないこと（`auth-v1` と `auth_v1` は衝突する）。
-- `covers` は、その仕様文書がどの requirements 文書の要求を実現するか。
-- 分割数は 1 でよい。**既存文書がある場合は既存の topic を維持するのが既定。**
+- 同じ ID を再検証したときは、その ID の項目を置き換える。`sha256` は最後に検証した版の値にする。
+- `fail_kind`: `value_as_method` = プロダクトの価値の判断を方法論・先例・内部整合として決めた。`not_reproduced` =
+  実測を再実行しても同じ証拠が出ない。`insufficient_grounds` = 出典が実在しない・支えていない。`mapping` =
+  自由記述の回答の問いへの対応づけが回答の文面から言えない。
 
----
+## §intake
+
+入力: `W/input.md`、`W/precedent.json`（と、そこに並ぶファイル）、entry が `existing` / `expand` なら既存文書の
+パス一覧。書くもの: `W/decisions.json`、`W/plan.json`、`W/open.json`。
+
+**plan.json**
+
+```json
+{
+  "targets": ["requirements", "specifications"],
+  "docs": [{ "key": "requirements/auth", "concern": "認証と権限", "covers": [], "fixed": false, "decision": "D-010" }],
+  "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }],
+  "domain": [{ "aspect": "10 観点の名前", "verdict": "該当 | 非該当 | 不明", "decision": "D-012", "open": "O-003" }],
+  "required_categories": [{ "name": "案件の言葉で具体化したカテゴリ", "decision": "D-012" }],
+  "self_containment": { "decision": "D-015", "inline": ["文書に書くもの"], "reference": ["参照にとどめるもの"] }
+}
+```
+
+- `docs[].covers` は仕様文書が実現する要求文書のキー。`fixed: true` は固定の入力（`expand` の要求文書・
+  ラン外の文書）で、どの単位にも入れない。
+- `units[].depends_on` は先に書き終える単位の ID。互いに参照し合う文書は同じ単位に入れる。
+- `domain` は 10 観点すべて。`該当` / `非該当` は `decision`、`不明` は `open` を持つ。
+
+**open.json**
+
+```json
+{ "open": [{ "id": "O-001", "text": "決まっていない論点（1 論点）", "searched": "依頼文のどこを探して答えが無かったか", "by": "intake | flow-framer", "targets": ["decisions と同じ意味"] }] }
+```
+
+返り値:
+
+```json
+{ "decisions": 18, "open": 3, "decisions_sha256": "…", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
+```
 
 ## §flow-framer
 
-対象システムの工程の流れ（PFD）。司令塔が `args.flow` としてそのまま Workflow A / B に渡す。
+入力: `W/input.md`、`W/decisions.json`、`W/precedent.json`、`W/open.json`（entry が `existing` なら既存文書も）。
+書くもの: `W/flow.json`、`W/open.json` への追記。実行するもの: doc_check の `flow` と `conflicts`
+（`W/checks/flow.json`・`W/checks/conflicts.json` ができる）。
 
 ```json
 {
   "elements": [
-    { "id": "F-001", "type": "input", "kind": "外から入るもの", "label": "依頼文", "next": ["F-002"] },
+    { "id": "F-001", "type": "input", "kind": "外から入るもの", "label": "依頼文", "next": ["F-002"], "source": { "input": "依頼文の逐語" } },
     {
-      "id": "F-002", "type": "decision", "kind": "判断", "label": "対象外の依頼か",
+      "id": "F-002", "type": "decision", "kind": "判断", "label": "対象外の依頼か", "source": { "decision": "D-004" },
       "branches": [{ "value": "対象外", "next": "F-009" }, { "value": "対象内", "next": "F-003" }]
     },
-    { "id": "F-009", "type": "output", "kind": "返すもの", "label": "対象外の旨の 1 文" }
+    { "id": "F-009", "type": "output", "kind": "返すもの", "label": "対象外の旨の 1 文", "source": [{ "input": "…" }, { "open": "O-004" }] }
   ],
   "kinds": [{ "name": "判断", "definition": "値によって次の工程が変わる要素" }],
   "closure": "一覧の外に要素が無いと言える根拠（確かめたことと推測を分けて書く）"
 }
 ```
 
-- `id` は `F-<連番>` で一意。`type` は `input` / `step` / `decision` / `output` のいずれか。
-- `kind` は `kinds[].name` のどれか 1 つ。`kinds[]` は `name` と `definition`（性質）を持つ。
-- `decision` は `branches` に 2 つ以上の `{ value, next }` を持ち、どの値にも `next` がある。
-  それ以外の要素は `next`（行き先 ID の配列）を持ち、`output` だけが行き先を持たなくてよい。
-- どの要素にも `input` から辿り着け、`next` はどれも実在する要素を指す。
-- 入口の検査（`ST-FLOW-SHAPE-` / `-BRANCH-OPEN-` / `-DANGLING-` / `-UNREACHABLE-` / `-DEADEND-`）に
-  1 件でも当たると、Workflow A / B は始まらない。
+- `id` は `F-<連番>` で一意。`type` は `input` / `step` / `decision` / `output`。`kind` は `kinds[].name` のどれか。
+- `decision` は `branches` に 2 つ以上の `{ value, next }` を持つ。それ以外は `next`（行き先 ID の配列）を持ち、
+  `output` だけが行き先を持たなくてよい。どの要素にも `input` から辿り着ける。
+- `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
 
----
+返り値（flow 本体は script が閉包検査に使う）:
 
-## §req-writer
+```json
+{ "flow": { "elements": [], "kinds": [], "closure": "" }, "open": 5, "pairs": 2, "flow_findings": 0, "flow_digest": "…", "conflicts_digest": "…" }
+```
 
-`scripts/draft.js` / `scripts/refine.js` が文書ごとに呼ぶ。**担当は 1 文書だけ。**
+## §resolver
 
-**本文は返り値に入れない。** 本文（常設章は `references/document-structure.md` を正とする）は
-`[WRITE_BACK]` のファイルにだけ書く — 初稿は Write、改稿は前稿を複写して Edit（`agents/writer-common.md`）。
-script は本文を受け取らず、checker がファイルを検査する。返り値は次のメタ情報で、一覧は改稿でも
-**文書全体の一覧**を返す（差分ではない。触っていない項目は `[PREVIOUS_METADATA]` から写す）。
+入力（パス）: 上流の全部（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・resolutions・
+verifications・precedent）と、段ごとに script が渡す対象の ID。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
+の更新）、`W/questions.md`、`W/routes.json`（段 6）、`W/report.md`（段 9）、`W/flow.json`（回答を当てるときだけ）。
+
+**questions.md** は依頼者にそのまま見せる。問い 1 つにつき `## <RS-ID>` の節を置き、問い（1 論点・専門用語なし）、
+依頼文を探したが答えが無かったこと、候補ごとの「選ばれたら何が変わるか」を書く。
+
+**routes.json**（段 6。writer が直す指摘を、単位と項目で束ねたもの）
+
+```json
+{ "routes": [{ "id": "RT-001", "unit": "U-1", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "findings": ["r1-im-requirements__auth-002"], "resolutions": ["RS-007"] }] }
+```
+
+**report.md** は依頼者にそのまま見せる事後報告。方法論として決めたこと（resolutions の `method`）、保持規則と
+Issue の文案、上位文書の改訂文案を書く。
+
+返り値:
 
 ```json
 {
-  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（ファイルの行数と合わなければ script はその稿を採用しない）",
-  "summary": "この文書に何が書いてあるかの 1〜2 文。INDEX の文書一覧に使われる",
-  "requirement_items": [{ "id": "PR-AUTH-001", "heading": "多要素認証" }],
+  "ruled": ["RS-001"], "questions": ["RS-004"], "holds": ["RS-006"], "supersedes": ["D-003"],
+  "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
+  "sha256": "書き終えた resolutions.json の sha256",
+  "flow": "回答を flow に当てたときだけ、更新後の flow 本体"
+}
+```
+
+- `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID（verifier の検証対象になる）。
+
+## §resolver-verifier
+
+入力: `W/resolutions.json`、`W/decisions.json`、`W/flow.json`、`W/input.md`、`W/answers/*.md`、`W/questions.md`、
+script が渡す検証対象の ID。書くもの: `W/verifications.json`。返り値:
+
+```json
+{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "sha256": "検証した resolutions.json の sha256", "decisions_sha256": "…" }
+```
+
+## §writer
+
+入力（パス）: `W/input.md`、`W/answers/*.md`、`W/decisions.json`、`W/flow.json`、`W/plan.json`、
+`W/resolutions.json` と合格した ID の一覧、無効な決定の ID、自分の単位の文書と meta、依存先の単位の文書、
+開いている TBD の ID（script が解消済みを除いて算出したもの）。改稿では加えて `W/routes.json` のうち自分の
+担当の ID と、単位の文書ごとの改稿前の digest。
+
+書くもの: `W/<kind>-<topic>.md` と `W/<kind>-<topic>.meta.json`（自分の単位の文書だけ）。
+
+**meta.json**（本文から取れないものだけを置く。項目 ID と参照 ID は doc_check が本文から導出する）
+
+```json
+{
   "trace": [
-    { "item_id": "PR-AUTH-001", "kind": "input", "ref": "", "quote": "根拠原本からの引用（そのまま写す）" }
+    { "item_id": "PR-AUTH-001", "kind": "input", "quote": "input.md に実在する文字列をそのまま" },
+    { "item_id": "PR-AUTH-001", "kind": "flow", "ref": "F-003" },
+    { "item_id": "PR-AUTH-002", "kind": "decision", "ref": "D-004" }
   ],
-  "flow_refs": [{ "item_id": "PR-AUTH-001", "ref": "F-003" }],
-  "tbd_items": [
-    { "id": "TBD-AUTH-001", "text": "決めるべき論点", "owner": "", "due": "", "blocking": true, "candidates": ["決め方の候補（任意）"] }
-  ],
-  "categories_deferred": ["情報が未確定で章にできず TBD へ落としたカテゴリ名"],
-  "referenced_ids": ["本文で言及するがこの文書の項目ではない ID"],
-  "vacant_ids": ["この文書の欠番 ID（採番済みだが項目が存在しない ID）"],
-  "item_delta": {
-    "after": 24,
-    "net_added": 2,
-    "added_items": [{ "id": "PR-AUTH-025", "why_not_edit_existing": "既存項目の修正では足りなかった理由" }]
-  }
+  "tbd": [{ "id": "TBD-RAUTH-001", "text": "決めるべき論点と、何が決まれば解消するか", "blocking": true, "candidates": ["決め方の候補（任意）"] }]
 }
 ```
 
-- **`trace` は項目 ID → 根拠原本の対応。** 納品文書の本文には根拠句を書かないので
-  （`references/document-structure.md` §4）、「この記述はどこから来たか」はここにしか残らない。
-  script が `audit_trail` に畳み、fabrication-auditor がこれと入力を突き合わせる。
-  `kind` は `input` / `answers` / `tbd_answers` / `decision` / `premise` / `measurement` /
-  `domain` のいずれか。認められた根拠原本以外の出所は列挙に無いので申告できない。
-  `quote` は原本に実在する文字列をそのまま写す（要約・言い換えは照合できず、根拠なしとして
-  扱われる）。**全項目に必要**である — trace の無い項目は構造検査が `ST-NO-EVIDENCE-<id>` を
-  立てる。
-- **`flow_refs` は項目 ID → 工程の流れ（`args.flow`）の要素 ID。** 項目が振る舞いを定める要素に当てる
-  （1 項目が複数の要素に当たってよい）。根拠ではないので `trace` とは別に持つ。本文には要素 ID を
-  書かない。どの項目も当たらない要素は構造検査が `ST-FLOW-UNATTACHED-` として返す。flow が渡されない
-  run では空配列で返す。
-- `requirement_items` は本文に実在する ID を**すべて**列挙する。script が本文から正規表現で
-  独立に抽出して突き合わせるので、抜けると欠陥として検出される。
-- **`tbd_items[].id` は `TBD-<領域>-<連番>`。** 各文書は並列に書かれ互いの採番を知らないため、
-  領域を冠さないと番号が衝突し、統合時に片方が消える。
-- **`candidates`** は決め方の候補（任意）。**本文には書かない** — 文書の読み手は後続の AI で
-  あり、「決めてください」は依頼者宛ての対話だから。司令塔がゲートで選択肢に使う。
-- **`blocking`** は「これが決まらないと実装・QA に着手できないか」。判定基準は
-  `references/traceability.md` §4。
-- `owner` / `due` はユーザーが指定していなければ空文字のままにする。埋めた風にしない。
-- **`referenced_ids`** に他文書の ID を入れる。複数文書化で他文書への言及は日常的に起きるため、
-  ここに入れないと構造検査が申告漏れとして指摘し、直しようのない指摘で改稿枠を消費する。
-- **`vacant_ids`** に自文書の欠番 ID を入れる。欠番は実在の項目（items）でも他文書参照
-  （referenced_ids）でもない第三の類型で、表記規約が本文への列挙（「欠番」の語と同じ行に併記）を
-  要求する。どちらの申告も無いと構造検査（ST-UNDECLARED / ST-GAP-UNDECLARED）が毎 run
-  再検出する。実在の項目と重複して申告すると ST-VACANT-CONFLICT になる。
-- `summary` を空にしない。INDEX が「どのファイルに何が書いてあるか」を示せなくなる。
+- `trace[].kind` は `input` / `answers`（`quote` を逐語で）、`decision` / `resolution` / `flow`（`ref` に ID）、
+  `premise`（`ref` に `前提 N`。`references/fixed-premises.md` の前提で、書き方の選択にだけ使える）のどれか。
+  これ以外の出所は根拠として認められていないので、列挙に無い。
+- 1 項目に複数の trace を置いてよい。振る舞いを定める項目は `flow` の trace を 1 つ以上持つ。
+- TBD の ID は `TBD-<R|S><領域>-<連番>`（要求文書は R、仕様書は S。領域は topic を英大文字にしたもの）。
 
----
-
-## §spec-writer
-
-本文を返り値に入れない・一覧は文書全体で返す点は §req-writer と同じ。
+返り値:
 
 ```json
 {
-  "line_count": "[WRITE_BACK] のファイルに対する wc -l の整数（ファイルの行数と合わなければ script はその稿を採用しない）",
-  "summary": "この文書に何が書いてあるかの 1〜2 文",
-  "spec_items": [{ "id": "SP-AUTH-001", "heading": "認証トークンの発行" }],
-  "trace": [{ "item_id": "SP-AUTH-001", "kind": "decision", "ref": "D-003", "quote": "..." }],
-  "flow_refs": [{ "item_id": "SP-AUTH-001", "ref": "F-004" }],
-  "traceability": [
-    {
-      "requirement_id": "PR-AUTH-001",
-      "spec_id": "SP-AUTH-001",
-      "verification": "検証方法（テスト種別と、何を測るか）",
-      "status": "未着手 | 作成中 | 完了"
-    }
-  ],
-  "tbd_items": [{ "id": "TBD-AUTH-002", "text": "...", "owner": "", "due": "", "blocking": false }],
-  "categories_deferred": [],
-  "referenced_ids": [],
-  "vacant_ids": [],
-  "item_delta": { "after": 31, "net_added": 0, "added_items": [] }
+  "unit": "U-1",
+  "docs": [{ "key": "requirements/auth", "digest": "tree-digest --doc の値", "doc_check_findings": 0, "doc_check_blocking": 0 }],
+  "changed_items": ["PR-AUTH-003", "requirements/auth§用語", "requirements/auth§(meta)", "TBD-RAUTH-002"],
+  "open_tbd": ["TBD-RAUTH-001"],
+  "new_tbd": ["TBD-RAUTH-002"],
+  "applied_routes": ["RT-001"],
+  "resolutions_sha256": "読んだ resolutions.json の sha256"
 }
 ```
 
-- **`trace` は項目 ID → 根拠原本の対応。** 納品文書の本文には根拠句を書かないので
-  （`references/document-structure.md` §4）、「この記述はどこから来たか」はここにしか残らない。
-  script が `audit_trail` に畳み、fabrication-auditor がこれと入力を突き合わせる。
-  `kind` は `input` / `answers` / `tbd_answers` / `decision` / `premise` / `measurement` /
-  `domain` のいずれか。認められた根拠原本以外の出所は列挙に無いので申告できない。
-  `quote` は原本に実在する文字列をそのまま写す（要約・言い換えは照合できず、根拠なしとして
-  扱われる）。**全項目に必要**である — trace の無い項目は構造検査が `ST-NO-EVIDENCE-<id>` を
-  立てる。
-- `flow_refs` は §req-writer と同じ。
-- `traceability`（要求 ID → 仕様 ID の対応表）は `trace`（項目 ID → 根拠）とは別物である。
-  前者は文書に載る階層の対応で、後者は文書に載らない根拠の対応である。
-- `traceability` は**この文書がカバーする要求の分だけ**を持つ。全要求を書き写すと他の仕様文書と
-  重複し、どちらが正か決まらなくなる。本文中の表と一致させる（片方だけ更新しない）。
-- `requirement_id` は他文書の要求を指してよい（文書を跨いだ照合は script が行う）。
-  その場合も本文で言及するなら `referenced_ids` に入れる。
-- `status` は列挙値以外を返さない。
+- `changed_items` は doc_check の snapshot と同じ項目キーで書く: ID を持つ項目は ID、ID を持たない節は
+  `<文書キー>§<見出し>`（同じ見出しが続けば `#2`）、冒頭は `<文書キー>§(冒頭)`、meta の trace・TBD 以外は
+  `<文書キー>§(meta)`、TBD の候補は TBD の ID。script はこれを段 8 の diff と文字列で比べる。形が違うと、
+  直した項目がすべて「申告に無い変更」になり、監査が余分に起動する。初稿では空配列でよい。
 
----
+## 監査役の共通節
 
-## auditor 共通形（clarity / traceability / coverage / fabrication / consistency）
+implementer・grounding・cross-doc の 3 役に共通する契約。**route の定義と観点の守備範囲はここにだけ置く。**
 
-validity / specimen もこの形で返す（severity は executability と同じ blocking / degraded）。
+### 読むもの
 
-```json
-{
-  "failed": [
-    {
-      "id": "指摘の識別子（例 CL-001）",
-      "document": "対象文書のキー（例 requirements/auth）",
-      "location": "章名・要求 ID など、書き手が場所を特定できる情報",
-      "quote": "問題のある箇所の原文引用",
-      "issue": "何が問題か（1〜2 文）",
-      "direction": "relax | tighten | make_measurable | choose_one | merge_or_split | align_terms | add_trace | remove | document_decision | needs_human",
-      "direction_note": "任意。方向の補足 1 行（50 字目安）",
-      "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）"
-    }
-  ],
-  "checked": "実際に検査した範囲（何を読み、何を見たか）"
-}
-```
+writer と同じ根拠一式（input・answers・decisions の全フィールド・合格した resolutions・flow・plan・無効な決定の
+ID・開いている TBD の ID）と、監査する文書と meta。根拠が writer より少ないと、writer が決定の `why` や flow
+から正しく書いた記述を「根拠が無い」と誤って指摘する（実測で 3 件）。
 
-- **判定は `failed` の件数で行う。** 本文中に ❌ や「NG」と書いても script は数えない。
-- **`direction` は解消の方向だけを示す。新しい要求文を創作して与えない — 内容を決めるのは
-  writer と根拠であって検査者ではない**（正は `schemas/role-map.md`）。`direction_note` は方向の
-  補足 1 行（50 字目安）に限り、**文案・候補値・改訂文を書いてはならない**。検査者の文案は
-  writer をアンカリングさせ、根拠からではなく文案から書かせる（実測済みの実害）。
+文書が 350 行以下なら全文を読む。350 行を超えるなら、shunt の locate で候補の箇所を逐語の引用で探させ、
+原文の該当節を読んで判定してよい。判定は必ず原文で行う（要約を材料にすると、原文に無いことで指摘する）。
+shunt が使えない環境では全文を読む。範囲を絞った監査（段 8）では、script が渡した項目の節から読む。
 
-| direction | 意味 |
-|---|---|
-| `relax` | 強すぎる。緩める方向で直す |
-| `tighten` | 緩すぎる。強める・限定する方向で直す |
-| `make_measurable` | 測定可能・判定可能な形に直す（値そのものは検査者が決めない） |
-| `choose_one` | 両立しない記述のどちらかに寄せる |
-| `merge_or_split` | 統合または分割する |
-| `align_terms` | 用語・表記を揃える |
-| `add_trace` | 根拠（trace）の申告を足す・引用を原本の実在文字列に直す |
-| `remove` | 削除する（根拠が無い・冗長・スコープ外） |
-| `document_decision` | 決定・宣言（既定 / スコープ外 / TBD 起票）として明示する |
-| `needs_human` | 依頼者にしか決められない。ゲート行き |
-- 指摘が 0 件なら `failed: []` を返す。0 件であること自体が報告に値する。
-- `checked` は必須。何も読まずに `failed: []` を返す経路を残さないため。
-- **degraded を含む全指摘に「判定が割れる具体入力（またはその構成手順）」を `repro` として
-  添付する。書けない指摘は起票しない。** 具体入力を構成できない指摘は「仕上げの好み」であり、
-  改稿しても総数が減らない指摘の主たる供給源だから（実測: 改稿のたびに同規模の指摘が汲み出され、
-  生成量 ≈ 消化量で収束しなかった）。
-- `document` は**渡された文書のキーをそのまま使う**。綴りを変えると宛先を失い、改稿に回らない。
-- `[CATEGORIES_DEFERRED]` に挙がっているカテゴリは、章として無くても反映漏れとして扱わない。
+### 観点の守備範囲（排他）
 
-### locate 読みの追加項目（consistency / coverage の全範囲監査で locate を割り当てられたときだけ）
+1 つの欠陥は 1 つの観点が持つ。重ねて出すと、同じ箇所に 2 つの指摘が付き、writer が逆向きに直しうる。
 
-いずれも任意項目で、他の auditor の契約は変わらない。割り当ての有無と理由は script が決めて
-返り値の `summary.locator` に残す。件数の正も script 側で数え直す（`locator_misses` は
-`found_via: "sample"` の指摘件数から導く）。verdict には使わない。
-
-| 項目 | 意味 |
-|---|---|
-| `read_mode` | `locate` / `full` / `full_fallback`。locate を割り当てられて bulk-read が失敗し全文読みに戻したら `full_fallback` |
-| `read_fallback_reason` | `full_fallback` にした理由（終了コード・API キー不在・EVIDENCE 節なし など） |
-| `locator_quotes` | bulk-read の EVIDENCE 節の引用件数 |
-| `locator_unmatched` | 元ファイルに逐語で見つからず捨てた引用の件数 |
-| `locator_misses` | `found_via: "sample"` の指摘件数（自己申告。script は数え直す） |
-| `failed[].found_via` | `locator`（引用が指していた箇所で見つけた）/ `sample`（script が割り当てた抜き取り範囲でだけ見つけた = locator の見落とし） |
-| `locate_groups[]` | bulk-read の呼び出し単位（script が送信量の上限に収まるよう文書を束ねた組）ごとの結果。`{ group, status, reason? }` で、`status` は `ok` / `split_ok`（時間切れで半分に割って再実行し通った）/ `full_fallback`（その組だけ全文読みに戻した） |
-
-### 各 auditor の担当範囲
-
-| auditor | 見るもの | 見ないもの |
+| 観点 | 見るもの | 見ないもの |
 |---|---|---|
-| clarity | 曖昧語・助動詞規約違反・複合要求 | 内容の正しさ |
-| traceability | 紐付けの欠落・検証方法の実質・ステータスの妥当性 | 文言 |
-| coverage | `required_categories` の実在・「該当なし」の明記 | 文言 |
-| fabrication | 入力・回答・分析結果に根拠が無い断定 | 文体 |
-| consistency | **文書間**の重複・矛盾・用語の揺れ・境界の抜け | 単一文書で完結する問題 |
-| specimen | 実在の標本文書へ各項目を適用したときの判定不能（blocking）・適用時矛盾 | 標本に当てずに分かる問題・標本自体の品質 |
+| implementer | 1 項目の中: 着手できるか、上位（要求・目的）に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係 |
+| grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
+| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、上位文書の範囲の拡大、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
-**片側にしか現れない ID・ID の重複・禁止語の混入は script が検出する**（`structural` として
-`unresolved` に混ざる）。auditor が重複して報告しても害はないが、そこは主戦場ではない。
+doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。
 
----
+### 指摘の形（`W/findings/r<n>-<役>-<文書>.json`）
 
-## §executability-auditor
-
-**契約は呼び出し元で形が分かれる（実態の明文化）。** `scripts/draft.js` は専用の findings 形
-（下の JSON。トップレベルが `findings`）で受け、`scripts/refine.js` は auditor 共通形
-（トップレベルが `failed`。フィールドは同じ）で受ける。どちらでも `severity` を必ず付ける —
-blocking の指摘は TBD として起票し直され、統合ゲートの提示対象に入る。
+`<役>` は `im` / `gr` / `cd`、`<文書>` はキーを変換した名前（cross-doc は `all`）。
 
 ```json
 {
   "findings": [
     {
-      "id": "EX-001",
-      "location": "章名・要求 ID",
-      "quote": "問題のある箇所の原文引用",
-      "issue": "ここで手が止まる。なぜなら〜が分からないから",
-      "direction": "共通形と同じ enum（何を決めるべき欠落かは issue に書く。決め方の候補・文案は書かない）",
-      "direction_note": "任意。方向の補足 1 行（50 字目安）",
-      "severity": "blocking | degraded",
-      "resolved_by": "requester | writer（blocking のとき。誰が閉じるか）",
-      "repro": "判定が割れる具体入力、またはその構成手順（degraded 指摘にも必須）",
-      "action": "冗長指摘のみ。delete | merge_into:<ID> | replace_with_reference:<文書#ID> のどれか 1 つ"
+      "id": "r1-im-requirements__auth-001",
+      "doc": "requirements/auth",
+      "item_id": "PR-AUTH-003",
+      "quote": "問題の箇所の原文をそのまま",
+      "issue": "何が問題か（1〜2 文）",
+      "repro": "判定が割れる具体入力、またはその構成手順",
+      "blocking": true,
+      "route": "writer | decision",
+      "direction": "relax | tighten | make_measurable | choose_one | merge_or_split | align_terms | add_trace | remove | document_decision",
+      "direction_note": "任意。方向の補足 1 行",
+      "action": "冗長の指摘だけ。delete | merge_into:<ID> | replace_with_reference:<文書#ID>"
     }
   ],
-  "checked": "実際に読んだ範囲"
+  "checked": "実際に読んだ範囲と、当てた観点"
 }
 ```
 
-| severity | 意味 |
+- `item_id` は snapshot と同じ項目キー（[§writer](#writer)）。script はこれで指摘を項目ごとにまとめ、段 8 の
+  監査範囲を決める。
+- **`direction` は解消の方向だけを示す。新しい要求文を創作して与えない。** `direction_note` にも文案・候補値を
+  書かない。検査者の文案は writer をアンカリングさせ、根拠からではなく文案から書かせる（実測）。しかもその文案は
+  誰にも検証されない。
+- **`repro` を書けない指摘は出さない。** 具体入力を構成できない指摘は仕上げの好みで、改稿しても総数が減らない。
+- 指摘 0 件なら `findings: []`。`checked` は必須（何も読まずに 0 件を返す経路を残さないため）。
+- 開いている TBD と、保持規則（「〜の裁定が下るまで…してはならない」）は指摘しない。決まっていないことが
+  見えている正しい状態である。
+
+### blocking
+
+`true` は、直さずに保存すると次工程が誤る欠陥: 実装・QA の最初の作業で手が止まる、捏造、未決の断定、両立しない
+規範。`false` は、着手はできるが後で作り直しになりうるもの（冗長を含む）。blocking が残ると段 6〜8 がもう
+1 パス回り、それでも残れば run は blocked で止まる。乱発すると改稿のパスを使い切り、遠慮して `false` に
+落とすと、推測で埋めた記述がそのまま保存される。
+
+### route
+
+| route | 条件 |
 |---|---|
-| `blocking` | **着手できない。** 決めてもらわないと 1 行も書けない。人間に質問として提示される |
-| `degraded` | 着手はできるが、後で作り直しになりうる |
+| `writer` | 入力と決定台帳の範囲で直せる: 削除、適用範囲の限定、既にある決定・入力・本文への追認、表現の修正、食い違いのうち上位文書か入力に辿れる側へ揃えること |
+| `decision` | 直すのに、入力にも決定台帳にも無い規範・値を新しく置く必要がある。食い違いの両側がそれぞれ入力に辿れ、入力そのものが割れている。プロダクトの価値（何をすべきか・何を許すか・何を優先するか）の判断が要る |
 
-- **`resolved_by` は、手が止まる理由が何で閉じるかを書く。** `requester` はプロダクトの価値（何を
-  すべきか・何を許すか・何を優先するか）の判断が要るもの。`writer` は文書の中の食い違い・閉じて
-  いない集合で、他の項目と根拠から書き手が揃えられるもの（例: 2 つの項目が同じ入力に違う振る舞いを
-  定めている・本文が参照する集合の要素が他の項目から決まる）。`writer` の指摘は TBD にならず改稿の
-  対象へ回る。欠けたら `requester` として扱われる。
-- **degraded 指摘にも「判定が割れる具体入力（またはその構成手順）」を `repro` として添付する。
-  書けない指摘は起票しない**（auditor 共通形と同じ較正。仕上げの好みを degraded に流し込ませない）。
-- **既に TBD として起票されている項目は指摘しない。** それは正しく扱われている状態である。
-- `blocking` の乱発はユーザーが答えきれなくなる。逆に遠慮して `degraded` に落とすと、
-  推測で埋めて進むことになる。「本当に手が止まるか」で判定する。
-- **文書が参照先として明示しているファイルは読めるものとして扱う。** 参照先を見れば分かる
-  ことを「文書に書かれていない」として指摘しない。判定対象は「参照先を開いてもなお決まらない
-  こと」である。`[SELF_CONTAINMENT]` ブロックに、何を文書に書き何を参照にとどめるかの合意が
-  渡される。参照先が実在しない場合は、それ自体を指摘する。
+- 見分け方: 直した後の文が指せる根拠（決定の ID・入力の文言・他の項目）を挙げられるなら `writer`。挙げられない
+  なら、それは追認ではなく発明なので `decision`。
+- 迷ったら `decision`。決定が要る指摘を writer に回すと、writer が根拠の無い規則を書き、段 8 の grounding で
+  捏造として戻るまで 1 パスを失う。writer で直せる指摘を resolver に回しても、resolver が `internal` か `method`
+  で裁定して返すだけで済む。
+- `decision` の指摘は resolver が裁定する（段 6）。`writer` の指摘は script が項目ごとに束ね、そのまま改稿へ回る。
 
----
+### 指名されたとき
 
-## §ladder-judge
+script は起動した監査役のうち 1 体を指名し、プロンプトでコマンド（`<n>`・`<digest>`・`<ID>` を埋めたもの）を
+渡す。指名された 1 体は、監査の判定とは別にそれを実行し、**stdout の JSON を加工せずに**返り値に入れる。script はファイルを読めないので、この値が監査の
+基準（どの版を監査したか）の唯一の記録になる。
 
-`scripts/refine.js` が監査結果を writer に渡す前に呼ぶ**専任の分類係**（生成側と別 spawn）。
-auditor 共通形の finding 配列を受け取り、各 finding に failure kind を付けて返す。
-戻り先が writer 改稿 1 種類しか無いと、根拠が入力に無い指摘まで改稿予算を消費してから
-TBD 起票で逃げる — 失敗の種別が戻る深さを決める（スコープの梯子）。
-
-```json
-{
-  "classified": [
-    { "digest": "受け取った digest をそのまま", "kind": "artifact | criteria | consistency | premise | question", "cited": ["consistency のとき。食い違う項目の ID・箇所"], "rationale": "分類の根拠（1 行必須）" }
-  ]
-}
-```
-
-### 判定表（複数行に当たるときは番号の小さい行を採る）
-
-| 優先 | kind | 徴候 | 戻り先 |
-|---|---|---|---|
-| 0 | `consistency` | 指摘が文書の中の整合・閉包の欠陥である（2 つの項目が同じ入力に違う振る舞いを定める・本文が参照する集合の要素が他の項目から決まる・表の組み合わせが欠ける）。食い違う項目を `cited` に挙げられる | writer 改稿。`cited` の項目を突き合わせ、根拠が上位文書・入力に辿れる側に揃える。TBD にしない |
-| 1 | `premise` | 指摘の解消に要る根拠が入力・前提（INPUT / ANSWERS / TBD_ANSWERS / DECISIONS）のどこにも無い | `needs_input`（data）。改稿予算を消費させず blocking TBD として起票 |
-| 2 | `question` | 依頼者にしか決められない（外部に波及する値・要求そのものの取捨） | `needs_input`（decision）。同上 |
-| 3 | `criteria` | 判定基準・既定の欠落。決定ログに既定を要する | writer 改稿。書き手が決められる既定なら writer が既定を提案し、decisions 候補（`tbd_items[].candidates`）として返す |
-| 4 | `artifact` | 成果物の記述の欠陥（曖昧・矛盾・欠落・書式） | writer 改稿 |
-
-- **解消手段の判定を、徴候より先に置く。** 徴候で行を選ぶ前に「この指摘を解消するのに、規範の
-  **新設**が要るか」を問い、**この問いの答えが 3 行・4 行の候補についての行選択そのものになる**
-  （1 行・2 行に当たる指摘は既に `needs_input` なので、この条を通さず番号順のまま採る。
-  つまり上の「番号の小さい行を採る」と競合せず、3 行・4 行の候補を `question` へ回すか
-  どうかだけを決める）。
-
-  **既存記述の削除・適用範囲の限定・既存の既定/決定への追認のいずれでも尽きず、
-  新しい規則を置かなければ解消しない指摘は、徴候の見かけが `artifact`（曖昧・矛盾）でも
-  `criteria`（既定の欠落）でも `question`（`needs_input(decision)`）とする。**
-  規範を置いてよいという授権は統合ゲートの回答からしか生まれず（機序の正は
-  `references/question-policy.md` §規範の授権はどこから来るか）、writer に流しても
-  発明した規則は根拠を持てない。writer へ流した場合のコストは、改稿 1 回分を消費したうえで
-  次ラウンドの fabrication 監査が blocking 化し、結局同じゲートへ 1 周遅れで着くことである。
-  逆に、既にある決定・前提・本文を**指して**追認できる既定は `criteria` のまま writer が
-  提案できる（3 行は生きている）。指せる文言を挙げられないなら、それは追認ではなく発明である。
-- **`consistency` はプロダクトの価値の判断を含まないときだけ採る。** 食い違いの両側がそれぞれ依頼者の
-  入力に辿れ、入力そのものが割れているなら、どちらに揃えるかはプロダクトの判断なので `question` に
-  する。`cited` を挙げられない指摘も `consistency` にしない。状態 × イベント表・判定表・工程の流れの
-  構造検査（`ST-STATE-` / `ST-DT-` / `ST-FLOW-`）は script がこの judge を通さず writer へ流す。
-- **表に無い状況は `question`（`needs_input(decision)`）に落とす。規則を発明しない。**
-- `rationale` は必須（1 行）。書けない分類は根拠が無い。
-- `digest` は書き換えない（script が照合キーに使う）。分類が欠けた finding は script が
-  従来どおり writer へ流す（分類の欠測で改稿経路を止めない）。
-
----
-
-## §resolver
-
-`scripts/refine.js` が、stuck 指摘（改稿を繰り返しても解消しない指摘）と、precedent-judge が
-`resolvable` と分類した TBD について呼ぶ**生成側の起草係**。検査者の指摘（issue + direction）を
-入力に、解消候補（選択肢・文案・トレードオフ）を起草する。役割の詳細は `agents/resolver.md`。
-
-```json
-{
-  "proposals": [
-    {
-      "digest": "受け取った digest をそのまま（照合キー。書き換えない）",
-      "options": [
-        {
-          "summary": "候補の要旨 1 行（書き直し / 統合 / 削除 / TBD 起票 / 既定への追認のどれか）",
-          "draft_text": "任意。writer が下敷きにできる文案（根拠原本にある内容だけで書く）",
-          "tradeoff": "この候補を採ると何を失うか・何が残るか"
-        }
-      ],
-      "recommended": 0
-    }
-  ]
-}
-```
-
-- 反例が構成できない指摘には、**「反例が構成できない事実」を報告するにとどめる**。指摘の真偽を
-  裁定しない（それは adjudicator の領分）。
-- すべての候補は resolver-verifier の検証を通ってから writer に渡る。検証を通らなかった候補は
-  script が落とす。
-
----
-
-## §resolver-verifier
-
-`scripts/refine.js` が resolver の直後に呼ぶ**検証係**。役割の詳細は `agents/resolver-verifier.md`。
-
-```json
-{
-  "verdicts": [
-    {
-      "digest": "対象候補の digest",
-      "option_index": 0,
-      "verdict": "pass | reject",
-      "reason": "判定の根拠 1 行（pass にも必須）"
-    }
-  ]
-}
-```
-
-- 判定条件は (a) decisions と矛盾しない (b) 原本に無い事実を捏造していない (c) direction と
-  整合する、の 3 つ。1 つでも破れば reject。
-- **reject された候補・判定の無い候補は writer に渡らない**（fail-closed）。
-- 候補の書き直し・改良案の提示はしない（検証者が書くと、その文を誰も検証しない）。
-
----
-
-## §precedent-judge
-
-`scripts/refine.js` が未提示 blocking をまとめて 1 体に渡す。**人間必要性の判定パイプライン
-段 2**（段 1 は ladder-judge、段 3 は measurement）。
-
-```json
-{
-  "classifications": [
-    {
-      "tbd_id": "TBD-AUTH-001",
-      "verdict": "resolvable | internal | measurable | novel | conflict | irreversible",
-      "precedent_ids": ["D-003"],
-      "cited": ["internal のとき。食い違う項目の ID"],
-      "measurement_target": "何を読めば決まるか（measurable のとき）",
-      "rationale": "分類の根拠 1 行"
-    }
-  ]
-}
-```
-
-**判定（verdict と precedent_ids）だけを返す。解消文は書かない** — resolvable の解消文の起草は
-§resolver の責務であり、judge が文案まで書くと「先例の当てはめ」が実質の新規裁定に化ける。
-
-| verdict | 意味 | 行き先 |
+| 段 | 最初に | 最後に |
 |---|---|---|
-| `resolvable` | 決定ログ・回答履歴に同型の先例があり、当てはめれば解消する | §resolver が解消文を起草 → §resolver-verifier の検証 → 同一ラン内で本文へ反映 |
-| `internal` | 問いがプロダクトの価値ではなく文書の中の整合・閉包である（`cited` の項目が食い違う）。入力そのものが割れているなら当たらない | `resolvable` と同じ経路（書き手が `cited` を揃える）。`cited` が空なら採らず人間ゲート |
-| `measurable` | 現物（実装・設定・既存文書）が答えを持つ | §measurement へ |
-| `novel` | 先例が無い / 類推に飛躍がある | 人間ゲート |
-| `conflict` | 当てはまりうる先例同士が逆の判断を含む | 人間ゲート |
-| `irreversible` | 解消が取り消しの難しい影響を持つ | 人間ゲート |
+| 段 5（cross-doc） | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-1 --role auditor --workspace W` |
+| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合を返す | `snapshot --save audited-<n+1> --role auditor --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
 
-**迷ったら `novel`。** 自動裁定の偽陽性は依頼者の決定を勝手に置き換える事故であり、
-余計に聞く偽陰性より重い。`measurement_target` が空の `measurable` は script が採らない
-（読む対象を名指しできないなら、それは計測ではなく推測である）。
+- diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。
+- `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま返す。監査の基準が
+  差し替わっているので、その上で出した判定は何と比べたのかが分からない。
 
----
-
-## §measurement
-
-`scripts/refine.js` が `measurable` と判定された項目をまとめて 1 体に渡す。役割の詳細は
-`agents/measurement.md`。
+返り値（全監査役）:
 
 ```json
 {
-  "resolutions": [
-    {
-      "tbd_id": "TBD-AUTH-001",
-      "resolved": true,
-      "statement": "測った事実を 1 文で（そのまま規範の材料になる）",
-      "evidence": [{ "file": "src/auth/session.py", "line": 42, "quote": "実ファイルに実在する文字列" }],
-      "reason": "確定できた / できなかった理由"
-    }
-  ]
+  "path": "findings/r1-im-requirements__auth.json",
+  "findings": [{ "id": "r1-im-requirements__auth-001", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer" }],
+  "designated": {
+    "doc_check": "doc の stdout（そのまま）",
+    "diff": { "stdout": "diff の stdout（そのまま）", "changed": ["PR-AUTH-003"], "added": [], "removed": [] },
+    "audited": "snapshot の stdout（そのまま）",
+    "tree_digest": "tree-digest の stdout（そのまま）"
+  }
 }
 ```
 
-- **`resolved: false` は正しい応答**である。確定できなかった項目は人間ゲートへ戻る。
-- `evidence` が空の `resolved: true` は script が採らない。証拠なしの断定は計測ではなく推測で
-  あり、実測の体裁をまとった捏造は下流の監査を素通りするため。
-- `statement` に測っていないこと（今後どうすべきか・実装がそうなっている理由）を書かない。
+`designated` は指名されたときだけ、実行した項目だけを入れる。
 
----
+## §implementer
 
-## §structural（script が生成する finding）
+監査役の共通節に従う。入力は 1 文書（範囲を絞った監査では、その文書の対象の項目）。
 
-`scripts/doc_check.mjs` が検出する。agent は生成しない。戻り値は `{ findings, not_checked }`。
-CLI の出力は種別と引数だけの短い形（`{ c, d, a }`）で、文面（`issue` / `fix` など）は script が
-同じ表（`FINDING_TEXT`）から組み立てる。下の `id` は組み立てた後の形である。
+## §grounding
+
+監査役の共通節に従う。入力は 1 文書。範囲を絞った監査では、変わった項目と新しく入った規範文。
+
+## §cross-doc
+
+監査役の共通節に従う。入力は全文書と `plan.json`（`required_categories`・`covers`・`self_containment`）。
+段 5 では必ず指名される。
+
+## §structural（doc_check が生成する finding）
+
+`scripts/doc_check.mjs` が検出する。agent は生成しない。文面は doc_check の表（`FINDING_TEXT` と
+`WORKSPACE_TEXT`）から組み立てられる。
 
 | `id` の接頭辞 | 検出内容 |
 |---|---|
-| `ST-DUP-` | 同じ ID が複数文書で定義されている |
-| `ST-DUP-TBD-` | 同じ TBD ID が複数文書から別内容で申告されている |
-| `ST-ORPHAN-REQ-` | 要求 ID がトレーサビリティ表に無い（実現する仕様が無い） |
-| `ST-ORPHAN-SPEC-` | 仕様項目 ID がトレーサビリティ表に無い（根拠が不明） |
+| `ST-DUP-` / `ST-DUP-TBD-` | 同じ ID・TBD ID が複数文書で定義されている |
+| `ST-ORPHAN-REQ-` / `ST-ORPHAN-SPEC-` | 要求 ID・仕様項目 ID がトレーサビリティ表に無い |
 | `ST-DANGLING-` | 表が参照する ID がどの文書にも無い |
-| `ST-UNDECLARED-` | 本文にあるが ID 一覧・`referenced_ids`・欠番（`vacant_ids` または「欠番」と同じ行の併記）のいずれにも無い |
-| `ST-VACANT-CONFLICT-` | `vacant_ids`（欠番）と ID 一覧（実在の項目）の両方に申告されている |
-| `ST-PHANTOM-` | ID 一覧にあるが本文に無い |
-| `ST-OBSOLETE-` | 廃止済み規制の語の混入（`references/citation-policy.md`） |
-| `ST-UNVERIFIED-` | 本文未確認の規格に条番号を付けた引用 |
-| `ST-NO-EVIDENCE-` | 項目 ID に対応する `trace`（根拠）が申告されていない |
+| `ST-REF-UNDEFINED-` | 本文が参照する ID がどの文書の見出しにも無く、欠番の申告も無い |
+| `ST-OBSOLETE-` / `ST-UNVERIFIED-` | 廃止済み規制の語・本文未確認の規格の条番号（`references/citation-policy.md`） |
+| `ST-NO-EVIDENCE-` | 項目 ID に対応する trace が meta に無い |
 | `ST-NON-NORMATIVE-` | 本文に根拠句・決定ログ・経緯・未確定事項の章が混ざっている |
-| `ST-STATE-` | 状態 × イベント表の欠け（`MISSING`）・同じ入力に 2 つの行き先（`NONDET`）・定義済みか列に書いた別の遷移（`HIDDEN`）・表と図の食い違い（`DIAGRAM-CONFLICT`）・到達できない状態（`UNREACHABLE`）・出口の無い状態（`DEADEND`）・軸の外の値（`AXIS`）・次の状態の欠け（`NO-NEXT`）・イベントの軸の宣言なし（`NOAXIS`）。書式は `references/document-structure.md` §6 |
-| `ST-DT-` | 判定表の組み合わせの欠け（`GAP`）・重なり（`OVERLAP`）・宣言外の値（`VALUE`）。書式は `references/document-structure.md` §2.8 |
-| `ST-FLOW-` | 工程の流れの要素に項目が当たっていない（`UNATTACHED`）・`flow_refs` が実在しない要素を指す（`UNKNOWN-REF`）。形と閉包の欠陥（§flow-framer）は入口で止まる |
+| `ST-AMBIGUOUS-` | ID を持つ項目の文に曖昧語リストの語がある |
+| `ST-TBD-ASSERT-` | 開いている TBD に触れる文が断定の語尾で終わる |
+| `ST-STATE-` | 状態 × イベント表の欠け・非決定・図との食い違い・到達不能・出口なし・軸の外の値（書式は `references/document-structure.md` §6） |
+| `ST-DT-` | 判定表の組み合わせの欠け・重なり・宣言外の値（書式は同 §2.8） |
+| `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典、項目が当たっていない要素、実在しない要素への当て |
 
-`ST-STATE-` / `ST-DT-` / `ST-FLOW-` は文書内の整合と閉包の欠陥であり、依頼者に聞く論点ではない。
-refine.js は ladder-judge を通さずに writer の改稿対象へ流す。
-
-`not_checked` は**失格ではなく「材料が無くて実行できなかった検査」**。
-`ST-NOTCHECKED-CROSSREF` は、片方の kind の文書が対象に含まれず ID 照合が成立しなかったこと
-を示す。`ST-NOTCHECKED-TRACE-<文書>` は、その文書が `trace` を申告せず根拠の対応を検査できな
-かったことを示す（「根拠あり」ではない）。`ST-NOTCHECKED-FLOW` は flow が渡されず工程への当たり方を
-検査していないこと、`ST-NOTCHECKED-DTABLE-` は判定表の組み合わせが多すぎて網羅を検査していないことを示す。**「指摘 0 件」と混同させないため、別配列で返す。**
+`not_checked` は失格ではなく「材料が無くて実行できなかった検査」である。`ST-NOTCHECKED-TRACE-<文書>` は meta が
+無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いことを示す。「指摘 0 件」と混同させない
+ため、別の配列で返る。
