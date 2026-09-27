@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "id": "r2-gr-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-059",
+      "quote": "システムは、基準ブランチ以外で取り込み済みと確かめられないブランチのうち、remote で削除済みのローカルブランチと remote のブランチを、要判断に分類しなければならない。",
+      "issue": "trace の引用 input L136「`remote.needs_decision`（未取り込みで remote に残存）: CLOSED PR や PR の無いブランチ。」は remote 側の要判断を CLOSED PR か PR の無いブランチに限っているが、本文は取り込み済みと確かめられない remote ブランチ全部を要判断にしており、基準ブランチを base とする open の PR の head である remote ブランチまで問いかけと承認済み削除の対象に入る。引用は実在するがこの範囲を支えておらず、RS-024・RS-025 もこの拡大を支えない。§用語 の「要判断」の定義も同じ範囲で書かれている。",
+      "repro": "origin/feature/x が main を base とする open の PR の head で、main の履歴に含まれず merged の PR も無い。本文の規範では要判断に分類され（PR-CLEANUP-059）、問いかけの候補に出て（PR-CLEANUP-020）、利用者が承認すれば削除される（PR-CLEANUP-032）。PR-CLEANUP-062 の保護は取り込み済みの条件に当たるブランチだけが対象なのでこれを止めない。入力の定義では open の PR の head は remote.needs_decision に入らない。",
+      "blocking": true,
+      "route": "writer",
+      "direction": "tighten",
+      "direction_note": "要判断に含める remote ブランチを、trace の引用が述べる範囲に限る（§用語 の要判断の定義も同じ範囲に揃える）"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md の全文（372 行）と meta.json の trace のうち対象項目分、input.md 全文、answers/*.md 全件、decisions.json 全件、resolutions.json の RS-002〜RS-012・RS-018〜RS-028、flow.json の F-003〜F-005・F-010〜F-020・F-029・F-035〜F-038・F-046・F-090・F-094・F-095、plan.json。対象は diff で changed・added の PR-CLEANUP-002/007/008/011/012/015/023/031/043/044/053/059/061/062/063/064/065 と §用語・§確認を求めない削除・§表記規約（PR-CLEANUP-014 は削除済みで本文に無く、§表記規約の欠番宣言だけを確認）。観点は grounding: trace の引用の実在と逐語一致、引用・決定・合格した resolution がその文を支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、無効な RS-018 を根拠にしていないか、hold の RS-021 の範囲を断定していないか、入力への違反。§表記規約の JIS Z 8301 の表記は references/requirement-writing-rules.md の表記規約の定型（書き方の選択）と一致するため指摘しない。"
+}
