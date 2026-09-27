@@ -1225,8 +1225,12 @@ async function stage5() {
 function setPending(findings, docCheck, carried, reversed) {
   const all = toDecision([...findings, ...carried], reversed)
   const p = partitionFindings(all)
+  const refs = (docCheck && docCheck.flow_refs) || {}
   state.pending = {
-    bundles: p.bundles,
+    bundles: p.bundles.map((b) => {
+      const flow = uniq((refs[b.doc] || {})[b.item_id])
+      return flow.length ? { ...b, flow } : b
+    }),
     decision: p.decision,
     blocking: p.blocking,
     doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,
@@ -1302,7 +1306,7 @@ async function stage7() {
       const before = t.unit.docs.map((k) => `${k}: ${state.docs && state.docs[k] ? state.docs[k] : `${W}/checks/audited-${state.audit.n}.snapshot.json の docs["${k}"].digest`}`)
       const extra = [
         `改稿前の digest（照合してから書き始める）:\n${before.map((x) => `- ${x}`).join('\n')}`,
-        `writer の指摘（項目ごとに束ねたもの。中身は ${W}/findings/*.json から ID で読む）:\n${t.bundles.map((b) => `- ${b.doc} ${b.item_id}: ${b.findings.join(', ')}`).join('\n') || '（なし）'}`,
+        `writer の指摘（項目ごとに束ねたもの。中身は ${W}/findings/*.json から ID で読む）:\n${t.bundles.map((b) => `- ${b.doc} ${b.item_id}: ${b.findings.join(', ')}${b.flow ? `（trace が指す flow 要素: ${b.flow.join(', ')}）` : ''}`).join('\n') || '（なし）'}`,
         `routes.json の担当の ID: ${list(t.routes)}（当てるのは、根拠にしてよい resolution と保持規則だけ）`,
         p.doc_blocking > 0 ? `${W}/checks/doc.json に doc_check の指摘が ${p.doc_blocking} 件ある。自分の文書の分を直す。` : '',
         newSettled.length ? `前回の書き込みの後に決まった resolution: ${list(newSettled)}。自分の文書に関わるものを当てる（hold は保持規則の規範文として書く）。` : '',

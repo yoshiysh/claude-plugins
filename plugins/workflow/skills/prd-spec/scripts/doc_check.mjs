@@ -2544,6 +2544,14 @@ function wsDoc(ws, opts) {
   const digest = digestOf(body)
   const name = opts.doc.length ? `doc.${selected.map(indexName).join('+')}.json` : 'doc.json'
   const degraded = expanded.findings.filter((f) => f.severity === 'degraded').length
+  // flow_refs: 項目 → trace が指す flow 要素。prd.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
+  const flowRefs = {}
+  for (const d of docs.filter((x) => selected.includes(x.key))) {
+    for (const { item_id: item, ref } of d.flow_refs) {
+      const byItem = (flowRefs[d.key] ||= {})
+      byItem[item] = [...new Set([...(byItem[item] || []), ref])].sort()
+    }
+  }
   return {
     findings: expanded.findings.length,
     blocking: expanded.findings.length - degraded,
@@ -2552,6 +2560,7 @@ function wsDoc(ws, opts) {
     path: writeCheck(ws, name, { ...body, digest }),
     digest,
     tree_digest: tree,
+    flow_refs: flowRefs,
   }
 }
 

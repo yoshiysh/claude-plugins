@@ -126,7 +126,8 @@ function respond(prompt, label) {
         stray: { count: (spec.stray_at || {})[stage] || 0, path: `checks/audited-${n}.stray.json`, files: listed((spec.stray_at || {})[stage] || 0, 'stray') },
         size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json`, files: listed((spec.size_over_at || {})[stage] || 0, 'size') },
       }
-      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: H('a1'), ...found }) }
+      const docCheck = JSON.stringify({ blocking: 0, flow_refs: spec.doc_flow_refs || {} })
+      if (n === 1) out.designated = { doc_check: docCheck, audited: JSON.stringify({ digest: H('a1'), ...found }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
       else {
         const changed = (spec.diff || {})[stage] || spec.writer_changed || ['PR-X-001']
@@ -135,7 +136,7 @@ function respond(prompt, label) {
         out.designated = {
           diff: { stdout: '{}', changed, added: [], removed: [], by_doc: byDoc },
           audited: JSON.stringify({ digest: H(`a${n}`), ...found }),
-          doc_check: JSON.stringify({ blocking: 0 }),
+          doc_check: docCheck,
           tree_digest: JSON.stringify({ digest: H(`t${n}`) }),
         }
       }
@@ -974,6 +975,17 @@ class FindingRoutes(unittest.TestCase):
         self.assertIn("同じ項目への前のパスの指摘: r2-gr-requirements__x-001", self._prompt(r, "grounding:r3:requirements/x"))
         self.assertNotIn("前のパスの指摘", self._prompt(r, "grounding:r1:requirements/x"))
 
+    def test_改稿のwriterに項目のtraceが指すflow要素のIDを渡す(self):
+        r = run({"args": args(), "doc_flow_refs": {"requirements/x": {"PR-X-001": ["F-011", "F-010"]}, "requirements/y": {"PR-X-002": ["F-099"]}},
+                 "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False},
+                                                 {"id": "r1-im-requirements__x-002", "item_id": "PR-X-002", "blocking": False}]}})
+        revise = self._prompt(r, "writer:U-1:revise")
+        self.assertIn("- requirements/x PR-X-001: r1-im-requirements__x-001（trace が指す flow 要素: F-010, F-011）", revise)
+        self.assertIn("- requirements/x PR-X-002: r1-im-requirements__x-002\n", revise, "別の文書の同じ項目 ID の要素は渡さない")
+        self.assertNotIn("F-099", revise)
+        none = self._prompt(run({"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}}), "writer:U-1:revise")
+        self.assertNotIn("flow 要素", none, "flow_refs の無い項目では行を出さない")
+
     FLOW_FINDING = "r1-im-requirements__x-001"
 
     def _flow_finding(self, **kw):
@@ -1047,6 +1059,7 @@ class NextArgsBudget(unittest.TestCase):
         g1 = run({
             "args": g02["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)},
             "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
+            "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
             "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
             "questions_at": {"6": rs(23, 25)},
             "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]},
@@ -1058,6 +1071,7 @@ class NextArgsBudget(unittest.TestCase):
         self.assertGreaterEqual(len(state["passed"]), 82)
         self.assertEqual(len(state["pending"]["findings"]), 11)
         self.assertEqual(len(state["pending"]["bundles"]), 3)
+        self.assertTrue(all(len(b["flow"]) == 3 for b in state["pending"]["bundles"]))
         self.assertEqual(len(state["units"]), 1)
         self.assertTrue(any("100 件" in n for n in state["notices"]) and any("SIZE_BUDGET" in n for n in state["notices"]), state["notices"])
         for gate, res in (("G0", g0), ("G0-2", g02), ("G1", g1)):

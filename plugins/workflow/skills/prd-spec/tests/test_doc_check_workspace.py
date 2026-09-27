@@ -154,9 +154,18 @@ class SnapshotAndDiff(_Workspace):
         out = _ok(self.ws, "diff", "--against", "audited-1", "--expect", out["digest"])
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
-        self.assertEqual(set(json.loads(r.stdout)), {"findings", "blocking", "degraded", "not_checked", "path", "digest", "tree_digest"})
+        doc = json.loads(r.stdout)
+        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
-        self.assertNotIn("PR-AUTH", r.stdout)
+        del doc["flow_refs"]
+        self.assertNotIn("PR-AUTH", json.dumps(doc))
+
+    def test_docのstdoutは項目ごとにtraceが指すflow要素を出す(self):
+        self.assertEqual(_ok(self.ws, "doc")["flow_refs"], {
+            "requirements/auth": {"PR-AUTH-002": ["F-002"]},
+            "specifications/auth": {"SP-AUTH-001": ["F-001"], "SP-AUTH-002": ["F-003", "F-004", "F-005"]},
+        })
+        self.assertEqual(_ok(self.ws, "doc", "--doc", "requirements/auth")["flow_refs"], {"requirements/auth": {"PR-AUTH-002": ["F-002"]}})
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
