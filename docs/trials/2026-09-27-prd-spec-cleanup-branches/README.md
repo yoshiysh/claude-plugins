@@ -252,7 +252,7 @@ issue／direction_note が指摘のたびに入力内の 1 か所（r2 は issue
 `evidence/answers-g0.md` の回答はそれぞれ「義務はない」「残す必要はない」であり、いずれも「無い」側の
 選択肢が選ばれた。
 
-### 4.6 W/tmp に版の控えが 18 本残った
+### 4.6 W/tmp に生成用 script 5 本と版の控え 13 本が残った
 
 観測: `evidence/orchestrator-log.md`（追記分）によれば、`W/tmp/` に agent が作ったファイルが 18 本残っている
 （ls で確認）。内訳は生成用の Python script 5 本（`gen.py`・`apply3a.py`・`gen_meta_u1.py`・`gen6.py`・
