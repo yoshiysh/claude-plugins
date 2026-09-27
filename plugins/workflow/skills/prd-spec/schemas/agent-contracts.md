@@ -67,7 +67,7 @@
 含まない 1 つの名前、`*` は 1 階層の任意の名前を表す。ただし文書と meta（`requirements-`・`specifications-` で
 始まるファイル）は、`plan.json` の `docs[].key` から導いた名前だけを置いてよい（パターンでは、版名を付けた写しと
 正当な topic を区別できない）。doc_check の `snapshot`・`tree-digest` はこの列と `plan.json` を実行時に読み、
-合わないファイルと `tmp/` に残ったものを `checks/stray.json` に書いて、stdout の `stray` に件数とパスを出す
+合わないファイルと `tmp/` に残ったものを `checks/<label>.stray.json`（tree-digest は `checks/tree-digest.stray.json`）に書いて、stdout の `stray` に件数とパスを出す
 （`plan.json` が無ければ止まる）。書き手の所有そのものは強制されないので、守られなかったときに何で気づくかを右端に書く。
 
 | ファイル | 書き手 | 形 | 守られなかったときの検出 |

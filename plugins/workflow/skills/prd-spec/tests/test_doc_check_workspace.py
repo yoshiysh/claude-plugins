@@ -331,9 +331,22 @@ class TreeFindings(_Workspace):
             (self.ws / "tmp" / "resolver__3a" / f"gen{i:03}.py").write_text("x")
         r = _run(self.ws, "tree-digest")
         out = json.loads(r.stdout)
-        self.assertEqual(out["stray"], {"count": 100, "path": "checks/stray.json"})
+        self.assertEqual(out["stray"], {"count": 100, "path": "checks/tree-digest.stray.json"})
         self.assertNotIn("gen0", r.stdout)
-        self.assertEqual(len(json.loads((self.ws / "checks" / "stray.json").read_text())["stray"]), 100)
+        self.assertEqual(len(json.loads((self.ws / "checks" / "tree-digest.stray.json").read_text())["stray"]), 100)
+
+    def test_後のsnapshotは先のsnapshotの一覧を上書きしない(self):
+        (self.ws / "tmp" / "x").mkdir(parents=True)
+        (self.ws / "tmp" / "x" / "a.py").write_text("x")
+        first = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor")
+        (self.ws / "resolutions.pre6.json").write_text("{}")
+        second = _ok(self.ws, "snapshot", "--save", "audited-2", "--role", "auditor")
+        _ok(self.ws, "tree-digest")
+        for out, n, label in ((first, 1, "audited-1"), (second, 2, "audited-2")):
+            self.assertEqual(out["stray"]["path"], f"checks/{label}.stray.json")
+            self.assertEqual(out["size_over"]["path"], f"checks/{label}.sizes.json")
+            listed = json.loads((self.ws / out["stray"]["path"]).read_text())["stray"]
+            self.assertEqual((len(listed), out["stray"]["count"]), (n, n))
 
     def test_planが無ければ止まる(self):
         (self.ws / "plan.json").unlink()
@@ -353,8 +366,8 @@ class TreeFindings(_Workspace):
         with (self.ws / "requirements-auth.md").open("a") as f:
             f.write("あ" * budget)
         out = _ok(self.ws, "snapshot", "--save", "x")
-        self.assertEqual(out["size_over"], {"count": 1, "path": "checks/sizes.json"})
-        over = json.loads((self.ws / "checks" / "sizes.json").read_text())["over"]
+        self.assertEqual(out["size_over"], {"count": 1, "path": "checks/x.sizes.json"})
+        over = json.loads((self.ws / "checks" / "x.sizes.json").read_text())["over"]
         self.assertEqual([o["file"] for o in over], ["requirements-auth.md"])
         self.assertEqual(over[0]["budget"], budget)
 

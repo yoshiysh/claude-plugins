@@ -496,8 +496,8 @@ class FieldTypes(_Workspace):
             ("flow", {"closure": "工程を列挙した。回答の反映（段 3a、RS-020）: F-029 を足した。"}),
             ("flow", {"closure": "G0-2 の回答で F-020 の枝を除いた"}),
             ("flow", {"elements": [{**el, "label": "承認（段 3a で足した）"}]}),
-            ("flow", {"kinds": [{"name": "工程", "definition": "3a' で分けた処理"}]}),
-            ("decisions", {"decisions": [{"id": "D-001", "why": "G1 の問いで決まった"}]}),
+            ("flow", {"kinds": [{"name": "工程", "definition": "段 3a' で分けた処理"}]}),
+            ("decisions", {"decisions": [{"id": "D-001", "why": "G0-2 の問いで決まった"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-im-requirements__auth-002 への対応"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "続けるか止めるかは価値の判断で、段 3a では続きの問いを聞けない"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "段 9 で聞くゲートが残っていないため保持規則にした"}]}),
@@ -517,7 +517,10 @@ class FieldTypes(_Workspace):
             "kinds": [{"name": "工程", "definition": "2 段階認証を含む入力の変換"}],
         })
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [
-            {"id": "RS-001", "ruling": "internal", "why": "RS-232 の配線と、改稿前の版の手順書（第 3 版）の段組みに合わせる。G10 と 3ab の型番も同じ"}]})
+            {"id": "RS-001", "ruling": "internal", "why": "RS-232 の配線と、改稿前の版の手順書（第 3 版）の段組みに合わせる。G10 と 3ab の型番も同じ"},
+            {"id": "RS-002", "ruling": "internal", "why": "G1 GC はレイテンシが安定しているため採用する"},
+            {"id": "RS-003", "ruling": "internal", "why": "要求文書の § 3a に定める手順に従う"},
+            {"id": "RS-004", "ruling": "internal", "why": "型番 3a と 3a' の筐体は同じ部品を使う"}]})
         _ok(self.ws, "flow")
         self.assertFalse(any("HISTORY" in i for i in json.loads((self.ws / "checks" / "flow.json").read_text())["findings"]))
 

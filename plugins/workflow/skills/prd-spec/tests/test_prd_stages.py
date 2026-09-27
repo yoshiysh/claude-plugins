@@ -85,8 +85,8 @@ function respond(prompt, label) {
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
       const found = {
-        stray: { count: (spec.stray_at || {})[stage] || 0, path: 'checks/stray.json' },
-        size_over: { count: (spec.size_over_at || {})[stage] || 0, path: 'checks/sizes.json' },
+        stray: { count: (spec.stray_at || {})[stage] || 0, path: `checks/audited-${n}.stray.json` },
+        size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json` },
       }
       if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1', ...found }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
@@ -292,6 +292,8 @@ class Stages(unittest.TestCase):
         self.assertEqual(res["report_path"], "/tmp/prd-w/report.md")
         [final] = [p["prompt"] for p in r["prompts"] if p["label"] == "resolver:final"]
         self.assertNotIn("report.md", final)
+        silent = run({**spec, "null_labels": ["resolver:final", "resolver:final#retry"]})["result"]
+        self.assertEqual((silent["status"], silent["report_path"]), ("blocked", "/tmp/prd-w/report.md"))
 
     def test_2パス目の問いは保持規則にしてゲートにしない(self):
         spec = {
@@ -479,7 +481,7 @@ class Notices(unittest.TestCase):
         self.assertEqual(res["status"], "done")
         self.assertEqual(len(res["notices"]), 1)
         self.assertIn("100 件", res["notices"][0])
-        self.assertIn("/tmp/prd-w/checks/stray.json", res["notices"][0])
+        self.assertIn("/tmp/prd-w/checks/audited-1.stray.json", res["notices"][0])
         self.assertEqual(res["integrity"], [])
 
     def test_段8のstrayはnoticesに入りintegrityに入らない(self):
@@ -487,7 +489,7 @@ class Notices(unittest.TestCase):
         r = run(spec)
         res = r["result"]
         self.assertEqual(res["status"], "done")
-        self.assertTrue(any("checks/stray.json" in n and "audited-2" in n for n in res["notices"]), res["notices"])
+        self.assertTrue(any("checks/audited-2.stray.json" in n and "audited-2 の時点" in n for n in res["notices"]), res["notices"])
         self.assertEqual(res["integrity"], [])
 
     def test_SIZE_OVERはnoticesに入りintegrityに入らない(self):
@@ -495,7 +497,7 @@ class Notices(unittest.TestCase):
         res = r["result"]
         self.assertEqual(len(res["notices"]), 1)
         self.assertIn("SIZE_BUDGET", res["notices"][0])
-        self.assertIn("/tmp/prd-w/checks/sizes.json", res["notices"][0])
+        self.assertIn("/tmp/prd-w/checks/audited-1.sizes.json", res["notices"][0])
         self.assertEqual(res["integrity"], [])
 
     def test_strayが無ければnoticesは空(self):

@@ -1531,10 +1531,10 @@ const FIELD_LIMITS = {
   'verifications.items.reason': 250,
 }
 
-// 経緯の印は prd-spec の工程にしか出ない語に限る。版・旧・v2・RS-232 のような語は案件の分野にも出るので印に
-// しない（偽陽性で put が止まるより、取りこぼしを選ぶ）。
+// 経緯の印は prd-spec の工程にしか出ない形に限る。版・旧・v2・RS-232・G1 GC・§ 3a のような語は案件の分野にも
+// 出るので、裸の G1・3a は印にせず「段 3a」の接頭辞付きの形で拾う（偽陽性で put が止まるより、取りこぼしを選ぶ）。
 const HISTORY_FIELDS = ['flow.closure', 'flow.elements.label', 'flow.kinds.definition', 'decisions.decisions.why', 'resolutions.resolutions.why', 'verifications.items.reason']
-const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])3a'?(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])G0-2(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])G1(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)-/, /回答の反映/]
+const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])G0-2(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)-/, /回答の反映/]
 
 // SIZE_BUDGET: ファイルのバイト数の目安（合否ではない）。仮の値として 2026-09-27 の cleanup-branches の試走の台帳を
 // 正規形に直した実測を置いた。段 3・5 が意図して生成物を太らせるので、試走し直した実測で決め直す。
@@ -2454,21 +2454,22 @@ function strayFiles(ws, live) {
 }
 
 // sizesOf: 台帳と文書のファイルごとのバイト数。SIZE_BUDGET は目安なので、超えても止めずに数えるだけにする。
-function sizesOf(ws, wsDocs) {
+function sizesOf(ws, wsDocs, name) {
   const entries = [
     ...Object.keys(LEDGERS).filter((n) => n !== 'meta').map((n) => [n, ledgerOf(n).file()]),
     ...wsDocs.flatMap((d) => [['document', d.path], ['meta', ledgerOf('meta').file(d.key)]]),
   ].filter(([, f]) => fs.existsSync(path.join(ws, f)))
   const sizes = Object.fromEntries(entries.map(([, f]) => [f, fs.statSync(path.join(ws, f)).size]))
   const over = entries.filter(([n, f]) => sizes[f] > SIZE_BUDGET[n]).map(([n, f]) => ({ file: f, bytes: sizes[f], budget: SIZE_BUDGET[n] }))
-  return { sizes, size_over: { count: over.length, path: writeCheck(ws, 'sizes.json', { budget: SIZE_BUDGET, sizes, over }) } }
+  return { sizes, size_over: { count: over.length, path: writeCheck(ws, `${name}.sizes.json`, { budget: SIZE_BUDGET, sizes, over }) } }
 }
 
-// treeFindings: snapshot と tree-digest の所見。一覧は checks/ に書き、stdout には件数とパスだけを出す
-// （一覧を stdout に載せると、script が notices に入れて next_args が上限なしに膨らむ）。
-function treeFindings(ws, wsDocs, live) {
+// treeFindings: snapshot と tree-digest の所見。一覧は checks/<name>.* に書き、stdout には件数とパスだけを出す
+// （一覧を stdout に載せると、script が notices に入れて next_args が上限なしに膨らむ）。name を snapshot の label に
+// するのは、後の snapshot が先の notices の指す一覧を上書きしないため。
+function treeFindings(ws, wsDocs, live, name) {
   const stray = strayFiles(ws, live)
-  return { stray: { count: stray.length, path: writeCheck(ws, 'stray.json', { stray }) }, ...sizesOf(ws, wsDocs) }
+  return { stray: { count: stray.length, path: writeCheck(ws, `${name}.stray.json`, { stray }) }, ...sizesOf(ws, wsDocs, name) }
 }
 
 // snapshot --save: 項目ごとの hash を checks/<label>.snapshot.json に書く。audited- で始まるラベルは
@@ -2482,7 +2483,7 @@ function wsSnapshot(ws, opts) {
     throw new Error('audited- で始まるラベルは --role auditor のときだけ保存できます（監査の基準は監査役だけが保存する）')
   }
   const wsDocs = workspaceDocs(ws)
-  const found = treeFindings(ws, wsDocs, opts.live)
+  const found = treeFindings(ws, wsDocs, opts.live, label)
   const items = snapshotOf(wsDocs)
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
@@ -2533,7 +2534,7 @@ function wsTreeDigest(ws, opts) {
   const items = snapshotOf(wsDocs)
   const selected = selectDocs(Object.keys(items), opts.doc)
   const subset = Object.fromEntries(selected.map((k) => [k, items[k]]))
-  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0), ...treeFindings(ws, wsDocs, opts.live) }
+  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0), ...treeFindings(ws, wsDocs, opts.live, 'tree-digest') }
 }
 
 // index: 保存先の 2 つの INDEX（references/document-splitting.md §6）を W の文書から導出し、

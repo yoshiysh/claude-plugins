@@ -1186,7 +1186,7 @@ async function finalHold(blocking, newTbd) {
   )
   if (r) absorbResolver(r)
   return blocked(`${MAX_PASSES} パスの改稿と監査の後も blocking が ${blocking} 件残りました`, null, {
-    report_path: r ? `${W}/report.md` : null,
+    report_path: `${W}/report.md`,
     remaining_blocking: state.pending.blocking,
     doc_blocking: state.pending.doc_blocking,
     tree_digest: state.tree_digest,
