@@ -228,25 +228,26 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
 
 
 class LimitsLiveInDocCheck(unittest.TestCase):
-    """欄の字数の上限と分量の目安の数値は doc_check にだけあり、契約・agents・文書には写さない。"""
+    """欄の字数の上限は置かない。分量の目安（SIZE_BUDGET）の数値は doc_check にだけあり、契約・agents・文書には写さない。"""
 
     def _numbers(self, const):
         block = re.search(rf"const {const} = \{{(.*?)\}}", SOURCE, re.S).group(1)
         return {int(n) for n in re.findall(r":\s*(\d+)", block)}
 
     def test_数値は契約とagentsに無い(self):
-        nums = self._numbers("FIELD_LIMITS") | self._numbers("SIZE_BUDGET")
-        self.assertGreater(len(nums), 8)
+        nums = self._numbers("SIZE_BUDGET")
+        self.assertGreater(len(nums), 7)
         files = [CONTRACTS, SKILL / "SKILL.md", *SKILL.glob("agents/*.md"), *SKILL.glob("schemas/*.md"), *SKILL.glob("references/*.md")]
         for p in files:
             text = p.read_text(encoding="utf-8").replace(",", "")
             for n in nums:
                 self.assertIsNone(re.search(rf"(?<![\d.]){n}\s*(字|バイト|bytes?)", text), f"{p.name}: {n}")
 
-    def test_契約は上限の正本を名前で指す(self):
+    def test_欄の字数の上限を持たない(self):
+        self.assertNotIn("FIELD_LIMITS", SOURCE)
         common = _section(CONTRACTS.read_text(encoding="utf-8"), "## 共通の約束")
-        self.assertIn("FIELD_LIMITS", common)
-        self.assertIn("SIZE_BUDGET", common)
+        self.assertIn("必要最低限で書く", common)
+        self.assertIsNone(re.search(r"\d+\s*字", common))
 
 
 class LedgerFileNamesComeFromLedgers(unittest.TestCase):

@@ -47,9 +47,9 @@
 - **型（欄・節）は、この契約と `references/document-structure.md` が決めたものだけを使う。** 新しい欄や節は、
   既存の欄で扱えない理由があるときだけ足す。自由な欄に何でも書けると、経緯や重複がそこに溜まる（実測: flow の
   `closure` に回答の反映の経緯が追記され続けた）。put は台帳の型の外の欄を拒否する。
-- **分量に上限の目安を持ち、超えたら追記ではなく統合・削除で直す。** 肥大化には利点が無い。読み手の文脈を
-  消費し、攻撃面を広げ、更新の不整合を生む。欄の字数の上限は doc_check の `FIELD_LIMITS`（超えた put は拒否される）、
-  ファイルの大きさの目安は `SIZE_BUDGET`（超えたファイルは `snapshot` の `size_over` に数えられる）が正である。
+- **必要最低限で書く。** 書くのは読み手の判断に効くことだけで、why も判断を左右するところにだけ書く。直すときは
+  追記ではなく統合・削除で直す。肥大化は読み手の文脈を消費し、検証者の攻撃面を広げ、更新の不整合を生む。字数の
+  上限は置かない（数値に当てはめると、要る記述を削るか、要らない記述で埋める方向に働く）。
 - **台帳の sha256 は `doc_check sha --ledger <台帳> --workspace <W>` の stdout の `sha256` で取る。** writer が読んだ版と
   verifier が検証した版を、script が文字列比較で照合するため、全員が同じ取り方をする。値はファイルの
   `shasum -a 256` と同じで、まだ無い台帳は空の台帳（put が書く正規形）の値になる（段 3 で open も組も 0 件のとき、
@@ -77,7 +77,7 @@
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
-| `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
+| `flow.json` | flow-framer。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけ。値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
@@ -296,7 +296,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
   "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "sha256": "書き終えた resolutions.json の sha256",
-  "flow_check": "回答を当てる段（3a・3a'）では必ず、他の段では flow.json を変えたときだけ、最後に実行した doc_check flow の stdout",
+  "flow_check": "回答を当てる段（3a・3a'）と値を決めない呼び出しでは必ず、他の段では flow.json を変えたときだけ、最後に実行した doc_check flow の stdout",
   "questions_check": "問いを出したときだけ、返る前に実行した doc_check questions --ids <問いの ID> --check の stdout"
 }
 ```

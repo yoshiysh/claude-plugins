@@ -1514,19 +1514,6 @@ const LEDGERS = {
   },
 }
 
-// FIELD_LIMITS: 自由記述の欄の字数の上限（<台帳>.<配列>.<欄>、スカラーは <台帳>.<欄>）。根拠は 2026-09-27 の試走の p90〜最大
-// （why p90 252 / 最大 337、reason p90 151 / 最大 262、label 最大 62）。closure は経緯を除いた 448 字の上（経緯込みで 1,229 字）。
-const FIELD_LIMITS = {
-  'flow.closure': 500,
-  'flow.elements.label': 80,
-  'flow.kinds.definition': 100,
-  'decisions.decisions.why': 150,
-  'resolutions.resolutions.why': 300,
-  'open.open.text': 150,
-  'open.open.searched': 100,
-  'verifications.items.reason': 250,
-}
-
 // 経緯の印は prd-spec の工程にしか出ない形に限る。版・旧・v2・RS-232・G1 GC・§ 3a のような語は案件の分野にも
 // 出るので、裸の G1・3a は印にせず「段 3a」の接頭辞付きの形で拾う（偽陽性で put が止まるより、取りこぼしを選ぶ）。
 const HISTORY_FIELDS = ['flow.closure', 'flow.elements.label', 'flow.kinds.definition', 'decisions.decisions.why', 'resolutions.resolutions.why', 'verifications.items.reason']
@@ -1685,14 +1672,12 @@ function historyMark(text) {
 function proseRejects(where, pathKey, value) {
   if (typeof value !== 'string') return []
   const bad = []
-  const limit = FIELD_LIMITS[pathKey]
-  if (limit !== undefined && [...value].length > limit) bad.push(`${where}: ${[...value].length} 字で上限の ${limit} 字を超えています。追記ではなく統合・削除で縮めてください`)
   const mark = HISTORY_FIELDS.includes(pathKey) ? historyMark(value) : null
   if (mark) bad.push(`${where}: 経緯の印「${mark}」があります。現行の値だけを書き、判断の記録は resolutions と commit に置いてください`)
   return bad
 }
 
-// fieldRejects: 送られた欄だけを見る（型の外の欄・字数・経緯の印）。null は欄を消す指示なので型の中なら通す。
+// fieldRejects: 送られた欄だけを見る（型の外の欄・経緯の印）。null は欄を消す指示なので型の中なら通す。
 function fieldRejects(name, body) {
   const spec = ledgerOf(name)
   const bad = []
@@ -2716,7 +2701,6 @@ export {
   itemSections,
   runWorkspace,
   LEDGERS,
-  FIELD_LIMITS,
   SIZE_BUDGET,
   writeAtomic,
 }

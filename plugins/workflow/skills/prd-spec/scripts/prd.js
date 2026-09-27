@@ -17,7 +17,7 @@ export const meta = {
 
 // 段の順序・起動の条件・上限・返り値の検査と引き継ぎだけを持つ（schemas/role-map.md の prd.js の行）。
 // ファイルは読めないので、分岐に使う値はすべて agent の返り値から受け取り、next_args の state に載せる。
-// state に載せるのは ID・件数・digest だけにする（why は references の「prd.js の入出力と再実行」§1）。
+// state に載せるのは ID・件数・digest だけにする（why は references/workflow-io.md §1）。
 // state は plain JSON に限る。Map・Set・class を pipeline / parallel の境界や返り値に載せると、runtime で
 // 中身が失われる（実測: `.get is not a function` で落ちた）。
 
@@ -64,9 +64,9 @@ const COMMON_SECTIONS = ['共通の約束', 'W のファイルと書き手']
 // 回数で切るのは、2 パス目の後には問いを聞くゲートも改稿の枠も残っていないからである。
 const MAX_PASSES = 2
 
-// FLOW_REWORK: flow の欠陥・問いの形の不合格を生成者に直させる回数。生成者は自分の内部で doc_check を回してから
+// CHECK_REWORK: 生成者が返した doc_check の stdout（flow の指摘・問いの形の検査）が不合格のとき、差し戻す回数。生成者は自分の内部で doc_check を回してから
 // 返すので、ここでの 1 回は「返した doc_check の stdout が不合格だった」ときの差し戻しに限る。
-const FLOW_REWORK = 1
+const CHECK_REWORK = 1
 
 const ENTRIES = ['new', 'existing', 'expand']
 const STAGES = ['1', '2', '3', '3a', '4', '5', '6', "3a'", '7', '8', '9']
@@ -475,7 +475,12 @@ const startErrors = stateErrors(FROM, state)
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
 
 const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
-const nextArgs = (from) => ({ ...BASE_ARGS, from, state: JSON.parse(JSON.stringify(state)) })
+const argsFrom = (from, st) => ({ ...BASE_ARGS, from, state: JSON.parse(JSON.stringify(st)) })
+const nextArgs = (from) => argsFrom(from, state)
+
+// running・entryState: いま走っている段と、その段に入った時点の state。
+let running = null
+let entryState = null
 
 function finish(status, extra) {
   return {
@@ -492,7 +497,14 @@ function finish(status, extra) {
     ...extra,
   }
 }
-const blocked = (reason, rerunFrom, extra) => finish('blocked', { reason, next_args: rerunFrom ? nextArgs(rerunFrom) : null, ...extra })
+// blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す。段の途中で足した値（候補の選択で当たった
+// 回答・形の検査に落ちた問い・integrity の行）を持ち越すと、再実行が止まらなかった run と違う状態から始まる。
+const blocked = (reason, rerunFrom, extra) =>
+  finish('blocked', { reason, next_args: rerunFrom ? argsFrom(rerunFrom, rerunFrom === running ? entryState : state) : null, ...extra })
+
+const noteIntegrity = (line) => {
+  state.integrity = uniq([...(state.integrity || []), line])
+}
 
 // ---------------------------------------------------------------- プロンプトの部品（本文も JSON も埋め込まずパスで渡す）
 
@@ -555,20 +567,23 @@ function absorbResolver(r) {
 }
 
 // absorbVerifier: 合否を取り込む前に、verifier が自分で実行した doc_check flow を照合する。違う flow を見た合否を
-// 台帳の集合に入れると、検証していない版の合格が残る。照合に落ちたら理由を返す（null なら取り込んだ）。
-function absorbVerifier(v, expectedSha, stage) {
+// 台帳の集合に入れると、検証していない版の合格が残る。照合に落ちたら { error, rerun } を返す（null なら取り込んだ）。
+// flow の食い違いを同じ段のやり直しで直せるのは、この段の生成者が flow の stdout を返した（flowChecked）ときだけである。
+// そうでない段（例: resolver が起動しない段 3）でやり直しても、flow.json も state.flow_digest も変わらず同じ所で止まる。
+function absorbVerifier(v, expectedSha, stage, flowChecked) {
   const fc = flowCheckOf(v.flow_check)
-  if (!fc) return `resolver-verifier（段 ${stage}）が doc_check flow の stdout を返しませんでした`
+  if (!fc) return { error: `resolver-verifier（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
+  const noFixer = flowChecked ? '' : '。この段には flow を書く生成者がいないので、同じ段からやり直しても直らない。所有表の外で flow.json を書いたものを確かめる'
   if (fc.content_sha256 !== state.flow_digest) {
-    state.integrity = [...(state.integrity || []), `verifier（段 ${stage}）が検査した flow.json（${fc.content_sha256}）が、生成者が検査した版（${state.flow_digest}）と違う`]
-    return `段 ${stage}: verifier が検査した flow.json が、生成者が doc_check flow で検査した版と違います`
+    noteIntegrity(`verifier（段 ${stage}）が検査した flow.json（${fc.content_sha256}）が、生成者が検査した版（${state.flow_digest}）と違う`)
+    return { error: `段 ${stage}: verifier が検査した flow.json が、生成者が doc_check flow で検査した版と違います${noFixer}`, rerun: flowChecked }
   }
-  if (fc.findings !== 0) return `段 ${stage}: verifier の doc_check flow に指摘が ${fc.findings} 件あります（${W}/checks/flow.json）`
+  if (fc.findings !== 0) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${fc.findings} 件あります（${W}/checks/flow.json）${noFixer}`, rerun: flowChecked }
   const failIds = (v.fail || []).map((f) => f.id)
   state.passed = minus(uniq([...(state.passed || []), ...(v.pass || [])]), failIds)
   state.failed_ids = minus(uniq([...(state.failed_ids || []), ...failIds]), v.pass || [])
   if (expectedSha && v.resolutions_sha256 !== expectedSha) {
-    state.integrity = [...(state.integrity || []), `verifier が検証した resolutions.json（${v.resolutions_sha256}）が、resolver が書き終えた版（${expectedSha}）と違う`]
+    noteIntegrity(`verifier が検証した resolutions.json（${v.resolutions_sha256}）が、resolver が書き終えた版（${expectedSha}）と違う`)
   }
   return null
 }
@@ -585,6 +600,20 @@ function resolverPrompt(label, stage, task) {
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+// keepFlow: 値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）。後に verifier が起動しないので
+// flow.json を書く権限を持たせず、呼び出しの後の flow.json が state.flow_digest のままかを、その stdout で照合する。
+const keepFlow = (task) => `${task}\n\nこの呼び出しでは flow.json を書かない（後に flow を照合する verifier が起動しない）。返る前に \`${cli('flow')}\` を実行し、stdout を加工せずに flow_check に入れる。`
+
+// flowKept: keepFlow の呼び出しが flow.json を変えていなければ null。変えていたら同じ段をやり直しても元に戻らないので、
+// rerun を付けない。
+function flowKept(stage, ret) {
+  const fc = flowCheckOf(ret.flow_check)
+  if (!fc) return { error: `resolver（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
+  if (fc.content_sha256 === state.flow_digest) return null
+  noteIntegrity(`resolver（段 ${stage}）の後の flow.json（${fc.content_sha256}）が、検証を通った版（${state.flow_digest}）と違う`)
+  return { error: `段 ${stage}: flow.json を書く権限の無い resolver の呼び出しの後で flow.json が変わっています。所有表の外で flow.json を書いたものを確かめる`, rerun: false }
 }
 
 function verifierPrompt(label, stage, ids, extra) {
@@ -618,7 +647,7 @@ async function resolveCycle(stage, opt) {
     if (fe.error) return { error: fe.error }
     flowChecked = fe.checked
     const qe = await checkQuestions(stage, r, phaseTitle)
-    if (qe) return { error: qe }
+    if (qe) return qe
     if (opt.answered) {
       const free = new Set(r.free_text || [])
       const byOption = (r.ruled || []).map((x) => x.id).filter((id) => opt.answered.includes(id) && !free.has(id))
@@ -630,8 +659,8 @@ async function resolveCycle(stage, opt) {
   const v1Label = `verifier:${stage}v`
   const v1 = await once(v1Label, 'verifier', verifierPrompt(v1Label, `${stage}v`, ids, opt.verifyExtra), VERIFIER_SCHEMA, phaseTitle)
   if (!v1) return { error: `resolver-verifier（段 ${stage}v）が応答しませんでした` }
-  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`)
-  if (ve1) return { error: ve1 }
+  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked)
+  if (ve1) return ve1
   if (!v1.fail.length) return { ok: true, passed: v1.pass }
 
   const rework = v1.fail.map((f) => `- ${f.id}: ${f.kind}（${f.reason}）`).join('\n')
@@ -647,13 +676,14 @@ async function resolveCycle(stage, opt) {
   const ids2 = absorbResolver(r2)
   const fe2 = await applyReturnedFlow(stage, r2, phaseTitle, false)
   if (fe2.error) return { error: fe2.error }
+  flowChecked = flowChecked || fe2.checked
   const qe2 = await checkQuestions(stage, r2, phaseTitle)
-  if (qe2) return { error: qe2 }
+  if (qe2) return qe2
   const v2Label = `verifier:${stage}v'`
   const v2 = await once(v2Label, 'verifier', verifierPrompt(v2Label, `${stage}v'`, ids2), VERIFIER_SCHEMA, phaseTitle)
   if (!v2) return { error: `resolver-verifier（段 ${stage}v' の再検証）が応答しませんでした` }
-  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`)
-  if (ve2) return { error: ve2 }
+  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked)
+  if (ve2) return ve2
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
   if (!v2.fail.length) return { ok: true, passed }
 
@@ -665,25 +695,27 @@ async function resolveCycle(stage, opt) {
   const r3 = await once(
     r3Label,
     'resolver',
-    resolverPrompt(r3Label, `${stage}（変換）`, `次の項目は差し戻し後も不合格だった。値を決めずに、指定のとおり question（候補と影響を付ける）か hold（保持規則と Issue の文案）に書き換える。ID は変えない。\n${convert}`),
+    resolverPrompt(r3Label, `${stage}（変換）`, keepFlow(`次の項目は差し戻し後も不合格だった。値を決めずに、指定のとおり question（候補と影響を付ける）か hold（保持規則と Issue の文案）に書き換える。ID は変えない。\n${convert}`)),
     RESOLVER_SCHEMA,
     phaseTitle
   )
   if (!r3) return { error: `resolver（段 ${stage} の変換）が応答しませんでした` }
   absorbResolver(r3)
+  const ke3 = flowKept(`${stage}-convert`, r3)
+  if (ke3) return ke3
   const qe3 = await checkQuestions(stage, r3, phaseTitle)
-  if (qe3) return { error: qe3 }
+  if (qe3) return qe3
   return { ok: true, passed }
 }
 
-// applyReturnedFlow: resolver が返した doc_check flow の stdout を読む。指摘が残れば FLOW_REWORK の回数だけ差し戻し、
+// applyReturnedFlow: resolver が返した doc_check flow の stdout を読む。指摘が残れば CHECK_REWORK の回数だけ差し戻し、
 // 0 件になったら flow.json の内容の sha256 を state.flow_digest にする（後に続く verifier の stdout と照合する）。
 // required の段（回答を flow に当てる 3a・3a'）では、stdout が無いことも不合格にする。
 async function applyReturnedFlow(stage, ret, phaseTitle, required) {
   const given = ret.flow_check !== undefined && ret.flow_check !== null
   if (!given && !required) return { checked: false }
   let fc = flowCheckOf(ret.flow_check)
-  for (let i = 0; (!fc || fc.findings > 0) && i < FLOW_REWORK; i++) {
+  for (let i = 0; (!fc || fc.findings > 0) && i < CHECK_REWORK; i++) {
     const label = `resolver:${stage}-flow`
     const what = fc ? `flow.json が閉じていない。${W}/checks/flow.json の指摘（${fc.findings} 件）だけを直す（裁定の中身は変えない）。` : 'doc_check flow の stdout が返っていない。'
     const again = await once(
@@ -710,7 +742,7 @@ async function checkQuestions(stage, r, phaseTitle) {
   if (!asked.length) return null
   let failure = questionsCheckFailure(r.questions_check, asked)
   let target = asked
-  for (let i = 0; failure && i < FLOW_REWORK; i++) {
+  for (let i = 0; failure && i < CHECK_REWORK; i++) {
     const label = `resolver:${stage}-questions`
     const again = await once(
       label,
@@ -718,17 +750,19 @@ async function checkQuestions(stage, r, phaseTitle) {
       resolverPrompt(
         label,
         `${stage}（問いの形の修正）`,
-        `問い ${list(target)} が問いの形の検査を通っていない（${failure}）。その問いの question・options だけを直し（裁定の中身は変えない）、\`${cli('questions', `--ids ${target.join(',')} --check`)}\` の stdout を加工せずに questions_check に入れて返す。`
+        keepFlow(`問い ${list(target)} が問いの形の検査を通っていない（${failure}）。その問いの question・options だけを直し（裁定の中身は変えない）、\`${cli('questions', `--ids ${target.join(',')} --check`)}\` の stdout を加工せずに questions_check に入れて返す。`)
       ),
       RESOLVER_SCHEMA,
       phaseTitle
     )
-    if (!again) return `resolver（段 ${stage} の問いの形の修正）が応答しませんでした`
+    if (!again) return { error: `resolver（段 ${stage} の問いの形の修正）が応答しませんでした` }
     absorbResolver(again)
+    const kept = flowKept(`${stage}-questions`, again)
+    if (kept) return kept
     target = minus(uniq([...target, ...(again.questions || []).map((x) => x && x.id)]), (again.holds || []).map((x) => x && x.id))
     failure = target.length ? questionsCheckFailure(again.questions_check, target) : null
   }
-  return failure ? `段 ${stage}: 問いの形が検査を通りません（${failure}）` : null
+  return failure ? { error: `段 ${stage}: 問いの形が検査を通りません（${failure}）` } : null
 }
 
 function needsAnswers(gate, from) {
@@ -793,7 +827,7 @@ async function stage2() {
   const defect = ({ fc, cc }) =>
     !fc ? 'doc_check flow の stdout がありません' : fc.findings > 0 ? `doc_check flow の指摘が ${fc.findings} 件あります（${W}/checks/flow.json）` : !cc || !Number.isInteger(cc.pairs) ? 'doc_check conflicts の stdout がありません' : null
   let got = read(r)
-  for (let i = 0; defect(got) && i < FLOW_REWORK; i++) {
+  for (let i = 0; defect(got) && i < CHECK_REWORK; i++) {
     const reworkLabel = `${label}:rework`
     const again = await once(reworkLabel, 'flowFramer', `${base(reworkLabel)}\n\n返した stdout が不合格だった: ${defect(got)}。直して返す。`, FLOW_SCHEMA, 'Flow')
     if (!again) break
@@ -817,7 +851,7 @@ async function stage3() {
       'あわせて検証する: decisions.json の source が default / precedent の決定すべてと、flow.json の全要素の source。これらの ID（D- / F-）も pass / fail に入れる（open も組も 0 件でも省かない。intake の既定が残るため）。',
     allowQuestions: true,
   })
-  if (res.error) return blocked(res.error, '3')
+  if (res.error) return blocked(res.error, res.rerun === false ? null : '3')
   if (pendingQuestions(state).length) return needsAnswers('g0', '3a')
   return ENTRY === 'existing' ? '5' : '4'
 }
@@ -842,7 +876,7 @@ async function stageApply(stageId) {
     allowQuestions: followup,
     requireFlow: true,
   })
-  if (res.error) return blocked(res.error, stageId)
+  if (res.error) return blocked(res.error, res.rerun === false ? null : stageId)
   // 自由記述の回答は、対応づけが verifier に合格して初めて回答が当たったことになる。
   state.answered = uniq([...(state.answered || []), ...pending.filter((id) => (res.passed || []).includes(id))])
   if (gate === 'g0') state.g0_followup_used = true
@@ -853,12 +887,14 @@ async function stageApply(stageId) {
     const r = await once(
       label,
       'resolver',
-      resolverPrompt(label, `${stageId}（保持規則への変換）`, `次の問いにはもう聞くゲートが残っていない。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(left)}`),
+      resolverPrompt(label, `${stageId}（保持規則への変換）`, keepFlow(`次の問いにはもう聞くゲートが残っていない。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(left)}`)),
       RESOLVER_SCHEMA,
       'Answers'
     )
     if (!r) return blocked(`resolver（段 ${stageId} の保持規則への変換）が応答しませんでした`, stageId)
     absorbResolver(r)
+    const kept = flowKept(`${stageId}-hold`, r)
+    if (kept) return blocked(kept.error, kept.rerun ? stageId : null)
     state.holds = uniq([...(state.holds || []), ...left])
   }
   if (stageId === "3a'") return '7'
@@ -887,7 +923,7 @@ function absorbWriter(r) {
   state.open_tbd = uniq([...(state.open_tbd || []), ...(r.open_tbd || [])])
   state.new_tbd = uniq([...(state.new_tbd || []), ...(r.new_tbd || [])])
   if (state.resolutions_sha256 && r.resolutions_sha256 !== state.resolutions_sha256) {
-    state.integrity = [...(state.integrity || []), `writer ${r.unit} が読んだ resolutions.json（${r.resolutions_sha256}）が、台帳の最新（${state.resolutions_sha256}）と違う`]
+    noteIntegrity(`writer ${r.unit} が読んだ resolutions.json（${r.resolutions_sha256}）が、台帳の最新（${state.resolutions_sha256}）と違う`)
   }
 }
 
@@ -1037,7 +1073,7 @@ async function stage6() {
     targets: [...decision.map((id) => `finding:${id}`), ...tbd.map((id) => `tbd:${id}`)],
     allowQuestions,
   })
-  if (res.error) return blocked(res.error, '6')
+  if (res.error) return blocked(res.error, res.rerun === false ? null : '6')
   state.new_tbd = []
   if (pendingQuestions(state).length) {
     if (allowQuestions) return needsAnswers('g1', "3a'")
@@ -1045,13 +1081,15 @@ async function stage6() {
     const r = await once(
       label,
       'resolver',
-      resolverPrompt(label, '6（保持規則への変換）', `次の問いには聞くゲートが残っていない。hold に書き換える。ID は変えない: ${list(pendingQuestions(state))}`),
+      resolverPrompt(label, '6（保持規則への変換）', keepFlow(`次の問いには聞くゲートが残っていない。hold に書き換える。ID は変えない: ${list(pendingQuestions(state))}`)),
       RESOLVER_SCHEMA,
       'Decide'
     )
     if (!r) return blocked('resolver（段 6 の保持規則への変換）が応答しませんでした', '6')
     state.holds = uniq([...(state.holds || []), ...pendingQuestions(state)])
     absorbResolver(r)
+    const kept = flowKept('6-hold', r)
+    if (kept) return blocked(kept.error, kept.rerun ? '6' : null)
   }
   return '7'
 }
@@ -1186,19 +1224,24 @@ async function finalHold(blocking, newTbd) {
     resolverPrompt(
       label,
       '上限の後（blocked）',
-      [
-        `上限の ${MAX_PASSES} パスを使い切り、blocking が ${blocking} 件残った。文書は直さない。`,
-        decision.length || newTbd.length
-          ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にし、hold.item_ids にその論点に触れる項目 ID、hold.issue_draft に Issue の文案を書く。`
-          : '',
-      ]
-        .filter(Boolean)
-        .join('\n')
+      keepFlow(
+        [
+          `上限の ${MAX_PASSES} パスを使い切り、blocking が ${blocking} 件残った。文書は直さない。`,
+          decision.length || newTbd.length
+            ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にし、hold.item_ids にその論点に触れる項目 ID、hold.issue_draft に Issue の文案を書く。`
+            : '',
+        ]
+          .filter(Boolean)
+          .join('\n')
+      )
     ),
     RESOLVER_SCHEMA,
     'Report'
   )
-  if (r) absorbResolver(r)
+  if (r) {
+    absorbResolver(r)
+    flowKept('final', r)
+  }
   return blocked(`${MAX_PASSES} パスの改稿と監査の後も blocking が ${blocking} 件残りました`, null, {
     report_path: `${W}/report.md`,
     remaining_blocking: state.pending.blocking,
@@ -1220,6 +1263,8 @@ const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'
 let next = FROM
 let outcome = null
 while (outcome === null) {
+  running = next
+  entryState = JSON.parse(JSON.stringify(state))
   const r = await STAGE_FNS[next]()
   if (typeof r === 'string') next = r
   else outcome = r

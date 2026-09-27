@@ -453,42 +453,16 @@ class Questions(_Workspace):
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-404").returncode, 1)
 
 
-def _limit_body(path_key, text):
-    """FIELD_LIMITS の鍵（<台帳>.<配列>.<欄> か <台帳>.<欄>）に text を入れた put の入力。"""
-    parts = path_key.split(".")
-    if len(parts) == 2:
-        return parts[0], {parts[1]: text}
-    ledger, lst, field = parts
-    base = {
-        ("decisions", "decisions"): {"id": "D-009"},
-        ("open", "open"): {"id": "O-009"},
-        ("resolutions", "resolutions"): {"id": "RS-009", "ruling": "internal"},
-        ("verifications", "items"): {"id": "D-001", "verdict": "pass"},
-        ("flow", "elements"): {"id": "F-001"},
-        ("flow", "kinds"): {"name": "工程"},
-    }[(ledger, lst)]
-    return ledger, {lst: [{**base, field: text}]}
-
-
 class FieldTypes(_Workspace):
-    """put は型の外の欄・上限を超える欄・経緯の印を持つ欄を、何も書かずに拒否する。"""
+    """put は型の外の欄・経緯の印を持つ欄を、何も書かずに拒否する。字数では拒否しない。"""
 
-    def _put(self, ledger, body):
-        extra = ()
-        if ledger == "verifications":
-            extra = ("--expect-resolutions", _ok(self.ws, "sha", "--ledger", "resolutions")["sha256"],
-                     "--expect-decisions", _ok(self.ws, "sha", "--ledger", "decisions")["sha256"])
-        return ("--ledger", ledger, *extra), body
-
-    def test_上限ちょうどは通り_1字超えると拒否する(self):
-        for key, limit in _exported("m.FIELD_LIMITS").items():
-            with self.subTest(field=key):
-                ledger, over = _limit_body(key, "字" * (limit + 1))
-                args, body = self._put(ledger, over)
-                r = self._unchanged_after(f"{ledger}.json", "put", *args, stdin=body)
-                self.assertIn(f"{limit} 字", r.stderr)
-                ledger, fit = _limit_body(key, "字" * limit)
-                _ok(self.ws, "put", *self._put(ledger, fit)[0], stdin=fit)
+    def test_長い自由記述の欄も字数では拒否しない(self):
+        long = "字" * 3000
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"closure": long, "elements": [{"id": "F-001", "label": long}], "kinds": [{"name": "工程", "definition": long}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "ruling": "internal", "why": long}]})
+        _ok(self.ws, "put", "--ledger", "open", stdin={"open": [{"id": "O-009", "text": long, "searched": long}]})
+        _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-009", "why": long}]})
+        self.assertEqual(json.loads((self.ws / "flow.json").read_text())["closure"], long)
 
     def test_型の外の欄は拒否する(self):
         cases = [

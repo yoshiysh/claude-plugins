@@ -36,8 +36,15 @@ let shaN = 0
 const nulls = new Set(spec.null_labels || [])
 // long_digests: sha256・digest を実物と同じ 64 字にする（next_args の上限テストで字数を実測に合わせるため）。
 const H = (x) => (spec.long_digests ? String(x).padEnd(64, '0') : x)
-// flowSha: stub の世界での flow.json の内容の sha256。next_args をまたぐ run では state.flow_digest から引き継ぐ。
-let flowSha = (spec.args.state && spec.args.state.flow_digest) || null
+// flowSha: stub の世界での flow.json の内容の sha256。spec.world があれば run をまたいで W の flow.json のように残り
+// （同じ W で再実行したときの実物に合わせる）、無ければ state.flow_digest から始める。
+const fs = await import('node:fs')
+const world = spec.world && fs.existsSync(spec.world) ? JSON.parse(fs.readFileSync(spec.world, 'utf8')) : {}
+let flowSha = world.flow || (spec.args.state && spec.args.state.flow_digest) || null
+const setFlow = (x) => {
+  flowSha = x
+  if (spec.world) fs.writeFileSync(spec.world, JSON.stringify({ flow: x }))
+}
 const at = (key, stage) => (spec[key] || {})[stage]
 const flowStdout = (findings, sha) => JSON.stringify({ findings, open: spec.flow_open || 0, path: 'checks/flow.json', digest: 'fd', content_sha256: sha })
 const ids = (text, re) => [...new Set(String(text).match(re) || [])]
@@ -47,7 +54,7 @@ function respond(prompt, label) {
   const [role, stage, target] = base.split(':')
   if (role === 'intake') return { decisions: 3, open: 0, decisions_sha256: H('d'), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   if (role === 'flow-framer') {
-    flowSha = H(`f-${stage || 'framer'}`)
+    setFlow(H(`f-${stage || 'framer'}`))
     return { flow_check: flowStdout(spec.broken_flow ? 1 : 0, flowSha), conflicts_check: JSON.stringify({ pairs: 0, path: 'checks/conflicts.json', digest: 'c' }) }
   }
   if (role === 'resolver') {
@@ -61,9 +68,10 @@ function respond(prompt, label) {
       const bad = (spec.bad_questions_at || []).includes(stage) ? 1 : 0
       out.questions_check = JSON.stringify({ check: true, ids: checked, questions: checked.length - bad, findings: bad, bad_ids: bad ? [checked[0]] : [] })
     }
-    const returnsFlow = ["3a", "3a'"].includes(stage) || stage.endsWith('-flow') || at('flow_sha_at', stage) !== undefined
+    const keepsFlow = /-(convert|hold|questions)$/.test(stage) || stage === 'final'
+    const returnsFlow = ["3a", "3a'"].includes(stage) || stage.endsWith('-flow') || keepsFlow || at('flow_sha_at', stage) !== undefined
     if (returnsFlow && !(spec.no_flow_check_at || []).includes(stage)) {
-      if (at('flow_sha_at', stage) !== undefined) flowSha = H(at('flow_sha_at', stage))
+      if (at('flow_sha_at', stage) !== undefined) setFlow(H(at('flow_sha_at', stage)))
       out.flow_check = flowStdout(at('flow_findings_at', stage) || 0, flowSha)
     }
     return out
@@ -130,6 +138,8 @@ const findingFiles = []
 const prompts = []
 const agent = async (prompt, opts) => {
   labels.push(opts.label)
+  // tamper_before: その label の agent が動く前に、所有表の外の誰かが flow.json を書き換えたことにする。
+  if ((spec.tamper_before || {})[opts.label] !== undefined) setFlow(H(spec.tamper_before[opts.label]))
   prompts.push({ label: opts.label, prompt })
   const m = /findings\/(r\d+-[^\s/]+?)\.json に書き/.exec(prompt)
   if (m && !opts.label.endsWith('#retry')) findingFiles.push(m[1])
@@ -544,7 +554,6 @@ class FlowDigest(unittest.TestCase):
         r = run({"args": args(), "verifier_flow_sha_at": {"3v": "f-other"}})
         res = r["result"]
         self.assertEqual(res["status"], "blocked")
-        self.assertEqual(res["next_args"]["from"], "3")
         self.assertEqual(len(res["integrity"]), 1)
         self.assertIn("f-other", res["integrity"][0])
         self.assertFalse(has(r["labels"], "writer"))
@@ -556,10 +565,6 @@ class FlowDigest(unittest.TestCase):
         self.assertEqual(res["integrity"], [])
         self.assertIn("指摘が 1 件", res["reason"])
         self.assertFalse(has(r["labels"], "writer"))
-
-    def test_照合に落ちたverifierの合否は取り込まない(self):
-        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "verifier_flow_sha_at": {"3v": "f-other"}})
-        self.assertNotIn("RS-001", r["result"]["next_args"]["state"].get("passed", []))
 
     def test_3aでは候補の選択だけでもverifierが起動する(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
@@ -616,6 +621,117 @@ class QuestionsCheck(unittest.TestCase):
     def test_問いが無ければ検査を求めない(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
         self.assertNotIn("resolver:3-questions", r["labels"])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class RerunFromTheSameStage(unittest.TestCase):
+    """段の途中で止まり、返った next_args をそのまま渡して再実行すると、止まらなかった run と同じ状態になる。
+
+    spec.world は W の flow.json に当たり、run をまたいで残る（stub が flow を state から組み直さない）。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.world = str(Path(self._tmp.name) / "world.json")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _world(self, **kw):
+        return {"world": self.world, **kw}
+
+    def _resume(self, stopped, spec):
+        res = stopped["result"]
+        self.assertEqual(res["status"], "blocked", res)
+        again = run({**spec, "args": res["next_args"]})
+        self.assertIsNone(again["error"], again["error"])
+        return again["result"]
+
+    def _g0(self, **kw):
+        return run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}, **self._world(), **kw})["result"]
+
+    def test_3aのverifierで止まっても候補の選択の回答を持ち越さない(self):
+        g0 = self._g0()
+        spec = {"ruled_at": {"3a": ["RS-001", "RS-002"]}, "questions_at": {"3a": ["RS-003"]}, **self._world()}
+        whole = run({**spec, "args": g0["next_args"]})["result"]
+        stopped = run({**spec, "args": g0["next_args"], "null_labels": ["verifier:3av", "verifier:3av#retry"]})
+        self.assertNotIn("answered", stopped["result"]["next_args"]["state"])
+        resumed = self._resume(stopped, spec)
+        self.assertEqual(resumed["status"], "needs_answers")
+        self.assertEqual(resumed["next_args"], whole["next_args"])
+
+    def test_形の検査に落ちた問いを持ち越さない(self):
+        spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, **self._world()}
+        whole = run(spec)["result"]
+        stopped = run({**spec, "bad_questions_at": ["3", "3-questions"]})
+        self.assertNotIn("RS-001", stopped["result"]["next_args"]["state"].get("questions", []))
+        self.assertEqual(self._resume(stopped, spec)["next_args"], whole["next_args"])
+
+    def test_段6のverifierで止まっても同じ状態から再開する(self):
+        spec = {
+            "args": args(), **self._world(),
+            "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]},
+            "ruled_at": {"6": ["RS-011"]}, "questions_at": {"6": ["RS-010"]},
+        }
+        whole = run(spec)["result"]
+        stopped = run({**spec, "null_labels": ["verifier:6v", "verifier:6v#retry"]})
+        self.assertEqual(stopped["result"]["next_args"]["from"], "6")
+        self.assertEqual(self._resume(stopped, {k: v for k, v in spec.items() if k != "args"})["next_args"], whole["next_args"])
+
+    def test_段3で生成者のいないflowの食い違いはnext_argsを付けず行を重ねない(self):
+        r = run({"args": args(), **self._world(), "tamper_before": {"verifier:3v": "f-x"}})["result"]
+        self.assertEqual(r["status"], "blocked")
+        self.assertIsNone(r["next_args"])
+        self.assertIn("所有表の外", r["reason"])
+        self.assertEqual(len(r["integrity"]), 1)
+
+    def test_3aのflowの食い違いは同じ段の再実行で生成者が検査し直す(self):
+        g0 = self._g0()
+        spec = {"ruled_at": {"3a": ["RS-001", "RS-002"]}, "questions_at": {"3a": ["RS-003"]}, **self._world()}
+        stopped = run({**spec, "args": g0["next_args"], "tamper_before": {"verifier:3av": "f-x"}})
+        self.assertEqual(stopped["result"]["next_args"]["from"], "3a")
+        self.assertEqual(len(stopped["result"]["integrity"]), 1)
+        resumed = self._resume(stopped, spec)
+        self.assertEqual((resumed["status"], resumed["integrity"]), ("needs_answers", []))
+        self.assertEqual(resumed["next_args"]["state"]["flow_digest"], "f-x")
+        whole = run({**spec, "args": g0["next_args"]})["result"]
+        self.assertEqual(resumed["next_args"], whole["next_args"], "W の flow.json が f-x のまま止まらずに走った run と同じ")
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class ValuelessResolversKeepFlow(unittest.TestCase):
+    """値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は flow.json を書かない。"""
+
+    def _g02(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        return run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
+
+    def test_保持規則への変換がflowを変えなければ進む(self):
+        r = run({"args": self._g02()["next_args"]})
+        self.assertIn("resolver:3a-hold", r["labels"])
+        [p] = [x["prompt"] for x in r["prompts"] if x["label"] == "resolver:3a-hold"]
+        self.assertIn("flow.json を書かない", p)
+        self.assertEqual(r["result"]["status"], "done")
+
+    def test_保持規則への変換がflowを変えたらnext_argsを付けずにblocked(self):
+        r = run({"args": self._g02()["next_args"], "flow_sha_at": {"3a-hold": "f-bad"}})["result"]
+        self.assertEqual((r["status"], r["next_args"]), ("blocked", None))
+        self.assertEqual(len(r["integrity"]), 1)
+
+    def test_変換がflowを変えたらblocked(self):
+        fail = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "出典が無い"}
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": [fail], "3v'": [fail]}}
+        self.assertEqual(run(spec)["result"]["status"], "done")
+        r = run({**spec, "flow_sha_at": {"3-convert": "f-bad"}})["result"]
+        self.assertEqual((r["status"], r["next_args"]), ("blocked", None))
+
+    def test_問いの形の修正がflowを変えたらblocked(self):
+        spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "bad_questions_at": ["3"], "flow_sha_at": {"3-questions": "f-bad"}}
+        r = run(spec)["result"]
+        self.assertEqual((r["status"], r["next_args"]), ("blocked", None))
+
+    def test_flowのstdoutを返さなければ同じ段から再実行できる(self):
+        r = run({"args": self._g02()["next_args"], "no_flow_check_at": ["3a-hold"]})["result"]
+        self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3a"))
 
 
 # NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の
