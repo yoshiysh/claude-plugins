@@ -238,6 +238,24 @@ function undeclaredChanges(diff, declared) {
   return minus(all, declared)
 }
 
+// undeclaredByDoc: 申告に無い変更を、変更の起きた文書ごとに返す（{doc: [項目キー]}）。監査は文書単位で起動するので、
+// 木全体の集合だけでは、何も申告しなかった単位の文書に監査が届かない。diff の by_doc を読み、各文書の変更から
+// その文書の申告（changes[doc]）を引く。by_doc が無いときは、木全体の申告漏れを改稿の対象になった全文書に当てる。
+function undeclaredByDoc(diff, changes, targetDocs) {
+  const byDoc = diff && diff.by_doc
+  const out = {}
+  if (byDoc && typeof byDoc === 'object') {
+    for (const doc of Object.keys(byDoc).sort()) {
+      const extra = minus(undeclaredChanges(byDoc[doc], []), (changes && changes[doc]) || [])
+      if (extra.length) out[doc] = extra
+    }
+    return out
+  }
+  const extra = undeclaredChanges(diff, uniq(Object.values(changes || {}).flat()))
+  if (extra.length) for (const doc of uniq(targetDocs || [])) out[doc] = extra
+  return out
+}
+
 // parseStdout: 指名された監査役が加工せずに返した doc_check の stdout（1 行の JSON）を読む。
 function parseStdout(text) {
   if (text && typeof text === 'object') return text
@@ -458,7 +476,17 @@ const AUDIT_SCHEMA = {
       type: 'object',
       properties: {
         doc_check: STR,
-        diff: { type: 'object', properties: { stdout: STR, changed: STRS, added: STRS, removed: STRS }, required: ['stdout', 'changed', 'added', 'removed'] },
+        diff: {
+          type: 'object',
+          properties: {
+            stdout: STR,
+            changed: STRS,
+            added: STRS,
+            removed: STRS,
+            by_doc: { type: 'object', additionalProperties: { type: 'object', properties: { changed: STRS, added: STRS, removed: STRS }, required: ['changed', 'added', 'removed'] } },
+          },
+          required: ['stdout', 'changed', 'added', 'removed', 'by_doc'],
+        },
         diff_error: STR,
         audited: STR,
         tree_digest: STR,
@@ -499,6 +527,7 @@ function finish(status, extra) {
     holds: uniq(state.holds || []),
     missed: uniq(state.missed || []),
     integrity: state.integrity || [],
+    undeclared: state.undeclared || {},
     ...extra,
   }
 }
@@ -1012,12 +1041,10 @@ async function stage7() {
   const missing = targets.filter((_, i) => !results[i]).map((t) => t.unit.id)
   if (missing.length) return blocked(`改稿の writer が応答しませんでした（${missing.join(', ')}）`, '7')
   const changes = {}
-  const declared = []
   let unapplied = []
   targets.forEach((t, i) => {
     const r = results[i]
     absorbWriter(r)
-    declared.push(...(r.changed_items || []))
     if (r.changed_items && r.changed_items.length) for (const k of t.unit.docs) changes[k] = uniq([...(changes[k] || []), ...r.changed_items])
     const gave = t.bundles.flatMap((b) => b.findings)
     unapplied = unapplied.concat(minus(gave, r.applied_findings))
@@ -1027,7 +1054,7 @@ async function stage7() {
   const carried = p.findings.filter((f) => unapplied.includes(f.id))
   if (carried.length) log(`改稿で当たらなかった指摘が ${carried.length} 件ある。次のパスへ持ち越します`)
   state.settled_written = uniq([...usableResolutions(state), ...(state.holds || [])])
-  state.revised = { changes, declared: uniq(declared), carried }
+  state.revised = { changes, carried, docs: uniq(targets.flatMap((t) => t.unit.docs)) }
   return '8'
 }
 
@@ -1035,11 +1062,11 @@ async function stage8() {
   phase('Revise')
   const n = state.audit.n
   const round = n + 1
-  const { changes, declared, carried } = state.revised
+  const { changes, carried } = state.revised
   const plan = scopedAuditPlan(changes, state.roles_by_item || {})
   const designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
-    `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed を designated.diff に入れる。exit 3 で終わったら、それ以上進めず stderr を designated.diff_error に入れて返す。`,
+    `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる。exit 3 で終わったら、それ以上進めず stderr を designated.diff_error に入れて返す。`,
     `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
   plan[0].designatedText = designatedText
@@ -1054,20 +1081,22 @@ async function stage8() {
 
   let allPlan = plan
   let allResults = first.results
-  const extra = undeclaredChanges(d.diff, declared)
-  if (extra.length) {
-    log(`writer の申告に無い変更が ${extra.length} 件ある（${extra.slice(0, 5).join(', ')}）。その項目に implementer と grounding を追加で起動します`)
-    const docs = Object.keys(changes)
-    const extraPlan = docs.flatMap((doc) => [
-      { role: 'implementer', doc, items: extra, extra: true },
-      { role: 'grounding', doc, items: extra, extra: true },
+  const extra = undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
+  const extraDocs = Object.keys(extra)
+  if (extraDocs.length) {
+    log(`writer の申告に無い変更がある（${extraDocs.map((doc) => `${doc}: ${extra[doc].slice(0, 5).join(', ')}`).join(' / ')}）。その文書の項目に implementer と grounding を追加で起動します`)
+    const extraPlan = extraDocs.flatMap((doc) => [
+      { role: 'implementer', doc, items: extra[doc], extra: true },
+      { role: 'grounding', doc, items: extra[doc], extra: true },
     ])
     const more = await runAuditors(extraPlan, round, '8')
     if (more.missing.length) return blocked(`追加の監査役が応答しませんでした（${more.missing.join(', ')}）`, '8')
     allPlan = plan.concat(extraPlan)
     allResults = first.results.concat(more.results)
   }
-  state.undeclared = uniq([...(state.undeclared || []), ...extra])
+  const undeclared = { ...(state.undeclared || {}) }
+  for (const doc of extraDocs) undeclared[doc] = uniq([...(undeclared[doc] || []), ...extra[doc]])
+  state.undeclared = undeclared
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
   const findings = recordFindings(allPlan, allResults)

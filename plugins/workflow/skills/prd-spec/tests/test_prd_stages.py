@@ -8,7 +8,7 @@ agent / pipeline / parallel / log / phase を stub にして prd.js を node で
 - 問い 0 件なら 1 回の run で done になる（resolver の段 3 も段 6 も起動しない。3v は必ず起動する）
 - G0・G1 で needs_answers になり、next_args をそのまま渡すと続きの段から走る
 - 上限の 2 パスに達したら blocked になり、2 パス目の監査を飛ばさない
-- writer の申告に無い変更 ID があれば、監査が追加で起動する
+- writer の申告に無い変更 ID があれば、変更の起きた文書に監査が追加で起動する
 - 任意の from から再実行すると、その段から進む。要る state が無ければ止まる
 - 応答しなかった agent を「0 件」として扱わず、blocked にして、その段からの next_args を返す
 
@@ -69,7 +69,7 @@ function respond(prompt, label) {
     return {
       unit,
       docs: docs.map((key) => ({ key, digest: `w-${key}`, doc_check_findings: 0, doc_check_blocking: 0 })),
-      changed_items: revise ? spec.writer_changed || ['PR-X-001'] : [],
+      changed_items: revise ? ((spec.writer_changed_by_unit || {})[unit] || spec.writer_changed || ['PR-X-001']) : [],
       open_tbd: spec.open_tbd || [],
       new_tbd: revise ? [] : spec.new_tbd || [],
       applied_findings: revise ? ids(prompt, /r\d+-[a-z]{2}-[A-Za-z0-9_.-]+-\d+/g) : [],
@@ -79,18 +79,23 @@ function respond(prompt, label) {
   }
   if (['implementer', 'grounding', 'crossDoc'].includes(role)) {
     const n = Number(stage.slice(1))
-    const findings = ((spec.findings || {})[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', ...f }))
+    const byKey = spec.findings || {}
+    const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
       if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1' }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
-      else
+      else {
+        const changed = (spec.diff || {})[stage] || spec.writer_changed || ['PR-X-001']
+        const firstDoc = (spec.units || [{ docs: ['requirements/x'] }])[0].docs[0]
+        const byDoc = (spec.by_doc || {})[stage] || { [firstDoc]: { changed, added: [], removed: [] } }
         out.designated = {
-          diff: { stdout: '{}', changed: (spec.diff || {})[stage] || spec.writer_changed || ['PR-X-001'], added: [], removed: [] },
+          diff: { stdout: '{}', changed, added: [], removed: [], by_doc: byDoc },
           audited: JSON.stringify({ digest: `a${n}` }),
           doc_check: JSON.stringify({ blocking: 0 }),
           tree_digest: JSON.stringify({ digest: `t${n}` }),
         }
+      }
     }
     return out
   }
@@ -305,6 +310,38 @@ class Stages(unittest.TestCase):
         self.assertTrue(extra, "申告に無い PR-X-009 に監査が追加で起動していない")
         self.assertTrue(any(l.startswith("implementer:") for l in extra))
         self.assertTrue(any(l.startswith("grounding:") for l in extra))
+        self.assertEqual(r["result"]["status"], "done")
+
+    def test_何も申告しなかった単位の変更にもその文書で監査を追加で起動する(self):
+        units = [
+            {"id": "U-1", "docs": ["requirements/x"], "depends_on": []},
+            {"id": "U-2", "docs": ["requirements/y"], "depends_on": []},
+        ]
+        spec = {
+            "args": args(),
+            "units": units,
+            "findings": {
+                "implementer:r1:requirements/x": [{"id": "r1-im-requirements__x-001", "blocking": False}],
+                "implementer:r1:requirements/y": [
+                    {"id": "r1-im-requirements__y-001", "doc": "requirements/y", "item_id": "PR-Y-001", "blocking": False}
+                ],
+            },
+            "writer_changed_by_unit": {"U-1": ["PR-X-001"], "U-2": []},
+            "diff": {"r2": ["PR-X-001", "PR-Y-003"]},
+            "by_doc": {
+                "r2": {
+                    "requirements/x": {"changed": ["PR-X-001"], "added": [], "removed": []},
+                    "requirements/y": {"changed": ["PR-Y-003"], "added": [], "removed": []},
+                }
+            },
+        }
+        r = run(spec)
+        self.assertIsNone(r["error"], r["error"])
+        extra = [l for l in r["labels"] if l.endswith(":extra")]
+        self.assertIn("implementer:r2:requirements/y:extra", extra, "申告しなかった U-2 の文書に監査が届いていない")
+        self.assertIn("grounding:r2:requirements/y:extra", extra)
+        self.assertFalse(any(":requirements/x:" in l for l in extra), "申告どおりの文書に追加の監査は要らない")
+        self.assertEqual(r["result"]["undeclared"], {"requirements/y": ["PR-Y-003"]})
         self.assertEqual(r["result"]["status"], "done")
 
     def test_追加の監査役は1体目の指摘ファイルを上書きしない(self):

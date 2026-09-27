@@ -48,6 +48,7 @@
   "holds": ["保持規則になった resolution の ID"],
   "missed": ["渡したのに裁定されなかった論点（finding:… / tbd:…）"],
   "integrity": ["sha256 の照合で食い違った事実"],
+  "undeclared": { "requirements/auth": ["writer が申告せずに変えた項目キー（追加の監査を当てたもの）"] },
   "reason": "blocked のときの理由"
 }
 ```
@@ -62,6 +63,8 @@
   使い切った、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
   書き終えた版が違った、のような食い違いである。run は止めないが、事後報告に添える。
+- `undeclared` は、writer が申告せずに変えた項目を文書ごとに並べたもの。監査は追加で当てているが、申告の漏れ
+  そのものは writer の契約違反なので、事後報告と合わせて見る。
 
 ## 4. 段と起動の条件
 
@@ -78,7 +81,7 @@
 | 6 | resolver → verifier | decision の指摘も新しい TBD も 0 件なら起動しない。writer の指摘はここを通らず段 7 へ | 1 パス目の問いは G1、2 パス目の問いは保持規則 |
 | G1 | — | 1 パス目の段 6 で問いが出た | `needs_answers`（`from: 3a'`） |
 | 7 | writer（変更がある単位だけ） | writer の指摘・routes・doc_check の指摘・前回の書き込みの後に決まった裁定のどれかがある単位 | 何も無ければ 9 へ |
-| 8 | grounding（変えた文書）、implementer・cross-doc（その観点が指摘した項目が変わったとき）。1 体を指名 | 改稿の後は必ず | 申告に無い変更があれば implementer と grounding を追加で起動。blocking が残れば 6 へ（2 パスまで）、それでも残れば blocked |
+| 8 | grounding（変えた文書）、implementer・cross-doc（その観点が指摘した項目が変わったとき）。1 体を指名 | 改稿の後は必ず | 申告に無い変更があれば、それが起きた文書ごとに（diff の `by_doc` で分け、その文書の申告を引いて）implementer と grounding を追加で起動。blocking が残れば 6 へ（2 パスまで）、それでも残れば blocked |
 | 9 | resolver（report.md） | done の直前。上限で blocked のときは、残った論点の保持規則と Issue の文案を書いてから | — |
 
 範囲を絞った監査の基準は `audited-<n>` の snapshot で、script が保存時の digest を持ち、指名された監査役が

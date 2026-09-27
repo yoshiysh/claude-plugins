@@ -90,6 +90,27 @@ class Pure(unittest.TestCase):
         diff = {"changed": ["PR-A-001"], "added": ["PR-A-009"], "removed": ["requirements/a§用語"]}
         self.assertEqual(value(f"undeclaredChanges({json.dumps(diff)}, ['PR-A-001'])"), ["PR-A-009", "requirements/a§用語"])
 
+    def test_undeclaredByDocは変更の起きた文書ごとに申告漏れを返す(self):
+        diff = {
+            "changed": ["PR-A-001", "PR-B-003"],
+            "added": [],
+            "removed": [],
+            "by_doc": {
+                "requirements/a": {"changed": ["PR-A-001"], "added": [], "removed": []},
+                "requirements/b": {"changed": ["PR-B-003"], "added": [], "removed": []},
+            },
+        }
+        changes = {"requirements/a": ["PR-A-001"]}
+        self.assertEqual(value(f"undeclaredByDoc({json.dumps(diff)}, {json.dumps(changes)}, ['requirements/a', 'requirements/b'])"), {"requirements/b": ["PR-B-003"]})
+
+    def test_undeclaredByDocはby_docが無ければ改稿の対象の全文書に当てる(self):
+        diff = {"changed": ["PR-A-001", "PR-B-003"], "added": [], "removed": []}
+        changes = {"requirements/a": ["PR-A-001"]}
+        self.assertEqual(
+            value(f"undeclaredByDoc({json.dumps(diff)}, {json.dumps(changes)}, ['requirements/a', 'requirements/b'])"),
+            {"requirements/a": ["PR-B-003"], "requirements/b": ["PR-B-003"]},
+        )
+
     def test_aboutKeyは組の向きに依らない(self):
         self.assertEqual(value("aboutKey({pair: ['D-2', 'D-1']})"), value("aboutKey({pair: ['D-1', 'D-2']})"))
         self.assertEqual(value("aboutKey({tbd: 'TBD-RA-001'})"), "tbd:TBD-RA-001")

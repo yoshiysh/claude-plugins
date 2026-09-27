@@ -386,7 +386,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | 段 | 最初に | 最後に |
 |---|---|---|
 | 段 5（cross-doc） | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-1 --role auditor --workspace W` |
-| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合を返す | `snapshot --save audited-<n+1> --role auditor --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
+| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
 
 - diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。
 - `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま `designated.diff_error` に入れて返す。監査の基準が
@@ -400,7 +400,11 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
   "findings": [{ "id": "r1-im-requirements__auth-001", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer" }],
   "designated": {
     "doc_check": "doc の stdout（そのまま）",
-    "diff": { "stdout": "diff の stdout（そのまま）", "changed": ["PR-AUTH-003"], "added": [], "removed": [] },
+    "diff": {
+      "stdout": "diff の stdout（そのまま）",
+      "changed": ["PR-AUTH-003"], "added": [], "removed": [],
+      "by_doc": { "requirements/auth": { "changed": ["PR-AUTH-003"], "added": [], "removed": [] } }
+    },
     "diff_error": "diff が exit 3 で終わったときだけ、stderr（そのまま）",
     "audited": "snapshot の stdout（そのまま）",
     "tree_digest": "tree-digest の stdout（そのまま）"
@@ -409,6 +413,9 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 ```
 
 `designated` は指名されたときだけ、実行した項目だけを入れる。
+
+`diff.by_doc` は diff の結果ファイルの `by_doc` をそのまま入れる。script は申告に無い変更の追加監査を文書ごとに起動するので、
+木全体の集合だけでは、何も申告しなかった単位の文書に監査が届かない。
 
 ## §implementer
 
