@@ -121,7 +121,7 @@ Workflow({
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
 4. **事後報告**: `W/report.md` をそのまま見せる。方法論として決めたこと・保持規則・Issue の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
-   できます」と件数と ID を示す。`integrity` と `missed` が空でなければ、その行をそのまま添える。
+   できます」と件数と ID を示す。`integrity`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
 5. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。
 6. **経緯は commit と PR に残す**: 文書には決定ログも経緯も書かない（`references/document-structure.md` §4）。
