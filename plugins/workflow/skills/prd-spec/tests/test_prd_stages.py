@@ -272,6 +272,25 @@ class Stages(unittest.TestCase):
         self.assertEqual(r["result"]["status"], "needs_answers", "価値の判断は問いになって G0 に届く")
         self.assertEqual(r["result"]["question_ids"], ["RS-001"])
 
+    def test_実測で価値を決めた裁定は検証役が節を読んで落とし問いに変わる(self):
+        # 前回の試走の RS-010: O-010 の失敗の行き先を measured（現行の挙動）で決め、3v を通って G1 まで残った形。
+        fail = {"id": "RS-010", "kind": "value_as_method", "reason": "失敗の行き先を現行の挙動で決めた"}
+        spec = {
+            "args": args(),
+            "flow_open": 1,
+            "about": {"RS-010": {"open": "O-010"}},
+            "ruled_at": {"3": ["RS-010"], "3'": ["RS-010"]},
+            "verifier_fail": {"3v": [fail], "3v'": [fail]},
+            "questions_at": {"3-convert": ["RS-010"]},
+        }
+        r = run(spec)
+        prompts = {p["label"]: p["prompt"] for p in r["prompts"]}
+        for label in ("resolver:3", "verifier:3v", "verifier:3v'"):
+            self.assertIn("「## 現物と既存実装の扱い」", prompts[label], label)
+        self.assertIn("RS-010 → question（value_as_method）", prompts["resolver:3-convert"])
+        self.assertEqual(r["result"]["status"], "needs_answers")
+        self.assertEqual(r["result"]["question_ids"], ["RS-010"])
+
     def test_差し戻しで合格すれば変換しない(self):
         fail = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "出典が無い"}
         spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": [fail]}}

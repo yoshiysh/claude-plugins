@@ -71,5 +71,29 @@ class RoleMapTests(unittest.TestCase):
         self.assertIn("role-map.md", (SKILL / "SKILL.md").read_text(encoding="utf-8"))
 
 
+class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
+    SECTION = "現物と既存実装の扱い"
+    READERS = {"intake": "intake.md", "resolver": "resolver.md", "verifier": "resolver-verifier.md", "writer": "writer.md", "grounding": "grounding.md"}
+
+    def _sections(self):
+        body = re.search(r"const CONTRACT_SECTIONS = \{(.*?)\n\}", PRD, re.S).group(1)
+        return {m.group(1): re.findall(r"'([^']+)'", m.group(2)) for m in re.finditer(r"^\s*(\w+): \[(.*?)\]", body, re.M)}
+
+    def test_規則を使う役だけがその節を読む(self):
+        readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
+        self.assertEqual(readers, set(self.READERS))
+
+    def test_節の見出しは契約に1回だけある(self):
+        self.assertEqual(len(re.findall(rf"^## {self.SECTION}$", CONTRACTS, re.M)), 1)
+
+    def test_役のファイルは節を1か所で参照し本文を写さない(self):
+        for path in sorted((SKILL / "agents").glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            for phrase in ("現物は将来", "実装がそうなっていることは", "今後どうするか", "本当は違う形にしたい", "現状どおり"):
+                self.assertNotIn(phrase, text, path.name)
+            if path.name in self.READERS.values():
+                self.assertEqual(text.count(f"「## {self.SECTION}」"), 1, path.name)
+
+
 if __name__ == "__main__":
     unittest.main()

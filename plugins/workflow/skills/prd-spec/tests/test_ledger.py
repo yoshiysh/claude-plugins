@@ -531,6 +531,19 @@ class Cases(_Workspace):
         self._rejected({"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "画面"}]}, "question・options", "null")
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "画面", "question": None, "options": None}]})
 
+    def test_実測で決めた裁定を問いに変えるとvalueを残せず_nullで通り問いの検査に通る(self):
+        # 前回の試走の RS-010 の形: O-010 の失敗の行き先を現行の挙動で決めた measured を、変換で question にする。
+        src = Path(self._tmp.name) / "repo_state.py"
+        src.write_text("def sync():\n    return 'abort'\n")
+        measured = {"id": "RS-010", "about": {"open": "O-010"}, "ruling": "measured", "value": "失敗したら中断する",
+                    "evidence": [{"file": str(src), "line": 2, "quote": "return 'abort'"}]}
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [measured]})
+        q = {"ruling": "question", "question": RESOLUTION_Q["question"], "options": RESOLUTION_Q["options"]}
+        self._rejected({"resolutions": [{"id": "RS-010", **q}]}, "value", "null")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-010", **q, "value": None}]})
+        ok = _ok(self.ws, "questions", "--ids", "RS-010", "--check")
+        self.assertEqual((ok["questions"], ok["findings"]), (1, 0))
+
     def test_回答の前のquestionはvalueを持てず_answerと一緒なら通る(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
         self._rejected({"resolutions": [{"id": "RS-001", "value": "結果は画面に出す"}]}, "value")

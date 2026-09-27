@@ -46,13 +46,13 @@ const ROLE_FILES = {
 }
 
 const CONTRACT_SECTIONS = {
-  intake: ['§intake', '決定の台帳'],
+  intake: ['§intake', '決定の台帳', '現物と既存実装の扱い'],
   flowFramer: ['§flow-framer'],
-  resolver: ['§resolver', '決定の台帳'],
-  verifier: ['§resolver-verifier', '決定の台帳'],
-  writer: ['§writer'],
+  resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い'],
+  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い'],
+  writer: ['§writer', '現物と既存実装の扱い'],
   implementer: ['監査役の共通節', '§implementer'],
-  grounding: ['監査役の共通節', '§grounding'],
+  grounding: ['監査役の共通節', '§grounding', '現物と既存実装の扱い'],
   crossDoc: ['監査役の共通節', '§cross-doc'],
 }
 

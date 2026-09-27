@@ -25,8 +25,9 @@ resolver と intake と flow-framer が作ったものを、作った者とは�
 **resolutions（resolver の裁定）**
 
 - **分類**: プロダクトの価値（何をすべきか・何を許すか・何を優先するか）の判断を、`method` / `precedent` /
-  `internal` で決めていないか → `value_as_method`。`question` を方法論の論点に使っている場合も指摘してよい
-  （依頼者の往復を無駄に増やす）が、合否は価値の側の誤りで判断する。
+  `internal` / `measured` で決めていないか → `value_as_method`（`measured` は契約の「## 現物と既存実装の扱い」の
+  範囲で判定する）。`question` を方法論の論点に使っている場合も指摘してよい（依頼者の往復を無駄に増やす）が、
+  合否は価値の側の誤りで判断する。
 - **実測の再現**: `measured` の `evidence` を自分で開き、同じ file・line に同じ文字列があるか、その文字列が `value` を
   支えるか → 無ければ `not_reproduced`。
 - **出典の実在**: 先例の `<パス>#<ID>` が実在し同じ種類の論点を決めているか、`internal` の両側の出典が実在するか、
