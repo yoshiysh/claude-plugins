@@ -90,6 +90,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、指摘が 1 件以上でも blocked（3av・6v も同じ）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` は問い、それ以外は保持規則に変えて、もう検証しない |
 | G0 | — | 問いが 1 件以上 | `needs_answers`（`from: 3a`） |
 | 3a | resolver → verifier（候補の選択だけの回答でも起動する。回答を当てた resolver が返す `doc_check flow` の stdout を照合するため） | G0 の後。resolver の stdout の指摘が 0 件でなければ 1 回だけ差し戻す | 続きの問いは 1 回だけ（`answers/g0-2.md`）。それを超える問いは保持規則 |
+| 3・3a・3a'・6 の共通 | resolver（`<段>-pairs`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば `<段>-pairs` に渡し、`unverified` の要素の出典を verifier に回す。最後の verifier の `open_only` のうち、合格か回答で閉じた O- の組があれば settle を 1 回だけ起動する | 直らなければ blocked（その段に入った時点の state で段の頭から） |
 | 4 | writer | 単位の依存の向きに波を作り、同じ波は並列 | 応答しない単位があれば blocked（一度も書かれていない文書を監査しない） |
 | 5 | implementer・grounding（文書ごと）、cross-doc（全文書で 1 体。指名） | 常に。`entry: existing` は 3 の後ここへ | cross-doc が `audited-1` を返さなければ blocked |
 | 6 | resolver → verifier | decision の指摘も新しい TBD も 0 件なら起動しない。writer の指摘はここを通らず段 7 へ | 1 パス目の問いは G1、2 パス目の問いは保持規則 |

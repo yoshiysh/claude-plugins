@@ -46,7 +46,10 @@ const setFlow = (x) => {
   if (spec.world) fs.writeFileSync(spec.world, JSON.stringify({ flow: x }))
 }
 const at = (key, stage) => (spec[key] || {})[stage]
-const flowStdout = (findings, sha) => JSON.stringify({ findings, open: spec.flow_open || 0, path: 'checks/flow.json', digest: 'fd', content_sha256: sha })
+// unverified_at・open_only_at・pair_keys_at: 段（label の 2 つ目）ごとの doc_check flow / conflicts の stdout の一覧。
+const flowStdout = (findings, sha, stage) =>
+  JSON.stringify({ findings, open: spec.flow_open || 0, path: 'checks/flow.json', digest: 'fd', content_sha256: sha, unverified: at('unverified_at', stage) || [], open_only: at('open_only_at', stage) || [] })
+const conflictsStdout = (stage) => JSON.stringify({ pairs: (at('pair_keys_at', stage) || []).length, path: 'checks/conflicts.json', digest: 'c', pair_keys: at('pair_keys_at', stage) || [] })
 const ids = (text, re) => [...new Set(String(text).match(re) || [])]
 const about = (id) => ({ open: `O-${id}` })
 function respond(prompt, label) {
@@ -55,7 +58,8 @@ function respond(prompt, label) {
   if (role === 'intake') return { decisions: 3, open: 0, decisions_sha256: H('d'), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
-    return { flow_check: flowStdout(spec.broken_flow ? 1 : 0, flowSha), conflicts_check: JSON.stringify({ pairs: 0, path: 'checks/conflicts.json', digest: 'c' }) }
+    const k = stage || 'framer'
+    return { flow_check: flowStdout(at('flow_findings_at', k) || (spec.broken_flow ? 1 : 0), flowSha, k), conflicts_check: conflictsStdout(k) }
   }
   if (role === 'resolver') {
     sha = H(`rs-${++shaN}`)
@@ -68,11 +72,12 @@ function respond(prompt, label) {
       const bad = (spec.bad_questions_at || []).includes(stage) ? 1 : 0
       out.questions_check = JSON.stringify({ check: true, ids: checked, questions: checked.length - bad, findings: bad, bad_ids: bad ? [checked[0]] : [] })
     }
-    const keepsFlow = /-(convert|hold|questions)$/.test(stage) || stage === 'final'
+    const keepsFlow = /-(convert|hold|questions|pairs)$/.test(stage) || stage === 'final'
     const returnsFlow = ["3a", "3a'"].includes(stage) || stage.endsWith('-flow') || keepsFlow || at('flow_sha_at', stage) !== undefined
     if (returnsFlow && !(spec.no_flow_check_at || []).includes(stage)) {
       if (at('flow_sha_at', stage) !== undefined) setFlow(H(at('flow_sha_at', stage)))
-      out.flow_check = flowStdout(at('flow_findings_at', stage) || 0, flowSha)
+      out.flow_check = flowStdout(at('flow_findings_at', stage) || 0, flowSha, stage)
+      if (!keepsFlow && !(spec.no_conflicts_check_at || []).includes(stage)) out.conflicts_check = conflictsStdout(stage)
     }
     return out
   }
@@ -86,7 +91,7 @@ function respond(prompt, label) {
       fail,
       resolutions_sha256: sha,
       decisions_sha256: H('d'),
-      flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen),
+      flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen, stage),
     }
   }
   if (role === 'writer') {
@@ -732,6 +737,130 @@ class ValuelessResolversKeepFlow(unittest.TestCase):
     def test_flowのstdoutを返さなければ同じ段から再実行できる(self):
         r = run({"args": self._g02()["next_args"], "no_flow_check_at": ["3a-hold"]})["result"]
         self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3a"))
+
+
+    def _final(self, **kw):
+        blocking = {"id": "x", "blocking": True, "route": "writer"}
+        return run({
+            "args": args(),
+            "findings": {
+                "implementer:r1": [{**blocking, "id": "r1-im-requirements__x-001"}],
+                "grounding:r2": [{**blocking, "id": "r2-gr-requirements__x-001"}],
+                "grounding:r3": [{**blocking, "id": "r3-gr-requirements__x-001"}],
+            },
+            **kw,
+        })["result"]
+
+    def test_上限の後の変換がflowを変えたらその理由でblocked(self):
+        ok = self._final()
+        self.assertEqual((ok["status"], ok["integrity"]), ("blocked", []))
+        r = self._final(flow_sha_at={"final": "f-bad"})
+        self.assertEqual((r["status"], r["next_args"], len(r["integrity"])), ("blocked", None, 1))
+        self.assertIn("flow.json が変わっています", r["reason"])
+        self.assertEqual(r["report_path"], "/tmp/prd-w/report.md")
+
+    def test_上限の後の変換がflowのstdoutを返さなければ段8からやり直す(self):
+        r = self._final(no_flow_check_at=["final"])
+        self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "8"))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FlowRecheck(unittest.TestCase):
+    """flow を変えた呼び出しの後に、新しい組を resolver に、検証を通っていない要素を verifier に回す（A2）。
+    裁定で閉じた O- だけを出典に持つ要素（前回の F-090・F-091）は、どの段でも flow-framer:<段>-settle に直させる。"""
+
+    def _g0(self):
+        return run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+
+    def _prompt(self, r, label):
+        [p] = [x["prompt"] for x in r["prompts"] if x["label"] == label]
+        return p
+
+    def test_3aでflowが変わると新しい組はresolverに_unverifiedはverifierに渡る(self):
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3a-pairs": ["RS-002"]}, "flow_sha_at": {"3a": "f-3a"},
+                "pair_keys_at": {"3a": ["pair:D-001|F-099"]}, "unverified_at": {"3a": ["F-099"]}}
+        r = run(spec)
+        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:"))], ["resolver:3a", "resolver:3a-pairs", "verifier:3av"])
+        self.assertIn("pair:D-001|F-099", self._prompt(r, "resolver:3a-pairs"))
+        v = self._prompt(r, "verifier:3av")
+        self.assertIn("F-099", v)
+        self.assertIn("RS-002", v.split("検証する resolution の ID:")[1].split("\n")[0])
+        self.assertEqual(r["result"]["status"], "done")
+        self.assertIn("pair:D-001|F-099", r["result"]["missed"], "about に組が現れなければ裁定漏れに数える")
+
+    def test_flowが変わらなければ組を検査し直さない(self):
+        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "pair_keys_at": {"3a": ["pair:D-001|F-099"]}, "unverified_at": {"3a": ["F-099"]}})
+        self.assertNotIn("resolver:3a-pairs", r["labels"])
+        self.assertNotIn("F-099", self._prompt(r, "verifier:3av"))
+
+    def test_同じ呼び出しで裁定中の組は渡し直さない(self):
+        # RS-005 はまだ verifier を通っていない（closedKeys に無い）が、about には入っている。
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001", "RS-005"]}, "flow_sha_at": {"3a": "f-3a"}, "pair_keys_at": {"3a": ["open:O-RS-005"]}}
+        self.assertNotIn("resolver:3a-pairs", run(spec)["labels"])
+
+    def test_自由記述の回答で閉じたOも同じcycleでsettleする(self):
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "free_text_at": {"3a": ["RS-001"]},
+                "open_only_at": {"3av": [{"el": "F-091", "open": "O-RS-001"}]}}
+        r = run(spec)
+        self.assertIn("flow-framer:3a-settle", r["labels"])
+        self.assertEqual(r["result"]["status"], "done")
+
+    def test_flowを変えたのにconflictsのstdoutが無ければblocked(self):
+        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "no_conflicts_check_at": ["3a"]})
+        self.assertNotIn("verifier:3av", r["labels"])
+        self.assertEqual((r["result"]["status"], r["result"]["next_args"]["from"]), ("blocked", "3a"))
+
+    def test_同じcycleで閉じたOだけを出典に持つ要素はsettleで直す(self):
+        g0 = self._g0()
+        only = [{"el": "F-091", "open": "O-RS-001"}, {"el": "F-092", "open": "O-RS-009"}]
+        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": only}, "unverified_at": {"3a-settle": ["F-091"]}}
+        r = run(spec)
+        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer"))],
+                         ["resolver:3a", "verifier:3av", "flow-framer:3a-settle", "verifier:3av-settle"])
+        framer = self._prompt(r, "flow-framer:3a-settle")
+        self.assertIn("F-091（O-RS-001 ← RS-001）", framer)
+        self.assertNotIn("F-092", framer, "開いたままの O- の要素は直させない")
+        v = self._prompt(r, "verifier:3av-settle")
+        self.assertIn("F-091", v)
+        self.assertEqual(v.split("検証する resolution の ID:")[1].split("\n")[0].strip(), "（なし）")
+        self.assertEqual(r["result"]["status"], "done")
+        self.assertEqual(r["result"]["next_args"], None)
+
+        for left in ({"open_only_at": {"3av": only, "3av-settle": only[:1]}}, {"unverified_at": {"3a-settle": ["F-091"], "3av-settle": ["F-091"]}, "open_only_at": {"3av": only}},
+                     {"verifier_fail": {"3av-settle": [{"id": "F-091", "kind": "mapping", "reason": "r"}]}, "open_only_at": {"3av": only}}):
+            with self.subTest(left=left):
+                stopped = run({**spec, **left})["result"]
+                self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "3a"))
+                self.assertEqual(stopped["next_args"]["state"], g0["next_args"]["state"], "段の頭の state からやり直す")
+
+    def test_段3で閉じたOも同じcycleでsettleする(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]}})
+        self.assertIn("flow-framer:3-settle", r["labels"])
+        self.assertEqual(r["labels"][r["labels"].index("flow-framer:3-settle") + 1], "verifier:3v-settle")
+        self.assertEqual(r["result"]["status"], "done")
+
+    def test_保持規則と回答待ちの問いで閉じたOではsettleしない(self):
+        only = [{"el": "F-091", "open": "O-RS-001"}]
+        held = run({"args": args(), "flow_open": 1, "holds_at": {"3": ["RS-001"]}, "open_only_at": {"3v": only}})
+        self.assertFalse(has(held["labels"], "flow-framer:3-settle"))
+        asked = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "open_only_at": {"3v": only}})
+        self.assertFalse(has(asked["labels"], "flow-framer:3-settle"))
+        self.assertEqual(asked["result"]["status"], "needs_answers")
+
+    def test_段6でも同じ経路でsettleする(self):
+        spec = {"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "ruled_at": {"6": ["RS-011"]},
+                "open_only_at": {"6v": [{"el": "F-091", "open": "O-RS-011"}]}}
+        r = run(spec)
+        self.assertIn("flow-framer:6-settle", r["labels"])
+        self.assertEqual(r["labels"][r["labels"].index("flow-framer:6-settle") + 1], "verifier:6v-settle")
+        stopped = run({**spec, "open_only_at": {"6v": spec["open_only_at"]["6v"], "6v-settle": spec["open_only_at"]["6v"]}})["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "6"))
+
+    def test_settleでflowが閉じなければblocked(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]},
+                 "flow_findings_at": {"3-settle": 1}})
+        self.assertFalse(has(r["labels"], "verifier:3v-settle"))
+        self.assertEqual(r["result"]["status"], "blocked")
 
 
 # NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の

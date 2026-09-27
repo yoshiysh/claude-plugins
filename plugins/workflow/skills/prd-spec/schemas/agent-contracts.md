@@ -77,7 +77,7 @@
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
-| `flow.json` | flow-framer。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけ。値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
+| `flow.json` | flow-framer（段 2 と、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけ。値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
@@ -240,6 +240,11 @@
     { "id": "F-001", "type": "input", "kind": "外から入るもの", "label": "依頼文", "next": ["F-002"], "source": { "input": "依頼文の逐語" } },
     {
       "id": "F-002", "type": "decision", "kind": "判断", "label": "対象外の依頼か", "source": { "decision": "D-004" },
+      "inputs": [{ "name": "依頼の種類", "values": ["文書", "コード", "不明"], "from": "F-001" }],
+      "cases": [
+        { "when": { "依頼の種類": "文書" }, "branch": "対象内", "source": { "decision": "D-004" } },
+        { "when": { "上記以外": true }, "branch": "対象外", "source": { "open": "O-004" } }
+      ],
       "branches": [{ "value": "対象外", "next": "F-009" }, { "value": "対象内", "next": "F-003" }]
     },
     { "id": "F-009", "type": "output", "kind": "返すもの", "label": "対象外の旨の 1 文", "source": [{ "input": "…" }, { "open": "O-004" }] }
@@ -252,12 +257,26 @@
 - `id` は `F-<連番>` で一意。`type` は `input` / `step` / `decision` / `output`。`kind` は `kinds[].name` のどれか。
 - `decision` は `branches` に 2 つ以上の `{ value, next }` を持つ。それ以外は `next`（行き先 ID の配列）を持ち、
   `output` だけが行き先を持たなくてよい。どの要素にも `input` から辿り着ける。
+- `decision` は判定表として `inputs`（1 つ以上の `{ name, values, from }`。`from` はその値を作る上流の要素の ID）と
+  `cases`（`{ when, branch, source }`）を持つ。`when` には `inputs` のすべての `name` を書き、値は宣言した値か `*` にする。
+  `{ "上記以外": true }` の case は、他の case に当たらない組み合わせをすべて受ける。`branch` は `branches` の `value` の
+  どれかで、どの枝も 1 つ以上の case から選ばれる。doc_check `flow` は、欠けた組み合わせ・重なり・宣言外の値を文書の判定表と
+  同じ関数で検査する。
+- 各 case は要素と同じ形の `source` を持ち、verifier の検証対象になる（要素の digest は `cases` を含む）。根拠から決まらない
+  マスは open に起票し、その ID を出典にする。出典の無いマスを許すと、欠けの検査が黙る代わりに推測がマスに入り、grounding は
+  flow を根拠と認めるので、そのまま要求文になる。
+- 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
+  欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
+- 出典が `{open}` だけの要素は、doc_check `flow` の stdout の `open_only` に出る。その O- が合格か回答で閉じたら、script は
+  最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典の差し替え・要らなく
+  なった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素（stdout の `unverified`）
+  だけを検証する。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\"}", "conflicts_check": "{\"pairs\":2,…}" }
+{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
 ## §resolver
@@ -297,6 +316,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "sha256": "書き終えた resolutions.json の sha256",
   "flow_check": "回答を当てる段（3a・3a'）と値を決めない呼び出しでは必ず、他の段では flow.json を変えたときだけ、最後に実行した doc_check flow の stdout",
+  "conflicts_check": "flow.json を変えたときだけ、その後に実行した doc_check conflicts の stdout",
   "questions_check": "問いを出したときだけ、返る前に実行した doc_check questions --ids <問いの ID> --check の stdout"
 }
 ```
@@ -308,6 +328,9 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID（verifier の検証対象になる）。
 - `flow_check` の指摘が 0 件でないとき、`questions_check` が無いか問いの ID を検査していないか不合格のとき、script は
   1 回だけ差し戻し、直らなければ blocked にする。
+- flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を
+  新しい組として同じ段の resolver（`resolver:<段>-pairs`。flow は書かない）に渡し、`unverified` の要素の出典を verifier に回す。
+  回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれるからである。
 
 ## §resolver-verifier
 
@@ -538,7 +561,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `ST-TBD-ASSERT-` | 開いている TBD に触れる文が断定の語尾で終わる |
 | `ST-STATE-` | 状態 × イベント表の欠け・非決定・図との食い違い・到達不能・出口なし・軸の外の値（書式は `references/document-structure.md` §6） |
 | `ST-DT-` | 判定表の組み合わせの欠け・重なり・宣言外の値（書式は同 §2.8） |
-| `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典、経緯の印（`ST-FLOW-HISTORY-`）、項目が当たっていない要素、実在しない要素への当て |
+| `ST-FLOW-` | 流れの形と閉包の欠陥、出典の欠け・形の誤り・実在しない出典（case の出典を含む）、判断の判定表の欠け・重なり・宣言外の値（`ST-FLOW-DT-`）と表の欠落・枝との食い違い、全枝が同じ行き先で下流が値を使わない判断（`ST-FLOW-SAME-NEXT-`）、経緯の印（`ST-FLOW-HISTORY-`）、項目が当たっていない要素、実在しない要素への当て。裁定で閉じた未決だけを出典に持つ要素は指摘ではなく stdout の `open_only` に出し、script が settle で直させる |
 
 `not_checked` は失格ではなく「材料が無くて実行できなかった検査」である。`ST-NOTCHECKED-TRACE-<文書>` は meta が
 無く trace を検査していないこと、`ST-NOTCHECKED-FLOW` は flow が無いことを示す。「指摘 0 件」と混同させない

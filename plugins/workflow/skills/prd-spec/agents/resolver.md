@@ -74,7 +74,9 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   対応づけ、その ID を返り値の `free_text` に入れる（解釈を含むので verifier が検証する）。反映で価値に関わる
   新しい矛盾が出たら、プロンプトが続きの問いを許すときだけ `question` にし、許さないときは `hold` にする。
   最後に doc_check の `flow` を実行し（flow.json を変えなくても）、stdout を加工せずに返す（flow の本体は返さない。
-  script がその `content_sha256` を verifier の実行した stdout と照合し、指摘が残れば差し戻す）。
+  script がその `content_sha256` を verifier の実行した stdout と照合し、指摘が残れば差し戻す）。flow.json を変えたら、続けて
+  `conflicts` も実行し、その stdout も加工せずに返す（足した要素が作る新しい組を、script が裁定に回す）。flow の `decision` を
+  足す・変えるときは、`inputs` と `cases` も契約 §flow-framer の形で書く。
 - **段 6（決定が要る指摘）**: route が `decision` の指摘と、writer の meta の新しい TBD を 6 種で裁定する。続けて、
   この段で裁定した resolution を、当てる単位と項目ごとに `routes.json` にまとめる（writer はそのうち verifier が
   合格させた resolution だけを当てる）。route が `writer` の指摘は扱わない。それは script が項目ごとに束ねて

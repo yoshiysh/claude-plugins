@@ -143,6 +143,25 @@ class Pure(unittest.TestCase):
         state = {"questions": ["RS-1", "RS-2", "RS-3"], "answered": ["RS-1"], "holds": ["RS-3"]}
         self.assertEqual(value(f"pendingQuestions({json.dumps(state)})"), ["RS-2"])
 
+    def test_settledTerminalsは合格と回答で閉じたOの組だけを返す(self):
+        state = {
+            "about": {"RS-001": "open:O-001", "RS-002": "open:O-002", "RS-003": "open:O-003", "RS-004": "open:O-004", "RS-005": "open:O-005", "RS-006": "open:O-006"},
+            "passed": ["RS-001", "RS-003", "RS-004", "RS-006"], "answered": ["RS-002"], "holds": ["RS-003"],
+            "questions": ["RS-002", "RS-004"], "failed_ids": ["RS-006"],
+        }
+        only = [{"el": f"F-09{i}", "open": f"O-00{i}"} for i in range(1, 8)]
+        got = value(f"settledTerminals({json.dumps(only)}, {json.dumps(state)})")
+        # O-003 は hold、O-004 は回答待ちの問い、O-005 は未合格、O-006 は不合格、O-007 は開いたまま
+        self.assertEqual(got, [{"el": "F-091", "open": "O-001"}, {"el": "F-092", "open": "O-002"}])
+        self.assertEqual(value(f"settledOpenIds({json.dumps(state)})"), ["O-001", "O-002"])
+
+    def test_flowCheckOfはunverifiedとopen_onlyの無いstdoutを受け取らない(self):
+        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "open_only": []}
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
+        for k in ("unverified", "open_only"):
+            broken = {x: v for x, v in base.items() if x != k}
+            self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
+
     def test_stateErrorsは入口ごとに要る値を挙げる(self):
         self.assertEqual(value("stateErrors('1', {})"), [])
         errs = value("stateErrors('8', {units: [], flow_digest: 'f'})")

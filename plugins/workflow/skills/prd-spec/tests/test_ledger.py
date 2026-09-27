@@ -556,6 +556,11 @@ class Cases(_Workspace):
         self.assertIn("branches", r.stderr)
         _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "step", "next": ["F-003"], "branches": None}]})
 
+    def test_decisionをやめるとinputsとcasesを残せない(self):
+        r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-004", "type": "step", "next": ["F-003"], "branches": None}]})
+        self.assertIn("inputs・cases", r.stderr)
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-004", "type": "step", "next": ["F-003"], "branches": None, "inputs": None, "cases": None}]})
+
     def test_decisionはnextを持てない(self):
         r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": []}]})
         self.assertIn("next", r.stderr)

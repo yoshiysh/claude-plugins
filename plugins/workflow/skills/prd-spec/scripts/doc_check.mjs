@@ -806,44 +806,53 @@ function decisionCheck(d, sec, out, notChecked) {
       res: String(r.cells[resCol] || '').trim(),
     }))
     const isElse = (r) => r.vals[0] === '上記以外' || r.vals.every((v) => DT_WILDCARD.test(v))
-    const specific = rows.filter((r) => !isElse(r))
-    const hasElse = rows.some(isElse)
-    // 宣言外の値は (条件, 値) ごとに 1 件にする。行ごとに出すと、同じ値が 4 行にあれば同じ id の指摘が
-    // 4 件になり、writer への指摘と報告の件数が水増しされる（行番号は id に入らない）。
-    const reported = new Set()
-    const doms = conds.map((c, ci) => {
-      const declared = domains.get(c.name)
-      if (declared) {
-        for (const r of specific) {
-          const v = r.vals[ci]
-          if (DT_WILDCARD.test(v) || declared.includes(v) || reported.has(`${c.name}\u0000${v}`)) continue
-          reported.add(`${c.name}\u0000${v}`)
-          out.push({ c: 'DT_VALUE', d: d.key, a: [d.key, label, c.name, v] })
-        }
-        return declared
-      }
-      return [...new Set(specific.map((r) => r.vals[ci]).filter((v) => !DT_WILDCARD.test(v)))]
-    })
-    const matches = (r, combo) => r.vals.every((v, ci) => DT_WILDCARD.test(v) || v === combo[ci])
-    const comboText = (combo) => conds.map((c, ci) => `${c.name}=${combo[ci]}`).join(', ')
-    const total = doms.reduce((p, x) => p * Math.max(1, x.length), 1)
-    if (total > DT_MAX_COMBOS) {
-      notChecked.push({ c: 'NC_DTABLE', a: [d.key, label, total] })
-      continue
-    }
-    let combos = [[]]
-    for (const dom of doms) combos = combos.flatMap((pre) => (dom.length ? dom : ['']).map((v) => [...pre, v]))
-    for (const combo of combos) {
-      const hit = specific.filter((r) => matches(r, combo))
-      if (!hit.length && !hasElse) out.push({ c: 'DT_GAP', d: d.key, a: [d.key, label, comboText(combo)] })
-      const results = new Set(hit.map((r) => r.res))
-      if (results.size > 1) {
-        const a = hit[0]
-        const b = hit.find((r) => r.res !== a.res)
-        out.push({ c: 'DT_OVERLAP', d: d.key, a: [d.key, label, comboText(combo), a.no, b.no] })
-      }
+    const tableConds = conds.map((c) => ({ name: c.name, values: domains.get(c.name) || null }))
+    for (const f of tableFindings(tableConds, rows.filter((r) => !isElse(r)), rows.some(isElse))) {
+      if (f.kind === 'value') out.push({ c: 'DT_VALUE', d: d.key, a: [d.key, label, f.name, f.value] })
+      if (f.kind === 'too_many') notChecked.push({ c: 'NC_DTABLE', a: [d.key, label, f.total] })
+      if (f.kind === 'gap') out.push({ c: 'DT_GAP', d: d.key, a: [d.key, label, f.combo] })
+      if (f.kind === 'overlap') out.push({ c: 'DT_OVERLAP', d: d.key, a: [d.key, label, f.combo, f.a, f.b] })
     }
   }
+}
+
+// tableFindings: 判定表の網羅と一意の算術。文書の判定表と flow の decision の両方がこれを呼ぶ（展開の実装を 1 つに保つ）。
+// conds は [{name, values}]（values が null なら行に現れた値から取る）、rows は「上記以外」を除いた [{no, vals, res}]。
+// 戻り値は検出の順に並んだ { kind: value | too_many | gap | overlap, … } の列。
+function tableFindings(conds, rows, hasElse) {
+  const found = []
+  // 宣言外の値は (条件, 値) ごとに 1 件にする。行ごとに出すと、同じ値が 4 行にあれば同じ id の指摘が
+  // 4 件になり、writer への指摘と報告の件数が水増しされる（行番号は id に入らない）。
+  const reported = new Set()
+  const doms = conds.map((c, ci) => {
+    if (c.values) {
+      for (const r of rows) {
+        const v = r.vals[ci]
+        if (DT_WILDCARD.test(v) || c.values.includes(v) || reported.has(`${c.name}\u0000${v}`)) continue
+        reported.add(`${c.name}\u0000${v}`)
+        found.push({ kind: 'value', name: c.name, value: v })
+      }
+      return c.values
+    }
+    return [...new Set(rows.map((r) => r.vals[ci]).filter((v) => !DT_WILDCARD.test(v)))]
+  })
+  const matches = (r, combo) => r.vals.every((v, ci) => DT_WILDCARD.test(v) || v === combo[ci])
+  const comboText = (combo) => conds.map((c, ci) => `${c.name}=${combo[ci]}`).join(', ')
+  const total = doms.reduce((p, x) => p * Math.max(1, x.length), 1)
+  if (total > DT_MAX_COMBOS) return [...found, { kind: 'too_many', total }]
+  let combos = [[]]
+  for (const dom of doms) combos = combos.flatMap((pre) => (dom.length ? dom : ['']).map((v) => [...pre, v]))
+  for (const combo of combos) {
+    const hit = rows.filter((r) => matches(r, combo))
+    if (!hit.length && !hasElse) found.push({ kind: 'gap', combo: comboText(combo) })
+    const results = new Set(hit.map((r) => r.res))
+    if (results.size > 1) {
+      const a = hit[0]
+      const b = hit.find((r) => r.res !== a.res)
+      found.push({ kind: 'overlap', combo: comboText(combo), a: a.no, b: b.no })
+    }
+  }
+  return found
 }
 
 // formalCompact: 文書ごとの状態機械・判定表の検査と、flow への項目の当たり方の検査。
@@ -1387,6 +1396,76 @@ const WORKSPACE_TEXT = {
     issue: `流れの ${where} に経緯の印「${mark}」がある。経緯が混ざると、どれが現行の値か読み手が区別できない。`,
     fix: `${where} を現行の値だけに書き直す。判断の記録は resolutions と commit に置く。`,
   }),
+  FLOW_CASE_NOSOURCE: (id, no) => ({
+    id: `ST-FLOW-CASE-NOSOURCE-${id}-${no}`,
+    location: '工程の流れ（flow）',
+    quote: `${id} cases[${no}]`,
+    issue: `判断 ${id} の ${no} 件目の case に、{ input } / { decision } / { open } の形の出典が無い。出典の無いマスは推測で埋めたものであり、grounding は flow を根拠と認めるので、そのまま要求文になる。`,
+    fix: 'case に source を付ける。根拠から決まらないマスは open に起票し、その ID を出典にする。',
+  }),
+  FLOW_NO_TABLE: (id) => ({
+    id: `ST-FLOW-NO-TABLE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `判断 ${id} に入力（inputs: name・values・from）か case（cases）が無い。入力の値の組み合わせが無いと、欠けたマスも重なったマスも検査できない。`,
+    fix: `${id} の入力の変数と取りうる値を inputs に閉じて書き、値の組み合わせごとの枝を cases に書く。`,
+  }),
+  FLOW_INPUT_FROM: (id, name, from) => ({
+    id: `ST-FLOW-INPUT-FROM-${id}-${name}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${name} ← ${from}`,
+    issue: `判断 ${id} の入力「${name}」の from（${from || '無し'}）が flow の要素に無い。値を作る上流が分からないと、その値の集合が閉じているかを確かめられない。`,
+    fix: 'from に、その値を作る上流の要素の ID を書く。',
+  }),
+  FLOW_CASE_BRANCH: (id, no, branch) => ({
+    id: `ST-FLOW-CASE-BRANCH-${id}-${no}`,
+    location: '工程の流れ（flow）',
+    quote: `${id} cases[${no}]: ${branch}`,
+    issue: `判断 ${id} の ${no} 件目の case の branch「${branch}」が branches の value に無い。そのマスの行き先が決まらない。`,
+    fix: 'branch を branches の value のどれかにするか、branches に枝を足す。',
+  }),
+  FLOW_BRANCH_UNUSED: (id, value) => ({
+    id: `ST-FLOW-BRANCH-UNUSED-${id}-${value}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${value}`,
+    issue: `判断 ${id} の枝「${value}」を選ぶ case が無い。どの入力の組み合わせからも通らない枝は、行き先の検査を通っても意味を持たない。`,
+    fix: 'その枝を選ぶ case を書くか、枝を消す。',
+  }),
+  FLOW_DT_GAP: (id, combo) => ({
+    id: `ST-FLOW-DT-GAP-${id}-${combo}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${combo}`,
+    issue: `判断 ${id} の入力の組み合わせ「${combo}」に当たる case が無い（上記以外の case も無い）。そのマスの行き先が決まらない。`,
+    fix: 'その組み合わせの case を出典付きで足す。根拠から決まらないなら open に起票し、その ID を case の出典にする。',
+  }),
+  FLOW_DT_OVERLAP: (id, combo, a, b) => ({
+    id: `ST-FLOW-DT-OVERLAP-${id}-${combo}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${combo}`,
+    issue: `判断 ${id} の ${a} 件目と ${b} 件目の case が、同じ組み合わせ「${combo}」に当たり、枝が違う。どちらを採るか決まらない。`,
+    fix: '値を分けて、1 つの組み合わせが 1 つの case にだけ当たるようにする。',
+  }),
+  FLOW_DT_VALUE: (id, name, value) => ({
+    id: `ST-FLOW-DT-VALUE-${id}-${name}-${value}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${name}=${value}`,
+    issue: `判断 ${id} の case の「${name}」の値「${value}」が、inputs に宣言した入力と値に無い（書かれていない入力も含む）。宣言の外の値と書き漏らした入力は、網羅の検査に乗らない。`,
+    fix: 'when には inputs のすべての name を書き、値は宣言した値か * にする。',
+  }),
+  FLOW_DT_SIZE: (id, n) => ({
+    id: `ST-FLOW-DT-SIZE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: id,
+    issue: `判断 ${id} の入力の組み合わせが ${n} 通りあり、網羅を検査できない。`,
+    fix: '判断を、入力の少ない複数の判断に分ける。',
+  }),
+  FLOW_SAME_NEXT: (id, next) => ({
+    id: `ST-FLOW-SAME-NEXT-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id} → ${next}`,
+    issue: `判断 ${id} の枝がすべて ${next} へ行き、下流のどの判断も ${id} を inputs の from に挙げていない。値で何も変わらない判断は、分類を潰したまま閉包の検査を通る。`,
+    fix: `${id} の値を使う下流の判断の inputs に from: ${id} を書くか、値ごとに行き先を分ける。値で何も変わらないなら判断ではなく工程にする。`,
+  }),
   AMBIGUOUS: (docKey, itemId, word, quote) => ({
     id: `ST-AMBIGUOUS-${docKey}-${itemId}-${word}`,
     location: itemId,
@@ -1493,11 +1572,11 @@ const LEDGERS = {
     file: () => 'flow.json',
     lists: { elements: 'id', kinds: 'name' },
     scalars: { closure: 'string' },
-    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches'], kinds: ['name', 'definition'] },
+    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases'], kinds: ['name', 'definition'] },
     cases: {
       elements: {
         by: (el) => (el.type === 'decision' ? 'decision' : 'decision 以外'),
-        rows: { decision: { never: ['next'] }, 'decision 以外': { never: ['branches'] } },
+        rows: { decision: { never: ['next'] }, 'decision 以外': { never: ['branches', 'inputs', 'cases'] } },
       },
     },
   },
@@ -1610,10 +1689,14 @@ function verbatimRejects(ws, name, body) {
   }
   if (name === 'decisions') for (const d of body.decisions || []) if (d.quote != null) inInput(d.id, d.quote)
   if (name === 'flow') {
-    for (const el of body.elements || []) {
-      for (const s of Array.isArray(el.source) ? el.source : el.source ? [el.source] : []) {
-        if (s && typeof s === 'object' && s.input !== undefined) inInput(el.id, s.input)
+    const quotes = (where, source) => {
+      for (const s of Array.isArray(source) ? source : source ? [source] : []) {
+        if (s && typeof s === 'object' && s.input !== undefined) inInput(where, s.input)
       }
+    }
+    for (const el of body.elements || []) {
+      quotes(el.id, el.source)
+      for (const [i, c] of (Array.isArray(el.cases) ? el.cases : []).entries()) quotes(`${el.id} cases[${i}]`, c && c.source)
     }
   }
   if (name === 'meta') {
@@ -2209,25 +2292,87 @@ function workspaceExtraCompact(docs, openTbd) {
   return out
 }
 
-// flowSourceCompact: flow の各要素の出典の形と、挙げた決定・未決の ID の実在。
+// flowSourceCompact: flow の各要素と decision の各 case の出典の形と、挙げた決定・未決の ID の実在。
 function flowSourceCompact(flow, decisionIds, openIds) {
   const out = []
-  for (const el of listOf(flow, 'elements')) {
-    if (!el || !el.id) continue
-    const sources = Array.isArray(el.source) ? el.source : el.source ? [el.source] : []
-    if (!sources.length) {
-      out.push({ c: 'FLOW_NOSOURCE', d: 'flow', a: [el.id] })
-      continue
-    }
+  const check = (where, source, badShape) => {
+    const sources = Array.isArray(source) ? source : source ? [source] : []
+    if (!sources.length) return badShape(true)
     for (const s of sources) {
       const kinds = s && typeof s === 'object' && !Array.isArray(s) ? ['input', 'decision', 'open'].filter((k) => String(s[k] ?? '').trim()) : []
       if (kinds.length !== 1) {
-        out.push({ c: 'FLOW_SOURCE_SHAPE', d: 'flow', a: [el.id] })
+        badShape(false)
         continue
       }
       const ref = String(s[kinds[0]]).trim()
-      if (kinds[0] === 'decision' && !decisionIds.has(ref)) out.push({ c: 'FLOW_SOURCE_UNKNOWN', d: 'flow', a: [el.id, 'decision', ref] })
-      if (kinds[0] === 'open' && !openIds.has(ref)) out.push({ c: 'FLOW_SOURCE_UNKNOWN', d: 'flow', a: [el.id, 'open', ref] })
+      if (kinds[0] === 'decision' && !decisionIds.has(ref)) out.push({ c: 'FLOW_SOURCE_UNKNOWN', d: 'flow', a: [where, 'decision', ref] })
+      if (kinds[0] === 'open' && !openIds.has(ref)) out.push({ c: 'FLOW_SOURCE_UNKNOWN', d: 'flow', a: [where, 'open', ref] })
+    }
+  }
+  for (const el of listOf(flow, 'elements')) {
+    if (!el || !el.id) continue
+    check(el.id, el.source, (none) => (none ? out.push({ c: 'FLOW_NOSOURCE', d: 'flow', a: [el.id] }) : out.push({ c: 'FLOW_SOURCE_SHAPE', d: 'flow', a: [el.id] })))
+    if (el.type !== 'decision' || !Array.isArray(el.cases)) continue
+    el.cases.forEach((c, i) => check(`${el.id}.case${i + 1}`, c && c.source, () => out.push({ c: 'FLOW_CASE_NOSOURCE', d: 'flow', a: [el.id, i + 1] })))
+  }
+  return out
+}
+
+// flowTableCompact: decision ごとの判定表（inputs × cases）。網羅と一意は文書の判定表と同じ tableFindings で見る。
+// 行き先の同じ値を 1 つの枝に畳んだ判断は、下流が値を使わない限り、分類を潰したまま検査を通る（前回の試走の F-012）。
+function flowTableCompact(flow) {
+  const out = []
+  const els = listOf(flow, 'elements').filter((el) => el && el.id)
+  const byId = new Map(els.map((el) => [el.id, el]))
+  const nextOf = (el) => [...(Array.isArray(el.next) ? el.next : []), ...(el.type === 'decision' && Array.isArray(el.branches) ? el.branches.map((b) => b && b.next) : [])].filter((x) => byId.has(x))
+  const usedBy = new Map()
+  for (const el of els.filter((x) => x.type === 'decision')) {
+    for (const inp of Array.isArray(el.inputs) ? el.inputs : []) {
+      if (!inp || !inp.from) continue
+      if (!usedBy.has(inp.from)) usedBy.set(inp.from, new Set())
+      usedBy.get(inp.from).add(el.id)
+    }
+  }
+  for (const el of els.filter((x) => x.type === 'decision')) {
+    const inputs = Array.isArray(el.inputs) ? el.inputs : []
+    const cases = Array.isArray(el.cases) ? el.cases : []
+    const branchValues = (Array.isArray(el.branches) ? el.branches : []).map((b) => b && String(b.value))
+    const targets = new Set((Array.isArray(el.branches) ? el.branches : []).map((b) => b && b.next))
+    if (targets.size === 1 && branchValues.length > 1) {
+      const seen = new Set()
+      const queue = nextOf(el)
+      while (queue.length) {
+        const id = queue.shift()
+        if (seen.has(id)) continue
+        seen.add(id)
+        queue.push(...nextOf(byId.get(id)))
+      }
+      if (![...(usedBy.get(el.id) || [])].some((id) => seen.has(id))) out.push({ c: 'FLOW_SAME_NEXT', d: 'flow', a: [el.id, [...targets][0]] })
+    }
+    const badInput = inputs.find((i) => !i || !String(i.name || '').trim() || !Array.isArray(i.values) || !i.values.length)
+    if (!inputs.length || !cases.length || badInput) {
+      out.push({ c: 'FLOW_NO_TABLE', d: 'flow', a: [el.id] })
+      continue
+    }
+    for (const inp of inputs) if (!byId.has(inp.from)) out.push({ c: 'FLOW_INPUT_FROM', d: 'flow', a: [el.id, String(inp.name), String(inp.from ?? '')] })
+    const names = inputs.map((i) => String(i.name))
+    const isElse = (c) => Boolean(c && c.when && c.when['上記以外'])
+    const rows = []
+    cases.forEach((c, i) => {
+      if (!c || !branchValues.includes(String(c.branch))) out.push({ c: 'FLOW_CASE_BRANCH', d: 'flow', a: [el.id, i + 1, String(c && c.branch)] })
+      if (isElse(c)) return
+      const when = c && c.when && typeof c.when === 'object' ? c.when : {}
+      for (const k of Object.keys(when)) if (!names.includes(k)) out.push({ c: 'FLOW_DT_VALUE', d: 'flow', a: [el.id, k, String(when[k])] })
+      rows.push({ no: i + 1, vals: names.map((n) => (n in when ? String(when[n]) : '（書かれていない）')), res: String(c && c.branch) })
+    })
+    const chosen = new Set(cases.map((c) => c && String(c.branch)))
+    for (const v of branchValues) if (!chosen.has(v)) out.push({ c: 'FLOW_BRANCH_UNUSED', d: 'flow', a: [el.id, v] })
+    const conds = inputs.map((i) => ({ name: String(i.name), values: i.values.map(String) }))
+    for (const f of tableFindings(conds, rows, cases.some(isElse))) {
+      if (f.kind === 'value') out.push({ c: 'FLOW_DT_VALUE', d: 'flow', a: [el.id, f.name, f.value] })
+      if (f.kind === 'too_many') out.push({ c: 'FLOW_DT_SIZE', d: 'flow', a: [el.id, f.total] })
+      if (f.kind === 'gap') out.push({ c: 'FLOW_DT_GAP', d: 'flow', a: [el.id, f.combo] })
+      if (f.kind === 'overlap') out.push({ c: 'FLOW_DT_OVERLAP', d: 'flow', a: [el.id, f.combo, f.a, f.b] })
     }
   }
   return out
@@ -2301,11 +2446,28 @@ function wsFlow(ws) {
   const flow = readLedger(ws, 'flow')
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds), ...flowHistoryCompact(flow)]
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
+  const els = listOf(flow, 'elements').filter((el) => el && el.id)
+  const passed = new Set(listOf(readLedger(ws, 'verifications'), 'items').filter((it) => it && it.verdict === 'pass' && it.digest).map((it) => `${it.id}\u0000${it.digest}`))
+  const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
+  // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
+  const openOnly = els.flatMap((el) => {
+    const sources = Array.isArray(el.source) ? el.source : el.source ? [el.source] : []
+    const opens = sources.map((s) => s && typeof s === 'object' && String(s.open ?? '').trim())
+    return sources.length && opens.every(Boolean) ? [...new Set(opens)].map((o) => ({ el: el.id, open: o })) : []
+  })
   // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
-  return { findings: body.findings.length, open: openIds.size, path: writeCheck(ws, 'flow.json', { ...body, digest }), digest, content_sha256: ledgerSha(ws, 'flow') }
+  return {
+    findings: body.findings.length,
+    open: openIds.size,
+    path: writeCheck(ws, 'flow.json', { ...body, digest }),
+    digest,
+    content_sha256: ledgerSha(ws, 'flow'),
+    unverified,
+    open_only: openOnly,
+  }
 }
 
 // conflicts: 同じ target を持つ決定どうし、決定と flow の要素（id か label が target に一致）の組を列挙する。
@@ -2343,6 +2505,7 @@ function wsConflicts(ws) {
     flow_checked: flow !== null,
     path: writeCheck(ws, 'conflicts.json', { ...body, digest }),
     digest,
+    pair_keys: pairs.map((p) => `pair:${[p.a, p.b].map(String).sort().join('|')}`),
   }
 }
 
@@ -2691,6 +2854,8 @@ export {
   structuralCompact,
   expandStructural,
   flowGraphCompact,
+  flowTableCompact,
+  tableFindings,
   formalCompact,
   FINDING_TEXT,
   headingIndex,

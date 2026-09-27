@@ -18,7 +18,7 @@
    "kind": "工程",
    "label": "承認",
    "next": [
-    "F-003"
+    "F-004"
    ],
    "source": {
     "decision": "D-001"
@@ -35,6 +35,64 @@
     }
    ],
    "type": "output"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-003",
+     "value": "返す"
+    },
+    {
+     "next": "F-005",
+     "value": "通知する"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "返す",
+     "source": {
+      "decision": "D-001"
+     },
+     "when": {
+      "承認": "済み"
+     }
+    },
+    {
+     "branch": "通知する",
+     "source": {
+      "input": "通知する"
+     },
+     "when": {
+      "承認": "否認"
+     }
+    }
+   ],
+   "id": "F-004",
+   "inputs": [
+    {
+     "from": "F-002",
+     "name": "承認",
+     "values": [
+      "済み",
+      "否認"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "承認の結果",
+   "source": {
+    "decision": "D-001"
+   },
+   "type": "decision"
+  },
+  {
+   "id": "F-005",
+   "kind": "返すもの",
+   "label": "否認の通知",
+   "source": {
+    "input": "通知する"
+   },
+   "type": "output"
   }
  ],
  "kinds": [
@@ -49,6 +107,10 @@
   {
    "definition": "流れの外へ出るもの",
    "name": "返すもの"
+  },
+  {
+   "definition": "値によって次の工程が変わる要素",
+   "name": "判断"
   }
  ]
 }

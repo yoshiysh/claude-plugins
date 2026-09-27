@@ -306,6 +306,55 @@ class FlowAndConflicts(_Workspace):
         self.assertIn("ST-FLOW-HISTORY-F-002.label", ids)
         self.assertEqual(out["findings"], 2)
 
+    def _verify(self, *ids):
+        sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
+        _put(self.ws, "verifications", {"items": [{"id": i, "verdict": "pass", "reason": "r"} for i in ids]},
+             "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
+
+    def test_出典がopenだけの要素とそのopenの組を出す(self):
+        # 前回の F-090・F-091（measured で閉じた O- だけを出典に持つ未決の終端）の形。裁定済みかは script が決める。
+        out = _ok(self.ws, "flow")
+        self.assertEqual(out["open_only"], [{"el": "F-003", "open": "O-001"}])
+        el = json.loads((self.ws / "flow.json").read_text())["elements"][2]
+        _put(self.ws, "flow", {"elements": [{**el, "source": [{"open": "O-001"}, {"input": "結果"}]}]})
+        self.assertEqual(_ok(self.ws, "flow")["open_only"], [])
+
+    def test_合格した版のままの要素だけがunverifiedから外れる(self):
+        self.assertEqual(_ok(self.ws, "flow")["unverified"], ["F-001", "F-002", "F-003", "F-004", "F-005"])
+        self._verify("F-001", "F-004")
+        self.assertEqual(_ok(self.ws, "flow")["unverified"], ["F-002", "F-003", "F-005"])
+        f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
+        f4["cases"][1]["source"] = {"open": "O-001"}
+        _put(self.ws, "flow", {"elements": [{"id": "F-004", "cases": f4["cases"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["unverified"], ["F-002", "F-003", "F-004", "F-005"], "マスの出典を変えた要素は unverified に戻る")
+
+    def test_出典の無いcaseと実在しないcaseの出典を拾う(self):
+        f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
+        f4["cases"][0].pop("source")
+        f4["cases"][1]["source"] = {"open": "O-404"}
+        _put(self.ws, "flow", {"elements": [{"id": "F-004", "cases": f4["cases"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 2)
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-CASE-NOSOURCE-F-004-1", "ST-FLOW-SOURCE-UNKNOWN-F-004.case2-O-404"])
+
+    def test_caseの出典の引用もinputに逐語で無ければputが拒否する(self):
+        f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
+        f4["cases"][1]["source"] = {"input": "依頼文に無い文"}
+        before = (self.ws / "flow.json").read_bytes()
+        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", "--workspace", str(self.ws)],
+                           input=json.dumps({"elements": [{"id": "F-004", "cases": f4["cases"]}]}, ensure_ascii=False), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("F-004 cases[1]", r.stderr)
+        self.assertEqual((self.ws / "flow.json").read_bytes(), before)
+
+    def test_flowモードは判断の判定表の欠けを拾う(self):
+        f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
+        _put(self.ws, "flow", {"elements": [{"id": "F-004", "cases": f4["cases"][:1]}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 2)
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-BRANCH-UNUSED-F-004-通知する", "ST-FLOW-DT-GAP-F-004-承認=否認"])
+
+    def test_conflictsは組をaboutと同じ形のキーで出す(self):
+        self.assertEqual(_ok(self.ws, "conflicts")["pair_keys"], ["pair:D-001|D-002", "pair:D-001|F-002"])
+
     def test_decisions_が無ければ失敗する(self):
         (self.ws / "decisions.json").unlink()
         self.assertEqual(_run(self.ws, "conflicts").returncode, 1)
