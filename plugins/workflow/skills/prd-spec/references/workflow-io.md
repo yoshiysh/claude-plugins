@@ -99,8 +99,8 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 8 | grounding（変えた文書）、implementer・cross-doc（その観点が指摘した項目が変わったとき）。1 体を指名 | 改稿の後は必ず | 申告に無い変更があれば、それが起きた文書ごとに（diff の `by_doc` で分け、その文書の申告を引いて）implementer と grounding を追加で起動。blocking が残れば 6 へ（2 パスまで）、それでも残れば blocked |
 | 9 | —（上限で blocked のときだけ resolver が残った論点を保持規則と Issue の文案にする） | done の直前 | 事後報告は司令塔が `doc_check report` で導出する |
 
-問いを聞くゲートは G0・G0-2・G1 の 3 つである。G0-2 を G0 にまとめられないのは、G0 の回答で flow を組み直して初めて出る
-問いだからである。G1 は、初稿と監査の後に初めて出る価値の問いだけを聞く。
+問いを聞くゲートは G0・G0-2・G1 の 3 つである。G0-2 を G0 にまとめられないのは、G0 の回答を当て、その回答で flow を組み直して
+初めて出る問いだからである。G1 は、初稿と監査の後に初めて出る価値の問いだけを聞く。
 
 範囲を絞った監査の基準は `audited-<n>` の snapshot で、script が保存時の digest を持ち、指名された監査役が
 `diff --expect` で照合する。writer の申告と木全体の diff を script が比べるので、生成した側だけに監査の範囲を

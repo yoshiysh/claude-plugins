@@ -1752,7 +1752,6 @@ function verbatimRejects(ws, name, body) {
 }
 
 // flowRefRejects: 候補の flow_refs が指す要素の実在。無い要素を指す候補は、回答を当てる resolver が変える要素を辿れない。
-// put と questions（--check を含む）が共有する。flow を組み直した後に持ち越した問いは、questions --check でここを通る。
 function flowRefRejects(ws, resolutions) {
   const [elementsOf, elementKey] = Object.entries(ledgerOf('flow').lists)[0]
   const els = new Set(listOf(readLedger(ws, 'flow'), elementsOf).map((el) => el && String(el[elementKey])))

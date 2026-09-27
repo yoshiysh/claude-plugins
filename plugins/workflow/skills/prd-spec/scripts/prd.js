@@ -417,7 +417,7 @@ const INTAKE_SCHEMA = {
 
 const FLOW_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR },
+  properties: { flow_check: STR, conflicts_check: STR, questions_check: STR },
   required: ['flow_check', 'conflicts_check'],
 }
 
@@ -435,7 +435,7 @@ const RESOLVER_SCHEMA = {
     conflicts_check: STR,
     questions_check: STR,
   },
-  required: ['ruled', 'questions', 'holds', 'supersedes', 'free_text', 'routes', 'sha256'],
+  required: ['ruled', 'questions', 'holds', 'supersedes', 'free_text', 'routes', 'sha256', 'flow_check'],
 }
 
 const VERIFIER_SCHEMA = {
@@ -722,7 +722,6 @@ async function resolveCycle(stage, opt) {
   return se || res
 }
 
-// takeFlow: 回答を当てる呼び出しは返った flow を検査して取り込み、それ以外は flow.json が変わっていないことだけを確かめる。
 const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFlow ? applyReturnedFlow(stage, r, phaseTitle, required) : flowKept(stage, r) || { checked: false })
 
 async function ruleAndVerify(stage, opt) {
@@ -851,7 +850,7 @@ const FRAME_RUN = `実行する: \`${cli('flow')}\` を 0 件になるまで（3
 // sha256 を state.flow_digest にする（後に続く verifier の stdout と照合する）。段 2・3b・settle で同じ扱いにする。
 async function frameFlow(label, lines, phaseTitle) {
   const prompt = (l) => lines(l).filter(Boolean).join('\n\n')
-  const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check })
+  const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check })
   const defect = ({ fc, cc }) =>
     !fc ? 'doc_check flow の stdout がありません' : fc.findings > 0 ? `doc_check flow の指摘が ${fc.findings} 件あります（${W}/checks/flow.json）` : !cc ? 'doc_check conflicts の stdout がありません' : null
   const r = await once(label, 'flowFramer', prompt(label), FLOW_SCHEMA, phaseTitle)
@@ -876,6 +875,8 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   if (!left.length && !found.length) return null
   const settled = new Set(settledIds(state))
   const closers = (key) => uniq(Object.entries(state.about || {}).filter(([id, k]) => k === key && settled.has(id)).map(([id]) => id))
+  // settle が del した要素を、回答待ちの問いの候補の flow_refs が指したままだと、ゲートで司令塔の doc_check questions が止まり、戻る段が無い。
+  const waiting = pendingQuestions(state)
   const got = await frameFlow(`flow-framer:${stage}-settle`, (label) => [
     header('flowFramer', `${stage}（裁定の反映）`, label),
     `裁定を flow に写す（flow-framer.md の「裁定の反映」）。`,
@@ -883,8 +884,11 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
     found.length ? `指摘（ID ← それを裁定した resolution）: ${found.map((id) => `${id}（← ${list(closers(`finding:${id}`))}）`).join(', ')}` : '',
     `resolution の中身は ${W}/resolutions.json から ID で読む。裁定の中身は変えない。`,
     FRAME_RUN,
+    waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行し、stdout を加工せずに questions_check に入れる（問いは直さない）。` : '',
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}` }
+  const qe = await checkQuestions(`${stage}-settle`, { questions_check: got.questions_check }, phaseTitle, waiting)
+  if (qe) return qe
   const fc = got.fc
   const pe = await recheckPairs(`${stage}-settle`, got.conflicts, phaseTitle, allowQuestions)
   if (pe.error) return pe

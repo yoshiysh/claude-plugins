@@ -63,7 +63,13 @@ function respond(prompt, label) {
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
     const k = target ? `${stage}-${target}` : stage || 'framer'
-    return { flow_check: flowStdout(at('flow_findings_at', k) || (spec.broken_flow ? 1 : 0), flowSha, k), conflicts_check: conflictsStdout(k) }
+    const out = { flow_check: flowStdout(at('flow_findings_at', k) || (spec.broken_flow ? 1 : 0), flowSha, k), conflicts_check: conflictsStdout(k) }
+    const asked = ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g)
+    if (asked.length) {
+      const bad = (spec.bad_questions_at || []).includes(k) ? 1 : 0
+      out.questions_check = JSON.stringify({ check: true, ids: asked, questions: asked.length - bad, findings: bad, bad_ids: bad ? [asked[0]] : [] })
+    }
+    return out
   }
   if (role === 'resolver') {
     sha = H(`rs-${++shaN}`)
@@ -148,9 +154,11 @@ function respond(prompt, label) {
 const findingFiles = []
 const prompts = []
 let auditSchema = null
+let resolverSchema = null
 const agent = async (prompt, opts) => {
   labels.push(opts.label)
   if (['implementer', 'grounding', 'crossDoc'].includes(opts.label.split(':')[0])) auditSchema = opts.schema
+  if (opts.label.startsWith('resolver:')) resolverSchema = opts.schema
   // tamper_before: その label の agent が動く前に、所有表の外の誰かが flow.json を書き換えたことにする。
   if ((spec.tamper_before || {})[opts.label] !== undefined) setFlow(H(spec.tamper_before[opts.label]))
   prompts.push({ label: opts.label, prompt })
@@ -170,7 +178,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema }))
 """
 
 
@@ -1146,6 +1154,24 @@ class Reframe(unittest.TestCase):
         r = run(spec)
         self.assertNotIn("question ではなく hold", self._prompt(r, "resolver:3b-settle-pairs"))
         self.assertEqual((r["result"]["status"], r["result"]["question_ids"]), ("needs_answers", ["RS-006"]))
+
+    def test_settleの後に回答待ちの問いの形を検査し直す(self):
+        # 段 3: RS-001 は合格して settle が走り、RS-002 は G0 で聞く問いとして残っている。
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "questions_at": {"3": ["RS-002"]},
+                "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]}}
+        r = run(spec)
+        self.assertIn("--ids RS-002 --check", self._prompt(r, "flow-framer:3-settle"))
+        self.assertNotIn("resolver:3-settle-questions", r["labels"])
+        self.assertEqual(r["result"]["question_ids"], ["RS-002"])
+        fixed = run({**spec, "bad_questions_at": ["3-settle"]})
+        self.assertIn("--ids RS-002 --check", self._prompt(fixed, "resolver:3-settle-questions"))
+        self.assertEqual(fixed["result"]["status"], "needs_answers")
+        broken = run({**spec, "bad_questions_at": ["3-settle", "3-settle-questions"]})["result"]
+        self.assertEqual((broken["status"], broken["next_args"]["from"]), ("blocked", "3"))
+
+    def test_resolverの返り値はflow_checkを必ず持つ(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        self.assertIn("flow_check", r["resolverSchema"]["required"])
 
     def test_段3bの途中で止まっても段の頭から再開できる(self):
         g0 = self._g0()
