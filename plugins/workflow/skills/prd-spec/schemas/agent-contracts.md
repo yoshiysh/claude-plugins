@@ -10,9 +10,28 @@
 - **入力はパスで受け取り、返り値は小さく保つ。** 返り値に載せるのは、script が次の段の分岐に使う件数・ID・
   digest と、flow-framer と resolver が返す flow 本体だけである。文書の本文や JSON の全量を返すと、script を
   経由して次の agent のプロンプトに載り、同じ内容に 2 度費用を払う。中身は W のファイルに書く。
-- **書いてよいのは、下の表で自分が書き手になっているファイルだけ。** 作業用の script や一時ファイルは
-  `W/tmp/` に置く。他のファイルは別の役が所有しており、そこを書き換えると、その役の検証の前提
-  （sha256・digest の照合）が崩れる。
+- **書いてよいのは、下の表で自分が書き手になっているファイルだけ。** 他のファイルは別の役が所有しており、
+  そこを書き換えると、その役の検証の前提（sha256・digest の照合）が崩れる。作業用の script や一時ファイルは、
+  プロンプトの「作業用ディレクトリ」（`W/tmp/<label>/`）にだけ置く（表の `tmp/<label>/` の行）。
+- **台帳は `doc_check put` / `del` でだけ書く。** 台帳は、下の表で「put で書く」とした JSON である。丸ごと読んで
+  書き戻すと、途中で失敗したときに再実行の結果が変わる。そのため復元点としての控えが要るようになる。put は同じ
+  入力なら何度流しても同じ結果になるので、失敗したら同じコマンドを流し直せばよい。
+  - 書くとき: `node <SKILL_DIR>/scripts/doc_check.mjs put --ledger <台帳> [--doc <文書キー>] --workspace <W>` の
+    標準入力に `{ "<配列名>": [要素…], "<スカラー名>": 値 }` を渡す（heredoc で渡せば引用符を逃がさずに済む）。
+    キーが同じ要素はその位置で置き換わり、新しいキーは末尾に足される。消すときは `del --ledger <台帳> --ids a,b`
+    （配列が 2 つ以上ある台帳は `--collection <配列名>` も）。台帳の名前・配列・キーの正本は doc_check の `LEDGERS` で、
+    名前を間違えれば CLI がその一覧をエラーに出す。
+  - put は引用を `input.md`・回答・`evidence` のファイルと逐語で照合し、1 件でも合わなければ何も書かずに
+    exit 1 で終わる。照合の script を自作しない。
+  - put 以外で書いた台帳は正規形から外れ、それを読む doc_check のモードがすべて exit 1 で止まる。
+- **1 つのファイルを現行として、その場で更新する。コピーと版管理をせず、全文を作り直さない**（`.bak`・`pre*`・
+  版の番号を付けたファイル名・W の外への写し・全文の再生成）。台帳は put、文書は Edit で、変える箇所だけを変える。
+  - 控えが残ると、どれが現行か分からなくなる。他の役がそれを雛形として読む（実測: resolver が intake の
+    `tmp/gen.py` を読んだ）。
+  - W の外の写しは、所有表にも検査にも乗らない。
+  - 全文を作り直すと、既存の記述を削る圧力が働かず、文書が単調に肥大化する（実測: 別のスキルで、計画の JSON を毎回
+    全文で作り直したら 19K 字から 48K 字に膨らんだ）。
+  - 戻す手段は、台帳なら put の冪等性、文書なら doc_check の `snapshot` と `diff` が持っている。
 - **ハッシュは `shasum -a 256 <file>` の先頭 64 桁で取る。** writer が読んだ版と verifier が検証した版を、
   script が文字列比較で照合するため、全員が同じ取り方をする。
 - **doc_check は `node <SKILL_DIR>/scripts/doc_check.mjs <mode> --workspace <W> …` で実行する。** 結果は
@@ -25,20 +44,25 @@
 
 ## W のファイルと書き手
 
-所有表は約束であって強制されない。守られなかったときに何で気づくかを右端に書く。
+この表の 1 列目（バッククォートで囲んだパターン）が、W に置いてよいファイルの正本である。`<…>` はドットを
+含まない 1 つの名前、`*` は 1 階層の任意の名前を表す。doc_check の `snapshot`・`tree-digest` はこの列を実行時に
+読み、合わないファイルと `tmp/` に残ったものを `stray` として返す。書き手の所有そのものは強制されないので、
+守られなかったときに何で気づくかを右端に書く。
 
 | ファイル | 書き手 | 形 | 守られなかったときの検出 |
 |---|---|---|---|
-| `input.md`、`answers/g0.md`・`answers/g1.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
+| `input.md`、`answers/g0.md`・`answers/g0-2.md`・`answers/g1.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
-| `decisions.json`、`plan.json` | intake。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
-| `open.json` | intake、flow-framer（追記だけ） | [§intake](#intake) | — |
-| `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
-| `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ）、`questions.md`、`report.md` | resolver | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
-| `verifications.json` | resolver-verifier | [決定の台帳](#決定の台帳) | 同上 |
-| `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
+| `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
+| `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
+| `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ。put / del で書く | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
+| `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ）、`report.md` | resolver。resolutions と routes は put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
+| `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
+| `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
+| `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（`expand` の固定の文書の meta は、司令塔が S0 で put する） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
-| `checks/*.json` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
+| `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
+| `tmp/<label>/` | その label の呼び出しの agent だけ。返る前に自分で消す。他の label の tmp は読まない | 作業用の script・一時ファイル | 残ったものは `snapshot`・`tree-digest` の `stray` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
 
 司令塔は decisions・resolutions・answers の中身を起草しない。依頼者の言葉と agent の出力を、そのまま運ぶ。
 
@@ -84,11 +108,15 @@
       "ruling": "precedent | internal | measured | method | question | hold",
       "value": "決まった内容（question は回答が当たってから、hold は書かない）",
       "why": "裁定の根拠（1〜2 文）",
-      "evidence": [{ "file": "パス", "line": 42, "quote": "実在する文字列をそのまま" }],
+      "evidence": [{ "file": "/repo/src/approve.ts", "line": 42, "end": 43, "quote": "実在する文字列をそのまま" }],
       "supersedes": "D-003（決定を覆すときだけ）",
       "layer": "要求 | 手段",
       "targets": ["decisions と同じ意味"],
-      "options": [{ "label": "案 A", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }],
+      "question": { "header": "表示の見出し", "text": "依頼者に見せる問いの文（1 論点・専門用語なし）", "searched": "依頼文のどこを探して答えが無かったか" },
+      "options": [
+        { "label": "案 A", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" },
+        { "label": "案 B", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }
+      ],
       "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" },
       "hold": { "rule": "〜の裁定が下るまで、…してはならない", "issue_draft": "Issue の本文案", "item_ids": ["その論点に触れる項目 ID"] }
     }
@@ -98,7 +126,11 @@
 
 - `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
   `{verification}`（3v で不合格になった決定・要素の ID）のどれか 1 つ。
-- 6 つの `ruling` の意味と順序は `agents/resolver.md` が正。`options` は `question` だけ、`hold` は `hold` だけに付く。
+- 6 つの `ruling` の意味と順序は `agents/resolver.md` が正。`question`・`options` は `question` だけ、`hold` は `hold` だけに付く。
+- `evidence[].file` は絶対パスにする。put はそのファイルを開き、`line` 行目から `end` 行目（無ければ `line` 行目だけ）を
+  改行でつないだ文字列が `quote` を含むかを照合し、読めない相対パスは拒否する。
+- 問いの文面の正本は `question` と `options` だけである。依頼者に見せる `questions.md`・`questions.json` は、ここから
+  `doc_check questions` が導出する。候補の数は `doc_check questions` が検査する（選択式の表示の制約による）。
 - 回答を当てるときは、その問いの resolution に `answer` と `value` を足す。ID は変えない（writer の trace が回答の
   前後で同じ ID を指し続けるため）。
 
@@ -106,7 +138,7 @@
 
 ```json
 {
-  "sha256": "検証した resolutions.json の sha256",
+  "resolutions_sha256": "検証した resolutions.json の sha256",
   "decisions_sha256": "検証した decisions.json の sha256",
   "items": [
     { "id": "RS-001 | D-004 | F-007", "verdict": "pass | fail", "fail_kind": "value_as_method | not_reproduced | insufficient_grounds | mapping", "reason": "判定の根拠 1 行（pass にも書く）" }
@@ -114,7 +146,11 @@
 }
 ```
 
-- 同じ ID を再検証したときは、その ID の項目を置き換える。`sha256` は最後に検証した版の値にする。
+- 同じ ID を再検証したときは、その ID の項目を置き換える（put がキーで置き換える）。
+- `resolutions_sha256`・`decisions_sha256` は put が埋め、最後に検証した版の値になる。put には検証を始めたときに
+  取った値を `--expect-resolutions`・`--expect-decisions` で渡す。今のファイルがその版と違えば、put は何も書かない
+  （検証していない版の値を合格の記録に残さないため）。`F-` の項目には、put がその時点の流れの要素の digest を
+  `digest` に入れる。
 - `fail_kind`: `value_as_method` = プロダクトの価値の判断を方法論・先例・内部整合として決めた。`not_reproduced` =
   実測を再実行しても同じ証拠が出ない。`insufficient_grounds` = 出典が実在しない・支えていない。`mapping` =
   自由記述の回答の問いへの対応づけが回答の文面から言えない。
@@ -190,19 +226,20 @@
 
 入力（パス）: 上流の全部（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・resolutions・
 verifications・precedent）と、段ごとに script が渡す対象の ID。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
-の更新）、`W/questions.md`、`W/routes.json`（段 6）、`W/report.md`（段 9）、`W/flow.json`（回答を当てるときだけ）。
+の更新。put）、`W/routes.json`（段 6。put）、`W/report.md`（段 9）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
-**questions.md** は依頼者にそのまま見せる。問い 1 つにつき `## <RS-ID>` の節を置き、問い（1 論点・専門用語なし）、
-依頼文を探したが答えが無かったこと、候補ごとの「選ばれたら何が変わるか」を書く。
-
-**questions.json** は同じ問いを選択式の表示に合わせた形で持つ（`[{id, header（12 字以内）, question, options: [{label, description}]（2〜4 個）}]`）。
-司令塔はこれを文面を変えずに AskUserQuestion へ渡す。ID と候補の順は questions.md と同じにする。
+**questions.md・questions.json** は、resolutions.json の `question`・`options` から `doc_check questions --ids <RS-…>` が
+導出する。司令塔が問いを出す前に実行する。questions.md は依頼者にそのまま見せる本文、questions.json は選択式の表示
+（AskUserQuestion）に文面を変えずに渡す形である。resolver はこの 2 つを書かない（同じ問いを 3 か所に持つと、
+片方だけ直されて食い違う）。
 
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
 
 ```json
 { "routes": [{ "id": "RT-001", "unit": "U-1", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "resolutions": ["RS-007"] }] }
 ```
+
+- routes は resolution の ID と項目 ID を束ねるだけで、引用の欄を持たない（put も routes の引用は照合しない）。
 
 - 持つのは resolution を伴う項目だけである。route が `writer` の指摘は載せない。それは script が項目 ID ごとに
   束ねて writer へ直接渡す（[§writer](#writer)）。段 6 が起動しないとき（decision の指摘も新しい TBD も 0 件）は
@@ -232,11 +269,12 @@ Issue の文案、上位文書の改訂文案を書く。
 
 ## §resolver-verifier
 
-入力: `W/resolutions.json`、`W/decisions.json`、`W/flow.json`、`W/input.md`、`W/answers/*.md`、`W/questions.md`、
-script が渡す検証対象の ID。書くもの: `W/verifications.json`。返り値:
+入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/input.md`、
+`W/answers/*.md`、script が渡す検証対象の ID。書くもの: `W/verifications.json`（put）。返り値の 2 つの sha256 は、
+put の stdout の値をそのまま入れる:
 
 ```json
-{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "sha256": "検証した resolutions.json の sha256", "decisions_sha256": "…" }
+{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "decisions_sha256": "…" }
 ```
 
 ## §writer
@@ -250,7 +288,8 @@ digest と、次の 2 つ。
   中身は `W/findings/*.json` から ID で読む。段 6 が起動しなくても渡る。
 - `W/routes.json` のうち自分の担当の ID（段 6 で resolver が起動したときだけ）。
 
-書くもの: `W/<kind>-<topic>.md` と `W/<kind>-<topic>.meta.json`（自分の単位の文書だけ）。
+書くもの: `W/<kind>-<topic>.md`（初稿は Write、改稿は Edit）と `W/<kind>-<topic>.meta.json`（put。`--ledger meta --doc <キー>`）。
+自分の単位の文書だけを書く。
 
 **meta.json**（本文から取れないものだけを置く。項目 ID と参照 ID は doc_check が本文から導出する）
 
@@ -388,9 +427,11 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 
 | 段 | 最初に | 最後に |
 |---|---|---|
-| 段 5（cross-doc） | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-1 --role auditor --workspace W` |
-| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
+| 段 5（cross-doc） | `doc --workspace W --open-tbd <ID>` | `snapshot --save audited-1 --role auditor --live <label,…> --workspace W` |
+| 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合と `by_doc` を返す | `snapshot --save audited-<n+1> --role auditor --live <label,…> --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
 
+- `--live` には、同じ段で並んで動いている監査役の label を script が並べる（その作業用ディレクトリを `stray` に
+  数えないため）。snapshot の `stray` は、script が返り値の `notices` に入れる。
 - diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。
 - `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま `designated.diff_error` に入れて返す。監査の基準が
   差し替わっているので、その上で出した判定は何と比べたのかが分からない。

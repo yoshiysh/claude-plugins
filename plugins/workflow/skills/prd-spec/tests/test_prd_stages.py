@@ -17,6 +17,7 @@ agent / pipeline / parallel / log / phase を stub にして prd.js を node で
 """
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -60,7 +61,7 @@ function respond(prompt, label) {
     const asked = ids(prompt.split('検証する resolution の ID:')[1].split('\n')[0], /RS-\d+/g)
     const fail = (spec.verifier_fail || {})[stage] || []
     const failIds = fail.map((f) => f.id)
-    return { pass: asked.filter((i) => !failIds.includes(i)), fail, sha256: sha, decisions_sha256: 'd' }
+    return { pass: asked.filter((i) => !failIds.includes(i)), fail, resolutions_sha256: sha, decisions_sha256: 'd' }
   }
   if (role === 'writer') {
     const revise = stage.endsWith('revise') || target === 'revise'
@@ -83,7 +84,8 @@ function respond(prompt, label) {
     const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
-      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1' }) }
+      const stray = (spec.stray_at || {})[stage] || []
+      if (n === 1) out.designated = { doc_check: JSON.stringify({ blocking: 0 }), audited: JSON.stringify({ digest: 'a1', stray }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
       else {
         const changed = (spec.diff || {})[stage] || spec.writer_changed || ['PR-X-001']
@@ -91,7 +93,7 @@ function respond(prompt, label) {
         const byDoc = (spec.by_doc || {})[stage] || { [firstDoc]: { changed, added: [], removed: [] } }
         out.designated = {
           diff: { stdout: '{}', changed, added: [], removed: [], by_doc: byDoc },
-          audited: JSON.stringify({ digest: `a${n}` }),
+          audited: JSON.stringify({ digest: `a${n}`, stray }),
           doc_check: JSON.stringify({ blocking: 0 }),
           tree_digest: JSON.stringify({ digest: `t${n}` }),
         }
@@ -102,8 +104,10 @@ function respond(prompt, label) {
   throw new Error(`unknown label ${label}`)
 }
 const findingFiles = []
+const prompts = []
 const agent = async (prompt, opts) => {
   labels.push(opts.label)
+  prompts.push({ label: opts.label, prompt })
   const m = /findings\/(r\d+-[^\s/]+?)\.json に書き/.exec(prompt)
   if (m && !opts.label.endsWith('#retry')) findingFiles.push(m[1])
   if (!opts.model || !opts.effort) throw new Error(`model / effort が無い呼び出し: ${opts.label}`)
@@ -120,7 +124,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts }))
 """
 
 
@@ -422,6 +426,80 @@ class Stages(unittest.TestCase):
     def test_role_optsの未知の役割は止める(self):
         r = run({"args": args(role_opts={"checker": {"model": "opus"}})})
         self.assertIn("role_opts", r["error"])
+
+
+TMP_DIR = re.compile(r"^作業用ディレクトリ: (\S+)$", re.M)
+
+
+def tmp_dir(prompt):
+    return TMP_DIR.search(prompt).group(1)
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class CommonContract(unittest.TestCase):
+    def test_全役のプロンプトに共通の2節が出る(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        self.assertIsNone(r["error"], r["error"])
+        roles = {p["label"].split(":")[0] for p in r["prompts"]}
+        self.assertEqual(roles, {"intake", "flow-framer", "resolver", "verifier", "writer", "implementer", "grounding", "crossDoc"})
+        for p in r["prompts"]:
+            self.assertIn("「## 共通の約束」・「## W のファイルと書き手」", p["prompt"], p["label"])
+
+    def test_並列に動く呼び出しは別の作業用ディレクトリを指す(self):
+        units = [
+            {"id": "U-1", "docs": ["requirements/x"], "depends_on": []},
+            {"id": "U-2", "docs": ["requirements/y"], "depends_on": []},
+        ]
+        r = run({"args": args(), "units": units})
+        by_label = {p["label"]: tmp_dir(p["prompt"]) for p in r["prompts"]}
+        parallel = ["writer:U-1:draft", "writer:U-2:draft", "implementer:r1:requirements/x", "grounding:r1:requirements/x",
+                    "implementer:r1:requirements/y", "grounding:r1:requirements/y", "crossDoc:r1:all"]
+        dirs = [by_label[l] for l in parallel]
+        self.assertEqual(len(set(dirs)), len(dirs), dirs)
+        self.assertEqual(by_label["grounding:r1:requirements/x"], "/tmp/prd-w/tmp/grounding__r1__requirements__x/")
+
+    def test_出し直しは同じ作業用ディレクトリを使う(self):
+        r = run({"args": args(), "null_labels": ["writer:U-1:draft"]})
+        dirs = [tmp_dir(p["prompt"]) for p in r["prompts"] if p["label"].startswith("writer:U-1:draft")]
+        self.assertEqual(len(dirs), 2)
+        self.assertEqual(dirs[0], dirs[1])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class Notices(unittest.TestCase):
+    def test_段5のstrayはnoticesに入りintegrityに入らない(self):
+        r = run({"args": args(), "stray_at": {"r1": ["tmp/x/a.py"]}})
+        res = r["result"]
+        self.assertEqual(res["status"], "done")
+        self.assertEqual(len(res["notices"]), 1)
+        self.assertIn("tmp/x/a.py", res["notices"][0])
+        self.assertEqual(res["integrity"], [])
+
+    def test_段8のstrayはnoticesに入りintegrityに入らない(self):
+        spec = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}, "stray_at": {"r2": ["resolutions.pre6.json"]}}
+        r = run(spec)
+        res = r["result"]
+        self.assertEqual(res["status"], "done")
+        self.assertTrue(any("resolutions.pre6.json" in n and "audited-2" in n for n in res["notices"]), res["notices"])
+        self.assertEqual(res["integrity"], [])
+
+    def test_strayが無ければnoticesは空(self):
+        self.assertEqual(run({"args": args()})["result"]["notices"], [])
+
+    def test_指名された監査役のsnapshotに同じplanの全labelをliveで渡す(self):
+        spec = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}}
+        r = run(spec)
+        by_label = {p["label"]: p["prompt"] for p in r["prompts"]}
+        self.assertIn("--live implementer__r1__requirements__x,grounding__r1__requirements__x,crossDoc__r1__all", by_label["crossDoc:r1:all"])
+        r2 = [l for l in r["labels"] if ":r2:" in l]
+        live = ",".join(re.sub(r"[^A-Za-z0-9._-]+", "__", l) for l in r2)
+        designated = [p for l, p in by_label.items() if ":r2:" in l and "あなたは指名された監査役" in p]
+        self.assertEqual(len(designated), 1)
+        self.assertIn(f"--save audited-2 --role auditor --live {live}", designated[0])
+
+    def test_verifierの照合はresolutions_sha256で行う(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        self.assertEqual(r["result"]["integrity"], [])
 
 
 # 段ごとに、その段を通るシナリオと、その段で最初に起動する agent の label。

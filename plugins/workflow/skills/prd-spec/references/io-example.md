@@ -25,16 +25,32 @@ intake が「承認したら経理に回る」を確定に、「金額の上限�
   "question_ids": ["RS-002", "RS-003"], "next_args": { "…": "そのまま渡す" } }
 ```
 
-**司令塔が見せるもの**: `questions.md` をそのまま（resolver が書いたもの。例）。
+resolver は問いを resolutions.json の `question`・`options` に put で書く（例は RS-002 の一部）:
+
+```json
+{ "id": "RS-002", "ruling": "question",
+  "question": { "header": "差し戻し先", "text": "部長が差し戻したとき、申請はどこへ戻りますか?", "searched": "依頼文には差し戻しの記述がありませんでした" },
+  "options": [
+    { "label": "申請者に戻る", "description": "申請者が直して出し直す", "flow_effect": "F-006（差し戻し）から F-002（申請の修正）へ進む", "decision_text": "差し戻された申請は申請者が修正して再提出する" },
+    { "label": "差し戻さない", "description": "承認か却下の 2 択にする", "flow_effect": "F-006 を消し、承認か却下の 2 値にする", "decision_text": "部長は承認か却下のどちらかを選ぶ" }
+  ] }
+```
+
+**司令塔が見せるもの**: 先に `doc_check questions --ids RS-002,RS-003` で問いを導出し、`questions.md` をそのまま見せる
+（`questions.json` は同じ問いを選択式で出すための形）。
 
 ```markdown
 ## RS-002
-部長が差し戻したとき、申請はどこへ戻りますか。依頼文には差し戻しの記述がありませんでした。
-- 案 A: 申請者に戻る → 流れの F-006（差し戻し）から F-002（申請の修正）へ進む。決定: 差し戻された申請は申請者が修正して再提出する
-- 案 B: 差し戻しを設けない → F-006 を消し、承認か却下の 2 値にする。決定: 部長は承認か却下のどちらかを選ぶ
+
+部長が差し戻したとき、申請はどこへ戻りますか?
+
+依頼文で探したところ: 依頼文には差し戻しの記述がありませんでした
+
+- **申請者に戻る**: 申請者が直して出し直す（選ばれたら: F-006（差し戻し）から F-002（申請の修正）へ進む）
+- **差し戻さない**: 承認か却下の 2 択にする（選ばれたら: F-006 を消し、承認か却下の 2 値にする）
 
 ## RS-003
-「速やかに通知」は、承認から何秒以内なら満たしますか。…
+…
 ```
 
 **依頼者の回答を `answers/g0.md` に逐語で書き、`next_args` をそのまま渡す**:
@@ -64,6 +80,9 @@ resolver が RS-003 に対応づけ、verifier がその対応づけを検証す
 { "trace": [ { "item_id": "PR-NOTIFICATION-001", "kind": "answers", "quote": "1 分以内でいい" },
              { "item_id": "PR-NOTIFICATION-001", "kind": "flow", "ref": "F-007" } ] }
 ```
+
+writer はこの meta を `doc_check put --ledger meta --doc requirements/notification` の標準入力で書く。put は
+`answers` の引用が回答のファイルに逐語であるかを照合してから書く。
 
 **保存**: `tree-digest` を返り値の `tree_digest` と照合し、`doc_check index` の出力を `docs/requirements/INDEX.md`
 と `docs/specifications/INDEX.md` へ逐語で写し、文書を保存先へ写す。

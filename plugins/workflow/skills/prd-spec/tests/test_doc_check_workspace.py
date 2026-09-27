@@ -147,7 +147,7 @@ class SnapshotAndDiff(_Workspace):
 
     def test_stdout_は件数と_digest_とパスだけ(self):
         out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor")
-        self.assertEqual(set(out), {"label", "docs", "items", "path", "digest"})
+        self.assertEqual(set(out), {"label", "docs", "items", "path", "digest", "stray"})
         out = _ok(self.ws, "diff", "--against", "audited-1", "--expect", out["digest"])
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")

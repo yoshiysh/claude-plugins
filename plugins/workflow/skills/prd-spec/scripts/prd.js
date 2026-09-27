@@ -55,6 +55,10 @@ const CONTRACT_SECTIONS = {
   crossDoc: ['監査役の共通節', '§cross-doc'],
 }
 
+// COMMON_SECTIONS: 全役が役の節より前に読む節。書き込みの規則（put だけで書く・その場で更新する・tmp の所有）は
+// ここにだけ置く。役の節に写すと、写しの無い役に規則が届かない（実測: 版コピーの禁止が writer.md にだけあった）。
+const COMMON_SECTIONS = ['共通の約束', 'W のファイルと書き手']
+
 // MAX_PASSES: 段 6 → 7 → 8 を回す上限（設計書 §1 の 8'）。2 パス目でも blocking が残れば blocked で止まる。
 // 回数で切るのは、2 パス目の後には問いを聞くゲートも改稿の枠も残っていないからである。
 const MAX_PASSES = 2
@@ -436,10 +440,10 @@ const VERIFIER_SCHEMA = {
         required: ['id', 'kind', 'reason'],
       },
     },
-    sha256: STR,
+    resolutions_sha256: STR,
     decisions_sha256: STR,
   },
-  required: ['pass', 'fail', 'sha256', 'decisions_sha256'],
+  required: ['pass', 'fail', 'resolutions_sha256', 'decisions_sha256'],
 }
 
 const WRITER_SCHEMA = {
@@ -527,6 +531,7 @@ function finish(status, extra) {
     holds: uniq(state.holds || []),
     missed: uniq(state.missed || []),
     integrity: state.integrity || [],
+    notices: state.notices || [],
     undeclared: state.undeclared || {},
     ...extra,
   }
@@ -535,14 +540,19 @@ const blocked = (reason, rerunFrom, extra) => finish('blocked', { reason, next_a
 
 // ---------------------------------------------------------------- プロンプトの部品（本文も JSON も埋め込まずパスで渡す）
 
-function header(role, stage) {
+const fileKey = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '__')
+
+// header: 作業用ディレクトリは起動の label ごとに分ける。役と段の組で分けると、同じ波の writer や文書ごとの
+// 監査役が同じディレクトリを使い、片方の後片付けが他方の作業中のファイルを消す。
+function header(role, stage, label) {
   return [
     `最初に ${SKILL_DIR}/agents/${ROLE_FILES[role]} を Read し、その指示に従う。`,
-    `ファイルと返り値の形は ${SKILL_DIR}/schemas/agent-contracts.md の ${CONTRACT_SECTIONS[role].map((s) => `「## ${s}」`).join('・')} を正とする。見出しを Grep で探し、その節だけを offset/limit で Read する（全体を読むと以後の全ターンに載り続ける）。`,
+    `ファイルと返り値の形は ${SKILL_DIR}/schemas/agent-contracts.md の ${[...COMMON_SECTIONS, ...CONTRACT_SECTIONS[role]].map((s) => `「## ${s}」`).join('・')} を正とする。見出しを Grep で探し、その節だけを offset/limit で Read する（全体を読むと以後の全ターンに載り続ける）。`,
     `W（workspace）: ${W}`,
     `SKILL_DIR: ${SKILL_DIR}`,
     `entry: ${ENTRY}`,
     `段: ${stage}`,
+    `作業用ディレクトリ: ${W}/tmp/${fileKey(label)}/`,
   ].join('\n')
 }
 
@@ -592,8 +602,8 @@ function absorbVerifier(v, expectedSha) {
   const failIds = (v.fail || []).map((f) => f.id)
   state.passed = minus(uniq([...(state.passed || []), ...(v.pass || [])]), failIds)
   state.failed_ids = minus(uniq([...(state.failed_ids || []), ...failIds]), v.pass || [])
-  if (expectedSha && v.sha256 !== expectedSha) {
-    state.integrity = [...(state.integrity || []), `verifier が検証した resolutions.json（${v.sha256}）が、resolver が書き終えた版（${expectedSha}）と違う`]
+  if (expectedSha && v.resolutions_sha256 !== expectedSha) {
+    state.integrity = [...(state.integrity || []), `verifier が検証した resolutions.json（${v.resolutions_sha256}）が、resolver が書き終えた版（${expectedSha}）と違う`]
   }
 }
 
@@ -603,14 +613,14 @@ function flowDefects(flow) {
 }
 
 // resolverPrompt / verifierPrompt: 段ごとの対象はプロンプトで指定する（ID の一覧だけ。中身は W から読む）。
-function resolverPrompt(stage, task) {
-  return [header('resolver', stage), groundsBlock(), `${W}/checks/conflicts.json、${W}/open.json、${W}/verifications.json、${W}/precedent.json も読む。`, existingNote(), task]
+function resolverPrompt(label, stage, task) {
+  return [header('resolver', stage, label), groundsBlock(), `${W}/checks/conflicts.json、${W}/open.json、${W}/verifications.json、${W}/precedent.json も読む。`, existingNote(), task]
     .filter(Boolean)
     .join('\n\n')
 }
 
-function verifierPrompt(stage, ids, extra) {
-  return [header('verifier', stage), `検証する resolution の ID: ${list(ids)}`, extra || '', '合格は pass に、不合格は fail に入れる。書き直さない。'].filter(Boolean).join('\n\n')
+function verifierPrompt(label, stage, ids, extra) {
+  return [header('verifier', stage, label), `検証する resolution の ID: ${list(ids)}`, extra || '', '合格は pass に、不合格は fail に入れる。書き直さない。'].filter(Boolean).join('\n\n')
 }
 
 // resolveCycle: resolver → verifier → 不合格の差し戻し 1 回 → 再検証。それでも不合格なら理由で分ける:
@@ -620,7 +630,8 @@ async function resolveCycle(stage, opt) {
   const phaseTitle = opt.phase
   let ids = []
   if (opt.task) {
-    const r = await once(`resolver:${stage}`, 'resolver', resolverPrompt(stage, opt.task), RESOLVER_SCHEMA, phaseTitle)
+    const label = `resolver:${stage}`
+    const r = await once(label, 'resolver', resolverPrompt(label, stage, opt.task), RESOLVER_SCHEMA, phaseTitle)
     if (!r) return { error: `resolver（段 ${stage}）が応答しませんでした` }
     ids = absorbResolver(r)
     if (opt.targets) state.missed = uniq([...(state.missed || []), ...missedTargets(opt.targets, r)])
@@ -634,16 +645,18 @@ async function resolveCycle(stage, opt) {
     }
   }
   if (!ids.length && !opt.verifyExtra) return { ok: true, passed: [] }
-  const v1 = await once(`verifier:${stage}v`, 'verifier', verifierPrompt(`${stage}v`, ids, opt.verifyExtra), VERIFIER_SCHEMA, phaseTitle)
+  const v1Label = `verifier:${stage}v`
+  const v1 = await once(v1Label, 'verifier', verifierPrompt(v1Label, `${stage}v`, ids, opt.verifyExtra), VERIFIER_SCHEMA, phaseTitle)
   if (!v1) return { error: `resolver-verifier（段 ${stage}v）が応答しませんでした` }
   absorbVerifier(v1, state.resolutions_sha256)
   if (!v1.fail.length) return { ok: true, passed: v1.pass }
 
   const rework = v1.fail.map((f) => `- ${f.id}: ${f.kind}（${f.reason}）`).join('\n')
+  const r2Label = `resolver:${stage}'`
   const r2 = await once(
-    `resolver:${stage}'`,
+    r2Label,
     'resolver',
-    resolverPrompt(`${stage}'（差し戻し）`, `verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`),
+    resolverPrompt(r2Label, `${stage}'（差し戻し）`, `verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`),
     RESOLVER_SCHEMA,
     phaseTitle
   )
@@ -651,7 +664,8 @@ async function resolveCycle(stage, opt) {
   const ids2 = absorbResolver(r2)
   const fe2 = await applyReturnedFlow(stage, r2, phaseTitle)
   if (fe2) return { error: fe2 }
-  const v2 = await once(`verifier:${stage}v'`, 'verifier', verifierPrompt(`${stage}v'`, ids2), VERIFIER_SCHEMA, phaseTitle)
+  const v2Label = `verifier:${stage}v'`
+  const v2 = await once(v2Label, 'verifier', verifierPrompt(v2Label, `${stage}v'`, ids2), VERIFIER_SCHEMA, phaseTitle)
   if (!v2) return { error: `resolver-verifier（段 ${stage}v' の再検証）が応答しませんでした` }
   absorbVerifier(v2, state.resolutions_sha256)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
@@ -661,10 +675,11 @@ async function resolveCycle(stage, opt) {
     .map((f) => `- ${f.id} → ${f.kind === 'value_as_method' && opt.allowQuestions ? 'question' : 'hold'}（${f.kind}）`)
     .join('\n')
   log(`段 ${stage}: 差し戻し後も ${v2.fail.length} 件が不合格。理由で問いと保持規則に分けます（検証はもう回しません）`)
+  const r3Label = `resolver:${stage}-convert`
   const r3 = await once(
-    `resolver:${stage}-convert`,
+    r3Label,
     'resolver',
-    resolverPrompt(`${stage}（変換）`, `次の項目は差し戻し後も不合格だった。値を決めずに、指定のとおり question（候補と影響を付ける）か hold（保持規則と Issue の文案）に書き換える。ID は変えない。\n${convert}`),
+    resolverPrompt(r3Label, `${stage}（変換）`, `次の項目は差し戻し後も不合格だった。値を決めずに、指定のとおり question（候補と影響を付ける）か hold（保持規則と Issue の文案）に書き換える。ID は変えない。\n${convert}`),
     RESOLVER_SCHEMA,
     phaseTitle
   )
@@ -679,10 +694,11 @@ async function applyReturnedFlow(stage, r, phaseTitle) {
   let defects = flowDefects(r.flow)
   let flow = r.flow
   for (let i = 0; defects.length && i < FLOW_REWORK; i++) {
+    const label = `resolver:${stage}-flow`
     const again = await once(
-      `resolver:${stage}-flow`,
+      label,
       'resolver',
-      resolverPrompt(`${stage}（flow の修正）`, `回答を当てた flow.json が閉じていない。次の欠陥だけを直し、更新後の flow 本体を返す（裁定の中身は変えない）。\n${defects.map((d) => `- ${d}`).join('\n')}`),
+      resolverPrompt(label, `${stage}（flow の修正）`, `回答を当てた flow.json が閉じていない。次の欠陥だけを直し、更新後の flow 本体を返す（裁定の中身は変えない）。\n${defects.map((d) => `- ${d}`).join('\n')}`),
       RESOLVER_SCHEMA,
       phaseTitle
     )
@@ -712,15 +728,16 @@ function needsAnswers(gate, from) {
 
 async function stage1() {
   phase('Intake')
+  const label = 'intake'
   const prompt = [
-    header('intake', '1'),
+    header('intake', '1', label),
     `読む: ${W}/input.md、${W}/precedent.json（とそこに並ぶファイル）`,
     existingNote(),
     '書く: decisions.json・plan.json・open.json。返り値は件数と writer の単位だけ。',
   ]
     .filter(Boolean)
     .join('\n\n')
-  const r = await once('intake', 'intake', prompt, INTAKE_SCHEMA, 'Intake')
+  const r = await once(label, 'intake', prompt, INTAKE_SCHEMA, 'Intake')
   if (!r) return blocked('intake が応答しませんでした', '1')
   try {
     unitWaves(r.units)
@@ -741,22 +758,25 @@ async function stage1() {
 
 async function stage2() {
   phase('Flow')
-  const base = [
-    header('flowFramer', '2'),
-    `読む: ${W}/input.md、${W}/decisions.json、${W}/precedent.json、${W}/open.json`,
-    existingNote(),
-    `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。`,
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-  let r = await once('flow-framer', 'flowFramer', base, FLOW_SCHEMA, 'Flow')
+  const base = (label) =>
+    [
+      header('flowFramer', '2', label),
+      `読む: ${W}/input.md、${W}/decisions.json、${W}/precedent.json、${W}/open.json`,
+      existingNote(),
+      `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。`,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+  const label = 'flow-framer'
+  let r = await once(label, 'flowFramer', base(label), FLOW_SCHEMA, 'Flow')
   if (!r) return blocked('flow-framer が応答しませんでした', '2')
   let defects = flowDefects(r.flow)
   for (let i = 0; (defects.length || r.flow_findings > 0) && i < FLOW_REWORK; i++) {
+    const reworkLabel = `${label}:rework`
     const again = await once(
-      'flow-framer:rework',
+      reworkLabel,
       'flowFramer',
-      `${base}\n\n返した flow が閉じていない。次の欠陥と ${W}/checks/flow.json の指摘（${r.flow_findings} 件）を直して返す:\n${defects.map((d) => `- ${d}`).join('\n') || '（script の検査は 0 件）'}`,
+      `${base(reworkLabel)}\n\n返した flow が閉じていない。次の欠陥と ${W}/checks/flow.json の指摘（${r.flow_findings} 件）を直して返す:\n${defects.map((d) => `- ${d}`).join('\n') || '（script の検査は 0 件）'}`,
       FLOW_SCHEMA,
       'Flow'
     )
@@ -815,10 +835,11 @@ async function stageApply(stageId) {
   const left = pendingQuestions(state)
   if (left.length && followup) return needsAnswers('g0-2', stageId)
   if (left.length) {
+    const label = `resolver:${stageId}-hold`
     const r = await once(
-      `resolver:${stageId}-hold`,
+      label,
       'resolver',
-      resolverPrompt(`${stageId}（保持規則への変換）`, `次の問いにはもう聞くゲートが残っていない。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(left)}`),
+      resolverPrompt(label, `${stageId}（保持規則への変換）`, `次の問いにはもう聞くゲートが残っていない。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(left)}`),
       RESOLVER_SCHEMA,
       'Answers'
     )
@@ -830,10 +851,12 @@ async function stageApply(stageId) {
   return ENTRY === 'existing' ? '5' : '4'
 }
 
+const writerLabel = (unit, mode) => `writer:${unit.id}:${mode}`
+
 function writerPrompt(unit, mode, extra) {
   const deps = state.units.filter((u) => (unit.depends_on || []).includes(u.id)).flatMap((u) => u.docs)
   return [
-    header('writer', mode === 'draft' ? '4（初稿）' : '7（改稿）'),
+    header('writer', mode === 'draft' ? '4（初稿）' : '7（改稿）', writerLabel(unit, mode)),
     groundsBlock(),
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
     deps.length ? `依存先の単位の文書（読むだけ）: ${deps.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}` : '',
@@ -862,7 +885,7 @@ async function stage4() {
     const results = await runWithRetry(
       `初稿（${wave.join(', ')}）`,
       units,
-      (u, attempt) => agent(writerPrompt(u, 'draft'), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: 'Draft', label: `writer:${u.id}:draft${attempt > 1 ? '#retry' : ''}` }),
+      (u, attempt) => agent(writerPrompt(u, 'draft'), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: 'Draft', label: `${writerLabel(u, 'draft')}${attempt > 1 ? '#retry' : ''}` }),
       (x) => Boolean(x)
     )
     const missing = units.filter((_, i) => !results[i]).map((u) => u.id)
@@ -877,7 +900,7 @@ function auditorPrompt(role, doc, round, opt) {
   const docs = auditDocs()
   const target = doc === 'all' ? `全文書: ${docs.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}、${W}/plan.json` : `文書: ${W}/${doc.replace('/', '-')}.md とその .meta.json`
   const lines = [
-    header(role, opt.stage),
+    header(role, opt.stage, opt.label),
     groundsBlock(),
     target,
     existingNote(),
@@ -889,8 +912,20 @@ function auditorPrompt(role, doc, round, opt) {
   return lines.filter(Boolean).join('\n\n')
 }
 const ROLE_TAG = { implementer: 'im', grounding: 'gr', crossDoc: 'cd' }
-const findingsName = (role, doc, round, extra) =>
-  `r${round}-${ROLE_TAG[role]}-${doc === 'all' ? 'all' : doc.replace(/[^A-Za-z0-9._-]+/g, '__')}${extra ? '-extra' : ''}`
+const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}-${doc === 'all' ? 'all' : fileKey(doc)}${extra ? '-extra' : ''}`
+const auditorLabel = (p, round) => `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`
+
+// liveDirs: 指名された監査役が snapshot を取る間も、同じ plan の他の監査役が作業用ディレクトリを使っている。
+function liveDirs(plan, round) {
+  return plan.map((p) => fileKey(auditorLabel(p, round))).join(',')
+}
+
+// noteStray: W に所有表に無いファイルは照合の食い違いではない所見なので、integrity ではなく notices に置く
+// （integrity の件数は goal_selector の R4 が照合の食い違いとして数える）。
+function noteStray(audited, label) {
+  const stray = Array.isArray(audited.stray) ? audited.stray : []
+  if (stray.length) state.notices = [...(state.notices || []), `監査の基準 ${label} の時点で、W に所有表に無いファイルがあった: ${stray.join(', ')}`]
+}
 
 function auditDocs() {
   return uniq(state.units.flatMap((u) => u.docs))
@@ -901,11 +936,11 @@ async function runAuditors(plan, round, stage) {
     `監査 r${round}`,
     plan,
     (p, attempt) =>
-      agent(auditorPrompt(p.role, p.doc, round, { stage, items: p.items, designated: p.designatedText, extra: p.extra }), {
+      agent(auditorPrompt(p.role, p.doc, round, { stage, items: p.items, designated: p.designatedText, extra: p.extra, label: auditorLabel(p, round) }), {
         ...OPTS[p.role],
         schema: AUDIT_SCHEMA,
         phase: stage === '5' ? 'Audit' : 'Revise',
-        label: `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}${attempt > 1 ? '#retry' : ''}`,
+        label: `${auditorLabel(p, round)}${attempt > 1 ? '#retry' : ''}`,
       }),
     (x) => Boolean(x)
   )
@@ -927,18 +962,18 @@ async function stage5() {
   phase('Audit')
   state.pass = 1
   const docs = auditDocs()
-  const designated = [
-    `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
-    `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', '--save audited-1 --role auditor')}\` → designated.audited`,
-  ].join('\n')
   const plan = [
     ...docs.flatMap((doc) => [
       { role: 'implementer', doc },
       { role: 'grounding', doc },
     ]),
-    { role: 'crossDoc', doc: 'all', designatedText: designated },
+    { role: 'crossDoc', doc: 'all' },
   ]
+  plan[plan.length - 1].designatedText = [
+    `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
+    `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
+    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)}`)}\` → designated.audited`,
+  ].join('\n')
   const { results, missing } = await runAuditors(plan, 1, '5')
   if (missing.length) return blocked(`監査役が応答しませんでした（${missing.join(', ')}）。未実施を指摘 0 件として扱いません`, '5')
   const cd = results[results.length - 1]
@@ -947,6 +982,7 @@ async function stage5() {
   if (!audited || !audited.digest) return blocked('cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした。どの版を監査したかの記録が無いまま進めません', '5')
   state.audit = { n: 1, digest: audited.digest }
   state.tree_digest = audited.digest
+  noteStray(audited, 'audited-1')
   const findings = recordFindings(plan, results)
   setPending(findings, docCheck, [])
   return '6'
@@ -985,10 +1021,11 @@ async function stage6() {
   state.new_tbd = []
   if (pendingQuestions(state).length) {
     if (allowQuestions) return needsAnswers('g1', "3a'")
+    const label = 'resolver:6-hold'
     const r = await once(
-      'resolver:6-hold',
+      label,
       'resolver',
-      resolverPrompt('6（保持規則への変換）', `次の問いには聞くゲートが残っていない。hold に書き換える。ID は変えない: ${list(pendingQuestions(state))}`),
+      resolverPrompt(label, '6（保持規則への変換）', `次の問いには聞くゲートが残っていない。hold に書き換える。ID は変えない: ${list(pendingQuestions(state))}`),
       RESOLVER_SCHEMA,
       'Decide'
     )
@@ -1035,7 +1072,7 @@ async function stage7() {
       ]
         .filter(Boolean)
         .join('\n\n')
-      return agent(writerPrompt(t.unit, 'revise', extra), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: 'Revise', label: `writer:${t.unit.id}:revise${attempt > 1 ? '#retry' : ''}` })
+      return agent(writerPrompt(t.unit, 'revise', extra), { ...OPTS.writer, schema: WRITER_SCHEMA, phase: 'Revise', label: `${writerLabel(t.unit, 'revise')}${attempt > 1 ? '#retry' : ''}` })
     },
     (x) => Boolean(x)
   )
@@ -1068,7 +1105,7 @@ async function stage8() {
   const designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
     `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる。exit 3 で終わったら、それ以上進めず stderr を designated.diff_error に入れて返す。`,
-    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
+    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
   plan[0].designatedText = designatedText
   const first = await runAuditors(plan, round, '8')
@@ -1100,6 +1137,7 @@ async function stage8() {
   state.undeclared = undeclared
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
+  noteStray(audited, `audited-${round}`)
   const findings = recordFindings(allPlan, allResults)
   const docCheck = parseStdout(d.doc_check)
   setPending(findings, docCheck, carried)
@@ -1121,10 +1159,12 @@ async function stage8() {
 async function finalHold(blocking, newTbd) {
   phase('Report')
   const decision = state.pending.decision || []
+  const label = 'resolver:final'
   const r = await once(
-    'resolver:final',
+    label,
     'resolver',
     resolverPrompt(
+      label,
       '9（blocked）',
       [
         `上限の ${MAX_PASSES} パスを使い切り、blocking が ${blocking} 件残った。文書は直さない。`,
@@ -1150,10 +1190,11 @@ async function finalHold(blocking, newTbd) {
 
 async function stage9() {
   phase('Report')
+  const label = 'resolver:9'
   const r = await once(
-    'resolver:9',
+    label,
     'resolver',
-    resolverPrompt('9（事後報告）', `${W}/report.md に事後報告を書く（resolver.md の「段 9」）。裁定の新規は作らない。`),
+    resolverPrompt(label, '9（事後報告）', `${W}/report.md に事後報告を書く（resolver.md の「段 9」）。裁定の新規は作らない。`),
     RESOLVER_SCHEMA,
     'Report'
   )

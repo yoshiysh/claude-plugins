@@ -71,8 +71,9 @@ workspace を用意し、保存することだけである。** 決定・問い�
    依頼者が言っていないことが入力の顔をして全員に届く。
 4. **既存文書**（`existing`・`expand`）は `W/<kind>-<topic>.md` に逐語で置き、`existing_docs` に
    `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。`expand` の要求文書は `fixed: true` にし、
-   `W/<kind>-<topic>.meta.json` に `{"fixed": true}` を置く（固定の文書は別のランで承認されたもので、ここで
-   書き換えるとその承認を迂回する）。
+   `echo '{"fixed": true}' | node [SKILL_DIR]/scripts/doc_check.mjs put --ledger meta --doc <kind>/<topic> --workspace <W>`
+   でその meta を書く（固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。meta は台帳
+   なので put で書く。put 以外で書くと正規形から外れ、その文書を読む doc_check が止まる。
 5. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
    挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out ~/.claude/prd-spec-workspace/<そのラン>/legacy`
@@ -90,7 +91,9 @@ Workflow({
 依頼文は args に入れない（W/input.md にある）。model / effort は全役に既定があり、`role_opts` で上書きできる
 （`references/workflow-io.md` §2）。返り値の `status` で次を決める。
 
-- **`needs_answers`**（G0・G1）: `questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
+- **`needs_answers`**（G0・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
+  を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
+  実行である。`questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
   `header`・`question`・`options` の文面は**変えずに**渡す）。選択式で答えやすくするためで、文面を縮めたり
   言い換えたりすると、その要約は誰にも検証されないまま依頼者の判断材料になる。背景を読みたいと言われたら
   `questions_path` の本文をそのまま見せる。回答は `<ID>: <選ばれた label>` の行（自由記述や注記があればその文を
@@ -113,7 +116,8 @@ Workflow({
 
 1. **照合**: `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
    `tree_digest` を文字列で比べる。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
-   している版は監査されていない。
+   している版は監査されていない。同じ出力の `stray`（W に所有表に無いファイル。版の控えや残った作業用の script）が
+   空でなければ、保存は止めずに、その一覧を事後報告に添える。
 2. **INDEX**: `node [SKILL_DIR]/scripts/doc_check.mjs index --workspace <W> --req-dir <要求の保存先> --spec-dir <仕様の保存先> --open-tbd "<返り値の open_tbd をカンマで>"`
    を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す。INDEX は導出物で、手で書くと本体と
    ずれる。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも `fixed` として置く。
@@ -124,7 +128,8 @@ Workflow({
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
 4. **事後報告**: `W/report.md` をそのまま見せる。方法論として決めたこと・保持規則・Issue の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
-   できます」と件数と ID を示す。`integrity`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
+   できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
+   `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、など）である。
 5. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。
 6. **経緯は commit と PR に残す**: 文書には決定ログも経緯も書かない（`references/document-structure.md` §4）。

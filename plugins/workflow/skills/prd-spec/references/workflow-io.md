@@ -38,7 +38,7 @@
 ```json
 {
   "status": "done | needs_answers | blocked",
-  "questions_path": "needs_answers のとき W/questions.md",
+  "questions_path": "needs_answers のとき W/questions.md（司令塔が doc_check questions で導出してから見せる）",
   "questions_json_path": "needs_answers のとき W/questions.json（選択式で出すための同じ問い）",
   "answers_path": "needs_answers のとき W/answers/g0.md・g0-2.md・g1.md のどれか",
   "question_ids": ["RS-004"],
@@ -49,6 +49,7 @@
   "holds": ["保持規則になった resolution の ID"],
   "missed": ["渡したのに裁定されなかった論点（finding:… / tbd:…）"],
   "integrity": ["sha256 の照合で食い違った事実"],
+  "notices": ["照合ではない所見（監査の時点で W に所有表に無いファイルがあった、など）"],
   "undeclared": { "requirements/auth": ["writer が申告せずに変えた項目キー（追加の監査を当てたもの）"] },
   "reason": "blocked のときの理由"
 }
@@ -64,6 +65,9 @@
   使い切った、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
   書き終えた版が違った、のような食い違いである。run は止めないが、事後報告に添える。
+- `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルを
+  `stray` として返した、など）。run は止めず、事後報告に添える。`integrity` に混ぜないのは、その件数を改善候補の
+  選別（`scripts/goal_selector.py` の R4）が照合の食い違いとして数えるからである。
 - `undeclared` は、writer が申告せずに変えた項目を文書ごとに並べたもの。監査は追加で当てているが、申告の漏れ
   そのものは writer の契約違反なので、事後報告と合わせて見る。
 
@@ -111,10 +115,13 @@
 |---|---|---|
 | `flow` / `conflicts` | flow-framer | 流れの形・閉包・出典の検査 / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定 |
-| `snapshot --save <label> [--role auditor]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ |
+| `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。stdout の `stray` に、W に所有表（契約の「W のファイルと書き手」）に無いファイルと `tmp/` に残ったものを出す。`--live` に挙げた label の `tmp/` は動作中として除く |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
-| `tree-digest [--doc <キー>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest |
+| `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray` は snapshot と同じ |
 | `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く |
+| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し・置き換える。引用の照合に 1 件でも落ちたら何も書かない |
+| `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
+| `questions --ids <RS-…>` | 司令塔（`needs_answers` で問いを出す前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、
 fixture テストがこの形で移設前の結果との一致を確かめている。

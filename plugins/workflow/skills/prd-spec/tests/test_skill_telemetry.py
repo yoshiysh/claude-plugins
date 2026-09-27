@@ -96,6 +96,25 @@ class TestExtract(unittest.TestCase):
             self.assertFalse(na["terminal"])
             self.assertTrue(d["terminal"])
 
+    def test_noticesはintegrityと別に数える(self):
+        with tempfile.TemporaryDirectory() as td:
+            data = {**DONE["result"], "notices": ["stray-1", "stray-2"]}
+            record(td, "s", "n", data)
+            rec = json.loads((Path(td) / "s" / "n.json").read_text())
+            self.assertEqual(rec["notices_count"], 2)
+            self.assertEqual(rec["integrity_count"], 1)
+            record(td, "s", "none", DONE)
+            self.assertIsNone(json.loads((Path(td) / "s" / "none.json").read_text())["notices_count"])
+
+    def test_noticesは終端legの値だけを採る(self):
+        with tempfile.TemporaryDirectory() as td:
+            record(td, "s", "leg1", {**NEEDS_ANSWERS, "result": {**NEEDS_ANSWERS["result"], "notices": ["a"]}}, run_id="run1", input_ref="in1")
+            record(td, "s", "leg2", {**DONE, "result": {**DONE["result"], "notices": ["a", "b"]}}, run_id="run1", input_ref="in1")
+            out = run(["summary", "--skill", "s"], td)
+            tail = [l for l in out.stdout.splitlines() if l.startswith("-- run1")][0]
+            self.assertIn("notices=2", tail)
+            self.assertIn("integrity=1", tail)
+
     def test_上書きはforceが要る(self):
         with tempfile.TemporaryDirectory() as td:
             record(td, "s", "x", DONE)
@@ -170,7 +189,8 @@ class TestSummary(unittest.TestCase):
             self.assertIn("q=13", tail)
             self.assertIn("holds=2", tail)
             self.assertIn("remaining_blocking=2", tail)
-            self.assertNotIn("None", tail)
+            self.assertIn("notices=None", tail)  # notices が無かった版の実測なので欠測のまま残る
+            self.assertNotIn("None", tail.replace("notices=None", ""))
 
 
 class TestCompare(unittest.TestCase):

@@ -1381,7 +1381,7 @@ const WORKSPACE_TEXT = {
     id: `ST-FLOW-SOURCE-UNKNOWN-${id}-${ref}`,
     location: '工程の流れ（flow）',
     quote: `${id}: ${kind} ${ref}`,
-    issue: `流れの要素 ${id} が出典に挙げた ${ref} が ${kind === 'decision' ? 'decisions.json にも resolutions.json にも' : 'open.json に'}無い。実在しない出典は、出典が無いのと同じである。`,
+    issue: `流れの要素 ${id} が出典に挙げた ${ref} が ${kind === 'decision' ? `${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも` : `${ledgerOf('open').file()} に`}無い。実在しない出典は、出典が無いのと同じである。`,
     fix: `${ref} を実在する ID に直すか、出典を付け直す。`,
   }),
   AMBIGUOUS: (docKey, itemId, word, quote) => ({
@@ -1669,8 +1669,8 @@ function fillVerifications(ws, opts, next, body) {
     throw new LedgerRejected('verifications の put には --expect-resolutions <sha> と --expect-decisions <sha>（検証を始めたときに読んだ版）が要ります')
   }
   const now = { resolutions_sha256: fileSha(ws, 'resolutions'), decisions_sha256: fileSha(ws, 'decisions') }
-  if (now.resolutions_sha256 !== opts.expectResolutions) throw new LedgerRejected(`resolutions.json が検証を始めた版から変わっています（--expect-resolutions ${opts.expectResolutions} / 今 ${now.resolutions_sha256}）`)
-  if (now.decisions_sha256 !== opts.expectDecisions) throw new LedgerRejected(`decisions.json が検証を始めた版から変わっています（--expect-decisions ${opts.expectDecisions} / 今 ${now.decisions_sha256}）`)
+  if (now.resolutions_sha256 !== opts.expectResolutions) throw new LedgerRejected(`${ledgerOf('resolutions').file()} が検証を始めた版から変わっています（--expect-resolutions ${opts.expectResolutions} / 今 ${now.resolutions_sha256}）`)
+  if (now.decisions_sha256 !== opts.expectDecisions) throw new LedgerRejected(`${ledgerOf('decisions').file()} が検証を始めた版から変わっています（--expect-decisions ${opts.expectDecisions} / 今 ${now.decisions_sha256}）`)
   const [itemsOf, itemKey] = Object.entries(ledgerOf('verifications').lists)[0]
   const [elementsOf, elementKey] = Object.entries(ledgerOf('flow').lists)[0]
   const flowEls = new Map(listOf(readLedger(ws, 'flow'), elementsOf).map((el) => [el[elementKey], el]))
@@ -2103,7 +2103,7 @@ function selectDocs(keys, wanted) {
 function wsFlow(ws) {
   requireInput(ws)
   const flow = readLedger(ws, 'flow')
-  if (flow === null) throw new Error('flow.json がありません')
+  if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
   const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds)]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
@@ -2117,7 +2117,7 @@ function wsFlow(ws) {
 function wsConflicts(ws) {
   requireInput(ws)
   const decisions = readLedger(ws, 'decisions')
-  if (decisions === null) throw new Error('decisions.json がありません')
+  if (decisions === null) throw new Error(`${ledgerOf('decisions').file()} がありません`)
   const flow = readLedger(ws, 'flow')
   const ds = listOf(decisions, 'decisions')
     .filter((x) => x && x.id)
@@ -2191,6 +2191,45 @@ function wsDoc(ws, opts) {
   }
 }
 
+const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const OWNERSHIP = { file: path.join('schemas', 'agent-contracts.md'), heading: '## W のファイルと書き手' }
+
+// ownedPatterns: 所有表は契約から毎回読み、写しを持たない（写すと表を直しても検出が古いまま残る）。<…> に
+// ドットを許さないのは、版を付けた写し（requirements-x.pre2.md）を表に合わせないため。
+function ownedPatterns() {
+  const text = fs.readFileSync(path.join(SKILL_DIR, OWNERSHIP.file), 'utf8')
+  const lines = text.split('\n')
+  const start = lines.indexOf(OWNERSHIP.heading)
+  const end = lines.findIndex((l, i) => i > start && /^## /.test(l))
+  const cells = start < 0 ? [] : lines.slice(start + 1, end < 0 ? undefined : end).filter((l) => /^\|/.test(l)).map((l) => l.split('|')[1] || '')
+  const pats = cells.flatMap((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()))
+  if (!pats.length) throw new Error(`所有表（${OWNERSHIP.file} の「${OWNERSHIP.heading}」の表の 1 列目）を読み取れません。W に置いてよいファイルが決まらないので止めます`)
+  const esc = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+  const toRe = (p, name) => esc(p).replace(/<[^>]+>/g, name).replace(/\*/g, '[^/]*')
+  return {
+    files: pats.filter((p) => !p.endsWith('/')).map((p) => new RegExp(`^${toRe(p, '[^/.]+')}$`)),
+    workDirs: pats.filter((p) => p.endsWith('/')).map((p) => new RegExp(`^${toRe(p, '([^/]+)')}`)),
+  }
+}
+
+function strayFiles(ws, live) {
+  const { files, workDirs } = ownedPatterns()
+  const alive = new Set(live || [])
+  const out = []
+  const walk = (rel) => {
+    for (const e of fs.readdirSync(path.join(ws, rel), { withFileTypes: true })) {
+      const r = rel ? `${rel}/${e.name}` : e.name
+      if (e.isDirectory()) walk(r)
+      else {
+        const work = workDirs.map((re) => re.exec(r)).find(Boolean)
+        if (work ? !alive.has(work[1]) : !files.some((re) => re.test(r))) out.push(r)
+      }
+    }
+  }
+  walk('')
+  return out.sort()
+}
+
 // snapshot --save: 項目ごとの hash を checks/<label>.snapshot.json に書く。audited- で始まるラベルは
 // --role auditor のときだけ保存する。CLI は呼び出し元を識別できないので、これは書き手が監査の基準を
 // 取り違えて上書きする事故を防ぐだけである。基準の差し替えを検出するのは diff の --expect の照合。
@@ -2206,7 +2245,7 @@ function wsSnapshot(ws, opts) {
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
   const rel = writeCheck(ws, `${label}.snapshot.json`, { label, digest, docs })
-  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest }
+  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, stray: strayFiles(ws, opts.live) }
 }
 
 // diff --against <label> --expect <digest>: 保存した snapshot と今の木を項目の単位で比べる。snapshot の
@@ -2252,7 +2291,7 @@ function wsTreeDigest(ws, opts) {
   const items = snapshotOf(wsDocs)
   const selected = selectDocs(Object.keys(items), opts.doc)
   const subset = Object.fromEntries(selected.map((k) => [k, items[k]]))
-  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0) }
+  return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0), stray: strayFiles(ws, opts.live) }
 }
 
 // index: 保存先の 2 つの INDEX（references/document-splitting.md §6）を W の文書から導出し、
@@ -2345,6 +2384,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--ledger') o.ledger = take()
     else if (a === '--ids') o.ids = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--collection') o.collection = take()
+    else if (a === '--live') o.live = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--expect-resolutions') o.expectResolutions = take()
     else if (a === '--expect-decisions') o.expectDecisions = take()
     else throw new Error(`不明な引数です: ${a}`)
