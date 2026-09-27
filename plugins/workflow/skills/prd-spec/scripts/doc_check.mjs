@@ -1513,13 +1513,15 @@ function requireInput(ws) {
   return text
 }
 
-function writeAtomic(file, text) {
-  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`)
+// writeAtomic: 全部を一時名に書き終えてから rename する（組で導出したファイルの片方だけが新しくなる窓を
+// rename の間だけに縮める）。
+function writeAtomic(...pairs) {
+  const tmps = pairs.map(([file]) => path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`))
   try {
-    fs.writeFileSync(tmp, text)
-    fs.renameSync(tmp, file)
+    pairs.forEach(([, text], i) => fs.writeFileSync(tmps[i], text))
+    pairs.forEach(([file], i) => fs.renameSync(tmps[i], file))
   } catch (e) {
-    fs.rmSync(tmp, { force: true })
+    for (const t of tmps) fs.rmSync(t, { force: true })
     throw e
   }
 }
@@ -1724,7 +1726,7 @@ function wsPut(ws, opts, stdin) {
   if (name === 'verifications') next = fillVerifications(ws, opts, next, body)
   const text = ledgerText(next)
   const p = path.join(ws, file)
-  if (!fs.existsSync(p) || fs.readFileSync(p, 'utf8') !== text) writeAtomic(p, text)
+  if (!fs.existsSync(p) || fs.readFileSync(p, 'utf8') !== text) writeAtomic([p, text])
   return ledgerResult(name, file, tally, next, ws)
 }
 
@@ -1744,7 +1746,7 @@ function wsDel(ws, opts) {
   for (const id of ids) tally[cur && cur[coll].some((r) => r[key] === id) ? 'removed' : 'unchanged'].push(id)
   if (!cur || !tally.removed.length) return ledgerResult(name, file, tally, cur, ws)
   const next = { ...cur, [coll]: cur[coll].filter((r) => !tally.removed.includes(r[key])) }
-  writeAtomic(path.join(ws, file), ledgerText(next))
+  writeAtomic([path.join(ws, file), ledgerText(next)])
   return ledgerResult(name, file, tally, next, ws)
 }
 
@@ -1782,8 +1784,7 @@ function wsQuestions(ws, opts) {
     ])
     .join('\n')
   const json = `${JSON.stringify(qs.map(({ id, q, options }) => ({ id, header: q.header, question: q.text, options: options.map((o) => ({ label: o.label, description: o.description })) })), null, 1)}\n`
-  writeAtomic(path.join(ws, 'questions.md'), md)
-  writeAtomic(path.join(ws, 'questions.json'), json)
+  writeAtomic([path.join(ws, 'questions.md'), md], [path.join(ws, 'questions.json'), json])
   return {
     questions: qs.length,
     md: { path: 'questions.md', sha256: sha256Bytes(Buffer.from(md)) },

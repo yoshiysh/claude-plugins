@@ -1,7 +1,8 @@
 """scripts/doc_check.mjs の台帳 CLI（put / del / questions）と、台帳の正規形の検査のテスト。
 
-1. 同じ入力の put・del を繰り返しても、2 回目は何も変えず、ファイルのバイト列も変わらない
-2. put 以外で書かれた（正規形でない）台帳は、flow・conflicts・doc・put のどれでも止まる
+1. 同じ入力の put・del を繰り返しても、2 回目は何も変えず、ファイルを書き直しもしない
+2. put 以外で書かれた（正規形でない）台帳は、flow・conflicts・doc・put のどれでも止まる。meta は文書を読む
+   snapshot・diff・tree-digest・index でも止まる（文書の読み手が meta を正規形の検査つきで読むため）
 3. 依頼文・回答・証拠のファイルに逐語で無い引用を含む put は、何も書かずに止まる
 4. meta の trace は item_id 単位で置き換わり、他の項目の trace は変わらない
 5. verifications の sha256 は put の時点のファイルから取り、検証を始めた版と違えば書かない
@@ -39,6 +40,11 @@ def _ok(ws, mode, *args, stdin=None):
 
 def _sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def _stamp(p):
+    st = Path(p).stat()
+    return st.st_ino, st.st_mtime_ns
 
 
 def _reorder(value):
@@ -91,6 +97,19 @@ class Idempotent(_Workspace):
         self.assertEqual((self.ws / "decisions.json").read_bytes(), after_first)
         self.assertEqual(second["sha256"], _sha(self.ws / "decisions.json"))
 
+    def test_変更の無い_put_と_del_はファイルを書き直さない(self):
+        p = self.ws / "decisions.json"
+        stamp = _stamp(p)
+        el = json.loads(p.read_text())["decisions"][0]
+        self.assertEqual(_ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [el]})["unchanged"], ["D-001"])
+        self.assertEqual(_ok(self.ws, "del", "--ledger", "decisions", "--ids", "D-404")["unchanged"], ["D-404"])
+        self.assertEqual(_stamp(p), stamp)
+
+    def test_台帳ファイルが無い_del_は何も作らない(self):
+        out = _ok(self.ws, "del", "--ledger", "routes", "--ids", "RT-001")
+        self.assertEqual((out["removed"], out["unchanged"], out["sha256"]), ([], ["RT-001"], None))
+        self.assertFalse((self.ws / "routes.json").exists())
+
     def test_同じ_ID_の_put_はその位置で置き換える(self):
         out = _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が 2 人で行う"}]})
         self.assertEqual((out["added"], out["replaced"], out["count"]), ([], ["D-001"], {"decisions": 3}))
@@ -142,6 +161,12 @@ class Canonical(_Workspace):
 
     def test_正規形でない_meta_は_doc_と_put_で止まる(self):
         self._assert_all_stop("requirements-auth.meta.json", (("doc",), ("put", "--ledger", "meta", "--doc", "requirements/auth")))
+
+    def test_正規形でない_meta_は文書を読む全モードで止まる(self):
+        digest = _ok(self.ws, "snapshot", "--save", "base")["digest"]
+        modes = (("snapshot", "--save", "other"), ("diff", "--against", "base", "--expect", digest), ("tree-digest",), ("index",))
+        self._assert_all_stop("requirements-auth.meta.json", modes)
+        self.assertFalse((self.ws / "checks" / "other.snapshot.json").exists())
 
     def test_台帳の欄でない最上位のキーは止まる(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": []})
@@ -295,6 +320,15 @@ class Questions(_Workspace):
                 self.assertEqual(r.returncode, 1)
                 self.assertFalse((self.ws / "questions.json").exists())
                 self.assertFalse((self.ws / "questions.md").exists())
+
+    def test_検査に落ちたら前回の導出物をどちらも変えない(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        _ok(self.ws, "questions", "--ids", "RS-001")
+        before = self._derived()
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "options": RESOLUTION_Q["options"][:1]}]})
+        self.assertEqual(_run(self.ws, "questions", "--ids", "RS-001").returncode, 1)
+        self.assertEqual(self._derived(), before)
+        self.assertEqual([p.name for p in self.ws.iterdir() if p.name.endswith(".tmp")], [])
 
     def test_問いの無い_ID_は止まる(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "ruling": "internal"}]})
