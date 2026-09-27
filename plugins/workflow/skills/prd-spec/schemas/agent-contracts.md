@@ -79,7 +79,7 @@
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
 | `flow.json` | flow-framer（段 2、回答で組み直す 3b、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけで、他の resolver の呼び出しは書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
-| `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
+| `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [決定の台帳](#決定の台帳) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（`expand` の固定の文書の meta は、司令塔が S0 で put する） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
@@ -277,9 +277,7 @@
   `{ "上記以外": true }` の case は、他の case に当たらない組み合わせをすべて受ける。`branch` は `branches` の `value` の
   どれかで、どの枝も 1 つ以上の case から選ばれる。doc_check `flow` は、欠けた組み合わせ・重なり・宣言外の値を文書の判定表と
   同じ関数で検査する。
-- 各 case は要素と同じ形の `source` を持ち、verifier の検証対象になる（要素の digest は `cases` を含む）。根拠から決まらない
-  マスは open に起票し、その ID を出典にする。出典の無いマスを許すと、欠けの検査が黙る代わりに推測がマスに入り、grounding は
-  flow を根拠と認めるので、そのまま要求文になる。
+- 各 case は要素と同じ形の `source` を持ち、verifier の検証対象になる（要素の digest は `cases` を含む）。
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
@@ -306,11 +304,6 @@
 verifications・precedent）と、段ごとに script が渡す対象の ID。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
 の更新。put）、`W/routes.json`（段 6。put）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
-**questions.md・questions.json** は、resolutions.json の `question`・`options` から `doc_check questions --ids <RS-…>` が
-導出する。司令塔が問いを出す前に実行する。questions.md は依頼者にそのまま見せる本文、questions.json は選択式の表示
-（AskUserQuestion）に文面を変えずに渡す形である。resolver はこの 2 つを書かない（同じ問いを 3 か所に持つと、
-片方だけ直されて食い違う）。
-
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
 
 ```json
@@ -335,7 +328,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   "questions": [{ "id": "RS-004", "about": { "tbd": "TBD-RAUTH-002" } }],
   "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
   "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
-  "sha256": "書き終えた resolutions.json の sha256",
+  "resolutions_sha256": "書き終えた resolutions.json の sha256",
   "flow_check": "どの呼び出しでも必ず、最後に実行した doc_check flow の stdout（回答を当てる 3a・3a' 以外では、flow.json が変わっていないことを script が確かめる）",
   "conflicts_check": "flow.json を変えたときだけ、その後に実行した doc_check conflicts の stdout",
   "questions_check": "問いを出したときだけ、返る前に実行した doc_check questions --ids <問いの ID> --check の stdout"

@@ -141,9 +141,10 @@ class OwnershipComesFromContract(unittest.TestCase):
         per_role = re.search(r"const CONTRACT_SECTIONS = \{(.*?)\n\}", src, re.S).group(1)
         names = set(re.findall(r"'([^']+)'", common + per_role))
         headings = set(re.findall(r"^## (.+)$", CONTRACTS.read_text(encoding="utf-8"), re.M))
-        self.assertIn("W のファイルと書き手", names)
         self.assertEqual(names - headings, set())
-        self.assertIn(f"'## {'W のファイルと書き手'}'", SOURCE)
+        owned = re.search(r"const OWNERSHIP = \{[^}]*heading: '## ([^']+)'", SOURCE).group(1)
+        self.assertIn(owned, headings)
+        self.assertIn(owned, names, "所有表の節を全役が読む節に入れていない")
 
     def test_見出しがあっても表が無ければ止まる(self):
         text = CONTRACTS.read_text(encoding="utf-8")

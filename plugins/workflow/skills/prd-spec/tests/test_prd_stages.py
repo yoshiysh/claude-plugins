@@ -76,7 +76,7 @@ function respond(prompt, label) {
     const q = (at('questions_at', stage) || []).map((id) => ({ id, about: about(id) }))
     const ruled = (at('ruled_at', stage) || []).map((id) => ({ id, about: about(id) }))
     const holds = (at('holds_at', stage) || []).map((id) => ({ id, about: about(id) }))
-    const out = { ruled, questions: q, holds, supersedes: [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], sha256: sha }
+    const out = { ruled, questions: q, holds, supersedes: [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], resolutions_sha256: sha }
     const checked = at('questions_check_ids_at', stage) || (stage.endsWith('-questions') ? ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g) : q.map((x) => x.id))
     if (checked.length) {
       const bad = (spec.bad_questions_at || []).includes(stage) ? 1 : 0

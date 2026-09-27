@@ -1,16 +1,5 @@
-// doc_check: 文書の本文に依存する決定的な検査を、Workflow script の外で実行する CLI。
-//
-// Workflow script はファイルを読めない。本文を script の手元に置くには writer に全文を返させる
-// しかなく、それが改稿のたびに文書全体を Write と返り値で 2 度出力させる原因だった（実測:
-// 6 文書・333〜1002 行の run で writer が cache read の約 45% を消費）。本文を読む検査を
-// ここへ置き、agent にこの CLI を実行させて件数と digest だけを受け取る。
-//
-// 使い方は 2 つある。
-// - node doc_check.mjs <input.json>（相対パスは実行時のカレントディレクトリ基準）。入出力の契約は
-//   fixture テストが移設前の結果との一致を確かめる形として残している。
-// - node doc_check.mjs <mode> --workspace <W> [...]。workspace を直接読むモード。mode は
-//   WS_MODES のどれか（references/workflow-io.md §6）。結果は W/checks/ に書き、stdout には
-//   件数・digest・書いたパスだけを出す（下の「workspace モード」の節）。
+// doc_check: 本文を読む決定的な検査の CLI。Workflow script はファイルを読めないので、agent にこの CLI を実行させて
+// 件数と digest だけを受け取る（本文を返り値で運ぶと、改稿のたびに文書全体を Write と返り値で 2 度出力させる）。
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -41,7 +30,7 @@ const ID_IN_TEXT = {
   specifications: /\bSP-[A-Z][A-Z0-9]*-\d+\b/g,
 }
 
-// newlineCount: `wc -l` と同じ数え方（改行の数）。writer が返す line_count との照合に使う。
+// newlineCount: `wc -l` と同じ数え方（改行の数）。lineTotal と違い、末尾に改行の無い最終行を数えない。
 function newlineCount(md) {
   return (String(md || '').match(/\n/g) || []).length
 }
@@ -53,7 +42,6 @@ function lineTotal(md) {
   return newlineCount(s) + (s.endsWith('\n') ? 0 : 1)
 }
 
-// changedLineRanges: 前稿と改稿の差分を、見出し（## / ### / ####）で区切った節の単位で返す。
 // 節は「見出し文字列 + 出現順」で対応づける — 位置で対応づけると、1 節の挿入で後続の全節が
 // 変更扱いになり、スコープ監査が全文監査に戻る。返す行番号は改稿（next）側の 1 始まり。
 // 削除された節は幅 0 の { start, end: start - 1, deleted: true } で、元あった位置を示す。
@@ -112,11 +100,8 @@ function changedLineRanges(prevMarkdown, nextMarkdown) {
   return [...merged, ...deleted].sort((a, b) => a.start - b.start || Number(Boolean(a.deleted)) - Number(Boolean(b.deleted)))
 }
 
-// ------------------------------------------------------- 構造検査の文面
-//
-// CLI は指摘を { c: 種別, d: 文書キー, a: 引数 } の短い形で出し、文面（id / location / quote /
-// severity / issue / fix）はこの表から組み立てる。agent は CLI の出力を書き写して返すので、指摘ごとに同じ説明文を載せると出力が数百 KB に膨らみ、写すトークンと写し間違いの
-// 機会がそのまま増える（実測: 実 run の下書きで 311〜415 KB）。
+// CLI は指摘を { c: 種別, d: 文書キー, a: 引数 } の短い形で出し、文面はこの表から組み立てる。agent は CLI の出力を
+// 書き写して返すので、指摘ごとに同じ説明文を載せると出力が数百 KB に膨らみ、写すトークンと写し間違いの機会が増える。
 // 組み立て結果は tests/test_doc_check.py が golden と照合する（文面を変えたら golden も直す）。
 // FINDING_TEXT_BEGIN
 const KIND_LABEL = { R: '要求', S: '仕様項目' }
@@ -422,11 +407,7 @@ const FINDING_TEXT = {
   }),
 }
 
-// expandStructural: 短い形の { findings, not_checked } を文面付きの形に戻す。短い形の findings は
-// 「同じ種別・同じ文書が続く指摘」を 1 要素にまとめた { c, d, a: [引数の組, ...] } の列で、
-// 展開すると引数の組 1 つが指摘 1 件になる（順序は CLI が検出した順のまま）。文面付きの各要素は
-// { auditor: 'structural', id, document, location, quote, severity?, issue, fix }、not_checked は
-// { id, issue }。未知の種別は例外にする（黙って落とすと、指摘が「0 件」に化ける）。
+// expandStructural: 未知の種別は例外にする（黙って落とすと、指摘が「0 件」に化ける）。
 function expandStructural(compact) {
   const make = (c, args) => {
     const t = FINDING_TEXT[c]
@@ -453,12 +434,8 @@ function expandStructural(compact) {
 }
 // FINDING_TEXT_END
 
-// ------------------------------------------------------- 工程の流れ（flow）の形と閉包
-//
-// flow は flow-framer が初稿の前に描く PFD で、各項目を当てる軸になる（契約は
-// schemas/agent-contracts.md の flow-framer 節）。軸が閉じていなければ「どの工程にも項目が当たっている」
-// は何も保証しないので、形と閉包は算術で押さえる。prd.js は flow モードの stdout の指摘が 0 件でない flow では
-// 書き始めない（writer には flow を直す手段が無く、改稿枠を空回りさせるだけになる）。
+// flow の軸が閉じていなければ「どの工程にも項目が当たっている」は何も保証しないので、形と閉包は算術で押さえる。
+// prd.js は指摘が 0 件でない flow では書き始めない（writer には flow を直す手段が無い）。
 function flowGraphCompact(flow) {
   const FLOW_TYPES = ['input', 'step', 'decision', 'output']
   const out = []
@@ -517,12 +494,8 @@ function flowGraphCompact(flow) {
   return out
 }
 
-// ------------------------------------------------------- 状態 × イベント表と判定表の検査
-//
-// 状態機械と判定規則は、項目ごとの散文で書くと「同じ入力に 2 つの行き先」「分岐の値に行き先が無い」
-// 「条件が重なる」を読み手が照合するしかなく、実 run では依頼者への質問に化けて依頼者に届いた
-// （6 文書で 12 問。ほぼ全件が文書内の不整合だった）。表の形を document-structure.md §6 / §2.8 に
-// 固定し、網羅・一意・到達を算術で検査する。機械的に読めない表は検査しない（偽陽性は改稿枠を空回りさせる）。
+// 状態機械と判定規則は、散文だと「同じ入力に 2 つの行き先」「分岐の値に行き先が無い」「条件が重なる」を読み手が照合するしかない。
+// 表の形を document-structure.md §6 / §2.8 に固定して算術で検査し、機械的に読めない表は検査しない（偽陽性は改稿枠を空回りさせる）。
 
 const cellsOf = (line) => {
   const t = line.trim()
@@ -533,7 +506,6 @@ const isSeparator = (cells) => cells && cells.length && cells.every((c) => /^:?-
 const splitAxis = (s) => String(s).split(/\s+\/\s+/).map((x) => x.trim()).filter(Boolean)
 const BLANK_CELL = /^(—|-|–|―|なし)?$/
 
-// sectionsOf2: `## ` 見出しで区切った節（コードフェンスの中は見出しとして扱わない）。
 function sectionsOf2(md) {
   const lines = String(md || '').split('\n')
   const secs = []
@@ -551,7 +523,6 @@ function sectionsOf2(md) {
   return secs
 }
 
-// tablesOf: 節の中のパイプ表（見出し行 + 区切り行 + 本体）。行番号は文書全体の 1 始まり。
 function tablesOf(sec) {
   const tables = []
   let lastHeading = sec.heading
@@ -627,7 +598,6 @@ function stateDiagramOf(sec) {
   return found ? edges : null
 }
 
-// namesIn: 文字列に現れる状態名（長い名前から照合し、照合済みの箇所は二重に数えない）。
 function namesIn(text, names) {
   let rest = String(text || '')
   const hits = []
@@ -674,7 +644,6 @@ function stateCheck(d, sec, out, fallbackEdges) {
   if (!events.length) {
     out.push({ c: 'STATE_NOAXIS', d: key, a: [key, sec.heading || '(冒頭)'] })
   }
-  // cells: (状態, イベント) → { targets: Set, noop, open, from: 'table' }。図の辺でイベントに当たるものは別に持つ。
   const cells = new Map()
   const cellOf = (s, e) => {
     const k = `${s}\u0000${e}`
@@ -725,8 +694,7 @@ function stateCheck(d, sec, out, fallbackEdges) {
       }
     }
   }
-  // 図の辺のうち、ラベルが軸のイベント（記号か名前）で始まるものを (状態, イベント) の遷移として読む。
-  // それ以外の辺はイベントでない条件による主フローであり、表とは突き合わせない。
+  // 図の辺のうちラベルが軸のイベントで始まらないものは、イベントでない条件による主フローなので表とは突き合わせない。
   const diagramByCell = new Map()
   for (const e of diagramEdges) {
     if (e.from === '[*]' || e.to === '[*]') continue
@@ -781,8 +749,6 @@ function stateCheck(d, sec, out, fallbackEdges) {
   }
 }
 
-// 判定表: 見出しに「条件: 名前」の列が 1 つ以上と「結果」の列を持つ表（document-structure.md §2.8）。
-// 各条件の値の集合は「> 条件の値: 名前 = a / b」の宣言、無ければ列に現れた値から取る。
 const DT_WILDCARD = /^(\*|—|-|–|任意)?$/
 const DT_MAX_COMBOS = 4096
 function decisionCheck(d, sec, out, notChecked) {
@@ -816,9 +782,7 @@ function decisionCheck(d, sec, out, notChecked) {
   }
 }
 
-// tableFindings: 判定表の網羅と一意の算術。文書の判定表と flow の decision の両方がこれを呼ぶ（展開の実装を 1 つに保つ）。
-// conds は [{name, values}]（values が null なら行に現れた値から取る）、rows は「上記以外」を除いた [{no, vals, res}]。
-// 戻り値は検出の順に並んだ { kind: value | too_many | gap | overlap, … } の列。
+// tableFindings: 文書の判定表と flow の decision の両方がこれを呼ぶ（展開の実装を 1 つに保つ）。
 function tableFindings(conds, rows, hasElse) {
   const found = []
   // 宣言外の値は (条件, 値) ごとに 1 件にする。行ごとに出すと、同じ値が 4 行にあれば同じ id の指摘が
@@ -855,7 +819,6 @@ function tableFindings(conds, rows, hasElse) {
   return found
 }
 
-// formalCompact: 文書ごとの状態機械・判定表の検査と、flow への項目の当たり方の検査。
 // flow が undefined（入力に flow キーが無い）なら flow の検査を行わない。null は「渡されるはずが
 // 無かった」ではなく「無い」の申告なので未検査として返す。
 function formalCompact(docs, flow) {
@@ -912,15 +875,9 @@ function formalCompact(docs, flow) {
   return { findings: out, not_checked: notChecked }
 }
 
-// ------------------------------------------------------- 構造検査
-//
-// 正本はこのファイルだけである。Workflow script は複製を持たず、agent にこの CLI を実行させる
-// （以前は 2 つの script に逐語で複製しており、片方だけ直すと判定が食い違った）。
-//
-// docs は [{ key, kind, topic, markdown, ids, referenced, traceability, fixed }] の正規化済み配列。
-// 戻り値は { findings, not_checked }。not_checked は「材料が無くて実行できなかった検査」で、
-// 失格ではない。これを返さないと、片側の文書が対象外のランで「検査して 0 件」と
-// 「そもそも検査していない」が区別できず、後者が合格として提示される。
+// 構造検査の正本はこのファイルだけである。Workflow script は複製を持たず、agent にこの CLI を実行させる。
+// not_checked は「材料が無くて実行できなかった検査」で、失格ではない。これを返さないと、片側の文書が対象外のランで
+// 「検査して 0 件」と「そもそも検査していない」が区別できず、後者が合格として提示される。
 function structuralCompact(docs, flow) {
   const out = []
   const notChecked = []
@@ -931,7 +888,7 @@ function structuralCompact(docs, flow) {
     docs.flatMap((d) => (d.tbd_items || []).map((t) => t && t.id).filter(Boolean))
   )
 
-  // (1) 文書を跨いだ ID の重複。複数文書化で新たに必要になった検査。同じ ID を 2 文書が
+  // (1) 文書を跨いだ ID の重複。同じ ID を 2 文書が
   //     定義すると、トレーサビリティ表がどちらを指すか決まらず、紐付け自体が意味を失う。
   const owners = new Map()
   for (const d of docs) {
@@ -963,7 +920,6 @@ function structuralCompact(docs, flow) {
   }
 
   // (2) 片側にしか現れない ID。requirements の ID 集合 / specifications の ID 集合 /
-  //     トレーサビリティ表の 3 集合を**文書を跨いで**照合する。ここがこのスキルの背骨。
   if (!reqDocs.length || !specDocs.length) {
     notChecked.push({ c: 'NC_CROSSREF', a: [!reqDocs.length ? 'requirements' : 'specifications'] })
   }
@@ -1011,9 +967,8 @@ function structuralCompact(docs, flow) {
     // 属さない第三の類型であり、欠番の列挙は表記規約が要求する記載である。申告（vacant_ids）と
     // 本文の行併記（「欠番」の語と同じ行にある ID）の和で認識する。行単位に絞るのは、文書全体の
     // includes で判定すると「欠番」の語が一度でもあれば全 ID が免除され、本物の申告漏れを
-    // 隠すため。この認識が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する
-    // （実測: 同一文書の review 3 run で同じ 6 件が再起票され、終端裁定が毎回同じ棄却を
-    // 繰り返した。棄却は run を跨いで持ち越されないため、検査側で認識しない限り止まらない）。
+    // 隠すため。この認識が無いと、欠番宣言を持つ文書で ST-UNDECLARED が毎 run 再発する（棄却は run を跨いで
+    // 持ち越されないため、検査側で認識しない限り止まらない）。
     const vacantDeclared = new Set(d.vacant || [])
     for (const line of d.markdown.split('\n')) {
       if (!line.includes('欠番')) continue
@@ -1038,8 +993,7 @@ function structuralCompact(docs, flow) {
     for (const id of d.fixed ? [] : tbdInText) {
       // 申告は文書を跨いで有効。仕様書が要求文書の TBD を引くのは、ID が文書を跨いで一意で
       // あることの帰結であり正しい参照である。ここを文書ローカルで突き合わせると、その参照が
-      // すべて「申告漏れ」に化け、writer が直せない指摘を抱えて改稿枠を空回りさせる
-      // （実測: 6 文書の初稿で 15 件の誤検出）。守りたいのは「どの文書にも申告されていない
+      // すべて「申告漏れ」に化け、writer が直せない指摘を抱えて改稿枠を空回りさせる。守りたいのは「どの文書にも申告されていない
       // TBD が blocking の集計から外れること」なので、全文書の申告の和で判定する。
       if (tbdDeclaredAll.has(id)) continue
       out.push({ c: 'UNDECLARED_TBD', d: d.key, a: [id] })
@@ -1250,8 +1204,6 @@ function structuralFindings(docs, flow) {
   return expandStructural(structuralCompact(docs, flow))
 }
 
-// headingIndex: 見出し（## / ### / ####。コードフェンスの中は除く）ごとの行範囲。範囲は次の同格以上の
-// 見出しの手前まで（## はその下の ### / #### を含む）。行番号は 1 始まり。
 function headingIndex(md) {
   const lines = String(md || '').split('\n')
   if (lines.length && lines[lines.length - 1] === '') lines.pop()
@@ -1268,7 +1220,7 @@ function headingIndex(md) {
   })
 }
 
-// writeIndex: 見出しと行範囲の一覧を index_dir に書き、そのパスと行数を返す。監査役・writer は
+// writeIndex: 監査役・writer は
 // 他文書や固定文書の本文を通読する代わりにこれを読み、要る節だけを行範囲で Read する。本文を
 // 出力に載せないので、agent が書き写す量は増えない。書けなければ null（呼び出し側は Grep で
 // 見出しを列挙させる経路に戻る）。
@@ -1298,7 +1250,6 @@ function readBody(p) {
   }
 }
 
-// runChecks: 入力の各文書をファイルから読み、構造検査・行数・変更範囲を返す。
 // 読めなかった文書は exists: false にして本文の検査を not_checked に載せる（CLI ごと落とすと、
 // 他の文書の検査結果まで失われる）。
 function runChecks(input) {
@@ -1332,7 +1283,6 @@ function runChecks(input) {
       ...(cur.exists && input.index_dir ? writeIndex(input.index_dir, indexName(d.key), d.path, cur.text) || {} : {}),
     })
   }
-  // index_extra: 検査対象ではないが索引だけが要るファイル（run の外の標本文書など）。
   const extra = (input.index_extra || []).map((p, i) => {
     const cur = readBody(p)
     return {
@@ -1351,20 +1301,14 @@ function runChecks(input) {
   return { input_digest: stableKey(canonicalJson(input)), ...body, output_digest: stableKey(canonicalJson(body)) }
 }
 
-// ======================================================= workspace モード
-//
 // 文書は W/<kind>-<topic>.md の 1 本だけを持ち、writer が Edit で直接更新する。項目 ID と参照 ID は
 // 本文から導出し、本文から取れない trace と TBD の候補だけを W/<kind>-<topic>.meta.json に置く（本文と
 // meta に同じ ID を二重に持つと、Edit のたびに両方を直すことになり、ずれを検査で拾う手間が増える）。
 // Workflow script はファイルを読めないので、このモードは起動済みの agent が実行し、結果は W/checks/ の
 // ファイルと stdout の digest で受け渡す。stdout に指摘の文面を出さないのは、agent に書き写させると
 // 写すトークンと写し間違いの機会がそのまま増えるため。
-//
-// meta.json: { "trace": [{ "item_id", "kind", "ref"? }], "tbd": [{ "id", "text", "blocking" }], "fixed"? }
-// - kind が "flow" の trace は、その項目を flow の要素 ref に当てた申告として扱う。
 // - fixed: true の文書（expand の要求文書など）は ID の定義元として数えるが、書き手の欠陥は検査しない。
-// flow.json の各要素の source: { "input": "依頼文の引用" } / { "decision": "D-001" } / { "open": "O-001" }
-// のどれか 1 つ（複数なら配列）。引用が依頼文に実在するかは put が書く前に照合する（flow モードは形と ID の実在だけ）。
+// flow の出典の引用が依頼文に実在するかは put が書く前に照合する（flow モードは形と ID の実在だけを見る）。
 
 // WORKSPACE_TEXT_BEGIN
 const WORKSPACE_TEXT = {
@@ -1767,7 +1711,6 @@ function flowRefRejects(ws, resolutions) {
   return bad
 }
 
-// refRejects: 台帳の欄が指す、別の台帳の ID の実在（候補の flow_refs、要素の constrained_by）。
 function refRejects(ws, name, body) {
   if (name === 'resolutions') return flowRefRejects(ws, body.resolutions || [])
   if (name !== 'flow') return []
@@ -1815,7 +1758,6 @@ function fieldRejects(name, body) {
   return bad
 }
 
-// caseRejects: マージした後の要素のうち、この put が触れたものを欄の条件で見る。
 function caseRejects(name, next, body) {
   const spec = ledgerOf(name)
   const bad = []
@@ -1891,7 +1833,6 @@ function mergeList(cur, incoming, key, grouped, tally) {
   return out
 }
 
-// mergeElement: 送った最上位の欄だけを上書きし、null の欄は消す。送らなかった欄は残るので、欄を消すには null が要る。
 function mergeElement(old, el) {
   const out = { ...old, ...el }
   for (const k of Object.keys(el)) if (el[k] === null) delete out[k]
@@ -1948,8 +1889,7 @@ function ledgerResult(name, file, tally, value, ws, doc) {
   }
 }
 
-// put: 標準入力の { <配列名>: [要素], <スカラー名>: 値 } をキー単位で足し・置き換える。検査はすべて書く前に
-// 済ませ、1 件でも落ちたらファイルに触れない。
+// put: 検査はすべて書く前に済ませ、1 件でも落ちたらファイルに触れない。
 function wsPut(ws, opts, stdin) {
   const name = opts.ledger
   const spec = ledgerOf(name)
@@ -2111,9 +2051,7 @@ function workspaceDocs(ws) {
     })
 }
 
-// itemSections: 見出し（# 〜 ######。コードフェンスの中は除く）ごとの区間。見出しに自文書の種別の ID を
-// 持つ区間はその ID を key にし、持たない区間は「§見出し」を key にする（同じ key が続けば #2, #3）。
-// 区間の text は末尾の空白行を落とす（項目の間の空行の出し入れを変更と数えないため）。
+// itemSections: 区間の text は末尾の空白行を落とす（項目の間の空行の出し入れを変更と数えないため）。
 function itemSections(md, kind) {
   const lines = String(md || '').split('\n')
   const out = []
@@ -2168,9 +2106,8 @@ function snapshotOf(wsDocs) {
   return Object.fromEntries(wsDocs.map((d) => [d.key, docItems(d)]))
 }
 
-// traceabilityOf: 「要求 ID」と「仕様項目 ID」の列を持つ表の行から紐付けを導出する。1 つのセルに複数の
-// ID があれば組をすべて作る。両方の ID が揃わない行は紐付けとして数えない（片側だけの行を数えると、
-// 根拠の無い仕様項目が「紐付け済み」に化ける）。
+// traceabilityOf: 両方の ID が揃わない行は紐付けとして数えない（片側だけの行を数えると、根拠の無い仕様項目が
+// 「紐付け済み」に化ける）。
 function traceabilityOf(md) {
   const links = []
   const lines = new Set()
@@ -2191,8 +2128,7 @@ function traceabilityOf(md) {
   return { links, lines }
 }
 
-// deriveDocs: structuralCompact が読む形に正規化する。ids は見出しに現れる自文書の種別の ID、referenced は
-// 本文のそれ以外の自種別の ID。この導出では申告と本文の突き合わせ（UNDECLARED / PHANTOM）は起こりえないので、
+// deriveDocs: この導出では申告と本文の突き合わせ（UNDECLARED / PHANTOM）は起こりえないので、
 // 代わりに参照先の実在を REF_UNDEFINED で検査する。
 function deriveDocs(wsDocs) {
   return wsDocs.map((d) => {
@@ -2265,7 +2201,6 @@ function sentencesOf(line) {
   return line.split('。').map((s) => s.trim()).filter(Boolean)
 }
 
-// workspaceExtraCompact: workspace モードだけで当てる検査（参照先の実在・曖昧語・開いた TBD の断定）。
 function workspaceExtraCompact(docs, openTbd) {
   const out = []
   const defined = new Set(docs.flatMap((d) => d.ids))
@@ -2335,7 +2270,6 @@ function workspaceExtraCompact(docs, openTbd) {
 
 const constraintsOf = (el) => [...new Set((Array.isArray(el.constrained_by) ? el.constrained_by : []).map((x) => String(x).trim()).filter(Boolean))]
 
-// flowSourceCompact: flow の各要素と decision の各 case の出典の形と、出典と constrained_by が挙げた決定・未決の ID の実在。
 function flowSourceCompact(flow, decisionIds, openIds) {
   const out = []
   const check = (where, source, badShape) => {
@@ -2363,7 +2297,7 @@ function flowSourceCompact(flow, decisionIds, openIds) {
 }
 
 // flowTableCompact: decision ごとの判定表（inputs × cases）。網羅と一意は文書の判定表と同じ tableFindings で見る。
-// 行き先の同じ値を 1 つの枝に畳んだ判断は、下流が値を使わない限り、分類を潰したまま検査を通る（前回の試走の F-012）。
+// 行き先の同じ値を 1 つの枝に畳んだ判断は、下流が値を使わない限り、分類を潰したまま検査を通る。
 function flowTableCompact(flow) {
   const out = []
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
@@ -2435,7 +2369,6 @@ function flowHistoryCompact(flow) {
   return out
 }
 
-// groupCompact: { c, d, a } の列を、同じ (c, d, a) を 1 件にしてから、続く同じ種別・同じ文書でまとめる。
 function groupCompact(list) {
   const seen = new Set()
   const grouped = []
@@ -2450,7 +2383,6 @@ function groupCompact(list) {
   return grouped
 }
 
-// expandWorkspace: expandStructural と同じ展開を、workspace モードの種別も含めた表で行う。
 function expandWorkspace(compact) {
   const table = { ...FINDING_TEXT, ...WORKSPACE_TEXT }
   const make = (c, args) => {
@@ -2564,7 +2496,7 @@ function wsConflicts(ws) {
   }
 }
 
-// doc: 文書の構造検査に、参照先の実在・曖昧語・開いた TBD の断定を加える。開いている TBD は --open-tbd
+// doc: 開いている TBD は --open-tbd
 // （script が解消済みを除いて算出したもの）を正とし、無ければ meta の TBD の候補の和を使う（どちらを
 // 使ったかを結果に書く）。--doc を付けると、その文書の指摘だけを別のファイルに書く（並列の writer が
 // 同じ結果ファイルを奪い合わないため。検査そのものは文書を跨いで全体に当てる）。
@@ -2686,8 +2618,7 @@ function treeFindings(ws, wsDocs, live, name) {
   return { stray: { count: stray.length, path: writeCheck(ws, `${name}.stray.json`, { stray }) }, ...sizesOf(ws, wsDocs, name) }
 }
 
-// snapshot --save: 項目ごとの hash を checks/<label>.snapshot.json に書く。audited- で始まるラベルは
-// --role auditor のときだけ保存する。CLI は呼び出し元を識別できないので、これは書き手が監査の基準を
+// snapshot --save: audited- で始まるラベルは --role auditor のときだけ保存する。CLI は呼び出し元を識別できないので、これは書き手が監査の基準を
 // 取り違えて上書きする事故を防ぐだけである。基準の差し替えを検出するのは diff の --expect の照合。
 function wsSnapshot(ws, opts) {
   const label = opts.save
@@ -2705,7 +2636,7 @@ function wsSnapshot(ws, opts) {
   return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, ...found }
 }
 
-// diff --against <label> --expect <digest>: 保存した snapshot と今の木を項目の単位で比べる。snapshot の
+// diff: snapshot の
 // digest はファイルの items から計算し直し、ファイルに書かれた digest と --expect の両方に一致しなければ
 // 失敗にする（どちらか一方との照合だと、items を書き換えたファイルを受け入れてしまう）。失敗したときは
 // 以前の diff の結果ファイルも消す（古い結果を今回の結果として読ませないため）。
@@ -2751,10 +2682,8 @@ function wsTreeDigest(ws, opts) {
   return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0), ...treeFindings(ws, wsDocs, opts.live, 'tree-digest') }
 }
 
-// index: 保存先の 2 つの INDEX（references/document-splitting.md §6）を W の文書から導出し、
-// checks/INDEX.<kind>.md に書く。INDEX は本体の写しなので、手で書くと必ず本体と drift する。司令塔はこの
-// ファイルを保存先へ逐語で写すだけにする（司令塔が文を書かないため）。関心事は plan.json の docs[].concern、
-// 項目は見出しの ID、要求と仕様の対応は仕様書のトレーサビリティ表から取る。
+// index: INDEX は本体の写しなので、手で書くと必ず本体と drift する。司令塔はこの
+// ファイルを保存先へ逐語で写すだけにする（司令塔が文を書かないため）。
 const cellOf = (v) => String(v == null ? '' : v).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
 function wsIndex(ws, opts) {
   const wsDocs = workspaceDocs(ws)
@@ -2850,7 +2779,6 @@ function parseWorkspaceArgs(argv) {
   return o
 }
 
-// runWorkspace: stdout に出す 1 行分のオブジェクトを返す（件数・digest・書いたパスだけ）。
 function runWorkspace(mode, argv) {
   const opts = parseWorkspaceArgs(argv)
   if (!opts.workspace) throw new Error('--workspace <W> が要ります')

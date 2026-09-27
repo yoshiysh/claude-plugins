@@ -5,7 +5,7 @@
 (2) 改稿後の本文がプロンプトへインラインで埋め込まれ、1 プロンプトが最大 39 万字に達した。
 
 押さえるのは 3 つ。
-1. prd.js の全 agent() が model と effort を表（ROLE_OPTS）から取り、表は設計書 §2 の既定と一致する
+1. prd.js の全 agent() が model と effort を表（ROLE_OPTS）から取り、表は各役の frontmatter と一致する
 2. プロンプトを組むコードが本文も JSON の全量も埋め込まない（パスで渡す）
 3. changedLineRanges（doc_check.mjs）が変更の行範囲を正しく返す
 """
@@ -62,21 +62,17 @@ class TestAgentOptsAreExplicit(unittest.TestCase):
                 self.assertIn(m.group(1), roles)
             self.assertNotRegex(code[pos:m.start()], r"model:", "model を直書きしている")
 
-    def test_配分表は設計書の既定と一致する(self):
-        # 見落としがそのまま欠陥になる観点（implementer・grounding）だけ high。項目の間を見る cross-doc は sonnet。
-        self.assertEqual(
-            _role_opts(PRD),
-            {
-                "intake": ("opus", "medium"),
-                "flowFramer": ("opus", "medium"),
-                "resolver": ("opus", "medium"),
-                "verifier": ("opus", "medium"),
-                "writer": ("opus", "medium"),
-                "implementer": ("opus", "high"),
-                "grounding": ("opus", "high"),
-                "crossDoc": ("sonnet", "medium"),
-            },
-        )
+    def test_役の_frontmatter_は配分表と一致する(self):
+        files = dict(re.findall(r"(\w+): '([\w-]+\.md)'", re.search(r"const ROLE_FILES = \{(.*?)\n\}", PRD, re.S).group(1)))
+        roles = _role_opts(PRD)
+        self.assertEqual(set(files), set(roles))
+        for role, name in files.items():
+            head = (SKILL / "agents" / name).read_text().split("---")[1]
+            got = (re.search(r"^model: (\w+)$", head, re.M).group(1), re.search(r"^effort: (\w+)$", head, re.M).group(1))
+            self.assertEqual(got, roles[role], name)
+        io = (SKILL / "references" / "workflow-io.md").read_text()
+        rows = re.findall(r"^\| ((?:`\w+`・?)+) \| (\w+) / (\w+) \|", io, re.M)
+        self.assertEqual({r: (m, e) for names, m, e in rows for r in re.findall(r"`(\w+)`", names)}, roles)
         for model, effort in _role_opts(PRD).values():
             self.assertIn(model, MODELS)
             self.assertIn(effort, EFFORTS)
@@ -94,6 +90,22 @@ class TestNoBodyInPrompts(unittest.TestCase):
         # 使ってよいのは state の複製（JSON.parse(JSON.stringify(...))）だけ。
         self.assertEqual(code.count("JSON.stringify("), code.count("JSON.parse(JSON.stringify("))
         self.assertNotRegex(code, r"\.markdown\b")
+
+    def test_プロンプトの文字列は役と契約の規則を写さない(self):
+        # 規則は agents/*.md と契約の節に置き、プロンプトには段・ID・パス・コマンドだけを置く（写しは片方だけ直されてずれる）。
+        norm = lambda t: re.sub(r"[\s`*「」]", "", t)
+        corpus = [norm(p.read_text()) for p in [*(SKILL / "agents").glob("*.md"), SKILL / "schemas" / "agent-contracts.md"]]
+        code = "\n".join(ln for _, ln in _code_lines(PRD))
+        found = []
+        for m in re.finditer(r"'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`", code):
+            for part in re.split(r"\$\{[^}]*\}", m.group(1) if m.group(1) is not None else m.group(2)):
+                lit = norm(part)
+                for i in range(len(lit) - 19):
+                    frag = lit[i : i + 20]
+                    if len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", frag)) >= 10 and any(frag in c for c in corpus):
+                        found.append(frag)
+                        break
+        self.assertEqual(found, [])
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

@@ -117,10 +117,8 @@ script が渡す「開いている TBD」に触れる文は、断定の語尾で
      本文だけで直すと、流れと食い違う規範を書く）。
    - `routes.json` の担当の ID（段 6 で resolver が裁定した分だけ）。合格した裁定を当てる。段 6 が起動しなかった
      ときは渡されない。
-3. 当てた指摘の ID を `applied_findings` に、当てた route の ID を `applied_routes` に返す。script は渡した ID と
-   比べ、当たっていない分を残りとして数える。
-4. 変えた項目を、snapshot の項目キーの形で `changed_items` に申告する。script は段 8 の木全体の diff とこれを
-   比べ、申告に無い変更があればその項目に監査を追加で起動する。
+3. 当てた指摘の ID を `applied_findings` に、当てた route の ID を `applied_routes` に返す。
+4. 変えた項目を、snapshot の項目キーの形で `changed_items` に申告する。
 
 ## 検査を通してから返す
 
