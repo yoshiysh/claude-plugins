@@ -16,20 +16,21 @@
 //   node scripts/select_runtime.js --mode create --native-available --runner-installed
 //   node scripts/select_runtime.js --mode review --no-native --runner-installed
 //   node scripts/select_runtime.js --mode update --no-native --runner-installed
+//     --update-policy-bound
 //
 // 出力（JSON 1 行）:
 //   { "selected_runtime": "native" | "dynamic-workflow-runner" | null,
 //     "rejected_reason": null | "<理由>", "halt": true|false }
 // halt: true のとき execution agent を 1 体も起動しない。未実施と理由をユーザーへ伝えて止める。
 
-// review inputs are not frozen and update's staging, manifest, reverify, and apply boundaries
-// are incomplete. Capability declarations cannot prove those invariants, so both modes stop.
-const RUNNER_REJECTED_MODES = ['review', 'update']
+// review inputs are not frozen. Update requires a host-bound policy; the runtime
+// validates that policy against its staging-only SDK backend before dispatch.
+const RUNNER_REJECTED_MODES = ['review']
 
 const MODES = ['create', 'review', 'update']
 
 function parse(argv) {
-  const out = { mode: null, nativeAvailable: null, nativeAttempted: false, runnerInstalled: null }
+  const out = { mode: null, nativeAvailable: null, nativeAttempted: false, runnerInstalled: null, updatePolicyBound: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--mode') out.mode = argv[++i]
@@ -38,6 +39,7 @@ function parse(argv) {
     else if (a === '--native-attempted') out.nativeAttempted = true
     else if (a === '--runner-installed') out.runnerInstalled = true
     else if (a === '--no-runner') out.runnerInstalled = false
+    else if (a === '--update-policy-bound') out.updatePolicyBound = true
     else throw new Error(`未知の引数: ${a}`)
   }
   if (!MODES.includes(out.mode)) {
@@ -50,7 +52,7 @@ function parse(argv) {
   return out
 }
 
-function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled }) {
+function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled, updatePolicyBound }) {
   if (nativeAvailable && !nativeAttempted) {
     return { selected_runtime: 'native', rejected_reason: null, halt: false }
   }
@@ -69,6 +71,13 @@ function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled
     return {
       selected_runtime: null,
       rejected_reason: `rejected_source: mode=${mode} は runner では意味保存できない`,
+      halt: true,
+    }
+  }
+  if (mode === 'update' && !updatePolicyBound) {
+    return {
+      selected_runtime: null,
+      rejected_reason: 'rejected_source: mode=update には host-bound updatePolicy が必要',
       halt: true,
     }
   }

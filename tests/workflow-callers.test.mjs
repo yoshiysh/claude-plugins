@@ -169,10 +169,10 @@ test('rejected sources document their runtime boundary', () => {
     'utf8'
   )
   assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
-  assert.match(creator, /mode: update[\s\S]*常に `rejected_source`/)
+  assert.match(creator, /mode: update[\s\S]*updatePolicy[\s\S]*apply-update-package/)
 })
 
-test('skill-creator update is rejected by the Codex runner regardless of capability declarations', () => {
+test('skill-creator update requires an explicitly bound host policy', () => {
   const selector = join(
     pluginsRoot,
     'skill-creator',
@@ -192,6 +192,10 @@ test('skill-creator update is rejected by the Codex runner regardless of capabil
   assert.equal(rejected.selected_runtime, null)
   assert.equal(rejected.halt, true)
   assert.match(rejected.rejected_reason, /rejected_source: mode=update/)
+
+  const bound = select('--update-policy-bound')
+  assert.equal(bound.selected_runtime, 'dynamic-workflow-runner')
+  assert.equal(bound.halt, false)
 
   const native = JSON.parse(execFileSync(process.execPath, [
     selector,

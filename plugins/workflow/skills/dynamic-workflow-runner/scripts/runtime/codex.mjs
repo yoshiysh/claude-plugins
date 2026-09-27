@@ -8,21 +8,43 @@ import { contextPolicy } from './contexts.mjs';
 // Transport only: keep the caller schema unchanged for runtime validation.
 const transportSchema = { type: 'object', properties: { json: { type: 'string' } },
   required: ['json'], additionalProperties: false };
+const updateBackends = new WeakMap();
+const updateSandboxConfig = Object.freeze({
+  sandbox_workspace_write: Object.freeze({
+    writable_roots: Object.freeze([]),
+    exclude_slash_tmp: true,
+    exclude_tmpdir_env_var: true,
+    network_access: false,
+  }),
+});
+
+export function enforcesUpdateBoundary(backend, updateContract) {
+  const configured = backend && updateBackends.get(backend);
+  return Boolean(configured && updateContract &&
+    ['targetRoot', 'stagingRoot', 'targetDir', 'stagingDir']
+      .every(key => configured[key] === updateContract[key]));
+}
 
 // No aliases or automatic provider substitution. Caller owns the mapping.
 export function codexBackend(config = {}) {
   exactObject(config, backendKeys, 'Codex backend');
   const { cwd, modelMap = {}, codexPathOverride, model, modelReasoningEffort, CodexClass = Codex } = config;
   if (!cwd) throw new Error('explicit worker cwd required');
-  const workspaces = workspacePolicy(cwd, config.workspace);
+  const workspaces = workspacePolicy(cwd, config.workspace, config.updateContract);
   const environment = environmentPolicy(config.environment);
   const context = contextPolicy(config.context);
   const scopedContext = config.context !== undefined;
+  const updateEnabled = config.updateContract !== undefined;
+  if (updateEnabled && CodexClass !== Codex)
+    throw new Error('update contract requires the bundled Codex SDK backend');
+  if (updateEnabled && codexPathOverride !== undefined)
+    throw new Error('update contract does not permit a Codex binary override');
+  const strictConfig = updateEnabled ? updateSandboxConfig : {};
   const prepare = async () => ({ ...await workspaces.prepare(), environment: await environment.prepare(), context: await context.prepare() });
   const resolveModel = modelResolver({ model, modelReasoningEffort, modelMap });
   const inheritedCodex = scopedContext ? null : new CodexClass({ codexPathOverride,
-    config: { features: { multi_agent: false }, model_provider: 'openai', ...environment.sdkConfig } });
-  return {
+    config: { features: { multi_agent: false }, model_provider: 'openai', ...environment.sdkConfig, ...strictConfig } });
+  const backend = {
     resumeIdentity: { backend: 'codex-sdk-v1', model: model ?? null, modelMap,
       modelReasoningEffort: modelReasoningEffort ?? null, codexPathOverride: codexPathOverride ?? null },
     validateCheckpointPolicy() {
@@ -47,12 +69,14 @@ export function codexBackend(config = {}) {
       const selectedContext = await context.select(options);
       const codex = !scopedContext ? inheritedCodex : new CodexClass({ codexPathOverride,
         config: { ...selectedContext.sdkConfig, model_provider: 'openai', ...environment.sdkConfig,
-          features: { ...selectedContext.sdkConfig.features, multi_agent: false } } });
+          features: { ...selectedContext.sdkConfig.features, multi_agent: false }, ...strictConfig } });
       const directory = await workspaces.allocate(options, { signal, emit });
+      const sandboxMode = workspaces.modeFor(options);
       emit({ type: 'model.selected', ...selection });
       if (scopedContext) emit({ type: 'context.selected', ...selectedContext.receipt });
+      await workspaces.validateDispatch(options, directory);
       const thread = codex.startThread({ workingDirectory: directory, skipGitRepoCheck: true,
-        sandboxMode: policy.mode, approvalPolicy: 'never', webSearchMode: 'disabled',
+        sandboxMode: sandboxMode ?? policy.mode, approvalPolicy: 'never', webSearchMode: 'disabled',
         networkAccessEnabled: false, model: selection.model,
         modelReasoningEffort: selection.modelReasoningEffort });
       let answer, completed = false, failure;
@@ -85,4 +109,6 @@ export function codexBackend(config = {}) {
       }
     },
   };
+  if (updateEnabled) updateBackends.set(backend, Object.freeze({ ...config.updateContract }));
+  return backend;
 }

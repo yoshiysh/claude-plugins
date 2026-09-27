@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rename, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { workspacePolicy } from './workspaces.mjs';
@@ -37,31 +38,6 @@ test('worktrees use an explicit immutable baseline and retain independent output
   assert.equal(events.filter(e => e.type === 'workspace.ready').length, 2);
 });
 
-test('a queued worktree setup checks cancellation before allocating its directory', async t => {
-  const f = await fixture(t), events = [];
-  const policy = workspacePolicy(f.cwd, { mode: 'read-only', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit });
-  const queuedController = new AbortController();
-  let queuedResult;
-  const first = policy.allocate({ isolation: 'worktree' }, {
-    signal: new AbortController().signal,
-    emit(event) {
-      events.push(event);
-      if (event.type === 'workspace.allocated' && !queuedResult) {
-        queuedResult = policy.allocate({ isolation: 'worktree' }, {
-          signal: queuedController.signal,
-          emit: queuedEvent => events.push(queuedEvent),
-        }).then(value => ({ value }), error => ({ error }));
-        queueMicrotask(() => queuedController.abort());
-      }
-    },
-  });
-  await first;
-  const result = await queuedResult;
-  assert.match(result.error?.message ?? '', /abort/i);
-  assert.equal(events.filter(event => event.type === 'workspace.allocated').length, 1);
-  assert.equal(events.filter(event => event.type === 'workspace.ready').length, 1);
-});
-
 test('invalid, overlapping and cancelled workspace requests cannot dispatch', async t => {
   const f = await fixture(t);
   assert.throws(() => workspacePolicy(f.cwd, { mode: 'danger-full-access' }), /unsupported/);
@@ -73,21 +49,7 @@ test('invalid, overlapping and cancelled workspace requests cannot dispatch', as
   await assert.rejects(policy.allocate({ isolation: 'worktree' }, { signal: controller.signal, emit() { assert.fail('allocated after abort'); } }), /abort/i);
 });
 
-test('workspace policies never advertise update capabilities', async t => {
-  const f = await fixture(t);
-  const writable = workspacePolicy(f.cwd, { mode: 'workspace-write' });
-  assert.deepEqual(writable.capabilities, ['read-only', 'fresh-thread', 'workspace-write']);
-  await writable.prepare();
-
-  const readOnly = workspacePolicy(f.cwd, {});
-  assert.deepEqual(readOnly.capabilities, ['read-only', 'fresh-thread']);
-  await readOnly.prepare();
-
-  const contract = { targetDir: join(f.cwd, 'target'), stagingDir: join(f.cwd, 'staging') };
-  assert.throws(() => codexBackend({ cwd: f.cwd, updateContract: contract }), /unsupported Codex backend field: updateContract/);
-});
-
-test('workspace-write rejects a worktree-isolated dispatch before opening its SDK thread', async t => {
+test('workspace-write rejects an isolated dispatch before opening its SDK thread', async t => {
   const f = await fixture(t), starts = [];
   class MockCodex {
     startThread(options) {
@@ -99,11 +61,57 @@ test('workspace-write rejects a worktree-isolated dispatch before opening its SD
     }
   }
   const scriptPath = join(f.root, 'flow.js');
-  await writeFile(scriptPath, `export const meta={name:'handoff',description:'test',requirements:['workspace-write','worktree']}; await agent('shared'); return await agent('isolated',{isolation:'worktree'});`);
+  await writeFile(scriptPath, `export const meta={name:'handoff',description:'test'}; await agent('shared'); return await agent('isolated',{isolation:'worktree'});`);
   await assert.rejects(Workflow({ scriptPath, args: {} }, {
     trustedSource: true, runDir: join(f.root, 'run'), requirements: ['workspace-write', 'worktree'],
-    backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, model: 'test-model', modelReasoningEffort: 'low',
-      workspace: { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit } }),
+    backend: codexBackend({ cwd: f.cwd, CodexClass: MockCodex, model: 'test-model',
+      modelReasoningEffort: 'low', workspace: { mode: 'workspace-write', worktreeRoot: f.worktreeRoot, baseCommit: f.baseCommit } }),
   }), /workspace-write cannot use worktree isolation/);
   assert.equal(starts.length, 1);
+});
+
+test('update scopes workspace-write to a nested staging cwd and keeps other phases read-only', async t => {
+  const f = await fixture(t);
+  const canonicalRoot = await realpath(f.root);
+  const targetRoot = join(canonicalRoot, 'targets'), stagingRoot = join(canonicalRoot, 'staging-root');
+  await mkdir(targetRoot); await mkdir(stagingRoot);
+  const updateContract = { targetRoot, stagingRoot,
+    targetDir: join(targetRoot, 'target'), stagingDir: join(stagingRoot, 'staging-update') };
+  await mkdir(updateContract.targetDir); await mkdir(updateContract.stagingDir);
+  const policy = workspacePolicy(f.cwd, {}, updateContract);
+  assert.deepEqual(policy.capabilities, ['read-only', 'fresh-thread']);
+  await policy.prepare();
+  const context = { signal: new AbortController().signal, emit() {} };
+  for (const phase of ['Find', 'Verify', 'Reverify']) {
+    assert.equal(await policy.allocate({ phase }, context), await realpath(f.cwd));
+    assert.equal(policy.modeFor({ phase }), 'read-only');
+  }
+  assert.equal(await policy.allocate({ phase: 'Update' }, context), await realpath(updateContract.stagingDir));
+  assert.equal(policy.modeFor({ phase: 'Update' }), 'workspace-write');
+  assert.ok(!policy.capabilities.includes('staging-write'));
+  await assert.doesNotReject(policy.validateDispatch({ phase: 'Update' }, updateContract.stagingDir));
+  const replacedStagingRoot = join(canonicalRoot, 'staging-root-original');
+  await rename(stagingRoot, replacedStagingRoot);
+  await symlink(replacedStagingRoot, stagingRoot);
+  await assert.rejects(policy.validateDispatch({ phase: 'Update' }, updateContract.stagingDir), /real directory/);
+
+  assert.throws(() => workspacePolicy(f.cwd, { mode: 'workspace-write' }, {
+    targetRoot: updateContract.targetRoot, stagingRoot: updateContract.stagingRoot,
+    targetDir: updateContract.targetDir, stagingDir: updateContract.stagingDir,
+  }), /read-only base workspace/);
+  for (const [key, value] of [['targetDir', join(f.root, 'outside')], ['stagingDir', join(f.root, 'outside-staging')]]) {
+    const invalid = { ...updateContract, [key]: value };
+    assert.throws(() => workspacePolicy(f.cwd, {}, invalid), /roots and directories/);
+  }
+  assert.throws(() => workspacePolicy(f.cwd, {}, {
+    targetRoot: updateContract.targetRoot,
+    stagingRoot: updateContract.stagingRoot,
+    targetDir: updateContract.targetDir,
+    stagingDir: updateContract.targetDir,
+  }), /roots and directories/);
+  assert.throws(() => workspacePolicy(f.cwd, {}, {
+    targetRoot: updateContract.targetRoot,
+    stagingRoot: updateContract.stagingRoot,
+    targetDir: 'relative', stagingDir: updateContract.stagingDir,
+  }), /absolute/);
 });

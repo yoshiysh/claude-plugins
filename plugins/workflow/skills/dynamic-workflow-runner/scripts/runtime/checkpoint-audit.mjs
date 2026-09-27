@@ -7,7 +7,7 @@ import Ajv from 'ajv';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const requireThat = (ok, message) => { if (!ok) throw Error(`invalid checkpoint: ${message}`); };
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const known = new Set(['run.started', 'run.completed', 'run.failed', 'phase', 'log',
+const known = new Set(['run.started', 'run.completed', 'run.failed', 'workspace.created', 'phase', 'log',
   'agent.started', 'agent.event', 'agent.completed', 'agent.failed', 'agent.invalid_output']);
 function freeze(value) {
   if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
