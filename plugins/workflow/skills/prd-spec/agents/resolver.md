@@ -80,7 +80,8 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   この段で裁定した resolution を、当てる単位と項目ごとに `routes.json` にまとめる（writer はそのうち verifier が
   合格させた resolution だけを当てる）。route が `writer` の指摘は扱わない。それは script が項目ごとに束ねて
   直接 writer に渡すので、この段が起動しないとき（decision も新しい TBD も 0 件）にも改稿に届く。ここで
-  重ねて束ねると、同じ指摘が 2 つの経路で届き、writer が 2 度当てる。
+  重ねて束ねると、同じ指摘が 2 つの経路で届き、writer が 2 度当てる。`origin: flow` の指摘は値を裁定するだけで、flow.json は
+  書かない（反映は settle の flow-framer が行う）。
 - **8'（最後のパス）で出た問い**: 聞くゲートが残っていないので `hold` にする。`hold.item_ids` にその論点に触れる
   項目 ID を入れ、Issue の文案を書く。
 

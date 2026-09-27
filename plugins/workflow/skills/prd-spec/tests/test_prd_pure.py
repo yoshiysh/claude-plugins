@@ -5,6 +5,7 @@
 """
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,14 @@ import unittest
 from pathlib import Path
 
 PRD = Path(__file__).resolve().parents[1] / "scripts" / "prd.js"
+CONTRACTS = Path(__file__).resolve().parents[1] / "schemas" / "agent-contracts.md"
+
+
+def contract_values(heading):
+    """契約の「### <heading>」の表の 1 列目の値。"""
+    text = CONTRACTS.read_text(encoding="utf-8")
+    body = text.split(f"\n### {heading}\n", 1)[1].split("\n#", 1)[0]
+    return sorted(re.findall(r"^\| `([a-z_]+)` \|", body, re.M))
 
 
 def pure_region():
@@ -155,6 +164,39 @@ class Pure(unittest.TestCase):
         self.assertEqual(got, [{"el": "F-091", "open": "O-001"}, {"el": "F-092", "open": "O-002"}])
         self.assertEqual(value(f"settledOpenIds({json.dumps(state)})"), ["O-001", "O-002"])
 
+    def test_reversedFindingsは同じ項目への逆向きの指摘だけを拾う(self):
+        prev = [
+            {"id": "r2-001", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten"},
+            {"id": "r2-002", "doc": "requirements/a", "item_id": "PR-A-002", "direction": "tighten"},
+            {"id": "r2-003", "doc": "requirements/a", "item_id": "PR-A-003", "direction": "remove"},
+        ]
+        now = [
+            {"id": "r3-001", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "relax"},
+            {"id": "r3-002", "doc": "requirements/a", "item_id": "PR-A-002", "direction": "tighten"},
+            {"id": "r3-003", "doc": "requirements/a", "item_id": "PR-A-009", "direction": "relax"},
+            {"id": "r3-004", "doc": "requirements/b", "item_id": "PR-A-001", "direction": "relax"},
+            {"id": "r3-005", "doc": "requirements/a", "item_id": "PR-A-003", "direction": "document_decision"},
+        ]
+        self.assertEqual(value(f"reversedFindings({json.dumps(prev)}, {json.dumps(now)})"), ["r3-001"])
+        self.assertEqual(value(f"reversedFindings(undefined, {json.dumps(now)})"), [])
+
+    def test_toDecisionは本文の外の指摘と逆転した指摘をdecisionにする(self):
+        fs = [{"id": f"f{i}", "route": "writer", "origin": o} for i, o in enumerate(["text", "flow", "ledger", "input", "text"], 1)]
+        got = {f["id"]: f["route"] for f in value(f"toDecision({json.dumps(fs)}, ['f5'])")}
+        self.assertEqual(got, {"f1": "writer", "f2": "decision", "f3": "decision", "f4": "decision", "f5": "decision"})
+
+    def test_settledFlowFindingsはこのcycleで決まったflowの指摘だけを返す(self):
+        state = {
+            "about": {f"RS-{i}": f"finding:f{i}" for i in range(1, 6)},
+            "passed": ["RS-1", "RS-2", "RS-3", "RS-4", "RS-5"],
+            "holds": ["RS-2"],
+            "questions": ["RS-3"],
+        }
+        pending = [{"id": f"f{i}", "origin": "text" if i == 4 else "flow"} for i in range(1, 6)]
+        # f2 は hold、f3 は回答待ちの問い、f4 は origin が text、f5 は cycle に入る前に決まっていた
+        self.assertEqual(value(f"settledFlowFindings({json.dumps(pending)}, {json.dumps(state)}, ['RS-5'])"), ["f1"])
+        self.assertEqual(value(f"settledFlowFindings(undefined, {json.dumps(state)}, [])"), [])
+
     def test_flowCheckOfはunverifiedとopen_onlyの無いstdoutを受け取らない(self):
         base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "open_only": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
@@ -189,6 +231,20 @@ class Pure(unittest.TestCase):
         for bad in ("{checker: {}}", "{writer: {model: 'gpt'}}", "{writer: {effort: 'huge'}}", "{writer: {read: 'full'}}"):
             with self.subTest(bad=bad):
                 self.assertIn("error", call(f"applyRoleOverrides({json.dumps(table)}, {bad})"))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class ContractEnums(unittest.TestCase):
+    def test_DIRECTIONSとORIGINSは契約の表の値と一致する(self):
+        self.assertEqual(sorted(value("DIRECTIONS")), contract_values("direction"))
+        self.assertEqual(sorted(value("ORIGINS")), contract_values("origin"))
+        self.assertEqual(len(contract_values("origin")), 4)
+
+    def test_OPPOSITEの値は契約のdirectionの表にある(self):
+        table = set(contract_values("direction"))
+        opposite = value("OPPOSITE")
+        self.assertTrue(opposite)
+        self.assertLessEqual(set(opposite) | set(opposite.values()), table)
 
 
 if __name__ == "__main__":

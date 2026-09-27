@@ -45,6 +45,14 @@ class DirectionReplacesFixTests(unittest.TestCase):
         self.assertNotIn("想定される解消", PRD)
 
 
+class RequestCoverageTests(unittest.TestCase):
+    def test_cross_docの守備範囲に依頼と照らした範囲がある(self):
+        # 要求文書の上位は依頼そのものなので、ここが無いと依頼に対する欠落と作り込みを誰も見ない。
+        row = next(l for l in CONTRACTS.splitlines() if l.startswith("| cross-doc |"))
+        seen = row.split("|")[2]
+        self.assertIn("依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱", seen)
+
+
 class RoleMapTests(unittest.TestCase):
     def test_all_roles_have_a_row(self):
         for role in ROLES:

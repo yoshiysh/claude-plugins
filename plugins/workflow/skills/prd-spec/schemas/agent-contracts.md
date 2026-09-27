@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [§intake](#intake) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
+**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
 
 各 agent が読むファイル・書くファイル・返す値の正本。役割と責務の境界は `schemas/role-map.md` を正とする。
 `agents/*.md` は振る舞いを書き、形はここを指す。
@@ -197,7 +197,7 @@
 ## 現物と既存実装の扱い
 
 現物（対象リポジトリの実装・設定・既存文書）は将来の意図を持っていない。守らないと、価値の判断が実測の顔で台帳に入り、
-監査で差し戻されて、初稿の後の問いに化ける。
+監査で差し戻されて、初稿の後の問いに化ける。要求文書は現行実装の説明書になり、読み手は何を作りたいのかを知れなくなる。
 
 - `measured` が決めてよいのは「今どうなっているか」という事実だけである。「今後どうするか」「続けるか・止めるか」
   「失敗したら何をするか」を現物の挙動で決めない。
@@ -430,7 +430,8 @@ ID・開いている TBD の ID）と、監査する文書と meta。根拠が w
 
 文書が 350 行以下なら全文を読む。350 行を超えるなら、shunt の locate で候補の箇所を逐語の引用で探させ、
 原文の該当節を読んで判定してよい。判定は必ず原文で行う（要約を材料にすると、原文に無いことで指摘する）。
-shunt が使えない環境では全文を読む。範囲を絞った監査（段 8）では、script が渡した項目の節から読む。
+shunt が使えない環境では全文を読む。範囲を絞った監査（段 8）では、script が渡した項目の節から読む。script が渡した
+同じ項目への前のパスの指摘も読む。それと逆向きに直させたくなったら、原因は本文の外にあることが多いので `origin` を確かめる。
 
 ### 観点の守備範囲（排他）
 
@@ -440,7 +441,7 @@ shunt が使えない環境では全文を読む。範囲を絞った監査（�
 |---|---|---|
 | implementer | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
 | grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
-| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
 | doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
 doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。
@@ -463,8 +464,9 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
       "repro": "判定が割れる具体入力、またはその構成手順",
       "blocking": true,
       "route": "writer | decision",
-      "direction": "relax | tighten | make_measurable | choose_one | merge_or_split | align_terms | add_trace | remove | document_decision",
+      "direction": "下の direction の表の値",
       "direction_note": "任意。方向の補足 1 行",
+      "origin": "下の origin の表の値",
       "action": "冗長の指摘だけ。delete | merge_into:<ID> | replace_with_reference:<文書#ID>"
     }
   ],
@@ -481,6 +483,33 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 - 指摘 0 件なら `findings: []`。`checked` は必須（何も読まずに 0 件を返す経路を残さないため）。
 - 開いている TBD と、保持規則（「〜の裁定が下るまで…してはならない」）は指摘しない。決まっていないことが
   見えている正しい状態である。
+
+### direction
+
+値はこの表にあるものだけにする（script の返り値の検査がこの集合で落とす）。
+
+| 値 | 意味 | 使ってよい観点 |
+|---|---|---|
+| `relax` | 規範の範囲・条件を広げる | implementer・cross-doc。grounding は `repro` に入力の行を引くときだけ |
+| `tighten` | 規範の範囲・条件を狭める | implementer・cross-doc。grounding は `repro` に入力の行を引くときだけ |
+| `make_measurable` | 判定できる基準・値にする | implementer |
+| `choose_one` | 割れている読みを 1 つにする | implementer・cross-doc |
+| `merge_or_split` | 項目をまとめる・分ける | implementer・cross-doc |
+| `align_terms` | 用語をそろえる | cross-doc |
+| `add_trace` | 紐付け（トレーサビリティ表の行・検証方法）を足す | cross-doc |
+| `remove` | 文・項目を削る | 全観点 |
+| `document_decision` | TBD として起票し直す | 全観点 |
+
+### origin
+
+指摘の原因がある層。writer が直せるのは本文だけなので、`text` 以外は script が `decision` に回す。
+
+| 値 | 意味 |
+|---|---|
+| `input` | 入力そのものが割れている |
+| `flow` | flow の判断・マスが欠けている、または誤っている |
+| `ledger` | 決定や裁定が欠けている、または誤っている |
+| `text` | 本文だけの誤り |
 
 ### blocking
 
@@ -503,6 +532,9 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
   で裁定して返すだけで済む。
 - `decision` の指摘は resolver が裁定する（段 6）。`writer` の指摘は script が項目ごとに束ね、routes.json を通らずに
   そのまま改稿へ回る。
+- script は、`origin` が `text` 以外の指摘と、直前のパスの同じ項目への指摘と逆の `direction` を持つ指摘を
+  `decision` に書き換える。writer に回すと、本文で根本原因を繕い、片側を直すたびに他方を壊す（実測: 判定表の欠けを
+  2 パスで逆向きに直した）。
 
 ### 指名されたとき
 
@@ -526,7 +558,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 ```json
 {
   "path": "findings/r1-im-requirements__auth.json",
-  "findings": [{ "id": "r1-im-requirements__auth-001", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer" }],
+  "findings": [{ "id": "r1-im-requirements__auth-001", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer", "direction": "tighten", "origin": "text" }],
   "designated": {
     "doc_check": "doc の stdout（そのまま）",
     "diff": {

@@ -20,9 +20,13 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_prd_pure import contract_values  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 PRD = SKILL / "scripts" / "prd.js"
@@ -113,7 +117,7 @@ function respond(prompt, label) {
   if (['implementer', 'grounding', 'crossDoc'].includes(role)) {
     const n = Number(stage.slice(1))
     const byKey = spec.findings || {}
-    const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', ...f }))
+    const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', direction: 'remove', origin: 'text', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
       // files は snapshot の stdout に無い一覧で、script が一覧を notices に写したら next_args の上限テストが落ちるように置く。
@@ -142,8 +146,10 @@ function respond(prompt, label) {
 }
 const findingFiles = []
 const prompts = []
+let auditSchema = null
 const agent = async (prompt, opts) => {
   labels.push(opts.label)
+  if (['implementer', 'grounding', 'crossDoc'].includes(opts.label.split(':')[0])) auditSchema = opts.schema
   // tamper_before: その label の agent が動く前に、所有表の外の誰かが flow.json を書き換えたことにする。
   if ((spec.tamper_before || {})[opts.label] !== undefined) setFlow(H(spec.tamper_before[opts.label]))
   prompts.push({ label: opts.label, prompt })
@@ -163,7 +169,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema }))
 """
 
 
@@ -937,6 +943,77 @@ class FlowRecheck(unittest.TestCase):
         broken = run({**spec, "flow_findings_at": {"3-settle": 1, "3-settle-rework": 1}})
         self.assertEqual([l for l in broken["labels"] if "settle" in l], ["flow-framer:3-settle", "flow-framer:3-settle:rework"])
         self.assertEqual((broken["result"]["status"], broken["result"]["next_args"]["from"]), ("blocked", "3"))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FindingRoutes(unittest.TestCase):
+    """前のパスの指摘の受け渡し・direction の逆転・指摘の由来層（origin）の経路。"""
+
+    ITEM = "PR-X-001"
+
+    def _prompt(self, r, label):
+        return next(p["prompt"] for p in r["prompts"] if p["label"] == label)
+
+    def _reversal(self, r3_direction):
+        return run({"args": args(), "findings": {
+            "implementer:r1": [{"id": "r1-im-requirements__x-001"}],
+            "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": "tighten"}],
+            "grounding:r3": [{"id": "r3-gr-requirements__x-001", "direction": r3_direction}],
+        }})
+
+    def test_前のパスと逆向きの指摘はdecisionになり2パス目なのでhold行きになる(self):
+        r = self._reversal("relax")
+        self.assertEqual(r["result"]["status"], "blocked")
+        self.assertIn("route が decision の指摘 r3-gr-requirements__x-001", self._prompt(r, "resolver:final"))
+        same = self._reversal("tighten")
+        self.assertNotIn("r3-gr-requirements__x-001", self._prompt(same, "resolver:final"))
+
+    def test_段8の監査に同じ項目への前のパスの指摘のIDが入る(self):
+        r = self._reversal("relax")
+        self.assertIn("同じ項目への前のパスの指摘: r1-im-requirements__x-001", self._prompt(r, "grounding:r2:requirements/x"))
+        self.assertIn("同じ項目への前のパスの指摘: r2-gr-requirements__x-001", self._prompt(r, "grounding:r3:requirements/x"))
+        self.assertNotIn("前のパスの指摘", self._prompt(r, "grounding:r1:requirements/x"))
+
+    FLOW_FINDING = "r1-im-requirements__x-001"
+
+    def _flow_finding(self, **kw):
+        spec = {"args": args(), "findings": {"implementer:r1": [{"id": self.FLOW_FINDING, "route": "writer", "origin": "flow", "blocking": False}]},
+                "ruled_at": {"6": ["RS-011"]}, "about": {"RS-011": {"finding": self.FLOW_FINDING}}, "unverified_at": {"6-settle": ["F-010"]}}
+        spec.update(kw)
+        return run(spec)
+
+    def test_originがflowの指摘はwriterの束に入らず段6に届く(self):
+        r = self._flow_finding()
+        self.assertIn(f"route が decision の指摘 {self.FLOW_FINDING}", self._prompt(r, "resolver:6"))
+        self.assertNotIn(self.FLOW_FINDING, self._prompt(r, "writer:U-1:revise"))
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_originがflowの指摘の裁定はsettleでflowに写し変わった要素を検証する(self):
+        r = self._flow_finding()
+        settle = [l for l in r["labels"] if "settle" in l]
+        self.assertEqual(settle, ["flow-framer:6-settle", "verifier:6v-settle"], "閉じた O- が無くても起動する")
+        self.assertIn(f"{self.FLOW_FINDING}（← RS-011）", self._prompt(r, "flow-framer:6-settle"))
+        self.assertIn("F-010", self._prompt(r, "verifier:6v-settle"))
+        fail = [{"id": "F-010", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        failed = self._flow_finding(verifier_fail={"3v": fail, "3v'": fail})
+        self.assertIn("F-010", self._prompt(failed, "verifier:6v-settle"), "検証に落ちた要素でも、指摘から直させたら検証する")
+        text = run({**{"args": args()}, "findings": {"implementer:r1": [{"id": self.FLOW_FINDING, "route": "decision", "origin": "text", "blocking": False}]},
+                    "ruled_at": {"6": ["RS-011"]}, "about": {"RS-011": {"finding": self.FLOW_FINDING}}})
+        self.assertFalse(has(text["labels"], "flow-framer:6-settle"), "origin が text の指摘の裁定は flow に写さない")
+
+    def test_G1の後の3aでは段6で写した指摘を写し直さない(self):
+        g1 = self._flow_finding(questions_at={"6": ["RS-012"]})
+        self.assertEqual(g1["result"]["status"], "needs_answers")
+        self.assertIn("flow-framer:6-settle", g1["labels"])
+        r = run({"args": g1["result"]["next_args"], "ruled_at": {"3a'": ["RS-012"]}, "about": {"RS-011": {"finding": self.FLOW_FINDING}}})
+        self.assertFalse(has(r["labels"], "flow-framer:3a'-settle"))
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_監査役の返り値のスキーマはdirectionとoriginを契約の値に絞る(self):
+        item = run({"args": args()})["auditSchema"]["properties"]["findings"]["items"]
+        self.assertEqual(sorted(item["properties"]["direction"]["enum"]), contract_values("direction"))
+        self.assertEqual(sorted(item["properties"]["origin"]["enum"]), contract_values("origin"))
+        self.assertLessEqual({"direction", "origin"}, set(item["required"]))
 
 
 # NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の
