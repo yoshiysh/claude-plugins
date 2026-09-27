@@ -116,6 +116,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"${CLAUDE_THINK_EN:-1}\" = \"0\" ] || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"Do your internal reasoning, planning, and scratch notes in English. Write every message addressed to the user in Japanese. Keep code, identifiers, file paths, commands, and quoted source text in their original language. Files and documents you create or edit keep the language of their surroundings; this rule does not change them.\"}}'"
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {
