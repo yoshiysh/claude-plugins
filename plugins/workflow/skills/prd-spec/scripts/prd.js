@@ -575,11 +575,12 @@ function existingNote() {
 
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 
-// once: resolutions_sha256 の無い resolver の返り値は応答なしと同じに扱う。受け取ると verifier・writer との照合が黙って飛ぶ。
+// once: resolutions_sha256 の無い resolver の返り値を受け取ると、verifier・writer との照合が黙って飛ぶ。出し直すと
+// 済んだ put（flow の put / del を含む）を二重に走らせるので、段を頭からやり直させる。
 async function once(label, role, prompt, schema, phaseTitle) {
-  const ok = (x) => Boolean(x) && (role !== 'resolver' || Boolean(x.resolutions_sha256))
-  const [r] = await runWithRetry(label, [label], (_, attempt) => agent(prompt, { ...OPTS[role], schema, phase: phaseTitle, label: attempt > 1 ? `${label}#retry` : label }), ok)
-  return ok(r) ? r : null
+  const [r] = await runWithRetry(label, [label], (_, attempt) => agent(prompt, { ...OPTS[role], schema, phase: phaseTitle, label: attempt > 1 ? `${label}#retry` : label }), (x) => Boolean(x))
+  if (r && role === 'resolver' && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: resolver が resolutions_sha256 を返しませんでした`), { rerunStage: true })
+  return r || null
 }
 
 
@@ -1437,7 +1438,13 @@ let outcome = null
 while (outcome === null) {
   running = next
   entryState = JSON.parse(JSON.stringify(state))
-  const r = await STAGE_FNS[next]()
+  let r
+  try {
+    r = await STAGE_FNS[next]()
+  } catch (e) {
+    if (!(e && e.rerunStage)) throw e
+    r = blocked(e.message, running)
+  }
   if (typeof r === 'string') next = r
   else outcome = r
 }

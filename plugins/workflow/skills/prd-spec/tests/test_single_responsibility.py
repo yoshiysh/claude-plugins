@@ -104,5 +104,26 @@ class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
                 self.assertEqual(text.count(f"「## {self.SECTION}」"), 1, path.name)
 
 
+
+class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):
+    PHRASES = ("既存の本文には trace が無い", "それ自身を原本", "既存の記述に同じ物差しを当てると")
+    READERS = ("grounding.md", "writer.md")
+
+    def test_規則は全役が読む共通の約束に1回だけある(self):
+        common = re.search(r"^## 共通の約束$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)
+        for phrase in self.PHRASES:
+            self.assertEqual(CONTRACTS.count(phrase), 1, phrase)
+            self.assertIn(phrase, common)
+        self.assertIn("'共通の約束'", re.search(r"const COMMON_SECTIONS = \[(.*?)\]", PRD).group(1))
+
+    def test_役のファイルとreferencesは写さず参照する(self):
+        for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md"), SKILL / "SKILL.md"]):
+            text = path.read_text(encoding="utf-8")
+            for phrase in self.PHRASES:
+                self.assertNotIn(phrase, text, path.name)
+            if path.name in self.READERS:
+                self.assertIn("契約の「共通の約束」の既存の本文の扱い", text, path.name)
+
+
 if __name__ == "__main__":
     unittest.main()

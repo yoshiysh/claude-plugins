@@ -919,8 +919,6 @@ function structuralCompact(docs, flow) {
     out.push({ c: 'DUP_TBD', d: recs[0].key, a: [id, recs.map((r) => r.key), recs[0].text, recs[1].text] })
   }
 
-  // (2) 片側にしか現れない ID。requirements の ID 集合 / specifications の ID 集合 / トレーサビリティ表の 3 集合を
-  //     文書を跨いで照合する。
   if (!reqDocs.length || !specDocs.length) {
     notChecked.push({ c: 'NC_CROSSREF', a: [!reqDocs.length ? 'requirements' : 'specifications'] })
   }
@@ -954,7 +952,7 @@ function structuralCompact(docs, flow) {
   for (const d of docs) {
     if (!d.markdown) continue
 
-    // (3) 申告された ID 一覧と、本文に実在する ID の突き合わせ。(2) の集合差分は agent の
+    // (3) 申告された ID 一覧と、本文に実在する ID の突き合わせ。片側にしか現れない ID の集合差分は agent の
     //     自己申告同士を比べているだけなので、本文を独立に見るこの検査が無いと
     //     「本文にあるのに一覧にも表にも載せなかった ID」を検出できない。
     //     固定文書（本ランの対象外・既存本文をそのまま持つもの）は agent の自己申告が

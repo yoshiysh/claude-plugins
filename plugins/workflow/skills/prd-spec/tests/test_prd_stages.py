@@ -268,6 +268,32 @@ class Stages(unittest.TestCase):
         self.assertTrue(has(r2["labels"], "verifier:3av"))
         self.assertEqual(r2["result"]["status"], "done")
 
+    def test_free_textだけに入れた回答が2回落ちるとG0ではG0_2の問いにG0_2ではholdになる(self):
+        fail = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "回答の文面から対応づけが読めない"}
+        res = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        g0 = run({
+            "args": res["next_args"],
+            "free_text_at": {"3a": ["RS-001"], "3a'": ["RS-001"]},
+            "fails_when_asked": [fail],
+            "questions_at": {"3a-convert": ["RS-001"]},
+        })
+        prompts = {p["label"]: p["prompt"] for p in g0["prompts"]}
+        self.assertIn("RS-001 → question（insufficient_grounds）", prompts["resolver:3a-convert"])
+        self.assertEqual(g0["result"]["status"], "needs_answers")
+        self.assertEqual(g0["result"]["question_ids"], ["RS-001"])
+        self.assertEqual(g0["result"]["answers_path"], "/tmp/prd-w/answers/g0-2.md")
+
+        g02 = run({
+            "args": g0["result"]["next_args"],
+            "free_text_at": {"3a": ["RS-001"], "3a'": ["RS-001"]},
+            "fails_when_asked": [fail],
+            "holds_at": {"3a-convert": ["RS-001"]},
+        })
+        prompts = {p["label"]: p["prompt"] for p in g02["prompts"]}
+        self.assertIn("RS-001 → hold（insufficient_grounds）", prompts["resolver:3a-convert"])
+        self.assertEqual(g02["result"]["status"], "done")
+        self.assertIn("RS-001", g02["result"]["holds"])
+
     def test_free_textだけに入れた回答もverifierに通り回答済みになる(self):
         res = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         r2 = run({"args": res["next_args"], "free_text_at": {"3a": ["RS-001"]}})
@@ -594,8 +620,10 @@ class Notices(unittest.TestCase):
     def test_resolutions_sha256を返さないresolverでは止まる(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "resolver_sha_key": "sha256"})
         self.assertEqual(r["result"]["status"], "blocked")
-        self.assertIn("resolver:3#retry", r["labels"])
+        self.assertEqual(r["result"]["reason"], "resolver:3: resolver が resolutions_sha256 を返しませんでした")
+        self.assertNotIn("resolver:3#retry", r["labels"], "済んだ put を二重に走らせない")
         self.assertFalse(has(r["labels"], "verifier:3v"), "照合できない版で検証に進まない")
+        self.assertEqual(r["result"]["next_args"]["from"], "3")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
