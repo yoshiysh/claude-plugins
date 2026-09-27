@@ -297,6 +297,9 @@
 { "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"open_ids\":[\"O-004\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
+- `questions_check`: settle でプロンプトが回答待ちの問いの ID を渡したときだけ、`questions --ids <その ID> --check` の stdout を
+  加工せずに返す。消した要素を問いの候補の `flow_refs` が指したままだと、ゲートで問いを導出できない。
+
 ## §resolver
 
 入力（パス）: 上流の全部（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・resolutions・

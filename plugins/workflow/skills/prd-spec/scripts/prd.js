@@ -884,7 +884,7 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
     found.length ? `指摘（ID ← それを裁定した resolution）: ${found.map((id) => `${id}（← ${list(closers(`finding:${id}`))}）`).join(', ')}` : '',
     `resolution の中身は ${W}/resolutions.json から ID で読む。裁定の中身は変えない。`,
     FRAME_RUN,
-    waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行し、stdout を加工せずに questions_check に入れる（問いは直さない）。` : '',
+    waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行する（返し方は §flow-framer の返り値。問いは直さない）。` : '',
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}` }
   const qe = await checkQuestions(`${stage}-settle`, { questions_check: got.questions_check }, phaseTitle, waiting)
