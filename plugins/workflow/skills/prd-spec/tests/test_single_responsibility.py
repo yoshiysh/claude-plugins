@@ -86,11 +86,12 @@ class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
     def test_節の見出しは契約に1回だけある(self):
         self.assertEqual(len(re.findall(rf"^## {self.SECTION}$", CONTRACTS, re.M)), 1)
 
-    def test_役のファイルは節を1か所で参照し本文を写さない(self):
-        for path in sorted((SKILL / "agents").glob("*.md")):
+    def test_役のファイルとreferencesは節を参照し本文を写さない(self):
+        phrases = ("将来の意図", "現物は将来", "現状どおり", "本当は違う形にしたい", "実装がそうなって", "既存実装は根拠にならない", "実装は要求の根拠にならない", "読んでよいと")
+        for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md")]):
             text = path.read_text(encoding="utf-8")
-            for phrase in ("現物は将来", "実装がそうなっていることは", "今後どうするか", "本当は違う形にしたい", "現状どおり"):
-                self.assertNotIn(phrase, text, path.name)
+            for phrase in phrases:
+                self.assertFalse(phrase in text, f"{path.name}: {phrase}")
             if path.name in self.READERS.values():
                 self.assertEqual(text.count(f"「## {self.SECTION}」"), 1, path.name)
 

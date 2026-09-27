@@ -378,15 +378,15 @@ class FlowTable(unittest.TestCase):
             return {"elements": [
                 {"id": "F-001", "type": "input", "kind": "k", "label": "l", "next": ["F-002"], "source": src},
                 {"id": "F-002", "type": "decision", "kind": "k", "label": "d", "source": src,
-                 "inputs": [{"name": "a", "values": [str(i) for i in range(n)], "from": "F-001"}, {"name": "b", "values": ["x", "y"], "from": "F-001"}],
-                 "cases": [{"when": {"a": "*", "b": "x"}, "branch": "p", "source": src}, {"when": {"a": "*", "b": "y"}, "branch": "q", "source": src}],
+                 "inputs": [{"name": "a", "values": [str(i) for i in range(n)], "from": "F-001"}],
+                 "cases": [{"when": {"a": "0"}, "branch": "q", "source": src}, {"when": {"上記以外": True}, "branch": "p", "source": src}],
                  "branches": [{"value": "p", "next": "F-003"}, {"value": "q", "next": "F-004"}]},
                 {"id": "F-003", "type": "output", "kind": "k", "label": "o", "source": src},
                 {"id": "F-004", "type": "output", "kind": "k", "label": "o2", "source": src},
             ]}
 
-        self.assertEqual(_flow_table(flow(max_combos // 2)), [], "ちょうど上限は検査する")
-        self.assertEqual(_flow_table(flow(max_combos // 2 + 1)), [("FLOW_DT_SIZE", ["F-002", max_combos + 2])])
+        self.assertEqual(_flow_table(flow(max_combos)), [], "ちょうど上限は検査する")
+        self.assertEqual(_flow_table(flow(max_combos + 1)), [("FLOW_DT_SIZE", ["F-002", max_combos + 1])])
 
     def test_文書の判定表とflowは同じ展開の関数を使う(self):
         cli = DOC_CHECK.read_text()
