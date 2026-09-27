@@ -36,6 +36,9 @@ test('worktrees use an explicit immutable baseline and retain independent output
   assert.equal(await readFile(join(b, 'baseline.txt'), 'utf8'), 'baseline');
   assert.equal(await readFile(join(f.cwd, 'baseline.txt'), 'utf8'), 'user dirty checkout');
   assert.equal(events.filter(e => e.type === 'workspace.ready').length, 2);
+  assert.deepEqual(events.map(e => e.type), [
+    'workspace.allocated', 'workspace.ready', 'workspace.allocated', 'workspace.ready',
+  ]);
 });
 
 test('invalid, overlapping and cancelled workspace requests cannot dispatch', async t => {

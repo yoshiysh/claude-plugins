@@ -30,6 +30,21 @@ test('real JS: args, phases, two agents, branch and return; arbitrary extension'
   assert.equal(events.filter(e => e.type === 'agent.started').length, 2);
   assert.equal(events.at(-1).type, 'run.completed');
 });
+test('non-JSON and non-cloneable args fail with the JSON serializability error', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-args-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const scriptPath = join(dir, 'source.js');
+  await writeFile(scriptPath, header + 'return args.text;');
+  const host = { trustedSource: true, backend: { run: async () => null } };
+  const cyclic = {}; cyclic.self = cyclic;
+  for (const [index, args] of [{ callback: () => null }, { count: 1n }, cyclic, Symbol('value')].entries()) {
+    const runDir = join(dir, `run-${index}`);
+    await assert.rejects(Workflow({ scriptPath, args }, { ...host, runDir }),
+      error => error.name === 'Error' && error.message === 'args must be JSON serializable');
+  }
+  assert.equal(await Workflow({ scriptPath, args: { text: 'valid' } },
+    { ...host, runDir: join(dir, 'valid-run') }), 'valid');
+});
 test('parallel/pipeline preserve order, null and bound nested concurrency', async t => {
   let active = 0, peak = 0;
   const { result } = await run(t, `return await parallel([

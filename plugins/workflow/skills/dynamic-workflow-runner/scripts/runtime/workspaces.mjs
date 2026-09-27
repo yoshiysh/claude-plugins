@@ -54,6 +54,7 @@ export function workspacePolicy(cwd, input = {}, updateContract) {
   const capabilities = Object.freeze(['read-only', 'fresh-thread',
     ...(mode === 'workspace-write' ? ['workspace-write'] : []), ...(worktreeRoot ? ['worktree'] : [])]);
   let prepared;
+  let worktreeSetupTail = Promise.resolve();
   const git = async (args, signal) => (await execute('git', ['-C', cwd, ...args], {
     timeout: 10000, maxBuffer: 1024 * 1024, signal,
   })).stdout.trim();
@@ -125,16 +126,23 @@ export function workspacePolicy(cwd, input = {}, updateContract) {
         return options.phase === 'Update' ? paths.staging : policy.cwd;
       }
       if (!options.isolation) return policy.cwd;
-      const target = await mkdtemp(join(policy.worktreeRoot, 'agent-'));
-      // Keep all worktrees, including failed/cancelled runs, for inspection. Never
-      // reset, remove, or merge worker changes automatically.
-      emit({ type: 'workspace.allocated', path: target, baseCommit: policy.baseCommit, state: 'preparing' });
+      const previousSetup = worktreeSetupTail;
+      let releaseSetup;
+      worktreeSetupTail = new Promise(resolve => { releaseSetup = resolve; });
+      await previousSetup;
       try {
-        await git(['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--detach', target, policy.baseCommit], signal);
-      } catch (error) { error.fatal = true; throw error; }
-      signal?.throwIfAborted();
-      emit({ type: 'workspace.ready', path: target, baseCommit: policy.baseCommit, mode });
-      return target;
+        signal?.throwIfAborted();
+        const target = await mkdtemp(join(policy.worktreeRoot, 'agent-'));
+        // Keep all worktrees, including failed/cancelled runs, for inspection. Never
+        // reset, remove, or merge worker changes automatically.
+        emit({ type: 'workspace.allocated', path: target, baseCommit: policy.baseCommit, state: 'preparing' });
+        try {
+          await git(['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--detach', target, policy.baseCommit], signal);
+        } catch (error) { error.fatal = true; throw error; }
+        signal?.throwIfAborted();
+        emit({ type: 'workspace.ready', path: target, baseCommit: policy.baseCommit, mode });
+        return target;
+      } finally { releaseSetup(); }
     },
   };
 }

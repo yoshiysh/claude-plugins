@@ -21,7 +21,12 @@ export async function Workflow(request, host = {}) {
   const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
   validateRequirements(host.requirements, capabilities);
   const { scriptPath } = request;
-  const args = structuredClone(request.args ?? {});
+  let args;
+  try {
+    args = structuredClone(request.args ?? {});
+    if (JSON.stringify(args) === undefined) throw new Error('args are not JSON serializable');
+  }
+  catch { throw new Error('args must be JSON serializable'); }
   const {
   backend, runDir, trustedSource = false, maxAgents = 2, concurrency = 2,
   timeoutMs = 60000, agentTimeoutMs = Math.max(1, Math.floor(timeoutMs * 0.8)), maxOutputBytes = 1000000,
@@ -59,7 +64,9 @@ export async function Workflow(request, host = {}) {
     args.stagingDir = update.stagingDir;
   }
   const backendPolicy = await backend.prepare?.();
-  const encodedArgs = JSON.stringify(args);
+  let encodedArgs;
+  try { encodedArgs = JSON.stringify(args); }
+  catch { throw new Error('args must be JSON serializable'); }
   if (encodedArgs === undefined) throw new Error('args must be JSON serializable');
   if (!runDir) throw new Error('new runDir required');
   // Exclusive directory: no overwrite, implicit resume, or replay of side effects.
