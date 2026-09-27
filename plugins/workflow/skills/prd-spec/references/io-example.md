@@ -1,111 +1,83 @@
 # 入出力の例
 
-このファイルは `SKILL.md` から参照される例示である。1 パターンだけを通しで示す。
-`SKILL.md` を軽量に保つために分離してある（例は実行時に読めば足りる）。
+依頼から保存までを 1 パターン、通しで示す。W は `~/.claude/prd-spec-workspace/expense/`（展開した絶対パス）。
 
-**入力**:
+**依頼（S0 で `W/input.md` に逐語で書く）**:
 
 ```
 社内の経費精算ツールの要件をまとめたい。申請者が領収書の写真を上げて、部長が承認したら
 経理に回る。承認は速やかに通知したい。金額の上限はまだ決まってない。
 ```
 
-**事前分析後に提示する内容（抜粋。質問が 1 件以上あるときだけ止まる）**:
+**1 回目の呼び出し**:
 
 ```
-■ 確認したいこと
-1. [初稿に必要] 「速やかに通知」の許容時間（候補: 3 秒以内 / 1 分以内 / 翌営業日まで）
-2. [初稿に必要] 差し戻し・却下は対象に含みますか
-
-■ 案件の性質（違っていれば教えてください）
-- 金銭・資産が動く: 該当（根拠: 依頼文の「経費精算」「経理に回る」）
-- 個人情報を扱う: 不明（領収書の写真に第三者の情報が写り込む運用があるかが入力から不明）
-- 生命・身体・健康: 非該当（根拠: 対象が社内の経費処理に閉じ、人身影響の記述が無い）
-
-■ 分割案（否定・変更できます）
-- docs/requirements/expense-claim.md（申請と承認）
-- docs/requirements/notification.md（通知）
-- docs/specifications/expense-claim.md / notification.md
+Workflow({ scriptPath: "[SKILL_DIR]/scripts/prd.js",
+           args: { workspace: "<W の絶対パス>", skillDir: "[SKILL_DIR]", entry: "new" } })
 ```
 
-**出力（`docs/requirements/notification.md` 抜粋）**:
+intake が「承認したら経理に回る」を確定に、「金額の上限」「速やかに」を未決に仕分け、flow-framer が流れを
+描いて「差し戻しの行き先」を未決に足す。resolver は、差し戻しの行き先を問い（価値の判断）に、通知の文面の
+書式を方法論の決定（事後報告）にする。返り値:
+
+```json
+{ "status": "needs_answers", "questions_path": ".../expense/questions.md", "answers_path": ".../expense/answers/g0.md",
+  "question_ids": ["RS-002", "RS-003"], "next_args": { "…": "そのまま渡す" } }
+```
+
+**司令塔が見せるもの**: `questions.md` をそのまま（resolver が書いたもの。例）。
+
+```markdown
+## RS-002
+部長が差し戻したとき、申請はどこへ戻りますか。依頼文には差し戻しの記述がありませんでした。
+- 案 A: 申請者に戻る → 流れの F-006（差し戻し）から F-002（申請の修正）へ進む。決定: 差し戻された申請は申請者が修正して再提出する
+- 案 B: 差し戻しを設けない → F-006 を消し、承認か却下の 2 値にする。決定: 部長は承認か却下のどちらかを選ぶ
+
+## RS-003
+「速やかに通知」は、承認から何秒以内なら満たしますか。…
+```
+
+**依頼者の回答を `answers/g0.md` に逐語で書き、`next_args` をそのまま渡す**:
+
+```
+RS-002 は A。RS-003 は 1 分以内でいい。
+```
+
+2 回目の run は段 3a から走る。候補を選んだ回答はそのまま当たり、「1 分以内でいい」は候補の外の自由記述なので
+resolver が RS-003 に対応づけ、verifier がその対応づけを検証する。初稿・監査・改稿・範囲を絞った監査を経て
+`status: "done"` が返る。
+
+**出力（`W/requirements-notification.md` 抜粋）**:
 
 ```markdown
 #### PR-NOTIFICATION-001 承認完了の通知
-申請が承認された場合、システムは申請者へ承認完了を 3 秒以内に通知しなければならない。
+申請が承認されたとき、システムは承認から 1 分以内に申請者へ承認完了を通知しなければならない。
 
-#### PR-NOTIFICATION-002 不達時の再送
-再送回数と間隔の裁定が下るまで、通知の再送を新しい通知経路へ拡大してはならない。
-
-## リスクと影響
-| ID | 観点 | 判定 | 根拠 |
-|---|---|---|---|
-| RK-002 | 個人情報の取扱い | 未判定 | 領収書画像への第三者情報の写り込みの有無が未確認（TBD-003） |
+#### PR-EXPENSE-004 金額の上限
+金額の上限の裁定が下るまで、金額を伴う自動承認を設けてはならない。
 ```
 
-本文に根拠句も未確定事項の章も無いことに注意する（`document-structure.md` §4）。決まらなかった
-再送回数は PR-NOTIFICATION-002 の**保持規則**になり、裁定そのものは返り値の `work_items` として
-文書の外へ出る。根拠は返り値の `audit_trail` にある。
+本文に根拠句も未確定事項の章も無い（`document-structure.md` §4）。根拠は `W/requirements-notification.meta.json`
+の trace にあり、決まらなかった金額の上限は保持規則になって、裁定は Issue の文案として `report.md` に出る。
 
 ```json
-{
-  "basis": [
-    { "document": "requirements/notification",
-      "basis": [{ "item_id": "PR-NOTIFICATION-001", "kind": "tbd_answers", "ref": "round 1", "quote": "3 秒以内" }] }
-  ],
-  "work_items": [
-    { "id": "WI-001", "tbd_id": "TBD-NOTIFICATION-002", "title": "通知不達時の再送回数と間隔" }
-  ]
-}
+{ "trace": [ { "item_id": "PR-NOTIFICATION-001", "kind": "answers", "quote": "1 分以内でいい" },
+             { "item_id": "PR-NOTIFICATION-001", "kind": "flow", "ref": "F-007" } ] }
 ```
 
-**出力（`docs/specifications/notification.md` 抜粋）**:
+**保存**: `tree-digest` を返り値の `tree_digest` と照合し、`doc_check index` の出力を `docs/requirements/INDEX.md`
+と `docs/specifications/INDEX.md` へ逐語で写し、文書を保存先へ写す。
 
-```markdown
-#### SP-NOTIFICATION-001 承認完了通知の送出
-承認処理のコミット完了時刻から 3 秒以内に、申請者の登録通知先へ通知を送出しなければならない。
-
-## トレーサビリティ表（この文書がカバーする分）
-| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
-|---|---|---|---|
-| PR-NOTIFICATION-001 | SP-NOTIFICATION-001 | 結合テスト（通知遅延の実測） | 未着手 |
-```
-
-**出力（`docs/requirements/INDEX.md` 抜粋。script が組み立てる）**:
-
-```markdown
-## 文書一覧
-| パス | 扱う関心事 | どういう要求が書かれているか |
-|---|---|---|
-| `docs/requirements/notification.md` | 通知 | 承認完了・差し戻しの通知先と時限 |
-
-## 関連する仕様文書
-| requirements 文書 | 対応する specifications 文書 |
-|---|---|
-| `docs/requirements/notification.md` | `docs/specifications/notification.md` |
-
-## 未解決（着手を止める未確定事項）
-（この案件では 0 件。提示しても決まらなかった論点は保持規則 PR-NOTIFICATION-002 になり、
-裁定は work_items へ出た）
-```
-
-**統合ゲートの提示**:
+**事後報告（`report.md` をそのまま見せる。例）**:
 
 ```
-着手を止める未確定事項が 2 件あります。
-Q1. 通知が不達だった場合の再送は？（3 回まで / 1 回だけ / 再送しない / 分からない）
-Q2. 領収書画像に第三者の情報が写り込む運用はありますか？（ある / ない / 分からない）
+方法論として決めたこと
+- RS-004（method）: 通知の文面は件名に申請番号を含める形式にした。異議があれば覆せます。
+
+保持規則と Issue の文案
+- RS-005（hold）: 金額の上限。PR-EXPENSE-004 に保持規則として入れました。
+  Issue の文案: 「経費申請の金額の上限を決める。決まるまで自動承認は設けない（PR-EXPENSE-004）。」
 ```
 
-**保存の事後報告（Q1 は回答、Q2 は「分からない」だった場合）**:
-
-```
-監査結果: 曖昧語 0 件 / 実行可能性 blocking 0 件・degraded 1 件 / 紐付け欠落 0 件 /
-          文書間の重複・矛盾 0 件 / 根拠不明の記述 0 件（改稿 1 回）
-
-未確定事項は 0 件です（このまま次工程に着手できます）。
-- 決まらなかった 1 件（領収書画像への第三者情報の写り込み）は保持規則
-  PR-EXPENSE-014 として文書に入れました。裁定は WI-002 として起票します。
-- 人間に聞かずに決めた事項が 1 件あります（D-007: 通知の再送間隔。先例 D-003 と同型）。
-  異議があればこの場で覆せます。
-```
+開いている TBD（返り値の `open_tbd`）が 0 件なので、「このまま次工程に着手できます」と伝える。Issue は承認を
+得てから起票する。

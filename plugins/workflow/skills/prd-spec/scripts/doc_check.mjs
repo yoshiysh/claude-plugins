@@ -3,13 +3,13 @@
 // Workflow script はファイルを読めない。本文を script の手元に置くには writer に全文を返させる
 // しかなく、それが改稿のたびに文書全体を Write と返り値で 2 度出力させる原因だった（実測:
 // 6 文書・333〜1002 行の run で writer が cache read の約 45% を消費）。本文を読む検査を
-// ここへ移し、checker agent にこの CLI を実行させて結果だけを受け取る。
+// ここへ置き、agent にこの CLI を実行させて件数と digest だけを受け取る。
 //
 // 使い方は 2 つある。
 // - node doc_check.mjs <input.json>（相対パスは実行時のカレントディレクトリ基準）。入出力の契約は
-//   references/workflow-io.md §7 を正とする。
+//   fixture テストが移設前の結果との一致を確かめる形として残している。
 // - node doc_check.mjs <mode> --workspace <W> [...]。workspace を直接読むモード。mode は
-//   flow / conflicts / doc / snapshot / diff / tree-digest。結果は W/checks/ に書き、stdout には
+//   flow / conflicts / doc / snapshot / diff / tree-digest / index（references/workflow-io.md §6）。結果は W/checks/ に書き、stdout には
 //   件数・digest・書いたパスだけを出す（下の「workspace モード」の節）。
 
 import crypto from 'node:crypto'
@@ -112,16 +112,12 @@ function changedLineRanges(prevMarkdown, nextMarkdown) {
   return [...merged, ...deleted].sort((a, b) => a.start - b.start || Number(Boolean(a.deleted)) - Number(Boolean(b.deleted)))
 }
 
-// ------------------------------------------------------- 構造検査の文面（draft/refine と共有）
+// ------------------------------------------------------- 構造検査の文面
 //
 // CLI は指摘を { c: 種別, d: 文書キー, a: 引数 } の短い形で出し、文面（id / location / quote /
-// severity / issue / fix）はこの表から組み立てる。checker agent は CLI の出力を 1 字ずつ書き写して
-// 返すので、指摘ごとに同じ説明文を載せると出力が数百 KB に膨らみ、写すトークンと写し間違いの
+// severity / issue / fix）はこの表から組み立てる。agent は CLI の出力を書き写して返すので、指摘ごとに同じ説明文を載せると出力が数百 KB に膨らみ、写すトークンと写し間違いの
 // 機会がそのまま増える（実測: 実 run の下書きで 311〜415 KB）。
-// 文面は TBD-EX / TBD-NI の ID・novelty の digest・抑止の照合キーに入るので、組み立て結果は
-// 以前の文面と 1 字も違ってはならない（tests/test_doc_check.py が golden と照合する）。
-// この区間は scripts/refine.js と scripts/draft.js に逐語で複製されている（workflow script は
-// import を書けない。一致は tests/test_doc_check.py が検査する）。
+// 組み立て結果は tests/test_doc_check.py が golden と照合する（文面を変えたら golden も直す）。
 // FINDING_TEXT_BEGIN
 const KIND_LABEL = { R: '要求', S: '仕様項目' }
 const FINDING_TEXT = {
@@ -186,7 +182,7 @@ const FINDING_TEXT = {
     location: '未確定事項',
     quote: id,
     issue: `未確定事項 ${id} が本文に現れているが、どの文書の TBD 一覧にも含まれていない。申告に載らない TBD は blocking の集計から外れ、「未提示の blocking が 0 件」という完成判定を素通りする。`,
-    fix: `${id} を tbd_items に申告する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
+    fix: `${id} を meta の tbd に起票する（blocking の真偽を必ず付ける）。既に解決していて本文に参照が残っているだけなら、本文からその記述を消す。`,
   }),
   PHANTOM: (k, id) => ({
     id: `ST-PHANTOM-${id}`,
@@ -253,20 +249,20 @@ const FINDING_TEXT = {
     quote: id,
     severity: 'degraded',
     issue: `着手を止める未確定事項 ${id} に、解消条件に相当する記述（「解消」の語）が無い。解消条件の無い blocking TBD は、何が決まれば先へ進めるのかが読み手に決まらない。`,
-    fix: 'tbd_items の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
+    fix: 'meta の tbd の text に解消条件（何がどう決まればこの項目が解消するか）を書き足す。',
   }),
   NO_EVIDENCE: (id) => ({
     id: `ST-NO-EVIDENCE-${id}`,
     location: id,
     quote: id,
     issue: `${id} に対応する trace（根拠原本の引用）が申告されていない。本文に根拠句を書かない規約なので、trace が無い項目は根拠がどこにも残らない。`,
-    fix: '根拠原本（[INPUT] / [ANSWERS] / [TBD_ANSWERS] / [DECISIONS] / [SKILL_PREMISES] / 計測結果）からの引用を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
+    fix: '根拠（input.md・answers・決定の台帳・固定前提・flow）を trace に申告する。引用できないなら、その項目は要求ではなく未確定事項として起票し直す。',
   }),
   NON_NORMATIVE: (what, quote, docKey) => ({
     id: `ST-NON-NORMATIVE-${docKey}-${what}`,
     location: '本文',
     quote,
-    issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は返り値（audit_trail）と保存時の commit / PR 本文に残す。`,
+    issue: `本文に${what}が含まれている。納品文書に書くのは規範文・ID・上位/姉妹文書への参照・自明でない規則の 1 文の理由だけであり、経緯と根拠は meta の trace と保存時の commit / PR 本文に残す。`,
     fix: '当該の記述を本文から外す。根拠は trace に申告し、決まっていないことは保持規則（規範文）として書く。',
   }),
   FLOW_SHAPE: (key, detail) => ({
@@ -461,12 +457,12 @@ function expandStructural(compact) {
 //
 // flow は flow-framer が初稿の前に描く PFD で、各項目を当てる軸になる（契約は
 // schemas/agent-contracts.md の flow-framer 節）。軸が閉じていなければ「どの工程にも項目が当たっている」
-// は何も保証しないので、形と閉包は算術で押さえる。draft.js / refine.js は入口でこの区間を使い、
+// は何も保証しないので、形と閉包は算術で押さえる。prd.js は flow-framer と resolver の返り値にこの区間を当て、
 // 崩れた flow では書き始めない（writer には flow を直す手段が無く、改稿枠を空回りさせるだけになる）。
-// この区間は scripts/draft.js と scripts/refine.js に逐語で複製されている（一致は tests/test_doc_check.py が検査する）。
+// この区間は scripts/prd.js に逐語で複製されている（import を書けないため。一致は tests/test_formal_checks.py が検査する）。
 // FLOW_GRAPH_BEGIN
 function flowGraphCompact(flow) {
-  // 型の一覧は関数の中に置く（refine.js は入口検査でこの関数を定義位置より前から呼ぶ。外の const は巻き上がらない）。
+  // 型の一覧は関数の中に置く（写し先の script が定義位置より前から呼んでも動くように。外の const は巻き上がらない）。
   const FLOW_TYPES = ['input', 'step', 'decision', 'output']
   const out = []
   const shape = (key, detail) => out.push({ c: 'FLOW_SHAPE', d: 'flow', a: [key, detail] })
@@ -528,7 +524,7 @@ function flowGraphCompact(flow) {
 // ------------------------------------------------------- 状態 × イベント表と判定表の検査
 //
 // 状態機械と判定規則は、項目ごとの散文で書くと「同じ入力に 2 つの行き先」「分岐の値に行き先が無い」
-// 「条件が重なる」を読み手が照合するしかなく、実 run では依頼者への質問に化けて人間ゲートへ届いた
+// 「条件が重なる」を読み手が照合するしかなく、実 run では依頼者への質問に化けて依頼者に届いた
 // （6 文書で 12 問。ほぼ全件が文書内の不整合だった）。表の形を document-structure.md §6 / §2.8 に
 // 固定し、網羅・一意・到達を算術で検査する。機械的に読めない表は検査しない（偽陽性は改稿枠を空回りさせる）。
 
@@ -911,11 +907,10 @@ function formalCompact(docs, flow) {
   return { findings: out, not_checked: notChecked }
 }
 
-// ------------------------------------------------------- 構造検査（draft/refine 共通）
+// ------------------------------------------------------- 構造検査
 //
-// 正本はこのファイルだけである。draft.js / refine.js は checker agent 経由でこの CLI を
-// 実行して結果を受け取る（以前は両 script に逐語で複製しており、片方だけ直すと A と B で
-// 判定が食い違った）。
+// 正本はこのファイルだけである。Workflow script は複製を持たず、agent にこの CLI を実行させる
+// （以前は 2 つの script に逐語で複製しており、片方だけ直すと判定が食い違った）。
 //
 // docs は [{ key, kind, topic, markdown, ids, referenced, traceability, fixed }] の正規化済み配列。
 // 戻り値は { findings, not_checked }。not_checked は「材料が無くて実行できなかった検査」で、
@@ -1172,9 +1167,9 @@ function structuralCompact(docs, flow) {
 
 
   // (7) 根拠の所在。納品文書の本文には根拠句を書かない規約（document-structure.md §4）に
-  //     したため、「どの記述がどこから来たか」は trace（→ audit_trail）にしか無い。trace が
+  //     したため、「どの記述がどこから来たか」は meta の trace にしか無い。trace が
   //     欠けた項目は、本文からも返り値からも根拠を辿れず、出所不明の断定と区別できない。
-  //     ここを検査しないと、本文から根拠句を消した瞬間に fabrication 監査の入力が消え、
+  //     ここを検査しないと、本文から根拠句を消した瞬間に grounding の監査の入力が消え、
   //     指摘 0 件が「健全」に化ける。
   for (const d of docs) {
     if (d.fixed) continue
@@ -1233,9 +1228,8 @@ function stableKey(text) {
 }
 
 
-// canonicalJson: キーを並べ替えた JSON。checker agent は入力を書き写し、出力を構造化して返す
-// ので、キー順や空白は変わりうる。中身が同じなら同じ文字列になる形で digest を取り、
-// 書き写しで指摘が落ちた・入力が欠けた、を script 側で検出できるようにする。
+// canonicalJson: キーを並べ替えた JSON。中身が同じなら同じ文字列になる形で digest を取る
+// （snapshot・diff・tree-digest の digest がキー順や空白で揺れないようにする）。
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`
   if (value && typeof value === 'object') {
@@ -1271,7 +1265,7 @@ function headingIndex(md) {
 
 // writeIndex: 見出しと行範囲の一覧を index_dir に書き、そのパスと行数を返す。監査役・writer は
 // 他文書や固定文書の本文を通読する代わりにこれを読み、要る節だけを行範囲で Read する。本文を
-// 出力に載せないので、checker が書き写す量は増えない。書けなければ null（呼び出し側は Grep で
+// 出力に載せないので、agent が書き写す量は増えない。書けなければ null（呼び出し側は Grep で
 // 見出しを列挙させる経路に戻る）。
 function writeIndex(indexDir, name, docPath, md) {
   const entries = headingIndex(md)
@@ -1414,7 +1408,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest']
+const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
@@ -1904,6 +1898,75 @@ function wsTreeDigest(ws, opts) {
   return { digest: digestOf(subset), docs: selected.length, items: selected.reduce((n, k) => n + Object.keys(items[k]).length, 0) }
 }
 
+// index: 保存先の 2 つの INDEX（references/document-splitting.md §6）を W の文書から導出し、
+// checks/INDEX.<kind>.md に書く。INDEX は本体の写しなので、手で書くと必ず本体と drift する。司令塔はこの
+// ファイルを保存先へ逐語で写すだけにする（司令塔が文を書かないため）。関心事は plan.json の docs[].concern、
+// 項目は見出しの ID、要求と仕様の対応は仕様書のトレーサビリティ表から取る。
+const cellOf = (v) => String(v == null ? '' : v).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+function wsIndex(ws, opts) {
+  const wsDocs = workspaceDocs(ws)
+  if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  const concernOf = (key) => (listOf(plan, 'docs').find((d) => d && d.key === key) || {}).concern || '—'
+  const docs = deriveDocs(wsDocs)
+  const dirs = { requirements: opts.reqDir || 'docs/requirements', specifications: opts.specDir || 'docs/specifications' }
+  const pathOf = (d) => `${dirs[d.kind]}/${d.topic}.md`
+  const headings = (d) => {
+    const out = {}
+    for (const sec of itemSections(d.markdown, d.kind)) {
+      if (sec.id && !(sec.id in out)) out[sec.id] = String(sec.lines[0] || '').replace(/^#+\s*/, '').replace(sec.id, '').trim()
+    }
+    return out
+  }
+  const openIds = new Set(opts.openTbd || docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))
+  const specs = docs.filter((d) => d.kind === 'specifications')
+  const links = specs.flatMap((s) => s.traceability.map((l) => ({ ...l, spec: s })))
+  const written = {}
+  for (const kind of ['requirements', 'specifications']) {
+    const target = docs.filter((d) => d.kind === kind)
+    if (!target.length) continue
+    const label = kind === 'requirements' ? '要求' : '仕様項目'
+    const lines = [`# ${dirs[kind]} 目次`, '', 'この INDEX は doc_check が文書から導出したものである。本体を直したら導出し直す（手書きしない）。', '']
+    lines.push('## 文書一覧', '', `| パス | 扱う関心事 | ${label}の数 |`, '|---|---|---|')
+    for (const d of target) lines.push(`| \`${pathOf(d)}\` | ${cellOf(concernOf(d.key))} | ${d.ids.length} |`)
+    lines.push('', `## ${label}一覧`, '', '| ID | 見出し | 所在文書 |', '|---|---|---|')
+    for (const d of target) {
+      const hs = headings(d)
+      for (const id of d.ids) lines.push(`| ${cellOf(id)} | ${cellOf(hs[id])} | \`${pathOf(d)}\` |`)
+    }
+    lines.push('')
+    const seen = {}
+    for (const d of target) for (const id of d.ids) seen[id] = (seen[id] || 0) + 1
+    const dup = Object.values(seen).filter((n) => n > 1).length
+    if (kind === 'requirements') {
+      lines.push('## 関連する仕様文書', '', '| 要求文書 | 対応する仕様文書 |', '|---|---|')
+      for (const d of target) {
+        const own = new Set(d.ids)
+        const related = [...new Set(links.filter((l) => own.has(l.requirement_id)).map((l) => `\`${pathOf(l.spec)}\``))]
+        lines.push(`| \`${pathOf(d)}\` | ${related.join(' / ') || '（対応する仕様文書なし）'} |`)
+      }
+      lines.push('', '## 未解決（着手を止める未確定事項）', '')
+      const blocking = target.flatMap((d) => d.tbd_items.filter((t) => t && t.id && t.blocking && openIds.has(t.id)).map((t) => ({ ...t, doc: pathOf(d) })))
+      if (!blocking.length) lines.push('着手を止める未確定事項は 0 件である。', '')
+      else {
+        lines.push('| ID | 内容 | 所在 |', '|---|---|---|')
+        for (const t of blocking) lines.push(`| ${cellOf(t.id)} | ${cellOf(t.text)} | \`${t.doc}\` |`)
+        lines.push('')
+      }
+      const realized = new Set(links.map((l) => l.requirement_id))
+      const orphan = specs.length ? `${target.flatMap((d) => d.ids).filter((id) => !realized.has(id)).length} 件` : '仕様書が無いので数えていない'
+      lines.push('## 検査結果', '', `- ID の重複: ${dup} 件`, `- 実現する仕様項目が無い要求: ${orphan}`, '')
+    } else {
+      lines.push('## 検査結果', '', `- ID の重複: ${dup} 件`, '')
+    }
+    const rel = path.join('checks', `INDEX.${kind}.md`)
+    fs.mkdirSync(path.join(ws, 'checks'), { recursive: true })
+    fs.writeFileSync(path.join(ws, rel), lines.join('\n'))
+    written[kind] = { path: rel, save_to: `${dirs[kind]}/INDEX.md`, digest: sha256(lines.join('\n')) }
+  }
+  return { indexes: written }
+}
+
 function parseWorkspaceArgs(argv) {
   const o = { doc: [] }
   for (let i = 0; i < argv.length; i++) {
@@ -1919,6 +1982,8 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--expect') o.expect = take()
     else if (a === '--role') o.role = take()
     else if (a === '--doc') o.doc.push(take())
+    else if (a === '--req-dir') o.reqDir = take()
+    else if (a === '--spec-dir') o.specDir = take()
     else if (a === '--open-tbd') o.openTbd = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
@@ -1937,6 +2002,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'snapshot') return wsSnapshot(ws, opts)
   if (mode === 'diff') return wsDiff(ws, opts)
   if (mode === 'tree-digest') return wsTreeDigest(ws, opts)
+  if (mode === 'index') return wsIndex(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 

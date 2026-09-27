@@ -30,7 +30,7 @@
 | ファイル | 書き手 | 形 | 守られなかったときの検出 |
 |---|---|---|---|
 | `input.md`、`answers/g0.md`・`answers/g1.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
-| `precedent.json` | 司令塔 | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }` | — |
+| `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ） | [§intake](#intake) | — |
 | `flow.json` | flow-framer。resolver は回答を当てるとき（3a・3a'）だけ | [§flow-framer](#flow-framer) | 更新のたびに返り値の flow を script が閉包検査する |
@@ -320,7 +320,9 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 
 ### 指摘の形（`W/findings/r<n>-<役>-<文書>.json`）
 
-`<役>` は `im` / `gr` / `cd`、`<文書>` はキーを変換した名前（cross-doc は `all`）。
+`<役>` は `im` / `gr` / `cd`、`<文書>` はキーを変換した名前（cross-doc は `all`）。段 8 で申告に無い変更のために追加で
+起動した監査役は、末尾に `-extra` を付けたファイルに書く（同じ段・同じ文書の 1 体目のファイルを上書きしないため）。
+指摘の ID はファイル名（`.json` を除く）に `-001` からの連番を付けて振る。
 
 ```json
 {
@@ -387,7 +389,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | 段 8 | `diff --against audited-<n> --expect <digest> --workspace W` の後、`W/checks/diff-audited-<n>.json` を読んで ID 集合を返す | `snapshot --save audited-<n+1> --role auditor --workspace W`。最後の書き込みの後の監査では加えて `doc` と `tree-digest` |
 
 - diff は監査の判定より**前に**実行する。後に回すと、判定中に誰かが書き換えた分が「監査した版」に混ざる。
-- `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま返す。監査の基準が
+- `diff` が exit 3（digest の不一致）で終わったら、それ以上進めず、stderr をそのまま `designated.diff_error` に入れて返す。監査の基準が
   差し替わっているので、その上で出した判定は何と比べたのかが分からない。
 
 返り値（全監査役）:
@@ -395,10 +397,11 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 ```json
 {
   "path": "findings/r1-im-requirements__auth.json",
-  "findings": [{ "id": "r1-im-requirements__auth-001", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer" }],
+  "findings": [{ "id": "r1-im-requirements__auth-001", "doc": "requirements/auth", "item_id": "PR-AUTH-003", "blocking": true, "route": "writer" }],
   "designated": {
     "doc_check": "doc の stdout（そのまま）",
     "diff": { "stdout": "diff の stdout（そのまま）", "changed": ["PR-AUTH-003"], "added": [], "removed": [] },
+    "diff_error": "diff が exit 3 で終わったときだけ、stderr（そのまま）",
     "audited": "snapshot の stdout（そのまま）",
     "tree_digest": "tree-digest の stdout（そのまま）"
   }

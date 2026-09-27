@@ -188,15 +188,15 @@ EARS（Easy Approach to Requirements Syntax）。2009 年に Alistair Mavin と 
 
 根拠にできるのは次のものだけ。
 
-- 依頼文（`[INPUT]`）・ユーザーの回答（`[ANSWERS]` / `[TBD_ANSWERS]`）
-- ドメイン分析の判定（`[DOMAIN_FINDINGS]`）で、ユーザーが承認したもの
-- 決定ログ（`[DECISIONS]`）・スキルの固定前提（`[SKILL_PREMISES]`）— ただし書き方・進め方の
-  選択に限る（正は `question-policy.md`）
-- 計測結果（`measurement` agent が証拠付きで確定した事実）
+- 依頼文（`W/input.md`）・依頼者の回答（`W/answers/*.md`）
+- 決定の台帳（`decisions.json` と、合格した `resolutions.json`。無効な決定を除く）。`source: default` の決定と
+  スキルの固定前提（`references/fixed-premises.md`）は、書き方・進め方の選択に限る（正は `question-policy.md`）
+- 実測（resolver が `measured` として証拠付きで裁定し、verifier が再現した事実）
+- 流れ（`flow.json` の要素。各要素は出典を持つ）
 
 **これら以外を根拠にした要求は書いてはならない。** 業界の常識・類似システムの慣行・
 「普通はこうする」は根拠にならない。それらは要求ではなく提案なので、TBD として起票し、
-提案の中身は `tbd_items[].candidates` に入れる（本文にも TBD の text にも依頼者宛ての文は書かない）。
+提案の中身は meta の `tbd[].candidates` に入れる（本文にも TBD の text にも依頼者宛ての文は書かない）。
 
 ### 既存実装は根拠にならない
 

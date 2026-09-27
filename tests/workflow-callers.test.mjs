@@ -90,8 +90,7 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/prd-spec/scripts/draft.js', 'rejected_source'],
-    ['workflow/prd-spec/scripts/refine.js', 'rejected_source'],
+    ['workflow/prd-spec/scripts/prd.js', 'rejected_source'],
     ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
     ['workflow/ooda/scripts/ooda.js', 'portable'],
     ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],

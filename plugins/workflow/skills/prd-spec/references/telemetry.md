@@ -40,3 +40,10 @@ python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
 取れるかを検査し、どれかが欠けたら判定を返さず exit 2 で止まる。この 3 点を散文の手順に
 しておくと、対発行・同一入力・事前固定の基準のどれも実行者の自己申告になる。exit 2 は
 「差が無い」ではなく「測定が成立していない」なので、判定に進まず対照を組み直す。
+
+## 1 ランの費用と時間
+
+`python3 [SKILL_DIR]/scripts/usage.py --workspace <W> <transcript のディレクトリ>` が、agent ごとのターン数・
+入力（cache read と creation）・最初のターンの入力・壁時計、合計、agent が動いていた時間の和、周回ごとの
+指摘の件数を出す。何を 1 ランの agent として数えるか（空の transcript と、W を参照しない別案件の transcript を
+除く）は script が持つ。数え方を呼ぶ人に任せると、同じランが別の体数で報告され、ラン同士を比べられない。

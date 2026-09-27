@@ -1,15 +1,14 @@
-"""scripts/doc_check.mjs（本文を読む決定的な検査の CLI）と、それを呼ぶ checker 経路のテスト。
+"""scripts/doc_check.mjs（本文を読む決定的な検査の CLI）のテスト。
 
-本文を Workflow script の手元に置かない設計にした（writer は改稿稿を Edit し、本文を返さない）。
-本文を要する検査は checker agent がこの CLI を実行して結果だけを返す。押さえるのは次のとおり。
+本文を Workflow script の手元に置かない設計にした（writer は同じファイルを Edit し、本文を返さない）。
+本文を要する検査は agent がこの CLI を実行して件数と digest だけを返す。押さえるのは次のとおり。
 
-1. CLI の出力が、移設前に refine.js の中で計算していた結果と同一である（fixtures/doc_check の
+1. CLI の出力が、移設前に script の中で計算していた結果と同一である（fixtures/doc_check の
    golden_head.json は移設前の HEAD の structuralFindings / lineTotal / newlineCount /
    changedLineRanges で生成した）
 2. 読めない文書は CLI ごと落とさず、その文書の本文検査を「未検査」として返す
-3. script 側の verifyCheck が CLI の実出力を受理し、写しの改変（指摘の脱落）を受理しない
-4. refine.js は本文（.markdown）を一切読まず、writer に本文を返させない
-5. 改稿の writer は前稿を複写して Edit する指示を受け、本文を返せとは言われない
+3. 出力は短い形で、文面を載せない
+4. Workflow script（prd.js）は本文（.markdown）を読まず、文面の表の写しも持たない
 """
 
 import json
@@ -24,16 +23,8 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
 DOC_CHECK = SCRIPTS / "doc_check.mjs"
-REFINE = (SCRIPTS / "refine.js").read_text()
-DRAFT = (SCRIPTS / "draft.js").read_text()
+PRD = (SCRIPTS / "prd.js").read_text()
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "doc_check"
-
-
-def _extract_function(source: str, name: str) -> str:
-    lines = source.split("\n")
-    s = next(i for i, l in enumerate(lines) if l.startswith(f"function {name}("))
-    e = next(i for i in range(s + 1, len(lines)) if lines[i] == "}")
-    return "\n".join(lines[s : e + 1])
 
 
 def _fixture_input():
@@ -48,7 +39,7 @@ def _fixture_input():
 
 
 def _marked_block(source: str, name: str) -> str:
-    """// <name>_BEGIN 〜 // <name>_END の区間（const の表は _extract_function で取れないため）。"""
+    """// <name>_BEGIN 〜 // <name>_END の区間。"""
     return source[source.index(f"// {name}_BEGIN") : source.index(f"// {name}_END") + len(f"// {name}_END")]
 
 
@@ -150,83 +141,6 @@ class CliEdgeCases(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
-class VerifyCheckAcceptsOnlyFaithfulCopies(unittest.TestCase):
-    SRC = _marked_block(REFINE, "FINDING_TEXT") + "\n" + "\n".join(
-        _extract_function(REFINE, n) for n in ("stableKey", "canonicalJson", "verifyCheck")
-    ) + """
-function main(spec) {
-  const v = verifyCheck(spec.res, spec.input)
-  return { ok: v.ok, reason: v.reason || null, ...(spec.withStructural ? { structural: v.structural } : {}) }
-}
-"""
-
-    def setUp(self):
-        self.input = _fixture_input()
-        r = _run_cli(self.input)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.output = json.loads(r.stdout)
-
-    def _verify(self, res, input_obj=None):
-        return _node(self.SRC, {"res": res, "input": input_obj or self.input})
-
-    def test_CLI_の実出力を受理する(self):
-        self.assertEqual(self._verify({"ok": True, "output": self.output}), {"ok": True, "reason": None})
-
-    def test_キー順が変わっても受理する(self):
-        reordered = json.loads(json.dumps(self.output, sort_keys=True))
-        self.assertTrue(self._verify({"ok": True, "output": reordered})["ok"])
-
-    def test_指摘が落ちた写しは受理しない(self):
-        dropped = json.loads(json.dumps(self.output))
-        dropped["structural"]["findings"].pop()
-        v = self._verify({"ok": True, "output": dropped})
-        self.assertFalse(v["ok"])
-        self.assertIn("output_digest", v["reason"])
-
-    def test_入力の写しが違えば受理しない(self):
-        other = json.loads(json.dumps(self.input))
-        other["documents"][0]["ids"].append("PR-AUTH-777")
-        v = self._verify({"ok": True, "output": self.output}, other)
-        self.assertFalse(v["ok"])
-        self.assertIn("input_digest", v["reason"])
-
-    def test_受理した短い形は文面付きに組み立て直される(self):
-        v = _node(self.SRC, {"res": {"ok": True, "output": self.output}, "input": self.input, "withStructural": True})
-        self.assertTrue(v["ok"])
-        golden = json.loads((FIXTURES / "golden_head.json").read_text())
-        self.assertEqual(v["structural"], golden["structural"])
-
-    def test_索引の追加分を含む出力も受理し_書き換えは受理しない(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            inp = _fixture_input()
-            inp["index_dir"] = str(Path(tmp) / "index")
-            inp["index_extra"] = ["requirements-base.md"]
-            out = json.loads(_run_cli(inp).stdout)
-        self.assertTrue(self._verify({"ok": True, "output": out}, inp)["ok"])
-        tampered = json.loads(json.dumps(out))
-        tampered["index_extra"][0]["index_path"] = "/elsewhere.index.md"
-        v = self._verify({"ok": True, "output": tampered}, inp)
-        self.assertFalse(v["ok"])
-        self.assertIn("output_digest", v["reason"])
-
-    def test_未知の種別は受理しない(self):
-        bad = json.loads(json.dumps(self.output))
-        bad["structural"]["findings"].append({"c": "NO_SUCH_CODE", "d": "requirements/auth", "a": [["x"]]})
-        # digest は写しと一致させたうえで、展開できないことだけで落ちることを確かめる
-        src = f"import {{ canonicalJson, stableKey }} from {json.dumps(DOC_CHECK.as_uri())}\n" + (
-            "function main(spec) { return stableKey(canonicalJson({ documents: spec.documents, structural: spec.structural })) }"
-        )
-        bad["output_digest"] = _node(src, {"documents": bad["documents"], "structural": bad["structural"]})
-        v = self._verify({"ok": True, "output": bad})
-        self.assertFalse(v["ok"])
-        self.assertIn("展開できない", v["reason"])
-
-    def test_実行失敗と無応答は受理しない(self):
-        self.assertFalse(self._verify({"ok": False, "error": "node: not found"})["ok"])
-        self.assertFalse(_node(self.SRC.replace("verifyCheck(spec.res", "verifyCheck(null"), {"res": None, "input": self.input})["ok"])
-
-
-@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class CompactOutput(unittest.TestCase):
     """checker は CLI の出力を書き写して返すので、出力の量がそのまま写す量と写し間違いの機会になる。"""
 
@@ -298,15 +212,14 @@ class CompactOutput(unittest.TestCase):
         self.assertGreater(len(expanded["findings"]), 500)
 
 
-class FindingTextParity(unittest.TestCase):
-    def test_文面の表は_3_ファイルで逐語一致(self):
-        cli = _marked_block(DOC_CHECK.read_text(), "FINDING_TEXT")
-        self.assertEqual(_marked_block(REFINE, "FINDING_TEXT"), cli)
-        self.assertEqual(_marked_block(DRAFT, "FINDING_TEXT"), cli)
+class FindingText(unittest.TestCase):
+    def test_文面の表は_doc_check_だけが持つ(self):
+        # 文面は CLI の出力を展開するときだけに要る。script に写しを置くと、片方だけ直したときに食い違う。
+        self.assertIn("// FINDING_TEXT_BEGIN", DOC_CHECK.read_text())
+        self.assertNotIn("FINDING_TEXT", PRD)
 
     def test_CLI_は種別ごとに表の項目を使う(self):
-        # workspace モードだけの種別は WORKSPACE_TEXT に置く（FINDING_TEXT は draft.js / refine.js と逐語一致を
-        # 保つため増やせない）。2 つの表は重ならず、和が CLI の使う種別と一致する。
+        # workspace モードだけの種別は WORKSPACE_TEXT に置く。2 つの表は重ならず、和が CLI の使う種別と一致する。
         cli = DOC_CHECK.read_text()
         used = set(re.findall(r"push\(\{ c: '([A-Z_]+)'", cli))
         table = set(re.findall(r"^  ([A-Z_]+): \(", _marked_block(cli, "FINDING_TEXT"), re.M))
@@ -315,115 +228,10 @@ class FindingTextParity(unittest.TestCase):
         self.assertEqual(used, table | ws_table)
 
 
-class CheckerWiring(unittest.TestCase):
-    def test_canonicalJson_は_CLI_と_script_で同一(self):
-        cli = DOC_CHECK.read_text()
-        self.assertEqual(_extract_function(cli, "canonicalJson"), _extract_function(REFINE, "canonicalJson"))
-        self.assertEqual(_extract_function(cli, "stableKey"), _extract_function(REFINE, "stableKey"))
-
-    def test_checker_は安いモデルで判断をしない(self):
-        for src in (REFINE, DRAFT):
-            self.assertIn("checker: { model: 'sonnet', effort: 'low' },", src)
-            self.assertIn("...ROLE_OPTS.checker,", src)
-        prompt = _extract_function(REFINE, "checkerPrompt")
-        self.assertIn("doc_check.mjs", prompt)
-        self.assertIn("cd しない", prompt)
-
-    def test_checker_の欠測は監査の欠測として返る(self):
-        # missing は監査ラウンドごとに組み直されるので、checker の欠測は別に貯めて合流させる。
-        self.assertIn("const missingAll = [...missing, ...checkerMissing]", REFINE)
-        self.assertIn("const verdict = missingAll.length", REFINE)
-        self.assertIn("missing_auditors: missingAll,", REFINE)
-        self.assertIn("'ST-NOTCHECKED-CHECKER'", REFINE)
-        # draft は構造検査を実行できなければゲート②を飛ばさない
-        self.assertIn("checkerMissing.length === 0 && gate2PresentFindings.length === 0", DRAFT)
-
-    def test_不採用の稿は検査し直す(self):
-        body = REFINE[REFINE.index("async function reviseDocuments(") :]
-        self.assertIn("lineCountConfirmed(reportedLineCount(s.result), check.byKey[s.key])", body)
-        self.assertIn("runDocChecks(`${revisionId}-recheck`", body)
-
-
-def _code_lines(src: str):
-    return [ln for ln in src.split("\n") if not ln.strip().startswith("//")]
-
-
-class RefineHoldsNoBody(unittest.TestCase):
-    def test_refine_は_markdown_を読まない(self):
-        offenders = [ln.strip() for ln in _code_lines(REFINE) if ".markdown" in ln or re.search(r"\bmarkdown:", ln)]
-        self.assertEqual(offenders, [])
-
-    def test_writer_の返り値に本文が無い(self):
-        for name, src in (("refine.js", REFINE), ("draft.js", DRAFT)):
-            for schema in ("REQ_DOC_SCHEMA", "SPEC_DOC_SCHEMA"):
-                m = re.search(rf"const {schema} = \{{(.*?)\n\}}", src, re.S)
-                self.assertIsNotNone(m, f"{name}:{schema}")
-                code = "\n".join(_code_lines(m.group(1)))
-                self.assertNotIn("markdown", code, f"{name}:{schema}")
-
-    def test_返り値の文書は_draft_path_を持ち本文を持たない(self):
-        ret = REFINE[REFINE.index("  documents: documents.map((d) => ({\n    key: d.key,") :]
-        ret = ret[: ret.index("})),")]
-        self.assertIn("draft_path: d.draft_path,", ret)
-        self.assertNotIn("markdown", "\n".join(_code_lines(ret)))
-
-
-@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
-class RevisionWriterEditsInPlace(unittest.TestCase):
-    def _section(self, revision_id):
-        src = "\n".join(
-            [
-                next(l for l in REFINE.split("\n") if l.startswith("const READ_CHUNK_LINES = ")),
-                "const draftDir = '/ws/drafts/r1'",
-                next(l for l in REFINE.split("\n") if l.startswith("const revisedDraftPath = ")),
-                next(l for l in REFINE.split("\n") if l.startswith("const docLineCount = ")),
-                _extract_function(REFINE, "previousMetadata"),
-                _extract_function(REFINE, "editInPlaceSection"),
-                "function main(spec) { return editInPlaceSection(spec.doc, spec.rev).join('\\n') }",
-            ]
-        )
-        doc = {
-            "key": "requirements/auth",
-            "kind": "requirements",
-            "topic": "auth",
-            "path": "docs/requirements/auth.md",
-            "draft_path": "/ws/drafts/r1/requirements-auth.md",
-            "line_count": 812,
-            "summary": "認証の要求",
-            "items": [{"id": "PR-AUTH-001", "heading": "多要素認証"}],
-            "trace": [{"item_id": "PR-AUTH-001", "kind": "input", "quote": "多要素認証を必須とする"}],
-            "tbd_items": [],
-            "referenced": [],
-            "vacant": [],
-        }
-        return _node(src, {"doc": doc, "rev": revision_id})
-
-    def test_複写して_Edit_し全文を書き直さない(self):
-        out = self._section("R1.1")
-        self.assertIn("cp '/ws/drafts/r1/requirements-auth.md' '/ws/drafts/r1/requirements-auth.R1.1.md'", out)
-        self.assertIn("Edit", out)
-        self.assertIn("Write で全文を書き直さない", out)
-        self.assertIn("offset/limit", out)
-        self.assertIn("wc -l < '/ws/drafts/r1/requirements-auth.R1.1.md'", out)
-        self.assertIn("本文は返り値に入れない", out)
-        self.assertNotIn("返り値の markdown", out)
-        # 全体の区切り読み（1 行目から末尾まで）を指示しない
-        self.assertNotIn("offset=1 limit=300", out)
-
-    def test_触っていない項目の申告を写させる(self):
-        out = self._section("R1.1")
-        self.assertIn("[PREVIOUS_METADATA]", out)
-        self.assertIn("多要素認証を必須とする", out)
-        self.assertIn("PR-AUTH-001", out)
-
-    def test_回答反映パスは_TBD_の_ID_で探させる(self):
-        self.assertIn("[TBD_ANSWERS] の回答が効く箇所", self._section("R1.0"))
-        self.assertNotIn("[TBD_ANSWERS] の回答が効く箇所", self._section("R1.1"))
-
-    def test_writer_プロンプトに前稿の通読指示が残っていない(self):
-        body = _extract_function(REFINE, "buildWriterPrompt")
-        self.assertIn("...editInPlaceSection(doc, revisionId),", body)
-        self.assertNotIn("readInstruction(doc.draft_path", body)
+class ScriptHoldsNoBody(unittest.TestCase):
+    def test_prd_は本文を読まない(self):
+        # script はファイルを読めない。本文を返り値で運ぶと、同じ内容に 2 度費用を払う（実測: cache read の約 45%）。
+        self.assertNotRegex(PRD, r"\.markdown\b|\bmarkdown:")
 
 
 if __name__ == "__main__":

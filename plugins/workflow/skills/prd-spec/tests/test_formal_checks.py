@@ -8,9 +8,9 @@
    項目の当たっていない要素）を検出する
 2. 状態 × イベント表の網羅・一意・到達・表と図の一致を検出し、「発生しない」を定義済みと数える
 3. 判定表の組み合わせの欠け・重なりを検出する
-4. 短い形で出力され、文面の表と flow の検査区間が 3 ファイルで逐語一致する
-5. これらの指摘は ladder-judge を通らず writer へ流れ、blocking TBD にならない
-6. flow-framer が手順 2 に配線され、flow が draft.js / refine.js の入口で検査され next_args に載る
+4. 短い形で出力され、flow の検査区間が doc_check.mjs と prd.js で逐語一致する
+5. prd.js が flow-framer と回答を当てた resolver の返り値の flow に閉包検査を当て、閉じない flow では
+   初稿を始めない（経路は tests/test_prd_stages.py が走らせて確かめる）
 """
 
 import json
@@ -21,22 +21,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from prose import prose_pattern
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
 DOC_CHECK = SCRIPTS / "doc_check.mjs"
-REFINE = (SCRIPTS / "refine.js").read_text()
-DRAFT = (SCRIPTS / "draft.js").read_text()
-SKILL_MD = (SKILL / "SKILL.md").read_text()
-CONTRACTS = (SKILL / "schemas" / "agent-contracts.md").read_text()
-
-
-def _extract_function(source: str, name: str) -> str:
-    lines = source.split("\n")
-    s = next(i for i, l in enumerate(lines) if l.startswith(f"function {name}(") or l.startswith(f"async function {name}("))
-    e = next(i for i in range(s + 1, len(lines)) if lines[i] == "}")
-    return "\n".join(lines[s : e + 1])
+PRD = (SCRIPTS / "prd.js").read_text()
 
 
 def _marked_block(source: str, name: str) -> str:
@@ -279,14 +268,14 @@ class CompactAndParity(unittest.TestCase):
         self.assertTrue({"STATE_MISSING", "STATE_NONDET", "FLOW_UNATTACHED"} <= codes)
         self.assertNotIn("issue", r.stdout)
 
-    def test_flow_の検査区間と_checker_向けの形が_3_ファイルで逐語一致(self):
-        cli = _marked_block(DOC_CHECK.read_text(), "FLOW_GRAPH")
-        self.assertEqual(_marked_block(DRAFT, "FLOW_GRAPH"), cli)
-        self.assertEqual(_marked_block(REFINE, "FLOW_GRAPH"), cli)
-        from test_function_parity import extract_function as normalized
+    def test_flow_の検査区間が_doc_check_と_prd_で逐語一致(self):
+        # prd.js は import を書けないので、閉包検査を写しで持つ。写しがずれると、doc_check が通した flow を
+        # script が止める（またはその逆）。
+        self.assertEqual(_marked_block(PRD, "FLOW_GRAPH"), _marked_block(DOC_CHECK.read_text(), "FLOW_GRAPH"))
 
-        for name in ("flowForCheck", "flowContext", "execToTbd", "checkerDoc"):
-            self.assertEqual(normalized(DRAFT, name), normalized(REFINE, name), name)
+    def test_prd_は返り値の_flow_に閉包検査を当てる(self):
+        self.assertIn("flowDefects(r.flow)", PRD)
+        self.assertIn("return blocked(`流れが閉じていません。初稿を始めません", PRD)
 
     def test_新しい種別は文面の表にある(self):
         cli = DOC_CHECK.read_text()
@@ -294,137 +283,6 @@ class CompactAndParity(unittest.TestCase):
         used = set(re.findall(r"c: '([A-Z_]+)'", cli))
         for code in used:
             self.assertIn(f"  {code}: (", table, code)
-
-
-def _classify_harness():
-    return "\n".join([
-        next(l for l in REFINE.split("\n") if l.startswith("const LADDER_KINDS = ")),
-        next(l for l in REFINE.split("\n") if l.startswith("const FORMAL_FINDING = ")),
-        "const LADDER_SCHEMA = {}",
-        "const ROLE_OPTS = { ladderJudge: {} }",
-        "const SKILL_DIR = '/skill'",
-        "const roleHeader = () => ''",
-        "const log = () => {}",
-        "const findingDigest = (f) => f.id",
-        "let agentCalls = 0",
-        "const agent = async (prompt) => { agentCalls++; const fs = JSON.parse(prompt.slice(prompt.indexOf('\\n[') + 1)); "
-        "return { classified: fs.map((f) => ({ digest: f.digest, kind: f.digest.startsWith('C-') ? 'consistency' : 'question', cited: ['SP-A-001', 'SP-A-002'], rationale: 'r' })) } }",
-        _extract_function(REFINE, "partitionLadder"),
-        _extract_function(REFINE, "classifyFindings"),
-        "async function main(spec) { const r = await classifyFindings(spec.findings, 'x'); return { ...r, agentCalls } }",
-    ])
-
-
-@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
-class Routing(unittest.TestCase):
-    def test_構造検査の閉包指摘は_judge_を通らず_writer_へ(self):
-        findings = [
-            {"id": "ST-STATE-NONDET-specifications/flow-文書生成中-E3", "auditor": "structural", "document": "specifications/flow", "issue": "2 つの行き先"},
-            {"id": "ST-DT-GAP-x", "auditor": "structural", "document": "specifications/flow", "issue": "欠け"},
-            {"id": "ST-FLOW-UNATTACHED-F-004", "auditor": "structural", "document": "specifications/flow", "issue": "未割当"},
-        ]
-        r = _node(_classify_harness(), {"findings": findings})
-        self.assertEqual(r["agentCalls"], 0)
-        self.assertEqual(r["needsInput"], [])
-        self.assertEqual(sorted(f["id"] for f in r["toWriter"]), sorted(f["id"] for f in findings))
-
-    def test_consistency_は_cited_付きで_writer_へ_question_は人間へ(self):
-        findings = [
-            {"id": "C-001", "auditor": "consistency", "document": "d", "issue": "免除条件が項目で違う"},
-            {"id": "Q-001", "auditor": "validity", "document": "d", "issue": "上限額"},
-            {"id": "ST-STATE-MISSING-d-a-E1", "auditor": "structural", "document": "d", "issue": "欠け"},
-        ]
-        r = _node(_classify_harness(), {"findings": findings})
-        self.assertEqual(r["agentCalls"], 1)
-        writer = {f["id"]: f for f in r["toWriter"]}
-        self.assertEqual(writer["C-001"]["ladder_kind"], "consistency")
-        self.assertEqual(writer["C-001"]["cited"], ["SP-A-001", "SP-A-002"])
-        self.assertIn("ST-STATE-MISSING-d-a-E1", writer)
-        self.assertEqual([f["id"] for f in r["needsInput"]], ["Q-001"])
-
-    def test_writer_が閉じる着手不能は_judge_を通らず_writer_へ(self):
-        # judge は resolved_by を見ないので、全件 question と答えても needs_input に落ちないこと。
-        findings = [
-            {"id": "EX-001", "auditor": "executability", "severity": "blocking", "resolved_by": "writer", "document": "d", "issue": "表と図が違う"},
-            {"id": "EX-WRITER-abc1234", "auditor": "executability", "severity": "blocking", "resolved_by": "writer", "document": "d", "issue": "戻り先が無い", "from_draft": True},
-            {"id": "EX-002", "auditor": "executability", "severity": "blocking", "resolved_by": "requester", "document": "d", "issue": "上限額"},
-        ]
-        r = _node(_classify_harness(), {"findings": findings})
-        self.assertEqual(sorted(f["id"] for f in r["toWriter"]), ["EX-001", "EX-WRITER-abc1234"])
-        self.assertEqual([f["id"] for f in r["needsInput"]], ["EX-002"])
-
-    def test_閉包指摘は_TBD_に化けない(self):
-        # blocking TBD の起票元は writer の tbd_items / execToTbd / ladderToTbd（needs_input）だけで、
-        # 構造検査の指摘をそこへ入れる経路が無い。
-        start = REFINE.index("const tbdItems = mergeTbd(") if "const tbdItems = mergeTbd(" in REFINE else REFINE.index("execToTbd(execFindings), needsInputTbd]")
-        self.assertIn("[...documents.map((d) => d.tbd_items), execToTbd(execFindings), needsInputTbd]", REFINE)
-        self.assertGreater(start, 0)
-
-    def test_writer_が閉じる着手不能は_TBD_にしない(self):
-        src = _extract_function(DRAFT, "execToTbd") + "\nfunction stableKey(t) { return t.length.toString(36) }\nfunction main(spec) { return execToTbd(spec) }"
-        out = _node(src, [
-            {"id": "EX-1", "severity": "blocking", "resolved_by": "writer", "document": "d", "location": "l", "issue": "表と図が違う"},
-            {"id": "EX-2", "severity": "blocking", "resolved_by": "requester", "document": "d", "location": "l", "issue": "上限額"},
-            {"id": "EX-3", "severity": "blocking", "document": "d", "location": "l", "issue": "欠けたら依頼者"},
-        ])
-        self.assertEqual(sorted(t["source_finding_id"] for t in out), ["EX-2", "EX-3"])
-        self.assertIn("f.severity === 'blocking' && f.resolved_by === 'writer'", DRAFT)
-
-    def test_precedent_judge_は_internal_を書き手の経路へ回す(self):
-        self.assertIn("enum: ['resolvable', 'internal', 'measurable', 'novel', 'conflict', 'irreversible']", REFINE)
-        self.assertIn("const internalCandidates = withVerdict('internal').filter((t) => t.cited.length)", REFINE)
-        self.assertIn("await runResolveCandidates(items, 'internal')", REFINE)
-        self.assertRegex(CONTRACTS, prose_pattern("| `internal` |"))
-
-
-def _entry_harness():
-    return "\n".join([
-        next(l for l in REFINE.split("\n") if l.startswith("const MAX_OUTER_ROUNDS = ")),
-        _marked_block(REFINE, "FLOW_GRAPH"),
-        _extract_function(REFINE, "entryErrors"),
-        _extract_function(REFINE, "buildNextArgs"),
-        "function main(spec) { const na = buildNextArgs(spec.ctx); return { na, ok: entryErrors({ ...na, tbd_answers: '回答' }), broken: entryErrors({ ...na, flow: spec.broken }) } }",
-    ])
-
-
-@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
-class Wiring(unittest.TestCase):
-    def test_flow_framer_が手順_2_に配線されている(self):
-        self.assertTrue((SKILL / "agents" / "flow-framer.md").exists())
-        self.assertIn("## 2. 事前分析を発行する（4 agent 並列）", SKILL_MD)
-        self.assertIn("Read [SKILL_DIR]/agents/flow-framer.md", SKILL_MD)
-        self.assertIn("flow: <手順 2 の flow-framer の返り値をそのまま>", SKILL_MD)
-        self.assertIn("flow: <手順 2 の flow をそのまま>", SKILL_MD)
-        self.assertIn("## §flow-framer", CONTRACTS)
-        fm = (SKILL / "agents" / "flow-framer.md").read_text().split("---")[1]
-        self.assertIn("model: opus", fm)
-
-    def test_draft_は崩れた_flow_を入口で止める(self):
-        self.assertIn("args.flow が閉じていません", DRAFT)
-        self.assertIn("flow: flowForCheck(flow)", DRAFT)
-        self.assertLess(DRAFT.index("// FLOW_GRAPH_END"), DRAFT.index("args.flow が閉じていません"))
-        src = f"import {{ flowGraphCompact }} from {json.dumps(DOC_CHECK.as_uri())}\nfunction main(spec) {{ return flowGraphCompact(spec).map((f) => f.c) }}"
-        self.assertEqual(_node(src, FLOW_OK), [])
-        self.assertTrue(_node(src, FLOW_BROKEN))
-
-    def test_refine_の入口は_flow_を検査し_next_args_に載せる(self):
-        from test_next_args import _ctx
-
-        r = _node(_entry_harness(), {"ctx": _ctx(draft_dir="/ws/drafts/r1", flow=FLOW_OK), "broken": FLOW_BROKEN})
-        self.assertEqual(r["na"]["flow"], FLOW_OK)
-        self.assertEqual(r["ok"], [])
-        self.assertTrue(any("args.flow が閉じていません" in e for e in r["broken"]))
-        self.assertIn("flow: flowForCheck(flow),", REFINE)
-
-    def test_flow_refs_が文書に載って持ち越される(self):
-        from test_next_args import _ctx
-
-        ctx = _ctx(draft_dir="/ws/drafts/r1")
-        ctx["documents"][0]["flow_refs"] = [{"item_id": "PR-AUTH-001", "ref": "F-001"}]
-        r = _node(_entry_harness(), {"ctx": ctx, "broken": FLOW_BROKEN})
-        self.assertEqual(r["na"]["documents"][0]["flow_refs"], [{"item_id": "PR-AUTH-001", "ref": "F-001"}])
-        for src in (DRAFT, REFINE):
-            self.assertIn("flow_refs: { type: 'array', items: FLOW_REF_ITEM }", src)
 
 
 if __name__ == "__main__":

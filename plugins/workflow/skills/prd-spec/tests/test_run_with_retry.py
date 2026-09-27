@@ -1,4 +1,4 @@
-"""scripts/draft.js・refine.js の runWithRetry() の回帰テスト。
+"""scripts/prd.js の runWithRetry() の回帰テスト。
 
 この関数は「agent が応答しなかったときに出し直す」判断を一手に持つ。壊れても例外は出ず、
 ログも普段と変わらないため、**リトライが黙って効かなくなる**のが失敗の形になる。
@@ -11,9 +11,6 @@
 3. **返り値が入力順に並ばなくても、正しい項目を出し直す。** pipeline の返り値の並びは
    Workflow の文書に保証が無い。位置から添字を逆算する実装だと、並びが変わったときに
    成功した項目を出し直し、落ちた項目を永久に出し直さない
-
-関数は 2 つの script に**逐語で複製**されている（workflow script は import を書けない）。
-片方だけ直すと初稿と改稿で挙動が食い違うので、一致することもテストする。
 """
 
 import json
@@ -24,8 +21,7 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-DRAFT = SCRIPTS / "draft.js"
-REFINE = SCRIPTS / "refine.js"
+PRD = SCRIPTS / "prd.js"
 
 FUNC_START = "const runWithRetry = async"
 
@@ -63,7 +59,7 @@ console.log(JSON.stringify({ results, calls, logs }))
 
 
 def run_retry(items, fail_first=(), fail_retry=(), shuffle=False):
-    src = _extract_function(DRAFT.read_text(encoding="utf-8")) + "\n" + HARNESS
+    src = _extract_function(PRD.read_text(encoding="utf-8")) + "\n" + HARNESS
     spec = {
         "items": list(items),
         "fail_first": list(fail_first),
@@ -111,7 +107,7 @@ class RunWithRetryTests(unittest.TestCase):
                 self.assertEqual(attempts(r, 2), ["b"])
                 self.assertEqual(aligned(r), ["a", "b", "c"])
                 self.assertTrue(all(x["ok"] for x in r["results"]))
-                self.assertTrue(any("再実行します" in m for m in r["logs"]))
+                self.assertTrue(any("出し直します" in m for m in r["logs"]))
 
     def test_partial_failure_reissues_every_failed_item(self):
         for shuffle in (False, True):
@@ -131,7 +127,7 @@ class RunWithRetryTests(unittest.TestCase):
                 # 欠測でも器は残る（None に潰すと後段が doc を読めない）。
                 self.assertEqual(aligned(r), ["a", "b"])
                 self.assertFalse(r["results"][1]["ok"])
-                self.assertTrue(any("再実行後も 1 件" in m for m in r["logs"]))
+                self.assertTrue(any("出し直しても 1 件" in m for m in r["logs"]))
 
     # ------------------------------------------------ 全滅は出し直さない
 
@@ -156,17 +152,7 @@ class RunWithRetryTests(unittest.TestCase):
         r = run_retry(["a"], fail_first=["a"], fail_retry=["a"])
         self.assertEqual(attempts(r, 2), ["a"])
         self.assertFalse(r["results"][0]["ok"])
-        self.assertTrue(any("再実行後も 1 件" in m for m in r["logs"]))
-
-    # ------------------------------------------------ 複製の一致
-
-    def test_draft_and_refine_share_the_same_implementation(self):
-        self.assertEqual(
-            _extract_function(DRAFT.read_text(encoding="utf-8")),
-            _extract_function(REFINE.read_text(encoding="utf-8")),
-            "runWithRetry が draft.js と refine.js で食い違っています。"
-            "初稿と改稿で欠測の扱いが変わるため、両方を同時に直すこと。",
-        )
+        self.assertTrue(any("出し直しても 1 件" in m for m in r["logs"]))
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ W/checks/<label>.snapshot.json に書く項目ごとの hash と比べて出す�
 4. doc は曖昧語・開いた TBD の断定・参照先の実在を拾い、複合語や保持規則は拾わない
 5. flow は出典の欠落と実在しない出典を拾い、conflicts は同じ target の組を列挙する
 6. stdout には件数・digest・パスだけを出す
+7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる
 """
 
 import json
@@ -275,6 +276,34 @@ class FlowAndConflicts(_Workspace):
     def test_decisions_が無ければ失敗する(self):
         (self.ws / "decisions.json").unlink()
         self.assertEqual(_run(self.ws, "conflicts").returncode, 1)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Index(_Workspace):
+    def test_2_つの_INDEX_を文書から導出する(self):
+        out = _ok(self.ws, "index", "--req-dir", "docs/req")
+        self.assertEqual(set(out["indexes"]), {"requirements", "specifications"})
+        self.assertEqual(out["indexes"]["requirements"]["save_to"], "docs/req/INDEX.md")
+        req = (self.ws / out["indexes"]["requirements"]["path"]).read_text()
+        self.assertIn("| PR-AUTH-001 | ログイン | `docs/req/auth.md` |", req)
+        self.assertIn("| `docs/req/auth.md` | `docs/specifications/auth.md` |", req)
+        self.assertIn("実現する仕様項目が無い要求: 0 件", req)
+        spec = (self.ws / out["indexes"]["specifications"]["path"]).read_text()
+        self.assertIn("| SP-AUTH-001 |", spec)
+        self.assertNotIn("関連する仕様文書", spec)
+
+    def test_未解決には開いている_TBD_だけを並べる(self):
+        _ok(self.ws, "index", "--open-tbd", "TBD-RAUTH-002")
+        req = (self.ws / "checks" / "INDEX.requirements.md").read_text()
+        self.assertIn("TBD-RAUTH-002", req)
+        self.assertNotIn("TBD-RAUTH-001", req)
+        _ok(self.ws, "index", "--open-tbd", "")
+        self.assertIn("着手を止める未確定事項は 0 件", (self.ws / "checks" / "INDEX.requirements.md").read_text())
+
+    def test_同じ文書からは同じ_INDEX_になる(self):
+        a = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]
+        b = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]
+        self.assertEqual(a, b)
 
 
 if __name__ == "__main__":
