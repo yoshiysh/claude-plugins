@@ -264,6 +264,7 @@ class FlowAndConflicts(_Workspace):
         self.assertNotEqual(before["content_sha256"], after["content_sha256"])
         self.assertEqual(after["content_sha256"], hashlib.sha256((self.ws / "flow.json").read_bytes()).hexdigest())
         self.assertEqual(after["open"], len(json.loads((self.ws / "open.json").read_text())["open"]))
+        self.assertEqual(after["open_ids"], sorted(o["id"] for o in json.loads((self.ws / "open.json").read_text())["open"]))
 
     def test_出典の欠落と実在しない出典と形の崩れを拾う(self):
         els = json.loads((self.ws / "flow.json").read_text())["elements"]
@@ -304,18 +305,25 @@ class FlowAndConflicts(_Workspace):
 
     def test_constrained_byが挙げた決定と要素を組にする(self):
         # 前回の RS-028: D-010（不可逆な操作）と reset の工程は名前が違い、target の一致では組にならなかった形。
-        _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-001"]}, {"id": "F-003", "constrained_by": ["D-003", "RS-001"]}]})
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001"}]})
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-001"]}, {"id": "F-003", "constrained_by": ["D-003", "RS-001"]}]})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
         out = _ok(self.ws, "conflicts")
         self.assertEqual((out["pairs"], out["flow_pairs"], out["constraint_pairs"]), (4, 1, 2), "target でも組になる D-001|F-002 は重ねない")
         self.assertEqual(len(out["pair_keys"]), len(set(out["pair_keys"])))
         self.assertLessEqual({"pair:D-003|F-003", "pair:F-003|RS-001"}, set(out["pair_keys"]))
 
-    def test_constrained_byの実在しない決定はflowの指摘になる(self):
-        _put(self.ws, "flow", {"elements": [{"id": "F-003", "constrained_by": ["D-099"]}]})
+    def test_constrained_byの実在しない決定はputが拒否し_後で消えた決定はflowの指摘になる(self):
+        before = (self.ws / "flow.json").read_bytes()
+        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", "--workspace", str(self.ws)],
+                           input=json.dumps({"elements": [{"id": "F-003", "constrained_by": ["D-099"]}]}), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("D-099", r.stderr)
+        self.assertEqual((self.ws / "flow.json").read_bytes(), before)
+        _put(self.ws, "flow", {"elements": [{"id": "F-003", "constrained_by": ["D-003"]}]})
+        _ok(self.ws, "del", "--ledger", "decisions", "--ids", "D-003")
         self.assertEqual(_ok(self.ws, "flow")["findings"], 1)
-        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-CONSTRAINT-UNKNOWN-F-003-D-099"])
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-CONSTRAINT-UNKNOWN-F-003-D-003"])
 
     def test_前回と同じ形の経緯の入ったclosureはFLOW_HISTORYになる(self):
         # 2026-09-27 の試走の closure（1,229 字）の最小の再現。put は経緯の印を拒否するので、put 以外で書かれた形を置く。

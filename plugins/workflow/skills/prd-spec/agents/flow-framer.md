@@ -31,7 +31,7 @@ description: 依頼と決定から対象の工程の流れ（入力・工程・�
 - **起動するスキル・外部システムは分解せず 1 工程にする。** 分解すると、その内側の規則が閉じないまま流れに入る。
 - **決定の `targets` と同じものを指す要素は、その名前をそのまま `label` にする。** doc_check の `conflicts` は
   target と要素の id・label の一致で決定と要素の組を作るので、言い換えると組が見つからず、矛盾が初稿まで残る。
-- **`step` と `decision` には、その振る舞いを縛る決定を `constrained_by` に挙げる。** decisions.json・resolutions.json の ID から
+- **振る舞いを縛る決定がある要素には、その決定を `constrained_by` に挙げる。** decisions.json・resolutions.json の ID から
   選び、新しい文は書かない。`conflicts` はこれも組にする。名前の違う決定と要素（不可逆な操作の禁止と reset の工程）は target の
   一致では組にならず、矛盾が初稿の後まで見つからなかった（前回の RS-028）。
 

@@ -1751,19 +1751,33 @@ function verbatimRejects(ws, name, body) {
   return bad
 }
 
-// refRejects: 候補の flow_refs が指す要素の実在。無い要素を指す候補は、回答を当てる resolver が変える要素を辿れない。
-function refRejects(ws, name, body) {
-  if (name !== 'resolutions') return []
+// flowRefRejects: 候補の flow_refs が指す要素の実在。無い要素を指す候補は、回答を当てる resolver が変える要素を辿れない。
+// put と questions（--check を含む）が共有する。flow を組み直した後に持ち越した問いは、questions --check でここを通る。
+function flowRefRejects(ws, resolutions) {
   const [elementsOf, elementKey] = Object.entries(ledgerOf('flow').lists)[0]
   const els = new Set(listOf(readLedger(ws, 'flow'), elementsOf).map((el) => el && String(el[elementKey])))
   const bad = []
-  for (const r of body.resolutions || []) {
+  for (const r of resolutions) {
     for (const [i, o] of (Array.isArray(r.options) ? r.options : []).entries()) {
       if (!o || o.flow_refs === undefined) continue
       const where = `${r.id} options[${i}].flow_refs`
       if (!Array.isArray(o.flow_refs)) bad.push(`${where}: 要素 ID の配列ではありません`)
       else for (const ref of o.flow_refs) if (!els.has(String(ref))) bad.push(`${where}: ${ref} は ${ledgerOf('flow').file()} にありません`)
     }
+  }
+  return bad
+}
+
+// refRejects: 台帳の欄が指す、別の台帳の ID の実在（候補の flow_refs、要素の constrained_by）。
+function refRejects(ws, name, body) {
+  if (name === 'resolutions') return flowRefRejects(ws, body.resolutions || [])
+  if (name !== 'flow') return []
+  const ids = decisionIdsOf(ws)
+  const bad = []
+  for (const el of body.elements || []) {
+    if (el.constrained_by == null) continue
+    if (!Array.isArray(el.constrained_by)) bad.push(`${el.id} constrained_by: 決定の ID の配列ではありません`)
+    else for (const ref of constraintsOf(el)) if (!ids.has(ref)) bad.push(`${el.id} constrained_by: ${ref} は ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にもありません`)
   }
   return bad
 }
@@ -2015,10 +2029,12 @@ function wsQuestions(ws, opts) {
     const r = byId.get(id)
     const q = r && r.question
     const options = r && Array.isArray(r.options) ? r.options : []
+    const refBad = r ? flowRefRejects(ws, [r]) : []
     if (!r) bad.push(`${id}: ${ledgerOf('resolutions').file()} にありません`)
     else if (!q || typeof q.header !== 'string' || typeof q.text !== 'string' || typeof q.searched !== 'string') bad.push(`${id}: question { header, text, searched } がありません`)
     else if (options.length < QUESTION_OPTIONS.min || options.length > QUESTION_OPTIONS.max) bad.push(`${id}: 候補が ${options.length} 個です（${QUESTION_OPTIONS.min}〜${QUESTION_OPTIONS.max} 個）`)
     else if (options.some((o) => !o || typeof o.label !== 'string' || typeof o.description !== 'string' || typeof o.flow_effect !== 'string')) bad.push(`${id}: 候補に label・description・flow_effect の無いものがあります`)
+    else if (refBad.length) bad.push(`${id}: ${refBad.join(' / ')}`)
     else qs.push({ id, q, options })
   }
   if (opts.check) {
@@ -2500,6 +2516,7 @@ function wsFlow(ws) {
     content_sha256: ledgerSha(ws, 'flow'),
     unverified,
     open_only: openOnly,
+    open_ids: [...openIds].sort(),
   }
 }
 

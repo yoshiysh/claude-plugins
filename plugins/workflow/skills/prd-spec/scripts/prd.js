@@ -324,7 +324,7 @@ function parseStdout(text) {
 function flowCheckOf(text) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  return ok && Array.isArray(o.unverified) && Array.isArray(o.open_only) ? o : null
+  return ok && Array.isArray(o.unverified) && Array.isArray(o.open_only) && Array.isArray(o.open_ids) ? o : null
 }
 
 // conflictsCheckOf: doc_check conflicts の stdout。組の件数と、about と同じ形の組のキーが読めないものは null。
@@ -667,8 +667,9 @@ function resolverPrompt(label, stage, task) {
     .join('\n\n')
 }
 
-// keepFlow: 値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）。後に verifier が起動しないので
-// flow.json を書く権限を持たせず、呼び出しの後の flow.json が state.flow_digest のままかを、その stdout で照合する。
+// keepFlow: flow.json を書く権限の無い resolver の呼び出し（回答を当てる 3a・3a' 以外のすべて）。呼び出しの後の flow.json が
+// state.flow_digest のままかを、その stdout で照合する（flowKept）。stdout を任意にすると、書き換えた版の stdout を返した
+// 呼び出しが新しい digest として受け入れられ、verifier もその版と一致して通る。
 const keepFlow = (task, why = '後に flow を照合する verifier が起動しない') =>
   `${task}\n\nこの呼び出しでは flow.json を書かない（${why}）。返る前に \`${cli('flow')}\` を実行し、stdout を加工せずに flow_check に入れる。`
 
@@ -704,7 +705,7 @@ function verifierPrompt(label, stage, ids, extra) {
 }
 
 // resolveCycle: resolver → verifier → 不合格の差し戻し 1 回 → 再検証。それでも不合格なら理由で分ける:
-// 価値の判断を方法論として決めた（value_as_method）→ 問い（聞けないときは保持規則）、それ以外 → 保持規則。
+// 価値の判断を方法論として決めた（value_as_method）か、cycle の入口で問いだった → 問い（聞けないときは保持規則）、それ以外 → 保持規則。
 // 変換した分はもう検証しない（検証のループを増やすと、差し戻しの上限が意味を失う）。
 // resolver が doc_check flow の stdout を返したら、検証する ID が無くても verifier を起動する。flow の閉包は、生成者の
 // stdout と別の agent の stdout の照合でしか script から確かめられない。
@@ -717,25 +718,31 @@ async function resolveCycle(stage, opt) {
   // 自由記述の回答は、対応づけが verifier に合格して初めて回答が当たったことになる。
   if (opt.answered) state.answered = uniq([...(state.answered || []), ...opt.answered.filter((id) => (res.passed || []).includes(id))])
   if (!res.lastFlow) return res
-  const se = await settle(stage, res.lastFlow, opt.phase, before)
+  const se = await settle(stage, res.lastFlow, opt.phase, before, opt.allowQuestions)
   return se || res
 }
 
+// takeFlow: 回答を当てる呼び出しは返った flow を検査して取り込み、それ以外は flow.json が変わっていないことだけを確かめる。
+const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFlow ? applyReturnedFlow(stage, r, phaseTitle, required) : flowKept(stage, r) || { checked: false })
+
 async function ruleAndVerify(stage, opt) {
   const phaseTitle = opt.phase
+  const writesFlow = Boolean(opt.answered)
+  const asTask = (t) => (writesFlow ? t : keepFlow(t, '裁定を flow に写すのは flow-framer である'))
+  const wasQuestion = new Set(pendingQuestions(state))
   let ids = []
   let flowChecked = Boolean(opt.flowChanged)
   let unverified = []
   if (opt.task) {
     const label = `resolver:${stage}`
-    const r = await once(label, 'resolver', resolverPrompt(label, stage, opt.task), RESOLVER_SCHEMA, phaseTitle)
+    const r = await once(label, 'resolver', resolverPrompt(label, stage, asTask(opt.task)), RESOLVER_SCHEMA, phaseTitle)
     if (!r) return { error: `resolver（段 ${stage}）が応答しませんでした` }
-    ids = absorbResolver(r, !opt.answered)
+    ids = absorbResolver(r, !writesFlow)
     if (opt.targets) state.missed = uniq([...(state.missed || []), ...missedTargets(opt.targets, r)])
-    const fe = await applyReturnedFlow(stage, r, phaseTitle, Boolean(opt.requireFlow))
-    if (fe.error) return { error: fe.error }
+    const fe = await takeFlow(stage, r, phaseTitle, writesFlow, Boolean(opt.requireFlow))
+    if (fe.error) return fe
     flowChecked = flowChecked || fe.checked
-    const qe = await checkQuestions(stage, r, phaseTitle)
+    const qe = await checkQuestions(stage, r, phaseTitle, opt.recheck)
     if (qe) return qe
     if (opt.answered) {
       const free = new Set(r.free_text || [])
@@ -765,14 +772,14 @@ async function ruleAndVerify(stage, opt) {
   const r2 = await once(
     r2Label,
     'resolver',
-    resolverPrompt(r2Label, `${stage}'（差し戻し）`, `verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`),
+    resolverPrompt(r2Label, `${stage}'（差し戻し）`, asTask(`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`)),
     RESOLVER_SCHEMA,
     phaseTitle
   )
   if (!r2) return { error: `resolver（段 ${stage}' の差し戻し）が応答しませんでした` }
-  let ids2 = absorbResolver(r2, !opt.answered)
-  const fe2 = await applyReturnedFlow(stage, r2, phaseTitle, false)
-  if (fe2.error) return { error: fe2.error }
+  let ids2 = absorbResolver(r2, !writesFlow)
+  const fe2 = await takeFlow(`${stage}'`, r2, phaseTitle, writesFlow, false)
+  if (fe2.error) return fe2
   flowChecked = flowChecked || fe2.checked
   const qe2 = await checkQuestions(stage, r2, phaseTitle)
   if (qe2) return qe2
@@ -791,7 +798,7 @@ async function ruleAndVerify(stage, opt) {
   if (!v2.fail.length) return { ok: true, passed, lastFlow }
 
   const convert = v2.fail
-    .map((f) => `- ${f.id} → ${f.kind === 'value_as_method' && opt.allowQuestions ? 'question' : 'hold'}（${f.kind}）`)
+    .map((f) => `- ${f.id} → ${(f.kind === 'value_as_method' || wasQuestion.has(f.id)) && opt.allowQuestions ? 'question' : 'hold'}（${f.kind}）`)
     .join('\n')
   log(`段 ${stage}: 差し戻し後も ${v2.fail.length} 件が不合格。理由で問いと保持規則に分けます（検証はもう回しません）`)
   const r3Label = `resolver:${stage}-convert`
@@ -863,7 +870,7 @@ async function frameFlow(label, lines, phaseTitle) {
 // settle: 最後の verifier の open_only のうち、O- が合格か回答で閉じた組を、flow-framer に裁定どおり直させる。閉じた O- を
 // 出典に持つ「未決」の終端は閉包の検査を通るので、ここで拒否しないと未決のまま文書に届く（前回の F-090・F-091）。
 // 値を決める呼び出しではないので resolver にしない（段 3・6 の resolver は flow を書かない）。
-async function settle(stage, lastFlow, phaseTitle, before) {
+async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const left = settledTerminals(lastFlow.open_only, state)
   const found = settledFlowFindings((state.pending || {}).findings, state, before)
   if (!left.length && !found.length) return null
@@ -879,7 +886,7 @@ async function settle(stage, lastFlow, phaseTitle, before) {
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}` }
   const fc = got.fc
-  const pe = await recheckPairs(`${stage}-settle`, got.conflicts, phaseTitle, false)
+  const pe = await recheckPairs(`${stage}-settle`, got.conflicts, phaseTitle, allowQuestions)
   if (pe.error) return pe
   const vLabel = `verifier:${stage}v-settle`
   // 指摘から直す要素は flow-framer が選ぶので、script には分からない。そのときは変わった要素をすべて検証させる。
@@ -931,8 +938,11 @@ async function applyReturnedFlow(stage, ret, phaseTitle, required) {
 
 // checkQuestions: 問いを出した resolver が返る前に実行した questions --check を確かめる。不合格なら 1 回だけ差し戻す。
 // ゲートで司令塔が導出するまで形を検査しないと、落ちたときに戻る段が無く、run の外で止まる。
-async function checkQuestions(stage, r, phaseTitle) {
-  const asked = uniq((r.questions || []).map((x) => x && x.id))
+// recheck: 返り値の questions に無くても検査させる問い（3b が組み直した flow に合わせて直す、持ち越した問い）。裁定か hold に
+// 変えたものは除く。
+async function checkQuestions(stage, r, phaseTitle, recheck) {
+  const settledNow = [...(r.ruled || []), ...(r.holds || [])].map((x) => x && x.id)
+  const asked = minus(uniq([...(r.questions || []).map((x) => x && x.id), ...(recheck || [])]), settledNow)
   if (!asked.length) return null
   let failure = questionsCheckFailure(r.questions_check, asked)
   let target = asked
@@ -1088,7 +1098,7 @@ async function stage3b() {
     FRAME_RUN,
   ], 'Answers')
   if (reframe.error) return blocked(`段 3b: ${reframe.error}`, '3b')
-  const opens = unruled(reframe.fc.open_only.map((x) => `open:${x.open}`), 'open')
+  const opens = unruled(reframe.fc.open_ids.map((id) => `open:${id}`), 'open')
   const pairs = unruled(reframe.cc.pair_keys, 'pair')
   const carried = pendingQuestions(state)
   const res = await resolveCycle('3b', {
@@ -1099,10 +1109,11 @@ async function stage3b() {
             `段 3b: 回答で組み直した flow について裁定する（論点を探し足さない）。`,
             `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}`,
             `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
-            `- 回答を待っている問い: ${list(carried)}。組み直した flow と回答で決まるなら同じ ID のまま裁定に変えて ruled に入れ、決まらないなら問いのまま残す（返さなくてよい）。`,
+            `- 回答を待っている問い: ${list(carried)}。組み直した flow と回答で決まるなら同じ ID のまま裁定に変えて ruled に入れる。決まらないなら、候補（flow_refs・flow_effect）を組み直した flow に合わせて put し直し、questions に入れる（questions --check にも含める）。`,
           ].join('\n')
         : null,
-    targets: [...opens, ...pairs],
+    targets: [...opens, ...pairs, ...carried.map((id) => (state.about || {})[id]).filter(Boolean)],
+    recheck: carried,
     verifyExtra: flowExtra(reframe.fc.unverified),
     flowChanged: true,
     allowQuestions: true,

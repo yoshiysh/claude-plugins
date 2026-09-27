@@ -77,7 +77,7 @@
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
-| `flow.json` | flow-framer（段 2、回答で組み直す 3b、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけ。値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
+| `flow.json` | flow-framer（段 2、回答で組み直す 3b、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけで、他の resolver の呼び出しは書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
@@ -284,7 +284,7 @@
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
 - `constrained_by`（任意）は、その要素の振る舞いを縛る決定の ID（D- か RS-）の配列。doc_check `conflicts` は target の一致に加えて
-  この組も列挙し、`flow` は ID の実在を検査する。
+  この組も列挙する。put は実在しない ID を拒否し、`flow` は後で消えた ID を指摘する。
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。その O- が合格か回答で閉じたら、script は
   最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典の差し替え・要らなく
   なった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素（stdout の `unverified`）
@@ -294,7 +294,7 @@
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
+{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"open_ids\":[\"O-004\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
 ## §resolver
@@ -333,7 +333,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
   "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "sha256": "書き終えた resolutions.json の sha256",
-  "flow_check": "回答を当てる段（3a・3a'）と値を決めない呼び出しでは必ず、他の段では flow.json を変えたときだけ、最後に実行した doc_check flow の stdout",
+  "flow_check": "どの呼び出しでも必ず、最後に実行した doc_check flow の stdout（回答を当てる 3a・3a' 以外では、flow.json が変わっていないことを script が確かめる）",
   "conflicts_check": "flow.json を変えたときだけ、その後に実行した doc_check conflicts の stdout",
   "questions_check": "問いを出したときだけ、返る前に実行した doc_check questions --ids <問いの ID> --check の stdout"
 }

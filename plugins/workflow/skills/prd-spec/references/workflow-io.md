@@ -87,7 +87,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 1 | intake | 常に | writer の単位が循環・未知の依存を持つ、固定の文書が単位に入る、既存文書がどの単位にも無い → blocked |
 | 2 | flow-framer | 常に。返った `doc_check flow` の stdout の指摘が 0 件でなければ 1 回だけ差し戻す | 閉じなければ blocked（初稿を始めない）。0 件なら `content_sha256` を `state.flow_digest` にする |
 | 3 | resolver | open と組がどちらも 0 件なら起動しない。問いを出したのに `questions --check` の stdout が無いか不合格なら 1 回だけ差し戻す（3a・3b・3a'・6 も同じ） | 直らなければ blocked |
-| 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、指摘が 1 件以上でも blocked（3av・6v も同じ）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` は問い、それ以外は保持規則に変えて、もう検証しない |
+| 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、指摘が 1 件以上でも blocked（3av・6v も同じ）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` と cycle の入口で問いだった ID は問い、それ以外は保持規則に変えて、もう検証しない |
 | G0 | — | 問いが 1 件以上 | `needs_answers`（`from: 3a`） |
 | 3a | resolver → verifier（候補の選択だけの回答でも起動する。回答を当てた resolver が返す `doc_check flow` の stdout を照合するため） | G0・G0-2 の後。resolver の stdout の指摘が 0 件でなければ 1 回だけ差し戻す | G0 の後は 3b（flow-framer `3b-reframe` が回答で flow を組み直し、resolver がまだ裁定の無い open・組と持ち越した問いを裁定する）。そこで問いが残れば G0-2（`answers/g0-2.md`、`from: 3a`）の 1 回だけ聞く。G0-2 の後に出た問いは保持規則 |
 | 3・3a・3b・3a'・6 の共通 | resolver（`<段>-pairs`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば `<段>-pairs` に渡し、`unverified` の要素の出典を verifier に回す。最後の verifier の `open_only` のうち、合格か回答で閉じた O- の組か、この cycle で裁定が決まった `origin: flow` の指摘があれば settle を 1 回だけ起動する | 直らなければ blocked（その段に入った時点の state で段の頭から） |
@@ -98,6 +98,9 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 7 | writer（変更がある単位だけ） | writer の指摘・routes・doc_check の指摘・前回の書き込みの後に決まった裁定のどれかがある単位 | 何も無ければ 9 へ |
 | 8 | grounding（変えた文書）、implementer・cross-doc（その観点が指摘した項目が変わったとき）。1 体を指名 | 改稿の後は必ず | 申告に無い変更があれば、それが起きた文書ごとに（diff の `by_doc` で分け、その文書の申告を引いて）implementer と grounding を追加で起動。blocking が残れば 6 へ（2 パスまで）、それでも残れば blocked |
 | 9 | —（上限で blocked のときだけ resolver が残った論点を保持規則と Issue の文案にする） | done の直前 | 事後報告は司令塔が `doc_check report` で導出する |
+
+問いを聞くゲートは G0・G0-2・G1 の 3 つである。G0-2 を G0 にまとめられないのは、G0 の回答で flow を組み直して初めて出る
+問いだからである。G1 は、初稿と監査の後に初めて出る価値の問いだけを聞く。
 
 範囲を絞った監査の基準は `audited-<n>` の snapshot で、script が保存時の digest を持ち、指名された監査役が
 `diff --expect` で照合する。writer の申告と木全体の diff を script が比べるので、生成した側だけに監査の範囲を
@@ -123,7 +126,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 
 | モード | 実行する役 | 何をするか |
 |---|---|---|
-| `flow` / `conflicts` | flow-framer（`flow` は回答を当てる resolver と resolver-verifier も） | 流れの形・閉包・出典の検査（stdout に指摘の件数・`open.json` の件数・flow.json の内容の `content_sha256`） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
+| `flow` / `conflicts` | flow-framer（`flow` は回答を当てる resolver と resolver-verifier も） | 流れの形・閉包・出典の検査（stdout に指摘の件数・`open.json` の件数と ID・flow.json の内容の `content_sha256`） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定。stdout の `flow_refs` に項目ごとの trace が指す flow 要素の ID を出す（script が改稿の writer に項目ごとに渡す） |
 | `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
@@ -132,7 +135,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。型の外の欄・経緯の印・欄の条件に合わない要素・逐語でない引用が 1 件でもあれば何も書かない |
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
-| `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
+| `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
 | `report` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、

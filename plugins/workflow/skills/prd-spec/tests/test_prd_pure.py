@@ -198,9 +198,9 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"settledFlowFindings(undefined, {json.dumps(state)}, [])"), [])
 
     def test_flowCheckOfはunverifiedとopen_onlyの無いstdoutを受け取らない(self):
-        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "open_only": []}
+        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "open_only": [], "open_ids": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("unverified", "open_only"):
+        for k in ("unverified", "open_only", "open_ids"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
 
