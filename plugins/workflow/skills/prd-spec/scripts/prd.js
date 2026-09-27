@@ -575,16 +575,20 @@ function existingNote() {
 
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 
+// once: resolutions_sha256 の無い resolver の返り値は応答なしと同じに扱う。受け取ると verifier・writer との照合が黙って飛ぶ。
 async function once(label, role, prompt, schema, phaseTitle) {
-  const [r] = await runWithRetry(label, [label], (_, attempt) => agent(prompt, { ...OPTS[role], schema, phase: phaseTitle, label: attempt > 1 ? `${label}#retry` : label }), (x) => Boolean(x))
-  return r || null
+  const ok = (x) => Boolean(x) && (role !== 'resolver' || Boolean(x.resolutions_sha256))
+  const [r] = await runWithRetry(label, [label], (_, attempt) => agent(prompt, { ...OPTS[role], schema, phase: phaseTitle, label: attempt > 1 ? `${label}#retry` : label }), ok)
+  return ok(r) ? r : null
 }
 
 
 // reRuled: 回答を当てる呼び出しでない resolver が ruled に入れた問いは、問いでなくなった（3b で組み直した flow から決まった）。
 // 3a・3a' の ruled は回答が当たった問いなので、ここでは引かない。
+// free_text は ruled に無くても検証に回す。回答の対応づけは解釈を含み、合格しないと回答済みにならない。
 function absorbResolver(r, reRuled) {
-  const { ids, about } = resolverIds(r)
+  const { ids: aboutIds, about } = resolverIds(r)
+  const ids = uniq([...aboutIds, ...(r.free_text || [])])
   state.about = { ...(state.about || {}), ...about }
   state.known = uniq([...(state.known || []), ...ids])
   state.questions = minus(uniq([...(state.questions || []), ...(r.questions || []).map((x) => x.id)]), reRuled ? (r.ruled || []).map((x) => x.id) : [])
@@ -592,7 +596,7 @@ function absorbResolver(r, reRuled) {
   state.superseded = uniq([...(state.superseded || []), ...(r.supersedes || [])])
   const seenRoutes = new Set((state.routes || []).map((x) => `${x.unit}|${x.id}`))
   state.routes = [...(state.routes || []), ...(r.routes || []).filter((x) => !seenRoutes.has(`${x.unit}|${x.id}`)).map((x) => ({ unit: x.unit, id: x.id }))]
-  if (r.resolutions_sha256) state.resolutions_sha256 = r.resolutions_sha256
+  state.resolutions_sha256 = r.resolutions_sha256
   return ids
 }
 

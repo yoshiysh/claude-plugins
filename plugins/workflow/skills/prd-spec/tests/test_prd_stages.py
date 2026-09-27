@@ -76,7 +76,7 @@ function respond(prompt, label) {
     const q = (at('questions_at', stage) || []).map((id) => ({ id, about: about(id) }))
     const ruled = (at('ruled_at', stage) || []).map((id) => ({ id, about: about(id) }))
     const holds = (at('holds_at', stage) || []).map((id) => ({ id, about: about(id) }))
-    const out = { ruled, questions: q, holds, supersedes: [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], resolutions_sha256: sha }
+    const out = { ruled, questions: q, holds, supersedes: [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], [spec.resolver_sha_key || 'resolutions_sha256']: sha }
     const checked = at('questions_check_ids_at', stage) || (stage.endsWith('-questions') ? ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g) : q.map((x) => x.id))
     if (checked.length) {
       const bad = (spec.bad_questions_at || []).includes(stage) ? 1 : 0
@@ -100,7 +100,7 @@ function respond(prompt, label) {
     return {
       pass: [...asked.filter((i) => !failIds.includes(i)), ...(at('verifier_extra_pass', stage) || [])],
       fail,
-      resolutions_sha256: sha,
+      resolutions_sha256: at('verifier_resolutions_sha_at', stage) || sha,
       decisions_sha256: H('d'),
       flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen, stage),
     }
@@ -267,6 +267,14 @@ class Stages(unittest.TestCase):
         r2 = run({"args": res["next_args"], "ruled_at": {"3a": ["RS-001"]}, "free_text_at": {"3a": ["RS-001"]}})
         self.assertTrue(has(r2["labels"], "verifier:3av"))
         self.assertEqual(r2["result"]["status"], "done")
+
+    def test_free_textだけに入れた回答もverifierに通り回答済みになる(self):
+        res = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        r2 = run({"args": res["next_args"], "free_text_at": {"3a": ["RS-001"]}})
+        prompts = {p["label"]: p["prompt"] for p in r2["prompts"]}
+        self.assertIn("RS-001", prompts["verifier:3av"].split("検証する resolution の ID:")[1].split("\n")[0])
+        self.assertEqual(r2["result"]["status"], "done")
+        self.assertFalse(has(r2["labels"], "resolver:final"), "回答した問いを保持規則に変えない")
 
     def test_3vの不合格は1回だけ差し戻し残りは理由で分ける(self):
         fail = {"id": "RS-001", "kind": "value_as_method", "reason": "価値の判断を方法論で決めた"}
@@ -580,6 +588,14 @@ class Notices(unittest.TestCase):
     def test_verifierの照合はresolutions_sha256で行う(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
         self.assertEqual(r["result"]["integrity"], [])
+        stale = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "verifier_resolutions_sha_at": {"3v": "rs-old"}})
+        self.assertTrue(any("resolutions.json（rs-old）" in x for x in stale["result"]["integrity"]), stale["result"]["integrity"])
+
+    def test_resolutions_sha256を返さないresolverでは止まる(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "resolver_sha_key": "sha256"})
+        self.assertEqual(r["result"]["status"], "blocked")
+        self.assertIn("resolver:3#retry", r["labels"])
+        self.assertFalse(has(r["labels"], "verifier:3v"), "照合できない版で検証に進まない")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")

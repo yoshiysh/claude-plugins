@@ -59,6 +59,9 @@
 - **`references/` は指された節だけを読む。** 見出しの行を Grep で探し、その節を offset/limit で Read する。
   350 行を超えるファイル（`prd-and-spec.md`・`document-structure.md`）を全体で Read すると読み込みの gate に
   止められ、通っても読んだ全文が以後のターンすべてに載り続ける。
+- **entry が `existing` のとき、既存の本文には trace が無い。** 既存の本文はそれ自身を原本として扱い、trace を付けるのも
+  根拠の有無を見るのも、このランで書いた・変えた文だけにする。既存の記述に同じ物差しを当てると、既存の記述が大量に
+  捏造と判定され、本物の指摘が埋もれる。
 - 文書のキーは `<kind>/<topic>`（例 `requirements/auth`）、ファイルは `W/<kind>-<topic>.md`。キーをファイル名に
   使うときは、英数字・`.`・`_`・`-` 以外の並びを `__` に置き換える（`requirements__auth`。doc_check と同じ変換）。
 
@@ -339,7 +342,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   ので、どの open・組・指摘・TBD が閉じたかはここからしか分からない。script はこれと verifier の合格を突き合わせて、
   閉じた ID の集合（開いている TBD の算出に使う）を next_args に載せ、渡した対象のうち `about` に現れないものを
   裁定漏れとして数える。
-- `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID（verifier の検証対象になる）。
+- `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` の指摘が 0 件でないとき、`questions_check` が無いか問いの ID を検査していないか不合格のとき、script は
   1 回だけ差し戻し、直らなければ blocked にする。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を

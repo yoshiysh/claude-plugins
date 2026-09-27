@@ -919,7 +919,8 @@ function structuralCompact(docs, flow) {
     out.push({ c: 'DUP_TBD', d: recs[0].key, a: [id, recs.map((r) => r.key), recs[0].text, recs[1].text] })
   }
 
-  // (2) 片側にしか現れない ID。requirements の ID 集合 / specifications の ID 集合 /
+  // (2) 片側にしか現れない ID。requirements の ID 集合 / specifications の ID 集合 / トレーサビリティ表の 3 集合を
+  //     文書を跨いで照合する。
   if (!reqDocs.length || !specDocs.length) {
     notChecked.push({ c: 'NC_CROSSREF', a: [!reqDocs.length ? 'requirements' : 'specifications'] })
   }
@@ -1307,7 +1308,7 @@ function runChecks(input) {
 // Workflow script はファイルを読めないので、このモードは起動済みの agent が実行し、結果は W/checks/ の
 // ファイルと stdout の digest で受け渡す。stdout に指摘の文面を出さないのは、agent に書き写させると
 // 写すトークンと写し間違いの機会がそのまま増えるため。
-// - fixed: true の文書（expand の要求文書など）は ID の定義元として数えるが、書き手の欠陥は検査しない。
+// fixed: true の文書（expand の要求文書など）は ID の定義元として数えるが、書き手の欠陥は検査しない。
 // flow の出典の引用が依頼文に実在するかは put が書く前に照合する（flow モードは形と ID の実在だけを見る）。
 
 // WORKSPACE_TEXT_BEGIN
