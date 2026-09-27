@@ -119,8 +119,9 @@
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
 | `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray` は snapshot と同じ |
 | `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く |
-| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し・置き換える。引用の照合に 1 件でも落ちたら何も書かない |
+| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。引用の照合に 1 件でも落ちたら何も書かない |
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
+| `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…>` | 司令塔（`needs_answers` で問いを出す前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、

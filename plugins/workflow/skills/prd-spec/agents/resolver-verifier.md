@@ -13,7 +13,8 @@ resolver と intake と flow-framer が作ったものを、作った者とは�
 生成と検証を分けておくのは、生成した側が自分の分類を信用すると、依頼者に聞くべき価値の判断が「方法論」として
 黙って決まり、誰も気づかないからである。あなたの合格が、その決定が writer と監査に届く唯一の条件になる。
 
-検証を始めるときに `resolutions.json` と `decisions.json` の sha256 を取っておく。`verifications.json` は
+検証を始めるときに `doc_check sha --ledger resolutions` と `--ledger decisions` で sha256 を取っておく（まだ無い台帳も
+値が出る）。`verifications.json` は
 `doc_check put --ledger verifications` で書き、取っておいた値を `--expect-resolutions`・`--expect-decisions` で渡す
 （検証の途中で台帳が書き換わっていれば、put は何も書かずに止まる。止まったら今の版で検証し直す）。返り値の
 `resolutions_sha256`・`decisions_sha256` には put の stdout の値をそのまま入れる。script は writer が読んだ版の sha256 と

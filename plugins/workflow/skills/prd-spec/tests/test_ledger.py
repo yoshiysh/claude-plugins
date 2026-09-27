@@ -107,7 +107,8 @@ class Idempotent(_Workspace):
 
     def test_台帳ファイルが無い_del_は何も作らない(self):
         out = _ok(self.ws, "del", "--ledger", "routes", "--ids", "RT-001")
-        self.assertEqual((out["removed"], out["unchanged"], out["sha256"]), ([], ["RT-001"], None))
+        empty = hashlib.sha256(b'{\n "routes": []\n}\n').hexdigest()
+        self.assertEqual((out["removed"], out["unchanged"], out["sha256"]), ([], ["RT-001"], empty))
         self.assertFalse((self.ws / "routes.json").exists())
 
     def test_同じ_ID_の_put_はその位置で置き換える(self):
@@ -291,6 +292,97 @@ class Verifications(_Workspace):
         _ok(self.ws, "del", "--ledger", "flow", "--collection", "elements", "--ids", "F-003")
         _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "RS-001", "verdict": "pass", "reason": "r"}]})
         self.assertEqual(json.loads((self.ws / "verifications.json").read_text())["items"][0]["digest"], d1)
+
+
+class FieldMerge(_Workspace):
+    """put は同じキーの要素に、送った最上位の欄だけを上書きする。欄を消すのは null だけで、送らない欄は残る。"""
+
+    def _res(self):
+        return json.loads((self.ws / "resolutions.json").read_text())["resolutions"]
+
+    def test_回答の反映で送らなかった欄は消えない(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        out = _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [
+            {"id": "RS-001", "value": "結果は画面に出す", "answer": {"path": "answers/g0.md", "quote": "RS-001: 画面"}}]})
+        self.assertEqual(out["replaced"], ["RS-001"])
+        [r] = self._res()
+        for k in ("ruling", "about", "question", "options"):
+            self.assertEqual(r[k], RESOLUTION_Q[k], k)
+        self.assertEqual(r["value"], "結果は画面に出す")
+
+    def test_送らない欄は古い値が残り_nullを送れば消える(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "hold"}]})
+        self.assertIn("options", self._res()[0], "送らなかった options は残る（消したつもりでも消えない）")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "question": None, "options": None}]})
+        r = self._res()[0]
+        self.assertNotIn("options", r)
+        self.assertNotIn("question", r)
+        self.assertEqual(r["ruling"], "hold")
+
+    def test_引用を持つ欄もnullで消せる(self):
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "answer": {"path": "answers/g0.md", "quote": "RS-001: 画面"}}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": None, "evidence": None}]})
+        self.assertNotIn("answer", self._res()[0])
+        _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-001", "quote": None}]})
+
+    def test_再検証で合格にしてもfail_kindはnullを送るまで残る(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal"}]})
+        args = ("--ledger", "verifications", "--expect-resolutions", _sha(self.ws / "resolutions.json"), "--expect-decisions", _sha(self.ws / "decisions.json"))
+        _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "mapping", "reason": "r"}]})
+        _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "reason": "r2"}]})
+        item = json.loads((self.ws / "verifications.json").read_text())["items"][0]
+        self.assertEqual((item["verdict"], item["fail_kind"]), ("pass", "mapping"))
+        _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "fail_kind": None, "reason": "r2"}]})
+        self.assertNotIn("fail_kind", json.loads((self.ws / "verifications.json").read_text())["items"][0])
+
+    def test_新しい要素のnullの欄は書かれず_同じ入力の2回目は変えない(self):
+        body = {"routes": [{"id": "RT-001", "unit": "U-1", "item_id": None}]}
+        _ok(self.ws, "put", "--ledger", "routes", stdin=body)
+        self.assertEqual(json.loads((self.ws / "routes.json").read_text())["routes"], [{"id": "RT-001", "unit": "U-1"}])
+        before = (self.ws / "routes.json").read_bytes()
+        self.assertEqual(_ok(self.ws, "put", "--ledger", "routes", stdin=body)["unchanged"], ["RT-001"])
+        self.assertEqual((self.ws / "routes.json").read_bytes(), before)
+
+    def test_スカラーもnullで消える(self):
+        doc = ("--ledger", "meta", "--doc", "requirements/auth")
+        _ok(self.ws, "put", *doc, stdin={"fixed": True})
+        self.assertTrue(json.loads((self.ws / "requirements-auth.meta.json").read_text())["fixed"])
+        self.assertEqual(_ok(self.ws, "put", *doc, stdin={"fixed": None})["removed"], ["fixed"])
+        self.assertNotIn("fixed", json.loads((self.ws / "requirements-auth.meta.json").read_text()))
+
+    def test_metaのtraceは同じitem_idの行の組を丸ごと置き換える(self):
+        doc = ("--ledger", "meta", "--doc", "requirements/auth")
+        trace = json.loads((self.ws / "requirements-auth.meta.json").read_text())["trace"]
+        item = trace[0]["item_id"]
+        _ok(self.ws, "put", *doc, stdin={"trace": [{"item_id": item, "kind": "premise", "ref": "前提 1"}]})
+        rows = [t for t in json.loads((self.ws / "requirements-auth.meta.json").read_text())["trace"] if t["item_id"] == item]
+        self.assertEqual(rows, [{"item_id": item, "kind": "premise", "ref": "前提 1"}])
+
+
+class LedgerNotWrittenYet(_Workspace):
+    """段 3 で open も組も 0 件だと resolver が起動せず、resolutions.json が無いまま verifier が動く。"""
+
+    def test_無い台帳のshaは空の台帳の値で_verifierのputが通る(self):
+        self.assertFalse((self.ws / "resolutions.json").exists())
+        res = _ok(self.ws, "sha", "--ledger", "resolutions")
+        dec = _ok(self.ws, "sha", "--ledger", "decisions")
+        self.assertEqual(res["sha256"], hashlib.sha256(b'{\n "resolutions": []\n}\n').hexdigest())
+        self.assertFalse(res["exists"])
+        self.assertEqual(dec["sha256"], _sha(self.ws / "decisions.json"))
+        args = ("--ledger", "verifications", "--expect-resolutions", res["sha256"], "--expect-decisions", dec["sha256"])
+        out = _ok(self.ws, "put", *args, stdin={"items": [{"id": "D-001", "verdict": "pass", "reason": "r"}]})
+        self.assertEqual(out["resolutions_sha256"], res["sha256"])
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal"}]})
+        self.assertEqual(_run(self.ws, "put", *args, stdin={"items": [{"id": "D-001", "verdict": "pass", "reason": "r"}]}).returncode, 1)
+
+    def test_あるファイルのshaはshasumと同じ(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal"}]})
+        self.assertEqual(_ok(self.ws, "sha", "--ledger", "resolutions")["sha256"], _sha(self.ws / "resolutions.json"))
 
 
 class Questions(_Workspace):

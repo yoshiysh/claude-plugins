@@ -64,10 +64,11 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   対象に入る（覆すなら `supersedes`）。
 - **差し戻し（3v'・段 6 の差し戻し）**: verifier が不合格にした ID だけを 1 回直す。`value_as_method` は `question`
   に、`not_reproduced` と `insufficient_grounds` は根拠を補えなければ `hold` に変える。差し戻しは 1 回きりなので、
-  同じ根拠で言い直しても次は通らない。
-- **回答の反映（3a・3a'）**: `answers/g<n>.md` を読む。回答を当てる更新は、同じ ID の resolution を put で置き換えて
-  行う（ID は変えない）。候補を選んだ回答は、その候補の `decision_text` を `value` に、回答の逐語を `answer` に入れて
-  put し、`flow_effect` の分だけ flow の要素を put（消すなら del）する。候補の外の自由記述は、どの問いへの答えかを
+  同じ根拠で言い直しても次は通らない。`ruling` を変えるときは、新しい `ruling` に付かない欄（`question`・`options`・
+  `hold`・`value` など）に `null` を送って消す（送らないと古い欄が残る）。
+- **回答の反映（3a・3a'）**: `answers/g<n>.md` を読む。回答を当てる更新は、同じ ID の resolution に変える欄だけを
+  put して行う（ID は変えない。送らない欄は残る）。候補を選んだ回答は、その候補の `decision_text` を `value` に、
+  回答の逐語を `answer` に入れて put し、`flow_effect` の分だけ flow の要素を put（消すなら del）する。候補の外の自由記述は、どの問いへの答えかを
   対応づけ、その ID を返り値の `free_text` に入れる（解釈を含むので verifier が検証する）。反映で価値に関わる
   新しい矛盾が出たら、プロンプトが続きの問いを許すときだけ `question` にし、許さないときは `hold` にする。
   flow.json を変えたら、更新後の flow 本体を返す（script が閉包検査をやり直す）。

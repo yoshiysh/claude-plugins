@@ -139,6 +139,22 @@ class OwnershipComesFromContract(unittest.TestCase):
         self.assertEqual(names - headings, set())
         self.assertIn(f"'## {'W のファイルと書き手'}'", SOURCE)
 
+    def test_見出しがあっても表が無ければ止まる(self):
+        text = CONTRACTS.read_text(encoding="utf-8")
+        sec = _section(text, "## W のファイルと書き手")
+        body = "\n".join(l for l in sec.splitlines() if not l.startswith("|"))
+        self.contract.write_text(text.replace(sec, body, 1), encoding="utf-8")
+        r = _run(self.ws, "tree-digest", doc_check=self.doc_check)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("所有表", r.stderr)
+
+    def test_見出しが無ければ後ろの表を読みに行かず止まる(self):
+        text = CONTRACTS.read_text(encoding="utf-8").replace("## W のファイルと書き手", "W のファイルと書き手（見出しでない）", 1)
+        self.contract.write_text("| `extra.txt` | 最初の見出しより前の表 |\n\n" + text, encoding="utf-8")
+        r = _run(self.ws, "tree-digest", doc_check=self.doc_check)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("所有表", r.stderr)
+
     def test_doc_checkは所有表の写しを持たない(self):
         for literal in ("precedent.json", "answers/g0", "findings/r", "W_FILES", "'tmp", "`tmp"):
             self.assertNotIn(literal, SOURCE)

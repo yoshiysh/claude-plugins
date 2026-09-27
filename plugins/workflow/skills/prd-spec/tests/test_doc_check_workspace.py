@@ -244,7 +244,7 @@ class FlowAndConflicts(_Workspace):
 
     def test_出典の欠落と実在しない出典と形の崩れを拾う(self):
         els = json.loads((self.ws / "flow.json").read_text())["elements"]
-        del els[0]["source"]
+        els[0]["source"] = None
         els[1]["source"] = {"decision": "D-099"}
         els[2]["source"] = [{"open": "O-001", "input": "結果"}]
         _put(self.ws, "flow", {"elements": els})

@@ -1408,7 +1408,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions']
+const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
@@ -1473,7 +1473,7 @@ function ledgerOf(name) {
   return LEDGERS[name]
 }
 
-function checkShape(name, value, file) {
+function checkShape(name, value, file, input) {
   const spec = ledgerOf(name)
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${file} がオブジェクトではありません`)
   for (const k of Object.keys(value)) {
@@ -1484,7 +1484,7 @@ function checkShape(name, value, file) {
         if (typeof key !== 'string' || !key.trim()) throw new Error(`${file} の ${k} に ${spec.lists[k]} の無い要素があります`)
       }
     } else if (k in spec.scalars) {
-      if (typeof value[k] !== spec.scalars[k]) throw new Error(`${file} の ${k} が ${spec.scalars[k]} ではありません`)
+      if (!(input && value[k] === null) && typeof value[k] !== spec.scalars[k]) throw new Error(`${file} の ${k} が ${spec.scalars[k]} ではありません`)
     } else throw new Error(`${file} に台帳 ${name} の欄ではない ${k} があります（欄は ${[...Object.keys(spec.lists), ...Object.keys(spec.scalars)].join(' / ')}）`)
   }
 }
@@ -1546,7 +1546,7 @@ function verbatimRejects(ws, name, body) {
   const inAnswers = (where, q, texts) => {
     if (typeof q !== 'string' || !q || !texts.some((t) => t.includes(q))) bad.push(`${where}: 回答に逐語で無い ${JSON.stringify(q)}`)
   }
-  if (name === 'decisions') for (const d of body.decisions || []) if (d.quote !== undefined) inInput(d.id, d.quote)
+  if (name === 'decisions') for (const d of body.decisions || []) if (d.quote != null) inInput(d.id, d.quote)
   if (name === 'flow') {
     for (const el of body.elements || []) {
       for (const s of Array.isArray(el.source) ? el.source : el.source ? [el.source] : []) {
@@ -1562,7 +1562,7 @@ function verbatimRejects(ws, name, body) {
   }
   if (name === 'resolutions') {
     for (const r of body.resolutions || []) {
-      if (r.answer !== undefined) {
+      if (r.answer != null) {
         const a = r.answer || {}
         let texts = answers
         if (a.path !== undefined) {
@@ -1574,7 +1574,7 @@ function verbatimRejects(ws, name, body) {
         }
         inAnswers(`${r.id} answer`, a.quote, texts)
       }
-      for (const [i, e] of (Array.isArray(r.evidence) ? r.evidence : r.evidence === undefined ? [] : [null]).entries()) {
+      for (const [i, e] of (Array.isArray(r.evidence) ? r.evidence : r.evidence == null ? [] : [null]).entries()) {
         const where = `${r.id} evidence[${i}]`
         const { file, line, end, quote } = e || {}
         const last = end === undefined ? line : end
@@ -1639,15 +1639,23 @@ function mergeList(cur, incoming, key, grouped, tally) {
   const out = [...cur]
   for (const el of incoming) {
     const at = out.findIndex((r) => r[key] === el[key])
+    const merged = mergeElement(at < 0 ? {} : out[at], el)
     if (at < 0) {
-      out.push(el)
+      out.push(merged)
       tally.added.push(el[key])
-    } else if (canonicalJson(out[at]) === canonicalJson(el)) tally.unchanged.push(el[key])
+    } else if (canonicalJson(out[at]) === canonicalJson(merged)) tally.unchanged.push(el[key])
     else {
-      out[at] = el
+      out[at] = merged
       tally.replaced.push(el[key])
     }
   }
+  return out
+}
+
+// mergeElement: 送った最上位の欄だけを上書きし、null の欄は消す。送らなかった欄は残るので、欄を消すには null が要る。
+function mergeElement(old, el) {
+  const out = { ...old, ...el }
+  for (const k of Object.keys(el)) if (el[k] === null) delete out[k]
   return out
 }
 
@@ -1655,11 +1663,17 @@ function emptyLedger(spec) {
   return Object.fromEntries(Object.keys(spec.lists).map((k) => [k, []]))
 }
 
-function fileSha(ws, name) {
-  const file = ledgerOf(name).file()
-  const p = path.join(ws, file)
-  if (!fs.existsSync(p)) throw new LedgerRejected(`${file} がありません`)
-  return sha256Bytes(fs.readFileSync(p))
+// ledgerSha: 無い台帳は空の台帳（put が書く正規形）と同じ値にする。readLedger も無い台帳を空として読むので、
+// まだ誰も書いていない台帳を検証の起点にできる（段 3 で open も組も 0 件のとき resolutions.json は無い）。
+function ledgerSha(ws, name, doc) {
+  const spec = ledgerOf(name)
+  const p = path.join(ws, spec.file(doc))
+  return sha256Bytes(fs.existsSync(p) ? fs.readFileSync(p) : Buffer.from(ledgerText(emptyLedger(spec))))
+}
+
+function wsSha(ws, opts) {
+  const file = ledgerOf(opts.ledger).file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
+  return { ledger: opts.ledger, path: file, exists: fs.existsSync(path.join(ws, file)), sha256: ledgerSha(ws, opts.ledger, opts.doc[0]) }
 }
 
 // verifications の sha256 は put の時点のファイルから取る。verifier が読んだ版と違えば書かない
@@ -1668,7 +1682,7 @@ function fillVerifications(ws, opts, next, body) {
   if (!opts.expectResolutions || !opts.expectDecisions) {
     throw new LedgerRejected('verifications の put には --expect-resolutions <sha> と --expect-decisions <sha>（検証を始めたときに読んだ版）が要ります')
   }
-  const now = { resolutions_sha256: fileSha(ws, 'resolutions'), decisions_sha256: fileSha(ws, 'decisions') }
+  const now = { resolutions_sha256: ledgerSha(ws, 'resolutions'), decisions_sha256: ledgerSha(ws, 'decisions') }
   if (now.resolutions_sha256 !== opts.expectResolutions) throw new LedgerRejected(`${ledgerOf('resolutions').file()} が検証を始めた版から変わっています（--expect-resolutions ${opts.expectResolutions} / 今 ${now.resolutions_sha256}）`)
   if (now.decisions_sha256 !== opts.expectDecisions) throw new LedgerRejected(`${ledgerOf('decisions').file()} が検証を始めた版から変わっています（--expect-decisions ${opts.expectDecisions} / 今 ${now.decisions_sha256}）`)
   const [itemsOf, itemKey] = Object.entries(ledgerOf('verifications').lists)[0]
@@ -1683,15 +1697,14 @@ function fillVerifications(ws, opts, next, body) {
   return { ...next, [itemsOf]: items, ...now }
 }
 
-function ledgerResult(name, file, tally, value, ws) {
+function ledgerResult(name, file, tally, value, ws, doc) {
   const spec = ledgerOf(name)
-  const p = path.join(ws, file)
   return {
     ledger: name,
     path: file,
     ...tally,
     count: value ? Object.fromEntries(Object.keys(spec.lists).map((k) => [k, value[k].length])) : {},
-    sha256: fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : null,
+    sha256: ledgerSha(ws, name, doc),
     ...(value && spec.filled ? Object.fromEntries(spec.filled.map((k) => [k, value[k]])) : {}),
   }
 }
@@ -1709,7 +1722,7 @@ function wsPut(ws, opts, stdin) {
     throw new LedgerRejected(`標準入力を JSON として読めません: ${e.message}`)
   }
   if (body && typeof body === 'object' && !Array.isArray(body)) for (const k of spec.filled || []) delete body[k]
-  checkShape(name, body, '標準入力')
+  checkShape(name, body, '標準入力', true)
   const bad = verbatimRejects(ws, name, body)
   if (bad.length) throw new LedgerRejected(`逐語の照合に落ちました（何も書いていません）:\n${bad.join('\n')}`)
   const cur = readLedger(ws, name, opts.doc[0]) || emptyLedger(spec)
@@ -1720,6 +1733,11 @@ function wsPut(ws, opts, stdin) {
   }
   for (const k of Object.keys(spec.scalars)) {
     if (!(k in body)) continue
+    if (body[k] === null) {
+      tally[k in next ? 'removed' : 'unchanged'].push(k)
+      delete next[k]
+      continue
+    }
     tally[!(k in next) ? 'added' : next[k] === body[k] ? 'unchanged' : 'replaced'].push(k)
     next[k] = body[k]
   }
@@ -1727,7 +1745,7 @@ function wsPut(ws, opts, stdin) {
   const text = ledgerText(next)
   const p = path.join(ws, file)
   if (!fs.existsSync(p) || fs.readFileSync(p, 'utf8') !== text) writeAtomic([p, text])
-  return ledgerResult(name, file, tally, next, ws)
+  return ledgerResult(name, file, tally, next, ws, opts.doc[0])
 }
 
 function wsDel(ws, opts) {
@@ -1744,10 +1762,10 @@ function wsDel(ws, opts) {
   const key = spec.lists[coll]
   const ids = [...new Set(opts.ids)]
   for (const id of ids) tally[cur && cur[coll].some((r) => r[key] === id) ? 'removed' : 'unchanged'].push(id)
-  if (!cur || !tally.removed.length) return ledgerResult(name, file, tally, cur, ws)
+  if (!cur || !tally.removed.length) return ledgerResult(name, file, tally, cur, ws, opts.doc[0])
   const next = { ...cur, [coll]: cur[coll].filter((r) => !tally.removed.includes(r[key])) }
   writeAtomic([path.join(ws, file), ledgerText(next)])
-  return ledgerResult(name, file, tally, next, ws)
+  return ledgerResult(name, file, tally, next, ws, opts.doc[0])
 }
 
 const QUESTION_OPTIONS = { min: 2, max: 4 }
@@ -2199,11 +2217,13 @@ const OWNERSHIP = { file: path.join('schemas', 'agent-contracts.md'), heading: '
 function ownedPatterns() {
   const text = fs.readFileSync(path.join(SKILL_DIR, OWNERSHIP.file), 'utf8')
   const lines = text.split('\n')
+  const unreadable = () => new Error(`所有表（${OWNERSHIP.file} の「${OWNERSHIP.heading}」の表の 1 列目）を読み取れません。W に置いてよいファイルが決まらないので止めます`)
   const start = lines.indexOf(OWNERSHIP.heading)
+  if (start < 0) throw unreadable()
   const end = lines.findIndex((l, i) => i > start && /^## /.test(l))
-  const cells = start < 0 ? [] : lines.slice(start + 1, end < 0 ? undefined : end).filter((l) => /^\|/.test(l)).map((l) => l.split('|')[1] || '')
+  const cells = lines.slice(start + 1, end < 0 ? undefined : end).filter((l) => /^\|/.test(l)).map((l) => l.split('|')[1] || '')
   const pats = cells.flatMap((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()))
-  if (!pats.length) throw new Error(`所有表（${OWNERSHIP.file} の「${OWNERSHIP.heading}」の表の 1 列目）を読み取れません。W に置いてよいファイルが決まらないので止めます`)
+  if (!pats.length) throw unreadable()
   const esc = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
   const toRe = (p, name) => esc(p).replace(/<[^>]+>/g, name).replace(/\*/g, '[^/]*')
   return {
@@ -2408,6 +2428,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'put') return wsPut(ws, opts, fs.readFileSync(0, 'utf8'))
   if (mode === 'del') return wsDel(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
+  if (mode === 'sha') return wsSha(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
