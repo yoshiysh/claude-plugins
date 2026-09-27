@@ -1389,6 +1389,13 @@ const WORKSPACE_TEXT = {
     issue: `流れの要素 ${id} が出典に挙げた ${ref} が ${kind === 'decision' ? `${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも` : `${ledgerOf('open').file()} に`}無い。実在しない出典は、出典が無いのと同じである。`,
     fix: `${ref} を実在する ID に直すか、出典を付け直す。`,
   }),
+  FLOW_CONSTRAINT_UNKNOWN: (id, ref) => ({
+    id: `ST-FLOW-CONSTRAINT-UNKNOWN-${id}-${ref}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: constrained_by ${ref}`,
+    issue: `流れの要素 ${id} の constrained_by が挙げた ${ref} が ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも無い。無い決定とは組にならず、矛盾が見つからない。`,
+    fix: `${ref} を実在する決定の ID に直すか外す。`,
+  }),
   FLOW_HISTORY: (where, mark) => ({
     id: `ST-FLOW-HISTORY-${where}`,
     location: '工程の流れ（flow）',
@@ -1572,7 +1579,7 @@ const LEDGERS = {
     file: () => 'flow.json',
     lists: { elements: 'id', kinds: 'name' },
     scalars: { closure: 'string' },
-    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases'], kinds: ['name', 'definition'] },
+    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by'], kinds: ['name', 'definition'] },
     cases: {
       elements: {
         by: (el) => (el.type === 'decision' ? 'decision' : 'decision 以外'),
@@ -1739,6 +1746,23 @@ function verbatimRejects(ws, name, body) {
           bad.push(`${where}: ${file} の ${line}${last === line ? '' : `〜${last}`} 行目に逐語で無い ${JSON.stringify(quote)}`)
         }
       }
+    }
+  }
+  return bad
+}
+
+// refRejects: 候補の flow_refs が指す要素の実在。無い要素を指す候補は、回答を当てる resolver が変える要素を辿れない。
+function refRejects(ws, name, body) {
+  if (name !== 'resolutions') return []
+  const [elementsOf, elementKey] = Object.entries(ledgerOf('flow').lists)[0]
+  const els = new Set(listOf(readLedger(ws, 'flow'), elementsOf).map((el) => el && String(el[elementKey])))
+  const bad = []
+  for (const r of body.resolutions || []) {
+    for (const [i, o] of (Array.isArray(r.options) ? r.options : []).entries()) {
+      if (!o || o.flow_refs === undefined) continue
+      const where = `${r.id} options[${i}].flow_refs`
+      if (!Array.isArray(o.flow_refs)) bad.push(`${where}: 要素 ID の配列ではありません`)
+      else for (const ref of o.flow_refs) if (!els.has(String(ref))) bad.push(`${where}: ${ref} は ${ledgerOf('flow').file()} にありません`)
     }
   }
   return bad
@@ -1929,6 +1953,8 @@ function wsPut(ws, opts, stdin) {
   if (shapeBad.length) throw new LedgerRejected(`欄の検査に落ちました（何も書いていません）:\n${shapeBad.join('\n')}`)
   const bad = verbatimRejects(ws, name, body)
   if (bad.length) throw new LedgerRejected(`逐語の照合に落ちました（何も書いていません）:\n${bad.join('\n')}`)
+  const refBad = refRejects(ws, name, body)
+  if (refBad.length) throw new LedgerRejected(`参照先の照合に落ちました（何も書いていません）:\n${refBad.join('\n')}`)
   const cur = readLedger(ws, name, opts.doc[0]) || emptyLedger(spec)
   let next = { ...emptyLedger(spec), ...cur }
   const tally = { added: [], replaced: [], unchanged: [], removed: [] }
@@ -2292,7 +2318,9 @@ function workspaceExtraCompact(docs, openTbd) {
   return out
 }
 
-// flowSourceCompact: flow の各要素と decision の各 case の出典の形と、挙げた決定・未決の ID の実在。
+const constraintsOf = (el) => [...new Set((Array.isArray(el.constrained_by) ? el.constrained_by : []).map((x) => String(x).trim()).filter(Boolean))]
+
+// flowSourceCompact: flow の各要素と decision の各 case の出典の形と、出典と constrained_by が挙げた決定・未決の ID の実在。
 function flowSourceCompact(flow, decisionIds, openIds) {
   const out = []
   const check = (where, source, badShape) => {
@@ -2312,6 +2340,7 @@ function flowSourceCompact(flow, decisionIds, openIds) {
   for (const el of listOf(flow, 'elements')) {
     if (!el || !el.id) continue
     check(el.id, el.source, (none) => (none ? out.push({ c: 'FLOW_NOSOURCE', d: 'flow', a: [el.id] }) : out.push({ c: 'FLOW_SOURCE_SHAPE', d: 'flow', a: [el.id] })))
+    for (const ref of constraintsOf(el)) if (!decisionIds.has(ref)) out.push({ c: 'FLOW_CONSTRAINT_UNKNOWN', d: 'flow', a: [el.id, ref] })
     if (el.type !== 'decision' || !Array.isArray(el.cases)) continue
     el.cases.forEach((c, i) => check(`${el.id}.case${i + 1}`, c && c.source, () => out.push({ c: 'FLOW_CASE_NOSOURCE', d: 'flow', a: [el.id, i + 1] })))
   }
@@ -2474,7 +2503,8 @@ function wsFlow(ws) {
   }
 }
 
-// conflicts: 同じ target を持つ決定どうし、決定と flow の要素（id か label が target に一致）の組を列挙する。
+// conflicts: 同じ target を持つ決定どうし、決定と flow の要素（id か label が target に一致するか、要素の constrained_by が
+// その決定を挙げる）の組を列挙する。target の一致だけでは、名前の違う決定と要素（不可逆な操作の禁止と reset の工程）が組にならない。
 // 組の探索を resolver の生成に任せると探索の量に上限が無くなるので、ここで閉集合にして resolver には
 // 判定だけをさせる。target の無い決定は組を作れないので untargeted として件数とともに返す（見ていないものを宣言する）。
 function wsConflicts(ws) {
@@ -2497,6 +2527,10 @@ function wsConflicts(ws) {
       if (shared.length) pairs.push({ kind: 'decision-flow', a: ds[i].id, b: String(el.id), targets: shared.sort() })
     }
   }
+  const paired = new Set(pairs.map((p) => `${p.a}|${p.b}`))
+  for (const el of els) {
+    for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`))) pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
+  }
   pairs.sort((x, y) => x.kind.localeCompare(y.kind) || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
   const untargeted = ds.filter((x) => !x.targets.length).map((x) => x.id).sort()
   const body = { pairs, untargeted, flow_checked: flow !== null }
@@ -2505,6 +2539,7 @@ function wsConflicts(ws) {
     pairs: pairs.length,
     decision_pairs: pairs.filter((p) => p.kind === 'decision-decision').length,
     flow_pairs: pairs.filter((p) => p.kind === 'decision-flow').length,
+    constraint_pairs: pairs.filter((p) => p.kind === 'constrained-by').length,
     untargeted: untargeted.length,
     flow_checked: flow !== null,
     path: writeCheck(ws, 'conflicts.json', { ...body, digest }),

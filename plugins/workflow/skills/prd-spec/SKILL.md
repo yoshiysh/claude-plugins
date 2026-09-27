@@ -41,13 +41,14 @@ workspace を用意し、保存することだけである。** 決定・問い�
 
 ## 流れ
 
-`prd.js` が 1 本で走り、止まるのは依頼者の入力を待つ地点（G0・G1）だけである。問いが 0 件なら 1 回で終わる。
+`prd.js` が 1 本で走り、止まるのは依頼者の入力を待つ地点（G0・G0-2・G1）だけである。問いが 0 件なら 1 回で終わる。
 
 | 段 | 何をするか |
 |---|---|
 | S0 | 司令塔: workspace を作り、依頼文を逐語で書き、先例を並べる |
 | 1〜3 | 依頼を仕分け（intake）、流れを閉じ（flow-framer）、未決と矛盾を裁定する（resolver → resolver-verifier） |
 | G0 | 初稿の前に、プロダクトの価値の判断だけを聞く（流れの抜けもここで届く） |
+| 3a・3b・G0-2 | 回答を当て、回答で flow を組み直す。組み直した flow から出た問いだけを 1 回聞く |
 | 4〜5 | 初稿を書き（writer）、implementer・grounding・cross-doc で 1 回監査する |
 | 6・G1 | 決定が要る指摘を裁定する。初稿の後に初めて出た価値の問いだけを聞く |
 | 7〜8 | 改稿し、変えた範囲だけを監査する（上限 2 パス。残れば blocked） |
@@ -92,7 +93,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
 ある。why は `references/workflow-io.md` §1）。model / effort は全役に既定があり、`role_opts` で上書きできる
 （`references/workflow-io.md` §2）。返り値の `status` で次を決める。
 
-- **`needs_answers`**（G0・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
+- **`needs_answers`**（G0・G0-2・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
   実行である。exit 0 で終わらなければ、問いを出さずに同じコマンドを流し直す（2 つのファイルの片方だけが新しい
   ことがある）。`questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
@@ -149,7 +150,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
 
 > **経路**: native `Workflow` が呼べるならそれを使う。native を試行した call が error・timeout・不正な返り値に
 > なっても、runner へ fallback しない（native で途中まで進んだ段を runner がもう一度走らせると、W の同じ
-> ファイルを 2 度書く）。native が無い Codex では `workflow:dynamic-workflow-runner` を使う。G0・G1 は
+> ファイルを 2 度書く）。native が無い Codex では `workflow:dynamic-workflow-runner` を使う。G0・G0-2・G1 は
 > `needs_answers` で run を終えて司令塔が聞く形なので、runner 内 gate に移さない。
 >
 > **Codex classification: `rejected_source`**（W を args で固定し、agent に `workspace-write` で書かせる。
@@ -158,7 +159,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
 Codex で動かすための要件は次のとおり。
 
 - request の `requirements` に `workspace-write` を宣言する。worktree の隔離は使わない（併用できない）。
-- W は args で固定し、run ごとに作られる workspace のパスは使わない（G0・G1 をまたいで同じ W を読み書きする）。
+- W は args で固定し、run ごとに作られる workspace のパスは使わない（G0・G0-2・G1 をまたいで同じ W を読み書きする）。
   host 側で W への書き込みを許す設定が要る。
 - resume に頼らず、`from` で段の境界から再実行する。`role_opts` の model に対応する `modelMap` を渡す。
 - shunt は使えないので、監査役は文書を全文で読む。

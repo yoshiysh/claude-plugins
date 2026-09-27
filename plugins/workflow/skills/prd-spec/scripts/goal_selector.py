@@ -87,7 +87,7 @@ RULES = [
     {"id": "R7", "vtype": list, "field": "gates_visited",
      "symptom": "G0 の後にもう 1 回（G0-2）問いが要る",
      "pred": lambda v: "g0-2" in v,
-     "impact": 2, "impact_why": "続きの問いが要ること自体は設計上の正常経路（workflow-io.md 段 3a）",
+     "impact": 2, "impact_why": "続きの問いが要ること自体は設計上の正常経路（workflow-io.md 段 3b）",
      "cost": 2, "cost_why": "intake・resolver の初回網羅を上げれば減らせる"},
 ]
 

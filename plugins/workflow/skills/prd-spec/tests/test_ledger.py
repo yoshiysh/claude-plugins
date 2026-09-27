@@ -447,6 +447,13 @@ class Questions(_Workspace):
         self.assertFalse((self.ws / "questions.json").exists())
         self.assertFalse((self.ws / "questions.md").exists())
 
+    def test_候補のflow_refsはflowにある要素だけを指せる(self):
+        opts = [{**o, "flow_refs": refs} for o, refs in zip(RESOLUTION_Q["options"], (["F-003"], []))]
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "options": opts}]})
+        opts[1] = {**opts[1], "flow_refs": ["F-099"]}
+        r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "options": opts}]})
+        self.assertIn("F-099", r.stderr)
+
     def test_問いの無い_ID_は止まる(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "ruling": "internal"}]})
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-009").returncode, 1)

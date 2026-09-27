@@ -8,7 +8,7 @@ W/checks/<label>.snapshot.json に書く項目ごとの hash と比べて出す�
 3. audited- のラベルは --role auditor が無ければ保存しない。snapshot の digest と tree-digest は同じ木で一致する
 4. doc は曖昧語・開いた TBD の断定・参照先の実在を拾い、複合語や保持規則は拾わない
 5. flow は出典の欠落と実在しない出典を拾い、flow.json の内容の sha256 を出す。conflicts は同じ target の組を列挙する
-6. stdout には件数・digest・パスだけを出す
+6. stdout には本文を出さず、件数・digest・パスと ID（doc の flow_refs）だけを出す
 7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる
 """
 
@@ -146,7 +146,7 @@ class SnapshotAndDiff(_Workspace):
         self.assertFalse((self.ws / "checks" / "audited-1.snapshot.json").exists())
         self.assertEqual(_run(self.ws, "diff", "--against", "audited-1", "--expect", "x").returncode, 1)
 
-    def test_stdout_は件数と_digest_とパスだけ(self):
+    def test_stdout_は本文を出さず件数_digest_パス_IDだけ(self):
         out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor")
         self.assertEqual(set(out), {"label", "docs", "items", "path", "digest", "stray", "sizes", "size_over"})
         self.assertEqual(set(out["stray"]), {"count", "path"})
@@ -301,6 +301,21 @@ class FlowAndConflicts(_Workspace):
             ],
         )
         self.assertEqual(body["untargeted"], ["D-003"])
+
+    def test_constrained_byが挙げた決定と要素を組にする(self):
+        # 前回の RS-028: D-010（不可逆な操作）と reset の工程は名前が違い、target の一致では組にならなかった形。
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-001"]}, {"id": "F-003", "constrained_by": ["D-003", "RS-001"]}]})
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001"}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
+        out = _ok(self.ws, "conflicts")
+        self.assertEqual((out["pairs"], out["flow_pairs"], out["constraint_pairs"]), (4, 1, 2), "target でも組になる D-001|F-002 は重ねない")
+        self.assertEqual(len(out["pair_keys"]), len(set(out["pair_keys"])))
+        self.assertLessEqual({"pair:D-003|F-003", "pair:F-003|RS-001"}, set(out["pair_keys"]))
+
+    def test_constrained_byの実在しない決定はflowの指摘になる(self):
+        _put(self.ws, "flow", {"elements": [{"id": "F-003", "constrained_by": ["D-099"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 1)
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-CONSTRAINT-UNKNOWN-F-003-D-099"])
 
     def test_前回と同じ形の経緯の入ったclosureはFLOW_HISTORYになる(self):
         # 2026-09-27 の試走の closure（1,229 字）の最小の再現。put は経緯の印を拒否するので、put 以外で書かれた形を置く。

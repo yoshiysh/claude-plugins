@@ -77,7 +77,7 @@
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で 1 回だけ書く。以後は誰も追記しない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
-| `flow.json` | flow-framer（段 2 と、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけ。値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
+| `flow.json` | flow-framer（段 2、回答で組み直す 3b、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけ。値を決めない resolver の呼び出し（変換・保持規則・問いの形の修正・上限の後）は書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
@@ -141,7 +141,7 @@
       "targets": ["decisions と同じ意味"],
       "question": { "header": "表示の見出し", "text": "依頼者に見せる問いの文（1 論点・専門用語なし）", "searched": "依頼文のどこを探して答えが無かったか" },
       "options": [
-        { "label": "案 A", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" },
+        { "label": "案 A", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文", "flow_refs": ["F-003"] },
         { "label": "案 B", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }
       ],
       "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" }
@@ -166,6 +166,7 @@
   決めた値と resolver が決めた値を、台帳の上で区別するため）。
 - `evidence[].file` は絶対パスにする。put はそのファイルを開き、`line` 行目から `end` 行目（無ければ `line` 行目だけ）を
   改行でつないだ文字列が `quote` を含むかを照合し、読めない相対パスは拒否する。
+- `options[].flow_refs` は、その候補が選ばれたら変わる flow の要素の ID。put は flow.json に無い ID を拒否する。
 - 問いの文面の正本は `question` と `options` だけである。依頼者に見せる `questions.md`・`questions.json` は、ここから
   `doc_check questions` が導出する。候補の数は `doc_check questions` が検査する（選択式の表示の制約による）。
 - 回答を当てるときは、その問いの resolution に `answer` と `value` を足す。ID は変えない（writer の trace が回答の
@@ -282,6 +283,8 @@
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
+- `constrained_by`（任意）は、その要素の振る舞いを縛る決定の ID（D- か RS-）の配列。doc_check `conflicts` は target の一致に加えて
+  この組も列挙し、`flow` は ID の実在を検査する。
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。その O- が合格か回答で閉じたら、script は
   最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典の差し替え・要らなく
   なった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素（stdout の `unverified`）
