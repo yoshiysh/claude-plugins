@@ -135,6 +135,13 @@ class TestAggregateRun(unittest.TestCase):
             out = run(["summary", "--skill", "s"], td)
             self.assertIn("未完了", out.stdout)
 
+    def test_input_refが全leg未記録のrunも未完了扱い(self):
+        with tempfile.TemporaryDirectory() as td:
+            record(td, "s", "leg1", NEEDS_ANSWERS, run_id="run1")  # input_ref 省略（既定 ""）
+            record(td, "s", "leg2", DONE, run_id="run1")
+            out = run(["summary", "--skill", "s"], td)
+            self.assertIn("未完了", out.stdout)
+
 
 class TestSummary(unittest.TestCase):
     def test_記録ゼロのsummaryはexit2(self):

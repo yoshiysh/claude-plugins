@@ -21,19 +21,19 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "goal_selector.py"
 
 BLOCKED_LEG = {
-    "run_id": "a", "status": "blocked", "gate": None, "terminal": True,
+    "run_id": "a", "input_ref": "fixture-a", "status": "blocked", "gate": None, "terminal": True,
     "remaining_blocking_count": 2, "holds_count": 0, "open_tbd_count": 0,
     "missed_count": 0, "integrity_count": 0, "undeclared_count": 0,
     "question_count": None, "agent_count": 4, "total_tokens": 100, "total_tool_calls": 10,
 }
 DONE_LEG = {
-    "run_id": "b", "status": "done", "gate": None, "terminal": True,
+    "run_id": "b", "input_ref": "fixture-b", "status": "done", "gate": None, "terminal": True,
     "remaining_blocking_count": None, "holds_count": 0, "open_tbd_count": 1,
     "missed_count": 1, "integrity_count": 0, "undeclared_count": 0,
     "question_count": None, "agent_count": 2, "total_tokens": 50, "total_tool_calls": 5,
 }
 UNTERMINATED_LEG = {
-    "run_id": "c", "status": "needs_answers", "gate": "g0", "terminal": False,
+    "run_id": "c", "input_ref": "fixture-c", "status": "needs_answers", "gate": "g0", "terminal": False,
     "remaining_blocking_count": None, "holds_count": 0, "open_tbd_count": 0,
     "missed_count": 0, "integrity_count": 0, "undeclared_count": 0,
     "question_count": 3, "agent_count": 1, "total_tokens": 10, "total_tool_calls": 1,

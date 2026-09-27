@@ -51,7 +51,7 @@ script に返させる:
 
 ```bash
 python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
-  --control <本体版の label> --treatment <staging 版の label> \
+  --control <本体版の run_id> --treatment <staging 版の run_id> \
   --criteria-file <run の前に固定した基準ファイル>
 ```
 
@@ -59,10 +59,9 @@ python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
 固定し、改変されていないことを呼び出し側が digest で照合する。指標・向き・閾値を CLI に
 手で書くと、差分を入れた本人が判定の時点で判定の仕方を選び直せてしまう。
 
-`compare` は、対で記録されているか・`input_ref` が一致するか・指標が両条件で数値として
-取れるかを検査し、どれかが欠けたら判定を返さず exit 2 で止まる。この 3 点を散文の手順に
-しておくと、対発行・同一入力・事前固定の基準のどれも実行者の自己申告になる。exit 2 は
-「差が無い」ではなく「測定が成立していない」なので、判定に進まず対照を組み直す。
+`compare` が exit 2 で判定を返さない条件は `skill_telemetry.py` の `cmd_compare()` docstring
+を正とする（ここには書き写さない）。exit 2 は「差が無い」ではなく「測定が成立していない」
+なので、判定に進まず対照を組み直す。
 
 ## 1 ランの費用と時間
 

@@ -1,29 +1,17 @@
 {
- "summary": "trimmed fixture from docs/trials/2026-09-27-prd-spec-cleanup-branches/evidence/run-outputs/run2.output.json",
- "agentCount": 2,
- "logs": [],
  "result": {
   "status": "needs_answers",
-  "questions_path": "/root/.claude/prd-spec-workspace/cleanup-branches/questions.md",
-  "report_path": null,
   "open_tbd": [],
   "holds": [],
   "missed": [],
   "integrity": [],
   "undeclared": {},
-  "questions_json_path": "/root/.claude/prd-spec-workspace/cleanup-branches/questions.json",
-  "answers_path": "/root/.claude/prd-spec-workspace/cleanup-branches/answers/g0-2.md",
   "question_ids": ["RS-020"],
   "next_args": {
-   "workspace": "/root/.claude/prd-spec-workspace/cleanup-branches",
-   "skillDir": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec",
-   "entry": "new",
-   "existing_docs": [],
-   "role_opts": {},
-   "from": "3a",
    "state": {"gate": "g0-2"}
   }
  },
+ "agentCount": 2,
  "totalTokens": 195945,
  "totalToolCalls": 29
 }

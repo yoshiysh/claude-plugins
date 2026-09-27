@@ -19,7 +19,7 @@ C3 trace 解決: trace.runs の各 run_id と trace.field は在庫に実在す�
     有効と判定した run のみ）。
 C4 在庫応答性: 在庫に run を足し引きすると、hit/present が RULES の述語どおりに変わる。
 C5 score 再計算: score.value == impact * frequency / cost、
-    frequency == round_half_up(1 + 4 * hit / present)（impact/cost は IMPACT_COST の凍結値）。
+    frequency == round_half_up(1 + 4 * hit / present)（impact/cost は RULES 各行の凍結値）。
 C6 裁定一周: decide が status / decided_at / reason を同ファイルへ記録し、pending が残らない。
 
 規則表の粒度と impact/cost の値は既定値（調整は要求変更にあたらない）。述語は在庫の

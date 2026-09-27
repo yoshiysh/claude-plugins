@@ -84,21 +84,25 @@ def aggregate_run(legs: list) -> dict:
     Workflow 実行）。holds・open_tbd・missed・integrity・undeclared・remaining_blocking は
     prd.js の `state` が run を通じて積み上がるものなので、終端 leg（`next_args` が
     null、すなわち done か再開不能な blocked）の値だけを採る（合算すると二重に数える）。
+    終端 leg が 1 件でない run と、全 leg で共有する非空 input_ref が無い run は invalid。
     """
     terminals = [leg for leg in legs if leg.get("terminal")]
-    input_refs = {leg.get("input_ref") for leg in legs if leg.get("input_ref")}
-    if len(terminals) != 1 or len(input_refs) > 1:
+    all_refs = {leg.get("input_ref") for leg in legs}
+    # 全 leg が同じ非空 input_ref を持つときだけ「同一入力の run」として成立する。
+    # 未記録（空文字・欠測）は測定できない run として invalid に含める。
+    shared_ref = next(iter(all_refs)) if len(all_refs) == 1 else None
+    if len(terminals) != 1 or not shared_ref:
         return {
             "valid": False,
             "leg_count": len(legs),
             "terminal_count": len(terminals),
-            "input_refs": sorted(input_refs),
+            "input_refs": sorted(r for r in all_refs if r),
         }
     term = terminals[0]
     agg = {
         "valid": True,
         "leg_count": len(legs),
-        "input_ref": next(iter(input_refs), None),
+        "input_ref": shared_ref,
         "gates_visited": sorted({leg.get("gate") for leg in legs if leg.get("gate")}),
     }
     for k in SUM_FIELDS:
