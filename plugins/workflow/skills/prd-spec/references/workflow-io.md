@@ -39,6 +39,7 @@
 {
   "status": "done | needs_answers | blocked",
   "questions_path": "needs_answers のとき W/questions.md",
+  "questions_json_path": "needs_answers のとき W/questions.json（選択式で出すための同じ問い）",
   "answers_path": "needs_answers のとき W/answers/g0.md・g0-2.md・g1.md のどれか",
   "question_ids": ["RS-004"],
   "report_path": "done（と、上限に達した blocked）のとき W/report.md",

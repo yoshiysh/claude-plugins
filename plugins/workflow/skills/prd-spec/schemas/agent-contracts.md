@@ -195,6 +195,9 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 **questions.md** は依頼者にそのまま見せる。問い 1 つにつき `## <RS-ID>` の節を置き、問い（1 論点・専門用語なし）、
 依頼文を探したが答えが無かったこと、候補ごとの「選ばれたら何が変わるか」を書く。
 
+**questions.json** は同じ問いを選択式の表示に合わせた形で持つ（`[{id, header（12 字以内）, question, options: [{label, description}]（2〜4 個）}]`）。
+司令塔はこれを文面を変えずに AskUserQuestion へ渡す。ID と候補の順は questions.md と同じにする。
+
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
 
 ```json

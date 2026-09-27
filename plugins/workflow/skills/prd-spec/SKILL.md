@@ -90,8 +90,11 @@ Workflow({
 依頼文は args に入れない（W/input.md にある）。model / effort は全役に既定があり、`role_opts` で上書きできる
 （`references/workflow-io.md` §2）。返り値の `status` で次を決める。
 
-- **`needs_answers`**（G0・G1）: `questions_path` のファイルを**そのまま**依頼者に見せる。回答を `answers_path` に
-  **逐語で**書き、`next_args` を**そのまま**渡して再実行する。回答を言い換えたり、候補の番号に丸めたり、
+- **`needs_answers`**（G0・G1）: `questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
+  `header`・`question`・`options` の文面は**変えずに**渡す）。選択式で答えやすくするためで、文面を縮めたり
+  言い換えたりすると、その要約は誰にも検証されないまま依頼者の判断材料になる。背景を読みたいと言われたら
+  `questions_path` の本文をそのまま見せる。回答は `<ID>: <選ばれた label>` の行（自由記述や注記があればその文を
+  続けて逐語で）として `answers_path` に**逐語で**書き、`next_args` を**そのまま**渡して再実行する。回答を言い換えたり、候補の番号に丸めたり、
   回答の無い問いを既定で埋めたりしない。回答の解釈は resolver が行い、候補の外の自由記述は verifier が検証する。
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答

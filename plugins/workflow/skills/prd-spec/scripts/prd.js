@@ -701,6 +701,7 @@ function needsAnswers(gate, from) {
   const ids = pendingQuestions(state)
   return finish('needs_answers', {
     questions_path: `${W}/questions.md`,
+    questions_json_path: `${W}/questions.json`,
     answers_path: `${W}/${GATE_ANSWERS[gate]}`,
     question_ids: ids,
     next_args: nextArgs(from),
