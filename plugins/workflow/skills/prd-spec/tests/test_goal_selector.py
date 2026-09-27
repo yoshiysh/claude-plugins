@@ -1,10 +1,14 @@
 """goal_selector.py の契約テスト（適合監査 C1/C4/C6 の機械化可能な部分を回帰化）。
 
-押さえるのは 3 つ。
+在庫は skill_telemetry.py が書く leg レコードで、goal_selector は run_id ごとに
+aggregate_run した結果（1 run 1 件）に RULES を当てる。
+
+押さえるのは:
 1. 決定性: 同一在庫で 2 回 select しても出力が変わらない（select はタイムスタンプを書かない）
 2. 欠測の扱い: field が None / 不在の run は present に数えない（欠測を非 hit に丸めない）
 3. 裁定の保全: decide 済み候補は再 select で上書きされない（拒否履歴を消さない）
 4. 対象の範囲: PURPOSE_REFS 未登録のスキルはエラーで止まる（既定の目的で trace を埋めない）
+5. 未完了 run（終端 leg が 1 件でない）は在庫から除かれる
 """
 
 import json
@@ -16,10 +20,24 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "goal_selector.py"
 
-BACKSTOP_RUN = {"verdict": "revision_backstop_reached", "novelty_history": [5, 3],
-                "revisions_used": 4, "fabrication_findings": 0,
-                "unpresented_blocking_count": 2, "audit_incomplete": False, "writer_missing": 0}
-MISSING_RUN = {"fabrication_findings": 1}  # verdict ほか欠測
+BLOCKED_LEG = {
+    "run_id": "a", "status": "blocked", "gate": None, "terminal": True,
+    "remaining_blocking_count": 2, "holds_count": 0, "open_tbd_count": 0,
+    "missed_count": 0, "integrity_count": 0, "undeclared_count": 0,
+    "question_count": None, "agent_count": 4, "total_tokens": 100, "total_tool_calls": 10,
+}
+DONE_LEG = {
+    "run_id": "b", "status": "done", "gate": None, "terminal": True,
+    "remaining_blocking_count": None, "holds_count": 0, "open_tbd_count": 1,
+    "missed_count": 1, "integrity_count": 0, "undeclared_count": 0,
+    "question_count": None, "agent_count": 2, "total_tokens": 50, "total_tool_calls": 5,
+}
+UNTERMINATED_LEG = {
+    "run_id": "c", "status": "needs_answers", "gate": "g0", "terminal": False,
+    "remaining_blocking_count": None, "holds_count": 0, "open_tbd_count": 0,
+    "missed_count": 0, "integrity_count": 0, "undeclared_count": 0,
+    "question_count": 3, "agent_count": 1, "total_tokens": 10, "total_tool_calls": 1,
+}
 
 
 def run(args, base):
@@ -29,17 +47,17 @@ def run(args, base):
                           capture_output=True, text=True, env=env)
 
 
-def seed(base, runs):
+def seed(base, legs):
     d = Path(base) / "telemetry" / "prd-spec"
     d.mkdir(parents=True, exist_ok=True)
-    for name, data in runs.items():
+    for name, data in legs.items():
         (d / f"{name}.json").write_text(json.dumps(data))
 
 
 class TestGoalSelector(unittest.TestCase):
     def test_同一在庫で2回selectしても出力が変わらない(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN, "b": MISSING_RUN})
+            seed(td, {"a": BLOCKED_LEG, "b": DONE_LEG})
             run(["select", "--skill", "prd-spec"], td)
             goals = Path(td) / "kaizen" / "goals"
             first = {p.name: p.read_bytes() for p in goals.glob("*.json")}
@@ -49,20 +67,26 @@ class TestGoalSelector(unittest.TestCase):
 
     def test_欠測runはpresentに数えない(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN, "b": MISSING_RUN})
+            seed(td, {"a": BLOCKED_LEG, "b": DONE_LEG})
             run(["select", "--skill", "prd-spec"], td)
+            # R1(remaining_blocking_count) は run b が欠測なので present は a のみ
             r1 = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R1.json").read_text())
-            # b は verdict 欠測なので R1 の present は a のみ
             self.assertEqual(r1["trace"]["present_runs"], ["a"])
             self.assertEqual(r1["trace"]["runs"], ["a"])
+            # R3(missed_count) は両 run に存在し、hit は b のみ
             r3 = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R3.json").read_text())
-            # fabrication は両 run に存在し、hit は b のみ
             self.assertEqual(r3["trace"]["present_runs"], ["a", "b"])
             self.assertEqual(r3["trace"]["runs"], ["b"])
 
+    def test_未完了runは在庫から除かれる(self):
+        with tempfile.TemporaryDirectory() as td:
+            seed(td, {"only-leg": UNTERMINATED_LEG})
+            out = run(["select", "--skill", "prd-spec"], td)
+            self.assertIn("候補なし", out.stdout)
+
     def test_裁定済み候補は再selectで上書きされない(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN})
+            seed(td, {"a": BLOCKED_LEG})
             run(["select", "--skill", "prd-spec"], td)
             out = run(["decide", "--goal", "prd-spec-R1", "--status", "rejected", "--reason", "仕様として受容"], td)
             self.assertEqual(out.returncode, 0)
@@ -76,22 +100,18 @@ class TestGoalSelector(unittest.TestCase):
 
 
 class TestAuditFollowups(unittest.TestCase):
-    """適合監査の基準外指摘 4 件の回帰化(型崩れの present 非対称 / 再裁定の無警告上書き /
-    select 表示が保存済み status を無視 / statement 連結空白は表示検証に含む)。"""
-
     def test_型が契約外の値はpresentに数えない(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN, "b": {"fabrication_findings": 1},
-                      "bad": {"fabrication_findings": "たくさん"}})
+            bad = dict(BLOCKED_LEG, run_id="bad", missed_count="たくさん")
+            seed(td, {"a": BLOCKED_LEG, "b": DONE_LEG, "bad": bad})
             run(["select", "--skill", "prd-spec"], td)
             r3 = json.loads((Path(td) / "kaizen" / "goals" / "prd-spec-R3.json").read_text())
-            # "たくさん" は int 契約外 → 未計測扱い(present にも hit にも入れない)
             self.assertEqual(r3["trace"]["present_runs"], ["a", "b"])
             self.assertEqual(r3["trace"]["runs"], ["b"])
 
     def test_裁定済みへのdecideはforceなしで拒否される(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN})
+            seed(td, {"a": BLOCKED_LEG})
             run(["select", "--skill", "prd-spec"], td)
             run(["decide", "--goal", "prd-spec-R1", "--status", "rejected", "--reason", "x"], td)
             again = run(["decide", "--goal", "prd-spec-R1", "--status", "approved", "--reason", "y"], td)
@@ -105,19 +125,19 @@ class TestAuditFollowups(unittest.TestCase):
 
     def test_selectの表示は保存済みstatusを反映する(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN})
+            seed(td, {"a": BLOCKED_LEG})
             run(["select", "--skill", "prd-spec"], td)
             run(["decide", "--goal", "prd-spec-R1", "--status", "done", "--reason", "x"], td)
             out = run(["select", "--skill", "prd-spec"], td)
             line = next(l for l in out.stdout.splitlines() if l.startswith("prd-spec-R1"))
             self.assertIn("[done]", line)
-            self.assertIn("の run で 改稿上限", line)  # statement の連結空白
+            self.assertIn("の run で 改稿と監査の上限", line)  # statement の連結空白
 
 
 class TestUnregisteredSkill(unittest.TestCase):
     def test_未登録スキルのselectはエラーで止まる(self):
         with tempfile.TemporaryDirectory() as td:
-            seed(td, {"a": BACKSTOP_RUN})
+            seed(td, {"a": BLOCKED_LEG})
             out = run(["select", "--skill", "unknown-skill"], td)
             self.assertNotEqual(out.returncode, 0)
             self.assertIn("未登録", out.stderr)

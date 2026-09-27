@@ -1,0 +1,25 @@
+{
+ "summary": "trimmed fixture from docs/trials/2026-09-27-prd-spec-cleanup-branches/evidence/run-outputs/run4.output.json",
+ "agentCount": 10,
+ "logs": ["blocking が 2 件残った（新しい TBD 0 件を含む）。段 6 → 7 → 8 をもう 1 パス回します（2/2）"],
+ "result": {
+  "status": "blocked",
+  "questions_path": null,
+  "report_path": "/root/.claude/prd-spec-workspace/cleanup-branches/report.md",
+  "next_args": null,
+  "open_tbd": [],
+  "holds": ["RS-021", "RS-032"],
+  "missed": [],
+  "integrity": [],
+  "undeclared": {},
+  "reason": "2 パスの改稿と監査の後も blocking が 2 件残りました",
+  "remaining_blocking": [
+   "r3-gr-requirements__cleanup-branches-001",
+   "r3-gr-requirements__cleanup-branches-002"
+  ],
+  "doc_blocking": 0,
+  "tree_digest": "08d3905e090c3222235d35631094f4706835835ee7884d9e8334faa69985557c"
+ },
+ "totalTokens": 1115341,
+ "totalToolCalls": 162
+}

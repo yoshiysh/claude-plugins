@@ -4,6 +4,29 @@
 持ち、この文書はその呼び出し手順だけを書く。実測を会話ログや記憶から取ると、run の詳細が
 session とともに消え、次の改善で同じ抽出を手でやり直すことになる。
 
+## 単位: leg と run
+
+`prd.js` の 1 回の Workflow 呼び出しを **leg** と呼ぶ。1 run（依頼 1 件の完了まで）は、
+`needs_answers`（G0 / G0-2 / G1）で区切られた複数 leg に分かれることがある
+（`references/workflow-io.md` §3・§4）。
+
+- `record` は 1 leg を 1 レコードとして記録する。`--label` はその leg の識別名、`--run-id`
+  （省略時は `--label` と同じ）は同じ run に属する leg をまとめる識別子。1 run の全 leg に
+  同じ `--run-id` と同じ `--input-ref` を付けて record する。
+- `summary`・`compare`・`goal_selector.py` は `--run-id` ごとに leg を
+  `skill_telemetry.aggregate_run()` で集計してから扱う（値の抜き方は `extract()` と
+  `aggregate_run()` を正とし、ここには書き写さない）。集計は 2 種類に分かれる。
+  - **leg の値の合算**: agent 数・token・tool call・問いの件数（各 leg は独立した
+    Workflow 実行で、問いの ID も leg ごとに異なるため合算してよい）。
+  - **終端 leg だけを採る**: holds・open_tbd・missed・integrity・undeclared・
+    remaining_blocking（`prd.js` の `state` が run を通じて積み上がる値なので、合算すると
+    二重に数える）。
+  - 終端 leg は `result.next_args` が null の leg（`done`、または再開できない `blocked`）。
+    label の辞書順や記録した順序ではなく、この構造で決まる。
+  - 終端 leg がちょうど 1 件で、全 leg の `input_ref` が一致している run だけを「完了して
+    測定できる run」として扱う。それ以外（0 件・2 件以上・input_ref 不一致）は未完了として
+    `summary` に出るが `compare`・`goal_selector` の対象からは外れる。
+
 ## 前提
 
 - 対象スキルの実行実測が `~/.claude/skill-telemetry/<skill>/` に 1 run 以上あること。
