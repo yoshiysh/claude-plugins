@@ -51,14 +51,14 @@ const flowStdout = (findings, sha, stage) =>
   JSON.stringify({ findings, open: spec.flow_open || 0, path: 'checks/flow.json', digest: 'fd', content_sha256: sha, unverified: at('unverified_at', stage) || [], open_only: at('open_only_at', stage) || [] })
 const conflictsStdout = (stage) => JSON.stringify({ pairs: (at('pair_keys_at', stage) || []).length, path: 'checks/conflicts.json', digest: 'c', pair_keys: at('pair_keys_at', stage) || [] })
 const ids = (text, re) => [...new Set(String(text).match(re) || [])]
-const about = (id) => ({ open: `O-${id}` })
+const about = (id) => (spec.about || {})[id] || { open: `O-${id}` }
 function respond(prompt, label) {
   const base = label.replace(/#retry$/, '')
   const [role, stage, target] = base.split(':')
   if (role === 'intake') return { decisions: 3, open: 0, decisions_sha256: H('d'), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
-    const k = stage || 'framer'
+    const k = target ? `${stage}-${target}` : stage || 'framer'
     return { flow_check: flowStdout(at('flow_findings_at', k) || (spec.broken_flow ? 1 : 0), flowSha, k), conflicts_check: conflictsStdout(k) }
   }
   if (role === 'resolver') {
@@ -796,8 +796,13 @@ class FlowRecheck(unittest.TestCase):
 
     def test_同じ呼び出しで裁定中の組は渡し直さない(self):
         # RS-005 はまだ verifier を通っていない（closedKeys に無い）が、about には入っている。
-        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001", "RS-005"]}, "flow_sha_at": {"3a": "f-3a"}, "pair_keys_at": {"3a": ["open:O-RS-005"]}}
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001", "RS-005"]}, "flow_sha_at": {"3a": "f-3a"},
+                "about": {"RS-005": {"pair": ["F-099", "D-001"]}}, "pair_keys_at": {"3a": ["pair:D-001|F-099"]}}
         self.assertNotIn("resolver:3a-pairs", run(spec)["labels"])
+
+    def test_組でないaboutの値は組の裁定として数えない(self):
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "pair_keys_at": {"3a": ["open:O-RS-001"]}}
+        self.assertIn("resolver:3a-pairs", run(spec)["labels"])
 
     def test_自由記述の回答で閉じたOも同じcycleでsettleする(self):
         spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "free_text_at": {"3a": ["RS-001"]},
@@ -903,11 +908,16 @@ class FlowRecheck(unittest.TestCase):
         stopped = run({**spec, "open_only_at": {"6v": spec["open_only_at"]["6v"], "6v-settle": spec["open_only_at"]["6v"]}})["result"]
         self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "6"))
 
-    def test_settleでflowが閉じなければblocked(self):
-        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]},
-                 "flow_findings_at": {"3-settle": 1}})
-        self.assertFalse(has(r["labels"], "verifier:3v-settle"))
-        self.assertEqual(r["result"]["status"], "blocked")
+    def test_settleでflowが閉じなければ1回だけ差し戻し直らなければblocked(self):
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]}}
+        fixed = run({**spec, "flow_findings_at": {"3-settle": 1}, "pair_keys_at": {"3-settle-rework": ["pair:D-001|F-099"]}})
+        self.assertEqual([l for l in fixed["labels"] if "settle" in l],
+                         ["flow-framer:3-settle", "flow-framer:3-settle:rework", "resolver:3-settle-pairs", "verifier:3v-settle"], "組は差し戻した後の stdout から読む")
+        self.assertIn("指摘が 1 件", self._prompt(fixed, "flow-framer:3-settle:rework"))
+        self.assertEqual(fixed["result"]["status"], "done")
+        broken = run({**spec, "flow_findings_at": {"3-settle": 1, "3-settle-rework": 1}})
+        self.assertEqual([l for l in broken["labels"] if "settle" in l], ["flow-framer:3-settle", "flow-framer:3-settle:rework"])
+        self.assertEqual((broken["result"]["status"], broken["result"]["next_args"]["from"]), ("blocked", "3"))
 
 
 # NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の

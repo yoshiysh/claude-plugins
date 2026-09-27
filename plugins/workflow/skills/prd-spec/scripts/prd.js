@@ -775,7 +775,7 @@ async function ruleAndVerify(stage, opt) {
 async function recheckPairs(stage, conflictsText, phaseTitle, allowQuestions) {
   const cc = conflictsCheckOf(conflictsText)
   if (!cc) return { error: `段 ${stage}: flow を変えた呼び出しが doc_check conflicts の stdout を返しませんでした`, rerun: true }
-  const known = new Set([...closedKeys(state), ...Object.values(state.about || {}).filter(Boolean)])
+  const known = new Set(Object.values(state.about || {}).filter((k) => k && k.startsWith('pair:')))
   const fresh = uniq(cc.pair_keys).filter((k) => !known.has(k))
   if (!fresh.length) return { ids: [] }
   const label = `resolver:${stage}-pairs`
@@ -806,9 +806,16 @@ async function settle(stage, lastFlow, phaseTitle) {
     `resolution の中身は ${W}/resolutions.json から ID で読む。裁定の中身は変えない。`,
     `実行する: \`${cli('flow')}\` を 0 件になるまで、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`,
   ].join('\n\n')
-  const r = await once(label, 'flowFramer', prompt, FLOW_SCHEMA, phaseTitle)
+  let r = await once(label, 'flowFramer', prompt, FLOW_SCHEMA, phaseTitle)
   if (!r) return { error: `flow-framer（段 ${stage} の裁定の反映）が応答しませんでした` }
-  const fc = flowCheckOf(r.flow_check)
+  let fc = flowCheckOf(r.flow_check)
+  for (let i = 0; (!fc || fc.findings > 0) && i < CHECK_REWORK; i++) {
+    const what = fc ? `doc_check flow の指摘が ${fc.findings} 件ある（${W}/checks/flow.json）` : 'doc_check flow の stdout が返っていない'
+    const again = await once(`${label}:rework`, 'flowFramer', `${prompt}\n\n返した stdout が不合格だった: ${what}。直して返す。`, FLOW_SCHEMA, phaseTitle)
+    if (!again) break
+    r = again
+    fc = flowCheckOf(r.flow_check)
+  }
   if (!fc) return { error: `段 ${stage}: 裁定を反映した flow-framer が doc_check flow の stdout を返しませんでした` }
   if (fc.findings > 0) return { error: `段 ${stage}: 裁定を反映した flow が閉じていません（doc_check flow ${fc.findings} 件。${W}/checks/flow.json）` }
   state.flow_digest = fc.content_sha256
