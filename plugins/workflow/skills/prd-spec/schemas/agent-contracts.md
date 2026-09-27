@@ -268,10 +268,11 @@
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
-- 出典が `{open}` だけの要素は、doc_check `flow` の stdout の `open_only` に出る。その O- が合格か回答で閉じたら、script は
+- 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。その O- が合格か回答で閉じたら、script は
   最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典の差し替え・要らなく
   なった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素（stdout の `unverified`）
-  だけを検証する。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
+  だけを検証する（検証に落ちて保持規則に変換済みの要素は除き、直させた要素は必ず含める）。直らなければ段は blocked になる。hold と
+  回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
@@ -329,7 +330,8 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 - `flow_check` の指摘が 0 件でないとき、`questions_check` が無いか問いの ID を検査していないか不合格のとき、script は
   1 回だけ差し戻し、直らなければ blocked にする。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を
-  新しい組として同じ段の resolver（`resolver:<段>-pairs`。flow は書かない）に渡し、`unverified` の要素の出典を verifier に回す。
+  新しい組として同じ段の resolver（`resolver:<段>-pairs`。flow は書かない）に渡し、`unverified` の要素の出典を verifier に回す
+  （検証に落ちた要素は pass が無いので `unverified` に残り続けるが、渡すたびに落ちるだけなので除く）。
   回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれるからである。
 
 ## §resolver-verifier

@@ -632,9 +632,14 @@ function resolverPrompt(label, stage, task) {
 const keepFlow = (task, why = '後に flow を照合する verifier が起動しない') =>
   `${task}\n\nこの呼び出しでは flow.json を書かない（${why}）。返る前に \`${cli('flow')}\` を実行し、stdout を加工せずに flow_check に入れる。`
 
-// flowExtra: flow を変えた呼び出しの後、検証を通った版から変わった要素（unverified）の出典を verifier に回す。
-const flowExtra = (unverified) =>
-  unverified && unverified.length ? `あわせて検証する: flow.json の要素 ${list(unverified)} の source（decision は各 case の source も）。これらの F- も pass / fail に入れる。` : ''
+// flowExtra: flow を変えた呼び出しの後、検証を通った版から変わった要素（unverified）の出典を verifier に回す。検証に落ちた
+// 要素（保持規則に変換済み）は、pass が無いので unverified に残り続ける。渡すたびに落ちて差し戻しと変換が回るので除く
+// （その要素は invalidIds で「根拠にしない」と writer に渡っている）。must は、それでも必ず検証させる要素。
+const toVerify = (unverified, must) => uniq([...minus(unverified || [], invalidIds(state).flow), ...(must || [])])
+const flowExtra = (unverified, must) => {
+  const ids = toVerify(unverified, must)
+  return ids.length ? `あわせて検証する: flow.json の要素 ${list(ids)} の source（decision は各 case の source も）。これらの F- も pass / fail に入れる。` : ''
+}
 
 // flowKept: keepFlow の呼び出しが flow.json を変えていなければ null。変えていたら同じ段をやり直しても元に戻らないので、
 // rerun を付けない。
@@ -797,7 +802,7 @@ async function settle(stage, lastFlow, phaseTitle) {
   const label = `flow-framer:${stage}-settle`
   const prompt = [
     header('flowFramer', `${stage}（裁定の反映）`, label),
-    `裁定で閉じた未決だけを出典に持つ要素を、裁定に合わせて直す（flow-framer.md の「裁定の反映」）。要素（閉じた O- ← 閉じた resolution）: ${left.map((x) => `${x.el}（${x.open} ← ${list(closers(x.open))}）`).join(', ')}`,
+    `裁定で閉じた未決だけを出典に持つ要素を、裁定に合わせて直す（flow-framer.md の「裁定の反映」）。要素（閉じた O- ← 閉じた resolution）: ${left.map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open} ← ${list(closers(x.open))}）`).join(', ')}`,
     `resolution の中身は ${W}/resolutions.json から ID で読む。裁定の中身は変えない。`,
     `実行する: \`${cli('flow')}\` を 0 件になるまで、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`,
   ].join('\n\n')
@@ -810,13 +815,15 @@ async function settle(stage, lastFlow, phaseTitle) {
   const pe = await recheckPairs(`${stage}-settle`, r.conflicts_check, phaseTitle, false)
   if (pe.error) return pe
   const vLabel = `verifier:${stage}v-settle`
-  const v = await once(vLabel, 'verifier', verifierPrompt(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc.unverified)), VERIFIER_SCHEMA, phaseTitle)
+  const fixed = uniq(left.map((x) => x.el)).filter((id) => fc.unverified.includes(id))
+  const target = toVerify(fc.unverified, fixed)
+  const v = await once(vLabel, 'verifier', verifierPrompt(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc.unverified, fixed)), VERIFIER_SCHEMA, phaseTitle)
   if (!v) return { error: `resolver-verifier（段 ${stage}v の裁定の反映）が応答しませんでした` }
   const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true)
   if (ve) return ve
   const vfc = flowCheckOf(v.flow_check)
-  const still = settledTerminals(vfc.open_only, state).map((x) => `${x.el}（${x.open}）`)
-  const unchecked = fc.unverified.filter((id) => vfc.unverified.includes(id))
+  const still = settledTerminals(vfc.open_only, state).map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open}）`)
+  const unchecked = target.filter((id) => vfc.unverified.includes(id))
   const failed = v.fail.map((f) => f.id)
   if (!still.length && !unchecked.length && !failed.length) return null
   return {

@@ -2453,11 +2453,15 @@ function wsFlow(ws) {
   const passed = new Set(listOf(readLedger(ws, 'verifications'), 'items').filter((it) => it && it.verdict === 'pass' && it.digest).map((it) => `${it.id}\u0000${it.digest}`))
   const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
-  const openOnly = els.flatMap((el) => {
-    const sources = Array.isArray(el.source) ? el.source : el.source ? [el.source] : []
+  const opensOnly = (source) => {
+    const sources = Array.isArray(source) ? source : source ? [source] : []
     const opens = sources.map((s) => s && typeof s === 'object' && String(s.open ?? '').trim())
-    return sources.length && opens.every(Boolean) ? [...new Set(opens)].map((o) => ({ el: el.id, open: o })) : []
-  })
+    return sources.length && opens.every(Boolean) ? [...new Set(opens)] : []
+  }
+  const openOnly = els.flatMap((el) => [
+    ...opensOnly(el.source).map((o) => ({ el: el.id, open: o })),
+    ...(el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []).flatMap((c, i) => opensOnly(c && c.source).map((o) => ({ el: el.id, case: i + 1, open: o }))),
+  ])
   // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
   return {
     findings: body.findings.length,

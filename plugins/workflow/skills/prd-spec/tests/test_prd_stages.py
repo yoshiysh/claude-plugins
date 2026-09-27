@@ -83,7 +83,8 @@ function respond(prompt, label) {
   }
   if (role === 'verifier') {
     const asked = ids(prompt.split('検証する resolution の ID:')[1].split('\n')[0], /RS-\d+/g)
-    const fail = at('verifier_fail', stage) || []
+    // fails_when_asked: 検証を求められたら必ず落ちる項目（検証に落ちた要素を渡し直したときの実物の振る舞い）。
+    const fail = [...(at('verifier_fail', stage) || []), ...(spec.fails_when_asked || []).filter((f) => new RegExp(`\\b${f.id}\\b`).test(prompt))]
     const failIds = fail.map((f) => f.id)
     const seen = at('verifier_flow_sha_at', stage) !== undefined ? H(at('verifier_flow_sha_at', stage)) : flowSha
     return {
@@ -832,6 +833,52 @@ class FlowRecheck(unittest.TestCase):
                 stopped = run({**spec, **left})["result"]
                 self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "3a"))
                 self.assertEqual(stopped["next_args"]["state"], g0["next_args"]["state"], "段の頭の state からやり直す")
+
+    def test_caseの出典だけが閉じたOを指すときもsettleでそのマスを直す(self):
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": [{"el": "F-004", "case": 2, "open": "O-RS-001"}]},
+                "unverified_at": {"3a-settle": ["F-004"]}}
+        r = run(spec)
+        self.assertIn("F-004 の case 2（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3a-settle"))
+        self.assertIn("F-004", self._prompt(r, "verifier:3av-settle"))
+        self.assertEqual(r["result"]["status"], "done")
+        left = run({**spec, "open_only_at": {**spec["open_only_at"], "3av-settle": spec["open_only_at"]["3av"]}})["result"]
+        self.assertEqual(left["status"], "blocked")
+        self.assertIn("F-004 の case 2", left["reason"])
+
+    def test_保持規則に変換済みのFがあってもsettleは進む(self):
+        # unverified は stub ではなく、F-002 に fail を put した実際の W で doc_check flow を叩いた stdout から取る。
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "W"
+            shutil.copytree(Path(__file__).resolve().parent / "fixtures" / "workspace", ws)
+            cli = lambda *a, stdin=None: json.loads(subprocess.run(["node", str(SKILL / "scripts" / "doc_check.mjs"), *a, "--workspace", str(ws)],
+                                                                   input=stdin, capture_output=True, text=True, check=True).stdout)
+            shas = [cli("sha", "--ledger", x)["sha256"] for x in ("resolutions", "decisions")]
+            cli("put", "--ledger", "verifications", "--expect-resolutions", shas[0], "--expect-decisions", shas[1],
+                stdin=json.dumps({"items": [{"id": "F-002", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]}))
+            unverified = cli("flow")["unverified"]
+        self.assertIn("F-002", unverified)
+        fail = [{"id": "F-002", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail}})["result"]
+        self.assertEqual(g0["status"], "needs_answers")
+        self.assertIn("F-002", g0["next_args"]["state"]["failed_ids"])
+        only = [{"el": "F-003", "open": "O-RS-001"}]
+        r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "unverified_at": {"3a": unverified, "3a-settle": unverified, "3av-settle": ["F-002"]},
+                 "open_only_at": {"3av": only}, "fails_when_asked": fail})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer"))],
+                         ["resolver:3a", "verifier:3av", "flow-framer:3a-settle", "verifier:3av-settle"], "不合格の F- を渡さないので差し戻しも変換も起きない")
+        for label in ("verifier:3av", "verifier:3av-settle"):
+            self.assertNotIn("F-002", self._prompt(r, label))
+        self.assertIn("F-003", self._prompt(r, "verifier:3av-settle"))
+
+    def test_検証に落ちた要素でもsettleで直させたら必ず検証する(self):
+        fail = [{"id": "F-003", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail}})["result"]
+        self.assertIn("F-003", g0["next_args"]["state"]["failed_ids"])
+        r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": [{"el": "F-003", "open": "O-RS-001"}]},
+                 "unverified_at": {"3a-settle": ["F-003"]}})
+        self.assertIn("F-003", self._prompt(r, "verifier:3av-settle"))
+        self.assertEqual(r["result"]["status"], "done")
 
     def test_段3で閉じたOも同じcycleでsettleする(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]}})
