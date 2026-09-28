@@ -106,6 +106,15 @@ class TestExtract(unittest.TestCase):
             tail = [l for l in run(["summary", "--skill", "s"], td).stdout.splitlines() if l.startswith("-- run1")][0]
             self.assertIn("holds=1 hold_drafts=2", tail)
 
+    def test_止まった理由とパスの数と経路を変えた項目の数を終端legから採る(self):
+        blocked = {"status": "blocked", "stop_reason": "no_progress", "passes": 3, "item_routes": {"requirements/a#PR-A-001": "exhausted", "requirements/a#PR-A-002": "hold"}, "next_args": None}
+        with tempfile.TemporaryDirectory() as td:
+            record(td, "s", "b", blocked, run_id="run1", input_ref="in1")
+            rec = json.loads((Path(td) / "s" / "b.json").read_text())
+            self.assertEqual((rec["stop_reason"], rec["pass_count"], rec["rerouted_count"]), ("no_progress", 3, 2))
+            tail = [l for l in run(["summary", "--skill", "s"], td).stdout.splitlines() if l.startswith("-- run1")][0]
+            self.assertIn("stop_reason=no_progress passes=3 rerouted=2", tail)
+
     def test_noticesはintegrityと別に数える(self):
         with tempfile.TemporaryDirectory() as td:
             data = {**DONE["result"], "notices": ["stray-1", "stray-2"]}
@@ -199,8 +208,11 @@ class TestSummary(unittest.TestCase):
             self.assertIn("q=13", tail)
             self.assertIn("holds=2", tail)
             self.assertIn("remaining_blocking=2", tail)
-            self.assertIn("notices=None", tail)  # notices・hold_drafts が無かった版の実測なので欠測のまま残る
-            self.assertNotIn("None", tail.replace("notices=None", "").replace("hold_drafts=None", ""))
+            self.assertIn("notices=None", tail)  # notices・hold_drafts・収束の欄が無かった版の実測なので欠測のまま残る
+            absent = ("notices=None", "hold_drafts=None", "stop_reason=None", "passes=None", "rerouted=None")
+            for field in absent:
+                tail = tail.replace(field, "")
+            self.assertNotIn("None", tail)
 
 
 class TestCompare(unittest.TestCase):

@@ -187,6 +187,53 @@ class Pure(unittest.TestCase):
         got = {f["id"]: f["route"] for f in value(f"toDecision({json.dumps(fs)}, ['f5'])")}
         self.assertEqual(got, {"f1": "writer", "f2": "decision", "f3": "decision", "f4": "decision", "f5": "decision"})
 
+    def _f(self, id, item="PR-A-001", blocking=True, direction="tighten", origin="text"):
+        return {"id": id, "doc": "requirements/a", "item_id": item, "blocking": blocking, "direction": direction, "origin": origin}
+
+    def test_recurringItemsは両パスでblockingの項目だけを返しoriginを問わない(self):
+        prev = [self._f("p1"), self._f("p2", item="PR-A-002"), self._f("p3", item="PR-A-003", blocking=False)]
+        now = [self._f("n1"), self._f("n2", item="PR-A-002", blocking=False), self._f("n3", item="PR-A-003"), self._f("n4", item="PR-A-004")]
+        self.assertEqual(value(f"recurringItems({json.dumps(prev)}, {json.dumps(now)})"), ["requirements/a#PR-A-001"])
+        self.assertEqual(value(f"recurringItems({json.dumps(prev)}, {json.dumps([self._f('n1', origin='flow')])})"), ["requirements/a#PR-A-001"])
+        self.assertEqual(value(f"recurringItems({json.dumps(prev)}, {json.dumps(now)}, [{{id: 'n1'}}])"), [], "既裁定の再出は数えない")
+
+    def test_reRaisedは合格した裁定と同じdirectionで変わっていない項目の指摘だけを返す(self):
+        prev = [self._f("p1")]
+        state = {"about": {"RS-1": "finding:p1"}, "passed": ["RS-1"]}
+        again = lambda st, now, changed={}: value(f"reRaised({json.dumps(prev)}, [], {json.dumps(now)}, {json.dumps(st)}, {json.dumps(changed)})")
+        self.assertEqual(again(state, [self._f("n1")]), [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}])
+        for name, st, now, changed in (
+            ("裁定が合格していない", {**state, "passed": []}, [self._f("n1")], {}),
+            ("direction が違う", state, [self._f("n1", direction="relax")], {}),
+            ("項目を改稿で変えた", state, [self._f("n1")], {"requirements/a": ["PR-A-001"]}),
+        ):
+            with self.subTest(name):
+                self.assertEqual(again(st, now, changed), [])
+        prev_again = [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}]
+        chained = value(f"reRaised([], {json.dumps(prev_again)}, {json.dumps([self._f('m1')])}, {{about: {{}}, passed: []}}, {{}})")
+        self.assertEqual([x["id"] for x in chained], ["m1"], "前のパスの再出が持ち越した裁定でも数えない")
+
+    def test_routeRecurringはdecisionからholdを経て尽きた項目にする(self):
+        routes = {"k2": "decision", "k3": "hold", "k4": "exhausted"}
+        self.assertEqual(value(f"routeRecurring(['k1', 'k2', 'k3', 'k4'], {{item_routes: {json.dumps(routes)}}})"),
+                         {"k1": "decision", "k2": "hold", "k3": "exhausted", "k4": "exhausted"})
+
+    def _rework(self, counts, limit=3):
+        # counts[0] は最初の返り値の件数、counts[n] は n 回目の差し戻しの件数（None は stdout が無い）。
+        js = json.dumps(counts)
+        return value(
+            f"(async () => {{ const cs = {js}; const calls = []; const d = (x) => (x.c === 0 ? null : {{ count: x.c === null ? Infinity : x.c, text: String(x.c) }});"
+            f" const r = await rework({{ c: cs[0] }}, d, async (_, __, n) => {{ calls.push(n); return {{ c: cs[n] }} }}, {limit}); return {{ calls, defect: r.defect, got: r.got.c }} }})()"
+        )
+
+    def test_reworkは件数が0になるまで回し減らなければ止める(self):
+        self.assertEqual(self._rework([3, 1, 0]), {"calls": [1, 2], "defect": None, "got": 0})
+        self.assertEqual(self._rework([3, 3, 0])["calls"], [1], "3 → 3 は進展なし")
+        self.assertEqual(self._rework([None, None, 0])["calls"], [1], "stdout が 2 回とも無ければ止める")
+        self.assertEqual(self._rework([None, 2, 0])["got"], 0)
+        self.assertEqual(self._rework([4, 3, 2, 1, 0], limit=3)["calls"], [1, 2, 3], "減り続けても上限で止める")
+        self.assertEqual(self._rework([0])["calls"], [])
+
     def test_settledFlowFindingsはこのcycleで決まったflowの指摘だけを返す(self):
         state = {
             "about": {f"RS-{i}": f"finding:f{i}" for i in range(1, 6)},
@@ -198,6 +245,9 @@ class Pure(unittest.TestCase):
         # f2 は hold、f3 は回答待ちの問い、f4 は origin が text、f5 は cycle に入る前に決まっていた
         self.assertEqual(value(f"settledFlowFindings({json.dumps(pending)}, {json.dumps(state)}, ['RS-5'])"), ["f1"])
         self.assertEqual(value(f"settledFlowFindings(undefined, {json.dumps(state)}, [])"), [])
+        ledger = [{"id": "f1", "origin": "ledger", "doc": "requirements/a", "item_id": "PR-A-001"}]
+        self.assertEqual(value(f"settledFlowFindings({json.dumps(ledger)}, {json.dumps(state)}, [])"), [])
+        self.assertEqual(value(f"settledFlowFindings({json.dumps(ledger)}, {json.dumps(state)}, [], {{'requirements/a#PR-A-001': ['p1']}})"), ["f1"], "再発した項目の ledger 由来の指摘も flow に写す")
 
     def test_settledVerificationsはこのcycleで合格した流れの要素の検証の裁定だけを返す(self):
         about = {"RS-1": "verification:F-001", "RS-2": "verification:F-002", "RS-3": "verification:F-003", "RS-4": "verification:D-004",

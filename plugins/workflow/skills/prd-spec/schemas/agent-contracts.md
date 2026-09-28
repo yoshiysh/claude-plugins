@@ -258,7 +258,7 @@
 ```
 
 返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が prd.js の
-`CHECK_REWORK` の回数まで差し戻し、直らなければ段 1 で止まる。段 2 の flow-framer が実行した `plan` の `content_sha256` と違えば、
+`MAX_CHECK_REWORK` を上限に差し戻し、直らなければ段 1 で止まる。段 2 の flow-framer が実行した `plan` の `content_sha256` と違えば、
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
@@ -395,7 +395,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   裁定漏れとして数える。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` の指摘が 0 件でないとき、`questions_check` が無いか問いの ID を検査していないか不合格のとき、script は
-  prd.js の `CHECK_REWORK` の回数まで差し戻し、直らなければ blocked にする。
+  prd.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を
   新しい組として同じ段の resolver（`resolver:<段>-pairs`。flow は書かない）に渡し、検証を通っていない要素の出典を verifier に回す
   （除くものは §flow-framer の `failed_current`）。

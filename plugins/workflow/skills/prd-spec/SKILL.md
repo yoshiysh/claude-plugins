@@ -51,7 +51,7 @@ workspace を用意し、保存することだけである。** 決定・問い�
 | 3a・3b・G0-2 | 回答を当て、回答で flow を組み直す。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
 | 4〜5 | 初稿を書き（writer）、implementer・grounding・cross-doc で 1 回監査する |
 | 6・G1 | 決定が要る指摘を裁定する。初稿の後に初めて出た価値の問いだけを聞く |
-| 7〜8 | 改稿し、変えた範囲だけを監査する（上限 2 パス。残れば blocked） |
+| 7〜8 | 改稿し、変えた範囲だけを監査する。blocking が 0 になるか進展が止まるまで回す（上限は `MAX_AUDIT_PASSES`。残れば blocked） |
 | 9 | 事後報告（resolver）→ 司令塔が照合して保存する |
 
 段ごとの入出力、返り値の読み方、再実行は `references/workflow-io.md` を正とする。
@@ -106,7 +106,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
   しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
-  そのまま見せ、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`doc_blocking`）を
+  そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
 - **`done`**: 下の「保存」へ進む。
 

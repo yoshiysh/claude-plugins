@@ -68,6 +68,9 @@ def extract(result: dict, meta: dict) -> dict:
         "notices_count": _count(result.get("notices")),
         "undeclared_count": _undeclared_count(result.get("undeclared")),
         "remaining_blocking_count": _count(result.get("remaining_blocking")),
+        "stop_reason": result.get("stop_reason"),
+        "pass_count": result.get("passes"),
+        "rerouted_count": _count(result.get("item_routes")),
         "agent_count": meta.get("agentCount"),
         "total_tokens": meta.get("totalTokens"),
         "total_tool_calls": meta.get("totalToolCalls"),
@@ -76,7 +79,8 @@ def extract(result: dict, meta: dict) -> dict:
 
 SUM_FIELDS = ("agent_count", "total_tokens", "total_tool_calls", "question_count")
 TERMINAL_FIELDS = ("status", "holds_count", "hold_drafts_count", "open_tbd_count", "missed_count",
-                    "integrity_count", "notices_count", "undeclared_count", "remaining_blocking_count")
+                    "integrity_count", "notices_count", "undeclared_count", "remaining_blocking_count",
+                    "stop_reason", "pass_count", "rerouted_count")
 
 
 def aggregate_run(legs: list) -> dict:
@@ -176,7 +180,8 @@ def cmd_summary(args) -> int:
             f"agents={agg['agent_count']} tokens={agg['total_tokens']} tools={agg['total_tool_calls']} "
             f"q={agg['question_count']} holds={agg['holds_count']} hold_drafts={agg['hold_drafts_count']} open_tbd={agg['open_tbd_count']} "
             f"missed={agg['missed_count']} integrity={agg['integrity_count']} notices={agg['notices_count']} "
-            f"undeclared={agg['undeclared_count']} remaining_blocking={agg['remaining_blocking_count']}"
+            f"undeclared={agg['undeclared_count']} remaining_blocking={agg['remaining_blocking_count']} "
+            f"stop_reason={agg['stop_reason']} passes={agg['pass_count']} rerouted={agg['rerouted_count']}"
         )
     print(f"-- runs={len(runs)} done 到達 {done}/{len(runs)}")
     return 0

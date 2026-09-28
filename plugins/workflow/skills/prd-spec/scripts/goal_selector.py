@@ -56,7 +56,7 @@ PURPOSE_REFS = {
 # 根拠を各行に残す。
 RULES = [
     {"id": "R1", "vtype": int, "field": "remaining_blocking_count",
-     "symptom": "改稿と監査の上限（MAX_PASSES）を使い切っても blocking を残したまま run が終わる",
+     "symptom": "改稿と監査の上限（MAX_AUDIT_PASSES）か進展なしで止まり、blocking を残したまま run が終わる",
      "pred": lambda v: v >= 1,
      "impact": 5, "impact_why": "収束はループ設計の主目的そのもの",
      "cost": 3, "cost_why": "機序特定に対照 run が要る"},
