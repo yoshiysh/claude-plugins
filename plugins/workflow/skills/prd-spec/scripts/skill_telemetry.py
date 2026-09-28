@@ -61,6 +61,7 @@ def extract(result: dict, meta: dict) -> dict:
         "terminal": next_args is None,
         "question_count": _count(result.get("question_ids")),
         "holds_count": _count(result.get("holds")),
+        "hold_drafts_count": _count(result.get("hold_drafts")),
         "open_tbd_count": _count(result.get("open_tbd")),
         "missed_count": _count(result.get("missed")),
         "integrity_count": _count(result.get("integrity")),
@@ -74,7 +75,7 @@ def extract(result: dict, meta: dict) -> dict:
 
 
 SUM_FIELDS = ("agent_count", "total_tokens", "total_tool_calls", "question_count")
-TERMINAL_FIELDS = ("status", "holds_count", "open_tbd_count", "missed_count",
+TERMINAL_FIELDS = ("status", "holds_count", "hold_drafts_count", "open_tbd_count", "missed_count",
                     "integrity_count", "notices_count", "undeclared_count", "remaining_blocking_count")
 
 
@@ -82,7 +83,7 @@ def aggregate_run(legs: list) -> dict:
     """1 run 分の leg レコードから run 単位の値を作る。
 
     agent 数・token・tool call・問いの件数は leg ごとの値の合算（leg は独立した
-    Workflow 実行）。holds・open_tbd・missed・integrity・notices・undeclared・remaining_blocking は
+    Workflow 実行）。holds・hold_drafts・open_tbd・missed・integrity・notices・undeclared・remaining_blocking は
     prd.js の `state` が run を通じて積み上がるものなので、終端 leg（`next_args` が
     null、すなわち done か再開不能な blocked）の値だけを採る（合算すると二重に数える）。
     終端 leg が 1 件でない run と、全 leg で共有する非空 input_ref が無い run は invalid。
@@ -173,7 +174,7 @@ def cmd_summary(args) -> int:
         print(
             f"-- {run_id} legs={agg['leg_count']} gates={agg['gates_visited']} status={agg['status']} "
             f"agents={agg['agent_count']} tokens={agg['total_tokens']} tools={agg['total_tool_calls']} "
-            f"q={agg['question_count']} holds={agg['holds_count']} open_tbd={agg['open_tbd_count']} "
+            f"q={agg['question_count']} holds={agg['holds_count']} hold_drafts={agg['hold_drafts_count']} open_tbd={agg['open_tbd_count']} "
             f"missed={agg['missed_count']} integrity={agg['integrity_count']} notices={agg['notices_count']} "
             f"undeclared={agg['undeclared_count']} remaining_blocking={agg['remaining_blocking_count']}"
         )

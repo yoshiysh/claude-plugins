@@ -104,9 +104,10 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
   回答の無い問いを既定で埋めたりしない。回答の解釈は resolver が行い、候補の外の自由記述は verifier が検証する。
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
-  しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば、下の「事後報告」と同じく
-  `doc_check report` で導出してそのまま見せ、残った blocking（返り値の `remaining_blocking`・`doc_blocking`）を
-  並べて見せる。blocked のまま保存しない。
+  しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば
+  `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
+  そのまま見せ、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`doc_blocking`）を
+  並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
 - **`done`**: 下の「保存」へ進む。
 
 再実行は `from`（段の境界）で行い、Workflow の resume に頼らない。状態はすべて W のファイルと `next_args.state`

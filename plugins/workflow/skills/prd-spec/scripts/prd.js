@@ -235,7 +235,7 @@ function settledFlowFindings(pendingFindings, state, before) {
   return uniq((pendingFindings || []).filter((f) => f && f.origin === 'flow' && closed.has(f.id)).map((f) => f.id))
 }
 
-// settledVerifications: D- の検証の裁定は decisions.json の側で閉じ、flow に写すものが無い。
+// settledVerifications: D- の検証の裁定は覆した D- を引く要素として doc_check flow の stale_refs に出るので、ここでは F- だけを取る。
 const settledVerifications = (state, before) => closedInCycle(state, before, 'verification').filter((id) => /^F-/.test(id))
 
 function rolesByItem(history, findings, role) {
@@ -302,7 +302,7 @@ function parseStdout(text) {
 function flowCheckOf(text) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  return ok && ['unverified', 'failed_current', 'open_only', 'open_ids'].every((k) => Array.isArray(o[k])) ? o : null
+  return ok && ['unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids'].every((k) => Array.isArray(o[k])) ? o : null
 }
 
 function conflictsCheckOf(text) {
@@ -329,10 +329,10 @@ const REQUIRES = {
   '3b': ['units', 'flow_digest', 'flow_failed', 'gate', 'questions'],
   4: ['units', 'flow_digest', 'flow_failed'],
   5: ['units', 'flow_digest', 'flow_failed'],
-  6: ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass'],
-  "3a'": ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass', 'gate', 'questions'],
-  7: ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass'],
-  8: ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass', 'revised'],
+  6: ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass', 'settled_written'],
+  "3a'": ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'questions'],
+  7: ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass', 'settled_written'],
+  8: ['units', 'flow_digest', 'flow_failed', 'audit', 'pending', 'pass', 'settled_written', 'revised'],
   9: ['units', 'tree_digest'],
 }
 function stateErrors(from, state) {
@@ -519,13 +519,16 @@ let running = null
 let entryState = null
 
 function finish(status, extra) {
+  const written = new Set(state.settled_written || [])
+  const holds = uniq(state.holds || [])
   return {
     status,
     questions_path: null,
     report_path: null,
     next_args: null,
     open_tbd: openTbdOf(state),
-    holds: uniq(state.holds || []),
+    holds: holds.filter((id) => written.has(id)),
+    hold_drafts: holds.filter((id) => !written.has(id)),
     missed: uniq(state.missed || []),
     integrity: state.integrity || [],
     notices: state.notices || [],
@@ -620,6 +623,15 @@ function absorbVerifier(v, expectedSha, stage, flowChecked) {
     return { error: `段 ${stage}: verifier が検査した flow.json が、生成者が doc_check flow で検査した版と違います${noFixer}`, rerun: flowChecked }
   }
   if (fc.findings !== 0) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${fc.findings} 件あります（${W}/checks/flow.json）${noFixer}`, rerun: flowChecked }
+  const onlyFlow = (ids) => (ids || []).filter((id) => /^F-/.test(id))
+  const unrecorded = [
+    ...onlyFlow((v.fail || []).map((f) => f.id)).filter((id) => !fc.failed_current.includes(id)),
+    ...onlyFlow(v.pass).filter((id) => fc.unverified.includes(id)),
+  ]
+  if (unrecorded.length) {
+    noteIntegrity(`verifier（段 ${stage}）が返した F- の合否（${unrecorded.join(', ')}）が、doc_check flow の stdout（verifications.json の今の版）に無い`)
+    return { error: `段 ${stage}: verifier が返した F- の合否 ${unrecorded.join(', ')} が verifications.json に記録されていません（put しなかったか、put の前に doc_check flow を実行した）`, rerun: true }
+  }
   const notFlow = (ids) => (ids || []).filter((id) => !/^F-/.test(id))
   const failIds = notFlow((v.fail || []).map((f) => f.id))
   state.passed = minus(uniq([...(state.passed || []), ...notFlow(v.pass)]), failIds)
@@ -758,18 +770,24 @@ async function ruleAndVerify(stage, opt) {
     ids2 = uniq([...ids2, ...pe2.ids])
   }
   const v2Label = `verifier:${stage}v'`
+  const asked2 = uniq([...ids2, ...(fe2.changed ? toVerify(fe2.fc) : [])])
   const v2 = await once(v2Label, 'verifier', verifierPrompt(v2Label, `${stage}v'`, ids2, fe2.changed ? flowExtra(fe2.fc) : ''), VERIFIER_SCHEMA, phaseTitle)
   if (!v2) return { error: `resolver-verifier（段 ${stage}v' の再検証）が応答しませんでした` }
   const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked)
   if (ve2) return ve2
   lastFlow = flowCheckOf(v2.flow_check)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
-  if (!v2.fail.length) return { ok: true, passed, lastFlow }
+  // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。差し戻しは 1 回きりなので、やり直しても直す役がいない。
+  // v2 に渡していない要素の不合格は前の版の再報告で、failed_current に残って writer に根拠にしない要素として渡る。
+  const unconvertible = v2.fail.map((f) => f.id).filter((id) => !/^RS-/.test(id) && asked2.includes(id))
+  if (unconvertible.length) return { error: `段 ${stage}: 差し戻しの後も ${list(unconvertible)} が検証に落ちました。決定や flow の要素は問いや保持規則に変えられません（${W}/verifications.json）`, rerun: false }
+  const toConvert = v2.fail.filter((f) => /^RS-/.test(f.id))
+  if (!toConvert.length) return { ok: true, passed, lastFlow }
 
-  const convert = v2.fail
+  const convert = toConvert
     .map((f) => `- ${f.id} → ${(f.kind === 'value_as_method' || wasQuestion.has(f.id)) && opt.allowQuestions ? 'question' : 'hold'}（${f.kind}）`)
     .join('\n')
-  log(`段 ${stage}: 差し戻し後も ${v2.fail.length} 件が不合格。理由で問いと保持規則に分けます（検証はもう回しません）`)
+  log(`段 ${stage}: 差し戻し後も ${toConvert.length} 件が不合格。理由で問いと保持規則に分けます（検証はもう回しません）`)
   const r3Label = `resolver:${stage}-convert`
   const r3 = await once(
     r3Label,
@@ -835,13 +853,14 @@ async function frameFlow(label, lines, phaseTitle) {
 
 // settle: 閉じた O- を出典に持つ「未決」の終端は閉包の検査を通るので、ここで拒否しないと未決のまま文書に届く。
 // 値を決める呼び出しではないので resolver にしない（段 3・6 の resolver は flow を書かない）。
-// about の種類のうち open・finding・verification を写す。pair は見ない（flow を変えた後の新しい組は recheckPairs が裁定に回すが、
-// 組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
+// about の種類のうち open・finding・verification を写し、supersedes で覆された決定を引く要素（stale_refs）も直させる。pair は見ない
+// （flow を変えた後の新しい組は recheckPairs が裁定に回すが、組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
 async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const left = settledTerminals(lastFlow.open_only, state)
   const found = settledFlowFindings((state.pending || {}).findings, state, before)
   const verdicts = settledVerifications(state, before)
-  if (!left.length && !found.length && !verdicts.length) return null
+  const stale = lastFlow.stale_refs
+  if (!left.length && !found.length && !verdicts.length && !stale.length) return null
   const settled = new Set(settledIds(state))
   const closers = (key) => uniq(Object.entries(state.about || {}).filter(([id, k]) => k === key && settled.has(id)).map(([id]) => id))
   // settle が del した要素を、回答待ちの問いの候補の flow_refs が指したままだと、ゲートで司令塔の doc_check questions が止まり、戻る段が無い。
@@ -852,6 +871,7 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
     left.length ? `要素（閉じた O- ← 閉じた resolution）: ${left.map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open} ← ${list(closers(`open:${x.open}`))}）`).join(', ')}` : '',
     found.length ? `指摘（ID ← それを裁定した resolution）: ${found.map((id) => `${id}（← ${list(closers(`finding:${id}`))}）`).join(', ')}` : '',
     verdicts.length ? `検証の裁定（要素 ← 裁定した resolution）: ${verdicts.map((id) => `${id} ← ${list(closers(`verification:${id}`))}`).join(', ')}` : '',
+    stale.length ? `覆された決定を出典か constrained_by に持つ要素（要素 ← 覆された決定）: ${stale.map((x) => `${x.el} ← ${x.ref}`).join(', ')}` : '',
     FRAME_RUN,
     waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行する（返し方は §flow-framer の返り値）。` : '',
   ], phaseTitle)
@@ -863,7 +883,7 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   if (pe.error) return pe
   const vLabel = `verifier:${stage}v-settle`
   // 指摘から直す要素は flow-framer が選ぶので、script には分からない。そのときは変わった要素をすべて検証させる。
-  const fixed = found.length ? fc.unverified : uniq([...left.map((x) => x.el), ...verdicts]).filter((id) => fc.unverified.includes(id))
+  const fixed = found.length ? fc.unverified : uniq([...left.map((x) => x.el), ...verdicts, ...stale.map((x) => x.el)]).filter((id) => fc.unverified.includes(id))
   const target = toVerify(fc, fixed)
   const v = await once(vLabel, 'verifier', verifierPrompt(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc, fixed)), VERIFIER_SCHEMA, phaseTitle)
   if (!v) return { error: `resolver-verifier（段 ${stage}v の裁定の反映）が応答しませんでした` }
@@ -873,9 +893,10 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const still = settledTerminals(vfc.open_only, state).map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open}）`)
   const unchecked = target.filter((id) => vfc.unverified.includes(id))
   const failed = v.fail.map((f) => f.id)
-  if (!still.length && !unchecked.length && !failed.length) return null
+  const stillStale = vfc.stale_refs.map((x) => `${x.el}（${x.ref}）`)
+  if (!still.length && !unchecked.length && !failed.length && !stillStale.length) return null
   return {
-    error: `段 ${stage}: 裁定の反映の後も直っていません（閉じた未決だけを出典に持つ要素: ${list(still)} / 検証を通っていない要素: ${list(unchecked)} / 不合格: ${list(failed)}）`,
+    error: `段 ${stage}: 裁定の反映の後も直っていません（閉じた未決だけを出典に持つ要素: ${list(still)} / 覆された決定を引く要素: ${list(stillStale)} / 検証を通っていない要素: ${list(unchecked)} / 不合格: ${list(failed)}）`,
   }
 }
 
@@ -1428,9 +1449,9 @@ async function finalHold(blocking, newTbd) {
     RESOLVER_SCHEMA,
     'Report'
   )
+  if (r) absorbResolver(r)
   const report = { report_path: `${W}/report.md`, remaining_blocking: state.pending.blocking, doc_blocking: state.pending.doc_blocking, tree_digest: state.tree_digest }
   if (r) {
-    absorbResolver(r)
     const kept = flowKept('final', r)
     if (kept) return blocked(kept.error, kept.rerun ? '8' : null, report)
   }

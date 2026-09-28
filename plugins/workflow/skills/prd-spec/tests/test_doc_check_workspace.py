@@ -373,6 +373,16 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(out["failed_current"], [])
         self.assertIn("F-002", out["unverified"])
 
+    def test_覆された決定を出典かconstrained_byに持つ要素はstale_refsに出る(self):
+        self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [])
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "v", "supersedes": "D-001"}]})
+        out = _ok(self.ws, "flow")
+        self.assertEqual(out["stale_refs"], [{"el": "F-002", "ref": "D-001"}, {"el": "F-004", "ref": "D-001"}])
+        self.assertEqual(out["findings"], 0, "覆された ID も実在するので出典の検査は通る")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "supersedes": ["D-002"]}]})
+        _put(self.ws, "flow", {"elements": [{"id": "F-005", "constrained_by": ["D-002"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [{"el": "F-005", "ref": "D-002"}])
+
     def test_caseの出典がopenだけならそのマスもopen_onlyに出す(self):
         f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
         f4["cases"][1]["source"] = [{"open": "O-001"}]
@@ -512,8 +522,24 @@ class Report(_Workspace):
 
     def test_resolutionsが無くても型どおりに0件を書く(self):
         out = _ok(self.ws, "report")
-        self.assertEqual((out["method"], out["holds"], out["upstream_revisions"]), (0, 0, 0))
-        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 3)
+        self.assertEqual((out["method"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0))
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 4)
+
+    def test_draftsに挙げたholdは本文に未反映の節に分ける(self):
+        self._resolutions()
+        out = _ok(self.ws, "report", "--drafts", "RS-002")
+        self.assertEqual((out["holds"], out["drafts"]), (0, 1))
+        text = (self.ws / "report.md").read_text()
+        reflected, drafts = text.split("## 保持規則の文案（本文に未反映）")
+        self.assertNotIn("RS-002", reflected)
+        self.assertIn("### RS-002", drafts.split("## 上位文書の改訂の文案")[0])
+        self.assertEqual(_ok(self.ws, "report", "--drafts", "")["holds"], 1)
+
+    def test_draftsにholdでないIDがあれば何も書かない(self):
+        self._resolutions()
+        r = _run(self.ws, "report", "--drafts", "RS-003")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse((self.ws / "report.md").exists())
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

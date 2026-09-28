@@ -18,9 +18,11 @@ session とともに消え、次の改善で同じ抽出を手でやり直すこ
   `aggregate_run()` を正とし、ここには書き写さない）。集計は 2 種類に分かれる。
   - **leg の値の合算**: agent 数・token・tool call・問いの件数（各 leg は独立した
     Workflow 実行で、問いの ID も leg ごとに異なるため合算してよい）。
-  - **終端 leg だけを採る**: holds・open_tbd・missed・integrity・notices・undeclared・
+  - **終端 leg だけを採る**: holds・hold_drafts・open_tbd・missed・integrity・notices・undeclared・
     remaining_blocking（`prd.js` の `state` が run を通じて積み上がる値なので、合算すると
     二重に数える）。
+  - `holds` は本文に反映した保持規則、`hold_drafts` は本文に無い保持規則の文案（意味は `references/workflow-io.md` §3）。
+    上限で blocked の leg では `hold_drafts` と `remaining_blocking` が同じ論点を指すので、足し合わせない。
   - `integrity` は照合の食い違い、`notices` は照合ではない所見（W に所有表に無いファイルが
     あった、など）で、別の件数として数える。`goal_selector.py` の R4 は `integrity_count`
     だけを見る（所見を混ぜると、毎回の run が照合の食い違いに数えられる）。

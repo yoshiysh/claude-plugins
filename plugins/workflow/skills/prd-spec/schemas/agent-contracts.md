@@ -294,11 +294,14 @@
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。script は `unverified` から `failed_current` を除いて
   verifier に回す（書き換えていない不合格の要素は、渡すと同じ理由で落ちて差し戻しが回る）。最後の verifier の `failed_current` は
   writer に「根拠にしない要素」として渡る。
+- stdout の `stale_refs` は、resolutions.json の `supersedes` で覆された決定を `source`（case の `source` を含む）か `constrained_by` に
+  持つ要素と、その決定の組（`{el, ref}`）である。覆された ID も実在するので出典の検査では指摘にならない。最後の verifier の `stale_refs`
+  が空でなければ、script は `open_only` と同じく settle で直させ、直らなければ段は blocked になる。
 
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"open_ids\":[\"O-004\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
+{ "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
 - `questions_check`: settle でプロンプトが回答待ちの問いの ID を渡したときだけ、`questions --ids <その ID> --check` の stdout を

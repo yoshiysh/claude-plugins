@@ -205,9 +205,9 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"settledVerifications({json.dumps(state)}, ['RS-5'])"), ["F-001"])
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "open_ids": []}
+        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "stale_refs": [], "open_ids": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("unverified", "failed_current", "open_only", "open_ids"):
+        for k in ("unverified", "failed_current", "open_only", "stale_refs", "open_ids"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
 
@@ -216,6 +216,7 @@ class Pure(unittest.TestCase):
         errs = value("stateErrors('8', {units: [], flow_digest: 'f', flow_failed: []})")
         self.assertTrue(any("state.audit" in e for e in errs))
         self.assertTrue(any("state.revised" in e for e in errs))
+        self.assertTrue(any("state.settled_written" in e for e in errs), "finish() が holds と hold_drafts を分ける鍵")
         self.assertFalse(any("flow" in e for e in errs))
         self.assertEqual(value("stateErrors('4', {units: [], flow: {}, failed_ids: ['F-001']})"),
                          ['from "4" には state.flow_digest が要ります', 'from "4" には state.flow_failed が要ります'])

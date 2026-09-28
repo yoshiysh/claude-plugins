@@ -86,3 +86,7 @@ script は変わった要素をすべて検証に回す。
 プロンプトが検証の裁定（要素 ← resolution。契約の resolutions.json の `about` が `{verification}` のもの）を渡したときは、
 resolution の `value` どおりにその要素を直す（出典の差し替え・`constrained_by` の除去など）。写さないと、要素は不合格の版のまま
 残り、writer に根拠にしない要素として渡る。
+
+プロンプトが覆された決定を引く要素（要素 ← 覆された決定。契約 §flow-framer の `stale_refs`）を渡したときは、その決定を
+`supersedes` に持つ resolution を `W/resolutions.json` で引き、出典をその resolution に差し替えるか `constrained_by` から外す。
+直さないと、要素は無効な決定を根拠にしたまま文書に届く。

@@ -47,12 +47,13 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   "answers_path": "needs_answers のとき W/answers/g0.md・g0-2.md・g1.md のどれか",
   "question_ids": ["RS-004"],
   "report_path": "done（と、上限に達した blocked）のとき W/report.md（司令塔が doc_check report で導出してから見せる）",
-  "remaining_blocking": ["上限に達した blocked のとき、残った blocking の指摘の ID"],
+  "remaining_blocking": ["上限に達した blocked のとき、本文に反映されていない blocking の指摘の ID（hold の文案にしたものを含む）"],
   "doc_blocking": "上限に達した blocked のとき、残った doc_check の blocking の件数",
   "next_args": "needs_answers と、やり直せる blocked のとき。そのまま渡す args",
   "tree_digest": "最後の監査が見た木の digest（done のとき）",
   "open_tbd": ["開いている TBD の ID"],
-  "holds": ["保持規則になった resolution の ID"],
+  "holds": ["本文に反映した保持規則の resolution の ID（writer に渡したもの）"],
+  "hold_drafts": ["文案だけで本文に無い保持規則の resolution の ID（上限の後に resolver が作ったものなど。remaining_blocking の指摘と対になる）"],
   "missed": ["渡したのに裁定されなかった論点（finding:… / tbd:…）"],
   "integrity": ["sha256 の照合で食い違った事実"],
   "notices": ["照合ではない所見（監査の時点で W に所有表に無いファイルがあった、など）"],
@@ -71,9 +72,11 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   `next_args.state` はその段に入った時点の state で、段の途中で足した値（候補の選択で当たった回答・形の検査に落ちた問い・
   integrity の行）を持ち越さない。持ち越すと、再実行が止まらなかった run と違う状態から始まる。
   監査の基準の digest が合わない・上限の 2 パスを使い切った・その段に flow を書く生成者がいないのに flow.json が
-  生成者の検査した版から変わっていた、のように、同じ段をやり直しても変わらないときは付かない。
+  生成者の検査した版から変わっていた、差し戻しの後も決定か flow の要素が検証に落ちた（問いや保持規則に変えられない）、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
-  書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、のような食い違いである。事後報告に添える。flow の食い違いだけは run を blocked にし（違う flow を見た検証を台帳に入れないため）、それ以外は run を止めない。
+  書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、verifier が返した F- の合否が `doc_check flow` の stdout（verifications.json）に無かった、のような食い違いである。事後報告に添える。flow の食い違いだけは run を blocked にし（違う flow や記録されていない合否を見た検証を台帳に入れないため）、それ以外は run を止めない。
+- `holds` と `hold_drafts` は、writer に渡したか（`state.settled_written`）で分ける。渡しただけで本文に入ったとは限らず、
+  当て損ねは直後の監査が拾う。
 - `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルや
   分量の目安を超えたファイルを数えた、など。行には件数と一覧のファイルのパスだけを載せる）。run は止めず、事後報告に添える。`integrity` に混ぜないのは、その件数を改善候補の
   選別（`scripts/goal_selector.py` の R4）が照合の食い違いとして数えるからである。
@@ -90,7 +93,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、指摘が 1 件以上でも blocked（3av・6v も同じ）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` と cycle の入口で問いだった ID は問い、それ以外は保持規則に変えて、もう検証しない（flow の要素は書き換えるまで） |
 | G0 | — | 問いが 1 件以上 | `needs_answers`（`from: 3a`） |
 | 3a | resolver → verifier（候補の選択だけの回答でも起動する。回答を当てた resolver が返す `doc_check flow` の stdout を照合するため） | G0・G0-2 の後。resolver の stdout の指摘が 0 件でなければ 1 回だけ差し戻す | G0 の後は 3b（flow-framer `3b-reframe` が回答で flow を組み直し、resolver がまだ裁定の無い open・組と持ち越した問いを裁定する）。そこで問いが残れば G0-2（`answers/g0-2.md`、`from: 3a`）の 1 回だけ聞く。G0-2 の後に出た問いは保持規則 |
-| 3・3a・3b・3a'・6 の共通 | resolver（`<段>-pairs`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば `<段>-pairs` に渡し、検証を通っていない要素（契約 §flow-framer の `unverified` と `failed_current`）の出典を verifier に回す。最後の verifier の `open_only` のうち、合格か回答で閉じた O- の組か、この cycle で裁定が決まった `origin: flow` の指摘か flow の要素への `verification` の裁定があれば settle を 1 回だけ起動する | 直らなければ blocked（その段に入った時点の state で段の頭から） |
+| 3・3a・3b・3a'・6 の共通 | resolver（`<段>-pairs`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば `<段>-pairs` に渡し、検証を通っていない要素（契約 §flow-framer の `unverified` と `failed_current`）の出典を verifier に回す。最後の verifier の `open_only` のうち、合格か回答で閉じた O- の組か、この cycle で裁定が決まった `origin: flow` の指摘か flow の要素への `verification` の裁定か、`stale_refs`（覆された決定を引く要素）があれば settle を 1 回だけ起動する | 直らなければ blocked（その段に入った時点の state で段の頭から） |
 | 4 | writer | 単位の依存の向きに波を作り、同じ波は並列 | 応答しない単位があれば blocked（一度も書かれていない文書を監査しない） |
 | 5 | implementer・grounding（文書ごと）、cross-doc（全文書で 1 体。指名） | 常に。`entry: existing` は 3 の後ここへ | cross-doc が `audited-1` を返さなければ blocked |
 | 6 | resolver → verifier | decision の指摘も新しい TBD も 0 件なら起動しない。writer の指摘はここを通らず段 7 へ | 1 パス目の問いは G1、2 パス目の問いは保持規則 |
@@ -126,7 +129,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 
 | モード | 実行する役 | 何をするか |
 |---|---|---|
-| `flow` / `conflicts` | flow-framer（`flow` は回答を当てる resolver と resolver-verifier も） | 流れの形・閉包・出典の検査（stdout に指摘の件数・`open.json` の件数と ID・flow.json の内容の `content_sha256`） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
+| `flow` / `conflicts` | flow-framer（`flow` は回答を当てる resolver と resolver-verifier も） | 流れの形・閉包・出典の検査（stdout に指摘の件数・`open.json` の件数と ID・flow.json の内容の `content_sha256`・欄の意味は契約 §flow-framer） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定。stdout の `flow_refs` に項目ごとの trace が指す flow 要素の ID を出す（script が改稿の writer に項目ごとに渡す） |
 | `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
@@ -136,7 +139,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
-| `report` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する |
+| `report [--drafts <RS-…>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない） |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、
 fixture テストがこの形で移設前の結果との一致を確かめている。

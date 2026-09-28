@@ -2005,15 +2005,23 @@ const fenceOf = (text) => '`'.repeat(Math.max(4, ...(String(text).match(/`+/g) |
 
 // report: 事後報告は resolutions.json の method・hold・upstream_revision から導出する。手で書くと、同じ事実を
 // resolutions と 2 か所に持ち、型も決まらない。
-function wsReport(ws) {
+function wsReport(ws, opts) {
   const [listName] = Object.keys(ledgerOf('resolutions').lists)
   const rs = listOf(readLedger(ws, 'resolutions'), listName)
   const method = rs.filter((r) => r.ruling === 'method')
-  const holds = rs.filter((r) => r.ruling === 'hold')
+  const draftIds = new Set(opts.drafts || [])
+  const unknown = [...draftIds].filter((id) => !rs.some((r) => r.id === id && r.ruling === 'hold'))
+  if (unknown.length) throw new Error(`--drafts に hold でない ID があります: ${unknown.join(', ')}`)
+  const holds = rs.filter((r) => r.ruling === 'hold' && !draftIds.has(r.id))
+  const drafts = rs.filter((r) => draftIds.has(r.id))
   const upstream = rs.filter((r) => r.upstream_revision != null)
   const block = (label, text) => {
     const fence = fenceOf(text)
     return [`**${label}**:`, '', `${fence}markdown`, String(text ?? ''), fence, '']
+  }
+  const holdBlock = (r) => {
+    const h = r.hold || {}
+    return [`### ${r.id}`, '', `**保持規則**: ${h.rule ?? ''}`, '', `**触れる項目**: ${(Array.isArray(h.item_ids) ? h.item_ids : []).join('、') || '（なし）'}`, '', ...block('Issue の文案', h.issue_draft)]
   }
   const md = [
     '# 事後報告',
@@ -2025,17 +2033,18 @@ function wsReport(ws) {
     '## 保持規則と Issue の文案',
     '',
     ...(holds.length ? [] : ['0 件。', '']),
-    ...holds.flatMap((r) => {
-      const h = r.hold || {}
-      return [`### ${r.id}`, '', `**保持規則**: ${h.rule ?? ''}`, '', `**触れる項目**: ${(Array.isArray(h.item_ids) ? h.item_ids : []).join('、') || '（なし）'}`, '', ...block('Issue の文案', h.issue_draft)]
-    }),
+    ...holds.flatMap(holdBlock),
+    '## 保持規則の文案（本文に未反映）',
+    '',
+    ...(drafts.length ? [] : ['0 件。', '']),
+    ...drafts.flatMap(holdBlock),
     '## 上位文書の改訂の文案',
     '',
     ...(upstream.length ? [] : ['0 件。', '']),
     ...upstream.flatMap((r) => [`### ${r.id}`, '', ...block('改訂の文案', r.upstream_revision)]),
   ].join('\n')
   writeAtomic([path.join(ws, 'report.md'), md])
-  return { path: 'report.md', method: method.length, holds: holds.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)) }
+  return { path: 'report.md', method: method.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)) }
 }
 
 function workspaceDocs(ws) {
@@ -2440,6 +2449,19 @@ function wsFlow(ws) {
     ...opensOnly(el.source).map((o) => ({ el: el.id, open: o })),
     ...(el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []).flatMap((c, i) => opensOnly(c && c.source).map((o) => ({ el: el.id, case: i + 1, open: o }))),
   ])
+  // supersedes で覆された決定を引く要素。出典の実在だけを見る FLOW_SOURCE_UNKNOWN では、覆された ID も実在するので出ない。
+  const superseded = new Set(
+    listOf(readLedger(ws, 'resolutions'), 'resolutions')
+      .flatMap((r) => (r && r.supersedes != null ? [].concat(r.supersedes) : []))
+      .map((x) => String(x).trim())
+      .filter(Boolean)
+  )
+  const decisionRefs = (source) => (Array.isArray(source) ? source : source ? [source] : []).map((s) => s && typeof s === 'object' && String(s.decision ?? '').trim()).filter(Boolean)
+  const staleRefs = els.flatMap((el) => {
+    const cases = el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []
+    const refs = new Set([...decisionRefs(el.source), ...cases.flatMap((c) => decisionRefs(c && c.source)), ...constraintsOf(el)])
+    return [...refs].filter((ref) => superseded.has(ref)).map((ref) => ({ el: String(el.id), ref }))
+  })
   // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
   return {
     findings: body.findings.length,
@@ -2450,6 +2472,7 @@ function wsFlow(ws) {
     unverified,
     failed_current: failedCurrent,
     open_only: openOnly,
+    stale_refs: staleRefs,
     open_ids: [...openIds].sort(),
   }
 }
@@ -2776,6 +2799,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--live') o.live = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--expect-resolutions') o.expectResolutions = take()
     else if (a === '--expect-decisions') o.expectDecisions = take()
+    else if (a === '--drafts') o.drafts = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--check') o.check = true
     else throw new Error(`不明な引数です: ${a}`)
   }
@@ -2798,7 +2822,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'del') return wsDel(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
-  if (mode === 'report') return wsReport(ws)
+  if (mode === 'report') return wsReport(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
