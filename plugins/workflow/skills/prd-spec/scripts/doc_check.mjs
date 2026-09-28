@@ -1541,7 +1541,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha', 'report', 'pending']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -2857,6 +2857,37 @@ function wsPlan(ws) {
 // （script が解消済みを除いて算出したもの）を正とし、無ければ meta の TBD の候補の和を使う（どちらを
 // 使ったかを結果に書く）。--doc を付けると、その文書の指摘だけを別のファイルに書く（並列の writer が
 // 同じ結果ファイルを奪い合わないため。検査そのものは文書を跨いで全体に当てる）。
+// flowRefsOf: 項目 → trace が指す flow 要素。prd.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
+function flowRefsOf(docs) {
+  const flowRefs = {}
+  for (const d of docs) {
+    for (const { item_id: item, ref } of d.flow_refs) {
+      const byItem = (flowRefs[d.key] ||= {})
+      byItem[item] = [...new Set([...(byItem[item] || []), ref])].sort()
+    }
+  }
+  return flowRefs
+}
+
+// pending: next_args は指摘の本体を持たずファイル名だけで指すので、再開のときに W の findings から読み出す（照合は prd.js が hash で行う）。
+function wsPending(ws, opts) {
+  if (!opts.files || !opts.files.length) throw new Error('pending には --files r<n>-<役>-<文書>,… が要ります')
+  const findings = {}
+  for (const name of [...new Set(opts.files)]) {
+    if (!/^r\d+-[a-z]{2}x?-[A-Za-z0-9._-]+$/.test(name)) throw new Error(`--files の ${name} は指摘のファイル名ではありません`)
+    const value = readJsonFile(path.join(ws, 'findings', `${name}.json`))
+    if (value === null) throw new Error(`findings/${name}.json がありません`)
+    const byDoc = (findings[name] = {})
+    for (const f of listOf(value, 'findings')) {
+      if (!f || !f.id) continue
+      const byItem = (byDoc[f.doc] ||= {})
+      byItem[f.item_id] = { ...(byItem[f.item_id] || {}), [f.id]: { blocking: f.blocking, route: f.route, direction: f.direction, origin: f.origin } }
+    }
+  }
+  const wsDocs = workspaceDocs(ws)
+  return { findings, flow_refs: wsDocs.length ? flowRefsOf(deriveDocs(wsDocs)) : {} }
+}
+
 function wsDoc(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
@@ -2884,14 +2915,7 @@ function wsDoc(ws, opts) {
   const digest = digestOf(body)
   const name = opts.doc.length ? `doc.${selected.map(indexName).join('+')}.json` : 'doc.json'
   const degraded = expanded.findings.filter((f) => f.severity === 'degraded').length
-  // flow_refs: 項目 → trace が指す flow 要素。prd.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
-  const flowRefs = {}
-  for (const d of docs.filter((x) => selected.includes(x.key))) {
-    for (const { item_id: item, ref } of d.flow_refs) {
-      const byItem = (flowRefs[d.key] ||= {})
-      byItem[item] = [...new Set([...(byItem[item] || []), ref])].sort()
-    }
-  }
+  const flowRefs = flowRefsOf(docs.filter((x) => selected.includes(x.key)))
   return {
     findings: expanded.findings.length,
     blocking: expanded.findings.length - degraded,
@@ -3132,6 +3156,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--expect-decisions') o.expectDecisions = take()
     else if (a === '--drafts') o.drafts = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--check') o.check = true
+    else if (a === '--files') o.files = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o
@@ -3155,6 +3180,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'questions') return wsQuestions(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)
+  if (mode === 'pending') return wsPending(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 

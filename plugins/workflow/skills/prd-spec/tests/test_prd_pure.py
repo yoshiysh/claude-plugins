@@ -199,19 +199,22 @@ class Pure(unittest.TestCase):
 
     def test_reRaisedは合格した裁定と同じdirectionで裁定を当てただけの項目の指摘だけを返す(self):
         prev = [self._f("p1")]
-        state = {"about": {"RS-1": "finding:p1"}, "passed": ["RS-1"]}
+        decided = {"requirements/a": {"PR-A-001": {"p1": {"blocking": True, "route": "decision"}}}}
+        state = {"about": {"RS-1": "finding:p1"}, "passed": ["RS-1"], "pending": {"findings": decided}}
         again = lambda st, now, changed={}: value(f"reRaised({json.dumps(prev)}, [], {json.dumps(now)}, {json.dumps(st)}, {json.dumps(changed)})")
         self.assertEqual(again(state, [self._f("n1")]), [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}])
         for name, st, now, changed in (
             ("裁定が合格していない", {**state, "passed": []}, [self._f("n1")], {}),
             ("direction が違う", state, [self._f("n1", direction="relax")], {}),
-            ("writer の指摘を渡した項目を改稿で変えた", {**state, "pending": {"findings": {"requirements/a": {"PR-A-001": {"w1": {"route": "writer"}}}}}}, [self._f("n1")], {"requirements/a": ["PR-A-001"]}),
+            ("writer の指摘を渡した項目を改稿で変えた", {**state, "pending": {"findings": {"requirements/a": {"PR-A-001": {**decided["requirements/a"]["PR-A-001"], "w1": {"route": "writer"}}}}}}, [self._f("n1")], {"requirements/a": ["PR-A-001"]}),
         ):
             with self.subTest(name):
                 self.assertEqual(again(st, now, changed), [])
         self.assertEqual([x["id"] for x in again(state, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "writer の指摘を渡さずに裁定を渡した項目の変更は裁定を当てただけ")
-        carried = {**state, "pending": {"findings": {}, "carried": ["p1"]}}
-        self.assertEqual(again(carried, [self._f("n1")], {"requirements/a": ["PR-A-001"]}), [], "前のパスから持ち越した指摘の裁定はこのパスで渡していない")
+        stuck = {**state, "item_routes": {"requirements/a#PR-A-001": "exhausted"}}
+        self.assertEqual(again(stuck, [self._f("n1")], {"requirements/a": ["PR-A-001"]}), [], "段 6 に渡さなかった（尽きた項目の）指摘の裁定はこのパスで渡していない")
+        carried = {**state, "pending": {"findings": decided, "carried": ["p1"]}}
+        self.assertEqual([x["id"] for x in again(carried, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "持ち越しでも段 6 に渡して裁定した指摘の裁定はこのパスで渡した")
         prev_again = [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}]
         chained = lambda changed: value(f"reRaised([], {json.dumps(prev_again)}, {json.dumps([self._f('m1')])}, {{about: {{}}, passed: []}}, {json.dumps(changed)})")
         self.assertEqual([x["id"] for x in chained({})], ["m1"], "前のパスの再出が持ち越した裁定でも数えない")
@@ -224,6 +227,24 @@ class Pure(unittest.TestCase):
         v = value(f"pendingView({json.dumps(p)}, {{'requirements/a#PR-A-003': 'exhausted'}})")
         self.assertEqual([(b["item_id"], b["findings"], b.get("flow")) for b in v["bundles"]], [("PR-A-001", ["w1"], ["F-001"]), ("PR-A-002", ["w2"], None)])
         self.assertEqual((v["decision"], sorted(v["blocking"]), v["doc_blocking"]), (["d1"], ["d1", "w1", "w3"], 0))
+
+    def test_pendingRefはファイル名で指し読み出した指摘から同じpendingに戻る(self):
+        rec = lambda file, route="writer": {"blocking": True, "route": route, "direction": "tighten", "origin": "text", "file": file}
+        p = {"findings": {"requirements/a": {"PR-A-001": {"r2-gr-a-001": rec("r2-gr-a"), "r1-im-a-001": rec("r1-im-a", "decision")}}},
+             "flow": {"requirements/a": {"PR-A-001": ["F-001"]}}, "round": ["r2-gr-a"], "rerouted": ["r1-im-a-001"],
+             "again": [{"id": "r2-gr-a-002"}], "carried": ["r1-im-a-001"], "doc_blocking": 0}
+        ref = value(f"pendingRef({json.dumps(p)})")
+        self.assertEqual(ref["ref"]["carried"], {"r1-im-a": ["r1-im-a-001"]})
+        self.assertNotIn("findings", ref)
+        raw = lambda id: {id: {"blocking": True, "route": "writer", "direction": "tighten", "origin": "text"}}
+        loaded = {"findings": {"r2-gr-a": {"requirements/a": {"PR-A-001": {**raw("r2-gr-a-001"), **raw("r2-gr-a-002")}}},
+                               "r1-im-a": {"requirements/a": {"PR-A-001": {**raw("r1-im-a-001"), **raw("r1-im-a-002")}}}},
+                  "flow_refs": {"requirements/a": {"PR-A-001": ["F-009"]}}}
+        back = value(f"pendingFromRef({json.dumps(ref)}, {json.dumps(loaded)})")
+        self.assertEqual(back["findings"], p["findings"], "再出（again）は落とし、持ち越した ID だけを前のファイルから取る")
+        self.assertEqual(back["flow"], loaded["flow_refs"], "flow の参照は再開のときの文書から取り直す")
+        loaded["findings"]["r2-gr-a"]["requirements/a"]["PR-A-001"]["r2-gr-a-001"]["direction"] = "relax"
+        self.assertIsNone(value(f"pendingFromRef({json.dumps(ref)}, {json.dumps(loaded)})"))
 
     def test_routeRecurringはdecisionからholdを経て尽きた項目にする(self):
         routes = {"k2": "decision", "k3": "hold", "k4": "exhausted"}

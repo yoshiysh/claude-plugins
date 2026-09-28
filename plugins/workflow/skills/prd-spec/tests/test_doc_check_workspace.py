@@ -581,6 +581,22 @@ def _aspect_keys():
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class PendingRead(_Workspace):
+    def test_指定したファイルの指摘だけを文書と項目で束ねて返す(self):
+        (self.ws / "findings").mkdir(exist_ok=True)
+        f = lambda id, item: {"id": id, "doc": "requirements/auth", "item_id": item, "quote": "q", "issue": "i", "repro": "r", "blocking": True, "route": "writer", "direction": "tighten", "origin": "text"}
+        (self.ws / "findings" / "r1-im-requirements__auth.json").write_text(json.dumps({"findings": [f("r1-im-requirements__auth-001", "PR-AUTH-001"), f("r1-im-requirements__auth-002", "PR-AUTH-001")], "checked": "c"}))
+        (self.ws / "findings" / "r1-gr-requirements__auth.json").write_text(json.dumps({"findings": [f("r1-gr-requirements__auth-001", "PR-AUTH-002")], "checked": "c"}))
+        out = _ok(self.ws, "pending", "--files", "r1-im-requirements__auth")
+        rec = {"blocking": True, "route": "writer", "direction": "tighten", "origin": "text"}
+        self.assertEqual(out["findings"], {"r1-im-requirements__auth": {"requirements/auth": {"PR-AUTH-001": {"r1-im-requirements__auth-001": rec, "r1-im-requirements__auth-002": rec}}}})
+        self.assertIn("flow_refs", out)
+        for name, message in (("r9-im-requirements__auth", "がありません"), ("../plan", "指摘のファイル名ではありません")):
+            r = _run(self.ws, "pending", "--files", name)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn(message, r.stderr)
+
+
 class PlanCheck(_Workspace):
     def _plan(self, domain):
         plan = json.loads((self.ws / "plan.json").read_text())

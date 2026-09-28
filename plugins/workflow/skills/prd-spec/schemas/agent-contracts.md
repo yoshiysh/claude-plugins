@@ -651,6 +651,11 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 監査役の共通節に従う。入力は全文書と `plan.json`（`required_categories`・`covers`・`self_containment`）。
 段 5 では必ず指名される。
 
+## §loader
+
+入力: プロンプトの `doc_check pending --files …` のコマンド（ファイル名は next_args の `state.pending.ref`）。
+書くもの: なし。返り値: `{ "pending_check": "stdout をそのまま" }`。
+
 ## §structural（doc_check が生成する finding）
 
 `scripts/doc_check.mjs` が検出する。agent は生成しない。文面は doc_check の表（`FINDING_TEXT` と
