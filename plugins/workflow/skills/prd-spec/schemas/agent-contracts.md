@@ -353,10 +353,10 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   verifier に回す（書き換えていない不合格の要素は、渡すと同じ理由で落ちて差し戻しが回る）。最後の verifier の `failed_current` は
   writer に「根拠にしない要素」として渡る。
 - 回答を当てた resolver に消せない指摘（「## flow.json の形」の直し手）は、最後の verifier の stdout の `codes` から settle に「要素: 何が無いか」の
-  行で渡る（verifier より前に `stale_refs` で settle するときは、その resolver の stdout から。少なく申告しても settle の verifier が止める）。直し方はその指摘の fix（`W/checks/flow.json`）で、kind が invariant の O- を `open.json` に足して `constrained_by` に挙げる
+  行で渡る（検証に落ちた裁定を変換した後は §flow-check の stdout から。verifier より前に `stale_refs` で settle するときは、その resolver の stdout から。少なく申告しても settle の verifier が止める）。直し方はその指摘の fix（`W/checks/flow.json`）で、kind が invariant の O- を `open.json` に足して `constrained_by` に挙げる
   ときは「## 不変条件の kind」に従う。足した O- を誰が裁定するかは §resolver。
 - stdout の `stale_refs` は、resolutions.json の `supersedes` で覆された決定を `source`（case の `source` と `on_fail.source` を含む）か `constrained_by` に
-  持つ要素と、検証に落ちた不変条件を `constrained_by` に持つ要素と、その決定の組（`{el, ref}`）である。覆された ID も実在するので出典の検査では指摘にならない。最後の verifier の `stale_refs`（その後に検証に落ちた裁定を変換した resolver の分を足す。前に verifier の無い保持規則への変換では、その resolver の分だけ）
+  持つ要素と、検証に落ちた不変条件を `constrained_by` に持つ要素と、その決定の組（`{el, ref}`）である。覆された ID も実在するので出典の検査では指摘にならない。最後の verifier の `stale_refs`（その後に検証に落ちた裁定を変換したら §flow-check の stdout の分を足す。前に verifier の無い保持規則への変換では、その resolver の分だけ）
   が空でなければ、script は `open_only` と同じく settle で直させ、直らなければ段は blocked になる。
 
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
@@ -411,10 +411,13 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
   `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
   prd.js の `RESOLUTION_ID`）。
-- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`。起動の条件は references/workflow-io.md §4）では、
-  渡された ID をすべて、渡された ID だけを `questions` か `holds` に入れて返し、`ruled` は空にする。合わなければ script は段を止める
-  （変換した ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
-  検証を通った裁定が問いや保持規則に戻る）。
+- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`）と、聞くゲートの残っていない問いを
+  hold に変える呼び出し（`<段>-hold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
+  `questions` か `holds`（`<段>-hold` は `holds` だけ）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
+  （変えた ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
+  検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
+- 差し戻し（`<段>'`）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返す。合わなければ
+  script は段を止める（返らない裁定は再検証にも変換にも回らず、不合格のまま台帳に残る）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
@@ -440,6 +443,19 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を
 blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は、この stdout の `codes` から settle の flow-framer に渡る。
 script はファイルを読めないので、生成者が 0 件と申告した flow を確かめる手段は、別の agent の実行した検査しかない。
+
+## §flow-check
+
+検証に落ちた裁定を変換した resolver（`<段>-convert`・`<段>-settle-convert`）の後に、script が `flow-check:<その resolver の段>` で起動する。
+入力: プロンプトの doc_check `flow` のコマンドだけ。書くもの: なし（`W/checks/flow.json` は doc_check が書く）。
+
+```json
+{ "flow_check": "実行した doc_check flow の stdout（加工しない）" }
+```
+
+変換は flow.json を書かないが、台帳の `kind`・`supersedes`・`hold` を変えるので、同じ flow.json でも指摘・`stale_refs` は変わる。
+script は変換の後の判断（直す役の無い指摘での停止・settle の起動と残りの数え上げ）に、変換した resolver の `flow_check` ではなくこの stdout を使う。
+`content_sha256` が検証を通った版と違えば段を止め、resolver の `flow_check` と違えば `integrity` に 1 行残す（止めない）。
 
 ## §writer
 

@@ -36,6 +36,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `intake`・`flowFramer`・`resolver`・`verifier`・`writer` | opus / medium | 判断と生成を要する。知識作業では medium で high と同等の結果が出る |
 | `implementer`・`grounding` | opus / high | 見落としがそのまま欠陥（着手不能・捏造）になる |
 | `crossDoc` | sonnet / medium | 項目の間の関係を見る。1 文ずつの深い判断は要らない |
+| `flowCheck` | haiku / low | コマンドを 1 回実行して stdout を返すだけで、判断を要しない |
 
 ## 3. 返り値と再実行
 
@@ -69,6 +70,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 - **`next_args` は完成形で、司令塔は変えずに渡す。** SKILL.md とこの文書で「`next_args` を渡す」と書いたところは、すべてこの規則による。
   回答は `answers_path` に逐語で書き、`next_args` には入れない。変えてよいのは run のデータではない環境の欄の
   `skillDir`（plugin の更新で版のパスが変わる）と `role_opts`（レート制限などで役の配分を変える）だけである（`prd.js` の `ENV_ARGS`）。
+  Codex の runner で `role_opts` の model を変えたら、それに対応する `modelMap`（SKILL.md の Codex の要件）も合わせて渡す。
   `state_hash` はそれ以外の欄すべての hash で、合わなければ（打ち直しでどれかの値が変わった）run は agent を起動する前に止まる。
   最上位の欄の空の配列・オブジェクトは、欄が無いのと同じに扱う。`state` は plain JSON で、Map・Set を含まない（runtime の境界を越えると中身が失われる）。
 - **再実行は resume ではなく `from` で行う。** 状態は W のファイルと `state` にあり、prd.js は段の境界ならどこからでも
@@ -81,7 +83,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   監査の基準の digest が合わない・改稿と監査の輪を収束せずに出た（`stop_reason`）・その段に flow を書く生成者がいないのに flow.json が
   生成者の検査した版から変わっていた、差し戻しの後も flow の要素が検証に落ち、写す検証の裁定も無かった（要素は問いや保持規則に変えられない）、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
-  書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、verifier が返した F- の合否が `doc_check flow` の stdout（verifications.json）に無かった、のような食い違いである。事後報告に添える。flow の食い違いだけは run を blocked にし（違う flow や記録されていない合否を見た検証を台帳に入れないため）、それ以外は run を止めない。
+  書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、verifier が返した F- の合否が `doc_check flow` の stdout（verifications.json）に無かった、変換の resolver が返した `doc_check flow` の stdout が flow-check の stdout と違った、のような食い違いである。事後報告に添える。flow の版と F- の合否の食い違いだけは run を blocked にし（違う flow や記録されていない合否を見た検証を台帳に入れないため）、それ以外は run を止めない。
 - `holds` と `hold_drafts` は、writer に渡したか（`state.settled_written`）で分ける。渡しただけで本文に入ったとは限らず、
   当て損ねは直後の監査が拾う。
 - `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルや
@@ -97,10 +99,10 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 1 | intake | 常に | 返した `plan_check`（doc_check `plan`）に指摘があれば、0 件になるまで差し戻す（前の回より減らなければ止める。上限は prd.js の `MAX_CHECK_REWORK`。以下の差し戻しも同じ）。直らない、writer の単位が循環・未知の依存を持つ、固定の文書が単位に入る、既存文書がどの単位にも無い → blocked |
 | 2 | flow-framer | 常に。返った `doc_check flow` の stdout の指摘が 0 件でなければ差し戻す | 閉じなければ blocked（初稿を始めない）。0 件なら `content_sha256` を `state.flow_digest` にする。flow-framer が実行した `plan` の `content_sha256` が段 1 の `plan_check` と違うか指摘があれば blocked（段 1 から） |
 | 3 | resolver | open と組がどちらも 0 件なら起動しない。問いを出したのに `questions --check` の stdout が無いか不合格なら差し戻す（3a・3b・3a'・6 も同じ）。差し戻しの resolver の `doc_check flow` の `stale_refs` が空でなければ、出口で settle を起動する（保持規則への変換の後も同じ） | 直らなければ blocked |
-| 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、その cycle で flow を書いた生成者が消せる指摘が 1 件以上でも blocked（3av・6v も同じ。消せない指摘は settle の flow-framer に渡る）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` と cycle の入口で問いだった ID は問い、それ以外は保持規則に変えて、もう検証しない（flow の要素は書き換えるまで。question にも hold にも返らなかった ID があれば blocked。契約 §resolver） |
+| 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、その cycle で flow を書いた生成者が消せる指摘が 1 件以上でも blocked（3av・6v も同じ。消せない指摘は settle の flow-framer に渡る）。不合格は resolver に 1 回だけ差し戻し、再検証。それでも不合格なら `value_as_method` と cycle の入口で問いだった ID は問い、それ以外は保持規則に変えて、もう検証しない（flow の要素は書き換えるまで。question にも hold にも返らなかった ID があれば blocked。契約 §resolver）。変換（`<段>-convert`・`<段>-settle-convert`）の後は flow-check（`flow-check:<変換の段>`）を起動する（その stdout の使い道と照合は契約 §flow-check） |
 | G0 | — | 問いが 1 件以上 | `needs_answers`（`from: 3a`） |
 | 3a | resolver → verifier（候補の選択だけの回答でも起動する。回答を当てた resolver が返す `doc_check flow` の stdout を照合するため） | G0・G0-2 の後。resolver の stdout に resolver が消せる指摘（契約「flow.json の形」の直し手）があれば差し戻す。消せない指摘は差し戻さず、同じ cycle の settle の flow-framer に渡す | G0 の後は 3b（flow-framer `3b-reframe` が回答で flow を組み直し、resolver がまだ裁定の無い open・組と持ち越した問いを裁定する）。そこで問いが残れば G0-2（`answers/g0-2.md`、`from: 3a`）の 1 回だけ聞く。G0-2 の後に出た問いは保持規則 |
-| 3・3a・3b・3a'・6 の共通 | resolver（`<段>-pairs`・`<段>-opens`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば、settle の flow-framer の後は `open_ids` にまだ裁定の無い O- もあれば、1 回の resolver に渡す（O- があれば `<段>-opens`、組だけなら `<段>-pairs`。`<段>` は呼び出した resolver の段で、settle の後は `<段>-settle`、差し戻しの後は `<段>'` になる。聞けない段では hold。3b の組み直しの後の resolver にも同じ集合を渡す）。検証を通っていない要素（契約 §flow-framer の `unverified` と `failed_current`）の出典を verifier に回す。最後の verifier の `open_only` のうち、合格か回答で閉じた O- の組か、この cycle で裁定が決まった `origin: flow` の指摘か flow の要素への `verification` の裁定か、`stale_refs`（覆された決定か検証に落ちた不変条件を引く要素）か、flow を書いた resolver が消せない指摘（`codes`）があれば settle を起動する。settle の verifier に落ちた裁定（RS-）は、差し戻しの後と同じく問いか保持規則に変え（`<段>-settle-convert`。検証はもう回さない）、settle は残り（閉じた未決を引く要素・覆された決定を引く要素・検証を通っていない要素・不合格）が 0 になるまで回し、減らなければ止める（上限は `MAX_SETTLE_ROUNDS`） | 直らなければ blocked（その段に入った時点の state で段の頭から） |
+| 3・3a・3b・3a'・6 の共通 | resolver（`<段>-pairs`・`<段>-opens`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば、settle の flow-framer の後は `open_ids` にまだ裁定の無い O- もあれば、1 回の resolver に渡す（O- があれば `<段>-opens`、組だけなら `<段>-pairs`。`<段>` は呼び出した resolver の段で、settle の後は `<段>-settle`、差し戻しの後は `<段>'` になる。聞けない段では hold。3b の組み直しの後の resolver にも同じ集合を渡す）。検証を通っていない要素（契約 §flow-framer の `unverified` と `failed_current`）の出典を verifier に回す。最後の verifier の `open_only` のうち、合格か回答で閉じた O- の組か、この cycle で裁定が決まった `origin: flow` の指摘か flow の要素への `verification` の裁定か、`stale_refs`（覆された決定か検証に落ちた不変条件を引く要素）か、flow を書いた resolver が消せない指摘（`codes`）があれば settle を起動する。settle の verifier に落ちた裁定（RS-）は、差し戻しの後と同じく問いか保持規則に変え（`<段>-settle-convert`。検証はもう回さない）、settle は残り（閉じた未決を引く要素・覆された決定を引く要素・検証を通っていない要素・不合格・変換の後の flow の指摘）が 0 になるまで回し、減らなければ止める（上限は `MAX_SETTLE_ROUNDS`） | 直らなければ blocked（その段に入った時点の state で段の頭から） |
 | 4 | writer | 単位の依存の向きに波を作り、同じ波は並列 | 応答しない単位があれば blocked（一度も書かれていない文書を監査しない） |
 | 5 | implementer・grounding（文書ごと）、cross-doc（全文書で 1 体。指名） | 常に。`entry: existing` は 3 の後ここへ | cross-doc が `audited-1` を返さなければ blocked |
 | 6 | resolver → verifier | decision の指摘も新しい TBD も 0 件なら起動しない。writer の指摘はここを通らず段 7 へ。再発した項目は、前のパスの指摘とその裁定の ID を渡して項目の次元を裁定させ、decision の後にも再発した項目は hold を指示する | 1 パス目の問いは G1、2 パス目以降の問いは保持規則 |
@@ -137,7 +139,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | モード | 実行する役 | 何をするか |
 |---|---|---|
 | `plan` | intake | plan.json の `domain` が `references/domain-analysis.md` §2 の観点のキーを 1 回ずつ持ち、判定の根拠の ID が実在し、`irreversible` が `該当` なら `kind: invariant` の決定か未決があるか |
-| `flow` / `conflicts` | flow-framer（`flow` は回答を当てる resolver と resolver-verifier も） | 流れの形・閉包・出典の検査（stdout に指摘の件数と符号ごとの場所（`codes`。意味は契約「flow.json の形」の直し手）・`open.json` の件数と ID・flow.json の内容の `content_sha256`・ほかの欄の意味は契約 §flow-framer） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
+| `flow` / `conflicts` | flow-framer（`flow` は resolver・resolver-verifier・flow-check も） | 流れの形・閉包・出典の検査（stdout に指摘の件数と符号ごとの場所（`codes`。意味は契約「flow.json の形」の直し手）・`open.json` の件数と ID・flow.json の内容の `content_sha256`・ほかの欄の意味は契約 §flow-framer） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定。stdout の `flow_refs` に項目ごとの trace が指す flow 要素の ID を出す（script が改稿の writer に項目ごとに渡す） |
 | `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
