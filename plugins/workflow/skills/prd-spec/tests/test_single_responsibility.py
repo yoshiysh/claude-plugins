@@ -105,19 +105,29 @@ class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
 
 
 
-class FieldSectionIsReadByFieldUsers(ExistingImplementationRuleLivesInOnePlace):
-    SECTION = "obtain・effect・kind の欄"
+class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlace):
+    SECTION = "flow.json の形"
+    READERS = {"flowFramer", "resolver", "verifier"}
 
     def test_規則を使う役だけがその節を読む(self):
         readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
-        self.assertEqual(readers, {"intake", "flowFramer", "resolver", "verifier"})
+        self.assertEqual(readers, self.READERS)
         self.assertNotIn("§flow-framer", self._sections()["verifier"], "verifier に §flow-framer 全体を配らない")
 
     def test_役のファイルとreferencesは節を参照し本文を写さない(self):
-        for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md")]):
-            text = path.read_text(encoding="utf-8")
-            for phrase in ("遡るのは最も近い", "受けたことにならない", "戻せない形で変える"):
-                self.assertNotIn(phrase, text, path.name)
+        # 節の本文の 20 字（仮名・漢字 10 字以上）が、契約の他の節・agents・references に無い。
+        norm = lambda t: re.sub(r"[\s`*「」]", "", t)
+        body = re.search(rf"^## {re.escape(self.SECTION)}$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)
+        others = [norm(CONTRACTS.replace(body, "")), *(norm(p.read_text(encoding="utf-8")) for p in [*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md")])]
+        lit = norm(re.sub(r"```.*?```", "", body, flags=re.S))
+        found = sorted({lit[i : i + 20] for i in range(len(lit) - 19)
+                        if len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", lit[i : i + 20])) >= 10 and any(lit[i : i + 20] in o for o in others)})
+        self.assertEqual(found, [])
+
+
+class InvariantKindSectionIsReadByKindUsers(FlowShapeSectionIsReadByFlowUsers):
+    SECTION = "不変条件の kind"
+    READERS = {"intake", "flowFramer", "resolver", "verifier"}
 
 
 class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):

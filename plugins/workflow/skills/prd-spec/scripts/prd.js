@@ -44,10 +44,10 @@ const ROLE_FILES = {
 }
 
 const CONTRACT_SECTIONS = {
-  intake: ['§intake', '決定の台帳', '現物と既存実装の扱い', 'obtain・effect・kind の欄'],
-  flowFramer: ['§flow-framer', 'obtain・effect・kind の欄'],
-  resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い', 'obtain・effect・kind の欄'],
-  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', 'obtain・effect・kind の欄'],
+  intake: ['§intake', '決定の台帳', '現物と既存実装の扱い', '不変条件の kind'],
+  flowFramer: ['§flow-framer', 'flow.json の形', '不変条件の kind'],
+  resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い', 'flow.json の形', '不変条件の kind'],
+  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', 'flow.json の形', '不変条件の kind'],
   writer: ['§writer', '現物と既存実装の扱い'],
   implementer: ['監査役の共通節', '§implementer'],
   grounding: ['監査役の共通節', '§grounding', '現物と既存実装の扱い'],
@@ -301,7 +301,7 @@ function parseStdout(text) {
 
 function planCheckOf(text) {
   const o = parseStdout(text)
-  return o && Number.isInteger(o.findings) ? o : null
+  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 ? o : null
 }
 
 function flowCheckOf(text) {
@@ -328,7 +328,7 @@ function questionsCheckFailure(text, ids) {
 // REQUIRES: from の入口ごとに、state に要る値。script はファイルを読めないので、ここに無ければ再開できない。
 const REQUIRES = {
   1: [],
-  2: ['units'],
+  2: ['units', 'plan_sha256'],
   3: ['units', 'counts', 'flow_digest'],
   '3a': ['units', 'flow_digest', 'flow_failed', 'gate', 'questions'],
   '3b': ['units', 'flow_digest', 'flow_failed', 'gate', 'questions'],
@@ -398,7 +398,7 @@ const INTAKE_SCHEMA = {
 
 const FLOW_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, questions_check: STR },
+  properties: { flow_check: STR, conflicts_check: STR, questions_check: STR, plan_check: STR },
   required: ['flow_check', 'conflicts_check'],
 }
 
@@ -845,7 +845,7 @@ const FRAME_RUN = `実行する: \`${cli('flow')}\` を 0 件になるまで（3
 
 async function frameFlow(label, lines, phaseTitle) {
   const prompt = (l) => lines(l).filter(Boolean).join('\n\n')
-  const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check })
+  const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check, plan_check: x.plan_check })
   const defect = ({ fc, cc }) =>
     !fc ? 'doc_check flow の stdout がありません' : fc.findings > 0 ? `doc_check flow の指摘が ${fc.findings} 件あります（${W}/checks/flow.json）` : !cc ? 'doc_check conflicts の stdout がありません' : null
   const r = await once(label, 'flowFramer', prompt(label), FLOW_SCHEMA, phaseTitle)
@@ -1021,6 +1021,7 @@ async function stage1() {
   if (wrongFixed.length) return blocked(`固定の文書が writer の単位に入っています: ${wrongFixed.join(', ')}`, '1')
   if (lost.length) return blocked(`既存文書がどの writer の単位にも入っていません（topic を変えると改稿が別名の新規執筆に化ける）: ${lost.join(', ')}`, '1')
   state.units = r.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
+  state.plan_sha256 = planCheckOf(r.plan_check).content_sha256
   state.decisions_sha256 = r.decisions_sha256
   state.counts = { decisions: r.decisions, open: r.open, pairs: 0 }
   return '2'
@@ -1033,8 +1034,16 @@ async function stage2() {
     `読む: ${W}/input.md、${W}/decisions.json、${W}/precedent.json、${W}/open.json`,
     existingNote(),
     FRAME_RUN,
+    `続けて \`${cli('plan')}\` を実行し、stdout を加工せずに plan_check に入れる。`,
   ], 'Flow')
   if (got.error) return blocked(`初稿を始めません（writer には flow を直す手段が無い）: ${got.error}`, '2')
+  // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
+  const pc = planCheckOf(got.plan_check)
+  if (!pc) return blocked('flow-framer が doc_check plan の stdout を返しませんでした', '2')
+  if (pc.content_sha256 !== state.plan_sha256 || pc.findings > 0) {
+    if (pc.content_sha256 !== state.plan_sha256) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${state.plan_sha256}）と違う`)
+    return blocked(`plan.json が intake の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, '1')
+  }
   state.counts = { ...state.counts, open: got.fc.open, pairs: got.cc.pairs }
   return '3'
 }

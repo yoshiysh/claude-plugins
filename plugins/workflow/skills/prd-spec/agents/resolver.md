@@ -78,7 +78,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   最後に doc_check の `flow` を実行し（flow.json を変えなくても）、stdout を加工せずに返す（flow の本体は返さない。
   script がその `content_sha256` を verifier の実行した stdout と照合し、指摘が残れば差し戻す）。flow.json を変えたら、続けて
   `conflicts` も実行し、その stdout も加工せずに返す（足した要素が作る新しい組を、script が裁定に回す）。flow の `decision` を
-  足す・変えるときは、`inputs` と `cases` も契約 §flow-framer の形で書く。
+  足す・変えるときは、`inputs` と `cases` も契約「## flow.json の形」で書く。
 - **回答での組み直しの後（3b）**: flow-framer が G0 の回答で組み直した flow の、まだ裁定の無い open・組と、3a から持ち越した
   問いを裁定する。持ち越した問いが組み直した flow と回答で決まるなら、同じ ID のまま裁定に変えて `ruled` に入れる（欄の
   消し方は差し戻しと同じ）。決まらなければ、候補の `flow_refs`・`flow_effect` を組み直した flow に合わせて put し直し、

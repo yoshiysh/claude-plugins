@@ -1,6 +1,6 @@
 # agent 間の入出力契約
 
-**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
+**目次**: [共通の約束](#共通の約束) · [W のファイルと書き手](#w-のファイルと書き手) · [決定の台帳](#決定の台帳) · [不変条件の kind](#不変条件の-kind) · [現物と既存実装の扱い](#現物と既存実装の扱い) · [§intake](#intake) · [flow.json の形](#flowjson-の形) · [§flow-framer](#flow-framer) · [§resolver](#resolver) · [§resolver-verifier](#resolver-verifier) · [§writer](#writer) · [監査役の共通節](#監査役の共通節) · [§implementer](#implementer) · [§grounding](#grounding) · [§cross-doc](#cross-doc) · [§structural（doc_check が生成する finding）](#structuraldoc_check-が生成する-finding)
 
 各 agent が読むファイル・書くファイル・返す値の正本。役割と責務の境界は `schemas/role-map.md` を正とする。
 `agents/*.md` は振る舞いを書き、形はここを指す。
@@ -80,7 +80,7 @@
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で書く（段 1 の差し戻しでは書き直す）。段 1 の後は誰も書かない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 3v が検証する decisions.json の sha256 |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
-| `flow.json` | flow-framer（段 2、回答で組み直す 3b、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけで、他の resolver の呼び出しは書かない。put / del で書く | [§flow-framer](#flow-framer) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
+| `flow.json` | flow-framer（段 2、回答で組み直す 3b、裁定を反映する `<段>-settle`）。resolver は 3a・3a' で回答を当てる呼び出し（とその flow の差し戻し）だけで、他の resolver の呼び出しは書かない。put / del で書く | [flow.json の形](#flowjson-の形) | 生成者と verifier がそれぞれ実行した `doc_check flow` の `content_sha256` の照合 |
 | `resolutions.json`、`routes.json`（段 6 で resolver が起動したときだけ） | resolver。put で書く | [決定の台帳](#決定の台帳)・[§resolver](#resolver) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [決定の台帳](#決定の台帳) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
@@ -127,7 +127,7 @@
   要求文書に書かない。
 - `targets` は doc_check の `conflicts` が「同じ target を持つ決定どうし」「target が流れの要素の id か label と
   一致する決定と要素」の組を列挙するのに使う。名前が揃わないと組が見つからず、矛盾が初稿まで残る。
-- `kind` は「## obtain・effect・kind の欄」が正。
+- `kind` は「## 不変条件の kind」が正。
 
 **resolutions.json**（resolver が書く）
 
@@ -200,30 +200,17 @@
   実測を再実行しても同じ証拠が出ない。`insufficient_grounds` = 出典が実在しない・支えていない。`mapping` =
   自由記述の回答の問いへの対応づけが回答の文面から言えない。
 
-## obtain・effect・kind の欄
+## 不変条件の kind
 
-flow の要素の取得と破壊の欄と、台帳の `kind`。値の閉集合と、どの型・どの ruling が持てるかは doc_check の `LEDGERS` が正で、
-put が検査する。doc_check `flow` は欠けを `ST-FLOW-OBTAIN-MISSING-`・`ST-FLOW-INPUT-UNKNOWN-`・`ST-FLOW-UNKNOWN-CASE-`・
-`ST-FLOW-EFFECT-MISSING-`・`ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-` で指摘する。要素の digest はこれらの欄を含む。
+`kind` は decisions・open・resolutions が持つ欄で、値は `invariant` だけである。入力が述べる「失わない・承認なしにしない」の規範
+（振る舞いを縛る決定）に付ける。観点の該当判定は振る舞いを縛らないので付けない。どの台帳が持てるかと欄の条件は doc_check の
+`LEDGERS` が正で、put が検査する。
 
-- **`source`**（要素と case。必須）: `{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
-- **`obtain`**（`input`・`step`）: `inputs[].from` に挙がる要素の値が得られないことがあるか。値は `always` / `may_fail`。`may_fail` は、
-  その要素から出所まで遡ってどこかで得られないことがあることを表す（手元の結果を読むだけの工程でも、上流の取得が失敗しうるなら
-  `may_fail`）。遡るのは最も近い `decision` の手前までで、`decision` は `obtain` を持たない。`decision` は得られないことを
-  `unknown` のマスの case で値に変えて出すので、`decision` を `from` にする入力は、その値の集合（`branches` の値）で受ける。
-- **`unknown`**（`inputs[]`）: `from` が `may_fail` の入力で、得られないときに当たる `values` の値（新しい値でも既存の値でもよい）。
-  そのマスは、`when` にその値そのものを書いた case で受ける（`上記以外` と `*` は受けたことにならない）。
-- **`effect`**（`step`）: 値は `read` / `reversible` / `destructive`。`destructive` は ref・作業ツリー・未反映の変更・外部の状態の
-  どれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。
-- **`constrained_by`**（任意）: 要素の振る舞いを縛る決定の ID（D- か RS-）か、`kind` が `invariant` の O- の配列。`destructive` の
-  工程は、`kind` が `invariant` の決定・resolution・O- を 1 件以上挙げる。挙げた不変条件がその工程を本当に縛るかは doc_check では
-  決まらないので、resolver-verifier が判定する。
-- **`kind`**（decisions・open・resolutions）: 値は `invariant` だけで、入力が述べる「失わない・承認なしにしない」の規範
-  （振る舞いを縛る決定）に付ける。観点の該当判定は振る舞いを縛らないので付けない。
-  - decisions: `quote` が要る。
-  - open: 不可逆な操作があるのに、何を失ってはならないかを依頼文が逐語で述べていない論点。intake が起こし、破壊的な工程を縛る
-    不変条件が台帳に無ければ flow-framer も足す。
-  - resolutions: `kind` が `invariant` の O- を `about` に持つ resolution は `kind: invariant` を持つ。
+- decisions: `quote` が要る。
+- open: 不可逆な操作があるのに、何を失ってはならないかを依頼文が逐語で述べていない論点。intake が起こし、破壊的な工程を縛る
+  不変条件が台帳に無ければ flow-framer も足す。kind の無い resolution が既に閉じた O- には付けられない（付けると、その resolution に
+  差し替えた工程が縛りを失う）。
+- resolutions: `kind` が `invariant` の O- を `about` に持つ resolution は `kind: invariant` を持つ。
 - 覆された（`supersedes`）か検証に落ちた不変条件は縛りにならない。それを引く要素は `stale_refs` に出て、settle で差し替える
   （§flow-framer）。差し替え先は、覆した resolution が `kind: invariant` ならそれ、そうでなければ `kind: invariant` の O- を足してそれにする。
 
@@ -262,26 +249,27 @@ put が検査する。doc_check `flow` は欠けを `ST-FLOW-OBTAIN-MISSING-`・
   ラン外の文書）で、どの単位にも入れない。
 - `units[].depends_on` は先に書き終える単位の ID。互いに参照し合う文書は同じ単位に入れる。
 - `domain` は `references/domain-analysis.md` §2 の観点ごとに 1 つで、`aspect` はそのキー。`該当` / `非該当` は `decision`、
-  `不明` は `open` を持つ。`irreversible` が `該当` なら、`kind: invariant` の決定か O- が要る（「## obtain・effect・kind の欄」）。
+  `不明` は `open` を持つ。`irreversible` が `該当` なら、`kind: invariant` の決定か O- が要る（「## 不変条件の kind」）。
 
 **open.json**
 
 ```json
-{ "open": [{ "id": "O-001", "text": "決まっていない論点（1 論点）", "searched": "依頼文のどこを探して答えが無かったか", "by": "intake | flow-framer", "targets": ["decisions と同じ意味"], "kind": "invariant（「## obtain・effect・kind の欄」に当たるときだけ）" }] }
+{ "open": [{ "id": "O-001", "text": "決まっていない論点（1 論点）", "searched": "依頼文のどこを探して答えが無かったか", "by": "intake | flow-framer", "targets": ["decisions と同じ意味"], "kind": "invariant（「## 不変条件の kind」に当たるときだけ）" }] }
 ```
 
-返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が 1 回だけ差し戻し、
-直らなければ段 1 で止まる）:
+返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が prd.js の
+`CHECK_REWORK` の回数まで差し戻し、直らなければ段 1 で止まる。段 2 の flow-framer が実行した `plan` の `content_sha256` と違えば、
+plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
 { "decisions": 18, "open": 3, "decisions_sha256": "…", "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\"}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
 ```
 
-## §flow-framer
+## flow.json の形
 
-入力: `W/input.md`、`W/decisions.json`、`W/precedent.json`、`W/open.json`（entry が `existing` なら既存文書も）。
-書くもの: `W/flow.json`、`W/open.json` への追記。実行するもの: doc_check の `flow` と `conflicts`
-（`W/checks/flow.json`・`W/checks/conflicts.json` ができる）。
+flow.json の形の正本。書くのは flow-framer と、回答を当てる resolver（3a・3a'）で、resolver-verifier が出典と欄の選択を検証する。
+欄の閉集合と型ごとの欄の条件の正本は doc_check の `LEDGERS` で、put が検査する（put より前に書かれた型に合わない欄は
+`flow` が `ST-FLOW-FIELD-CASE-` で指摘する）。
 
 ```json
 {
@@ -307,18 +295,40 @@ put が検査する。doc_check `flow` は欠けを `ST-FLOW-OBTAIN-MISSING-`・
 - `id` は `F-<連番>` で一意。`type` は `input` / `step` / `decision` / `output`。`kind` は `kinds[].name` のどれか。
 - `decision` は `branches` に 2 つ以上の `{ value, next }` を持つ。それ以外は `next`（行き先 ID の配列）を持ち、
   `output` だけが行き先を持たなくてよい。どの要素にも `input` から辿り着ける。
-- `decision` は判定表として `inputs`（1 つ以上の `{ name, values, from, unknown }`。`from` はその値を作る上流の要素の ID、`unknown` は
-  「## obtain・effect・kind の欄」）と
+- `decision` は判定表として `inputs`（1 つ以上の `{ name, values, from, unknown }`。`from` はその値を作る上流の要素の ID）と
   `cases`（`{ when, branch, source }`）を持つ。`when` には `inputs` のすべての `name` を書き、値は宣言した値か `*` にする。
   `{ "上記以外": true }` の case は、他の case に当たらない組み合わせをすべて受ける。`branch` は `branches` の `value` の
   どれかで、どの枝も 1 つ以上の case から選ばれる。doc_check `flow` は、欠けた組み合わせ・重なり・宣言外の値を文書の判定表と
   同じ関数で検査する。
-- `source`（必須）・`obtain`・`effect`・`constrained_by` は「## obtain・effect・kind の欄」が正。
-- 各 case は要素と同じ形の `source` を持ち、verifier の検証対象になる（要素の digest は `cases` を含む）。
+- `source`（要素と case。必須）: `{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
+  case の `source` も verifier の検証対象で、要素の digest は `cases` を含む。
+- `from` が `decision` の入力は、`values` をその `decision` の `branches` の値の集合にそろえる（`ST-FLOW-INPUT-BRANCHES-`）。
+  値を集約すると上流で値にした「得られない」が判定表から消えるので、集約が要るならその集約を `decision` として置く。
+- `obtain`（`input`・`step`）: その要素自身の処理が値を得られないことがあるか。値は `always` / `may_fail`。doc_check `flow` は、
+  `may_fail` の要素から `decision` を通らずに `next` で辿れる要素も値を得られないことがあるとして扱う（失敗は `decision` でしか値に
+  ならない）。失敗を下流に持ち込まないなら、`may_fail` の要素の直後に成否の `decision` を置く。
+- `unknown`（`inputs[]`）: `from` が値を得られないことがある入力で、得られないときに当たる `values` の値（新しい値でも既存の値でもよい）。
+  そのマスは、`when` のその入力にその値そのものを書いた case で受ける（`上記以外` と `*` は受けたことにならない）。
+- `effect`（`step`）: 値は `read` / `reversible` / `destructive`。`destructive` は ref・作業ツリー・未反映の変更・外部の状態の
+  どれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。
+- `constrained_by`（任意）: 要素の振る舞いを縛る決定の ID（D- か RS-）か、「## 不変条件の kind」の O- の配列。`destructive` の工程は、
+  `kind` が `invariant` の決定・resolution・O- を 1 件以上挙げる。挙げた不変条件がその工程を本当に縛るかは doc_check では決まらない
+  ので、resolver-verifier が判定する。
+- doc_check `flow` は欄の欠けを `ST-FLOW-OBTAIN-MISSING-`・`ST-FLOW-INPUT-UNKNOWN-`・`ST-FLOW-UNKNOWN-CASE-`・`ST-FLOW-EFFECT-MISSING-`・
+  `ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-` で指摘する。要素の digest はこれらの欄を含む。
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - doc_check `conflicts` は target の一致に加えて `constrained_by` の決定との組も列挙する（O- は決定ではないので組にしない）。put は
   実在しない ID と `kind` が `invariant` でない O- を拒否し、`flow` は後で消えた ID を指摘する。
+
+## §flow-framer
+
+入力: `W/input.md`、`W/decisions.json`、`W/precedent.json`、`W/open.json`（entry が `existing` なら既存文書も）。
+書くもの: `W/flow.json`、`W/open.json` への追記。実行するもの: doc_check の `flow` と `conflicts`
+（`W/checks/flow.json`・`W/checks/conflicts.json` ができる）。
+
+書く形は「## flow.json の形」が正。
+
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。
   `constrained_by` の O- も `{el, constraint}` で出る。その O- が合格か回答で閉じたら、script は
   最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
@@ -338,6 +348,7 @@ put が検査する。doc_check `flow` は欠けを `ST-FLOW-OBTAIN-MISSING-`・
 { "flow_check": "{\"findings\":0,\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
+- `plan_check`: 段 2 だけ、doc_check `plan` の stdout を加工せずに返す（script が intake の `plan_check` と照合する）。
 - `questions_check`: settle でプロンプトが回答待ちの問いの ID を渡したときだけ、`questions --ids <その ID> --check` の stdout を
   加工せずに返す。消した要素を問いの候補の `flow_refs` が指したままだと、ゲートで問いを導出できない。
 
@@ -384,7 +395,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   裁定漏れとして数える。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` の指摘が 0 件でないとき、`questions_check` が無いか問いの ID を検査していないか不合格のとき、script は
-  1 回だけ差し戻し、直らなければ blocked にする。
+  prd.js の `CHECK_REWORK` の回数まで差し戻し、直らなければ blocked にする。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を
   新しい組として同じ段の resolver（`resolver:<段>-pairs`。flow は書かない）に渡し、検証を通っていない要素の出典を verifier に回す
   （除くものは §flow-framer の `failed_current`）。

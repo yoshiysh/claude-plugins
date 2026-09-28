@@ -501,7 +501,7 @@ class FieldTypes(_Workspace):
         enums = _exported("Object.fromEntries(Object.entries(m.LEDGERS).filter(([, v]) => v.enums).map(([k, v]) => [k, { enums: v.enums, lists: v.lists }]))")
         self.assertLessEqual({"flow", "decisions"}, set(enums))
         _append_invariant_source(self.ws)
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "about": {"tbd": "TBD-X-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
         pick = {"flow": "F-002"}
         for name, spec in enums.items():
             for lst, fields in spec["enums"].items():
@@ -648,6 +648,14 @@ class InvariantOpen(_Workspace):
         self.assertIn("kind が要ります", r.stderr)
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**body, "kind": "invariant"}]})
 
+    def test_kindの無いresolutionが閉じたOはinvariantにできない(self):
+        self._open(kind=None)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-012", "about": {"open": "O-009"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        r = self._unchanged_after("open.json", "put", "--ledger", "open", stdin={"open": [{"id": "O-009", "kind": "invariant"}]})
+        self.assertIn("kind を持てません", r.stderr)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-012", "kind": "invariant"}]})
+        self._open()
+
     def test_invariantでないOを閉じるresolutionはkindが無くてよい(self):
         self._open(kind=None)
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "about": {"open": "O-009"}, "ruling": "internal", "value": "v", "why": "w"}]})
@@ -672,7 +680,7 @@ class ContractExamplesUseLedgerFields(unittest.TestCase):
     def test_例のキーはLEDGERSの欄にある(self):
         ledgers = _exported("Object.fromEntries(Object.entries(m.LEDGERS).map(([k, v]) => [k, { lists: v.lists, scalars: Object.keys(v.scalars), fields: v.fields }]))")
         text = CONTRACTS.read_text(encoding="utf-8")
-        flow_sec = text[text.index("\n## §flow-framer\n"):]
+        flow_sec = text[text.index("\n## flow.json の形\n"):]
         examples = {
             "decisions": _json_after(text, "**decisions.json**"),
             "resolutions": _json_after(text, "**resolutions.json**"),

@@ -273,11 +273,10 @@ def _cleanup_flow():
     return {
         "elements": [
             {"id": "F-001", "type": "input", "kind": "k", "label": "ブランチの一覧", "next": ["F-010"], "source": src, "obtain": "always"},
-            {"id": "F-010", "type": "decision", "kind": "k", "label": "PR 情報の取得", "source": src,
-             "inputs": [{"name": "gh", "values": ["使える", "使えない"], "from": "F-001"}],
-             "cases": [{"when": {"gh": "使える"}, "branch": "取得できた", "source": src},
-                       {"when": {"gh": "使えない"}, "branch": "gh が使えない", "source": src}],
-             "branches": [{"value": "取得できた", "next": "F-011"}, {"value": "gh が使えない", "next": "F-011"}]},
+            {"id": "F-010", "type": "decision", "kind": "k", "label": "PR の状態", "source": src,
+             "inputs": [{"name": "PR", "values": PR_STATES, "from": "F-001"}],
+             "cases": [{"when": {"PR": v}, "branch": v, "source": src} for v in PR_STATES],
+             "branches": [{"value": v, "next": "F-011"} for v in PR_STATES]},
             {"id": "F-011", "type": "step", "kind": "k", "label": "場所の判定", "next": ["F-012"], "source": src, "obtain": "always"},
             {"id": "F-012", "type": "decision", "kind": "k", "label": "ref ごとの分類", "source": src,
              "inputs": [{"name": "PR の状態", "values": PR_STATES, "from": "F-010"},
@@ -447,9 +446,42 @@ class FlowTable(unittest.TestCase):
         f12["cases"].append({"when": {"PR の状態": "*", "場所": "確認できない"}, "branch": "要判断", "source": {"open": "O-001"}})
         self.assertEqual(_flow_table(flow), [])
 
+    def test_unknownの列に置いたワイルドカードもunknownを受けたことにならない(self):
+        src = {"input": "依頼文"}
+        flow = {"elements": [
+            {"id": "F-001", "type": "input", "kind": "k", "label": "l", "next": ["F-002"], "source": src, "obtain": "always"},
+            {"id": "F-002", "type": "step", "kind": "k", "label": "取る", "next": ["F-003"], "source": src, "obtain": "may_fail", "effect": "read"},
+            {"id": "F-003", "type": "decision", "kind": "k", "label": "d", "source": src,
+             "inputs": [{"name": "a", "values": ["x", "y"], "from": "F-001"}, {"name": "b", "values": ["p", "不明"], "from": "F-002", "unknown": "不明"}],
+             "cases": [{"when": {"a": "x", "b": "*"}, "branch": "A", "source": src}, {"when": {"a": "y", "b": "p"}, "branch": "B", "source": src},
+                       {"when": {"a": "y", "b": "不明"}, "branch": "B", "source": src}],
+             "branches": [{"value": "A", "next": "F-004"}, {"value": "B", "next": "F-005"}]},
+            {"id": "F-004", "type": "output", "kind": "k", "label": "o", "source": src},
+            {"id": "F-005", "type": "output", "kind": "k", "label": "o2", "source": src},
+        ]}
+        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-003", "b", "a=x, b=不明"])])
+
+    def test_may_failの要素から判断を通らずに辿れる工程もunknownが要る(self):
+        flow = _f051_flow(obtain="may_fail", values=("true", "false", "不明"), unknown="不明")
+        f51 = _el(flow, "F-051")
+        f51["cases"].append({"when": {"current_branch_open_pr": "不明"}, "branch": "なし", "source": {"input": "依頼文"}})
+        read = {"id": "F-005", "type": "step", "kind": "k", "label": "JSON を読む", "next": ["F-051"], "source": {"input": "依頼文"}, "obtain": "always"}
+        _el(flow, "F-004")["next"] = ["F-005"]
+        flow["elements"].insert(2, read)
+        f51["inputs"][0]["from"] = "F-005"
+        self.assertEqual(_flow_table(flow), [], "unknown を持つ入力なら通る")
+        del f51["inputs"][0]["unknown"]
+        self.assertEqual(_codes(_flow_table(flow), "FLOW_INPUT_UNKNOWN"), [["F-051", "current_branch_open_pr", ""]], "上流の失敗を読むだけの工程で隠せない")
+
+    def test_判断をfromにする入力の値はその判断のbranchesと一致する(self):
+        flow = _cleanup_flow()
+        self.assertEqual(_codes(_flow_table(flow), "FLOW_INPUT_BRANCHES"), [])
+        _el(flow, "F-012")["inputs"][0]["values"] = ["0 件", "1 件以上"]
+        self.assertEqual(_codes(_flow_table(flow), "FLOW_INPUT_BRANCHES"), [["F-012", "PR の状態", "F-010"]])
+
     def test_契約の例の判定表は検査を通る(self):
         text = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
-        example = json.loads(re.search(r"```json\n(.*?)\n```", text[text.index("\n## §flow-framer\n"):], re.S).group(1))
+        example = json.loads(re.search(r"```json\n(.*?)\n```", text[text.index("\n## flow.json の形\n"):], re.S).group(1))
         self.assertTrue(any("unknown" in i for el in example["elements"] for i in el.get("inputs", [])))
         self.assertEqual(_flow_table(example), [])
 

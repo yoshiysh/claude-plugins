@@ -66,12 +66,17 @@ function respond(prompt, label) {
   const [role, stage, target] = base.split(':')
   if (role === 'intake') {
     const plan = (spec.plan_findings || {})[base]
-    return { decisions: 3, open: 0, decisions_sha256: H('d'), plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p' }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+    return { decisions: 3, open: 0, decisions_sha256: H('d'), plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan') }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
     const k = target ? `${stage}-${target}` : stage || 'framer'
     const out = { flow_check: flowStdout(at('flow_findings_at', k) || (spec.broken_flow ? 1 : 0), flowSha, k), conflicts_check: conflictsStdout(k) }
+    // plan_seen: flow-framer が実行した doc_check plan の stdout（null は返さない）。
+    if (prompt.includes('doc_check.mjs plan ') && spec.plan_seen !== null) {
+      const seen = spec.plan_seen || {}
+      out.plan_check = JSON.stringify({ findings: seen.findings || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H(seen.sha || 'plan') })
+    }
     const asked = ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g)
     if (asked.length) {
       const bad = (spec.bad_questions_at || []).includes(k) ? 1 : 0
@@ -598,6 +603,17 @@ class Stages(unittest.TestCase):
                 broken = run({"args": args(), "plan_findings": spec})
                 self.assertEqual(broken["labels"], ["intake", "intake:rework"])
                 self.assertEqual((broken["result"]["status"], broken["result"]["next_args"]["from"]), ("blocked", "1"))
+
+    def test_intakeの検査の後にplan_jsonが変わればblockedで段1から(self):
+        ok = run({"args": args()})
+        self.assertIn("doc_check.mjs plan ", next(p["prompt"] for p in ok["prompts"] if p["label"] == "flow-framer"))
+        changed = run({"args": args(), "plan_seen": {"sha": "plan-edited"}})["result"]
+        self.assertEqual((changed["status"], changed["next_args"]["from"]), ("blocked", "1"))
+        self.assertTrue(any("plan.json" in line for line in changed["integrity"]))
+        found = run({"args": args(), "plan_seen": {"findings": 1}})["result"]
+        self.assertEqual((found["status"], found["next_args"]["from"]), ("blocked", "1"))
+        missing = run({"args": args(), "plan_seen": None})["result"]
+        self.assertEqual((missing["status"], missing["next_args"]["from"]), ("blocked", "2"))
 
     def test_role_optsの未知の役割は止める(self):
         r = run({"args": args(role_opts={"checker": {"model": "opus"}})})

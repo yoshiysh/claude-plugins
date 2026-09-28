@@ -1387,6 +1387,13 @@ const WORKSPACE_TEXT = {
     issue: `判断 ${id} の入力「${name}」の from（${from || '無し'}）が flow の要素に無い。値を作る上流が分からないと、その値の集合が閉じているかを確かめられない。`,
     fix: 'from に、その値を作る上流の要素の ID を書く。',
   }),
+  FLOW_INPUT_BRANCHES: (id, name, from) => ({
+    id: `ST-FLOW-INPUT-BRANCHES-${id}-${name}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${name} ← ${from}`,
+    issue: `判断 ${id} の入力「${name}」の values が、from の判断 ${from} の branches の値と一致しない。値を集約すると、上流で値にした「得られない」が判定表から消える。`,
+    fix: `values を ${from} の branches の値にそろえる。集約が要るなら、その集約を判断として flow に置き、その判断を from にする。`,
+  }),
   FLOW_OBTAIN_MISSING: (id, value) => ({
     id: `ST-FLOW-OBTAIN-MISSING-${id}`,
     location: '工程の流れ（flow）',
@@ -1398,8 +1405,8 @@ const WORKSPACE_TEXT = {
     id: `ST-FLOW-INPUT-UNKNOWN-${id}-${name}`,
     location: '工程の流れ（flow）',
     quote: `${id}: ${name} unknown ${unknown || '無し'}`,
-    issue: `判断 ${id} の入力「${name}」は from が may_fail なのに、unknown が values の 1 つを指していない。値が得られないときのマスが表に無く、誰も行き先を決めない。`,
-    fix: `unknown に、値が得られないときに当たる values の値を書く（無ければ values に足す）。そのマスの case を出典付きで書く。`,
+    issue: `判断 ${id} の入力「${name}」は from が may_fail か、may_fail の要素から判断を通らずに辿れるのに、unknown が values の 1 つを指していない。値が得られないときのマスが表に無く、誰も行き先を決めない。`,
+    fix: `unknown に、値が得られないときに当たる values の値を書く（無ければ values に足す）。そのマスの case を出典付きで書く。失敗を下流に持ち込まないなら、may_fail の要素の直後に成否の判断を置く。`,
   }),
   FLOW_UNKNOWN_CASE: (id, name, combo) => ({
     id: `ST-FLOW-UNKNOWN-CASE-${id}-${name}-${combo}`,
@@ -1569,7 +1576,23 @@ const LEDGERS = {
     enums: { decisions: KIND },
     cases: { decisions: { by: (d) => (d.kind === undefined ? '（kind なし）' : d.kind), rows: { invariant: { must: ['quote'] }, '（kind なし）': {} } } },
   },
-  open: { file: () => 'open.json', lists: { open: 'id' }, scalars: {}, fields: { open: ['id', 'text', 'searched', 'by', 'targets', 'kind'] }, enums: { open: KIND } },
+  open: {
+    file: () => 'open.json',
+    lists: { open: 'id' },
+    scalars: {},
+    fields: { open: ['id', 'text', 'searched', 'by', 'targets', 'kind'] },
+    enums: { open: KIND },
+    // 閉じた resolution に kind の無い O- を invariant にすると、settle がその resolution に差し替えた工程が縛りを失う。
+    cases: {
+      open: {
+        by: (o, read) =>
+          o.kind === 'invariant' && listOf(read('resolutions'), 'resolutions').some((r) => r && r.about && String(r.about.open) === String(o.id) && r.kind !== 'invariant')
+            ? 'kind の無い resolution が閉じた O-'
+            : 'それ以外',
+        rows: { 'kind の無い resolution が閉じた O-': { never: ['kind'] }, それ以外: {} },
+      },
+    },
+  },
   resolutions: {
     file: () => 'resolutions.json',
     lists: { resolutions: 'id' },
@@ -2431,6 +2454,15 @@ function flowTableCompact(flow) {
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
   const byId = new Map(els.map((el) => [el.id, el]))
   const nextOf = (el) => [...(Array.isArray(el.next) ? el.next : []), ...(el.type === 'decision' && Array.isArray(el.branches) ? el.branches.map((b) => b && b.next) : [])].filter((x) => byId.has(x))
+  // mayFail: may_fail の要素から decision を通らずに next で辿れる要素も、値が得られないことがある（失敗は decision でしか値にならない）。
+  const mayFail = new Set()
+  const queue = els.filter((el) => el.type !== 'decision' && el.obtain === 'may_fail').map((el) => el.id)
+  while (queue.length) {
+    const id = queue.shift()
+    if (mayFail.has(id)) continue
+    mayFail.add(id)
+    queue.push(...(Array.isArray(byId.get(id).next) ? byId.get(id).next : []).filter((to) => byId.has(to) && byId.get(to).type !== 'decision'))
+  }
   const usedBy = new Map()
   for (const el of els.filter((x) => x.type === 'decision')) {
     for (const inp of Array.isArray(el.inputs) ? el.inputs : []) {
@@ -2466,9 +2498,14 @@ function flowTableCompact(flow) {
         out.push({ c: 'FLOW_INPUT_FROM', d: 'flow', a: [el.id, String(inp.name), String(inp.from ?? '')] })
         continue
       }
-      if (from.type === 'decision') continue
+      if (from.type === 'decision') {
+        const branches = new Set((Array.isArray(from.branches) ? from.branches : []).map((b) => b && String(b.value)))
+        const values = new Set(inp.values.map(String))
+        if (branches.size !== values.size || [...values].some((v) => !branches.has(v))) out.push({ c: 'FLOW_INPUT_BRANCHES', d: 'flow', a: [el.id, String(inp.name), from.id] })
+        continue
+      }
       if (!OBTAIN.includes(from.obtain)) out.push({ c: 'FLOW_OBTAIN_MISSING', d: 'flow', a: [from.id, String(from.obtain ?? '')] })
-      else if (from.obtain === 'may_fail' && (inp.unknown == null || !inp.values.map(String).includes(String(inp.unknown)))) out.push({ c: 'FLOW_INPUT_UNKNOWN', d: 'flow', a: [el.id, String(inp.name), String(inp.unknown ?? '')] })
+      else if (mayFail.has(from.id) && (inp.unknown == null || !inp.values.map(String).includes(String(inp.unknown)))) out.push({ c: 'FLOW_INPUT_UNKNOWN', d: 'flow', a: [el.id, String(inp.name), String(inp.unknown ?? '')] })
     }
     const names = inputs.map((i) => String(i.name))
     const isElse = (c) => Boolean(c && c.when && c.when['上記以外'])
@@ -2726,7 +2763,8 @@ function wsPlan(ws) {
   if (irreversible && !inv.live.size && !inv.open.size) out.push({ c: 'PLAN_INVARIANT_MISSING', d: 'plan', a: [] })
   const body = expandWorkspace({ findings: groupCompact(out), not_checked: [] })
   const digest = digestOf(body)
-  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest }
+  // content_sha256: intake の後で plan.json が書き換えられていないかを、script が次の段の stdout と照合する。
+  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))) }
 }
 
 // doc: 開いている TBD は --open-tbd
