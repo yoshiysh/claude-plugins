@@ -313,6 +313,29 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(len(out["pair_keys"]), len(set(out["pair_keys"])))
         self.assertLessEqual({"pair:D-003|F-003", "pair:F-003|RS-001"}, set(out["pair_keys"]))
 
+    def _invariant(self, id_="D-004"):
+        with (self.ws / "input.md").open("a") as f:
+            f.write("\n未コミットの作業を失ってはならない。\n")
+        _put(self.ws, "decisions", {"decisions": [{"id": id_, "kind": "invariant", "quote": "未コミットの作業を失ってはならない。", "value": "未コミットの作業を失わない"}]})
+
+    def test_effectの無い工程はFLOW_EFFECT_MISSING(self):
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": None}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 1)
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-EFFECT-MISSING-F-002"])
+
+    def test_destructiveの工程はinvariantの決定をconstrained_byに持つ(self):
+        # 再試走の F-053（mixed reset）: 名前が「削除」でない破壊的な工程に、縛る決定が無かった形。
+        self._invariant()
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": "destructive"}]})
+        _ok(self.ws, "flow")
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"])
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-001", "D-002"]}]})
+        _ok(self.ws, "flow")
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"], "invariant でない決定では縛りにならない")
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-004"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
+        self.assertIn("pair:D-004|F-002", _ok(self.ws, "conflicts")["pair_keys"])
+
     def test_constrained_byの実在しない決定はputが拒否し_後で消えた決定はflowの指摘になる(self):
         before = (self.ws / "flow.json").read_bytes()
         r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", "--workspace", str(self.ws)],
@@ -359,6 +382,14 @@ class FlowAndConflicts(_Workspace):
         f4["cases"][1]["source"] = {"open": "O-001"}
         _put(self.ws, "flow", {"elements": [{"id": "F-004", "cases": f4["cases"]}]})
         self.assertEqual(_ok(self.ws, "flow")["unverified"], ["F-002", "F-003", "F-004", "F-005"], "マスの出典を変えた要素は unverified に戻る")
+
+    def test_obtainを変えた要素はunverifiedに戻る(self):
+        self._verify("F-002")
+        self.assertNotIn("F-002", _ok(self.ws, "flow")["unverified"])
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "obtain": "may_fail"}]})
+        out = _ok(self.ws, "flow")
+        self.assertIn("F-002", out["unverified"])
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-INPUT-UNKNOWN-F-004-承認"])
 
     def test_不合格の要素は書き換えるまでfailed_currentに出る(self):
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]

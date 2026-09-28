@@ -31,12 +31,15 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
   `insufficient_grounds`。
 - `supersedes` があるときは、覆す理由が `why` と `evidence` から言えるか。
 
-**decisions（intake の `source: default` と `precedent`）**: 方法論の範囲に収まっているか（案件の要求そのもの・
-外部に波及する値・依頼者が保留した事項を既定にしていないか）。先例は実在し合格済みか。
+**decisions（intake の `source: default` と `precedent`、`kind: invariant`）**: 既定と先例は、方法論の範囲に収まっているか（案件の要求そのもの・
+外部に波及する値・依頼者が保留した事項を既定にしていないか）。先例は実在し合格済みか。`kind: invariant` は、`quote` が振る舞いを
+縛る規範を述べているか（観点の該当判定や事実の記述なら不合格）。
 
 **flow の要素の `source`**: `{input}` の引用が `input.md` に逐語で実在し、その要素を支えているか。`{decision}` /
 `{open}` が指す ID の内容がその要素と関係するか（ID の実在そのものは doc_check が見ている）。`constrained_by` の決定が、その要素の
-振る舞いを実際に縛るか（縛らない決定を挙げると、要らない組が resolver に回る）。
+振る舞いを実際に縛るか（縛らない決定を挙げると、要らない組が resolver に回る）。`obtain` が契約 §flow-framer の定義
+（出所まで遡る）に合うか（`always` の誤りは、得られないときのマスを表から消す）。`effect` が同じ節の定義に合うか
+（`destructive` を外すと、不変条件との組が作られない）。
 
 **自由記述の回答の対応づけ**（返り値の `free_text` の ID）: 回答の文面から、その問いへの答えであることと、
 `value` がその答えであることが言えるか → 言えなければ `mapping`。

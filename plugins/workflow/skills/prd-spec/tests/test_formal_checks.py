@@ -272,13 +272,13 @@ def _cleanup_flow():
     src = {"input": "依頼文"}
     return {
         "elements": [
-            {"id": "F-001", "type": "input", "kind": "k", "label": "ブランチの一覧", "next": ["F-010"], "source": src},
-            {"id": "F-010", "type": "decision", "kind": "k", "label": "PR 情報の取得", "source": src,
+            {"id": "F-001", "type": "input", "kind": "k", "label": "ブランチの一覧", "next": ["F-010"], "source": src, "obtain": "always"},
+            {"id": "F-010", "type": "decision", "kind": "k", "label": "PR 情報の取得", "source": src, "obtain": "always",
              "inputs": [{"name": "gh", "values": ["使える", "使えない"], "from": "F-001"}],
              "cases": [{"when": {"gh": "使える"}, "branch": "取得できた", "source": src},
                        {"when": {"gh": "使えない"}, "branch": "gh が使えない", "source": src}],
              "branches": [{"value": "取得できた", "next": "F-011"}, {"value": "gh が使えない", "next": "F-011"}]},
-            {"id": "F-011", "type": "step", "kind": "k", "label": "場所の判定", "next": ["F-012"], "source": src},
+            {"id": "F-011", "type": "step", "kind": "k", "label": "場所の判定", "next": ["F-012"], "source": src, "obtain": "always"},
             {"id": "F-012", "type": "decision", "kind": "k", "label": "ref ごとの分類", "source": src,
              "inputs": [{"name": "PR の状態", "values": PR_STATES, "from": "F-010"},
                         {"name": "場所", "values": ["取り込み済み", "取り込みなし"], "from": "F-011"}],
@@ -297,6 +297,27 @@ def _cleanup_flow():
 
 def _el(flow, id_):
     return next(e for e in flow["elements"] if e["id"] == id_)
+
+
+def _f051_flow(obtain="may_fail", values=("true", "false"), unknown=None):
+    """再試走の F-051 の最小の再現。current_branch_open_pr は remote の取り込み（F-004）から来るが、値は 2 つだけだった。"""
+    src = {"input": "依頼文"}
+    inp = {"name": "current_branch_open_pr", "values": list(values), "from": "F-004"}
+    if unknown is not None:
+        inp["unknown"] = unknown
+    step = {"id": "F-004", "type": "step", "kind": "k", "label": "状態を取る", "next": ["F-051"], "source": src}
+    if obtain is not None:
+        step["obtain"] = obtain
+    return {"elements": [
+        {"id": "F-001", "type": "input", "kind": "k", "label": "l", "next": ["F-004"], "source": src},
+        step,
+        {"id": "F-051", "type": "decision", "kind": "k", "label": "open PR があるか", "source": src, "inputs": [inp],
+         "cases": [{"when": {"current_branch_open_pr": "true"}, "branch": "あり", "source": src},
+                   {"when": {"current_branch_open_pr": "false"}, "branch": "なし", "source": src}],
+         "branches": [{"value": "あり", "next": "F-052"}, {"value": "なし", "next": "F-053"}]},
+        {"id": "F-052", "type": "output", "kind": "k", "label": "o", "source": src},
+        {"id": "F-053", "type": "output", "kind": "k", "label": "o2", "source": src},
+    ]}
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
@@ -376,7 +397,7 @@ class FlowTable(unittest.TestCase):
 
         def flow(n):
             return {"elements": [
-                {"id": "F-001", "type": "input", "kind": "k", "label": "l", "next": ["F-002"], "source": src},
+                {"id": "F-001", "type": "input", "kind": "k", "label": "l", "next": ["F-002"], "source": src, "obtain": "always"},
                 {"id": "F-002", "type": "decision", "kind": "k", "label": "d", "source": src,
                  "inputs": [{"name": "a", "values": [str(i) for i in range(n)], "from": "F-001"}],
                  "cases": [{"when": {"a": "0"}, "branch": "q", "source": src}, {"when": {"上記以外": True}, "branch": "p", "source": src}],
@@ -387,6 +408,25 @@ class FlowTable(unittest.TestCase):
 
         self.assertEqual(_flow_table(flow(max_combos)), [], "ちょうど上限は検査する")
         self.assertEqual(_flow_table(flow(max_combos + 1)), [("FLOW_DT_SIZE", ["F-002", max_combos + 1])])
+
+    def test_fromの要素にobtainが無いか値の外ならFLOW_OBTAIN_MISSING(self):
+        self.assertEqual(_codes(_flow_table(_f051_flow(obtain=None)), "FLOW_OBTAIN_MISSING"), [["F-004", ""]])
+        self.assertEqual(_codes(_flow_table(_f051_flow(obtain="sometimes")), "FLOW_OBTAIN_MISSING"), [["F-004", "sometimes"]])
+
+    def test_may_failのfromでunknownが無いか値の外ならFLOW_INPUT_UNKNOWN(self):
+        self.assertEqual(_flow_table(_f051_flow()), [("FLOW_INPUT_UNKNOWN", ["F-051", "current_branch_open_pr", ""])])
+        self.assertEqual(_codes(_flow_table(_f051_flow(unknown="不明")), "FLOW_INPUT_UNKNOWN"), [["F-051", "current_branch_open_pr", "不明"]])
+        self.assertEqual(_flow_table(_f051_flow(obtain="always")), [])
+
+    def test_F051に不明の値を足しcaseが無ければFLOW_DT_GAPが1件(self):
+        found = _flow_table(_f051_flow(values=("true", "false", "不明"), unknown="不明"))
+        self.assertEqual(found, [("FLOW_DT_GAP", ["F-051", "current_branch_open_pr=不明"])])
+
+    def test_F013の形でunknownが既存の値なら何も出さない(self):
+        flow = _f051_flow(values=("取り込み済み", "取り込み済みと確認できない"), unknown="取り込み済みと確認できない")
+        for c, v in zip(_el(flow, "F-051")["cases"], ("取り込み済み", "取り込み済みと確認できない")):
+            c["when"] = {"current_branch_open_pr": v}
+        self.assertEqual(_flow_table(flow), [])
 
     def test_文書の判定表とflowは同じ展開の関数を使う(self):
         cli = DOC_CHECK.read_text()

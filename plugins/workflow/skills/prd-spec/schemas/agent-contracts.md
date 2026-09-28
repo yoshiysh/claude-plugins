@@ -116,7 +116,8 @@
       "ref": "source が precedent のとき。<precedent のパス>#<ID>",
       "layer": "要求 | 手段",
       "targets": ["この決定が関わる流れの要素・状態の名前（例 F-002、承認の主体）"],
-      "reversibility": "変えるとき何を直せばよいか（1 行）"
+      "reversibility": "変えるとき何を直せばよいか（1 行）",
+      "kind": "invariant（下の定義に当たるときだけ）"
     }
   ]
 }
@@ -126,6 +127,9 @@
   要求文書に書かない。
 - `targets` は doc_check の `conflicts` が「同じ target を持つ決定どうし」「target が流れの要素の id か label と
   一致する決定と要素」の組を列挙するのに使う。名前が揃わないと組が見つからず、矛盾が初稿まで残る。
+- `kind` の値は `invariant` だけで、入力が述べる「失わない・承認なしにしない」の規範（振る舞いを縛る決定）に付ける。
+  `quote` が要る（put が検査する）。観点の該当判定は振る舞いを縛らないので付けない。flow の `destructive` の工程は
+  これを `constrained_by` に挙げる（§flow-framer）。
 
 **resolutions.json**（resolver が書く）
 
@@ -255,7 +259,7 @@
 ```json
 {
   "elements": [
-    { "id": "F-001", "type": "input", "kind": "外から入るもの", "label": "依頼文", "next": ["F-002"], "source": { "input": "依頼文の逐語" } },
+    { "id": "F-001", "type": "input", "kind": "外から入るもの", "label": "依頼文", "next": ["F-002"], "source": { "input": "依頼文の逐語" }, "obtain": "always" },
     {
       "id": "F-002", "type": "decision", "kind": "判断", "label": "対象外の依頼か", "source": { "decision": "D-004" },
       "inputs": [{ "name": "依頼の種類", "values": ["文書", "コード", "不明"], "from": "F-001" }],
@@ -280,10 +284,19 @@
   `{ "上記以外": true }` の case は、他の case に当たらない組み合わせをすべて受ける。`branch` は `branches` の `value` の
   どれかで、どの枝も 1 つ以上の case から選ばれる。doc_check `flow` は、欠けた組み合わせ・重なり・宣言外の値を文書の判定表と
   同じ関数で検査する。
+- `inputs[].from` に挙がる要素は `obtain` を持つ。値は `always` / `may_fail` で、`may_fail` は、その値の出所まで遡ってどこかで
+  得られないことがあることを表す（直接の `from` が手元の結果を読むだけの工程でも、上流の取得が失敗しうるなら `may_fail`）。
+  `from` が `may_fail` の入力は、得られないときに当たる `values` の値を `unknown` に書く（新しい値でも既存の値でもよい）。
+  そのマスにも case が要る。doc_check `flow` は、`obtain` の欠け（`ST-FLOW-OBTAIN-MISSING-`）と `unknown` の欠け
+  （`ST-FLOW-INPUT-UNKNOWN-`）を指摘する。要素の digest は `obtain` を含む。
 - 各 case は要素と同じ形の `source` を持ち、verifier の検証対象になる（要素の digest は `cases` を含む）。
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - `source` は必須。`{input: 逐語}` / `{decision: D- か RS- の ID}` / `{open: O- の ID}` のどれか、または複数の配列。
+- `step` は `effect` を持つ。値は `read` / `reversible` / `destructive` で、`destructive` は ref・作業ツリー・未反映の変更・
+  外部の状態のどれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。`destructive` の工程は、`constrained_by` に
+  `kind: invariant` の決定を 1 件以上持つ。doc_check `flow` は、`effect` の欠け（`ST-FLOW-EFFECT-MISSING-`）と不変条件の欠け
+  （`ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-`）を指摘する。要素の digest は `effect` を含む。
 - `constrained_by`（任意）は、その要素の振る舞いを縛る決定の ID（D- か RS-）の配列。doc_check `conflicts` は target の一致に加えて
   この組も列挙する。put は実在しない ID を拒否し、`flow` は後で消えた ID を指摘する。
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。その O- が合格か回答で閉じたら、script は

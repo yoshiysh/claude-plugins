@@ -47,7 +47,7 @@ const CONTRACT_SECTIONS = {
   intake: ['§intake', '決定の台帳', '現物と既存実装の扱い'],
   flowFramer: ['§flow-framer'],
   resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い'],
-  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い'],
+  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', '§flow-framer'],
   writer: ['§writer', '現物と既存実装の扱い'],
   implementer: ['監査役の共通節', '§implementer'],
   grounding: ['監査役の共通節', '§grounding', '現物と既存実装の扱い'],
@@ -1024,7 +1024,7 @@ async function stage3() {
       ? `段 3（resolver.md の「段 3」）: open ${state.counts.open} 件、組 ${state.counts.pairs} 件。`
       : null,
     verifyExtra:
-      'あわせて検証する: decisions.json の source が default / precedent の決定すべてと、flow.json の全要素の source（decision は各 case の source も）。これらの ID（D- / F-）も pass / fail に入れる（open も組も 0 件でも省かない。intake の既定が残るため）。',
+      'あわせて検証する: decisions.json の source が default / precedent の決定と kind が invariant の決定すべてと、flow.json の全要素の source（decision は各 case の source も）。これらの ID（D- / F-）も pass / fail に入れる（open も組も 0 件でも省かない。intake の既定が残るため）。',
     allowQuestions: true,
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3')

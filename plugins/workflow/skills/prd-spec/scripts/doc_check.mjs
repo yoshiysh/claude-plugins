@@ -1339,6 +1339,20 @@ const WORKSPACE_TEXT = {
     issue: `流れの要素 ${id} の constrained_by が挙げた ${ref} が ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも無い。無い決定とは組にならず、矛盾が見つからない。`,
     fix: `${ref} を実在する決定の ID に直すか外す。`,
   }),
+  FLOW_EFFECT_MISSING: (id, value) => ({
+    id: `ST-FLOW-EFFECT-MISSING-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: effect ${value || '無し'}`,
+    issue: `工程 ${id} の effect が ${EFFECT.join(' / ')} のどれでもない。何を失いうるかを宣言しない工程は、名前が「削除」でない破壊的な操作（reset など）を不変条件と組にできない。`,
+    fix: `${id} に effect を付ける。ref・作業ツリー・未反映の変更・外部の状態のどれかを戻せない形で変えるなら destructive にする。`,
+  }),
+  FLOW_DESTRUCTIVE_UNCONSTRAINED: (id) => ({
+    id: `ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: effect destructive`,
+    issue: `破壊的な工程 ${id} の constrained_by に、kind が invariant の決定が無い。何を失ってはならないかと組にならず、破壊の範囲の論点が初稿の後まで見つからない。`,
+    fix: `${id} の constrained_by に、その工程を縛る invariant の決定を ${ledgerOf('decisions').file()} から挙げる。`,
+  }),
   FLOW_HISTORY: (where, mark) => ({
     id: `ST-FLOW-HISTORY-${where}`,
     location: '工程の流れ（flow）',
@@ -1366,6 +1380,20 @@ const WORKSPACE_TEXT = {
     quote: `${id}: ${name} ← ${from}`,
     issue: `判断 ${id} の入力「${name}」の from（${from || '無し'}）が flow の要素に無い。値を作る上流が分からないと、その値の集合が閉じているかを確かめられない。`,
     fix: 'from に、その値を作る上流の要素の ID を書く。',
+  }),
+  FLOW_OBTAIN_MISSING: (id, value) => ({
+    id: `ST-FLOW-OBTAIN-MISSING-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: obtain ${value || '無し'}`,
+    issue: `判断の入力の from に挙がる要素 ${id} の obtain が ${OBTAIN.join(' / ')} のどれでもない。値が得られないことがあるかを宣言しないと、「得られない」値の欠けが判定表の検査に乗らない。`,
+    fix: `${id} に obtain を付ける。その値の出所まで遡って、どこかで得られないことがあれば may_fail にする。`,
+  }),
+  FLOW_INPUT_UNKNOWN: (id, name, unknown) => ({
+    id: `ST-FLOW-INPUT-UNKNOWN-${id}-${name}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${name} unknown ${unknown || '無し'}`,
+    issue: `判断 ${id} の入力「${name}」は from が may_fail なのに、unknown が values の 1 つを指していない。値が得られないときのマスが表に無く、誰も行き先を決めない。`,
+    fix: `unknown に、値が得られないときに当たる values の値を書く（無ければ values に足す）。そのマスの case を出典付きで書く。`,
   }),
   FLOW_CASE_BRANCH: (id, no, branch) => ({
     id: `ST-FLOW-CASE-BRANCH-${id}-${no}`,
@@ -1470,7 +1498,7 @@ function readJsonFile(file) {
 
 // 台帳は ID 単位の put / del だけで書く。全体を読んで書き戻す更新は再実行で結果が変わり、復元点として
 // 版の控えが要る原因になった。lists は配列名とその要素のキー、groupBy の配列は同じキーの行をまとめて置き換える。
-// fields は要素が持てる欄の閉集合（型の外の欄は put が拒否する）。cases は、by が返す行ごとに must（持つ）・
+// fields は要素が持てる欄の閉集合（型の外の欄は put が拒否する）。enums は値が閉集合の欄。cases は、by が返す行ごとに must（持つ）・
 // never（持てない）欄を宣言する。欄単位のマージでは型や ruling を変えても古い欄が残るので、残りを構造で止める。
 const OTHER_RULING = { never: ['question', 'options', 'answer', 'hold'] }
 const LEDGERS = {
@@ -1478,7 +1506,9 @@ const LEDGERS = {
     file: () => 'decisions.json',
     lists: { decisions: 'id' },
     scalars: {},
-    fields: { decisions: ['id', 'topic', 'value', 'why', 'source', 'quote', 'ref', 'layer', 'targets', 'reversibility'] },
+    fields: { decisions: ['id', 'topic', 'value', 'why', 'source', 'quote', 'ref', 'layer', 'targets', 'reversibility', 'kind'] },
+    enums: { decisions: { kind: ['invariant'] } },
+    cases: { decisions: { by: (d) => (d.kind === undefined ? '（kind なし）' : d.kind), rows: { invariant: { must: ['quote'] }, '（kind なし）': {} } } },
   },
   open: { file: () => 'open.json', lists: { open: 'id' }, scalars: {}, fields: { open: ['id', 'text', 'searched', 'by', 'targets'] } },
   resolutions: {
@@ -1522,7 +1552,8 @@ const LEDGERS = {
     file: () => 'flow.json',
     lists: { elements: 'id', kinds: 'name' },
     scalars: { closure: 'string' },
-    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by'], kinds: ['name', 'definition'] },
+    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by', 'obtain', 'effect'], kinds: ['name', 'definition'] },
+    enums: { elements: { obtain: ['always', 'may_fail'], effect: ['read', 'reversible', 'destructive'] } },
     cases: {
       elements: {
         by: (el) => (el.type === 'decision' ? 'decision' : 'decision 以外'),
@@ -1748,7 +1779,9 @@ function fieldRejects(name, body) {
     for (const el of body[list] || []) {
       for (const [k, v] of Object.entries(el)) {
         const where = `${list} ${el[key]} の ${k}`
+        const values = spec.enums && spec.enums[list] && spec.enums[list][k]
         if (!allowed.includes(k)) bad.push(`${where}: 台帳 ${name} の ${list} の欄ではありません（欄は ${allowed.join(' / ')}）`)
+        else if (values && v !== null && !values.includes(v)) bad.push(`${where}: ${JSON.stringify(v)} は ${values.join(' / ')} のどれでもありません`)
         else bad.push(...proseRejects(where, `${name}.${list}.${k}`, v))
       }
     }
@@ -2278,7 +2311,9 @@ function workspaceExtraCompact(docs, openTbd) {
 
 const constraintsOf = (el) => [...new Set((Array.isArray(el.constrained_by) ? el.constrained_by : []).map((x) => String(x).trim()).filter(Boolean))]
 
-function flowSourceCompact(flow, decisionIds, openIds) {
+const EFFECT = LEDGERS.flow.enums.elements.effect
+
+function flowSourceCompact(flow, decisionIds, openIds, invariantIds) {
   const out = []
   const check = (where, source, badShape) => {
     const sources = Array.isArray(source) ? source : source ? [source] : []
@@ -2298,11 +2333,15 @@ function flowSourceCompact(flow, decisionIds, openIds) {
     if (!el || !el.id) continue
     check(el.id, el.source, (none) => (none ? out.push({ c: 'FLOW_NOSOURCE', d: 'flow', a: [el.id] }) : out.push({ c: 'FLOW_SOURCE_SHAPE', d: 'flow', a: [el.id] })))
     for (const ref of constraintsOf(el)) if (!decisionIds.has(ref)) out.push({ c: 'FLOW_CONSTRAINT_UNKNOWN', d: 'flow', a: [el.id, ref] })
+    if (el.type === 'step' && !EFFECT.includes(el.effect)) out.push({ c: 'FLOW_EFFECT_MISSING', d: 'flow', a: [el.id, String(el.effect ?? '')] })
+    if (el.type === 'step' && el.effect === 'destructive' && !constraintsOf(el).some((ref) => invariantIds.has(ref))) out.push({ c: 'FLOW_DESTRUCTIVE_UNCONSTRAINED', d: 'flow', a: [el.id] })
     if (el.type !== 'decision' || !Array.isArray(el.cases)) continue
     el.cases.forEach((c, i) => check(`${el.id}.case${i + 1}`, c && c.source, () => out.push({ c: 'FLOW_CASE_NOSOURCE', d: 'flow', a: [el.id, i + 1] })))
   }
   return out
 }
+
+const OBTAIN = LEDGERS.flow.enums.elements.obtain
 
 // flowTableCompact: decision ごとの判定表（inputs × cases）。網羅と一意は文書の判定表と同じ tableFindings で見る。
 // 行き先の同じ値を 1 つの枝に畳んだ判断は、下流が値を使わない限り、分類を潰したまま検査を通る。
@@ -2340,7 +2379,15 @@ function flowTableCompact(flow) {
       out.push({ c: 'FLOW_NO_TABLE', d: 'flow', a: [el.id] })
       continue
     }
-    for (const inp of inputs) if (!byId.has(inp.from)) out.push({ c: 'FLOW_INPUT_FROM', d: 'flow', a: [el.id, String(inp.name), String(inp.from ?? '')] })
+    for (const inp of inputs) {
+      const from = byId.get(inp.from)
+      if (!from) {
+        out.push({ c: 'FLOW_INPUT_FROM', d: 'flow', a: [el.id, String(inp.name), String(inp.from ?? '')] })
+        continue
+      }
+      if (!OBTAIN.includes(from.obtain)) out.push({ c: 'FLOW_OBTAIN_MISSING', d: 'flow', a: [from.id, String(from.obtain ?? '')] })
+      else if (from.obtain === 'may_fail' && (inp.unknown == null || !inp.values.map(String).includes(String(inp.unknown)))) out.push({ c: 'FLOW_INPUT_UNKNOWN', d: 'flow', a: [el.id, String(inp.name), String(inp.unknown ?? '')] })
+    }
     const names = inputs.map((i) => String(i.name))
     const isElse = (c) => Boolean(c && c.when && c.when['上記以外'])
     const rows = []
@@ -2420,6 +2467,10 @@ function decisionIdsOf(ws) {
   return new Set(ids.filter((x) => x && x.id).map((x) => String(x.id)))
 }
 
+function invariantIdsOf(ws) {
+  return new Set(listOf(readLedger(ws, 'decisions'), 'decisions').filter((x) => x && x.id && x.kind === 'invariant').map((x) => String(x.id)))
+}
+
 function selectDocs(keys, wanted) {
   for (const k of wanted) if (!keys.includes(k)) throw new Error(`--doc ${k} は workspace にありません（あるのは ${keys.join(' / ') || 'なし'}）`)
   return wanted.length ? wanted : keys
@@ -2430,7 +2481,7 @@ function wsFlow(ws) {
   const flow = readLedger(ws, 'flow')
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, invariantIdsOf(ws)), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
   const els = listOf(flow, 'elements').filter((el) => el && el.id)

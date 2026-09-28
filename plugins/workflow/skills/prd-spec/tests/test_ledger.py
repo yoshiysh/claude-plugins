@@ -57,6 +57,11 @@ def _stamp(p):
     return st.st_ino, st.st_mtime_ns
 
 
+def _append_invariant_source(ws):
+    with (ws / "input.md").open("a") as f:
+        f.write("\n未コミットの作業を失ってはならない。\n")
+
+
 def _reorder(value):
     if isinstance(value, dict):
         return {k: _reorder(value[k]) for k in sorted(value, reverse=True)}
@@ -492,6 +497,24 @@ class FieldTypes(_Workspace):
                 r = self._unchanged_after(name, "put", *args, stdin=body)
                 self.assertIn("欄ではありません", r.stderr)
 
+    def test_閉集合の欄は値の外を拒否しnullで消せる(self):
+        enums = _exported("Object.fromEntries(Object.entries(m.LEDGERS).filter(([, v]) => v.enums).map(([k, v]) => [k, { enums: v.enums, lists: v.lists }]))")
+        self.assertLessEqual({"flow", "decisions"}, set(enums))
+        _append_invariant_source(self.ws)
+        for name, spec in enums.items():
+            for lst, fields in spec["enums"].items():
+                key = spec["lists"][lst]
+                el = json.loads((self.ws / f"{name}.json").read_text())[lst][0]
+                base = {key: el[key], "quote": "未コミットの作業を失ってはならない。"} if name == "decisions" else {key: el[key]}
+                for field, values in fields.items():
+                    with self.subTest(ledger=name, field=field):
+                        r = self._unchanged_after(f"{name}.json", "put", "--ledger", name, stdin={lst: [{**base, field: "sometimes"}]})
+                        self.assertIn(" / ".join(values), r.stderr)
+                        for v in values:
+                            _ok(self.ws, "put", "--ledger", name, stdin={lst: [{**base, field: v}]})
+                        _ok(self.ws, "put", "--ledger", name, stdin={lst: [{key: el[key], field: None}]})
+                        self.assertNotIn(field, json.loads((self.ws / f"{name}.json").read_text())[lst][0])
+
     def test_経緯の印を持つ自由記述の欄は拒否する(self):
         el = {"id": "F-002"}
         cases = [
@@ -578,6 +601,12 @@ class Cases(_Workspace):
         self._rejected({"resolutions": [{"id": "RS-004", "ruling": "question"}]}, "question・options が要ります")
         self._rejected({"resolutions": [{"id": "RS-004", "ruling": "questoin"}]}, "questoin")
 
+    def test_invariantの決定はquoteが要る(self):
+        _append_invariant_source(self.ws)
+        r = self._unchanged_after("decisions.json", "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-004", "kind": "invariant", "value": "未コミットの作業を失わない"}]})
+        self.assertIn("quote が要ります", r.stderr)
+        _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-004", "kind": "invariant", "quote": "未コミットの作業を失ってはならない。"}]})
+
     def test_decisionからstepに変えてbranchesを残すと拒否し_nullで通る(self):
         branches = [{"value": "可", "next": "F-003"}, {"value": "否", "next": "F-003"}]
         _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": branches, "next": None}]})
@@ -625,6 +654,17 @@ class ContractExamplesUseLedgerFields(unittest.TestCase):
                 for el in ex.get(lst, []):
                     with self.subTest(ledger=name, list=lst, el=el.get(spec["lists"][lst])):
                         self.assertEqual(set(el) - set(spec["fields"][lst]), set())
+
+    @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+    def test_閉集合の欄の値は契約にLEDGERSと同じ並びで書く(self):
+        enums = _exported("Object.fromEntries(Object.entries(m.LEDGERS).filter(([, v]) => v.enums).map(([k, v]) => [k, v.enums]))")
+        text = CONTRACTS.read_text(encoding="utf-8")
+        self.assertTrue(enums)
+        for name, lists in enums.items():
+            for lst, fields in lists.items():
+                for field, values in fields.items():
+                    with self.subTest(ledger=name, field=field):
+                        self.assertIn(" / ".join(f"`{v}`" for v in values), text)
 
 
 def _drop_privileges():

@@ -14,12 +14,14 @@
    "type": "input"
   },
   {
+   "effect": "reversible",
    "id": "F-002",
    "kind": "工程",
    "label": "承認",
    "next": [
     "F-004"
    ],
+   "obtain": "always",
    "source": {
     "decision": "D-001"
    },
