@@ -163,7 +163,7 @@ Codex で動かすための要件は次のとおり。
 - request の `requirements` に `workspace-write` を宣言する。worktree の隔離は使わない（併用できない）。
 - W は args で固定し、run ごとに作られる workspace のパスは使わない（G0・G0-2・G1 をまたいで同じ W を読み書きする）。
   host 側で W への書き込みを許す設定が要る。
-- resume に頼らず、返った `next_args` で段の境界から再実行する。`role_opts` の model に対応する `modelMap` を渡す。
+- resume に頼らず、返った `next_args` で段の境界から再実行する。`modelMap` は `references/workflow-io.md` §3 のとおりに渡す。
 - shunt は使えないので、監査役は文書を全文で読む。
 
 ## 参照ファイル

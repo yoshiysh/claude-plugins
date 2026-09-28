@@ -2,7 +2,7 @@
 model: haiku
 effort: low
 subagent_type: general-purpose
-description: 変換の resolver の後に doc_check flow を実行し、stdout をそのまま返す
+description: 台帳を書いた resolver の後に doc_check flow を実行し、stdout をそのまま返す
 ---
 
 # flow-check

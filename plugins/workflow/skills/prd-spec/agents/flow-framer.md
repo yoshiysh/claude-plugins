@@ -89,9 +89,8 @@ resolution の `value` どおりにその要素を直す（出典の差し替え
 
 プロンプトが `constrained_by` の閉じた O- を渡したときは、その O- を閉じた resolution の ID に差し替える。
 
-プロンプトが「要素: 何が無いか」の行（回答を当てた resolver に代わって直す指摘）を渡したときは、
-`W/checks/flow.json` のその指摘の fix どおりに直す（なぜ resolver に直せないかは契約「## flow.json の形」の直し手、足す O- の形は
-「## 不変条件の kind」）。直さないと、その指摘が残ったまま段が止まる。
+プロンプトが flow の指摘（「要素: 何が無いか」か「要素: 符号」の行）を渡したときは、`W/checks/flow.json` のその指摘の fix どおりに直す
+（なぜあなたに渡るかは契約 §flow-framer、足す O- の形は「## 不変条件の kind」）。直さないと、その指摘が残ったまま段が止まる。
 
 プロンプトが覆された決定か検証に落ちた不変条件を引く要素（契約 §flow-framer の `stale_refs`）を渡したときは、その決定を
 `supersedes` に持つ resolution を `W/resolutions.json` で引き、出典をその resolution に差し替えるか `constrained_by` から外す。
