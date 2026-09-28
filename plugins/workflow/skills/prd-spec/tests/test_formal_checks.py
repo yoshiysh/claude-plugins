@@ -273,7 +273,7 @@ def _cleanup_flow():
     return {
         "elements": [
             {"id": "F-001", "type": "input", "kind": "k", "label": "ブランチの一覧", "next": ["F-010"], "source": src, "obtain": "always"},
-            {"id": "F-010", "type": "decision", "kind": "k", "label": "PR 情報の取得", "source": src, "obtain": "always",
+            {"id": "F-010", "type": "decision", "kind": "k", "label": "PR 情報の取得", "source": src,
              "inputs": [{"name": "gh", "values": ["使える", "使えない"], "from": "F-001"}],
              "cases": [{"when": {"gh": "使える"}, "branch": "取得できた", "source": src},
                        {"when": {"gh": "使えない"}, "branch": "gh が使えない", "source": src}],
@@ -427,6 +427,31 @@ class FlowTable(unittest.TestCase):
         for c, v in zip(_el(flow, "F-051")["cases"], ("取り込み済み", "取り込み済みと確認できない")):
             c["when"] = {"current_branch_open_pr": v}
         self.assertEqual(_flow_table(flow), [])
+
+    def test_unknownのマスを上記以外に任せるとFLOW_UNKNOWN_CASE(self):
+        flow = _f051_flow(values=("true", "false", "不明"), unknown="不明")
+        cases = _el(flow, "F-051")["cases"]
+        cases.append({"when": {"上記以外": True}, "branch": "なし", "source": {"input": "依頼文"}})
+        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-051", "current_branch_open_pr", "current_branch_open_pr=不明"])])
+        cases[-1]["when"] = {"current_branch_open_pr": "不明"}
+        self.assertEqual(_flow_table(flow), [])
+
+    def test_unknownのマスをワイルドカードに任せてもFLOW_UNKNOWN_CASE(self):
+        flow = _cleanup_flow()
+        f12 = _el(flow, "F-012")
+        f12["inputs"][1] = {**f12["inputs"][1], "values": ["取り込み済み", "取り込みなし", "確認できない"], "unknown": "確認できない"}
+        _el(flow, "F-011")["obtain"] = "may_fail"
+        f12["cases"].append({"when": {"上記以外": True}, "branch": "要判断", "source": {"open": "O-001"}})
+        found = _codes(_flow_table(flow), "FLOW_UNKNOWN_CASE")
+        self.assertEqual(len(found), len(PR_STATES), "取り込み済みの * の case と上記以外は、確認できないのマスを受けたことにならない")
+        f12["cases"].append({"when": {"PR の状態": "*", "場所": "確認できない"}, "branch": "要判断", "source": {"open": "O-001"}})
+        self.assertEqual(_flow_table(flow), [])
+
+    def test_契約の例の判定表は検査を通る(self):
+        text = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
+        example = json.loads(re.search(r"```json\n(.*?)\n```", text[text.index("\n## §flow-framer\n"):], re.S).group(1))
+        self.assertTrue(any("unknown" in i for el in example["elements"] for i in el.get("inputs", [])))
+        self.assertEqual(_flow_table(example), [])
 
     def test_文書の判定表とflowは同じ展開の関数を使う(self):
         cli = DOC_CHECK.read_text()

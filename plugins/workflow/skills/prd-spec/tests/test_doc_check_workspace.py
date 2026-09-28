@@ -14,6 +14,7 @@ W/checks/<label>.snapshot.json に書く項目ごとの hash と比べて出す�
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -458,6 +459,134 @@ class FlowAndConflicts(_Workspace):
     def test_decisions_が無ければ失敗する(self):
         (self.ws / "decisions.json").unlink()
         self.assertEqual(_run(self.ws, "conflicts").returncode, 1)
+
+
+INVARIANT_QUOTE = "未コミットの作業を失ってはならない。"
+
+
+def _sha(ws, ledger):
+    return _ok(ws, "sha", "--ledger", ledger)["sha256"]
+
+
+def _verdict(ws, id_, verdict):
+    item = {"id": id_, "verdict": verdict, "reason": "r", "fail_kind": "insufficient_grounds" if verdict == "fail" else None}
+    _put(ws, "verifications", {"items": [item]}, "--expect-resolutions", _sha(ws, "resolutions"), "--expect-decisions", _sha(ws, "decisions"))
+
+
+def _invariant_decision(ws, id_="D-004"):
+    with (Path(ws) / "input.md").open("a") as f:
+        f.write(f"\n{INVARIANT_QUOTE}\n")
+    _put(ws, "decisions", {"decisions": [{"id": id_, "kind": "invariant", "quote": INVARIANT_QUOTE, "value": "未コミットの作業を失わない"}]})
+
+
+def _invariant_open(ws, id_="O-009"):
+    _put(ws, "open", {"open": [{"id": id_, "text": "何を失ってはならないか", "kind": "invariant"}]})
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class InvariantBinding(_Workspace):
+    def _destructive(self, *refs):
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": "destructive", "constrained_by": list(refs)}]})
+        out = _ok(self.ws, "flow")
+        return out, _findings(self.ws, "flow.json")
+
+    def test_invariantのOを挙げた破壊的な工程は指摘にならずconstraintの行が出てconflictsの組にならない(self):
+        _invariant_open(self.ws)
+        out, ids = self._destructive("O-009")
+        self.assertEqual(ids, [])
+        self.assertIn({"el": "F-002", "constraint": "O-009"}, out["open_only"])
+        self.assertFalse([k for k in _ok(self.ws, "conflicts")["pair_keys"] if "O-009" in k])
+
+    def test_OをinvariantのRSに差し替えると行が消え指摘も無い(self):
+        _invariant_open(self.ws)
+        self._destructive("O-009")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-009", "about": {"open": "O-009"}, "ruling": "internal", "value": "未 push の commit を失わない", "why": "w", "kind": "invariant"}]})
+        out, ids = self._destructive("RS-009")
+        self.assertEqual(ids, [])
+        self.assertFalse([x for x in out["open_only"] if "constraint" in x])
+        self.assertIn("pair:F-002|RS-009", _ok(self.ws, "conflicts")["pair_keys"])
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-010", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        self.assertEqual(self._destructive("RS-010")[1], ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"], "invariant でない RS では縛りにならない")
+
+    def test_覆された不変条件はstale_refsに出て縛りの指摘にならず_invariantのRSに差し替えれば消える(self):
+        _invariant_decision(self.ws)
+        self._destructive("D-004")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "v", "why": "w", "supersedes": "D-004"}]})
+        out, ids = self._destructive("D-004")
+        self.assertEqual(ids, [], "verifier の flow の検査で段を止めず、settle に直させる")
+        self.assertEqual(out["stale_refs"], [{"el": "F-002", "ref": "D-004"}])
+        self.assertEqual(self._destructive("RS-001")[1], ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"], "覆した RS が invariant でなければ縛りにならない")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "kind": "invariant"}]})
+        out, ids = self._destructive("RS-001")
+        self.assertEqual((ids, out["stale_refs"]), ([], []))
+
+    def test_型の持てない欄をput以外で残したflowはFLOW_FIELD_CASE(self):
+        flow = json.loads((self.ws / "flow.json").read_text())
+        next(e for e in flow["elements"] if e["id"] == "F-004")["effect"] = "destructive"
+        (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+        _ok(self.ws, "flow")
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-FIELD-CASE-F-004"])
+
+    def test_検証に落ちた不変条件はstale_refsに出る(self):
+        _invariant_decision(self.ws)
+        self._destructive("D-004")
+        _verdict(self.ws, "D-004", "fail")
+        out, ids = self._destructive("D-004")
+        self.assertEqual((ids, out["stale_refs"]), ([], [{"el": "F-002", "ref": "D-004"}]))
+        _verdict(self.ws, "D-004", "pass")
+        self.assertEqual(self._destructive("D-004")[0]["stale_refs"], [])
+
+
+def _aspect_keys():
+    text = (SKILL / "references" / "domain-analysis.md").read_text(encoding="utf-8")
+    sec = text[text.index("\n## 2. "):text.index("\n## 3. ")]
+    return re.findall(r"^\d+\. `([a-z_]+)`", sec, re.M)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class PlanCheck(_Workspace):
+    def _plan(self, domain):
+        plan = json.loads((self.ws / "plan.json").read_text())
+        (self.ws / "plan.json").write_text(json.dumps({**plan, "domain": domain}, ensure_ascii=False))
+        out = _ok(self.ws, "plan")
+        self.assertEqual(out["path"], "checks/plan.json")
+        return sorted(_findings(self.ws, "plan.json"))
+
+    def _all(self, **verdicts):
+        return [{"aspect": k, **verdicts.get(k, {"verdict": "非該当", "decision": "D-003"})} for k in _aspect_keys()]
+
+    def test_観点がすべてそろえば0件(self):
+        self.assertEqual(len(_aspect_keys()), 10)
+        self.assertEqual(self._plan(self._all()), [])
+
+    def test_キーの欠け_重複_閉集合の外を拾う(self):
+        keys = _aspect_keys()
+        domain = self._all()[1:] + [self._all()[2], {"aspect": "不可逆な操作", "verdict": "非該当", "decision": "D-003"}]
+        self.assertEqual(self._plan(domain), sorted([f"ST-PLAN-ASPECT-MISSING-{keys[0]}", f"ST-PLAN-ASPECT-DUP-{keys[2]}", "ST-PLAN-ASPECT-UNKNOWN-不可逆な操作"]))
+
+    def test_verdictの外と根拠のIDの欠けを拾う(self):
+        keys = _aspect_keys()
+        domain = self._all(**{keys[0]: {"verdict": "たぶん"}, keys[1]: {"verdict": "不明", "open": "O-404"}, keys[2]: {"verdict": "該当", "decision": "D-404"}, keys[3]: {"verdict": "不明", "open": "O-001"}})
+        self.assertEqual(self._plan(domain), sorted([f"ST-PLAN-VERDICT-{keys[0]}", f"ST-PLAN-REF-{keys[1]}", f"ST-PLAN-REF-{keys[2]}"]))
+
+    def test_irreversibleが該当なら生きている不変条件の決定か未決が要る(self):
+        domain = self._all(irreversible={"verdict": "該当", "decision": "D-003"})
+        self.assertEqual(self._plan(domain), ["ST-PLAN-INVARIANT-MISSING-irreversible"])
+        _invariant_decision(self.ws)
+        self.assertEqual(self._plan(domain), [])
+        _verdict(self.ws, "D-004", "fail")
+        self.assertEqual(self._plan(domain), ["ST-PLAN-INVARIANT-MISSING-irreversible"], "検証に落ちた不変条件は数えない")
+        _invariant_open(self.ws)
+        self.assertEqual(self._plan(domain), [])
+
+    def test_観点のキーはdomain_analysisにだけある(self):
+        src = DOC_CHECK.read_text(encoding="utf-8")
+        self.assertIn("irreversible", _aspect_keys())
+        for key in (k for k in _aspect_keys() if k != "irreversible"):
+            self.assertNotIn(f"'{key}'", src)
+        for p in [SKILL / "schemas" / "agent-contracts.md", *SKILL.glob("agents/*.md")]:
+            for key in (k for k in _aspect_keys() if k != "irreversible"):
+                self.assertNotIn(f"`{key}`", p.read_text(encoding="utf-8"), p.name)
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

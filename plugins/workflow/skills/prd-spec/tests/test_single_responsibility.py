@@ -105,6 +105,21 @@ class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
 
 
 
+class FieldSectionIsReadByFieldUsers(ExistingImplementationRuleLivesInOnePlace):
+    SECTION = "obtain・effect・kind の欄"
+
+    def test_規則を使う役だけがその節を読む(self):
+        readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
+        self.assertEqual(readers, {"intake", "flowFramer", "resolver", "verifier"})
+        self.assertNotIn("§flow-framer", self._sections()["verifier"], "verifier に §flow-framer 全体を配らない")
+
+    def test_役のファイルとreferencesは節を参照し本文を写さない(self):
+        for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md")]):
+            text = path.read_text(encoding="utf-8")
+            for phrase in ("遡るのは最も近い", "受けたことにならない", "戻せない形で変える"):
+                self.assertNotIn(phrase, text, path.name)
+
+
 class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):
     PHRASES = ("既存の本文には trace が無い", "それ自身を原本", "既存の記述に同じ物差しを当てると")
     READERS = ("grounding.md", "writer.md")

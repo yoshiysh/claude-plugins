@@ -44,10 +44,10 @@ const ROLE_FILES = {
 }
 
 const CONTRACT_SECTIONS = {
-  intake: ['§intake', '決定の台帳', '現物と既存実装の扱い'],
-  flowFramer: ['§flow-framer'],
-  resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い'],
-  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', '§flow-framer'],
+  intake: ['§intake', '決定の台帳', '現物と既存実装の扱い', 'obtain・effect・kind の欄'],
+  flowFramer: ['§flow-framer', 'obtain・effect・kind の欄'],
+  resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い', 'obtain・effect・kind の欄'],
+  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', 'obtain・effect・kind の欄'],
   writer: ['§writer', '現物と既存実装の扱い'],
   implementer: ['監査役の共通節', '§implementer'],
   grounding: ['監査役の共通節', '§grounding', '現物と既存実装の扱い'],
@@ -136,7 +136,7 @@ function settledIds(state) {
 
 function settledTerminals(openOnly, state) {
   const settled = new Set(settledOpenIds(state))
-  return (openOnly || []).filter((x) => x && settled.has(x.open))
+  return (openOnly || []).filter((x) => x && settled.has(x.open || x.constraint))
 }
 
 function openTbdOf(state) {
@@ -299,6 +299,11 @@ function parseStdout(text) {
   }
 }
 
+function planCheckOf(text) {
+  const o = parseStdout(text)
+  return o && Number.isInteger(o.findings) ? o : null
+}
+
 function flowCheckOf(text) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
@@ -381,13 +386,14 @@ const INTAKE_SCHEMA = {
     decisions: INT,
     open: INT,
     decisions_sha256: STR,
+    plan_check: STR,
     units: {
       type: 'array',
       minItems: 1,
       items: { type: 'object', properties: { id: STR, docs: { type: 'array', items: STR, minItems: 1 }, depends_on: STRS }, required: ['id', 'docs', 'depends_on'] },
     },
   },
-  required: ['decisions', 'open', 'decisions_sha256', 'units'],
+  required: ['decisions', 'open', 'decisions_sha256', 'plan_check', 'units'],
 }
 
 const FLOW_SCHEMA = {
@@ -872,10 +878,11 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const got = await frameFlow(`flow-framer:${stage}-settle`, (label) => [
     header('flowFramer', `${stage}（裁定の反映）`, label),
     `裁定を flow に写す（flow-framer.md の「裁定の反映」）。`,
-    left.length ? `要素（閉じた O- ← 閉じた resolution）: ${left.map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open} ← ${list(closers(`open:${x.open}`))}）`).join(', ')}` : '',
+    left.some((x) => x.open) ? `要素（閉じた O- ← 閉じた resolution）: ${left.filter((x) => x.open).map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open} ← ${list(closers(`open:${x.open}`))}）`).join(', ')}` : '',
+    left.some((x) => x.constraint) ? `constrained_by の閉じた O-（要素 の O- ← 閉じた resolution）: ${left.filter((x) => x.constraint).map((x) => `${x.el} の ${x.constraint} ← ${list(closers(`open:${x.constraint}`))}`).join(', ')}` : '',
     found.length ? `指摘（ID ← それを裁定した resolution）: ${found.map((id) => `${id}（← ${list(closers(`finding:${id}`))}）`).join(', ')}` : '',
     verdicts.length ? `検証の裁定（要素 ← 裁定した resolution）: ${verdicts.map((id) => `${id} ← ${list(closers(`verification:${id}`))}`).join(', ')}` : '',
-    stale.length ? `覆された決定を出典か constrained_by に持つ要素（要素 ← 覆された決定）: ${stale.map((x) => `${x.el} ← ${x.ref}`).join(', ')}` : '',
+    stale.length ? `覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: ${stale.map((x) => `${x.el} ← ${x.ref}`).join(', ')}` : '',
     FRAME_RUN,
     waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行する（返し方は §flow-framer の返り値）。` : '',
   ], phaseTitle)
@@ -894,13 +901,13 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true)
   if (ve) return ve
   const vfc = flowCheckOf(v.flow_check)
-  const still = settledTerminals(vfc.open_only, state).map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open}）`)
+  const still = settledTerminals(vfc.open_only, state).map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open || x.constraint}）`)
   const unchecked = target.filter((id) => vfc.unverified.includes(id))
   const failed = v.fail.map((f) => f.id)
   const stillStale = vfc.stale_refs.map((x) => `${x.el}（${x.ref}）`)
   if (!still.length && !unchecked.length && !failed.length && !stillStale.length) return null
   return {
-    error: `段 ${stage}: 裁定の反映の後も直っていません（閉じた未決だけを出典に持つ要素: ${list(still)} / 覆された決定を引く要素: ${list(stillStale)} / 検証を通っていない要素: ${list(unchecked)} / 不合格: ${list(failed)}）`,
+    error: `段 ${stage}: 裁定の反映の後も直っていません（閉じた未決を引く要素: ${list(still)} / 覆された決定を引く要素: ${list(stillStale)} / 検証を通っていない要素: ${list(unchecked)} / 不合格: ${list(failed)}）`,
   }
 }
 
@@ -981,17 +988,27 @@ function needsAnswers(gate, from) {
 
 async function stage1() {
   phase('Intake')
-  const label = 'intake'
-  const prompt = [
-    header('intake', '1', label),
-    `読む: ${W}/input.md、${W}/precedent.json（とそこに並ぶファイル）`,
-    existingNote(),
-    '書く: decisions.json・plan.json・open.json。返り値は件数と writer の単位だけ。',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-  const r = await once(label, 'intake', prompt, INTAKE_SCHEMA, 'Intake')
+  const prompt = (label) =>
+    [
+      header('intake', '1', label),
+      `読む: ${W}/input.md、${W}/precedent.json（とそこに並ぶファイル）`,
+      existingNote(),
+      `書く: decisions.json・plan.json・open.json。返る前に \`${cli('plan')}\` を実行して指摘を直し、最後の stdout を加工せずに plan_check に入れる。`,
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+  const defect = (x) => {
+    const pc = planCheckOf(x.plan_check)
+    return !pc ? 'doc_check plan の stdout がありません' : pc.findings > 0 ? `doc_check plan の指摘が ${pc.findings} 件あります（${W}/checks/plan.json）` : null
+  }
+  let r = await once('intake', 'intake', prompt('intake'), INTAKE_SCHEMA, 'Intake')
   if (!r) return blocked('intake が応答しませんでした', '1')
+  for (let i = 0; defect(r) && i < CHECK_REWORK; i++) {
+    const again = await once('intake:rework', 'intake', `${prompt('intake:rework')}\n\n返した stdout が不合格だった: ${defect(r)}。直して返す。`, INTAKE_SCHEMA, 'Intake')
+    if (!again) break
+    r = again
+  }
+  if (defect(r)) return blocked(`intake の出力が検査を通りません: ${defect(r)}`, '1')
   try {
     unitWaves(r.units)
   } catch (e) {

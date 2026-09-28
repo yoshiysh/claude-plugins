@@ -178,7 +178,7 @@ INDEX の「未解決」節が持ち、決まらないと決まった論点は�
 
 ## 3. 「リスクと影響」章の書き方（構成上の要）
 
-`references/domain-analysis.md` の 10 観点の判定結果をここに落とす。
+`references/domain-analysis.md` の 10 観点の判定結果をここに落とす。「観点」の列には §2 の名前を書く（キーは plan.json の中だけで使う）。
 
 ```markdown
 ## リスクと影響

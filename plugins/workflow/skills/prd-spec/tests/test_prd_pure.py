@@ -163,6 +163,8 @@ class Pure(unittest.TestCase):
         # O-003 は hold、O-004 は回答待ちの問い、O-005 は未合格、O-006 は不合格、O-007 は開いたまま
         self.assertEqual(got, [{"el": "F-091", "open": "O-001"}, {"el": "F-092", "open": "O-002"}])
         self.assertEqual(value(f"settledOpenIds({json.dumps(state)})"), ["O-001", "O-002"])
+        bound = [{"el": "F-053", "constraint": "O-001"}, {"el": "F-054", "constraint": "O-003"}]
+        self.assertEqual(value(f"settledTerminals({json.dumps(bound)}, {json.dumps(state)})"), bound[:1], "constrained_by の O- も同じ条件で閉じる")
 
     def test_reversedFindingsは同じ項目への逆向きの指摘だけを拾う(self):
         prev = [

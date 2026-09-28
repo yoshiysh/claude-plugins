@@ -437,7 +437,6 @@ function expandStructural(compact) {
 // flow の軸が閉じていなければ「どの工程にも項目が当たっている」は何も保証しないので、形と閉包は算術で押さえる。
 // prd.js は指摘が 0 件でない flow では書き始めない（writer には flow を直す手段が無い）。
 function flowGraphCompact(flow) {
-  const FLOW_TYPES = ['input', 'step', 'decision', 'output']
   const out = []
   const shape = (key, detail) => out.push({ c: 'FLOW_SHAPE', d: 'flow', a: [key, detail] })
   if (!flow || typeof flow !== 'object' || !Array.isArray(flow.elements)) {
@@ -1336,8 +1335,8 @@ const WORKSPACE_TEXT = {
     id: `ST-FLOW-CONSTRAINT-UNKNOWN-${id}-${ref}`,
     location: '工程の流れ（flow）',
     quote: `${id}: constrained_by ${ref}`,
-    issue: `流れの要素 ${id} の constrained_by が挙げた ${ref} が ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも無い。無い決定とは組にならず、矛盾が見つからない。`,
-    fix: `${ref} を実在する決定の ID に直すか外す。`,
+    issue: `流れの要素 ${id} の constrained_by が挙げた ${ref} が ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも無く、kind が invariant の O- でもない。無い決定とは組にならず、矛盾が見つからない。`,
+    fix: `${ref} を実在する決定か kind が invariant の O- の ID に直すか外す。`,
   }),
   FLOW_EFFECT_MISSING: (id, value) => ({
     id: `ST-FLOW-EFFECT-MISSING-${id}`,
@@ -1350,8 +1349,15 @@ const WORKSPACE_TEXT = {
     id: `ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-${id}`,
     location: '工程の流れ（flow）',
     quote: `${id}: effect destructive`,
-    issue: `破壊的な工程 ${id} の constrained_by に、kind が invariant の決定が無い。何を失ってはならないかと組にならず、破壊の範囲の論点が初稿の後まで見つからない。`,
-    fix: `${id} の constrained_by に、その工程を縛る invariant の決定を ${ledgerOf('decisions').file()} から挙げる。`,
+    issue: `破壊的な工程 ${id} の constrained_by に、kind が invariant の決定も未決も無い。何を失ってはならないかと組にならず、破壊の範囲の論点が初稿の後まで見つからない。`,
+    fix: `${id} の constrained_by に、その工程を縛る kind が invariant の決定を挙げる。無ければ ${ledgerOf('open').file()} に kind が invariant の O- を足して挙げる。`,
+  }),
+  FLOW_FIELD_CASE: (id, type, fields) => ({
+    id: `ST-FLOW-FIELD-CASE-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${type} の ${fields}`,
+    issue: `要素 ${id}（${type}）が、その型の持てない欄 ${fields} を持つ。型に合わない欄は検査の対象にならず、宣言が黙って残る。`,
+    fix: `${fields} に null を送って消すか、型を直す。`,
   }),
   FLOW_HISTORY: (where, mark) => ({
     id: `ST-FLOW-HISTORY-${where}`,
@@ -1386,7 +1392,7 @@ const WORKSPACE_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: obtain ${value || '無し'}`,
     issue: `判断の入力の from に挙がる要素 ${id} の obtain が ${OBTAIN.join(' / ')} のどれでもない。値が得られないことがあるかを宣言しないと、「得られない」値の欠けが判定表の検査に乗らない。`,
-    fix: `${id} に obtain を付ける。その値の出所まで遡って、どこかで得られないことがあれば may_fail にする。`,
+    fix: `${id} が input か step なら obtain を付ける（定義は契約）。output なら、from をその値を作る上流の要素に直す。`,
   }),
   FLOW_INPUT_UNKNOWN: (id, name, unknown) => ({
     id: `ST-FLOW-INPUT-UNKNOWN-${id}-${name}`,
@@ -1394,6 +1400,13 @@ const WORKSPACE_TEXT = {
     quote: `${id}: ${name} unknown ${unknown || '無し'}`,
     issue: `判断 ${id} の入力「${name}」は from が may_fail なのに、unknown が values の 1 つを指していない。値が得られないときのマスが表に無く、誰も行き先を決めない。`,
     fix: `unknown に、値が得られないときに当たる values の値を書く（無ければ values に足す）。そのマスの case を出典付きで書く。`,
+  }),
+  FLOW_UNKNOWN_CASE: (id, name, combo) => ({
+    id: `ST-FLOW-UNKNOWN-CASE-${id}-${name}-${combo}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: ${combo}`,
+    issue: `判断 ${id} の入力「${name}」が得られないときの組み合わせ「${combo}」を、その値を明示した case が受けていない（上記以外か * に任せている）。得られないときの行き先を誰も選ばない。`,
+    fix: `when の「${name}」に unknown の値そのものを書いた case を、出典付きで足す。`,
   }),
   FLOW_CASE_BRANCH: (id, no, branch) => ({
     id: `ST-FLOW-CASE-BRANCH-${id}-${no}`,
@@ -1444,6 +1457,48 @@ const WORKSPACE_TEXT = {
     issue: `判断 ${id} の枝がすべて ${next} へ行き、下流のどの判断も ${id} を inputs の from に挙げていない。値で何も変わらない判断は、分類を潰したまま閉包の検査を通る。`,
     fix: `${id} の値を使う下流の判断の inputs に from: ${id} を書くか、値ごとに行き先を分ける。値で何も変わらないなら判断ではなく工程にする。`,
   }),
+  PLAN_ASPECT_UNKNOWN: (aspect) => ({
+    id: `ST-PLAN-ASPECT-UNKNOWN-${aspect}`,
+    location: 'plan.json の domain',
+    quote: aspect,
+    issue: `観点「${aspect}」が ${DOMAIN.file} §2 のキーに無い。キーでないと、不可逆な操作の観点を特定できず、不変条件の起こし漏れを検査できない。`,
+    fix: `aspect を ${DOMAIN.file} §2 のキーにする。`,
+  }),
+  PLAN_ASPECT_MISSING: (key) => ({
+    id: `ST-PLAN-ASPECT-MISSING-${key}`,
+    location: 'plan.json の domain',
+    quote: key,
+    issue: `観点 ${key} の判定が無い。判定しなかった観点は、要る要求カテゴリが丸ごと落ちても気づけない。`,
+    fix: `${key} を ${Object.keys(PLAN_VERDICT_NEEDS).join(' / ')} のどれかで判定して足す。`,
+  }),
+  PLAN_ASPECT_DUP: (key) => ({
+    id: `ST-PLAN-ASPECT-DUP-${key}`,
+    location: 'plan.json の domain',
+    quote: key,
+    issue: `観点 ${key} の判定が 2 つ以上ある。どれが正か決まらない。`,
+    fix: '1 つにまとめる。',
+  }),
+  PLAN_VERDICT: (aspect, verdict) => ({
+    id: `ST-PLAN-VERDICT-${aspect}`,
+    location: 'plan.json の domain',
+    quote: `${aspect}: ${verdict || '無し'}`,
+    issue: `観点 ${aspect} の verdict が ${Object.keys(PLAN_VERDICT_NEEDS).join(' / ')} のどれでもない。`,
+    fix: 'verdict をそのどれかにする。',
+  }),
+  PLAN_REF: (aspect, need, ref) => ({
+    id: `ST-PLAN-REF-${aspect}`,
+    location: 'plan.json の domain',
+    quote: `${aspect}: ${need} ${ref || '無し'}`,
+    issue: `観点 ${aspect} の ${need} が ${need === 'open' ? ledgerOf('open').file() : `${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()}`} に無い。判定の根拠を辿れない。`,
+    fix: `${Object.entries(PLAN_VERDICT_NEEDS).map(([v, k]) => `${v} は ${k}`).join('、')} に、実在する ID を書く。`,
+  }),
+  PLAN_INVARIANT_MISSING: () => ({
+    id: `ST-PLAN-INVARIANT-MISSING-${DOMAIN.irreversible}`,
+    location: 'plan.json の domain',
+    quote: `${DOMAIN.irreversible}: 該当`,
+    issue: '不可逆な操作が該当なのに、kind が invariant の決定も未決も無い。破壊的な工程が縛りを挙げられず、flow の検査を通れない。',
+    fix: `依頼文が失ってはならないものを述べていれば、その逐語を quote にした kind が invariant の決定にする。述べていなければ kind が invariant の O- を ${ledgerOf('open').file()} に足す。`,
+  }),
   AMBIGUOUS: (docKey, itemId, word, quote) => ({
     id: `ST-AMBIGUOUS-${docKey}-${itemId}-${word}`,
     location: itemId,
@@ -1468,7 +1523,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha', 'report']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1499,39 +1554,50 @@ function readJsonFile(file) {
 // 台帳は ID 単位の put / del だけで書く。全体を読んで書き戻す更新は再実行で結果が変わり、復元点として
 // 版の控えが要る原因になった。lists は配列名とその要素のキー、groupBy の配列は同じキーの行をまとめて置き換える。
 // fields は要素が持てる欄の閉集合（型の外の欄は put が拒否する）。enums は値が閉集合の欄。cases は、by が返す行ごとに must（持つ）・
-// never（持てない）欄を宣言する。欄単位のマージでは型や ruling を変えても古い欄が残るので、残りを構造で止める。
+// never（持てない）欄を宣言する。欄単位のマージでは型や ruling を変えても古い欄が残るので、残りを構造で止める。by の 2 つ目の引数は
+// 他の台帳を読む関数で、呼んだときだけ読む（関係の無い台帳の put を、他の台帳の壊れで止めない）。
 const OTHER_RULING = { never: ['question', 'options', 'answer', 'hold'] }
+const KIND = { kind: ['invariant'] }
+const FLOW_TYPES = ['input', 'step', 'decision', 'output']
+const OUT_OF_TYPE = '（型の外）'
 const LEDGERS = {
   decisions: {
     file: () => 'decisions.json',
     lists: { decisions: 'id' },
     scalars: {},
     fields: { decisions: ['id', 'topic', 'value', 'why', 'source', 'quote', 'ref', 'layer', 'targets', 'reversibility', 'kind'] },
-    enums: { decisions: { kind: ['invariant'] } },
+    enums: { decisions: KIND },
     cases: { decisions: { by: (d) => (d.kind === undefined ? '（kind なし）' : d.kind), rows: { invariant: { must: ['quote'] }, '（kind なし）': {} } } },
   },
-  open: { file: () => 'open.json', lists: { open: 'id' }, scalars: {}, fields: { open: ['id', 'text', 'searched', 'by', 'targets'] } },
+  open: { file: () => 'open.json', lists: { open: 'id' }, scalars: {}, fields: { open: ['id', 'text', 'searched', 'by', 'targets', 'kind'] }, enums: { open: KIND } },
   resolutions: {
     file: () => 'resolutions.json',
     lists: { resolutions: 'id' },
     scalars: {},
     fields: {
-      resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision'],
+      resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision', 'kind'],
     },
+    enums: { resolutions: KIND },
     cases: {
-      resolutions: {
-        by: (r) => (r.ruling === undefined ? '（ruling なし）' : r.ruling === 'question' ? `question（answer ${r.answer === undefined ? 'なし' : 'あり'}）` : r.ruling),
-        rows: {
-          'question（answer なし）': { must: ['question', 'options'], never: ['answer', 'value', 'hold'] },
-          'question（answer あり）': { must: ['question', 'options'], never: ['hold'] },
-          hold: { must: ['hold'], never: ['question', 'options', 'answer', 'value'] },
-          precedent: OTHER_RULING,
-          internal: OTHER_RULING,
-          measured: OTHER_RULING,
-          method: OTHER_RULING,
-          '（ruling なし）': OTHER_RULING,
+      resolutions: [
+        {
+          by: (r, read) => (r.about && invariantOpenIds(read('open')).has(String(r.about.open)) ? 'kind が invariant の O- を閉じる' : 'それ以外'),
+          rows: { 'kind が invariant の O- を閉じる': { must: ['kind'] }, それ以外: {} },
         },
-      },
+        {
+          by: (r) => (r.ruling === undefined ? '（ruling なし）' : r.ruling === 'question' ? `question（answer ${r.answer === undefined ? 'なし' : 'あり'}）` : r.ruling),
+          rows: {
+            'question（answer なし）': { must: ['question', 'options'], never: ['answer', 'value', 'hold'] },
+            'question（answer あり）': { must: ['question', 'options'], never: ['hold'] },
+            hold: { must: ['hold'], never: ['question', 'options', 'answer', 'value'] },
+            precedent: OTHER_RULING,
+            internal: OTHER_RULING,
+            measured: OTHER_RULING,
+            method: OTHER_RULING,
+            '（ruling なし）': OTHER_RULING,
+          },
+        },
+      ],
     },
   },
   verifications: {
@@ -1556,8 +1622,14 @@ const LEDGERS = {
     enums: { elements: { obtain: ['always', 'may_fail'], effect: ['read', 'reversible', 'destructive'] } },
     cases: {
       elements: {
-        by: (el) => (el.type === 'decision' ? 'decision' : 'decision 以外'),
-        rows: { decision: { never: ['next'] }, 'decision 以外': { never: ['branches', 'inputs', 'cases'] } },
+        by: (el) => (FLOW_TYPES.includes(el.type) ? el.type : OUT_OF_TYPE),
+        rows: {
+          input: { never: ['branches', 'inputs', 'cases', 'effect'] },
+          step: { never: ['branches', 'inputs', 'cases'] },
+          decision: { never: ['next', 'effect', 'obtain'] },
+          output: { never: ['branches', 'inputs', 'cases', 'effect', 'obtain'] },
+          [OUT_OF_TYPE]: {},
+        },
       },
     },
   },
@@ -1744,12 +1816,12 @@ function flowRefRejects(ws, resolutions) {
 function refRejects(ws, name, body) {
   if (name === 'resolutions') return flowRefRejects(ws, body.resolutions || [])
   if (name !== 'flow') return []
-  const ids = decisionIdsOf(ws)
+  const ids = new Set([...decisionIdsOf(ws), ...invariantOpenIds(readLedger(ws, 'open'))])
   const bad = []
   for (const el of body.elements || []) {
     if (el.constrained_by == null) continue
     if (!Array.isArray(el.constrained_by)) bad.push(`${el.id} constrained_by: 決定の ID の配列ではありません`)
-    else for (const ref of constraintsOf(el)) if (!ids.has(ref)) bad.push(`${el.id} constrained_by: ${ref} は ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にもありません`)
+    else for (const ref of constraintsOf(el)) if (!ids.has(ref)) bad.push(`${el.id} constrained_by: ${ref} は ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも無く、${ledgerOf('open').file()} の kind が invariant の O- でもありません`)
   }
   return bad
 }
@@ -1790,23 +1862,31 @@ function fieldRejects(name, body) {
   return bad
 }
 
-function caseRejects(name, next, body) {
+function caseViolations(ws, name, list, els) {
+  const spec = ledgerOf(name)
+  const read = (other) => readLedger(ws, other)
+  const out = []
+  for (const c of [].concat((spec.cases || {})[list] || [])) {
+    for (const el of els) {
+      const row = c.by(el, read)
+      const rule = Object.hasOwn(c.rows, row) ? c.rows[row] : null
+      if (!rule) out.push({ el, row, rows: Object.keys(c.rows) })
+      else out.push({ el, row, extra: (rule.never || []).filter((k) => k in el), lack: (rule.must || []).filter((k) => !(k in el)) })
+    }
+  }
+  return out
+}
+
+function caseRejects(ws, name, next, body) {
   const spec = ledgerOf(name)
   const bad = []
-  for (const [list, c] of Object.entries(spec.cases || {})) {
+  for (const list of Object.keys(spec.cases || {})) {
     const key = spec.lists[list]
     const touched = new Set((body[list] || []).map((el) => el[key]))
-    for (const el of next[list].filter((x) => touched.has(x[key]))) {
-      const row = c.by(el)
-      const rule = Object.hasOwn(c.rows, row) ? c.rows[row] : null
-      if (!rule) {
-        bad.push(`${list} ${el[key]}: ${row} は ${Object.keys(c.rows).join(' / ')} のどれでもありません`)
-        continue
-      }
-      const extra = (rule.never || []).filter((k) => k in el)
-      const lack = (rule.must || []).filter((k) => !(k in el))
-      if (extra.length) bad.push(`${list} ${el[key]}: ${row} では ${extra.join('・')} を持てません。消すには、その欄に null を送ってください`)
-      if (lack.length) bad.push(`${list} ${el[key]}: ${row} では ${lack.join('・')} が要ります`)
+    for (const { el, row, rows, extra, lack } of caseViolations(ws, name, list, next[list].filter((x) => touched.has(x[key])))) {
+      if (rows) bad.push(`${list} ${el[key]}: ${row} は ${rows.join(' / ')} のどれでもありません`)
+      if (extra && extra.length) bad.push(`${list} ${el[key]}: ${row} では ${extra.join('・')} を持てません。消すには、その欄に null を送ってください`)
+      if (lack && lack.length) bad.push(`${list} ${el[key]}: ${row} では ${lack.join('・')} が要ります`)
     }
   }
   return bad
@@ -1956,7 +2036,7 @@ function wsPut(ws, opts, stdin) {
     tally[!(k in next) ? 'added' : next[k] === body[k] ? 'unchanged' : 'replaced'].push(k)
     next[k] = body[k]
   }
-  const caseBad = caseRejects(name, next, body)
+  const caseBad = caseRejects(ws, name, next, body)
   if (caseBad.length) throw new LedgerRejected(`欄の条件に落ちました（何も書いていません）:\n${caseBad.join('\n')}`)
   if (name === 'verifications') next = fillVerifications(ws, opts, next, body)
   const text = ledgerText(next)
@@ -2313,7 +2393,7 @@ const constraintsOf = (el) => [...new Set((Array.isArray(el.constrained_by) ? el
 
 const EFFECT = LEDGERS.flow.enums.elements.effect
 
-function flowSourceCompact(flow, decisionIds, openIds, invariantIds) {
+function flowSourceCompact(flow, decisionIds, openIds, inv) {
   const out = []
   const check = (where, source, badShape) => {
     const sources = Array.isArray(source) ? source : source ? [source] : []
@@ -2332,9 +2412,10 @@ function flowSourceCompact(flow, decisionIds, openIds, invariantIds) {
   for (const el of listOf(flow, 'elements')) {
     if (!el || !el.id) continue
     check(el.id, el.source, (none) => (none ? out.push({ c: 'FLOW_NOSOURCE', d: 'flow', a: [el.id] }) : out.push({ c: 'FLOW_SOURCE_SHAPE', d: 'flow', a: [el.id] })))
-    for (const ref of constraintsOf(el)) if (!decisionIds.has(ref)) out.push({ c: 'FLOW_CONSTRAINT_UNKNOWN', d: 'flow', a: [el.id, ref] })
+    for (const ref of constraintsOf(el)) if (!decisionIds.has(ref) && !inv.open.has(ref)) out.push({ c: 'FLOW_CONSTRAINT_UNKNOWN', d: 'flow', a: [el.id, ref] })
     if (el.type === 'step' && !EFFECT.includes(el.effect)) out.push({ c: 'FLOW_EFFECT_MISSING', d: 'flow', a: [el.id, String(el.effect ?? '')] })
-    if (el.type === 'step' && el.effect === 'destructive' && !constraintsOf(el).some((ref) => invariantIds.has(ref))) out.push({ c: 'FLOW_DESTRUCTIVE_UNCONSTRAINED', d: 'flow', a: [el.id] })
+    const bound = (ref) => inv.live.has(ref) || inv.open.has(ref) || inv.dead.has(ref)
+    if (el.type === 'step' && el.effect === 'destructive' && !constraintsOf(el).some(bound)) out.push({ c: 'FLOW_DESTRUCTIVE_UNCONSTRAINED', d: 'flow', a: [el.id] })
     if (el.type !== 'decision' || !Array.isArray(el.cases)) continue
     el.cases.forEach((c, i) => check(`${el.id}.case${i + 1}`, c && c.source, () => out.push({ c: 'FLOW_CASE_NOSOURCE', d: 'flow', a: [el.id, i + 1] })))
   }
@@ -2385,6 +2466,7 @@ function flowTableCompact(flow) {
         out.push({ c: 'FLOW_INPUT_FROM', d: 'flow', a: [el.id, String(inp.name), String(inp.from ?? '')] })
         continue
       }
+      if (from.type === 'decision') continue
       if (!OBTAIN.includes(from.obtain)) out.push({ c: 'FLOW_OBTAIN_MISSING', d: 'flow', a: [from.id, String(from.obtain ?? '')] })
       else if (from.obtain === 'may_fail' && (inp.unknown == null || !inp.values.map(String).includes(String(inp.unknown)))) out.push({ c: 'FLOW_INPUT_UNKNOWN', d: 'flow', a: [el.id, String(inp.name), String(inp.unknown ?? '')] })
     }
@@ -2401,12 +2483,22 @@ function flowTableCompact(flow) {
     const chosen = new Set(cases.map((c) => c && String(c.branch)))
     for (const v of branchValues) if (!chosen.has(v)) out.push({ c: 'FLOW_BRANCH_UNUSED', d: 'flow', a: [el.id, v] })
     const conds = inputs.map((i) => ({ name: String(i.name), values: i.values.map(String) }))
-    for (const f of tableFindings(conds, rows, cases.some(isElse))) {
+    const found = tableFindings(conds, rows, cases.some(isElse))
+    for (const f of found) {
       if (f.kind === 'value') out.push({ c: 'FLOW_DT_VALUE', d: 'flow', a: [el.id, f.name, f.value] })
       if (f.kind === 'too_many') out.push({ c: 'FLOW_DT_SIZE', d: 'flow', a: [el.id, f.total] })
       if (f.kind === 'gap') out.push({ c: 'FLOW_DT_GAP', d: 'flow', a: [el.id, f.combo] })
       if (f.kind === 'overlap') out.push({ c: 'FLOW_DT_OVERLAP', d: 'flow', a: [el.id, f.combo, f.a, f.b] })
     }
+    if (found.some((f) => f.kind === 'too_many')) continue
+    // unknown のマスは、その値を when に書いた case だけが受ける（上記以外と * は、得られないときの行き先を選んだことにならない）。
+    inputs.forEach((inp, at) => {
+      if (inp.unknown == null || !inp.values.map(String).includes(String(inp.unknown))) return
+      const only = conds.map((c, ci) => (ci === at ? { ...c, values: [String(inp.unknown)] } : c))
+      const explicit = rows.filter((r) => r.vals[at] === String(inp.unknown))
+      const gaps = new Set(found.filter((f) => f.kind === 'gap').map((f) => f.combo))
+      for (const f of tableFindings(only, explicit, false)) if (f.kind === 'gap' && !gaps.has(f.combo)) out.push({ c: 'FLOW_UNKNOWN_CASE', d: 'flow', a: [el.id, String(inp.name), f.combo] })
+    })
   }
   return out
 }
@@ -2467,8 +2559,24 @@ function decisionIdsOf(ws) {
   return new Set(ids.filter((x) => x && x.id).map((x) => String(x.id)))
 }
 
-function invariantIdsOf(ws) {
-  return new Set(listOf(readLedger(ws, 'decisions'), 'decisions').filter((x) => x && x.id && x.kind === 'invariant').map((x) => String(x.id)))
+const invariantOpenIds = (open) => new Set(listOf(open, 'open').filter((x) => x && x.id && x.kind === 'invariant').map((x) => String(x.id)))
+
+const supersededIds = (resolutions) =>
+  new Set(
+    listOf(resolutions, 'resolutions')
+      .flatMap((r) => (r && r.supersedes != null ? [].concat(r.supersedes) : []))
+      .map((x) => String(x).trim())
+      .filter(Boolean)
+  )
+
+// invariantsOf: 覆された・検証に落ちた不変条件（dead）は縛りにならない。dead を引く要素は stale_refs で settle に直させるので、
+// その間は FLOW_DESTRUCTIVE_UNCONSTRAINED にしない（verifier の flow の検査で段が止まり、差し戻しにも settle にも届かない）。
+function invariantsOf(ws) {
+  const resolutions = readLedger(ws, 'resolutions')
+  const failed = listOf(readLedger(ws, 'verifications'), 'items').filter((it) => it && it.verdict === 'fail').map((it) => String(it.id))
+  const dead = new Set([...supersededIds(resolutions), ...failed])
+  const kinds = [...listOf(readLedger(ws, 'decisions'), 'decisions'), ...listOf(resolutions, 'resolutions')].filter((x) => x && x.id && x.kind === 'invariant').map((x) => String(x.id))
+  return { live: new Set(kinds.filter((id) => !dead.has(id))), dead: new Set(kinds.filter((id) => dead.has(id))), open: invariantOpenIds(readLedger(ws, 'open')) }
 }
 
 function selectDocs(keys, wanted) {
@@ -2481,7 +2589,13 @@ function wsFlow(ws) {
   const flow = readLedger(ws, 'flow')
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, invariantIdsOf(ws)), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
+  const inv = invariantsOf(ws)
+  // 型ごとの欄の条件は put が書く時に見るが、条件を足す前に書かれた flow.json はここでしか落ちない。
+  const fieldCase = []
+  for (const v of caseViolations(ws, 'flow', 'elements', listOf(flow, 'elements').filter((el) => el && el.id))) {
+    if (v.extra && v.extra.length) fieldCase.push({ c: 'FLOW_FIELD_CASE', d: 'flow', a: [String(v.el.id), v.row, v.extra.join('・')] })
+  }
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow), ...flowHistoryCompact(flow), ...fieldCase]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
@@ -2499,19 +2613,15 @@ function wsFlow(ws) {
   const openOnly = els.flatMap((el) => [
     ...opensOnly(el.source).map((o) => ({ el: el.id, open: o })),
     ...(el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []).flatMap((c, i) => opensOnly(c && c.source).map((o) => ({ el: el.id, case: i + 1, open: o }))),
+    ...constraintsOf(el).filter((ref) => openIds.has(ref)).map((o) => ({ el: el.id, constraint: o })),
   ])
   // supersedes で覆された決定を引く要素。出典の実在だけを見る FLOW_SOURCE_UNKNOWN では、覆された ID も実在するので出ない。
-  const superseded = new Set(
-    listOf(readLedger(ws, 'resolutions'), 'resolutions')
-      .flatMap((r) => (r && r.supersedes != null ? [].concat(r.supersedes) : []))
-      .map((x) => String(x).trim())
-      .filter(Boolean)
-  )
+  const superseded = supersededIds(readLedger(ws, 'resolutions'))
   const decisionRefs = (source) => (Array.isArray(source) ? source : source ? [source] : []).map((s) => s && typeof s === 'object' && String(s.decision ?? '').trim()).filter(Boolean)
   const staleRefs = els.flatMap((el) => {
     const cases = el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []
     const refs = new Set([...decisionRefs(el.source), ...cases.flatMap((c) => decisionRefs(c && c.source)), ...constraintsOf(el)])
-    return [...refs].filter((ref) => superseded.has(ref)).map((ref) => ({ el: String(el.id), ref }))
+    return [...refs].filter((ref) => superseded.has(ref) || (inv.dead.has(ref) && constraintsOf(el).includes(ref))).map((ref) => ({ el: String(el.id), ref }))
   })
   // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
   return {
@@ -2553,8 +2663,9 @@ function wsConflicts(ws) {
     }
   }
   const paired = new Set(pairs.map((p) => `${p.a}|${p.b}`))
+  const openIds = invariantOpenIds(readLedger(ws, 'open'))
   for (const el of els) {
-    for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`))) pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
+    for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`) && !openIds.has(r))) pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
   }
   pairs.sort((x, y) => x.kind.localeCompare(y.kind) || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
   const untargeted = ds.filter((x) => !x.targets.length).map((x) => x.id).sort()
@@ -2571,6 +2682,51 @@ function wsConflicts(ws) {
     digest,
     pair_keys: pairs.map((p) => `pair:${[p.a, p.b].map(String).sort().join('|')}`),
   }
+}
+
+const DOMAIN = { file: path.join('references', 'domain-analysis.md'), heading: /^## 2\. /, irreversible: 'irreversible' }
+const PLAN_VERDICT_NEEDS = { 該当: 'decision', 非該当: 'decision', 不明: 'open' }
+
+// domainAspects: 観点のキーは domain-analysis.md §2 から毎回読み、写しを持たない（intake が読む一覧と検査がずれない）。
+function domainAspects() {
+  const lines = fs.readFileSync(path.join(SKILL_DIR, DOMAIN.file), 'utf8').split('\n')
+  const start = lines.findIndex((l) => DOMAIN.heading.test(l))
+  const end = lines.findIndex((l, i) => i > start && /^## /.test(l))
+  const keys = start < 0 ? [] : lines.slice(start + 1, end < 0 ? undefined : end).map((l) => /^\d+\. `([a-z_]+)`/.exec(l)).filter(Boolean).map((m) => m[1])
+  if (!keys.includes(DOMAIN.irreversible)) throw new Error(`観点のキー（${DOMAIN.file} の §2）を読み取れないか、${DOMAIN.irreversible} がありません`)
+  return keys
+}
+
+// plan: intake の出力の検査。不変条件の起こし漏れは intake にしか直せないので、flow ではなくここで止める。
+function wsPlan(ws) {
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  if (plan === null) throw new Error('plan.json がありません')
+  const keys = domainAspects()
+  const refs = { decision: decisionIdsOf(ws), open: new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id))) }
+  const inv = invariantsOf(ws)
+  const domain = listOf(plan, 'domain')
+  const out = []
+  const seen = new Map()
+  for (const d of domain) {
+    const aspect = String((d && d.aspect) ?? '')
+    if (!keys.includes(aspect)) {
+      out.push({ c: 'PLAN_ASPECT_UNKNOWN', d: 'plan', a: [aspect] })
+      continue
+    }
+    seen.set(aspect, (seen.get(aspect) || 0) + 1)
+    const need = Object.hasOwn(PLAN_VERDICT_NEEDS, d.verdict) ? PLAN_VERDICT_NEEDS[d.verdict] : null
+    if (!need) out.push({ c: 'PLAN_VERDICT', d: 'plan', a: [aspect, String(d.verdict ?? '')] })
+    else if (!refs[need].has(String(d[need] ?? '').trim())) out.push({ c: 'PLAN_REF', d: 'plan', a: [aspect, need, String(d[need] ?? '')] })
+  }
+  for (const k of keys) {
+    if (!seen.has(k)) out.push({ c: 'PLAN_ASPECT_MISSING', d: 'plan', a: [k] })
+    else if (seen.get(k) > 1) out.push({ c: 'PLAN_ASPECT_DUP', d: 'plan', a: [k] })
+  }
+  const irreversible = domain.some((d) => d && d.aspect === DOMAIN.irreversible && d.verdict === '該当')
+  if (irreversible && !inv.live.size && !inv.open.size) out.push({ c: 'PLAN_INVARIANT_MISSING', d: 'plan', a: [] })
+  const body = expandWorkspace({ findings: groupCompact(out), not_checked: [] })
+  const digest = digestOf(body)
+  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest }
 }
 
 // doc: 開いている TBD は --open-tbd
@@ -2862,6 +3018,7 @@ function runWorkspace(mode, argv) {
   if (!opts.workspace) throw new Error('--workspace <W> が要ります')
   const ws = path.resolve(opts.workspace)
   if (!fs.existsSync(ws) || !fs.statSync(ws).isDirectory()) throw new Error(`workspace がディレクトリではありません: ${opts.workspace}`)
+  if (mode === 'plan') return wsPlan(ws)
   if (mode === 'flow') return wsFlow(ws)
   if (mode === 'conflicts') return wsConflicts(ws)
   if (mode === 'doc') return wsDoc(ws, opts)

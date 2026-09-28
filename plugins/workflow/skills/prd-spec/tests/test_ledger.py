@@ -501,10 +501,13 @@ class FieldTypes(_Workspace):
         enums = _exported("Object.fromEntries(Object.entries(m.LEDGERS).filter(([, v]) => v.enums).map(([k, v]) => [k, { enums: v.enums, lists: v.lists }]))")
         self.assertLessEqual({"flow", "decisions"}, set(enums))
         _append_invariant_source(self.ws)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        pick = {"flow": "F-002"}
         for name, spec in enums.items():
             for lst, fields in spec["enums"].items():
                 key = spec["lists"][lst]
-                el = json.loads((self.ws / f"{name}.json").read_text())[lst][0]
+                els = json.loads((self.ws / f"{name}.json").read_text())[lst]
+                el = next(e for e in els if e[key] == pick.get(name, els[0][key]))
                 base = {key: el[key], "quote": "未コミットの作業を失ってはならない。"} if name == "decisions" else {key: el[key]}
                 for field, values in fields.items():
                     with self.subTest(ledger=name, field=field):
@@ -609,7 +612,7 @@ class Cases(_Workspace):
 
     def test_decisionからstepに変えてbranchesを残すと拒否し_nullで通る(self):
         branches = [{"value": "可", "next": "F-003"}, {"value": "否", "next": "F-003"}]
-        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": branches, "next": None}]})
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": branches, "next": None, "effect": None, "obtain": None}]})
         r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "step", "next": ["F-003"]}]})
         self.assertIn("branches", r.stderr)
         _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "step", "next": ["F-003"], "branches": None}]})
@@ -622,6 +625,39 @@ class Cases(_Workspace):
     def test_decisionはnextを持てない(self):
         r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": []}]})
         self.assertIn("next", r.stderr)
+
+    def test_effectはstepだけ_obtainはinputとstepだけが持てる(self):
+        for el, field in (({"id": "F-001", "effect": "destructive"}, "effect"), ({"id": "F-004", "effect": "destructive"}, "effect"), ({"id": "F-004", "obtain": "always"}, "obtain"),
+                          ({"id": "F-003", "obtain": "always"}, "obtain"), ({"id": "F-003", "effect": "read"}, "effect")):
+            with self.subTest(el=el):
+                r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [el]})
+                self.assertIn(f"では {field} を持てません", r.stderr)
+        r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "type": "decision", "branches": [], "next": None}]})
+        self.assertIn("effect・obtain を持てません", r.stderr, "型を変えても前の型の欄は残せない")
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail"}]})
+
+
+class InvariantOpen(_Workspace):
+    def _open(self, kind="invariant"):
+        _ok(self.ws, "put", "--ledger", "open", stdin={"open": [{"id": "O-009", "text": "何を失ってはならないか", **({"kind": kind} if kind else {})}]})
+
+    def test_invariantのOを閉じるresolutionはkindが要る(self):
+        self._open()
+        body = {"id": "RS-009", "about": {"open": "O-009"}, "ruling": "internal", "value": "未 push の commit を失わない", "why": "w"}
+        r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [body]})
+        self.assertIn("kind が要ります", r.stderr)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**body, "kind": "invariant"}]})
+
+    def test_invariantでないOを閉じるresolutionはkindが無くてよい(self):
+        self._open(kind=None)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "about": {"open": "O-009"}, "ruling": "internal", "value": "v", "why": "w"}]})
+
+    def test_constrained_byはinvariantのOだけを指せる(self):
+        self._open(kind=None)
+        r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "constrained_by": ["O-009"]}]})
+        self.assertIn("O-009", r.stderr)
+        self._open()
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-002", "constrained_by": ["O-009"]}]})
 
 
 def _json_after(text, marker):

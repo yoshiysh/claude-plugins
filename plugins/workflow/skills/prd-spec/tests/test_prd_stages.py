@@ -64,7 +64,10 @@ const about = (id) => (spec.about || {})[id] || { open: `O-${id}` }
 function respond(prompt, label) {
   const base = label.replace(/#retry$/, '')
   const [role, stage, target] = base.split(':')
-  if (role === 'intake') return { decisions: 3, open: 0, decisions_sha256: H('d'), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+  if (role === 'intake') {
+    const plan = (spec.plan_findings || {})[base]
+    return { decisions: 3, open: 0, decisions_sha256: H('d'), plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p' }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+  }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
     const k = target ? `${stage}-${target}` : stage || 'framer'
@@ -582,6 +585,19 @@ class Stages(unittest.TestCase):
         r = run({"args": args(), "units": units})
         writers = [l for l in r["labels"] if l.startswith("writer:")]
         self.assertEqual(writers, ["writer:U-1:draft", "writer:U-2:draft"])
+
+    def test_intakeのplan_checkに指摘があれば1回だけ差し戻す(self):
+        fixed = run({"args": args(), "plan_findings": {"intake": 2}})
+        self.assertEqual(fixed["labels"][:3], ["intake", "intake:rework", "flow-framer"])
+        rework = next(p["prompt"] for p in fixed["prompts"] if p["label"] == "intake:rework")
+        self.assertIn("doc_check plan の指摘が 2 件", rework)
+        self.assertIn("doc_check.mjs plan --workspace", rework)
+        self.assertEqual(fixed["result"]["status"], "done")
+        for spec in ({"intake": 1, "intake:rework": 1}, {"intake": None, "intake:rework": None}):
+            with self.subTest(plan_findings=spec):
+                broken = run({"args": args(), "plan_findings": spec})
+                self.assertEqual(broken["labels"], ["intake", "intake:rework"])
+                self.assertEqual((broken["result"]["status"], broken["result"]["next_args"]["from"]), ("blocked", "1"))
 
     def test_role_optsの未知の役割は止める(self):
         r = run({"args": args(role_opts={"checker": {"model": "opus"}})})
@@ -1140,6 +1156,20 @@ class FlowRecheck(unittest.TestCase):
                 left = run({**spec, "stale_refs_at": {**spec["stale_refs_at"], key: stale}})["result"]
                 self.assertEqual(left["status"], "blocked")
                 self.assertIn("覆された決定を引く要素: F-002（D-001）", left["reason"])
+
+    def test_constrained_byの閉じた不変条件のOはsettleでRSに差し替えて検証する(self):
+        # 段 2 で flow-framer が起こした kind invariant の O- を破壊的な工程が挙げ、段 3 の resolver が閉じた形。
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-053", "constraint": "O-RS-001"}]}, "unverified_at": {"3-settle": ["F-053"]}}
+        r = run(spec)
+        self.assertEqual([l for l in r["labels"] if "settle" in l], ["flow-framer:3-settle", "verifier:3v-settle"])
+        self.assertIn("constrained_by の閉じた O-（要素 の O- ← 閉じた resolution）: F-053 の O-RS-001 ← RS-001", self._prompt(r, "flow-framer:3-settle"))
+        self.assertIn("F-053", self._prompt(r, "verifier:3v-settle"))
+        self.assertEqual(r["result"]["status"], "done")
+        left = run({**spec, "open_only_at": {**spec["open_only_at"], "3v-settle": spec["open_only_at"]["3v"]}})["result"]
+        self.assertEqual(left["status"], "blocked")
+        self.assertIn("閉じた未決を引く要素: F-053（O-RS-001）", left["reason"])
+        held = run({**spec, "ruled_at": {}, "holds_at": {"3": ["RS-001"]}})
+        self.assertFalse(has(held["labels"], "flow-framer:3-settle"), "hold で閉じた不変条件の O- は未決のまま縛りに残る")
 
     def test_段3で閉じたOも同じcycleでsettleする(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]}})
