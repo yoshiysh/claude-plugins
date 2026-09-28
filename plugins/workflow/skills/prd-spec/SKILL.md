@@ -91,7 +91,8 @@ Workflow({
 
 args に打ち直すのは ID・件数・digest と、返った `next_args` だけにする（依頼文は W/input.md に、flow などの本体は W に
 ある。why は `references/workflow-io.md` §1）。model / effort は全役に既定があり、`role_opts` で上書きできる
-（`references/workflow-io.md` §2）。返り値の `status` で次を決める。
+（`references/workflow-io.md` §2）。`next_args` を打ち直して `state` が変わると run は最初に止まるので、その時は返った `next_args` を
+そのまま渡し直す。返り値の `status` で次を決める。
 
 - **`needs_answers`**（G0・G0-2・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの

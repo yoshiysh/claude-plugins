@@ -30,7 +30,6 @@ const ROLE_OPTS = {
   implementer: { model: 'opus', effort: 'high' },
   grounding: { model: 'opus', effort: 'high' },
   crossDoc: { model: 'sonnet', effort: 'medium' },
-  loader: { model: 'haiku', effort: 'low' },
 }
 
 const ROLE_FILES = {
@@ -42,7 +41,6 @@ const ROLE_FILES = {
   implementer: 'implementer.md',
   grounding: 'grounding.md',
   crossDoc: 'cross-doc.md',
-  loader: 'loader.md',
 }
 
 const CONTRACT_SECTIONS = {
@@ -54,7 +52,6 @@ const CONTRACT_SECTIONS = {
   implementer: ['監査役の共通節', '§implementer'],
   grounding: ['監査役の共通節', '§grounding', '現物と既存実装の扱い'],
   crossDoc: ['監査役の共通節', '§cross-doc'],
-  loader: ['§loader'],
 }
 
 // COMMON_SECTIONS: 書き込みの規則（put だけで書く・その場で更新する・tmp の所有）はここにだけ置く。役の節に写すと、
@@ -245,7 +242,7 @@ function pendingView(p, routes) {
   }
 }
 
-// canonicalText・fnv: prd.js は sha256 を計算できないので、再開で W から読み直した指摘が書き出した版と同じかをこの 2 つで照合する。
+// canonicalText・fnv: prd.js は sha256 を計算できないので、next_args の state が打ち直しで変わっていないかをこの 2 つで照合する。
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -256,39 +253,6 @@ function fnv(text) {
   let h = 0x811c9dc5
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
   return h.toString(16).padStart(8, '0')
-}
-
-// pendingRef: next_args は指摘の本体を持たず、W の findings のファイル名・持ち越した ID・hash だけで指す（指摘の件数と項目の数に
-// 比例して next_args が上限を超えるため。本体は W が正本）。flow の参照は再開のときの文書から取り直す。
-function pendingRef(p) {
-  if (!p || p.ref) return p
-  const { findings, flow, round, ...rest } = p
-  const inRound = new Set(round)
-  const carried = {}
-  for (const f of pendingFindings(p)) if (!inRound.has(f.file)) carried[f.file] = [...(carried[f.file] || []), f.id]
-  return { ...rest, ref: { round, carried, hash: fnv(canonicalText(findings)) } }
-}
-
-// pendingFromRef: doc_check pending の stdout（ファイル → 文書 → 項目 → ID）から pendingRef の前の形に戻す。hash が合わなければ null。
-function pendingFromRef(p, loaded) {
-  const { ref, ...rest } = p
-  const drop = new Set((p.again || []).map((x) => x.id))
-  const rerouted = new Set(p.rerouted || [])
-  const packed = {}
-  for (const [file, byDoc] of Object.entries((loaded && loaded.findings) || {})) {
-    const keep = ref.round.includes(file) ? (id) => !drop.has(id) : (id) => (ref.carried[file] || []).includes(id)
-    for (const [doc, items] of Object.entries(byDoc)) {
-      for (const [item, fs] of Object.entries(items)) {
-        for (const [id, r] of Object.entries(fs)) {
-          if (!keep(id)) continue
-          packed[doc] = packed[doc] || {}
-          packed[doc][item] = { ...(packed[doc][item] || {}), [id]: { blocking: Boolean(r.blocking), route: rerouted.has(id) ? 'decision' : r.route, direction: r.direction, origin: r.origin, file } }
-        }
-      }
-    }
-  }
-  if (fnv(canonicalText(packed)) !== ref.hash) return null
-  return { ...rest, findings: packed, flow: (loaded && loaded.flow_refs) || {}, round: ref.round }
 }
 
 // reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
@@ -582,8 +546,6 @@ const WRITER_SCHEMA = {
   required: ['unit', 'docs', 'changed_items', 'open_tbd', 'new_tbd', 'applied_findings', 'applied_routes', 'resolutions_sha256'],
 }
 
-const LOADER_SCHEMA = { type: 'object', properties: { pending_check: STR }, required: ['pending_check'] }
-
 const AUDIT_SCHEMA = {
   type: 'object',
   properties: {
@@ -641,6 +603,9 @@ if (!STAGES.includes(FROM)) throw new Error(`args.from は段の境界（${STAGE
 const EXISTING = Array.isArray(input.existing_docs) ? input.existing_docs : []
 if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" には args.existing_docs（W に置いた既存文書のキーと fixed）が要ります`)
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
+if (input.state !== undefined && input.state_hash !== fnv(canonicalText(input.state))) {
+  throw new Error('args.state が next_args の版と違います（state_hash が合いません）。next_args を打ち直さず、返ったものをそのまま渡し直してください')
+}
 const state = JSON.parse(JSON.stringify(input.state || {}))
 const startErrors = stateErrors(FROM, state)
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
@@ -648,8 +613,7 @@ if (startErrors.length) throw new Error(`再開に要る値が args.state にあ
 const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
 const argsFrom = (from, st) => {
   const copy = JSON.parse(JSON.stringify(st))
-  if (copy.pending) copy.pending = pendingRef(copy.pending)
-  return { ...BASE_ARGS, from, state: copy }
+  return { ...BASE_ARGS, from, state: copy, state_hash: fnv(canonicalText(copy)) }
 }
 const nextArgs = (from) => argsFrom(from, state)
 
@@ -1428,12 +1392,12 @@ async function runAuditors(plan, round, stage) {
   return { results, missing }
 }
 
-function recordFindings(plan, results, round) {
+function recordFindings(plan, results) {
   const all = []
   plan.forEach((p, i) => {
     const fs = (results[i] && results[i].findings) || []
     state.roles_by_item = rolesByItem(state.roles_by_item, fs, p.role)
-    all.push(...fs.map((f) => ({ ...f, file: findingsName(p.role, p.doc, round, p.extra) })))
+    all.push(...fs)
   })
   return all
 }
@@ -1465,7 +1429,7 @@ async function stage5() {
   state.audit = { n: 1, digest: audited.digest }
   state.tree_digest = audited.digest
   noteAudited(audited, 'audited-1')
-  const findings = recordFindings(plan, results, 1)
+  const findings = recordFindings(plan, results)
   setPending(findings, docCheck, [])
   return '6'
 }
@@ -1477,8 +1441,6 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const recurring = opt.recurring || {}
   const kept = [...findings, ...carried].filter((f) => f && !drop.has(f.id))
   const all = toDecision(kept, [...(opt.reversed || []), ...kept.filter((f) => recurring[itemKey(f)]).map((f) => f.id)])
-  const before = new Map(kept.map((f) => [f.id, f.route]))
-  const rerouted = all.filter((f) => f.route !== before.get(f.id)).map((f) => f.id)
   const refs = (docCheck && docCheck.flow_refs) || {}
   const flow = {}
   for (const b of partitionFindings(all.filter((f) => (state.item_routes || {})[itemKey(f)] !== 'exhausted')).bundles) {
@@ -1488,13 +1450,11 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const packed = {}
   for (const f of all) {
     packed[f.doc] = packed[f.doc] || {}
-    packed[f.doc][f.item_id] = { ...(packed[f.doc][f.item_id] || {}), [f.id]: { blocking: Boolean(f.blocking), route: f.route, direction: f.direction, origin: f.origin, file: f.file } }
+    packed[f.doc][f.item_id] = { ...(packed[f.doc][f.item_id] || {}), [f.id]: { blocking: Boolean(f.blocking), route: f.route, direction: f.direction, origin: f.origin } }
   }
   state.pending = {
     findings: packed,
     flow,
-    round: uniq(findings.map((f) => f.file)),
-    rerouted,
     doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,
     carried: uniq(carried.filter((f) => f && f.blocking && !drop.has(f.id)).map((f) => f.id)),
     recurring,
@@ -1594,7 +1554,7 @@ async function stage7() {
   const carried = p.findings.filter((f) => unapplied.includes(f.id))
   if (carried.length) log(`改稿で当たらなかった指摘が ${carried.length} 件ある。次のパスへ持ち越します`)
   state.settled_written = uniq([...usableResolutions(state), ...(state.holds || [])])
-  state.revised = { changes, carried, docs: uniq(targets.flatMap((t) => t.unit.docs)) }
+  state.revised = { changes, unapplied: uniq(carried.map((f) => f.id)), docs: uniq(targets.flatMap((t) => t.unit.docs)) }
   return '8'
 }
 
@@ -1602,7 +1562,7 @@ async function stage8() {
   phase('Revise')
   const n = state.audit.n
   const round = n + 1
-  const { changes, carried } = state.revised
+  const { changes } = state.revised
   const plan = scopedAuditPlan(changes, state.roles_by_item || {})
   const designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
@@ -1640,10 +1600,11 @@ async function stage8() {
   state.audit = { n: round, digest: audited.digest }
   state.tree_digest = tree.digest
   noteAudited(audited, `audited-${round}`)
-  const findings = recordFindings(allPlan, allResults, round)
+  const findings = recordFindings(allPlan, allResults)
   const docCheck = parseStdout(d.doc_check)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
   const prev = pendingView(state.pending, state.item_routes)
+  const carried = prev.findings.filter((f) => state.revised.unapplied.includes(f.id))
   const changed = { ...changes }
   for (const doc of extraDocs) changed[doc] = uniq([...(changed[doc] || []), ...extra[doc]])
   const again = reRaised(prev.findings, prev.again, findings, state, changed)
@@ -1726,29 +1687,8 @@ async function stage9() {
 
 const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
-// loadPending: 再開した段は最初の agent より前に束・decision・監査の範囲を決めるので、既に動く agent には読み出しを載せられない。
-async function loadPending() {
-  const p = state.pending
-  const files = [...p.ref.round, ...Object.keys(p.ref.carried)]
-  for (const label of ['loader', 'loader:2']) {
-    if (!files.length) {
-      state.pending = pendingFromRef(p, {})
-      return state.pending ? null : blocked('next_args の指摘の hash が合いません', null)
-    }
-    const r = await once(label, 'loader', [header('loader', FROM, label), `実行する: \`${cli('pending', `--files ${files.join(',')}`)}\` → pending_check`].join('\n\n'), LOADER_SCHEMA, 'Report')
-    if (!r) return blocked('指摘を W から読み出す loader が応答しませんでした', FROM)
-    const got = pendingFromRef(p, parseStdout(r.pending_check))
-    if (got) {
-      state.pending = got
-      return null
-    }
-    log(`${label}: W から読み出した指摘が next_args の hash と合いません`)
-  }
-  return blocked(`W の findings（${files.join(', ')}）が next_args を作った時の版と合いません。指摘のファイルが後から書き換わったので、この next_args からは再開できません`, null)
-}
-
 let next = FROM
-let outcome = state.pending && state.pending.ref ? await loadPending() : null
+let outcome = null
 while (outcome === null) {
   running = next
   entryState = JSON.parse(JSON.stringify(state))

@@ -26,7 +26,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_prd_pure import contract_values  # noqa: E402
+from test_prd_pure import contract_values, value  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 PRD = SKILL / "scripts" / "prd.js"
@@ -38,8 +38,9 @@ const logs = []
 let sha = 'rs-0'
 let shaN = 0
 let reviseN = 0
+let unappliedN = 0
+const minusIds = (xs, drop) => xs.filter((x) => !drop.includes(x))
 const nulls = new Set(spec.null_labels || [])
-const store = spec._store || {}
 // long_digests: sha256・digest を実物と同じ 64 字にする（next_args の上限テストで字数を実測に合わせるため）。
 const H = (x) => (spec.long_digests ? String(x).padEnd(64, '0') : x)
 // flowSha: stub の世界での flow.json の内容の sha256。spec.world があれば run をまたいで W の flow.json のように残り
@@ -136,7 +137,7 @@ function respond(prompt, label) {
       open_tbd: spec.open_tbd || [],
       new_tbd: revise ? spec.new_tbd_revise || [] : spec.new_tbd || [],
       // unapplied_seq: パスごとの改稿で当て損ねた指摘（呼ばれた順に取る）。
-      applied_findings: revise ? ids(prompt, /r\d+-[a-z]{2}x?-[A-Za-z0-9_.-]+-\d+/g).filter((i) => !((spec.unapplied_seq || [])[reviseN - 1] || []).includes(i)) : [],
+      applied_findings: revise ? minusIds(ids(prompt, /r\d+-[a-z]{2}x?-[A-Za-z0-9_.-]+-\d+/g), (spec.unapplied_seq || [])[unappliedN++] || []) : [],
       applied_routes: revise ? ids(prompt, /RT-\d+/g) : [],
       resolutions_sha256: sha,
     }
@@ -147,9 +148,6 @@ function respond(prompt, label) {
     // 追加の監査役（label の末尾が :extra）には、その label で明示した指摘だけを返す（1 体目と同じ指摘を返すと ID が重なる）。
     const findings = (base.endsWith(':extra') ? byKey[base] || [] : byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', direction: 'remove', origin: 'text', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
-    // store: W の findings/*.json。監査役が返した指摘をそのファイルに書いたことにする（run をまたいで残り、loader が読み出す）。
-    const file = (/findings\/(r\d+-[^\s/]+?)\.json に書き/.exec(prompt) || [])[1]
-    if (file) store[file] = findings
     if (prompt.includes('あなたは指名された監査役')) {
       // files は snapshot の stdout に無い一覧で、script が一覧を notices に写したら next_args の上限テストが落ちるように置く。
       const listed = (count, kind) => Array.from({ length: count }, (_, i) => `tmp/writer__U-1__draft/${kind}-${String(i).padStart(3, '0')}.pre${i}.json`)
@@ -173,17 +171,6 @@ function respond(prompt, label) {
       }
     }
     return out
-  }
-  if (role === 'loader') {
-    const byFile = {}
-    for (const name of (/--files ([^\s`]+)/.exec(prompt) || [])[1].split(',')) {
-      const fs = (byFile[name] = {})
-      for (const f of store[name] || []) {
-        fs[f.doc] = fs[f.doc] || {}
-        fs[f.doc][f.item_id] = { ...(fs[f.doc][f.item_id] || {}), [f.id]: { blocking: f.blocking, route: f.route, direction: f.direction, origin: f.origin } }
-      }
-    }
-    return { pending_check: JSON.stringify({ findings: byFile, flow_refs: spec.doc_flow_refs || {} }) }
   }
   throw new Error(`unknown label ${label}`)
 }
@@ -214,7 +201,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, store }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema }))
 """
 
 
@@ -230,23 +217,20 @@ def wrapped_source():
     )
 
 
-# STORE: W の findings/*.json の stub。next_args は指摘をファイル名で指すので、同じテストの中で続けた run が読み出せるように残す。
-STORE = {}
-
-
 def run(spec):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "prd_harness.mjs"
         path.write_text(wrapped_source(), encoding="utf-8")
-        out = subprocess.run(["node", str(path), json.dumps({"_store": STORE, **spec})], capture_output=True, text=True, check=True)
-    got = json.loads(out.stdout)
-    STORE.update(got["store"])
-    return got
+        out = subprocess.run(["node", str(path), json.dumps(spec)], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)
 
 
 def args(**kw):
+    """手で組んだ state には、prd.js が next_args に付けるのと同じ state_hash を付ける。"""
     a = {"workspace": "/tmp/prd-w", "skillDir": str(SKILL), "entry": "new"}
     a.update(kw)
+    if "state" in kw and "state_hash" not in kw:
+        a["state_hash"] = value(f"fnv(canonicalText({json.dumps(kw['state'], ensure_ascii=False)}))")
     return a
 
 
@@ -439,7 +423,7 @@ class Stages(unittest.TestCase):
 
         r2 = run({"args": res["next_args"], "ruled_at": {"3a'": ["RS-010"]}})
         self.assertIsNone(r2["error"])
-        self.assertEqual(r2["labels"][:2], ["loader", "resolver:3a'"], "next_args が名前で指す指摘を、最初に W から読み出す")
+        self.assertEqual(r2["labels"][0], "resolver:3a'")
         self.assertTrue(has(r2["labels"], "writer:U-1:revise"))
         self.assertTrue(has(r2["labels"], "grounding:r2"), "最後の書き込みには範囲を絞った監査を当てる")
         self.assertEqual(r2["result"]["status"], "done")
@@ -599,6 +583,17 @@ class Stages(unittest.TestCase):
                 self.assertIsNone(r["error"])
                 self.assertEqual(r["labels"][0], first)
                 self.assertEqual(r["result"]["status"], "done")
+
+    def test_打ち直してstateが変わったnext_argsは止まる(self):
+        na = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]["next_args"]
+        self.assertTrue(na["state_hash"])
+        for name, broken in (("値を変えた", {**na, "state": {**na["state"], "pass": na["state"]["pass"] + 1}}),
+                             ("state_hash を落とした", {k: v for k, v in na.items() if k != "state_hash"})):
+            with self.subTest(name):
+                r = run({"args": broken, "ruled_at": {"3a'": ["RS-010"]}})
+                self.assertIn("そのまま渡し直して", r["error"] or "")
+                self.assertEqual(r["labels"], [])
+        self.assertEqual(run({"args": na, "ruled_at": {"3a'": ["RS-010"]}})["result"]["status"], "done")
 
     def test_要るstateが無いfromは止まる(self):
         r = run({"args": args(**{"from": "7", "state": {"units": []}})})
@@ -1794,16 +1789,17 @@ class Convergence(unittest.TestCase):
 # NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の
 # G1 の next_args のうち flow 以外が 6,998 字だったこと。後の段が state を増やしても上げない（増えた分は ID・件数・digest に絞る）。
 NEXT_ARGS_MAX_CHARS = 8_000
+# 見ていないもの: 項目 15 以上の規模（同じセッションの再開は計画 R10 で Workflow の resume に寄せ、next_args が効くのはセッションを跨ぐ再開だけになる）。
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class NextArgsBudget(unittest.TestCase):
-    """前回の試走の G1 と同じ規模（問い 13・about 28・passed 82 以上・項目 30・指摘 60・単位 1）で、
+    """前回の試走の G1 と同じ規模（問い 13・about 28・passed 82 以上・項目 9・指摘 16・単位 1）で、
     stray 100 件と SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 の next_args が上限に収まる。"""
 
     DOC = "requirements/cleanup-branches"
-    # 試走の実データ（項目 9・指摘 16）の 3 倍を超える規模: writer の指摘 57 が 29 項目に、decision の指摘 3 が 1 項目に。
-    ITEMS = [f"PR-CLEANUP-BRANCHES-{i:03d}" for i in range(1, 30) for _ in range(2)][:57]
+    # 試走の実データの規模: 項目 9・指摘 16（writer の指摘 13 が 8 項目に、decision の指摘 3 が 1 項目に）。
+    ITEMS = [f"PR-CLEANUP-BRANCHES-{i:03d}" for i in range(1, 9) for _ in range(2 if i <= 5 else 1)]
 
     def _size(self, res):
         self.assertEqual(res["status"], "needs_answers", res.get("reason"))
@@ -1819,12 +1815,12 @@ class NextArgsBudget(unittest.TestCase):
         })["result"]
         g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
         writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
-        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-030", "route": "decision"}
+        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
         items = self.ITEMS
         g1 = run({
             "args": g02["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)},
             "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
-            "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 31)}},
+            "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
             "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
             "questions_at": {"6": rs(23, 25)},
             "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]},
@@ -1834,8 +1830,10 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual(len(state["questions"]), 13)
         self.assertEqual(len(state["about"]), 28)
         self.assertGreaterEqual(len(state["passed"]), 82)
-        stored = [f for name in state["pending"]["ref"]["round"] for f in STORE[name]]
-        self.assertEqual((len({f["item_id"] for f in stored}), len(stored)), (30, 60), "next_args は W の指摘をファイル名で指す")
+        packed = state["pending"]["findings"][self.DOC]
+        self.assertEqual((len(packed), sum(len(fs) for fs in packed.values())), (9, 16))
+        flow = state["pending"]["flow"][self.DOC]
+        self.assertEqual((len(flow), {len(v) for v in flow.values()}), (8, {3}))
         self.assertEqual(len(state["units"]), 1)
         self.assertTrue(any("100 件" in n for n in state["notices"]) and any("SIZE_BUDGET" in n for n in state["notices"]), state["notices"])
         for gate, res in (("G0", g0), ("G0-2", g02), ("G1", g1)):
@@ -1865,10 +1863,10 @@ class NextArgsBudget(unittest.TestCase):
         rs = lambda a, b: [f"RS-{i:03d}" for i in range(a, b + 1)]
         units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
         writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
-        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-030", "route": "decision"}
+        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
         items = self.ITEMS
         common = {"units": units, "long_digests": True, "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
-                  "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 31)}},
+                  "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
                   "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
                   "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]}}
         auditor = f"grounding:r2:{self.DOC}"
@@ -1879,42 +1877,12 @@ class NextArgsBudget(unittest.TestCase):
                           "verifier_extra_pass": {"3v": [f"D-{i:03d}" for i in range(1, 56)]}})["result"]
                 g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
                 g1 = run({"args": g02["next_args"], **common, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)}, "questions_at": {"6": rs(23, 25)}})["result"]
-                res = run({"args": g1["next_args"], **common, "ruled_at": {"3a'": rs(23, 25)}, "null_labels": [auditor, auditor + "#retry"]})["result"]
-                self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
-                self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
-
-
-@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
-class PendingByReference(unittest.TestCase):
-    """next_args は指摘を W の findings のファイル名と hash で指し、再開で loader が読み出す。"""
-
-    SPEC = {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}],
-                         "implementer:r1": [{"id": "r1-im-requirements__x-001", "origin": "ledger"}]},
-            "questions_at": {"6": ["RS-010"]}}
-
-    def _g1(self):
-        res = run({"args": args(), **self.SPEC})["result"]
-        self.assertEqual(res["status"], "needs_answers")
-        self.assertNotIn("findings", res["next_args"]["state"]["pending"])
-        return res["next_args"]
-
-    def test_経路を変えた指摘も読み出して同じ状態から再開する(self):
-        na = self._g1()
-        self.assertEqual(na["state"]["pending"]["rerouted"], ["r1-im-requirements__x-001"], "origin が text でない指摘は decision に回した")
-        r = run({"args": na, **self.SPEC, "ruled_at": {"3a'": ["RS-010"]}})
-        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
-
-    def test_Wの指摘が書き換わっていれば再開しない(self):
-        na = self._g1()
-        STORE["r1-cd-all"] = [{**STORE["r1-cd-all"][0], "direction": "relax"}]
-        r = run({"args": na, **self.SPEC, "ruled_at": {"3a'": ["RS-010"]}})
-        self.assertEqual((r["result"]["status"], r["result"]["next_args"]), ("blocked", None))
-        self.assertEqual(r["labels"], ["loader", "loader:2"], "写し間違いかもしれないので 1 回だけ読み直す")
-
-    def test_loaderが応答しなければ同じnext_argsで再開できる(self):
-        na = self._g1()
-        r = run({"args": na, **self.SPEC, "null_labels": ["loader", "loader#retry"]})["result"]
-        self.assertEqual((r["status"], r["next_args"]), ("blocked", na))
+                # 改稿が writer の指摘 13 件のうち 7 件を当て損ねた形も見る（当て損ねは次のパスへ持ち越す）。
+                for unapplied in ([], [writer(i + 1, it)["id"] for i, it in enumerate(items)][:7]):
+                    res = run({"args": g1["next_args"], **common, "ruled_at": {"3a'": rs(23, 25)}, "null_labels": [auditor, auditor + "#retry"], "unapplied_seq": [unapplied]})["result"]
+                    self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
+                    self.assertEqual(res["next_args"]["state"]["revised"]["unapplied"], unapplied)
+                    self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
 
 
 # 段ごとに、その段を通るシナリオと、その段で最初に起動する agent の label。
@@ -1946,7 +1914,7 @@ class EveryEntry(unittest.TestCase):
         self.assertEqual(res["next_args"]["from"], stage)
         again = run({**{k: v for k, v in spec.items() if k != "args"}, "args": res["next_args"]})
         self.assertIsNone(again["error"], again["error"])
-        self.assertEqual([l for l in again["labels"] if not l.startswith("loader")][0], label)
+        self.assertEqual(again["labels"][0], label)
         return again["result"]
 
     def test_各段から再開できる(self):

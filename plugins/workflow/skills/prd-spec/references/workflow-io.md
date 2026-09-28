@@ -36,7 +36,6 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `intake`・`flowFramer`・`resolver`・`verifier`・`writer` | opus / medium | 判断と生成を要する。知識作業では medium で high と同等の結果が出る |
 | `implementer`・`grounding` | opus / high | 見落としがそのまま欠陥（着手不能・捏造）になる |
 | `crossDoc` | sonnet / medium | 項目の間の関係を見る。1 文ずつの深い判断は要らない |
-| `loader` | haiku / low | コマンドを 1 回実行して stdout を返すだけ |
 
 ## 3. 返り値と再実行
 
@@ -69,9 +68,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 
 - **`next_args` は完成形である。** 司令塔は回答を `answers_path` に逐語で書き、`next_args` を変えずに渡すだけでよい。
   `state` は plain JSON で、Map・Set を含まない（runtime の境界を越えると中身が失われる）。
-  `state.pending` は指摘の本体を持たず、W の `findings/` のファイル名と hash（`ref`）で指す。再開すると loader が
-  `doc_check pending` で読み出し、hash が合わなければ（ファイルが後から書き換わった）再開できない blocked になる。
-  flow の参照は再開のときの文書から取り直す。
+  `state_hash` は `state` の hash で、合わなければ（打ち直しで `state` が変わった）run は agent を起動する前に止まる。
 - **再実行は resume ではなく `from` で行う。** 状態は W のファイルと `state` にあり、段の境界ならどこからでも
   始められる。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd.js` の `REQUIRES`）。
   resume に頼ると、止まった agent 以降が全部やり直しになり、Codex には resume が無い。
