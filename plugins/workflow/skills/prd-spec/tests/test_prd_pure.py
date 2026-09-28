@@ -272,11 +272,33 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"settledVerifications({json.dumps(state)}, ['RS-5'])"), ["F-001"])
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "stale_refs": [], "open_ids": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "stale_refs": [], "open_ids": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("unverified", "failed_current", "open_only", "stale_refs", "open_ids"):
+        for k in ("codes", "unverified", "failed_current", "open_only", "stale_refs", "open_ids"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
+        two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(two))})"))
+        self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps({**two, 'findings': 3}))})"), "符号の件数の和と findings が食い違う stdout は受け取らない")
+
+    def test_splitFlowFindingsは生成者が消せる指摘とflow_framerに回す指摘と表に無い符号に分ける(self):
+        fc = {"codes": {"FLOW_DANGLING": ["F-001", "F-002"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"], "FLOW_NEW": ["F-009"]}}
+        self.assertEqual(value(f"splitFlowFindings({json.dumps(fc)}, 'resolver')"),
+                         {"own": 2, "handoff": [{"code": "FLOW_DESTRUCTIVE_UNCONSTRAINED", "at": "F-053"}], "unknown": ["FLOW_NEW"]})
+        self.assertEqual(value(f"splitFlowFindings({json.dumps(fc)}, 'flowFramer')"), {"own": 3, "handoff": [], "unknown": ["FLOW_NEW"]})
+
+    def test_flowDefectは生成者に消せない指摘を数えず表に無い符号では差し戻さずに止める(self):
+        only = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
+        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p')"))
+        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p')")["count"], 1)
+        mixed = {"codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
+        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p')")
+        self.assertEqual(d["count"], 1)
+        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は flow-framer が settle で直すので触らない", d["text"])
+        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p')")
+        self.assertTrue(unknown["stop"])
+        calls = value("(async () => { const calls = []; await rework(1, () => ({ count: 1, stop: true, text: 't' }), async () => { calls.push(1); return 2 }, 3); return calls })()")
+        self.assertEqual(calls, [], "stop の不合格は生成者に差し戻さない")
 
     def test_stateErrorsは入口ごとに要る値を挙げる(self):
         self.assertEqual(value("stateErrors('1', {})"), [])
@@ -307,6 +329,58 @@ class Pure(unittest.TestCase):
         for bad in ("{checker: {}}", "{writer: {model: 'gpt'}}", "{writer: {effort: 'huge'}}", "{writer: {read: 'full'}}"):
             with self.subTest(bad=bad):
                 self.assertIn("error", call(f"applyRoleOverrides({json.dumps(table)}, {bad})"))
+
+
+DOC_CHECK = Path(__file__).resolve().parents[1] / "scripts" / "doc_check.mjs"
+
+
+def flow_mode_codes():
+    """doc_check flow（wsFlow）が組み合わせる検査の関数が出しうる符号。関数名は wsFlow の list の行から取る。"""
+    src = DOC_CHECK.read_text(encoding="utf-8")
+    body = src[src.index("function wsFlow(") :]
+    line = re.search(r"const list = \[(.*)\]\n", body).group(1)
+    names = re.findall(r"\.\.\.(\w+)\(", line)
+    assert len(names) >= 4, names
+    codes = set()
+    for name in names:
+        start = src.index(f"function {name}(")
+        end = src.index("\n}\n", start)
+        codes |= set(re.findall(r"'(FLOW_[A-Z_]+)'", src[start:end]))
+    return codes
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FlowFixers(unittest.TestCase):
+    def test_直し手の表はdoc_check_flowが出しうる符号とちょうど一致する(self):
+        # 表に無い符号を黙って生成者に差し戻さないため（実行時は表に無い符号で止まる）。WORKSPACE_TEXT の flow の符号と、
+        # flow モードも出す FINDING_TEXT のグラフの符号（FLOW_SHAPE など）の両方を含む。
+        codes = flow_mode_codes()
+        self.assertIn("FLOW_DESTRUCTIVE_UNCONSTRAINED", codes)
+        self.assertIn("FLOW_DANGLING", codes)
+        src = DOC_CHECK.read_text(encoding="utf-8")
+        ws_text = src[src.index("// WORKSPACE_TEXT_BEGIN") : src.index("// WORKSPACE_TEXT_END")]
+        self.assertLessEqual(set(re.findall(r"^  (FLOW_[A-Z_]+): \(", ws_text, re.M)), codes)
+        self.assertEqual(set(value("Object.keys(FIXERS_BY_CODE)")), codes)
+
+    def test_どの符号もflow_framerが消せ_resolverに消せない符号だけが行を持つ(self):
+        table = value("FIXERS_BY_CODE")
+        self.assertTrue(all("flowFramer" in v and set(v) <= {"flowFramer", "resolver"} for v in table.values()))
+        self.assertEqual(set(value("Object.keys(HANDOFF_TEXT)")), {k for k, v in table.items() if "resolver" not in v})
+        self.assertEqual(table["FLOW_DESTRUCTIVE_UNCONSTRAINED"], ["flowFramer"], "resolver は open.json に不変条件の O- を足せない")
+
+    def test_fixがopenへの起票を含む符号だけをresolverの直し手から外す(self):
+        # 所有表では open.json を書けるのは intake と flow-framer だけなので、起票が要りうる指摘は回答を当てる resolver には消せない。
+        src = DOC_CHECK.read_text(encoding="utf-8")
+        heads = [(m.group(1), m.start()) for m in re.finditer(r"^  ([A-Z_]+): \(", src, re.M)]
+        needs_open = set()
+        for i, (code, start) in enumerate(heads):
+            if not code.startswith("FLOW_"):
+                continue
+            fix = src[start : heads[i + 1][1] if i + 1 < len(heads) else len(src)].split("fix:", 1)[1]
+            if "起票" in fix or "ledgerOf('open')" in fix:
+                needs_open.add(code)
+        table = value("FIXERS_BY_CODE")
+        self.assertEqual({k for k, v in table.items() if "resolver" not in v}, needs_open & set(table))
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")

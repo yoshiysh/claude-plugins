@@ -78,6 +78,48 @@ const DIRECTIONS = ['relax', 'tighten', 'make_measurable', 'choose_one', 'merge_
 const ORIGINS = ['input', 'flow', 'ledger', 'text']
 const OPPOSITE = { tighten: 'relax', relax: 'tighten' }
 
+// FIXERS_BY_CODE: doc_check flow の指摘の符号ごとに、所有表（契約の「W のファイルと書き手」）の中の書き込みだけで消せる役。
+// doc_check の fix が open.json への起票を直し方に含む符号は flow-framer だけにする（3a の resolver は open.json を書けないので、
+// 差し戻しても消せないまま尽きて blocked になる）。tests が fix の文面と照合する。
+const FLOW_WRITERS = ['flowFramer', 'resolver']
+const FIXERS_BY_CODE = {
+  FLOW_SHAPE: FLOW_WRITERS,
+  FLOW_BRANCH_OPEN: FLOW_WRITERS,
+  FLOW_DANGLING: FLOW_WRITERS,
+  FLOW_DEADEND: FLOW_WRITERS,
+  FLOW_UNREACHABLE: FLOW_WRITERS,
+  FLOW_NOSOURCE: ['flowFramer'],
+  FLOW_SOURCE_SHAPE: FLOW_WRITERS,
+  FLOW_SOURCE_UNKNOWN: FLOW_WRITERS,
+  FLOW_CONSTRAINT_UNKNOWN: FLOW_WRITERS,
+  FLOW_EFFECT_MISSING: FLOW_WRITERS,
+  FLOW_DESTRUCTIVE_UNCONSTRAINED: ['flowFramer'],
+  FLOW_HISTORY: FLOW_WRITERS,
+  FLOW_CASE_NOSOURCE: ['flowFramer'],
+  FLOW_NO_TABLE: FLOW_WRITERS,
+  FLOW_INPUT_FROM: FLOW_WRITERS,
+  FLOW_FAIL_UNHANDLED: FLOW_WRITERS,
+  FLOW_ON_FAIL_AS: FLOW_WRITERS,
+  FLOW_INPUT_ON_FAIL: FLOW_WRITERS,
+  FLOW_OBTAIN_MISSING: FLOW_WRITERS,
+  FLOW_INPUT_UNKNOWN: FLOW_WRITERS,
+  FLOW_UNKNOWN_CASE: FLOW_WRITERS,
+  FLOW_CASE_BRANCH: FLOW_WRITERS,
+  FLOW_BRANCH_UNUSED: FLOW_WRITERS,
+  FLOW_DT_GAP: ['flowFramer'],
+  FLOW_DT_OVERLAP: FLOW_WRITERS,
+  FLOW_DT_VALUE: FLOW_WRITERS,
+  FLOW_DT_SIZE: FLOW_WRITERS,
+  FLOW_SAME_NEXT: FLOW_WRITERS,
+}
+// HANDOFF_TEXT: resolver に消せない符号を settle の flow-framer に渡すときの行（キーは resolver が並ばない符号と一致する。tests が照合する）。
+const HANDOFF_TEXT = {
+  FLOW_NOSOURCE: '出典が無い',
+  FLOW_CASE_NOSOURCE: 'case の出典が無い',
+  FLOW_DESTRUCTIVE_UNCONSTRAINED: '縛る不変条件が無い',
+  FLOW_DT_GAP: '判定表の組み合わせを受ける case が無い',
+}
+
 // applyRoleOverrides: 未知の役割名や値は止める。黙って既定に落ちると、指定したつもりの配分が効かない。
 function applyRoleOverrides(table, overrides) {
   const out = JSON.parse(JSON.stringify(table))
@@ -296,10 +338,11 @@ function routeRecurring(recurring, state) {
 
 // rework: 差し戻しのループはここにだけ置く。不合格の件数が 0 になるまで回し、前の回より減らなければ止める（同じ指摘を返し続ける
 // 生成者を上限まで回さない）。
+// defect.stop は差し戻しても直らない不合格（生成者のどの書き込みでも消えない）で、生成者に回さずに止める。
 async function rework(first, defectOf, redo, limit) {
   let got = first
   let defect = defectOf(got)
-  for (let i = 0; defect && i < limit; i++) {
+  for (let i = 0; defect && !defect.stop && i < limit; i++) {
     const again = await redo(got, defect, i + 1)
     if (!again || again.error) return { got, defect, error: again && again.error ? again : null }
     const next = defectOf(again)
@@ -397,7 +440,31 @@ function planCheckOf(text) {
 function flowCheckOf(text) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  return ok && ['unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids'].every((k) => Array.isArray(o[k])) ? o : null
+  if (!ok || !['unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids'].every((k) => Array.isArray(o[k]))) return null
+  const codes = o.codes && typeof o.codes === 'object' && !Array.isArray(o.codes) ? Object.values(o.codes) : null
+  return codes && codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === o.findings ? o : null
+}
+
+// splitFlowFindings: 生成者（役の名前）が消せる指摘の件数（own）と、settle の flow-framer に回す指摘（handoff）と、表に無い符号（unknown）。
+function splitFlowFindings(fc, generator) {
+  const out = { own: 0, handoff: [], unknown: [] }
+  for (const [code, ats] of Object.entries(fc.codes).sort()) {
+    const fixers = FIXERS_BY_CODE[code]
+    if (!fixers) out.unknown.push(code)
+    else if (fixers.includes(generator)) out.own += ats.length
+    else out.handoff.push(...ats.map((at) => ({ code, at })))
+  }
+  return out
+}
+
+// flowDefect: 生成者への差し戻しの件数は、生成者が消せる指摘だけで数える。表に無い符号は誰が消せるか分からないので、差し戻さずに止める。
+function flowDefect(fc, generator, path) {
+  if (!fc) return { count: Infinity, text: 'doc_check flow の stdout がありません' }
+  const split = splitFlowFindings(fc, generator)
+  if (split.unknown.length) return { count: Infinity, stop: true, text: `doc_check flow の指摘に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${split.unknown.join(', ')}` }
+  if (!split.own) return null
+  const left = split.handoff.length ? `。${split.handoff.map((x) => `${x.at}（${x.code}）`).join(', ')} は flow-framer が settle で直すので触らない` : ''
+  return { count: split.own, text: `doc_check flow の指摘が ${split.own} 件あります（${path}）${left}` }
 }
 
 function conflictsCheckOf(text) {
@@ -719,7 +786,8 @@ function absorbResolver(r, reRuled) {
 // absorbVerifier: 違う flow を見た合否を台帳の集合に入れると、検証していない版の合格が残る。
 // flow の食い違いを同じ段のやり直しで直せるのは、この段の生成者が flow の stdout を返した（flowChecked）ときだけである。
 // そうでない段（例: resolver が起動しない段 3）でやり直しても、flow.json も state.flow_digest も変わらず同じ所で止まる。
-function absorbVerifier(v, expectedSha, stage, flowChecked) {
+// generator: この cycle で flow.json を書いた役。その役に消せない指摘は settle の flow-framer が直すので、ここでは止めない。
+function absorbVerifier(v, expectedSha, stage, flowChecked, generator) {
   const fc = flowCheckOf(v.flow_check)
   if (!fc) return { error: `resolver-verifier（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
   const noFixer = flowChecked ? '' : '。この段には flow を書く生成者がいないので、同じ段からやり直しても直らない。所有表の外で flow.json を書いたものを確かめる'
@@ -727,7 +795,9 @@ function absorbVerifier(v, expectedSha, stage, flowChecked) {
     noteIntegrity(`verifier（段 ${stage}）が検査した flow.json（${fc.content_sha256}）が、生成者が検査した版（${state.flow_digest}）と違う`)
     return { error: `段 ${stage}: verifier が検査した flow.json が、生成者が doc_check flow で検査した版と違います${noFixer}`, rerun: flowChecked }
   }
-  if (fc.findings !== 0) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${fc.findings} 件あります（${W}/checks/flow.json）${noFixer}`, rerun: flowChecked }
+  const split = splitFlowFindings(fc, generator)
+  if (split.unknown.length) return { error: `段 ${stage}: verifier の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${split.unknown.join(', ')}`, rerun: false }
+  if (split.own) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${split.own} 件あります（${W}/checks/flow.json）${noFixer}`, rerun: flowChecked }
   const onlyFlow = (ids) => (ids || []).filter((id) => /^F-/.test(id))
   const unrecorded = [
     ...onlyFlow((v.fail || []).map((f) => f.id)).filter((id) => !fc.failed_current.includes(id)),
@@ -818,6 +888,7 @@ const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFl
 async function ruleAndVerify(stage, opt) {
   const phaseTitle = opt.phase
   const writesFlow = Boolean(opt.answered)
+  const flowWriter = writesFlow ? 'resolver' : 'flowFramer'
   const asTask = (t) => (writesFlow ? t : keepFlow(t, '裁定を flow に写すのは flow-framer である'))
   const wasQuestion = new Set(pendingQuestions(state))
   let ids = []
@@ -841,7 +912,7 @@ async function ruleAndVerify(stage, opt) {
       ids = minus(ids, byOption)
     }
     if (fe.changed) {
-      const pe = await recheckPairs(stage, fe.conflicts, phaseTitle, opt.allowQuestions)
+      const pe = await ruleUnruled(stage, fe.conflicts, [], phaseTitle, opt.allowQuestions)
       if (pe.error) return pe
       ids = uniq([...ids, ...pe.ids])
       flowNow = fe.fc
@@ -852,7 +923,7 @@ async function ruleAndVerify(stage, opt) {
   const extra1 = [opt.verifyExtra, flowExtra(flowNow)].filter(Boolean).join('\n\n')
   const v1 = await once(v1Label, 'verifier', verifierPrompt(v1Label, `${stage}v`, ids, extra1), VERIFIER_SCHEMA, phaseTitle)
   if (!v1) return { error: `resolver-verifier（段 ${stage}v）が応答しませんでした` }
-  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked)
+  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter)
   if (ve1) return ve1
   let lastFlow = flowCheckOf(v1.flow_check)
   if (!v1.fail.length) return { ok: true, passed: v1.pass, lastFlow }
@@ -874,7 +945,7 @@ async function ruleAndVerify(stage, opt) {
   const qe2 = await checkQuestions(stage, r2, phaseTitle, null, opt.allowQuestions)
   if (qe2) return qe2
   if (fe2.changed) {
-    const pe2 = await recheckPairs(stage, fe2.conflicts, phaseTitle, opt.allowQuestions)
+    const pe2 = await ruleUnruled(stage, fe2.conflicts, [], phaseTitle, opt.allowQuestions)
     if (pe2.error) return pe2
     ids2 = uniq([...ids2, ...pe2.ids])
   }
@@ -882,7 +953,7 @@ async function ruleAndVerify(stage, opt) {
   const asked2 = uniq([...ids2, ...(fe2.changed ? toVerify(fe2.fc) : [])])
   const v2 = await once(v2Label, 'verifier', verifierPrompt(v2Label, `${stage}v'`, ids2, fe2.changed ? flowExtra(fe2.fc) : ''), VERIFIER_SCHEMA, phaseTitle)
   if (!v2) return { error: `resolver-verifier（段 ${stage}v' の再検証）が応答しませんでした` }
-  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked)
+  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked, flowWriter)
   if (ve2) return ve2
   lastFlow = flowCheckOf(v2.flow_check)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
@@ -922,19 +993,32 @@ const unruled = (keys, kind) => {
   return uniq(keys).filter((k) => !known.has(k))
 }
 
-// recheckPairs: 組は要素の id・label・constrained_by で決まるので、回答や裁定の反映で要素を足すと、まだ誰も裁定していない組が生まれる。
-async function recheckPairs(stage, conflictsText, phaseTitle, allowQuestions) {
+// unruledIssues: flow を書いた後の、まだどの resolution の about にも無い O- と組。3b の組み直しの後も settle の後も、この集合を裁定に回す。
+const unruledIssues = (openIds, pairKeys) => ({ opens: unruled((openIds || []).map((id) => `open:${id}`), 'open'), pairs: unruled(pairKeys, 'pair') })
+
+// ruleUnruled: 組は要素の id・label・constrained_by で決まるので、回答や裁定の反映で要素を足すと、まだ誰も裁定していない組が生まれる。
+// settle の flow-framer は open.json に O- を足しうる（kind が invariant の O- で破壊的な工程を縛る）ので、その O- も同じ呼び出しで裁定に回す。
+// openIds を渡すのは open.json を書く flow-framer の後だけ（resolver は open.json を書かない）。
+async function ruleUnruled(stage, conflictsText, openIds, phaseTitle, allowQuestions) {
   const cc = conflictsCheckOf(conflictsText)
   if (!cc) return { error: `段 ${stage}: flow を変えた呼び出しが doc_check conflicts の stdout を返しませんでした`, rerun: true }
-  const fresh = unruled(cc.pair_keys, 'pair')
-  if (!fresh.length) return { ids: [] }
-  const label = `resolver:${stage}-pairs`
-  const task = `flow を変えた後の ${W}/checks/conflicts.json に、まだ裁定の無い組がある。この組だけを裁定する: ${list(fresh)}${allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`
-  const r = await once(label, 'resolver', resolverPrompt(label, `${stage}（新しい組）`, keepFlow(task, '組の裁定は flow を変えない')), RESOLVER_SCHEMA, phaseTitle)
-  if (!r) return { error: `resolver（段 ${stage} の新しい組）が応答しませんでした` }
+  const { opens, pairs } = unruledIssues(openIds, cc.pair_keys)
+  if (!opens.length && !pairs.length) return { ids: [] }
+  const tag = opens.length ? 'opens' : 'pairs'
+  const label = `resolver:${stage}-${tag}`
+  const task = [
+    `flow を変えた後に、まだ裁定の無い論点がある。これだけを裁定する（resolver.md の「flow を変えた後の未裁定の論点」）。`,
+    pairs.length ? `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}` : '',
+    opens.length ? `- まだ裁定の無い open（${W}/open.json）: ${list(opens.map((k) => k.slice(5)))}` : '',
+    allowQuestions ? '' : 'この段では依頼者に聞けないので、question ではなく hold にする。',
+  ]
+    .filter(Boolean)
+    .join('\n')
+  const r = await once(label, 'resolver', resolverPrompt(label, `${stage}（未裁定の論点）`, keepFlow(task, '組と未決の裁定は flow を変えない')), RESOLVER_SCHEMA, phaseTitle)
+  if (!r) return { error: `resolver（段 ${stage} の未裁定の論点）が応答しませんでした` }
   const ids = absorbResolver(r)
-  state.missed = uniq([...(state.missed || []), ...missedTargets(fresh, r)])
-  const kept = flowKept(`${stage}-pairs`, r)
+  state.missed = uniq([...(state.missed || []), ...missedTargets([...opens, ...pairs], r)])
+  const kept = flowKept(`${stage}-${tag}`, r)
   if (kept) return kept
   const qe = await checkQuestions(stage, r, phaseTitle, null, allowQuestions)
   if (qe) return qe
@@ -950,9 +1034,7 @@ async function frameFlow(label, lines, phaseTitle) {
   const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check, plan_check: x.plan_check })
   const defectOf = (x) => {
     const { fc, cc } = read(x)
-    if (!fc) return { count: Infinity, text: 'doc_check flow の stdout がありません' }
-    if (fc.findings > 0) return { count: fc.findings, text: `doc_check flow の指摘が ${fc.findings} 件あります（${W}/checks/flow.json）` }
-    return cc ? null : { count: Infinity, text: 'doc_check conflicts の stdout がありません' }
+    return flowDefect(fc, 'flowFramer', `${W}/checks/flow.json`) || (cc ? null : { count: Infinity, text: 'doc_check conflicts の stdout がありません' })
   }
   const r = await once(label, 'flowFramer', prompt(label), FLOW_SCHEMA, phaseTitle)
   if (!r) return { error: `${label} が応答しませんでした` }
@@ -969,7 +1051,8 @@ async function frameFlow(label, lines, phaseTitle) {
 // settle: 閉じた O- を出典に持つ「未決」の終端は閉包の検査を通るので、ここで拒否しないと未決のまま文書に届く。
 // 値を決める呼び出しではないので resolver にしない（段 3・6 の resolver は flow を書かない）。
 // about の種類のうち open・finding・verification を写し、supersedes で覆された決定を引く要素（stale_refs）も直させる。pair は見ない
-// （flow を変えた後の新しい組は recheckPairs が裁定に回すが、組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
+// （flow を変えた後の新しい組は ruleUnruled が裁定に回すが、組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
+// handoff は、この cycle で flow を書いた resolver には消せない指摘（FIXERS_BY_CODE）で、verifier が独立に実行した stdout から取る。
 // 残り（閉じた未決を引く要素・覆された決定を引く要素・検証を通っていない要素・不合格）が 0 になるまで回し、減らなければ止める。
 let settling = 0
 // settleRuns は段に入るたびに数え直す（label をパスと再開で変えないため）。freshFlow は settle の後の判断に settle の前の stdout を使わないため。
@@ -981,9 +1064,12 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
     found: settledFlowFindings(pendingFindings(state.pending), state, before, (state.pending || {}).recurring),
     verdicts: settledVerifications(state, before),
     stale: lastFlow.stale_refs,
+    handoff: splitFlowFindings(lastFlow, 'resolver').handoff,
     redo: [],
   }
-  if (!first.left.length && !first.found.length && !first.verdicts.length && !first.stale.length) return null
+  if (!first.left.length && !first.found.length && !first.verdicts.length && !first.stale.length && !first.handoff.length) {
+    return lastFlow.findings ? { error: `段 ${stage}: flow に指摘が ${lastFlow.findings} 件残ったまま、直す役がいません（${W}/checks/flow.json）` } : null
+  }
   settleRuns[stage] = (settleRuns[stage] || 0) + 1
   const at = settleRuns[stage] === 1 ? stage : `${stage}.${settleRuns[stage]}`
   settling += 1
@@ -1016,6 +1102,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
     m.verdicts.length ? `検証の裁定（要素 ← 裁定した resolution）: ${m.verdicts.map((id) => `${id} ← ${list(closers(`verification:${id}`))}`).join(', ')}` : '',
     m.stale.length ? `覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: ${m.stale.map((x) => `${x.el} ← ${x.ref}`).join(', ')}` : '',
     m.redo.length ? `前の回の検証に落ちたか検証を通っていない要素（理由は ${W}/verifications.json）: ${list(m.redo)}` : '',
+    m.handoff.length ? `flow を書いた resolver には直せない指摘（要素: 何が無いか。直し方は ${W}/checks/flow.json の fix）: ${m.handoff.map((x) => `${x.at}: ${HANDOFF_TEXT[x.code]}`).join(', ')}` : '',
     FRAME_RUN,
     waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行する（返し方は §flow-framer の返り値）。` : '',
   ], phaseTitle)
@@ -1023,16 +1110,16 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const qe = await checkQuestions(tag, { questions_check: got.questions_check }, phaseTitle, waiting, allowQuestions)
   if (qe) return qe
   const fc = got.fc
-  const pe = await recheckPairs(tag, got.conflicts, phaseTitle, allowQuestions)
+  const pe = await ruleUnruled(tag, got.conflicts, fc.open_ids, phaseTitle, allowQuestions)
   if (pe.error) return pe
   const vLabel = `verifier:${reworkLabel(`${stage}v-settle`, n)}`
   // 指摘から直す要素は flow-framer が選ぶので、script には分からない。そのときは変わった要素をすべて検証させる。
-  const fixed = m.found.length ? fc.unverified : uniq([...m.left.map((x) => x.el), ...m.verdicts, ...m.stale.map((x) => x.el)]).filter((id) => fc.unverified.includes(id))
+  const fixed = m.found.length ? fc.unverified : uniq([...m.left.map((x) => x.el), ...m.verdicts, ...m.stale.map((x) => x.el), ...m.handoff.map((x) => x.at.split('.')[0])]).filter((id) => fc.unverified.includes(id))
   const must = uniq([...fixed, ...m.redo])
   const target = toVerify(fc, must)
   const v = await once(vLabel, 'verifier', verifierPrompt(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc, must)), VERIFIER_SCHEMA, phaseTitle)
   if (!v) return { error: `resolver-verifier（段 ${stage}v の裁定の反映）が応答しませんでした` }
-  const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true)
+  const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true, 'flowFramer')
   if (ve) return ve
   const vfc = flowCheckOf(v.flow_check)
   freshFlow = vfc
@@ -1045,7 +1132,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   if (failed.some((id) => !/^F-/.test(id))) return { error: `段 ${stage}: 裁定の反映の後も直っていません（${text}）` }
   return {
     residual: count ? { count, text } : null,
-    next: { left: still, found: [], verdicts: [], stale: vfc.stale_refs, redo: uniq([...unchecked, ...failed]) },
+    next: { left: still, found: [], verdicts: [], stale: vfc.stale_refs, handoff: [], redo: uniq([...unchecked, ...failed]) },
   }
 }
 
@@ -1070,17 +1157,13 @@ async function holdLeft(stage, ids, phaseTitle) {
 async function applyReturnedFlow(stage, ret, phaseTitle, required) {
   const given = ret.flow_check !== undefined && ret.flow_check !== null
   if (!given && !required) return { checked: false }
-  const defectOf = (x) => {
-    const fc = flowCheckOf(x.flow_check)
-    if (!fc) return { count: Infinity, text: 'doc_check flow の stdout が返っていない。' }
-    return fc.findings > 0 ? { count: fc.findings, text: `flow.json が閉じていない。${W}/checks/flow.json の指摘（${fc.findings} 件）だけを直す（裁定の中身は変えない）。` } : null
-  }
+  const defectOf = (x) => flowDefect(flowCheckOf(x.flow_check), 'resolver', `${W}/checks/flow.json`)
   const done = await rework(ret, defectOf, async (_, d, n) => {
     const label = reworkLabel(`resolver:${stage}-flow`, n)
     const again = await once(
       label,
       'resolver',
-      resolverPrompt(label, `${stage}（flow の修正）`, `${d.text}最後に \`${cli('flow')}\` と \`${cli('conflicts')}\` を実行し、stdout を加工せずに flow_check と conflicts_check に入れて返す。`),
+      resolverPrompt(label, `${stage}（flow の修正）`, `flow.json が閉じていない。${d.text}。その指摘だけを直す（裁定の中身は変えない）。最後に \`${cli('flow')}\` と \`${cli('conflicts')}\` を実行し、stdout を加工せずに flow_check と conflicts_check に入れて返す。`),
       RESOLVER_SCHEMA,
       phaseTitle
     )
@@ -1089,7 +1172,7 @@ async function applyReturnedFlow(stage, ret, phaseTitle, required) {
   }, MAX_CHECK_REWORK)
   const fc = flowCheckOf(done.got.flow_check)
   if (!fc) return { error: `段 ${stage}: resolver が doc_check flow の stdout を返しませんでした` }
-  if (fc.findings > 0) return { error: `段 ${stage}: 回答を当てた flow が閉じていません（doc_check flow ${fc.findings} 件。${W}/checks/flow.json）` }
+  if (done.defect) return { error: `段 ${stage}: 回答を当てた flow が閉じていません（${done.defect.text}）` }
   const changed = fc.content_sha256 !== state.flow_digest
   state.flow_digest = fc.content_sha256
   return { checked: true, changed, fc, conflicts: done.got.conflicts_check }
@@ -1260,8 +1343,7 @@ async function stage3b() {
     FRAME_RUN,
   ], 'Answers')
   if (reframe.error) return blocked(`段 3b: ${reframe.error}`, '3b')
-  const opens = unruled(reframe.fc.open_ids.map((id) => `open:${id}`), 'open')
-  const pairs = unruled(reframe.cc.pair_keys, 'pair')
+  const { opens, pairs } = unruledIssues(reframe.fc.open_ids, reframe.cc.pair_keys)
   const carried = pendingQuestions(state)
   const res = await resolveCycle('3b', {
     phase: 'Answers',

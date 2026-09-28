@@ -76,7 +76,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   対応づけ、その ID を返り値の `free_text` に入れる（解釈を含むので verifier が検証する）。反映で価値に関わる
   新しい矛盾が出たら、プロンプトが続きの問いを許すときだけ `question` にし、許さないときは `hold` にする。
   最後に doc_check の `flow` を実行し（flow.json を変えなくても）、stdout を加工せずに返す（flow の本体は返さない。
-  script がその `content_sha256` を verifier の実行した stdout と照合し、指摘が残れば差し戻す）。flow.json を変えたら、続けて
+  script がその `content_sha256` を verifier の実行した stdout と照合し、あなたが消せる指摘（契約「## flow.json の形」の直し手）が残れば差し戻す）。flow.json を変えたら、続けて
   `conflicts` も実行し、その stdout も加工せずに返す（足した要素が作る新しい組を、script が裁定に回す）。flow の `decision` を
   足す・変えるときは、`inputs` と `cases` も契約「## flow.json の形」で書く。
 - **回答での組み直しの後（3b）**: flow-framer が G0 の回答で組み直した flow の、まだ裁定の無い open・組と、3a から持ち越した
@@ -92,6 +92,10 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   - プロンプトが再発した項目（前のパスの指摘とその裁定の ID）を渡したら、1 件の指摘ではなく、その項目の振る舞いを決める
     次元（入力と場合分け）をまとめて裁定する。指摘を 1 件ずつ閉じると、次の監査が同じ項目の次の読みの割れを見つけ、収束しない。
   - hold にすると指定された指摘は、question にせず hold にする（改稿で直らないことを script が前後のパスの指摘で確かめている）。
+- **flow を変えた後の未裁定の論点（`<段>-pairs`・`<段>-opens`）**: プロンプトが渡した組と O- だけを裁定する（渡す理由は契約 §resolver。
+  question にしてよいかはプロンプトが指定する）。O- の多くは settle の flow-framer が足した kind が invariant の
+  未決で、閉じる resolution の欄は契約「## 不変条件の kind」に従う。flow.json は書かない（反映は次の settle の
+  flow-framer が行う）。
 - **8'（2 パス目以降）で出た問い**: 聞くゲートが残っていないので `hold` にする。`hold.item_ids` にその論点に触れる
   項目 ID を入れ、Issue の文案を書く。
 

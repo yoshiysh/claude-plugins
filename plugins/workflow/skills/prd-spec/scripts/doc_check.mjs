@@ -2719,8 +2719,12 @@ function wsFlow(ws) {
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
   const inv = invariantsOf(ws)
   const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
-  const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
+  const grouped = groupCompact(list)
+  const body = expandWorkspace({ findings: grouped, not_checked: [] })
   const digest = digestOf(body)
+  // codes: 指摘を消せる役は符号で決まる（prd.js の FIXERS_BY_CODE）。件数だけでは、生成者に消せない指摘を生成者に差し戻してしまう。
+  const codes = {}
+  for (const g of grouped) codes[g.c] = [...(codes[g.c] || []), ...g.a.map((a) => String(a[0]))]
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
   const items = listOf(readLedger(ws, 'verifications'), 'items')
   const verdictAt = (verdict) => new Set(items.filter((it) => it && it.verdict === verdict && it.digest).map((it) => `${it.id}\u0000${it.digest}`))
@@ -2749,6 +2753,7 @@ function wsFlow(ws) {
   // content_sha256 は flow.json のバイト列から取る。digest は指摘の一覧の値で、指摘が 0 件の flow どうしを区別できない。
   return {
     findings: body.findings.length,
+    codes,
     open: openIds.size,
     path: writeCheck(ws, 'flow.json', { ...body, digest }),
     digest,

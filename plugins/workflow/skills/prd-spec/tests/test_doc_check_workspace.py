@@ -334,6 +334,12 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": "destructive"}]})
         _ok(self.ws, "flow")
         self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"])
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "next": ["F-404"]}]})
+        out = _ok(self.ws, "flow")
+        # prd.js は codes で指摘を直し手ごとに分けるので、符号・場所と件数が stdout の中で食い違ってはならない。
+        self.assertEqual(out["codes"], {"FLOW_DANGLING": ["F-002"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"], "FLOW_UNREACHABLE": ["F-003", "F-004", "F-005"]})
+        self.assertEqual(sum(len(v) for v in out["codes"].values()), out["findings"])
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "next": ["F-004"]}]})
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-001", "D-002"]}]})
         _ok(self.ws, "flow")
         self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"], "invariant でない決定では縛りにならない")
