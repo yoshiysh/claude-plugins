@@ -144,8 +144,8 @@ class Pure(unittest.TestCase):
         state = {"passed": ["RS-1", "D-4", "F-2"], "answered": ["RS-5"], "failed_ids": ["RS-5"]}
         self.assertEqual(value(f"usableResolutions({json.dumps(state)})"), ["RS-1"])
 
-    def test_invalidIdsは検証に落ちた既定と流れの要素を無効にする(self):
-        state = {"superseded": ["D-003"], "failed_ids": ["D-004", "F-007", "RS-002", "D-009"], "passed": ["D-009"]}
+    def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
+        state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002", "D-009"], "passed": ["D-009"], "flow_failed": ["F-007"]}
         self.assertEqual(value(f"invalidIds({json.dumps(state)})"), {"decisions": ["D-003", "D-004"], "flow": ["F-007"]})
 
     def test_pendingQuestionsは回答済みと保持規則を除く(self):
@@ -197,20 +197,28 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"settledFlowFindings({json.dumps(pending)}, {json.dumps(state)}, ['RS-5'])"), ["f1"])
         self.assertEqual(value(f"settledFlowFindings(undefined, {json.dumps(state)}, [])"), [])
 
-    def test_flowCheckOfはunverifiedとopen_onlyの無いstdoutを受け取らない(self):
-        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "open_only": [], "open_ids": []}
+    def test_settledVerificationsはこのcycleで合格した流れの要素の検証の裁定だけを返す(self):
+        about = {"RS-1": "verification:F-001", "RS-2": "verification:F-002", "RS-3": "verification:F-003", "RS-4": "verification:D-004",
+                 "RS-5": "verification:F-005", "RS-6": "pair:D-001|F-006", "RS-7": "tbd:T-1", "RS-8": "finding:f8", "RS-9": "verification:F-009"}
+        state = {"about": about, "passed": ["RS-1", "RS-2", "RS-3", "RS-4", "RS-5", "RS-6", "RS-7", "RS-8"], "holds": ["RS-2"], "questions": ["RS-3"]}
+        # F-002 は hold、F-003 は回答待ちの問い、D-004 は flow の要素でない、F-005 は cycle に入る前に決まっていた、F-009 は未合格
+        self.assertEqual(value(f"settledVerifications({json.dumps(state)}, ['RS-5'])"), ["F-001"])
+
+    def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
+        base = {"findings": 0, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "open_ids": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("unverified", "open_only", "open_ids"):
+        for k in ("unverified", "failed_current", "open_only", "open_ids"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
 
     def test_stateErrorsは入口ごとに要る値を挙げる(self):
         self.assertEqual(value("stateErrors('1', {})"), [])
-        errs = value("stateErrors('8', {units: [], flow_digest: 'f'})")
+        errs = value("stateErrors('8', {units: [], flow_digest: 'f', flow_failed: []})")
         self.assertTrue(any("state.audit" in e for e in errs))
         self.assertTrue(any("state.revised" in e for e in errs))
         self.assertFalse(any("flow" in e for e in errs))
-        self.assertEqual(value("stateErrors('4', {units: [], flow: {}})"), ['from "4" には state.flow_digest が要ります'])
+        self.assertEqual(value("stateErrors('4', {units: [], flow: {}, failed_ids: ['F-001']})"),
+                         ['from "4" には state.flow_digest が要ります', 'from "4" には state.flow_failed が要ります'])
         self.assertIn("段の境界", value("stateErrors('x', {})")[0])
 
     def test_rolesByItemは観点を重ねて持つ(self):

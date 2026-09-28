@@ -82,3 +82,7 @@ ID を渡す。case なら、そのマスの出典と枝を裁定に合わせて
 プロンプトが指摘（`origin: flow` の指摘の ID と、それを裁定した resolution）を渡したときは、指摘を `W/findings/*.json` から
 ID で読み、その `doc` の meta で `item_id` の trace が指す flow 要素を、裁定どおりに直す。どの要素を直すかはあなたが決めるので、
 script は変わった要素をすべて検証に回す。
+
+プロンプトが検証の裁定（要素 ← resolution。契約の resolutions.json の `about` が `{verification}` のもの）を渡したときは、
+resolution の `value` どおりにその要素を直す（出典の差し替え・`constrained_by` の除去など）。写さないと、要素は不合格の版のまま
+残り、writer に根拠にしない要素として渡る。

@@ -2425,8 +2425,11 @@ function wsFlow(ws) {
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
-  const passed = new Set(listOf(readLedger(ws, 'verifications'), 'items').filter((it) => it && it.verdict === 'pass' && it.digest).map((it) => `${it.id}\u0000${it.digest}`))
+  const items = listOf(readLedger(ws, 'verifications'), 'items')
+  const verdictAt = (verdict) => new Set(items.filter((it) => it && it.verdict === verdict && it.digest).map((it) => `${it.id}\u0000${it.digest}`))
+  const [passed, failed] = [verdictAt('pass'), verdictAt('fail')]
   const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
+  const failedCurrent = els.filter((el) => failed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
   const opensOnly = (source) => {
     const sources = Array.isArray(source) ? source : source ? [source] : []
@@ -2445,6 +2448,7 @@ function wsFlow(ws) {
     digest,
     content_sha256: ledgerSha(ws, 'flow'),
     unverified,
+    failed_current: failedCurrent,
     open_only: openOnly,
     open_ids: [...openIds].sort(),
   }

@@ -360,12 +360,18 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "flow", {"elements": [{"id": "F-004", "cases": f4["cases"]}]})
         self.assertEqual(_ok(self.ws, "flow")["unverified"], ["F-002", "F-003", "F-004", "F-005"], "マスの出典を変えた要素は unverified に戻る")
 
-    def test_不合格の要素はunverifiedに残り続ける(self):
-        # prd.js はこの要素を検証の対象から除く（tests/test_prd_stages.py の FlowRecheck）。doc_check は pass だけを見る。
+    def test_不合格の要素は書き換えるまでfailed_currentに出る(self):
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
+        self.assertEqual(_ok(self.ws, "flow")["failed_current"], [])
         _put(self.ws, "verifications", {"items": [{"id": "F-002", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]},
              "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
-        self.assertIn("F-002", _ok(self.ws, "flow")["unverified"])
+        out = _ok(self.ws, "flow")
+        self.assertEqual(out["failed_current"], ["F-002"])
+        self.assertIn("F-002", out["unverified"])
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "source": {"decision": "D-002"}}]})
+        out = _ok(self.ws, "flow")
+        self.assertEqual(out["failed_current"], [])
+        self.assertIn("F-002", out["unverified"])
 
     def test_caseの出典がopenだけならそのマスもopen_onlyに出す(self):
         f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
