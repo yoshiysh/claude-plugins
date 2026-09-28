@@ -255,7 +255,7 @@ const FINDING_TEXT = {
     location: '工程の流れ（flow）',
     quote: key,
     issue: `工程の流れの形が契約に合わない（${detail}）。流れは各項目を当てる軸であり、形が崩れていると閉じているかを判定できない。`,
-    fix: 'flow-framer の出力を、その契約（schemas/agent-contracts.md の flow-framer 節）の形に直して渡し直す（文書の改稿では直らない）。',
+    fix: `${ledgerOf('flow').file()} を契約（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」）の形に直す（文書の改稿では直らない）。`,
   }),
   FLOW_BRANCH_OPEN: (id, value) => ({
     id: `ST-FLOW-BRANCH-OPEN-${id}-${value}`,
@@ -1445,7 +1445,7 @@ const WORKSPACE_TEXT = {
     location: '工程の流れ（flow）',
     quote: `${id}: ${combo}`,
     issue: `判断 ${id} の入力の組み合わせ「${combo}」に当たる case が無い（上記以外の case も無い）。そのマスの行き先が決まらない。`,
-    fix: 'その組み合わせの case を出典付きで足す。根拠から決まらないなら open に起票し、その ID を case の出典にする。',
+    fix: 'その組み合わせの case を出典付きで足す。',
   }),
   FLOW_DT_OVERLAP: (id, combo, a, b) => ({
     id: `ST-FLOW-DT-OVERLAP-${id}-${combo}`,

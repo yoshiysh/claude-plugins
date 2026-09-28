@@ -8,9 +8,13 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_doc_check_workspace import FIXTURE, _ok, _put  # noqa: E402
 
 PRD = Path(__file__).resolve().parents[1] / "scripts" / "prd.js"
 CONTRACTS = Path(__file__).resolve().parents[1] / "schemas" / "agent-contracts.md"
@@ -362,25 +366,42 @@ class FlowFixers(unittest.TestCase):
         self.assertLessEqual(set(re.findall(r"^  (FLOW_[A-Z_]+): \(", ws_text, re.M)), codes)
         self.assertEqual(set(value("Object.keys(FIXERS_BY_CODE)")), codes)
 
-    def test_どの符号もflow_framerが消せ_resolverに消せない符号だけが行を持つ(self):
+    def test_どの符号もflow_framerが消せ_resolverに消せない符号だけが渡す行を持つ(self):
         table = value("FIXERS_BY_CODE")
-        self.assertTrue(all("flowFramer" in v and set(v) <= {"flowFramer", "resolver"} for v in table.values()))
-        self.assertEqual(set(value("Object.keys(HANDOFF_TEXT)")), {k for k, v in table.items() if "resolver" not in v})
-        self.assertEqual(table["FLOW_DESTRUCTIVE_UNCONSTRAINED"], ["flowFramer"], "resolver は open.json に不変条件の O- を足せない")
+        self.assertTrue(all("flowFramer" in v["fixers"] and set(v["fixers"]) <= {"flowFramer", "resolver"} for v in table.values()))
+        self.assertEqual({k for k, v in table.items() if v.get("handoff")}, {k for k, v in table.items() if "resolver" not in v["fixers"]})
+        self.assertEqual(table["FLOW_DESTRUCTIVE_UNCONSTRAINED"]["fixers"], ["flowFramer"], "resolver は open.json に不変条件の O- を足せない")
 
-    def test_fixがopenへの起票を含む符号だけをresolverの直し手から外す(self):
-        # 所有表では open.json を書けるのは intake と flow-framer だけなので、起票が要りうる指摘は回答を当てる resolver には消せない。
-        src = DOC_CHECK.read_text(encoding="utf-8")
-        heads = [(m.group(1), m.start()) for m in re.finditer(r"^  ([A-Z_]+): \(", src, re.M)]
-        needs_open = set()
-        for i, (code, start) in enumerate(heads):
-            if not code.startswith("FLOW_"):
-                continue
-            fix = src[start : heads[i + 1][1] if i + 1 < len(heads) else len(src)].split("fix:", 1)[1]
-            if "起票" in fix or "ledgerOf('open')" in fix:
-                needs_open.add(code)
+    def _flow_codes(self, edit):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "W"
+            shutil.copytree(FIXTURE, ws)
+            els = json.loads((ws / "flow.json").read_text())["elements"]
+            edit({e["id"]: e for e in els})
+            _put(ws, "flow", {"elements": els})
+            return _ok(ws, "flow")["codes"]
+
+    def test_flow_framerだけが消せる符号は出典と縛りの欠けが出す符号とちょうど一致する(self):
+        # 契約の直し手の分け方: 出典の決まらない要素・case は出典を付けずに置き、flow-framer が open.json に起票して出典にする。
+        # だから resolver が直し手から外れるのは、出典と縛りの欠け（open.json への追記でしか消えない指摘）だけである。
+        def strip(els):
+            els["F-001"]["source"] = None
+            els["F-004"]["cases"][0].pop("source")
+            els["F-002"]["effect"] = "destructive"
         table = value("FIXERS_BY_CODE")
-        self.assertEqual({k for k, v in table.items() if "resolver" not in v}, needs_open & set(table))
+        self.assertEqual(set(self._flow_codes(strip)), {k for k, v in table.items() if "resolver" not in v["fixers"]})
+
+    def test_欠けたマスは出典が決まらなくてもcaseを足せばflow_framer専用の符号だけが残る(self):
+        def gap(els):
+            els["F-004"]["cases"] = els["F-004"]["cases"][:1]
+        def unsourced(els):
+            els["F-004"]["cases"][1].pop("source")
+        table = value("FIXERS_BY_CODE")
+        self.assertIn("FLOW_DT_GAP", self._flow_codes(gap))
+        self.assertIn("resolver", table["FLOW_DT_GAP"]["fixers"])
+        left = set(self._flow_codes(unsourced))
+        self.assertEqual(left, {"FLOW_CASE_NOSOURCE"})
+        self.assertNotIn("resolver", table["FLOW_CASE_NOSOURCE"]["fixers"])
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")

@@ -324,9 +324,12 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - doc_check `flow` は欄の欠けを `ST-FLOW-OBTAIN-MISSING-`・`ST-FLOW-UNKNOWN-CASE-`・`ST-FLOW-EFFECT-MISSING-`・
   `ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-` で指摘する。要素の digest はこれらの欄を含む。
 - 指摘の直し手: stdout の `codes`（符号 → 指摘の場所の要素 ID などの配列。件数の和は `findings`）の符号ごとに、所有表の中の
-  書き込みだけで消せる役を prd.js の `FIXERS_BY_CODE` が持つ（符号の一覧はそこが正）。script は flow を書いた生成者が並ぶ符号だけを
-  その生成者に差し戻す。並ばない符号（回答を当てる resolver には `open.json` への追記が要るもの）は差し戻さず、その cycle の
-  settle の flow-framer に渡す（§flow-framer）。表に無い符号は、誰に差し戻しても消えるとは限らないので、差し戻さずに段を止める。
+  書き込みだけで消せる役を prd.js の `FIXERS_BY_CODE` が持つ（符号の一覧はそこが正）。分け方: 出典を付けられない要素・case は、
+  出典を付けずに置くのが直し方である（`ST-FLOW-NOSOURCE-`・`ST-FLOW-CASE-NOSOURCE-` になり、flow-framer が `open.json` に起票して
+  出典にする）。だから `open.json` への追記でしか消えない指摘（出典の無さ・破壊的な工程を縛る不変条件の無さ）だけが flow-framer
+  専用で、欠けたマス・枝・欄を足す指摘は、出典が決まらなくても resolver が足せる。script は flow を書いた生成者が並ぶ符号だけを
+  その生成者に差し戻す。並ばない符号は差し戻さず、その cycle の settle の flow-framer に渡す（§flow-framer）。表に無い符号は、
+  誰に差し戻しても消えるとは限らないので、差し戻さずに段を止める（同じ段をやり直しても表は変わらないので、やり直しの引数も付けない）。
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
 - doc_check `conflicts` は target の一致に加えて `constrained_by` の決定との組も列挙する（O- は決定ではないので組にしない）。put は
@@ -350,7 +353,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   verifier に回す（書き換えていない不合格の要素は、渡すと同じ理由で落ちて差し戻しが回る）。最後の verifier の `failed_current` は
   writer に「根拠にしない要素」として渡る。
 - 回答を当てた resolver に消せない指摘（「## flow.json の形」の直し手）は、最後の verifier の stdout の `codes` から settle に「要素: 何が無いか」の
-  行で渡る。直し方はその指摘の fix（`W/checks/flow.json`）で、kind が invariant の O- を `open.json` に足して `constrained_by` に挙げる
+  行で渡る（verifier より前に `stale_refs` で settle するときは、その resolver の stdout から。少なく申告しても settle の verifier が止める）。直し方はその指摘の fix（`W/checks/flow.json`）で、kind が invariant の O- を `open.json` に足して `constrained_by` に挙げる
   ときは「## 不変条件の kind」に従う。足した O- を誰が裁定するかは §resolver。
 - stdout の `stale_refs` は、resolutions.json の `supersedes` で覆された決定を `source`（case の `source` と `on_fail.source` を含む）か `constrained_by` に
   持つ要素と、検証に落ちた不変条件を `constrained_by` に持つ要素と、その決定の組（`{el, ref}`）である。覆された ID も実在するので出典の検査では指摘にならない。最後の verifier（後に verifier の無い変換・保持規則への変換では、その resolver）の `stale_refs`
