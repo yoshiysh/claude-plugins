@@ -287,6 +287,13 @@ class Pure(unittest.TestCase):
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(two))})"))
         self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps({**two, 'findings': 3}))})"), "符号の件数の和と findings が食い違う stdout は受け取らない")
 
+    def test_sharedFindingsは基準のstdoutに同じ符号と場所で出た指摘だけを残す(self):
+        # 符号だけで照合すると、生成者が申告した指摘と同じ符号の、台帳の書き込みで出た別の要素の指摘まで生成者のものに数える。
+        fc = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-001", "F-002"], "FLOW_DANGLING": ["F-003"]}, "findings": 3}
+        base = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-001"], "FLOW_DEADEND": ["F-003"]}}
+        self.assertEqual(value(f"sharedFindings({json.dumps(fc)}, {json.dumps(base)}).codes"),
+                         {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-001"], "FLOW_DANGLING": []})
+
     def test_splitFlowFindingsは生成者が消せる指摘とflow_framerに回す指摘と表に無い符号に分ける(self):
         fc = {"codes": {"FLOW_DANGLING": ["F-001", "F-002"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"], "FLOW_NEW": ["F-009"]}}
         self.assertEqual(value(f"splitFlowFindings({json.dumps(fc)}, 'resolver')"),

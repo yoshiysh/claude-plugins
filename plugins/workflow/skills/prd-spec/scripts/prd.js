@@ -473,6 +473,9 @@ function splitFlowFindings(fc, generator) {
   return out
 }
 
+// sharedFindings: fc の指摘のうち、base にも同じ符号と場所で出ているものだけを残した stdout。
+const sharedFindings = (fc, base) => ({ ...fc, codes: Object.fromEntries(Object.entries(fc.codes).map(([code, ats]) => [code, ats.filter((at) => ((base.codes || {})[code] || []).includes(at))])) })
+
 const flowFindings = (fc) => Object.entries(fc.codes).sort().flatMap(([code, ats]) => ats.map((at) => ({ code, at })))
 
 // flowDefect: 生成者への差し戻しの件数は、生成者が消せる指摘だけで数える。表に無い符号は誰が消せるか分からないので、差し戻さずに止める。
@@ -726,8 +729,12 @@ function finish(status, extra) {
 }
 // blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す。段の途中で足した値（候補の選択で当たった
 // 回答・形の検査に落ちた問い・integrity の行）を持ち越すと、再実行が止まらなかった run と違う状態から始まる。
+// ON_DISK は例外で、W の flow.json と verifications.json の今の版を写す値である。段の途中で所有表の中の役が書いた flow.json は
+// 再実行の前に誰も戻さないので、入った時点の値を渡すと、再実行の最初の照合がその書き込みを所有表の外の書き込みとして止める。
+const ON_DISK = ['flow_digest', 'flow_failed']
+const rerunState = () => ({ ...entryState, ...Object.fromEntries(ON_DISK.filter((k) => state[k] !== undefined).map((k) => [k, state[k]])) })
 const blocked = (reason, rerunFrom, extra) =>
-  finish('blocked', { reason, next_args: rerunFrom ? argsFrom(rerunFrom, rerunFrom === running ? entryState : state) : null, ...extra })
+  finish('blocked', { reason, next_args: rerunFrom ? argsFrom(rerunFrom, rerunFrom === running ? rerunState() : state) : null, ...extra })
 
 const noteIntegrity = (line) => {
   state.integrity = uniq([...(state.integrity || []), line])
@@ -815,7 +822,9 @@ function absorbResolver(r, reRuled) {
 // そうでない段（例: resolver が起動しない段 3）でやり直しても、flow.json も state.flow_digest も変わらず同じ所で止まる。
 // generator: この cycle で flow.json を書いた役（null は誰も書いていない）。その役に消せない指摘は settle の flow-framer が直すので、
 // ここでは止めない。誰も書いていなければ、指摘は台帳の書き込みで出たもので、flow-framer にしか直せない。
-function absorbVerifier(v, expectedSha, stage, flowChecked, generator) {
+// framed: 生成者が書き終えて返した同じ digest の stdout（fc）と、その後に台帳が変わったか（ledgerMoved）。変わっていれば、fc に無い
+// 指摘は台帳の書き込みで出たもので、生成者に差し戻しても消えないので settle の次の回に渡す。変わっていなければ生成者の過少申告である。
+function absorbVerifier(v, expectedSha, stage, flowChecked, generator, framed) {
   const fc = flowCheckOf(v.flow_check)
   if (!fc) return { error: `resolver-verifier（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
   if (fc.content_sha256 !== state.flow_digest) {
@@ -830,8 +839,11 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator) {
     noteIntegrity(`${told.by} が申告した ${differ.join('・')} が、verifier（段 ${stage}）の doc_check flow の stdout と違う`)
     return { error: `段 ${stage}: 裁定に回した未裁定の論点（${differ.join('・')}）が、verifier が同じ flow.json で数えたものと違います（${told.by} の申告）`, rerun: true }
   }
-  const split = splitFlowFindings(fc, generator)
+  const split = splitFlowFindings(framed && framed.ledgerMoved ? sharedFindings(fc, framed.fc) : fc, generator)
   if (split.unknown.length) return { error: `段 ${stage}: verifier の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${split.unknown.join(', ')}`, rerun: false }
+  if (split.own && framed && !framed.ledgerMoved && flowFindings(sharedFindings(fc, framed.fc)).length < flowFindings(fc).length) {
+    noteIntegrity(`${generator}（段 ${stage}）が返した doc_check flow の stdout に無い指摘が、同じ flow.json と台帳の verifier の stdout にある`)
+  }
   if (split.own) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${split.own} 件あります（${W}/checks/flow.json）`, rerun: true }
   const onlyFlow = (ids) => (ids || []).filter((id) => /^F-/.test(id))
   const unrecorded = [
@@ -1156,9 +1168,10 @@ async function frameFlow(label, lines, phaseTitle) {
     const l = reworkLabel(`${label}:rework`, n)
     return once(l, 'flowFramer', `${prompt(l)}\n\n返した stdout が不合格だった: ${d.text}。直して返す。`, FLOW_SCHEMA, phaseTitle)
   }, MAX_CHECK_REWORK)
-  if (done.defect) return { error: `flow が閉じていません: ${done.defect.text}`, rerun: !done.defect.stop }
   const got = read(done.got)
-  state.flow_digest = got.fc.content_sha256
+  // 閉じていない版でも W の flow.json は flow-framer が書いた版で、再実行の前に誰も戻さない（blocked の ON_DISK）。
+  if (got.fc) state.flow_digest = got.fc.content_sha256
+  if (done.defect) return { error: `flow が閉じていません: ${done.defect.text}`, rerun: !done.defect.stop }
   return got
 }
 
@@ -1166,8 +1179,8 @@ async function frameFlow(label, lines, phaseTitle) {
 // 値を決める呼び出しではないので resolver にしない（段 3・6 の resolver は flow を書かない）。
 // about の種類のうち open・finding・verification を写し、supersedes で覆された決定を引く要素（stale_refs）も直させる。pair は見ない
 // （flow を変えた後の新しい組は ruleUnruled が裁定に回すが、組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
-// flow の指摘（codes）はすべて flow-framer に渡す。verifier の stdout に残る指摘は回答を当てた resolver に消せない符号だけで（生成者が
-// 消せる分は absorbVerifier が止める）、flow-check の stdout にはその後の resolver が台帳を変えて出た指摘も出る。どちらも flow-framer にしか直せない。
+// flow の指摘（codes）はすべて flow-framer に渡す。verifier の stdout に残る指摘は生成者に消せないもの（符号か、台帳の書き込みで出たもの）
+// だけで（生成者が消せる分は absorbVerifier が止める）、flow-check の stdout にはその後の resolver が台帳を変えて出た指摘も出る。どちらも flow-framer にしか直せない。
 // 残りが 0 になるまで回し、減らなければ止める。
 async function settle(stage, verified, phaseTitle, before, allowQuestions) {
   const now = await independentFlow(verified, phaseTitle)
@@ -1213,6 +1226,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
     waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行する（返し方は §flow-framer の返り値）。` : '',
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}`, rerun: got.rerun }
+  const ledgerAtFrame = state.resolutions_sha256
   const qe = await checkQuestions(tag, tag, { questions_check: got.questions_check }, phaseTitle, waiting)
   if (qe) return qe
   const fc = got.fc
@@ -1225,7 +1239,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const target = toVerify(fc, must)
   const v = await askVerifier(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc, must), phaseTitle)
   if (!v) return { error: `resolver-verifier（段 ${stage}v の裁定の反映）が応答しませんでした` }
-  const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true, 'flowFramer')
+  const ve = absorbVerifier(v, state.resolutions_sha256, reworkLabel(`${stage}v-settle`, n), true, 'flowFramer', { fc, ledgerMoved: state.resolutions_sha256 !== ledgerAtFrame })
   if (ve) return ve
   const vfc = flowCheckOf(v.flow_check)
   // flow-framer に直せない裁定（RS-）の不合格は、段 3 の差し戻しの後と同じく問いか保持規則に変える。止めると、縛る不変条件の O- を
