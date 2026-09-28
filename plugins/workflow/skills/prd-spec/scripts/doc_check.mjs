@@ -1356,13 +1356,6 @@ const WORKSPACE_TEXT = {
     issue: `破壊的な工程 ${id} の constrained_by に、kind が invariant の決定も未決も無い。何を失ってはならないかと組にならず、破壊の範囲の論点が初稿の後まで見つからない。`,
     fix: `${id} の constrained_by に、その工程を縛る kind が invariant の決定を挙げる。無ければ ${ledgerOf('open').file()} に kind が invariant の O- を足して挙げる。`,
   }),
-  FLOW_FIELD_CASE: (id, type, fields) => ({
-    id: `ST-FLOW-FIELD-CASE-${id}`,
-    location: '工程の流れ（flow）',
-    quote: `${id}: ${type} の ${fields}`,
-    issue: `要素 ${id}（${type}）が、その型の持てない欄 ${fields} を持つ。型に合わない欄は検査の対象にならず、宣言が黙って残る。`,
-    fix: `${fields} に null を送って消すか、型を直す。`,
-  }),
   FLOW_HISTORY: (where, mark) => ({
     id: `ST-FLOW-HISTORY-${where}`,
     location: '工程の流れ（flow）',
@@ -1666,6 +1659,7 @@ const LEDGERS = {
     lists: { elements: 'id', kinds: 'name' },
     scalars: { closure: 'string' },
     fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by', 'obtain', 'effect', 'on_fail'], kinds: ['name', 'definition'] },
+    subfields: { elements: { inputs: ['name', 'values', 'from', 'unknown'] } },
     enums: { elements: { obtain: ['always', 'may_fail'], effect: ['read', 'reversible', 'destructive'] } },
     cases: {
       elements: [
@@ -1699,7 +1693,7 @@ const LEDGERS = {
 // 経緯の印は prd-spec の工程にしか出ない形に限る。版・旧・v2・RS-232・G1 GC・§ 3a のような語は案件の分野にも
 // 出るので、裸の G1・3a は印にせず「段 3a」の接頭辞付きの形で拾う（偽陽性で put が止まるより、取りこぼしを選ぶ）。
 const HISTORY_FIELDS = ['flow.closure', 'flow.elements.label', 'flow.kinds.definition', 'decisions.decisions.why', 'resolutions.resolutions.why', 'verifications.items.reason']
-const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])G0-2(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)-/, /回答の反映/]
+const HISTORY_MARKS = [/段 ?\d/, /(?<![A-Za-z0-9])G0-2(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])r\d+-(im|gr|cd)x?-/, /回答の反映/]
 
 // SIZE_BUDGET: ファイルのバイト数の目安（合否ではない）。仮の値として 2026-09-27 の cleanup-branches の試走の台帳を
 // 正規形に直した実測を置いた。段 3・5 が意図して生成物を太らせるので、試走し直した実測で決め直す。
@@ -1735,7 +1729,8 @@ function checkShape(name, value, file, input) {
 
 // readLedger: 無いファイルは null。put が書く正規形と 1 バイトでも違えば、put 以外で書かれたものとして止める
 // （Write や自作の script による全体の書き戻しを、読む側で構造的に検出するため）。
-function readLedger(ws, name, doc) {
+// stored: false は put / del だけが使う（旧い欄を消す書き込みを通し、書く前に次の版を storedRejects で見る）。
+function readLedger(ws, name, doc, stored = true) {
   const file = ledgerOf(name).file(doc)
   const value = readJsonFile(path.join(ws, file))
   if (value === null) return null
@@ -1743,7 +1738,43 @@ function readLedger(ws, name, doc) {
   if (fs.readFileSync(path.join(ws, file), 'utf8') !== ledgerText(value)) {
     throw new Error(`${file} が正規形ではありません。台帳は doc_check put / del 以外で書かないでください`)
   }
+  const bad = stored ? storedRejects(ws, name, value) : []
+  if (bad.length) throw new Error(`${file} に台帳の形に合わない要素があります。put で直してください（${STORED_FIX}）:\n${bad.join('\n')}`)
   return value
+}
+
+const STORED_FIX = '持てない欄は null を送って消す。inputs の欄は inputs を送り直す。要る欄は値を送る'
+
+// storedRejects: 保存済みの版の全要素を欄の型と、その台帳だけで決まる欄の条件に照らす（put は送られた欄しか見ないので、
+// 型が変わった後の旧い欄が残る）。他の台帳を読む条件は put の時だけ見る（読むたびに見ると、別の台帳の変更でこの台帳が読めなくなる）。
+function storedRejects(ws, name, value) {
+  const spec = ledgerOf(name)
+  const bad = []
+  for (const [list, key] of Object.entries(spec.lists)) {
+    const els = value[list] || []
+    for (const el of els) {
+      for (const k of Object.keys(el)) if (!spec.fields[list].includes(k)) bad.push(`${list} ${el[key]}: ${k} は ${list} の欄ではありません（欄は ${spec.fields[list].join(' / ')}）`)
+      bad.push(...subfieldRejects(spec, list, el, key))
+    }
+    for (const { el, row, rows, extra, lack } of caseViolations(ws, name, list, els, true)) {
+      if (rows) bad.push(`${list} ${el[key]}: ${row} は ${rows.join(' / ')} のどれでもありません`)
+      if (extra && extra.length) bad.push(`${list} ${el[key]}: ${row} では ${extra.join('・')} を持てません`)
+      if (lack && lack.length) bad.push(`${list} ${el[key]}: ${row} では ${lack.join('・')} が要ります`)
+    }
+  }
+  return bad
+}
+
+function subfieldRejects(spec, list, el, key) {
+  const bad = []
+  for (const [k, allowed] of Object.entries((spec.subfields || {})[list] || {})) {
+    for (const sub of Array.isArray(el[k]) ? el[k] : []) {
+      for (const s of sub && typeof sub === 'object' && !Array.isArray(sub) ? Object.keys(sub) : []) {
+        if (!allowed.includes(s)) bad.push(`${list} ${el[key]} の ${k}: ${s} は ${k} の欄ではありません（欄は ${allowed.join(' / ')}）`)
+      }
+    }
+  }
+  return bad
 }
 
 function requireInput(ws) {
@@ -1893,31 +1924,34 @@ function proseRejects(where, pathKey, value) {
   return bad
 }
 
-// fieldRejects: 送られた欄だけを見る（型の外の欄・経緯の印）。null は欄を消す指示なので型の中なら通す。
-function fieldRejects(name, body) {
+// fieldRejects: 送られた欄だけを見る（型の外の欄・経緯の印）。null は欄を消す指示なので、型の中か保存済みの版にある欄なら通す。
+function fieldRejects(name, body, cur) {
   const spec = ledgerOf(name)
   const bad = []
   for (const [list, key] of Object.entries(spec.lists)) {
     const allowed = spec.fields[list]
+    const stored = new Map(((cur || {})[list] || []).map((el) => [el[key], el]))
     for (const el of body[list] || []) {
       for (const [k, v] of Object.entries(el)) {
         const where = `${list} ${el[key]} の ${k}`
         const values = spec.enums && spec.enums[list] && spec.enums[list][k]
-        if (!allowed.includes(k)) bad.push(`${where}: 台帳 ${name} の ${list} の欄ではありません（欄は ${allowed.join(' / ')}）`)
-        else if (values && v !== null && !values.includes(v)) bad.push(`${where}: ${JSON.stringify(v)} は ${values.join(' / ')} のどれでもありません`)
+        if (!allowed.includes(k)) {
+          if (!(v === null && k in (stored.get(el[key]) || {}))) bad.push(`${where}: 台帳 ${name} の ${list} の欄ではありません（欄は ${allowed.join(' / ')}）`)
+        } else if (values && v !== null && !values.includes(v)) bad.push(`${where}: ${JSON.stringify(v)} は ${values.join(' / ')} のどれでもありません`)
         else bad.push(...proseRejects(where, `${name}.${list}.${k}`, v))
       }
+      bad.push(...subfieldRejects(spec, list, el, key))
     }
   }
   for (const k of Object.keys(spec.scalars)) if (k in body) bad.push(...proseRejects(k, `${name}.${k}`, body[k]))
   return bad
 }
 
-function caseViolations(ws, name, list, els) {
+function caseViolations(ws, name, list, els, ownOnly = false) {
   const spec = ledgerOf(name)
   const read = (other) => readLedger(ws, other)
   const out = []
-  for (const c of [].concat((spec.cases || {})[list] || [])) {
+  for (const c of [].concat((spec.cases || {})[list] || []).filter((x) => !ownOnly || x.by.length < 2)) {
     for (const el of els) {
       const row = c.by(el, read)
       const rule = Object.hasOwn(c.rows, row) ? c.rows[row] : null
@@ -2066,13 +2100,13 @@ function wsPut(ws, opts, stdin) {
   }
   if (body && typeof body === 'object' && !Array.isArray(body)) for (const k of spec.filled || []) delete body[k]
   checkShape(name, body, '標準入力', true)
-  const shapeBad = fieldRejects(name, body)
+  const cur = readLedger(ws, name, opts.doc[0], false) || emptyLedger(spec)
+  const shapeBad = fieldRejects(name, body, cur)
   if (shapeBad.length) throw new LedgerRejected(`欄の検査に落ちました（何も書いていません）:\n${shapeBad.join('\n')}`)
   const bad = verbatimRejects(ws, name, body)
   if (bad.length) throw new LedgerRejected(`逐語の照合に落ちました（何も書いていません）:\n${bad.join('\n')}`)
   const refBad = refRejects(ws, name, body)
   if (refBad.length) throw new LedgerRejected(`参照先の照合に落ちました（何も書いていません）:\n${refBad.join('\n')}`)
-  const cur = readLedger(ws, name, opts.doc[0]) || emptyLedger(spec)
   let next = { ...emptyLedger(spec), ...cur }
   const tally = { added: [], replaced: [], unchanged: [], removed: [] }
   for (const [k, key] of Object.entries(spec.lists)) {
@@ -2090,6 +2124,8 @@ function wsPut(ws, opts, stdin) {
   }
   const caseBad = caseRejects(ws, name, next, body)
   if (caseBad.length) throw new LedgerRejected(`欄の条件に落ちました（何も書いていません）:\n${caseBad.join('\n')}`)
+  const storedBad = storedRejects(ws, name, next)
+  if (storedBad.length) throw new LedgerRejected(`書いた後の版が台帳の形に合いません（何も書いていません。${STORED_FIX}）:\n${storedBad.join('\n')}`)
   if (name === 'verifications') next = fillVerifications(ws, opts, next, body)
   const text = ledgerText(next)
   const p = path.join(ws, file)
@@ -2106,13 +2142,15 @@ function wsDel(ws, opts) {
   if (!coll) throw new LedgerRejected(`台帳 ${name} は配列が複数あるので --collection <${lists.join('|')}> が要ります`)
   if (!lists.includes(coll)) throw new LedgerRejected(`--collection は ${lists.join(' / ')} のどれかです: ${coll}`)
   if (!opts.ids || !opts.ids.length) throw new LedgerRejected('del には --ids a,b が要ります')
-  const cur = readLedger(ws, name, opts.doc[0])
+  const cur = readLedger(ws, name, opts.doc[0], false)
   const tally = { added: [], replaced: [], unchanged: [], removed: [] }
   const key = spec.lists[coll]
   const ids = [...new Set(opts.ids)]
   for (const id of ids) tally[cur && cur[coll].some((r) => r[key] === id) ? 'removed' : 'unchanged'].push(id)
   if (!cur || !tally.removed.length) return ledgerResult(name, file, tally, cur, ws, opts.doc[0])
   const next = { ...cur, [coll]: cur[coll].filter((r) => !tally.removed.includes(r[key])) }
+  const storedBad = storedRejects(ws, name, next)
+  if (storedBad.length) throw new LedgerRejected(`消した後の版が台帳の形に合いません（何も書いていません。先に put で直す: ${STORED_FIX}）:\n${storedBad.join('\n')}`)
   writeAtomic([path.join(ws, file), ledgerText(next)])
   return ledgerResult(name, file, tally, next, ws, opts.doc[0])
 }
@@ -2680,12 +2718,7 @@ function wsFlow(ws) {
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
   const openIds = new Set(listOf(readLedger(ws, 'open'), 'open').filter((x) => x && x.id).map((x) => String(x.id)))
   const inv = invariantsOf(ws)
-  // 型ごとの欄の条件は put が書く時に見るが、条件を足す前に書かれた flow.json はここでしか落ちない。
-  const fieldCase = []
-  for (const v of caseViolations(ws, 'flow', 'elements', listOf(flow, 'elements').filter((el) => el && el.id))) {
-    if (v.extra && v.extra.length) fieldCase.push({ c: 'FLOW_FIELD_CASE', d: 'flow', a: [String(v.el.id), v.row, v.extra.join('・')] })
-  }
-  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow), ...flowHistoryCompact(flow), ...fieldCase]
+  const list = [...flowGraphCompact(flow), ...flowSourceCompact(flow, decisionIdsOf(ws), openIds, inv), ...flowTableCompact(flow), ...flowHistoryCompact(flow)]
   const body = expandWorkspace({ findings: groupCompact(list), not_checked: [] })
   const digest = digestOf(body)
   const els = listOf(flow, 'elements').filter((el) => el && el.id)

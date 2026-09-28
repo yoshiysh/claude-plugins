@@ -98,13 +98,14 @@ class TestExtract(unittest.TestCase):
 
     def test_hold_draftsはholdsと別に数える(self):
         blocked = {"status": "blocked", "holds": ["RS-009"], "hold_drafts": ["RS-057", "RS-058"],
-                   "remaining_blocking": ["r3-gr-a-001", "r3-gr-a-002"], "next_args": None}
+                   "remaining_blocking": ["r3-gr-a-001", "r3-gr-a-002"], "carried_blocking": ["r3-gr-a-002"], "next_args": None}
         with tempfile.TemporaryDirectory() as td:
             record(td, "s", "b", blocked, run_id="run1", input_ref="in1")
             rec = json.loads((Path(td) / "s" / "b.json").read_text())
-            self.assertEqual((rec["holds_count"], rec["hold_drafts_count"], rec["remaining_blocking_count"]), (1, 2, 2))
+            self.assertEqual((rec["holds_count"], rec["hold_drafts_count"], rec["remaining_blocking_count"], rec["carried_blocking_count"]), (1, 2, 2, 1))
             tail = [l for l in run(["summary", "--skill", "s"], td).stdout.splitlines() if l.startswith("-- run1")][0]
             self.assertIn("holds=1 hold_drafts=2", tail)
+            self.assertIn("remaining_blocking=2 carried_blocking=1", tail)
 
     def test_止まった理由とパスの数と経路を変えた項目の数を終端legから採る(self):
         blocked = {"status": "blocked", "stop_reason": "no_progress", "passes": 3, "item_routes": {"requirements/a#PR-A-001": "exhausted", "requirements/a#PR-A-002": "hold"}, "next_args": None}
@@ -209,7 +210,7 @@ class TestSummary(unittest.TestCase):
             self.assertIn("holds=2", tail)
             self.assertIn("remaining_blocking=2", tail)
             self.assertIn("notices=None", tail)  # notices・hold_drafts・収束の欄が無かった版の実測なので欠測のまま残る
-            absent = ("notices=None", "hold_drafts=None", "stop_reason=None", "passes=None", "rerouted=None")
+            absent = ("notices=None", "hold_drafts=None", "carried_blocking=None", "stop_reason=None", "passes=None", "rerouted=None")
             for field in absent:
                 tail = tail.replace(field, "")
             self.assertNotIn("None", tail)

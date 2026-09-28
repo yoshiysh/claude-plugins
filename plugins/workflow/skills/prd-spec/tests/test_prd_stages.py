@@ -134,7 +134,7 @@ function respond(prompt, label) {
       changed_items: revise ? (spec.writer_changed_seq ? spec.writer_changed_seq[reviseN++] : ((spec.writer_changed_by_unit || {})[unit] || spec.writer_changed || ['PR-X-001'])) : [],
       open_tbd: spec.open_tbd || [],
       new_tbd: revise ? spec.new_tbd_revise || [] : spec.new_tbd || [],
-      applied_findings: revise ? ids(prompt, /r\d+-[a-z]{2}-[A-Za-z0-9_.-]+-\d+/g) : [],
+      applied_findings: revise ? ids(prompt, /r\d+-[a-z]{2}x?-[A-Za-z0-9_.-]+-\d+/g) : [],
       applied_routes: revise ? ids(prompt, /RT-\d+/g) : [],
       resolutions_sha256: sha,
     }
@@ -142,7 +142,8 @@ function respond(prompt, label) {
   if (['implementer', 'grounding', 'crossDoc'].includes(role)) {
     const n = Number(stage.slice(1))
     const byKey = spec.findings || {}
-    const findings = (byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', direction: 'remove', origin: 'text', ...f }))
+    // 追加の監査役（label の末尾が :extra）には、その label で明示した指摘だけを返す（1 体目と同じ指摘を返すと ID が重なる）。
+    const findings = (base.endsWith(':extra') ? byKey[base] || [] : byKey[`${role}:${stage}:${target}`] || byKey[`${role}:${stage}`] || []).map((f) => ({ doc: 'requirements/x', item_id: 'PR-X-001', blocking: true, route: 'writer', direction: 'remove', origin: 'text', ...f }))
     const out = { path: `findings/${stage}-${role}.json`, findings }
     if (prompt.includes('あなたは指名された監査役')) {
       // files は snapshot の stdout に無い一覧で、script が一覧を notices に写したら next_args の上限テストが落ちるように置く。
@@ -544,7 +545,14 @@ class Stages(unittest.TestCase):
         }
         files = run(spec)["findingFiles"]
         self.assertEqual(len(files), len(set(files)), f"指摘ファイルが重なっている: {files}")
+        self.assertIn("r2-grx-requirements__x", files)
+        # キーが -extra で終わる文書の 1 体目とも重ならない。
+        docs = ["requirements/x", "requirements/x-extra"]
+        by_doc = {"r2": {"requirements/x": {"changed": ["PR-X-001", "PR-X-009"], "added": [], "removed": []}, "requirements/x-extra": {"changed": ["PR-X-001"], "added": [], "removed": []}}}
+        files = run({**spec, "units": [{"id": "U-1", "docs": docs, "depends_on": []}], "by_doc": by_doc})["findingFiles"]
         self.assertIn("r2-gr-requirements__x-extra", files)
+        self.assertIn("r2-grx-requirements__x", files)
+        self.assertEqual(len(files), len(set(files)), f"指摘ファイルが重なっている: {files}")
 
     def test_diffのdigestが一致しなければblocked(self):
         spec = {
@@ -1592,7 +1600,7 @@ class Convergence(unittest.TestCase):
         seq = [["PR-X-001"]] * 3 + [["PR-X-002"]]
         diff = {f"r{i + 2}": c for i, c in enumerate(seq)}
         diff["r5"] = ["PR-X-001", "PR-X-002"]
-        other = {"grounding:r5:requirements/x": [{"id": "r5-gr-requirements__x-001", "blocking": False}]}
+        other = {"grounding:r5:requirements/x:extra": [{"id": "r5-grx-requirements__x-001", "blocking": False}]}
         res = self._exhausted_cd(seq, diff, other)
         self.assertEqual((res["status"], res["stop_reason"], res["remaining_blocking"]), ("blocked", "no_progress", ["r4-cd-all-001"]))
         self.assertEqual(res["carried_blocking"], ["r4-cd-all-001"], "最後のパスの監査が出した指摘ではない")
@@ -1633,18 +1641,30 @@ class Convergence(unittest.TestCase):
         bundled = self._reraise([], r1_writer=True)["result"]
         self.assertEqual(bundled["item_routes"], {self.KEY: "decision"}, "同じパスで writer の指摘も渡した項目の変更は、裁定を当てただけとは言えない")
 
-    def test_writerの指摘を渡していない項目の変更は裁定を渡した時期によらず再出にする(self):
-        # PR-X-001 を 2 パス目の改稿が doc_check の指摘のために変える（裁定 RS-010 を渡したのは 1 パス目）。
-        again = [{"id": "r3-gr-requirements__x-001", "direction": "tighten"}]
-        for seq in ([["PR-X-001"], ["PR-X-001", "PR-X-002"]], [["PR-X-001"], ["PR-X-002"]]):
-            with self.subTest(seq=seq):
-                spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-cd-all-001"}}, "doc_blocking_at": {"r2": 1},
-                        "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": "tighten"}],
-                                     "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": "tighten"}, {"id": "r2-gr-requirements__x-002", "item_id": "PR-X-002"}],
-                                     "grounding:r3": again},
-                        "writer_changed_seq": seq, "diff": {f"r{i + 2}": c for i, c in enumerate(seq)}}
-                res = run(spec)["result"]
-                self.assertIn("監査 r3: 既裁定の再出（再発に数えない）: r3-gr-requirements__x-001 ← RS-010", res["notices"])
+    def test_前のパスの再出だけが持つ裁定の項目が変わった後の同じ向きの指摘はblockingにする(self):
+        # RS-010 は 1 パス目に渡し終えた。2 パス目の改稿が PR-X-001 を変える（doc_check の直し・申告に無い変更・別の項目の指摘の改稿）。
+        spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-cd-all-001"}},
+                "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": "tighten"}],
+                             "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": "tighten"}, {"id": "r2-gr-requirements__x-002", "item_id": "PR-X-002"}],
+                             "grounding:r3": [{"id": "r3-gr-requirements__x-001", "direction": "tighten"}]}}
+        declared = [["PR-X-001"], ["PR-X-001", "PR-X-002"]]
+        r3 = spec["findings"]["grounding:r3"]
+        extra_r3 = {**spec["findings"], "grounding:r3": [], "grounding:r3:requirements/x:extra": [{**r3[0], "id": "r3-grx-requirements__x-001"}]}
+        for name, extra, found in (
+            ("doc_check の直し", {"writer_changed_seq": declared, "diff": {"r2": declared[0], "r3": declared[1]}, "doc_blocking_at": {"r2": 1}}, r3[0]["id"]),
+            ("申告に無い変更", {"writer_changed_seq": [["PR-X-001"], ["PR-X-002"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-001", "PR-X-002"]}, "doc_blocking_at": {"r2": 1},
+                                "findings": extra_r3}, "r3-grx-requirements__x-001"),
+            ("別の項目の指摘の改稿", {"writer_changed_seq": declared, "diff": {"r2": declared[0], "r3": declared[1]}}, r3[0]["id"]),
+        ):
+            with self.subTest(name):
+                r = run({**spec, **extra})
+                res = r["result"]
+                self.assertEqual((res["status"], res["passes"]), ("done", 3))
+                self.assertFalse(any(found in n for n in res["notices"]), res["notices"])
+                self.assertIn(found, nth_prompt(r, "writer:U-1:revise", 2))
+        same = run({**spec, "writer_changed_seq": [["PR-X-001"], ["PR-X-002"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-002"]}, "doc_blocking_at": {"r1": 1}})["result"]
+        self.assertIn("監査 r2: 既裁定の再出（再発に数えない）: r2-gr-requirements__x-001 ← RS-010", same["notices"],
+                      "裁定を渡したパスの変更は、doc_check の直しと混ざっていても裁定を当てたのと見分けられないので再出にする")
 
     def test_再出した項目を後で監査する監査役に前の裁定のIDを渡す(self):
         r = self._reraise([], [["PR-X-001"], ["PR-X-001"]])
@@ -1746,10 +1766,12 @@ NEXT_ARGS_MAX_CHARS = 8_000
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class NextArgsBudget(unittest.TestCase):
-    """前回の試走の G1 と同じ規模（問い 13・about 28・passed 82 以上・pending の findings 11・束 3・単位 1）で、
+    """前回の試走の G1 と同じ規模（問い 13・about 28・passed 82 以上・項目 9・指摘 16・単位 1）で、
     stray 100 件と SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 の next_args が上限に収まる。"""
 
     DOC = "requirements/cleanup-branches"
+    # 試走の実データの規模: 項目 9・指摘 16（writer の指摘 13 が 8 項目に、decision の指摘 3 が 1 項目に）。
+    ITEMS = [f"PR-CLEANUP-BRANCHES-{i:03d}" for i in range(1, 9) for _ in range(2 if i <= 5 else 1)]
 
     def _size(self, res):
         self.assertEqual(res["status"], "needs_answers", res.get("reason"))
@@ -1766,7 +1788,7 @@ class NextArgsBudget(unittest.TestCase):
         g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
         writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
         decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
-        items = ["PR-CLEANUP-BRANCHES-001"] * 3 + ["PR-CLEANUP-BRANCHES-002"] * 3 + ["PR-CLEANUP-BRANCHES-003"] * 2
+        items = self.ITEMS
         g1 = run({
             "args": g02["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)},
             "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
@@ -1780,9 +1802,10 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual(len(state["questions"]), 13)
         self.assertEqual(len(state["about"]), 28)
         self.assertGreaterEqual(len(state["passed"]), 82)
-        self.assertEqual(len(state["pending"]["findings"]), 11)
-        self.assertEqual(len(state["pending"]["bundles"]), 3)
-        self.assertTrue(all(len(b["flow"]) == 3 for b in state["pending"]["bundles"]))
+        packed = state["pending"]["findings"][self.DOC]
+        self.assertEqual((len(packed), sum(len(fs) for fs in packed.values())), (9, 16))
+        flow = state["pending"]["flow"][self.DOC]
+        self.assertEqual((len(flow), {len(v) for v in flow.values()}), (8, {3}))
         self.assertEqual(len(state["units"]), 1)
         self.assertTrue(any("100 件" in n for n in state["notices"]) and any("SIZE_BUDGET" in n for n in state["notices"]), state["notices"])
         for gate, res in (("G0", g0), ("G0-2", g02), ("G1", g1)):
@@ -1813,7 +1836,7 @@ class NextArgsBudget(unittest.TestCase):
         units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
         writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
         decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
-        items = ["PR-CLEANUP-BRANCHES-001"] * 3 + ["PR-CLEANUP-BRANCHES-002"] * 3 + ["PR-CLEANUP-BRANCHES-003"] * 2
+        items = self.ITEMS
         common = {"units": units, "long_digests": True, "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
                   "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
                   "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},

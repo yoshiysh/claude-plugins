@@ -68,6 +68,7 @@ def extract(result: dict, meta: dict) -> dict:
         "notices_count": _count(result.get("notices")),
         "undeclared_count": _undeclared_count(result.get("undeclared")),
         "remaining_blocking_count": _count(result.get("remaining_blocking")),
+        "carried_blocking_count": _count(result.get("carried_blocking")),
         "stop_reason": result.get("stop_reason"),
         "pass_count": result.get("passes"),
         "rerouted_count": _count(result.get("item_routes")),
@@ -80,14 +81,14 @@ def extract(result: dict, meta: dict) -> dict:
 SUM_FIELDS = ("agent_count", "total_tokens", "total_tool_calls", "question_count")
 TERMINAL_FIELDS = ("status", "holds_count", "hold_drafts_count", "open_tbd_count", "missed_count",
                     "integrity_count", "notices_count", "undeclared_count", "remaining_blocking_count",
-                    "stop_reason", "pass_count", "rerouted_count")
+                    "carried_blocking_count", "stop_reason", "pass_count", "rerouted_count")
 
 
 def aggregate_run(legs: list) -> dict:
     """1 run 分の leg レコードから run 単位の値を作る。
 
     agent 数・token・tool call・問いの件数は leg ごとの値の合算（leg は独立した
-    Workflow 実行）。holds・hold_drafts・open_tbd・missed・integrity・notices・undeclared・remaining_blocking は
+    Workflow 実行）。holds・hold_drafts・open_tbd・missed・integrity・notices・undeclared・remaining_blocking・carried_blocking は
     prd.js の `state` が run を通じて積み上がるものなので、終端 leg（`next_args` が
     null、すなわち done か再開不能な blocked）の値だけを採る（合算すると二重に数える）。
     終端 leg が 1 件でない run と、全 leg で共有する非空 input_ref が無い run は invalid。
@@ -180,7 +181,7 @@ def cmd_summary(args) -> int:
             f"agents={agg['agent_count']} tokens={agg['total_tokens']} tools={agg['total_tool_calls']} "
             f"q={agg['question_count']} holds={agg['holds_count']} hold_drafts={agg['hold_drafts_count']} open_tbd={agg['open_tbd_count']} "
             f"missed={agg['missed_count']} integrity={agg['integrity_count']} notices={agg['notices_count']} "
-            f"undeclared={agg['undeclared_count']} remaining_blocking={agg['remaining_blocking_count']} "
+            f"undeclared={agg['undeclared_count']} remaining_blocking={agg['remaining_blocking_count']} carried_blocking={agg['carried_blocking_count']} "
             f"stop_reason={agg['stop_reason']} passes={agg['pass_count']} rerouted={agg['rerouted_count']}"
         )
     print(f"-- runs={len(runs)} done 到達 {done}/{len(runs)}")

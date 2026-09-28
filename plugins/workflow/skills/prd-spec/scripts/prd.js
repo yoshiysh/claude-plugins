@@ -224,6 +224,24 @@ function toDecision(findings, reversed) {
 
 const itemKey = (f) => `${f.doc}#${f.item_id}`
 
+// pending は指摘を 文書 → 項目 → ID で束ねて持ち、束・decision・blocking はそこから導く（写しを持つと next_args の上限を超える）。
+function pendingFindings(p) {
+  return Object.entries((p || {}).findings || {}).flatMap(([doc, items]) => Object.entries(items).flatMap(([item_id, fs]) => Object.entries(fs).map(([id, f]) => ({ id, doc, item_id, ...f }))))
+}
+
+function pendingView(p, routes) {
+  const findings = pendingFindings(p)
+  const part = partitionFindings(findings.filter((f) => (routes || {})[itemKey(f)] !== 'exhausted'))
+  const flow = (p || {}).flow || {}
+  return {
+    ...p,
+    findings,
+    bundles: part.bundles.map((b) => ((flow[b.doc] || {})[b.item_id] ? { ...b, flow: flow[b.doc][b.item_id] } : b)),
+    decision: part.decision,
+    blocking: uniq(findings.filter((f) => f.blocking).map((f) => f.id)),
+  }
+}
+
 // reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
 function reRaised(prevFindings, prevAgain, findings, state, changed) {
@@ -236,9 +254,12 @@ function reRaised(prevFindings, prevAgain, findings, state, changed) {
     if (f && ids && ids.length) ruled[key(f)] = uniq([...(ruled[key(f)] || []), ...ids])
   }
   for (const f of prevFindings || []) add(f, rulings[f && f.id])
+  // 前のパスの監査が出した指摘の裁定は直前の段 6 で決まり、この段 7 で渡した。持ち越した指摘と前のパスの再出が持つ裁定は、それより前に渡し終えている。
+  const carried = new Set((state.pending || {}).carried || [])
+  const given = new Set((prevFindings || []).filter((f) => f && !carried.has(f.id) && rulings[f.id]).map(key))
   for (const f of prevAgain || []) add(f, f && f.rulings)
-  const bundled = new Set(((state.pending || {}).bundles || []).map(itemKey))
-  const onlyRuling = (f) => !((changed || {})[f.doc] || []).includes(f.item_id) || !bundled.has(itemKey(f))
+  const bundled = new Set(pendingView(state.pending, state.item_routes).bundles.map(itemKey))
+  const onlyRuling = (f) => !((changed || {})[f.doc] || []).includes(f.item_id) || (!bundled.has(itemKey(f)) && given.has(key(f)))
   return (findings || [])
     .filter((f) => f && f.id && ruled[key(f)] && onlyRuling(f))
     .map((f) => ({ id: f.id, doc: f.doc, item_id: f.item_id, direction: f.direction, rulings: ruled[key(f)] }))
@@ -938,7 +959,7 @@ let freshFlow = null
 async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const first = {
     left: settledTerminals(lastFlow.open_only, state),
-    found: settledFlowFindings((state.pending || {}).findings, state, before, (state.pending || {}).recurring),
+    found: settledFlowFindings(pendingFindings(state.pending), state, before, (state.pending || {}).recurring),
     verdicts: settledVerifications(state, before),
     stale: lastFlow.stale_refs,
     redo: [],
@@ -963,7 +984,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const settled = new Set(settledIds(state))
   const closers = (key) => uniq(Object.entries(state.about || {}).filter(([id, k]) => k === key && settled.has(id)).map(([id]) => id))
   const recurring = (state.pending || {}).recurring || {}
-  const recurFound = m.found.filter((id) => ((state.pending || {}).findings || []).some((f) => f.id === id && recurring[itemKey(f)]))
+  const recurFound = m.found.filter((id) => pendingFindings(state.pending).some((f) => f.id === id && recurring[itemKey(f)]))
   // settle が del した要素を、回答待ちの問いの候補の flow_refs が指したままだと、ゲートで司令塔の doc_check questions が止まり、戻る段が無い。
   const waiting = pendingQuestions(state)
   const got = await frameFlow(`flow-framer:${tag}`, (label) => [
@@ -1292,7 +1313,7 @@ async function stage4() {
 
 function auditorPrompt(role, doc, round, opt) {
   const docs = auditDocs()
-  const prev = uniq(((state.pending || {}).findings || []).filter((f) => (opt.items || []).includes(f.item_id)).map((f) => f.id))
+  const prev = uniq(pendingFindings(state.pending).filter((f) => (opt.items || []).includes(f.item_id)).map((f) => f.id))
   const ruled = uniq(((state.pending || {}).again || []).filter((f) => (opt.items || []).includes(f.item_id)).flatMap((f) => f.rulings))
   const target = doc === 'all' ? `全文書: ${docs.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}、${W}/plan.json` : `文書: ${W}/${doc.replace('/', '-')}.md とその .meta.json`
   const lines = [
@@ -1309,7 +1330,8 @@ function auditorPrompt(role, doc, round, opt) {
   return lines.filter(Boolean).join('\n\n')
 }
 const ROLE_TAG = { implementer: 'im', grounding: 'gr', crossDoc: 'cd' }
-const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}-${doc === 'all' ? 'all' : fileKey(doc)}${extra ? '-extra' : ''}`
+// 追加の監査役は役の印に x を付ける（文書の側に付けると、キーが -extra で終わる文書の 1 体目と名前が重なる）。
+const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}${extra ? 'x' : ''}-${doc === 'all' ? 'all' : fileKey(doc)}`
 const auditorLabel = (p, round) => `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`
 
 // liveDirs: 指名された監査役が snapshot を取る間も、同じ plan の他の監査役が作業用ディレクトリを使っている。
@@ -1400,17 +1422,21 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const recurring = opt.recurring || {}
   const kept = [...findings, ...carried].filter((f) => f && !drop.has(f.id))
   const all = toDecision(kept, [...(opt.reversed || []), ...kept.filter((f) => recurring[itemKey(f)]).map((f) => f.id)])
-  const p = partitionFindings(all.filter((f) => (state.item_routes || {})[itemKey(f)] !== 'exhausted'))
   const refs = (docCheck && docCheck.flow_refs) || {}
+  const flow = {}
+  for (const b of partitionFindings(all.filter((f) => (state.item_routes || {})[itemKey(f)] !== 'exhausted')).bundles) {
+    const ids = uniq((refs[b.doc] || {})[b.item_id])
+    if (ids.length) flow[b.doc] = { ...(flow[b.doc] || {}), [b.item_id]: ids }
+  }
+  const packed = {}
+  for (const f of all) {
+    packed[f.doc] = packed[f.doc] || {}
+    packed[f.doc][f.item_id] = { ...(packed[f.doc][f.item_id] || {}), [f.id]: { blocking: Boolean(f.blocking), route: f.route, direction: f.direction, origin: f.origin } }
+  }
   state.pending = {
-    bundles: p.bundles.map((b) => {
-      const flow = uniq((refs[b.doc] || {})[b.item_id])
-      return flow.length ? { ...b, flow } : b
-    }),
-    decision: p.decision,
-    blocking: uniq(all.filter((f) => f.blocking).map((f) => f.id)),
+    findings: packed,
+    flow,
     doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,
-    findings: all.map((f) => ({ id: f.id, doc: f.doc, item_id: f.item_id, blocking: Boolean(f.blocking), route: f.route, direction: f.direction, origin: f.origin })),
     carried: uniq(carried.filter((f) => f && f.blocking && !drop.has(f.id)).map((f) => f.id)),
     recurring,
     again: (opt.again || []).map((x) => ({ id: x.id, doc: x.doc, item_id: x.item_id, direction: x.direction, rulings: x.rulings })),
@@ -1419,14 +1445,14 @@ function setPending(findings, docCheck, carried, opt = {}) {
 
 async function stage6() {
   phase('Decide')
-  const decision = state.pending.decision || []
+  const decision = pendingView(state.pending, state.item_routes).decision
   const tbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
   if (!decision.length && !tbd.length) return '7'
   const allowQuestions = state.pass === 1
   const rec = state.pending.recurring || {}
   const routeOf = (k) => (state.item_routes || {})[k]
   const redecide = Object.keys(rec).filter((k) => routeOf(k) === 'decision')
-  const toHold = uniq((state.pending.findings || []).filter((f) => rec[itemKey(f)] && routeOf(itemKey(f)) === 'hold').map((f) => f.id))
+  const toHold = uniq(pendingFindings(state.pending).filter((f) => rec[itemKey(f)] && routeOf(itemKey(f)) === 'hold').map((f) => f.id))
   const rulingsOf = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
   const res = await resolveCycle('6', {
     phase: 'Decide',
@@ -1453,7 +1479,7 @@ async function stage6() {
 
 async function stage7() {
   phase('Revise')
-  const p = state.pending
+  const p = pendingView(state.pending, state.item_routes)
   const routesByUnit = {}
   for (const { unit, id } of state.routes || []) routesByUnit[unit] = uniq([...(routesByUnit[unit] || []), id])
   const applied = new Set(state.applied_routes || [])
@@ -1558,7 +1584,7 @@ async function stage8() {
   const findings = recordFindings(allPlan, allResults)
   const docCheck = parseStdout(d.doc_check)
   // 進展は前後のパスの指摘と doc_check の件数だけから決める（agent の自己申告を読まない）。
-  const prev = state.pending
+  const prev = pendingView(state.pending, state.item_routes)
   const changed = { ...changes }
   for (const doc of extraDocs) changed[doc] = uniq([...(changed[doc] || []), ...extra[doc]])
   const again = reRaised(prev.findings, prev.again, findings, state, changed)
@@ -1579,13 +1605,14 @@ async function stage8() {
   // 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になる。blocking と同じく
   // もう 1 パスの理由にする。
   const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
-  const blocking = state.pending.blocking.length + state.pending.doc_blocking + newTbd.length
+  const now = pendingView(state.pending, state.item_routes)
+  const blocking = now.blocking.length + now.doc_blocking + newTbd.length
   if (!blocking) return '9'
   // 新しい TBD は段 6 が閉じうるので、残っていれば進展なしにしない。
-  const items = uniq(state.pending.findings.filter((f) => f.blocking).map(itemKey))
+  const items = uniq(now.findings.filter((f) => f.blocking).map(itemKey))
   // 指摘の blocking が無く doc_check の blocking だけが残るときは、writer が直せるので上限まで回す。
   const exhausted = items.length > 0 && items.every((k) => state.item_routes[k] === 'exhausted')
-  if (!newTbd.length && exhausted && state.pending.doc_blocking >= (prev.doc_blocking || 0)) {
+  if (!newTbd.length && exhausted && now.doc_blocking >= (prev.doc_blocking || 0)) {
     return finalHold(blocking, newTbd, 'no_progress', '残った blocking の項目がすべて経路を変え尽くし（尽きた項目）、doc_check の blocking も減らなかった', '8')
   }
   if (state.pass >= MAX_AUDIT_PASSES) return finalHold(blocking, newTbd, 'pass_limit', `改稿と監査のパスが上限（MAX_AUDIT_PASSES = ${MAX_AUDIT_PASSES}）に達した`, '8')
@@ -1597,7 +1624,8 @@ async function stage8() {
 // finalHold: 改稿と監査の輪を出たので文書に反映せず、決定が要るものを保持規則と Issue の文案に変える。
 async function finalHold(blocking, newTbd, stopReason, why, stage) {
   phase('Report')
-  const decision = state.pending.decision || []
+  const p = pendingView(state.pending, state.item_routes)
+  const decision = p.decision
   const routes = state.item_routes || {}
   const label = 'resolver:final'
   const r = await once(
@@ -1621,7 +1649,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
     'Report'
   )
   if (r) absorbResolver(r)
-  const report = { report_path: `${W}/report.md`, remaining_blocking: state.pending.blocking, carried_blocking: state.pending.carried, doc_blocking: state.pending.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
+  const report = { report_path: `${W}/report.md`, remaining_blocking: p.blocking, carried_blocking: p.carried, doc_blocking: p.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
   if (r) {
     const kept = flowKept('final', r)
     if (kept) return blocked(kept.error, kept.rerun ? stage : null, report)

@@ -106,7 +106,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
   しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
-  そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`doc_blocking`）を
+  そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
 - **`done`**: 下の「保存」へ進む。
 

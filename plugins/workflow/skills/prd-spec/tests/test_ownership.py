@@ -63,7 +63,7 @@ OWNED = [
     "checks/INDEX.requirements.md",
     "checks/audited-1.snapshot.json",
     "answers/g0-2.md",
-    "findings/r2-gr-requirements__auth-extra.json",
+    "findings/r2-grx-requirements__auth.json",
     "questions.md",
     "questions.json",
     "report.md",

@@ -37,11 +37,15 @@ def _ok(ws, *args):
     return json.loads(r.stdout)
 
 
-def _put(ws, ledger, body, *args):
-    r = subprocess.run(
+def _put_run(ws, ledger, body, *args):
+    return subprocess.run(
         ["node", str(DOC_CHECK), "put", "--ledger", ledger, *args, "--workspace", str(ws)],
         input=json.dumps(body, ensure_ascii=False), capture_output=True, text=True,
     )
+
+
+def _put(ws, ledger, body, *args):
+    r = _put_run(ws, ledger, body, *args)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
     return json.loads(r.stdout)
@@ -530,12 +534,35 @@ class InvariantBinding(_Workspace):
         out, ids = self._destructive("RS-001")
         self.assertEqual((ids, out["stale_refs"]), ([], []))
 
-    def test_型の持てない欄をput以外で残したflowはFLOW_FIELD_CASE(self):
+    def _stale(self, mutate):
         flow = json.loads((self.ws / "flow.json").read_text())
-        next(e for e in flow["elements"] if e["id"] == "F-004")["effect"] = "destructive"
+        mutate({e["id"]: e for e in flow["elements"]})
         (self.ws / "flow.json").write_text(json.dumps(flow, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+
+    def test_型の持てない欄や旧い欄を残したflowはどのコマンドも読まずにnullのputで消せる(self):
+        cases = (
+            ("型の持てない欄", lambda els: els["F-004"].update(effect="destructive"), {"id": "F-004", "effect": None}, "decision では effect を持てません"),
+            ("型の外の欄", lambda els: els["F-002"].update(aggregates=["F-004"]), {"id": "F-002", "aggregates": None}, "aggregates は elements の欄ではありません"),
+        )
+        for name, mutate, fix, message in cases:
+            with self.subTest(name):
+                self._stale(mutate)
+                for r in (_run(self.ws, "flow"), _run(self.ws, "conflicts"), _put_run(self.ws, "flow", {"elements": [{"id": "F-001", "label": "l"}]})):
+                    self.assertNotEqual(r.returncode, 0)
+                    self.assertIn(message, r.stderr)
+                _put(self.ws, "flow", {"elements": [fix]})
+                _ok(self.ws, "flow")
+
+    def test_inputsの旧いキーを残したflowは読まずinputsを送り直せば消える(self):
+        self._stale(lambda els: els["F-004"]["inputs"][0].update(branch_map={"a": "b"}))
+        r = _run(self.ws, "flow")
+        self.assertIn("inputs: branch_map は inputs の欄ではありません", r.stderr)
+        flow = json.loads((self.ws / "flow.json").read_text())
+        inputs = next(e for e in flow["elements"] if e["id"] == "F-004")["inputs"]
+        r = _put_run(self.ws, "flow", {"elements": [{"id": "F-004", "inputs": inputs}]})
+        self.assertIn("branch_map は inputs の欄ではありません", r.stderr, "put も inputs のキーを見る")
+        _put(self.ws, "flow", {"elements": [{"id": "F-004", "inputs": [{k: v for k, v in i.items() if k != "branch_map"} for i in inputs]}]})
         _ok(self.ws, "flow")
-        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-FIELD-CASE-F-004"])
 
     def test_検証に落ちた不変条件はstale_refsに出る(self):
         _invariant_decision(self.ws)
