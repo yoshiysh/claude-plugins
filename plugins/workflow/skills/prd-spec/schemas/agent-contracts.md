@@ -295,7 +295,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - `id` は `F-<連番>` で一意。`type` は `input` / `step` / `decision` / `output`。`kind` は `kinds[].name` のどれか。
 - `decision` は `branches` に 2 つ以上の `{ value, next }` を持つ。それ以外は `next`（行き先 ID の配列）を持ち、
   `output` だけが行き先を持たなくてよい。どの要素にも `input` から辿り着ける。
-- `decision` は判定表として `inputs`（1 つ以上の `{ name, values, from, unknown, branch_map, failure_value }`。`from` はその値を作る上流の要素の ID）と
+- `decision` は判定表として `inputs`（1 つ以上の `{ name, values, from, unknown }`。`from` はその値を作る上流の要素の ID）と
   `cases`（`{ when, branch, source }`）を持つ。`when` には `inputs` のすべての `name` を書き、値は宣言した値か `*` にする。
   `{ "上記以外": true }` の case は、他の case に当たらない組み合わせをすべて受ける。`branch` は `branches` の `value` の
   どれかで、どの枝も 1 つ以上の case から選ばれる。doc_check `flow` は、欠けた組み合わせ・重なり・宣言外の値を文書の判定表と
@@ -305,20 +305,17 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - `obtain`（`input`・`step`）: その要素自身の処理が値を得られないことがあるか。値は `always` / `may_fail`。`may_fail` の要素は、
   失敗が値になる場所を次のちょうど 1 つにする（無いか両方なら `ST-FLOW-FAIL-UNHANDLED-`）。失敗の下流への伝播は計算しない。
   - (a) 直後の成否の判断: `next` が 1 つの `decision` D だけで、D の `inputs` に `from` がその要素で `unknown` を持つ入力がある。
-    D と、D の失敗の枝の行き先から `next`・`branches` で辿れる `decision` では、その要素を `from` にする入力が `unknown` を持つ
-    （`ST-FLOW-INPUT-UNKNOWN-`）。成功の枝の先では要らない。
-  - (b) `on_fail: { as, source }`: `as` は値が得られないときに下流へ渡す値、`source` はその扱いの出典（`{input}` か `{decision}`）。
-    その要素を `from` にする入力は `values` に `as` を含む（`ST-FLOW-INPUT-ON-FAIL-`）。
-- 失敗の枝: `decision` の枝のうち、入力の `unknown` の値を `when` に書いた case が選ぶ枝。
-- `unknown`（`inputs[]`）: 得られないときに当たる `values` の値（新しい値でも既存の値でもよい）。そのマスは、`when` のその入力に
-  その値そのものを書いた case で受ける（`上記以外` と `*` は受けたことにならない）。
-- `branch_map`（`inputs[]`）: `from` が `decision` D で、`values` が D の `branches` の値と違う集合なら必須。D のすべての branch の値
-  → `values` の値（`ST-FLOW-INPUT-BRANCH-MAP-`）。D の失敗の枝が写る値に、失敗でない枝を写さない（`ST-FLOW-FAIL-MERGED-`）。
-- `aggregates`（`step`・任意）: その工程の結果が数える元の `decision` の ID の配列。どれかが失敗の枝を持つなら、その工程を
-  `from` にする入力は `failure_value`（失敗が 1 件以上あったことを表す `values` の値）を持つ（`ST-FLOW-AGGREGATE-FAILURE-`）。
-  件数そのものの判定表は置かない。
-- doc_check が見ていないもの（resolver-verifier が判定する）: (a) の失敗の枝の先の `step` が、得られなかった値を前提にしていないか
-  （`step` は `inputs` を持たない）。`decision` の結果を数える `step` が `aggregates` を書いているか。
+    D と、D の失敗の枝の行き先から `next`・`branches` で辿れる `decision`（その要素に戻った先は次の試行なので含めない）では、
+    その要素を `from` にする入力が `unknown` を持つ（`ST-FLOW-INPUT-UNKNOWN-`）。成功の枝の先では要らない。
+  - (b) `on_fail: { as, source }`: `as` は値が得られないときに下流へ渡す空でない値（`ST-FLOW-ON-FAIL-AS-`）、`source` はその扱いの
+    出典（`{input}` か `{decision}`）。その要素を `from` にする入力は `values` に `as` を含む（`ST-FLOW-INPUT-ON-FAIL-`）。
+- 要素 X の失敗の枝: D の枝のうち、`from` が X の入力の `unknown` の値を `when` に書いた case が選ぶ枝。
+- `unknown`（`inputs[]`）: 得られないときに当たる `values` の値（新しい値でも既存の値でもよい）。そのマスと `on_fail.as` のマスは、
+  `when` のその入力にその値そのものを書いた case で受ける（`上記以外` と `*` は受けたことにならない）。
+- doc_check が見ていないもの（resolver-verifier が判定する）:
+  - (a) の失敗の枝の先の `step` が、得られなかった値を前提にしていないか（`step` は `inputs` を持たない）。
+  - 値を数えたり他の値と合わせたりする `step`・`decision` の後で、「得られない」が他の値に紛れて消えていないか（flow は値の依存を
+    持たないので、script が追うと近似になる）。
 - `effect`（`step`）: 値は `read` / `reversible` / `destructive`。`destructive` は ref・作業ツリー・未反映の変更・外部の状態の
   どれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。
 - `constrained_by`（任意）: 要素の振る舞いを縛る決定の ID（D- か RS-）か、「## 不変条件の kind」の O- の配列。`destructive` の工程は、

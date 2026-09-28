@@ -636,16 +636,15 @@ class Cases(_Workspace):
         self.assertIn("effect・obtain を持てません", r.stderr, "型を変えても前の型の欄は残せない")
         _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail"}]})
 
-    def test_on_failはmay_failの要素だけ_aggregatesはstepだけが持てる(self):
+    def test_on_failはmay_failの要素だけが持てる(self):
         fail = {"as": "読めない", "source": {"input": "ログイン"}}
-        for el, field in (({"id": "F-002", "on_fail": fail}, "on_fail"), ({"id": "F-004", "on_fail": fail}, "on_fail"), ({"id": "F-001", "aggregates": ["F-004"]}, "aggregates"),
-                          ({"id": "F-003", "aggregates": ["F-004"]}, "aggregates")):
+        for el in ({"id": "F-002", "on_fail": fail}, {"id": "F-004", "on_fail": fail}):
             with self.subTest(el=el):
                 r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [el]})
-                self.assertIn(f"では {field} を持てません", r.stderr)
+                self.assertIn("では on_fail を持てません", r.stderr)
         r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail", "on_fail": {**fail, "source": {"input": "依頼に無い文"}}}]})
         self.assertIn("逐語で無い", r.stderr)
-        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail", "on_fail": fail}, {"id": "F-002", "aggregates": ["F-004"]}]})
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail", "on_fail": fail}]})
 
 
 class InvariantOpen(_Workspace):

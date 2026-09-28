@@ -224,10 +224,7 @@ function toDecision(findings, reversed) {
 
 const itemKey = (f) => `${f.doc}#${f.item_id}`
 
-// reRaised: 段 6 が裁定して合格した前のパスの指摘と同じ項目・同じ direction の指摘で、その後の改稿がその項目に裁定を当てただけの
-// もの（本家の「dedup vs seen, NOT confirmed」）。再発に数えると、裁定どおりに書いた項目が decision → hold → 尽きた、と進み保持規則が付く。
-// 「当てただけ」は、項目が変わっていないか、段 7 がその項目に writer の指摘を渡さずにその裁定を渡したこと（revised.bundled・revised.given）
-// で決める。どちらも script が渡したもので、writer の適用の申告は読まない（申告は生成した側の自己判定になる）。
+// reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
 function reRaised(prevFindings, prevAgain, findings, state, changed) {
   const passed = new Set(state.passed || [])
@@ -240,10 +237,8 @@ function reRaised(prevFindings, prevAgain, findings, state, changed) {
   }
   for (const f of prevFindings || []) add(f, rulings[f && f.id])
   for (const f of prevAgain || []) add(f, f && f.rulings)
-  const given = new Set((state.revised || {}).given || [])
-  const bundled = (state.revised || {}).bundled || {}
-  const has = (m, f) => ((m || {})[f.doc] || []).includes(f.item_id)
-  const onlyRuling = (f) => !has(changed, f) || (!has(bundled, f) && ruled[key(f)].some((id) => given.has(id)))
+  const bundled = new Set(((state.pending || {}).bundles || []).map(itemKey))
+  const onlyRuling = (f) => !((changed || {})[f.doc] || []).includes(f.item_id) || !bundled.has(itemKey(f))
   return (findings || [])
     .filter((f) => f && f.id && ruled[key(f)] && onlyRuling(f))
     .map((f) => ({ id: f.id, doc: f.doc, item_id: f.item_id, direction: f.direction, rulings: ruled[key(f)] }))
@@ -937,9 +932,8 @@ async function frameFlow(label, lines, phaseTitle) {
 // （flow を変えた後の新しい組は recheckPairs が裁定に回すが、組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
 // 残り（閉じた未決を引く要素・覆された決定を引く要素・検証を通っていない要素・不合格）が 0 になるまで回し、減らなければ止める。
 let settling = 0
-// settleRuns: 同じ段で settle が 2 回目以降に走ったら label に .<回> を付ける（集計と /workflows の表示で区別する）。
-// freshFlow: settle が最後に検証した flow。settle の後の段の判断に、settle の前の stdout を使わないため。
-const settleRuns = {}
+// settleRuns は段に入るたびに数え直す（label をパスと再開で変えないため）。freshFlow は settle の後の判断に settle の前の stdout を使わないため。
+let settleRuns = {}
 let freshFlow = null
 async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const first = {
@@ -1417,6 +1411,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
     blocking: uniq(all.filter((f) => f.blocking).map((f) => f.id)),
     doc_blocking: docCheck && Number.isInteger(docCheck.blocking) ? docCheck.blocking : 0,
     findings: all.map((f) => ({ id: f.id, doc: f.doc, item_id: f.item_id, blocking: Boolean(f.blocking), route: f.route, direction: f.direction, origin: f.origin })),
+    carried: uniq(carried.filter((f) => f && f.blocking && !drop.has(f.id)).map((f) => f.id)),
     recurring,
     again: (opt.again || []).map((x) => ({ id: x.id, doc: x.doc, item_id: x.item_id, direction: x.direction, rulings: x.rulings })),
   }
@@ -1514,9 +1509,7 @@ async function stage7() {
   const carried = p.findings.filter((f) => unapplied.includes(f.id))
   if (carried.length) log(`改稿で当たらなかった指摘が ${carried.length} 件ある。次のパスへ持ち越します`)
   state.settled_written = uniq([...usableResolutions(state), ...(state.holds || [])])
-  const bundled = {}
-  for (const b of targets.flatMap((t) => t.bundles)) bundled[b.doc] = uniq([...(bundled[b.doc] || []), b.item_id])
-  state.revised = { changes, carried, docs: uniq(targets.flatMap((t) => t.unit.docs)), given: newSettled, bundled }
+  state.revised = { changes, carried, docs: uniq(targets.flatMap((t) => t.unit.docs)) }
   return '8'
 }
 
@@ -1574,10 +1567,10 @@ async function stage8() {
     state.notices = [...(state.notices || []), line]
     log(line)
   }
-  // 尽きた項目は経路に回らず、変わらなければ監査もされない。前の指摘を持ち越さないと blocking が黙って消え、done に届く。
-  const reported = new Set(findings.map(itemKey))
-  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reported.has(itemKey(f)) && !(changed[f.doc] || []).includes(f.item_id))
-  const recurring = recurringItems(prev.findings, [...findings, ...carried, ...stuck], again)
+  // 指摘ごとの役は持たず roles_by_item で代える（next_args の上限に収めるため）。
+  const reaudited = (f) => (state.roles_by_item[f.item_id] || []).every((role) => allPlan.some((p) => p.role === role && (p.doc === 'all' || p.doc === f.doc) && (p.items || []).includes(f.item_id)))
+  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reaudited(f))
+  const recurring = recurringItems(prev.findings, [...findings, ...carried], again)
   state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring, state) }
   const recurPrev = {}
   for (const k of recurring) recurPrev[k] = uniq(prev.findings.filter((f) => itemKey(f) === k).map((f) => f.id))
@@ -1628,7 +1621,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
     'Report'
   )
   if (r) absorbResolver(r)
-  const report = { report_path: `${W}/report.md`, remaining_blocking: state.pending.blocking, doc_blocking: state.pending.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
+  const report = { report_path: `${W}/report.md`, remaining_blocking: state.pending.blocking, carried_blocking: state.pending.carried, doc_blocking: state.pending.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
   if (r) {
     const kept = flowKept('final', r)
     if (kept) return blocked(kept.error, kept.rerun ? stage : null, report)
@@ -1651,6 +1644,7 @@ let outcome = null
 while (outcome === null) {
   running = next
   entryState = JSON.parse(JSON.stringify(state))
+  settleRuns = {}
   let r
   try {
     r = await STAGE_FNS[next]()

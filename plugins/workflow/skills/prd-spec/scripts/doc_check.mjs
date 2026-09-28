@@ -1391,33 +1391,19 @@ const WORKSPACE_TEXT = {
     issue: `判断 ${id} の入力「${name}」の from（${from || '無し'}）が flow の要素に無い。値を作る上流が分からないと、その値の集合が閉じているかを確かめられない。`,
     fix: 'from に、その値を作る上流の要素の ID を書く。',
   }),
-  FLOW_INPUT_BRANCH_MAP: (id, name, from) => ({
-    id: `ST-FLOW-INPUT-BRANCH-MAP-${id}-${name}`,
-    location: '工程の流れ（flow）',
-    quote: `${id}: ${name} ← ${from}`,
-    issue: `判断 ${id} の入力「${name}」の values が判断 ${from} の branches と違うのに、branch_map が ${from} のすべての branch を values の値に写していない。写し先の無い枝は、どのマスに入るかが決まらない。`,
-    fix: `branch_map に ${from} のすべての branch の値をキーにし、values の値を 1 つずつ書く（values を ${from} の branches と同じ集合にするなら branch_map は要らない）。`,
-  }),
-  FLOW_FAIL_MERGED: (id, name, from) => ({
-    id: `ST-FLOW-FAIL-MERGED-${id}-${name}`,
-    location: '工程の流れ（flow）',
-    quote: `${id}: ${name} ← ${from}`,
-    issue: `判断 ${id} の入力「${name}」の branch_map が、${from} の失敗の枝と失敗でない枝を同じ値に写している。「得られない」が集約で他の値に紛れ、判定表から消える。`,
-    fix: `branch_map で、${from} の失敗の枝の写る値に失敗でない枝を写さない（足りなければ values に値を足し、そのマスの case を出典付きで書く）。`,
-  }),
-  FLOW_AGGREGATE_FAILURE: (id, name, from) => ({
-    id: `ST-FLOW-AGGREGATE-FAILURE-${id}-${name}`,
-    location: '工程の流れ（flow）',
-    quote: `${id}: ${name} ← ${from}`,
-    issue: `判断 ${id} の入力「${name}」の from の工程 ${from} は、失敗の枝を持つ判断の結果を数える（aggregates）のに、failure_value が values の値を指していない。数えた後に「得られない」が残らない。`,
-    fix: `failure_value に、失敗が 1 件以上あったことを表す values の値を書き（無ければ values に足す）、そのマスの case を出典付きで書く。件数そのものの判定表は置かない。${from} の aggregates に判断でない ID があれば直す。`,
-  }),
   FLOW_FAIL_UNHANDLED: (id, both) => ({
     id: `ST-FLOW-FAIL-UNHANDLED-${id}`,
     location: '工程の流れ（flow）',
     quote: `${id}: obtain may_fail（${both ? '直後の成否の判断と on_fail の両方' : '直後の成否の判断も on_fail も無い'}）`,
     issue: `may_fail の要素 ${id} の失敗が値になる場所が 1 つに決まらない。場所が無ければ得られないときの行き先を誰も決めず、2 つあれば扱いが食い違う。`,
     fix: `次のどちらか 1 つだけにする。(a) ${id} の next を 1 つの判断だけにし、その判断の inputs に from が ${id} で unknown を持つ入力を置く。(b) ${id} に on_fail: { as: 値が得られないときに下流へ渡す値, source: { input } か { decision } } を書く。`,
+  }),
+  FLOW_ON_FAIL_AS: (id) => ({
+    id: `ST-FLOW-ON-FAIL-AS-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: on_fail`,
+    issue: `要素 ${id} の on_fail に as（値が得られないときに下流へ渡す値）が無いか空である。渡す値が無いと、得られないときのマスがどの表にも無い。`,
+    fix: `on_fail を { as: 空でない値, source: { input } か { decision } } にする。on_fail で扱わないなら欄ごと消す（null を送る）。`,
   }),
   FLOW_INPUT_ON_FAIL: (id, name, as) => ({
     id: `ST-FLOW-INPUT-ON-FAIL-${id}-${name}`,
@@ -1440,12 +1426,12 @@ const WORKSPACE_TEXT = {
     issue: `判断 ${id} の入力「${name}」の from は直後の成否の判断で失敗を扱う may_fail の要素で、${id} はその判断自身か失敗の枝の先にあるのに、unknown が values の 1 つを指していない。値が得られないときのマスが表に無く、誰も行き先を決めない。`,
     fix: `unknown に、値が得られないときに当たる values の値を書く（無ければ values に足す）。そのマスの case を出典付きで書く。`,
   }),
-  FLOW_UNKNOWN_CASE: (id, name, combo) => ({
+  FLOW_UNKNOWN_CASE: (id, name, combo, value) => ({
     id: `ST-FLOW-UNKNOWN-CASE-${id}-${name}-${combo}`,
     location: '工程の流れ（flow）',
     quote: `${id}: ${combo}`,
     issue: `判断 ${id} の入力「${name}」が得られないときの組み合わせ「${combo}」を、その値を明示した case が受けていない（上記以外か * に任せている）。得られないときの行き先を誰も選ばない。`,
-    fix: `when の「${name}」に unknown の値そのものを書いた case を、出典付きで足す。`,
+    fix: `when の「${name}」に「${value}」そのものを書いた case を、出典付きで足す。`,
   }),
   FLOW_CASE_BRANCH: (id, no, branch) => ({
     id: `ST-FLOW-CASE-BRANCH-${id}-${no}`,
@@ -1679,17 +1665,17 @@ const LEDGERS = {
     file: () => 'flow.json',
     lists: { elements: 'id', kinds: 'name' },
     scalars: { closure: 'string' },
-    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by', 'obtain', 'effect', 'on_fail', 'aggregates'], kinds: ['name', 'definition'] },
+    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by', 'obtain', 'effect', 'on_fail'], kinds: ['name', 'definition'] },
     enums: { elements: { obtain: ['always', 'may_fail'], effect: ['read', 'reversible', 'destructive'] } },
     cases: {
       elements: [
         {
           by: (el) => (FLOW_TYPES.includes(el.type) ? el.type : OUT_OF_TYPE),
           rows: {
-            input: { never: ['branches', 'inputs', 'cases', 'effect', 'aggregates'] },
+            input: { never: ['branches', 'inputs', 'cases', 'effect'] },
             step: { never: ['branches', 'inputs', 'cases'] },
-            decision: { never: ['next', 'effect', 'obtain', 'on_fail', 'aggregates'] },
-            output: { never: ['branches', 'inputs', 'cases', 'effect', 'obtain', 'on_fail', 'aggregates'] },
+            decision: { never: ['next', 'effect', 'obtain', 'on_fail'] },
+            output: { never: ['branches', 'inputs', 'cases', 'effect', 'obtain', 'on_fail'] },
             [OUT_OF_TYPE]: {},
           },
         },
@@ -2492,9 +2478,9 @@ function flowSourceCompact(flow, decisionIds, openIds, inv) {
 
 const OBTAIN = LEDGERS.flow.enums.elements.obtain
 
-// failBranches: 判断の失敗の枝。unknown の値を when に書いた case の branch（上記以外と * は、得られないときの行き先を選んだことにならない）。
-function failBranches(el) {
-  const unknowns = (Array.isArray(el.inputs) ? el.inputs : []).filter((i) => i && i.unknown != null && Array.isArray(i.values) && i.values.map(String).includes(String(i.unknown)))
+// failBranches: 判断 el の、要素 x の失敗の枝（上記以外と * は、得られないときの行き先を選んだことにならない）。
+function failBranches(el, x) {
+  const unknowns = (Array.isArray(el.inputs) ? el.inputs : []).filter((i) => i && i.from === x && i.unknown != null && Array.isArray(i.values) && i.values.map(String).includes(String(i.unknown)))
   const cases = Array.isArray(el.cases) ? el.cases : []
   return new Set(cases.filter((c) => c && c.when && typeof c.when === 'object' && unknowns.some((i) => Object.hasOwn(c.when, i.name) && String(c.when[i.name]) === String(i.unknown))).map((c) => String(c.branch)))
 }
@@ -2506,18 +2492,17 @@ function flowTableCompact(flow) {
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
   const byId = new Map(els.map((el) => [el.id, el]))
   const nextOf = (el) => [...(Array.isArray(el.next) ? el.next : []), ...(el.type === 'decision' && Array.isArray(el.branches) ? el.branches.map((b) => b && b.next) : [])].filter((x) => byId.has(x))
-  const reach = (starts) => {
+  const reach = (starts, stop) => {
     const seen = new Set()
-    const queue = starts.filter((x) => byId.has(x))
+    const queue = starts.filter((x) => byId.has(x) && x !== stop)
     while (queue.length) {
       const id = queue.shift()
       if (seen.has(id)) continue
       seen.add(id)
-      queue.push(...nextOf(byId.get(id)))
+      queue.push(...nextOf(byId.get(id)).filter((x) => x !== stop))
     }
     return seen
   }
-  const failOf = new Map(els.filter((x) => x.type === 'decision').map((d) => [d.id, failBranches(d)]))
   // 失敗が値になる場所は may_fail の要素ごとに 1 つ: (a) next が 1 つの判断で、それが unknown 付きでこの要素を読む。(b) on_fail.as。
   // 下流への伝播は計算しない（制御の流れで伝えると、失敗を使わない判断で止まり、処理済みの失敗を越えて伝わる）。
   const handled = new Map()
@@ -2525,10 +2510,17 @@ function flowTableCompact(flow) {
     const next = Array.isArray(el.next) ? el.next : []
     const d = next.length === 1 ? byId.get(next[0]) : null
     const a = Boolean(d && d.type === 'decision' && (Array.isArray(d.inputs) ? d.inputs : []).some((i) => i && i.from === el.id && i.unknown != null))
-    const b = Boolean(el.on_fail && typeof el.on_fail === 'object' && String(el.on_fail.as ?? '').trim())
+    const b = el.on_fail != null
+    const as = b && typeof el.on_fail === 'object' && !Array.isArray(el.on_fail) && String(el.on_fail.as ?? '').trim() ? String(el.on_fail.as) : null
+    if (b && as === null) out.push({ c: 'FLOW_ON_FAIL_AS', d: 'flow', a: [el.id] })
     if (a === b) out.push({ c: 'FLOW_FAIL_UNHANDLED', d: 'flow', a: [el.id, a] })
-    else if (b) handled.set(el.id, { as: String(el.on_fail.as) })
-    else handled.set(el.id, { at: new Set([d.id, ...reach((d.branches || []).filter((x) => x && failOf.get(d.id).has(String(x.value))).map((x) => x.next))]) })
+    else if (b) {
+      if (as !== null) handled.set(el.id, { as })
+    } else {
+      const fails = failBranches(d, el.id)
+      // 再試行で el に戻る枝の先は、el の次の試行なので失敗の枝の先に数えない。
+      handled.set(el.id, { at: new Set([d.id, ...reach((d.branches || []).filter((x) => x && fails.has(String(x.value))).map((x) => x.next), el.id)]) })
+    }
   }
   const usedBy = new Map()
   for (const el of els.filter((x) => x.type === 'decision')) {
@@ -2559,28 +2551,11 @@ function flowTableCompact(flow) {
         continue
       }
       const values = inp.values.map(String)
-      const at = [el.id, String(inp.name), from.id]
-      if (from.type === 'decision') {
-        const branches = [...new Set((Array.isArray(from.branches) ? from.branches : []).map((b) => b && String(b.value)))]
-        if (branches.length === new Set(values).size && values.every((v) => branches.includes(v))) continue
-        const map = inp.branch_map && typeof inp.branch_map === 'object' && !Array.isArray(inp.branch_map) ? inp.branch_map : {}
-        if (branches.some((v) => !Object.hasOwn(map, v) || !values.includes(String(map[v]))) || Object.keys(map).some((k) => !branches.includes(k))) {
-          out.push({ c: 'FLOW_INPUT_BRANCH_MAP', d: 'flow', a: at })
-          continue
-        }
-        const fails = failOf.get(from.id)
-        const failValues = new Set([...fails].map((v) => String(map[v])))
-        if (branches.some((v) => !fails.has(v) && failValues.has(String(map[v])))) out.push({ c: 'FLOW_FAIL_MERGED', d: 'flow', a: at })
-        continue
-      }
+      if (from.type === 'decision') continue
       if (!OBTAIN.includes(from.obtain)) out.push({ c: 'FLOW_OBTAIN_MISSING', d: 'flow', a: [from.id, String(from.obtain ?? '')] })
       const h = from.obtain === 'may_fail' && handled.get(from.id)
       if (h && h.as !== undefined && !values.includes(h.as)) out.push({ c: 'FLOW_INPUT_ON_FAIL', d: 'flow', a: [el.id, String(inp.name), h.as] })
       if (h && h.at && h.at.has(el.id) && (inp.unknown == null || !values.includes(String(inp.unknown)))) out.push({ c: 'FLOW_INPUT_UNKNOWN', d: 'flow', a: [el.id, String(inp.name), String(inp.unknown ?? '')] })
-      // 判断でない ID を挙げた aggregates は、失敗の枝を持つ判断を数えるものとして扱う（誤記で検査が外れないように）。
-      const counted = from.type === 'step' && Array.isArray(from.aggregates) ? from.aggregates.map(String) : []
-      const countsFailure = counted.some((id) => !failOf.has(id) || failOf.get(id).size)
-      if (countsFailure && (inp.failure_value == null || !values.includes(String(inp.failure_value)))) out.push({ c: 'FLOW_AGGREGATE_FAILURE', d: 'flow', a: at })
     }
     const names = inputs.map((i) => String(i.name))
     const isElse = (c) => Boolean(c && c.when && c.when['上記以外'])
@@ -2603,13 +2578,16 @@ function flowTableCompact(flow) {
       if (f.kind === 'overlap') out.push({ c: 'FLOW_DT_OVERLAP', d: 'flow', a: [el.id, f.combo, f.a, f.b] })
     }
     if (found.some((f) => f.kind === 'too_many')) continue
-    // unknown のマスは、その値を when に書いた case だけが受ける（上記以外と * は、得られないときの行き先を選んだことにならない）。
+    // 得られないときの値（unknown と on_fail.as）のマスは、その値を when に書いた case だけが受ける（上記以外と * は、得られないときの行き先を選んだことにならない）。
+    const gaps = new Set(found.filter((f) => f.kind === 'gap').map((f) => f.combo))
     inputs.forEach((inp, at) => {
-      if (inp.unknown == null || !inp.values.map(String).includes(String(inp.unknown))) return
-      const only = conds.map((c, ci) => (ci === at ? { ...c, values: [String(inp.unknown)] } : c))
-      const explicit = rows.filter((r) => r.vals[at] === String(inp.unknown))
-      const gaps = new Set(found.filter((f) => f.kind === 'gap').map((f) => f.combo))
-      for (const f of tableFindings(only, explicit, false)) if (f.kind === 'gap' && !gaps.has(f.combo)) out.push({ c: 'FLOW_UNKNOWN_CASE', d: 'flow', a: [el.id, String(inp.name), f.combo] })
+      const h = handled.get(inp.from)
+      for (const v of new Set([inp.unknown, h && h.as].filter((x) => x != null).map(String))) {
+        if (!inp.values.map(String).includes(v)) continue
+        const only = conds.map((c, ci) => (ci === at ? { ...c, values: [v] } : c))
+        const explicit = rows.filter((r) => r.vals[at] === v)
+        for (const f of tableFindings(only, explicit, false)) if (f.kind === 'gap' && !gaps.has(f.combo)) out.push({ c: 'FLOW_UNKNOWN_CASE', d: 'flow', a: [el.id, String(inp.name), f.combo, v] })
+      }
     })
   }
   return out

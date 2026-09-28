@@ -25,24 +25,5 @@
   {"id": "F-005", "type": "decision", "kind": "k", "label": "F-005", "source": {"input": "依頼文"}, "inputs": [{"name": "値", "values": ["p", "q"], "from": "F-002"}], "cases": [{"when": {"値": "p"}, "branch": "p", "source": {"input": "依頼文"}}, {"when": {"値": "q"}, "branch": "q", "source": {"input": "依頼文"}}], "branches": [{"value": "p", "next": "F-090"}, {"value": "q", "next": "F-091"}]},
   {"id": "F-090", "type": "output", "kind": "k", "label": "F-090", "source": {"input": "依頼文"}},
   {"id": "F-091", "type": "output", "kind": "k", "label": "F-091", "source": {"input": "依頼文"}}
- ]},
- "f024": {"elements": [
-  {"id": "F-001", "type": "input", "kind": "k", "label": "F-001", "next": ["F-002"], "source": {"input": "依頼文"}, "obtain": "always"},
-  {"id": "F-002", "type": "step", "kind": "k", "label": "F-002", "next": ["F-003"], "source": {"input": "依頼文"}, "obtain": "may_fail", "effect": "read"},
-  {"id": "F-003", "type": "decision", "kind": "k", "label": "F-003", "source": {"input": "依頼文"}, "inputs": [{"name": "取り込み", "values": ["済み", "無し", "確認できない"], "from": "F-002", "unknown": "確認できない"}], "cases": [{"when": {"取り込み": "済み"}, "branch": "取り込み済み", "source": {"input": "依頼文"}}, {"when": {"取り込み": "無し"}, "branch": "残す", "source": {"input": "依頼文"}}, {"when": {"取り込み": "確認できない"}, "branch": "要判断", "source": {"input": "依頼文"}}], "branches": [{"value": "取り込み済み", "next": "F-004"}, {"value": "残す", "next": "F-004"}, {"value": "要判断", "next": "F-007"}]},
-  {"id": "F-007", "type": "step", "kind": "k", "label": "F-007", "next": ["F-004"], "source": {"input": "依頼文"}, "obtain": "always", "effect": "read"},
-  {"id": "F-004", "type": "decision", "kind": "k", "label": "F-004", "source": {"input": "依頼文"}, "inputs": [{"name": "ローカルの要判断", "values": ["0 件", "1 件以上"], "from": "F-003", "branch_map": {"取り込み済み": "0 件", "残す": "0 件", "要判断": "1 件以上"}}], "cases": [{"when": {"ローカルの要判断": "0 件"}, "branch": "0 件", "source": {"input": "依頼文"}}, {"when": {"ローカルの要判断": "1 件以上"}, "branch": "1 件以上", "source": {"input": "依頼文"}}], "branches": [{"value": "0 件", "next": "F-090"}, {"value": "1 件以上", "next": "F-091"}]},
-  {"id": "F-090", "type": "output", "kind": "k", "label": "F-090", "source": {"input": "依頼文"}},
-  {"id": "F-091", "type": "output", "kind": "k", "label": "F-091", "source": {"input": "依頼文"}}
- ]},
- "b_step": {"elements": [
-  {"id": "F-001", "type": "input", "kind": "k", "label": "F-001", "next": ["F-002"], "source": {"input": "依頼文"}, "obtain": "always"},
-  {"id": "F-002", "type": "step", "kind": "k", "label": "F-002", "next": ["F-003"], "source": {"input": "依頼文"}, "obtain": "may_fail", "effect": "read"},
-  {"id": "F-003", "type": "decision", "kind": "k", "label": "F-003", "source": {"input": "依頼文"}, "inputs": [{"name": "取り込み", "values": ["済み", "無し", "確認できない"], "from": "F-002", "unknown": "確認できない"}], "cases": [{"when": {"取り込み": "済み"}, "branch": "取り込み済み", "source": {"input": "依頼文"}}, {"when": {"取り込み": "無し"}, "branch": "残す", "source": {"input": "依頼文"}}, {"when": {"取り込み": "確認できない"}, "branch": "要判断", "source": {"input": "依頼文"}}], "branches": [{"value": "取り込み済み", "next": "F-004"}, {"value": "残す", "next": "F-004"}, {"value": "要判断", "next": "F-007"}]},
-  {"id": "F-007", "type": "step", "kind": "k", "label": "F-007", "next": ["F-004"], "source": {"input": "依頼文"}, "obtain": "always", "effect": "read"},
-  {"id": "F-004", "type": "step", "kind": "k", "label": "F-004", "next": ["F-005"], "source": {"input": "依頼文"}, "obtain": "always", "effect": "read", "aggregates": ["F-003"]},
-  {"id": "F-005", "type": "decision", "kind": "k", "label": "F-005", "source": {"input": "依頼文"}, "inputs": [{"name": "ローカルの要判断", "values": ["0 件", "1 件以上", "確認できないものあり"], "from": "F-004", "failure_value": "確認できないものあり"}], "cases": [{"when": {"ローカルの要判断": "0 件"}, "branch": "0 件", "source": {"input": "依頼文"}}, {"when": {"ローカルの要判断": "1 件以上"}, "branch": "1 件以上", "source": {"input": "依頼文"}}, {"when": {"ローカルの要判断": "確認できないものあり"}, "branch": "確認できないものあり", "source": {"input": "依頼文"}}], "branches": [{"value": "0 件", "next": "F-090"}, {"value": "1 件以上", "next": "F-091"}, {"value": "確認できないものあり", "next": "F-091"}]},
-  {"id": "F-090", "type": "output", "kind": "k", "label": "F-090", "source": {"input": "依頼文"}},
-  {"id": "F-091", "type": "output", "kind": "k", "label": "F-091", "source": {"input": "依頼文"}}
  ]}
 }

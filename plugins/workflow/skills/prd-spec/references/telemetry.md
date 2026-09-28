@@ -20,7 +20,7 @@ session とともに消え、次の改善で同じ抽出を手でやり直すこ
     leg ごとに異なるため合算してよい）。
   - **終端 leg だけを採る**: `TERMINAL_FIELDS` の欄（`prd.js` の `state` が run を通じて積み上がる
     値なので、合算すると二重に数える）。
-  - `holds`・`hold_drafts`・`remaining_blocking` の意味と互いの関係は `references/workflow-io.md` §3 を正とする
+  - `holds`・`hold_drafts`・`remaining_blocking`・`carried_blocking` の意味と互いの関係は `references/workflow-io.md` §3 を正とする
     （件数を足し合わせる前に読む）。
   - `integrity` は照合の食い違い、`notices` は照合ではない所見（W に所有表に無いファイルが
     あった、など）で、別の件数として数える。`goal_selector.py` の R4 は `integrity_count`

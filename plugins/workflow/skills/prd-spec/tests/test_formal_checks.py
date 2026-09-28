@@ -431,7 +431,7 @@ class FlowTable(unittest.TestCase):
         flow = _f051_flow(values=("true", "false", "不明"), unknown="不明")
         cases = _el(flow, "F-051")["cases"]
         cases.append({"when": {"上記以外": True}, "branch": "なし", "source": {"input": "依頼文"}})
-        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-051", "current_branch_open_pr", "current_branch_open_pr=不明"])])
+        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-051", "current_branch_open_pr", "current_branch_open_pr=不明", "不明"])])
         cases[-1]["when"] = {"current_branch_open_pr": "不明"}
         self.assertEqual(_flow_table(flow), [])
 
@@ -459,7 +459,7 @@ class FlowTable(unittest.TestCase):
             {"id": "F-004", "type": "output", "kind": "k", "label": "o", "source": src},
             {"id": "F-005", "type": "output", "kind": "k", "label": "o2", "source": src},
         ]}
-        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-003", "b", "a=x, b=不明"])])
+        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-003", "b", "a=x, b=不明", "不明"])])
 
     def test_契約の例の判定表は検査を通る(self):
         text = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
@@ -523,33 +523,54 @@ class FlowFailHandling(unittest.TestCase):
         _el(flow, "F-002")["on_fail"] = {"as": "取れない", "source": {"input": "依頼文"}}
         self.assertIn(("FLOW_FAIL_UNHANDLED", ["F-002", True]), _flow_table(flow))
 
-    def test_判断を読む入力はbranchesと同じ値かbranch_mapが要る(self):
-        flow = _shape("f024")
-        self.assertEqual(_flow_table(flow), [], "失敗の枝が集約の後も独立した値に写る F-024 の形は通る")
-        inp = _el(flow, "F-004")["inputs"][0]
-        del inp["branch_map"]["残す"]
-        self.assertEqual(_flow_table(flow), [("FLOW_INPUT_BRANCH_MAP", ["F-004", "ローカルの要判断", "F-003"])])
-        del inp["branch_map"]
-        self.assertEqual(_flow_table(flow), [("FLOW_INPUT_BRANCH_MAP", ["F-004", "ローカルの要判断", "F-003"])])
-        inp["values"] = ["取り込み済み", "残す", "要判断"]
-        _el(flow, "F-004")["cases"] = [{"when": {"ローカルの要判断": v}, "branch": b, "source": {"input": "依頼文"}}
-                                       for v, b in (("取り込み済み", "0 件"), ("残す", "0 件"), ("要判断", "1 件以上"))]
-        self.assertEqual(_flow_table(flow), [], "branches と同じ値なら宣言は要らない")
-
-    def test_失敗の枝と失敗でない枝を同じ値に写すとFLOW_FAIL_MERGED(self):
-        flow = _shape("f024")
-        _el(flow, "F-004")["inputs"][0]["branch_map"]["要判断"] = "0 件"
-        self.assertEqual(_codes(_flow_table(flow), "FLOW_FAIL_MERGED"), [["F-004", "ローカルの要判断", "F-003"]])
-
-    def test_失敗の枝を持つ判断を数える工程を読む入力はfailure_valueが要る(self):
-        flow = _shape("b_step")
+    def test_再試行で要素に戻る失敗の枝の先の成功側にunknownを求めない(self):
+        flow = _shape("after_check")
+        f3 = _el(flow, "F-003")
+        f3["branches"] = [{"value": "成功", "next": "F-004"}, {"value": "失敗", "next": "F-002"}]
+        flow["elements"] = [el for el in flow["elements"] if el["id"] != "F-005"]
         self.assertEqual(_flow_table(flow), [])
-        del _el(flow, "F-005")["inputs"][0]["failure_value"]
-        self.assertEqual(_flow_table(flow), [("FLOW_AGGREGATE_FAILURE", ["F-005", "ローカルの要判断", "F-004"])])
-        _el(flow, "F-004")["aggregates"] = ["F-404"]
-        self.assertEqual(_codes(_flow_table(flow), "FLOW_AGGREGATE_FAILURE"), [["F-005", "ローカルの要判断", "F-004"]], "判断でない ID でも外れない")
-        del _el(flow, "F-004")["aggregates"]
-        self.assertEqual(_flow_table(flow), [], "aggregates の無い数える工程は見ていない（resolver-verifier の観点）")
+        f3["branches"][1]["next"] = "F-007"
+        flow["elements"].append({"id": "F-007", "type": "step", "kind": "k", "label": "待つ", "next": ["F-002"], "source": {"input": "依頼文"}, "obtain": "always", "effect": "read"})
+        self.assertEqual(_flow_table(flow), [], "待つ工程を挟んでも同じ")
+
+    def test_失敗の枝はfromがその要素の入力のunknownだけで決まる(self):
+        flow = _shape("after_check")
+        flow["elements"].insert(0, {"id": "F-006", "type": "input", "kind": "k", "label": "F-006", "next": ["F-001"], "source": {"input": "依頼文"},
+                                    "obtain": "may_fail", "on_fail": {"as": "無し", "source": {"input": "依頼文"}}})
+        f3 = _el(flow, "F-003")
+        f3["inputs"].append({"name": "y", "values": ["有り", "無し"], "from": "F-006", "unknown": "無し"})
+        f3["cases"] = [{"when": {"取得": t, "y": y}, "branch": b, "source": {"input": "依頼文"}}
+                       for t, y, b in (("取れた", "有り", "成功"), ("取れた", "無し", "y無し"), ("取れない", "有り", "失敗"), ("取れない", "無し", "失敗"))]
+        f3["branches"] = [{"value": "成功", "next": "F-004"}, {"value": "失敗", "next": "F-091"}, {"value": "y無し", "next": "F-005"}]
+        self.assertEqual(_flow_table(flow), [], "F-006 の失敗の枝の先の F-005 に、F-002 の unknown を求めない")
+
+    def test_on_failのasが空ならFLOW_ON_FAIL_AS(self):
+        flow = _shape("ws_on_fail")
+        _el(flow, "F-004")["on_fail"]["as"] = " "
+        self.assertEqual(_flow_table(flow), [("FLOW_ON_FAIL_AS", ["F-004"])])
+        _el(flow, "F-004")["on_fail"] = "取れない"
+        self.assertEqual(_flow_table(flow), [("FLOW_ON_FAIL_AS", ["F-004"])])
+
+    def test_直後の判断と空のon_failの両方もFLOW_FAIL_UNHANDLED(self):
+        flow = _shape("after_check")
+        _el(flow, "F-002")["on_fail"] = {"as": " ", "source": {"input": "依頼文"}}
+        self.assertEqual(_codes(_flow_table(flow), "FLOW_FAIL_UNHANDLED"), [["F-002", True]])
+
+    def test_on_failのasのマスを上記以外に任せるとFLOW_UNKNOWN_CASE(self):
+        flow = _shape("ws_on_fail")
+        f17 = _el(flow, "F-017")
+        f17["inputs"][0] = {"name": "primary か", "values": ["primary", "それ以外", "取れない"], "from": "F-004"}
+        f17["cases"].append({"when": {"上記以外": True}, "branch": "それ以外", "source": {"input": "依頼文"}})
+        self.assertEqual(_flow_table(flow), [("FLOW_UNKNOWN_CASE", ["F-017", "primary か", "primary か=取れない", "取れない"])])
+        f17["cases"][-1]["when"] = {"primary か": "取れない"}
+        self.assertEqual(_flow_table(flow), [])
+
+    def test_判断を読む入力の値はdoc_checkが見ない(self):
+        flow = _shape("after_check")
+        f4 = _el(flow, "F-004")
+        f4["inputs"] = [{"name": "分類", "values": ["p", "q"], "from": "F-003"}]
+        f4["cases"] = [{"when": {"分類": "p"}, "branch": "p", "source": {"input": "依頼文"}}, {"when": {"分類": "q"}, "branch": "q", "source": {"input": "依頼文"}}]
+        self.assertEqual(_flow_table(flow), [("FLOW_INPUT_UNKNOWN", ["F-005", "値", ""])], "F-003 の枝（成功・失敗）と違う値でも、集約は resolver-verifier が見る")
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

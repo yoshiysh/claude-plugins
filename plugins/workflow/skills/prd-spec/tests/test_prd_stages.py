@@ -1571,6 +1571,32 @@ class Convergence(unittest.TestCase):
         self.assertEqual(res["remaining_blocking"], ["r4-gr-requirements__x-001"])
         self.assertIn(f"尽きた項目: {self.KEY}", res["reason"])
 
+    def _exhausted_cd(self, seq, diff, r5=None):
+        # r1〜r4 の crossDoc が PR-X-001 に毎回違う向きの blocking を出して尽き、r4 の PR-X-002 で 4 パス目に進む。
+        findings = {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": self.DIRECTIONS[0]}]}
+        for k in range(2, 5):
+            findings[f"crossDoc:r{k}"] = [{"id": f"r{k}-cd-all-001", "direction": self.DIRECTIONS[k - 1]}]
+        findings["grounding:r4"] = [{"id": "r4-gr-requirements__x-002", "item_id": "PR-X-002"}]
+        findings.update(r5 or {})
+        rulings = {f"RS-01{k}": {"finding": f"r{k + 1}-cd-all-001"} for k in range(4)}
+        return run({"args": args(), "findings": findings, "ruled_seq_at": {"6": [[rs] for rs in rulings]}, "about": rulings,
+                    "writer_changed_seq": seq, "diff": diff})["result"]
+
+    def test_尽きた項目は指摘を出した役が再監査して指摘しなければ落ちる(self):
+        seq = [["PR-X-001"]] * 3 + [["PR-X-001", "PR-X-002"]]
+        res = self._exhausted_cd(seq, {f"r{i + 2}": c for i, c in enumerate(seq)})
+        self.assertEqual((res["status"], res["item_routes"]), ("done", {self.KEY: "exhausted"}))
+
+    def test_尽きた項目は指摘を出した役が再監査しなければ他の役が監査しても落ちない(self):
+        # 4 パス目の申告は PR-X-002 だけで、PR-X-001 の変更は申告に無い。追加の監査は implementer と grounding で（grounding は PR-X-001 に別の指摘を出す）、crossDoc は見ていない。
+        seq = [["PR-X-001"]] * 3 + [["PR-X-002"]]
+        diff = {f"r{i + 2}": c for i, c in enumerate(seq)}
+        diff["r5"] = ["PR-X-001", "PR-X-002"]
+        other = {"grounding:r5:requirements/x": [{"id": "r5-gr-requirements__x-001", "blocking": False}]}
+        res = self._exhausted_cd(seq, diff, other)
+        self.assertEqual((res["status"], res["stop_reason"], res["remaining_blocking"]), ("blocked", "no_progress", ["r4-cd-all-001"]))
+        self.assertEqual(res["carried_blocking"], ["r4-cd-all-001"], "最後のパスの監査が出した指摘ではない")
+
     def test_doc_checkのblockingだけが残るときは上限まで回す(self):
         fixed = run({"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}]}, "doc_blocking_at": {"r2": 1}})["result"]
         self.assertEqual((fixed["status"], fixed["passes"]), ("done", 2), "doc_check が増えても 1 パス目で進展なしにしない")
@@ -1606,6 +1632,19 @@ class Convergence(unittest.TestCase):
         self.assertFalse(any("r3-gr-requirements__x-001" in x["prompt"] for x in turned["prompts"] if x["label"].startswith("writer:")))
         bundled = self._reraise([], r1_writer=True)["result"]
         self.assertEqual(bundled["item_routes"], {self.KEY: "decision"}, "同じパスで writer の指摘も渡した項目の変更は、裁定を当てただけとは言えない")
+
+    def test_writerの指摘を渡していない項目の変更は裁定を渡した時期によらず再出にする(self):
+        # PR-X-001 を 2 パス目の改稿が doc_check の指摘のために変える（裁定 RS-010 を渡したのは 1 パス目）。
+        again = [{"id": "r3-gr-requirements__x-001", "direction": "tighten"}]
+        for seq in ([["PR-X-001"], ["PR-X-001", "PR-X-002"]], [["PR-X-001"], ["PR-X-002"]]):
+            with self.subTest(seq=seq):
+                spec = {"args": args(), "ruled_seq_at": {"6": [["RS-010"]]}, "about": {"RS-010": {"finding": "r1-cd-all-001"}}, "doc_blocking_at": {"r2": 1},
+                        "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": "tighten"}],
+                                     "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": "tighten"}, {"id": "r2-gr-requirements__x-002", "item_id": "PR-X-002"}],
+                                     "grounding:r3": again},
+                        "writer_changed_seq": seq, "diff": {f"r{i + 2}": c for i, c in enumerate(seq)}}
+                res = run(spec)["result"]
+                self.assertIn("監査 r3: 既裁定の再出（再発に数えない）: r3-gr-requirements__x-001 ← RS-010", res["notices"])
 
     def test_再出した項目を後で監査する監査役に前の裁定のIDを渡す(self):
         r = self._reraise([], [["PR-X-001"], ["PR-X-001"]])
@@ -1670,6 +1709,26 @@ class Convergence(unittest.TestCase):
         r = self._questions_rework(ruled_at={"3": ["RS-005"]}, open_only_at={"3v": [{"el": "F-091", "open": "O-RS-005"}]})
         self.assertEqual([l for l in r["labels"] if l.startswith("flow-framer:")], ["flow-framer:3-settle", "flow-framer:3.2-settle"])
         self.assertIn("verifier:3.2v-settle", r["labels"])
+
+    def _settle_each_pass(self, **kw):
+        # 段 6 が毎パス O- を閉じ、その O- を引く要素を settle が直す。
+        about = {"RS-010": {"finding": "r1-cd-all-001"}, "RS-011": {"finding": "r2-gr-requirements__x-001"}}
+        findings = {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision", "direction": "remove"}],
+                    "grounding:r2": [{"id": "r2-gr-requirements__x-001", "direction": "make_measurable"}]}
+        spec = {"args": args(), "findings": findings, "ruled_seq_at": {"6": [["RS-010", "RS-090"], ["RS-011", "RS-091"]]}, "about": about,
+                "open_only_at": {"6v": [{"el": "F-091", "open": "O-RS-090"}, {"el": "F-092", "open": "O-RS-091"}]},
+                "writer_changed_seq": [["PR-X-001"], ["PR-X-001"]], "diff": {"r2": ["PR-X-001"], "r3": ["PR-X-001"]}}
+        spec.update(kw)
+        return run(spec)
+
+    def test_settleのlabelはパスと再開で変わらない(self):
+        whole = self._settle_each_pass()
+        settles = lambda r: [l for l in r["labels"] if "settle" in l]
+        self.assertEqual(settles(whole), ["flow-framer:6-settle", "verifier:6v-settle"] * 2)
+        stopped = self._settle_each_pass(null_labels=["grounding:r2:requirements/x", "grounding:r2:requirements/x#retry"])["result"]
+        resumed = self._settle_each_pass(args=stopped["next_args"], ruled_seq_at={"6": [["RS-011", "RS-091"]]})
+        self.assertEqual(resumed["result"]["status"], "done")
+        self.assertEqual(settles(resumed), ["flow-framer:6-settle", "verifier:6v-settle"])
 
     def test_settleの中の差し戻しの出口ではsettleを入れ子にしない(self):
         spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "questions_at": {"3": ["RS-002"]},
@@ -1746,6 +1805,30 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual(state["pass"], MAX_AUDIT_PASSES)
         self.assertEqual(state["item_routes"], {f"{self.DOC}#{it}": "exhausted" for it in items})
         self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
+
+
+    def test_段8で裁定を持って止まったnext_argsも上限に収まる(self):
+        # G1 と同じ規模で回答を当て、改稿の後の監査役が応答しない。existing は段 5 が settled_written を空にするので、全 resolution を改稿に渡す。
+        rs = lambda a, b: [f"RS-{i:03d}" for i in range(a, b + 1)]
+        units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
+        writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
+        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
+        items = ["PR-CLEANUP-BRANCHES-001"] * 3 + ["PR-CLEANUP-BRANCHES-002"] * 3 + ["PR-CLEANUP-BRANCHES-003"] * 2
+        common = {"units": units, "long_digests": True, "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
+                  "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
+                  "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
+                  "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]}}
+        auditor = f"grounding:r2:{self.DOC}"
+        for entry in ("new", "existing"):
+            with self.subTest(entry=entry):
+                a = args() if entry == "new" else args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
+                g0 = run({"args": a, "units": units, "flow_open": 1, "long_digests": True, "ruled_at": {"3": rs(1, 12)}, "questions_at": {"3": rs(13, 21)},
+                          "verifier_extra_pass": {"3v": [f"D-{i:03d}" for i in range(1, 56)]}})["result"]
+                g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
+                g1 = run({"args": g02["next_args"], **common, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)}, "questions_at": {"6": rs(23, 25)}})["result"]
+                res = run({"args": g1["next_args"], **common, "ruled_at": {"3a'": rs(23, 25)}, "null_labels": [auditor, auditor + "#retry"]})["result"]
+                self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
+                self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
 
 
 # 段ごとに、その段を通るシナリオと、その段で最初に起動する agent の label。

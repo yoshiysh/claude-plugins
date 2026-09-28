@@ -197,7 +197,7 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"recurringItems({json.dumps(prev)}, {json.dumps([self._f('n1', origin='flow')])})"), ["requirements/a#PR-A-001"])
         self.assertEqual(value(f"recurringItems({json.dumps(prev)}, {json.dumps(now)}, [{{id: 'n1'}}])"), [], "既裁定の再出は数えない")
 
-    def test_reRaisedは合格した裁定と同じdirectionで変わっていない項目の指摘だけを返す(self):
+    def test_reRaisedは合格した裁定と同じdirectionでwriterの指摘を渡して変えた項目でない指摘だけを返す(self):
         prev = [self._f("p1")]
         state = {"about": {"RS-1": "finding:p1"}, "passed": ["RS-1"]}
         again = lambda st, now, changed={}: value(f"reRaised({json.dumps(prev)}, [], {json.dumps(now)}, {json.dumps(st)}, {json.dumps(changed)})")
@@ -205,14 +205,11 @@ class Pure(unittest.TestCase):
         for name, st, now, changed in (
             ("裁定が合格していない", {**state, "passed": []}, [self._f("n1")], {}),
             ("direction が違う", state, [self._f("n1", direction="relax")], {}),
-            ("項目を改稿で変えた", state, [self._f("n1")], {"requirements/a": ["PR-A-001"]}),
+            ("writer の指摘を渡した項目を改稿で変えた", {**state, "pending": {"bundles": [{"doc": "requirements/a", "item_id": "PR-A-001"}]}}, [self._f("n1")], {"requirements/a": ["PR-A-001"]}),
         ):
             with self.subTest(name):
                 self.assertEqual(again(st, now, changed), [])
-        applied = {**state, "revised": {"given": ["RS-1"], "bundled": {}}}
-        self.assertEqual([x["id"] for x in again(applied, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "変えたのが裁定を当てただけなら再出")
-        mixed = {**state, "revised": {"given": ["RS-1"], "bundled": {"requirements/a": ["PR-A-001"]}}}
-        self.assertEqual(again(mixed, [self._f("n1")], {"requirements/a": ["PR-A-001"]}), [], "writer の指摘も渡した項目は数える")
+        self.assertEqual([x["id"] for x in again(state, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "writer の指摘を渡していない項目の変更は裁定を当てただけ")
         prev_again = [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}]
         chained = value(f"reRaised([], {json.dumps(prev_again)}, {json.dumps([self._f('m1')])}, {{about: {{}}, passed: []}}, {{}})")
         self.assertEqual([x["id"] for x in chained], ["m1"], "前のパスの再出が持ち越した裁定でも数えない")
