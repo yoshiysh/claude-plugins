@@ -278,9 +278,9 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"settledVerifications({json.dumps(state)}, ['RS-5'])"), ["F-001"])
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "stale_refs": [], "open_ids": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("codes", "unverified", "failed_current", "open_only", "stale_refs", "open_ids"):
+        for k in ("codes", "unverified", "failed_current", "open_only", "stale_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
         two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}

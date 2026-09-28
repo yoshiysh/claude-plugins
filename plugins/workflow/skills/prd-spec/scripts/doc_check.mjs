@@ -2767,6 +2767,7 @@ function wsFlow(ws) {
     open_only: openOnly,
     stale_refs: staleRefs,
     open_ids: [...openIds].sort(),
+    pair_keys: pairKeysOf(conflictPairs(readLedger(ws, 'decisions'), flow, readLedger(ws, 'open')).pairs),
   }
 }
 
@@ -2774,11 +2775,8 @@ function wsFlow(ws) {
 // その決定を挙げる）の組を列挙する。target の一致だけでは、名前の違う決定と要素（不可逆な操作の禁止と reset の工程）が組にならない。
 // 組の探索を resolver の生成に任せると探索の量に上限が無くなるので、ここで閉集合にして resolver には
 // 判定だけをさせる。target の無い決定は組を作れないので untargeted として件数とともに返す（見ていないものを宣言する）。
-function wsConflicts(ws) {
-  requireInput(ws)
-  const decisions = readLedger(ws, 'decisions')
-  if (decisions === null) throw new Error(`${ledgerOf('decisions').file()} がありません`)
-  const flow = readLedger(ws, 'flow')
+// conflictPairs: flow の stdout も同じ組を出す（verifier と flow-check が、組を申告した生成者と別に数える）。
+function conflictPairs(decisions, flow, open) {
   const ds = listOf(decisions, 'decisions')
     .filter((x) => x && x.id)
     .map((x) => ({ id: String(x.id), targets: [...new Set((Array.isArray(x.targets) ? x.targets : []).map((t) => String(t).trim()).filter(Boolean))] }))
@@ -2795,11 +2793,22 @@ function wsConflicts(ws) {
     }
   }
   const paired = new Set(pairs.map((p) => `${p.a}|${p.b}`))
-  const openIds = invariantOpenIds(readLedger(ws, 'open'))
+  const openIds = invariantOpenIds(open)
   for (const el of els) {
     for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`) && !openIds.has(r))) pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
   }
   pairs.sort((x, y) => x.kind.localeCompare(y.kind) || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
+  return { ds, pairs }
+}
+
+const pairKeysOf = (pairs) => pairs.map((p) => `pair:${[p.a, p.b].map(String).sort().join('|')}`)
+
+function wsConflicts(ws) {
+  requireInput(ws)
+  const decisions = readLedger(ws, 'decisions')
+  if (decisions === null) throw new Error(`${ledgerOf('decisions').file()} がありません`)
+  const flow = readLedger(ws, 'flow')
+  const { ds, pairs } = conflictPairs(decisions, flow, readLedger(ws, 'open'))
   const untargeted = ds.filter((x) => !x.targets.length).map((x) => x.id).sort()
   const body = { pairs, untargeted, flow_checked: flow !== null }
   const digest = digestOf(body)
@@ -2812,7 +2821,7 @@ function wsConflicts(ws) {
     flow_checked: flow !== null,
     path: writeCheck(ws, 'conflicts.json', { ...body, digest }),
     digest,
-    pair_keys: pairs.map((p) => `pair:${[p.a, p.b].map(String).sort().join('|')}`),
+    pair_keys: pairKeysOf(pairs),
   }
 }
 

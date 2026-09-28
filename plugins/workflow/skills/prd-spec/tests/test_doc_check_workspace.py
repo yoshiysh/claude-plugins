@@ -476,6 +476,13 @@ class FlowAndConflicts(_Workspace):
     def test_conflictsは組をaboutと同じ形のキーで出す(self):
         self.assertEqual(_ok(self.ws, "conflicts")["pair_keys"], ["pair:D-001|D-002", "pair:D-001|F-002"])
 
+    def test_flowのstdoutもconflictsと同じ組を出す(self):
+        # verifier と flow-check は flow だけを実行する。組を申告した生成者と別に数えるため、同じ組が flow の stdout にも要る。
+        self.assertEqual(_ok(self.ws, "flow")["pair_keys"], _ok(self.ws, "conflicts")["pair_keys"])
+        _invariant_open(self.ws)
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": "destructive", "constrained_by": ["O-009", "D-002"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["pair_keys"], _ok(self.ws, "conflicts")["pair_keys"])
+
     def test_decisions_が無ければ失敗する(self):
         (self.ws / "decisions.json").unlink()
         self.assertEqual(_run(self.ws, "conflicts").returncode, 1)

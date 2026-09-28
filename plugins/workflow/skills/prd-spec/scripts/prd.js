@@ -456,7 +456,7 @@ function planCheckOf(text) {
 function flowCheckOf(text) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  if (!ok || !['unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids'].every((k) => Array.isArray(o[k]))) return null
+  if (!ok || !['unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
   const codes = o.codes && typeof o.codes === 'object' && !Array.isArray(o.codes) ? Object.values(o.codes) : null
   return codes && codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === o.findings ? o : null
 }
@@ -773,17 +773,19 @@ function existingNote() {
 
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 
-// unchecked: 最後の独立な doc_check flow（verifier か flow-check が実行したもの）より後に応答した resolver の label と stdout。
+// unchecked: 最後の独立な doc_check flow（verifier か flow-check が実行したもの）より後に起動した resolver の label と stdout。
 // resolver はどの呼び出しでも台帳を書き、台帳の kind・supersedes・hold は flow.json を変えずに flow の指摘と stale_refs を変える。
-// ここで印を付け、判断に使う stdout は independentFlow だけが返し、段の境界で印が残っていれば止める（段を回す loop）。
+// 印は起動の前に付ける（書いてから応答しなかった resolver の後も flow-check が数え直す）。判断に使う stdout は independentFlow だけが返し、
+// 段の境界で印が残っていれば止める（段を回す loop）。
 // 呼び出しの場所ごとに flow-check を足す形にすると、足し忘れた呼び出しの後の判断が resolver の自己申告で決まる。
 let unchecked = null
 
 // once: resolutions_sha256 の無い resolver の返り値を受け取ると、verifier・writer との照合が黙って飛ぶ。出し直すと
 // 済んだ put（flow の put / del を含む）を二重に走らせるので、段を頭からやり直させる。
 async function once(label, role, prompt, schema, phaseTitle) {
+  if (role === 'resolver') unchecked = { tag: label.replace(/^resolver:/, ''), responded: false, claimed: null }
   const [r] = await runWithRetry(label, [label], (_, attempt) => agent(prompt, { ...OPTS[role], schema, phase: phaseTitle, label: attempt > 1 ? `${label}#retry` : label }), (x) => Boolean(x))
-  if (r && role === 'resolver') unchecked = { tag: label.replace(/^resolver:/, ''), claimed: flowCheckOf(r.flow_check) }
+  if (r && role === 'resolver') unchecked = { ...unchecked, responded: true, claimed: flowCheckOf(r.flow_check) }
   if (r && (role === 'verifier' || role === 'flowCheck')) unchecked = null
   if (r && role === 'resolver' && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: resolver が resolutions_sha256 を返しませんでした`), { rerunStage: true })
   const badIds = r && role === 'resolver' ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
@@ -811,18 +813,26 @@ function absorbResolver(r, reRuled) {
 // absorbVerifier: 違う flow を見た合否を台帳の集合に入れると、検証していない版の合格が残る。
 // flow の食い違いを同じ段のやり直しで直せるのは、この段の生成者が flow の stdout を返した（flowChecked）ときだけである。
 // そうでない段（例: resolver が起動しない段 3）でやり直しても、flow.json も state.flow_digest も変わらず同じ所で止まる。
-// generator: この cycle で flow.json を書いた役。その役に消せない指摘は settle の flow-framer が直すので、ここでは止めない。
+// generator: この cycle で flow.json を書いた役（null は誰も書いていない）。その役に消せない指摘は settle の flow-framer が直すので、
+// ここでは止めない。誰も書いていなければ、指摘は台帳の書き込みで出たもので、flow-framer にしか直せない。
 function absorbVerifier(v, expectedSha, stage, flowChecked, generator) {
   const fc = flowCheckOf(v.flow_check)
   if (!fc) return { error: `resolver-verifier（段 ${stage}）が doc_check flow の stdout を返しませんでした`, rerun: true }
-  const noFixer = flowChecked ? '' : '。この段には flow を書く生成者がいないので、同じ段からやり直しても直らない。所有表の外で flow.json を書いたものを確かめる'
   if (fc.content_sha256 !== state.flow_digest) {
     noteIntegrity(`verifier（段 ${stage}）が検査した flow.json（${fc.content_sha256}）が、生成者が検査した版（${state.flow_digest}）と違う`)
+    const noFixer = flowChecked ? '' : '。この段には flow を書く生成者がいないので、同じ段からやり直しても直らない。所有表の外で flow.json を書いたものを確かめる'
     return { error: `段 ${stage}: verifier が検査した flow.json が、生成者が doc_check flow で検査した版と違います${noFixer}`, rerun: flowChecked }
+  }
+  const told = claimedIssues
+  claimedIssues = null
+  const differ = told ? ['pair_keys', ...(told.open_ids ? ['open_ids'] : [])].filter((k) => canonicalText(uniq(told[k]).sort()) !== canonicalText(uniq(fc[k]).sort())) : []
+  if (differ.length) {
+    noteIntegrity(`${told.by} が申告した ${differ.join('・')} が、verifier（段 ${stage}）の doc_check flow の stdout と違う`)
+    return { error: `段 ${stage}: 裁定に回した未裁定の論点（${differ.join('・')}）が、verifier が同じ flow.json で数えたものと違います（${told.by} の申告）`, rerun: true }
   }
   const split = splitFlowFindings(fc, generator)
   if (split.unknown.length) return { error: `段 ${stage}: verifier の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${split.unknown.join(', ')}`, rerun: false }
-  if (split.own) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${split.own} 件あります（${W}/checks/flow.json）${noFixer}`, rerun: flowChecked }
+  if (split.own) return { error: `段 ${stage}: verifier の doc_check flow に指摘が ${split.own} 件あります（${W}/checks/flow.json）`, rerun: true }
   const onlyFlow = (ids) => (ids || []).filter((id) => /^F-/.test(id))
   const unrecorded = [
     ...onlyFlow((v.fail || []).map((f) => f.id)).filter((id) => !fc.failed_current.includes(id)),
@@ -924,7 +934,8 @@ const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFl
 async function ruleAndVerify(stage, opt) {
   const phaseTitle = opt.phase
   const writesFlow = Boolean(opt.answered)
-  const flowWriter = writesFlow ? 'resolver' : 'flowFramer'
+  const entryDigest = state.flow_digest
+  const flowWriter = () => (state.flow_digest !== entryDigest ? 'resolver' : null)
   const asTask = (t) => (writesFlow ? `${t}\n\ndoc_check flow の指摘のうち ${FRAMER_ONLY_CODES.join('・')} は触らない（settle の flow-framer が open.json に起票して直す。resolver.md の「回答の反映」）。` : keepFlow(t, '裁定を flow に写すのは flow-framer である'))
   const wasQuestion = new Set(pendingQuestions(state))
   let ids = []
@@ -948,7 +959,7 @@ async function ruleAndVerify(stage, opt) {
       ids = minus(ids, byOption)
     }
     if (fe.changed) {
-      const pe = await ruleUnruled(stage, stage, fe.conflicts, [], phaseTitle, opt.allowQuestions)
+      const pe = await ruleUnruled(stage, stage, fe.conflicts, null, phaseTitle, opt.allowQuestions)
       if (pe.error) return pe
       ids = uniq([...ids, ...pe.ids])
       flowNow = fe.fc
@@ -959,7 +970,7 @@ async function ruleAndVerify(stage, opt) {
   const extra1 = [opt.verifyExtra, flowExtra(flowNow)].filter(Boolean).join('\n\n')
   const v1 = await askVerifier(v1Label, `${stage}v`, ids, extra1, phaseTitle)
   if (!v1) return { error: `resolver-verifier（段 ${stage}v）が応答しませんでした` }
-  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter)
+  const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter())
   if (ve1) return ve1
   let verified = flowCheckOf(v1.flow_check)
   if (!v1.fail.length) return { ok: true, passed: v1.pass, verified }
@@ -983,7 +994,7 @@ async function ruleAndVerify(stage, opt) {
   const qe2 = await checkQuestions(stage, `${stage}'`, r2, phaseTitle, null)
   if (qe2) return qe2
   if (fe2.changed) {
-    const pe2 = await ruleUnruled(stage, `${stage}'`, fe2.conflicts, [], phaseTitle, opt.allowQuestions)
+    const pe2 = await ruleUnruled(stage, `${stage}'`, fe2.conflicts, null, phaseTitle, opt.allowQuestions)
     if (pe2.error) return pe2
     ids2 = uniq([...ids2, ...pe2.ids])
   }
@@ -991,7 +1002,7 @@ async function ruleAndVerify(stage, opt) {
   const asked2 = uniq([...ids2, ...(fe2.changed ? toVerify(fe2.fc) : [])])
   const v2 = await askVerifier(v2Label, `${stage}v'`, ids2, fe2.changed ? flowExtra(fe2.fc) : '', phaseTitle)
   if (!v2) return { error: `resolver-verifier（段 ${stage}v' の再検証）が応答しませんでした` }
-  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked, flowWriter)
+  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked, flowWriter())
   if (ve2) return ve2
   verified = flowCheckOf(v2.flow_check)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
@@ -1006,12 +1017,12 @@ async function ruleAndVerify(stage, opt) {
 }
 
 // independentFlow: 判断（settle の起動・残りの数え上げ・直す役の割り当て）に使う doc_check flow の stdout。最後の verifier の後に
-// resolver が応答していたら（unchecked）、その resolver と別の agent（flow-check）に実行し直させ、その stdout だけを使う。
+// resolver を起動していたら（unchecked）、その resolver と別の agent（flow-check）に実行し直させ、その stdout だけを使う。
 // verifier の stdout があれば、閉じた O- を引く要素（open_only）はそこから取る。その後の resolver は flow と合格の集合を変えない
 // （変換と保持規則への変換は onlyAsked、flow は flowKept で確かめる）。
 async function independentFlow(verified, phaseTitle) {
   if (!unchecked) return { fc: verified }
-  const { tag, claimed } = unchecked
+  const { tag, responded, claimed } = unchecked
   const label = `flow-check:${tag}`
   const x = await once(label, 'flowCheck', [header('flowCheck', tag, label), `実行する: \`${cli('flow')}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, phaseTitle)
   const fc = x && flowCheckOf(x.flow_check)
@@ -1022,7 +1033,7 @@ async function independentFlow(verified, phaseTitle) {
   }
   const unknown = Object.keys(fc.codes).filter((code) => !FIXERS_BY_CODE[code])
   if (unknown.length) return { error: `段 ${tag}: flow-check の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${unknown.join(', ')}`, rerun: false }
-  const differ = claimed ? uniq([...Object.keys(fc), ...Object.keys(claimed)].filter((k) => canonicalText(fc[k]) !== canonicalText(claimed[k]))) : ['stdout']
+  const differ = !responded ? [] : claimed ? uniq([...Object.keys(fc), ...Object.keys(claimed)].filter((k) => canonicalText(fc[k]) !== canonicalText(claimed[k]))) : ['stdout']
   if (differ.length) noteIntegrity(`resolver（段 ${tag}）が返した doc_check flow の stdout が、flow-check が同じ flow.json で実行した stdout と ${differ.join('・')} で違う`)
   if (!verified) return { fc }
   const stale = [...verified.stale_refs, ...fc.stale_refs.filter((x) => !verified.stale_refs.some((y) => y.el === x.el && y.ref === x.ref))]
@@ -1048,6 +1059,15 @@ function onlyAsked(stage, r, asked, kinds) {
   return null
 }
 
+// answerKinds: 値を決めずに返す種類。聞けない段の question は、聞くゲートにも保持規則への変換（holdLeft は段の最後に 1 回）にも
+// 届かないまま回答待ちで残るので、聞けない段の settle の中の resolver からは受け取らない。
+const answerKinds = (allowQuestions) => (allowQuestions ? ['questions', 'holds'] : ['holds'])
+
+function outsideKinds(stage, r, kinds) {
+  const extra = uniq(['ruled', 'questions', 'holds'].filter((k) => !kinds.includes(k)).flatMap((k) => idsOf(r, k)))
+  return extra.length ? `段 ${stage}: ${list(extra)} を resolver が ${kinds.map((k) => KIND_WORDS[k]).join('・')} 以外で返しました（この段では依頼者に聞けない）` : null
+}
+
 // convertFailed: 検証に落ちた裁定（RS-）を、値を決めずに理由で question か hold に書き換える。変換した分はもう検証しない
 // （検証のループを増やすと、差し戻しの上限が意味を失う）。
 // wasQuestion: 差し戻しの cycle の入口で回答待ちだった問い。settle の verifier の合否は askVerifier がその回に裁定した ID に限るので渡さない。
@@ -1063,10 +1083,18 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
     phaseTitle
   )
   if (!r) return { error: `resolver（段 ${owner} の変換）が応答しませんでした` }
-  const bad = onlyAsked(owner, r, fails.map((f) => f.id), ['questions', 'holds'])
+  const bad = onlyAsked(owner, r, fails.map((f) => f.id), answerKinds(allowQuestions))
   if (bad) return { error: bad }
   absorbResolver(r)
   return flowKept(`${owner}-convert`, r) || checkQuestions(stage, `${owner}-convert`, r, phaseTitle, null)
+}
+
+// claimedIssues: 未裁定の論点を選ぶのに使った組と O- は、flow を書いた生成者の自己申告である。組と O- は flow.json・decisions.json・
+// open.json だけで決まり、その後の resolver も verifier も書かないので、次の verifier の doc_check flow（同じ flow.json と照合済み）と
+// 一致しなければ、申告から漏れた論点が裁定されないまま進む。照合は absorbVerifier の 1 か所で行う。
+let claimedIssues = null
+const claimIssues = (by, pairKeys, openIds) => {
+  claimedIssues = { by, pair_keys: pairKeys, open_ids: openIds || null }
 }
 
 // unruled: about の種類（pair: / open:）ごとに、どの resolution の about にもまだ無いキー。同じ呼び出しで裁定中の論点（まだ
@@ -1081,10 +1109,11 @@ const unruledIssues = (openIds, pairKeys) => ({ opens: unruled((openIds || []).m
 
 // ruleUnruled: 組は要素の id・label・constrained_by で決まるので、回答や裁定の反映で要素を足すと、まだ誰も裁定していない組が生まれる。
 // settle の flow-framer は open.json に O- を足しうる（kind が invariant の O- で破壊的な工程を縛る）ので、その O- も同じ呼び出しで裁定に回す。
-// openIds を渡すのは open.json を書く flow-framer の後だけ（resolver は open.json を書かない）。
+// openIds を渡すのは open.json を書く flow-framer の後だけ（resolver は open.json を書かない。それ以外は null）。
 async function ruleUnruled(stage, owner, conflictsText, openIds, phaseTitle, allowQuestions) {
   const cc = conflictsCheckOf(conflictsText)
   if (!cc) return { error: `段 ${stage}: flow を変えた呼び出しが doc_check conflicts の stdout を返しませんでした`, rerun: true }
+  claimIssues(`段 ${owner} で flow を書いた生成者`, cc.pair_keys, openIds)
   const { opens, pairs } = unruledIssues(openIds, cc.pair_keys)
   if (!opens.length && !pairs.length) return { ids: [] }
   const tag = opens.length ? 'opens' : 'pairs'
@@ -1099,6 +1128,8 @@ async function ruleUnruled(stage, owner, conflictsText, openIds, phaseTitle, all
     .join('\n')
   const r = await once(label, 'resolver', resolverPrompt(label, `${owner}（未裁定の論点）`, keepFlow(task, '組と未決の裁定は flow を変えない')), RESOLVER_SCHEMA, phaseTitle)
   if (!r) return { error: `resolver（段 ${owner} の未裁定の論点）が応答しませんでした` }
+  const outside = outsideKinds(`${owner}-${tag}`, r, ['ruled', ...answerKinds(allowQuestions)])
+  if (outside) return { error: outside }
   const ids = absorbResolver(r)
   state.missed = uniq([...(state.missed || []), ...missedTargets([...opens, ...pairs], r)])
   const kept = flowKept(`${owner}-${tag}`, r)
@@ -1421,6 +1452,7 @@ async function stage3b() {
     FRAME_RUN,
   ], 'Answers')
   if (reframe.error) return blocked(`段 3b: ${reframe.error}`, reframe.rerun === false ? null : '3b')
+  claimIssues('flow-framer:3b-reframe', reframe.cc.pair_keys, reframe.fc.open_ids)
   const { opens, pairs } = unruledIssues(reframe.fc.open_ids, reframe.cc.pair_keys)
   const carried = pendingQuestions(state)
   const res = await resolveCycle('3b', {
@@ -1854,6 +1886,15 @@ async function stage9() {
 
 const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
+// exitViolation: 段を出るときの不変条件。破ると、数え直していない台帳の flow の指摘か、誰にも聞かれない問いを持ったまま次の段が走る。
+// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）と、G0-2 で一緒に聞くために 3b へ持ち越す 3a だけ。
+function exitViolation(from, r) {
+  if (unchecked) return `resolver:${unchecked.tag} の後に doc_check flow を独立に実行し直さないまま段を出ようとしました（independentFlow を通らない経路があります）`
+  const waiting = r.status === 'needs_answers' || (from === '3a' && r === '3b') ? [] : pendingQuestions(state)
+  if (waiting.length) return `回答待ちの問い ${list(waiting)} を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました`
+  return null
+}
+
 let next = FROM
 let outcome = null
 while (outcome === null) {
@@ -1866,9 +1907,9 @@ while (outcome === null) {
     if (!(e && e.rerunStage)) throw e
     r = blocked(e.message, running)
   }
-  if (unchecked && (typeof r === 'string' || r.status !== 'blocked')) {
-    throw new Error(`段 ${running}: resolver:${unchecked.tag} の後に doc_check flow を独立に実行し直さないまま段を出ようとしました（independentFlow を通らない経路があります）`)
-  }
+  // 不変条件の違反は script の欠陥で、同じ段からやり直しても同じ所で破るので next_args を付けない。
+  const violation = r.status === 'blocked' ? null : exitViolation(running, r)
+  if (violation) r = blocked(`script の不変条件に反しました（段 ${running}）: ${violation}`, null)
   if (typeof r === 'string') next = r
   else outcome = r
 }

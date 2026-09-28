@@ -109,6 +109,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
+- **Workflow が例外で終わった、または `reason` が「script の不変条件に反しました」**: `references/workflow-io.md` §5 に従う。
 - **`done`**: 下の「保存」へ進む。
 
 再実行は返った `next_args` で行い（どの段から始めるかは `next_args.from` が決める）、Workflow の resume に頼らない。

@@ -352,8 +352,8 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   verifier に回す（書き換えていない不合格の要素は、渡すと同じ理由で落ちて差し戻しが回る）。最後の verifier の `failed_current` は
   writer に「根拠にしない要素」として渡る。
 - script が判断に使う stdout（§flow-check）の `codes` に残った指摘は、符号によらずすべて settle に「要素: 何が無いか」（flow-framer 専用の
-  符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは回答を当てた resolver に消せない指摘（「## flow.json の形」の直し手）だけで
-  （その cycle で flow を書いた生成者が消せる指摘は §resolver-verifier の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
+  符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは、その cycle で flow を書いた生成者に消せない指摘（「## flow.json の形」の直し手）と、
+  誰も flow を書いていない cycle で台帳の書き込みから出た指摘だけで（生成者が消せる指摘は §resolver-verifier の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
   resolver が台帳を変えて出た指摘が出る。どちらも flow-framer にしか直せない。直し方はその指摘の fix（`W/checks/flow.json`）で、kind が invariant の O- を `open.json` に足して `constrained_by` に挙げる
   ときは「## 不変条件の kind」に従う。足した O- を誰が裁定するかは §resolver。
 - stdout の `stale_refs` は、resolutions.json の `supersedes` で覆された決定を `source`（case の `source` と `on_fail.source` を含む）か `constrained_by` に
@@ -363,7 +363,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow_check": "{\"findings\":0,\"codes\":{},\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
+{ "flow_check": "{\"findings\":0,\"codes\":{},\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"],\"pair_keys\":[\"pair:D-001|F-002\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
 - `plan_check`: 段 2 だけ、doc_check `plan` の stdout を加工せずに返す（script が intake の `plan_check` と照合する）。
@@ -414,7 +414,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   prd.js の `RESOLUTION_ID`）。
 - 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`）と、聞くゲートの残っていない問いを
   hold に変える呼び出し（`<段>-hold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
-  `questions` か `holds`（`<段>-hold` は `holds` だけ）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
+  `questions` か `holds`（`<段>-hold` と、聞けない段の変換は `holds` だけ）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
   （変えた ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
   検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
 - 差し戻し（`<段>'`）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返す。合わなければ
@@ -425,7 +425,8 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を、settle の
   flow-framer の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
   検証を通っていない要素の出典を verifier に回す（除くものは §flow-framer の `failed_current`。起動の条件・label・聞けない段の扱いは
-  references/workflow-io.md §4）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
+  references/workflow-io.md §4）。聞けない段のこの呼び出しが `questions` を返せば、script は段を止める（聞けない段の問いは、聞くゲートにも
+  段の最後の保持規則への変換にも届かない）。渡した組と O- は生成者の申告なので、script は次の verifier の stdout と照合する（§resolver-verifier）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
   flow-framer が破壊的な工程を縛るために足した O- は、裁定の無いまま初稿に進むと何を失ってはならないかが決まらないからである
   （kind が invariant の O- の hold は、保持規則として工程を縛る）。
 
@@ -442,14 +443,18 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 
 `flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を
-blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer）。
+blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer）。誰も flow を書いていない
+cycle（`state.flow_digest` が cycle の入口のまま）の指摘は台帳の書き込みで出たもので、すべて settle の flow-framer に渡る。
+この stdout の `pair_keys`（doc_check `conflicts` と同じ組）と `open_ids` は、flow を書いた生成者が未裁定の論点を選ぶのに申告した組
+（`conflicts_check`）と O-（settle の flow-framer の `open_ids`）とも照合する。組と O- は flow.json・decisions.json・open.json だけで決まるので、
+違えば申告から漏れた論点が裁定されないまま進む。script は `integrity` に 1 行足して段の頭からやり直させる。
 script はファイルを読めないので、生成者が 0 件と申告した flow を確かめる手段は、別の agent の実行した検査しかない。
 
 ## §flow-check
 
-最後の verifier の後に resolver が応答していたら、script は判断（settle の起動と残りの数え上げ・輪を出た後の理由）の前に
+最後の verifier の後に resolver を起動していたら（応答しなかった resolver も、応答の前に台帳を書いていることがある）、script は判断（settle の起動と残りの数え上げ・輪を出た後の理由）の前に
 `flow-check:<その resolver の label から resolver: を除いたもの>` を起動する。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
-prd.js の `unchecked`（resolver の応答で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出る経路があれば run は止まる。
+prd.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
 入力: プロンプトの doc_check `flow` のコマンドだけ。書くもの: なし（`W/checks/flow.json` は doc_check が書く）。
 
 ```json
@@ -458,7 +463,7 @@ prd.js の `unchecked`（resolver の応答で付き、verifier と flow-check �
 
 resolver はどの呼び出しでも台帳を書く。台帳の `kind`・`supersedes`・`hold` は flow.json を変えずに指摘と `stale_refs` を変えるので、
 その resolver が返した `flow_check` は自己申告にすぎない。script が判断に使う stdout は、後に resolver が応答していなければ最後の verifier の
-stdout、応答していればこの stdout である（最後の verifier の stdout があれば、`open_only` はそちらから取る。後の resolver は flow と合格の
+stdout、起動していればこの stdout である（最後の verifier の stdout があれば、`open_only` はそちらから取る。後の resolver は flow と合格の
 集合を変えない）。この stdout に直し手の表に無い符号があれば段を止める。版と申告との照合の扱いは references/workflow-io.md §3 の `integrity`。
 
 ## §writer
