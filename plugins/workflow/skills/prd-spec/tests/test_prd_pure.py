@@ -149,7 +149,7 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"usableResolutions({json.dumps(state)})"), ["RS-1"])
 
     def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
-        state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002", "D-009"], "passed": ["D-009"], "flow_failed": ["F-007"]}
+        state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"], "flow_failed": ["F-007"]}
         self.assertEqual(value(f"invalidIds({json.dumps(state)})"), {"decisions": ["D-003", "D-004"], "flow": ["F-007"]})
 
     def test_pendingQuestionsは回答済みと保持規則を除く(self):

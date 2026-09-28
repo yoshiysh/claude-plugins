@@ -15,7 +15,7 @@
 | `entry` | `new` / `existing` / `expand`。`review` / `update` は使わない（Codex の runner が拒否する値と衝突する） |
 | `existing_docs` | `existing`・`expand` のとき必須。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed }]`。本文は W に置いてある |
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
-| `state` | `from` が `1` 以外のとき、前の run の `next_args.state` をそのまま渡す |
+| `state` | `from` が `1` 以外のとき要る。前の run の `next_args` を `from`・`state_hash` ごとそのまま渡す（§3） |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
 
 **司令塔が args に打ち直すのは ID・件数・digest に限る。** 本文や本体の JSON は W に置き、args にはそのパスか
@@ -68,9 +68,9 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 
 - **`next_args` は完成形である。** 司令塔は回答を `answers_path` に逐語で書き、`next_args` を変えずに渡すだけでよい。
   `state` は plain JSON で、Map・Set を含まない（runtime の境界を越えると中身が失われる）。
-  `state_hash` は `state` の hash で、合わなければ（打ち直しで `state` が変わった）run は agent を起動する前に止まる。
-- **再実行は resume ではなく `from` で行う。** 状態は W のファイルと `state` にあり、段の境界ならどこからでも
-  始められる。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd.js` の `REQUIRES`）。
+  `state_hash` は `next_args` の `state_hash` 以外すべての hash で、合わなければ（打ち直しでどれかの値が変わった）run は agent を起動する前に止まる。
+- **再実行は resume ではなく `from` で行う。** 状態は W のファイルと `state` にあり、prd.js は段の境界ならどこからでも
+  始められる。どの段から始めるかは `next_args.from` が決め、司令塔は変えない。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd.js` の `REQUIRES`）。
   resume に頼ると、止まった agent 以降が全部やり直しになり、Codex には resume が無い。
 - **`blocked` の `next_args`**: agent が応答しなかった（出し直しても返らなかった）とき、返した doc_check の stdout が
   差し戻しの後も不合格だったときは、その段からの `next_args` が付く。セッション上限なら解除してから渡す。

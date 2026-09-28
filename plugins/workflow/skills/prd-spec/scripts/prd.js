@@ -187,9 +187,8 @@ function usableResolutions(state) {
 // invalidIds: 落ちた既定が差し戻しで問いや保持規則に変わり supersedes されなかったとき、これを渡さないと、
 // 検証を通っていない決定が有効な根拠として writer に届く。
 function invalidIds(state) {
-  const failed = minus(state.failed_ids || [], state.passed || [])
   return {
-    decisions: uniq([...(state.superseded || []), ...failed.filter((id) => /^D-/.test(id))]),
+    decisions: uniq([...(state.superseded || []), ...(state.failed_ids || []).filter((id) => /^D-/.test(id))]),
     flow: uniq(state.flow_failed || []),
   }
 }
@@ -261,8 +260,17 @@ function toDecision(findings, reversed) {
 const itemKey = (f) => `${f.doc}#${f.item_id}`
 
 // pending は指摘を 文書 → 項目 → ID で束ねて持ち、束・decision・blocking はそこから導く（写しを持つと next_args の上限を超える）。
+// 指摘の欄は FINDING_DEFAULTS と違うものだけを持つ（next_args の字数は指摘の数に比例する）。
+const FINDING_DEFAULTS = { blocking: true, route: 'writer', origin: 'text' }
+
+function packFinding(f) {
+  const out = {}
+  for (const k of ['blocking', 'route', 'direction', 'origin']) if (f[k] !== FINDING_DEFAULTS[k]) out[k] = f[k]
+  return out
+}
+
 function pendingFindings(p) {
-  return Object.entries((p || {}).findings || {}).flatMap(([doc, items]) => Object.entries(items).flatMap(([item_id, fs]) => Object.entries(fs).map(([id, f]) => ({ id, doc, item_id, ...f }))))
+  return Object.entries((p || {}).findings || {}).flatMap(([doc, items]) => Object.entries(items).flatMap(([item_id, fs]) => Object.entries(fs).map(([id, f]) => ({ id, doc, item_id, ...FINDING_DEFAULTS, ...f }))))
 }
 
 function pendingView(p, routes) {
@@ -278,7 +286,7 @@ function pendingView(p, routes) {
   }
 }
 
-// canonicalText・fnv: prd.js は sha256 を計算できないので、next_args の state が打ち直しで変わっていないかをこの 2 つで照合する。
+// canonicalText・fnv: prd.js は sha256 を計算できないので、next_args が打ち直しで変わっていないかをこの 2 つで照合する。
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -290,6 +298,10 @@ function fnv(text) {
   for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
   return h.toString(16).padStart(8, '0')
 }
+
+// nextArgsHash: state_hash 以外のすべてを覆う。司令塔が変えてよい欄は無い（回答は answers のファイルに書く）ので、state だけを覆うと
+// workspace・existing_docs・role_opts・from の写し間違いが通る。
+const nextArgsHash = (a) => fnv(canonicalText({ ...a, state_hash: undefined }))
 
 // reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
@@ -664,8 +676,8 @@ if (!STAGES.includes(FROM)) throw new Error(`args.from は段の境界（${STAGE
 const EXISTING = Array.isArray(input.existing_docs) ? input.existing_docs : []
 if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" には args.existing_docs（W に置いた既存文書のキーと fixed）が要ります`)
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-if (input.state !== undefined && input.state_hash !== fnv(canonicalText(input.state))) {
-  throw new Error('args.state が next_args の版と違います（state_hash が合いません）。next_args を打ち直さず、返ったものをそのまま渡し直してください')
+if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
+  throw new Error('args が next_args の版と違います（state_hash が合いません）。next_args を打ち直さず、返ったものをそのまま渡し直してください')
 }
 const state = JSON.parse(JSON.stringify(input.state || {}))
 const startErrors = stateErrors(FROM, state)
@@ -673,8 +685,8 @@ if (startErrors.length) throw new Error(`再開に要る値が args.state にあ
 
 const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
 const argsFrom = (from, st) => {
-  const copy = JSON.parse(JSON.stringify(st))
-  return { ...BASE_ARGS, from, state: copy, state_hash: fnv(canonicalText(copy)) }
+  const out = { ...BASE_ARGS, from, state: JSON.parse(JSON.stringify(st)) }
+  return { ...out, state_hash: nextArgsHash(out) }
 }
 const nextArgs = (from) => argsFrom(from, state)
 
@@ -767,7 +779,6 @@ function absorbResolver(r, reRuled) {
   const { ids: aboutIds, about } = resolverIds(r)
   const ids = uniq([...aboutIds, ...(r.free_text || [])])
   state.about = { ...(state.about || {}), ...about }
-  state.known = uniq([...(state.known || []), ...ids])
   state.questions = minus(uniq([...(state.questions || []), ...(r.questions || []).map((x) => x.id)]), reRuled ? (r.ruled || []).map((x) => x.id) : [])
   state.holds = uniq([...(state.holds || []), ...(r.holds || []).map((x) => x.id)])
   state.superseded = uniq([...(state.superseded || []), ...(r.supersedes || [])])
@@ -803,7 +814,8 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator) {
   }
   const notFlow = (ids) => (ids || []).filter((id) => !/^F-/.test(id))
   const failIds = notFlow((v.fail || []).map((f) => f.id))
-  state.passed = minus(uniq([...(state.passed || []), ...notFlow(v.pass)]), failIds)
+  // passed は resolution だけを持つ。D- の合格は次の行で failed_ids から引けば足り、運ぶと next_args が決定の数に比例して増える。
+  state.passed = minus(uniq([...(state.passed || []), ...(v.pass || []).filter((id) => /^RS-/.test(id))]), failIds)
   state.failed_ids = minus(uniq([...(state.failed_ids || []), ...failIds]), v.pass || [])
   state.flow_failed = fc.failed_current
   if (expectedSha && v.resolutions_sha256 !== expectedSha) {
@@ -1271,13 +1283,13 @@ async function stage1() {
   if (lost.length) return blocked(`既存文書がどの writer の単位にも入っていません（topic を変えると改稿が別名の新規執筆に化ける）: ${lost.join(', ')}`, '1')
   state.units = r.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
   state.plan_sha256 = planCheckOf(r.plan_check).content_sha256
-  state.decisions_sha256 = r.decisions_sha256
-  state.counts = { decisions: r.decisions, open: r.open, pairs: 0 }
   return '2'
 }
 
 async function stage2() {
   phase('Flow')
+  const planSha = state.plan_sha256
+  delete state.plan_sha256
   const got = await frameFlow('flow-framer', (label) => [
     header('flowFramer', '2', label),
     `読む: ${W}/input.md、${W}/decisions.json、${W}/precedent.json、${W}/open.json`,
@@ -1289,21 +1301,22 @@ async function stage2() {
   // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
   const pc = planCheckOf(got.plan_check)
   if (!pc) return blocked('flow-framer が doc_check plan の stdout を返しませんでした', '2')
-  if (pc.content_sha256 !== state.plan_sha256 || pc.findings > 0) {
-    if (pc.content_sha256 !== state.plan_sha256) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${state.plan_sha256}）と違う`)
+  if (pc.content_sha256 !== planSha || pc.findings > 0) {
+    if (pc.content_sha256 !== planSha) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${planSha}）と違う`)
     return blocked(`plan.json が intake の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, '1')
   }
-  state.counts = { ...state.counts, open: got.fc.open, pairs: got.cc.pairs }
+  state.counts = { open: got.fc.open, pairs: got.cc.pairs }
   return '3'
 }
 
 async function stage3() {
   phase('Resolve')
-  const hasTargets = state.counts.open + state.counts.pairs > 0
+  const { open, pairs } = state.counts
+  delete state.counts
   const res = await resolveCycle('3', {
     phase: 'Resolve',
-    task: hasTargets
-      ? `段 3（resolver.md の「段 3」）: open ${state.counts.open} 件、組 ${state.counts.pairs} 件。`
+    task: open + pairs > 0
+      ? `段 3（resolver.md の「段 3」）: open ${open} 件、組 ${pairs} 件。`
       : null,
     verifyExtra:
       'あわせて検証する: decisions.json の source が default / precedent の決定と kind が invariant の決定すべてと、flow.json の全要素の source（decision は各 case の source も）。これらの ID（D- / F-）も pass / fail に入れる（open も組も 0 件でも省かない。intake の既定が残るため）。',
@@ -1543,7 +1556,7 @@ function setPending(findings, docCheck, carried, opt = {}) {
   const packed = {}
   for (const f of all) {
     packed[f.doc] = packed[f.doc] || {}
-    packed[f.doc][f.item_id] = { ...(packed[f.doc][f.item_id] || {}), [f.id]: { blocking: Boolean(f.blocking), route: f.route, direction: f.direction, origin: f.origin } }
+    packed[f.doc][f.item_id] = { ...(packed[f.doc][f.item_id] || {}), [f.id]: packFinding({ ...f, blocking: Boolean(f.blocking) }) }
   }
   state.pending = {
     findings: packed,

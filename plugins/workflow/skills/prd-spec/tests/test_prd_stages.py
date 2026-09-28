@@ -233,7 +233,7 @@ def args(**kw):
     a = {"workspace": "/tmp/prd-w", "skillDir": str(SKILL), "entry": "new"}
     a.update(kw)
     if "state" in kw and "state_hash" not in kw:
-        a["state_hash"] = value(f"fnv(canonicalText({json.dumps(kw['state'], ensure_ascii=False)}))")
+        a["state_hash"] = value(f"nextArgsHash({json.dumps(a, ensure_ascii=False)})")
     return a
 
 
@@ -578,7 +578,7 @@ class Stages(unittest.TestCase):
             "units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}],
             "flow_digest": "f-framer",
             "flow_failed": [],
-            "counts": {"decisions": 1, "open": 0, "pairs": 0},
+            "counts": {"open": 0, "pairs": 0},
         }
         for frm, first in (("4", "writer:U-1:draft"), ("5", "implementer:r1:requirements/x"), ("3", "verifier:3v")):
             with self.subTest(frm=frm):
@@ -587,16 +587,41 @@ class Stages(unittest.TestCase):
                 self.assertEqual(r["labels"][0], first)
                 self.assertEqual(r["result"]["status"], "done")
 
-    def test_打ち直してstateが変わったnext_argsは止まる(self):
+    def test_打ち直して変わったnext_argsは止まる(self):
         na = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]["next_args"]
         self.assertTrue(na["state_hash"])
-        for name, broken in (("値を変えた", {**na, "state": {**na["state"], "pass": na["state"]["pass"] + 1}}),
+        for name, broken in (("state の値を変えた", {**na, "state": {**na["state"], "pass": na["state"]["pass"] + 1}}),
+                             ("workspace を変えた", {**na, "workspace": "/tmp/prd-other"}),
+                             ("existing_docs を変えた", {**na, "existing_docs": [{"key": "requirements/x", "fixed": False}]}),
+                             ("role_opts を変えた", {**na, "role_opts": {"writer": {"effort": "high"}}}),
+                             ("from を変えた", {**na, "from": "7"}),
                              ("state_hash を落とした", {k: v for k, v in na.items() if k != "state_hash"})):
             with self.subTest(name):
                 r = run({"args": broken, "ruled_at": {"3a'": ["RS-010"]}})
                 self.assertIn("そのまま渡し直して", r["error"] or "")
                 self.assertEqual(r["labels"], [])
         self.assertEqual(run({"args": na, "ruled_at": {"3a'": ["RS-010"]}})["result"]["status"], "done")
+
+    def test_段8で止まったnext_argsから再開すると当て損ねた指摘が次のパスへ持ち越される(self):
+        findings = {"implementer:r1": [{"id": "r1-im-requirements__x-001"}, {"id": "r1-im-requirements__x-002", "item_id": "PR-X-002"}]}
+        auditor = "grounding:r2:requirements/x"
+        stopped = run({"args": args(), "findings": findings, "unapplied_seq": [["r1-im-requirements__x-002"]], "null_labels": [auditor, f"{auditor}#retry"]})["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "8"), stopped.get("reason"))
+        self.assertEqual(stopped["next_args"]["state"]["revised"]["unapplied"], ["r1-im-requirements__x-002"])
+        # 持ち越した指摘は 2 パス続けて blocking なので段 6 に回る。そこで止め、段 8 が作った pending を next_args で見る。
+        again = run({"args": stopped["next_args"], "null_labels": ["resolver:6", "resolver:6#retry"]})
+        self.assertIsNone(again["error"], again["error"])
+        self.assertEqual(again["labels"][0], auditor)
+        res = again["result"]
+        self.assertEqual(res["status"], "blocked", res.get("reason"))
+        self.assertEqual(res["next_args"]["from"], "6")
+        self.assertEqual(res["next_args"]["state"]["pending"]["carried"], ["r1-im-requirements__x-002"])
+
+    def test_差し戻しの再検証で合格した決定はwriterに無効として渡さない(self):
+        r = run({"args": args(), "verifier_fail": {"3v": [{"id": "D-004", "kind": "unsupported", "reason": "r"}]}, "verifier_extra_pass": {"3v'": ["D-004"]}})
+        self.assertIsNone(r["error"], r["error"])
+        self.assertIn("resolver:3'", r["labels"])
+        self.assertIn("無効な決定（覆された・検証に落ちた。根拠にしない）: （なし）", nth_prompt(r, "writer:U-1:draft", 0))
 
     def test_要るstateが無いfromは止まる(self):
         r = run({"args": args(**{"from": "7", "state": {"units": []}})})
@@ -1989,51 +2014,76 @@ class Convergence(unittest.TestCase):
 # NEXT_ARGS_MAX_CHARS: 司令塔が打ち直す next_args の上限（json.dumps(ensure_ascii=False) の字数）。根拠は 2026-09-27 の試走の
 # G1 の next_args のうち flow 以外が 6,998 字だったこと。後の段が state を増やしても上げない（増えた分は ID・件数・digest に絞る）。
 NEXT_ARGS_MAX_CHARS = 8_000
-# 見ていないもの: 項目 15 以上の規模（同じセッションの再開は計画 R10 で Workflow の resume に寄せ、next_args が効くのはセッションを跨ぐ再開だけになる）。
+# 見ていないもの: 項目が NextArgsBudget.ITEMS_N を超える規模と、文書・単位が 2 つ以上の形。項目の数のほかの件数（問い・resolution・
+# D- の合格・当て損ね・項目ごとの指摘と flow 要素）は NextArgsBudget の fixture で固定しているので、それが増えた形も見ていない。
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class NextArgsBudget(unittest.TestCase):
-    """前回の試走の G1 と同じ規模（問い 13・about 28・passed 82 以上・項目 9・指摘 16・単位 1）で、
-    stray 100 件と SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 の next_args が上限に収まる。"""
+    """試走の G1 の規模（問い 13・resolution 28・D- の合格 55・単位 1）で項目を ITEMS_N まで増やし、stray 100 件と
+    SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 と段 8 で止まった next_args が上限に収まる。"""
 
     DOC = "requirements/cleanup-branches"
-    # 試走の実データの規模: 項目 9・指摘 16（writer の指摘 13 が 8 項目に、decision の指摘 3 が 1 項目に）。
-    ITEMS = [f"PR-CLEANUP-BRANCHES-{i:03d}" for i in range(1, 9) for _ in range(2 if i <= 5 else 1)]
+    # ITEMS_N: 上限に収まる項目の数の境界。ITEMS_N + 1 で段 8 の最悪の形が上限を超えることも確かめるので、next_args が
+    # 増えても減っても、ここを数え直すまでテストが落ちる。
+    ITEMS_N = 19
+    UNAPPLIED = 7
+
+    @staticmethod
+    def _rs(a, b):
+        return [f"RS-{i:03d}" for i in range(a, b + 1)]
+
+    def _item(self, i):
+        return f"PR-CLEANUP-BRANCHES-{i:03d}"
+
+    def _writer(self, k, item):
+        return {"id": f"r1-im-requirements__cleanup-branches-{k:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
+
+    def _writer_items(self, n):
+        # 試走の実データの偏り: writer の指摘は最後の項目以外に 1 件ずつ、先頭 5 項目には 2 件ずつ。最後の項目には decision の指摘 3 件。
+        return [self._item(i) for i in range(1, n) for _ in range(2 if i <= 5 else 1)]
+
+    def _common(self, n):
+        decision = lambda k: {"id": f"r1-cd-all-{k:03d}", "doc": self.DOC, "item_id": self._item(n), "route": "decision"}
+        return {"units": [{"id": "U-1", "docs": [self.DOC], "depends_on": []}], "long_digests": True, "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
+                "doc_flow_refs": {self.DOC: {self._item(i): [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, n + 1)}},
+                "findings": {"implementer:r1": [self._writer(k + 1, it) for k, it in enumerate(self._writer_items(n))], "crossDoc:r1": [decision(k) for k in (1, 2, 3)]},
+                "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]}}
+
+    def _gates(self, a, n):
+        rs, common = self._rs, self._common(n)
+        units = common["units"]
+        g0 = run({"args": a, "units": units, "flow_open": 1, "long_digests": True, "ruled_at": {"3": rs(1, 12)}, "questions_at": {"3": rs(13, 21)},
+                  "verifier_extra_pass": {"3v": [f"D-{i:03d}" for i in range(1, 56)]}})["result"]
+        g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
+        g1 = run({"args": g02["next_args"], **common, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)}, "questions_at": {"6": rs(23, 25)}})["result"]
+        return g0, g02, g1
+
+    def _stage8(self, entry, n, unapplied):
+        # G1 の回答を当て、改稿の後の監査役が応答しない。existing は段 5 が settled_written を空にするので、全 resolution を改稿に渡す。
+        a = args() if entry == "new" else args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
+        g1 = self._gates(a, n)[2]
+        auditor = f"grounding:r2:{self.DOC}"
+        ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:unapplied]
+        res = run({"args": g1["next_args"], **self._common(n), "ruled_at": {"3a'": self._rs(23, 25)}, "null_labels": [auditor, auditor + "#retry"], "unapplied_seq": [ids]})["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
+        self.assertEqual(res["next_args"]["state"]["revised"]["unapplied"], ids)
+        return len(json.dumps(res["next_args"], ensure_ascii=False))
 
     def _size(self, res):
         self.assertEqual(res["status"], "needs_answers", res.get("reason"))
         return len(json.dumps(res["next_args"], ensure_ascii=False))
 
     def test_各ゲートのnext_argsが上限に収まる(self):
-        rs = lambda a, b: [f"RS-{i:03d}" for i in range(a, b + 1)]
-        units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
-        g0 = run({
-            "args": args(), "units": units, "flow_open": 1, "long_digests": True,
-            "ruled_at": {"3": rs(1, 12)}, "questions_at": {"3": rs(13, 21)},
-            "verifier_extra_pass": {"3v": [f"D-{i:03d}" for i in range(1, 56)]},
-        })["result"]
-        g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
-        writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
-        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
-        items = self.ITEMS
-        g1 = run({
-            "args": g02["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)},
-            "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
-            "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
-            "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
-            "questions_at": {"6": rs(23, 25)},
-            "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]},
-        })["result"]
-
+        g0, g02, g1 = self._gates(args(), self.ITEMS_N)
         state = g1["next_args"]["state"]
         self.assertEqual(len(state["questions"]), 13)
         self.assertEqual(len(state["about"]), 28)
-        self.assertGreaterEqual(len(state["passed"]), 82)
+        self.assertEqual(state["passed"], sorted(state["about"]), "D- の合格は運ばない")
         packed = state["pending"]["findings"][self.DOC]
-        self.assertEqual((len(packed), sum(len(fs) for fs in packed.values())), (9, 16))
+        self.assertEqual((len(packed), sum(len(fs) for fs in packed.values())), (self.ITEMS_N, len(self._writer_items(self.ITEMS_N)) + 3))
         flow = state["pending"]["flow"][self.DOC]
-        self.assertEqual((len(flow), {len(v) for v in flow.values()}), (8, {3}))
+        self.assertEqual((len(flow), {len(v) for v in flow.values()}), (self.ITEMS_N - 1, {3}))
         self.assertEqual(len(state["units"]), 1)
         self.assertTrue(any("100 件" in n for n in state["notices"]) and any("SIZE_BUDGET" in n for n in state["notices"]), state["notices"])
         for gate, res in (("G0", g0), ("G0-2", g02), ("G1", g1)):
@@ -2057,32 +2107,15 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual(state["item_routes"], {f"{self.DOC}#{it}": "exhausted" for it in items})
         self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
 
-
     def test_段8で裁定を持って止まったnext_argsも上限に収まる(self):
-        # G1 と同じ規模で回答を当て、改稿の後の監査役が応答しない。existing は段 5 が settled_written を空にするので、全 resolution を改稿に渡す。
-        rs = lambda a, b: [f"RS-{i:03d}" for i in range(a, b + 1)]
-        units = [{"id": "U-1", "docs": [self.DOC], "depends_on": []}]
-        writer = lambda n, item: {"id": f"r1-im-requirements__cleanup-branches-{n:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
-        decision = lambda n: {"id": f"r1-cd-all-{n:03d}", "doc": self.DOC, "item_id": "PR-CLEANUP-BRANCHES-009", "route": "decision"}
-        items = self.ITEMS
-        common = {"units": units, "long_digests": True, "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
-                  "doc_flow_refs": {self.DOC: {f"PR-CLEANUP-BRANCHES-{i:03d}": [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, 10)}},
-                  "findings": {"implementer:r1": [writer(i + 1, it) for i, it in enumerate(items)], "crossDoc:r1": [decision(n) for n in (1, 2, 3)]},
-                  "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]}}
-        auditor = f"grounding:r2:{self.DOC}"
+        # 改稿が writer の指摘のうち UNAPPLIED 件を当て損ねた形も見る（当て損ねは次のパスへ持ち越す）。
         for entry in ("new", "existing"):
-            with self.subTest(entry=entry):
-                a = args() if entry == "new" else args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
-                g0 = run({"args": a, "units": units, "flow_open": 1, "long_digests": True, "ruled_at": {"3": rs(1, 12)}, "questions_at": {"3": rs(13, 21)},
-                          "verifier_extra_pass": {"3v": [f"D-{i:03d}" for i in range(1, 56)]}})["result"]
-                g02 = run({"args": g0["next_args"], "units": units, "long_digests": True, "ruled_at": {"3a": rs(13, 21)}, "questions_at": {"3a": ["RS-022"]}})["result"]
-                g1 = run({"args": g02["next_args"], **common, "ruled_at": {"3a": ["RS-022"], "6": rs(26, 28)}, "questions_at": {"6": rs(23, 25)}})["result"]
-                # 改稿が writer の指摘 13 件のうち 7 件を当て損ねた形も見る（当て損ねは次のパスへ持ち越す）。
-                for unapplied in ([], [writer(i + 1, it)["id"] for i, it in enumerate(items)][:7]):
-                    res = run({"args": g1["next_args"], **common, "ruled_at": {"3a'": rs(23, 25)}, "null_labels": [auditor, auditor + "#retry"], "unapplied_seq": [unapplied]})["result"]
-                    self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
-                    self.assertEqual(res["next_args"]["state"]["revised"]["unapplied"], unapplied)
-                    self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
+            for unapplied in (0, self.UNAPPLIED):
+                with self.subTest(entry=entry, unapplied=unapplied):
+                    self.assertLess(self._stage8(entry, self.ITEMS_N, unapplied), NEXT_ARGS_MAX_CHARS)
+
+    def test_項目がITEMS_Nを超えると段8の最悪の形は上限を超える(self):
+        self.assertGreaterEqual(self._stage8("existing", self.ITEMS_N + 1, self.UNAPPLIED), NEXT_ARGS_MAX_CHARS)
 
 
 # 段ごとに、その段を通るシナリオと、その段で最初に起動する agent の label。
