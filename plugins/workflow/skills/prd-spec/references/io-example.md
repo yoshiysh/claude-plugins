@@ -22,7 +22,7 @@ intake が「承認したら経理に回る」を確定に、「金額の上限�
 
 ```json
 { "status": "needs_answers", "questions_path": ".../expense/questions.md", "answers_path": ".../expense/answers/g0.md",
-  "question_ids": ["RS-002", "RS-003"], "next_args": { "…": "そのまま渡す" } }
+  "question_ids": ["RS-002", "RS-003"], "next_args": { "…": "変えずに渡す（workflow-io §3）" } }
 ```
 
 resolver は問いを resolutions.json の `question`・`options` に put で書く（例は RS-002 の一部）:
@@ -53,7 +53,7 @@ resolver は問いを resolutions.json の `question`・`options` に put で書
 …
 ```
 
-**依頼者の回答を `answers/g0.md` に逐語で書き、`next_args` をそのまま渡す**:
+**依頼者の回答を `answers/g0.md` に逐語で書き、`next_args` を渡す**:
 
 ```
 RS-002 は A。RS-003 は 1 分以内でいい。

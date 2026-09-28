@@ -188,6 +188,13 @@ class Canonical(_Workspace):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": []})
         self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"sha256": "x"})
 
+    def test_形の外の_resolution_の_ID_は何も書かない(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001"}]})
+        for bad in ("R-001", "D-001", "RS-", "rs-001"):
+            with self.subTest(bad):
+                r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": bad}]})
+                self.assertIn(bad, r.stderr)
+
 
 class Verbatim(_Workspace):
     def test_input_md_に無い引用は何も書かない(self):

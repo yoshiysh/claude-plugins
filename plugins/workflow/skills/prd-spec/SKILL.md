@@ -91,8 +91,8 @@ Workflow({
 
 args に打ち直すのは ID・件数・digest と、返った `next_args` だけにする（依頼文は W/input.md に、flow などの本体は W に
 ある。why は `references/workflow-io.md` §1）。model / effort は全役に既定があり、`role_opts` で上書きできる
-（`references/workflow-io.md` §2）。`next_args` を打ち直して値が変わると run は最初に止まるので、その時は返った `next_args` を
-そのまま渡し直す。返り値の `status` で次を決める。
+（`references/workflow-io.md` §2）。返った `next_args` は変えずに渡す（変えてよい欄と、変えたときに止まる仕組みは
+`references/workflow-io.md` §3）。返り値の `status` で次を決める。
 
 - **`needs_answers`**（G0・G0-2・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
@@ -101,18 +101,18 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
   `header`・`question`・`options` の文面は**変えずに**渡す）。選択式で答えやすくするためで、文面を縮めたり
   言い換えたりすると、その要約は誰にも検証されないまま依頼者の判断材料になる。背景を読みたいと言われたら
   `questions_path` の本文をそのまま見せる。回答は `<ID>: <選ばれた label>` の行（自由記述や注記があればその文を
-  続けて逐語で）として `answers_path` に**逐語で**書き、`next_args` を**そのまま**渡して再実行する。回答を言い換えたり、候補の番号に丸めたり、
+  続けて逐語で）として `answers_path` に**逐語で**書き、`next_args` を渡して再実行する。回答を言い換えたり、候補の番号に丸めたり、
   回答の無い問いを既定で埋めたりしない。回答の解釈は resolver が行い、候補の外の自由記述は verifier が検証する。
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
-  しなかったなど）のときで、原因を除いてからそのまま渡す。`report_path` があれば
+  しなかったなど）のときで、原因を除いてから渡す。`report_path` があれば
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
 - **`done`**: 下の「保存」へ進む。
 
-再実行は `from`（段の境界）で行い、Workflow の resume に頼らない。状態はすべて W のファイルと `next_args.state`
-にある（`references/workflow-io.md` §3）。
+再実行は返った `next_args` で行い（どの段から始めるかは `next_args.from` が決める）、Workflow の resume に頼らない。
+状態はすべて W のファイルと `next_args.state` にある（`references/workflow-io.md` §3）。
 
 ## 保存と事後報告
 
@@ -163,7 +163,7 @@ Codex で動かすための要件は次のとおり。
 - request の `requirements` に `workspace-write` を宣言する。worktree の隔離は使わない（併用できない）。
 - W は args で固定し、run ごとに作られる workspace のパスは使わない（G0・G0-2・G1 をまたいで同じ W を読み書きする）。
   host 側で W への書き込みを許す設定が要る。
-- resume に頼らず、`from` で段の境界から再実行する。`role_opts` の model に対応する `modelMap` を渡す。
+- resume に頼らず、返った `next_args` で段の境界から再実行する。`role_opts` の model に対応する `modelMap` を渡す。
 - shunt は使えないので、監査役は文書を全文で読む。
 
 ## 参照ファイル

@@ -72,7 +72,7 @@ function respond(prompt, label) {
   const [role, stage, target] = base.split(':')
   if (role === 'intake') {
     const plan = (spec.plan_findings || {})[base]
-    return { decisions: 3, open: 0, plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan') }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+    return { plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan') }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
@@ -395,6 +395,45 @@ class Stages(unittest.TestCase):
         self.assertNotIn("resolver:3-convert", r["labels"])
         self.assertEqual(r["result"]["status"], "done")
 
+    def test_resolutionのIDの形に合わないIDを返したresolverは段を止める(self):
+        # 形の外の ID は合否の集合で resolution に数えられず、裁定が黙って消える。
+        for name, kw in (("ruled", {"ruled_at": {"3": ["R-001"]}}), ("questions", {"questions_at": {"3": ["D-001"]}}),
+                         ("free_text", {"ruled_at": {"3": ["RS-001"]}, "free_text_at": {"3": ["RS-X"]}})):
+            with self.subTest(name):
+                r = run({"args": args(), "flow_open": 1, **kw})
+                bad = (kw.get("free_text_at") or kw.get("questions_at") or kw["ruled_at"])["3"][0]
+                self.assertEqual((r["result"]["status"], r["result"]["next_args"]["from"]), ("blocked", "3"), r["result"].get("reason"))
+                self.assertIn(f"合わない ID を返しました: 「{bad}」", r["result"]["reason"])
+                self.assertFalse(has(r["labels"], "verifier:"))
+
+    def test_検証を求めていない裁定の合否は数えず変換もしない(self):
+        # RS-099 は回答待ちの問い。検証を求めていない合否を台帳の集合に入れると、回答が当たっても使えないままになる。
+        g0 = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "questions_at": {"3": ["RS-099"]}})["result"]
+        asked = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}
+        unasked = {"id": "RS-099", "kind": "insufficient_grounds", "reason": "r"}
+        r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-002"], "3a'": ["RS-002"]}, "free_text_at": {"3a": ["RS-002"]},
+                 "verifier_fail": {"3av": [{**asked, "id": "RS-002"}, unasked], "3av'": [{**asked, "id": "RS-002"}, unasked]},
+                 "holds_at": {"3a-convert": ["RS-002"]}, "null_labels": ["flow-framer:3b-reframe", "flow-framer:3b-reframe#retry"]})["result"]
+        self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3b"), r.get("reason"))
+        state = r["next_args"]["state"]
+        self.assertIn("RS-099", state["questions"])
+        self.assertNotIn("RS-099", state.get("failed_ids", []))
+        self.assertNotIn("RS-099", state.get("holds", []))
+        self.assertTrue(any("RS-099" in n and "合否に数えていない" in n for n in state["notices"]), state["notices"])
+
+    def test_変換で求めていないIDを返したresolverは段を止める(self):
+        fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
+        base = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001", "RS-002"], "3'": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail}}
+        for name, kw in (("hold", {"holds_at": {"3-convert": ["RS-001", "RS-002"]}}),
+                         ("ruled", {"holds_at": {"3-convert": ["RS-001"]}, "ruled_at": {**base["ruled_at"], "3-convert": ["RS-003"]}})):
+            with self.subTest(name):
+                res = run({**base, **kw})
+                self.assertFalse(has(res["labels"], "writer:"))
+                r = res["result"]
+                self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3"), r.get("reason"))
+                self.assertIn("変換を求めていない", r["reason"])
+                self.assertIn(kw.get("ruled_at", kw["holds_at"])["3-convert"][-1], r["reason"])
+
     def test_existingでもゲートとblockedの後の段6から再開できる(self):
         a = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}])
         spec = {"args": a, "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}
@@ -592,14 +631,32 @@ class Stages(unittest.TestCase):
         for name, broken in (("state の値を変えた", {**na, "state": {**na["state"], "pass": na["state"]["pass"] + 1}}),
                              ("workspace を変えた", {**na, "workspace": "/tmp/prd-other"}),
                              ("existing_docs を変えた", {**na, "existing_docs": [{"key": "requirements/x", "fixed": False}]}),
-                             ("role_opts を変えた", {**na, "role_opts": {"writer": {"effort": "high"}}}),
                              ("from を変えた", {**na, "from": "7"}),
                              ("state_hash を落とした", {k: v for k, v in na.items() if k != "state_hash"})):
             with self.subTest(name):
                 r = run({"args": broken, "ruled_at": {"3a'": ["RS-010"]}})
                 self.assertIn("そのまま渡し直して", r["error"] or "")
                 self.assertEqual(r["labels"], [])
-        self.assertEqual(run({"args": na, "ruled_at": {"3a'": ["RS-010"]}})["result"]["status"], "done")
+        # 環境の欄（ENV_ARGS）の変更と、同じ意味の打ち直し（空の existing_docs を落とす）は止めない。
+        self.assertEqual(na["existing_docs"], [])
+        for name, same in (("そのまま", na),
+                           ("role_opts を変えた", {**na, "role_opts": {"writer": {"effort": "high"}}}),
+                           ("skillDir を変えた", {**na, "skillDir": "/tmp/prd-spec-1.2.4"}),
+                           ("空の existing_docs を落とした", {k: v for k, v in na.items() if k != "existing_docs"})):
+            with self.subTest(name):
+                r = run({"args": same, "ruled_at": {"3a'": ["RS-010"]}})
+                self.assertIsNone(r["error"], r["error"])
+                self.assertEqual(r["result"]["status"], "done")
+
+    def test_変えたrole_optsとskillDirは次のnext_argsに載る(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]["next_args"]
+        changed = {**g0, "skillDir": "/tmp/prd-spec-1.2.4", "role_opts": {"writer": {"effort": "high"}}}
+        res = run({"args": changed, "ruled_at": {"3a": ["RS-001"]}, "null_labels": ["writer:U-1:draft", "writer:U-1:draft#retry"]})
+        self.assertIsNone(res["error"], res["error"])
+        na = res["result"]["next_args"]
+        self.assertEqual((res["result"]["status"], na["from"]), ("blocked", "4"), res["result"].get("reason"))
+        self.assertEqual((na["skillDir"], na["role_opts"]), ("/tmp/prd-spec-1.2.4", {"writer": {"effort": "high"}}))
+        self.assertIn("/tmp/prd-spec-1.2.4/", next(p["prompt"] for p in res["prompts"] if p["label"] == "writer:U-1:draft"))
 
     def test_段8で止まったnext_argsから再開すると当て損ねた指摘が次のパスへ持ち越される(self):
         findings = {"implementer:r1": [{"id": "r1-im-requirements__x-001"}, {"id": "r1-im-requirements__x-002", "item_id": "PR-X-002"}]}
@@ -1409,6 +1466,20 @@ class FlowFixerRoutes(unittest.TestCase):
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         self.assertIn("RS-009", r["result"]["holds"])
 
+    def test_settleのverifierが回答待ちの問いを落としても変換しない(self):
+        # G0 の問い RS-001・RS-002 のうち 3a で RS-001 だけに答えた。settle の verifier に RS-002 は渡していない。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
+        fails = [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}, {"id": "RS-002", "kind": "insufficient_grounds", "reason": "r"}]
+        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
+                           verifier_fail={"3av-settle": fails}, questions_at={"3a-settle-convert": ["RS-009"], "3b": ["RS-002"]}))
+        convert = self._prompt(r, "resolver:3a-settle-convert")
+        self.assertIn("RS-009 → question", convert)
+        self.assertNotIn("RS-002", convert)
+        res = r["result"]
+        self.assertEqual(res["status"], "needs_answers", res.get("reason"))
+        self.assertIn("RS-002", res["question_ids"])
+        self.assertNotIn("RS-002", res["next_args"]["state"].get("failed_ids", []))
+
     def test_settleのverifierに落ちたOの裁定はG0の後の3aでは問いにできる(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         r = self._settle_fails(g0["next_args"], "3a", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
@@ -1445,10 +1516,11 @@ class FlowFixerRoutes(unittest.TestCase):
 
     def test_変換の後のsettleに渡す指摘はverifierのstdoutから取る(self):
         # 変換の resolver の stdout が縛りの無さを申告しなくても、差し戻しの verifier が見た指摘を flow-framer に渡す。
+        # 候補の選択だけの回答は verifier に渡さないので、自由記述の回答にして検証させる。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
         r = run(self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a'": ["RS-001"], "3a-settle-opens": ["RS-009"]},
-                           verifier_fail={"3av": fail, "3av'": fail}, holds_at={"3a-convert": ["RS-001"]},
+                           free_text_at={"3a": ["RS-001"]}, verifier_fail={"3av": fail, "3av'": fail}, holds_at={"3a-convert": ["RS-001"]},
                            flow_codes_at={"3a": self.DESTRUCTIVE, "3a'": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE, "3av'": self.DESTRUCTIVE}))
         self.assertIn("resolver:3a-convert", r["labels"])
         self.assertIn("F-053: 縛る不変条件が無い", self._prompt(r, "flow-framer:3a-settle"))
@@ -1511,7 +1583,7 @@ class FlowFixerRoutes(unittest.TestCase):
         fail = [{"id": "RS-001", "kind": "value_as_method", "reason": "r"}]
         r = run(self._spec(
             g0["next_args"], "3a", answered="RS-001",
-            ruled_at={"3a": ["RS-001"], "3a'": ["RS-001"], "3a-pairs": ["RS-002"], "3a'-pairs": ["RS-003"]},
+            ruled_at={"3a": ["RS-001"], "3a'": ["RS-001"], "3a-pairs": ["RS-002"], "3a'-pairs": ["RS-003"]}, free_text_at={"3a": ["RS-001"]},
             questions_at={"3a": ["RS-004"], "3a'": ["RS-005"], "3a-pairs": ["RS-006"], "3a'-pairs": ["RS-007"], "3a-convert": ["RS-001"], "3a-settle-opens": ["RS-009"],
                           "3a-settle-convert": ["RS-009"]},
             bad_questions_at=["3a", "3a'", "3a-pairs", "3a'-pairs", "3a-convert", "3a-settle-opens", "3a-settle-convert"],
@@ -2066,8 +2138,9 @@ class NextArgsBudget(unittest.TestCase):
     SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 と段 8 で止まった next_args が上限に収まる。"""
 
     DOC = "requirements/cleanup-branches"
-    # ITEMS_N: 上限に収まる項目の数の境界。ITEMS_N + 1 で段 8 の最悪の形が上限を超えることも確かめるので、next_args が
-    # 増えても減っても、ここを数え直すまでテストが落ちる。
+    # ITEMS_N: 上限に収まる項目の数の境界。ITEMS_N で収まり ITEMS_N + 1 の段 8 の最悪の形で超えることを両方確かめるので、
+    # next_args の増減が境界をまたげば落ちる。1 項目分に満たない増減は落ちないので、再開で読まない値が載っていないことは
+    # _assert_lean が欄ごとに見る。
     ITEMS_N = 19
     UNAPPLIED = 7
 
@@ -2110,11 +2183,21 @@ class NextArgsBudget(unittest.TestCase):
         res = run({"args": g1["next_args"], **self._common(n), "ruled_at": {"3a'": self._rs(23, 25)}, "null_labels": [auditor, auditor + "#retry"], "unapplied_seq": [ids]})["result"]
         self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
         self.assertEqual(res["next_args"]["state"]["revised"]["unapplied"], ids)
+        self._assert_lean(res["next_args"]["state"])
         return len(json.dumps(res["next_args"], ensure_ascii=False))
 
     def _size(self, res):
         self.assertEqual(res["status"], "needs_answers", res.get("reason"))
+        self._assert_lean(res["next_args"]["state"])
         return len(json.dumps(res["next_args"], ensure_ascii=False))
+
+    def _assert_lean(self, state):
+        # 段 2・3 より後の next_args には、再開で読まない値（段を過ぎた plan_sha256 と counts、導出できる known、
+        # 読まない decisions_sha256、D- の合格）が無い。
+        for key in ("known", "decisions_sha256", "plan_sha256", "counts"):
+            self.assertNotIn(key, state)
+        self.assertTrue(state["passed"])
+        self.assertEqual([i for i in state["passed"] if not re.fullmatch(r"RS-\d+", i)], [])
 
     def test_各ゲートのnext_argsが上限に収まる(self):
         g0, g02, g1 = self._gates(args(), self.ITEMS_N)

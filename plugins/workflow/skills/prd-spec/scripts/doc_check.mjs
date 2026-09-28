@@ -1613,6 +1613,9 @@ const LEDGERS = {
   resolutions: {
     file: () => 'resolutions.json',
     lists: { resolutions: 'id' },
+    // keyShape: prd.js の RESOLUTION_ID と同じ（tests が照合する）。prd.js は合否をこの形で resolution と D- / F- に分けるので、
+    // 形の外の ID で書いた裁定は、検証に通っても閉じた論点に数えられない。
+    keyShape: /^RS-\d+$/,
     scalars: {},
     fields: {
       resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision', 'kind'],
@@ -1720,6 +1723,7 @@ function checkShape(name, value, file, input) {
       for (const el of value[k]) {
         const key = el && typeof el === 'object' && !Array.isArray(el) ? el[spec.lists[k]] : undefined
         if (typeof key !== 'string' || !key.trim()) throw new Error(`${file} の ${k} に ${spec.lists[k]} の無い要素があります`)
+        if (spec.keyShape && !spec.keyShape.test(key)) throw new Error(`${file} の ${k} の ${spec.lists[k]} ${key} が形（${spec.keyShape.source}）に合いません`)
       }
     } else if (k in spec.scalars) {
       if (!(input && value[k] === null) && typeof value[k] !== spec.scalars[k]) throw new Error(`${file} の ${k} が ${spec.scalars[k]} ではありません`)

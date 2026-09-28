@@ -262,7 +262,7 @@
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
-{ "decisions": 18, "open": 3, "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\"}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
+{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\"}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
 ```
 
 ## flow.json の形
@@ -344,8 +344,8 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 書く形は「## flow.json の形」が正。
 
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。
-  `constrained_by` の O- も `{el, constraint}` で出る。最後の verifier の stdout（その後に検証に落ちた裁定を変換しても同じ。変換は
-  flow も合格の集合も変えない）で、その O- が合格か回答で閉じていたら、script は最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
+  `constrained_by` の O- も `{el, constraint}` で出る。最後の verifier の stdout（その後に検証に落ちた裁定を変換しても同じ。
+  変換が返してよい ID は §resolver）で、その O- が合格か回答で閉じていたら、script は最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
   閉じた resolution への差し替え・要らなくなった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素を検証する（直させた要素は
   必ず含める）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 - stdout の `unverified` は今の digest で合格の無い要素、`failed_current` は今の digest で不合格の要素である（検証の状態は
@@ -407,12 +407,14 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 ```
 
 - `ruled`・`questions`・`holds` の `about` は、resolutions の `about` と同じ形で書く。script はファイルを読めない
-  ので、どの open・組・指摘・TBD が閉じたかはここからしか分からない。script はこれと verifier の合格を突き合わせて、
-  閉じた ID の集合（開いている TBD の算出に使う）を next_args に載せ、渡した対象のうち `about` に現れないものを
-  裁定漏れとして数える。
+  ので、どの open・組・指摘・TBD が閉じたかはここからしか分からない。script は `about` を next_args の state に載せ、
+  verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
+  `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
+  prd.js の `RESOLUTION_ID`）。
 - 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`。起動の条件は references/workflow-io.md §4）では、
-  渡された ID をすべて `questions` か `holds` に入れて返す。1 件でも無ければ script は段を止める（変換した ID はもう検証しないので、
-  返らない ID の論点は裁定も保持規則も無いまま文書に届く）。
+  渡された ID をすべて、渡された ID だけを `questions` か `holds` に入れて返し、`ruled` は空にする。合わなければ script は段を止める
+  （変換した ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
+  検証を通った裁定が問いや保持規則に戻る）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
@@ -426,8 +428,9 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 ## §resolver-verifier
 
 入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/input.md`、
-`W/answers/*.md`、script が渡す検証対象の ID。書くもの: `W/verifications.json`（put）。返り値の 2 つの sha256 は、
-put の stdout の値をそのまま入れる:
+`W/answers/*.md`、script が渡す検証対象の ID。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、
+put の stdout の値をそのまま入れる。`pass`・`fail` の resolution（RS-）は渡された ID に限る。script は渡していない RS- の合否を
+合否に数えず、`notices` に 1 行残す（数えると、回答待ちの問いが不合格の集合に入り、回答が当たっても使えないままになる）:
 
 ```json
 { "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }

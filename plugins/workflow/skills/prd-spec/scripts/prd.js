@@ -73,6 +73,10 @@ const GATE_ANSWERS = { g0: 'answers/g0.md', 'g0-2': 'answers/g0-2.md', g1: 'answ
 const MODELS = ['haiku', 'sonnet', 'opus']
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
+// RESOLUTION_ID: resolution の ID の形。doc_check の LEDGERS.resolutions.keyShape と同じ（tests が照合する）。合否と台帳の集合は
+// この形で resolution と D- / F- を分けるので、形の外の ID を受け取ると、裁定したことが黙って消える。
+const RESOLUTION_ID = /^RS-\d+$/
+
 // DIRECTIONS・ORIGINS: 契約の direction・origin の表と同じ集合（tests が照合する）。enum が無いと表の外の値が黙って通る。
 const DIRECTIONS = ['relax', 'tighten', 'make_measurable', 'choose_one', 'merge_or_split', 'align_terms', 'add_trace', 'remove', 'document_decision']
 const ORIGINS = ['input', 'flow', 'ledger', 'text']
@@ -181,7 +185,7 @@ function openTbdOf(state) {
 
 // usableResolutions: 候補の選択で回答が当たった問いは、その候補が段 3 の検証を通っているので合格と同じに扱う。
 function usableResolutions(state) {
-  return minus(uniq([...(state.passed || []), ...(state.answered || [])]).filter((id) => /^RS-/.test(id)), state.failed_ids || [])
+  return minus(uniq([...(state.passed || []), ...(state.answered || [])]).filter((id) => RESOLUTION_ID.test(id)), state.failed_ids || [])
 }
 
 // invalidIds: 落ちた既定が差し戻しで問いや保持規則に変わり supersedes されなかったとき、これを渡さないと、
@@ -299,9 +303,12 @@ function fnv(text) {
   return h.toString(16).padStart(8, '0')
 }
 
-// nextArgsHash: state_hash 以外のすべてを覆う。司令塔が変えてよい欄は無い（回答は answers のファイルに書く）ので、state だけを覆うと
-// workspace・existing_docs・role_opts・from の写し間違いが通る。
-const nextArgsHash = (a) => fnv(canonicalText({ ...a, state_hash: undefined }))
+// ENV_ARGS: 司令塔が next_args で変えてよい欄（run のデータではない環境。どれを変えてよいかは references/workflow-io.md §3）。
+// nextArgsHash はこれと state_hash の外をすべて覆う。state だけを覆うと workspace・existing_docs・from の写し間違いが通る。
+// 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（prd.js がそう読むので、打ち直しで [] を落としても意味は変わらない）。
+const ENV_ARGS = ['skillDir', 'role_opts']
+const isEmpty = (v) => v === undefined || (Array.isArray(v) ? !v.length : v && typeof v === 'object' && !Object.keys(v).length)
+const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !isEmpty(v)))))
 
 // reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
@@ -546,8 +553,6 @@ const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, a
 const INTAKE_SCHEMA = {
   type: 'object',
   properties: {
-    decisions: INT,
-    open: INT,
     plan_check: STR,
     units: {
       type: 'array',
@@ -555,7 +560,7 @@ const INTAKE_SCHEMA = {
       items: { type: 'object', properties: { id: STR, docs: { type: 'array', items: STR, minItems: 1 }, depends_on: STRS }, required: ['id', 'docs', 'depends_on'] },
     },
   },
-  required: ['decisions', 'open', 'plan_check', 'units'],
+  required: ['plan_check', 'units'],
 }
 
 const FLOW_SCHEMA = {
@@ -766,6 +771,8 @@ const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --w
 async function once(label, role, prompt, schema, phaseTitle) {
   const [r] = await runWithRetry(label, [label], (_, attempt) => agent(prompt, { ...OPTS[role], schema, phase: phaseTitle, label: attempt > 1 ? `${label}#retry` : label }), (x) => Boolean(x))
   if (r && role === 'resolver' && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: resolver が resolutions_sha256 を返しませんでした`), { rerunStage: true })
+  const badIds = r && role === 'resolver' ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
+  if (badIds.length) throw Object.assign(new Error(`${label}: resolver が resolution の ID の形（${RESOLUTION_ID.source}）に合わない ID を返しました: ${badIds.map((id) => `「${id}」`).join(', ')}`), { rerunStage: true })
   return r || null
 }
 
@@ -813,7 +820,7 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator) {
   const notFlow = (ids) => (ids || []).filter((id) => !/^F-/.test(id))
   const failIds = notFlow((v.fail || []).map((f) => f.id))
   // passed は resolution だけを持つ。D- の合格は次の行で failed_ids から引けば足り、運ぶと next_args が決定の数に比例して増える。
-  state.passed = minus(uniq([...(state.passed || []), ...(v.pass || []).filter((id) => /^RS-/.test(id))]), failIds)
+  state.passed = minus(uniq([...(state.passed || []), ...(v.pass || []).filter((id) => RESOLUTION_ID.test(id))]), failIds)
   state.failed_ids = minus(uniq([...(state.failed_ids || []), ...failIds]), v.pass || [])
   state.flow_failed = fc.failed_current
   if (expectedSha && v.resolutions_sha256 !== expectedSha) {
@@ -867,6 +874,17 @@ function verifierPrompt(label, stage, ids, extra) {
   ]
     .filter(Boolean)
     .join('\n\n')
+}
+
+// askVerifier: 検証を求めていない resolution の合否は、台帳の集合に入れる前に外す。入れると、回答待ちの問いが不合格の集合に残って
+// 回答が当たっても使えないままになり、変換はその問いを保持規則に書き換える。
+async function askVerifier(label, stage, ids, extra, phaseTitle) {
+  const v = await once(label, 'verifier', verifierPrompt(label, stage, ids, extra), VERIFIER_SCHEMA, phaseTitle)
+  if (!v) return null
+  const unasked = (id) => RESOLUTION_ID.test(id) && !ids.includes(id)
+  const dropped = uniq([...v.pass, ...v.fail.map((f) => f.id)].filter(unasked))
+  if (dropped.length) state.notices = [...(state.notices || []), `verifier（${label}）が検証を求めていない ${list(dropped)} の合否を返した（合否に数えていない）`]
+  return { ...v, pass: v.pass.filter((id) => !unasked(id)), fail: v.fail.filter((f) => !unasked(f.id)) }
 }
 
 // 変換した分はもう検証しない（検証のループを増やすと、差し戻しの上限が意味を失う）。
@@ -925,7 +943,7 @@ async function ruleAndVerify(stage, opt) {
   if (!ids.length && !opt.verifyExtra && !flowChecked) return { ok: true, passed: [] }
   const v1Label = `verifier:${stage}v`
   const extra1 = [opt.verifyExtra, flowExtra(flowNow)].filter(Boolean).join('\n\n')
-  const v1 = await once(v1Label, 'verifier', verifierPrompt(v1Label, `${stage}v`, ids, extra1), VERIFIER_SCHEMA, phaseTitle)
+  const v1 = await askVerifier(v1Label, `${stage}v`, ids, extra1, phaseTitle)
   if (!v1) return { error: `resolver-verifier（段 ${stage}v）が応答しませんでした` }
   const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter)
   if (ve1) return ve1
@@ -955,7 +973,7 @@ async function ruleAndVerify(stage, opt) {
   }
   const v2Label = `verifier:${stage}v'`
   const asked2 = uniq([...ids2, ...(fe2.changed ? toVerify(fe2.fc) : [])])
-  const v2 = await once(v2Label, 'verifier', verifierPrompt(v2Label, `${stage}v'`, ids2, fe2.changed ? flowExtra(fe2.fc) : ''), VERIFIER_SCHEMA, phaseTitle)
+  const v2 = await askVerifier(v2Label, `${stage}v'`, ids2, fe2.changed ? flowExtra(fe2.fc) : '', phaseTitle)
   if (!v2) return { error: `resolver-verifier（段 ${stage}v' の再検証）が応答しませんでした` }
   const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked, flowWriter)
   if (ve2) return ve2
@@ -963,8 +981,8 @@ async function ruleAndVerify(stage, opt) {
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。要素は resolveCycle が settle の後に扱う。
   // v2 に渡していない要素の不合格は前の版の再報告で、failed_current に残って writer に根拠にしない要素として渡る。
-  const unconvertible = v2.fail.map((f) => f.id).filter((id) => !/^RS-/.test(id) && asked2.includes(id))
-  const toConvert = v2.fail.filter((f) => /^RS-/.test(f.id))
+  const unconvertible = v2.fail.map((f) => f.id).filter((id) => !RESOLUTION_ID.test(id) && asked2.includes(id))
+  const toConvert = v2.fail.filter((f) => RESOLUTION_ID.test(f.id))
   if (!toConvert.length) return { ok: true, passed, lastFlow: verified, verified, unconvertible }
   freshFlow = null
   const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
@@ -972,9 +990,10 @@ async function ruleAndVerify(stage, opt) {
   return { ok: true, passed, lastFlow: freshFlow || afterConvert(verified, ce.fc), verified: freshFlow || verified, unconvertible }
 }
 
-// afterConvert: 変換の resolver は flow を変えられず、合格の集合も増やせないので、閉じた O- を引く要素（open_only）は
+// afterConvert: 変換の resolver は flow と合格の集合を変えない（convertFailed が返り値で確かめる）ので、閉じた O- を引く要素（open_only）は
 // verifier の stdout で確定している。supersedes は書けるので、覆された決定を引く要素（stale_refs）はその resolver の stdout の分を足す。
-// どちらも resolver の申告だけにすると、少なく申告した stdout で settle が落ちる。
+// どちらも resolver の申告だけにすると、少なく申告した stdout で settle が落ちる。指摘（findings・codes）は台帳の kind や supersedes で
+// 変わるので、変換の後の値はその resolver の stdout にしか無い（別の agent の stdout と照合していない）。
 const afterConvert = (verified, converted) => ({
   ...converted,
   open_only: verified.open_only,
@@ -983,7 +1002,7 @@ const afterConvert = (verified, converted) => ({
 
 // convertFailed: 検証に落ちた裁定（RS-）を、値を決めずに理由で question か hold に書き換える。変換した分はもう検証しない
 // （検証のループを増やすと、差し戻しの上限が意味を失う）。
-// wasQuestion: 差し戻しの cycle の入口で回答待ちだった問い。settle の verifier が落とすのはその回に裁定した新しい ID だけなので渡さない。
+// wasQuestion: 差し戻しの cycle の入口で回答待ちだった問い。settle の verifier の合否は askVerifier がその回に裁定した ID に限るので渡さない。
 async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wasQuestion = new Set()) {
   const convert = fails.map((f) => `- ${f.id} → ${(f.kind === 'value_as_method' || wasQuestion.has(f.id)) && allowQuestions ? 'question' : 'hold'}（${f.kind}）`).join('\n')
   log(`段 ${owner}: 検証に落ちた ${fails.length} 件を、理由で問いと保持規則に分けます（検証はもう回しません）`)
@@ -996,13 +1015,16 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
     phaseTitle
   )
   if (!r) return { error: `resolver（段 ${owner} の変換）が応答しませんでした` }
+  // 返す ID の決まりは契約 §resolver の変換の項。台帳の集合に入れる前に確かめる。
+  const asked = fails.map((f) => f.id)
+  const converted = [...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id)
+  const missing = asked.filter((id) => !converted.includes(id))
+  if (missing.length) return { error: `段 ${owner}: 変換を求めた ${list(missing)} を resolver が question にも hold にも返しませんでした` }
+  const extra = uniq([...converted.filter((id) => !asked.includes(id)), ...(r.ruled || []).map((x) => x && x.id)])
+  if (extra.length) return { error: `段 ${owner}: 変換を求めていない ${list(extra)} を resolver が返しました（変換の呼び出しは求めた ID を question か hold にするだけ）` }
   absorbResolver(r)
   const kept = flowKept(`${owner}-convert`, r)
   if (kept) return kept
-  // 変換した分はもう検証も裁定もされないので、返らなかった ID は閉じない論点のまま文書に届く。
-  const converted = new Set([...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id))
-  const missing = fails.map((f) => f.id).filter((id) => !converted.has(id))
-  if (missing.length) return { error: `段 ${owner}: 変換を求めた ${list(missing)} を resolver が question にも hold にも返しませんでした` }
   const qe = await checkQuestions(stage, `${owner}-convert`, r, phaseTitle, null, allowQuestions)
   if (qe) return qe
   return { fc: flowCheckOf(r.flow_check) }
@@ -1141,7 +1163,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const fixed = m.found.length ? fc.unverified : uniq([...m.left.map((x) => x.el), ...m.verdicts, ...m.stale.map((x) => x.el)]).filter((id) => fc.unverified.includes(id))
   const must = uniq([...fixed, ...m.redo])
   const target = toVerify(fc, must)
-  const v = await once(vLabel, 'verifier', verifierPrompt(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc, must)), VERIFIER_SCHEMA, phaseTitle)
+  const v = await askVerifier(vLabel, `${stage}v（裁定の反映）`, pe.ids, flowExtra(fc, must), phaseTitle)
   if (!v) return { error: `resolver-verifier（段 ${stage}v の裁定の反映）が応答しませんでした` }
   const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true, 'flowFramer')
   if (ve) return ve
@@ -1149,7 +1171,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   freshFlow = vfc
   // flow-framer に直せない裁定（RS-）の不合格は、段 3 の差し戻しの後と同じく問いか保持規則に変える。止めると、縛る不変条件の O- を
   // 足した破壊的な工程が、裁定が落ちただけで blocked になる。
-  const toConvert = v.fail.filter((f) => /^RS-/.test(f.id))
+  const toConvert = v.fail.filter((f) => RESOLUTION_ID.test(f.id))
   const failed = minus(v.fail.map((f) => f.id), toConvert.map((f) => f.id))
   const ce = toConvert.length ? await convertFailed(tag, tag, toConvert, phaseTitle, allowQuestions) : { fc: vfc }
   if (ce.error) return ce

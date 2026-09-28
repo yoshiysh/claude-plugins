@@ -15,7 +15,7 @@
 | `entry` | `new` / `existing` / `expand`。`review` / `update` は使わない（Codex の runner が拒否する値と衝突する） |
 | `existing_docs` | `existing`・`expand` のとき必須。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed }]`。本文は W に置いてある |
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
-| `state` | `from` が `1` 以外のとき要る。前の run の `next_args` を `from`・`state_hash` ごとそのまま渡す（§3） |
+| `state` | `from` が `1` 以外のとき要る。前の run の `next_args` ごと渡す（§3） |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
 
 **司令塔が args に打ち直すのは ID・件数・digest に限る。** 本文や本体の JSON は W に置き、args にはそのパスか
@@ -50,7 +50,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   "remaining_blocking": ["stop_reason のある blocked のとき、本文に反映されていない blocking の指摘の ID（hold の文案にしたものを含む）"],
   "carried_blocking": ["stop_reason のある blocked のとき、remaining_blocking のうち最後のパスの監査が出したのではなく前のパスから持ち越した ID"],
   "doc_blocking": "stop_reason のある blocked のとき、残った doc_check の blocking の件数",
-  "next_args": "needs_answers と、やり直せる blocked のとき。そのまま渡す args",
+  "next_args": "needs_answers と、やり直せる blocked のとき。次の run の args（渡し方は下の 1 つ目の項）",
   "tree_digest": "最後の監査が見た木の digest（done のとき）",
   "open_tbd": ["開いている TBD の ID"],
   "holds": ["本文に反映した保持規則の resolution の ID（writer に渡したもの）"],
@@ -66,11 +66,13 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 }
 ```
 
-- **`next_args` は完成形である。** 司令塔は回答を `answers_path` に逐語で書き、`next_args` を変えずに渡すだけでよい。
-  `state` は plain JSON で、Map・Set を含まない（runtime の境界を越えると中身が失われる）。
-  `state_hash` は `next_args` の `state_hash` 以外すべての hash で、合わなければ（打ち直しでどれかの値が変わった）run は agent を起動する前に止まる。
+- **`next_args` は完成形で、司令塔は変えずに渡す。** SKILL.md とこの文書で「`next_args` を渡す」と書いたところは、すべてこの規則による。
+  回答は `answers_path` に逐語で書き、`next_args` には入れない。変えてよいのは run のデータではない環境の欄の
+  `skillDir`（plugin の更新で版のパスが変わる）と `role_opts`（レート制限などで役の配分を変える）だけである（`prd.js` の `ENV_ARGS`）。
+  `state_hash` はそれ以外の欄すべての hash で、合わなければ（打ち直しでどれかの値が変わった）run は agent を起動する前に止まる。
+  最上位の欄の空の配列・オブジェクトは、欄が無いのと同じに扱う。`state` は plain JSON で、Map・Set を含まない（runtime の境界を越えると中身が失われる）。
 - **再実行は resume ではなく `from` で行う。** 状態は W のファイルと `state` にあり、prd.js は段の境界ならどこからでも
-  始められる。どの段から始めるかは `next_args.from` が決め、司令塔は変えない。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd.js` の `REQUIRES`）。
+  始められる。どの段から始めるかは `next_args.from` が決める。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd.js` の `REQUIRES`）。
   resume に頼ると、止まった agent 以降が全部やり直しになり、Codex には resume が無い。
 - **`blocked` の `next_args`**: agent が応答しなかった（出し直しても返らなかった）とき、返した doc_check の stdout が
   差し戻しの後も不合格だったときは、その段からの `next_args` が付く。セッション上限なら解除してから渡す。

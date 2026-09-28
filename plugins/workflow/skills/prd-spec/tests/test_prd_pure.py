@@ -15,9 +15,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_doc_check_workspace import FIXTURE, _ok, _put  # noqa: E402
+from test_ledger import _exported  # noqa: E402
 
 PRD = Path(__file__).resolve().parents[1] / "scripts" / "prd.js"
 CONTRACTS = Path(__file__).resolve().parents[1] / "schemas" / "agent-contracts.md"
+WORKFLOW_IO = Path(__file__).resolve().parents[1] / "references" / "workflow-io.md"
 
 
 def contract_values(heading):
@@ -408,6 +410,24 @@ class ContractEnums(unittest.TestCase):
         self.assertEqual(sorted(value("DIRECTIONS")), contract_values("direction"))
         self.assertEqual(sorted(value("ORIGINS")), contract_values("origin"))
         self.assertEqual(len(contract_values("origin")), 4)
+
+    def test_RESOLUTION_IDはdoc_checkの台帳のIDの形と同じ(self):
+        self.assertEqual(value("RESOLUTION_ID.source"), _exported("m.LEDGERS.resolutions.keyShape.source"))
+
+    def test_ENV_ARGSはworkflow_ioの3節が変えてよいと書いた欄と同じ(self):
+        section = WORKFLOW_IO.read_text(encoding="utf-8").split("## 3. 返り値と再実行", 1)[1].split("\n## ", 1)[0]
+        allowed = section.split("変えてよいのは", 1)[1].split("だけ", 1)[0]
+        self.assertEqual(sorted(re.findall(r"`([A-Za-z_]+)`", allowed)), sorted(value("ENV_ARGS")))
+
+    def test_nextArgsHashは環境の欄と最上位の空の欄を覆わない(self):
+        a = {"workspace": "/w", "entry": "new", "from": "3a", "state": {"pass": 1, "questions": []}, "existing_docs": []}
+        h = value(f"nextArgsHash({json.dumps(a)})")
+        same = [{**a, "skillDir": "/s2", "role_opts": {"writer": {"effort": "high"}}}, {k: v for k, v in a.items() if k != "existing_docs"}, {**a, "state_hash": "x"}]
+        for b in same:
+            self.assertEqual(value(f"nextArgsHash({json.dumps(b)})"), h, b)
+        differ = [{**a, "workspace": "/w2"}, {**a, "from": "3b"}, {**a, "state": {"pass": 1}}, {**a, "existing_docs": [{"key": "requirements/x"}]}]
+        for b in differ:
+            self.assertNotEqual(value(f"nextArgsHash({json.dumps(b)})"), h, b)
 
     def test_OPPOSITEの値は契約のdirectionの表にある(self):
         table = set(contract_values("direction"))

@@ -285,8 +285,8 @@ class FlowAndConflicts(_Workspace):
 
     def test_resolutions_の_ID_も出典として数える(self):
         el = json.loads((self.ws / "flow.json").read_text())["elements"][1]
-        _put(self.ws, "flow", {"elements": [{**el, "source": {"decision": "R-001"}}]})
-        _put(self.ws, "resolutions", {"resolutions": [{"id": "R-001"}]})
+        _put(self.ws, "flow", {"elements": [{**el, "source": {"decision": "RS-001"}}]})
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001"}]})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
 
     def test_閉包の崩れも拾う(self):
