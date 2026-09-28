@@ -135,7 +135,9 @@ PR-CLEANUP-059 への指摘は無い（3 ファイルとも `059` を検索し�
 > 同じ範囲に揃える）」
 
 r2 の指摘の後、2 パス目の writer が本文を「PR が CLOSED であるか PR が無いと確かめられた」まで狭めた
-（r2 と r3 の quote の差分より。writer が r2-gr-001 に直接応じたことを示す記録は W には無い）。その
+（r2 と r3 の quote の差分より。この writer（`wf_0ddb5c1c-29b/agent-a25f29b56008f34d7`）の起動プロンプトには
+「PR-CLEANUP-059: r2-gr-requirements__cleanup-branches-001」があり、r2-gr-001 は writer に渡されていた。
+2026-09-28 訂正: 初版は「writer が r2-gr-001 に直接応じたことを示す記録は W には無い」としていたが、transcript に記録があった）。その
 狭めた文面に対して、r3-gr
 （`evidence/r3-gr-requirements__cleanup-branches.json`）が今度は入力 L57 を根拠に direction: **relax**
 （同じ限定を外す）を指摘した。
@@ -206,8 +208,8 @@ per_agent データで turns と（input + cache_read + cache_creation）の相�
 
 3 節のとおり、残った blocking 2 件（PR-CLEANUP-059・§用語「要判断」）は、r2-gr が入力 L136 を根拠に
 狭めを指摘し（direction: tighten）、その後 2 パス目の writer が本文に「と確かめられた」という限定を
-足し（§3 のとおり、r2 と r3 の quote の差分からの推定であり、writer が r2-gr-001 に直接応じたことを
-示す記録は W には無い）、r3-gr が今度は入力 L57 を根拠に同じ限定を外すよう指摘した（direction: relax）、
+足し（§3 のとおり、この writer の起動プロンプトに r2-gr-001 が載っていた。2026-09-28 訂正: 初版は「応じたことを
+示す記録は W には無い」としていた）、r3-gr が今度は入力 L57 を根拠に同じ限定を外すよう指摘した（direction: relax）、
 という連鎖の結果である。r1 の findings にはこの項目への指摘が無い。段 8 の上限 2 パスで blocked に落ちたこと
 自体は設計どおりの動作であり、それ自体を欠陥とは書かない。改善候補として書けるのは、grounding の
 issue／direction_note が指摘のたびに入力内の 1 か所（r2 は issue 欄で L136、r3 は issue 欄で L57）だけを

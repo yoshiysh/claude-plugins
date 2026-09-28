@@ -1,0 +1,43 @@
+{
+ "budget": {
+  "resolutions": 64241,
+  "meta": 25654,
+  "document": 23378,
+  "flow": 20734,
+  "verifications": 19165,
+  "decisions": 6887,
+  "open": 5029,
+  "routes": 655
+ },
+ "sizes": {
+  "decisions.json": 3645,
+  "open.json": 6199,
+  "resolutions.json": 64660,
+  "verifications.json": 34587,
+  "flow.json": 32209,
+  "requirements-cleanup-branches.md": 17412,
+  "requirements-cleanup-branches.meta.json": 9022
+ },
+ "over": [
+  {
+   "file": "open.json",
+   "bytes": 6199,
+   "budget": 5029
+  },
+  {
+   "file": "resolutions.json",
+   "bytes": 64660,
+   "budget": 64241
+  },
+  {
+   "file": "verifications.json",
+   "bytes": 34587,
+   "budget": 19165
+  },
+  {
+   "file": "flow.json",
+   "bytes": 32209,
+   "budget": 20734
+  }
+ ]
+}

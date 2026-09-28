@@ -1,0 +1,11 @@
+?                  ?                    refactor/prd-spec-le status=None           gate=None     terminal=None q=None tokens=None tools=None agents=None
+?                  ?                    refactor/prd-spec-le status=None           gate=None     terminal=None q=None tokens=None tools=None agents=None
+?                  ?                    refactor/prd-spec-le status=None           gate=None     terminal=None q=None tokens=None tools=None agents=None
+?                  ?                    refactor/prd-spec-le status=None           gate=None     terminal=None q=None tokens=None tools=None agents=None
+-- ? legs=4 未完了（終端 leg 0 件・input_ref ['/root/.claude/prd-spec-workspace/cleanup-branches/input.md']）
+cleanup-branches-rerun cleanup-branches-rerun-leg1 61ab960              status=needs_answers  gate=g0       terminal=False q=17 tokens=778277 tools=102 agents=6
+cleanup-branches-rerun cleanup-branches-rerun-leg2 61ab960              status=needs_answers  gate=g0-2     terminal=False q=1 tokens=537705 tools=74 agents=5
+cleanup-branches-rerun cleanup-branches-rerun-leg3 61ab960              status=needs_answers  gate=g1       terminal=False q=1 tokens=1220229 tools=171 agents=10
+cleanup-branches-rerun cleanup-branches-rerun-leg4 61ab960              status=blocked        gate=None     terminal=True q=None tokens=1800121 tools=283 agents=16
+-- cleanup-branches-rerun legs=4 gates=['g0', 'g0-2', 'g1'] status=blocked agents=37 tokens=4336332 tools=630 q=19 holds=4 open_tbd=0 missed=0 integrity=0 notices=3 undeclared=0 remaining_blocking=2
+-- runs=2 done 到達 0/2
