@@ -636,6 +636,17 @@ class Cases(_Workspace):
         self.assertIn("effect・obtain を持てません", r.stderr, "型を変えても前の型の欄は残せない")
         _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail"}]})
 
+    def test_on_failはmay_failの要素だけ_aggregatesはstepだけが持てる(self):
+        fail = {"as": "読めない", "source": {"input": "ログイン"}}
+        for el, field in (({"id": "F-002", "on_fail": fail}, "on_fail"), ({"id": "F-004", "on_fail": fail}, "on_fail"), ({"id": "F-001", "aggregates": ["F-004"]}, "aggregates"),
+                          ({"id": "F-003", "aggregates": ["F-004"]}, "aggregates")):
+            with self.subTest(el=el):
+                r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [el]})
+                self.assertIn(f"では {field} を持てません", r.stderr)
+        r = self._unchanged_after("flow.json", "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail", "on_fail": {**fail, "source": {"input": "依頼に無い文"}}}]})
+        self.assertIn("逐語で無い", r.stderr)
+        _ok(self.ws, "put", "--ledger", "flow", stdin={"elements": [{"id": "F-001", "obtain": "may_fail", "on_fail": fail}, {"id": "F-002", "aggregates": ["F-004"]}]})
+
 
 class InvariantOpen(_Workspace):
     def _open(self, kind="invariant"):
@@ -653,6 +664,7 @@ class InvariantOpen(_Workspace):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-012", "about": {"open": "O-009"}, "ruling": "internal", "value": "v", "why": "w"}]})
         r = self._unchanged_after("open.json", "put", "--ledger", "open", stdin={"open": [{"id": "O-009", "kind": "invariant"}]})
         self.assertIn("kind を持てません", r.stderr)
+        self.assertIn("新しい kind が invariant の O- を open.json に足し", r.stderr, "拒否の文が直し方を示す")
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-012", "kind": "invariant"}]})
         self._open()
 

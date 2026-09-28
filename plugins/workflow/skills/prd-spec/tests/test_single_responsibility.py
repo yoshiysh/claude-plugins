@@ -124,10 +124,42 @@ class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlac
                         if len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", lit[i : i + 20])) >= 10 and any(lit[i : i + 20] in o for o in others)})
         self.assertEqual(found, [])
 
+    # 共有してよい句と理由。黙って増やさないよう、件数を失敗の文に出す。
+    SHARED = {}
+    INJECT = ("受けたことにならない", "戻せない形で変える")
+
+    def _copies(self, targets):
+        # 20 字の窓が見逃す短い規範句: 節（、。括弧・コードの span・ID・パスで区切る）のうち仮名・漢字 8 字以上のものが、
+        # 契約の節から他のファイルへ、または他のファイルから契約の節へ逐語で現れる（短い句だけの写しは後者で拾う）。
+        cut = re.compile(r"`[^`]*`|\b[A-Z]{1,4}-[\w'-]*|[\w.-]*/[\w./-]+|[、。（）()「」『』:：;；|\n]")
+        squash = lambda t: re.sub(r"[\s*]", "", re.sub(r"```.*?```", "\n", t, flags=re.S))
+        clauses = lambda t: {c for c in (re.sub(r"[\s*]", "", x) for x in cut.split(re.sub(r"```.*?```", "\n", t, flags=re.S)))
+                             if len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", c)) >= 8}
+        body = re.search(rf"^## {re.escape(self.SECTION)}$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)
+        found = set()
+        for name, text in targets.items():
+            found |= {(name, c) for c in clauses(body) if c in squash(text)}
+            found |= {(name, c) for c in clauses(text) if c in squash(body)}
+        return sorted((n, c) for n, c in found if c not in self.SHARED)
+
+    def _targets(self):
+        paths = [*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md"), SKILL / "SKILL.md"]
+        return {p.name: p.read_text(encoding="utf-8") for p in sorted(paths)}
+
+    def test_役のファイルとreferencesとSKILLは節の短い規範句を写さない(self):
+        self.assertEqual(self._copies(self._targets()), [], f"除外 {len(self.SHARED)} 件: {sorted(self.SHARED)}")
+
+    def test_短い規範句だけの写しも拾う(self):
+        targets = self._targets()
+        targets["flow-framer.md"] += "".join(f"\n- 例では、{c}。\n" for c in self.INJECT)
+        self.assertEqual(sorted(c for _, c in self._copies(targets)), sorted(self.INJECT))
+
 
 class InvariantKindSectionIsReadByKindUsers(FlowShapeSectionIsReadByFlowUsers):
     SECTION = "不変条件の kind"
     READERS = {"intake", "flowFramer", "resolver", "verifier"}
+    SHARED = {}
+    INJECT = ("差し替えた工程が縛りを失う",)
 
 
 class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):

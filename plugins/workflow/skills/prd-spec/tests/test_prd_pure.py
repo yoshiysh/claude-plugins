@@ -209,6 +209,10 @@ class Pure(unittest.TestCase):
         ):
             with self.subTest(name):
                 self.assertEqual(again(st, now, changed), [])
+        applied = {**state, "revised": {"given": ["RS-1"], "bundled": {}}}
+        self.assertEqual([x["id"] for x in again(applied, [self._f("n1")], {"requirements/a": ["PR-A-001"]})], ["n1"], "変えたのが裁定を当てただけなら再出")
+        mixed = {**state, "revised": {"given": ["RS-1"], "bundled": {"requirements/a": ["PR-A-001"]}}}
+        self.assertEqual(again(mixed, [self._f("n1")], {"requirements/a": ["PR-A-001"]}), [], "writer の指摘も渡した項目は数える")
         prev_again = [{"id": "n1", "doc": "requirements/a", "item_id": "PR-A-001", "direction": "tighten", "rulings": ["RS-1"]}]
         chained = value(f"reRaised([], {json.dumps(prev_again)}, {json.dumps([self._f('m1')])}, {{about: {{}}, passed: []}}, {{}})")
         self.assertEqual([x["id"] for x in chained], ["m1"], "前のパスの再出が持ち越した裁定でも数えない")

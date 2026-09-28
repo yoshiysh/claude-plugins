@@ -390,7 +390,17 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "obtain": "may_fail"}]})
         out = _ok(self.ws, "flow")
         self.assertIn("F-002", out["unverified"])
-        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-INPUT-UNKNOWN-F-004-承認"])
+        self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-FAIL-UNHANDLED-F-002"])
+
+    def test_on_failの出典はinputかdecisionだけ(self):
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "obtain": "may_fail", "on_fail": {"as": "承認なし", "source": {"open": "O-001"}}}]})
+        _ok(self.ws, "flow")
+        self.assertIn("ST-FLOW-SOURCE-SHAPE-F-002.on_fail", _findings(self.ws, "flow.json"))
+        fix = next(f["fix"] for f in json.loads((self.ws / "checks" / "flow.json").read_text())["findings"] if f["id"] == "ST-FLOW-SOURCE-SHAPE-F-002.on_fail")
+        self.assertNotIn('"open"', fix, "直し方が受けない形を勧めない")
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "on_fail": {"as": "承認なし"}}]})
+        _ok(self.ws, "flow")
+        self.assertIn("ST-FLOW-NOSOURCE-F-002.on_fail", _findings(self.ws, "flow.json"))
 
     def test_不合格の要素は書き換えるまでfailed_currentに出る(self):
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]

@@ -59,8 +59,6 @@ const CONTRACT_SECTIONS = {
 const COMMON_SECTIONS = ['共通の約束', 'W のファイルと書き手']
 
 // 上限は暴走を止めるためだけに置く。止まる条件は収束（残りが 0 か、減らなくなった）で、回数で打ち切ると連鎖が途中で止まるだけで項目は直らない。
-// MAX_AUDIT_PASSES: 改稿と監査のパス。MAX_CHECK_REWORK: 生成者が返した doc_check の stdout が不合格のときの差し戻し。
-// MAX_SETTLE_ROUNDS: settle の回数。
 const MAX_AUDIT_PASSES = 4
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
@@ -226,8 +224,10 @@ function toDecision(findings, reversed) {
 
 const itemKey = (f) => `${f.doc}#${f.item_id}`
 
-// reRaised: 段 6 が裁定して合格した前のパスの指摘と、同じ項目・同じ direction で、項目がその後の改稿で変わっていない指摘（本家の
-// 「dedup vs seen, NOT confirmed」）。再発に数えると、裁定どおりに保った項目が decision → hold → 尽きた、と進み保持規則が付く。
+// reRaised: 段 6 が裁定して合格した前のパスの指摘と同じ項目・同じ direction の指摘で、その後の改稿がその項目に裁定を当てただけの
+// もの（本家の「dedup vs seen, NOT confirmed」）。再発に数えると、裁定どおりに書いた項目が decision → hold → 尽きた、と進み保持規則が付く。
+// 「当てただけ」は、項目が変わっていないか、段 7 がその項目に writer の指摘を渡さずにその裁定を渡したこと（revised.bundled・revised.given）
+// で決める。どちらも script が渡したもので、writer の適用の申告は読まない（申告は生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
 function reRaised(prevFindings, prevAgain, findings, state, changed) {
   const passed = new Set(state.passed || [])
@@ -240,8 +240,12 @@ function reRaised(prevFindings, prevAgain, findings, state, changed) {
   }
   for (const f of prevFindings || []) add(f, rulings[f && f.id])
   for (const f of prevAgain || []) add(f, f && f.rulings)
+  const given = new Set((state.revised || {}).given || [])
+  const bundled = (state.revised || {}).bundled || {}
+  const has = (m, f) => ((m || {})[f.doc] || []).includes(f.item_id)
+  const onlyRuling = (f) => !has(changed, f) || (!has(bundled, f) && ruled[key(f)].some((id) => given.has(id)))
   return (findings || [])
-    .filter((f) => f && f.id && ruled[key(f)] && !((changed || {})[f.doc] || []).includes(f.item_id))
+    .filter((f) => f && f.id && ruled[key(f)] && onlyRuling(f))
     .map((f) => ({ id: f.id, doc: f.doc, item_id: f.item_id, direction: f.direction, rulings: ruled[key(f)] }))
 }
 
@@ -262,7 +266,7 @@ function routeRecurring(recurring, state) {
 }
 
 // rework: 差し戻しのループはここにだけ置く。不合格の件数が 0 になるまで回し、前の回より減らなければ止める（同じ指摘を返し続ける
-// 生成者を上限まで回さない）。stdout が無いときの件数は Infinity にする。redo が { error } を返したらそこで止める。
+// 生成者を上限まで回さない）。
 async function rework(first, defectOf, redo, limit) {
   let got = first
   let defect = defectOf(got)
@@ -869,10 +873,11 @@ async function ruleAndVerify(stage, opt) {
   absorbResolver(r3)
   const ke3 = flowKept(`${stage}-convert`, r3)
   if (ke3) return ke3
+  freshFlow = null
   const qe3 = await checkQuestions(stage, r3, phaseTitle, null, opt.allowQuestions)
   if (qe3) return qe3
-  // 変換の resolver も supersedes を書きうる。flow は同じ版なので、その後の stdout の stale_refs を settle に渡す。
-  return { ok: true, passed, lastFlow: flowCheckOf(r3.flow_check), unconvertible }
+  // 変換の resolver も supersedes を書きうる。その後の stdout の stale_refs を settle に渡す（出口で settle した後はその版）。
+  return { ok: true, passed, lastFlow: freshFlow || flowCheckOf(r3.flow_check), unconvertible }
 }
 
 // unruled: about の種類（pair: / open:）ごとに、どの resolution の about にもまだ無いキー。同じ呼び出しで裁定中の論点（まだ
@@ -932,6 +937,10 @@ async function frameFlow(label, lines, phaseTitle) {
 // （flow を変えた後の新しい組は recheckPairs が裁定に回すが、組の裁定を flow に写す経路は無い）。tbd は writer が本文で閉じる。
 // 残り（閉じた未決を引く要素・覆された決定を引く要素・検証を通っていない要素・不合格）が 0 になるまで回し、減らなければ止める。
 let settling = 0
+// settleRuns: 同じ段で settle が 2 回目以降に走ったら label に .<回> を付ける（集計と /workflows の表示で区別する）。
+// freshFlow: settle が最後に検証した flow。settle の後の段の判断に、settle の前の stdout を使わないため。
+const settleRuns = {}
+let freshFlow = null
 async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
   const first = {
     left: settledTerminals(lastFlow.open_only, state),
@@ -941,11 +950,13 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
     redo: [],
   }
   if (!first.left.length && !first.found.length && !first.verdicts.length && !first.stale.length) return null
+  settleRuns[stage] = (settleRuns[stage] || 0) + 1
+  const at = settleRuns[stage] === 1 ? stage : `${stage}.${settleRuns[stage]}`
   settling += 1
   try {
-    const r1 = await settleRound(stage, 1, first, phaseTitle, allowQuestions)
+    const r1 = await settleRound(at, 1, first, phaseTitle, allowQuestions)
     if (r1.error) return r1
-    const done = await rework(r1, (x) => x.residual, (x, _, n) => settleRound(stage, n + 1, x.next, phaseTitle, allowQuestions), MAX_SETTLE_ROUNDS - 1)
+    const done = await rework(r1, (x) => x.residual, (x, _, n) => settleRound(at, n + 1, x.next, phaseTitle, allowQuestions), MAX_SETTLE_ROUNDS - 1)
     if (done.error) return done.error
     return done.defect ? { error: `段 ${stage}: 裁定の反映の後も直っていません（${done.defect.text}）` } : null
   } finally {
@@ -990,6 +1001,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const ve = absorbVerifier(v, state.resolutions_sha256, `${stage}v-settle`, true)
   if (ve) return ve
   const vfc = flowCheckOf(v.flow_check)
+  freshFlow = vfc
   const still = settledTerminals(vfc.open_only, state)
   const unchecked = target.filter((id) => vfc.unverified.includes(id))
   const failed = v.fail.map((f) => f.id)
@@ -1502,7 +1514,9 @@ async function stage7() {
   const carried = p.findings.filter((f) => unapplied.includes(f.id))
   if (carried.length) log(`改稿で当たらなかった指摘が ${carried.length} 件ある。次のパスへ持ち越します`)
   state.settled_written = uniq([...usableResolutions(state), ...(state.holds || [])])
-  state.revised = { changes, carried, docs: uniq(targets.flatMap((t) => t.unit.docs)) }
+  const bundled = {}
+  for (const b of targets.flatMap((t) => t.bundles)) bundled[b.doc] = uniq([...(bundled[b.doc] || []), b.item_id])
+  state.revised = { changes, carried, docs: uniq(targets.flatMap((t) => t.unit.docs)), given: newSettled, bundled }
   return '8'
 }
 
@@ -1560,12 +1574,15 @@ async function stage8() {
     state.notices = [...(state.notices || []), line]
     log(line)
   }
-  const recurring = recurringItems(prev.findings, [...findings, ...carried], again)
+  // 尽きた項目は経路に回らず、変わらなければ監査もされない。前の指摘を持ち越さないと blocking が黙って消え、done に届く。
+  const reported = new Set(findings.map(itemKey))
+  const stuck = prev.findings.filter((f) => f.blocking && (state.item_routes || {})[itemKey(f)] === 'exhausted' && !reported.has(itemKey(f)) && !(changed[f.doc] || []).includes(f.item_id))
+  const recurring = recurringItems(prev.findings, [...findings, ...carried, ...stuck], again)
   state.item_routes = { ...(state.item_routes || {}), ...routeRecurring(recurring, state) }
   const recurPrev = {}
   for (const k of recurring) recurPrev[k] = uniq(prev.findings.filter((f) => itemKey(f) === k).map((f) => f.id))
   // 既裁定の再出も直前のパスの指摘なので、逆向きの判定には入れる（外すと、裁定に逆らう向きの指摘が writer に届く）。
-  setPending(findings, docCheck, carried, { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
+  setPending(findings, docCheck, [...carried, ...stuck], { reversed: reversedFindings([...prev.findings, ...(prev.again || [])], findings), recurring: recurPrev, again })
   // 改稿で新しく起票された TBD も、裁定されないまま終わると「開いたまま完了」になる。blocking と同じく
   // もう 1 パスの理由にする。
   const newTbd = minus(state.new_tbd || [], closedKeys(state).filter((k) => k.startsWith('tbd:')).map((k) => k.slice(4)))
@@ -1573,7 +1590,8 @@ async function stage8() {
   if (!blocking) return '9'
   // 新しい TBD は段 6 が閉じうるので、残っていれば進展なしにしない。
   const items = uniq(state.pending.findings.filter((f) => f.blocking).map(itemKey))
-  const exhausted = items.every((k) => state.item_routes[k] === 'exhausted')
+  // 指摘の blocking が無く doc_check の blocking だけが残るときは、writer が直せるので上限まで回す。
+  const exhausted = items.length > 0 && items.every((k) => state.item_routes[k] === 'exhausted')
   if (!newTbd.length && exhausted && state.pending.doc_blocking >= (prev.doc_blocking || 0)) {
     return finalHold(blocking, newTbd, 'no_progress', '残った blocking の項目がすべて経路を変え尽くし（尽きた項目）、doc_check の blocking も減らなかった', '8')
   }

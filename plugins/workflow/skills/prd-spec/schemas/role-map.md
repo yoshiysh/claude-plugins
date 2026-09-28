@@ -39,7 +39,7 @@
 - **監査の観点は排他**: 1 項目の中・1 文の根拠・項目の間、に分け、機械で判定できるものは doc_check に置く
   （`schemas/agent-contracts.md` §監査役の共通節）。
 - **指摘の一生**: 監査役が起票（route を付ける）→ `writer` は script が束ねて改稿へ、`decision` は resolver が裁定 →
-  resolver-verifier → 改稿 → 範囲を絞った監査。残れば 1 パスだけ繰り返し、それでも残れば blocked。
+  resolver-verifier → 改稿 → 範囲を絞った監査。残れば次のパスを回し、収束しなければ blocked。
 - **論点の一生**: intake・flow-framer が未決に起票（writer は TBD の候補を meta に起票）→ resolver が裁定 →
   resolver-verifier → 合格すれば決定台帳に入って writer が使う。`question` は依頼者の回答で決まり、`hold` は保持規則と
   Issue の文案になる。どの経路にも「誰の責務でもない工程」は無い。
