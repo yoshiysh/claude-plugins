@@ -701,7 +701,11 @@ async function resolveCycle(stage, opt) {
   if (opt.answered) state.answered = uniq([...(state.answered || []), ...opt.answered.filter((id) => (res.passed || []).includes(id))])
   if (!res.lastFlow) return res
   const se = await settle(stage, res.lastFlow, opt.phase, before, opt.allowQuestions)
-  return se || res
+  if (se) return se
+  // 検証の裁定があれば settle が写して検証し、落ちれば settle が止める。裁定の無い要素は、差し戻しが 1 回きりなので直す役がいない。
+  const unruled = minus(res.unconvertible || [], settledVerifications(state, before))
+  if (unruled.length) return { error: `段 ${stage}: 差し戻しの後も ${list(unruled)} が検証に落ち、flow に写す検証の裁定もありません。決定や flow の要素は問いや保持規則に変えられません（${W}/verifications.json）`, rerun: false }
+  return res
 }
 
 const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFlow ? applyReturnedFlow(stage, r, phaseTitle, required) : flowKept(stage, r) || { checked: false })
@@ -777,12 +781,11 @@ async function ruleAndVerify(stage, opt) {
   if (ve2) return ve2
   lastFlow = flowCheckOf(v2.flow_check)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
-  // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。差し戻しは 1 回きりなので、やり直しても直す役がいない。
+  // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。要素は resolveCycle が settle の後に扱う。
   // v2 に渡していない要素の不合格は前の版の再報告で、failed_current に残って writer に根拠にしない要素として渡る。
   const unconvertible = v2.fail.map((f) => f.id).filter((id) => !/^RS-/.test(id) && asked2.includes(id))
-  if (unconvertible.length) return { error: `段 ${stage}: 差し戻しの後も ${list(unconvertible)} が検証に落ちました。決定や flow の要素は問いや保持規則に変えられません（${W}/verifications.json）`, rerun: false }
   const toConvert = v2.fail.filter((f) => /^RS-/.test(f.id))
-  if (!toConvert.length) return { ok: true, passed, lastFlow }
+  if (!toConvert.length) return { ok: true, passed, lastFlow, unconvertible }
 
   const convert = toConvert
     .map((f) => `- ${f.id} → ${(f.kind === 'value_as_method' || wasQuestion.has(f.id)) && opt.allowQuestions ? 'question' : 'hold'}（${f.kind}）`)
@@ -802,7 +805,8 @@ async function ruleAndVerify(stage, opt) {
   if (ke3) return ke3
   const qe3 = await checkQuestions(stage, r3, phaseTitle)
   if (qe3) return qe3
-  return { ok: true, passed, lastFlow }
+  // 変換の resolver も supersedes を書きうる。flow は同じ版なので、その後の stdout の stale_refs を settle に渡す。
+  return { ok: true, passed, lastFlow: flowCheckOf(r3.flow_check), unconvertible }
 }
 
 // unruled: about の種類（pair: / open:）ごとに、どの resolution の about にもまだ無いキー。同じ呼び出しで裁定中の論点（まだ
@@ -899,6 +903,9 @@ async function settle(stage, lastFlow, phaseTitle, before, allowQuestions) {
     error: `段 ${stage}: 裁定の反映の後も直っていません（閉じた未決だけを出典に持つ要素: ${list(still)} / 覆された決定を引く要素: ${list(stillStale)} / 検証を通っていない要素: ${list(unchecked)} / 不合格: ${list(failed)}）`,
   }
 }
+
+// settleAfterHold: 保持規則への変換も supersedes を書きうる。後に verifier が起動しないので、その stdout の stale_refs をここで settle に渡す。
+const settleAfterHold = (stage, r, phaseTitle, before) => settle(stage, flowCheckOf(r.flow_check), phaseTitle, before, false)
 
 async function applyReturnedFlow(stage, ret, phaseTitle, required) {
   const given = ret.flow_check !== undefined && ret.flow_check !== null
@@ -1063,10 +1070,13 @@ async function stageApply(stageId) {
       'Answers'
     )
     if (!r) return blocked(`resolver（段 ${stageId} の保持規則への変換）が応答しませんでした`, stageId)
+    const beforeHold = settledIds(state)
     absorbResolver(r)
     const kept = flowKept(`${stageId}-hold`, r)
     if (kept) return blocked(kept.error, kept.rerun ? stageId : null)
     state.holds = uniq([...(state.holds || []), ...left])
+    const se = await settleAfterHold(`${stageId}-hold`, r, 'Answers', beforeHold)
+    if (se) return blocked(se.error, se.rerun === false ? null : stageId)
   }
   if (stageId === "3a'") return '7'
   return ENTRY === 'existing' ? '5' : '4'
@@ -1225,6 +1235,8 @@ function recordFindings(plan, results) {
 async function stage5() {
   phase('Audit')
   state.pass = 1
+  // existing は段 4 を通らず、この run の裁定をまだどの writer にも渡していない。
+  if (ENTRY === 'existing') state.settled_written = []
   const docs = auditDocs()
   const plan = [
     ...docs.flatMap((doc) => [
@@ -1298,10 +1310,13 @@ async function stage6() {
       'Decide'
     )
     if (!r) return blocked('resolver（段 6 の保持規則への変換）が応答しませんでした', '6')
+    const beforeHold = settledIds(state)
     state.holds = uniq([...(state.holds || []), ...pendingQuestions(state)])
     absorbResolver(r)
     const kept = flowKept('6-hold', r)
     if (kept) return blocked(kept.error, kept.rerun ? '6' : null)
+    const se = await settleAfterHold('6-hold', r, 'Decide', beforeHold)
+    if (se) return blocked(se.error, se.rerun === false ? null : '6')
   }
   return '7'
 }

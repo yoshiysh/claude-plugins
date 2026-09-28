@@ -308,7 +308,7 @@
   verifier に回す（書き換えていない不合格の要素は、渡すと同じ理由で落ちて差し戻しが回る）。最後の verifier の `failed_current` は
   writer に「根拠にしない要素」として渡る。
 - stdout の `stale_refs` は、resolutions.json の `supersedes` で覆された決定を `source`（case の `source` を含む）か `constrained_by` に
-  持つ要素と、その決定の組（`{el, ref}`）である。覆された ID も実在するので出典の検査では指摘にならない。最後の verifier の `stale_refs`
+  持つ要素と、その決定の組（`{el, ref}`）である。覆された ID も実在するので出典の検査では指摘にならない。最後の verifier（後に verifier の無い変換・保持規則への変換では、その resolver）の `stale_refs`
   が空でなければ、script は `open_only` と同じく settle で直させ、直らなければ段は blocked になる。
 
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:

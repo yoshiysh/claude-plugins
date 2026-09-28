@@ -414,6 +414,11 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "flow", {"elements": [{"id": "F-005", "constrained_by": ["D-002"]}]})
         self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [{"el": "F-005", "ref": "D-002"}])
 
+    def test_caseの出典だけが覆された決定を引く要素もstale_refsに出る(self):
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "source": {"input": "ログイン"}}, {"id": "F-004", "source": {"input": "通知する"}}]})
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "v", "supersedes": ["D-001"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [{"el": "F-004", "ref": "D-001"}])
+
     def test_caseの出典がopenだけならそのマスもopen_onlyに出す(self):
         f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
         f4["cases"][1]["source"] = [{"open": "O-001"}]

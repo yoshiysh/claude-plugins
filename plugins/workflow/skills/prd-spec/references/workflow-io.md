@@ -72,7 +72,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   `next_args.state` はその段に入った時点の state で、段の途中で足した値（候補の選択で当たった回答・形の検査に落ちた問い・
   integrity の行）を持ち越さない。持ち越すと、再実行が止まらなかった run と違う状態から始まる。
   監査の基準の digest が合わない・上限の 2 パスを使い切った・その段に flow を書く生成者がいないのに flow.json が
-  生成者の検査した版から変わっていた、差し戻しの後も決定か flow の要素が検証に落ちた（問いや保持規則に変えられない）、のように、同じ段をやり直しても変わらないときは付かない。
+  生成者の検査した版から変わっていた、差し戻しの後も flow の要素が検証に落ち、写す検証の裁定も無かった（要素は問いや保持規則に変えられない）、のように、同じ段をやり直しても変わらないときは付かない。
 - `integrity` の行は、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
   書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、verifier が返した F- の合否が `doc_check flow` の stdout（verifications.json）に無かった、のような食い違いである。事後報告に添える。flow の食い違いだけは run を blocked にし（違う flow や記録されていない合否を見た検証を台帳に入れないため）、それ以外は run を止めない。
 - `holds` と `hold_drafts` は、writer に渡したか（`state.settled_written`）で分ける。渡しただけで本文に入ったとは限らず、
