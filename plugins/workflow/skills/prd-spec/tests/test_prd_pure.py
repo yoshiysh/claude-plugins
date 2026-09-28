@@ -382,8 +382,6 @@ class FlowFixers(unittest.TestCase):
             return _ok(ws, "flow")["codes"]
 
     def test_flow_framerだけが消せる符号は出典と縛りの欠けが出す符号とちょうど一致する(self):
-        # 契約の直し手の分け方: 出典の決まらない要素・case は出典を付けずに置き、flow-framer が open.json に起票して出典にする。
-        # だから resolver が直し手から外れるのは、出典と縛りの欠け（open.json への追記でしか消えない指摘）だけである。
         def strip(els):
             els["F-001"]["source"] = None
             els["F-004"]["cases"][0].pop("source")

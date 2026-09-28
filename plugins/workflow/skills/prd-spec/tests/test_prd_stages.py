@@ -72,7 +72,7 @@ function respond(prompt, label) {
   const [role, stage, target] = base.split(':')
   if (role === 'intake') {
     const plan = (spec.plan_findings || {})[base]
-    return { decisions: 3, open: 0, decisions_sha256: H('d'), plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan') }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+    return { decisions: 3, open: 0, plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan') }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
@@ -124,7 +124,6 @@ function respond(prompt, label) {
       pass: [...asked.filter((i) => !failIds.includes(i)), ...askedFlow, ...(at('verifier_extra_pass', stage) || [])],
       fail,
       resolutions_sha256: at('verifier_resolutions_sha_at', stage) || sha,
-      decisions_sha256: H('d'),
       flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen, stage),
     }
   }
@@ -959,7 +958,8 @@ class ValuelessResolversKeepFlow(unittest.TestCase):
 
     def test_変換がflowを変えたらblocked(self):
         fail = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "出典が無い"}
-        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": [fail], "3v'": [fail]}}
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": [fail], "3v'": [fail]},
+                "holds_at": {"3-convert": ["RS-001"]}}
         self.assertEqual(run(spec)["result"]["status"], "done")
         r = run({**spec, "flow_sha_at": {"3-convert": "f-bad"}})["result"]
         self.assertEqual((r["status"], r["next_args"]), ("blocked", None))
@@ -1457,11 +1457,53 @@ class FlowFixerRoutes(unittest.TestCase):
     def test_変換の後に直す役の無い指摘が残ればsettleせずに止める(self):
         # 変換の resolver が台帳を変えた後の stdout に、flow-framer に渡す行を持たない指摘が出た（渡す先の役がいない）。
         fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
-        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail},
-                 "holds_at": {"3-convert": ["RS-001"]}, "flow_codes_at": {"3-convert": {"FLOW_DANGLING": ["F-002"]}}})
-        self.assertFalse(has(r["labels"], "flow-framer:3-settle"))
-        self.assertEqual(r["result"]["status"], "blocked")
-        self.assertIn("直す役がいません", r["result"]["reason"])
+        for code in ("FLOW_DANGLING", "FLOW_NEW"):
+            with self.subTest(code):
+                r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail},
+                         "holds_at": {"3-convert": ["RS-001"]}, "flow_codes_at": {"3-convert": {code: ["F-002"]}}})
+                self.assertFalse(has(r["labels"], "flow-framer:3-settle"))
+                self.assertEqual((r["result"]["status"], r["result"]["next_args"]), ("blocked", None))
+                self.assertIn("直す役がいません", r["result"]["reason"])
+
+    def test_変換で問いにもholdにも返らなかった裁定があれば止める(self):
+        g1 = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
+        fail = {"id": "RS-009", "kind": "value_as_method", "reason": "r"}
+        for name, kw in (("返さない", {}), ("裁定で返す", {"ruled_at": {"3a'": ["RS-010"], "3a'-settle-opens": ["RS-009"], "3a'-settle-convert": ["RS-009"]}})):
+            with self.subTest(settle=name):
+                spec = {"answered": "RS-010", "ruled_at": {"3a'": ["RS-010"], "3a'-settle-opens": ["RS-009"]}, **kw}
+                res = self._settle_fails(g1["next_args"], "3a'", fail, **spec)
+                self.assertIn("resolver:3a'-settle-convert", res["labels"])
+                self.assertFalse(has(res["labels"], "writer:"))
+                r = res["result"]
+                self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3a'"), r.get("reason"))
+                self.assertIn("RS-009 を resolver が question にも hold にも返しませんでした", r["reason"])
+        rs = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
+        base = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": rs, "3v'": rs}}
+        for name, kw in (("返さない", {}), ("裁定で返す", {"ruled_at": {**base["ruled_at"], "3-convert": ["RS-001"]}})):
+            with self.subTest(stage3=name):
+                res = run({**base, **kw})
+                self.assertFalse(has(res["labels"], "writer:"))
+                r = res["result"]
+                self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3"), r.get("reason"))
+                self.assertIn("RS-001 を resolver が question にも hold にも返しませんでした", r["reason"])
+
+    def test_変換の後のsettleに渡す閉じたOと覆された決定はverifierのstdoutから取る(self):
+        rs = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
+        base = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001", "RS-002"], "3'": ["RS-001"]}, "verifier_fail": {"3v": rs, "3v'": rs},
+                "holds_at": {"3-convert": ["RS-001"]}, "unverified_at": {"3-settle": ["F-060"]}}
+        for name, kw, line in (("open_only", {"open_only_at": {"3v'": [{"el": "F-060", "open": "O-RS-002"}]}}, "F-060（O-RS-002 ← RS-002）"),
+                               ("stale_refs", {"stale_refs_at": {"3v'": [{"el": "F-060", "ref": "D-003"}]}}, "F-060 ← D-003")):
+            with self.subTest(name):
+                r = run({**base, **kw})
+                self.assertIn("resolver:3-convert", r["labels"])
+                self.assertIn(line, self._prompt(r, "flow-framer:3-settle"))
+                self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        r = self._settle_fails(g0["next_args"], "3a", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
+                               ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]}, questions_at={"3a-settle-convert": ["RS-009"]},
+                               open_only_at={"3av-settle": [{"el": "F-060", "open": "O-RS-001"}]})
+        self.assertIn("resolver:3a-settle-convert", r["labels"])
+        self.assertIn("F-060（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3a-settle-2"))
 
     def test_重い段の経路でもlabelは重ならない(self):
         # telemetry と再開の照合は label で呼び出しを引くので、同じ段の中で label が重なると呼び出しを取り違える。

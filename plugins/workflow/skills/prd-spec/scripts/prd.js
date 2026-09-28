@@ -548,7 +548,6 @@ const INTAKE_SCHEMA = {
   properties: {
     decisions: INT,
     open: INT,
-    decisions_sha256: STR,
     plan_check: STR,
     units: {
       type: 'array',
@@ -556,7 +555,7 @@ const INTAKE_SCHEMA = {
       items: { type: 'object', properties: { id: STR, docs: { type: 'array', items: STR, minItems: 1 }, depends_on: STRS }, required: ['id', 'docs', 'depends_on'] },
     },
   },
-  required: ['decisions', 'open', 'decisions_sha256', 'plan_check', 'units'],
+  required: ['decisions', 'open', 'plan_check', 'units'],
 }
 
 const FLOW_SCHEMA = {
@@ -595,10 +594,9 @@ const VERIFIER_SCHEMA = {
       },
     },
     resolutions_sha256: STR,
-    decisions_sha256: STR,
     flow_check: STR,
   },
-  required: ['pass', 'fail', 'resolutions_sha256', 'decisions_sha256', 'flow_check'],
+  required: ['pass', 'fail', 'resolutions_sha256', 'flow_check'],
 }
 
 const WRITER_SCHEMA = {
@@ -969,15 +967,24 @@ async function ruleAndVerify(stage, opt) {
   const toConvert = v2.fail.filter((f) => /^RS-/.test(f.id))
   if (!toConvert.length) return { ok: true, passed, lastFlow: verified, verified, unconvertible }
   freshFlow = null
-  const ce = await convertFailed(stage, stage, toConvert, wasQuestion, phaseTitle, opt.allowQuestions)
+  const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
   if (ce.error) return ce
-  // 変換の resolver も supersedes を書きうるので、open_only・stale_refs はその後の stdout から取る（出口で settle した後はその版）。
-  return { ok: true, passed, lastFlow: freshFlow || ce.fc, verified: freshFlow || verified, unconvertible }
+  return { ok: true, passed, lastFlow: freshFlow || afterConvert(verified, ce.fc), verified: freshFlow || verified, unconvertible }
 }
+
+// afterConvert: 変換の resolver は flow を変えられず、合格の集合も増やせないので、閉じた O- を引く要素（open_only）は
+// verifier の stdout で確定している。supersedes は書けるので、覆された決定を引く要素（stale_refs）はその resolver の stdout の分を足す。
+// どちらも resolver の申告だけにすると、少なく申告した stdout で settle が落ちる。
+const afterConvert = (verified, converted) => ({
+  ...converted,
+  open_only: verified.open_only,
+  stale_refs: [...verified.stale_refs, ...converted.stale_refs.filter((x) => !verified.stale_refs.some((y) => y.el === x.el && y.ref === x.ref))],
+})
 
 // convertFailed: 検証に落ちた裁定（RS-）を、値を決めずに理由で question か hold に書き換える。変換した分はもう検証しない
 // （検証のループを増やすと、差し戻しの上限が意味を失う）。
-async function convertFailed(stage, owner, fails, wasQuestion, phaseTitle, allowQuestions) {
+// wasQuestion: 差し戻しの cycle の入口で回答待ちだった問い。settle の verifier が落とすのはその回に裁定した新しい ID だけなので渡さない。
+async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wasQuestion = new Set()) {
   const convert = fails.map((f) => `- ${f.id} → ${(f.kind === 'value_as_method' || wasQuestion.has(f.id)) && allowQuestions ? 'question' : 'hold'}（${f.kind}）`).join('\n')
   log(`段 ${owner}: 検証に落ちた ${fails.length} 件を、理由で問いと保持規則に分けます（検証はもう回しません）`)
   const label = `resolver:${owner}-convert`
@@ -992,6 +999,10 @@ async function convertFailed(stage, owner, fails, wasQuestion, phaseTitle, allow
   absorbResolver(r)
   const kept = flowKept(`${owner}-convert`, r)
   if (kept) return kept
+  // 変換した分はもう検証も裁定もされないので、返らなかった ID は閉じない論点のまま文書に届く。
+  const converted = new Set([...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id))
+  const missing = fails.map((f) => f.id).filter((id) => !converted.has(id))
+  if (missing.length) return { error: `段 ${owner}: 変換を求めた ${list(missing)} を resolver が question にも hold にも返しませんでした` }
   const qe = await checkQuestions(stage, `${owner}-convert`, r, phaseTitle, null, allowQuestions)
   if (qe) return qe
   return { fc: flowCheckOf(r.flow_check) }
@@ -1081,7 +1092,7 @@ async function settle(stage, lastFlow, verified, phaseTitle, before, allowQuesti
     redo: [],
   }
   if (!first.left.length && !first.found.length && !first.verdicts.length && !first.stale.length && !first.handoff.length) {
-    return lastFlow.findings ? { error: `段 ${stage}: flow に指摘が ${lastFlow.findings} 件残ったまま、直す役がいません（${W}/checks/flow.json）` } : null
+    return lastFlow.findings ? { error: `段 ${stage}: flow に指摘が ${lastFlow.findings} 件残ったまま、直す役がいません（${W}/checks/flow.json）`, rerun: false } : null
   }
   settleRuns[stage] = (settleRuns[stage] || 0) + 1
   const at = settleRuns[stage] === 1 ? stage : `${stage}.${settleRuns[stage]}`
@@ -1140,12 +1151,11 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   // 足した破壊的な工程が、裁定が落ちただけで blocked になる。
   const toConvert = v.fail.filter((f) => /^RS-/.test(f.id))
   const failed = minus(v.fail.map((f) => f.id), toConvert.map((f) => f.id))
-  const ce = toConvert.length ? await convertFailed(tag, tag, toConvert, new Set(waiting), phaseTitle, allowQuestions) : { fc: vfc }
+  const ce = toConvert.length ? await convertFailed(tag, tag, toConvert, phaseTitle, allowQuestions) : { fc: vfc }
   if (ce.error) return ce
-  // 変換の resolver の supersedes は覆された決定を増やすだけなので、verifier の stale_refs にその stdout の分を足す（申告だけにすると、
-  // verifier が見た要素を少なく申告した stdout で落とす）。
-  const stale = [...vfc.stale_refs, ...ce.fc.stale_refs.filter((x) => !vfc.stale_refs.some((y) => y.el === x.el && y.ref === x.ref))]
-  const still = settledTerminals(vfc.open_only, state)
+  const after = afterConvert(vfc, ce.fc)
+  const stale = after.stale_refs
+  const still = settledTerminals(after.open_only, state)
   const unchecked = target.filter((id) => vfc.unverified.includes(id))
   const count = still.length + stale.length + unchecked.length + failed.length
   const text = `閉じた未決を引く要素: ${list(still.map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open || x.constraint}）`))} / 覆された決定を引く要素: ${list(stale.map((x) => `${x.el}（${x.ref}）`))} / 検証を通っていない要素: ${list(unchecked)} / 不合格: ${list(failed)}`
@@ -1202,8 +1212,8 @@ async function applyReturnedFlow(stage, ret, phaseTitle, required) {
 // ゲートで司令塔が導出するまで形を検査しないと、落ちたときに戻る段が無く、run の外で止まる。
 // recheck: 返り値の questions に無くても検査させる問い（3b が組み直した flow に合わせて直す、持ち越した問い）。裁定か hold に
 // 変えたものは除く。allowQuestions は出口の settle が新しい組を裁定に回すときに使う。
-// owner: 問いを返した呼び出しの label の段。同じ段の中で問いを返す呼び出しは複数あり、label が重なると telemetry と再開の照合が
-// 呼び出しを取り違える。settle は段（stage）で数えるので分けない。
+// owner: 問いの形の修正の label に付ける段。同じ段の中で問いを返す呼び出しは複数あり、label が重なると telemetry と再開の照合が
+// 呼び出しを取り違える。出口の settle の label は stage に付ける（settle の回数は段ごとに数えて label を分ける）。
 async function checkQuestions(stage, owner, r, phaseTitle, recheck, allowQuestions) {
   const settledNow = [...(r.ruled || []), ...(r.holds || [])].map((x) => x && x.id)
   let target = minus(uniq([...(r.questions || []).map((x) => x && x.id), ...(recheck || [])]), settledNow)
