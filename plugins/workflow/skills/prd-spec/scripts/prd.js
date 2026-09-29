@@ -708,7 +708,8 @@ if (!ENTRIES.includes(ENTRY)) throw new Error(`args.entry は ${ENTRIES.join(' /
 if (!STAGES.includes(FROM)) throw new Error(`args.from は段の境界（${STAGES.join(' / ')}）のどれかです: "${FROM}"`)
 const EXISTING = Array.isArray(input.existing_docs) ? input.existing_docs : []
 if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" には args.existing_docs（W に置いた既存文書のキーと fixed）が要ります`)
-const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key)).sort()
+const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
+const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
 if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
   throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')
@@ -833,8 +834,8 @@ let seen = null
 let wrote = false
 let failedFlow = []
 let carry = []
-// holdFails: hold のまま検証に落ちた回数（ID ごと）。落ちた保持規則は writer に渡すと検証を通っていない規範文が本文に入るので、1 回目は
-// reholdFailed が書き直させて検証し直し、2 回目は止める。変換（convertFailed）で hold になった裁定の不合格は、値の裁定が落ちたもので
+// holdFails: hold のまま続けて検証に落ちた回数（ID ごと。合格で消す）。落ちた保持規則は writer に渡すと検証を通っていない規範文が本文に入るので、1 回目は
+// reholdFailed が書き直させて検証し直し、続けて 2 回目に落ちれば止める。変換（convertFailed）で hold になった裁定の不合格は、値の裁定が落ちたもので
 // 保持規則の検証ではないので数えない（変換した分はもう検証しない）。
 const holdFails = {}
 const see = (fc) => {
@@ -853,9 +854,8 @@ function reconcile(fc) {
   if (rs.length) state.about = { ...(state.about || {}), ...Object.fromEntries(rs.map((x) => [x.id, aboutKey(x.about)])) }
   const known = new Set(state.questions || [])
   const adopted = where((x) => x.ruling === 'question' && !known.has(x.id))
-  const toHold = where((x) => x.ruling === 'hold')
   if (adopted.length) state.questions = uniq([...(state.questions || []), ...adopted])
-  if (toHold.length) state.holds = uniq([...(state.holds || []), ...toHold])
+  holdsFromW(fc)
   const passed = new Set(state.passed || [])
   const failed = new Set(state.failed_ids || [])
   const held = (id) => (passed.has(id) ? 'pass' : failed.has(id) ? 'fail' : null)
@@ -866,6 +866,16 @@ function reconcile(fc) {
   }
   forget(carry)
   return adopted
+}
+
+// holdsFromW: state.holds を W の今の ruling に合わせる。差し戻しや回答で hold でなくなった ID を残すと、保持規則として数えられ、
+// 検証に落ちても変換に回らず、書き直しの回数（holdFails）で止まる。W に無い ID は、W から判断できないので残す。
+function holdsFromW(fc) {
+  const rs = fc.resolutions.filter((x) => RESOLUTION_ID.test(x.id))
+  const notHold = rs.filter((x) => x.ruling !== 'hold').map((x) => x.id)
+  const next = minus([...(state.holds || []), ...rs.filter((x) => x.ruling === 'hold').map((x) => x.id)], notHold)
+  if (canonicalText(next) !== canonicalText(uniq(state.holds))) state.holds = next
+  for (const id of notHold) delete holdFails[id]
 }
 
 // forget: 書き直した resolution は、前の書き込みで writer に渡した版ではない。written に残すと、書き直した裁定が改稿のどの writer にも渡らない。
@@ -946,6 +956,7 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMov
   }
   const notFlow = (ids) => (ids || []).filter((id) => !/^F-/.test(id))
   const failIds = notFlow((v.fail || []).map((f) => f.id))
+  holdsFromW(fc)
   const held = new Set(state.holds || [])
   for (const id of failIds) if (held.has(id)) holdFails[id] = (holdFails[id] || 0) + 1
   for (const id of v.pass || []) delete holdFails[id]
@@ -1533,11 +1544,11 @@ function needsAnswers(gate, from) {
 // 戻さずに始めると、前のランや止まった段 1・2 の台帳の要素と欄が、再実行の put（キー単位で足す）の後にも残る。
 async function resetEntry() {
   const label = 'flow-check:1-entry'
-  const fixed = FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''
-  const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', fixed)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
+  const flags = [KEEP_KEYS.length ? `--keep ${KEEP_KEYS.join(',')}` : '', FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''].filter(Boolean).join(' ')
+  const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', flags)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
   const rc = parseStdout(x && x.reset_check)
-  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS)) return null
-  return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout を返しませんでした（固定の文書 ${list(FIXED_KEYS)} が W に無いと、reset は何も消さずに止まる）`, '1')
+  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS)) return null
+  return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')
 }
 
 async function stage1() {

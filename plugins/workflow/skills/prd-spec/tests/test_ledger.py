@@ -238,7 +238,11 @@ class StageTransaction(_Workspace):
 
 
 class FreshRunReset(_Workspace):
-    """段 1 から始める run の入口の reset は、W を S0 の直後（依頼文・先例の一覧・文書と、固定の文書の meta）に戻す。"""
+    """段 1 から始める run の入口の reset は、W を S0 の直後（依頼文・先例の一覧・existing_docs の文書と、固定の文書の meta）に戻す。"""
+
+    # KEEP: fixture の W に S0 が置いた文書（existing_docs）。requirements/auth だけが固定。
+    KEEP = ("--keep", "requirements/auth,specifications/auth")
+    FIXED = ("--fixed", "requirements/auth")
 
     def _files(self):
         return {str(p.relative_to(self.ws)): p.read_bytes() for p in sorted(self.ws.rglob("*")) if p.is_file()}
@@ -252,7 +256,8 @@ class FreshRunReset(_Workspace):
             return (ws / "requirements-auth.meta.json").read_bytes()
 
     def _reused(self):
-        """前のランが段を進めた W。後の段の token（t30）の控え・回答・監査の出力・作業用のファイル・所有表に無いファイルがある。"""
+        """前のランが段を進めた W。後の段の token（t30）の控え・回答・監査の出力・作業用のファイル・所有表に無いファイルと、
+        前のランの writer が書いた existing_docs に無い文書（meta つき）がある。"""
         (self.ws / "precedent.json").write_text('{"paths": []}\n')
         (self.ws / "answers").mkdir()
         (self.ws / "answers" / "g1.md").write_text("RS-004: 画面\n")
@@ -264,30 +269,42 @@ class FreshRunReset(_Workspace):
         (self.ws / "tmp" / "writer__U-1__draft").mkdir(parents=True)
         (self.ws / "tmp" / "writer__U-1__draft" / "gen.py").write_text("")
         (self.ws / "notes.txt").write_text("stray")
+        (self.ws / "requirements-billing.md").write_text("# 前のランの草稿\n")
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/billing", "--token", "t1", stdin={"tbd": []})
         _ok(self.ws, "snapshot", "--save", "audited-3", "--role", "auditor")
         _ok(self.ws, "put", "--ledger", "resolutions", "--token", "t30", stdin={"resolutions": [{"id": "RS-004", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
 
     def test_resetはS0が書いたものだけを残し固定の文書のmetaを書き直す(self):
         self._reused()
         before = self._files()
-        out = _ok(self.ws, "reset", "--fixed", "requirements/auth")
+        out = _ok(self.ws, "reset", *self.KEEP, *self.FIXED)
         kept = {"input.md", "precedent.json", "requirements-auth.md", "specifications-auth.md", "requirements-auth.meta.json", "tmp/writer__U-1__draft/gen.py", "notes.txt"}
         after = self._files()
         self.assertEqual(set(after), kept)
         self.assertEqual({k: after[k] for k in kept - {"requirements-auth.meta.json"}}, {k: before[k] for k in kept - {"requirements-auth.meta.json"}}, "S0 が書いたものと所有表の外は触らない")
         self.assertEqual(after["requirements-auth.meta.json"], self._s0_meta())
-        self.assertEqual(out["fixed"], ["requirements/auth"])
-        self.assertEqual(out["removed"], sorted(["answers", "checks", "decisions.json", "findings", "flow.json", "open.json", "plan.json", "questions.json", "questions.md", "report.md", "resolutions.json", "specifications-auth.meta.json", "tx"]))
-        self.assertEqual(_ok(self.ws, "reset", "--fixed", "requirements/auth")["removed"], [], "流し直しても同じ W になる")
+        self.assertEqual((out["kept"], out["fixed"]), (["requirements/auth", "specifications/auth"], ["requirements/auth"]))
+        self.assertEqual(out["removed"], sorted(["answers", "checks", "decisions.json", "findings", "flow.json", "open.json", "plan.json", "questions.json", "questions.md", "report.md",
+                                                 "requirements-billing.md", "requirements-billing.meta.json", "resolutions.json", "specifications-auth.meta.json", "tx"]))
+        self.assertEqual(_ok(self.ws, "reset", *self.KEEP, *self.FIXED)["removed"], [], "流し直しても同じ W になる")
         self.assertEqual(self._files(), after)
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が行う"}]})
+
+    def test_前のランのwriterの文書はresetの後のindexに載らない(self):
+        # 分割に異を唱えた依頼者の言葉を足して同じ W で S0 からやり直す経路。前のランの writer の文書（billing）は existing_docs に無い。
+        self._reused()
+        index = lambda: (_ok(self.ws, "index", "--req-dir", "docs/requirements", "--spec-dir", "docs/specifications"), (self.ws / "checks" / "INDEX.requirements.md").read_text())[1]
+        self.assertIn("billing", index(), "reset の前は、前のランの文書が INDEX に載る")
+        _ok(self.ws, "reset", "--keep", "requirements/auth")
+        self.assertEqual(sorted(p.name for p in self.ws.glob("*.md")), ["input.md", "requirements-auth.md"])
+        self.assertNotIn("billing", index())
 
     def test_再利用したWの新しいrunの最初の書き込みはresetの後にだけ通る(self):
         self._reused()
         stopped = _run(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は部長が行う"}]})
         self.assertEqual(stopped.returncode, 1, "前のランの後の段の控えがあると、新しいランの t1 は何も書けない")
         self.assertIn("t30", stopped.stderr)
-        _ok(self.ws, "reset")
+        _ok(self.ws, "reset", *self.KEEP)
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は部長が行う"}]})
 
     def test_段1の再実行は止まったintakeの要素と欄を残さない(self):
@@ -299,19 +316,28 @@ class FreshRunReset(_Workspace):
         for ws in (self.ws, control):
             (ws / "decisions.json").unlink()
             _ok(ws, "put", "--ledger", "decisions", "--token", "t1", stdin=stopped)
-        _ok(self.ws, "reset")
+        _ok(self.ws, "reset", *self.KEEP)
         for ws in (self.ws, control):
             _ok(ws, "put", "--ledger", "decisions", "--token", "t1", stdin=rerun)
         merged = json.loads((control / "decisions.json").read_text())["decisions"]
         self.assertEqual([(d["id"], d.get("kind")) for d in merged], [("D-003", "invariant"), ("D-009", None)], "reset が無いと put はキー単位で足すので、止まった run の要素と欄が残る")
         self.assertEqual(json.loads((self.ws / "decisions.json").read_text())["decisions"], rerun["decisions"])
 
-    def test_固定の文書がWに無ければresetは何も消さない(self):
+    def test_引数が合わなければresetは何も消さない(self):
+        self._reused()
         before = self._files()
-        r = _run(self.ws, "reset", "--fixed", "requirements/auth,requirements/none")
-        self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("requirements/none", r.stderr)
-        self.assertEqual(self._files(), before)
+        for name, argv, needle in (
+            ("固定の文書が W に無い", ("--keep", "requirements/auth,requirements/none", "--fixed", "requirements/auth,requirements/none"), "requirements/none"),
+            ("固定でない既存文書が W に無い", ("--keep", "requirements/auth,specifications/none"), "specifications/none"),
+            ("--keep のキーの形が違う", ("--keep", "requirements/auth,docs/auth"), "docs/auth"),
+            ("--fixed のキーの形が違う", ("--keep", "requirements/auth", "--fixed", "requirements/../auth"), "requirements/../auth"),
+            ("--fixed が --keep に無い", ("--keep", "specifications/auth", "--fixed", "requirements/auth"), "requirements/auth"),
+        ):
+            with self.subTest(name):
+                r = _run(self.ws, "reset", *argv)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn(needle, r.stderr)
+                self.assertEqual(self._files(), before)
 
 
 class Idempotent(_Workspace):

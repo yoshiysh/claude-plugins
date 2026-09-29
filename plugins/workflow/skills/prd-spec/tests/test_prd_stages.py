@@ -103,7 +103,7 @@ const restoreTx = (token) => {
   return JSON.stringify({ token, restored: Object.keys(pre || {}).length, files: [], pruned_by: [], flow_before: String(before), flow_after: String(flowSha) })
 }
 // reset: doc_check reset と同じく、S0 が書いたもののほか（台帳・控え）を消す。
-const resetWorld = (fixed) => {
+const resetWorld = (keep, fixed) => {
   const removed = ['flow', 'els', 'verdicts', 'rs', 'open_ids', 'tx'].filter((k) => disk[k] !== undefined && disk[k] !== null)
   Object.assign(disk, { flow: null, els: {}, verdicts: {}, rs: {} })
   delete disk.open_ids
@@ -111,7 +111,8 @@ const resetWorld = (fixed) => {
   flowSha = null
   preexisting = new Set()
   persist()
-  return JSON.stringify({ reset: true, removed, fixed: spec.reset_fixed || (fixed ? fixed.split(',').sort() : []) })
+  const keys = (x) => (x ? x.split(',').sort() : [])
+  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: spec.reset_fixed || keys(fixed) })
 }
 const setFlow = (x) => {
   touch('flow')
@@ -285,8 +286,8 @@ function respond(prompt, label) {
     // recheck_as: 変換の resolver の申告と違う世界を flow-check に見せる（resolver の stdout の過少申告）。無ければ最後の世界（latest）を見る。
     const k = (spec.recheck_as || {})[stage]
     readOnly(stage)
-    const reset = /doc_check\.mjs reset --workspace \S+(?: --fixed (\S+?))?`/.exec(prompt)
-    if (reset) return (spec.no_reset_at || []).includes(base) ? {} : { reset_check: resetWorld(reset[1]) }
+    const reset = /doc_check\.mjs reset --workspace \S+(?: --keep (\S+?))?(?: --fixed (\S+?))?`/.exec(prompt)
+    if (reset) return (spec.no_reset_at || []).includes(base) ? {} : { reset_check: resetWorld(reset[1], reset[2]) }
     const tx = /doc_check\.mjs restore --workspace \S+ --token (\S+?)`/.exec(prompt)
     const restored = tx && !(spec.no_restore_at || []).includes(base) ? { restore_check: restoreTx(tx[1]) } : {}
     const rulings = asksRulings(prompt)
@@ -1000,7 +1001,7 @@ class Stages(unittest.TestCase):
     def test_段1の入口がWをS0の直後に戻したstdoutを返さなければintakeを起動しない(self):
         entry = "flow-check:1-entry"
         for name, kw in (("応答しない", {"null_labels": [entry, f"{entry}#retry"]}), ("stdout が無い", {"no_reset_at": [entry]}),
-                         ("固定の文書が違う", {"reset_fixed": ["requirements/other"]})):
+                         ("固定の文書が違う", {"reset_fixed": ["requirements/other"]}), ("残した文書が違う", {"reset_kept": ["requirements/other"]})):
             with self.subTest(name):
                 r = run({"args": args(), **kw})
                 self.assertFalse(has(r["labels"], "intake"), r["labels"])
@@ -1008,10 +1009,10 @@ class Stages(unittest.TestCase):
                 self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]), ("blocked", "1", {}), res.get("reason"))
                 self.assertIn("doc_check reset", res["reason"])
 
-    def test_段1の入口は固定の文書のmetaをresetに書き直させる(self):
-        a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "requirements/a", "fixed": True}])
+    def test_段1の入口はexisting_docsの文書を残させ固定の文書のmetaをresetに書き直させる(self):
+        a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "requirements/a", "fixed": True}, {"key": "specifications/x", "fixed": False}])
         r = run({"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}]})
-        self.assertIn("doc_check.mjs reset --workspace /tmp/prd-w --fixed requirements/a,requirements/x`", nth_prompt(r, "flow-check:1-entry", 0))
+        self.assertIn("doc_check.mjs reset --workspace /tmp/prd-w --keep requirements/a,requirements/x,specifications/x --fixed requirements/a,requirements/x`", nth_prompt(r, "flow-check:1-entry", 0))
         self.assertEqual(r["labels"][:2], ["flow-check:1-entry", "intake"])
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
 
@@ -1817,7 +1818,7 @@ class RerunFromTheSameStage(unittest.TestCase):
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class FailedHolds(unittest.TestCase):
-    """hold のまま検証に落ちた保持規則は writer に渡さない。1 回だけ同じ ID で書き直させて検証し直し、それでも落ちれば段の頭から。"""
+    """hold のまま検証に落ちた保持規則は writer に渡さない。同じ ID で書き直させて検証し直し、書き直した直後にも落ちれば段の頭から。"""
 
     FAIL = [{"id": "RS-002", "kind": "insufficient_grounds", "reason": "保持規則が触れる項目が無い"}]
 
@@ -1864,6 +1865,18 @@ class FailedHolds(unittest.TestCase):
         self.assertFalse(has(r["labels"], "resolver:3-convert"), "書き直して合格した保持規則を、検証しない変換で書き直さない")
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         self.assertEqual(r["result"]["holds"], ["RS-001"])
+
+    def test_差し戻しで値の裁定に変えた元の保持規則は保持規則に数えない(self):
+        # 段 3 の hold が 3v に落ち、差し戻しが値の裁定（internal）に変えた。W の ruling が hold でなくなった ID を holds に残すと、
+        # 3v' に落ちたときに変換されず「書き直した後も落ちた保持規則」で止まり、合格しても保持規則として返る。
+        fail = [{**self.FAIL[0], "id": "RS-001"}]
+        base = {"args": args(), "flow_open": 1, "holds_at": {"3": ["RS-001"]}, "ruled_at": {"3'": ["RS-001"]}}
+        failed = run({**base, "verifier_fail": {"3v": fail, "3v'": fail}})
+        self.assertEqual(failed["result"]["status"], "done", failed["result"].get("reason"))
+        self.assertIn("resolver:3-convert", failed["labels"])
+        self.assertFalse(has(failed["labels"], "resolver:3'-rehold"))
+        passed = run({**base, "verifier_fail": {"3v": fail}})["result"]
+        self.assertEqual((passed["status"], passed["holds"], passed["hold_drafts"]), ("done", [], []), passed.get("reason"))
 
     def test_settleのverifierに落ちた保持規則も変換せずに書き直させる(self):
         # 聞けない段の settle の flow-framer が足した O-060 を、resolver が保持規則で閉じ、settle の verifier がそれを落とす。

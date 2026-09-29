@@ -73,7 +73,8 @@ workspace を用意し、保存することだけである。** 決定・問い�
 4. **既存文書**（`existing`・`expand`）は `W/<kind>-<topic>.md` に逐語で置き、`existing_docs` に
    `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。`expand` の要求文書は `fixed: true` にする
    （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
-   `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く（`references/workflow-io.md` §3）。
+   `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く。`existing_docs` に無い文書はその reset が消す
+   （`references/workflow-io.md` §3）。
 5. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
    挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out ~/.claude/prd-spec-workspace/<そのラン>/legacy`

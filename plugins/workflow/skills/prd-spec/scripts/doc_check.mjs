@@ -1882,20 +1882,36 @@ function wsRestore(ws, opts) {
   return { token, restored: files.length, files, pruned_by: [], flow_before: flowBefore, flow_after: ledgerSha(ws, 'flow') }
 }
 
-// reset: 段 1 から始める run の W を、S0 が書いたもの（依頼文・先例の一覧・文書）だけの状態に戻す。前のランや止まった段 1・2 の
+// reset: 段 1 から始める run の W を、S0 が書いたもの（依頼文・先例の一覧・existing_docs の文書）だけの状態に戻す。前のランや止まった段 1・2 の
 // 台帳が残ると、put はキー単位で足すので、再実行が書かなかった要素と欄（D- の kind・quote など）が黙って残る。answers も消す: 段 1・2 は
-// 回答を読まず、新しいランは RS- を 1 から振り直すので、残った回答の ID は別の問いを指す。固定の文書の meta は S0 の依頼の写し
+// 回答を読まず、新しいランは RS- を 1 から振り直すので、残った回答の ID は別の問いを指す。--keep に無い文書も消す: 前のランの writer の
+// 文書が meta なしで残ると、index に載り、同じ topic の単位の writer に前の草稿が渡る。固定の文書の meta は S0 の依頼の写し
 // （existing_docs の fixed）なので、消した後に --fixed から書き直す。所有表に無いファイルと tmp/ は触らない（snapshot の stray に出る）。
 const RESET_REMOVES = ['plan.json', 'questions.md', 'questions.json', 'report.md', 'answers', 'findings', 'checks', TX_DIR]
 function wsReset(ws, opts) {
+  const keep = [...new Set(opts.keep || [])].sort()
   const fixed = [...new Set(opts.fixed || [])].sort()
+  const docOf = (key) => {
+    try {
+      return ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.md')
+    } catch {
+      throw new LedgerRejected(`文書のキー（<requirements|specifications>/<topic>）ではありません（何も消していません）: ${key}`)
+    }
+  }
+  const docs = keep.map(docOf)
+  fixed.forEach(docOf)
+  const unkept = fixed.filter((key) => !keep.includes(key))
+  if (unkept.length) throw new LedgerRejected(`--fixed の文書が --keep にありません（何も消していません）: ${unkept.join(', ')}`)
+  const missing = keep.filter((_, i) => !fs.existsSync(path.join(ws, docs[i])))
+  if (missing.length) throw new LedgerRejected(`existing_docs の文書が W にありません（S0 で逐語で置く。何も消していません）: ${missing.join(', ')}`)
   const metas = fixed.map((key) => ledgerOf('meta').file(key))
-  const missing = fixed.filter((_, i) => !fs.existsSync(path.join(ws, metas[i].replace(/\.meta\.json$/, '.md'))))
-  if (missing.length) throw new LedgerRejected(`固定の文書が W にありません（S0 で逐語で置く。何も消していません）: ${missing.join(', ')}`)
-  const removed = fs.readdirSync(ws).filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n)).sort()
+  const removed = fs
+    .readdirSync(ws)
+    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)))
+    .sort()
   for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
   for (const m of metas) writeAtomic([path.join(ws, m), ledgerText({ ...emptyLedger(ledgerOf('meta')), fixed: true })])
-  return { reset: true, removed, fixed }
+  return { reset: true, removed, kept: keep, fixed }
 }
 
 function answerTexts(ws) {
@@ -3295,6 +3311,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--rulings') o.rulings = true
     else if (a === '--token') o.token = take()
     else if (a === '--fixed') o.fixed = take().split(',').map((s) => s.trim()).filter(Boolean)
+    else if (a === '--keep') o.keep = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o
