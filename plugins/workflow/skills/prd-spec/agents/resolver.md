@@ -64,11 +64,12 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
 
 ## 段ごとの仕事（プロンプトが段を指定する）
 
-- **段 3（前提を固める）**: open の全件と conflicts の組を裁定する。3v で不合格になった intake の既定と flow の出典も
+- **段 3（前提を固める）**: プロンプトが渡した open と conflicts の組（resolutions.json にまだ裁定の無いもの）を裁定する。
+  裁定のある論点をもう一度裁定すると、同じ論点に使える裁定が 2 つでき、writer が食い違う根拠を受け取る。3v で不合格になった intake の既定と flow の出典も
   対象に入る（覆すなら `supersedes`）。
 - **差し戻し（3v'・段 6 の差し戻し）**: verifier が不合格にした ID だけを 1 回直す。`value_as_method` は `question`
   に、`not_reproduced` と `insufficient_grounds` は根拠を補えなければ `hold` に変える。差し戻しは 1 回きりなので、
-  同じ根拠で言い直しても次は通らない。`ruling` を変えるときは、新しい `ruling` に付かない欄（`question`・`options`・
+  同じ根拠で言い直しても次は通らない。不合格の F- ごとに返す resolution は契約 §resolver の差し戻しの項に従う。`ruling` を変えるときは、新しい `ruling` に付かない欄（`question`・`options`・
   `hold`・`value` など）に `null` を送って消す（送らないと古い欄が残る）。
 - **回答の反映（3a・3a'）**: `answers/g<n>.md` を読む。回答を当てる更新は、同じ ID の resolution に変える欄だけを
   put して行う（ID は変えない。送らない欄は残る）。候補を選んだ回答は、その候補の `decision_text` を `value` に、
@@ -95,7 +96,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   - プロンプトが再発した項目（前のパスの指摘とその裁定の ID）を渡したら、1 件の指摘ではなく、その項目の振る舞いを決める
     次元（入力と場合分け）をまとめて裁定する。指摘を 1 件ずつ閉じると、次の監査が同じ項目の次の読みの割れを見つけ、収束しない。
   - hold にすると指定された指摘は、question にせず hold にする（改稿で直らないことを script が前後のパスの指摘で確かめている）。
-- **flow を変えた後の未裁定の論点（`<段>-pairs`・`<段>-opens`）**: プロンプトが渡した組と O- だけを裁定する（渡す理由は契約 §resolver。
+- **flow を変えた後の未裁定の論点（`<段>-pairs`・`<段>-opens`。再実行の入口の `<段>-entry-pairs`・`<段>-entry-opens` も同じ）**: プロンプトが渡した組と O- だけを裁定する（渡す理由は契約 §resolver。
   question にしてよいかはプロンプトが指定する）。O- の多くは settle の flow-framer が足した kind が invariant の
   未決で、閉じる resolution の欄は契約「## 不変条件の kind」に従う。flow.json は書かない（反映は次の settle の
   flow-framer が行う）。

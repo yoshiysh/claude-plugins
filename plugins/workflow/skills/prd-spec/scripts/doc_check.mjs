@@ -2070,9 +2070,13 @@ function fillVerifications(ws, opts, next, body) {
   const [itemsOf, itemKey] = Object.entries(ledgerOf('verifications').lists)[0]
   const [elementsOf, elementKey] = Object.entries(ledgerOf('flow').lists)[0]
   const flowEls = new Map(listOf(readLedger(ws, 'flow'), elementsOf).map((el) => [el[elementKey], el]))
+  const [resolutionsOf, resolutionKey] = Object.entries(ledgerOf('resolutions').lists)[0]
+  const rulings = new Map(listOf(readLedger(ws, 'resolutions'), resolutionsOf).map((r) => [r[resolutionKey], r]))
   const asked = new Set(listOf(body, itemsOf).map((it) => it[itemKey]))
   const items = next[itemsOf].map((it) => {
-    if (!asked.has(it[itemKey]) || !/^F-/.test(it[itemKey])) return it
+    if (!asked.has(it[itemKey])) return it
+    if (rulings.has(it[itemKey])) return { ...it, digest: digestOf(rulings.get(it[itemKey])) }
+    if (!/^F-/.test(it[itemKey])) return it
     if (!flowEls.has(it[itemKey])) throw new LedgerRejected(`${it[itemKey]} が ${ledgerOf('flow').file()} にありません`)
     return { ...it, digest: digestOf(flowEls.get(it[itemKey])) }
   })
@@ -2735,12 +2739,18 @@ function wsFlow(ws) {
   const [passed, failed] = [verdictAt('pass'), verdictAt('fail')]
   const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   const failedCurrent = els.filter((el) => failed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
-  // unverdicted: 合否の無い resolution。about と ruling も出すのは、応答の前に台帳を書いて止まった resolver の裁定を、再実行の script が
-  // 返り値の代わりに受け取るため（script はファイルを読めない）。
-  const judged = new Set(items.filter((it) => it && it.verdict).map((it) => String(it.id)))
-  const unverdicted = listOf(readLedger(ws, 'resolutions'), 'resolutions')
-    .filter((r) => r && r.id && !judged.has(String(r.id)))
-    .map((r) => ({ id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null }))
+  // resolutions: resolution ごとの about・ruling と合否（verdict。無ければ null、不合格には fail_kind）。script はファイルを読めないので、
+  // 返り値が届かなかった裁定と合否（止まった run が書いたもの・出し直しが返さなかったもの）を、state に写す元はここにしか無い。
+  // 合否は検証した版（digest）の resolution にだけ付く。検証の後に書き換えた裁定は、検証していない値が合格のまま根拠に使われる。
+  // question と hold への書き換え（変換・回答の反映・保持規則への変換）は値を決めないので、その前の合否を持ち越す。
+  const verdicts = new Map(items.filter((it) => it && it.id && it.verdict).map((it) => [String(it.id), it]))
+  const resolutions = listOf(readLedger(ws, 'resolutions'), 'resolutions')
+    .filter((r) => r && r.id)
+    .map((r) => {
+      const judged = verdicts.get(String(r.id))
+      const v = judged && (judged.digest === digestOf(r) || ['question', 'hold'].includes(r.ruling)) ? judged : null
+      return { id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.fail_kind ?? null } : {}) }
+    })
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
   const opensOnly = (source) => {
     const sources = Array.isArray(source) ? source : source ? [source] : []
@@ -2770,7 +2780,7 @@ function wsFlow(ws) {
     content_sha256: ledgerSha(ws, 'flow'),
     unverified,
     failed_current: failedCurrent,
-    unverdicted,
+    resolutions,
     open_only: openOnly,
     stale_refs: staleRefs,
     open_ids: [...openIds].sort(),

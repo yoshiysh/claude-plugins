@@ -351,8 +351,10 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
-- stdout の `unverdicted` は、verifications.json に合否の項目が無い resolution で、`{id, about, ruling}` を出す。応答の前に台帳を書いて止まった
-  resolver の裁定を、再実行の script が返り値の代わりに受け取るためである（script はファイルを読めない）。
+- stdout の `resolutions` は resolution ごとの `{id, about, ruling, verdict}`（不合格は `fail_kind` も）である。`verdict` は verifications.json の合否で、
+  検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に値を書き換えた裁定は合否を失い、question・hold への書き換え
+  （変換・回答の反映・保持規則への変換）は値を決めないので前の合否を持ち越す。script は、返り値が届かなかった裁定と合否（止まった run が書いたもの・
+  出し直した resolver が返さなかったもの）をここから受け取る（script はファイルを読めない）。
 - script が判断に使う stdout（§flow-check）の `codes` に残った指摘は、符号によらずすべて settle に「要素: 何が無いか」（flow-framer 専用の
   符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは、その cycle で flow を書いた生成者に消せない指摘（「## flow.json の形」の直し手）と、
   台帳の書き込みから出た指摘だけで（生成者が消せる指摘は §resolver-verifier の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
@@ -365,7 +367,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow_check": "{\"findings\":0,\"codes\":{},\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"unverdicted\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"],\"pair_keys\":[\"pair:D-001|F-002\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
+{ "flow_check": "{\"findings\":0,\"codes\":{},\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"resolutions\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"],\"pair_keys\":[\"pair:D-001|F-002\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
 - `plan_check`: 段 2 だけ、doc_check `plan` の stdout を加工せずに返す（script が intake の `plan_check` と照合する）。
@@ -438,7 +440,8 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/input.md`、
 `W/answers/*.md`、script が渡す検証対象の ID。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、
 put の stdout の値をそのまま入れる。`pass`・`fail` の resolution（RS-）は渡された ID に限る。script は渡していない RS- の合否を
-合否に数えず、`notices` に 1 行残す（数えると、回答待ちの問いが不合格の集合に入り、回答が当たっても使えないままになる）:
+その cycle の差し戻しと変換に回さず、`notices` に 1 行残す（回すと、回答待ちの問いが保持規則に書き換わる）。W に書いた合否は、次に script が
+W を読むとき（§flow-check の stdout の `resolutions`）に台帳の集合に入る:
 
 ```json
 { "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
@@ -446,7 +449,8 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 
 検証の最初に `doc_check flow` を実行し、その `unverified` のうち `failed_current` に無い要素すべての出典も検証して、その F- も `pass`・`fail` に入れる
 （script の渡す ID の一覧は、止まった run が書いて検証の前に止まった要素を知らない）。最後の `flow_check` に今の版に合否の無い要素か
-resolution（`unverdicted`）が残っていれば、script はその段をやり直させる。
+resolution（`resolutions` の `verdict` が `null`）が残っていれば、script は別の verifier（`<段>v-left`。settle の回の後は `<段>v-left-<n>`）に
+それだけを検証させる。その verifier も残せば、script はその段をやり直させる。
 
 `flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を

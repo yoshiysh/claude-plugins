@@ -17,9 +17,12 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -425,13 +428,47 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(out["failed_current"], [])
         self.assertIn("F-002", out["unverified"])
 
-    def test_合否の無いresolutionはaboutとrulingつきでunverdictedに出る(self):
-        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
-        self.assertEqual(_ok(self.ws, "flow")["unverdicted"], [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal"}])
+    def test_resolutionごとにaboutとrulingと合否をresolutionsに出す(self):
+        _put(self.ws, "resolutions", {"resolutions": [
+            {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
+            {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "value": "v", "why": "w"},
+            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
+            {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}},
+        ]})
+        self.assertEqual([x["verdict"] for x in _ok(self.ws, "flow")["resolutions"]], [None] * 4)
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
-        _put(self.ws, "verifications", {"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]},
+        _put(self.ws, "verifications", {"items": [{"id": "RS-002", "verdict": "pass"}, {"id": "RS-003", "verdict": "fail", "fail_kind": "value_as_method", "reason": "r"},
+                                                  {"id": "RS-004", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]},
              "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
-        self.assertEqual(_ok(self.ws, "flow")["unverdicted"], [], "不合格も合否である")
+        got = _ok(self.ws, "flow")["resolutions"]
+        want = [
+            {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "verdict": None},
+            {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "verdict": "pass"},
+            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "verdict": "fail", "fail_kind": "value_as_method"},
+            {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "verdict": "fail", "fail_kind": "insufficient_grounds"},
+        ]
+        self.assertEqual(got, want)
+        # prd.js のテストの stub（test_prd_stages の HARNESS）は同じ世界から同じ行を出す。stub の形がずれると、stub で通る再実行が実物で通らない。
+        import test_prd_stages as stages  # test_prd_stages が test_prd_pure 経由でこの module を import するので、ここで読む
+        with tempfile.TemporaryDirectory() as tmp:
+            world = Path(tmp) / "w.json"
+            world.write_text(json.dumps({"flow": "f", "els": {}, "rs": {x["id"]: {"about": x["about"], "ruling": x["ruling"]} for x in want},
+                                         "verdicts": {x["id"]: {"verdict": x["verdict"], **({"kind": x["fail_kind"]} if "fail_kind" in x else {})} for x in want if x["verdict"]}}))
+            state = {"units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}], "tree_digest": "t"}
+            stub = stages.run({"args": stages.args(**{"from": "9", "state": state}), "world": str(world)})
+        self.assertEqual(stub["disk"]["resolutions"], want)
+        # 合否は検証した版に付く。値を書き換えた裁定は合否を失い、question・hold への書き換え（変換）は合否を持ち越す。
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-002", "value": "書き換えた値"},
+                                                      {"id": "RS-003", "ruling": "hold", "value": None, "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}}]})
+        rewritten = [want[0], {**want[1], "verdict": None}, {**want[2], "ruling": "hold"}, want[3]]
+        self.assertEqual(_ok(self.ws, "flow")["resolutions"], rewritten)
+        with tempfile.TemporaryDirectory() as tmp:
+            world = Path(tmp) / "w.json"
+            versions = {"RS-002": 1, "RS-003": 1}
+            world.write_text(json.dumps({"flow": "f", "els": {}, "rs": {x["id"]: {"about": x["about"], "ruling": x["ruling"], "v": versions.get(x["id"], 0)} for x in rewritten},
+                                         "verdicts": {x["id"]: {"verdict": x["verdict"], "v": 0, **({"kind": x["fail_kind"]} if "fail_kind" in x else {})} for x in want if x["verdict"]}}))
+            stub = stages.run({"args": stages.args(**{"from": "9", "state": state}), "world": str(world)})
+        self.assertEqual(stub["disk"]["resolutions"], rewritten)
 
     def test_覆された決定を出典かconstrained_byに持つ要素はstale_refsに出る(self):
         self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [])

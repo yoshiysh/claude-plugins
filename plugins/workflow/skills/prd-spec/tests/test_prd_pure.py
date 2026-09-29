@@ -279,19 +279,23 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"failedOpen({json.dumps(fc)}, {json.dumps(state)}, false)"), ["F-001", "F-003", "F-004"], "聞くゲートの無い出口では回答待ちで進めない")
 
     def test_unverifiedLeftは今の版に合否の無い要素とresolutionと進めない不合格を挙げる(self):
-        clean = {"unverified": ["F-002"], "failed_current": ["F-002"], "unverdicted": []}
+        converted = [{"id": "RS-5", "about": {"verification": "F-002"}, "ruling": "hold", "verdict": "pass"},
+                     {"id": "RS-6", "about": {"open": "O-6"}, "ruling": "hold", "verdict": "fail", "fail_kind": "insufficient_grounds"},
+                     {"id": "RS-7", "about": {"open": "O-7"}, "ruling": "question", "verdict": "fail", "fail_kind": "value_as_method"}]
+        clean = {"unverified": ["F-002"], "failed_current": ["F-002"], "resolutions": converted}
         state = {"about": {"RS-5": "verification:F-002"}, "holds": ["RS-5"]}
         self.assertIsNone(value(f"unverifiedLeft({json.dumps(clean)}, {json.dumps(state)}, false)"))
         for name, fc, st in (("書き換えて検証していない要素", {**clean, "unverified": ["F-001", "F-002"]}, state),
-                             ("合否の無い resolution", {**clean, "unverdicted": [{"id": "RS-9", "about": {"open": "O-1"}, "ruling": "internal"}]}, state),
+                             ("合否の無い resolution", {**clean, "resolutions": [*converted, {"id": "RS-9", "about": {"open": "O-1"}, "ruling": "internal", "verdict": None}]}, state),
+                             ("問いにも保持規則にもならない不合格の resolution", {**clean, "resolutions": [*converted, {"id": "RS-9", "about": {"open": "O-1"}, "ruling": "internal", "verdict": "fail", "fail_kind": "insufficient_grounds"}]}, state),
                              ("裁定の無い不合格の要素", clean, {})):
             with self.subTest(name):
                 self.assertIsNotNone(value(f"unverifiedLeft({json.dumps(fc)}, {json.dumps(st)}, false)"))
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "unverdicted": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("codes", "unverified", "failed_current", "unverdicted", "open_only", "stale_refs", "open_ids", "pair_keys"):
+        for k in ("codes", "unverified", "failed_current", "resolutions", "open_only", "stale_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
         two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}
