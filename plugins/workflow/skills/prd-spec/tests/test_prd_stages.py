@@ -72,11 +72,13 @@ const persist = () => {
   if (spec.world) fs.writeFileSync(spec.world, JSON.stringify(disk))
 }
 let flowSha = disk.flow
+// cache の run は保存された結果を返した呼び出しで stubAgent を通らないので、resolutions.json の sha256 を W から読み直す（実物は台帳のファイルから出る）。
+if (spec.cache && disk.rs_sha) sha = disk.rs_sha
 // 段の token（doc_check の put・del と同じ）: 台帳を書く役のプロンプトの「トークン:」の行。書く前に、その token の下で最初に書く
 // 台帳の控え（disk の欄の組）を disk.tx[token] に取り、新しい token の最初の書き込みで他の token の控えを消す。
 // restore は入口の flow-check のプロンプトの doc_check restore --token で、控えを戻して token の控えを消す。
 // docs: 文書の本文の版（writer が書くたびに 1 増える）。本文は doc_check を通らないので、控えは段 4・7 の flow-check の backup だけが取る。
-const TX_KEYS = { flow: ['flow', 'els'], verifications: ['verdicts'], resolutions: ['rs'], open: ['open_ids'], docs: ['docs'] }
+const TX_KEYS = { flow: ['flow', 'els'], verifications: ['verdicts'], resolutions: ['rs', 'rs_sha'], open: ['open_ids'], docs: ['docs'] }
 let curToken = null
 const txOrd = (t) => {
   const m = /^t(\d+)(?:r(\d+))?$/.exec(t)
@@ -100,6 +102,7 @@ const restoreTx = (token) => {
   for (const keys of Object.values(pre || {})) for (const [k, x] of Object.entries(keys)) if (x.absent) delete disk[k]; else disk[k] = x.value
   if (disk.tx) delete disk.tx[token]
   flowSha = disk.flow
+  if (spec.cache) sha = disk.rs_sha || 'rs-0'
   preexisting = new Set(Object.keys(disk.rs || {}))
   persist()
   return JSON.stringify({ token, restored: Object.keys(pre || {}).length, files: [], pruned_by: [], flow_before: String(before), flow_after: String(flowSha) })
@@ -110,6 +113,8 @@ const resetWorld = (keep, fixed) => {
   Object.assign(disk, { flow: null, els: {}, verdicts: {}, rs: {} })
   delete disk.open_ids
   delete disk.tx
+  delete disk.rs_sha
+  if (spec.cache) sha = 'rs-0'
   // reset は --keep に無い文書を消す（残した文書の本文は S0 の版に戻らないが、stub は版を数えるだけなので残す）。
   const kept = keep ? keep.split(',') : []
   disk.docs = Object.fromEntries(Object.entries(disk.docs || {}).filter(([k]) => kept.includes(k)))
@@ -269,6 +274,8 @@ function respond(prompt, label) {
     persist()
     // resolutions.json の sha256 は中身で決まる（同じ中身を書き直しても変わらない）。版の数（v・av）も中身に数える。
     sha = H(`rs-${hash(JSON.stringify(Object.entries(disk.rs).sort().map(([id, r]) => [id, r.about, r.ruling, r.v ?? 0, r.av ?? 0])))}`)
+    disk.rs_sha = sha
+    persist()
     const out = { ruled, questions: q, holds, supersedes: at('supersedes_at', stage) || [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], [spec.resolver_sha_key || 'resolutions_sha256']: sha }
     const checked = at('questions_check_ids_at', stage) || (/-questions(-\d+)?$/.test(stage) ? ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g) : q.map((x) => x.id))
     if (checked.length) {
@@ -402,15 +409,31 @@ let attempted = 0
 const stubErrors = []
 const phaseTitles = new Set(__meta.phases.map((p) => p.title))
 // throw_labels: その label の agent() を例外で終わらせる（runtime の schema 検証の失敗などの、予算以外の例外）。
+// cache: resumeFromRunId の再生（本家 WF「Resume after a pause」・WA「Resume」）。前の run の calls のうち、起動の順で label とプロンプトが
+// 変わらない最長の前置きを保存された結果で返す（stubAgent を通さないので W に書かず、labels にも載らない）。結果を返さずに終わった呼び出しと、
+// 最初に変わった呼び出しから後は live で走る。calls は起動の順の (label, prompt, 結果) で、次の run の cache に渡す。
+const calls = []
+const replayed = []
+let live = !spec.cache
 const agent = async (prompt, opts) => {
   if (!phaseTitles.has(opts.phase)) stubErrors.push(`${opts.label}: opts.phase「${opts.phase}」が meta.phases に無い`)
+  const rec = { label: opts.label, prompt, result: null }
+  const saved = live ? null : spec.cache[calls.length]
+  calls.push(rec)
+  if (!live && saved && saved.label === opts.label && saved.prompt === prompt && saved.result != null) {
+    replayed.push(opts.label)
+    rec.result = saved.result
+    return saved.result
+  }
+  live = true
   if ((spec.throw_labels || []).includes(opts.label)) {
     attempted += 1
     labels.push(opts.label)
     throw new Error(`stub: ${opts.label} の例外`)
   }
   try {
-    return await stubAgent(prompt, opts)
+    rec.result = await stubAgent(prompt, opts)
+    return rec.result
   } catch (e) {
     if (e.message !== 'budget exhausted') stubErrors.push(`${opts.label}: ${e.message}`)
     throw e
@@ -455,7 +478,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed }))
 """
 
 
@@ -3847,6 +3870,170 @@ class OfficialAlignment(unittest.TestCase):
         r = run({**spec, "args": a})
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         self.assertIn("RS-098", self._line(r, "- 根拠にしてよい resolution"))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class SameSessionResume(unittest.TestCase):
+    """同じセッションの再開（resumeFromRunId）。stub の cache が、前の run の起動の順で label とプロンプトが変わらない最長の前置きを
+    保存された結果で返し、結果の無い呼び出しと最初に変わった呼び出しから後を live で走らせる（本家 WF「Resume after a pause」）。
+
+    ゲートの後は元の run の args に answered を足し、blocked の後は元の run の args のまま呼び直す（SKILL.md「## 中継」）。"""
+
+    # ゲートごとの題材: run ごとの stub の応答（最後の要素が回答を当てた後の run）。stub は段の名前で応答を返し分けるので、G0-2 の後にもう一度
+    # 走る 3a には別の run の応答を渡す。
+    GATES = {
+        "g0": [{"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, {"ruled_at": {"3a": ["RS-001"]}}],
+        "g0-2": [{"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, {"ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}}, {"ruled_at": {"3a": ["RS-002"]}}],
+        "g1": [{"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, {"ruled_at": {"3a'": ["RS-010"]}}],
+    }
+    ORDER = ["g0", "g0-2", "g1"]
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _w(self, name):
+        return str(Path(self._tmp.name) / f"{name}.json")
+
+    def _answered(self, gate):
+        return ["g0", "g0-2"] if gate == "g0-2" else [gate]
+
+    def _resumed(self, gate, world):
+        """ゲートごとに回答を書いた体で、元の run の args に answered を足して resume し続けた run の列。"""
+        runs = []
+        gates = self._answered(gate)
+        for i, spec in enumerate(self.GATES[gate]):
+            a = {**args(), "answered": gates[:i]} if i else args()
+            runs.append(run({"args": a, **spec, "world": world, **({"cache": runs[-1]["calls"]} if runs else {})}))
+        return runs
+
+    def _via_next_args(self, gate, world):
+        runs = []
+        for spec in self.GATES[gate]:
+            runs.append(run({"args": runs[-1]["result"]["next_args"] if runs else args(), **spec, "world": world}))
+        return runs
+
+    def test_ゲートより前のagentのプロンプトはansweredの有無で変わらない(self):
+        for gate in self.GATES:
+            with self.subTest(gate):
+                merged = {}
+                for spec in self.GATES[gate]:
+                    for k, v in spec.items():
+                        merged[k] = {**merged.get(k, {}), **v} if isinstance(v, dict) else v
+                gates = self._answered(gate)
+                stopped = run({"args": {**args(), "answered": gates[:-1]}, **merged, "world": self._w(f"{gate}-a")})
+                self.assertEqual((stopped["result"]["status"], stopped["result"]["answers_path"]), ("needs_answers", f"/tmp/prd-w/answers/{gate}.md"), stopped["result"].get("reason"))
+                passed = run({"args": {**args(), "answered": gates}, **merged, "world": self._w(f"{gate}-b")})
+                n = len(stopped["calls"])
+                self.assertGreater(len(passed["calls"]), n)
+                strip = lambda cs: [(c["label"], c["prompt"]) for c in cs]
+                self.assertEqual(strip(passed["calls"][:n]), strip(stopped["calls"]), "変わると、その agent と後の agent がすべて live で走り直す")
+                first = stopped["calls"][0]
+                self.assertEqual(first["label"], "flow-check:1-entry")
+                self.assertIn("doc_check.mjs reset", first["prompt"], "live で走り直すと W を S0 の直後に戻し、書いた回答を消す")
+
+    def test_answeredで呼び直すとゲートより前は保存された結果が返り回答を当てる段からliveで走る(self):
+        for gate in self.GATES:
+            with self.subTest(gate):
+                runs = self._resumed(gate, self._w(f"{gate}-r"))
+                stopped, resumed = runs[-2], runs[-1]
+                res = resumed["result"]
+                self.assertEqual(res["status"], "done", res.get("reason"))
+                self.assertNotIn("answered", res["next_args"] or {})
+                self.assertEqual(resumed["replayed"], [c["label"] for c in stopped["calls"]], "ゲートより前はすべて保存された結果")
+                self.assertTrue(resumed["labels"][0].startswith("resolver:3a"), resumed["labels"])
+
+                # next_args で呼び直した run と同じ段を同じ順で走り、入口で W を読み直す flow-check だけが無い。
+                via = self._via_next_args(gate, self._w(f"{gate}-f"))
+                entry = f"flow-check:{via[-2]['result']['next_args']['from']}-entry"
+                self.assertEqual(resumed["labels"], [l for l in via[-1]["labels"] if l != entry])
+                keys = ("status", "holds", "hold_drafts", "open_tbd", "integrity", "missed", "passes", "notices")
+                self.assertEqual({k: res[k] for k in keys}, {k: via[-1]["result"][k] for k in keys})
+
+    def test_回答済みのゲートを通った印はその段の出口にだけ効く(self):
+        spec = {"flow_open": 1, "questions_at": {"3": ["RS-001"], "3a": ["RS-002"], "3b": ["RS-002"]}, "ruled_at": {"3a": ["RS-001"]}}
+        skip = [("  if (pendingQuestions(state).length) return needsAnswers('g0-2', '3a')\n", "")]
+        r = run({"args": {**args(), "answered": ["g0"]}, **spec}, patch=skip)
+        res = r["result"]
+        self.assertTrue(has(r["labels"], "resolver:3a"), "G0 は回答済みなので通る")
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertIn("回答待ちの問い RS-002 を", res["reason"], "G0 を通った印を後の段に持ち越すと、聞かずに出る段を止められない")
+
+    def test_answeredにゲートの外の値があると起動の前に止まる(self):
+        for bad in (["g2"], "g0", [None], {"g0": True}):
+            with self.subTest(bad=bad):
+                r = run({"args": {**args(), "answered": bad}})
+                self.assertIn("args.answered", r["error"] or "")
+                self.assertEqual(r["labels"], [])
+
+    def test_next_argsから始めたrunもansweredを足してresumeでき返るnext_argsはansweredを持たない(self):
+        spec = {"flow_open": 1, "questions_at": {"3": ["RS-001"], "6": ["RS-010"]}, "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]},
+                "ruled_at": {"3a": ["RS-001"], "3a'": ["RS-010"]}}
+        world = self._w("x")
+        g0 = run({"args": args(), **spec, "world": world})["result"]
+        cross = run({"args": g0["next_args"], **spec, "world": world})
+        self.assertEqual((cross["result"]["status"], cross["result"]["answers_path"]), ("needs_answers", "/tmp/prd-w/answers/g1.md"))
+        resumed = run({"args": {**g0["next_args"], "answered": ["g1"]}, **spec, "world": world, "cache": cross["calls"]})
+        self.assertIsNone(resumed["error"], resumed["error"])
+        self.assertEqual(resumed["result"]["status"], "done", resumed["result"].get("reason"))
+        self.assertEqual(resumed["replayed"], [c["label"] for c in cross["calls"]])
+        g1 = run({"args": {**args(), "answered": ["g0"]}, **spec, "world": self._w("y"), "cache": run({"args": args(), **spec, "world": self._w("y")})["calls"]})["result"]
+        self.assertEqual(g1["status"], "needs_answers")
+        self.assertNotIn("answered", g1["next_args"], "セッションを跨ぐ再開は from で始めるので、ゲートを通った印を運ばない")
+
+    def test_blockedの後のresumeは失敗したagentから後だけを走らせrestoreしない(self):
+        spec = {"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}
+        world = self._w("b")
+        stopped = run({"args": args(), **spec, "world": world, "null_labels": ["verifier:3v"]})
+        res = stopped["result"]
+        self.assertEqual((res["status"], res["resumable"], res["next_args"]["from"]), ("blocked", True, "3"), res.get("reason"))
+        self.assertTrue(res["next_args"]["state"]["tx"]["restore"], "next_args の経路は restore で段の入口へ戻す")
+        resumed = run({"args": args(), **spec, "world": world, "cache": stopped["calls"]})
+        self.assertEqual(resumed["result"]["status"], "done", resumed["result"].get("reason"))
+        self.assertEqual(resumed["replayed"], [l for l in stopped["labels"] if l != "verifier:3v"])
+        self.assertEqual(resumed["labels"][0], "verifier:3v")
+        self.assertEqual(resumed["result"]["integrity"], [])
+        self.assertFalse(any("doc_check.mjs restore" in c["prompt"] for c in resumed["calls"]), "元の run の args には restore の token が無い")
+
+    def test_restoreで始めたrunのresumeは入口のrestoreを流し直しても止まったrunの書き込みを戻さない(self):
+        spec = {"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}
+        world = self._w("r")
+        first = run({"args": args(), **spec, "world": world, "null_labels": ["verifier:3v"]})["result"]
+        rerun = first["next_args"]
+        token = rerun["state"]["tx"]["restore"]
+        for name, stop, live in (("入口の後で止まった", {"null_labels": ["verifier:3v"]}, "verifier:3v"),
+                                 ("入口が restore の後に応答しなかった", {"silent_after_write": ["flow-check:3-entry"]}, "flow-check:3-entry")):
+            with self.subTest(name):
+                Path(world).unlink()
+                run({"args": args(), **spec, "world": world, "null_labels": ["verifier:3v"]})
+                stopped = run({"args": rerun, **spec, "world": world, **stop})
+                self.assertEqual((stopped["result"]["status"], stopped["result"]["resumable"]), ("blocked", True), stopped["result"].get("reason"))
+                self.assertIn(f"restore --workspace /tmp/prd-w --token {token}`", stopped["calls"][0]["prompt"])
+                resumed = run({"args": rerun, **spec, "world": world, "cache": stopped["calls"]})
+                self.assertEqual(resumed["result"]["status"], "done", resumed["result"].get("reason"))
+                self.assertEqual(resumed["labels"][0], live)
+                self.assertEqual(resumed["result"]["integrity"], [])
+                if live == "flow-check:3-entry":
+                    # 最初の restore が控えを消しているので、流し直した restore は何も戻さない（実物の doc_check は test_ledger が押さえる）。
+                    self.assertIn(f'"token":"{token}","restored":0', json.dumps(resumed["calls"][0]["result"], ensure_ascii=False).replace("\\", "").replace(" ", ""))
+
+    def test_失敗したagentの無いblockedはresumableでなくresumeしても同じ所で止まる(self):
+        spec = {"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}
+        world = self._w("n")
+        stopped = run({"args": args(), **spec, "world": world, "null_labels": ["verifier:3v"]})["result"]
+        checked = run({"args": stopped["next_args"], **spec, "world": world, "no_restore_at": ["flow-check:3-entry"]})
+        res = checked["result"]
+        self.assertEqual((res["status"], res["resumable"]), ("blocked", False), res.get("reason"))
+        self.assertTrue(res["next_args"], "next_args の経路ではやり直せる")
+        again = run({"args": stopped["next_args"], **spec, "world": world, "cache": checked["calls"]})
+        self.assertEqual((again["labels"], again["result"]["reason"]), ([], res["reason"]), "完了した agent はすべて保存された結果を返す")
+
+    def test_resumableはneeds_answersとbudgetで止まったblockedで真(self):
+        self.assertTrue(run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]["resumable"])
+        self.assertTrue(run({"args": args(), "budget": {"total": 0}})["result"]["resumable"])
+        self.assertFalse(run({"args": args()})["result"]["resumable"])
 
 if __name__ == "__main__":
     unittest.main()

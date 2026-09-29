@@ -1,7 +1,7 @@
 export const meta = {
   name: 'prd-spec-run',
   description: '依頼を仕分けて流れを閉じ、前提を裁定してから要求・仕様を書き、監査と範囲を絞った再監査を収束するまで回す',
-  whenToUse: 'prd-spec の SKILL.md から、workspace を作ったあとに名前（/workflow:prd-spec-run）で呼ぶ。needs_answers で止まったら回答を answers に逐語で書き、返った next_args を args にして同じ名前で呼び直す（references/workflow-io.md §3）。args に打ち直す値は ID・件数・digest に限る（本文や JSON の本体は W に置く）',
+  whenToUse: 'prd-spec の SKILL.md から、workspace を作ったあとに名前（/workflow:prd-spec-run）で呼ぶ。needs_answers で止まったら回答を answers に逐語で書き、SKILL.md「## 中継」の「呼び直し」のとおりに同じ名前で呼び直す。args に打ち直す値は ID・件数・digest に限る（本文や JSON の本体は W に置く）',
   phases: [
     { title: 'Intake', detail: '段 1: 依頼を確定・決定・未決に仕分け、分割と writer の単位を決める' },
     { title: 'Flow', detail: '段 2: 出典付きの流れを描き、閉包を検査する' },
@@ -345,8 +345,11 @@ function fnv(text) {
 // nextArgsHash はこれと state_hash の外をすべて覆う。state だけを覆うと workspace・existing_docs・from の写し間違いが通る。
 // 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（この script がそう読むので、打ち直しで [] を落としても意味は変わらない）。
 const ENV_ARGS = ['skillDir', 'role_opts']
+// RESUME_ARGS: resumeFromRunId で呼び直すときに元の run の args へ足す欄。next_args には載らないので hash の外に置く（入れると、next_args から
+// 始めた run の resume が state_hash で止まる）。
+const RESUME_ARGS = ['answered']
 const isEmpty = (v) => v === undefined || (Array.isArray(v) ? !v.length : v && typeof v === 'object' && !Object.keys(v).length)
-const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !isEmpty(v)))))
+const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !RESUME_ARGS.includes(k) && !isEmpty(v)))))
 
 // reRaised: 既裁定の再出（定義は references/workflow-io.md §4 の段 8）。writer の適用の申告は読まない（生成した側の自己判定になる）。
 // prevAgain（前のパスの再出）も裁定を持ち越す。持ち越さないと 2 回目の再出が新しい blocking として数えられる。
@@ -566,7 +569,7 @@ const runEach = async (items, issue) => {
 
 // NOT_RUN: null の呼び出しの理由。script からは利用者の停止と API エラーを区別できないので、両方を書く。
 const NOT_RUN_WHY = '利用者が止めたか、runtime の出し直しの後も API エラーだった。script は出し直さない'
-const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。next_args でこの段からやり直す）`
+const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段からやり直せる（呼び直し方は SKILL.md「## 中継」））`
 
 // STOP_REASONS: 返り値の stop_reason の閉集合（references/workflow-io.md §3。tests が照合する）。budget は token の目標（budget.total）に
 // 達して agent を起動できなくなったとき。
@@ -721,6 +724,12 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
+// ANSWERED: 回答を書き終えたゲート。プロンプトに入れない（入れると resume でゲートより前の agent が保存された結果から外れ、段 1 の reset が
+// live で走って W を消す）。
+const ANSWERED = input.answered === undefined ? [] : input.answered
+if (!Array.isArray(ANSWERED) || ANSWERED.some((g) => typeof g !== 'string' || !Object.hasOwn(GATE_ANSWERS, g))) {
+  throw new Error(`args.answered は回答を書き終えたゲートの配列です（${Object.keys(GATE_ANSWERS).join(' / ')}）: ${Array.isArray(ANSWERED) ? ANSWERED.map(String).join(', ') : typeof ANSWERED}`)
+}
 if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
   throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')
 }
@@ -748,11 +757,15 @@ let txTry = 0
 const txToken = () => `t${state.tx.seq}${txTry ? `r${txTry}` : ''}`
 const TX_ROLES = ['intake', 'flowFramer', 'resolver', 'verifier', 'writer']
 
+// failedCalls: 結果を返さずに終わった agent() の数。resume は完了した agent を保存された結果で返すので、失敗した agent が無い blocked を
+// resume すると同じ結果を同じ所で返す（resumable が false）。
+let failedCalls = 0
+
 function finish(status, extra) {
   if (extra && extra.stop_reason != null && !STOP_REASONS.includes(extra.stop_reason)) throw new Error(`stop_reason "${extra.stop_reason}" は STOP_REASONS（${STOP_REASONS.join(' / ')}）にありません`)
   const written = new Set(state.settled_written || [])
   const holds = uniq(state.holds || [])
-  return {
+  const out = {
     status,
     questions_path: null,
     report_path: null,
@@ -769,6 +782,8 @@ function finish(status, extra) {
     item_routes: state.item_routes || {},
     ...extra,
   }
+  const retry = Boolean(out.next_args) && (failedCalls > 0 || out.stop_reason === 'budget')
+  return { ...out, resumable: status === 'needs_answers' || (status === 'blocked' && retry) }
 }
 // blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す（W は再実行の入口の restore で段に入った時点に戻る）。
 // tx.flow は止まった run が最後に照合を通した flow の版で、段に入った時点の版と同じなら載せない（next_args の上限）。
@@ -904,7 +919,7 @@ function forget(ids) {
 // （見ないと throw が null になり、「応答しませんでした」の blocked に化ける）。目標が無いときの total は null で、0 は「使える token が無い」
 // なので達した扱いにする。budget の無い実行環境では常に false。
 const budgetOut = () => typeof budget !== 'undefined' && Boolean(budget) && budget.total != null && budget.remaining() <= 0
-const budgetStop = (what) => Object.assign(new Error(`token の目標（budget.total）に達したので、${what} を起動できません。目標を上げて next_args でこの段からやり直す`), { budgetStop: true })
+const budgetStop = (what) => Object.assign(new Error(`token の目標（budget.total）に達したので、${what} を起動できません。目標を上げてこの段からやり直す（呼び直し方は SKILL.md「## 中継」）`), { budgetStop: true })
 // notRun: 起動したのに返り値の無い呼び出し。段をやり直させる（段を回す loop が blocked にする）。
 const notRun = (what) => (budgetOut() ? budgetStop(what) : Object.assign(new Error(`${what} が${NOT_RUN}`), { rerunStage: true }))
 
@@ -914,10 +929,13 @@ const notRun = (what) => (budgetOut() ? budgetStop(what) : Object.assign(new Err
 async function call(prompt, opts) {
   if (budgetOut()) throw budgetStop(opts.label)
   try {
-    return await agent(prompt, opts)
+    const r = await agent(prompt, opts)
+    if (r == null) failedCalls += 1
+    return r
   } catch (e) {
     if (budgetOut()) throw budgetStop(opts.label)
-    throw Object.assign(new Error(`${opts.label} が例外で終わりました（${e && e.message ? e.message : e}）。原因を除いてから next_args でこの段からやり直す`), { rerunStage: true, agentThrew: true })
+    failedCalls += 1
+    throw Object.assign(new Error(`${opts.label} が例外で終わりました（${e && e.message ? e.message : e}）。原因を除いてからこの段からやり直す（呼び直し方は SKILL.md「## 中継」）`), { rerunStage: true, agentThrew: true })
   }
 }
 
@@ -1564,8 +1582,15 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
   return done.defect ? { error: `段 ${stage}: 問いの形が検査を通りません（${done.defect.text}）` } : null
 }
 
+// gatePassed: 回答済みのゲート（args.answered）を通った段。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい（exitViolation）。
+let gatePassed = null
+
 function needsAnswers(gate, from) {
   state.gate = gate
+  if (ANSWERED.includes(gate)) {
+    gatePassed = gate
+    return from
+  }
   const ids = pendingQuestions(state)
   return finish('needs_answers', {
     questions_path: `${W}/questions.md`,
@@ -2180,10 +2205,10 @@ const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 
 const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
 // exitViolation: 段を出るときの不変条件。破ると、数え直していない台帳の flow の指摘か、誰にも聞かれない問いを持ったまま次の段が走る。
-// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）と、G0-2 で一緒に聞くために 3b へ持ち越す 3a だけ。
+// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、G0-2 で一緒に聞くために 3b へ持ち越す 3a だけ。
 function exitViolation(from, r) {
   if (unchecked) return `resolver:${unchecked.tag} の後に doc_check flow を独立に実行し直さないまま段を出ようとしました（independentFlow を通らない経路があります）`
-  const asking = r.status === 'needs_answers' || (from === '3a' && r === '3b')
+  const asking = r.status === 'needs_answers' || gatePassed !== null || (from === '3a' && r === '3b')
   const waiting = asking ? [] : pendingQuestions(state)
   if (waiting.length) return `回答待ちの問い ${list(waiting)} を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました`
   const failedHolds = Object.keys(holdFails).sort()
@@ -2258,7 +2283,7 @@ let outcome = null
 while (outcome === null) {
   // 段の境界で止めるので、next_args は次の段から始める（その段の token を決める前。段を出た run の台帳は戻さない）。
   if (budgetOut()) {
-    outcome = finish('blocked', { reason: `token の目標（budget.total）に達したので、段 ${next} を始めません。目標を上げて next_args で段 ${next} から続ける`, stop_reason: 'budget', next_args: nextArgs(next) })
+    outcome = finish('blocked', { reason: `token の目標（budget.total）に達したので、段 ${next} を始めません。目標を上げて段 ${next} から続ける（呼び直し方は SKILL.md「## 中継」）`, stop_reason: 'budget', next_args: nextArgs(next) })
     break
   }
   const resuming = RESUME_TX && running === null
@@ -2266,6 +2291,7 @@ while (outcome === null) {
   txTry = resuming ? RESUME_TX.try : 0
   state.tx = resuming ? { seq: RESUME_TX.seq, stage: next } : { seq: ((state.tx || {}).seq || 0) + 1, stage: next }
   running = next
+  gatePassed = null
   entryState = JSON.parse(JSON.stringify(state))
   let r
   try {

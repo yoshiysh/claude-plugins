@@ -17,6 +17,7 @@
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
 | `state` | `from` が `1` 以外のとき要る。前の run の `next_args` ごと渡す（§3） |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
+| `answered` | 任意。回答を書き終えたゲート（`g0`・`g0-2`・`g1`。`prd-spec.js` の `GATE_ANSWERS` のキー）の配列。resume で呼び直すときだけ、元の run の args に足す（使い分けは SKILL.md「## 中継」の「呼び直し」）。run はここにあるゲートで needs_answers を返さず、回答を当てる段へ進む。`GATE_ANSWERS` の外の値があれば agent を起動する前に止まる。agent のプロンプトには入れない（入れるとゲートより前の agent が保存された結果から外れる）。`next_args` には載らず、`state_hash` にも数えない |
 
 args は JSON の値（オブジェクト）で渡す。JSON を文字列にした args を受けると、run は agent を起動する前に止まる（呼び出し側の誤りを黙って救わない）。
 
@@ -61,7 +62,8 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   "stop_reason": "改稿と監査の輪を収束せずに出た blocked のとき `pass_limit`（MAX_AUDIT_PASSES に達した）か `no_progress`（進展なし）、token の目標（Workflow の budget.total）に達して agent を起動できずに止まった blocked のとき `budget`（next_args が付く。目標を上げてから渡す）。それ以外は null（値の集合は prd-spec.js の STOP_REASONS）",
   "passes": "改稿と監査のパスの数",
   "item_routes": { "requirements/auth#PR-AUTH-003": "再発で経路を変えた項目の今の経路（decision | hold | exhausted）" },
-  "reason": "blocked のときの理由"
+  "reason": "blocked のときの理由",
+  "resumable": "resumeFromRunId で呼び直して進むか。needs_answers は true、blocked は next_args があり、結果を返さずに終わった agent があるか stop_reason が budget のときだけ true（完了した agent は resume で保存された結果を返すので、それ以外の blocked は同じ所で同じ理由を返す）"
 }
 ```
 
@@ -70,15 +72,15 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   `skillDir`（plugin の更新で版のパスが変わる）と `role_opts`（レート制限などで役の配分を変える）だけである（`prd-spec.js` の `ENV_ARGS`）。
   `state_hash` はそれ以外の欄すべての hash で、合わなければ（打ち直しでどれかの値が変わった）run は agent を起動する前に止まる。
   最上位の欄の空の配列・オブジェクトは、欄が無いのと同じに扱う。`state` は plain JSON で、Map・Set を含まない（runtime の境界を越えると中身が失われる）。
-- **再実行は resume ではなく `from` で行う。** 状態は W のファイルと `state` にあり、prd-spec.js は段の境界ならどこからでも
-  始められる。どの段から始めるかは `next_args.from` が決める。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd-spec.js` の `REQUIRES`）。
-  resume に頼ると、止まった agent 以降が全部やり直しになり、Codex には resume が無い。
+- **呼び直しは resume か `next_args`**（使い分けは SKILL.md「## 中継」の「呼び直し」が正）。`next_args` の経路では、状態は W のファイルと
+  `state` にあり、prd-spec.js は段の境界ならどこからでも始められる。どの段から始めるかは `next_args.from` が決める。`from` ごとに要る `state` の値が無ければ run は最初に止まる（`prd-spec.js` の `REQUIRES`）。
+  resume（本家の Workflow の `resumeFromRunId`）はセッションを跨がないので、ゲートで回答を待つ間にセッションが閉じても `next_args` で続けられる。
 - **`blocked` の `next_args`**: agent の返り値が無かった（Workflow の `agent()` の null。利用者がその agent を止めたか、runtime が出し直した後も
   API エラーだった。script からはどちらか区別できないので、どちらでも出し直さない: 利用者の停止を覆し、API エラーは runtime が既に出し直している）とき、
   `agent()` が予算以外の例外で終わったとき（`reason` に例外の文が載る。改稿の輪を出た後の `resolver:final` だけは、返り値が無いときと同じく止め直さない）、
   返した doc_check の stdout が差し戻しの後も不合格だったときは、その段からの `next_args` が付く。返り値の無い agent は「指摘 0 件」にしない。
-  セッション上限なら解除してから渡す。token の目標（`budget.total`）に達したときは `stop_reason: budget` で止まり、段の途中ならその段から、段の境界なら
-  次の段からの `next_args` が付く（目標を上げてから渡す）。
+  セッション上限なら解除してから呼び直す（SKILL.md「## 中継」の「呼び直し」。以下も同じ）。token の目標（`budget.total`）に達したときは `stop_reason: budget` で止まり、段の途中ならその段から、段の境界なら
+  次の段からの `next_args` が付く（目標を上げてから呼び直す）。
   `next_args.state` はその段に入った時点の state（段 1 は空。下の段 1 の項）で、段の途中で足した値（候補の選択で当たった回答・形の検査に落ちた問い・
   integrity の行）を持ち越さない。ただし入口（`enterFromDisk`）で W の flow.json の版を採ったときは、その版と integrity の 1 行を段に入った時点の state に
   入れる（入れないと、再実行が古い版を運び、入口が同じ食い違いを数え直す。入口の検証の合否は入れない: restore が台帳ごと戻す）。持ち越すと、再実行が止まらなかった run と違う状態から始まる。W の台帳も、再実行の入口の
@@ -115,10 +117,11 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   控えは新しい run の t1 の書き込みを拒む。answers も消すのは、段 1・2 が回答を読まず、新しい run は RS- を振り直すので、残った回答の ID が
   別の問いを指すからである。段 1 への `next_args` は `state` を持たない（止まった run の state を運ぶと、戻した W と食い違う）。
 - **再実行は、戻す token と別の token で書く。** 再実行の書く token は `try` で変わり、戻す token（前の回の書く token）と一致しない。
-  そのため Workflow の resumeFromRunId の再生（W は書かれたまま残す）が入口の restore を実行し直しても、その run 自身の書き込みは戻らない:
-  戻す token の控えは、最初の restore が消したか、その run の最初の書き込みが消している。キャッシュが効くかどうかには依らない。
-  ただし段を出た後まで進んだ run の再生が入口の restore を実行し直すと、後の段の token があるので `pruned_by` で止まり、段 1 の入口の reset を
-  実行し直すと W を S0 の直後に戻す。どちらも resume に頼らない理由の 1 つである。
+  resume は元の run の args で呼び直すので、restore が入口のプロンプトに載るのは、元の run が `next_args` による同じ段の再実行だったときだけで、
+  その入口の flow-check は完了していれば保存された結果を返し、restore を実行しない。入口の flow-check が結果を返さずに終わっていて live で
+  走り直しても、その run 自身の書き込みは戻らない: 戻す token の控えは、最初の restore が消したか、その run の最初の書き込みが消している
+  （実物の doc_check は `tests/test_ledger.py` が押さえる）。一方、プロンプトが変わって入口の agent が live で走り直すと、段を出た後まで進んだ run では
+  restore が後の段の token の `pruned_by` で止まり、段 1 の入口の reset は W を S0 の直後に戻す。
 - **段 3 以降から始める run は、最初に W を読み直す**（`prd-spec.js` の `enterFromDisk`）。W の台帳は、同じ段の再実行では restore で
   `next_args.state` と同じ段の入口の版に戻り、needs_answers の再開では前の run が段を出たときのまま（answers だけが増える）なので、
   W を state に写し直すことはしない。違いうるのは所有表の外の書き込みだけで、flow-check（`<from>-entry`）の `doc_check flow --rulings` の
@@ -170,10 +173,10 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 依頼が 1 行だけ | intake が仕分け、足りない論点は未決として段 3 と G0 で聞く。推測で埋めない |
 | 小規模・低リスクな案件 | 規律は下げない。単位と文書が 1 つになるだけ |
 | 依頼者が分割に異を唱えた | 依頼者の言葉を依頼文に続けて `input.md` に逐語で書き、`entry: new` で S0 からやり直す（分割は intake の決定なので、それを入力にして決め直す。intake は `input.md` を読み、answers は段 1 の入口の reset が消す） |
-| agent が応答しない（返り値が null） | 出し直さない。その段を blocked にし、`reason` に「利用者が止めたか、runtime の出し直しの後も API エラーだった」と書いて `next_args` を付ける（§3） |
+| agent が応答しない（返り値が null） | 出し直さない。その段を blocked にし、`reason` に「利用者が止めたか、runtime の出し直しの後も API エラーだった」と書いて `next_args` を付ける（§3）。司令塔は SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す |
 | Workflow が例外で終わった（args の検査か script の欠陥）か、`reason` が「script の不変条件に反しました」の blocked（段の出口の検査。条件は `prd-spec.js` の `exitViolation` が正で、`reason` にどれを破ったかが載る） | 再実行しない（同じ args では同じ所で止まる）。例外の文か `reason` をそのまま伝える。args の検査なら、渡した args が返った `next_args`（§3 の環境の欄のほかは変えない）かを確かめる。それ以外は script の欠陥なので、prd-spec.js を直すまで run を続けない |
-| 出した agent が全件応答しない | セッション上限・レート制限を疑う。解除してから `next_args` を渡す |
-| token の目標（`budget.total`）に達した（`stop_reason: budget`） | 目標を上げてから `next_args` を渡す |
+| 出した agent が全件応答しない | セッション上限・レート制限を疑う。解除してから呼び直す（SKILL.md「## 中継」の「呼び直し」） |
+| token の目標（`budget.total`）に達した（`stop_reason: budget`） | 目標を上げてから呼び直す（SKILL.md「## 中継」の「呼び直し」） |
 | 監査の指摘は 0 件だが開いている TBD がある | 「完成しました」と言わない。「あと N 個決まれば着手できます」と伝える |
 | 保存の直前に tree digest が合わない | 保存しない。最後の監査の後に文書が変わっている |
 | INDEX だけが既存で本体が無い（またはその逆） | 齟齬として報告し、INDEX を本体から導出し直す |
