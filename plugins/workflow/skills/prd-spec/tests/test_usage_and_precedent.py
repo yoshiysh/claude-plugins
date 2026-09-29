@@ -89,6 +89,106 @@ class Usage(unittest.TestCase):
         self.assertEqual(s["findings"], {"r1": {"findings": 3, "blocking": 2, "items": 2}})
 
 
+def _split(i, read, c5, c1, out, total=None):
+    u = {"input_tokens": i, "cache_read_input_tokens": read, "cache_creation_input_tokens": c5 + c1 if total is None else total, "output_tokens": out}
+    if c5 is not None:
+        u["cache_creation"] = {"ephemeral_5m_input_tokens": c5, "ephemeral_1h_input_tokens": c1}
+    return u
+
+
+class UsageCache(unittest.TestCase):
+    """prompt cache の実測（R16）: agent・run ごとの行、cache_creation の 5 分・1 時間の内訳、最初のターン、請求の重み。
+
+    倍率はテスト用の合成の値（2・3・7）で、実際の料金表の値ではない（料金は試走の時点に司令塔が公式の表から渡す）。
+    """
+
+    W = (2.0, 3.0, 7.0)
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.ws = root / "W"
+        self.ws.mkdir()
+        ws = str(self.ws)
+        self.tr = root / "subagents"
+        runs = {"wf_run1": [("a1", "resolver:3", "2026-01-01T00:00:00Z", [_split(2, 0, 60000, 0, 5), _split(1, 60000, 500, 0, 7)])],
+                "wf_run2": [("b1", "resolver:3a", "2026-01-01T01:00:00Z", [_split(2, 40000, 20000, 100, 3)]),
+                            ("b2", "verifier:3av", "2026-01-01T01:00:05Z", [_split(2, 0, None, None, 4, total=900), _split(1, 900, 30, 20, 1, total=80)])]}
+        for run, agents in runs.items():
+            d = self.tr / "workflows" / run
+            d.mkdir(parents=True)
+            for aid, label, ts, turns in agents:
+                lines = [_line(ts, text=f"Read {ws}/input.md")] + [_line(ts, f"{aid}-m{i}", u) for i, u in enumerate(turns)]
+                (d / f"agent-{aid}.jsonl").write_text("\n".join(lines))
+                (d / f"agent-{aid}.meta.json").write_text(json.dumps({"description": label}))
+        (self.tr / "agent-solo.jsonl").write_text("\n".join([_line("2026-01-01T02:00:00Z", text=ws), _line("2026-01-01T02:00:01Z", "s1", _split(1, 0, 0, 10, 1))]))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _agent(self, s, label):
+        return next(r for r in s["per_agent"] if r["label"] == label)
+
+    def test_agent_ごとに_label_と_run_と_5分_1時間の内訳を出す(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)])
+        a = self._agent(s, "resolver:3")
+        self.assertEqual((a["run"], a["cache_creation"], a["cache_creation_5m"], a["cache_creation_1h"], a["cache_creation_unsplit"]), ("wf_run1", 60500, 60500, 0, 0))
+        solo = next(r for r in s["per_agent"] if r["file"] == "agent-solo.jsonl")
+        self.assertEqual((solo["label"], solo["run"], solo["cache_creation_1h"]), (None, None, 10), "meta も wf_ の親も無い transcript は null で数える")
+
+    def test_最初のターンを同じ欄で分ける(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)])
+        self.assertEqual(self._agent(s, "resolver:3")["first_turn"], {"input": 2, "cache_read": 0, "cache_creation": 60000, "cache_creation_5m": 60000, "cache_creation_1h": 0, "cache_creation_unsplit": 0, "output": 5})
+        self.assertEqual(self._agent(s, "resolver:3a")["first_turn"]["cache_read"], 40000)
+
+    def test_内訳が無いか足りない分は_unsplit_に出し_5分にも_1時間にも寄せない(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)])
+        v = self._agent(s, "verifier:3av")
+        self.assertEqual(v["first_turn"]["cache_creation_unsplit"], 900)
+        self.assertEqual((v["cache_creation"], v["cache_creation_5m"], v["cache_creation_1h"], v["cache_creation_unsplit"]), (980, 30, 20, 930))
+        t = s["total"]
+        self.assertEqual(t["cache_creation"], t["cache_creation_5m"] + t["cache_creation_1h"] + t["cache_creation_unsplit"])
+
+    def test_run_ごとの合計と最初の_agent(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)])
+        self.assertEqual([r["run"] for r in s["per_run"]], ["wf_run1", "wf_run2", None], "最初の行の時刻の順")
+        r2 = s["per_run"][1]
+        self.assertEqual((r2["agents"], r2["turns"], r2["cache_read"], r2["cache_creation_5m"], r2["cache_creation_1h"]), (2, 3, 40900, 20030, 120))
+        self.assertEqual((r2["first_agent"]["label"], r2["first_agent"]["first_turn"]["cache_creation_1h"]), ("resolver:3a", 100))
+        self.assertEqual(sum(r["cache_read"] for r in s["per_run"]), s["total"]["cache_read"])
+
+    def test_倍率を渡さなければ重みの欄を出さない(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)])
+        self.assertNotIn("weighted_input", s["total"])
+        self.assertNotIn("weights", s)
+        self.assertFalse([r for r in s["per_agent"] + s["per_run"] if "weighted_input" in r])
+
+    def test_倍率を渡すと通常の入力に換算し_unsplit_があれば_null(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)], self.W)
+        a = self._agent(s, "resolver:3")
+        self.assertEqual(a["weighted_input"], 3 + 60000 * 2.0 + 60500 * 3.0)
+        self.assertEqual(a["first_turn"]["weighted_input"], 2 + 60000 * 3.0)
+        self.assertEqual(self._agent(s, "resolver:3a")["weighted_input"], 2 + 40000 * 2.0 + 20000 * 3.0 + 100 * 7.0)
+        self.assertIsNone(self._agent(s, "verifier:3av")["weighted_input"])
+        self.assertIsNone(s["per_run"][1]["weighted_input"])
+        self.assertEqual(s["per_run"][1]["first_agent"]["first_turn"]["weighted_input"], 2 + 40000 * 2.0 + 20000 * 3.0 + 100 * 7.0)
+        self.assertIsNone(s["total"]["weighted_input"])
+
+    def test_CLI_は_run_と_agent_の行を出し倍率の形を検査する(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            usage.main(["--workspace", str(self.ws), str(self.tr)])
+        out = buf.getvalue()
+        self.assertIn("run wf_run2  agents 2", out)
+        self.assertIn("first_agent resolver:3a", out)
+        self.assertIn("agent wf_run1 resolver:3 ", out)
+        for bad in ("2,3", "a,b,c", "2,-1,3"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                usage.main(["--workspace", str(self.ws), "--weights", bad, str(self.tr)])
+
+
 class Precedent(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

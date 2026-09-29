@@ -69,7 +69,9 @@ python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
 
 ## 1 ランの費用と時間
 
-`python3 [SKILL_DIR]/scripts/usage.py --workspace <W> <transcript のディレクトリ>` が、agent ごとのターン数・
-入力（cache read と creation）・最初のターンの入力・壁時計、合計、agent が動いていた時間の和、周回ごとの
-指摘の件数を出す。何を 1 ランの agent として数えるか（空の transcript と、W を参照しない別案件の transcript を
+`python3 [SKILL_DIR]/scripts/usage.py --workspace <W> <transcript のディレクトリ>` が、agent ごとの label・run・ターン数・
+入力（cache read と creation。creation は 5 分と 1 時間の内訳に分ける）・最初のターンの同じ欄・壁時計、run（Workflow の
+呼び出し）ごとの合計と最初の agent、合計、agent が動いていた時間の和、周回ごとの指摘の件数を出す。請求の重みで見た値は
+`--weights` に倍率を渡したときだけ出す。倍率は試走の時点の公式の料金表（`claude-api` スキルの pricing）から取り、
+script にもこの文書にも書き写さない（料金の改定でずれる）。何を 1 ランの agent として数えるか（空の transcript と、W を参照しない別案件の transcript を
 除く）は script が持つ。数え方を呼ぶ人に任せると、同じランが別の体数で報告され、ラン同士を比べられない。
