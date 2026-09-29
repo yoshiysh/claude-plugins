@@ -155,6 +155,26 @@ class CompactOutput(unittest.TestCase):
             self.assertEqual(set(g), {"c", "d", "a"})
             self.assertIsInstance(g["a"], list)
 
+    def test_指摘が数百件の入力でも_50KB_を十分下回る(self):
+        # トレーサビリティ表も trace も申告されていない最悪の形（ORPHAN が数百件出る）で測る。
+        # 短い形にしないと、この入力で約 490KB になる。
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = []
+            for kind, prefix in (("requirements", "PR"), ("specifications", "SP")):
+                for topic in ("alpha", "beta", "gamma", "delta"):
+                    tag = topic.upper()
+                    ids = [f"{prefix}-{tag}-{n:03d}" for n in range(1, 121)]
+                    p = Path(tmp) / f"{kind}-{topic}.md"
+                    p.write_text(f"# {kind} {topic}\n\n" + "".join(f"- {i}: {topic} の項目 {i} を満たす。\n" for i in ids))
+                    docs.append({"key": f"{kind}/{topic}", "kind": kind, "topic": topic, "path": str(p), "fixed": False,
+                                 "ids": ids, "referenced": [], "vacant": [], "tbd_items": [], "traceability": []})
+            r = _run_cli({"documents": docs})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertLess(len(r.stdout.encode()), 50_000)
+        # 短くしても指摘は 1 件も落ちない（展開すると全件の文面が戻る）
+        expanded = _expand(json.loads(r.stdout)["structural"])
+        self.assertGreater(len(expanded["findings"]), 500)
+
     def test_ids_in_text_は求めたときだけ(self):
         out = json.loads(_run_cli(_fixture_input()).stdout)
         self.assertTrue(all("ids_in_text" not in d for d in out["documents"]))

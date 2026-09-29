@@ -2665,6 +2665,8 @@ function workspaceExtraCompact(docs, openTbd) {
   return out
 }
 
+const decisionRefs = (source) => (Array.isArray(source) ? source : source ? [source] : []).map((s) => s && typeof s === 'object' && String(s.decision ?? '').trim()).filter(Boolean)
+
 const constraintsOf = (el) => [...new Set((Array.isArray(el.constrained_by) ? el.constrained_by : []).map((x) => String(x).trim()).filter(Boolean))]
 
 const EFFECT = LEDGERS.flow.enums.elements.effect
@@ -2952,7 +2954,6 @@ function wsFlow(ws, opts) {
   ])
   // supersedes で覆された決定を引く要素。出典の実在だけを見る FLOW_SOURCE_UNKNOWN では、覆された ID も実在するので出ない。
   const superseded = supersededIds(readLedger(ws, 'resolutions'))
-  const decisionRefs = (source) => (Array.isArray(source) ? source : source ? [source] : []).map((s) => s && typeof s === 'object' && String(s.decision ?? '').trim()).filter(Boolean)
   const staleRefs = els.flatMap((el) => {
     const cases = el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []
     const refs = new Set([...decisionRefs(el.source), ...decisionRefs(el.on_fail && el.on_fail.source), ...cases.flatMap((c) => decisionRefs(c && c.source)), ...constraintsOf(el)])
@@ -2999,11 +3000,23 @@ function conflictPairs(decisions, flow, open) {
   }
   const paired = new Set(pairs.map((p) => `${p.a}|${p.b}`))
   const openIds = invariantOpenIds(open)
+  const selfSourced = []
   for (const el of els) {
-    for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`) && !openIds.has(r))) pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
+    const cited = sourcedDecisions(el)
+    for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`) && !openIds.has(r))) {
+      // 要素が出典にした裁定との組は裁定をやり直すだけになる。D- は除かない: 不変条件 × 破壊的な工程の組が初稿の前に論点を出す。
+      if (ledgerOf('resolutions').keyShape.test(ref) && cited.has(ref)) selfSourced.push({ a: ref, b: String(el.id) })
+      else pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
+    }
   }
   pairs.sort((x, y) => x.kind.localeCompare(y.kind) || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
-  return { ds, pairs }
+  selfSourced.sort((x, y) => x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
+  return { ds, pairs, selfSourced }
+}
+
+const sourcedDecisions = (el) => {
+  const cases = el.type === 'decision' && Array.isArray(el.cases) ? el.cases : []
+  return new Set([...decisionRefs(el.source), ...cases.flatMap((c) => decisionRefs(c && c.source))])
 }
 
 const pairKeysOf = (pairs) => pairs.map((p) => `pair:${[p.a, p.b].map(String).sort().join('|')}`)
@@ -3013,9 +3026,9 @@ function wsConflicts(ws) {
   const decisions = readLedger(ws, 'decisions')
   if (decisions === null) throw new Error(`${ledgerOf('decisions').file()} がありません`)
   const flow = readLedger(ws, 'flow')
-  const { ds, pairs } = conflictPairs(decisions, flow, readLedger(ws, 'open'))
+  const { ds, pairs, selfSourced } = conflictPairs(decisions, flow, readLedger(ws, 'open'))
   const untargeted = ds.filter((x) => !x.targets.length).map((x) => x.id).sort()
-  const body = { pairs, untargeted, flow_checked: flow !== null }
+  const body = { pairs, untargeted, self_sourced: selfSourced, flow_checked: flow !== null }
   const digest = digestOf(body)
   return {
     pairs: pairs.length,
@@ -3023,6 +3036,7 @@ function wsConflicts(ws) {
     flow_pairs: pairs.filter((p) => p.kind === 'decision-flow').length,
     constraint_pairs: pairs.filter((p) => p.kind === 'constrained-by').length,
     untargeted: untargeted.length,
+    self_sourced: selfSourced.length,
     flow_checked: flow !== null,
     path: writeCheck(ws, 'conflicts.json', { ...body, digest }),
     digest,

@@ -301,6 +301,27 @@ class MarketplaceSafetyTests(unittest.TestCase):
                 (skill / "notes.md").write_text("[x](./missing.md)\n")
                 self.assertEqual([f["file"] for f in check("demo")["findings"]], ["notes.md"], "commit 前の配布候補は検査する")
 
+    def test_reference_check_outside_git_stops_with_one_error_line(self):
+        main = REFERENCES["main"]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            skill = root / ".agents" / "skills" / "demo"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: demo\ndescription: Demo\n---\n")
+            (root / "plugins").mkdir()
+            stderr = io.StringIO()
+            with patch.dict(main.__globals__, SKILLS_DIR=root / ".agents" / "skills",
+                            PLUGINS_DIR=root / "plugins", PROJECT_ROOT=root), \
+                    patch.dict("os.environ", GIT_CEILING_DIRECTORIES=str(root.parent)), \
+                    patch.object(sys, "argv", ["check_references.py", "--skill", "demo"]), \
+                    contextlib.redirect_stderr(stderr):
+                with self.assertRaises(SystemExit) as raised:
+                    main()
+            self.assertEqual(raised.exception.code, 5)
+            lines = stderr.getvalue().splitlines()
+            self.assertEqual(len(lines), 1, stderr.getvalue())
+            self.assertTrue(lines[0].startswith("ERROR: "), lines[0])
+
     def test_reference_owner_scan_rejects_plugin_and_skills_root_symlinks(self):
         owning = REFERENCES["owning_plugin_skills_dir"]
         with tempfile.TemporaryDirectory() as temp:

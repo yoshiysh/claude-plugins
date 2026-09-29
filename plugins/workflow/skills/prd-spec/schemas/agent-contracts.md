@@ -338,7 +338,9 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   誰に差し戻しても消えるとは限らないので、差し戻さずに段を止める（同じ段をやり直しても表は変わらないので、やり直しの引数も付けない）。
 - 全枝が同じ行き先の `decision` は、下流（行き先から辿れる範囲）のどれかの `decision` が `inputs[].from` にそれを挙げていなければ
   欠陥（`ST-FLOW-SAME-NEXT-`）である。値で何も変わらない判断は、多入力の分類を 2 値のラベルに潰したまま閉包の検査を通る。
-- doc_check `conflicts` は target の一致に加えて `constrained_by` の決定との組も列挙する（O- は決定ではないので組にしない）。put は
+- doc_check `conflicts` は target の一致に加えて `constrained_by` の決定との組も列挙する（O- は決定ではないので組にしない。
+  要素が `source`（`decision` の要素は各 case の `source` も）にも挙げた RS- は、自分の出典の裁定をやり直すだけなので組にせず、
+  件数を `self_sourced` に出す。D- は両方に挙げても組にする: 不変条件 × 破壊的な工程の組が初稿の前に論点を出す）。put は
   実在しない ID と `kind` が `invariant` でない O- を拒否し、`flow` は後で消えた ID を指摘する。
 
 ## §flow-framer

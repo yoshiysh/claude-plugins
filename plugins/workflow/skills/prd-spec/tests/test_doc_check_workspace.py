@@ -325,6 +325,30 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual((out["pairs"], out["flow_pairs"], out["constraint_pairs"]), (4, 1, 2), "target でも組になる D-001|F-002 は重ねない")
         self.assertEqual(len(out["pair_keys"]), len(set(out["pair_keys"])))
         self.assertLessEqual({"pair:D-003|F-003", "pair:F-003|RS-001"}, set(out["pair_keys"]))
+        self.assertEqual(out["self_sourced"], 0)
+
+    def test_出典にもconstrained_byにも挙げたRSとは組にしない(self):
+        # run4 の F-045|RS-055: settle が同じ裁定を出典と縛りの両方に入れ、resolver が「矛盾しない」と返すだけの組になった形。
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001"}, {"id": "RS-002"}]})
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "source": [{"decision": "D-001"}, {"decision": "RS-001"}], "constrained_by": ["RS-001"]}]})
+        out = _ok(self.ws, "conflicts")
+        self.assertNotIn("pair:F-002|RS-001", out["pair_keys"])
+        self.assertEqual(out["self_sourced"], 1)
+        self.assertEqual(json.loads((self.ws / "checks" / "conflicts.json").read_text())["self_sourced"], [{"a": "RS-001", "b": "F-002"}])
+        self.assertEqual(_ok(self.ws, "flow")["pair_keys"], out["pair_keys"], "flow の stdout の組も同じ")
+        el = json.loads((self.ws / "flow.json").read_text())["elements"][3]
+        cases = [{**el["cases"][0], "source": {"decision": "RS-002"}}, *el["cases"][1:]]
+        _put(self.ws, "flow", {"elements": [{"id": "F-004", "cases": cases, "constrained_by": ["RS-002"]}]})
+        out = _ok(self.ws, "conflicts")
+        self.assertNotIn("pair:F-004|RS-002", out["pair_keys"], "decision の要素は case の出典も見る")
+        self.assertEqual(out["self_sourced"], 2)
+
+    def test_constrained_byだけに挙げたRSとは組にする(self):
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001"}]})
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["RS-001"]}]})
+        out = _ok(self.ws, "conflicts")
+        self.assertIn("pair:F-002|RS-001", out["pair_keys"])
+        self.assertEqual(out["self_sourced"], 0)
 
     def _invariant(self, id_="D-004"):
         with (self.ws / "input.md").open("a") as f:
@@ -354,6 +378,15 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "constrained_by": ["D-004"]}]})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
         self.assertIn("pair:D-004|F-002", _ok(self.ws, "conflicts")["pair_keys"])
+
+    def test_破壊的な工程が出典にもconstrained_byにも挙げた不変条件とは組にする(self):
+        # R5: 不変条件 × 破壊的な工程の組が初稿の前に論点を出す。自分の出典の RS- を除く扱いを D- に広げるとこれが消える。
+        self._invariant()
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": "destructive", "source": {"decision": "D-004"}, "constrained_by": ["D-004"]}]})
+        self.assertEqual(_ok(self.ws, "flow")["findings"], 0)
+        out = _ok(self.ws, "conflicts")
+        self.assertIn("pair:D-004|F-002", out["pair_keys"])
+        self.assertEqual(out["self_sourced"], 0)
 
     def test_constrained_byの実在しない決定はputが拒否し_後で消えた決定はflowの指摘になる(self):
         before = (self.ws / "flow.json").read_bytes()
