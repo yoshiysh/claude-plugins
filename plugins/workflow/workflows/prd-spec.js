@@ -217,7 +217,8 @@ function failedOpen(fc, state, asking) {
 }
 
 // unjudged: 今の版に合否の無い要素と resolution。書き換えていない不合格の要素は渡すと同じ理由で落ちるので数えない（直すのは settle）。
-const unjudged = (fc) => ({ elements: minus(fc.unverified, fc.failed_current), resolutions: uniq(fc.resolutions.filter((x) => !x.verdict).map((x) => x.id)) })
+const unjudgedElements = (fc) => minus(fc.unverified, fc.failed_current)
+const unjudged = (fc) => ({ elements: unjudgedElements(fc), resolutions: uniq(fc.resolutions.filter((x) => !x.verdict).map((x) => x.id)) })
 
 // unconverted: 検証に落ちたまま question にも hold にもなっていない裁定。根拠にも保持規則にもならないまま台帳に残る。
 const UNDECIDED = ['question', 'hold']
@@ -575,6 +576,11 @@ const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段から�
 // 達して agent を起動できなくなったとき。
 const STOP_REASONS = ['pass_limit', 'no_progress', 'budget']
 
+// SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
+// W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
+const SKIP_FACTS = ['unchanged']
+const skipped = []
+
 // schemaDefects・callDefect: script が作る schema と opts の誤り（script の欠陥）を agent() の前に見分ける。見分けないと runtime が
 // その呼び出しを例外にし、再実行できる blocked に化けて、同じ所で同じ理由の失敗を繰り返す（references/workflow-io.md §5）。
 // 受ける keyword は今の schema が使うものだけにする（runtime が受けるかを確かめた集合ではない）。
@@ -849,6 +855,7 @@ function finish(status, extra) {
     stop_reason: null,
     passes: state.pass || 0,
     item_routes: state.item_routes || {},
+    skipped,
     ...extra,
   }
   const retry = Boolean(out.next_args) && (failedCalls > 0 || out.stop_reason === 'budget')
@@ -1174,7 +1181,8 @@ async function askVerifier(label, stage, given, extra, phaseTitle) {
 
 // 変換した分はもう検証しない（検証のループを増やすと、差し戻しの上限が意味を失う）。
 // resolver が doc_check flow の stdout を返したら、検証する ID が無くても verifier を起動する。flow の閉包は、生成者の
-// stdout と別の agent の stdout の照合でしか script から確かめられない。
+// stdout と別の agent の stdout の照合でしか script から確かめられない。例外は unchanged のときだけで、そのときは
+// settle の independentFlow の flow-check が別の agent の stdout を取る。
 async function resolveCycle(stage, opt) {
   const before = usableResolutions(state)
   const res = await ruleAndVerify(stage, opt)
@@ -1185,6 +1193,14 @@ async function resolveCycle(stage, opt) {
   if (se) return se
   return res
 }
+
+// unchanged: 回答を当てた resolver が、検証する resolution も flow の変更も持ち込まず、今の版に合否の無い要素も無い（依頼者の「変えたものの
+// 再検証は AI の判断で飛ばさない」に触れないよう、変えたものが無いという事実だけで決める）。flow が段の入口の版のままなら、その版は前の段の出口
+// （exitViolation の seen）か入口の enterFromDisk で別の agent が照合している。changed を見るのは、flow を変えた cycle の ruleUnruled が残す
+// claimedIssues を、この cycle の verifier 以外に照合させないためでもある。生成者の自己申告で外すが、settle の independentFlow が flow-check に
+// 数え直させ、verifyLeft が残りを検証させる。
+const unchanged = (fe, ids, opt) =>
+  Boolean(fe && fe.fc) && !fe.changed && !ids.length && !carry.length && !opt.verifyExtra && !opt.flowChanged && !unjudgedElements(fe.fc).length
 
 const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFlow ? applyReturnedFlow(stage, r, phaseTitle, required) : flowKept(stage, r) || { checked: false })
 
@@ -1197,6 +1213,8 @@ async function ruleAndVerify(stage, opt) {
   const wasQuestion = new Set(pendingQuestions(state))
   let ids = []
   let flowChecked = Boolean(opt.flowChanged)
+  let returned = null
+  let byOption = []
   if (opt.task) {
     const label = `resolver:${stage}`
     const r = await once(label, 'resolver', resolverPrompt(label, stage, asTask(opt.task)), RESOLVER_SCHEMA, phaseTitle)
@@ -1205,13 +1223,14 @@ async function ruleAndVerify(stage, opt) {
     const fe = await takeFlow(stage, r, phaseTitle, writesFlow, Boolean(opt.requireFlow))
     if (fe.error) return fe
     flowChecked = flowChecked || fe.checked
+    returned = fe
     const qe = await checkQuestions(stage, stage, r, phaseTitle, opt.recheck)
     if (qe) return qe
     if (opt.answered) {
       const free = new Set(r.free_text || [])
       // 検証に落ちて問いに変えた裁定は、候補が検証を通っていないので、候補の選択でも verifier に回す。
       const failed = new Set(state.failed_ids || [])
-      const byOption = (r.ruled || []).map((x) => x.id).filter((id) => opt.answered.includes(id) && !free.has(id) && !failed.has(id))
+      byOption = (r.ruled || []).map((x) => x.id).filter((id) => opt.answered.includes(id) && !free.has(id) && !failed.has(id))
       state.answered = uniq([...(state.answered || []), ...byOption])
       ids = minus(ids, byOption)
     }
@@ -1223,6 +1242,10 @@ async function ruleAndVerify(stage, opt) {
   }
   if (!ids.length && !carry.length && !opt.verifyExtra && !flowChecked) return { ok: true, passed: [] }
   const v1Label = `verifier:${stage}v`
+  if (unchanged(returned, ids, opt)) {
+    skipped.push({ step: v1Label, fact: 'unchanged', ids: byOption })
+    return { ok: true, passed: [] }
+  }
   const v1 = await askVerifier(v1Label, `${stage}v`, ids, opt.verifyExtra || '', phaseTitle)
   const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter())
   if (ve1) return ve1

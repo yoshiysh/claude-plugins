@@ -126,6 +126,14 @@ class TestExtract(unittest.TestCase):
             record(td, "s", "none", DONE)
             self.assertIsNone(json.loads((Path(td) / "s" / "none.json").read_text())["notices_count"])
 
+    def test_起動しなかったagentの件数はlegごとに足す(self):
+        with tempfile.TemporaryDirectory() as td:
+            skip = {"step": "verifier:3av", "fact": "unchanged", "ids": ["RS-001"]}
+            record(td, "s", "leg1", {**NEEDS_ANSWERS, "result": {**NEEDS_ANSWERS["result"], "skipped": [skip]}}, run_id="run1", input_ref="in1")
+            record(td, "s", "leg2", {**DONE, "result": {**DONE["result"], "skipped": [skip, {**skip, "step": "verifier:3a'v"}]}}, run_id="run1", input_ref="in1")
+            tail = [l for l in run(["summary", "--skill", "s"], td).stdout.splitlines() if l.startswith("-- run1")][0]
+            self.assertIn("skipped=3", tail)
+
     def test_noticesは終端legの値だけを採る(self):
         with tempfile.TemporaryDirectory() as td:
             record(td, "s", "leg1", {**NEEDS_ANSWERS, "result": {**NEEDS_ANSWERS["result"], "notices": ["a"]}}, run_id="run1", input_ref="in1")
@@ -210,7 +218,7 @@ class TestSummary(unittest.TestCase):
             self.assertIn("holds=2", tail)
             self.assertIn("remaining_blocking=2", tail)
             self.assertIn("notices=None", tail)  # notices・hold_drafts・収束の欄が無かった版の実測なので欠測のまま残る
-            absent = ("notices=None", "hold_drafts=None", "carried_blocking=None", "stop_reason=None", "passes=None", "rerouted=None")
+            absent = ("notices=None", "hold_drafts=None", "carried_blocking=None", "stop_reason=None", "passes=None", "rerouted=None", "skipped=None")
             for field in absent:
                 tail = tail.replace(field, "")
             self.assertNotIn("None", tail)

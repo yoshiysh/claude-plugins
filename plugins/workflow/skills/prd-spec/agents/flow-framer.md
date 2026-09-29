@@ -28,7 +28,7 @@ description: 依頼と決定から対象の工程の流れ（入力・工程・�
 - **決定の `targets` と同じものを指す要素は、その名前をそのまま `label` にする。** doc_check の `conflicts` は
   target と要素の id・label の一致で決定と要素の組を作るので、言い換えると組が見つからず、矛盾が初稿まで残る。
 - **要素を縛る決定があれば、`constrained_by` に挙げる。** decisions.json・resolutions.json の ID から
-  選び、新しい文は書かない。工程の `effect` と、`destructive` の工程が挙げる不変条件（台帳に無ければ足す未決）は契約「## flow.json の形」の必須欄である。`conflicts` はこれも組にする。名前の違う決定と要素（不可逆な操作の禁止と reset の工程）は target の
+  選び、新しい文は書かない。工程の `effect` と、`destructive` の工程が挙げる不変条件（台帳に無ければ足す未決）は契約「## flow.json の形」の必須欄である。`conflicts` が `constrained_by` からどの組を作り、どれを組にしないかは同じ節の `conflicts` の項を正とする。名前の違う決定と要素（不可逆な操作の禁止と reset の工程）は target の
   一致では組にならず、矛盾が初稿の後まで見つからない。
 
 ## 出典を付ける

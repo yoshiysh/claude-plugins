@@ -72,13 +72,14 @@ def extract(result: dict, meta: dict) -> dict:
         "stop_reason": result.get("stop_reason"),
         "pass_count": result.get("passes"),
         "rerouted_count": _count(result.get("item_routes")),
+        "skipped_count": _count(result.get("skipped")),
         "agent_count": meta.get("agentCount"),
         "total_tokens": meta.get("totalTokens"),
         "total_tool_calls": meta.get("totalToolCalls"),
     }
 
 
-SUM_FIELDS = ("agent_count", "total_tokens", "total_tool_calls", "question_count")
+SUM_FIELDS = ("agent_count", "total_tokens", "total_tool_calls", "question_count", "skipped_count")
 TERMINAL_FIELDS = ("status", "holds_count", "hold_drafts_count", "open_tbd_count", "missed_count",
                     "integrity_count", "notices_count", "undeclared_count", "remaining_blocking_count",
                     "carried_blocking_count", "stop_reason", "pass_count", "rerouted_count")
@@ -87,7 +88,7 @@ TERMINAL_FIELDS = ("status", "holds_count", "hold_drafts_count", "open_tbd_count
 def aggregate_run(legs: list) -> dict:
     """1 run 分の leg レコードから run 単位の値を作る。
 
-    agent 数・token・tool call・問いの件数は leg ごとの値の合算（leg は独立した
+    agent 数・token・tool call・問いの件数・起動しなかった agent（skipped）の件数は leg ごとの値の合算（leg は独立した
     Workflow 実行）。holds・hold_drafts・open_tbd・missed・integrity・notices・undeclared・remaining_blocking・carried_blocking は
     prd-spec.js の `state` が run を通じて積み上がるものなので、終端 leg（`next_args` が
     null、すなわち done か再開不能な blocked）の値だけを採る（合算すると二重に数える）。
@@ -182,7 +183,7 @@ def cmd_summary(args) -> int:
             f"q={agg['question_count']} holds={agg['holds_count']} hold_drafts={agg['hold_drafts_count']} open_tbd={agg['open_tbd_count']} "
             f"missed={agg['missed_count']} integrity={agg['integrity_count']} notices={agg['notices_count']} "
             f"undeclared={agg['undeclared_count']} remaining_blocking={agg['remaining_blocking_count']} carried_blocking={agg['carried_blocking_count']} "
-            f"stop_reason={agg['stop_reason']} passes={agg['pass_count']} rerouted={agg['rerouted_count']}"
+            f"stop_reason={agg['stop_reason']} passes={agg['pass_count']} rerouted={agg['rerouted_count']} skipped={agg['skipped_count']}"
         )
     print(f"-- runs={len(runs)} done 到達 {done}/{len(runs)}")
     return 0

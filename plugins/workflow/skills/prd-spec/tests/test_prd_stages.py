@@ -301,7 +301,9 @@ function respond(prompt, label) {
       if (at('flow_sha_at', stage) !== undefined) setFlow(H(at('flow_sha_at', stage)))
       // resolver_rulings_at: --rulings を付けて doc_check flow を実行した resolver（stdout に resolutions が載る）。
       const withRulings = (spec.resolver_rulings_at || []).includes(stage)
-      out.flow_check = keepsFlow && !explicitAt(stage) ? latestStdout(flowSha, withRulings) : flowStdout(at('flow_findings_at', stage) || 0, flowSha, stage, false, false, withRulings)
+      // resolver_claims_sha_at: flow.json を書いたのに、stdout の content_sha256 に別の版（書く前の版など）を載せた resolver。
+      const claimed = at('resolver_claims_sha_at', stage) !== undefined ? H(at('resolver_claims_sha_at', stage)) : flowSha
+      out.flow_check = keepsFlow && !explicitAt(stage) ? latestStdout(claimed, withRulings) : flowStdout(at('flow_findings_at', stage) || 0, claimed, stage, false, false, withRulings)
       if (!keepsFlow && !(spec.no_conflicts_check_at || []).includes(stage)) out.conflicts_check = conflictsStdout(stage)
     }
     return out
@@ -638,7 +640,8 @@ class Stages(unittest.TestCase):
         self.assertEqual(r2["result"]["status"], "done")
         self.assertEqual(r2["labels"][:3], ["flow-check:3a-entry", "flow-check:g0-answers", "resolver:3a"], "段 3 以降から始める run は、最初に W を読み直し、回答を当てる前に回答のファイルを確かめる")
         self.assertFalse(has(r2["labels"], "intake"))
-        self.assertIn("verifier:3av", r2["labels"], "回答を flow に当てた段では、候補の選択だけでも verifier が flow を照合する")
+        self.assertNotIn("verifier:3av", r2["labels"], "候補の選択だけで flow も変わらなければ verifier を起動しない")
+        self.assertIn("flow-check:3a", r2["labels"], "代わりに settle の flow-check が別の agent の stdout を取る")
 
     def test_自由記述の回答はverifierに通す(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
@@ -1365,7 +1368,7 @@ class FlowDigest(unittest.TestCase):
         spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"], **{f"{t}-opens": [f"RS-{10 + i}"] for i, t in enumerate(tags)}},
                 "about": {f"RS-{10 + i}": {"open": o} for i, o in enumerate(opens)},
                 "open_ids_at": {t: opens[: i + 1] for i, t in enumerate(tags)},
-                "flow_codes_at": {"3av": at(0), **{t.replace("3a-settle", "3av-settle"): at(i) for i, t in enumerate(tags)}}}
+                "flow_codes_at": {"3a": at(0), **{t.replace("3a-settle", "3av-settle"): at(i) for i, t in enumerate(tags)}}}
         r = run(spec)
         self.assertEqual([l for l in r["labels"] if l.startswith("flow-framer:3a-settle")], [f"flow-framer:{t}" for t in tags])
         res = r["result"]
@@ -1373,11 +1376,65 @@ class FlowDigest(unittest.TestCase):
         self.assertIn("裁定の反映の後も直っていません", res["reason"])
         self.assertEqual(res["integrity"], [])
 
-    def test_3aでは候補の選択だけでもverifierが起動する(self):
+    def test_3aで候補の選択だけでflowも変わらなければverifierを起動せずflow_checkが照合する(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}})
-        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:"))], ["resolver:3a", "verifier:3av", "verifier:3bv"])
-        self.assertEqual(r["result"]["status"], "done")
+        self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:"))], ["resolver:3a", "verifier:3bv"])
+        self.assertEqual(r["labels"][r["labels"].index("resolver:3a") + 1], "flow-check:3a", "resolver の stdout を別の agent が数え直す")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["result"]["skipped"], [{"step": "verifier:3av", "fact": "unchanged", "ids": ["RS-001"]}])
+
+    def test_3a_dashでも候補の選択だけでflowも変わらなければverifierを起動しない(self):
+        g1 = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
+        self.assertEqual(g1["next_args"]["from"], "3a'")
+        r = run({"args": g1["next_args"], "ruled_at": {"3a'": ["RS-010"]}})
+        self.assertNotIn("verifier:3a'v", r["labels"])
+        self.assertEqual(r["labels"][r["labels"].index("resolver:3a'") + 1], "flow-check:3a'")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["result"]["skipped"], [{"step": "verifier:3a'v", "fact": "unchanged", "ids": ["RS-010"]}])
+
+    def test_verifierを外した後も返らなかった裁定は同じ段で検証する(self):
+        # 外す条件は resolver の stdout の要素しか見ない（resolutions は --rulings の stdout にしか無い）。返さずに書いた裁定は、settle の
+        # flow-check が W から受け取り、verifyLeft の verifier が検証する。
+        with tempfile.TemporaryDirectory() as tmp:
+            world = str(Path(tmp) / "world.json")
+            g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "world": world})["result"]
+            r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "orphans_at": {"3a": ["RS-077"]}, "about": {"RS-077": {"open": "O-077"}}, "world": world})
+            labels = r["labels"]
+            self.assertNotIn("verifier:3av", labels)
+            self.assertEqual(labels[labels.index("resolver:3a") + 1:][:2], ["flow-check:3a", "verifier:3av-left"])
+            res = r["result"]
+            self.assertEqual(res["status"], "done", res.get("reason"))
+            self.assertEqual(res["skipped"], [{"step": "verifier:3av", "fact": "unchanged", "ids": ["RS-001"]}])
+            self.assertIn("RS-077", res["holds"] + res["hold_drafts"])
+            left = on_disk(world)
+            self.assertEqual((left["unverified"], left["no_verdict"]), ([], []))
+
+    def test_変えたものがあれば回答を当てた段のverifierを起動する(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        now = g0["next_args"]["state"]["flow_digest"]
+        cases = (
+            ("resolver が flow を変えた", {"flow_sha_at": {"3a": "f-3a"}}),
+            ("flow の版は同じだが今の版に合否の無い要素がある", {"flow_sha_at": {"3a": now}, "unverified_at": {"3a": ["F-061"]}}),
+            ("自由記述の回答（検証する resolution がある）", {"free_text_at": {"3a": ["RS-001"]}}),
+        )
+        for name, kw in cases:
+            with self.subTest(name):
+                r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, **kw})
+                self.assertIn("verifier:3av", r["labels"])
+                self.assertEqual((r["result"]["status"], r["result"]["skipped"]), ("done", []), r["result"].get("reason"))
+
+    def test_変えていないと申告したresolverがflowを変えていればflow_checkが止める(self):
+        # verifier を外した後の照合は settle の flow-check が持つ。v1 が照合した頃（同じ段からやり直せる blocked）と違い、flow を書く役の
+        # 後の照合ではないので、所有表の外の書き込みとしてやり直しの引数を付けない。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        now = g0["next_args"]["state"]["flow_digest"]
+        r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "resolver_claims_sha_at": {"3a": now}})
+        self.assertNotIn("verifier:3av", r["labels"])
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertEqual(len(res["integrity"]), 1, res["integrity"])
+        self.assertIn("flow-check（段 3a）", res["integrity"][0])
 
     def test_3aでflowを変えたresolverのsha256をverifierと照合する(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
@@ -1646,7 +1703,8 @@ class RerunFromTheSameStage(unittest.TestCase):
         g1 = {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}}
         opens = {**g1, "about": {"RS-060": {"open": "O-060"}, "RS-010": {"finding": "r1-cd-all-001"}}, "ruled_at": {"6": ["RS-010"]},
                  "flow_codes_at": {"6": D, "6v": D}, "open_ids_at": {"6-settle": ["O-060"]}, "unverified_at": {"6-settle": ["F-053"]}}
-        only = lambda st: {"about": {"RS-010": {"open": "O-010"}}, "open_only_at": {f"{st}v": [{"el": "F-004", "open": "O-010"}]},
+        # 回答を当てる段では resolver が flow の stdout を返し、候補の選択だけなら verifier は起動しないので、世界はその stdout に置く。
+        only = lambda st: {"about": {"RS-010": {"open": "O-010"}}, "open_only_at": {st if st == "3a'" else f"{st}v": [{"el": "F-004", "open": "O-010"}]},
                            "unverified_at": {f"{st}-settle": ["F-004"], f"{st}-settle-rework": ["F-004"]}}
         no_cc = lambda st: {"no_conflicts_check_at": [f"{st}-settle", f"{st}-settle-rework"]}
         stale = [{"el": "F-002", "ref": "D-001"}]
@@ -2345,7 +2403,8 @@ class FlowRecheck(unittest.TestCase):
     def test_flowが変わらなければ組を検査し直さない(self):
         r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "pair_keys_at": {"3a": ["pair:D-001|F-099"]}})
         self.assertNotIn("resolver:3a-pairs", r["labels"])
-        self.assertNotIn("F-099", self._prompt(r, "verifier:3av"))
+        self.assertNotIn("verifier:3av", r["labels"])
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
 
     def test_同じ呼び出しで裁定中の組は渡し直さない(self):
         # RS-005 はまだ verifier を通っていない（closedKeys に無い）が、about には入っている。
@@ -2372,10 +2431,10 @@ class FlowRecheck(unittest.TestCase):
     def test_同じcycleで閉じたOだけを出典に持つ要素はsettleで直す(self):
         g0 = self._g0()
         only = [{"el": "F-091", "open": "O-RS-001"}, {"el": "F-092", "open": "O-RS-009"}]
-        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": only}, "unverified_at": {"3a-settle": ["F-091"]}}
+        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": only}, "unverified_at": {"3a-settle": ["F-091"]}}
         r = run(spec)
         self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer"))],
-                         ["resolver:3a", "verifier:3av", "flow-framer:3a-settle", "verifier:3av-settle", "flow-framer:3b-reframe", "verifier:3bv"])
+                         ["resolver:3a", "flow-framer:3a-settle", "verifier:3av-settle", "flow-framer:3b-reframe", "verifier:3bv"])
         framer = self._prompt(r, "flow-framer:3a-settle")
         self.assertIn("F-091（O-RS-001 ← RS-001）", framer)
         self.assertNotIn("F-092", framer, "開いたままの O- の要素は直させない")
@@ -2387,9 +2446,9 @@ class FlowRecheck(unittest.TestCase):
 
         # 2 回目の settle でも同じ件数が残る（減らない）ので止まる。
         fail = [{"id": "F-091", "kind": "mapping", "reason": "r"}]
-        for left in ({"open_only_at": {"3av": only, "3av-settle": only[:1], "3av-settle-2": only[:1]}},
-                     {"unput_at": {"3av-settle": ["F-091"], "3av-settle-2": ["F-091"]}, "open_only_at": {"3av": only}},
-                     {"verifier_fail": {"3av-settle": fail, "3av-settle-2": fail}, "open_only_at": {"3av": only}}):
+        for left in ({"open_only_at": {"3a": only, "3av-settle": only[:1], "3av-settle-2": only[:1]}},
+                     {"unput_at": {"3av-settle": ["F-091"], "3av-settle-2": ["F-091"]}, "open_only_at": {"3a": only}},
+                     {"verifier_fail": {"3av-settle": fail, "3av-settle-2": fail}, "open_only_at": {"3a": only}}):
             with self.subTest(left=left):
                 r = run({**spec, **left})
                 stopped = r["result"]
@@ -2402,13 +2461,13 @@ class FlowRecheck(unittest.TestCase):
                 self.assertEqual(stopped["next_args"]["state"]["tx"], tx, "同じ段の token で restore させ、最後に照合を通った flow の版を添える")
 
     def test_caseの出典だけが閉じたOを指すときもsettleでそのマスを直す(self):
-        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": [{"el": "F-004", "case": 2, "open": "O-RS-001"}]},
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": [{"el": "F-004", "case": 2, "open": "O-RS-001"}]},
                 "unverified_at": {"3a-settle": ["F-004"]}}
         r = run(spec)
         self.assertIn("F-004 の case 2（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3a-settle"))
         judged_by(self, r, "verifier:3av-settle", "F-004")
         self.assertEqual(r["result"]["status"], "done")
-        same = spec["open_only_at"]["3av"]
+        same = spec["open_only_at"]["3a"]
         left = run({**spec, "open_only_at": {**spec["open_only_at"], "3av-settle": same, "3av-settle-2": same}})["result"]
         self.assertEqual(left["status"], "blocked")
         self.assertIn("F-004 の case 2", left["reason"])
@@ -2443,7 +2502,7 @@ class FlowRecheck(unittest.TestCase):
 
     def test_検証に落ちた要素でもsettleで直させたら必ず検証する(self):
         g0 = self._g0_failed("F-003")
-        r = run({"args": g0["next_args"], "world": self.world, "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": [{"el": "F-003", "open": "O-RS-001"}]},
+        r = run({"args": g0["next_args"], "world": self.world, "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": [{"el": "F-003", "open": "O-RS-001"}]},
                  "unverified_at": {"3a-settle": ["F-003"]}})
         judged_by(self, r, "verifier:3av-settle", "F-003")
         self.assertEqual(r["result"]["status"], "done")
@@ -3080,11 +3139,11 @@ class Reframe(unittest.TestCase):
 
     def test_G0からG0_2を経て初稿に進む(self):
         g02 = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}})
-        self.assertEqual(self._cycle(g02["labels"]), ["resolver:3a", "verifier:3av", "flow-framer:3b-reframe", "resolver:3b", "verifier:3bv"])
+        self.assertEqual(self._cycle(g02["labels"]), ["resolver:3a", "verifier:3av", "flow-framer:3b-reframe", "resolver:3b", "verifier:3bv"], "3a で出た新しい問いは検証する")
         res = g02["result"]
         self.assertEqual((res["status"], res["answers_path"], res["next_args"]["from"]), ("needs_answers", "/tmp/prd-w/answers/g0-2.md", "3a"))
         r = run({"args": res["next_args"], "ruled_at": {"3a": ["RS-002"]}})
-        self.assertEqual(self._cycle(r["labels"]), ["resolver:3a", "verifier:3av"], "G0-2 の回答の後は組み直さない")
+        self.assertEqual(self._cycle(r["labels"]), ["resolver:3a"], "G0-2 の回答の後は組み直さない")
         self.assertEqual(r["labels"][4:6], ["flow-check:4-backup", "writer:U-1:draft"], "writer の前に本文の控えを取る")
         self.assertEqual(r["result"]["status"], "done")
 
@@ -3819,6 +3878,11 @@ class OfficialAlignment(unittest.TestCase):
     def test_STOP_REASONSはworkflow_ioの3節のstop_reasonの値と同じ(self):
         line = next(l for l in WORKFLOW_IO.read_text(encoding="utf-8").split("\n") if l.strip().startswith('"stop_reason":'))
         self.assertEqual(re.findall(r"`([a-z_]+)`", line), value("STOP_REASONS"))
+
+    def test_SKIP_FACTSはworkflow_ioの3節のskippedのfactの値と同じ(self):
+        line = next(l for l in WORKFLOW_IO.read_text(encoding="utf-8").split("\n") if l.strip().startswith('"skipped":'))
+        fact = line.split('"fact":')[1].split('"ids"')[0]
+        self.assertEqual(re.findall(r"`([a-z_]+)`", fact), value("SKIP_FACTS"))
 
     def test_agentを呼ぶ場所は1つだけ(self):
         code = "\n".join(l for l in PRD.read_text(encoding="utf-8").split("\n") if not l.strip().startswith("//"))

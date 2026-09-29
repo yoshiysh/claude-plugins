@@ -380,7 +380,7 @@ class FlowAndConflicts(_Workspace):
         self.assertIn("pair:D-004|F-002", _ok(self.ws, "conflicts")["pair_keys"])
 
     def test_破壊的な工程が出典にもconstrained_byにも挙げた不変条件とは組にする(self):
-        # R5: 不変条件 × 破壊的な工程の組が初稿の前に論点を出す。自分の出典の RS- を除く扱いを D- に広げるとこれが消える。
+        # 契約「## flow.json の形」の conflicts の項。
         self._invariant()
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "effect": "destructive", "source": {"decision": "D-004"}, "constrained_by": ["D-004"]}]})
         self.assertEqual(_ok(self.ws, "flow")["findings"], 0)

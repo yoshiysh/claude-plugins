@@ -3004,7 +3004,7 @@ function conflictPairs(decisions, flow, open) {
   for (const el of els) {
     const cited = sourcedDecisions(el)
     for (const ref of constraintsOf(el).filter((r) => !paired.has(`${r}|${el.id}`) && !openIds.has(r))) {
-      // 要素が出典にした裁定との組は裁定をやり直すだけになる。D- は除かない: 不変条件 × 破壊的な工程の組が初稿の前に論点を出す。
+      // 組にしない範囲の理由は契約「## flow.json の形」の conflicts の項。
       if (ledgerOf('resolutions').keyShape.test(ref) && cited.has(ref)) selfSourced.push({ a: ref, b: String(el.id) })
       else pairs.push({ kind: 'constrained-by', a: ref, b: String(el.id) })
     }
