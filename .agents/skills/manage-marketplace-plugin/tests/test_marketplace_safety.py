@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import contextlib
 import io
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -282,6 +283,23 @@ class MarketplaceSafetyTests(unittest.TestCase):
                             load()
                     self.assertEqual(raised.exception.code, REGISTER["EXIT_INVALID"])
                     self.assertEqual(target.read_bytes(), before)
+
+    def test_reference_check_skips_gitignored_runtime_files_but_not_shipped_ones(self):
+        check = REFERENCES["check_skill"]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            skill = root / ".agents" / "skills" / "demo"
+            (skill / "workspace" / "run").mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: demo\ndescription: Demo\n---\n")
+            (skill / "workspace" / "run" / "a.md").write_text("[x](./missing.md)\n")
+            (root / ".gitignore").write_text("/.agents/skills/demo/workspace/\n")
+            (root / "plugins").mkdir()
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            with patch.dict(check.__globals__, SKILLS_DIR=root / ".agents" / "skills",
+                            PLUGINS_DIR=root / "plugins", PROJECT_ROOT=root):
+                self.assertEqual(check("demo")["findings"], [], "gitignore した実行時の作業物は install 先に届かない")
+                (skill / "notes.md").write_text("[x](./missing.md)\n")
+                self.assertEqual([f["file"] for f in check("demo")["findings"]], ["notes.md"], "commit 前の配布候補は検査する")
 
     def test_reference_owner_scan_rejects_plugin_and_skills_root_symlinks(self):
         owning = REFERENCES["owning_plugin_skills_dir"]

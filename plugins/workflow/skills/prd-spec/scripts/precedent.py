@@ -28,12 +28,13 @@ ANSWER_FIELDS = ("answers", "tbd_answers")
 
 
 def list_precedents(root, workspace):
-    root = os.path.abspath(root)
-    ws = os.path.abspath(workspace).rstrip("/")
+    # realpath: 開発中の [SKILL_DIR] は symlink 越し（.agents/skills・.claude/skills）でも届き、root と W が別の接頭辞で来ると W を除けない。
+    root = os.path.realpath(root)
+    ws = os.path.realpath(workspace)
     paths = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = sorted(d for d in dirnames if d not in ("checks", "findings", "tmp"))
-        here = os.path.abspath(dirpath)
+        here = os.path.realpath(dirpath)
         if here == ws or here.startswith(ws + os.sep):
             continue
         for name in NAMES:

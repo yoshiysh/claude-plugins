@@ -1,6 +1,6 @@
 """references/permissions.md の allow rule が、実行させるコマンドと W の置き場に一致すること。
 
-規則が実行の形とずれると、manual モードの run は agent の権限の確認のたびに止まる。規則の文字列の正本は permissions.md だけで、
+規則が実行の形とずれると、doc_check の実行ごとに確認か classifier の審査が入る。規則の文字列の正本は permissions.md だけで、
 SKILL.md・workflow-io は参照だけを持つ（写すと片方だけ直ってずれる）。
 """
 
@@ -17,7 +17,7 @@ RULE_TOOLS = ("Bash", "Read", "Edit", "Write")
 
 def rules():
     text = PERMISSIONS.read_text(encoding="utf-8")
-    section = text[text.index("## 1. allow rule を足す") : text.index("## 2.")]
+    section = text[text.index("## allow rule を足す") :]
     block = re.search(r"```\n(.*?)```", section, re.S)
     assert block, "permissions.md §1 に規則の code block が無い"
     return [line.strip() for line in block.group(1).splitlines() if line.strip()]
@@ -61,19 +61,16 @@ class PermissionRules(unittest.TestCase):
         for cmd in re.findall(r"`([^`]*doc_check\.mjs [^`]*)`", contract):
             self.assertTrue(cmd.replace("<SKILL_DIR>", "[SKILL_DIR]").startswith(prefix + " "), cmd)
 
-    def test_workspace_rules_cover_the_workspace_root_of_s0(self):
+    def test_skill_dir_read_rule_covers_the_workspace_root_of_s0(self):
         skill_md = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        root = re.search(r"\*\*W を作る\*\*: `(~/[^<`]+)<案件>/`", skill_md)
+        root = re.search(r"\*\*W を作る\*\*: `([^<`]+)<案件>/`", skill_md)
         self.assertTrue(root, "SKILL.md の S0 の W の置き場が読めない")
-        for tool in ("Read", "Edit"):
-            self.assertIn(f"{tool}({root.group(1)}**)", self.rules)
+        self.assertTrue(root.group(1).startswith("[SKILL_DIR]/"), f"W が [SKILL_DIR] の外にあると Read の規則が W を覆わない: {root.group(1)}")
+        self.assertIn("Read(/[SKILL_DIR]/**)", self.rules)
 
-    def test_rules_stay_within_doc_check_workspace_and_skill_dir(self):
-        allowed = {"Read(/[SKILL_DIR]/**)"}
-        for r in self.rules:
-            if r.startswith("Bash("):
-                continue
-            self.assertTrue(r in allowed or re.fullmatch(r"(Read|Edit)\(~/\.claude/prd-spec-workspace/\*\*\)", r), f"範囲の外の規則: {r}")
+    def test_rules_are_only_the_doc_check_prefix_and_the_skill_dir_read(self):
+        # W は install 先では protected path（~/.claude/）の下で、allow rule は Write・Edit を通さない（permissions.md の前提）。
+        self.assertEqual(sorted(r for r in self.rules if not r.startswith("Bash(")), ["Read(/[SKILL_DIR]/**)"], "効かない規則か範囲の外の規則がある")
 
     def test_rule_strings_are_not_copied(self):
         pattern = re.compile(r"\b(" + "|".join(RULE_TOOLS) + r")\((?:node|/|~|\[)")

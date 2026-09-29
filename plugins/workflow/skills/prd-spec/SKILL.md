@@ -66,7 +66,9 @@ workspace を用意し、保存することだけである。** 決定・問い�
    | 既存の要求文書・仕様書の監査と改訂（所在が示されている） | `existing` |
    | 要求文書から仕様書を起こす | `expand` |
 
-2. **W を作る**: `~/.claude/prd-spec-workspace/<案件>/`（絶対パスに展開する。Write は `~` を展開しない）。
+2. **W を作る**: `[SKILL_DIR]/workspace/<案件>/`（`[SKILL_DIR]` は絶対パスに置き換える）。W の置き場はここにだけ書く。
+   この skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない（W の形は版ごとに変わってよく、
+   旧い版の W を読む互換は持たない）。
    対象リポジトリの中に作業ファイルを置かない（そのリポジトリの `.gitignore` は利用者の持ち物である）。
 3. **依頼文を `W/input.md` に逐語で書く。** 貼り付けられた議事録やメモも含め、要約も整形もしない。要約すると、
    依頼者が言っていないことが入力の顔をして全員に届く。
@@ -75,11 +77,11 @@ workspace を用意し、保存することだけである。** 決定・問い�
    （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
    `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く。`existing_docs` に無い文書はその reset が消す
    （`references/workflow-io.md` §3）。
-5. **許可を確かめる**: run の前に、`references/permissions.md` の allow rule を足すかを利用者に確かめる（auto mode の扱いも同じ文書）。
-   settings は書かない（利用者の持ち物である）。許可が無いと、manual モードの run は agent の権限の確認のたびに止まる。
-6. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
+5. **許可を確かめる**: run の前に、`references/permissions.md` の前提（auto mode）と allow rule を利用者に示し、足すかを確かめる。
+   settings は書かない（利用者の持ち物である）。
+6. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root <W の親> --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
-   挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out ~/.claude/prd-spec-workspace/<そのラン>/legacy`
+   挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out <W の親>/<そのラン>/legacy`
    で変換してから並べる。
 
 ## 中継: /workflow:prd-spec-run を呼び、返り値のとおりに運ぶ
@@ -196,7 +198,7 @@ native の Workflow が無い Codex では実行しない。`workflow:dynamic-wo
 | `[SKILL_DIR]/schemas/agent-contracts.md` | W のファイル・所有・各役の返り値 |
 | `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正。model / effort は `workflows/prd-spec.js` の `ROLE_OPTS` が正） |
 | `[SKILL_DIR]/references/workflow-io.md` | `/workflow:prd-spec-run` の args・返り値・段・再実行 |
-| `[SKILL_DIR]/references/permissions.md` | run の前に足す allow rule と auto mode の扱い |
+| `[SKILL_DIR]/references/permissions.md` | 前提の permission mode（auto）と、run の前に足す allow rule |
 | `[SKILL_DIR]/references/io-example.md` | 依頼から保存までの通しの例 |
 | `[SKILL_DIR]/references/prd-and-spec.md` | 2 文書の目的と切り分け・必須の内容 |
 | `[SKILL_DIR]/references/document-structure.md` | 章立て・表と図・本文に書くのは規範だけ（§4） |

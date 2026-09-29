@@ -183,7 +183,7 @@ Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-wo
 caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
 runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
 dispatch、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
-`workflow` の prd-spec は名前付き workflow（`/workflow:prd-spec-run`）を呼ぶので、runner が実行の前に拒否し、Codex では実行しない。
+`workflow` の prd-spec は Codex では実行しない（理由は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
 `plugins/performance/references/native-hooks.md` を正とする。

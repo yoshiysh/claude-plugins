@@ -73,6 +73,8 @@ const persist = () => {
 }
 // answers: 回答のファイル（answers/<ゲート>.md）ごとに `<ID>:` の行を持つ問い。write_answers は司令塔が呼び出しの前に書いた回答で、段 1 の reset が消す。
 disk.answers = { ...(disk.answers || {}), ...(spec.write_answers || {}) }
+// 回答を当てる段から next_args で始める run は、司令塔が呼び出しの前に回答を書いている（SKILL.md「## 中継」）。書いていない世界は write_answers で明示する。
+const answeredBeforeCall = spec.write_answers === undefined && ['3a', "3a'"].includes(String(spec.args.from))
 persist()
 let flowSha = disk.flow
 // cache の run は保存された結果を返した呼び出しで stubAgent を通らないので、resolutions.json の sha256 を W から読み直す（実物は台帳のファイルから出る）。
@@ -319,7 +321,7 @@ function respond(prompt, label) {
     const answers = /doc_check\.mjs answers --workspace \S+ --file (\S+) --ids (\S+?)`/.exec(prompt)
     if (answers) {
       const asked = [...new Set(answers[2].split(','))].sort()
-      const has = disk.answers[answers[1]]
+      const has = disk.answers[answers[1]] ?? (answeredBeforeCall ? asked : undefined)
       // answers_stdout: flow-check が返した answers の stdout（実行したコマンドと違う file・ids の stdout を返した世界）。
       if (spec.answers_stdout) return { answers_check: JSON.stringify(spec.answers_stdout) }
       return { answers_check: JSON.stringify({ file: answers[1], exists: Boolean(has), ids: asked, missing: asked.filter((id) => !(has || []).includes(id)) }) }
@@ -634,7 +636,7 @@ class Stages(unittest.TestCase):
         r2 = run({"args": res["next_args"], "ruled_at": {"3a": ["RS-001"]}})
         self.assertIsNone(r2["error"])
         self.assertEqual(r2["result"]["status"], "done")
-        self.assertEqual(r2["labels"][:2], ["flow-check:3a-entry", "resolver:3a"], "段 3 以降から始める run は、最初に W を読み直す")
+        self.assertEqual(r2["labels"][:3], ["flow-check:3a-entry", "flow-check:g0-answers", "resolver:3a"], "段 3 以降から始める run は、最初に W を読み直し、回答を当てる前に回答のファイルを確かめる")
         self.assertFalse(has(r2["labels"], "intake"))
         self.assertIn("verifier:3av", r2["labels"], "回答を flow に当てた段では、候補の選択だけでも verifier が flow を照合する")
 
@@ -852,7 +854,7 @@ class Stages(unittest.TestCase):
 
         r2 = run({"args": res["next_args"], "ruled_at": {"3a'": ["RS-010"]}})
         self.assertIsNone(r2["error"])
-        self.assertEqual(r2["labels"][:2], ["flow-check:3a'-entry", "resolver:3a'"])
+        self.assertEqual(r2["labels"][:3], ["flow-check:3a'-entry", "flow-check:g1-answers", "resolver:3a'"])
         self.assertTrue(has(r2["labels"], "writer:U-1:revise"))
         self.assertTrue(has(r2["labels"], "grounding:r2"), "最後の書き込みには範囲を絞った監査を当てる")
         self.assertEqual(r2["result"]["status"], "done")
@@ -3083,7 +3085,7 @@ class Reframe(unittest.TestCase):
         self.assertEqual((res["status"], res["answers_path"], res["next_args"]["from"]), ("needs_answers", "/tmp/prd-w/answers/g0-2.md", "3a"))
         r = run({"args": res["next_args"], "ruled_at": {"3a": ["RS-002"]}})
         self.assertEqual(self._cycle(r["labels"]), ["resolver:3a", "verifier:3av"], "G0-2 の回答の後は組み直さない")
-        self.assertEqual(r["labels"][3:5], ["flow-check:4-backup", "writer:U-1:draft"], "writer の前に本文の控えを取る")
+        self.assertEqual(r["labels"][4:6], ["flow-check:4-backup", "writer:U-1:draft"], "writer の前に本文の控えを取る")
         self.assertEqual(r["result"]["status"], "done")
 
     def test_持ち越した問いは3bの後にも問いの形を検査する(self):
@@ -3248,6 +3250,13 @@ class Gates(unittest.TestCase):
             fn = m.group(1) if m else fn
             calls |= {(fn, g) for g in NEEDS_ANSWERS.findall(line)}
         self.assertEqual(calls, {("stage3", "g0"), ("stage3b", "g0-2"), ("stage6", "g1")})
+        checks, fn = set(), None
+        for line in src.splitlines():
+            m = FUNCTION.match(line)
+            fn = m.group(1) if m else fn
+            if "await answersUnchecked(" in line:
+                checks.add(fn)
+        self.assertEqual(checks, {"needsAnswers", "stageApply"}, "回答のファイルを確かめずに needs_answers を返す経路か、回答を当てる経路がある")
 
     def test_3パス目以降の段6の問いもゲートにせず保持規則にする(self):
         findings = new_item_each_round(3)
@@ -3675,7 +3684,7 @@ class EveryEntry(unittest.TestCase):
     REQUIRES は手で書いた表なので、値が抜けていると再開は blocked ではなく TypeError で落ちる。
     """
 
-    def _recover(self, spec, label, stage):
+    def _recover(self, spec, label, stage, checked=()):
         broken = run({**spec, "null_labels": [label]})
         self.assertIsNone(broken["error"], broken["error"])
         res = broken["result"]
@@ -3683,7 +3692,8 @@ class EveryEntry(unittest.TestCase):
         self.assertEqual(res["next_args"]["from"], stage)
         again = run({**{k: v for k, v in spec.items() if k != "args"}, "args": res["next_args"]})
         self.assertIsNone(again["error"], again["error"])
-        self.assertEqual(again["labels"][:2], [f"flow-check:{stage}-entry", label], "段 1 の入口は W を S0 の直後に戻し、段 2 の入口は段の控えを戻し、段 3 以降の入口は W を読み直す")
+        head = [f"flow-check:{stage}-entry", *checked, label]
+        self.assertEqual(again["labels"][: len(head)], head, "段 1 の入口は W を S0 の直後に戻し、段 2 の入口は段の控えを戻し、段 3 以降の入口は W を読み直す（回答を当てる段はその後に回答のファイルを確かめる）")
         return again["result"]
 
     def test_各段から再開できる(self):
@@ -3699,13 +3709,13 @@ class EveryEntry(unittest.TestCase):
 
     def test_回答の反映の段から再開できる(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        done = self._recover({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}}, "resolver:3a", "3a")
+        done = self._recover({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}}, "resolver:3a", "3a", ["flow-check:g0-answers"])
         self.assertEqual(done["status"], "done")
         done = self._recover({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}}, "flow-framer:3b-reframe", "3b")
         self.assertEqual(done["status"], "done")
         spec = {"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}
         g1 = run(spec)["result"]
-        done = self._recover({"args": g1["next_args"], "ruled_at": {"3a'": ["RS-010"]}}, "resolver:3a'", "3a'")
+        done = self._recover({"args": g1["next_args"], "ruled_at": {"3a'": ["RS-010"]}}, "resolver:3a'", "3a'", ["flow-check:g1-answers"])
         self.assertEqual(done["status"], "done")
 
 
@@ -4032,10 +4042,11 @@ class SameSessionResume(unittest.TestCase):
                 self.assertEqual(resumed["labels"][0], f"flow-check:{gate}-answers", resumed["labels"])
                 self.assertTrue(resumed["labels"][1].startswith("resolver:3a"), resumed["labels"])
 
-                # next_args で呼び直した run と同じ段を同じ順で走り、入口で W を読み直す flow-check が回答のファイルの検査に代わる。
+                # next_args で呼び直した run と同じ段を同じ順で走る。どちらも回答のファイルを確かめてから当て、next_args の run だけが入口で W を読み直す。
                 via = self._via_next_args(gate, self._w(f"{gate}-f"))
                 entry = f"flow-check:{via[-2]['result']['next_args']['from']}-entry"
-                self.assertEqual(resumed["labels"][1:], [l for l in via[-1]["labels"] if l != entry])
+                self.assertEqual(via[-1]["labels"][0], entry)
+                self.assertEqual(resumed["labels"], via[-1]["labels"][1:])
                 keys = ("status", "holds", "hold_drafts", "open_tbd", "integrity", "missed", "passes", "notices")
                 self.assertEqual({k: res[k] for k in keys}, {k: via[-1]["result"][k] for k in keys})
 
@@ -4121,6 +4132,45 @@ class SameSessionResume(unittest.TestCase):
         self.assertEqual((res["status"], res["resumable"]), ("needs_answers", False), res.get("reason"))
         self.assertIn("RS-002", res["reason"])
         self.assertEqual(again["labels"], ["flow-check:g0-answers"])
+
+    def test_聞いた問いと数が同じでもIDが違えば回答のファイルを見ずに聞き直す(self):
+        spec = {"flow_open": 1, "questions_at": {"3": ["RS-001"]}}
+        world = self._w("s")
+        stopped = run({"args": args(), **spec, "world": world})
+        self.assertEqual(stopped["result"]["question_ids"], ["RS-001"])
+        again = run({"args": {**args(), "gates_answered": {"g0": ["RS-002"]}}, **spec, "world": world, "cache": stopped["calls"], "write_answers": {"answers/g0.md": ["RS-002"]}})
+        res = again["result"]
+        self.assertEqual((res["status"], res["question_ids"], res["resumable"]), ("needs_answers", ["RS-001"], True), res.get("reason"))
+        self.assertIn("違います", res["reason"])
+        self.assertFalse(has(again["labels"], "flow-check:g0-answers") or has(again["labels"], "resolver:3a"), "数だけ比べると、聞いていない問いの回答を今の問いに当てる")
+
+    def test_next_argsで回答を当てる段から始めても回答のファイルが問いに答えていなければ当てない(self):
+        g0 = run({"args": args(), "flow_open": 2, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
+        g1 = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
+        cases = (("G0 の回答が無い", g0, {}, "ファイルがありません", "resolver:3a"),
+                 ("G0 の回答が一部だけ", g0, {"answers/g0.md": ["RS-001"]}, "RS-002", "resolver:3a"),
+                 ("G1 の回答が無い", g1, {}, "ファイルがありません", "resolver:3a'"))
+        for name, stopped, written, why, apply in cases:
+            with self.subTest(name):
+                r = run({"args": stopped["next_args"], "write_answers": written})
+                res = r["result"]
+                self.assertEqual((res["status"], res["gate"], res["resumable"]), ("needs_answers", stopped["gate"], False), res.get("reason"))
+                self.assertEqual((res["question_ids"], res["next_args"]["from"]), (stopped["question_ids"], stopped["next_args"]["from"]))
+                self.assertIn(why, res["reason"])
+                self.assertEqual(r["labels"][-1], f"flow-check:{stopped['gate']}-answers")
+                self.assertFalse(has(r["labels"], apply), "回答の無い問いを resolver が当てると、依頼者の言っていない回答が裁定になる")
+
+    def test_next_argsで3aから始めたrunをG0_2の後にresumeしても回答のファイルは1回だけ確かめる(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        world = self._w("g")
+        stopped = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}, "world": world})
+        res = stopped["result"]
+        self.assertEqual((res["status"], res["gate"], res["question_ids"]), ("needs_answers", "g0-2", ["RS-002"]), res.get("reason"))
+        resumed = run({"args": {**g0["next_args"], "gates_answered": {"g0-2": ["RS-002"]}}, "ruled_at": {"3a": ["RS-002"]}, "world": world,
+                       "cache": stopped["calls"], "write_answers": self._answer(res)})
+        self.assertEqual(resumed["result"]["status"], "done", resumed["result"].get("reason"))
+        self.assertEqual([l for l in resumed["labels"] if l.endswith("-answers")], ["flow-check:g0-2-answers"],
+                         "ゲートで確かめた回答を、同じ run の 2 回目の 3a の入口でもう一度確かめない（入口の検査は run の最初の段だけ）")
 
     def test_回答の検査のstdoutが実行させたコマンドのものでなければゲートを越えない(self):
         spec = {"flow_open": 2, "questions_at": {"3": ["RS-001", "RS-002"]}}

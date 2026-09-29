@@ -193,26 +193,6 @@ class CompactOutput(unittest.TestCase):
             ],
         )
 
-    R1 = Path.home() / ".claude/prd-spec-workspace/pdca-redesign/drafts/r1"
-
-    @unittest.skipUnless((Path.home() / ".claude/prd-spec-workspace/pdca-redesign/drafts/r1").is_dir(), "実 run の下書きが無い")
-    def test_実_run_の下書きで_50KB_を十分下回る(self):
-        # トレーサビリティ表も trace も申告されていない最悪の形（ORPHAN が数百件出る）で測る。
-        # 移設時の出力は同じ入力で 440,688 バイトだった。
-        docs = []
-        for p in sorted(self.R1.glob("*.md")):
-            kind, topic = p.stem.split("-", 1)
-            pat = r"\bPR-[A-Z][A-Z0-9]*-\d+\b" if kind == "requirements" else r"\bSP-[A-Z][A-Z0-9]*-\d+\b"
-            ids = sorted(set(re.findall(pat, p.read_text())))
-            docs.append({"key": f"{kind}/{topic}", "kind": kind, "topic": topic, "path": str(p), "fixed": False,
-                         "ids": ids, "referenced": [], "vacant": [], "tbd_items": [], "traceability": []})
-        r = _run_cli({"documents": docs})
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertLess(len(r.stdout.encode()), 50_000)
-        # 短くしても指摘は 1 件も落ちない（展開すると全件の文面が戻る）
-        expanded = _expand(json.loads(r.stdout)["structural"])
-        self.assertGreater(len(expanded["findings"]), 500)
-
 
 class FindingText(unittest.TestCase):
     def test_文面の表は_doc_check_だけが持つ(self):

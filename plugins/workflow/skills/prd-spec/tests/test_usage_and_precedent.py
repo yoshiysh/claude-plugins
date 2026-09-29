@@ -6,6 +6,7 @@ usage.py は母集団の定義を持つ。定義が揺れるとラン同士を�
 """
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -91,10 +92,22 @@ class Usage(unittest.TestCase):
 class Precedent(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name)
+        self.root = Path(os.path.realpath(self._tmp.name))
 
     def tearDown(self):
         self._tmp.cleanup()
+
+    def test_list_は_root_と_W_が別の_symlink_越しに来ても_W_を除く(self):
+        real = self.root / "real" / "workspace"
+        (real / "W").mkdir(parents=True)
+        (real / "W" / "decisions.json").write_text("{}")
+        (real / "case-a").mkdir()
+        (real / "case-a" / "decisions.json").write_text("{}")
+        (self.root / "link").symlink_to(self.root / "real")
+        for root, ws in ((self.root / "link" / "workspace", real / "W"), (real, self.root / "link" / "workspace" / "W")):
+            with self.subTest(root=str(root)):
+                paths = precedent.list_precedents(str(root), str(ws))
+                self.assertEqual(paths, [str(real / "case-a" / "decisions.json")], "今回のランの決定を先例として読むと、自分の決定を自分で追認する")
 
     def test_list_は_W_自身を除いて規則どおり全部並べる(self):
         for d in ("case-a", "case-b/sub", "W"):

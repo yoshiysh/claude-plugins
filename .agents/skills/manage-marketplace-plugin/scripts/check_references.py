@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 from path_safety import (find_project_root, guard_skill_root, guard_plugin_root,
                          ensure_within, validate_name)
+from verify_install import distribution
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
@@ -95,8 +96,10 @@ def check_skill(skill: str) -> dict:
     siblings_dir = owning_plugin_skills_dir(skill)
     findings = []
 
+    # 配布される .md だけを見る: gitignore した実行時の作業物（prd-spec の W など）は install 先に届かない。
+    shipped = distribution(skill_root).files
     for md in sorted(skill_root.rglob("*.md")):
-        if "node_modules" in md.relative_to(skill_root).parts:
+        if md.relative_to(skill_root).as_posix() not in shipped:
             continue
         try:
             lines = md.read_text(encoding="utf-8").splitlines()

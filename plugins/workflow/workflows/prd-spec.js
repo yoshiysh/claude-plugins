@@ -1664,35 +1664,44 @@ let gatePassed = null
 
 // needsAnswers: gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
 // resume が保存された結果から外れると（pipeline の起動の順・追い出し・runtime の違い）run は live で走り直し、違う問いに古い回答を当てるか、
-// 段 1 の reset が消した回答の無いまま進む。回答の検査に落ちたら resumable を偽にする: resume すると落ちた検査の保存された結果が返り、同じ所で止まり続ける。
+// 段 1 の reset が消した回答の無いまま進む。
 async function needsAnswers(gate, from) {
   state.gate = gate
   const ids = pendingQuestions(state)
   const asked = GATES_ANSWERED[gate]
-  const stop = (extra) =>
-    finish('needs_answers', {
-      gate,
-      questions_path: `${W}/questions.md`,
-      questions_json_path: `${W}/questions.json`,
-      answers_path: `${W}/${GATE_ANSWERS[gate]}`,
-      question_ids: ids,
-      next_args: nextArgs(from),
-      ...extra,
-    })
-  if (!asked) return stop({})
+  if (!asked) return answersStop(gate, from, ids, {})
   if (canonicalText(uniq(asked)) !== canonicalText(uniq(ids))) {
-    return stop({ reason: `gates_answered.${gate}（${list(asked)}）が今の問い（${list(ids)}）と違います（resume が保存された結果から外れて live で走り直した）。今の問いを聞き直してください` })
+    return answersStop(gate, from, ids, { reason: `gates_answered.${gate}（${list(asked)}）が今の問い（${list(ids)}）と違います（resume が保存された結果から外れて live で走り直した）。今の問いを聞き直してください` })
   }
+  const unanswered = await answersUnchecked(gate, from, ids)
+  if (unanswered) return unanswered
+  gatePassed = gate
+  return from
+}
+
+function answersStop(gate, from, ids, extra) {
+  return finish('needs_answers', {
+    gate,
+    questions_path: `${W}/questions.md`,
+    questions_json_path: `${W}/questions.json`,
+    answers_path: `${W}/${GATE_ANSWERS[gate]}`,
+    question_ids: ids,
+    next_args: nextArgs(from),
+    ...extra,
+  })
+}
+
+// answersUnchecked: 回答を当てる段に入る前に、回答のファイルが問いのすべてに答えているかを doc_check answers で確かめる。gates_answered の
+// resume と next_args の再開（段 3a・3a' から始める run）の両方が通る。落ちたら resumable を偽にする: resume すると落ちた検査の保存された結果が
+// 返り、同じ所で止まり続ける。
+async function answersUnchecked(gate, from, ids) {
   const label = `flow-check:${gate}-answers`
   const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cli('answers', `--file ${GATE_ANSWERS[gate]} --ids ${ids.join(',')}`)}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from])
   const ac = parseStdout(x && x.answers_check)
   const echoed = ac && ac.file === GATE_ANSWERS[gate] && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing)
-  if (!echoed || ac.missing.length) {
-    const why = !echoed ? 'doc_check answers の stdout が返りませんでした' : ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）' : `回答の行の無い問い ${list(ac.missing)}`
-    return stop({ reason: `${W}/${GATE_ANSWERS[gate]}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
-  }
-  gatePassed = gate
-  return from
+  if (echoed && !ac.missing.length) return null
+  const why = !echoed ? 'doc_check answers の stdout が返りませんでした' : ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）' : `回答の行の無い問い ${list(ac.missing)}`
+  return answersStop(gate, from, ids, { reason: `${W}/${GATE_ANSWERS[gate]}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
 }
 
 // resetEntry: 段 1 から始める run（新しい run も、段 1 からの再実行も）は、W を S0 の直後に戻した stdout を見てから intake を起動する。
@@ -1823,6 +1832,10 @@ async function stage3() {
 async function stageApply(stageId) {
   const gate = state.gate
   const pending = pendingQuestions(state)
+  if (atEntry) {
+    const unanswered = await answersUnchecked(gate, stageId, pending)
+    if (unanswered) return unanswered
+  }
   const allowQuestions = ASKS[stageId]()
   const res = await resolveCycle(stageId, {
     phase: 'Answers',
@@ -2396,6 +2409,8 @@ async function enterFromDisk(from) {
 
 let next = FROM
 let outcome = null
+// atEntry: run の最初の段。next_args で回答を当てる段から始めた run は、ゲートを通らずに回答のファイルを読む（stageApply が検査する）。
+let atEntry = true
 while (outcome === null) {
   // 段の境界で止めるので、next_args は次の段から始める（その段の token を決める前。段を出た run の台帳は戻さない）。
   if (budgetOut()) {
@@ -2424,6 +2439,7 @@ while (outcome === null) {
   if (scriptDefect) r = blocked(`script の不変条件に反しました（段 ${running}）: ${scriptDefect}`, null)
   const violation = r.status === 'blocked' ? null : exitViolation(running, r)
   if (violation) r = blocked(`script の不変条件に反しました（段 ${running}）: ${violation}`, null)
+  atEntry = false
   if (typeof r === 'string') next = r
   else outcome = r
 }
