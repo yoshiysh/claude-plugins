@@ -1541,7 +1541,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'restore', 'reset', 'questions', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'sha', 'report']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1578,6 +1578,9 @@ const OTHER_RULING = { never: ['question', 'options', 'answer', 'hold'] }
 const KIND = { kind: ['invariant'] }
 const FLOW_TYPES = ['input', 'step', 'decision', 'output']
 const OUT_OF_TYPE = '（型の外）'
+// DOC_KEY: 文書のキー（<kind>/<topic>）の形。prd.js の DOC_KEY と同じ（tests が照合する）。
+const DOC_KEY = /^(requirements|specifications)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/
+
 const LEDGERS = {
   decisions: {
     file: () => 'decisions.json',
@@ -1682,7 +1685,7 @@ const LEDGERS = {
   },
   meta: {
     file: (doc) => {
-      const m = /^(requirements|specifications)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(String(doc || ''))
+      const m = DOC_KEY.exec(String(doc || ''))
       if (!m) throw new Error(`--ledger meta には --doc <requirements|specifications>/<topic> が 1 つ要ります: ${doc}`)
       return `${m[1]}-${m[2]}.meta.json`
     },
@@ -1848,10 +1851,28 @@ function txBegin(ws, token, file) {
 
 const txLedgerFile = (name) =>
   Object.keys(LEDGERS).some((n) => n !== 'meta' && ledgerOf(n).file() === name) || /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.meta\.json$/.test(name)
+// txFile: 控えを取ってよいファイル（台帳と、backup が取る文書の本文）。
+const txFile = (name) => txLedgerFile(name) || /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(name)
+
+// backup: writer は文書の本文を Edit で書き、doc_check を通らないので、put のように書き込みの前に控えを取れない。writer を起動する前に、
+// 段の token で本文の控えを取る（無い文書は無い印）。blocked の後の同じ段の再実行の入口の restore が、台帳と一緒に本文を段に入った時点へ戻す。
+// 戻さないと、止まった run が途中まで書いた本文が再実行の入力になる（expand の既存文書は S0 の原文が W から失われる）。
+function wsBackup(ws, opts) {
+  const token = txToken(opts, 'backup')
+  const keys = [...new Set(opts.doc)].sort()
+  if (!keys.length) throw new LedgerRejected('backup には --doc <キー> が 1 つ以上要ります')
+  const files = keys.map((key) => {
+    const m = DOC_KEY.exec(key)
+    if (!m) throw new LedgerRejected(`文書のキー（<requirements|specifications>/<topic>）ではありません（控えを取っていません）: ${key}`)
+    return `${m[1]}-${m[2]}.md`
+  })
+  for (const file of files) txBegin(ws, token, file)
+  return { backup: true, token, docs: keys }
+}
 
 const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : null)
 
-// restore: token の控えを台帳に戻し、token の下で作られた台帳を消す。控えの無い台帳・文書・answers・plan.json・checks は触らない。
+// restore: token の控えを台帳と文書に戻し、token の下で作られた台帳と文書を消す。控えの無い台帳・文書・answers・plan.json・checks は触らない。
 // 全部戻してから控えを消すので、途中で落ちても流し直せば同じ結果になる。控えを書く途中で落ちた一時名（writeAtomic）は控えではないので数えない。
 // 控えが無いのは、止まった run が書かなかったか、戻し終えたか、後の token の最初の書き込みが消したときである。後の段の token（通し番号が
 // 大きい）があれば最後のときで、戻す控えが失われているので何も変えずに pruned_by に挙げる（黙って 0 件を戻すと、再実行が止まった run の
@@ -1868,7 +1889,7 @@ function wsRestore(ws, opts) {
   const plan = names.map((n) => {
     const kind = n.endsWith(TX_PRE) ? 'pre' : n.endsWith(TX_ABSENT) ? 'absent' : null
     const file = kind ? n.slice(0, -(kind === 'pre' ? TX_PRE : TX_ABSENT).length) : null
-    if (!kind || !txLedgerFile(file)) throw new LedgerRejected(`${TX_DIR}/${token}/${n} は台帳の控えではありません（何も戻していません）`)
+    if (!kind || !txFile(file)) throw new LedgerRejected(`${TX_DIR}/${token}/${n} は台帳か文書の控えではありません（何も戻していません）`)
     return { n, kind, file }
   })
   for (const { n, kind, file } of plan) {
@@ -3332,6 +3353,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'index') return wsIndex(ws, opts)
   if (mode === 'put') return wsPut(ws, opts, fs.readFileSync(0, 'utf8'))
   if (mode === 'del') return wsDel(ws, opts)
+  if (mode === 'backup') return wsBackup(ws, opts)
   if (mode === 'restore') return wsRestore(ws, opts)
   if (mode === 'reset') return wsReset(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
@@ -3399,6 +3421,7 @@ export {
   itemSections,
   runWorkspace,
   LEDGERS,
+  DOC_KEY,
   SIZE_BUDGET,
   writeAtomic,
 }

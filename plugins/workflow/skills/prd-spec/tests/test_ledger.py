@@ -170,6 +170,26 @@ class StageTransaction(_Workspace):
         self.assertEqual((again["restored"], again["files"]), (0, []))
         self.assertEqual(self._files(), after, "2 回目の restore は何も変えない")
 
+    def test_backupで控えを取った文書の本文はrestoreが段に入った時点へ戻す(self):
+        # writer は本文を Edit で書き doc_check を通らないので、writer の起動の前に backup で控えを取る。無い文書は restore が消す。
+        doc = self.ws / "requirements-auth.md"
+        before = doc.read_bytes()
+        out = _ok(self.ws, "backup", "--doc", "requirements/new", "--doc", "requirements/auth", "--token", "t4")
+        self.assertEqual(out, {"backup": True, "token": "t4", "docs": ["requirements/auth", "requirements/new"]})
+        doc.write_text(doc.read_text() + "\n途中まで直した\n")
+        (self.ws / "requirements-new.md").write_text("# 途中の草稿\n")
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/new", "--token", "t4", stdin={"fixed": False})
+        self.assertEqual(_ok(self.ws, "backup", "--doc", "requirements/auth", "--token", "t4")["docs"], ["requirements/auth"])
+        stray = json.loads((self.ws / _ok(self.ws, "snapshot", "--save", "w")["stray"]["path"]).read_text())["stray"]
+        self.assertFalse([x for x in stray if x.startswith("tx/")], "本文の控えも所有表の tx/<token>/* に当たる")
+        restored = _ok(self.ws, "restore", "--token", "t4")
+        self.assertEqual({f["path"] for f in restored["files"]}, {"requirements-auth.md", "requirements-new.md", "requirements-new.meta.json"})
+        self.assertEqual(doc.read_bytes(), before, "同じ token の 2 回目の backup は控えを取り直さない")
+        self.assertFalse((self.ws / "requirements-new.md").exists())
+        for bad in (("--doc", "notes/x", "--token", "t5"), ("--token", "t5"), ("--doc", "requirements/auth")):
+            with self.subTest(bad=bad):
+                self.assertEqual(_run(self.ws, "backup", *bad).returncode, 1)
+
     def test_新しいtokenの最初の書き込みは前のtokenの控えを消し済んだ段より前へ戻さない(self):
         self._write_stage("t1")
         mid = self._files()
