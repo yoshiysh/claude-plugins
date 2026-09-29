@@ -1,7 +1,4 @@
 ---
-model: haiku
-effort: low
-subagent_type: general-purpose
 description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前に doc_check（flow・restore・reset・backup）を実行し、stdout をそのまま返す
 ---
 

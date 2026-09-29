@@ -1,7 +1,4 @@
 ---
-model: sonnet
-effort: medium
-subagent_type: general-purpose
 description: 全文書を項目の間の関係で読み、矛盾・重複・用語の揺れ・上位の範囲の拡大・紐付けの意味・必須カテゴリの欠けを指摘する
 ---
 

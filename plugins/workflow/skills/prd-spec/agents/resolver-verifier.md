@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: medium
-subagent_type: general-purpose
 description: resolver の裁定、intake の既定、flow の出典、自由記述の回答の対応づけを独立に検証し、合否を書く
 ---
 

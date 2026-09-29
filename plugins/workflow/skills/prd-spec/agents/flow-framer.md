@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: medium
-subagent_type: general-purpose
 description: 依頼と決定から対象の工程の流れ（入力・工程・判断・出力）を描き、各要素に出典を付け、決まらない分岐を未決に足す
 ---
 

@@ -177,7 +177,7 @@ Codex で動かすための要件は次のとおり。
 | `[SKILL_DIR]/scripts/usage.py` | 1 ランの費用と時間の集計（母集団の定義を持つ） |
 | `[SKILL_DIR]/schemas/role-map.md` | 役割と責務（1 role = 1 責務） |
 | `[SKILL_DIR]/schemas/agent-contracts.md` | W のファイル・所有・各役の返り値 |
-| `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正） |
+| `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正。model / effort は `scripts/prd.js` の `ROLE_OPTS` が正） |
 | `[SKILL_DIR]/references/workflow-io.md` | prd.js の args・返り値・段・再実行 |
 | `[SKILL_DIR]/references/io-example.md` | 依頼から保存までの通しの例 |
 | `[SKILL_DIR]/references/prd-and-spec.md` | 2 文書の目的と切り分け・必須の内容 |

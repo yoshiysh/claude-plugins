@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: medium
-subagent_type: general-purpose
 description: 担当する単位の要求文書・仕様書を、決定台帳と流れだけを根拠に書き、改稿では同じファイルを Edit で直す
 ---
 

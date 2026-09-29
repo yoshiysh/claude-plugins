@@ -5,7 +5,8 @@
 (2) 改稿後の本文がプロンプトへインラインで埋め込まれ、1 プロンプトが最大 39 万字に達した。
 
 押さえるのは 3 つ。
-1. prd.js の全 agent() が model と effort を表（ROLE_OPTS）から取り、表は各役の frontmatter と一致する
+1. prd.js の全 agent() が model と effort を表（ROLE_OPTS）から取り、表は役のファイル（ROLE_FILES）と 1 対 1 に対応し、
+   役のファイルの frontmatter は model / effort を持たない（正本は ROLE_OPTS の 1 か所）
 2. プロンプトを組むコードが本文も JSON の全量も埋め込まない（パスで渡す）
 3. changedLineRanges（doc_check.mjs）が変更の行範囲を正しく返す
 """
@@ -62,14 +63,17 @@ class TestAgentOptsAreExplicit(unittest.TestCase):
                 self.assertIn(m.group(1), roles)
             self.assertNotRegex(code[pos:m.start()], r"model:", "model を直書きしている")
 
-    def test_役の_frontmatter_は配分表と一致する(self):
+    def test_配分表と役のファイルが_1_対_1_に対応する(self):
         files = dict(re.findall(r"(\w+): '([\w-]+\.md)'", re.search(r"const ROLE_FILES = \{(.*?)\n\}", PRD, re.S).group(1)))
         roles = _role_opts(PRD)
         self.assertEqual(set(files), set(roles))
-        for role, name in files.items():
-            head = (SKILL / "agents" / name).read_text().split("---")[1]
-            got = (re.search(r"^model: (\w+)$", head, re.M).group(1), re.search(r"^effort: (\w+)$", head, re.M).group(1))
-            self.assertEqual(got, roles[role], name)
+        self.assertEqual(sorted(files.values()), sorted(p.name for p in (SKILL / "agents").glob("*.md")))
+        for name in files.values():
+            text = (SKILL / "agents" / name).read_text()
+            self.assertTrue(text.startswith("---\n"), name)
+            keys = set(re.findall(r"^(\w+):", text.split("---")[1], re.M))
+            self.assertIn("description", keys, name)
+            self.assertFalse(keys & {"model", "effort", "subagent_type"}, f"{name}: model / effort の正本は ROLE_OPTS")
         io = (SKILL / "references" / "workflow-io.md").read_text()
         rows = re.findall(r"^\| ((?:`\w+`・?)+) \| (\w+) / (\w+) \|", io, re.M)
         self.assertEqual({r: (m, e) for names, m, e in rows for r in re.findall(r"`(\w+)`", names)}, roles)

@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: high
-subagent_type: general-purpose
 description: 1 文書の断定を 1 文ずつ根拠と突き合わせ、捏造・出所の偽装・未決の断定・入力への違反を指摘する
 ---
 

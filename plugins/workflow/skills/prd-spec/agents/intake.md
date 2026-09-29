@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: medium
-subagent_type: general-purpose
 description: 依頼を「確定」「決定」「未決」に仕分け、観点・分割・writer の単位・自己完結の方針も決定として起票する
 ---
 

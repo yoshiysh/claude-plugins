@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: high
-subagent_type: general-purpose
 description: 実装者として 1 文書の各項目を読み、着手できるか・項目自身の目的に対して過不足が無いか・曖昧さが無いかを指摘する
 ---
 

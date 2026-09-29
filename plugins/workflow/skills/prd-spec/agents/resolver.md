@@ -1,7 +1,4 @@
 ---
-model: opus
-effort: medium
-subagent_type: general-purpose
 description: 未決・決定どうしの組・決定が要る指摘・新しい TBD を 6 つの裁定のどれかで閉じ、依頼者への問いは候補と影響を付けて書く
 ---
 
