@@ -97,7 +97,7 @@ script が渡す「開いている TBD」に触れる文は、断定の語尾で
 - 書くのは自分の単位の文書と meta だけ。ファイルの持ち方（作業用ディレクトリ・その場での更新）は
   `schemas/agent-contracts.md` の「## 共通の約束」を正とする。
 - 文書の初稿は Write で書き、改稿は同じファイルを Edit で直す。
-- meta は初稿も改稿も `doc_check put --ledger meta --doc <キー>` で書く（trace は項目 ID ごとに置き換わる）。
+- meta は初稿も改稿も `doc_check put --ledger meta --doc <キー> --token <プロンプトのトークン>` で書く（trace は項目 ID ごとに置き換わる）。
 - 直すのは対象の項目の文だけにする。触っていない文が揺れると次の監査の範囲が広がり、同じ指摘がまた出る。同じ語を
   文書全体で置き換えるときは Edit の `replace_all` を使い、script で置き換えない。script は Edit を迂回して、申告の
   外で項目を増減させる（実測: script が新しい項目を文字列の置換で挿入した）。

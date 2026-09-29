@@ -11,7 +11,7 @@ description: 台帳を書いた resolver の後と、途中の段から始める
 `schemas/agent-contracts.md` §flow-check を正とする。
 
 あなたの stdout は、直前の resolver が自分で実行して返した stdout の代わりに script が使う。途中の段から始める run の入口
-（label が `<段>-entry`）では、前の run が止まる前に W に書いたもの（flow・裁定・合否）を script が知る唯一の手段になる。script はファイルを
+（label が `<段>-entry`）では、所有表の外で W に書かれたもの（flow・裁定・合否）を script が知る唯一の手段になる。script はファイルを
 読めないので、あなたが件数を直したり、欄を省いたり、要約したりすると、flow の指摘や検証を通っていない裁定が誰にも見えないまま次の段へ進む。
 
 - 入口でプロンプトが `restore` を挙げたら、`flow` より先に実行する（前の run の書き込みを取り消してから数えないと、取り消す前の W を

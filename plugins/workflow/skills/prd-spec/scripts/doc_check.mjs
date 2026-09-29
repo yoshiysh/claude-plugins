@@ -1794,6 +1794,7 @@ function requireInput(ws) {
 
 // writeAtomic: 全部を一時名に書き終えてから rename する（組で導出したファイルの片方だけが新しくなる窓を
 // rename の間だけに縮める）。
+const TMP_NAME = /^\..+\.\d+\.tmp$/
 function writeAtomic(...pairs) {
   const tmps = pairs.map(([file]) => path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`))
   try {
@@ -1808,22 +1809,33 @@ function writeAtomic(...pairs) {
 // 段の書き込みは token ごとの取引にする。blocked の後の同じ段の再実行は、止まった run の書き込みを restore で段に入った時点の台帳へ
 // 戻してから始める（W から state を組み直す方式は、持ち越す欄が増えるたびに再実行が止まらなかった run とずれた）。
 // 控えは台帳ごとに最初の書き込みの直前に取る（並列の writer が別の meta を同時に put するので、共有の索引を持たない）。
-// token は prd.js が段の入口で決める。token の名前は所有表のパターン（tx/<token>/*）に合うよう . を含めない。
+// token は prd.js が段の入口で決める（t<段の通し番号> と、同じ段の再実行の r<回数>）。順序を持つのは、打ち間違えた token や止まった run の
+// 遅れた書き込みが、今の段の控えを消して restore を空振りさせないため。token の名前は所有表のパターン（tx/<token>/*）に合うよう . を含めない。
 const TX_DIR = 'tx'
-const TX_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+const TX_TOKEN = /^t(\d+)(?:r(\d+))?$/
 const TX_PRE = '.pre'
 const TX_ABSENT = '.absent'
+const txOrder = (token) => {
+  const m = TX_TOKEN.exec(token)
+  return m ? [Number(m[1]), Number(m[2] || 0)] : null
+}
+const txBefore = (a, b) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])
 
 function txToken(opts, mode) {
   if (!opts.token) throw new LedgerRejected(`${mode} には --token <プロンプトのトークン> が要ります（再実行が段の入口の台帳へ戻す控えを、token ごとに取るため）`)
-  if (!TX_TOKEN.test(opts.token)) throw new LedgerRejected(`--token は英数字と _ - だけにしてください: ${opts.token}`)
+  if (!txOrder(opts.token)) throw new LedgerRejected(`--token はプロンプトの「トークン:」の値（t<数> か t<数>r<数>）をそのまま渡してください: ${opts.token}`)
   return opts.token
 }
 
-// txBegin: 新しい token の最初の書き込みで、他の token の控えを消す（済んだ段より前へ戻せないように）。
+// txBegin: 新しい token の最初の書き込みで、それより前の token の控えを消す（済んだ段より前へ戻せないように）。後の token の控えがあれば
+// 書かずに拒む（止まった run の遅れた書き込みが、今の段の再実行が戻す控えを消す）。
 function txBegin(ws, token, file) {
   const root = path.join(ws, TX_DIR)
-  if (fs.existsSync(root)) for (const t of fs.readdirSync(root)) if (t !== token) fs.rmSync(path.join(root, t), { recursive: true, force: true })
+  const own = txOrder(token)
+  const others = fs.existsSync(root) ? fs.readdirSync(root).filter((t) => t !== token) : []
+  const later = others.filter((t) => txOrder(t) && !txBefore(txOrder(t), own))
+  if (later.length) throw new LedgerRejected(`token ${token} より後の token（${later.join(', ')}）の控えがあります。プロンプトの「トークン:」の値で書き直してください（何も書いていません）`)
+  for (const t of others) fs.rmSync(path.join(root, t), { recursive: true, force: true })
   const dir = path.join(root, token)
   fs.mkdirSync(dir, { recursive: true })
   const pre = path.join(dir, `${file}${TX_PRE}`)
@@ -1840,13 +1852,13 @@ const txLedgerFile = (name) =>
 const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : null)
 
 // restore: token の控えを台帳に戻し、token の下で作られた台帳を消す。控えの無い台帳・文書・answers・plan.json・checks は触らない。
-// 全部戻してから控えを消すので、途中で落ちても流し直せば同じ結果になる。
+// 全部戻してから控えを消すので、途中で落ちても流し直せば同じ結果になる。控えを書く途中で落ちた一時名（writeAtomic）は控えではないので数えない。
 function wsRestore(ws, opts) {
   const token = txToken(opts, 'restore')
   const dir = path.join(ws, TX_DIR, token)
   const flowBefore = ledgerSha(ws, 'flow')
   const files = []
-  const names = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []
+  const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !TMP_NAME.test(n)).sort() : []
   const plan = names.map((n) => {
     const kind = n.endsWith(TX_PRE) ? 'pre' : n.endsWith(TX_ABSENT) ? 'absent' : null
     const file = kind ? n.slice(0, -(kind === 'pre' ? TX_PRE : TX_ABSENT).length) : null
@@ -2801,16 +2813,19 @@ function selectDocs(keys, wanted) {
   return wanted.length ? wanted : keys
 }
 
+// carriesVerdict: 合否を持ち越す書き換えの正本。持ち越すのは根拠を増やさない書き換えだけ: 問いと保持規則への書き換えの不合格（変換した分は
+// もう検証しない）と、検証した候補の decision_text を value に写しただけの候補の選択。合格は、保持規則の文（hold）・問いの形の修正で変えた候補の文・
+// 自由記述の value を検証していないので持ち越さない（持ち越すと、検証していない文が保持規則や根拠として writer に届く）。
 function carriesVerdict(judged, r) {
   if (judged.digest === digestOf(r)) return true
-  if (r.ruling === 'hold' || (r.ruling === 'question' && judged.verdict === 'fail')) return true
+  if (['hold', 'question'].includes(r.ruling) && judged.verdict === 'fail') return true
   if (r.ruling !== 'question' || judged.verdict !== 'pass') return false
   const { answer, value, ...asked } = r
   const chosen = value === undefined || (Array.isArray(r.options) && r.options.some((o) => o && o.decision_text === value))
   return chosen && judged.digest === digestOf(asked)
 }
 
-function wsFlow(ws) {
+function wsFlow(ws, opts) {
   requireInput(ws)
   const flow = readLedger(ws, 'flow')
   if (flow === null) throw new Error(`${ledgerOf('flow').file()} がありません`)
@@ -2829,12 +2844,8 @@ function wsFlow(ws) {
   const [passed, failed] = [verdictAt('pass'), verdictAt('fail')]
   const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   const failedCurrent = els.filter((el) => failed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
-  // resolutions: resolution ごとの about・ruling と合否（verdict。無ければ null、不合格には fail_kind）。script はファイルを読めないので、
-  // 返り値が届かなかった裁定と合否（止まった run が書いたもの・出し直しが返さなかったもの）を、state に写す元はここにしか無い。
-  // 合否は検証した版（digest）の resolution にだけ付く。検証の後に書き換えた裁定は、検証していない値が合格のまま根拠に使われる。
-  // 持ち越すのは根拠を増やさない書き換えだけ: 保持規則への書き換えと、問いの不合格（変換した分はもう検証しない）と、
-  // 検証した候補の decision_text を value に写しただけの候補の選択。問いの形の修正は候補の文を変えるので、合格を持ち越すと
-  // 検証していない decision_text が候補の選択でそのまま value になる。自由記述の value も候補の外なので持ち越さない。
+  // resolutions は --rulings のときだけ出す: script がファイルを読めない代わりに今の版の合否を知る元で、全 resolution の行を毎回写すと
+  // flow を返すすべての役の出力が台帳の大きさに比例して増える。合否を検証した版にだけ付けるのは、検証の後に書き換えた裁定を根拠に使わせないため。
   const verdicts = new Map(items.filter((it) => it && it.id && it.verdict).map((it) => [String(it.id), it]))
   const resolutions = listOf(readLedger(ws, 'resolutions'), 'resolutions')
     .filter((r) => r && r.id)
@@ -2872,7 +2883,7 @@ function wsFlow(ws) {
     content_sha256: ledgerSha(ws, 'flow'),
     unverified,
     failed_current: failedCurrent,
-    resolutions,
+    ...(opts.rulings ? { resolutions } : {}),
     open_only: openOnly,
     stale_refs: staleRefs,
     open_ids: [...openIds].sort(),
@@ -3259,6 +3270,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--expect-decisions') o.expectDecisions = take()
     else if (a === '--drafts') o.drafts = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--check') o.check = true
+    else if (a === '--rulings') o.rulings = true
     else if (a === '--token') o.token = take()
     else throw new Error(`不明な引数です: ${a}`)
   }
@@ -3271,7 +3283,7 @@ function runWorkspace(mode, argv) {
   const ws = path.resolve(opts.workspace)
   if (!fs.existsSync(ws) || !fs.statSync(ws).isDirectory()) throw new Error(`workspace がディレクトリではありません: ${opts.workspace}`)
   if (mode === 'plan') return wsPlan(ws)
-  if (mode === 'flow') return wsFlow(ws)
+  if (mode === 'flow') return wsFlow(ws, opts)
   if (mode === 'conflicts') return wsConflicts(ws)
   if (mode === 'doc') return wsDoc(ws, opts)
   if (mode === 'snapshot') return wsSnapshot(ws, opts)

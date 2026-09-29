@@ -133,7 +133,7 @@ class StageTransaction(_Workspace):
                                    capture_output=True, text=True)
                 self.assertEqual(r.returncode, 1, r.stderr)
                 self.assertIn("--token", r.stderr)
-        for bad in ("../x", "t.1", ""):
+        for bad in ("../x", "t.1", "", "x1", "t1x", "r1"):
             with self.subTest(token=bad):
                 r = _run(self.ws, "put", "--ledger", "decisions", "--token", bad, stdin={"decisions": [{"id": "D-003", "value": "x"}]})
                 self.assertEqual(r.returncode, 1, r.stderr)
@@ -188,6 +188,32 @@ class StageTransaction(_Workspace):
         written = self._files()
         self.assertEqual(_ok(self.ws, "restore", "--token", "t3")["files"], [])
         self.assertEqual(self._files(), written, "再実行の書き込みは戻らない")
+
+    def test_後のtokenの控えがあれば前のtokenの書き込みは何も書かずに止まる(self):
+        # 止まった run の遅れた書き込み（zombie）が今の段の控えを消すと、再実行の restore が何も戻さずに成功する。
+        before = self._files()
+        self._write_stage("t3r1")
+        written = self._files()
+        for old in ("t3", "t2", "t2r5"):
+            with self.subTest(token=old):
+                r = _run(self.ws, "put", "--ledger", "decisions", "--token", old, stdin={"decisions": [{"id": "D-003", "value": "遅れた書き込み"}]})
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("t3r1", r.stderr)
+                r = _run(self.ws, "del", "--ledger", "decisions", "--ids", "D-003", "--token", old)
+                self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self._files(), written)
+        self.assertEqual(sorted(p.name for p in (self.ws / "tx").iterdir()), ["t3r1"])
+        _ok(self.ws, "restore", "--token", "t3r1")
+        self.assertEqual({k: v for k, v in self._files().items() if not k.startswith("checks/")}, {k: v for k, v in before.items() if not k.startswith("checks/")})
+
+    def test_控えを書く途中で落ちた一時名があってもrestoreは控えを戻す(self):
+        before = self._files()
+        self._write_stage("t4")
+        (self.ws / "tx" / "t4" / ".decisions.json.pre.4242.tmp").write_text("{}")
+        out = _ok(self.ws, "restore", "--token", "t4")
+        self.assertIn("decisions.json", {f["path"] for f in out["files"]})
+        self.assertEqual({k: v for k, v in self._files().items() if not k.startswith("checks/")}, {k: v for k, v in before.items() if not k.startswith("checks/")})
+        self.assertFalse((self.ws / "tx" / "t4").exists())
 
     def test_控えでないファイルがあればrestoreは何も戻さない(self):
         self._write_stage("t4")

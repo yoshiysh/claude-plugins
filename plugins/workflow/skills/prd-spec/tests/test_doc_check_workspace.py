@@ -440,12 +440,13 @@ class FlowAndConflicts(_Workspace):
             {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}},
         ]})
-        self.assertEqual([x["verdict"] for x in _ok(self.ws, "flow")["resolutions"]], [None] * 4)
+        self.assertEqual([x["verdict"] for x in _ok(self.ws, "flow", "--rulings")["resolutions"]], [None] * 4)
+        self.assertNotIn("resolutions", _ok(self.ws, "flow"), "裁定と合否の一覧は --rulings のときだけ出す")
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
         _put(self.ws, "verifications", {"items": [{"id": "RS-002", "verdict": "pass"}, {"id": "RS-003", "verdict": "fail", "fail_kind": "value_as_method", "reason": "r"},
                                                   {"id": "RS-004", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]},
              "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
-        got = _ok(self.ws, "flow")["resolutions"]
+        got = _ok(self.ws, "flow", "--rulings")["resolutions"]
         want = [
             {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "verdict": None},
             {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "verdict": "pass"},
@@ -466,7 +467,7 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-002", "value": "書き換えた値"},
                                                       {"id": "RS-003", "ruling": "hold", "value": None, "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}}]})
         rewritten = [want[0], {**want[1], "verdict": None}, {**want[2], "ruling": "hold"}, want[3]]
-        self.assertEqual(_ok(self.ws, "flow")["resolutions"], rewritten)
+        self.assertEqual(_ok(self.ws, "flow", "--rulings")["resolutions"], rewritten)
         with tempfile.TemporaryDirectory() as tmp:
             world = Path(tmp) / "w.json"
             versions = {"RS-002": 1, "RS-003": 1}
@@ -476,7 +477,7 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(stub["disk"]["resolutions"], rewritten)
 
     def _verdict(self, rs_id):
-        return next(x for x in _ok(self.ws, "flow")["resolutions"] if x["id"] == rs_id)["verdict"]
+        return next(x for x in _ok(self.ws, "flow", "--rulings")["resolutions"] if x["id"] == rs_id)["verdict"]
 
     def _judge(self, items):
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
@@ -503,6 +504,20 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "ruling": "question", "value": None, "options": options,
                                                        "question": {"header": "h", "text": "t", "searched": "s"}}]})
         self.assertEqual(self._verdict("RS-006"), "fail", "変換した問いは不合格を持ち越す（変換した分はもう検証しない）")
+
+    def test_保持規則への書き換えは不合格だけを持ち越す(self):
+        # hold.rule は保持規則として writer に届く規範文なので、合格の後に書いた rule は検証していない。
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
+                                                      {"id": "RS-007", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        self._judge([{"id": "RS-006", "verdict": "pass"}, {"id": "RS-007", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}])
+        held = lambda rule: {"ruling": "hold", "value": None, "hold": {"rule": rule, "issue_draft": "d", "item_ids": []}}
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A")}, {"id": "RS-007", **held("保持規則 B")}]})
+        self.assertIsNone(self._verdict("RS-006"), "合格の後に書いた保持規則は検証していない")
+        self.assertEqual(self._verdict("RS-007"), "fail", "変換した不合格はもう検証しない")
+        self._judge([{"id": "RS-006", "verdict": "pass"}])
+        self.assertEqual(self._verdict("RS-006"), "pass")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A を書き換えた")}]})
+        self.assertIsNone(self._verdict("RS-006"), "検証した保持規則を書き換えれば合格を失う")
 
     def test_覆されていない裁定のある論点に別のIDの裁定を足さない(self):
         rs = lambda i, about, **kw: {"id": i, "about": about, "ruling": "internal", "value": "v", "why": "w", **kw}

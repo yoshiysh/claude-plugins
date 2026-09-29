@@ -150,6 +150,11 @@ class Pure(unittest.TestCase):
         state = {"passed": ["RS-1", "D-4", "F-2"], "answered": ["RS-5"], "failed_ids": ["RS-5"]}
         self.assertEqual(value(f"usableResolutions({json.dumps(state)})"), ["RS-1"])
 
+    def test_usableResolutionsは合格したholdと回答待ちの問いを根拠にしない(self):
+        # hold は保持規則として書く（根拠にすると、決まっていない値を決まったものとして書く）。回答待ちの問いも値が決まっていない。
+        state = {"passed": ["RS-1", "RS-2", "RS-3", "RS-4"], "holds": ["RS-2"], "questions": ["RS-3", "RS-4"], "answered": ["RS-4"]}
+        self.assertEqual(value(f"usableResolutions({json.dumps(state)})"), ["RS-1", "RS-4"])
+
     def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
         state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"]}
         self.assertEqual(value(f"invalidIds({json.dumps(state)}, ['F-007'])"), {"decisions": ["D-003", "D-004"], "flow": ["F-007"]})
@@ -288,16 +293,22 @@ class Pure(unittest.TestCase):
         for name, fc, st in (("書き換えて検証していない要素", {**clean, "unverified": ["F-001", "F-002"]}, state),
                              ("合否の無い resolution", {**clean, "resolutions": [*converted, {"id": "RS-9", "about": {"open": "O-1"}, "ruling": "internal", "verdict": None}]}, state),
                              ("問いにも保持規則にもならない不合格の resolution", {**clean, "resolutions": [*converted, {"id": "RS-9", "about": {"open": "O-1"}, "ruling": "internal", "verdict": "fail", "fail_kind": "insufficient_grounds"}]}, state),
-                             ("裁定の無い不合格の要素", clean, {})):
+                             ("裁定の無い不合格の要素", clean, {}),
+                             ("不合格の回答済みの問い", {**clean, "resolutions": [*converted, {"id": "RS-8", "about": {"open": "O-8"}, "ruling": "question", "verdict": "fail", "fail_kind": "insufficient_grounds"}]},
+                              {**state, "questions": ["RS-8"], "answered": ["RS-8"]})):
             with self.subTest(name):
                 self.assertIsNotNone(value(f"unverifiedLeft({json.dumps(fc)}, {json.dumps(st)}, false)"))
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
         base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
-        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))}, true)"))
         for k in ("codes", "unverified", "failed_current", "resolutions", "open_only", "stale_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
-            self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
+            self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))}, true)"), k)
+            if k != "resolutions":
+                self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
+        plain = {x: v for x, v in base.items() if x != "resolutions"}
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(plain))})"), "生成者の doc_check flow（--rulings なし）は resolutions を持たない")
         two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(two))})"))
         self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps({**two, 'findings': 3}))})"), "符号の件数の和と findings が食い違う stdout は受け取らない")

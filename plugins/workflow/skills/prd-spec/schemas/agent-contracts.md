@@ -25,7 +25,8 @@
     その一覧をエラーに出す。
   - put・del の `--token` は、プロンプトの「トークン:」の値にする。token の無い put・del は何も書かずに exit 1 で終わる。
     doc_check は token ごとに段の入口の台帳の控えを取り、blocked の後の同じ段の再実行はそれで止まった run の書き込みを取り消してから
-    始まる（references/workflow-io.md §3）。別の値を付けると、その書き込みは取り消されずに残る。
+    始まる（references/workflow-io.md §3）。別の値を付けると、形が違うか後の段の token の控えがあれば何も書かずに exit 1 で終わり、
+    そうでなければ取り消されずに残る。
   - **put の意味（どの台帳でも同じ）**: キーが同じ要素には、送った最上位の欄だけがその場で上書きされ、送らなかった
     欄は元の値のまま残る。変える欄だけを送ればよい（要素を丸ごと送り直すと、読み違えた欄や送り忘れた欄で既存の値を
     壊す）。欄を消すときは、その欄に `null` を送る。送らないだけでは消えず、古い値が黙って残る。スカラーも同じで、
@@ -356,11 +357,11 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
-- stdout の `resolutions` は resolution ごとの `{id, about, ruling, verdict}`（不合格は `fail_kind` も）である。`verdict` は verifications.json の合否で、
+- `flow --rulings` の stdout の `resolutions` は resolution ごとの `{id, about, ruling, verdict}`（不合格は `fail_kind` も）である（`--rulings` の無い
+  `flow` は出さない）。`verdict` は verifications.json の合否で、
   検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に書き換えた裁定は合否を失う。例外として持ち越す
-  書き換え（根拠を増やさないもの: 保持規則への書き換え・問いの不合格・検証した候補を選んだ回答）の正本は doc_check の `carriesVerdict` である。
-  問いの形の修正で候補の文を変えた問いは合格を失い、検証し直すまで根拠にならない。script は、返り値が届かなかった裁定と合否（止まった run が書いたもの・
-  出し直した resolver が返さなかったもの）をここから受け取る（script はファイルを読めない）。
+  書き換えの正本は doc_check の `carriesVerdict` である。script は、出し直した resolver の 1 回目が書いて返さなかった裁定をここから受け取り、
+  合否が無いか script の持つ合否と違う resolution を verifier に検証させる（script はファイルを読めない）。
 - script が判断に使う stdout（§flow-check）の `codes` に残った指摘は、符号によらずすべて settle に「要素: 何が無いか」（flow-framer 専用の
   符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは、その cycle で flow を書いた生成者に消せない指摘（「## flow.json の形」の直し手）と、
   台帳の書き込みから出た指摘だけで（生成者が消せる指摘は §resolver-verifier の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
@@ -445,18 +446,18 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 
 入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/input.md`、
 `W/answers/*.md`、script が渡す検証対象の ID。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、
-put の stdout の値をそのまま入れる。`pass`・`fail` の resolution（RS-）は渡された ID に限る。script は渡していない RS- の合否を
-その cycle の差し戻しと変換に回さず、`notices` に 1 行残す（回すと、回答待ちの問いが保持規則に書き換わる）。W に書いた合否は、次に script が
-W を読むとき（§flow-check の stdout の `resolutions`）に台帳の集合に入る:
+put の stdout の値をそのまま入れる。`pass`・`fail` の resolution（RS-）は渡された ID に限る。script は渡していない RS- の合否を数えず
+（差し戻しにも変換にも台帳の集合にも入れない。入れると、回答待ちの問いが保持規則に書き換わり、回答済みの問いは不合格のまま黙って消える）、
+`notices` に 1 行残す。W に put されたその合否が script の持つ合否と違えば、script はその RS- を次の verifier（`<段>v-left`）に検証させ直す:
 
 ```json
 { "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
 ```
 
 検証の最初に `doc_check flow` を実行し、その `unverified` のうち `failed_current` に無い要素すべての出典も検証して、その F- も `pass`・`fail` に入れる
-（script の渡す ID の一覧は、止まった run が書いて検証の前に止まった要素を知らない）。最後の `flow_check` に今の版に合否の無い要素か
-resolution（`resolutions` の `verdict` が `null`）が残っていれば、script は別の verifier（`<段>v-left`。settle の回の後は `<段>v-left-<n>`）に
-それだけを検証させる。その verifier も残せば、script はその段をやり直させる。
+（script の渡す ID の一覧は、応答の前に書いて出し直された役や所有表の外が書いた要素を知らない）。最後はプロンプトのとおり `doc_check flow --rulings` を実行する。
+その `flow_check` に今の版に合否の無い要素か、合否が無いか script の持つ合否と違う resolution が残っていれば、script は別の verifier（`<段>v-left`。
+settle の n 回目の後は `<段>v-left-<n+1>`）にそれだけを検証させる。その verifier も残せば、script はその段をやり直させる。
 
 `flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を
@@ -473,9 +474,10 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 
 最後の verifier の後に resolver を起動していたら（応答しなかった resolver も、応答の前に台帳を書いていることがある）、script は判断（settle の起動と残りの数え上げ・輪を出た後の理由）の前に
 `flow-check:<その resolver の label から resolver: を除いたもの>` を起動する。段 3 以降から始める run は、最初に `flow-check:<from>-entry` で W を読み直す
-（blocked の後の同じ段の再実行では、その前に `restore` で止まった run の台帳の書き込みを取り消す。扱いは references/workflow-io.md §3）。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
+（blocked の後の同じ段の再実行では、その前に `restore` で止まった run の台帳の書き込みを取り消す。扱いは references/workflow-io.md §3）。
+flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check のコマンド（`flow`、入口では `restore` も）だけ。書くもの: なし（`W/checks/flow.json` と restore の書き戻しは doc_check が書く）。
+入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` も）だけ。書くもの: なし（`W/checks/flow.json` と restore の書き戻しは doc_check が書く）。
 
 ```json
 { "flow_check": "実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）" }

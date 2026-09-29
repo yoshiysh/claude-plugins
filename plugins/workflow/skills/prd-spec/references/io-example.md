@@ -81,7 +81,7 @@ resolver が RS-003 に対応づけ、verifier がその対応づけを検証す
              { "item_id": "PR-NOTIFICATION-001", "kind": "flow", "ref": "F-007" } ] }
 ```
 
-writer はこの meta を `doc_check put --ledger meta --doc requirements/notification` の標準入力で書く。put は
+writer はこの meta を `doc_check put --ledger meta --doc requirements/notification --token <プロンプトのトークン>` の標準入力で書く。put は
 `answers` の引用が回答のファイルに逐語であるかを照合してから書く。
 
 **保存**: `tree-digest` を返り値の `tree_digest` と照合し、`doc_check index` の出力を `docs/requirements/INDEX.md`

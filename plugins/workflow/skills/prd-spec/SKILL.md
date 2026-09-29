@@ -72,8 +72,8 @@ workspace を用意し、保存することだけである。** 決定・問い�
    依頼者が言っていないことが入力の顔をして全員に届く。
 4. **既存文書**（`existing`・`expand`）は `W/<kind>-<topic>.md` に逐語で置き、`existing_docs` に
    `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。`expand` の要求文書は `fixed: true` にし、
-   `echo '{"fixed": true}' | node [SKILL_DIR]/scripts/doc_check.mjs put --ledger meta --doc <kind>/<topic> --token s0 --workspace <W>`
-   でその meta を書く（固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する。`s0` は段に入る前の書き込みの token）。meta は台帳
+   `echo '{"fixed": true}' | node [SKILL_DIR]/scripts/doc_check.mjs put --ledger meta --doc <kind>/<topic> --token t0 --workspace <W>`
+   でその meta を書く（固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する。`t0` は段に入る前の書き込みの token。段の token は t1 から）。meta は台帳
    なので put で書く。put 以外で書くと正規形から外れ、その文書を読む doc_check が止まる。
 5. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に

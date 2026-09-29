@@ -123,7 +123,7 @@ const put = (id, verdict, kind) => {
   persist()
 }
 // resolution の版（書くたびに 1 増える）。av は候補の選択の回答（検証した候補の decision_text を value に写すだけ）で増える版。
-// 合否の持ち越しは doc_check の carriesVerdict と同じ: 同じ版、hold、問いの不合格、候補の選択だけが違う問いの合格。
+// 合否の持ち越しは doc_check の carriesVerdict と同じ: 同じ版、問いと hold の不合格、候補の選択だけが違う問いの合格。
 const writeRs = (id, row) => {
   touch('resolutions')
   disk.rs[id] = { ...row, v: disk.rs[id] ? (disk.rs[id].v ?? 0) + 1 : 0, ...(disk.rs[id] && disk.rs[id].av ? { av: disk.rs[id].av } : {}) }
@@ -138,17 +138,21 @@ const rsVerdict = (id) => {
   if (!v) return null
   const sameV = (v.v ?? 0) === (r.v ?? 0)
   if (sameV && (v.av ?? 0) === (r.av ?? 0)) return v
-  if (r.ruling === 'hold' || (r.ruling === 'question' && v.verdict === 'fail')) return v
+  if (['hold', 'question'].includes(r.ruling) && v.verdict === 'fail') return v
   return r.ruling === 'question' && v.verdict === 'pass' && sameV ? v : null
 }
-const onDisk = () => ({
+// rulings: doc_check flow --rulings のときだけ resolutions を出す（プロンプトが --rulings を付け忘れた呼び出しの stdout は、script が受け取らない）。
+const onDisk = (rulings) => ({
   unverified: Object.keys(disk.els).sort().filter((id) => verdictAt(id) !== 'pass'),
   failed_current: Object.keys(disk.els).sort().filter((id) => verdictAt(id) === 'fail'),
-  resolutions: Object.keys(disk.rs).sort().map((id) => {
-    const v = rsVerdict(id)
-    return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
-  }),
+  ...(rulings ? {
+    resolutions: Object.keys(disk.rs).sort().map((id) => {
+      const v = rsVerdict(id)
+      return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
+    }),
+  } : {}),
 })
+const asksRulings = (prompt) => /doc_check\.mjs flow --workspace \S+ --rulings`/.test(prompt)
 // open_only_at・stale_refs_at・pair_keys_at・open_ids_at: 段（label の 2 つ目）ごとの doc_check flow / conflicts の stdout の一覧（要素の中身の事実）。
 // flow_codes_at: 段ごとの指摘の符号と場所。無ければ件数の分だけ、flow を書くどの役にも直せる符号（FLOW_DANGLING）にする。
 // latest: 最後に出した doc_check flow の stdout（W は 1 つなので、flow も台帳も書かない呼び出しの後にも残る）。flow.json を書かない resolver と
@@ -158,11 +162,11 @@ const WORLD_AT = ['flow_codes_at', 'flow_findings_at', 'open_only_at', 'stale_re
 const explicitAt = (stage) => WORLD_AT.some((k) => at(k, stage) !== undefined)
 // keep: 組は flow.json・decisions.json で決まり verifier は書かないので、verifier の stdout は既定で最後の世界の組を出す（verifier_pair_keys_at で上書き）。
 // framer: open.json を書く flow-framer の stdout か（O- の既定は framerOpens の上）。
-const flowStdout = (count, sha, stage, keep, framer) => {
+const flowStdout = (count, sha, stage, keep, framer, rulings) => {
   const codes = at('flow_codes_at', stage) || (count ? { FLOW_DANGLING: Array.from({ length: count }, (_, i) => `F-8${String(i).padStart(2, '0')}`) } : {})
   const findings = Object.values(codes).reduce((n, xs) => n + xs.length, 0)
   latest = { findings, codes, open: spec.flow_open || 0, path: 'checks/flow.json', digest: 'fd', open_only: at('open_only_at', stage) || [], stale_refs: at('stale_refs_at', stage) || [], open_ids: at('open_ids_at', stage) || (framer ? (stage === 'framer' ? framerOpens() : []) : latest ? latest.open_ids : disk.open_ids || []), pair_keys: (keep && (at('verifier_pair_keys_at', stage) || (latest && latest.pair_keys))) || at('pair_keys_at', stage) || [] }
-  return JSON.stringify({ ...latest, content_sha256: sha, ...onDisk() })
+  return JSON.stringify({ ...latest, content_sha256: sha, ...onDisk(rulings) })
 }
 // open.json は flow-framer だけが書くので、flow-framer の stdout の O- は open_ids_at（段 2 は無ければ flow_open の件数）で決め、ほかの役の
 // stdout は最後の世界の O- を出す。flow-framer が足した O- は W（disk.open_ids）に残り、前の run の後の入口の flow-check もそれを数える。
@@ -173,7 +177,7 @@ const framerOpens = () => {
   const pad = Array.from({ length: spec.flow_open || 0 }, (_, i) => `O-${String(i + 1).padStart(3, '0')}`)
   return [...new Set([...ruled3, ...pad])].slice(0, Math.max(spec.flow_open || 0, 0)).sort()
 }
-const latestStdout = (sha) => (latest ? JSON.stringify({ ...latest, content_sha256: sha, ...onDisk() }) : flowStdout(0, sha, null))
+const latestStdout = (sha, rulings) => (latest ? JSON.stringify({ ...latest, content_sha256: sha, ...onDisk(rulings) }) : flowStdout(0, sha, null, false, false, rulings))
 const conflictsStdout = (stage) => JSON.stringify({ pairs: (at('pair_keys_at', stage) || []).length, path: 'checks/conflicts.json', digest: 'c', pair_keys: at('pair_keys_at', stage) || [] })
 const ids = (text, re) => [...new Set(String(text).match(re) || [])]
 const about = (id) => (spec.about || {})[id] || { open: `O-${id}` }
@@ -236,8 +240,8 @@ function respond(prompt, label) {
     // orphans_at: 台帳に書いたが返さない hold（応答しなかった 1 回目の呼び出しが書き、出し直しが返さなかった裁定）。
     for (const id of at('orphans_at', stage) || []) writeRs(id, { about: about(id), ruling: 'hold' })
     persist()
-    // resolutions.json の sha256 は中身で決まる（同じ中身を書き直しても変わらない。版の数と問いの形は中身に数えない）。
-    sha = H(`rs-${hash(JSON.stringify(Object.entries(disk.rs).sort().map(([id, r]) => [id, r.about, r.ruling])))}`)
+    // resolutions.json の sha256 は中身で決まる（同じ中身を書き直しても変わらない）。版の数（v・av）も中身に数える。
+    sha = H(`rs-${hash(JSON.stringify(Object.entries(disk.rs).sort().map(([id, r]) => [id, r.about, r.ruling, r.v ?? 0, r.av ?? 0])))}`)
     const out = { ruled, questions: q, holds, supersedes: at('supersedes_at', stage) || [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], [spec.resolver_sha_key || 'resolutions_sha256']: sha }
     const checked = at('questions_check_ids_at', stage) || (/-questions(-\d+)?$/.test(stage) ? ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g) : q.map((x) => x.id))
     if (checked.length) {
@@ -262,7 +266,8 @@ function respond(prompt, label) {
     readOnly(stage)
     const tx = /doc_check\.mjs restore --workspace \S+ --token (\S+?)`/.exec(prompt)
     const restored = tx && !(spec.no_restore_at || []).includes(base) ? { restore_check: restoreTx(tx[1]) } : {}
-    return { ...restored, flow_check: k ? flowStdout(at('flow_findings_at', k) || 0, flowSha, k) : latestStdout(flowSha) }
+    const rulings = asksRulings(prompt)
+    return { ...restored, flow_check: k ? flowStdout(at('flow_findings_at', k) || 0, flowSha, k, false, false, rulings) : latestStdout(flowSha, rulings) }
   }
   if (role === 'verifier') {
     const asked = ids(prompt.split('検証する resolution の ID:')[1].split('\n')[0], /RS-\d+/g)
@@ -285,7 +290,7 @@ function respond(prompt, label) {
       pass: [...asked.filter((i) => !failIds.includes(i)), ...askedFlow, ...(at('verifier_extra_pass', stage) || [])],
       fail,
       resolutions_sha256: at('verifier_resolutions_sha_at', stage) || sha,
-      flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen, stage, true),
+      flow_check: flowStdout(at('verifier_flow_findings_at', stage) || 0, seen, stage, true, false, asksRulings(prompt)),
     }
   }
   if (role === 'writer') {
@@ -370,7 +375,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk() }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true) }))
 """
 
 
@@ -428,7 +433,7 @@ VERIFY_ALL_MARK = "unverified のうち failed_current に無い要素すべて"
 
 
 def on_disk(world):
-    """stub の W（spec.world）の検証の状態を、doc_check flow の unverified・failed_current・unverdicted と同じ規則で読む。"""
+    """stub の W（spec.world）の検証の状態を、doc_check flow の unverified・failed_current と、resolutions の verdict が null の RS（no_verdict）と同じ規則で読む。"""
     d = json.loads(Path(world).read_text())
     at = lambda i: d["verdicts"].get(i, {}).get("verdict") if d["verdicts"].get(i, {}).get("v") == d["els"][i] else None
     def judged(i):
@@ -438,29 +443,17 @@ def on_disk(world):
         same = v.get("v", 0) == r.get("v", 0)
         if same and v.get("av", 0) == r.get("av", 0):
             return True
-        if r.get("ruling") == "hold" or (r.get("ruling") == "question" and v["verdict"] == "fail"):
+        if r.get("ruling") in ("hold", "question") and v["verdict"] == "fail":
             return True
         return r.get("ruling") == "question" and v["verdict"] == "pass" and same
     return {"unverified": sorted(i for i in d["els"] if at(i) != "pass"), "failed_current": sorted(i for i in d["els"] if at(i) == "fail"),
-            "unverdicted": sorted(i for i in d["rs"] if not judged(i))}
+            "no_verdict": sorted(i for i in d["rs"] if not judged(i))}
 
 
 def judged_by(test, r, label, el):
     """label の verifier が W の今の版に合否の無い要素すべて（VERIFY_ALL）を検証させられ、el が最後の W で今の版の合否を持つ。"""
     test.assertIn(VERIFY_ALL_MARK, nth_prompt(r, label, 0))
     test.assertTrue(el not in r["disk"]["unverified"] or el in r["disk"]["failed_current"], f"{el} が今の版で検証されていない")
-
-
-def unrestored(next_args):
-    """blocked の next_args から restore（戻す token）を外した args。止まった run の書き込みが W に残ったまま入口に入る
-    （restore の無い再開）ので、入口の読み直し（W の裁定と合否を state に写す経路）を通せる。flow_digest は止まった run が
-    最後に照合を通した版にする。"""
-    st = dict(next_args["state"])
-    tx = st.pop("tx")
-    if "flow" in tx:
-        st["flow_digest"] = tx["flow"]
-    st["tx"] = {k: v for k, v in tx.items() if k not in ("restore", "flow")}
-    return args(**{**{k: v for k, v in next_args.items() if k not in ("state", "state_hash")}, "state": st})
 
 
 def nth_prompt(r, label, n):
@@ -643,7 +636,7 @@ class Stages(unittest.TestCase):
 
     def test_検証を求めていない裁定の合否は差し戻しにも変換にも回さない(self):
         # RS-099 は回答待ちの問い。検証を求めていない合否でその cycle の差し戻しや変換を起こすと、問いが保持規則に書き換わる。
-        # W に書かれた合否そのものは W が正なので、次に W を写すときに台帳の集合に入る（問いは問いのまま残る）。
+        # W に put された合否は script の持つ合否（段 3 の合格）と違うので、検証を求めた verifier（3av-left）に検証させ直す。
         g0 = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "questions_at": {"3": ["RS-099"]}})["result"]
         asked = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}
         unasked = {"id": "RS-099", "kind": "insufficient_grounds", "reason": "r"}
@@ -654,8 +647,9 @@ class Stages(unittest.TestCase):
         self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3b"), r.get("reason"))
         state = r["next_args"]["state"]
         self.assertIn("RS-099", state["questions"])
-        self.assertIn("RS-099", state.get("failed_ids", []))
+        self.assertNotIn("RS-099", state.get("failed_ids", []), "検証を求めていない不合格を台帳の集合に入れない")
         self.assertNotIn("RS-099", state.get("holds", []))
+        self.assertIn("RS-099", nth_prompt(full, "verifier:3av-left", 0).split("検証する resolution の ID:")[1].split("\n")[0])
         self.assertFalse([p for p in full["prompts"] if "RS-099 →" in p["prompt"]], "問いを変換に回さない")
         self.assertTrue(any("RS-099" in n and "合否に数えていない" in n for n in state["notices"]), state["notices"])
         # 合格の側も同じ。検証を求めていない RS-098 が合格に入ると、誰も検証していない resolution が根拠に使える集合に入る。
@@ -672,6 +666,23 @@ class Stages(unittest.TestCase):
                      "free_text_at": {"3a": ["RS-002"]}, "verifier_extra_pass": {"3av": ["RS-098"]}, "null_labels": ["flow-framer:3b-reframe", "flow-framer:3b-reframe#retry"]})
         self.assertIsNone(again["error"], again["error"])
         self.assertEqual(sum("RS-098" in n for n in again["result"]["next_args"]["state"]["notices"]), 1)
+
+    def test_書いた後に同じIDで裁定し直した裁定は次の改稿のwriterに渡す(self):
+        # 段 3 の検証の裁定 RS-005 は初稿で writer に渡った。G1 の後の 3a' で F-100 がまた落ち、差し戻しは同じ about の RS-005 を
+        # 書き直す（同じ論点に別の ID の裁定は put できない）。written に残すと、書き直した裁定がどの writer にも渡らずに done になる。
+        F = [{"id": "F-100", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        base = {"about": {"RS-005": {"verification": "F-100"}, "RS-010": {"finding": "r1-cd-all-001"}},
+                "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]},
+                "verifier_fail": {"3v": F, "3a'v": F}, "ruled_at": {"3'": ["RS-005"], "3a'": ["RS-010"], "3a''": ["RS-005"]},
+                "unverified_at": {"3-settle": ["F-100"], "3a'": ["F-100"], "3a'-settle": ["F-100"]}, "flow_sha_at": {"3a'": "f-3a2"},
+                "questions_at": {"6": ["RS-010"]}}
+        g1 = run({**base, "args": args()})["result"]
+        self.assertEqual((g1["status"], g1["next_args"]["state"]["settled_written"]), ("needs_answers", ["RS-005"]))
+        r = run({**base, "args": g1["next_args"]})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertIn("resolver:3a''", r["labels"])
+        [line] = [l for l in nth_prompt(r, "writer:U-1:revise", 0).split("\n") if l.startswith("前回の書き込みの後に決まった resolution")]
+        self.assertIn("RS-005", line)
 
     def test_変換で求めていないIDを返したresolverは段を止める(self):
         fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
@@ -867,7 +878,6 @@ class Stages(unittest.TestCase):
         state = {
             "units": [{"id": "U-1", "docs": ["requirements/x"], "depends_on": []}],
             "flow_digest": "f-framer",
-            "counts": {"open": 0, "pairs": 0},
         }
         for frm, first in (("4", "writer:U-1:draft"), ("5", "implementer:r1:requirements/x"), ("3", "verifier:3v")):
             with self.subTest(frm=frm):
@@ -1402,13 +1412,13 @@ class RerunFromTheSameStage(unittest.TestCase):
         D = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
         stale = [{"el": "F-053", "ref": "D-003"}]
         common = {"about": {"RS-060": {"open": "O-060"}, "RS-010": {"finding": "r1-cd-all-001"}}}
-        # 段ごとの世界。再実行の入口は、止まった run が足して裁定の無いまま残した O-060 を裁定させる（段 3 は段そのものが裁定する）。
-        worlds = (("3", {"flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-settle-opens": ["RS-060"]}, "flow_codes_at": {"3": D, "3v": D}}, {"3": ["RS-001", "RS-060"]}),
-                  ("3", {"ruled_at": {"3-settle-opens": ["RS-060"]}, "flow_codes_at": {"3v": D}}, {"3": ["RS-060"]}),
+        # 段ごとの世界。止まった run が settle で足した O-060 も restore で消え、再実行は止まらなかった run と同じく settle で足して裁定する。
+        worlds = (("3", {"flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-settle-opens": ["RS-060"]}, "flow_codes_at": {"3": D, "3v": D}}),
+                  ("3", {"ruled_at": {"3-settle-opens": ["RS-060"]}, "flow_codes_at": {"3v": D}}),
                   ("6", {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]},
-                         "flow_codes_at": {"6": D, "6v": D}}, {"6-entry-opens": ["RS-060"]}))
+                         "flow_codes_at": {"6": D, "6v": D}}))
         silent = lambda label: {"null_labels": [label, f"{label}#retry"]}
-        for stage, world, rerun_rules in worlds:
+        for stage, world in worlds:
             spec = {**common, **world, "open_ids_at": {f"{stage}-settle": ["O-060"]}, "unverified_at": {f"{stage}-settle": ["F-053"]}, **self._world()}
             for name, stop in (("verifier が応答しない", silent(f"verifier:{stage}v-settle")), ("resolver が応答しない", silent(f"resolver:{stage}-settle-opens")),
                                ("flow-framer の指摘が残る", {"open_ids_at": {}, "flow_codes_at": {**world["flow_codes_at"], f"{stage}v-settle": D}}),
@@ -1420,8 +1430,7 @@ class RerunFromTheSameStage(unittest.TestCase):
                     stopped = run({**spec, "args": args(), **stop})
                     self.assertEqual(stopped["result"]["next_args"]["from"], stage, stopped["result"].get("reason"))
                     self.assertIn(f"flow-framer:{stage}-settle", stopped["labels"])
-                    rerun = {**spec, "ruled_at": {**world["ruled_at"], **rerun_rules}}
-                    again = run({**rerun, "args": stopped["result"]["next_args"]})
+                    again = run({**spec, "args": stopped["result"]["next_args"]})
                     resumed = again["result"]
                     self.assertEqual((resumed["status"], resumed["integrity"]), ("done", []), resumed.get("reason"))
                     d = json.loads(Path(self.world).read_text())
@@ -1433,39 +1442,38 @@ class RerunFromTheSameStage(unittest.TestCase):
                         continue
                     Path(self.world).unlink(missing_ok=True)
                     stopped = run({**spec, "args": args(), **stop})
-                    tampered = self._resume(stopped, {**rerun, "tamper_before": {first: "f-x"}})
+                    tampered = self._resume(stopped, {**spec, "tamper_before": {first: "f-x"}})
                     self.assertEqual((tampered["status"], tampered["next_args"]), ("blocked", None), "再実行の間の所有表の外の書き込みは止める")
                     self.assertIn("所有表の外", tampered["reason"])
 
     def _left_on_disk(self):
         d = on_disk(self.world)
-        return {"unverified": [x for x in d["unverified"] if x not in d["failed_current"]], "unverdicted": d["unverdicted"]}
+        return {"unverified": [x for x in d["unverified"] if x not in d["failed_current"]], "no_verdict": d["no_verdict"]}
 
     def test_止まったrunが書いて検証していないものは再実行が検証してから段を出る(self):
-        # 検証の前に止まった run の書き込み（settle の flow-framer が直した要素・resolver が書いた裁定）は W に残る。再実行の state は段の頭の値なので、
-        # 何を検証すべきかは W から取る。rerun は再実行の時点の世界（止まった run の書き込みの後）で、止まらなかった run と同じ結果になる。
+        # 検証の前に止まった run の書き込み（settle の flow-framer が直した要素・resolver が書いた裁定）は、再実行の入口の restore が段の頭の
+        # 台帳に戻す。再実行は段の頭から検証し直し、止まらなかった run と同じ結果になる。
         D = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
         silent = lambda label: {"null_labels": [label, f"{label}#retry"]}
         g1 = {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}}
         opens = {**g1, "about": {"RS-060": {"open": "O-060"}, "RS-010": {"finding": "r1-cd-all-001"}}, "ruled_at": {"6": ["RS-010"]},
                  "flow_codes_at": {"6": D, "6v": D}, "open_ids_at": {"6-settle": ["O-060"]}, "unverified_at": {"6-settle": ["F-053"]}}
-        fixed_opens = {"flow_codes_at": {}, "open_ids_at": {"6": ["O-060"], "6v": ["O-060"]}}
         only = lambda st: {"about": {"RS-010": {"open": "O-010"}}, "open_only_at": {f"{st}v": [{"el": "F-004", "open": "O-010"}]},
                            "unverified_at": {f"{st}-settle": ["F-004"], f"{st}-settle-rework": ["F-004"]}}
         no_cc = lambda st: {"no_conflicts_check_at": [f"{st}-settle", f"{st}-settle-rework"]}
         stale = [{"el": "F-002", "ref": "D-001"}]
         hold = {"findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}], "grounding:r2": [{"id": "r2-gr-requirements__x-001", "route": "decision"}]},
-                "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale}, "unverified_at": {"6-hold-settle": ["F-002"]}}
+                "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale, "6-holdv-left": stale}, "unverified_at": {"6-hold-settle": ["F-002"]}}
         cases = (
             ("段 6 の settle の verifier が応答しない（RS-060 は合格する裁定）", "6", {**opens, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}},
-             silent("verifier:6v-settle"), fixed_opens),
-            ("段 6 の settle の verifier が応答しない（RS-060 は hold）", "6", {**opens, "holds_at": {"6-settle-opens": ["RS-060"]}}, silent("verifier:6v-settle"), fixed_opens),
-            ("段 6 の flow-framer が conflicts を返さない", "6", {**g1, **only("6"), "ruled_at": {"6": ["RS-010"]}}, no_cc("6"), {"open_only_at": {}}),
+             silent("verifier:6v-settle")),
+            ("段 6 の settle の verifier が応答しない（RS-060 は hold）", "6", {**opens, "holds_at": {"6-settle-opens": ["RS-060"]}}, silent("verifier:6v-settle")),
+            ("段 6 の flow-framer が conflicts を返さない", "6", {**g1, **only("6"), "ruled_at": {"6": ["RS-010"]}}, no_cc("6")),
             ("段 6 の flow-framer が書いてから応答しない", "6", {**opens, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}},
-             {"silent_after_write": ["flow-framer:6-settle", "flow-framer:6-settle#retry"]}, fixed_opens),
-            ("2 パス目の段 6 の保持規則への変換の後の verifier が応答しない", "6", hold, silent("verifier:6-holdv-settle"), {"stale_refs_at": {}}),
+             {"silent_after_write": ["flow-framer:6-settle", "flow-framer:6-settle#retry"]}),
+            ("2 パス目の段 6 の保持規則への変換の後の verifier が応答しない", "6", hold, silent("verifier:6-holdv-settle")),
         )
-        for name, stage, base, stop, after in cases:
+        for name, stage, base, stop in cases:
             with self.subTest(name):
                 self._check_rerun(stage, base, stop, usable=["RS-060"] if "RS-060 は合格" in name else ())
         # G1 の後の 3a' の settle で止まる（前回の probe2）。G1 までの run は同じ W で先に走らせる。
@@ -1487,10 +1495,10 @@ class RerunFromTheSameStage(unittest.TestCase):
         whole = full["result"]
         for id_ in usable:
             self.assertIn(id_, next(l for l in nth_prompt(full, "writer:U-1:revise", -1).split("\n") if l.startswith("- 根拠にしてよい resolution")))
-        self.assertEqual(self._left_on_disk(), {"unverified": [], "unverdicted": []}, "止まらなかった run は検証を通っていないものを残さない")
+        self.assertEqual(self._left_on_disk(), {"unverified": [], "no_verdict": []}, "止まらなかった run は検証を通っていないものを残さない")
         stopped = run({**base, "args": start(), **stop, **self._world()})
         self.assertEqual(stopped["result"]["next_args"]["from"], stage, stopped["result"].get("reason"))
-        self.assertNotEqual(self._left_on_disk(), {"unverified": [], "unverdicted": []}, "止まった run は検証の前の書き込みを W に残す")
+        self.assertNotEqual(self._left_on_disk(), {"unverified": [], "no_verdict": []}, "止まった run は検証の前の書き込みを W に残す")
         again = run({**base, **self._world(), "args": stopped["result"]["next_args"]})
         self.assertIsNone(again["error"], again["error"])
         resumed = again["result"]
@@ -1498,14 +1506,14 @@ class RerunFromTheSameStage(unittest.TestCase):
         for id_ in usable:
             line = lambda r: next(l for l in nth_prompt(r, "writer:U-1:revise", -1).split("\n") if l.startswith("- 根拠にしてよい resolution"))
             self.assertIn(id_, line(again), "止まった run の裁定も、止まらなかった run と同じく根拠として writer に渡る")
-        self.assertEqual(self._left_on_disk(), {"unverified": [], "unverdicted": []})
+        self.assertEqual(self._left_on_disk(), {"unverified": [], "no_verdict": []})
         wrote_unreturned = "silent_after_write" in stop
         self.assertEqual(len(resumed["integrity"]), 1 if wrote_unreturned else 0, "照合を通らなかった書き込みだけを integrity に数える")
         if wrote_unreturned:
             self.assertIn("段の入口の版", resumed["integrity"][0], "照合の前に止まった flow の書き込みは restore で戻したものとして数える")
 
     def test_返らなかった裁定は同じrunの中でもsettleの前に検証しstateに入れる(self):
-        # 出し直した resolver が 1 回目の書いた裁定を返さないと、W にだけ裁定が残る。flow-check の unverdicted から受け取って検証し、止まらなかった run と同じく保持規則に数える。
+        # 出し直した resolver が 1 回目の書いた裁定を返さないと、W にだけ裁定が残る。flow-check の resolutions（--rulings）から受け取って検証し、止まらなかった run と同じく保持規則に数える。
         spec = {"findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}], "grounding:r2": [{"id": "r2-gr-requirements__x-001", "route": "decision"}]},
                 "questions_at": {"6": ["RS-020"]}, "orphans_at": {"6-hold": ["RS-077"]}, "about": {"RS-077": {"open": "O-077"}}, **self._world()}
         r = run({**spec, "args": args()})
@@ -1513,7 +1521,7 @@ class RerunFromTheSameStage(unittest.TestCase):
         self.assertEqual(res["status"], "done", res.get("reason"))
         self.assertIn("verifier:6-holdv-left", r["labels"])
         self.assertIn("RS-077", res["holds"] + res["hold_drafts"])
-        self.assertEqual(self._left_on_disk(), {"unverified": [], "unverdicted": []})
+        self.assertEqual(self._left_on_disk(), {"unverified": [], "no_verdict": []})
         # 段の本体の resolver の出し直しが返さなかった裁定も、段をやり直させずに同じ run の settle の前に検証する。
         Path(self.world).unlink()
         main = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "ruled_at": {"6": ["RS-010"]},
@@ -1521,7 +1529,7 @@ class RerunFromTheSameStage(unittest.TestCase):
         self.assertEqual(main["result"]["status"], "done", main["result"].get("reason"))
         self.assertIn("verifier:6v-left", main["labels"])
         self.assertIn("RS-077", main["result"]["holds"])
-        self.assertEqual(self._left_on_disk(), {"unverified": [], "unverdicted": []})
+        self.assertEqual(self._left_on_disk(), {"unverified": [], "no_verdict": []})
 
     def test_直す役のいない段の入口で検証に落ちた要素があれば書く前に止める(self):
         stopped = run({"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}]}, "null_labels": ["writer:U-1:revise", "writer:U-1:revise#retry"], **self._world()})
@@ -1535,7 +1543,7 @@ class RerunFromTheSameStage(unittest.TestCase):
         self.assertFalse(has(r["labels"], "writer:"), "落ちた要素を根拠にしうる writer を起動しない")
         res = r["result"]
         self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
-        self.assertIn("段 7 の入口の flow に、直す役のいない段で不合格の要素 F-070", res["reason"])
+        self.assertIn("段 7 の入口の flow に不合格の要素 F-070 があります（所有表の外の書き込み", res["reason"])
 
     def test_settleで落ちたまま止まった要素は再実行でも直させて止まる(self):
         # 止まらなかった run は settle で落ち続けた要素で止まる。再実行も同じ要素を W の不合格から拾って直させ、直らなければ同じく止まる（done にならない）。
@@ -1568,6 +1576,7 @@ class RerunFromTheSameStage(unittest.TestCase):
 
     def test_3aのflowの食い違いは同じ段の再実行で生成者が検査し直す(self):
         g0 = self._g0()
+        at_g0 = Path(self.world).read_text()
         spec = {"ruled_at": {"3a": ["RS-001", "RS-002"]}, "questions_at": {"3a": ["RS-003"]}, **self._world()}
         stopped = run({**spec, "args": g0["next_args"], "tamper_before": {"verifier:3av": "f-x"}})
         self.assertEqual(stopped["result"]["next_args"]["from"], "3a")
@@ -1576,7 +1585,8 @@ class RerunFromTheSameStage(unittest.TestCase):
         self.assertEqual(resumed["status"], "needs_answers")
         self.assertEqual(len(resumed["integrity"]), 1, "所有表の外の書き込みは、再実行の入口でも integrity に数える")
         self.assertIn("段 3a の入口の flow.json（f-x）", resumed["integrity"][0])
-        whole = run({**spec, "args": g0["next_args"]})["result"]
+        Path(self.world).write_text(at_g0)
+        whole = run({**spec, "args": g0["next_args"], "tamper_before": {"flow-check:3a-entry": "f-x"}})["result"]
         drop = lambda na: {**na, "state": {k: v for k, v in na["state"].items() if k != "integrity"}, "state_hash": None}
         self.assertEqual(drop(resumed["next_args"]), drop(whole["next_args"]), "W の flow.json が f-x のまま止まらずに走った run と同じ")
 
@@ -1606,7 +1616,7 @@ class RerunFromTheSameStage(unittest.TestCase):
         d = json.loads(Path(self.world).read_text())
         failed = [i for i, r in d["rs"].items() if d["verdicts"].get(i, {}).get("verdict") == "fail" and r.get("ruling") not in ("hold", "question")]
         self.assertEqual(failed, [], "検証に落ちた裁定は、保持規則か問いに変わっている")
-        self.assertEqual(self._left_on_disk(), {"unverified": [], "unverdicted": []})
+        self.assertEqual(self._left_on_disk(), {"unverified": [], "no_verdict": []})
 
     def _live_abouts(self, r):
         """writer に渡った resolution（根拠・保持規則）の about の重複。"""
@@ -1640,7 +1650,6 @@ class RerunFromTheSameStage(unittest.TestCase):
     def test_settleで落ちた裁定の変換の前に止まっても再実行が変換する(self):
         for stage in ("6", "3"):
             base = {**self._settle_world(stage), "verifier_fail": {f"{stage}v-settle": self.FAIL_060}}
-            after = {"flow_codes_at": {}, "open_ids_at": {stage: ["O-060"], f"{stage}v": ["O-060"]}}
             label = f"resolver:{stage}-settle-convert"
             for name, stop in (("変換が応答しない", {"null_labels": [label, f"{label}#retry"]}), ("変換が書いてから応答しない", {"silent_after_write": [label, f"{label}#retry"]})):
                 with self.subTest(stage=stage, stop=name):
@@ -1649,31 +1658,14 @@ class RerunFromTheSameStage(unittest.TestCase):
         # 問いを返してよい段では、value_as_method の不合格は問いになる。入口の変換も段と同じく問いにする（入口だけ保持規則にしない）。
         for stage in ("6", "3"):
             base = {**self._settle_world(stage), "verifier_fail": {f"{stage}v-settle": [{**self.FAIL_060[0], "kind": "value_as_method"}]}}
-            after = {"flow_codes_at": {}, "open_ids_at": {stage: ["O-060"], f"{stage}v": ["O-060"]}}
             label = f"resolver:{stage}-settle-convert"
             with self.subTest(stage=stage, kind="value_as_method"):
                 whole, again = self._compare(base, {"null_labels": [label, f"{label}#retry"]})
                 self.assertEqual((whole["result"]["status"], whole["result"]["question_ids"]), ("needs_answers", ["RS-060"]))
 
-    def test_入口の変換の前に止まっても次の再実行が変換する(self):
-        # 1 回目の再実行が入口で RS-060 を検証して落とし、変換の前に止まる。2 回目の再実行は W の不合格から変換する。
-        base = self._settle_world("6")
-        stopped = run({**base, "args": args(), "null_labels": ["verifier:6v-settle", "verifier:6v-settle#retry"], **self._world()})
-        after = {"flow_codes_at": {}, "open_ids_at": {"6": ["O-060"], "6v": ["O-060"]}, "fails_when_asked": self.FAIL_060}
-        entry = run({**base, **after, "args": unrestored(stopped["result"]["next_args"]), "null_labels": ["resolver:6-entry-convert", "resolver:6-entry-convert#retry"], **self._world()})
-        self.assertIn("verifier:6v-entry", entry["labels"])
-        self.assertEqual((entry["result"]["status"], (entry["result"]["next_args"] or {}).get("from")), ("blocked", "6"), entry["result"].get("reason"))
-        again = run({**base, **after, "args": unrestored(entry["result"]["next_args"]), **self._world()})
-        whole = run({**base, "verifier_fail": {"6v-settle": self.FAIL_060}, "args": args(), "world": str(Path(self._tmp.name) / "whole.json")})
-        self.assertEqual((again["result"]["status"], again["result"]["holds"], again["result"]["hold_drafts"]), (whole["result"]["status"], ["RS-060"], []), again["result"].get("reason"))
-        self.assertEqual(self._usable(again), self._usable(whole))
-        self._ledger_consistent()
-
     def test_settleで合格した裁定の反映の前に止まっても再実行がflowに写す(self):
         for stage in ("6", "3"):
             base = {**self._settle_world(stage), "open_only_at": {f"{stage}v-settle": [{"el": "F-053", "constraint": "O-060"}]}}
-            after = {"flow_codes_at": {}, "open_ids_at": {stage: ["O-060"], f"{stage}v": ["O-060"]}, "recheck_as": {f"{stage}-entry": f"{stage}v-settle"},
-                     "unverified_at": {f"{stage}-entry-settle": ["F-053"]}}
             with self.subTest(stage=stage):
                 whole, again = self._compare(base, {"null_labels": [f"flow-framer:{stage}-settle-2", f"flow-framer:{stage}-settle-2#retry"]})
                 wrote = lambda r: [p["label"] for p in r["prompts"] if p["label"].startswith("flow-framer:") and "F-053 の O-060 ← RS-060" in p["prompt"]]
@@ -1684,7 +1676,6 @@ class RerunFromTheSameStage(unittest.TestCase):
 
     def test_段6で問いを返してsettleで止まっても再実行はG1で聞く(self):
         base = {**self._settle_world("6"), "ruled_at": {"6-settle-opens": ["RS-060"]}, "questions_at": {"6": ["RS-010"]}}
-        after = {"flow_codes_at": {}, "open_ids_at": {"6": ["O-060"], "6v": ["O-060"]}}
         whole, again = self._compare(base, {"null_labels": ["verifier:6v-settle", "verifier:6v-settle#retry"]})
         self.assertEqual((whole["result"]["status"], whole["result"]["question_ids"]), ("needs_answers", ["RS-010"]))
 
@@ -1697,51 +1688,34 @@ class RerunFromTheSameStage(unittest.TestCase):
         self.assertIn("verifier:6v'", again["labels"], "restore で書き直しの前に戻った RS-010 を、段の本体の差し戻しが書き直して検証し直す")
 
     def test_入口と拾う側の呼び出しでもlabelは重ならない(self):
-        # telemetry と再開の照合は label で呼び出しを引く。入口（<段>-entry）と、検証し残しを拾う verifier（<段>v-left・v-left-<n>）の
-        # label が段の本体の呼び出しと重なると、呼び出しを取り違える。
-        g1 = {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}, {"id": "r1-cd-all-002", "route": "decision", "item_id": "PR-X-002"}]}}
-        about = {"RS-060": {"open": "O-060"}, "RS-061": {"open": "O-061"}, "RS-010": {"finding": "r1-cd-all-001"}, "RS-011": {"finding": "r1-cd-all-002"}}
-        base = {**g1, "about": about, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}, "flow_codes_at": {"6": self.D, "6v": self.D},
-                "open_ids_at": {"6-settle": ["O-060"]}, "unverified_at": {"6-settle": ["F-053"]}, **self._world()}
-        stopped = run({**base, "args": args(), "silent_after_write": ["resolver:6-settle-opens", "resolver:6-settle-opens#retry"]})
-        c = [{"el": "F-053", "constraint": "O-060"}]
-        rerun = {**g1, "about": about, **self._world(), "recheck_as": {"6-entry": "W6", "6-entry-opens": "W6", "6-entry-convert": "W6"},
-                 "open_ids_at": {"W6": ["O-060", "O-061"]}, "open_only_at": {"W6": c, "6v-entry": c},
-                 "ruled_at": {"6-entry-opens": ["RS-061"], "6": ["RS-011"]}, "orphans_at": {"6": ["RS-077"]},
-                 "verifier_fail": {"6v-entry": [{"id": "RS-061", "kind": "insufficient_grounds", "reason": "r"}]},
-                 "unverified_at": {"6-entry-settle": ["F-053"], "6-settle": ["F-054"]}, "ignores_at": {"6-entryv-settle": ["F-053"], "6v-settle": ["F-054"]},
-                 "flow_codes_at": {"6v-left": {"FLOW_DANGLING": ["F-054"]}}}
-        r = run({**rerun, "args": unrestored(stopped["result"]["next_args"])})
+        # telemetry と再開の照合は label で呼び出しを引く。入口（<段>-entry・<段>v-entry）と、検証し残しを拾う verifier（<段>v-left・
+        # v-left-<n>）の label が段の本体の呼び出しと重なると、呼び出しを取り違える。
+        base = {**self._settle_world("6"), **self._world()}
+        stopped = run({**base, "args": args(), "null_labels": ["verifier:6v", "verifier:6v#retry"]})
+        self.assertEqual(stopped["result"]["next_args"]["from"], "6", stopped["result"].get("reason"))
+        # 再実行の前に、所有表の外で要素 F-070 が書き換わる（止まった run は flow.json を書いていないので restore は戻さず、入口の verifyLeft が検証する）。
+        d = json.loads(Path(self.world).read_text())
+        d["els"]["F-070"] = 1
+        Path(self.world).write_text(json.dumps(d))
+        orphans = {"orphans_at": {"6": ["RS-077"], "6-settle-opens": ["RS-078"]}, "about": {**base["about"], "RS-077": {"open": "O-077"}, "RS-078": {"open": "O-078"}}}
+        r = run({**base, "args": stopped["result"]["next_args"], **orphans, "flow_codes_at": {**base["flow_codes_at"], "6v-left": self.D}})
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         cycle = [l for l in r["labels"] if l.split(":")[0] in ("resolver", "verifier", "flow-framer", "flow-check")]
-        for want in ("flow-check:6-entry", "resolver:6-entry-opens", "verifier:6v-entry", "resolver:6-entry-convert", "flow-framer:6-entry-settle",
-                     "verifier:6-entryv-settle", "verifier:6-entryv-left-2", "resolver:6", "verifier:6v", "verifier:6v-left", "flow-framer:6-settle",
+        for want in ("flow-check:6-entry", "verifier:6v-entry", "resolver:6", "verifier:6v", "verifier:6v-left", "flow-framer:6-settle",
                      "verifier:6v-settle", "verifier:6v-left-2"):
             self.assertIn(want, cycle)
         self.assertEqual(len(cycle), len(set(cycle)), sorted(l for l in cycle if cycle.count(l) > 1))
         self._ledger_consistent()
 
     def test_新しいIDを振るresolverでも再実行は裁定済みの論点を裁定し直さない(self):
-        # 実物の resolver は再実行で前の run と別の ID を振る。W に裁定がある論点をもう一度渡すと、同じ about に使える裁定が 2 つできる。
+        # 実物の resolver は再実行で前の run と別の ID を振る。止まった run の裁定が W に残ると、同じ about に使える裁定が 2 つできる。
         for stage in ("6", "3"):
             base = {**self._settle_world(stage), "verifier_fail": {f"{stage}v-settle": self.FAIL_060}}
-            after = {"flow_codes_at": {}, "open_ids_at": {stage: ["O-060"], f"{stage}v": ["O-060"]}, "fresh_ids": True}
-            if stage == "3":
-                after["recheck_as"] = {"3-entry": "3-world"}
-                after["open_ids_at"] = {**after["open_ids_at"], "3-world": ["O-060", "O-RS-001"]}
             label = f"resolver:{stage}-settle-convert"
             stop = {"null_labels": [label, f"{label}#retry"]}
-            with self.subTest(stage=stage, rerun="restore"):
+            with self.subTest(stage=stage):
                 whole, again = self._compare(base, stop, again_kw={"fresh_ids": True})
                 self.assertEqual(self._live_abouts(again), [])
-            with self.subTest(stage=stage, rerun="restore なし"):
-                Path(self.world).unlink(missing_ok=True)
-                stopped = run({**base, "args": args(), **stop, **self._world()})
-                again = run({**base, **after, **self._world(), "args": unrestored(stopped["result"]["next_args"])})
-                self.assertEqual(again["result"]["status"], whole["result"]["status"], again["result"].get("reason"))
-                self.assertEqual(self._live_abouts(again), [])
-                self.assertFalse([l for l in again["labels"] if l.startswith(f"resolver:{stage}") and not l.startswith(f"resolver:{stage}-entry")],
-                                 "裁定のある論点を resolver に渡し直さない")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
@@ -1807,14 +1781,15 @@ class ValuelessResolversKeepFlow(unittest.TestCase):
 
 
     def test_保持規則への変換の後の指摘はflow_checkのstdoutでsettleに渡る(self):
-        # 保持規則への変換は台帳の kind を変えうる（不変条件の hold）。後に verifier が起動しないので、判断は flow-check の stdout で決める。
+        # 保持規則への変換は台帳の kind を変えうる（不変条件の hold）。resolver の申告ではなく、その後の独立な stdout（flow-check と、
+        # 書き換えた保持規則を検証する verifier）で settle に渡す。
         destructive = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
-        for name, kw in (("申告どおり", {"flow_codes_at": {"3a-hold": destructive}}),
-                         ("過少申告", {"flow_codes_at": {"3a-hold-seen": destructive}, "recheck_as": {"3a-hold": "3a-hold-seen"}})):
+        for name, kw in (("申告どおり", {"flow_codes_at": {"3a-hold": destructive, "3a-holdv-left": destructive}}),
+                         ("過少申告", {"flow_codes_at": {"3a-hold-seen": destructive, "3a-holdv-left": destructive}, "recheck_as": {"3a-hold": "3a-hold-seen"}})):
             with self.subTest(name):
                 r = run({"args": self._g02()["next_args"], "unverified_at": {"3a-hold-settle": ["F-053"]}, **kw})
                 labels = r["labels"]
-                self.assertEqual(labels[labels.index("resolver:3a-hold") + 1:][:3], ["flow-check:3a-hold", "flow-framer:3a-hold-settle", "verifier:3a-holdv-settle"])
+                self.assertEqual(labels[labels.index("resolver:3a-hold") + 1:][:3], ["flow-check:3a-hold", "verifier:3a-holdv-left", "flow-framer:3a-hold-settle"])
                 [p] = [x["prompt"] for x in r["prompts"] if x["label"] == "flow-framer:3a-hold-settle"]
                 self.assertIn("F-053: 縛る不変条件が無い", p)
                 self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
@@ -1861,7 +1836,7 @@ class ValuelessResolversKeepFlow(unittest.TestCase):
     def test_保持規則への変換の後のsettleで問いを返せば段の頭からやり直す(self):
         # 保持規則への変換は段の最後に 1 回だけなので、その後の settle で生まれた問いは聞かれも hold にもされないまま done に届く。
         destructive = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
-        spec = {"args": self._g02()["next_args"], "flow_codes_at": {"3a-hold": destructive}, "open_ids_at": {"3a-hold-settle": ["O-050"]},
+        spec = {"args": self._g02()["next_args"], "flow_codes_at": {"3a-hold": destructive, "3a-holdv-left": destructive}, "open_ids_at": {"3a-hold-settle": ["O-050"]},
                 "about": {"RS-050": {"open": "O-050"}}}
         r = run({**spec, "questions_at": {"3a-hold-settle-opens": ["RS-050"]}})
         self.assertNotIn("verifier:3a-holdv-settle", r["labels"])
@@ -1903,21 +1878,33 @@ class StageExitInvariants(unittest.TestCase):
         self.assertEqual((carried["status"], carried["question_ids"]), ("needs_answers", ["RS-002"]), "G0 の後の 3a は 3b へ問いを持ち越す")
 
     def test_検証に落ちたまま問いにも保持規則にもならない裁定を持って段を出れば止める(self):
-        # 変換の前に止まった run の W（RS-060 は不合格で ruling が internal）から、変換しないまま段を出る欠陥を作る。
-        with tempfile.TemporaryDirectory() as tmp:
-            world = str(Path(tmp) / "w.json")
-            fail = [{"id": "RS-060", "kind": "insufficient_grounds", "reason": "r"}]
-            D = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
-            base = {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "about": {"RS-060": {"open": "O-060"}, "RS-010": {"finding": "r1-cd-all-001"}},
-                    "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}, "flow_codes_at": {"6": D, "6v": D}, "open_ids_at": {"6-settle": ["O-060"]},
-                    "unverified_at": {"6-settle": ["F-053"]}, "verifier_fail": {"6v-settle": fail}, "world": world}
-            stopped = run({**base, "args": args(), "null_labels": ["resolver:6-settle-convert", "resolver:6-settle-convert#retry"]})
-            after = {"flow_codes_at": {}, "open_ids_at": {"6": ["O-060"], "6v": ["O-060"]}}
-            broken = [("  const toConvert = unconverted(fc).map(", "  const toConvert = [].map(")]
-            r = run({**base, **after, "args": unrestored(stopped["result"]["next_args"])}, patch=broken)
-        res = r["result"]
+        # settle の verifier が落とした RS-060 を、settle も verifyLeft も変換しないまま段を出る欠陥を作る。
+        fail = [{"id": "RS-060", "kind": "insufficient_grounds", "reason": "r"}]
+        D = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
+        spec = {"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "about": {"RS-060": {"open": "O-060"}, "RS-010": {"finding": "r1-cd-all-001"}},
+                "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}, "flow_codes_at": {"6": D, "6v": D}, "open_ids_at": {"6-settle": ["O-060"]},
+                "unverified_at": {"6-settle": ["F-053"]}, "verifier_fail": {"6v-settle": fail}}
+        self.assertEqual(run(spec)["result"]["status"], "done")
+        broken = [("  const toConvert = unconverted(fc).map(", "  const toConvert = [].map("),
+                  ("  const ce = toConvert.length ? await convertFailed(tag, tag, toConvert, phaseTitle, allowQuestions) : null\n", "  const ce = null\n")]
+        res = run(spec, patch=broken)["result"]
         self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
         self.assertIn("問いにも保持規則にもならない不合格の resolution: RS-060", res["reason"])
+
+    def test_不合格の回答済みの問いを持って段を出れば止める(self):
+        # G0 で候補の選択で答えた RS-001 を、3b の verifier が検証を求められずに不合格にする（B1）。求めていない合否は数えずに
+        # 検証させ直し、その検証も落とせば、回答済みの問いは回答待ちにも変換にも根拠にも数えられないので段を出さない。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
+        fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "x"}]
+        spec = {"ruled_at": {"3a": ["RS-001", "RS-002"]}, "verifier_fail": {"3bv": fail}, "args": g0["next_args"]}
+        r = run(spec)
+        rechecked = nth_prompt(r, "verifier:3bv-left", 0).split("検証する resolution の ID:")[1].split("\n")[0]
+        self.assertIn("RS-001", rechecked, "求めていない不合格は数えずに検証させ直す")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertIn("RS-001", next(l for l in nth_prompt(r, "writer:U-1:draft", 0).split("\n") if l.startswith("- 根拠にしてよい resolution")))
+        again = run({**spec, "verifier_fail": {"3bv": fail, "3bv-left": fail}})["result"]
+        self.assertEqual((again["status"], again["next_args"]), ("blocked", None), again.get("reason"))
+        self.assertIn("不合格の回答済みの問い: RS-001", again["reason"])
 
     def test_検証を通っていないものを持ったまま段を出れば止める(self):
         # settle の verifier が F-053 を検証しないまま（W の unverified に残して）段を出る欠陥を作る。
@@ -2243,7 +2230,7 @@ class FlowRecheck(unittest.TestCase):
                    "holds_at": {"3-convert": ["RS-001"]}, "supersedes_at": {"3-convert": ["D-001"]}, "stale_refs_at": {"3-convert": stale},
                    "unverified_at": {"3-settle": ["F-002"]}}
         hold = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}], "grounding:r2": [{"id": "r2-gr-requirements__x-001", "route": "decision"}]},
-                "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale},
+                "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale, "6-holdv-left": stale},
                 "unverified_at": {"6-hold-settle": ["F-002"]}}
         for name, spec, framer, verifier, key in (("変換", convert, "flow-framer:3-settle", "verifier:3v-settle", "3v-settle"),
                                                   ("段 6 の保持規則への変換", hold, "flow-framer:6-hold-settle", "verifier:6-holdv-settle", "6-holdv-settle")):
@@ -2785,12 +2772,12 @@ class Reframe(unittest.TestCase):
         g02 = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
         stale = [{"el": "F-002", "ref": "D-001"}]
         spec = {"args": g02["next_args"], "ruled_at": {"3a": ["RS-002"]}, "questions_at": {"3a": ["RS-003"]}, "supersedes_at": {"3a-hold": ["D-001"]},
-                "stale_refs_at": {"3a-hold": stale}, "unverified_at": {"3a-hold-settle": ["F-002"]}}
+                "stale_refs_at": {"3a-hold": stale, "3a-holdv-left": stale}, "unverified_at": {"3a-hold-settle": ["F-002"]}}
         r = run(spec)
         self.assertIn("F-002 ← D-001", self._prompt(r, "flow-framer:3a-hold-settle"))
         judged_by(self, r, "verifier:3a-holdv-settle", "F-002")
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
-        left = run({**spec, "stale_refs_at": {"3a-hold": stale, "3a-holdv-settle": stale, "3a-holdv-settle-2": stale}})["result"]
+        left = run({**spec, "stale_refs_at": {"3a-hold": stale, "3a-holdv-left": stale, "3a-holdv-settle": stale, "3a-holdv-settle-2": stale}})["result"]
         self.assertEqual((left["status"], left["next_args"]["from"]), ("blocked", "3a"))
         self.assertEqual(r["result"]["hold_drafts"], [])
 
@@ -3177,10 +3164,12 @@ class NextArgsBudget(unittest.TestCase):
     SIZE_OVER のある snapshot を通ってから、G0・G0-2・G1 と段 8 で止まった next_args が上限に収まる。"""
 
     DOC = "requirements/cleanup-branches"
+    # SKILL_DIR: next_args の skillDir は install 先のパスで、字数に入る。checkout の場所で測ると、置き場所ごとに境界が動く。
+    SKILL_DIR = "/Users/someone/.claude/plugins/cache/yoshiysh-claude-plugins/workflow/10.10.10/skills/prd-spec"
     # ITEMS_N: 上限に収まる項目の数の境界。ITEMS_N で収まり ITEMS_N + 1 の段 8 の最悪の形で超えることを両方確かめるので、
     # next_args の増減が境界をまたげば落ちる。1 項目分に満たない増減は落ちないので、再開で読まない値が載っていないことは
     # _assert_lean が欄ごとに見る。
-    ITEMS_N = 19
+    ITEMS_N = 18
     UNAPPLIED = 7
 
     @staticmethod
@@ -3204,6 +3193,16 @@ class NextArgsBudget(unittest.TestCase):
                 "findings": {"implementer:r1": [self._writer(k + 1, it) for k, it in enumerate(self._writer_items(n))], "crossDoc:r1": [decision(k) for k in (1, 2, 3)]},
                 "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]}}
 
+    def _args(self, **kw):
+        return args(skillDir=self.SKILL_DIR, **kw)
+
+    def _chars(self, next_args):
+        """段の token（state.tx）を最悪の形にした字数。再実行を重ねると try と restore が伸び、flow を書く段では tx.flow（止まった run が
+        最後に照合を通した flow の digest）が付く。"""
+        tx = next_args["state"]["tx"]
+        worst = {**tx, "stage": "3a'", "try": 9, "restore": f"t{tx['seq']}r8", "flow": "f" * 64}
+        return len(json.dumps({**next_args, "state": {**next_args["state"], "tx": worst}}, ensure_ascii=False))
+
     def _gates(self, a, n):
         rs, common = self._rs, self._common(n)
         units = common["units"]
@@ -3215,7 +3214,7 @@ class NextArgsBudget(unittest.TestCase):
 
     def _stage8(self, entry, n, unapplied):
         # G1 の回答を当て、改稿の後の監査役が応答しない。existing は段 5 が settled_written を空にするので、全 resolution を改稿に渡す。
-        a = args() if entry == "new" else args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
+        a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
         g1 = self._gates(a, n)[2]
         auditor = f"grounding:r2:{self.DOC}"
         ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:unapplied]
@@ -3223,23 +3222,21 @@ class NextArgsBudget(unittest.TestCase):
         self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
         self.assertEqual(res["next_args"]["state"]["revised"]["unapplied"], ids)
         self._assert_lean(res["next_args"]["state"])
-        return len(json.dumps(res["next_args"], ensure_ascii=False))
+        return self._chars(res["next_args"])
 
     def _size(self, res):
         self.assertEqual(res["status"], "needs_answers", res.get("reason"))
         self._assert_lean(res["next_args"]["state"])
-        return len(json.dumps(res["next_args"], ensure_ascii=False))
+        return self._chars(res["next_args"])
 
     def _assert_lean(self, state):
-        # 段 2・3 より後の next_args には、再開で読まない値（段を過ぎた plan_sha256 と counts、導出できる known、
-        # 読まない decisions_sha256、D- の合格）が無い。
-        for key in ("known", "decisions_sha256", "plan_sha256", "counts"):
-            self.assertNotIn(key, state)
+        # 段 2 より後の next_args には、再開で読まない値（段を過ぎた plan_sha256・D- の合格）が無い。
+        self.assertNotIn("plan_sha256", state)
         self.assertTrue(state["passed"])
         self.assertEqual([i for i in state["passed"] if not re.fullmatch(r"RS-\d+", i)], [])
 
     def test_各ゲートのnext_argsが上限に収まる(self):
-        g0, g02, g1 = self._gates(args(), self.ITEMS_N)
+        g0, g02, g1 = self._gates(self._args(), self.ITEMS_N)
         state = g1["next_args"]["state"]
         self.assertEqual(len(state["questions"]), 13)
         self.assertEqual(len(state["about"]), 28)
@@ -3264,12 +3261,12 @@ class NextArgsBudget(unittest.TestCase):
             role = "implementer" if k == 1 else "grounding"
             findings[f"{role}:r{k}"] = [finding(k, n + 1, it) for n, it in enumerate(items)] + [finding(k, 10 + k, f"PR-CLEANUP-BRANCHES-1{k:02d}")]
         auditor = f"grounding:r{MAX_AUDIT_PASSES + 1}:{self.DOC}"
-        res = run({"args": args(), "units": units, "long_digests": True, "findings": findings, "null_labels": [auditor, f"{auditor}#retry"]})["result"]
+        res = run({"args": self._args(), "units": units, "long_digests": True, "findings": findings, "null_labels": [auditor, f"{auditor}#retry"]})["result"]
         self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
         state = res["next_args"]["state"]
         self.assertEqual(state["pass"], MAX_AUDIT_PASSES)
         self.assertEqual(state["item_routes"], {f"{self.DOC}#{it}": "exhausted" for it in items})
-        self.assertLess(len(json.dumps(res["next_args"], ensure_ascii=False)), NEXT_ARGS_MAX_CHARS)
+        self.assertLess(self._chars(res["next_args"]), NEXT_ARGS_MAX_CHARS)
 
     def test_段8で裁定を持って止まったnext_argsも上限に収まる(self):
         # 改稿が writer の指摘のうち UNAPPLIED 件を当て損ねた形も見る（当て損ねは次のパスへ持ち越す）。
