@@ -36,24 +36,28 @@
   - put は引用を `input.md`・回答・`evidence` のファイルと逐語で照合し、1 件でも合わなければ何も書かずに
     exit 1 で終わる。照合の script を自作しない。
   - put 以外で書いた台帳は正規形から外れ、それを読む doc_check のモードがすべて exit 1 で止まる。
-- **台帳の中身は `get --ledger <台帳> --ids <ID,…> [--fields <欄,…>]` で ID を指して読む。** 丸ごと Read すると
-  台帳の全件が以後の全ターンに載り続ける（実測: resolutions.json は 364K）。get は要素を加工せずに返し、無い ID を `missing`、
-  stdout の上限に入らなかった ID を `over_budget` に出す（`--fields` で欄を絞るか、ID を分けて読み直す）。全件を読むのは、
-  下の表で台帳を「全件」とした役だけである。
-- **`input.md` は `grep -n` で該当の行と前後の行を読んでよい。** ただし下の表で「全文」とした役は全文を読む。grep で読む役が
-  見ない行は、右端の役が全文で見る（見ていない範囲を黙って「問題なし」にしないため）。
+- **台帳の読み方は下の表が決める。** 「全件」の役は、自分の節の入力とプロンプトの「根拠一式」の行に挙がる台帳を
+  丸ごと Read する。それ以外の読みは、プロンプトが渡した ID を `get --ledger <台帳> --ids <ID,…> [--fields <欄,…>]` で引く。「全件」の役も、
+  入力の外の台帳（verifications・routes など）はプロンプトが get のコマンドを添えた ID だけを引く。丸ごと Read すると台帳の全件が以後の
+  全ターンに載り続ける（実測: resolutions.json は 364K）ので、全件は表で要ると決めた役に限る。get は要素を加工せずに返し、無い ID を
+  `missing`、stdout の上限に入らなかった ID を `over_budget` に出す（`--fields` で欄を絞るか、ID を分けて読み直す）。`--ids` の一覧だけで
+  上限を超えるときは、何も返さずに exit 1 で終わる（ID を分けて読み直す）。
+- **`input.md` は、表で「grep」とした役だけが `grep -n` で該当の行と前後の行を読んでよい。** 「grep」にしてよいのは、見ない行を全文で読む役が
+  右端の列にいる役だけである（見ていない範囲を黙って「問題なし」にしないため）。
+- **どの trace も引かない決定・裁定は、根拠一式を全件読む監査役が見る。** get で読む役は渡された ID とそれが引く ID しか見ないので、
+  どの文書にも届かなかった決定・裁定に気づけない。どの観点が指摘にするかは「### 観点の守備範囲（排他）」の表が決める。
 
-  | 役 | input.md | 台帳（get の ID の出どころ） | grep・get の役が見ない部分を見る役 |
+  | 役 | input.md | 台帳 | grep・get の役が見ない部分を見る役 |
   |---|---|---|---|
   | intake | 全文（依頼のすべての文から決定と未決を起こす） | 全件 | — |
   | flow-framer | 全文（流れを依頼に対して閉じる） | 全件 | — |
-  | resolver | grep | get（プロンプトの ID と、その要素が引く ID。flow.json を書く呼び出しは flow.json を全件） | resolver-verifier |
-  | resolver-verifier | 全文（引用の逐語と、出典が要素を支えるかを照らす） | get（プロンプトの ID、`doc_check flow` の stdout の未検証の要素、それらが引く ID） | — |
+  | resolver | grep | get（プロンプトの ID と、その要素が引く ID。flow.json を書く呼び出しは flow.json を全件） | resolver-verifier（input.md）、監査役（台帳） |
+  | resolver-verifier | 全文（引用の逐語と、出典が要素を支えるかを照らす） | get（プロンプトの ID、`doc_check flow` の stdout の未検証の要素、それらが引く ID） | 監査役（台帳） |
   | flow-check | 読まない | 読まない（doc_check の stdout だけを返す） | — |
-  | writer | grep | 初稿は全件（単位の文書が流れと決定の全体から書かれる）。改稿は get（プロンプトの ID と、その要素が引く ID） | cross-doc（依頼に対する範囲の欠落）、grounding |
-  | implementer | grep | get（自分の文書の meta を全件、その trace が引く ID） | grounding、cross-doc |
-  | grounding | 全文（文の根拠を依頼の全体に照らす） | get（自分の文書の meta を全件、その trace が引く ID） | — |
-  | cross-doc | 全文（依頼に対する範囲の欠落と逸脱を見る） | get（各文書の meta を全件、その trace が引く ID） | — |
+  | writer | 全文（依頼の文から項目を書く） | 全件（初稿も改稿も。単位の文書は依頼と流れと決定の全体から書かれる） | — |
+  | implementer | 全文 | 全件（writer と同じ根拠。根拠が writer より少ないと、writer が決定の `why` や flow から正しく書いた記述を「根拠が無い」と誤って指摘する。実測で 3 件） | — |
+  | grounding | 全文（文の根拠を依頼の全体に照らす） | 全件（implementer と同じ理由） | — |
+  | cross-doc | 全文（依頼に対する範囲の欠落と逸脱を見る） | 全件（implementer と同じ理由） | — |
 - **1 つのファイルを現行として、その場で更新する。コピーと版管理をせず、全文を作り直さない**（`.bak`・`pre*`・
   版の番号を付けたファイル名・W の外への写し・全文の再生成）。台帳は put、文書は Edit で、変える箇所だけを変える。
   - 控えが残ると、どれが現行か分からなくなる。他の役がそれを雛形として読む（実測: resolver が intake の
@@ -403,8 +407,8 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 
 ## §resolver
 
-入力（パス）: 上流の全部（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・resolutions・
-verifications・precedent）と、段ごとに script が渡す対象の ID。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
+入力: 段ごとに script が渡す対象の ID と、上流のファイル（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・
+resolutions・verifications・precedent。どれを get・grep で引くかは「## 共通の約束」の表）。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
 の更新。put）、`W/routes.json`（段 6。put）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
@@ -448,7 +452,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
   （変えた ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
   検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
-- 差し戻し（`<段>'`）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
+- 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
   それぞれ `about` を `{verification}` にした resolution を返す。合わなければ script は段を止める（返らない裁定は再検証にも変換にも回らず、
   不合格のまま台帳に残る。F- は問いにも保持規則にも変えられないので、検証の裁定が無いと settle に写す値も、不合格のまま進めてよい理由も無い）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
@@ -465,7 +469,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
 ## §resolver-verifier
 
 入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/input.md`、
-`W/answers/*.md`、script が渡す検証対象の ID。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、
+`W/answers/*.md`、script が渡す検証対象の ID（読み方は「## 共通の約束」の表）。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、
 put の stdout の値をそのまま入れる。`pass`・`fail` の resolution（RS-）は渡された ID に限る。script は渡していない RS- の合否を数えず
 （差し戻しにも変換にも台帳の集合にも入れない。入れると、回答待ちの問いが保持規則に書き換わり、回答済みの問いは不合格のまま黙って消える）、
 `notices` に 1 行残す。W に put されたその合否が script の持つ合否と違えば、script はその RS- を次の verifier（`<段>v-left`）に検証させ直す:
@@ -513,7 +517,7 @@ stdout、起動していればこの stdout である（最後の verifier の s
 
 ## §writer
 
-入力（パス）: `W/input.md`、`W/answers/*.md`、`W/decisions.json`、`W/flow.json`、`W/plan.json`、
+入力（パス。読み方は「## 共通の約束」の表）: `W/input.md`、`W/answers/*.md`、`W/decisions.json`、`W/flow.json`、`W/plan.json`、
 `W/resolutions.json` と合格した ID の一覧、無効な決定の ID、自分の単位の文書と meta、依存先の単位の文書、
 開いている TBD の ID（script が解消済みを除いて算出したもの）。改稿では加えて、単位の文書ごとの改稿前の
 digest と、次の 2 つ。
@@ -573,9 +577,7 @@ implementer・grounding・cross-doc の 3 役に共通する契約。**route の
 
 ### 読むもの
 
-writer と同じ根拠一式（input・answers・decisions の全フィールド・合格した resolutions・flow・plan・無効な決定の
-ID・開いている TBD の ID）と、監査する文書と meta。根拠が writer より少ないと、writer が決定の `why` や flow
-から正しく書いた記述を「根拠が無い」と誤って指摘する（実測で 3 件）。
+プロンプトの「根拠一式」（読み方は「## 共通の約束」の表）と、監査する文書と meta。
 
 文書が 350 行以下なら全文を読む。350 行を超えるなら、shunt の locate で候補の箇所を逐語の引用で探させ、
 原文の該当節を読んで判定してよい。判定は必ず原文で行う（要約を材料にすると、原文に無いことで指摘する）。
@@ -590,7 +592,7 @@ shunt が使えない環境では全文を読む。範囲を絞った監査（�
 |---|---|---|
 | implementer | 1 項目の中: 着手できるか、その項目自身の trace と目的に対して過不足が無いか、要る項目か、EARS・境界値・複合要求の曖昧さ | 根拠の有無、項目どうしの関係（他の文書の項目・上位の要求と照らした範囲の判定を含む） |
 | grounding | 1 文の根拠: trace が実在し支えているか、捏造・出所の偽装・既存実装を要求の根拠にしていないか、未決のことを断定していないか、入力に違反していないか | 着手可能性、項目どうしの関係 |
-| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
+| cross-doc | 項目の間: 矛盾（文書の中と文書間）、重複、用語の揺れ、他の文書の項目（上位の要求）と照らした範囲の判定（拡大・不足）、依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱（依頼に無い要求の作り込み）、どの trace も引かない決定・根拠にしてよい裁定（文書に届いていない決定）、境界の抜け、紐付けの意味と検証方法、必須カテゴリ・必須章・操作（登録・参照・更新・削除）の欠け、宣言漏れ | 1 項目で完結する問題 |
 | doc_check | 語尾、曖昧語リスト、ID の参照、trace の有無、判定表・状態×イベント表・流れの網羅、開いた TBD に触れる断定の語尾 | 意味の判定 |
 
 doc_check が判定するものを LLM の観点で重ねて出さない。機械の結果は決定的で、LLM の重複は揺れるだけ件数を増やす。

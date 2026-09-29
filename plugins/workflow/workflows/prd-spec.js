@@ -897,7 +897,7 @@ function header(role, stage, label) {
     `W（workspace）: ${W}`,
     `SKILL_DIR: ${SKILL_DIR}`,
     `entry: ${ENTRY}`,
-    `台帳を ID で読む: \`${GET_TEMPLATE}\`（台帳の名前と欄: \`${cli('describe')}\`）`,
+    `台帳を ID で引くとき: \`${GET_TEMPLATE}\`（台帳の名前と欄: \`${cli('describe')}\`）`,
     `最初に ${SKILL_DIR}/agents/${ROLE_FILES[role]} を Read し、その指示に従う。`,
     `ファイルと返り値の形は ${SKILL_DIR}/schemas/agent-contracts.md の ${[...COMMON_SECTIONS, ...CONTRACT_SECTIONS[role]].map((s) => `「## ${s}」`).join('・')} を正とする。見出しを Grep で探し、その節だけを offset/limit で Read する（全体を読むと以後の全ターンに載り続ける）。`,
     `段: ${stage}`,
@@ -908,7 +908,7 @@ function header(role, stage, label) {
 
 function groundsBlock() {
   return [
-    '根拠一式（パス）:',
+    '根拠一式（パス。丸ごと読むか ID で引くかは契約「## 共通の約束」の表）:',
     `- ${W}/input.md、${W}/answers/*.md、${W}/decisions.json、${W}/resolutions.json、${W}/flow.json、${W}/plan.json`,
     `- 根拠にしてよい resolution（合格・回答済み）: ${list(usableResolutions(state))}`,
     `- 保持規則として規範文で書く resolution（hold）: ${list(uniq(state.holds))}`,
@@ -1266,38 +1266,39 @@ async function ruleAndVerify(stage, opt) {
   if (!v1.fail.length) return { ok: true, passed: v1.pass, verified }
 
   const rework = v1.fail.map((f) => `- ${f.id}: ${f.kind}（${f.reason}）`).join('\n')
-  const r2Label = `resolver:${stage}'`
+  const fix = fixOf(stage)
+  const r2Label = `resolver:${fix}`
   const r2 = await once(
     r2Label,
     'resolver',
-    resolverPrompt(r2Label, `${stage}'（差し戻し）`, asTask(`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`)),
+    resolverPrompt(r2Label, `${fix}（差し戻し）`, asTask(`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`)),
     RESOLVER_SCHEMA,
     phaseTitle
   )
-  const unfixed = unreturned(`${stage}'`, r2, v1.fail.map((f) => f.id).filter((id) => RESOLUTION_ID.test(id)), ['ruled', 'questions', 'holds', 'free_text'])
+  const unfixed = unreturned(fix, r2, v1.fail.map((f) => f.id).filter((id) => RESOLUTION_ID.test(id)), ['ruled', 'questions', 'holds', 'free_text'])
   if (unfixed) return { error: unfixed }
   // 落ちた要素は問いにも保持規則にも変えられないので、{verification} の裁定が無いと settle に写す値も、進めてよい理由も無い。
   const ruledAbout = new Set(Object.values(resolverIds(r2).about))
   const unruledEls = v1.fail.map((f) => f.id).filter((id) => /^F-/.test(id) && !ruledAbout.has(`verification:${id}`))
-  if (unruledEls.length) return { error: `段 ${stage}': 検証に落ちた要素 ${list(unruledEls)} の about を {verification} にした resolution を resolver が返しませんでした`, rerun: true }
+  if (unruledEls.length) return { error: `段 ${fix}: 検証に落ちた要素 ${list(unruledEls)} の about を {verification} にした resolution を resolver が返しませんでした`, rerun: true }
   let ids2 = absorbResolver(r2, !writesFlow)
-  const fe2 = await takeFlow(`${stage}'`, r2, phaseTitle, writesFlow, false)
+  const fe2 = await takeFlow(fix, r2, phaseTitle, writesFlow, false)
   if (fe2.error) return fe2
   flowChecked = flowChecked || fe2.checked
-  const qe2 = await checkQuestions(stage, `${stage}'`, r2, phaseTitle, null)
+  const qe2 = await checkQuestions(stage, fix, r2, phaseTitle, null)
   if (qe2) return qe2
   if (fe2.changed) {
-    const pe2 = await ruleUnruled(stage, `${stage}'`, fe2.conflicts, null, phaseTitle, opt.allowQuestions)
+    const pe2 = await ruleUnruled(stage, fix, fe2.conflicts, null, phaseTitle, opt.allowQuestions)
     if (pe2.error) return pe2
     ids2 = uniq([...ids2, ...pe2.ids])
   }
-  const v2Label = `verifier:${stage}v'`
-  const v2 = await askVerifier(v2Label, `${stage}v'`, ids2, '', phaseTitle)
-  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${stage}v'`, flowChecked, flowWriter())
+  const v2Label = `verifier:${fix}v`
+  const v2 = await askVerifier(v2Label, `${fix}v`, ids2, '', phaseTitle)
+  const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${fix}v`, flowChecked, flowWriter())
   if (ve2) return ve2
   verified = flowCheckOf(v2.flow_check, true)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
-  const rh = await reholdFailed(stage, `${stage}'`, phaseTitle)
+  const rh = await reholdFailed(stage, fix, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) verified = rh.fc
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。落ちた要素は settle が直させる（failedOpen）。
@@ -1442,6 +1443,9 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
 const FRAME_RUN = `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`
 
 const reworkLabel = (label, n) => (n === 1 ? label : `${label}-${n}`)
+// fixOf: v1 の不合格の差し戻しの段名。段名（STAGES）に 3a' があるので、`'` を足す形にすると段 3a の差し戻しと段 3a' の本体が同じ label になり、
+// label だけを持つ journal の started から起動の理由を分けられない。
+const fixOf = (stage) => `${stage}-fix`
 
 async function frameFlow(label, lines, phaseTitle) {
   const prompt = (l) => lines(l).filter(Boolean).join('\n\n')

@@ -2233,6 +2233,7 @@ function wsGet(ws, opts) {
   out.missing = hits.filter((h) => !h.rows.length).map((h) => h.id)
   const found = hits.filter((h) => h.rows.length)
   let room = STDOUT_BUDGET - stdoutBytes({ ...out, over_budget: found.map((h) => h.id) })
+  if (room < 0) throw new Error(`get の --ids ${ids.length} 件は、ID の一覧（missing・over_budget）だけで stdout の上限 ${STDOUT_BUDGET} バイトを超える。ID を分けて読み直す`)
   for (const h of found) {
     const size = h.rows.reduce((n, [, el]) => n + Buffer.byteLength(JSON.stringify(el)) + 1, 0)
     if (size > room) {

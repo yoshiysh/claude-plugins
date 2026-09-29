@@ -64,7 +64,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
 - **段 3（前提を固める）**: プロンプトが渡した open と conflicts の組（resolutions.json にまだ裁定の無いもの）を裁定する。
   裁定のある論点をもう一度裁定すると、同じ論点に使える裁定が 2 つでき、writer が食い違う根拠を受け取る。3v で不合格になった intake の既定と flow の出典も
   対象に入る（覆すなら `supersedes`）。
-- **差し戻し（3v'・段 6 の差し戻し）**: verifier が不合格にした ID だけを 1 回直す。`value_as_method` は `question`
+- **差し戻し（verifier の不合格の差し戻し。段 3・段 6 など）**: verifier が不合格にした ID だけを 1 回直す。`value_as_method` は `question`
   に、`not_reproduced` と `insufficient_grounds` は根拠を補えなければ `hold` に変える。差し戻しは 1 回きりなので、
   同じ根拠で言い直しても次は通らない。不合格の F- ごとに返す resolution は契約 §resolver の差し戻しの項に従う。その要素に
   `{verification}` の resolution が前の段から既にあれば、新しい ID を足さずに同じ ID を put で直す（put は覆されていない裁定のある論点に

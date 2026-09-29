@@ -5,7 +5,7 @@
 3. describe は LEDGERS から導出する（写しを持たない）
 4. --ledger にファイル名を渡すと、token の検査より前に台帳の名前の一覧を出して exit 1 になり、何も書かない
 5. prd-spec.js のプロンプトが渡す --ledger の名前は LEDGERS のキーだけ
-6. 契約は input.md を全文読む役と台帳の読み方を役ごとに宣言し、その規則は agents などに写さない
+6. 契約は input.md と台帳の読み方を役ごとに宣言し、grep・get の役が見ない部分は全文・全件の役が見る。その規則は agents などに写さない
 """
 
 import hashlib
@@ -102,6 +102,17 @@ class Get(_Workspace):
         stored = {x["id"]: x for x in self._file("resolutions.json")["resolutions"]}
         self.assertEqual(out["resolutions"], [stored[i] for i in got])
 
+    def test_IDの一覧だけで上限を超えるなら何も返さずに止まる(self):
+        # missing と over_budget も stdout に載る。一覧だけで上限を超えると、要素を 1 件も返さなくても stdout が上限を超える。
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [TRICKY]})
+        before = _tree(self.ws)
+        budget = _exported("m.STDOUT_BUDGET")
+        asked = ["RS-001"] + [f"存在しない裁定の番号-{i:05d}" for i in range(budget // 30)]
+        r = _run(self.ws, "get", "--ledger", "resolutions", "--ids", ",".join(asked))
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn(str(budget), r.stderr)
+        self.assertEqual(_tree(self.ws), before)
+
 
 class Describe(unittest.TestCase):
     def _describe(self, mutate=""):
@@ -151,19 +162,45 @@ class PromptLedgerNames(unittest.TestCase):
 
 class InputReadersInContract(unittest.TestCase):
     ROLE_ROW = re.compile(r"^  \| ([a-z-]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|$", re.M)
+    AUDITORS = ("implementer", "grounding", "cross-doc")
 
     def _rows(self):
-        return {m.group(1): m.group(2).strip() for m in self.ROLE_ROW.finditer(CONTRACTS.read_text(encoding="utf-8"))}
+        return {m.group(1): tuple(g.strip() for g in m.groups()[1:]) for m in self.ROLE_ROW.finditer(CONTRACTS.read_text(encoding="utf-8"))}
 
     def test_全ての役がinput_mdの読み方を宣言しresolver_verifierとgroundingは全文(self):
         rows = self._rows()
         self.assertEqual(set(rows), {p.stem for p in (SKILL / "agents").glob("*.md")})
         for role in ("resolver-verifier", "grounding"):
-            self.assertTrue(rows[role].startswith("全文"), role)
+            self.assertTrue(rows[role][0].startswith("全文"), role)
+
+    def test_writerと監査役は根拠を全文と全件で読む(self):
+        # 理由は契約の表の implementer の行（根拠が writer より少ない監査役の誤検出）。
+        rows = self._rows()
+        for role in ("writer", *self.AUDITORS):
+            with self.subTest(role=role):
+                self.assertTrue(rows[role][0].startswith("全文"), rows[role][0])
+                self.assertTrue(rows[role][1].startswith("全件"), rows[role][1])
+
+    def test_grepとgetの役には見ない部分を全文と全件で読む役がいる(self):
+        rows = self._rows()
+        full_input = {r for r, (inp, _, _) in rows.items() if inp.startswith("全文")}
+        full_ledger = {r for r, (_, led, _) in rows.items() if led.startswith("全件")}
+        named = lambda cell: set(re.findall(r"[a-z-]+", cell)) | (set(self.AUDITORS) if "監査役" in cell else set())
+        for role, (inp, led, cover) in rows.items():
+            with self.subTest(role=role):
+                if inp.startswith("grep"):
+                    self.assertTrue(named(cover) & full_input, cover)
+                if led.startswith("get"):
+                    self.assertTrue(named(cover) & full_ledger, cover)
+
+    def test_根拠一式の行は読み方を契約の表に任せる(self):
+        # 根拠一式は get の役（resolver）にも渡る。行が読み方を決めると、表と食い違う。
+        [line] = [l for l in PRD.read_text(encoding="utf-8").splitlines() if "'根拠一式（" in l]
+        self.assertIn("「## 共通の約束」の表", line)
 
     def test_読み方の規則はagentsとreferencesとSKILLに写さない(self):
         text = CONTRACTS.read_text(encoding="utf-8")
-        start = text.index("- **台帳の中身は `get")
+        start = text.index("- **台帳の読み方は下の表が決める。**")
         body = text[start : text.index("- **1 つのファイルを現行として", start)]
         cut = re.compile(r"`[^`]*`|[\w.-]*/[\w./-]+|[、。（）()「」『』:：;；|\n]")
         clauses = {c for c in (re.sub(r"[\s*]", "", x) for x in cut.split(body)) if len(re.findall(r"[぀-ヿ一-鿿]", c)) >= 8}

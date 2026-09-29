@@ -4,7 +4,7 @@
 数えた体数が別の理由に紛れても報告からは見えない。ここでは次を確かめる。
 
 - 手がかり（LABEL_FAMILIES の label の形・PROMPT_CLUES のプロンプトの行）が prd-spec.js の本文にそのまま在る（改名するとここが落ちる）。
-- label の形どうしが重ならない。重なるのは AMBIGUOUS の 1 組だけで、プロンプトの行で分かれる。
+- label の形どうしが重ならない（AMBIGUOUS は空。重なる組ができたら、そこに分けるプロンプトの行を足す）。
 - 既存の段のテストの run が起動した agent すべてが、ちょうど 1 つの label の形に当たり、プロンプトの行の手がかりが
   その形の起動のプロンプトに現れる（段のテストの経路を流用するので、手がかりの形は実際に組み立てられた label と照合される）。
 - skipped の fact の閉集合が script の SKIP と同じ。
@@ -41,8 +41,8 @@ LABEL_FAMILIES = [
     ("flow-check-answers", "base", r"flow-check:.+-answers", ["`flow-check:${gate}-answers`"]),
     ("flow-check-backup", "base", r"flow-check:.+-backup", ["`flow-check:${stage}-backup`"]),
     ("resolver-final", "base", r"resolver:final", ["'resolver:final'"]),
-    ("rework-resolver", "差し戻し（v1 の不合格）", rf"resolver:{S}'", ["`resolver:${stage}'`"]),
-    ("rework-verifier", "差し戻し（v1 の不合格）", rf"verifier:{S}v'", ["`verifier:${stage}v'`"]),
+    ("rework-resolver", "差し戻し（v1 の不合格）", rf"resolver:{S}-fix", ["const fixOf = (stage) => `${stage}-fix`", "`resolver:${fix}`"]),
+    ("rework-verifier", "差し戻し（v1 の不合格）", rf"verifier:{S}-fixv", ["`verifier:${fix}v`"]),
     ("convert", "変換", r"resolver:.+-convert", ["`resolver:${owner}-convert`"]),
     ("settle-framer", "settle", rf"flow-framer:.+-settle{N}", ["`flow-framer:${tag}`", "reworkLabel(`${stage}-settle`, n)"]),
     ("settle-verifier", "settle", rf"verifier:.+v-settle{N}", ["`verifier:${reworkLabel(`${stage}v-settle`, n)}`"]),
@@ -60,8 +60,8 @@ LABEL_FAMILIES = [
     ("crossdoc-reaudit", "crossDoc の再監査", r"crossDoc:r(?:[2-9]|\d{2,}):all(?::extra)?", []),
 ]
 
-# AMBIGUOUS: label だけでは分かれない組と、分けるプロンプトの行。段 3a の差し戻しの resolver:3a' は、段 3a' の本体と同じ label になる。
-AMBIGUOUS = {("main-resolver", "rework-resolver"): "（差し戻し）"}
+# AMBIGUOUS: label だけでは分かれない組と、分けるプロンプトの行。journal の started は label だけなので、組があると体数を理由ごとに数えられない。
+AMBIGUOUS = {}
 
 # PROMPT_CLUES: 同じ label の形の中で起動の理由を分けるプロンプトの行（family, 理由, 行の断片）。断片は prd-spec.js にそのまま在る。
 PROMPT_CLUES = [
@@ -153,12 +153,23 @@ class Clues(unittest.TestCase):
                 self.assertIn(frag, src)
 
     def test_label_の形は重ならず_重なるのは_AMBIGUOUS_の組だけ(self):
+        self.assertEqual(AMBIGUOUS, {})
         samples = {
-            "resolver:3a'": ("main-resolver", "rework-resolver"),
-            "resolver:3'": ("rework-resolver",),
+            "resolver:3a'": ("main-resolver",),
+            "resolver:3a-fix": ("rework-resolver",),
+            "resolver:3a'-fix": ("rework-resolver",),
+            "resolver:3-fix": ("rework-resolver",),
             "resolver:3b": ("main-resolver",),
             "verifier:3a'v": ("main-verifier",),
-            "verifier:3av'": ("rework-verifier",),
+            "verifier:3a-fixv": ("rework-verifier",),
+            "verifier:3a'-fixv": ("rework-verifier",),
+            "resolver:3a-fix-flow": ("flow-rework",),
+            "resolver:3a'-fix-questions": ("questions",),
+            "resolver:3-fix-opens": ("opens",),
+            "resolver:3-fix-pairs": ("pairs",),
+            "resolver:3-fix-rehold": ("rehold",),
+            "verifier:3-fix-reholdv": ("rehold-verifier",),
+            "flow-check:3a-fix": ("independent-flow",),
             "resolver:3-convert": ("convert",),
             "resolver:3a-settle-2-convert": ("convert",),
             "resolver:3b-reframe-questions": ("questions",),
