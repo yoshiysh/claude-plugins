@@ -12,7 +12,7 @@
 |---|---|
 | `workspace` | W の絶対パス（S0 で作ったもの）。`~` は展開しておく |
 | `skillDir` | このスキルの絶対パス。agent が役割ファイルと契約を Read するパスはここでしか決まらない |
-| `entry` | `new` / `existing` / `expand`。`review` / `update` は使わない（Codex の runner が拒否する値と衝突する） |
+| `entry` | `new` / `existing` / `expand`。既存文書の監査と改訂は `existing`（SKILL.md の S0 の表） |
 | `existing_docs` | `existing`・`expand` のとき必須。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed: true \| false }]`。本文は W に置いてある。`key` が文書のキーの形（`prd-spec.js` の `DOC_KEY`）でないか `fixed` が真偽値でなければ、run は agent を起動する前に止まる（`key` は段 1 の入口の reset のコマンド文に入る） |
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
 | `state` | `from` が `1` 以外のとき要る。前の run の `next_args` ごと渡す（§3） |
@@ -77,7 +77,8 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   resume（本家の Workflow の `resumeFromRunId`）はセッションを跨がないので、ゲートで回答を待つ間にセッションが閉じても `next_args` で続けられる。
 - **`blocked` の `next_args`**: agent の返り値が無かった（Workflow の `agent()` の null。利用者がその agent を止めたか、runtime が出し直した後も
   API エラーだった。script からはどちらか区別できないので、どちらでも出し直さない: 利用者の停止を覆し、API エラーは runtime が既に出し直している）とき、
-  `agent()` が予算以外の例外で終わったとき（`reason` に例外の文が載る。改稿の輪を出た後の `resolver:final` だけは、返り値が無いときと同じく止め直さない）、
+  `agent()` が予算以外の例外で終わったとき（runtime の側の失敗。script が作ったプロンプト・schema・opts の誤りは `agent()` の前に止め、§5 の
+  script の欠陥として扱う。`reason` に例外の文が載る。改稿の輪を出た後の `resolver:final` だけは、返り値が無いときと同じく止め直さない）、
   返した doc_check の stdout が差し戻しの後も不合格だったときは、その段からの `next_args` が付く。返り値の無い agent は「指摘 0 件」にしない。
   セッション上限なら解除してから呼び直す（SKILL.md「## 中継」の「呼び直し」。以下も同じ）。token の目標（`budget.total`）に達したときは `stop_reason: budget` で止まり、段の途中ならその段から、段の境界なら
   次の段からの `next_args` が付く（目標を上げてから呼び直す）。
@@ -109,7 +110,10 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   `integrity` に 1 行足す。needs_answers の `next_args`・次の段の run には `restore` が付かないので restore しない。
 - **段 1 から始める run は、W を S0 の直後に戻してから始める。** 新しい run も、段 1 からの再実行も、入口の flow-check（`1-entry`）に
   `doc_check reset --keep <existing_docs の全部のキー> --fixed <existing_docs の fixed のキー>` を実行させ、その stdout（残した文書と固定の文書の
-  キーが args と一致するもの）を受け取るまで intake を起動しない。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
+  キーが args と一致し、固定の文書ごとの `fixed_sha256` があるもの）を受け取るまで intake を起動しない。`fixed_sha256` は `state.fixed_sha` に入り、
+  段 5・8 の監査の snapshot（`--fixed`）が返す値と照合する。違えば固定の文書を誰かが書き換えたので（固定の文書の書き手はいない）、`integrity` に
+  1 行足して `next_args` を付けずに止まる（どの段からやり直しても W の本文は戻らない。本文を `existing_docs` の `source` から置き直して段 1 から）。
+  固定の文書があるのに `state.fixed_sha` が合わない `next_args` は、agent を起動する前に止まる。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
   所有表の外のファイル・`tmp/` を残して段の書き込みと `--keep` に無い文書を消し（消すものの正本は doc_check の `wsReset`）、固定の文書の
   meta を書き直す。`--keep` に無い文書を消すのは、S0 が置くのは `existing_docs` の文書だけで、それ以外は前のランの writer の文書だからである
   （同じ W で S0 からやり直すと、meta の無いまま INDEX に載り、同じ topic の単位の writer に前の草稿が渡る）。put はキー単位で足すので、戻さずに始めると前のランや止まった段 1・2 の
@@ -174,7 +178,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 小規模・低リスクな案件 | 規律は下げない。単位と文書が 1 つになるだけ |
 | 依頼者が分割に異を唱えた | 依頼者の言葉を依頼文に続けて `input.md` に逐語で書き、`entry: new` で S0 からやり直す（分割は intake の決定なので、それを入力にして決め直す。intake は `input.md` を読み、answers は段 1 の入口の reset が消す） |
 | agent が応答しない（返り値が null） | 出し直さない。その段を blocked にし、`reason` に「利用者が止めたか、runtime の出し直しの後も API エラーだった」と書いて `next_args` を付ける（§3）。司令塔は SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す |
-| Workflow が例外で終わった（args の検査か script の欠陥）か、`reason` が「script の不変条件に反しました」の blocked（段の出口の検査。条件は `prd-spec.js` の `exitViolation` が正で、`reason` にどれを破ったかが載る） | 再実行しない（同じ args では同じ所で止まる）。例外の文か `reason` をそのまま伝える。args の検査なら、渡した args が返った `next_args`（§3 の環境の欄のほかは変えない）かを確かめる。それ以外は script の欠陥なので、prd-spec.js を直すまで run を続けない |
+| Workflow が例外で終わった（args の検査か、起動の前の schema・役の opts の検査（`prd-spec.js` の `schemaDefects`・`callDefect`）か script の欠陥）か、`reason` が「script の不変条件に反しました」の blocked（段の出口の検査（`exitViolation`）か、`agent()` の前の呼び出しの検査（`callDefect`）。`reason` にどれを破ったかが載る） | 再実行しない（同じ args では同じ所で止まる）。例外の文か `reason` をそのまま伝える。args の検査なら、渡した args が返った `next_args`（§3 の環境の欄のほかは変えない）かを確かめる。それ以外は script の欠陥なので、prd-spec.js を直すまで run を続けない |
 | 出した agent が全件応答しない | セッション上限・レート制限を疑う。解除してから呼び直す（SKILL.md「## 中継」の「呼び直し」） |
 | token の目標（`budget.total`）に達した（`stop_reason: budget`） | 目標を上げてから呼び直す（SKILL.md「## 中継」の「呼び直し」） |
 | 監査の指摘は 0 件だが開いている TBD がある | 「完成しました」と言わない。「あと N 個決まれば着手できます」と伝える |
@@ -191,7 +195,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `plan` | intake | plan.json の `domain` が `references/domain-analysis.md` §2 の観点のキーを 1 回ずつ持ち、判定の根拠の ID が実在し、`irreversible` が `該当` なら `kind: invariant` の決定か未決があるか |
 | `flow [--rulings]` / `conflicts` | flow-framer（`flow` は resolver・resolver-verifier・flow-check も。`--rulings` は resolver-verifier の最後の `flow` と flow-check） | 流れの形・閉包・出典の検査（stdout に指摘の件数と符号ごとの場所（`codes`。意味は契約「flow.json の形」の直し手）・`open.json` の件数と ID・flow.json の内容の `content_sha256`・`--rulings` のときは裁定と合否の `resolutions`・ほかの欄の意味は契約 §flow-framer） / 同じ target を持つ決定どうし・決定と要素の組の列挙 |
 | `doc [--doc <キー>] --open-tbd <ID,…>` | writer（内部ループ）、指名された監査役 | 構造検査・参照先の実在・曖昧語・開いた TBD に触れる断定。stdout の `flow_refs` に項目ごとの trace が指す flow 要素の ID を出す（script が改稿の writer に項目ごとに渡す） |
-| `snapshot --save <label> [--role auditor] [--live <label,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
+| `snapshot --save <label> [--role auditor] [--live <label,…>] [--fixed <キー,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`--fixed` に挙げた文書の本文と meta の sha256 を stdout の `fixed_sha256` に出す（reset と同じ値）。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと `tmp/` に残ったものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。台帳と文書のバイト数を `sizes` に、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
 | `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray`・`sizes`・`size_over` は snapshot と同じ（一覧は `checks/tree-digest.*.json`） |
 | `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く |
@@ -199,7 +203,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>] --token <token>` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
 | `backup --doc <キー> … --token <token>` | flow-check（段 4・7 の writer の前） | 文書の本文の控えを token の下に取る（無い文書は無い印。同じ token の控えがあれば取り直さない）。stdout に `backup: true`・`token`・控えを取った文書のキー（`docs`） |
 | `restore --token <token>` | flow-check（blocked の後の同じ段の再実行の入口） | token の控えを台帳と文書の本文に戻し、token の下で作られた台帳と文書を消して控えを消す（控えを書く途中で落ちた一時名は数えない。§3）。stdout に戻したファイルごとの前後の sha256（無いファイルは null）と flow.json の前後（`flow_before`・`flow_after`）、控えを消した後の段の token（`pruned_by`。あれば何も戻さない） |
-| `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`） |
+| `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`）とその本文と meta の sha256（`fixed_sha256`） |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
 | `report [--drafts <RS-…>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない） |

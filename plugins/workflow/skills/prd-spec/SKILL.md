@@ -75,7 +75,9 @@ workspace を用意し、保存することだけである。** 決定・問い�
    （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
    `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く。`existing_docs` に無い文書はその reset が消す
    （`references/workflow-io.md` §3）。
-5. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
+5. **許可を確かめる**: run の前に、`references/permissions.md` の allow rule を足すかを利用者に確かめる（auto mode の扱いも同じ文書）。
+   settings は書かない（利用者の持ち物である）。許可が無いと、manual モードの run は agent の権限の確認のたびに止まる。
+6. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
    挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out ~/.claude/prd-spec-workspace/<そのラン>/legacy`
    で変換してから並べる。
@@ -167,6 +169,13 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 native の Workflow で、名前付き workflow `/workflow:prd-spec-run` を呼ぶ。名前で呼ぶのは、plugin の workflow を名前で呼ぶと承認に
 「Yes, and don't ask again」が出る（本家の workflows の文書）ので、ゲートと blocked のたびの呼び直しで承認を繰り返さずに済むからである。
 
+Claude Code で Workflow ツールが無いときは、有効にする方法（Pro は `/config` の Dynamic workflows の行、無効にしているのは
+`disableWorkflows` の設定か環境変数 `CLAUDE_CODE_DISABLE_WORKFLOWS`）を伝えて終える。runner には回さない（runner は Codex の前提で、
+Claude Code の中で混ぜると W を 2 つの経路で書く）。
+
+1 run の agent は 25 体を超えることが多く、本家の進捗の行に `Large workflow` の警告が出ることがある（体数と費用の実測は
+`references/telemetry.md`）。
+
 native の Workflow が無い Codex では実行しない。`workflow:dynamic-workflow-runner` は skill の中の `scriptPath` の callsite だけを扱い、
 名前の callsite と skill の外の script を受けないので、この skill は runner が実行の前に拒否する対象である。
 
@@ -182,6 +191,7 @@ native の Workflow が無い Codex では実行しない。`workflow:dynamic-wo
 | `[SKILL_DIR]/schemas/agent-contracts.md` | W のファイル・所有・各役の返り値 |
 | `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正。model / effort は `workflows/prd-spec.js` の `ROLE_OPTS` が正） |
 | `[SKILL_DIR]/references/workflow-io.md` | `/workflow:prd-spec-run` の args・返り値・段・再実行 |
+| `[SKILL_DIR]/references/permissions.md` | run の前に足す allow rule と auto mode の扱い |
 | `[SKILL_DIR]/references/io-example.md` | 依頼から保存までの通しの例 |
 | `[SKILL_DIR]/references/prd-and-spec.md` | 2 文書の目的と切り分け・必須の内容 |
 | `[SKILL_DIR]/references/document-structure.md` | 章立て・表と図・本文に書くのは規範だけ（§4） |

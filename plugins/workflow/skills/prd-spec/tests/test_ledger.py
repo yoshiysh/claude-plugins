@@ -310,6 +310,23 @@ class FreshRunReset(_Workspace):
         self.assertEqual(self._files(), after)
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が行う"}]})
 
+    def test_resetとsnapshotは固定の文書の本文とmetaのsha256を同じ値で返し書き換えで変わる(self):
+        self._reused()
+        plan = (self.ws / "plan.json").read_bytes()
+        base = _ok(self.ws, "reset", *self.KEEP, *self.FIXED)["fixed_sha256"]
+        (self.ws / "plan.json").write_bytes(plan)
+        self.assertEqual(list(base), ["requirements/auth"])
+        snap = lambda: _ok(self.ws, "snapshot", "--save", "s", "--fixed", "requirements/auth")["fixed_sha256"]
+        self.assertEqual(snap(), base)
+        self.assertNotIn("fixed_sha256", _ok(self.ws, "snapshot", "--save", "s"))
+        doc = self.ws / "requirements-auth.md"
+        doc.write_text(doc.read_text() + "\n追記\n")
+        moved = snap()
+        self.assertNotEqual(moved, base, "本文の書き換え")
+        meta = self.ws / "requirements-auth.meta.json"
+        meta.write_text(meta.read_text().replace('"fixed": true', '"fixed": false'))
+        self.assertNotEqual(snap(), moved, "fixed の印を外した meta の書き換え")
+
     def test_前のランのwriterの文書はresetの後のindexに載らない(self):
         # 分割に異を唱えた依頼者の言葉を足して同じ W で S0 からやり直す経路。前のランの writer の文書（billing）は existing_docs に無い。
         self._reused()

@@ -107,6 +107,8 @@ const restoreTx = (token) => {
   persist()
   return JSON.stringify({ token, restored: Object.keys(pre || {}).length, files: [], pruned_by: [], flow_before: String(before), flow_after: String(flowSha) })
 }
+// fixedShas: doc_check の固定の文書の sha256。fixed_moved_at: { <監査の段 r<n>>: [文書キー] } の文書だけ、その段から後の値を変える。
+const fixedShas = (keys, stage) => Object.fromEntries(keys.map((k) => [k, H(`fixed-${k}${stage && Object.entries(spec.fixed_moved_at || {}).some(([s, ks]) => Number(stage.slice(1)) >= Number(s.slice(1)) && ks.includes(k)) ? '-moved' : ''}`)]))
 // reset: doc_check reset と同じく、S0 が書いたもののほか（台帳・控え）を消す。
 const resetWorld = (keep, fixed) => {
   const removed = ['flow', 'els', 'verdicts', 'rs', 'open_ids', 'tx'].filter((k) => disk[k] !== undefined && disk[k] !== null)
@@ -122,7 +124,8 @@ const resetWorld = (keep, fixed) => {
   preexisting = new Set()
   persist()
   const keys = (x) => (x ? x.split(',').sort() : [])
-  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: spec.reset_fixed || keys(fixed) })
+  const fixedKeys = spec.reset_fixed || keys(fixed)
+  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: fixedKeys, ...(spec.reset_no_fixed_sha ? {} : { fixed_sha256: fixedShas(fixedKeys, null) }) })
 }
 const setFlow = (x) => {
   touch('flow')
@@ -372,6 +375,8 @@ function respond(prompt, label) {
         size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json`, files: listed((spec.size_over_at || {})[stage] || 0, 'size') },
       }
       const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {} })
+      const fixedFlag = /doc_check\.mjs snapshot [^`]* --fixed (\S+?)`/.exec(prompt)
+      if (fixedFlag) found.fixed_sha256 = fixedShas(fixedFlag[1].split(','), stage)
       if (n === 1) out.designated = { doc_check: docCheck, audited: JSON.stringify({ digest: H('a1'), ...found }) }
       else if ((spec.diff_error_at || []).includes(stage)) out.designated = { diff_error: 'doc_check diff: digest mismatch' }
       else {
@@ -391,7 +396,7 @@ function respond(prompt, label) {
   throw new Error(`unknown label ${label}`)
 }
 // budget: runtime の budget と同じ形（total・spent()・remaining()）。agent を 1 回起動するたびに per_call（既定 1）を使い、spent() が
-// total に達した後の agent() は throw する（runtime と同じ）。spec.budget が無ければ globalThis.budget を置かない（Codex の runner と同じ）。
+// total に達した後の agent() は throw する（runtime と同じ）。spec.budget が無ければ globalThis.budget を置かない（budget の無い実行環境。budgetOut は常に false）。
 let spent = (spec.budget && spec.budget.spent) || 0
 if (spec.budget) globalThis.budget = { total: spec.budget.total, spent: () => spent, remaining: () => (spec.budget.total == null ? Infinity : Math.max(0, spec.budget.total - spent)) }
 // hold_until_extra: その label の監査役を、追加の監査役（:extra）が起動するまで返さない（1.5 秒で諦め、held_timeout に残す）。
@@ -1091,6 +1096,32 @@ class Stages(unittest.TestCase):
                 res = r["result"]
                 self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]), ("blocked", "1", {}), res.get("reason"))
                 self.assertIn(value("NOT_RUN") if name == "応答しない" else "doc_check reset", res["reason"])
+
+    def _expand(self):
+        a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "specifications/x", "fixed": False}])
+        return {"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}]}
+
+    def test_固定の文書が段1の入口から変わったら監査の段で止め再実行させない(self):
+        finding = {"id": "r1-im-specifications__x-001", "doc": "specifications/x", "item_id": "SP-X-001"}
+        for at, stage, extra in (("r1", "5", {}), ("r2", "8", {"findings": {"implementer:r1": [finding]}, "writer_changed": ["SP-X-001"]})):
+            with self.subTest(stage):
+                r = run({**self._expand(), **extra, "fixed_moved_at": {at: ["requirements/x"]}})
+                res = r["result"]
+                self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+                self.assertIn("固定の文書 requirements/x が段 1 の入口から変わりました", res["reason"])
+                self.assertTrue(any(f"--save audited-{at[1:]} --role auditor" in p["prompt"] and "--fixed requirements/x`" in p["prompt"] for p in r["prompts"]))
+                self.assertTrue(any(f"audited-{at[1:]} の snapshot で照合" in line for line in res["integrity"]), res["integrity"])
+        self.assertEqual(run(self._expand())["result"]["status"], "done")
+
+    def test_固定の文書のsha256を返さないresetと基準の無い再開は止める(self):
+        r = run({**self._expand(), "reset_no_fixed_sha": True})
+        self.assertFalse(has(r["labels"], "intake"), r["labels"])
+        self.assertEqual(r["result"]["next_args"]["from"], "1")
+        a = {**self._expand()["args"], "from": "4", "state": {"units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}], "flow_digest": "f"}}
+        a = args(**{k: v for k, v in a.items() if k not in ("state_hash",)})
+        r = run({"args": a})
+        self.assertIn("args.state.fixed_sha", r["error"] or "")
+        self.assertEqual(r["attempted"], 0)
 
     def test_段1の入口はexisting_docsの文書を残させ固定の文書のmetaをresetに書き直させる(self):
         a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "requirements/a", "fixed": True}, {"key": "specifications/x", "fixed": False}])
@@ -3702,6 +3733,42 @@ class OfficialAlignment(unittest.TestCase):
                 self.assertIn(f"stub: {label} の例外", res["reason"])
                 again = run({"args": res["next_args"], **spec, "world": self.world})["result"]
                 self.assertEqual(again["status"], "done", again.get("reason"))
+
+    def test_scriptが作ったschemaの誤りはagentを起動せず再実行できないblockedにする(self):
+        # 逐次の呼び出し（intake）と、runtime が throw を null にする pipeline の中（段 5 の監査役）。
+        cases = (
+            ("intake", "  const first = await once('intake', 'intake', prompt('intake'), INTAKE_SCHEMA, 'Intake')", "  const first = await once('intake', 'intake', prompt('intake'), { ...INTAKE_SCHEMA }, 'Intake')", "1"),
+            ("監査役", "      schema: AUDIT_SCHEMA,\n", "      schema: { ...AUDIT_SCHEMA },\n", "5"),
+        )
+        for name, old, new, stage in cases:
+            with self.subTest(name):
+                r = run({"args": args(), "runtime_pipeline": True}, patch=[(old, new)])
+                self.assertIsNone(r["error"], r["error"])
+                res = r["result"]
+                self.assertEqual((res["status"], res["next_args"], res["resumable"]), ("blocked", None, False), res.get("reason"))
+                self.assertIn(f"script の不変条件に反しました（段 {stage}）", res["reason"])
+                self.assertIn("opts.schema が起動の前に検査した schema でない", res["reason"])
+                role = "intake" if stage == "1" else "implementer"
+                self.assertFalse([l for l in r["labels"] if l.split(":")[0] == role], "schema の誤った呼び出しは agent を起動しない")
+
+    def test_agentに渡すschemaは起動の前に検査した定数だけ(self):
+        # callDefect は schema を同一のオブジェクトで照合するので、定数を広げた・その場で組んだ schema は呼び出しの時に止まる。
+        src = PRD.read_text(encoding="utf-8")
+        code = "\n".join(l for l in src.split("\n") if not l.strip().startswith("//"))
+        registered = set(re.search(r"const SCHEMAS = \{ ([^}]+) \}", code).group(1).split(", "))
+        defined = set(re.findall(r"^const ([A-Z_]+_SCHEMA) = ", code, re.M))
+        self.assertEqual(registered, defined)
+        self.assertNotRegex(code, r"schema:\s*\{|\.\.\.[A-Z_]+_SCHEMA")
+
+    def test_schemaの定数かrole_optsの既定の誤りはagentを起動する前にrunを止める(self):
+        for old, new in (
+            ("const STR = { type: 'string' }\n", "const STR = { type: 'string', format: 'x' }\n"),
+            ("  flowCheck: { model: 'haiku', effort: 'low' },\n", "  flowCheck: { model: 'haiku', effort: 'lowest' },\n"),
+        ):
+            with self.subTest(new.strip()):
+                r = run({"args": args()}, patch=[(old, new)])
+                self.assertIn("script の欠陥", r["error"] or "")
+                self.assertEqual(r["attempted"], 0)
 
     def test_budgetのtotalがnullかbudgetが無ければ影響しない(self):
         for kw in ({"budget": {"total": None}}, {}):

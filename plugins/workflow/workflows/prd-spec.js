@@ -575,6 +575,56 @@ const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段から�
 // 達して agent を起動できなくなったとき。
 const STOP_REASONS = ['pass_limit', 'no_progress', 'budget']
 
+// schemaDefects・callDefect: script が作る schema と opts の誤り（script の欠陥）を agent() の前に見分ける。見分けないと runtime が
+// その呼び出しを例外にし、再実行できる blocked に化けて、同じ所で同じ理由の失敗を繰り返す（references/workflow-io.md §5）。
+// 受ける keyword は今の schema が使うものだけにする（runtime が受けるかを確かめた集合ではない）。
+const SCHEMA_KEYWORDS = {
+  object: ['type', 'properties', 'required', 'additionalProperties'],
+  array: ['type', 'items', 'minItems', 'maxItems'],
+  string: ['type', 'enum'],
+  integer: ['type', 'minimum'],
+  boolean: ['type'],
+}
+function schemaDefects(schema, at = '$') {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return [`${at}: schema がオブジェクトでない`]
+  const allowed = SCHEMA_KEYWORDS[schema.type]
+  if (!allowed) return [`${at}: type「${schema.type}」は受けない`]
+  const out = Object.keys(schema).filter((k) => !allowed.includes(k)).map((k) => `${at}: ${schema.type} に keyword「${k}」は受けない`)
+  if (schema.type === 'object') {
+    const props = schema.properties
+    if (props === undefined ? schema.additionalProperties === undefined : !props || typeof props !== 'object' || Array.isArray(props)) out.push(`${at}: properties が無いかオブジェクトでない`)
+    else if (props) for (const [k, v] of Object.entries(props)) out.push(...schemaDefects(v, `${at}.${k}`))
+    if (schema.required !== undefined) {
+      if (!Array.isArray(schema.required)) out.push(`${at}: required が配列でない`)
+      else for (const k of schema.required) if (!props || !Object.hasOwn(props, k)) out.push(`${at}: required の「${k}」が properties に無い`)
+    }
+    if (schema.additionalProperties !== undefined) out.push(...schemaDefects(schema.additionalProperties, `${at}.*`))
+  }
+  if (schema.type === 'array') {
+    if (schema.items === undefined) out.push(`${at}: items が無い`)
+    else out.push(...schemaDefects(schema.items, `${at}[]`))
+    for (const k of ['minItems', 'maxItems']) if (schema[k] !== undefined && !(Number.isInteger(schema[k]) && schema[k] >= 0)) out.push(`${at}: ${k} が 0 以上の整数でない`)
+  }
+  if (schema.type === 'string' && schema.enum !== undefined && !(Array.isArray(schema.enum) && schema.enum.length && schema.enum.every((x) => typeof x === 'string'))) out.push(`${at}: enum が文字列の配列でない`)
+  if (schema.type === 'integer' && schema.minimum !== undefined && !Number.isInteger(schema.minimum)) out.push(`${at}: minimum が整数でない`)
+  return out
+}
+const CALL_OPTS = ['model', 'effort', 'schema', 'phase', 'label']
+// known: { schemas: 起動の前に検査した schema の Set }。schema は同一のオブジェクトであることで照合する（script の外から来る値では
+// ないので、検査済みの定数を渡したかだけを見る）。phase の title は runtime の例外にならないので見ない（tests が meta.phases と照合する）。
+function callDefect(prompt, opts, known) {
+  if (!opts || typeof opts !== 'object') return 'opts がオブジェクトでない'
+  const out = Object.keys(opts).filter((k) => !CALL_OPTS.includes(k)).map((k) => `opts.${k} は渡さない`)
+  if (typeof prompt !== 'string' || !prompt.trim()) out.push('プロンプトが空')
+  if (typeof opts.label !== 'string' || !opts.label) out.push('opts.label が無い')
+  if (typeof opts.phase !== 'string' || !opts.phase) out.push('opts.phase が無い')
+  if (!known.schemas.has(opts.schema)) out.push('opts.schema が起動の前に検査した schema でない')
+  if (opts.model !== undefined && !MODELS.includes(opts.model) && !MODEL_ID.test(opts.model)) out.push(`opts.model「${opts.model}」は受けない`)
+  if (opts.model === 'inherit') out.push('opts.model に inherit を渡さない（applyRoleOverrides が外す）')
+  if (!EFFORTS.includes(opts.effort)) out.push(`opts.effort「${opts.effort}」は受けない`)
+  return out.length ? out.join(' / ') : null
+}
+
 // PURE_END
 
 const STR = { type: 'string' }
@@ -715,7 +765,7 @@ const ENTRY = input.entry || 'new'
 const FROM = String(input.from || '1')
 if (!W.startsWith('/')) throw new Error('args.workspace に workspace の絶対パスを渡してください（S0 で作ったもの）')
 if (!SKILL_DIR.startsWith('/')) throw new Error('args.skillDir にこのスキルの絶対パスを渡してください')
-if (!ENTRIES.includes(ENTRY)) throw new Error(`args.entry は ${ENTRIES.join(' / ')} のどれかです（review / update は使わない）: "${ENTRY}"`)
+if (!ENTRIES.includes(ENTRY)) throw new Error(`args.entry は ${ENTRIES.join(' / ')} のどれかです（既存文書の監査と改訂は existing）: "${ENTRY}"`)
 if (!STAGES.includes(FROM)) throw new Error(`args.from は段の境界（${STAGES.join(' / ')}）のどれかです: "${FROM}"`)
 const EXISTING = Array.isArray(input.existing_docs) ? input.existing_docs : []
 const badDocs = EXISTING.filter((d) => !d || typeof d !== 'object' || typeof d.key !== 'string' || !DOC_KEY.test(d.key) || typeof d.fixed !== 'boolean')
@@ -724,6 +774,15 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
+const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, BACKUP_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
+{
+  const defects = [
+    ...Object.entries(SCHEMAS).flatMap(([name, schema]) => schemaDefects(schema, name)),
+    ...Object.entries(OPTS).map(([role, o]) => callDefect('-', { ...o, schema: INTAKE_SCHEMA, phase: 'Intake', label: role }, KNOWN_CALL)).filter(Boolean),
+  ]
+  if (defects.length) throw new Error(`script の欠陥（schema か役の opts。prd-spec.js を直すまで run を続けない）: ${defects.join(' / ')}`)
+}
 // ANSWERED: 回答を書き終えたゲート。プロンプトに入れない（入れると resume でゲートより前の agent が保存された結果から外れ、段 1 の reset が
 // live で走って W を消す）。
 const ANSWERED = input.answered === undefined ? [] : input.answered
@@ -736,6 +795,10 @@ if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
 const state = JSON.parse(JSON.stringify(input.state || {}))
 const startErrors = stateErrors(FROM, state)
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
+// 固定の文書の照合の基準は段 1 の入口の reset だけが作る。基準の無い run を通すと、照合が黙って飛ぶ。
+if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canonicalText(FIXED_KEYS)) {
+  throw new Error(`args.state.fixed_sha（固定の文書 ${list(FIXED_KEYS)} の段 1 の入口の sha256）が existing_docs と合いません。返った next_args を変えずに渡すか、段 1 から始めてください`)
+}
 
 const BASE_ARGS = { workspace: W, skillDir: SKILL_DIR, entry: ENTRY, existing_docs: EXISTING, role_opts: input.role_opts || {} }
 const argsFrom = (from, st) => {
@@ -760,6 +823,8 @@ const TX_ROLES = ['intake', 'flowFramer', 'resolver', 'verifier', 'writer']
 // failedCalls: 結果を返さずに終わった agent() の数。resume は完了した agent を保存された結果で返すので、失敗した agent が無い blocked を
 // resume すると同じ結果を同じ所で返す（resumable が false）。
 let failedCalls = 0
+// scriptDefect: call() が agent() の前に見つけた script の欠陥（最初の 1 件）。
+let scriptDefect = null
 
 function finish(status, extra) {
   if (extra && extra.stop_reason != null && !STOP_REASONS.includes(extra.stop_reason)) throw new Error(`stop_reason "${extra.stop_reason}" は STOP_REASONS（${STOP_REASONS.join(' / ')}）にありません`)
@@ -924,9 +989,17 @@ const budgetStop = (what) => Object.assign(new Error(`token の目標（budget.t
 const notRun = (what) => (budgetOut() ? budgetStop(what) : Object.assign(new Error(`${what} が${NOT_RUN}`), { rerunStage: true }))
 
 // call: agent() を呼ぶ場所はここだけにする（budget の確かめを通らない呼び出しを作らない。tests が数える）。
-// 予算以外の例外（schema の検証の失敗など）も run を落とさず、返り値の無い呼び出しと同じ扱いにする（段からやり直せる blocked。
-// pipeline の中の例外は runtime が null にする）。agentThrew は、null でも止めない finalHold が例外を null と同じに読むための印。
+// script が作ったプロンプト・schema・opts の誤りは agent() の前に止め、scriptDefect に積む。pipeline の中の throw は runtime が null にするので、
+// 段を回す loop が scriptDefect を見て next_args の無い blocked にする（再実行しても同じ所で止まる）。
+// それを通った後の agent() の例外（返り値の schema の検証の失敗など）は runtime の側の失敗なので、返り値の無い呼び出しと同じく段から
+// やり直せる blocked にする。agentThrew は、null でも止めない finalHold が例外を null と同じに読むための印。
 async function call(prompt, opts) {
+  const defect = callDefect(prompt, opts, KNOWN_CALL)
+  if (defect) {
+    const label = opts && opts.label
+    scriptDefect = scriptDefect || `${label}: ${defect}`
+    throw Object.assign(new Error(`${label}: ${defect}`), { scriptDefect: true })
+  }
   if (budgetOut()) throw budgetStop(opts.label)
   try {
     const r = await agent(prompt, opts)
@@ -1608,8 +1681,26 @@ async function resetEntry() {
   const flags = [KEEP_KEYS.length ? `--keep ${KEEP_KEYS.join(',')}` : '', FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''].filter(Boolean).join(' ')
   const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', flags)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
   const rc = parseStdout(x && x.reset_check)
-  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS)) return null
+  const shas = rc && rc.fixed_sha256
+  const shaOk = shas && typeof shas === 'object' && canonicalText(Object.keys(shas)) === canonicalText(FIXED_KEYS) && Object.values(shas).every((v) => typeof v === 'string' && v)
+  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk) {
+    if (FIXED_KEYS.length) state.fixed_sha = shas
+    return null
+  }
   return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')
+}
+
+// FIXED_FLAG・fixedMoved: 監査の snapshot に固定の文書の sha256 を返させ、段 1 の入口の値と照合する。固定の文書を書く役はいないので、
+// 変わっていれば別のランの承認を迂回した書き込みで、どの段からやり直しても本文は戻らない（reset は W の本文を残す）。
+const FIXED_FLAG = FIXED_KEYS.length ? ` --fixed ${FIXED_KEYS.join(',')}` : ''
+function fixedMoved(audited, label) {
+  if (!FIXED_KEYS.length) return null
+  const got = audited.fixed_sha256
+  if (!got || typeof got !== 'object') return { error: `監査役が ${label} の snapshot の fixed_sha256（固定の文書 ${list(FIXED_KEYS)} の sha256）を返しませんでした`, rerun: true }
+  const moved = FIXED_KEYS.filter((k) => got[k] !== state.fixed_sha[k])
+  if (!moved.length) return null
+  noteIntegrity(`固定の文書 ${moved.join(', ')} の本文か meta が、段 1 の入口から変わった（${label} の snapshot で照合）`)
+  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から逐語で置き直し、段 1 から始めてください`, rerun: false }
 }
 
 async function stage1() {
@@ -1906,7 +1997,7 @@ async function stage5() {
   plan[plan.length - 1].designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)}`)}\` → designated.audited`,
+    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)}${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
   const { results, missing } = await runAuditors(plan, 1, '5')
   if (missing.length) throw notRun(missing.join(', '))
@@ -1914,6 +2005,8 @@ async function stage5() {
   const audited = parseStdout(cd.designated && cd.designated.audited)
   const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
   if (!audited || !audited.digest) return blocked('cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした。どの版を監査したかの記録が無いまま進めません', '5')
+  const moved1 = fixedMoved(audited, 'audited-1')
+  if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
   state.audit = { n: 1, digest: audited.digest }
   state.tree_digest = audited.digest
   noteAudited(audited, 'audited-1')
@@ -2057,7 +2150,7 @@ async function stage8() {
   const designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
     `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
-    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
+    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)}${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
   plan[0].designatedText = designatedText
   const designatedOf = (h) => (h.results[0] && h.results[0].designated) || {}
@@ -2097,6 +2190,8 @@ async function stage8() {
   if (!d.diff) return blocked('指名された監査役が diff の結果を返しませんでした', '8')
   const { audited, tree } = readDesignated(d)
   if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした`, '8')
+  const moved = fixedMoved(audited, `audited-${round}`)
+  if (moved) return blocked(moved.error, moved.rerun ? '8' : null)
   const extra = extraOf(d)
   const extraDocs = Object.keys(extra)
   const allPlan = [...plan, ...(added ? added.extraPlan : [])]
@@ -2299,11 +2394,13 @@ while (outcome === null) {
     r = next !== FROM ? null : ENTRY_CHECK ? await enterFromDisk(FROM) : restorePending ? await restoreEntry(FROM) : null
     if (!r) r = await STAGE_FNS[next]()
   } catch (e) {
-    if (e && e.budgetStop) r = blocked(e.message, running, { stop_reason: 'budget' })
+    if (scriptDefect) r = null
+    else if (e && e.budgetStop) r = blocked(e.message, running, { stop_reason: 'budget' })
     else if (e && e.rerunStage) r = blocked(e.message, running)
     else throw e
   }
   // 不変条件の違反は script の欠陥で、同じ段からやり直しても同じ所で破るので next_args を付けない。
+  if (scriptDefect) r = blocked(`script の不変条件に反しました（段 ${running}）: ${scriptDefect}`, null)
   const violation = r.status === 'blocked' ? null : exitViolation(running, r)
   if (violation) r = blocked(`script の不変条件に反しました（段 ${running}）: ${violation}`, null)
   if (typeof r === 'string') next = r

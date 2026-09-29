@@ -1908,6 +1908,18 @@ function wsRestore(ws, opts) {
 // 回答を読まず、新しいランは RS- を 1 から振り直すので、残った回答の ID は別の問いを指す。--keep に無い文書も消す: 前のランの writer の
 // 文書が meta なしで残ると、index に載り、同じ topic の単位の writer に前の草稿が渡る。固定の文書の meta は S0 の依頼の写し
 // （existing_docs の fixed）なので、消した後に --fixed から書き直す。所有表に無いファイルと tmp/ は触らない（snapshot の stray に出る）。
+// fixedShas: 固定の文書（existing_docs の fixed）の本文と meta のバイトの sha256。reset が段 1 の入口の値を返し、監査の snapshot が同じ値を
+// 返して script が照合する。固定の文書は所有表の誰の書き込みでもないので、変わっていれば承認を迂回した書き込みである。meta も数えるのは、
+// fixed の印を外すと doc の検査がその文書を書き換えてよい文書として扱うから。
+function fixedShas(ws, keys) {
+  return Object.fromEntries(
+    [...new Set(keys || [])].sort().map((key) => {
+      const meta = ledgerOf('meta').file(key)
+      return [key, sha256(JSON.stringify([fileSha(path.join(ws, meta.replace(/\.meta\.json$/, '.md'))), fileSha(path.join(ws, meta))]))]
+    })
+  )
+}
+
 const RESET_REMOVES = ['plan.json', 'questions.md', 'questions.json', 'report.md', 'answers', 'findings', 'checks', TX_DIR]
 function wsReset(ws, opts) {
   const keep = [...new Set(opts.keep || [])].sort()
@@ -1932,7 +1944,7 @@ function wsReset(ws, opts) {
     .sort()
   for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
   for (const m of metas) writeAtomic([path.join(ws, m), ledgerText({ ...emptyLedger(ledgerOf('meta')), fixed: true })])
-  return { reset: true, removed, kept: keep, fixed }
+  return { reset: true, removed, kept: keep, fixed, fixed_sha256: fixedShas(ws, fixed) }
 }
 
 function answerTexts(ws) {
@@ -3187,7 +3199,8 @@ function wsSnapshot(ws, opts) {
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
   const rel = writeCheck(ws, `${label}.snapshot.json`, { label, digest, docs })
-  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, ...found }
+  const fixed = opts.fixed ? { fixed_sha256: fixedShas(ws, opts.fixed) } : {}
+  return { label, docs: wsDocs.length, items: Object.values(items).reduce((n, x) => n + Object.keys(x).length, 0), path: rel, digest, ...found, ...fixed }
 }
 
 // diff: snapshot の
