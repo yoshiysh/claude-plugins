@@ -34,6 +34,18 @@ SKILL = Path(__file__).resolve().parents[1]
 
 HARNESS = r"""
 const spec = JSON.parse(process.argv[2])
+// atReads: spec の *_at の段ごとに、stub が一度でも引いたか。run() はテストの中で一度も引かれない段を落とす（書いた経路を通らない空洞のテストを残さない）。
+const atRaw = {}
+const atSeen = {}
+for (const [k, v] of Object.entries(spec)) {
+  if (!k.endsWith('_at') || !v || typeof v !== 'object') continue
+  const seen = (atSeen[k] = new Set())
+  atRaw[k] = v
+  spec[k] = new Proxy(v, Array.isArray(v)
+    ? { get: (t, p) => (p === 'includes' ? (x) => (seen.add(String(x)), t.includes(x)) : t[p]) }
+    : { get: (t, p) => (typeof p === 'string' && seen.add(p), t[p]), ownKeys: (t) => (Object.keys(t).forEach((x) => seen.add(x)), Reflect.ownKeys(t)) })
+}
+const atReads = () => Object.fromEntries(Object.entries(atRaw).map(([k, v]) => [k, Object.fromEntries((Array.isArray(v) ? v.map(String) : Object.keys(v)).map((x) => [x, atSeen[k].has(x)]))]))
 const labels = []
 const logs = []
 let sha = 'rs-0'
@@ -500,7 +512,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
 """
 
 
@@ -530,7 +542,32 @@ def run(spec, patch=()):
         out = subprocess.run(["node", str(path), json.dumps(spec)], capture_output=True, text=True, check=True)
     got = json.loads(out.stdout)
     assert not got["stubErrors"], got["stubErrors"]
+    _note_at_reads(got["atReads"])
     return got
+
+
+def _note_at_reads(reads):
+    """spec の *_at の段を、テストの中の run() のどれか 1 つでも stub が引いたかで数え、テストの終わりに引かれなかった段で落とす。
+
+    同じ spec を段の手前で止まる run と続きの run で使い回すので、run ごとではなくテストごとに見る。"""
+    frame = sys._getframe(2)
+    while frame and not isinstance(frame.f_locals.get("self"), unittest.TestCase):
+        frame = frame.f_back
+    test = frame.f_locals["self"] if frame else None
+    acc = {} if test is None else test.__dict__.get("_at_reads")
+    if acc is None:
+        acc = test._at_reads = {}
+        test.addCleanup(_assert_at_read, acc)
+    for key, stages in reads.items():
+        for stage, read in stages.items():
+            acc[(key, stage)] = acc.get((key, stage), False) or read
+    if test is None:
+        _assert_at_read(acc)
+
+
+def _assert_at_read(acc):
+    unread = sorted(f"{k}[{s!r}]" for (k, s), read in acc.items() if not read)
+    assert not unread, f"spec に書いたのに stub が一度も引かなかった段（その経路を通っていない）: {', '.join(unread)}"
 
 
 def args(**kw):
@@ -1352,6 +1389,7 @@ class FlowDigest(unittest.TestCase):
         # 台帳が同じなら、同じ flow.json で flow-framer の stdout に無かった指摘は flow-framer の過少申告である。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         spec = self._settle_world(g0, "insufficient_grounds", open_ids_at={}, verifier_fail={})
+        del spec["ruled_at"]["3a-settle-opens"], spec["flow_codes_at"]["3a-settle-convert"]
         r = run(spec)
         self.assertNotIn("resolver:3a-settle-opens", r["labels"])
         res = r["result"]
@@ -1857,7 +1895,7 @@ class RerunFromTheSameStage(unittest.TestCase):
     FAIL_060 = [{"id": "RS-060", "kind": "insufficient_grounds", "reason": "根拠が無い"}]
 
     def _settle_world(self, stage):
-        common = {"flow_codes_at": {stage: self.D, f"{stage}v": self.D}, "open_ids_at": {f"{stage}-settle": ["O-060"]}, "unverified_at": {f"{stage}-settle": ["F-053"], f"{stage}-settle-2": ["F-053"]}}
+        common = {"flow_codes_at": {stage: self.D, f"{stage}v": self.D}, "open_ids_at": {f"{stage}-settle": ["O-060"]}, "unverified_at": {f"{stage}-settle": ["F-053"]}}
         if stage == "6":
             return {**self.G1, **common, "about": {"RS-060": {"open": "O-060"}, "RS-010": {"finding": "r1-cd-all-001"}}, "ruled_at": {"6": ["RS-010"], "6-settle-opens": ["RS-060"]}}
         return {**common, "flow_open": 1, "open_ids_at": {"framer": ["O-RS-001"], "3-settle": ["O-060"]}, "about": {"RS-060": {"open": "O-060"}}, "ruled_at": {"3": ["RS-001"], "3-settle-opens": ["RS-060"]}}
@@ -1925,7 +1963,9 @@ class RerunFromTheSameStage(unittest.TestCase):
 
     def test_settleで合格した裁定の反映の前に止まっても再実行がflowに写す(self):
         for stage in ("6", "3"):
-            base = {**self._settle_world(stage), "open_only_at": {f"{stage}v-settle": [{"el": "F-053", "constraint": "O-060"}]}}
+            world = self._settle_world(stage)
+            base = {**world, "open_only_at": {f"{stage}v-settle": [{"el": "F-053", "constraint": "O-060"}]},
+                    "unverified_at": {**world["unverified_at"], f"{stage}-settle-2": ["F-053"]}}
             with self.subTest(stage=stage):
                 whole, again = self._compare(base, {"null_labels": [f"flow-framer:{stage}-settle-2"]})
                 wrote = lambda r: [p["label"] for p in r["prompts"] if p["label"].startswith("flow-framer:") and "F-053 の O-060 ← RS-060" in p["prompt"]]
@@ -2448,7 +2488,7 @@ class FlowRecheck(unittest.TestCase):
         # 2 回目の settle でも同じ件数が残る（減らない）ので止まる。
         fail = [{"id": "F-091", "kind": "mapping", "reason": "r"}]
         for left in ({"open_only_at": {"3a": only, "3av-settle": only[:1], "3av-settle-2": only[:1]}},
-                     {"unput_at": {"3av-settle": ["F-091"], "3av-settle-2": ["F-091"]}, "open_only_at": {"3a": only}},
+                     {"unput_at": {"3av-settle": ["F-091"]}, "open_only_at": {"3a": only}},
                      {"verifier_fail": {"3av-settle": fail, "3av-settle-2": fail}, "open_only_at": {"3a": only}}):
             with self.subTest(left=left):
                 r = run({**spec, **left})
@@ -2854,7 +2894,7 @@ class FlowFixerRoutes(unittest.TestCase):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
         fails = [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}, {"id": "RS-002", "kind": "insufficient_grounds", "reason": "r"}]
         r = run(self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
-                           verifier_fail={"3av-settle": fails}, questions_at={"3a-settle-convert": ["RS-009"], "3b": ["RS-002"]}))
+                           verifier_fail={"3av-settle": fails}, questions_at={"3a-settle-convert": ["RS-009"]}))
         convert = self._prompt(r, "resolver:3a-settle-convert")
         self.assertIn("RS-009 → question", convert)
         self.assertNotIn("RS-002", convert)
@@ -3538,7 +3578,7 @@ class Convergence(unittest.TestCase):
         self.assertEqual(verifiers(ok), ["verifier:3v-settle", "verifier:3v-settle-2", "verifier:3v-settle-3"])
         self.assertIn("F-091", nth_prompt(ok, "flow-framer:3-settle-2", 0))
         self.assertEqual(ok["result"]["status"], "done")
-        limit = self._settle([3, 2, 1, 0])
+        limit = self._settle(list(range(rounds, 0, -1)))
         self.assertEqual(len(verifiers(limit)), rounds)
         self.assertEqual(limit["result"]["status"], "blocked")
         stuck = self._settle([2, 2, 0])
@@ -4065,7 +4105,7 @@ class SameSessionResume(unittest.TestCase):
     # 走る 3a には別の run の応答を渡す。
     GATES = {
         "g0": [{"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, {"ruled_at": {"3a": ["RS-001"]}}],
-        "g0-2": [{"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, {"ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}}, {"ruled_at": {"3a": ["RS-002"]}}],
+        "g0-2": [{"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, {"ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}}, {"ruled_at": {"3a": ["RS-002"]}}],
         "g1": [{"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, {"ruled_at": {"3a'": ["RS-010"]}}],
     }
     ORDER = ["g0", "g0-2", "g1"]
@@ -4143,7 +4183,7 @@ class SameSessionResume(unittest.TestCase):
                 self.assertEqual({k: res[k] for k in keys}, {k: via[-1]["result"][k] for k in keys})
 
     def test_回答済みのゲートを通った印はその段の出口にだけ効く(self):
-        spec = {"flow_open": 1, "questions_at": {"3": ["RS-001"], "3a": ["RS-002"], "3b": ["RS-002"]}, "ruled_at": {"3a": ["RS-001"]}}
+        spec = {"flow_open": 1, "questions_at": {"3": ["RS-001"], "3a": ["RS-002"]}, "ruled_at": {"3a": ["RS-001"]}}
         skip = [("  if (pendingQuestions(state).length) return needsAnswers('g0-2', '3a')\n", "")]
         world = self._w("p")
         stopped = run({"args": args(), **spec, "world": world}, patch=skip)
@@ -4255,7 +4295,7 @@ class SameSessionResume(unittest.TestCase):
     def test_next_argsで3aから始めたrunをG0_2の後にresumeしても回答のファイルは1回だけ確かめる(self):
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         world = self._w("g")
-        stopped = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}, "world": world})
+        stopped = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}, "world": world})
         res = stopped["result"]
         self.assertEqual((res["status"], res["gate"], res["question_ids"]), ("needs_answers", "g0-2", ["RS-002"]), res.get("reason"))
         resumed = run({"args": {**g0["next_args"], "gates_answered": {"g0-2": ["RS-002"]}}, "ruled_at": {"3a": ["RS-002"]}, "world": world,

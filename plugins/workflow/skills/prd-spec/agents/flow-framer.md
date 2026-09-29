@@ -76,8 +76,9 @@ ID を渡す。case なら、そのマスの出典と枝を裁定に合わせて
 通っていない値が flow に入る）。直し終えたら `flow` を 0 件になるまで直し、最後に `conflicts` を実行して、2 つの stdout を
 加工せずに返す。直さずに残すと、決まったことが「未決」の出力として文書に届く。
 
-プロンプトが指摘（`origin: flow` の指摘の ID と、それを裁定した resolution）を渡したときは、指摘を `W/findings/*.json` から
-ID で読み、その `doc` の meta で `item_id` の trace が指す flow 要素を、裁定どおりに直す。どの要素を直すかはあなたが決めるので、
+プロンプトが指摘（`origin: flow` の指摘の ID と、それを裁定した resolution）を渡したときは、指摘を `W/findings/` の
+指摘のファイルで読み（読み方は `schemas/agent-contracts.md` の「### 指摘の形」）、その `doc` の meta で `item_id` の trace が
+指す flow 要素を、裁定どおりに直す。どの要素を直すかはあなたが決めるので、
 script は変わった要素をすべて検証に回す。
 
 プロンプトが検証の裁定（要素 ← resolution。契約の resolutions.json の `about` が `{verification}` のもの）を渡したときは、

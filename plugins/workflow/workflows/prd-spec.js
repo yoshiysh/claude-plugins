@@ -927,6 +927,7 @@ function existingNote() {
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 const GET_TEMPLATE = cli('get', '--ledger <台帳> --ids <ID,…>')
 const getCli = (ledger, ids) => cli('get', `--ledger ${ledger} --ids ${ids.join(',')}`)
+const FINDINGS_READ = `中身の読み方は契約の「### 指摘の形」。ファイルは ${W}/findings/`
 const questionsCheck = (ids) => cli('questions', `--ids ${ids.join(',')} --check`)
 // recheckWaiting: flow-framer が flow を書き換えると、回答待ちの問いの候補の flow_refs が消えた要素を指しうる（ゲートで司令塔の doc_check questions が
 // 止まり、戻る段が無い）。flow を書く同じ呼び出しに検査させ、checkQuestions に渡す。
@@ -2005,7 +2006,7 @@ function auditorPrompt(role, doc, round, opt) {
     target,
     existingNote(),
     opt.items ? `範囲を絞った監査: 対象は項目 ${list(opt.items)}（その項目の節から読む）。` : '',
-    opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（中身は ${W}/findings/*.json から ID で読む）` : '',
+    opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（${FINDINGS_READ}）` : '',
     opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
     `指摘は ${W}/findings/${findingsName(role, doc, round, opt.extra)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
   ]
@@ -2153,7 +2154,7 @@ function decide(decision, tbd, allowQuestions) {
   return resolveCycle('6', {
     phase: 'Decide',
     task: [
-      `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（中身は ${W}/findings/*.json から ID で読む）、writer の meta の新しい TBD ${list(tbd)}。`,
+      `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、writer の meta の新しい TBD ${list(tbd)}。`,
       redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOf(rec[k]))}`).join(' / ')}` : '',
       toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
       allowQuestions ? '' : "2 パス目以降なので、問いを聞くゲートが残っていない。価値の判断は question ではなく hold にする（resolver.md の「8'」）。",
@@ -2194,7 +2195,7 @@ async function stage7() {
     const before = t.unit.docs.map((k) => `${k}: ${state.docs && state.docs[k] ? state.docs[k] : `${W}/checks/audited-${state.audit.n}.snapshot.json の docs["${k}"].digest`}`)
     const extra = [
       `改稿前の digest（照合してから書き始める）:\n${before.map((x) => `- ${x}`).join('\n')}`,
-      `writer の指摘（項目ごとに束ねたもの。中身は ${W}/findings/*.json から ID で読む）:\n${t.bundles.map((b) => `- ${b.doc} ${b.item_id}: ${b.findings.join(', ')}${b.flow ? `（trace が指す flow 要素: ${b.flow.join(', ')}）` : ''}`).join('\n') || '（なし）'}`,
+      `writer の指摘（項目ごとに束ねたもの。${FINDINGS_READ}）:\n${t.bundles.map((b) => `- ${b.doc} ${b.item_id}: ${b.findings.join(', ')}${b.flow ? `（trace が指す flow 要素: ${b.flow.join(', ')}）` : ''}`).join('\n') || '（なし）'}`,
       `routes の担当の ID: ${list(t.routes)}${t.routes.length ? `（\`${getCli('routes', t.routes)}\`）` : ''}`,
       p.doc_blocking > 0 ? `${W}/checks/doc.json に doc_check の指摘が ${p.doc_blocking} 件ある。自分の文書の分を直す。` : '',
       newSettled.length ? `前回の書き込みの後に決まった resolution: ${list(newSettled)}。自分の文書に関わるものを当てる。` : '',

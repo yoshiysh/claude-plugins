@@ -523,7 +523,7 @@ stdout、起動していればこの stdout である（最後の verifier の s
 digest と、次の 2 つ。
 
 - route が `writer` の指摘の ID を、script が項目 ID ごとに束ねたもの（`[{ "item_id": "PR-AUTH-003", "doc": "requirements/auth", "findings": ["r1-im-requirements__auth-002"] }]`）。
-  中身は `W/findings/*.json` から ID で読む。段 6 が起動しなくても渡る。
+  中身は `W/findings/` の指摘のファイルで読む（読み方は「### 指摘の形」）。段 6 が起動しなくても渡る。
 - `W/routes.json` のうち自分の担当の ID（段 6 で resolver が起動したときだけ）。
 
 書くもの: `W/<kind>-<topic>.md`（初稿は Write、改稿は Edit）と `W/<kind>-<topic>.meta.json`（put。`--ledger meta --doc <キー>`）。
@@ -602,6 +602,9 @@ doc_check が判定するものを LLM の観点で重ねて出さない。機�
 `<役>` は `im` / `gr` / `cd`、`<文書>` はキーを変換した名前（cross-doc は `all`）。段 8 で申告に無い変更のために追加で
 起動した監査役は、`<役>` に `x` を付けたファイル（`r2-grx-requirements__auth.json`）に書く（同じ段・同じ文書の 1 体目のファイルと、指摘の ID が重ならないため）。
 指摘の ID はファイル名（`.json` を除く）に `-001` からの連番を付けて振る。
+指摘を ID から読むときは、この振り方を逆にたどる: ID の末尾の `-<連番>` を除いた名前のファイル（`r1-im-requirements__auth-002` なら
+`W/findings/r1-im-requirements__auth.json`）を Read し、その `findings` の中で `id` が一致する要素を読む。指摘のファイルは doc_check の
+台帳ではない（`describe` に載らない）ので、`get` では読めない。
 
 ```json
 {
