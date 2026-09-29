@@ -757,6 +757,31 @@ class Questions(_Workspace):
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-404").returncode, 1)
 
 
+class Answers(_Workspace):
+    """answers は回答のファイルが問いのすべてに `<ID>:` の行を持つかを数えるだけで、何も書かない（script がゲートを越えてよいかを決める）。"""
+
+    def test_問いごとの行の有無を数える(self):
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n  RS-003: その他\n注記 RS-002: 行の頭ではない\n")
+        before = sorted(p.relative_to(self.ws) for p in self.ws.rglob("*"))
+        out = _ok(self.ws, "answers", "--file", "answers/g0.md", "--ids", "RS-003,RS-001,RS-002,RS-001")
+        self.assertEqual(out, {"file": "answers/g0.md", "exists": True, "ids": ["RS-001", "RS-002", "RS-003"], "missing": ["RS-002"]})
+        self.assertEqual(sorted(p.relative_to(self.ws) for p in self.ws.rglob("*")), before)
+
+    def test_resetが消した回答はファイルが無い(self):
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        self.assertEqual(_ok(self.ws, "answers", "--file", "answers/g0.md", "--ids", "RS-001")["missing"], [])
+        _ok(self.ws, "reset", "--keep", "requirements/auth,specifications/auth")
+        out = _ok(self.ws, "answers", "--file", "answers/g0.md", "--ids", "RS-001")
+        self.assertEqual((out["exists"], out["missing"]), (False, ["RS-001"]))
+
+    def test_answersの外のファイルとIDの無い呼び出しは止まる(self):
+        for bad in (("--file", "../input.md", "--ids", "RS-001"), ("--file", "input.md", "--ids", "RS-001"), ("--file", "answers/g0.md")):
+            with self.subTest(bad=bad):
+                self.assertEqual(_run(self.ws, "answers", *bad).returncode, 1)
+
+
 class FieldTypes(_Workspace):
     """put は型の外の欄・経緯の印を持つ欄を、何も書かずに拒否する。字数では拒否しない。"""
 

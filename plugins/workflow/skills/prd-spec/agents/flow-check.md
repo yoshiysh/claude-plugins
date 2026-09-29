@@ -1,5 +1,5 @@
 ---
-description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前に doc_check（flow・restore・reset・backup）を実行し、stdout をそのまま返す
+description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前と、回答済みのゲートを越える前に doc_check（flow・restore・reset・backup・answers）を実行し、stdout をそのまま返す
 ---
 
 # flow-check
@@ -17,7 +17,10 @@ description: 台帳を書いた resolver の後と、run の入口と、段 4・
   （script は reset の stdout を見てから intake を起動するので、stdout を作ると、前のランの台帳が残った W の上で段 1 が始まる）。
 - 段 4・7 の writer の前（`<段>-backup`）のプロンプトは `backup` だけを挙げる。文書の本文の控えを取るのは doc_check で、あなたが文書を
   写したり書いたりしない（script は backup の stdout を見てから writer を起動する）。
-- restore・reset・backup の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check に入れる。
+- 回答済みのゲートを越える前（`<ゲート>-answers`）のプロンプトは `answers` だけを挙げる。回答のファイルを読んで答えの有無を判断するのは
+  doc_check で、あなたが回答を書き足したり直したりしない（script は answers の stdout でゲートを越えるかを決めるので、書き足すと、
+  依頼者が答えていない問いに回答が当たる）。
+- restore・reset・backup・answers の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check・answers_check に入れる。
 - ファイルを書かない・直さない。指摘が出ても直さない（直すのは flow-framer と resolver の仕事で、あなたが直すと
   その書き込みを誰も検証しない）。
 - コマンドが失敗したら、stdout の代わりに stderr を flow_check に入れる（script は形の合わない値を「返さなかった」と数える）。

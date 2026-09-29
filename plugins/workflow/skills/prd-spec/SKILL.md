@@ -103,7 +103,8 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   `header`・`question`・`options` の文面は**変えずに**渡す）。選択式で答えやすくするためで、文面を縮めたり
   言い換えたりすると、その要約は誰にも検証されないまま依頼者の判断材料になる。背景を読みたいと言われたら
   `questions_path` の本文をそのまま見せる。回答は `<ID>: <選ばれた label>` の行（自由記述や注記があればその文を
-  続けて逐語で）として `answers_path` に**逐語で**書き、下の「呼び直し」のとおりに呼び直す。回答を言い換えたり、候補の番号に丸めたり、
+  続けて逐語で）として `answers_path` に**逐語で**書く。依頼者が答えなかった問いも `<ID>:` の行を書き、`:` の後を空にする（行の無い問いが
+  あると run はゲートを越えない）。そのうえで下の「呼び直し」のとおりに呼び直す。回答を言い換えたり、候補の番号に丸めたり、
   回答の無い問いを既定で埋めたりしない。回答の解釈は resolver が行い、候補の外の自由記述は verifier が検証する。
   司令塔が解釈すると、その解釈は誰にも検証されない。
 - **`blocked`**: `reason` をそのまま伝える。`next_args` があるのは、その段からやり直せる失敗（agent が応答
@@ -117,17 +118,21 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 **呼び直し**（resume と `next_args` の使い分けは、ここにだけ書く）:
 
 - **同じセッションの中では resume する。** 返り値の `resumable` が true なら、返った run の `runId` を `resumeFromRunId` に渡し、
-  args はその run を起動した args を変えずに渡す。needs_answers の後は、回答を書き終えたゲート（`answers_path` のファイル名の
-  `g0`・`g0-2`・`g1`）を `answered` に足す（前の resume で足したものも残す）:
-  `Workflow({ name: "workflow:prd-spec-run", resumeFromRunId: "<runId>", args: { <その run の args>, answered: ["g0"] } })`。
+  args はその run を起動した args を変えずに渡す。needs_answers の後は、返り値の `gate` をキーに、同じ返り値の `question_ids` を
+  そのまま `gates_answered` に足す（前の resume で足したゲートも残す）:
+  `Workflow({ name: "workflow:prd-spec-run", resumeFromRunId: "<runId>", args: { <その run の args>, gates_answered: { g0: ["RS-001"] } } })`。
   完了した agent は保存された結果を返し（費用 0。W にも書かない）、ゲートの後か、失敗した agent とその後に起動した agent だけが走る。
-- **resume するときは args と W を変えない。** `answered` のほかの欄（`skillDir`・`role_opts` を含む）を変えたり W を手で変えたりすると、
-  最初の agent のプロンプトか前提が変わり、段 1 の入口の reset から live で走り直して、書いた回答ごと W を S0 の直後に戻す
-  （保存された結果は、ゲートより前の agent が W に書いたことを再現しない）。変えたときは `next_args` で呼び直す。
-- **`next_args` で呼び直すのは次のときだけ**: `resumable` が false の blocked（失敗した agent が無いので、resume すると保存された結果が
-  同じ理由で同じ所に戻る）、resume が起動の前に拒まれた（別のセッションの `runId`・plugin の更新の後・Workflow ツールのエラー）、
-  上の理由で args か W を変えた。`next_args` は変えずに渡す（どの段から始めるかは `next_args.from` が決め、状態は W と `next_args.state` に
-  ある。`references/workflow-io.md` §3）。`next_args` で起動する（resume しない）ときは `answered` を足さない（回答は answers にあり、`from` がゲートの後の段から始める）。
+  保存された結果が使われず live で走り直した run は、今の問いが `gates_answered` と違うか回答のファイルが問いに答えていなければ、
+  もう一度 needs_answers を返す。そのときは古い回答を使い回さず、返った `question_ids` で問いを出し直し、`answers_path` をその回答だけで
+  書き直し（前の回答の行を残さない）、`gates_answered` のそのゲートの値を返った `question_ids` に置き換える。
+- **resume するときは args と W を変えない。** `gates_answered` のほかの欄（`skillDir`・`role_opts` を含む）を変えると、それを載せた最初の
+  agent のプロンプトか opts が変わり、そこから後が live で走る（`skillDir` はすべてのプロンプトに入るので、段 1 の入口の reset から走り直し、
+  書いた回答ごと W を S0 の直後に戻す）。W を手で変えてもプロンプトは変わらないが、保存された結果が今の W と合わなくなり、
+  script はそれに気づかない。変えたときは `next_args` で呼び直す。
+- **`next_args` で呼び直すのは次のときだけ**: `resumable` が false（失敗した agent が無い blocked と、回答のファイルの検査に落ちた
+  needs_answers。resume すると保存された結果が同じ理由で同じ所に戻る）、resume が起動の前に拒まれた（別のセッションの `runId`・
+  plugin の更新の後・Workflow ツールのエラー）、上の理由で args か W を変えた。`next_args` は変えずに渡す（どの段から始めるかは `next_args.from` が決め、状態は W と `next_args.state` に
+  ある。`references/workflow-io.md` §3）。`next_args` で起動する（resume しない）ときは `gates_answered` を足さない（回答は answers にあり、`from` がゲートの後の段から始める）。
 - resume で起動した run の返り値も、同じ規則で扱う。
 
 ## 保存と事後報告

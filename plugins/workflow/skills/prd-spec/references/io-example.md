@@ -21,7 +21,7 @@ intake が「承認したら経理に回る」を確定に、「金額の上限�
 書式を方法論の決定（事後報告）にする。返り値:
 
 ```json
-{ "status": "needs_answers", "questions_path": ".../expense/questions.md", "answers_path": ".../expense/answers/g0.md",
+{ "status": "needs_answers", "gate": "g0", "questions_path": ".../expense/questions.md", "answers_path": ".../expense/answers/g0.md",
   "question_ids": ["RS-002", "RS-003"], "next_args": { "…": "変えずに渡す（workflow-io §3）" } }
 ```
 
@@ -53,13 +53,15 @@ resolver は問いを resolutions.json の `question`・`options` に put で書
 …
 ```
 
-**依頼者の回答を `answers/g0.md` に逐語で書き、SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す**（同じセッションなら `answered: ["g0"]` を足して resume する）:
+**依頼者の回答を `answers/g0.md` に逐語で書き、SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す**（同じセッションなら `gates_answered: { g0: ["RS-002", "RS-003"] }` を足して resume する）:
 
 ```
-RS-002 は A。RS-003 は 1 分以内でいい。
+RS-002: 申請者に戻る
+RS-003: 1 分以内でいい
 ```
 
-2 回目の run は、G0 より前の agent が保存された結果を返し、段 3a から live で走る。候補を選んだ回答はそのまま当たり、「1 分以内でいい」は候補の外の自由記述なので
+2 回目の run は、G0 より前の agent が保存された結果を返し、問いが RS-002・RS-003 のままで `answers/g0.md` が両方に答えていることを
+flow-check の `doc_check answers` で確かめてから、段 3a から live で走る。候補を選んだ回答はそのまま当たり、「1 分以内でいい」は候補の外の自由記述なので
 resolver が RS-003 に対応づけ、verifier がその対応づけを検証する。初稿・監査・改稿・範囲を絞った監査を経て
 `status: "done"` が返る。
 

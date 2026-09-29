@@ -17,7 +17,7 @@
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
 | `state` | `from` が `1` 以外のとき要る。前の run の `next_args` ごと渡す（§3） |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
-| `answered` | 任意。回答を書き終えたゲート（`g0`・`g0-2`・`g1`。`prd-spec.js` の `GATE_ANSWERS` のキー）の配列。resume で呼び直すときだけ、元の run の args に足す（使い分けは SKILL.md「## 中継」の「呼び直し」）。run はここにあるゲートで needs_answers を返さず、回答を当てる段へ進む。`GATE_ANSWERS` の外の値があれば agent を起動する前に止まる。agent のプロンプトには入れない（入れるとゲートより前の agent が保存された結果から外れる）。`next_args` には載らず、`state_hash` にも数えない |
+| `gates_answered` | 任意。`{ <ゲート（prd-spec.js の GATE_ANSWERS のキー）>: [<そのゲートの needs_answers の question_ids>] }`。形が違えば agent を起動する前に止まる。いつ何を足すかは SKILL.md「## 中継」の「呼び直し」が正。ゲートを越える条件は prd-spec.js の `needsAnswers`。`next_args` には載らず、`state_hash` にも数えない |
 
 args は JSON の値（オブジェクト）で渡す。JSON を文字列にした args を受けると、run は agent を起動する前に止まる（呼び出し側の誤りを黙って救わない）。
 
@@ -44,6 +44,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   "status": "done | needs_answers | blocked",
   "questions_path": "needs_answers のとき W/questions.md（司令塔が doc_check questions で導出してから見せる）",
   "questions_json_path": "needs_answers のとき W/questions.json（選択式で出すための同じ問い）",
+  "gate": "needs_answers のときそのゲート（g0・g0-2・g1）",
   "answers_path": "needs_answers のとき W/answers/g0.md・g0-2.md・g1.md のどれか",
   "question_ids": ["RS-004"],
   "report_path": "done（と、stop_reason が pass_limit か no_progress の blocked）のとき W/report.md（司令塔が doc_check report で導出してから見せる）",
@@ -62,8 +63,8 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   "stop_reason": "改稿と監査の輪を収束せずに出た blocked のとき `pass_limit`（MAX_AUDIT_PASSES に達した）か `no_progress`（進展なし）、token の目標（Workflow の budget.total）に達して agent を起動できずに止まった blocked のとき `budget`（next_args が付く。目標を上げてから渡す）。それ以外は null（値の集合は prd-spec.js の STOP_REASONS）",
   "passes": "改稿と監査のパスの数",
   "item_routes": { "requirements/auth#PR-AUTH-003": "再発で経路を変えた項目の今の経路（decision | hold | exhausted）" },
-  "reason": "blocked のときの理由",
-  "resumable": "resumeFromRunId で呼び直して進むか。needs_answers は true、blocked は next_args があり、結果を返さずに終わった agent があるか stop_reason が budget のときだけ true（完了した agent は resume で保存された結果を返すので、それ以外の blocked は同じ所で同じ理由を返す）"
+  "reason": "blocked のときの理由。needs_answers でも、gates_answered のゲートを越えなかったときはその理由",
+  "resumable": "resumeFromRunId で呼び直して進むか。needs_answers は回答のファイルの検査（flow-check の doc_check answers）に落ちたときのほか true、blocked は next_args があり、結果を返さずに終わった agent があるか stop_reason が budget のときだけ true（完了した agent は resume で保存された結果を返すので、それ以外の blocked は同じ所で同じ理由を返す）"
 }
 ```
 
@@ -152,13 +153,13 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 2 | flow-framer（blocked の後の同じ段の再実行では、その前に flow-check（`2-entry`）が restore だけを実行する） | 常に。返った `doc_check flow` の stdout の指摘が 0 件でなければ差し戻す | 閉じなければ blocked（初稿を始めない）。0 件なら `content_sha256` を `state.flow_digest` にする。flow-framer が実行した `plan` の `content_sha256` が段 1 の `plan_check` と違うか指摘があれば blocked（段 1 から） |
 | 3 | resolver | W に裁定の無い open と組（段 2 の flow-framer の stdout か、入口の flow-check の stdout の `open_ids`・`pair_keys` のうち、どの resolution の `about` にも無いもの）だけを渡し、どちらも 0 件なら起動しない。問いを出したのに `questions --check` の stdout が無いか不合格なら差し戻す（3a・3b・3a'・6 も同じ） | 直らなければ blocked |
 | 3v | resolver-verifier | 常に（intake の既定と flow の出典を検証するため）。verifier も最後に `doc_check flow` を実行する | その `content_sha256` が `state.flow_digest` と違えば `integrity` に 1 行足して blocked、その cycle で flow を書いた生成者が消せる指摘が 1 件以上でも blocked（3av・6v も同じ。消せない指摘と、台帳の書き込みで出た指摘は settle の flow-framer に渡る。契約 §resolver-verifier）。不合格は resolver に 1 回だけ差し戻し、再検証（落ちた F- ごとに about を `{verification}` にした resolution が返らなければ blocked。段の頭から）。それでも不合格なら `value_as_method` と cycle の入口で問いだった ID は問い、それ以外は保持規則に変えて、もう検証しない（flow の要素は書き換えるまで。聞けない段では hold だけ。question にも hold にも返らなかった ID があれば blocked。契約 §resolver） |
-| G0 | — | 問いが 1 件以上 | `needs_answers`（`from: 3a`） |
+| G0 | flow-check（`g0-answers`。`gates_answered` にこのゲートがあり、今の問いがその ID と同じときだけ） | 問いが 1 件以上 | `needs_answers`（`from: 3a`）。`gates_answered` の ID と今の問いが同じで、回答のファイルが問いのすべてに答えていれば 3a（G0-2・G1 も同じ） |
 | 3a | resolver → verifier（候補の選択だけの回答でも起動する。回答を当てた resolver が返す `doc_check flow` の stdout を照合するため） | G0・G0-2 の後。resolver の stdout に resolver が消せる指摘（契約「flow.json の形」の直し手）があれば差し戻す。消せない指摘は差し戻さず、同じ cycle の settle の flow-framer に渡す | G0 の後は 3b（flow-framer `3b-reframe` が回答で flow を組み直し、resolver がまだ裁定の無い open・組と持ち越した問いを裁定する）。そこで問いが残れば G0-2（`answers/g0-2.md`、`from: 3a`）の 1 回だけ聞く。G0-2 の後に出た問いは保持規則 |
 | 3・3a・3b・3a'・6 の共通 | resolver（`<段>-pairs`・`<段>-opens`）、flow-framer（`<段>-settle`）→ verifier（`<段>v-settle`） | flow を変えた呼び出しの後、`conflicts` の `pair_keys` にまだ裁定の無い組があれば、settle の flow-framer の後は `open_ids` にまだ裁定の無い O- もあれば、1 回の resolver に渡す（O- があれば `<段>-opens`、組だけなら `<段>-pairs`。`<段>` は呼び出した resolver の段で、settle の後は `<段>-settle`、差し戻しの後は `<段>'` になる。聞けない段では hold で、問いを返せば blocked。3b の組み直しの後の resolver にも同じ集合を渡す。渡した組と O- は次の verifier の stdout と照合する。契約 §resolver-verifier）。verifier は、どの呼び出しでも W の今の版に合否の無い要素を検証する（契約 §resolver-verifier）。最後の verifier の後に resolver を起動していれば flow-check（契約 §flow-check）を起動する。判断に使う stdout（`doc_check flow --rulings`。`resolutions` に裁定と今の版の合否が載る）から、返り値に載らなかった裁定（resolver が書いたのに返さなかったもの・所有表の外の書き込み）を受け取り、今の版に合否の無い要素か、合否が無いか script の持つ合否と違う resolution があれば verifier（`<段>v-left`。settle の n 回目の後は `<段>v-left-<n+1>`）に検証させ（この verifier が残せば blocked。段の頭から。script の持つ合否は、検証を求めた verifier の返り値からだけ入る）、検証に落ちたまま問いにも保持規則にもなっていない裁定（RS-）を変換する（`<段>-left-convert`）。どの verifier でも、hold のまま検証に落ちた保持規則は変換に回さず（変換はもう検証しないので、落ちた規範文が writer に届く）、同じ ID のまま書き直させて検証し直す（`<呼び出し>-rehold` → `<呼び出し>-reholdv`。`<呼び出し>` は落とした verifier の段か label）。書き直した直後の検証でも落ちるか、差し戻し（`<段>'`）の後も hold のまま落ちれば blocked（段の頭から）。合格すると数え直すので、後の verifier で落ちればまた書き直させる（回数は verifier の呼び出しの数で決まり、settle の回数は `MAX_SETTLE_ROUNDS` で抑えられる）。W の ruling が hold でなくなった ID は、保持規則として数えない。判断に使う stdout（同じ節）の `open_only` のうち、合格か回答で閉じた O- の組か、この cycle で裁定が決まった `origin: flow` の指摘か、不合格の要素（`failed_current` のうち、検証の裁定が保持規則か回答待ちの問いのものを除く。合格した検証の裁定があればその裁定を写させ、無ければ落ちた理由で直させる）か、`stale_refs`（覆された決定か検証に落ちた不変条件を引く要素）か、flow の指摘（`codes`。符号によらず）があれば settle を起動する（保持規則への変換（`<段>-hold`）の後も同じ）。settle の verifier に落ちた裁定（RS-。保持規則を除く）は、差し戻しの後と同じく問いか保持規則に変え（`<段>-settle-convert`。検証はもう回さない）、settle は残り（閉じた未決を引く要素・覆された決定を引く要素・不合格・flow の指摘）が 0 になるまで回し、減らなければ止める（上限は `MAX_SETTLE_ROUNDS`） | 直らなければ blocked（段の頭から。`next_args.state` は §3） |
 | 4 | flow-check（`4-backup`）→ writer | 単位の依存の向きに波を作り、同じ波は並列。writer の前に全単位の文書の本文の控えを取る（§3） | 応答しない単位があれば blocked（一度も書かれていない文書を監査しない） |
 | 5 | implementer・grounding（文書ごと）、cross-doc（全文書で 1 体。指名） | 常に。`entry: existing` は 3 の後ここへ | cross-doc が `audited-1` を返さなければ blocked |
 | 6 | resolver → verifier | W に裁定の無い（どの resolution の `about` にも無い）decision の指摘と新しい TBD だけを渡し、どちらも 0 件なら起動しない（回答待ちの問いがあれば、起動しなくても G1 か保持規則へ）。writer の指摘はここを通らず段 7 へ。再発した項目は、前のパスの指摘とその裁定の ID を渡して項目の次元を裁定させ、decision の後にも再発した項目は hold を指示する | 1 パス目の問いは G1、2 パス目以降の問いは保持規則 |
-| G1 | — | 1 パス目の段 6 で問いが出た | `needs_answers`（`from: 3a'`） |
+| G1 | flow-check（`g1-answers`。G0 と同じ） | 1 パス目の段 6 で問いが出た | `needs_answers`（`from: 3a'`） |
 | 7 | flow-check（`7-backup`）→ writer（変更がある単位だけ） | writer の指摘・routes・doc_check の指摘・前回の書き込みの後に決まった裁定のどれかがある単位。writer の前にその単位の文書の本文の控えを取る（§3） | 何も無ければ 9 へ（blocking が残っていれば `stop_reason: no_progress` で blocked） |
 | 8 | grounding（変えた文書）、implementer・cross-doc（その観点が指摘した項目が変わったとき）。1 体を指名 | 改稿の後は必ず | 申告に無い変更があれば、それが起きた文書ごとに（diff の `by_doc` で分け、その文書の申告を引いて）implementer と grounding を追加で起動（指名された監査役の返り値だけで決まるので、ほかの監査役を待たずにその返り値に連ねる。起動は指名された監査役の snapshot の後なので、`--live` には挙げない）。blocking（指摘・doc_check・新しい TBD）が 0 なら 9 へ。残れば経路を決めて 6 へ戻る: 前のパスと今のパスの両方で blocking の項目（再発）は writer に回さず、1 回目は decision、decision の後は hold、hold の後は尽きた項目（以後どの経路にも回さない）にする。前のパスで段 6 が裁定して合格した指摘と同じ項目・同じ `direction` の指摘で、その後の改稿がその項目に裁定を当てただけのもの（項目が変わっていないか、そのパスの段 7 がその項目に writer の指摘を渡さずにその裁定を渡した）は、既裁定の再出として再発にも blocking にも数えず `notices` に出す。尽きた項目の指摘は、その項目に指摘を出したことのある役がすべてそのパスでその項目を監査するまで blocking に残す。残った指摘の blocking の項目がすべて尽きた項目で doc_check の blocking が減らず新しい TBD も無ければ `stop_reason: no_progress`、パスが `MAX_AUDIT_PASSES` に達したら `pass_limit` で blocked（doc_check の blocking だけが残るときは上限まで回す） |
 | 9 | —（収束せずに輪を出た blocked のときだけ resolver が残った論点を保持規則と Issue の文案にし、flow-check の stdout に残った flow の指摘と覆された決定を引く要素を `reason` に載せる） | done の直前 | 事後報告は司令塔が `doc_check report` で導出する |
@@ -206,6 +207,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`）とその本文と meta の sha256（`fixed_sha256`） |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
+| `answers --file answers/<ゲート>.md --ids <RS-…>` | flow-check（`gates_answered` のゲートを越える前） | 回答のファイルがあるか（`exists`）と、`<ID>:` で始まる行の無い問い（`missing`）を stdout に出す。何も書かない |
 | `report [--drafts <RS-…>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない） |
 
 `node doc_check.mjs <input.json>` の形（文書のパスと申告を JSON で渡すもの）も残っている。検査の本体は同じで、

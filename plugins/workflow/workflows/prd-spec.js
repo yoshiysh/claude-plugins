@@ -347,7 +347,7 @@ function fnv(text) {
 const ENV_ARGS = ['skillDir', 'role_opts']
 // RESUME_ARGS: resumeFromRunId で呼び直すときに元の run の args へ足す欄。next_args には載らないので hash の外に置く（入れると、next_args から
 // 始めた run の resume が state_hash で止まる）。
-const RESUME_ARGS = ['answered']
+const RESUME_ARGS = ['gates_answered']
 const isEmpty = (v) => v === undefined || (Array.isArray(v) ? !v.length : v && typeof v === 'object' && !Object.keys(v).length)
 const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !RESUME_ARGS.includes(k) && !isEmpty(v)))))
 
@@ -652,6 +652,7 @@ const INTAKE_SCHEMA = {
 const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
 const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, required: ['restore_check'] }
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
+const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
 
 const FLOW_SCHEMA = {
@@ -774,7 +775,7 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, BACKUP_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
@@ -783,11 +784,14 @@ const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
   ]
   if (defects.length) throw new Error(`script の欠陥（schema か役の opts。prd-spec.js を直すまで run を続けない）: ${defects.join(' / ')}`)
 }
-// ANSWERED: 回答を書き終えたゲート。プロンプトに入れない（入れると resume でゲートより前の agent が保存された結果から外れ、段 1 の reset が
-// live で走って W を消す）。
-const ANSWERED = input.answered === undefined ? [] : input.answered
-if (!Array.isArray(ANSWERED) || ANSWERED.some((g) => typeof g !== 'string' || !Object.hasOwn(GATE_ANSWERS, g))) {
-  throw new Error(`args.answered は回答を書き終えたゲートの配列です（${Object.keys(GATE_ANSWERS).join(' / ')}）: ${Array.isArray(ANSWERED) ? ANSWERED.map(String).join(', ') : typeof ANSWERED}`)
+// GATES_ANSWERED: 回答を書き終えたゲートと、そのゲートで聞いた問いの ID。プロンプトに入れない（入れると resume でゲートより前の agent が
+// 保存された結果から外れ、段 1 の reset が live で走って W を消す）。
+const GATES_ANSWERED = input.gates_answered === undefined ? {} : input.gates_answered
+if (
+  !GATES_ANSWERED || typeof GATES_ANSWERED !== 'object' || Array.isArray(GATES_ANSWERED) ||
+  Object.entries(GATES_ANSWERED).some(([g, ids]) => !Object.hasOwn(GATE_ANSWERS, g) || !Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string' || !RESOLUTION_ID.test(id)))
+) {
+  throw new Error(`args.gates_answered は { <ゲート（${Object.keys(GATE_ANSWERS).join(' / ')}）>: [<needs_answers の question_ids>] } です: ${canonicalText(GATES_ANSWERED)}`)
 }
 if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
   throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')
@@ -848,7 +852,7 @@ function finish(status, extra) {
     ...extra,
   }
   const retry = Boolean(out.next_args) && (failedCalls > 0 || out.stop_reason === 'budget')
-  return { ...out, resumable: status === 'needs_answers' || (status === 'blocked' && retry) }
+  return { ...out, resumable: out.resumable ?? (status === 'needs_answers' || (status === 'blocked' && retry)) }
 }
 // blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す（W は再実行の入口の restore で段に入った時点に戻る）。
 // tx.flow は止まった run が最後に照合を通した flow の版で、段に入った時点の版と同じなら載せない（next_args の上限）。
@@ -1655,23 +1659,40 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
   return done.defect ? { error: `段 ${stage}: 問いの形が検査を通りません（${done.defect.text}）` } : null
 }
 
-// gatePassed: 回答済みのゲート（args.answered）を通った段。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい（exitViolation）。
+// gatePassed: 回答済みのゲート（args.gates_answered）を通った段。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい（exitViolation）。
 let gatePassed = null
 
-function needsAnswers(gate, from) {
+// needsAnswers: gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
+// resume が保存された結果から外れると（pipeline の起動の順・追い出し・runtime の違い）run は live で走り直し、違う問いに古い回答を当てるか、
+// 段 1 の reset が消した回答の無いまま進む。回答の検査に落ちたら resumable を偽にする: resume すると落ちた検査の保存された結果が返り、同じ所で止まり続ける。
+async function needsAnswers(gate, from) {
   state.gate = gate
-  if (ANSWERED.includes(gate)) {
-    gatePassed = gate
-    return from
-  }
   const ids = pendingQuestions(state)
-  return finish('needs_answers', {
-    questions_path: `${W}/questions.md`,
-    questions_json_path: `${W}/questions.json`,
-    answers_path: `${W}/${GATE_ANSWERS[gate]}`,
-    question_ids: ids,
-    next_args: nextArgs(from),
-  })
+  const asked = GATES_ANSWERED[gate]
+  const stop = (extra) =>
+    finish('needs_answers', {
+      gate,
+      questions_path: `${W}/questions.md`,
+      questions_json_path: `${W}/questions.json`,
+      answers_path: `${W}/${GATE_ANSWERS[gate]}`,
+      question_ids: ids,
+      next_args: nextArgs(from),
+      ...extra,
+    })
+  if (!asked) return stop({})
+  if (canonicalText(uniq(asked)) !== canonicalText(uniq(ids))) {
+    return stop({ reason: `gates_answered.${gate}（${list(asked)}）が今の問い（${list(ids)}）と違います（resume が保存された結果から外れて live で走り直した）。今の問いを聞き直してください` })
+  }
+  const label = `flow-check:${gate}-answers`
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cli('answers', `--file ${GATE_ANSWERS[gate]} --ids ${ids.join(',')}`)}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from])
+  const ac = parseStdout(x && x.answers_check)
+  const echoed = ac && ac.file === GATE_ANSWERS[gate] && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing)
+  if (!echoed || ac.missing.length) {
+    const why = !echoed ? 'doc_check answers の stdout が返りませんでした' : ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）' : `回答の行の無い問い ${list(ac.missing)}`
+    return stop({ reason: `${W}/${GATE_ANSWERS[gate]}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
+  }
+  gatePassed = gate
+  return from
 }
 
 // resetEntry: 段 1 から始める run（新しい run も、段 1 からの再実行も）は、W を S0 の直後に戻した stdout を見てから intake を起動する。

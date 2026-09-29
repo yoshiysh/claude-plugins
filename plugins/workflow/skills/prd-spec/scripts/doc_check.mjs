@@ -1541,7 +1541,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'answers', 'sha', 'report']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -2332,6 +2332,20 @@ const QUESTION_OPTIONS = { min: 2, max: 4 }
 // questions: 問いの文面の正本は resolutions.json の question・options だけにし、依頼者に見せる 2 つの形は
 // ここで導出する（手で書くと写しが増え、片方だけ直されて食い違う）。--check は同じ検査だけを行い、何も書かない
 // （問いを出した resolver が返る前に確かめる。導出はゲートの時点で pending の全件に対して司令塔が行う）。
+// answers: 回答のファイルが問いのすべてに `<ID>:` の行を持つか。script はファイルを読めないので、resume が live で走り直して reset が
+// answers を消した W でも、この stdout が無ければゲートを越えたことにされる。
+const ANSWERS_FILE = /^answers\/[A-Za-z0-9._-]+\.md$/
+function wsAnswers(ws, opts) {
+  if (!opts.file || !ANSWERS_FILE.test(opts.file)) throw new LedgerRejected(`answers には --file answers/<ゲート>.md が要ります（${ANSWERS_FILE.source}）`)
+  if (!opts.ids || !opts.ids.length) throw new LedgerRejected('answers には --ids RS-… が要ります')
+  const ids = [...new Set(opts.ids)].sort()
+  const file = path.join(ws, opts.file)
+  const exists = fs.existsSync(file)
+  const text = exists ? fs.readFileSync(file, 'utf8') : ''
+  const lines = new Set(text.split('\n').map((l) => (/^(RS-\d+):/.exec(l.trim()) || [])[1]).filter(Boolean))
+  return { file: opts.file, exists, ids, missing: ids.filter((id) => !lines.has(id)) }
+}
+
 function wsQuestions(ws, opts) {
   if (!opts.ids || !opts.ids.length) throw new LedgerRejected('questions には --ids RS-… が要ります')
   const [listName, key] = Object.entries(ledgerOf('resolutions').lists)[0]
@@ -3345,6 +3359,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--rulings') o.rulings = true
     else if (a === '--token') o.token = take()
     else if (a === '--fixed') o.fixed = take().split(',').map((s) => s.trim()).filter(Boolean)
+    else if (a === '--file') o.file = take()
     else if (a === '--keep') o.keep = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
@@ -3370,6 +3385,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'restore') return wsRestore(ws, opts)
   if (mode === 'reset') return wsReset(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
+  if (mode === 'answers') return wsAnswers(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
