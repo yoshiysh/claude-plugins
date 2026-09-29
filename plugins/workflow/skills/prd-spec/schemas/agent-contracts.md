@@ -15,13 +15,17 @@
   そこを書き換えると、その役の検証の前提（sha256・digest の照合）が崩れる。作業用の script や一時ファイルは、
   プロンプトの「作業用ディレクトリ」（`W/tmp/<label>/`）にだけ置く（表の `tmp/<label>/` の行）。
 - **台帳は `doc_check put` / `del` でだけ書く。** 台帳は、下の表で「put で書く」とした JSON である。丸ごと読んで
-  書き戻すと、途中で失敗したときに再実行の結果が変わる。そのため復元点としての控えが要るようになる。put は同じ
+  書き戻すと、途中で失敗したときに再実行の結果が変わる。そのため復元点としての控えが要るようになる（W に置く控えは、put・del が段の
+  token ごとに取る `tx/<token>/*` だけで、agent は控えを作らない）。put は同じ
   入力なら何度流しても同じ結果になるので、失敗したら同じコマンドを流し直せばよい。
-  - 書くとき: `node <SKILL_DIR>/scripts/doc_check.mjs put --ledger <台帳> [--doc <文書キー>] --workspace <W>` の
+  - 書くとき: `node <SKILL_DIR>/scripts/doc_check.mjs put --ledger <台帳> [--doc <文書キー>] --token <token> --workspace <W>` の
     標準入力に `{ "<配列名>": [要素…], "<スカラー名>": 値 }` を渡す（heredoc で渡せば引用符を逃がさずに済む）。
     新しいキーの要素は末尾に足される。要素を消すときは `del --ledger <台帳> --ids a,b`（配列が 2 つ以上ある台帳は
     `--collection <配列名>` も）。台帳の名前・配列・キーの正本は doc_check の `LEDGERS` で、名前を間違えれば CLI が
     その一覧をエラーに出す。
+  - put・del の `--token` は、プロンプトの「トークン:」の値にする。token の無い put・del は何も書かずに exit 1 で終わる。
+    doc_check は token ごとに段の入口の台帳の控えを取り、blocked の後の同じ段の再実行はそれで止まった run の書き込みを取り消してから
+    始まる（references/workflow-io.md §3）。別の値を付けると、その書き込みは取り消されずに残る。
   - **put の意味（どの台帳でも同じ）**: キーが同じ要素には、送った最上位の欄だけがその場で上書きされ、送らなかった
     欄は元の値のまま残る。変える欄だけを送ればよい（要素を丸ごと送り直すと、読み違えた欄や送り忘れた欄で既存の値を
     壊す）。欄を消すときは、その欄に `null` を送る。送らないだけでは消えず、古い値が黙って残る。スカラーも同じで、
@@ -88,6 +92,7 @@
 | `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（`expand` の固定の文書の meta は、司令塔が S0 で put する） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
 | `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
+| `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す） | 台帳のバイト列（`<台帳>.pre`）か、token の下で作られた印（`<台帳>.absent`） | — |
 | `tmp/<label>/` | その label の呼び出しの agent だけ。返る前に自分で消す。他の label の tmp は読まない | 作業用の script・一時ファイル | 残ったものは `snapshot`・`tree-digest` の `stray` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
 
 見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`、`plan.json` に載った文書の中身（中身は snapshot と
@@ -352,8 +357,9 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
 - stdout の `resolutions` は resolution ごとの `{id, about, ruling, verdict}`（不合格は `fail_kind` も）である。`verdict` は verifications.json の合否で、
-  検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に値を書き換えた裁定は合否を失い、question・hold への書き換え
-  （変換・回答の反映・保持規則への変換）は値を決めないので前の合否を持ち越す。script は、返り値が届かなかった裁定と合否（止まった run が書いたもの・
+  検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に書き換えた裁定は合否を失う。例外として持ち越す
+  書き換え（根拠を増やさないもの: 保持規則への書き換え・問いの不合格・検証した候補を選んだ回答）の正本は doc_check の `carriesVerdict` である。
+  問いの形の修正で候補の文を変えた問いは合格を失い、検証し直すまで根拠にならない。script は、返り値が届かなかった裁定と合否（止まった run が書いたもの・
   出し直した resolver が返さなかったもの）をここから受け取る（script はファイルを読めない）。
 - script が判断に使う stdout（§flow-check）の `codes` に残った指摘は、符号によらずすべて settle に「要素: 何が無いか」（flow-framer 専用の
   符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは、その cycle で flow を書いた生成者に消せない指摘（「## flow.json の形」の直し手）と、
@@ -467,12 +473,12 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 
 最後の verifier の後に resolver を起動していたら（応答しなかった resolver も、応答の前に台帳を書いていることがある）、script は判断（settle の起動と残りの数え上げ・輪を出た後の理由）の前に
 `flow-check:<その resolver の label から resolver: を除いたもの>` を起動する。段 3 以降から始める run は、最初に `flow-check:<from>-entry` で W を読み直す
-（止まった run が書いたものは戻らない。扱いは references/workflow-io.md §3）。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
+（blocked の後の同じ段の再実行では、その前に `restore` で止まった run の台帳の書き込みを取り消す。扱いは references/workflow-io.md §3）。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check `flow` のコマンドだけ。書くもの: なし（`W/checks/flow.json` は doc_check が書く）。
+入力: プロンプトの doc_check のコマンド（`flow`、入口では `restore` も）だけ。書くもの: なし（`W/checks/flow.json` と restore の書き戻しは doc_check が書く）。
 
 ```json
-{ "flow_check": "実行した doc_check flow の stdout（加工しない）" }
+{ "flow_check": "実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）" }
 ```
 
 resolver はどの呼び出しでも台帳を書く。台帳の `kind`・`supersedes`・`hold` は flow.json を変えずに指摘と `stale_refs` を変えるので、

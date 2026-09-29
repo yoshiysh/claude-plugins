@@ -79,14 +79,28 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 - **`blocked` の `next_args`**: agent が応答しなかった（出し直しても返らなかった）とき、返した doc_check の stdout が
   差し戻しの後も不合格だったときは、その段からの `next_args` が付く。セッション上限なら解除してから渡す。
   `next_args.state` はその段に入った時点の state で、段の途中で足した値（候補の選択で当たった回答・形の検査に落ちた問い・
-  integrity の行）を持ち越さない。持ち越すと、再実行が止まらなかった run と違う状態から始まる。`flow_digest` だけは、止まった時点で
-  script が照合して受け取った版にする。
+  integrity の行）を持ち越さない。持ち越すと、再実行が止まらなかった run と違う状態から始まる。W の台帳も、再実行の入口の
+  restore（次の項）で段に入った時点に戻る。`state.tx` に戻す token（`restore`）・その段の何回目の再実行か（`try`）・止まった run が
+  最後に照合を通した flow の版（`flow`。段に入った時点の版と同じなら無い）が付く。
   監査の基準の digest が合わない・改稿と監査の輪を収束せずに出た（`stop_reason`）・その段に flow を書く生成者がいないのに flow.json が
   生成者の検査した版から変わっていた・settle を持たない段（prd.js の `ASKS` に無い段）の入口の flow に不合格の要素があった・段の出口の不変条件に反した（§5）、
   のように、同じ段をやり直しても変わらないときは付かない。settle を持たない段の入口の不合格は、その前の段が不合格の要素を持って出られない（§5）ので、
   所有表の外の書き込みである。司令塔は `reason` の要素と `W/verifications.json` を依頼者に示し、W を戻すか S0 からやり直すかを決めてもらう。
-- **段 3 以降から始める run は、最初に W を読み直す**（`prd.js` の `enterFromDisk`）。止まった run が W に書いたもの（flow.json・裁定・
-  合否）は戻らず、`next_args.state` にも載っていない。flow-check（`<from>-entry`）の `doc_check flow` の stdout で、flow.json の版が
+- **段の書き込みは token ごとの取引にする。** script は段に入るたびに token（`prd.js` の `txToken`。state から決まり、nonce を含まない。
+  nonce にするとプロンプトが run ごとに変わり、キャッシュが効かない）を決め、台帳を書く役のプロンプトに載せる。doc_check の put・del は
+  token ごとに、その台帳の最初の書き込みの前に控えを取る（契約の所有表の `tx/<token>/*`）。新しい token の最初の書き込みは他の token の
+  控えを消すので、段を出た後の run は済んだ段より前へ戻せない。blocked の `next_args` で同じ段からやり直す run だけが
+  （`state.tx.restore` があり、`state.tx.stage` が `from` と同じとき）、入口の flow-check（`<from>-entry`）で `doc_check flow` の前に
+  `doc_check restore --token <state.tx.restore>` を実行させ、止まった run の台帳の書き込みを取り消す（token の下で作られた台帳は消す。
+  answers・文書・plan.json・checks は戻さない）。restore の stdout が返らなければ、同じ token を戻させる `next_args` で止める（restore は
+  何度流しても同じ結果になる）。restore の前の flow.json が、止まった run が最後に照合を通した版と違えば `integrity` に 1 行足す。
+  needs_answers の `next_args`・次の段の run には `restore` が付かないので restore しない。段 1・2 は入口の flow-check を持たないので
+  restore せず、再実行の最初の書き込みが止まった run の控えを消す（止まった run の書き込みは戻らず、再実行が上書きする）。
+- **再実行は、戻す token と別の token で書く。** 再実行の書く token は `try` で変わり、戻す token（前の回の書く token）と一致しない。
+  そのため Workflow の resumeFromRunId の再生（W は書かれたまま残す）が入口の restore を実行し直しても、その run 自身の書き込みは戻らない:
+  戻す token の控えは、最初の restore が消したか、その run の最初の書き込みが消している。キャッシュが効くかどうかには依らない。
+- **段 3 以降から始める run は、最初に W を読み直す**（`prd.js` の `enterFromDisk`）。restore の無い入口（needs_answers の再開・段 1・2 の後）では、
+  前の run が W に書いたものは `next_args.state` に載っていない。flow-check（`<from>-entry`）の `doc_check flow` の stdout で、flow.json の版が
   `state.flow_digest` と違えば止めずに `integrity` に 1 行足してその版を使い、裁定と合否（stdout の `resolutions`）で state の台帳の集合
   （about・保持規則・問い・合格・不合格）を置き換える（W が正で、state は返り値から先に足した写し）。そのうえで、ここで初めて受け取った問いの形を
   検査させ（`<from>-entry-questions`）、W に裁定の無い組と O- を裁定させ（`<from>-entry-pairs`・`<from>-entry-opens`。段 3・3b は段そのものが裁定する）、
@@ -95,7 +109,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   止まらなかった run のその段と同じにする（prd.js の `ASKS`）。段の本体も W に裁定のある論点を裁定に回さないので、再実行が同じ論点に
   別の ID の裁定を作ることはない。版の食い違いで止めないのは、要素の合否が (id, digest) で付くので書き換えた要素は検証を通っていない要素に戻り、
   段を出る前に必ず検証される（§5 の段の出口の検査）からである。段の途中の版の食い違い（verifier・flow-check・flow を書かない resolver の後）は止める。
-- `integrity` の行は、段の入口の flow.json が `next_args` の版と違った、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
+- `integrity` の行は、段の入口の flow.json が `next_args` の版と違った、再実行の入口の restore が照合の前に止まった flow.json の書き込みを取り消した、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
   書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、verifier が返した F- の合否が `doc_check flow` の stdout（verifications.json）に無かった、flow-check が検査した flow.json の `content_sha256` が検証を通った版と違った、flow-check の前に応答した resolver が返した `doc_check flow` の stdout が flow-check の stdout と違った（契約 §flow-check）、のような食い違いである。事後報告に添える。段の途中の flow の版と F- の合否の食い違いだけは run を blocked にし（違う flow や記録されていない合否を見た検証を台帳に入れないため）、それ以外は run を止めない（script は flow-check の stdout しか判断に使わないので、止めても守る判断が無い）。
 - `holds` と `hold_drafts` は、writer に渡したか（`state.settled_written`）で分ける。渡しただけで本文に入ったとは限らず、
   当て損ねは直後の監査が拾う。
@@ -159,8 +173,9 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
 | `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray`・`sizes`・`size_over` は snapshot と同じ（一覧は `checks/tree-digest.*.json`） |
 | `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く |
-| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>]` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。型の外の欄・経緯の印・欄の条件に合わない要素・逐語でない引用が 1 件でもあれば何も書かない |
-| `del --ledger <台帳> --ids <ID,…> [--collection <配列名>]` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
+| `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>] --token <token>` | 台帳の書き手（契約の所有表で「put で書く」とした役）、司令塔（S0 の固定の文書の meta） | 標準入力の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。型の外の欄・経緯の印・欄の条件に合わない要素・逐語でない引用が 1 件でもあれば何も書かない |
+| `del --ledger <台帳> --ids <ID,…> [--collection <配列名>] --token <token>` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
+| `restore --token <token>` | flow-check（blocked の後の同じ段の再実行の入口） | token の控えを台帳に戻し、token の下で作られた台帳を消して控えを消す（§3）。stdout に戻したファイルごとの前後の sha256（無いファイルは null）と flow.json の前後（`flow_before`・`flow_after`） |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
 | `report [--drafts <RS-…>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない） |

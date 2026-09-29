@@ -589,7 +589,7 @@ const INTAKE_SCHEMA = {
   required: ['plan_check', 'units'],
 }
 
-const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR }, required: ['flow_check'] }
+const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
 
 const FLOW_SCHEMA = {
   type: 'object',
@@ -723,6 +723,16 @@ const nextArgs = (from) => argsFrom(from, state)
 let running = null
 let entryState = null
 
+// 段の token と restore の扱いは references/workflow-io.md §3 が正。token は state から決める（nonce はプロンプトのキャッシュを壊す）。
+// 書く token（try で変わる）を戻す token と別にするのは、resumeFromRunId の再生が入口の restore を流し直しても、その run の書き込みを戻さないため。
+const ENTRY_CHECK = REQUIRES[FROM].includes('flow_digest')
+const RESUME_TX = state.tx && state.tx.restore && state.tx.stage === FROM ? state.tx : null
+if (RESUME_TX && !(Number.isInteger(RESUME_TX.try) && RESUME_TX.try > 0)) throw new Error('args.state.tx の try が再実行の回数ではありません（返った next_args を変えずに渡し直してください）')
+// txTry は state.tx に置かない（段を出た後の next_args を止まらなかった run と同じにする）。
+let txTry = 0
+const txToken = () => `t${state.tx.seq}${txTry ? `r${txTry}` : ''}`
+const TX_ROLES = ['intake', 'flowFramer', 'resolver', 'verifier', 'writer']
+
 function finish(status, extra) {
   const written = new Set(state.settled_written || [])
   const holds = uniq(state.holds || [])
@@ -744,12 +754,17 @@ function finish(status, extra) {
     ...extra,
   }
 }
-// blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す。段の途中で足した値（候補の選択で当たった
-// 回答・形の検査に落ちた問い・integrity の行）を持ち越すと、再実行が止まらなかった run と違う状態から始まる。
-// 止まった run が W に書いたもの（flow.json・台帳・合否）は戻らないが、再実行は入口で W を読み直す（enterFromDisk）。
-// flow_digest だけは script が最後に受け取った版にする。入口の照合が、止まった run の中で照合を通った書き込みまで、誰のものか分からない書き込みとして数えないため。
+// blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す（W は再実行の入口の restore で段に入った時点に戻る）。
+// tx.flow は止まった run が最後に照合を通した flow の版で、段に入った時点の版と同じなら載せない（next_args の上限）。
+// 入口の restore が返る前に止まったら W は戻っていないかもしれないので、前の回の戻す token と版を渡し直す。
+let restorePending = Boolean(RESUME_TX) && ENTRY_CHECK
+const rerunFlow = () => (restorePending ? RESUME_TX.flow : state.flow_digest !== entryState.flow_digest ? state.flow_digest : undefined)
+const rerunTx = () => {
+  const flow = rerunFlow()
+  return { ...entryState.tx, try: txTry + 1, restore: restorePending ? RESUME_TX.restore : txToken(), ...(flow !== undefined ? { flow } : {}) }
+}
 const blocked = (reason, rerunFrom, extra) =>
-  finish('blocked', { reason, next_args: rerunFrom ? argsFrom(rerunFrom, rerunFrom === running ? { ...entryState, flow_digest: state.flow_digest } : state) : null, ...extra })
+  finish('blocked', { reason, next_args: rerunFrom ? argsFrom(rerunFrom, rerunFrom === running ? { ...entryState, tx: rerunTx() } : state) : null, ...extra })
 
 const noteIntegrity = (line) => {
   state.integrity = uniq([...(state.integrity || []), line])
@@ -770,6 +785,7 @@ function header(role, stage, label) {
     `entry: ${ENTRY}`,
     `段: ${stage}`,
     `作業用ディレクトリ: ${W}/tmp/${fileKey(label)}/`,
+    ...(TX_ROLES.includes(role) ? [`トークン: ${txToken()}`] : []),
   ].join('\n')
 }
 
@@ -2029,15 +2045,29 @@ function exitViolation(from, r) {
   return left ? `検証を通っていないものを持ったまま段を出ようとしました（${left}）` : null
 }
 
-// enterFromDisk: 段 3 以降から始める run は、最初に W を読み直す。前の run が止まる前に書いたもの（flow.json・台帳・合否）は戻らず、
-// next_args の state には載っていない。flow.json の版が next_args と違っても止めずに integrity に 1 行足して W の版を使う
+// enterFromDisk: 段 3 以降から始める run は、最初に W を読み直す。blocked の後の同じ段の再実行は、その前に restore で止まった run の
+// 台帳の書き込みを取り消す（references/workflow-io.md §3）。restore の無い入口では、前の run が書いたものは next_args の state に
+// 載っていない。flow.json の版が next_args と違っても止めずに integrity に 1 行足して W の版を使う
 // （版の照合は、段を出る前に今の版の要素と resolution がすべて検証されること（exitViolation）で代わる）。
 // 台帳の集合は W で置き換え（reconcile）、settle を持つ段（ASKS）は、止まった run が裁定したが flow に写す前に止まったものを段の前に写す。
 // before はこの run が受け取った state の値で取る（W から受け取った裁定を、この cycle で決まったものとして写させる）。
 // settle を持たない段では、不合格の要素を直す役もいないので止める。
 async function enterFromDisk(from) {
   const label = `flow-check:${from}-entry`
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cli('flow')}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from])
+  const restoring = restorePending ? RESUME_TX.restore : null
+  const restore = restoring ? `最初に実行する: \`${cli('restore', `--token ${restoring}`)}\`。stdout を加工せずに restore_check に入れる。続けて ` : ''
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `${restore}実行する: \`${cli('flow')}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from])
+  if (restoring) {
+    const rc = parseStdout(x && x.restore_check)
+    if (!rc || rc.token !== restoring || typeof rc.flow_before !== 'string' || typeof rc.flow_after !== 'string') {
+      return blocked(`flow-check（段 ${from} の入口）が token ${restoring} の doc_check restore の stdout を返しませんでした`, from)
+    }
+    restorePending = false
+    const accepted = RESUME_TX.flow ?? state.flow_digest
+    if (rc.flow_before !== rc.flow_after && rc.flow_before !== accepted) {
+      noteIntegrity(`段 ${from} の restore の前の flow.json（${rc.flow_before}）が最後に照合を通った版（${accepted}）と違った（照合の前に止まった書き込みか、所有表の外の書き込み）。段の入口の版（${rc.flow_after}）に戻した`)
+    }
+  }
   const fc = x && flowCheckOf(x.flow_check)
   if (!fc) return blocked(`flow-check（段 ${from} の入口）が doc_check flow の stdout を返しませんでした`, from)
   if (fc.content_sha256 !== state.flow_digest) {
@@ -2066,12 +2096,16 @@ async function enterFromDisk(from) {
 let next = FROM
 let outcome = null
 while (outcome === null) {
+  const resuming = RESUME_TX && running === null
+  if (!resuming) restorePending = false
+  txTry = resuming ? RESUME_TX.try : 0
+  state.tx = resuming ? { seq: RESUME_TX.seq, stage: next } : { seq: ((state.tx || {}).seq || 0) + 1, stage: next }
   running = next
   entryState = JSON.parse(JSON.stringify(state))
   let r
   try {
     phase(PHASE_OF[next])
-    r = next === FROM && REQUIRES[FROM].includes('flow_digest') ? await enterFromDisk(FROM) : null
+    r = next === FROM && ENTRY_CHECK ? await enterFromDisk(FROM) : null
     if (!r) r = await STAGE_FNS[next]()
   } catch (e) {
     if (!(e && e.rerunStage)) throw e

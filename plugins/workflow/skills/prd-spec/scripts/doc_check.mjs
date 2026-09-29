@@ -1541,7 +1541,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'questions', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'restore', 'questions', 'sha', 'report']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1803,6 +1803,65 @@ function writeAtomic(...pairs) {
     for (const t of tmps) fs.rmSync(t, { force: true })
     throw e
   }
+}
+
+// 段の書き込みは token ごとの取引にする。blocked の後の同じ段の再実行は、止まった run の書き込みを restore で段に入った時点の台帳へ
+// 戻してから始める（W から state を組み直す方式は、持ち越す欄が増えるたびに再実行が止まらなかった run とずれた）。
+// 控えは台帳ごとに最初の書き込みの直前に取る（並列の writer が別の meta を同時に put するので、共有の索引を持たない）。
+// token は prd.js が段の入口で決める。token の名前は所有表のパターン（tx/<token>/*）に合うよう . を含めない。
+const TX_DIR = 'tx'
+const TX_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+const TX_PRE = '.pre'
+const TX_ABSENT = '.absent'
+
+function txToken(opts, mode) {
+  if (!opts.token) throw new LedgerRejected(`${mode} には --token <プロンプトのトークン> が要ります（再実行が段の入口の台帳へ戻す控えを、token ごとに取るため）`)
+  if (!TX_TOKEN.test(opts.token)) throw new LedgerRejected(`--token は英数字と _ - だけにしてください: ${opts.token}`)
+  return opts.token
+}
+
+// txBegin: 新しい token の最初の書き込みで、他の token の控えを消す（済んだ段より前へ戻せないように）。
+function txBegin(ws, token, file) {
+  const root = path.join(ws, TX_DIR)
+  if (fs.existsSync(root)) for (const t of fs.readdirSync(root)) if (t !== token) fs.rmSync(path.join(root, t), { recursive: true, force: true })
+  const dir = path.join(root, token)
+  fs.mkdirSync(dir, { recursive: true })
+  const pre = path.join(dir, `${file}${TX_PRE}`)
+  const absent = path.join(dir, `${file}${TX_ABSENT}`)
+  if (fs.existsSync(pre) || fs.existsSync(absent)) return
+  const cur = path.join(ws, file)
+  if (fs.existsSync(cur)) writeAtomic([pre, fs.readFileSync(cur)])
+  else writeAtomic([absent, ''])
+}
+
+const txLedgerFile = (name) =>
+  Object.keys(LEDGERS).some((n) => n !== 'meta' && ledgerOf(n).file() === name) || /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.meta\.json$/.test(name)
+
+const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : null)
+
+// restore: token の控えを台帳に戻し、token の下で作られた台帳を消す。控えの無い台帳・文書・answers・plan.json・checks は触らない。
+// 全部戻してから控えを消すので、途中で落ちても流し直せば同じ結果になる。
+function wsRestore(ws, opts) {
+  const token = txToken(opts, 'restore')
+  const dir = path.join(ws, TX_DIR, token)
+  const flowBefore = ledgerSha(ws, 'flow')
+  const files = []
+  const names = fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []
+  const plan = names.map((n) => {
+    const kind = n.endsWith(TX_PRE) ? 'pre' : n.endsWith(TX_ABSENT) ? 'absent' : null
+    const file = kind ? n.slice(0, -(kind === 'pre' ? TX_PRE : TX_ABSENT).length) : null
+    if (!kind || !txLedgerFile(file)) throw new LedgerRejected(`${TX_DIR}/${token}/${n} は台帳の控えではありません（何も戻していません）`)
+    return { n, kind, file }
+  })
+  for (const { n, kind, file } of plan) {
+    const p = path.join(ws, file)
+    const before = fileSha(p)
+    if (kind === 'pre') writeAtomic([p, fs.readFileSync(path.join(dir, n))])
+    else fs.rmSync(p, { force: true })
+    files.push({ path: file, before, after: fileSha(p) })
+  }
+  fs.rmSync(dir, { recursive: true, force: true })
+  return { token, restored: files.length, files, flow_before: flowBefore, flow_after: ledgerSha(ws, 'flow') }
 }
 
 function answerTexts(ws) {
@@ -2096,7 +2155,22 @@ function ledgerResult(name, file, tally, value, ws, doc) {
 }
 
 // put: 検査はすべて書く前に済ませ、1 件でも落ちたらファイルに触れない。
+const aboutText = (a) => (a && typeof a === 'object' ? canonicalJson(Array.isArray(a.pair) ? { ...a, pair: a.pair.map(String).sort() } : a) : null)
+
+// aboutRejects: 覆されていない（supersedes に挙がっていない）裁定を持つ論点に、別の ID の裁定を足さない。足すと同じ論点に使える根拠が
+// 2 つでき、writer が食い違う根拠を受け取る。
+function aboutRejects(next, body) {
+  const [list, key] = Object.entries(ledgerOf('resolutions').lists)[0]
+  const dead = supersededIds(next)
+  const live = next[list].filter((r) => !dead.has(String(r[key])) && aboutText(r.about) !== null)
+  const sent = new Set(listOf(body, list).map((r) => r[key]))
+  return live
+    .filter((r) => sent.has(r[key]))
+    .flatMap((r) => live.filter((o) => o[key] !== r[key] && aboutText(o.about) === aboutText(r.about)).map((o) => `${r[key]}: 論点 ${aboutText(r.about)} には ${o[key]} の裁定があります（同じ ID を put で直すか、supersedes に ${o[key]} を挙げて覆す）`))
+}
+
 function wsPut(ws, opts, stdin) {
+  const token = txToken(opts, 'put')
   const name = opts.ledger
   const spec = ledgerOf(name)
   const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
@@ -2130,6 +2204,8 @@ function wsPut(ws, opts, stdin) {
     tally[!(k in next) ? 'added' : next[k] === body[k] ? 'unchanged' : 'replaced'].push(k)
     next[k] = body[k]
   }
+  const aboutBad = name === 'resolutions' ? aboutRejects(next, body) : []
+  if (aboutBad.length) throw new LedgerRejected(`同じ論点の裁定が 2 つになります（何も書いていません）:\n${aboutBad.join('\n')}`)
   const caseBad = caseRejects(ws, name, next, body)
   if (caseBad.length) throw new LedgerRejected(`欄の条件に落ちました（何も書いていません）:\n${caseBad.join('\n')}`)
   const storedBad = storedRejects(ws, name, next)
@@ -2137,11 +2213,15 @@ function wsPut(ws, opts, stdin) {
   if (name === 'verifications') next = fillVerifications(ws, opts, next, body)
   const text = ledgerText(next)
   const p = path.join(ws, file)
-  if (!fs.existsSync(p) || fs.readFileSync(p, 'utf8') !== text) writeAtomic([p, text])
+  if (!fs.existsSync(p) || fs.readFileSync(p, 'utf8') !== text) {
+    txBegin(ws, token, file)
+    writeAtomic([p, text])
+  }
   return ledgerResult(name, file, tally, next, ws, opts.doc[0])
 }
 
 function wsDel(ws, opts) {
+  const token = txToken(opts, 'del')
   const name = opts.ledger
   const spec = ledgerOf(name)
   const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
@@ -2159,6 +2239,7 @@ function wsDel(ws, opts) {
   const next = { ...cur, [coll]: cur[coll].filter((r) => !tally.removed.includes(r[key])) }
   const storedBad = storedRejects(ws, name, next)
   if (storedBad.length) throw new LedgerRejected(`消した後の版が台帳の形に合いません（何も書いていません。先に put で直す: ${STORED_FIX}）:\n${storedBad.join('\n')}`)
+  txBegin(ws, token, file)
   writeAtomic([path.join(ws, file), ledgerText(next)])
   return ledgerResult(name, file, tally, next, ws, opts.doc[0])
 }
@@ -2720,6 +2801,15 @@ function selectDocs(keys, wanted) {
   return wanted.length ? wanted : keys
 }
 
+function carriesVerdict(judged, r) {
+  if (judged.digest === digestOf(r)) return true
+  if (r.ruling === 'hold' || (r.ruling === 'question' && judged.verdict === 'fail')) return true
+  if (r.ruling !== 'question' || judged.verdict !== 'pass') return false
+  const { answer, value, ...asked } = r
+  const chosen = value === undefined || (Array.isArray(r.options) && r.options.some((o) => o && o.decision_text === value))
+  return chosen && judged.digest === digestOf(asked)
+}
+
 function wsFlow(ws) {
   requireInput(ws)
   const flow = readLedger(ws, 'flow')
@@ -2742,13 +2832,15 @@ function wsFlow(ws) {
   // resolutions: resolution ごとの about・ruling と合否（verdict。無ければ null、不合格には fail_kind）。script はファイルを読めないので、
   // 返り値が届かなかった裁定と合否（止まった run が書いたもの・出し直しが返さなかったもの）を、state に写す元はここにしか無い。
   // 合否は検証した版（digest）の resolution にだけ付く。検証の後に書き換えた裁定は、検証していない値が合格のまま根拠に使われる。
-  // question と hold への書き換え（変換・回答の反映・保持規則への変換）は値を決めないので、その前の合否を持ち越す。
+  // 持ち越すのは根拠を増やさない書き換えだけ: 保持規則への書き換えと、問いの不合格（変換した分はもう検証しない）と、
+  // 検証した候補の decision_text を value に写しただけの候補の選択。問いの形の修正は候補の文を変えるので、合格を持ち越すと
+  // 検証していない decision_text が候補の選択でそのまま value になる。自由記述の value も候補の外なので持ち越さない。
   const verdicts = new Map(items.filter((it) => it && it.id && it.verdict).map((it) => [String(it.id), it]))
   const resolutions = listOf(readLedger(ws, 'resolutions'), 'resolutions')
     .filter((r) => r && r.id)
     .map((r) => {
       const judged = verdicts.get(String(r.id))
-      const v = judged && (judged.digest === digestOf(r) || ['question', 'hold'].includes(r.ruling)) ? judged : null
+      const v = judged && carriesVerdict(judged, r) ? judged : null
       return { id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.fail_kind ?? null } : {}) }
     })
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
@@ -3167,6 +3259,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--expect-decisions') o.expectDecisions = take()
     else if (a === '--drafts') o.drafts = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--check') o.check = true
+    else if (a === '--token') o.token = take()
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o
@@ -3187,6 +3280,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'index') return wsIndex(ws, opts)
   if (mode === 'put') return wsPut(ws, opts, fs.readFileSync(0, 'utf8'))
   if (mode === 'del') return wsDel(ws, opts)
+  if (mode === 'restore') return wsRestore(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)

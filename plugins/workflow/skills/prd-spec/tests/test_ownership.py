@@ -216,7 +216,7 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
                     lines = [""] * max(e["line"], e.get("end", e["line"]))
                     lines[e["line"] - 1] = e["quote"]
                     _touch(td, e["file"], "\n".join(lines) + "\n")
-            _ok(ws, "put", "--ledger", "resolutions", stdin=body)
+            _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin=body)
             asked = [r["id"] for r in body["resolutions"] if "question" in r]
             self.assertTrue(asked)
             self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked))["questions"], len(asked))

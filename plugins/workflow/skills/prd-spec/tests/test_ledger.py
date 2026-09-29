@@ -32,9 +32,15 @@ def _exported(expr):
     return json.loads(r.stdout)
 
 
+# TOKEN: 台帳を書くモードに付ける段の token（put・del は token なしを拒否する）。
+TOKEN = "t1"
+WRITES = ("put", "del")
+
+
 def _run(ws, mode, *args, stdin=None):
+    tx = ("--token", TOKEN) if mode in WRITES and "--token" not in args else ()
     return subprocess.run(
-        ["node", str(DOC_CHECK), mode, *args, "--workspace", str(ws)],
+        ["node", str(DOC_CHECK), mode, *args, *tx, "--workspace", str(ws)],
         input=None if stdin is None else json.dumps(stdin, ensure_ascii=False),
         capture_output=True,
         text=True,
@@ -99,6 +105,97 @@ class _Workspace(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertEqual(p.read_bytes() if p.exists() else None, before)
         return r
+
+
+class StageTransaction(_Workspace):
+    """段の token の下の put・del は、restore で段に入った時点の台帳へ戻せる（blocked の後の同じ段の再実行の入口）。"""
+
+    def _files(self):
+        return {str(p.relative_to(self.ws)): p.read_bytes() for p in sorted(self.ws.rglob("*")) if p.is_file() and not str(p.relative_to(self.ws)).startswith("tx/")}
+
+    def _write_stage(self, token):
+        tx = ("--token", token)
+        _ok(self.ws, "put", "--ledger", "decisions", *tx, stdin={"decisions": [{"id": "D-003", "value": "英語で書く"}]})
+        _ok(self.ws, "put", "--ledger", "decisions", *tx, stdin={"decisions": [{"id": "D-003", "value": "英語と日本語で書く"}]})
+        _ok(self.ws, "put", "--ledger", "open", *tx, stdin={"open": [{"id": "O-002", "text": "通知の宛先"}]})
+        _ok(self.ws, "del", "--ledger", "flow", "--ids", "F-005", "--collection", "elements", *tx)
+        _ok(self.ws, "put", "--ledger", "resolutions", *tx, stdin={"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        _ok(self.ws, "put", "--ledger", "routes", *tx, stdin={"routes": [{"id": "RT-001", "unit": "U-1", "resolutions": ["RS-001"]}]})
+        _ok(self.ws, "put", "--ledger", "meta", "--doc", "requirements/auth", *tx, stdin={"fixed": True})
+        shas = [_ok(self.ws, "sha", "--ledger", x)["sha256"] for x in ("resolutions", "decisions")]
+        _ok(self.ws, "put", "--ledger", "verifications", "--expect-resolutions", shas[0], "--expect-decisions", shas[1], *tx, stdin={"items": [{"id": "RS-001", "verdict": "pass"}]})
+
+    def test_tokenの無いputとdelは何も書かずに止まる(self):
+        before = self._files()
+        for mode in (("put", "--ledger", "decisions"), ("del", "--ledger", "decisions", "--ids", "D-003")):
+            with self.subTest(mode=mode[0]):
+                r = subprocess.run(["node", str(DOC_CHECK), *mode, "--workspace", str(self.ws)], input=json.dumps({"decisions": [{"id": "D-003", "value": "x"}]}),
+                                   capture_output=True, text=True)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("--token", r.stderr)
+        for bad in ("../x", "t.1", ""):
+            with self.subTest(token=bad):
+                r = _run(self.ws, "put", "--ledger", "decisions", "--token", bad, stdin={"decisions": [{"id": "D-003", "value": "x"}]})
+                self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self._files(), before)
+        self.assertFalse((self.ws / "tx").exists())
+
+    def test_restoreはtokenの下の台帳の書き込みだけを段に入った時点へ戻す(self):
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor")
+        before = self._files()
+        self._write_stage("t3")
+        (self.ws / "answers" / "g0.md").write_text("RS-001: メール\n")
+        doc = self.ws / "requirements-auth.md"
+        doc.write_text(doc.read_text() + "\n追記\n")
+        _ok(self.ws, "snapshot", "--save", "audited-2", "--role", "auditor")
+        untouched = {k: v for k, v in self._files().items() if k.startswith(("answers/", "checks/audited-", "requirements-auth.md"))}
+        self.assertEqual(_ok(self.ws, "snapshot", "--save", "w")["stray"]["count"], 0, "控えは所有表の tx/<token>/* に当たる")
+        out = _ok(self.ws, "restore", "--token", "t3")
+        self.assertEqual(out["token"], "t3")
+        created = {"resolutions.json", "routes.json", "verifications.json"}
+        self.assertEqual({f["path"] for f in out["files"]}, {"decisions.json", "open.json", "flow.json", "requirements-auth.meta.json"} | created)
+        for f in out["files"]:
+            self.assertEqual(f["after"], hashlib.sha256(before[f["path"]]).hexdigest() if f["path"] in before else None, f["path"])
+            self.assertNotEqual(f["before"], f["after"], f["path"])
+        self.assertNotEqual(out["flow_before"], out["flow_after"])
+        after = self._files()
+        ledgers = {k for k in before if k.endswith(".json") and not k.startswith(("checks/", "plan.json"))}
+        self.assertEqual({k: after.get(k) for k in ledgers}, {k: before[k] for k in ledgers}, "台帳は段に入った時点のバイト列に戻る")
+        self.assertFalse(created & set(after), "token の下で作られた台帳は消える")
+        self.assertEqual({k: after[k] for k in untouched}, untouched, "answers・文書・監査の snapshot は戻さない")
+        self.assertEqual(after["plan.json"], before["plan.json"])
+        again = _ok(self.ws, "restore", "--token", "t3")
+        self.assertEqual((again["restored"], again["files"]), (0, []))
+        self.assertEqual(self._files(), after, "2 回目の restore は何も変えない")
+
+    def test_新しいtokenの最初の書き込みは前のtokenの控えを消し済んだ段より前へ戻さない(self):
+        self._write_stage("t1")
+        mid = self._files()
+        _ok(self.ws, "put", "--ledger", "open", "--token", "t2", stdin={"open": [{"id": "O-003", "text": "通知の頻度"}]})
+        self.assertEqual(sorted(p.name for p in (self.ws / "tx").iterdir()), ["t2"])
+        self.assertEqual(_ok(self.ws, "restore", "--token", "t1")["restored"], 0)
+        _ok(self.ws, "restore", "--token", "t2")
+        self.assertEqual(self._files(), mid, "t2 の restore は t1 の段を出た時点までしか戻さない")
+
+    def test_再実行が別のtokenで書いた後に同じrestoreを流し直しても何も戻さない(self):
+        # resumeFromRunId の再生が入口の restore を実行し直す場合。再実行は戻す token（t3）と別の token（t3r1）で書く。
+        self._write_stage("t3")
+        _ok(self.ws, "restore", "--token", "t3")
+        _ok(self.ws, "put", "--ledger", "decisions", "--token", "t3r1", stdin={"decisions": [{"id": "D-004", "value": "日本語で書く"}]})
+        _ok(self.ws, "put", "--ledger", "routes", "--token", "t3r1", stdin={"routes": [{"id": "RT-002", "unit": "U-1"}]})
+        written = self._files()
+        self.assertEqual(_ok(self.ws, "restore", "--token", "t3")["files"], [])
+        self.assertEqual(self._files(), written, "再実行の書き込みは戻らない")
+
+    def test_控えでないファイルがあればrestoreは何も戻さない(self):
+        self._write_stage("t4")
+        (self.ws / "tx" / "t4" / "plan.json.pre").write_text("{}")
+        written = self._files()
+        r = _run(self.ws, "restore", "--token", "t4")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self._files(), written)
 
 
 class Idempotent(_Workspace):
@@ -747,7 +844,8 @@ class AtomicWrite(_Workspace):
             self.ws.chmod(0o555)
             self.addCleanup(self.ws.chmod, 0o755)
             kw = {}
-        return subprocess.run(["node", str(DOC_CHECK), *args, "--workspace", str(self.ws)],
+        tx = ("--token", TOKEN) if args[0] in WRITES else ()
+        return subprocess.run(["node", str(DOC_CHECK), *args, *tx, "--workspace", str(self.ws)],
                               input=None if stdin is None else json.dumps(stdin, ensure_ascii=False), capture_output=True, text=True, **kw)
 
     def _tmps(self):

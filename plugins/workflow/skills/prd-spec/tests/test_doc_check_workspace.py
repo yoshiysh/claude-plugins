@@ -29,8 +29,13 @@ DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "workspace"
 
 
+def _tx(args):
+    """台帳を書くモード（put・del）には段の token を付ける（doc_check は token なしを拒否する）。"""
+    return ("--token", "t1") if args and args[0] in ("put", "del") and "--token" not in args else ()
+
+
 def _run(ws, *args):
-    return subprocess.run(["node", str(DOC_CHECK), *args, "--workspace", str(ws)], capture_output=True, text=True)
+    return subprocess.run(["node", str(DOC_CHECK), *args, *_tx(args), "--workspace", str(ws)], capture_output=True, text=True)
 
 
 def _ok(ws, *args):
@@ -42,7 +47,7 @@ def _ok(ws, *args):
 
 def _put_run(ws, ledger, body, *args):
     return subprocess.run(
-        ["node", str(DOC_CHECK), "put", "--ledger", ledger, *args, "--workspace", str(ws)],
+        ["node", str(DOC_CHECK), "put", "--ledger", ledger, *args, *_tx(("put", *args)), "--workspace", str(ws)],
         input=json.dumps(body, ensure_ascii=False), capture_output=True, text=True,
     )
 
@@ -352,7 +357,7 @@ class FlowAndConflicts(_Workspace):
 
     def test_constrained_byの実在しない決定はputが拒否し_後で消えた決定はflowの指摘になる(self):
         before = (self.ws / "flow.json").read_bytes()
-        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", "--workspace", str(self.ws)],
+        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", *_tx(("put",)), "--workspace", str(self.ws)],
                            input=json.dumps({"elements": [{"id": "F-003", "constrained_by": ["D-099"]}]}), capture_output=True, text=True)
         self.assertEqual(r.returncode, 1)
         self.assertIn("D-099", r.stderr)
@@ -470,6 +475,51 @@ class FlowAndConflicts(_Workspace):
             stub = stages.run({"args": stages.args(**{"from": "9", "state": state}), "world": str(world)})
         self.assertEqual(stub["disk"]["resolutions"], rewritten)
 
+    def _verdict(self, rs_id):
+        return next(x for x in _ok(self.ws, "flow")["resolutions"] if x["id"] == rs_id)["verdict"]
+
+    def _judge(self, items):
+        sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
+        _put(self.ws, "verifications", {"items": items}, "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
+
+    def test_問いの合格を持ち越すのは検証した候補を選んだ回答だけ(self):
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-005: 画面に出してください\n")
+        options = [{"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
+                   {"label": "メール", "description": "メールで送る", "flow_effect": "F-003 がメール送信になる", "decision_text": "結果はメールで送る"}]
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "about": {"open": "O-001"}, "ruling": "question", "options": options,
+                                                       "question": {"header": "返し方", "text": "結果をどう返しますか", "searched": "依頼文に無い"}}]})
+        self._judge([{"id": "RS-005", "verdict": "pass"}])
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面に出す", "answer": {"path": "answers/g0.md", "quote": "画面に出して"}}]})
+        self.assertEqual(self._verdict("RS-005"), "pass", "候補の選択は検証した decision_text を写すだけ")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面とメールの両方に出す"}]})
+        self.assertIsNone(self._verdict("RS-005"), "候補の外の value は検証していない")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": None, "answer": None}]})
+        self.assertEqual(self._verdict("RS-005"), "pass")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "options": [{**options[0], "decision_text": "結果は画面に常に出す"}, options[1]]}]})
+        self.assertIsNone(self._verdict("RS-005"), "問いの形の修正で変わった候補の文は検証していない")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "about": {"tbd": "TBD-X-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        self._judge([{"id": "RS-006", "verdict": "fail", "fail_kind": "value_as_method", "reason": "r"}])
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "ruling": "question", "value": None, "options": options,
+                                                       "question": {"header": "h", "text": "t", "searched": "s"}}]})
+        self.assertEqual(self._verdict("RS-006"), "fail", "変換した問いは不合格を持ち越す（変換した分はもう検証しない）")
+
+    def test_覆されていない裁定のある論点に別のIDの裁定を足さない(self):
+        rs = lambda i, about, **kw: {"id": i, "about": about, "ruling": "internal", "value": "v", "why": "w", **kw}
+        _put(self.ws, "resolutions", {"resolutions": [rs("RS-001", {"open": "O-001"}), rs("RS-003", {"pair": ["D-001", "F-002"]})]})
+        before = (self.ws / "resolutions.json").read_bytes()
+        for dup in (rs("RS-002", {"open": "O-001"}), rs("RS-004", {"pair": ["F-002", "D-001"]})):
+            with self.subTest(dup=dup["id"]):
+                r = _put_run(self.ws, "resolutions", {"resolutions": [dup]})
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("同じ論点", r.stderr)
+                self.assertEqual((self.ws / "resolutions.json").read_bytes(), before)
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "why": "言い直した根拠"}]})
+        _put(self.ws, "resolutions", {"resolutions": [rs("RS-002", {"open": "O-001"}, supersedes="RS-001")]})
+        r = _put_run(self.ws, "resolutions", {"resolutions": [rs("RS-007", {"open": "O-001"})]})
+        self.assertEqual(r.returncode, 1, "覆した RS-002 が今の裁定なので、3 つ目は足せない")
+        self.assertIn("RS-002", r.stderr)
+
     def test_覆された決定を出典かconstrained_byに持つ要素はstale_refsに出る(self):
         self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [])
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "v", "supersedes": "D-001"}]})
@@ -506,7 +556,7 @@ class FlowAndConflicts(_Workspace):
         f4 = next(e for e in json.loads((self.ws / "flow.json").read_text())["elements"] if e["id"] == "F-004")
         f4["cases"][1]["source"] = {"input": "依頼文に無い文"}
         before = (self.ws / "flow.json").read_bytes()
-        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", "--workspace", str(self.ws)],
+        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "flow", *_tx(("put",)), "--workspace", str(self.ws)],
                            input=json.dumps({"elements": [{"id": "F-004", "cases": f4["cases"]}]}, ensure_ascii=False), capture_output=True, text=True)
         self.assertEqual(r.returncode, 1)
         self.assertIn("F-004 cases[1]", r.stderr)
