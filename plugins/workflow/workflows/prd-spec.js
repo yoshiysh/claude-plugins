@@ -1563,7 +1563,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
     `裁定を flow に写す（flow-framer.md の「裁定の反映」）。`,
     m.left.some((x) => x.open) ? `要素（閉じた O- ← 閉じた resolution）: ${m.left.filter((x) => x.open).map((x) => `${x.el}${x.case ? ` の case ${x.case}` : ''}（${x.open} ← ${list(closers(`open:${x.open}`))}）`).join(', ')}` : '',
     m.left.some((x) => x.constraint) ? `constrained_by の閉じた O-（要素 の O- ← 閉じた resolution）: ${m.left.filter((x) => x.constraint).map((x) => `${x.el} の ${x.constraint} ← ${list(closers(`open:${x.constraint}`))}`).join(', ')}` : '',
-    m.found.length ? `指摘（ID ← それを裁定した resolution）: ${m.found.map((id) => `${id}（← ${list(closers(`finding:${id}`))}）`).join(', ')}` : '',
+    m.found.length ? `指摘（ID ← それを裁定した resolution）: ${m.found.map((id) => `${id}（← ${list(closers(`finding:${id}`))}）`).join(', ')}（${FINDINGS_READ}）` : '',
     recurFound.length ? `このうち ${list(recurFound)} は改稿で直らず再発した項目の指摘である。その項目の振る舞いを判定表の入力の次元として起こす。` : '',
     m.verdicts.length ? `検証の裁定（要素 ← 裁定した resolution）: ${m.verdicts.map((id) => `${id} ← ${list(closers(`verification:${id}`))}`).join(', ')}` : '',
     m.stale.length ? `覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: ${m.stale.map((x) => `${x.el} ← ${x.ref}`).join(', ')}` : '',

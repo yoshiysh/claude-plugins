@@ -2485,14 +2485,20 @@ class FlowRecheck(unittest.TestCase):
         self.assertEqual(r["result"]["status"], "done")
         self.assertEqual(r["result"]["next_args"], None)
 
-        # 2 回目の settle でも同じ件数が残る（減らない）ので止まる。
+        # 2 回目の settle でも同じ件数が残る（減らない）ので止まる。unput は減らないのではなく、verifier の合否が put されていないので 1 回目の verifier で止まる。
         fail = [{"id": "F-091", "kind": "mapping", "reason": "r"}]
-        for left in ({"open_only_at": {"3a": only, "3av-settle": only[:1], "3av-settle-2": only[:1]}},
-                     {"unput_at": {"3av-settle": ["F-091"]}, "open_only_at": {"3a": only}},
-                     {"verifier_fail": {"3av-settle": fail, "3av-settle-2": fail}, "open_only_at": {"3a": only}}):
+        same = ("裁定の反映の後も直っていません", "verifier:3av-settle-2")
+        for left, (why, last) in (({"open_only_at": {"3a": only, "3av-settle": only[:1], "3av-settle-2": only[:1]}}, same),
+                                  ({"unput_at": {"3av-settle": ["F-091"]}, "open_only_at": {"3a": only}}, ("F-091 が verifications.json に記録されていません", "verifier:3av-settle")),
+                                  ({"verifier_fail": {"3av-settle": fail, "3av-settle-2": fail}, "open_only_at": {"3a": only}}, same)):
             with self.subTest(left=left):
                 r = run({**spec, **left})
                 stopped = r["result"]
+                self.assertIn(why, stopped["reason"])
+                self.assertEqual([l for l in r["labels"] if l.startswith(("verifier:", "flow-framer"))][-1], last)
+                if last == "verifier:3av-settle":
+                    self.assertFalse(has(r["labels"], "flow-framer:3a-settle-2"), "put の欠けで止まり 2 回目の settle に進まない")
+                    self.assertTrue(any("F-091" in x for x in stopped["integrity"]))
                 self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "3a"))
                 entry = lambda st: {k: v for k, v in st.items() if k != "tx"}
                 self.assertEqual(entry(stopped["next_args"]["state"]), entry(g0["next_args"]["state"]), "段の頭の state からやり直す（W は再実行の入口の restore で段の頭に戻す）")
@@ -3565,10 +3571,11 @@ class Convergence(unittest.TestCase):
         self.assertEqual(framed["result"]["status"], "done")
 
     def _settle(self, counts):
-        # 段 3 が RS-001〜003 で閉じた O- を引く要素が、settle の回ごとに counts の数だけ残る。
-        els = [{"el": f"F-09{i}", "open": f"O-RS-00{i}"} for i in range(1, 4)]
+        # 段 3 が閉じた O- を引く要素が、settle の回ごとに counts の数だけ残る。
+        size = max(const("MAX_SETTLE_ROUNDS"), *counts)
+        els = [{"el": f"F-{90 + i:03d}", "open": f"O-RS-{i:03d}"} for i in range(1, size + 1)]
         keys = ["3v-settle"] + [f"3v-settle-{n}" for n in range(2, len(counts) + 1)]
-        return run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001", "RS-002", "RS-003"]},
+        return run({"args": args(), "flow_open": 1, "ruled_at": {"3": [f"RS-{i:03d}" for i in range(1, size + 1)]},
                     "open_only_at": {"3v": els, **{k: els[:c] for k, c in zip(keys, counts)}}})
 
     def test_settleは残りが減る間はMAX_SETTLE_ROUNDSまで回り減らなければ止まる(self):
