@@ -175,7 +175,8 @@ class StageTransaction(_Workspace):
         mid = self._files()
         _ok(self.ws, "put", "--ledger", "open", "--token", "t2", stdin={"open": [{"id": "O-003", "text": "通知の頻度"}]})
         self.assertEqual(sorted(p.name for p in (self.ws / "tx").iterdir()), ["t2"])
-        self.assertEqual(_ok(self.ws, "restore", "--token", "t1")["restored"], 0)
+        stale = _ok(self.ws, "restore", "--token", "t1")
+        self.assertEqual((stale["restored"], stale["pruned_by"]), (0, ["t2"]), "戻す控えを後の段が消したことを、何も戻さずに知らせる")
         _ok(self.ws, "restore", "--token", "t2")
         self.assertEqual(self._files(), mid, "t2 の restore は t1 の段を出た時点までしか戻さない")
 
@@ -186,7 +187,8 @@ class StageTransaction(_Workspace):
         _ok(self.ws, "put", "--ledger", "decisions", "--token", "t3r1", stdin={"decisions": [{"id": "D-004", "value": "日本語で書く"}]})
         _ok(self.ws, "put", "--ledger", "routes", "--token", "t3r1", stdin={"routes": [{"id": "RT-002", "unit": "U-1"}]})
         written = self._files()
-        self.assertEqual(_ok(self.ws, "restore", "--token", "t3")["files"], [])
+        replay = _ok(self.ws, "restore", "--token", "t3")
+        self.assertEqual((replay["files"], replay["pruned_by"]), ([], []), "同じ段の後の token は再実行自身の書き込みで、控えを失った印ではない")
         self.assertEqual(self._files(), written, "再実行の書き込みは戻らない")
 
     def test_後のtokenの控えがあれば前のtokenの書き込みは何も書かずに止まる(self):
@@ -206,6 +208,17 @@ class StageTransaction(_Workspace):
         _ok(self.ws, "restore", "--token", "t3r1")
         self.assertEqual({k: v for k, v in self._files().items() if not k.startswith("checks/")}, {k: v for k, v in before.items() if not k.startswith("checks/")})
 
+    def test_後の段のtokenが控えを消していればrestoreは何も変えずにpruned_byに挙げる(self):
+        # 打ち間違えた token（t3 の段で t30）の最初の書き込みが t3 の控えを消す。黙って 0 件を戻すと、再実行が止まった run の書き込みの上から始まる。
+        self._write_stage("t3")
+        _ok(self.ws, "put", "--ledger", "open", "--token", "t30", stdin={"open": [{"id": "O-003", "text": "通知の頻度"}]})
+        written = self._files()
+        out = _ok(self.ws, "restore", "--token", "t3")
+        self.assertEqual((out["restored"], out["files"], out["pruned_by"]), (0, [], ["t30"]))
+        self.assertEqual(out["flow_before"], out["flow_after"])
+        self.assertEqual(self._files(), written)
+        self.assertEqual(sorted(p.name for p in (self.ws / "tx").iterdir()), ["t30"])
+
     def test_控えを書く途中で落ちた一時名があってもrestoreは控えを戻す(self):
         before = self._files()
         self._write_stage("t4")
@@ -222,6 +235,83 @@ class StageTransaction(_Workspace):
         r = _run(self.ws, "restore", "--token", "t4")
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertEqual(self._files(), written)
+
+
+class FreshRunReset(_Workspace):
+    """段 1 から始める run の入口の reset は、W を S0 の直後（依頼文・先例の一覧・文書と、固定の文書の meta）に戻す。"""
+
+    def _files(self):
+        return {str(p.relative_to(self.ws)): p.read_bytes() for p in sorted(self.ws.rglob("*")) if p.is_file()}
+
+    def _s0_meta(self):
+        # S0 が固定の文書に書いていた meta のバイト列（put の正規形）。reset はこれと同じものを書き直す。
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            (ws / "input.md").write_text("x")
+            _ok(ws, "put", "--ledger", "meta", "--doc", "requirements/auth", "--token", "t1", stdin={"fixed": True})
+            return (ws / "requirements-auth.meta.json").read_bytes()
+
+    def _reused(self):
+        """前のランが段を進めた W。後の段の token（t30）の控え・回答・監査の出力・作業用のファイル・所有表に無いファイルがある。"""
+        (self.ws / "precedent.json").write_text('{"paths": []}\n')
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g1.md").write_text("RS-004: 画面\n")
+        (self.ws / "findings").mkdir()
+        (self.ws / "findings" / "r2-gr-requirements__auth.json").write_text("{}")
+        (self.ws / "questions.md").write_text("q")
+        (self.ws / "questions.json").write_text("[]")
+        (self.ws / "report.md").write_text("r")
+        (self.ws / "tmp" / "writer__U-1__draft").mkdir(parents=True)
+        (self.ws / "tmp" / "writer__U-1__draft" / "gen.py").write_text("")
+        (self.ws / "notes.txt").write_text("stray")
+        _ok(self.ws, "snapshot", "--save", "audited-3", "--role", "auditor")
+        _ok(self.ws, "put", "--ledger", "resolutions", "--token", "t30", stdin={"resolutions": [{"id": "RS-004", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+
+    def test_resetはS0が書いたものだけを残し固定の文書のmetaを書き直す(self):
+        self._reused()
+        before = self._files()
+        out = _ok(self.ws, "reset", "--fixed", "requirements/auth")
+        kept = {"input.md", "precedent.json", "requirements-auth.md", "specifications-auth.md", "requirements-auth.meta.json", "tmp/writer__U-1__draft/gen.py", "notes.txt"}
+        after = self._files()
+        self.assertEqual(set(after), kept)
+        self.assertEqual({k: after[k] for k in kept - {"requirements-auth.meta.json"}}, {k: before[k] for k in kept - {"requirements-auth.meta.json"}}, "S0 が書いたものと所有表の外は触らない")
+        self.assertEqual(after["requirements-auth.meta.json"], self._s0_meta())
+        self.assertEqual(out["fixed"], ["requirements/auth"])
+        self.assertEqual(out["removed"], sorted(["answers", "checks", "decisions.json", "findings", "flow.json", "open.json", "plan.json", "questions.json", "questions.md", "report.md", "resolutions.json", "specifications-auth.meta.json", "tx"]))
+        self.assertEqual(_ok(self.ws, "reset", "--fixed", "requirements/auth")["removed"], [], "流し直しても同じ W になる")
+        self.assertEqual(self._files(), after)
+        _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は人間が行う"}]})
+
+    def test_再利用したWの新しいrunの最初の書き込みはresetの後にだけ通る(self):
+        self._reused()
+        stopped = _run(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は部長が行う"}]})
+        self.assertEqual(stopped.returncode, 1, "前のランの後の段の控えがあると、新しいランの t1 は何も書けない")
+        self.assertIn("t30", stopped.stderr)
+        _ok(self.ws, "reset")
+        _ok(self.ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{"id": "D-001", "value": "承認は部長が行う"}]})
+
+    def test_段1の再実行は止まったintakeの要素と欄を残さない(self):
+        _append_invariant_source(self.ws)
+        stopped = {"decisions": [{"id": "D-003", "kind": "invariant", "quote": "未コミットの作業を失ってはならない"}, {"id": "D-009", "value": "止まった intake の既定", "source": "default"}]}
+        rerun = {"decisions": [{"id": "D-003", "value": "日本語で書く", "source": "default"}]}
+        control = Path(self._tmp.name) / "control"
+        shutil.copytree(self.ws, control)
+        for ws in (self.ws, control):
+            (ws / "decisions.json").unlink()
+            _ok(ws, "put", "--ledger", "decisions", "--token", "t1", stdin=stopped)
+        _ok(self.ws, "reset")
+        for ws in (self.ws, control):
+            _ok(ws, "put", "--ledger", "decisions", "--token", "t1", stdin=rerun)
+        merged = json.loads((control / "decisions.json").read_text())["decisions"]
+        self.assertEqual([(d["id"], d.get("kind")) for d in merged], [("D-003", "invariant"), ("D-009", None)], "reset が無いと put はキー単位で足すので、止まった run の要素と欄が残る")
+        self.assertEqual(json.loads((self.ws / "decisions.json").read_text())["decisions"], rerun["decisions"])
+
+    def test_固定の文書がWに無ければresetは何も消さない(self):
+        before = self._files()
+        r = _run(self.ws, "reset", "--fixed", "requirements/auth,requirements/none")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("requirements/none", r.stderr)
+        self.assertEqual(self._files(), before)
 
 
 class Idempotent(_Workspace):

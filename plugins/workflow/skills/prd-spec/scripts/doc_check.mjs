@@ -1541,7 +1541,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'restore', 'questions', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'restore', 'reset', 'questions', 'sha', 'report']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1853,10 +1853,16 @@ const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : nul
 
 // restore: token の控えを台帳に戻し、token の下で作られた台帳を消す。控えの無い台帳・文書・answers・plan.json・checks は触らない。
 // 全部戻してから控えを消すので、途中で落ちても流し直せば同じ結果になる。控えを書く途中で落ちた一時名（writeAtomic）は控えではないので数えない。
+// 控えが無いのは、止まった run が書かなかったか、戻し終えたか、後の token の最初の書き込みが消したときである。後の段の token（通し番号が
+// 大きい）があれば最後のときで、戻す控えが失われているので何も変えずに pruned_by に挙げる（黙って 0 件を戻すと、再実行が止まった run の
+// 書き込みの上から始まる）。同じ段の後の token は再実行自身の書き込みなので数えない。
 function wsRestore(ws, opts) {
   const token = txToken(opts, 'restore')
   const dir = path.join(ws, TX_DIR, token)
   const flowBefore = ledgerSha(ws, 'flow')
+  const root = path.join(ws, TX_DIR)
+  const prunedBy = fs.existsSync(dir) || !fs.existsSync(root) ? [] : fs.readdirSync(root).filter((t) => txOrder(t) && txOrder(t)[0] > txOrder(token)[0]).sort()
+  if (prunedBy.length) return { token, restored: 0, files: [], pruned_by: prunedBy, flow_before: flowBefore, flow_after: flowBefore }
   const files = []
   const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => !TMP_NAME.test(n)).sort() : []
   const plan = names.map((n) => {
@@ -1873,7 +1879,23 @@ function wsRestore(ws, opts) {
     files.push({ path: file, before, after: fileSha(p) })
   }
   fs.rmSync(dir, { recursive: true, force: true })
-  return { token, restored: files.length, files, flow_before: flowBefore, flow_after: ledgerSha(ws, 'flow') }
+  return { token, restored: files.length, files, pruned_by: [], flow_before: flowBefore, flow_after: ledgerSha(ws, 'flow') }
+}
+
+// reset: 段 1 から始める run の W を、S0 が書いたもの（依頼文・先例の一覧・文書）だけの状態に戻す。前のランや止まった段 1・2 の
+// 台帳が残ると、put はキー単位で足すので、再実行が書かなかった要素と欄（D- の kind・quote など）が黙って残る。answers も消す: 段 1・2 は
+// 回答を読まず、新しいランは RS- を 1 から振り直すので、残った回答の ID は別の問いを指す。固定の文書の meta は S0 の依頼の写し
+// （existing_docs の fixed）なので、消した後に --fixed から書き直す。所有表に無いファイルと tmp/ は触らない（snapshot の stray に出る）。
+const RESET_REMOVES = ['plan.json', 'questions.md', 'questions.json', 'report.md', 'answers', 'findings', 'checks', TX_DIR]
+function wsReset(ws, opts) {
+  const fixed = [...new Set(opts.fixed || [])].sort()
+  const metas = fixed.map((key) => ledgerOf('meta').file(key))
+  const missing = fixed.filter((_, i) => !fs.existsSync(path.join(ws, metas[i].replace(/\.meta\.json$/, '.md'))))
+  if (missing.length) throw new LedgerRejected(`固定の文書が W にありません（S0 で逐語で置く。何も消していません）: ${missing.join(', ')}`)
+  const removed = fs.readdirSync(ws).filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n)).sort()
+  for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
+  for (const m of metas) writeAtomic([path.join(ws, m), ledgerText({ ...emptyLedger(ledgerOf('meta')), fixed: true })])
+  return { reset: true, removed, fixed }
 }
 
 function answerTexts(ws) {
@@ -3272,6 +3294,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--check') o.check = true
     else if (a === '--rulings') o.rulings = true
     else if (a === '--token') o.token = take()
+    else if (a === '--fixed') o.fixed = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
   return o
@@ -3293,6 +3316,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'put') return wsPut(ws, opts, fs.readFileSync(0, 'utf8'))
   if (mode === 'del') return wsDel(ws, opts)
   if (mode === 'restore') return wsRestore(ws, opts)
+  if (mode === 'reset') return wsReset(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)

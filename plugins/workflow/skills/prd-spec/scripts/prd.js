@@ -591,6 +591,8 @@ const INTAKE_SCHEMA = {
 }
 
 const FLOW_CHECK_SCHEMA = { type: 'object', properties: { flow_check: STR, restore_check: STR }, required: ['flow_check'] }
+const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, required: ['restore_check'] }
+const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
 
 const FLOW_SCHEMA = {
   type: 'object',
@@ -706,6 +708,7 @@ if (!ENTRIES.includes(ENTRY)) throw new Error(`args.entry は ${ENTRIES.join(' /
 if (!STAGES.includes(FROM)) throw new Error(`args.from は段の境界（${STAGES.join(' / ')}）のどれかです: "${FROM}"`)
 const EXISTING = Array.isArray(input.existing_docs) ? input.existing_docs : []
 if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" には args.existing_docs（W に置いた既存文書のキーと fixed）が要ります`)
+const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key)).sort()
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
 if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
   throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')
@@ -758,14 +761,17 @@ function finish(status, extra) {
 // blocked で同じ段からやり直させるときは、その段に入った時点の state を渡す（W は再実行の入口の restore で段に入った時点に戻る）。
 // tx.flow は止まった run が最後に照合を通した flow の版で、段に入った時点の版と同じなら載せない（next_args の上限）。
 // 入口の restore が返る前に止まったら W は戻っていないかもしれないので、前の回の戻す token と版を渡し直す。
-let restorePending = Boolean(RESUME_TX) && ENTRY_CHECK
-const rerunFlow = () => (restorePending ? RESUME_TX.flow : state.flow_digest !== entryState.flow_digest ? state.flow_digest : undefined)
+// tx.flow を読むのは restore が flow.json を戻したときの照合だけなので、flow を書く役のいない段（段 2 と settle を持つ段の外）には載せない。
+let restorePending = Boolean(RESUME_TX)
+const writesFlow = (stage) => stage === '2' || Object.hasOwn(ASKS, stage)
+const rerunFlow = () => (!writesFlow(running) ? undefined : restorePending ? RESUME_TX.flow : state.flow_digest !== entryState.flow_digest ? state.flow_digest : undefined)
 const rerunTx = () => {
   const flow = rerunFlow()
   return { ...entryState.tx, try: txTry + 1, restore: restorePending ? RESUME_TX.restore : txToken(), ...(flow !== undefined ? { flow } : {}) }
 }
-const blocked = (reason, rerunFrom, extra) =>
-  finish('blocked', { reason, next_args: rerunFrom ? argsFrom(rerunFrom, rerunFrom === running ? { ...entryState, tx: rerunTx() } : state) : null, ...extra })
+// 段 1 からの再実行は state を持たない。段 1 の入口の reset が W を S0 の直後に戻すので、止まった run の state を運ぶと W と食い違う。
+const rerunArgs = (from) => (from === '1' ? argsFrom('1', {}) : argsFrom(from, from === running ? { ...entryState, tx: rerunTx() } : state))
+const blocked = (reason, rerunFrom, extra) => finish('blocked', { reason, next_args: rerunFrom ? rerunArgs(rerunFrom) : null, ...extra })
 
 const noteIntegrity = (line) => {
   state.integrity = uniq([...(state.integrity || []), line])
@@ -827,6 +833,10 @@ let seen = null
 let wrote = false
 let failedFlow = []
 let carry = []
+// holdFails: hold のまま検証に落ちた回数（ID ごと）。落ちた保持規則は writer に渡すと検証を通っていない規範文が本文に入るので、1 回目は
+// reholdFailed が書き直させて検証し直し、2 回目は止める。変換（convertFailed）で hold になった裁定の不合格は、値の裁定が落ちたもので
+// 保持規則の検証ではないので数えない（変換した分はもう検証しない）。
+const holdFails = {}
 const see = (fc) => {
   seen = fc
   failedFlow = fc.failed_current
@@ -936,6 +946,9 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMov
   }
   const notFlow = (ids) => (ids || []).filter((id) => !/^F-/.test(id))
   const failIds = notFlow((v.fail || []).map((f) => f.id))
+  const held = new Set(state.holds || [])
+  for (const id of failIds) if (held.has(id)) holdFails[id] = (holdFails[id] || 0) + 1
+  for (const id of v.pass || []) delete holdFails[id]
   // passed は resolution だけを持つ。D- の合格は次の行で failed_ids から引けば足り、運ぶと next_args が決定の数に比例して増える。
   state.passed = minus(uniq([...(state.passed || []), ...(v.pass || []).filter((id) => RESOLUTION_ID.test(id))]), failIds)
   state.failed_ids = minus(uniq([...(state.failed_ids || []), ...failIds]), v.pass || [])
@@ -1099,8 +1112,11 @@ async function ruleAndVerify(stage, opt) {
   if (ve2) return ve2
   verified = flowCheckOf(v2.flow_check, true)
   const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
+  const rh = await reholdFailed(stage, `${stage}'`, phaseTitle)
+  if (rh && rh.error) return rh
+  if (rh) verified = rh.fc
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。落ちた要素は settle が直させる（failedOpen）。
-  const toConvert = v2.fail.filter((f) => RESOLUTION_ID.test(f.id))
+  const toConvert = v2.fail.filter((f) => RESOLUTION_ID.test(f.id) && !(state.holds || []).includes(f.id))
   if (!toConvert.length) return { ok: true, passed, verified }
   const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
   if (ce) return ce
@@ -1331,6 +1347,12 @@ async function verifyLeft(stage, tag, verified, phaseTitle, allowQuestions) {
       return { error: `段 ${stage}: verifier の後も、今の版に合否の無い要素（${list(elements)}）か、合否が W の今の版と合わない resolution（${list(carry)}）が残っています（${W}/verifications.json）`, rerun: true }
     }
   }
+  const rh = await reholdFailed(stage, `${stage}-${tag}`, phaseTitle)
+  if (rh && rh.error) return rh
+  if (rh) {
+    fc = rh.fc
+    reconcile(fc)
+  }
   const toConvert = unconverted(fc).map((x) => ({ id: x.id, kind: x.fail_kind || '理由は verifications.json' }))
   if (!toConvert.length) return { fc }
   const ce = await convertFailed(stage, `${stage}-${tag}`, toConvert, phaseTitle, allowQuestions)
@@ -1376,11 +1398,14 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   if (!v) return { error: `resolver-verifier（段 ${stage}v の裁定の反映）が応答しませんでした` }
   const ve = absorbVerifier(v, state.resolutions_sha256, reworkLabel(`${stage}v-settle`, n), true, 'flowFramer', state.resolutions_sha256 !== ledgerAtFrame)
   if (ve) return ve
-  const vfc = flowCheckOf(v.flow_check, true)
+  let vfc = flowCheckOf(v.flow_check, true)
   // flow-framer に直せない裁定（RS-）の不合格は、段 3 の差し戻しの後と同じく問いか保持規則に変える。止めると、縛る不変条件の O- を
   // 足した破壊的な工程が、裁定が落ちただけで blocked になる。
-  const toConvert = v.fail.filter((f) => RESOLUTION_ID.test(f.id))
-  const failed = minus(v.fail.map((f) => f.id), toConvert.map((f) => f.id))
+  const rh = await reholdFailed(stage, tag, phaseTitle)
+  if (rh && rh.error) return rh
+  if (rh) vfc = rh.fc
+  const toConvert = v.fail.filter((f) => RESOLUTION_ID.test(f.id) && !(state.holds || []).includes(f.id))
+  const failed = v.fail.map((f) => f.id).filter((id) => !RESOLUTION_ID.test(id))
   const ce = toConvert.length ? await convertFailed(tag, tag, toConvert, phaseTitle, allowQuestions) : null
   if (ce) return ce
   const now = await verifyLeft(stage, reworkLabel('left', n + 1), vfc, phaseTitle, allowQuestions)
@@ -1396,6 +1421,32 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
     residual: count ? { count, text } : null,
     next: { left: still, found: [], verdicts: [], stale, handoff: found, redo: failed },
   }
+}
+
+// reholdFailed: hold のまま検証に落ちた保持規則を、同じ ID のまま書き直させて検証し直す（resolver.md の「保持規則の書き直し」）。
+// 書き直しても落ちるか、前に書き直した（差し戻しを含む）後に落ちたものがあれば、段の頭からやり直させる。
+async function reholdFailed(stage, owner, phaseTitle) {
+  const failing = Object.keys(holdFails).sort()
+  if (!failing.length) return null
+  const again = failing.filter((id) => holdFails[id] > 1)
+  const stuck = (ids) => ({ error: `段 ${stage}: 保持規則 ${list(ids)} が書き直した後も検証に落ちました（${W}/verifications.json）。検証に落ちた保持規則は writer に渡さない`, rerun: true })
+  if (again.length) return stuck(again)
+  const label = `resolver:${owner}-rehold`
+  const r = await once(label, 'resolver', resolverPrompt(label, `${owner}（保持規則の書き直し）`, keepFlow(`次の保持規則は検証に落ちた（理由は ${W}/verifications.json）。値を決めずに、hold（保持規則・Issue の文案・触れる項目 ID）を落ちた理由で書き直す。ID は変えない: ${list(failing)}`)), RESOLVER_SCHEMA, phaseTitle)
+  if (!r) return { error: `resolver（段 ${owner} の保持規則の書き直し）が応答しませんでした` }
+  const bad = onlyAsked(`${owner}-rehold`, r, failing, ['holds'])
+  if (bad) return { error: bad }
+  absorbResolver(r)
+  const kept = flowKept(`${owner}-rehold`, r)
+  if (kept) return kept
+  const vLabel = `verifier:${owner}-reholdv`
+  const v = await askVerifier(vLabel, `${owner}v（保持規則の書き直し）`, failing, '', phaseTitle)
+  if (!v) return { error: `resolver-verifier（段 ${owner}-reholdv）が応答しませんでした`, rerun: true }
+  const ve = absorbVerifier(v, state.resolutions_sha256, `${owner}-reholdv`, false, null)
+  if (ve) return ve
+  const still = failing.filter((id) => holdFails[id])
+  if (still.length) return stuck(still)
+  return { fc: flowCheckOf(v.flow_check, true) }
 }
 
 // holdLeft: 聞くゲートが残っていない問いを保持規則に変える。
@@ -1478,7 +1529,20 @@ function needsAnswers(gate, from) {
   })
 }
 
+// resetEntry: 段 1 から始める run（新しい run も、段 1 からの再実行も）は、W を S0 の直後に戻した stdout を見てから intake を起動する。
+// 戻さずに始めると、前のランや止まった段 1・2 の台帳の要素と欄が、再実行の put（キー単位で足す）の後にも残る。
+async function resetEntry() {
+  const label = 'flow-check:1-entry'
+  const fixed = FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''
+  const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', fixed)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
+  const rc = parseStdout(x && x.reset_check)
+  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS)) return null
+  return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout を返しませんでした（固定の文書 ${list(FIXED_KEYS)} が W に無いと、reset は何も消さずに止まる）`, '1')
+}
+
 async function stage1() {
+  const entry = await resetEntry()
+  if (entry) return entry
   const prompt = (label) =>
     [
       header('intake', '1', label),
@@ -2035,7 +2099,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
 
 // stage9: 事後報告は resolutions からの導出物なので、生成する役を起動しない。report.md は司令塔が doc_check report で作る。
 async function stage9() {
-  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: EXISTING.filter((d) => d.fixed).map((d) => d.key) })
+  return finish('done', { report_path: `${W}/report.md`, tree_digest: state.tree_digest, docs: auditDocs(), fixed_docs: FIXED_KEYS })
 }
 
 const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 'Answers', 4: 'Draft', 5: 'Audit', 6: 'Decide', "3a'": 'Answers', 7: 'Revise', 8: 'Revise', 9: 'Report' }
@@ -2048,10 +2112,38 @@ function exitViolation(from, r) {
   const asking = r.status === 'needs_answers' || (from === '3a' && r === '3b')
   const waiting = asking ? [] : pendingQuestions(state)
   if (waiting.length) return `回答待ちの問い ${list(waiting)} を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました`
+  const failedHolds = Object.keys(holdFails).sort()
+  if (failedHolds.length) return `検証に落ちた保持規則 ${list(failedHolds)} を、書き直して検証し直さないまま段を出ようとしました（writer に渡すと検証を通っていない規範文が本文に入る）`
   if (['1', '2'].includes(from)) return null
   if (!seen) return wrote ? 'flow か台帳を書いた後に、doc_check flow を独立に実行しないまま段を出ようとしました' : null
   const left = unverifiedLeft(seen, state, asking)
   return left ? `検証を通っていないものを持ったまま段を出ようとしました（${left}）` : null
+}
+
+// restoreEntry: flow.json の版を state に持たない段（段 2）の同じ段の再実行の入口。restore だけを実行させる（flow.json がまだ無いことがある）。
+async function restoreEntry(from) {
+  const label = `flow-check:${from}-entry`
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cli('restore', `--token ${RESUME_TX.restore}`)}\`。stdout を加工せずに restore_check に入れて返す。`].join('\n\n'), RESTORE_SCHEMA, PHASE_OF[from])
+  return restored(from, x)
+}
+
+// restored: restore の stdout を確かめる。控えが後の段の token の書き込みで消えていれば（pruned_by）、W を段の入口に戻せず、同じ next_args で
+// やり直しても同じ所で止まるので next_args を付けない。
+function restored(from, x) {
+  const token = RESUME_TX.restore
+  const rc = parseStdout(x && x.restore_check)
+  if (!rc || rc.token !== token || typeof rc.flow_before !== 'string' || typeof rc.flow_after !== 'string' || !Array.isArray(rc.pruned_by)) {
+    return blocked(`flow-check（段 ${from} の入口）が token ${token} の doc_check restore の stdout を返しませんでした`, from)
+  }
+  if (rc.pruned_by.length) {
+    return blocked(`段 ${from} の入口: token ${token} の控えが、後の段の token（${rc.pruned_by.join(', ')}）の書き込みで消えています（打ち間違えた token か、古い next_args）。W を段の入口に戻せないので、S0 からやり直してください（段 1 の入口の reset が tx/ を消す）`, null)
+  }
+  restorePending = false
+  const accepted = RESUME_TX.flow ?? state.flow_digest
+  if (rc.flow_before !== rc.flow_after && rc.flow_before !== accepted) {
+    noteIntegrity(`段 ${from} の restore の前の flow.json（${rc.flow_before}）が最後に照合を通った版（${accepted}）と違った（照合の前に止まった書き込みか、所有表の外の書き込み）。段の入口の版（${rc.flow_after}）に戻した`)
+  }
+  return null
 }
 
 // enterFromDisk: 段 3 以降から始める run は、最初に W を読み直す。blocked の後の同じ段の再実行は、その前に restore で止まった run の
@@ -2065,15 +2157,8 @@ async function enterFromDisk(from) {
   const restore = restoring ? `最初に実行する: \`${cli('restore', `--token ${restoring}`)}\`。stdout を加工せずに restore_check に入れる。続けて ` : ''
   const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `${restore}実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, PHASE_OF[from])
   if (restoring) {
-    const rc = parseStdout(x && x.restore_check)
-    if (!rc || rc.token !== restoring || typeof rc.flow_before !== 'string' || typeof rc.flow_after !== 'string') {
-      return blocked(`flow-check（段 ${from} の入口）が token ${restoring} の doc_check restore の stdout を返しませんでした`, from)
-    }
-    restorePending = false
-    const accepted = RESUME_TX.flow ?? state.flow_digest
-    if (rc.flow_before !== rc.flow_after && rc.flow_before !== accepted) {
-      noteIntegrity(`段 ${from} の restore の前の flow.json（${rc.flow_before}）が最後に照合を通った版（${accepted}）と違った（照合の前に止まった書き込みか、所有表の外の書き込み）。段の入口の版（${rc.flow_after}）に戻した`)
-    }
+    const re = restored(from, x)
+    if (re) return re
   }
   const fc = x && flowCheckOf(x.flow_check, true)
   if (!fc) return blocked(`flow-check（段 ${from} の入口）が doc_check flow の stdout を返しませんでした`, from)
@@ -2101,7 +2186,7 @@ while (outcome === null) {
   let r
   try {
     phase(PHASE_OF[next])
-    r = next === FROM && ENTRY_CHECK ? await enterFromDisk(FROM) : null
+    r = next !== FROM ? null : ENTRY_CHECK ? await enterFromDisk(FROM) : restorePending ? await restoreEntry(FROM) : null
     if (!r) r = await STAGE_FNS[next]()
   } catch (e) {
     if (!(e && e.rerunStage)) throw e

@@ -76,21 +76,42 @@ let flowSha = disk.flow
 // restore は入口の flow-check のプロンプトの doc_check restore --token で、控えを戻して token の控えを消す。
 const TX_KEYS = { flow: ['flow', 'els'], verifications: ['verdicts'], resolutions: ['rs'], open: ['open_ids'] }
 let curToken = null
+const txOrd = (t) => {
+  const m = /^t(\d+)(?:r(\d+))?$/.exec(t)
+  return [Number(m[1]), Number(m[2] || 0)]
+}
 const touch = (ledger) => {
   if (!curToken) throw new Error(`${ledger} をトークンの無いプロンプトから書こうとしました（doc_check の put・del は token なしを拒否する）`)
+  const [s0, r0] = txOrd(curToken)
+  const later = Object.keys(disk.tx || {}).filter((t) => t !== curToken && (txOrd(t)[0] > s0 || (txOrd(t)[0] === s0 && txOrd(t)[1] > r0)))
+  if (later.length) throw new Error(`${ledger}: token ${curToken} より後の token（${later.join(', ')}）の控えがあります（doc_check の put・del は何も書かずに止まる）`)
   disk.tx = Object.fromEntries(Object.entries(disk.tx || {}).filter(([t]) => t === curToken))
   const pre = (disk.tx[curToken] = disk.tx[curToken] || {})
   if (!(ledger in pre)) pre[ledger] = Object.fromEntries(TX_KEYS[ledger].map((k) => [k, disk[k] === undefined ? { absent: true } : { value: JSON.parse(JSON.stringify(disk[k])) }]))
 }
+const seqOf = (token) => Number(/^t(\d+)/.exec(token)[1])
 const restoreTx = (token) => {
   const before = flowSha
-  const pre = (disk.tx || {})[token] || {}
-  for (const keys of Object.values(pre)) for (const [k, x] of Object.entries(keys)) if (x.absent) delete disk[k]; else disk[k] = x.value
+  const pre = (disk.tx || {})[token]
+  const prunedBy = pre ? [] : Object.keys(disk.tx || {}).filter((t) => seqOf(t) > seqOf(token)).sort()
+  if (prunedBy.length) return JSON.stringify({ token, restored: 0, files: [], pruned_by: prunedBy, flow_before: String(before), flow_after: String(before) })
+  for (const keys of Object.values(pre || {})) for (const [k, x] of Object.entries(keys)) if (x.absent) delete disk[k]; else disk[k] = x.value
   if (disk.tx) delete disk.tx[token]
   flowSha = disk.flow
   preexisting = new Set(Object.keys(disk.rs || {}))
   persist()
-  return JSON.stringify({ token, restored: Object.keys(pre).length, files: [], flow_before: String(before), flow_after: String(flowSha) })
+  return JSON.stringify({ token, restored: Object.keys(pre || {}).length, files: [], pruned_by: [], flow_before: String(before), flow_after: String(flowSha) })
+}
+// reset: doc_check reset と同じく、S0 が書いたもののほか（台帳・控え）を消す。
+const resetWorld = (fixed) => {
+  const removed = ['flow', 'els', 'verdicts', 'rs', 'open_ids', 'tx'].filter((k) => disk[k] !== undefined && disk[k] !== null)
+  Object.assign(disk, { flow: null, els: {}, verdicts: {}, rs: {} })
+  delete disk.open_ids
+  delete disk.tx
+  flowSha = null
+  preexisting = new Set()
+  persist()
+  return JSON.stringify({ reset: true, removed, fixed: spec.reset_fixed || (fixed ? fixed.split(',').sort() : []) })
 }
 const setFlow = (x) => {
   touch('flow')
@@ -218,7 +239,7 @@ function respond(prompt, label) {
   if (role === 'resolver') {
     // fresh_ids: 新しく裁定する呼び出しは、前の run が W に残した ID を使わずに新しい ID を振る（実物の resolver は台帳の続きの番号を取る）。
     // 同じ ID を書き換える呼び出し（差し戻し・変換・保持規則への変換・回答の反映・形の修正）は ID を変えない。
-    const renames = spec.fresh_ids && !/(-convert|-hold|-questions(-\d+)?|-flow(-\d+)?|')$/.test(stage) && !['3a', "3a'"].includes(stage)
+    const renames = spec.fresh_ids && !/(-convert|-(re)?hold|-questions(-\d+)?|-flow(-\d+)?|')$/.test(stage) && !['3a', "3a'"].includes(stage)
     const fresh = (id) => (renames && preexisting.has(id) ? `RS-${Number(id.slice(3)) + 500}` : id)
     const as = (id) => ({ id: fresh(id), about: about(id) })
     // 変換（-convert）は、その段の ruled_at・questions_at・holds_at が無ければ求められたとおりの種類で ID を返す（契約どおりの resolver）。
@@ -228,7 +249,7 @@ function respond(prompt, label) {
     const seq = (spec.ruled_seq_at || {})[stage]
     const ruled = ((seq && seq.length ? seq.shift() : at('ruled_at', stage)) || []).map(as)
     // 聞くゲートの無い問いの変換（-hold）は、holds_at が無ければ求められた ID をそのまま hold で返す（契約どおりの resolver）。
-    const heldIds = at('holds_at', stage) || (/-hold$/.test(stage) ? ids((/ID は変えない: ([^\n]*)/.exec(prompt) || [])[1], /RS-\d+/g) : convert.filter((m) => m[2] === 'hold').map((m) => m[1]))
+    const heldIds = at('holds_at', stage) || (/-(re)?hold$/.test(stage) ? ids((/ID は変えない: ([^\n]*)/.exec(prompt) || [])[1], /RS-\d+/g) : convert.filter((m) => m[2] === 'hold').map((m) => m[1]))
     const holds = heldIds.map(as)
     // 回答を当てた問い（3a・3a' の ruled）は、同じ ID の question に answer を足すだけで ruling は question のまま（契約の question（answer あり））。
     const answers = ['3a', "3a'"].includes(stage)
@@ -264,6 +285,8 @@ function respond(prompt, label) {
     // recheck_as: 変換の resolver の申告と違う世界を flow-check に見せる（resolver の stdout の過少申告）。無ければ最後の世界（latest）を見る。
     const k = (spec.recheck_as || {})[stage]
     readOnly(stage)
+    const reset = /doc_check\.mjs reset --workspace \S+(?: --fixed (\S+?))?`/.exec(prompt)
+    if (reset) return (spec.no_reset_at || []).includes(base) ? {} : { reset_check: resetWorld(reset[1]) }
     const tx = /doc_check\.mjs restore --workspace \S+ --token (\S+?)`/.exec(prompt)
     const restored = tx && !(spec.no_restore_at || []).includes(base) ? { restore_check: restoreTx(tx[1]) } : {}
     const rulings = asksRulings(prompt)
@@ -486,7 +509,7 @@ class Stages(unittest.TestCase):
         self.assertIsNone(r["error"])
         self.assertEqual(r["result"]["status"], "done")
         labels = r["labels"]
-        self.assertEqual(labels[0], "intake")
+        self.assertEqual(labels[:2], ["flow-check:1-entry", "intake"])
         self.assertFalse(has(labels, "resolver:3"), "open も組も 0 件なら段 3 の resolver は起動しない")
         self.assertTrue(has(labels, "verifier:3v"), "3v は open も組も 0 件でも必ず起動する")
         self.assertFalse(has(labels, "resolver:6"), "decision の指摘も新しい TBD も 0 件なら段 6 は起動しない")
@@ -632,7 +655,7 @@ class Stages(unittest.TestCase):
         r = res["result"]
         self.assertEqual((r["status"], r["next_args"]["from"]), ("blocked", "3"), r.get("reason"))
         self.assertIn("合わない ID を返しました: 「」", r["reason"])
-        self.assertFalse(has(res["labels"], "flow-check:"))
+        self.assertEqual([l for l in res["labels"] if l.startswith("flow-check:")], ["flow-check:1-entry"])
 
     def test_検証を求めていない裁定の合否は差し戻しにも変換にも回さない(self):
         # RS-099 は回答待ちの問い。検証を求めていない合否でその cycle の差し戻しや変換を起こすと、問いが保持規則に書き換わる。
@@ -974,9 +997,27 @@ class Stages(unittest.TestCase):
         writers = [l for l in r["labels"] if l.startswith("writer:")]
         self.assertEqual(writers, ["writer:U-1:draft", "writer:U-2:draft"])
 
+    def test_段1の入口がWをS0の直後に戻したstdoutを返さなければintakeを起動しない(self):
+        entry = "flow-check:1-entry"
+        for name, kw in (("応答しない", {"null_labels": [entry, f"{entry}#retry"]}), ("stdout が無い", {"no_reset_at": [entry]}),
+                         ("固定の文書が違う", {"reset_fixed": ["requirements/other"]})):
+            with self.subTest(name):
+                r = run({"args": args(), **kw})
+                self.assertFalse(has(r["labels"], "intake"), r["labels"])
+                res = r["result"]
+                self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]), ("blocked", "1", {}), res.get("reason"))
+                self.assertIn("doc_check reset", res["reason"])
+
+    def test_段1の入口は固定の文書のmetaをresetに書き直させる(self):
+        a = args(entry="expand", existing_docs=[{"key": "requirements/x", "fixed": True}, {"key": "requirements/a", "fixed": True}])
+        r = run({"args": a, "units": [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}]})
+        self.assertIn("doc_check.mjs reset --workspace /tmp/prd-w --fixed requirements/a,requirements/x`", nth_prompt(r, "flow-check:1-entry", 0))
+        self.assertEqual(r["labels"][:2], ["flow-check:1-entry", "intake"])
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
     def test_intakeのplan_checkに指摘があれば1回だけ差し戻す(self):
         fixed = run({"args": args(), "plan_findings": {"intake": 2}})
-        self.assertEqual(fixed["labels"][:3], ["intake", "intake:rework", "flow-framer"])
+        self.assertEqual(fixed["labels"][:4], ["flow-check:1-entry", "intake", "intake:rework", "flow-framer"])
         rework = next(p["prompt"] for p in fixed["prompts"] if p["label"] == "intake:rework")
         self.assertIn("doc_check plan の指摘が 2 件", rework)
         self.assertIn("doc_check.mjs plan --workspace", rework)
@@ -984,14 +1025,14 @@ class Stages(unittest.TestCase):
         for spec in ({"intake": 1, "intake:rework": 1}, {"intake": None, "intake:rework": None}):
             with self.subTest(plan_findings=spec):
                 broken = run({"args": args(), "plan_findings": spec})
-                self.assertEqual(broken["labels"], ["intake", "intake:rework"])
+                self.assertEqual(broken["labels"], ["flow-check:1-entry", "intake", "intake:rework"])
                 self.assertEqual((broken["result"]["status"], broken["result"]["next_args"]["from"]), ("blocked", "1"))
 
     def test_intakeの検査の後にplan_jsonが変わればblockedで段1から(self):
         ok = run({"args": args()})
         self.assertIn("doc_check.mjs plan ", next(p["prompt"] for p in ok["prompts"] if p["label"] == "flow-framer"))
         changed = run({"args": args(), "plan_seen": {"sha": "plan-edited"}})["result"]
-        self.assertEqual((changed["status"], changed["next_args"]["from"]), ("blocked", "1"))
+        self.assertEqual((changed["status"], changed["next_args"]["from"], changed["next_args"]["state"]), ("blocked", "1", {}), "段 1 からの再実行は S0 の直後の W から始まるので state を運ばない")
         self.assertTrue(any("plan.json" in line for line in changed["integrity"]))
         found = run({"args": args(), "plan_seen": {"findings": 1}})["result"]
         self.assertEqual((found["status"], found["next_args"]["from"]), ("blocked", "1"))
@@ -1016,7 +1057,7 @@ class CommonContract(unittest.TestCase):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
         self.assertIsNone(r["error"], r["error"])
         roles = {p["label"].split(":")[0] for p in r["prompts"]}
-        self.assertEqual(roles, {"intake", "flow-framer", "resolver", "verifier", "writer", "implementer", "grounding", "crossDoc"})
+        self.assertEqual(roles, {"flow-check", "intake", "flow-framer", "resolver", "verifier", "writer", "implementer", "grounding", "crossDoc"})
         for p in r["prompts"]:
             self.assertIn("「## 共通の約束」・「## W のファイルと書き手」", p["prompt"], p["label"])
 
@@ -1707,6 +1748,62 @@ class RerunFromTheSameStage(unittest.TestCase):
         self.assertEqual(len(cycle), len(set(cycle)), sorted(l for l in cycle if cycle.count(l) > 1))
         self._ledger_consistent()
 
+    def test_段1と段2からの再実行は止まった段の書き込みを残さずに止まらなかったrunと同じWに着く(self):
+        # 止まった flow-framer が open.json に O-099 を足し、flow.json を書いた。put はキー単位で足すので、戻さずに再実行すると O-099 が残る。
+        # 段 1 からは入口の reset が、段 2 からは入口の restore が戻す。
+        base = {"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}
+        left = {"open_ids_at": {"framer": ["O-001", "O-099"]}}
+        for frm, stop in (("1", {**left, "plan_seen": {"sha": "plan-edited"}}), ("2", {**left, "flow_findings_at": {"framer": 1, "rework": 1}})):
+            with self.subTest(frm=frm):
+                whole, again = self._compare(base, stop)
+                self.assertEqual(again["labels"][:2], [f"flow-check:{frm}-entry", "intake" if frm == "1" else "flow-framer"])
+                self.assertEqual(again["result"], whole["result"])
+
+    def test_再利用したWで新しいrunを始めても前のランの台帳と控えを引き継がない(self):
+        # 前のランは G1 まで進んだ（後の段の token の控え・裁定・合否が W に残る）。新しいランの最初の書き込みの token（t1）は、
+        # 入口の reset が無いと後の token の控えに拒まれる。
+        base = {"flow_open": 1, "ruled_at": {"3": ["RS-001"]}}
+        whole = run({**base, "args": args(), **self._world()})
+        whole_w = self._w()
+        Path(self.world).unlink()
+        prev = run({**self.G1, "args": args(), "questions_at": {"6": ["RS-010"]}, **self._world()})["result"]
+        self.assertEqual(prev["status"], "needs_answers", prev.get("reason"))
+        self.assertTrue(json.loads(Path(self.world).read_text())["tx"])
+        again = run({**base, "args": args(), **self._world()})
+        self.assertIsNone(again["error"], again["error"])
+        self.assertEqual(again["result"], whole["result"])
+        self.assertEqual(self._w(), whole_w)
+
+    def test_戻す控えを後の段のtokenが消していればnext_argsを付けずに止まる(self):
+        # 打ち間違えた token（t<seq+24>）の書き込みが、止まった段の控えを消した。黙って 0 件を戻すと、止まった run の書き込みの上で段が始まる。
+        base = {**self._settle_world("6"), "verifier_fail": {"6v-settle": self.FAIL_060}}
+        label = "resolver:6-settle-convert"
+        stopped = run({**base, "args": args(), "silent_after_write": [label, f"{label}#retry"], **self._world()})["result"]
+        typo = f"t{stopped['next_args']['state']['tx']['seq'] + 24}"
+        d = json.loads(Path(self.world).read_text())
+        d["tx"] = {typo: {}}
+        Path(self.world).write_text(json.dumps(d))
+        r = run({**base, "args": stopped["next_args"], **self._world()})
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertIn(typo, res["reason"])
+        self.assertIn("S0 からやり直", res["reason"])
+        self.assertEqual(r["labels"], ["flow-check:6-entry"], "戻せなかった W の上で段を始めない")
+        self.assertEqual(json.loads(Path(self.world).read_text()), d)
+
+    def test_flowを書かない段の再実行はtx_flowを運ばない(self):
+        # tx.flow は restore が flow.json を戻したときの照合にだけ使う。段 8 の入口が所有表の外の flow の書き換えを取り込んでも、段 8 に flow を
+        # 書く役はいないので、止まった再実行の next_args に載せない（載せると next_args の上限の見積もりが実際より大きくなる）。
+        spec = {"findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]}, **self._world()}
+        auditor = "grounding:r2:requirements/x"
+        stop = {"null_labels": [auditor, f"{auditor}#retry"]}
+        first = run({**spec, "args": args(), **stop})["result"]
+        self.assertEqual((first["status"], first["next_args"]["from"]), ("blocked", "8"), first.get("reason"))
+        again = run({**spec, "args": first["next_args"], **stop, "tamper_before": {"flow-check:8-entry": "outside"}})["result"]
+        self.assertEqual((again["status"], again["next_args"]["from"]), ("blocked", "8"), again.get("reason"))
+        self.assertTrue(any("段 8 の入口の flow.json（outside）" in l for l in again["integrity"]), again["integrity"])
+        self.assertNotIn("flow", again["next_args"]["state"]["tx"])
+
     def test_新しいIDを振るresolverでも再実行は裁定済みの論点を裁定し直さない(self):
         # 実物の resolver は再実行で前の run と別の ID を振る。止まった run の裁定が W に残ると、同じ about に使える裁定が 2 つできる。
         for stage in ("6", "3"):
@@ -1716,6 +1813,76 @@ class RerunFromTheSameStage(unittest.TestCase):
             with self.subTest(stage=stage):
                 whole, again = self._compare(base, stop, again_kw={"fresh_ids": True})
                 self.assertEqual(self._live_abouts(again), [])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FailedHolds(unittest.TestCase):
+    """hold のまま検証に落ちた保持規則は writer に渡さない。1 回だけ同じ ID で書き直させて検証し直し、それでも落ちれば段の頭から。"""
+
+    FAIL = [{"id": "RS-002", "kind": "insufficient_grounds", "reason": "保持規則が触れる項目が無い"}]
+
+    def _g02(self):
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        return run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
+
+    def _held(self, r):
+        ps = [p["prompt"] for p in r["prompts"] if p["label"].startswith("writer:")]
+        return [l for p in ps for l in p.split("\n") if l.startswith("- 保持規則として")]
+
+    def test_保持規則への変換の後に落ちた保持規則は書き直して検証し直してからwriterに渡す(self):
+        r = run({"args": self._g02()["next_args"], "verifier_fail": {"3a-holdv-left": self.FAIL}})
+        labels = r["labels"]
+        self.assertEqual(labels[labels.index("verifier:3a-holdv-left") + 1:][:2], ["resolver:3a-hold-left-rehold", "verifier:3a-hold-left-reholdv"])
+        self.assertIn("ID は変えない: RS-002", nth_prompt(r, "resolver:3a-hold-left-rehold", 0))
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["result"]["holds"], ["RS-002"])
+        self.assertLess(labels.index("verifier:3a-hold-left-reholdv"), labels.index("writer:U-1:draft"))
+
+    def test_書き直しても落ちる保持規則はwriterに渡さず段の頭からやり直させる(self):
+        g02 = self._g02()
+        r = run({"args": g02["next_args"], "verifier_fail": {"3a-holdv-left": self.FAIL, "3a-hold-left-reholdv": self.FAIL}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3a"), res.get("reason"))
+        self.assertIn("RS-002 が書き直した後も検証に落ちました", res["reason"])
+        self.assertFalse(has(r["labels"], "writer"))
+        self.assertEqual(res["next_args"]["state"]["questions"], g02["next_args"]["state"]["questions"], "段に入った時点の state からやり直す")
+
+    def test_差し戻しの後も落ちた保持規則はもう書き直さない(self):
+        # 段 3 で hold を返し、検証に落ちて差し戻しでも hold のまま落ちた。差し戻しが書き直しに当たるので、もう 1 回は回さない。
+        fail = [{**self.FAIL[0], "id": "RS-001"}]
+        r = run({"args": args(), "flow_open": 1, "holds_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3"), res.get("reason"))
+        self.assertIn("RS-001 が書き直した後も検証に落ちました", res["reason"])
+        self.assertFalse(has(r["labels"], "resolver:3'-rehold"))
+        self.assertFalse(has(r["labels"], "resolver:3-convert"), "落ちた保持規則を、検証しない変換で保持規則に書き直さない")
+
+    def test_差し戻しで初めて保持規則になって落ちたものは1回書き直させる(self):
+        fail = [{**self.FAIL[0], "id": "RS-001"}]
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "holds_at": {"3'": ["RS-001"]}, "verifier_fail": {"3v": fail, "3v'": fail}})
+        self.assertIn("resolver:3'-rehold", r["labels"])
+        self.assertFalse(has(r["labels"], "resolver:3-convert"), "書き直して合格した保持規則を、検証しない変換で書き直さない")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["result"]["holds"], ["RS-001"])
+
+    def test_settleのverifierに落ちた保持規則も変換せずに書き直させる(self):
+        # 聞けない段の settle の flow-framer が足した O-060 を、resolver が保持規則で閉じ、settle の verifier がそれを落とす。
+        destructive = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
+        fail = [{**self.FAIL[0], "id": "RS-060"}]
+        r = run({"args": self._g02()["next_args"], "unverified_at": {"3a-hold-settle": ["F-053"]}, "flow_codes_at": {"3a-hold": destructive, "3a-holdv-left": destructive},
+                 "open_ids_at": {"3a-hold-settle": ["O-060"]}, "about": {"RS-060": {"open": "O-060"}}, "holds_at": {"3a-hold-settle-opens": ["RS-060"]},
+                 "verifier_fail": {"3a-holdv-settle": fail}})
+        labels = r["labels"]
+        self.assertEqual(labels[labels.index("verifier:3a-holdv-settle") + 1:][:2], ["resolver:3a-hold-settle-rehold", "verifier:3a-hold-settle-reholdv"])
+        self.assertFalse(has(labels, "resolver:3a-hold-settle-convert"), "落ちた保持規則を、検証しない変換で書き直さない")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_書き直しを通らない経路があれば段の出口の不変条件が止める(self):
+        patch = [("  const rh = await reholdFailed(stage, `${stage}-${tag}`, phaseTitle)\n  if (rh && rh.error) return rh\n  if (rh) {\n    fc = rh.fc\n    reconcile(fc)\n  }\n", "")]
+        r = run({"args": self._g02()["next_args"], "verifier_fail": {"3a-holdv-left": self.FAIL}}, patch=patch)["result"]
+        self.assertEqual((r["status"], r["next_args"]), ("blocked", None), r.get("reason"))
+        self.assertIn("script の不変条件に反しました", r["reason"])
+        self.assertIn("検証に落ちた保持規則 RS-002", r["reason"])
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
@@ -2545,7 +2712,7 @@ class FlowFixerRoutes(unittest.TestCase):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3'": ["RS-001"]}, "verifier_fail": {"3v": vam, "3v'": vam},
                  "questions_at": {"3-convert": ["RS-001"]}, "bad_questions_at": ["3-convert"], "supersedes_at": {"3-convert-questions": ["D-001"]},
                  "stale_refs_at": {"3-convert-questions": stale}, "unverified_at": {"3-settle": ["F-002"]}})
-        self.assertEqual([l for l in r["labels"] if l.startswith("flow-check:")], ["flow-check:3-convert-questions"])
+        self.assertEqual([l for l in r["labels"] if l.startswith("flow-check:")], ["flow-check:1-entry", "flow-check:3-convert-questions"])
         self.assertEqual([l for l in r["labels"] if l.startswith("flow-framer:")], ["flow-framer:3-settle"])
         self.assertIn("F-002 ← D-001", self._prompt(r, "flow-framer:3-settle"))
         self.assertEqual(r["result"]["integrity"], [])
@@ -3065,10 +3232,10 @@ class Convergence(unittest.TestCase):
 
     def test_毎パスの監査がdoc_checkの差し戻しで3から1から0に進めば通り3から3で止まる(self):
         fixed = run({"args": args(), "plan_findings": {"intake": 3, "intake:rework": 1, "intake:rework-2": 0}})
-        self.assertEqual(fixed["labels"][:4], ["intake", "intake:rework", "intake:rework-2", "flow-framer"])
+        self.assertEqual(fixed["labels"][:5], ["flow-check:1-entry", "intake", "intake:rework", "intake:rework-2", "flow-framer"])
         self.assertEqual(fixed["result"]["status"], "done")
         stuck = run({"args": args(), "plan_findings": {"intake": 3, "intake:rework": 3, "intake:rework-2": 0}})
-        self.assertEqual(stuck["labels"], ["intake", "intake:rework"])
+        self.assertEqual(stuck["labels"], ["flow-check:1-entry", "intake", "intake:rework"])
         self.assertEqual((stuck["result"]["status"], stuck["result"]["next_args"]["from"]), ("blocked", "1"))
         framed = run({"args": args(), "flow_findings_at": {"framer": 3, "rework": 1, "rework-2": 0}})
         self.assertEqual([l for l in framed["labels"] if l.startswith("flow-framer")], ["flow-framer", "flow-framer:rework", "flow-framer:rework-2"])
@@ -3105,7 +3272,7 @@ class Convergence(unittest.TestCase):
         stale = [{"el": "F-002", "ref": "D-001"}]
         r = self._questions_rework(stale_refs_at={"3-questions": stale, "3v": stale})
         labels = [l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer:", "flow-check:"))]
-        self.assertEqual(labels[:5], ["resolver:3", "resolver:3-questions", "verifier:3v", "flow-framer:3-settle", "verifier:3v-settle"])
+        self.assertEqual(labels[:6], ["flow-check:1-entry", "resolver:3", "resolver:3-questions", "verifier:3v", "flow-framer:3-settle", "verifier:3v-settle"])
         self.assertIn("F-002 ← D-001", nth_prompt(r, "flow-framer:3-settle", 0))
         self.assertEqual(r["result"]["status"], "needs_answers")
         # 過大申告: 3-questions の stdout だけが stale_refs を出し、後の verifier（3v）の世界には無い。
@@ -3169,7 +3336,7 @@ class NextArgsBudget(unittest.TestCase):
     # ITEMS_N: 上限に収まる項目の数の境界。ITEMS_N で収まり ITEMS_N + 1 の段 8 の最悪の形で超えることを両方確かめるので、
     # next_args の増減が境界をまたげば落ちる。1 項目分に満たない増減は落ちないので、再開で読まない値が載っていないことは
     # _assert_lean が欄ごとに見る。
-    ITEMS_N = 18
+    ITEMS_N = 19
     UNAPPLIED = 7
 
     @staticmethod
@@ -3197,10 +3364,12 @@ class NextArgsBudget(unittest.TestCase):
         return args(skillDir=self.SKILL_DIR, **kw)
 
     def _chars(self, next_args):
-        """段の token（state.tx）を最悪の形にした字数。再実行を重ねると try と restore が伸び、flow を書く段では tx.flow（止まった run が
-        最後に照合を通した flow の digest）が付く。"""
+        """段の token（state.tx）を、その next_args の段（from）の再実行の最悪の形にした字数。再実行を重ねると try と restore が伸び、
+        flow を書く段では tx.flow（止まった run が最後に照合を通した flow の digest）が付く。段 8 は flow を書かないので付かない
+        （RerunFromTheSameStage.test_flowを書かない段の再実行はtx_flowを運ばない）。"""
         tx = next_args["state"]["tx"]
-        worst = {**tx, "stage": "3a'", "try": 9, "restore": f"t{tx['seq']}r8", "flow": "f" * 64}
+        stage = next_args["from"]
+        worst = {**tx, "stage": stage, "try": 9, "restore": f"t{tx['seq']}r8", **({} if stage == "8" else {"flow": "f" * 64})}
         return len(json.dumps({**next_args, "state": {**next_args["state"], "tx": worst}}, ensure_ascii=False))
 
     def _gates(self, a, n):
@@ -3275,6 +3444,25 @@ class NextArgsBudget(unittest.TestCase):
                 with self.subTest(entry=entry, unapplied=unapplied):
                     self.assertLess(self._stage8(entry, self.ITEMS_N, unapplied), NEXT_ARGS_MAX_CHARS)
 
+    def _stage6(self, entry, n):
+        # 2 パス目の監査が decision の指摘を出し、段 6 の resolver が応答しない。段 6 は flow を書く段なので、最悪の tx は tx.flow を持つ。
+        a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
+        g1 = self._gates(a, n)[2]
+        common = self._common(n)
+        decision = [{"id": f"r2-gr-requirements__cleanup-branches-{k:03d}", "doc": self.DOC, "item_id": self._item(k), "route": "decision"} for k in (1, 2, 3)]
+        ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:self.UNAPPLIED]
+        res = run({"args": g1["next_args"], **common, "findings": {**common["findings"], "grounding:r2": decision}, "ruled_at": {"3a'": self._rs(23, 25)},
+                   "null_labels": ["resolver:6", "resolver:6#retry"], "unapplied_seq": [ids]})["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("blocked", "6", 2), res.get("reason"))
+        self._assert_lean(res["next_args"]["state"])
+        return self._chars(res["next_args"])
+
+    def test_段8が境界を決める最悪の段である(self):
+        # 境界（ITEMS_N + 1 で超える）は段 8 でだけ測る。tx.flow を持つ段 6 の再実行（2 パス目）が段 8 より大きければ、境界は段 6 が決める。
+        for entry in ("new", "existing"):
+            with self.subTest(entry=entry):
+                self.assertLessEqual(self._stage6(entry, self.ITEMS_N + 1), self._stage8(entry, self.ITEMS_N + 1, self.UNAPPLIED))
+
     def test_項目がITEMS_Nを超えると段8の最悪の形は上限を超える(self):
         self.assertGreaterEqual(self._stage8("existing", self.ITEMS_N + 1, self.UNAPPLIED), NEXT_ARGS_MAX_CHARS)
 
@@ -3308,7 +3496,7 @@ class EveryEntry(unittest.TestCase):
         self.assertEqual(res["next_args"]["from"], stage)
         again = run({**{k: v for k, v in spec.items() if k != "args"}, "args": res["next_args"]})
         self.assertIsNone(again["error"], again["error"])
-        self.assertEqual(again["labels"][:2], [label] + again["labels"][1:2] if stage in ("1", "2") else [f"flow-check:{stage}-entry", label], "段 3 以降の入口は W を読み直す")
+        self.assertEqual(again["labels"][:2], [f"flow-check:{stage}-entry", label], "段 1 の入口は W を S0 の直後に戻し、段 2 の入口は段の控えを戻し、段 3 以降の入口は W を読み直す")
         return again["result"]
 
     def test_各段から再開できる(self):

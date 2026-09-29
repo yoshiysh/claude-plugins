@@ -102,6 +102,9 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   question にしてよいかはプロンプトが指定する）。O- の多くは settle の flow-framer が足した kind が invariant の
   未決で、閉じる resolution の欄は契約「## 不変条件の kind」に従う。flow.json は書かない（反映は次の settle の
   flow-framer が行う）。
+- **保持規則の書き直し（`<段>-rehold`）**: hold のまま検証に落ちた保持規則を、`verifications.json` の落ちた理由で書き直す。
+  ID も `ruling`（hold）も変えず、値を決めない（値を決めると、検証を通っていない裁定になる）。書き直しは 1 回きりで、verifier が検証し直し、
+  それでも落ちれば run は止まる（落ちた保持規則を writer に渡すと、検証を通っていない規範文が本文に入る）。
 - **8'（2 パス目以降）で出た問い**: 聞くゲートが残っていないので `hold` にする。`hold.item_ids` にその論点に触れる
   項目 ID を入れ、Issue の文案を書く。
 

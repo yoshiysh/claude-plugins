@@ -71,10 +71,9 @@ workspace を用意し、保存することだけである。** 決定・問い�
 3. **依頼文を `W/input.md` に逐語で書く。** 貼り付けられた議事録やメモも含め、要約も整形もしない。要約すると、
    依頼者が言っていないことが入力の顔をして全員に届く。
 4. **既存文書**（`existing`・`expand`）は `W/<kind>-<topic>.md` に逐語で置き、`existing_docs` に
-   `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。`expand` の要求文書は `fixed: true` にし、
-   `echo '{"fixed": true}' | node [SKILL_DIR]/scripts/doc_check.mjs put --ledger meta --doc <kind>/<topic> --token t0 --workspace <W>`
-   でその meta を書く（固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する。`t0` は段に入る前の書き込みの token。段の token は t1 から）。meta は台帳
-   なので put で書く。put 以外で書くと正規形から外れ、その文書を読む doc_check が止まる。
+   `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。`expand` の要求文書は `fixed: true` にする
+   （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
+   `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く（`references/workflow-io.md` §3）。
 5. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root ~/.claude/prd-spec-workspace --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
    挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out ~/.claude/prd-spec-workspace/<そのラン>/legacy`
@@ -128,7 +127,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
    `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む）。
 2. **INDEX**: `node [SKILL_DIR]/scripts/doc_check.mjs index --workspace <W> --req-dir <要求の保存先> --spec-dir <仕様の保存先> --open-tbd "<返り値の open_tbd をカンマで>"`
    を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す。INDEX は導出物で、手で書くと本体と
-   ずれる。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも `fixed` として置く。
+   ずれる。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも W に置き、`existing_docs` に `fixed: true` で並べる（固定の印は `existing_docs` にしか無く、並べない文書は書き換えてよい文書として監査される）。
 3. **文書**: `W/<kind>-<topic>.md` を保存先へ写す。`new`・`expand` の保存先は既定で `docs/requirements/<topic>.md`・
    `docs/specifications/<topic>.md`、`existing` は `existing_docs[].source`（元の場所。別の場所に写すと、改訂が
    新規の文書に化けて元の文書が古いまま残る）。INDEX の `--req-dir`・`--spec-dir` も保存先に合わせる。`fixed` の文書は写さない。meta は写さない（根拠は W と commit に残る）。
