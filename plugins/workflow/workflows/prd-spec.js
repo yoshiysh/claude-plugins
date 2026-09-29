@@ -632,6 +632,9 @@ function callDefect(prompt, opts, known) {
   return out.length ? out.join(' / ') : null
 }
 
+// ownsFlowOf: verifier を外した cycle の後の flow の食い違いを段のやり直しにしてよいのは、最後に起動した resolver が回答を当てた
+// その段の呼び出し（flow.json を書ける）のときだけ。問いの形の修正のような後続の resolver は flow.json を書けない。
+const ownsFlowOf = (unchecked, stage) => Boolean(unchecked) && unchecked.tag === stage
 // PURE_END
 
 const STR = { type: 'string' }
@@ -894,11 +897,12 @@ function header(role, stage, label) {
     `W（workspace）: ${W}`,
     `SKILL_DIR: ${SKILL_DIR}`,
     `entry: ${ENTRY}`,
+    `台帳を ID で読む: \`${GET_TEMPLATE}\`（台帳の名前と欄: \`${cli('describe')}\`）`,
     `最初に ${SKILL_DIR}/agents/${ROLE_FILES[role]} を Read し、その指示に従う。`,
     `ファイルと返り値の形は ${SKILL_DIR}/schemas/agent-contracts.md の ${[...COMMON_SECTIONS, ...CONTRACT_SECTIONS[role]].map((s) => `「## ${s}」`).join('・')} を正とする。見出しを Grep で探し、その節だけを offset/limit で Read する（全体を読むと以後の全ターンに載り続ける）。`,
     `段: ${stage}`,
     `作業用ディレクトリ: ${W}/tmp/${fileKey(label)}/`,
-    ...(TX_ROLES.includes(role) ? [`トークン: ${txToken()}`] : []),
+    ...(TX_ROLES.includes(role) ? [`トークン: ${txToken()}`, `台帳を書く: \`${cli('put', `--ledger <台帳> --token ${txToken()}`)}\``] : []),
   ].join('\n')
 }
 
@@ -921,6 +925,8 @@ function existingNote() {
 }
 
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
+const GET_TEMPLATE = cli('get', '--ledger <台帳> --ids <ID,…>')
+const getCli = (ledger, ids) => cli('get', `--ledger ${ledger} --ids ${ids.join(',')}`)
 const questionsCheck = (ids) => cli('questions', `--ids ${ids.join(',')} --check`)
 // recheckWaiting: flow-framer が flow を書き換えると、回答待ちの問いの候補の flow_refs が消えた要素を指しうる（ゲートで司令塔の doc_check questions が
 // 止まり、戻る段が無い）。flow を書く同じ呼び出しに検査させ、checkQuestions に渡す。
@@ -1131,7 +1137,7 @@ function resolverPrompt(label, stage, task) {
   return [
     header('resolver', stage, label),
     groundsBlock(),
-    `${W}/checks/conflicts.json、${W}/open.json、${W}/verifications.json、${W}/precedent.json も読む。`,
+    `${W}/checks/conflicts.json、${W}/precedent.json も読む。`,
     existingNote(),
     task,
     `問いを出したら、返る前に \`${questionsCheck(['<question にした ID をカンマで>'])}\` を実行し、stdout を加工せずに questions_check に入れる。`,
@@ -1250,7 +1256,7 @@ async function ruleAndVerify(stage, opt) {
   const v1Label = `verifier:${stage}v`
   if (unchanged(returned, ids)) {
     skipped.push({ step: v1Label, fact: SKIP.unchanged, ids: byOption })
-    unchecked = { ...unchecked, ownsFlow: true }
+    unchecked = { ...unchecked, ownsFlow: ownsFlowOf(unchecked, stage) }
     return { ok: true, passed: [] }
   }
   const v1 = await askVerifier(v1Label, `${stage}v`, ids, opt.verifyExtra || '', phaseTitle)
@@ -1315,7 +1321,7 @@ async function independentFlow(verified, phaseTitle) {
   if (!fc) return { error: `flow-check（段 ${tag}）が doc_check flow の stdout を返しませんでした`, rerun: true }
   if (fc.content_sha256 !== state.flow_digest) {
     noteIntegrity(`flow-check（段 ${tag}）が検査した flow.json（${fc.content_sha256}）が、検証を通った版（${state.flow_digest}）と違う`)
-    if (ownsFlow) return { error: `段 ${tag}: 回答を当てて flow.json を書ける cycle で verifier を外した後の flow.json が、resolver の申告した版と違います`, rerun: true }
+    if (ownsFlow) return { error: `段 ${tag}: W の flow.json が、resolver が申告した版ではありません（この版は検証していません）`, rerun: true }
     return { error: `段 ${tag}: resolver の後に flow.json が変わっています。所有表の外で flow.json を書いたものを確かめる`, rerun: false }
   }
   const unknown = Object.keys(fc.codes).filter((code) => !FIXERS_BY_CODE[code])
@@ -1416,7 +1422,7 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
   const task = [
     `flow を変えた後に、まだ裁定の無い論点がある。これだけを裁定する（resolver.md の「flow を変えた後の未裁定の論点」）。`,
     pairs.length ? `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}` : '',
-    opens.length ? `- まだ裁定の無い open（${W}/open.json）: ${list(opens.map((k) => k.slice(5)))}` : '',
+    opens.length ? `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}（\`${getCli('open', opens.map((k) => k.slice(5)))}\`）` : '',
     allowQuestions ? '' : 'この段では依頼者に聞けないので、question ではなく hold にする。',
   ]
     .filter(Boolean)
@@ -1556,7 +1562,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
     recurFound.length ? `このうち ${list(recurFound)} は改稿で直らず再発した項目の指摘である。その項目の振る舞いを判定表の入力の次元として起こす。` : '',
     m.verdicts.length ? `検証の裁定（要素 ← 裁定した resolution）: ${m.verdicts.map((id) => `${id} ← ${list(closers(`verification:${id}`))}`).join(', ')}` : '',
     m.stale.length ? `覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: ${m.stale.map((x) => `${x.el} ← ${x.ref}`).join(', ')}` : '',
-    m.redo.length ? `検証に落ちた要素（理由は ${W}/verifications.json）: ${list(m.redo)}` : '',
+    m.redo.length ? `検証に落ちた要素: ${list(m.redo)}（理由は \`${getCli('verifications', m.redo)}\`）` : '',
     m.handoff.length ? `flow の指摘（要素: 何が無いか か符号。直し方は ${W}/checks/flow.json の fix）: ${m.handoff.map((x) => `${x.at}: ${FIXERS_BY_CODE[x.code].handoff || x.code}`).join(', ')}` : '',
     FRAME_RUN,
     recheckWaiting(waiting),
@@ -1608,7 +1614,7 @@ async function reholdFailed(stage, owner, phaseTitle) {
   const stuck = (ids) => ({ error: `段 ${stage}: 保持規則 ${list(ids)} が書き直した後も検証に落ちました（${W}/verifications.json）。検証に落ちた保持規則は writer に渡さない`, rerun: true })
   if (again.length) return stuck(again)
   const label = `resolver:${owner}-rehold`
-  const r = await once(label, 'resolver', resolverPrompt(label, `${owner}（保持規則の書き直し）`, keepFlow(`次の保持規則は検証に落ちた（理由は ${W}/verifications.json）。値を決めずに、hold（保持規則・Issue の文案・触れる項目 ID）を落ちた理由で書き直す。ID は変えない: ${list(failing)}`)), RESOLVER_SCHEMA, phaseTitle)
+  const r = await once(label, 'resolver', resolverPrompt(label, `${owner}（保持規則の書き直し）`, keepFlow(`次の保持規則は検証に落ちた（理由は \`${getCli('verifications', failing)}\`）。値を決めずに、hold（保持規則・Issue の文案・触れる項目 ID）を落ちた理由で書き直す。ID は変えない: ${list(failing)}`)), RESOLVER_SCHEMA, phaseTitle)
   const bad = onlyAsked(`${owner}-rehold`, r, failing, ['holds'])
   if (bad) return { error: bad }
   absorbResolver(r)
@@ -1771,7 +1777,7 @@ async function stage1() {
       header('intake', '1', label),
       `読む: ${W}/input.md、${W}/precedent.json（とそこに並ぶファイル）`,
       existingNote(),
-      `書く: decisions.json・plan.json・open.json。返る前に \`${cli('plan')}\` を実行して指摘を直し、最後の stdout を加工せずに plan_check に入れる。`,
+      `書く: plan.json と、put で \`--ledger decisions\`・\`--ledger open\`。返る前に \`${cli('plan')}\` を実行して指摘を直し、最後の stdout を加工せずに plan_check に入れる。`,
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -1844,7 +1850,7 @@ async function stage3() {
     task: opens.length || pairs.length
       ? [
           `段 3（resolver.md の「段 3」）:`,
-          `- まだ裁定の無い open（${W}/open.json）: ${list(opens.map((k) => k.slice(5)))}`,
+          `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}${opens.length ? `（\`${getCli('open', opens.map((k) => k.slice(5)))}\`）` : ''}`,
           `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
         ].join('\n')
       : null,
@@ -1996,7 +2002,7 @@ function auditorPrompt(role, doc, round, opt) {
     existingNote(),
     opt.items ? `範囲を絞った監査: 対象は項目 ${list(opt.items)}（その項目の節から読む）。` : '',
     opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（中身は ${W}/findings/*.json から ID で読む）` : '',
-    opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は ${W}/resolutions.json から ID で読む）` : '',
+    opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
     `指摘は ${W}/findings/${findingsName(role, doc, round, opt.extra)}.json に書き、ID の振り方は契約の「### 指摘の形」に従う。`,
   ]
   if (opt.designated) lines.push(`あなたは指名された監査役である。${opt.designated}`)
@@ -2185,7 +2191,7 @@ async function stage7() {
     const extra = [
       `改稿前の digest（照合してから書き始める）:\n${before.map((x) => `- ${x}`).join('\n')}`,
       `writer の指摘（項目ごとに束ねたもの。中身は ${W}/findings/*.json から ID で読む）:\n${t.bundles.map((b) => `- ${b.doc} ${b.item_id}: ${b.findings.join(', ')}${b.flow ? `（trace が指す flow 要素: ${b.flow.join(', ')}）` : ''}`).join('\n') || '（なし）'}`,
-      `routes.json の担当の ID: ${list(t.routes)}`,
+      `routes の担当の ID: ${list(t.routes)}${t.routes.length ? `（\`${getCli('routes', t.routes)}\`）` : ''}`,
       p.doc_blocking > 0 ? `${W}/checks/doc.json に doc_check の指摘が ${p.doc_blocking} 件ある。自分の文書の分を直す。` : '',
       newSettled.length ? `前回の書き込みの後に決まった resolution: ${list(newSettled)}。自分の文書に関わるものを当てる。` : '',
     ]

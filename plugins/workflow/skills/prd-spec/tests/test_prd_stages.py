@@ -2813,7 +2813,7 @@ class FlowFixerRoutes(unittest.TestCase):
         self.assertEqual([l for l in r["labels"] if l.startswith("resolver:3a-settle")], ["resolver:3a-settle-opens"])
         task = self._prompt(r, "resolver:3a-settle-opens")
         self.assertIn("まだ裁定の無い組（/tmp/prd-w/checks/conflicts.json）: pair:F-053|RS-001", task)
-        self.assertIn("まだ裁定の無い open（/tmp/prd-w/open.json）: O-009", task)
+        self.assertIn("まだ裁定の無い open: O-009（`node " + str(SKILL) + "/scripts/doc_check.mjs get --workspace /tmp/prd-w --ledger open --ids O-009`）", task)
         ids = self._prompt(r, "verifier:3av-settle").split("検証する resolution の ID:")[1].split("\n")[0]
         self.assertIn("RS-009", ids)
         self.assertIn("RS-010", ids)

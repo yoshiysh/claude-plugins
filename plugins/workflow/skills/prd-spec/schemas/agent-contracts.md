@@ -21,8 +21,8 @@
   - 書くとき: `node <SKILL_DIR>/scripts/doc_check.mjs put --ledger <台帳> [--doc <文書キー>] --token <token> --workspace <W>` の
     標準入力に `{ "<配列名>": [要素…], "<スカラー名>": 値 }` を渡す（heredoc で渡せば引用符を逃がさずに済む）。
     新しいキーの要素は末尾に足される。要素を消すときは `del --ledger <台帳> --ids a,b`（配列が 2 つ以上ある台帳は
-    `--collection <配列名>` も）。台帳の名前・配列・キーの正本は doc_check の `LEDGERS` で、名前を間違えれば CLI が
-    その一覧をエラーに出す。
+    `--collection <配列名>` も）。`--ledger` にはファイル名ではなく台帳の名前を渡す。名前・配列・キー・欄は
+    `describe` の stdout で見る（正本は doc_check の `LEDGERS`。実装を読まない）。
   - put・del の `--token` は、プロンプトの「トークン:」の値にする。token の無い put・del は何も書かずに exit 1 で終わる。
     doc_check は token ごとに段の入口の台帳の控えを取り、blocked の後の同じ段の再実行はそれで止まった run の書き込みを取り消してから
     始まる（references/workflow-io.md §3）。別の値を付けると、形が違うか後の段の token の控えがあれば何も書かずに exit 1 で終わり、
@@ -36,6 +36,24 @@
   - put は引用を `input.md`・回答・`evidence` のファイルと逐語で照合し、1 件でも合わなければ何も書かずに
     exit 1 で終わる。照合の script を自作しない。
   - put 以外で書いた台帳は正規形から外れ、それを読む doc_check のモードがすべて exit 1 で止まる。
+- **台帳の中身は `get --ledger <台帳> --ids <ID,…> [--fields <欄,…>]` で ID を指して読む。** 丸ごと Read すると
+  台帳の全件が以後の全ターンに載り続ける（実測: resolutions.json は 364K）。get は要素を加工せずに返し、無い ID を `missing`、
+  stdout の上限に入らなかった ID を `over_budget` に出す（`--fields` で欄を絞るか、ID を分けて読み直す）。全件を読むのは、
+  下の表で台帳を「全件」とした役だけである。
+- **`input.md` は `grep -n` で該当の行と前後の行を読んでよい。** ただし下の表で「全文」とした役は全文を読む。grep で読む役が
+  見ない行は、右端の役が全文で見る（見ていない範囲を黙って「問題なし」にしないため）。
+
+  | 役 | input.md | 台帳（get の ID の出どころ） | grep・get の役が見ない部分を見る役 |
+  |---|---|---|---|
+  | intake | 全文（依頼のすべての文から決定と未決を起こす） | 全件 | — |
+  | flow-framer | 全文（流れを依頼に対して閉じる） | 全件 | — |
+  | resolver | grep | get（プロンプトの ID と、その要素が引く ID。flow.json を書く呼び出しは flow.json を全件） | resolver-verifier |
+  | resolver-verifier | 全文（引用の逐語と、出典が要素を支えるかを照らす） | get（プロンプトの ID、`doc_check flow` の stdout の未検証の要素、それらが引く ID） | — |
+  | flow-check | 読まない | 読まない（doc_check の stdout だけを返す） | — |
+  | writer | grep | 初稿は全件（単位の文書が流れと決定の全体から書かれる）。改稿は get（プロンプトの ID と、その要素が引く ID） | cross-doc（依頼に対する範囲の欠落）、grounding |
+  | implementer | grep | get（自分の文書の meta を全件、その trace が引く ID） | grounding、cross-doc |
+  | grounding | 全文（文の根拠を依頼の全体に照らす） | get（自分の文書の meta を全件、その trace が引く ID） | — |
+  | cross-doc | 全文（依頼に対する範囲の欠落と逸脱を見る） | get（各文書の meta を全件、その trace が引く ID） | — |
 - **1 つのファイルを現行として、その場で更新する。コピーと版管理をせず、全文を作り直さない**（`.bak`・`pre*`・
   版の番号を付けたファイル名・W の外への写し・全文の再生成）。台帳は put、文書は Edit で、変える箇所だけを変える。
   - 控えが残ると、どれが現行か分からなくなる。他の役がそれを雛形として読む（実測: resolver が intake の

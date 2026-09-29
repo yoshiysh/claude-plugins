@@ -209,6 +209,8 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | `backup --doc <キー> … --token <token>` | flow-check（段 4・7 の writer の前） | 文書の本文の控えを token の下に取る（無い文書は無い印。同じ token の控えがあれば取り直さない）。stdout に `backup: true`・`token`・控えを取った文書のキー（`docs`） |
 | `restore --token <token>` | flow-check（blocked の後の同じ段の再実行の入口） | token の控えを台帳と文書の本文に戻し、token の下で作られた台帳と文書を消して控えを消す（控えを書く途中で落ちた一時名は数えない。§3）。stdout に戻したファイルごとの前後の sha256（無いファイルは null）と flow.json の前後（`flow_before`・`flow_after`）、控えを消した後の段の token（`pruned_by`。あれば何も戻さない） |
 | `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`）とその本文と meta の sha256（`fixed_sha256`） |
+| `get --ledger <台帳> [--doc <キー>] --ids <ID,…> [--fields <欄,…>]` | 台帳を読む役（読み方は契約の「共通の約束」） | 台帳から ID の要素を加工せずに選んで stdout に出す。無い ID は `missing`、stdout の上限（`STDOUT_BUDGET`）に入らない ID は `over_budget`。何も書かない |
+| `describe` | どの役も（台帳の名前と欄を確かめるとき） | `LEDGERS` から導出した台帳の名前・ファイル・配列・欄・閉集合と、モードの一覧、指摘の符号を出す。W を読まず何も書かない |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
 | `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
 | `answers --file answers/<ゲート>.md --ids <RS-…>` | flow-check（`gates_answered` のゲートを越える前と、`next_args` で 3a・3a' から始めた run が回答を当てる前） | 回答のファイルがあるか（`exists`）と、`<ID>:` で始まる行の無い問い（`missing`）を stdout に出す。何も書かない |

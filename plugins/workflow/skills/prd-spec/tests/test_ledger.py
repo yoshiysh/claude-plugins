@@ -446,13 +446,13 @@ class Canonical(_Workspace):
                     self.assertIn(name, r.stderr)
 
     def test_正規形でない_flow_は全モードで止まる(self):
-        self._assert_all_stop("flow.json", self.MODES + (("put", "--ledger", "flow"),))
+        self._assert_all_stop("flow.json", self.MODES + (("put", "--ledger", "flow"), ("get", "--ledger", "flow", "--ids", "F-001")))
 
     def test_正規形でない_decisions_は_conflicts_と_put_で止まる(self):
-        self._assert_all_stop("decisions.json", (("conflicts",), ("flow",), ("put", "--ledger", "decisions")))
+        self._assert_all_stop("decisions.json", (("conflicts",), ("flow",), ("put", "--ledger", "decisions"), ("get", "--ledger", "decisions", "--ids", "D-001")))
 
     def test_正規形でない_meta_は_doc_と_put_で止まる(self):
-        self._assert_all_stop("requirements-auth.meta.json", (("doc",), ("put", "--ledger", "meta", "--doc", "requirements/auth")))
+        self._assert_all_stop("requirements-auth.meta.json", (("doc",), ("put", "--ledger", "meta", "--doc", "requirements/auth"), ("get", "--ledger", "meta", "--doc", "requirements/auth", "--ids", "PR-AUTH-001")))
 
     def test_正規形でない_meta_は文書を読む全モードで止まる(self):
         digest = _ok(self.ws, "snapshot", "--save", "base")["digest"]

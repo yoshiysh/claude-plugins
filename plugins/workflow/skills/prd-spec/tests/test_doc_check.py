@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 from prd_script import PRD_PATH
+from test_ledger import _exported  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
@@ -170,7 +171,7 @@ class CompactOutput(unittest.TestCase):
                                  "ids": ids, "referenced": [], "vacant": [], "tbd_items": [], "traceability": []})
             r = _run_cli({"documents": docs})
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertLess(len(r.stdout.encode()), 50_000)
+        self.assertLess(len(r.stdout.encode()), _exported("m.STDOUT_BUDGET"))
         # 短くしても指摘は 1 件も落ちない（展開すると全件の文面が戻る）
         expanded = _expand(json.loads(r.stdout)["structural"])
         self.assertGreater(len(expanded["findings"]), 500)

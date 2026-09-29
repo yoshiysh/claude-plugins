@@ -1541,7 +1541,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'answers', 'sha', 'report']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'describe']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1712,9 +1712,20 @@ const sortDeep = (v) =>
 const ledgerText = (value) => `${JSON.stringify(sortDeep(value), null, 1)}\n`
 const sha256Bytes = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
 
+const META_FILE = /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.meta\.json$/
+const ledgerFileOf = (name, doc) => {
+  try {
+    return LEDGERS[name].file(doc)
+  } catch {
+    return null
+  }
+}
+
 function ledgerOf(name) {
-  if (!Object.hasOwn(LEDGERS, name)) throw new Error(`--ledger は ${Object.keys(LEDGERS).join(' / ')} のどれかです: ${name}`)
-  return LEDGERS[name]
+  if (Object.hasOwn(LEDGERS, name)) return LEDGERS[name]
+  const owner = Object.keys(LEDGERS).find((n) => ledgerFileOf(n) === name) || (META_FILE.test(String(name)) ? 'meta' : null)
+  const hint = owner ? `${name} はファイル名です。--ledger ${owner} を渡す。` : ''
+  throw new Error(`${hint}--ledger は ${Object.keys(LEDGERS).join(' / ')} のどれかです: ${name}`)
 }
 
 function checkShape(name, value, file, input) {
@@ -1849,8 +1860,7 @@ function txBegin(ws, token, file) {
   else writeAtomic([absent, ''])
 }
 
-const txLedgerFile = (name) =>
-  Object.keys(LEDGERS).some((n) => n !== 'meta' && ledgerOf(n).file() === name) || /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.meta\.json$/.test(name)
+const txLedgerFile = (name) => Object.keys(LEDGERS).some((n) => n !== 'meta' && ledgerOf(n).file() === name) || META_FILE.test(name)
 // txFile: 控えを取ってよいファイル（台帳と、backup が取る文書の本文）。
 const txFile = (name) => txLedgerFile(name) || /^(requirements|specifications)-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(name)
 
@@ -2200,6 +2210,65 @@ function wsSha(ws, opts) {
   return { ledger: opts.ledger, path: file, exists: fs.existsSync(path.join(ws, file)), sha256: ledgerSha(ws, opts.ledger, opts.doc[0]) }
 }
 
+// STDOUT_BUDGET: CLI の 1 行の stdout の上限（バイト）。agent は stdout を返り値に写すので、超えると以後の全ターンに載る。
+const STDOUT_BUDGET = 50000
+const stdoutBytes = (value) => Buffer.byteLength(`${JSON.stringify(value)}\n`)
+
+// get: 台帳から ID の要素を選ぶだけで、値を加工しない（要約や書き直しは正本から drift した写しになる）。上限に入らない要素は
+// 黙って落とさず over_budget に挙げる。
+function wsGet(ws, opts) {
+  const name = opts.ledger
+  const spec = ledgerOf(name)
+  if (!opts.ids || !opts.ids.length) throw new Error('get には --ids a,b が要ります')
+  const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
+  const allowed = [...new Set(Object.values(spec.fields || {}).flat())]
+  const fields = opts.fields || null
+  const unknown = (fields || []).filter((f) => !allowed.includes(f))
+  if (unknown.length) throw new Error(`--fields は台帳 ${name} の欄 ${allowed.join(' / ')} から選ぶ: ${unknown.join(', ')}`)
+  const value = readLedger(ws, name, opts.doc[0])
+  const ids = [...new Set(opts.ids)]
+  const pick = (el, key) => (fields ? Object.fromEntries(Object.keys(el).filter((k) => k === key || fields.includes(k)).map((k) => [k, el[k]])) : el)
+  const hits = ids.map((id) => ({ id, rows: Object.entries(spec.lists).flatMap(([list, key]) => listOf(value, list).filter((el) => el[key] === id).map((el) => [list, pick(el, key)])) }))
+  const out = { ledger: name, path: file, exists: value !== null, sha256: ledgerSha(ws, name, opts.doc[0]), ...Object.fromEntries(Object.keys(spec.lists).map((k) => [k, []])), missing: [], over_budget: [] }
+  out.missing = hits.filter((h) => !h.rows.length).map((h) => h.id)
+  const found = hits.filter((h) => h.rows.length)
+  let room = STDOUT_BUDGET - stdoutBytes({ ...out, over_budget: found.map((h) => h.id) })
+  for (const h of found) {
+    const size = h.rows.reduce((n, [, el]) => n + Buffer.byteLength(JSON.stringify(el)) + 1, 0)
+    if (size > room) {
+      out.over_budget.push(h.id)
+      continue
+    }
+    room -= size
+    for (const [list, el] of h.rows) out[list].push(el)
+  }
+  return out
+}
+
+// describe: LEDGERS と指摘の表から導出する（写しを持つと、台帳の型を変えたときに片方だけが古くなる）。
+function describeLedgers() {
+  const rows = (c) => Object.fromEntries(Object.entries(c.rows).map(([row, r]) => [row, { must: r.must || [], never: r.never || [] }]))
+  const ledgers = Object.fromEntries(
+    Object.entries(LEDGERS).map(([name, spec]) => [
+      name,
+      {
+        file: ledgerFileOf(name),
+        ...(ledgerFileOf(name) === null ? { doc: DOC_KEY.source, file_of_doc: spec.file('requirements/topic') } : {}),
+        lists: spec.lists,
+        scalars: spec.scalars,
+        fields: spec.fields || {},
+        ...(spec.subfields ? { subfields: spec.subfields } : {}),
+        enums: spec.enums || {},
+        ...(spec.keyShape ? { key_shape: spec.keyShape.source } : {}),
+        ...(spec.groupBy ? { group_by: spec.groupBy } : {}),
+        ...(spec.filled ? { filled: spec.filled } : {}),
+        cases: Object.fromEntries(Object.entries(spec.cases || {}).map(([list, c]) => [list, (Array.isArray(c) ? c : [c]).map(rows)])),
+      },
+    ]),
+  )
+  return { modes: WS_MODES, ledgers, finding_codes: [...Object.keys(FINDING_TEXT), ...Object.keys(WORKSPACE_TEXT)].sort() }
+}
+
 // verifications の sha256 は put の時点のファイルから取る。verifier が読んだ版と違えば書かない
 // （検証していない版の sha256 を合格の記録に残さないため）。
 function fillVerifications(ws, opts, next, body) {
@@ -2253,9 +2322,9 @@ function aboutRejects(next, body) {
 }
 
 function wsPut(ws, opts, stdin) {
-  const token = txToken(opts, 'put')
   const name = opts.ledger
   const spec = ledgerOf(name)
+  const token = txToken(opts, 'put')
   const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
   let body
   try {
@@ -2304,9 +2373,9 @@ function wsPut(ws, opts, stdin) {
 }
 
 function wsDel(ws, opts) {
-  const token = txToken(opts, 'del')
   const name = opts.ledger
   const spec = ledgerOf(name)
+  const token = txToken(opts, 'del')
   const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
   const lists = Object.keys(spec.lists)
   const coll = opts.collection || (lists.length === 1 ? lists[0] : null)
@@ -3363,6 +3432,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--spec-dir') o.specDir = take()
     else if (a === '--open-tbd') o.openTbd = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--ledger') o.ledger = take()
+    else if (a === '--fields') o.fields = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--ids') o.ids = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--collection') o.collection = take()
     else if (a === '--live') o.live = take().split(',').map((s) => s.trim()).filter(Boolean)
@@ -3382,6 +3452,7 @@ function parseWorkspaceArgs(argv) {
 
 function runWorkspace(mode, argv) {
   const opts = parseWorkspaceArgs(argv)
+  if (mode === 'describe') return describeLedgers()
   if (!opts.workspace) throw new Error('--workspace <W> が要ります')
   const ws = path.resolve(opts.workspace)
   if (!fs.existsSync(ws) || !fs.statSync(ws).isDirectory()) throw new Error(`workspace がディレクトリではありません: ${opts.workspace}`)
@@ -3402,6 +3473,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'answers') return wsAnswers(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)
+  if (mode === 'get') return wsGet(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 
@@ -3466,5 +3538,7 @@ export {
   LEDGERS,
   DOC_KEY,
   SIZE_BUDGET,
+  STDOUT_BUDGET,
+  WS_MODES,
   writeAtomic,
 }

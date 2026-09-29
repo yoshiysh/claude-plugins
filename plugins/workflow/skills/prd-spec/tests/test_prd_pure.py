@@ -58,6 +58,12 @@ def value(expr):
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class Pure(unittest.TestCase):
+    def test_ownsFlowOfは回答を当てたその段のresolverのときだけ真(self):
+        self.assertTrue(value("ownsFlowOf({ tag: '3a' }, '3a')"))
+        for expr in ("ownsFlowOf({ tag: '3a-questions' }, '3a')", "ownsFlowOf({ tag: '3a-questions-2' }, '3a')", "ownsFlowOf(null, '3a')"):
+            with self.subTest(expr):
+                self.assertFalse(value(expr))
+
     def test_unitWavesは依存の向きに波を作る(self):
         units = [
             {"id": "U-3", "docs": ["c"], "depends_on": ["U-1", "U-2"]},
