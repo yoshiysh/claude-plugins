@@ -425,6 +425,14 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(out["failed_current"], [])
         self.assertIn("F-002", out["unverified"])
 
+    def test_合否の無いresolutionはaboutとrulingつきでunverdictedに出る(self):
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"}]})
+        self.assertEqual(_ok(self.ws, "flow")["unverdicted"], [{"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal"}])
+        sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
+        _put(self.ws, "verifications", {"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]},
+             "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
+        self.assertEqual(_ok(self.ws, "flow")["unverdicted"], [], "不合格も合否である")
+
     def test_覆された決定を出典かconstrained_byに持つ要素はstale_refsに出る(self):
         self.assertEqual(_ok(self.ws, "flow")["stale_refs"], [])
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "value": "v", "supersedes": "D-001"}]})

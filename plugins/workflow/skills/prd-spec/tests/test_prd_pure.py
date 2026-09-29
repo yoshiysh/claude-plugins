@@ -151,8 +151,8 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"usableResolutions({json.dumps(state)})"), ["RS-1"])
 
     def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
-        state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"], "flow_failed": ["F-007"]}
-        self.assertEqual(value(f"invalidIds({json.dumps(state)})"), {"decisions": ["D-003", "D-004"], "flow": ["F-007"]})
+        state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"]}
+        self.assertEqual(value(f"invalidIds({json.dumps(state)}, ['F-007'])"), {"decisions": ["D-003", "D-004"], "flow": ["F-007"]})
 
     def test_pendingQuestionsは回答済みと保持規則を除く(self):
         state = {"questions": ["RS-1", "RS-2", "RS-3"], "answered": ["RS-1"], "holds": ["RS-3"]}
@@ -270,29 +270,33 @@ class Pure(unittest.TestCase):
         self.assertEqual(value(f"settledFlowFindings({json.dumps(ledger)}, {json.dumps(state)}, [])"), [])
         self.assertEqual(value(f"settledFlowFindings({json.dumps(ledger)}, {json.dumps(state)}, [], {{'requirements/a#PR-A-001': ['p1']}})"), ["f1"], "再発した項目の ledger 由来の指摘も flow に写す")
 
-    def test_settledVerificationsはこのcycleで合格した流れの要素の検証の裁定だけを返す(self):
-        about = {"RS-1": "verification:F-001", "RS-2": "verification:F-002", "RS-3": "verification:F-003", "RS-4": "verification:D-004",
-                 "RS-5": "verification:F-005", "RS-6": "pair:D-001|F-006", "RS-7": "tbd:T-1", "RS-8": "finding:f8", "RS-9": "verification:F-009"}
-        state = {"about": about, "passed": ["RS-1", "RS-2", "RS-3", "RS-4", "RS-5", "RS-6", "RS-7", "RS-8"], "holds": ["RS-2"], "questions": ["RS-3"]}
-        # F-002 は hold、F-003 は回答待ちの問い、D-004 は flow の要素でない、F-005 は cycle に入る前に決まっていた、F-009 は未合格
-        self.assertEqual(value(f"settledVerifications({json.dumps(state)}, ['RS-5'])"), ["F-001"])
+    def test_failedOpenは保持規則か回答待ちの問いの検証の裁定がある不合格の要素だけを除く(self):
+        about = {"RS-1": "verification:F-001", "RS-2": "verification:F-002", "RS-3": "verification:F-003", "RS-6": "open:O-1"}
+        state = {"about": about, "passed": ["RS-1", "RS-2", "RS-3"], "holds": ["RS-2"], "questions": ["RS-3"]}
+        fc = {"failed_current": ["F-001", "F-002", "F-003", "F-004"]}
+        # F-001 は合格した裁定（settle が写す）、F-002 は hold、F-003 は回答待ちの問い、F-004 は裁定が無い
+        self.assertEqual(value(f"failedOpen({json.dumps(fc)}, {json.dumps(state)}, true)"), ["F-001", "F-004"])
+        self.assertEqual(value(f"failedOpen({json.dumps(fc)}, {json.dumps(state)}, false)"), ["F-001", "F-003", "F-004"], "聞くゲートの無い出口では回答待ちで進めない")
+
+    def test_unverifiedLeftは今の版に合否の無い要素とresolutionと進めない不合格を挙げる(self):
+        clean = {"unverified": ["F-002"], "failed_current": ["F-002"], "unverdicted": []}
+        state = {"about": {"RS-5": "verification:F-002"}, "holds": ["RS-5"]}
+        self.assertIsNone(value(f"unverifiedLeft({json.dumps(clean)}, {json.dumps(state)}, false)"))
+        for name, fc, st in (("書き換えて検証していない要素", {**clean, "unverified": ["F-001", "F-002"]}, state),
+                             ("合否の無い resolution", {**clean, "unverdicted": [{"id": "RS-9", "about": {"open": "O-1"}, "ruling": "internal"}]}, state),
+                             ("裁定の無い不合格の要素", clean, {})):
+            with self.subTest(name):
+                self.assertIsNotNone(value(f"unverifiedLeft({json.dumps(fc)}, {json.dumps(st)}, false)"))
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "unverdicted": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))})"))
-        for k in ("codes", "unverified", "failed_current", "open_only", "stale_refs", "open_ids", "pair_keys"):
+        for k in ("codes", "unverified", "failed_current", "unverdicted", "open_only", "stale_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
         two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(two))})"))
         self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps({**two, 'findings': 3}))})"), "符号の件数の和と findings が食い違う stdout は受け取らない")
-
-    def test_sharedFindingsは基準のstdoutに同じ符号と場所で出た指摘だけを残す(self):
-        # 符号だけで照合すると、生成者が申告した指摘と同じ符号の、台帳の書き込みで出た別の要素の指摘まで生成者のものに数える。
-        fc = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-001", "F-002"], "FLOW_DANGLING": ["F-003"]}, "findings": 3}
-        base = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-001"], "FLOW_DEADEND": ["F-003"]}}
-        self.assertEqual(value(f"sharedFindings({json.dumps(fc)}, {json.dumps(base)}).codes"),
-                         {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-001"], "FLOW_DANGLING": []})
 
     def test_splitFlowFindingsは生成者が消せる指摘とflow_framerに回す指摘と表に無い符号に分ける(self):
         fc = {"codes": {"FLOW_DANGLING": ["F-001", "F-002"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"], "FLOW_NEW": ["F-009"]}}
@@ -315,13 +319,13 @@ class Pure(unittest.TestCase):
 
     def test_stateErrorsは入口ごとに要る値を挙げる(self):
         self.assertEqual(value("stateErrors('1', {})"), [])
-        errs = value("stateErrors('8', {units: [], flow_digest: 'f', flow_failed: []})")
+        errs = value("stateErrors('8', {units: [], flow_digest: 'f'})")
         self.assertTrue(any("state.audit" in e for e in errs))
         self.assertTrue(any("state.revised" in e for e in errs))
         self.assertTrue(any("state.settled_written" in e for e in errs), "finish() が holds と hold_drafts を分ける鍵")
         self.assertFalse(any("flow" in e for e in errs))
         self.assertEqual(value("stateErrors('4', {units: [], flow: {}, failed_ids: ['F-001']})"),
-                         ['from "4" には state.flow_digest が要ります', 'from "4" には state.flow_failed が要ります'])
+                         ['from "4" には state.flow_digest が要ります'])
         self.assertIn("段の境界", value("stateErrors('x', {})")[0])
 
     def test_rolesByItemは観点を重ねて持つ(self):

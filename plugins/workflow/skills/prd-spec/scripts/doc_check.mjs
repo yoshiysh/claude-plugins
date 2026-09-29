@@ -2735,6 +2735,12 @@ function wsFlow(ws) {
   const [passed, failed] = [verdictAt('pass'), verdictAt('fail')]
   const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   const failedCurrent = els.filter((el) => failed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
+  // unverdicted: 合否の無い resolution。about と ruling も出すのは、応答の前に台帳を書いて止まった resolver の裁定を、再実行の script が
+  // 返り値の代わりに受け取るため（script はファイルを読めない）。
+  const judged = new Set(items.filter((it) => it && it.verdict).map((it) => String(it.id)))
+  const unverdicted = listOf(readLedger(ws, 'resolutions'), 'resolutions')
+    .filter((r) => r && r.id && !judged.has(String(r.id)))
+    .map((r) => ({ id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null }))
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
   const opensOnly = (source) => {
     const sources = Array.isArray(source) ? source : source ? [source] : []
@@ -2764,6 +2770,7 @@ function wsFlow(ws) {
     content_sha256: ledgerSha(ws, 'flow'),
     unverified,
     failed_current: failedCurrent,
+    unverdicted,
     open_only: openOnly,
     stale_refs: staleRefs,
     open_ids: [...openIds].sort(),
