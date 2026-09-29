@@ -11,8 +11,10 @@ import re
 import unittest
 from pathlib import Path
 
+from prd_script import PRD_PATH
+
 SKILL = Path(__file__).resolve().parents[1]
-PRD = (SKILL / "scripts" / "prd.js").read_text(encoding="utf-8")
+PRD = PRD_PATH.read_text(encoding="utf-8")
 CONTRACTS = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
 ROLE_MAP = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
 
@@ -26,7 +28,7 @@ ROLES = (
     "grounding",
     "cross-doc",
     "doc_check",
-    "prd.js",
+    "prd-spec.js",
     "司令塔",
 )
 

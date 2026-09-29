@@ -263,7 +263,7 @@
 { "open": [{ "id": "O-001", "text": "決まっていない論点（1 論点）", "searched": "依頼文のどこを探して答えが無かったか", "by": "intake | flow-framer", "targets": ["decisions と同じ意味"], "kind": "invariant（「## 不変条件の kind」に当たるときだけ）" }] }
 ```
 
-返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が prd.js の
+返り値（`plan_check` は、返る前に最後に実行した doc_check `plan` の stdout を加工せずに。指摘があれば script が prd-spec.js の
 `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ段 1 で止まる。段 2 の flow-framer が実行した `plan` の `content_sha256` と違えば、
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
@@ -330,7 +330,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - doc_check `flow` は欄の欠けを `ST-FLOW-OBTAIN-MISSING-`・`ST-FLOW-UNKNOWN-CASE-`・`ST-FLOW-EFFECT-MISSING-`・
   `ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-` で指摘する。要素の digest はこれらの欄を含む。
 - 指摘の直し手: stdout の `codes`（符号 → 指摘の場所の要素 ID などの配列。件数の和は `findings`）の符号ごとに、所有表の中の
-  書き込みだけで消せる役を prd.js の `FIXERS_BY_CODE` が持つ（符号の一覧はそこが正）。分け方: 出典を付けられない要素・case は、
+  書き込みだけで消せる役を prd-spec.js の `FIXERS_BY_CODE` が持つ（符号の一覧はそこが正）。分け方: 出典を付けられない要素・case は、
   出典を付けずに置くのが直し方である（`ST-FLOW-NOSOURCE-`・`ST-FLOW-CASE-NOSOURCE-` になり、flow-framer が `open.json` に起票して
   出典にする）。だから `open.json` への追記で消える指摘（出典の無さ・破壊的な工程を縛る不変条件の無さ）だけが flow-framer
   専用で（`on_fail` の出典の無さは `open.json` では消えない。`on_fail.source` は `{open}` を受けず、直し方はその fix だが、要素の出典の無さと同じ符号なので flow-framer に渡る）、欠けたマス・枝・欄を足す指摘は、出典が決まらなくても resolver が足せる。script は flow を書いた生成者が並ぶ符号だけを
@@ -422,7 +422,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   ので、どの open・組・指摘・TBD が閉じたかはここからしか分からない。script は `about` を next_args の state に載せ、
   verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
   `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
-  prd.js の `RESOLUTION_ID`）。
+  prd-spec.js の `RESOLUTION_ID`）。
 - 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`）と、聞くゲートの残っていない問いを
   hold に変える呼び出し（`<段>-hold`）と、検証に落ちた保持規則を書き直す呼び出し（`<呼び出し>-rehold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
@@ -433,7 +433,7 @@ verifications・precedent）と、段ごとに script が渡す対象の ID。�
   不合格のまま台帳に残る。F- は問いにも保持規則にも変えられないので、検証の裁定が無いと settle に写す値も、不合格のまま進めてよい理由も無い）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
-  不合格のとき、script は prd.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
+  不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を、settle の
   flow-framer の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
   検証を通っていない要素の出典を verifier に回す（除くものは §flow-framer の `failed_current`。起動の条件・label・聞けない段の扱いは
@@ -478,7 +478,7 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 段 1 から始める run は、最初に `flow-check:1-entry` で `reset` を実行し、W を S0 の直後に戻す。段 4・7 は writer を起動する前に `flow-check:<段>-backup` で
 `backup` を実行し、writer が Edit で書く文書の本文の控えを段の token で取る（扱いはどれも references/workflow-io.md §3）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
-prd.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
+prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
 入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
 
 ```json

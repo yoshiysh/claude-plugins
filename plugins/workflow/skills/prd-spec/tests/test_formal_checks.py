@@ -9,7 +9,7 @@
 2. 状態 × イベント表の網羅・一意・到達・表と図の一致を検出し、「発生しない」を定義済みと数える
 3. 判定表の組み合わせの欠け・重なりを検出する
 4. 短い形で出力される
-5. 閉包検査は doc_check.mjs の 1 か所だけにあり、prd.js は写しを持たず state に flow の本体を載せない
+5. 閉包検査は doc_check.mjs の 1 か所だけにあり、prd-spec.js は写しを持たず state に flow の本体を載せない
    （doc_check の stdout で閉じない flow では初稿を始めない経路は tests/test_prd_stages.py が走らせて確かめる）
 """
 
@@ -21,11 +21,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prd_script import PRD_PATH
+
 
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
 DOC_CHECK = SCRIPTS / "doc_check.mjs"
-PRD = (SCRIPTS / "prd.js").read_text()
+PRD = PRD_PATH.read_text()
 
 
 def _marked_block(source: str, name: str) -> str:

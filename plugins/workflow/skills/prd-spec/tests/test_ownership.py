@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prd_script import PRD_PATH
+
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
 CONTRACTS = SKILL / "schemas" / "agent-contracts.md"
@@ -133,10 +135,10 @@ class OwnershipComesFromContract(unittest.TestCase):
 
     def test_prd_jsの作業用ディレクトリは所有表の行と同じ形(self):
         self.assertIn("| `tmp/<label>/` |", CONTRACTS.read_text(encoding="utf-8"))
-        self.assertIn("/tmp/${fileKey(label)}/", (SKILL / "scripts" / "prd.js").read_text(encoding="utf-8"))
+        self.assertIn("/tmp/${fileKey(label)}/", PRD_PATH.read_text(encoding="utf-8"))
 
     def test_プロンプトが指す節は契約の見出しにある(self):
-        src = (SKILL / "scripts" / "prd.js").read_text(encoding="utf-8")
+        src = PRD_PATH.read_text(encoding="utf-8")
         common = re.search(r"const COMMON_SECTIONS = \[(.*?)\]", src).group(1)
         per_role = re.search(r"const CONTRACT_SECTIONS = \{(.*?)\n\}", src, re.S).group(1)
         names = set(re.findall(r"'([^']+)'", common + per_role))

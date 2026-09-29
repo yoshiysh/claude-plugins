@@ -12,7 +12,7 @@
 **1 回目の呼び出し**:
 
 ```
-Workflow({ scriptPath: "[SKILL_DIR]/scripts/prd.js",
+Workflow({ name: "workflow:prd-spec-run",
            args: { workspace: "<W の絶対パス>", skillDir: "[SKILL_DIR]", entry: "new" } })
 ```
 

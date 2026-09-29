@@ -344,7 +344,7 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(_findings(self.ws, "flow.json"), ["ST-FLOW-DESTRUCTIVE-UNCONSTRAINED-F-002"])
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "next": ["F-404"]}]})
         out = _ok(self.ws, "flow")
-        # prd.js は codes で指摘を直し手ごとに分けるので、符号・場所と件数が stdout の中で食い違ってはならない。
+        # prd-spec.js は codes で指摘を直し手ごとに分けるので、符号・場所と件数が stdout の中で食い違ってはならない。
         self.assertEqual(out["codes"], {"FLOW_DANGLING": ["F-002"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"], "FLOW_UNREACHABLE": ["F-003", "F-004", "F-005"]})
         self.assertEqual(sum(len(v) for v in out["codes"].values()), out["findings"])
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "next": ["F-004"]}]})
@@ -454,7 +454,7 @@ class FlowAndConflicts(_Workspace):
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "verdict": "fail", "fail_kind": "insufficient_grounds"},
         ]
         self.assertEqual(got, want)
-        # prd.js のテストの stub（test_prd_stages の HARNESS）は同じ世界から同じ行を出す。stub の形がずれると、stub で通る再実行が実物で通らない。
+        # prd-spec.js のテストの stub（test_prd_stages の HARNESS）は同じ世界から同じ行を出す。stub の形がずれると、stub で通る再実行が実物で通らない。
         import test_prd_stages as stages  # test_prd_stages が test_prd_pure 経由でこの module を import するので、ここで読む
         with tempfile.TemporaryDirectory() as tmp:
             world = Path(tmp) / "w.json"

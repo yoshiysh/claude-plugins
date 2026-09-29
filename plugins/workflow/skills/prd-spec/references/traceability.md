@@ -69,7 +69,7 @@
 ## 4. TBD 管理
 
 未確定事項は、確定した要求と**同じ場所に混ぜない**。**文書には章を作らず**、writer が
-`<doc>.meta.json` の `tbd` に起票し、INDEX の「未解決」節と prd.js の返り値（`open_tbd`）が持つ
+`<doc>.meta.json` の `tbd` に起票し、INDEX の「未解決」節と prd-spec.js の返り値（`open_tbd`）が持つ
 （本文に置いてよいものの一覧は `document-structure.md` §4 が正）。
 
 ### ブロッキングの区分（件数より重要）
@@ -97,7 +97,7 @@
 
 **このスキルの完成条件は、開いている TBD が 0 件であることである。** writer が起票した TBD は段 6 で
 resolver が裁定する。裁定が verifier に合格するか、問いに依頼者が答えるか、保持規則になれば、その TBD は
-閉じる。prd.js はこれを返り値の `about` から数え、開いている TBD を `open_tbd` として返す（算出は script が
+閉じる。prd-spec.js はこれを返り値の `about` から数え、開いている TBD を `open_tbd` として返す（算出は script が
 持ち、writer と監査役にもこの一覧が渡る）。
 
 **一度振った TBD 番号は、解消した後も別の論点に使わない。** 回答と裁定は ID に紐付いているので、番号を

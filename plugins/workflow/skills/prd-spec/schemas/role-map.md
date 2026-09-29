@@ -16,7 +16,7 @@
 
 ## ロール表
 
-処理順（S0 → 段 9）に並べる。model / effort の既定は `scripts/prd.js` の `ROLE_OPTS` が正で、司令塔が `role_opts` で上書きできる。
+処理順（S0 → 段 9）に並べる。model / effort の既定は `workflows/prd-spec.js` の `ROLE_OPTS` が正で、司令塔が `role_opts` で上書きできる。
 
 | 段 | role | 種別 | 責務（1 つ） | やらないこと | なぜ（破ると何が壊れるか） |
 |---|---|---|---|---|---|
@@ -30,7 +30,7 @@
 | 5・8 | grounding | 検証 | 1 文の根拠: 捏造・偽装・未決の断定・入力への違反 | 文案・着手可能性・項目間 | 同上 |
 | 5・8 | cross-doc | 検証 | 項目の間: 矛盾・重複・用語・上位の要求と照らした範囲・紐付け・必須の欠け。段 5 で監査の基準（audited-1）を保存する | 文案・1 項目で完結する問題 | 同上 |
 | 全段 | doc_check（script） | 検証（決定的） | 語尾・曖昧語・ID・trace・表と流れの網羅・開いた TBD の断定・snapshot と diff | 意味の判定 | 算術を LLM に載せると揺れ、落ちた agent が「0 件」に化ける |
-| 全段 | prd.js（Workflow script） | 制御 | 段の順序・起動の条件・上限・返り値の検査と引き継ぎ | ファイルの読み書き（できない） | 実行経路を agent に任せると、段が飛ばされても誰も気づかない |
+| 全段 | prd-spec.js（Workflow script） | 制御 | 段の順序・起動の条件・上限・返り値の検査と引き継ぎ | ファイルの読み書き（できない） | 実行経路を agent に任せると、段が飛ばされても誰も気づかない |
 | S0・G0・G0-2・G1・9 | 司令塔（SKILL.md） | 中継 | 依頼と回答を逐語で書く、`doc_check questions`・`doc_check report` で問いと事後報告を導出し、questions.md と report.md をそのまま見せる、next_args を渡す（references/workflow-io.md §3）、保存の前の digest の文字列比較 | 決定・問い・回答・文書の文面を書くこと | 司令塔が書くと、生成と検証の分離が最後の工程で破れる |
 
 ## 責務の重複・空白の確認

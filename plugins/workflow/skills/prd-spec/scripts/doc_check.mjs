@@ -435,7 +435,7 @@ function expandStructural(compact) {
 // FINDING_TEXT_END
 
 // flow の軸が閉じていなければ「どの工程にも項目が当たっている」は何も保証しないので、形と閉包は算術で押さえる。
-// prd.js は指摘が 0 件でない flow では書き始めない（writer には flow を直す手段が無い）。
+// prd-spec.js は指摘が 0 件でない flow では書き始めない（writer には flow を直す手段が無い）。
 function flowGraphCompact(flow) {
   const out = []
   const shape = (key, detail) => out.push({ c: 'FLOW_SHAPE', d: 'flow', a: [key, detail] })
@@ -1578,7 +1578,7 @@ const OTHER_RULING = { never: ['question', 'options', 'answer', 'hold'] }
 const KIND = { kind: ['invariant'] }
 const FLOW_TYPES = ['input', 'step', 'decision', 'output']
 const OUT_OF_TYPE = '（型の外）'
-// DOC_KEY: 文書のキー（<kind>/<topic>）の形。prd.js の DOC_KEY と同じ（tests が照合する）。
+// DOC_KEY: 文書のキー（<kind>/<topic>）の形。prd-spec.js の DOC_KEY と同じ（tests が照合する）。
 const DOC_KEY = /^(requirements|specifications)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/
 
 const LEDGERS = {
@@ -1616,7 +1616,7 @@ const LEDGERS = {
   resolutions: {
     file: () => 'resolutions.json',
     lists: { resolutions: 'id' },
-    // keyShape: prd.js の RESOLUTION_ID と同じ（tests が照合する）。prd.js は合否をこの形で resolution と D- / F- に分けるので、
+    // keyShape: prd-spec.js の RESOLUTION_ID と同じ（tests が照合する）。prd-spec.js は合否をこの形で resolution と D- / F- に分けるので、
     // 形の外の ID で書いた裁定は、検証に通っても閉じた論点に数えられない。
     keyShape: /^RS-\d+$/,
     scalars: {},
@@ -1812,7 +1812,7 @@ function writeAtomic(...pairs) {
 // 段の書き込みは token ごとの取引にする。blocked の後の同じ段の再実行は、止まった run の書き込みを restore で段に入った時点の台帳へ
 // 戻してから始める（W から state を組み直す方式は、持ち越す欄が増えるたびに再実行が止まらなかった run とずれた）。
 // 控えは台帳ごとに最初の書き込みの直前に取る（並列の writer が別の meta を同時に put するので、共有の索引を持たない）。
-// token は prd.js が段の入口で決める（t<段の通し番号> と、同じ段の再実行の r<回数>）。順序を持つのは、打ち間違えた token や止まった run の
+// token は prd-spec.js が段の入口で決める（t<段の通し番号> と、同じ段の再実行の r<回数>）。順序を持つのは、打ち間違えた token や止まった run の
 // 遅れた書き込みが、今の段の控えを消して restore を空振りさせないため。token の名前は所有表のパターン（tx/<token>/*）に合うよう . を含めない。
 const TX_DIR = 'tx'
 const TX_TOKEN = /^t(\d+)(?:r(\d+))?$/
@@ -2894,7 +2894,7 @@ function wsFlow(ws, opts) {
   const grouped = groupCompact(list)
   const body = expandWorkspace({ findings: grouped, not_checked: [] })
   const digest = digestOf(body)
-  // codes: 指摘を消せる役は符号で決まる（prd.js の FIXERS_BY_CODE）。件数だけでは、生成者に消せない指摘を生成者に差し戻してしまう。
+  // codes: 指摘を消せる役は符号で決まる（prd-spec.js の FIXERS_BY_CODE）。件数だけでは、生成者に消せない指摘を生成者に差し戻してしまう。
   const codes = {}
   for (const g of grouped) codes[g.c] = [...(codes[g.c] || []), ...g.a.map((a) => String(a[0]))]
   const els = listOf(flow, 'elements').filter((el) => el && el.id)
@@ -3081,7 +3081,7 @@ function wsDoc(ws, opts) {
   const digest = digestOf(body)
   const name = opts.doc.length ? `doc.${selected.map(indexName).join('+')}.json` : 'doc.json'
   const degraded = expanded.findings.filter((f) => f.severity === 'degraded').length
-  // flow_refs: 項目 → trace が指す flow 要素。prd.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
+  // flow_refs: 項目 → trace が指す flow 要素。prd-spec.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
   const flowRefs = {}
   for (const d of docs.filter((x) => selected.includes(x.key))) {
     for (const { item_id: item, ref } of d.flow_refs) {

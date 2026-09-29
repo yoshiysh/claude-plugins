@@ -8,7 +8,7 @@
    changedLineRanges で生成した）
 2. 読めない文書は CLI ごと落とさず、その文書の本文検査を「未検査」として返す
 3. 出力は短い形で、文面を載せない
-4. Workflow script（prd.js）は本文（.markdown）を読まず、文面の表の写しも持たない
+4. Workflow script（prd-spec.js）は本文（.markdown）を読まず、文面の表の写しも持たない
 """
 
 import json
@@ -20,10 +20,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prd_script import PRD_PATH
+
 SKILL = Path(__file__).resolve().parents[1]
 SCRIPTS = SKILL / "scripts"
 DOC_CHECK = SCRIPTS / "doc_check.mjs"
-PRD = (SCRIPTS / "prd.js").read_text()
+PRD = PRD_PATH.read_text()
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "doc_check"
 
 

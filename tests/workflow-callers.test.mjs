@@ -70,7 +70,7 @@ test('every Workflow caller declares the native-first transparent Codex route', 
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {
   const pluginNames = new Set(workflowCallers().map((caller) => caller.pluginName))
   for (const pluginName of pluginNames) {
-    // workflow plugin 自身が caller を含む構成（prd-spec / review-document を収録）では
+    // workflow plugin 自身が caller を含む構成（review-document を収録）では
     // 自己依存は宣言できないので免除する。runner は同 plugin 内に同梱されている。
     if (pluginName === 'workflow') continue
     const pluginRoot = join(pluginsRoot, pluginName)
@@ -90,7 +90,6 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/prd-spec/scripts/prd.js', 'rejected_source'],
     ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
     ['workflow/ooda/scripts/ooda.js', 'portable'],
     ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],

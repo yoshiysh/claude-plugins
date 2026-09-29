@@ -5,7 +5,7 @@
 (2) 改稿後の本文がプロンプトへインラインで埋め込まれ、1 プロンプトが最大 39 万字に達した。
 
 押さえるのは 3 つ。
-1. prd.js の全 agent() が model と effort を表（ROLE_OPTS）から取り、表は役のファイル（ROLE_FILES）と 1 対 1 に対応し、
+1. prd-spec.js の全 agent() が model と effort を表（ROLE_OPTS）から取り、表は役のファイル（ROLE_FILES）と 1 対 1 に対応し、
    役のファイルの frontmatter は model / effort を持たない（正本は ROLE_OPTS の 1 か所）
 2. プロンプトを組むコードが本文も JSON の全量も埋め込まない（パスで渡す）
 3. changedLineRanges（doc_check.mjs）が変更の行範囲を正しく返す
@@ -19,13 +19,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prd_script import PRD_PATH
+from test_prd_pure import value
+
 SKILL = Path(__file__).resolve().parents[1]
-PRD = (SKILL / "scripts" / "prd.js").read_text()
+PRD = PRD_PATH.read_text()
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
-
-EFFORTS = {"low", "medium", "high", "xhigh", "max"}
-MODELS = {"opus", "sonnet", "haiku"}
-
 
 def _code_lines(src: str):
     """コメント行を除いたコード行を (行番号, 行) で返す。"""
@@ -74,12 +73,10 @@ class TestAgentOptsAreExplicit(unittest.TestCase):
             keys = set(re.findall(r"^(\w+):", text.split("---")[1], re.M))
             self.assertIn("description", keys, name)
             self.assertFalse(keys & {"model", "effort", "subagent_type"}, f"{name}: model / effort の正本は ROLE_OPTS")
-        io = (SKILL / "references" / "workflow-io.md").read_text()
-        rows = re.findall(r"^\| ((?:`\w+`・?)+) \| (\w+) / (\w+) \|", io, re.M)
-        self.assertEqual({r: (m, e) for names, m, e in rows for r in re.findall(r"`(\w+)`", names)}, roles)
-        for model, effort in _role_opts(PRD).values():
-            self.assertIn(model, MODELS)
-            self.assertIn(effort, EFFORTS)
+        models, efforts = value("MODELS"), value("EFFORTS")
+        for model, effort in roles.values():
+            self.assertIn(model, models)
+            self.assertIn(effort, efforts)
 
     def test_既定値は_role_opts_で上書きできると明記されている(self):
         io = (SKILL / "references" / "workflow-io.md").read_text()

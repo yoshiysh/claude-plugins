@@ -1,7 +1,7 @@
 export const meta = {
-  name: 'prd-spec',
+  name: 'prd-spec-run',
   description: '依頼を仕分けて流れを閉じ、前提を裁定してから要求・仕様を書き、監査と範囲を絞った再監査を収束するまで回す',
-  whenToUse: 'prd-spec の SKILL.md から、workspace を作ったあとに呼ぶ。needs_answers で止まったら回答を answers に逐語で書き、next_args を references/workflow-io.md §3 のとおりに渡して再実行する。args に打ち直す値は ID・件数・digest に限る（本文や JSON の本体は W に置く）',
+  whenToUse: 'prd-spec の SKILL.md から、workspace を作ったあとに名前（/workflow:prd-spec-run）で呼ぶ。needs_answers で止まったら回答を answers に逐語で書き、返った next_args を args にして同じ名前で呼び直す（references/workflow-io.md §3）。args に打ち直す値は ID・件数・digest に限る（本文や JSON の本体は W に置く）',
   phases: [
     { title: 'Intake', detail: '段 1: 依頼を確定・決定・未決に仕分け、分割と writer の単位を決める' },
     { title: 'Flow', detail: '段 2: 出典付きの流れを描き、閉包を検査する' },
@@ -15,12 +15,15 @@ export const meta = {
   ],
 }
 
-// 段の順序・起動の条件・上限・返り値の検査と引き継ぎだけを持つ（schemas/role-map.md の prd.js の行）。
+// 段の順序・起動の条件・上限・返り値の検査と引き継ぎだけを持つ（schemas/role-map.md の prd-spec.js の行）。
 // ファイルは読めないので、分岐に使う値はすべて agent の返り値から受け取り、next_args の state に載せる。
 // state に載せるのは ID・件数・digest だけにする（why は references/workflow-io.md §1）。
 // state は plain JSON に限る。Map・Set・class を pipeline / parallel の境界や返り値に載せると、runtime で中身が失われる。
 
 // ROLE_OPTS: 全役に既定を置く。省略するとセッションの設定を継承し、全呼び出しが最重量で走って利用上限に達する。
+// intake〜writer は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。implementer・grounding の見落としはそのまま
+// 欠陥（着手不能・捏造）になる。crossDoc は項目の間の関係を見るだけで、1 文ずつの深い判断は要らない。flowCheck はコマンドを 1 回実行して
+// stdout を返すだけで、判断を要しない。値は既定であって、E2 の実測で較正する。
 const ROLE_OPTS = {
   intake: { model: 'opus', effort: 'medium' },
   flowFramer: { model: 'opus', effort: 'medium' },
@@ -325,7 +328,7 @@ function pendingView(p, routes) {
   }
 }
 
-// canonicalText・fnv: prd.js は sha256 を計算できないので、next_args が打ち直しで変わっていないかをこの 2 つで照合する。
+// canonicalText・fnv: この script は sha256 を計算できないので、next_args が打ち直しで変わっていないかをこの 2 つで照合する。
 function canonicalText(v) {
   if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
   if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
@@ -340,7 +343,7 @@ function fnv(text) {
 
 // ENV_ARGS: 司令塔が next_args で変えてよい欄（run のデータではない環境。どれを変えてよいかは references/workflow-io.md §3）。
 // nextArgsHash はこれと state_hash の外をすべて覆う。state だけを覆うと workspace・existing_docs・from の写し間違いが通る。
-// 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（prd.js がそう読むので、打ち直しで [] を落としても意味は変わらない）。
+// 最上位の空の配列・オブジェクトは欄が無いのと同じに扱う（この script がそう読むので、打ち直しで [] を落としても意味は変わらない）。
 const ENV_ARGS = ['skillDir', 'role_opts']
 const isEmpty = (v) => v === undefined || (Array.isArray(v) ? !v.length : v && typeof v === 'object' && !Object.keys(v).length)
 const nextArgsHash = (a) => fnv(canonicalText(Object.fromEntries(Object.entries(a).filter(([k, v]) => k !== 'state_hash' && !ENV_ARGS.includes(k) && !isEmpty(v)))))
@@ -898,20 +901,23 @@ function forget(ids) {
 }
 
 // budgetOut: token の目標（budget.total）に達したか。達した後の agent() は throw するので、起動の前に見て、stop_reason を budget にして止める
-// （見ないと throw が null になり、「応答しませんでした」の blocked に化ける）。budget の無い実行環境（Codex の runner）では常に false。
-const budgetOut = () => typeof budget !== 'undefined' && Boolean(budget && budget.total) && budget.remaining() <= 0
+// （見ないと throw が null になり、「応答しませんでした」の blocked に化ける）。目標が無いときの total は null で、0 は「使える token が無い」
+// なので達した扱いにする。budget の無い実行環境では常に false。
+const budgetOut = () => typeof budget !== 'undefined' && Boolean(budget) && budget.total != null && budget.remaining() <= 0
 const budgetStop = (what) => Object.assign(new Error(`token の目標（budget.total）に達したので、${what} を起動できません。目標を上げて next_args でこの段からやり直す`), { budgetStop: true })
 // notRun: 起動したのに返り値の無い呼び出し。段をやり直させる（段を回す loop が blocked にする）。
 const notRun = (what) => (budgetOut() ? budgetStop(what) : Object.assign(new Error(`${what} が${NOT_RUN}`), { rerunStage: true }))
 
 // call: agent() を呼ぶ場所はここだけにする（budget の確かめを通らない呼び出しを作らない。tests が数える）。
+// 予算以外の例外（schema の検証の失敗など）も run を落とさず、返り値の無い呼び出しと同じ扱いにする（段からやり直せる blocked。
+// pipeline の中の例外は runtime が null にする）。agentThrew は、null でも止めない finalHold が例外を null と同じに読むための印。
 async function call(prompt, opts) {
   if (budgetOut()) throw budgetStop(opts.label)
   try {
     return await agent(prompt, opts)
   } catch (e) {
     if (budgetOut()) throw budgetStop(opts.label)
-    throw e
+    throw Object.assign(new Error(`${opts.label} が例外で終わりました（${e && e.message ? e.message : e}）。原因を除いてから next_args でこの段からやり直す`), { rerunStage: true, agentThrew: true })
   }
 }
 
@@ -1515,7 +1521,7 @@ async function applyReturnedFlow(stage, ret, phaseTitle, required) {
       RESOLVER_SCHEMA,
       phaseTitle
     )
-    if (again) absorbResolver(again)
+    absorbResolver(again)
     return again
   }, MAX_CHECK_REWORK)
   const fc = flowCheckOf(done.got.flow_check)
@@ -1983,7 +1989,8 @@ async function stage7() {
     log('改稿する指摘も裁定も無いので、改稿と再監査を飛ばします（最後の書き込みは段 5 で全体を監査済み）')
     return '9'
   }
-  await backupDocs('7', targets.flatMap((t) => t.unit.docs))
+  // 改稿する単位の文書だけでなく全文書を控える。writer が自分の単位の外の文書に書いても、再実行の restore がそれを戻せるように。
+  await backupDocs('7', auditDocs())
   const results = await runEach(targets, (t) => {
     const before = t.unit.docs.map((k) => `${k}: ${state.docs && state.docs[k] ? state.docs[k] : `${W}/checks/audited-${state.audit.n}.snapshot.json の docs["${k}"].digest`}`)
     const extra = [
@@ -2124,26 +2131,28 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
   const routes = state.item_routes || {}
   const label = 'resolver:final'
   // 輪を出た後の blocked は同じ段をやり直しても同じ所で止まるので、返り値が無くても段を止め直さず、文案が無いことを理由に載せる。
-  const r = await issue(
+  const prompt = resolverPrompt(
     label,
-    'resolver',
-    resolverPrompt(
-      label,
-      '改稿の輪を出た後（blocked）',
-      keepFlow(
-        [
-          `${why}。blocking が ${blocking} 件残った。文書は直さない。`,
-          decision.length || newTbd.length
-            ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にする（resolver.md の「8'」）。`
-            : '',
-        ]
-          .filter(Boolean)
-          .join('\n')
-      )
-    ),
-    RESOLVER_SCHEMA,
-    'Report'
+    '改稿の輪を出た後（blocked）',
+    keepFlow(
+      [
+        `${why}。blocking が ${blocking} 件残った。文書は直さない。`,
+        decision.length || newTbd.length
+          ? `route が decision の指摘 ${list(decision)} と新しい TBD ${list(newTbd)} を hold にする（resolver.md の「8'」）。`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    )
   )
+  let r = null
+  let threw = null
+  try {
+    r = await issue(label, 'resolver', prompt, RESOLVER_SCHEMA, 'Report')
+  } catch (e) {
+    if (!(e && e.agentThrew)) throw e
+    threw = e.message
+  }
   if (r) absorbResolver(r)
   const report = { report_path: `${W}/report.md`, remaining_blocking: p.blocking, carried_blocking: p.carried, doc_blocking: p.doc_blocking, tree_digest: state.tree_digest, stop_reason: stopReason }
   if (r) {
@@ -2158,7 +2167,7 @@ async function finalHold(blocking, newTbd, stopReason, why, stage) {
     ? `。保持規則への変換の後の flow に残ったもの（flow の指摘: ${list(flowFindings(fc).map((x) => `${x.at}（${x.code}）`))} / 覆された決定を引く要素: ${list(fc.stale_refs.map((x) => `${x.el}（${x.ref}）`))}）`
     : ''
   const byRoute = (route) => list(Object.keys(routes).filter((k) => (routes[k] === 'exhausted') === (route === 'exhausted')))
-  const noDrafts = r ? '' : `。${label} が応答しなかった（${NOT_RUN_WHY}）ので、残った論点の保持規則と Issue の文案はありません`
+  const noDrafts = r ? '' : `。${threw || `${label} が応答しなかった（${NOT_RUN_WHY}）`}ので、残った論点の保持規則と Issue の文案はありません`
   return blocked(`${why}。blocking が ${blocking} 件残りました（尽きた項目: ${byRoute('exhausted')} / 経路を変えた項目: ${byRoute('rerouted')}）${flowLeft}${noDrafts}`, null, report)
 }
 

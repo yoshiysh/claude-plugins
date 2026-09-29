@@ -6,7 +6,7 @@
 出所にすると、run の詳細が session とともに消え、次のサイクルが同じ抽出を手書きで
 やり直すことになる。
 
-対象は `prd.js` の Workflow task output（`{summary, agentCount, result, workflowProgress,
+対象は `prd-spec.js` の Workflow task output（`{summary, agentCount, result, workflowProgress,
 totalTokens, totalToolCalls}` の形。task output で包まれていない素の `result` も受け付ける）。
 
 record/compare/summary の単位（leg と run、集計の仕方）は `references/telemetry.md` を正とする。
@@ -52,7 +52,7 @@ def _undeclared_count(value):
 
 
 def extract(result: dict, meta: dict) -> dict:
-    """prd.js の finish()（[SKILL_DIR]/scripts/prd.js）が返す形から指標だけを抜く。"""
+    """prd-spec.js の finish()（plugin の workflows/prd-spec.js）が返す形から指標だけを抜く。"""
     next_args = result.get("next_args")
     state = (next_args or {}).get("state") or {}
     return {
@@ -89,7 +89,7 @@ def aggregate_run(legs: list) -> dict:
 
     agent 数・token・tool call・問いの件数は leg ごとの値の合算（leg は独立した
     Workflow 実行）。holds・hold_drafts・open_tbd・missed・integrity・notices・undeclared・remaining_blocking・carried_blocking は
-    prd.js の `state` が run を通じて積み上がるものなので、終端 leg（`next_args` が
+    prd-spec.js の `state` が run を通じて積み上がるものなので、終端 leg（`next_args` が
     null、すなわち done か再開不能な blocked）の値だけを採る（合算すると二重に数える）。
     終端 leg が 1 件でない run と、全 leg で共有する非空 input_ref が無い run は invalid。
     """
@@ -315,14 +315,14 @@ def cmd_compare(args) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    rec = sub.add_parser("record", help="prd.js の task output 1 leg から指標を抽出して記録する")
+    rec = sub.add_parser("record", help="prd-spec.js の task output 1 leg から指標を抽出して記録する")
     rec.add_argument("--skill", required=True)
     rec.add_argument("--label", required=True, help="leg の識別名（ファイル名になる）")
     rec.add_argument("--run-id", default="", help="同じ run に属する leg をまとめる識別子（省略時は --label と同じ）")
     rec.add_argument("--variant", default="", help="条件の説明（例: main / staging+A案）")
     rec.add_argument("--force", action="store_true")
     rec.add_argument("--input-ref", default="", help="再現入力の識別子。対照 run の全 leg で同じ値にする")
-    rec.add_argument("output_json", help="prd.js の task output か result の JSON パス")
+    rec.add_argument("output_json", help="prd-spec.js の task output か result の JSON パス")
     rec.set_defaults(fn=cmd_record)
     sm = sub.add_parser("summary", help="スキルの記録を run 単位で一覧し done 到達率を出す")
     sm.add_argument("--skill", required=True)

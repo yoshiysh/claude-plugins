@@ -23,7 +23,7 @@ description: >
 `references/prd-and-spec.md`）。完成の条件は、開いている未確定事項（TBD）が 0 件であること。決まらない論点は
 保持規則（「〜の裁定が下るまで、…してはならない」）にして本文に残し、裁定は Issue にする。
 
-段の順序・起動の条件・上限は `scripts/prd.js` が持つ。**あなた（司令塔）の仕事は、依頼と回答を逐語で運び、
+段の順序・起動の条件・上限は名前付き workflow `/workflow:prd-spec-run`（plugin の `workflows/prd-spec.js`）が持つ。**あなた（司令塔）の仕事は、依頼と回答を逐語で運び、
 workspace を用意し、保存することだけである。** 決定・問い・回答・文書の文面は書かない。司令塔が書いた文は
 どの検証者も通らないまま、依頼者の判断や決定の顔をして文書に届く（実測: 司令塔が起草した決定が回答の欄に
 複写され、同じ決定が 2 つの出所から writer に届いた）。役割の分担は `schemas/role-map.md` を正とする。
@@ -41,7 +41,7 @@ workspace を用意し、保存することだけである。** 決定・問い�
 
 ## 流れ
 
-`prd.js` が 1 本で走り、止まるのは依頼者の入力を待つ地点（G0・G0-2・G1）だけである。問いが 0 件なら 1 回で終わる。
+`/workflow:prd-spec-run` が 1 本で走り、止まるのは依頼者の入力を待つ地点（G0・G0-2・G1）だけである。問いが 0 件なら 1 回で終わる。
 
 | 段 | 何をするか |
 |---|---|
@@ -80,11 +80,11 @@ workspace を用意し、保存することだけである。** 決定・問い�
    挙げたときは、先に `precedent.py convert --from <そのランの args の JSON> --out ~/.claude/prd-spec-workspace/<そのラン>/legacy`
    で変換してから並べる。
 
-## 中継: prd.js を呼び、返り値のとおりに運ぶ
+## 中継: /workflow:prd-spec-run を呼び、返り値のとおりに運ぶ
 
 ```
 Workflow({
-  scriptPath: "[SKILL_DIR]/scripts/prd.js",
+  name: "workflow:prd-spec-run",
   args: { workspace: "<W の絶対パス>", skillDir: "[SKILL_DIR]", entry: "new | existing | expand", existing_docs: [] }
 })
 ```
@@ -151,34 +151,24 @@ args に打ち直すのは ID・件数・digest と、返った `next_args` だ�
 
 ## 実行環境
 
-> **経路**: native `Workflow` が呼べるならそれを使う。native を試行した call が error・timeout・不正な返り値に
-> なっても、runner へ fallback しない（native で途中まで進んだ段を runner がもう一度走らせると、W の同じ
-> ファイルを 2 度書く）。native が無い Codex では `workflow:dynamic-workflow-runner` を使う。G0・G0-2・G1 は
-> `needs_answers` で run を終えて司令塔が聞く形なので、runner 内 gate に移さない。
->
-> **Codex classification: `rejected_source`**（W を args で固定し、agent に `workspace-write` で書かせる。
-> smoke run をしていないので、動くかは確かめていない）。
+native の Workflow で、名前付き workflow `/workflow:prd-spec-run` を呼ぶ。名前で呼ぶのは、plugin の workflow を名前で呼ぶと承認に
+「Yes, and don't ask again」が出る（本家の workflows の文書）ので、ゲートと blocked のたびの呼び直しで承認を繰り返さずに済むからである。
 
-Codex で動かすための要件は次のとおり。
-
-- request の `requirements` に `workspace-write` を宣言する。worktree の隔離は使わない（併用できない）。
-- W は args で固定し、run ごとに作られる workspace のパスは使わない（G0・G0-2・G1 をまたいで同じ W を読み書きする）。
-  host 側で W への書き込みを許す設定が要る。
-- resume に頼らず、返った `next_args` で段の境界から再実行する。`modelMap` は `references/workflow-io.md` §3 のとおりに渡す。
-- shunt は使えないので、監査役は文書を全文で読む。
+native の Workflow が無い Codex では実行しない。`workflow:dynamic-workflow-runner` は skill の中の `scriptPath` の callsite だけを扱い、
+名前の callsite と skill の外の script を受けないので、この skill は runner が実行の前に拒否する対象である。
 
 ## 参照ファイル
 
 | パス | 何の正か |
 |---|---|
-| `[SKILL_DIR]/scripts/prd.js` | 段の順序・起動の条件・上限・返り値の検査（Workflow script） |
+| plugin の `workflows/prd-spec.js`（名前 `/workflow:prd-spec-run`） | 段の順序・起動の条件・上限・返り値の検査（Workflow script） |
 | `[SKILL_DIR]/scripts/doc_check.mjs` | 本文を読む決定的な検査・snapshot と diff・tree-digest・INDEX の導出 |
 | `[SKILL_DIR]/scripts/precedent.py` | 先例の一覧と、旧い形式のランの変換 |
 | `[SKILL_DIR]/scripts/usage.py` | 1 ランの費用と時間の集計（母集団の定義を持つ） |
 | `[SKILL_DIR]/schemas/role-map.md` | 役割と責務（1 role = 1 責務） |
 | `[SKILL_DIR]/schemas/agent-contracts.md` | W のファイル・所有・各役の返り値 |
-| `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正。model / effort は `scripts/prd.js` の `ROLE_OPTS` が正） |
-| `[SKILL_DIR]/references/workflow-io.md` | prd.js の args・返り値・段・再実行 |
+| `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正。model / effort は `workflows/prd-spec.js` の `ROLE_OPTS` が正） |
+| `[SKILL_DIR]/references/workflow-io.md` | `/workflow:prd-spec-run` の args・返り値・段・再実行 |
 | `[SKILL_DIR]/references/io-example.md` | 依頼から保存までの通しの例 |
 | `[SKILL_DIR]/references/prd-and-spec.md` | 2 文書の目的と切り分け・必須の内容 |
 | `[SKILL_DIR]/references/document-structure.md` | 章立て・表と図・本文に書くのは規範だけ（§4） |

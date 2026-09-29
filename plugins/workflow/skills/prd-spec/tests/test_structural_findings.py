@@ -5,7 +5,7 @@
 必ず検出する」「文書を跨いだ ID 重複を検出する」— がここに載っているため、壊れると
 「監査を通った」と表示されたまま契約が破れる。
 
-正本は doc_check.mjs 1 箇所に置く。Workflow script（prd.js）は本文を読めないので、この検査の
+正本は doc_check.mjs 1 箇所に置く。Workflow script（prd-spec.js）は本文を読めないので、この検査の
 複製を持たず、agent に CLI を実行させて件数と digest だけを受け取る。複製が無いことをテストする。
 """
 
@@ -17,8 +17,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from prd_script import PRD_PATH as PRD
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-PRD = SCRIPTS / "prd.js"
 DOC_CHECK = SCRIPTS / "doc_check.mjs"
 
 

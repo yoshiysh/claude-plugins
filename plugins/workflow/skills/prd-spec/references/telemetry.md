@@ -6,7 +6,7 @@ session とともに消え、次の改善で同じ抽出を手でやり直すこ
 
 ## 単位: leg と run
 
-`prd.js` の 1 回の Workflow 呼び出しを **leg** と呼ぶ。1 run（依頼 1 件の完了まで）は、
+`prd-spec.js` の 1 回の Workflow 呼び出しを **leg** と呼ぶ。1 run（依頼 1 件の完了まで）は、
 `needs_answers`（G0 / G0-2 / G1）で区切られた複数 leg に分かれることがある
 （`references/workflow-io.md` §3・§4）。
 
@@ -18,7 +18,7 @@ session とともに消え、次の改善で同じ抽出を手でやり直すこ
   `aggregate_run()` を正とし、ここには書き写さない）。集計は 2 種類に分かれる。
   - **leg の値の合算**: `SUM_FIELDS` の欄（各 leg は独立した Workflow 実行で、問いの ID も
     leg ごとに異なるため合算してよい）。
-  - **終端 leg だけを採る**: `TERMINAL_FIELDS` の欄（`prd.js` の `state` が run を通じて積み上がる
+  - **終端 leg だけを採る**: `TERMINAL_FIELDS` の欄（`prd-spec.js` の `state` が run を通じて積み上がる
     値なので、合算すると二重に数える）。
   - `holds`・`hold_drafts`・`remaining_blocking`・`carried_blocking` の意味と互いの関係は `references/workflow-io.md` §3 を正とする
     （件数を足し合わせる前に読む）。

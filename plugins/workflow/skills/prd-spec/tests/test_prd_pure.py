@@ -1,4 +1,4 @@
-"""scripts/prd.js の純粋関数（PURE_BEGIN〜PURE_END）のテスト。
+"""workflows/prd-spec.js の純粋関数（PURE_BEGIN〜PURE_END）のテスト。
 
 段の分岐はこれらの関数の値で決まる。壊れても例外は出ず、段が黙って飛ぶか余計に起動するだけなので、
 入力と出力を直接押さえる。区間を取り出して node で評価する（workflow script は import を書けない）。
@@ -14,10 +14,10 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from prd_script import PRD_PATH as PRD  # noqa: E402
 from test_doc_check_workspace import FIXTURE, _ok, _put  # noqa: E402
 from test_ledger import _exported  # noqa: E402
 
-PRD = Path(__file__).resolve().parents[1] / "scripts" / "prd.js"
 CONTRACTS = Path(__file__).resolve().parents[1] / "schemas" / "agent-contracts.md"
 WORKFLOW_IO = Path(__file__).resolve().parents[1] / "references" / "workflow-io.md"
 

@@ -1,4 +1,4 @@
-"""scripts/prd.js の runEach() の回帰テスト。
+"""workflows/prd-spec.js の runEach() の回帰テスト。
 
 runEach は並列の agent を 1 回ずつ起動し、返り値を項目の順に並べる。null（利用者が止めたか、runtime の出し直しの後も
 API エラーだった）を出し直さない: 出し直すと利用者の停止を覆し、API エラーは runtime が既に出し直している。null を
@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-PRD = Path(__file__).resolve().parents[1] / "scripts" / "prd.js"
+from prd_script import PRD_PATH as PRD
 
 FUNC_START = "const runEach = async"
 
