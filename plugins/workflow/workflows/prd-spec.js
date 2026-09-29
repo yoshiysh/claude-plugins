@@ -578,7 +578,8 @@ const STOP_REASONS = ['pass_limit', 'no_progress', 'budget']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
-const SKIP_FACTS = ['unchanged']
+const SKIP = { unchanged: 'unchanged', carriedOnly: 'carried_only' }
+const SKIP_FACTS = Object.values(SKIP)
 const skipped = []
 
 // schemaDefects・callDefect: script が作る schema と opts の誤り（script の欠陥）を agent() の前に見分ける。見分けないと runtime が
@@ -920,6 +921,10 @@ function existingNote() {
 }
 
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
+const questionsCheck = (ids) => cli('questions', `--ids ${ids.join(',')} --check`)
+// recheckWaiting: flow-framer が flow を書き換えると、回答待ちの問いの候補の flow_refs が消えた要素を指しうる（ゲートで司令塔の doc_check questions が
+// 止まり、戻る段が無い）。flow を書く同じ呼び出しに検査させ、checkQuestions に渡す。
+const recheckWaiting = (ids) => (ids.length ? `続けて \`${questionsCheck(ids)}\` を実行する（返し方は §flow-framer の返り値）。` : '')
 const RULINGS_FLOW = cli('flow', '--rulings')
 
 // unchecked: 最後の独立な doc_check flow（verifier か flow-check が実行したもの）より後に起動した resolver の label と stdout。
@@ -927,6 +932,8 @@ const RULINGS_FLOW = cli('flow', '--rulings')
 // 印は起動の前に付ける（書いてから応答しなかった resolver:final の後も flow-check が数え直す。ほかの呼び出しの null は段を止める）。判断に使う stdout は independentFlow だけが返し、
 // 段の境界で印が残っていれば止める（段を回す loop）。
 // 呼び出しの場所ごとに flow-check を足す形にすると、足し忘れた呼び出しの後の判断が resolver の自己申告で決まる。
+// ownsFlow: flow.json を書ける resolver の cycle で verifier を外した（unchanged）。flow-check が版の食い違いを見つけても所有表の外の書き込みとは限らず、
+// 外す前の v1 の照合（absorbVerifier）と同じく段をやり直せる。
 let unchecked = null
 
 // seen: 最後に受け取った独立な doc_check flow の stdout（verifier か flow-check が実行したもの）。flow か台帳を書く役の起動で消える。
@@ -1127,7 +1134,7 @@ function resolverPrompt(label, stage, task) {
     `${W}/checks/conflicts.json、${W}/open.json、${W}/verifications.json、${W}/precedent.json も読む。`,
     existingNote(),
     task,
-    `問いを出したら、返る前に \`${cli('questions', '--ids <question にした ID をカンマで> --check')}\` を実行し、stdout を加工せずに questions_check に入れる。`,
+    `問いを出したら、返る前に \`${questionsCheck(['<question にした ID をカンマで>'])}\` を実行し、stdout を加工せずに questions_check に入れる。`,
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -1198,9 +1205,8 @@ async function resolveCycle(stage, opt) {
 // 再検証は AI の判断で飛ばさない」に触れないよう、変えたものが無いという事実だけで決める）。flow が段の入口の版のままなら、その版は前の段の出口
 // （exitViolation の seen）か入口の enterFromDisk で別の agent が照合している。changed を見るのは、flow を変えた cycle の ruleUnruled が残す
 // claimedIssues を、この cycle の verifier 以外に照合させないためでもある。生成者の自己申告で外すが、settle の independentFlow が flow-check に
-// 数え直させ、verifyLeft が残りを検証させる。
-const unchanged = (fe, ids, opt) =>
-  Boolean(fe && fe.fc) && !fe.changed && !ids.length && !carry.length && !opt.verifyExtra && !opt.flowChanged && !unjudgedElements(fe.fc).length
+// 数え直させ、verifyLeft が reconcile で carry を数え直して残りを検証させる。
+const unchanged = (fe, ids) => Boolean(fe && fe.fc) && !fe.changed && !ids.length && !unjudgedElements(fe.fc).length
 
 const takeFlow = async (stage, r, phaseTitle, writesFlow, required) => (writesFlow ? applyReturnedFlow(stage, r, phaseTitle, required) : flowKept(stage, r) || { checked: false })
 
@@ -1242,8 +1248,9 @@ async function ruleAndVerify(stage, opt) {
   }
   if (!ids.length && !carry.length && !opt.verifyExtra && !flowChecked) return { ok: true, passed: [] }
   const v1Label = `verifier:${stage}v`
-  if (unchanged(returned, ids, opt)) {
-    skipped.push({ step: v1Label, fact: 'unchanged', ids: byOption })
+  if (unchanged(returned, ids)) {
+    skipped.push({ step: v1Label, fact: SKIP.unchanged, ids: byOption })
+    unchecked = { ...unchecked, ownsFlow: true }
     return { ok: true, passed: [] }
   }
   const v1 = await askVerifier(v1Label, `${stage}v`, ids, opt.verifyExtra || '', phaseTitle)
@@ -1301,13 +1308,14 @@ async function ruleAndVerify(stage, opt) {
 // （変換と保持規則への変換は onlyAsked、flow は flowKept で確かめる）。
 async function independentFlow(verified, phaseTitle) {
   if (!unchecked) return { fc: verified }
-  const { tag, responded, claimed } = unchecked
+  const { tag, responded, claimed, ownsFlow } = unchecked
   const label = `flow-check:${tag}`
   const x = await once(label, 'flowCheck', [header('flowCheck', tag, label), `実行する: \`${RULINGS_FLOW}\`。stdout を加工せずに flow_check に入れて返す。`].join('\n\n'), FLOW_CHECK_SCHEMA, phaseTitle)
   const fc = x && flowCheckOf(x.flow_check, true)
   if (!fc) return { error: `flow-check（段 ${tag}）が doc_check flow の stdout を返しませんでした`, rerun: true }
   if (fc.content_sha256 !== state.flow_digest) {
     noteIntegrity(`flow-check（段 ${tag}）が検査した flow.json（${fc.content_sha256}）が、検証を通った版（${state.flow_digest}）と違う`)
+    if (ownsFlow) return { error: `段 ${tag}: 回答を当てて flow.json を書ける cycle で verifier を外した後の flow.json が、resolver の申告した版と違います`, rerun: true }
     return { error: `段 ${tag}: resolver の後に flow.json が変わっています。所有表の外で flow.json を書いたものを確かめる`, rerun: false }
   }
   const unknown = Object.keys(fc.codes).filter((code) => !FIXERS_BY_CODE[code])
@@ -1538,7 +1546,6 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const closers = (key) => uniq(Object.entries(state.about || {}).filter(([id, k]) => k === key && settled.has(id)).map(([id]) => id))
   const recurring = (state.pending || {}).recurring || {}
   const recurFound = m.found.filter((id) => pendingFindings(state.pending).some((f) => f.id === id && recurring[itemKey(f)]))
-  // settle が del した要素を、回答待ちの問いの候補の flow_refs が指したままだと、ゲートで司令塔の doc_check questions が止まり、戻る段が無い。
   const waiting = pendingQuestions(state)
   const got = await frameFlow(`flow-framer:${tag}`, (label) => [
     header('flowFramer', `${stage}（裁定の反映${n > 1 ? ` ${n} 回目` : ''}）`, label),
@@ -1552,7 +1559,7 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
     m.redo.length ? `検証に落ちた要素（理由は ${W}/verifications.json）: ${list(m.redo)}` : '',
     m.handoff.length ? `flow の指摘（要素: 何が無いか か符号。直し方は ${W}/checks/flow.json の fix）: ${m.handoff.map((x) => `${x.at}: ${FIXERS_BY_CODE[x.code].handoff || x.code}`).join(', ')}` : '',
     FRAME_RUN,
-    waiting.length ? `続けて \`${cli('questions', `--ids ${waiting.join(',')} --check`)}\` を実行する（返し方は §flow-framer の返り値）。` : '',
+    recheckWaiting(waiting),
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}`, rerun: got.rerun }
   const ledgerAtFrame = state.resolutions_sha256
@@ -1651,7 +1658,7 @@ async function applyReturnedFlow(stage, ret, phaseTitle, required) {
 }
 
 // ゲートで司令塔が導出するまで形を検査しないと、落ちたときに戻る段が無く、run の外で止まる。
-// recheck: 返り値の questions に無くても検査させる問い（3b が組み直した flow に合わせて直す、持ち越した問い）。裁定か hold に
+// recheck: 返り値の questions に無くても検査させる問い（flow を書き換えた後の回答待ちの問い・W から初めて受け取った問い）。裁定か hold に
 // 変えたものは除く。
 // owner: 問いの形の修正の label に付ける段。同じ段の中で問いを返す呼び出しは複数あり、label が重なると telemetry と再開の照合が
 // 呼び出しを取り違える。
@@ -1667,7 +1674,7 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
       resolverPrompt(
         label,
         `${owner}（問いの形の修正）`,
-        keepFlow(`問い ${list(target)} が問いの形の検査を通っていない（${d.text}）。その問いの question・options だけを直し（裁定の中身は変えない）、\`${cli('questions', `--ids ${target.join(',')} --check`)}\` の stdout を加工せずに questions_check に入れて返す。`)
+        keepFlow(`問い ${list(target)} が問いの形の検査を通っていない（${d.text}）。その問いの question・options だけを直し（裁定の中身は変えない）、\`${questionsCheck(target)}\` の stdout を加工せずに questions_check に入れて返す。`)
       ),
       RESOLVER_SCHEMA,
       phaseTitle
@@ -1883,6 +1890,7 @@ async function stageApply(stageId) {
 }
 
 async function stage3b() {
+  const waiting = pendingQuestions(state)
   const reframe = await frameFlow('flow-framer:3b-reframe', (label) => [
     header('flowFramer', '3b（回答での組み直し）', label),
     groundsBlock(),
@@ -1890,15 +1898,21 @@ async function stage3b() {
     existingNote(),
     '回答を入力に加えて flow を組み直す（flow-framer.md の「回答での組み直し」）。',
     FRAME_RUN,
+    recheckWaiting(waiting),
   ], 'Answers')
   if (reframe.error) return blocked(`段 3b: ${reframe.error}`, reframe.rerun === false ? null : '3b')
   claimIssues('flow-framer:3b-reframe', reframe.cc.pair_keys, reframe.fc.open_ids)
+  const qe = await checkQuestions('3b', '3b-reframe', { questions_check: reframe.questions_check }, 'Answers', waiting)
+  if (qe) return blocked(qe.error, qe.rerun === false ? null : '3b')
   const { opens, pairs } = unruledIssues(reframe.fc.open_ids, reframe.cc.pair_keys)
   const carried = pendingQuestions(state)
+  // 持ち越した問いだけなら resolver を起動しない。問いの形は上の検査が組み直した flow で確かめており、決まっていたかの判定は依頼者の回答に委ねる
+  // （G0-2 で 1 問余分に聞くことはあっても、推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
+  if (!opens.length && !pairs.length && carried.length) skipped.push({ step: 'resolver:3b', fact: SKIP.carriedOnly, ids: carried })
   const res = await resolveCycle('3b', {
     phase: 'Answers',
     task:
-      opens.length || pairs.length || carried.length
+      opens.length || pairs.length
         ? [
             `段 3b（resolver.md の「回答での組み直しの後」）:`,
             `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}`,

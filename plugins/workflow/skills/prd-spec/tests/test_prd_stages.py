@@ -1425,14 +1425,15 @@ class FlowDigest(unittest.TestCase):
                 self.assertEqual((r["result"]["status"], r["result"]["skipped"]), ("done", []), r["result"].get("reason"))
 
     def test_変えていないと申告したresolverがflowを変えていればflow_checkが止める(self):
-        # verifier を外した後の照合は settle の flow-check が持つ。v1 が照合した頃（同じ段からやり直せる blocked）と違い、flow を書く役の
-        # 後の照合ではないので、所有表の外の書き込みとしてやり直しの引数を付けない。
+        # verifier を外した後の照合は settle の flow-check が持つ。3a の resolver は flow.json を書けるので、所有表の外の書き込みにせず、
+        # v1 が照合していた頃と同じく段からやり直せる blocked にする。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         now = g0["next_args"]["state"]["flow_digest"]
         r = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "resolver_claims_sha_at": {"3a": now}})
         self.assertNotIn("verifier:3av", r["labels"])
         res = r["result"]
-        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3a"), res.get("reason"))
+        self.assertNotIn("所有表の外", res["reason"])
         self.assertEqual(len(res["integrity"]), 1, res["integrity"])
         self.assertIn("flow-check（段 3a）", res["integrity"][0])
 
@@ -3138,8 +3139,8 @@ class Reframe(unittest.TestCase):
         return [l for l in labels if l.startswith(("resolver:", "verifier:", "flow-framer"))]
 
     def test_G0からG0_2を経て初稿に進む(self):
-        g02 = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}})
-        self.assertEqual(self._cycle(g02["labels"]), ["resolver:3a", "verifier:3av", "flow-framer:3b-reframe", "resolver:3b", "verifier:3bv"], "3a で出た新しい問いは検証する")
+        g02 = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})
+        self.assertEqual(self._cycle(g02["labels"]), ["resolver:3a", "verifier:3av", "flow-framer:3b-reframe", "verifier:3bv"], "3a で出た新しい問いは検証する")
         res = g02["result"]
         self.assertEqual((res["status"], res["answers_path"], res["next_args"]["from"]), ("needs_answers", "/tmp/prd-w/answers/g0-2.md", "3a"))
         r = run({"args": res["next_args"], "ruled_at": {"3a": ["RS-002"]}})
@@ -3147,22 +3148,48 @@ class Reframe(unittest.TestCase):
         self.assertEqual(r["labels"][4:6], ["flow-check:4-backup", "writer:U-1:draft"], "writer の前に本文の控えを取る")
         self.assertEqual(r["result"]["status"], "done")
 
-    def test_持ち越した問いは3bの後にも問いの形を検査する(self):
-        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})
-        self.assertIn("--ids RS-002 --check", self._prompt(r, "resolver:3b-questions"), "返さなかった持ち越しの問いも検査させる")
-        self.assertEqual(r["result"]["question_ids"], ["RS-002"])
-        broken = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}, "bad_questions_at": ["3b-questions", "3b-questions-2"]})["result"]
+    def test_持ち越した問いだけならresolver_3bを起動せずG0_2で聞く(self):
+        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}, "unverified_at": {"3b-reframe": ["F-040"]}})
+        self.assertFalse(has(r["labels"], "resolver:3b"))
+        judged_by(self, r, "verifier:3bv", "F-040")
+        res = r["result"]
+        self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-002"]), res.get("reason"))
+        self.assertEqual(res["skipped"], [{"step": "resolver:3b", "fact": "carried_only", "ids": ["RS-002"]}])
+
+    def test_opensか組があればresolver_3bを起動する(self):
+        for issue in ({"open_ids_at": {"3b-reframe": ["O-020"]}}, {"pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}}):
+            with self.subTest(issue=issue):
+                r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}, **issue})
+                self.assertIn("resolver:3b", r["labels"])
+                self.assertIn("verifier:3bv", r["labels"])
+                self.assertEqual(r["result"]["skipped"], [])
+
+    def test_持ち越した問いは組み直したflowで問いの形を検査する(self):
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}}
+        r = run(spec)
+        self.assertIn("--ids RS-002 --check", self._prompt(r, "flow-framer:3b-reframe"))
+        self.assertFalse(has(r["labels"], "resolver:3b-reframe-questions"))
+        fixed = run({**spec, "bad_questions_at": ["3b-reframe"]})
+        self.assertIn("--ids RS-002 --check", self._prompt(fixed, "resolver:3b-reframe-questions"))
+        self.assertEqual((fixed["result"]["status"], fixed["result"]["question_ids"]), ("needs_answers", ["RS-002"]))
+        broken = run({**spec, "bad_questions_at": ["3b-reframe", "3b-reframe-questions"]})["result"]
         self.assertEqual((broken["status"], broken["next_args"]["from"]), ("blocked", "3b"))
+        # resolver:3b が起動したときは、返さなかった持ち越しの問いも resolver の後に検査させる。
+        paired = run({**spec, "pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}})
+        self.assertIn("--ids RS-002 --check", self._prompt(paired, "resolver:3b-questions"), "返さなかった持ち越しの問いも検査させる")
+        self.assertEqual(paired["result"]["question_ids"], ["RS-002"])
 
     def test_3aの問いと3bの問いを1回のG0_2で聞く(self):
-        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-003"]}})
+        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-003"]},
+                 "about": {"RS-003": {"pair": ["D-010", "F-035"]}}, "pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}})
         self.assertNotIn("resolver:3a-hold", r["labels"])
         self.assertIn("RS-002", self._prompt(r, "resolver:3b"))
         self.assertIn("根拠にしてよい resolution（合格・回答済み）: RS-001\n", self._prompt(r, "flow-framer:3b-reframe"), "回答待ちの RS-002 は出典にさせない")
         self.assertEqual((r["result"]["status"], r["result"]["question_ids"]), ("needs_answers", ["RS-002", "RS-003"]))
 
     def test_3bで決まった問いはG0_2で聞かない(self):
-        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3b": ["RS-002"]}, "questions_at": {"3a": ["RS-002"]}}
+        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3b": ["RS-002", "RS-005"]}, "questions_at": {"3a": ["RS-002"]},
+                "about": {"RS-005": {"pair": ["D-010", "F-035"]}}, "pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}}
         r = run(spec)
         self.assertIn("RS-002", self._prompt(r, "verifier:3bv").split("検証する resolution の ID:")[1].split("\n")[0])
         self.assertEqual(r["result"]["status"], "done")
@@ -3173,6 +3200,7 @@ class Reframe(unittest.TestCase):
         r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}})
         self.assertNotIn("resolver:3b", r["labels"])
         self.assertEqual(r["result"]["status"], "done")
+        self.assertEqual([x for x in r["result"]["skipped"] if x["step"] == "resolver:3b"], [], "持ち越した問いが無ければ外したことにしない")
 
     def test_G0_2の後に出た問いは保持規則になる(self):
         g02 = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
@@ -3232,7 +3260,7 @@ class Reframe(unittest.TestCase):
     def test_flowを書く権限の無いresolverがflowを変えたら止まる(self):
         g0 = self._g0()
         cases = (
-            ({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}, "flow_sha_at": {"3b": "f-evil"}}, "resolver:3b"),
+            ({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-002"]}, "pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}, "flow_sha_at": {"3b": "f-evil"}}, "resolver:3b"),
             ({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "flow_sha_at": {"3": "f-evil"}}, "resolver:3"),
             ({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "ruled_at": {"6": ["RS-011"]}, "flow_sha_at": {"6": "f-evil"}}, "resolver:6"),
         )
@@ -3245,8 +3273,8 @@ class Reframe(unittest.TestCase):
 
     def test_入口で問いだったIDは差し戻し後も落ちたら問いに戻す(self):
         fail = [{"id": "RS-002", "kind": "insufficient_grounds", "reason": "組み直した flow からは言えない"}]
-        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3b": ["RS-002"], "3b'": ["RS-002"]}, "questions_at": {"3a": ["RS-002"], "3b-convert": ["RS-002"]},
-                 "verifier_fail": {"3bv": fail, "3bv'": fail}})
+        r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3b": ["RS-002", "RS-005"], "3b'": ["RS-002"]}, "questions_at": {"3a": ["RS-002"], "3b-convert": ["RS-002"]},
+                 "about": {"RS-005": {"pair": ["D-010", "F-035"]}}, "pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}, "verifier_fail": {"3bv": fail, "3bv'": fail}})
         self.assertIn("RS-002 → question（insufficient_grounds）", self._prompt(r, "resolver:3b-convert"))
         self.assertEqual((r["result"]["status"], r["result"]["question_ids"]), ("needs_answers", ["RS-002"]))
 
@@ -3278,7 +3306,7 @@ class Reframe(unittest.TestCase):
 
     def test_段3bの途中で止まっても段の頭から再開できる(self):
         g0 = self._g0()
-        spec = {"ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-003"]}}
+        spec = {"ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-003"]}, "about": {"RS-003": {"pair": ["D-010", "F-035"]}}, "pair_keys_at": {"3b-reframe": ["pair:D-010|F-035"]}}
         whole = run({**spec, "args": g0["next_args"]})["result"]
         for stop in ("flow-framer:3b-reframe", "resolver:3b", "verifier:3bv"):
             with self.subTest(stop=stop):

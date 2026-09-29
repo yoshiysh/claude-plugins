@@ -380,7 +380,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 ```
 
 - `plan_check`: 段 2 だけ、doc_check `plan` の stdout を加工せずに返す（script が intake の `plan_check` と照合する）。
-- `questions_check`: settle でプロンプトが回答待ちの問いの ID を渡したときだけ、`questions --ids <その ID> --check` の stdout を
+- `questions_check`: プロンプトが回答待ちの問いの ID を渡したとき（settle と `3b-reframe`）だけ、`questions --ids <その ID> --check` の stdout を
   加工せずに返す。消した要素を問いの候補の `flow_refs` が指したままだと、ゲートで問いを導出できない。
 
 ## §resolver
