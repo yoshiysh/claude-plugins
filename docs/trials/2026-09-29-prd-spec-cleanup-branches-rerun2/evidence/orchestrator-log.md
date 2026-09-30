@@ -16,3 +16,6 @@
   AskUserQuestion 5 回（4・4・4・4・3 問。最後の 1 問は RS-002 の自由欄が空だったので同じ問いの補足を聞き直したもの）。
   RS-001 と RS-002 の補足は自由記述。回答は answers/g0.md に逐語で書いた（evidence/answers-g0.md）。
 - run2: resume（resumeFromRunId wf_f413a4a5-c3e、run1 の args に gates_answered {g0: question_ids}）。
+- run2 → needs_answers G0-2（1 問: RS-033）。agents 29、subagent_tokens 1,808,489、tool_uses 215、duration_ms 2,195,233。hold_drafts [RS-027]。
+  AskUserQuestion 1 回。回答は answers/g0-2.md（evidence/answers-g0-2.md）。
+- run3: resume（resumeFromRunId wf_f413a4a5-c3e、args に gates_answered {g0: …, "g0-2": ["RS-033"]}）。
