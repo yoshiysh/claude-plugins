@@ -19,3 +19,8 @@
 - run2 → needs_answers G0-2（1 問: RS-033）。agents 29、subagent_tokens 1,808,489、tool_uses 215、duration_ms 2,195,233。hold_drafts [RS-027]。
   AskUserQuestion 1 回。回答は answers/g0-2.md（evidence/answers-g0-2.md）。
 - run3: resume（resumeFromRunId wf_f413a4a5-c3e、args に gates_answered {g0: …, "g0-2": ["RS-033"]}）。
+- run3 → blocked「flow-check（段 3a）が doc_check flow の stdout を返しませんでした」、resumable false、next_args.from 3a（tx.restore t6）。
+  agents 32（保存された結果で返った分を含む）、subagent_tokens 188,646、duration_ms 52,355。skipped: verifier:3av（unchanged、RS-033）。
+  原因（journal の flow-check:3a の返り値）: haiku が `doc_check flow --rulings` の stdout を写し損ね、JSON として読めない（3,195 字目で
+  区切りの欠落。evidence/flow-check-3a-bad-stdout.json）。R16 で初めて実 agent に当たった経路の欠陥として記録し、skill を直してから
+  next_args で段 3a から呼び直す。
