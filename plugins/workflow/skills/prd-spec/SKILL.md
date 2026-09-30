@@ -77,7 +77,7 @@ workspace を用意し、保存することだけである。** 決定・問い�
    （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
    `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く。`existing_docs` に無い文書はその reset が消す
    （`references/workflow-io.md` §3）。
-5. **許可を確かめる**: run の前に、`references/permissions.md` の前提（auto mode）と allow rule を利用者に示し、足すかを確かめる。
+5. **許可と設定を確かめる**: run の前に、`references/permissions.md` の前提（auto mode）・allow rule・推奨する cache の TTL を利用者に示し、足すかを確かめる。
    settings は書かない（利用者の持ち物である）。
 6. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root <W の親> --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
@@ -198,7 +198,7 @@ native の Workflow が無い Codex では実行しない。`workflow:dynamic-wo
 | `[SKILL_DIR]/schemas/agent-contracts.md` | W のファイル・所有・各役の返り値 |
 | `[SKILL_DIR]/agents/` | 各役の振る舞い（役割は frontmatter の description が正。model / effort は `workflows/prd-spec.js` の `ROLE_OPTS` が正） |
 | `[SKILL_DIR]/references/workflow-io.md` | `/workflow:prd-spec-run` の args・返り値・段・再実行 |
-| `[SKILL_DIR]/references/permissions.md` | 前提の permission mode（auto）と、run の前に足す allow rule |
+| `[SKILL_DIR]/references/permissions.md` | 前提の permission mode（auto）と、run の前に足す allow rule・推奨する cache の TTL の設定 |
 | `[SKILL_DIR]/references/io-example.md` | 依頼から保存までの通しの例 |
 | `[SKILL_DIR]/references/prd-and-spec.md` | 2 文書の目的と切り分け・必須の内容 |
 | `[SKILL_DIR]/references/document-structure.md` | 章立て・表と図・本文に書くのは規範だけ（§4） |

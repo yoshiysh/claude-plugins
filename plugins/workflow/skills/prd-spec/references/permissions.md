@@ -1,11 +1,11 @@
-# run の前の許可（permissions）
+# run の前の利用者の設定（許可と cache の TTL）
 
 `/workflow:prd-spec-run` の run が止まるのは、依頼者の回答を待つゲートのほかは、agent の権限の確認と利用上限の待ちだけである
 （本家の workflows の文書: 「To avoid prompts on a long run, add the tools the agents need to your allow rules before starting.」）。
 prd-spec の agent は段ごとに doc_check を実行し、W（置き場は SKILL.md S0 の 2）を読み書きし、`[SKILL_DIR]` の役のファイルと契約を読む。
 
 skill は利用者の settings を書かない。settings を変えるかは利用者が決める（`.claude/rules/`・`CLAUDE.md` に触れるときに止まるのと同じ扱い）。
-S0 で、この文書の前提と規則を示して確かめる。
+S0 で、この文書の前提・規則・推奨する設定を示して確かめる。
 
 ## 前提: auto mode で走らせる
 
@@ -41,3 +41,20 @@ Read(/[SKILL_DIR]/**)
   でも確認が出る（本家の文書の「The first read outside the working directories」）。
 - 規則は doc_check の接頭辞と `[SKILL_DIR]` の読みに限る。広げると、prd-spec の外の操作まで確認なしに通る。
 - `precedent.py` は S0 で司令塔が 1 回実行するだけなので、規則に入れない（run の途中では止まらない）。
+
+## 推奨: subagent の prompt cache の TTL を 1 時間にする
+
+```json
+{ "subagentPromptCacheTtl": "1h" }
+```
+
+利用者が自分の settings（どの settings ファイルでもよい。例: user settings）に書く。skill は書かない。
+
+本家の workflows の文書: 「A workflow agent's requests fall outside the main conversation's cache TTL bucket, so its cache holds for five minutes
+by default, including on a Claude subscription.」この設定で 1 時間に延びる。
+
+- 効きうるのは、run の中で同じ model・同じ役の前の agent から 5 分〜1 時間空いて起動した agent の初回ターンである。
+- ゲートの回答待ちが 1 時間を超えると、次の run の最初の agent は設定があっても cache を作り直す。
+- API の請求では、1 時間の書き込みは 5 分より高い（同じ文書: 「The API bills 1-hour cache writes at a higher rate.」）。書き込みの全部が
+  高くなるので、1 回の試走から推計すると、読みに変わって減る分より増える分が大きく、cache の重み付きの費用は増える見込みだった。
+  費用が増えうることを示したうえで推奨する。
