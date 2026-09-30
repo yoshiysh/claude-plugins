@@ -8,6 +8,7 @@
 |---|---|---|
 | `docs/requirements/requester.md` | 生成の工程（依頼者とのやり取り） | 依頼者から見たシステムの振る舞いに関する要求文書。起動時の対象判定と実行基盤の確認、問いかけと「決まっていない」回答の扱い、保存前の提示と承認、根拠として読み取ってよい入力の範囲、中断時の扱いを定め、迷う判定の共通規則を 2 件にまとめている。 |
 | `docs/requirements/consumer.md` | 生成物（引き渡す文書一式）の性質 | 後続作業者（実装・テスト設計を行う AI）へ引き渡す生成文書一式が備えるべき性質を、完成の判定条件と依頼文の 5 つの語（戻りなく・不具合なく・精度高く・迷いなく・ぶれない）の分解として 29 件の要求で置く。読み手が AI であることに由来する記述規律と、要求文書・仕様書の分量の決まり方も扱う。 |
+| `docs/requirements/cleanup.md` | ブランチ整理と作業場所の同期（cleanup-branches） | 利用者から見た cleanup-branches の振る舞いに関する要求文書。取り込み済みの判定と確認なしの削除、判断が要る対象の 1 回の問いと承認された対象の削除、作業状態の提示、起点ブランチへの同期と作業用ブランチの作成、後処理、完了報告を定め、承認なしに失わないものと削除の対象から外すブランチを置いている。 |
 
 ## 要求一覧
 
@@ -75,6 +76,80 @@
 | PR-CONSUMER-029 | 改稿の経緯の不記載 | `docs/requirements/consumer.md` |
 | PR-CONSUMER-030 | 要求文書の分量 | `docs/requirements/consumer.md` |
 | PR-CONSUMER-031 | 仕様書の分量 | `docs/requirements/consumer.md` |
+| PR-CLEANUP-001 | 承認なしに失わないもの | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-076 | 現在のブランチを対象から外す | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-077 | 他の作業場所で checkout 中のブランチを対象から外す | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-078 | open の PR の head を対象から外す | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-002 | 主ブランチの集合 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-003 | 履歴による取り込み | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-064 | 主ブランチを判定と削除の対象から外す | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-065 | remote の起点ブランチの保持 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-066 | remote ブランチの PR による取り込み | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-004 | ローカルブランチの PR による取り込み | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-075 | ローカルブランチのパッチの一致による取り込み | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-005 | remote ブランチの判定の経路 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-006 | 判定できないブランチ | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-007 | PR 情報が得られないとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-008 | 状態の取得 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-009 | remote で削除済みのブランチの判別 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-010 | 追跡 ref の削除 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-011 | 起点ブランチの追従 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-012 | 判断の根拠 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-068 | 状態を取れなかったとみなす失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-080 | 起点ブランチの追従に失敗したとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-081 | 取り込み済みの判定で比べる先 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-069 | PR 情報だけが得られないとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-013 | 状態を取れないときの停止 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-014 | 状態を取れないときの報告 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-015 | 取り込み済みのローカルブランチの削除 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-016 | 取り込み済みの remote ブランチの削除 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-017 | 確認なしに削除する範囲 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-018 | 未取り込みの一括削除の禁止 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-019 | 取り込み済みのローカルブランチの削除の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-020 | 取り込み済みの remote ブランチの削除の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-021 | 判断が要る対象 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-067 | 判断が要る対象に入らない要判断のブランチ | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-071 | 追跡先を持たない未取り込みのローカルブランチ | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-022 | 1 回の問い | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-023 | 判断が要る対象が無いとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-024 | 候補の示し方 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-025 | 候補に添える事実 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-026 | 要約したときの選択肢 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-027 | 一括削除の選択肢の禁止 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-028 | 応答の扱い | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-029 | 一覧の提示の上限 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-030 | 終了済みの workspace | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-032 | workspace の示し方 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-033 | 承認されない対象 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-036 | 承認されたローカルブランチの削除 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-037 | 承認されたローカルブランチの削除の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-040 | 承認された remote ブランチの削除 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-041 | 承認された remote ブランチの削除の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-042 | 承認された workspace の削除 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-043 | workspace の削除の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-044 | 作業状態を削除しない | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-045 | 作業状態の提示 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-046 | 検出手段による起点ブランチ | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-047 | 既定の起点ブランチ | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-048 | 未コミットの変更の退避 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-049 | 退避の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-050 | 現在のブランチの open PR | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-051 | 起点ブランチへ動かすかの判定 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-052 | 起点ブランチに無いコミットがあるときの同期 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-074 | 同期で作業ツリーを保つ | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-053 | 作業用ブランチの名前 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-054 | 既定の作業用ブランチの名前 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-055 | 作業用ブランチを作れないとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-056 | 後処理の実行 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-057 | 書かれていないコマンドの禁止 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-058 | 後処理の失敗 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-059 | 後処理の設定が無いとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-060 | 退避した変更を戻す | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-061 | 退避が無いとき | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-070 | 戻す退避の範囲 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-062 | 完了報告の項目 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-073 | 作業状態の件数の時点 | `docs/requirements/cleanup.md` |
+| PR-CLEANUP-063 | 残したものの明示 | `docs/requirements/cleanup.md` |
 
 ## 関連する仕様文書
 
@@ -82,6 +157,7 @@
 |---|---|
 | `docs/requirements/requester.md` | `docs/specifications/flow.md` / `docs/specifications/elicitation.md` / `docs/specifications/authoring.md` / `docs/specifications/verification.md` |
 | `docs/requirements/consumer.md` | `docs/specifications/flow.md` / `docs/specifications/elicitation.md` / `docs/specifications/authoring.md` / `docs/specifications/verification.md` |
+| `docs/requirements/cleanup.md` | （対応する仕様文書なし） |
 
 ## 未解決（着手を止める未確定事項）
 
@@ -146,4 +222,4 @@
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 0 件
+- 実現する仕様項目が無い要求: 74 件
