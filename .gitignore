@@ -1,3 +1,6 @@
+# Settings
+.claude/settings.local.json
+
 __pycache__/
 *.py[cod]
 .browser4-cli/
