@@ -143,11 +143,12 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 不変条件（`.claude/rules/`・`CLAUDE.md`・PR のマージ・外部公開）に触れるとき、保存先が git 管理下でないとき、
 このランの生成物でない既存ファイルを上書きするとき（下の衝突）だけである。
 
-1. **照合**: `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
-   `tree_digest` を文字列で比べる。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
-   している版は監査されていない。同じ出力の `stray`（W に所有表に無いファイル。版の控えや残った作業用の script）の
-   件数が 0 でなければ、保存は止めずに、`stray.path` のファイルの一覧を事後報告に添える。続けて
-   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む）。
+1. **照合**: 先に `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W>` で `W/report.md` を導出する（3・4・5 が読む。
+   report は `tmp/` の作業用ディレクトリも消すので、後の tree-digest の `stray` に消えるファイルが載らない）。続けて
+   `node [SKILL_DIR]/scripts/doc_check.mjs tree-digest --workspace <W>` の `digest` と、返り値の
+   `tree_digest` を文字列で比べる（digest は文書だけから取るので、report の後でも変わらない）。違えば保存しない。最後の監査の後に誰かが文書を書き換えており、保存しようと
+   している版は監査されていない。同じ出力の `stray`（W に所有表に無いファイル。版の控えなど）の
+   件数が 0 でなければ、保存は止めずに、`stray.path` のファイルの一覧を事後報告に添える。
 2. **INDEX**: `node [SKILL_DIR]/scripts/doc_check.mjs index --workspace <W> --req-dir <要求の保存先> --spec-dir <仕様の保存先> --open-tbd "<返り値の open_tbd をカンマで>"`
    を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す。INDEX は導出物で、手で書くと本体と
    ずれる。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも W に置き、`existing_docs` に `fixed: true` で並べる（固定の印は `existing_docs` にしか無く、並べない文書は書き換えてよい文書として監査される）。

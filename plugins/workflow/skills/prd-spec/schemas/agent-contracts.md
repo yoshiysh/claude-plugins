@@ -13,13 +13,17 @@
   中身は W のファイルに書く。
 - **書いてよいのは、下の表で自分が書き手になっているファイルだけ。** 他のファイルは別の役が所有しており、
   そこを書き換えると、その役の検証の前提（sha256・digest の照合）が崩れる。作業用の script や一時ファイルは、
-  プロンプトの「作業用ディレクトリ」（`W/tmp/<label>/`）にだけ置く（表の `tmp/<label>/` の行）。
+  プロンプトの「作業用ディレクトリ」（`W/tmp/<label>/`）にだけ置く（表の `tmp/<label>/` の行）。環境が案内するセッションの
+  scratchpad もこれに代わらない: W の外は検査にも片付けにも乗らず、並列の agent が同じ名前を使って上書きし合う（実測: 並行した
+  grounding と implementer が scratchpad の同じ `flow.txt` に書いた）。
 - **台帳は `doc_check put` / `del` でだけ書く。** 台帳は、下の表で「put で書く」とした JSON である。丸ごと読んで
   書き戻すと、途中で失敗したときに再実行の結果が変わる。そのため復元点としての控えが要るようになる（W に置く控えは、put・del と段 4・7 の `backup` が段の
   token ごとに取る `tx/<token>/*` だけで、agent は控えを作らない）。put は同じ
   入力なら何度流しても同じ結果になるので、失敗したら同じコマンドを流し直せばよい。
   - 書くとき: `node <SKILL_DIR>/scripts/doc_check.mjs put --ledger <台帳> [--doc <文書キー>] --token <token> --workspace <W>` の
-    標準入力に `{ "<配列名>": [要素…], "<スカラー名>": 値 }` を渡す（heredoc で渡せば引用符を逃がさずに済む）。
+    標準入力に `{ "<配列名>": [要素…], "<スカラー名>": 値 }` を渡す（heredoc で渡せば引用符を逃がさずに済む）。入力をファイルに
+    置くときは作業用ディレクトリに置いて `--input <パス>` で渡す。put は書けたらそのファイルを消し、拒否したら残す（直して同じコマンドを
+    流し直す）。作業用ディレクトリの外のパスは拒否する。
     新しいキーの要素は末尾に足される。要素を消すときは `del --ledger <台帳> --ids a,b`（配列が 2 つ以上ある台帳は
     `--collection <配列名>` も）。`--ledger` にはファイル名ではなく台帳の名前を渡す。名前・配列・キー・欄は
     `describe` の stdout で見る（正本は doc_check の `LEDGERS`。実装を読まない）。
@@ -37,7 +41,8 @@
     exit 1 で終わる。照合の script を自作しない。
   - put 以外で書いた台帳は正規形から外れ、それを読む doc_check のモードがすべて exit 1 で止まる。
 - **台帳の読み方は下の表が決める。** 「全件」の役は、自分の節の入力とプロンプトの「根拠一式」の行に挙がる台帳を
-  丸ごと Read する。それ以外の読みは、プロンプトが渡した ID を `get --ledger <台帳> --ids <ID,…> [--fields <欄,…>]` で引く。「全件」の役も、
+  全件読む。整形された台帳は 1 回の Read に入らないので、`view --ledger <台帳> [--fields <欄,…>]` が `checks/` に書く欄ごとに 1 行の
+  ファイルを offset/limit で Read する（`--fields` はキーと挙げた欄だけを残す。台帳の写しを自分で作らない）。それ以外の読みは、プロンプトが渡した ID を `get --ledger <台帳> --ids <ID,…> [--fields <欄,…>]` で引く。「全件」の役も、
   入力の外の台帳（verifications・routes など）はプロンプトが get のコマンドを添えた ID だけを引く。丸ごと Read すると台帳の全件が以後の
   全ターンに載り続ける（実測: resolutions.json は 364K）ので、全件は表で要ると決めた役に限る。get は要素を加工せずに返し、無い ID を
   `missing`、stdout の上限に入らなかった ID を `over_budget` に出す（`--fields` で欄を絞るか、ID を分けて読み直す）。`--ids` の一覧だけで
@@ -116,9 +121,9 @@
 | `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
 | `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer の前に `backup` が文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
-| `tmp/<label>/` | その label の呼び出しの agent だけ。返る前に自分で消す。他の label の tmp は読まない | 作業用の script・一時ファイル | 残ったものは `snapshot`・`tree-digest` の `stray` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
+| `tmp/<label>/` | その label の呼び出しの agent だけ。片付けは doc_check が持つ（put の `--input` は書けたら消え、監査の `snapshot --sweep` が `--live` に無い label のディレクトリを、run の後の `report` が残りのすべてを消して `swept` に出す）ので、agent は消さない（自分で消すと、消し忘れと、消した後に要る中身を W の外へ写す動きが出た）。他の label の tmp は読まない | 作業用の script・一時ファイル | 消えるまでは `snapshot`（`--sweep` なし）と `tree-digest` の `stray` に出る。消したものは `swept` に出る。役と段の組ではなく label で分けるのは、同じ波の writer や文書ごとの監査役が同じ役・同じ段で並列に動き、片方の後片付けが他方の作業中のファイルを消すからである |
 
-見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`、`plan.json` に載った文書の中身（中身は snapshot と
+見ていない範囲: W の外、`--live` に挙げた label の `tmp/<label>/`（`report` を導出しない止まり方の run では、最後の監査の snapshot の後に動いた label のものが残る）、`plan.json` に載った文書の中身（中身は snapshot と
 監査が見る）。`questions` の 2 ファイルは、1 本目の rename の後に 2 本目が落ちると片方だけが新しくなる
 （同じコマンドを流し直せば両方そろう）。
 
@@ -217,8 +222,8 @@
 }
 ```
 
-- 同じ ID を再検証したときは、その ID の項目に put する。不合格から合格に変わったら `fail_kind` に `null` を送って
-  消す（`fail_kind` は `fail` だけが持てるので、残すと put が拒否する）。
+- 同じ ID を再検証したときは、その ID の項目に put する。不合格から合格に変わったら `verdict` と `reason` を送れば、
+  put が `fail_kind` を消す（`fail_kind` は `fail` だけが持てる）。
 - `resolutions_sha256`・`decisions_sha256` は put が埋め、最後に検証した版の値になる。put には検証を始めたときに
   取った値を `--expect-resolutions`・`--expect-decisions` で渡す。今のファイルがその版と違えば、put は何も書かない
   （検証していない版の値を合格の記録に残さないため）。`F-` の項目には、put がその時点の流れの要素の digest を

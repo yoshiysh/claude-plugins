@@ -917,11 +917,14 @@ function header(role, stage, label) {
     `SKILL_DIR: ${SKILL_DIR}`,
     `entry: ${ENTRY}`,
     `台帳を ID で引くとき: \`${GET_TEMPLATE}\`（台帳の名前と欄: \`${cli('describe')}\`）`,
+    `台帳を全件読むとき: \`${VIEW_TEMPLATE}\``,
     `最初に ${SKILL_DIR}/agents/${ROLE_FILES[role]} を Read し、その指示に従う。`,
     `ファイルと返り値の形は ${SKILL_DIR}/schemas/agent-contracts.md の ${[...COMMON_SECTIONS, ...CONTRACT_SECTIONS[role]].map((s) => `「## ${s}」`).join('・')} を正とする。見出しを Grep で探し、その節だけを offset/limit で Read する（全体を読むと以後の全ターンに載り続ける）。`,
     `段: ${stage}`,
     `作業用ディレクトリ: ${W}/tmp/${fileKey(label)}/`,
-    ...(TX_ROLES.includes(role) ? [`トークン: ${txToken()}`, `台帳を書く: \`${cli('put', `--ledger <台帳> --token ${txToken()}`)}\``] : []),
+    ...(TX_ROLES.includes(role)
+      ? [`トークン: ${txToken()}`, `台帳を書く: \`${cli('put', `--ledger <台帳> --token ${txToken()} --input ${W}/tmp/${fileKey(label)}/<名前>.json`)}\`（または標準入力）`]
+      : []),
   ].join('\n')
 }
 
@@ -945,6 +948,7 @@ function existingNote() {
 
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 const GET_TEMPLATE = cli('get', '--ledger <台帳> --ids <ID,…>')
+const VIEW_TEMPLATE = cli('view', '--ledger <台帳> [--fields <欄,…>]')
 const getCli = (ledger, ids) => cli('get', `--ledger ${ledger} --ids ${ids.join(',')}`)
 const FINDINGS_READ = `中身の読み方は契約の「### 指摘の形」。ファイルは ${W}/findings/`
 const questionsCheck = (ids) => cli('questions', `--ids ${ids.join(',')} --check`)
@@ -2074,7 +2078,8 @@ const ROLE_TAG = { implementer: 'im', grounding: 'gr', crossDoc: 'cd' }
 const findingsName = (role, doc, round, extra) => `r${round}-${ROLE_TAG[role]}${extra ? 'x' : ''}-${doc === 'all' ? 'all' : fileKey(doc)}`
 const auditorLabel = (p, round) => `${p.role}:r${round}:${p.doc}${p.extra ? ':extra' : ''}`
 
-// liveDirs: 指名された監査役が snapshot を取る間も、同じ plan の他の監査役が作業用ディレクトリを使っている。
+// liveDirs: 指名された監査役が snapshot を取る間も、同じ plan の他の監査役が作業用ディレクトリを使っている。snapshot の --sweep は
+// ここに無い label の作業用ディレクトリを消すので、snapshot と並行して動く呼び出しはすべてここに挙がっていなければならない。
 function liveDirs(plan, round) {
   return plan.map((p) => fileKey(auditorLabel(p, round))).join(',')
 }
@@ -2084,6 +2089,7 @@ function liveDirs(plan, round) {
 function noteAudited(audited, label) {
   const found = [
     ['stray', 'W に所有表に無いファイル'],
+    ['swept', '作業用ディレクトリに残っていて消したもの'],
     ['size_over', '分量の目安（SIZE_BUDGET）を超えたファイル'],
   ]
   for (const [key, what] of found) {
@@ -2135,7 +2141,7 @@ async function stage5() {
   plan[plan.length - 1].designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)}${FIXED_FLAG}`)}\` → designated.audited`,
+    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
   const { results, missing } = await runAuditors(plan, 1, '5')
   if (missing.length) throw notRun(missing.join(', '))
@@ -2289,7 +2295,7 @@ async function stage8() {
   const designatedText = [
     '監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。',
     `最初に（判定の前に）: \`${cli('diff', `--against audited-${n} --expect ${state.audit.digest}`)}\`。${W}/checks/diff-audited-${n}.json の changed・added・removed・by_doc を designated.diff に入れる（exit 3 なら designated.diff_error）。`,
-    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)}${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
+    `最後に: \`${cli('snapshot', `--save audited-${round} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited、\`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check、\`${cli('tree-digest')}\` → designated.tree_digest`,
   ].join('\n')
   plan[0].designatedText = designatedText
   const designatedOf = (h) => (h.results[0] && h.results[0].designated) || {}

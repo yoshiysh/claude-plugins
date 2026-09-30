@@ -430,6 +430,49 @@ class Idempotent(_Workspace):
         self.assertEqual([p.name for p in self.ws.iterdir() if p.name.endswith(".tmp")], [])
 
 
+class PutInput(_Workspace):
+    """put --input は作業用ディレクトリの中のファイルだけを受け、書けたら消し、拒否したら直して流し直せるよう残す。"""
+
+    def _input(self, body, rel="tmp/verifier__3v/put.json"):
+        p = self.ws / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        return p
+
+    def test_書けたらファイルを消しディレクトリは残す(self):
+        p = self._input({"decisions": [{"id": "D-003", "value": "英語で書く"}]})
+        _ok(self.ws, "put", "--ledger", "decisions", "--input", str(p))
+        self.assertFalse(p.exists())
+        self.assertTrue(p.parent.is_dir(), "呼び出し中の agent のディレクトリは消さない（片付けは snapshot --sweep と report）")
+        self.assertIn("英語で書く", (self.ws / "decisions.json").read_text(encoding="utf-8"))
+
+    def test_拒否したらファイルを残し直して流し直せる(self):
+        p = self._input({"decisions": [{"id": "D-003", "nope": 1}]})
+        self._unchanged_after("decisions.json", "put", "--ledger", "decisions", "--input", str(p))
+        self.assertTrue(p.exists())
+        p.write_text(json.dumps({"decisions": [{"id": "D-003", "value": "英語で書く"}]}, ensure_ascii=False), encoding="utf-8")
+        _ok(self.ws, "put", "--ledger", "decisions", "--input", str(p))
+        self.assertFalse(p.exists())
+
+    def test_Wをsymlink越しに指してもWの中の作業用ディレクトリなら受ける(self):
+        link = Path(self._tmp.name) / "W-link"
+        link.symlink_to(self.ws)
+        p = self._input({"decisions": [{"id": "D-003", "value": "英語で書く"}]})
+        r = subprocess.run(["node", str(DOC_CHECK), "put", "--ledger", "decisions", "--token", TOKEN, "--workspace", str(link), "--input", str(p)],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(p.exists())
+
+    def test_作業用ディレクトリの外のファイルは拒否して消さない(self):
+        outside = Path(self._tmp.name) / "scratchpad" / "put.json"
+        for p in (outside, self.ws / "put.json", self.ws / "checks" / "put.json"):
+            with self.subTest(str(p)):
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(json.dumps({"decisions": [{"id": "D-003", "value": "英語で書く"}]}), encoding="utf-8")
+                self._unchanged_after("decisions.json", "put", "--ledger", "decisions", "--input", str(p))
+                self.assertTrue(p.exists())
+
+
 class Canonical(_Workspace):
     MODES = (("flow",), ("conflicts",), ("doc",))
 
@@ -577,6 +620,15 @@ class Verifications(_Workspace):
         _ok(self.ws, "put", *self._args(), stdin=body)
         self._unchanged_after("verifications.json", "put", *self._args(res="f" * 64), stdin={"items": [{"id": "RS-001", "verdict": "fail", "reason": "r"}]})
 
+    def test_不合格から合格に変えたputはfail_kindを送らなくても消す(self):
+        _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]})
+        _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "RS-001", "verdict": "pass", "reason": "r2"}]})
+        item = json.loads((self.ws / "verifications.json").read_text())["items"][0]
+        self.assertEqual({k: item[k] for k in item if k != "digest"}, {"id": "RS-001", "verdict": "pass", "reason": "r2"})
+        _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "RS-001", "verdict": "pass", "fail_kind": None, "reason": "r3"}]})
+        self._unchanged_after("verifications.json", "put", *self._args(),
+                              stdin={"items": [{"id": "RS-001", "verdict": "pass", "fail_kind": "mapping", "reason": "r"}]})
+
     def test_flow_要素の項目には今の要素の_digest_が入る(self):
         _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "F-002", "verdict": "pass", "reason": "r", "digest": "x"}]})
         d1 = json.loads((self.ws / "verifications.json").read_text())["items"][0]["digest"]
@@ -635,15 +687,6 @@ class FieldMerge(_Workspace):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": None, "evidence": None}]})
         self.assertNotIn("answer", self._res()[0])
         _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-001", "quote": None}]})
-
-    def test_再検証で合格にしてfail_kindを残すputは拒否し_nullを送れば通る(self):
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "ruling": "internal"}]})
-        args = ("--ledger", "verifications", "--expect-resolutions", _sha(self.ws / "resolutions.json"), "--expect-decisions", _sha(self.ws / "decisions.json"))
-        _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "mapping", "reason": "r"}]})
-        r = self._unchanged_after("verifications.json", "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "reason": "r2"}]})
-        self.assertIn("fail_kind", r.stderr)
-        _ok(self.ws, "put", *args, stdin={"items": [{"id": "RS-001", "verdict": "pass", "fail_kind": None, "reason": "r2"}]})
-        self.assertNotIn("fail_kind", json.loads((self.ws / "verifications.json").read_text())["items"][0])
 
     def test_新しい要素のnullの欄は書かれず_同じ入力の2回目は変えない(self):
         body = {"routes": [{"id": "RT-001", "unit": "U-1", "item_id": None}]}

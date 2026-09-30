@@ -2,6 +2,7 @@
 
 1. snapshot・tree-digest の stray は、契約の所有表から実行時に読んだパターンで決まる。表に無いファイル（版の控え・
    残った作業用の script）が出て、表に合うファイル（checks/INDEX など）は出ない。--live の label の tmp は出ない
+   監査の snapshot --sweep は --live に無い label の作業用ディレクトリを消し、run の後の report は残りをすべて消す
 2. doc_check は所有表の写しを持たない（表を変えれば結果が変わり、表が読めなければ止まる）
 3. コピー・版管理の禁止は契約の「共通の約束」に 1 回だけあり、台帳を Write / Edit で書かせる指示が残っていない
 4. 契約の resolutions.json の例が put と questions を通る。候補の数の上限は doc_check にだけある
@@ -93,6 +94,65 @@ class Stray(unittest.TestCase):
         out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r1__x,resolver__3a")
         self.assertEqual(_stray_list(self.ws, out), [s for s in STRAY if not s.startswith("tmp/")])
         self.assertIn("tmp/resolver__3a/apply3a.py", _stray_list(self.ws, _ok(self.ws, "tree-digest", "--live", "resolver__3b")))
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Sweep(unittest.TestCase):
+    """監査の snapshot --sweep は --live に無い label の作業用ディレクトリを空のものも含めて消し、swept に出す。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.ws = Path(self._tmp.name) / "W"
+        shutil.copytree(FIXTURE, self.ws)
+        _touch(self.ws, "tmp/verifier__3bv-settle/v.json")
+        _touch(self.ws, "tmp/grounding__r2__x/rs.txt")
+        (self.ws / "tmp" / "resolver__6-fix").mkdir(parents=True)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_liveに無いlabelのディレクトリを消しliveのものは残す(self):
+        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r2__x", "--sweep")
+        self.assertEqual(sorted(p.name for p in (self.ws / "tmp").iterdir()), ["grounding__r2__x"])
+        swept = json.loads((self.ws / out["swept"]["path"]).read_text(encoding="utf-8"))["swept"]
+        self.assertEqual(swept, ["tmp/verifier__3bv-settle/v.json"], "中身の無いディレクトリは消すが数えない")
+        self.assertFalse((self.ws / "tmp" / "resolver__6-fix").exists())
+        self.assertEqual(out["swept"]["count"], 1)
+        self.assertEqual(_stray_list(self.ws, out), [])
+
+    def test_sweepを付けない呼び出しは消さない(self):
+        for mode, *args in (("snapshot", "--save", "w", "--live", "grounding__r2__x"), ("tree-digest",)):
+            out = _ok(self.ws, mode, *args)
+            self.assertNotIn("swept", out)
+        self.assertTrue((self.ws / "tmp" / "resolver__6-fix").is_dir())
+        self.assertTrue((self.ws / "tmp" / "verifier__3bv-settle" / "v.json").exists())
+
+    def test_liveの無いsweepは何も消さずに止まる(self):
+        r = _run(self.ws, "snapshot", "--save", "w", "--sweep")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--live", r.stderr)
+        self.assertTrue((self.ws / "tmp" / "resolver__6-fix").is_dir())
+
+    def test_reportは作業用ディレクトリをすべて消す(self):
+        out = _ok(self.ws, "report")
+        self.assertFalse((self.ws / "tmp").exists() and any((self.ws / "tmp").iterdir()))
+        self.assertEqual(out["swept"]["count"], 2)
+
+    def test_リンクは辿らず消したリンクだけを出す(self):
+        outside = Path(self._tmp.name) / "outside"
+        _touch(outside, "keep.txt")
+        (self.ws / "tmp" / "verifier__3bv-settle" / "link").symlink_to(outside)
+        out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor", "--live", "grounding__r2__x", "--sweep")
+        swept = json.loads((self.ws / out["swept"]["path"]).read_text(encoding="utf-8"))["swept"]
+        self.assertEqual(swept, ["tmp/verifier__3bv-settle/link", "tmp/verifier__3bv-settle/v.json"])
+        self.assertTrue((outside / "keep.txt").exists())
+
+    def test_prd_jsの監査のsnapshotはliveとsweepを付ける(self):
+        src = PRD_PATH.read_text(encoding="utf-8")
+        snaps = re.findall(r"cli\('snapshot', `([^`]*)`\)", src)
+        self.assertTrue(snaps)
+        for rest in snaps:
+            self.assertRegex(rest, r"--live \$\{liveDirs\([^)]*\)\} --sweep", rest)
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")

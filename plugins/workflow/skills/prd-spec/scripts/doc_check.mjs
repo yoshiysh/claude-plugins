@@ -1563,7 +1563,7 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'describe']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1677,7 +1677,8 @@ const LEDGERS = {
     cases: {
       items: {
         by: (it) => (it.verdict === undefined ? '（verdict なし）' : it.verdict),
-        rows: { fail: {}, pass: { never: ['fail_kind'] }, '（verdict なし）': { never: ['fail_kind'] } },
+        // drop: 送った要素がこの行になったら、送らなかった欄を消す。pass が fail_kind を持つ版は作れないので、残す値が無い。
+        rows: { fail: {}, pass: { never: ['fail_kind'], drop: ['fail_kind'] }, '（verdict なし）': { never: ['fail_kind'] } },
       },
     },
   },
@@ -2209,6 +2210,18 @@ function mergeList(cur, incoming, key, grouped, tally) {
   return out
 }
 
+function dropByCase(spec, list, merged, sent) {
+  const cases = [].concat((spec.cases || {})[list] || []).filter((c) => Object.values(c.rows).some((r) => r.drop))
+  if (!cases.length) return merged
+  const key = spec.lists[list]
+  const byKey = new Map(sent.map((el) => [el[key], el]))
+  return merged.map((el) => {
+    const drop = byKey.has(el[key]) ? cases.flatMap((c) => (c.rows[c.by(el)] || {}).drop || []) : []
+    const gone = drop.filter((f) => f in el && !(f in byKey.get(el[key])))
+    return gone.length ? Object.fromEntries(Object.entries(el).filter(([f]) => !gone.includes(f))) : el
+  })
+}
+
 function mergeElement(old, el) {
   const out = { ...old, ...el }
   for (const k of Object.keys(el)) if (el[k] === null) delete out[k]
@@ -2236,6 +2249,35 @@ function wsSha(ws, opts) {
 const STDOUT_BUDGET = 50000
 const stdoutBytes = (value) => Buffer.byteLength(`${JSON.stringify(stampStdout(value))}\n`)
 
+// fieldPicker: --fields の欄だけを残す（キーは常に残す）。欄は台帳の型から選ばせ、打ち間違いを空の結果にしない。
+function fieldPicker(name, fields) {
+  const allowed = [...new Set(Object.values(ledgerOf(name).fields || {}).flat())]
+  const unknown = (fields || []).filter((f) => !allowed.includes(f))
+  if (unknown.length) throw new Error(`--fields は台帳 ${name} の欄 ${allowed.join(' / ')} から選ぶ: ${unknown.join(', ')}`)
+  return (el, key) => (fields ? Object.fromEntries(Object.keys(el).filter((k) => k === key || fields.includes(k)).map((k) => [k, el[k]])) : el)
+}
+
+// view: 欄と配列の要素を 1 行ずつにするのは、Read が 2000 字を超える行を切るから。名前を台帳と --fields だけで決めるので、並列の呼び出しは同じ中身を同じ名前に書く。
+function wsView(ws, opts) {
+  const name = opts.ledger
+  const spec = ledgerOf(name)
+  const doc = opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(',')
+  const file = spec.file(doc)
+  const pick = fieldPicker(name, opts.fields)
+  const value = readLedger(ws, name, opts.doc[0]) || emptyLedger(spec)
+  const field = ([k, v]) => ` ${JSON.stringify(k)}: ${Array.isArray(v) && v.length ? `[\n${v.map((x) => `  ${JSON.stringify(x)}`).join(',\n')}\n ]` : JSON.stringify(v)}`
+  const blocks = [
+    ...Object.entries(spec.lists).flatMap(([list, key]) => listOf(value, list).map((el) => `{${JSON.stringify(list)}: {\n${Object.entries(pick(el, key)).map(field).join(',\n')}\n}}`)),
+    ...Object.keys(spec.scalars).filter((k) => k in value).map((k) => JSON.stringify({ [k]: value[k] })),
+  ]
+  const lines = blocks.join('\n').split('\n')
+  const suffix = opts.fields ? `.${fnv([...new Set(opts.fields)].sort().join(','))}` : ''
+  const rel = `checks/view-${file.replace(/\.json$/, '')}${suffix}.txt`
+  fs.mkdirSync(path.join(ws, 'checks'), { recursive: true })
+  writeAtomic([path.join(ws, rel), lines.map((l) => `${l}\n`).join('')])
+  return { ledger: name, path: rel, elements: blocks.length, lines: lines.length, sha256: sha256Bytes(Buffer.from(ledgerText(value))) }
+}
+
 // get: 台帳から ID の要素を選ぶだけで、値を加工しない（要約や書き直しは正本から drift した写しになる）。上限に入らない要素は
 // 黙って落とさず over_budget に挙げる。
 function wsGet(ws, opts) {
@@ -2243,13 +2285,9 @@ function wsGet(ws, opts) {
   const spec = ledgerOf(name)
   if (!opts.ids || !opts.ids.length) throw new Error('get には --ids a,b が要ります')
   const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
-  const allowed = [...new Set(Object.values(spec.fields || {}).flat())]
-  const fields = opts.fields || null
-  const unknown = (fields || []).filter((f) => !allowed.includes(f))
-  if (unknown.length) throw new Error(`--fields は台帳 ${name} の欄 ${allowed.join(' / ')} から選ぶ: ${unknown.join(', ')}`)
+  const pick = fieldPicker(name, opts.fields)
   const value = readLedger(ws, name, opts.doc[0])
   const ids = [...new Set(opts.ids)]
-  const pick = (el, key) => (fields ? Object.fromEntries(Object.keys(el).filter((k) => k === key || fields.includes(k)).map((k) => [k, el[k]])) : el)
   const hits = ids.map((id) => ({ id, rows: Object.entries(spec.lists).flatMap(([list, key]) => listOf(value, list).filter((el) => el[key] === id).map((el) => [list, pick(el, key)])) }))
   const out = { ledger: name, path: file, exists: value !== null, sha256: ledgerSha(ws, name, opts.doc[0]), ...Object.fromEntries(Object.keys(spec.lists).map((k) => [k, []])), missing: [], over_budget: [] }
   out.missing = hits.filter((h) => !h.rows.length).map((h) => h.id)
@@ -2344,19 +2382,32 @@ function aboutRejects(next, body) {
     .flatMap((r) => live.filter((o) => o[key] !== r[key] && aboutText(o.about) === aboutText(r.about)).map((o) => `${r[key]}: 論点 ${aboutText(r.about)} には ${o[key]} の裁定があります（同じ ID を put で直すか、supersedes に ${o[key]} を挙げて覆す）`))
 }
 
-function wsPut(ws, opts, stdin) {
+// putInput: W の外のファイルは所有表にも片付けにも乗らないので受けない。拒否したら残す（直して流し直せる）。
+function putInput(ws, input) {
+  const abs = path.resolve(input)
+  const real = (p) => (fs.existsSync(p) ? fs.realpathSync(p) : p)
+  const rel = path.relative(real(ws), path.join(real(path.dirname(abs)), path.basename(abs))).split(path.sep).join('/')
+  const work = ownedPatterns().workDirs.map((re) => re.exec(rel)).find(Boolean)
+  if (rel.startsWith('..') || !work) throw new LedgerRejected(`--input は W の作業用ディレクトリ（所有表の tmp/<label>/）の中のファイルにしてください: ${input}`)
+  if (!fs.existsSync(abs)) throw new LedgerRejected(`--input のファイルがありません: ${input}`)
+  return { abs, text: fs.readFileSync(abs, 'utf8') }
+}
+
+function wsPut(ws, opts, readStdin) {
   const name = opts.ledger
   const spec = ledgerOf(name)
   const token = txToken(opts, 'put')
   const file = spec.file(opts.doc.length === 1 ? opts.doc[0] : opts.doc.join(','))
+  const input = opts.input ? putInput(ws, opts.input) : null
+  const source = input ? '--input' : '標準入力'
   let body
   try {
-    body = JSON.parse(stdin)
+    body = JSON.parse(input ? input.text : readStdin())
   } catch (e) {
-    throw new LedgerRejected(`標準入力を JSON として読めません: ${e.message}`)
+    throw new LedgerRejected(`${source}を JSON として読めません: ${e.message}`)
   }
   if (body && typeof body === 'object' && !Array.isArray(body)) for (const k of spec.filled || []) delete body[k]
-  checkShape(name, body, '標準入力', true)
+  checkShape(name, body, source, true)
   const cur = readLedger(ws, name, opts.doc[0], false) || emptyLedger(spec)
   const shapeBad = fieldRejects(name, body, cur)
   if (shapeBad.length) throw new LedgerRejected(`欄の検査に落ちました（何も書いていません）:\n${shapeBad.join('\n')}`)
@@ -2367,7 +2418,7 @@ function wsPut(ws, opts, stdin) {
   let next = { ...emptyLedger(spec), ...cur }
   const tally = { added: [], replaced: [], unchanged: [], removed: [] }
   for (const [k, key] of Object.entries(spec.lists)) {
-    if (body[k]) next[k] = mergeList(next[k], body[k], key, (spec.groupBy || []).includes(k), tally)
+    if (body[k]) next[k] = dropByCase(spec, k, mergeList(next[k], body[k], key, (spec.groupBy || []).includes(k), tally), body[k])
   }
   for (const k of Object.keys(spec.scalars)) {
     if (!(k in body)) continue
@@ -2392,6 +2443,7 @@ function wsPut(ws, opts, stdin) {
     txBegin(ws, token, file)
     writeAtomic([p, text])
   }
+  if (input) fs.rmSync(input.abs)
   return ledgerResult(name, file, tally, next, ws, opts.doc[0])
 }
 
@@ -2525,7 +2577,9 @@ function wsReport(ws, opts) {
     ...upstream.flatMap((r) => [`### ${r.id}`, '', ...block('改訂の文案', r.upstream_revision)]),
   ].join('\n')
   writeAtomic([path.join(ws, 'report.md'), md])
-  return { path: 'report.md', method: method.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)) }
+  // report は司令塔が run の返った後に実行するので、動いている label は無い。
+  const swept = sweepWorkDirs(ws, [], 'report')
+  return { path: 'report.md', method: method.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
 }
 
 function workspaceDocs(ws) {
@@ -3253,6 +3307,7 @@ function ownedPatterns() {
   return {
     files: pats.filter((p) => !p.endsWith('/')).map((p) => new RegExp(`^${toRe(p, '[^/.]+')}$`)),
     workDirs: pats.filter((p) => p.endsWith('/')).map((p) => new RegExp(`^${toRe(p, '([^/]+)')}`)),
+    workBases: pats.filter((p) => p.endsWith('/')).map((p) => p.replace(/<[^>]+>\/$/, '')),
   }
 }
 
@@ -3296,6 +3351,24 @@ function sizesOf(ws, wsDocs, name) {
   return { sizes, size_over: { count: over.length, path: writeCheck(ws, `${name}.sizes.json`, { budget: SIZE_BUDGET, sizes, over }) } }
 }
 
+// sweepWorkDirs: --live は今動いている label のすべてでなければならない（並列の writer の tree-digest は他の label を知らないので --sweep で明示させる）。
+// swept に出すのは消したファイルとリンクだけで、中身の無いディレクトリは数えない。リンクは辿らない（rmSync はリンクだけを消す）。
+function sweepWorkDirs(ws, live, name) {
+  const alive = new Set(live)
+  const dirs = ownedPatterns().workBases.flatMap((base) => {
+    const abs = path.join(ws, base)
+    if (!fs.existsSync(abs)) return []
+    return fs.readdirSync(abs, { withFileTypes: true }).filter((e) => e.isDirectory() && !alive.has(e.name)).map((e) => `${base}${e.name}`)
+  })
+  const entries = (rel) => fs.readdirSync(path.join(ws, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? entries(`${rel}/${e.name}`) : [`${rel}/${e.name}`]))
+  const swept = dirs.flatMap((d) => {
+    const listed = entries(d)
+    fs.rmSync(path.join(ws, d), { recursive: true, force: true })
+    return listed
+  })
+  return { swept: { count: swept.length, path: writeCheck(ws, `${name}.swept.json`, { swept: swept.sort() }) } }
+}
+
 // treeFindings: snapshot と tree-digest の所見。一覧は checks/<name>.* に書き、stdout には件数とパスだけを出す
 // （一覧を stdout に載せると、script が notices に入れて next_args が上限なしに膨らむ）。name を snapshot の label に
 // するのは、後の snapshot が先の notices の指す一覧を上書きしないため。
@@ -3313,8 +3386,10 @@ function wsSnapshot(ws, opts) {
   if (label.startsWith('audited-') && opts.role !== 'auditor') {
     throw new Error('audited- で始まるラベルは --role auditor のときだけ保存できます（監査の基準は監査役だけが保存する）')
   }
+  if (opts.sweep && !opts.live) throw new Error('--sweep には --live <今動いている label,…> が要ります（挙げなかった label の作業用ディレクトリを消すため）')
+  const swept = opts.sweep ? sweepWorkDirs(ws, opts.live, label) : {}
   const wsDocs = workspaceDocs(ws)
-  const found = treeFindings(ws, wsDocs, opts.live, label)
+  const found = { ...treeFindings(ws, wsDocs, opts.live, label), ...swept }
   const items = snapshotOf(wsDocs)
   const digest = digestOf(items)
   const docs = Object.fromEntries(wsDocs.map((d) => [d.key, { path: d.path, digest: digestOf({ [d.key]: items[d.key] }), items: items[d.key] }]))
@@ -3467,6 +3542,8 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--token') o.token = take()
     else if (a === '--fixed') o.fixed = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--file') o.file = take()
+    else if (a === '--input') o.input = take()
+    else if (a === '--sweep') o.sweep = true
     else if (a === '--keep') o.keep = take().split(',').map((s) => s.trim()).filter(Boolean)
     else throw new Error(`不明な引数です: ${a}`)
   }
@@ -3487,7 +3564,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'diff') return wsDiff(ws, opts)
   if (mode === 'tree-digest') return wsTreeDigest(ws, opts)
   if (mode === 'index') return wsIndex(ws, opts)
-  if (mode === 'put') return wsPut(ws, opts, fs.readFileSync(0, 'utf8'))
+  if (mode === 'put') return wsPut(ws, opts, () => fs.readFileSync(0, 'utf8'))
   if (mode === 'del') return wsDel(ws, opts)
   if (mode === 'backup') return wsBackup(ws, opts)
   if (mode === 'restore') return wsRestore(ws, opts)
@@ -3497,6 +3574,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'sha') return wsSha(ws, opts)
   if (mode === 'report') return wsReport(ws, opts)
   if (mode === 'get') return wsGet(ws, opts)
+  if (mode === 'view') return wsView(ws, opts)
   throw new Error(`不明なモードです: ${mode}`)
 }
 

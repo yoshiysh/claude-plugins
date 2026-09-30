@@ -6,6 +6,7 @@
 4. --ledger にファイル名を渡すと、token の検査より前に台帳の名前の一覧を出して exit 1 になり、何も書かない
 5. prd-spec.js のプロンプトが渡す --ledger の名前は LEDGERS のキーだけ
 6. 契約は input.md と台帳の読み方を役ごとに宣言し、grep・get の役が見ない部分は全文・全件の役が見る。その規則は agents などに写さない
+7. view は台帳の全件を、Read が切らない長さの行で checks/ に書く
 """
 
 import hashlib
@@ -19,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prd_script import PRD_PATH as PRD  # noqa: E402
-from test_ledger import CONTRACTS, DOC_CHECK, SKILL, _exported, _ok, _run, _Workspace  # noqa: E402
+from test_ledger import CONTRACTS, DOC_CHECK, RESOLUTION_Q, SKILL, _exported, _ok, _run, _Workspace  # noqa: E402
 
 
 def _tree(ws):
@@ -112,6 +113,51 @@ class Get(_Workspace):
         self.assertEqual((r.returncode, r.stdout), (1, ""))
         self.assertIn(str(budget), r.stderr)
         self.assertEqual(_tree(self.ws), before)
+
+
+def _blocks(text):
+    dec, i, out = json.JSONDecoder(), 0, []
+    while i < len(text.rstrip()):
+        obj, i = dec.raw_decode(text, i)
+        out.append(obj)
+        i += len(text[i:]) - len(text[i:].lstrip())
+    return out
+
+
+class View(_Workspace):
+    """view は台帳の全件を欄と配列の要素ごとに 1 行で checks/ に書く（整形した台帳は 1 回の Read に入らず、agent が W の外に写しを作った。
+    1 要素 1 行だと Read が 2000 字を超える行を切る）。"""
+
+    def test_要素を加工せずに書き欄を絞れる(self):
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [TRICKY]})
+        out = _ok(self.ws, "view", "--ledger", "decisions")
+        stored = json.loads((self.ws / "decisions.json").read_text(encoding="utf-8"))["decisions"]
+        text = (self.ws / out["path"]).read_text(encoding="utf-8")
+        self.assertTrue(out["path"].startswith("checks/view-decisions"))
+        self.assertEqual(_blocks(text), [{"decisions": d} for d in stored])
+        self.assertEqual((out["elements"], out["lines"]), (len(stored), len(text.rstrip("\n").split("\n"))))
+        picked = _ok(self.ws, "view", "--ledger", "resolutions", "--fields", "value")
+        self.assertNotEqual(picked["path"], out["path"])
+        self.assertEqual(_blocks((self.ws / picked["path"]).read_text(encoding="utf-8")), [{"resolutions": {"id": "RS-001", "value": TRICKY["value"]}}])
+
+    def test_2000字を超える要素も行は欄か配列の要素1つの長さに収まる(self):
+        options = [{**o, "description": o["description"] + "。" + "説明" * 450} for o in RESOLUTION_Q["options"]]
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "options": options}]})
+        out = _ok(self.ws, "view", "--ledger", "resolutions")
+        text = (self.ws / out["path"]).read_text(encoding="utf-8")
+        self.assertGreater(len(json.dumps(_blocks(text)[0], ensure_ascii=False)), 2000)
+        self.assertLess(max(len(l) for l in text.splitlines()), 2000)
+
+    def test_同じ引数は同じパスに書き台帳は変えない(self):
+        before = {k: v for k, v in _tree(self.ws).items() if not k.startswith("checks/")}
+        a = _ok(self.ws, "view", "--ledger", "flow", "--fields", "label,type")
+        b = _ok(self.ws, "view", "--ledger", "flow", "--fields", "type,label")
+        self.assertEqual(a, b)
+        self.assertEqual({k: v for k, v in _tree(self.ws).items() if not k.startswith("checks/")}, before)
+
+    def test_プロンプトは全件を読む方法にviewを示す(self):
+        self.assertIn("cli('view', '--ledger <台帳>", PRD.read_text(encoding="utf-8"))
+        self.assertIn("`view --ledger <台帳>", CONTRACTS.read_text(encoding="utf-8"))
 
 
 class Describe(unittest.TestCase):

@@ -404,6 +404,7 @@ function respond(prompt, label) {
       const found = {
         stray: { count: (spec.stray_at || {})[stage] || 0, path: `checks/audited-${n}.stray.json`, files: listed((spec.stray_at || {})[stage] || 0, 'stray') },
         size_over: { count: (spec.size_over_at || {})[stage] || 0, path: `checks/audited-${n}.sizes.json`, files: listed((spec.size_over_at || {})[stage] || 0, 'size') },
+        swept: { count: (spec.swept_at || {})[stage] || 0, path: `checks/audited-${n}.swept.json` },
       }
       const docCheck = JSON.stringify({ blocking: (spec.doc_blocking_at || {})[stage] || 0, flow_refs: spec.doc_flow_refs || {} })
       const fixedFlag = /doc_check\.mjs snapshot [^`]* --fixed (\S+?)`/.exec(prompt)
@@ -1271,6 +1272,14 @@ class CommonContract(unittest.TestCase):
         for p in r["prompts"]:
             self.assertIn("「## 共通の約束」・「## W のファイルと書き手」", p["prompt"], p["label"])
 
+    def test_台帳を書く役のputの入力ファイルは自分の作業用ディレクトリを指す(self):
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        writes = [p for p in r["prompts"] if "\n台帳を書く: " in p["prompt"]]
+        self.assertTrue(writes)
+        for p in writes:
+            line = re.search(r"^台帳を書く: .*$", p["prompt"], re.M).group(0)
+            self.assertIn(f"--input {tmp_dir(p['prompt'])}<名前>.json", line, p["label"])
+
     def test_並列に動く呼び出しは別の作業用ディレクトリを指す(self):
         units = [
             {"id": "U-1", "docs": ["requirements/x"], "depends_on": []},
@@ -1317,6 +1326,14 @@ class Notices(unittest.TestCase):
         self.assertEqual(len(res["notices"]), 1)
         self.assertIn("100 件", res["notices"][0])
         self.assertIn("/tmp/prd-w/checks/audited-1.stray.json", res["notices"][0])
+        self.assertEqual(res["integrity"], [])
+
+    def test_監査のsnapshotが消した作業用ディレクトリはnoticesに件数とパスが入る(self):
+        res = run({"args": args(), "swept_at": {"r1": 3}})["result"]
+        self.assertEqual(res["status"], "done")
+        self.assertEqual(len(res["notices"]), 1)
+        self.assertIn("3 件", res["notices"][0])
+        self.assertIn("/tmp/prd-w/checks/audited-1.swept.json", res["notices"][0])
         self.assertEqual(res["integrity"], [])
 
     def test_段8のstrayはnoticesに入りintegrityに入らない(self):
