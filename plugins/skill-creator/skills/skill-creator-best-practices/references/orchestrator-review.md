@@ -120,7 +120,7 @@ staging に改稿を書きました（本体はまだ変えていません）。
 
 1. **Workflow を呼ぶ**（対象・範囲・意図を渡す）
 2. **script が組んだ収支を verbatim に relay する**（件数も判定も再計算しない）
-3. **承認後に `staging.changed_files` を機械的にコピーする**
+3. **承認後に native は `staging.changed_files` を機械コピーし、Codex runner は approved package を helper で適用する**
 
 **内容の生成・修正・採点は一切しない。** 改稿は updater の仕事で、未解消の指摘は script が
 ループ内で updater へ戻す（`REVISE_SEVERITIES`）。この禁止を明示するのは、ループの出口から漏れた
@@ -141,8 +141,26 @@ staging に改稿を書きました（本体はまだ変えていません）。
 
 ## 承認後の適用手順
 
-この節はnative Workflowで完了したupdateだけに適用する。Codex runnerのreview/updateはexecution前に
-`rejected_source`となるため、stagingや承認済み結果があると推定してこの手順へ進まない。
+### Codex runner の approved package 適用
+
+verified return の `source_result.verdict: applied_to_staging`、`action_package_path`、
+`action_package_sha256` を提示して承認を得る。全て揃わなければ適用しない。
+承認後だけ次を実行する。
+
+```bash
+node [SKILL_DIR]/scripts/apply-update-package.mjs \
+  --package "<action_package_path>" \
+  --approved-package-sha256 "<action_package_sha256>"
+```
+
+helper は package と target / staging の tree hash、add/update/delete manifest、Reverify receipt を再照合し、
+同じ親ディレクトリに準備した tree で target を置換する。失敗時は元 tree を保持または rollback する。
+`applied_with_backup_remains` は適用済みとして backup の所在を伝える。中断時に backup が残る場合も
+勝手に消さない。手動コピーへ fallback しない。適用後は `quick_validate.py` を実行し結果を伝える。
+
+### native Workflow のコピー手順
+
+以下は native Workflow で完了した update だけに適用する。
 
 承認を得てから、司令塔が次を行う。Workflow は実行中にユーザー入力を受け取れないため、
 この工程だけは script の外にある。

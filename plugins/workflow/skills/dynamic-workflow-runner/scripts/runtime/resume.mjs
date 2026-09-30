@@ -7,7 +7,6 @@ import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
 import { exactObject, validateRequirements } from './inputs.mjs';
-import { rejectUpdateWorkflow } from './update-guard.mjs';
 import { runAgent } from './agent-run.mjs';
 import { createRunWorkspace, reuseRunWorkspace, snapshotRunWorkspace } from './run-workspace.mjs';
 
@@ -42,7 +41,8 @@ async function filesSnapshot(paths) {
 async function implementationHash() {
   // Bind runtime/worker, backend policy implementation and pinned dependencies.
   const names = ['runtime.mjs', 'resume.mjs', 'agent-run.mjs', 'worker.mjs', 'source.mjs', 'inputs.mjs',
-    'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'run-workspace.mjs', 'package-lock.json'];
+    'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'run-workspace.mjs',
+    'package-lock.json'];
   return hash(json(await Promise.all(names.map(async name =>
     [name, hash(await readFile(new URL(name, import.meta.url)))]))));
 }
@@ -53,10 +53,12 @@ async function readEvidence(root, name) {
   if (!info.isFile() || info.size > maxEvidenceBytes) throw Error('invalid checkpoint evidence file');
   if (typeof constants.O_NOFOLLOW !== 'number' || typeof constants.O_NONBLOCK !== 'number')
     throw Error('safe checkpoint evidence reads require O_NOFOLLOW and O_NONBLOCK support');
-  const file = await fsPromises.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const file = await fsPromises.open(path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const opened = await file.stat();
-    if (!opened.isFile() || !sameEvidenceFile(info, opened)) throw Error('checkpoint evidence changed before read');
+    if (!opened.isFile() || !sameEvidenceFile(info, opened))
+      throw Error('checkpoint evidence changed before read');
     const content = Buffer.alloc(info.size);
     let bytesRead = 0;
     while (bytesRead < info.size) {
@@ -117,7 +119,6 @@ function validateHistory(request, events, seal) {
 }
 
 export async function resumableWorkflow(request, host) {
-  rejectUpdateWorkflow(request, host);
   if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required');
   const { backend, runDir } = host;
   if (!backend || typeof backend.run !== 'function') throw Error('backend.run required');
@@ -133,7 +134,7 @@ export async function resumableWorkflow(request, host) {
     throw Error('checkpoint backend identity required');
   const limits = { maxAgents: host.maxAgents ?? 2, concurrency: host.concurrency ?? 2,
     timeoutMs: host.timeoutMs ?? 60000,
-    agentTimeoutMs: host.agentTimeoutMs ?? (host.timeoutMs ?? 60000),
+    agentTimeoutMs: host.agentTimeoutMs ?? Math.max(1, Math.floor((host.timeoutMs ?? 60000) * 0.8)),
     maxOutputBytes: host.maxOutputBytes ?? 1000000 };
   for (const [key, value] of Object.entries(limits))
     if (!Number.isSafeInteger(value) || value < 1) throw Error(`invalid ${key}`);
@@ -145,7 +146,6 @@ export async function resumableWorkflow(request, host) {
   const argsText = json(request.args ?? {});
   if (argsText === undefined) throw Error('args must be JSON serializable');
   const { meta, body } = compileSource(source, capabilities);
-  rejectUpdateWorkflow(request, host, meta.requirements);
   const backendPolicy = await backend.prepare?.() ?? null;
   backend.validateCheckpointPolicy?.();
   const identity = { protocol: PROTOCOL, implementationHash: await implementationHash(), sourceHash: hash(source),
@@ -339,12 +339,12 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
             throw Error('historical checkpoint mismatch');
           cursor++;
           if (expected.type === 'checkpoint.stopped') {
-            if (cursor !== transcript.length) throw Error('historical transcript not fully consumed');
-            // Recheck immediately before opening live admission.
-            if (!same(await filesSnapshot(policy.files), previous.boundary.files)) throw Error('checkpoint dependency/artifact drift');
-            if (!same(await snapshotRunWorkspace(workspace?.path), previous.boundary.workspace))
-              throw Error('checkpoint workspace drift');
-            replaying = false;
+              if (cursor !== transcript.length) throw Error('historical transcript not fully consumed');
+              // Recheck immediately before opening live admission.
+              if (!same(await filesSnapshot(policy.files), previous.boundary.files)) throw Error('checkpoint dependency/artifact drift');
+              if (!same(await snapshotRunWorkspace(workspace?.path), previous.boundary.workspace))
+                throw Error('checkpoint workspace drift');
+              replaying = false;
           }
           send(message.id, null); releaseReplay(); return;
         }

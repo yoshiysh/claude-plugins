@@ -73,10 +73,10 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
-Codex runner `review` and `update` are unsupported. The selector and runtime reject these
-modes before backend preparation, run-directory creation, or agent dispatch; capability
-declarations and `updateContract` cannot enable them. Skill updates must use a supported
-native Workflow route.
+Codex runner `review` remains unsupported. `update` requires a host-bound `updatePolicy`,
+matching runtime capability, staging-rooted phase-scoped writes, and a hash-bound action
+package. The caller applies the package only after approval with its apply helper; a
+selector flag or capability declaration alone does not authorize target writes.
 As a conservative additional gate, literal option-shaped objects containing model,
 label or schema and unsupported capability keys are rejected (literal isolation:
 "worktree" is accepted only when the host provides worktree capability)
