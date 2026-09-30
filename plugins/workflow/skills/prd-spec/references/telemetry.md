@@ -69,9 +69,12 @@ python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
 
 ## 1 ランの費用と時間
 
-`python3 [SKILL_DIR]/scripts/usage.py --workspace <W> <transcript のディレクトリ>` が、agent ごとの label・run・ターン数・
-入力（cache read と creation。creation は 5 分と 1 時間の内訳に分ける）・最初のターンの同じ欄・壁時計、run（Workflow の
-呼び出し）ごとの合計と最初の agent、合計、agent が動いていた時間の和、周回ごとの指摘の件数を出す。請求の重みで見た値は
-`--weights` に倍率を渡したときだけ出す。倍率は試走の時点の公式の料金表（`claude-api` スキルの pricing）から取り、
-script にもこの文書にも書き写さない（料金の改定でずれる）。何を 1 ランの agent として数えるか（空の transcript と、W を参照しない別案件の transcript を
+`python3 [SKILL_DIR]/scripts/usage.py --workspace <W> <transcript のディレクトリ>` が、agent ごとの label・model・run・ターン数・
+入力（cache read と creation。creation は 5 分と 1 時間の内訳に分ける）・最初のターンの同じ欄・壁時計、wf_ のディレクトリ
+（Workflow の Run）ごとの合計と最初の agent、合計と model ごとの合計、agent が動いていた時間の和、周回ごとの指摘の件数を出す。
+resume は同じ Run のディレクトリに書くので、Run ごとの行は Workflow の呼び出しの複数回を含みうる（呼び出しで分ける材料は
+script の docstring）。請求の重みで見た値は、model ごとに `--weights <model>=R,W5M,W1H` を繰り返して渡したときだけ、
+1 つの model の行（model ごとの合計・agent・その最初のターン）に出す。cache read の倍率も通常の入力の単価も model で違うので、
+model をまたぐ合計には出さない。model は transcript の `message.model` のまま書き、倍率の無い model が母集団にあれば失敗する。
+倍率は試走の時点の公式の料金表（`claude-api` スキルの pricing）から取り、script にもこの文書にも書き写さない（料金の改定でずれる）。何を 1 ランの agent として数えるか（空の transcript と、W を参照しない別案件の transcript を
 除く）は script が持つ。数え方を呼ぶ人に任せると、同じランが別の体数で報告され、ラン同士を比べられない。

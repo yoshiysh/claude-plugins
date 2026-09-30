@@ -18,10 +18,10 @@ import precedent  # noqa: E402
 import usage  # noqa: E402
 
 
-def _line(ts, mid=None, usage_=None, text=""):
+def _line(ts, mid=None, usage_=None, text="", model="opus"):
     d = {"type": "assistant" if usage_ else "user", "timestamp": ts, "message": {"content": text}}
     if usage_:
-        d["message"].update({"id": mid, "model": "opus", "usage": usage_})
+        d["message"].update({"id": mid, "model": model, "usage": usage_})
     return json.dumps(d, ensure_ascii=False)
 
 
@@ -99,10 +99,11 @@ def _split(i, read, c5, c1, out, total=None):
 class UsageCache(unittest.TestCase):
     """prompt cache の実測（R16）: agent・run ごとの行、cache_creation の 5 分・1 時間の内訳、最初のターン、請求の重み。
 
-    倍率はテスト用の合成の値（2・3・7）で、実際の料金表の値ではない（料金は試走の時点に司令塔が公式の表から渡す）。
+    倍率はテスト用の合成の値で、実際の料金表の値ではない（料金は試走の時点に司令塔が公式の表から渡す）。
+    solo だけを haiku にして、model ごとに別の倍率が当たることを見る。
     """
 
-    W = (2.0, 3.0, 7.0)
+    W = {"opus": (2.0, 3.0, 7.0), "haiku": (0.5, 1.5, 4.0)}
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -121,7 +122,7 @@ class UsageCache(unittest.TestCase):
                 lines = [_line(ts, text=f"Read {ws}/input.md")] + [_line(ts, f"{aid}-m{i}", u) for i, u in enumerate(turns)]
                 (d / f"agent-{aid}.jsonl").write_text("\n".join(lines))
                 (d / f"agent-{aid}.meta.json").write_text(json.dumps({"description": label}))
-        (self.tr / "agent-solo.jsonl").write_text("\n".join([_line("2026-01-01T02:00:00Z", text=ws), _line("2026-01-01T02:00:01Z", "s1", _split(1, 0, 0, 10, 1))]))
+        (self.tr / "agent-solo.jsonl").write_text("\n".join([_line("2026-01-01T02:00:00Z", text=ws), _line("2026-01-01T02:00:01Z", "s1", _split(1, 20, 0, 10, 1), model="haiku")]))
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -161,7 +162,7 @@ class UsageCache(unittest.TestCase):
         s = usage.summarize(str(self.ws), [str(self.tr)])
         self.assertNotIn("weighted_input", s["total"])
         self.assertNotIn("weights", s)
-        self.assertFalse([r for r in s["per_agent"] + s["per_run"] if "weighted_input" in r])
+        self.assertFalse([r for r in s["per_agent"] + s["per_run"] + list(s["by_model"].values()) if "weighted_input" in r])
 
     def test_倍率を渡すと通常の入力に換算し_unsplit_があれば_null(self):
         s = usage.summarize(str(self.ws), [str(self.tr)], self.W)
@@ -170,9 +171,37 @@ class UsageCache(unittest.TestCase):
         self.assertEqual(a["first_turn"]["weighted_input"], 2 + 60000 * 3.0)
         self.assertEqual(self._agent(s, "resolver:3a")["weighted_input"], 2 + 40000 * 2.0 + 20000 * 3.0 + 100 * 7.0)
         self.assertIsNone(self._agent(s, "verifier:3av")["weighted_input"])
-        self.assertIsNone(s["per_run"][1]["weighted_input"])
         self.assertEqual(s["per_run"][1]["first_agent"]["first_turn"]["weighted_input"], 2 + 40000 * 2.0 + 20000 * 3.0 + 100 * 7.0)
-        self.assertIsNone(s["total"]["weighted_input"])
+
+    def test_倍率は_model_ごとに当て_model_をまたぐ合計には付けない(self):
+        s = usage.summarize(str(self.ws), [str(self.tr)], self.W)
+        solo = next(r for r in s["per_agent"] if r["file"] == "agent-solo.jsonl")
+        self.assertEqual((solo["model"], solo["weighted_input"]), ("haiku", 1 + 20 * 0.5 + 10 * 4.0))
+        self.assertEqual(solo["first_turn"]["weighted_input"], 1 + 20 * 0.5 + 10 * 4.0, "最初のターンも haiku の倍率")
+        self.assertEqual(s["by_model"]["haiku"]["weighted_input"], 1 + 20 * 0.5 + 10 * 4.0)
+        self.assertIsNone(s["by_model"]["opus"]["weighted_input"], "opus の行に unsplit がある")
+        self.assertEqual(s["by_model"]["opus"]["turns"] + s["by_model"]["haiku"]["turns"], s["total"]["turns"])
+        self.assertNotIn("weighted_input", s["total"])
+        self.assertFalse([r for r in s["per_run"] if "weighted_input" in r])
+        self.assertEqual(s["weights"]["haiku"], {"cache_read": 0.5, "cache_creation_5m": 1.5, "cache_creation_1h": 4.0})
+
+    def test_倍率の無い_model_が母集団にあれば失敗する(self):
+        with self.assertRaises(usage.MissingWeights) as cm:
+            usage.summarize(str(self.ws), [str(self.tr)], {"opus": self.W["opus"]})
+        self.assertIn("haiku", str(cm.exception))
+
+    def test_1_本の中で_model_が変わった_agent_は_model_を_null_にし重みを付けない(self):
+        ws = str(self.ws)
+        (self.tr / "agent-mix.jsonl").write_text("\n".join([
+            _line("2026-01-01T03:00:00Z", text=ws),
+            _line("2026-01-01T03:00:01Z", "x1", _split(1, 0, 10, 0, 1), model="haiku"),
+            _line("2026-01-01T03:00:02Z", "x2", _split(1, 0, 10, 0, 1), model="opus"),
+        ]))
+        s = usage.summarize(str(self.ws), [str(self.tr)], self.W)
+        mix = next(r for r in s["per_agent"] if r["file"] == "agent-mix.jsonl")
+        self.assertEqual((mix["model"], mix["mixed_models"], mix["weighted_input"]), (None, ["haiku", "opus"], None))
+        self.assertEqual(mix["first_turn"]["weighted_input"], 1 + 10 * 1.5, "最初のターンはその model（haiku）の倍率")
+        self.assertEqual(s["by_model"]["haiku"]["turns"], 2)
 
     def test_CLI_は_run_と_agent_の行を出し倍率の形を検査する(self):
         import contextlib
@@ -184,9 +213,19 @@ class UsageCache(unittest.TestCase):
         self.assertIn("run wf_run2  agents 2", out)
         self.assertIn("first_agent resolver:3a", out)
         self.assertIn("agent wf_run1 resolver:3 ", out)
-        for bad in ("2,3", "a,b,c", "2,-1,3"):
+        self.assertIn("model haiku  turns 1", out)
+        for bad in ("2,3,4", "=2,3,4", "opus=2,3", "opus=a,b,c", "opus=2,-1,3", "opus=nan,1,1", "opus=1,inf,1", "opus=1,1,-inf"):
             with self.subTest(bad=bad), self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-                usage.main(["--workspace", str(self.ws), "--weights", bad, str(self.tr)])
+                usage.main(["--workspace", str(self.ws), "--weights", bad, "--weights", "haiku=1,1,1", str(self.tr)])
+        for args in (["--weights", "opus=2,3,7"], ["--weights", "opus=2,3,7", "--weights", "haiku=1,1,1", "--weights", "opus=2,3,7"]):
+            err = io.StringIO()
+            with self.subTest(args=args), self.assertRaises(SystemExit), contextlib.redirect_stderr(err):
+                usage.main(["--workspace", str(self.ws), *args, str(self.tr)])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            usage.main(["--workspace", str(self.ws), "--weights", "opus=2,3,7", "--weights", "haiku=0.5,1.5,4", "--weights", "unused=1,1,1", str(self.tr)])
+        self.assertIn("model haiku  turns 1  ", buf.getvalue())
+        self.assertIn("weighted_input 51.0", buf.getvalue())
 
 
 class Precedent(unittest.TestCase):

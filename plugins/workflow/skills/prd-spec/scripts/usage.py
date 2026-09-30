@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """prd-spec の 1 ランの費用と時間を、agent の transcript（agent-*.jsonl）から集計する。
 
-usage: python3 usage.py --workspace <W> <transcript のディレクトリかファイル>... [--weights R,W5M,W1H] [--json]
+usage: python3 usage.py --workspace <W> <transcript のディレクトリかファイル>... [--weights <model>=R,W5M,W1H]... [--json]
 
 母集団（何を 1 ランの agent として数えるか）はここで固定する。呼ぶ人ごとに数え方が変わると、ラン同士を
 比べられない（実測: 同じランを「46 体」と「43 体」で数えた食い違いがあった）。
@@ -13,17 +13,24 @@ usage: python3 usage.py --workspace <W> <transcript のディレクトリかフ�
   ように読める）。
 
 集計するもの:
-- agent ごとの行（per_agent）: label（隣の agent-<id>.meta.json の description。無ければ null）、run（transcript の
-  親ディレクトリが Workflow の呼び出しごとの wf_* なら、その名前。外なら null）、ターン数（usage を持つ応答の数。
+- agent ごとの行（per_agent）: label（隣の agent-<id>.meta.json の description。無ければ null）、model（応答の
+  message.model。1 本の中で 2 つ以上あれば null にし、mixed_models に並べる）、run（transcript の親ディレクトリが
+  wf_* なら、その名前。外なら null）、ターン数（usage を持つ応答の数。
   同じ message id の行は 1 つに数え、各欄は最大値を取る）、input・cache_read・cache_creation と、その内訳の
   cache_creation_5m・cache_creation_1h（usage.cache_creation.ephemeral_5m_input_tokens・ephemeral_1h_input_tokens）、
   output、最初のターン（first_turn）の同じ欄、壁時計（最初と最後の行の timestamp の差）
 - 内訳が無いか、内訳の和が cache_creation_input_tokens に足りない応答の差分は cache_creation_unsplit に出す
   （5 分か 1 時間のどちらかに寄せると、請求の重みが黙って変わる）
-- run（Workflow の呼び出し）ごとの合計（per_run。最初の行の時刻の順）と、run の最初の agent の label と最初の
-  ターン。合計と model ごとの内訳
-- --weights（cache read・5 分の書き込み・1 時間の書き込みの、通常の入力に対する倍率）を渡したときだけ、
-  weighted_input（通常の入力に換算した入力の token 数）を足す。倍率はここに持たない: 司令塔が試走の時点の公式の
+- wf_ のディレクトリ（Workflow の Run）ごとの合計（per_run。最初の行の時刻の順）と、その最初の agent の label と
+  最初のターン。resume は同じ Run のディレクトリに書くので、1 行が Workflow の呼び出しの複数回を含みうる。呼び出しで
+  分ける材料は読める範囲に無い: journal は Run の作成時に launched を 1 行書くだけで、行に時刻も呼び出しの印も無く、
+  transcript の promptId は親セッションのユーザー入力の id で呼び出しと一致しない
+- 合計（total）と、model ごとの合計（by_model。ターンをそのターンの model で束ねる）
+- --weights（model ごとの、cache read・5 分の書き込み・1 時間の書き込みの、通常の入力に対する倍率）を渡したときだけ、
+  weighted_input（通常の入力に換算した入力の token 数）を足す。cache read の倍率も通常の入力の単価も model で違うので、
+  重みは 1 つの model のターンだけを足した行（by_model・agent・その最初のターン）にだけ付け、model をまたぐ合計
+  （total・per_run の合計）には付けない。母集団に倍率の無い model があれば失敗する（別の model の倍率を黙って当てた
+  値も、黙って欠けた値も、model id の書き損じを隠す）。倍率はここに持たない: 司令塔が試走の時点の公式の
   料金表（claude-api スキルの pricing）から取って渡す（書き写すと料金の改定でずれる）。unsplit が 0 でない行は
   重みが決まらないので null にする
 - busy_seconds: agent が 1 体以上動いていた時間の和（各 agent の区間の和集合の長さ）。依頼者の回答を待つ
@@ -37,6 +44,7 @@ import argparse
 import collections
 import glob
 import json
+import math
 import os
 import re
 import sys
@@ -95,7 +103,7 @@ def scan_transcript(path):
     """1 本の transcript を読み、応答ごとの usage（message id で重複を除く）と時刻を返す。"""
     by_id = collections.OrderedDict()
     stamps = []
-    model = None
+    models = {}
     with open(path, encoding="utf-8", errors="ignore") as f:
         text = f.read()
     for line in text.splitlines():
@@ -110,20 +118,23 @@ def scan_transcript(path):
         if not isinstance(m, dict) or not isinstance(m.get("usage"), dict):
             continue
         mid = m.get("id") or f"line-{len(by_id)}"
-        model = m.get("model", model)
         cur = _turn_fields(m["usage"])
         prev = by_id.get(mid, {})
         by_id[mid] = {k: max(prev.get(k, 0), v) for k, v in cur.items()}
+        models[mid] = m.get("model")
     turns = [{**t, "cache_creation_unsplit": _unsplit(t)} for t in by_id.values()]
+    turn_models = list(models.values())
     total = collections.Counter()
     for t in turns:
         total.update(t)
     first = turns[0] if turns else {}
+    distinct = sorted(set(turn_models), key=str)
     return {
         "file": os.path.basename(path),
         "label": _label(path),
         "run": _run(path),
-        "model": model,
+        "model": distinct[0] if len(distinct) == 1 else None,
+        **({"mixed_models": distinct} if len(distinct) > 1 else {}),
         "turns": len(turns),
         **{k: total[k] for k in FIELDS},
         "first_turn": {k: first.get(k, 0) for k in FIELDS},
@@ -132,12 +143,14 @@ def scan_transcript(path):
         "end": max(stamps) if stamps else None,
         "seconds": round(max(stamps) - min(stamps), 1) if stamps else None,
         "_text": text,
+        "_turns": list(zip(turn_models, turns)),
+        "_first_model": turn_models[0] if turn_models else None,
     }
 
 
 def weighted_input(row, weights):
-    """通常の入力に換算した入力。unsplit があれば 5 分と 1 時間のどちらの重みかが決まらないので None。"""
-    if row["cache_creation_unsplit"]:
+    """1 つの model の行を通常の入力に換算する。unsplit があれば 5 分と 1 時間のどちらの重みかが決まらないので None。"""
+    if weights is None or row["cache_creation_unsplit"]:
         return None
     read, w5m, w1h = weights
     return row["input"] + row["cache_read"] * read + row["cache_creation_5m"] * w5m + row["cache_creation_1h"] * w1h
@@ -223,7 +236,12 @@ def per_run(agents):
     return out
 
 
+class MissingWeights(ValueError):
+    pass
+
+
 def summarize(workspace, paths, weights=None):
+    """weights は {model: (cache read, 5 分の書き込み, 1 時間の書き込み)}。"""
     workspace = os.path.abspath(workspace).rstrip("/")
     included, excluded = [], []
     for path in collect(paths):
@@ -233,19 +251,25 @@ def summarize(workspace, paths, weights=None):
             excluded.append({"file": rec["file"], "reason": reason, "turns": rec["turns"]})
         else:
             included.append(rec)
-    agents = [{k: v for k, v in r.items() if not k.startswith("_") and k != "end"} for r in sorted(included, key=_order)]
-    total = collections.Counter(_sum(agents))
-    by_model = collections.defaultdict(list)
-    for r in agents:
-        by_model[r["model"]].append(r)
-    runs = per_run(agents)
+    included.sort(key=_order)
+    by_model = collections.OrderedDict()
+    for r in included:
+        for model, t in r["_turns"]:
+            c = by_model.setdefault(model, collections.Counter())
+            c.update({"turns": 1, **t})
     if weights:
-        for row in agents:
-            row["weighted_input"] = weighted_input(row, weights)
-            row["first_turn"]["weighted_input"] = weighted_input(row["first_turn"], weights)
-        for row in runs:
-            row["weighted_input"] = weighted_input(row, weights)
-            row["first_agent"]["first_turn"]["weighted_input"] = weighted_input(row["first_agent"]["first_turn"], weights)
+        missing = [m for m in by_model if m not in weights]
+        if missing:
+            raise MissingWeights(f"倍率の無い model: {', '.join(map(str, missing))}（母集団の model: {', '.join(map(str, by_model))}。渡した model: {', '.join(weights)}）")
+    agents = []
+    for r in included:
+        row = {k: v for k, v in r.items() if not k.startswith("_") and k != "end"}
+        if weights:
+            row["weighted_input"] = weighted_input(row, weights.get(row["model"]))
+            row["first_turn"]["weighted_input"] = weighted_input(row["first_turn"], weights.get(r["_first_model"]))
+        agents.append(row)
+    total = collections.Counter(_sum(agents))
+    runs = per_run(agents)
     starts = [r["start"] for r in included if r["start"] is not None]
     ends = [r["end"] for r in included if r["end"] is not None]
     out = {
@@ -253,7 +277,7 @@ def summarize(workspace, paths, weights=None):
         "agents": len(agents),
         "excluded": excluded,
         "total": {**dict(total), "input_all": total["input"] + total["cache_read"] + total["cache_creation"]},
-        "by_model": {str(k): _sum(v) for k, v in by_model.items()},
+        "by_model": {str(k): {f: v[f] for f in ("turns", *FIELDS)} for k, v in by_model.items()},
         "per_run": runs,
         "span_seconds": round(max(ends) - min(starts), 1) if starts and ends else None,
         "busy_seconds": busy_seconds(included),
@@ -261,21 +285,24 @@ def summarize(workspace, paths, weights=None):
         "per_agent": agents,
     }
     if weights:
-        out["weights"] = {"cache_read": weights[0], "cache_creation_5m": weights[1], "cache_creation_1h": weights[2]}
-        out["total"]["weighted_input"] = weighted_input(out["total"], weights)
-        for v in out["by_model"].values():
-            v["weighted_input"] = weighted_input(v, weights)
+        out["weights"] = {m: dict(zip(("cache_read", "cache_creation_5m", "cache_creation_1h"), w)) for m, w in weights.items()}
+        for m, v in zip(by_model, out["by_model"].values()):
+            v["weighted_input"] = weighted_input(v, weights[m])
     return out
 
 
+WEIGHTS_FORM = "--weights は <model>=R,W5M,W1H（model は transcript の message.model のまま、R,W5M,W1H は cache read・5 分の書き込み・1 時間の書き込みの 0 以上の倍率）"
+
+
 def _weights(text):
+    model, sep, nums = text.partition("=")
     try:
-        values = [float(x) for x in text.split(",")]
+        values = [float(x) for x in nums.split(",")]
     except ValueError:
-        raise argparse.ArgumentTypeError("--weights は数値 3 つをカンマで区切る（cache read, 5 分の書き込み, 1 時間の書き込み）")
-    if len(values) != 3 or any(v < 0 for v in values):
-        raise argparse.ArgumentTypeError("--weights は 0 以上の数値 3 つ（cache read, 5 分の書き込み, 1 時間の書き込み）")
-    return tuple(values)
+        raise argparse.ArgumentTypeError(WEIGHTS_FORM)
+    if not sep or not model or len(values) != 3 or not all(math.isfinite(v) and v >= 0 for v in values):
+        raise argparse.ArgumentTypeError(WEIGHTS_FORM)
+    return model, tuple(values)
 
 
 def _cols(row):
@@ -288,17 +315,29 @@ def _cols(row):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--workspace", required=True, help="このランの W（絶対パス）。母集団の判定に使う")
-    ap.add_argument("--weights", type=_weights, help="cache read・5 分の書き込み・1 時間の書き込みの、通常の入力に対する倍率（R,W5M,W1H）。試走の時点の公式の料金表から取る")
+    ap.add_argument("--weights", type=_weights, action="append", help="model ごとに繰り返す <model>=R,W5M,W1H（cache read・5 分の書き込み・1 時間の書き込みの、通常の入力に対する倍率）。試走の時点の公式の料金表から取る")
     ap.add_argument("--json", action="store_true", help="agent ごとの内訳を含む JSON を出す")
     ap.add_argument("paths", nargs="+", help="transcript のディレクトリか agent-*.jsonl")
     a = ap.parse_args(argv)
-    s = summarize(a.workspace, a.paths, a.weights)
+    weights = None
+    if a.weights:
+        weights = {}
+        for model, w in a.weights:
+            if model in weights:
+                ap.error(f"--weights の model が重複: {model}")
+            weights[model] = w
+    try:
+        s = summarize(a.workspace, a.paths, weights)
+    except MissingWeights as e:
+        ap.error(str(e))
     if a.json:
         print(json.dumps(s, ensure_ascii=False, indent=1))
         return 0
     t = s["total"]
     print(f"agents {s['agents']}  turns {t.get('turns', 0)}  input_all {t.get('input_all', 0)}  read {t.get('cache_read', 0)}  creation {t.get('cache_creation', 0)}  output {t.get('output', 0)}")
     print(f"total  {_cols(t)}")
+    for m, v in s["by_model"].items():
+        print(f"model {m}  turns {v['turns']}  {_cols(v)}")
     print(f"busy_seconds {s['busy_seconds']}  span_seconds {s['span_seconds']}")
     for r in s["per_run"]:
         f = r["first_agent"]
