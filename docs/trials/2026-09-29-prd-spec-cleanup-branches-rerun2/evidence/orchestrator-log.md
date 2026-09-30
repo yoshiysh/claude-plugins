@@ -12,3 +12,7 @@
 - run1: 名前付きの呼び出し `Workflow({name:"workflow:prd-spec-run"})` は「not found. Available: deep-research」で拒否（plugin が未 install）。
   同じ args を `scriptPath: plugins/workflow/workflows/prd-spec.js` で呼んだ（逸脱。名前付きの呼び出しの未確認項目は残る）。
   Run ID `wf_f413a4a5-c3e`、task `whvtgdqj1`。args: workspace=<W>, skillDir=<skillDir>, entry=new, existing_docs=[]。
+- run1 → needs_answers G0（18 問: RS-001〜016・025・026）。agents 12、subagent_tokens 1,382,505、tool_uses 167、duration_ms 2,026,973。
+  AskUserQuestion 5 回（4・4・4・4・3 問。最後の 1 問は RS-002 の自由欄が空だったので同じ問いの補足を聞き直したもの）。
+  RS-001 と RS-002 の補足は自由記述。回答は answers/g0.md に逐語で書いた（evidence/answers-g0.md）。
+- run2: resume（resumeFromRunId wf_f413a4a5-c3e、run1 の args に gates_answered {g0: question_ids}）。
