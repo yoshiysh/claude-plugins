@@ -8,7 +8,7 @@
 ## 共通の約束
 
 - **入力はパスで受け取り、返り値は小さく保つ。** 返り値に載せるのは、script が次の段の分岐に使う件数・ID・
-  digest と、doc_check の stdout をそのままだけである。文書の本文や JSON の全量（flow の本体も）を返すと、script を
+  digest と、doc_check の stdout をそのままだけである（`stdout_fnv` の照合は references/workflow-io.md §6）。文書の本文や JSON の全量（flow の本体も）を返すと、script を
   経由して next_args と次の agent のプロンプトに載り、司令塔がそれを打ち直す（why は `references/workflow-io.md` §1）。
   中身は W のファイルに書く。
 - **書いてよいのは、下の表で自分が書き手になっているファイルだけ。** 他のファイルは別の役が所有しており、
@@ -502,9 +502,11 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 段 1 から始める run は、最初に `flow-check:1-entry` で `reset` を実行し、W を S0 の直後に戻す。段 4・7 は writer を起動する前に `flow-check:<段>-backup` で
 `backup` を実行し、writer が Edit で書く文書の本文の控えを段の token で取る（扱いはどれも references/workflow-io.md §3）。
 resume の args の `gates_answered` のゲートを越える前は、`flow-check:<ゲート>-answers` で `answers` を実行し、回答のファイルが問いのすべてに答えているかを返す。
+ほかの役か flow-check が返した doc_check の stdout の写しが checksum に合わなければ、`flow-check:<…>-recopy` でプロンプトの挙げたコマンドを実行し直し、
+プロンプトが名指しした欄に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
+入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
 
 ```json
 { "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）" }

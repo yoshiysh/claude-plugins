@@ -65,6 +65,8 @@ const H = (x) => (spec.long_digests ? String(x).padEnd(64, '0') : x)
 // （段ごとに一覧を書かせると、検証していない要素を verifier の後の stdout から消した世界をテストが書けてしまう）。
 // spec.world があれば run をまたいで W のように残り、無ければ state から始める（state に載った ID は検証済みとして、about と ruling も state のとおりに置く）。
 const fs = await import('node:fs')
+// stampStdout: doc_check の CLI が stdout に付ける digest（stub の doc_check の stdout にも実物と同じ欄を付ける）。
+const { stampStdout } = await import(spec.doc_check_url)
 const saved = spec.world && fs.existsSync(spec.world) ? JSON.parse(fs.readFileSync(spec.world, 'utf8')) : null
 const st0 = spec.args.state || {}
 const aboutOf = (key) => {
@@ -496,8 +498,46 @@ const stubAgent = async (prompt, opts) => {
   if (!opts.effort || (!opts.model && !(spec.inherit_labels || []).some((x) => opts.label.startsWith(x)))) throw new Error(`model / effort が無い呼び出し: ${opts.label}`)
   if (nulls.has(opts.label)) return null
   // silent_after_write: W に書いてから応答しない呼び出し（書き込みは残り、返り値は無い）。
-  const got = respond(prompt, opts.label)
-  return (spec.silent_after_write || []).includes(opts.label) ? null : got
+  const got = opts.label.endsWith('-recopy') ? recopied(prompt) : stamped(respond(prompt, opts.label))
+  return (spec.silent_after_write || []).includes(opts.label) ? null : corrupt(opts.label, got)
+}
+// STDOUT_KEYS: 返り値のうち doc_check の stdout を写す欄（designated の中も）。truth は最後に返した写す前の stdout で、取り直し（-recopy）は
+// 同じ W で同じコマンドを実行し直すので、それをそのまま返す（取り直しの間に W を書く役はいない）。
+const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'doc_check', 'audited', 'tree_digest']
+const truth = {}
+const stampText = (text) => {
+  const line = typeof text === 'string' && text.trim().startsWith('{') ? JSON.parse(text) : null
+  return line && !Array.isArray(line) ? JSON.stringify(stampStdout(line)) : text
+}
+const stamped = (out) => {
+  for (const o of [out, out && out.designated]) {
+    if (!o || typeof o !== 'object') continue
+    for (const k of STDOUT_KEYS) if (k in o) truth[k] = o[k] = stampText(o[k])
+  }
+  return out
+}
+const recopied = (prompt) => Object.fromEntries([...prompt.matchAll(/stdout を加工せずに (\w+) に入れる/g)].map(([, k]) => {
+  if (!(k in truth)) throw new Error(`取り直しの ${k} を返した呼び出しがありません`)
+  return [k, truth[k]]
+}))
+// corrupt: { <label>: { <欄>: 写し損ね } }。写し損ねは { literal: 返す文字列 }（壊れた JSON など）か { drop: <一覧の欄> }（一覧の先頭の要素を
+// 落とした、JSON としては正しい写し。digest は元のまま）。落とす要素の無い一覧は写し損ねにならないので止める。
+const corrupt = (label, got) => {
+  const how = (spec.corrupt || {})[label]
+  if (!how || !got) return got
+  const out = JSON.parse(JSON.stringify(got))
+  for (const [k, c] of Object.entries(how)) {
+    const holder = k in out ? out : out.designated
+    if (!holder || !(k in holder)) throw new Error(`${label}: 写し損ねにする ${k} を返していません`)
+    if (c.literal !== undefined) holder[k] = c.literal
+    else {
+      const o = JSON.parse(holder[k])
+      if (!Array.isArray(o[c.drop]) || !o[c.drop].length) throw new Error(`${label}: ${k} の ${c.drop} に落とす要素がありません`)
+      o[c.drop] = o[c.drop].slice(1)
+      holder[k] = JSON.stringify(o)
+    }
+  }
+  return out
 }
 // runtime_pipeline: runtime の pipeline と同じく、throw した段をその項目の null にする（既定は throw をそのまま伝え、stub の契約違反を隠さない）。
 const pipeline = async (items, stage) => Promise.all(items.map((it, i) => (spec.runtime_pipeline ? Promise.resolve().then(() => stage(it, it, i)).catch(() => null) : stage(it, it, i))))
@@ -535,7 +575,7 @@ def wrapped_source(patch=()):
 
 
 def run(spec, patch=()):
-    spec = {"verify_all_mark": VERIFY_ALL_MARK, **spec}
+    spec = {"verify_all_mark": VERIFY_ALL_MARK, "doc_check_url": (SKILL / "scripts" / "doc_check.mjs").as_uri(), **spec}
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "prd_harness.mjs"
         path.write_text(wrapped_source(patch), encoding="utf-8")
@@ -1322,6 +1362,118 @@ class Notices(unittest.TestCase):
         self.assertEqual(r["labels"].count("resolver:3"), 1, "済んだ put を二重に走らせない")
         self.assertFalse(has(r["labels"], "verifier:3v"), "照合できない版で検証に進まない")
         self.assertEqual(r["result"]["next_args"]["from"], "3")
+
+
+# EVIDENCE: R16 の再々試走の run3 で、flow-check:3a（haiku）が doc_check flow --rulings の stdout を写し損ねた返り値（char 3195 で区切りが欠けた JSON）
+# と、その run が返した next_args。
+TRIAL = Path(__file__).resolve().parents[5] / "docs" / "trials" / "2026-09-29-prd-spec-cleanup-branches-rerun2" / "evidence"
+
+
+def bad_literal(text):
+    return {"literal": text}
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class Transcription(unittest.TestCase):
+    """doc_check の stdout の写し損ね（壊れた JSON・要素を落とした正しい JSON）は digest で見つけ、流し直してよいコマンドは別の label の
+    flow-check で 1 回だけ取り直す。取り直しも合わなければ next_args を付けて止める。"""
+
+    G0 = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
+
+    def _at_3a(self, **extra):
+        res = run(self.G0)["result"]
+        self.assertEqual(res["status"], "needs_answers")
+        return run({"args": res["next_args"], "ruled_at": {"3a": ["RS-001"]}, **extra})
+
+    def test_試走で写し損ねたflow_checkのstdoutは取り直して進む(self):
+        evidence = json.loads((TRIAL / "flow-check-3a-bad-stdout.json").read_text(encoding="utf-8"))["result"]["flow_check"]
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(evidence)
+        r = self._at_3a(corrupt={"flow-check:3a": {"flow_check": bad_literal(evidence)}})
+        self.assertIsNone(r["error"])
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        i = r["labels"].index("flow-check:3a")
+        self.assertEqual(r["labels"][i + 1], "flow-check:3a-recopy")
+        self.assertIn("doc_check.mjs flow --workspace /tmp/prd-w --rulings`。stdout を加工せずに flow_check に入れる。", nth_prompt(r, "flow-check:3a-recopy", 0))
+
+    def test_open_idsを1件落とした正しいJSONの写しはdigestで見つけて取り直す(self):
+        r = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertIn("flow-check:3a-recopy", r["labels"], "形の検査だけでは要素を落とした写しが通る")
+
+    def test_取り直しも合わなければchecksumの理由とnext_argsで止まり同じ段から続けられる(self):
+        r = self._at_3a(flow_open=1, corrupt={"flow-check:3a": {"flow_check": {"drop": "open_ids"}}, "flow-check:3a-recopy": {"flow_check": bad_literal('{"findings": 0 "codes": {}}')}})
+        res = r["result"]
+        self.assertEqual(res["status"], "blocked")
+        self.assertIn("checksum", res["reason"])
+        self.assertIn("flow-check:3a-recopy", res["reason"])
+        self.assertEqual(res["next_args"]["from"], "3a")
+        self.assertEqual(r["labels"].count("flow-check:3a-recopy"), 1, "取り直しは 1 回だけ")
+        again = run({"args": res["next_args"], "flow_open": 1, "ruled_at": {"3a": ["RS-001"]}, "corrupt": {"flow-check:3a-entry": {"restore_check": bad_literal('{"token": "t')}}})
+        self.assertEqual(again["result"]["status"], "done", again["result"].get("reason"))
+        self.assertEqual(again["labels"][:2], ["flow-check:3a-entry", "flow-check:3a-entry-recopy"])
+        self.assertIn("doc_check.mjs restore --workspace /tmp/prd-w --token ", nth_prompt(again, "flow-check:3a-entry-recopy", 0))
+
+    def test_判断する役の写し損ねは判断をやり直さずflow_checkで取り直す(self):
+        plain = {"args": args()}
+        cases = [
+            (self.G0, "needs_answers", "verifier:3v", "flow_check", {"drop": "resolutions"}, "flow --workspace /tmp/prd-w --rulings`"),
+            (plain, "done", "flow-framer", "flow_check", bad_literal('{"findings": 0,'), "flow --workspace /tmp/prd-w`"),
+            (plain, "done", "flow-framer", "conflicts_check", bad_literal('{"pairs": 0,'), "conflicts --workspace /tmp/prd-w`"),
+            (plain, "done", "intake", "plan_check", bad_literal('{"findings": 0'), "plan --workspace /tmp/prd-w`"),
+            (plain, "done", "crossDoc:r1:all", "doc_check", bad_literal('{"blocking": 0'), "doc --workspace /tmp/prd-w --open-tbd"),
+        ]
+        for spec, status, label, key, how, cmd in cases:
+            with self.subTest(label=label, key=key):
+                r = run({**spec, "corrupt": {label: {key: how}}})
+                self.assertEqual(r["result"]["status"], status, r["result"].get("reason"))
+                again = f"flow-check:{label.replace(':', '-')}-recopy"
+                self.assertEqual(r["labels"].count(label), 1, "判断する役は起動し直さない")
+                self.assertIn(cmd, nth_prompt(r, again, 0))
+                self.assertIn(f"stdout を加工せずに {key} に入れる。", nth_prompt(r, again, 0))
+
+    def test_引数を持つコマンドは呼び出しの場所が渡したコマンドで取り直す(self):
+        r = run({"args": args(), "corrupt": {"flow-check:1-entry": {"reset_check": bad_literal('{"reset": true')}, "flow-check:4-backup": {"backup_check": bad_literal('{"backup": true')}}})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertIn("doc_check.mjs reset --workspace /tmp/prd-w`", nth_prompt(r, "flow-check:1-entry-recopy", 0))
+        self.assertIn("doc_check.mjs backup --workspace /tmp/prd-w --doc requirements/x --token ", nth_prompt(r, "flow-check:4-backup-recopy", 0))
+        q = run({**self.G0, "corrupt": {"resolver:3": {"questions_check": {"drop": "ids"}}}})
+        self.assertEqual(q["result"]["status"], "needs_answers", q["result"].get("reason"))
+        self.assertNotIn("resolver:3-questions", q["labels"], "写し損ねを問いの形の不合格として resolver に差し戻さない")
+        self.assertIn("questions --workspace /tmp/prd-w --ids RS-001 --check`", nth_prompt(q, "flow-check:3-questions-recopy", 0))
+        a = self._at_3a(corrupt={"flow-check:g0-answers": {"answers_check": {"drop": "ids"}}})
+        self.assertEqual(a["result"]["status"], "done", a["result"].get("reason"))
+        self.assertIn("answers --workspace /tmp/prd-w --file answers/g0.md --ids RS-001`", nth_prompt(a, "flow-check:g0-answers-recopy", 0))
+
+    def test_段8のtree_digestの写し損ねは追加の監査役を決める前に取り直す(self):
+        r = run({
+            "args": args(),
+            "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001", "blocking": False}]},
+            "writer_changed": ["PR-X-001"],
+            "diff": {"r2": ["PR-X-001", "PR-X-009"]},
+            "corrupt": {"grounding:r2:requirements/x": {"tree_digest": bad_literal('{"digest": "t2"')}},
+        })
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        labels = r["labels"]
+        extra = [i for i, l in enumerate(labels) if l.endswith(":extra")]
+        self.assertTrue(extra, "写し損ねで追加の監査役が黙って飛んだ")
+        self.assertLess(labels.index("flow-check:grounding-r2-requirements/x-recopy"), extra[0])
+
+    def test_snapshotの写し損ねは取り直さずに段からやり直させる(self):
+        r = run({"args": args(), "corrupt": {"crossDoc:r1:all": {"audited": bad_literal('{"digest": "a1"')}}})
+        res = r["result"]
+        self.assertEqual(res["status"], "blocked")
+        self.assertIn("checksum", res["reason"])
+        self.assertEqual(res["next_args"]["from"], "5")
+        self.assertFalse(any(l.endswith("-recopy") for l in r["labels"]))
+
+    def test_run3のnext_argsは入口の検査を通って最初のagentまで進む(self):
+        got = json.loads((TRIAL / "run-outputs" / "run3.output.json").read_text(encoding="utf-8"))["result"]["next_args"]
+        r = run({"args": got, "null_labels": ["flow-check:3a-entry"]})
+        self.assertIsNone(r["error"], "state_hash・REQUIRES・形の検査で止まった")
+        self.assertEqual(r["labels"], ["flow-check:3a-entry"])
+        self.assertIn(f"doc_check.mjs restore --workspace {got['workspace']} --token t6`", nth_prompt(r, "flow-check:3a-entry", 0))
+        self.assertEqual(r["result"]["next_args"]["from"], "3a")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")

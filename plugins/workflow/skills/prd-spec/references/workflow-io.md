@@ -139,6 +139,29 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   段からやり直せる blocked にし（外す前の verifier の照合と同じ）、それ以外は所有表の外の書き込みとして `next_args` を付けない。
 - `integrity` の行は、段の入口の flow.json が `next_args` の版と違った、再実行の入口の restore が照合の前に止まった flow.json の書き込みを取り消した、writer が読んだ resolutions.json と台帳の最新が違った、verifier が検証した版と resolver が
   書き終えた版が違った、verifier が `doc_check flow` で検査した flow.json の `content_sha256` が生成者の検査した版と違った、verifier が返した F- の合否が `doc_check flow` の stdout（verifications.json）に無かった、flow-check が検査した flow.json の `content_sha256` が検証を通った版と違った、flow-check の前に応答した resolver が返した `doc_check flow` の stdout が flow-check の stdout と違った（契約 §flow-check）、のような食い違いである。事後報告に添える。段の途中の flow の版と F- の合否の食い違いだけは run を blocked にし（違う flow や記録されていない合否を見た検証を台帳に入れないため）、それ以外は run を止めない（script は flow-check の stdout しか判断に使わないので、止めても守る判断が無い）。
+- **doc_check の stdout の写しが checksum に合わなければ、流し直してよいコマンドだけを取り直す**（`prd-spec.js` の `recopy`）。agent は stdout を
+  返り値に手で写すので、壊れた JSON や、一覧の要素を 1 件落とした正しい JSON が返る（実測: R16 の run3 で flow-check:3a の haiku が約 3.5KB の
+  `flow --rulings` の stdout を壊れた JSON に写した）。形の検査だけでは後者が通り、落ちた O- や未検証の要素が誰にも見えないまま進む。そこで script は
+  写しの本体から digest（§6 の `stdout_fnv`）を計算し直し、合わない写しと壊れた JSON を同じ「写し損ね」として受け取らず、同じコマンドを
+  flow-check に `flow-check:<元の label（flow-check でなければ : を - にして前に役の名前）>-recopy` で 1 回だけ実行させる。JSON の行の無い値
+  （失敗したコマンドの stderr）は写し損ねではなく、これまでの経路（差し戻しか blocked）で扱う。取り直しも合わなければ、`reason` に checksum と
+  書いて段からの `next_args` で止まる（resume は保存された同じ写しを返すので `resumable` は偽。`next_args` で呼び直す）。判断する役
+  （resolver・resolver-verifier・監査役）を起動し直して写しを取らない（判断ごとやり直すことになる）。呼び出しの場所ごとの扱い:
+
+  | 写しを返す呼び出し | コマンド | 取り直し |
+  |---|---|---|
+  | flow-check（`<段>`・`<from>-entry`） | `flow --rulings` | する（読むだけ） |
+  | flow-check（`<from>-entry`） | `restore --token <state.tx.restore>` | する（控えを消した後の restore は何も戻さず同じ W を返す） |
+  | flow-check（`1-entry`） | `reset` | する（2 回目は何も消さず、残した文書と `fixed_sha256` は同じ） |
+  | flow-check（`<ゲート>-answers`） | `answers` | する（読むだけ） |
+  | flow-check（`<段>-backup`） | `backup` | する（同じ token の控えがあれば取り直さない。writer の前なので本文は同じ） |
+  | resolver-verifier | 最後の `flow --rulings` | する（verifier の put の後の W をそのまま読む） |
+  | resolver・flow-framer | `flow`・`conflicts`（flow-framer は `plan` も） | する（生成者が返った直後の W を読む） |
+  | resolver・flow-framer | `questions --check` | する（問いの形の検査の対象の ID で。読むだけ） |
+  | intake | `plan` | する（読むだけ） |
+  | 指名された監査役 | `doc`・`tree-digest` | する（読むだけ。段 8 は追加の監査役を決める前に取り直す） |
+  | 指名された監査役 | `snapshot --save` | しない（監査の基準を書き直し、`--live` は監査役の実行中の値）。段 5・8 から `next_args` で止まる |
+
 - `holds` と `hold_drafts` は、writer に渡したか（`state.settled_written`）で分ける。渡しただけで本文に入ったとは限らず、
   当て損ねは直後の監査が拾う。
 - `notices` の行は、照合の食い違いではない所見である（段 5・8 の監査の基準の snapshot が、W に所有表に無いファイルや
@@ -193,7 +216,8 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 ## 6. doc_check の CLI
 
 本文を読む決定的な検査は `scripts/doc_check.mjs` が正本で、agent が実行して stdout（1 行の JSON）を返す。
-結果は `W/checks/` に書かれ、stdout には件数・digest・パスだけが出る。
+結果は `W/checks/` に書かれ、stdout には件数・digest・パスだけが出る。stdout の JSON には、ほかの欄の digest（`stdout_fnv`。`prd-spec.js` の
+state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しから計算し直す（合わない写しの扱いは §3 の「doc_check の stdout の写しが checksum に合わなければ」の項）。
 
 | モード | 実行する役 | 何をするか |
 |---|---|---|

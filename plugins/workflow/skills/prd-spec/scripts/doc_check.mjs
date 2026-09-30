@@ -1196,6 +1196,28 @@ function canonicalJson(value) {
   return JSON.stringify(value === undefined ? null : value)
 }
 
+// STDOUT_FNV・stampStdout: CLI の stdout の本体の digest の欄。agent は stdout を返り値に手で写すので、prd-spec.js は写しの本体から
+// canonicalText・fnv で計算し直し、合わない写し（壊れた JSON・要素の欠けた一覧）を受け取らない。canonicalText・fnv・STDOUT_FNV は
+// prd-spec.js と同じ（tests が照合する）。
+const STDOUT_FNV = 'stdout_fnv'
+function canonicalText(v) {
+  if (Array.isArray(v)) return `[${v.map(canonicalText).join(',')}]`
+  if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${k}:${canonicalText(v[k])}`).join(',')}}`
+  return `${typeof v}:${String(v)}`
+}
+
+function fnv(text) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0
+  return h.toString(16).padStart(8, '0')
+}
+
+function stampStdout(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const body = JSON.parse(JSON.stringify(value))
+  return { ...body, [STDOUT_FNV]: fnv(canonicalText(body)) }
+}
+
 // structuralFindings: 文面付きの形で返す版（tests と、文面を直接見たい呼び出し側のため）。
 // CLI の出力は structuralCompact の短い形で、文面は受け取った側が expandStructural で組み立てる。
 function structuralFindings(docs, flow) {
@@ -2212,7 +2234,7 @@ function wsSha(ws, opts) {
 
 // STDOUT_BUDGET: CLI の 1 行の stdout の上限（バイト）。agent は stdout を返り値に写すので、超えると以後の全ターンに載る。
 const STDOUT_BUDGET = 50000
-const stdoutBytes = (value) => Buffer.byteLength(`${JSON.stringify(value)}\n`)
+const stdoutBytes = (value) => Buffer.byteLength(`${JSON.stringify(stampStdout(value))}\n`)
 
 // get: 台帳から ID の要素を選ぶだけで、値を加工しない（要約や書き直しは正本から drift した写しになる）。上限に入らない要素は
 // 黙って落とさず over_budget に挙げる。
@@ -3492,7 +3514,7 @@ if (invokedDirectly && WS_MODES.includes(process.argv[2])) {
   // 失敗は非ゼロで終える。--expect の不一致だけは 3 にして、壊れた入力（1）と区別できるようにする。
   const mode = process.argv[2]
   try {
-    process.stdout.write(`${JSON.stringify(runWorkspace(mode, process.argv.slice(3)))}\n`)
+    process.stdout.write(`${JSON.stringify(stampStdout(runWorkspace(mode, process.argv.slice(3))))}\n`)
   } catch (e) {
     process.stderr.write(`doc_check ${mode}: ${e && e.message ? e.message : e}\n`)
     process.exit(e instanceof DigestMismatch ? 3 : 1)
@@ -3532,6 +3554,10 @@ export {
   headingIndex,
   stableKey,
   canonicalJson,
+  canonicalText,
+  fnv,
+  STDOUT_FNV,
+  stampStdout,
   runChecks,
   WORKSPACE_TEXT,
   itemSections,

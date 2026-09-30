@@ -52,7 +52,8 @@ LABEL_FAMILIES = [
     ("flow-rework", "doc_check の差し戻し", rf"resolver:.+-flow{N}", ["reworkLabel(`resolver:${stage}-flow`, n)"]),
     ("framer-rework", "doc_check の差し戻し", rf"(?:intake|flow-framer(?::.+)?):rework{N}", ["reworkLabel(`${label}:rework`, n)", "reworkLabel('intake:rework', n)"]),
     ("left-verifier", "検証し残しの拾い直し（settle の前と後・再実行の入口）", rf"verifier:.+v-(?:left{N}|entry)", ["`verifier:${stage}v-${tag}`", "reworkLabel('left', n + 1)", "verifyLeft(from, 'entry'"]),
-    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup)$).+", ["`flow-check:${tag}`"]),
+    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy)$).+", ["`flow-check:${tag}`"]),
+    ("recopy", "写しの取り直し（doc_check の stdout が checksum に合わない）", r"flow-check:.+-recopy", ["label.startsWith('flow-check:') ? `${label}-recopy` : `flow-check:${label.replace(/:/g, '-')}-recopy`"]),
     ("rehold", "保持規則の書き直し", r"resolver:.+-rehold", ["`resolver:${owner}-rehold`"]),
     ("rehold-verifier", "保持規則の書き直し", r"verifier:.+-reholdv", ["`verifier:${owner}-reholdv`"]),
     ("hold-left", "聞けない問いの保持規則への変換", r"resolver:.+-hold", ["`resolver:${stage}-hold`"]),
@@ -97,6 +98,7 @@ COVERING_TESTS = [
     "FlowDigest.test_3aでflowのstdoutを返さないresolverは差し戻す",
     "FlowFixerRoutes.test_3aの裁定で閉じたOはsettleの次の回でRSに差し替わり段を出る",
     "FlowFixerRoutes.test_settleが新しい組と新しいOを作ったら1回のresolverにまとめて渡す",
+    "Transcription.test_試走で写し損ねたflow_checkのstdoutは取り直して進む",
 ]
 
 
@@ -180,6 +182,10 @@ class Clues(unittest.TestCase):
             "verifier:3av-left-2": ("left-verifier",),
             "flow-check:3a-settle-convert": ("independent-flow",),
             "flow-check:6-entry": ("flow-check-entry",),
+            "flow-check:3a-recopy": ("recopy",),
+            "flow-check:3a-entry-recopy": ("recopy",),
+            "flow-check:verifier-3v-recopy": ("recopy",),
+            "flow-check:crossDoc-r1-all-recopy": ("recopy",),
             "flow-framer:3b-reframe": ("reframe",),
             "flow-framer:3b-reframe:rework-2": ("framer-rework",),
             "flow-framer:6-hold-settle-2": ("settle-framer",),

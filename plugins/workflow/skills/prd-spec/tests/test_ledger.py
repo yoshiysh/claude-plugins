@@ -15,9 +15,13 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_doc_check_workspace import stdout_body  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -51,7 +55,7 @@ def _ok(ws, mode, *args, stdin=None):
     r = _run(ws, mode, *args, stdin=stdin)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
-    return json.loads(r.stdout)
+    return stdout_body(r.stdout)
 
 
 def _sha(p):

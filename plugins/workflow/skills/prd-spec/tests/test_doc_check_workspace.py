@@ -38,11 +38,23 @@ def _run(ws, *args):
     return subprocess.run(["node", str(DOC_CHECK), *args, *_tx(args), "--workspace", str(ws)], capture_output=True, text=True)
 
 
+# STDOUT_FNV: doc_check が CLI の stdout に付ける digest の欄。中身の照合は test_prd_pure（prd-spec.js が計算し直して合う）が持つので、
+# ここでは欄があることだけを確かめて外し、各テストは本体を比べる。
+STDOUT_FNV = re.search(r"^const STDOUT_FNV = '(\w+)'$", DOC_CHECK.read_text(encoding="utf-8"), re.M).group(1)
+
+
+def stdout_body(text):
+    out = json.loads(text)
+    if isinstance(out, dict):
+        assert re.fullmatch(r"[0-9a-f]{8}", str(out.pop(STDOUT_FNV, ""))), f"stdout に {STDOUT_FNV} がありません: {text[:200]}"
+    return out
+
+
 def _ok(ws, *args):
     r = _run(ws, *args)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
-    return json.loads(r.stdout)
+    return stdout_body(r.stdout)
 
 
 def _put_run(ws, ledger, body, *args):
@@ -56,7 +68,7 @@ def _put(ws, ledger, body, *args):
     r = _put_run(ws, ledger, body, *args)
     if r.returncode != 0:
         raise AssertionError(r.stderr)
-    return json.loads(r.stdout)
+    return stdout_body(r.stdout)
 
 
 def _edit(ws, name, old, new):
@@ -167,7 +179,7 @@ class SnapshotAndDiff(_Workspace):
         out = _ok(self.ws, "diff", "--against", "audited-1", "--expect", out["digest"])
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
-        doc = json.loads(r.stdout)
+        doc = stdout_body(r.stdout)
         self.assertEqual(set(doc), {"findings", "blocking", "degraded", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
         del doc["flow_refs"]

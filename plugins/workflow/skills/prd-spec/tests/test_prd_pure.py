@@ -56,6 +56,11 @@ def value(expr):
     return r["value"]
 
 
+def stamped(body):
+    """doc_check の CLI が出す形の stdout（本体と digest の欄）。digest は producer の doc_check が付ける。"""
+    return _exported(f"JSON.stringify(m.stampStdout({json.dumps(body, ensure_ascii=False)}))")
+
+
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class Pure(unittest.TestCase):
     def test_ownsFlowOfは回答を当てたその段のresolverのときだけ真(self):
@@ -307,17 +312,17 @@ class Pure(unittest.TestCase):
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
         base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
-        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(base))}, true)"))
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(base))}, true)"))
         for k in ("codes", "unverified", "failed_current", "resolutions", "open_only", "stale_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
-            self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))}, true)"), k)
+            self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped(broken))}, true)"), k)
             if k != "resolutions":
-                self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps(broken))})"), k)
+                self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped(broken))})"), k)
         plain = {x: v for x, v in base.items() if x != "resolutions"}
-        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(plain))})"), "生成者の doc_check flow（--rulings なし）は resolutions を持たない")
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(plain))})"), "生成者の doc_check flow（--rulings なし）は resolutions を持たない")
         two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}
-        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(json.dumps(two))})"))
-        self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps({**two, 'findings': 3}))})"), "符号の件数の和と findings が食い違う stdout は受け取らない")
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(two))})"))
+        self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped({**two, 'findings': 3}))})"), "符号の件数の和と findings が食い違う stdout は受け取らない")
 
     def test_splitFlowFindingsは生成者が消せる指摘とflow_framerに回す指摘と表に無い符号に分ける(self):
         fc = {"codes": {"FLOW_DANGLING": ["F-001", "F-002"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"], "FLOW_NEW": ["F-009"]}}
@@ -353,10 +358,23 @@ class Pure(unittest.TestCase):
         h = value("rolesByItem({'PR-A-1': ['grounding']}, [{item_id: 'PR-A-1'}, {item_id: 'PR-A-2'}], 'implementer')")
         self.assertEqual(h, {"PR-A-1": ["grounding", "implementer"], "PR-A-2": ["implementer"]})
 
-    def test_parseStdoutは最後のJSON行を読む(self):
-        self.assertEqual(value("parseStdout('warn\\n{\"digest\": \"x\"}\\n')"), {"digest": "x"})
+    def test_parseStdoutは最後のJSON行を読みdigestの合う写しだけを受け取る(self):
+        text = stamped({"digest": "x", "ids": ["RS-001", "RS-002"]})
+        self.assertEqual(value(f"parseStdout({json.dumps('warn' + chr(10) + text + chr(10))})"), {"digest": "x", "ids": ["RS-001", "RS-002"]})
+        self.assertEqual(value(f"parseStdout({text})"), {"digest": "x", "ids": ["RS-001", "RS-002"]}, "オブジェクトで返った写しも照合する")
+        dropped = json.dumps({**json.loads(text), "ids": ["RS-002"]})
+        broken = text.replace(",", "", 1)
+        unstamped = json.dumps({"digest": "x", "ids": ["RS-001", "RS-002"]})
+        for name, bad in (("要素を落とした写し", dropped), ("壊れた JSON", broken), ("digest の無い写し", unstamped)):
+            with self.subTest(name):
+                self.assertIsNone(value(f"parseStdout({json.dumps(bad)})"))
+                self.assertTrue(value(f"copyFault({json.dumps(bad)})"), "写し損ねは取り直しに回す")
+        self.assertIsNone(value(f"parseStdout({dropped})"), "オブジェクトで返った写しも要素を落とせば受け取らない")
         self.assertIsNone(value("parseStdout('')"))
         self.assertIsNone(value("parseStdout('not json')"))
+        self.assertFalse(value("copyFault('doc_check flow: flow.json がありません')"), "JSON の行の無い値（失敗したコマンドの stderr）は写し損ねではない")
+        self.assertFalse(value("copyFault(undefined)"))
+        self.assertFalse(value(f"copyFault({json.dumps(text)})"))
 
     def test_applyRoleOverridesは既定を上書きし未知の値を止める(self):
         table = {"writer": {"model": "opus", "effort": "medium"}}
@@ -442,6 +460,30 @@ class ContractEnums(unittest.TestCase):
         self.assertEqual(sorted(value("DIRECTIONS")), contract_values("direction"))
         self.assertEqual(sorted(value("ORIGINS")), contract_values("origin"))
         self.assertEqual(len(contract_values("origin")), 4)
+
+    def test_stdoutのdigestはdoc_checkと同じ関数と欄で計算する(self):
+        for name in ("canonicalText", "fnv"):
+            with self.subTest(name):
+                self.assertEqual(value(f"{name}.toString()"), _exported(f"m.{name}.toString()"))
+        self.assertEqual(value("STDOUT_FNV"), _exported("m.STDOUT_FNV"))
+        for body in ({}, {"a": [1, "1", True, None, {"b": "日本語・F-001"}], "n": 0.5}, {"z": [], "y": {}, "x": [[{"k": "v"}]]}):
+            with self.subTest(body=body):
+                self.assertEqual(value(f"fnv(canonicalText({json.dumps(body, ensure_ascii=False)}))"),
+                                 _exported(f"m.fnv(m.canonicalText({json.dumps(body, ensure_ascii=False)}))"))
+
+    def test_doc_checkのCLIのstdoutはそのまま受け取り一覧の要素を落とした写しは受け取らない(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "w"
+            shutil.copytree(FIXTURE, ws)
+            doc_check = Path(__file__).resolve().parents[1] / "scripts" / "doc_check.mjs"
+            text = subprocess.run(["node", str(doc_check), "flow", "--workspace", str(ws), "--rulings"], capture_output=True, text=True, check=True).stdout
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(text)}, true)"))
+        out = json.loads(text)
+        lists = [k for k, v in out.items() if isinstance(v, list) and v]
+        self.assertTrue(lists, "落とす要素のある一覧が fixture の stdout に無い")
+        for k in lists:
+            with self.subTest(k):
+                self.assertIsNone(value(f"flowCheckOf({json.dumps(json.dumps({**out, k: out[k][1:]}))}, true)"))
 
     def test_RESOLUTION_IDはdoc_checkの台帳のIDの形と同じ(self):
         self.assertEqual(value("RESOLUTION_ID.source"), _exported("m.LEDGERS.resolutions.keyShape.source"))

@@ -472,17 +472,32 @@ function undeclaredByDoc(diff, changes, targetDocs) {
   return out
 }
 
-function parseStdout(text) {
+// STDOUT_FNV: doc_check が stdout に付ける、本体の digest の欄（doc_check の STDOUT_FNV と同じ。tests が照合する）。
+const STDOUT_FNV = 'stdout_fnv'
+const BAD_JSON = Symbol('bad json')
+function stdoutRaw(text) {
   if (text && typeof text === 'object') return text
-  const s = String(text || '').trim()
-  if (!s) return null
-  const line = s.split('\n').filter((l) => l.trim().startsWith('{')).pop()
+  const line = String(text || '').trim().split('\n').filter((l) => l.trim().startsWith('{')).pop()
+  if (!line) return null
   try {
-    return line ? JSON.parse(line) : null
+    return JSON.parse(line)
   } catch {
-    return null
+    return BAD_JSON
   }
 }
+
+// parseStdout: agent は stdout を手で写すので、写しの本体から digest を計算し直し、合わない写し（壊れた JSON・要素の欠けた一覧）は
+// 受け取らない。形を検査するだけだと、一覧から 1 件落とした写しが正しい stdout として通る。返す本体に STDOUT_FNV は載せない
+// （--rulings の有無で違う stdout どうしを欄ごとに比べる呼び出しがある）。
+function parseStdout(text) {
+  const o = stdoutRaw(text)
+  if (!o || o === BAD_JSON || typeof o !== 'object' || Array.isArray(o)) return null
+  const { [STDOUT_FNV]: sum, ...body } = o
+  return typeof sum === 'string' && sum === fnv(canonicalText(body)) ? body : null
+}
+
+// copyFault: JSON の行はあるのに受け取れない（写し損ね）。JSON の行の無い値（失敗したコマンドの stderr）は写し損ねではなく、これまでの経路で扱う。
+const copyFault = (text) => stdoutRaw(text) !== null && !parseStdout(text)
 
 function planCheckOf(text) {
   const o = parseStdout(text)
@@ -664,6 +679,10 @@ const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, req
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
+const RECOPY_SCHEMA = {
+  type: 'object',
+  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR },
+}
 
 const FLOW_SCHEMA = {
   type: 'object',
@@ -785,7 +804,7 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, RECOPY_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
@@ -1040,14 +1059,15 @@ async function call(prompt, opts) {
 // issue: 返り値の無い呼び出しは null で返す（段を止めずに続ける呼び出しは finalHold だけ）。
 // resolutions_sha256 の無い resolver の返り値を受け取ると、verifier・writer との照合が黙って飛ぶ。出し直すと
 // 済んだ put（flow の put / del を含む）を二重に走らせるので、段を頭からやり直させる。
-async function issue(label, role, prompt, schema, phaseTitle) {
+async function issue(label, role, prompt, schema, phaseTitle, cmds) {
   if (role === 'resolver') unchecked = { tag: label.replace(/^resolver:/, ''), responded: false, claimed: null }
   if (role === 'resolver' || role === 'flowFramer') {
     seen = null
     wrote = true
   }
-  const r = await call(prompt, { ...OPTS[role], schema, phase: phaseTitle, label })
-  if (!r && budgetOut()) throw budgetStop(label)
+  const got = await call(prompt, { ...OPTS[role], schema, phase: phaseTitle, label })
+  if (!got && budgetOut()) throw budgetStop(label)
+  const r = got && (await recopy(label, got, { ...copyCmds(role), ...cmds }, phaseTitle))
   if (r && role === 'resolver') unchecked = { ...unchecked, responded: true, claimed: flowCheckOf(r.flow_check) }
   // flow を数え直さない flow-check（入口の reset・restore だけ、本文の控え）は印を消さない。
   if (r && (role === 'verifier' || (role === 'flowCheck' && r.flow_check !== undefined))) unchecked = null
@@ -1057,9 +1077,37 @@ async function issue(label, role, prompt, schema, phaseTitle) {
   return r || null
 }
 
+// recopy: doc_check の stdout の写しが copyFault なら、同じコマンドを flow-check に別の label で 1 回だけ実行させて取り直す。cmds は返り値の
+// 欄ごとのコマンドで、流し直してよいもの（references/workflow-io.md §3 の「doc_check の stdout の写しが checksum に合わなければ」の項の表）に限る。判断する役（resolver・verifier・監査役）を
+// 起動し直して写しを取らない（判断ごとやり直すことになる）。取り直しも合わなければ段からやり直させる。issue を通さないのは、resolver の flow の
+// 取り直しで unchecked の印を消さないため（消すと independentFlow が飛ぶ）。
+const recopyLabel = (label) => (label.startsWith('flow-check:') ? `${label}-recopy` : `flow-check:${label.replace(/:/g, '-')}-recopy`)
+async function recopy(label, x, cmds, phaseTitle) {
+  const bad = Object.keys(cmds).filter((k) => cmds[k] && copyFault(x[k]))
+  if (!bad.length) return x
+  const l = recopyLabel(label)
+  const lines = bad.map((k) => `実行する: \`${cmds[k]}\`。stdout を加工せずに ${k} に入れる。`)
+  const again = await call([header('flowCheck', running, l), ...lines].join('\n\n'), { ...OPTS.flowCheck, schema: RECOPY_SCHEMA, phase: phaseTitle, label: l })
+  if (!again) throw notRun(l)
+  const still = bad.filter((k) => !parseStdout(again[k]))
+  if (still.length) {
+    throw Object.assign(new Error(`${label} と ${l} が返した doc_check の stdout（${still.join('・')}）の写しが 2 回とも checksum（${STDOUT_FNV}）に合いませんでした（壊れた JSON か、欄や要素を欠いた写し）。受け取らずに止めます。この段から next_args で呼び直してください`), { rerunStage: true })
+  }
+  return { ...x, ...Object.fromEntries(bad.map((k) => [k, again[k]])) }
+}
+
+// copyCmds: 役の返り値の欄のうち、引数が呼び出しで変わらないコマンドの stdout。answers・backup・questions --check は呼び出しの場所が渡す。
+const copyCmds = (role) => ({
+  flow_check: role === 'verifier' || role === 'flowCheck' ? RULINGS_FLOW : cli('flow'),
+  conflicts_check: cli('conflicts'),
+  plan_check: cli('plan'),
+  restore_check: RESUME_TX ? cli('restore', `--token ${RESUME_TX.restore}`) : null,
+  reset_check: cli('reset', RESET_FLAGS),
+})
+
 // once: 返り値の無い呼び出しは段を止める。
-async function once(label, role, prompt, schema, phaseTitle) {
-  const r = await issue(label, role, prompt, schema, phaseTitle)
+async function once(label, role, prompt, schema, phaseTitle, cmds) {
+  const r = await issue(label, role, prompt, schema, phaseTitle, cmds)
   if (!r) throw notRun(label)
   return r
 }
@@ -1677,7 +1725,8 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
   const settledNow = [...(r.ruled || []), ...(r.holds || [])].map((x) => x && x.id)
   let target = minus(uniq([...(r.questions || []).map((x) => x && x.id), ...(recheck || [])]), settledNow)
   if (!target.length) return null
-  const done = await rework(r, (x) => (target.length ? questionsDefect(x.questions_check, target) : null), async (_, d, n) => {
+  const clean = (label, x) => recopy(label, x, { questions_check: questionsCheck(target) }, phaseTitle)
+  const done = await rework(await clean(`flow-check:${owner}-questions`, r), (x) => (target.length ? questionsDefect(x.questions_check, target) : null), async (_, d, n) => {
     const label = reworkLabel(`resolver:${owner}-questions`, n)
     const again = await once(
       label,
@@ -1694,7 +1743,7 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
     const kept = flowKept(`${owner}-questions`, again)
     if (kept) return kept
     target = minus(uniq([...target, ...(again.questions || []).map((x) => x && x.id)]), (again.holds || []).map((x) => x && x.id))
-    return again
+    return clean(label, again)
   }, MAX_CHECK_REWORK)
   if (done.error) return done.error
   return done.defect ? { error: `段 ${stage}: 問いの形が検査を通りません（${done.defect.text}）` } : null
@@ -1737,7 +1786,8 @@ function answersStop(gate, from, ids, extra) {
 // 返り、同じ所で止まり続ける。
 async function answersUnchecked(gate, from, ids) {
   const label = `flow-check:${gate}-answers`
-  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cli('answers', `--file ${GATE_ANSWERS[gate]} --ids ${ids.join(',')}`)}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from])
+  const cmd = cli('answers', `--file ${GATE_ANSWERS[gate]} --ids ${ids.join(',')}`)
+  const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
   const ac = parseStdout(x && x.answers_check)
   const echoed = ac && ac.file === GATE_ANSWERS[gate] && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing)
   if (echoed && !ac.missing.length) return null
@@ -1747,10 +1797,10 @@ async function answersUnchecked(gate, from, ids) {
 
 // resetEntry: 段 1 から始める run（新しい run も、段 1 からの再実行も）は、W を S0 の直後に戻した stdout を見てから intake を起動する。
 // 戻さずに始めると、前のランや止まった段 1・2 の台帳の要素と欄が、再実行の put（キー単位で足す）の後にも残る。
+const RESET_FLAGS = [KEEP_KEYS.length ? `--keep ${KEEP_KEYS.join(',')}` : '', FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''].filter(Boolean).join(' ')
 async function resetEntry() {
   const label = 'flow-check:1-entry'
-  const flags = [KEEP_KEYS.length ? `--keep ${KEEP_KEYS.join(',')}` : '', FIXED_KEYS.length ? `--fixed ${FIXED_KEYS.join(',')}` : ''].filter(Boolean).join(' ')
-  const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', flags)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
+  const x = await once(label, 'flowCheck', [header('flowCheck', '1', label), `実行する: \`${cli('reset', RESET_FLAGS)}\`。stdout を加工せずに reset_check に入れて返す。`].join('\n\n'), RESET_SCHEMA, PHASE_OF[1])
   const rc = parseStdout(x && x.reset_check)
   const shas = rc && rc.fixed_sha256
   const shaOk = shas && typeof shas === 'object' && canonicalText(Object.keys(shas)) === canonicalText(FIXED_KEYS) && Object.values(shas).every((v) => typeof v === 'string' && v)
@@ -1974,11 +2024,17 @@ async function backupDocs(stage, docs) {
   const label = `flow-check:${stage}-backup`
   const keys = uniq(docs)
   const token = txToken()
-  const x = await once(label, 'flowCheck', [header('flowCheck', stage, label), `実行する: \`${cli('backup', `${keys.map((k) => `--doc ${k}`).join(' ')} --token ${token}`)}\`。stdout を加工せずに backup_check に入れて返す。`].join('\n\n'), BACKUP_SCHEMA, PHASE_OF[stage])
+  const cmd = cli('backup', `${keys.map((k) => `--doc ${k}`).join(' ')} --token ${token}`)
+  const x = await once(label, 'flowCheck', [header('flowCheck', stage, label), `実行する: \`${cmd}\`。stdout を加工せずに backup_check に入れて返す。`].join('\n\n'), BACKUP_SCHEMA, PHASE_OF[stage], { backup_check: cmd })
   const bc = parseStdout(x.backup_check)
   if (bc && bc.backup === true && bc.token === token && canonicalText(bc.docs) === canonicalText(keys)) return
   throw Object.assign(new Error(`flow-check（段 ${stage}）が token ${token} で文書 ${list(keys)} の本文の控えを取った doc_check backup の stdout を返しませんでした（控えが無いまま writer を起動すると、この段の再実行が止まった run の途中の本文から始まる）`), { rerunStage: true })
 }
+
+// designatedCmds: 指名された監査役の doc と tree-digest は読むだけなので取り直す。snapshot --save は監査の基準を書き直し、--live の一覧も
+// 監査役の実行中の値なので、取り直さずに段からやり直させる（snapshotFault）。
+const designatedCmds = () => ({ doc_check: cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`), tree_digest: cli('tree-digest') })
+const snapshotFault = (d) => (d && copyFault(d.audited) ? `（snapshot の stdout の写しが checksum（${STDOUT_FNV}）に合いません。snapshot は基準を書き直すので取り直しません）` : '')
 
 async function stage4() {
   const waves = unitWaves(state.units)
@@ -2084,9 +2140,10 @@ async function stage5() {
   const { results, missing } = await runAuditors(plan, 1, '5')
   if (missing.length) throw notRun(missing.join(', '))
   const cd = results[results.length - 1]
+  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], 1), cd.designated, designatedCmds(), 'Audit')
   const audited = parseStdout(cd.designated && cd.designated.audited)
   const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
-  if (!audited || !audited.digest) return blocked('cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした。どの版を監査したかの記録が無いまま進めません', '5')
+  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
   const moved1 = fixedMoved(audited, 'audited-1')
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
   state.audit = { n: 1, digest: audited.digest }
@@ -2246,7 +2303,8 @@ async function stage8() {
   const extraOf = (d) => undeclaredByDoc(d.diff, changes, state.revised.docs || Object.keys(changes))
   const head = runAuditors([plan[0]], round, '8')
   const rest = runAuditors(plan.slice(1), round, '8')
-  const extraRun = head.then((h) => {
+  const extraRun = head.then(async (h) => {
+    if (h.results[0] && h.results[0].designated) h.results[0].designated = await recopy(auditorLabel(plan[0], round), h.results[0].designated, designatedCmds(), 'Revise')
     const d = designatedOf(h)
     if (!h.results[0] || !usable(d)) return null
     const extra = extraOf(d)
@@ -2271,7 +2329,7 @@ async function stage8() {
   if (d.diff_error) return blocked(`監査の基準 audited-${n} の digest が一致しません。基準が差し替わっているので、この監査が何と比べたのか分かりません: ${d.diff_error}`, null)
   if (!d.diff) return blocked('指名された監査役が diff の結果を返しませんでした', '8')
   const { audited, tree } = readDesignated(d)
-  if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした`, '8')
+  if (!usable(d)) return blocked(`指名された監査役が audited-${round} の snapshot か tree-digest を返しませんでした${snapshotFault(d)}`, '8')
   const moved = fixedMoved(audited, `audited-${round}`)
   if (moved) return blocked(moved.error, moved.rerun ? '8' : null)
   const extra = extraOf(d)

@@ -1,5 +1,5 @@
 ---
-description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前と、回答済みのゲートを越える前に doc_check（flow・restore・reset・backup・answers）を実行し、stdout をそのまま返す
+description: 台帳を書いた resolver の後と、run の入口と、段 4・7 の writer の前と、回答済みのゲートを越える前と、写しが checksum に合わなかった stdout の取り直し（-recopy）で doc_check を実行し、stdout をそのまま返す
 ---
 
 # flow-check
@@ -20,6 +20,8 @@ description: 台帳を書いた resolver の後と、run の入口と、段 4・
 - 回答済みのゲートを越える前（`<ゲート>-answers`）のプロンプトは `answers` だけを挙げる。回答のファイルを読んで答えの有無を判断するのは
   doc_check で、あなたが回答を書き足したり直したりしない（script は answers の stdout でゲートを越えるかを決めるので、書き足すと、
   依頼者が答えていない問いに回答が当たる）。
+- 取り直し（label が `-recopy` で終わる）のプロンプトは、別の agent が写し損ねた stdout のコマンドを挙げる。挙げたコマンドだけを実行し、
+  プロンプトが名指しした欄に入れる（stdout の最後の `stdout_fnv` は script がほかの欄から計算し直すので、1 字でも変えると 2 回目も合わずに run が止まる）。
 - restore・reset・backup・answers の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check・answers_check に入れる。
 - ファイルを書かない・直さない。指摘が出ても直さない（直すのは flow-framer と resolver の仕事で、あなたが直すと
   その書き込みを誰も検証しない）。
