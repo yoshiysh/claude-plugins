@@ -9,7 +9,7 @@ skill の版: run1〜3 は `7a208d0`、run4〜5 は `7d06d97`（run3 の写し�
 
 - 入力は再試走と同じ。`W/input.md` は再試走の W の `input.md` を複写し、cmp で一致した。先例は 0 件（`evidence/orchestrator-log.md`）。
 - W: `/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches`。時刻は 2026-09-29T20:48:28Z〜2026-09-30T05:37:41Z。
-- Workflow は 5 回呼んだ（`evidence/run-outputs/run{1..5}.output.json`）。Workflow の Run は 2 つ（`wf_f413a4a5-c3e` が run1〜3、`wf_0f45ed55-8ba` が run4〜5）。
+- Workflow の呼び出しは 6 回で、そのうち名前付きの 1 回は拒否された（§1.1 の 1）。走った run は 5 つ（`evidence/run-outputs/run{1..5}.output.json`）。Workflow の Run は 2 つ（`wf_f413a4a5-c3e` が run1〜3、`wf_0f45ed55-8ba` が run4〜5）。
   1. 引数なしで起動 → needs_answers（G0、18 問: RS-001〜016・025・026）
   2. resume → needs_answers（G0-2、1 問: RS-033）
   3. resume → blocked「flow-check（段 3a）が doc_check flow の stdout を返しませんでした」（resumable false）
@@ -48,7 +48,7 @@ skill の版: run1〜3 は `7a208d0`、run4〜5 は `7d06d97`（run3 の写し�
 | 最後の status | blocked | blocked | **done** | 改善 |
 | remaining_blocking / holds / open_tbd | 2 / 2 / 0 | 2 / 4 / 0 | 無し（done）/ 6 / 0 | — |
 | hold_drafts（最後の run） | 欄なし | 欄なし | 0（run2・3 は RS-027 の 1 件） | — |
-| next_args の最大（json.dumps の文字数） | 17,908 | 8,933 | 9,830（run4、G1 の後） | 増 |
+| next_args の最大（`json.dumps(…, ensure_ascii=False)` の文字数。既定の ensure_ascii では 10,130） | 17,908 | 8,933 | 9,830（run4、G1 の後） | 増 |
 | next_args の `state.flow` | あり | 無し | 無し（4 つとも） | 同じ |
 | W の `stray` | 検査なし | 0 | 2（audited-1〜4・tree-digest の 5 回とも同じ 2 件） | 悪化 |
 | W の `tmp/` の残り | script 5・控え 13 | 空 | ファイル 2・空のディレクトリ 1（§4.4） | 悪化 |
@@ -59,7 +59,7 @@ skill の版: run1〜3 は `7a208d0`、run4〜5 は `7d06d97`（run3 の写し�
 | 段 2 の `FLOW_DT_*` | 検査なし | 0 | 0 | 同じ |
 | `SIZE_OVER`（予算は `SIZE_BUDGET`） | — | 4 → 5 → 5、最後 5 | 5 → 7 → 7 → 7、最後 7 | 悪化 |
 | direction の逆転 / それで decision に回った件数 | 1 / 0 | 0 / 0 | 0 / 0 | 同じ |
-| RS-028 に当たる論点が G0・G0-2 で出たか | 出ず | 出ず | **出た**（G0-2 の RS-033、§3.3） | 改善 |
+| RS-028 に当たる論点が G0・G0-2 で出たか | 出ず | 出ず | **出た**（G0 の RS-012 と G0-2 の RS-033、§3.3） | 改善 |
 | 初稿の writer のプロンプトの「出典が検証に落ちた流れの要素」 | — | 16 | 0（「（なし）」） | 改善 |
 | doc_blocking（`ST-FLOW-UNATTACHED` を含む） | — | r1・r2 16、r3 0 | r1〜r4 すべて 0 | 改善 |
 | agent 数（live の起動） | 24 | 37 | 68（run ごとに 12・17・3・14・22） | 増 |
@@ -148,8 +148,8 @@ settle のプロンプトの行（`prompt_clue_counts`）:
   R6 の「再発した項目」・「hold の指示」。
 
 skipped の照合（`skipped`）: run3 と run4 の `verifier:3av`（unchanged、RS-033）、run5 の `verifier:3av` と `verifier:3a'v`（unchanged、RS-045・049・050・051）。
-どの step も、その run の live の起動に同じ label が無い（食い違い 0）。run5 の `verifier:3av` は、resume が leg の頭から走り直すので載る
-（`references/workflow-io.md` §3）。
+どの step も、その run の live の起動に同じ label が無い（食い違い 0）。run5 に `verifier:3av` が載るのは、`references/workflow-io.md` §3 の
+「resume は script を頭から走り直すので、その leg の全体を返す」による説明で、コードでは確かめていない。
 
 役ごとの比較（`role_counts_vs_rerun`。label の最初の `:` の前で束ねた）:
 
@@ -183,7 +183,7 @@ skipped の照合（`skipped`）: run3 と run4 の `verifier:3av`（unchanged�
 
 - span には G0 の回答待ち（約 4.6 時間）と run3〜4 の間の修正（約 1.7 時間）が入る。
 - **請求の重み**: 倍率は `claude-api` スキル（2.1.285 同梱）の `shared/prompt-caching.md` の Economics の段と、同じスキルの料金表（cached 2026-09-25）から取った。
-  cache read の倍率は model ごとに違う（Opus 5.5 と、Sonnet 5.5・Haiku 4.5 で別）。usage.py は倍率を 1 組しか受け取らないので、2 組で 2 回実行した。
+  cache read の倍率は model ごとに違う（Opus 5.5 と、Sonnet 5.5・Haiku 4.5 で別）。Haiku 4.5 の倍率は、料金表ではなく Economics の段の一般の値（Opus 5.5・Fable 5.1 以外）だけが出所である。usage.py は倍率を 1 組しか受け取らないので、2 組で 2 回実行した。
   model ごとに、合う組の出力の `by_model` の `weighted_input` を取った（`transcript-extract.json` の `weighted_input_by_model_matched`）。
 
 | model | input_all | weighted_input（通常の入力に換算） | 割合 |
@@ -205,6 +205,9 @@ Workflow の呼び出しごと（`usage_per_run`。usage.py の `per_run` は wf
 | 4 | 14 | 19,687,352 | 92.9% | 1,391,661 | 20,424 | 5,981.6 秒（修正） |
 | 5 | 22 | 31,632,013 | 92.1% | 2,485,541 | 25,083 | 109.7 秒（G1） |
 
+- 空きは、前の run の live の agent の終わり（usage.json の `start + seconds`。seconds は 0.1 秒に丸めた値）の最大から、この run の最初の agent の `start` まで。
+- run は 1 回ずつしか無い（n=1）。run の間の cache の差をどの要因によるものとみるかは推測である。
+
 run の最初の agent の初回ターン（cache_read / cache_creation）:
 
 | run | 最初の agent | 最初の opus の agent |
@@ -219,7 +222,7 @@ run の最初の agent の初回ターン（cache_read / cache_creation）:
 - 最初の opus の agent は、空きが 2 分未満の run3・run5 では約 39K を読んだ。空きが 1 時間を超えた run2・run4 では全体を作った。
 
 初回ターンで cache を読んだか（`first_turn_cache_vs_gap`）。同じ model・同じ役の前の agent の最後の行から、この agent の起動までの空きで分けた
-（implementer と grounding は同じ組に数えた）:
+（implementer と grounding は同じ組に数えた。組は run をまたぐ）:
 
 | 空き | opus・sonnet: 読んだ / 体 | haiku: 読んだ / 体 |
 |---|---:|---:|
@@ -230,10 +233,11 @@ run の最初の agent の初回ターン（cache_read / cache_creation）:
 | 前が無い | 0 / 7 | 0 / 1 |
 
 - 読んだ量は 32,419〜39,476 だった（resolver 39,310・39,476、verifier 38,784・38,950、implementer・grounding 39,355、haiku の flow-check 32,419）。
-- 同じ run・同じ model・同じ役の 2 体目以降（R7 の header の並べ替えの確認）: 43 体のうち 15 体が初回ターンで cache を読んだ。
+- 同じ run・同じ model・同じ役の 2 体目以降（R7 の header の並べ替えの確認）: 役を label の最初の `:` の前で分けると（implementer と grounding は別）43 体のうち 15 体、
+  implementer と grounding を同じ組にすると 45 体のうち 17 体が、初回ターンで cache を読んだ（`same_role_first_turn` は前者）。
   読まなかった 28 体は、上の表では 300 秒以上の空きか haiku に入る。
 - haiku が 300 秒未満でも読まなかった理由は確かめていない。
-- **役をまたいだ共有**（`cross_role_check`）: 見られなかった。
+- **役をまたいだ共有**（`cross_role_check`。上の表と同じ組み方）: 見られなかった。
   - 同じ役の前から 300 秒以上空いて外れた opus・sonnet の初回ターンは 27 体。
   - そのうち 23 体は、同じ model の別の役の agent が 300 秒以内に動いていたが、読みは 0 だった。
   - 例: run5 の writer:U-1:revise は resolver:6・verifier:6v の直後に起動した。
@@ -283,6 +287,7 @@ r1 は段 5 の監査で、r2〜r4 は段 8 のパスである。返り値の `p
   - PR-CLEANUP-048 と 062 は r1〜r3。
   - PR-CLEANUP-003・006・011・034 は 2 パス。
 - 逆転（同じ項目で tighten と relax）は 0 件。
+- 項目ごとの経路（R6）: 返り値の `item_routes` は 5 回とも空で、decision・hold・尽きた（exhausted）に回した項目は 0 件。
 - run5 の log の「経路を変えた項目」は 2 回とも「（なし）」。`recurringItems` が返した項目は 0 である。
 - R6 の「再発した項目」「hold の指示」の行はどのプロンプトにも無かった（§2.2）。
 - 既裁定の再出（notices）: 2 件（r2-im-001 ← RS-047、r3-im-002 ← RS-055）。
@@ -323,10 +328,11 @@ item の ID が変わったので、内容で当てた。
   - `FLOW_DESTRUCTIVE_UNCONSTRAINED` は 0 件（doc_check flow の出力 60 回の codes はすべて空）。
 - **R4 の符号**: `FLOW_OBTAIN_MISSING`・`FLOW_INPUT_UNKNOWN`・`FLOW_DT_SIZE`・`FLOW_HISTORY` は、flow の出力 60 回ですべて 0 件。
   journal の flow_check にも現れない。
-- **`ST-FLOW-UNATTACHED`（R1・R2）**: 0 件。agent の Bash の出力 947 件と journal 2 本を、この符号の文字列で grep して 0 件だった。
+- **`ST-FLOW-UNATTACHED`（R1・R2）**: 0 件。agent の tool の結果 947 件（Bash 603・Read 198・StructuredOutput 68・Edit 38・Grep 30・Write 10）と journal 2 本を、この符号の文字列で grep して 0 件だった。
   各パスの doc_check doc の findings も 0 件（§3.1）。
 - **段 3b（R14）**:
   - flow-framer:3b-reframe の後の conflicts は 9 組（constraint_pairs 9、self_sourced 0）で、questions --check の対象は RS-033。
+  - resolver:3b のプロンプトの「まだ裁定の無い open」は（なし）で 0 件、「まだ裁定の無い組」は F-003|RS-011 の 1 組。
   - resolver:3b は 1 回起動し、RS-035（組 F-003 × RS-011）を裁定し、RS-033 を問いのまま持ち越した。
   - verifier:3bv が F-003 を不合格にし、resolver:3b-fix・verifier:3b-fixv と settle（3b-settle・3bv-settle）が続いた。
   - 出所は journal の result。
@@ -352,7 +358,7 @@ item の ID が変わったので、内容で当てた。
 
 ### 4.2 写し損ねと取り直し（`evidence/stdout-copies.json`、`stdout_copies.mjs`）
 
-journal の result にある doc_check の stdout の写し 89 件を、`7d06d97` の `parseStdout` と同じ規則（fnv の照合）で判定した。
+journal の result にある doc_check の stdout の写しの欄 89 件を、`7d06d97` の `parseStdout` と同じ規則（fnv の照合）で判定した。
 
 | 版 | model | 照合なし（`stdout_fnv` が無い） | 合う | 合わない / 壊れた JSON |
 |---|---|---:|---:|---:|
@@ -362,6 +368,7 @@ journal の result にある doc_check の stdout の写し 89 件を、`7d06d97
 | 7d06d97 | opus | — | 22 | 1（grounding:r4 の tree_digest、471 字） |
 | 7d06d97 | sonnet | — | 1 | 1（crossDoc:r1 の doc_check、277 字） |
 
+- 数えたのは欄の数で、別々の写しの数ではない。crossDoc の recopy は同じ stdout を `flow_check` と `doc_check` の 2 欄に入れたので 2 件に数えた。
 - 修正の後の写し損ねは 2 件で、どちらも haiku 以外。
   - crossDoc（sonnet）は `flow_refs` の中身を空の `{}` にした。
   - grounding:r4（opus）は `size_over.path` の `sizes` を `stray` と書いた。
@@ -443,7 +450,9 @@ Write/Edit の書き先はすべて W の中。司令塔が試走の前後で `l
   - **推測**（`ttl_1h_estimate`）: 外れた初回ターンが、同じ組で観測した最大の cache_read の分だけ読みに変わるとみなした。
     書き込みがすべて 1 時間の倍率になるので、cache の重み付きの量は増える: opus +3,123,448、sonnet +301,838、haiku +236,489（通常の入力に換算した token）。
     読みに変わる量には、読んだ例の無い組（writer・flow-framer・crossDoc など）を 0 と数えた。
-    opus・sonnet の 22 体すべてに 39,476 を当てても、読みに変わる量は約 0.87M で、増える書き込みの重み（opus の書き込み 5,492,472 の全量に掛かる）より小さい（推測）。
+    opus・sonnet の 22 体すべてに 39,476 を当てると、読みに変わる量は約 0.87M。同じ重みの単位で、減る分は約 1.69M（0.87M × (1 時間の書き込み − 読み) の倍率の差）、
+    増える分は約 4.12M（opus の書き込み 5,492,472 × (1 時間 − 5 分) の倍率の差）で、増える分の方が大きい（推測）。
+  - run は 1 回ずつしか無い（n=1）ので、空きの分布が run ごとに変わる影響は見ていない。
 - **収束のループの上限**:
   - `MAX_AUDIT_PASSES = 4` に対して、段 8 のパスは 3 で、stop_reason は null（r4 の blocking 0 で done）。
   - `MAX_SETTLE_ROUNDS = 3` に対して、settle の回数の最大は 2（段 3 の 3-settle・3-settle-2）。
