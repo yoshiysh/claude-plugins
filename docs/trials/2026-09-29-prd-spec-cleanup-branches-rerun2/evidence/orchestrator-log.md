@@ -24,3 +24,7 @@
   原因（journal の flow-check:3a の返り値）: haiku が `doc_check flow --rulings` の stdout を写し損ね、JSON として読めない（3,195 字目で
   区切りの欠落。evidence/flow-check-3a-bad-stdout.json）。R16 で初めて実 agent に当たった経路の欠陥として記録し、skill を直してから
   next_args で段 3a から呼び直す。
+- skill の修正: 7d06d97（doc_check の stdout に stdout_fnv、写し損ねは flow-check の -recopy で 1 回読み直す）。検証役 1 体が合格。
+  run1〜3 は 7a208d0、run4 以降は 7d06d97 で走る。
+- run4: run3 の next_args をそのまま渡して scriptPath で起動（from 3a、tx.restore t6。gates_answered は足さない）。resume しないのは、
+  保存された結果の stdout に stdout_fnv が無く、新しい script が写し損ねとして扱うため。
