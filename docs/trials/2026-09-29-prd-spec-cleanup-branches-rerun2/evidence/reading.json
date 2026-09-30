@@ -1,0 +1,22 @@
+{
+ "agents": 68,
+ "first_turn_context_sum": 4173424,
+ "by_category_tokens_estimate": {
+  "resolutions": 807751,
+  "contracts": 766182,
+  "input": 350189,
+  "rolefile": 340346,
+  "doc": 290164,
+  "flow": 259932,
+  "other": 182732,
+  "write/edit": 90713,
+  "doc_check_src": 88620,
+  "verifications": 74568,
+  "references": 62137,
+  "findings": 50073,
+  "answers": 39243,
+  "decisions": 32265,
+  "checks": 26092
+ },
+ "sum_categories": 3461009
+}
