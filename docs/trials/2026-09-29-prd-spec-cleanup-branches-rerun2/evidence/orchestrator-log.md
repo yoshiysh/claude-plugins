@@ -32,3 +32,10 @@
 - run4 → needs_answers G1（4 問: RS-045・049・050・051）、resumable true。agents 14、subagent_tokens 1,574,540、tool_uses 195、
   duration_ms 2,090,159。notices: audited-1 で stray 2 件・SIZE_OVER 5 件。AskUserQuestion 1 回（4 問）。回答は answers/g1.md。
 - run5: resume（resumeFromRunId wf_0f45ed55-8ba、run4 の args に gates_answered {g1: [RS-045, RS-049, RS-050, RS-051]}）。
+- run5 → done。agents 36、subagent_tokens 2,681,265、tool_uses 358、duration_ms 2,751,731。passes 3、stop_reason null。
+  holds RS-027・052・053・054・055・056、hold_drafts []、open_tbd []、integrity []、missed []、undeclared {}。
+  skipped: verifier:3av（unchanged、RS-033）、verifier:3a'v（unchanged、RS-045・049・050・051）。
+  notices: audited-1〜4 で stray 2 件ずつ、SIZE_OVER 5・7・7・7 件、既裁定の再出 2 件（r2 ← RS-047、r3 ← RS-055）。
+- 終了 2026-09-30T05:37:41Z。保存の照合: tree-digest の digest `3f9611a8…` は返り値の tree_digest と一致。stray 2。
+  report を導出（method 0、holds 6、drafts 0）。
+- 保存と Issue の起票はしない（試走なので repo の docs/requirements に写さない。Issue も起票しない）。文書と report は evidence に写した。

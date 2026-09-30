@@ -1,0 +1,48 @@
+{
+ "pairs": [
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-003"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-005"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-006"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-017"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-020"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-022"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-004",
+   "b": "F-027"
+  },
+  {
+   "kind": "constrained-by",
+   "a": "RS-016",
+   "b": "F-031"
+  }
+ ],
+ "untargeted": [],
+ "self_sourced": [],
+ "flow_checked": true,
+ "digest": "2e890db94fc062f595a825c622c7e2d5bb4b0359164e76fba1b7bd18811ff884"
+}

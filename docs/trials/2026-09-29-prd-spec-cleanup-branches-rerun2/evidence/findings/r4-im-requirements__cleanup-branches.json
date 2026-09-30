@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "id": "r4-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-028",
+      "quote": "「一部を承認」は、示した候補のうち 1 件以上を名指しして削除を承認する応答",
+      "issue": "ここで手が止まる。候補を件数と代表例に要約して示したカテゴリで、「示した候補」が代表例に挙げたものだけを指すのか、示したカテゴリの候補すべてを指すのかが分からず、代表例に無い候補を名指しした応答が「一部を承認」か「それ以外」かが決まらないから。",
+      "repro": "要判断のローカルブランチ（remote 削除済み）が 25 件あり、問いでは件数と代表例 5 件だけを示した。利用者が代表例に無い feature/zz を名指しして「feature/zz を消して」と応答する → 代表例だけを示した候補とする実装は「それ以外」として何も削除しない。カテゴリの候補すべてとする実装は「一部を承認」として、独自コミット数・最終コミット日を示していない feature/zz を削除する。代表例 1 件と feature/zz を併せて名指しした応答では、代表例だけを削除する実装も成り立つ。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md の PR-CLEANUP-003・028・062 の節と、それらが参照する・隣接する PR-CLEANUP-002・004・005・064〜066・024〜027・029・033〜041・044・045・067・071・072・073 の節、meta の 3 項目の trace、input.md 全文、answers/*.md、decisions.json・resolutions.json・plan.json・flow.json の全件、findings の r1〜r3 の同じ項目への指摘を読んだ。当てた観点: 着手できるか（判断の委任・分岐の欠け・用語の未定義・複数の解釈）、項目自身の trace と目的に対する過不足、冗長、EARS・境界値・複合要求の曖昧さ。PR-CLEANUP-003 と PR-CLEANUP-062 には指摘に当たる欠陥が無かった（062 の作業状態の件数の時点は PR-CLEANUP-073 の保持規則、028 の承認と一覧の要求を併せ持つ応答の扱いは PR-CLEANUP-072 の保持規則で、指摘しない）。"
+}

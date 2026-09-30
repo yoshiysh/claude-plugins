@@ -1,0 +1,33 @@
+{
+ "against": "audited-3",
+ "expect": "e9e17903975b0ac3fe8885bc9842c0bc463c3880c1039064b82fcdc7564ea2a4",
+ "tree_digest": "3f9611a88af895c23e8f3a81199e07ee12112f239a961d19ddcae07c2ca9fd4e",
+ "changed": [
+  "PR-CLEANUP-003",
+  "PR-CLEANUP-028",
+  "PR-CLEANUP-045",
+  "PR-CLEANUP-062",
+  "PR-CLEANUP-072"
+ ],
+ "added": [
+  "PR-CLEANUP-073",
+  "PR-CLEANUP-074"
+ ],
+ "removed": [],
+ "by_doc": {
+  "requirements/cleanup-branches": {
+   "changed": [
+    "PR-CLEANUP-003",
+    "PR-CLEANUP-028",
+    "PR-CLEANUP-045",
+    "PR-CLEANUP-062",
+    "PR-CLEANUP-072"
+   ],
+   "added": [
+    "PR-CLEANUP-073",
+    "PR-CLEANUP-074"
+   ],
+   "removed": []
+  }
+ }
+}
