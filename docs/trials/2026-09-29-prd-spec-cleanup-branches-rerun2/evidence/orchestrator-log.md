@@ -28,3 +28,4 @@
   run1〜3 は 7a208d0、run4 以降は 7d06d97 で走る。
 - run4: run3 の next_args をそのまま渡して scriptPath で起動（from 3a、tx.restore t6。gates_answered は足さない）。resume しないのは、
   保存された結果の stdout に stdout_fnv が無く、新しい script が写し損ねとして扱うため。
+  Run ID `wf_0f45ed55-8ba`、task `w3jtseaod`。
