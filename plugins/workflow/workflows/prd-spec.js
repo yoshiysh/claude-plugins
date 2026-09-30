@@ -22,8 +22,8 @@ export const meta = {
 
 // ROLE_OPTS: 全役に既定を置く。省略するとセッションの設定を継承し、全呼び出しが最重量で走って利用上限に達する。
 // intake〜writer は判断と生成を要する（知識作業では medium で high と同等の結果が出る）。implementer・grounding の見落としはそのまま
-// 欠陥（着手不能・捏造）になる。crossDoc は項目の間の関係を見るだけで、1 文ずつの深い判断は要らない。flowCheck はコマンドを 1 回実行して
-// stdout を返すだけで、判断を要しない。値は既定であって、E2 の実測で較正する。
+// 欠陥（着手不能・捏造）になる。crossDoc は項目の間の関係を見るだけで、1 文ずつの深い判断は要らない。flowCheck は判断を要しないが、
+// 数 KB の stdout を逐語で写す。値は既定であって、E2 の実測で較正する。
 const ROLE_OPTS = {
   intake: { model: 'opus', effort: 'medium' },
   flowFramer: { model: 'opus', effort: 'medium' },
@@ -33,7 +33,7 @@ const ROLE_OPTS = {
   implementer: { model: 'opus', effort: 'high' },
   grounding: { model: 'opus', effort: 'high' },
   crossDoc: { model: 'sonnet', effort: 'medium' },
-  flowCheck: { model: 'haiku', effort: 'low' },
+  flowCheck: { model: 'sonnet', effort: 'low' },
 }
 
 const ROLE_FILES = {

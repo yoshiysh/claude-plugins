@@ -4089,7 +4089,7 @@ class OfficialAlignment(unittest.TestCase):
     def test_schemaの定数かrole_optsの既定の誤りはagentを起動する前にrunを止める(self):
         for old, new in (
             ("const STR = { type: 'string' }\n", "const STR = { type: 'string', format: 'x' }\n"),
-            ("  flowCheck: { model: 'haiku', effort: 'low' },\n", "  flowCheck: { model: 'haiku', effort: 'lowest' },\n"),
+            ("  flowCheck: { model: 'sonnet', effort: 'low' },\n", "  flowCheck: { model: 'sonnet', effort: 'lowest' },\n"),
         ):
             with self.subTest(new.strip()):
                 r = run({"args": args()}, patch=[(old, new)])
