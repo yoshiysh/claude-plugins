@@ -493,10 +493,10 @@ class FlowAndConflicts(_Workspace):
              "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
         got = _ok(self.ws, "flow", "--rulings")["resolutions"]
         want = [
-            {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "verdict": None},
-            {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "verdict": "pass"},
-            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "verdict": "fail", "fail_kind": "value_as_method"},
-            {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "verdict": "fail", "fail_kind": "insufficient_grounds"},
+            {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "has_answer": False, "verdict": None},
+            {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
+            {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "has_answer": False, "verdict": "fail", "fail_kind": "value_as_method"},
+            {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "has_answer": False, "verdict": "fail", "fail_kind": "insufficient_grounds"},
         ]
         self.assertEqual(got, want)
         # prd-spec.js のテストの stub（test_prd_stages の HARNESS）は同じ世界から同じ行を出す。stub の形がずれると、stub で通る再実行が実物で通らない。

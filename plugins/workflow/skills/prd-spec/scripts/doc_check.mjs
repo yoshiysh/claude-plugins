@@ -1656,7 +1656,7 @@ const LEDGERS = {
           by: (r) => (r.ruling === undefined ? '（ruling なし）' : r.ruling === 'question' ? `question（answer ${r.answer === undefined ? 'なし' : 'あり'}）` : r.ruling),
           rows: {
             'question（answer なし）': { must: ['question', 'options'], never: ['answer', 'value', 'hold'] },
-            'question（answer あり）': { must: ['question', 'options'], never: ['hold'] },
+            'question（answer あり）': { must: ['question', 'options', 'value'], never: ['hold'] },
             hold: { must: ['hold'], never: ['question', 'options', 'answer', 'value'] },
             precedent: OTHER_RULING,
             internal: OTHER_RULING,
@@ -2502,6 +2502,7 @@ function wsQuestions(ws, opts) {
     const options = r && Array.isArray(r.options) ? r.options : []
     const refBad = r ? flowRefRejects(ws, [r]) : []
     if (!r) bad.push(`${id}: ${ledgerOf('resolutions').file()} にありません`)
+    else if (r.answer != null) bad.push(`${id}: 回答（answer）が残っています（続きの問いにするなら answer と value に null を送って消す）`)
     else if (!q || typeof q.header !== 'string' || typeof q.text !== 'string' || typeof q.searched !== 'string') bad.push(`${id}: question { header, text, searched } がありません`)
     else if (options.length < QUESTION_OPTIONS.min || options.length > QUESTION_OPTIONS.max) bad.push(`${id}: 候補が ${options.length} 個です（${QUESTION_OPTIONS.min}〜${QUESTION_OPTIONS.max} 個）`)
     else if (options.some((o) => !o || typeof o.label !== 'string' || typeof o.description !== 'string' || typeof o.flow_effect !== 'string')) bad.push(`${id}: 候補に label・description・flow_effect の無いものがあります`)
@@ -2510,7 +2511,7 @@ function wsQuestions(ws, opts) {
   }
   if (opts.check) {
     if (bad.length) process.stderr.write(`${bad.join('\n')}\n`)
-    return { check: true, ids: [...new Set(opts.ids)], questions: qs.length, findings: bad.length, bad_ids: bad.map((b) => b.split(':')[0]) }
+    return { check: true, ids: [...new Set(opts.ids)], questions: qs.length, findings: bad.length, bad_ids: bad.map((b) => b.split(':')[0]), bad }
   }
   if (bad.length) throw new LedgerRejected(`問いを導出できません（何も書いていません）:\n${bad.join('\n')}`)
   const md = qs
@@ -3085,7 +3086,7 @@ function wsFlow(ws, opts) {
     .map((r) => {
       const judged = verdicts.get(String(r.id))
       const v = judged && carriesVerdict(judged, r) ? judged : null
-      return { id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.fail_kind ?? null } : {}) }
+      return { id: String(r.id), about: r.about ?? null, ruling: r.ruling ?? null, has_answer: r.answer != null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.fail_kind ?? null } : {}) }
     })
   // どの O- が裁定済みかは state を持つ script が決める（ここで判断すると、同じ cycle で閉じた O- を 1 手遅れで見る）。
   const opensOnly = (source) => {

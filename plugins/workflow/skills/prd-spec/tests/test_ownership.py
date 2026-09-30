@@ -280,7 +280,11 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
                     _touch(td, e["file"], "\n".join(lines) + "\n")
             _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin=body)
             asked = [r["id"] for r in body["resolutions"] if "question" in r]
-            self.assertTrue(asked)
+            answered = [r["id"] for r in body["resolutions"] if "question" in r and "answer" in r]
+            self.assertTrue(answered)
+            # 回答の当たった問いは聞き直せない。同じ ID の続きの問いにするときは answer と value を null で消す（resolver.md の「回答の反映」）。
+            self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked), "--check")["bad_ids"], answered)
+            _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin={"resolutions": [{"id": i, "answer": None, "value": None} for i in answered]})
             self.assertEqual(_ok(ws, "questions", "--ids", ",".join(asked))["questions"], len(asked))
             self.assertEqual(_ok(ws, "report")["holds"], sum(1 for r in body["resolutions"] if r["ruling"] == "hold"))
 

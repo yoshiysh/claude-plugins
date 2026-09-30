@@ -537,12 +537,12 @@ class Verbatim(_Workspace):
     def test_回答に無い引用は拒否し_回答にあれば通す(self):
         (self.ws / "answers").mkdir()
         (self.ws / "answers" / "g0.md").write_text("RS-001: 画面に出してください\n")
-        bad = {"resolutions": [{**RESOLUTION_Q, "answer": {"path": "answers/g0.md", "quote": "メールで"}}]}
+        bad = {"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す", "answer": {"path": "answers/g0.md", "quote": "メールで"}}]}
         r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin=bad)
         self.assertIn("逐語", r.stderr)
         self._unchanged_after("requirements-auth.meta.json", "put", "--ledger", "meta", "--doc", "requirements/auth",
                               stdin={"trace": [{"item_id": "PR-AUTH-001", "kind": "answers", "quote": "メールで"}]})
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "answer": {"path": "answers/g0.md", "quote": "画面に出して"}}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す", "answer": {"path": "answers/g0.md", "quote": "画面に出して"}}]})
 
     def test_evidence_は行の範囲で照合する(self):
         src = Path(self._tmp.name) / "impl.py"
@@ -689,8 +689,8 @@ class FieldMerge(_Workspace):
     def test_引用を持つ欄もnullで消せる(self):
         (self.ws / "answers").mkdir()
         (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "answer": {"path": "answers/g0.md", "quote": "RS-001: 画面"}}]})
-        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": None, "evidence": None}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す", "answer": {"path": "answers/g0.md", "quote": "RS-001: 画面"}}]})
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": None, "value": None, "evidence": None}]})
         self.assertNotIn("answer", self._res()[0])
         _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-001", "quote": None}]})
 
@@ -803,6 +803,24 @@ class Questions(_Workspace):
         r = _run(self.ws, "questions", "--ids", "RS-001", "--check")
         self.assertEqual((r.returncode, json.loads(r.stdout)["bad_ids"]), (0, ["RS-001"]))
         self.assertIn("F-003", r.stderr)
+
+    def test_回答の残った問いは聞き直せず_answerを消せば通る(self):
+        # 回答待ちの問いの正本は ruling が question で answer の無い resolution。answer を残したまま続きの問いにすると、台帳は回答済みのまま
+        # 依頼者に聞き直すことになり、script の数えた回答待ちとずれる。
+        (self.ws / "answers").mkdir(exist_ok=True)
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n", encoding="utf-8")
+        answer = {"path": "answers/g0.md", "quote": "画面"}
+        self.assertEqual(_run(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "answer": answer}]}).returncode, 1, "answer だけで value の無い問いは書けない")
+        self.assertEqual(_run(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す"}]}).returncode, 1, "value だけで answer の無い問いは書けない")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す", "answer": answer}]})
+        self.assertEqual([x["has_answer"] for x in _ok(self.ws, "flow", "--rulings")["resolutions"]], [True])
+        r = _run(self.ws, "questions", "--ids", "RS-001", "--check")
+        self.assertEqual((r.returncode, json.loads(r.stdout)["bad_ids"]), (0, ["RS-001"]))
+        self.assertIn("answer", r.stderr)
+        self.assertEqual(_run(self.ws, "questions", "--ids", "RS-001").returncode, 1)
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": None, "value": None}]})
+        self.assertEqual([x["has_answer"] for x in _ok(self.ws, "flow", "--rulings")["resolutions"]], [False])
+        self.assertEqual(_ok(self.ws, "questions", "--ids", "RS-001", "--check")["findings"], 0)
 
     def test_問いの無い_ID_は止まる(self):
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "ruling": "internal"}]})

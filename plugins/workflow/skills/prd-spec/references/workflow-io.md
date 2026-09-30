@@ -207,6 +207,7 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
 | 依頼者が分割に異を唱えた | 依頼者の言葉を依頼文に続けて `input.md` に逐語で書き、`entry: new` で S0 からやり直す（分割は intake の決定なので、それを入力にして決め直す。intake は `input.md` を読み、answers は段 1 の入口の reset が消す） |
 | agent が応答しない（返り値が null） | 出し直さない。その段を blocked にし、`reason` に「利用者が止めたか、runtime の出し直しの後も API エラーだった」と書いて `next_args` を付ける（§3）。司令塔は SKILL.md「## 中継」の「呼び直し」のとおりに呼び直す |
 | Workflow が例外で終わった（args の検査か、起動の前の schema・役の opts の検査（`prd-spec.js` の `schemaDefects`・`callDefect`）か script の欠陥）か、`reason` が「script の不変条件に反しました」の blocked（段の出口の検査（`exitViolation`）か、`agent()` の前の呼び出しの検査（`callDefect`）。`reason` にどれを破ったかが載る） | 再実行しない（同じ args では同じ所で止まる）。例外の文か `reason` をそのまま伝える。args の検査なら、渡した args が返った `next_args`（§3 の環境の欄のほかは変えない）かを確かめる。それ以外は script の欠陥なので、prd-spec.js を直すまで run を続けない |
+| `reason` が「回答待ちの問いが台帳（…）と script の数えたものとで違います」の blocked（段の出口の照合。prd-spec.js の `questionsDrift`。台帳の側の定義は契約「## 決定の台帳」の resolutions.json） | resolver の返り値と台帳の書き込みの食い違いなので、`next_args` で同じ段からやり直す（SKILL.md「## 中継」の「呼び直し」）。同じ理由で続けて止まれば、`reason` の ID の resolution を台帳で確かめて伝える |
 | 出した agent が全件応答しない | セッション上限・レート制限を疑う。解除してから呼び直す（SKILL.md「## 中継」の「呼び直し」） |
 | token の目標（`budget.total`）に達した（`stop_reason: budget`） | 目標を上げてから呼び直す（SKILL.md「## 中継」の「呼び直し」） |
 | 監査の指摘は 0 件だが開いている TBD がある | 「完成しました」と言わない。「あと N 個決まれば着手できます」と伝える |
@@ -237,7 +238,7 @@ state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しか
 | `view --ledger <台帳> [--doc <キー>] [--fields <欄,…>]` | 台帳を全件読む役（読み方は契約の「共通の約束」） | 台帳の全件を、要素ごとの JSON（`{"<配列名>": 要素}`、スカラーは `{"<名前>": 値}`）の欄と配列の要素を 1 行ずつにして `checks/view-<台帳のファイル名>[.<--fields の fnv>].txt` に書き、stdout にパス・要素数・行数・sha256 を出す（Read は 2000 字を超える行を切る）。名前は台帳と `--fields` だけで決まる |
 | `describe` | どの役も（台帳の名前と欄を確かめるとき） | `LEDGERS` から導出した台帳の名前・ファイル・配列・欄・閉集合と、モードの一覧、指摘の符号を出す。W を読まず何も書かない |
 | `sha --ledger <台帳> [--doc <キー>]` | resolver-verifier（検証を始めるとき）、writer | 台帳の sha256。まだ無い台帳は空の台帳の値 |
-| `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指せば不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` を出す（理由は stderr） |
+| `questions --ids <RS-…> [--check]` | 司令塔（`needs_answers` で問いを出す前）。`--check` は問いを出した resolver（返る前） | resolutions.json の問いから `questions.md`・`questions.json` を導出する。候補の `flow_refs` が flow.json に無い要素を指すか、`answer` が残っていれば（回答済みの問い）不合格。`--check` は同じ形の検査だけを行って何も書かず、stdout に検査した `ids` と不合格の件数（`findings`）と `bad_ids` と理由（`bad`。stderr にも）を出す |
 | `answers --file answers/<ゲート>.md --ids <RS-…>` | flow-check（`gates_answered` のゲートを越える前と、`next_args` で 3a・3a' から始めた run が回答を当てる前） | 回答のファイルがあるか（`exists`）と、`<ID>:` で始まる行の無い問い（`missing`）を stdout に出す。何も書かない |
 | `report [--drafts <RS-…>]` | 司令塔（`report_path` が返ったとき） | resolutions.json の `method`・`hold`・`upstream_revision` から `report.md` を導出する。`--drafts` に挙げた hold は「本文に未反映」の節に分ける（hold でない ID があれば何も書かない）。run の後なので動いている label は無く、`tmp/<label>/` をすべて消して `checks/report.swept.json` と stdout の `swept` に出す |
 

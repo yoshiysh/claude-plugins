@@ -80,7 +80,7 @@ const disk = saved || {
   flow: st0.flow_digest || null,
   els: {},
   verdicts: Object.fromEntries(Object.keys(st0.about || {}).map((id) => [id, (st0.failed_ids || []).includes(id) ? { verdict: 'fail', kind: 'insufficient_grounds' } : { verdict: 'pass' }])),
-  rs: Object.fromEntries(Object.keys(st0.about || {}).map((id) => [id, { about: aboutOf(st0.about[id]), ruling: rulingOf(id) }])),
+  rs: Object.fromEntries(Object.keys(st0.about || {}).map((id) => [id, { about: aboutOf(st0.about[id]), ruling: rulingOf(id), ...((st0.answered || []).includes(id) ? { has_answer: true } : {}) }])),
 }
 const persist = () => {
   if (spec.world) fs.writeFileSync(spec.world, JSON.stringify(disk))
@@ -184,9 +184,10 @@ const writeRs = (id, row) => {
   touch('resolutions')
   disk.rs[id] = { ...row, v: disk.rs[id] ? (disk.rs[id].v ?? 0) + 1 : 0, ...(disk.rs[id] && disk.rs[id].av ? { av: disk.rs[id].av } : {}) }
 }
-const answerRs = (id) => {
+// answered: 台帳の answer の有無（doc_check flow --rulings の has_answer）。回答を当てずに ruled で返す resolver は unanswered_ruled_at で書く。
+const answerRs = (id, answered = true) => {
   touch('resolutions')
-  disk.rs[id] = { ...disk.rs[id], av: (disk.rs[id].av ?? 0) + 1 }
+  disk.rs[id] = { ...disk.rs[id], av: (disk.rs[id].av ?? 0) + 1, ...(answered ? { has_answer: true } : {}) }
 }
 const rsVerdict = (id) => {
   const v = disk.verdicts[id]
@@ -204,7 +205,7 @@ const onDisk = (rulings) => ({
   ...(rulings ? {
     resolutions: Object.keys(disk.rs).sort().map((id) => {
       const v = rsVerdict(id)
-      return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
+      return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, has_answer: Boolean(disk.rs[id].has_answer), verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
     }),
   } : {}),
 })
@@ -236,6 +237,12 @@ const framerOpens = () => {
 const latestStdout = (sha, rulings) => (latest ? JSON.stringify({ ...latest, content_sha256: sha, ...onDisk(rulings) }) : flowStdout(0, sha, null, false, false, rulings))
 const conflictsStdout = (stage) => JSON.stringify({ pairs: (at('pair_keys_at', stage) || []).length, path: 'checks/conflicts.json', digest: 'c', pair_keys: at('pair_keys_at', stage) || [] })
 const ids = (text, re) => [...new Set(String(text).match(re) || [])]
+// questionsStdout: doc_check questions --check と同じく、answer の残った問いも不合格にする。broken は形の崩れた問い（先頭の 1 件）。
+const questionsStdout = (asked, broken) => {
+  const badIds = [...new Set([...(broken ? [asked[0]] : []), ...asked.filter((id) => disk.rs[id] && disk.rs[id].has_answer)])]
+  const why = (id) => (disk.rs[id] && disk.rs[id].has_answer ? `${id}: 回答（answer）が残っています` : `${id}: 候補が 1 個です`)
+  return JSON.stringify({ check: true, ids: asked, questions: asked.length - badIds.length, findings: badIds.length, bad_ids: badIds, bad: badIds.map(why) })
+}
 const about = (id) => (spec.about || {})[id] || { open: `O-${id}` }
 // state から始めた W の open.json は、段 2 の flow-framer が書いたものにする。
 if (!saved && st0.flow_digest) disk.open_ids = framerOpens()
@@ -266,8 +273,7 @@ function respond(prompt, label) {
     }
     const asked = ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g)
     if (asked.length) {
-      const bad = (spec.bad_questions_at || []).includes(k) ? 1 : 0
-      out.questions_check = JSON.stringify({ check: true, ids: asked, questions: asked.length - bad, findings: bad, bad_ids: bad ? [asked[0]] : [] })
+      out.questions_check = questionsStdout(asked, (spec.bad_questions_at || []).includes(k))
     }
     return out
   }
@@ -289,8 +295,11 @@ function respond(prompt, label) {
     // 回答を当てた問い（3a・3a' の ruled）は、同じ ID の question に answer を足すだけで ruling は question のまま（契約の question（answer あり））。
     const answers = ['3a', "3a'", '3a-fix'].includes(stage)
     const chose = (x, ruling) => answers && ruling === 'internal' && (disk.rs[x.id] || {}).ruling === 'question'
-    for (const [xs, ruling] of [[ruled, 'internal'], [q, 'question'], [holds, 'hold']]) for (const x of xs) chose(x, ruling) ? answerRs(x.id) : writeRs(x.id, { about: x.about, ruling })
-    for (const id of at('free_text_at', stage) || []) writeRs(id, { about: disk.rs[id] ? disk.rs[id].about : about(id), ruling: 'question' })
+    const unanswered = at('unanswered_ruled_at', stage) || []
+    for (const [xs, ruling] of [[ruled, 'internal'], [q, 'question'], [holds, 'hold']]) for (const x of xs) chose(x, ruling) ? answerRs(x.id, !unanswered.includes(x.id)) : writeRs(x.id, { about: x.about, ruling })
+    for (const id of at('free_text_at', stage) || []) writeRs(id, { about: disk.rs[id] ? disk.rs[id].about : about(id), ruling: 'question', has_answer: true })
+    // silent_answers_at: 回答を台帳に当てたが、返り値のどこにも載せなかった問い。
+    for (const id of at('silent_answers_at', stage) || []) answerRs(id)
     // 問いの形の修正は、直した問いの question・options を書き換える（合格は持ち越さない）。
     if (/-questions(-\d+)?$/.test(stage)) for (const id of ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g)) if (disk.rs[id] && !q.some((x) => x.id === id)) writeRs(id, { about: disk.rs[id].about, ruling: disk.rs[id].ruling })
     // orphans_at: 台帳に書いたが返さない hold（応答した呼び出しが返り値に載せなかった裁定。所有表の外の書き込みと同じく W にだけ残る）。
@@ -303,8 +312,7 @@ function respond(prompt, label) {
     const out = { ruled, questions: q, holds, supersedes: at('supersedes_at', stage) || [], free_text: at('free_text_at', stage) || [], routes: at('routes_at', stage) || [], [spec.resolver_sha_key || 'resolutions_sha256']: sha }
     const checked = at('questions_check_ids_at', stage) || (/-questions(-\d+)?$/.test(stage) ? ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g) : q.map((x) => x.id))
     if (checked.length) {
-      const bad = (spec.bad_questions_at || []).includes(stage) ? 1 : 0
-      out.questions_check = JSON.stringify({ check: true, ids: checked, questions: checked.length - bad, findings: bad, bad_ids: bad ? [checked[0]] : [] })
+      out.questions_check = questionsStdout(checked, (spec.bad_questions_at || []).includes(stage))
     }
     const keepsFlow = prompt.includes('この呼び出しでは flow.json を書かない')
     const returnsFlow = ["3a", "3a'", '3a-fix'].includes(stage) || /-flow(-\d+)?$/.test(stage) || keepsFlow || at('flow_sha_at', stage) !== undefined
@@ -724,7 +732,7 @@ class Stages(unittest.TestCase):
     def test_自由記述の回答はverifierに通す(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
         res = run(spec)["result"]
-        r2 = run({"args": res["next_args"], "ruled_at": {"3a": ["RS-001"]}, "free_text_at": {"3a": ["RS-001"]}})
+        r2 = run({"args": res["next_args"], "free_text_at": {"3a": ["RS-001"]}})
         self.assertTrue(has(r2["labels"], "verifier:3av"))
         self.assertEqual(r2["result"]["status"], "done")
 
@@ -848,7 +856,7 @@ class Stages(unittest.TestCase):
         g0 = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "questions_at": {"3": ["RS-099"]}})["result"]
         asked = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}
         unasked = {"id": "RS-099", "kind": "insufficient_grounds", "reason": "r"}
-        full = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-002"], "3a-fix": ["RS-002"]}, "free_text_at": {"3a": ["RS-002"]},
+        full = run({"args": g0["next_args"], "ruled_at": {"3a-fix": ["RS-002"]}, "free_text_at": {"3a": ["RS-002"]},
                     "verifier_fail": {"3av": [{**asked, "id": "RS-002"}, unasked], "3a-fixv": [{**asked, "id": "RS-002"}, unasked]},
                     "holds_at": {"3a-convert": ["RS-002"]}, "null_labels": ["flow-framer:3b-reframe"]})
         r = full["result"]
@@ -861,7 +869,7 @@ class Stages(unittest.TestCase):
         self.assertFalse([p for p in full["prompts"] if "RS-099 →" in p["prompt"]], "問いを変換に回さない")
         self.assertTrue(any("RS-099" in n and "合否に数えていない" in n for n in state["notices"]), state["notices"])
         # 合格の側も同じ。検証を求めていない RS-098 が合格に入ると、誰も検証していない resolution が根拠に使える集合に入る。
-        passed = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-002"]}, "free_text_at": {"3a": ["RS-002"]}, "verifier_extra_pass": {"3av": ["RS-098"]},
+        passed = run({"args": g0["next_args"], "free_text_at": {"3a": ["RS-002"]}, "verifier_extra_pass": {"3av": ["RS-098"]},
                       "null_labels": ["flow-framer:3b-reframe"]})["result"]
         st = passed["next_args"]["state"]
         self.assertIn("RS-002", st["passed"])
@@ -870,7 +878,7 @@ class Stages(unittest.TestCase):
         # 同じ行を持ち越した再実行でも行を重ねない（重ねると next_args が再実行のたびに伸びる）。
         carried = {k: v for k, v in g0["next_args"].items() if k != "state_hash"}
         carried["state"] = {**carried["state"], "notices": [n for n in st["notices"] if "RS-098" in n]}
-        again = run({"args": {**carried, "state_hash": value(f"nextArgsHash({json.dumps(carried, ensure_ascii=False)})")}, "ruled_at": {"3a": ["RS-002"]},
+        again = run({"args": {**carried, "state_hash": value(f"nextArgsHash({json.dumps(carried, ensure_ascii=False)})")},
                      "free_text_at": {"3a": ["RS-002"]}, "verifier_extra_pass": {"3av": ["RS-098"]}, "null_labels": ["flow-framer:3b-reframe"]})
         self.assertIsNone(again["error"], again["error"])
         self.assertEqual(sum("RS-098" in n for n in again["result"]["next_args"]["state"]["notices"]), 1)
@@ -1623,7 +1631,7 @@ class FlowDigest(unittest.TestCase):
         cases = (
             ("resolver が flow を変えた", {"flow_sha_at": {"3a": "f-3a"}}),
             ("flow の版は同じだが今の版に合否の無い要素がある", {"flow_sha_at": {"3a": now}, "unverified_at": {"3a": ["F-061"]}}),
-            ("自由記述の回答（検証する resolution がある）", {"free_text_at": {"3a": ["RS-001"]}}),
+            ("自由記述の回答（検証する resolution がある）", {"ruled_at": {"3a": []}, "free_text_at": {"3a": ["RS-001"]}}),
         )
         for name, kw in cases:
             with self.subTest(name):
@@ -2627,7 +2635,7 @@ class FlowRecheck(unittest.TestCase):
         self.assertIn("resolver:3a-pairs", run(spec)["labels"])
 
     def test_自由記述の回答で閉じたOも同じcycleでsettleする(self):
-        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "free_text_at": {"3a": ["RS-001"]},
+        spec = {"args": self._g0()["next_args"], "free_text_at": {"3a": ["RS-001"]},
                 "open_only_at": {"3av": [{"el": "F-091", "open": "O-RS-001"}]}}
         r = run(spec)
         self.assertIn("flow-framer:3a-settle", r["labels"])
@@ -3123,7 +3131,7 @@ class FlowFixerRoutes(unittest.TestCase):
         # 候補の選択だけの回答は verifier に渡さないので、自由記述の回答にして検証させる。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
-        spec = self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-fix": ["RS-001"], "3a-settle-opens": ["RS-009"]},
+        spec = self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": [], "3a-fix": ["RS-001"], "3a-settle-opens": ["RS-009"]},
                           free_text_at={"3a": ["RS-001"]}, verifier_fail={"3av": fail, "3a-fixv": fail}, holds_at={"3a-convert": ["RS-001"]},
                           flow_codes_at={"3a-convert-seen": self.DESTRUCTIVE}, recheck_as={"3a-convert": "3a-convert-seen"})
         r = run(spec)
@@ -3239,7 +3247,7 @@ class FlowFixerRoutes(unittest.TestCase):
         fail = [{"id": "RS-001", "kind": "value_as_method", "reason": "r"}]
         r = run(self._spec(
             g0["next_args"], "3a", answered="RS-001",
-            ruled_at={"3a": ["RS-001"], "3a-fix": ["RS-001"], "3a-pairs": ["RS-002"], "3a-fix-pairs": ["RS-003"]}, free_text_at={"3a": ["RS-001"]},
+            ruled_at={"3a-fix": ["RS-001"], "3a-pairs": ["RS-002"], "3a-fix-pairs": ["RS-003"]}, free_text_at={"3a": ["RS-001"]},
             questions_at={"3a": ["RS-004"], "3a-fix": ["RS-005"], "3a-pairs": ["RS-006"], "3a-fix-pairs": ["RS-007"], "3a-convert": ["RS-001"], "3a-settle-opens": ["RS-009"],
                           "3a-settle-convert": ["RS-009"]},
             bad_questions_at=["3a", "3a-fix", "3a-pairs", "3a-fix-pairs", "3a-convert", "3a-settle-opens", "3a-settle-convert"],
@@ -3534,6 +3542,86 @@ class Reframe(unittest.TestCase):
                 drop = lambda st: {k: v for k, v in st.items() if k != "resolutions_sha256"}
                 self.assertEqual(drop(again["result"]["next_args"]["state"]), drop(whole["next_args"]["state"]))
 
+    def test_回答した問いを同じIDで続きの問いにするとG0_2で聞く(self):
+        # R16 の D1: 3a の resolver が RS-001 を続きの問いとして返し、3av がその問いの形を合格にした。合格だけを見て回答済みに数えると、
+        # 回答待ちから落ち、G0-2 で聞かれない。
+        r = run({"args": self._g0()["next_args"], "questions_at": {"3a": ["RS-001"]}})
+        res = r["result"]
+        self.assertIn("verifier:3av", r["labels"])
+        self.assertEqual((res["status"], res.get("question_ids")), ("needs_answers", ["RS-001"]), res.get("reason"))
+        self.assertNotIn("RS-001", res["next_args"]["state"].get("answered", []))
+
+    def test_free_textがmappingで落ち差し戻しで続きの問いにしてもG0_2で聞く(self):
+        # R16 の D1b: 差し戻しで問いに変えた ID が 3a-fixv に合格しても、回答が当たったことにはならない。
+        fail = {"id": "RS-001", "kind": "mapping", "reason": "r"}
+        r = run({"args": self._g0()["next_args"], "free_text_at": {"3a": ["RS-001"]},
+                 "verifier_fail": {"3av": [fail]}, "questions_at": {"3a-fix": ["RS-001"]}})
+        res = r["result"]
+        self.assertIn("verifier:3a-fixv", r["labels"])
+        usable = next(l for l in self._prompt(r, "flow-framer:3b-reframe").split("\n") if l.startswith("- 根拠にしてよい resolution"))
+        self.assertNotIn("RS-001", usable, "回答の無い問いを根拠に渡さない")
+        self.assertEqual((res["status"], res.get("question_ids")), ("needs_answers", ["RS-001"]), res.get("reason"))
+
+    def test_回答を返り値の種類で数えなくても台帳との照合がG0_2の前で止める(self):
+        # 回答済みへの入れ方（resolveCycle）が合格だけを見る欠陥を作ると、段の出口の照合が台帳と script の食い違いで止める。
+        broken = [("(res.passed || []).includes(id) && ANSWERED_KINDS.includes((res.kinds || {})[id])", "(res.passed || []).includes(id)")]
+        res = run({"args": self._g0()["next_args"], "questions_at": {"3a": ["RS-001"]}}, patch=broken)["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3a"), res.get("reason"))
+        self.assertIn("台帳にだけある: RS-001 / script にだけある: （なし）", res["reason"])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class PendingQuestionsLedger(unittest.TestCase):
+    """回答待ちの問いの正本は台帳（ruling が question で answer の無い resolution）で、pendingQuestions はその写し。段の出口で照合し、
+    食い違えばその段からやり直せる blocked にする（resolver の返り値と台帳の書き込みの食い違いで、同じ段をやり直せば直りうる）。"""
+
+    def _g0(self, questions):
+        return run({"args": args(), "flow_open": 1, "questions_at": {"3": questions}})["result"]
+
+    def test_ruledで返したのに台帳に回答が無ければ3aの出口で止める(self):
+        r = run({"args": self._g0(["RS-001"])["next_args"], "ruled_at": {"3a": ["RS-001"]}, "unanswered_ruled_at": {"3a": ["RS-001"]}})
+        res = r["result"]
+        self.assertFalse(has(r["labels"], "flow-framer:3b-reframe"))
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3a"), res.get("reason"))
+        self.assertIn("段 3a: 回答待ちの問いが台帳", res["reason"])
+        self.assertIn("台帳にだけある: RS-001 / script にだけある: （なし）", res["reason"])
+
+    def test_台帳に回答を当てたのに返さなければ3aの出口で止める(self):
+        r = run({"args": self._g0(["RS-001", "RS-002"])["next_args"], "ruled_at": {"3a": ["RS-001"]}, "silent_answers_at": {"3a": ["RS-002"]}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3a"), res.get("reason"))
+        self.assertIn("台帳にだけある: （なし） / script にだけある: RS-002", res["reason"])
+
+    def test_問いの形の直しで問いに戻した回答は候補の選択でも回答済みにしない(self):
+        # 3a の resolver が RS-001 を候補の選択（ruled）で返し、RS-002 の形の直し（3a-questions）で RS-001 も続きの問いとして返す。
+        # 最後に返した種類が問いなので、G0-2 で聞く（候補の選択の経路は種類を見ないと回答済みに入れ、段の出口の照合で止まる）。
+        spec = {"args": self._g0(["RS-001"])["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"], "3a-questions": ["RS-001", "RS-002"]},
+                "bad_questions_at": ["3a"], "questions_check_ids_at": {"3a-questions": ["RS-001", "RS-002"]}}
+        r = run(spec)
+        self.assertIn("resolver:3a-questions", r["labels"])
+        res = r["result"]
+        self.assertEqual((res["status"], res.get("question_ids")), ("needs_answers", ["RS-001", "RS-002"]), res.get("reason"))
+        self.assertIn("形の不合格が 1 件あります: RS-002: 候補が 1 個です", self._prompt(r, "resolver:3a-questions"), "問いの形の直しには不合格の理由を渡す")
+
+    def _prompt(self, r, label):
+        return next(p["prompt"] for p in r["prompts"] if p["label"] == label)
+
+    def test_同じIDを2つの種類で返したresolverはその段で止める(self):
+        res = run({"args": self._g0(["RS-001"])["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-001"]}})["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3a"), res.get("reason"))
+        self.assertIn("resolver:3a: resolver が RS-001 を ruled・questions・holds・free_text の 2 つ以上で返しました", res["reason"])
+
+    def test_回答済みの問いを後の段で聞き直せばゲートで聞き直し_写しがずれればゲートの入口で止める(self):
+        # G0 で答えた RS-001 を 3b の resolver が続きの問いとして返す。問いとして返した ID は回答待ちに戻る（absorbResolver）。
+        spec = {"ruled_at": {"3a": ["RS-001"], "3b": ["RS-020"]}, "questions_at": {"3a": ["RS-002"], "3b": ["RS-001"]}, "open_ids_at": {"3b-reframe": ["O-020"]},
+                "about": {"RS-020": {"open": "O-020"}}}
+        g0 = self._g0(["RS-001"])
+        ok = run({**spec, "args": g0["next_args"]})["result"]
+        self.assertEqual((ok["status"], ok["question_ids"]), ("needs_answers", ["RS-001", "RS-002"]), ok.get("reason"))
+        broken = [("  if (asked.some((id) => (state.answered || []).includes(id))) state.answered = minus(state.answered, asked)\n", "")]
+        res = run({**spec, "args": g0["next_args"]}, patch=broken)["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3b"), res.get("reason"))
+        self.assertIn("台帳にだけある: RS-001 / script にだけある: （なし）", res["reason"])
 
 NEEDS_ANSWERS = re.compile(r"needsAnswers\('([^']+)'")
 FUNCTION = re.compile(r"^(?:async )?function (\w+)")

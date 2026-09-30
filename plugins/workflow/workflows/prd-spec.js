@@ -510,6 +510,7 @@ function flowCheckOf(text, rulings = false) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
   if (!ok || ![...(rulings ? ['resolutions'] : []), 'unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
+  if (rulings && !o.resolutions.every((x) => x && typeof x.has_answer === 'boolean')) return null
   const codes = o.codes && typeof o.codes === 'object' && !Array.isArray(o.codes) ? Object.values(o.codes) : null
   return codes && codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === o.findings ? o : null
 }
@@ -546,10 +547,10 @@ function conflictsCheckOf(text) {
 // questionsDefect: 検査した ID まで照合するのは、別の ID の集合で通した stdout を合格として受け取らないため。
 function questionsDefect(text, ids) {
   const o = parseStdout(text)
-  if (!o || o.check !== true || !Array.isArray(o.ids) || !Number.isInteger(o.findings)) return { count: Infinity, text: 'doc_check questions --check の stdout がありません' }
+  if (!o || o.check !== true || !Array.isArray(o.ids) || !Number.isInteger(o.findings) || !Array.isArray(o.bad) || o.bad.length !== o.findings) return { count: Infinity, text: 'doc_check questions --check の stdout がありません' }
   const unchecked = minus(ids, o.ids)
   if (unchecked.length) return { count: Infinity, text: `検査していない問いがあります: ${unchecked.join(', ')}` }
-  if (o.findings > 0) return { count: o.findings, text: `形の不合格が ${o.findings} 件あります` }
+  if (o.findings > 0) return { count: o.findings, text: `形の不合格が ${o.findings} 件あります: ${o.bad.join(' / ')}` }
   return null
 }
 
@@ -1078,6 +1079,9 @@ async function issue(label, role, prompt, schema, phaseTitle, cmds) {
   if (r && role === 'resolver' && !r.resolutions_sha256) throw Object.assign(new Error(`${label}: resolver が resolutions_sha256 を返しませんでした`), { rerunStage: true })
   const badIds = r && role === 'resolver' ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
   if (badIds.length) throw Object.assign(new Error(`${label}: resolver が resolution の ID の形（${RESOLUTION_ID.source}）に合わない ID を返しました: ${badIds.map((id) => `「${id}」`).join(', ')}`), { rerunStage: true })
+  // 1 つの ID は 1 つの種類でしか返せない（問いと回答の両方で返すと、回答待ちか回答済みかが返り値から決まらない）。
+  const twice = r && role === 'resolver' ? uniq(Object.keys(KIND_WORDS).flatMap((k) => uniq(idsOf(r, k))).filter((id, i, xs) => xs.indexOf(id) !== i)) : []
+  if (twice.length) throw Object.assign(new Error(`${label}: resolver が ${list(twice)} を ruled・questions・holds・free_text の 2 つ以上で返しました（契約 §resolver の返り値）`), { rerunStage: true })
   return r || null
 }
 
@@ -1119,11 +1123,18 @@ async function once(label, role, prompt, schema, phaseTitle, cmds) {
 // reRuled: 回答を当てる呼び出しでない resolver が ruled に入れた問いは、問いでなくなった（3b で組み直した flow から決まった）。
 // 3a・3a' の ruled は回答が当たった問いなので、ここでは引かない。
 // free_text は ruled に無くても検証に回す。回答の対応づけは解釈を含み、合格しないと回答済みにならない。
+// cycleKinds: ruleAndVerify の cycle の中で resolver が ID ごとに最後に返した種類。差し戻し・flow の直し・問いの形の直しの返り値も
+// absorbResolver を通るので、ここで記録すれば記録漏れの呼び出しを作れない。
+let cycleKinds = {}
 function absorbResolver(r, reRuled) {
+  for (const k of Object.keys(KIND_WORDS)) for (const id of idsOf(r, k)) cycleKinds[id] = k
   const { ids: aboutIds, about } = resolverIds(r)
   const ids = uniq([...aboutIds, ...(r.free_text || [])])
   state.about = { ...(state.about || {}), ...about }
-  state.questions = minus(uniq([...(state.questions || []), ...(r.questions || []).map((x) => x.id)]), reRuled ? (r.ruled || []).map((x) => x.id) : [])
+  const asked = (r.questions || []).map((x) => x.id)
+  state.questions = minus(uniq([...(state.questions || []), ...asked]), reRuled ? (r.ruled || []).map((x) => x.id) : [])
+  // 問いとして返した ID は、前に回答が当たっていても今は回答待ちである（同じ ID の続きの問い。resolver.md の「回答の反映」）。
+  if (asked.some((id) => (state.answered || []).includes(id))) state.answered = minus(state.answered, asked)
   state.holds = uniq([...(state.holds || []), ...(r.holds || []).map((x) => x.id)])
   state.superseded = uniq([...(state.superseded || []), ...(r.supersedes || [])])
   const seenRoutes = new Set((state.routes || []).map((x) => `${x.unit}|${x.id}`))
@@ -1245,6 +1256,7 @@ async function askVerifier(label, stage, given, extra, phaseTitle) {
   return { ...v, pass: v.pass.filter((id) => !unasked(id)), fail: v.fail.filter((f) => !unasked(f.id)) }
 }
 
+const ANSWERED_KINDS = ['ruled', 'free_text']
 // 変換した分はもう検証しない（検証のループを増やすと、差し戻しの上限が意味を失う）。
 // resolver が doc_check flow の stdout を返したら、検証する ID が無くても verifier を起動する。flow の閉包は、生成者の
 // stdout と別の agent の stdout の照合でしか script から確かめられない。例外は unchanged のときだけで、そのときは
@@ -1253,8 +1265,9 @@ async function resolveCycle(stage, opt) {
   const before = usableResolutions(state)
   const res = await ruleAndVerify(stage, opt)
   if (res.error) return res
-  // 自由記述の回答は、対応づけが verifier に合格して初めて回答が当たったことになる。
-  if (opt.answered) state.answered = uniq([...(state.answered || []), ...opt.answered.filter((id) => (res.passed || []).includes(id))])
+  // 自由記述の回答は、対応づけが verifier に合格して初めて回答が当たったことになる。合格は問いの形の合格でもありうるので、この cycle の
+  // resolver が最後に回答として返した（ANSWERED_KINDS）ものに限る。差し戻しで続きの問いに変えた ID を入れると、G0-2 で聞かれずに落ちる。
+  if (opt.answered) state.answered = uniq([...(state.answered || []), ...opt.answered.filter((id) => (res.passed || []).includes(id) && ANSWERED_KINDS.includes((res.kinds || {})[id]))])
   const se = await settle(stage, res.verified || null, opt.phase, before, opt.allowQuestions)
   if (se) return se
   return res
@@ -1280,6 +1293,8 @@ async function ruleAndVerify(stage, opt) {
   let flowChecked = Boolean(opt.flowChanged)
   let returned = null
   let byOption = []
+  cycleKinds = {}
+  const kinds = cycleKinds
   if (opt.task) {
     const label = `resolver:${stage}`
     const r = await once(label, 'resolver', resolverPrompt(label, stage, asTask(opt.task)), RESOLVER_SCHEMA, phaseTitle)
@@ -1292,10 +1307,9 @@ async function ruleAndVerify(stage, opt) {
     const qe = await checkQuestions(stage, stage, r, phaseTitle, opt.recheck)
     if (qe) return qe
     if (opt.answered) {
-      const free = new Set(r.free_text || [])
       // 検証に落ちて問いに変えた裁定は、候補が検証を通っていないので、候補の選択でも verifier に回す。
       const failed = new Set(state.failed_ids || [])
-      byOption = (r.ruled || []).map((x) => x.id).filter((id) => opt.answered.includes(id) && !free.has(id) && !failed.has(id))
+      byOption = (r.ruled || []).map((x) => x.id).filter((id) => opt.answered.includes(id) && !failed.has(id) && kinds[id] === 'ruled')
       state.answered = uniq([...(state.answered || []), ...byOption])
       ids = minus(ids, byOption)
     }
@@ -1305,18 +1319,18 @@ async function ruleAndVerify(stage, opt) {
       ids = uniq([...ids, ...pe.ids])
     }
   }
-  if (!ids.length && !carry.length && !opt.verifyExtra && !flowChecked) return { ok: true, passed: [] }
+  if (!ids.length && !carry.length && !opt.verifyExtra && !flowChecked) return { ok: true, passed: [], kinds }
   const v1Label = `verifier:${stage}v`
   if (unchanged(returned, ids)) {
     skipped.push({ step: v1Label, fact: SKIP.unchanged, ids: byOption })
     unchecked = { ...unchecked, ownsFlow: ownsFlowOf(unchecked, stage) }
-    return { ok: true, passed: [] }
+    return { ok: true, passed: [], kinds }
   }
   const v1 = await askVerifier(v1Label, `${stage}v`, ids, opt.verifyExtra || '', phaseTitle)
   const ve1 = absorbVerifier(v1, state.resolutions_sha256, `${stage}v`, flowChecked, flowWriter())
   if (ve1) return ve1
   let verified = flowCheckOf(v1.flow_check, true)
-  if (!v1.fail.length) return { ok: true, passed: v1.pass, verified }
+  if (!v1.fail.length) return { ok: true, passed: v1.pass, verified, kinds }
 
   const rework = v1.fail.map((f) => `- ${f.id}: ${f.kind}（${f.reason}）`).join('\n')
   const fix = fixOf(stage)
@@ -1328,7 +1342,7 @@ async function ruleAndVerify(stage, opt) {
     RESOLVER_SCHEMA,
     phaseTitle
   )
-  const unfixed = unreturned(fix, r2, v1.fail.map((f) => f.id).filter((id) => RESOLUTION_ID.test(id)), ['ruled', 'questions', 'holds', 'free_text'])
+  const unfixed = unreturned(fix, r2, v1.fail.map((f) => f.id).filter((id) => RESOLUTION_ID.test(id)), Object.keys(KIND_WORDS))
   if (unfixed) return { error: unfixed }
   // 落ちた要素は問いにも保持規則にも変えられないので、{verification} の裁定が無いと settle に写す値も、進めてよい理由も無い。
   const ruledAbout = new Set(Object.values(resolverIds(r2).about))
@@ -1356,10 +1370,10 @@ async function ruleAndVerify(stage, opt) {
   if (rh) verified = rh.fc
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。落ちた要素は settle が直させる（failedOpen）。
   const toConvert = v2.fail.filter((f) => RESOLUTION_ID.test(f.id) && !(state.holds || []).includes(f.id))
-  if (!toConvert.length) return { ok: true, passed, verified }
+  if (!toConvert.length) return { ok: true, passed, verified, kinds }
   const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
   if (ce) return ce
-  return { ok: true, passed, verified }
+  return { ok: true, passed, verified, kinds }
 }
 
 // independentFlow: 判断（settle の起動・残りの数え上げ・直す役の割り当て）に使う doc_check flow の stdout。最後の verifier の後に
@@ -1738,7 +1752,7 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
       resolverPrompt(
         label,
         `${owner}（問いの形の修正）`,
-        keepFlow(`問い ${list(target)} が問いの形の検査を通っていない（${d.text}）。その問いの question・options だけを直し（裁定の中身は変えない）、\`${questionsCheck(target)}\` の stdout を加工せずに questions_check に入れて返す。`)
+        keepFlow(`問い ${list(target)} が問いの形の検査を通っていない（${d.text}）。その問いの question・options だけを直し（裁定の中身は変えない。理由が answer の残りなら、契約「## 決定の台帳」の回答待ちの問いの項のとおり answer と value に null を送る）、\`${questionsCheck(target)}\` の stdout を加工せずに questions_check に入れて返す。`)
       ),
       RESOLVER_SCHEMA,
       phaseTitle
@@ -2460,6 +2474,18 @@ function exitViolation(from, r) {
   return left ? `検証を通っていないものを持ったまま段を出ようとしました（${left}）` : null
 }
 
+// questionsDrift: 回答待ちの問いの正本は台帳（ruling が question で answer の無い resolution）で、pendingQuestions はその写しである。
+// 写しがずれると、聞くべき問いがゲートで黙って落ちるか、答えた問いを聞き直す。ゲートは段の返り値としてだけ入るので（needsAnswers）、
+// 段の出口ごとに最後の独立な stdout（seen）と照合すれば、ゲートの入口も含む。
+function questionsDrift() {
+  if (!seen) return null
+  const ledger = uniq(seen.resolutions.filter((x) => RESOLUTION_ID.test(x.id) && x.ruling === 'question' && !x.has_answer).map((x) => x.id))
+  const script = pendingQuestions(state)
+  const [onlyLedger, onlyScript] = [minus(ledger, script), minus(script, ledger)]
+  if (!onlyLedger.length && !onlyScript.length) return null
+  return `回答待ちの問いが台帳（ruling が question で answer の無い resolution）と script の数えたものとで違います（台帳にだけある: ${list(onlyLedger)} / script にだけある: ${list(onlyScript)}）。resolver の返り値と台帳の書き込みが食い違っています`
+}
+
 // restoreEntry: flow.json の版を state に持たない段（段 2）の同じ段の再実行の入口。restore だけを実行させる（flow.json がまだ無いことがある）。
 async function restoreEntry(from) {
   const label = `flow-check:${from}-entry`
@@ -2551,6 +2577,8 @@ while (outcome === null) {
   if (scriptDefect) r = blocked(`script の不変条件に反しました（段 ${running}）: ${scriptDefect}`, null)
   const violation = r.status === 'blocked' ? null : exitViolation(running, r)
   if (violation) r = blocked(`script の不変条件に反しました（段 ${running}）: ${violation}`, null)
+  const drift = r.status === 'blocked' ? null : questionsDrift()
+  if (drift) r = blocked(`段 ${running}: ${drift}`, running)
   atEntry = false
   if (typeof r === 'string') next = r
   else outcome = r

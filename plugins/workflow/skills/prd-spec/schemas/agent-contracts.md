@@ -207,8 +207,13 @@
 - `options[].flow_refs` は、その候補が選ばれたら変わる flow の要素の ID。put は flow.json に無い ID を拒否する。
 - 問いの文面の正本は `question` と `options` だけである。依頼者に見せる `questions.md`・`questions.json` は、ここから
   `doc_check questions` が導出する。候補の数は `doc_check questions` が検査する（選択式の表示の制約による）。
-- 回答を当てるときは、その問いの resolution に `answer` と `value` を足す。ID は変えない（writer の trace が回答の
+- 回答を当てるときは、候補の選択でも自由記述でも、その問いの resolution に `answer` と `value` を足す（question の `answer` と `value` は
+  両方あるか両方無いかで、put が検査する）。ID は変えない（writer の trace が回答の
   前後で同じ ID を指し続けるため）。
+- 回答待ちの問いの正本は、`ruling` が `question` で `answer` の無い resolution である。同じ ID のまま問いに戻す（続きの問い・差し戻しで
+  問いに変える）ときは、`answer` と `value` に `null` を送って消す。残すと台帳の上では回答済みのまま依頼者に聞き直すことになるので、
+  `doc_check questions` はその問いを不合格にする。script は段の出口ごとに、自分の数えた回答待ちを §flow-framer の `flow --rulings` の
+  `has_answer` と照合する（prd-spec.js の `questionsDrift`）。
 
 **verifications.json**（resolver-verifier が書く）
 
@@ -386,7 +391,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
-- `flow --rulings` の stdout の `resolutions` は resolution ごとの `{id, about, ruling, verdict}`（不合格は `fail_kind` も）である（`--rulings` の無い
+- `flow --rulings` の stdout の `resolutions` は resolution ごとの `{id, about, ruling, has_answer, verdict}`（不合格は `fail_kind` も。`has_answer` は `answer` の有無）である（`--rulings` の無い
   `flow` は出さない）。`verdict` は verifications.json の合否で、
   検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に書き換えた裁定は合否を失う。例外として持ち越す
   書き換えの正本は doc_check の `carriesVerdict` である。script は、resolver が書いたのに返り値に載せなかった裁定をここから受け取り、
@@ -439,7 +444,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   "ruled": [{ "id": "RS-001", "about": { "open": "O-001" } }],
   "questions": [{ "id": "RS-004", "about": { "tbd": "TBD-RAUTH-002" } }],
   "holds": [{ "id": "RS-006", "about": { "finding": "r1-im-requirements__auth-004" } }],
-  "supersedes": ["D-003"], "free_text": ["RS-004"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
+  "supersedes": ["D-003"], "free_text": ["RS-005"], "routes": [{ "id": "RT-001", "unit": "U-1" }],
   "resolutions_sha256": "書き終えた resolutions.json の sha256",
   "flow_check": "どの呼び出しでも必ず、最後に実行した doc_check flow の stdout（回答を当てる 3a・3a' 以外では、flow.json が変わっていないことを script が確かめる）",
   "conflicts_check": "flow.json を変えたときだけ、その後に実行した doc_check conflicts の stdout",
@@ -460,7 +465,8 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 - 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
   それぞれ `about` を `{verification}` にした resolution を返す。合わなければ script は段を止める（返らない裁定は再検証にも変換にも回らず、
   不合格のまま台帳に残る。F- は問いにも保持規則にも変えられないので、検証の裁定が無いと settle に写す値も、不合格のまま進めてよい理由も無い）。
-- `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は `ruled` に無くても verifier の検証対象に回し、合格して初めて回答済みにする。
+- 1 つの ID は `ruled`・`questions`・`holds`・`free_text` のどれか 1 つでだけ返す（2 つ以上で返せば script は段を止める。回答待ちか回答済みかが返り値から決まらない）。
+- `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を、settle の
