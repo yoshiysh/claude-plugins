@@ -1086,8 +1086,7 @@ async function issue(label, role, prompt, schema, phaseTitle, cmds) {
   const badIds = r && role === 'resolver' ? [...(r.ruled || []), ...(r.questions || []), ...(r.holds || [])].map((x) => x && x.id).concat(r.free_text || []).filter((id) => !RESOLUTION_ID.test(id)) : []
   if (badIds.length) throw Object.assign(new Error(`${label}: resolver が resolution の ID の形（${RESOLUTION_ID.source}）に合わない ID を返しました: ${badIds.map((id) => `「${id}」`).join(', ')}`), { rerunStage: true })
   // 1 つの ID は 1 つの種類でしか返せない（問いと回答の両方で返すと、回答待ちか回答済みかが返り値から決まらない）。
-  const twice = r && role === 'resolver' ? uniq(Object.keys(KIND_WORDS).flatMap((k) => uniq(idsOf(r, k))).filter((id, i, xs) => xs.indexOf(id) !== i)) : []
-  if (twice.length) throw Object.assign(new Error(`${label}: resolver が ${list(twice)} を ruled・questions・holds・free_text の 2 つ以上で返しました（契約 §resolver の返り値）`), { rerunStage: true })
+  if (r && role === 'resolver') noTwice(label, r)
   const unordered = r && role === 'resolver' ? unorderedHolds(r) : []
   if (!unordered.length) return r || null
   const stop = () => Object.assign(new Error(`${label}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(unordered)} を resolver が hold で返しました（聞ける段の価値の判断は question にする。resolver.md「## 裁定の種類」）`), { rerunStage: true })
@@ -1095,18 +1094,46 @@ async function issue(label, role, prompt, schema, phaseTitle, cmds) {
   return holdsToQuestions(label, r, unordered, phaseTitle, stop)
 }
 
-// holdsToQuestions: 聞ける段で指定の外の hold を返した resolver に、その ID だけを問いに書き換え直させる（1 回だけ。まだ hold なら止める）。
-// 書き換え直した分だけを返り値に写す（ほかの ID の裁定は最初の返り値のまま）。
+// noTwice: 1 つの ID は 1 つの種類でしか返せない（問いと回答の両方で返すと、回答待ちか回答済みかが返り値から決まらない）。書き換え直しを
+// 写した返り値にも当てる（写し方を誤ると、同じ ID が hold と question の両方に残る）。
+function noTwice(label, r) {
+  const twice = uniq(Object.keys(KIND_WORDS).flatMap((k) => uniq(idsOf(r, k))).filter((id, i, xs) => xs.indexOf(id) !== i))
+  if (twice.length) throw Object.assign(new Error(`${label}: resolver が ${list(twice)} を ruled・questions・holds・free_text の 2 つ以上で返しました（契約 §resolver の返り値）`), { rerunStage: true })
+}
+
+// rewriteHolds: 聞ける段で指定の外の hold になった ID だけを、同じ段の resolver に問いに書き換え直させる（1 回だけ。まだ hold なら止める）。
+// checkIds: questions --check に渡す問い（返り値に写したあとの問いすべて）。
 const TO_QUESTION = '-toquestion'
-async function holdsToQuestions(label, r, ids, phaseTitle, stop) {
-  const l = `${label}${TO_QUESTION}`
-  const asked = uniq([...idsOf(r, 'questions'), ...ids])
+async function rewriteHolds(l, ids, checkIds, phaseTitle, stop) {
   const lines = ids.map((id) => `- ${id} → question`).join('\n')
-  const task = keepFlow(`この段では依頼者に聞けるので、script が指定していない hold は受け取れない。次の ID を、値を決めずに question（候補と影響を付ける）に書き換え直す（ID は変えない。欄の消し方は resolver.md の「差し戻し」）。返り値の questions にはこの ID だけを入れる。返る前に \`${questionsCheck(asked)}\` を実行し、stdout を加工せずに questions_check に入れる。\n${lines}`)
-  const r2 = await issue(l, 'resolver', resolverPrompt(l, `${running}（hold を問いに）`, task), RESOLVER_SCHEMA, phaseTitle, { questions_check: questionsCheck(asked) })
+  const task = keepFlow(`この段では依頼者に聞けるので、script が指定していない hold は受け取れない。次の ID を、値を決めずに question（候補と影響を付ける）に書き換え直す（ID は変えない。欄の消し方は resolver.md の「差し戻し」）。返り値の questions にはこの ID だけを入れる。\n${lines}`)
+  const r2 = await issue(l, 'resolver', resolverPrompt(l, `${running}（hold を問いに）`, task, checkIds), RESOLVER_SCHEMA, phaseTitle, { questions_check: questionsCheck(checkIds) })
   if (!r2) throw notRun(l)
   if (onlyAsked(l, r2, ids, ['questions'])) throw stop()
-  return { ...r, holds: (r.holds || []).filter((x) => !ids.includes(x && x.id)), questions: [...(r.questions || []), ...r2.questions], resolutions_sha256: r2.resolutions_sha256, flow_check: r2.flow_check, questions_check: r2.questions_check }
+  return r2
+}
+
+// holdsToQuestions: 返り値の指定の外の hold を書き換え直させ、その ID の分だけを返り値に写す（ほかの ID の裁定は最初の返り値のまま）。
+// flow_check は書き換え直しの stdout を使う（台帳が変わった後の指摘）ので、flow.json が同じ版かを確かめる（conflicts_check は最初の返り値のまま使う）。
+async function holdsToQuestions(label, r, ids, phaseTitle, stop) {
+  const l = `${label}${TO_QUESTION}`
+  const r2 = await rewriteHolds(l, ids, uniq([...idsOf(r, 'questions'), ...ids]), phaseTitle, stop)
+  const [before, after] = [flowCheckOf(r.flow_check), flowCheckOf(r2.flow_check)]
+  if (!after || (before && after.content_sha256 !== before.content_sha256)) {
+    noteIntegrity(`${l} の後の flow.json（${after && after.content_sha256}）が、書き換え直す前の版（${before && before.content_sha256}）と違う`)
+    throw Object.assign(new Error(`${l}: hold を問いに書き換え直す resolver が flow.json を変えました（この呼び出しは flow.json を書かない）`), { rerunStage: true })
+  }
+  const merged = { ...r, holds: (r.holds || []).filter((x) => !ids.includes(x && x.id)), questions: [...(r.questions || []), ...r2.questions], resolutions_sha256: r2.resolutions_sha256, flow_check: r2.flow_check, questions_check: r2.questions_check }
+  noTwice(l, merged)
+  return merged
+}
+
+// newHoldsInW: この段に入ってから W に現れた hold のうち、script が指定していないもの。返り値に載せずに台帳に書いた hold は unorderedHolds を
+// 通らないので、W から数える（数えないと、聞ける段で依頼者に聞かれないまま保持規則になる）。
+function newHoldsInW(fc) {
+  if (!asksNow()) return []
+  const before = new Set(entryState.holds || [])
+  return uniq(fc.resolutions.filter((x) => RESOLUTION_ID.test(x.id) && x.ruling === 'hold' && !before.has(x.id) && !holdOrders.ids.has(x.id) && !holdOrders.abouts.has(aboutKey(x.about))).map((x) => x.id))
 }
 
 // holdOrders: この段で script が hold を指定した ID と論点（about のキー）。聞ける段（ASKS）で resolver が新しく hold にしてよいのはこれだけ。
@@ -1241,12 +1268,12 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMov
 
 // decidableDefect: decidable は「入力・回答・合格した裁定で値が決まるのに、問いか保持規則にした」の不合格である。決める出典が無い decidable は、
 // 差し戻された resolver に決める材料を渡せず、同じ問いか保持規則が言い直されるだけになる。値のある裁定への decidable は種類の取り違え。
-// deciding: verifier が書いた出典を決まった形に揃える（W の絶対パス・W/・行の範囲・:n・小文字の l）。揃えても形の外なら askVerifier が聞き直す。
+// deciding: verifier が書いた出典を決まった形に揃える（囲みの ` と引用符・// ・W の絶対パス・W/・行の範囲・:n・小文字の l・行の頭の 0）。揃えても形の外なら askVerifier が聞き直す。
 function deciding(src) {
-  let s = String(src ?? '').trim()
+  let s = String(src ?? '').trim().replace(/^[`'"「]+|[`'"」]+$/g, '').trim().replace(/\/{2,}/g, '/')
   if (s.startsWith(`${W}/`)) s = s.slice(W.length + 1)
   s = s.replace(/^(?:W|\.)\//, '').replace(/:(\d+)(?:-\d+)?$/, '#L$1')
-  return s.replace(/#[lL](\d+)(?:-[lL]?\d+)?$/, '#L$1')
+  return s.replace(/#[lL]0*(\d+)(?:-[lL]?\d+)?$/, '#L$1')
 }
 const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g0.md#L3`・`RS-004`（行の範囲は最初の行だけ）'
 const DECIDING_FILE = new RegExp(`^(?:input\\.md|${Object.values(GATE_ANSWERS).map((p) => p.replace(/[.]/g, '\\.')).join('|')})#L[1-9]\\d*$`)
@@ -1260,14 +1287,17 @@ function decidableDefect(f, fc) {
   return `${f.id} の source（${f.source == null ? 'なし' : f.source}）が input.md#L<n>・answers/<ゲート>.md#L<n>・根拠にしてよい resolution のどれでもない`
 }
 
-function resolverPrompt(label, stage, task) {
+// checkIds: questions --check に渡す問いを script が決める呼び出し（書き換え直した分を前の返り値に写すもの）。
+function resolverPrompt(label, stage, task, checkIds) {
   return [
     header('resolver', stage, label),
     groundsBlock(),
     `${W}/checks/conflicts.json、${W}/precedent.json も読む。`,
     existingNote(),
     task,
-    `問いを出したら、返る前に \`${questionsCheck(['<question にした ID をカンマで>'])}\` を実行し、stdout を加工せずに questions_check に入れる。`,
+    checkIds
+      ? `返る前に \`${questionsCheck(checkIds)}\` を実行し、stdout を加工せずに questions_check に入れる。`
+      : `問いを出したら、返る前に \`${questionsCheck(['<question にした ID をカンマで>'])}\` を実行し、stdout を加工せずに questions_check に入れる。`,
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -1585,14 +1615,14 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
     const l = `resolver:${owner}-convert-kind`
     const ids = swapped.map((f) => f.id)
     const asked = uniq([...idsOf(r, 'questions').filter((id) => !ids.includes(id)), ...swapped.filter((f) => to(f) === 'question').map((f) => f.id)])
-    const again = asked.length ? `返る前に \`${questionsCheck(asked)}\` を実行し、stdout を加工せずに questions_check に入れる。` : ''
-    const r2 = await once(l, 'resolver', resolverPrompt(l, `${owner}（変換の種類の直し）`, keepFlow(`次の項目を指定と違う種類で返した。値を決めずに、指定のとおりに書き換え直す。ID は変えない。${again}\n${swapped.map((f) => `- ${f.id} → ${to(f)}（${f.kind}）`).join('\n')}`)), RESOLVER_SCHEMA, phaseTitle)
+    const r2 = await once(l, 'resolver', resolverPrompt(l, `${owner}（変換の種類の直し）`, keepFlow(`次の項目を指定と違う種類で返した。値を決めずに、指定のとおりに書き換え直す。ID は変えない。\n${swapped.map((f) => `- ${f.id} → ${to(f)}（${f.kind}）`).join('\n')}`), asked.length ? asked : null), RESOLVER_SCHEMA, phaseTitle)
     const bad2 = onlyAsked(`${owner}-convert-kind`, r2, ids, answerKinds(allowQuestions))
     if (bad2) return { error: bad2 }
     const still = swappedIn(r2, swapped).map((f) => f.id)
     if (still.length) return { error: `段 ${owner}: ${list(still)} を resolver が書き換え直しても指定と違う種類（question と hold）で返しました` }
     const keep = (k) => [...(r[k] || []).filter((x) => !ids.includes(x && x.id)), ...(r2[k] || [])]
     got = { ...r, questions: keep('questions'), holds: keep('holds'), resolutions_sha256: r2.resolutions_sha256, flow_check: r2.flow_check, questions_check: asked.length ? r2.questions_check : r.questions_check }
+    noTwice(l, got)
   }
   absorbResolver(got)
   return flowKept(`${owner}-convert`, got) || checkQuestions(stage, `${owner}-convert`, got, phaseTitle, null)
@@ -1714,13 +1744,25 @@ async function settle(stage, verified, phaseTitle, before, allowQuestions) {
 
 // adopt: 独立な stdout を state に写し（reconcile）、ここで初めて受け取った問いの形を検査させる。返り値で受け取った問いは返る前に
 // 検査されているが、W から受け取った問いは誰も検査していない。形の崩れた問いは、ゲートで司令塔が導出するときに初めて落ち、戻る段が無い。
+// 聞ける段で返り値に載らずに W に現れた指定の外の hold も、ここで問いに書き換え直させる（newHoldsInW）。
 async function adopt(stage, tag, fc, phaseTitle) {
   const adopted = reconcile(fc)
-  if (!adopted.length) return { fc }
-  const qe = await checkQuestions(stage, `${stage}-${tag}`, {}, phaseTitle, adopted)
+  const held = newHoldsInW(fc)
+  if (!adopted.length && !held.length) return { fc }
+  if (held.length) {
+    const l = `resolver:${stage}-${tag}${TO_QUESTION}`
+    const stop = () => Object.assign(new Error(`${l}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(held)} が台帳にあり、問いに書き換え直させても hold のままです`), { rerunStage: true })
+    const r2 = await rewriteHolds(l, held, held, phaseTitle, stop)
+    absorbResolver(r2)
+    const kept = flowKept(`${stage}-${tag}${TO_QUESTION}`, r2)
+    if (kept) return kept
+  }
+  const qe = adopted.length ? await checkQuestions(stage, `${stage}-${tag}`, {}, phaseTitle, adopted) : null
   if (qe) return qe
   const again = await independentFlow(fc, phaseTitle)
   if (again.fc) reconcile(again.fc)
+  const still = again.fc ? newHoldsInW(again.fc) : []
+  if (still.length) return { error: `段 ${stage}: 依頼者に聞ける段で、script が hold を指定していない ${list(still)} が台帳に残っています`, rerun: true }
   return again
 }
 
@@ -2733,6 +2775,8 @@ while (outcome === null) {
   if (violation) r = blocked(`script の不変条件に反しました（段 ${running}）: ${violation}`, null)
   const drift = r.status === 'blocked' ? null : questionsDrift()
   if (drift) r = blocked(`段 ${running}: ${drift}`, running)
+  const unasked = r.status === 'blocked' || !seen ? [] : newHoldsInW(seen)
+  if (unasked.length) r = blocked(`段 ${running}: 依頼者に聞ける段で、script が hold を指定していない ${list(unasked)} を持ったまま段を出ようとしました`, running)
   atEntry = false
   if (typeof r === 'string') next = r
   else outcome = r

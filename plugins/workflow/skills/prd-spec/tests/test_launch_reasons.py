@@ -1,4 +1,4 @@
-"""R16 の起動理由の手がかり（K5）: 条件付きの経路の起動理由ごとに体数を数えられることを、試走の前に押さえる。
+"""起動理由の手がかり: 条件付きの経路の起動理由ごとに体数を数えられることを、試走の前に押さえる。
 
 試走の報告は journal の label とプロンプトの行から起動理由ごとの体数を数える。手がかりが script の今の形とずれると、
 数えた体数が別の理由に紛れても報告からは見えない。ここでは次を確かめる。
@@ -27,7 +27,7 @@ STAGES = re.findall(r"'([^']+)'|\"([^\"]+)\"", re.search(r"^const STAGES = \[(.*
 S = "(?:" + "|".join(re.escape(a or b) for a, b in STAGES) + ")"
 N = r"(?:-\d+)?"
 
-# LABEL_FAMILIES: label の形（最後の接尾辞で起動の理由が決まる）。reason は R16 の表の行か、条件付きでない起動（base）。
+# LABEL_FAMILIES: label の形（最後の接尾辞で起動の理由が決まる）。reason は起動理由の表の行か、条件付きでない起動（base）。
 # source: prd-spec.js の本文にそのまま在る、その label を組み立てる断片。
 LABEL_FAMILIES = [
     ("intake", "base", r"intake", ["once('intake'"]),
