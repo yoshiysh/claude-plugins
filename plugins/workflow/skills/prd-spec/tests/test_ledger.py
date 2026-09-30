@@ -629,6 +629,12 @@ class Verifications(_Workspace):
         self._unchanged_after("verifications.json", "put", *self._args(),
                               stdin={"items": [{"id": "RS-001", "verdict": "pass", "fail_kind": "mapping", "reason": "r"}]})
 
+    def test_不合格のまま理由だけ送ったputはfail_kindを残す(self):
+        _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "RS-001", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]})
+        _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "RS-001", "verdict": "fail", "reason": "r2"}]})
+        item = json.loads((self.ws / "verifications.json").read_text())["items"][0]
+        self.assertEqual({k: item[k] for k in item if k != "digest"}, {"id": "RS-001", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r2"})
+
     def test_flow_要素の項目には今の要素の_digest_が入る(self):
         _ok(self.ws, "put", *self._args(), stdin={"items": [{"id": "F-002", "verdict": "pass", "reason": "r", "digest": "x"}]})
         d1 = json.loads((self.ws / "verifications.json").read_text())["items"][0]["digest"]

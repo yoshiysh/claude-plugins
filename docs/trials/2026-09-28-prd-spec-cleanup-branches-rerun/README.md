@@ -16,7 +16,7 @@ skill の版: `61ab960`（試走開始時の HEAD）。前回の記録: `docs/tr
   - `r3-im-…-001`（PR-CLEANUP-037、origin input）
   - `r3-im-…-002`（PR-CLEANUP-010、origin ledger、direction tighten）
 - holds は RS-052・054・057・058。doc_blocking 0、open_tbd 0。保持規則と Issue の文案は `evidence/prd-report.md` にある。
-- 要求文書は blocked なので保存していない。
+- 要求文書は保存していない。skill の規則が blocked のまま保存しないため（`plugins/workflow/skills/prd-spec/SKILL.md` の blocked の項）。
 
 ## 2. 比較表
 
@@ -193,7 +193,7 @@ grounding:r1 の `scratchpad/flow.txt` は試走の後も残っている。
 ## 5. 残したもの
 
 - 保持規則 4 件（RS-052・054・057・058）と Issue の文案: `evidence/prd-report.md`。Issue は起票していない。
-- 要求文書は blocked のため保存していない。
+- 要求文書は保存していない。skill の規則が blocked のまま保存しないため（`plugins/workflow/skills/prd-spec/SKILL.md` の blocked の項）。
 
 ## 6. 再現
 
