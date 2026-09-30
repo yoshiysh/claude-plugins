@@ -17,6 +17,7 @@ skill の版: run1〜3 は `7a208d0`、run4〜5 は `7d06d97`（run3 の写し�
   5. resume → **done**（passes 3、stop_reason null）
 - 最後は done。holds は RS-027・052・053・054・055・056 の 6 件、hold_drafts・open_tbd・integrity・missed はすべて空。
 - 保持規則 6 件と Issue の文案は `evidence/prd-report.md`。要求文書は `evidence/requirements-cleanup-branches.md` に写した。
+- run は done で終わったが、成果物は依頼者が求めた変更の点で忠実性の審査に落ちた（§8）。§2 の「改善」は、この審査の前の値である。
 
 ### 1.1 計画からの逸脱
 
@@ -478,6 +479,40 @@ Write/Edit の書き先はすべて W の中。司令塔が試走の前後で `l
   - **裁定**: 依頼者の裁定「採らない」（2026-09-30）。
 - **N13（呼び出しの種類ごとの effort）**: 役ごとの tokens は §2.2 の表と `transcript-extract.json` の `launch_reasons.by_family`。
   - **裁定**: 依頼者の裁定「今のまま」（2026-09-30）。
+
+## 8. 成果物の忠実性の監査（R16 の後）
+
+run の後に、新しい文脈の審査者 3 人（忠実性・品質・実装との整合）が `evidence/requirements-cleanup-branches.md` を評価した。審査者の所見は本 README の外にあり、下の表の事実のうち `evidence/` で確かめたものだけ出所を付けた。
+
+### 8.1 忠実性: 落ちた
+
+| 事実 | 出所 |
+|---|---|
+| 依頼者の G0 の回答は、RS-001「削除タグは不要。マージ済みなら確認不要で削除してよい…」と RS-002「ある（自由欄に書く）」で、どちらも同じ内容を指す。文書に反映されていない | `answers-g0.md` |
+| PR-CLEANUP-034・035・038・039 は今もタグを作る（保持 RS-052）。PR-CLEANUP-004 はローカルの確認なし削除を狭める（保持 RS-053） | `requirements-cleanup-branches.md`、`prd-report.md` |
+| 保持 6 件のうち 4〜5 件は、入力か回答から決められた。RS-027 は入力の `fetch --prune` と RS-003・004・009、RS-054 は入力と RS-003、RS-055 は RS-013。RS-056 は境界 | 審査者の所見（本 run では未再検証） |
+| 依頼者が伝聞として挙げた `git branch --delete-merged` は git 2.43.0 に無い（`unknown option`、exit 129）。この環境で実行して確認した | `answers-g0.md`、実行 |
+
+### 8.2 品質: 通った（軽微な指摘のみ）
+
+- 書き方の規約に沿う（曖昧語の grep 0 件、文末 OK）。
+- 軽微: 宙に浮いた TBD の ID（TBD の出現 5 行）、PR-CLEANUP-031 の欠番の行、ファイル名と ID の接頭辞の食い違い。
+
+### 8.3 実装との整合: 差分としては使えるが、そのままでは変更を駆動できない
+
+- 文書に、open な PR の head・現在のブランチ・他の worktree のブランチの除外が無い。入力の SKILL.md（`input.md` 185〜190 行）は `hold_reason()` を、現在のブランチを reset するか決める `current_branch_open_pr` の説明の中で 1 度挙げるだけで、ブランチ削除の除外は述べていない（`hold_reason`・`open PR` の当たりは 186〜187 行のみで、ブランチ削除の除外を述べる箇所は grep で見た範囲では無い）。したがって prd-spec の忠実性の欠陥ではない。
+- 審査者が見つけた skill 本体の不具合（未検証。reproduce したのは 1 つ目のみと報告を受けた）:
+  1. 未追跡ファイルだけのとき素の `git stash` は何も作らず、続く `git stash pop` が元からあった stash を pop して捨てる（再現済み）。
+  2. gh の失敗で現在のブランチが reset される。
+  3. 名前を使い回したブランチが確認なしに削除される。
+  4. rmtree の例外で残りの workspace の後始末が中断する。
+
+### 8.4 根本原因と直し
+
+| | 機序 | 出所 | 状態 |
+|---|---|---|---|
+| D1 | resolveCycle が、通った ID を返り値の種類を見ずに `state.answered` へ入れた。resolver は RS-001 を `questions` として出し直しており、verifier は形の整った問いとして通した。pendingQuestions がそれらを落とし、G0-2・G1 で問われず、null の値が根拠として writer に渡り、pass-2 の段 6 が RS-052・053 にした | `run-outputs/run2.output.json`: `answered` に RS-001・RS-002 を含み、`question_ids` は `["RS-033"]`（確認済み）。連鎖の後半（writer・段 6）は審査者の所見 | commit `e1c8b86` で直した |
+| D2 | settle 段の `insufficient_grounds` の fail が、ゲートが残っていても差し戻しなしに convert→hold へ進んだ（RS-027）。既存の回答を新しい論点に当てる裁定の種類が無かった（RS-054・055）。verifier の fail の種類は決めすぎに対するものしか無かった | 審査者の所見（root-cause 調査） | この PR で直している途中。完了とは主張しない |
 
 ## 参考（evidence）
 
