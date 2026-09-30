@@ -80,6 +80,7 @@ PROMPT_CLUES = [
     ("settle-framer", "settle: 覆された決定を引く要素（stale_refs）", "覆された決定か検証に落ちた不変条件を出典か constrained_by に持つ要素（要素 ← その決定）: "),
     ("settle-framer", "settle: flow の指摘の引き渡し（handoff）", "flow の指摘（要素: 何が無いか か符号。"),
     ("settle-framer", "直し手の振り分け（R6b）", "縛る不変条件が無い"),
+    ("reframe", "3a の裁定の反映の引き受け（G0 の後の 3a は settle を回さない）", "組み直しと同じ書き込みで、3a の裁定も flow に写す"),
     ("opens", "settle の後の未裁定の O-（R6b）", "- まだ裁定の無い open: "),
     ("opens", "組の再検査（O- とまとめた呼び出し）", "- まだ裁定の無い組（"),
     ("main-resolver", "収束のループの経路の変更（R6、再発した項目）", "再発した項目（項目: 前のパスの指摘 ← その裁定）: "),

@@ -388,7 +388,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。
   `constrained_by` の O- も `{el, constraint}` で出る。script が判断に使う stdout（§flow-check）で、その O- が合格か回答で閉じていたら、script は最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
   閉じた resolution への差し替え・要らなくなった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素を検証する（直させた要素は
-  必ず含める）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
+  必ず含める。G0 の後の 3a の例外は references/workflow-io.md §4 の 3a の行）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 - stdout の `unverified` は今の digest で合格の無い要素、`failed_current` は今の digest で不合格の要素である（検証の状態は
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
@@ -483,7 +483,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を、settle の
-  flow-framer の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
+  flow-framer（G0 の後の 3a の反映は 3b-reframe。references/workflow-io.md §4 の 3a の行）の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
   検証を通っていない要素の出典を verifier に回す（除くものは §flow-framer の `failed_current`。起動の条件・label・聞けない段の扱いは
   references/workflow-io.md §4）。聞けない段のこの呼び出しが `questions` を返せば、script は段を止める（聞けない段の問いは、聞くゲートにも
   段の最後の保持規則への変換にも届かない）。渡した組と O- は生成者の申告なので、script は次の verifier の stdout と照合する（§resolver-verifier）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
@@ -515,10 +515,10 @@ settle の n 回目の後は `<段>v-left-<n+1>`）にそれだけを検証さ�
 
 `flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を
-blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer）。台帳の書き込みで出た指摘も
+blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer。G0 の後の 3a の例外は references/workflow-io.md §4 の 3a の行）。台帳の書き込みで出た指摘も
 生成者には消せないので、すべて settle の flow-framer に渡る。誰も flow を書いていない cycle（`state.flow_digest` が cycle の入口のまま）の指摘と、
 settle の flow-framer が返した同じ digest の stdout に無く、その後に resolutions.json が変わった（`resolutions_sha256` が動いた）回の指摘がそれで、
-settle では次の回の flow-framer に渡る（台帳が変わっていない回に stdout に無かった指摘は flow-framer の過少申告で、`integrity` に 1 行足して止める）。
+settle では次の回の flow-framer に渡る（台帳が変わっていない回に stdout に無かった指摘は flow-framer の過少申告で、`integrity` に 1 行足して止める。3b-reframe の書き込みを照合する `verifier:3bv` も同じ）。
 この stdout の `pair_keys`（doc_check `conflicts` と同じ組）と `open_ids` は、flow を書いた生成者が未裁定の論点を選ぶのに申告した組
 （`conflicts_check`）と O-（settle の flow-framer の `open_ids`）とも照合する。組と O- は flow.json・decisions.json・open.json だけで決まるので、
 違えば申告から漏れた論点が裁定されないまま進む。script は `integrity` に 1 行足して段の頭からやり直させる。

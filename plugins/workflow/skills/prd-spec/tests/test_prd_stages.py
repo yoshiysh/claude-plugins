@@ -219,6 +219,7 @@ const asksRulings = (prompt) => /doc_check\.mjs flow --workspace \S+ --rulings`/
 // latest: 最後に出した doc_check flow の stdout（W は 1 つなので、flow も台帳も書かない呼び出しの後にも残る）。flow.json を書かない resolver と
 // flow-check は、自分の段の *_at が無ければこれを見る（書き換えたことは *_at か recheck_as で明示する）。
 let latest = null
+let writerDisk = null
 const WORLD_AT = ['flow_codes_at', 'flow_findings_at', 'open_only_at', 'stale_refs_at', 'open_ids_at']
 const explicitAt = (stage) => WORLD_AT.some((k) => at(k, stage) !== undefined)
 // keep: 組は flow.json・decisions.json で決まり verifier は書かないので、verifier の stdout は既定で最後の世界の組を出す（verifier_pair_keys_at で上書き）。
@@ -394,6 +395,8 @@ function respond(prompt, label) {
     }
   }
   if (role === 'writer') {
+    // writerDisk: 最初の writer が起動した時点の W の検証の状態（検証を通っていない要素が writer に届いていないかを見る）。
+    if (!writerDisk) writerDisk = onDisk(false)
     const revise = stage.endsWith('revise') || target === 'revise'
     const unit = stage
     const docs = (spec.units || [{ id: 'U-1', docs: ['requirements/x'] }]).find((u) => u.id === unit).docs
@@ -573,7 +576,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), writerDisk, docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
 """
 
 
@@ -693,6 +696,16 @@ def ids_of_verifier(r, label):
 
 def has(labels, prefix):
     return any(l.startswith(prefix) for l in labels)
+
+
+def reasked_at_g02(world=None):
+    """G0 の問い RS-001 を 3a が続きの問いにして、G0-2 で聞き直す止まり方。G0 の後の 3a は裁定の反映を 3b に渡すので、回答を当てた段の
+    settle を確かめるテストは、この後の 3a（聞けない段。自分の settle を回す）から始める。"""
+    w = {"world": world} if world else {}
+    g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, **w})["result"]
+    g02 = run({"args": g0["next_args"], "questions_at": {"3a": ["RS-001"]}, **w})["result"]
+    assert (g02["status"], g02.get("gate"), g02.get("question_ids")) == ("needs_answers", "g0-2", ["RS-001"]), g02
+    return g02
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
@@ -1552,28 +1565,31 @@ class FlowDigest(unittest.TestCase):
     def _settle_world(self, g, kind, **kw):
         # settle の flow-framer の後に resolver が O-009 を裁定して台帳を書き、flow-framer の stdout に無かった F-053 の指摘が
         # settle の verifier の stdout にだけ出る（stub の世界。台帳の書き込みで指摘が出る経路は doc_check の invariantsOf が決める）。
+        # g が無ければ段 3（聞ける段）、あれば G0-2 の後の 3a（聞けない段）の settle。G0 の後の 3a は反映を 3b に渡すので settle を回さない。
         D = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
-        ruled = {"3a": g["next_args"]["state"]["questions"], "3a-settle-opens": ["RS-009"]}
-        # 差し戻し（3a-settle-fix）も RS-009 を invariant でない裁定のまま返すので、その verifier にも同じ指摘が出て、同じ理由で落ちる。
+        s = "3" if g is None else "3a"
+        start = {"args": args(), "flow_open": 1} if g is None else {"args": g["next_args"], "flow_sha_at": {"3a": "f-3a"}}
+        ruled = {s: ["RS-001"], f"{s}-settle-opens": ["RS-009"]}
+        # 差し戻し（<段>-settle-fix）も RS-009 を invariant でない裁定のまま返すので、その verifier にも同じ指摘が出て、同じ理由で落ちる。
         fail = [{"id": "RS-009", "kind": kind, "reason": "invariant でない"}]
-        return {"args": g["next_args"], "ruled_at": ruled, "flow_sha_at": {"3a": "f-3a"}, "flow_codes_at": {"3a": D, "3av": D, "3av-settle": D, "3a-settle-fixv": D, "3a-settle-convert": {}},
-                "unverified_at": {"3a-settle": ["F-053"]}, "open_ids_at": {"3a-settle": ["O-009"]}, "about": {"RS-009": {"open": "O-009"}},
-                "verifier_fail": {"3av-settle": fail, "3a-settle-fixv": fail}, **kw}
+        return {**start, "ruled_at": ruled, "flow_codes_at": {s: D, f"{s}v": D, f"{s}v-settle": D, f"{s}-settle-fixv": D, f"{s}-settle-convert": {}},
+                "unverified_at": {f"{s}-settle": ["F-053"]}, "open_ids_at": {f"{s}-settle": ["O-009"]}, "about": {"RS-009": {"open": "O-009"}},
+                "verifier_fail": {f"{s}v-settle": fail, f"{s}-settle-fixv": fail}, **kw}
 
     def test_settleの中で台帳の書き込みから出た指摘は裁定を変換してから次の回に渡す(self):
         # settle の verifier で止めると、その裁定を落とした合否が変換に届かず、同じ段からやり直しても同じ所で止まる。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        g02 = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
-        for name, g, kind, returned, kept in (("聞ける段の value_as_method は問い", g0, "value_as_method", "questions_at", "questions"),
-                                              ("聞ける段では価値の論点の根拠不足も問い", g0, "insufficient_grounds", "questions_at", "questions"),
+        g02 = reasked_at_g02()
+        for name, g, kind, returned, kept in (("聞ける段の value_as_method は問い", None, "value_as_method", "questions_at", "questions"),
+                                              ("聞ける段では価値の論点の根拠不足も問い", None, "insufficient_grounds", "questions_at", "questions"),
                                               ("聞けない段は保持規則", g02, "value_as_method", "holds_at", "holds")):
             with self.subTest(name):
-                r = run(self._settle_world(g, kind, **{returned: {"3a-settle-convert": ["RS-009"]}}))
+                s = "3" if g is None else "3a"
+                r = run(self._settle_world(g, kind, **{returned: {f"{s}-settle-convert": ["RS-009"]}}))
                 labels = r["labels"]
-                self.assertEqual(labels[labels.index("verifier:3av-settle") + 1:][:4], ["resolver:3a-settle-fix", "verifier:3a-settle-fixv", "resolver:3a-settle-convert", "flow-check:3a-settle-convert"])
-                convert = next(p["prompt"] for p in r["prompts"] if p["label"] == "resolver:3a-settle-convert")
+                self.assertEqual(labels[labels.index(f"verifier:{s}v-settle") + 1:][:4], [f"resolver:{s}-settle-fix", f"verifier:{s}-settle-fixv", f"resolver:{s}-settle-convert", f"flow-check:{s}-settle-convert"])
+                convert = next(p["prompt"] for p in r["prompts"] if p["label"] == f"resolver:{s}-settle-convert")
                 self.assertIn(f"RS-009 → {kept[:-1] if kept == 'holds' else 'question'}", convert)
-                self.assertNotIn("flow-framer:3a-settle-2", labels, "保持か問いで O-009 が縛りに戻れば 1 回目で指摘は消える")
+                self.assertNotIn(f"flow-framer:{s}-settle-2", labels, "保持か問いで O-009 が縛りに戻れば 1 回目で指摘は消える")
                 res = r["result"]
                 self.assertNotEqual(res["status"], "blocked", res.get("reason"))
                 self.assertEqual(res["integrity"], [])
@@ -1583,8 +1599,7 @@ class FlowDigest(unittest.TestCase):
 
     def test_settleの中で台帳が変わらなければverifierの指摘はflow_framerのものとして止める(self):
         # 台帳が同じなら、同じ flow.json で flow-framer の stdout に無かった指摘は flow-framer の過少申告である。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        spec = self._settle_world(g0, "insufficient_grounds", open_ids_at={}, verifier_fail={})
+        spec = self._settle_world(reasked_at_g02(), "insufficient_grounds", open_ids_at={}, verifier_fail={})
         del spec["ruled_at"]["3a-settle-opens"], spec["flow_codes_at"]["3a-settle-convert"], spec["flow_codes_at"]["3a-settle-fixv"]
         r = run(spec)
         self.assertNotIn("resolver:3a-settle-opens", r["labels"])
@@ -1595,11 +1610,11 @@ class FlowDigest(unittest.TestCase):
 
     def test_settleの回ごとに台帳から出る指摘が残れば上限の回で止める(self):
         n = const("MAX_SETTLE_ROUNDS")
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        g02 = reasked_at_g02()
         at = lambda i: {"FLOW_DESTRUCTIVE_UNCONSTRAINED": [f"F-{50 + k}" for k in range(n - i)]}
         tags = ["3a-settle"] + [f"3a-settle-{i + 1}" for i in range(1, n)]
         opens = [f"O-{10 + i}" for i in range(n)]
-        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"], **{f"{t}-opens": [f"RS-{10 + i}"] for i, t in enumerate(tags)}},
+        spec = {"args": g02["next_args"], "ruled_at": {"3a": ["RS-001"], **{f"{t}-opens": [f"RS-{10 + i}"] for i, t in enumerate(tags)}},
                 "about": {f"RS-{10 + i}": {"open": o} for i, o in enumerate(opens)},
                 "open_ids_at": {t: opens[: i + 1] for i, t in enumerate(tags)},
                 "flow_codes_at": {"3a": at(0), **{t.replace("3a-settle", "3av-settle"): at(i) for i, t in enumerate(tags)}}}
@@ -2575,9 +2590,199 @@ class StageExitInvariants(unittest.TestCase):
         # settle が W の不合格の要素を拾わない欠陥: 合格した検証の裁定を写さないまま、不合格の要素を持って段を出る。
         fail = [{"id": "F-003", "kind": "insufficient_grounds", "reason": "出典が無い"}]
         ruled = {"args": args(), "verifier_fail": {"3v": fail}, "ruled_at": {"3-fix": ["RS-005"]}, "about": {"RS-005": {"verification": "F-003"}}, "unverified_at": {"3-settle": ["F-003"]}}
-        res = run(ruled, patch=[("  const failed = failedOpen(fc, state, true)\n  const first", "  const failed = []\n  const first")])["result"]
+        res = run(ruled, patch=[("  const failed = failedOpen(fc, state, true)\n  return {", "  const failed = []\n  return {")])["result"]
         self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
         self.assertIn("保持規則にも回答待ちにもならない不合格の要素: F-003", res["reason"])
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class ReflectIn3b(unittest.TestCase):
+    """G0 の後の 3a は settle の裁定の反映（flow-framer:3a-settle → resolver:3a-settle-* → verifier:3av-settle）を回さず、反映を
+    3b-reframe に渡し、未裁定の組と O- は resolver:3b に、flow の検証は 3bv に 1 回にまとめる（prd-spec.js の REFLECT_STAGE）。
+    3av は回答の適用（resolver:3a の裁定と書き込み）を検証し、G0-2・G1 の後の 3a・3a' は後に 3b が無いので自分の settle を回す。"""
+
+    FAIL = [{"id": "F-003", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+    SETTLE = ("flow-framer:3a-settle", "resolver:3a-settle", "verifier:3av-settle")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.world = str(Path(self._tmp.name) / "world.json")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _spec(self, nargs, **kw):
+        # 3a が RS-001 に回答を当てて O-RS-001 を閉じ（F-091 がそれだけを出典に持つ）、書き換えた F-003 が 3av と 3a-fixv に落ち、
+        # 差し戻しがその検証の裁定 RS-005 を返して 3a-fixv に合格する。3a の settle なら写す反映は F-091 と F-003 の 2 つ。
+        spec = {"args": nargs, "world": self.world, "ruled_at": {"3a": ["RS-001"], "3a-fix": ["RS-005"]}, "about": {"RS-005": {"verification": "F-003"}},
+                "flow_sha_at": {"3a": "f-3a", "3a-fix": "f-3a2"}, "unverified_at": {"3a": ["F-003"], "3a-fix": ["F-003"], "3b-reframe": ["F-003", "F-091"]},
+                "verifier_fail": {"3av": self.FAIL, "3a-fixv": self.FAIL}, "open_only_at": {"3a-fixv": [{"el": "F-091", "open": "O-RS-001"}]}}
+        spec.update(kw)
+        return spec
+
+    def _g0(self):
+        return run({"args": args(), "world": self.world, "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+
+    def test_G0の後の3aはsettleを起動せず反映を3b_reframeに渡し3bvが1回で検証する(self):
+        r = run(self._spec(self._g0()["next_args"]))
+        labels = r["labels"]
+        self.assertFalse([l for l in labels if l.startswith(self.SETTLE)], labels)
+        self.assertEqual([l for l in labels if l.startswith(("resolver:", "verifier:", "flow-framer:"))],
+                         ["resolver:3a", "verifier:3av", "resolver:3a-fix", "verifier:3a-fixv", "flow-framer:3b-reframe", "verifier:3bv"])
+        reframe = nth_prompt(r, "flow-framer:3b-reframe", 0)
+        self.assertIn("3a の裁定も flow に写す", reframe)
+        self.assertIn("F-091（O-RS-001 ← RS-001）", reframe, "閉じた O- を引く要素の書き換え")
+        self.assertIn("F-003 ← RS-005", reframe, "流れに写す検証の裁定")
+        judged_by(self, r, "verifier:3bv", "F-091")
+        judged_by(self, r, "verifier:3bv", "F-003")
+        self.assertEqual((r["disk"]["unverified"], r["disk"]["failed_current"]), ([], []))
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_G0_2の後の3aは今どおり自分のsettleで反映し検証する(self):
+        g02 = reasked_at_g02(self.world)
+        r = run(self._spec(g02["next_args"], unverified_at={"3a": ["F-003"], "3a-fix": ["F-003"], "3a-settle": ["F-003", "F-091"]}))
+        self.assertEqual([l for l in r["labels"] if l.startswith(("flow-framer:", "verifier:3a"))],
+                         ["verifier:3av", "verifier:3a-fixv", "flow-framer:3a-settle", "verifier:3av-settle"])
+        self.assertFalse(has(r["labels"], "flow-framer:3b-reframe"), "G0-2 の後に 3b は無い")
+        self.assertIn("F-003 ← RS-005", nth_prompt(r, "flow-framer:3a-settle", 0))
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_3b_reframeが写さなかった持ち越しの不合格の要素は3bのsettleが直して検証する(self):
+        # 書き換えていない F-003 は変わっていないので 3bv では名指ししない（名指しすると 3bv の不合格が resolver:3b-fix に回り、合格済みの
+        # 検証の裁定 RS-005 を裁定し直させる）。W に不合格のまま残るので、3b の settle が 3a の settle と同じ経路で写させて検証する。
+        r = run(self._spec(self._g0()["next_args"], unverified_at={"3a": ["F-003"], "3a-fix": ["F-003"], "3b-reframe": ["F-091"], "3b-settle": ["F-003"]}))
+        self.assertNotIn("F-003", nth_prompt(r, "verifier:3bv", 0))
+        self.assertFalse(has(r["labels"], "resolver:3b-fix"))
+        self.assertIn("F-003 ← RS-005", nth_prompt(r, "flow-framer:3b-settle", 0))
+        judged_by(self, r, "verifier:3bv-settle", "F-003")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["writerDisk"]["failed_current"], [])
+
+    def _g0_spec(self, **kw):
+        return {"args": self._g0()["next_args"], "world": self.world, "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, **kw}
+
+    def test_閉じたOと覆された決定は3b_reframeに渡り開いたままのOは渡らない(self):
+        only = [{"el": "F-091", "open": "O-RS-001"}, {"el": "F-092", "open": "O-RS-009"}]
+        stale = [{"el": "F-002", "ref": "D-001"}]
+        r = run(self._g0_spec(open_only_at={"3av": only}, stale_refs_at={"3av": stale}, unverified_at={"3b-reframe": ["F-091", "F-002"]}))
+        reframe = nth_prompt(r, "flow-framer:3b-reframe", 0)
+        self.assertIn("F-091（O-RS-001 ← RS-001）", reframe)
+        self.assertNotIn("F-092", reframe, "開いたままの O- の要素は直させない")
+        self.assertIn("F-002 ← D-001", reframe, "覆された決定を引く要素")
+        judged_by(self, r, "verifier:3bv", "F-091")
+        judged_by(self, r, "verifier:3bv", "F-002")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_検証の裁定が保持規則の不合格の要素は3b_reframeに渡さない(self):
+        fail = [{"id": "F-002", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        g0 = run({"args": args(), "world": self.world, "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "verifier_fail": {"3v": fail, "3-fixv": fail},
+                  "holds_at": {"3-fix": ["RS-006"]}, "about": {"RS-006": {"verification": "F-002"}}})["result"]
+        self.assertEqual(g0["status"], "needs_answers", g0.get("reason"))
+        r = run({"args": g0["next_args"], "world": self.world, "about": {"RS-006": {"verification": "F-002"}}, "ruled_at": {"3a": ["RS-001"]}})
+        reframe = nth_prompt(r, "flow-framer:3b-reframe", 0)
+        self.assertNotIn("検証に落ちた要素: F-002", reframe)
+        self.assertNotIn("F-002 ←", reframe)
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_3b_reframeの過少申告は3bvが止める(self):
+        # 3b-reframe が 0 件と返した flow に、flow-framer だけが消せる指摘が 3bv の stdout にある。resolver:3b が台帳を書いていなければ
+        # flow-framer の過少申告で、3a の settle の verifier と同じく止める。台帳が動いていれば台帳由来として 3b の settle に渡す。
+        D = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
+        r = run(self._g0_spec(flow_codes_at={"3bv": D}))
+        self.assertFalse(has(r["labels"], "resolver:3b"))
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "3b"), res.get("reason"))
+        self.assertIn("段 3bv: verifier の doc_check flow に指摘が 1 件あります", res["reason"])
+        self.assertTrue(any("flowFramer（段 3bv）" in x for x in res["integrity"]), res["integrity"])
+        moved = run(self._g0_spec(flow_codes_at={"3bv": D}, pair_keys_at={"3b-reframe": ["pair:D-010|F-035"]}, about={"RS-003": {"pair": ["D-010", "F-035"]}},
+                                  ruled_at={"3a": ["RS-001"], "3b": ["RS-003"]}, unverified_at={"3b-settle": ["F-053"]}))
+        self.assertIn("F-053: 縛る不変条件が無い", nth_prompt(moved, "flow-framer:3b-settle", 0))
+        self.assertEqual((moved["result"]["status"], moved["result"]["integrity"]), ("done", []), moved["result"].get("reason"))
+
+    def test_渡せない不合格の要素があれば3aは自分のsettleで直す(self):
+        # 3av が検証し残した F-060 を拾う verifier が落とした。検証の裁定が無いので 3b には渡さず、3a の settle が直させる。
+        fail = [{"id": "F-060", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        r = run(self._g0_spec(unverified_at={"3a": ["F-060"], "3a-settle": ["F-060"]}, ignores_at={"3av": ["F-060"]}, verifier_fail={"3av-left": fail}))
+        self.assertIn("検証に落ちた要素: F-060", nth_prompt(r, "flow-framer:3a-settle", 0))
+        judged_by(self, r, "verifier:3av-settle", "F-060")
+        self.assertNotIn("F-060", nth_prompt(r, "flow-framer:3b-reframe", 0).split("回答を入力に加えて")[1])
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_3aの出口は渡せない不合格の要素を持って3bへ出れば止める(self):
+        # 3a の settle への戻り（渡せない不合格があれば 3a で直す）を外し、裁定の無い F-060 を持ったまま 3b へ出る欠陥を作る。
+        # 出口の緩めは渡せる要素（reflectable）だけなので、段の出口の不変条件が止める。
+        fail = [{"id": "F-060", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        no_fallback = ("  if (reflectLater && failedOpen(checked.fc, state, true).every(reflectable)) {\n", "  if (reflectLater) {\n")
+        r = run(self._g0_spec(unverified_at={"3a": ["F-060"]}, ignores_at={"3av": ["F-060"]}, verifier_fail={"3av-left": fail}), patch=[no_fallback])
+        self.assertFalse(has(r["labels"], "flow-framer:3a-settle"))
+        self.assertFalse(has(r["labels"], "flow-framer:3b-reframe"))
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertIn("script の不変条件に反しました（段 3a）", res["reason"])
+        self.assertIn("保持規則にも回答待ちにもならない不合格の要素: F-060", res["reason"])
+
+    def test_3b以外の段の入口は検証の裁定を持つ不合格の要素でも止める(self):
+        # 入口で不合格の要素を受け入れるのは REFLECT_STAGE だけ。検証の裁定（RS-070）を持つ F-070 でも、段 7 の入口では所有表の外の書き込みとして止める。
+        stopped = run({"args": args(), "world": self.world, "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}]}, "null_labels": ["writer:U-1:revise"]})["result"]
+        self.assertEqual(stopped["next_args"]["from"], "7", stopped.get("reason"))
+        d = json.loads(Path(self.world).read_text())
+        d["els"]["F-070"] = 1
+        d["rs"]["RS-070"] = {"about": {"verification": "F-070"}, "ruling": "internal"}
+        Path(self.world).write_text(json.dumps(d))
+        fail = [{"id": "F-070", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        r = run({"args": stopped["next_args"], "world": self.world, "fails_when_asked": fail})
+        self.assertIn("RS-070", [x["id"] for x in r["disk"]["resolutions"]], "検証の裁定は台帳にある")
+        self.assertFalse(has(r["labels"], "writer:"))
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertIn("段 7 の入口の flow に不合格の要素 F-070 があります", res["reason"])
+
+    def test_3bの入口は3aが渡せない不合格の要素を止める(self):
+        stopped = run(self._spec(self._g0()["next_args"], null_labels=["verifier:3bv"]))["result"]
+        self.assertEqual(stopped["next_args"]["from"], "3b", stopped.get("reason"))
+        # 所有表の外の書き込み: 3b の入口の restore が戻す控えにも入れる（段に入る前に書かれた要素として残す）。
+        d = json.loads(Path(self.world).read_text())
+        d["els"]["F-070"] = 1
+        for pre in d.get("tx", {}).values():
+            if "flow" in pre:
+                pre["flow"]["els"]["value"]["F-070"] = 1
+        Path(self.world).write_text(json.dumps(d))
+        fail = [{"id": "F-070", "kind": "insufficient_grounds", "reason": "出典が無い"}]
+        r = run(self._spec(stopped["next_args"], ruled_at={}, flow_sha_at={}, verifier_fail={}, open_only_at={}, unverified_at={}, fails_when_asked=fail))
+        self.assertFalse(has(r["labels"], "flow-framer:3b-reframe"))
+        res = r["result"]
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertIn("段 3b の入口の flow に不合格の要素 F-070 があります", res["reason"])
+
+    def test_検証を通っていない要素も持ち越しの不合格の要素もwriterに届かない(self):
+        r = run(self._spec(self._g0()["next_args"]))
+        self.assertTrue(has(r["labels"], "writer:"))
+        self.assertEqual((r["writerDisk"]["unverified"], r["writerDisk"]["failed_current"]), ([], []))
+        # 変異: 3b を持たない 3a（G0-2 の後）も反映を渡すようにすると、段の出口の不変条件が次の段が REFLECT_STAGE でないことで止める。
+        defer_always = ("    reflectLater: Boolean(nextStage),\n", "    reflectLater: true,\n")
+        # 変異ごとに W を G0-2 の直後から作り直す（止まった run の W を次の run に持ち込まない）。
+        def g02_spec():
+            return self._spec(reasked_at_g02(self.world)["next_args"], unverified_at={"3a": ["F-003"], "3a-fix": ["F-003"]}, open_only_at={})
+        stopped = run(g02_spec(), patch=[defer_always])
+        self.assertFalse(has(stopped["labels"], "writer:"))
+        res = stopped["result"]
+        self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
+        self.assertIn("script の不変条件に反しました（段 3a）", res["reason"])
+        self.assertIn("保持規則にも回答待ちにもならない不合格の要素: F-003", res["reason"])
+        # 変異: 出口の不変条件を渡した段に限らず緩めると、落ちた F-003 が writer に届く（上の writerDisk の検査がそれを捉える）。
+        leaky = run(g02_spec(), patch=[defer_always, ("  const open = failedOpen(fc, state, asking).filter((el) => !(reflectNext && reflectable(el)))\n", "  const open = []\n")])
+        self.assertTrue(has(leaky["labels"], "writer:"))
+        self.assertEqual(leaky["writerDisk"]["failed_current"], ["F-003"], "不変条件を緩めると不合格の要素が writer に届く")
+
+    def test_3bで止まった再実行は入口で不合格の要素を止めずに3b_reframeへ反映を渡す(self):
+        stopped = run(self._spec(self._g0()["next_args"], null_labels=["verifier:3bv"]))["result"]
+        self.assertEqual((stopped["status"], stopped["next_args"]["from"]), ("blocked", "3b"), stopped.get("reason"))
+        r = run(self._spec(stopped["next_args"], ruled_at={}, flow_sha_at={}, verifier_fail={}, open_only_at={}, unverified_at={"3b-reframe": ["F-003", "F-091"]}))
+        self.assertEqual(r["labels"][0], "flow-check:3b-entry")
+        self.assertIn("F-003 ← RS-005", nth_prompt(r, "flow-framer:3b-reframe", 0), "入口で W から数え直した反映を渡す")
+        judged_by(self, r, "verifier:3bv", "F-003")
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["writerDisk"]["failed_current"], [])
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
@@ -2608,6 +2813,13 @@ class FlowRecheck(unittest.TestCase):
         self.assertEqual(on_disk(self.world)["failed_current"], [el])
         return g0
 
+    def _g02_failed(self, el):
+        """_g0_failed の後、3a が RS-001 を続きの問いにして G0-2 で聞き直す止まり方（その後の 3a は自分の settle を回す）。"""
+        g0 = self._g0_failed(el)
+        g02 = run({"args": g0["next_args"], "world": self.world, "questions_at": {"3a": ["RS-001"]}})["result"]
+        self.assertEqual((g02["status"], g02["question_ids"]), ("needs_answers", ["RS-001"]), g02.get("reason"))
+        return g0, g02
+
     def test_3aでflowが変わると新しい組はresolverに_unverifiedはverifierに渡る(self):
         spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3a-pairs": ["RS-002"]}, "flow_sha_at": {"3a": "f-3a"},
                 "pair_keys_at": {"3a": ["pair:D-001|F-099"]}, "unverified_at": {"3a": ["F-099"]}}
@@ -2628,8 +2840,9 @@ class FlowRecheck(unittest.TestCase):
         base = {"args": g0, "ruled_at": {"3a": ["RS-001"], "3a-pairs": ["RS-002"]}, "flow_sha_at": {"3a": "f-3a"}, "pair_keys_at": {"3a": ["pair:D-001|F-099"]},
                 "about": {"RS-002": {"pair": ["D-001", "F-099"]}}}
         self.assertEqual(run(base)["result"]["integrity"], [])
+        # settle の flow-framer は G0-2 の後の 3a で起動する（G0 の後の 3a は反映を 3b-reframe に渡す。その申告は下の reframe で照合する）。
         for name, kw, key in (("回答を当てた resolver の組", {"verifier_pair_keys_at": {"3av": ["pair:D-001|F-099", "pair:D-002|F-098"]}}, "pair_keys"),
-                              ("settle の flow-framer の O-", {"flow_codes_at": {"3av": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}},
+                              ("settle の flow-framer の O-", {"args": reasked_at_g02()["next_args"], "flow_codes_at": {"3av": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}},
                                                               "open_ids_at": {"3a-settle": ["O-009"], "3av-settle": ["O-009", "O-010"]},
                                                               "ruled_at": {**base["ruled_at"], "3a-settle-opens": ["RS-009"]}}, "open_ids")):
             with self.subTest(name):
@@ -2659,11 +2872,15 @@ class FlowRecheck(unittest.TestCase):
         self.assertIn("resolver:3a-pairs", run(spec)["labels"])
 
     def test_自由記述の回答で閉じたOも同じcycleでsettleする(self):
-        spec = {"args": self._g0()["next_args"], "free_text_at": {"3a": ["RS-001"]},
-                "open_only_at": {"3av": [{"el": "F-091", "open": "O-RS-001"}]}}
-        r = run(spec)
-        self.assertIn("flow-framer:3a-settle", r["labels"])
-        self.assertEqual(r["result"]["status"], "done")
+        only = [{"el": "F-091", "open": "O-RS-001"}]
+        g0 = run({"args": self._g0()["next_args"], "free_text_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": only}, "unverified_at": {"3b-reframe": ["F-091"]}})
+        self.assertFalse(has(g0["labels"], "flow-framer:3a-settle"), "G0 の後の 3a は反映を 3b-reframe に渡す")
+        self.assertIn("F-091（O-RS-001 ← RS-001）", self._prompt(g0, "flow-framer:3b-reframe"))
+        judged_by(self, g0, "verifier:3bv", "F-091")
+        self.assertEqual(g0["result"]["status"], "done")
+        g02 = run({"args": reasked_at_g02()["next_args"], "free_text_at": {"3a": ["RS-001"]}, "open_only_at": {"3av": only}})
+        self.assertIn("flow-framer:3a-settle", g02["labels"])
+        self.assertEqual(g02["result"]["status"], "done")
 
     def test_flowを変えたのにconflictsのstdoutが無ければblocked(self):
         r = run({"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "no_conflicts_check_at": ["3a"]})
@@ -2671,12 +2888,12 @@ class FlowRecheck(unittest.TestCase):
         self.assertEqual((r["result"]["status"], r["result"]["next_args"]["from"]), ("blocked", "3a"))
 
     def test_同じcycleで閉じたOだけを出典に持つ要素はsettleで直す(self):
-        g0 = self._g0()
+        g0 = reasked_at_g02()
         only = [{"el": "F-091", "open": "O-RS-001"}, {"el": "F-092", "open": "O-RS-009"}]
         spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": only}, "unverified_at": {"3a-settle": ["F-091"]}}
         r = run(spec)
         self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer"))],
-                         ["resolver:3a", "flow-framer:3a-settle", "verifier:3av-settle", "flow-framer:3b-reframe", "verifier:3bv"])
+                         ["resolver:3a", "flow-framer:3a-settle", "verifier:3av-settle"])
         framer = self._prompt(r, "flow-framer:3a-settle")
         self.assertIn("F-091（O-RS-001 ← RS-001）", framer)
         self.assertNotIn("F-092", framer, "開いたままの O- の要素は直させない")
@@ -2709,7 +2926,7 @@ class FlowRecheck(unittest.TestCase):
                 self.assertEqual(stopped["next_args"]["state"]["tx"], tx, "同じ段の token で restore させ、最後に照合を通った flow の版を添える")
 
     def test_caseの出典だけが閉じたOを指すときもsettleでそのマスを直す(self):
-        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": [{"el": "F-004", "case": 2, "open": "O-RS-001"}]},
+        spec = {"args": reasked_at_g02()["next_args"], "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": [{"el": "F-004", "case": 2, "open": "O-RS-001"}]},
                 "unverified_at": {"3a-settle": ["F-004"]}}
         r = run(spec)
         self.assertIn("F-004 の case 2（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3a-settle"))
@@ -2736,21 +2953,21 @@ class FlowRecheck(unittest.TestCase):
         self.assertEqual(failed, ["F-002"])
         rewritten = [x for x in unverified if x not in failed]
         fail = [{"id": "F-002", "kind": "insufficient_grounds", "reason": "出典が無い"}]
-        g0 = self._g0_failed("F-002")
+        g0, g02 = self._g02_failed("F-002")
         self.assertNotIn("F-002", g0["next_args"]["state"]["failed_ids"])
         only = [{"el": "F-003", "open": "O-RS-001"}]
-        r = run({"args": g0["next_args"], "world": self.world, "about": {"RS-005": {"verification": "F-002"}}, "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "unverified_at": {"3a": rewritten, "3a-settle": rewritten},
+        r = run({"args": g02["next_args"], "world": self.world, "about": {"RS-005": {"verification": "F-002"}}, "ruled_at": {"3a": ["RS-001"]}, "flow_sha_at": {"3a": "f-3a"}, "unverified_at": {"3a": rewritten, "3a-settle": rewritten},
                  "open_only_at": {"3av": only}, "fails_when_asked": fail})
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         self.assertEqual([l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer"))],
-                         ["resolver:3a", "verifier:3av", "flow-framer:3a-settle", "verifier:3av-settle", "flow-framer:3b-reframe", "verifier:3bv"], "保持規則の裁定がある不合格の F- は渡さないので、差し戻しも変換も起きない")
+                         ["resolver:3a", "verifier:3av", "flow-framer:3a-settle", "verifier:3av-settle"], "保持規則の裁定がある不合格の F- は渡さないので、差し戻しも変換も起きない")
         for label in ("verifier:3av", "verifier:3av-settle"):
             self.assertNotIn("F-002", self._prompt(r, label))
         judged_by(self, r, "verifier:3av-settle", "F-003")
 
     def test_検証に落ちた要素でもsettleで直させたら必ず検証する(self):
-        g0 = self._g0_failed("F-003")
-        r = run({"args": g0["next_args"], "world": self.world, "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": [{"el": "F-003", "open": "O-RS-001"}]},
+        _, g02 = self._g02_failed("F-003")
+        r = run({"args": g02["next_args"], "world": self.world, "ruled_at": {"3a": ["RS-001"]}, "open_only_at": {"3a": [{"el": "F-003", "open": "O-RS-001"}]},
                  "unverified_at": {"3a-settle": ["F-003"]}})
         judged_by(self, r, "verifier:3av-settle", "F-003")
         self.assertEqual(r["result"]["status"], "done")
@@ -2874,7 +3091,7 @@ class FlowRecheck(unittest.TestCase):
 
     def test_差し戻しの後も落ちた要素は同じcycleの検証の裁定をsettleで写せば進む(self):
         fail = [{"id": "F-003", "kind": "insufficient_grounds", "reason": "出典が無い"}]
-        spec = {"args": self._g0()["next_args"], "ruled_at": {"3a": ["RS-001"], "3a-fix": ["RS-005"]}, "about": {"RS-005": {"verification": "F-003"}},
+        spec = {"args": reasked_at_g02()["next_args"], "ruled_at": {"3a": ["RS-001"], "3a-fix": ["RS-005"]}, "about": {"RS-005": {"verification": "F-003"}},
                 "flow_sha_at": {"3a": "f-3a", "3a-fix": "f-3a2"}, "unverified_at": {"3a": ["F-003"], "3a-fix": ["F-003"], "3a-settle": ["F-003"]},
                 "verifier_fail": {"3av": fail, "3a-fixv": fail}}
         r = run(spec)
@@ -2973,11 +3190,14 @@ class FlowFixerRoutes(unittest.TestCase):
         return [l for l in r["labels"] if l.startswith(("resolver:", "verifier:", "flow-framer"))]
 
     def _spec(self, nargs, stage, **kw):
-        # stage の resolver が破壊的な工程を足し、生きている invariant が無い。settle の flow-framer が O-009 を足して縛る。
-        v = "3av" if stage == "3a" else "3a'v"
-        spec = {"args": nargs, "ruled_at": {stage: [kw.pop("answered")]}, "flow_sha_at": {stage: f"f-{stage}"},
-                "flow_codes_at": {stage: self.DESTRUCTIVE, v: self.DESTRUCTIVE}, "unverified_at": {f"{stage}-settle": ["F-053"]},
-                "open_ids_at": {f"{stage}-settle": ["O-009"]}, "about": {"RS-009": {"open": "O-009"}}}
+        # stage の resolver が破壊的な工程を足し（段 3 の resolver は flow を書かないので、台帳の書き込みで縛りが外れる）、生きている invariant が無い。
+        # framer（既定は settle の flow-framer。G0 の後の 3a は反映を渡す 3b-reframe）が O-009 を足して縛る。answered は stage の resolver が裁定する ID。
+        v = {"3": "3v", "3a": "3av", "3a'": "3a'v"}[stage]
+        framer = kw.pop("framer", f"{stage}-settle")
+        start = {"flow_open": 1} if stage == "3" else {"flow_sha_at": {stage: f"f-{stage}"}}
+        spec = {"args": nargs, "ruled_at": {stage: [kw.pop("answered")]}, **start,
+                "flow_codes_at": {stage: self.DESTRUCTIVE, v: self.DESTRUCTIVE}, "unverified_at": {framer: ["F-053"]},
+                "open_ids_at": {framer: ["O-009"]}, "about": {"RS-009": {"open": "O-009"}}}
         spec.update(kw)
         return spec
 
@@ -2998,31 +3218,30 @@ class FlowFixerRoutes(unittest.TestCase):
                 res = r["result"]
                 self.assertEqual((res["status"], res["integrity"]), ("done", []), res.get("reason"))
 
-    def test_G0の後の3aで縛りの無い破壊的な工程はflow_framerが縛りresolverが問いにできる(self):
+    def test_G0の後の3aで縛りの無い破壊的な工程は3bのflow_framerが縛りresolver_3bが問いにしてG0_2で聞く(self):
+        # 3a の反映（flow の指摘）は 3a の settle を回さず 3b-reframe に渡し、足した O- は resolver:3b がまとめて裁定し、flow は 3bv だけが検証する。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", questions_at={"3a-settle-opens": ["RS-009"]}))
-        self.assertEqual(self._cycle(r)[:5], ["resolver:3a", "verifier:3av", "flow-framer:3a-settle", "resolver:3a-settle-opens", "verifier:3av-settle"])
+        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", framer="3b-reframe", questions_at={"3b": ["RS-009"]}))
+        self.assertEqual(self._cycle(r), ["resolver:3a", "verifier:3av", "flow-framer:3b-reframe", "resolver:3b", "verifier:3bv"])
         self.assertFalse(has(r["labels"], "resolver:3a-flow"), "resolver には消せない指摘を resolver に差し戻さない")
-        self.assertIn("F-053: 縛る不変条件が無い", self._prompt(r, "flow-framer:3a-settle"))
+        self.assertIn("F-053: 縛る不変条件が無い", self._prompt(r, "flow-framer:3b-reframe"))
         table = value("FIXERS_BY_CODE")
         leave = [l for l in self._prompt(r, "resolver:3a").split("\n") if "は触らない" in l]
         self.assertEqual(len(leave), 1, "回答を当てる resolver に、flow-framer に残す符号を最初のプロンプトで渡す")
         self.assertEqual(set(re.findall(r"FLOW_[A-Z_]+", leave[0])), {k for k, v in table.items() if "resolver" not in v["fixers"]})
-        opens = self._prompt(r, "resolver:3a-settle-opens")
-        self.assertIn("まだ裁定の無い open", opens)
-        self.assertIn("O-009", opens)
+        opens = self._prompt(r, "resolver:3b")
+        self.assertIn("まだ裁定の無い open: O-009", opens)
         self.assertNotIn("question ではなく hold", opens)
-        self.assertIn("RS-009", self._prompt(r, "verifier:3av-settle").split("検証する resolution の ID:")[1].split("\n")[0])
-        self.assertIn(VERIFY_ALL_MARK, self._prompt(r, "verifier:3av-settle"))
+        self.assertIn("RS-009", self._prompt(r, "verifier:3bv").split("検証する resolution の ID:")[1].split("\n")[0])
+        self.assertIn(VERIFY_ALL_MARK, self._prompt(r, "verifier:3bv"))
         self.assertNotIn("F-053", r["disk"]["unverified"], "flow-framer が直した要素は W の unverified から検証させる")
         res = r["result"]
         self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-009"]), res.get("reason"))
         self.assertEqual(res["answers_path"], "/tmp/prd-w/answers/g0-2.md")
 
     def test_3aの裁定で閉じたOはsettleの次の回でRSに差し替わり段を出る(self):
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         # 2 回目の settle の flow-framer の後も O-009 は open.json にあるが、RS-009 が裁定済みなので resolver に渡し直さない。
-        spec = self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
+        spec = self._spec(reasked_at_g02()["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
                           open_only_at={"3av-settle": [{"el": "F-053", "constraint": "O-009"}]}, unverified_at={"3a-settle": ["F-053"], "3a-settle-2": ["F-053"]},
                           open_ids_at={"3a-settle": ["O-009"], "3a-settle-2": ["O-009"]})
         r = run(spec)
@@ -3043,19 +3262,17 @@ class FlowFixerRoutes(unittest.TestCase):
         self.assertIn("RS-009", r["result"]["holds"])
 
     def test_resolverが消せる指摘は今どおりresolverに差し戻す(self):
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         both = {"FLOW_DANGLING": ["F-054"], **self.DESTRUCTIVE}
-        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", flow_codes_at={"3a": both, "3a-flow": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE},
+        r = run(self._spec(reasked_at_g02()["next_args"], "3a", answered="RS-001", flow_codes_at={"3a": both, "3a-flow": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE},
                            ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]}))
         fix = self._prompt(r, "resolver:3a-flow")
         self.assertIn("指摘が 1 件", fix)
-        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は flow-framer が settle で直す", fix)
+        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は settle の flow-framer が直す", fix)
         self.assertIn("flow-framer:3a-settle", r["labels"])
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
 
     def test_settleが新しい組と新しいOを作ったら1回のresolverにまとめて渡す(self):
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009", "RS-010"]},
+        r = run(self._spec(reasked_at_g02()["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009", "RS-010"]},
                            pair_keys_at={"3a-settle": ["pair:F-053|RS-001"]}, about={"RS-009": {"open": "O-009"}, "RS-010": {"pair": ["F-053", "RS-001"]}}))
         self.assertEqual([l for l in r["labels"] if l.startswith("resolver:3a-settle")], ["resolver:3a-settle-opens"])
         task = self._prompt(r, "resolver:3a-settle-opens")
@@ -3074,7 +3291,7 @@ class FlowFixerRoutes(unittest.TestCase):
         # 表は静的なので、同じ段をやり直しても同じ符号で止まる。やり直しの引数を返さない。
         self.assertEqual((r["result"]["status"], r["result"]["next_args"]), ("blocked", None))
         self.assertIn("FLOW_NEW", r["result"]["reason"])
-        settle = run(self._spec(g0["next_args"], "3a", answered="RS-001", flow_codes_at={"3a": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE, "3a-settle": {"FLOW_NEW": ["F-053"]}}))
+        settle = run(self._spec(reasked_at_g02()["next_args"], "3a", answered="RS-001", flow_codes_at={"3a": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE, "3a-settle": {"FLOW_NEW": ["F-053"]}}))
         self.assertFalse(has(settle["labels"], "flow-framer:3a-settle:rework"))
         self.assertEqual((settle["result"]["status"], settle["result"]["next_args"]), ("blocked", None))
         self.assertIn("FLOW_NEW", settle["result"]["reason"])
@@ -3098,13 +3315,12 @@ class FlowFixerRoutes(unittest.TestCase):
         self.assertIn("RS-009", r["result"]["holds"])
 
     def test_settleのverifierが回答待ちの問いを落としても変換しない(self):
-        # G0 の問い RS-001・RS-002 のうち 3a で RS-001 だけに答えた。settle の verifier に RS-002 は渡していない。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
+        # 段 3 の resolver が RS-001 を裁定し RS-002 を問いにした（聞ける段の settle）。settle の verifier に RS-002 は渡していない。
         fails = [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}, {"id": "RS-002", "kind": "insufficient_grounds", "reason": "r"}]
-        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
-                           verifier_fail={"3av-settle": fails, "3a-settle-fixv": fails[:1]}, questions_at={"3a-settle-convert": ["RS-009"]}))
-        self.assertNotIn("RS-002", self._prompt(r, "resolver:3a-settle-fix"))
-        convert = self._prompt(r, "resolver:3a-settle-convert")
+        r = run(self._spec(args(), "3", answered="RS-001", ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]},
+                           verifier_fail={"3v-settle": fails, "3-settle-fixv": fails[:1]}, questions_at={"3": ["RS-002"], "3-settle-convert": ["RS-009"]}))
+        self.assertNotIn("RS-002", self._prompt(r, "resolver:3-settle-fix"))
+        convert = self._prompt(r, "resolver:3-settle-convert")
         self.assertIn("RS-009 → question", convert)
         self.assertNotIn("RS-002", convert)
         res = r["result"]
@@ -3112,22 +3328,35 @@ class FlowFixerRoutes(unittest.TestCase):
         self.assertIn("RS-002", res["question_ids"])
         self.assertNotIn("RS-002", res["next_args"]["state"].get("failed_ids", []))
 
-    def test_settleのverifierに落ちたOの裁定はG0の後の3aでは問いにできる(self):
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        r = self._settle_fails(g0["next_args"], "3a", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
-                               ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]}, questions_at={"3a-settle-convert": ["RS-009"]})
-        self.assertIn("RS-009 → question（value_as_method）", self._prompt(r, "resolver:3a-settle-convert"))
+    def test_3bvが持ち越した回答待ちの問いを落としても変換しない(self):
+        # G0 の問い RS-001・RS-002 のうち 3a で RS-001 だけに答えた。3a の反映で足した O-009 を resolver:3b が裁定し、3bv には RS-002 を渡していない。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001", "RS-002"]}})["result"]
+        fails = [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}, {"id": "RS-002", "kind": "insufficient_grounds", "reason": "r"}]
+        r = run(self._spec(g0["next_args"], "3a", answered="RS-001", framer="3b-reframe", ruled_at={"3a": ["RS-001"], "3b": ["RS-009"]},
+                           verifier_fail={"3bv": fails, "3b-fixv": fails[:1]}, questions_at={"3b-convert": ["RS-009"]}))
+        self.assertNotIn("RS-002", self._prompt(r, "resolver:3b-fix"))
+        convert = self._prompt(r, "resolver:3b-convert")
+        self.assertIn("RS-009 → question", convert)
+        self.assertNotIn("RS-002", convert)
+        res = r["result"]
+        self.assertEqual(res["status"], "needs_answers", res.get("reason"))
+        self.assertIn("RS-002", res["question_ids"])
+        self.assertNotIn("RS-002", res["next_args"]["state"].get("failed_ids", []))
+
+    def test_settleのverifierに落ちたOの裁定は聞ける段では問いにできる(self):
+        r = self._settle_fails(args(), "3", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
+                               ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]}, questions_at={"3-settle-convert": ["RS-009"]})
+        self.assertIn("RS-009 → question（value_as_method）", self._prompt(r, "resolver:3-settle-convert"))
         res = r["result"]
         self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-009"]), res.get("reason"))
 
     def test_settleで変換した後もverifierが見た覆された決定を引く要素は次の回で直す(self):
         # 変換の resolver の stdout は stale_refs を申告していない。verifier の stdout にあった分を落とさない。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        r = self._settle_fails(g0["next_args"], "3a", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
-                               ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]}, questions_at={"3a-settle-convert": ["RS-009"]},
-                               stale_refs_at={"3av-settle": [{"el": "F-053", "ref": "D-001"}], "3a-settle-fixv": [{"el": "F-053", "ref": "D-001"}]})
-        self.assertIn("resolver:3a-settle-convert", r["labels"])
-        self.assertIn("F-053 ← D-001", self._prompt(r, "flow-framer:3a-settle-2"))
+        r = self._settle_fails(args(), "3", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
+                               ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]}, questions_at={"3-settle-convert": ["RS-009"]},
+                               stale_refs_at={"3v-settle": [{"el": "F-053", "ref": "D-001"}], "3-settle-fixv": [{"el": "F-053", "ref": "D-001"}]})
+        self.assertIn("resolver:3-settle-convert", r["labels"])
+        self.assertIn("F-053 ← D-001", self._prompt(r, "flow-framer:3-settle-2"))
 
     def test_settleのverifierに落ちた組の裁定も止めずに変える(self):
         g1 = run({"args": args(), "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}})["result"]
@@ -3141,8 +3370,7 @@ class FlowFixerRoutes(unittest.TestCase):
     def test_settleのverifierが独立に見つけた縛りの無さは台帳が変わらない回で残ればflow_framerの指摘として止める(self):
         # 1 回目は flow-framer の後に resolver が O-009 を裁定して台帳を変えたので、次の回の flow-framer に渡す。2 回目は台帳が変わらず、
         # flow-framer の stdout に無かった指摘は flow-framer 自身のもので、渡し直す先が無い。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        spec = self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
+        spec = self._spec(reasked_at_g02()["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
                           flow_codes_at={"3a": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE, "3av-settle": self.DESTRUCTIVE})
         passed = run(spec)
         self.assertIn("F-053: 縛る不変条件が無い", self._prompt(passed, "flow-framer:3a-settle-2"))
@@ -3153,17 +3381,17 @@ class FlowFixerRoutes(unittest.TestCase):
 
     def test_変換の後のsettleに渡す指摘はflow_checkのstdoutから取る(self):
         # 変換が台帳を変えて縛りの無さが出たのに、変換の resolver の stdout は 0 件と申告した。差し戻しの verifier は変換の前に
-        # 走ったので見ていない。別の agent（flow-check）の stdout から flow-framer に渡し、申告との食い違いを integrity に残す。
-        # 候補の選択だけの回答は verifier に渡さないので、自由記述の回答にして検証させる。
+        # 走ったので見ていない。別の agent（flow-check）の stdout から flow-framer（G0 の後の 3a は反映を渡す 3b-reframe）に渡し、
+        # 申告との食い違いを integrity に残す。候補の選択だけの回答は verifier に渡さないので、自由記述の回答にして検証させる。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
-        spec = self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": [], "3a-fix": ["RS-001"], "3a-settle-opens": ["RS-009"]},
+        spec = self._spec(g0["next_args"], "3a", answered="RS-001", framer="3b-reframe", ruled_at={"3a": [], "3a-fix": ["RS-001"], "3b": ["RS-009"]},
                           free_text_at={"3a": ["RS-001"]}, verifier_fail={"3av": fail, "3a-fixv": fail}, questions_at={"3a-convert": ["RS-001"]},
                           flow_codes_at={"3a-convert-seen": self.DESTRUCTIVE}, recheck_as={"3a-convert": "3a-convert-seen"})
         r = run(spec)
-        self.assertEqual(self._cycle(r)[4:6], ["resolver:3a-convert", "flow-framer:3a-settle"])
+        self.assertEqual(self._cycle(r)[4:6], ["resolver:3a-convert", "flow-framer:3b-reframe"])
         self.assertEqual(r["labels"][r["labels"].index("resolver:3a-convert") + 1], "flow-check:3a-convert")
-        self.assertIn("F-053: 縛る不変条件が無い", self._prompt(r, "flow-framer:3a-settle"))
+        self.assertIn("F-053: 縛る不変条件が無い", self._prompt(r, "flow-framer:3b-reframe"))
         # G0 の後の 3a は聞けるので、差し戻しの後も落ちた回答は G0-2 の問いになる。
         self.assertEqual((r["result"]["status"], r["result"]["question_ids"]), ("needs_answers", ["RS-001"]), r["result"].get("reason"))
         self.assertTrue(any("resolver（段 3a-convert）" in x and "codes・findings で違う" in x for x in r["result"]["integrity"]), r["result"]["integrity"])
@@ -3173,15 +3401,14 @@ class FlowFixerRoutes(unittest.TestCase):
 
     def test_settleの変換の後にflow_checkが見た指摘は次の回のsettleで直す(self):
         # settle の verifier は flow-framer が消せる指摘を 0 件にしてから通るので、残りに数える指摘は変換が台帳を変えて出たものだけ。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         seen = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-071"]}
-        spec = self._spec(g0["next_args"], "3a", answered="RS-001", ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]},
-                          verifier_fail={"3av-settle": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}], "3a-settle-fixv": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}]},
-                          questions_at={"3a-settle-convert": ["RS-009"]}, recheck_as={"3a-settle-convert": "3a-settle-convert-seen"})
-        spec["flow_codes_at"] = {**spec["flow_codes_at"], "3a-settle-convert-seen": seen}
+        spec = self._spec(args(), "3", answered="RS-001", ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]},
+                          verifier_fail={"3v-settle": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}], "3-settle-fixv": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}]},
+                          questions_at={"3-settle-convert": ["RS-009"]}, recheck_as={"3-settle-convert": "3-settle-convert-seen"})
+        spec["flow_codes_at"] = {**spec["flow_codes_at"], "3-settle-convert-seen": seen}
         r = run(spec)
-        self.assertIn("flow-check:3a-settle-convert", r["labels"])
-        self.assertIn("F-071: 縛る不変条件が無い", self._prompt(r, "flow-framer:3a-settle-2"))
+        self.assertIn("flow-check:3-settle-convert", r["labels"])
+        self.assertIn("F-071: 縛る不変条件が無い", self._prompt(r, "flow-framer:3-settle-2"))
         self.assertEqual(r["result"]["status"], "needs_answers", r["result"].get("reason"))
         self.assertEqual(r["result"]["question_ids"], ["RS-009"])
 
@@ -3261,32 +3488,39 @@ class FlowFixerRoutes(unittest.TestCase):
                 self.assertIn("resolver:3-convert", r["labels"])
                 self.assertIn(line, self._prompt(r, "flow-framer:3-settle"))
                 self.assertEqual(r["result"]["status"], "needs_answers", r["result"].get("reason"))
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        r = self._settle_fails(g0["next_args"], "3a", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
-                               ruled_at={"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]}, questions_at={"3a-settle-convert": ["RS-009"]},
-                               open_only_at={"3av-settle": [{"el": "F-060", "open": "O-RS-001"}], "3a-settle-fixv": [{"el": "F-060", "open": "O-RS-001"}]})
-        self.assertIn("resolver:3a-settle-convert", r["labels"])
-        self.assertIn("F-060（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3a-settle-2"))
+        r = self._settle_fails(args(), "3", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
+                               ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]}, questions_at={"3-settle-convert": ["RS-009"]},
+                               open_only_at={"3v-settle": [{"el": "F-060", "open": "O-RS-001"}], "3-settle-fixv": [{"el": "F-060", "open": "O-RS-001"}]})
+        self.assertIn("resolver:3-settle-convert", r["labels"])
+        self.assertIn("F-060（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3-settle-2"))
 
     def test_重い段の経路でもlabelは重ならない(self):
         # telemetry と再開の照合は label で呼び出しを引くので、同じ段の中で label が重なると呼び出しを取り違える。
+        # G0 の後の 3a は settle を回さず反映を 3b に渡すので、3a と 3b の label を合わせて見る。settle の label は聞ける段 3 で見る。
         g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         fail = [{"id": "RS-001", "kind": "value_as_method", "reason": "r"}]
         r = run(self._spec(
-            g0["next_args"], "3a", answered="RS-001",
+            g0["next_args"], "3a", answered="RS-001", framer="3b-reframe",
             ruled_at={"3a-fix": ["RS-001"], "3a-pairs": ["RS-002"], "3a-fix-pairs": ["RS-003"]}, free_text_at={"3a": ["RS-001"]},
-            questions_at={"3a": ["RS-004"], "3a-fix": ["RS-005"], "3a-pairs": ["RS-006"], "3a-fix-pairs": ["RS-007"], "3a-convert": ["RS-001"], "3a-settle-opens": ["RS-009"],
-                          "3a-settle-convert": ["RS-009"]},
-            bad_questions_at=["3a", "3a-fix", "3a-pairs", "3a-fix-pairs", "3a-convert", "3a-settle-opens", "3a-settle-convert"],
-            verifier_fail={"3av": fail, "3a-fixv": fail, "3av-settle": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}], "3a-settle-fixv": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}]},
+            questions_at={"3a": ["RS-004"], "3a-fix": ["RS-005"], "3a-pairs": ["RS-006"], "3a-fix-pairs": ["RS-007"], "3a-convert": ["RS-001"], "3b": ["RS-009"]},
+            bad_questions_at=["3a", "3a-fix", "3a-pairs", "3a-fix-pairs", "3a-convert", "3b"],
+            verifier_fail={"3av": fail, "3a-fixv": fail},
             flow_sha_at={"3a": "f-3a", "3a-fix": "f-3a2"},
             pair_keys_at={"3a": ["pair:D-001|F-099"], "3a-fix": ["pair:D-001|F-099", "pair:D-002|F-098"]},
             about={"RS-002": {"pair": ["D-001", "F-099"]}, "RS-003": {"pair": ["D-002", "F-098"]}, "RS-009": {"open": "O-009"}},
             flow_codes_at={"3a": self.DESTRUCTIVE, "3a-fix": self.DESTRUCTIVE, "3av": self.DESTRUCTIVE, "3a-fixv": self.DESTRUCTIVE}))
-        cycle = [l for l in r["labels"] if l.split(":")[0] in ("resolver", "verifier", "flow-framer", "flow-check") and l.split(":")[1].startswith("3a")]
+        cycle = [l for l in r["labels"] if l.split(":")[0] in ("resolver", "verifier", "flow-framer", "flow-check") and l.split(":")[1].startswith(("3a", "3b"))]
         for want in ("resolver:3a-pairs", "resolver:3a-fix-pairs", "resolver:3a-questions", "resolver:3a-fix-questions", "resolver:3a-pairs-questions",
-                     "resolver:3a-convert-questions", "resolver:3a-settle-opens-questions", "resolver:3a-settle-fix", "verifier:3a-settle-fixv", "resolver:3a-settle-convert", "resolver:3a-settle-convert-questions",
-                     "flow-check:3a-convert-questions", "flow-check:3a-settle-convert-questions"):
+                     "resolver:3a-convert-questions", "flow-check:3a-convert-questions", "flow-framer:3b-reframe", "resolver:3b", "resolver:3b-questions"):
+            self.assertIn(want, cycle)
+        self.assertFalse(any("settle" in l for l in cycle), cycle)
+        self.assertEqual(len(cycle), len(set(cycle)), sorted(l for l in cycle if cycle.count(l) > 1))
+        vam = [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}]
+        s3 = run(self._spec(args(), "3", answered="RS-001", questions_at={"3-settle-opens": ["RS-009"], "3-settle-convert": ["RS-009"]},
+                            bad_questions_at=["3-settle-opens", "3-settle-convert"], verifier_fail={"3v-settle": vam, "3-settle-fixv": vam}))
+        cycle = [l for l in s3["labels"] if l.split(":")[0] in ("resolver", "verifier", "flow-framer", "flow-check") and ":" in l and l.split(":")[1].startswith("3")]
+        for want in ("resolver:3-settle-opens-questions", "resolver:3-settle-fix", "verifier:3-settle-fixv", "resolver:3-settle-convert", "resolver:3-settle-convert-questions",
+                     "flow-check:3-settle-convert-questions"):
             self.assertIn(want, cycle)
         self.assertEqual(len(cycle), len(set(cycle)), sorted(l for l in cycle if cycle.count(l) > 1))
 
@@ -3309,25 +3543,25 @@ class DecidedNotHeld(unittest.TestCase):
         # 1 パス目の段 6 は decision が 0 件で起動しない。2 パス目の段 6（聞けない）が RS-020 を保持規則で返す。
         return run({"args": args(), **self.PASS2, "holds_at": {"6": ["RS-020"]}, **kw})
 
-    def test_G0の後の3aのsettleで根拠不足に落ちた裁定は1回差し戻しそれでも落ちれば問いにする(self):
-        # G0-2 が残る 3a の settle の verifier が insufficient_grounds で落とした裁定が、差し戻しの無いまま
+    def test_聞ける段のsettleで根拠不足に落ちた裁定は1回差し戻しそれでも落ちれば問いにする(self):
+        # 聞ける段の settle の verifier が insufficient_grounds で落とした裁定が、差し戻しの無いまま
         # 「hold（insufficient_grounds）」に変換され、変換の resolver が「この段では聞けない」と書いた。
-        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        # G0 の後の 3a は settle を 3b に渡すので、同じ聞ける段の settle を段 3 で確かめる。
         fail = {"id": "RS-009", "kind": "insufficient_grounds", "reason": "input.md の L40 は O-009 を支えていない"}
-        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"], "3a-settle-opens": ["RS-009"]}, "flow_sha_at": {"3a": "f-3a"},
-                "flow_codes_at": {"3a": FlowFixerRoutes.DESTRUCTIVE, "3av": FlowFixerRoutes.DESTRUCTIVE}, "unverified_at": {"3a-settle": ["F-053"]},
-                "open_ids_at": {"3a-settle": ["O-009"]}, "about": {"RS-009": {"open": "O-009"}}}
-        fixed = run({**spec, "verifier_fail": {"3av-settle": [fail]}})
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-settle-opens": ["RS-009"]},
+                "flow_codes_at": {"3": FlowFixerRoutes.DESTRUCTIVE, "3v": FlowFixerRoutes.DESTRUCTIVE}, "unverified_at": {"3-settle": ["F-053"]},
+                "open_ids_at": {"3-settle": ["O-009"]}, "about": {"RS-009": {"open": "O-009"}}}
+        fixed = run({**spec, "verifier_fail": {"3v-settle": [fail]}})
         labels = fixed["labels"]
-        self.assertEqual(labels[labels.index("verifier:3av-settle") + 1:][:2], ["resolver:3a-settle-fix", "verifier:3a-settle-fixv"])
-        fix = self._prompt(fixed, "resolver:3a-settle-fix")
+        self.assertEqual(labels[labels.index("verifier:3v-settle") + 1:][:2], ["resolver:3-settle-fix", "verifier:3-settle-fixv"])
+        fix = self._prompt(fixed, "resolver:3-settle-fix")
         self.assertIn("- RS-009: insufficient_grounds（input.md の L40 は O-009 を支えていない）", fix)
         self.assertIn("この段では依頼者に聞けるので、script が指定しない hold を作らない", fix)
-        self.assertFalse(has(labels, "resolver:3a-settle-convert"), "差し戻しで根拠を補えた裁定は変換しない")
+        self.assertFalse(has(labels, "resolver:3-settle-convert"), "差し戻しで根拠を補えた裁定は変換しない")
         self.assertEqual(fixed["result"]["status"], "done", fixed["result"].get("reason"))
         self.assertNotIn("RS-009", fixed["result"]["holds"])
-        failed = run({**spec, "verifier_fail": {"3av-settle": [fail], "3a-settle-fixv": [fail]}, "questions_at": {"3a-settle-convert": ["RS-009"]}})
-        self.assertIn("- RS-009 → question（insufficient_grounds）", self._prompt(failed, "resolver:3a-settle-convert"))
+        failed = run({**spec, "verifier_fail": {"3v-settle": [fail], "3-settle-fixv": [fail]}, "questions_at": {"3-settle-convert": ["RS-009"]}})
+        self.assertIn("- RS-009 → question（insufficient_grounds）", self._prompt(failed, "resolver:3-settle-convert"))
         res = failed["result"]
         self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-009"]), res.get("reason"))
 

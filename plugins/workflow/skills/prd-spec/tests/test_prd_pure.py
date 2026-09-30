@@ -333,13 +333,13 @@ class Pure(unittest.TestCase):
 
     def test_flowDefectは生成者に消せない指摘を数えず表に無い符号では差し戻さずに止める(self):
         only = {"codes": {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
-        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p')"))
-        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p')")["count"], 1)
+        self.assertIsNone(value(f"flowDefect({json.dumps(only)}, 'resolver', 'p', 'settle の flow-framer')"))
+        self.assertEqual(value(f"flowDefect({json.dumps(only)}, 'flowFramer', 'p', 'settle の flow-framer')")["count"], 1)
         mixed = {"codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}}
-        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p')")
+        d = value(f"flowDefect({json.dumps(mixed)}, 'resolver', 'p', 'settle の flow-framer')")
         self.assertEqual(d["count"], 1)
-        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は flow-framer が settle で直すので触らない", d["text"])
-        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p')")
+        self.assertIn("F-053（FLOW_DESTRUCTIVE_UNCONSTRAINED） は settle の flow-framer が直すので触らない", d["text"])
+        unknown = value("flowDefect({codes: {FLOW_NEW: ['F-009']}}, 'flowFramer', 'p', 'settle の flow-framer')")
         self.assertTrue(unknown["stop"])
         calls = value("(async () => { const calls = []; await rework(1, () => ({ count: 1, stop: true, text: 't' }), async () => { calls.push(1); return 2 }, 3); return calls })()")
         self.assertEqual(calls, [], "stop の不合格は生成者に差し戻さない")
