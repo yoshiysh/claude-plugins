@@ -29,3 +29,6 @@
 - run4: run3 の next_args をそのまま渡して scriptPath で起動（from 3a、tx.restore t6。gates_answered は足さない）。resume しないのは、
   保存された結果の stdout に stdout_fnv が無く、新しい script が写し損ねとして扱うため。
   Run ID `wf_0f45ed55-8ba`、task `w3jtseaod`。
+- run4 → needs_answers G1（4 問: RS-045・049・050・051）、resumable true。agents 14、subagent_tokens 1,574,540、tool_uses 195、
+  duration_ms 2,090,159。notices: audited-1 で stray 2 件・SIZE_OVER 5 件。AskUserQuestion 1 回（4 問）。回答は answers/g1.md。
+- run5: resume（resumeFromRunId wf_0f45ed55-8ba、run4 の args に gates_answered {g1: [RS-045, RS-049, RS-050, RS-051]}）。
