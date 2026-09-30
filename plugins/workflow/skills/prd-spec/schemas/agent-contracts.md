@@ -198,8 +198,9 @@
 
 - `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
   `{verification}`（3v で不合格になった決定・要素の ID）のどれか 1 つ。
-- `ruling` は `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
-  `agents/resolver.md` が正。どの `ruling` がどの欄を持てるかは doc_check の `LEDGERS` の欄の条件が正で、put が
+- `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
+  `agents/resolver.md` が正。`answered_by` の `evidence` は `W/answers/` の下の回答の行を 1 つ以上引く（put が検査する。合格した問いの回答を
+  当てるときも、その問いの `answer` の行を引く。引かないと verifier が当てた回答を照合できない）。どの `ruling` がどの欄を持てるかは doc_check の `LEDGERS` の欄の条件が正で、put が
   検査する。回答が当たっても `ruling` は `question` のままにし、回答の前後は `answer` の有無で分ける（依頼者が
   決めた値と resolver が決めた値を、台帳の上で区別するため）。
 - `evidence[].file` は絶対パスにする。put はそのファイルを開き、`line` 行目から `end` 行目（無ければ `line` 行目だけ）を
@@ -222,7 +223,7 @@
   "resolutions_sha256": "検証した resolutions.json の sha256",
   "decisions_sha256": "検証した decisions.json の sha256",
   "items": [
-    { "id": "RS-001 | D-004 | F-007", "verdict": "pass | fail", "fail_kind": "value_as_method | not_reproduced | insufficient_grounds | mapping", "reason": "判定の根拠 1 行（pass にも書く）" }
+    { "id": "RS-001 | D-004 | F-007", "verdict": "pass | fail", "fail_kind": "prd-spec.js の FAIL_KINDS のどれか", "reason": "判定の根拠 1 行（pass にも書く）" }
   ]
 }
 ```
@@ -236,7 +237,8 @@
 - `fail_kind`: `value_as_method` = プロダクトの価値の判断を方法論・先例・内部整合として決めた。実測・既存実装を
   「## 現物と既存実装の扱い」が許す範囲の外で価値の判断に使ったものも含む。`not_reproduced` =
   実測を再実行しても同じ証拠が出ない。`insufficient_grounds` = 出典が実在しない・支えていない。`mapping` =
-  自由記述の回答の問いへの対応づけが回答の文面から言えない。
+  自由記述の回答の問いへの対応づけか、`answered_by` の回答の当てはめが回答の文面から言えない。`decidable` = 回答待ちの問いか保持規則なのに、
+  入力・回答・合格した裁定で値が決まる（前の 4 つは決めすぎ、これは決めなさすぎを落とす）。
 
 ## 不変条件の kind
 
@@ -457,15 +459,20 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
   `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
   prd-spec.js の `RESOLUTION_ID`）。
-- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`）と、聞くゲートの残っていない問いを
+- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、聞くゲートの残っていない問いを
   hold に変える呼び出し（`<段>-hold`）と、検証に落ちた保持規則を書き直す呼び出し（`<呼び出し>-rehold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
-  `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
+  `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ。変換は ID ごとにプロンプトが指定した方）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
   （変えた ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
   検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
 - 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
   それぞれ `about` を `{verification}` にした resolution を返す。合わなければ script は段を止める（返らない裁定は再検証にも変換にも回らず、
   不合格のまま台帳に残る。F- は問いにも保持規則にも変えられないので、検証の裁定が無いと settle に写す値も、不合格のまま進めてよい理由も無い）。
 - 1 つの ID は `ruled`・`questions`・`holds`・`free_text` のどれか 1 つでだけ返す（2 つ以上で返せば script は段を止める。回答待ちか回答済みかが返り値から決まらない）。
+- `answered_by` の裁定は `ruled` で返す。回答待ちの問いの ID ではない（put が拒否する）ので、script が候補の選択として検証を飛ばす対象（回答を当てた
+  呼び出しの `ruled` のうち回答待ちだった問い）に入らず、verifier の検証に回って合格で根拠になる。
+- 依頼者に聞ける段（prd-spec.js の `ASKS`）では、script が hold を指定していない ID を新しく `holds` で返せば、script はその ID だけを問いに
+  書き換え直させ（`<label>-toquestion`。1 回だけ）、それでも hold なら段を止める（prd-spec.js の `unorderedHolds`。指定は `orderHolds` の呼び出し）。
+  聞けば答えの出る論点が、依頼者に届かないまま保持規則になるからである。変換が指定と違う種類で返したときも 1 回だけ書き換え直させる（`<段>-convert-kind`）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
@@ -486,8 +493,14 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 `notices` に 1 行残す。W に put されたその合否が script の持つ合否と違えば、script はその RS- を次の verifier（`<段>v-left`）に検証させ直す:
 
 ```json
-{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
+{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }, { "id": "RS-003", "kind": "decidable", "reason": "…", "source": "answers/g0.md#L3" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
 ```
+
+`decidable` だけが `source` を持ち、値を決める出典を `input.md#L<n>`・`answers/<ゲート>.md#L<n>`・プロンプトの「根拠にしてよい resolution」の
+RS- のどれか 1 つで書く。`decidable` は回答待ちの問いか保持規則にだけ付ける。script は、出典の無いか形の外の `decidable` と、値のある裁定への
+`decidable` を受け取らない（prd-spec.js の `decidableDefect`。出典が無いと、差し戻された resolver が同じ問いか保持規則を言い直すだけになる）。
+出典の書き方の揺れ（W の絶対パス・`W/`・行の範囲・`:n`）は script が揃え（`deciding`）、揃えても受け取れなければ同じ verifier に 1 回だけ
+聞き直し（`<label>-source`）、それでも受け取れなければ段を止める。
 
 検証の最初に `doc_check flow` を実行し、その `unverified` のうち `failed_current` に無い要素すべての出典も検証して、その F- も `pass`・`fail` に入れる
 （script の渡す ID の一覧は、返り値に載せずに書いた役や所有表の外が書いた要素を知らない）。最後はプロンプトのとおり `doc_check flow --rulings` を実行する。

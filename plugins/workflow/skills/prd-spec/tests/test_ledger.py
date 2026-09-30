@@ -983,6 +983,17 @@ class Cases(_Workspace):
         self._rejected({"resolutions": [{"id": "RS-004", "ruling": "question"}]}, "question・options が要ります")
         self._rejected({"resolutions": [{"id": "RS-004", "ruling": "questoin"}]}, "questoin")
 
+    def test_answered_byは既にある回答の行をevidenceに引きvalueが要る(self):
+        # 依頼者の回答を別の論点に当てる裁定。回答の行を引かないと verifier が当てた回答を照合できず、依頼者が決めていない値が回答の顔で入る。
+        self._answer()
+        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        first = (self.ws / "input.md").read_text().split("\n")[0]
+        row = {"id": "RS-005", "ruling": "answered_by", "value": "結果は画面に出す", "why": "RS-001 の回答が同じ返し方を決めている"}
+        self._rejected({"resolutions": [{**row, "evidence": [{"file": str(self.ws / "input.md"), "line": 1, "quote": first}]}]}, "answered_by の evidence")
+        self._rejected({"resolutions": [{**row, "evidence": [cite], "question": RESOLUTION_Q["question"]}]}, "question")
+        self._rejected({"resolutions": [{**{k: v for k, v in row.items() if k != "value"}, "evidence": [cite]}]}, "value が要ります")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**row, "evidence": [cite]}]})
+
     def test_invariantの決定はquoteが要る(self):
         _append_invariant_source(self.ws)
         r = self._unchanged_after("decisions.json", "put", "--ledger", "decisions", stdin={"decisions": [{"id": "D-004", "kind": "invariant", "value": "未コミットの作業を失わない"}]})

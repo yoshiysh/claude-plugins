@@ -153,6 +153,10 @@ const minus = (xs, ys) => {
   return uniq(xs).filter((x) => !drop.has(x))
 }
 
+// VALUE_ABOUT: 価値の論点になりうる about の種類。verification は落ちた決定・要素の扱いで、依頼者に聞く論点ではない。
+const VALUE_ABOUT = ['open', 'pair', 'finding', 'tbd']
+const valueKey = (key) => VALUE_ABOUT.some((k) => String(key || '').startsWith(`${k}:`))
+
 // aboutKey: Set は state に載せられないので、閉じた論点の集合を about の文字列の配列で持つ。
 function aboutKey(about) {
   if (!about || typeof about !== 'object') return null
@@ -708,6 +712,8 @@ const RESOLVER_SCHEMA = {
   required: ['ruled', 'questions', 'holds', 'supersedes', 'free_text', 'routes', 'resolutions_sha256', 'flow_check'],
 }
 
+// FAIL_KINDS: verifier の不合格の種類（意味は契約「## 決定の台帳」の verifications.json）。decidable だけが決める出典（source）を持つ。
+const FAIL_KINDS = ['value_as_method', 'not_reproduced', 'insufficient_grounds', 'mapping', 'decidable']
 const VERIFIER_SCHEMA = {
   type: 'object',
   properties: {
@@ -716,7 +722,7 @@ const VERIFIER_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { id: STR, kind: { type: 'string', enum: ['value_as_method', 'not_reproduced', 'insufficient_grounds', 'mapping'] }, reason: STR },
+        properties: { id: STR, kind: { type: 'string', enum: FAIL_KINDS }, reason: STR, source: STR },
         required: ['id', 'kind', 'reason'],
       },
     },
@@ -1082,7 +1088,39 @@ async function issue(label, role, prompt, schema, phaseTitle, cmds) {
   // 1 つの ID は 1 つの種類でしか返せない（問いと回答の両方で返すと、回答待ちか回答済みかが返り値から決まらない）。
   const twice = r && role === 'resolver' ? uniq(Object.keys(KIND_WORDS).flatMap((k) => uniq(idsOf(r, k))).filter((id, i, xs) => xs.indexOf(id) !== i)) : []
   if (twice.length) throw Object.assign(new Error(`${label}: resolver が ${list(twice)} を ruled・questions・holds・free_text の 2 つ以上で返しました（契約 §resolver の返り値）`), { rerunStage: true })
-  return r || null
+  const unordered = r && role === 'resolver' ? unorderedHolds(r) : []
+  if (!unordered.length) return r || null
+  const stop = () => Object.assign(new Error(`${label}: 依頼者に聞ける段 ${running} で、script が hold を指定していない ${list(unordered)} を resolver が hold で返しました（聞ける段の価値の判断は question にする。resolver.md「## 裁定の種類」）`), { rerunStage: true })
+  if (label.endsWith(TO_QUESTION)) throw stop()
+  return holdsToQuestions(label, r, unordered, phaseTitle, stop)
+}
+
+// holdsToQuestions: 聞ける段で指定の外の hold を返した resolver に、その ID だけを問いに書き換え直させる（1 回だけ。まだ hold なら止める）。
+// 書き換え直した分だけを返り値に写す（ほかの ID の裁定は最初の返り値のまま）。
+const TO_QUESTION = '-toquestion'
+async function holdsToQuestions(label, r, ids, phaseTitle, stop) {
+  const l = `${label}${TO_QUESTION}`
+  const asked = uniq([...idsOf(r, 'questions'), ...ids])
+  const lines = ids.map((id) => `- ${id} → question`).join('\n')
+  const task = keepFlow(`この段では依頼者に聞けるので、script が指定していない hold は受け取れない。次の ID を、値を決めずに question（候補と影響を付ける）に書き換え直す（ID は変えない。欄の消し方は resolver.md の「差し戻し」）。返り値の questions にはこの ID だけを入れる。返る前に \`${questionsCheck(asked)}\` を実行し、stdout を加工せずに questions_check に入れる。\n${lines}`)
+  const r2 = await issue(l, 'resolver', resolverPrompt(l, `${running}（hold を問いに）`, task), RESOLVER_SCHEMA, phaseTitle, { questions_check: questionsCheck(asked) })
+  if (!r2) throw notRun(l)
+  if (onlyAsked(l, r2, ids, ['questions'])) throw stop()
+  return { ...r, holds: (r.holds || []).filter((x) => !ids.includes(x && x.id)), questions: [...(r.questions || []), ...r2.questions], resolutions_sha256: r2.resolutions_sha256, flow_check: r2.flow_check, questions_check: r2.questions_check }
+}
+
+// holdOrders: この段で script が hold を指定した ID と論点（about のキー）。聞ける段（ASKS）で resolver が新しく hold にしてよいのはこれだけ。
+// 聞ける段の hold は、聞けば答えの出る論点を依頼者に届けずに保持規則にする。段の入口で空にする。
+let holdOrders = { ids: new Set(), abouts: new Set() }
+const orderHolds = (ids, abouts = []) => {
+  for (const id of ids) holdOrders.ids.add(id)
+  for (const k of abouts) holdOrders.abouts.add(k)
+}
+const asksNow = () => Object.hasOwn(ASKS, running) && ASKS[running]()
+function unorderedHolds(r) {
+  if (!asksNow()) return []
+  const held = new Set(state.holds || [])
+  return uniq((r.holds || []).filter((x) => x && !held.has(x.id) && !holdOrders.ids.has(x.id) && !holdOrders.abouts.has(aboutKey(x.about))).map((x) => x.id))
 }
 
 // recopy: doc_check の stdout の写しが copyFault なら、同じコマンドを flow-check に別の label で 1 回だけ実行させて取り直す。cmds は返り値の
@@ -1122,7 +1160,7 @@ async function once(label, role, prompt, schema, phaseTitle, cmds) {
 
 // reRuled: 回答を当てる呼び出しでない resolver が ruled に入れた問いは、問いでなくなった（3b で組み直した flow から決まった）。
 // 3a・3a' の ruled は回答が当たった問いなので、ここでは引かない。
-// free_text は ruled に無くても検証に回す。回答の対応づけは解釈を含み、合格しないと回答済みにならない。
+// free_text は検証に回す。回答の対応づけは解釈を含み、合格しないと回答済みにならない。
 // cycleKinds: ruleAndVerify の cycle の中で resolver が ID ごとに最後に返した種類。差し戻し・flow の直し・問いの形の直しの返り値も
 // absorbResolver を通るので、ここで記録すれば記録漏れの呼び出しを作れない。
 let cycleKinds = {}
@@ -1181,11 +1219,15 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMov
     noteIntegrity(`verifier（段 ${stage}）が返した F- の合否（${unrecorded.join(', ')}）が、doc_check flow の stdout（verifications.json の今の版）に無い`)
     return { error: `段 ${stage}: verifier が返した F- の合否 ${unrecorded.join(', ')} が verifications.json に記録されていません（put しなかったか、put の前に doc_check flow を実行した）`, rerun: true }
   }
+  const undecidable = (v.fail || []).map((f) => decidableDefect(f, fc)).filter(Boolean)
+  if (undecidable.length) return { error: `段 ${stage}: verifier の decidable が受け取れません（${undecidable.join(' / ')}）`, rerun: true }
   const notFlow = (ids) => (ids || []).filter((id) => !/^F-/.test(id))
   const failIds = notFlow((v.fail || []).map((f) => f.id))
   rulingsFromW(fc)
   const held = new Set(state.holds || [])
-  for (const id of failIds) if (held.has(id)) holdFails[id] = (holdFails[id] || 0) + 1
+  // decidable は保持規則の文面の不合格ではなく、保持規則にしたこと自体の不合格なので、書き直し（reholdFailed）ではなく差し戻しに回す。
+  const reheld = notFlow((v.fail || []).filter((f) => f.kind !== 'decidable').map((f) => f.id))
+  for (const id of reheld) if (held.has(id)) holdFails[id] = (holdFails[id] || 0) + 1
   for (const id of v.pass || []) delete holdFails[id]
   // passed は resolution だけを持つ。D- の合格は次の行で failed_ids から引けば足り、運ぶと next_args が決定の数に比例して増える。
   state.passed = minus(uniq([...(state.passed || []), ...(v.pass || []).filter((id) => RESOLUTION_ID.test(id))]), failIds)
@@ -1195,6 +1237,27 @@ function absorbVerifier(v, expectedSha, stage, flowChecked, generator, ledgerMov
     noteIntegrity(`verifier が検証した resolutions.json（${v.resolutions_sha256}）が、resolver が書き終えた版（${expectedSha}）と違う`)
   }
   return null
+}
+
+// decidableDefect: decidable は「入力・回答・合格した裁定で値が決まるのに、問いか保持規則にした」の不合格である。決める出典が無い decidable は、
+// 差し戻された resolver に決める材料を渡せず、同じ問いか保持規則が言い直されるだけになる。値のある裁定への decidable は種類の取り違え。
+// deciding: verifier が書いた出典を決まった形に揃える（W の絶対パス・W/・行の範囲・:n・小文字の l）。揃えても形の外なら askVerifier が聞き直す。
+function deciding(src) {
+  let s = String(src ?? '').trim()
+  if (s.startsWith(`${W}/`)) s = s.slice(W.length + 1)
+  s = s.replace(/^(?:W|\.)\//, '').replace(/:(\d+)(?:-\d+)?$/, '#L$1')
+  return s.replace(/#[lL](\d+)(?:-[lL]?\d+)?$/, '#L$1')
+}
+const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g0.md#L3`・`RS-004`（行の範囲は最初の行だけ）'
+const DECIDING_FILE = new RegExp(`^(?:input\\.md|${Object.values(GATE_ANSWERS).map((p) => p.replace(/[.]/g, '\\.')).join('|')})#L[1-9]\\d*$`)
+function decidableDefect(f, fc) {
+  if (!f || f.kind !== 'decidable') return null
+  const row = fc.resolutions.find((x) => x.id === f.id)
+  if (!row || !(row.ruling === 'hold' || (row.ruling === 'question' && !row.has_answer))) return `${f.id} は回答待ちの問いでも保持規則でもない`
+  const src = typeof f.source === 'string' ? deciding(f.source) : ''
+  if (DECIDING_FILE.test(src)) return null
+  if (RESOLUTION_ID.test(src) && src !== f.id && usableResolutions(state).includes(src)) return null
+  return `${f.id} の source（${f.source == null ? 'なし' : f.source}）が input.md#L<n>・answers/<ゲート>.md#L<n>・根拠にしてよい resolution のどれでもない`
 }
 
 function resolverPrompt(label, stage, task) {
@@ -1236,6 +1299,8 @@ function verifierPrompt(label, stage, ids, extra) {
   return [
     header('verifier', stage, label),
     `検証する resolution の ID: ${list(ids)}`,
+    `根拠にしてよい resolution（合格・回答済み。decidable の source に挙げてよい）: ${list(usableResolutions(state))}`,
+    `decidable の source の形（例）: ${DECIDING_EXAMPLE}`,
     VERIFY_ALL,
     extra || '',
     `検証の最後に \`${RULINGS_FLOW}\` を実行し、stdout を加工せずに flow_check に入れる。`,
@@ -1246,9 +1311,17 @@ function verifierPrompt(label, stage, ids, extra) {
 
 // askVerifier: 検証を求めていない resolution の合否は数えない。数えると、回答待ちの問いが差し戻しと変換で保持規則に書き換わり、
 // 回答済みの問いは不合格の集合に入って黙って消える。W に put された合否が script の持つ合否と違えば、reconcile が carry にして検証させ直す。
+// decidable を受け取れない返り値（形の外の出典・値のある裁定への decidable）は、同じ verifier に 1 回だけ聞き直す。止めると、出典の書き方だけで段が止まる。
 async function askVerifier(label, stage, given, extra, phaseTitle) {
   const ids = uniq([...given, ...carry])
-  const v = await once(label, 'verifier', verifierPrompt(label, stage, ids, extra), VERIFIER_SCHEMA, phaseTitle)
+  const undecidable = (x) => {
+    const fc = flowCheckOf(x.flow_check, true)
+    const bad = fc ? x.fail.map((f) => decidableDefect(f, fc)).filter(Boolean) : []
+    return bad.length ? { count: bad.length, text: bad.join(' / ') } : null
+  }
+  const ask = (l, note) => once(l, 'verifier', [verifierPrompt(l, stage, ids, extra), note].filter(Boolean).join('\n\n'), VERIFIER_SCHEMA, phaseTitle)
+  const done = await rework(await ask(label, ''), undecidable, (_, d, n) => ask(reworkLabel(`${label}-source`, n), `前の返り値の decidable を受け取れなかった（${d.text}）。出典を例の形で書くか、値のある裁定なら decidable にせずに検証し直して返す。`), 1)
+  const v = { ...done.got, fail: done.got.fail.map((f) => (f.kind === 'decidable' && typeof f.source === 'string' ? { ...f, source: deciding(f.source) } : f)) }
   carry = minus(carry, [...v.pass, ...v.fail.map((f) => f.id)])
   const unasked = (id) => RESOLUTION_ID.test(id) && !ids.includes(id)
   const dropped = uniq([...v.pass, ...v.fail.map((f) => f.id)].filter(unasked))
@@ -1332,13 +1405,14 @@ async function ruleAndVerify(stage, opt) {
   let verified = flowCheckOf(v1.flow_check, true)
   if (!v1.fail.length) return { ok: true, passed: v1.pass, verified, kinds }
 
-  const rework = v1.fail.map((f) => `- ${f.id}: ${f.kind}（${f.reason}）`).join('\n')
   const fix = fixOf(stage)
+  // 落ちた決定・要素の検証の裁定は価値の論点ではない（落ちた出典の扱い）ので、変換と同じく聞ける段でも保持規則にしてよい。
+  orderHolds([], v1.fail.filter((f) => !RESOLUTION_ID.test(f.id)).map((f) => `verification:${f.id}`))
   const r2Label = `resolver:${fix}`
   const r2 = await once(
     r2Label,
     'resolver',
-    resolverPrompt(r2Label, `${fix}（差し戻し）`, asTask(`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${rework}${opt.allowQuestions ? '' : '\nこの段では依頼者に聞けないので、question ではなく hold にする。'}`)),
+    resolverPrompt(r2Label, `${fix}（差し戻し）`, asTask(`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」）。D- / F- の項目は about を {verification} にした resolution で置き換える。\n${reworkLines(v1.fail)}\n${askNote(opt.allowQuestions)}${DECIDABLE_NOTE}`)),
     RESOLVER_SCHEMA,
     phaseTitle
   )
@@ -1369,11 +1443,57 @@ async function ruleAndVerify(stage, opt) {
   if (rh && rh.error) return rh
   if (rh) verified = rh.fc
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。落ちた要素は settle が直させる（failedOpen）。
-  const toConvert = v2.fail.filter((f) => RESOLUTION_ID.test(f.id) && !(state.holds || []).includes(f.id))
+  const toConvert = convertible(v2.fail)
   if (!toConvert.length) return { ok: true, passed, verified, kinds }
   const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
   if (ce) return ce
   return { ok: true, passed, verified, kinds }
+}
+
+// reworkLines・askNote: 差し戻しのプロンプト。段の本体（ruleAndVerify）と settle・verifyLeft（fixFailed）で同じ文面にする。askNote は
+// 裁定を返すどの呼び出しにも付ける（聞ける段で指定の外の hold を返すと、issue が問いに書き換え直させる）。
+// decidable は決める出典を渡さないと、差し戻された resolver が同じ問いか保持規則を言い直すだけになる。
+const reworkLines = (fails) => fails.map((f) => `- ${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}${f.kind === 'decidable' ? `（決める出典: ${f.source}）` : ''}`).join('\n')
+const askNote = (allowQuestions) =>
+  allowQuestions
+    ? 'この段では依頼者に聞けるので、script が指定しない hold を作らない（根拠を補えない価値の判断は question にする）。'
+    : 'この段では依頼者に聞けないので、根拠を補えない価値の判断は question ではなく hold にする。'
+const DECIDABLE_NOTE = 'decidable の項目は、その出典で値を決める。'
+
+// convertible: 差し戻しの後も落ちた裁定のうち、変換に回すもの。hold のまま落ちた保持規則は書き直し（reholdFailed）に回すが、decidable で
+// 落ちた保持規則は文面の誤りではないので変換に回す（聞ける段で価値の論点なら問いにする）。
+const convertible = (fails) => fails.filter((f) => RESOLUTION_ID.test(f.id) && (f.kind === 'decidable' || !(state.holds || []).includes(f.id)))
+
+// fixFailed: settle と verifyLeft の verifier に落ちた裁定（RS-）を、段の本体の差し戻しと同じく 1 回だけ直させて検証し直し、まだ落ちるものを
+// 変換する。直させずに変換すると、補えた根拠や決まっていた値が問いや保持規則になる。この差し戻しの verifier の不合格は
+// 変換に回すだけで、変換した分はもう検証しないので、呼び出し 1 回あたりの verifier は 1 体で止まる。
+async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
+  const ids = uniq(fails.map((f) => f.id))
+  const label = `resolver:${owner}-fix`
+  const r = await once(
+    label,
+    'resolver',
+    resolverPrompt(label, `${owner}（差し戻し）`, keepFlow(`verifier が不合格にした項目だけを 1 回直す（resolver.md の「差し戻し」。理由は \`${getCli('verifications', ids)}\`）。\n${reworkLines(fails)}\n${askNote(allowQuestions)}${DECIDABLE_NOTE}`)),
+    RESOLVER_SCHEMA,
+    phaseTitle
+  )
+  const bad = onlyAsked(`${owner}-fix`, r, ids, ['ruled', ...answerKinds(allowQuestions)])
+  if (bad) return { error: bad }
+  absorbResolver(r)
+  const kept = flowKept(`${owner}-fix`, r)
+  if (kept) return kept
+  const qe = await checkQuestions(stage, `${owner}-fix`, r, phaseTitle, null)
+  if (qe) return qe
+  const v = await askVerifier(`verifier:${owner}-fixv`, `${owner}v（差し戻し）`, ids, '', phaseTitle)
+  const ve = absorbVerifier(v, state.resolutions_sha256, `${owner}-fixv`, false, null)
+  if (ve) return ve
+  let fc = flowCheckOf(v.flow_check, true)
+  const rh = await reholdFailed(stage, `${owner}-fix`, phaseTitle)
+  if (rh && rh.error) return rh
+  if (rh) fc = rh.fc
+  const ce = await convertFailed(stage, owner, convertible(v.fail), phaseTitle, allowQuestions)
+  if (ce) return ce
+  return { fc }
 }
 
 // independentFlow: 判断（settle の起動・残りの数え上げ・直す役の割り当て）に使う doc_check flow の stdout。最後の verifier の後に
@@ -1433,12 +1553,19 @@ function outsideKinds(stage, r, kinds) {
   return extra.length ? `段 ${stage}: ${list(extra)} を resolver が ${kinds.map((k) => KIND_WORDS[k]).join('・')} 以外で返しました（この段では依頼者に聞けない）` : null
 }
 
-// convertFailed: 検証に落ちた裁定（RS-）を、値を決めずに理由で question か hold に書き換える。変換した分はもう検証しない
-// （検証のループを増やすと、差し戻しの上限が意味を失う）。
+// convertFailed: 差し戻しの後も検証に落ちた裁定（RS-）を、値を決めずに question か hold に書き換える。変換した分はもう検証しない
+// （検証のループを増やすと、差し戻しの上限が意味を失う）。聞ける段では、価値の論点（VALUE_ABOUT）・価値の判断・cycle の入口で問いだった ID を
+// question にする。hold にすると、依頼者に聞けば答えの出る論点が保持規則になる。検証の裁定（{verification}）は decidable でも価値の論点ではない。
+// decidable で落ちたものは値の無い裁定（回答待ちの問いか保持規則。decidableDefect が verifier の stdout で確かめた）なので、既にその種類なら書き換えない。
 // wasQuestion: 差し戻しの cycle の入口で回答待ちだった問い。settle の verifier の合否は askVerifier がその回に裁定した ID に限るので渡さない。
 async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wasQuestion = new Set()) {
-  const convert = fails.map((f) => `- ${f.id} → ${(f.kind === 'value_as_method' || wasQuestion.has(f.id)) && allowQuestions ? 'question' : 'hold'}（${f.kind}）`).join('\n')
-  log(`段 ${owner}: 検証に落ちた ${fails.length} 件を、理由で問いと保持規則に分けます（検証はもう回しません）`)
+  const to = (f) => (allowQuestions && (f.kind === 'value_as_method' || wasQuestion.has(f.id) || valueKey((state.about || {})[f.id])) ? 'question' : 'hold')
+  const already = (f) => f.kind === 'decidable' && (to(f) === 'hold') === (state.holds || []).includes(f.id)
+  const todo = uniq(fails.filter((f) => !already(f)).map((f) => f.id)).map((id) => fails.find((f) => f.id === id))
+  if (!todo.length) return null
+  orderHolds(todo.filter((f) => to(f) === 'hold').map((f) => f.id))
+  const convert = todo.map((f) => `- ${f.id} → ${to(f)}（${f.kind}）`).join('\n')
+  log(`段 ${owner}: 検証に落ちた ${todo.length} 件を、理由で問いと保持規則に分けます（検証はもう回しません）`)
   const label = `resolver:${owner}-convert`
   const r = await once(
     label,
@@ -1447,10 +1574,28 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
     RESOLVER_SCHEMA,
     phaseTitle
   )
-  const bad = onlyAsked(owner, r, fails.map((f) => f.id), answerKinds(allowQuestions))
+  const bad = onlyAsked(owner, r, todo.map((f) => f.id), answerKinds(allowQuestions))
   if (bad) return { error: bad }
-  absorbResolver(r)
-  return flowKept(`${owner}-convert`, r) || checkQuestions(stage, `${owner}-convert`, r, phaseTitle, null)
+  const kindOf = (f) => (to(f) === 'question' ? 'questions' : 'holds')
+  const swappedIn = (x, fs) => fs.filter((f) => !idsOf(x, kindOf(f)).includes(f.id))
+  let got = r
+  const swapped = swappedIn(r, todo)
+  if (swapped.length) {
+    // 指定と違う種類で返したら 1 回だけ書き換え直させ、その ID の分だけを返り値に写す。
+    const l = `resolver:${owner}-convert-kind`
+    const ids = swapped.map((f) => f.id)
+    const asked = uniq([...idsOf(r, 'questions').filter((id) => !ids.includes(id)), ...swapped.filter((f) => to(f) === 'question').map((f) => f.id)])
+    const again = asked.length ? `返る前に \`${questionsCheck(asked)}\` を実行し、stdout を加工せずに questions_check に入れる。` : ''
+    const r2 = await once(l, 'resolver', resolverPrompt(l, `${owner}（変換の種類の直し）`, keepFlow(`次の項目を指定と違う種類で返した。値を決めずに、指定のとおりに書き換え直す。ID は変えない。${again}\n${swapped.map((f) => `- ${f.id} → ${to(f)}（${f.kind}）`).join('\n')}`)), RESOLVER_SCHEMA, phaseTitle)
+    const bad2 = onlyAsked(`${owner}-convert-kind`, r2, ids, answerKinds(allowQuestions))
+    if (bad2) return { error: bad2 }
+    const still = swappedIn(r2, swapped).map((f) => f.id)
+    if (still.length) return { error: `段 ${owner}: ${list(still)} を resolver が書き換え直しても指定と違う種類（question と hold）で返しました` }
+    const keep = (k) => [...(r[k] || []).filter((x) => !ids.includes(x && x.id)), ...(r2[k] || [])]
+    got = { ...r, questions: keep('questions'), holds: keep('holds'), resolutions_sha256: r2.resolutions_sha256, flow_check: r2.flow_check, questions_check: asked.length ? r2.questions_check : r.questions_check }
+  }
+  absorbResolver(got)
+  return flowKept(`${owner}-convert`, got) || checkQuestions(stage, `${owner}-convert`, got, phaseTitle, null)
 }
 
 // claimedIssues: 未裁定の論点を選ぶのに使った組と O- は、flow を書いた生成者の自己申告である。組と O- は flow.json・decisions.json・
@@ -1491,7 +1636,7 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
     `flow を変えた後に、まだ裁定の無い論点がある。これだけを裁定する（resolver.md の「flow を変えた後の未裁定の論点」）。`,
     pairs.length ? `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}` : '',
     opens.length ? `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}（\`${getCli('open', opens.map((k) => k.slice(5)))}\`）` : '',
-    allowQuestions ? '' : 'この段では依頼者に聞けないので、question ではなく hold にする。',
+    askNote(allowQuestions),
   ]
     .filter(Boolean)
     .join('\n')
@@ -1580,7 +1725,8 @@ async function adopt(stage, tag, fc, phaseTitle) {
 }
 
 // verifyLeft: 判断に使う stdout（independentFlow）を取って W の裁定を state に写し（reconcile）、今の版に合否の無い要素か carry が
-// 残っていれば verifier に検証させ、検証に落ちたまま問いにも保持規則にもなっていない裁定（unconverted）を変換する（書き直す役は起動しない）。
+// 残っていれば verifier に検証させ、検証に落ちたまま問いにも保持規則にもなっていない裁定（unconverted）と decidable で落ちた問い・保持規則を
+// 1 回だけ差し戻して、まだ落ちるものを変換する（fixFailed）。
 // 残るのは、resolver が返り値に載せずに台帳を書いたとき、前の verifier が W の対象を検証し残したとき、問いの形の修正が検証した問いを
 // 書き換えたとき、所有表の外の書き込みがあったときである。段を頭からやり直させずにここで拾う。ここの verifier の検証し残しは拾う役がもう無いので、
 // 段をやり直させる。
@@ -1590,6 +1736,7 @@ async function verifyLeft(stage, tag, verified, phaseTitle, allowQuestions) {
   const took = await adopt(stage, tag, now.fc, phaseTitle)
   if (took.error) return took
   let fc = took.fc
+  let decided = []
   if (unjudged(fc).elements.length || carry.length) {
     const v = await askVerifier(`verifier:${stage}v-${tag}`, `${stage}v（検証を通っていないもの）`, [], '', phaseTitle)
     const ve = absorbVerifier(v, null, `${stage}v-${tag}`, false, null)
@@ -1597,6 +1744,7 @@ async function verifyLeft(stage, tag, verified, phaseTitle, allowQuestions) {
     state.resolutions_sha256 = v.resolutions_sha256
     fc = flowCheckOf(v.flow_check, true)
     reconcile(fc)
+    decided = v.fail.filter((f) => f.kind === 'decidable' && RESOLUTION_ID.test(f.id))
     const elements = unjudged(fc).elements
     if (elements.length || carry.length) {
       return { error: `段 ${stage}: verifier の後も、今の版に合否の無い要素（${list(elements)}）か、合否が W の今の版と合わない resolution（${list(carry)}）が残っています（${W}/verifications.json）`, rerun: true }
@@ -1608,11 +1756,11 @@ async function verifyLeft(stage, tag, verified, phaseTitle, allowQuestions) {
     fc = rh.fc
     reconcile(fc)
   }
-  const toConvert = unconverted(fc).map((x) => ({ id: x.id, kind: x.fail_kind || '理由は verifications.json' }))
-  if (!toConvert.length) return { fc }
-  const ce = await convertFailed(stage, `${stage}-${tag}`, toConvert, phaseTitle, allowQuestions)
-  if (ce) return ce
-  const after = await independentFlow(fc, phaseTitle)
+  const toFix = [...unconverted(fc).map((x) => ({ id: x.id, kind: x.fail_kind || '理由は verifications.json' })), ...decided]
+  if (!toFix.length) return { fc }
+  const fe = await fixFailed(stage, `${stage}-${tag}`, toFix, phaseTitle, allowQuestions)
+  if (fe.error) return fe
+  const after = await independentFlow(fe.fc, phaseTitle)
   if (after.fc) reconcile(after.fc)
   return after
 }
@@ -1652,15 +1800,18 @@ async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const ve = absorbVerifier(v, state.resolutions_sha256, reworkLabel(`${stage}v-settle`, n), true, 'flowFramer', state.resolutions_sha256 !== ledgerAtFrame)
   if (ve) return ve
   let vfc = flowCheckOf(v.flow_check, true)
-  // flow-framer に直せない裁定（RS-）の不合格は、段 3 の差し戻しの後と同じく問いか保持規則に変える。止めると、縛る不変条件の O- を
-  // 足した破壊的な工程が、裁定が落ちただけで blocked になる。
+  // flow-framer に直せない裁定（RS-）の不合格は、段の本体と同じく 1 回差し戻し、まだ落ちれば問いか保持規則に変える（fixFailed）。止めると、
+  // 縛る不変条件の O- を足した破壊的な工程が、裁定が落ちただけで blocked になる。
   const rh = await reholdFailed(stage, tag, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) vfc = rh.fc
-  const toConvert = v.fail.filter((f) => RESOLUTION_ID.test(f.id) && !(state.holds || []).includes(f.id))
+  const toFix = convertible(v.fail)
   const failed = v.fail.map((f) => f.id).filter((id) => !RESOLUTION_ID.test(id))
-  const ce = toConvert.length ? await convertFailed(tag, tag, toConvert, phaseTitle, allowQuestions) : null
-  if (ce) return ce
+  if (toFix.length) {
+    const fe = await fixFailed(tag, tag, toFix, phaseTitle, allowQuestions)
+    if (fe.error) return fe
+    vfc = fe.fc
+  }
   const now = await verifyLeft(stage, reworkLabel('left', n + 1), vfc, phaseTitle, allowQuestions)
   if (now.error) return now
   const after = now.fc
@@ -1925,6 +2076,7 @@ async function stage3() {
           `段 3（resolver.md の「段 3」）:`,
           `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}${opens.length ? `（\`${getCli('open', opens.map((k) => k.slice(5)))}\`）` : ''}`,
           `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
+          askNote(ASKS[3]()),
         ].join('\n')
       : null,
     verifyExtra:
@@ -1951,7 +2103,7 @@ async function stageApply(stageId) {
     task: [
       `段 ${stageId}: ${W}/${GATE_ANSWERS[gate]} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
-      allowQuestions ? '反映で価値に関わる新しい矛盾が出たら question にする。' : '依頼者にはもう聞けない。価値に関わる新しい矛盾は hold にする。',
+      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : '依頼者にはもう聞けない。価値に関わる新しい矛盾は hold にする。',
     ].join('\n'),
     answered: pending,
     allowQuestions,
@@ -1997,6 +2149,7 @@ async function stage3b() {
             `- まだ裁定の無い open: ${list(opens.map((k) => k.slice(5)))}`,
             `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
             `- 3a から持ち越した問い: ${list(carried)}`,
+            askNote(ASKS['3b']()),
           ].join('\n')
         : null,
     targets: [...opens, ...pairs, ...carried.map((id) => (state.about || {})[id]).filter(Boolean)],
@@ -2234,7 +2387,7 @@ function decide(decision, tbd, allowQuestions) {
       `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、writer の meta の新しい TBD ${list(tbd)}。`,
       redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOf(rec[k]))}`).join(' / ')}` : '',
       toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
-      allowQuestions ? '' : "2 パス目以降なので、問いを聞くゲートが残っていない。価値の判断は question ではなく hold にする（resolver.md の「8'」）。",
+      allowQuestions ? askNote(true) : "2 パス目以降なので、問いを聞くゲートが残っていない。価値の判断は question ではなく hold にする（resolver.md の「8'」）。",
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2560,6 +2713,7 @@ while (outcome === null) {
   txTry = resuming ? RESUME_TX.try : 0
   state.tx = resuming ? { seq: RESUME_TX.seq, stage: next } : { seq: ((state.tx || {}).seq || 0) + 1, stage: next }
   running = next
+  holdOrders = { ids: new Set(), abouts: new Set() }
   gatePassed = null
   entryState = JSON.parse(JSON.stringify(state))
   let r

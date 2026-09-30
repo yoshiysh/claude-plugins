@@ -43,7 +43,12 @@ LABEL_FAMILIES = [
     ("resolver-final", "base", r"resolver:final", ["'resolver:final'"]),
     ("rework-resolver", "差し戻し（v1 の不合格）", rf"resolver:{S}-fix", ["const fixOf = (stage) => `${stage}-fix`", "`resolver:${fix}`"]),
     ("rework-verifier", "差し戻し（v1 の不合格）", rf"verifier:{S}-fixv", ["`verifier:${fix}v`"]),
+    ("settle-rework-resolver", "差し戻し（settle・検証し残しの不合格）", rf"resolver:.+-(?:settle|left|entry){N}-fix", ["`resolver:${owner}-fix`"]),
+    ("settle-rework-verifier", "差し戻し（settle・検証し残しの不合格）", rf"verifier:.+-(?:settle|left|entry){N}-fixv", ["`verifier:${owner}-fixv`"]),
     ("convert", "変換", r"resolver:.+-convert", ["`resolver:${owner}-convert`"]),
+    ("convert-kind", "変換の種類の直し", r"resolver:.+-convert-kind", ["`resolver:${owner}-convert-kind`"]),
+    ("to-question", "聞ける段の指定の外の hold の書き換え直し", r"resolver:.+-toquestion", ["const TO_QUESTION = '-toquestion'"]),
+    ("source-verifier", "decidable の出典の聞き直し", rf"verifier:.+-source{N}", ["reworkLabel(`${label}-source`, n)"]),
     ("settle-framer", "settle", rf"flow-framer:.+-settle{N}", ["`flow-framer:${tag}`", "reworkLabel(`${stage}-settle`, n)"]),
     ("settle-verifier", "settle", rf"verifier:.+v-settle{N}", ["`verifier:${reworkLabel(`${stage}v-settle`, n)}`"]),
     ("opens", "未裁定の O- と組（R6b）", r"resolver:.+-opens", ["`resolver:${owner}-${tag}`", "opens.length ? 'opens' : 'pairs'"]),
@@ -99,6 +104,9 @@ COVERING_TESTS = [
     "FlowFixerRoutes.test_3aの裁定で閉じたOはsettleの次の回でRSに差し替わり段を出る",
     "FlowFixerRoutes.test_settleが新しい組と新しいOを作ったら1回のresolverにまとめて渡す",
     "Transcription.test_試走で写し損ねたflow_checkのstdoutは取り直して進む",
+    "DecidedNotHeld.test_変換は指定した種類で返させる",
+    "DecidedNotHeld.test_聞ける段でscriptの指定に無いholdは1回だけ問いに書き換え直させる",
+    "DecidedNotHeld.test_揃えても受け取れないdecidableは同じverifierに1回だけ聞き直す",
 ]
 
 

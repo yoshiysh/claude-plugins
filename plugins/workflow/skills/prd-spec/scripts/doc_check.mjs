@@ -1662,6 +1662,7 @@ const LEDGERS = {
             internal: OTHER_RULING,
             measured: OTHER_RULING,
             method: OTHER_RULING,
+            answered_by: { must: ['value', 'evidence'], never: ['question', 'options', 'answer', 'hold'] },
             '（ruling なし）': OTHER_RULING,
           },
         },
@@ -2141,6 +2142,22 @@ function caseViolations(ws, name, list, els, ownOnly = false) {
   return out
 }
 
+// answeredByRejects: answered_by は依頼者の既にある回答を別の論点に当てる裁定で、その回答の行（answers/ の下）を evidence に引く。引かないと
+// verifier が当てた回答を照合できず、依頼者が決めていない値が回答の顔で入る。合格した問いの回答を当てるときも、その問いの answer の行を引く。
+// 回答待ちの問いを answered_by に変えない: 候補の選択として返されると検証を飛ばして回答済みになり、依頼者が答えていない値が根拠になる。
+// その問いに既にある回答を当てるなら、問いのまま answer と value を put する（resolver.md の「回答の反映」）。
+function answeredByRejects(ws, cur, next, body) {
+  const touched = new Set((body.resolutions || []).map((r) => r && r.id))
+  const dir = path.resolve(ws, 'answers') + path.sep
+  const cites = (r) => (Array.isArray(r.evidence) ? r.evidence : []).some((e) => e && typeof e.file === 'string' && path.resolve(e.file).startsWith(dir))
+  const waiting = new Set((cur.resolutions || []).filter((r) => r && r.ruling === 'question' && r.answer == null).map((r) => r.id))
+  const mine = (next.resolutions || []).filter((r) => r && touched.has(r.id) && r.ruling === 'answered_by')
+  return [
+    ...mine.filter((r) => !cites(r)).map((r) => `resolutions ${r.id}: answered_by の evidence に ${dir} の下の回答の行がありません`),
+    ...mine.filter((r) => waiting.has(r.id)).map((r) => `resolutions ${r.id}: 回答待ちの問いは answered_by にできません（その問いに回答を当てるなら、question のまま answer と value を put する）`),
+  ]
+}
+
 function caseRejects(ws, name, next, body) {
   const spec = ledgerOf(name)
   const bad = []
@@ -2432,7 +2449,7 @@ function wsPut(ws, opts, readStdin) {
   }
   const aboutBad = name === 'resolutions' ? aboutRejects(next, body) : []
   if (aboutBad.length) throw new LedgerRejected(`同じ論点の裁定が 2 つになります（何も書いていません）:\n${aboutBad.join('\n')}`)
-  const caseBad = caseRejects(ws, name, next, body)
+  const caseBad = [...caseRejects(ws, name, next, body), ...(name === 'resolutions' ? answeredByRejects(ws, cur, next, body) : [])]
   if (caseBad.length) throw new LedgerRejected(`欄の条件に落ちました（何も書いていません）:\n${caseBad.join('\n')}`)
   const storedBad = storedRejects(ws, name, next)
   if (storedBad.length) throw new LedgerRejected(`書いた後の版が台帳の形に合いません（何も書いていません。${STORED_FIX}）:\n${storedBad.join('\n')}`)
@@ -2537,12 +2554,15 @@ function wsQuestions(ws, opts) {
 
 const fenceOf = (text) => '`'.repeat(Math.max(4, ...(String(text).match(/`+/g) || []).map((m) => m.length + 1)))
 
-// report: 事後報告は resolutions.json の method・hold・upstream_revision から導出する。手で書くと、同じ事実を
+// report: 事後報告は resolutions.json の method・answered_by・hold・upstream_revision から導出する。answered_by は依頼者の回答を
+// 別の論点に当てた裁定で、依頼者はここで初めて見て覆せる。手で書くと、同じ事実を
 // resolutions と 2 か所に持ち、型も決まらない。
 function wsReport(ws, opts) {
   const [listName] = Object.keys(ledgerOf('resolutions').lists)
   const rs = listOf(readLedger(ws, 'resolutions'), listName)
   const method = rs.filter((r) => r.ruling === 'method')
+  const answeredBy = rs.filter((r) => r.ruling === 'answered_by')
+  const cited = (r) => (Array.isArray(r.evidence) ? r.evidence : []).map((e) => `${path.relative(ws, String((e && e.file) || ''))}#L${e && e.line}「${(e && e.quote) ?? ''}」`).join('、')
   const draftIds = new Set(opts.drafts || [])
   const unknown = [...draftIds].filter((id) => !rs.some((r) => r.id === id && r.ruling === 'hold'))
   if (unknown.length) throw new Error(`--drafts に hold でない ID があります: ${unknown.join(', ')}`)
@@ -2564,6 +2584,10 @@ function wsReport(ws, opts) {
     '',
     ...(method.length ? method.map((r) => `- ${r.id}: ${r.value ?? ''}（${r.why ?? ''}）`) : ['0 件。']),
     '',
+    '## 既にある回答の当てはめ',
+    '',
+    ...(answeredBy.length ? answeredBy.map((r) => `- ${r.id}: ${r.value ?? ''}（${r.why ?? ''}。回答: ${cited(r)}）`) : ['0 件。']),
+    '',
     '## 保持規則と Issue の文案',
     '',
     ...(holds.length ? [] : ['0 件。', '']),
@@ -2580,7 +2604,7 @@ function wsReport(ws, opts) {
   writeAtomic([path.join(ws, 'report.md'), md])
   // report は司令塔が run の返った後に実行するので、動いている label は無い。
   const swept = sweepWorkDirs(ws, [], 'report')
-  return { path: 'report.md', method: method.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
+  return { path: 'report.md', method: method.length, answered_by: answeredBy.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
 }
 
 function workspaceDocs(ws) {

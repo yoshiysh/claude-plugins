@@ -26,6 +26,12 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
 - **出典の実在**: 先例の `<パス>#<ID>` が実在し同じ種類の論点を決めているか、`internal` の両側の出典が実在するか、
   `value` と `options[].decision_text` が入力・回答・決定台帳・実測に無い値や規則を含んでいないか →
   `insufficient_grounds`。
+- **決まっているのに決めていない**: 回答待ちの `question` と `hold` が、入力（`input.md`）・回答（`answers/*.md`）・合格した裁定（プロンプトの
+  「根拠にしてよい resolution」）で値の決まる論点ではないか → 決まるなら `decidable`。上の 3 つは決めすぎを落とすが、これは決めなさすぎを落とす
+  （落とさないと、依頼者が既に答えたことを聞き直すか、決まっていることが保持規則として本文に残る）。`decidable` には、決める出典を `source` に
+  1 つ書く（形は契約 §resolver-verifier）。出典を書けないなら合格にする（出典の無い `decidable` を script は受け取らず、段を止める）。
+- **既にある回答の当てはめ**（`answered_by`）: `evidence` の回答の行が実在し、その回答の文面からこの論点の値が言えるか → 言えなければ `mapping`
+  （別の問いへの答えを、その問いの範囲を超えて当てはめたものも含む）。
 - `supersedes` があるときは、覆す理由が `why` と `evidence` から言えるか。
 
 **decisions（intake の `source: default` と `precedent`、`kind: invariant`）**: 既定と先例は、方法論の範囲に収まっているか（案件の要求そのもの・

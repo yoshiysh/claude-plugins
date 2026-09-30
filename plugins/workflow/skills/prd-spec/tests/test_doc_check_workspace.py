@@ -550,6 +550,31 @@ class FlowAndConflicts(_Workspace):
                                                        "question": {"header": "h", "text": "t", "searched": "s"}}]})
         self.assertEqual(self._verdict("RS-006"), "fail", "変換した問いは不合格を持ち越す（変換した分はもう検証しない）")
 
+    def test_answered_byの合格は書き換えると持ち越さない(self):
+        # answered_by は値の裁定なので、value を変えたら検証し直す（持ち越すと当てはめ直した値が検証されずに根拠になる）。
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-008", "about": {"tbd": "TBD-X-001"}, "ruling": "answered_by", "value": "画面に出す", "why": "w", "evidence": [cite]}]})
+        self._judge([{"id": "RS-008", "verdict": "pass"}])
+        self.assertEqual(self._verdict("RS-008"), "pass")
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-008", "value": "画面とメールに出す"}]})
+        self.assertIsNone(self._verdict("RS-008"))
+
+    def test_回答待ちの問いはanswered_byに変えられない(self):
+        # 候補の選択として返されると検証を飛ばして回答済みになる。
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        options = [{"label": "画面", "description": "d", "flow_effect": "e", "decision_text": "画面に出す"}, {"label": "メール", "description": "d", "flow_effect": "e", "decision_text": "メールで送る"}]
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-009", "about": {"tbd": "TBD-X-001"}, "ruling": "question", "options": options,
+                                                       "question": {"header": "h", "text": "t?", "searched": "s"}}]})
+        before = (self.ws / "resolutions.json").read_bytes()
+        r = _put_run(self.ws, "resolutions", {"resolutions": [{"id": "RS-009", "ruling": "answered_by", "value": "画面に出す", "evidence": [cite], "question": None, "options": None}]})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("回答待ちの問いは answered_by にできません", r.stderr)
+        self.assertEqual((self.ws / "resolutions.json").read_bytes(), before)
+
     def test_保持規則への書き換えは不合格だけを持ち越す(self):
         # hold.rule は保持規則として writer に届く規範文なので、合格の後に書いた rule は検証していない。
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "about": {"open": "O-001"}, "ruling": "internal", "value": "v", "why": "w"},
@@ -892,8 +917,19 @@ class Report(_Workspace):
 
     def test_resolutionsが無くても型どおりに0件を書く(self):
         out = _ok(self.ws, "report")
-        self.assertEqual((out["method"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0))
-        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 4)
+        self.assertEqual((out["method"], out["answered_by"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0))
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 5)
+
+    def test_既にある回答を別の論点に当てた裁定は依頼者に見せる(self):
+        # answered_by は依頼者の回答を依頼者の知らない論点に広げる。事後報告に出さないと、依頼者は覆す機会を持てない。
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
+        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-004", "ruling": "answered_by", "value": "通知も画面に出す", "why": "RS-001 の回答", "evidence": [cite]}]})
+        out = _ok(self.ws, "report")
+        self.assertEqual(out["answered_by"], 1)
+        section = (self.ws / "report.md").read_text().split("## 既にある回答の当てはめ")[1].split("## ")[0]
+        self.assertIn("- RS-004: 通知も画面に出す（RS-001 の回答。回答: answers/g0.md#L1「RS-001: 画面」）", section)
 
     def test_draftsに挙げたholdは本文に未反映の節に分ける(self):
         self._resolutions()
