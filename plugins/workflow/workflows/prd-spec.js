@@ -513,8 +513,9 @@ function planCheckOf(text) {
 function flowCheckOf(text, rulings = false) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  if (!ok || ![...(rulings ? ['resolutions'] : []), 'unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
+  if (!ok || ![...(rulings ? ['resolutions'] : []), 'answer_holds', 'unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
   if (rulings && !o.resolutions.every((x) => x && typeof x.has_answer === 'boolean')) return null
+  if (!o.answer_holds.every((x) => x && typeof x.id === 'string' && typeof x.file === 'string' && Number.isInteger(x.from) && Number.isInteger(x.to))) return null
   const codes = o.codes && typeof o.codes === 'object' && !Array.isArray(o.codes) ? Object.values(o.codes) : null
   return codes && codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === o.findings ? o : null
 }
@@ -1133,7 +1134,7 @@ async function holdsToQuestions(label, r, ids, phaseTitle, stop) {
 function newHoldsInW(fc) {
   if (!asksNow()) return []
   const before = new Set(entryState.holds || [])
-  return uniq(fc.resolutions.filter((x) => RESOLUTION_ID.test(x.id) && x.ruling === 'hold' && !before.has(x.id) && !holdOrders.ids.has(x.id) && !holdOrders.abouts.has(aboutKey(x.about))).map((x) => x.id))
+  return uniq(fc.resolutions.filter((x) => RESOLUTION_ID.test(x.id) && x.ruling === 'hold' && !before.has(x.id) && !designatedHold(x.id, x.about, fc)).map((x) => x.id))
 }
 
 // holdOrders: この段で script が hold を指定した ID と論点（about のキー）。聞ける段（ASKS）で resolver が新しく hold にしてよいのはこれだけ。
@@ -1144,10 +1145,20 @@ const orderHolds = (ids, abouts = []) => {
   for (const k of abouts) holdOrders.abouts.add(k)
 }
 const asksNow = () => Object.hasOwn(ASKS, running) && ASKS[running]()
+// designatedHold: 聞ける段で resolver が新しく hold にしてよい ID。script の指定（holdOrders）と、依頼者のその問いへの回答を根拠にした hold
+// （doc_check flow の answer_holds）。後者を問いに書き換えると、保留と答えた依頼者に聞き直す。unorderedHolds に渡す fc は resolver 自身の stdout なので
+// 早い書き換え直しは申告で飛びうる。台帳で決めるのは、独立な stdout を渡す adopt と段の出口の newHoldsInW である。
+const designatedHold = (id, about, fc) => holdOrders.ids.has(id) || holdOrders.abouts.has(aboutKey(about)) || Boolean(fc && fc.answer_holds.some((x) => x.id === id))
+// answerChosen: decidable の出典がその hold 自身の回答の節の中にある（verifier がその回答を保留でなく実際の選択と読んだ）。
+const answerChosen = (f, fc) => {
+  const m = f.kind === 'decidable' && /^(.+)#L([1-9]\d*)$/.exec(String(f.source || ''))
+  return Boolean(m && fc && fc.answer_holds.some((x) => x.id === f.id && x.file === m[1] && x.from <= Number(m[2]) && Number(m[2]) <= x.to))
+}
 function unorderedHolds(r) {
   if (!asksNow()) return []
   const held = new Set(state.holds || [])
-  return uniq((r.holds || []).filter((x) => x && !held.has(x.id) && !holdOrders.ids.has(x.id) && !holdOrders.abouts.has(aboutKey(x.about))).map((x) => x.id))
+  const fc = flowCheckOf(r.flow_check)
+  return uniq((r.holds || []).filter((x) => x && !held.has(x.id) && !designatedHold(x.id, x.about, fc)).map((x) => x.id))
 }
 
 // recopy: doc_check の stdout の写しが copyFault なら、同じコマンドを flow-check に別の label で 1 回だけ実行させて取り直す。cmds は返り値の
@@ -1586,10 +1597,13 @@ function outsideKinds(stage, r, kinds) {
 // convertFailed: 差し戻しの後も検証に落ちた裁定（RS-）を、値を決めずに question か hold に書き換える。変換した分はもう検証しない
 // （検証のループを増やすと、差し戻しの上限が意味を失う）。聞ける段では、価値の論点（VALUE_ABOUT）・価値の判断・cycle の入口で問いだった ID を
 // question にする。hold にすると、依頼者に聞けば答えの出る論点が保持規則になる。検証の裁定（{verification}）は decidable でも価値の論点ではない。
+// 依頼者の回答を根拠にした hold（answer_holds。designatedHold）は hold のまま変える（問いにすると、保留と答えた依頼者に聞き直す）。ただし decidable の
+// 出典がその回答の節なら回答は実際の選択で、差し戻しで当てさせても hold のままなので、これまでどおり問いにする（hold のままだと依頼者の回答が保持規則に化ける）。
 // decidable で落ちたものは値の無い裁定（回答待ちの問いか保持規則。decidableDefect が verifier の stdout で確かめた）なので、既にその種類なら書き換えない。
 // wasQuestion: 差し戻しの cycle の入口で回答待ちだった問い。settle の verifier の合否は askVerifier がその回に裁定した ID に限るので渡さない。
 async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wasQuestion = new Set()) {
-  const to = (f) => (allowQuestions && (f.kind === 'value_as_method' || wasQuestion.has(f.id) || valueKey((state.about || {})[f.id])) ? 'question' : 'hold')
+  const answerHeld = (f) => Boolean(seen && seen.answer_holds.some((x) => x.id === f.id)) && !answerChosen(f, seen)
+  const to = (f) => (allowQuestions && !answerHeld(f) && (f.kind === 'value_as_method' || wasQuestion.has(f.id) || valueKey((state.about || {})[f.id])) ? 'question' : 'hold')
   const already = (f) => f.kind === 'decidable' && (to(f) === 'hold') === (state.holds || []).includes(f.id)
   const todo = uniq(fails.filter((f) => !already(f)).map((f) => f.id)).map((id) => fails.find((f) => f.id === id))
   if (!todo.length) return null

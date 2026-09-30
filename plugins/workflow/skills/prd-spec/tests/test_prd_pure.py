@@ -311,13 +311,14 @@ class Pure(unittest.TestCase):
                 self.assertIsNotNone(value(f"unverifiedLeft({json.dumps(fc)}, {json.dumps(st)}, false)"))
 
     def test_flowCheckOfは一覧の欄が欠けたstdoutを受け取らない(self):
-        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "resolutions": [], "answer_holds": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(base))}, true)"))
-        for k in ("codes", "unverified", "failed_current", "resolutions", "open_only", "stale_refs", "open_ids", "pair_keys"):
+        for k in ("codes", "unverified", "failed_current", "resolutions", "answer_holds", "open_only", "stale_refs", "open_ids", "pair_keys"):
             broken = {x: v for x, v in base.items() if x != k}
             self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped(broken))}, true)"), k)
             if k != "resolutions":
                 self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped(broken))})"), k)
+        self.assertIsNone(value(f"flowCheckOf({json.dumps(stamped({**base, 'answer_holds': ['RS-001']}))}, true)"), "answer_holds の要素は {id, file, from, to}")
         plain = {x: v for x, v in base.items() if x != "resolutions"}
         self.assertIsNotNone(value(f"flowCheckOf({json.dumps(stamped(plain))})"), "生成者の doc_check flow（--rulings なし）は resolutions を持たない")
         two = {**base, "findings": 2, "codes": {"FLOW_DANGLING": ["F-001"], "FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-002"]}}

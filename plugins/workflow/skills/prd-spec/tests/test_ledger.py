@@ -853,6 +853,56 @@ class Answers(_Workspace):
                 self.assertEqual(_run(self.ws, "answers", *bad).returncode, 1)
 
 
+class AnswerHolds(unittest.TestCase):
+    """answer_holds: 依頼者のその問いへの回答を根拠にした hold と、引いた節。evidence が所有表の回答のファイルの、その hold と同じ ID の
+    節の空でない回答の中だけを引くものに限る。ケースごとに W を作り直す（前のケースの台帳が結果に混ざらない）。"""
+
+    HOLD = {"rule": "返し方の裁定が下るまで、結果を返してはならない", "issue_draft": "返し方を決める", "item_ids": ["PR-AUTH-001"]}
+    ANSWERS = "RS-001: 画面\nRS-003: 保留\nRS-009: は候補の名前で、今は決めない\nRS-004:\n"
+
+    def _held(self, id_, cite_of, ruling="hold", extra=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "W"
+            shutil.copytree(FIXTURE, ws)
+            (ws / "answers").mkdir()
+            (ws / "answers" / "g0.md").write_text(self.ANSWERS, encoding="utf-8")
+            for rel, text in (extra or {}).items():
+                (ws / rel).write_text(text, encoding="utf-8")
+            others = [{"id": o, "ruling": "internal", "value": "v"} for o in ("RS-001", "RS-003", "RS-004") if o != id_]
+            row = {"id": id_, "ruling": ruling, "evidence": [cite_of(ws)]}
+            row.update({"hold": self.HOLD} if ruling == "hold" else {"value": "結果は画面に出す"})
+            _ok(ws, "put", "--ledger", "resolutions", stdin={"resolutions": [*others, row]})
+            plain, rulings = _ok(ws, "flow")["answer_holds"], _ok(ws, "flow", "--rulings")["answer_holds"]
+            self.assertEqual(plain, rulings, "--rulings の有無で変わらない")
+            return plain
+
+    @staticmethod
+    def _cite(line, quote, end=None, rel="answers/g0.md"):
+        return lambda ws: {"file": str(ws / rel), "line": line, "quote": quote, **({} if end is None else {"end": end})}
+
+    def test_自分の節の回答を引くholdと節を出す(self):
+        section = [{"id": "RS-003", "file": "answers/g0.md", "from": 2, "to": 3}]
+        for name, cite in (("節の頭の行", self._cite(2, "RS-003: 保留")),
+                           ("台帳に無い ID で始まる続きの行（節を切らない）", self._cite(3, "今は決めない")),
+                           ("節の中の複数行", self._cite(2, "保留\nRS-009", end=3))):
+            with self.subTest(name):
+                self.assertEqual(self._held("RS-003", cite), section)
+
+    def test_別のIDの節や空の回答や所有表の外の回答を引くholdは数えない(self):
+        for name, id_, cite, extra in (
+            ("別の ID の節", "RS-003", self._cite(1, "RS-001: 画面"), None),
+            ("節をまたぐ範囲", "RS-001", self._cite(1, "画面\nRS-003", end=2), None),
+            ("答えなかった問い（空の回答）", "RS-004", self._cite(4, "RS-004:"), None),
+            ("answers/ の外の W のファイル", "RS-003", self._cite(1, "RS-003: 保留", rel="memo.md"), {"memo.md": "RS-003: 保留\n"}),
+            ("所有表に無い answers/ のファイル", "RS-003", self._cite(1, "RS-003: 保留", rel="answers/mine.md"), {"answers/mine.md": "RS-003: 保留\n"}),
+        ):
+            with self.subTest(name):
+                self.assertEqual(self._held(id_, cite, extra=extra), [])
+
+    def test_holdでない裁定は数えない(self):
+        self.assertEqual(self._held("RS-003", self._cite(2, "RS-003: 保留"), ruling="answered_by"), [])
+
+
 class FieldTypes(_Workspace):
     """put は型の外の欄・経緯の印を持つ欄を、何も書かずに拒否する。字数では拒否しない。"""
 
@@ -992,6 +1042,8 @@ class Cases(_Workspace):
         self._rejected({"resolutions": [{**row, "evidence": [{"file": str(self.ws / "input.md"), "line": 1, "quote": first}]}]}, "answered_by の evidence")
         self._rejected({"resolutions": [{**row, "evidence": [cite], "question": RESOLUTION_Q["question"]}]}, "question")
         self._rejected({"resolutions": [{**{k: v for k, v in row.items() if k != "value"}, "evidence": [cite]}]}, "value が要ります")
+        (self.ws / "answers" / "mine.md").write_text("RS-001: 画面\n")
+        self._rejected({"resolutions": [{**row, "evidence": [{**cite, "file": str(self.ws / "answers" / "mine.md")}]}]}, "answered_by の evidence")
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**row, "evidence": [cite]}]})
 
     def test_invariantの決定はquoteが要る(self):

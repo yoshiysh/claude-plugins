@@ -199,7 +199,11 @@ const rsVerdict = (id) => {
   return r.ruling === 'question' && v.verdict === 'pass' && sameV ? v : null
 }
 // rulings: doc_check flow --rulings のときだけ resolutions を出す（プロンプトが --rulings を付け忘れた呼び出しの stdout は、script が受け取らない）。
+// answer_holds: 依頼者のその問いへの回答を根拠にした hold として doc_check が数える ID（evidence がその ID の回答の節を引く）。台帳で hold のときだけ出す。
+// 節は answers/g0.md の 1 行目（answerSection）。
+const answerSection = (id) => ({ id, file: 'answers/g0.md', from: 1, to: 1 })
 const onDisk = (rulings) => ({
+  answer_holds: (spec.answer_holds || []).filter((id) => disk.rs[id] && disk.rs[id].ruling === 'hold').sort().map(answerSection),
   unverified: Object.keys(disk.els).sort().filter((id) => verdictAt(id) !== 'pass'),
   failed_current: Object.keys(disk.els).sort().filter((id) => verdictAt(id) === 'fail'),
   ...(rulings ? {
@@ -332,6 +336,8 @@ function respond(prompt, label) {
       // resolver_claims_sha_at: flow.json を書いたのに、stdout の content_sha256 に別の版（書く前の版など）を載せた resolver。
       const claimed = at('resolver_claims_sha_at', stage) !== undefined ? H(at('resolver_claims_sha_at', stage)) : flowSha
       out.flow_check = keepsFlow && !explicitAt(stage) ? latestStdout(claimed, withRulings) : flowStdout(at('flow_findings_at', stage) || 0, claimed, stage, false, false, withRulings)
+      // claimed_answer_holds_at: 台帳に無い answer_holds を stdout に載せた resolver（保留の hold だと偽った申告）。
+      if (at('claimed_answer_holds_at', stage)) out.flow_check = JSON.stringify({ ...JSON.parse(out.flow_check), answer_holds: at('claimed_answer_holds_at', stage).map(answerSection) })
       if (!keepsFlow && !(spec.no_conflicts_check_at || []).includes(stage)) out.conflicts_check = conflictsStdout(stage)
     }
     return out
@@ -3434,6 +3440,62 @@ class DecidedNotHeld(unittest.TestCase):
         exit_ = run(spec, patch=patch)["result"]
         self.assertEqual((exit_["status"], exit_["next_args"]["from"]), ("blocked", "3a"), exit_.get("reason"))
         self.assertIn("script が hold を指定していない RS-001 を持ったまま段を出ようとしました", exit_["reason"])
+
+    def test_依頼者が回答で保留を選んだholdは聞ける段でも問いに書き換え直させない(self):
+        # G0 で RS-001 に「保留」と答えた依頼者に、3a の resolver が回答の行を引いて hold にした RS-001 を G0-2 で聞き直さない。
+        # 保留かどうかは resolver の申告でなく、doc_check flow の answer_holds（台帳の evidence がその ID の回答の節を引く）で決める。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        spec = {"args": g0["next_args"], "holds_at": {"3a": ["RS-001"]}}
+        held = run({**spec, "answer_holds": ["RS-001"]})
+        self.assertFalse([l for l in held["labels"] if l.endswith("-toquestion")], held["labels"])
+        res = held["result"]
+        self.assertEqual(res["status"], "done", res.get("reason"))
+        self.assertIn("RS-001", res["holds"])
+        # 回答の節を引かない hold（別の ID の回答の行を引いたものを含む）は、これまでどおり問いに書き換え直させて G0-2 で聞く。
+        asked = run(spec)
+        self.assertIn("resolver:3a-toquestion", asked["labels"])
+        self.assertEqual((asked["result"]["status"], asked["result"]["question_ids"]), ("needs_answers", ["RS-001"]), asked["result"].get("reason"))
+        # 返り値に載せずに台帳に書いた保留の hold も、段の途中と出口で問いに戻さない。
+        orphan_spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "orphans_at": {"3a": ["RS-001"]}, "answer_holds": ["RS-001"]}
+        orphan = run(orphan_spec)
+        self.assertFalse([l for l in orphan["labels"] if l.endswith("-toquestion")], orphan["labels"])
+        self.assertEqual(orphan["result"]["status"], "done", orphan["result"].get("reason"))
+        # 除外を外すと、返り値の hold も台帳にだけある hold も問いに書き換え直させる（除外が効いていることの確かめ）。
+        unexempt = [(" || Boolean(fc && fc.answer_holds.some((x) => x.id === id))", "")]
+        self.assertIn("resolver:3a-toquestion", run({**spec, "answer_holds": ["RS-001"]}, patch=unexempt)["labels"])
+        self.assertIn("resolver:3a-left-toquestion", run(orphan_spec, patch=unexempt)["labels"])
+
+    def test_resolverが保留のholdだと偽って申告しても台帳で決める(self):
+        # 3a の resolver が、台帳では回答の節を引かない hold RS-001 を、stdout の answer_holds に載せて返した。早い書き換え直しは申告で飛ぶが、
+        # 独立な doc_check flow（台帳）の answer_holds に無いので、W からの拾い直し（adopt）で問いに書き換え直させる。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        r = run({"args": g0["next_args"], "holds_at": {"3a": ["RS-001"]}, "claimed_answer_holds_at": {"3a": ["RS-001"]}})
+        res = r["result"]
+        self.assertNotIn("resolver:3a-toquestion", r["labels"])
+        self.assertNotIn("RS-001", res.get("holds") or [], (res["status"], res.get("reason"), r["labels"]))
+        self.assertIn("resolver:3a-left-toquestion", r["labels"])
+        self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-001"]), res.get("reason"))
+
+    def test_依頼者の回答を根拠にしたholdの変換は出典で分ける(self):
+        # G0 で答えた RS-001 を 3a が回答の節（answers/g0.md の 1 行目）を引いて hold にし、3av でも差し戻しの後の 3a-fixv でも decidable に落ちた。
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+
+        def spec(source):
+            fail = {"id": "RS-001", "kind": "decidable", "reason": "決まる", "source": source}
+            return {"args": g0["next_args"], "holds_at": {"3a": ["RS-001"], "3a-fix": ["RS-001"]}, "answer_holds": ["RS-001"], "verifier_fail": {"3av": [fail], "3a-fixv": [fail]}}
+
+        # 出典がほかの行なら、依頼者の保留を問いに戻さない（cycle の入口で問いだった ID でも）。
+        other = spec("input.md#L1")
+        r = run(other)
+        self.assertFalse([l for l in r["labels"] if l.endswith(("-toquestion", "-convert"))], r["labels"])
+        self.assertNotIn("RS-001", r["result"].get("question_ids") or [])
+        self.assertIn("- RS-001 → question（decidable）", self._prompt(run(other, patch=[("allowQuestions && !answerHeld(f) && ", "allowQuestions && ")]), "resolver:3a-convert"))
+        # 出典がその hold 自身の回答の節なら、回答は保留でなく実際の選択。差し戻しでも当てなかったので問いにする（hold のままだと回答が保持規則に化ける）。
+        own = spec("answers/g0.md#L1")
+        r = run(own)
+        self.assertIn("- RS-001 → question（decidable）", self._prompt(r, "resolver:3a-convert"))
+        self.assertIn("RS-001", r["result"]["question_ids"])
+        self.assertFalse([l for l in run(own, patch=[(" && !answerChosen(f, seen)", "")])["labels"] if l.endswith("-convert")], "例外を外さないと hold のまま")
 
     def test_書き換え直しを写した返り値はほかの問いを残し同じIDを2つの種類に残さない(self):
         # 段 3 の resolver が RS-002 を問いに、RS-001 を指定の外の hold にした。書き換え直しは RS-001 だけを写す。

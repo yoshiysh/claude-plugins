@@ -199,7 +199,7 @@
 - `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
   `{verification}`（3v で不合格になった決定・要素の ID）のどれか 1 つ。
 - `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
-  `agents/resolver.md` が正。`answered_by` の `evidence` は `W/answers/` の下の回答の行を 1 つ以上引く（put が検査する。合格した問いの回答を
+  `agents/resolver.md` が正。`answered_by` の `evidence` は回答のファイル（所有表の `answers/` の下）の行を 1 つ以上引く（put が検査する。合格した問いの回答を
   当てるときも、その問いの `answer` の行を引く。引かないと verifier が当てた回答を照合できない）。どの `ruling` がどの欄を持てるかは doc_check の `LEDGERS` の欄の条件が正で、put が
   検査する。回答が当たっても `ruling` は `question` のままにし、回答の前後は `answer` の有無で分ける（依頼者が
   決めた値と resolver が決めた値を、台帳の上で区別するため）。
@@ -398,6 +398,9 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に書き換えた裁定は合否を失う。例外として持ち越す
   書き換えの正本は doc_check の `carriesVerdict` である。script は、resolver が書いたのに返り値に載せなかった裁定をここから受け取り、
   合否が無いか script の持つ合否と違う resolution を verifier に検証させる（script はファイルを読めない）。
+- `flow` の stdout の `answer_holds` は、依頼者のその問いへの回答を根拠にした hold と引いた節の `{id, file, from, to}` である（`--rulings` の有無によらず出す。
+  判定の正本は doc_check の `answerHolds`: evidence が所有表の回答のファイルの、その hold と同じ ID の節の空でない回答の中だけを引く。
+  回答が保留か実際の選択かは決めない）。聞ける段でも問いに書き換え直させない（§resolver）。
 - script が判断に使う stdout（§flow-check）の `codes` に残った指摘は、符号によらずすべて settle に「要素: 何が無いか」（flow-framer 専用の
   符号）か「要素: 符号」の行で渡る。最後の verifier の stdout に残るのは、その cycle で flow を書いた生成者に消せない指摘（「## flow.json の形」の直し手）と、
   台帳の書き込みから出た指摘だけで（生成者が消せる指摘は §resolver-verifier の照合で段が止まる）、§flow-check の stdout にはそれに加えて、verifier の後の
@@ -410,7 +413,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 返り値（最後に実行した `flow` と `conflicts` の stdout を加工せずに。件数と flow.json の内容の sha256 は script がここから読む）:
 
 ```json
-{ "flow_check": "{\"findings\":0,\"codes\":{},\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"resolutions\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"],\"pair_keys\":[\"pair:D-001|F-002\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
+{ "flow_check": "{\"findings\":0,\"codes\":{},\"open\":5,\"path\":\"checks/flow.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"unverified\":[\"F-003\"],\"failed_current\":[],\"resolutions\":[],\"answer_holds\":[],\"open_only\":[{\"el\":\"F-009\",\"open\":\"O-004\"}],\"stale_refs\":[],\"open_ids\":[\"O-004\"],\"pair_keys\":[\"pair:D-001|F-002\"]}", "conflicts_check": "{\"pairs\":2,…,\"pair_keys\":[\"pair:D-001|F-002\"]}" }
 ```
 
 - `plan_check`: 段 2 だけ、doc_check `plan` の stdout を加工せずに返す（script が intake の `plan_check` と照合する）。
@@ -472,6 +475,9 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   呼び出しの `ruled` のうち回答待ちだった問い）に入らず、verifier の検証に回って合格で根拠になる。
 - 依頼者に聞ける段（prd-spec.js の `ASKS`）では、script が hold を指定していない ID を新しく `holds` で返せば、script はその ID だけを問いに
   書き換え直させ（`<label>-toquestion`。1 回だけ）、それでも hold なら段を止める（prd-spec.js の `unorderedHolds`。指定は `orderHolds` の呼び出し）。
+  依頼者のその問いへの回答を根拠にした hold（`flow` の stdout の `answer_holds`）は指定と同じに扱い、書き換え直させず、変換でも問いにしない
+  （prd-spec.js の `designatedHold`。書き換えると、保留と答えた依頼者に聞き直す）。ただし verifier がその回答の節を出典に `decidable` で落とした
+  hold は、回答が実際の選択なので、変換では問いにする（`answerChosen`）。
   聞けば答えの出る論点が、依頼者に届かないまま保持規則になるからである。変換が指定と違う種類で返したときも 1 回だけ書き換え直させる（`<段>-convert-kind`）。
 - `free_text` は、回答が候補の外の自由記述で、問いへの対応づけを自分で解釈した ID。script は verifier の検証対象に回し、合格して初めて回答済みにする。
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか

@@ -2142,18 +2142,67 @@ function caseViolations(ws, name, list, els, ownOnly = false) {
   return out
 }
 
-// answeredByRejects: answered_by は依頼者の既にある回答を別の論点に当てる裁定で、その回答の行（answers/ の下）を evidence に引く。引かないと
+// answerLineId: 回答のファイルの中の、問いごとの節の頭の行（`<ID>:`）。節は次の頭の行の手前まで続く。
+const answerLineId = (l) => (/^(RS-\d+):/.exec(String(l).trim()) || [])[1]
+// answersFile: 回答のファイルは所有表で司令塔が書く answers/ の下のファイルだけ（写しを持たない）。ほかの役が answers/ に置いたファイルを
+// 回答として引けると、依頼者の言葉でない行が回答の顔で根拠になる。
+const answersFile = (rel) => rel.startsWith('answers/') && ownedPatterns().files.some((re) => re.test(rel))
+const answersRel = (ws, file) => path.relative(ws, path.resolve(file)).split(path.sep).join('/')
+// answerCites: evidence のうち、回答のファイルの行を引くもの。
+const answerCites = (ws, r) => (Array.isArray(r.evidence) ? r.evidence : []).filter((e) => e && typeof e.file === 'string' && answersFile(answersRel(ws, e.file)))
+
+// answerHolds: 依頼者のその問いへの回答を根拠にした hold（evidence が、その hold と同じ ID の節の空でない回答の中だけを引く）と、引いた節
+// （{id, file, from, to}。行は 1 始まりで両端を含む）。聞ける段でも問いに書き換え直させない（prd-spec.js の designatedHold）。書き換えると、保留と
+// 答えた依頼者に同じ論点を聞き直す。回答が保留か実際の選択かはここでは決めない: 実際の選択を hold にしたものは verifier がその節を出典に
+// decidable で落とし、prd-spec.js の convertFailed が例外から外す。
+// 別の ID の節や空の回答（答えなかった問い）を引く hold は数えない: どの回答の行でも引けば通るなら、resolver が聞ける論点を保持規則に逃がせる。
+// 節の頭は台帳にある ID の行だけにする（回答の自由記述の中の `RS-9:` のような行で節を切らない）。
+function answerHolds(ws, resolutions) {
+  const known = new Set(resolutions.map((r) => String(r.id)))
+  const headOf = (l) => {
+    const id = answerLineId(l)
+    return id && known.has(id) ? id : undefined
+  }
+  const files = new Map()
+  const linesOf = (file) => {
+    if (!files.has(file)) {
+      try {
+        files.set(file, fs.readFileSync(file, 'utf8').split('\n'))
+      } catch {
+        files.set(file, null)
+      }
+    }
+    return files.get(file)
+  }
+  const ownSection = (id, e) => {
+    const lines = linesOf(path.resolve(e.file))
+    const last = e.end === undefined ? e.line : e.end
+    if (!lines || !Number.isInteger(e.line) || e.line < 1 || !Number.isInteger(last) || last < e.line || last > lines.length) return null
+    let head = e.line - 1
+    while (head >= 0 && !headOf(lines[head])) head -= 1
+    if (head < 0 || headOf(lines[head]) !== id) return null
+    let stop = head + 1
+    while (stop < lines.length && !headOf(lines[stop])) stop += 1
+    const text = [lines[head].trim().slice(id.length + 1), ...lines.slice(head + 1, stop)].join('\n').trim()
+    return last <= stop && text !== '' ? { id, file: answersRel(ws, e.file), from: head + 1, to: stop } : null
+  }
+  const out = resolutions
+    .filter((r) => r && r.ruling === 'hold')
+    .flatMap((r) => answerCites(ws, r).map((e) => ownSection(String(r.id), e)).filter(Boolean))
+  return [...new Map(out.map((x) => [canonicalJson(x), x])).values()].sort((a, b) => (a.id + a.file + a.from < b.id + b.file + b.from ? -1 : 1))
+}
+
+// answeredByRejects: answered_by は依頼者の既にある回答を別の論点に当てる裁定で、その回答の行（answerCites）を evidence に引く。引かないと
 // verifier が当てた回答を照合できず、依頼者が決めていない値が回答の顔で入る。合格した問いの回答を当てるときも、その問いの answer の行を引く。
 // 回答待ちの問いを answered_by に変えない: 候補の選択として返されると検証を飛ばして回答済みになり、依頼者が答えていない値が根拠になる。
 // その問いに既にある回答を当てるなら、問いのまま answer と value を put する（resolver.md の「回答の反映」）。
 function answeredByRejects(ws, cur, next, body) {
   const touched = new Set((body.resolutions || []).map((r) => r && r.id))
-  const dir = path.resolve(ws, 'answers') + path.sep
-  const cites = (r) => (Array.isArray(r.evidence) ? r.evidence : []).some((e) => e && typeof e.file === 'string' && path.resolve(e.file).startsWith(dir))
+  const cites = (r) => answerCites(ws, r).length > 0
   const waiting = new Set((cur.resolutions || []).filter((r) => r && r.ruling === 'question' && r.answer == null).map((r) => r.id))
   const mine = (next.resolutions || []).filter((r) => r && touched.has(r.id) && r.ruling === 'answered_by')
   return [
-    ...mine.filter((r) => !cites(r)).map((r) => `resolutions ${r.id}: answered_by の evidence に ${dir} の下の回答の行がありません`),
+    ...mine.filter((r) => !cites(r)).map((r) => `resolutions ${r.id}: answered_by の evidence に回答のファイル（所有表の answers/ の下）の行がありません`),
     ...mine.filter((r) => waiting.has(r.id)).map((r) => `resolutions ${r.id}: 回答待ちの問いは answered_by にできません（その問いに回答を当てるなら、question のまま answer と value を put する）`),
   ]
 }
@@ -2495,15 +2544,14 @@ const QUESTION_OPTIONS = { min: 2, max: 4 }
 // （問いを出した resolver が返る前に確かめる。導出はゲートの時点で pending の全件に対して司令塔が行う）。
 // answers: 回答のファイルが問いのすべてに `<ID>:` の行を持つか。script はファイルを読めないので、resume が live で走り直して reset が
 // answers を消した W でも、この stdout が無ければゲートを越えたことにされる。
-const ANSWERS_FILE = /^answers\/[A-Za-z0-9._-]+\.md$/
 function wsAnswers(ws, opts) {
-  if (!opts.file || !ANSWERS_FILE.test(opts.file)) throw new LedgerRejected(`answers には --file answers/<ゲート>.md が要ります（${ANSWERS_FILE.source}）`)
+  if (!opts.file || !answersFile(opts.file)) throw new LedgerRejected(`answers には --file answers/<ゲート>.md が要ります（所有表の answers/ の下のファイル）`)
   if (!opts.ids || !opts.ids.length) throw new LedgerRejected('answers には --ids RS-… が要ります')
   const ids = [...new Set(opts.ids)].sort()
   const file = path.join(ws, opts.file)
   const exists = fs.existsSync(file)
   const text = exists ? fs.readFileSync(file, 'utf8') : ''
-  const lines = new Set(text.split('\n').map((l) => (/^(RS-\d+):/.exec(l.trim()) || [])[1]).filter(Boolean))
+  const lines = new Set(text.split('\n').map(answerLineId).filter(Boolean))
   return { file: opts.file, exists, ids, missing: ids.filter((id) => !lines.has(id)) }
 }
 
@@ -3105,8 +3153,8 @@ function wsFlow(ws, opts) {
   // resolutions は --rulings のときだけ出す: script がファイルを読めない代わりに今の版の合否を知る元で、全 resolution の行を毎回写すと
   // flow を返すすべての役の出力が台帳の大きさに比例して増える。合否を検証した版にだけ付けるのは、検証の後に書き換えた裁定を根拠に使わせないため。
   const verdicts = new Map(items.filter((it) => it && it.id && it.verdict).map((it) => [String(it.id), it]))
-  const resolutions = listOf(readLedger(ws, 'resolutions'), 'resolutions')
-    .filter((r) => r && r.id)
+  const stored = listOf(readLedger(ws, 'resolutions'), 'resolutions').filter((r) => r && r.id)
+  const resolutions = stored
     .map((r) => {
       const judged = verdicts.get(String(r.id))
       const v = judged && carriesVerdict(judged, r) ? judged : null
@@ -3141,6 +3189,7 @@ function wsFlow(ws, opts) {
     unverified,
     failed_current: failedCurrent,
     ...(opts.rulings ? { resolutions } : {}),
+    answer_holds: answerHolds(ws, stored),
     open_only: openOnly,
     stale_refs: staleRefs,
     open_ids: [...openIds].sort(),
