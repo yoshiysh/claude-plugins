@@ -1,0 +1,31 @@
+{
+  "findings": [
+    {
+      "id": "r3-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-037",
+      "quote": "現在のブランチが主ブランチを base とする開いた PR を持たないとき、システムは現在のブランチが指す commit を起点ブランチの remote 上の最新へ動かさなければならない（現在のブランチが無いときは現在の位置だけを動かす）。",
+      "issue": "ここで手が止まる。なぜなら commit を動かした後の作業ツリーのファイルが起点ブランチの最新の内容に揃うのか、動かす前の内容のまま残るのかが分からないから。入力は目的を「worktree を最新の主ブランチに同期」（input.md L24）とし、手順は作業ツリーを残す reset で「同期してから」（L192）としており、どちらに読むかで新ブランチの開始状態が変わる。",
+      "repro": "feature/a の PR がマージされて開いた PR は無く、その後に他の開発者の commit が main に 2 つ入っている。現在のブランチ feature/a で、未コミットの変更を退避した後に本項目を当てる。読み A（作業ツリーは動かす前の内容のまま）: 新ブランチは main の最新を指すが、作業ツリーは feature/a の内容のままで、他の開発者の 2 commit を打ち消す差分が未コミットの変更として現れ、その上に退避した変更が戻る。読み B（作業ツリーを最新の内容に揃える）: 新ブランチは差分の無い状態で始まり、その上に退避した変更が戻る。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "同期の後に作業ツリーのファイルを起点ブランチの最新の内容に揃えるかを決める",
+      "origin": "input"
+    },
+    {
+      "id": "r3-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-010",
+      "quote": "システムは、ローカルの主ブランチ、現在のブランチ、主ブランチを base とする開いた PR を持つブランチを、他のブランチと同じ分類規則で分類しなければならない（ローカルの主ブランチは、同じ名前の remote の主ブランチに内容があれば取り込み済みになる）。",
+      "issue": "本項目の trace（RS-047・RS-053）が置く目的「push していない commit を持つ主ブランチを消して内容を失わない」に対して強すぎる。用語「取り込み済み」は分類している ref 自身だけを除くので、同じ未 push の commit を持つローカルの主ブランチが 2 つあると、互いを相手に両方とも取り込み済みになり、両方とも確認なしで削除される。",
+      "repro": "主ブランチが main と develop のリポジトリ。ローカルの develop に未 push の commit X があり、ローカルの main を develop へ fast-forward して X を指させた（どちらも push していない）。develop を分類すると、ローカルの main に X があるので取り込み済み。main を分類すると、ローカルの develop に X があるので取り込み済み。両方とも確認なしで削除され、新ブランチは remote 上の最新から作られるので、X はどのブランチからも辿れなくなる。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "tighten",
+      "direction_note": "比べる相手の主ブランチが同じ実行で削除される場合にも、その相手に内容があるとみなすかを決める",
+      "origin": "ledger"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全 300 行を読み、対象の PR-CLEANUP-010・011・031・037 を判定した。011 と 031 は指摘なし（031 の復元手段の扱いは保持規則 RS-052 の範囲で、指摘の対象外）。照合に使ったもの: meta.json の対象項目の trace、input.md の L11・L22-26・L83-140・L170-215、answers/g0.md・g0-2.md・g1.md、plan.json、resolutions の RS-012・033・040・042・045〜047・049・052〜056（RS-024・RS-038 は無効として根拠から除外。RS-052・RS-054 は保持規則として扱った）、flow.json の F-013・014・017・033・051・053、前のパスの指摘 r2-im-…-001・002 と r1 の対象項目への指摘。当てた観点は implementer のみ: 要求文書の問い（決めるべきことが決まっているか・手段が目的の顔をしていないか）、着手可能性（判断の委任・分岐の不足・前提の形・複数解釈・用語の未定義）、項目自身の trace と目的に対する過不足と冗長、EARS・境界値・複合要求。項目どうしの関係・根拠の有無・doc_check の判定範囲は見ていない。"
+}

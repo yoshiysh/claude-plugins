@@ -1,0 +1,343 @@
+{
+ "routes": [
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-001",
+   "item_id": "PR-CLEANUP-002",
+   "resolutions": [
+    "RS-038",
+    "RS-045"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-002",
+   "item_id": "PR-CLEANUP-003",
+   "resolutions": [
+    "RS-037",
+    "RS-038",
+    "RS-045",
+    "RS-046"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-003",
+   "item_id": "PR-CLEANUP-004",
+   "resolutions": [
+    "RS-037",
+    "RS-044"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-004",
+   "item_id": "PR-CLEANUP-006",
+   "resolutions": [
+    "RS-040"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-005",
+   "item_id": "PR-CLEANUP-008",
+   "resolutions": [
+    "RS-048"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-006",
+   "item_id": "PR-CLEANUP-011",
+   "resolutions": [
+    "RS-047"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-007",
+   "item_id": "PR-CLEANUP-013",
+   "resolutions": [
+    "RS-047",
+    "RS-048"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-008",
+   "item_id": "PR-CLEANUP-015",
+   "resolutions": [
+    "RS-037",
+    "RS-038",
+    "RS-045"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-009",
+   "item_id": "PR-CLEANUP-016",
+   "resolutions": [
+    "RS-038",
+    "RS-045"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-010",
+   "item_id": "PR-CLEANUP-017",
+   "resolutions": [
+    "RS-038",
+    "RS-045"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-011",
+   "item_id": "PR-CLEANUP-021",
+   "resolutions": [
+    "RS-040"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-012",
+   "item_id": "PR-CLEANUP-024",
+   "resolutions": [
+    "RS-039",
+    "RS-049"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-013",
+   "item_id": "PR-CLEANUP-028",
+   "resolutions": [
+    "RS-041"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-014",
+   "item_id": "PR-CLEANUP-029",
+   "resolutions": [
+    "RS-041"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-015",
+   "item_id": "PR-CLEANUP-034",
+   "resolutions": [
+    "RS-036",
+    "RS-042"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-016",
+   "item_id": "PR-CLEANUP-035",
+   "resolutions": [
+    "RS-036"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-017",
+   "item_id": "PR-CLEANUP-036",
+   "resolutions": [
+    "RS-036"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-018",
+   "item_id": "PR-CLEANUP-038",
+   "resolutions": [
+    "RS-036",
+    "RS-043"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-019",
+   "item_id": "PR-CLEANUP-039",
+   "resolutions": [
+    "RS-036"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-020",
+   "item_id": "PR-CLEANUP-040",
+   "resolutions": [
+    "RS-036"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-021",
+   "item_id": "PR-CLEANUP-048",
+   "resolutions": [
+    "RS-050"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-022",
+   "item_id": "PR-CLEANUP-058",
+   "resolutions": [
+    "RS-051"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-023",
+   "item_id": "PR-CLEANUP-062",
+   "resolutions": [
+    "RS-036",
+    "RS-040"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-024",
+   "item_id": "PR-CLEANUP-003",
+   "resolutions": [
+    "RS-053"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-025",
+   "item_id": "PR-CLEANUP-004",
+   "resolutions": [
+    "RS-053"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-026",
+   "item_id": "PR-CLEANUP-015",
+   "resolutions": [
+    "RS-053"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-027",
+   "item_id": "PR-CLEANUP-034",
+   "resolutions": [
+    "RS-052"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-028",
+   "item_id": "PR-CLEANUP-035",
+   "resolutions": [
+    "RS-052"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-029",
+   "item_id": "PR-CLEANUP-038",
+   "resolutions": [
+    "RS-052"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-030",
+   "item_id": "PR-CLEANUP-039",
+   "resolutions": [
+    "RS-052"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-031",
+   "item_id": "PR-CLEANUP-062",
+   "resolutions": [
+    "RS-052",
+    "RS-054"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-032",
+   "item_id": "PR-CLEANUP-006",
+   "resolutions": [
+    "RS-054"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-033",
+   "item_id": "PR-CLEANUP-021",
+   "resolutions": [
+    "RS-054"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-034",
+   "item_id": "PR-CLEANUP-067",
+   "resolutions": [
+    "RS-054"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-035",
+   "item_id": "PR-CLEANUP-028",
+   "resolutions": [
+    "RS-055"
+   ],
+   "unit": "U-1"
+  },
+  {
+   "doc": "requirements/cleanup-branches",
+   "id": "RT-036",
+   "item_id": "PR-CLEANUP-062",
+   "resolutions": [
+    "RS-056"
+   ],
+   "unit": "U-1"
+  }
+ ]
+}

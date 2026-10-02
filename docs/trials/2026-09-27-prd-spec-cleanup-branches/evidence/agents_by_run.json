@@ -1,0 +1,218 @@
+[
+ {
+  "run": 1,
+  "label": "intake",
+  "model": "claude-opus-5-5",
+  "tokens": 94199,
+  "toolCalls": 9,
+  "durationMs": 102634,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "flow-framer",
+  "model": "claude-opus-5-5",
+  "tokens": 103059,
+  "toolCalls": 12,
+  "durationMs": 160107,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "resolver:3",
+  "model": "claude-opus-5-5",
+  "tokens": 113043,
+  "toolCalls": 12,
+  "durationMs": 144189,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "verifier:3v",
+  "model": "claude-opus-5-5",
+  "tokens": 108572,
+  "toolCalls": 16,
+  "durationMs": 104845,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "resolver:3a",
+  "model": "claude-opus-5-5",
+  "tokens": 117117,
+  "toolCalls": 19,
+  "durationMs": 278417,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "verifier:3av",
+  "model": "claude-opus-5-5",
+  "tokens": 78828,
+  "toolCalls": 10,
+  "durationMs": 43571,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "resolver:3a",
+  "model": "claude-opus-5-5",
+  "tokens": 109623,
+  "toolCalls": 19,
+  "durationMs": 265631,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "verifier:3av",
+  "model": "claude-opus-5-5",
+  "tokens": 79370,
+  "toolCalls": 11,
+  "durationMs": 41257,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "writer:U-1:draft",
+  "model": "claude-opus-5-5",
+  "tokens": 155127,
+  "toolCalls": 26,
+  "durationMs": 502622,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "implementer:r1:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "tokens": 142586,
+  "toolCalls": 17,
+  "durationMs": 237051,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "grounding:r1:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "tokens": 141183,
+  "toolCalls": 21,
+  "durationMs": 260026,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "crossDoc:r1:all",
+  "model": "claude-sonnet-5",
+  "tokens": 128065,
+  "toolCalls": 28,
+  "durationMs": 316103,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "resolver:6",
+  "model": "claude-opus-5-5",
+  "tokens": 161979,
+  "toolCalls": 27,
+  "durationMs": 416953,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "verifier:6v",
+  "model": "claude-opus-5-5",
+  "tokens": 89904,
+  "toolCalls": 10,
+  "durationMs": 53545,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:3a'",
+  "model": "claude-opus-5-5",
+  "tokens": 103734,
+  "toolCalls": 14,
+  "durationMs": 108427,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "writer:U-1:revise",
+  "model": "claude-opus-5-5",
+  "tokens": 121577,
+  "toolCalls": 19,
+  "durationMs": 238564,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "grounding:r2:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "tokens": 137093,
+  "toolCalls": 20,
+  "durationMs": 146204,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "implementer:r2:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "tokens": 132764,
+  "toolCalls": 19,
+  "durationMs": 258549,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:6",
+  "model": "claude-opus-5-5",
+  "tokens": 111141,
+  "toolCalls": 17,
+  "durationMs": 126180,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "verifier:6v",
+  "model": "claude-opus-5-5",
+  "tokens": 85119,
+  "toolCalls": 11,
+  "durationMs": 59918,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "writer:U-1:revise",
+  "model": "claude-opus-5-5",
+  "tokens": 97416,
+  "toolCalls": 13,
+  "durationMs": 70782,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "grounding:r3:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "tokens": 113190,
+  "toolCalls": 22,
+  "durationMs": 206371,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "implementer:r3:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "tokens": 111672,
+  "toolCalls": 14,
+  "durationMs": 224846,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:final",
+  "model": "claude-opus-5-5",
+  "tokens": 101635,
+  "toolCalls": 13,
+  "durationMs": 78919,
+  "attempt": 1
+ }
+]

@@ -1,0 +1,4353 @@
+{
+ "agents": {
+  "live_per_run": {
+   "1": 12,
+   "2": 17,
+   "3": 3,
+   "4": 14,
+   "5": 22
+  },
+  "live_total": 68,
+  "replayed_per_run": {
+   "1": 0,
+   "2": 12,
+   "3": 29,
+   "4": 0,
+   "5": 14
+  },
+  "replayed_total": 55,
+  "agentCount_per_run": {
+   "1": 12,
+   "2": 29,
+   "3": 32,
+   "4": 14,
+   "5": 36
+  },
+  "journal_types": {
+   "wf_f413a4a5-c3e": {
+    "launched": 1,
+    "started": 32,
+    "result": 32
+   },
+   "wf_0f45ed55-8ba": {
+    "launched": 1,
+    "started": 36,
+    "result": 36
+   }
+  },
+  "live_tokens_sum_per_run": {
+   "1": 1382505,
+   "2": 1808489,
+   "3": 188646,
+   "4": 1574540,
+   "5": 2681265
+  },
+  "totalTokens_per_run": {
+   "1": 1382505,
+   "2": 1808489,
+   "3": 188646,
+   "4": 1574540,
+   "5": 2681265
+  },
+  "totalToolCalls_per_run": {
+   "1": 167,
+   "2": 215,
+   "3": 12,
+   "4": 195,
+   "5": 358
+  },
+  "live_durationMs_sum_per_run": {
+   "1": 2015912,
+   "2": 2180907,
+   "3": 49911,
+   "4": 2561418,
+   "5": 3691732
+  },
+  "labels_per_run": {
+   "1": [
+    "flow-check:1-entry",
+    "intake",
+    "flow-framer",
+    "resolver:3",
+    "verifier:3v",
+    "resolver:3-fix",
+    "verifier:3-fixv",
+    "flow-framer:3-settle",
+    "resolver:3-settle-opens",
+    "verifier:3v-settle",
+    "flow-framer:3-settle-2",
+    "verifier:3v-settle-2"
+   ],
+   "2": [
+    "flow-check:g0-answers",
+    "resolver:3a",
+    "verifier:3av",
+    "resolver:3a-fix",
+    "verifier:3a-fixv",
+    "flow-framer:3a-settle",
+    "resolver:3a-settle-pairs",
+    "verifier:3av-settle",
+    "resolver:3a-settle-convert",
+    "flow-check:3a-settle-convert",
+    "flow-framer:3b-reframe",
+    "resolver:3b",
+    "verifier:3bv",
+    "resolver:3b-fix",
+    "verifier:3b-fixv",
+    "flow-framer:3b-settle",
+    "verifier:3bv-settle"
+   ],
+   "3": [
+    "flow-check:g0-2-answers",
+    "resolver:3a",
+    "flow-check:3a"
+   ],
+   "4": [
+    "flow-check:3a-entry",
+    "flow-check:g0-2-answers",
+    "resolver:3a",
+    "flow-check:3a",
+    "flow-check:4-backup",
+    "writer:U-1:draft",
+    "implementer:r1:requirements/cleanup-branches",
+    "grounding:r1:requirements/cleanup-branches",
+    "crossDoc:r1:all",
+    "flow-check:crossDoc-r1-all-recopy",
+    "resolver:6",
+    "verifier:6v",
+    "resolver:6-fix",
+    "verifier:6-fixv"
+   ],
+   "5": [
+    "flow-check:g1-answers",
+    "resolver:3a'",
+    "flow-check:3a'",
+    "flow-check:7-backup",
+    "writer:U-1:revise",
+    "grounding:r2:requirements/cleanup-branches",
+    "implementer:r2:requirements/cleanup-branches",
+    "crossDoc:r2:all",
+    "resolver:6",
+    "verifier:6v",
+    "flow-check:7-backup",
+    "writer:U-1:revise",
+    "grounding:r3:requirements/cleanup-branches",
+    "implementer:r3:requirements/cleanup-branches",
+    "crossDoc:r3:all",
+    "resolver:6",
+    "verifier:6v",
+    "flow-check:7-backup",
+    "writer:U-1:revise",
+    "grounding:r4:requirements/cleanup-branches",
+    "implementer:r4:requirements/cleanup-branches",
+    "flow-check:grounding-r4-requirements/cleanup-branches-recopy"
+   ]
+  },
+  "labels_launched_more_than_once": {
+   "resolver:3a": 3,
+   "flow-check:g0-2-answers": 2,
+   "flow-check:3a": 2,
+   "resolver:6": 3,
+   "verifier:6v": 3,
+   "flow-check:7-backup": 3,
+   "writer:U-1:revise": 3
+  }
+ },
+ "launch_reasons": {
+  "unclassified": [],
+  "by_family": {
+   "intake": {
+    "reason": "base",
+    "launches": 1,
+    "tokens": 112819,
+    "per_run": {
+     "1": 1
+    },
+    "labels": [
+     [
+      "intake",
+      1
+     ]
+    ]
+   },
+   "flow-framer": {
+    "reason": "base",
+    "launches": 1,
+    "tokens": 127333,
+    "per_run": {
+     "1": 1
+    },
+    "labels": [
+     [
+      "flow-framer",
+      1
+     ]
+    ]
+   },
+   "main-resolver": {
+    "reason": "base",
+    "launches": 9,
+    "tokens": 1052403,
+    "per_run": {
+     "1": 1,
+     "2": 2,
+     "3": 1,
+     "4": 2,
+     "5": 3
+    },
+    "labels": [
+     [
+      "resolver:3",
+      1
+     ],
+     [
+      "resolver:3a",
+      3
+     ],
+     [
+      "resolver:3a'",
+      1
+     ],
+     [
+      "resolver:3b",
+      1
+     ],
+     [
+      "resolver:6",
+      3
+     ]
+    ]
+   },
+   "main-verifier": {
+    "reason": "base",
+    "launches": 6,
+    "tokens": 745376,
+    "per_run": {
+     "1": 1,
+     "2": 2,
+     "4": 1,
+     "5": 2
+    },
+    "labels": [
+     [
+      "verifier:3av",
+      1
+     ],
+     [
+      "verifier:3bv",
+      1
+     ],
+     [
+      "verifier:3v",
+      1
+     ],
+     [
+      "verifier:6v",
+      3
+     ]
+    ]
+   },
+   "writer": {
+    "reason": "base",
+    "launches": 4,
+    "tokens": 668136,
+    "per_run": {
+     "4": 1,
+     "5": 3
+    },
+    "labels": [
+     [
+      "writer:U-1:draft",
+      1
+     ],
+     [
+      "writer:U-1:revise",
+      3
+     ]
+    ]
+   },
+   "audit-first": {
+    "reason": "base",
+    "launches": 3,
+    "tokens": 506267,
+    "per_run": {
+     "4": 3
+    },
+    "labels": [
+     [
+      "crossDoc:r1:all",
+      1
+     ],
+     [
+      "grounding:r1:requirements/cleanup-branches",
+      1
+     ],
+     [
+      "implementer:r1:requirements/cleanup-branches",
+      1
+     ]
+    ]
+   },
+   "audit-scoped": {
+    "reason": "base",
+    "launches": 6,
+    "tokens": 1093359,
+    "per_run": {
+     "5": 6
+    },
+    "labels": [
+     [
+      "grounding:r2:requirements/cleanup-branches",
+      1
+     ],
+     [
+      "grounding:r3:requirements/cleanup-branches",
+      1
+     ],
+     [
+      "grounding:r4:requirements/cleanup-branches",
+      1
+     ],
+     [
+      "implementer:r2:requirements/cleanup-branches",
+      1
+     ],
+     [
+      "implementer:r3:requirements/cleanup-branches",
+      1
+     ],
+     [
+      "implementer:r4:requirements/cleanup-branches",
+      1
+     ]
+    ]
+   },
+   "flow-check-entry": {
+    "reason": "base",
+    "launches": 2,
+    "tokens": 124443,
+    "per_run": {
+     "1": 1,
+     "4": 1
+    },
+    "labels": [
+     [
+      "flow-check:1-entry",
+      1
+     ],
+     [
+      "flow-check:3a-entry",
+      1
+     ]
+    ]
+   },
+   "flow-check-answers": {
+    "reason": "base",
+    "launches": 4,
+    "tokens": 219769,
+    "per_run": {
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1
+    },
+    "labels": [
+     [
+      "flow-check:g0-2-answers",
+      2
+     ],
+     [
+      "flow-check:g0-answers",
+      1
+     ],
+     [
+      "flow-check:g1-answers",
+      1
+     ]
+    ]
+   },
+   "flow-check-backup": {
+    "reason": "base",
+    "launches": 4,
+    "tokens": 221062,
+    "per_run": {
+     "4": 1,
+     "5": 3
+    },
+    "labels": [
+     [
+      "flow-check:4-backup",
+      1
+     ],
+     [
+      "flow-check:7-backup",
+      3
+     ]
+    ]
+   },
+   "rework-resolver": {
+    "reason": "差し戻し（v1 の不合格）",
+    "launches": 4,
+    "tokens": 410911,
+    "per_run": {
+     "1": 1,
+     "2": 2,
+     "4": 1
+    },
+    "labels": [
+     [
+      "resolver:3-fix",
+      1
+     ],
+     [
+      "resolver:3a-fix",
+      1
+     ],
+     [
+      "resolver:3b-fix",
+      1
+     ],
+     [
+      "resolver:6-fix",
+      1
+     ]
+    ]
+   },
+   "rework-verifier": {
+    "reason": "差し戻し（v1 の不合格）",
+    "launches": 4,
+    "tokens": 394568,
+    "per_run": {
+     "1": 1,
+     "2": 2,
+     "4": 1
+    },
+    "labels": [
+     [
+      "verifier:3-fixv",
+      1
+     ],
+     [
+      "verifier:3a-fixv",
+      1
+     ],
+     [
+      "verifier:3b-fixv",
+      1
+     ],
+     [
+      "verifier:6-fixv",
+      1
+     ]
+    ]
+   },
+   "convert": {
+    "reason": "変換",
+    "launches": 1,
+    "tokens": 101754,
+    "per_run": {
+     "2": 1
+    },
+    "labels": [
+     [
+      "resolver:3a-settle-convert",
+      1
+     ]
+    ]
+   },
+   "settle-framer": {
+    "reason": "settle",
+    "launches": 4,
+    "tokens": 401740,
+    "per_run": {
+     "1": 2,
+     "2": 2
+    },
+    "labels": [
+     [
+      "flow-framer:3-settle",
+      1
+     ],
+     [
+      "flow-framer:3-settle-2",
+      1
+     ],
+     [
+      "flow-framer:3a-settle",
+      1
+     ],
+     [
+      "flow-framer:3b-settle",
+      1
+     ]
+    ]
+   },
+   "settle-verifier": {
+    "reason": "settle",
+    "launches": 4,
+    "tokens": 454036,
+    "per_run": {
+     "1": 2,
+     "2": 2
+    },
+    "labels": [
+     [
+      "verifier:3av-settle",
+      1
+     ],
+     [
+      "verifier:3bv-settle",
+      1
+     ],
+     [
+      "verifier:3v-settle",
+      1
+     ],
+     [
+      "verifier:3v-settle-2",
+      1
+     ]
+    ]
+   },
+   "opens": {
+    "reason": "未裁定の O- と組（R6b）",
+    "launches": 1,
+    "tokens": 111526,
+    "per_run": {
+     "1": 1
+    },
+    "labels": [
+     [
+      "resolver:3-settle-opens",
+      1
+     ]
+    ]
+   },
+   "pairs": {
+    "reason": "組の再検査",
+    "launches": 1,
+    "tokens": 130381,
+    "per_run": {
+     "2": 1
+    },
+    "labels": [
+     [
+      "resolver:3a-settle-pairs",
+      1
+     ]
+    ]
+   },
+   "independent-flow": {
+    "reason": "独立な flow の数え直し",
+    "launches": 4,
+    "tokens": 233892,
+    "per_run": {
+     "2": 1,
+     "3": 1,
+     "4": 1,
+     "5": 1
+    },
+    "labels": [
+     [
+      "flow-check:3a",
+      2
+     ],
+     [
+      "flow-check:3a'",
+      1
+     ],
+     [
+      "flow-check:3a-settle-convert",
+      1
+     ]
+    ]
+   },
+   "recopy": {
+    "reason": "写しの取り直し（doc_check の stdout が checksum に合わない）",
+    "launches": 2,
+    "tokens": 123628,
+    "per_run": {
+     "4": 1,
+     "5": 1
+    },
+    "labels": [
+     [
+      "flow-check:crossDoc-r1-all-recopy",
+      1
+     ],
+     [
+      "flow-check:grounding-r4-requirements/cleanup-branches-recopy",
+      1
+     ]
+    ]
+   },
+   "reframe": {
+    "reason": "段 3b の組み直し",
+    "launches": 1,
+    "tokens": 143537,
+    "per_run": {
+     "2": 1
+    },
+    "labels": [
+     [
+      "flow-framer:3b-reframe",
+      1
+     ]
+    ]
+   },
+   "crossdoc-reaudit": {
+    "reason": "crossDoc の再監査",
+    "launches": 2,
+    "tokens": 258505,
+    "per_run": {
+     "5": 2
+    },
+    "labels": [
+     [
+      "crossDoc:r2:all",
+      1
+     ],
+     [
+      "crossDoc:r3:all",
+      1
+     ]
+    ]
+   }
+  },
+  "prompt_clue_counts": {
+   "差し戻し（v1 の不合格）": 4,
+   "settle: 検証の裁定（verification、R2）": 2,
+   "settle の後の未裁定の O-（R6b）": 1,
+   "settle: 裁定の無い不合格の要素（redo、R2）": 1,
+   "settle: 閉じた未決の終端（left）": 1,
+   "settle: 閉じた未決の終端（left、constrained_by）": 1,
+   "crossDoc の再監査（scopedAuditPlan が当てた項目）": 2
+  },
+  "launches_with_clues": [
+   {
+    "run": 1,
+    "label": "resolver:3-fix",
+    "family": "rework-resolver",
+    "reason": "差し戻し（v1 の不合格）",
+    "prompt_clues": [
+     "差し戻し（v1 の不合格）"
+    ],
+    "tokens": 129239
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle",
+    "family": "settle-framer",
+    "reason": "settle",
+    "prompt_clues": [
+     "settle: 検証の裁定（verification、R2）"
+    ],
+    "tokens": 126717
+   },
+   {
+    "run": 1,
+    "label": "resolver:3-settle-opens",
+    "family": "opens",
+    "reason": "未裁定の O- と組（R6b）",
+    "prompt_clues": [
+     "settle の後の未裁定の O-（R6b）"
+    ],
+    "tokens": 111526
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle-2",
+    "family": "settle-framer",
+    "reason": "settle",
+    "prompt_clues": [
+     "settle: 裁定の無い不合格の要素（redo、R2）"
+    ],
+    "tokens": 90307
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a-fix",
+    "family": "rework-resolver",
+    "reason": "差し戻し（v1 の不合格）",
+    "prompt_clues": [
+     "差し戻し（v1 の不合格）"
+    ],
+    "tokens": 97718
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3a-settle",
+    "family": "settle-framer",
+    "reason": "settle",
+    "prompt_clues": [
+     "settle: 閉じた未決の終端（left）",
+     "settle: 閉じた未決の終端（left、constrained_by）"
+    ],
+    "tokens": 97331
+   },
+   {
+    "run": 2,
+    "label": "resolver:3b-fix",
+    "family": "rework-resolver",
+    "reason": "差し戻し（v1 の不合格）",
+    "prompt_clues": [
+     "差し戻し（v1 の不合格）"
+    ],
+    "tokens": 101211
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3b-settle",
+    "family": "settle-framer",
+    "reason": "settle",
+    "prompt_clues": [
+     "settle: 検証の裁定（verification、R2）"
+    ],
+    "tokens": 87385
+   },
+   {
+    "run": 4,
+    "label": "resolver:6-fix",
+    "family": "rework-resolver",
+    "reason": "差し戻し（v1 の不合格）",
+    "prompt_clues": [
+     "差し戻し（v1 の不合格）"
+    ],
+    "tokens": 82743
+   },
+   {
+    "run": 5,
+    "label": "crossDoc:r2:all",
+    "family": "crossdoc-reaudit",
+    "reason": "crossDoc の再監査",
+    "prompt_clues": [
+     "crossDoc の再監査（scopedAuditPlan が当てた項目）"
+    ],
+    "tokens": 135065
+   },
+   {
+    "run": 5,
+    "label": "crossDoc:r3:all",
+    "family": "crossdoc-reaudit",
+    "reason": "crossDoc の再監査",
+    "prompt_clues": [
+     "crossDoc の再監査（scopedAuditPlan が当てた項目）"
+    ],
+    "tokens": 123440
+   }
+  ]
+ },
+ "skipped": [
+  {
+   "run": 3,
+   "step": "verifier:3av",
+   "fact": "unchanged",
+   "ids": [
+    "RS-033"
+   ],
+   "label_launched_in_this_run": false
+  },
+  {
+   "run": 4,
+   "step": "verifier:3av",
+   "fact": "unchanged",
+   "ids": [
+    "RS-033"
+   ],
+   "label_launched_in_this_run": false
+  },
+  {
+   "run": 5,
+   "step": "verifier:3av",
+   "fact": "unchanged",
+   "ids": [
+    "RS-033"
+   ],
+   "label_launched_in_this_run": false
+  },
+  {
+   "run": 5,
+   "step": "verifier:3a'v",
+   "fact": "unchanged",
+   "ids": [
+    "RS-045",
+    "RS-049",
+    "RS-050",
+    "RS-051"
+   ],
+   "label_launched_in_this_run": false
+  }
+ ],
+ "run_results": {
+  "1": {
+   "status": "needs_answers",
+   "gate": "g0",
+   "question_ids": [
+    "RS-001",
+    "RS-002",
+    "RS-003",
+    "RS-004",
+    "RS-005",
+    "RS-006",
+    "RS-007",
+    "RS-008",
+    "RS-009",
+    "RS-010",
+    "RS-011",
+    "RS-012",
+    "RS-013",
+    "RS-014",
+    "RS-015",
+    "RS-016",
+    "RS-025",
+    "RS-026"
+   ],
+   "reason": null,
+   "holds": [],
+   "hold_drafts": [],
+   "open_tbd": [],
+   "integrity": [],
+   "notices_count": 0,
+   "notices": [],
+   "passes": 0,
+   "stop_reason": null,
+   "remaining_blocking": null,
+   "resumable": true,
+   "next_args_chars": 1830,
+   "next_args_state_has_flow": false,
+   "next_args_state_keys": [
+    "about",
+    "failed_ids",
+    "flow_digest",
+    "gate",
+    "holds",
+    "missed",
+    "passed",
+    "questions",
+    "resolutions_sha256",
+    "routes",
+    "superseded",
+    "tx",
+    "units"
+   ]
+  },
+  "2": {
+   "status": "needs_answers",
+   "gate": "g0-2",
+   "question_ids": [
+    "RS-033"
+   ],
+   "reason": null,
+   "holds": [],
+   "hold_drafts": [
+    "RS-027"
+   ],
+   "open_tbd": [],
+   "integrity": [],
+   "notices_count": 0,
+   "notices": [],
+   "passes": 0,
+   "stop_reason": null,
+   "remaining_blocking": null,
+   "resumable": true,
+   "next_args_chars": 2412,
+   "next_args_state_has_flow": false,
+   "next_args_state_keys": [
+    "about",
+    "answered",
+    "failed_ids",
+    "flow_digest",
+    "gate",
+    "holds",
+    "missed",
+    "passed",
+    "questions",
+    "resolutions_sha256",
+    "routes",
+    "superseded",
+    "tx",
+    "units"
+   ]
+  },
+  "3": {
+   "status": "blocked",
+   "gate": null,
+   "question_ids": null,
+   "reason": "flow-check（段 3a）が doc_check flow の stdout を返しませんでした",
+   "holds": [],
+   "hold_drafts": [
+    "RS-027"
+   ],
+   "open_tbd": [],
+   "integrity": [],
+   "notices_count": 0,
+   "notices": [],
+   "passes": 0,
+   "stop_reason": null,
+   "remaining_blocking": null,
+   "resumable": false,
+   "next_args_chars": 2439,
+   "next_args_state_has_flow": false,
+   "next_args_state_keys": [
+    "about",
+    "answered",
+    "failed_ids",
+    "flow_digest",
+    "gate",
+    "holds",
+    "missed",
+    "passed",
+    "questions",
+    "resolutions_sha256",
+    "routes",
+    "superseded",
+    "tx",
+    "units"
+   ]
+  },
+  "4": {
+   "status": "needs_answers",
+   "gate": "g1",
+   "question_ids": [
+    "RS-045",
+    "RS-049",
+    "RS-050",
+    "RS-051"
+   ],
+   "reason": null,
+   "holds": [
+    "RS-027"
+   ],
+   "hold_drafts": [],
+   "open_tbd": [],
+   "integrity": [],
+   "notices_count": 2,
+   "notices": [
+    "監査の基準 audited-1 の時点で、W に所有表に無いファイルが 2 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-1.stray.json）",
+    "監査の基準 audited-1 の時点で、分量の目安（SIZE_BUDGET）を超えたファイルが 5 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-1.sizes.json）"
+   ],
+   "passes": 1,
+   "stop_reason": null,
+   "remaining_blocking": null,
+   "resumable": true,
+   "next_args_chars": 9830,
+   "next_args_state_has_flow": false,
+   "next_args_state_keys": [
+    "about",
+    "answered",
+    "audit",
+    "docs",
+    "failed_ids",
+    "flow_digest",
+    "gate",
+    "holds",
+    "missed",
+    "new_tbd",
+    "notices",
+    "open_tbd",
+    "pass",
+    "passed",
+    "pending",
+    "questions",
+    "resolutions_sha256",
+    "roles_by_item",
+    "routes",
+    "settled_written",
+    "superseded",
+    "tree_digest",
+    "tx",
+    "units"
+   ]
+  },
+  "5": {
+   "status": "done",
+   "gate": null,
+   "question_ids": null,
+   "reason": null,
+   "holds": [
+    "RS-027",
+    "RS-052",
+    "RS-053",
+    "RS-054",
+    "RS-055",
+    "RS-056"
+   ],
+   "hold_drafts": [],
+   "open_tbd": [],
+   "integrity": [],
+   "notices_count": 10,
+   "notices": [
+    "監査の基準 audited-1 の時点で、W に所有表に無いファイルが 2 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-1.stray.json）",
+    "監査の基準 audited-1 の時点で、分量の目安（SIZE_BUDGET）を超えたファイルが 5 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-1.sizes.json）",
+    "監査の基準 audited-2 の時点で、W に所有表に無いファイルが 2 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-2.stray.json）",
+    "監査の基準 audited-2 の時点で、分量の目安（SIZE_BUDGET）を超えたファイルが 7 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-2.sizes.json）",
+    "監査 r2: 既裁定の再出（再発に数えない）: r2-im-requirements__cleanup-branches-001 ← RS-047",
+    "監査の基準 audited-3 の時点で、W に所有表に無いファイルが 2 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-3.stray.json）",
+    "監査の基準 audited-3 の時点で、分量の目安（SIZE_BUDGET）を超えたファイルが 7 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-3.sizes.json）",
+    "監査 r3: 既裁定の再出（再発に数えない）: r3-im-requirements__cleanup-branches-002 ← RS-055",
+    "監査の基準 audited-4 の時点で、W に所有表に無いファイルが 2 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-4.stray.json）",
+    "監査の基準 audited-4 の時点で、分量の目安（SIZE_BUDGET）を超えたファイルが 7 件あった（/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/checks/audited-4.sizes.json）"
+   ],
+   "passes": 3,
+   "stop_reason": null,
+   "remaining_blocking": null,
+   "resumable": false,
+   "next_args_chars": null,
+   "next_args_state_has_flow": null,
+   "next_args_state_keys": null
+  }
+ },
+ "usage_per_run": {
+  "1": {
+   "input": 292,
+   "cache_read": 12156756,
+   "cache_creation": 1199807,
+   "cache_creation_5m": 1199807,
+   "cache_creation_1h": 0,
+   "output": 18853,
+   "turns": 136,
+   "input_all": 13356855,
+   "cache_read_share": 0.9102,
+   "weighted_input_model_matched": 2113794.9,
+   "first_agent": {
+    "label": "flow-check:1-entry",
+    "model": "claude-haiku-4-5-20251001",
+    "first_turn": {
+     "input": 10,
+     "cache_read": 0,
+     "cache_creation": 46237,
+     "cache_creation_5m": 46237,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 1,
+     "weighted_input": 57806.25
+    }
+   },
+   "first_opus_agent": {
+    "label": "intake",
+    "first_turn": {
+     "input": 2,
+     "cache_read": 0,
+     "cache_creation": 64818,
+     "cache_creation_5m": 64818,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 8,
+     "weighted_input": 81024.5
+    }
+   },
+   "start": 1790714927.264,
+   "end": 1790716953.326
+  },
+  "2": {
+   "input": 448,
+   "cache_read": 16843896,
+   "cache_creation": 1558988,
+   "cache_creation_5m": 1558988,
+   "cache_creation_1h": 0,
+   "output": 24675,
+   "turns": 192,
+   "input_all": 18403332,
+   "cache_read_share": 0.9153,
+   "weighted_input_model_matched": 2812935.6,
+   "first_agent": {
+    "label": "flow-check:g0-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "first_turn": {
+     "input": 10,
+     "cache_read": 0,
+     "cache_creation": 46477,
+     "cache_creation_5m": 46477,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 1,
+     "weighted_input": 58106.25
+    }
+   },
+   "first_opus_agent": {
+    "label": "resolver:3a",
+    "first_turn": {
+     "input": 2,
+     "cache_read": 0,
+     "cache_creation": 66605,
+     "cache_creation_5m": 66605,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 84,
+     "weighted_input": 83258.25
+    }
+   },
+   "start": 1790733373.17,
+   "end": 1790735567.515,
+   "idle_before_seconds": 16419.8
+  },
+  "3": {
+   "input": 62,
+   "cache_read": 535951,
+   "cache_creation": 149141,
+   "cache_creation_5m": 149141,
+   "cache_creation_1h": 0,
+   "output": 895,
+   "turns": 11,
+   "input_all": 685154,
+   "cache_read_share": 0.7822,
+   "weighted_input_model_matched": 222906.1,
+   "first_agent": {
+    "label": "flow-check:g0-2-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "first_turn": {
+     "input": 10,
+     "cache_read": 0,
+     "cache_creation": 46413,
+     "cache_creation_5m": 46413,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 2,
+     "weighted_input": 58026.25
+    }
+   },
+   "first_opus_agent": {
+    "label": "resolver:3a",
+    "first_turn": {
+     "input": 2,
+     "cache_read": 39476,
+     "cache_creation": 27179,
+     "cache_creation_5m": 27179,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 194,
+     "weighted_input": 35949.55
+    }
+   },
+   "start": 1790735659.682,
+   "end": 1790735711.135,
+   "idle_before_seconds": 92.2
+  },
+  "4": {
+   "input": 528,
+   "cache_read": 18295163,
+   "cache_creation": 1391661,
+   "cache_creation_5m": 1391661,
+   "cache_creation_1h": 0,
+   "output": 20424,
+   "turns": 178,
+   "input_all": 19687352,
+   "cache_read_share": 0.9293,
+   "weighted_input_model_matched": 2779897.5,
+   "first_agent": {
+    "label": "flow-check:3a-entry",
+    "model": "claude-haiku-4-5-20251001",
+    "first_turn": {
+     "input": 10,
+     "cache_read": 0,
+     "cache_creation": 46489,
+     "cache_creation_5m": 46489,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 3,
+     "weighted_input": 58121.25
+    }
+   },
+   "first_opus_agent": {
+    "label": "resolver:3a",
+    "first_turn": {
+     "input": 2,
+     "cache_read": 0,
+     "cache_creation": 66643,
+     "cache_creation_5m": 66643,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 84,
+     "weighted_input": 83305.75
+    }
+   },
+   "start": 1790741692.75,
+   "end": 1790743782.093,
+   "idle_before_seconds": 5981.6
+  },
+  "5": {
+   "input": 744,
+   "cache_read": 29145728,
+   "cache_creation": 2485541,
+   "cache_creation_5m": 2485541,
+   "cache_creation_1h": 0,
+   "output": 25083,
+   "turns": 285,
+   "input_all": 31632013,
+   "cache_read_share": 0.9214,
+   "weighted_input_model_matched": 4717007.9,
+   "first_agent": {
+    "label": "flow-check:g1-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "first_turn": {
+     "input": 10,
+     "cache_read": 0,
+     "cache_creation": 46410,
+     "cache_creation_5m": 46410,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 1,
+     "weighted_input": 58022.5
+    }
+   },
+   "first_opus_agent": {
+    "label": "resolver:3a'",
+    "first_turn": {
+     "input": 2,
+     "cache_read": 39476,
+     "cache_creation": 27243,
+     "cache_creation_5m": 27243,
+     "cache_creation_1h": 0,
+     "cache_creation_unsplit": 0,
+     "output": 84,
+     "weighted_input": 36029.55
+    }
+   },
+   "start": 1790743891.793,
+   "end": 1790746642.552,
+   "idle_before_seconds": 109.7
+  }
+ },
+ "weighted_input_by_model_matched": {
+  "by_model": {
+   "claude-haiku-4-5-20251001": 1421314.9,
+   "claude-opus-5-5": 10401682.0,
+   "claude-sonnet-5-5": 823545.0
+  },
+  "total": 12646541.9,
+  "note": "opus は --weights 0.05,1.25,2 の usage.json、haiku・sonnet は 0.1,1.25,2 の usage-weights-0.1.json から取った"
+ },
+ "first_turn_input_by_model": {
+  "claude-haiku-4-5-20251001": {
+   "n": 16,
+   "min": 46247,
+   "max": 46503,
+   "mean": 46422.9,
+   "median": 46415.0
+  },
+  "claude-opus-5-5": {
+   "n": 49,
+   "min": 64820,
+   "max": 67614,
+   "mean": 65961.1,
+   "median": 66192
+  },
+  "claude-sonnet-5-5": {
+   "n": 3,
+   "min": 66140,
+   "max": 66277,
+   "mean": 66188.3,
+   "median": 66148
+  }
+ },
+ "first_turn_cache_read_positive": {
+  "claude-haiku-4-5-20251001": 1,
+  "claude-opus-5-5": 18,
+  "claude-sonnet-5-5": 0
+ },
+ "same_role_first_turn": {
+  "first_of_group": {
+   "n": 25,
+   "cache_read_positive": 4,
+   "rows": [
+    {
+     "run": 1,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:1-entry",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46237,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "intake"
+     ],
+     "label": "intake",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 64818,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "flow-framer"
+     ],
+     "label": "flow-framer",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65021,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66348,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3v",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65083,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:g0-answers",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46477,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66605,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3av",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65101,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "flow-framer"
+     ],
+     "label": "flow-framer:3a-settle",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65437,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 3,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:g0-2-answers",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46413,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 3,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a",
+     "first_turn_cache_read": 39476,
+     "first_turn_cache_creation": 27179,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:3a-entry",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46489,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66643,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "writer"
+     ],
+     "label": "writer:U-1:draft",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65877,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "implementer"
+     ],
+     "label": "implementer:r1:requirements/cleanup-branches",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65832,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "grounding"
+     ],
+     "label": "grounding:r1:requirements/cleanup-branches",
+     "first_turn_cache_read": 39355,
+     "first_turn_cache_creation": 26494,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-sonnet-5-5",
+      "crossDoc"
+     ],
+     "label": "crossDoc:r1:all",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66146,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:6v",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65155,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:g1-answers",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46410,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a'",
+     "first_turn_cache_read": 39476,
+     "first_turn_cache_creation": 27243,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "writer"
+     ],
+     "label": "writer:U-1:revise",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 67281,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "grounding"
+     ],
+     "label": "grounding:r2:requirements/cleanup-branches",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 67612,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "implementer"
+     ],
+     "label": "implementer:r2:requirements/cleanup-branches",
+     "first_turn_cache_read": 39355,
+     "first_turn_cache_creation": 27192,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-sonnet-5-5",
+      "crossDoc"
+     ],
+     "label": "crossDoc:r2:all",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66275,
+     "gap_from_prev_in_group_s": null
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:6v",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65095,
+     "gap_from_prev_in_group_s": null
+    }
+   ]
+  },
+  "later_in_group": {
+   "n": 43,
+   "cache_read_positive": 15,
+   "rows": [
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "flow-framer"
+     ],
+     "label": "flow-framer:3-settle",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65072,
+     "gap_from_prev_in_group_s": 1213.1
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "flow-framer"
+     ],
+     "label": "flow-framer:3-settle-2",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65100,
+     "gap_from_prev_in_group_s": 483.9
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3-fix",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 67441,
+     "gap_from_prev_in_group_s": 510.4
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3-settle-opens",
+     "first_turn_cache_read": 39310,
+     "first_turn_cache_creation": 26974,
+     "gap_from_prev_in_group_s": 510.7
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3-fixv",
+     "first_turn_cache_read": 38784,
+     "first_turn_cache_creation": 26192,
+     "gap_from_prev_in_group_s": 616.6
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3v-settle",
+     "first_turn_cache_read": 38784,
+     "first_turn_cache_creation": 26157,
+     "gap_from_prev_in_group_s": 322.1
+    },
+    {
+     "run": 1,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3v-settle-2",
+     "first_turn_cache_read": 38784,
+     "first_turn_cache_creation": 26154,
+     "gap_from_prev_in_group_s": 292.5
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:3a-settle-convert",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46417,
+     "gap_from_prev_in_group_s": 1393.5
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a-fix",
+     "first_turn_cache_read": 39476,
+     "first_turn_cache_creation": 27014,
+     "gap_from_prev_in_group_s": 388.0
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a-settle-pairs",
+     "first_turn_cache_read": 39476,
+     "first_turn_cache_creation": 27079,
+     "gap_from_prev_in_group_s": 360.9
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3a-settle-convert",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66450,
+     "gap_from_prev_in_group_s": 572.2
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3b",
+     "first_turn_cache_read": 39476,
+     "first_turn_cache_creation": 27012,
+     "gap_from_prev_in_group_s": 245.5
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:3b-fix",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66558,
+     "gap_from_prev_in_group_s": 436.9
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3a-fixv",
+     "first_turn_cache_read": 38950,
+     "first_turn_cache_creation": 26154,
+     "gap_from_prev_in_group_s": 361.5
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3av-settle",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65142,
+     "gap_from_prev_in_group_s": 365.7
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3bv",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65103,
+     "gap_from_prev_in_group_s": 687.6
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3b-fixv",
+     "first_turn_cache_read": 38950,
+     "first_turn_cache_creation": 26154,
+     "gap_from_prev_in_group_s": 341.4
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:3bv-settle",
+     "first_turn_cache_read": 38950,
+     "first_turn_cache_creation": 26159,
+     "gap_from_prev_in_group_s": 72.7
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "flow-framer"
+     ],
+     "label": "flow-framer:3b-reframe",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65744,
+     "gap_from_prev_in_group_s": 694.4
+    },
+    {
+     "run": 2,
+     "group": [
+      "claude-opus-5-5",
+      "flow-framer"
+     ],
+     "label": "flow-framer:3b-settle",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65093,
+     "gap_from_prev_in_group_s": 691.9
+    },
+    {
+     "run": 3,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:3a",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46409,
+     "gap_from_prev_in_group_s": 31.5
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:g0-2-answers",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46401,
+     "gap_from_prev_in_group_s": 29.6
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:3a",
+     "first_turn_cache_read": 32419,
+     "first_turn_cache_creation": 13978,
+     "gap_from_prev_in_group_s": 35.1
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:4-backup",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46393,
+     "gap_from_prev_in_group_s": 28.8
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:crossDoc-r1-all-recopy",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46493,
+     "gap_from_prev_in_group_s": 1044.6
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:6",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66709,
+     "gap_from_prev_in_group_s": 1215.0
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:6-fix",
+     "first_turn_cache_read": 39476,
+     "first_turn_cache_creation": 27130,
+     "gap_from_prev_in_group_s": 738.2
+    },
+    {
+     "run": 4,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:6-fixv",
+     "first_turn_cache_read": 38950,
+     "first_turn_cache_creation": 26136,
+     "gap_from_prev_in_group_s": 193.0
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:3a'",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46399,
+     "gap_from_prev_in_group_s": 50.3
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:7-backup",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46393,
+     "gap_from_prev_in_group_s": 36.3
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:7-backup",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46393,
+     "gap_from_prev_in_group_s": 1300.4
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:7-backup",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46393,
+     "gap_from_prev_in_group_s": 841.7
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-haiku-4-5-20251001",
+      "flow-check"
+     ],
+     "label": "flow-check:grounding-r4-requirements/cleanup-branches-recopy",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 46493,
+     "gap_from_prev_in_group_s": 499.3
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:6",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66666,
+     "gap_from_prev_in_group_s": 1017.6
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "resolver"
+     ],
+     "label": "resolver:6",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66630,
+     "gap_from_prev_in_group_s": 1057.6
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "writer"
+     ],
+     "label": "writer:U-1:revise",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66704,
+     "gap_from_prev_in_group_s": 1301.5
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "writer"
+     ],
+     "label": "writer:U-1:revise",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66572,
+     "gap_from_prev_in_group_s": 841.5
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "grounding"
+     ],
+     "label": "grounding:r3:requirements/cleanup-branches",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 67073,
+     "gap_from_prev_in_group_s": 1102.3
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "grounding"
+     ],
+     "label": "grounding:r4:requirements/cleanup-branches",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 67018,
+     "gap_from_prev_in_group_s": 791.9
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "implementer"
+     ],
+     "label": "implementer:r3:requirements/cleanup-branches",
+     "first_turn_cache_read": 39355,
+     "first_turn_cache_creation": 26835,
+     "gap_from_prev_in_group_s": 1102.1
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "implementer"
+     ],
+     "label": "implementer:r4:requirements/cleanup-branches",
+     "first_turn_cache_read": 39355,
+     "first_turn_cache_creation": 26935,
+     "gap_from_prev_in_group_s": 791.8
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-sonnet-5-5",
+      "crossDoc"
+     ],
+     "label": "crossDoc:r3:all",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 66138,
+     "gap_from_prev_in_group_s": 1084.6
+    },
+    {
+     "run": 5,
+     "group": [
+      "claude-opus-5-5",
+      "verifier"
+     ],
+     "label": "verifier:6v",
+     "first_turn_cache_read": 0,
+     "first_turn_cache_creation": 65080,
+     "gap_from_prev_in_group_s": 868.6
+    }
+   ]
+  }
+ },
+ "first_turn_cache_read_positive_all": {
+  "n": 68,
+  "positive": 19
+ },
+ "first_turn_cache_vs_gap": {
+  "table": {
+   "haiku|300to3600|miss": 7,
+   "haiku|ge3600|miss": 2,
+   "haiku|lt300|hit": 1,
+   "haiku|lt300|miss": 5,
+   "haiku|none|miss": 1,
+   "opus_sonnet|300to3600|miss": 22,
+   "opus_sonnet|ge3600|miss": 5,
+   "opus_sonnet|lt300|hit": 14,
+   "opus_sonnet|none|miss": 7,
+   "opus_sonnet|overlap|hit": 4
+  },
+  "rows": [
+   {
+    "label": "flow-check:1-entry",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46237
+   },
+   {
+    "label": "intake",
+    "model": "claude-opus-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 64818
+   },
+   {
+    "label": "flow-framer",
+    "model": "claude-opus-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65021
+   },
+   {
+    "label": "resolver:3",
+    "model": "claude-opus-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66348
+   },
+   {
+    "label": "verifier:3v",
+    "model": "claude-opus-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65083
+   },
+   {
+    "label": "resolver:3-fix",
+    "model": "claude-opus-5-5",
+    "gap_s": 352.5,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 67441
+   },
+   {
+    "label": "verifier:3-fixv",
+    "model": "claude-opus-5-5",
+    "gap_s": 265.9,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38784,
+    "first_turn_cache_creation": 26192
+   },
+   {
+    "label": "flow-framer:3-settle",
+    "model": "claude-opus-5-5",
+    "gap_s": 870.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65072
+   },
+   {
+    "label": "resolver:3-settle-opens",
+    "model": "claude-opus-5-5",
+    "gap_s": 246.6,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39310,
+    "first_turn_cache_creation": 26974
+   },
+   {
+    "label": "verifier:3v-settle",
+    "model": "claude-opus-5-5",
+    "gap_s": 228.8,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38784,
+    "first_turn_cache_creation": 26157
+   },
+   {
+    "label": "flow-framer:3-settle-2",
+    "model": "claude-opus-5-5",
+    "gap_s": 333.5,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65100
+   },
+   {
+    "label": "verifier:3v-settle-2",
+    "model": "claude-opus-5-5",
+    "gap_s": 37.3,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38784,
+    "first_turn_cache_creation": 26154
+   },
+   {
+    "label": "flow-check:g0-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 18433.6,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46477
+   },
+   {
+    "label": "resolver:3a",
+    "model": "claude-opus-5-5",
+    "gap_s": 16792.4,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66605
+   },
+   {
+    "label": "verifier:3av",
+    "model": "claude-opus-5-5",
+    "gap_s": 16727.3,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65101
+   },
+   {
+    "label": "resolver:3a-fix",
+    "model": "claude-opus-5-5",
+    "gap_s": 100.6,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39476,
+    "first_turn_cache_creation": 27014
+   },
+   {
+    "label": "verifier:3a-fixv",
+    "model": "claude-opus-5-5",
+    "gap_s": 262.8,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38950,
+    "first_turn_cache_creation": 26154
+   },
+   {
+    "label": "flow-framer:3a-settle",
+    "model": "claude-opus-5-5",
+    "gap_s": 17209.3,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65437
+   },
+   {
+    "label": "resolver:3a-settle-pairs",
+    "model": "claude-opus-5-5",
+    "gap_s": 99.8,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39476,
+    "first_turn_cache_creation": 27079
+   },
+   {
+    "label": "verifier:3av-settle",
+    "model": "claude-opus-5-5",
+    "gap_s": 306.9,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65142
+   },
+   {
+    "label": "resolver:3a-settle-convert",
+    "model": "claude-opus-5-5",
+    "gap_s": 306.4,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66450
+   },
+   {
+    "label": "flow-check:3a-settle-convert",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 1375.5,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46417
+   },
+   {
+    "label": "flow-framer:3b-reframe",
+    "model": "claude-opus-5-5",
+    "gap_s": 655.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65744
+   },
+   {
+    "label": "resolver:3b",
+    "model": "claude-opus-5-5",
+    "gap_s": 193.5,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39476,
+    "first_turn_cache_creation": 27012
+   },
+   {
+    "label": "verifier:3bv",
+    "model": "claude-opus-5-5",
+    "gap_s": 382.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65103
+   },
+   {
+    "label": "resolver:3b-fix",
+    "model": "claude-opus-5-5",
+    "gap_s": 301.6,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66558
+   },
+   {
+    "label": "verifier:3b-fixv",
+    "model": "claude-opus-5-5",
+    "gap_s": 41.6,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38950,
+    "first_turn_cache_creation": 26154
+   },
+   {
+    "label": "flow-framer:3b-settle",
+    "model": "claude-opus-5-5",
+    "gap_s": 529.9,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65093
+   },
+   {
+    "label": "verifier:3bv-settle",
+    "model": "claude-opus-5-5",
+    "gap_s": 22.3,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38950,
+    "first_turn_cache_creation": 26159
+   },
+   {
+    "label": "flow-check:g0-2-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 864.5,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46413
+   },
+   {
+    "label": "resolver:3a",
+    "model": "claude-opus-5-5",
+    "gap_s": 235.3,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39476,
+    "first_turn_cache_creation": 27179
+   },
+   {
+    "label": "flow-check:3a",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 20.6,
+    "bucket": "lt300",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46409
+   },
+   {
+    "label": "flow-check:3a-entry",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 5981.6,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46489
+   },
+   {
+    "label": "flow-check:g0-2-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 0.9,
+    "bucket": "lt300",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46401
+   },
+   {
+    "label": "resolver:3a",
+    "model": "claude-opus-5-5",
+    "gap_s": 6043.0,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66643
+   },
+   {
+    "label": "flow-check:3a",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 24.9,
+    "bucket": "lt300",
+    "first_turn_cache_read": 32419,
+    "first_turn_cache_creation": 13978
+   },
+   {
+    "label": "flow-check:4-backup",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 0.8,
+    "bucket": "lt300",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46393
+   },
+   {
+    "label": "writer:U-1:draft",
+    "model": "claude-opus-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65877
+   },
+   {
+    "label": "implementer:r1:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65832
+   },
+   {
+    "label": "grounding:r1:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": -481.5,
+    "bucket": "overlap",
+    "first_turn_cache_read": 39355,
+    "first_turn_cache_creation": 26494
+   },
+   {
+    "label": "crossDoc:r1:all",
+    "model": "claude-sonnet-5-5",
+    "gap_s": null,
+    "bucket": "none",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66146
+   },
+   {
+    "label": "flow-check:crossDoc-r1-all-recopy",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 1027.4,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46493
+   },
+   {
+    "label": "resolver:6",
+    "model": "claude-opus-5-5",
+    "gap_s": 1191.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66709
+   },
+   {
+    "label": "verifier:6v",
+    "model": "claude-opus-5-5",
+    "gap_s": 7953.3,
+    "bucket": "ge3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65155
+   },
+   {
+    "label": "resolver:6-fix",
+    "model": "claude-opus-5-5",
+    "gap_s": 166.5,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39476,
+    "first_turn_cache_creation": 27130
+   },
+   {
+    "label": "verifier:6-fixv",
+    "model": "claude-opus-5-5",
+    "gap_s": 28.2,
+    "bucket": "lt300",
+    "first_turn_cache_read": 38950,
+    "first_turn_cache_creation": 26136
+   },
+   {
+    "label": "flow-check:g1-answers",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 944.3,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46410
+   },
+   {
+    "label": "resolver:3a'",
+    "model": "claude-opus-5-5",
+    "gap_s": 202.8,
+    "bucket": "lt300",
+    "first_turn_cache_read": 39476,
+    "first_turn_cache_creation": 27243
+   },
+   {
+    "label": "flow-check:3a'",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 27.0,
+    "bucket": "lt300",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46399
+   },
+   {
+    "label": "flow-check:7-backup",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 0.8,
+    "bucket": "lt300",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46393
+   },
+   {
+    "label": "writer:U-1:revise",
+    "model": "claude-opus-5-5",
+    "gap_s": 1726.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 67281
+   },
+   {
+    "label": "grounding:r2:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": 1709.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 67612
+   },
+   {
+    "label": "implementer:r2:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": -346.3,
+    "bucket": "overlap",
+    "first_turn_cache_read": 39355,
+    "first_turn_cache_creation": 27192
+   },
+   {
+    "label": "crossDoc:r2:all",
+    "model": "claude-sonnet-5-5",
+    "gap_s": 1962.0,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66275
+   },
+   {
+    "label": "resolver:6",
+    "model": "claude-opus-5-5",
+    "gap_s": 992.5,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66666
+   },
+   {
+    "label": "verifier:6v",
+    "model": "claude-opus-5-5",
+    "gap_s": 1411.1,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65095
+   },
+   {
+    "label": "flow-check:7-backup",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 1289.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46393
+   },
+   {
+    "label": "writer:U-1:revise",
+    "model": "claude-opus-5-5",
+    "gap_s": 836.5,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66704
+   },
+   {
+    "label": "grounding:r3:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": 755.2,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 67073
+   },
+   {
+    "label": "implementer:r3:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": -317.0,
+    "bucket": "overlap",
+    "first_turn_cache_read": 39355,
+    "first_turn_cache_creation": 26835
+   },
+   {
+    "label": "crossDoc:r3:all",
+    "model": "claude-sonnet-5-5",
+    "gap_s": 944.0,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66138
+   },
+   {
+    "label": "resolver:6",
+    "model": "claude-opus-5-5",
+    "gap_s": 798.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66630
+   },
+   {
+    "label": "verifier:6v",
+    "model": "claude-opus-5-5",
+    "gap_s": 784.0,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 65080
+   },
+   {
+    "label": "flow-check:7-backup",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 830.0,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46393
+   },
+   {
+    "label": "writer:U-1:revise",
+    "model": "claude-opus-5-5",
+    "gap_s": 575.6,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 66572
+   },
+   {
+    "label": "grounding:r4:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": 428.3,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 67018
+   },
+   {
+    "label": "implementer:r4:requirements/cleanup-branches",
+    "model": "claude-opus-5-5",
+    "gap_s": -268.4,
+    "bucket": "overlap",
+    "first_turn_cache_read": 39355,
+    "first_turn_cache_creation": 26935
+   },
+   {
+    "label": "flow-check:grounding-r4-requirements/cleanup-branches-recopy",
+    "model": "claude-haiku-4-5-20251001",
+    "gap_s": 487.7,
+    "bucket": "300to3600",
+    "first_turn_cache_read": 0,
+    "first_turn_cache_creation": 46493
+   }
+  ],
+  "miss_300to3600_first_turn_cache_creation": 1781568,
+  "hit_first_turn_cache_read_values": [
+   32419,
+   38784,
+   38950,
+   39310,
+   39355,
+   39476
+  ]
+ },
+ "cross_role_check": {
+  "misses_same_role_gap_ge300": 27,
+  "with_other_role_within_300s": 23,
+  "rows": [
+   {
+    "label": "resolver:3-fix",
+    "other_role_within_300s": [
+     "verifier:3v"
+    ]
+   },
+   {
+    "label": "flow-framer:3-settle",
+    "other_role_within_300s": [
+     "resolver:3-fix",
+     "verifier:3-fixv"
+    ]
+   },
+   {
+    "label": "flow-framer:3-settle-2",
+    "other_role_within_300s": [
+     "resolver:3-settle-opens",
+     "verifier:3v-settle"
+    ]
+   },
+   {
+    "label": "resolver:3a",
+    "other_role_within_300s": []
+   },
+   {
+    "label": "verifier:3av",
+    "other_role_within_300s": [
+     "resolver:3a"
+    ]
+   },
+   {
+    "label": "flow-framer:3a-settle",
+    "other_role_within_300s": [
+     "resolver:3a-fix",
+     "verifier:3a-fixv"
+    ]
+   },
+   {
+    "label": "verifier:3av-settle",
+    "other_role_within_300s": [
+     "flow-framer:3a-settle",
+     "resolver:3a-settle-pairs"
+    ]
+   },
+   {
+    "label": "resolver:3a-settle-convert",
+    "other_role_within_300s": [
+     "verifier:3av-settle"
+    ]
+   },
+   {
+    "label": "flow-framer:3b-reframe",
+    "other_role_within_300s": [
+     "verifier:3av-settle",
+     "resolver:3a-settle-convert"
+    ]
+   },
+   {
+    "label": "verifier:3bv",
+    "other_role_within_300s": [
+     "flow-framer:3b-reframe",
+     "resolver:3b"
+    ]
+   },
+   {
+    "label": "resolver:3b-fix",
+    "other_role_within_300s": [
+     "verifier:3bv"
+    ]
+   },
+   {
+    "label": "flow-framer:3b-settle",
+    "other_role_within_300s": [
+     "verifier:3bv",
+     "resolver:3b-fix",
+     "verifier:3b-fixv"
+    ]
+   },
+   {
+    "label": "resolver:3a",
+    "other_role_within_300s": []
+   },
+   {
+    "label": "resolver:6",
+    "other_role_within_300s": [
+     "implementer:r1:requirements/cleanup-branches",
+     "grounding:r1:requirements/cleanup-branches"
+    ]
+   },
+   {
+    "label": "verifier:6v",
+    "other_role_within_300s": [
+     "resolver:6"
+    ]
+   },
+   {
+    "label": "writer:U-1:revise",
+    "other_role_within_300s": [
+     "resolver:6-fix",
+     "verifier:6-fixv",
+     "resolver:3a'"
+    ]
+   },
+   {
+    "label": "grounding:r2:requirements/cleanup-branches",
+    "other_role_within_300s": [
+     "writer:U-1:revise"
+    ]
+   },
+   {
+    "label": "crossDoc:r2:all",
+    "other_role_within_300s": []
+   },
+   {
+    "label": "resolver:6",
+    "other_role_within_300s": [
+     "grounding:r2:requirements/cleanup-branches",
+     "implementer:r2:requirements/cleanup-branches"
+    ]
+   },
+   {
+    "label": "verifier:6v",
+    "other_role_within_300s": [
+     "resolver:6"
+    ]
+   },
+   {
+    "label": "writer:U-1:revise",
+    "other_role_within_300s": [
+     "resolver:6",
+     "verifier:6v"
+    ]
+   },
+   {
+    "label": "grounding:r3:requirements/cleanup-branches",
+    "other_role_within_300s": [
+     "verifier:6v",
+     "writer:U-1:revise"
+    ]
+   },
+   {
+    "label": "crossDoc:r3:all",
+    "other_role_within_300s": []
+   },
+   {
+    "label": "resolver:6",
+    "other_role_within_300s": [
+     "grounding:r3:requirements/cleanup-branches",
+     "implementer:r3:requirements/cleanup-branches"
+    ]
+   },
+   {
+    "label": "verifier:6v",
+    "other_role_within_300s": [
+     "grounding:r3:requirements/cleanup-branches",
+     "implementer:r3:requirements/cleanup-branches",
+     "resolver:6"
+    ]
+   },
+   {
+    "label": "writer:U-1:revise",
+    "other_role_within_300s": [
+     "grounding:r3:requirements/cleanup-branches",
+     "implementer:r3:requirements/cleanup-branches",
+     "resolver:6",
+     "verifier:6v"
+    ]
+   },
+   {
+    "label": "grounding:r4:requirements/cleanup-branches",
+    "other_role_within_300s": [
+     "resolver:6",
+     "verifier:6v",
+     "writer:U-1:revise"
+    ]
+   }
+  ]
+ },
+ "transcript_cwd": {
+  "/home/user/claude-plugins": 68
+ },
+ "ttl_1h_estimate": {
+  "claude-haiku-4-5-20251001": {
+   "moved_write_to_read": 226933,
+   "cache_weighted_now": 1420698.9,
+   "cache_weighted_1h_estimate": 1657188.2,
+   "diff": 236489.3
+  },
+  "claude-opus-5-5": {
+   "moved_write_to_read": 510721,
+   "cache_weighted_now": 10400294.0,
+   "cache_weighted_1h_estimate": 13523742.1,
+   "diff": 3123448.1
+  },
+  "claude-sonnet-5-5": {
+   "moved_write_to_read": 0,
+   "cache_weighted_now": 823475.0,
+   "cache_weighted_1h_estimate": 1125312.5,
+   "diff": 301837.5
+  }
+ },
+ "role_counts_vs_rerun": {
+  "crossDoc": {
+   "prev_launches": 3,
+   "prev_tokens": 392048,
+   "launches": 3,
+   "tokens": 402528
+  },
+  "flow-check": {
+   "prev_launches": 0,
+   "prev_tokens": 0,
+   "launches": 16,
+   "tokens": 922794
+  },
+  "flow-framer": {
+   "prev_launches": 3,
+   "prev_tokens": 318464,
+   "launches": 6,
+   "tokens": 672610
+  },
+  "grounding": {
+   "prev_launches": 3,
+   "prev_tokens": 457983,
+   "launches": 4,
+   "tokens": 711354
+  },
+  "implementer": {
+   "prev_launches": 3,
+   "prev_tokens": 399711,
+   "launches": 4,
+   "tokens": 744249
+  },
+  "intake": {
+   "prev_launches": 1,
+   "prev_tokens": 102019,
+   "launches": 1,
+   "tokens": 112819
+  },
+  "resolver": {
+   "prev_launches": 11,
+   "prev_tokens": 1259353,
+   "launches": 16,
+   "tokens": 1806975
+  },
+  "verifier": {
+   "prev_launches": 10,
+   "prev_tokens": 988674,
+   "launches": 14,
+   "tokens": 1593980
+  },
+  "writer": {
+   "prev_launches": 3,
+   "prev_tokens": 418080,
+   "launches": 4,
+   "tokens": 668136
+  }
+ },
+ "rerun_from_3a_after_fix": {
+  "launches": 4,
+  "tokens": 252731,
+  "labels": [
+   "flow-check:3a-entry",
+   "flow-check:g0-2-answers",
+   "resolver:3a",
+   "flow-check:3a"
+  ]
+ },
+ "stdout_copies": {
+  "by_version_model_status": {
+   "7a208d0|claude-haiku-4-5-20251001|no_fnv": {
+    "n": 4,
+    "chars": 3827,
+    "max_chars": 3470
+   },
+   "7a208d0|claude-opus-5-5|no_fnv": {
+    "n": 46,
+    "chars": 55797,
+    "max_chars": 3593
+   },
+   "7a208d0|claude-haiku-4-5-20251001|bad_json": {
+    "n": 1,
+    "chars": 3558,
+    "max_chars": 3558
+   },
+   "7d06d97|claude-haiku-4-5-20251001|ok": {
+    "n": 13,
+    "chars": 18868,
+    "max_chars": 5277
+   },
+   "7d06d97|claude-opus-5-5|ok": {
+    "n": 22,
+    "chars": 37263,
+    "max_chars": 5754
+   },
+   "7d06d97|claude-sonnet-5-5|fnv_mismatch": {
+    "n": 1,
+    "chars": 277,
+    "max_chars": 277
+   },
+   "7d06d97|claude-sonnet-5-5|ok": {
+    "n": 1,
+    "chars": 507,
+    "max_chars": 507
+   },
+   "7d06d97|claude-opus-5-5|fnv_mismatch": {
+    "n": 1,
+    "chars": 471,
+    "max_chars": 471
+   }
+  },
+  "faults": [
+   {
+    "wf": "wf_f413a4a5-c3e",
+    "agent": "a45238ca4fa62d712",
+    "label": "flow-check:3a",
+    "run": 3,
+    "model": "claude-haiku-4-5-20251001",
+    "field": "flow_check",
+    "chars": 3558,
+    "status": "bad_json"
+   },
+   {
+    "wf": "wf_0f45ed55-8ba",
+    "agent": "a7268235a1b78617a",
+    "label": "crossDoc:r1:all",
+    "run": 4,
+    "model": "claude-sonnet-5-5",
+    "field": "designated.doc_check",
+    "chars": 277,
+    "status": "fnv_mismatch"
+   },
+   {
+    "wf": "wf_0f45ed55-8ba",
+    "agent": "a4eafb5f5515d8103",
+    "label": "grounding:r4:requirements/cleanup-branches",
+    "run": 5,
+    "model": "claude-opus-5-5",
+    "field": "designated.tree_digest",
+    "chars": 471,
+    "status": "fnv_mismatch"
+   }
+  ],
+  "recopy_launches": [
+   "flow-check:crossDoc-r1-all-recopy",
+   "flow-check:grounding-r4-requirements/cleanup-branches-recopy"
+  ]
+ },
+ "rulings_flow_check_chars": [
+  {
+   "run": 1,
+   "label": "verifier:3v",
+   "model": "claude-opus-5-5",
+   "chars": 2617,
+   "status": "no_fnv"
+  },
+  {
+   "run": 1,
+   "label": "verifier:3-fixv",
+   "model": "claude-opus-5-5",
+   "chars": 3235,
+   "status": "no_fnv"
+  },
+  {
+   "run": 1,
+   "label": "verifier:3v-settle",
+   "model": "claude-opus-5-5",
+   "chars": 3538,
+   "status": "no_fnv"
+  },
+  {
+   "run": 1,
+   "label": "verifier:3v-settle-2",
+   "model": "claude-opus-5-5",
+   "chars": 3524,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "verifier:3av",
+   "model": "claude-opus-5-5",
+   "chars": 3477,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "verifier:3a-fixv",
+   "model": "claude-opus-5-5",
+   "chars": 3455,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "verifier:3av-settle",
+   "model": "claude-opus-5-5",
+   "chars": 3474,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "flow-check:3a-settle-convert",
+   "model": "claude-haiku-4-5-20251001",
+   "chars": 3470,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "verifier:3bv",
+   "model": "claude-opus-5-5",
+   "chars": 3593,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "verifier:3b-fixv",
+   "model": "claude-opus-5-5",
+   "chars": 3593,
+   "status": "no_fnv"
+  },
+  {
+   "run": 2,
+   "label": "verifier:3bv-settle",
+   "model": "claude-opus-5-5",
+   "chars": 3559,
+   "status": "no_fnv"
+  },
+  {
+   "run": 3,
+   "label": "flow-check:3a",
+   "model": "claude-haiku-4-5-20251001",
+   "chars": 3558,
+   "status": "bad_json"
+  },
+  {
+   "run": 4,
+   "label": "flow-check:3a-entry",
+   "model": "claude-haiku-4-5-20251001",
+   "chars": 3583,
+   "status": "ok"
+  },
+  {
+   "run": 4,
+   "label": "flow-check:3a",
+   "model": "claude-haiku-4-5-20251001",
+   "chars": 3583,
+   "status": "ok"
+  },
+  {
+   "run": 4,
+   "label": "flow-check:crossDoc-r1-all-recopy",
+   "model": "claude-haiku-4-5-20251001",
+   "chars": 2475,
+   "status": "ok"
+  },
+  {
+   "run": 4,
+   "label": "verifier:6v",
+   "model": "claude-opus-5-5",
+   "chars": 5312,
+   "status": "ok"
+  },
+  {
+   "run": 4,
+   "label": "verifier:6-fixv",
+   "model": "claude-opus-5-5",
+   "chars": 5277,
+   "status": "ok"
+  },
+  {
+   "run": 5,
+   "label": "flow-check:3a'",
+   "model": "claude-haiku-4-5-20251001",
+   "chars": 5277,
+   "status": "ok"
+  },
+  {
+   "run": 5,
+   "label": "verifier:6v",
+   "model": "claude-opus-5-5",
+   "chars": 5642,
+   "status": "ok"
+  },
+  {
+   "run": 5,
+   "label": "verifier:6v",
+   "model": "claude-opus-5-5",
+   "chars": 5754,
+   "status": "ok"
+  }
+ ],
+ "doc_check_stderr_lines": [
+  {
+   "run": 2,
+   "label": "verifier:3bv-settle",
+   "ts": "2026-09-30T02:32:27.134Z",
+   "line": "doc_check put: 欄の条件に落ちました（何も書いていません）:"
+  },
+  {
+   "run": 2,
+   "label": "resolver:3a-settle-pairs",
+   "ts": "2026-09-30T02:12:38.476Z",
+   "line": "doc_check put: 逐語の照合に落ちました（何も書いていません）:"
+  },
+  {
+   "run": 2,
+   "label": "resolver:3a-fix",
+   "ts": "2026-09-30T02:07:02.155Z",
+   "line": "doc_check put: 参照先の照合に落ちました（何も書いていません）:"
+  },
+  {
+   "run": 1,
+   "label": "verifier:3v",
+   "ts": "2026-09-29T21:05:19.435Z",
+   "line": "doc_check put: 不明な引数です: --help"
+  },
+  {
+   "run": 1,
+   "label": "verifier:3v-settle-2",
+   "ts": "2026-09-29T21:22:09.422Z",
+   "line": "doc_check put: 欄の条件に落ちました（何も書いていません）:"
+  },
+  {
+   "run": 5,
+   "label": "verifier:6v",
+   "ts": "2026-09-30T05:14:06.140Z",
+   "line": "doc_check put: 欄の検査に落ちました（何も書いていません）:"
+  },
+  {
+   "run": 5,
+   "label": "writer:U-1:revise",
+   "ts": "2026-09-30T05:32:21.884Z",
+   "line": "doc_check diff: 不明な引数です: --help"
+  }
+ ],
+ "doc_check_flow_outputs": {
+  "n": 60,
+  "findings_nonzero": 0,
+  "codes_nonempty": [],
+  "rows": [
+   {
+    "run": 2,
+    "label": "verifier:3av",
+    "ts": "2026-09-30T02:01:32.395Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 3,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3av",
+    "ts": "2026-09-30T02:02:42.695Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "resolver:3-settle-opens",
+    "ts": "2026-09-29T21:16:29.418Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 26,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3a-fixv",
+    "ts": "2026-09-30T02:07:30.960Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3a-fixv",
+    "ts": "2026-09-30T02:08:05.659Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "resolver:3",
+    "ts": "2026-09-29T21:00:48.667Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 46,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3bv",
+    "ts": "2026-09-30T02:25:06.060Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 50,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3bv",
+    "ts": "2026-09-30T02:29:36.931Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 3,
+    "label": "flow-check:3a",
+    "ts": "2026-09-30T02:34:57.548Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3b-settle",
+    "ts": "2026-09-30T02:31:38.534Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3-fixv",
+    "ts": "2026-09-29T21:11:26.818Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 8,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3-fixv",
+    "ts": "2026-09-29T21:12:37.965Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 8,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "resolver:3-fix",
+    "ts": "2026-09-29T21:11:06.988Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 8,
+    "rulings": false
+   },
+   {
+    "run": 3,
+    "label": "resolver:3a",
+    "ts": "2026-09-30T02:34:43.330Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a-settle-convert",
+    "ts": "2026-09-30T02:19:15.897Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3bv-settle",
+    "ts": "2026-09-30T02:31:52.250Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3bv-settle",
+    "ts": "2026-09-30T02:32:31.773Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a-settle-pairs",
+    "ts": "2026-09-30T02:13:17.606Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 24,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3b-reframe",
+    "ts": "2026-09-30T02:20:54.641Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3b-reframe",
+    "ts": "2026-09-30T02:22:26.476Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 50,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3a-settle",
+    "ts": "2026-09-30T02:08:49.599Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 24,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3v-settle",
+    "ts": "2026-09-29T21:16:48.880Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 26,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3v-settle",
+    "ts": "2026-09-29T21:20:38.499Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a-fix",
+    "ts": "2026-09-30T02:07:11.294Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3v",
+    "ts": "2026-09-29T21:01:10.459Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 46,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3v",
+    "ts": "2026-09-29T21:06:25.232Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 8,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle",
+    "ts": "2026-09-29T21:14:18.700Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 8,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle",
+    "ts": "2026-09-29T21:15:07.065Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 26,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle",
+    "ts": "2026-09-29T21:15:12.877Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 26,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3b-fixv",
+    "ts": "2026-09-30T02:30:40.574Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3b-fixv",
+    "ts": "2026-09-30T02:31:10.448Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3b",
+    "ts": "2026-09-30T02:24:44.891Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 50,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3b-fix",
+    "ts": "2026-09-30T02:30:29.740Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "flow-check:3a-settle-convert",
+    "ts": "2026-09-30T02:19:41.684Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3av-settle",
+    "ts": "2026-09-30T02:13:38.296Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 24,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "verifier:3av-settle",
+    "ts": "2026-09-30T02:18:14.865Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle-2",
+    "ts": "2026-09-29T21:21:19.155Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a",
+    "ts": "2026-09-30T02:00:13.413Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a",
+    "ts": "2026-09-30T02:00:31.084Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 3,
+    "rulings": false
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a",
+    "ts": "2026-09-30T02:01:00.258Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 3,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3v-settle-2",
+    "ts": "2026-09-29T21:21:40.093Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 1,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "verifier:3v-settle-2",
+    "ts": "2026-09-29T21:22:18.414Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 1,
+    "label": "flow-framer",
+    "ts": "2026-09-29T20:58:08.289Z",
+    "findings": 0,
+    "codes": {},
+    "open": 16,
+    "unverified_n": 46,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "flow-check:3a",
+    "ts": "2026-09-30T04:16:12.500Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "verifier:6-fixv",
+    "ts": "2026-09-30T04:48:37.690Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "verifier:6-fixv",
+    "ts": "2026-09-30T04:49:19.918Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "resolver:3a'",
+    "ts": "2026-09-30T04:52:13.512Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "resolver:6",
+    "ts": "2026-09-30T05:27:34.083Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "resolver:3a",
+    "ts": "2026-09-30T04:15:49.763Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "verifier:6v",
+    "ts": "2026-09-30T04:45:31.603Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "verifier:6v",
+    "ts": "2026-09-30T04:47:42.002Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "flow-check:3a-entry",
+    "ts": "2026-09-30T04:15:03.217Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "flow-check:3a'",
+    "ts": "2026-09-30T04:52:28.941Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "verifier:6v",
+    "ts": "2026-09-30T05:27:52.014Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "verifier:6v",
+    "ts": "2026-09-30T05:28:16.772Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "verifier:6v",
+    "ts": "2026-09-30T05:13:17.138Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "verifier:6v",
+    "ts": "2026-09-30T05:14:14.866Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 5,
+    "label": "resolver:6",
+    "ts": "2026-09-30T05:13:03.228Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "resolver:6",
+    "ts": "2026-09-30T04:45:06.350Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   },
+   {
+    "run": 4,
+    "label": "resolver:6-fix",
+    "ts": "2026-09-30T04:48:25.113Z",
+    "findings": 0,
+    "codes": {},
+    "open": 18,
+    "unverified_n": 0,
+    "rulings": false
+   }
+  ]
+ },
+ "doc_check_conflicts_outputs": {
+  "n": 7,
+  "self_sourced_nonzero": [],
+  "rows": [
+   {
+    "run": 2,
+    "label": "flow-framer:3b-settle",
+    "pairs": 8,
+    "constraint_pairs": 8,
+    "self_sourced": 0,
+    "untargeted": 0
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3b-reframe",
+    "pairs": 9,
+    "constraint_pairs": 9,
+    "self_sourced": 0,
+    "untargeted": 0
+   },
+   {
+    "run": 2,
+    "label": "flow-framer:3a-settle",
+    "pairs": 8,
+    "constraint_pairs": 8,
+    "self_sourced": 0,
+    "untargeted": 0
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle",
+    "pairs": 0,
+    "constraint_pairs": 0,
+    "self_sourced": 0,
+    "untargeted": 0
+   },
+   {
+    "run": 1,
+    "label": "flow-framer:3-settle-2",
+    "pairs": 0,
+    "constraint_pairs": 0,
+    "self_sourced": 0,
+    "untargeted": 0
+   },
+   {
+    "run": 2,
+    "label": "resolver:3a",
+    "pairs": 0,
+    "constraint_pairs": 0,
+    "self_sourced": 0,
+    "untargeted": 0
+   },
+   {
+    "run": 1,
+    "label": "flow-framer",
+    "pairs": 0,
+    "constraint_pairs": 0,
+    "self_sourced": 0,
+    "untargeted": 0
+   }
+  ]
+ },
+ "permission_denials": [
+  {
+   "run": 2,
+   "label": "resolver:3a",
+   "ts": "2026-09-30T02:01:03.362Z",
+   "text": "Permission to use Bash with command rm -rf /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/tmp/resolver__3a; ls /home/user"
+  },
+  {
+   "run": 4,
+   "label": "implementer:r1:requirements/cleanup-branches",
+   "ts": "2026-09-30T04:31:34.028Z",
+   "text": "Permission to use Bash with command mkdir -p /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings /home/user/claude-pl"
+  }
+ ],
+ "commands_touching_outside_W": [
+  {
+   "run": 1,
+   "label": "verifier:3v",
+   "tool": "Bash",
+   "ts": "2026-09-29T21:06:25.232Z",
+   "paths": [
+    "scratchpad/v.json",
+    "scratchpad/v.json"
+   ],
+   "redirect_into_scratchpad": false,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec; W=workspace/cleanup-branches; T=$W/tmp/verifier__3v; cp $T/v.json /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/v.json 2>/dev/null || (mkdir -p /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d0"
+  },
+  {
+   "run": 1,
+   "label": "verifier:3v",
+   "tool": "Bash",
+   "ts": "2026-09-29T21:06:28.820Z",
+   "paths": [
+    "scratchpad/v.json"
+   ],
+   "redirect_into_scratchpad": false,
+   "command": "python3 -c \"\nimport json\nd=json.load(open('/tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/v.json'))\nprint(json.dumps(list(d['P'].keys())))\nprint(json.dumps([{'id':k,'kind':a,'reason':b} for k,(a,b) in d['F'].items()],ensure_ascii=False))\n\""
+  },
+  {
+   "run": 5,
+   "label": "implementer:r3:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:20:04.802Z",
+   "paths": [
+    "scratchpad/flow.txt",
+    "scratchpad/flow.txt"
+   ],
+   "redirect_into_scratchpad": true,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches && python3 -c \"\nimport json\nd=json.load(open('flow.json'))\nprint(list(d.keys()))\nfor k,v in d.items():\n  if isinstance(v,list):\n    print('##',k,len(v))\n    for x in v: print(json.dumps(x,ensure_ascii=False))\n  "
+  },
+  {
+   "run": 5,
+   "label": "implementer:r3:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:25:16.031Z",
+   "paths": [
+    "scratchpad/flow.txt"
+   ],
+   "redirect_into_scratchpad": false,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches && python3 -c \"\nimport json\nd=json.load(open('findings/r3-im-requirements__cleanup-branches.json'))\ndoc=open('requirements-cleanup-branches.md').read()\nfor f in d['findings']: print(f['id'], f['quote'] in doc)\n\""
+  },
+  {
+   "run": 5,
+   "label": "resolver:3a'",
+   "tool": "Bash",
+   "ts": "2026-09-30T04:52:10.547Z",
+   "paths": [
+    "scratchpad/put.json",
+    "scratchpad/put.json"
+   ],
+   "redirect_into_scratchpad": true,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec; W=workspace/cleanup-branches; cat > /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/put.json <<'EOF'\n{\"resolutions\":[\n{\"id\":\"RS-045\",\"value\":\"主ブランチ（main・develop・release/*・dev/*）は、ほかの主ブランチに取り込まれていても"
+  },
+  {
+   "run": 5,
+   "label": "grounding:r2:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:01:41.095Z",
+   "paths": [
+    "scratchpad/rs.txt",
+    "scratchpad/rs.txt"
+   ],
+   "redirect_into_scratchpad": true,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches && python3 -c \"\nimport json;r=json.load(open('resolutions.json'))['resolutions']\nfor e in r:\n  d={k:v for k,v in e.items() if k not in ('evidence',)}\n  ev=e.get('evidence')\n  print(json.dumps(d,ensure_ascii=Fals"
+  },
+  {
+   "run": 5,
+   "label": "grounding:r2:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:06:06.790Z",
+   "paths": [
+    "scratchpad/rs.txt"
+   ],
+   "redirect_into_scratchpad": false,
+   "command": "rm -f /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/rs.txt; W=/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches; ls -la $W/tmp/ 2>/dev/null; rmdir $W/tmp/grounding__r2__requirements__cleanup-branches 2>/dev/null; cd /home/"
+  },
+  {
+   "run": 5,
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:20:09.526Z",
+   "paths": [
+    "scratchpad/rs2.txt",
+    "scratchpad/rs2.txt"
+   ],
+   "redirect_into_scratchpad": true,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches && python3 -c \"\nimport json\nr=json.load(open('resolutions.json'))\nfor e in r['resolutions'][28:]:\n  print(json.dumps(e,ensure_ascii=False))\n  print()\n\" > /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7"
+  },
+  {
+   "run": 5,
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:20:18.718Z",
+   "paths": [
+    "scratchpad/flow.txt",
+    "scratchpad/flow.txt",
+    "scratchpad/flow.txt"
+   ],
+   "redirect_into_scratchpad": true,
+   "command": "cd /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches && python3 -c \"\nimport json\nf=json.load(open('flow.json'))\nprint({k:(len(v) if isinstance(v,list) else type(v).__name__) for k,v in f.items()})\nfor k,v in f.items():\n  if not isinstance(v,list): print(k, json.du"
+  },
+  {
+   "run": 5,
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "tool": "Bash",
+   "ts": "2026-09-30T05:24:07.060Z",
+   "paths": [
+    "scratchpad/rs2.txt",
+    "scratchpad/flow.txt"
+   ],
+   "redirect_into_scratchpad": false,
+   "command": "rm -f /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/rs2.txt /tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/flow.txt; ls /home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/tmp/"
+  }
+ ],
+ "write_edit_paths": [
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings/r2-gr-requirements__cleanup-branches.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings/r2-im-requirements__cleanup-branches.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings/r3-cd-all.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings/r3-gr-requirements__cleanup-branches.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings/r3-im-requirements__cleanup-branches.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/findings/r4-im-requirements__cleanup-branches.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/plan.json",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/requirements-cleanup-branches.md",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/tmp/flow-framer/gen.py",
+  "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/tmp/implementer__r1__requirements__cleanup-branches/gen.py"
+ ],
+ "main_workflow_calls": [
+  {
+   "ts": "2026-09-29T20:48:42.241Z",
+   "name": "workflow:prd-spec-run",
+   "scriptPath": null,
+   "resumeFromRunId": null,
+   "from": null,
+   "gates_answered": {},
+   "result_head": "<tool_use_error>Workflow \"workflow:prd-spec-run\" not found. Available: deep-research</tool_use_error>",
+   "is_error": true
+  },
+  {
+   "ts": "2026-09-29T20:48:45.634Z",
+   "name": null,
+   "scriptPath": "/home/user/claude-plugins/plugins/workflow/workflows/prd-spec.js",
+   "resumeFromRunId": null,
+   "from": null,
+   "gates_answered": {},
+   "result_head": "Workflow launched in background. Task ID: whvtgdqj1\nSummary: 依頼を仕分けて流れを閉じ、前提を裁定してから要求・仕様を書き、監査と範囲を絞った再監査を収束するまで回す\nTransc",
+   "is_error": false
+  },
+  {
+   "ts": "2026-09-30T01:56:11.129Z",
+   "name": null,
+   "scriptPath": "/home/user/claude-plugins/plugins/workflow/workflows/prd-spec.js",
+   "resumeFromRunId": "wf_f413a4a5-c3e",
+   "from": null,
+   "gates_answered": {
+    "g0": 18
+   },
+   "result_head": null
+  },
+  {
+   "ts": "2026-09-30T02:34:17.115Z",
+   "name": null,
+   "scriptPath": "/home/user/claude-plugins/plugins/workflow/workflows/prd-spec.js",
+   "resumeFromRunId": "wf_f413a4a5-c3e",
+   "from": null,
+   "gates_answered": {
+    "g0": 18,
+    "g0-2": 1
+   },
+   "result_head": null
+  },
+  {
+   "ts": "2026-09-30T04:14:51.073Z",
+   "name": null,
+   "scriptPath": "/home/user/claude-plugins/plugins/workflow/workflows/prd-spec.js",
+   "resumeFromRunId": null,
+   "from": "3a",
+   "gates_answered": {},
+   "result_head": "Workflow launched in background. Task ID: w3jtseaod\nSummary: 依頼を仕分けて流れを閉じ、前提を裁定してから要求・仕様を書き、監査と範囲を絞った再監査を収束するまで回す\nTransc",
+   "is_error": false
+  },
+  {
+   "ts": "2026-09-30T04:51:29.736Z",
+   "name": null,
+   "scriptPath": "/home/user/claude-plugins/plugins/workflow/workflows/prd-spec.js",
+   "resumeFromRunId": "wf_0f45ed55-8ba",
+   "from": "3a",
+   "gates_answered": {
+    "g1": 4
+   },
+   "result_head": null
+  }
+ ],
+ "workflow_args_vs_next_args": {
+  "2026-09-30T04:14:51.073Z": {
+   "resume": null,
+   "args_minus_gates_answered_equals_run3_next_args": true
+  },
+  "2026-09-30T04:51:29.736Z": {
+   "resume": "wf_0f45ed55-8ba",
+   "args_minus_gates_answered_equals_run3_next_args": true
+  }
+ },
+ "main_ask_user_question": [
+  {
+   "ts": "2026-09-29T21:22:52.683Z",
+   "questions": 4,
+   "answered_ts": "2026-09-30T01:48:51.213Z"
+  },
+  {
+   "ts": "2026-09-30T01:49:32.702Z",
+   "questions": 4,
+   "answered_ts": "2026-09-30T01:50:04.646Z"
+  },
+  {
+   "ts": "2026-09-30T01:50:26.461Z",
+   "questions": 4,
+   "answered_ts": "2026-09-30T01:51:52.806Z"
+  },
+  {
+   "ts": "2026-09-30T01:52:15.904Z",
+   "questions": 4,
+   "answered_ts": "2026-09-30T01:53:49.708Z"
+  },
+  {
+   "ts": "2026-09-30T01:54:09.107Z",
+   "questions": 3,
+   "answered_ts": "2026-09-30T01:55:51.039Z"
+  },
+  {
+   "ts": "2026-09-30T02:33:06.780Z",
+   "questions": 1,
+   "answered_ts": "2026-09-30T02:33:58.872Z"
+  },
+  {
+   "ts": "2026-09-30T04:50:14.970Z",
+   "questions": 4,
+   "answered_ts": "2026-09-30T04:51:04.509Z"
+  }
+ ],
+ "findings_per_pass": {
+  "r1": {
+   "findings": 27,
+   "blocking": 9,
+   "items": 20,
+   "origin": {
+    "input": {
+     "all": 3,
+     "blocking": 1
+    },
+    "ledger": {
+     "all": 11,
+     "blocking": 7
+    },
+    "text": {
+     "all": 13,
+     "blocking": 1
+    }
+   },
+   "route": {
+    "decision": 16,
+    "writer": 11
+   },
+   "blocking_items": [
+    "PR-CLEANUP-003",
+    "PR-CLEANUP-004",
+    "PR-CLEANUP-017",
+    "PR-CLEANUP-028",
+    "PR-CLEANUP-034",
+    "PR-CLEANUP-038",
+    "PR-CLEANUP-058"
+   ]
+  },
+  "r2": {
+   "findings": 8,
+   "blocking": 2,
+   "items": 6,
+   "origin": {
+    "input": {
+     "all": 1,
+     "blocking": 0
+    },
+    "ledger": {
+     "all": 2,
+     "blocking": 1
+    },
+    "text": {
+     "all": 5,
+     "blocking": 1
+    }
+   },
+   "route": {
+    "decision": 3,
+    "writer": 5
+   },
+   "blocking_items": [
+    "PR-CLEANUP-011",
+    "PR-CLEANUP-062"
+   ]
+  },
+  "r3": {
+   "findings": 7,
+   "blocking": 1,
+   "items": 5,
+   "origin": {
+    "ledger": {
+     "all": 2,
+     "blocking": 0
+    },
+    "text": {
+     "all": 5,
+     "blocking": 1
+    }
+   },
+   "route": {
+    "writer": 5,
+    "decision": 2
+   },
+   "blocking_items": [
+    "PR-CLEANUP-028"
+   ]
+  },
+  "r4": {
+   "findings": 1,
+   "blocking": 0,
+   "items": 1,
+   "origin": {
+    "ledger": {
+     "all": 1,
+     "blocking": 0
+    }
+   },
+   "route": {
+    "decision": 1
+   },
+   "blocking_items": []
+  }
+ },
+ "direction_reversals": [],
+ "items_in_2plus_passes": {
+  "PR-CLEANUP-034": [
+   1,
+   3
+  ],
+  "PR-CLEANUP-006": [
+   1,
+   2
+  ],
+  "PR-CLEANUP-048": [
+   1,
+   2,
+   3
+  ],
+  "PR-CLEANUP-003": [
+   1,
+   3
+  ],
+  "PR-CLEANUP-011": [
+   1,
+   2
+  ],
+  "PR-CLEANUP-028": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "PR-CLEANUP-062": [
+   1,
+   2,
+   3
+  ]
+ },
+ "audit_designated_copies": [
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a7268235a1b78617a",
+   "label": "crossDoc:r1:all",
+   "run": 4,
+   "model": "claude-sonnet-5-5",
+   "field": "designated.doc_check",
+   "chars": 277,
+   "status": "fnv_mismatch"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a7268235a1b78617a",
+   "label": "crossDoc:r1:all",
+   "run": 4,
+   "model": "claude-sonnet-5-5",
+   "field": "designated.audited",
+   "chars": 507,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a117b21d793ba387a",
+   "label": "flow-check:crossDoc-r1-all-recopy",
+   "run": 4,
+   "model": "claude-haiku-4-5-20251001",
+   "field": "flow_check",
+   "chars": 2475,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a117b21d793ba387a",
+   "label": "flow-check:crossDoc-r1-all-recopy",
+   "run": 4,
+   "model": "claude-haiku-4-5-20251001",
+   "field": "doc_check",
+   "chars": 2475,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a78c77efece6f7c41",
+   "label": "grounding:r2:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.diff.stdout",
+   "chars": 177,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a78c77efece6f7c41",
+   "label": "grounding:r2:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.audited",
+   "chars": 526,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a78c77efece6f7c41",
+   "label": "grounding:r2:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.doc_check",
+   "chars": 2685,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a78c77efece6f7c41",
+   "label": "grounding:r2:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.tree_digest",
+   "chars": 470,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a8f6539935924ff32",
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.diff.stdout",
+   "chars": 177,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a8f6539935924ff32",
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.audited",
+   "chars": 526,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a8f6539935924ff32",
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.doc_check",
+   "chars": 2747,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a8f6539935924ff32",
+   "label": "grounding:r3:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.tree_digest",
+   "chars": 470,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a4eafb5f5515d8103",
+   "label": "grounding:r4:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.diff.stdout",
+   "chars": 176,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a4eafb5f5515d8103",
+   "label": "grounding:r4:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.audited",
+   "chars": 527,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a4eafb5f5515d8103",
+   "label": "grounding:r4:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.doc_check",
+   "chars": 2817,
+   "status": "ok"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "a4eafb5f5515d8103",
+   "label": "grounding:r4:requirements/cleanup-branches",
+   "run": 5,
+   "model": "claude-opus-5-5",
+   "field": "designated.tree_digest",
+   "chars": 471,
+   "status": "fnv_mismatch"
+  },
+  {
+   "wf": "wf_0f45ed55-8ba",
+   "agent": "acc8e14da3f80a431",
+   "label": "flow-check:grounding-r4-requirements/cleanup-branches-recopy",
+   "run": 5,
+   "model": "claude-haiku-4-5-20251001",
+   "field": "tree_digest",
+   "chars": 471,
+   "status": "ok"
+  }
+ ]
+}

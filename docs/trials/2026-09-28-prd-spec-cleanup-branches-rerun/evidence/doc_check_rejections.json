@@ -1,0 +1,146 @@
+[
+ {
+  "run": 2,
+  "label": "resolver:3b",
+  "ts": "2026-09-28T00:41:26.572Z",
+  "errors": [
+   "doc_check put: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json",
+   "doc_check sha: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json"
+  ],
+  "later_successful_puts": [
+   {
+    "ledger": "resolutions",
+    "added": [],
+    "replaced": [
+     "RS-045"
+    ],
+    "removed": []
+   }
+  ]
+ },
+ {
+  "run": 3,
+  "label": "resolver:6'",
+  "ts": "2026-09-28T01:09:40.317Z",
+  "errors": [
+   "doc_check put: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json",
+   "doc_check sha: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json"
+  ],
+  "later_successful_puts": [
+   {
+    "ledger": "resolutions",
+    "added": [],
+    "replaced": [
+     "RS-050"
+    ],
+    "removed": []
+   }
+  ]
+ },
+ {
+  "run": 3,
+  "label": "resolver:3a",
+  "ts": "2026-09-28T00:44:52.722Z",
+  "errors": [
+   "doc_check put: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json"
+  ],
+  "later_successful_puts": [
+   {
+    "ledger": "resolutions",
+    "added": [],
+    "replaced": [
+     "RS-045"
+    ],
+    "removed": []
+   },
+   {
+    "ledger": "flow",
+    "added": [],
+    "replaced": [
+     "F-017"
+    ],
+    "removed": []
+   }
+  ]
+ },
+ {
+  "run": 4,
+  "label": "resolver:final",
+  "ts": "2026-09-28T01:50:24.627Z",
+  "errors": [
+   "doc_check put: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json",
+   "doc_check sha: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: resolutions.json"
+  ],
+  "later_successful_puts": [
+   {
+    "ledger": "resolutions",
+    "added": [
+     "RS-057",
+     "RS-058"
+    ],
+    "replaced": [],
+    "removed": []
+   }
+  ]
+ },
+ {
+  "run": 4,
+  "label": "flow-framer:6-settle",
+  "ts": "2026-09-28T01:36:01.489Z",
+  "errors": [
+   "doc_check put: --ledger は decisions / open / resolutions / verifications / routes / flow / meta のどれかです: flow.json"
+  ],
+  "later_successful_puts": [
+   {
+    "ledger": "flow",
+    "added": [],
+    "replaced": [
+     "F-045"
+    ],
+    "removed": []
+   }
+  ]
+ },
+ {
+  "run": 4,
+  "label": "writer:U-1:revise",
+  "ts": "2026-09-28T01:20:58.404Z",
+  "errors": [
+   "doc_check del: --workspace <W> が要ります"
+  ],
+  "later_successful_puts": [
+   {
+    "ledger": "meta",
+    "added": [
+     "PR-CLEANUP-051",
+     "PR-CLEANUP-052"
+    ],
+    "replaced": [
+     "PR-CLEANUP-004",
+     "PR-CLEANUP-010",
+     "PR-CLEANUP-031",
+     "PR-CLEANUP-037",
+     "PR-CLEANUP-049"
+    ],
+    "removed": []
+   },
+   {
+    "ledger": "meta",
+    "added": [],
+    "replaced": [],
+    "removed": [
+     "PR-CLEANUP-008"
+    ]
+   }
+  ]
+ },
+ {
+  "run": 4,
+  "label": "writer:U-1:revise",
+  "ts": "2026-09-28T01:23:14.620Z",
+  "errors": [
+   "doc_check put: 標準入力 に台帳 meta の欄ではない vacant_ids があります（欄は tbd / trace / fixed）"
+  ],
+  "later_successful_puts": []
+ }
+]

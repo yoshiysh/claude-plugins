@@ -1,0 +1,29 @@
+{
+ "decisions": [
+  {
+   "id": "D-001",
+   "layer": "要求",
+   "source": "input",
+   "targets": [
+    "F-002",
+    "承認の主体"
+   ],
+   "value": "承認は人間が行う"
+  },
+  {
+   "id": "D-002",
+   "layer": "要求",
+   "source": "default",
+   "targets": [
+    "承認の主体"
+   ],
+   "value": "承認は 1 回"
+  },
+  {
+   "id": "D-003",
+   "layer": "手段",
+   "source": "default",
+   "value": "日本語で書く"
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "label": "cleanup-branches-rerun-leg4",
+ "run_id": "cleanup-branches-rerun",
+ "variant": "61ab960",
+ "source_file": "/tmp/claude-0/-home-user-claude-plugins/bbfbc7eb-d042-5c7d-8fa6-ab266c5cd669/scratchpad/rerun/run4.output",
+ "input_ref": "/root/.claude/prd-spec-workspace-rerun/cleanup-branches/input.md",
+ "status": "blocked",
+ "gate": null,
+ "terminal": true,
+ "question_count": null,
+ "holds_count": 4,
+ "open_tbd_count": 0,
+ "missed_count": 0,
+ "integrity_count": 0,
+ "notices_count": 3,
+ "undeclared_count": 0,
+ "remaining_blocking_count": 2,
+ "agent_count": 16,
+ "total_tokens": 1800121,
+ "total_tool_calls": 283
+}

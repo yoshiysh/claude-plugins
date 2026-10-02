@@ -4,6 +4,33 @@
 持ち、この文書はその呼び出し手順だけを書く。実測を会話ログや記憶から取ると、run の詳細が
 session とともに消え、次の改善で同じ抽出を手でやり直すことになる。
 
+## 単位: leg と run
+
+`prd-spec.js` の 1 回の Workflow 呼び出しを **leg** と呼ぶ。1 run（依頼 1 件の完了まで）は、
+`needs_answers`（G0 / G0-2 / G1）で区切られた複数 leg に分かれることがある
+（`references/workflow-io.md` §3・§4）。
+
+- `record` は 1 leg を 1 レコードとして記録する。`--label` はその leg の識別名、`--run-id`
+  （省略時は `--label` と同じ）は同じ run に属する leg をまとめる識別子。1 run の全 leg に
+  同じ `--run-id` と同じ `--input-ref` を付けて record する。
+- `summary`・`compare`・`goal_selector.py` は `--run-id` ごとに leg を
+  `skill_telemetry.aggregate_run()` で集計してから扱う（値の抜き方は `extract()` と
+  `aggregate_run()` を正とし、ここには書き写さない）。集計は 2 種類に分かれる。
+  - **leg の値の合算**: `SUM_FIELDS` の欄（各 leg は独立した Workflow 実行で、問いの ID も
+    leg ごとに異なるため合算してよい）。
+  - **終端 leg だけを採る**: `TERMINAL_FIELDS` の欄（`prd-spec.js` の `state` が run を通じて積み上がる
+    値なので、合算すると二重に数える）。
+  - `holds`・`hold_drafts`・`remaining_blocking`・`carried_blocking` の意味と互いの関係は `references/workflow-io.md` §3 を正とする
+    （件数を足し合わせる前に読む）。
+  - `integrity` は照合の食い違い、`notices` は照合ではない所見（W に所有表に無いファイルが
+    あった、など）で、別の件数として数える。`goal_selector.py` の R4 は `integrity_count`
+    だけを見る（所見を混ぜると、毎回の run が照合の食い違いに数えられる）。
+  - 終端 leg は `result.next_args` が null の leg（`done`、または再開できない `blocked`）。
+    label の辞書順や記録した順序ではなく、この構造で決まる。
+  - 終端 leg がちょうど 1 件で、全 leg の `input_ref` が一致している run だけを「完了して
+    測定できる run」として扱う。それ以外（0 件・2 件以上・input_ref 不一致）は未完了として
+    `summary` に出るが `compare`・`goal_selector` の対象からは外れる。
+
 ## 前提
 
 - 対象スキルの実行実測が `~/.claude/skill-telemetry/<skill>/` に 1 run 以上あること。
@@ -28,7 +55,7 @@ script に返させる:
 
 ```bash
 python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
-  --control <本体版の label> --treatment <staging 版の label> \
+  --control <本体版の run_id> --treatment <staging 版の run_id> \
   --criteria-file <run の前に固定した基準ファイル>
 ```
 
@@ -36,7 +63,18 @@ python3 [SKILL_DIR]/scripts/skill_telemetry.py compare --skill <対象> \
 固定し、改変されていないことを呼び出し側が digest で照合する。指標・向き・閾値を CLI に
 手で書くと、差分を入れた本人が判定の時点で判定の仕方を選び直せてしまう。
 
-`compare` は、対で記録されているか・`input_ref` が一致するか・指標が両条件で数値として
-取れるかを検査し、どれかが欠けたら判定を返さず exit 2 で止まる。この 3 点を散文の手順に
-しておくと、対発行・同一入力・事前固定の基準のどれも実行者の自己申告になる。exit 2 は
-「差が無い」ではなく「測定が成立していない」なので、判定に進まず対照を組み直す。
+`compare` が exit 2 で判定を返さない条件は `skill_telemetry.py` の `cmd_compare()` docstring
+を正とする（ここには書き写さない）。exit 2 は「差が無い」ではなく「測定が成立していない」
+なので、判定に進まず対照を組み直す。
+
+## 1 ランの費用と時間
+
+`python3 [SKILL_DIR]/scripts/usage.py --workspace <W> <transcript のディレクトリ>` が、agent ごとの label・model・run・ターン数・
+入力（cache read と creation。creation は 5 分と 1 時間の内訳に分ける）・最初のターンの同じ欄・壁時計、wf_ のディレクトリ
+（Workflow の Run）ごとの合計と最初の agent、合計と model ごとの合計、agent が動いていた時間の和、周回ごとの指摘の件数を出す。
+resume は同じ Run のディレクトリに書くので、Run ごとの行は Workflow の呼び出しの複数回を含みうる（呼び出しで分ける材料は
+script の docstring）。請求の重みで見た値は、model ごとに `--weights <model>=R,W5M,W1H` を繰り返して渡したときだけ、
+1 つの model の行（model ごとの合計・agent・その最初のターン）に出す。cache read の倍率も通常の入力の単価も model で違うので、
+model をまたぐ合計には出さない。model は transcript の `message.model` のまま書き、倍率の無い model が母集団にあれば失敗する。
+倍率は試走の時点の公式の料金表（`claude-api` スキルの pricing）から取り、script にもこの文書にも書き写さない（料金の改定でずれる）。何を 1 ランの agent として数えるか（空の transcript と、W を参照しない別案件の transcript を
+除く）は script が持つ。数え方を呼ぶ人に任せると、同じランが別の体数で報告され、ラン同士を比べられない。

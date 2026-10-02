@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "id": "r2-cd-all-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-006",
+      "quote": "cleanup-branches は、主ブランチでないブランチのうち取り込み済みと判定できなかったものを、要判断に分類しなければならない。",
+      "issue": "PR-CLEANUP-006 は判定できなかったブランチをすべて要判断にするが、PR-CLEANUP-021 のカテゴリは remote で削除済みのローカルブランチだけ、PR-CLEANUP-067 の対象は remote のブランチが残るローカルブランチだけである。一度も push していない未取り込みのローカルブランチはどちらにも当たらず、問われず、PR-CLEANUP-062 の「要判断のまま残したもの」（承認されなかった対象と 067 で残したもの）にも載らない。",
+      "repro": "ローカルに feature/wip があり、origin/feature/wip は一度も存在せず、どの主ブランチにも取り込まれていない。006 で要判断になるが、021 の「remote で削除済み」に当たるか（追跡先が無い）が読み手で割れ、当たらなければ 067 にも 021 にも入らず、完了報告のどの行にも出ない。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "追跡先の無い未取り込みのローカルブランチを問う対象にするか、問わずに残して報告するかを 1 つにする",
+      "origin": "input"
+    },
+    {
+      "id": "r2-cd-all-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-048",
+      "quote": "tracked ファイルの未コミット差分か未追跡ファイルがあるとき、cleanup-branches は、作業場所の同期の前にそれらを退避しなければならない。",
+      "issue": "PR-CLEANUP-049 は退避に失敗しても退避せずに同期へ進めと定めるので、tracked ファイルの差分が作業ツリーに残ったまま同期が行われる。PR-CLEANUP-001・044 は tracked の差分を承認なしに失わせることを禁じ、例外の PR-CLEANUP-052 が許すのは起点ブランチに無いコミットを動かすことだけである。PR-CLEANUP-051 の「起点ブランチの位置へ動かす」が作業ツリーの差分を保つ操作か、捨てる操作かは、どの項目にも書かれていない。",
+      "repro": "tracked ファイル a.txt に未コミット差分があり、退避が失敗し、現在のブランチに open PR が無い。PR-CLEANUP-049 に従い PR-CLEANUP-051 の「起点ブランチの位置へ動かしてから作業用ブランチを作る」へ進む。動かす操作を作業ツリーごと合わせる実装では a.txt の差分が消えて PR-CLEANUP-044 に反し、差分を保つ実装なら反しない。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "tighten",
+      "direction_note": "動かす操作が作業ツリーの未コミット差分を破棄しないことを、入力の同期の手順に沿って規範にする",
+      "origin": "text"
+    },
+    {
+      "id": "r2-cd-all-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-048",
+      "quote": "tracked ファイルの未コミット差分か未追跡ファイルがあるとき、cleanup-branches は、作業場所の同期の前にそれらを退避しなければならない。",
+      "issue": "PR-CLEANUP-044 は stash を削除・破棄してはならないと例外なしに定めるが、PR-CLEANUP-048 が作った退避を PR-CLEANUP-060 が戻すと、その stash は消える。範囲を分けているのは PR-CLEANUP-070 の括弧書き（実行の前からあった stash は 044 に従い残す）だけで、044 の本文は実行の前からあったものに限っていない。",
+      "repro": "実行前に stash が 2 件あり、未追跡ファイルがあるため PR-CLEANUP-048 が 3 件目を作る。PR-CLEANUP-060 がそれを戻して消すと、044 の本文を字義どおり読む実装は「stash を破棄した」として違反と判定し、070 を優先する実装は適合と判定する。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "tighten",
+      "direction_note": "044 の stash の範囲を実行の前からあったものに限る書き方へそろえる",
+      "origin": "text"
+    }
+  ],
+  "checked": "全文書（requirements-cleanup-branches.md 全文、plan.json）を対象項目 PR-CLEANUP-006・008・017・024・029・034・048 の節から読み、関連する 001・002〜005・007・009〜012・021・028・030・032・044・045・049〜052・060・062・064〜070 と input.md・answers・resolutions（RS-001・RS-022・RS-026・RS-027・RS-036・RS-049・RS-050）を照合した。前パスの r1-cd-all-001・003・004・005・006・007・008 と r1 の gr-001・im-008・010・013 は、本文の現行版（034 の保持規則化、064・065・067・070 の追加、008 の open PR、024 の workspace 行、029 の括弧書き、048 の対象の明記）で解消と判断し再掲していない。新規に、006 は追跡先の無いローカルブランチの抜け、048 は 049・051 との関係と 044 の stash の範囲を指摘した。開いている TBD（TBD-RCLEANUP-001・002）と保持規則 034 は指摘していない。文書は 1 つ（requirements/cleanup-branches）なので文書間の比較は成立しない。"
+}

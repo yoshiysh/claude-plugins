@@ -1,0 +1,29 @@
+{
+ "a_decision": {"elements": [
+  {"id": "F-001", "type": "input", "kind": "k", "label": "F-001", "next": ["F-002"], "source": {"input": "依頼文"}, "obtain": "always"},
+  {"id": "F-002", "type": "step", "kind": "k", "label": "F-002", "next": ["F-003"], "source": {"input": "依頼文"}, "obtain": "may_fail", "effect": "read"},
+  {"id": "F-003", "type": "decision", "kind": "k", "label": "F-003", "source": {"input": "依頼文"}, "inputs": [{"name": "a", "values": ["x", "y"], "from": "F-001"}], "cases": [{"when": {"a": "x"}, "branch": "x", "source": {"input": "依頼文"}}, {"when": {"a": "y"}, "branch": "y", "source": {"input": "依頼文"}}], "branches": [{"value": "x", "next": "F-004"}, {"value": "y", "next": "F-090"}]},
+  {"id": "F-004", "type": "step", "kind": "k", "label": "F-004", "next": ["F-005"], "source": {"input": "依頼文"}, "obtain": "always", "effect": "read"},
+  {"id": "F-005", "type": "decision", "kind": "k", "label": "F-005", "source": {"input": "依頼文"}, "inputs": [{"name": "結果", "values": ["ok", "ng"], "from": "F-004"}], "cases": [{"when": {"結果": "ok"}, "branch": "ok", "source": {"input": "依頼文"}}, {"when": {"結果": "ng"}, "branch": "ng", "source": {"input": "依頼文"}}], "branches": [{"value": "ok", "next": "F-090"}, {"value": "ng", "next": "F-091"}]},
+  {"id": "F-090", "type": "output", "kind": "k", "label": "F-090", "source": {"input": "依頼文"}},
+  {"id": "F-091", "type": "output", "kind": "k", "label": "F-091", "source": {"input": "依頼文"}}
+ ]},
+ "ws_on_fail": {"elements": [
+  {"id": "F-001", "type": "input", "kind": "k", "label": "F-001", "next": ["F-004"], "source": {"input": "依頼文"}, "obtain": "always"},
+  {"id": "F-004", "type": "step", "kind": "k", "label": "F-004", "next": ["F-005"], "source": {"input": "依頼文"}, "obtain": "may_fail", "effect": "read", "on_fail": {"as": "取れない", "source": {"input": "依頼文"}}},
+  {"id": "F-005", "type": "step", "kind": "k", "label": "F-005", "next": ["F-006"], "source": {"input": "依頼文"}, "effect": "read"},
+  {"id": "F-006", "type": "step", "kind": "k", "label": "F-006", "next": ["F-017"], "source": {"input": "依頼文"}, "obtain": "always", "effect": "read"},
+  {"id": "F-017", "type": "decision", "kind": "k", "label": "F-017", "source": {"input": "依頼文"}, "inputs": [{"name": "primary か", "values": ["primary", "それ以外"], "from": "F-006"}], "cases": [{"when": {"primary か": "primary"}, "branch": "primary", "source": {"input": "依頼文"}}, {"when": {"primary か": "それ以外"}, "branch": "それ以外", "source": {"input": "依頼文"}}], "branches": [{"value": "primary", "next": "F-090"}, {"value": "それ以外", "next": "F-091"}]},
+  {"id": "F-090", "type": "output", "kind": "k", "label": "F-090", "source": {"input": "依頼文"}},
+  {"id": "F-091", "type": "output", "kind": "k", "label": "F-091", "source": {"input": "依頼文"}}
+ ]},
+ "after_check": {"elements": [
+  {"id": "F-001", "type": "input", "kind": "k", "label": "F-001", "next": ["F-002"], "source": {"input": "依頼文"}, "obtain": "always"},
+  {"id": "F-002", "type": "step", "kind": "k", "label": "F-002", "next": ["F-003"], "source": {"input": "依頼文"}, "obtain": "may_fail", "effect": "read"},
+  {"id": "F-003", "type": "decision", "kind": "k", "label": "F-003", "source": {"input": "依頼文"}, "inputs": [{"name": "取得", "values": ["取れた", "取れない"], "from": "F-002", "unknown": "取れない"}], "cases": [{"when": {"取得": "取れた"}, "branch": "成功", "source": {"input": "依頼文"}}, {"when": {"取得": "取れない"}, "branch": "失敗", "source": {"input": "依頼文"}}], "branches": [{"value": "成功", "next": "F-004"}, {"value": "失敗", "next": "F-005"}]},
+  {"id": "F-004", "type": "decision", "kind": "k", "label": "F-004", "source": {"input": "依頼文"}, "inputs": [{"name": "値", "values": ["p", "q"], "from": "F-002"}], "cases": [{"when": {"値": "p"}, "branch": "p", "source": {"input": "依頼文"}}, {"when": {"値": "q"}, "branch": "q", "source": {"input": "依頼文"}}], "branches": [{"value": "p", "next": "F-090"}, {"value": "q", "next": "F-091"}]},
+  {"id": "F-005", "type": "decision", "kind": "k", "label": "F-005", "source": {"input": "依頼文"}, "inputs": [{"name": "値", "values": ["p", "q"], "from": "F-002"}], "cases": [{"when": {"値": "p"}, "branch": "p", "source": {"input": "依頼文"}}, {"when": {"値": "q"}, "branch": "q", "source": {"input": "依頼文"}}], "branches": [{"value": "p", "next": "F-090"}, {"value": "q", "next": "F-091"}]},
+  {"id": "F-090", "type": "output", "kind": "k", "label": "F-090", "source": {"input": "依頼文"}},
+  {"id": "F-091", "type": "output", "kind": "k", "label": "F-091", "source": {"input": "依頼文"}}
+ ]}
+}

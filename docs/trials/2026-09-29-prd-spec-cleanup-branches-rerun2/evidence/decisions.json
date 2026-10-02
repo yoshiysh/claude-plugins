@@ -1,0 +1,105 @@
+{
+ "decisions": [
+  {
+   "id": "D-001",
+   "layer": "手段",
+   "quote": "prd の作成を試走したい",
+   "reversibility": "plan.targets と docs に specifications を足す",
+   "source": "input",
+   "targets": [
+    "作成対象"
+   ],
+   "topic": "作成する文書",
+   "value": "要求文書（requirements）だけを作る",
+   "why": "依頼文に「prd」があり「仕様書」等の語が無いので document-splitting.md §0 の判定表で requirements になる"
+  },
+  {
+   "id": "D-002",
+   "layer": "手段",
+   "reversibility": "plan.docs を関心事ごとに分け直す",
+   "source": "default",
+   "targets": [
+    "文書の分割"
+   ],
+   "topic": "文書の分割",
+   "value": "requirements/cleanup-branches の 1 文書にする",
+   "why": "標準的選択: 題材は 1 つのスキルで小さい案件なので document-splitting.md §3 の目安（1 でよい）に従う"
+  },
+  {
+   "id": "D-003",
+   "layer": "手段",
+   "reversibility": "plan.units を分け直す",
+   "source": "default",
+   "targets": [
+    "writer の単位"
+   ],
+   "topic": "writer の単位",
+   "value": "1 文書を 1 単位 U-1 で書く",
+   "why": "正しさ不変: 文書が 1 つなので単位の切り方で内容は変わらない"
+  },
+  {
+   "id": "D-004",
+   "layer": "手段",
+   "reversibility": "plan.self_containment の inline / reference を入れ替える",
+   "source": "default",
+   "targets": [
+    "自己完結の方針"
+   ],
+   "topic": "自己完結の方針",
+   "value": "要求（何を達成し何を守るか）は文書に書き、貼り付けられた SKILL.md と repo_state.py の実現手段（git・gh のコマンド、呼び出し回数の工夫、subprocess の引数形式、実測の所要時間）は参照にとどめて文書に書かない",
+   "why": "標準的選択: 要求文書は手段を書かず、既存実装は要求文書の根拠にならない（agent-contracts.md「## 現物と既存実装の扱い」）"
+  },
+  {
+   "id": "D-005",
+   "layer": "要求",
+   "quote": "**審議の記録**（gitignore 対象で復元不可）",
+   "reversibility": "plan.domain の irreversible と、それから導いた required_categories を直す",
+   "source": "input",
+   "targets": [
+    "不可逆な操作"
+   ],
+   "topic": "観点 irreversible の判定",
+   "value": "該当（ブランチ・remote ブランチ・workspace の削除を含む）",
+   "why": "貼り付けの現物に、削除すると復元できない対象がある旨の記述がある"
+  },
+  {
+   "id": "D-006",
+   "layer": "要求",
+   "quote": "判定は全て `git` と `gh` の呼び出しで完結し、agent は関与しない。",
+   "reversibility": "plan.domain の external と、それから導いた required_categories を直す",
+   "source": "input",
+   "targets": [
+    "外部連携"
+   ],
+   "topic": "観点 external の判定",
+   "value": "該当（GitHub の PR 情報の参照と remote リポジトリのブランチ削除を含む）",
+   "why": "貼り付けの現物に、取り込み判定が外部の gh の呼び出しに依る旨の記述がある"
+  },
+  {
+   "id": "D-007",
+   "layer": "要求",
+   "quote": "PR マージ後に worktree を最新の主ブランチに同期し、溜まった不要物を落として次の作業用ブランチを作る。",
+   "reversibility": "plan.domain の life を直す",
+   "source": "input",
+   "targets": [
+    "生命・身体への影響"
+   ],
+   "topic": "観点 life の判定",
+   "value": "非該当",
+   "why": "扱う対象がリポジトリのブランチと作業場所に閉じており、人の生命・身体・健康に触れる記述が無い"
+  },
+  {
+   "id": "D-008",
+   "layer": "要求",
+   "quote": "PR マージ後に worktree を最新の主ブランチに同期し、溜まった不要物を落として次の作業用ブランチを作る。",
+   "reversibility": "plan.domain の money を直す",
+   "source": "input",
+   "targets": [
+    "金銭・資産の移動"
+   ],
+   "topic": "観点 money の判定",
+   "value": "非該当",
+   "why": "扱う対象がリポジトリのブランチと作業場所に閉じており、金銭・資産の移動に触れる記述が無い"
+  }
+ ]
+}

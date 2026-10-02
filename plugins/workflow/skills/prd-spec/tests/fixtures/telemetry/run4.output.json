@@ -1,0 +1,18 @@
+{
+ "result": {
+  "status": "blocked",
+  "next_args": null,
+  "open_tbd": [],
+  "holds": ["RS-021", "RS-032"],
+  "missed": [],
+  "integrity": [],
+  "undeclared": {},
+  "remaining_blocking": [
+   "r3-gr-requirements__cleanup-branches-001",
+   "r3-gr-requirements__cleanup-branches-002"
+  ]
+ },
+ "agentCount": 10,
+ "totalTokens": 1115341,
+ "totalToolCalls": 162
+}

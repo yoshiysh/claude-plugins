@@ -1,0 +1,2316 @@
+{
+ "closure": "種類は「流れの外から来るか・流れの中で処理するか・値で行き先を分けるか・流れの外へ出て終えるか」の 4 つの性質で分けており、どの要素もこのどれか 1 つに当たる。要素は貼り付けの SKILL.md の Step 1〜7 と「聞く / 聞かないの基準」の表を上から辿って列挙し、各 Step の対象（ローカル・remote・workspace・作業状態・同期・後処理・報告）ごとに工程を置いた（確かめたこと）。外部への書き込みと失敗しうる工程には成否の判断を置き、失敗の行き先を持たせた。貼り付けに書かれていない工程が本来要るかは依頼から決まらない（推測を含む）。",
+ "elements": [
+  {
+   "id": "F-001",
+   "kind": "外から入るもの",
+   "label": "起動の依頼",
+   "next": [
+    "F-003"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "「ブランチを整理して」「不要なブランチを消したい」「マージ済みブランチをクリーンアップして」"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "input"
+  },
+  {
+   "id": "F-002",
+   "kind": "外から入るもの",
+   "label": "GitHub の PR 情報",
+   "next": [
+    "F-003"
+   ],
+   "obtain": "may_fail",
+   "on_fail": {
+    "as": "得られない",
+    "source": {
+     "input": "分類は安全側（要判断）に寄る"
+    }
+   },
+   "source": [
+    {
+     "input": "PR 経路が落ちるだけで、残る 2 経路が効き"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "input"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-003",
+   "kind": "工程",
+   "label": "リポジトリの状態を取る",
+   "next": [
+    "F-004"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "python3 [SKILL_DIR]/scripts/repo_state.py report"
+    },
+    {
+     "input": "`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。"
+    },
+    {
+     "decision": "RS-017"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-005",
+     "value": "取れた"
+    },
+    {
+     "next": "F-038",
+     "value": "取れない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "取れた",
+     "source": [
+      {
+       "input": "この JSON を根拠にする。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "状態の取得": "取れた"
+     }
+    },
+    {
+     "branch": "取れない",
+     "source": {
+      "decision": "RS-011"
+     },
+     "when": {
+      "状態の取得": "取れない"
+     }
+    }
+   ],
+   "id": "F-004",
+   "inputs": [
+    {
+     "from": "F-003",
+     "name": "状態の取得",
+     "unknown": "取れない",
+     "values": [
+      "取れた",
+      "取れない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "状態を取れたか",
+   "source": [
+    {
+     "input": "この JSON を根拠にする。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-005",
+   "kind": "工程",
+   "label": "取り込み済みのローカルブランチを削除する",
+   "next": [
+    "F-047"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "ローカルの取り込み済み"
+    },
+    {
+     "decision": "RS-018"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-006",
+   "kind": "工程",
+   "label": "取り込み済みの remote ブランチを削除する",
+   "next": [
+    "F-007"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "remote の取り込み済み"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-008",
+     "value": "削除できた"
+    },
+    {
+     "next": "F-039",
+     "value": "削除できない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "削除できた",
+     "source": [
+      {
+       "input": "消した名前は Step 7 の報告に"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "remote の削除": "削除できた"
+     }
+    },
+    {
+     "branch": "削除できない",
+     "source": {
+      "decision": "RS-014"
+     },
+     "when": {
+      "remote の削除": "削除できない"
+     }
+    }
+   ],
+   "id": "F-007",
+   "inputs": [
+    {
+     "from": "F-006",
+     "name": "remote の削除",
+     "unknown": "削除できない",
+     "values": [
+      "削除できた",
+      "削除できない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "取り込み済みの remote ブランチを削除できたか",
+   "source": [
+    {
+     "input": "消した名前は Step 7 の報告に"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-039",
+   "kind": "工程",
+   "label": "削除できなかった取り込み済みの remote ブランチを報告に加える",
+   "next": [
+    "F-008"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-014"
+   },
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-009",
+     "value": "問う"
+    },
+    {
+     "next": "F-023",
+     "value": "問わない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "問わない",
+     "source": [
+      {
+       "input": "以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未取り込みの remote ブランチ": "無い",
+      "未取り込みのローカルブランチ（remote 削除済み）": "無い",
+      "終了済みの workspace": "無い"
+     }
+    },
+    {
+     "branch": "問う",
+     "source": [
+      {
+       "input": "以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "上記以外": true
+     }
+    }
+   ],
+   "id": "F-008",
+   "inputs": [
+    {
+     "from": "F-003",
+     "name": "未取り込みのローカルブランチ（remote 削除済み）",
+     "values": [
+      "ある",
+      "無い"
+     ]
+    },
+    {
+     "from": "F-003",
+     "name": "未取り込みの remote ブランチ",
+     "values": [
+      "ある",
+      "無い"
+     ]
+    },
+    {
+     "from": "F-003",
+     "name": "終了済みの workspace",
+     "values": [
+      "ある",
+      "無い"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "判断が要る対象があるか",
+   "source": [
+    {
+     "input": "以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-010",
+     "value": "全件を示す"
+    },
+    {
+     "next": "F-012",
+     "value": "要約して示す"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "全件を示す",
+     "source": [
+      {
+       "input": "目安として 1 カテゴリ 20 件超"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "1 カテゴリの候補数": "20 件以下"
+     }
+    },
+    {
+     "branch": "要約して示す",
+     "source": [
+      {
+       "input": "件数と代表例（最終 commit が古い順に数件、下記の `reason` の事実を添える）に要約したうえで"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "1 カテゴリの候補数": "20 件超"
+     }
+    }
+   ],
+   "id": "F-009",
+   "inputs": [
+    {
+     "from": "F-003",
+     "name": "1 カテゴリの候補数",
+     "values": [
+      "20 件以下",
+      "20 件超"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "1 カテゴリの候補数",
+   "source": [
+    {
+     "input": "目安として 1 カテゴリ 20 件超"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-010",
+   "kind": "工程",
+   "label": "判断が要る対象を全件示して 1 回で問う",
+   "next": [
+    "F-011"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "以下のうち**空でないものだけ**を 1 回の問いかけにまとめる。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "read",
+   "id": "F-012",
+   "kind": "工程",
+   "label": "判断が要る対象を件数と代表例に要約して 1 回で問う",
+   "next": [
+    "F-011"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "件数と代表例（最終 commit が古い順に数件、下記の `reason` の事実を添える）に要約したうえで"
+    },
+    {
+     "input": "「全件まとめて削除」は選択肢に含めない"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "read",
+   "id": "F-011",
+   "kind": "工程",
+   "label": "利用者の応答を受け取る",
+   "next": [
+    "F-013"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "「全件残す / 一覧を見て個別に選ぶ」を選択肢として出す"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-049",
+     "value": "承認分を削除する"
+    },
+    {
+     "next": "F-023",
+     "value": "削除しない"
+    },
+    {
+     "next": "F-014",
+     "value": "一覧を示す"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "承認分を削除する",
+     "source": [
+      {
+       "input": "承認された分だけ"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "一覧の提示の回数": "*",
+      "応答の種類": "一部を承認"
+     }
+    },
+    {
+     "branch": "削除しない",
+     "source": [
+      {
+       "input": "「全件残す / 一覧を見て個別に選ぶ」を選択肢として出す"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "一覧の提示の回数": "*",
+      "応答の種類": "全件残す"
+     }
+    },
+    {
+     "branch": "一覧を示す",
+     "source": [
+      {
+       "input": "ユーザーが一覧を求めた場合にだけ"
+      },
+      {
+       "decision": "RS-003"
+      },
+      {
+       "decision": "RS-013"
+      }
+     ],
+     "when": {
+      "一覧の提示の回数": "上限未満",
+      "応答の種類": "一覧を求める"
+     }
+    },
+    {
+     "branch": "削除しない",
+     "source": {
+      "decision": "RS-013"
+     },
+     "when": {
+      "一覧の提示の回数": "上限到達",
+      "応答の種類": "一覧を求める"
+     }
+    },
+    {
+     "branch": "削除しない",
+     "source": {
+      "decision": "RS-013"
+     },
+     "when": {
+      "一覧の提示の回数": "*",
+      "応答の種類": "それ以外"
+     }
+    }
+   ],
+   "id": "F-013",
+   "inputs": [
+    {
+     "from": "F-011",
+     "name": "応答の種類",
+     "values": [
+      "一部を承認",
+      "全件残す",
+      "一覧を求める",
+      "それ以外"
+     ]
+    },
+    {
+     "from": "F-011",
+     "name": "一覧の提示の回数",
+     "values": [
+      "上限未満",
+      "上限到達"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "応答の種類",
+   "source": [
+    {
+     "input": "「全件残す / 一覧を見て個別に選ぶ」を選択肢として出す"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-014",
+   "kind": "工程",
+   "label": "判断が要る対象の一覧を示す",
+   "next": [
+    "F-011"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "ユーザーが一覧を求めた場合にだけ"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "reversible",
+   "id": "F-015",
+   "kind": "工程",
+   "label": "承認された未取り込みのローカルブランチ 1 本に退避タグを打つ",
+   "next": [
+    "F-016"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "**`local.needs_decision`（remote 削除済みだが未取り込み）**"
+    },
+    {
+     "decision": "RS-019"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-017",
+     "value": "打てた"
+    },
+    {
+     "next": "F-050",
+     "value": "打てない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "打てた",
+     "source": [
+      {
+       "input": "`git tag` が失敗したら `git branch -D` を実行しない"
+      },
+      {
+       "decision": "RS-019"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "ローカルの退避タグ": "打てた"
+     }
+    },
+    {
+     "branch": "打てない",
+     "source": [
+      {
+       "input": "`git tag` が失敗したら `git branch -D` を実行しない"
+      },
+      {
+       "decision": "RS-019"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "ローカルの退避タグ": "打てない"
+     }
+    }
+   ],
+   "id": "F-016",
+   "inputs": [
+    {
+     "from": "F-015",
+     "name": "ローカルの退避タグ",
+     "unknown": "打てない",
+     "values": [
+      "打てた",
+      "打てない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "ローカルブランチの退避タグを打てたか",
+   "source": [
+    {
+     "input": "`git tag` が失敗したら `git branch -D` を実行しない"
+    },
+    {
+     "decision": "RS-019"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-017",
+   "kind": "工程",
+   "label": "承認された未取り込みのローカルブランチ 1 本を削除する",
+   "next": [
+    "F-051"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "承認された分だけ"
+    },
+    {
+     "decision": "RS-019"
+    },
+    {
+     "decision": "RS-020"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "reversible",
+   "id": "F-018",
+   "kind": "工程",
+   "label": "承認された未取り込みの remote ブランチ 1 本に remote-tracking ref から退避タグを打つ",
+   "next": [
+    "F-019"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "**`remote.needs_decision`（未取り込みで remote に残存）**"
+    },
+    {
+     "input": "タグは必ず削除**前**に、remote-tracking ref（`origin/<name>`）から打つ。"
+    },
+    {
+     "decision": "RS-021"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-020",
+     "value": "打てた"
+    },
+    {
+     "next": "F-055",
+     "value": "打てない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "打てた",
+     "source": [
+      {
+       "input": "`git tag` が失敗したら削除しない。"
+      },
+      {
+       "decision": "RS-021"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "remote の退避タグ": "打てた"
+     }
+    },
+    {
+     "branch": "打てない",
+     "source": [
+      {
+       "input": "`git tag` が失敗したら削除しない。"
+      },
+      {
+       "decision": "RS-021"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "remote の退避タグ": "打てない"
+     }
+    }
+   ],
+   "id": "F-019",
+   "inputs": [
+    {
+     "from": "F-018",
+     "name": "remote の退避タグ",
+     "unknown": "打てない",
+     "values": [
+      "打てた",
+      "打てない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "remote ブランチの退避タグを打てたか",
+   "source": [
+    {
+     "input": "`git tag` が失敗したら削除しない。"
+    },
+    {
+     "decision": "RS-021"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-020",
+   "kind": "工程",
+   "label": "承認された未取り込みの remote ブランチ 1 本を削除する",
+   "next": [
+    "F-021"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "承認された分だけ"
+    },
+    {
+     "decision": "RS-021"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-056",
+     "value": "削除できた"
+    },
+    {
+     "next": "F-040",
+     "value": "削除できない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "削除できた",
+     "source": [
+      {
+       "input": "承認を得て削除した未取り込み"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "承認された remote の削除": "削除できた"
+     }
+    },
+    {
+     "branch": "削除できない",
+     "source": {
+      "decision": "RS-014"
+     },
+     "when": {
+      "承認された remote の削除": "削除できない"
+     }
+    }
+   ],
+   "id": "F-021",
+   "inputs": [
+    {
+     "from": "F-020",
+     "name": "承認された remote の削除",
+     "unknown": "削除できない",
+     "values": [
+      "削除できた",
+      "削除できない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "承認された remote ブランチを削除できたか",
+   "source": [
+    {
+     "input": "承認を得て削除した未取り込み"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-040",
+   "kind": "工程",
+   "label": "削除できなかった承認済みの remote ブランチを報告に加える",
+   "next": [
+    "F-054"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-014"
+   },
+   "type": "step"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-022",
+   "kind": "工程",
+   "label": "承認された終了済みの workspace を削除する",
+   "next": [
+    "F-041"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "終端済みでも成果物はそこにしか無いので、消す前に聞く。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-023",
+     "value": "削除できた"
+    },
+    {
+     "next": "F-042",
+     "value": "削除できない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "削除できた",
+     "source": [
+      {
+       "input": "workspace: 削除 {n} / 保持 {n}"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "workspace の削除": "削除できた"
+     }
+    },
+    {
+     "branch": "削除できない",
+     "source": {
+      "decision": "RS-014"
+     },
+     "when": {
+      "workspace の削除": "削除できない"
+     }
+    }
+   ],
+   "id": "F-041",
+   "inputs": [
+    {
+     "from": "F-022",
+     "name": "workspace の削除",
+     "unknown": "削除できない",
+     "values": [
+      "削除できた",
+      "削除できない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "workspace を削除できたか",
+   "source": [
+    {
+     "input": "workspace: 削除 {n} / 保持 {n}"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-042",
+   "kind": "工程",
+   "label": "削除できなかった workspace を報告に加える",
+   "next": [
+    "F-023"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-014"
+   },
+   "type": "step"
+  },
+  {
+   "effect": "read",
+   "id": "F-023",
+   "kind": "工程",
+   "label": "作業状態を削除せずに一覧にする",
+   "next": [
+    "F-024"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "中身を見ずに消すと未コミットの作業を破壊する。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-025",
+     "value": "退避する"
+    },
+    {
+     "next": "F-026",
+     "value": "退避しない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "退避する",
+     "source": [
+      {
+       "input": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未コミットの変更": "ある"
+     }
+    },
+    {
+     "branch": "退避しない",
+     "source": [
+      {
+       "input": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未コミットの変更": "無い"
+     }
+    }
+   ],
+   "id": "F-024",
+   "inputs": [
+    {
+     "from": "F-003",
+     "name": "未コミットの変更",
+     "values": [
+      "ある",
+      "無い"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "未コミットの変更があるか",
+   "source": [
+    {
+     "input": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "reversible",
+   "id": "F-025",
+   "kind": "工程",
+   "label": "未コミットの変更を退避する",
+   "next": [
+    "F-057"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+    },
+    {
+     "decision": "RS-022"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-027",
+     "value": "reset する"
+    },
+    {
+     "next": "F-028",
+     "value": "reset しない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "reset しない",
+     "source": [
+      {
+       "input": "`git reset` するとローカル ref が PR head から"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "現在のブランチ": "名前あり",
+      "現在のブランチの open PR": "ある"
+     }
+    },
+    {
+     "branch": "reset する",
+     "source": [
+      {
+       "input": "**`false`**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "現在のブランチ": "名前あり",
+      "現在のブランチの open PR": "無い"
+     }
+    },
+    {
+     "branch": "reset する",
+     "source": [
+      {
+       "input": "`current_branch` が空（detached HEAD）のときもこちら。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "現在のブランチ": "detached HEAD",
+      "現在のブランチの open PR": "ある"
+     }
+    },
+    {
+     "branch": "reset する",
+     "source": [
+      {
+       "input": "`current_branch` が空（detached HEAD）のときもこちら。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "現在のブランチ": "detached HEAD",
+      "現在のブランチの open PR": "無い"
+     }
+    },
+    {
+     "branch": "reset する",
+     "source": [
+      {
+       "input": "`current_branch` が空（detached HEAD）のときもこちら。"
+      },
+      {
+       "decision": "RS-024"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "現在のブランチ": "detached HEAD",
+      "現在のブランチの open PR": "得られない"
+     }
+    },
+    {
+     "branch": "reset しない",
+     "source": {
+      "decision": "RS-012"
+     },
+     "when": {
+      "現在のブランチ": "名前あり",
+      "現在のブランチの open PR": "得られない"
+     }
+    }
+   ],
+   "id": "F-026",
+   "inputs": [
+    {
+     "from": "F-002",
+     "name": "現在のブランチの open PR",
+     "values": [
+      "ある",
+      "無い",
+      "得られない"
+     ]
+    },
+    {
+     "from": "F-003",
+     "name": "現在のブランチ",
+     "values": [
+      "名前あり",
+      "detached HEAD"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "作業場所を起点ブランチへ reset するか",
+   "source": [
+    {
+     "input": "`git reset` するとローカル ref が PR head から"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "constrained_by": [
+    "RS-004"
+   ],
+   "effect": "destructive",
+   "id": "F-027",
+   "kind": "工程",
+   "label": "作業場所を起点ブランチへ同期する",
+   "next": [
+    "F-028"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "**`false`**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "reversible",
+   "id": "F-028",
+   "kind": "工程",
+   "label": "作業用ブランチを作る",
+   "next": [
+    "F-029"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "ブランチ名はユーザー指定があればそれを使い、無ければ `feature/{6文字hex}` を生成する。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-030",
+     "value": "作れた"
+    },
+    {
+     "next": "F-043",
+     "value": "作れない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "作れた",
+     "source": [
+      {
+       "input": "ブランチ名はユーザー指定があればそれを使い、無ければ `feature/{6文字hex}` を生成する。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "作業用ブランチの作成": "作れた"
+     }
+    },
+    {
+     "branch": "作れない",
+     "source": {
+      "decision": "RS-015"
+     },
+     "when": {
+      "作業用ブランチの作成": "作れない"
+     }
+    }
+   ],
+   "id": "F-029",
+   "inputs": [
+    {
+     "from": "F-028",
+     "name": "作業用ブランチの作成",
+     "unknown": "作れない",
+     "values": [
+      "作れた",
+      "作れない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "作業用ブランチを作れたか",
+   "source": [
+    {
+     "input": "ブランチ名はユーザー指定があればそれを使い、無ければ `feature/{6文字hex}` を生成する。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-043",
+   "kind": "工程",
+   "label": "作業用ブランチを作れなかった旨を報告に加える",
+   "next": [
+    "F-030"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-015"
+   },
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-031",
+     "value": "実行する"
+    },
+    {
+     "next": "F-045",
+     "value": "設定なしと報告する"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "実行する",
+     "source": [
+      {
+       "input": "`.claude/worktree-sync.json` があればそれを読み、`post_sync` の"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "後処理の設定": "ある"
+     }
+    },
+    {
+     "branch": "設定なしと報告する",
+     "source": [
+      {
+       "input": "ファイルが無ければ何もせず、その旨を Step 7 で報告する"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "後処理の設定": "無い"
+     }
+    }
+   ],
+   "id": "F-030",
+   "inputs": [
+    {
+     "from": "F-003",
+     "name": "後処理の設定",
+     "values": [
+      "ある",
+      "無い"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "後処理の設定があるか",
+   "source": [
+    {
+     "input": "`.claude/worktree-sync.json` があればそれを読み、`post_sync` の"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-045",
+   "kind": "工程",
+   "label": "後処理の設定が無い旨を報告に加える",
+   "next": [
+    "F-033"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "ファイルが無ければ何もせず、その旨を Step 7 で報告する"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "constrained_by": [
+    "RS-016"
+   ],
+   "effect": "destructive",
+   "id": "F-031",
+   "kind": "工程",
+   "label": "後処理のコマンドを順に実行する",
+   "next": [
+    "F-032"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "`.claude/worktree-sync.json` があればそれを読み、`post_sync` の"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-046",
+     "value": "すべて成功"
+    },
+    {
+     "next": "F-044",
+     "value": "失敗した行がある"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "すべて成功",
+     "source": [
+      {
+       "input": "コマンドが失敗しても Step 7 へ進み、失敗した行をそのまま提示して手動実行を案内する。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "後処理の結果": "すべて成功"
+     }
+    },
+    {
+     "branch": "失敗した行がある",
+     "source": [
+      {
+       "input": "コマンドが失敗しても Step 7 へ進み、失敗した行をそのまま提示して手動実行を案内する。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "後処理の結果": "失敗した行がある"
+     }
+    }
+   ],
+   "id": "F-032",
+   "inputs": [
+    {
+     "from": "F-031",
+     "name": "後処理の結果",
+     "unknown": "失敗した行がある",
+     "values": [
+      "すべて成功",
+      "失敗した行がある"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "後処理のコマンドがすべて成功したか",
+   "source": [
+    {
+     "input": "コマンドが失敗しても Step 7 へ進み、失敗した行をそのまま提示して手動実行を案内する。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-046",
+   "kind": "工程",
+   "label": "実行した後処理のコマンドと結果を報告に加える",
+   "next": [
+    "F-033"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "後処理: {実行したコマンドと結果"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "read",
+   "id": "F-044",
+   "kind": "工程",
+   "label": "失敗した後処理の行と手動実行の案内を報告に加える",
+   "next": [
+    "F-033"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "コマンドが失敗しても Step 7 へ進み、失敗した行をそのまま提示して手動実行を案内する。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-034",
+     "value": "戻す"
+    },
+    {
+     "next": "F-036",
+     "value": "戻さない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "戻す",
+     "source": [
+      {
+       "input": "stash した場合は `git stash pop`"
+      },
+      {
+       "decision": "RS-023"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "退避の結果": "退避した"
+     }
+    },
+    {
+     "branch": "戻さない",
+     "source": [
+      {
+       "decision": "RS-023"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "退避の結果": "退避が作られなかった"
+     }
+    },
+    {
+     "branch": "戻さない",
+     "source": [
+      {
+       "input": "stash した場合は `git stash pop`"
+      },
+      {
+       "decision": "RS-022"
+      },
+      {
+       "decision": "RS-023"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "退避の結果": "退避していない"
+     }
+    },
+    {
+     "branch": "戻さない",
+     "source": {
+      "decision": "RS-026"
+     },
+     "when": {
+      "退避の結果": "失敗した"
+     }
+    }
+   ],
+   "id": "F-033",
+   "inputs": [
+    {
+     "from": "F-025",
+     "name": "退避の結果",
+     "unknown": "失敗した",
+     "values": [
+      "退避した",
+      "退避が作られなかった",
+      "退避していない",
+      "失敗した"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "退避した変更があるか",
+   "source": [
+    {
+     "input": "stash した場合は `git stash pop`"
+    },
+    {
+     "decision": "RS-023"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "reversible",
+   "id": "F-034",
+   "kind": "工程",
+   "label": "退避した変更を戻す",
+   "next": [
+    "F-035"
+   ],
+   "obtain": "may_fail",
+   "source": [
+    {
+     "input": "stash した場合は `git stash pop`（コンフリクト時は箇所を出して手動解決を案内）。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-036",
+     "value": "戻せた"
+    },
+    {
+     "next": "F-037",
+     "value": "衝突した"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "戻せた",
+     "source": [
+      {
+       "input": "stash した場合は `git stash pop`（コンフリクト時は箇所を出して手動解決を案内）。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "変更の復帰": "戻せた"
+     }
+    },
+    {
+     "branch": "衝突した",
+     "source": [
+      {
+       "input": "stash した場合は `git stash pop`（コンフリクト時は箇所を出して手動解決を案内）。"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "変更の復帰": "衝突した"
+     }
+    }
+   ],
+   "id": "F-035",
+   "inputs": [
+    {
+     "from": "F-034",
+     "name": "変更の復帰",
+     "unknown": "衝突した",
+     "values": [
+      "戻せた",
+      "衝突した"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "退避した変更を衝突なく戻せたか",
+   "source": [
+    {
+     "input": "stash した場合は `git stash pop`（コンフリクト時は箇所を出して手動解決を案内）。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-037",
+   "kind": "工程",
+   "label": "衝突した箇所と手動解決の案内を報告に加える",
+   "next": [
+    "F-036"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "stash した場合は `git stash pop`（コンフリクト時は箇所を出して手動解決を案内）。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "id": "F-036",
+   "kind": "返すもの",
+   "label": "完了報告",
+   "source": [
+    {
+     "input": "同期完了:"
+    },
+    {
+     "input": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "output"
+  },
+  {
+   "id": "F-038",
+   "kind": "返すもの",
+   "label": "状態を取れなかった旨の報告",
+   "source": {
+    "decision": "RS-011"
+   },
+   "type": "output"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-006",
+     "value": "削除できた"
+    },
+    {
+     "next": "F-048",
+     "value": "削除できない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "削除できた",
+     "source": [
+      {
+       "input": "消した名前は Step 7 の報告に"
+      },
+      {
+       "decision": "RS-018"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "ローカルの削除": "削除できた"
+     }
+    },
+    {
+     "branch": "削除できない",
+     "source": {
+      "decision": "RS-025"
+     },
+     "when": {
+      "ローカルの削除": "削除できない"
+     }
+    }
+   ],
+   "id": "F-047",
+   "inputs": [
+    {
+     "from": "F-005",
+     "name": "ローカルの削除",
+     "unknown": "削除できない",
+     "values": [
+      "削除できた",
+      "削除できない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "取り込み済みのローカルブランチを削除できたか",
+   "source": [
+    {
+     "input": "消した名前は Step 7 の報告に"
+    },
+    {
+     "decision": "RS-018"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-048",
+   "kind": "工程",
+   "label": "削除できなかった取り込み済みのローカルブランチを報告に加える",
+   "next": [
+    "F-006"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-025"
+   },
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-015",
+     "value": "残っている"
+    },
+    {
+     "next": "F-054",
+     "value": "残っていない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "残っている",
+     "source": [
+      {
+       "input": "承認された分だけ、次の 2 手を**この順で**個別に実行する。"
+      },
+      {
+       "decision": "RS-019"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未処理の承認済みローカルブランチ": "残っている"
+     }
+    },
+    {
+     "branch": "残っていない",
+     "source": [
+      {
+       "input": "承認された分だけ、次の 2 手を**この順で**個別に実行する。"
+      },
+      {
+       "decision": "RS-019"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未処理の承認済みローカルブランチ": "残っていない"
+     }
+    }
+   ],
+   "id": "F-049",
+   "inputs": [
+    {
+     "from": "F-011",
+     "name": "未処理の承認済みローカルブランチ",
+     "values": [
+      "残っている",
+      "残っていない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "承認された未取り込みのローカルブランチが残っているか",
+   "source": [
+    {
+     "input": "承認された分だけ、次の 2 手を**この順で**個別に実行する。"
+    },
+    {
+     "decision": "RS-019"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-050",
+   "kind": "工程",
+   "label": "退避タグを打てなかったローカルブランチを削除しなかったものとして報告に加える",
+   "next": [
+    "F-049"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    },
+    {
+     "decision": "RS-019"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-053",
+     "value": "削除できた"
+    },
+    {
+     "next": "F-052",
+     "value": "削除できない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "削除できた",
+     "source": [
+      {
+       "input": "打ったタグ名は Step 7 の報告に載せる。"
+      },
+      {
+       "decision": "RS-020"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "承認されたローカルの削除": "削除できた"
+     }
+    },
+    {
+     "branch": "削除できない",
+     "source": {
+      "decision": "RS-025"
+     },
+     "when": {
+      "承認されたローカルの削除": "削除できない"
+     }
+    }
+   ],
+   "id": "F-051",
+   "inputs": [
+    {
+     "from": "F-017",
+     "name": "承認されたローカルの削除",
+     "unknown": "削除できない",
+     "values": [
+      "削除できた",
+      "削除できない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "承認された未取り込みのローカルブランチを削除できたか",
+   "source": [
+    {
+     "input": "打ったタグ名は Step 7 の報告に載せる。"
+    },
+    {
+     "decision": "RS-020"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-052",
+   "kind": "工程",
+   "label": "削除できなかった承認済みのローカルブランチを報告に加える",
+   "next": [
+    "F-049"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-025"
+   },
+   "type": "step"
+  },
+  {
+   "effect": "read",
+   "id": "F-053",
+   "kind": "工程",
+   "label": "削除したローカルブランチと退避タグ名を対にして報告に加える",
+   "next": [
+    "F-049"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "そのブランチと必ず対にして示す。"
+    },
+    {
+     "decision": "RS-019"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-018",
+     "value": "残っている"
+    },
+    {
+     "next": "F-022",
+     "value": "残っていない"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "残っている",
+     "source": [
+      {
+       "input": "承認された未取り込みブランチはローカル側と同じ 2 手を"
+      },
+      {
+       "decision": "RS-021"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未処理の承認済み remote ブランチ": "残っている"
+     }
+    },
+    {
+     "branch": "残っていない",
+     "source": [
+      {
+       "input": "承認された未取り込みブランチはローカル側と同じ 2 手を"
+      },
+      {
+       "decision": "RS-021"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "未処理の承認済み remote ブランチ": "残っていない"
+     }
+    }
+   ],
+   "id": "F-054",
+   "inputs": [
+    {
+     "from": "F-011",
+     "name": "未処理の承認済み remote ブランチ",
+     "values": [
+      "残っている",
+      "残っていない"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "承認された未取り込みの remote ブランチが残っているか",
+   "source": [
+    {
+     "input": "承認された未取り込みブランチはローカル側と同じ 2 手を"
+    },
+    {
+     "decision": "RS-021"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-055",
+   "kind": "工程",
+   "label": "退避タグを打てなかった remote ブランチを削除しなかったものとして報告に加える",
+   "next": [
+    "F-054"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    },
+    {
+     "decision": "RS-021"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "effect": "read",
+   "id": "F-056",
+   "kind": "工程",
+   "label": "削除した remote ブランチと退避タグ名を対にして報告に加える",
+   "next": [
+    "F-054"
+   ],
+   "obtain": "always",
+   "source": [
+    {
+     "input": "そのブランチと必ず対にして示す。"
+    },
+    {
+     "decision": "RS-021"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "step"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-026",
+     "value": "同期へ進む"
+    },
+    {
+     "next": "F-058",
+     "value": "退避せず同期へ進む"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "同期へ進む",
+     "source": [
+      {
+       "input": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+      },
+      {
+       "decision": "RS-022"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "退避の結果": "退避した"
+     }
+    },
+    {
+     "branch": "同期へ進む",
+     "source": [
+      {
+       "decision": "RS-022"
+      },
+      {
+       "decision": "RS-003"
+      }
+     ],
+     "when": {
+      "退避の結果": "退避が作られなかった"
+     }
+    },
+    {
+     "branch": "退避せず同期へ進む",
+     "source": {
+      "decision": "RS-026"
+     },
+     "when": {
+      "退避の結果": "失敗した"
+     }
+    }
+   ],
+   "id": "F-057",
+   "inputs": [
+    {
+     "from": "F-025",
+     "name": "退避の結果",
+     "unknown": "失敗した",
+     "values": [
+      "退避した",
+      "退避が作られなかった",
+      "失敗した"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "未コミットの変更を退避できたか",
+   "source": [
+    {
+     "input": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+    },
+    {
+     "decision": "RS-022"
+    },
+    {
+     "decision": "RS-003"
+    }
+   ],
+   "type": "decision"
+  },
+  {
+   "effect": "read",
+   "id": "F-058",
+   "kind": "工程",
+   "label": "未コミットの変更を退避できなかった旨を報告に加える",
+   "next": [
+    "F-026"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "RS-026"
+   },
+   "type": "step"
+  }
+ ],
+ "kinds": [
+  {
+   "definition": "流れの外で作られて流れに入る値（利用者の依頼・外部サービスの応答）",
+   "name": "外から入るもの"
+  },
+  {
+   "definition": "値を受け取り、リポジトリ・外部・報告の状態を読むか作るか変える処理",
+   "name": "工程"
+  },
+  {
+   "definition": "入力の値によって次の要素が変わる要素",
+   "name": "判断"
+  },
+  {
+   "definition": "流れの外へ出て利用者に届き、流れを終えるもの",
+   "name": "返すもの"
+  }
+ ]
+}

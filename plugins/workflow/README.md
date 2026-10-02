@@ -51,3 +51,4 @@ resume の live E2E は未検証です。workspace の検証範囲と上限は r
 
 このプラグインの `skills/` 配下がスキルの実体です。
 リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。
+`workflows/` 配下は名前付き workflow で、`workflows/prd-spec.js` は `prd-spec` が名前 `/workflow:prd-spec-run` で呼ぶ段の制御の script です。

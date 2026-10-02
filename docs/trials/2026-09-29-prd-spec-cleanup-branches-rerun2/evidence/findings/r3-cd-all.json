@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "id": "r3-cd-all-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-048",
+      "quote": "tracked ファイルの未コミット差分か未追跡ファイルがあるとき、cleanup-branches は、起点ブランチへ動かすかの判定（PR-CLEANUP-051）の前に、その判定の結果によらずそれらを退避しなければならない。",
+      "issue": "PR-CLEANUP-045 の作業状態の提示と PR-CLEANUP-062 の作業状態の件数は、どの時点の状態を数えるかを書いていない。PR-CLEANUP-048 の退避の前後で、tracked の差分・未追跡ファイル・stash の件数が変わる（退避で差分と未追跡が 0 件になり、stash が 1 件増える）。",
+      "repro": "tracked ファイル a.txt に未コミット差分が 1 件、未追跡ファイル b.txt が 1 件、実行前からの stash が 0 件ある。退避の前に PR-CLEANUP-045 で示す実装は「tracked 1・未追跡 1・stash 0」を示し、退避の後に示す実装は「tracked 0・未追跡 0・stash 1」を示す（この実行が作った退避を、実行の前からあった滞留した stash として利用者に見せる）。PR-CLEANUP-062 の作業状態も、退避を戻す前後のどちらを数えるかで割れる。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "choose_one",
+      "direction_note": "作業状態の提示と完了報告の件数が、退避の前の状態を数えるのか後の状態を数えるのかを 1 つにする",
+      "origin": "text"
+    },
+    {
+      "id": "r3-cd-all-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-048",
+      "quote": "PR-CLEANUP-048 の退避に失敗したならば、cleanup-branches は、退避せずに起点ブランチへ動かすかの判定（PR-CLEANUP-051）へ進まなければならない。",
+      "issue": "退避に失敗すると、tracked ファイルの差分が作業ツリーに残ったまま PR-CLEANUP-051 の「起点ブランチの位置へ動かす」に進む。PR-CLEANUP-044・001 は tracked の差分を承認なしに破棄することを禁じ、例外の PR-CLEANUP-052 が許すのは起点ブランチに無いコミットを動かすことだけである。動かす操作が作業ツリーの差分を保つのか捨てるのかは、どの項目にも書かれていない（前のパスの r2-cd-all-002 と同じ欠け。PR-CLEANUP-048 の文面は改まったが、この点は残っている）。",
+      "repro": "a.txt に未コミット差分があり、退避が失敗し、現在のブランチに open PR が無い。PR-CLEANUP-049 に従い PR-CLEANUP-051 の「起点ブランチの位置へ動かしてから作業用ブランチを作る」に進む。動かす操作を作業ツリーごと合わせる実装では a.txt の差分が消えて PR-CLEANUP-044 に反し、作業ツリーを保つ実装なら反しない。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "tighten",
+      "direction_note": "動かす操作が作業ツリーの未コミット差分を破棄しないことを規範にする（入力の同期の手順に沿う）",
+      "origin": "text"
+    },
+    {
+      "id": "r3-cd-all-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-034",
+      "quote": "cleanup-branches は、承認された未取り込みのローカルブランチを 1 本ずつ扱い、そのブランチを指す復元用のタグを作る前にそのブランチを削除してはならない（TBD-RCLEANUP-001）。",
+      "issue": "PR-CLEANUP-034・038 に従いタグを作った後に削除が失敗すると（PR-CLEANUP-037・041）、ブランチは残りタグも残る。PR-CLEANUP-062 のタグ名は「承認を得て削除した未取り込みのブランチ」の行にしか載らず、「削除できなかった承認済みの未取り込みのブランチ」の行はブランチ名だけなので、残ったタグの名前がどの項目にも出ない。入力は打ったタグ名を報告に載せるとしている。",
+      "repro": "承認された feature/a にタグ deleted-branches/feature-a-20250101-123456 を作った後、ブランチが別の worktree で checkout されていて削除に失敗する。PR-CLEANUP-062 の行どおりにブランチ名だけを載せる実装ではタグ名が報告に出ず、利用者は残ったタグに気づけない。タグ名も載せる実装は 062 の載せる内容の外を載せることになり、適合か違反かが割れる。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "relax",
+      "direction_note": "作ったタグのうち削除に至らなかったものを、完了報告のどの項目に載せるかを決める",
+      "origin": "text"
+    }
+  ],
+  "checked": "全文書（requirements-cleanup-branches.md の要求一覧・スコープ・リスク、plan.json は範囲を絞った監査のため対象項目の関連分）を、対象項目 PR-CLEANUP-006・015・034・048 の節から読み、関連する 001・003〜007・010・013・016〜021・033・035〜039・044・045・049〜052・055・060〜062・064〜071 と input.md（Step 2・3・5・7）、meta の trace と TBD、resolutions（RS-003・004・022・028・040・050・052〜054）を照合した。前パスの r2-cd-all-001（006 の追跡先の無いローカルブランチ）は PR-CLEANUP-071 の保持規則で解消、r2-cd-all-003（044 の stash の範囲）は 044 の括弧書きと 070 で解消、r2-im-requirements__cleanup-branches-002（048 と 051 の順序）は 048 の「判定の前に、その結果によらず」で解消と判断し再掲していない。r2-cd-all-002 は動かす操作が作業ツリーの差分を保つかが本文に無いため r3-cd-all-002 として再掲した。PR-CLEANUP-006・015 には新規の指摘が無い（006 の分類は 021・067・071 で漏れなく分かれ、015 は 003・004・064 と矛盾しない）。開いている TBD（TBD-RCLEANUP-001・002）と保持規則 004・034・035・038・039・071 の存在自体は指摘していない。文書は 1 つなので文書間の比較は成立しない。"
+}

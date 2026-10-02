@@ -83,6 +83,11 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
   行わない**（実測: 司令塔の安価な手修正は 3 回中 3 回欠陥を持ち込んだ）。各役割には
   やること・やらないことを明示で書く — 推論可能なだけの don't は守られない。
   ループの出口条件は役割境界と一致させる（役割の無い場所へ作業が漏れる出口を作らない）。
+  どの段を次に走らせるか（段の選択）は司令塔の仕事に含む（内容の生成・修正・採点ではない）
+  — 選択まで禁じると段の順序を 1 本の script に焼き込むしかなく、題材で変わる経路に
+  対応できない。ただし変えたものの再検証は選択の対象にせず部品側で強制する — 選択に
+  含めると生成者の自己申告だけで未検証の変更が成果物に届く（実測: prd-spec 再試走で
+  検証に落ちた flow 要素 16 件が再検証されないまま初稿と監査 2 回を通った）。
 - 1 役割 1 責務は multi-agent ループの内外を問わず適用する。司令塔（メインセッション）は
   成果物本文（コード・hook・文書の実体）を書かない — 「小さい修正だから」「workflow を
   立てるほどでもないから」は、手修正 3/3 欠陥を生んだ合理化の言い換えである。実装タスクの
@@ -172,12 +177,15 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
 
-`research` の search/dispatch、`skill-creator`、`workflow` の prd-spec / review-document の
+`research` の search/dispatch、`skill-creator`、`workflow` の review-document の
 Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
 （runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
 caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
-runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
-dispatch、prd-spec、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
+runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create mode、
+host-bound `updatePolicy` と runtime capability が揃う `skill-creator` update である。
+dispatch、review-document、skill-creator の review は execution 前に fail-closed する。
+update の承認後適用は `skill-creator` の Codex 互換契約と apply helper を正とする。
+`workflow` の prd-spec は Codex では実行しない（理由は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
 `plugins/performance/references/native-hooks.md` を正とする。

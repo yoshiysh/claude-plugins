@@ -1,0 +1,101 @@
+{
+ "findings": [
+  {
+   "id": "r1-cd-all-001",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-034",
+   "quote": "cleanup-branches は、承認された未取り込みのローカルブランチを 1 本ずつ扱い、そのブランチを削除する前に、そのブランチを指す復元用のタグを作らなければならない",
+   "issue": "根拠にしてよい resolution の RS-001（復元用タグをやめるか）は台帳上 question のままで value も回答の反映も無く、どの項目の trace にも引かれず TBD としても起票されていない。一方 answers/g0.md の RS-001 には依頼者の「削除タグは不要。マージ済みなら確認不要で削除してよい」があり、PR-CLEANUP-034〜036・038〜040 が置く復元用タグの必須化と、文面の上では衝突しうる。resolver 自身は文面から意図が決まらないとして question に置いた。",
+   "repro": "依頼者が RS-001 に「削除タグは不要」と答えた run で、承認された未取り込みブランチ feature/x を削除する。PR-CLEANUP-034・035 に従うとタグを作れないかぎり削除できず、回答に従うとタグ無しで削除する。どちらが正か文書からも台帳からも決まらない。",
+   "blocking": true,
+   "route": "decision",
+   "direction": "choose_one",
+   "origin": "ledger"
+  },
+  {
+   "id": "r1-cd-all-002",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-015",
+   "quote": "cleanup-branches は、状態の取得の後、取り込み済みと分類したローカルブランチを、利用者の確認を求めずに削除しなければならない",
+   "issue": "RS-002（取り込み済みのローカルブランチの削除に git branch --delete-merged を使うか）は根拠にしてよい resolution に挙がるが question のままで、どの項目にも届かず TBD にも保持規則にもなっていない。依頼者が伝聞として挙げた手段を採るか採らないかが、文書のどこにも現れない。",
+   "repro": "依頼者が git branch --delete-merged による削除を求めていた場合、PR-CLEANUP-003・004・015 は履歴・PR・パッチ一致の 3 経路で分類したものを削除すると定めており、履歴に含まれるものだけを消す手段とは削除対象が食い違う。どちらを実装するかを文書から決められない。",
+   "blocking": false,
+   "route": "decision",
+   "direction": "document_decision",
+   "origin": "ledger"
+  },
+  {
+   "id": "r1-cd-all-003",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-017",
+   "quote": "cleanup-branches は、確認なしに削除する対象を、状態の取得で取り込み済みと分類したブランチに限らなければならない",
+   "issue": "PR-CLEANUP-003 は「ブランチの変更がいずれかの主ブランチの履歴に含まれるとき」を取り込み済みとし、PR-CLEANUP-002 は main・develop・release/*・dev/* を主ブランチとする。主ブランチ自身・起点ブランチ・今いるブランチを削除対象から除く規則が文書のどこにも無く、必須カテゴリ「remote リポジトリ上で削除してよいブランチの範囲の限定」が主ブランチの保護を含んでいない。",
+   "repro": "remote に origin/develop がある。develop は自身の履歴に含まれるので PR-CLEANUP-003 で取り込み済みと分類され、PR-CLEANUP-016 は確認を求めずに remote から削除しなければならず、PR-CLEANUP-017 もそれを妨げない。ローカルの develop・起点ブランチも PR-CLEANUP-015 で削除対象になる。",
+   "blocking": true,
+   "route": "decision",
+   "direction": "tighten",
+   "origin": "ledger"
+  },
+  {
+   "id": "r1-cd-all-004",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-024",
+   "quote": "全件を列挙せず、件数と、最終コミットが古いものから順に並べた代表例に要約して示す",
+   "issue": "PR-CLEANUP-021 は終了済みの workspace もカテゴリに含め、PR-CLEANUP-024 の判定表は全カテゴリに同じ要約規則を当てる。workspace には最終コミットが無く、PR-CLEANUP-032 も workspace を名前の組で示すと定めるだけなので、workspace を要約するときの並びが定まらない。",
+   "repro": "終了済みの workspace が 25 件ある。20 件超なので要約するが、「最終コミットが古いものから順」は workspace に当てはまらず、どの 数件を代表例に選ぶかが実装ごとに変わる。",
+   "blocking": false,
+   "route": "decision",
+   "direction": "choose_one",
+   "origin": "input"
+  },
+  {
+   "id": "r1-cd-all-005",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-006",
+   "quote": "cleanup-branches は、取り込み済みと判定できなかったブランチを、要判断に分類しなければならない",
+   "issue": "「要判断」は PR-CLEANUP-006・007・062 で使われ、「判断が要る対象」は PR-CLEANUP-021〜023 で使われ、後者は 3 カテゴリに限られる。定義が無いので同じ集合か分からない。取り込み済みと判定できず、remote 削除済みでもなく remote にも残るローカルブランチは、要判断だがどのカテゴリにも入らない。",
+   "repro": "ローカルブランチ X が未取り込みで origin/X が存在する。PR-CLEANUP-006 では要判断だが、PR-CLEANUP-021 のどのカテゴリにも当たらず問われない。PR-CLEANUP-062 の「要判断のまま残したもの」に載せるのか、問いの対象なのかが読み手で割れる。",
+   "blocking": false,
+   "route": "decision",
+   "direction": "align_terms",
+   "origin": "text"
+  },
+  {
+   "id": "r1-cd-all-006",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-048",
+   "quote": "未コミットの変更があるとき、cleanup-branches は、作業場所の同期の前にその変更を退避しなければならない",
+   "issue": "「未コミットの変更」は PR-CLEANUP-001 では stash・未追跡ファイル・tracked の差分を含み、PR-CLEANUP-044・045・062 では stash・未追跡・tracked 差分・submodule 差分を別に数える。PR-CLEANUP-048 の退避がどれを対象にするかが定まらない。また退避は PR-CLEANUP-060 で戻され、PR-CLEANUP-044 が削除を禁じる作業状態の stash と同じものかが書かれていない。",
+   "repro": "未追跡ファイルだけがある作業場所では、PR-CLEANUP-048 が退避を求めるのか不明で、PR-CLEANUP-060 が退避を戻すときに、作業状態として PR-CLEANUP-044 が守る stash を消すことになるのかも不明になる。",
+   "blocking": false,
+   "route": "writer",
+   "direction": "align_terms",
+   "origin": "text"
+  },
+  {
+   "id": "r1-cd-all-007",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-029",
+   "quote": "cleanup-branches は、判断が要る対象の一覧を、1 回の実行で 2 回以上示してはならない",
+   "issue": "PR-CLEANUP-024 は 20 件以下のカテゴリを問いで全件示すと定め、PR-CLEANUP-028 の判定表は一覧の提示の回数を条件にするが、問いで全件示したことがこの回数に数えられるか書かれていない。RS-013 の裁定は一覧を 1 回までとしており、数え方で「一覧を求める」への結果が変わる。",
+   "repro": "全カテゴリが 20 件以下で問いに全件が載っている。利用者が「一覧を求める」と答えたとき、全件提示を 1 回と数えれば上限到達で何も削除されず、数えなければ一覧が再度示される。",
+   "blocking": false,
+   "route": "decision",
+   "direction": "choose_one",
+   "origin": "input"
+  },
+  {
+   "id": "r1-cd-all-008",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-008",
+   "quote": "cleanup-branches は、利用者の依頼を受けたとき、削除と同期の前に、ブランチの分類・起点ブランチ・作業状態・終了済みの workspace・後処理の設定の有無を含むリポジトリの状態を取らなければならない",
+   "issue": "PR-CLEANUP-012 は削除・問い・同期の分岐を状態の取得で得た状態だけを根拠にすると定めるが、PR-CLEANUP-050・051 が分岐に使う「現在のブランチとその open PR」は PR-CLEANUP-008 の列挙に無い。「含む」で開いてはいるが、取得の責務がどこにも書かれていない。",
+   "repro": "状態の取得を PR-CLEANUP-008 の列挙どおりに実装すると現在のブランチの open PR が得られず、PR-CLEANUP-012 が再取得を禁じるため PR-CLEANUP-051 の判定表を評価できない。",
+   "blocking": false,
+   "route": "writer",
+   "direction": "relax",
+   "origin": "text"
+  }
+ ],
+ "checked": "requirements-cleanup-branches.md 全文（PR-CLEANUP-001〜063・リスク表）と meta の trace 集合、plan.json（required_categories 4 件・self_containment）、input.md 全文、answers/g0.md・g0-2.md、decisions.json 全件、resolutions.json 全件（RS-001〜035 の value/hold と、trace に引かれない RS-001・RS-002）、flow.json の後処理・退避復帰・問い周辺（F-008・F-009・F-013・F-014・F-030〜F-037・F-044〜F-046）を読み、矛盾・重複・用語の揺れ・範囲の欠落・必須カテゴリ・文書に届かない裁定・宣言漏れを当てた。文書は 1 つのため文書間の比較は成立しない。doc_check は 0 件。開いている TBD は無く、RS-027 の保持規則（PR-CLEANUP-010）は指摘していない。"
+}

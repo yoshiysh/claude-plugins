@@ -1,0 +1,118 @@
+{
+ "closure": "依頼文の工程を列挙した",
+ "elements": [
+  {
+   "id": "F-001",
+   "kind": "外から入るもの",
+   "label": "ログイン要求",
+   "next": [
+    "F-002"
+   ],
+   "source": {
+    "input": "ログイン"
+   },
+   "type": "input"
+  },
+  {
+   "effect": "reversible",
+   "id": "F-002",
+   "kind": "工程",
+   "label": "承認",
+   "next": [
+    "F-004"
+   ],
+   "obtain": "always",
+   "source": {
+    "decision": "D-001"
+   },
+   "type": "step"
+  },
+  {
+   "id": "F-003",
+   "kind": "返すもの",
+   "label": "結果",
+   "source": [
+    {
+     "open": "O-001"
+    }
+   ],
+   "type": "output"
+  },
+  {
+   "branches": [
+    {
+     "next": "F-003",
+     "value": "返す"
+    },
+    {
+     "next": "F-005",
+     "value": "通知する"
+    }
+   ],
+   "cases": [
+    {
+     "branch": "返す",
+     "source": {
+      "decision": "D-001"
+     },
+     "when": {
+      "承認": "済み"
+     }
+    },
+    {
+     "branch": "通知する",
+     "source": {
+      "input": "通知する"
+     },
+     "when": {
+      "承認": "否認"
+     }
+    }
+   ],
+   "id": "F-004",
+   "inputs": [
+    {
+     "from": "F-002",
+     "name": "承認",
+     "values": [
+      "済み",
+      "否認"
+     ]
+    }
+   ],
+   "kind": "判断",
+   "label": "承認の結果",
+   "source": {
+    "decision": "D-001"
+   },
+   "type": "decision"
+  },
+  {
+   "id": "F-005",
+   "kind": "返すもの",
+   "label": "否認の通知",
+   "source": {
+    "input": "通知する"
+   },
+   "type": "output"
+  }
+ ],
+ "kinds": [
+  {
+   "definition": "外部から流れに入るもの",
+   "name": "外から入るもの"
+  },
+  {
+   "definition": "入力を変換する処理",
+   "name": "工程"
+  },
+  {
+   "definition": "流れの外へ出るもの",
+   "name": "返すもの"
+  },
+  {
+   "definition": "値によって次の工程が変わる要素",
+   "name": "判断"
+  }
+ ]
+}

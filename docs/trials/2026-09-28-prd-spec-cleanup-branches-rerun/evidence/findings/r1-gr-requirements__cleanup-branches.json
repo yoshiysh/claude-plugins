@@ -1,0 +1,29 @@
+{
+  "findings": [
+    {
+      "id": "r1-gr-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-031",
+      "quote": "システムは、承認された未取り込みブランチを削除する前に退避タグを作成してはならない。",
+      "issue": "依頼者の回答は「退避タグ不要」（answers/g0.md L1）で、タグを要しないと言っているだけだが、本文はタグの作成を禁止（〜してはならない）に強めている。引用は実在するが、禁止という規範を支えていない。",
+      "repro": "承認された未取り込みブランチ feature/foo を、従来どおり退避タグを打ってから git branch -D する実装（input.md L125-134 の手順）。回答「退避タグ不要」（answers/g0.md L1）の下では許されるが、PR-CLEANUP-031 の下では違反になり、判定が割れる。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "relax",
+      "origin": "ledger"
+    },
+    {
+      "id": "r1-gr-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "requirements/cleanup-branches§リスクと影響",
+      "quote": "| RK-007 | 外部システム・第三者への提供・連携 | 該当 | remote リポジトリと PR 情報の取得元に対して読み取りと削除を行う |",
+      "issue": "判定根拠の列が、PR 情報の取得元に対しても削除を行うと読める。合格した RS-002・RS-010 は、PR 情報の取得元に対しては一覧の読み取りだけで削除は入力に無いとしており、この読みを支える根拠が無い。",
+      "repro": "「PR 情報の取得元で何かを削除するか（PR を閉じる等）」と問うと、RK-007 の文面からは「行う」、RS-002・RS-010 と入力（input.md L45 の PR 一覧は 1 回取得するだけ、L143 の削除は remote への git push --delete）からは「行わない」になる。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "tighten",
+      "origin": "text"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全文（284 行）と .meta.json の trace 全件、input.md 全文、answers/g0.md・g0-2.md、decisions.json 全件、resolutions.json 全件（RS-024・RS-038 は無効として根拠から除外）、flow.json 全要素（出典が検証に落ちた F-004 ほか 16 要素を trace が単独の根拠にしていないことを照合）、plan.json。観点は grounding のみ: 各文（背景・利用者・利用の流れ・スコープ・前提と依存・用語・判定表・PR-CLEANUP-001〜050・リスクと影響）の断定が trace の根拠に実在し支えているか、捏造・出所の偽装・既存実装の根拠化・未決の断定・入力への違反が無いか。trace の input quote は input.md で逐語一致を確認した。"
+}

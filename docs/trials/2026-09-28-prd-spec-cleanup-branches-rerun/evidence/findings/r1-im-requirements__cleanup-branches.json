@@ -1,0 +1,96 @@
+{
+  "findings": [
+    {
+      "id": "r1-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-010",
+      "quote": "システムは、ローカルの主ブランチ、現在のブランチ、主ブランチを base とする開いた PR を持つブランチを、他のブランチと同じ分類規則で分類しなければならない。",
+      "issue": "ここで手が止まる。なぜならローカルの主ブランチ自身を分類するとき、比べる相手の「いずれかの主ブランチ」（用語「取り込み済み」）にそのブランチ自身や同名のローカルの主ブランチが入るのかが分からないから。入るなら主ブランチは常に取り込み済みになる。",
+      "repro": "ローカルの develop が origin/develop より 2 commit 先行（未 push）している。読み A（自分自身も比べる主ブランチに含む）では develop は取り込み済みとなり、分類表により確認なしで削除され 2 commit は失われる。読み B（自分以外の主ブランチ、または remote 側の主ブランチと比べる）では未取り込み・追跡先残存となり、候補にせず残る。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger",
+      "direction_note": "ローカルの主ブランチを取り込み済みと判定するときに比べる相手の範囲を決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-011",
+      "quote": "システムは、ローカルの取り込み済みブランチを依頼者に確認せずに削除しなければならない（内容は主ブランチに残り、削除で失われない）。",
+      "issue": "ここで手が止まる。なぜならチェックアウト中の現在のブランチが取り込み済みのとき、それを確認なしで削除するために現在の位置をいつ・どこへ移すのか（あるいは削除しないのか）が分からないから。マージ直後に実行する主な利用場面そのものである。",
+      "repro": "PR をマージした直後、取り込み済みの feature/a をチェックアウトしており、tracked の未コミット差分がある。読み A: 削除の工程で feature/a から離れて削除する（未コミット差分を持ったまま確認なしで位置が動く）。読み B: チェックアウト中なので削除に失敗し、feature/a は残る。読み C: 新ブランチへ移った後に削除する。どれも本項目を満たすと読め、削除されるか・いつ位置が動くかが割れる。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger",
+      "direction_note": "チェックアウト中の取り込み済みブランチの扱いと、その削除の時点を決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-037",
+      "quote": "現在のブランチが主ブランチを base とする開いた PR を持たないとき（現在のブランチが無いときを含む）、システムは現在の位置を起点ブランチの remote 上の最新に合わせなければならない。",
+      "issue": "ここで手が止まる。なぜなら「現在の位置」を合わせるのが、現在のブランチの ref そのものを起点ブランチの最新へ動かすことなのか、ブランチの ref は動かさず作業ツリーと HEAD だけを合わせることなのかが分からないから。",
+      "repro": "現在のブランチ feature/x が未 push の 3 commit を持ち、開いた PR は無い。読み A: feature/x の ref を origin の起点ブランチの最新へ移すので、3 commit はどのブランチからも辿れなくなる。読み B: feature/x の ref はそのままで HEAD と作業ツリーだけを移すので、3 commit は feature/x に残る。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger",
+      "direction_note": "同期で現在のブランチの ref を動かすかどうかを決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-004",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-004",
+      "quote": "リポジトリが起点ブランチの検出手段を備える場合、システムはその検出結果を起点ブランチとしなければならない。",
+      "issue": "ここで手が止まる。なぜなら検出結果が主ブランチでないブランチを指したとき、それを起点ブランチにするのか（用語「起点ブランチ」は主ブランチに限る）、検出の失敗として扱うのかが分からないから。",
+      "repro": "検出手段が現在のブランチの base として feature/parent（主ブランチの列挙に入らない）を返す。読み A: 本項目どおり feature/parent を起点ブランチにし、そこから新ブランチを作る。読み B: 用語の定義に合わないので検出の失敗とみなし、remote の default branch から新ブランチを作る。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "text",
+      "direction_note": "主ブランチでない検出結果の扱いを決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-005",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-049",
+      "quote": "- 承認を得て削除した未取り込みブランチ（ローカルと remote の別）",
+      "issue": "ここで手が止まる。なぜなら削除を試みて失敗したブランチ（取り込み済み・承認済みのどちらも）を、完了報告のどの項目に載せるのかが分からないから。挙がっている項目はどれも「削除した」か「候補にせず／要判断のまま残した」で、失敗して残ったものが当たる項目が無い。",
+      "repro": "承認を得た未取り込みの remote ブランチ feature/b の削除が権限不足で失敗する。「承認を得て削除した未取り込みブランチ」にも「要判断のまま残したブランチ」にも当たらず、feature/b が報告のどこにも出ない実装と、どこかの項目に載せる実装のどちらも本項目を満たすと読める。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger",
+      "direction_note": "削除に失敗したものを完了報告で示すかと、示すならどの項目で示すかを決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-006",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-031",
+      "quote": "システムは、承認された未取り込みブランチを削除する前に退避タグを作成してはならない。",
+      "issue": "ここで手が止まる。なぜなら「退避タグ」が本文と用語のどこにも定義されておらず、削除前に作ってはならない tag がどれなのか（名前の形で決まるのか、目的で決まるのか、tag 全般なのか）が分からないから。",
+      "repro": "承認された未取り込みブランチ feature/c の削除前に、実装が別の目的で tag を 1 つ作る。退避タグを「削除するブランチを指す tag 全般」と読めば違反、「復元のために削除対象を控える tag」と読めば違反かどうかが目的の判定に依存し、QA が合否を決められない。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "make_measurable",
+      "origin": "text",
+      "direction_note": "入力が退避タグと呼ぶものを判定できる形で定める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-007",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-008",
+      "quote": "システムは、取り込み済みと確認できないブランチを取り込み済みに分類してはならない（取り込み済みのブランチは確認なしで削除されるため）。",
+      "issue": "消しても読み手の次の行動が変わらない。用語の表が「取り込み済み」を「確認できた状態」、「未取り込み」を「確認できない状態」と定義しているので、確認できないブランチは定義上すでに取り込み済みになりえない。",
+      "repro": "取り込み済みと確認できないブランチ feature/d について、本項目の有無にかかわらず、用語の定義だけで未取り込みに分類され、分類表により確認なしの削除には進まない。本項目を消しても実装と判定は変わらない。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "remove",
+      "origin": "text",
+      "action": "delete"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全 284 行と meta.json の trace を全文で読み、input.md・answers・decisions.json・plan.json・resolutions（合格分の value と主要な why/evidence）・flow.json の要素と F-013/F-017/F-021/F-029 の case を照合。PR-CLEANUP-001〜050 の各項目に、要求文書の問い（決めるべきことが決まっているか・手段が目的の顔をしていないか）、着手可能性（判断の委任・分岐の不足・前提の形・複数解釈・用語の未定義）、項目自身の trace に対する過不足と冗長、EARS・境界値・複合要求の曖昧さを当てた。項目どうしの関係・根拠の有無・doc_check の判定範囲は見ていない。依頼者の語（滞留した stash・カテゴリ・20 件・独自 commit 数）には曖昧語の判定を当てていない。"
+}

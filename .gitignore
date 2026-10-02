@@ -1,7 +1,12 @@
+# Settings
+.claude/settings.local.json
+
 __pycache__/
 *.py[cod]
 .browser4-cli/
 **/dynamic-workflows/workspace/
+# prd-spec の W（SKILL.md S0）: 開発中は [SKILL_DIR] がこのリポジトリの中にある。tests/fixtures/workspace/ は追跡するので anchor する。
+/plugins/workflow/skills/prd-spec/workspace/
 
 # direnv: 実値（ホストのアドレス・ユーザー名）が入るため追跡しない。
 # テンプレートは ansible/.envrc.example

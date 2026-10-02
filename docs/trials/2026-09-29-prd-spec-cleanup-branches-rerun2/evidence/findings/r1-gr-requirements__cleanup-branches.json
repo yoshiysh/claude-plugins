@@ -1,0 +1,57 @@
+{
+  "findings": [
+    {
+      "id": "r1-gr-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-034",
+      "quote": "cleanup-branches は、承認された未取り込みのローカルブランチを 1 本ずつ扱い、そのブランチを削除する前に、そのブランチを指す復元用のタグを作らなければならない（保持期限があり同一マシンに限られる復元手段には依存しない）。",
+      "issue": "承認を得て消す未取り込みのブランチに復元用のタグを打つかは RS-001 が問いとして開いたまま値を持たず（has(value)=false）、依頼者の回答は逆に「削除タグは不要」と 2 度書いている。未決の論点を必須の規範として断定しており、PR-CLEANUP-035・036・038・039・040 と PR-CLEANUP-062 の「ブランチ名と復元用のタグ名の対」「復元用のタグを作れず削除しなかった」の行も同じ未決の値に依存する。",
+      "repro": "answers/g0.md 1 行「RS-001: 削除タグは不要。マージ済みなら確認不要で削除してよい」と 5 行「最初に書いた削除タグは不要。マージ済みなら確認不要ってやつ」。RS-001 の問い「承認を得て消す未取り込みのブランチに、消す前に打つ復元用のタグ（deleted-branches/…）をやめますか？」は value を持たず、g0-2 の questions.json は RS-033 だけで RS-001 は再度問われていない。RS-017〜035 に O-001 を扱う裁定は無い。利用者が未取り込みのローカルブランチ feature/foo の削除を承認したとき、本文書は削除前のタグ作成を必須にするが、回答どおりなら作らずに削除する。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "document_decision",
+      "direction_note": "RS-001 の裁定を得るまで、タグの要否に依存する項目の扱いを決めない",
+      "origin": "ledger"
+    },
+    {
+      "id": "r1-gr-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-038",
+      "quote": "cleanup-branches は、承認された未取り込みの remote ブランチを 1 本ずつ扱い、そのブランチを remote から削除する前に、その remote-tracking ref を指す復元用のタグを作らなければならない。",
+      "issue": "remote 側の復元用のタグも、RS-001（値なし）で未決の論点を必須の規範として断定している。依頼者の回答は削除タグを不要としている。",
+      "repro": "answers/g0.md 1 行・5 行の「削除タグは不要」。RS-001 は value を持たない。利用者が remote に残る未取り込みのブランチ feature/bar の削除を承認したとき、本文書は origin/feature/bar からのタグ作成を削除の前提にし、作れなければ削除しない（PR-CLEANUP-039）が、回答どおりならタグを作らずに削除する。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "document_decision",
+      "direction_note": "RS-001 と同じ裁定で決まる",
+      "origin": "ledger"
+    },
+    {
+      "id": "r1-gr-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-004",
+      "quote": "cleanup-branches は、ローカルブランチの変更と同じパッチが main・develop・起点ブランチのいずれかに既にあるとき、そのローカルブランチを取り込み済みと判定しなければならない。",
+      "issue": "取り込み済みのローカルブランチの削除を今の 3 経路の判定のまま行うか、履歴だけを見る git branch --delete-merged に変えるかは RS-002 が問いとして開いたまま値を持たない（has(value)=false）。一方の選択肢（今のまま）を必須の規範として断定している。PR-CLEANUP-003 の PR 経路のローカルブランチへの適用と、PR-CLEANUP-015 の自動削除の対象も同じ未決の値に依存する。",
+      "repro": "answers/g0.md 2〜3 行「git branch --delete-merged とかで削除できるようになったらしい」と 4 行「RS-002: ある（自由欄に書く）」。RS-002 の問い「取り込み済みのローカルブランチを消すのに、git branch --delete-merged を使うようにしますか？」は value を持たず、RS-002 の why は手段を変えると消える対象が変わると述べる。PR を経ずに main へ cherry-pick されたローカルブランチ fix/a は、本文書では取り込み済みとして確認なしに削除されるが、「その手段を使う」が選ばれれば履歴に含まれないので削除されない。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "document_decision",
+      "direction_note": "RS-002 の裁定を得るまで、ローカルブランチの取り込み判定の経路を断定しない",
+      "origin": "ledger"
+    },
+    {
+      "id": "r1-gr-requirements__cleanup-branches-004",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-005",
+      "quote": "cleanup-branches は、remote ブランチの取り込み済みの判定を、PR-CLEANUP-003 の経路だけで行ってもよい。",
+      "issue": "trace の引用「remote には適用しない」は、パッチの一致の経路を remote に適用しないことを安全側の判断として述べており、RS-003 はその振る舞いをすべて要求とした。本文の「行ってもよい」は適用する実装も許すので、引用の禁止を任意に弱めており、引用がこの文を支えていない。",
+      "repro": "input.md 50 行「remote には適用しない」、52〜53 行「この経路だけ needs_decision に倒す安全側の判断にしている」、answers/g0.md 6 行「RS-003: 無い（全部を要求に）」。main に cherry-pick 済みで PR の無い remote ブランチ origin/fix/b を、パッチの一致の経路も remote に適用する実装は本文書に適合し、確認なしに remote から削除するが、入力では要判断に分類して利用者に問う。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "tighten",
+      "direction_note": "入力 50・52〜53 行の禁止の強さに揃える",
+      "origin": "text"
+    }
+  ],
+  "checked": "input.md 1〜237 行を全文、answers/g0.md・g0-2.md、decisions.json（D-001〜008）、resolutions.json の全 35 件（options・value・evidence を含む）、flow.json の全要素（F-001〜058 の source・cases・inputs）、plan.json、verifications.json の RS-001〜004・025〜027・033 の判定、questions.json、open.json の O-001〜003、requirements-cleanup-branches.md 1〜393 行を全文、meta の trace 全件を読んだ。当てた観点: trace の引用の実在と支持、根拠に無い具体値・固有名、無効・未回答の裁定を根拠にした断定、出所の偽装（表記規約の JIS Z 8301 は references/requirement-writing-rules.md のスキル既定で問題なし、リスク表の「依頼者が回答した」は RS-005〜010 の回答と一致）、既存実装を要求の根拠にしていないか、入力への違反。背景・利用者・どう使われるか・スコープ・前提・リスク表の添え物の文も照らした。PR-CLEANUP-010 は RS-027 の保持規則なので指摘しない。項目どうしの矛盾（PR-CLEANUP-062 の「該当するときだけ」と 063、012・029・044 と他項目の関係）は cross-doc の守備範囲として出していない。"
+}

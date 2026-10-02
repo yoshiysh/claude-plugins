@@ -67,10 +67,57 @@ test('every Workflow caller declares the native-first transparent Codex route', 
   }
 })
 
+function namedWorkflowCallers() {
+  const callers = []
+  for (const pluginName of readdirSync(pluginsRoot)) {
+    const skillsRoot = join(pluginsRoot, pluginName, 'skills')
+    if (!existsSync(skillsRoot)) continue
+    for (const skillName of readdirSync(skillsRoot)) {
+      const skillMd = join(skillsRoot, skillName, 'SKILL.md')
+      if (!existsSync(skillMd)) continue
+      const source = readFileSync(skillMd, 'utf8')
+      const names = [...source.matchAll(/Workflow\s*\(\s*\{([\s\S]*?)\}\s*\)/g)]
+        .map((m) => m[1].match(/(?:^|[\s,{])name\s*:\s*['"]([^'"]+)['"]/))
+        .filter(Boolean)
+        .map((m) => m[1])
+      if (names.length) callers.push({ pluginName, skillMd, source, names: [...new Set(names)] })
+    }
+  }
+  return callers
+}
+
+function workflowMetaNames(pluginName) {
+  const dir = join(pluginsRoot, pluginName, 'workflows')
+  if (!existsSync(dir)) return new Set()
+  return new Set(
+    readdirSync(dir)
+      .filter((file) => file.endsWith('.js'))
+      .map((file) => readFileSync(join(dir, file), 'utf8').match(/^export const meta = \{\s*name:\s*'([^']+)'/))
+      .filter(Boolean)
+      .map((m) => m[1])
+  )
+}
+
+// 名前で呼ぶ callsite は scriptPath を持たないので、runner の bridge（--declared-script-path）が受けられない。
+// caller は Codex で実行しないことを自分で書く。書かないと Codex の利用者は runner の拒否の理由を知らずに止まる。
+test('every name-form Workflow caller resolves to a plugin workflow and documents its Codex route', () => {
+  const callers = namedWorkflowCallers()
+  assert.ok(callers.length > 0, 'expected at least one name-form Workflow caller')
+  for (const caller of callers) {
+    for (const name of caller.names) {
+      const [pluginName, workflowName] = name.split(':')
+      assert.equal(pluginName, caller.pluginName, `${caller.skillMd}: ${name} must name a workflow of its own plugin`)
+      assert.ok(workflowMetaNames(pluginName).has(workflowName), `${caller.skillMd}: no plugins/${pluginName}/workflows/*.js has meta.name '${workflowName}'`)
+    }
+    assert.match(caller.source, /native\s*の\s*Workflow\s*が無い\s*Codex\s*では実行しない/, `${caller.skillMd}: Codex fail-closed statement is missing`)
+    assert.match(caller.source, /`workflow:dynamic-workflow-runner`[^。]*名前の\s*callsite[^。]*受けない/, `${caller.skillMd}: runner rejection reason is missing`)
+  }
+})
+
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {
   const pluginNames = new Set(workflowCallers().map((caller) => caller.pluginName))
   for (const pluginName of pluginNames) {
-    // workflow plugin 自身が caller を含む構成（prd-spec / review-document を収録）では
+    // workflow plugin 自身が caller を含む構成（review-document を収録）では
     // 自己依存は宣言できないので免除する。runner は同 plugin 内に同梱されている。
     if (pluginName === 'workflow') continue
     const pluginRoot = join(pluginsRoot, pluginName)
@@ -90,8 +137,6 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/prd-spec/scripts/draft.js', 'rejected_source'],
-    ['workflow/prd-spec/scripts/refine.js', 'rejected_source'],
     ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
     ['workflow/ooda/scripts/ooda.js', 'portable'],
     ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
@@ -169,10 +214,10 @@ test('rejected sources document their runtime boundary', () => {
     'utf8'
   )
   assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
-  assert.match(creator, /mode: update[\s\S]*常に `rejected_source`/)
+  assert.match(creator, /mode: update[\s\S]*updatePolicy[\s\S]*apply-update-package/)
 })
 
-test('skill-creator update is rejected by the Codex runner regardless of capability declarations', () => {
+test('skill-creator update requires an explicitly bound host policy', () => {
   const selector = join(
     pluginsRoot,
     'skill-creator',
@@ -192,6 +237,10 @@ test('skill-creator update is rejected by the Codex runner regardless of capabil
   assert.equal(rejected.selected_runtime, null)
   assert.equal(rejected.halt, true)
   assert.match(rejected.rejected_reason, /rejected_source: mode=update/)
+
+  const bound = select('--update-policy-bound')
+  assert.equal(bound.selected_runtime, 'dynamic-workflow-runner')
+  assert.equal(bound.halt, false)
 
   const native = JSON.parse(execFileSync(process.execPath, [
     selector,

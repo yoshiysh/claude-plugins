@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "id": "r2-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-043",
+      "quote": "現在のブランチに基準ブランチを base とする open の PR が無く、現在のブランチが取り込み済みであるとき（現在のブランチが無い場合を含む）、システムは現在の位置を起点ブランチの remote 側の最新へ合わせなければならない。",
+      "issue": "ここで手が止まる。なぜなら現在のブランチが基準ブランチ（main・develop・release/*・dev/*）そのものであるとき、本項の条件「現在のブランチが取り込み済みであるとき」に当たるのかが分からないから。基準ブランチはそもそも分類されない（PR-CLEANUP-061）ため取り込み済みとも未取り込みとも判定が付かず、本項が適用されるかが項目から決まらない。整理を主ブランチ上で実行するのは典型的な利用場面である。",
+      "repro": "現在のブランチ develop（基準ブランチ、open の PR なし）、起点ブランチ main。本項が適用されると読むと develop の位置が origin/main へ付け替わり、適用されないと読むと develop は動かない。現在のブランチ main に未 push の commit が 1 つある場合も、適用されると読むと main が origin/main へ合わされてその commit がブランチから外れ、適用されないと読むと残る。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "現在のブランチが基準ブランチであるときの同期の扱いを決める（RS-028 は取り込み済みか否かでしか分けていない）"
+    },
+    {
+      "id": "r2-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-008",
+      "quote": "基準ブランチでないブランチが、基準ブランチのいずれかを base とする merged の PR の head であり、PR-CLEANUP-063 に当たらないとき、システムはそのブランチを取り込み済みに分類しなければならない。",
+      "issue": "要求が目的に対して強すぎる。trace の RS-026 が置く目的（取り込み済みは消しても失われるものが無い）に対し、本項は PR の head を名前で照合するため、PR のマージ後に同じ名前のブランチへ足して push 済みの commit を持つブランチも取り込み済みになる。PR-CLEANUP-063 はローカルの未 push の commit だけを除くので、この場合は remote 側もローカル側も除かれない。",
+      "repro": "feature/x の PR が main へ squash merge された後、利用者が feature/x に commit C を足して push した（新しい PR はまだ無い）。実行すると origin/feature/x は merged の PR の head として取り込み済みになり、ローカルの feature/x も未 push の commit が無いため PR-CLEANUP-063 に当たらず取り込み済みになる（現在のブランチでも checkout 中でもない場合）。両方が確認なしで削除され、C はどの基準ブランチにも無いまま失われる。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "tighten",
+      "direction_note": "RS-026 が扱わなかった、マージ後に push 済みの commit を持つ同名ブランチ（remote・ローカル）の扱い"
+    },
+    {
+      "id": "r2-im-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-007",
+      "quote": "基準ブランチでないブランチが基準ブランチのいずれかの履歴に含まれるとき、システムはそのブランチを取り込み済みに分類しなければならない。",
+      "issue": "ここで手が止まる。なぜなら「基準ブランチの履歴」がローカルの基準ブランチの履歴か、remote 側の基準ブランチの履歴か（両方か）が分からないから。基準ブランチはローカルまたは remote に実在するものとされており（PR-CLEANUP-006）、どちらの履歴で見るかで取り込み済みの集合が変わり、確認なしで消えるものが変わる。",
+      "repro": "ローカルの main で feature/y を merge したが push していない。origin/main には feature/y が無い。ローカルの main の履歴で見ると feature/y と origin/feature/y は取り込み済みになり、remote の feature/y が確認なしで削除され、他の作業者からは内容が見えなくなる。origin/main の履歴で見ると取り込み済みにならず、remote の feature/y は要判断として残る。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "履歴を見る基準ブランチの側（ローカル・remote）を定める"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md の全文（372 行）を読み、範囲を絞った監査として PR-CLEANUP-007・008・012・014・015・023・031・043 の節を、隣接する PR-CLEANUP-006・061・063・062・044・064・065 と用語表・確認を求めない削除の表を参照しつつ判定した。根拠として input.md 全文・answers/*.md・decisions.json・plan.json・resolutions.json（RS-001〜028、RS-018 は無効として根拠にしない、RS-021 は保持規則）・flow.json の F-010〜F-021・F-029・F-035〜F-038・F-094・F-095・meta の trace を読み、前提と依存（L69）の参照先 repo_state.py は分類部分（compute_merged_sets・hold_reason・classify_*）だけ参照先の実在確認として読んだ。当てた観点は implementer（着手可能性・分岐の不足・用語・項目自身の trace の目的に対する過不足・EARS・境界値・複合要求）。PR-CLEANUP-014 は L16 で欠番と宣言されており本文が無く、監査対象の内容は無い。PR-CLEANUP-012 は PR-CLEANUP-062 の除外で前回の不足が閉じている。PR-CLEANUP-015 の括弧内に無い工程（作業状態の提示・後処理・完了報告）は他の項目が無条件に要求しているため手は止まらない。PR-CLEANUP-023 の独自 commit 数の数え方は依頼者の言葉（input L163）そのままで、参照先の repo_state.py から決まる。PR-CLEANUP-031 の「1 件ごとに承認」は input の「一件ごとの承認が前提」を受けた表現で、曖昧語の判定を当てない。以上 5 項目は指摘なし。"
+}

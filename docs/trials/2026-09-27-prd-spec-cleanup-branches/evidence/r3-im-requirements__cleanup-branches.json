@@ -1,0 +1,17 @@
+{
+  "findings": [
+    {
+      "id": "r3-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-008",
+      "quote": "基準ブランチでないブランチが、基準ブランチのいずれかを base とする merged の PR の head であり、PR-CLEANUP-063 に当たらないとき、システムはそのブランチを取り込み済みに分類しなければならない。",
+      "issue": "ここで手が止まる。なぜなら「merged の PR の head である」を名前の一致だけで判定するのか（PR-CLEANUP-063 は「名前で一致」と書く）、その PR が実際に作られた元のブランチであることまで求めるのかが分からないから。fork から出された PR の head 名が origin の別ブランチの名前と偶然同じとき、前者の読みでは中身が一度も取り込まれていないブランチが取り込み済みになり、項目の目的（取り込み済みは消しても失われるものが無い）に反する。",
+      "repro": "fork の利用者が自分の fork の patch-1 から main へ PR を出し、squash merge された。origin には保守者が以前から持つ別の patch-1 があり、そのマージより前に push 済みの commit C1・C2 を持ち、マージ後に commit は足されていない（現在のブランチでも他の worktree で checkout 中でもなく、open の PR も無い）。名前の一致で読むと origin/patch-1 は merged の PR の head として取り込み済みになり、PR-CLEANUP-012 により確認なしで削除され、どの基準ブランチにも無い C1・C2 が失われる。PR が作られた元のブランチで読むと origin/patch-1 はその PR の head ではなく、取り込み済みにならずに要判断として残る。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "PR の head と名前だけが一致し、その PR が作られた元のブランチではないブランチを PR の判定の対象に含めるかを決める（RS-030 はマージ後に足した commit の有無だけを扱い、この場合を扱っていない）"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md の PR-CLEANUP-007・PR-CLEANUP-008・PR-CLEANUP-043 の節を原文で読み、meta の trace（RS-024・RS-026・RS-028・RS-029・RS-030・RS-031、input の該当行、F-010・F-011・F-012・F-035・F-037・F-095）、resolutions.json の RS-024〜RS-031、input.md の L30〜L95・L180〜L195、answers/*.md、前回までの findings（r1-im・r2-im の同じ項目への指摘）と照合した。当てた観点は着手可能性（判断の委任・分岐の不足・前提の形・複数解釈・未定義語）、項目自身の trace と目的に対する過不足、EARS・境界値・複合要求の曖昧さ。PR-CLEANUP-061・062・063・064・066 と用語表は参照を解くためだけに読み、監査の対象にはしていない。PR-CLEANUP-007 は RS-031 どおり remote 側の基準ブランチの履歴に限っており、履歴を見る側の曖昧さは解けている（ローカルにしか無い基準ブランチは remote 側が無いため判定に寄与しないと一意に読める）。PR-CLEANUP-043 は、現在のブランチが基準ブランチである場合は PR-CLEANUP-061 により取り込み済みにならないため本項の条件に当たらず（RS-029）、「現在のブランチが無い場合」を同期に含めるのは trace が引く入力の「`current_branch` が空（detached HEAD）のときもこちら。」と RS-028 の回答どおりであるため、指摘なしとした。"
+}
