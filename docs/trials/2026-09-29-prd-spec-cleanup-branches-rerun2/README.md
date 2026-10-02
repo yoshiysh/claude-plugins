@@ -512,7 +512,7 @@ run の後に、新しい文脈の審査者 3 人（忠実性・品質・実装�
 | | 機序 | 出所 | 状態 |
 |---|---|---|---|
 | D1 | resolveCycle が、通った ID を返り値の種類を見ずに `state.answered` へ入れた。resolver は RS-001 を `questions` として出し直しており、verifier は形の整った問いとして通した。pendingQuestions がそれらを落とし、G0-2・G1 で問われず、null の値が根拠として writer に渡り、pass-2 の段 6 が RS-052・053 にした | `run-outputs/run2.output.json`: `answered` に RS-001・RS-002 を含み、`question_ids` は `["RS-033"]`（確認済み）。連鎖の後半（writer・段 6）は審査者の所見 | commit `e1c8b86` で直した |
-| D2 | settle 段の `insufficient_grounds` の fail が、ゲートが残っていても差し戻しなしに convert→hold へ進んだ（RS-027）。既存の回答を新しい論点に当てる裁定の種類が無かった（RS-054・055）。verifier の fail の種類は決めすぎに対するものしか無かった | 審査者の所見（root-cause 調査） | この PR で直している途中。完了とは主張しない |
+| D2 | settle 段の `insufficient_grounds` の fail が、ゲートが残っていても差し戻しなしに convert→hold へ進んだ（RS-027）。既存の回答を新しい論点に当てる裁定の種類が無かった（RS-054・055）。verifier の fail の種類は決めすぎに対するものしか無かった | 審査者の所見（root-cause 調査） | commit `a5ba128`・`f58f095`・`231376e` で直した（再試走での再発有無は未測定） |
 
 ## 参考（evidence）
 
