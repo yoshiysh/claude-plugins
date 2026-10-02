@@ -4,10 +4,11 @@ import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
-import { exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
+import { agentOptionKeys, exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
 import { resumableWorkflow } from './resume.mjs';
 import { enforcesUpdateBoundary } from './codex.mjs';
 import { finalizeUpdateContract, prepareUpdateContract, verifyUpdateTarget } from './update-contract.mjs';
+import { validateEffort } from './models.mjs';
 import { runAgent } from './agent-run.mjs';
 import { createRunWorkspace } from './run-workspace.mjs';
 
@@ -195,8 +196,8 @@ export async function Workflow(request, host = {}) {
         if (typeof prompt !== 'string' || !prompt || !options || typeof options !== 'object' || Array.isArray(options))
           throw new Error('invalid agent arguments');
         if (Buffer.byteLength(prompt) > maxOutputBytes) throw new Error('prompt byte limit exceeded');
-        for (const key of Object.keys(options))
-          if (!['model', 'label', 'phase', 'schema', 'isolation'].includes(key)) throw new Error(`unsupported agent option: ${key}`);
+        exactObject(options, agentOptionKeys, 'agent option');
+        validateEffort(options.effort);
         if (options.isolation !== undefined && (options.isolation !== 'worktree' || !capabilities.includes('worktree')))
           throw new Error('unsupported agent option: isolation');
         for (const key of ['model', 'label', 'phase'])

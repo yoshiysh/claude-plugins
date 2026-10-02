@@ -19,7 +19,7 @@ the remaining body supports top-level await and return. The parser removes only 
 metadata statement by its AST source span, not regex or model translation. Names and
 extensions are arbitrary. Imports and additional exports fail before execution.
 
-The injected API is `agent(prompt,{model,label,phase,schema,isolation})`, `parallel(thunks)`,
+The injected API is `agent(prompt,{model,effort,label,phase,schema,isolation})`, `parallel(thunks)`,
 `pipeline(items,fn)`, `phase(title)`, `log(message)`, and `args`. Agent results are text
 or schema-validated JSON. Backend failures and invalid outputs become null. Ordered
 fan-out retains nulls. Configuration errors, resource limits and script exceptions
@@ -53,7 +53,10 @@ Create a JSON request containing `scriptPath`, `args`, a new `runDir`, and an ex
 worker `cwd`. Optional `model` and `modelReasoningEffort` select the default;
 `modelMap` maps source model names to explicitly chosen Codex models. Entries are
 either model ID strings or objects with `model` and optional `modelReasoningEffort`.
-Unknown source labels and malformed mappings fail before the call starts. Each call
+The optional source `effort` uses the accepted SDK values defined in
+`models.mjs` and overrides the mapped or default `modelReasoningEffort` for that
+call, including checkpoint/resume. Omission preserves host policy. Invalid efforts,
+unknown source labels and malformed mappings fail before that agent is dispatched. Each call
 logs `model.selected` with its requested label, target and effort. With no explicit
 default, `host-default` is recorded; the actual host-selected ID is not inferred.
 No Claude-to-Codex equivalence or target availability is implied.

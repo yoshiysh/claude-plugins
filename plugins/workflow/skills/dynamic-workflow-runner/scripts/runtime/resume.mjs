@@ -6,7 +6,8 @@ import { join, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
-import { exactObject, validateRequirements } from './inputs.mjs';
+import { agentOptionKeys, exactObject, validateRequirements } from './inputs.mjs';
+import { validateEffort } from './models.mjs';
 import { runAgent } from './agent-run.mjs';
 import { createRunWorkspace, reuseRunWorkspace, snapshotRunWorkspace } from './run-workspace.mjs';
 
@@ -312,7 +313,8 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
       if (typeof prompt !== 'string' || !prompt || !options || typeof options !== 'object' || Array.isArray(options))
         throw Error('invalid agent arguments');
       if (Buffer.byteLength(prompt) > limits.maxOutputBytes) throw Error('prompt byte limit exceeded');
-      exactObject(options, ['model', 'label', 'phase', 'schema', 'isolation'], 'agent option');
+      exactObject(options, agentOptionKeys, 'agent option');
+      validateEffort(options.effort);
       if (options.isolation !== undefined && (options.isolation !== 'worktree' || !capabilities.includes('worktree')))
         throw Error('unsupported agent option: isolation');
       for (const key of ['model', 'label', 'phase'])
