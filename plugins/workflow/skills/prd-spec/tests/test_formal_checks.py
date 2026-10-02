@@ -596,7 +596,7 @@ class CompactAndParity(unittest.TestCase):
 
     def test_新しい種別は文面の表にある(self):
         cli = DOC_CHECK.read_text()
-        table = _marked_block(cli, "FINDING_TEXT") + _marked_block(cli, "WORKSPACE_TEXT")
+        table = _marked_block(cli, "FINDING_TEXT") + _marked_block(cli, "WORKSPACE_TEXT") + _marked_block(cli, "LINT_TEXT")
         used = set(re.findall(r"c: '([A-Z_]+)'", cli))
         for code in used:
             self.assertIn(f"  {code}: (", table, code)

@@ -358,6 +358,9 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
     持たないので、script が追うと近似になる）。
 - `effect`（`step`）: 値は `read` / `reversible` / `destructive`。`destructive` は ref・作業ツリー・未反映の変更・外部の状態の
   どれかを戻せない形で変える工程である（名前が「削除」でなくても当たる）。
+- `obtain_source`（`obtain` が `always` の `input`・`step` だけ。任意）: `obtain` が `always` であることの出典。形は `source` と同じで
+  `{input}` / `{decision}` だけ（`{open}` は受けない）。put は `{input}` の逐語を照合し、`always` でない要素に残った `obtain_source` を拒否する。
+  欠けは `codes` に入らず、`doc_check flow --lint` だけが見る（§flow-framer）。
 - `constrained_by`（任意）: 要素の振る舞いを縛る決定の ID（D- か RS-）か、「## 不変条件の kind」の O- の配列。`destructive` の工程は、
   `kind` が `invariant` の決定・resolution・O- を 1 件以上挙げる。挙げた不変条件がその工程を本当に縛るかは doc_check では決まらない
   ので、resolver-verifier が判定する。
@@ -385,6 +388,10 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 
 書く形は「## flow.json の形」が正。
 
+- プロンプトが `flow --lint` を渡したら（段 2 と `3b-reframe`）、`lint` も 0 件にしてから返す（直し方は stdout の `lint_path` の fix。何を見るかと
+  文面の正本は doc_check の `flowLintCompact`・`LINT_TEXT`）。lint の欄は `findings`・`codes`・`digest` に入らず、verifier と flow-check の判断を変えない。
+  script は lint が残った stdout を 1 回だけ差し戻し、それでも残れば `notices` に出して進む。差し戻しの前に flow-check が `stash` で flow と
+  open を控え、差し戻しの返り値で flow が閉じていなければ `unstash` で控えに戻して進む（lint で段を止めない）。
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。
   `constrained_by` の O- も `{el, constraint}` で出る。script が判断に使う stdout（§flow-check）で、その O- が合格か回答で閉じていたら、script は最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
   閉じた resolution への差し替え・要らなくなった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素を検証する（直させた要素は
@@ -534,12 +541,13 @@ script はファイルを読めないので、生成者が 0 件と申告した 
 resume の args の `gates_answered` のゲートを越える前は、`flow-check:<ゲート>-answers` で `answers` を実行し、回答のファイルが問いのすべてに答えているかを返す。
 ほかの役か flow-check が返した doc_check の stdout の写しが checksum に合わなければ、`flow-check:<…>-recopy` でプロンプトの挙げたコマンドを実行し直し、
 プロンプトが名指しした欄に入れて返す（どのコマンドを取り直すかは references/workflow-io.md §3）。
+段 2・`3b-reframe` の flow-framer の lint の差し戻しの前後は、`flow-check:<…>-lint-stash` で `stash` を、`flow-check:<…>-lint-unstash` で `unstash` と `flow --lint` を実行する（§flow-framer）。
 flow-check が実行するのは `doc_check flow --rulings` である。どの呼び出しで起動するかは呼び出しの場所ごとに決めず、
 prd-spec.js の `unchecked`（resolver の起動で付き、verifier と flow-check の応答で消える印）で決まる。印を残したまま段を出ようとすれば run は止まる（references/workflow-io.md §5）。
-入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset の書き戻しと backup の控えは doc_check が書く）。
+入力: プロンプトの doc_check のコマンド（`flow --rulings`、入口では `restore` か `reset` も、段 4・7 の writer の前は `backup` だけ、ゲートを越える前は `answers` だけ、`-recopy` と `-lint-stash`・`-lint-unstash` ではプロンプトが挙げたものだけ）だけ。書くもの: なし（`W/checks/flow.json` と restore・reset・unstash の書き戻しと backup・stash の控えは doc_check が書く）。
 
 ```json
-{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）" }
+{ "flow_check": "プロンプトが flow を挙げたときだけ。実行した doc_check flow の stdout（加工しない）", "restore_check": "プロンプトが restore を挙げたときだけ。実行した doc_check restore の stdout（加工しない）", "reset_check": "プロンプトが reset を挙げたときだけ。実行した doc_check reset の stdout（加工しない）", "backup_check": "プロンプトが backup を挙げたときだけ。実行した doc_check backup の stdout（加工しない）", "answers_check": "プロンプトが answers を挙げたときだけ。実行した doc_check answers の stdout（加工しない）", "stash_check": "stash を挙げたときだけ（同上）", "unstash_check": "unstash を挙げたときだけ（同上）" }
 ```
 
 resolver はどの呼び出しでも台帳を書く。台帳の `kind`・`supersedes`・`hold` は flow.json を変えずに指摘と `stale_refs` を変えるので、
@@ -595,6 +603,8 @@ digest と、次の 2 つ。
 }
 ```
 
+- 内部ループの `doc` には `--lint` を付け、`lint` も直す（直し方は stdout の `lint_path` の fix。何を見るかの正本は doc_check の `docLintCompact`）。
+  lint は `findings`・`blocking`・`digest` に入らず、監査役の `doc` には付かない。返り値の件数は lint を含めない。
 - `applied_findings` は当てた writer の指摘の ID、`applied_routes` は当てた routes.json の ID。段 6 が起動せず
   routes.json を渡されなかったときは、`applied_routes` は空配列にする。script は渡した ID とこの 2 つを比べ、
   当たっていない分を残りとして数える。初稿では両方とも空配列でよい。

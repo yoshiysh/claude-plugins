@@ -1563,7 +1563,42 @@ const WORKSPACE_TEXT = {
 }
 // WORKSPACE_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe']
+// LINT_TEXT: 生成者（flow-framer・writer）が自分のループで --lint を付けたときだけ出す指摘。findings・codes・blocking・digest に
+// 入れないのは、verifier・flow-check・監査役がその数で止まる（codes は FIXERS_BY_CODE に無い符号で段を止める）ため。
+// LINT_TEXT_BEGIN
+const LINT_TEXT = {
+  LINT_OBTAIN_UNGROUNDED: (id, effect) => ({
+    id: `LINT-OBTAIN-UNGROUNDED-${id}`,
+    location: '工程の流れ（flow）',
+    quote: `${id}: effect ${effect} / obtain always`,
+    issue: `状態を変える工程 ${id} が obtain always なのに、失敗しないと言える出典（obtain_source）が無い。書き込みはふつう失敗しうるので、根拠の無い always は verifier が insufficient_grounds で落とし、失敗の枝と未決が検証の後まで見つからない。`,
+    fix: `失敗しないと述べる依頼文の逐語（{ input }）か決定の ID（{ decision }）を ${id} の obtain_source に付ける。付けられないなら obtain を may_fail にして同じ put で obtain_source に null を送り、直後の成否の判断か on_fail で失敗を扱う（schemas/agent-contracts.md の「${ledgerOf('flow').file()} の形」の obtain）。失敗したときの行き先が決まらないなら、その判断の case の出典を open に起票する。`,
+  }),
+  LINT_GROUNDS_SHAPE: (where) => ({
+    id: `LINT-GROUNDS-SHAPE-${where}`,
+    location: '工程の流れ（flow）',
+    quote: where,
+    issue: `${where} が { input } / { decision } のどれか 1 つの形（または その配列）になっていない。open は裁定の無い論点なので、obtain の根拠にならない。`,
+    fix: `${where} を { "input": "逐語" } か { "decision": "D-…" } にする。どちらも付けられないなら欄を消す（null を送る）。`,
+  }),
+  LINT_GROUNDS_UNKNOWN: (where, ref) => ({
+    id: `LINT-GROUNDS-UNKNOWN-${where}-${ref}`,
+    location: '工程の流れ（flow）',
+    quote: `${where}: ${ref}`,
+    issue: `${where} が挙げた ${ref} が ${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()} にも無いか、supersedes で覆されている。`,
+    fix: `${ref} を実在する今の決定の ID に直すか、出典を付け直す。`,
+  }),
+  LINT_TABLE_ELSEWHERE: (itemId, docKey, phrase) => ({
+    id: `LINT-TABLE-ELSEWHERE-${docKey}-${itemId}`,
+    location: itemId,
+    quote: phrase,
+    issue: `項目 ${itemId} の文が「${phrase}」と表を指すのに、${itemId} の節（次の同じか浅い見出しか、ID を持つ見出しまで。コードの囲みの中は除く）に表が無い。表が別の項目の見出しの下にあると、監査役は表をその項目の規範として読む。`,
+    fix: `表を ${itemId} の見出しの下に移すか、別の項目の表を指すなら「${phrase}」をその項目の ID で書き直す。`,
+  }),
+}
+// LINT_TEXT_END
+
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1688,7 +1723,7 @@ const LEDGERS = {
     file: () => 'flow.json',
     lists: { elements: 'id', kinds: 'name' },
     scalars: { closure: 'string' },
-    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by', 'obtain', 'effect', 'on_fail'], kinds: ['name', 'definition'] },
+    fields: { elements: ['id', 'type', 'kind', 'label', 'next', 'source', 'branches', 'inputs', 'cases', 'constrained_by', 'obtain', 'effect', 'on_fail', 'obtain_source'], kinds: ['name', 'definition'] },
     subfields: { elements: { inputs: ['name', 'values', 'from', 'unknown'] } },
     enums: { elements: { obtain: ['always', 'may_fail'], effect: ['read', 'reversible', 'destructive'] } },
     cases: {
@@ -1698,12 +1733,14 @@ const LEDGERS = {
           rows: {
             input: { never: ['branches', 'inputs', 'cases', 'effect'] },
             step: { never: ['branches', 'inputs', 'cases'] },
-            decision: { never: ['next', 'effect', 'obtain', 'on_fail'] },
-            output: { never: ['branches', 'inputs', 'cases', 'effect', 'obtain', 'on_fail'] },
+            decision: { never: ['next', 'effect', 'obtain', 'on_fail', 'obtain_source'] },
+            output: { never: ['branches', 'inputs', 'cases', 'effect', 'obtain', 'on_fail', 'obtain_source'] },
             [OUT_OF_TYPE]: {},
           },
         },
         { by: (el) => (['input', 'step'].includes(el.type) && el.obtain !== 'may_fail' ? 'may_fail 以外の input・step' : 'それ以外'), rows: { 'may_fail 以外の input・step': { never: ['on_fail'] }, それ以外: {} } },
+        // obtain_source は always の出典なので、may_fail に変えた要素に残すと、根拠の無くなった出典が検証に届く。
+        { by: (el) => (el.obtain === 'always' ? 'always' : 'always 以外'), rows: { always: {}, 'always 以外': { never: ['obtain_source'] } } },
       ],
     },
   },
@@ -1911,6 +1948,33 @@ const fileSha = (p) => (fs.existsSync(p) ? sha256Bytes(fs.readFileSync(p)) : nul
 // 控えが無いのは、止まった run が書かなかったか、戻し終えたか、後の token の最初の書き込みが消したときである。後の段の token（通し番号が
 // 大きい）があれば最後のときで、戻す控えが失われているので何も変えずに pruned_by に挙げる（黙って 0 件を戻すと、再実行が止まった run の
 // 書き込みの上から始まる）。同じ段の後の token は再実行自身の書き込みなので数えない。
+// stash・unstash: flow-framer の lint の差し戻しの前の flow と open を控え、差し戻しで flow が閉じなくなったら戻す（lint は段を止めない）。
+// 戻す版は stash の時点の内容で、段の token の控え（tx）は段の入口の版のまま残る。
+const STASH_LEDGERS = ['flow', 'open']
+function wsStash(ws, opts) {
+  const label = opts.save
+  if (!label || !LABEL.test(label)) throw new LedgerRejected(`stash には --save <英数字と . _ - のラベル> が要ります: ${label}`)
+  const files = Object.fromEntries(STASH_LEDGERS.map((n) => {
+    const p = path.join(ws, ledgerOf(n).file())
+    return [n, fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null]
+  }))
+  return { stash: label, path: writeCheck(ws, `${label}.stash.json`, { files }), flow_sha256: ledgerSha(ws, 'flow') }
+}
+function wsUnstash(ws, opts) {
+  const token = txToken(opts, 'unstash')
+  const label = opts.against
+  const saved = label && LABEL.test(label) ? readJsonFile(path.join(ws, 'checks', `${label}.stash.json`)) : null
+  if (!saved || !saved.files || typeof saved.files !== 'object') throw new LedgerRejected(`unstash の --against ${label} の控え（checks/${label}.stash.json）がありません（何も戻していません）`)
+  for (const n of STASH_LEDGERS) txBegin(ws, token, ledgerOf(n).file())
+  for (const n of STASH_LEDGERS) {
+    const p = path.join(ws, ledgerOf(n).file())
+    const text = saved.files[n]
+    if (typeof text === 'string') writeAtomic([p, text])
+    else fs.rmSync(p, { force: true })
+  }
+  return { unstash: label, flow_sha256: ledgerSha(ws, 'flow') }
+}
+
 function wsRestore(ws, opts) {
   const token = txToken(opts, 'restore')
   const dir = path.join(ws, TX_DIR, token)
@@ -2011,6 +2075,7 @@ function verbatimRejects(ws, name, body) {
     for (const el of body.elements || []) {
       quotes(el.id, el.source)
       if (el.on_fail) quotes(`${el.id} on_fail`, el.on_fail.source)
+      quotes(`${el.id} obtain_source`, el.obtain_source)
       for (const [i, c] of (Array.isArray(el.cases) ? el.cases : []).entries()) quotes(`${el.id} cases[${i}]`, c && c.source)
     }
   }
@@ -2393,7 +2458,7 @@ function describeLedgers() {
       },
     ]),
   )
-  return { modes: WS_MODES, ledgers, finding_codes: [...Object.keys(FINDING_TEXT), ...Object.keys(WORKSPACE_TEXT)].sort() }
+  return { modes: WS_MODES, ledgers, finding_codes: [...Object.keys(FINDING_TEXT), ...Object.keys(WORKSPACE_TEXT)].sort(), lint_codes: Object.keys(LINT_TEXT).sort() }
 }
 
 // verifications の sha256 は put の時点のファイルから取る。verifier が読んだ版と違えば書かない
@@ -3038,6 +3103,66 @@ function flowTableCompact(flow) {
   return out
 }
 
+// flowLintCompact: scope（今の版に合格の無い要素）の外は見ない。合格した要素を直させると、settle と verifier の検証の対象が増える。
+function flowLintCompact(flow, scope, decisionIds, superseded) {
+  const out = []
+  // 形の崩れた出典は SHAPE・UNKNOWN だけで指摘し、UNGROUNDED と二重にしない。
+  const grounded = (where, source) => {
+    const sources = Array.isArray(source) ? source : source ? [source] : []
+    for (const s of sources) {
+      const kinds = s && typeof s === 'object' && !Array.isArray(s) ? ['input', 'decision', 'open'].filter((k) => String(s[k] ?? '').trim()) : []
+      if (kinds.length !== 1 || kinds[0] === 'open') {
+        out.push({ c: 'LINT_GROUNDS_SHAPE', d: 'flow', a: [where] })
+        continue
+      }
+      const ref = String(s[kinds[0]]).trim()
+      if (kinds[0] === 'decision' && (!decisionIds.has(ref) || superseded.has(ref))) out.push({ c: 'LINT_GROUNDS_UNKNOWN', d: 'flow', a: [where, ref] })
+    }
+    return sources.length > 0
+  }
+  for (const el of listOf(flow, 'elements')) {
+    if (!el || !el.id || el.type !== 'step' || !scope.has(el.id) || !EFFECT.includes(el.effect) || el.effect === 'read') continue
+    if (el.obtain === 'always' && !grounded(`${el.id}.obtain_source`, el.obtain_source)) out.push({ c: 'LINT_OBTAIN_UNGROUNDED', d: 'flow', a: [el.id, el.effect] })
+  }
+  return out
+}
+
+// docLintCompact: 項目の節は、その見出しより深い見出し（小見出しの下の表を含む）を越え、同じか浅い見出しか ID を持つ見出しで終わる。
+// 表を指す語の後の「示・記・現…」は「次の表示」「以下の表現」のような表でない語なので拾わない。
+const TABLE_POINTER = /(?:次の(?:判定)?表|以下の[^。、\s表]{0,10}表|次に示す表|下記の表|下表)(?![示記現面明情す])/
+function docLintCompact(docs) {
+  const out = []
+  const unquote = (ln) => ln.replace(/^\s*>\s?/, '')
+  for (const d of docs) {
+    const lines = d.markdown.split('\n')
+    let inFence = false
+    const body = lines.map((ln) => {
+      const fence = /^\s*(```|~~~)/.test(ln)
+      if (fence) inFence = !inFence
+      return fence || inFence ? '' : ln
+    })
+    const heads = body.map((ln, i) => [i, /^(#{1,6})\s/.exec(ln)]).filter(([, m]) => m).map(([i, m]) => ({ i, depth: m[1].length, id: (body[i].match(ID_IN_TEXT[d.kind]) || [])[0] || null }))
+    heads.forEach((h, k) => {
+      if (!h.id) return
+      const end = heads.slice(k + 1).find((x) => x.depth <= h.depth || x.id)
+      const sec = body.slice(h.i + 1, end ? end.i : body.length)
+      const m = TABLE_POINTER.exec(sec.join('\n'))
+      if (!m) return
+      const hasTable = sec.some((ln, j) => cellsOf(unquote(ln)) && isSeparator(cellsOf(unquote(sec[j + 1] || ''))))
+      if (!hasTable) out.push({ c: 'LINT_TABLE_ELSEWHERE', d: d.key, a: [h.id, d.key, m[0]] })
+    })
+  }
+  return out
+}
+
+function lintResult(ws, name, list) {
+  const grouped = groupCompact(list)
+  const body = expandWorkspace({ findings: grouped, not_checked: [] }, LINT_TEXT)
+  const codes = {}
+  for (const g of grouped) codes[g.c] = [...(codes[g.c] || []), ...g.a.map((a) => String(a[0]))]
+  return { lint: body.findings.length, lint_codes: codes, lint_path: writeCheck(ws, name, body) }
+}
+
 // flowHistoryCompact: put 以外の経路で入った経緯の印を、put と同じ欄と印で拾う。
 function flowHistoryCompact(flow) {
   const out = []
@@ -3065,8 +3190,7 @@ function groupCompact(list) {
   return grouped
 }
 
-function expandWorkspace(compact) {
-  const table = { ...FINDING_TEXT, ...WORKSPACE_TEXT }
+function expandWorkspace(compact, table = { ...FINDING_TEXT, ...WORKSPACE_TEXT }) {
   const make = (c, args) => {
     const t = table[c]
     if (!t) throw new Error(`構造検査の未知の種別です: ${JSON.stringify(c)}`)
@@ -3194,6 +3318,7 @@ function wsFlow(ws, opts) {
     stale_refs: staleRefs,
     open_ids: [...openIds].sort(),
     pair_keys: pairKeysOf(conflictPairs(readLedger(ws, 'decisions'), flow, readLedger(ws, 'open')).pairs),
+    ...(opts.lint ? lintResult(ws, 'flow.lint.json', flowLintCompact(flow, new Set(unverified), decisionIdsOf(ws), superseded)) : {}),
   }
 }
 
@@ -3358,6 +3483,7 @@ function wsDoc(ws, opts) {
     digest,
     tree_digest: tree,
     flow_refs: flowRefs,
+    ...(opts.lint ? lintResult(ws, name.replace(/\.json$/, '.lint.json'), docLintCompact(docs.filter((d) => selected.includes(d.key) && !d.fixed))) : {}),
   }
 }
 
@@ -3613,6 +3739,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--drafts') o.drafts = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--check') o.check = true
     else if (a === '--rulings') o.rulings = true
+    else if (a === '--lint') o.lint = true
     else if (a === '--token') o.token = take()
     else if (a === '--fixed') o.fixed = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--file') o.file = take()
@@ -3641,6 +3768,8 @@ function runWorkspace(mode, argv) {
   if (mode === 'put') return wsPut(ws, opts, () => fs.readFileSync(0, 'utf8'))
   if (mode === 'del') return wsDel(ws, opts)
   if (mode === 'backup') return wsBackup(ws, opts)
+  if (mode === 'stash') return wsStash(ws, opts)
+  if (mode === 'unstash') return wsUnstash(ws, opts)
   if (mode === 'restore') return wsRestore(ws, opts)
   if (mode === 'reset') return wsReset(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
@@ -3712,6 +3841,7 @@ export {
   stampStdout,
   runChecks,
   WORKSPACE_TEXT,
+  LINT_TEXT,
   itemSections,
   runWorkspace,
   LEDGERS,

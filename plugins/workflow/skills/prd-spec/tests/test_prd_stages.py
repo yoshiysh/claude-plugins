@@ -220,6 +220,9 @@ const asksRulings = (prompt) => /doc_check\.mjs flow --workspace \S+ --rulings`/
 // flow-check は、自分の段の *_at が無ければこれを見る（書き換えたことは *_at か recheck_as で明示する）。
 let latest = null
 let writerDisk = null
+// stashed: doc_check stash が控えた flow・open と、その版の flow-framer の lint の件数（unstash が戻す）。
+let stashed = null
+let framerLint = null
 const WORLD_AT = ['flow_codes_at', 'flow_findings_at', 'open_only_at', 'stale_refs_at', 'open_ids_at']
 const explicitAt = (stage) => WORLD_AT.some((k) => at(k, stage) !== undefined)
 // keep: 組は flow.json・decisions.json で決まり verifier は書かないので、verifier の stdout は既定で最後の世界の組を出す（verifier_pair_keys_at で上書き）。
@@ -266,6 +269,12 @@ function respond(prompt, label) {
     const k = target ? `${stage}-${target}` : stage || 'framer'
     rewrite(k)
     const out = { flow_check: flowStdout(at('flow_findings_at', k) || (spec.broken_flow ? 1 : 0), flowSha, k, false, true), conflicts_check: conflictsStdout(k) }
+    // lint_at: flow --lint を指示された flow-framer の lint の件数（lint は framer の stdout だけに載り、latest に入れない）。
+    if (/doc_check\.mjs flow --workspace \S+ --lint`/.test(prompt) && at('lint_at', k) !== null) {
+      const n = at('lint_at', k) || 0
+      framerLint = n
+      out.flow_check = JSON.stringify({ ...JSON.parse(out.flow_check), lint: n, lint_codes: n ? { LINT_OBTAIN_UNGROUNDED: Array.from({ length: n }, (_, i) => `F-9${String(i).padStart(2, '0')}`) } : {}, lint_path: 'checks/flow.lint.json' })
+    }
     const opens = [...new Set([...(disk.open_ids || []), ...latest.open_ids])].sort()
     if (JSON.stringify(opens) !== JSON.stringify(disk.open_ids)) touch('open')
     disk.open_ids = opens
@@ -339,6 +348,8 @@ function respond(prompt, label) {
       out.flow_check = keepsFlow && !explicitAt(stage) ? latestStdout(claimed, withRulings) : flowStdout(at('flow_findings_at', stage) || 0, claimed, stage, false, false, withRulings)
       // claimed_answer_holds_at: 台帳に無い answer_holds を stdout に載せた resolver（保留の hold だと偽った申告）。
       if (at('claimed_answer_holds_at', stage)) out.flow_check = JSON.stringify({ ...JSON.parse(out.flow_check), answer_holds: at('claimed_answer_holds_at', stage).map(answerSection) })
+      // resolver_lint_at: --lint を付けて doc_check flow を実行した resolver（stdout に lint の欄が載る）。
+      if ((spec.resolver_lint_at || []).includes(stage)) out.flow_check = JSON.stringify({ ...JSON.parse(out.flow_check), lint: 1, lint_codes: { LINT_OBTAIN_UNGROUNDED: ['F-900'] }, lint_path: 'checks/flow.lint.json' })
       if (!keepsFlow && !(spec.no_conflicts_check_at || []).includes(stage)) out.conflicts_check = conflictsStdout(stage)
     }
     return out
@@ -347,6 +358,26 @@ function respond(prompt, label) {
     // recheck_as: 変換の resolver の申告と違う世界を flow-check に見せる（resolver の stdout の過少申告）。無ければ最後の世界（latest）を見る。
     const k = (spec.recheck_as || {})[stage]
     readOnly(stage)
+    const lintFields = (n) => ({ lint: n, lint_codes: n ? { LINT_OBTAIN_UNGROUNDED: Array.from({ length: n }, (_, i) => `F-9${String(i).padStart(2, '0')}`) } : {}, lint_path: 'checks/flow.lint.json' })
+    const stash = /doc_check\.mjs stash --workspace \S+ --save (\S+?)`/.exec(prompt)
+    if (stash) {
+      if ((spec.no_stash_at || []).includes(base)) return {}
+      stashed = { flow: disk.flow, els: JSON.parse(JSON.stringify(disk.els)), open_ids: disk.open_ids && [...disk.open_ids], latest, lint: framerLint, sha: flowSha }
+      return { stash_check: JSON.stringify({ stash: stash[1], path: `checks/${stash[1]}.stash.json`, flow_sha256: String(flowSha) }) }
+    }
+    const unstash = /doc_check\.mjs unstash --workspace \S+ --against (\S+) --token (\S+?)`/.exec(prompt)
+    if (unstash) {
+      curToken = unstash[2]
+      touch('flow')
+      touch('open')
+      Object.assign(disk, { flow: stashed.flow, els: stashed.els })
+      if (stashed.open_ids === undefined) delete disk.open_ids
+      else disk.open_ids = stashed.open_ids
+      flowSha = stashed.sha
+      latest = stashed.latest
+      persist()
+      return { unstash_check: JSON.stringify({ unstash: unstash[1], flow_sha256: String(flowSha) }), flow_check: JSON.stringify({ ...latest, content_sha256: flowSha, ...onDisk(false), ...lintFields(stashed.lint || 0) }) }
+    }
     const backup = /doc_check\.mjs backup --workspace \S+ ((?:--doc \S+ )+)--token (\S+?)`/.exec(prompt)
     if (backup) {
       if ((spec.no_backup_at || []).includes(base)) return {}
@@ -527,7 +558,7 @@ const stubAgent = async (prompt, opts) => {
 }
 // STDOUT_KEYS: 返り値のうち doc_check の stdout を写す欄（designated の中も）。truth は最後に返した写す前の stdout で、取り直し（-recopy）は
 // 同じ W で同じコマンドを実行し直すので、それをそのまま返す（取り直しの間に W を書く役はいない）。
-const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'doc_check', 'audited', 'tree_digest']
+const STDOUT_KEYS = ['flow_check', 'conflicts_check', 'plan_check', 'questions_check', 'answers_check', 'restore_check', 'reset_check', 'backup_check', 'stash_check', 'unstash_check', 'doc_check', 'audited', 'tree_digest']
 const truth = {}
 const stampText = (text) => {
   const line = typeof text === 'string' && text.trim().startsWith('{') ? JSON.parse(text) : null
@@ -1473,7 +1504,7 @@ class Transcription(unittest.TestCase):
         plain = {"args": args()}
         cases = [
             (self.G0, "needs_answers", "verifier:3v", "flow_check", {"drop": "resolutions"}, "flow --workspace /tmp/prd-w --rulings`"),
-            (plain, "done", "flow-framer", "flow_check", bad_literal('{"findings": 0,'), "flow --workspace /tmp/prd-w`"),
+            (plain, "done", "flow-framer", "flow_check", bad_literal('{"findings": 0,'), "flow --workspace /tmp/prd-w --lint`"),
             (plain, "done", "flow-framer", "conflicts_check", bad_literal('{"pairs": 0,'), "conflicts --workspace /tmp/prd-w`"),
             (plain, "done", "intake", "plan_check", bad_literal('{"findings": 0'), "plan --workspace /tmp/prd-w`"),
             (plain, "done", "crossDoc:r1:all", "doc_check", bad_literal('{"blocking": 0'), "doc --workspace /tmp/prd-w --open-tbd"),
@@ -3928,6 +3959,84 @@ class FindingRoutes(unittest.TestCase):
         self.assertEqual(sorted(item["properties"]["direction"]["enum"]), contract_values("direction"))
         self.assertEqual(sorted(item["properties"]["origin"]["enum"]), contract_values("origin"))
         self.assertLessEqual({"direction", "origin"}, set(item["required"]))
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class FramerLint(unittest.TestCase):
+    """flow --lint は flow を起草する flow-framer（段 2・3b-reframe）だけが自分のループで使い、1 回だけ差し戻して段を止めない。
+    verifier・flow-check・settle・監査役の stdout と止まり方は変えない。"""
+
+    SETTLE = {"flow_open": 1, "ruled_at": {"3": ["RS-001"]}, "open_only_at": {"3v": [{"el": "F-091", "open": "O-RS-001"}]}}
+
+    def _prompt(self, r, label):
+        return next(p["prompt"] for p in r["prompts"] if p["label"] == label)
+
+    STASH = "flow-check:flow-framer-lint-stash"
+    UNSTASH = "flow-check:flow-framer-lint-unstash"
+
+    def test_lintが残ったflow_framerは1回だけ差し戻し_それ以外の起動と止まり方は変わらない(self):
+        plain = run({"args": args()})
+        fixed = run({"args": args(), "lint_at": {"framer": 2}})
+        self.assertEqual(plain["labels"][2], "flow-framer")
+        self.assertEqual(fixed["labels"], plain["labels"][:3] + [self.STASH, "flow-framer:lint"] + plain["labels"][3:])
+        self.assertIn("lint が 2 件", self._prompt(fixed, "flow-framer:lint"))
+        for key in ("status", "notices", "integrity"):
+            self.assertEqual(fixed["result"][key], plain["result"][key], key)
+        left = run({"args": args(), "lint_at": {"framer": 2, "lint": 1}})
+        self.assertEqual(left["labels"], fixed["labels"], "lint の差し戻しは 1 回きり")
+        self.assertEqual(left["result"]["status"], "done", "lint は段を止めない")
+        self.assertEqual(len(left["result"]["notices"]), 1)
+        self.assertIn("1 件", left["result"]["notices"][0])
+
+    def test_lintの欄の無いstdoutも1回だけ差し戻す(self):
+        r = run({"args": args(), "lint_at": {"framer": None, "lint": None}})
+        self.assertEqual(r["labels"].count("flow-framer:lint"), 1)
+        self.assertIn("lint の欄が無い", self._prompt(r, "flow-framer:lint"))
+        self.assertEqual(r["result"]["status"], "done")
+        self.assertIn("lint の欄が無い", r["result"]["notices"][0])
+
+    def test_lintの差し戻しでflowが閉じなくなれば差し戻しの前の版に戻して進む(self):
+        # 差し戻しの後に通常の差し戻しへ入ると、直らなければ段が止まり、next_args の再実行も同じ差し戻しを通る。
+        plain = run({"args": args()})
+        for findings in ({"lint": 1}, {"lint": 3}):
+            with self.subTest(findings=findings):
+                r = run({"args": args(), "lint_at": {"framer": 1}, "flow_findings_at": findings})
+                self.assertEqual(r["labels"], plain["labels"][:3] + [self.STASH, "flow-framer:lint", self.UNSTASH] + plain["labels"][3:])
+                self.assertIn(f"--against flow-framer-lint --token ", self._prompt(r, self.UNSTASH))
+                self.assertEqual((r["result"]["status"], r["result"]["integrity"]), ("done", []))
+                self.assertTrue(any("差し戻しの前の版に戻した" in x for x in r["result"]["notices"]), r["result"]["notices"])
+
+    def test_控えを取れなければlintで差し戻さない(self):
+        r = run({"args": args(), "lint_at": {"framer": 1}, "no_stash_at": [self.STASH]})
+        self.assertNotIn("flow-framer:lint", r["labels"])
+        self.assertEqual(r["result"]["status"], "done")
+        self.assertIn("控えを取れなかった", r["result"]["notices"][0])
+
+    def test_lintを指示するのは起草のflow_framerとwriterだけ(self):
+        r = run({"args": args(), **self.SETTLE, "lint_at": {"framer": 1}, "open_ids_at": {"lint": ["O-RS-001"]}})
+        self.assertIn("flow-framer:3-settle", r["labels"])
+        with_lint = sorted({p["label"] for p in r["prompts"] if "--lint" in p["prompt"]})
+        self.assertEqual(with_lint, ["flow-framer", "flow-framer:lint", "writer:U-1:draft"])
+        g0 = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+        g02 = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "lint_at": {"3b-reframe": 1}})
+        same = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}})
+        added = ["flow-check:flow-framer-3b-reframe-lint-stash", "flow-framer:3b-reframe:lint"]
+        self.assertEqual([l for l in g02["labels"] if l in added], added)
+        self.assertEqual([l for l in g02["labels"] if l not in added], same["labels"])
+        for key in ("status", "notices", "integrity"):
+            self.assertEqual(g02["result"][key], same["result"][key], key)
+        self.assertIn("--lint", self._prompt(g02, "flow-framer:3b-reframe"))
+        self.assertEqual([p["label"] for p in g02["prompts"] if "--lint" in p["prompt"] and p["label"].startswith(("verifier", "flow-check", "resolver"))], [])
+
+    def test_lintを付けて実行したresolverのstdoutは申告の食い違いにしない(self):
+        findings = new_item_each_round(MAX_AUDIT_PASSES + 1)
+        r = run({"args": args(), "findings": findings, "resolver_lint_at": ["final"]})["result"]
+        self.assertEqual((r["status"], r["integrity"]), ("blocked", []))
+
+    def test_settleのflow_framerにはlintを指示しない(self):
+        r = run({"args": args(), **self.SETTLE})
+        self.assertNotIn("--lint", self._prompt(r, "flow-framer:3-settle"))
+        self.assertEqual(r["result"]["status"], "done")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")

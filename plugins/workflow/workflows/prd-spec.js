@@ -686,9 +686,10 @@ const RESTORE_SCHEMA = { type: 'object', properties: { restore_check: STR }, req
 const RESET_SCHEMA = { type: 'object', properties: { reset_check: STR }, required: ['reset_check'] }
 const ANSWERS_SCHEMA = { type: 'object', properties: { answers_check: STR }, required: ['answers_check'] }
 const BACKUP_SCHEMA = { type: 'object', properties: { backup_check: STR }, required: ['backup_check'] }
+const STASH_SCHEMA = { type: 'object', properties: { stash_check: STR, unstash_check: STR, flow_check: STR } }
 const RECOPY_SCHEMA = {
   type: 'object',
-  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, doc_check: STR, tree_digest: STR },
+  properties: { flow_check: STR, conflicts_check: STR, plan_check: STR, questions_check: STR, answers_check: STR, restore_check: STR, reset_check: STR, backup_check: STR, stash_check: STR, unstash_check: STR, doc_check: STR, tree_digest: STR },
 }
 
 const FLOW_SCHEMA = {
@@ -813,7 +814,7 @@ if (ENTRY !== 'new' && !EXISTING.length) throw new Error(`entry "${ENTRY}" に�
 const FIXED_KEYS = uniq(EXISTING.filter((d) => d.fixed).map((d) => d.key))
 const KEEP_KEYS = uniq(EXISTING.map((d) => d.key))
 const OPTS = applyRoleOverrides(ROLE_OPTS, input.role_opts)
-const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, RECOPY_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
+const SCHEMAS = { INTAKE_SCHEMA, FLOW_CHECK_SCHEMA, RESTORE_SCHEMA, RESET_SCHEMA, ANSWERS_SCHEMA, BACKUP_SCHEMA, STASH_SCHEMA, RECOPY_SCHEMA, FLOW_SCHEMA, RESOLVER_SCHEMA, VERIFIER_SCHEMA, WRITER_SCHEMA, AUDIT_SCHEMA }
 const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 {
   const defects = [
@@ -1560,8 +1561,8 @@ async function independentFlow(verified, phaseTitle) {
   const unknown = Object.keys(fc.codes).filter((code) => !FIXERS_BY_CODE[code])
   if (unknown.length) return { error: `段 ${tag}: flow-check の doc_check flow に直し手の表（FIXERS_BY_CODE）に無い符号があります: ${unknown.join(', ')}`, rerun: false }
   see(fc)
-  // resolutions は --rulings の実行にだけ出るので、両側から外して比べる（resolver が --rulings を付けて実行しても申告の食い違いにしない）。
-  const plain = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'resolutions'))
+  // resolutions は --rulings、lint の欄は --lint の実行にだけ出るので、両側から外して比べる（付けて実行しても申告の食い違いにしない）。
+  const plain = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'resolutions' && !k.startsWith('lint')))
   const [ran, said] = [plain(fc), claimed && plain(claimed)]
   const differ = !responded ? [] : said ? uniq([...Object.keys(ran), ...Object.keys(said)].filter((k) => canonicalText(ran[k]) !== canonicalText(said[k]))) : ['stdout']
   if (differ.length) noteIntegrity(`resolver（段 ${tag}）が返した doc_check flow の stdout が、flow-check が同じ flow.json で実行した stdout と ${differ.join('・')} で違う`)
@@ -1700,30 +1701,87 @@ async function ruleIssues(stage, owner, pairKeys, openIds, phaseTitle, allowQues
   return { ids }
 }
 
-const FRAME_RUN = `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`
+// frameRun: lint は flow を起草する段（2・3b-reframe）の flow-framer だけに付ける。settle の flow-framer は裁定を写すだけで、lint で要素を
+// 書き換えさせると <段>v-settle が検証する要素が増え、settle の収束（MAX_SETTLE_ROUNDS）が変わる。
+const frameRun = (lint) =>
+  lint
+    ? `実行する: \`${cli('flow', '--lint')}\` を findings と lint の両方が 0 件になるまで（3 回まで。lint の直し方は ${W}/checks/flow.lint.json の fix）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`
+    : `実行する: \`${cli('flow')}\` を 0 件になるまで（3 回まで）、最後に \`${cli('conflicts')}\`。最後に実行した 2 つの stdout を加工せずに flow_check と conflicts_check に入れる。`
 
 const reworkLabel = (label, n) => (n === 1 ? label : `${label}-${n}`)
 // fixOf: v1 の不合格の差し戻しの段名。段名（STAGES）に 3a' があるので、`'` を足す形にすると段 3a の差し戻しと段 3a' の本体が同じ label になり、
 // label だけを持つ journal の started から起動の理由を分けられない。
 const fixOf = (stage) => `${stage}-fix`
 
-async function frameFlow(label, lines, phaseTitle) {
-  const prompt = (l) => lines(l).filter(Boolean).join('\n\n')
+// lintOf: lint の件数（欄が無ければ null）。lint_codes の件数の和と合わない写しも受け取らない。
+function lintOf(fc) {
+  if (!fc || !Number.isInteger(fc.lint) || !fc.lint_codes || typeof fc.lint_codes !== 'object' || Array.isArray(fc.lint_codes)) return null
+  const codes = Object.values(fc.lint_codes)
+  return codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === fc.lint ? fc.lint : null
+}
+
+// frameFlow: lint の指摘と lint の欄の無い stdout は、flow が閉じた後に 1 回だけ差し戻し、残っても段を止めない（notices に出す）。lint は
+// 生成者の自己点検で、止める判断は verifier の flow の検査が持つ。差し戻しで flow が閉じなくなったら、差し戻しの前の版に戻して進む
+// （通常の差し戻しに入ると、直らないときに段が止まり、next_args の再実行も同じ差し戻しを通るので抜けられない）。
+async function frameFlow(label, lines, phaseTitle, { lint = false } = {}) {
+  const run = frameRun(lint)
+  const prompt = (l) => lines(l, run).filter(Boolean).join('\n\n')
   const read = (x) => ({ fc: flowCheckOf(x.flow_check), cc: conflictsCheckOf(x.conflicts_check), conflicts: x.conflicts_check, questions_check: x.questions_check, plan_check: x.plan_check })
   const defectOf = (x) => {
     const { fc, cc } = read(x)
     return flowDefect(fc, 'flowFramer', `${W}/checks/flow.json`, reflector(running)) || (cc ? null : { count: Infinity, text: 'doc_check conflicts の stdout がありません' })
   }
-  const r = await once(label, 'flowFramer', prompt(label), FLOW_SCHEMA, phaseTitle)
-  const done = await rework(r, defectOf, (_, d, n) => {
-    const l = reworkLabel(`${label}:rework`, n)
-    return once(l, 'flowFramer', `${prompt(l)}\n\n返した stdout が不合格だった: ${d.text}。直して返す。`, FLOW_SCHEMA, phaseTitle)
-  }, MAX_CHECK_REWORK)
-  const got = read(done.got)
+  const lintCmd = cli('flow', '--lint')
+  const cmds = lint ? { flow_check: lintCmd } : undefined
+  const redo = (base) => (_, d, n) => {
+    const l = reworkLabel(base, n)
+    return once(l, 'flowFramer', `${prompt(l)}\n\n返した stdout が不合格だった: ${d.text}。直して返す。`, FLOW_SCHEMA, phaseTitle, cmds)
+  }
+  const r = await once(label, 'flowFramer', prompt(label), FLOW_SCHEMA, phaseTitle, cmds)
+  const done = await rework(r, defectOf, redo(`${label}:rework`), MAX_CHECK_REWORK)
+  let got = read(done.got)
   // 閉じていない版でも W の flow.json は flow-framer が書いた版で、照合を通った書き込みとして入口の照合（enterFromDisk）に渡す。
   if (got.fc) state.flow_digest = got.fc.content_sha256
   if (done.defect) return { error: `flow が閉じていません: ${done.defect.text}`, rerun: !done.defect.stop }
+  const n = lint ? lintOf(got.fc) : 0
+  if (n !== 0) got = await lintOnce(label, got, n, redo(`${label}:lint`), defectOf, read, phaseTitle)
+  if (got.error) return got
+  const left = lint ? lintOf(got.fc) : 0
+  if (left !== 0) state.notices = [...(state.notices || []), `${label} が lint を残して返した（${left === null ? 'lint の欄が無い' : `${left} 件。${W}/checks/flow.lint.json`}。verifier の検査は変わらない）`]
   return got
+}
+
+// lintOnce: 差し戻しの前に flow と open を控え（doc_check stash）、差し戻しの返り値が閉じていなければ控えに戻して（unstash）、戻した版の
+// flow の stdout で進む。控えを取れなければ差し戻さない（戻せない差し戻しは、lint で段を止めうる）。
+async function lintOnce(label, before, n, redoLint, defectOf, read, phaseTitle) {
+  const tag = `${label.replace(/:/g, '-')}-lint`
+  const call = (send, suffix, cmds) => {
+    const l = `flow-check:${tag}-${suffix}`
+    const lines = Object.entries(cmds).map(([k, c]) => `実行する: \`${c}\`。stdout を加工せずに ${k} に入れる。`)
+    return send(l, 'flowCheck', [header('flowCheck', running, l), ...lines].join('\n\n'), STASH_SCHEMA, phaseTitle, cmds)
+  }
+  const sx = await call(issue, 'stash', { stash_check: cli('stash', `--save ${tag}`) })
+  const st = sx && parseStdout(sx.stash_check)
+  if (!st || st.stash !== tag || st.flow_sha256 !== before.fc.content_sha256) {
+    state.notices = [...(state.notices || []), `${label} の lint を差し戻さなかった（差し戻しの前の flow の控えを取れなかった）`]
+    return before
+  }
+  const text = n === null ? `\`${cli('flow', '--lint')}\` の stdout ではない（lint の欄が無い）` : `doc_check flow --lint の lint が ${n} 件あります（${W}/checks/flow.lint.json）`
+  const again = await redoLint(before, { text }, 1)
+  const after = read(again)
+  if (after.fc) state.flow_digest = after.fc.content_sha256
+  const broke = defectOf(again)
+  if (!broke) return after
+  const ux = await call(once, 'unstash', { unstash_check: cli('unstash', `--against ${tag} --token ${txToken()}`), flow_check: cli('flow', '--lint') })
+  const us = parseStdout(ux.unstash_check)
+  const fc = flowCheckOf(ux.flow_check)
+  const sha = before.fc.content_sha256
+  if (!us || us.unstash !== tag || us.flow_sha256 !== sha || !fc || fc.content_sha256 !== sha) {
+    return { error: `${label} の lint の差し戻しで flow が閉じなくなり（${broke.text}）、差し戻しの前の版（${sha}）に戻せませんでした`, rerun: true }
+  }
+  state.flow_digest = sha
+  state.notices = [...(state.notices || []), `${label} の lint の差し戻しで flow が閉じなくなった（${broke.text}）ので、差し戻しの前の版に戻した`]
+  return { ...before, fc }
 }
 
 function reflection(fc, before) {
@@ -1855,11 +1913,11 @@ async function verifyLeft(stage, tag, verified, phaseTitle, allowQuestions) {
 async function settleRound(stage, n, m, phaseTitle, allowQuestions) {
   const tag = reworkLabel(`${stage}-settle`, n)
   const waiting = pendingQuestions(state)
-  const got = await frameFlow(`flow-framer:${tag}`, (label) => [
+  const got = await frameFlow(`flow-framer:${tag}`, (label, run) => [
     header('flowFramer', `${stage}（裁定の反映${n > 1 ? ` ${n} 回目` : ''}）`, label),
     `裁定を flow に写す（flow-framer.md の「裁定の反映」）。`,
     ...reflectLines(m),
-    FRAME_RUN,
+    run,
     recheckWaiting(waiting),
   ], phaseTitle)
   if (got.error) return { error: `段 ${stage}（裁定の反映）: ${got.error}`, rerun: got.rerun }
@@ -2115,13 +2173,13 @@ async function stage1() {
 async function stage2() {
   const planSha = state.plan_sha256
   delete state.plan_sha256
-  const got = await frameFlow('flow-framer', (label) => [
+  const got = await frameFlow('flow-framer', (label, run) => [
     header('flowFramer', '2', label),
     `読む: ${W}/input.md、${W}/decisions.json、${W}/precedent.json、${W}/open.json`,
     existingNote(),
-    FRAME_RUN,
+    run,
     `続けて \`${cli('plan')}\` を実行し、stdout を加工せずに plan_check に入れる。`,
-  ], 'Flow')
+  ], 'Flow', { lint: true })
   if (got.error) return blocked(`初稿を始めません（writer には flow を直す手段が無い）: ${got.error}`, got.rerun === false ? null : '2')
   // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
   const pc = planCheckOf(got.plan_check)
@@ -2215,16 +2273,16 @@ async function stageApply(stageId) {
 async function stage3b() {
   const waiting = pendingQuestions(state)
   const carriedIn = reflectFc ? reflection(reflectFc, null) : null
-  const reframe = await frameFlow('flow-framer:3b-reframe', (label) => [
+  const reframe = await frameFlow('flow-framer:3b-reframe', (label, run) => [
     header('flowFramer', '3b（回答での組み直し）', label),
     groundsBlock(),
     `${W}/open.json も読む。`,
     existingNote(),
     '回答を入力に加えて flow を組み直す（flow-framer.md の「回答での組み直し」）。',
     ...(carriedIn && reflects(carriedIn) ? ['組み直しと同じ書き込みで、3a の裁定も flow に写す（flow-framer.md の「裁定の反映」）。', ...reflectLines(carriedIn)] : []),
-    FRAME_RUN,
+    run,
     recheckWaiting(waiting),
-  ], 'Answers')
+  ], 'Answers', { lint: true })
   if (reframe.error) return blocked(`段 3b: ${reframe.error}`, reframe.rerun === false ? null : '3b')
   const framed = { ledger: state.resolutions_sha256 }
   claimIssues('flow-framer:3b-reframe', reframe.cc.pair_keys, reframe.fc.open_ids)
@@ -2268,7 +2326,7 @@ function writerPrompt(unit, mode, extra) {
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
     deps.length ? `依存先の単位の文書（読むだけ）: ${deps.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}` : '',
     existingNote(),
-    `doc_check の内部ループ: \`${cli('doc', `--doc <キー> --open-tbd "${openTbdOf(state).join(',')}"`)}\`（3 回まで）。最後に \`${cli('tree-digest', '--doc <キー>')}\` の digest を返す。`,
+    `doc_check の内部ループ: \`${cli('doc', `--doc <キー> --lint --open-tbd "${openTbdOf(state).join(',')}"`)}\`（findings と lint の両方を直す。3 回まで）。最後に \`${cli('tree-digest', '--doc <キー>')}\` の digest を返す。`,
     extra || '',
   ]
     .filter(Boolean)

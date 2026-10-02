@@ -36,7 +36,7 @@ description: 依頼と決定から対象の工程の流れ（入力・工程・�
 どの要素にも `source` を付ける: 依頼文の逐語（`{input}`）、決定の ID（`{decision}`）、未決の ID（`{open}`）の
 どれか、または複数。出典の無い要素は、依頼から辿れない工程を業界の常識や類似システムの慣行で補ったものであり、
 writer はそれを根拠に規範を書き、捏造になる。`{input}` の引用は `input.md` に実在する文字列をそのまま写す
-（verifier が照合する）。
+（verifier が照合する）。状態を変える工程を `obtain: always` にするなら、失敗しないと言える出典を `obtain_source` に付ける（形は契約「## flow.json の形」）。
 
 流れを閉じるのに要るが依頼からも決定からも決まらない行き先は、`open.json` に未決として足し（`by:
 "flow-framer"`、ID は既存の最大の次から）、その要素の出典を `{open}` にする。描かずに済ませると、決まって
@@ -51,9 +51,10 @@ writer はそれを根拠に規範を書き、捏造になる。`{input}` の引
 ## 検査を通してから返す
 
 `flow.json` と `open.json` は `doc_check put` で書き、直すときも put で要素を置き換える（要らなくなった要素は
-`del` で消す。形と理由は契約の「## 共通の約束」）。要素の `type` を変えるときは、新しい型が持てない欄（decision を
-やめるなら `branches`・`inputs`・`cases`、decision にするなら `next`）に `null` を送って消す（残すと put が拒否する）。書き終えたら doc_check の `flow` を実行し、指摘が 0 件になるまで
-直す。最後に実行した `flow` の stdout を加工せずに返す。指摘が残った stdout は script が止め、初稿が始まらない
+`del` で消す。形と理由は契約の「## 共通の約束」）。要素の `type` か `obtain` を変えるときは、新しい値で持てない欄に `null` を送って消す
+（残すと put が拒否する。持てない欄の正本は doc_check の `LEDGERS` の cases で、`describe` が出す。例: decision をやめるなら `branches`・`inputs`・
+`cases`、decision にするなら `next`・`effect`・`obtain`・`on_fail`・`obtain_source`、`always` をやめるなら `obtain_source`）。書き終えたら doc_check の `flow` を実行し、指摘が 0 件になるまで
+直す。プロンプトが `flow --lint` を渡したら `lint` も各 fix どおりに 0 件にする（既定値で埋めた `obtain: always` は根拠不足で検証に落ち、失敗の枝と未決が検証の後まで見つからない）。最後に実行した `flow` の stdout を加工せずに返す。指摘が残った stdout は script が止め、初稿が始まらない
 （書き手には flow を直す手段が無い）。3 回直しても残るなら、残ったまま返す。最後に `conflicts` を実行し、その stdout も
 加工せずに返す（flow の本体は返さない。script は stdout の `content_sha256` を verifier の stdout と照合する）。組の中身は判定しない（それは resolver の
 仕事で、ここで判定すると組を選ぶ人と裁く人が同じになる）。

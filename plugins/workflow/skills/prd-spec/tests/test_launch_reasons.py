@@ -55,9 +55,11 @@ LABEL_FAMILIES = [
     ("pairs", "組の再検査", r"resolver:.+-pairs", ["`resolver:${owner}-${tag}`", "opens.length ? 'opens' : 'pairs'"]),
     ("questions", "問いの形の修正", rf"resolver:.+-questions{N}", ["reworkLabel(`resolver:${owner}-questions`, n)"]),
     ("flow-rework", "doc_check の差し戻し", rf"resolver:.+-flow{N}", ["reworkLabel(`resolver:${stage}-flow`, n)"]),
-    ("framer-rework", "doc_check の差し戻し", rf"(?:intake|flow-framer(?::.+)?):rework{N}", ["reworkLabel(`${label}:rework`, n)", "reworkLabel('intake:rework', n)"]),
+    ("framer-rework", "doc_check の差し戻し", rf"(?:intake|flow-framer(?::.+)?):rework{N}", ["redo(`${label}:rework`)", "reworkLabel('intake:rework', n)"]),
+    ("framer-lint", "lint の差し戻し（flow-framer の自己点検。1 回きり）", r"flow-framer(?::.+)?:lint", ["redo(`${label}:lint`)"]),
+    ("lint-stash", "lint の差し戻しの前の控えと、閉じなくなったときの戻し", r"flow-check:.+-lint-(?:stash|unstash)", ["`flow-check:${tag}-${suffix}`", "`${label.replace(/:/g, '-')}-lint`"]),
     ("left-verifier", "検証し残しの拾い直し（settle の前と後・再実行の入口）", rf"verifier:.+v-(?:left{N}|entry)", ["`verifier:${stage}v-${tag}`", "reworkLabel('left', n + 1)", "verifyLeft(from, 'entry'"]),
-    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy)$).+", ["`flow-check:${tag}`"]),
+    ("independent-flow", "独立な flow の数え直し", r"flow-check:(?!.*-(?:entry|answers|backup|recopy|stash|unstash)$).+", ["`flow-check:${tag}`"]),
     ("recopy", "写しの取り直し（doc_check の stdout が checksum に合わない）", r"flow-check:.+-recopy", ["label.startsWith('flow-check:') ? `${label}-recopy` : `flow-check:${label.replace(/:/g, '-')}-recopy`"]),
     ("rehold", "保持規則の書き直し", r"resolver:.+-rehold", ["`resolver:${owner}-rehold`"]),
     ("rehold-verifier", "保持規則の書き直し", r"verifier:.+-reholdv", ["`verifier:${owner}-reholdv`"]),
@@ -108,6 +110,8 @@ COVERING_TESTS = [
     "DecidedNotHeld.test_変換は指定した種類で返させる",
     "DecidedNotHeld.test_聞ける段でscriptの指定に無いholdは1回だけ問いに書き換え直させる",
     "DecidedNotHeld.test_揃えても受け取れないdecidableは同じverifierに1回だけ聞き直す",
+    "FramerLint.test_lintが残ったflow_framerは1回だけ差し戻し_それ以外の起動と止まり方は変わらない",
+    "FramerLint.test_lintの差し戻しでflowが閉じなくなれば差し戻しの前の版に戻して進む",
 ]
 
 
@@ -197,6 +201,10 @@ class Clues(unittest.TestCase):
             "flow-check:crossDoc-r1-all-recopy": ("recopy",),
             "flow-framer:3b-reframe": ("reframe",),
             "flow-framer:3b-reframe:rework-2": ("framer-rework",),
+            "flow-framer:lint": ("framer-lint",),
+            "flow-framer:3b-reframe:lint": ("framer-lint",),
+            "flow-check:flow-framer-lint-stash": ("lint-stash",),
+            "flow-check:flow-framer-3b-reframe-lint-unstash": ("lint-stash",),
             "flow-framer:6-hold-settle-2": ("settle-framer",),
             "crossDoc:r1:all": ("audit-first",),
             "crossDoc:r2:all": ("crossdoc-reaudit",),

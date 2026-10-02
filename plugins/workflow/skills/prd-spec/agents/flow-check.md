@@ -22,7 +22,7 @@ description: 台帳を書いた resolver の後と、run の入口と、段 4・
   依頼者が答えていない問いに回答が当たる）。
 - 取り直し（label が `-recopy` で終わる）のプロンプトは、別の agent が写し損ねた stdout のコマンドを挙げる。挙げたコマンドだけを実行し、
   プロンプトが名指しした欄に入れる（stdout の最後の `stdout_fnv` は script がほかの欄から計算し直すので、1 字でも変えると 2 回目も合わずに run が止まる）。
-- restore・reset・backup・answers の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check・answers_check に入れる。
+- restore・reset・backup・answers・stash・unstash の stdout は、プロンプトの指示のとおり restore_check・reset_check・backup_check・answers_check・stash_check・unstash_check に入れる。
 - ファイルを書かない・直さない。指摘が出ても直さない（直すのは flow-framer と resolver の仕事で、あなたが直すと
   その書き込みを誰も検証しない）。
 - コマンドが失敗したら、stdout の代わりに stderr を flow_check に入れる（script は形の合わない値を「返さなかった」と数える）。
