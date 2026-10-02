@@ -51,19 +51,19 @@ export function codexBackend(config = {}) {
       if (config.environment === undefined) throw Error('checkpoint protocol requires explicit worker environment');
     },
     validateCheckpoint(options) {
-      const selected = resolveModel(options.model);
+      const selected = resolveModel(options.model, options.effort);
       if (!selected.model || !selected.modelReasoningEffort)
         throw Error('checkpoint protocol requires explicit model and reasoning effort');
     },
     capabilities: workspaces.capabilities,
     prepare,
     validate(options) {
-      resolveModel(options.model);
+      resolveModel(options.model, options.effort);
       workspaces.validate(options);
       context.validate(options);
     },
     async run(prompt, options, { signal, emit }) {
-      const selection = resolveModel(options.model);
+      const selection = resolveModel(options.model, options.effort);
       context.validate(options);
       const policy = await prepare();
       const selectedContext = await context.select(options);

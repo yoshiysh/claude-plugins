@@ -1,4 +1,9 @@
-const efforts = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent']);
+export const reasoningEfforts = Object.freeze(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent']);
+const efforts = new Set(reasoningEfforts);
+
+export function validateEffort(effort) {
+  if (effort !== undefined && !efforts.has(effort)) throw new Error('invalid agent effort');
+}
 
 // This is operator policy, not a claim of cross-provider model equivalence.
 export function modelResolver({ model, modelReasoningEffort, modelMap = {} } = {}) {
@@ -17,11 +22,12 @@ export function modelResolver({ model, modelReasoningEffort, modelMap = {} } = {
     throw new Error('reasoning effort requires an explicit default model');
   const fallback = model === undefined ? undefined : selection({ model, modelReasoningEffort });
   const mappings = new Map(Object.entries(modelMap).map(([key, value]) => [key, selection(value)]));
-  return requested => {
+  return (requested, effort) => {
+    validateEffort(effort);
     if (requested !== undefined && !mappings.has(requested))
       throw new Error(`explicit model mapping required: ${requested}`);
     const resolved = requested === undefined ? fallback : mappings.get(requested);
     return { requested: requested ?? null, origin: resolved ? 'explicit' : 'host-default',
-      ...(resolved ?? {}) };
+      ...(resolved ?? {}), ...(effort === undefined ? {} : { modelReasoningEffort: effort }) };
   };
 }
