@@ -1,0 +1,57 @@
+{
+ "against": "audited-2",
+ "expect": "be213b8272eef0fb84ca09ece008685631aa8308ba9c531702e5098b060f47cb",
+ "tree_digest": "e9e17903975b0ac3fe8885bc9842c0bc463c3880c1039064b82fcdc7564ea2a4",
+ "changed": [
+  "PR-CLEANUP-001",
+  "PR-CLEANUP-003",
+  "PR-CLEANUP-004",
+  "PR-CLEANUP-006",
+  "PR-CLEANUP-015",
+  "PR-CLEANUP-021",
+  "PR-CLEANUP-028",
+  "PR-CLEANUP-034",
+  "PR-CLEANUP-035",
+  "PR-CLEANUP-038",
+  "PR-CLEANUP-039",
+  "PR-CLEANUP-044",
+  "PR-CLEANUP-048",
+  "PR-CLEANUP-049",
+  "PR-CLEANUP-060",
+  "PR-CLEANUP-062",
+  "PR-CLEANUP-067"
+ ],
+ "added": [
+  "PR-CLEANUP-071",
+  "PR-CLEANUP-072"
+ ],
+ "removed": [],
+ "by_doc": {
+  "requirements/cleanup-branches": {
+   "changed": [
+    "PR-CLEANUP-001",
+    "PR-CLEANUP-003",
+    "PR-CLEANUP-004",
+    "PR-CLEANUP-006",
+    "PR-CLEANUP-015",
+    "PR-CLEANUP-021",
+    "PR-CLEANUP-028",
+    "PR-CLEANUP-034",
+    "PR-CLEANUP-035",
+    "PR-CLEANUP-038",
+    "PR-CLEANUP-039",
+    "PR-CLEANUP-044",
+    "PR-CLEANUP-048",
+    "PR-CLEANUP-049",
+    "PR-CLEANUP-060",
+    "PR-CLEANUP-062",
+    "PR-CLEANUP-067"
+   ],
+   "added": [
+    "PR-CLEANUP-071",
+    "PR-CLEANUP-072"
+   ],
+   "removed": []
+  }
+ }
+}

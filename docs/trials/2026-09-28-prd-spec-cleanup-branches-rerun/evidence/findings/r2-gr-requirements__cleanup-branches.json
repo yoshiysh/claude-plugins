@@ -1,0 +1,18 @@
+{
+  "findings": [
+    {
+      "id": "r2-gr-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "requirements/cleanup-branches§スコープとスコープ外",
+      "quote": "承認を得て削除した未取り込みブランチを復元する手段の用意。",
+      "issue": "依頼者の回答「退避タグ不要」（answers/g0.md L1）と RS-046 が支えるのは、退避タグを削除の前提にしないことまでで、復元の手段そのものを用意しないという決定はどの回答・決定・合格した resolution にも無い。入力 L132 は reflog に依存しない復元手段を先に用意する目的を別に述べており、その目的を外す裁定が無いまま、未決の論点（plan の required_categories「削除したブランチの復元手段」）をスコープ外として断定している。",
+      "repro": "「承認を得て削除した未取り込みブランチ feature/x を、後から復元できる手段をシステムが用意する必要はあるか」と問う。本文のスコープ外の行からは「不要」になるが、根拠一式から言えるのは「退避タグによる必要は無い」（answers/g0.md L1・RS-046）までで、input.md L132「それに依存しない復元手段を先に用意してから消す」を外した決定が無く、「一切不要」と答えられる根拠が無い。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "document_decision",
+      "direction_note": "承認された未取り込みブランチの削除後の復元手段を要求とするかを裁定の対象にする",
+      "origin": "ledger"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全文（291 行）を読み、範囲の項目 PR-CLEANUP-004・010・031・037・049・051・052、欠番とした PR-CLEANUP-008、節（背景と課題・スコープとスコープ外・用語・要求一覧の分類表と回答の扱いの表・リスクと影響）の各文を、meta の trace（F-007・F-008・F-064・RS-012・RS-013・RS-025・RS-040・RS-042・RS-045〜RS-051）、input.md 全文、answers/g0.md・g0-2.md・g1.md、decisions.json（D-001〜D-006）、plan.json、RS-002・RS-010・RS-014〜RS-022・RS-026〜RS-028、flow の F-029 と突き合わせた。無効な決定 RS-024・RS-038 と出典が落ちた flow 要素を根拠にしていないことも確かめた。観点は grounding（trace の実在と支え、捏造、出所の偽装、既存実装の根拠化、未決の断定、入力への違反）。"
+}

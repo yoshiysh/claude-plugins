@@ -1,0 +1,29 @@
+{
+ "findings": [
+  {
+   "id": "r3-gr-requirements__cleanup-branches-001",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "PR-CLEANUP-059",
+   "quote": "システムは、基準ブランチ以外で取り込み済みと確かめられないブランチのうち、remote で削除済みのローカルブランチと、PR が CLOSED であるか PR が無いと確かめられた remote のブランチを、要判断に分類しなければならない。",
+   "issue": "「PR が CLOSED であるか PR が無いと確かめられた remote のブランチ」の「と確かめられた」は入力・決定・resolution・flow のどこにも根拠が無く、入力 L57（D-009 が逐語で引用し、F-010 の「gh が使えない」枝の出典）が「gh が使えない環境では PR 経路が落ちるだけで…分類は安全側（要判断）に寄る」と定めた場合を要判断から外しており、入力に違反している。",
+   "repro": "gh が使えない環境で、どの origin/<基準ブランチ名> の履歴にも含まれない remote ブランチ feature/x がある。PR の有無を確かめられないので本文の要判断に当たらず、PR-CLEANUP-010 により取り込み済みにもならないため、削除も問いかけもされない。入力 L57 はこのブランチを要判断に寄せるとしている。",
+   "blocking": true,
+   "route": "writer",
+   "direction": "relax",
+   "direction_note": "根拠の無い限定を外し、入力 L57・D-009・F-010 の gh が使えない場合の扱いに揃える"
+  },
+  {
+   "id": "r3-gr-requirements__cleanup-branches-002",
+   "doc": "requirements/cleanup-branches",
+   "item_id": "requirements/cleanup-branches§用語",
+   "quote": "| 要判断 | 基準ブランチ以外で取り込み済みと確かめられないブランチのうち、remote で削除済みのローカルブランチと、PR が CLOSED であるか PR が無いと確かめられた remote のブランチであること。削除に利用者の承認を要する |",
+   "issue": "用語「要判断」の定義に PR-CLEANUP-059 と同じ根拠の無い限定「PR が無いと確かめられた」があり、入力 L57（D-009・F-010 の出典）が gh の使えない環境で要判断に寄せるとした remote ブランチを定義から外している。",
+   "repro": "gh が使えない環境で、どの origin/<基準ブランチ名> の履歴にも含まれない remote ブランチ feature/x がある。PR の有無を確かめられないので本文の要判断に当たらず、PR-CLEANUP-010 により取り込み済みにもならないため、削除も問いかけもされない。入力 L57 はこのブランチを要判断に寄せるとしている。",
+   "blocking": true,
+   "route": "writer",
+   "direction": "relax",
+   "direction_note": "根拠の無い限定を外し、入力 L57・D-009・F-010 の gh が使えない場合の扱いに揃える"
+  }
+ ],
+ "checked": "段 8 の範囲監査。diff-audited-2 の changed 8 件（PR-CLEANUP-007/008/043/059/063/064/065、§用語）と added 1 件（PR-CLEANUP-066）の本文を原文で読み、各項目の meta trace（input/answers の quote は input.md・answers/*.md に逐語で実在することを機械照合済み、全件一致）、RS-024/026/028/029/030/031・D-002/D-009・F-010/011/012/015/035/036/037/095 と突き合わせた。観点は grounding（trace の実在と支え、捏造・出所の偽装・既存実装の根拠化・未決の断定・入力違反）。007/066 は RS-031、008/063 は RS-030、043/064/065 は RS-028（answers/g1.md）と RS-029 が支えており指摘なし。064 と 066 の理由文はそれぞれ RS-028・RS-031 の why に辿れる。§用語 の要判断以外の行（基準ブランチ・起点ブランチ・取り込み済み・終了済み workspace・作業状態）は input L36〜L39・L152〜L155・L172〜L175 と決定に辿れる。merged の PR の head と名前で一致しマージ後の commit を持つ remote ブランチ（063 で取り込み済みから外れ、MERGED なので 059 の要判断にも当たらない）の行き先が無い点は境界の抜けとして認識したが、観点の守備範囲により cross-doc に委ね指摘していない。"
+}

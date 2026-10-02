@@ -1,0 +1,59 @@
+{
+ "budget": {
+  "resolutions": 64241,
+  "meta": 25654,
+  "document": 23378,
+  "flow": 20734,
+  "verifications": 19165,
+  "decisions": 6887,
+  "open": 5029,
+  "routes": 655
+ },
+ "sizes": {
+  "decisions.json": 4247,
+  "open.json": 7602,
+  "resolutions.json": 101170,
+  "verifications.json": 43354,
+  "routes.json": 5953,
+  "flow.json": 45615,
+  "requirements-cleanup-branches.md": 29758,
+  "requirements-cleanup-branches.meta.json": 33691
+ },
+ "over": [
+  {
+   "file": "open.json",
+   "bytes": 7602,
+   "budget": 5029
+  },
+  {
+   "file": "resolutions.json",
+   "bytes": 101170,
+   "budget": 64241
+  },
+  {
+   "file": "verifications.json",
+   "bytes": 43354,
+   "budget": 19165
+  },
+  {
+   "file": "routes.json",
+   "bytes": 5953,
+   "budget": 655
+  },
+  {
+   "file": "flow.json",
+   "bytes": 45615,
+   "budget": 20734
+  },
+  {
+   "file": "requirements-cleanup-branches.md",
+   "bytes": 29758,
+   "budget": 23378
+  },
+  {
+   "file": "requirements-cleanup-branches.meta.json",
+   "bytes": 33691,
+   "budget": 25654
+  }
+ ]
+}

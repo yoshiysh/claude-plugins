@@ -1,0 +1,5 @@
+agents 37  turns 539  input_all 54181760  read 50336083  creation 3844599  output 48637
+busy_seconds 5718.8  span_seconds 7659.5
+findings r1: 10 (blocking 4, items 8)
+findings r2: 4 (blocking 3, items 4)
+findings r3: 2 (blocking 2, items 2)

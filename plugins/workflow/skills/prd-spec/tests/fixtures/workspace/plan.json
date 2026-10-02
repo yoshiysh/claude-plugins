@@ -1,0 +1,8 @@
+{
+ "targets": ["requirements", "specifications"],
+ "docs": [
+  { "key": "requirements/auth", "concern": "認証と承認", "covers": [], "fixed": false },
+  { "key": "specifications/auth", "concern": "認証と承認", "covers": ["requirements/auth"], "fixed": false }
+ ],
+ "units": [{ "id": "U-1", "docs": ["requirements/auth", "specifications/auth"], "depends_on": [] }]
+}

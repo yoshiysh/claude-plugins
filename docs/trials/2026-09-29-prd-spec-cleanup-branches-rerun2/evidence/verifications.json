@@ -1,0 +1,706 @@
+{
+ "decisions_sha256": "5a4767cadf849b82eca2b20e5ba1c04309ea2c5cf2beb123d94ad345a6532ddd",
+ "items": [
+  {
+   "digest": "152c2af112b466eee5e2d9a5eb995af73e9850000079ac1dd55b804acb3e4315",
+   "id": "RS-001",
+   "reason": "未取り込みの作業の復元手段を残すかは価値の判断で question が正しい。input.md 69・125-134 行でタグは承認を得て消す未取り込みにだけ打ち、89-94 行で取り込み済みは確認なしと確認。回答 g0 の「削除タグは不要。マージ済みなら確認不要」は取り込み済みと並べており対象が文面から決まらない。案 A は input の現行挙動、案 B は回答の値で入力外の値なし。flow_refs は実在し F-049・F-054 の残っている枝の現行の行き先と flow_effect が合う",
+   "verdict": "pass"
+  },
+  {
+   "digest": "b3930e765d619ade2837ec41dd79f3d24962a85fe9596ac8c555c5f2cea5df0e",
+   "id": "RS-002",
+   "reason": "削除手段を履歴だけの判定に変えるかは消す対象が変わる価値の判断で question が正しく、回答は未当てで value を持たない。案 A の三経路は input.md 41-49 行、案 B の git branch --delete-merged は answers/g0.md 2-3 行に実在し、decision_text に出典外の値は無い",
+   "verdict": "pass"
+  },
+  {
+   "digest": "ca10d5e9fd31c877999081cd8841b30502adfc0b0de1fef76d9f31322b90d496",
+   "id": "RS-003",
+   "reason": "question。候補 2 の「目安として 1 カテゴリ 20 件超」は input.md 114 行に逐語で実在し、flow_refs の F-009 はその閾値の判断で対応する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "84190f1d9ce07f10fbfbbfd54a4a6d549ed055e1f8c2a29847bb09c260dacf8e",
+   "id": "RS-004",
+   "reason": "question。不変条件の 3 候補の decision_text はいずれも「承認なしに失わない・削除しない」で振る舞いを縛り、flow_refs の F-005・F-006・F-026・F-027 は削除と同期の工程で対応する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "9c5a15ebb6f6f6e04726607ddc5b6685f63a9bd3245a40b16eac54eef6a89c1f",
+   "id": "RS-005",
+   "reason": "question。個人情報の有無は入力に記述が無く依頼者に問う前提の論点で、候補は文書への要求の追加だけを述べる",
+   "verdict": "pass"
+  },
+  {
+   "digest": "ef85a1ae52045a49292ad44804d86d03c2416a8362f769cb28ca70349493bb2a",
+   "id": "RS-006",
+   "reason": "question。法令・契約の義務の有無を問い、候補は入力に無い事実を持ち込まない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "bc70f12510d41a08bc534ce4f9eaab702c6519fca9745fed7d8d8ecefdb3fc13",
+   "id": "RS-007",
+   "reason": "question。削除の記録の義務を問い、候補 2 の flow_refs F-036 は完了報告で、その前に工程が入るという効果と対応する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "521bfa1ae548574552519e39adc0b325e151684fa749cb0177fb53e7c7a88a4e",
+   "id": "RS-008",
+   "reason": "question。実行時間の要求を問い、why は input.md 44・47 行の所要時間を現物の事実として要求から外しており分類が正しい",
+   "verdict": "pass"
+  },
+  {
+   "digest": "c5afb8af8ec6acfd578f8435c29fda958f4740cab542c548100cb43259dba3dc",
+   "id": "RS-009",
+   "reason": "question。削除が誰の作業に及ぶかを問い、候補 3 の flow_refs F-006・F-020 は remote ブランチの削除工程で対応する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "57c93db71ce6e846ab024ca9fd692cb27090577ed3ea04bdc86bd6dd301f574b",
+   "id": "RS-010",
+   "reason": "question。保持期間・請求対応の義務を問い、候補は入力に無い事実を持ち込まない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "053618602d055877266e14c10548f3a248d863d4887310d6a6861fd972befb02",
+   "id": "RS-012",
+   "reason": "question。open PR の有無が分からないときの reset を問い、flow_refs F-026 と候補の効果（得られない case の行き先）が対応する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "fbcc70a832053e3fbd6d944a462711d04a520a2cd07029245655796436051b3d",
+   "id": "RS-013",
+   "reason": "question。想定外の応答と一覧の繰り返しを問い、候補 2 の flow_refs F-013 の一覧提示回数の入力を外す効果と対応する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "18576db17446c9cee7422bbf98cd450226ac3d6892defb9162ce706d3e1ad1b3",
+   "id": "RS-014",
+   "reason": "question。削除失敗時に続けるかを問い、候補 1 が挙げる F-039・F-040・F-042 と候補 2 の F-007・F-021・F-041 は flow の該当要素と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "2989a325f479aa9081035630d9f67b481483e80ef4a787067ced2608da37ebc3",
+   "id": "RS-015",
+   "reason": "question。作業用ブランチを作れないときを問い、候補 1 の F-043→F-030 は flow と一致し、候補 2 の flow_refs F-029・F-043 も対応する",
+   "verdict": "pass"
+  },
+  {
+   "id": "D-002",
+   "reason": "default の標準的選択。文書を 1 つにする分割の判断は方法論の範囲で、案件の要求・外部に波及する値・依頼者の保留を含まない",
+   "verdict": "pass"
+  },
+  {
+   "id": "D-003",
+   "reason": "default の正しさ不変。文書 1 つを単位 1 つで書く判断は内容を変えない方法論の選択",
+   "verdict": "pass"
+  },
+  {
+   "id": "D-004",
+   "reason": "default の標準的選択。要求文書に手段を書かず現物を参照にとどめる判断は契約「現物と既存実装の扱い」に沿った方法論で、価値の判断を含まない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "7915bc1f00605ad1a22954e41e3b652c6528e455af66921ede2dc08c1824fd0b",
+   "id": "F-001",
+   "reason": "input.md 13 行の起動の言い回しが逐語で実在し、RS-003 と合わせて依頼が流れに入る要素を支える。外からの依頼なので always",
+   "verdict": "pass"
+  },
+  {
+   "digest": "c8e4883829684478313bf9bdf33c407a018df6b87758fb12a977b7a22f7c3206",
+   "id": "F-002",
+   "reason": "source と on_fail.source は input.md 56-57 行に逐語で実在し、PR 経路が落ちうることと安全側に寄る扱いを支える。on_fail.as 得られない は F-026 の入力の values にあり、その値そのものを書いた case で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "45f0cedc4d78ab4fa389f0ffb293533a542427549f497db8f3e1450ecc96f95d",
+   "id": "F-004",
+   "reason": "取れた case と要素の出典は input.md 78 行に逐語で実在。取れない case の RS-011 は止めて理由を返すとし、枝の先 F-038 と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "98a1dc5b17880ab7769a0b28cf449db6fbe325656e2faa0d15867af3f9c16e60",
+   "id": "F-006",
+   "reason": "input.md 90 行が取り込み済み remote の削除を支え、RS-004 がこの削除を縛る。may_fail は直後の F-007 が unknown で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "5360e12158ee71b5c86bc706432ae56889ad2c673e55efd933582cef4994c433",
+   "id": "F-007",
+   "reason": "削除できた case は input.md 108 行が支え、削除できない case の RS-014 は失敗した remote の削除を報告に載せて続けるとし、F-039 から F-008 へ続く流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "04f0bb74efe245a54ac8c930e3ff11254688259fd78790ed7677f05cc714a44a",
+   "id": "F-039",
+   "reason": "出典 RS-014 は削除できなかった remote ブランチを報告に載せて続けるとし、報告に加えて F-008 へ進むこの工程と一致する。read・always が定義に合う",
+   "verdict": "pass"
+  },
+  {
+   "digest": "6a0a021fc9df04f200a56dfb5c5d855bb9a9b461a9a9fd6ecd9ae22aa7786c76",
+   "id": "F-008",
+   "reason": "要素と両 case の出典 input.md 113 行が、3 カテゴリがすべて空なら問わずそれ以外は 1 回で問う表を支える。入力は F-003 からで取れない場合は F-004 で分かれている",
+   "verdict": "pass"
+  },
+  {
+   "digest": "502decdee2a738270bd1ec3d6dca4216024705bf992c49796f2babc1664bdc1b",
+   "id": "F-009",
+   "reason": "input.md 114・115 行が 20 件を境に全件か要約かを分ける表を支える。この判断の入力に得られない値は無い",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4d8d95b35a742a00fb3fc71cb62b7d8c52f55fa6307f3f9dc8dac2b05a344c7f",
+   "id": "F-010",
+   "reason": "input.md 113 行が空でないカテゴリを 1 回で全件示して問う工程を支える。提示だけなので read",
+   "verdict": "pass"
+  },
+  {
+   "digest": "ac712758b4388a4f8efe12abaa9e3bec440f5385646d294ed8bb0a1b254b743a",
+   "id": "F-012",
+   "reason": "input.md 115・118 行が件数と代表例に要約して問うことと一括削除を選択肢に含めないことを支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "aa609b306ca13834e1536bb1ef6cebd9143833f4b5a86a9bc29965745140b7db",
+   "id": "F-011",
+   "reason": "input.md 116 行が選択肢への応答を受ける工程を支える。応答の種類に それ以外 があり always で得られないマスは消えない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "e467ed247a5b2aadf88f64fdfa2724b6ac135f604a87626a648d5ee047fffdef",
+   "id": "F-013",
+   "reason": "一部を承認・全件残す・一覧を求めるの case は input.md 68・116 行が支え、上限到達と それ以外 の case の RS-013 は何も削除せず残すとし、削除しない枝と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "dcbd23a5c5444f4a710045c6b2ea16471a0e77a31919c7e2ecb91b319d56ee48",
+   "id": "F-014",
+   "reason": "input.md 116 行 ユーザーが一覧を求めた場合にだけ が一覧を示す工程を支え、F-011 へ戻る",
+   "verdict": "pass"
+  },
+  {
+   "digest": "44729b1a916aecbe990b60bf818b859f5c69a5919bc4fe0728a5b8302f15d37d",
+   "id": "F-015",
+   "reason": "input.md 121 行の見出しと RS-019 が承認されたローカル 1 本への退避タグを支える。タグ作成は戻せるので reversible、may_fail は直後の F-016 が unknown 打てない で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "9b69150586371333217db6ba345cbc4735096e15909370be5f82f048259fcae1",
+   "id": "F-018",
+   "reason": "input.md 136 行の見出しと 146 行（remote-tracking ref から削除前に打つ）が逐語で実在し、RS-021 と合わせて remote 1 本への退避タグを支える。may_fail は F-019 が受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "d185300ae852f119aa12bbc2efc5a067d7eb497b8b48e1aa7b842b852b95a6b6",
+   "id": "F-020",
+   "reason": "input.md 68 行 承認された分だけ と RS-021 が支え、RS-004 がこの削除を縛る。may_fail は F-021 が unknown で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "70c5bb40d1b4b2105473f7aa28848d222d267a639ddbdb0335b19e5141d12aff",
+   "id": "F-021",
+   "reason": "削除できた case は input.md 229 行が支え、削除できない case の RS-014 は失敗を報告に載せて続けるとし、F-040 から F-054 へ続く流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "7cc9939451be01e6afbcf594370afb690b2c745e16f4487ccf63f67952dbca08",
+   "id": "F-040",
+   "reason": "出典 RS-014 は remote ブランチの削除の失敗を報告に載せて続けるとし、報告に加えて F-054 へ進むこの工程と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "3ca93b9584538780a848d93f0fdd74709d52d20585e6724d477a6d3b5f7d0792",
+   "id": "F-022",
+   "reason": "input.md 155 行が承認を得て workspace を消すことを支え、RS-004 は終了済み workspace を承認なしに失わないとしてこの工程を縛る。may_fail は F-041 が受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "3b729b4ce1b64dae01c119e5b94c3e238bdc5cfaebcd031c8d8231fa24fe7740",
+   "id": "F-041",
+   "reason": "削除できた case は input.md 232 行が支え、削除できない case の RS-014 は workspace の削除の失敗を報告して続けるとし、F-042 から F-023 へ続く流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "46665eb0bf57110ed8b46cc842edf13ce7545f2d6fabb89eb7bb4892d5554e91",
+   "id": "F-042",
+   "reason": "出典 RS-014 は削除できなかった workspace を報告に載せて続けるとし、この工程と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "3c12ca86dea38363d854beac4bf063220ebed9bae2207c59f9ec989427bfa1c3",
+   "id": "F-023",
+   "reason": "input.md 168 行が作業状態を削除せず提示する工程を支える。read・always",
+   "verdict": "pass"
+  },
+  {
+   "digest": "eece519ded1633e0660eceb1f32cc572ccc8fb40285ed9e41f0f4431c73a1c67",
+   "id": "F-024",
+   "reason": "両 case の出典 input.md 183 行が未コミットの変更の有無で退避するかを分ける表を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "8dde8f755703b4035ad6137f27203fd2c59c4c5ef955aa0f68f4da7441c9f58a",
+   "id": "F-027",
+   "reason": "input.md 192 行が reset による同期を支える。ref を動かすので destructive で、RS-004 が未取り込みの作業と未コミットの変更を承認なしに失わないとしてこの工程を縛る",
+   "verdict": "pass"
+  },
+  {
+   "digest": "e887e0b2ee6fd54b816a0824649bf180c15710821855a942fa4555c59a1db836",
+   "id": "F-028",
+   "reason": "input.md 195 行が作業用ブランチの作成を支える。同名があれば失敗しうるので may_fail、直後の F-029 が受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "aa24d1254961f8fe311fd9803e75dee8d8bb262a1fad55c1d5bec0581953206d",
+   "id": "F-029",
+   "reason": "作れた case は input.md 195 行、作れない case の RS-015 は作れなかった旨を報告して後処理へ進むとし、F-043 から F-030 へ進む流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "e70de916cb6c5b8bb94e2b27336dbd1066ed9b0fa89681ec04eb64f49c32d736",
+   "id": "F-043",
+   "reason": "出典 RS-015 は作れなかった旨を完了報告に載せて後処理へ進むとし、報告に加えて F-030 へ進むこの工程と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "7d39be8f14d87bae3f741f3f72b2ddede11395b63eb9ee5b4d3cf32d2c1f236b",
+   "id": "F-030",
+   "reason": "input.md 200・212 行が設定の有無で実行と設定なしの報告を分ける表を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "0e163c0ad693cee79e453a2a3f97a367db5c29e53a68425d47541599295d3112",
+   "id": "F-045",
+   "reason": "input.md 212 行が設定が無い旨を報告する工程を支え、F-033 へ進む",
+   "verdict": "pass"
+  },
+  {
+   "digest": "5331b4fa8c3a7cad60b57becc36e1b88dc36ea8ebf562814f00538f30407ad85",
+   "id": "F-031",
+   "reason": "input.md 200 行が post_sync の実行を支え、RS-016 は書かれたコマンドだけを書かれた順に実行するとしてこの工程を縛る。may_fail は F-032 が unknown で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "343ac54b9f6b9fd53b915be72fb168eaba60b46e606ee2553e2d9473a43e7ed5",
+   "id": "F-032",
+   "reason": "両 case の出典 input.md 213 行が、失敗した行があっても報告へ進む分岐を支える。1 行でも失敗すれば 失敗した行がある に入り失敗は消えない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "c67bc9a1e7db3965579b6c478e7287f523389924149e6368abb7d9ee22159334",
+   "id": "F-046",
+   "reason": "input.md 233 行が実行した後処理のコマンドと結果の報告を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "0fec459edb3fb830a48f131c5fe77be49aef4df059218c21be2c1e14df894ca3",
+   "id": "F-044",
+   "reason": "input.md 213 行が失敗した行と手動実行の案内を報告に加える工程を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "b9e6328154c74b3548f960007a2f2a760030efb772371835889ce3be5f13a59b",
+   "id": "F-034",
+   "reason": "input.md 221 行が退避した変更を戻す工程を支える。衝突しうるので may_fail、F-035 が受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "5617f88c2555abe04b6ef912cbfe8e569dbe5efaee308acfa6726ce33802101a",
+   "id": "F-035",
+   "reason": "両 case の出典 input.md 221 行が衝突時に箇所と手動解決を案内する分岐を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "b69437820256458c1384886d1056fbd93ee448f56a40e48c05fe3e20890bc8ba",
+   "id": "F-037",
+   "reason": "input.md 221 行が衝突箇所と手動解決の案内を報告に加える工程を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "eb0caa078fd6ba4a5306aa6acb6af0d277f52eccc75afea8b6f2cc20c60c2554",
+   "id": "F-036",
+   "reason": "input.md 224・236 行が完了報告と残したものの明示を支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "300d1e3c504b1baa0ad41a9addc5fcbaec6b3f854bba4b95165d07db72102b05",
+   "id": "F-038",
+   "reason": "出典 RS-011 は状態を取れないとき止めて取れなかった旨と状態を返すとし、この出力と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4c09453545221c52d2648b03c4363daac343badd088cba430148af0f8f07cab9",
+   "id": "RS-011",
+   "reason": "状態取得の失敗時に止めるか取り直すかは価値の判断で question が妥当。input.md 56-57 行は gh 不在だけを述べ取得失敗を述べないことを確認。候補 2 は取り直し先を F-003 に改め、失敗の枝の先が得られない値を前提にしなくなった。flow_refs F-004・F-038 は flow.json に実在",
+   "verdict": "pass"
+  },
+  {
+   "digest": "a08bb897a2e85a4d3c4ff52f465c5497e3751f3b20b48a847747d40079e0daa9",
+   "id": "RS-016",
+   "reason": "kind invariant の未回答の問いで、3 候補の decision_text はいずれも振る舞いを縛る（候補 1 は書かれたコマンド以外を足さず失敗行を省かない、2 は承認済みのみ実行、3 は実行しない）。候補 1 の各規則は input.md 200-201・213・216-217 行に実在。後処理の承認は価値の判断で question が妥当",
+   "verdict": "pass"
+  },
+  {
+   "digest": "17ff74aac7d3041c49f5677c9284165b315760643f5666b500494f16fdaf75e4",
+   "id": "F-003",
+   "reason": "input.md 74 行・77 行に 2 つの引用が逐語で実在し状態取得の工程を支える。RS-017 は effect=destructive と constrained_by=RS-004 を支え、RS-003 は貼り付けの振る舞いを要求に採るので出典として整合。prune と起点ブランチのローカル追従は ref を戻せない形で変え、RS-004（未取り込みの作業を承認なしに失わない）は追従が未反映の commit を失わせないよう縛る。obtain=may_fail は F-004 の unknown=取れない の入力で受け、失敗の枝は F-038（RS-011）で終わり得られない値を前提にする step は無い",
+   "verdict": "pass"
+  },
+  {
+   "digest": "5f716a05bcdd09cfe68d59b25cd767bd49f8517d7f48fe60c6f35ed8793e2706",
+   "id": "F-005",
+   "reason": "input.md 89 行と RS-018 が取り込み済みローカルの削除を支える。RS-004 は取り込み済みを確認なしで削除してよいとしてこの工程を縛り、may_fail は直後の F-047 が unknown で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "f5e4731972dd6e50aedc9507b77a236b9b31ac3796455d0bd61b4f821c6dfa6e",
+   "id": "F-017",
+   "reason": "input.md 68 行 承認された分だけ と RS-019・RS-020 が支える。RS-004 は未取り込みの作業を承認なしに失わないとしてこの削除を縛り、may_fail は F-051 が unknown で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "a6bd32564bf018f8a84447bdb88290e9a6f7f3100670540b6cc04c6711d1158f",
+   "id": "F-016",
+   "reason": "両 case の出典 input.md 133 行と RS-019 が、そのブランチ 1 本のタグの成否で削除するかを分けることを支える。打てない枝の F-050 は得られなかったタグを前提にしない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4f18207543e7ebbf683a7fe0401bbaeac0e71429ff20284ebad5c83203544851",
+   "id": "F-019",
+   "reason": "両 case の出典 input.md 147 行と RS-021 が、そのブランチ 1 本のタグの成否で削除するかを分けることを支える。打てない枝の F-055 はタグを前提にしない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "1d5f8256783e97ca9637d6333b055622dfc9e4885be948e7204faa3f1e4e705e",
+   "id": "F-026",
+   "reason": "名前あり×ある・無い は input.md 190・192 行、detached HEAD の 3 マスは 193 行と RS-024、名前あり×得られない は RS-012（reset しない）が支え、枝と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "7630495bb5b68362f8cbdb3da0ec6e87f5b6fd31f9af2c20fcc3f35af546b09a",
+   "id": "F-025",
+   "reason": "input.md 183 行と RS-022 が退避と、退避した・作られなかった・失敗したの値を出すことを支える。stash は戻せるので reversible、may_fail は直後の F-057 が unknown 失敗した で受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "8965e538344c4048c6bc81c0c57ae0d1758f52aa34bb53b595b55d5dee4a76e0",
+   "id": "F-033",
+   "reason": "退避した case は input.md 221 行と RS-023、作られなかった・退避していない case は RS-022・RS-023、失敗した case は RS-026（退避せず同期へ進む）が支え、退避したときだけ戻す枝と一致する。unknown 失敗した を値そのもので受ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "46db6b8705ef42cf36f87ad48a1eda52846cc1f092f194e64d3068c226608922",
+   "id": "RS-017",
+   "reason": "input.md 77・40 行と answers/g0.md 7 行を再現。prune で消える追跡 ref は取り直せず契約の destructive に当たり、kind invariant の RS-004（未取り込みの作業を失わない）が縛る。RS-011 を外すのは合格済みの RS-035（F-004 より後の工程だけを縛る）と整合し、欄の選択は方法論で価値の判断を含まない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4eafc23c7194e99352c820152b1471a770111d8d0e1f6e232036560c877c6921",
+   "id": "RS-018",
+   "reason": "evidence の input.md 24・59 行を再現。input.md を current・今いる・現在の で grep し、今いるブランチを削除対象から外す記述が無いことを確認したので削除は失敗しうる。失敗時の扱いは入力に無く出典なしで置くとしており価値を方法論で決めていない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4599b4c5b906847617b3914bfb53011679c0f0f46ba67d07d53efda803ac64ce",
+   "id": "RS-019",
+   "reason": "evidence の input.md 68・122・133・134・236・237 行を再現。1 本ずつ 2 手を順に実行、タグ失敗なら削除しない、タグ名と残したものをブランチと対で報告、の各規則が value を支え、入力に無い規則を足していない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "51b505b4e44e397ad8d8a971345396bdd3884f8907e9120dc2fe34965b3c7668",
+   "id": "RS-020",
+   "reason": "evidence の input.md 122・134 行を再現。今いるブランチを除く記述が入力に無いこと（grep で確認）と、入力が削除そのものの失敗を述べないこと（失敗 の grep は 133・147・213・216 行だけ）から may_fail と出典なしの case が言える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "c500e5944e9dd6cd8d08d2fa3d7d3979da77652980a80f2fbd61452a58543e37",
+   "id": "RS-021",
+   "reason": "evidence の input.md 138-139・147・150・236・237 行を再現（138-139 は改行つなぎで一致）。remote-tracking ref から打つことは 146 行、1 本ずつの 2 手とタグ失敗時の不削除・対での報告は各行が支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "413646ccc188c86c13c141a1c0101660168731eef4126251d002dc1ce91f9f5c",
+   "id": "RS-022",
+   "reason": "evidence の input.md 183・221 行を再現。221 行が戻すことを stash した場合に限るので、退避が作られたかの値が要ることが言える。退避失敗時の扱いは入力に無く（失敗 の grep で確認）出典なしで置くとしている",
+   "verdict": "pass"
+  },
+  {
+   "digest": "0722e6dde45b93d41cc3dc88578c15ee12864c9052a5c6af2af26a6ed2cb4e6d",
+   "id": "RS-023",
+   "reason": "evidence の input.md 221 行を再現。戻す条件は stash した場合で、未コミットの変更の有無ではなく退避の実施で決まる。退避したときだけ戻すので他の値はすべて戻さない枝になり 221 行と矛盾しない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "bcd644f8ca1b264deacfff2bd9bfcbc26d4a60d1a9feb923c0ea9a5c748592fe",
+   "id": "RS-024",
+   "reason": "evidence の input.md 192-193 行を改行つなぎで再現。193 行は detached HEAD を reset する側に置き、既存 case の detached HEAD×ある/無い も reset する。名前ありで open PR を判定できない場合は入力に無く O-012（PR 情報が得られないときの reset）の論点と一致",
+   "verdict": "pass"
+  },
+  {
+   "digest": "6cb40cbcc2c861df155e1bd58c8ad43824265fa81a08c700da7c2ca9f6d5e18a",
+   "id": "RS-025",
+   "reason": "O-017（ローカルブランチの削除失敗で続けるか・どう報告するか）は優先の価値判断で question が正しい。依頼者の記述と SKILL.md に削除そのものの失敗の扱いが無いことを input.md の 失敗 の grep（133・147・213・216 行のみ）で確認。flow_refs の F-047・F-048・F-051・F-052 は実在し、案 A の flow_effect は現行の F-048→F-006・F-052→F-049 と一致する。decision_text は O-017 の範囲の候補で入力外の事実を含まない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "fc049e1ec9385387b2abdbab062e634825d92f4ae1a5085023a719ef5b9bd5ee",
+   "id": "RS-026",
+   "reason": "O-018（退避失敗時に同期へ進むか）は未コミットの変更と同期の優先の価値判断で question が正しい。input.md 183 行は退避するとだけ述べ失敗の扱いが無いことを確認。flow_refs の F-057・F-058・F-033 は実在し、案 A の flow_effect は現行の F-057 失敗→F-058 と一致、案 B の F-033 への影響も F-033 の値に失敗が無いことと整合する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "e936eb3cb65460de186f9faaf64562cbc5da339b88082b6f42cd77f97428eafa",
+   "id": "F-047",
+   "reason": "削除できた case は input.md 108 行と RS-018、削除できない case の RS-025 はブランチを残して続け報告に載せるとし、F-048 から F-006 へ続く流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4523232daa5f46ee19361c043d60ce60803ea2fc492614d865828f5500c1c537",
+   "id": "F-048",
+   "reason": "出典 RS-025 は削除できなかったローカルブランチを報告に載せて続けるとし、報告に加えて F-006 へ進むこの工程と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "7c46a494b29206b545711b8ab9d302b72c77be2f14dfdc359f38f542c0dc091b",
+   "id": "F-049",
+   "reason": "input.md 122 行（承認された分だけ 2 手を個別に実行）と RS-019 が 1 本ずつの繰り返しの判断を支え、両枝に case がある",
+   "verdict": "pass"
+  },
+  {
+   "digest": "3341d8dbfb8e04dca08803b19d10e9330f4231da4e4c57a7ba98ffa6cb5f4845",
+   "id": "F-050",
+   "reason": "input.md 236 行と RS-019 が、タグを打てなかったブランチを削除しなかったものとして報告に加えることを支える。read・always で F-049 へ戻る",
+   "verdict": "pass"
+  },
+  {
+   "digest": "eb8eba7200ba5cf1d2faa590e1071cdd37734e9c3d3e1f359c70113d0b5dd2f1",
+   "id": "F-051",
+   "reason": "削除できた case は input.md 134 行と RS-020、削除できない case の RS-025 は残して続け報告に載せるとし、F-052 から F-049 へ戻る流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "f474a150e09dd0c1ce8ee4f222c720135b5f9b45b9290e5c7738cb7107689637",
+   "id": "F-052",
+   "reason": "出典 RS-025 はローカルブランチの削除の失敗を報告に載せて続けるとし、報告に加えて F-049 へ戻るこの工程と一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "05c3eb0a958df1932e30e94376ae3a4cc61bfd84fd99f0b947cc300244fb949e",
+   "id": "F-053",
+   "reason": "input.md 237 行と RS-019 が削除したブランチとタグ名を対で報告に加えることを支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "3395fdf7b0a184a13341792ac52ac08ea1d92077bbf0a267cc9f1b9fceb65749",
+   "id": "F-055",
+   "reason": "input.md 236 行と RS-021 が、タグを打てなかった remote ブランチを削除しなかったものとして報告に加えることを支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "48fa20cee647fbbf6931dad3abb91edf81fde976e4567c90b2f566c69679a8a0",
+   "id": "F-056",
+   "reason": "input.md 237 行と RS-021 が削除した remote ブランチとタグ名を対で報告に加えることを支える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "a52ca1795e357c7534d17190313b9fe328d593d819c178cd1f0f171e21e92b62",
+   "id": "F-057",
+   "reason": "退避した case は input.md 183 行と RS-022、作られなかった case は RS-022、失敗した case は RS-026（退避せず同期へ進み報告に載せる）が支え、F-058 経由で F-026 へ進む流れと一致する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "480c1c2730cea80e10973311c58f3d4cc2365717cee97833b5924eb1747874ff",
+   "id": "F-058",
+   "reason": "RS-026 の value の「完了報告に退避できなかったことを載せる」を支えにした報告への追記で、次を F-026（同期）にするのも同じ value の同期へ進むと合う。報告への追記なので effect read・obtain always は定義に合う",
+   "verdict": "pass"
+  },
+  {
+   "digest": "ba8ade3167d9d565bee5fd960b334eac12fb07499172b680b2360475fffe967c",
+   "id": "F-054",
+   "reason": "input.md 138 行と RS-021 が承認された remote を 1 本ずつ処理する繰り返しの判断を支え、残っていない枝は workspace の削除 F-022 へ進む",
+   "verdict": "pass"
+  },
+  {
+   "digest": "fd7a0740e775c93bf7067d6350a82e8952ff575ebd153c0391169dc867b78a66",
+   "fail_kind": "insufficient_grounds",
+   "id": "RS-027",
+   "reason": "evidence の input.md 40・77・121-122 行は再現するが value を支えない。77 行はローカル追従の方法を述べず、起点ブランチのローカルだけのコミットが残ることは言えない。121-122 行はローカルに写しのある未取り込みブランチだけを述べ、ローカルブランチの無い remote 削除済みブランチの追跡 ref を prune で消すと内容が失われうる（合格済みの RS-017 も取り直せないとする）ので、RS-004 が守るものを消さないとは言えない",
+   "verdict": "fail"
+  },
+  {
+   "digest": "2080a69dbbef802dbc34fbcbc8b3d4f2650ae93289f4818326e953b5d7632a2f",
+   "id": "RS-028",
+   "reason": "input.md 89 行と answers/g0.md 7 行を再現。RS-004 の value は取り込み済みのブランチを確認なしで削除してよいとし、F-005 は取り込み済みのローカルブランチを確認なしで消すので矛盾しない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "dd7eebebab86fd2d2e0325a74b9e2401375591c5cba528ae2470db0c47fdb893",
+   "id": "RS-029",
+   "reason": "input.md 90 行と answers/g0.md 7 行を再現。RS-004 の value は取り込み済みのブランチを確認なしで削除してよいとし、F-006 は取り込み済みの remote ブランチを確認なしで消すので矛盾しない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "47de5dca33f851d55c73b588924b4c9dc672ce1f3d14c50c3ae111f619eb9af4",
+   "id": "RS-030",
+   "reason": "input.md 122・133 行と answers/g0.md 7 行を再現。F-017 には F-013 の承認分の枝から F-049・F-015・F-016 の打てた枝を経てだけ至り、承認なしに消す経路が無いことを flow で確認",
+   "verdict": "pass"
+  },
+  {
+   "digest": "cfedd8cc5ec2ce6cd8090cbf3fff06206b8b4bdd4e44f249b0ae710ec24cb3d6",
+   "id": "RS-031",
+   "reason": "input.md 138-139・147 行と answers/g0.md 7 行を再現。F-020 には F-013 の承認分の枝から F-054・F-018・F-019 の打てた枝を経てだけ至り、承認なしに消す経路が無いことを flow で確認",
+   "verdict": "pass"
+  },
+  {
+   "digest": "eda2b5f6b73fe20b4cc9b11a4fee33750d18ebad0e1d273d53e4fbc7db493577",
+   "id": "RS-032",
+   "reason": "input.md 92・155 行と answers/g0.md 7 行を再現。F-022 は承認された workspace だけを消す工程で、F-013 の承認分の枝の後にだけ至る。workspace は gitignore 対象で未コミットの変更にも触れない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "8c5501c1ba6032f566d28c56d438f5e73db1f2f90de317f872763c1d2ecbc47e",
+   "id": "RS-033",
+   "reason": "input.md 187-188・192・132 行と answers/g0.md 7 行を再現。open PR の無い名前ありブランチを起点に無いコミットの有無を見ずに reset する入力と RS-004 の食い違いをどちらに揃えるかは価値の判断で question が正しい。同期も承認制の案が選ばれなかったことは RS-004 の候補と回答に一致し、3 候補の decision_text は入力・台帳に無い事実を含まない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "d8429520cddcf0aa05e759586c67032852852e90c1d12d5958632011c8608fa8",
+   "id": "RS-034",
+   "reason": "input.md 200-201 行と answers/g0.md 19 行を再現。RS-016 の value は post_sync のコマンドだけを順に承認なしで実行するとし、F-031 はそれを行う工程で、失敗行は F-032・F-044 が報告に載せるので矛盾しない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "158856be04c7ff0880214d8ee8f53d22d2160f51a851f599e81245b8f0125b16",
+   "id": "RS-035",
+   "reason": "input.md 77・40 行と answers/g0.md 14 行を再現。F-003 の prune と起点の追従は入力が状態の取得に置き、RS-003（貼り付けの振る舞いはすべて要求）とも合う。依頼者に示した RS-011 の候補は flow は変わらない（取れない枝は F-038 で終わる）としており、RS-011 を失敗が分かった後の工程に掛ける読みで両側が成り立つので internal で足りる",
+   "verdict": "pass"
+  },
+  {
+   "digest": "8b971b3f8d4d092bd8d387b2701a767c6b5bf8763a3031bcea8b07eae2766951",
+   "id": "RS-036",
+   "reason": "answers/g0.md 1 行と input.md 69 行を再現。値を決めず RS-001（question）に揃えるだけで同じ論点の裁定を 2 つにしない。挙げた PR-CLEANUP-034〜036・038〜040・062 は文書に実在しタグの項目",
+   "verdict": "pass"
+  },
+  {
+   "digest": "1dd62e205c56be3880672b043820796ec2496e19a7ae53389e8febf5a380766f",
+   "id": "RS-037",
+   "reason": "answers/g0.md 2〜3 行を再現。採否を決めず RS-002（question）に揃えるだけ。PR-CLEANUP-003・004・015 は文書に実在し判定と削除の項目",
+   "verdict": "pass"
+  },
+  {
+   "digest": "b8edc1bc875b848b9d489354e22c72ad564b6fa2e2f26bef3cb7ac177139b1cc",
+   "id": "RS-038",
+   "reason": "input.md 83〜84・191・192 行を再現。主ブランチを自身に照らすと 83〜84 行の『primary ref に同じ内容があり失われない』が成り立たず、同期が origin/<sync_base> を使うため先に消せない、という内部整合で、ローカルの起点ブランチには規則を足さず、他の主ブランチへの取り込みは RS-045（question）に回して値を決めていない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "ef5b3e1aa61948d3337f4d859156b1e5842c445c5fb07c5dbc3ec591e905cca4",
+   "id": "RS-039",
+   "reason": "input.md 115 行（最終 commit が古い順）を再現。ブランチのカテゴリは入力どおりで、コミットの無い workspace の並びは RS-049（question）に回しており値を決めていない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "2ce174d4f9c88cd0fe8a1523a6fb47a819cd607d8b50521fe5764905e9dca91b",
+   "id": "RS-040",
+   "reason": "input.md 121・136・230・236 行を再現。問うローカルのカテゴリは remote 削除済みの未取り込みに限られ、remote に残る側は remote のカテゴリで問い、残したものは報告に明示するという入力の定義からの書き分けで、新しい価値を足していない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "2f468a74360a6fb0f261f69aba9778938d4e77ac04f9eee7555dee3b466b411a",
+   "id": "RS-041",
+   "reason": "input.md 114・116-117 行を再現。一覧はユーザーが求めた場合の返答として出すものと入力が定め、RS-013 の選択肢 B（一覧は求められるたびに示す）とも対になるので、RS-013 の上限が数えるのは求めに応じた提示だと文面から言える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "b3b248be09e300d8993412d1b0f161be9612bbfee284bb34c55aff08ca288dd4",
+   "id": "RS-042",
+   "reason": "RS-036・RS-001 が実在し、PR-CLEANUP-034 はタグの項目。値を決めず RS-036 と同じ扱いにするだけ",
+   "verdict": "pass"
+  },
+  {
+   "digest": "1657c323b910c1fddfe9ba4954d3a889f0afc77d9ceadd0f39b68150a7b0435f",
+   "id": "RS-043",
+   "reason": "RS-036・RS-001 が実在し、PR-CLEANUP-038 は remote のタグの項目で RS-036 の範囲内。値を決めていない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "be8d4bb3d5f9cb21a162e918899505ae12cd221bfd9f56850318e5256b4b0266",
+   "id": "RS-044",
+   "reason": "RS-037・RS-002 が実在し、PR-CLEANUP-004 は RS-037 の範囲内の項目。値を決めていない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "e3c9658f29edb23e0ec9bd28f942d7d2c041e743b9d972734f07e3a9eaca7019",
+   "id": "RS-045",
+   "reason": "主ブランチを確認なしに消してよいかは何を承認なしに失ってよいかの価値の判断で question が正しい。2 案は入力の取り込み済みの扱いと主ブランチの保持で入力外の値なし。flow_effect は行き先を変えない",
+   "verdict": "pass"
+  },
+  {
+   "digest": "9e86687fe13bfedb29537bf88a3d6a3e44ac0eb47369995b57cdc48623731b0c",
+   "id": "RS-046",
+   "reason": "input.md 83-84 行を再現。PR merged 後に積まれたコミットはどの主ブランチにも無く、依頼者の回答で決まった RS-004（未取り込みの作業を承認なしに失わない）と入力の確認不要の理由の両方から、PR 経路で取り込み済みとしないことが導ける",
+   "verdict": "pass"
+  },
+  {
+   "digest": "d06cb0b31d83631b3a615e1b5d048b77d3afa55d6d3d19c734af4b46aa1f7299",
+   "id": "RS-047",
+   "reason": "input.md 77 行を再現。RS-004（回答済みの不変条件）からローカルにだけあるコミットを捨てない、RS-035（検証済み）で追従は状態の取得の一部、RS-011（回答: 止めて理由を返す）で追従できなければ止まる、が連鎖で言える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "d712abd371dae3d43f23a8fea6c48d0498455c26cf4c0d92894b91bff576074c",
+   "id": "RS-048",
+   "reason": "input.md 77 行（以降の判断は全てこの JSON）と 57 行（gh が無いと PR 経路が落ちるだけ）を再現。RS-035・RS-011 と合わせ、fetch・追従の失敗は取得の失敗、PR 情報だけの欠落は PR-CLEANUP-007 と入力から言える",
+   "verdict": "pass"
+  },
+  {
+   "digest": "4dca17f385e06a68e4e2d2cc9278e991ad830a2e71ba761e6e55087e44eb213d",
+   "id": "RS-049",
+   "reason": "input.md 115 行の順は最終 commit で、92 行で workspace は gitignore 対象でコミットを持たないことを確認。何を先に見せるかは依頼者の判断で question。2 案とも入力外の規則を持ち込まない候補",
+   "verdict": "pass"
+  },
+  {
+   "digest": "9d5f22cf06534f8d5b18bb88da9789d778799275f265f1ceb4c9b236717c17b2",
+   "id": "RS-050",
+   "reason": "input.md 183 行（git stash）と 10 行（untracked を未コミット差分に数える）を再現。入力が割れており、何を退避して守るかは依頼者の判断として question が正しい。候補と flow_effect は F-024 と合う",
+   "verdict": "pass"
+  },
+  {
+   "digest": "f8ff596bd231e1a72f7a53cae3e88ae564f66a1792721c53a4c520a737750ea9",
+   "id": "RS-051",
+   "reason": "input.md 201・213 行を再現。失敗後の行を承認なしに走らせるかは入力と RS-016 の回答（書かれた分だけ実行）が述べておらず価値の判断で question が正しい。flow_refs F-031・F-044 は実在し flow_effect と合う",
+   "verdict": "pass"
+  },
+  {
+   "digest": "d2b646ba08d7c10d66bdaaf66e8148d0155de2066d10351aed81670ecebe79e4",
+   "id": "RS-052",
+   "reason": "未取り込みブランチの復元用タグの要否は価値の判断で、同論点の RS-001 は answer 無しの question のまま。answers/g0.md の回答文と input.md 121-146・236 行のタグ手順を確認し、rule は両候補に共通の保守側（タグ前に削除しない）に留まり、item_ids の PR-CLEANUP-034/035/038/039/062 が文書に実在する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "d7696626f1bdad06f3c5056c72fc9b529f6e87bd50dde77bf11c8072f9ec7fbc",
+   "id": "RS-053",
+   "reason": "確認なし削除の範囲は価値の判断で、同論点の RS-002 は answer 無し。input.md の 3 経路判定の記述と g0.md の伝聞の回答を確認し、rule は両候補に共通する履歴に含まれる範囲に留まり、item_ids の PR-CLEANUP-003/004/015 が実在する",
+   "verdict": "pass"
+  },
+  {
+   "digest": "95d82e2fea61b0dcaf1f66609f29376c4e1e8132376e667e5616a4d7fca7d9a0",
+   "id": "RS-054",
+   "reason": "evidence の input.md 121-122・236 行の逐語を確認。input.md 全文に追跡先の無い未取り込みローカルブランチの扱いは無く、PR-CLEANUP-021/067 のどちらにも当たらない。問うかは価値の判断で、rule は削除せず報告に載せる保守側に留まる",
+   "verdict": "pass"
+  },
+  {
+   "digest": "a6bae15d724e18fa1500e5df9e7e51ee1231de32de1a0997dceb58d96671c6e8",
+   "id": "RS-055",
+   "reason": "PR-CLEANUP-028 の判定表に承認と一覧要求の混在応答が無く、input.md と RS-013 の回答の範囲外であることを確認。RS-013 の適用範囲を決めるのは価値の判断で、rule は両候補に共通の何も削除しない側に留まる",
+   "verdict": "pass"
+  },
+  {
+   "digest": "c500272a18ecbf92b92c9c5846575d6c283ca43abfa4c192fe180bea911b93f3",
+   "id": "RS-056",
+   "reason": "完了報告の作業状態の件数を数える時点は利用者に何を知らせるかの価値判断で hold が妥当。input.md L77-78 の「以降の判断は全てこの JSON を根拠にする」と L231 の報告書式は時点を定めず、答えも他の決定・裁定も時点を決めていないことを確かめた。targets の F-036 は完了報告、item_ids の PR-CLEANUP-062・045 は文書に実在し、rule は時点を示さない件数の掲載を禁じる形で入力に無い値を足していない",
+   "verdict": "pass"
+  }
+ ],
+ "resolutions_sha256": "ca45d51df3ac2466bd0988bceb45620a6811de7aabc9a225244801a0fa4c14b4"
+}

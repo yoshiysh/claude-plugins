@@ -1,0 +1,30 @@
+{
+  "findings": [
+    {
+      "id": "r2-gr-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-062",
+      "quote": "| 承認を得て削除した未取り込みのブランチ | ローカル・remote それぞれの、ブランチ名と、作った復元用のタグ名の対 |",
+      "issue": "承認された未取り込みのブランチに復元用のタグを作るかは TBD-RCLEANUP-001 で開いており、RS-036 は PR-CLEANUP-062 のうち復元用のタグに関わる記述を RS-001 に揃えて（保持規則になればその規則で）書くと裁定している。PR-CLEANUP-034・035・038・039 は保持規則になったが、この行と「復元用のタグを作れず削除しなかった未取り込みのブランチ」の行は TBD にも保持規則にも結び付かずに、タグを作る側の帰結を断定で載せている。",
+      "repro": "TBD-RCLEANUP-001 が候補「復元用のタグを作らずに削除する」で裁定される。PR-CLEANUP-034・035・038・039 の保持規則は外れるが、PR-CLEANUP-062 は TBD を参照していないので改稿の対象に挙がらず、承認を得て削除した feature/foo の行にブランチ名と復元用のタグ名の対を載せよと求め続け、作られないタグ名を報告の必須項目にする。",
+      "blocking": true,
+      "route": "writer",
+      "direction": "document_decision",
+      "direction_note": "タグに関わる 2 行を TBD-RCLEANUP-001 と RS-036 に揃える",
+      "origin": "text"
+    },
+    {
+      "id": "r2-gr-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-067",
+      "quote": "（remote に残る側は要判断の remote ブランチとして問う）",
+      "issue": "trace の RS-040 の why は「remote に残る未取り込みは remote のカテゴリで問う」と未取り込みの remote ブランチについて述べるだけで、要判断のローカルブランチに対応する remote ブランチが常に要判断になるとは述べていない。括弧の文はそれを全件について断定しており、根拠がこの文を支えていない。",
+      "repro": "ローカルの feature/x が主ブランチを base とする PR で squash merge され、origin/feature/x が残り、merge の後に積まれたコミットは無い。ローカルの feature/x は主ブランチの履歴に含まれず PR-CLEANUP-004 の保持規則で要判断になり、remote のブランチが残るので PR-CLEANUP-067 で問われない。一方 origin/feature/x は PR-CLEANUP-066 で取り込み済みと判定され、PR-CLEANUP-016 で確認なしに削除されるので、要判断の remote ブランチとして問われることは無い。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "remove",
+      "origin": "text"
+    }
+  ],
+  "checked": "範囲を絞った監査として、PR-CLEANUP-003・004・005・006・008・011・012・017・021・024・028・029・030・034・035・036・038・039・040・048・049・058・062・064・065・066・067・068・069・070、TBD-RCLEANUP-001・002（meta の tbd）、§要求一覧（PR-CLEANUP-031 の欠番の文）を、meta の trace の各行と照らした。根拠一式として input.md 全文、answers/g0.md・g0-2.md・g1.md、decisions.json・resolutions.json・flow.json・plan.json の全件を読み、前のパスの指摘 r1-cd-all・r1-gr・r1-im の全件を読んだ。当てた観点: 引用の実在、引用・決定・裁定・flow 要素がその文を支えているか、根拠に無い具体値、無効な根拠の使用、出所の偽装、既存実装を要求の根拠にしていないか、開いた TBD（TBD-RCLEANUP-001・002）の論点を中身で断定していないか、入力・回答への違反。保持規則（PR-CLEANUP-004・034・035・038・039）と開いた TBD 自体は契約に従い指摘の対象にしていない。範囲外として読まなかったもの: 表記規約・背景と課題・利用者と利用場面・どう使われるか・スコープ・前提と依存・リスクと影響の節、および上に挙げていない PR 項目（001・002・007・009・010・013〜016・018〜020・022・023・025〜027・032・033・037・041〜047・050〜057・059〜061・063）。"
+}

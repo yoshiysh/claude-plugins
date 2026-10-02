@@ -1,0 +1,1845 @@
+{
+ "resolutions": [
+  {
+   "about": {
+    "open": "O-001"
+   },
+   "id": "RS-001",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "承認を得て削除する未取り込みのブランチには、削除の前に復元用のタグを打ち、打てなければ削除しない。取り込み済みのブランチはタグを打たず、確認なしで削除する",
+     "description": "承認を得て消す未取り込みのブランチには、今どおり消す前にタグを打ち、打てなければ消さない",
+     "flow_effect": "flow は変わらない",
+     "label": "今のまま（タグを打つ）"
+    },
+    {
+     "decision_text": "承認を得て削除する未取り込みのブランチにも復元用のタグを打たず、承認されたものをそのまま削除する。取り込み済みのブランチは確認なしで削除する",
+     "description": "承認を得た未取り込みのブランチも、タグを打たずにそのまま消す。消したブランチを戻す手がかりが残らなくなる",
+     "flow_effect": "F-015・F-016・F-018・F-019・F-050・F-055 を除き、F-049 の残っている枝を F-017 に、F-054 の残っている枝を F-020 に向け、F-053・F-056 はタグ名を載せずに削除したブランチだけを報告に加える",
+     "flow_refs": [
+      "F-015",
+      "F-016",
+      "F-018",
+      "F-019",
+      "F-050",
+      "F-055",
+      "F-049",
+      "F-054",
+      "F-053",
+      "F-056"
+     ],
+     "label": "タグをやめる"
+    }
+   ],
+   "question": {
+    "header": "退避タグ",
+    "searched": "依頼者の回答「削除タグは不要。マージ済みなら確認不要で削除してよい」を読んだが、復元用のタグは取り込み済みのブランチには今も打っておらず、承認を得て消す未取り込みのブランチにだけ打つものなので、回答がそのタグをやめる意図かは回答の文面から決まらない",
+    "text": "承認を得て消す未取り込みのブランチに、消す前に打つ復元用のタグ（deleted-branches/…）をやめますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "現行挙動の変更",
+    "退避タグ"
+   ],
+   "why": "依頼者の回答は削除タグを不要とし、それを取り込み済みの確認なしの削除と並べて書いている。だが取り込み済みのブランチには今もタグを打たずに確認なしで削除しており、タグを打つのは承認を得て削除する未取り込みのブランチだけで、そのタグはそのブランチの復元の唯一の手がかりである。回答がこのタグをやめる意図かは文面から決まらず、未取り込みの作業の復元手段を残すかはプロダクトの価値の判断である"
+  },
+  {
+   "about": {
+    "open": "O-002"
+   },
+   "id": "RS-002",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "取り込み済みのローカルブランチの削除は今の判定と削除の方法のまま変えず、git branch --delete-merged は使わない",
+     "description": "今の判定（履歴・merged の PR・パッチの一致）で取り込み済みと分かったローカルブランチを、今どおりスクリプトで消す",
+     "flow_effect": "flow は変わらない",
+     "label": "今のまま"
+    },
+    {
+     "decision_text": "取り込み済みのローカルブランチの削除に git branch --delete-merged を使う",
+     "description": "取り込み済みのローカルブランチを git branch --delete-merged で消すようにする。この手段で消えるのは主ブランチの履歴に含まれるものに限られる",
+     "flow_effect": "F-005 の削除の手段を git branch --delete-merged に変える",
+     "flow_refs": [
+      "F-005"
+     ],
+     "label": "その手段を使う"
+    }
+   ],
+   "question": {
+    "header": "削除の手段",
+    "searched": "足したいことの自由欄は最初の回答を指しており、その回答のうち削除タグと確認の要否は別の問いで聞いている。残る「git branch --delete-merged とかで削除できるようになったらしい」は伝聞で、この手段に切り替えたいという依頼かは文面から決まらず、依頼文にも答えが無い",
+    "text": "取り込み済みのローカルブランチを消すのに、git branch --delete-merged を使うようにしますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "追加したい挙動"
+   ],
+   "why": "依頼者は足したいことが「ある」を選び、自由欄で最初の回答を指した。そのうち削除タグと確認の要否は同じ論点の問いが別に開いており、ここで決めると同じ論点に裁定が 2 つできる。残る新しい内容は git branch --delete-merged による削除だけだが、「らしい」の伝聞で、採るかは文面から決まらない。今の削除は履歴・merged の PR・パッチの一致の 3 経路で取り込み済みを判定して消しており、履歴に含まれるかだけを見る手段に変えると消える対象が変わるので、プロダクトの価値の判断である"
+  },
+  {
+   "about": {
+    "open": "O-003"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-003: 無い（全部を要求に）"
+   },
+   "id": "RS-003",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "貼り付けの SKILL.md の振る舞いは、すべて要求として決めたものである",
+     "description": "貼り付けの SKILL.md の振る舞いをすべて要求として採る",
+     "flow_effect": "flow は変わらない（O-003 を出典に持つ要素はこの回答を出典にする）",
+     "label": "無い（全部を要求に）"
+    },
+    {
+     "decision_text": "貼り付けの SKILL.md の振る舞いは要求として採るが、「目安として 1 カテゴリ 20 件超」の件数は要求として決めたものではない",
+     "description": "振る舞いは要求に採り、「1 カテゴリ 20 件超」の目安は要求にしない",
+     "flow_effect": "F-009 の「20 件」の境目を要求から外す",
+     "flow_refs": [
+      "F-009"
+     ],
+     "label": "数の目安は除く"
+    },
+    {
+     "decision_text": "貼り付けの SKILL.md の振る舞いのうち、自由欄に挙げた箇所は要求として決めたものではない",
+     "description": "要求ではない箇所を自由欄に挙げる。その箇所を要求から外す",
+     "flow_effect": "自由欄に挙がった箇所に当たる要素の出典を外す",
+     "label": "ある（自由欄に書く）"
+    }
+   ],
+   "question": {
+    "header": "要求にする範囲",
+    "searched": "依頼者自身の記述は冒頭の 2 行だけで、貼り付けの SKILL.md のどの記述を要求として採るかを述べていない",
+    "text": "貼り付けの SKILL.md の振る舞いのうち、たまたまそうなっているだけで要求として決めたわけではない箇所はありますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "要求として採る範囲"
+   ],
+   "value": "貼り付けの SKILL.md の振る舞いは、すべて要求として決めたものである",
+   "why": "貼り付けの SKILL.md のどの記述を要求として採るかはプロダクトの価値の判断で、現物は将来の意図を持たない"
+  },
+  {
+   "about": {
+    "open": "O-004"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-004: 今のまま"
+   },
+   "id": "RS-004",
+   "kind": "invariant",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "未取り込みのブランチの作業、終了済みの workspace、未コミットの変更（stash・untracked・tracked の差分）は、利用者の承認なしに失わない。取り込み済みのブランチは確認なしで削除してよい",
+     "description": "取り込み済みのブランチは確認なしで消し、未取り込みの作業・workspace・未コミットの変更は承認なしに失わない",
+     "flow_effect": "flow は変わらない",
+     "label": "今のまま"
+    },
+    {
+     "decision_text": "ローカル・remote のブランチと終了済みの workspace は、取り込み済みかどうかにかかわらず、利用者の承認なしに削除しない。未コミットの変更は承認なしに失わない",
+     "description": "取り込み済みのブランチも、消す前に利用者の承認を得る",
+     "flow_effect": "F-005・F-006 の前に承認を求める工程が入る",
+     "flow_refs": [
+      "F-005",
+      "F-006"
+     ],
+     "label": "削除はすべて承認制"
+    },
+    {
+     "decision_text": "未取り込みのブランチの作業、終了済みの workspace、未コミットの変更は、利用者の承認なしに失わない。作業場所を起点ブランチへ同期する前にも利用者の承認を得る。取り込み済みのブランチは確認なしで削除してよい",
+     "description": "今のままに加え、作業場所を起点ブランチへ合わせる前にも承認を得る",
+     "flow_effect": "F-026 の reset する枝の先に、F-027 の前に承認を求める工程が入る",
+     "flow_refs": [
+      "F-026",
+      "F-027"
+     ],
+     "label": "同期も承認制"
+    }
+   ],
+   "question": {
+    "header": "守るもの",
+    "searched": "依頼者自身の記述は冒頭の 2 行だけで、削除や同期で守るものを述べていない",
+    "text": "ブランチや workspace の削除と作業場所の同期で、利用者の承認なしに失ってはならないものはどれですか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "不可逆な操作"
+   ],
+   "value": "未取り込みのブランチの作業、終了済みの workspace、未コミットの変更（stash・untracked・tracked の差分）は、利用者の承認なしに失わない。取り込み済みのブランチは確認なしで削除してよい",
+   "why": "削除と同期で何を失ってはならないか・何を承認なしに行ってはならないかはプロダクトの価値の判断で、依頼文は述べておらず、貼り付けの SKILL.md は現物なので要求の根拠にならない"
+  },
+  {
+   "about": {
+    "open": "O-005"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-005: 含まない"
+   },
+   "id": "RS-005",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "cleanup-branches は個人情報・機微情報を扱わない",
+     "description": "個人情報の扱いの要求を置かない",
+     "flow_effect": "flow は変わらない",
+     "label": "含まない"
+    },
+    {
+     "decision_text": "削除する workspace やブランチは、自由欄に挙げた個人情報・機微情報を含みうる",
+     "description": "含みうる情報を自由欄に書く。その扱いの要求を足す",
+     "flow_effect": "flow は変わらない（扱いの要求を文書に足す）",
+     "label": "含みうる"
+    }
+   ],
+   "question": {
+    "header": "個人情報",
+    "searched": "依頼文と貼り付けの SKILL.md に、個人情報を扱う・扱わないのどちらの記述も無い",
+    "text": "削除する workspace やブランチに、個人情報や機微な情報が含まれることはありますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "個人情報"
+   ],
+   "value": "cleanup-branches は個人情報・機微情報を扱わない",
+   "why": "個人情報・機微情報を扱うかはプロダクトの前提で、依頼文にも貼り付けにも記述が無い"
+  },
+  {
+   "about": {
+    "open": "O-006"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-006: 無い"
+   },
+   "id": "RS-006",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "cleanup-branches に法令・業界規制・契約上の義務は課されていない",
+     "description": "法令・契約の要求を置かない",
+     "flow_effect": "flow は変わらない",
+     "label": "無い"
+    },
+    {
+     "decision_text": "cleanup-branches には、自由欄に挙げた法令・業界規制・契約上の義務が課されている",
+     "description": "義務の内容を自由欄に書く。その要求を足す",
+     "flow_effect": "flow は変わらない（義務の要求を文書に足す）",
+     "label": "ある（自由欄に書く）"
+    }
+   ],
+   "question": {
+    "header": "法令・契約",
+    "searched": "依頼文と貼り付けの SKILL.md に、法令・規制・契約の記述が無い",
+    "text": "このスキルに、法令・業界の規制・契約で課された義務はありますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "法令・契約上の義務"
+   ],
+   "value": "cleanup-branches に法令・業界規制・契約上の義務は課されていない",
+   "why": "法令・規制・契約の義務の有無はプロダクトの前提で、依頼文にも貼り付けにも記述が無い"
+  },
+  {
+   "about": {
+    "open": "O-007"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-007: 無い（報告で足りる）"
+   },
+   "id": "RS-007",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "cleanup-branches は第三者監査・当局報告・社内統制の対象ではなく、削除の記録は完了報告に載せるだけでよい",
+     "description": "削除の記録は完了報告に載せるだけにする",
+     "flow_effect": "flow は変わらない",
+     "label": "無い（報告で足りる）"
+    },
+    {
+     "decision_text": "cleanup-branches は削除の記録を、完了報告とは別に自由欄に挙げた先へ残す",
+     "description": "削除の記録を残す工程を足す。残す先を自由欄に書く",
+     "flow_effect": "F-036 の前に削除の記録を残す工程が入る",
+     "flow_refs": [
+      "F-036"
+     ],
+     "label": "ある"
+    }
+   ],
+   "question": {
+    "header": "削除の記録",
+    "searched": "依頼文と貼り付けの SKILL.md に、監査・統制の記述が無い（完了報告は利用者への提示で、監査の記述ではない）",
+    "text": "削除の記録を、利用者への完了報告とは別に残す義務はありますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "監査・統制"
+   ],
+   "value": "cleanup-branches は第三者監査・当局報告・社内統制の対象ではなく、削除の記録は完了報告に載せるだけでよい",
+   "why": "削除の記録を残す義務の有無はプロダクトの前提で、依頼文にも貼り付けにも記述が無い"
+  },
+  {
+   "about": {
+    "open": "O-008"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-008: 無い"
+   },
+   "id": "RS-008",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "cleanup-branches に実行時間・可用性の要求は無い",
+     "description": "実行時間・可用性の要求を置かない",
+     "flow_effect": "flow は変わらない",
+     "label": "無い"
+    },
+    {
+     "decision_text": "cleanup-branches には、自由欄に挙げた実行時間・可用性の要求がある",
+     "description": "上限や時間帯を自由欄に書く。その要求を足す",
+     "flow_effect": "flow は変わらない（実行時間の要求を文書に足す）",
+     "label": "ある（自由欄に書く）"
+    }
+   ],
+   "question": {
+    "header": "実行時間",
+    "searched": "依頼文に記述が無い。貼り付けの SKILL.md の所要時間の実測は現物の事実で要求ではない",
+    "text": "実行時間の上限や、止まってはならない時間帯の要求はありますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "可用性"
+   ],
+   "value": "cleanup-branches に実行時間・可用性の要求は無い",
+   "why": "実行時間・可用性の要求の有無はプロダクトの価値の判断で、依頼文に記述が無く、貼り付けの所要時間の実測は現物の事実である"
+  },
+  {
+   "about": {
+    "open": "O-009"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-009: 個人だけで使う"
+   },
+   "id": "RS-009",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "cleanup-branches の利用者は個人の開発者で、remote は本人だけが使う",
+     "description": "remote は本人だけが使う前提にする",
+     "flow_effect": "flow は変わらない",
+     "label": "個人だけで使う"
+    },
+    {
+     "decision_text": "remote は共同作業者と共有し、共同作業者のブランチも今と同じ条件で削除の対象にしてよい",
+     "description": "remote を共同作業者と共有し、他人のブランチも削除の対象にしてよい",
+     "flow_effect": "flow は変わらない",
+     "label": "共有・他人の分も可"
+    },
+    {
+     "decision_text": "remote は共同作業者と共有し、remote のブランチの削除は利用者自身のブランチに限る",
+     "description": "remote は共有するが、削除は自分のブランチに限る",
+     "flow_effect": "F-006・F-020 の削除の対象を自分のブランチに絞る",
+     "flow_refs": [
+      "F-006",
+      "F-020"
+     ],
+     "label": "共有・自分の分だけ"
+    }
+   ],
+   "question": {
+    "header": "使う人の範囲",
+    "searched": "依頼文に記述が無い。貼り付けの SKILL.md は「ユーザー」とだけ書き、範囲を述べていない",
+    "text": "remote のブランチ削除は、共同作業者のブランチにも及んでよいですか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "利用者の範囲"
+   ],
+   "value": "cleanup-branches の利用者は個人の開発者で、remote は本人だけが使う",
+   "why": "削除が誰の作業に及んでよいかはプロダクトの価値の判断で、貼り付けは「ユーザー」とだけ書いている"
+  },
+  {
+   "about": {
+    "open": "O-010"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-010: 無い"
+   },
+   "id": "RS-010",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "削除した対象の保持期間や、削除・開示の請求に応じる義務は無い",
+     "description": "保持期間の要求を置かない",
+     "flow_effect": "flow は変わらない",
+     "label": "無い"
+    },
+    {
+     "decision_text": "削除した対象には、自由欄に挙げた保持期間や請求への対応の義務がある",
+     "description": "期間や義務を自由欄に書く。その要求を足す",
+     "flow_effect": "flow は変わらない（保持の要求を文書に足す）",
+     "label": "ある（自由欄に書く）"
+    }
+   ],
+   "question": {
+    "header": "保持の義務",
+    "searched": "依頼文と貼り付けの SKILL.md に、保持期間や請求への対応の記述が無い",
+    "text": "削除したブランチ・退避の控え・workspace を、決まった期間残す義務や、請求に応じて消す義務はありますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "データの保持"
+   ],
+   "value": "削除した対象の保持期間や、削除・開示の請求に応じる義務は無い",
+   "why": "削除した対象の保持期間や請求への対応義務の有無はプロダクトの前提で、依頼文にも貼り付けにも記述が無い"
+  },
+  {
+   "about": {
+    "open": "O-011"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-011: 止めて理由を返す"
+   },
+   "id": "RS-011",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "状態を取れなかったときは、何も削除・同期せずに止め、取れなかった旨と取れなかった状態を利用者に返す",
+     "description": "何も削除・同期せずに止め、取れなかった旨を返す",
+     "flow_effect": "flow は変わらない（F-004 の取れない枝は F-038 で終わる）",
+     "label": "止めて理由を返す"
+    },
+    {
+     "decision_text": "状態を取れなかったときは、状態の取得を 1 回だけやり直し、それでも取れなければ何も削除・同期せずに止め、取れなかった旨と取れなかった状態を利用者に返す",
+     "description": "状態の取得を 1 回だけやり直し、それでも取れなければ止めて理由を返す",
+     "flow_effect": "F-004 の取れない枝の行き先を、1 回目の失敗なら状態の取得（F-003）に、2 回目の失敗なら F-038 にする",
+     "flow_refs": [
+      "F-004",
+      "F-038"
+     ],
+     "label": "1 回だけ取り直す"
+    }
+   ],
+   "question": {
+    "header": "状態を取れない",
+    "searched": "依頼者自身の記述は冒頭の 2 行だけで述べていない。貼り付けの SKILL.md は gh が使えない場合だけを書き、状態の取得そのものの失敗を書いていない",
+    "text": "ブランチの分類や起点ブランチを含む状態を取れなかったとき、どうしますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "状態を取れないとき"
+   ],
+   "value": "状態を取れなかったときは、何も削除・同期せずに止め、取れなかった旨と取れなかった状態を利用者に返す",
+   "why": "状態を取れないときに止めるか取り直すかはプロダクトの価値の判断で、依頼文は述べておらず、貼り付けは gh が使えない場合だけを書いている。F-004 より後の要素はどれも状態の取得で得る値を読むので、候補は取得をやり直すか止めるかに限られる"
+  },
+  {
+   "about": {
+    "open": "O-012"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-012: 合わせ直さない"
+   },
+   "id": "RS-012",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "現在のブランチに open PR があるかを判定できないときは、作業場所を起点ブランチへ reset しない",
+     "description": "PR がある場合と同じく、今のブランチを動かさずに新しいブランチを作る",
+     "flow_effect": "flow は変わらない（F-026 の得られない case は reset しない）",
+     "label": "合わせ直さない"
+    },
+    {
+     "decision_text": "現在のブランチに open PR があるかを判定できないときは、作業場所を起点ブランチへ reset する",
+     "description": "PR が無い場合と同じく、作業場所を起点ブランチへ合わせ直す",
+     "flow_effect": "F-026 の得られない case の行き先を reset する（F-027）に変える",
+     "flow_refs": [
+      "F-026"
+     ],
+     "label": "合わせ直す"
+    }
+   ],
+   "question": {
+    "header": "PR 不明の同期",
+    "searched": "依頼文に記述が無い。貼り付けの SKILL.md は gh が使えないときの分類の扱いだけを書き、同期の分岐への影響を書いていない",
+    "text": "今のブランチに開いた PR があるか分からないとき、作業場所を起点ブランチへ合わせ直しますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "PR 情報が得られないときの同期"
+   ],
+   "value": "現在のブランチに open PR があるかを判定できないときは、作業場所を起点ブランチへ reset しない",
+   "why": "open PR の有無が分からないときに作業場所を reset するかはプロダクトの価値の判断で、依頼文は述べていない"
+  },
+  {
+   "about": {
+    "open": "O-013"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-013: 消さずに残す"
+   },
+   "id": "RS-013",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "選択肢に当たらない応答が来たときは、何も削除せず残したものとして報告する。一覧は 1 回まで示し、上限に達した後の一覧の要求では何も削除せず残したものとして報告する",
+     "description": "一覧は 1 回まで示し、それ以外の返答や再度の要求では何も消さずに残す",
+     "flow_effect": "flow は変わらない（F-013 のそれ以外・上限到達は削除しない）",
+     "label": "消さずに残す"
+    },
+    {
+     "decision_text": "一覧は求められるたびに示す。選択肢に当たらない応答が来たときは、何も削除せず残したものとして報告する",
+     "description": "一覧は求められるたびに示し、選択肢に無い返答では何も消さずに残す",
+     "flow_effect": "F-013 から一覧の提示の回数の入力を外す",
+     "flow_refs": [
+      "F-013"
+     ],
+     "label": "一覧は何度でも"
+    }
+   ],
+   "question": {
+    "header": "想定外の返答",
+    "searched": "依頼文に記述が無い。貼り付けの SKILL.md は選択肢と一覧の要求だけを書き、それ以外の応答と繰り返しの上限を書いていない",
+    "text": "削除してよいかの問いに選択肢に無い返答が来たときや、一覧を何度も求められたとき、どうしますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "問いへの応答"
+   ],
+   "value": "選択肢に当たらない応答が来たときは、何も削除せず残したものとして報告する。一覧は 1 回まで示し、上限に達した後の一覧の要求では何も削除せず残したものとして報告する",
+   "why": "選択肢に無い応答や一覧の繰り返しにどう応じるかはプロダクトの価値の判断で、依頼文は述べておらず、貼り付けは選択肢と一覧の要求だけを書いている"
+  },
+  {
+   "about": {
+    "open": "O-014"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-014: 続けて報告する"
+   },
+   "id": "RS-014",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "remote ブランチ・workspace の削除が失敗したときは、失敗した対象を完了報告に載せ、残りの工程を続ける",
+     "description": "失敗したものを完了報告に載せ、残りの工程を続ける",
+     "flow_effect": "flow は変わらない（F-039・F-040・F-042 で報告に加えて続ける）",
+     "label": "続けて報告する"
+    },
+    {
+     "decision_text": "remote ブランチ・workspace の削除が失敗したときは、その時点で止め、それまでの結果と失敗した対象を利用者に返す",
+     "description": "失敗した時点で止め、それまでの結果と失敗したものを返す",
+     "flow_effect": "F-007・F-021・F-041 の削除できない枝の行き先を、その時点で終わる報告に変える",
+     "flow_refs": [
+      "F-007",
+      "F-021",
+      "F-041"
+     ],
+     "label": "そこで止める"
+    }
+   ],
+   "question": {
+    "header": "削除の失敗",
+    "searched": "依頼文に記述が無い。貼り付けの SKILL.md は退避タグの失敗だけを書き、削除そのものの失敗を書いていない",
+    "text": "remote のブランチや workspace の削除が一部失敗したとき、残りの工程を続けますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "削除の失敗"
+   ],
+   "value": "remote ブランチ・workspace の削除が失敗したときは、失敗した対象を完了報告に載せ、残りの工程を続ける",
+   "why": "削除の一部が失敗したときに残りを続けるかはプロダクトの価値の判断で、依頼文は述べておらず、貼り付けは退避タグの失敗だけを書いている"
+  },
+  {
+   "about": {
+    "open": "O-015"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-015: 報告して続ける"
+   },
+   "id": "RS-015",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "作業用ブランチを作れなかったときは、作れなかった旨を完了報告に載せ、後処理へ進む",
+     "description": "作れなかった旨を完了報告に載せ、後処理へ進む",
+     "flow_effect": "flow は変わらない（F-043 で報告に加えて F-030 へ進む）",
+     "label": "報告して続ける"
+    },
+    {
+     "decision_text": "作業用ブランチを作れなかったときは、後処理をせずに止め、作れなかった旨を利用者に返す",
+     "description": "作れなかった旨を返し、後処理はしない",
+     "flow_effect": "F-029 の作れない枝の行き先を、後処理をせず終わる報告に変える",
+     "flow_refs": [
+      "F-029",
+      "F-043"
+     ],
+     "label": "報告して止める"
+    }
+   ],
+   "question": {
+    "header": "ブランチ作成失敗",
+    "searched": "依頼文と貼り付けの SKILL.md に記述が無い",
+    "text": "作業用ブランチを作れなかったとき（同じ名前が既にある等）、どうしますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "作業用ブランチを作れないとき"
+   ],
+   "value": "作業用ブランチを作れなかったときは、作れなかった旨を完了報告に載せ、後処理へ進む",
+   "why": "作業用ブランチを作れないときの扱いはプロダクトの価値の判断で、依頼文にも貼り付けにも記述が無い"
+  },
+  {
+   "about": {
+    "open": "O-016"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-016: 書かれた分だけ実行"
+   },
+   "id": "RS-016",
+   "kind": "invariant",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "後処理は、設定ファイルの post_sync に書かれたコマンドだけを書かれた順に、利用者の承認を求めずに実行する。書かれていないコマンドを推測して足したり実行したりしてはならず、失敗した行を報告から省いてはならない",
+     "description": "設定ファイルに書かれたコマンドだけを書かれた順に承認なしで実行し、他のコマンドは足さない",
+     "flow_effect": "flow は変わらない",
+     "label": "書かれた分だけ実行"
+    },
+    {
+     "decision_text": "後処理のコマンドは、実行する前に一覧を利用者に示し、承認を得たものだけを実行する",
+     "description": "コマンドの一覧を示し、承認を得たものだけ実行する",
+     "flow_effect": "F-030 の実行する枝と F-031 の間に承認を求める工程が入る",
+     "flow_refs": [
+      "F-030",
+      "F-031"
+     ],
+     "label": "実行前に承認を得る"
+    },
+    {
+     "decision_text": "後処理のコマンドは実行せず、一覧を利用者に示して手動での実行を案内する",
+     "description": "コマンドは実行せず、一覧を示して手動での実行を案内する",
+     "flow_effect": "F-031 を、コマンドを実行せず一覧と手動実行の案内を報告に加える工程に変える",
+     "flow_refs": [
+      "F-030",
+      "F-031"
+     ],
+     "label": "実行せず案内だけ"
+    }
+   ],
+   "question": {
+    "header": "後処理の承認",
+    "searched": "依頼者自身の記述は冒頭の 2 行だけで述べていない。貼り付けの SKILL.md は設定ファイルのコマンドを順に実行するとだけ書いている",
+    "text": "リポジトリの設定ファイルに書かれた後処理のコマンドを、利用者の承認なしに実行してよいですか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "リポジトリ固有の後処理"
+   ],
+   "value": "後処理は、設定ファイルの post_sync に書かれたコマンドだけを書かれた順に、利用者の承認を求めずに実行する。書かれていないコマンドを推測して足したり実行したりしてはならず、失敗した行を報告から省いてはならない",
+   "why": "リポジトリ固有の後処理を承認なしに実行してよいか・何を失ってはならないかはプロダクトの価値の判断で、依頼文は述べておらず、貼り付けは設定ファイルのコマンドを順に実行するとだけ書いている"
+  },
+  {
+   "about": {
+    "verification": "F-003"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 77,
+     "quote": "`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 40,
+     "quote": "prune しないと remote 削除済みブランチが `[gone]` にならない。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-017",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-003"
+   ],
+   "value": "F-003（リポジトリの状態を取る）の effect を destructive にし、constrained_by には kind が invariant の RS-004 だけを挙げる。RS-011 は F-003 を縛らないので constrained_by に挙げない",
+   "why": "input.md 77 行は状態の取得が --prune つき fetch と起点ブランチのローカル追従を含むと述べ、40 行は prune で remote 削除済みブランチの追跡 ref が消えると述べる。消えた追跡 ref はこの工程では取り直せないので、ref を戻せない形で変える工程に当たり、RS-004（失ってはならないもの）が縛る。RS-035 は RS-011 の「何も削除・同期せずに止め」が F-004 より後の工程だけを縛り、F-003 の prune と起点の追従は入力どおり残すとしているので、RS-011 は F-003 の振る舞いを縛らない"
+  },
+  {
+   "about": {
+    "verification": "F-005"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 24,
+     "quote": "PR マージ後に worktree を最新の主ブランチに同期し"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 59,
+     "quote": "**スクリプトが消すのは「取り込み済み」と分類された ref だけ**という契約になっている"
+    }
+   ],
+   "id": "RS-018",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-005"
+   ],
+   "value": "F-005（取り込み済みのローカルブランチを削除する）の obtain を may_fail にし、直後に削除できたかの判断を置く。削除できなかったブランチをどう扱うか（続けるか・どう報告するか）の case は、入力に出典が無いので出典を付けずに置く",
+   "why": "input.md 24 行のとおり PR マージ後に実行するので、今いるブランチが取り込み済みに分類されることが主な場面であり、入力はそれを削除対象から外す記述を持たないため、削除は失敗しうる。失敗したときの扱いは入力が述べていない"
+  },
+  {
+   "about": {
+    "verification": "F-016"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 68,
+     "quote": "Step 3 では**承認された分だけを手で 1 本ずつ**消す。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 122,
+     "quote": "承認された分だけ、次の 2 手を**この順で**個別に実行する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 133,
+     "quote": "**`git tag` が失敗したら `git branch -D` を実行しない**"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 134,
+     "quote": "打ったタグ名は Step 7 の報告に載せる。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 236,
+     "quote": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 237,
+     "quote": "そのブランチと必ず対にして示す。"
+    }
+   ],
+   "id": "RS-019",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-015",
+    "F-016",
+    "F-017"
+   ],
+   "value": "承認された未取り込みのローカルブランチは 1 本ずつ、退避タグを打つ → 打てたかの判断 → 打てたらそのブランチを削除し、打てなければそのブランチを削除せず削除しなかったものとして記録する、を行い、残りのブランチがあるかの判断で次のブランチの退避タグの工程へ戻る。打てたかの判断は、そのブランチ 1 本のタグの成否だけを入力にする。ブランチごとの結果（タグ名か、削除しなかったこと）は、そのブランチと対にして完了報告に載せる（削除の成否は RS-020）",
+   "why": "input.md 68・122 行は承認された分を 1 本ずつ個別に 2 手の順で実行すると述べ、133 行はタグが失敗したらそのブランチを削除しないと述べる。134・236〜237 行は打ったタグ名と削除しなかったものを報告に明示し、タグをブランチと対にして示すと述べる"
+  },
+  {
+   "about": {
+    "verification": "F-017"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 122,
+     "quote": "承認された分だけ、次の 2 手を**この順で**個別に実行する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 134,
+     "quote": "打ったタグ名は Step 7 の報告に載せる。"
+    }
+   ],
+   "id": "RS-020",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-017"
+   ],
+   "value": "F-017（承認された未取り込みのローカルブランチを削除する）の obtain を may_fail にし、直後にそのブランチを削除できたかの判断を置く（1 本ずつの繰り返しは RS-019）。削除できなかったブランチをどう扱うか（続けるか・どう報告するか）の case は、入力に出典が無いので出典を付けずに置く",
+   "why": "承認された未取り込みのローカルブランチには今いるブランチも含まれうるが、入力はそれを除く記述を持たないので削除は失敗しうる。入力 133〜134 行はタグの失敗と打ったタグ名の報告だけを述べ、削除そのものの失敗の扱いを述べていない"
+  },
+  {
+   "about": {
+    "verification": "F-019"
+   },
+   "evidence": [
+    {
+     "end": 139,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 138,
+     "quote": "承認された未取り込みブランチはローカル側と同じ 2 手を\n**この順で**個別に実行する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 147,
+     "quote": "`git tag` が失敗したら削除しない。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 150,
+     "quote": "打ったタグ名は Step 7 の報告に載せる。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 236,
+     "quote": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 237,
+     "quote": "そのブランチと必ず対にして示す。"
+    }
+   ],
+   "id": "RS-021",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-018",
+    "F-019",
+    "F-020",
+    "F-021"
+   ],
+   "value": "承認された未取り込みの remote ブランチは 1 本ずつ、remote-tracking ref から退避タグを打つ → 打てたかの判断 → 打てたらそのブランチを remote から削除し、打てなければそのブランチを削除せず削除しなかったものとして記録する、を行い、残りのブランチがあるかの判断で次のブランチの退避タグの工程へ戻る。打てたかの判断は、そのブランチ 1 本のタグの成否だけを入力にする。ブランチごとの結果（タグ名か、削除しなかったこと）は、そのブランチと対にして完了報告に載せる",
+   "why": "input.md 138〜139 行は承認された remote ブランチをローカル側と同じ 2 手の順で個別に実行すると述べ、147 行はタグが失敗したら削除しないと述べる。150・236〜237 行は打ったタグ名と削除しなかったものを報告に明示し、タグをブランチと対にして示すと述べる"
+  },
+  {
+   "about": {
+    "verification": "F-025"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 183,
+     "quote": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 221,
+     "quote": "stash した場合は `git stash pop`"
+    }
+   ],
+   "id": "RS-022",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-025"
+   ],
+   "value": "F-025（未コミットの変更を退避する）の obtain を may_fail にし、この工程の結果として退避が実際に作られたか（退避した・退避が作られなかった・失敗した）を値として出す。F-024 の退避しない枝を通ったときの値は退避していないとする。この値を後で戻すかの判断が読む（RS-023）。退避が失敗したときに同期へ進むかの case は、入力に出典が無いので出典を付けずに置く",
+   "why": "input.md 183 行は未コミットの変更があれば先に退避すると述べ、221 行は戻すことを「stash した場合」に限る。退避は失敗しうるし、変更があっても退避が作られないことがあるので、戻すかを決めるには退避が作られたかの値が要る。退避が失敗したときの扱いは入力が述べていない"
+  },
+  {
+   "about": {
+    "verification": "F-033"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 221,
+     "quote": "stash した場合は `git stash pop`"
+    }
+   ],
+   "id": "RS-023",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-033"
+   ],
+   "value": "F-033（退避した変更があるか）の入力は、F-003 の未コミットの変更の有無ではなく、RS-022 が定める退避が実際に作られたかの値にする。退避したときだけ戻す枝へ進み、退避が作られなかった・退避していないときは戻さない枝へ進む",
+   "why": "input.md 221 行は戻すことを「stash した場合」に条件づけるので、戻すかは未コミットの変更の有無ではなく退避が行われたかで決まる"
+  },
+  {
+   "about": {
+    "verification": "F-026"
+   },
+   "evidence": [
+    {
+     "end": 193,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 192,
+     "quote": "**`false`**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。\n  `current_branch` が空（detached HEAD）のときもこちら。"
+    }
+   ],
+   "id": "RS-024",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "F-026"
+   ],
+   "value": "F-026 の case {現在のブランチ: *, 現在のブランチの open PR: 得られない} を 2 つに分け、{detached HEAD, 得られない} は reset する枝へ、{名前あり, 得られない} は O-012 を出典にして今の枝のまま置く",
+   "why": "input.md 192〜193 行は detached HEAD のときも reset する側に進むと定めており、open PR の値によらない。名前のあるブランチで open PR を判定できないときの扱いは入力に無く、O-012 の論点である"
+  },
+  {
+   "about": {
+    "open": "O-017"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-025: 報告して続ける"
+   },
+   "id": "RS-025",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "ローカルブランチの削除が失敗したときは、そのブランチを残したまま残りの工程を続け、完了報告に削除できなかったブランチとして載せる",
+     "description": "消せなかったブランチを残したまま次の作業へ進み、完了報告に消せなかったものとして載せる（今のまま）",
+     "flow_effect": "flow は変わらない。F-047・F-051 の削除できない枝は F-048・F-052 で報告に加えて次の工程へ進む",
+     "label": "報告して続ける"
+    },
+    {
+     "decision_text": "ローカルブランチの削除が 1 本でも失敗したときは、残りの工程を行わずに終え、削除できなかったブランチを利用者に返す",
+     "description": "1 本でも消せなければ残りの作業をせずに終え、消せなかったブランチを知らせる",
+     "flow_effect": "F-047・F-051 の削除できない枝の行き先を、削除できなかったブランチを返して終える出力に変え、F-048・F-052 は使われなくなる",
+     "flow_refs": [
+      "F-047",
+      "F-048",
+      "F-051",
+      "F-052"
+     ],
+     "label": "その場で止める"
+    }
+   ],
+   "question": {
+    "header": "削除失敗時",
+    "searched": "依頼者自身の記述（冒頭の 2 行）と貼り付けの SKILL.md を探したが、SKILL.md は退避タグが打てなかったときだけを述べ、ブランチの削除そのものが失敗したときの扱いは書いていない",
+    "text": "ローカルのブランチが消せなかったとき（今いるブランチが対象に入っていた場合など）、残りの作業を続けますか?"
+   },
+   "ruling": "question",
+   "targets": [
+    "ローカルブランチの削除の失敗"
+   ],
+   "value": "ローカルブランチの削除が失敗したときは、そのブランチを残したまま残りの工程を続け、完了報告に削除できなかったブランチとして載せる",
+   "why": "ローカルブランチの削除が失敗したときに残りの工程を続けるか止めるかは、何を優先するかの判断で、依頼文も貼り付けの SKILL.md も述べていないので依頼者にしか決められない"
+  },
+  {
+   "about": {
+    "open": "O-018"
+   },
+   "answer": {
+    "path": "answers/g0.md",
+    "quote": "RS-026: 同期へ進む"
+   },
+   "id": "RS-026",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "未コミットの変更の退避が失敗したときは、作業場所の同期へ進まずに終え、退避できなかったことを利用者に返す",
+     "description": "同期をせずに終え、変更を片付けられなかったことを知らせる（今のまま）",
+     "flow_effect": "flow は変わらない。F-057 の失敗した枝は F-058 で退避できなかった旨を返して終える",
+     "label": "止めて知らせる"
+    },
+    {
+     "decision_text": "未コミットの変更の退避が失敗したときは、退避せずに作業場所の同期へ進み、完了報告に退避できなかったことを載せる",
+     "description": "変更を片付けないまま同期と新しいブランチ作成へ進み、完了報告に片付けられなかったことを載せる",
+     "flow_effect": "F-057 の失敗した枝の行き先を F-058 から F-026（同期の分岐）に変え、F-058 は使われなくなる。F-033 は退避の結果が失敗したときも戻さない枝へ進む",
+     "flow_refs": [
+      "F-057",
+      "F-058",
+      "F-033"
+     ],
+     "label": "同期へ進む"
+    }
+   ],
+   "question": {
+    "header": "退避失敗時",
+    "searched": "依頼者自身の記述（冒頭の 2 行）と貼り付けの SKILL.md を探したが、SKILL.md は変更があれば先に退避するとだけ述べ、退避が失敗したときの扱いは書いていない",
+    "text": "作業中の変更を一時的に片付ける操作が失敗したとき、最新への同期に進みますか?"
+   },
+   "ruling": "question",
+   "targets": [
+    "未コミットの変更の退避の失敗"
+   ],
+   "value": "未コミットの変更の退避が失敗したときは、退避せずに作業場所の同期へ進み、完了報告に退避できなかったことを載せる",
+   "why": "退避が失敗したまま同期へ進むか止めるかは、未コミットの変更と同期のどちらを優先するかの判断で、依頼文も貼り付けの SKILL.md も述べていないので依頼者にしか決められない"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-003",
+     "RS-004"
+    ]
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 40,
+     "quote": "prune しないと remote 削除済みブランチが `[gone]` にならない。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 77,
+     "quote": "`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。"
+    },
+    {
+     "end": 122,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 121,
+     "quote": "消えた PR の作業がローカルにだけ\n残っている。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "hold": {
+    "issue_draft": "## 論点\n\nリポジトリの状態を取る工程（F-003）は `--prune` つきで fetch する。prune は remote で削除済みのブランチの追跡 ref を消す。そのブランチにローカルブランチが無く、どの主ブランチにも取り込まれていなければ、追跡 ref が内容の唯一の写しであり、prune の後は取り直せない（RS-017）。\n\nRS-004 は、未取り込みのブランチの作業を利用者の承認なしに失わないと定めている。この追跡 ref の削除が RS-004 の守るものに当たるかを決めてほしい。\n\n## 候補\n\n- 当たらない: remote で削除済みのブランチは守る対象の外とし、prune は承認なしに行ってよい\n- 当たる: 該当する追跡 ref があるときは、prune の前に一覧を示して利用者の承認を得る\n\n## 裁定が下るまで\n\nローカルブランチを持たず、どの主ブランチにも取り込まれていない remote 削除済みブランチの追跡 ref は、利用者の承認なしに prune で消さない。",
+    "item_ids": [
+     "F-003"
+    ],
+    "rule": "ローカルブランチを持たない remote 削除済みブランチの追跡 ref を prune で消すことが RS-004 の守る未取り込みのブランチの作業を失うことに当たるかの裁定が下るまで、F-003（リポジトリの状態を取る）は、ローカルブランチを持たず、どの主ブランチにも取り込まれていない remote 削除済みブランチの追跡 ref を、利用者の承認なしに prune で消してはならない"
+   },
+   "id": "RS-027",
+   "layer": "要求",
+   "ruling": "hold",
+   "why": "F-003 の --prune つき fetch が、ローカルブランチを持たない remote 削除済みブランチの追跡 ref を消すことを、RS-004 が承認なしに失わないとする未取り込みのブランチの作業に当たるとみるかは価値の判断で、入力も回答も述べておらず、この段では聞けない"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-005",
+     "RS-004"
+    ]
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 89,
+     "quote": "| ローカルの取り込み済み | 無し（primary ref にある） | 不要 |"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-028",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "F-005（取り込み済みのローカルブランチを削除する）は RS-004 に従う。RS-004 は取り込み済みのブランチを確認なしで削除してよいとしており、この工程は確認を求めずに削除する。flow は変えない",
+   "why": "RS-004 の値と入力の表が、取り込み済みのローカルブランチは削除で失うものが無く確認不要だと同じことを述べている"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-006",
+     "RS-004"
+    ]
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 90,
+     "quote": "| remote の取り込み済み | 無し（primary ref にある。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-029",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "F-006（取り込み済みの remote ブランチを削除する）は RS-004 に従う。RS-004 は取り込み済みのブランチを確認なしで削除してよいとしており、この工程は確認を求めずに削除する。flow は変えない",
+   "why": "RS-004 の値と入力の表が、取り込み済みの remote ブランチは削除で失うものが無く確認不要だと同じことを述べている"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-017",
+     "RS-004"
+    ]
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 122,
+     "quote": "承認された分だけ、次の 2 手を**この順で**個別に実行する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 133,
+     "quote": "**`git tag` が失敗したら `git branch -D` を実行しない**"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-030",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "F-017（承認された未取り込みのローカルブランチ 1 本を削除する）は RS-004 に従う。RS-004 は未取り込みのブランチの作業を利用者の承認なしに失わないとしており、この工程は承認されたブランチだけを、退避タグを打てた後に削除する。flow は変えない",
+   "why": "入力は承認された分だけを 1 本ずつ削除し、タグが失敗したら削除しないと述べており、承認なしに消す経路が無い"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-020",
+     "RS-004"
+    ]
+   },
+   "evidence": [
+    {
+     "end": 139,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 138,
+     "quote": "承認された未取り込みブランチはローカル側と同じ 2 手を\n**この順で**個別に実行する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 147,
+     "quote": "`git tag` が失敗したら削除しない。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-031",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "F-020（承認された未取り込みの remote ブランチ 1 本を削除する）は RS-004 に従う。RS-004 は未取り込みのブランチの作業を利用者の承認なしに失わないとしており、この工程は承認されたブランチだけを、退避タグを打てた後に削除する。flow は変えない",
+   "why": "入力は承認された未取り込みの remote ブランチをローカル側と同じ 2 手で個別に削除し、タグが失敗したら削除しないと述べており、承認なしに消す経路が無い"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-022",
+     "RS-004"
+    ]
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 92,
+     "quote": "| 終了済み workspace | **審議の記録**（gitignore 対象で復元不可） | 必要 |"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 155,
+     "quote": "終端済みでも成果物はそこにしか無いので、消す前に聞く。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-032",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "F-022（承認された終了済みの workspace を削除する）は RS-004 に従う。RS-004 は終了済みの workspace を利用者の承認なしに失わないとしており、この工程は承認された workspace だけを削除する。flow は変えない",
+   "why": "入力は終了済みの workspace を消す前に聞くと述べ、この工程は承認されたものだけを対象にする"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-027",
+     "RS-004"
+    ]
+   },
+   "answer": {
+    "path": "answers/g0-2.md",
+    "quote": "RS-033: 今のまま"
+   },
+   "evidence": [
+    {
+     "end": 188,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 187,
+     "quote": "base が別の feature ブランチの\nstacked PR は `false` になる。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 192,
+     "quote": "**`false`**: `git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 132,
+     "quote": "reflog は保持期限があり同一マシン限定なので、それに依存しない復元手段を先に用意してから消す。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 7,
+     "quote": "RS-004: 今のまま"
+    }
+   ],
+   "id": "RS-033",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "作業場所の同期は、今いるブランチに起点ブランチに無いコミットがあっても、利用者の承認を求めずにそのブランチを起点ブランチの位置へ動かす。これは未取り込みのブランチの作業を承認なしに失わないという決定の例外である",
+     "description": "起点ブランチに無いコミットがあっても、承認なしにブランチを起点ブランチへ動かす",
+     "flow_effect": "flow は変わらない",
+     "label": "今のまま"
+    },
+    {
+     "decision_text": "今いるブランチに起点ブランチに無いコミットがあるときは、作業場所を起点ブランチへ reset せず、起点ブランチから新しいブランチを直接作る",
+     "description": "そのときは今のブランチを動かさず、起点ブランチから新しいブランチを作る",
+     "flow_effect": "F-026 に、今いるブランチに起点ブランチに無いコミットがあるかの入力（F-003 から）を足し、ある場合を reset しない枝（F-028 へ）に送る",
+     "flow_refs": [
+      "F-026"
+     ],
+     "label": "動かさず新しく作る"
+    },
+    {
+     "decision_text": "今いるブランチに起点ブランチに無いコミットがあるときは、作業場所を起点ブランチへ reset する前に利用者の承認を得る。承認されなければ reset せず、起点ブランチから新しいブランチを直接作る",
+     "description": "そのときだけ、ブランチを動かす前に利用者の承認を得る",
+     "flow_effect": "F-026 に同じ入力を足し、ある場合は F-027 の前に承認を求める工程を置き、承認されなければ reset しない枝（F-028 へ）に進む",
+     "flow_refs": [
+      "F-026",
+      "F-027"
+     ],
+     "label": "承認を得て動かす"
+    }
+   ],
+   "question": {
+    "header": "同期で動かすか",
+    "searched": "依頼者自身の記述は冒頭の 2 行だけで述べていない。守るものの回答は未取り込みの作業を承認なしに失わないとするが、貼り付けの SKILL.md は開いた PR の無いブランチを、起点ブランチに無いコミットがあるかを見ずに起点ブランチへ動かす",
+    "text": "今いるブランチに起点ブランチに無いコミットがあるとき、同期でそのブランチを起点ブランチの位置へ動かしてよいですか？"
+   },
+   "ruling": "question",
+   "value": "作業場所の同期は、今いるブランチに起点ブランチに無いコミットがあっても、利用者の承認を求めずにそのブランチを起点ブランチの位置へ動かす。これは未取り込みのブランチの作業を承認なしに失わないという決定の例外である",
+   "why": "RS-004 は未取り込みのブランチの作業を承認なしに失わないとするが、入力は open PR の無い今いるブランチ（base が primary でない stacked PR を含む）を、起点ブランチに無いコミットの有無を見ずに reset で起点ブランチへ動かす。動かされたブランチのコミットは reflog にしか残らず、入力自身が reflog を復元手段と見なしていない。依頼者は同期を一律に承認制にする案を選ばなかったので、どちらに揃えるかは依頼者の価値の判断である。detached HEAD はブランチではないので RS-004 の対象の外に置く"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-031",
+     "RS-016"
+    ]
+   },
+   "evidence": [
+    {
+     "end": 201,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 200,
+     "quote": "`.claude/worktree-sync.json` があればそれを読み、`post_sync` の\nコマンドを順に実行する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 19,
+     "quote": "RS-016: 書かれた分だけ実行"
+    }
+   ],
+   "id": "RS-034",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "F-031（後処理のコマンドを順に実行する）は RS-016 に従う。RS-016 は設定ファイルの post_sync に書かれたコマンドだけを書かれた順に承認なしで実行するとしており、この工程は post_sync のコマンドを順に実行する。flow は変えない",
+   "why": "RS-016 の値と入力が、設定ファイルの post_sync のコマンドを順に実行すると同じことを述べている"
+  },
+  {
+   "about": {
+    "pair": [
+     "F-003",
+     "RS-011"
+    ]
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 77,
+     "quote": "`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 40,
+     "quote": "prune しないと remote 削除済みブランチが `[gone]` にならない。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 14,
+     "quote": "RS-011: 止めて理由を返す"
+    }
+   ],
+   "id": "RS-035",
+   "layer": "要求",
+   "ruling": "internal",
+   "value": "RS-011 の「何も削除・同期せずに止め」は、状態を取れなかったと分かった後の工程（取り込み済みの削除・作業場所の同期など F-004 より後の工程）を縛る。F-003 自身が含む `--prune` つき fetch と起点ブランチのローカル追従は、入力どおり状態の取得の一部として残す",
+   "why": "F-003 の prune とローカル追従は入力が状態の取得の中に置いており、入力は取得の失敗時の扱いを述べていないので、入力そのものは割れていない。依頼者が選んだ RS-011 の候補は flow_effect を「flow は変わらない（F-004 の取れない枝は F-038 で終わる）」としており、F-003 が prune と追従を含む flow のまま選ばれている"
+  },
+  {
+   "about": {
+    "finding": "r1-cd-all-001"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 1,
+     "quote": "RS-001: 削除タグは不要。マージ済みなら確認不要で削除してよい"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 69,
+     "quote": "消す前に退避タグを打ち、タグが作れなければ削除しない"
+    }
+   ],
+   "id": "RS-036",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "退避タグ"
+   ],
+   "value": "PR-CLEANUP-034〜036・038〜040 と PR-CLEANUP-062 のうち復元用のタグに関わる記述は、RS-001 に揃えて書く（RS-001 に回答が当たればその値、保持規則になればその規則）",
+   "why": "承認を得て消す未取り込みのブランチに復元用のタグを打つかは RS-001 が依頼者への問いとして開いており、回答の文面からは決まらないと裁定されている。項目の側で値を決めると同じ論点に裁定が 2 つでき、依頼者の判断を置き換える"
+  },
+  {
+   "about": {
+    "finding": "r1-cd-all-002"
+   },
+   "evidence": [
+    {
+     "end": 3,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/answers/g0.md",
+     "line": 2,
+     "quote": "git branch --delete-merged\nとかで削除できるようになったらしい"
+    }
+   ],
+   "id": "RS-037",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "追加したい挙動"
+   ],
+   "value": "PR-CLEANUP-003・004・015 のうち取り込み済みのローカルブランチの判定の経路と削除の手段に関わる記述は、RS-002 に揃えて書く（RS-002 に回答が当たればその値、保持規則になればその規則）",
+   "why": "取り込み済みのローカルブランチの削除に git branch --delete-merged を使うかは RS-002 が依頼者への問いとして開いており、伝聞の回答からは決まらないと裁定されている。項目の側で採否を決めると同じ論点に裁定が 2 つできる"
+  },
+  {
+   "about": {
+    "finding": "r1-cd-all-003"
+   },
+   "evidence": [
+    {
+     "end": 84,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 83,
+     "quote": "取り込み済みと分類されたものは定義上\nいずれかの primary ref に同じ内容があり、消しても失われるものが無い"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 191,
+     "quote": "`git switch -c <new> origin/<sync_base>` で新ブランチを直接作る。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 192,
+     "quote": "`git reset --mixed origin/<sync_base>` で同期してから `git switch -c <new>`。"
+    }
+   ],
+   "id": "RS-038",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "主ブランチ",
+    "起点ブランチ"
+   ],
+   "value": "主ブランチ（main・develop・release/*・dev/*）は、自分自身の履歴に含まれることをもって取り込み済みと判定しない。remote の起点ブランチ（origin/<sync_base>）は、作業場所の同期と作業用ブランチの作成（F-027・F-028）がそれを使い終えるまで削除しない。主ブランチが自分以外の主ブランチに取り込まれているときに削除してよいかは RS-045 に揃えて書く",
+   "why": "入力は取り込み済みを確認なしで消してよい理由を、いずれかの primary ref に同じ内容があり消しても失われるものが無いことに置いており、主ブランチを自分自身に照らすとこの理由が成り立たない。入力は同期と作業用ブランチの作成で origin/<sync_base> を使うとしており（191・192 行）、それより前に remote の起点ブランチを消すと同期の参照先が無くなる。同期が使うのは remote 側だけなので、ローカルの起点ブランチについてはこの裁定では規則を足さない"
+  },
+  {
+   "about": {
+    "finding": "r1-cd-all-004"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 115,
+     "quote": "件数と代表例（最終 commit が古い順に数件、下記の `reason` の事実を添える）に要約したうえで"
+    }
+   ],
+   "id": "RS-039",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "候補の示し方"
+   ],
+   "value": "PR-CLEANUP-024 の要約の代表例は、ブランチのカテゴリでは最終コミットが古いものから順に並べ、終了済みの workspace のカテゴリでは RS-049 に揃えて並べる（RS-049 に回答が当たればその値、保持規則になればその規則）",
+   "why": "ブランチのカテゴリの代表例の並びは入力が最終 commit の古い順と定めている。終了済みの workspace はコミットを持たず、その並びは入力に無いので RS-049 で依頼者に問う"
+  },
+  {
+   "about": {
+    "finding": "r1-cd-all-005"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 121,
+     "quote": "**`local.needs_decision`（remote 削除済みだが未取り込み）**"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 136,
+     "quote": "**`remote.needs_decision`（未取り込みで remote に残存）**"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 230,
+     "quote": "- 要判断のまま残したもの: {names | なし}"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 236,
+     "quote": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    }
+   ],
+   "id": "RS-040",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "判断が要る対象",
+    "要判断"
+   ],
+   "value": "「要判断」は取り込み済みと判定できなかったブランチの分類（PR-CLEANUP-006）、「判断が要る対象」は利用者に問う 3 つのカテゴリ（PR-CLEANUP-021）を指す別の集合として書き分ける。要判断のローカルブランチのうち remote のブランチが残っているものは判断が要る対象に入らず、問わず、削除もせずに残し、完了報告の「要判断のまま残したもの」に載せる",
+   "why": "入力は問うカテゴリを、ローカルでは remote 削除済みの未取り込みに限り、remote に残る未取り込みは remote のカテゴリで問うとしている。削除しなかったものは何を残したかを明示するとしており、完了報告に要判断のまま残したものの欄を持つ"
+  },
+  {
+   "about": {
+    "finding": "r1-cd-all-007"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 114,
+     "quote": "候補が多い（目安として 1 カテゴリ 20 件超）ときも問いかけは 1 回のままで、全件列挙はせず"
+    },
+    {
+     "end": 117,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 116,
+     "quote": "「全件残す / 一覧を見て個別に選ぶ」を選択肢として出す（ユーザーが一覧を求めた場合にだけ\n全件を出す。"
+    }
+   ],
+   "id": "RS-041",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "問いへの応答"
+   ],
+   "value": "一覧の提示の回数（PR-CLEANUP-028・029）は、利用者が一覧を求めて判断が要る対象の全件を示した回数だけを数え、20 件以下のカテゴリを問いの中で全件示したことは数えない",
+   "why": "入力は 20 件以下のカテゴリを問いの中で全件示し、20 件超のカテゴリは要約して「一覧を見て個別に選ぶ」を選択肢に出し、ユーザーが一覧を求めた場合にだけ全件を出すとしている。RS-013 が 1 回までとした一覧は、この返答で示すものである"
+  },
+  {
+   "about": {
+    "finding": "r1-gr-requirements__cleanup-branches-001"
+   },
+   "id": "RS-042",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "退避タグ"
+   ],
+   "value": "PR-CLEANUP-034 の復元用のタグの記述は RS-036 に従い、RS-001 に揃えて書く",
+   "why": "RS-036 と同じ論点で、復元用のタグの要否は RS-001 が依頼者への問いとして開いている"
+  },
+  {
+   "about": {
+    "finding": "r1-gr-requirements__cleanup-branches-002"
+   },
+   "id": "RS-043",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "退避タグ"
+   ],
+   "value": "PR-CLEANUP-038 の復元用のタグの記述は RS-036 に従い、RS-001 に揃えて書く",
+   "why": "RS-036 と同じ論点で、remote 側の復元用のタグの要否も RS-001 が依頼者への問いとして開いている"
+  },
+  {
+   "about": {
+    "finding": "r1-gr-requirements__cleanup-branches-003"
+   },
+   "id": "RS-044",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "追加したい挙動"
+   ],
+   "value": "PR-CLEANUP-004 のパッチの一致による判定の記述は RS-037 に従い、RS-002 に揃えて書く",
+   "why": "RS-037 と同じ論点で、取り込み済みのローカルブランチの削除の手段は RS-002 が依頼者への問いとして開いている"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-001"
+   },
+   "answer": {
+    "path": "answers/g1.md",
+    "quote": "消さずに残す"
+   },
+   "id": "RS-045",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "主ブランチ（main・develop・release/*・dev/*）は、ほかの主ブランチに取り込まれていても、ローカル・remote とも削除しない",
+     "description": "主ブランチは、ほかの主ブランチに取り込まれていても消さずに残す",
+     "flow_effect": "flow の行き先は変わらない（F-005・F-006 が削除する対象から主ブランチが外れる）",
+     "label": "消さずに残す"
+    },
+    {
+     "decision_text": "主ブランチ（main・develop・release/*・dev/*）は、自分以外の主ブランチに取り込まれているとき取り込み済みとし、確認なしで削除する",
+     "description": "ほかの主ブランチに取り込まれた主ブランチは、ほかの取り込み済みのブランチと同じく確認なしで消す",
+     "flow_effect": "flow の行き先は変わらない（F-005・F-006 が削除する対象に入る）",
+     "label": "確認なしで消す"
+    }
+   ],
+   "question": {
+    "header": "主ブランチの削除",
+    "searched": "依頼文は main・develop・release/*・dev/* を取り込み済みの判定の基準として列挙し、取り込み済みのものは確認なしで消すと書くが、基準である主ブランチそのものを消してよいかは書いていない。回答にも無い",
+    "text": "release/* や dev/* などの主ブランチが、ほかの主ブランチ（main など）に取り込まれているとき、確認なしで消してよいですか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "主ブランチ"
+   ],
+   "value": "主ブランチ（main・develop・release/*・dev/*）は、ほかの主ブランチに取り込まれていても、ローカル・remote とも削除しない",
+   "why": "主ブランチが自分以外の主ブランチに取り込まれているときに消してよいかは、何を確認なしに消してよいかというプロダクトの価値の判断で、依頼文は主ブランチを判定の基準として列挙するだけで述べていない"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-002"
+   },
+   "evidence": [
+    {
+     "end": 84,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 83,
+     "quote": "取り込み済みと分類されたものは定義上\nいずれかの primary ref に同じ内容があり、消しても失われるものが無い"
+    }
+   ],
+   "id": "RS-046",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "取り込みの判定"
+   ],
+   "value": "merged の PR の head であるブランチでも、その PR が merged になった後にそのブランチへ積まれたコミットがあるときは、PR の経路では取り込み済みと判定しない（他の経路でも取り込み済みと判定できなければ要判断にする）",
+   "why": "入力は確認なしで消すものを、いずれかの primary ref に同じ内容があり消しても失われるものが無いものに限っており、RS-004 は未取り込みのブランチの作業を利用者の承認なしに失わないと定めている。PR が merged になった後に積まれたコミットはどの主ブランチにも無いので、取り込み済みとして確認なしに消すとその作業を承認なしに失う"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-005"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 77,
+     "quote": "`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。"
+    }
+   ],
+   "id": "RS-047",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "状態を取れないとき",
+    "起点ブランチ"
+   ],
+   "value": "起点ブランチのローカルブランチの追従（PR-CLEANUP-011）は、ローカルにだけあるコミットを捨てない形でだけ行う。ローカルの起点ブランチに remote の起点ブランチに無いコミットがあって追従できないときは、状態を取れなかったものとして RS-011 に従う",
+   "why": "RS-035 は起点ブランチのローカル追従を状態の取得の一部とし、RS-011 は状態を取れなかったときに何も削除・同期せず止めて理由を返すと定めている。RS-004 は未取り込みの作業を承認なしに失わないとしており、ローカルにだけあるコミットを捨てて追従するとこれに反する"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-007"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 77,
+     "quote": "`--prune` つき fetch と、起点ブランチ（後述）のローカル追従までを含む。以降の判断は全て"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 57,
+     "quote": "PR 経路が落ちるだけで、残る 2 経路が効き、分類は安全側（要判断）に寄る。"
+    }
+   ],
+   "id": "RS-048",
+   "layer": "要求",
+   "ruling": "internal",
+   "targets": [
+    "状態を取れないとき"
+   ],
+   "value": "状態の取得（PR-CLEANUP-008）が含む remote からの --prune つきの取得と起点ブランチのローカル追従のどれかが失敗したときは、状態を取れなかったものとして RS-011 に従い、前に取得した remote-tracking ref で分類を続けない。PR の情報だけが得られないときは状態を取れなかったものとせず、PR-CLEANUP-007 に従う",
+   "why": "入力は状態の取得に --prune つき fetch と起点ブランチのローカル追従を含め、以降の判断をすべてその結果に置く。RS-035 も両者を状態の取得の一部としている。PR の情報だけは、入力が得られないときも残る経路で分類を続けるとしている"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-008"
+   },
+   "answer": {
+    "path": "answers/g1.md",
+    "quote": "更新が古い順"
+   },
+   "id": "RS-049",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "終了済みの workspace を要約して示すときは、最後に更新された日時が古いものから順に代表例を選ぶ",
+     "description": "最後に更新された日時が古い workspace から順に代表例を選ぶ",
+     "flow_effect": "flow は変わらない（F-012 の代表例の選び方だけが決まる）",
+     "label": "更新が古い順"
+    },
+    {
+     "decision_text": "終了済みの workspace を要約して示すときは、名前（<skill>/<session>）の順に代表例を選ぶ",
+     "description": "workspace の名前（<skill>/<session>）の順に代表例を選ぶ",
+     "flow_effect": "flow は変わらない（F-012 の代表例の選び方だけが決まる）",
+     "label": "名前の順"
+    }
+   ],
+   "question": {
+    "header": "代表例の順",
+    "searched": "依頼文は代表例を最終 commit が古い順に選ぶと書くが、終了済みの workspace は gitignore の対象でコミットを持たないので、この順を当てられない。workspace の並びは依頼文にも回答にも無い",
+    "text": "終了済みの workspace が 20 件を超えて要約して示すとき、代表例はどの順で選びますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "候補の示し方"
+   ],
+   "value": "終了済みの workspace を要約して示すときは、最後に更新された日時が古いものから順に代表例を選ぶ",
+   "why": "終了済みの workspace の代表例をどの順で選ぶかは、利用者に何を先に見せるかというプロダクトの価値の判断で、依頼文は最終 commit の古い順だけを書き、コミットを持たない workspace の順を述べていない"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-013"
+   },
+   "answer": {
+    "path": "answers/g1.md",
+    "quote": "含める"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 183,
+     "quote": "未コミットの変更があれば先に `git stash`（Step 7 で戻す）。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 10,
+     "quote": "stash・submodule drift・untracked・tracked の未コミット差分は削除せず一覧として提示するだけ"
+    }
+   ],
+   "id": "RS-050",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "同期の前の退避には未追跡ファイルも含め、完了報告の前に戻す",
+     "description": "未追跡ファイルも退避し、完了報告の前に戻す",
+     "flow_effect": "flow は変わらない（F-024 の未コミットの変更に未追跡ファイルが入る）",
+     "label": "含める"
+    },
+    {
+     "decision_text": "同期の前の退避は tracked ファイルの差分だけを対象とし、未追跡ファイルは退避せず作業場所に置いたまま同期する",
+     "description": "退避は tracked ファイルの差分だけにし、未追跡ファイルは作業場所に置いたまま同期する",
+     "flow_effect": "flow は変わらない（F-024 の未コミットの変更から未追跡ファイルが外れる）",
+     "label": "含めない"
+    }
+   ],
+   "question": {
+    "header": "未追跡の退避",
+    "searched": "依頼文は未コミットの変更があれば先に git stash で退避するとだけ書き、冒頭では未追跡ファイルを未コミットの差分に数えている。未追跡ファイルを退避するかは依頼文にも回答にも無い",
+    "text": "同期の前に退避する未コミットの変更に、未追跡ファイルも含めますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "未コミットの変更の退避"
+   ],
+   "value": "同期の前の退避には未追跡ファイルも含め、完了報告の前に戻す",
+   "why": "未追跡ファイルを同期の前の退避に含めるかは、何をどう守るかというプロダクトの価値の判断で、依頼文は git stash で退避するとだけ書き、別の箇所では未追跡ファイルを未コミットの差分に数えており、割れている"
+  },
+  {
+   "about": {
+    "finding": "r1-im-requirements__cleanup-branches-014"
+   },
+   "answer": {
+    "path": "answers/g1.md",
+    "quote": "残りも実行する"
+   },
+   "evidence": [
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 213,
+     "quote": "コマンドが失敗しても Step 7 へ進み、失敗した行をそのまま提示して手動実行を案内する。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 201,
+     "quote": "コマンドを順に実行する。"
+    }
+   ],
+   "id": "RS-051",
+   "layer": "要求",
+   "options": [
+    {
+     "decision_text": "後処理のコマンドの 1 行が失敗しても、残りの行を書かれた順にすべて実行し、失敗した行を完了報告に示す",
+     "description": "失敗した行があっても、残りの行を書かれた順にすべて実行してから報告する",
+     "flow_effect": "flow は変わらない（F-031 がすべての行を実行してから F-032 へ進む）",
+     "label": "残りも実行する"
+    },
+    {
+     "decision_text": "後処理のコマンドの 1 行が失敗したら、その後の行は実行せず、失敗した行と実行しなかった行を手動実行の案内とともに完了報告に示す",
+     "description": "失敗した行より後の行は実行せず、失敗した行と実行しなかった行を報告する",
+     "flow_effect": "F-031 は最初に失敗した行で実行を打ち切り、F-044 が実行しなかった行も報告に加える",
+     "flow_refs": [
+      "F-031",
+      "F-044"
+     ],
+     "label": "そこで打ち切る"
+    }
+   ],
+   "question": {
+    "header": "後処理の失敗後",
+    "searched": "依頼文はコマンドを順に実行し、失敗しても完了報告へ進んで失敗した行を示すと書くが、失敗した行より後の行を実行するかは書いていない。回答の「書かれた分だけ実行」も失敗の後を述べていない",
+    "text": "後処理のコマンドの 1 行が失敗したとき、その後の行も実行しますか？"
+   },
+   "ruling": "question",
+   "targets": [
+    "リポジトリ固有の後処理"
+   ],
+   "value": "後処理のコマンドの 1 行が失敗しても、残りの行を書かれた順にすべて実行し、失敗した行を完了報告に示す",
+   "why": "後処理の 1 行が失敗した後に残りの行を実行するかは、承認なしに何を走らせるかというプロダクトの価値の判断で、依頼文は失敗しても完了報告へ進むとだけ書き、RS-016 の回答も失敗の後を述べていない"
+  },
+  {
+   "about": {
+    "tbd": "TBD-RCLEANUP-001"
+   },
+   "hold": {
+    "issue_draft": "cleanup-branches で、利用者の承認を得て削除する未取り込みのブランチ（ローカル・remote）に、削除の前に復元用のタグ（deleted-branches/…）を作るかを決めてください。依頼者の回答「削除タグは不要。マージ済みなら確認不要で削除してよい」は、取り込み済みのブランチ（今もタグを作らない）についてか、未取り込みのブランチのタグもやめる意図かが文面から決まりません。候補: (a) 削除の前に復元用のタグを作り、作れなければ削除しない (b) 復元用のタグを作らずに削除する。(b) では削除した未取り込みのブランチを戻す手がかりが残りません。決まるまでは (a) と同じ振る舞いに留めています。",
+    "item_ids": [
+     "PR-CLEANUP-034",
+     "PR-CLEANUP-035",
+     "PR-CLEANUP-038",
+     "PR-CLEANUP-039",
+     "PR-CLEANUP-062"
+    ],
+    "rule": "承認を得て削除する未取り込みのブランチに削除の前に復元用のタグを作るかの裁定が下るまで、cleanup-branches は、承認された未取り込みのブランチ（ローカル・remote）を、そのブランチを指す復元用のタグを作る前に削除してはならず、復元用のタグを作れなかった承認された未取り込みのブランチを削除してはならない。"
+   },
+   "id": "RS-052",
+   "layer": "要求",
+   "ruling": "hold",
+   "targets": [
+    "退避タグ"
+   ],
+   "why": "承認を得て削除する未取り込みのブランチに復元用のタグを作るかは、同じ論点の RS-001 が依頼者への問いのまま回答が当たっておらず、プロダクトの価値の判断で、聞くゲートが残っていない"
+  },
+  {
+   "about": {
+    "tbd": "TBD-RCLEANUP-002"
+   },
+   "hold": {
+    "issue_draft": "cleanup-branches で、取り込み済みのローカルブランチを確認なしに削除する範囲を決めてください。候補: (a) 主ブランチの履歴・merged の PR・パッチの一致（git cherry の patch-id 比較）の 3 経路で判定したものを確認なしに削除する（貼り付けの SKILL.md の現状） (b) git branch --delete-merged のように主ブランチの履歴に含まれるものだけを確認なしに削除する。依頼者の回答「git branch --delete-merged とかで削除できるようになったらしい」は伝聞で、手段を切り替えたいかが文面から決まりません。決まるまでは、履歴に含まれないローカルブランチを取り込み済みとして確認なしに削除しない振る舞いに留めています。",
+    "item_ids": [
+     "PR-CLEANUP-003",
+     "PR-CLEANUP-004",
+     "PR-CLEANUP-015"
+    ],
+    "rule": "取り込み済みのローカルブランチの判定に merged の PR とパッチの一致を使うかの裁定が下るまで、cleanup-branches は、主ブランチの履歴に含まれないローカルブランチを取り込み済みと判定して確認なしに削除してはならない。"
+   },
+   "id": "RS-053",
+   "layer": "要求",
+   "ruling": "hold",
+   "targets": [
+    "追加したい挙動"
+   ],
+   "why": "取り込み済みのローカルブランチを確認なしに削除する範囲を、主ブランチの履歴・merged の PR・パッチの一致の 3 経路で判定したものにするか、履歴に含まれるものだけにするかは、同じ論点の RS-002 が依頼者への問いのまま回答が当たっておらず、プロダクトの価値の判断である。RS-003 は貼り付けの振る舞いを要求としたが、RS-002 はその変更を問うており、この保持規則は RS-002 の裁定までの一時的な縛りで、RS-002 のどちらの候補でも確認なしに削除してよい範囲（履歴に含まれるもの）に留める"
+  },
+  {
+   "about": {
+    "finding": "r2-cd-all-001"
+   },
+   "evidence": [
+    {
+     "end": 122,
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 121,
+     "quote": "**`local.needs_decision`（remote 削除済みだが未取り込み）**: 消えた PR の作業がローカルにだけ\n残っている。"
+    },
+    {
+     "file": "/home/user/claude-plugins/plugins/workflow/skills/prd-spec/workspace/cleanup-branches/input.md",
+     "line": 236,
+     "quote": "削除しなかったものは「なし」で省略せず、何を残したかを明示する。"
+    }
+   ],
+   "hold": {
+    "issue_draft": "cleanup-branches で、一度も push されず追跡先の remote のブランチを持たない未取り込みのローカルブランチを、削除してよいかを利用者に問う対象に入れるかを決めてください。貼り付けの SKILL.md は問うローカルのカテゴリを「remote 削除済みだが未取り込み」と名付け、理由を作業がローカルにだけ残っていることに置いています。候補: (a) 問う対象に入れる (b) 問わずに削除せず残し、完了報告の要判断のまま残したものに載せる。決まるまでは削除せず、要判断のまま残したものに載せる振る舞いに留めています。",
+    "item_ids": [
+     "PR-CLEANUP-006",
+     "PR-CLEANUP-021",
+     "PR-CLEANUP-067",
+     "PR-CLEANUP-062"
+    ],
+    "rule": "追跡先の remote のブランチを一度も持たない未取り込みのローカルブランチを判断が要る対象に入れるかの裁定が下るまで、cleanup-branches は、そのブランチを削除してはならず、完了報告の要判断のまま残したものから省いてはならない。"
+   },
+   "id": "RS-054",
+   "layer": "要求",
+   "ruling": "hold",
+   "targets": [
+    "要判断",
+    "判断が要る対象"
+   ],
+   "why": "未取り込みのローカルブランチは追跡先の状態で、remote で削除済みのもの（PR-CLEANUP-021 で問う）、remote のブランチが残るもの（RS-040 で問わずに残す）、一度も push されず追跡先の無いものに分かれる。入力は問うローカルのカテゴリを「remote 削除済みだが未取り込み」と名付けつつ、その理由を作業がローカルにだけ残っていることに置いており、追跡先の無いブランチを問う対象に入れるかは入力の文面から決まらず、利用者に削除を問うかはプロダクトの価値の判断である"
+  },
+  {
+   "about": {
+    "finding": "r2-im-requirements__cleanup-branches-003"
+   },
+   "hold": {
+    "issue_draft": "cleanup-branches で、削除してよいかの問いへの 1 つの応答が、あるカテゴリの候補を名指しした承認と、別のカテゴリの一覧の要求を併せ持つとき（例:「feature/a は消して、remote の方は一覧を見せて」）の扱いを決めてください。候補: (a) 選択肢に当たらない応答として何も削除せず残したものとして報告する (b) カテゴリごとに分け、承認された対象を削除し、一覧を求めたカテゴリの一覧を示す。決まるまでは、そのような応答で何も削除しない振る舞いに留めています。",
+    "item_ids": [
+     "PR-CLEANUP-028"
+    ],
+    "rule": "判断が要る対象の承認と一覧の要求を 1 つに併せ持つ応答の扱いの裁定が下るまで、cleanup-branches は、そのような応答をもとに判断が要る対象を削除してはならない。"
+   },
+   "id": "RS-055",
+   "layer": "要求",
+   "ruling": "hold",
+   "targets": [
+    "問いへの応答"
+   ],
+   "why": "問いは複数のカテゴリを 1 回にまとめるので、1 つの応答がある対象の承認と別のカテゴリの一覧の要求を併せ持ちうる。これを選択肢に当たらない応答として何も削除しない（RS-013）か、カテゴリごとに分けて承認分を削除し一覧を示すかは、依頼者が答えた RS-013 の適用範囲を決めることで、プロダクトの価値の判断である"
+  },
+  {
+   "about": {
+    "finding": "r3-im-requirements__cleanup-branches-004"
+   },
+   "hold": {
+    "issue_draft": "cleanup-branches の完了報告に載せる作業状態（submodule のポインタ差分・tracked ファイルの未コミット差分・未追跡ファイル・stash の件数）を、どの時点で数えるかを決めてください。状態の取得の後に、後処理のコマンドが未追跡のファイルを作ったり、退避を戻す操作が衝突して退避が stash に残ったりするので、2 つの時点で件数が変わりえます。候補: (a) 状態の取得の時点の件数を載せる（実行の前にあったものを知らせる） (b) 同期・後処理・退避を戻す操作を終えた完了報告の時点の件数を載せる（今残っているものを知らせる）。決まるまでは、どちらの時点で数えた件数かを報告に示す振る舞いに留めています。",
+    "item_ids": [
+     "PR-CLEANUP-062",
+     "PR-CLEANUP-045"
+    ],
+    "rule": "完了報告の作業状態の件数をどの時点で数えるかの裁定が下るまで、cleanup-branches は、完了報告の作業状態に、状態の取得の時点と完了報告の時点のどちらで数えた件数かを示さずに件数を載せてはならない。"
+   },
+   "id": "RS-056",
+   "layer": "要求",
+   "ruling": "hold",
+   "targets": [
+    "F-036"
+   ],
+   "why": "完了報告の作業状態の件数を、状態の取得の時点で数えるか、同期・後処理・退避を戻す操作を終えた完了報告の時点で数えるかは、利用者に何を知らせるかの判断で、依頼文は状態の取得の JSON を以降の判断の根拠にすると述べつつ完了報告の件数の時点を述べておらず、聞くゲートが残っていない"
+  }
+ ]
+}

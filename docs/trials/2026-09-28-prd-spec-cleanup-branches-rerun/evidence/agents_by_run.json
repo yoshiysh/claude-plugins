@@ -1,0 +1,372 @@
+[
+ {
+  "run": 1,
+  "label": "intake",
+  "model": "claude-opus-5-5",
+  "agentId": "aa98a215b804731ee",
+  "tokens": 102019,
+  "toolCalls": 14,
+  "durationMs": 197804,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "flow-framer",
+  "model": "claude-opus-5-5",
+  "agentId": "aee2c69e2f7261344",
+  "tokens": 118975,
+  "toolCalls": 12,
+  "durationMs": 268382,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "resolver:3",
+  "model": "claude-opus-5-5",
+  "agentId": "a8a07869a805fa6d0",
+  "tokens": 140814,
+  "toolCalls": 17,
+  "durationMs": 343137,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "verifier:3v",
+  "model": "claude-opus-5-5",
+  "agentId": "ae5497d1ec96f5b85",
+  "tokens": 138220,
+  "toolCalls": 22,
+  "durationMs": 334954,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "resolver:3'",
+  "model": "claude-opus-5-5",
+  "agentId": "abd4e9f7f9c2436b3",
+  "tokens": 157872,
+  "toolCalls": 24,
+  "durationMs": 409080,
+  "attempt": 1
+ },
+ {
+  "run": 1,
+  "label": "verifier:3v'",
+  "model": "claude-opus-5-5",
+  "agentId": "ab50c5b0a1f689b71",
+  "tokens": 120377,
+  "toolCalls": 13,
+  "durationMs": 102965,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "resolver:3a",
+  "model": "claude-opus-5-5",
+  "agentId": "a8f4185ead288273d",
+  "tokens": 142765,
+  "toolCalls": 20,
+  "durationMs": 375814,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "verifier:3av",
+  "model": "claude-opus-5-5",
+  "agentId": "ada5be262c776b86a",
+  "tokens": 97353,
+  "toolCalls": 13,
+  "durationMs": 75396,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "flow-framer:3b-reframe",
+  "model": "claude-opus-5-5",
+  "agentId": "a96dd91e39abc07e6",
+  "tokens": 115646,
+  "toolCalls": 20,
+  "durationMs": 88609,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "resolver:3b",
+  "model": "claude-opus-5-5",
+  "agentId": "a7dd3db637779f418",
+  "tokens": 93471,
+  "toolCalls": 10,
+  "durationMs": 40834,
+  "attempt": 1
+ },
+ {
+  "run": 2,
+  "label": "verifier:3bv",
+  "model": "claude-opus-5-5",
+  "agentId": "ac1c7d8ef7651edc8",
+  "tokens": 88470,
+  "toolCalls": 11,
+  "durationMs": 47047,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "resolver:3a",
+  "model": "claude-opus-5-5",
+  "agentId": "a6deef5deffe6eab4",
+  "tokens": 98347,
+  "toolCalls": 14,
+  "durationMs": 61919,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "verifier:3av",
+  "model": "claude-opus-5-5",
+  "agentId": "a47806657e1f9a5bb",
+  "tokens": 83538,
+  "toolCalls": 9,
+  "durationMs": 27878,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "writer:U-1:draft",
+  "model": "claude-opus-5-5",
+  "agentId": "ac9f2979bc3ca8f29",
+  "tokens": 183750,
+  "toolCalls": 29,
+  "durationMs": 358511,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "implementer:r1:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "agentId": "a0651d1f655adc34c",
+  "tokens": 143862,
+  "toolCalls": 18,
+  "durationMs": 324890,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "grounding:r1:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "agentId": "abdd00a97d7aac4a7",
+  "tokens": 161068,
+  "toolCalls": 26,
+  "durationMs": 419890,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "crossDoc:r1:all",
+  "model": "claude-sonnet-5",
+  "agentId": "ab1c43611e6cf5f9d",
+  "tokens": 134496,
+  "toolCalls": 27,
+  "durationMs": 266971,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "resolver:6",
+  "model": "claude-opus-5-5",
+  "agentId": "a0c5968e8f678e662",
+  "tokens": 133209,
+  "toolCalls": 16,
+  "durationMs": 355278,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "verifier:6v",
+  "model": "claude-opus-5-5",
+  "agentId": "a228f5bf51b78edce",
+  "tokens": 103601,
+  "toolCalls": 13,
+  "durationMs": 93717,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "resolver:6'",
+  "model": "claude-opus-5-5",
+  "agentId": "a3622882f1b2e7c85",
+  "tokens": 95402,
+  "toolCalls": 10,
+  "durationMs": 48198,
+  "attempt": 1
+ },
+ {
+  "run": 3,
+  "label": "verifier:6v'",
+  "model": "claude-opus-5-5",
+  "agentId": "a33555c36237f8d23",
+  "tokens": 82956,
+  "toolCalls": 9,
+  "durationMs": 29769,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:3a'",
+  "model": "claude-opus-5-5",
+  "agentId": "abc032ebfb36ee9ef",
+  "tokens": 85592,
+  "toolCalls": 8,
+  "durationMs": 21271,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "verifier:3a'v",
+  "model": "claude-opus-5-5",
+  "agentId": "ac0d789b9043ebe90",
+  "tokens": 79750,
+  "toolCalls": 7,
+  "durationMs": 17539,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "writer:U-1:revise",
+  "model": "claude-opus-5-5",
+  "agentId": "a6a1af915713e95b0",
+  "tokens": 118827,
+  "toolCalls": 32,
+  "durationMs": 206092,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "grounding:r2:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "agentId": "afb7b896d53702faf",
+  "tokens": 131046,
+  "toolCalls": 21,
+  "durationMs": 241694,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "implementer:r2:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "agentId": "a283508f91900b118",
+  "tokens": 134728,
+  "toolCalls": 14,
+  "durationMs": 263653,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "crossDoc:r2:all",
+  "model": "claude-sonnet-5",
+  "agentId": "a2880278f55033c4f",
+  "tokens": 122782,
+  "toolCalls": 32,
+  "durationMs": 271523,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:6",
+  "model": "claude-opus-5-5",
+  "agentId": "a98675b5779b5efbd",
+  "tokens": 121038,
+  "toolCalls": 16,
+  "durationMs": 133120,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "verifier:6v",
+  "model": "claude-opus-5-5",
+  "agentId": "a3e3e1d1f56011e80",
+  "tokens": 100928,
+  "toolCalls": 14,
+  "durationMs": 70171,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "flow-framer:6-settle",
+  "model": "claude-opus-5-5",
+  "agentId": "a592bf2d6f2ab19a6",
+  "tokens": 83843,
+  "toolCalls": 12,
+  "durationMs": 38280,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:6-settle-pairs",
+  "model": "claude-opus-5-5",
+  "agentId": "ae98040f4de00dc71",
+  "tokens": 87702,
+  "toolCalls": 11,
+  "durationMs": 32276,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "verifier:6v-settle",
+  "model": "claude-opus-5-5",
+  "agentId": "a198050076b33d9b4",
+  "tokens": 93481,
+  "toolCalls": 13,
+  "durationMs": 69549,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "writer:U-1:revise",
+  "model": "claude-opus-5-5",
+  "agentId": "a89d715bdd992fb8e",
+  "tokens": 115503,
+  "toolCalls": 19,
+  "durationMs": 75623,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "grounding:r3:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "agentId": "a73b14534694f5377",
+  "tokens": 165869,
+  "toolCalls": 28,
+  "durationMs": 259275,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "implementer:r3:requirements/cleanup-branches",
+  "model": "claude-opus-5-5",
+  "agentId": "aead89ad67eba2b63",
+  "tokens": 121121,
+  "toolCalls": 16,
+  "durationMs": 260266,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "crossDoc:r3:all",
+  "model": "claude-sonnet-5",
+  "agentId": "ae79e530de81e0dc7",
+  "tokens": 134770,
+  "toolCalls": 30,
+  "durationMs": 361036,
+  "attempt": 1
+ },
+ {
+  "run": 4,
+  "label": "resolver:final",
+  "model": "claude-opus-5-5",
+  "agentId": "a0211f9ecee2b7d4f",
+  "tokens": 103141,
+  "toolCalls": 10,
+  "durationMs": 66383,
+  "attempt": 1
+ }
+]

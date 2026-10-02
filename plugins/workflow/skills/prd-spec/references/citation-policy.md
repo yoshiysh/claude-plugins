@@ -66,7 +66,7 @@ unambiguous / correct / verifiable / appropriate / feasible / conforming）、�
 - 良い: 「医療機器ソフトウェアの安全クラス分類に相当する区分を設ける」
 - 悪い: 「IEC 62304 §5.2.2 が要求するとおり〜」
 
-script（`draft.js` / `refine.js` の `structuralFindings`）は、これらの規格名の直後に節番号らしき数字が続く形を文字列検査で拾い、
+`scripts/doc_check.mjs` の構造検査は、これらの規格名の直後に節番号らしき数字が続く形を文字列検査で拾い、
 指摘として返す。
 
 ## 廃止済み規制（学習データが古いことによる最大の危険）
@@ -93,5 +93,5 @@ QMSR は DHF ではなく "medical device file" の語を使う。§820.3 Defini
 使いたい場合は「歴史的な設計統制モデル」であることを同じ段落に明記し、**現行 FDA 規則の
 引用としては提示しない**。
 
-script（`draft.js` / `refine.js`）がこれらを完全一致で検査する。agent の判断に委ねないのは、この 4 語が
+`scripts/doc_check.mjs` がこれらを完全一致で検査する。agent の判断に委ねないのは、この 4 語が
 精密に定義できるからであり、精密に定義できる禁止事項の混入検出は機械検証が正しい形だからである。

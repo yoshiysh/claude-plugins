@@ -4,6 +4,8 @@
 check_portability.py が「install 先で壊れる**書き方**」を分類する広めの検出器なのに対し、
 本スクリプトは「その参照先が**今このリポジトリに存在するか**」だけを厳密に見る。
 存在しない参照は書き方が正しくても壊れているため、こちらは exit 1 で落とす。
+検査するのは配布される .md（git 管理下と ignore されていない未追跡）だけなので git が要る。
+git 管理外では配布集合を決められず、ERROR の 1 行と exit 5 で止める。
 
 検出する参照の形:
 - `[SKILL_DIR]/<path>`            … スキル自身の配下。skill_root/<path> の実在を見る。
@@ -28,6 +30,7 @@ import sys
 from pathlib import Path
 from path_safety import (find_project_root, guard_skill_root, guard_plugin_root,
                          ensure_within, validate_name)
+from verify_install import DistributionError, distribution
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
@@ -95,8 +98,10 @@ def check_skill(skill: str) -> dict:
     siblings_dir = owning_plugin_skills_dir(skill)
     findings = []
 
+    # 配布される .md だけを見る: gitignore した実行時の作業物（prd-spec の W など）は install 先に届かない。
+    shipped = distribution(skill_root).files
     for md in sorted(skill_root.rglob("*.md")):
-        if "node_modules" in md.relative_to(skill_root).parts:
+        if md.relative_to(skill_root).as_posix() not in shipped:
             continue
         try:
             lines = md.read_text(encoding="utf-8").splitlines()
@@ -188,7 +193,7 @@ def main() -> None:
 
     try:
         reports = [check_skill(s) for s in skills]
-    except ValueError as exc:
+    except (ValueError, DistributionError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(5)
     total = sum(r["broken"] for r in reports)

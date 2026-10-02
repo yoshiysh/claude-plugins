@@ -1,0 +1,30 @@
+{
+ "targets": ["requirements"],
+ "docs": [
+  { "key": "requirements/cleanup-branches", "concern": "取り込み済みブランチ・終了済み workspace の整理と、作業場所の主ブランチへの同期", "covers": [], "fixed": false, "decision": "D-002" }
+ ],
+ "units": [{ "id": "U-1", "docs": ["requirements/cleanup-branches"], "depends_on": [] }],
+ "domain": [
+  { "aspect": "life", "verdict": "非該当", "decision": "D-007" },
+  { "aspect": "money", "verdict": "非該当", "decision": "D-008" },
+  { "aspect": "personal_data", "verdict": "不明", "open": "O-005" },
+  { "aspect": "legal", "verdict": "不明", "open": "O-006" },
+  { "aspect": "audit", "verdict": "不明", "open": "O-007" },
+  { "aspect": "availability", "verdict": "不明", "open": "O-008" },
+  { "aspect": "external", "verdict": "該当", "decision": "D-006" },
+  { "aspect": "irreversible", "verdict": "該当", "decision": "D-005" },
+  { "aspect": "audience", "verdict": "不明", "open": "O-009" },
+  { "aspect": "retention", "verdict": "不明", "open": "O-010" }
+ ],
+ "required_categories": [
+  { "name": "不可逆な削除・同期の実行前に利用者の確認を求める対象と範囲", "decision": "D-005" },
+  { "name": "削除したブランチを後から復元する手段", "decision": "D-005" },
+  { "name": "GitHub の PR 情報や remote に到達できないときの、取り込み済みかどうかの判定の扱い", "decision": "D-006" },
+  { "name": "remote リポジトリ上で削除してよいブランチの範囲の限定", "decision": "D-006" }
+ ],
+ "self_containment": {
+  "decision": "D-004",
+  "inline": ["cleanup-branches が達成すること・守ることの要求"],
+  "reference": ["貼り付けの SKILL.md と repo_state.py の実現手段（git・gh のコマンド、呼び出し回数の工夫、subprocess の引数形式、実測の所要時間）"]
+ }
+}

@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "id": "r2-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-010",
+      "quote": "システムは、ローカルの主ブランチ、現在のブランチ、主ブランチを base とする開いた PR を持つブランチを、他のブランチと同じ分類規則で分類しなければならない。",
+      "issue": "ここで手が止まる。なぜならローカルの主ブランチを分類するとき、用語「取り込み済み」の「そのブランチ自身を除く」で除くのがそのローカルの ref だけなのか、同じ名前の remote 側の主ブランチ（追跡先）も含むのかが分からないから。どちらに読むかで、ローカルの主ブランチが毎回の実行で確認なしに削除されるかが変わる。",
+      "repro": "主ブランチが main だけのリポジトリで、ローカルの main が origin/main と同じ commit を指し、現在のブランチである。読み A（除くのはローカルの main の ref だけ）: origin/main に内容があるので取り込み済みとなり、新ブランチの作成後に確認なしで削除される（PR-CLEANUP-051）。これが毎回の実行で起きる。読み B（remote 側の main も同じブランチとして除く）: 比べる主ブランチが残らず未取り込み・追跡先残存となり、候補にせず残る。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "ローカルの主ブランチを分類するとき、同名の remote 側の主ブランチを比べる相手に含めるかを決める",
+      "origin": "ledger"
+    },
+    {
+      "id": "r2-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-037",
+      "quote": "現在のブランチが主ブランチを base とする開いた PR を持たないとき、システムは現在のブランチが指す commit を起点ブランチの remote 上の最新へ動かさなければならない（現在のブランチが無いときは現在の位置だけを動かす）。",
+      "issue": "ここで手が止まる。なぜなら PR 情報の取得元が使えず、開いた PR の有無が分からないときに、それを「持たないとき」として本項目を当てるのか、PR-CLEANUP-036 と同じく commit を動かさないのかが分からないから。flow の分岐（F-051）は有り・無しの 2 値しか持たない。",
+      "repro": "PR 情報の取得元が使えない環境で、現在のブランチ feature/x は main を base とする開いた PR を持ち、PR の head に未 push の 1 commit を積んでいる。読み A（不明を「持たない」とする）: feature/x の指す commit が起点ブランチの最新へ動き、未 push の commit はどのブランチからも辿れなくなる。読み B（不明のときは動かさない）: feature/x はそのまま残る。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "direction_note": "開いた PR の有無が分からないときに現在のブランチの commit を動かすかを決める",
+      "origin": "flow"
+    },
+    {
+      "id": "r2-im-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-049",
+      "quote": "工程を終えたとき、システムは次の項目を完了報告に載せなければならない。",
+      "issue": "本項目の目的（削除したもの・残したものを依頼者に示す。F-064）に対して弱すぎる。新ブランチの作成や未コミットの変更の退避に失敗して中止した経路は、中止の報告（F-045・PR-CLEANUP-042）で終わり完了報告に来ないため、中止より前に確認なしで削除したブランチと承認を得て削除したものが、どの報告にも載らない。",
+      "repro": "取り込み済みのローカルブランチ feature/a・feature/b を確認なしで削除し、承認された未取り込みの remote ブランチ feature/c を削除した後、指定された名前のブランチが既にあって新ブランチの作成に失敗する。報告は失敗した操作と中止した旨だけになり、feature/a・feature/b・feature/c を削除したことを依頼者が知る手段が無い。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "relax",
+      "direction_note": "中止した経路で、それまでに削除したもの・残したものを依頼者に示すかを決める",
+      "origin": "flow"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全 291 行を読み、対象の PR-CLEANUP-004・008・010・031・037・049 を判定した。PR-CLEANUP-008 は L59 で欠番とされ本文に項目が無い。004 と 031 は指摘なし。照合に使ったもの: meta.json の対象項目の trace、input.md 全文、answers/g0.md・g0-2.md・g1.md、decisions.json 全件、plan.json、resolutions の RS-012・013・014・023・025・027・031・039〜051（RS-024・RS-038 は無効として根拠から除外）、flow.json の F-003・004・007〜010・012・045〜047・050〜054・062〜065、前のパスの指摘 r1-cd-all-001・r1-gr-…-001・r1-im-…-001〜007。当てた観点は implementer のみ: 要求文書の問い（決めるべきことが決まっているか・手段が目的の顔をしていないか）、着手可能性（判断の委任・分岐の不足・前提の形・複数解釈・用語の未定義）、項目自身の trace と目的に対する過不足と冗長、EARS・境界値・複合要求。項目どうしの関係・根拠の有無・doc_check の判定範囲は見ていない。"
+}

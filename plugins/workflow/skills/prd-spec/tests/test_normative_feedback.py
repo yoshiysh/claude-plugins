@@ -7,23 +7,20 @@
    - 仕様項目の単位の自己宣言（ST-NOUNIT）の有無を両方向で固定する。
    - 解消条件の無い blocking TBD（ST-TBD-NORESOLVE）と、ID 見出しレベルの
      不統一（ST-IDHEADING）の検出。
-2. specimen の標本多様性: 標本が自己出自文書のみのランは skip せずに
-   specimen_self_only: true で申告する（構造の固定）。
 """
 
 import shutil
 import unittest
 from pathlib import Path
 
-from test_structural_findings import DRAFT, REFINE, doc, ids_of, run_structural
+from test_structural_findings import DOC_CHECK, doc, ids_of, run_structural
 
 SKILL = Path(__file__).resolve().parents[1]
-REFINE_SRC = REFINE.read_text(encoding="utf-8")
 
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class ModalEndingTests(unittest.TestCase):
-    """語尾照合。draft/refine 両 script で挙動が一致すること（逐語複製の契約）。"""
+    """語尾照合。"""
 
     def test_godan_verb_ending_is_not_flagged(self):
         # 「含まなければならない」「置かなければならない」は五段動詞の活用形。
@@ -37,8 +34,8 @@ class ModalEndingTests(unittest.TestCase):
                 ids=["PR-A-001", "PR-A-002"],
             )
         ]
-        for script in (DRAFT, REFINE):
-            r = run_structural(docs, script)
+        for script in (DOC_CHECK,):
+            r = run_structural(docs)
             self.assertEqual(
                 [], [i for i in ids_of(r) if i.startswith("ST-MODAL")],
                 f"{script.name} が五段動詞の語尾を偽陽性にした",
@@ -78,8 +75,8 @@ class ModalEndingTests(unittest.TestCase):
                 ids=["PR-A-001"],
             )
         ]
-        for script in (DRAFT, REFINE):
-            r = run_structural(docs, script)
+        for script in (DOC_CHECK,):
+            r = run_structural(docs)
             hits = [f for f in r["findings"] if f["id"].startswith("ST-MODAL")]
             self.assertEqual(1, len(hits), f"{script.name} が規範意図の非 4 語尾を検出しない")
             self.assertEqual("degraded", hits[0]["severity"])
@@ -112,8 +109,8 @@ class UnitDeclarationTests(unittest.TestCase):
         return doc("requirements", "auth", "#### PR-A-001 x\n", ids=["PR-A-001"])
 
     def test_missing_unit_declaration_is_flagged(self):
-        for script in (DRAFT, REFINE):
-            r = run_structural([self.req(), self.spec("#### SP-A-001 z\n")], script)
+        for script in (DOC_CHECK,):
+            r = run_structural([self.req(), self.spec("#### SP-A-001 z\n")])
             hits = [f for f in r["findings"] if f["id"].startswith("ST-NOUNIT")]
             self.assertEqual(1, len(hits), f"{script.name} が単位宣言の欠落を検出しない")
             self.assertEqual("degraded", hits[0]["severity"])
@@ -184,8 +181,8 @@ class TbdResolveAndHeadingLevelTests(unittest.TestCase):
                 ids=["PR-A-001", "PR-A-002", "PR-A-003"],
             )
         ]
-        for script in (DRAFT, REFINE):
-            r = run_structural(docs, script)
+        for script in (DOC_CHECK,):
+            r = run_structural(docs)
             self.assertIn("ST-IDHEADING-PR-A-003", ids_of(r), script.name)
             self.assertNotIn("ST-IDHEADING-PR-A-001", ids_of(r), script.name)
 
@@ -201,28 +198,6 @@ class TbdResolveAndHeadingLevelTests(unittest.TestCase):
         r = run_structural(docs)
         self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-IDHEADING")])
 
-
-class SpecimenSelfOnlyStructureTests(unittest.TestCase):
-    """標本が自己出自のみのランを skip せず申告する構造の固定。"""
-
-    def test_self_only_is_computed_and_returned(self):
-        self.assertIn(
-            "const specimenSelfOnly = !specimenSkipped && specimenPaths.every((p) => documentPathsAll.has(p))",
-            REFINE_SRC,
-        )
-        self.assertIn("specimen_self_only: specimenSelfOnly", REFINE_SRC)
-
-    def test_self_only_warns_but_does_not_skip(self):
-        # skip の条件は「標本 0 件」のまま（self-only を skip 条件に混ぜない）。
-        self.assertIn("const specimenSkipped = !specimenPaths.length", REFINE_SRC)
-        self.assertIn("skip はしません", REFINE_SRC)
-
-    def test_the_recommendation_is_documented(self):
-        # 正の所在は references/workflow-io.md（Workflow B の内部機構）。SKILL.md は
-        # 呼び出し手順だけを持ち、内部機構の説明を二重に持たない。
-        doc = (SKILL / "references" / "workflow-io.md").read_text(encoding="utf-8")
-        self.assertIn("specimen_self_only", doc)
-        self.assertIn("自己出自", doc)
 
 
 if __name__ == "__main__":

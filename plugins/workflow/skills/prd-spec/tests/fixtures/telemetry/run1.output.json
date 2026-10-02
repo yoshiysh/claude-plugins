@@ -1,0 +1,17 @@
+{
+ "result": {
+  "status": "needs_answers",
+  "open_tbd": [],
+  "holds": [],
+  "missed": [],
+  "integrity": [],
+  "undeclared": {},
+  "question_ids": ["RS-002", "RS-003", "RS-004", "RS-005", "RS-006", "RS-007", "RS-008", "RS-011", "RS-012"],
+  "next_args": {
+   "state": {"gate": "g0"}
+  }
+ },
+ "agentCount": 4,
+ "totalTokens": 418873,
+ "totalToolCalls": 49
+}

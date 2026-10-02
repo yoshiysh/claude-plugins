@@ -1,182 +1,187 @@
-"""1 role = 1 責務の再設計（schemas/role-map.md）の回帰テスト。
+"""1 role = 1 責務（schemas/role-map.md）の回帰テスト。
 
-固定するのは 5 点。
-(a) auditor 契約に自由記述の fix が無く、direction が enum である
+固定するのは 3 点。
+(a) 監査役の契約に自由記述の修正文が無く、解消の方向（direction）だけを返す
     （検査者の文案は writer をアンカリングさせる — 実測済みの実害）
-(b) script 起票 TBD の text に「想定される解消」（監査者の解消案）を焼き込まない
-(c) 終端裁定の documented に text（転記文の文案）が無い（転記文は writer が起草する）
-(d) role-map.md（責務の正本）に全 role の行が存在する
-(e) sources_path 指定時、CONTEXT_BLOCK に tbd_answers_history の全文が入らない
-    （auditor 系 role の decisions は 1 行形式に縮約される）
+(b) role-map.md（責務の正本）に全 role の行があり、規範が宣言されている
+(c) script と SKILL.md が role-map.md を正として指す
 """
 
-import json
 import re
-import shutil
-import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
-from prose import prose_pattern
+from prd_script import PRD_PATH
+from test_ledger import _exported
 
 SKILL = Path(__file__).resolve().parents[1]
-REFINE = (SKILL / "scripts" / "refine.js").read_text(encoding="utf-8")
-DRAFT = (SKILL / "scripts" / "draft.js").read_text(encoding="utf-8")
+PRD = PRD_PATH.read_text(encoding="utf-8")
 CONTRACTS = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
 ROLE_MAP = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
 
+ROLES = (
+    "intake",
+    "flow-framer",
+    "resolver",
+    "resolver-verifier",
+    "writer",
+    "implementer",
+    "grounding",
+    "cross-doc",
+    "doc_check",
+    "prd-spec.js",
+    "司令塔",
+)
 
-def _slice_block(src: str, start_marker: str) -> str:
-    """start_marker から始まる { ... } ブロックを波括弧の対応で切り出す。"""
-    i = src.index(start_marker)
-    j = src.index("{", i)
-    depth = 0
-    for k in range(j, len(src)):
-        if src[k] == "{":
-            depth += 1
-        elif src[k] == "}":
-            depth -= 1
-            if depth == 0:
-                return src[i : k + 1]
-    raise AssertionError(f"{start_marker} の閉じ括弧が見つからない")
+
+def _row_pattern(role):
+    return re.compile(rf"^\|[^|]*\|\s*{re.escape(role)}[（ (|]", re.M)
 
 
 class DirectionReplacesFixTests(unittest.TestCase):
-    def test_audit_schema_has_direction_enum_and_no_fix(self):
-        block = _slice_block(REFINE, "const AUDIT_SCHEMA =")
-        self.assertNotIn("fix:", block)
-        self.assertIn("direction: { type: 'string', enum: AUDIT_DIRECTIONS }", block)
-        self.assertIn("'direction'", block)  # required に direction がある
-
-    def test_exec_schema_has_direction_enum_and_no_fix(self):
-        block = _slice_block(DRAFT, "const EXEC_SCHEMA =")
-        self.assertNotIn("fix:", block)
-        self.assertIn("direction: { type: 'string', enum: AUDIT_DIRECTIONS }", block)
-
-    def test_direction_enum_values_match_between_scripts(self):
-        def values(src):
-            block = re.search(r"const AUDIT_DIRECTIONS = \[(.*?)\]", src, re.S).group(1)
-            return re.findall(r"'([^']+)'", block)
-
-        self.assertEqual(values(REFINE), values(DRAFT))
-        self.assertIn("needs_human", values(REFINE))
-
     def test_contracts_declare_the_no_draft_norm_in_common_form(self):
-        # validity 固有だった規範が共通契約へ昇格していること
         self.assertIn("新しい要求文を創作して与えない", CONTRACTS)
         self.assertIn("`direction`", CONTRACTS)
         self.assertIn("direction_note", CONTRACTS)
 
-
-class NoResolutionBurnInTests(unittest.TestCase):
-    def test_tbd_text_does_not_embed_auditor_resolution(self):
-        for name, src in (("refine.js", REFINE), ("draft.js", DRAFT)):
-            self.assertNotIn("想定される解消", src, f"{name} が監査者の解消案を TBD text に焼き込んでいる")
+    def test_script_does_not_burn_auditor_resolution_into_prompts(self):
+        self.assertNotIn("想定される解消", PRD)
 
 
-class AdjudicationDocumentedTests(unittest.TestCase):
-    def test_documented_schema_has_no_text(self):
-        block = _slice_block(REFINE, "const ADJUDICATION_SCHEMA =")
-        documented = block[block.index("documented:") :]
-        self.assertNotIn("text: { type: 'string' }", documented)
-        self.assertIn("reason: { type: 'string' }", documented)
-        self.assertIn("required: ['digest', 'target_document', 'reason']", documented)
+class RequestCoverageTests(unittest.TestCase):
+    def test_cross_docの守備範囲に依頼と照らした範囲がある(self):
+        # 要求文書の上位は依頼そのものなので、ここが無いと依頼に対する欠落と作り込みを誰も見ない。
+        row = next(l for l in CONTRACTS.splitlines() if l.startswith("| cross-doc |"))
+        seen = row.split("|")[2]
+        self.assertIn("依頼（input.md・answers）と照らした文書全体の範囲の欠落と逸脱", seen)
 
 
 class RoleMapTests(unittest.TestCase):
     def test_all_roles_have_a_row(self):
-        for role in (
-            "intake",
-            "domain-analyst",
-            "splitter",
-            "req-writer / spec-writer",
-            "structural（script）",
-            "ladder-judge",
-            "resolver",
-            "resolver-verifier",
-            "precedent-judge",
-            "measurement",
-            "adjudicator",
-            "writer（転記改稿）",
-            "司令塔（SKILL.md）",
-        ):
-            self.assertRegex(ROLE_MAP, prose_pattern(f"| {role} |"), f"role-map.md に {role} の行が無い")
-        # 監査 7 観点 + specimen が 1 行で宣言されている
-        for auditor in ("executability", "clarity", "traceability", "coverage", "fabrication", "consistency", "validity", "specimen"):
-            self.assertIn(auditor, ROLE_MAP)
+        for role in ROLES:
+            self.assertRegex(ROLE_MAP, _row_pattern(role), f"role-map.md に {role} の行が無い")
+
+    def test_every_agent_file_has_a_row(self):
+        for path in sorted((SKILL / "agents").glob("*.md")):
+            self.assertRegex(ROLE_MAP, _row_pattern(path.stem), f"{path.name} の行が role-map.md に無い")
 
     def test_the_norm_is_stated(self):
-        self.assertRegex(ROLE_MAP, prose_pattern("1 role = 1 責務"))
+        self.assertIn("1 role = 1 責務", ROLE_MAP)
         self.assertIn("判定と事実指摘のみ", ROLE_MAP)
 
+    def test_resolverの行に段9と事後報告が無い(self):
+        # 事後報告は doc_check report の導出物で、生成する役を持たない。
+        row = next(l for l in ROLE_MAP.splitlines() if _row_pattern("resolver").match(l))
+        stages = row.split("|")[1]
+        self.assertNotIn("9", stages)
+        self.assertNotIn("事後報告", row)
+        self.assertIn("doc_check report", next(l for l in ROLE_MAP.splitlines() if _row_pattern("司令塔").match(l)))
+
     def test_scripts_and_skill_reference_the_role_map(self):
-        self.assertIn("schemas/role-map.md", REFINE)
-        self.assertIn("schemas/role-map.md", DRAFT)
+        self.assertIn("schemas/role-map.md", PRD)
         self.assertIn("role-map.md", (SKILL / "SKILL.md").read_text(encoding="utf-8"))
 
 
-def _extract_function(source: str, name: str) -> str:
-    lines = source.split("\n")
-    start = f"function {name}("
-    s = next(i for i, l in enumerate(lines) if l.startswith(start))
-    e = next(i for i in range(s + 1, len(lines)) if lines[i] == "}")
-    return "\n".join(lines[s : e + 1])
+class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
+    SECTION = "現物と既存実装の扱い"
+    READERS = {"intake": "intake.md", "resolver": "resolver.md", "resolver-verifier": "resolver-verifier.md", "writer": "writer.md", "grounding": "grounding.md"}
+
+    def _sections(self):
+        return _exported("m.CONTRACT_SECTIONS")
+
+    def test_規則を使う役だけがその節を読む(self):
+        readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
+        self.assertEqual(readers, set(self.READERS))
+
+    def test_節の見出しは契約に1回だけある(self):
+        self.assertEqual(len(re.findall(rf"^## {self.SECTION}$", CONTRACTS, re.M)), 1)
+
+    def test_役のファイルとreferencesは節を参照し本文を写さない(self):
+        phrases = ("将来の意図", "現物は将来", "現状どおり", "本当は違う形にしたい", "実装がそうなって", "既存実装は根拠にならない", "実装は要求の根拠にならない", "読んでよいと")
+        for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md")]):
+            text = path.read_text(encoding="utf-8")
+            for phrase in phrases:
+                self.assertFalse(phrase in text, f"{path.name}: {phrase}")
+            if path.name in self.READERS.values():
+                self.assertEqual(text.count(f"「## {self.SECTION}」"), 1, path.name)
 
 
-HARNESS = """
-const SKILL_DIR = '/skill'
-const mode = 'new'
-const input = '依頼文'
-const answers = '回答'
-const decisions = [{ id: 'D-001', topic: '語尾', value: '4 語尾', why: 'WHY_FIELD', reversibility: 'REV_FIELD' }]
-const inputTbdItems = []
-const domainFindings = []
-const requiredCategories = []
-const today = '2026-01-01'
-const tbdAnswers = ''
-const tbdAnswersHistory = [{ round: 1, answers: 'SECRET_HISTORY_BODY' }]
-const spec = JSON.parse(process.argv[2])
-const sourcesPath = spec.sources_path
-const flow = null
-const decisionsOneLine = (list) =>
-  (list || []).map((d) => `${d.id}: ${d.topic} = ${d.value}`).join('\\n') || '(決定なし)'
-"""
+
+class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlace):
+    SECTION = "flow.json の形"
+    READERS = {"flow-framer", "resolver", "resolver-verifier"}
+
+    def test_規則を使う役だけがその節を読む(self):
+        readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
+        self.assertEqual(readers, self.READERS)
+        self.assertNotIn("§flow-framer", self._sections()["resolver-verifier"], "verifier に §flow-framer 全体を配らない")
+
+    def test_役のファイルとreferencesは節を参照し本文を写さない(self):
+        # 節の本文の 20 字（仮名・漢字 10 字以上）が、契約の他の節・agents・references に無い。
+        norm = lambda t: re.sub(r"[\s`*「」]", "", t)
+        body = re.search(rf"^## {re.escape(self.SECTION)}$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)
+        others = [norm(CONTRACTS.replace(body, "")), *(norm(p.read_text(encoding="utf-8")) for p in [*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md")])]
+        lit = norm(re.sub(r"```.*?```", "", body, flags=re.S))
+        found = sorted({lit[i : i + 20] for i in range(len(lit) - 19)
+                        if len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", lit[i : i + 20])) >= 10 and any(lit[i : i + 20] in o for o in others)})
+        self.assertEqual(found, [])
+
+    # 共有してよい句と理由。黙って増やさないよう、件数を失敗の文に出す。
+    SHARED = {}
+    INJECT = ("受けたことにならない", "戻せない形で変える")
+
+    def _copies(self, targets):
+        # 20 字の窓が見逃す短い規範句: 節（、。括弧・コードの span・ID・パスで区切る）のうち仮名・漢字 8 字以上のものが、
+        # 契約の節から他のファイルへ、または他のファイルから契約の節へ逐語で現れる（短い句だけの写しは後者で拾う）。
+        cut = re.compile(r"`[^`]*`|\b[A-Z]{1,4}-[\w'-]*|[\w.-]*/[\w./-]+|[、。（）()「」『』:：;；|\n]")
+        squash = lambda t: re.sub(r"[\s*]", "", re.sub(r"```.*?```", "\n", t, flags=re.S))
+        clauses = lambda t: {c for c in (re.sub(r"[\s*]", "", x) for x in cut.split(re.sub(r"```.*?```", "\n", t, flags=re.S)))
+                             if len(re.findall(r"[\u3040-\u30ff\u4e00-\u9fff]", c)) >= 8}
+        body = re.search(rf"^## {re.escape(self.SECTION)}$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)
+        found = set()
+        for name, text in targets.items():
+            found |= {(name, c) for c in clauses(body) if c in squash(text)}
+            found |= {(name, c) for c in clauses(text) if c in squash(body)}
+        return sorted((n, c) for n, c in found if c not in self.SHARED)
+
+    def _targets(self):
+        paths = [*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md"), SKILL / "SKILL.md"]
+        return {p.name: p.read_text(encoding="utf-8") for p in sorted(paths)}
+
+    def test_役のファイルとreferencesとSKILLは節の短い規範句を写さない(self):
+        self.assertEqual(self._copies(self._targets()), [], f"除外 {len(self.SHARED)} 件: {sorted(self.SHARED)}")
+
+    def test_短い規範句だけの写しも拾う(self):
+        targets = self._targets()
+        targets["flow-framer.md"] += "".join(f"\n- 例では、{c}。\n" for c in self.INJECT)
+        self.assertEqual(sorted(c for _, c in self._copies(targets)), sorted(self.INJECT))
 
 
-@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
-class ContextBlockTests(unittest.TestCase):
-    def _run(self, role, sources_path):
-        src = HARNESS + _extract_function(REFINE, "flowContext") + "\n" + _extract_function(REFINE, "buildContextBlock") + (
-            "\nprocess.stdout.write(JSON.stringify(buildContextBlock(spec.role)))"
-        )
-        with tempfile.TemporaryDirectory() as d:
-            script = Path(d) / "t.mjs"
-            script.write_text(src)
-            out = subprocess.run(
-                ["node", str(script), json.dumps({"role": role, "sources_path": sources_path})],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        return json.loads(out.stdout)
+class InvariantKindSectionIsReadByKindUsers(FlowShapeSectionIsReadByFlowUsers):
+    SECTION = "不変条件の kind"
+    READERS = {"intake", "flow-framer", "resolver", "resolver-verifier"}
+    SHARED = {}
+    INJECT = ("差し替えた工程が縛りを失う",)
 
-    def test_sources_path_drops_full_history_from_context(self):
-        ctx = self._run("auditor", "/ws/sources/r2.md")
-        self.assertNotIn("SECRET_HISTORY_BODY", ctx)
-        self.assertIn("/ws/sources/r2.md", ctx)  # 正本の所在は要旨 1 行で残る
 
-    def test_without_sources_path_history_stays_inline(self):
-        ctx = self._run("auditor", "")
-        self.assertIn("SECRET_HISTORY_BODY", ctx)  # 後方互換
+class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):
+    PHRASES = ("既存の本文には trace が無い", "それ自身を原本", "既存の記述に同じ物差しを当てると")
+    READERS = ("grounding.md", "writer.md")
 
-    def test_auditor_gets_one_line_decisions_writer_gets_full(self):
-        auditor_ctx = self._run("auditor", "")
-        self.assertIn("D-001: 語尾 = 4 語尾", auditor_ctx)
-        self.assertNotIn("WHY_FIELD", auditor_ctx)
-        writer_ctx = self._run("writer", "")
-        self.assertIn("WHY_FIELD", writer_ctx)
-        self.assertIn("REV_FIELD", writer_ctx)
+    def test_規則は全役が読む共通の約束に1回だけある(self):
+        common = re.search(r"^## 共通の約束$(.*?)^## ", CONTRACTS, re.S | re.M).group(1)
+        for phrase in self.PHRASES:
+            self.assertEqual(CONTRACTS.count(phrase), 1, phrase)
+            self.assertIn(phrase, common)
+        self.assertIn("共通の約束", _exported("m.COMMON_SECTIONS"))
+
+    def test_役のファイルとreferencesは写さず参照する(self):
+        for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md"), SKILL / "SKILL.md"]):
+            text = path.read_text(encoding="utf-8")
+            for phrase in self.PHRASES:
+                self.assertNotIn(phrase, text, path.name)
+            if path.name in self.READERS:
+                self.assertIn("契約の「共通の約束」の既存の本文の扱い", text, path.name)
 
 
 if __name__ == "__main__":

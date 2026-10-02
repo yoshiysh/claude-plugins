@@ -17,11 +17,11 @@
 | 5 | 全項目に ID があり、仕様項目→要求 ID の紐付けが 100% | 機械（表と突合） | traceability.md §1–3 |
 | 6 | 要求文書に設計解が無く、仕様書に根拠不明の要求が無い | 目視 | prd-and-spec.md §3–4 |
 | 7 | スコープ外の節が非空である | 機械（見出し照合） | document-structure.md |
-| 8 | 全要求に `audit_trail` の根拠があり、引用が原本に実在し、認められた根拠原本以外の出所が無い | 機械（ID と trace の突合 `ST-NO-EVIDENCE`）＋引用の照合 | question-policy.md・fixed-premises.md |
+| 8 | 全要求に meta の `trace` の根拠があり、引用が原本に実在し、認められた根拠原本以外の出所が無い | 機械（ID と trace の突合 `ST-NO-EVIDENCE`）＋引用の照合 | question-policy.md・fixed-premises.md |
 | 9 | 必須の内容項目が揃い、該当が無い必須の章は「該当なし」と明記されている（「リスクと影響」表は判定根拠列付き） | 見出し照合 | document-structure.md §3・§5 |
 | 10 | 本文が規範だけで構成され（根拠句・決定ログ・経緯・未確定事項の章が無い）、決まっていない論点は保持規則として書かれている | 機械（`ST-NON-NORMATIVE`）＋目視 | document-structure.md §4 |
 | 11 | 改修案件で、保持すべき既存挙動が明示されている（該当時のみ） | 目視 | requirement-writing-rules.md §7 |
-| 12 | 期待挙動を規定しない冗長記述が無い（粒度の上限） | `scripts/check_unlinked_prose.py` が候補を列挙 → 目視裁定 | requirement-writing-rules.md §7・prd-and-spec.md §7 |
+| 12 | 期待挙動を規定しない冗長記述が無い（粒度の上限） | `[SKILL_DIR]/scripts/check_unlinked_prose.py` が候補を列挙 → 目視裁定 | requirement-writing-rules.md §7・prd-and-spec.md §7 |
 
 | 13 | 文脈ゼロの読者が各要求文を一意に解釈できる（golden rule） | 目視（fresh context 評価者自身が実演になる） | requirement-writing-rules.md |
 | 14 | 内容が文書の定義した価値と整合する（価値不要の要求・価値に必要な欠落・必須 5 項目の形骸化が無い） | 目視（fresh 監査者が価値判定を各要求へ適用） | prd-and-spec.md §4（正本） |
@@ -41,11 +41,11 @@
 
 ## 採点の規律
 
-- 採点の材料は生成文書と **Workflow の返り値（`audit_trail` / `holding_rules` / `work_items`）**
+- 採点の材料は生成文書と **W の記録（meta の `trace`・`decisions.json`・合格した `resolutions.json`・`report.md`）**
   の両方である。根拠・裁定の記録は文書に無いので、文書だけを見て「根拠が無い」と採点しない。
 - 各項目は **pass / fail / not-applicable / not-checked** の四値で返す。not-checked を
   fail にも pass にも丸めない（未検査は 0 件ではない）。
 - fail には該当箇所の引用を付ける。引用の無い fail は採点として受け取らない。
-- このチェックリストは生成側の auditor 群（clarity / traceability 等）と重なるが、役割が違う:
-  auditor は**改稿のための指摘**を出し、本リストは**完成品の絶対評価**を出す。
+- このチェックリストは監査役（implementer / grounding / cross-doc）と重なるが、役割が違う:
+  監査役は**改稿のための指摘**を出し、本リストは**完成品の絶対評価**を出す。
   両方が同じ定義ファイルを正とするので、基準は drift しない。

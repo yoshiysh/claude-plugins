@@ -1,0 +1,22 @@
+{
+ "valid": true,
+ "leg_count": 4,
+ "input_ref": "/root/.claude/prd-spec-workspace-rerun/cleanup-branches/input.md",
+ "gates_visited": [
+  "g0",
+  "g0-2",
+  "g1"
+ ],
+ "agent_count": 37,
+ "total_tokens": 4336332,
+ "total_tool_calls": 630,
+ "question_count": 19,
+ "status": "blocked",
+ "holds_count": 4,
+ "open_tbd_count": 0,
+ "missed_count": 0,
+ "integrity_count": 0,
+ "notices_count": 3,
+ "undeclared_count": 0,
+ "remaining_blocking_count": 2
+}

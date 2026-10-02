@@ -1,0 +1,99 @@
+{
+  "findings": [
+    {
+      "id": "r1-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-007",
+      "quote": "ブランチが基準ブランチのいずれかの履歴に含まれるとき、システムはそのブランチを取り込み済みに分類しなければならない。",
+      "issue": "ここで手が止まる。なぜなら基準ブランチ自身が判定の対象に入るかが分からないから。文面どおりなら main は main の履歴に含まれるので取り込み済みになり、PR-CLEANUP-012 により local・remote とも確認なしで消える（develop→main の merged PR があれば PR-CLEANUP-008 経由で develop も同じ）。",
+      "repro": "main と develop が実在し、develop を head・main を base とする merged の PR がある状態で実行する。PR-CLEANUP-006 で main・develop が基準ブランチになり、PR-CLEANUP-007 で main が、PR-CLEANUP-008 で develop が取り込み済みに分類され、PR-CLEANUP-012 に従うと origin/main と origin/develop を確認なしで削除することになる。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "tighten",
+      "direction_note": "基準ブランチ自身を取り込み判定・確認なし削除の対象に含めるかを決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-012",
+      "quote": "システムは、取り込み済みに分類したローカルと remote のブランチを、利用者の確認を求めずに削除しなければならない。",
+      "issue": "ここで手が止まる。なぜなら現在のブランチ・他の worktree で checkout 中のブランチ・open の PR を持つブランチが取り込み済みに分類されたとき、それも消すのかが分からないから。消すと決めると git に拒否される削除や open の PR を閉じる削除を毎回要求することになり、PR-CLEANUP-041 が保つ前提の現在のブランチを先に消しうる。",
+      "repro": "(1) squash merge 済みの feature/x を checkout したまま実行する: PR-CLEANUP-008 で取り込み済みになり、本項は checkout 中の feature/x の確認なし削除を要求する。(2) hotfix/y が develop に取り込み済みで、base=main の PR が open のまま: PR-CLEANUP-007 で取り込み済みになり、本項は origin/hotfix/y の削除（= open の PR を閉じる）を要求する。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "tighten",
+      "direction_note": "取り込み済みでも確認なし削除から外すブランチの条件を決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-008",
+      "quote": "ブランチが、基準ブランチのいずれかを base とする merged の PR の head であるとき、システムはそのブランチを取り込み済みに分類しなければならない。",
+      "issue": "要求が目的に対して強すぎる。PR の head はブランチ名で照合されるため、PR のマージ後にローカルへ足した未 push の commit や、同じ名前で作り直したブランチの内容も取り込み済みとして確認なしで消え、「消しても失われるものが無いものだけ確認なしで消す」という文書の前提が崩れる。",
+      "repro": "feature/x の PR が main へ squash merge された後、ローカルの feature/x に commit を 2 つ足して push せずに実行する。本項で feature/x は取り込み済みになり、PR-CLEANUP-012 により 2 つの commit を含むまま確認なしで削除される。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "tighten",
+      "direction_note": "PR の照合だけで取り込み済みにしてよい条件を決める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-004",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-031",
+      "quote": "システムは、利用者が削除を承認していない要判断のブランチを削除してはならない。",
+      "issue": "ここで手が止まる。なぜなら何をもって 1 件の「承認」とするかが分からないから。PR-CLEANUP-028 は一括削除を選択肢に出すことだけを禁じており、利用者が自由記述でまとめて消すよう答えたとき、それを全候補の承認として削除するのか、選択肢外として PR-CLEANUP-029 の出し直しに回すのかが項目から決まらない。入力は未取り込みの削除を一件ごとの承認が前提と書いている。",
+      "repro": "要判断のブランチ 30 件を要約して問いかけ、利用者が「古いのは全部消して」と答える。承認と読めば 30 件を削除し、選択肢外と読めば問いかけを出し直す。",
+      "blocking": true,
+      "route": "writer",
+      "direction": "make_measurable",
+      "direction_note": "入力の「一件ごとの承認が前提で、まとめて回す対象ではない」に辿れる範囲で承認の単位を定める"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-005",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-015",
+      "quote": "取り込み済みブランチの削除が失敗したならば、システムは残りの取り込み済みブランチの削除を続けなければならない。",
+      "issue": "分岐が足りない。残りの削除を続けた後、終了済み workspace の削除・問いかけ・同期・作業用ブランチの作成へ進むのか止めるのかが無い。PR-CLEANUP-053 は失敗を完了報告に載せるとしているが、報告までの間の工程を実行するかは決まらない（流れでも F-091 の行き先は未決のまま）。",
+      "repro": "権限不足で origin/feature/a の削除が失敗する。続く工程を実行する実装と、完了報告だけ返して止める実装のどちらも本項を満たす。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-006",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-043",
+      "quote": "現在のブランチに基準ブランチを base とする open の PR が無いとき（現在のブランチが無い場合を含む）、システムは現在の位置を起点ブランチの remote 側の最新へ合わせなければならない。",
+      "issue": "要求が目的に対して強すぎる。目的は起点ブランチの最新から作業用ブランチを作ることだが、本項は現在のブランチそのものの位置を動かすことまで要求しており、PR-CLEANUP-060 で削除から守られる未取り込み・未 push のブランチも起点ブランチの位置へ付け替わる。open の PR がある場合（PR-CLEANUP-042）は動かさずに目的を果たしている。",
+      "repro": "PR も remote も無い feature/y（未 push の commit 3 つ）を checkout して実行する。本項により feature/y が origin/main の位置へ動き、3 つの commit はどのブランチからも辿れなくなる。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "relax"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-007",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-014",
+      "quote": "確認を求めない削除の対象として、取り込み済みに分類していないブランチを名前で指定されたならば、システムはその削除を拒否しなければならない。",
+      "issue": "手段が目的の顔をしている。誰が名前を指定するかが書かれておらず、元は削除コマンドの引数の照合（入力の prune-remote）である。目的の側は PR-CLEANUP-013 が持っており、利用者が依頼文で未取り込みのブランチを名指ししたときに拒否するのか要判断の問いかけに回すのかが本項からは読めない。",
+      "repro": "利用者が「整理して。feature/old も消して」と依頼し、feature/old が要判断に分類される。本項を当てれば拒否になり、PR-CLEANUP-020 を当てれば問いかけの候補になる。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "merge_or_split",
+      "direction_note": "D-005 の方針（サブコマンドは参照にとどめる）に沿って手段の記述を扱う"
+    },
+    {
+      "id": "r1-im-requirements__cleanup-branches-008",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-023",
+      "quote": "システムは、問いかけの各候補に、起点からの独自 commit 数と最終 commit 日を添えなければならない。",
+      "issue": "ここで手が止まる。なぜなら「起点」が用語の「起点ブランチ」を指すのか分からないから。参照先の repo_state.py は main・develop・起点ブランチのうち最も近いものから数えており、起点ブランチ固定と読むと参照先と数が変わる。入力は「独自 commit 数」とだけ書いている。",
+      "repro": "起点ブランチが main で、develop から分岐し develop に無い commit が 2 つ・main に無い commit が 10 個あるブランチ。起点ブランチから数えれば 10、参照先の数え方なら 2 を添える。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "relax",
+      "direction_note": "数える基準は入力の文言と参照先に辿れる範囲で扱う"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全文（353 行、PR-CLEANUP-001〜060 と用語・前提・判定表・RK 表）と meta.json の trace 全件を読み、input.md 全文・answers/*.md・decisions.json・plan.json・resolutions.json（RS-001〜021、RS-018 は無効として根拠にしない、RS-021 は保持規則として PR-CLEANUP-019 を指摘対象外）・flow.json を根拠に照合した。前提で参照先とされる SKILL.md（input に逐語）と scripts/repo_state.py（hold_reason・classify_one_local・classify_remote・branch_facts）を開き、参照先で決まることは指摘から外した。当てた観点: 着手できるか（判断の委任・分岐の不足・前提の形・複数解釈・未定義語）、項目自身の目的に対する強すぎ/弱すぎ・手段が目的の顔をしていないか、EARS・境界値・複合要求。項目間の重複・矛盾（例: PR-CLEANUP-021 と 020、PR-CLEANUP-023 と 024、PR-CLEANUP-043 と 035）、根拠の有無、doc_check の機械判定項目は守備範囲外として出していない。"
+}

@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "id": "r1-gr-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-015",
+      "quote": "取り込み済みブランチの削除が失敗したならば、システムは残りの取り込み済みブランチの削除を続けなければならない。",
+      "issue": "trace の唯一の内容根拠 RS-010 の value は「現在の実装では…失敗しても残りを続ける」という現物の挙動の記述で、依頼者が続行を望んだことを支えない（既存実装を要求の根拠にしている）。入力に失敗時の記述は無く、flow F-091 もこの行き先を「未決」としたままで、同じ型の論点（確認なし削除の失敗で続けるか止めるか）を RS-021 は価値の判断として hold にしている。",
+      "repro": "取り込み済みのローカルブランチが 3 本あり、1 本目の削除が失敗する。PR-CLEANUP-015 は残り 2 本の削除を必須にするが、依頼者は続行も停止も選んでいない（RS-012 の「続けて報告する」は承認済みの削除だけが対象）。停止を選ぶ実装はこの要求に違反と判定される。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "document_decision",
+      "direction_note": "確認なし削除の失敗時の行き先は RS-021 と同じく依頼者の価値判断の論点。PR-CLEANUP-053 の取り込み済みブランチの失敗の報告も同じ根拠に依る"
+    },
+    {
+      "id": "r1-gr-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-002",
+      "quote": "remote の最新状態の取り込みに失敗したならば、システムは失敗した操作と失敗の内容を利用者へ示さなければならない。",
+      "issue": "「失敗した操作と失敗の内容を示す」は RS-009 が測った現在の実装の出力形式（標準エラーへの「error: <コマンド> -> exit <n>: <stderr>」）から来ており、入力・回答・決定のどこにも fetch 失敗時に何を示すかの記述が無い（既存実装を要求の根拠にしている）。停止すること自体（PR-CLEANUP-003）は入力「以降の判断は全てこの JSON を根拠にする」に辿れるが、示す内容はそうではない。",
+      "repro": "fetch が認証エラーで失敗したとき、「remote の取り込みに失敗したため中止した」とだけ示し、実行したコマンドと git の stderr を出さない実装は PR-CLEANUP-002 に違反と判定されるが、依頼者はどこまで示すかを決めていない。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "document_decision",
+      "direction_note": "削除すると PR-CLEANUP-003 の停止が利用者へ伝わる規範が無くなるため、示す内容を論点として起こす"
+    },
+    {
+      "id": "r1-gr-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-023",
+      "quote": "システムは、問いかけの各候補に、起点からの独自 commit 数と最終 commit 日を添えなければならない。",
+      "issue": "trace の引用（input L163）は「独自 commit 数・最終 commit 日」とだけ言い、何からの独自 commit 数かを定めていない。本文は「起点から」を加え、用語表で起点＝起点ブランチと定義しているため、比較の基準を起点ブランチに固定する根拠の無い具体値になっている（現物の branch_facts も main・develop・起点ブランチのうち最小の本数を採っており、起点ブランチ固定ではない）。",
+      "repro": "起点ブランチが develop で、候補ブランチが main から分岐し main に対して独自 commit 2 本・develop に対して 15 本のとき、本文どおりなら 15 本を添えることになり、入力の「独自 commit 数」がどちらを指すかを依頼者は決めていない。",
+      "blocking": true,
+      "route": "writer",
+      "direction": "remove",
+      "direction_note": "引用が定めていない比較の基準を除く"
+    }
+  ],
+  "checked": "requirements-cleanup-branches.md 全 353 行（entry: new のため全文が対象）と meta.json の trace 全件を読み、input 引用・answers 引用がそれぞれ input.md・answers/*.md に逐語で実在することをスクリプトで照合した（不一致 0）。trace の decision / resolution / flow / premise 参照を decisions.json・resolutions.json・flow.json・fixed-premises.md と突き合わせ、各要求文・背景・利用場面・スコープ・前提・用語・リスク表（RK-001〜010）の 1 文ごとに、捏造・出所の偽装・既存実装の根拠化・未決の断定・入力違反・無効な RS-018 の参照（本文・meta とも 0 件）を当てた。PR-CLEANUP-019 は保持規則なので対象外。意図して他の観点に残したもの: 用語表「取り込み済み」の「変更内容の判定では起点ブランチを含む」と PR-CLEANUP-011 の比較対象の食い違い（cross-doc）、PR-CLEANUP-033 の禁止形（RS-004 の value「打たない」に一致しており、回答「不要」からの強めは resolution の内側）、PR-CLEANUP-003 は入力 L77-78 に辿れるため指摘しない、PR-CLEANUP-014 のローカルへの一般化は PR-CLEANUP-013 の根拠に含意されるため指摘しない、前提 7 を内容の根拠に挙げる trace は全て入力の根拠も併せ持つため指摘しない。"
+}

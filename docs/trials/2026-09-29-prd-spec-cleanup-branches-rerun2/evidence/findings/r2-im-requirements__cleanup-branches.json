@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "id": "r2-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-011",
+      "quote": "cleanup-branches は、状態の取得で、起点ブランチのローカルブランチを、ローカルにだけあるコミットを捨てずに remote の起点ブランチに追従させなければならない。",
+      "issue": "ここで手が止まる。起点ブランチのローカルブランチが無いときや、それが別の worktree で checkout されているとき（動かすとその作業場所の HEAD が作業ツリーごとずれる）に、追従を省くのか、追従に失敗したものとして状態を取れなかったことにするのか、ローカルブランチを作る・動かすのかが分からないから。",
+      "repro": "作業場所 W2 が feature/a の上にあり、main は主の worktree で checkout 中、origin/main は main より 3 コミット進んでいる → main の ref を動かす実装は主の worktree の HEAD をずらし、失敗とみなす実装は状態を取れなかったとして何も削除・同期せずに止まり、追従を省く実装はそのまま整理と同期へ進む。",
+      "blocking": true,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger"
+    },
+    {
+      "id": "r2-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-048",
+      "quote": "tracked ファイルの未コミット差分か未追跡ファイルがあるとき、cleanup-branches は、作業場所の同期の前にそれらを退避しなければならない。",
+      "issue": "ここで手が止まる。今いるブランチを動かさずに起点ブランチから作業用ブランチを作る場合（open PR がある・得られない）に「作業場所の同期」が行われたことになるのかが分からず、その場合にも作業用ブランチを作る前に退避するのかが決まらないから。",
+      "repro": "今いる feature/a に main を base とする open PR があり、README.md に tracked の未コミット差分があって、README.md の内容が feature/a と origin/main で違う → 退避する実装は作業用ブランチを作ってから退避を戻し（衝突すれば報告し）、同期が無いとして退避しない実装は未コミットの差分に阻まれて作業用ブランチを作れず、作れなかった旨を報告して後処理へ進む。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "choose_one",
+      "origin": "text"
+    },
+    {
+      "id": "r2-im-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-028",
+      "quote": "> 条件の値: 応答の種類 = 一部を承認 / 全件残す / 一覧を求める / それ以外",
+      "issue": "ここで手が止まる。問いは複数のカテゴリを 1 回にまとめ、全件を示したカテゴリと要約したカテゴリが並びうるので、1 つの応答があるカテゴリの候補を名指しして承認し、別のカテゴリの一覧を求めることがあるが、その応答が判定表のどの応答の種類に当たるのかが分からないから。",
+      "repro": "要判断のローカルブランチ 3 件を全件示し、要判断の remote ブランチ 30 件を要約して示した問いに、利用者が「feature/a は消して、remote の方は一覧を見せて」と応答 → feature/a を削除して一覧も示す実装、一部を承認として feature/a だけを削除し一覧を示さない実装、それ以外として何も削除しない実装に割れる。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger"
+    }
+  ],
+  "checked": "input.md・answers/*.md・decisions.json・plan.json・resolutions.json（RS-001〜051）・flow.json（F-001〜058）を全件読み、文書 requirements-cleanup-branches.md の全文と、meta の対象項目の trace・tbd を読んだ。同じ項目への前のパスの指摘も読んだ。対象項目 PR-CLEANUP-003・004・005・011・012・024・028・029・030・031・048・058・062 について、着手できるか（判断の委任・分岐の不足・前提の形・複数の解釈・未定義の用語）、項目自身の trace と目的に対する過不足、EARS・境界値・複合要求の観点で見た。PR-CLEANUP-031 は本文で欠番とされ、項目が無い。PR-CLEANUP-004 は保持規則（TBD-RCLEANUP-002）なので対象外とした。PR-CLEANUP-003・005・012・024・029・030・058・062 には指摘が無い。"
+}

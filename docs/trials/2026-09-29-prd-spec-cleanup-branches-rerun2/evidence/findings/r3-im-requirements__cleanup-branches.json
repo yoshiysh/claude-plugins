@@ -1,0 +1,54 @@
+{
+  "findings": [
+    {
+      "id": "r3-im-requirements__cleanup-branches-001",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-028",
+      "quote": "cleanup-branches は、問いへの利用者の応答を、次の判定表に従って扱わなければならない。",
+      "issue": "ここで手が止まる。PR-CLEANUP-028 の節には「次の判定表」が無く、判定表（条件の値と表）は PR-CLEANUP-072 の見出しの下、削除を禁じる保持規則の直後に置かれているので、項目ごとに読むとこの項目の判定表がどれか分からず、072 の節の表（一部を承認なら削除する）が 072 の応答にも当たるように読めるから。",
+      "repro": "項目の見出しで切り出して PR-CLEANUP-028 だけを渡された実装者は、従うべき判定表を持たない。PR-CLEANUP-072 だけを渡された実装者は、「削除してはならない」の規則と「一部を承認 → 承認された対象だけを削除する」の行を同じ項目の中に読む。TBD の裁定が下って PR-CLEANUP-072 の節を消すと、028 の判定表も一緒に消える。",
+      "blocking": true,
+      "route": "writer",
+      "direction": "merge_or_split",
+      "direction_note": "判定表を参照元の項目の節に置く",
+      "origin": "text"
+    },
+    {
+      "id": "r3-im-requirements__cleanup-branches-002",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-028",
+      "quote": "「一部を承認」は、示した候補のうち 1 件以上を名指しして削除を承認する応答",
+      "issue": "ここで手が止まる。候補を件数と代表例に要約して示したカテゴリで、代表例に挙がっていない候補が「示した候補」に入るのかが分からず、代表例以外の候補を名指しした応答が「一部を承認」か「それ以外」かが決まらないから。",
+      "repro": "要判断の remote ブランチ 30 件を件数と代表例 5 件に要約して示した問いに、利用者が一覧を求めずに代表例に無い origin/feature/z を名指しして「feature/z は消して」と応答する → 要約したカテゴリの全候補を示した候補とみなす実装は feature/z を削除し、代表例だけを示した候補とみなす実装は「それ以外」として何も削除しない。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger"
+    },
+    {
+      "id": "r3-im-requirements__cleanup-branches-003",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-003",
+      "quote": "cleanup-branches は、主ブランチでないブランチの変更がいずれかの主ブランチの履歴に含まれるとき、そのブランチを取り込み済みと判定しなければならない。",
+      "issue": "ここで手が止まる。「ブランチの変更が…履歴に含まれる」が、ブランチのコミットそのものが主ブランチの履歴に含まれることを指すのか、同じ内容の変更が別のコミットとして主ブランチの履歴にあることも含むのかが分からないから。入力の経路①は「いずれかの primary ref の履歴に含まれるか」（input.md 41 行）で、含まれるものをブランチとしている。",
+      "repro": "ローカルブランチ feature/x のコミットが cherry-pick で main に別のコミットとして入り、feature/x の先端は main の祖先ではない → 変更の内容が履歴にあれば足りるとする実装は feature/x を取り込み済みと判定して確認なしに削除し、ブランチのコミットが履歴に含まれることとする実装は要判断に分類する。",
+      "blocking": false,
+      "route": "writer",
+      "direction": "choose_one",
+      "origin": "text"
+    },
+    {
+      "id": "r3-im-requirements__cleanup-branches-004",
+      "doc": "requirements/cleanup-branches",
+      "item_id": "PR-CLEANUP-062",
+      "quote": "| 作業状態 | submodule のポインタ差分・tracked ファイルの未コミット差分・未追跡ファイル・stash のそれぞれの件数 |",
+      "issue": "ここで手が止まる。載せる件数がどの時点の作業状態か（状態の取得の時点か、同期・後処理・退避の復帰を終えた完了報告の時点か）が決まっておらず、その間に件数が変わりうるから。",
+      "repro": "状態の取得の時点で未追跡ファイル 0 件・stash 2 件。後処理の make install-dev が未追跡のビルド成果物を 5 件作り、退避を戻す操作が衝突してこの実行の退避が stash に残る → 状態の取得の時点で数える実装は「未追跡 0 / stash 2」、完了報告の時点で数える実装は「未追跡 5 / stash 3」を載せる。",
+      "blocking": false,
+      "route": "decision",
+      "direction": "choose_one",
+      "origin": "ledger"
+    }
+  ],
+  "checked": "根拠一式として input.md・answers/g0.md・g0-2.md・g1.md・decisions.json・plan.json・resolutions.json（RS-001〜055）・flow.json（F-001〜058）と、文書の meta の対象項目の trace を全件読んだ。文書は全文を読み、対象の PR-CLEANUP-003・004・028・048・062 の節と、028 の判定表が置かれている PR-CLEANUP-072 の節を読んで、着手可能性・項目自身の trace に対する過不足・EARS・境界値・複合要求を当てた。前のパスの同じ項目への指摘 5 件を読み、逆向きの direction になっていないことを確かめた。PR-CLEANUP-004 は保持規則（RS-053）なので指摘しない。PR-CLEANUP-048 は項目の中で手が止まる箇所が無く指摘 0 件（049・051・044 との関係は cross-doc の守備範囲）。062 の復元用のタグの行の根拠は grounding の守備範囲なので見ていない。"
+}

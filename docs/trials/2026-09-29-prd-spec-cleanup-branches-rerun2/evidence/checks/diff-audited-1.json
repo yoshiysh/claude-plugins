@@ -1,0 +1,89 @@
+{
+ "against": "audited-1",
+ "expect": "80fdce6396b477aa6bf6b2ff9625f86c95ac3366e8f1ba2a0f3c41ac800b47fb",
+ "tree_digest": "be213b8272eef0fb84ca09ece008685631aa8308ba9c531702e5098b060f47cb",
+ "changed": [
+  "PR-CLEANUP-003",
+  "PR-CLEANUP-004",
+  "PR-CLEANUP-005",
+  "PR-CLEANUP-006",
+  "PR-CLEANUP-008",
+  "PR-CLEANUP-011",
+  "PR-CLEANUP-012",
+  "PR-CLEANUP-017",
+  "PR-CLEANUP-021",
+  "PR-CLEANUP-024",
+  "PR-CLEANUP-028",
+  "PR-CLEANUP-029",
+  "PR-CLEANUP-030",
+  "PR-CLEANUP-034",
+  "PR-CLEANUP-035",
+  "PR-CLEANUP-036",
+  "PR-CLEANUP-038",
+  "PR-CLEANUP-039",
+  "PR-CLEANUP-040",
+  "PR-CLEANUP-048",
+  "PR-CLEANUP-049",
+  "PR-CLEANUP-058",
+  "PR-CLEANUP-062",
+  "requirements/cleanup-branches§要求一覧"
+ ],
+ "added": [
+  "PR-CLEANUP-064",
+  "PR-CLEANUP-065",
+  "PR-CLEANUP-066",
+  "PR-CLEANUP-067",
+  "PR-CLEANUP-068",
+  "PR-CLEANUP-069",
+  "PR-CLEANUP-070",
+  "TBD-RCLEANUP-001",
+  "TBD-RCLEANUP-002"
+ ],
+ "removed": [
+  "PR-CLEANUP-031"
+ ],
+ "by_doc": {
+  "requirements/cleanup-branches": {
+   "changed": [
+    "PR-CLEANUP-003",
+    "PR-CLEANUP-004",
+    "PR-CLEANUP-005",
+    "PR-CLEANUP-006",
+    "PR-CLEANUP-008",
+    "PR-CLEANUP-011",
+    "PR-CLEANUP-012",
+    "PR-CLEANUP-017",
+    "PR-CLEANUP-021",
+    "PR-CLEANUP-024",
+    "PR-CLEANUP-028",
+    "PR-CLEANUP-029",
+    "PR-CLEANUP-030",
+    "PR-CLEANUP-034",
+    "PR-CLEANUP-035",
+    "PR-CLEANUP-036",
+    "PR-CLEANUP-038",
+    "PR-CLEANUP-039",
+    "PR-CLEANUP-040",
+    "PR-CLEANUP-048",
+    "PR-CLEANUP-049",
+    "PR-CLEANUP-058",
+    "PR-CLEANUP-062",
+    "requirements/cleanup-branches§要求一覧"
+   ],
+   "added": [
+    "PR-CLEANUP-064",
+    "PR-CLEANUP-065",
+    "PR-CLEANUP-066",
+    "PR-CLEANUP-067",
+    "PR-CLEANUP-068",
+    "PR-CLEANUP-069",
+    "PR-CLEANUP-070",
+    "TBD-RCLEANUP-001",
+    "TBD-RCLEANUP-002"
+   ],
+   "removed": [
+    "PR-CLEANUP-031"
+   ]
+  }
+ }
+}
