@@ -66,7 +66,7 @@ const H = (x) => (spec.long_digests ? String(x).padEnd(64, '0') : x)
 // spec.world があれば run をまたいで W のように残り、無ければ state から始める（state に載った ID は検証済みとして、about と ruling も state のとおりに置く）。
 const fs = await import('node:fs')
 // stampStdout: doc_check の CLI が stdout に付ける digest（stub の doc_check の stdout にも実物と同じ欄を付ける）。
-const { stampStdout } = await import(spec.doc_check_url)
+const { stampStdout, rulingsCompact } = await import(spec.doc_check_url)
 const saved = spec.world && fs.existsSync(spec.world) ? JSON.parse(fs.readFileSync(spec.world, 'utf8')) : null
 const st0 = spec.args.state || {}
 const aboutOf = (key) => {
@@ -202,15 +202,17 @@ const rsVerdict = (id) => {
 // answer_holds: 依頼者のその問いへの回答を根拠にした hold として doc_check が数える ID（evidence がその ID の回答の節を引く）。台帳で hold のときだけ出す。
 // 節は answers/g0.md の 1 行目（answerSection）。
 const answerSection = (id) => ({ id, file: 'answers/g0.md', from: 1, to: 1 })
+const rulingRowsOnDisk = () =>
+  Object.keys(disk.rs).sort().map((id) => {
+    const v = rsVerdict(id)
+    return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, has_answer: Boolean(disk.rs[id].has_answer), verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
+  })
 const onDisk = (rulings) => ({
   answer_holds: (spec.answer_holds || []).filter((id) => disk.rs[id] && disk.rs[id].ruling === 'hold').sort().map(answerSection),
   unverified: Object.keys(disk.els).sort().filter((id) => verdictAt(id) !== 'pass'),
   failed_current: Object.keys(disk.els).sort().filter((id) => verdictAt(id) === 'fail'),
   ...(rulings ? {
-    resolutions: Object.keys(disk.rs).sort().map((id) => {
-      const v = rsVerdict(id)
-      return { id, about: disk.rs[id].about ?? null, ruling: disk.rs[id].ruling ?? null, has_answer: Boolean(disk.rs[id].has_answer), verdict: v ? v.verdict : null, ...(v && v.verdict === 'fail' ? { fail_kind: v.kind ?? null } : {}) }
-    }),
+    resolutions: rulingsCompact(rulingRowsOnDisk()),
   } : {}),
 })
 const asksRulings = (prompt) => /doc_check\.mjs flow --workspace \S+ --rulings`/.test(prompt)
@@ -611,7 +613,7 @@ try {
 } catch (e) {
   error = String(e && e.message ? e.message : e)
 }
-console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: onDisk(true), writerDisk, docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
+console.log(JSON.stringify({ result, labels, logs, error, findingFiles, prompts, auditSchema, resolverSchema, disk: { ...onDisk(false), resolutions: rulingRowsOnDisk() }, writerDisk, docs: disk.docs || {}, heldTimeout, opts: optsSeen, attempted, stubErrors, calls, replayed, atReads: atReads() }))
 """
 
 
@@ -868,7 +870,7 @@ class Stages(unittest.TestCase):
         r = run(spec)
         prompts = {p["label"]: p["prompt"] for p in r["prompts"]}
         for label in ("resolver:3", "verifier:3v", "verifier:3-fixv"):
-            self.assertIn("「## 現物と既存実装の扱い」", prompts[label], label)
+            self.assertIn("\n## 現物と既存実装の扱い\n", _exported(f"m.contractText({json.dumps(contract_role(prompts[label]))})"), label)
         self.assertIn("RS-010 → question（value_as_method）", prompts["resolver:3-convert"])
         self.assertEqual(r["result"]["status"], "needs_answers")
         self.assertEqual(r["result"]["question_ids"], ["RS-010"])
@@ -1329,6 +1331,12 @@ class Stages(unittest.TestCase):
 
 
 TMP_DIR = re.compile(r"^作業用ディレクトリ: (\S+)$", re.M)
+CONTRACT_ROLE = re.compile(r"doc_check\.mjs contract --workspace \S+ --role ([\w-]+) --part 1`")
+
+
+def contract_role(prompt):
+    """プロンプトが contract に渡す役のファイル名（読む節は doc_check の CONTRACT_SECTIONS が決める）。"""
+    return CONTRACT_ROLE.search(prompt).group(1)
 
 
 def tmp_dir(prompt):
@@ -1337,13 +1345,42 @@ def tmp_dir(prompt):
 
 @unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
 class CommonContract(unittest.TestCase):
-    def test_全役のプロンプトに共通の2節が出る(self):
+    def test_書く役のプロンプトに共通の2節が出る(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
         self.assertIsNone(r["error"], r["error"])
         roles = {p["label"].split(":")[0] for p in r["prompts"]}
         self.assertEqual(roles, {"flow-check", "intake", "flow-framer", "resolver", "verifier", "writer", "implementer", "grounding", "crossDoc"})
+        texts = {}
         for p in r["prompts"]:
-            self.assertIn("「## 共通の約束」・「## W のファイルと書き手」", p["prompt"], p["label"])
+            role = contract_role(p["prompt"])
+            self.assertIn(f"/agents/{role}.md の Read と", p["prompt"], p["label"])
+            parts = _exported("m.CONTRACT_PARTS")
+            self.assertEqual(len(re.findall(rf"contract --workspace \S+ --role {role} --part \d+`", p["prompt"])), parts, "断片を全部同じターンに並べる")
+            text = texts.setdefault(role, _exported(f"m.contractText({json.dumps(role)})"))
+            if role == "flow-check":
+                # flow-check は何も書かないので、書き込みの規則（共通の 2 節）を配らない。
+                self.assertNotIn("## 共通の約束\n", text, p["label"])
+                continue
+            self.assertTrue(text.startswith("## 共通の約束\n"), p["label"])
+            self.assertIn("\n## W のファイルと書き手\n", text, p["label"])
+
+    def test_stubのdoc_check_flowのstdoutは実物と同じ欄を持つ(self):
+        # stub の stdout の形が実物からずれると、stub で通る判断が実物の stdout で通らない（欄を削ったときに片側だけ直る）。
+        from test_doc_check_workspace import FIXTURE
+
+        doc_check = SKILL / "scripts" / "doc_check.mjs"
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "w"
+            shutil.copytree(FIXTURE, ws)
+            real = {rulings: set(json.loads(subprocess.run(["node", str(doc_check), "flow", "--workspace", str(ws), *(["--rulings"] if rulings else [])], capture_output=True, text=True, check=True).stdout))
+                    for rulings in (False, True)}
+        r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})
+        got = {}
+        for c in r["calls"]:
+            text = (c["result"] or {}).get("flow_check")
+            if text:
+                got.setdefault("doc_check.mjs flow --workspace /tmp/prd-w --rulings`" in c["prompt"], {k for k in json.loads(text) if not k.startswith("lint")})
+        self.assertEqual({k: sorted(v) for k, v in got.items()}, {k: sorted(v) for k, v in real.items()})
 
     def test_台帳を書く役のputの入力ファイルは自分の作業用ディレクトリを指す(self):
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"]}})

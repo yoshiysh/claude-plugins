@@ -57,6 +57,18 @@ def _ok(ws, *args):
     return stdout_body(r.stdout)
 
 
+def _rulings(ws):
+    """doc_check flow --rulings の resolutions を、prd-spec.js が読む行の形（flowCheckOf が束ねを戻したもの）で返す。"""
+    from test_prd_pure import value  # test_prd_pure がこの module を import するので、使うときに読む
+
+    r = _run(ws, "flow", "--rulings")
+    if r.returncode != 0:
+        raise AssertionError(r.stderr)
+    got = value(f"flowCheckOf({json.dumps(r.stdout)}, true)")
+    assert got is not None, f"prd-spec.js が受け取らない stdout: {r.stdout[:300]}"
+    return got["resolutions"]
+
+
 def _put_run(ws, ledger, body, *args):
     return subprocess.run(
         ["node", str(DOC_CHECK), "put", "--ledger", ledger, *args, *_tx(("put", *args)), "--workspace", str(ws)],
@@ -173,7 +185,7 @@ class SnapshotAndDiff(_Workspace):
 
     def test_stdout_は本文を出さず件数_digest_パス_IDだけ(self):
         out = _ok(self.ws, "snapshot", "--save", "audited-1", "--role", "auditor")
-        self.assertEqual(set(out), {"label", "docs", "items", "path", "digest", "stray", "sizes", "size_over"})
+        self.assertEqual(set(out), {"label", "docs", "items", "path", "digest", "stray", "size_over"})
         self.assertEqual(set(out["stray"]), {"count", "path"})
         self.assertEqual(set(out["size_over"]), {"count", "path"})
         out = _ok(self.ws, "diff", "--against", "audited-1", "--expect", out["digest"])
@@ -485,13 +497,13 @@ class FlowAndConflicts(_Workspace):
             {"id": "RS-003", "about": {"finding": "r1-cd-all-001"}, "ruling": "internal", "value": "v", "why": "w"},
             {"id": "RS-004", "about": {"tbd": "TBD-X-001"}, "ruling": "hold", "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}},
         ]})
-        self.assertEqual([x["verdict"] for x in _ok(self.ws, "flow", "--rulings")["resolutions"]], [None] * 4)
+        self.assertEqual([x["verdict"] for x in _rulings(self.ws)], [None] * 4)
         self.assertNotIn("resolutions", _ok(self.ws, "flow"), "裁定と合否の一覧は --rulings のときだけ出す")
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
         _put(self.ws, "verifications", {"items": [{"id": "RS-002", "verdict": "pass"}, {"id": "RS-003", "verdict": "fail", "fail_kind": "value_as_method", "reason": "r"},
                                                   {"id": "RS-004", "verdict": "fail", "fail_kind": "insufficient_grounds", "reason": "r"}]},
              "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
-        got = _ok(self.ws, "flow", "--rulings")["resolutions"]
+        got = _rulings(self.ws)
         want = [
             {"id": "RS-001", "about": {"open": "O-001"}, "ruling": "internal", "has_answer": False, "verdict": None},
             {"id": "RS-002", "about": {"pair": ["D-001", "F-002"]}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
@@ -512,7 +524,7 @@ class FlowAndConflicts(_Workspace):
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-002", "value": "書き換えた値"},
                                                       {"id": "RS-003", "ruling": "hold", "value": None, "hold": {"rule": "r", "issue_draft": "d", "item_ids": []}}]})
         rewritten = [want[0], {**want[1], "verdict": None}, {**want[2], "ruling": "hold"}, want[3]]
-        self.assertEqual(_ok(self.ws, "flow", "--rulings")["resolutions"], rewritten)
+        self.assertEqual(_rulings(self.ws), rewritten)
         with tempfile.TemporaryDirectory() as tmp:
             world = Path(tmp) / "w.json"
             versions = {"RS-002": 1, "RS-003": 1}
@@ -522,7 +534,7 @@ class FlowAndConflicts(_Workspace):
         self.assertEqual(stub["disk"]["resolutions"], rewritten)
 
     def _verdict(self, rs_id):
-        return next(x for x in _ok(self.ws, "flow", "--rulings")["resolutions"] if x["id"] == rs_id)["verdict"]
+        return next(x for x in _rulings(self.ws) if x["id"] == rs_id)["verdict"]
 
     def _judge(self, items):
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
@@ -882,7 +894,7 @@ class TreeFindings(_Workspace):
         budget = int(subprocess.run(["node", "--input-type=module", "-e", code], capture_output=True, text=True, check=True).stdout)
         out = _ok(self.ws, "snapshot", "--save", "x")
         self.assertEqual(out["size_over"]["count"], 0)
-        self.assertIn("decisions.json", out["sizes"])
+        self.assertIn("decisions.json", json.loads((self.ws / "checks" / "x.sizes.json").read_text())["sizes"])
         with (self.ws / "requirements-auth.md").open("a") as f:
             f.write("あ" * budget)
         out = _ok(self.ws, "snapshot", "--save", "x")

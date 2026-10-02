@@ -547,6 +547,71 @@ class ContractEnums(unittest.TestCase):
                 self.assertEqual(value(f"fnv(canonicalText({json.dumps(body, ensure_ascii=False)}))"),
                                  _exported(f"m.fnv(m.canonicalText({json.dumps(body, ensure_ascii=False)}))"))
 
+    RULING_ROWS = [
+        {"id": "RS-10", "about": {"finding": "r1-gr-requirements__x-012"}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
+        {"id": "RS-2", "about": {"open": "O-002"}, "ruling": "question", "has_answer": True, "verdict": "pass"},
+        {"id": "RS-1", "about": {"pair": ["D-001", "F-002"]}, "ruling": "hold", "has_answer": False, "verdict": "fail", "fail_kind": "decidable"},
+        {"id": "RS-3", "about": None, "ruling": None, "has_answer": False, "verdict": None},
+        {"id": "RS-4", "about": {"tbd": "TBD-X-001"}, "ruling": "internal", "has_answer": False, "verdict": "fail", "fail_kind": None},
+        {"id": "RS-5", "about": {"verification": "F-003"}, "ruling": "internal", "has_answer": False, "verdict": "pass"},
+    ]
+
+    def _rulings_stdout(self, groups):
+        base = {"findings": 0, "codes": {}, "open": 0, "content_sha256": "x", "unverified": [], "failed_current": [], "answer_holds": [], "open_only": [], "stale_refs": [], "open_ids": [], "pair_keys": []}
+        return stamped({**base, "resolutions": groups})
+
+    def test_束ねたresolutionsはflowCheckOfが同じ行にID順で戻す(self):
+        groups = _exported(f"m.rulingsCompact({json.dumps(self.RULING_ROWS)})")
+        got = value(f"flowCheckOf({json.dumps(self._rulings_stdout(groups))}, true)")["resolutions"]
+        self.assertEqual(got, sorted(self.RULING_ROWS, key=lambda x: int(x["id"][3:])))
+        swapped = value(f"flowCheckOf({json.dumps(self._rulings_stdout(groups[::-1]))}, true)")["resolutions"]
+        self.assertEqual(swapped, got, "組の並びによらず ID の番号順（合否が変わって組を移っても行の並びは変わらない）")
+        plain = value(f"flowCheckOf({json.dumps(self._rulings_stdout(groups))})")
+        self.assertEqual(plain["resolutions"], got, "--rulings を付けて実行した生成者の stdout も行に戻す")
+
+    def test_束ねたresolutionsは行の形より短い(self):
+        rows = [{"id": f"RS-{i:03d}", "about": {"open": f"O-{i:03d}"}, "ruling": ["internal", "question", "hold"][i % 3], "has_answer": i % 3 == 1, "verdict": "pass"} for i in range(1, 57)]
+        compact = _exported(f"m.rulingsCompact({json.dumps(rows)})")
+        self.assertLess(len(json.dumps(compact, separators=(",", ":"))), 0.6 * len(json.dumps(rows, separators=(",", ":"))))
+
+    def test_形の外の束ねは受け取らない(self):
+        groups = _exported(f"m.rulingsCompact({json.dumps(self.RULING_ROWS)})")
+        fail = next(i for i, g in enumerate(groups) if g["verdict"] == "fail")
+        passed = next(i for i, g in enumerate(groups) if g["verdict"] == "pass")
+        broken = {
+            "has_answer が無い": lambda gs: [{k: v for k, v in g.items() if k != "has_answer"} if i == 0 else g for i, g in enumerate(gs)],
+            "has_answer が真偽値でない": lambda gs: [{**g, "has_answer": "false"} if i == 0 else g for i, g in enumerate(gs)],
+            "verdict が閉集合の外": lambda gs: [{**g, "verdict": "ok"} if i == passed else g for i, g in enumerate(gs)],
+            "不合格に fail_kind が無い": lambda gs: [{k: v for k, v in g.items() if k != "fail_kind"} if i == fail else g for i, g in enumerate(gs)],
+            "合格に fail_kind がある": lambda gs: [{**g, "fail_kind": None} if i == passed else g for i, g in enumerate(gs)],
+            "about が表でない": lambda gs: [{**g, "about": [["RS-9", None]]} if i == 0 else g for i, g in enumerate(gs)],
+            "about の値が配列": lambda gs: [{**g, "about": {"RS-9": ["O-1"]}} if i == 0 else g for i, g in enumerate(gs)],
+            "同じ ID が 2 つの組にある": lambda gs: [*gs, {**gs[passed], "verdict": None, "about": {next(iter(gs[passed]["about"])): None}}],
+            "組の配列でない": lambda gs: {"groups": gs},
+        }
+        self.assertIsNotNone(value(f"flowCheckOf({json.dumps(self._rulings_stdout(groups))}, true)"))
+        for name, bend in broken.items():
+            with self.subTest(name):
+                self.assertIsNone(value(f"flowCheckOf({json.dumps(self._rulings_stdout(bend(groups)))}, true)"))
+
+    def test_scriptが読む欄はdoc_checkの実物のstdoutにある(self):
+        # 写す字数を減らすために stdout の欄を削るとき、script の判断に使う欄を消していないことを実物の stdout で押さえる。
+        doc_check = Path(__file__).resolve().parents[1] / "scripts" / "doc_check.mjs"
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp) / "w"
+            shutil.copytree(FIXTURE, ws)
+            cli = lambda *a: subprocess.run(["node", str(doc_check), *a, "--workspace", str(ws)], capture_output=True, text=True, check=True).stdout
+            for expr, args in (("flowCheckOf(T, true)", ("flow", "--rulings")), ("flowCheckOf(T)", ("flow",)), ("conflictsCheckOf(T)", ("conflicts",)), ("planCheckOf(T)", ("plan",))):
+                with self.subTest(args):
+                    self.assertIsNotNone(value(expr.replace("T", json.dumps(cli(*args)))))
+            # stage5・stage8 の readDesignated・fixedMoved・noteAudited・setPending が名前で読む欄。
+            reads = {("snapshot", "--save", "audited-1", "--role", "auditor", "--fixed", "requirements/auth"): ["digest", "fixed_sha256", "stray", "size_over"],
+                     ("tree-digest",): ["digest"], ("doc",): ["blocking", "flow_refs"]}
+            for args, keys in reads.items():
+                with self.subTest(args):
+                    body = value(f"parseStdout({json.dumps(cli(*args))})")
+                    self.assertEqual([k for k in keys if k not in body], [])
+
     def test_doc_checkのCLIのstdoutはそのまま受け取り一覧の要素を落とした写しは受け取らない(self):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp) / "w"

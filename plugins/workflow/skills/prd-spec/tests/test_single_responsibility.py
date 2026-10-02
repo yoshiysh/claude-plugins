@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 
 from prd_script import PRD_PATH
+from test_ledger import _exported
 
 SKILL = Path(__file__).resolve().parents[1]
 PRD = PRD_PATH.read_text(encoding="utf-8")
@@ -83,11 +84,10 @@ class RoleMapTests(unittest.TestCase):
 
 class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
     SECTION = "現物と既存実装の扱い"
-    READERS = {"intake": "intake.md", "resolver": "resolver.md", "verifier": "resolver-verifier.md", "writer": "writer.md", "grounding": "grounding.md"}
+    READERS = {"intake": "intake.md", "resolver": "resolver.md", "resolver-verifier": "resolver-verifier.md", "writer": "writer.md", "grounding": "grounding.md"}
 
     def _sections(self):
-        body = re.search(r"const CONTRACT_SECTIONS = \{(.*?)\n\}", PRD, re.S).group(1)
-        return {m.group(1): re.findall(r"'([^']+)'", m.group(2)) for m in re.finditer(r"^\s*(\w+): \[(.*?)\]", body, re.M)}
+        return _exported("m.CONTRACT_SECTIONS")
 
     def test_規則を使う役だけがその節を読む(self):
         readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
@@ -109,12 +109,12 @@ class ExistingImplementationRuleLivesInOnePlace(unittest.TestCase):
 
 class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlace):
     SECTION = "flow.json の形"
-    READERS = {"flowFramer", "resolver", "verifier"}
+    READERS = {"flow-framer", "resolver", "resolver-verifier"}
 
     def test_規則を使う役だけがその節を読む(self):
         readers = {role for role, secs in self._sections().items() if self.SECTION in secs}
         self.assertEqual(readers, self.READERS)
-        self.assertNotIn("§flow-framer", self._sections()["verifier"], "verifier に §flow-framer 全体を配らない")
+        self.assertNotIn("§flow-framer", self._sections()["resolver-verifier"], "verifier に §flow-framer 全体を配らない")
 
     def test_役のファイルとreferencesは節を参照し本文を写さない(self):
         # 節の本文の 20 字（仮名・漢字 10 字以上）が、契約の他の節・agents・references に無い。
@@ -159,7 +159,7 @@ class FlowShapeSectionIsReadByFlowUsers(ExistingImplementationRuleLivesInOnePlac
 
 class InvariantKindSectionIsReadByKindUsers(FlowShapeSectionIsReadByFlowUsers):
     SECTION = "不変条件の kind"
-    READERS = {"intake", "flowFramer", "resolver", "verifier"}
+    READERS = {"intake", "flow-framer", "resolver", "resolver-verifier"}
     SHARED = {}
     INJECT = ("差し替えた工程が縛りを失う",)
 
@@ -173,7 +173,7 @@ class ExistingDocRuleLivesInCommonPromise(unittest.TestCase):
         for phrase in self.PHRASES:
             self.assertEqual(CONTRACTS.count(phrase), 1, phrase)
             self.assertIn(phrase, common)
-        self.assertIn("'共通の約束'", re.search(r"const COMMON_SECTIONS = \[(.*?)\]", PRD).group(1))
+        self.assertIn("共通の約束", _exported("m.COMMON_SECTIONS"))
 
     def test_役のファイルとreferencesは写さず参照する(self):
         for path in sorted([*(SKILL / "agents").glob("*.md"), *(SKILL / "references").glob("*.md"), SKILL / "SKILL.md"]):

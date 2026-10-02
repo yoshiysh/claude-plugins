@@ -36,33 +36,19 @@ const ROLE_OPTS = {
   flowCheck: { model: 'sonnet', effort: 'low' },
 }
 
+// ROLE_FILES: 役の名前から agents/ のファイル名（拡張子なし）。読む契約の節の表は doc_check の CONTRACT_SECTIONS が持ち、contract --role に
+// このファイル名を渡す（節の一覧を script に写すと、片方だけ直されて役が読む節がずれる）。
 const ROLE_FILES = {
-  intake: 'intake.md',
-  flowFramer: 'flow-framer.md',
-  resolver: 'resolver.md',
-  verifier: 'resolver-verifier.md',
-  writer: 'writer.md',
-  implementer: 'implementer.md',
-  grounding: 'grounding.md',
-  crossDoc: 'cross-doc.md',
-  flowCheck: 'flow-check.md',
+  intake: 'intake',
+  flowFramer: 'flow-framer',
+  resolver: 'resolver',
+  verifier: 'resolver-verifier',
+  writer: 'writer',
+  implementer: 'implementer',
+  grounding: 'grounding',
+  crossDoc: 'cross-doc',
+  flowCheck: 'flow-check',
 }
-
-const CONTRACT_SECTIONS = {
-  intake: ['§intake', '決定の台帳', '現物と既存実装の扱い', '不変条件の kind'],
-  flowFramer: ['§flow-framer', 'flow.json の形', '不変条件の kind'],
-  resolver: ['§resolver', '決定の台帳', '現物と既存実装の扱い', 'flow.json の形', '不変条件の kind'],
-  verifier: ['§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', 'flow.json の形', '不変条件の kind'],
-  writer: ['§writer', '現物と既存実装の扱い'],
-  implementer: ['監査役の共通節', '§implementer'],
-  grounding: ['監査役の共通節', '§grounding', '現物と既存実装の扱い'],
-  crossDoc: ['監査役の共通節', '§cross-doc'],
-  flowCheck: ['§flow-check'],
-}
-
-// COMMON_SECTIONS: 書き込みの規則（put だけで書く・その場で更新する・tmp の所有）はここにだけ置く。役の節に写すと、
-// 写しの無い役に規則が届かない。
-const COMMON_SECTIONS = ['共通の約束', 'W のファイルと書き手']
 
 // 上限は暴走を止めるためだけに置く。止まる条件は収束（残りが 0 か、減らなくなった）で、回数で打ち切ると連鎖が途中で止まるだけで項目は直らない。
 const MAX_AUDIT_PASSES = 4
@@ -556,16 +542,42 @@ function planCheckOf(text) {
   return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 ? o : null
 }
 
+// rulingRows: doc_check flow --rulings の resolutions（ruling・has_answer・verdict・fail_kind の組ごとに束ねたもの。束ね方は doc_check の rulingsCompact）を
+// resolution ごとの行 {id, about, ruling, has_answer, verdict}（不合格は fail_kind も）に戻す。形の外の組が 1 つでもあれば null。並びは ID の番号順にする
+// （束ねた順のままだと、合否が変わっただけで行の並びが変わり、state の holds・questions の並びと next_args が揺れる）。
+const VERDICTS = ['pass', 'fail', null]
+const isMap = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x)
+const idOrder = (a, b) => {
+  const [m, n] = [a, b].map((id) => (RESOLUTION_ID.test(id) ? Number(id.slice(3)) : Infinity))
+  return m - n || (a < b ? -1 : a > b ? 1 : 0)
+}
+function rulingRows(groups) {
+  if (!Array.isArray(groups)) return null
+  const rows = []
+  for (const g of groups) {
+    if (!isMap(g) || typeof g.has_answer !== 'boolean' || !VERDICTS.includes(g.verdict) || Object.hasOwn(g, 'fail_kind') !== (g.verdict === 'fail') || !isMap(g.about)) return null
+    for (const [id, about] of Object.entries(g.about)) {
+      if (about !== null && !isMap(about)) return null
+      rows.push({ id, about, ruling: g.ruling ?? null, has_answer: g.has_answer, verdict: g.verdict, ...(g.verdict === 'fail' ? { fail_kind: g.fail_kind } : {}) })
+    }
+  }
+  if (new Set(rows.map((x) => x.id)).size !== rows.length) return null
+  return rows.sort((a, b) => idOrder(a.id, b.id))
+}
+
 // flowCheckOf: rulings は doc_check flow --rulings の stdout（裁定と合否の resolutions を持つ）。台帳の集合と検証し残しはそこからだけ読むので、
-// 生成者の stdout には求めない（全 resolution の行を毎回写すと、返り値の出力が台帳の大きさに比例して増える）。
+// 生成者の stdout には求めない（全 resolution の行を毎回写すと、返り値の出力が台帳の大きさに比例して増える）。resolutions は、あれば
+// --rulings の有無によらず行に戻す（--rulings を付けて実行した生成者の stdout も、ほかの stdout と同じ形で読む）。
 function flowCheckOf(text, rulings = false) {
   const o = parseStdout(text)
   const ok = o && Number.isInteger(o.findings) && Number.isInteger(o.open) && typeof o.content_sha256 === 'string' && o.content_sha256
-  if (!ok || ![...(rulings ? ['resolutions'] : []), 'answer_holds', 'unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
-  if (rulings && !o.resolutions.every((x) => x && typeof x.has_answer === 'boolean')) return null
+  if (!ok || !['answer_holds', 'unverified', 'failed_current', 'open_only', 'stale_refs', 'open_ids', 'pair_keys'].every((k) => Array.isArray(o[k]))) return null
+  const rows = o.resolutions === undefined ? undefined : rulingRows(o.resolutions)
+  if (rows === null || (rulings && !rows)) return null
   if (!o.answer_holds.every((x) => x && typeof x.id === 'string' && typeof x.file === 'string' && Number.isInteger(x.from) && Number.isInteger(x.to))) return null
   const codes = o.codes && typeof o.codes === 'object' && !Array.isArray(o.codes) ? Object.values(o.codes) : null
-  return codes && codes.every(Array.isArray) && codes.reduce((n, xs) => n + xs.length, 0) === o.findings ? o : null
+  if (!codes || !codes.every(Array.isArray) || codes.reduce((n, xs) => n + xs.length, 0) !== o.findings) return null
+  return rows ? { ...o, resolutions: rows } : o
 }
 
 // splitFlowFindings: 生成者（役の名前）が消せる指摘の件数（own）と、settle の flow-framer に回す指摘（handoff）と、表に無い符号（unknown）。
@@ -975,8 +987,7 @@ function header(role, stage, label) {
     `entry: ${ENTRY}`,
     `台帳を ID で引くとき: \`${GET_TEMPLATE}\`（台帳の名前と欄: \`${cli('describe')}\`）`,
     `台帳を全件読むとき: \`${VIEW_TEMPLATE}\``,
-    `最初に ${SKILL_DIR}/agents/${ROLE_FILES[role]} を Read し、その指示に従う。`,
-    `ファイルと返り値の形は ${SKILL_DIR}/schemas/agent-contracts.md の ${[...COMMON_SECTIONS, ...CONTRACT_SECTIONS[role]].map((s) => `「## ${s}」`).join('・')} を正とする。見出しを Grep で探し、その節だけを offset/limit で Read する（全体を読むと以後の全ターンに載り続ける）。`,
+    `最初の 1 ターンで ${SKILL_DIR}/agents/${ROLE_FILES[role]}.md の Read と ${contractCmds(role)} を並べて実行する。前者の指示に従い、ファイルと返り値の形は後者の stdout をつなげた契約の節を正とする。`,
     `段: ${stage}`,
     `作業用ディレクトリ: ${W}/tmp/${fileKey(label)}/`,
     ...(TX_ROLES.includes(role)
@@ -1015,6 +1026,9 @@ function existingNote() {
   return ['既存文書（W に置いてある。topic を維持する）:', ...rows].join('\n')
 }
 
+// CONTRACT_PARTS: doc_check の CONTRACT_PARTS と同じ（tests が照合する）。契約の節は Bash の出力の上限ごとに分かれて出るので、全部を同じターンに並べる。
+const CONTRACT_PARTS = 2
+const contractCmds = (role) => Array.from({ length: CONTRACT_PARTS }, (_, i) => `\`${cli('contract', `--role ${ROLE_FILES[role]} --part ${i + 1}`)}\``).join('・')
 const cli = (mode, rest) => `node ${SKILL_DIR}/scripts/doc_check.mjs ${mode} --workspace ${W}${rest ? ` ${rest}` : ''}`
 const GET_TEMPLATE = cli('get', '--ledger <台帳> --ids <ID,…>')
 const VIEW_TEMPLATE = cli('view', '--ledger <台帳> [--fields <欄,…>]')

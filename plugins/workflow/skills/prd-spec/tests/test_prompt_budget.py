@@ -21,6 +21,7 @@ from pathlib import Path
 
 from prd_script import PRD_PATH
 from test_prd_pure import value
+from test_ledger import _exported
 
 SKILL = Path(__file__).resolve().parents[1]
 PRD = PRD_PATH.read_text()
@@ -63,12 +64,13 @@ class TestAgentOptsAreExplicit(unittest.TestCase):
             self.assertNotRegex(code[pos:m.start()], r"model:", "model を直書きしている")
 
     def test_配分表と役のファイルが_1_対_1_に対応する(self):
-        files = dict(re.findall(r"(\w+): '([\w-]+\.md)'", re.search(r"const ROLE_FILES = \{(.*?)\n\}", PRD, re.S).group(1)))
+        files = dict(re.findall(r"(\w+): '([\w-]+)'", re.search(r"const ROLE_FILES = \{(.*?)\n\}", PRD, re.S).group(1)))
         roles = _role_opts(PRD)
         self.assertEqual(set(files), set(roles))
-        self.assertEqual(sorted(files.values()), sorted(p.name for p in (SKILL / "agents").glob("*.md")))
+        self.assertEqual(sorted(files.values()), sorted(p.stem for p in (SKILL / "agents").glob("*.md")))
+        self.assertEqual(sorted(files.values()), sorted(_exported("m.CONTRACT_SECTIONS")), "contract --role に渡す名前は doc_check の節の表のキー")
         for name in files.values():
-            text = (SKILL / "agents" / name).read_text()
+            text = (SKILL / "agents" / f"{name}.md").read_text()
             self.assertTrue(text.startswith("---\n"), name)
             keys = set(re.findall(r"^(\w+):", text.split("---")[1], re.M))
             self.assertIn("description", keys, name)

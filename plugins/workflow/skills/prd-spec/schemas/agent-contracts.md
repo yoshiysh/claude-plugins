@@ -88,6 +88,10 @@
   resolutions.json はまだ無いまま検証が始まる）。
 - **doc_check は `node <SKILL_DIR>/scripts/doc_check.mjs <mode> --workspace <W> …` で実行する。** 結果は
   `W/checks/` に書かれ、stdout には件数・digest・パスが 1 行の JSON で出る。実装を読む必要は無い。
+- **この契約は、プロンプトの `contract` が出す節で読む。** 役ごとに読む節の正本は doc_check の `CONTRACT_SECTIONS` で、`contract` は
+  その節をこのファイルから逐語で出す（Bash の出力の上限ごとに `--part` で分かれるので、プロンプトの挙げる全部を同じターンに並べて実行し、
+  stdout をつなげて読む）。このファイルを丸ごと Read し直さない（読んだ分が以後の全ターンに載り続ける）。役のファイルが出された節の外の節を
+  指したときだけ、その見出しを Grep で探して節だけを offset/limit で Read する。
 - **`references/` は指された節だけを読む。** 見出しの行を Grep で探し、その節を offset/limit で Read する。
   350 行を超えるファイル（`prd-and-spec.md`・`document-structure.md`）を全体で Read すると読み込みの gate に
   止められ、通っても読んだ全文が以後のターンすべてに載り続ける。
@@ -400,8 +404,9 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
   差し戻しが回るので除く）。最後の独立な stdout（§flow-check）の `failed_current` は writer に「根拠にしない要素」として渡る。
-- `flow --rulings` の stdout の `resolutions` は resolution ごとの `{id, about, ruling, has_answer, verdict}`（不合格は `fail_kind` も。`has_answer` は `answer` の有無）である（`--rulings` の無い
-  `flow` は出さない）。`verdict` は verifications.json の合否で、
+- `flow --rulings` の stdout の `resolutions` は、resolution ごとの `{id, about, ruling, has_answer, verdict}`（不合格は `fail_kind` も。`has_answer` は `answer` の有無）を
+  `ruling`・`has_answer`・`verdict`・`fail_kind` の組ごとに束ね、組の中を ID から `about` への表にしたものである（束ね方の正本は doc_check の `rulingsCompact`、
+  行への戻し方は prd-spec.js の `rulingRows`。`--rulings` の無い `flow` は出さない）。`verdict` は verifications.json の合否で、
   検証した版（`digest`。put が埋める）の resolution にだけ付く（無ければ `null`）。検証の後に書き換えた裁定は合否を失う。例外として持ち越す
   書き換えの正本は doc_check の `carriesVerdict` である。script は、resolver が書いたのに返り値に載せなかった裁定をここから受け取り、
   合否が無いか script の持つ合否と違う resolution を verifier に検証させる（script はファイルを読めない）。

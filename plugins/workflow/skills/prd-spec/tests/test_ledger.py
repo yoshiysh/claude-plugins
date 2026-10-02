@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_doc_check_workspace import stdout_body  # noqa: E402
+from test_doc_check_workspace import _rulings, stdout_body  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -813,13 +813,13 @@ class Questions(_Workspace):
         self.assertEqual(_run(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "answer": answer}]}).returncode, 1, "answer だけで value の無い問いは書けない")
         self.assertEqual(_run(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す"}]}).returncode, 1, "value だけで answer の無い問いは書けない")
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**RESOLUTION_Q, "value": "結果は画面に出す", "answer": answer}]})
-        self.assertEqual([x["has_answer"] for x in _ok(self.ws, "flow", "--rulings")["resolutions"]], [True])
+        self.assertEqual([x["has_answer"] for x in _rulings(self.ws)], [True])
         r = _run(self.ws, "questions", "--ids", "RS-001", "--check")
         self.assertEqual((r.returncode, json.loads(r.stdout)["bad_ids"]), (0, ["RS-001"]))
         self.assertIn("answer", r.stderr)
         self.assertEqual(_run(self.ws, "questions", "--ids", "RS-001").returncode, 1)
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-001", "answer": None, "value": None}]})
-        self.assertEqual([x["has_answer"] for x in _ok(self.ws, "flow", "--rulings")["resolutions"]], [False])
+        self.assertEqual([x["has_answer"] for x in _rulings(self.ws)], [False])
         self.assertEqual(_ok(self.ws, "questions", "--ids", "RS-001", "--check")["findings"], 0)
 
     def test_問いの無い_ID_は止まる(self):
@@ -955,6 +955,17 @@ class FieldTypes(_Workspace):
             with self.subTest(file=name):
                 r = self._unchanged_after(name, "put", *args, stdin=body)
                 self.assertIn("欄ではありません", r.stderr)
+
+    def test_aboutはオブジェクトでなければ拒否する(self):
+        # 形の外の about を通すと、flow --rulings の stdout を prd-spec.js が受け取れず、段のやり直しが繰り返される。
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "about": {"open": "O-001"}, "ruling": "internal", "why": "w"}]})
+        for bad in ("O-001", ["O-001"], 3, True):
+            with self.subTest(about=bad):
+                r = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "about": bad}]})
+                self.assertIn("オブジェクトではありません", r.stderr)
+        self.assertEqual([x["about"] for x in _rulings(self.ws)], [{"open": "O-001"}])
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-009", "about": None}]})
+        self.assertEqual([x["about"] for x in _rulings(self.ws)], [None], "null は欄を消す")
 
     def test_閉集合の欄は値の外を拒否しnullで消せる(self):
         enums = _exported("Object.fromEntries(Object.entries(m.LEDGERS).filter(([, v]) => v.enums).map(([k, v]) => [k, { enums: v.enums, lists: v.lists }]))")

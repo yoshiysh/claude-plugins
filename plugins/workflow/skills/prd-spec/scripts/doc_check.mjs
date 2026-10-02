@@ -1598,7 +1598,7 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
@@ -1680,6 +1680,9 @@ const LEDGERS = {
     fields: {
       resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision', 'kind'],
     },
+    // objects: 値がオブジェクト（か消すための null）でなければならない欄。about は prd-spec.js が論点のキーに引き直すので、ほかの型を書くと
+    // flow --rulings の stdout を script が受け取れず、段のやり直しが繰り返される。
+    objects: { resolutions: ['about'] },
     enums: { resolutions: KIND },
     cases: {
       resolutions: [
@@ -2183,6 +2186,7 @@ function fieldRejects(name, body, cur) {
         if (!allowed.includes(k)) {
           if (!(v === null && k in (stored.get(el[key]) || {}))) bad.push(`${where}: 台帳 ${name} の ${list} の欄ではありません（欄は ${allowed.join(' / ')}）`)
         } else if (values && v !== null && !values.includes(v)) bad.push(`${where}: ${JSON.stringify(v)} は ${values.join(' / ')} のどれでもありません`)
+        else if (((spec.objects || {})[list] || []).includes(k) && v !== null && !(v && typeof v === 'object' && !Array.isArray(v))) bad.push(`${where}: ${JSON.stringify(v)} はオブジェクトではありません（{ "open": "O-…" } のように書く）`)
         else bad.push(...proseRejects(where, `${name}.${list}.${k}`, v))
       }
       bad.push(...subfieldRejects(spec, list, el, key))
@@ -2458,6 +2462,7 @@ function describeLedgers() {
         scalars: spec.scalars,
         fields: spec.fields || {},
         ...(spec.subfields ? { subfields: spec.subfields } : {}),
+        ...(spec.objects ? { objects: spec.objects } : {}),
         enums: spec.enums || {},
         ...(spec.keyShape ? { key_shape: spec.keyShape.source } : {}),
         ...(spec.groupBy ? { group_by: spec.groupBy } : {}),
@@ -3279,6 +3284,20 @@ function carriesVerdict(judged, r) {
   return chosen && judged.digest === digestOf(asked)
 }
 
+// rulingsCompact: resolution の行を ruling・has_answer・verdict・fail_kind の組ごとに束ね、組の中は ID から about への表にする。verifier と
+// flow-check はこの stdout を逐語で写すので、行ごとに欄名と同じ値を繰り返すと写す字数が台帳の件数に比例して膨らむ。
+// 行への戻し方の正本は prd-spec.js の rulingRows。
+function rulingsCompact(rows) {
+  const groups = new Map()
+  for (const r of rows) {
+    const head = { ruling: r.ruling, has_answer: r.has_answer, verdict: r.verdict, ...(Object.hasOwn(r, 'fail_kind') ? { fail_kind: r.fail_kind } : {}) }
+    const key = canonicalJson(head)
+    if (!groups.has(key)) groups.set(key, { ...head, about: {} })
+    groups.get(key).about[r.id] = r.about
+  }
+  return [...groups.values()]
+}
+
 function wsFlow(ws, opts) {
   requireInput(ws)
   const flow = readLedger(ws, 'flow')
@@ -3299,7 +3318,7 @@ function wsFlow(ws, opts) {
   const unverified = els.filter((el) => !passed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   const failedCurrent = els.filter((el) => failed.has(`${el.id}\u0000${digestOf(el)}`)).map((el) => el.id)
   // resolutions は --rulings のときだけ出す: script がファイルを読めない代わりに今の版の合否を知る元で、全 resolution の行を毎回写すと
-  // flow を返すすべての役の出力が台帳の大きさに比例して増える。合否を検証した版にだけ付けるのは、検証の後に書き換えた裁定を根拠に使わせないため。
+  // flow を返すすべての役の出力が台帳の大きさに比例して増える（形は rulingsCompact）。合否を検証した版にだけ付けるのは、検証の後に書き換えた裁定を根拠に使わせないため。
   const verdicts = new Map(items.filter((it) => it && it.id && it.verdict).map((it) => [String(it.id), it]))
   const stored = listOf(readLedger(ws, 'resolutions'), 'resolutions').filter((r) => r && r.id)
   const resolutions = stored
@@ -3336,7 +3355,7 @@ function wsFlow(ws, opts) {
     content_sha256: ledgerSha(ws, 'flow'),
     unverified,
     failed_current: failedCurrent,
-    ...(opts.rulings ? { resolutions } : {}),
+    ...(opts.rulings ? { resolutions: rulingsCompact(resolutions) } : {}),
     answer_holds: answerHolds(ws, stored),
     open_only: openOnly,
     stale_refs: staleRefs,
@@ -3512,18 +3531,87 @@ function wsDoc(ws, opts) {
 }
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const OWNERSHIP = { file: path.join('schemas', 'agent-contracts.md'), heading: '## W のファイルと書き手' }
+const CONTRACT_FILE = path.join('schemas', 'agent-contracts.md')
+const OWNERSHIP = { file: CONTRACT_FILE, heading: '## W のファイルと書き手' }
+
+// contractSection: 契約の「## 見出し」の行から次の「## 」の手前までの行（見出しの行を含む）。見出しが無ければ null。
+function contractSection(lines, heading) {
+  const start = lines.indexOf(heading)
+  if (start < 0) return null
+  const end = lines.findIndex((l, i) => i > start && /^## /.test(l))
+  return lines.slice(start, end < 0 ? undefined : end)
+}
+
+// CONTRACT_SECTIONS: 役（agents/ のファイル名）ごとに読む契約の節の正本（prd-spec.js は役のファイル名を渡すだけ）。COMMON_SECTIONS は
+// 書き込みの規則で、書く役にだけ配る（flow-check は何も書かない）。
+const COMMON_SECTIONS = ['共通の約束', 'W のファイルと書き手']
+// FLOW_SHAPE: 見出しは台帳のファイル名を含むので、名前は LEDGERS から取る（ファイル名の正本は LEDGERS）。
+const FLOW_SHAPE = `${ledgerOf('flow').file()} の形`
+const CONTRACT_SECTIONS = {
+  intake: [...COMMON_SECTIONS, '§intake', '決定の台帳', '現物と既存実装の扱い', '不変条件の kind'],
+  'flow-framer': [...COMMON_SECTIONS, '§flow-framer', FLOW_SHAPE, '不変条件の kind'],
+  resolver: [...COMMON_SECTIONS, '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
+  'resolver-verifier': [...COMMON_SECTIONS, '§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
+  writer: [...COMMON_SECTIONS, '§writer', '現物と既存実装の扱い'],
+  implementer: [...COMMON_SECTIONS, '監査役の共通節', '§implementer'],
+  grounding: [...COMMON_SECTIONS, '監査役の共通節', '§grounding', '現物と既存実装の扱い'],
+  'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '§cross-doc'],
+  'flow-check': ['§flow-check'],
+}
+
+// CONTRACT_BUDGET・CONTRACT_PARTS: contract の 1 回の stdout の上限（UTF-8 のバイト）と、役ごとの回数の上限。agent の Bash は 30000 バイトを
+// 超える出力をファイルに逃がして先頭しか見せないので、上限ごとに分けた全部を最初のターンに並べて実行させる。CONTRACT_PARTS は prd-spec.js と
+// 同じ（tests が照合する）。
+const CONTRACT_BUDGET = 30000
+const CONTRACT_PARTS = 2
+
+// contractText: 役が読む節を契約から逐語で切り出す（見出しを探して節ごとに Read する往復をなくす）。見出しが欠ければ止める（節を黙って落とさない）。
+function contractText(role) {
+  if (!Object.hasOwn(CONTRACT_SECTIONS, role)) throw new Error(`--role には役のファイル名（${Object.keys(CONTRACT_SECTIONS).join(' / ')}）を渡してください: ${role}`)
+  const lines = fs.readFileSync(path.join(SKILL_DIR, CONTRACT_FILE), 'utf8').split('\n')
+  const names = CONTRACT_SECTIONS[role]
+  const missing = names.filter((n) => !contractSection(lines, `## ${n}`))
+  if (missing.length) throw new Error(`契約（${CONTRACT_FILE}）に見出しがありません: ${missing.map((n) => `「## ${n}」`).join('・')}`)
+  return `${names.map((n) => contractSection(lines, `## ${n}`).join('\n').replace(/\n+$/, '')).join('\n\n')}\n`
+}
+
+// contractParts: contractText を CONTRACT_BUDGET 以下の断片に切る。切れ目は節の頭を優先し、1 つの節が上限を超えるときだけ行の頭で切る
+// （断片をつなげると contractText に戻る）。
+function contractParts(role) {
+  const text = contractText(role)
+  const bytes = (a, b) => Buffer.byteLength(text.slice(a, b), 'utf8')
+  const heads = [...text.matchAll(/^## /gm)].map((m) => m.index)
+  const lineHeads = [...text.matchAll(/^/gm)].map((m) => m.index)
+  const parts = []
+  for (let at = 0; at < text.length; ) {
+    if (bytes(at) <= CONTRACT_BUDGET) {
+      parts.push(text.slice(at))
+      break
+    }
+    const fit = (xs) => xs.filter((x) => x > at && bytes(at, x) <= CONTRACT_BUDGET).pop()
+    const cut = fit(heads) ?? fit(lineHeads)
+    if (cut === undefined) throw new Error(`役 ${role} の契約に、1 行で ${CONTRACT_BUDGET} バイトを超える行があります`)
+    parts.push(text.slice(at, cut))
+    at = cut
+  }
+  if (parts.length > CONTRACT_PARTS) throw new Error(`役 ${role} の契約の節は ${parts.length} 回に分かれ、上限 ${CONTRACT_PARTS} 回を超えます`)
+  return parts
+}
+
+function wsContract(opts) {
+  const part = Number(opts.part ?? 1)
+  if (!Number.isInteger(part) || part < 1 || part > CONTRACT_PARTS) throw new Error(`--part は 1〜${CONTRACT_PARTS} の整数です: ${opts.part}`)
+  return contractParts(opts.role)[part - 1] ?? ''
+}
 
 // ownedPatterns: 所有表は契約から毎回読み、写しを持たない（写すと表を直しても検出が古いまま残る）。<…> に
 // ドットを許さないのは、版を付けた写し（requirements-x.pre2.md）を表に合わせないため。
 function ownedPatterns() {
   const text = fs.readFileSync(path.join(SKILL_DIR, OWNERSHIP.file), 'utf8')
-  const lines = text.split('\n')
   const unreadable = () => new Error(`所有表（${OWNERSHIP.file} の「${OWNERSHIP.heading}」の表の 1 列目）を読み取れません。W に置いてよいファイルが決まらないので止めます`)
-  const start = lines.indexOf(OWNERSHIP.heading)
-  if (start < 0) throw unreadable()
-  const end = lines.findIndex((l, i) => i > start && /^## /.test(l))
-  const cells = lines.slice(start + 1, end < 0 ? undefined : end).filter((l) => /^\|/.test(l)).map((l) => l.split('|')[1] || '')
+  const section = contractSection(text.split('\n'), OWNERSHIP.heading)
+  if (!section) throw unreadable()
+  const cells = section.slice(1).filter((l) => /^\|/.test(l)).map((l) => l.split('|')[1] || '')
   const pats = cells.flatMap((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()))
   if (!pats.length) throw unreadable()
   const esc = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
@@ -3564,7 +3652,8 @@ function strayFiles(ws, live) {
   return out.sort()
 }
 
-// sizesOf: 台帳と文書のファイルごとのバイト数。SIZE_BUDGET は目安なので、超えても止めずに数えるだけにする。
+// sizesOf: 台帳と文書のファイルごとのバイト数。SIZE_BUDGET は目安なので、超えても止めずに数えるだけにする。全件はファイルにだけ書く（stdout は監査役が
+// 逐語で写し、script は件数とパスしか読まない）。
 function sizesOf(ws, wsDocs, name) {
   const entries = [
     ...Object.keys(LEDGERS).filter((n) => n !== 'meta').map((n) => [n, ledgerOf(n).file()]),
@@ -3572,7 +3661,7 @@ function sizesOf(ws, wsDocs, name) {
   ].filter(([, f]) => fs.existsSync(path.join(ws, f)))
   const sizes = Object.fromEntries(entries.map(([, f]) => [f, fs.statSync(path.join(ws, f)).size]))
   const over = entries.filter(([n, f]) => sizes[f] > SIZE_BUDGET[n]).map(([n, f]) => ({ file: f, bytes: sizes[f], budget: SIZE_BUDGET[n] }))
-  return { sizes, size_over: { count: over.length, path: writeCheck(ws, `${name}.sizes.json`, { budget: SIZE_BUDGET, sizes, over }) } }
+  return { size_over: { count: over.length, path: writeCheck(ws, `${name}.sizes.json`, { budget: SIZE_BUDGET, sizes, over }) } }
 }
 
 // sweepWorkDirs: --live は今動いている label のすべてでなければならない（並列の writer の tree-digest は他の label を知らないので --sweep で明示させる）。
@@ -3749,6 +3838,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--against') o.against = take()
     else if (a === '--expect') o.expect = take()
     else if (a === '--role') o.role = take()
+    else if (a === '--part') o.part = take()
     else if (a === '--doc') o.doc.push(take())
     else if (a === '--req-dir') o.reqDir = take()
     else if (a === '--spec-dir') o.specDir = take()
@@ -3778,6 +3868,7 @@ function parseWorkspaceArgs(argv) {
 function runWorkspace(mode, argv) {
   const opts = parseWorkspaceArgs(argv)
   if (mode === 'describe') return describeLedgers()
+  if (mode === 'contract') return wsContract(opts)
   if (!opts.workspace) throw new Error('--workspace <W> が要ります')
   const ws = path.resolve(opts.workspace)
   if (!fs.existsSync(ws) || !fs.statSync(ws).isDirectory()) throw new Error(`workspace がディレクトリではありません: ${opts.workspace}`)
@@ -3819,7 +3910,8 @@ if (invokedDirectly && WS_MODES.includes(process.argv[2])) {
   // 失敗は非ゼロで終える。--expect の不一致だけは 3 にして、壊れた入力（1）と区別できるようにする。
   const mode = process.argv[2]
   try {
-    process.stdout.write(`${JSON.stringify(stampStdout(runWorkspace(mode, process.argv.slice(3))))}\n`)
+    const out = runWorkspace(mode, process.argv.slice(3))
+    process.stdout.write(typeof out === 'string' ? out : `${JSON.stringify(stampStdout(out))}\n`)
   } catch (e) {
     process.stderr.write(`doc_check ${mode}: ${e && e.message ? e.message : e}\n`)
     process.exit(e instanceof DigestMismatch ? 3 : 1)
@@ -3863,6 +3955,7 @@ export {
   fnv,
   STDOUT_FNV,
   stampStdout,
+  rulingsCompact,
   runChecks,
   WORKSPACE_TEXT,
   LINT_TEXT,
@@ -3873,5 +3966,11 @@ export {
   SIZE_BUDGET,
   STDOUT_BUDGET,
   WS_MODES,
+  CONTRACT_SECTIONS,
+  COMMON_SECTIONS,
+  CONTRACT_BUDGET,
+  CONTRACT_PARTS,
+  contractText,
+  contractParts,
   writeAtomic,
 }

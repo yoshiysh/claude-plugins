@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 
 from prd_script import PRD_PATH
+from test_ledger import _exported
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -198,10 +199,7 @@ class OwnershipComesFromContract(unittest.TestCase):
         self.assertIn("/tmp/${fileKey(label)}/", PRD_PATH.read_text(encoding="utf-8"))
 
     def test_プロンプトが指す節は契約の見出しにある(self):
-        src = PRD_PATH.read_text(encoding="utf-8")
-        common = re.search(r"const COMMON_SECTIONS = \[(.*?)\]", src).group(1)
-        per_role = re.search(r"const CONTRACT_SECTIONS = \{(.*?)\n\}", src, re.S).group(1)
-        names = set(re.findall(r"'([^']+)'", common + per_role))
+        names = {*_exported("m.COMMON_SECTIONS"), *(n for secs in _exported("m.CONTRACT_SECTIONS").values() for n in secs)}
         headings = set(re.findall(r"^## (.+)$", CONTRACTS.read_text(encoding="utf-8"), re.M))
         self.assertEqual(names - headings, set())
         owned = re.search(r"const OWNERSHIP = \{[^}]*heading: '## ([^']+)'", SOURCE).group(1)
@@ -332,3 +330,94 @@ class LedgerFileNamesComeFromLedgers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _sections_of(text):
+    """契約の「## 見出し」ごとの節（見出しの行から次の「## 」の手前まで。末尾の空行は除く）。doc_check と独立に切る。"""
+    parts = re.split(r"(?m)^(?=## )", text)
+    return {p.split("\n", 1)[0][3:]: p.rstrip("\n") for p in parts if p.startswith("## ")}
+
+
+@unittest.skipIf(shutil.which("node") is None, "node が無い環境ではスキップする")
+class ContractCommand(unittest.TestCase):
+    """contract は役が読む節を契約の正本から逐語で出す（写しを作らない・節を落とさない・Bash の上限に入る断片で出す）。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        (root / "skill" / "scripts").mkdir(parents=True)
+        (root / "skill" / "schemas").mkdir()
+        self.doc_check = root / "skill" / "scripts" / "doc_check.mjs"
+        shutil.copy(DOC_CHECK, self.doc_check)
+        self.contract = root / "skill" / "schemas" / "agent-contracts.md"
+        shutil.copy(CONTRACTS, self.contract)
+        self.ws = root / "W"
+        self.ws.mkdir()
+        self.table = _exported("m.CONTRACT_SECTIONS")
+        self.common = _exported("m.COMMON_SECTIONS")
+        self.budget = _exported("m.CONTRACT_BUDGET")
+        self.parts = _exported("m.CONTRACT_PARTS")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _part(self, role, n):
+        r = _run(self.ws, "contract", "--role", role, "--part", str(n), doc_check=self.doc_check)
+        if r.returncode != 0:
+            raise AssertionError(r.stderr)
+        return r.stdout
+
+    def test_役ごとに表の節を契約の順に逐語で出し断片をつなげると全体になる(self):
+        sections = _sections_of(CONTRACTS.read_text(encoding="utf-8"))
+        for role, names in self.table.items():
+            with self.subTest(role):
+                parts = [self._part(role, n) for n in range(1, self.parts + 1)]
+                text = "".join(parts)
+                self.assertEqual(re.findall(r"(?m)^## (.+)$", text), names, "出す節は表のとおり（足さず落とさない）")
+                self.assertEqual(text, "\n\n".join(sections[n] for n in names) + "\n")
+                for p in parts:
+                    self.assertLessEqual(len(p.encode()), self.budget, "1 回の stdout は Bash の上限に入る")
+                    self.assertTrue(p == "" or p.startswith("## "), "断片は節の頭で切れる")
+                self.assertFalse((self.ws / "checks").exists(), "ファイルに逃がさない")
+
+    def test_上限を超える役は複数の断片に分かれる(self):
+        counts = {role: sum(1 for n in range(1, self.parts + 1) if self._part(role, n)) for role in self.table}
+        self.assertGreater(max(counts.values()), 1)
+        self.assertEqual(min(counts.values()), 1)
+
+    def test_書かない役には書き込みの規則を配らない(self):
+        self.assertTrue(set(self.common) <= set(self.table["resolver"]))
+        self.assertFalse(set(self.common) & set(self.table["flow-check"]))
+
+    def test_節が上限を超えれば行の頭で切る(self):
+        text = CONTRACTS.read_text(encoding="utf-8")
+        body = "".join(f"長い行の {i} 番目。{'あ' * 300}\n" for i in range(40))
+        self.contract.write_text(text.replace("## §flow-check\n", f"## §flow-check\n{body}", 1), encoding="utf-8")
+        parts = [self._part("flow-check", n) for n in range(1, self.parts + 1)]
+        self.assertTrue(all(parts))
+        self.assertTrue(all(len(p.encode()) <= self.budget and p.endswith("\n") for p in parts))
+        self.assertIn(body, "".join(parts))
+
+    def test_断片の上限を超えれば止まる(self):
+        text = CONTRACTS.read_text(encoding="utf-8")
+        body = "".join(f"長い行の {i} 番目。{'あ' * 300}\n" for i in range(200))
+        self.contract.write_text(text.replace("## §flow-check\n", f"## §flow-check\n{body}", 1), encoding="utf-8")
+        r = _run(self.ws, "contract", "--role", "flow-check", "--part", "1", doc_check=self.doc_check)
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn("上限", r.stderr)
+
+    def test_見出しが1つでも無ければ何も出さずに止まる(self):
+        text = CONTRACTS.read_text(encoding="utf-8").replace("## §flow-check\n", "## §flow-check（見出しを変えた）\n", 1)
+        self.contract.write_text(text, encoding="utf-8")
+        r = _run(self.ws, "contract", "--role", "flow-check", "--part", "1", doc_check=self.doc_check)
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn("§flow-check", r.stderr)
+
+    def test_表に無い役と範囲の外の断片は止まる(self):
+        for args in (("--role", "flowCheck", "--part", "1"), ("--role", "flow-check", "--part", str(self.parts + 1)), ("--role", "flow-check", "--part", "0")):
+            with self.subTest(args):
+                r = _run(self.ws, "contract", *args, doc_check=self.doc_check)
+                self.assertEqual((r.returncode, r.stdout), (1, ""))
+
+    def test_prd_jsの断片の数はdoc_checkと同じ(self):
+        self.assertEqual(int(re.search(r"^const CONTRACT_PARTS = (\d+)$", PRD_PATH.read_text(encoding="utf-8"), re.M).group(1)), self.parts)
