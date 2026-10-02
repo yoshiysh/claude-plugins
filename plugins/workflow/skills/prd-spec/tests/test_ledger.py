@@ -836,8 +836,38 @@ class Answers(_Workspace):
         (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n  RS-003: その他\n注記 RS-002: 行の頭ではない\n")
         before = sorted(p.relative_to(self.ws) for p in self.ws.rglob("*"))
         out = _ok(self.ws, "answers", "--file", "answers/g0.md", "--ids", "RS-003,RS-001,RS-002,RS-001")
-        self.assertEqual(out, {"file": "answers/g0.md", "exists": True, "ids": ["RS-001", "RS-002", "RS-003"], "missing": ["RS-002"]})
+        self.assertEqual({k: v for k, v in out.items() if k != "free"}, {"file": "answers/g0.md", "exists": True, "ids": ["RS-001", "RS-002", "RS-003"], "missing": ["RS-002"]})
         self.assertEqual(sorted(p.relative_to(self.ws) for p in self.ws.rglob("*")), before)
+
+    def test_候補のlabelだけでない回答は節の逐語をfreeに出す(self):
+        # 回答を当てる resolver にはパスしか渡らないので、label の後の自由欄を読み落とすと、選ばなかった候補に当てる。
+        # script はファイルを読めず、プロンプトに写す逐語はこの stdout にしか無い。
+        free_label = {**RESOLUTION_Q, "id": "RS-002", "about": {"open": "O-002"},
+                      "options": [{"label": "無い", "description": "d", "flow_effect": "e", "decision_text": "足さない"},
+                                  {"label": "ある（自由欄に書く）", "description": "d", "flow_effect": "e", "decision_text": "足す"}]}
+        asked = [{**RESOLUTION_Q, "id": i, "about": {"open": f"O-{i[3:]}"}} for i in ("RS-003", "RS-004")]
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q, free_label, *asked]})
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\nRS-002: ある（自由欄に書く）\n最初に書いた削除タグは不要\n\nRS-003: 削除タグは不要\nRS-004:\n")
+        out = _ok(self.ws, "answers", "--file", "answers/g0.md", "--ids", "RS-001,RS-002,RS-003,RS-004")
+        self.assertEqual(out["free"], [
+            {"id": "RS-002", "from": 2, "to": 3, "text": "ある（自由欄に書く）\n最初に書いた削除タグは不要"},
+            {"id": "RS-003", "from": 5, "to": 5, "text": "削除タグは不要"},
+        ], "label だけの RS-001 と空の RS-004 は出さない")
+
+    def test_answersとanswer_holdsは同じ行で節を切る(self):
+        # 自由記述の中の、聞いていないが台帳にある ID で始まる行。片方だけがそこで切ると、answers は RS-001 の答えの続きとして写し、
+        # answer_holds はその行を引いた RS-017 の hold を数えず、聞ける段で指定の外の hold として問いに書き換えさせる。
+        hold = {"id": "RS-017", "about": {"open": "O-017"}, "ruling": "hold", "hold": AnswerHolds.HOLD,
+                "evidence": [{"file": str(self.ws / "answers" / "g0.md"), "line": 2, "quote": "RS-017: のときと同じ扱いで"}]}
+        (self.ws / "answers").mkdir()
+        (self.ws / "answers" / "g0.md").write_text("RS-001: メールで\nRS-017: のときと同じ扱いで\nRS-9: も同じ\n")
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [RESOLUTION_Q, hold]})
+        free = _ok(self.ws, "answers", "--file", "answers/g0.md", "--ids", "RS-001")["free"]
+        holds = _ok(self.ws, "flow")["answer_holds"]
+        self.assertEqual(free, [{"id": "RS-001", "from": 1, "to": 1, "text": "メールで"}])
+        self.assertEqual([(h["id"], h["from"]) for h in holds], [("RS-017", 2)])
+        self.assertLess(free[0]["to"], holds[0]["from"], "同じ行を両方の節に入れない")
 
     def test_resetが消した回答はファイルが無い(self):
         (self.ws / "answers").mkdir()

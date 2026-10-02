@@ -2213,6 +2213,23 @@ const answerLineId = (l) => (/^(RS-\d+):/.exec(String(l).trim()) || [])[1]
 // 回答として引けると、依頼者の言葉でない行が回答の顔で根拠になる。
 const answersFile = (rel) => rel.startsWith('answers/') && ownedPatterns().files.some((re) => re.test(rel))
 const answersRel = (ws, file) => path.relative(ws, path.resolve(file)).split(path.sep).join('/')
+// answerSections: 回答のファイルの問いごとの節（{id, from, to, text}。行は 1 始まりで両端を含み、text は頭の行の `<ID>:` の後と続きの行）。
+// 節の頭は台帳にある ID の行だけにする（回答の自由記述の中の `RS-9:` のような行で節を切らない）。answerHolds と wsAnswers がこの 1 つで切る:
+// 別々の条件で切ると、同じ行が片方では答えの続き、もう片方では別の問いの節になり、保留の hold が指定の外に数えられる。
+function answerSections(lines, resolutions) {
+  const known = new Set(resolutions.map((r) => String(r && r.id)))
+  const isHead = (id) => known.has(id)
+  const heads = []
+  lines.forEach((l, i) => {
+    const id = answerLineId(l)
+    if (id && isHead(id)) heads.push({ id, from: i + 1 })
+  })
+  return heads.map((h, k) => {
+    const to = k + 1 < heads.length ? heads[k + 1].from - 1 : lines.length
+    return { ...h, to, text: [lines[h.from - 1].trim().slice(h.id.length + 1), ...lines.slice(h.from, to)].join('\n').trim() }
+  })
+}
+
 // answerCites: evidence のうち、回答のファイルの行を引くもの。
 const answerCites = (ws, r) => (Array.isArray(r.evidence) ? r.evidence : []).filter((e) => e && typeof e.file === 'string' && answersFile(answersRel(ws, e.file)))
 
@@ -2223,16 +2240,12 @@ const answerCites = (ws, r) => (Array.isArray(r.evidence) ? r.evidence : []).fil
 // 別の ID の節や空の回答（答えなかった問い）を引く hold は数えない: どの回答の行でも引けば通るなら、resolver が聞ける論点を保持規則に逃がせる。
 // 節の頭は台帳にある ID の行だけにする（回答の自由記述の中の `RS-9:` のような行で節を切らない）。
 function answerHolds(ws, resolutions) {
-  const known = new Set(resolutions.map((r) => String(r.id)))
-  const headOf = (l) => {
-    const id = answerLineId(l)
-    return id && known.has(id) ? id : undefined
-  }
   const files = new Map()
-  const linesOf = (file) => {
+  const sectionsOf = (file) => {
     if (!files.has(file)) {
       try {
-        files.set(file, fs.readFileSync(file, 'utf8').split('\n'))
+        const lines = fs.readFileSync(file, 'utf8').split('\n')
+        files.set(file, { size: lines.length, sections: answerSections(lines, resolutions) })
       } catch {
         files.set(file, null)
       }
@@ -2240,16 +2253,11 @@ function answerHolds(ws, resolutions) {
     return files.get(file)
   }
   const ownSection = (id, e) => {
-    const lines = linesOf(path.resolve(e.file))
+    const got = sectionsOf(path.resolve(e.file))
     const last = e.end === undefined ? e.line : e.end
-    if (!lines || !Number.isInteger(e.line) || e.line < 1 || !Number.isInteger(last) || last < e.line || last > lines.length) return null
-    let head = e.line - 1
-    while (head >= 0 && !headOf(lines[head])) head -= 1
-    if (head < 0 || headOf(lines[head]) !== id) return null
-    let stop = head + 1
-    while (stop < lines.length && !headOf(lines[stop])) stop += 1
-    const text = [lines[head].trim().slice(id.length + 1), ...lines.slice(head + 1, stop)].join('\n').trim()
-    return last <= stop && text !== '' ? { id, file: answersRel(ws, e.file), from: head + 1, to: stop } : null
+    if (!got || !Number.isInteger(e.line) || e.line < 1 || !Number.isInteger(last) || last < e.line || last > got.size) return null
+    const s = got.sections.find((x) => x.from <= e.line && e.line <= x.to)
+    return s && s.id === id && last <= s.to && s.text !== '' ? { id, file: answersRel(ws, e.file), from: s.from, to: s.to } : null
   }
   const out = resolutions
     .filter((r) => r && r.ruling === 'hold')
@@ -2609,6 +2617,8 @@ const QUESTION_OPTIONS = { min: 2, max: 4 }
 // （問いを出した resolver が返る前に確かめる。導出はゲートの時点で pending の全件に対して司令塔が行う）。
 // answers: 回答のファイルが問いのすべてに `<ID>:` の行を持つか。script はファイルを読めないので、resume が live で走り直して reset が
 // answers を消した W でも、この stdout が無ければゲートを越えたことにされる。
+// free: 候補の label 1 つだけではない回答の節の逐語（label の後に自由欄が続く・label と違う）。script はファイルを読めないので、回答を当てる resolver の
+// プロンプトにはここから写す。パスだけを渡すと「ある（自由欄に書く）」の後の行を読み落とし、選ばなかった候補に当てる。
 function wsAnswers(ws, opts) {
   if (!opts.file || !answersFile(opts.file)) throw new LedgerRejected(`answers には --file answers/<ゲート>.md が要ります（所有表の answers/ の下のファイル）`)
   if (!opts.ids || !opts.ids.length) throw new LedgerRejected('answers には --ids RS-… が要ります')
@@ -2616,8 +2626,21 @@ function wsAnswers(ws, opts) {
   const file = path.join(ws, opts.file)
   const exists = fs.existsSync(file)
   const text = exists ? fs.readFileSync(file, 'utf8') : ''
-  const lines = new Set(text.split('\n').map(answerLineId).filter(Boolean))
-  return { file: opts.file, exists, ids, missing: ids.filter((id) => !lines.has(id)) }
+  const lines = text.split('\n')
+  const heads = new Set(lines.map(answerLineId).filter(Boolean))
+  const [listName, key] = Object.entries(ledgerOf('resolutions').lists)[0]
+  const rs = listOf(readLedger(ws, 'resolutions'), listName)
+  const byId = new Map(rs.map((r) => [String(r[key]), r]))
+  const labels = (id) => new Set(((byId.get(id) || {}).options || []).map((o) => o && typeof o.label === 'string' && o.label.trim()).filter(Boolean))
+  const lastFilled = (s) => {
+    let to = s.to
+    while (to > s.from && !lines[to - 1].trim()) to -= 1
+    return to
+  }
+  const free = answerSections(lines, rs)
+    .filter((s) => ids.includes(s.id) && s.text !== '' && !labels(s.id).has(s.text))
+    .map((s) => ({ id: s.id, from: s.from, to: lastFilled(s), text: s.text }))
+  return { file: opts.file, exists, ids, missing: ids.filter((id) => !heads.has(id)), free }
 }
 
 function wsQuestions(ws, opts) {

@@ -394,7 +394,9 @@ function respond(prompt, label) {
       const has = disk.answers[answers[1]] ?? (answeredBeforeCall ? asked : undefined)
       // answers_stdout: flow-check が返した answers の stdout（実行したコマンドと違う file・ids の stdout を返した世界）。
       if (spec.answers_stdout) return { answers_check: JSON.stringify(spec.answers_stdout) }
-      return { answers_check: JSON.stringify({ file: answers[1], exists: Boolean(has), ids: asked, missing: asked.filter((id) => !(has || []).includes(id)) }) }
+      // answers_free: 回答のファイルごとの、候補の label だけでない回答の節（doc_check answers の free）。
+      const free = ((spec.answers_free || {})[answers[1]] || []).filter((x) => asked.includes(x.id))
+      return { answers_check: JSON.stringify({ file: answers[1], exists: Boolean(has), ids: asked, missing: asked.filter((id) => !(has || []).includes(id)), free }) }
     }
     const reset = /doc_check\.mjs reset --workspace \S+(?: --keep (\S+?))?(?: --fixed (\S+?))?`/.exec(prompt)
     if (reset) return (spec.no_reset_at || []).includes(base) ? {} : { reset_check: resetWorld(reset[1], reset[2]) }
@@ -1629,6 +1631,15 @@ class FlowDigest(unittest.TestCase):
                 self.assertIn("RS-009", res[kept] if kept == "holds" else res["next_args"]["state"]["questions"])
         asked = run(self._settle_world(g02, "value_as_method", questions_at={"3a-settle-convert": ["RS-009"]}))["result"]
         self.assertEqual((asked["status"], asked["next_args"]["from"]), ("blocked", "3a"), "聞けない段の変換は問いを返せない")
+
+    def test_settleの差し戻しは裁定に触れる合格した裁定を指される(self):
+        spec = self._settle_world(None, "insufficient_grounds", questions_at={"3-settle-convert": ["RS-009"]})
+        spec = {**spec, "ruled_at": {**spec["ruled_at"], "3": ["RS-001", "RS-005"]}, "about": {**spec["about"], "RS-005": {"pair": ["F-053", "O-009"]}}}
+        line = "- open:O-009: RS-005（pair:F-053|O-009）"
+        self.assertIn(line, nth_prompt(run(spec), "resolver:3-settle-fix", 0))
+        # 変異: fixFailed に指された根拠を渡さないと行が消える。
+        mutated = run(spec, patch=[("reworkLines(fails), pointedLines(ownItems(ids, state)), ", "reworkLines(fails), ")])
+        self.assertNotIn(line, nth_prompt(mutated, "resolver:3-settle-fix", 0))
 
     def test_settleの中で台帳が変わらなければverifierの指摘はflow_framerのものとして止める(self):
         # 台帳が同じなら、同じ flow.json で flow-framer の stdout に無かった指摘は flow-framer の過少申告である。
@@ -2866,6 +2877,59 @@ class FlowRecheck(unittest.TestCase):
         self.assertEqual(r["result"]["status"], "done")
         self.assertIn("pair:D-001|F-099", r["result"]["missed"], "about に組が現れなければ裁定漏れに数える")
 
+    def test_組の要素に合格した検証の裁定があればpairsのプロンプトがそれを指す(self):
+        # 再々試走の E5b: resolver:3a-settle-pairs が、根拠一式の一覧にあった同じ要素の検証の裁定（RS-017）を読まずに、それと食い違う組の裁定を書いた。
+        g0 = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-017"]}, "questions_at": {"3": ["RS-001"]}, "about": {"RS-017": {"verification": "F-099"}}})["result"]
+        self.assertEqual(g0["status"], "needs_answers", g0.get("reason"))
+        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"], "3a-pairs": ["RS-002"]}, "flow_sha_at": {"3a": "f-3a"},
+                "pair_keys_at": {"3a": ["pair:D-001|F-099"]}, "unverified_at": {"3a": ["F-099"]}}
+        line = "- pair:D-001|F-099: RS-017（verification:F-099）"
+        p = self._prompt(run(spec), "resolver:3a-pairs")
+        self.assertIn(line, p)
+        self.assertIn("get --workspace /tmp/prd-w --ledger resolutions --ids RS-017 --fields id,ruling,value", p)
+        # 変異: 組の裁定の呼び出しに指された根拠を渡さないと、行が消える。
+        mutated = run(spec, patch=[("    pointedLines(issueItems([...opens, ...pairs])),\n    askNote(allowQuestions),", "    askNote(allowQuestions),")])
+        self.assertNotIn(line, self._prompt(mutated, "resolver:3a-pairs"))
+
+    def test_候補のlabelだけでない回答は回答を当てるresolverに逐語で渡る(self):
+        # 再々試走の E4: 「ある（自由欄に書く）」の後の自由欄がパスの先にしか無く、「無い」に当てた。
+        g0 = self._g0()
+        free = [{"id": "RS-001", "from": 1, "to": 2, "text": "ある（自由欄に書く）\n最初に書いた削除タグは不要"}]
+        spec = {"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "answers_free": {"answers/g0.md": free}}
+        line = "- RS-001（L1〜L2）: 「ある（自由欄に書く）」「最初に書いた削除タグは不要」"
+        self.assertIn(line, self._prompt(run(spec), "resolver:3a"))
+        # 変異: 段の task に写さないと、resolver はパスしか受け取らない。
+        mutated = run(spec, patch=[("      answerExcerpt(gate, pending),\n", "")])
+        self.assertNotIn(line, self._prompt(mutated, "resolver:3a"))
+        # label だけの回答は写さない（候補の decision_text で決まる）。
+        self.assertNotIn("候補の label だけでない回答", self._prompt(run({**spec, "answers_free": {}}), "resolver:3a"))
+
+    def test_対応づけで落ちた回答の差し戻しにも逐語が渡る(self):
+        # mapping の差し戻しは回答の対応づけを直す呼び出しで、逐語が無いと同じ読み違いを言い直す。
+        free = [{"id": "RS-001", "from": 1, "to": 2, "text": "ある（自由欄に書く）\n最初に書いた削除タグは不要"}]
+        spec = {"args": self._g0()["next_args"], "free_text_at": {"3a": ["RS-001"]}, "answers_free": {"answers/g0.md": free},
+                "verifier_fail": {"3av": [{"id": "RS-001", "kind": "mapping", "reason": "自由欄を読んでいない"}]}}
+        line = "- RS-001（L1〜L2）: 「ある（自由欄に書く）」「最初に書いた削除タグは不要」"
+        self.assertIn(line, self._prompt(run(spec), "resolver:3a-fix"))
+        # 変異: 差し戻しのプロンプトに写さないと、パスしか届かない。
+        mutated = run(spec, patch=[("opt.answered ? answerExcerpt(state.gate, v1.fail.map((f) => f.id)) : '', ", "")])
+        self.assertNotIn(line, self._prompt(mutated, "resolver:3a-fix"))
+
+    def test_段6の指摘は項目のtraceが指す要素の検証の裁定を指される(self):
+        # decision の指摘だけの項目でも、項目の trace が指す要素（doc の flow_refs）から、その要素の検証の裁定を指す。
+        spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001", "RS-017"], "6": ["RS-010"]}, "about": {"RS-017": {"verification": "F-011"}},
+                "doc_flow_refs": {"requirements/x": {"PR-X-001": ["F-011"]}},
+                "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "doc": "requirements/x", "item_id": "PR-X-001", "route": "decision"}]}}
+        line = "- finding:r1-cd-all-001: RS-017（verification:F-011）"
+        self.assertIn(line, self._prompt(run(spec), "resolver:6"))
+        # 変異: 段 6 に指された根拠を渡さないと行が消える。
+        mutated = run(spec, patch=[("      pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),\n", "")])
+        self.assertNotIn(line, self._prompt(mutated, "resolver:6"))
+        # 変異: decision の指摘の項目の flow refs を持たないと、要素から引けない。
+        bundles_only = ("  for (const f of all.filter((x) => (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {",
+                        "  for (const f of all.filter((x) => x.route !== 'decision' && (state.item_routes || {})[itemKey(x)] !== 'exhausted')) {")
+        self.assertNotIn(line, self._prompt(run(spec, patch=[bundles_only]), "resolver:6"))
+
     def test_未裁定の論点は生成者の申告でなくverifierが数えた組とOで確かめる(self):
         # 組と O- は flow.json・decisions.json・open.json で決まる。同じ flow.json を見た verifier の stdout と違えば、申告から漏れた論点が
         # 裁定されないまま進むので、段の頭からやり直す。
@@ -3250,6 +3314,15 @@ class FlowFixerRoutes(unittest.TestCase):
                 self.assertIn("RS-060", self._prompt(r, f"verifier:{stage}v-settle").split("検証する resolution の ID:")[1].split("\n")[0])
                 res = r["result"]
                 self.assertEqual((res["status"], res["integrity"]), ("done", []), res.get("reason"))
+
+    def test_resolver_3bは裁定するopenに触れる合格した裁定を指される(self):
+        g0 = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-005"]}, "questions_at": {"3": ["RS-001"]}, "about": {"RS-005": {"pair": ["F-053", "O-009"]}}})["result"]
+        spec = self._spec(g0["next_args"], "3a", answered="RS-001", framer="3b-reframe", questions_at={"3b": ["RS-009"]})
+        line = "- open:O-009: RS-005（pair:F-053|O-009）"
+        self.assertIn(line, self._prompt(run(spec), "resolver:3b"))
+        # 変異: 3b の task に指された根拠を渡さないと行が消える。
+        mutated = run(spec, patch=[("            pointedLines([...issueItems([...opens, ...pairs]), ...ownItems(carried, state)]),\n", "")])
+        self.assertNotIn(line, self._prompt(mutated, "resolver:3b"))
 
     def test_G0の後の3aで縛りの無い破壊的な工程は3bのflow_framerが縛りresolver_3bが問いにしてG0_2で聞く(self):
         # 3a の反映（flow の指摘）は 3a の settle を回さず 3b-reframe に渡し、足した O- は resolver:3b がまとめて裁定し、flow は 3bv だけが検証する。
@@ -4704,7 +4777,8 @@ class NextArgsBudget(unittest.TestCase):
         packed = state["pending"]["findings"][self.DOC]
         self.assertEqual((len(packed), sum(len(fs) for fs in packed.values())), (self.ITEMS_N, len(self._writer_items(self.ITEMS_N)) + 3))
         flow = state["pending"]["flow"][self.DOC]
-        self.assertEqual((len(flow), {len(v) for v in flow.values()}), (self.ITEMS_N - 1, {3}))
+        # decision の指摘だけの最後の項目も持つ（段 6 の指された根拠が、項目の trace が指す要素で引く）。
+        self.assertEqual((len(flow), {len(v) for v in flow.values()}), (self.ITEMS_N, {3}))
         self.assertEqual(len(state["units"]), 1)
         self.assertTrue(any("100 件" in n for n in state["notices"]) and any("SIZE_BUDGET" in n for n in state["notices"]), state["notices"])
         for gate, res in (("G0", g0), ("G0-2", g02), ("G1", g1)):
@@ -5277,8 +5351,10 @@ class SameSessionResume(unittest.TestCase):
         world = self._w("e")
         stopped = run({"args": args(), **spec, "world": world})
         ids = stopped["result"]["question_ids"]
-        for name, echo in (("ほかの問い", {"file": "answers/g0.md", "exists": True, "ids": ["RS-001"], "missing": []}),
-                           ("ほかのファイル", {"file": "answers/g1.md", "exists": True, "ids": ids, "missing": []})):
+        for name, echo in (("ほかの問い", {"file": "answers/g0.md", "exists": True, "ids": ["RS-001"], "missing": [], "free": []}),
+                           ("ほかのファイル", {"file": "answers/g1.md", "exists": True, "ids": ids, "missing": [], "free": []}),
+                           # free の無い写しを通すと、候補の label だけでない回答の逐語が resolver に届かないまま回答を当てる。
+                           ("free の無い写し", {"file": "answers/g0.md", "exists": True, "ids": ids, "missing": []})):
             with self.subTest(name):
                 again = run({"args": {**args(), "gates_answered": {"g0": ids}}, **spec, "world": world, "cache": stopped["calls"],
                              "write_answers": self._answer(stopped["result"]), "answers_stdout": echo})

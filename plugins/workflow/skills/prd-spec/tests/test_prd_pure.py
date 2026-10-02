@@ -166,6 +166,81 @@ class Pure(unittest.TestCase):
         state = {"passed": ["RS-1", "RS-2", "RS-3", "RS-4"], "holds": ["RS-2"], "questions": ["RS-3", "RS-4"], "answered": ["RS-4"]}
         self.assertEqual(value(f"usableResolutions({json.dumps(state)})"), ["RS-1", "RS-4"])
 
+    # POINTED: 組 F-003|RS-004 の要素 F-003 には合格した検証の裁定 RS-017 がある（再々試走の E5b: 組の裁定がこれを読まずに食い違った）。
+    POINTED = {
+        "passed": ["RS-004", "RS-017", "RS-020", "RS-030", "RS-035", "RS-041", "RS-050"],
+        "failed_ids": ["RS-030"],
+        "about": {"RS-004": "open:O-004", "RS-017": "verification:F-003", "RS-020": "verification:F-009", "RS-030": "verification:F-003",
+                  "RS-035": "pair:F-003|RS-011", "RS-041": "pair:F-007|O-004", "RS-050": "finding:r1-im-x-001"},
+    }
+
+    def _pointed(self, items, state=None, mutate=None):
+        st = json.dumps(state or self.POINTED)
+        expr = f"pointedGrounds({items.replace('STATE', st) if isinstance(items, str) else json.dumps(items)}, {st})"
+        if not mutate:
+            return {x["key"]: [g["id"] for g in x["grounds"]] for x in value(expr)}
+        region = pure_region()
+        self.assertEqual(region.count(mutate[0]), 1, mutate[0])
+        src = region.replace(*mutate) + f"\nconsole.log(JSON.stringify({expr}))\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "m.mjs"
+            path.write_text("const log = () => {}\n" + src, encoding="utf-8")
+            out = json.loads(subprocess.run(["node", str(path)], capture_output=True, text=True, check=True).stdout)
+        return {x["key"]: [g["id"] for g in x["grounds"]] for x in out}
+
+    def test_pointedGroundsは組の要素と不変条件に触れる合格した裁定を指す(self):
+        got = self._pointed([{"key": "pair:F-003|RS-004"}, {"key": "pair:F-009|D-001"}, {"key": "pair:F-005|D-002"}])
+        # RS-004 は組の片側、RS-017 は F-003 の検証、RS-035 は F-003 の別の組、RS-041 は RS-004 が閉じた O-004 に触れる（1 段）。
+        # RS-030 は不合格、RS-020 は別の要素なので指さない。触れる裁定の無い組は行を出さない。
+        self.assertEqual(got, {"pair:F-003|RS-004": ["RS-004", "RS-017", "RS-035", "RS-041"], "pair:F-009|D-001": ["RS-020"]})
+        # 変異: 裁定の about の側を見ないと、要素の検証の裁定を指さない。
+        drop = ("(touched.has(id) || expand(keyMembers(about[id])).some((m) => touched.has(m)))", "touched.has(id)")
+        self.assertEqual(self._pointed([{"key": "pair:F-003|RS-004"}], mutate=drop), {"pair:F-003|RS-004": ["RS-004"]})
+        # 変異: RS- の閉じた論点へ 1 段たどらないと、同じ不変条件を引く組の裁定を指さない。
+        hop = (", ...members.filter((m) => RESOLUTION_ID.test(m)).flatMap((m) => keyMembers(about[m]))", "")
+        self.assertNotIn("RS-041", self._pointed([{"key": "pair:F-003|RS-004"}], mutate=hop)["pair:F-003|RS-004"])
+
+    def test_pointedGroundsは差し戻しで直す裁定自身を指さない(self):
+        got = self._pointed([{"key": "pair:F-003|RS-011", "self": ["RS-035"]}])
+        self.assertEqual(got, {"pair:F-003|RS-011": ["RS-017"]})
+
+    def test_落ちた要素の差し戻しはその要素の検証の裁定を指さない(self):
+        # 差し戻しは落ちた要素の {verification} の裁定を同じ ID のまま直す。前の版で合格したそれを「食い違うな」と指すと、直す指示と逆になる。
+        items = value(f"ownItems(['F-003', 'RS-035'], {json.dumps(self.POINTED)})")
+        self.assertEqual(items, [{"key": "verification:F-003", "self": ["F-003", "RS-017", "RS-030"]}, {"key": "pair:F-003|RS-011", "self": ["RS-035"]}])
+        self.assertEqual(self._pointed("ownItems(['F-003', 'RS-035'], STATE)"), {"verification:F-003": ["RS-035"], "pair:F-003|RS-011": ["RS-017"]})
+        # 変異: 要素の検証の裁定を除かないと、直す当の RS-017 を根拠に指す。
+        drop = ("self: [id, ...verificationRulings(state, id)]", "self: [id]")
+        self.assertIn("RS-017", self._pointed("ownItems(['F-003'], STATE)", mutate=drop)["verification:F-003"])
+
+    def test_pointedGroundsは指摘の項目と項目のtraceが指す要素で引く(self):
+        state = {**self.POINTED, "pending": {
+            "findings": {"requirements/x": {"PR-X-001": {"r2-im-x-004": {"route": "decision"}}}},
+            "flow": {"requirements/x": {"PR-X-001": ["F-003"]}},
+            "recurring": {"requirements/x#PR-X-001": ["r1-im-x-001"]},
+        }}
+        got = self._pointed([{"key": "finding:r2-im-x-004"}, {"key": "tbd:TBD-RX-001"}], state)
+        self.assertEqual(got, {"finding:r2-im-x-004": ["RS-017", "RS-035", "RS-050"]})
+
+    def test_再発した項目の裁定し直しは前のパスでその項目を閉じた裁定を指さない(self):
+        # 改稿で直らなかった前の裁定を「食い違うな」と指すと、項目の次元をまとめて裁定し直す代わりに保持規則へ寄る。
+        state = {**self.POINTED, "pending": {
+            "findings": {"requirements/x": {"PR-X-001": {"r2-im-x-004": {"route": "decision"}}, "PR-X-002": {"r2-im-x-005": {"route": "decision"}}}},
+            "flow": {"requirements/x": {"PR-X-001": ["F-003"]}},
+            "recurring": {"requirements/x#PR-X-001": ["r1-im-x-001"]},
+        }, "item_routes": {"requirements/x#PR-X-001": "decision"}}
+        items = "findingItems(['r2-im-x-004', 'r2-im-x-005'], STATE)"
+        self.assertEqual(self._pointed(items, state), {"finding:r2-im-x-004": ["RS-017", "RS-035"]})
+        # 変異: 前のパスの裁定を除かないと、RS-050 を指す。
+        keep = ("self: Object.entries(state.about || {}).filter(([, k]) => before(id).some((x) => k === `finding:${x}`)).map(([rs]) => rs)", "self: []")
+        self.assertIn("RS-050", self._pointed(items, state, mutate=keep)["finding:r2-im-x-004"])
+        # 経路が hold の項目は decide の再発した項目の行に載らないので、前の裁定はここで指す。
+        held = {**state, "item_routes": {"requirements/x#PR-X-001": "hold"}}
+        self.assertIn("RS-050", self._pointed(items, held)["finding:r2-im-x-004"])
+        # 変異: 経路を見ないと、hold の項目でも前の裁定が誰にも渡らない。
+        any_route = ("(state.item_routes || {})[itemOf[id]] === 'decision' && ", "")
+        self.assertNotIn("RS-050", self._pointed(items, held, mutate=any_route)["finding:r2-im-x-004"])
+
     def test_invalidIdsは検証に落ちた既定と今の版で不合格の流れの要素を無効にする(self):
         state = {"superseded": ["D-003"], "failed_ids": ["D-004", "RS-002"]}
         self.assertEqual(value(f"invalidIds({json.dumps(state)}, ['F-007'])"), {"decisions": ["D-003", "D-004"], "flow": ["F-007"]})

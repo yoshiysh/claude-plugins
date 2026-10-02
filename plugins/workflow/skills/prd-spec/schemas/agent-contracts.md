@@ -430,7 +430,10 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 ## §resolver
 
 入力: 段ごとに script が渡す対象の ID と、上流のファイル（input・answers・decisions・plan・open・flow・`checks/conflicts.json`・
-resolutions・verifications・precedent。どれを get・grep で引くかは「## 共通の約束」の表）。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
+resolutions・verifications・precedent。どれを get・grep で引くかは「## 共通の約束」の表）。組・open・差し戻しの項目・指摘・TBD を
+裁定する呼び出しでは、script が論点ごとに、同じ要素・不変条件・項目に触れる根拠にしてよい resolution の ID と `about` を「指された根拠」として渡す
+（state の `about` から導く。prd-spec.js の `pointedGrounds`。要素の `source` が引く裁定と、問いの候補の `flow_refs` は script に見えないので含まない。再発した項目を裁定し直すとき（項目の経路が `decision`）は、前のパスでその項目の指摘を閉じた裁定も含まない（それは再発した項目の行で渡る））。
+回答を当てる呼び出し（3a・3a' とその差し戻し）では、候補の `label` 1 つだけではない回答の逐語を、`doc_check answers` の `free` から写して渡す。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
 の更新。put）、`W/routes.json`（段 6。put）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
