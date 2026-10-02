@@ -33,4 +33,4 @@ Claude Code のセッション内なら `/plugin install <plugin>@yoshiysh-claud
 
 ## 開発
 
-構成・作業ルール・検証は [CLAUDE.md](CLAUDE.md)（Codex での差分は [AGENTS.md](AGENTS.md)）を参照。検証の入口は `make check`。
+構成・作業ルール・検証は [AGENTS.md](AGENTS.md) を参照（`CLAUDE.md` はその symlink で、Claude Code と Codex は同じ内容を読む）。検証の入口は `make check`。
