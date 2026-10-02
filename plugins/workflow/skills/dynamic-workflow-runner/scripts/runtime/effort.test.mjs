@@ -37,9 +37,29 @@ async function fixture(t, body, checkpoint = false) {
   return { run, starts, events, backend };
 }
 
+function extractSdkEfforts(types) {
+  const declaration = types.match(/\btype\s+ModelReasoningEffort\s*=\s*([^;]+);/);
+  assert.ok(declaration, 'SDK declaration for ModelReasoningEffort must exist');
+  return [...declaration[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
+}
+
+test('SDK effort extraction accepts declaration whitespace changes', () => {
+  const declaration = '"none" | "low" | "medium" | "high"';
+  for (const source of [
+    `type ModelReasoningEffort = ${declaration};`,
+    `type ModelReasoningEffort =\n  ${declaration};`,
+    `type\tModelReasoningEffort  \t=   ${declaration};`,
+    `type\nModelReasoningEffort = ${declaration};`,
+  ]) {
+    assert.deepEqual(extractSdkEfforts(source), ['none', 'low', 'medium', 'high']);
+  }
+  assert.throws(() => extractSdkEfforts('type OtherEffort = "low";'),
+    /SDK declaration for ModelReasoningEffort must exist/);
+});
+
 test('effort policy matches the pinned SDK type and override retains model mapping policy', async () => {
   const types = await readFile(new URL('./node_modules/@openai/codex-sdk/dist/index.d.ts', import.meta.url), 'utf8');
-  const sdkEfforts = [...types.match(/type ModelReasoningEffort = ([^;]+);/)[1].matchAll(/"([^"]+)"/g)].map(match => match[1]);
+  const sdkEfforts = extractSdkEfforts(types);
   assert.deepEqual(reasoningEfforts, sdkEfforts);
   const resolve = modelResolver({ model: 'default', modelReasoningEffort: 'medium',
     modelMap: { source: { model: 'mapped', modelReasoningEffort: 'high' } } });
