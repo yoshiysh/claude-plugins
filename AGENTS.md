@@ -181,8 +181,10 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
 （runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
 caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
-runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create modeだけで、
-dispatch、review-document、skill-creatorのreview/updateはexecution前にfail-closedする。
+runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create mode、
+host-bound `updatePolicy` と runtime capability が揃う `skill-creator` update である。
+dispatch、review-document、skill-creator の review は execution 前に fail-closed する。
+update の承認後適用は `skill-creator` の Codex 互換契約と apply helper を正とする。
 `workflow` の prd-spec は Codex では実行しない（理由は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は

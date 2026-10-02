@@ -247,12 +247,12 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 > **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review と update は Codex runner では
-> `rejected_source` で停止する。update の staging 境界、追加・削除を含む差分 manifest、caller 側の適用経路が未完成で、
-> capability の宣言だけでは安全性を保証できない（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」。active callsite 到達時に読む）。
+> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
+> `rejected_source`。update は common caller の host が静的 `updatePolicy` を束縛した場合だけ
+> `--update-policy-bound` で選択でき、runtime も agent dispatch 前に検証する（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」）。
 > review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
-> update の runner 例: `node [SKILL_DIR]/scripts/select_runtime.js --mode update --no-native --runner-installed`（`halt: true` で停止する）。
-> **Codex classification: review/update は runner で `rejected_source`**。
+> update の runner 例: `node [SKILL_DIR]/scripts/select_runtime.js --mode update --no-native --runner-installed --update-policy-bound`（host policy が無ければ flag を付けず停止する）。
+> **Codex classification: review は `rejected_source`、update は host policy 条件付き**。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
@@ -279,6 +279,7 @@ Workflow({
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
 どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
 agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
+Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する。
 `diffRef` が無い、`mode: "update"` なのに `intent` が無い、`uncheckedItems` が無いか形式が不正、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
@@ -353,8 +354,8 @@ Workflow を再実行する。
 `references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する。
 
 本体への反映は**承認後に司令塔が行う**（script は staging に書くところで必ず止まる）。司令塔の役割は
-Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・承認後に `staging.changed_files` を
-機械コピーする、の 3 つだけで、**staging の内容は書かない**（minor の文言修正もユーザーの追加指示も、
+Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・承認後に native は `staging.changed_files` を
+機械コピーし、Codex runner は `scripts/apply-update-package.mjs` を呼ぶ、の 3 つだけで、**staging の内容は書かない**（minor の文言修正もユーザーの追加指示も、
 新しい `intent` での update 再実行に一本化）。指紋照合・コピー対象・非承認時の扱い・純化の理由とコストは
 参照先が正本。完了条件は、非承認で終了・指紋一致でコピー・指紋不一致でコピー拒否のいずれかが確定すること。
 

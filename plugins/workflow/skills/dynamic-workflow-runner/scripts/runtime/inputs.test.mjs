@@ -31,8 +31,10 @@ test('worktree isolation in the source is rejected before any agent and before r
   await writeFile(scriptPath, `export const meta = {name:'isolated',description:'worktree writer'};
     await agent('x', {model:'opus',isolation:'worktree'}); return 1;`);
   let calls = 0;
-  await assert.rejects(Workflow({ scriptPath, args: {} },
-    { backend: { run() { calls++; } }, runDir: join(root, 'run'), trustedSource: true }),
+  await assert.rejects(Workflow({
+    scriptPath,
+    args: {},
+  }, { backend: { run() { calls++; } }, runDir: join(root, 'run'), trustedSource: true }),
   /unsupported source capability option: isolation/);
   assert.equal(calls, 0);
   await assert.rejects(access(join(root, 'run')), { code: 'ENOENT' });
@@ -47,7 +49,9 @@ test('source metadata requirements gate execution, including inactive branches',
 test('CLI rejects unsupported request and limits without inference', async t => {
   const root = await mkdtemp(join(tmpdir(), 'workflow-cli-check-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  for (const value of [{ resumeFromRunId: 'previous' }, { limits: { maxTokens: 1 } }]) {
+  for (const value of [{ resumeFromRunId: 'previous' }, { limits: { maxTokens: 1 } },
+    { updateContract: { targetRoot: '/tmp', stagingRoot: '/tmp/staging', targetDir: '/tmp/target', stagingDir: '/tmp/staging/run' } },
+    { scriptPath: '/unused', args: { mode: 'update' } }]) {
     const request = join(root, 'request.json');
     await writeFile(request, JSON.stringify(value));
     await assert.rejects(promisify(execFile)(process.execPath,

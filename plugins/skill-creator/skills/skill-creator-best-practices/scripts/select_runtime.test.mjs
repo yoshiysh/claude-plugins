@@ -15,4 +15,7 @@ test('update stays native when available and is rejected on the Codex runner', a
   assert.equal(rejected.selected_runtime, null);
   assert.match(rejected.rejected_reason, /rejected_source: mode=update/);
   assert.equal(rejected.halt, true);
+  assert.deepEqual(await run('--mode', 'update', '--no-native', '--runner-installed', '--update-policy-bound'),
+    { selected_runtime: 'dynamic-workflow-runner', rejected_reason: null, halt: false });
+  assert.equal((await run('--mode', 'update', '--no-native', '--no-runner', '--update-policy-bound')).halt, true);
 });

@@ -13,6 +13,7 @@ try {
     'modelReasoningEffort', 'codexPathOverride', 'limits', 'requirements', 'workspace', 'environment', 'context', 'checkpoint', 'resume'], 'CLI request');
   exactObject(request.limits ?? {}, limitKeys, 'limits');
   const { scriptPath, args, runDir, cwd, modelMap, model, modelReasoningEffort, codexPathOverride, limits = {} } = request;
+  if (args?.mode === 'update') throw new Error('unsupported CLI update request; use host-bound createWorkflow updatePolicy');
   const result = await executeWorkflow({ scriptPath, args }, { ...limits, runDir, trustedSource: true, requirements: request.requirements,
     cwd, modelMap, model, modelReasoningEffort, codexPathOverride, workspace: request.workspace, environment: request.environment, context: request.context,
     checkpoint: request.checkpoint, resume: request.resume });

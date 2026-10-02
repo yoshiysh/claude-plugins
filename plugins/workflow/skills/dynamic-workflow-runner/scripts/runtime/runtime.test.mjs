@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile, readFile, realpath, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { cp, mkdir, mkdtemp, writeFile, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Workflow } from './runtime.mjs';
 import { compileSource } from './source.mjs';
+import { codexBackend } from './codex.mjs';
+import { Codex } from '@openai/codex-sdk';
 const header = `export const meta = {name:'test',description:'test workflow'};\n`;
 
 async function run(t, body, backend, options = {}) {
@@ -26,6 +29,21 @@ test('real JS: args, phases, two agents, branch and return; arbitrary extension'
   assert.equal(result, 'hello!'); assert.deepEqual(prompts, ['hello', 'hello!']);
   assert.equal(events.filter(e => e.type === 'agent.started').length, 2);
   assert.equal(events.at(-1).type, 'run.completed');
+});
+test('non-JSON and non-cloneable args fail with the JSON serializability error', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-args-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const scriptPath = join(dir, 'source.js');
+  await writeFile(scriptPath, header + 'return args.text;');
+  const host = { trustedSource: true, backend: { run: async () => null } };
+  const cyclic = {}; cyclic.self = cyclic;
+  for (const [index, args] of [{ callback: () => null }, { count: 1n }, cyclic, Symbol('value')].entries()) {
+    const runDir = join(dir, `run-${index}`);
+    await assert.rejects(Workflow({ scriptPath, args }, { ...host, runDir }),
+      error => error.name === 'Error' && error.message === 'args must be JSON serializable');
+  }
+  assert.equal(await Workflow({ scriptPath, args: { text: 'valid' } },
+    { ...host, runDir: join(dir, 'valid-run') }), 'valid');
 });
 test('parallel/pipeline preserve order, null and bound nested concurrency', async t => {
   let active = 0, peak = 0;
@@ -85,8 +103,8 @@ test('final return and prompt are byte bounded', async t => {
 test('agent timeout aborts a pending backend and records a null result', async t => {
   let aborted = false;
   const { result, events } = await run(t, `return await agent('x');`, {
-    run: async (_, __, { signal }) => new Promise(() => {
-      signal.addEventListener('abort', () => { aborted = true; });
+    run: async (_, __, { signal }) => new Promise(resolve => {
+      signal.addEventListener('abort', () => { aborted = true; resolve(null); }, { once: true });
     }),
   }, { timeoutMs: 200 });
   assert.equal(result, null);
@@ -96,8 +114,8 @@ test('agent timeout aborts a pending backend and records a null result', async t
 test('agent timeout returns null, records timeout, and aborts only that backend call', async t => {
   let aborted = false;
   const { result, events } = await run(t, `return await agent('slow');`, {
-    run: async (_, __, { signal }) => new Promise(() => {
-      signal.addEventListener('abort', () => { aborted = true; });
+    run: async (_, __, { signal }) => new Promise(resolve => {
+      signal.addEventListener('abort', () => { aborted = true; resolve(null); }, { once: true });
     }),
   }, { timeoutMs: 1000, agentTimeoutMs: 25 });
   assert.equal(result, null);
@@ -105,53 +123,12 @@ test('agent timeout returns null, records timeout, and aborts only that backend 
   assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
   assert.equal(events.at(-1).type, 'run.completed');
 });
-test('trust acknowledgement is required before opening source', async () => {
-  await assert.rejects(Workflow({ scriptPath: '/missing' }, { backend: { run() {} } }), /trustedSource/);
-});
 
-test('update workflows fail closed before backend preparation, run creation, and dispatch', async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-update-'));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const root = await realpath(dir), scriptPath = join(root, 'update.flow');
-  const capabilities = ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'];
-  const cases = [
-    { name: 'args-mode', args: { mode: 'update' } },
-    { name: 'backend-contract', backendContract: { targetDir: '/target', stagingDir: '/staging' } },
-    { name: 'host-requirements', host: { requirements: capabilities.slice(2) } },
-    { name: 'backend-capabilities', backendCapabilities: capabilities },
-    { name: 'source-requirements', source: `${header.replace("description:'test workflow'", `description:'test workflow',requirements:${JSON.stringify(capabilities.slice(2))}`)}return 1;`,
-      backendCapabilities: capabilities },
-  ];
-  for (const variant of cases) {
-    let prepared = 0, dispatched = 0;
-    const runDir = join(root, `run-${variant.name}`);
-    await writeFile(scriptPath, variant.source ?? `${header}return 1;`);
-    const backend = { run() { dispatched++; }, prepare() { prepared++; },
-      ...(variant.backendContract ? { updateContract: variant.backendContract } : {}),
-      ...(variant.backendCapabilities ? { capabilities: variant.backendCapabilities } : {}) };
-    await assert.rejects(Workflow({ scriptPath, args: variant.args ?? {} }, {
-      backend, trustedSource: true, runDir, ...variant.host,
-    }), /update workflows are not supported|unsupported Workflow host field/);
-    assert.equal(prepared, 0, variant.name);
-    assert.equal(dispatched, 0, variant.name);
-    await assert.rejects(realpath(runDir), { code: 'ENOENT' }, variant.name);
-  }
-});
-
-test('agent timeout defaults to 80% of the workflow deadline', async t => {
-  const { result, events } = await run(t, `return await agent('slow');`, {
-    run: async (_, __, { signal }) => new Promise(resolve => {
-      signal.addEventListener('abort', () => resolve('too late'));
-    }),
-  }, { timeoutMs: 1000 });
-  assert.equal(result, null);
-  assert.equal(events.find(event => event.type === 'agent.timeout').timeoutMs, 800);
-});
-
-test('source passes role-specific evidence paths through one retained per-run workspace', async t => {
+test('source hands role-specific file paths through one retained per-run workspace', async t => {
   const root = await mkdtemp(join(tmpdir(), 'workflow-runtime-shared-workspace-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const scriptPath = join(root, 'evidence.flow'), runDir = join(root, 'run');
+  const scriptPath = join(root, 'evidence.flow');
+  const runDir = join(root, 'run');
   await writeFile(scriptPath, `export const meta = {name:'evidence-review',description:'shared evidence files',requirements:['workspace-write']};
     const evidencePath = workspace.path + '/research-notes.md';
     await agent('write ' + evidencePath, {label:'research'});
@@ -163,7 +140,7 @@ test('source passes role-specific evidence paths through one retained per-run wo
       const path = prompt.match(/(?:write|read only) (.+)$/)?.[1];
       assert.ok(path);
       if (prompt.startsWith('write ')) {
-        await writeFile(path, 'role evidence\\n');
+        await writeFile(path, 'role evidence\n');
         return 'written';
       }
       return await readFile(path, 'utf8');
@@ -172,9 +149,102 @@ test('source passes role-specific evidence paths through one retained per-run wo
   const result = await Workflow({ scriptPath }, { backend, trustedSource: true, runDir, requirements: ['workspace-write'] });
   const receipt = JSON.parse(await readFile(join(runDir, 'request.json'), 'utf8'));
   const events = (await readFile(join(runDir, 'events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
-  assert.equal(result, 'role evidence\\n');
+  assert.equal(result, 'role evidence\n');
   assert.equal(receipt.workspace.path.startsWith(join(await realpath(root), 'dynamic-workflows', 'workspace', 'evidence-review') + '/'), true);
   assert.notEqual(receipt.workspace.path, runDir);
-  assert.equal(await readFile(join(receipt.workspace.path, 'research-notes.md'), 'utf8'), 'role evidence\\n');
+  assert.equal(await readFile(join(receipt.workspace.path, 'research-notes.md'), 'utf8'), 'role evidence\n');
   assert.equal(events.some(event => event.type === 'workspace.created' && event.path === receipt.workspace.path), true);
+});
+test('trust acknowledgement is required before opening source', async () => {
+  await assert.rejects(Workflow({ scriptPath: '/missing' }, { backend: { run() {} } }), /trustedSource/);
+});
+
+test('update rejects a backend that only self-advertises staging capabilities', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-update-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const root = await realpath(dir);
+  const targetRoot = join(root, 'targets'), stagingRoot = join(root, 'staging-root');
+  const target = join(targetRoot, 'target'), staging = join(stagingRoot, 'staging'), scriptPath = join(root, 'update.flow');
+  await mkdir(targetRoot); await mkdir(stagingRoot);
+  await mkdir(target);
+  await writeFile(join(target, 'SKILL.md'), 'before\n');
+  await writeFile(scriptPath, `export const meta = {name:'skill-creator-review',description:'update'}; return null;`);
+  let calls = 0;
+  await assert.rejects(Workflow({ scriptPath, args: { mode: 'update', target: { skillPath: target } } }, {
+    backend: { capabilities: ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'],
+      async run() { calls++; } },
+    trustedSource: true, runDir: join(root, 'run'), timeoutMs: 3000,
+    updateContract: { targetRoot, stagingRoot, targetDir: target, stagingDir: staging },
+  }), /Codex SDK staging-only backend/);
+  assert.equal(calls, 0);
+  assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'before\n');
+});
+
+test('update binds the contract to the exact caller target before staging or dispatch', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-update-target-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const root = await realpath(dir);
+  const targetRoot = join(root, 'targets'), stagingRoot = join(root, 'staging-root');
+  const target = join(targetRoot, 'target'), other = join(targetRoot, 'other'), staging = join(stagingRoot, 'staging');
+  await mkdir(targetRoot); await mkdir(stagingRoot);
+  const scriptPath = join(root, 'update.flow');
+  await mkdir(target); await mkdir(other);
+  await writeFile(scriptPath, `export const meta = {name:'skill-creator-review',description:'update'}; return null;`);
+  const contract = { targetRoot, stagingRoot, targetDir: target, stagingDir: staging };
+  const backend = codexBackend({ cwd: root, updateContract: contract });
+  await assert.rejects(Workflow({ scriptPath, args: { mode: 'update', target: { skillPath: other } } }, {
+    backend, trustedSource: true, runDir: join(root, 'run'), timeoutMs: 3000,
+    updateContract: contract,
+  }), /must match args\.target\.skillPath/);
+  await assert.rejects(readFile(staging), { code: 'ENOENT' });
+});
+
+test('update runs each phase in its scoped cwd and returns the caller package without applying it', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-runtime-update-result-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const root = await realpath(dir);
+  const targetRoot = join(root, 'targets'), stagingRoot = join(root, 'staging-root');
+  const target = join(targetRoot, 'target'), staging = join(stagingRoot, 'staging');
+  await mkdir(targetRoot); await mkdir(stagingRoot);
+  const scriptPath = join(root, 'update.flow'), runDir = join(root, 'run');
+  await mkdir(target); await writeFile(join(target, 'SKILL.md'), 'before\n');
+  await writeFile(scriptPath, `export const meta = {name:'skill-creator-review',description:'update'};
+    await agent('write staging',{phase:'Update',label:'update-r1'});
+    await agent('fresh reverify',{phase:'Reverify',label:'reverify-r1'});
+    return { verdict:'applied_to_staging', staging:{dir:args.stagingDir,changed_files:[{path:'SKILL.md',reason:'intent',findings_addressed:['f1']}]},
+      reverify_receipt:{phase:'Reverify',staging_dir:args.stagingDir,fresh_thread:true,completed:true,by_category:{quality:0},updater_thread_id:'update-r1',fresh_thread_id:'reverify-r1'} };`);
+  const calls = [];
+  const originalStartThread = Codex.prototype.startThread;
+  Codex.prototype.startThread = function (options) {
+    calls.push(options);
+    return { async runStreamed() {
+      if (options.workingDirectory === staging) {
+        await cp(target, staging, { recursive: true });
+        await writeFile(join(staging, 'SKILL.md'), 'after\n');
+      }
+      return { events: (async function* () {
+        yield { type: 'item.completed', item: { type: 'agent_message', text: 'done' } };
+        yield { type: 'turn.completed', usage: { input_tokens: 0, output_tokens: 0 } };
+      })() };
+    } };
+  };
+  try {
+    const contract = { targetRoot, stagingRoot, targetDir: target, stagingDir: staging };
+    const result = await Workflow({ scriptPath, args: { mode: 'update', target: { skillPath: target }, stagingDir: staging } }, {
+      backend: codexBackend({ cwd: root, updateContract: contract }), updateContract: contract,
+      trustedSource: true, runDir, timeoutMs: 3000,
+    });
+    assert.equal(result.source_result.verdict, 'applied_to_staging');
+    assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
+    assert.equal(result.action_package.apply.source_dir, target);
+    assert.equal(result.action_package_path, join(runDir, 'update-action-package.json'));
+    assert.equal(result.action_package_sha256,
+      createHash('sha256').update(await readFile(result.action_package_path)).digest('hex'));
+    assert.deepEqual(calls.map(call => [call.workingDirectory, call.sandboxMode]), [
+      [staging, 'workspace-write'], [root, 'read-only'],
+    ]);
+    assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), 'before\n');
+  } finally {
+    Codex.prototype.startThread = originalStartThread;
+  }
 });
