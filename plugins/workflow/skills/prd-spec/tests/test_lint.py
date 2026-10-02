@@ -3,9 +3,9 @@
 lint は flow-framer（flow --lint）と writer（doc --lint）が自分のループでだけ使い、verifier・flow-check・監査役の止まり方を変えない。
 ここでは次を押さえる。
 
-1. flow --lint は、状態を変える工程の obtain always の出典（obtain_source）の欠けを拾う（試走の証拠の F-005・F-017・F-025 を含む）。
+1. flow --lint は、状態を変える工程の obtain always の出典（obtain_source）の欠けを拾う（試走の証拠の flow の書き込みの工程を既定値の always に戻した形を含む）。
    今の版で合格した要素は見ない。出典の引用は put が input.md と照合し、always でない要素の obtain_source は put が拒否する
-2. doc --lint は、表を指す語のある項目の節に表が無い形（試走の証拠の PR-CLEANUP-028 の表が 072 の下にある形）を拾う。
+2. doc --lint は、表を指す語のある項目の節に表が無い形（判定表を指す項目の表が、次の項目の見出しの下に入った形）を拾う。
    stash・unstash は lint の差し戻しの前の flow と open を控えて戻す
 3. --lint の有無で findings・codes・blocking・digest・checks/flow.json・checks/doc.json が変わらない。LINT_ の符号は codes にも
    FIXERS_BY_CODE にも入らず、prd-spec.js が --lint を渡すのは起草の flow-framer と writer だけ
@@ -49,8 +49,8 @@ class _Workspace(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class FlowLint(_Workspace):
-    def _f005(self, **extra):
-        """生成の script の既定の obtain="always" のまま、失敗しうる削除の工程を置いた形（試走の証拠の F-005 の最小の再現）。"""
+    def _always_delete(self, **extra):
+        """生成の script の既定の obtain="always" のまま、失敗しうる削除の工程を置いた形（最小の再現）。"""
         with (self.ws / "input.md").open("a") as f:
             f.write("\nローカルの取り込み済みのブランチを削除する。未コミットの作業を失ってはならない。\n")
         _put(self.ws, "decisions", {"decisions": [{"id": "D-004", "kind": "invariant", "quote": "未コミットの作業を失ってはならない。", "value": "未コミットの作業を失わない"}]})
@@ -59,7 +59,7 @@ class FlowLint(_Workspace):
         _put(self.ws, "flow", {"elements": [el]})
 
     def test_既定値のalwaysの削除の工程は共有の検査を通りlintだけが拾う(self):
-        self._f005()
+        self._always_delete()
         plain = _ok(self.ws, "flow")
         self.assertEqual((plain["findings"], plain["codes"]), (0, {}), "verifier の止まる検査はこの形を拾わない（だから verifier が insufficient_grounds で落とした）")
         out = _ok(self.ws, "flow", "--lint")
@@ -69,7 +69,7 @@ class FlowLint(_Workspace):
         self.assertEqual(lint_ids(self.ws, "flow.lint.json"), ["LINT-OBTAIN-UNGROUNDED-F-002"])
 
     def test_出典を付けるかmay_failにすれば消える(self):
-        self._f005(obtain_source={"decision": "D-004"})
+        self._always_delete(obtain_source={"decision": "D-004"})
         self.assertEqual(_ok(self.ws, "flow", "--lint")["lint"], 0)
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "obtain": "may_fail", "obtain_source": None, "on_fail": {"as": "削除できない", "source": {"input": "削除する"}}}]})
         self.assertEqual(_ok(self.ws, "flow", "--lint")["lint"], 0)
@@ -80,7 +80,7 @@ class FlowLint(_Workspace):
 
     def test_always以外の要素のobtain_sourceはputが拒否する(self):
         # may_fail に変えた要素に always の出典が残ると、根拠の無くなった出典が検証に届く。
-        self._f005(obtain_source={"decision": "D-004"})
+        self._always_delete(obtain_source={"decision": "D-004"})
         before = (self.ws / "flow.json").read_bytes()
         r = _put_run(self.ws, "flow", {"elements": [{"id": "F-002", "obtain": "may_fail", "on_fail": {"as": "削除できない", "source": {"input": "削除する"}}}]})
         self.assertEqual(r.returncode, 1)
@@ -88,7 +88,7 @@ class FlowLint(_Workspace):
         self.assertEqual((self.ws / "flow.json").read_bytes(), before)
 
     def test_出典の形と実在も見る(self):
-        self._f005(obtain_source={"open": "O-001"})
+        self._always_delete(obtain_source={"open": "O-001"})
         _ok(self.ws, "flow", "--lint")
         self.assertEqual(lint_ids(self.ws, "flow.lint.json"), ["LINT-GROUNDS-SHAPE-F-002.obtain_source"])
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "obtain_source": {"decision": "D-004"}}]})
@@ -107,14 +107,14 @@ class FlowLint(_Workspace):
 
     def test_今の版で合格した要素は見ない(self):
         # settle と verifier の検証の対象を増やさないため（合格した要素を lint で書き換えさせない）。
-        self._f005()
+        self._always_delete()
         sha = lambda ledger: _ok(self.ws, "sha", "--ledger", ledger)["sha256"]
         _put(self.ws, "verifications", {"items": [{"id": "F-002", "verdict": "pass", "reason": "r"}]},
              "--expect-resolutions", sha("resolutions"), "--expect-decisions", sha("decisions"))
         self.assertEqual(_ok(self.ws, "flow", "--lint")["lint"], 0)
 
     def test_lintの有無でflowの判断に使う欄とchecksは変わらない(self):
-        self._f005()
+        self._always_delete()
         _put(self.ws, "flow", {"elements": [{"id": "F-002", "next": ["F-404"]}]})
         plain = _ok(self.ws, "flow")
         before = (self.ws / "checks" / "flow.json").read_bytes()
@@ -130,42 +130,45 @@ class FlowLint(_Workspace):
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 @unittest.skipUnless(TRIAL.is_dir(), "試走の証拠が無い環境ではスキップ")
 class TrialEvidence(unittest.TestCase):
-    def test_試走の最終のflowの削除と退避をalwaysに戻すとlintだけが拾う(self):
+    def test_書き込みの工程のmay_failを既定値のalwaysに戻すと共有の検査は通りlintだけがすべて拾う(self):
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             (ws / "input.md").write_text("x\n")
+            writes = set()
             for name, src in (("flow", "flow-final.json"), ("decisions", "decisions.json"), ("open", "open.json"), ("resolutions", "resolutions-final.json")):
                 body = json.loads((TRIAL / src).read_text(encoding="utf-8"))
                 if name == "flow":
                     for el in body["elements"]:
-                        if el["id"] in ("F-005", "F-017", "F-025"):
-                            el["obtain"] = "always"
+                        if el["type"] == "step" and el.get("effect") != "read":
+                            if el.get("obtain") == "may_fail" and "on_fail" not in el:
+                                el["obtain"] = "always"
+                            if el.get("obtain") == "always":
+                                writes.add(el["id"])
                 (ws / f"{name}.json").write_text(canonical(body))
+            self.assertGreaterEqual(len(writes), 3)
             out = _ok(ws, "flow", "--lint")
             self.assertEqual(out["findings"], 0, "共有の検査は always に戻した版を拾わない")
             self.assertEqual(set(out["lint_codes"]), {"LINT_OBTAIN_UNGROUNDED"})
-            self.assertEqual(sorted(out["lint_codes"]["LINT_OBTAIN_UNGROUNDED"]), ["F-005", "F-017", "F-025", "F-027"], "F-027 は最終の版でも always の reset")
+            self.assertEqual(sorted(out["lint_codes"]["LINT_OBTAIN_UNGROUNDED"]), sorted(writes))
 
-    def test_028の表が072の見出しの下にある形を拾い_直した版は拾わない(self):
+    def test_判定表を指す項目の表の前に次の項目の節を差し込むとその項目だけを拾い_元の版は拾わない(self):
         fixed = (TRIAL / "requirements-cleanup-branches.md").read_text(encoding="utf-8")
-        # 072 の節を切り出し、028 の本文の段落（見出しの次の段落）の直後に差し込む。028 の表は 072 の見出しの下に入る。
-        start = fixed.index("#### PR-CLEANUP-072 ")
-        end = fixed.index("\n#### ", start) + 1
-        sec072, rest = fixed[start:end], fixed[:start] + fixed[end:]
-        heading = rest.index("#### PR-CLEANUP-028 ")
-        para_end = rest.index("\n\n", rest.index("\n\n", heading) + 2) + 2
-        broken = rest[:para_end] + sec072 + "\n" + rest[para_end:]
-        self.assertLess(broken.index("PR-CLEANUP-072 承認"), broken.index("| 一部を承認 |"))
+        heads = [(m.start(), m.group(1)) for m in re.finditer(r"^#### (PR-[A-Z]+-\d+) ", fixed, re.M)]
+        # 本文が「次の判定表」と指し、表を自分の節に持つ最初の項目と、その直後の項目。
+        k = next(i for i, (at, _) in enumerate(heads[:-1]) if "次の判定表" in fixed[at:heads[i + 1][0]] and "\n| " in fixed[at:heads[i + 1][0]])
+        (at, item), (nxt, _) = heads[k], heads[k + 1]
+        end = heads[k + 2][0] if k + 2 < len(heads) else fixed.index("\n#", nxt + 1) + 1
+        moved, rest = fixed[nxt:end], fixed[:nxt] + fixed[end:]
+        para_end = rest.index("\n\n", rest.index("\n\n", at) + 2) + 2
+        broken = rest[:para_end] + moved + "\n" + rest[para_end:]
         with tempfile.TemporaryDirectory() as tmp:
             ws = Path(tmp)
             (ws / "requirements-cleanup-branches.md").write_text(fixed)
-            ok = _ok(ws, "doc", "--lint")
-            self.assertEqual(ok["lint"], 0)
+            self.assertEqual(_ok(ws, "doc", "--lint")["lint"], 0)
             (ws / "requirements-cleanup-branches.md").write_text(broken)
             plain = _ok(ws, "doc")
             out = _ok(ws, "doc", "--lint")
-            self.assertEqual(out["lint_codes"], {"LINT_TABLE_ELSEWHERE": ["PR-CLEANUP-028"]})
-            self.assertEqual(lint_ids(ws, "doc.lint.json"), ["LINT-TABLE-ELSEWHERE-requirements/cleanup-branches-PR-CLEANUP-028"])
+            self.assertEqual(out["lint_codes"], {"LINT_TABLE_ELSEWHERE": [item]})
             self.assertEqual({k: v for k, v in out.items() if not k.startswith("lint")}, plain, "監査役が止まる blocking と digest は変わらない")
 
 
@@ -190,9 +193,9 @@ class DocLint(_Workspace):
         self.assertEqual(lint_ids(self.ws, "doc.requirements__auth.lint.json"), ["LINT-TABLE-ELSEWHERE-requirements/auth-PR-AUTH-010"])
 
     def test_表を指す語の言い方(self):
-        phrases = {"下表": True, "次に示す表": True, "以下の判定表": True, "以下の状態遷移表": True, "下記の表": True, "次の表": True,
-                   "次の表示": False, "以下の表現": False}
-        body = "".join(f"\n#### PR-AUTH-{100 + i} 項目\n\nシステムは、{p}に従わなければならない。\n" for i, p in enumerate(phrases))
+        phrases = {"下表に従わ": True, "次に示す表に従わ": True, "以下の判定表に従わ": True, "以下の状態遷移表に従わ": True, "下記の表に従わ": True, "次の表に従わ": True,
+                   "次の表示に従わ": False, "以下の表現に従わ": False, "以下の内容を公表し": False, "以下の代表例に従わ": False, "以下の発表に従わ": False, "以下の図表に従わ": False}
+        body = "".join(f"\n#### PR-AUTH-{100 + i} 項目\n\nシステムは、{p}なければならない。\n" for i, p in enumerate(phrases))
         expected = [f"PR-AUTH-{100 + i}" for i, (p, hit) in enumerate(phrases.items()) if hit]
         self.assertEqual(sorted(self._lint(body)), expected)
 
@@ -227,6 +230,25 @@ class StashUnstash(_Workspace):
         out = _ok(self.ws, "unstash", "--against", "flow-framer-lint", "--token", "t1")
         self.assertEqual(out["flow_sha256"], st["flow_sha256"])
         self.assertEqual(((self.ws / "flow.json").read_bytes(), (self.ws / "open.json").read_bytes()), (flow_before, open_before))
+
+    def test_unstashは段のtokenの控えを先に取りrestoreは段の入口の版に戻す(self):
+        # 段の最初の書き込みが lint の差し戻しの中でも、再実行の入口の restore は段の入口の版に戻る（unstash の版で控えを上書きしない）。
+        entry_flow, entry_open = (self.ws / "flow.json").read_bytes(), (self.ws / "open.json").read_bytes()
+        _ok(self.ws, "stash", "--save", "flow-framer-lint")
+        _ok(self.ws, "unstash", "--against", "flow-framer-lint", "--token", "t2")
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "label": "後で書いた版"}]}, "--token", "t2")
+        out = _ok(self.ws, "restore", "--token", "t2")
+        self.assertEqual(out["pruned_by"], [])
+        self.assertEqual(((self.ws / "flow.json").read_bytes(), (self.ws / "open.json").read_bytes()), (entry_flow, entry_open))
+        self.assertEqual(sorted(f["path"] for f in out["files"]), ["flow.json", "open.json"])
+
+    def test_unstashは後のtokenの控えがあれば何も書かない(self):
+        _ok(self.ws, "stash", "--save", "flow-framer-lint")
+        _put(self.ws, "flow", {"elements": [{"id": "F-002", "label": "後の段の版"}]}, "--token", "t3")
+        before = (self.ws / "flow.json").read_bytes()
+        r = subprocess.run(["node", str(DOC_CHECK), "unstash", "--against", "flow-framer-lint", "--token", "t2", "--workspace", str(self.ws)], capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual((self.ws / "flow.json").read_bytes(), before)
 
     def test_控えが無ければ何も戻さない(self):
         r = subprocess.run(["node", str(DOC_CHECK), "unstash", "--against", "none", "--token", "t1", "--workspace", str(self.ws)], capture_output=True, text=True)

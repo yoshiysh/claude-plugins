@@ -92,7 +92,8 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   最後に doc_check の `flow` を実行し（flow.json を変えなくても）、stdout を加工せずに返す（flow の本体は返さない。
   script がその `content_sha256` を verifier の実行した stdout と照合し、あなたが消せる指摘（契約「## flow.json の形」の直し手）が残れば差し戻す）。flow.json を変えたら、続けて
   `conflicts` も実行し、その stdout も加工せずに返す（足した要素が作る新しい組を、script が裁定に回す）。flow の `decision` を
-  足す・変えるときは、`inputs` と `cases` も契約「## flow.json の形」で書く。
+  足す・変えるときは、`inputs` と `cases` も契約「## flow.json の形」で書く。`always` の要素を `may_fail` に変えるときは、同じ put で
+  `obtain_source` に `null` を送る（残すと put が拒否する。契約「## flow.json の形」の `obtain_source`）。
   `open.json` は書かず（契約の所有表）、open への起票を求める fix にも従わない。出典が決まらない
   ときの置き方と、どの符号を flow-framer に残すかは契約「## flow.json の形」の直し手に従う。プロンプトが「触らない」と挙げた符号は、
   プロンプトが名指しした flow-framer が直す。

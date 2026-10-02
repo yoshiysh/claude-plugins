@@ -363,7 +363,8 @@ function respond(prompt, label) {
     if (stash) {
       if ((spec.no_stash_at || []).includes(base)) return {}
       stashed = { flow: disk.flow, els: JSON.parse(JSON.stringify(disk.els)), open_ids: disk.open_ids && [...disk.open_ids], latest, lint: framerLint, sha: flowSha }
-      return { stash_check: JSON.stringify({ stash: stash[1], path: `checks/${stash[1]}.stash.json`, flow_sha256: String(flowSha) }) }
+      // stash_bad_sha・unstash_bad_sha・unstash_bad_flow: 控えか戻した版の sha が、差し戻しの前の版と違う stdout。
+      return { stash_check: JSON.stringify({ stash: stash[1], path: `checks/${stash[1]}.stash.json`, flow_sha256: (spec.stash_bad_sha || []).includes(base) ? 'other' : String(flowSha) }) }
     }
     const unstash = /doc_check\.mjs unstash --workspace \S+ --against (\S+) --token (\S+?)`/.exec(prompt)
     if (unstash) {
@@ -376,7 +377,8 @@ function respond(prompt, label) {
       flowSha = stashed.sha
       latest = stashed.latest
       persist()
-      return { unstash_check: JSON.stringify({ unstash: unstash[1], flow_sha256: String(flowSha) }), flow_check: JSON.stringify({ ...latest, content_sha256: flowSha, ...onDisk(false), ...lintFields(stashed.lint || 0) }) }
+      const bad = (key) => (spec[key] || []).includes(base)
+      return { unstash_check: JSON.stringify({ unstash: unstash[1], flow_sha256: bad('unstash_bad_sha') ? 'other' : String(flowSha) }), flow_check: JSON.stringify({ ...latest, content_sha256: bad('unstash_bad_flow') ? 'other' : flowSha, ...onDisk(false), ...lintFields(stashed.lint || 0) }) }
     }
     const backup = /doc_check\.mjs backup --workspace \S+ ((?:--doc \S+ )+)--token (\S+?)`/.exec(prompt)
     if (backup) {
@@ -4007,10 +4009,21 @@ class FramerLint(unittest.TestCase):
                 self.assertTrue(any("差し戻しの前の版に戻した" in x for x in r["result"]["notices"]), r["result"]["notices"])
 
     def test_控えを取れなければlintで差し戻さない(self):
-        r = run({"args": args(), "lint_at": {"framer": 1}, "no_stash_at": [self.STASH]})
-        self.assertNotIn("flow-framer:lint", r["labels"])
-        self.assertEqual(r["result"]["status"], "done")
-        self.assertIn("控えを取れなかった", r["result"]["notices"][0])
+        for name, kw in (("応答なし", {"no_stash_at": [self.STASH]}), ("控えの版が違う", {"stash_bad_sha": [self.STASH]})):
+            with self.subTest(name):
+                r = run({"args": args(), "lint_at": {"framer": 1}, **kw})
+                self.assertNotIn("flow-framer:lint", r["labels"])
+                self.assertEqual(r["result"]["status"], "done")
+                self.assertIn("控えを取れなかった", r["result"]["notices"][0])
+
+    def test_戻した版が差し戻しの前の版でなければ段からやり直させる(self):
+        for key in ("unstash_bad_sha", "unstash_bad_flow"):
+            with self.subTest(key):
+                r = run({"args": args(), "lint_at": {"framer": 1}, "flow_findings_at": {"lint": 1}, key: [self.UNSTASH]})
+                res = r["result"]
+                self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "2"))
+                self.assertIn("戻せませんでした", res["reason"])
+                self.assertNotIn("verifier:3v", r["labels"])
 
     def test_lintを指示するのは起草のflow_framerとwriterだけ(self):
         r = run({"args": args(), **self.SETTLE, "lint_at": {"framer": 1}, "open_ids_at": {"lint": ["O-RS-001"]}})

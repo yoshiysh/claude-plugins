@@ -3128,8 +3128,9 @@ function flowLintCompact(flow, scope, decisionIds, superseded) {
 }
 
 // docLintCompact: 項目の節は、その見出しより深い見出し（小見出しの下の表を含む）を越え、同じか浅い見出しか ID を持つ見出しで終わる。
-// 表を指す語の後の「示・記・現…」は「次の表示」「以下の表現」のような表でない語なので拾わない。
-const TABLE_POINTER = /(?:次の(?:判定)?表|以下の[^。、\s表]{0,10}表|次に示す表|下記の表|下表)(?![示記現面明情す])/
+// 表の前の語は閉集合にする（任意の語を許すと「以下の内容を公表」の公表・代表を拾う）。後の「示・記・現…」は「次の表示」「以下の表現」を除く。
+const TABLE_KINDS = ['判定', '対応', '一覧', '決定', '条件', '状態遷移', '状態', 'イベント', '対照', '比較', '項目']
+const TABLE_POINTER = new RegExp(`(?:(?:次|以下)の(?:${TABLE_KINDS.join('|')})?表|次に示す表|下記の表|下表)(?![示記現面明情す])`)
 function docLintCompact(docs) {
   const out = []
   const unquote = (ln) => ln.replace(/^\s*>\s?/, '')
