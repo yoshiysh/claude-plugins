@@ -103,7 +103,8 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
   t.after(() => rm(dir, { recursive: true, force: true }));
   const targetRoot = join(dir, 'targets'), stagingRoot = join(dir, 'staging'), runRoot = join(dir, 'runs');
   const workerDirectory = join(dir, 'worker'), targetDir = join(targetRoot, 'example');
-  await Promise.all([mkdir(targetRoot), mkdir(stagingRoot), mkdir(runRoot), mkdir(workerDirectory), mkdir(targetDir)]);
+  await Promise.all([mkdir(targetRoot), mkdir(stagingRoot), mkdir(runRoot), mkdir(workerDirectory)]);
+  await mkdir(targetDir);
   const [canonicalTargetRoot, canonicalStagingRoot, canonicalRunRoot, canonicalWorkerDirectory, canonicalTargetDir] =
     await Promise.all([targetRoot, stagingRoot, runRoot, workerDirectory, targetDir].map(path => realpath(path)));
   await writeFile(join(targetDir, 'SKILL.md'), 'before\n');

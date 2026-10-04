@@ -7,7 +7,7 @@ export function exactObject(value, keys, name) {
 }
 
 export const agentOptionKeys = ['model', 'effort', 'label', 'phase', 'schema', 'isolation'];
-export const requestKeys = ['scriptPath', 'args'];
+export const requestKeys = ['scriptPath', 'name', 'args'];
 export const backendKeys = ['cwd', 'modelMap', 'codexPathOverride', 'model', 'modelReasoningEffort', 'CodexClass', 'workspace', 'environment', 'context', 'updateContract'];
 export const limitKeys = ['maxAgents', 'concurrency', 'timeoutMs', 'agentTimeoutMs', 'maxOutputBytes'];
 

@@ -47,7 +47,7 @@ process.on('message', async message => {
       const pipeline = (items, fn) => {
         if (!Array.isArray(items) || items.length > 4096 || typeof fn !== 'function')
           throw Error('pipeline requires at most 4096 items and a function');
-        return parallel(items.map((item, index) => () => fn(item, index)));
+        return Promise.all(items.map((item, index) => Promise.resolve().then(() => fn(item, index)).catch(() => null)));
       };
       const OriginalDate = Date;
       Date = class extends OriginalDate {

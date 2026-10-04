@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Workflow as runWorkflow } from './runtime.mjs';
 import { codexBackend } from './codex.mjs';
 import { exactObject, backendKeys, limitKeys, requestKeys } from './inputs.mjs';
+import { namedHostKeys } from './named.mjs';
 
 // Common execution policy, not inference from a caller name, label or prompt.
 // Keep dependency catalogs available; source owns explicit task knowledge.
@@ -12,7 +13,7 @@ export function workflowContext() {
     assignments: {}, defaultProfile: 'workflow' };
 }
 
-const hostKeys = [...new Set([...backendKeys.filter(key => key !== 'updateContract'), 'trustedSource', 'requirements', 'updatePolicy', 'checkpoint', 'resume', ...limitKeys])];
+const hostKeys = [...new Set([...backendKeys.filter(key => key !== 'updateContract'), 'trustedSource', 'requirements', 'updatePolicy', 'checkpoint', 'resume', ...namedHostKeys, ...limitKeys])];
 const updatePolicyKeys = ['targetRoot', 'stagingRoot'];
 const inside = (root, path) => {
   const rel = relative(root, path);
@@ -85,7 +86,8 @@ function executeBoundWorkflow(request, host, updateContract) {
   return runWorkflow(ownedRequest, { ...limits, backend: codexBackend(backendConfig),
     trustedSource: true, runDir: owned.runDir, requirements: owned.requirements,
     updateContract,
-    checkpoint: owned.checkpoint, resume: owned.resume });
+    checkpoint: owned.checkpoint, resume: owned.resume,
+    trustedPluginRoots: owned.trustedPluginRoots, allowedWorkflowNames: owned.allowedWorkflowNames });
 }
 
 // The one-shot entry remains read-only; only the bound host can mint an update contract.

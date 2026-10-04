@@ -1,4 +1,6 @@
-# run の前の利用者の設定（許可と cache の TTL）
+# native run の前の利用者の設定（許可と cache の TTL）
+
+この文書の auto mode・allow rule・cache TTL は native Claude Code 用。Codex runner は SKILL.md「実行環境」の host sandbox 設定と W の書込範囲を使い、この設定の変更を要求しない。
 
 `/workflow:prd-spec-run` の run が止まるのは、依頼者の回答を待つゲートのほかは、agent の権限の確認と利用上限の待ちだけである
 （本家の workflows の文書: 「To avoid prompts on a long run, add the tools the agents need to your allow rules before starting.」）。
