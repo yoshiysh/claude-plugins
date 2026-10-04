@@ -45,6 +45,9 @@ resume の live E2E は未検証です。workspace の検証範囲と上限は r
 [README](skills/dynamic-workflow-runner/scripts/runtime/README.md) を参照してください。
 旧 manifest 手順は `skills/dynamic-workflow-runner/LEGACY.md` に隔離しています。
 
+prd-spec は登録済みの名前で Codex runner を使えます。native resume は使わず、ゲートの後は caller の next_args で再起動します。
+設定・workspace の書込範囲・実物 source の mock 検証と live の限界は [名前付き実行契約](skills/dynamic-workflow-runner/scripts/runtime/NAMED.md) を参照してください。
+
 詳細なフローは `skills/dynamic-workflow-runner/SKILL.md` を参照してください。
 
 ## 構成

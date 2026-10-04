@@ -96,11 +96,9 @@ RESOLUTION_Q = {
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.ws = Path(self._tmp.name) / "W"
         shutil.copytree(FIXTURE, self.ws)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def _unchanged_after(self, name, mode, *args, stdin=None):
         p = self.ws / name

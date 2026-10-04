@@ -98,20 +98,41 @@ function workflowMetaNames(pluginName) {
   )
 }
 
-// 名前で呼ぶ callsite は scriptPath を持たないので、runner の bridge（--declared-script-path）が受けられない。
-// caller は Codex で実行しないことを自分で書く。書かないと Codex の利用者は runner の拒否の理由を知らずに止まる。
 test('every name-form Workflow caller resolves to a plugin workflow and documents its Codex route', () => {
   const callers = namedWorkflowCallers()
+  const approved = new Set(['workflow:prd-spec-run'])
+  const observed = new Set()
   assert.ok(callers.length > 0, 'expected at least one name-form Workflow caller')
   for (const caller of callers) {
     for (const name of caller.names) {
       const [pluginName, workflowName] = name.split(':')
       assert.equal(pluginName, caller.pluginName, `${caller.skillMd}: ${name} must name a workflow of its own plugin`)
       assert.ok(workflowMetaNames(pluginName).has(workflowName), `${caller.skillMd}: no plugins/${pluginName}/workflows/*.js has meta.name '${workflowName}'`)
+      const registryPath = join(pluginsRoot, pluginName, 'workflows', 'codex-workflows.json')
+      const registry = existsSync(registryPath) ? json(registryPath) : { workflows: [] }
+      const entries = registry.workflows.filter((entry) => entry.name === workflowName)
+      if (!approved.has(name)) {
+        assert.equal(entries.length, 0, `${name}: add an explicit named portability classification before registration`)
+        assert.match(caller.source, /native\s*の\s*Workflow\s*が無い\s*Codex\s*では実行しない/, `${caller.skillMd}: Codex fail-closed statement is missing`)
+        assert.match(caller.source, /`workflow:dynamic-workflow-runner`[^。]*名前の\s*callsite[^。]*受けない/, `${caller.skillMd}: runner rejection reason is missing`)
+        continue
+      }
+      observed.add(name)
+      assert.equal(registry.schemaVersion, 1)
+      assert.deepEqual(entries, [{ name: workflowName, scriptPath: 'prd-spec.js', requirements: ['workspace-write'], continuation: 'next_args', workspaceArg: 'workspace' }])
+      assert.equal(json(join(pluginsRoot, pluginName, '.claude-plugin', 'plugin.json')).name, pluginName)
+      assert.match(caller.source, /native Workflow が現在の tool inventory に無い Codex[^。]*`workflow:dynamic-workflow-runner`/)
+      assert.match(caller.source, /native を試行して失敗した call は runner で実行し直さない/)
+      for (const field of ['trustedPluginRoots', 'allowedWorkflowNames', 'modelMap', 'cwd', 'workspace.mode'])
+        assert.ok(caller.source.includes(`\`${field}`), `${caller.skillMd}: explicit host ${field} is missing`)
+      assert.match(caller.source, /workspace-write/)
+      assert.match(caller.source, /Codex runner は毎回 `next_args` で起動する/)
+      assert.match(caller.source, /名前付き結果の `resumable` は false/)
+      assert.match(caller.source, /native `resumeFromRunId` と runner checkpoint は使わない/)
+      assert.match(caller.source, /ゲートの返却・回答・保存はこの caller が持つ/)
     }
-    assert.match(caller.source, /native\s*の\s*Workflow\s*が無い\s*Codex\s*では実行しない/, `${caller.skillMd}: Codex fail-closed statement is missing`)
-    assert.match(caller.source, /`workflow:dynamic-workflow-runner`[^。]*名前の\s*callsite[^。]*受けない/, `${caller.skillMd}: runner rejection reason is missing`)
   }
+  assert.deepEqual(observed, approved, 'approved named classification and discovered callsites must match exactly')
 })
 
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {

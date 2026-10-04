@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "workflows": [
+    {
+      "name": "prd-spec-run",
+      "scriptPath": "prd-spec.js",
+      "requirements": ["workspace-write"],
+      "continuation": "next_args",
+      "workspaceArg": "workspace"
+    }
+  ]
+}

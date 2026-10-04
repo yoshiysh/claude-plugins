@@ -185,7 +185,7 @@ runner v1で意味保存して実行できるのは `research:search` と `skill
 host-bound `updatePolicy` と runtime capability が揃う `skill-creator` update である。
 dispatch、review-document、skill-creator の review は execution 前に fail-closed する。
 update の承認後適用は `skill-creator` の Codex 互換契約と apply helper を正とする。
-`workflow` の prd-spec は Codex では実行しない（理由は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
+`workflow` の prd-spec は登録された名前付き source を runner で実行し、caller の next_args で再起動する（設定と制限は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
 `plugins/performance/references/native-hooks.md` を正とする。

@@ -7,7 +7,8 @@ Explicit opt-in checkpoint/resume is limited to the new quiescent-boundary proto
 historical runs cannot be resumed.
 
 The [common adapter](ADAPTER.md) binds host settings once and accepts unchanged
-`Workflow({scriptPath,args})` calls. The one-shot CLI uses the same execution entry.
+`Workflow({scriptPath,args})` calls and approved `Workflow({name,args})` calls.
+See [named execution](NAMED.md) for plugin registration, workspace scope and caller continuation. The one-shot CLI uses the same execution entry.
 Its default context suppresses personal Memory while preserving Apps/plugin dependencies;
 per-role inventories are optional, not required for every source.
 
@@ -22,7 +23,7 @@ extensions are arbitrary. Imports and additional exports fail before execution.
 The injected API is `agent(prompt,{model,effort,label,phase,schema,isolation})`, `parallel(thunks)`,
 `pipeline(items,fn)`, `phase(title)`, `log(message)`, and `args`. Agent results are text
 or schema-validated JSON. Backend failures and invalid outputs become null. Ordered
-fan-out retains nulls. Configuration errors, resource limits and script exceptions
+fan-out retains nulls. Pipeline callback exceptions become null only after all items settle; host failures remain fatal. Configuration errors, resource limits and script exceptions
 fail the entire run; catching an agent error cannot bypass host limits.
 
 For structured results the SDK receives a fixed strict envelope `{json: string}`.
