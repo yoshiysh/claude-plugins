@@ -13,8 +13,10 @@
 
 ## 目的
 
-現行 JavaScript 実行経路の名前解決・caller continuation は [名前付き実行契約](../scripts/runtime/NAMED.md) を正とする。
+現行 JavaScript 実行経路の名前解決と返却は [名前付き実行契約](../scripts/runtime/NAMED.md)、続行方法は各 caller の契約を正とする。
+JavaScript runtime は caller 名の許可リストを要求せず、source の構文・必要 capability・host 権限を検証する。
 以下の receipt / translation review は旧 manifest bridge の契約であり、新しい名前付き呼び出しに source の skill-root 内限定を当てはめない。
+名前解決の一般化は旧経路の caller 分類や個別の未対応 capability を変更しない。
 
 この文書は、内部互換経路が選択された**後**のcall receipt、translation review、phase/gate ownership、returnを
 定義するruntime boundaryの正本である。いつ互換経路を選ぶか、何をtrigger / non-triggerとするか、nativeをいつ使うかは

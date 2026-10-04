@@ -85,12 +85,14 @@ test('one-shot and bound adapters apply identical defaults and explicit inherit 
 });
 
 test('adapter rejects authority and call-shape overrides without dispatch', async t => {
-  const { host, configs } = await fixture(t);
+  const { dir, host, configs } = await fixture(t);
+  const creatorSource = join(dir, 'creator.js');
+  await writeFile(creatorSource, 'export const meta={name:"skill-creator-review",description:"x"}; return null;');
   assert.throws(() => createWorkflow({ ...host, trustedSource: false }), /trustedSource/);
   assert.throws(() => createWorkflow({ ...host, runRoot: 'relative' }), /absolute/);
   assert.throws(() => createWorkflow({ ...host, arbitrary: true }), /unsupported/);
   assert.throws(() => createWorkflow({ ...host, updateContract: { targetRoot: host.cwd, stagingRoot: host.cwd, targetDir: host.cwd, stagingDir: host.cwd } }), /unsupported/);
-  assert.throws(() => executeWorkflow({ scriptPath: '/unused', args: { mode: 'update' } },
+  await assert.rejects(executeWorkflow({ scriptPath: creatorSource, args: { mode: 'update' } },
     { cwd: host.cwd, runDir: host.cwd, trustedSource: true, CodexClass: host.CodexClass }), /createWorkflow host updatePolicy/);
   await assert.rejects(createWorkflow(host)({ scriptPath: '/missing', context: workflowContext() }), /unsupported/);
   const { runRoot, ...once } = host;
@@ -208,7 +210,9 @@ test('createWorkflow requires host update policy and rejects mismatched target o
     dispatches++;
     throw new Error('must fail before dispatch');
   };
-  const request = target => ({ scriptPath: '/unused', args: { mode: 'update', target: { skillPath: target } } });
+  const creatorSource = join(dir, 'creator.js');
+  await writeFile(creatorSource, 'export const meta={name:"skill-creator-review",description:"x"}; return null;');
+  const request = target => ({ scriptPath: creatorSource, args: { mode: 'update', target: { skillPath: target } } });
   try {
     const noPolicy = createWorkflow({ cwd: workerDirectory, runRoot, trustedSource: true });
     await assert.rejects(noPolicy(request(targetDir)), /explicit host updatePolicy/);
@@ -217,7 +221,7 @@ test('createWorkflow requires host update policy and rejects mismatched target o
       updatePolicy: { targetRoot, stagingRoot } });
     await assert.rejects(Workflow(request(outsideTarget)), /outside updatePolicy\.targetRoot/);
     await assert.rejects(Workflow({
-      scriptPath: '/unused',
+      scriptPath: creatorSource,
       args: { mode: 'update', target: { skillPath: targetDir }, stagingDir: join(stagingRoot, 'caller-selected') },
     }), /cannot override it/);
     assert.equal(dispatches, 0);

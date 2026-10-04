@@ -29,6 +29,18 @@
 
 ユーザーが runner を直接呼ぶ必要はありません。対応済み caller skill が active callsite に到達し、
 native Workflow が現在の tool inventory に無いときだけ、この runner を内部利用します。
+runner は複数の caller が共通で使う実行面です。JavaScript runtime は、信頼済み source をパスで指定する
+`Workflow({scriptPath,args})` と、信頼済み plugin の source 名で指定する `Workflow({name,args})` を受け付けます。
+scriptPath 経路は source の固定ファイル名や caller 名の登録を要求しません。名前付き経路は信頼済み plugin root の
+manifest の namespace と、`workflows/` 直下の JavaScript source の literal `meta.name` を照合します。
+名前の許可リストや Codex 専用の source 登録表は要求しません。設定は [共通 adapter](skills/dynamic-workflow-runner/scripts/runtime/ADAPTER.md) と
+[名前付き実行契約](skills/dynamic-workflow-runner/scripts/runtime/NAMED.md) を参照してください。
+
+実行できる範囲は source の構文・必要 capability と caller が宣言する Codex の互換性分類・契約で決まります。
+JavaScript runtime の条件は [runtime README](skills/dynamic-workflow-runner/scripts/runtime/README.md)、
+旧 receipt 経路の互換性基準は [互換契約](skills/dynamic-workflow-runner/references/claude-workflow-compatibility.md#v1-で意味保存できない-graph) と
+各 caller の SKILL.md を正とします。名前付き結果は source の値を保ち、続行方法は caller が決めます。
+prd-spec はゲートの後に caller の next_args で再起動します。その設定と検証範囲は名前付き実行契約に記載しています。
 
 Claude Code では caller plugin の `dependencies` から導入されます。Codex は plugin dependency を
 自動導入しないため、対応済み caller plugin と `workflow` をそれぞれ一度 install してください。
@@ -44,9 +56,6 @@ call 数・並行数・期限を制限しますが、厳密な token 上限で�
 resume の live E2E は未検証です。workspace の検証範囲と上限は runtime の
 [README](skills/dynamic-workflow-runner/scripts/runtime/README.md) を参照してください。
 旧 manifest 手順は `skills/dynamic-workflow-runner/LEGACY.md` に隔離しています。
-
-prd-spec は登録済みの名前で Codex runner を使えます。native resume は使わず、ゲートの後は caller の next_args で再起動します。
-設定・workspace の書込範囲・実物 source の mock 検証と live の限界は [名前付き実行契約](skills/dynamic-workflow-runner/scripts/runtime/NAMED.md) を参照してください。
 
 詳細なフローは `skills/dynamic-workflow-runner/SKILL.md` を参照してください。
 

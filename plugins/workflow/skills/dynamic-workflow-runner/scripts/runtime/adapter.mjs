@@ -1,10 +1,11 @@
-import { realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Workflow as runWorkflow } from './runtime.mjs';
 import { codexBackend } from './codex.mjs';
 import { exactObject, backendKeys, limitKeys, requestKeys } from './inputs.mjs';
-import { namedHostKeys } from './named.mjs';
+import { namedHostKeys, resolveNamedWorkflow } from './named.mjs';
+import { readSourceMetadata } from './source.mjs';
 
 // Common execution policy, not inference from a caller name, label or prompt.
 // Keep dependency catalogs available; source owns explicit task knowledge.
@@ -68,15 +69,19 @@ async function bindUpdatePolicy(request, policy) {
   return { request: { ...request, args }, updateContract: { targetRoot, stagingRoot, targetDir, stagingDir } };
 }
 
+async function creatorUpdate(request, host) {
+  if (request.args?.mode !== 'update') return false;
+  const resolved = await resolveNamedWorkflow(request, host);
+  const source = resolved.source ?? await readFile(await realpath(resolved.request.scriptPath), 'utf8');
+  return readSourceMetadata(source).name === 'skill-creator-review';
+}
+
 function executeBoundWorkflow(request, host, updateContract) {
   exactObject(request, requestKeys, 'Workflow request');
   const ownedRequest = structuredClone(request);
   const owned = snapshot(host, 'runDir');
   if (owned.updatePolicy !== undefined || owned.updateContract !== undefined)
     throw Error('update authorization is available only through createWorkflow updatePolicy');
-  const updateMode = ownedRequest.args?.mode === 'update';
-  if (updateMode !== (updateContract !== undefined))
-    throw Error('skill-creator update requires a createWorkflow host updatePolicy');
   const backendConfig = Object.fromEntries(backendKeys.filter(k => Object.hasOwn(owned, k)).map(k => [k, owned[k]]));
   if (updateContract !== undefined) backendConfig.updateContract = updateContract;
   backendConfig.context ??= workflowContext();
@@ -87,15 +92,18 @@ function executeBoundWorkflow(request, host, updateContract) {
     trustedSource: true, runDir: owned.runDir, requirements: owned.requirements,
     updateContract,
     checkpoint: owned.checkpoint, resume: owned.resume,
-    trustedPluginRoots: owned.trustedPluginRoots, allowedWorkflowNames: owned.allowedWorkflowNames });
+    trustedPluginRoots: owned.trustedPluginRoots });
 }
 
 // The one-shot entry remains read-only; only the bound host can mint an update contract.
 export function executeWorkflow(request, host) {
   exactObject(request, requestKeys, 'Workflow request');
-  if (request.args?.mode === 'update')
-    throw Error('skill-creator update requires a createWorkflow host updatePolicy');
-  return executeBoundWorkflow(request, host);
+  const call = structuredClone(request), owned = snapshot(host, 'runDir');
+  if (owned.context === null) throw Error('context must be an object');
+  return (async () => {
+    if (await creatorUpdate(call, owned)) throw Error('skill-creator update requires a createWorkflow host updatePolicy');
+    return executeBoundWorkflow(call, owned);
+  })();
 }
 
 // Configure the host once. Each call keeps the standard {scriptPath,args} shape
@@ -108,11 +116,12 @@ export function createWorkflow(host) {
     exactObject(request, requestKeys, 'Workflow request');
     let call = structuredClone(request);
     let updateContract = owned.updateContract;
-    if (call.args?.mode === 'update' && updatePolicy !== undefined) {
+    const isUpdate = await creatorUpdate(call, owned);
+    if (isUpdate && updatePolicy !== undefined) {
       const bound = await bindUpdatePolicy(call, updatePolicy);
       call = bound.request;
       updateContract = bound.updateContract;
-    } else if (call.args?.mode === 'update' && updateContract === undefined) {
+    } else if (isUpdate && updateContract === undefined) {
       throw Error('skill-creator update requires an explicit host updatePolicy');
     }
     const root = await realpath(runRoot);

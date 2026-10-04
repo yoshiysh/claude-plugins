@@ -25,14 +25,16 @@ def run(spec):
 import {{ Workflow }} from {json.dumps(RUNTIME.as_uri())};
 const __main = async (args, agent) => Workflow({{name:'workflow:prd-spec-run',args}}, {{
   trustedSource:true, runDir:{json.dumps(str(Path(tmp) / 'run'))},
-  trustedPluginRoots:[{json.dumps(str(PLUGIN))}], allowedWorkflowNames:['workflow:prd-spec-run'],
+  trustedPluginRoots:[{json.dumps(str(PLUGIN))}], requirements:['workspace-write'],
   maxAgents:200, concurrency:4, timeoutMs:15000, maxOutputBytes:10000000,
   backend:{{capabilities:['read-only','fresh-thread','workspace-write'], prepare:async()=>({{cwd:args.workspace,mode:'workspace-write'}}),run:agent}}
 }});
 """
         path = Path(tmp) / "runner-harness.mjs"
         path.write_text(metadata + bridge + HARNESS, encoding="utf-8")
-        proc = subprocess.run(["node", str(path), json.dumps(spec)], capture_output=True, text=True, check=True, timeout=30)
+        proc = subprocess.run(["node", str(path), json.dumps(spec)], capture_output=True, text=True, timeout=30)
+        if proc.returncode:
+            raise AssertionError(f"runner harness exit {proc.returncode}: {proc.stderr}")
         got = json.loads(proc.stdout)
         events = [json.loads(x) for x in (Path(tmp) / "run/events.jsonl").read_text().splitlines()]
         receipt = json.loads((Path(tmp) / "run/request.json").read_text())
@@ -67,8 +69,8 @@ class CodexRunner(unittest.TestCase):
             with self.subTest(gate=gate):
                 stopped = run({"args": self.args(), **spec})["result"]
                 self.assertEqual(stopped["status"], "needs_answers")
-                self.assertFalse(stopped["resumable"])
                 self.assertEqual(stopped["next_args"]["from"], stage)
+                self.assertEqual(stopped["next_args"]["workspace"], self.workspace)
                 done = run({"args": stopped["next_args"], "ruled_at": {stage: [ruled]}})
                 self.assertIsNone(done["error"])
                 self.assertEqual(done["result"]["status"], "done")
@@ -77,7 +79,6 @@ class CodexRunner(unittest.TestCase):
         g02 = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
         self.assertEqual(g02["status"], "needs_answers")
         self.assertEqual(g02["answers_path"], self.workspace + "/answers/g0-2.md")
-        self.assertFalse(g02["resumable"])
         done = run({"args": g02["next_args"], "ruled_at": {"3a": ["RS-002"]}})
         self.assertIsNone(done["error"])
         self.assertEqual(done["result"]["status"], "done")
@@ -85,7 +86,6 @@ class CodexRunner(unittest.TestCase):
     def test_failed_agent_and_corrupted_continuation_fail_closed(self):
         got = run({"args": self.args(), "null_labels": ["intake"]})
         self.assertEqual(got["result"]["status"], "blocked")
-        self.assertFalse(got["result"]["resumable"])
         stopped = run({"args": self.args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         broken = {**stopped["next_args"], "from": "4"}
         got = run({"args": broken})

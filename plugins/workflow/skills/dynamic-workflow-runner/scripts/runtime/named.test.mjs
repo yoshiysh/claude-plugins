@@ -13,53 +13,59 @@ async function fixture(t) {
   await mkdir(join(plugin, '.claude-plugin'), { recursive: true });
   await mkdir(join(plugin, 'workflows'));
   await writeFile(join(plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'example' }));
-  const entry = { name: 'tiny', scriptPath: 'tiny.js', requirements: ['workspace-write'], continuation: 'next_args', workspaceArg: 'workspace' };
-  const registry = entries => writeFile(join(plugin, 'workflows/codex-workflows.json'), JSON.stringify({ schemaVersion: 1, workflows: entries }));
-  await registry([entry]);
-  await writeFile(join(plugin, 'workflows/tiny.js'), `export const meta={name:'tiny',description:'tiny'}; return {status:'needs_answers',resumable:true,next_args:args};`);
+  const scriptPath = join(plugin, 'workflows/unrelated-filename.js');
+  await writeFile(scriptPath, `export const meta={name:'tiny',description:'tiny'}; return {custom:args,resumable:true};`);
   const request = { name: 'example:tiny', args: { workspace: root, unicode: '回答そのまま' } };
   let calls = 0;
-  const backend = { capabilities: ['read-only', 'fresh-thread', 'workspace-write'], prepare: async () => ({ cwd: root, mode: 'workspace-write' }), run: async () => { calls++; return null; } };
-  const host = { trustedPluginRoots: [plugin], allowedWorkflowNames: [request.name], trustedSource: true, backend, runDir: join(root, 'run') };
-  return { root, plugin, request, host, entry, registry, calls: () => calls };
+  const backend = { capabilities: ['read-only', 'fresh-thread', 'workspace-write'], prepare: async () => ({ cwd: root, mode: 'workspace-write' }), run: async prompt => { calls++; return prompt; } };
+  const host = { trustedPluginRoots: [plugin], trustedSource: true, backend, runDir: join(root, 'run') };
+  return { root, plugin, request, host, scriptPath, calls: () => calls };
 }
 
-test('approved name resolves by manifest and registration and preserves next_args', async t => {
+test('meta name resolves independently of basename and preserves arbitrary source results', async t => {
   const f = await fixture(t);
-  assert.deepEqual(await Workflow(f.request, f.host), { status: 'needs_answers', resumable: false, next_args: f.request.args });
+  const call = structuredClone(f.request), pending = Workflow(call, f.host);
+  call.name = 'example:changed-after-call';
+  assert.deepEqual(await pending, { custom: f.request.args, resumable: true });
   const receipt = JSON.parse(await readFile(join(f.host.runDir, 'request.json'), 'utf8'));
   assert.equal(receipt.namedWorkflow.name, f.request.name);
   assert.equal(receipt.namedWorkflow.pluginRoot, f.plugin);
+  assert.equal(receipt.namedWorkflow.scriptPath, f.scriptPath);
+  assert.match(receipt.sourceHash, /^[a-f0-9]{64}$/);
 });
 
-test('names do not auto-enable unknown sources, permission escalation, or native/runner replay', async t => {
+test('invalid selectors, missing roots and native resume fail before dispatch', async t => {
   const f = await fixture(t);
   for (const name of ['tiny', '../example:tiny', 'example:../tiny', 'example:other']) await assert.rejects(Workflow({ ...f.request, name }, f.host));
-  for (const host of [{ ...f.host, allowedWorkflowNames: [] }, { ...f.host, trustedPluginRoots: [] }, { ...f.host, trustedSource: false },
-    { ...f.host, allowedWorkflowNames: [f.request.name, f.request.name] }, { ...f.host, trustedPluginRoots: [f.plugin, f.plugin] },
-    { ...f.host, checkpoint: {} }, { ...f.host, resume: {} }, { ...f.host, backend: { ...f.host.backend, capabilities: ['read-only', 'fresh-thread'] } }])
+  for (const host of [{ ...f.host, trustedPluginRoots: [] }, { ...f.host, trustedSource: false },
+    { ...f.host, trustedPluginRoots: [f.plugin, f.plugin] }, { ...f.host, allowedWorkflowNames: [f.request.name] }])
     await assert.rejects(Workflow(f.request, host));
   await assert.rejects(Workflow({ ...f.request, scriptPath: '/unused' }, f.host), /mutually exclusive/);
   await assert.rejects(Workflow({ ...f.request, resumeFromRunId: 'native-run' }, f.host), /unsupported Workflow request field/);
-  await f.registry([]);
-  await assert.rejects(Workflow(f.request, f.host), /no verified Codex registration/);
   assert.equal(f.calls(), 0);
 });
 
-test('registration duplicate, traversal, continuation and source mismatch reject before dispatch', async t => {
-  const f = await fixture(t);
-  for (const entries of [[f.entry, f.entry], [{ ...f.entry, scriptPath: '../tiny.js' }], [{ ...f.entry, continuation: 'resumeFromRunId' }]]) {
-    await f.registry(entries);
-    await assert.rejects(Workflow(f.request, f.host), /invalid or duplicate/);
+test('duplicate metadata and malformed literal metadata fail before dispatch', async t => {
+  const f = await fixture(t), other = join(f.plugin, 'workflows/other.js');
+  for (const source of ["export const meta={name:'tiny',description:'duplicate'}; return 1;", "export const meta={name:args.name,description:'dynamic'}; return 1;", "export const meta={name:'../escape',description:'bad'}; return 1;"]) {
+    await writeFile(other, source);
+    await assert.rejects(Workflow(f.request, f.host), /duplicate|literal/);
   }
-  await f.registry([f.entry]);
-  await writeFile(join(f.plugin, 'workflows/tiny.js'), "export const meta={name:'other',description:'other'}; return 1;");
-  await assert.rejects(Workflow(f.request, f.host), /does not match/);
   assert.equal(f.calls(), 0);
 });
 
-test('duplicate plugin identities and symlinked roots, manifests, registry and source fail closed', async t => {
-  for (const target of ['root', '.claude-plugin', '.claude-plugin/plugin.json', 'workflows', 'workflows/codex-workflows.json', 'workflows/tiny.js', 'duplicate']) {
+test('only the selected source is subject to capability and agent-option gates', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.plugin, 'workflows/unsupported.js'), "export const meta={name:'unsupported',description:'x',requirements:['worktree']}; return await agent('x',{model:'sonnet',isolation:'worktree'});");
+  assert.deepEqual(await Workflow(f.request, f.host), { custom: f.request.args, resumable: true });
+  await assert.rejects(Workflow({ name:'example:unsupported' }, { ...f.host, runDir:join(f.root,'rejected') }), /unsupported.*requirement|capability/);
+  await writeFile(f.scriptPath, "export const meta={name:'tiny',description:'x'}; return await agent('x',{model:'sonnet',tools:['x']});");
+  await assert.rejects(Workflow(f.request, { ...f.host, runDir:join(f.root,'options') }), /unsupported source capability option/);
+  assert.equal(f.calls(), 0);
+});
+
+test('duplicate plugin identities and symlinked roots, manifests, source fail closed', async t => {
+  for (const target of ['root', '.claude-plugin', '.claude-plugin/plugin.json', 'workflows', 'workflows/unrelated-filename.js', 'duplicate']) {
     const f = await fixture(t);
     if (target === 'root') {
       const alias = join(f.root, 'alias'); await symlink(f.plugin, alias); f.host.trustedPluginRoots = [alias];
@@ -74,14 +80,29 @@ test('duplicate plugin identities and symlinked roots, manifests, registry and s
   }
 });
 
-test('named workspace must exist canonically within a prepared writable worker cwd', async t => {
+test('ordinary workspace and mode arguments retain source semantics', async t => {
   const f = await fixture(t);
-  const outside = await realpath(await mkdtemp(join(tmpdir(), 'named-outside-')));
-  t.after(() => rm(outside, { recursive: true, force: true }));
-  for (const workspace of [outside, join(f.root, 'missing'), 'relative']) await assert.rejects(Workflow({ ...f.request, args: { workspace } }, f.host));
-  for (const prepare of [undefined, async () => ({ cwd: f.root, mode: 'read-only' })])
-    await assert.rejects(Workflow(f.request, { ...f.host, backend: { ...f.host.backend, prepare } }), /prepared worker cwd/);
-  assert.equal(f.calls(), 0);
+  const args = { mode:'update', workspace:'source-owned-value', cursor:{ offset:3 } };
+  assert.deepEqual(await Workflow({ ...f.request,args }, f.host), { custom:args,resumable:true });
+});
+
+test('named checkpoint resumes the host protocol and binds source hash and qualified identity', async t => {
+  const f = await fixture(t);
+  await writeFile(f.scriptPath, "export const meta={name:'tiny',description:'x'}; const first=await agent('first'); await checkpoint('cut'); return {first,last:await agent('last'),resumable:true};");
+  const checkpoint={files:[],dependenciesComplete:true,backendIdentity:'mock',stopAfter:'cut'};
+  const stopped=await Workflow(f.request,{...f.host,checkpoint});
+  assert.equal(stopped.status,'checkpoint'); assert.equal(f.calls(),1);
+  const receipt=JSON.parse(await readFile(join(f.host.runDir,'request.json'),'utf8'));
+  assert.deepEqual(receipt.identity.namedWorkflow,receipt.namedWorkflow);
+  const resume={previousRun:f.host.runDir,freshness:'verified'};
+  const host={...f.host,runDir:join(f.root,'resumed'),checkpoint:{...checkpoint,stopAfter:undefined},resume};
+  const original=await readFile(f.scriptPath,'utf8');
+  await writeFile(f.scriptPath,original+'\n');
+  await assert.rejects(Workflow(f.request,host),/identity|source|changed/);
+  await writeFile(f.scriptPath,original);
+  await assert.rejects(Workflow({scriptPath:f.scriptPath,args:f.request.args},host),/identity/);
+  assert.deepEqual(await Workflow(f.request,host),{first:'first',last:'last',resumable:true});
+  assert.equal(f.calls(),2);
 });
 
 test('both adapters transport named source and structured SDK results with immutable host authorization', async t => {
@@ -99,10 +120,19 @@ test('both adapters transport named source and structured SDK results with immut
       } };
     }
   }
-  await writeFile(join(f.plugin, 'workflows/tiny.js'), `export const meta={name:'tiny',description:'tiny'}; return await agent('exact role prompt',{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}});`);
+  await writeFile(f.scriptPath, `export const meta={name:'tiny',description:'tiny'}; return await agent('exact role prompt',{schema:{type:'object',properties:{answer:{type:'string'}},required:['answer']}});`);
   const { backend, runDir, ...authority } = f.host;
   const host = { ...authority, cwd: f.root, workspace: { mode: 'workspace-write' }, CodexClass: Fake };
   assert.deepEqual(await executeWorkflow(f.request, { ...host, runDir }), { answer: '回答' });
-  const bound = createWorkflow({ ...host, runRoot: f.root }); host.allowedWorkflowNames.length = 0;
-  assert.deepEqual(await bound(f.request), { answer: '回答' }); assert.equal(configs.length, 2);
+  const bound = createWorkflow({ ...host, runRoot: f.root }); host.trustedPluginRoots.length = 0;
+  assert.deepEqual(await bound({ ...f.request, args:{mode:'update'} }), { answer: '回答' });
+  assert.deepEqual(await executeWorkflow({scriptPath:f.scriptPath,args:{mode:'update'}},{...host,trustedPluginRoots:[f.plugin],runDir:join(f.root,'ordinary-update')}),{answer:'回答'});
+  assert.equal(configs.length, 3);
+});
+
+test('skill-creator update cannot bypass its authority through named checkpoint', async t => {
+  const f=await fixture(t);
+  await writeFile(f.scriptPath,"export const meta={name:'skill-creator-review',description:'x'}; return await agent('must-not-run');");
+  await assert.rejects(Workflow({name:'example:skill-creator-review',args:{mode:'update'}},{...f.host,checkpoint:{files:[],dependenciesComplete:true,backendIdentity:'mock'}}),/skill-creator update/);
+  assert.equal(f.calls(),0);
 });

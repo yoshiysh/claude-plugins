@@ -18,7 +18,7 @@ function literal(node) {
   throw new Error('meta must contain only literal values');
 }
 
-export function compileSource(source, capabilities = ['read-only', 'fresh-thread']) {
+function parseSource(source) {
   const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true });
   const first = ast.body[0];
   const declaration = first?.declaration;
@@ -27,9 +27,18 @@ export function compileSource(source, capabilities = ['read-only', 'fresh-thread
       declaration.declarations.length !== 1 || binding.id.name !== 'meta' || binding.init.type !== 'ObjectExpression')
     throw new Error('first statement must be export const meta = {...}');
   const meta = literal(binding.init);
-  validateRequirements(meta.requirements, capabilities);
   if (typeof meta.name !== 'string' || !meta.name || typeof meta.description !== 'string' || !meta.description)
     throw new Error('meta requires name and description');
+  return { meta, body: source.slice(first.end), statements: ast.body.slice(1) };
+}
+
+export function readSourceMetadata(source) {
+  return parseSource(source).meta;
+}
+
+export function compileSource(source, capabilities = ['read-only', 'fresh-thread']) {
+  const { meta, body, statements } = parseSource(source);
+  validateRequirements(meta.requirements, capabilities);
   function visit(node) {
     if (!node || typeof node !== 'object') return;
     // Conservative static gate: recognize literal agent option bags even when a
@@ -53,6 +62,6 @@ export function compileSource(source, capabilities = ['read-only', 'fresh-thread
       else visit(value);
     }
   }
-  ast.body.slice(1).forEach(visit);
-  return { meta, body: source.slice(first.end) };
+  statements.forEach(visit);
+  return { meta, body };
 }

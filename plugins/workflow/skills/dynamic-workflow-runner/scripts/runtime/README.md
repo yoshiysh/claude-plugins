@@ -7,8 +7,8 @@ Explicit opt-in checkpoint/resume is limited to the new quiescent-boundary proto
 historical runs cannot be resumed.
 
 The [common adapter](ADAPTER.md) binds host settings once and accepts unchanged
-`Workflow({scriptPath,args})` calls and approved `Workflow({name,args})` calls.
-See [named execution](NAMED.md) for plugin registration, workspace scope and caller continuation. The one-shot CLI uses the same execution entry.
+`Workflow({scriptPath,args})` calls and `Workflow({name,args})` calls from trusted plugin roots.
+See [named execution](NAMED.md) for namespace/source discovery, unchanged results and caller continuation. The one-shot CLI uses the same execution entry.
 Its default context suppresses personal Memory while preserving Apps/plugin dependencies;
 per-role inventories are optional, not required for every source.
 
@@ -77,10 +77,12 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
-Codex runner `review` remains unsupported. `update` requires a host-bound `updatePolicy`,
-matching runtime capability, staging-rooted phase-scoped writes, and a hash-bound action
-package. The caller applies the package only after approval with its apply helper; a
-selector flag or capability declaration alone does not authorize target writes.
+For the skill-creator caller, its `review` classification remains unsupported and its
+`update` route requires a host-bound `updatePolicy`, matching runtime capability,
+staging-rooted phase-scoped writes, and a hash-bound action package. That caller applies
+the package only after approval with its apply helper; a selector flag or capability
+declaration alone does not authorize target writes. These are skill-creator's caller
+requirements, not restrictions on generic sources' `args.mode` values.
 As a conservative additional gate, literal option-shaped objects containing model,
 label or schema and unsupported capability keys are rejected (literal isolation:
 "worktree" is accepted only when the host provides worktree capability)

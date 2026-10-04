@@ -6,6 +6,7 @@ import { join, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
+import { verifyNamedSource } from './named.mjs';
 import { agentOptionKeys, exactObject, validateRequirements } from './inputs.mjs';
 import { validateEffort } from './models.mjs';
 import { runAgent } from './agent-run.mjs';
@@ -43,7 +44,7 @@ async function implementationHash() {
   // Bind runtime/worker, backend policy implementation and pinned dependencies.
   const names = ['runtime.mjs', 'resume.mjs', 'agent-run.mjs', 'worker.mjs', 'source.mjs', 'inputs.mjs',
     'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'run-workspace.mjs',
-    'package-lock.json'];
+    'named.mjs', 'adapter.mjs', 'package-lock.json'];
   return hash(json(await Promise.all(names.map(async name =>
     [name, hash(await readFile(new URL(name, import.meta.url)))]))));
 }
@@ -119,7 +120,7 @@ function validateHistory(request, events, seal) {
   return { boundary, completed };
 }
 
-export async function resumableWorkflow(request, host) {
+export async function resumableWorkflow(request, host, resolved) {
   if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required');
   const { backend, runDir } = host;
   if (!backend || typeof backend.run !== 'function') throw Error('backend.run required');
@@ -144,12 +145,16 @@ export async function resumableWorkflow(request, host) {
   validateRequirements(host.requirements, capabilities);
   const path = await realpath(request.scriptPath);
   const source = await readFile(path, 'utf8');
+  await verifyNamedSource(resolved, path, source);
   const argsText = json(request.args ?? {});
   if (argsText === undefined) throw Error('args must be JSON serializable');
   const { meta, body } = compileSource(source, capabilities);
+  if (meta.name === 'skill-creator-review' && request.args?.mode === 'update')
+    throw Error('skill-creator update cannot use checkpoint or resume');
   const backendPolicy = await backend.prepare?.() ?? null;
   backend.validateCheckpointPolicy?.();
   const identity = { protocol: PROTOCOL, implementationHash: await implementationHash(), sourceHash: hash(source),
+    ...(resolved?.named ? { namedWorkflow: resolved.identity } : {}),
     argsHash: hash(argsText), sourceWorkerEnvironment: { PATH: process.env.PATH, node: process.version },
     capabilities, requirements: host.requirements ?? [], backendIdentity, backendPolicy,
     limits, dependencyPaths: policy.files };
@@ -193,7 +198,8 @@ export async function resumableWorkflow(request, host) {
       await syncDirectory(previous.root);
     }
     await durableFile(join(runDir, 'source.txt'), source);
-    const requestText = json({ protocol: PROTOCOL, identity, scriptPath: path, args: JSON.parse(argsText),
+    const requestText = json({ protocol: PROTOCOL, identity, scriptPath: path,
+      ...(resolved?.named ? { namedWorkflow: resolved.identity } : {}), args: JSON.parse(argsText),
       meta, limits, initialFiles, predecessor: previous ? { runDir: previous.root, digest: previous.digest } : null });
     await durableFile(join(runDir, 'request.json'), requestText);
     const journal = await fsPromises.open(join(runDir, 'events.jsonl'), 'wx', 0o600);

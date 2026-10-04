@@ -11,14 +11,11 @@ await mkdir(join(plugin, '.claude-plugin'), { recursive: true });
 await mkdir(join(plugin, 'workflows'));
 await mkdir(workspace);
 await writeFile(join(plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'runner-smoke', version: '1.0.0' }));
-await writeFile(join(plugin, 'workflows/codex-workflows.json'), JSON.stringify({ schemaVersion: 1, workflows: [{
-  name: 'write-check', scriptPath: 'write-check.js', requirements: ['workspace-write'], continuation: 'next_args', workspaceArg: 'workspace',
-}] }));
-await writeFile(join(plugin, 'workflows/write-check.js'), `export const meta={name:'write-check',description:'one writable named SDK agent'};
+await writeFile(join(plugin, 'workflows/write-check.js'), `export const meta={name:'write-check',description:'one writable named SDK agent',requirements:['workspace-write']};
 return await agent('Create the UTF-8 file '+args.workspace+'/marker.txt containing exactly named-workflow-ok followed by one newline. Read it back from disk. Return the absolute path in path and the exact read-back contents in contents.', {
  model:'smoke', effort:'low', label:'write-check', schema:{type:'object',properties:{path:{type:'string'},contents:{type:'string'}},required:['path','contents']}
 });`);
-const request = { name: 'runner-smoke:write-check', trustedPluginRoots: [plugin], allowedWorkflowNames: ['runner-smoke:write-check'],
+const request = { name: 'runner-smoke:write-check', trustedPluginRoots: [plugin],
   args: { workspace }, cwd: workspace, workspace: { mode: 'workspace-write' }, runDir: join(root, 'run'),
   modelMap: { smoke: model }, requirements: ['workspace-write'],
   limits: { maxAgents: 1, concurrency: 1, timeoutMs: 120000, agentTimeoutMs: 90000, maxOutputBytes: 1000000 } };

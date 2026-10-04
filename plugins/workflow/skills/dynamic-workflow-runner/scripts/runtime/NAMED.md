@@ -1,32 +1,34 @@
-# Approved named workflows on Codex
+# Named workflows from trusted plugins on Codex
 
 The common adapter and CLI accept `Workflow({name,args})` alongside `Workflow({scriptPath,args})`.
 A call must select exactly one source selector. This is an explicit caller route; installation does
 not register or intercept native tools. Native Workflow remains first choice, and a call already
 attempted natively must never be retried through this runner.
 
-The host authorizes an exact qualified name in `allowedWorkflowNames` and supplies existing canonical
-absolute `trustedPluginRoots`. These are plugin roots, not skill roots or the marketplace directory.
-Each plugin's `.claude-plugin/plugin.json` establishes its namespace. Exactly one trusted root must
-match it. The plugin's `workflows/codex-workflows.json` registers reviewed Codex-compatible sources;
-a source merely present in `workflows/` is not executable by name. The registry has `schemaVersion: 1`
-and a `workflows` array. Each entry declares `name`, a direct `.js` basename `scriptPath`, runtime
-`requirements`, and `continuation: "next_args"`. Optional `workspaceArg` names an args field containing
-a canonical existing writable workspace. Root, manifest, workflows directory, registry, and source
-must be canonical and symlink-free. Duplicate plugin identities or registrations, unknown names,
-traversal, source metadata mismatch, and unavailable requirements fail before any execution agent.
-The request receipt records the resolved name, plugin root, registry path, source path and source hash.
+The host supplies existing canonical absolute `trustedPluginRoots`. These are reviewed plugin roots;
+trust applies to the sources in those roots. A root is not a skill directory or marketplace directory.
+Each root's `.claude-plugin/plugin.json` establishes its namespace. Exactly one trusted root must match
+the requested namespace. The resolver reads the direct `.js` files in that plugin's `workflows/`
+directory and selects the unique literal `meta.name` matching the local part of the qualified name.
+A source filename need not match its metadata name. No per-caller name allowlist or separate Codex
+registration file is required. The qualified name is `<plugin namespace>:<source meta.name>`.
+
+Root, manifest directory/file, workflows directory and direct source files must be canonical and
+symlink-free. Invalid namespaces or source names, ambiguous plugin identities, duplicate source
+metadata names, missing names and changed source bytes fail before an execution agent is dispatched.
+The request journal records the resolved name, plugin root, source path and source hash. The common
+runtime still validates source syntax, declared requirements, model mappings, options and host limits.
+Name discovery does not certify that a caller's graph or required capabilities are supported.
 Sources remain trusted code; these checks do not turn Node VM into a hostile-code sandbox.
 
-The runner provides no native `resumeFromRunId`. Named calls reject runner `checkpoint`/`resume` too:
-that protocol depends on explicit source checkpoints and does not implement native saved-agent replay.
-A named source result containing `resumable` is returned with that field set to `false`. Every other
-field, including `next_args`, remains unchanged. The caller writes human answers verbatim to the source's
-answer file and starts a fresh run with the returned `next_args`; it does not reconstruct state or add
-`gates_answered`. A missing `next_args` means the caller cannot continue automatically. The old runDir
-is never reused. CLI `completed` means the source returned normally; inspect `result.status` for
-`needs_answers`, `blocked`, or `done`. A host deadline or agent-count violation still fails the entire
-run and cannot be converted into a source continuation.
+Both selectors preserve the source result, including `resumable` and `next_args`, without rewriting
+fields. Caller contracts decide how to interpret that result and continue. Native `resumeFromRunId`
+is unsupported; a returned native resume hint cannot enable it. Sources with explicit quiescent
+checkpoints may use the common runtime `checkpoint`/`resume` protocol under its existing identity,
+dependency, freshness and single-use rules; see [runtime README](README.md#explicit-checkpoint-and-continuation).
+The old runDir is never reused. CLI `completed` means the source returned normally; source-specific
+statuses remain inside `result`. A host deadline or agent-count violation still fails the entire run
+and cannot be converted into a source continuation.
 
 `pipeline` waits for every item and maps callback exceptions to null, retaining input order. Host
 configuration and resource failures remain fatal outside that callback path. Schema validation uses
@@ -34,11 +36,14 @@ the original source schema; SDK structured output travels in the existing JSON-s
 
 ## prd-spec request
 
-`workflow:prd-spec-run` is registered in this plugin. Read its caller SKILL.md and perform S0 first.
+`workflow:prd-spec-run` resolves this plugin's `workflows/prd-spec.js` by its literal metadata name.
+Read the [caller SKILL.md](../../../prd-spec/SKILL.md) and perform S0 first.
 Set worker `cwd` to the existing canonical W selected by S0, outside the plugin install and target
 repository. Thus agents can write W with workspace-write while plugin references and the target
-repository are read by absolute path. The preflight rejects W outside prepared cwd or a read-only
-backend. Make relevant repository rules and locations explicit in the verbatim input; W's workers do
+repository are read by absolute path. The caller/host must check that W is the worker cwd, writable,
+and outside those roots, and explicitly request `workspace-write` capability. These are prd-spec's
+workspace requirements, not generic named-source argument rules. Make relevant repository rules and
+locations explicit in the verbatim input; W's workers do
 not inherit the main conversation. Keep the source's `role_opts` in Claude model labels and configure
 an explicit host modelMap for those labels. Mapping expresses operator policy, not provider equivalence.
 
@@ -48,7 +53,6 @@ Example CLI request (replace angle-bracket placeholders with actual absolute pat
 {
   "name": "workflow:prd-spec-run",
   "trustedPluginRoots": ["<workflow plugin root>"],
-  "allowedWorkflowNames": ["workflow:prd-spec-run"],
   "args": {
     "workspace": "<W>",
     "skillDir": "<workflow plugin root>/skills/prd-spec",
@@ -71,9 +75,12 @@ corresponding explicit mappings. Do not claim all caller graphs or full prd-spec
 The production source is unmodified; mock tests cover its normal run, all three human gates, continuation,
 failed agents, and rejected altered continuation hashes through the real VM and schema validator.
 
-Run `node cli.mjs REQUEST.json --live --trusted-source`. For continuation, copy the returned `next_args`
-unchanged into the request's `args`, allocate a new runDir, keep cwd=W, and invoke the same name.
-Questions, answers, artifact validation, saving and external actions remain owned by the caller.
+Run `node cli.mjs REQUEST.json --live --trusted-source`. For this caller's continuation, ignore the
+native `resumable` hint, write human answers verbatim to the source's answer file, and copy the returned
+`next_args` unchanged into the request's `args`. Allocate a new runDir, keep cwd=W, and invoke the same
+name without adding `gates_answered`. A missing `next_args` prevents automatic continuation. This
+caller does not use runner checkpoints. Questions, answers, artifact validation, saving and external
+actions remain owned by the caller; see its SKILL.md for the authoritative continuation rules.
 
 ## One-agent live probe
 
@@ -82,4 +89,4 @@ reviewable request and a small trusted temporary plugin. Run its request with th
 both `result.contents` and the actual `marker.txt` equal `named-workflow-ok` plus one newline; keep
 request, stdout, journal and file hash as evidence. This verifies named lookup, SDK transport and
 writing W. It is not a complete prd-spec live run. The helper does no inference itself and does not
-modify the installed plugin or production registry.
+modify the installed plugin or production sources.

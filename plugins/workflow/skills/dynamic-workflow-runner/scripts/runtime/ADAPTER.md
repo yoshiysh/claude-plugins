@@ -28,9 +28,10 @@ The existing runtime capability, permission and source validation still applies.
 creates it exclusively and stores its normal request/source/event journal there.
 No cleanup, overwrite or retry is added. Host configuration and each request are
 snapshotted so concurrent calls and later caller mutations do not share mutable policy.
-Each run has its own backend. ScriptPath results are returned unchanged, without a new envelope. Named results set resumable to false; all other fields retain source values.
+Each run has its own backend. Results from either selector are returned unchanged, without a new envelope.
 Limits are per Workflow call, not a global budget across calls. This adapter does not
-add native tool registration, global interception, approval forwarding or resume.
+add native tool registration, global interception, approval forwarding or native saved-agent resume.
+The explicit runtime checkpoint protocol is available to sources that implement its boundaries; see [runtime README](README.md).
 `agentTimeoutMs` bounds each backend call; for this one-shot adapter, when omitted it
 defaults to 80% of `timeoutMs`. A timed-out call is aborted and returned to the source as `null`, while
 the runtime journal records `agent.timeout`; the workflow-level `timeoutMs` still
@@ -87,4 +88,4 @@ patch; hosts must select this common JS entry rather than the old manifest bridg
 
 ## Named call route
 
-Host `trustedPluginRoots` and `allowedWorkflowNames` select approved plugin sources through an explicit Codex registration. See [the named contract](NAMED.md) for authorization, workspace containment, caller gates and next_args continuation. Neither native resumeFromRunId nor runner checkpoint/resume is accepted on this route.
+Host `trustedPluginRoots` selects reviewed plugin roots. The manifest namespace and a unique literal `meta.name` in a direct `workflows/*.js` source resolve the qualified name, without a caller-name allowlist or separate Codex registry. See [the named contract](NAMED.md) for path/source validation, result preservation and caller-owned continuation. Native `resumeFromRunId` remains unsupported; the explicit runtime checkpoint protocol applies equally to both selectors.

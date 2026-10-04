@@ -11,7 +11,7 @@ import { finalizeUpdateContract, prepareUpdateContract, verifyUpdateTarget } fro
 import { validateEffort } from './models.mjs';
 import { runAgent } from './agent-run.mjs';
 import { createRunWorkspace } from './run-workspace.mjs';
-import { namedHostKeys, namedResult, resolveNamedWorkflow, validateNamedWorkspace } from './named.mjs';
+import { namedHostKeys, resolveNamedWorkflow, verifyNamedSource } from './named.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 export async function Workflow(request, host = {}) {
@@ -19,11 +19,11 @@ export async function Workflow(request, host = {}) {
   exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'updateContract', 'checkpoint', 'resume', ...namedHostKeys, ...limitKeys], 'Workflow host');
   if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required; not a hostile-code sandbox');
   const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
-  const resolved = await resolveNamedWorkflow(request, host, capabilities);
+  const resolved = await resolveNamedWorkflow(request, host);
   request = resolved.request;
   if (host.updateContract !== undefined && (host.checkpoint !== undefined || host.resume !== undefined))
     throw new Error('update contract cannot use checkpoint or resume');
-  if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host);
+  if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host, resolved);
   validateRequirements(host.requirements, capabilities);
   const { scriptPath } = request;
   let args;
@@ -43,7 +43,7 @@ export async function Workflow(request, host = {}) {
   if (maxAgents > 1000 || concurrency > 16) throw new Error('agent limits exceed supported maximum');
   const path = await realpath(scriptPath);
   const source = await readFile(path, 'utf8');
-  if (resolved.named && source !== resolved.source) throw Error('named workflow source changed during resolution');
+  await verifyNamedSource(resolved, path, source);
   const { meta, body } = compileSource(source, capabilities);
   const creatorUpdate = meta.name === 'skill-creator-review' && args?.mode === 'update';
   if (creatorUpdate && host.updateContract === undefined)
@@ -70,7 +70,6 @@ export async function Workflow(request, host = {}) {
     args.stagingDir = update.stagingDir;
   }
   const backendPolicy = await backend.prepare?.();
-  await validateNamedWorkspace(resolved, args, backendPolicy);
   let encodedArgs;
   try { encodedArgs = JSON.stringify(args); }
   catch { throw new Error('args must be JSON serializable'); }
@@ -114,7 +113,6 @@ export async function Workflow(request, host = {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(new Error('workflow deadline exceeded')), timeoutMs);
     async function finish(error, result) {
-      result = namedResult(result, resolved.named);
       if (settled) return;
       settled = true;
       clearTimeout(timer);

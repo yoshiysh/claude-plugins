@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import test from 'node:test'
+import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
 const pluginsRoot = join(repoRoot, 'plugins')
@@ -98,41 +99,30 @@ function workflowMetaNames(pluginName) {
   )
 }
 
-test('every name-form Workflow caller resolves to a plugin workflow and documents its Codex route', () => {
+test('every name-form Workflow caller resolves source metadata and documents its Codex route', async () => {
   const callers = namedWorkflowCallers()
-  const approved = new Set(['workflow:prd-spec-run'])
-  const observed = new Set()
   assert.ok(callers.length > 0, 'expected at least one name-form Workflow caller')
   for (const caller of callers) {
     for (const name of caller.names) {
       const [pluginName, workflowName] = name.split(':')
       assert.equal(pluginName, caller.pluginName, `${caller.skillMd}: ${name} must name a workflow of its own plugin`)
-      assert.ok(workflowMetaNames(pluginName).has(workflowName), `${caller.skillMd}: no plugins/${pluginName}/workflows/*.js has meta.name '${workflowName}'`)
-      const registryPath = join(pluginsRoot, pluginName, 'workflows', 'codex-workflows.json')
-      const registry = existsSync(registryPath) ? json(registryPath) : { workflows: [] }
-      const entries = registry.workflows.filter((entry) => entry.name === workflowName)
-      if (!approved.has(name)) {
-        assert.equal(entries.length, 0, `${name}: add an explicit named portability classification before registration`)
-        assert.match(caller.source, /native\s*の\s*Workflow\s*が無い\s*Codex\s*では実行しない/, `${caller.skillMd}: Codex fail-closed statement is missing`)
-        assert.match(caller.source, /`workflow:dynamic-workflow-runner`[^。]*名前の\s*callsite[^。]*受けない/, `${caller.skillMd}: runner rejection reason is missing`)
-        continue
-      }
-      observed.add(name)
-      assert.equal(registry.schemaVersion, 1)
-      assert.deepEqual(entries, [{ name: workflowName, scriptPath: 'prd-spec.js', requirements: ['workspace-write'], continuation: 'next_args', workspaceArg: 'workspace' }])
-      assert.equal(json(join(pluginsRoot, pluginName, '.claude-plugin', 'plugin.json')).name, pluginName)
+      const resolved = await resolveNamedWorkflow({ name }, { trustedPluginRoots: [join(pluginsRoot, pluginName)] })
+      assert.equal(resolved.identity.name, name)
+      assert.ok(workflowMetaNames(pluginName).has(workflowName))
       assert.match(caller.source, /native Workflow が現在の tool inventory に無い Codex[^。]*`workflow:dynamic-workflow-runner`/)
       assert.match(caller.source, /native を試行して失敗した call は runner で実行し直さない/)
-      for (const field of ['trustedPluginRoots', 'allowedWorkflowNames', 'modelMap', 'cwd', 'workspace.mode'])
-        assert.ok(caller.source.includes(`\`${field}`), `${caller.skillMd}: explicit host ${field} is missing`)
-      assert.match(caller.source, /workspace-write/)
-      assert.match(caller.source, /Codex runner は毎回 `next_args` で起動する/)
-      assert.match(caller.source, /名前付き結果の `resumable` は false/)
-      assert.match(caller.source, /native `resumeFromRunId` と runner checkpoint は使わない/)
+      assert.ok(caller.source.includes('`trustedPluginRoots`'), `${caller.skillMd}: trusted plugin roots are missing`)
       assert.match(caller.source, /ゲートの返却・回答・保存はこの caller が持つ/)
     }
   }
-  assert.deepEqual(observed, approved, 'approved named classification and discovered callsites must match exactly')
+})
+
+test('prd-spec caller owns workspace scope and next_args continuation', () => {
+  const source = readFileSync(join(pluginsRoot, 'workflow/skills/prd-spec/SKILL.md'), 'utf8')
+  for (const field of ['modelMap', 'cwd', 'workspace.mode']) assert.ok(source.includes(`\`${field}`))
+  assert.match(source, /workspace-write/)
+  assert.match(source, /Codex runner は毎回 `next_args` で起動する/)
+  assert.match(source, /native `resumeFromRunId` と runner checkpoint は使わない/)
 })
 
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {

@@ -119,7 +119,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 
 **呼び直し**（resume と `next_args` の使い分けは、ここにだけ書く）:
 
-- **Codex runner は毎回 `next_args` で起動する。** 名前付き結果の `resumable` は false。回答を answers に逐語で書き、返った `next_args` を変えずに同じ名前へ渡す。`gates_answered` は足さず、runDir は新規にする。native `resumeFromRunId` と runner checkpoint は使わない。`next_args` が無ければ原因を直すまで再起動しない。以下の resume の規則は native のみに適用する。
+- **Codex runner は毎回 `next_args` で起動する。** source が返す `resumable` は native 用の hint であり、Codex での resume 可否の判定には使わない。回答を answers に逐語で書き、返った `next_args` を変えずに同じ名前へ渡す。`gates_answered` は足さず、runDir は新規にする。native `resumeFromRunId` と runner checkpoint は使わない。`next_args` が無ければ原因を直すまで再起動しない。以下の resume の規則は native のみに適用する。
 
 - **同じセッションの中では resume する。** 返り値の `resumable` が true なら、返った run の `runId` を `resumeFromRunId` に渡し、
   args はその run を起動した args を変えずに渡す。needs_answers の後は、返り値の `gate` をキーに、同じ返り値の `question_ids` を
@@ -188,7 +188,7 @@ Claude Code の中で混ぜると W を 2 つの経路で書く）。
 
 native Workflow が現在の tool inventory に無い Codex では、この active callsite から `workflow:dynamic-workflow-runner` を内部利用する。native を試行して失敗した call は runner で実行し直さない。ユーザーに runner の指定を要求しない。
 
-host はこの workflow plugin の canonical root を `trustedPluginRoots`、名前を `allowedWorkflowNames` に明示し、W を worker `cwd` にして `workspace.mode: "workspace-write"` を設定する。source の model label に対応する `modelMap` と call 数・並行数・期限を明示する。
+host はこの workflow plugin の canonical root を `trustedPluginRoots` に明示し、W を worker `cwd` にして `workspace.mode: "workspace-write"` と `requirements: ["workspace-write"]` を設定する。source の model label に対応する `modelMap` と call 数・並行数・期限を明示する。
 対象リポジトリ・適用する規則の絶対パスは入力として運ぶ。worker は親会話を継承しない。native の auto mode・allow rule・cache TTL を Codex に要求しない。
 [runner の名前付き実行契約](../dynamic-workflow-runner/scripts/runtime/NAMED.md) の request 形式と照合・上限に従う。ゲートの返却・回答・保存はこの caller が持つ。
 Codex の質問UIで問いを逐語搬送できない場合は、`questions_path` の原文を表示して通常の返答を受ける。モデルで問いを作り直さない。

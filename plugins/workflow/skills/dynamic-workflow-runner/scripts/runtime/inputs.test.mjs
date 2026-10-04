@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, access, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, access, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,11 +51,31 @@ test('CLI rejects unsupported request and limits without inference', async t => 
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const value of [{ resumeFromRunId: 'previous' }, { limits: { maxTokens: 1 } },
     { updateContract: { targetRoot: '/tmp', stagingRoot: '/tmp/staging', targetDir: '/tmp/target', stagingDir: '/tmp/staging/run' } },
-    { scriptPath: '/unused', args: { mode: 'update' } }]) {
+    { allowedWorkflowNames: ['example:tiny'] }]) {
     const request = join(root, 'request.json');
     await writeFile(request, JSON.stringify(value));
     await assert.rejects(promisify(execFile)(process.execPath,
       [fileURLToPath(new URL('./cli.mjs', import.meta.url)), request, '--live', '--trusted-source']),
     error => /unsupported/.test(error.stderr));
   }
+});
+
+test('CLI preserves generic named and scriptPath mode:update arguments and rejects creator update', async t => {
+  const root=await realpath(await mkdtemp(join(tmpdir(),'workflow-cli-generic-')));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const plugin=join(root,'plugin'), scriptPath=join(plugin,'workflows/filename.js');
+  await mkdir(join(plugin,'.claude-plugin'),{recursive:true}); await mkdir(join(plugin,'workflows'));
+  await writeFile(join(plugin,'.claude-plugin/plugin.json'),JSON.stringify({name:'example'}));
+  await writeFile(scriptPath,"export const meta={name:'tiny',description:'x'}; return {args,resumable:true};");
+  const invoke=async value=>{
+    const path=join(root,'request.json'); await writeFile(path,JSON.stringify(value));
+    return promisify(execFile)(process.execPath,[fileURLToPath(new URL('./cli.mjs',import.meta.url)),path,'--live','--trusted-source']);
+  };
+  for (const selector of [{name:'example:tiny',trustedPluginRoots:[plugin]},{scriptPath}]) {
+    const args={mode:'update',cursor:'ordinary-source'};
+    const result=await invoke({...selector,cwd:root,runDir:join(root,selector.name?'named':'script'),args});
+    assert.deepEqual(JSON.parse(result.stdout).result,{args,resumable:true});
+  }
+  await writeFile(scriptPath,"export const meta={name:'skill-creator-review',description:'x'}; return null;");
+  await assert.rejects(invoke({scriptPath,cwd:root,runDir:join(root,'creator'),args:{mode:'update'}}),error=>/createWorkflow host updatePolicy/.test(error.stderr));
 });

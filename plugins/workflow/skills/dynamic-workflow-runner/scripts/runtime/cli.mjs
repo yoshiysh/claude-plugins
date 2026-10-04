@@ -9,15 +9,14 @@ try {
   if (!requestPath || flags.length !== 2 || !flags.includes('--live') || !flags.includes('--trusted-source'))
     throw new Error('usage: node cli.mjs REQUEST.json --live --trusted-source');
   const request = JSON.parse(await readFile(requestPath, 'utf8'));
-  exactObject(request, ['scriptPath', 'name', 'trustedPluginRoots', 'allowedWorkflowNames', 'args', 'runDir', 'cwd', 'modelMap', 'model',
+  exactObject(request, ['scriptPath', 'name', 'trustedPluginRoots', 'args', 'runDir', 'cwd', 'modelMap', 'model',
     'modelReasoningEffort', 'codexPathOverride', 'limits', 'requirements', 'workspace', 'environment', 'context', 'checkpoint', 'resume'], 'CLI request');
   exactObject(request.limits ?? {}, limitKeys, 'limits');
   const { scriptPath, name, args, runDir, cwd, modelMap, model, modelReasoningEffort, codexPathOverride, limits = {} } = request;
-  if (args?.mode === 'update') throw new Error('unsupported CLI update request; use host-bound createWorkflow updatePolicy');
   const result = await executeWorkflow({ ...(name === undefined ? { scriptPath } : { name, ...(scriptPath === undefined ? {} : { scriptPath }) }), args }, { ...limits, runDir, trustedSource: true, requirements: request.requirements,
     cwd, modelMap, model, modelReasoningEffort, codexPathOverride, workspace: request.workspace, environment: request.environment, context: request.context,
     checkpoint: request.checkpoint, resume: request.resume,
-    trustedPluginRoots: request.trustedPluginRoots, allowedWorkflowNames: request.allowedWorkflowNames });
+    trustedPluginRoots: request.trustedPluginRoots });
   const status = request.checkpoint && result?.status === 'checkpoint' && result.runDir === runDir ? 'checkpoint' : 'completed';
   process.stdout.write(JSON.stringify({ status, runDir, result }) + '\n');
 } catch (error) {
