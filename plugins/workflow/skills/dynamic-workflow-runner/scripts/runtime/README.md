@@ -7,7 +7,8 @@ Explicit opt-in checkpoint/resume is limited to the new quiescent-boundary proto
 historical runs cannot be resumed.
 
 The [common adapter](ADAPTER.md) binds host settings once and accepts unchanged
-`Workflow({scriptPath,args})` calls. The one-shot CLI uses the same execution entry.
+`Workflow({scriptPath,args})` calls and `Workflow({name,args})` calls from trusted plugin roots.
+See [named execution](NAMED.md) for namespace/source discovery, unchanged results and caller continuation. The one-shot CLI uses the same execution entry.
 Its default context suppresses personal Memory while preserving Apps/plugin dependencies;
 per-role inventories are optional, not required for every source.
 
@@ -22,7 +23,7 @@ extensions are arbitrary. Imports and additional exports fail before execution.
 The injected API is `agent(prompt,{model,effort,label,phase,schema,isolation})`, `parallel(thunks)`,
 `pipeline(items,fn)`, `phase(title)`, `log(message)`, and `args`. Agent results are text
 or schema-validated JSON. Backend failures and invalid outputs become null. Ordered
-fan-out retains nulls. Configuration errors, resource limits and script exceptions
+fan-out retains nulls. Pipeline callback exceptions become null only after all items settle; host failures remain fatal. Configuration errors, resource limits and script exceptions
 fail the entire run; catching an agent error cannot bypass host limits.
 
 For structured results the SDK receives a fixed strict envelope `{json: string}`.
@@ -76,10 +77,12 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
-Codex runner `review` remains unsupported. `update` requires a host-bound `updatePolicy`,
-matching runtime capability, staging-rooted phase-scoped writes, and a hash-bound action
-package. The caller applies the package only after approval with its apply helper; a
-selector flag or capability declaration alone does not authorize target writes.
+For the skill-creator caller, its `review` classification remains unsupported and its
+`update` route requires a host-bound `updatePolicy`, matching runtime capability,
+staging-rooted phase-scoped writes, and a hash-bound action package. That caller applies
+the package only after approval with its apply helper; a selector flag or capability
+declaration alone does not authorize target writes. These are skill-creator's caller
+requirements, not restrictions on generic sources' `args.mode` values.
 As a conservative additional gate, literal option-shaped objects containing model,
 label or schema and unsupported capability keys are rejected (literal isolation:
 "worktree" is accepted only when the host provides worktree capability)

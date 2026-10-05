@@ -2,9 +2,9 @@
 name: dynamic-workflow-runner
 user-invocable: false
 description: >
-  選択済み Claude 向け skill が到達した Workflow({scriptPath,args}) の Codex 内部実行面。
+  選択済み Claude 向け skill が到達した Workflow({scriptPath,args}) / Workflow({name,args}) の Codex 内部実行面。
   親が caller skill を読み、信頼済み JavaScript source が worker の役割・prompt・reference を所有する。
-  native Workflow が存在する場合はそちらを使う。任意名の source を扱い、追加の LLM 変換担当は起動しない。
+  native Workflow が存在する場合はそちらを使う。scriptPath と信頼済み plugin の名前から source を扱い、追加の LLM 変換担当は起動しない。
   未対応権限や未検証の caller を自動実行できるとは扱わない。通常の script 実行や hostile code には使わない。
 ---
 
@@ -50,7 +50,7 @@ source に Codex 専用引数を足したり、ラベル名や自然文から必
 2. native を一度でも試行した call をこちらで再実行しない。timeout は未実行の証明にならない。
 3. caller が宣言した source と args を確認する。別 branch や例示から call を推測しない。
 4. worker は既定で read-only。明示許可した `workspace-write` と独立 Git worktree は opt-in。
-   厳密な tool allowlist、承認の転送、resume を必要とする
+   厳密な tool allowlist、承認の転送、native saved-agent resume を必須とする
    caller は `unsupported_runtime` として止める。外部サービス権限を filesystem 制限で代用しない。
 5. source の信頼性、worker cwd、利用するモデル対応表、実行上限を確認する。
    任意名・任意拡張子は許すが、Node vm は hostile source の強制 sandbox ではない。
@@ -65,12 +65,15 @@ source に Codex 専用引数を足したり、ラベル名や自然文から必
 ## JavaScript 実行経路
 
 共通ホストは [アダプター](scripts/runtime/ADAPTER.md) の `createWorkflow(host)` を一度設定する。
-以後、受け取る呼出しは `Workflow({scriptPath,args})` のまま。スキル名ごとの分岐や
+以後、受け取る呼出しは `Workflow({scriptPath,args})` または `Workflow({name,args})` のまま。スキル名ごとの分岐や
 caller の専用改修を加えない。CLI も同じ `executeWorkflow` に合流する。
 これは呼出し先の関数を提供する実装であり、Codex の未登録 tool を自動捕捉する機能ではない。
 
 初回 setup と request 作成時だけ [実行仕様](scripts/runtime/README.md) を読む。
-request JSON に `scriptPath`、`args`、新規 `runDir`、worker `cwd` と必要なモデル設定・上限を記録する。
+名前の callsite は [名前付き実行契約](scripts/runtime/NAMED.md) に従い、信頼済み plugin root の namespace と source の literal `meta.name` を一意に照合する。
+名前の許可リストや Codex 専用登録表は要求しない。source の返り値は変えずに返し、続行は caller の契約に従う。
+source が明示的 checkpoint を持つ場合は共通 checkpoint protocol を使える。native `resumeFromRunId` は未対応であり、返り値の `resumable` を能力の証明にしない。
+request JSON に `scriptPath` または `name`、`args`、新規 `runDir`、worker `cwd` と必要なモデル設定・上限を記録する。
 モデル指定のある source には明示的な `modelMap` が必要。対応表の品質同等性は推測しない。
 書込許可は host が決め、source の要求だけでは昇格しない。worktree は host が指定した
 完全 commit hash から作り、元 checkout の未コミット変更は含めない。成果物の引継ぎは source が設計する。

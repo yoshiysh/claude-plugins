@@ -177,15 +177,17 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
 
-`research` の search/dispatch、`skill-creator`、`workflow` の review-document の
-Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
-（runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
-caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
-runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create mode、
-host-bound `updatePolicy` と runtime capability が揃う `skill-creator` update である。
-dispatch、review-document、skill-creator の review は execution 前に fail-closed する。
-update の承認後適用は `skill-creator` の Codex 互換契約と apply helper を正とする。
-`workflow` の prd-spec は Codex では実行しない（理由は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
+Workflow caller は、各 SKILL.md の active callsite 契約に従い、native Workflow が無い Codex で
+`workflow:dynamic-workflow-runner` を内部利用する（runner は workflow plugin に同梱）。
+Codex は plugin dependency を自動導入しないため、workflow 以外の caller plugin と `workflow` plugin を
+別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
+共通 JavaScript runtime は信頼済み source の `scriptPath` と、信頼済み plugin root 内の source の
+`meta.name` による名前付き呼び出しを受け付け、caller 名の許可リストを要求しない。
+必要 capability・source 構文・host 権限と各 caller の互換性分類は引き続き検証する。
+実行条件は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`、
+旧 receipt 経路の分類は同 skill の `references/claude-workflow-compatibility.md` と各 caller の契約を正とする。
+名前付き source の返り値は変えずに返す。prd-spec のゲート後の再起動は caller の next_args 契約に従う
+（設定は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
 `plugins/performance/references/native-hooks.md` を正とする。

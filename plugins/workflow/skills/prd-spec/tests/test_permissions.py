@@ -61,10 +61,10 @@ class PermissionRules(unittest.TestCase):
         for cmd in re.findall(r"`([^`]*doc_check\.mjs [^`]*)`", contract):
             self.assertTrue(cmd.replace("<SKILL_DIR>", "[SKILL_DIR]").startswith(prefix + " "), cmd)
 
-    def test_skill_dir_read_rule_covers_the_workspace_root_of_s0(self):
+    def test_native_skill_dir_read_rule_covers_the_workspace_root_of_s0(self):
         skill_md = (SKILL / "SKILL.md").read_text(encoding="utf-8")
-        root = re.search(r"\*\*W を作る\*\*: `([^<`]+)<案件>/`", skill_md)
-        self.assertTrue(root, "SKILL.md の S0 の W の置き場が読めない")
+        root = re.search(r"\*\*W を作る\*\*: native では `([^<`]+)<案件>/`", skill_md)
+        self.assertTrue(root, "SKILL.md の S0 の native W の置き場が読めない")
         self.assertTrue(root.group(1).startswith("[SKILL_DIR]/"), f"W が [SKILL_DIR] の外にあると Read の規則が W を覆わない: {root.group(1)}")
         self.assertIn("Read(/[SKILL_DIR]/**)", self.rules)
 

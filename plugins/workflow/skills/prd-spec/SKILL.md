@@ -66,8 +66,8 @@ workspace を用意し、保存することだけである。** 決定・問い�
    | 既存の要求文書・仕様書の監査と改訂（所在が示されている） | `existing` |
    | 要求文書から仕様書を起こす | `expand` |
 
-2. **W を作る**: `[SKILL_DIR]/workspace/<案件>/`（`[SKILL_DIR]` は絶対パスに置き換える）。W の置き場はここにだけ書く。
-   この skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない（W の形は版ごとに変わってよく、
+2. **W を作る**: native では `[SKILL_DIR]/workspace/<案件>/`、Codex runner では plugin install と対象リポジトリの外に専用ディレクトリを作り、realpath で得た絶対パスを W とする。W の置き場はここにだけ書く。
+   native はこの skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない（W の形は版ごとに変わってよく、
    旧い版の W を読む互換は持たない）。
    対象リポジトリの中に作業ファイルを置かない（そのリポジトリの `.gitignore` は利用者の持ち物である）。
 3. **依頼文を `W/input.md` に逐語で書く。** 貼り付けられた議事録やメモも含め、要約も整形もしない。要約すると、
@@ -77,7 +77,7 @@ workspace を用意し、保存することだけである。** 決定・問い�
    （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
    `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く。`existing_docs` に無い文書はその reset が消す
    （`references/workflow-io.md` §3）。
-5. **許可と設定を確かめる**: run の前に、`references/permissions.md` の前提（auto mode）・allow rule・推奨する cache の TTL を利用者に示し、足すかを確かめる。
+5. **許可と設定を確かめる**: native では `references/permissions.md` の前提（auto mode）・allow rule・推奨する cache の TTL を利用者に示し、足すかを確かめる。Codex は「実行環境」の host 設定と W の書込範囲を確認する。
    settings は書かない（利用者の持ち物である）。
 6. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root <W の親> --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
@@ -118,6 +118,8 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 - **`done`**: 下の「保存」へ進む。
 
 **呼び直し**（resume と `next_args` の使い分けは、ここにだけ書く）:
+
+- **Codex runner は毎回 `next_args` で起動する。** source が返す `resumable` は native 用の hint であり、Codex での resume 可否の判定には使わない。回答を answers に逐語で書き、返った `next_args` を変えずに同じ名前へ渡す。`gates_answered` は足さず、runDir は新規にする。native `resumeFromRunId` と runner checkpoint は使わない。`next_args` が無ければ原因を直すまで再起動しない。以下の resume の規則は native のみに適用する。
 
 - **同じセッションの中では resume する。** 返り値の `resumable` が true なら、返った run の `runId` を `resumeFromRunId` に渡し、
   args はその run を起動した args を変えずに渡す。needs_answers の後は、返り値の `gate` をキーに、同じ返り値の `question_ids` を
@@ -184,8 +186,12 @@ Claude Code の中で混ぜると W を 2 つの経路で書く）。
 1 run の agent は 25 体を超えることが多く、本家の進捗の行に `Large workflow` の警告が出ることがある（体数と費用の実測は
 `references/telemetry.md`）。
 
-native の Workflow が無い Codex では実行しない。`workflow:dynamic-workflow-runner` は skill の中の `scriptPath` の callsite だけを扱い、
-名前の callsite と skill の外の script を受けないので、この skill は runner が実行の前に拒否する対象である。
+native Workflow が現在の tool inventory に無い Codex では、この active callsite から `workflow:dynamic-workflow-runner` を内部利用する。native を試行して失敗した call は runner で実行し直さない。ユーザーに runner の指定を要求しない。
+
+host はこの workflow plugin の canonical root を `trustedPluginRoots` に明示し、W を worker `cwd` にして `workspace.mode: "workspace-write"` と `requirements: ["workspace-write"]` を設定する。source の model label に対応する `modelMap` と call 数・並行数・期限を明示する。
+対象リポジトリ・適用する規則の絶対パスは入力として運ぶ。worker は親会話を継承しない。native の auto mode・allow rule・cache TTL を Codex に要求しない。
+[runner の名前付き実行契約](../dynamic-workflow-runner/scripts/runtime/NAMED.md) の request 形式と照合・上限に従う。ゲートの返却・回答・保存はこの caller が持つ。
+Codex の質問UIで問いを逐語搬送できない場合は、`questions_path` の原文を表示して通常の返答を受ける。モデルで問いを作り直さない。
 
 ## 参照ファイル
 
