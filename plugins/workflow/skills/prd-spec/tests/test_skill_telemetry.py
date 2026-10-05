@@ -24,7 +24,7 @@ NEEDS_ANSWERS = {
         "status": "needs_answers",
         "open_tbd": [], "holds": [], "missed": [], "integrity": [], "undeclared": {},
         "question_ids": ["RS-001", "RS-002"],
-        "next_args": {"state": {"gate": "g0"}},
+        "next_args": {"state": {"gate": "g1"}},
     },
     "agentCount": 3, "totalTokens": 1000, "totalToolCalls": 10,
 }
@@ -69,7 +69,7 @@ class TestExtract(unittest.TestCase):
             b = json.loads((Path(td) / "s" / "wrapped.json").read_text())
             self.assertEqual(a["status"], b["status"])
             self.assertEqual(a["question_count"], 2)
-            self.assertEqual(a["gate"], "g0")
+            self.assertEqual(a["gate"], "g1")
             self.assertIsNone(a["agent_count"])  # 素の result には task output の meta が無い
             self.assertEqual(b["agent_count"], 3)
 
@@ -226,7 +226,7 @@ class TestSummary(unittest.TestCase):
 
 class TestCompare(unittest.TestCase):
     def _seed_run(self, td, run_id, input_ref="args-v1"):
-        record(td, "s", f"{run_id}-g0", NEEDS_ANSWERS, run_id=run_id, input_ref=input_ref)
+        record(td, "s", f"{run_id}-g1", NEEDS_ANSWERS, run_id=run_id, input_ref=input_ref)
         record(td, "s", f"{run_id}-done", DONE, run_id=run_id, input_ref=input_ref)
 
     def test_run_idが欠けていればexit2(self):
@@ -271,7 +271,7 @@ class TestCompare(unittest.TestCase):
     def test_揃っていれば向きと閾値からfavoredを決める(self):
         with tempfile.TemporaryDirectory() as td:
             self._seed_run(td, "ctrl")  # total_tokens 合算 = 1000 + 2000 = 3000
-            record(td, "s", "trt-g0", NEEDS_ANSWERS, run_id="trt", input_ref="args-v1")
+            record(td, "s", "trt-g1", NEEDS_ANSWERS, run_id="trt", input_ref="args-v1")
             cheap_done = json.loads(json.dumps(DONE))
             cheap_done["totalTokens"] = 500
             record(td, "s", "trt-done", cheap_done, run_id="trt", input_ref="args-v1")

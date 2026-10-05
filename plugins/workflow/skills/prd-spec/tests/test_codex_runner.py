@@ -62,13 +62,15 @@ class CodexRunner(unittest.TestCase):
         self.assertEqual(got["receipt"]["namedWorkflow"]["name"], "workflow:prd-spec-run")
 
     def test_all_human_gates_use_next_args_and_do_not_replay_intake(self):
-        for gate, spec, stage, ruled in [
-            ("g0", {"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, "3a", "RS-001"),
-            ("g1", {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, "3a'", "RS-010"),
+        # ゲートは開いた順に g1, g2, … と名乗る。段 3 の題材も段 6 の題材も、その run で最初に開くゲートなので g1。
+        for name, spec, stage, ruled in [
+            ("段 3", {"flow_open": 1, "questions_at": {"3": ["RS-001"]}}, "3a", "RS-001"),
+            ("段 6", {"findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}]}, "questions_at": {"6": ["RS-010"]}}, "3a'", "RS-010"),
         ]:
-            with self.subTest(gate=gate):
+            with self.subTest(name):
                 stopped = run({"args": self.args(), **spec})["result"]
-                self.assertEqual(stopped["status"], "needs_answers")
+                self.assertEqual((stopped["status"], stopped["gate"]), ("needs_answers", "g1"))
+                self.assertEqual(stopped["answers_path"], self.workspace + "/answers/g1.md")
                 self.assertEqual(stopped["next_args"]["from"], stage)
                 self.assertEqual(stopped["next_args"]["workspace"], self.workspace)
                 done = run({"args": stopped["next_args"], "ruled_at": {stage: [ruled]}})
@@ -77,8 +79,8 @@ class CodexRunner(unittest.TestCase):
                 self.assertNotIn("intake", done["labels"])
         g0 = run({"args": self.args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
         g02 = run({"args": g0["next_args"], "ruled_at": {"3a": ["RS-001"]}, "questions_at": {"3a": ["RS-002"]}})["result"]
-        self.assertEqual(g02["status"], "needs_answers")
-        self.assertEqual(g02["answers_path"], self.workspace + "/answers/g0-2.md")
+        self.assertEqual((g02["status"], g02["gate"]), ("needs_answers", "g2"))
+        self.assertEqual(g02["answers_path"], self.workspace + "/answers/g2.md")
         done = run({"args": g02["next_args"], "ruled_at": {"3a": ["RS-002"]}})
         self.assertIsNone(done["error"])
         self.assertEqual(done["result"]["status"], "done")

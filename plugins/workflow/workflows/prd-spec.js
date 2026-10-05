@@ -6,7 +6,7 @@ export const meta = {
     { title: 'Intake', detail: '段 1: 依頼を確定・決定・未決に仕分け、分割と writer の単位を決める' },
     { title: 'Flow', detail: '段 2: 出典付きの流れを描き、閉包を検査する' },
     { title: 'Resolve', detail: '段 3・3v: 未決と組を裁定し、独立に検証する（差し戻しは 1 回）' },
-    { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、G0 の後は回答で flow を組み直す' },
+    { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、最初のゲートの後は回答で flow を組み直す' },
     { title: 'Draft', detail: '段 4: writer の単位ごとに初稿を書く（依存の向きに順番、独立な単位は並列）' },
     { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当てる' },
     { title: 'Decide', detail: '段 6: 決定が要る指摘と新しい TBD を裁定する' },
@@ -54,10 +54,14 @@ const ROLE_FILES = {
 const MAX_AUDIT_PASSES = 4
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
+// 依頼者を止める回数の上限。問いの出る所が順に 1 回ずつ聞ける数（初稿の前に、最初の問いと回答で flow を組み直した後の問いの 2 回、
+// 改稿のパスごとに 1 回）。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖はここで必ず終わる。
+const MAX_GATES = 2 + MAX_AUDIT_PASSES
 
 const ENTRIES = ['new', 'existing', 'expand']
 const STAGES = ['1', '2', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
-const GATE_ANSWERS = { g0: 'answers/g0.md', 'g0-2': 'answers/g0-2.md', g1: 'answers/g1.md' }
+const GATE_NAME = /^g([1-9]\d*)$/
+const gateAnswers = (gate) => `answers/${gate}.md`
 
 // ---------------------------------------------------------------- 純粋関数（tests が抽出して呼ぶ）
 // PURE_BEGIN
@@ -447,7 +451,7 @@ async function rework(first, defectOf, redo, limit) {
   return { got, defect, error: null }
 }
 
-// closedInCycle: before で引かないと、前の cycle で写した裁定を次の cycle（G1 の後の 3a' など）で写し直す。
+// closedInCycle: before で引かないと、前の cycle で写した裁定を次の cycle（改稿のパスのゲートの後の 3a' など）で写し直す。
 function closedInCycle(state, before, kind) {
   const done = new Set(before || [])
   const settled = new Set(usableResolutions(state).filter((id) => !done.has(id)))
@@ -624,12 +628,12 @@ const REQUIRES = {
   1: [],
   2: ['units', 'plan_sha256'],
   3: ['units', 'flow_digest'],
-  '3a': ['units', 'flow_digest', 'gate', 'questions'],
-  '3b': ['units', 'flow_digest', 'gate', 'questions'],
+  '3a': ['units', 'flow_digest', 'gate', 'gates', 'questions'],
+  '3b': ['units', 'flow_digest', 'gate', 'gates', 'questions'],
   4: ['units', 'flow_digest'],
   5: ['units', 'flow_digest'],
   6: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
-  "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'questions'],
+  "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'gates', 'questions'],
   7: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
   8: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'revised'],
   9: ['units', 'tree_digest'],
@@ -887,15 +891,17 @@ const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 const GATES_ANSWERED = input.gates_answered === undefined ? {} : input.gates_answered
 if (
   !GATES_ANSWERED || typeof GATES_ANSWERED !== 'object' || Array.isArray(GATES_ANSWERED) ||
-  Object.entries(GATES_ANSWERED).some(([g, ids]) => !Object.hasOwn(GATE_ANSWERS, g) || !Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string' || !RESOLUTION_ID.test(id)))
+  Object.entries(GATES_ANSWERED).some(([g, ids]) => !GATE_NAME.test(g) || Number(GATE_NAME.exec(g)[1]) > MAX_GATES || !Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string' || !RESOLUTION_ID.test(id)))
 ) {
-  throw new Error(`args.gates_answered は { <ゲート（${Object.keys(GATE_ANSWERS).join(' / ')}）>: [<needs_answers の question_ids>] } です: ${canonicalText(GATES_ANSWERED)}`)
+  throw new Error(`args.gates_answered は { <ゲート（g1〜g${MAX_GATES}）>: [<needs_answers の question_ids>] } です: ${canonicalText(GATES_ANSWERED)}`)
 }
 if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
   throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')
 }
 const state = JSON.parse(JSON.stringify(input.state || {}))
 const startErrors = stateErrors(FROM, state)
+// ゲートを g0・g0-2・g1 と名乗っていた版の state には開いた数が無い。0 から数え直すと、次のゲートが前の回答のファイルを同じ名前で上書きする。
+if (state.gate !== undefined && state.gates === undefined) startErrors.push('state.gate があるのに state.gates がありません（ゲートを開いた数を持たない版の next_args です。S0 から流し直してください）')
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
 // 固定の文書の照合の基準は段 1 の入口の reset だけが作る。基準の無い run を通すと、照合が黙って飛ぶ。
 if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canonicalText(FIXED_KEYS)) {
@@ -1361,8 +1367,8 @@ function deciding(src) {
   s = s.replace(/^(?:W|\.)\//, '').replace(/:(\d+)(?:-\d+)?$/, '#L$1')
   return s.replace(/#[lL]0*(\d+)(?:-[lL]?\d+)?$/, '#L$1')
 }
-const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g0.md#L3`・`RS-004`（行の範囲は最初の行だけ）'
-const DECIDING_FILE = new RegExp(`^(?:input\\.md|${Object.values(GATE_ANSWERS).map((p) => p.replace(/[.]/g, '\\.')).join('|')})#L[1-9]\\d*$`)
+const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g1.md#L3`・`RS-004`（行の範囲は最初の行だけ）'
+const DECIDING_FILE = /^(?:input\.md|answers\/g[1-9]\d*\.md)#L[1-9]\d*$/
 function decidableDefect(f, fc) {
   if (!f || f.kind !== 'decidable') return null
   const row = fc.resolutions.find((x) => x.id === f.id)
@@ -1455,7 +1461,7 @@ async function resolveCycle(stage, opt) {
   const res = await ruleAndVerify(stage, opt)
   if (res.error) return res
   // 自由記述の回答は、対応づけが verifier に合格して初めて回答が当たったことになる。合格は問いの形の合格でもありうるので、この cycle の
-  // resolver が最後に回答として返した（ANSWERED_KINDS）ものに限る。差し戻しで続きの問いに変えた ID を入れると、G0-2 で聞かれずに落ちる。
+  // resolver が最後に回答として返した（ANSWERED_KINDS）ものに限る。差し戻しで続きの問いに変えた ID を入れると、次のゲートで聞かれずに落ちる。
   if (opt.answered) state.answered = uniq([...(state.answered || []), ...opt.answered.filter((id) => (res.passed || []).includes(id) && ANSWERED_KINDS.includes((res.kinds || {})[id]))])
   const se = await settle(stage, res.verified || null, opt.phase, before, opt.allowQuestions, opt.reflectLater)
   if (se) return se
@@ -2059,10 +2065,12 @@ async function reholdFailed(stage, owner, phaseTitle) {
   return { fc: flowCheckOf(v.flow_check, true) }
 }
 
-// holdLeft: 聞くゲートが残っていない問いを保持規則に変える。
-async function holdLeft(stage, ids, phaseTitle) {
+// holdLeft: 依頼者に聞かない問いを保持規則に変える。why はその理由（聞ける回数の上限か、回答済みの論点の再発）。
+// 聞ける段でも呼ぶので、script の指定として holdOrders に入れる（入れないと newHoldsInW が段の出口で止める）。
+async function holdLeft(stage, ids, phaseTitle, why) {
+  orderHolds(ids)
   const label = `resolver:${stage}-hold`
-  const r = await once(label, 'resolver', resolverPrompt(label, `${stage}（保持規則への変換）`, keepFlow(`次の問いにはもう聞くゲートが残っていない。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(ids)}`)), RESOLVER_SCHEMA, phaseTitle)
+  const r = await once(label, 'resolver', resolverPrompt(label, `${stage}（保持規則への変換）`, keepFlow(`次の問いは依頼者に聞かない（${why}）。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(ids)}`)), RESOLVER_SCHEMA, phaseTitle)
   const bad = onlyAsked(`${stage}-hold`, r, ids, ['holds'])
   if (bad) return { error: bad }
   absorbResolver(r)
@@ -2129,10 +2137,13 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
 // gatePassed: 回答済みのゲート（args.gates_answered）を通った段。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい（exitViolation）。
 let gatePassed = null
 
-// needsAnswers: gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
+// needsAnswers: 開いた順に g1, g2, … と名乗る。resume も next_args の再開も同じ段を同じ順に通るので、同じ名前になる。
+// gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
 // resume が保存された結果から外れると（pipeline の起動の順・追い出し・runtime の違い）run は live で走り直し、違う問いに古い回答を当てるか、
 // 段 1 の reset が消した回答の無いまま進む。
-async function needsAnswers(gate, from) {
+async function needsAnswers(from) {
+  state.gates = gatesOpened() + 1
+  const gate = `g${state.gates}`
   state.gate = gate
   const ids = pendingQuestions(state)
   const asked = GATES_ANSWERED[gate]
@@ -2151,7 +2162,7 @@ function answersStop(gate, from, ids, extra) {
     gate,
     questions_path: `${W}/questions.md`,
     questions_json_path: `${W}/questions.json`,
-    answers_path: `${W}/${GATE_ANSWERS[gate]}`,
+    answers_path: `${W}/${gateAnswers(gate)}`,
     question_ids: ids,
     next_args: nextArgs(from),
     ...extra,
@@ -2163,16 +2174,16 @@ function answersStop(gate, from, ids, extra) {
 // 返り、同じ所で止まり続ける。
 async function answersUnchecked(gate, from, ids) {
   const label = `flow-check:${gate}-answers`
-  const cmd = cli('answers', `--file ${GATE_ANSWERS[gate]} --ids ${ids.join(',')}`)
+  const cmd = cli('answers', `--file ${gateAnswers(gate)} --ids ${ids.join(',')}`)
   const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
   const ac = parseStdout(x && x.answers_check)
-  const echoed = ac && ac.file === GATE_ANSWERS[gate] && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
+  const echoed = ac && ac.file === gateAnswers(gate) && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
   if (echoed && !ac.missing.length) {
     answersFree[gate] = ac.free
     return null
   }
   const why = !echoed ? 'doc_check answers の stdout が返りませんでした' : ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）' : `回答の行の無い問い ${list(ac.missing)}`
-  return answersStop(gate, from, ids, { reason: `${W}/${GATE_ANSWERS[gate]}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
+  return answersStop(gate, from, ids, { reason: `${W}/${gateAnswers(gate)}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
 }
 
 // answersFree: ゲートごとの、候補の label だけでない回答の節の逐語（doc_check answers の free）。回答を当てる resolver のプロンプトに写す。
@@ -2184,7 +2195,7 @@ function answerExcerpt(gate, ids) {
   const rows = (answersFree[gate] || []).filter((x) => ids.includes(x.id))
   if (!rows.length) return ''
   return [
-    `候補の label だけでない回答（${GATE_ANSWERS[gate]} の逐語。doc_check answers の stdout から写した。当て方は resolver.md の「回答の反映」）:`,
+    `候補の label だけでない回答（${gateAnswers(gate)} の逐語。doc_check answers の stdout から写した。当て方は resolver.md の「回答の反映」）:`,
     ...rows.map((x) => `- ${x.id}（L${x.from}${x.to > x.from ? `〜L${x.to}` : ''}）: ${x.text.split('\n').map((l) => `「${l}」`).join('')}`),
   ].join('\n')
 }
@@ -2283,16 +2294,21 @@ async function stage2() {
   return '3'
 }
 
-// ASKS: settle を持つ段と、その段で依頼者に問いを返してよいか。入口の変換（enterFromDisk）も同じ値で回す（入口だけ聞けないことにすると、
-// 段の本体では問いになる不合格が、入口では保持規則になる）。
-const ASKS = { 3: () => true, '3a': () => state.gate === 'g0', '3b': () => true, 6: () => state.pass === 1, "3a'": () => state.gate === 'g0' }
+// ASKS: settle を持つ段と、その段で依頼者に問いを返してよいか。聞けるかは段の位置やパスではなく、聞ける回数（MAX_GATES）が残っているかで決める
+// （位置で決めると、同じ論点が見つかった時期だけで問いにも保持規則にもなる）。入口の変換（enterFromDisk）も同じ値で回す（入口だけ聞けないことに
+// すると、段の本体では問いになる不合格が、入口では保持規則になる）。数は段の入口の値を使う: 段の中でゲートを開いた後に偽になると、その段の出口の
+// newHoldsInW の検査が抜ける。
+const gatesOpened = () => state.gates || 0
+const canAsk = () => (entryState.gates || 0) < MAX_GATES
+const ASKS = { 3: canAsk, '3a': canAsk, '3b': canAsk, 6: canAsk, "3a'": canAsk }
+const LIMIT_WHY = `依頼者に聞ける回数の上限（MAX_GATES = ${MAX_GATES}）に達した`
 
-// REFLECT_STAGE: 聞ける回答の段（G0 の後の 3a）が settle の裁定の反映を回さずに渡す段。3b-reframe は同じ回答で flow を組み直すので、3a の反映も
+// REFLECT_STAGE: 聞ける回答の段（3b の組み直しの前の 3a）が settle の裁定の反映を回さずに渡す段。3b-reframe は同じ回答で flow を組み直すので、3a の反映も
 // そこで書かせ、未裁定の組と O- は resolver:3b に、flow の検証は 3bv に 1 回にまとめる（別々に回すと同じ回答の反映を 2 回書いて 2 回検証する）。
 // 3a は回答を当てた resolver の書き込みを 3av と verifyLeft で検証し終えてから出るので、渡すのは検証に落ちた要素と未反映の裁定だけで、
 // 検証を通っていない書き込みは渡らない。渡した不合格の要素は 3b の出口の不変条件（緩めない）が止めるので、writer（段 4）には届かない。
 const REFLECT_STAGE = '3b'
-const defersReflection = (stage) => stage === '3a' && ASKS['3a']()
+const defersReflection = (stage) => stage === '3a' && !state.reframed
 const reflector = (stage) => (defersReflection(stage) ? `flow-framer:${REFLECT_STAGE}-reframe` : 'settle の flow-framer')
 // reflectable: 3a が渡せる不合格の要素。3a の verifier に落ちた F- には差し戻しが必ず検証の裁定を返す（ruleAndVerify）ので、裁定の無い不合格は
 // 3a の書き込みではなく、渡さずに 3a の settle で直す（REFLECT_STAGE の入口では所有表の外の書き込みとして止める）。
@@ -2326,12 +2342,12 @@ async function stage3() {
     allowQuestions: ASKS[3](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3')
-  if (pendingQuestions(state).length) return needsAnswers('g0', '3a')
+  if (pendingQuestions(state).length) return needsAnswers('3a')
   return ENTRY === 'existing' ? '5' : '4'
 }
 
-// G0 の回答で出た問いは hold にせず 3b へ持ち越す。3b が組み直した flow から出る問いと 1 回の G0-2 で聞くためで、ここで hold に
-// すると聞けたはずの問いが保持規則になる。裁定の反映も 3b へ渡す（REFLECT_STAGE）。G0-2 と G1 の後には聞くゲートが残っていない。
+// 3b の組み直しの前の 3a で出た問いは 3b へ持ち越す。3b が組み直した flow から出る問いと 1 回のゲートで聞くためで、裁定の反映も 3b へ渡す
+// （REFLECT_STAGE）。ほかの回答の段で出た続きの問いは、聞ける回数が残っていれば次のゲートで聞き、残っていなければ保持規則にする。
 async function stageApply(stageId) {
   const gate = state.gate
   const pending = pendingQuestions(state)
@@ -2345,10 +2361,10 @@ async function stageApply(stageId) {
   const res = await resolveCycle(stageId, {
     phase: 'Answers',
     task: [
-      `段 ${stageId}: ${W}/${GATE_ANSWERS[gate]} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
+      `段 ${stageId}: ${W}/${gateAnswers(gate)} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
       answerExcerpt(gate, pending),
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
-      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : '依頼者にはもう聞けない。価値に関わる新しい矛盾は hold にする。',
+      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（resolver.md の「8'」）。`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2361,7 +2377,8 @@ async function stageApply(stageId) {
   if (nextStage) return nextStage
   const left = pendingQuestions(state)
   if (left.length) {
-    const he = await holdLeft(stageId, left, 'Answers')
+    if (allowQuestions) return needsAnswers(stageId)
+    const he = await holdLeft(stageId, left, 'Answers', LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : stageId)
   }
   if (stageId === "3a'") return '7'
@@ -2369,6 +2386,7 @@ async function stageApply(stageId) {
 }
 
 async function stage3b() {
+  state.reframed = true
   const waiting = pendingQuestions(state)
   const carriedIn = reflectFc ? reflection(reflectFc, null) : null
   const reframe = await frameFlow('flow-framer:3b-reframe', (label, run) => [
@@ -2389,7 +2407,7 @@ async function stage3b() {
   const { opens, pairs } = unruledIssues(reframe.fc.open_ids, reframe.cc.pair_keys)
   const carried = pendingQuestions(state)
   // 持ち越した問いだけなら resolver を起動しない。問いの形は上の検査が組み直した flow で確かめており、決まっていたかの判定は依頼者の回答に委ねる
-  // （G0-2 で 1 問余分に聞くことはあっても、推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
+  // （次のゲートで 1 問余分に聞くことはあっても、推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
   if (!opens.length && !pairs.length && carried.length) skipped.push({ step: 'resolver:3b', fact: SKIP.carriedOnly, ids: carried })
   const res = await resolveCycle('3b', {
     phase: 'Answers',
@@ -2413,7 +2431,7 @@ async function stage3b() {
     allowQuestions: ASKS['3b'](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3b')
-  if (pendingQuestions(state).length) return needsAnswers('g0-2', '3a')
+  if (pendingQuestions(state).length) return needsAnswers('3a')
   return ENTRY === 'existing' ? '5' : '4'
 }
 
@@ -2550,6 +2568,8 @@ function recordFindings(plan, results) {
 
 async function stage5() {
   state.pass = 1
+  // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
+  delete state.reframed
   // existing は段 4 を通らず、この run の裁定をまだどの writer にも渡していない。
   if (ENTRY === 'existing') state.settled_written = []
   const docs = auditDocs()
@@ -2618,33 +2638,52 @@ async function stage6() {
   const decision = unruled(pendingView(state.pending, state.item_routes).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
   const tbd = unruled((state.new_tbd || []).map((id) => `tbd:${id}`), 'tbd').map((k) => k.slice(4))
   const allowQuestions = ASKS[6]()
+  const reasked = new Set(answeredRecurrences(decision).map((id) => `finding:${id}`))
   if (decision.length || tbd.length) {
-    const res = await decide(decision, tbd, allowQuestions)
+    const res = await decide(decision, tbd, allowQuestions, reasked)
     if (res.error) return blocked(res.error, res.rerun === false ? null : '6')
   }
   state.new_tbd = []
+  const again = pendingQuestions(state).filter((id) => reasked.has((state.about || {})[id]))
+  if (again.length) {
+    const he = await holdLeft('6', again, 'Decide', '前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない')
+    if (he) return blocked(he.error, he.rerun === false ? null : '6')
+  }
   if (pendingQuestions(state).length) {
-    if (allowQuestions) return needsAnswers('g1', "3a'")
-    const he = await holdLeft('6', pendingQuestions(state), 'Decide')
+    if (allowQuestions) return needsAnswers("3a'")
+    const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
   return '7'
 }
 
-function decide(decision, tbd, allowQuestions) {
+const rulingsOfFindings = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
+
+// answeredRecurrences: 再発した項目のうち、前のパスの指摘の裁定に依頼者の回答か保持規則があるものの今の指摘。同じ論点を二度聞くと、依頼者を
+// 止める回数を増やすだけで答えは変わらない（保留と答えた論点も、上限で聞けなかった論点も同じ）ので、回答を当てるか保持規則にする。段 3・3b で答えた問い（about が open・組）と同じ論点の新しい指摘は、
+// 項目の再発に数えられないので、verifier の decidable（回答で決まる論点を問いにした）が止める。
+function answeredRecurrences(decision) {
+  const rec = state.pending.recurring || {}
+  const settled = new Set([...(state.answered || []), ...(state.holds || [])])
+  const items = new Set(Object.keys(rec).filter((k) => rulingsOfFindings(rec[k]).some((id) => settled.has(id))))
+  return uniq(pendingFindings(state.pending).filter((f) => decision.includes(f.id) && items.has(itemKey(f))).map((f) => f.id))
+}
+
+function decide(decision, tbd, allowQuestions, reasked) {
   const rec = state.pending.recurring || {}
   const routeOf = (k) => (state.item_routes || {})[k]
   const redecide = Object.keys(rec).filter((k) => routeOf(k) === 'decision')
   const toHold = uniq(pendingFindings(state.pending).filter((f) => rec[itemKey(f)] && routeOf(itemKey(f)) === 'hold').map((f) => f.id))
-  const rulingsOf = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
+  orderHolds([], [...toHold.map((id) => `finding:${id}`), ...reasked])
   return resolveCycle('6', {
     phase: 'Decide',
     task: [
       `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、writer の meta の新しい TBD ${list(tbd)}。`,
-      redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOf(rec[k]))}`).join(' / ')}` : '',
+      redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOfFindings(rec[k]))}`).join(' / ')}` : '',
       toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
+      reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
       pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),
-      allowQuestions ? askNote(true) : "2 パス目以降なので、問いを聞くゲートが残っていない。価値の判断は question ではなく hold にする（resolver.md の「8'」）。",
+      allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（resolver.md の「8'」）。`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2659,7 +2698,7 @@ async function stage7() {
   for (const { unit, id } of state.routes || []) routesByUnit[unit] = uniq([...(routesByUnit[unit] || []), id])
   const applied = new Set(state.applied_routes || [])
   // 前回の書き込みの後に決まった裁定（合格・回答・保持規則）。routes は段 6 で resolver が起動したときにしか無く、
-  // 問いを保持規則に変えたときや G1 の回答を当てたときは載らないことがある。載らない分を落とすと、決まったことや
+  // 問いを保持規則に変えたときや改稿のパスのゲートの回答を当てたときは載らないことがある。載らない分を落とすと、決まったことや
   // 決まっていないことが文書に入らないまま保存される。routes が無ければ全単位に渡し、各 writer が自分の分を当てる。
   const newSettled = minus(uniq([...usableResolutions(state), ...(state.holds || [])]), state.settled_written || [])
   const anyRoutes = state.units.some((u) => (routesByUnit[u.id] || []).some((id) => !applied.has(id)))
@@ -2870,7 +2909,7 @@ const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 
 const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
 // exitViolation: 段を出るときの不変条件。破ると、数え直していない台帳の flow の指摘か、誰にも聞かれない問いを持ったまま次の段が走る。
-// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、G0-2 で一緒に聞くために 3b へ持ち越す 3a だけ。
+// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、組み直しの後の問いと一緒に聞くために 3b へ持ち越す 3a だけ。
 // 不合格の要素を持って出てよいのは、反映を REFLECT_STAGE に渡す 3a だけで、渡せる要素（reflectable）に限る（REFLECT_STAGE の出口では緩めない）。
 function exitViolation(from, r) {
   if (unchecked) return `resolver:${unchecked.tag} の後に doc_check flow を独立に実行し直さないまま段を出ようとしました（independentFlow を通らない経路があります）`
