@@ -6,7 +6,7 @@ import { join, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
 import { compileSource } from './source.mjs';
-import { verifyNamedSource } from './named.mjs';
+import { readExecutionSource } from './named.mjs';
 import { agentOptionKeys, exactObject, validateRequirements } from './inputs.mjs';
 import { validateEffort } from './models.mjs';
 import { runAgent } from './agent-run.mjs';
@@ -44,7 +44,7 @@ async function implementationHash() {
   // Bind runtime/worker, backend policy implementation and pinned dependencies.
   const names = ['runtime.mjs', 'resume.mjs', 'agent-run.mjs', 'worker.mjs', 'source.mjs', 'inputs.mjs',
     'codex.mjs', 'models.mjs', 'contexts.mjs', 'environment.mjs', 'workspaces.mjs', 'run-workspace.mjs',
-    'named.mjs', 'adapter.mjs', 'package-lock.json'];
+    'named.mjs', 'named-file.mjs', 'adapter.mjs', 'package-lock.json'];
   return hash(json(await Promise.all(names.map(async name =>
     [name, hash(await readFile(new URL(name, import.meta.url)))]))));
 }
@@ -143,9 +143,7 @@ export async function resumableWorkflow(request, host, resolved) {
   if (limits.maxAgents > 1000 || limits.concurrency > 16) throw Error('agent limits exceed supported maximum');
   const capabilities = [...(backend.capabilities ?? ['read-only', 'fresh-thread'])];
   validateRequirements(host.requirements, capabilities);
-  const path = await realpath(request.scriptPath);
-  const source = await readFile(path, 'utf8');
-  await verifyNamedSource(resolved, path, source);
+  const { path, source } = await readExecutionSource(request, resolved);
   const argsText = json(request.args ?? {});
   if (argsText === undefined) throw Error('args must be JSON serializable');
   const { meta, body } = compileSource(source, capabilities);

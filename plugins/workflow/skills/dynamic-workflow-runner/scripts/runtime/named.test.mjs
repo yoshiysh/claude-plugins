@@ -1,9 +1,12 @@
 import test from 'node:test';
+import { promises as fsPromises } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, realpath, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Workflow } from './runtime.mjs';
+import { Workflow, prepareWorkflowInvocation } from './runtime.mjs';
 import { createWorkflow, executeWorkflow } from './adapter.mjs';
 
 async function fixture(t) {
@@ -38,7 +41,7 @@ test('invalid selectors, missing roots and native resume fail before dispatch', 
   const f = await fixture(t);
   for (const name of ['tiny', '../example:tiny', 'example:../tiny', 'example:other']) await assert.rejects(Workflow({ ...f.request, name }, f.host));
   for (const host of [{ ...f.host, trustedPluginRoots: [] }, { ...f.host, trustedSource: false },
-    { ...f.host, trustedPluginRoots: [f.plugin, f.plugin] }, { ...f.host, allowedWorkflowNames: [f.request.name] }])
+    { ...f.host, trustedPluginRoots: [f.plugin, f.plugin + '/'] }, { ...f.host, allowedWorkflowNames: [f.request.name] }])
     await assert.rejects(Workflow(f.request, host));
   await assert.rejects(Workflow({ ...f.request, scriptPath: '/unused' }, f.host), /mutually exclusive/);
   await assert.rejects(Workflow({ ...f.request, resumeFromRunId: 'native-run' }, f.host), /unsupported Workflow request field/);
@@ -135,4 +138,81 @@ test('skill-creator update cannot bypass its authority through named checkpoint'
   await writeFile(f.scriptPath,"export const meta={name:'skill-creator-review',description:'x'}; return await agent('must-not-run');");
   await assert.rejects(Workflow({name:'example:skill-creator-review',args:{mode:'update'}},{...f.host,checkpoint:{files:[],dependenciesComplete:true,backendIdentity:'mock'}}),/skill-creator update/);
   assert.equal(f.calls(),0);
+});
+
+
+test('both adapters resolve 100-source catalogs once per invocation and preserve the selected receipt', async t => {
+  const f = await fixture(t);
+  await Promise.all(Array.from({ length: 99 }, (_, index) => writeFile(join(f.plugin, 'workflows', `other-${index}.js`),
+    `export const meta={name:'other-${index}',description:'catalog sibling'}; return null;`)));
+  let dispatches = 0;
+  class Fake { startThread() { dispatches++; throw Error('source does not call agents'); } }
+  const adapterHost = { trustedSource: true, trustedPluginRoots: [f.plugin], cwd: f.root, CodexClass: Fake };
+  const bound = createWorkflow({ ...adapterHost, runRoot: f.root });
+  const expectedHash = createHash('sha256').update(await readFile(f.scriptPath, 'utf8')).digest('hex');
+  const originalOpen = fsPromises.open;
+  let reads = new Map();
+  fsPromises.open = async function (path, ...options) {
+    const key = String(path);
+    if (key.startsWith(f.plugin + '/')) reads.set(key, (reads.get(key) ?? 0) + 1);
+    return originalOpen.call(this, path, ...options);
+  };
+  syncBuiltinESMExports();
+  t.after(() => { fsPromises.open = originalOpen; syncBuiltinESMExports(); });
+  for (const adapter of ['one-shot', 'bound']) {
+    for (const mode of [undefined, 'review', 'update']) {
+      reads = new Map();
+      const args = { unicode: '回答そのまま', ...(mode === undefined ? {} : { mode }) };
+      const request = { name: f.request.name, args };
+      const runDir = join(f.root, `${adapter}-${mode ?? 'absent'}`);
+      const before = new Set(await fsPromises.readdir(f.root));
+      const result = adapter === 'bound' ? await bound(request) : await executeWorkflow(request, { ...adapterHost, runDir });
+      assert.deepEqual(result, { custom: args, resumable: true });
+      assert.equal(reads.get(join(f.plugin, '.claude-plugin/plugin.json')), 1);
+      assert.equal(reads.get(f.scriptPath), 2);
+      for (let index = 0; index < 99; index++) assert.equal(reads.get(join(f.plugin, 'workflows', `other-${index}.js`)), 1);
+      assert.equal([...reads.values()].reduce((sum, count) => sum + count, 0), 102);
+      const receiptDir = adapter === 'bound'
+        ? (await fsPromises.readdir(f.root)).find(name => !before.has(name) && /^[a-f0-9-]{36}$/.test(name))
+        : `${adapter}-${mode ?? 'absent'}`;
+      const receipt = JSON.parse(await readFile(join(f.root, receiptDir, 'request.json'), 'utf8'));
+      assert.deepEqual(receipt.namedWorkflow, { name: f.request.name, pluginRoot: f.plugin, scriptPath: f.scriptPath });
+      assert.equal(receipt.sourceHash, expectedHash);
+    }
+  }
+  assert.equal(dispatches, 0);
+});
+
+test('internal admission keeps selected source identity through bound args and rejects altered source before dispatch', async t => {
+  for (const change of ['bytes', 'symlink']) {
+    for (const checkpointed of [false, true]) {
+      const f = await fixture(t);
+      if (checkpointed) f.host.checkpoint = { files: [], dependenciesComplete: true, backendIdentity: 'mock' };
+      const invocation = await prepareWorkflowInvocation({ ...f.request, args: { mode: 'update' } }, f.host);
+      if (change === 'bytes') await writeFile(f.scriptPath, "export const meta={name:'tiny',description:'changed'}; return await agent('must-not-run');");
+      else {
+        const moved = join(f.root, 'moved.js');
+        await rename(f.scriptPath, moved); await symlink(moved, f.scriptPath);
+      }
+      await assert.rejects(invocation.execute({ mode: 'update', hostBound: true }, f.host), /changed|symlink-free/);
+      assert.equal(f.calls(), 0);
+    }
+  }
+});
+
+test('bound adapter resolves changed manifests, selected bytes and new collisions on every call', async t => {
+  const f = await fixture(t);
+  class Fake { startThread() { throw Error('source does not call agents'); } }
+  const bound = createWorkflow({ trustedSource: true, trustedPluginRoots: [f.plugin], cwd: f.root, runRoot: f.root, CodexClass: Fake });
+  assert.deepEqual(await bound(f.request), { custom: f.request.args, resumable: true });
+  await writeFile(f.scriptPath, "export const meta={name:'tiny',description:'new version'}; return {version:2};");
+  assert.deepEqual(await bound(f.request), { version: 2 });
+  await writeFile(join(f.plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'renamed' }));
+  await assert.rejects(bound(f.request), /missing or ambiguous/);
+  await writeFile(join(f.plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'example' }));
+  await writeFile(join(f.plugin, 'workflows/duplicate.js'), "export const meta={name:'tiny',description:'duplicate'}; return 3;");
+  await assert.rejects(bound(f.request), /duplicate/);
+  for (const request of [{ ...f.request, resolved: {} }, { ...f.request, args: { mode: 'update' }, resolution: {} }])
+    await assert.rejects(bound(request), /unsupported Workflow request field/);
+  assert.throws(() => createWorkflow({ trustedSource: true, cwd: f.root, runRoot: f.root, resolved: {} }), /unsupported adapter host field/);
 });

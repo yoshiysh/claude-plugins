@@ -112,6 +112,12 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
   await writeFile(join(targetDir, 'SKILL.md'), 'before\n');
 
   const scriptPath = join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices/scripts/review_skill.js');
+  const plugin = join(dir, 'named-plugin');
+  await mkdir(join(plugin, '.claude-plugin'), { recursive: true });
+  await mkdir(join(plugin, 'workflows'));
+  await writeFile(join(plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'creator-test' }));
+  const namedSource = join(plugin, 'workflows/creator.js');
+  await cp(scriptPath, namedSource);
   const calls = [];
   const originalStartThread = Codex.prototype.startThread;
   Codex.prototype.startThread = function (options) {
@@ -146,6 +152,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       cwd: canonicalWorkerDirectory,
       runRoot: canonicalRunRoot,
       trustedSource: true,
+      trustedPluginRoots: [await realpath(plugin)],
       modelMap: {
         sonnet: { model: 'test-reviewer', modelReasoningEffort: 'low' },
         opus: { model: 'test-updater', modelReasoningEffort: 'low' },
@@ -156,41 +163,43 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       agentTimeoutMs: 48000,
       updatePolicy: { targetRoot: canonicalTargetRoot, stagingRoot: canonicalStagingRoot },
     });
-    let result;
-    try {
-      result = await Workflow({
-        scriptPath,
-        args: {
-          skillDir: join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices'),
-          mode: 'update',
-          target: { skillPath: targetDir, scope: 'full' },
-          uncheckedItems: [],
-          intent: 'exercise the adapter update route',
-        },
-      });
-    } catch (error) {
-      const runs = await readdir(canonicalRunRoot);
-      const events = (await readFile(join(canonicalRunRoot, runs[0], 'events.jsonl'), 'utf8'))
-        .trim().split('\n').map(line => JSON.parse(line)).filter(event => event.type === 'agent.failed');
-      throw new Error(`${error.message}; agent failures: ${JSON.stringify(events.map(({ id, error: message }) => ({ id, message })))}`);
-    }
+    for (const selector of [{ scriptPath }, { name: 'creator-test:skill-creator-review' }]) {
+      let result;
+      try {
+        result = await Workflow({
+          ...selector,
+          args: {
+            skillDir: join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices'),
+            mode: 'update',
+            target: { skillPath: targetDir, scope: 'full' },
+            uncheckedItems: [],
+            intent: 'exercise the adapter update route',
+          },
+        });
+      } catch (error) {
+        const runs = await readdir(canonicalRunRoot);
+        const events = (await readFile(join(canonicalRunRoot, runs[0], 'events.jsonl'), 'utf8'))
+          .trim().split('\n').map(line => JSON.parse(line)).filter(event => event.type === 'agent.failed');
+        throw new Error(`${error.message}; agent failures: ${JSON.stringify(events.map(({ id, error: message }) => ({ id, message })))}`);
+      }
 
-    assert.equal(result.source_result.verdict, 'applied_to_staging');
-    assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
-    assert.equal(result.action_package.changed_files[0].operation, 'update');
-    assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
-    assert.equal(result.action_package.apply.source_dir, canonicalTargetDir);
-    assert.equal(result.action_package.apply.staging_dir.startsWith(canonicalStagingRoot + '/update-'), true);
-    assert.equal(result.action_package_sha256.length, 64);
-    assert.equal(await readFile(join(canonicalTargetDir, 'SKILL.md'), 'utf8'), 'before\n');
-    assert.equal(await readFile(join(result.action_package.apply.staging_dir, 'SKILL.md'), 'utf8'), 'after\n');
-    assert.ok(calls.some(call => call.sandboxMode === 'workspace-write'));
-    assert.ok(calls.filter(call => call.sandboxMode === 'workspace-write').every(call =>
-      call.sdkConfig.sandbox_workspace_write.network_access === false &&
-      call.sdkConfig.sandbox_workspace_write.exclude_slash_tmp === true &&
-      call.sdkConfig.sandbox_workspace_write.exclude_tmpdir_env_var === true &&
-      call.sdkConfig.sandbox_workspace_write.writable_roots.length === 0));
-    assert.ok(calls.filter(call => call.sandboxMode === 'read-only').every(call => call.workingDirectory === canonicalWorkerDirectory));
+      assert.equal(result.source_result.verdict, 'applied_to_staging');
+      assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
+      assert.equal(result.action_package.changed_files[0].operation, 'update');
+      assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
+      assert.equal(result.action_package.apply.source_dir, canonicalTargetDir);
+      assert.equal(result.action_package.apply.staging_dir.startsWith(canonicalStagingRoot + '/update-'), true);
+      assert.equal(result.action_package_sha256.length, 64);
+      assert.equal(await readFile(join(canonicalTargetDir, 'SKILL.md'), 'utf8'), 'before\n');
+      assert.equal(await readFile(join(result.action_package.apply.staging_dir, 'SKILL.md'), 'utf8'), 'after\n');
+      assert.ok(calls.some(call => call.sandboxMode === 'workspace-write'));
+      assert.ok(calls.filter(call => call.sandboxMode === 'workspace-write').every(call =>
+        call.sdkConfig.sandbox_workspace_write.network_access === false &&
+        call.sdkConfig.sandbox_workspace_write.exclude_slash_tmp === true &&
+        call.sdkConfig.sandbox_workspace_write.exclude_tmpdir_env_var === true &&
+        call.sdkConfig.sandbox_workspace_write.writable_roots.length === 0));
+      assert.ok(calls.filter(call => call.sandboxMode === 'read-only').every(call => call.workingDirectory === canonicalWorkerDirectory));
+    }
   } finally {
     Codex.prototype.startThread = originalStartThread;
   }

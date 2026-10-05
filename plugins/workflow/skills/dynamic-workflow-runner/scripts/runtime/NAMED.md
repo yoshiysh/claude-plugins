@@ -14,10 +14,16 @@ A source filename need not match its metadata name. No per-caller name allowlist
 registration file is required. The qualified name is `<plugin namespace>:<source meta.name>`.
 
 Root, manifest directory/file, workflows directory and direct source files must be canonical and
-symlink-free. Invalid namespaces or source names, ambiguous plugin identities, duplicate source
+symlink-free. Named manifest/source reads use the validated regular-file handle, check file identity
+before and after reading, and reject replacement or invalid UTF-8. The selected source is rechecked
+against its admitted file identity and exact bytes. These checks do not create an atomic snapshot of
+the ancestor directories. Invalid namespaces or source names, ambiguous plugin identities, duplicate source
 metadata names, missing names and changed source bytes fail before an execution agent is dispatched.
 The request journal records the resolved name, plugin root, source path and source hash. The common
 runtime still validates source syntax, declared requirements, model mappings, options and host limits.
+Each invocation resolves its catalog once and keeps that snapshot through adapter classification and
+execution. Host-bound update arguments retain the selected source identity. The selected source is
+read again and checked against the snapshot before execution; later calls resolve the current catalog.
 Name discovery does not certify that a caller's graph or required capabilities are supported.
 Sources remain trusted code; these checks do not turn Node VM into a hostile-code sandbox.
 
