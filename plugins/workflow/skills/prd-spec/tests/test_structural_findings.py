@@ -185,6 +185,88 @@ class StructuralFindingsTests(unittest.TestCase):
         )
         self.assertIn("ST-ORPHAN-REQ-PR-A-002", ids_of(r))
 
+    def test_requirements_only_run_does_not_ask_for_specifications(self):
+        # 要求文書を書くランに固定の仕様書があっても、要求 → 仕様の紐付けは問わない（仕様書はそのランで書かれない）。
+        r = run_structural(
+            [
+                doc("requirements", "magi", "### PR-M-001 x\n", ids=["PR-M-001"]),
+                doc("requirements", "base", "### PR-B-001 y\n", ids=["PR-B-001"], fixed=True),
+                doc(
+                    "specifications",
+                    "base",
+                    "### SP-B-001 z\n",
+                    ids=["SP-B-001"],
+                    traceability=[{"requirement_id": "PR-B-001", "spec_id": "SP-B-001"}],
+                    fixed=True,
+                ),
+            ]
+        )
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-ORPHAN-REQ")])
+
+    def test_orphan_requirement_is_asked_only_of_documents_the_written_spec_covers(self):
+        r = run_structural(
+            [
+                doc("requirements", "auth", "### PR-A-001 x\n### PR-A-002 y\n", ids=["PR-A-001", "PR-A-002"]),
+                doc("requirements", "base", "### PR-B-001 y\n", ids=["PR-B-001"], fixed=True),
+                doc(
+                    "specifications",
+                    "auth",
+                    "### SP-A-001 z\n",
+                    ids=["SP-A-001"],
+                    traceability=[{"requirement_id": "PR-A-001", "spec_id": "SP-A-001"}],
+                ),
+            ]
+        )
+        orphans = [i for i in ids_of(r) if i.startswith("ST-ORPHAN-REQ")]
+        self.assertEqual(["ST-ORPHAN-REQ-PR-A-002"], orphans)
+
+    def test_covers_reaches_requirements_the_spec_has_not_traced_yet(self):
+        spec = doc("specifications", "auth", "### SP-A-001 z\n", ids=["SP-A-001"])
+        spec["covers"] = ["requirements/auth"]
+        r = run_structural([doc("requirements", "auth", "### PR-A-001 x\n", ids=["PR-A-001"]), spec])
+        self.assertIn("ST-ORPHAN-REQ-PR-A-001", ids_of(r))
+
+    def test_requirements_written_with_specs_are_asked_without_covers(self):
+        # 要求と仕様を同じランで書くとき、covers の書き漏らしで要求文書が丸ごと検出から外れない。
+        r = run_structural(
+            [
+                doc("requirements", "auth", "### PR-A-001 x\n", ids=["PR-A-001"]),
+                doc("specifications", "login", "### SP-L-001 z\n", ids=["SP-L-001"]),
+            ]
+        )
+        self.assertIn("ST-ORPHAN-REQ-PR-A-001", ids_of(r))
+
+    def test_dangling_link_of_a_fixed_spec_stays_on_the_fixed_spec(self):
+        # ラン前からの参照切れと区別できないので、推定で要求文書に帰属させない（帰属させると writer に ID の捏造を促す）。
+        r = run_structural(
+            [
+                doc("requirements", "auth", "### PR-A-001 x\n", ids=["PR-A-001"]),
+                doc(
+                    "specifications",
+                    "auth",
+                    "### SP-A-001 z\n### SP-A-002 w\n",
+                    ids=["SP-A-001", "SP-A-002"],
+                    traceability=[
+                        {"requirement_id": "PR-A-001", "spec_id": "SP-A-001"},
+                        {"requirement_id": "PR-A-002", "spec_id": "SP-A-002"},
+                    ],
+                    fixed=True,
+                ),
+            ]
+        )
+        dangling = [f for f in r["findings"] if f["id"] == "ST-DANGLING-REQ-PR-A-002"]
+        self.assertEqual(["specifications/auth"], [f["document"] for f in dangling])
+
+    def test_duplicate_id_is_attributed_to_the_document_that_can_change(self):
+        r = run_structural(
+            [
+                doc("requirements", "base", "### PR-X-001 y\n", ids=["PR-X-001"], fixed=True),
+                doc("requirements", "new", "### PR-X-001 x\n", ids=["PR-X-001"]),
+            ]
+        )
+        dup = [f for f in r["findings"] if f["id"].startswith("ST-DUP-")]
+        self.assertEqual(["requirements/new"], [f["document"] for f in dup])
+
     def test_cross_document_traceability_is_accepted(self):
         # 要求と仕様が別 topic に分かれていても、文書を跨いで照合できなければならない。
         r = run_structural(

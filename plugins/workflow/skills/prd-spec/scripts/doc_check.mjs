@@ -896,9 +896,11 @@ function structuralCompact(docs, flow) {
       if (!owners.get(id).includes(d.key)) owners.get(id).push(d.key)
     }
   }
+  const fixedKeys = new Set(docs.filter((d) => d.fixed).map((d) => d.key))
+  const fixable = (keys) => keys.find((k) => !fixedKeys.has(k)) || keys[0]
   for (const [id, keys] of owners) {
     if (keys.length < 2) continue
-    out.push({ c: 'DUP', d: keys[0], a: [id, keys] })
+    out.push({ c: 'DUP', d: fixable(keys), a: [id, keys] })
   }
 
   // (1b) TBD ID の文書跨ぎ重複。分割文書は並列で執筆されるため、互いの採番を知らない
@@ -915,7 +917,7 @@ function structuralCompact(docs, flow) {
   }
   for (const [id, recs] of tbdOwners) {
     if (recs.length < 2) continue
-    out.push({ c: 'DUP_TBD', d: recs[0].key, a: [id, recs.map((r) => r.key), recs[0].text, recs[1].text] })
+    out.push({ c: 'DUP_TBD', d: fixable(recs.map((r) => r.key)), a: [id, recs.map((r) => r.key), recs[0].text, recs[1].text] })
   }
 
   if (!reqDocs.length || !specDocs.length) {
@@ -928,9 +930,25 @@ function structuralCompact(docs, flow) {
     const linkedReq = new Set(links.map((l) => l.requirement_id).filter(Boolean))
     const linkedSpec = new Set(links.map((l) => l.spec_id).filter(Boolean))
 
+    // 要求 → 仕様の紐付けは仕様書の側が負う。ラン内で書く仕様書が実現する要求文書に限って問う（要求文書だけを書くランや
+    // 固定の文書で問うと、そのランでは直せない指摘が blocking に積もり、改稿と監査が上限まで空回りする）。
+    // 要求文書と仕様書を同じランで書くときは、書いている要求文書を covers の書き漏らしに左右させない。
+    const writingSpecs = specDocs.filter((d) => !d.fixed)
+    const covered = new Set(
+      writingSpecs.length
+        ? [
+            ...reqDocs.filter((d) => !d.fixed).map((d) => d.key),
+            ...writingSpecs.flatMap((d) => [
+              ...(Array.isArray(d.covers) ? d.covers : []),
+              ...(d.traceability || []).flatMap((l) => (l.requirement_id && owners.get(l.requirement_id)) || []),
+            ]),
+          ]
+        : []
+    )
     for (const id of reqIds) {
       if (linkedReq.has(id)) continue
       const owner = (owners.get(id) || ['requirements'])[0]
+      if (!covered.has(owner)) continue
       out.push({ c: 'ORPHAN_REQ', d: owner, a: [id] })
     }
     for (const id of specIds) {
@@ -3486,7 +3504,9 @@ function wsDoc(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
   const selected = selectDocs(wsDocs.map((d) => d.key), opts.doc)
-  const docs = deriveDocs(wsDocs)
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  const coversOf = new Map(listOf(plan, 'docs').filter((p) => p && p.key).map((p) => [p.key, Array.isArray(p.covers) ? p.covers : []]))
+  const docs = deriveDocs(wsDocs).map((d) => ({ ...d, covers: coversOf.get(d.key) || [] }))
   const openTbd = opts.openTbd
     ? { source: 'args', ids: [...new Set(opts.openTbd)].sort() }
     : { source: 'meta', ids: [...new Set(docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))].sort() }
@@ -3508,7 +3528,11 @@ function wsDoc(ws, opts) {
   }
   const digest = digestOf(body)
   const name = opts.doc.length ? `doc.${selected.map(indexName).join('+')}.json` : 'doc.json'
-  const degraded = expanded.findings.filter((f) => f.severity === 'degraded').length
+  // 固定の文書はラン内で書き換えないので、その指摘は blocking に数えない（数えると直せない件数で収束が止まる）。
+  // ORPHAN-REQ は書いている仕様書の側で直せるものにしか出ないので数える（DUP は直せる文書へ帰属させてある）。
+  const fixedKeys = new Set(docs.filter((d) => d.fixed).map((d) => d.key))
+  const counted = expanded.findings.filter((f) => !fixedKeys.has(f.document) || f.id.startsWith('ST-ORPHAN-REQ-'))
+  const degraded = counted.filter((f) => f.severity === 'degraded').length
   // flow_refs: 項目 → trace が指す flow 要素。prd-spec.js はファイルを読めないので、改稿の writer に渡す要素の ID はここから取る。
   const flowRefs = {}
   for (const d of docs.filter((x) => selected.includes(x.key))) {
@@ -3519,8 +3543,9 @@ function wsDoc(ws, opts) {
   }
   return {
     findings: expanded.findings.length,
-    blocking: expanded.findings.length - degraded,
+    blocking: counted.length - degraded,
     degraded,
+    fixed_findings: expanded.findings.length - counted.length,
     not_checked: expanded.not_checked.length,
     path: writeCheck(ws, name, { ...body, digest }),
     digest,
