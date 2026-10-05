@@ -192,7 +192,7 @@ class SnapshotAndDiff(_Workspace):
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
         doc = stdout_body(r.stdout)
-        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
+        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
         del doc["flow_refs"]
         self.assertNotIn("PR-AUTH", json.dumps(doc))
@@ -223,6 +223,21 @@ class DocChecks(_Workspace):
         body = json.loads((self.ws / "checks" / "doc.json").read_text())
         self.assertEqual(body["open_tbd"], {"source": "meta", "ids": ["TBD-RAUTH-001", "TBD-RAUTH-002"]})
         self.assertEqual(body["documents"][0]["ids"], ["PR-AUTH-001", "PR-AUTH-002", "PR-AUTH-003"])
+
+    def test_固定の文書の指摘は_blocking_に数えない(self):
+        (self.ws / "requirements-base.md").write_text("# base\n\n#### PR-BASE-001 上位\n\nDesign Input を満たさなければならない。\n")
+        _put(self.ws, "meta", {"fixed": True}, "--doc", "requirements/base")
+        out = _ok(self.ws, "doc")
+        self.assertIn("ST-OBSOLETE-requirements/base-designinput", _findings(self.ws))
+        self.assertEqual((out["findings"], out["blocking"], out["fixed_findings"]), (5, 4, 1))
+
+    def test_書いている仕様書で直せる_ORPHAN_REQ_は固定の要求文書に付いても数える(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003", "#### PR-AUTH-004 追加\n\nシステムは監査ログを残さなければならない。\n\n#### PR-AUTH-003")
+        _put(self.ws, "meta", {"fixed": True}, "--doc", "requirements/auth")
+        out = _ok(self.ws, "doc")
+        self.assertIn("ST-ORPHAN-REQ-PR-AUTH-004", _findings(self.ws))
+        self.assertEqual(out["fixed_findings"], 0)
+        self.assertGreaterEqual(out["blocking"], 1)
 
     def test_曖昧語は複合語と数量に付かない_まで_を拾わない(self):
         _edit(self.ws, "requirements-auth.md", "システムは同等の結果を返さなければならない。",

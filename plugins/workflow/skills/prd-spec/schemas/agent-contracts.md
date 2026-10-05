@@ -289,7 +289,7 @@
 }
 ```
 
-- `docs[].covers` は仕様文書が実現する要求文書のキー。`fixed: true` は固定の入力（`expand` の要求文書・
+- `docs[].covers` は仕様文書が実現する要求文書のキー。構造検査はこれで `ST-ORPHAN-REQ-` を問う要求文書を決める。`fixed: true` は固定の入力（`expand` の要求文書・
   ラン外の文書）で、どの単位にも入れない。
 - `units[].depends_on` は先に書き終える単位の ID。互いに参照し合う文書は同じ単位に入れる。
 - `domain` は `references/domain-analysis.md` §2 の観点ごとに 1 つで、`aspect` はそのキー。`該当` / `非該当` は `decision`、
@@ -803,7 +803,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `id` の接頭辞 | 検出内容 |
 |---|---|
 | `ST-DUP-` / `ST-DUP-TBD-` | 同じ ID・TBD ID が複数文書で定義されている |
-| `ST-ORPHAN-REQ-` / `ST-ORPHAN-SPEC-` | 要求 ID・仕様項目 ID がトレーサビリティ表に無い |
+| `ST-ORPHAN-REQ-` / `ST-ORPHAN-SPEC-` | 要求 ID・仕様項目 ID がトレーサビリティ表に無い。`ST-ORPHAN-REQ-` はラン内で書く仕様書が実現する要求文書（その仕様書の `covers`、トレースが指す要求文書、同じランで書く要求文書）の要求にだけ出す（要求文書だけを書くランでは出さない） |
 | `ST-DANGLING-` | 表が参照する ID がどの文書にも無い |
 | `ST-REF-UNDEFINED-` | 本文が参照する ID がどの文書の見出しにも無く、欠番の申告も無い |
 | `ST-OBSOLETE-` / `ST-UNVERIFIED-` | 廃止済み規制の語・本文未確認の規格の条番号（`references/citation-policy.md`） |
