@@ -997,6 +997,53 @@ class Index(_Workspace):
         _ok(self.ws, "index", "--open-tbd", "")
         self.assertIn("着手を止める未確定事項は 0 件", (self.ws / "checks" / "INDEX.requirements.md").read_text())
 
+    def _rows(self, kind):
+        out = _ok(self.ws, "index", "--req-dir", "docs/requirements")
+        text = (self.ws / out["indexes"][kind]["path"]).read_text()
+        return text.split("## 文書一覧")[1].split("\n## ")[0]
+
+    def test_文書一覧は本文の見出し1と項目を含む節とIDの範囲を出す(self):
+        rows = self._rows("requirements")
+        self.assertIn("| パス | 扱う関心事 | どういう要求が書かれているか |", rows)
+        self.assertIn("| `docs/requirements/auth.md` | 認証の要求 | 要求一覧（PR-AUTH-001〜003／3 件） |", rows)
+        spec = self._rows("specifications")
+        self.assertIn("| パス | 扱う関心事 | どういう仕様項目が書かれているか |", spec)
+        self.assertIn("| `docs/specifications/auth.md` | 認証の仕様 | 仕様項目（SP-AUTH-001〜002／2 件） |", spec)
+
+    def test_文書一覧の行はplanのconcernで変わらない(self):
+        before = self._rows("requirements")
+        plan = self.ws / "plan.json"
+        plan.write_text(plan.read_text().replace('"concern": "認証と承認"', '"concern": "固定の入力"'))
+        after = self._rows("requirements")
+        self.assertEqual(after, before)
+        self.assertNotIn("固定の入力", after)
+
+    def test_振られていない番号を001から数えて欠番に出す(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-001 ログイン", "#### PR-AUTH-004 ログイン")
+        self.assertIn("要求一覧（PR-AUTH-001〜004、欠番は 001／3 件）", self._rows("requirements"))
+
+    def test_節の見出しは項目を含むものだけを並べ見出しの区切りと混ざらない(self):
+        _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", "## 背景\n\n説明。\n\n## 要求一覧\n\n### 入口・認証\n")
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "### 通知\n\n#### PR-AUTH-003 通知")
+        rows = self._rows("requirements")
+        self.assertIn("| 入口・認証／通知（PR-AUTH-001〜003／3 件） |", rows)
+        self.assertNotIn("背景", rows)
+
+    def test_欠番は先頭の10件まで並べ残りは件数で示す(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "#### PR-AUTH-20260101 通知")
+        rows = self._rows("requirements")
+        self.assertIn("PR-AUTH-00000001〜20260101、欠番は 00000003・00000004・00000005・00000006・00000007・00000008・00000009・00000010・00000011・00000012 ほか 20260088 件／3 件", rows)
+
+    def test_節に入っていない項目は節なしとして並べる(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "### 通知 ###\n\n#### PR-AUTH-003 通知")
+        self.assertIn("要求一覧／通知（PR-AUTH-001〜003／3 件）", self._rows("requirements"))
+        _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", "")
+        self.assertIn("| （節なし）／通知（PR-AUTH-001〜003／3 件） |", self._rows("requirements"))
+
+    def test_見出し1が無い文書は無いことを出す(self):
+        _edit(self.ws, "requirements-auth.md", "# 認証の要求\n", "")
+        self.assertIn("| `docs/requirements/auth.md` | （見出し 1 なし） |", self._rows("requirements"))
+
     def test_同じ文書からは同じ_INDEX_になる(self):
         a = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]
         b = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]
