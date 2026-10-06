@@ -66,7 +66,7 @@ STRAY = ["requirements-auth.pre2.md", "resolutions.pre6.json", "tmp/resolver__3a
 OWNED = [
     "checks/INDEX.requirements.md",
     "checks/audited-1.snapshot.json",
-    "answers/g0-2.md",
+    "answers/g2.md",
     "findings/r2-grx-requirements__auth.json",
     "questions.md",
     "questions.json",
@@ -223,7 +223,7 @@ class OwnershipComesFromContract(unittest.TestCase):
         self.assertIn("所有表", r.stderr)
 
     def test_doc_checkは所有表の写しを持たない(self):
-        for literal in ("precedent.json", "answers/g0", "findings/r", "W_FILES", "'tmp", "`tmp"):
+        for literal in ("precedent.json", "answers/g", "findings/r", "W_FILES", "'tmp", "`tmp"):
             self.assertNotIn(literal, SOURCE)
 
 

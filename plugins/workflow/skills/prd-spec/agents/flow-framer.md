@@ -61,7 +61,7 @@ writer はそれを根拠に規範を書き、捏造になる。`{input}` の引
 
 ## 回答での組み直し（`3b-reframe`）
 
-G0 の回答（`W/answers/g0.md`）を入力に加えて、今の flow.json を組み直す。回答で値が決まった decision の `inputs`・`cases` を
+3a で当てた回答（`W/answers/<ゲート>.md`）を入力に加えて、今の flow.json を組み直す。回答で値が決まった decision の `inputs`・`cases` を
 埋め直し、回答でも決まらないマスは open に足してその ID を出典にする。回答の出典は、その回答が当たった resolution の ID
 （`{decision: RS-…}`）にし、プロンプトが根拠にしてよいと並べた resolution だけを使う（回答待ちの問いや保持規則を出典に
 すると、決まっていない値が決まった顔で flow に入る）。put は欄単位のマージなので `inputs`・`cases` は配列ごと送り直し、要らなくなった要素は `del` で

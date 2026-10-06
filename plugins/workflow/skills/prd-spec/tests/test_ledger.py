@@ -990,10 +990,9 @@ class FieldTypes(_Workspace):
         el = {"id": "F-002"}
         cases = [
             ("flow", {"closure": "工程を列挙した。回答の反映（段 3a、RS-020）: F-029 を足した。"}),
-            ("flow", {"closure": "G0-2 の回答で F-020 の枝を除いた"}),
             ("flow", {"elements": [{**el, "label": "承認（段 3a で足した）"}]}),
             ("flow", {"kinds": [{"name": "工程", "definition": "段 3a' で分けた処理"}]}),
-            ("decisions", {"decisions": [{"id": "D-001", "why": "G0-2 の問いで決まった"}]}),
+            ("decisions", {"decisions": [{"id": "D-001", "why": "段 3b の問いで決まった"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-im-requirements__auth-002 への対応"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "続けるか止めるかは価値の判断で、段 3a では続きの問いを聞けない"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "段 9 で聞くゲートが残っていないため保持規則にした"}]}),

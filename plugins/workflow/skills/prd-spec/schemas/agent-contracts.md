@@ -112,7 +112,7 @@
 
 | ファイル | 書き手 | 形 | 守られなかったときの検出 |
 |---|---|---|---|
-| `input.md`、`answers/g0.md`・`answers/g0-2.md`・`answers/g1.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
+| `input.md`、`answers/g<n>.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で書く（段 1 の差し戻しでは書き直す）。段 1 の後は誰も書かない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 検証の put（`--expect-decisions`）が、検証の途中で変わった decisions.json への合否の記録を拒否する |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
@@ -186,13 +186,13 @@
         { "label": "案 A", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文", "flow_refs": ["F-003"] },
         { "label": "案 B", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }
       ],
-      "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" }
+      "answer": { "path": "answers/g1.md", "quote": "回答の該当箇所を逐語で" }
     },
     {
       "id": "RS-002",
       "about": { "tbd": "TBD-RAUTH-002" },
       "ruling": "hold",
-      "why": "価値の判断だが、聞くゲートが残っていない",
+      "why": "価値の判断だが、依頼者に聞ける回数の上限に達した",
       "hold": { "rule": "〜の裁定が下るまで、…してはならない", "issue_draft": "Issue の本文案", "item_ids": ["その論点に触れる項目 ID"] },
       "upstream_revision": "上位文書（固定の文書・ラン外の文書）の改訂が要るときだけ、その改訂の文案"
     }
@@ -399,7 +399,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。
   `constrained_by` の O- も `{el, constraint}` で出る。script が判断に使う stdout（§flow-check）で、その O- が合格か回答で閉じていたら、script は最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
   閉じた resolution への差し替え・要らなくなった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素を検証する（直させた要素は
-  必ず含める。G0 の後の 3a の例外は references/workflow-io.md §4 の 3a の行）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
+  必ず含める。3b の組み直しの前の 3a の例外は references/workflow-io.md §4 の 3a の行）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 - stdout の `unverified` は今の digest で合格の無い要素、`failed_current` は今の digest で不合格の要素である（検証の状態は
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
@@ -477,7 +477,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
   `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
   prd-spec.js の `RESOLUTION_ID`）。
-- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、聞くゲートの残っていない問いを
+- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、依頼者に聞かない問い（聞ける回数の上限に達した後か、前のパスで答えたか保持規則にした論点の再発）を
   hold に変える呼び出し（`<段>-hold`）と、検証に落ちた保持規則を書き直す呼び出し（`<呼び出し>-rehold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ。変換は ID ごとにプロンプトが指定した方）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
   （変えた ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
@@ -498,7 +498,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を、settle の
-  flow-framer（G0 の後の 3a の反映は 3b-reframe。references/workflow-io.md §4 の 3a の行）の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
+  flow-framer（3b の組み直しの前の 3a の反映は 3b-reframe。references/workflow-io.md §4 の 3a の行）の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
   検証を通っていない要素の出典を verifier に回す（除くものは §flow-framer の `failed_current`。起動の条件・label・聞けない段の扱いは
   references/workflow-io.md §4）。聞けない段のこの呼び出しが `questions` を返せば、script は段を止める（聞けない段の問いは、聞くゲートにも
   段の最後の保持規則への変換にも届かない）。渡した組と O- は生成者の申告なので、script は次の verifier の stdout と照合する（§resolver-verifier）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
@@ -514,7 +514,7 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 `notices` に 1 行残す。W に put されたその合否が script の持つ合否と違えば、script はその RS- を次の verifier（`<段>v-left`）に検証させ直す:
 
 ```json
-{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }, { "id": "RS-003", "kind": "decidable", "reason": "…", "source": "answers/g0.md#L3" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
+{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }, { "id": "RS-003", "kind": "decidable", "reason": "…", "source": "answers/g1.md#L3" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
 ```
 
 `decidable` だけが `source` を持ち、値を決める出典を `input.md#L<n>`・`answers/<ゲート>.md#L<n>`・プロンプトの「根拠にしてよい resolution」の
@@ -530,7 +530,7 @@ settle の n 回目の後は `<段>v-left-<n+1>`）にそれだけを検証さ�
 
 `flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を
-blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer。G0 の後の 3a の例外は references/workflow-io.md §4 の 3a の行）。台帳の書き込みで出た指摘も
+blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer。3b の組み直しの前の 3a の例外は references/workflow-io.md §4 の 3a の行）。台帳の書き込みで出た指摘も
 生成者には消せないので、すべて settle の flow-framer に渡る。誰も flow を書いていない cycle（`state.flow_digest` が cycle の入口のまま）の指摘と、
 settle の flow-framer が返した同じ digest の stdout に無く、その後に resolutions.json が変わった（`resolutions_sha256` が動いた）回の指摘がそれで、
 settle では次の回の flow-framer に渡る（台帳が変わっていない回に stdout に無かった指摘は flow-framer の過少申告で、`integrity` に 1 行足して止める。3b-reframe の書き込みを照合する `verifier:3bv` も同じ）。

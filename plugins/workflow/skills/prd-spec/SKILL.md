@@ -41,16 +41,16 @@ workspace を用意し、保存することだけである。** 決定・問い�
 
 ## 流れ
 
-`/workflow:prd-spec-run` が 1 本で走り、止まるのは依頼者の入力を待つ地点（G0・G0-2・G1）だけである。問いが 0 件なら 1 回で終わる。
+`/workflow:prd-spec-run` が 1 本で走り、止まるのは依頼者の入力を待つ地点（ゲート。価値の問いが出たとき、聞ける回数 `MAX_GATES` の内で開く）だけである。問いが 0 件なら 1 回で終わる。
 
 | 段 | 何をするか |
 |---|---|
 | S0 | 司令塔: workspace を作り、依頼文を逐語で書き、先例を並べる |
 | 1〜3 | 依頼を仕分け（intake）、流れを閉じ（flow-framer）、未決と矛盾を裁定する（resolver → resolver-verifier） |
-| G0 | 初稿の前に、プロダクトの価値の判断だけを聞く（流れの抜けもここで届く） |
-| 3a・3b・G0-2 | 回答を当て、回答で flow を組み直す。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
+| ゲート | 価値の問いが出た段の終わりに、プロダクトの価値の判断だけを聞く（流れの抜けもここで届く）。何パス目か・どの段かでは閉じない。聞ける回数の上限に達した後と改稿の輪を出た後に出た論点だけを保持規則にする |
+| 3a・3b | 回答を当て、最初の回答で flow を組み直す。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
 | 4〜5 | 初稿を書き（writer）、implementer・grounding・cross-doc で 1 回監査する |
-| 6・G1 | 決定が要る指摘を裁定する。初稿の後に初めて出た価値の問いだけを聞く |
+| 6・3a' | 決定が要る指摘を裁定する。価値の問いはどのパスでも聞き、回答を当ててから改稿する。答えたか保持規則にした論点の再発は聞き直さない |
 | 7〜8 | 改稿し、変えた範囲だけを監査する。blocking が 0 になるか進展が止まるまで回す（上限は `MAX_AUDIT_PASSES`。残れば blocked） |
 | 9 | 事後報告（resolver）→ 司令塔が照合して保存する |
 
@@ -98,7 +98,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 （`references/workflow-io.md` §2）。返った `next_args` は変えずに渡す（変えてよい欄と、変えたときに止まる仕組みは
 `references/workflow-io.md` §3）。返り値の `status` で次を決める。
 
-- **`needs_answers`**（G0・G0-2・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
+- **`needs_answers`**（ゲート `g1`・`g2`・…）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
   実行である。exit 0 で終わらなければ、問いを出さずに同じコマンドを流し直す（2 つのファイルの片方だけが新しい
   ことがある）。`questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
@@ -124,7 +124,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 - **同じセッションの中では resume する。** 返り値の `resumable` が true なら、返った run の `runId` を `resumeFromRunId` に渡し、
   args はその run を起動した args を変えずに渡す。needs_answers の後は、返り値の `gate` をキーに、同じ返り値の `question_ids` を
   そのまま `gates_answered` に足す（前の resume で足したゲートも残す）:
-  `Workflow({ name: "workflow:prd-spec-run", resumeFromRunId: "<runId>", args: { <その run の args>, gates_answered: { g0: ["RS-001"] } } })`。
+  `Workflow({ name: "workflow:prd-spec-run", resumeFromRunId: "<runId>", args: { <その run の args>, gates_answered: { g1: ["RS-001"] } } })`。
   完了した agent は保存された結果を返し（費用 0。W にも書かない）、ゲートの後か、失敗した agent とその後に起動した agent だけが走る。
   保存された結果が使われず live で走り直した run は、今の問いが `gates_answered` と違うか回答のファイルが問いに答えていなければ、
   もう一度 needs_answers を返す。そのときは古い回答を使い回さず、返った `question_ids` で問いを出し直し、`answers_path` をその回答だけで

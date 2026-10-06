@@ -7,7 +7,7 @@ session とともに消え、次の改善で同じ抽出を手でやり直すこ
 ## 単位: leg と run
 
 `prd-spec.js` の 1 回の Workflow 呼び出しを **leg** と呼ぶ。1 run（依頼 1 件の完了まで）は、
-`needs_answers`（G0 / G0-2 / G1）で区切られた複数 leg に分かれることがある
+`needs_answers`（ゲート `g1`・`g2`・…）で区切られた複数 leg に分かれることがある
 （`references/workflow-io.md` §3・§4）。
 
 - `record` は 1 leg を 1 レコードとして記録する。`--label` はその leg の識別名、`--run-id`

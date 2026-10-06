@@ -84,11 +84,6 @@ RULES = [
      "pred": lambda v: v >= 1,
      "impact": 2, "impact_why": "TBD 残しは設計上の正常経路でもある",
      "cost": 2, "cost_why": "review 1 周で解消できることが多い"},
-    {"id": "R7", "vtype": list, "field": "gates_visited",
-     "symptom": "G0 の後にもう 1 回（G0-2）問いが要る",
-     "pred": lambda v: "g0-2" in v,
-     "impact": 2, "impact_why": "続きの問いが要ること自体は設計上の正常経路（workflow-io.md 段 3b）",
-     "cost": 2, "cost_why": "intake・resolver の初回網羅を上げれば減らせる"},
 ]
 
 

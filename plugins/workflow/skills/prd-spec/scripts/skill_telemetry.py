@@ -12,7 +12,7 @@ totalTokens, totalToolCalls}` の形。task output で包まれていない素�
 record/compare/summary の単位（leg と run、集計の仕方）は `references/telemetry.md` を正とする。
 
 使い方:
-  skill_telemetry.py record --skill prd-spec --label run6-g0 --run-id run6 --variant "main" \
+  skill_telemetry.py record --skill prd-spec --label run6-g1 --run-id run6 --variant "main" \
       --input-ref runner/run6-args.sh <output.json>
   skill_telemetry.py summary --skill prd-spec
   skill_telemetry.py compare --skill prd-spec --control run6 --treatment run6-staging \

@@ -33,7 +33,7 @@ DONE_LEG = {
     "question_count": None, "agent_count": 2, "total_tokens": 50, "total_tool_calls": 5,
 }
 UNTERMINATED_LEG = {
-    "run_id": "c", "input_ref": "fixture-c", "status": "needs_answers", "gate": "g0", "terminal": False,
+    "run_id": "c", "input_ref": "fixture-c", "status": "needs_answers", "gate": "g1", "terminal": False,
     "remaining_blocking_count": None, "holds_count": 0, "open_tbd_count": 0,
     "missed_count": 0, "integrity_count": 0, "undeclared_count": 0,
     "question_count": 3, "agent_count": 1, "total_tokens": 10, "total_tool_calls": 1,
