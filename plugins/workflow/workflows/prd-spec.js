@@ -543,7 +543,8 @@ const copyFault = (text) => stdoutRaw(text) !== null && !parseStdout(text)
 
 function planCheckOf(text) {
   const o = parseStdout(text)
-  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 ? o : null
+  const coversOk = (c) => c && typeof c === 'object' && !Array.isArray(c) && Object.values(c).every((v) => Array.isArray(v) && v.every((k) => typeof k === 'string'))
+  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 && coversOk(o.covers) ? o : null
 }
 
 // rulingRows: doc_check flow --rulings の resolutions（ruling・has_answer・verdict・fail_kind の組ごとに束ねたもの。束ね方は doc_check の rulingsCompact）を
@@ -658,8 +659,8 @@ const NOT_RUN_WHY = '利用者が止めたか、runtime の出し直しの後も
 const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段からやり直せる（呼び直し方は SKILL.md「## 中継」））`
 
 // STOP_REASONS: 返り値の stop_reason の閉集合（references/workflow-io.md §3。tests が照合する）。budget は token の目標（budget.total）に
-// 達して agent を起動できなくなったとき。
-const STOP_REASONS = ['pass_limit', 'no_progress', 'budget']
+// 達して agent を起動できなくなったとき。upstream_gap は仕様書だけを書く run で価値の問いが出たとき（specOnly）。
+const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
@@ -1367,16 +1368,19 @@ function deciding(src) {
   s = s.replace(/^(?:W|\.)\//, '').replace(/:(\d+)(?:-\d+)?$/, '#L$1')
   return s.replace(/#[lL]0*(\d+)(?:-[lL]?\d+)?$/, '#L$1')
 }
-const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g1.md#L3`・`RS-004`（行の範囲は最初の行だけ）'
+const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g1.md#L3`・`requirements-auth.md#L40`（固定の要求文書）・`RS-004`（行の範囲は最初の行だけ）'
 const DECIDING_FILE = /^(?:input\.md|answers\/g[1-9]\d*\.md)#L[1-9]\d*$/
+// 固定の要求文書は別のランで承認された決定なので、その行で値が決まる論点を問いにも保持規則にもしない（仕様書だけを書く run では、問いが
+// upstream_gap で run を止める）。
+const fixedDocLine = (src) => { const m = /^(requirements-[^/#]+)\.md#L[1-9]\d*$/.exec(src); return Boolean(m) && fixedRequirements().has(m[1].replace('-', '/')) }
 function decidableDefect(f, fc) {
   if (!f || f.kind !== 'decidable') return null
   const row = fc.resolutions.find((x) => x.id === f.id)
   if (!row || !(row.ruling === 'hold' || (row.ruling === 'question' && !row.has_answer))) return `${f.id} は回答待ちの問いでも保持規則でもない`
   const src = typeof f.source === 'string' ? deciding(f.source) : ''
-  if (DECIDING_FILE.test(src)) return null
+  if (DECIDING_FILE.test(src) || fixedDocLine(src)) return null
   if (RESOLUTION_ID.test(src) && src !== f.id && usableResolutions(state).includes(src)) return null
-  return `${f.id} の source（${f.source == null ? 'なし' : f.source}）が input.md#L<n>・answers/<ゲート>.md#L<n>・根拠にしてよい resolution のどれでもない`
+  return `${f.id} の source（${f.source == null ? 'なし' : f.source}）を決める出典として受け取れない（形の例: ${DECIDING_EXAMPLE}。RS- は根拠にしてよい resolution に限る）`
 }
 
 // checkIds: questions --check に渡す問いを script が決める呼び出し（書き換え直した分を前の返り値に写すもの）。
@@ -2142,6 +2146,7 @@ let gatePassed = null
 // resume が保存された結果から外れると（pipeline の起動の順・追い出し・runtime の違い）run は live で走り直し、違う問いに古い回答を当てるか、
 // 段 1 の reset が消した回答の無いまま進む。
 async function needsAnswers(from) {
+  if (specOnly()) return upstreamGap()
   state.gates = gatesOpened() + 1
   const gate = `g${state.gates}`
   state.gate = gate
@@ -2155,6 +2160,28 @@ async function needsAnswers(from) {
   if (unanswered) return unanswered
   gatePassed = gate
   return from
+}
+
+// specOnly: 書く文書がすべて仕様書で、そのどれもが固定の要求文書を実現する（plan の covers）run。価値の判断は要求文書が持ち、問いにして
+// よいのは価値の判断だけなので、この run で出る問いは要求文書の抜けである。聞いて仕様書に書くと、要求文書に無い判断が仕様書にだけ入り、
+// 仕様項目が要求に辿れなくなる。covers を見ないと、INDEX のために並べただけの無関係な固定の文書で、聞けば済む run まで止まる。
+const fixedRequirements = () => new Set(EXISTING.filter((d) => d.fixed && String(d.key).startsWith('requirements/')).map((d) => d.key))
+const specOnly = () => {
+  const docs = (state.units || []).flatMap((u) => u.docs)
+  const fixed = fixedRequirements()
+  return docs.length > 0 && docs.every((k) => k.startsWith('specifications/') && ((state.covers || {})[k] || []).some((r) => fixed.has(r)))
+}
+
+// upstreamGap: 要求文書を直すと固定の文書の sha が変わり、この run は再開できないので next_args を付けない。
+function upstreamGap() {
+  const ids = pendingQuestions(state)
+  return finish('blocked', {
+    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が出ました（${list(ids)}）。仕様書では決めずに止めます。要求文書を改訂してから仕様書を起こし直してください`,
+    stop_reason: 'upstream_gap',
+    questions_path: `${W}/questions.md`,
+    questions_json_path: `${W}/questions.json`,
+    question_ids: ids,
+  })
 }
 
 function answersStop(gate, from, ids, extra) {
@@ -2268,7 +2295,9 @@ async function stage1() {
   if (wrongFixed.length) return blocked(`固定の文書が writer の単位に入っています: ${wrongFixed.join(', ')}`, '1')
   if (lost.length) return blocked(`既存文書がどの writer の単位にも入っていません（topic を変えると改稿が別名の新規執筆に化ける）: ${lost.join(', ')}`, '1')
   state.units = r.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
-  state.plan_sha256 = planCheckOf(r.plan_check).content_sha256
+  const pc = planCheckOf(r.plan_check)
+  state.plan_sha256 = pc.content_sha256
+  state.covers = pc.covers
   return '2'
 }
 
@@ -2286,8 +2315,11 @@ async function stage2() {
   // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
   const pc = planCheckOf(got.plan_check)
   if (!pc) return blocked('flow-framer が doc_check plan の stdout を返しませんでした', '2')
-  if (pc.content_sha256 !== planSha || pc.findings > 0) {
+  // covers も intake の申告だけから入るので、同じ照合に含める（specOnly が読む）。
+  const coversMoved = canonicalText(pc.covers) !== canonicalText(state.covers)
+  if (pc.content_sha256 !== planSha || pc.findings > 0 || coversMoved) {
     if (pc.content_sha256 !== planSha) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${planSha}）と違う`)
+    else if (coversMoved) noteIntegrity(`flow-framer が返した plan の covers が、intake が返した covers と違う（${canonicalText(pc.covers)} / ${canonicalText(state.covers)}）`)
     return blocked(`plan.json が intake の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, '1')
   }
   framed = { open_ids: got.fc.open_ids, pair_keys: got.cc.pair_keys }

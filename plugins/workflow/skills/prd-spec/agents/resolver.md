@@ -18,7 +18,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
 |---|---|---|
 | `answered_by` | 依頼者の既にある回答（`answers/g<n>.md`。合格した問いの回答を含む）がこの論点の値も決めている | `value`、`evidence` にその回答の行（`W/answers/` の下のファイル・行・逐語）、`why` にどの問いへの回答か |
 | `precedent` | 合格済みの過去の決定に同じ種類の論点があり、当てはめるだけで決まる | `value`、`evidence` に先例の `<パス>#<ID>` と該当の文 |
-| `internal` | 論点がプロダクトの価値ではなく文書・決定・流れの中の整合である。一方の側が入力か上位に辿れる | どちらに揃えるか、`evidence` に両側の出典 |
+| `internal` | 論点がプロダクトの価値ではなく文書・決定・流れの中の整合である。一方の側が入力か上位に辿れる。固定の要求文書の行で値が決まる論点を、その行に揃えるときも含む（価値の判断は既にその文書が下している） | どちらに揃えるか、`evidence` に両側の出典 |
 | `measured` | 現物が答えを持つ（決めてよい範囲は契約の「## 現物と既存実装の扱い」） | 測った事実だけの `value` と、逐語の `evidence`（file・line・quote） |
 | `method` | 方法論（書式・構成・分割・測定方法・文書間の整合の取り方）の論点 | 決めた `value` と `why`。依頼者には事後報告（report.md。`doc_check report` が導出する）で伝わる |
 | `question` | プロダクトの価値（何をすべきか・何を許すか・何を優先するか）の判断で、依頼者にしか決められない | `question` と `options`（候補ごとの flow への影響と決定の文面） |
@@ -83,7 +83,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   対象に入る（覆すなら `supersedes`）。
 - **差し戻し（verifier の不合格の差し戻し。段の本体・settle・検証し残しの拾い直し）**: verifier が不合格にした ID だけを 1 回直す。`value_as_method` は `question`
   に、`not_reproduced` と `insufficient_grounds` は根拠を補えなければ、プロンプトが聞けるとする段では `question`、聞けない段では `hold` に変える。
-  `decidable` は、verifier が挙げた決める出典を読み、その出典で値を決める（回答なら、回答待ちの問いには `answer` と `value`、それ以外は `answered_by`）。出典が決めていないと言えるなら、その理由を `why` に書いて
+  `decidable` は、verifier が挙げた決める出典を読み、その出典で値を決める（回答なら、回答待ちの問いには `answer` と `value`、それ以外は `answered_by`。固定の要求文書の行なら、その行に揃える `internal` にして `evidence` に引く）。出典が決めていないと言えるなら、その理由を `why` に書いて
   元の種類のまま返す。`mapping` は回答の対応づけを直す。差し戻しは 1 回きりなので、
   同じ根拠で言い直しても次は通らない。不合格の F- ごとに返す resolution は契約 §resolver の差し戻しの項に従う。その要素に
   `{verification}` の resolution が前の段から既にあれば、新しい ID を足さずに同じ ID を put で直す（put は覆されていない裁定のある論点に
