@@ -27,7 +27,7 @@ node [SKILL_DIR]/scripts/select_runtime.js \
    **理由**: native はどの phase まで進んだか（どの副作用が残っているか）を呼び出し側から
    確定できず、同じ call を runner で再実行すると部分実行の上に二重実行が重なる。加えて
    human gate の所有が native 側と runner 側に分かれ、どちらが承認を持つのかが決まらない。
-4. caller root、callsite の exact script path と args、前後 phase、human gate の所有権を runner へ渡す。
+4. callsite の qualified name（`skill-creator:skill-creator-build` / `skill-creator:skill-creator-review`）と args、この plugin の canonical root を `trustedPluginRoots` として、前後 phase、human gate の所有権とともに runner へ渡す。runner は root の `workflows/` から meta.name で source を解決する。
 5. `workflow_complete` と final verification に結合した verified return だけで成功後 phase を再開する。runner 未install、`unsupported_runtime`、`rejected_source`、`workflow_incomplete` では成功後 phase を開始しない。
 
 ## create mapping

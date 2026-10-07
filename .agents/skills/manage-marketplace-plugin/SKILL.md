@@ -6,6 +6,7 @@ description: >
   version の指定がなければ更新時に patch を上げる。スキルが別スキルを呼ぶ場合、未登録の依存は同一 plugin に含め、別 plugin の依存は dependencies 宣言とスキル呼び出しで解決する（実体は複製しない）。
   「スキルを marketplace に登録／公開して」「既存 plugin に追加して」「登録済み plugin を更新／再公開して」など、登録・更新対象への言及がある依頼で使う。
   marketplace.json の閲覧のみ、アンインストール、公開済み plugin の削除、およびスキル本体の作成・編集は対象外（後者は skill-creator-best-practices の役割）。
+  唯一の例外として、初めて公開するスキルの Workflow script を plugin の workflows/ へ移し、その callsite 1 行を名前の呼び出しに書き換える。
 ---
 
 # マーケットプレイス・プラグイン登録／更新スキル
@@ -67,6 +68,7 @@ agents/plugin-registrar（sonnet）
   ├─ exit 4（衝突）                 → stderr を確認し、更新で解決する衝突ならユーザーへ明示確認
   │                                    同意後のみ --update で再実行。それ以外は中断して指示を待つ
   ├─ exit 5（名前形式不正／path逸脱）→ 許可形式または checkout 外の root/write destination を伝えて修正を依頼
+  ├─ exit 6（Workflow script を移せない）→ stderr の各項目を伝え、スキル側の修正を依頼（skill-creator-best-practices の役割）
   │
   ▼  exit 0（added / updated）
 agents/install-verifier（sonnet）
@@ -173,6 +175,7 @@ install-verifier は `scripts/verify_install.py` を実行し、L2（バンド�
 - **登録済みは更新**：既に登録済みのスキルは新規登録ではなく更新として扱い、plugin.json を再生成して version とマニフェストを同期し、逆 symlink を現状へ再同期する。既存 Codex `interface` と未指定の description/dependencies は引き継ぎ、手書き README は上書きしない。
 - **配布サブツリーに symlink を置かない**：`plugins/<plugin>/` 配下は全て実体でなければならない。Claude Code は同一 marketplace 内を指す symlink を dereference するが、Codex は plugin サブツリーだけを取得して symlink を落とすため、`skills/` が空のまま install が「成功」する（実測）。この不変条件が本スキルで最も重要。
 - **公開は実体の移動**：登録時にスキル実体を `.agents/skills/<skill>` から `plugins/<plugin>/skills/<skill>` へ移し、`.agents/skills/<skill>` を移動先への相対 symlink に置き換える。開発中は `.agents/skills/` に実体、公開後は `plugins/` に実体、という向きになる。
+- **初めて公開するスキルの Workflow script は plugin の `workflows/` へ移す（スキル本体に触れる唯一の例外）**：`.agents/skills/` から初めて公開するスキルについて、SKILL.md が scriptPath で呼ぶ Workflow script を `plugins/<plugin>/workflows/` へ移し、その callsite を名前の呼び出しに書き換える。移せる条件の正本は skill-creator-best-practices の `references/best-practices.md` §13「script の置き場」で、満たさなければ何も書かずに exit 6 で止め、理由を stderr に出す（直すのはスキルの作成・編集の役割）。公開済みのスキルは `--update` でも移さず、レポートの `actions.workflow_scripts_skipped` に理由つきで出す（既存 plugin の再公開を止めないため）。
 - **ディレクトリ名は実体名**：公開名（`/plugin:skill` の skill 部分）は frontmatter の `name` が担うため、ディレクトリ名を公開名に変えない。install 先のキャッシュはこのディレクトリ名で作られるため、`[SKILL_DIR]/../<兄弟スキル>/` のようなディレクトリ名参照が名前の変更で壊れる。
 - **実在確認の前置**：登録前に対象スキルの `SKILL.md` の実在を確認する。存在しないスキルを登録すると壊れたプラグインが公開されるため。
 - **破損は中断**：marketplace.json が壊れた JSON の場合は自動修復せず中断する（他人のエントリを失う恐れがあるため）。不在は新規作成と明確に区別する。
@@ -204,6 +207,6 @@ install-verifier は `scripts/verify_install.py` を実行し、L2（バンド�
   scripts/
     check_portability.py    install 先で壊れる参照の静的スキャン（検出専用）
     detect_dependencies.py  対象が呼ぶ他スキル（連鎖依存）の静的検出（推移的・候補出し）
-    register_plugin.py      非破壊マージ／更新・version 解決(patch+1)・実体移動＋逆symlink・2系統manifest生成・依存取り込み・検証・--update / --bundle-skill / --depends-on / --dry-run
+    register_plugin.py      非破壊マージ／更新・version 解決(patch+1)・実体移動＋逆symlink・Workflow script の workflows/ への移動・2系統manifest生成・依存取り込み・検証・--update / --bundle-skill / --depends-on / --dry-run
     verify_install.py       L2（バンドル解決）＋ L3（HOME 隔離の実 install スモーク）
 ```

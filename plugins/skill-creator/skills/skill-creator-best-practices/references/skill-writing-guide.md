@@ -212,26 +212,29 @@ Sub-agent が必要なタイミングで `assets/` を Read する設計にす�
 ## Workflow 型スキルの執筆
 
 `ARCHITECTURE` が `workflow` のときだけ適用する。SKILL.md に加えて `scripts/<スキル名>.js` を生成する。
-背景と選択理由は `references/best-practices.md` §13。
+背景と選択理由は `references/best-practices.md` §13。生成するスキルは未公開なので script は `scripts/` に置き、
+`scriptPath` で呼ぶ。公開後は plugin の `workflows/` へ移って名前で呼ぶ形に変わる（2 段の規則と `meta.name` の条件は
+§13「script の置き場」が正本）。
 
 ### SKILL.md 側に書くこと・書かないこと
 
 | 書く | 書かない |
 |---|---|
 | script を呼ぶ前の準備（要件の構造化・ユーザー確認） | script が回す区間の手順の再掲 |
-| `Workflow({ scriptPath, args })` の呼び出しと `args` の意味 | ループ回数・並列数・閾値の数値（script が持つ） |
+| `Workflow({ scriptPath, args })`（未公開）/ `Workflow({ name, args })`（公開後）の呼び出しと `args` の意味 | ループ回数・並列数・閾値の数値（script が持つ） |
 | 返り値の構造と、その解釈・人間への提示 | 「〜を忘れずに実行する」型の注意書き（構造で保証済み） |
 | 人間ゲートの位置と、止まったときの選択肢 | agent プロンプトの本文（`agents/` に置く） |
 
 **区間の内側を散文で再掲しない。** script が唯一の正になるため、二重管理は必ずズレる。
 
-`scriptPath` にはスキルの実ディレクトリ絶対パスを渡す。script は自身の位置を解決できないので、`agents/*.md` を Read させるための基準パスは `args` で渡すしかない。
+script は自身の位置を解決できないので、`agents/*.md` を Read させるための基準パスはどちらの段でも `args.skillDir` で渡す。
+selector の書き方は §13「script の置き場」に従う（公開時の書き換えはその形にしか効かない）。
 
 ### script の骨格
 
 ```javascript
 export const meta = {
-  name: 'skill-name',
+  name: 'skill-name-run',  // スキルの名前とは別にする（条件は best-practices.md §13「script の置き場」）
   description: '一行の説明（承認ダイアログに出る）',
   phases: [
     { title: 'Collect', detail: '対象を列挙する' },

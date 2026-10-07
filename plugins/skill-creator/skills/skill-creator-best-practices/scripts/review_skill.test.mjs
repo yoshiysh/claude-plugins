@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
 import { compileSource } from '../../../../workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
 
-const source = await readFile(new URL('./review_skill.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../../../workflows/review_skill.js', import.meta.url), 'utf8');
 const { body } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 

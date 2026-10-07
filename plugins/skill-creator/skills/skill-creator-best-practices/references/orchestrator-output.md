@@ -1,7 +1,7 @@
 # 統合・保存ガイド
 
 司令塔が Workflow の完了後に単独実行する手順。改善ループは Workflow
-（`scripts/build_skill.js`）で完結済みで、その戻り値を受けてここから始まる。
+（`/skill-creator:skill-creator-build`）で完結済みで、その戻り値を受けてここから始まる。
 
 ## 目次
 
@@ -116,6 +116,15 @@ baseline   平均 pass_rate: Y%
 └── schemas/
     └── agent-contracts.md  （エージェント間の入出力契約）
 ```
+
+**Workflow 型（`architecture: "workflow"`）の場合は script も書き出す：**
+```
+.claude/skills/[スキル名]/
+└── scripts/
+    └── [スキル名].js     （戻り値の workflow_script。未公開の間はここに置き、SKILL.md から scriptPath で呼ぶ）
+```
+
+公開すると script は plugin の `workflows/` へ移り、名前の呼び出しに変わる（`best-practices.md` §13「script の置き場」）。
 
 **evals.json を保存する：**
 

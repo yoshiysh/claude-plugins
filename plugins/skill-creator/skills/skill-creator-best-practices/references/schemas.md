@@ -188,7 +188,7 @@ phase('[phase 名]')
 ```
 
 **grader は集計を返さない（破壊的変更。旧 schema の `summary` は required から外れた）。**
-`pass_rate` / `delta` は `scripts/build_skill.js` が算出して各 grading 行へ付け足す
+`pass_rate` / `delta` は create の workflow（plugin の `workflows/build_skill.js`）が算出して各 grading 行へ付け足す
 （`summary.with_skill.pass_rate` / `summary.baseline.pass_rate` / `summary.delta`）。
 partial の重み（`PARTIAL_WEIGHT`）と側間の差の定義は script の 1 箇所だけにある。
 
@@ -368,7 +368,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 
 ## review/update の入出力
 
-`scripts/review_skill.js` が finder / refuter / updater と交換する契約。
+review/update の workflow（plugin の `workflows/review_skill.js`）が finder / refuter / updater と交換する契約。
 **観点の一覧・反証者の観点・閾値・改稿ループの停止条件は script の `FINDERS` / `PERSPECTIVES` /
 `MIN_VALID_VOTES` / `REVISE_SEVERITIES` が唯一の正**なので、ここには写さない。
 ここが定義するのはフィールドの形と、その形が保証していることだけ。

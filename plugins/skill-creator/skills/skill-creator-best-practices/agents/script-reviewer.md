@@ -80,6 +80,9 @@ description: >
 
 - `meta` が純粋なリテラルか（変数・関数呼び出し・スプレッド・テンプレート展開が入っていないか）
 - `meta` に `name` / `description` / `phases` が揃っているか
+- `meta.name` が `best-practices.md` §13「script の置き場」の `meta.name` の条件を満たすか（満たさないと公開時に
+  plugin の `workflows/` へ移せず、名前で呼べない）
+- SKILL.md の selector と `skillDir` の渡し方が同じ節の規則どおりか（外れると公開時の書き換えが止まる）
 - `import()` を含まないか
 - `Date.now()` / `Math.random()` / 引数なし `new Date()` を含まないか
 - script から直接ファイル読み書き・shell 実行をしていないか（agent のタスクに寄せてあるか）

@@ -88,6 +88,30 @@ name without adding `gates_answered`. A missing `next_args` prevents automatic c
 caller does not use runner checkpoints. Questions, answers, artifact validation, saving and external
 actions remain owned by the caller; see its SKILL.md for the authoritative continuation rules.
 
+## skill-creator request
+
+`skill-creator:skill-creator-build` and `skill-creator:skill-creator-review` resolve the skill-creator plugin's
+`workflows/build_skill.js` and `workflows/review_skill.js` by their literal metadata names. The trusted root is
+the skill-creator plugin root (not this workflow plugin), and `args.skillDir` is
+`<skill-creator plugin root>/skills/skill-creator-best-practices`. Read the
+caller SKILL.md first: it runs `scripts/select_runtime.js` before every call, and its selection decides whether
+a runner request is made at all. Only `create` and host-policy-bound `update` are runnable; `review` stops as
+`rejected_source` before any agent is dispatched. The update authority checks key on the literal metadata name
+`skill-creator-review`, so a named request reaches the same updatePolicy binding, staging and checkpoint
+restrictions as a scriptPath request. Do not pass `args.stagingDir`; the host updatePolicy selects staging.
+Configure an explicit modelMap for the labels the source passes (update uses `opus` and `sonnet`;
+create drops the hints listed in its portability declaration). Persona approval, saving and update
+application remain owned by the caller.
+
+```json
+{
+  "name": "skill-creator:skill-creator-build",
+  "trustedPluginRoots": ["<skill-creator plugin root>"],
+  "args": {"skillDir": "<skill-creator plugin root>/skills/skill-creator-best-practices", "...": "caller args"},
+  "runDir": "<new external run directory>"
+}
+```
+
 ## One-agent live probe
 
 `node named-smoke.mjs <new absolute external artifact directory> <explicit Codex model>` prepares a

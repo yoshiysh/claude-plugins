@@ -1,6 +1,6 @@
 # 司令塔：review / update の提示と適用
 
-`scripts/review_skill.js` の戻り値を人間に見せ、update なら承認を得て本体へ反映するまでの手順。
+名前付き workflow `/skill-creator:skill-creator-review`（plugin の `workflows/review_skill.js`）の戻り値を人間に見せ、update なら承認を得て本体へ反映するまでの手順。
 SKILL.md の「結果の提示と適用（review/update）」から Read される。
 
 ## 目次
@@ -280,7 +280,7 @@ script に埋め込むと、install 先（別ディレクトリに展開され�
 
 ### staging はスキル本体の外に置く
 
-`stagingDir` の既定値は `scripts/review_skill.js` が持つ（対象スキルディレクトリの**兄弟**で
+`stagingDir` の既定値は review/update の workflow（plugin の `workflows/review_skill.js`）が持つ（対象スキルディレクトリの**兄弟**で
 あって内部ではない）。スキルディレクトリを列挙する検証スクリプトや参照実在チェックは
 配下を再帰的に見るため、内部に置くと未承認のドラフトが本体スキルの一部として
 検査・配布の対象に入る。明示的に `stagingDir` を渡す場合も対象スキルの配下は指定できず、
@@ -295,11 +295,12 @@ Workflow script はファイルシステムに触れないため、staging の�
 script 側に digest を足そうとすると、
 ファイルを読めないまま常に空を返すフィールドができる。
 
-### 新設ファイルはこのスキルの直下に実体で置く
+### 新設ファイルは実体で置く
 
-`agents/finder.md` `agents/refuter.md` `agents/updater.md` `references/orchestrator-review.md`
-`scripts/review_skill.js` はすべてこのスキルディレクトリ直下の実ファイル。配布サブツリーに
-symlink を置くと、取得側によっては symlink が落ちて中身が空になる。
+`agents/finder.md` `agents/refuter.md` `agents/updater.md` `references/orchestrator-review.md` は
+このスキルディレクトリ直下の実ファイル、workflow の `review_skill.js` は plugin の `workflows/` 直下の実ファイル
+（置き場の規則は `references/best-practices.md` §13「script の置き場」）。配布サブツリーに symlink を置くと、
+取得側によっては symlink が落ちて中身が空になる。
 
 ### agent の frontmatter は既存と同じフィールドに揃える
 

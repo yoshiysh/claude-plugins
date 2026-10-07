@@ -652,13 +652,13 @@ fan-out する既存スキルは「それを指して同じことをする workf
 |---|---|---|
 | 例 | `anthropics/skills` の `docx/scripts/{accept_changes,comment,merge_runs}.py` | `dispatch/scripts/orchestrate.js` |
 | 中身 | OOXML 手術・PDF 処理など、1 操作を確実に行うコード | agent の fan-out・集約・閾値判定 |
-| 呼ぶ人 | agent が Bash で叩く | `Workflow({ scriptPath })` でランタイムが実行 |
+| 呼ぶ人 | agent が Bash で叩く | `Workflow({ scriptPath })`（未公開）/ `Workflow({ name })`（公開後）でランタイムが実行。置き場は下の「script の置き場」 |
 
 `docx` が workflow を持たないのは正しい。あのスキルは fan-out しない（1 agent が Python を叩くだけ）ので、orchestration を決定化する対象が無い。**「scripts/ があるから決定化済み」ではない**——見るべきは「ループと並列と閾値判定を誰が持っているか」。
 
 ### 参照実装と、本家との差
 
-`anthropics/skills`（2026-08 時点）は `workflows/` ディレクトリを 1 つも持たず、`.js` は作画テンプレート 1 本のみ。本家 `skill-creator` も `agents/` + Python の `scripts/` で、全区間が Claude のターンごとの指揮で回る。**このリポジトリの skill-creator-best-practices はその直系だが、create の Workflow 区間（Criteria〜Analyze）を `build_skill.js` に移した時点で本家より先へ出ている。**
+`anthropics/skills`（2026-08 時点）は `workflows/` ディレクトリを 1 つも持たず、`.js` は作画テンプレート 1 本のみ。本家 `skill-creator` も `agents/` + Python の `scripts/` で、全区間が Claude のターンごとの指揮で回る。**このリポジトリの skill-creator-best-practices はその直系だが、create の Workflow 区間（Criteria〜Analyze）を名前付き workflow `/skill-creator:skill-creator-build`（plugin の `workflows/build_skill.js`）に移した時点で本家より先へ出ている。**
 
 継承したパターン表（`coordination-patterns.md` の 1–6）は dynamic workflows 以前の corpus 由来で、Workflow 実行型が候補に入っていなかった。本節が後から足されても選択経路に届いていなかったのが、fan-out するスキルを作っても script 化しない傾向の実際の原因。ステップ 0 の判定はそれを塞ぐために置いてある。
 
@@ -679,7 +679,25 @@ fan-out する既存スキルは「それを指して同じことをする workf
 | `.claude/workflows/*.js` | `/name`（保存済み workflow） | リポジトリローカル。plugin 配布されない |
 | `plugins/<p>/workflows/*.js` | `/plugin:name` | plugin 資産として配布される |
 
-**このリポジトリは `<skill>/scripts/*.js` に統一する。**
+**このリポジトリは公開の前後で 2 段に分ける（この節が置き場の規則の正本）。**
+
+| 段 | script の場所 | SKILL.md の呼び出し |
+|---|---|---|
+| 未公開（plugin に属さない） | `<skill>/scripts/<f>.js` | `Workflow({ scriptPath: "[SKILL_DIR]/scripts/<f>.js", args: { skillDir: "[SKILL_DIR]", ... } })` |
+| 公開後（plugin `<p>` に属する） | `plugins/<p>/workflows/<f>.js` | `Workflow({ name: "<p>:<meta.name>", args: { skillDir: "[SKILL_DIR]", ... } })` |
+
+- **公開後は名前で呼ぶ。** plugin の workflow を名前で呼ぶと承認に「Yes, and don't ask again」が出る（本家の workflows の文書）。
+  scriptPath で呼ぶと、ゲートでの呼び直しや `resumeFromRunId` のたびに承認を繰り返す。
+- **未公開の間は scriptPath で呼ぶ。** 名前は install 済み plugin の `workflows/` にしか解決されず、未公開の script には届かない。
+- **移動は初めての公開の操作が行う。** 公開の操作が、初めて公開するスキルの script を plugin の `workflows/` へ移し、
+  callsite の 1 行を書き換える。書き換えられるのは
+  `scriptPath: "[SKILL_DIR]/scripts/<f>.js",` だけの 1 行に限る（selector を複数行に分けたり本文で script のパスに触れたりすると、
+  移動先と食い違う参照が残るので公開が止まる）。公開済みのスキルに後から足した script は自動では移らず、公開の操作が
+  理由つきで報告するので、手で移して callsite を書き換える。
+- **`meta.name` の条件。** `^[a-z][a-z0-9-]*$` に合う（runner の名前付き解決と同じ形）・plugin 内で一意・どのスキルの名前（frontmatter の
+  `name`）とも違う（skill の呼び出し名と workflow の `/<p>:<name>` が同じときの優先は本家に定めが無い）。先例は `<skill>-run`。
+- **`skillDir` は常に args で渡す。** script は自身の位置を解決できない。公開後は script と `agents/` が別ディレクトリになるので、なおさら args だけが基準パスになる。
+- **公開後の script は plugin の `workflows/` を直接編集する（スキルのディレクトリからは届かない）。**
 
 ### 実行時制約（script を書く前に知っておく）
 
@@ -722,7 +740,7 @@ fan-out する既存スキルは「それを指して同じことをする workf
 
 判定の目安：`const a = await parallel(...)` → `const b = transform(a)`（flatten/map/filter だけ）→ `const c = await parallel(b.map(...))` と書いていたら、その中間 transform に barrier は要らない。pipeline のステージに畳む。
 
-**このスキル自身の `build_skill.js` が barrier を使っている箇所は正当な例**：Evaluate は with_skill と baseline を 1 つの `parallel()` にまとめて発行する。採点は必ず対で行う必要があり、片側だけ先に進めても意味がないため。逆に「なぜここだけ barrier なのか」を説明できない `parallel()` は pipeline に直す候補。
+**このスキル自身の create の workflow（plugin の `workflows/build_skill.js`）が barrier を使っている箇所は正当な例**：Evaluate は with_skill と baseline を 1 つの `parallel()` にまとめて発行する。採点は必ず対で行う必要があり、片側だけ先に進めても意味がないため。逆に「なぜここだけ barrier なのか」を説明できない `parallel()` は pipeline に直す候補。
 
 ### 品質パターン（構造として強制するもの）
 

@@ -14,8 +14,9 @@ description: >
 新規作成だけでなく、既存スキル・直近の変更の評価と改稿も同じ枠組みで扱う。
 
 各 Sub Agent のプロンプトは `agents/` 配下の個別ファイルに定義されている。
-実行順序・並列・集約・閾値判定は Workflow スクリプト（`scripts/build_skill.js` /
-`scripts/review_skill.js`）が握る。司令塔が担うのは、その前後にある人間ゲートだけで、
+実行順序・並列・集約・閾値判定は名前付き workflow `/skill-creator:skill-creator-build`（plugin の
+`workflows/build_skill.js`）と `/skill-creator:skill-creator-review`（plugin の `workflows/review_skill.js`）が握る。
+司令塔が担うのは、その前後にある人間ゲートだけで、
 Agent ツールで agent を直接起動しない。成果物の本文は司令塔ではなく agent が生成し、agent の起動は
 script の集計・欠測検出を通す必要がある（散文で起動すると、欠けた観点や応答しなかった agent が合格に化ける）。
 
@@ -66,7 +67,7 @@ script の集計・欠測検出を通す必要がある（散文で起動する�
 要件整理とペルソナ設計（司令塔が単独で実行・人間ゲート）
   └─ 要件を構造化 → ドメイン知識を確認（条件付き）→ ペルソナを推論 → ユーザーに確認
 
-Workflow を呼ぶ（scripts/build_skill.js が全て内包）
+Workflow を呼ぶ（/skill-creator:skill-creator-build が全て内包）
   Criteria → Structure → Write（+ Review script）→ Test → Evaluate → Grade → Analyze
   → 閾値を満たさなければ writer(revise) で改稿し Evaluate へ戻る
 
@@ -79,7 +80,7 @@ Workflow を呼ぶ（scripts/build_skill.js が全て内包）
 ```
 対象と範囲の確認（司令塔が単独で実行・人間ゲート）
 
-Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェーズだけ）
+Workflow を呼ぶ（/skill-creator:skill-creator-review。ここで回るのは 2 フェーズだけ）
   Find     観点別 finder を並列で fan-out（観点の一覧は script の FINDERS が唯一の正）
   Verify   改稿を動かす重さ（script の REVISE_SEVERITIES）の finding ごとに観点の異なる反証者を
            独立に立て、過半数の反証で棄却。それ以外の重さは反証せず未検証として返す
@@ -94,7 +95,7 @@ Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェー
 ```
 対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート）
 
-Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 つ続く）
+Workflow を呼ぶ（/skill-creator:skill-creator-review。review の 2 フェーズに 2 つ続く）
   Find     観点別 finder を並列で fan-out
   Verify   review と同じ（反証するのは REVISE_SEVERITIES の finding だけ）
   Update   updater が staging（対象スキルの全ファイルのミラー）に改稿を書く
@@ -155,13 +156,18 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 > native 試行後の失敗は runner へ fallback しない。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode create --native-available --runner-installed`
 > **Codex classification: `portable`**（`build_skill.js` create）。
+>
+> native Workflow が現在の tool inventory に無い Codex では、この active callsite から `workflow:dynamic-workflow-runner` を内部利用する。native を試行して失敗した call は runner で実行し直さない。ユーザーに runner の指定を要求しない。
+> host はこの skill-creator plugin の canonical root を `trustedPluginRoots` に明示し、runner の名前付き実行契約（workflow plugin の runner に同梱の `NAMED.md`）の request 形式と照合・上限に従う。ゲートの返却・回答・保存はこの caller が持つ。
+
+native では名前付き workflow を名前で呼ぶ（理由と置き場の規則は `references/best-practices.md` §13「script の置き場」）。
 
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」
 
 ```
 Workflow({
-  scriptPath: "[SKILL_DIR]/scripts/build_skill.js",
+  name: "skill-creator:skill-creator-build",
   args: {
     skillDir: "[SKILL_DIR]",
     requirements: "<要件整理で構造化した要件全体>",
@@ -249,7 +255,7 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 > **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
+> `halt: true` なら workflow を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
 > `rejected_source`。update は common caller の host が静的 `updatePolicy` を束縛した場合だけ
 > `--update-policy-bound` で選択でき、runtime も agent dispatch 前に検証する（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」）。
 > review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
@@ -261,7 +267,7 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 
 ```
 Workflow({
-  scriptPath: "[SKILL_DIR]/scripts/review_skill.js",
+  name: "skill-creator:skill-creator-review",
   args: {
     skillDir: "[SKILL_DIR]",
     mode: "review | update",
@@ -290,7 +296,7 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
 
 **観点の一覧・反証者の立て方・多数決の閾値・反証する重さ・打ち切りの判定（`STALL_ROUNDS` /
 `MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
-`scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
+plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
 存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。中身は script を読む。
 
 完了すると以下が返る（フィールドの意味は[入出力の定義](#入出力の定義)を見る）：
@@ -351,8 +357,8 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
 
 ## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
 
-改善ループは Workflow（`scripts/build_skill.js`）が内包しており、やり直す場合も `resumeFromRunId` で
-Workflow を再実行する。
+改善ループは Workflow（`/skill-creator:skill-creator-build`）が内包しており、やり直す場合も
+`Workflow({ name: "skill-creator:skill-creator-build", resumeFromRunId: "<runId>", args: { <その run の args> } })` で再実行する。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
 
@@ -452,12 +458,18 @@ evals/         # evals.json — このスキル自体の評価テストケース
 references/    # orchestrator-requirements / orchestrator-output / orchestrator-review（司令塔の手順）、
                # coordination-patterns / best-practices / skill-writing-guide / criteria-by-task /
                # flow-design（設計ガイド）、schemas（エージェント間入出力の契約書）
-scripts/       # build_skill.js  — create の Workflow 本体
-               # review_skill.js — review/update 本体（観点一覧 FINDERS の唯一の正）
-               # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
+scripts/       # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
                # select_runtime.js — Workflow 呼び出し前の経路選択（native / 互換層 / 停止）
                # package_skill.py / quick_validate.py / diff_findings.py / utils.py
 ```
+
+Workflow script はスキルの外、plugin の `workflows/` にある（名前で呼ぶため。置き場の規則は
+`references/best-practices.md` §13「script の置き場」が正本）。
+
+| plugin の `workflows/` | 名前 | 何の正か |
+|---|---|---|
+| `build_skill.js` | `/skill-creator:skill-creator-build` | create の Workflow 本体 |
+| `review_skill.js` | `/skill-creator:skill-creator-review` | review/update の Workflow 本体（観点一覧 FINDERS の唯一の正） |
 
 各ファイルの詳細な役割は、それを Read させている script と `references/schemas.md` が持つ
 （ここに 1 行説明を複製すると、役割が変わったとき片方だけが古くなる）。
