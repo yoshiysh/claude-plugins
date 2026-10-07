@@ -3493,7 +3493,9 @@ function wsPlan(ws) {
   const body = expandWorkspace({ findings: groupCompact(out), not_checked: [] })
   const digest = digestOf(body)
   // content_sha256: intake の後で plan.json が書き換えられていないかを、script が次の段の stdout と照合する。
-  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))) }
+  // covers: 仕様文書ごとの実現する要求文書。script は plan.json を読めないので、仕様書だけを書く run の判定（prd-spec.js の specOnly）にここから渡す。
+  const covers = Object.fromEntries(listOf(plan, 'docs').filter((d) => d && String(d.key).startsWith('specifications/')).map((d) => [String(d.key), Array.isArray(d.covers) ? d.covers.map(String) : []]))
+  return { findings: body.findings.length, path: writeCheck(ws, 'plan.json', { ...body, digest }), digest, content_sha256: sha256Bytes(fs.readFileSync(path.join(ws, 'plan.json'))), covers }
 }
 
 // doc: 開いている TBD は --open-tbd

@@ -114,6 +114,10 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
+  `stop_reason` が `upstream_gap` なら、固定の要求文書に答えが見つからなかった価値の論点が出ている。問いとして聞かずに、
+  `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>` で導出した `questions_path` の本文をそのまま見せ、
+  要求文書の改訂（`entry: existing`）を先に走らせてから仕様書を起こし直すことを伝える。
+  ここで答えをもらって仕様書の run に渡すと、要求文書に無い判断が仕様書にだけ入る。
 - **Workflow が例外で終わった、または `reason` が「script の不変条件に反しました」**: `references/workflow-io.md` §5 に従う。
 - **`done`**: 下の「保存」へ進む。
 

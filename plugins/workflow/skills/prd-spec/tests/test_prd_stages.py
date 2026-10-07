@@ -257,6 +257,9 @@ const about = (id) => (spec.about || {})[id] || { open: `O-${id}` }
 // state から始めた W の open.json は、段 2 の flow-framer が書いたものにする。
 if (!saved && st0.flow_digest) disk.open_ids = framerOpens()
 const TX_ROLES = ['intake', 'flow-framer', 'resolver', 'verifier', 'writer']
+// planCovers: doc_check plan の stdout の covers。既定では仕様文書 specifications/<t> が同じ topic の requirements/<t> を実現する。
+const planCovers = () => spec.covers || Object.fromEntries((spec.units || []).flatMap((u) => u.docs).filter((k) => k.startsWith('specifications/')).map((k) => [k, [`requirements/${k.split('/')[1]}`]]))
+
 function respond(prompt, label) {
   const base = label
   const [role, stage, target] = base.split(':')
@@ -264,7 +267,7 @@ function respond(prompt, label) {
   if (TX_ROLES.includes(role) && !curToken) throw new Error(`${label}: 台帳を書く役のプロンプトにトークンがありません`)
   if (role === 'intake') {
     const plan = (spec.plan_findings || {})[base]
-    return { plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan') }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
+    return { plan_check: plan === null ? '' : JSON.stringify({ findings: plan || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H('plan'), covers: planCovers() }), units: spec.units || [{ id: 'U-1', docs: ['requirements/x'], depends_on: [] }] }
   }
   if (role === 'flow-framer') {
     setFlow(H(`f-${stage || 'framer'}`))
@@ -285,7 +288,7 @@ function respond(prompt, label) {
     // plan_seen: flow-framer が実行した doc_check plan の stdout（null は返さない）。
     if (prompt.includes('doc_check.mjs plan ') && spec.plan_seen !== null) {
       const seen = spec.plan_seen || {}
-      out.plan_check = JSON.stringify({ findings: seen.findings || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H(seen.sha || 'plan') })
+      out.plan_check = JSON.stringify({ findings: seen.findings || 0, path: 'checks/plan.json', digest: 'p', content_sha256: H(seen.sha || 'plan'), covers: seen.covers || planCovers() })
     }
     const asked = ids((/--ids (\S+) --check/.exec(prompt) || [])[1], /RS-\d+/g)
     if (asked.length) {
@@ -1355,6 +1358,43 @@ class Stages(unittest.TestCase):
                 self.assertTrue(any(f"audited-{at[1:]} の snapshot で照合" in line for line in res["integrity"]), res["integrity"])
         self.assertEqual(run(self._expand())["result"]["status"], "done")
 
+    def test_仕様書だけを書くrunで段3に価値の問いが出たら聞かずに要求文書の抜けとして止める(self):
+        r = run({**self._expand(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["question_ids"], res["next_args"]), ("blocked", "upstream_gap", ["RS-001"], None), res.get("reason"))
+        self.assertEqual(res["questions_path"], "/tmp/prd-w/questions.md")
+        self.assertIn("固定の要求文書に答えが見つからなかった価値の論点", res["reason"])
+        self.assertFalse(res["resumable"])
+        self.assertNotIn("gate", res)
+        self.assertFalse(has(r["labels"], "writer:U-1:draft"), "初稿の前に止まる")
+
+    def test_仕様書だけを書くrunで段6に価値の問いが出ても止める(self):
+        finding = {"id": "r1-cd-all-001", "route": "decision"}
+        r = run({**self._expand(), "findings": {"crossDoc:r1": [finding]}, "questions_at": {"6": ["RS-010"]}})
+        res = r["result"]
+        self.assertEqual((res["status"], res["stop_reason"], res["question_ids"]), ("blocked", "upstream_gap", ["RS-010"]), res.get("reason"))
+        self.assertTrue(has(r["labels"], "writer:U-1:draft"))
+        self.assertFalse(has(r["labels"], "writer:U-1:revise"), "答えの無い判断で改稿しない")
+
+    def test_書く仕様書が固定の要求文書を実現しないrunは今どおりゲートで聞く(self):
+        # INDEX のために並べただけの無関係な固定の要求文書では止めない。
+        a = args(entry="expand", existing_docs=[{"key": "requirements/billing", "fixed": True}, {"key": "specifications/auth", "fixed": False}])
+        units = [{"id": "U-1", "docs": ["specifications/auth"], "depends_on": []}]
+        for name, covers in (("covers が無い", {"specifications/auth": []}), ("固定でない要求文書を実現する", {"specifications/auth": ["requirements/auth"]})):
+            with self.subTest(name):
+                res = run({"args": a, "units": units, "covers": covers, "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+                self.assertEqual((res["status"], res["gate"]), ("needs_answers", "g1"), res.get("reason"))
+
+    def test_要求文書を書くrunと固定の要求文書の無いrunは今どおりゲートで聞く(self):
+        for name, a, units in (
+            ("要求文書も書く", args(entry="expand", existing_docs=[{"key": "requirements/a", "fixed": True}]),
+             [{"id": "U-1", "docs": ["requirements/x", "specifications/x"], "depends_on": []}]),
+            ("固定の要求文書が無い", args(), [{"id": "U-1", "docs": ["specifications/x"], "depends_on": []}]),
+        ):
+            with self.subTest(name):
+                res = run({"args": a, "units": units, "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
+                self.assertEqual((res["status"], res["gate"]), ("needs_answers", "g1"), res.get("reason"))
+
     def test_固定の文書のsha256を返さないresetと基準の無い再開は止める(self):
         r = run({**self._expand(), "reset_no_fixed_sha": True})
         self.assertFalse(has(r["labels"], "intake"), r["labels"])
@@ -1391,6 +1431,9 @@ class Stages(unittest.TestCase):
         changed = run({"args": args(), "plan_seen": {"sha": "plan-edited"}})["result"]
         self.assertEqual((changed["status"], changed["next_args"]["from"], changed["next_args"]["state"]), ("blocked", "1", {}), "段 1 からの再実行は S0 の直後の W から始まるので state を運ばない")
         self.assertTrue(any("plan.json" in line for line in changed["integrity"]))
+        moved = run({**self._expand(), "plan_seen": {"covers": {"specifications/x": []}}})["result"]
+        self.assertEqual((moved["status"], moved["next_args"]["from"]), ("blocked", "1"), moved.get("reason"))
+        self.assertTrue(any("covers が、intake が返した covers と違う" in line for line in moved["integrity"]), moved["integrity"])
         found = run({"args": args(), "plan_seen": {"findings": 1}})["result"]
         self.assertEqual((found["status"], found["next_args"]["from"]), ("blocked", "1"))
         missing = run({"args": args(), "plan_seen": None})["result"]
@@ -3841,6 +3884,18 @@ class DecidedNotHeld(unittest.TestCase):
                 self.assertIn("（決める出典: answers/g1.md#L3）", self._prompt(r, "resolver:6-fix"))
                 self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         self.assertIn("decidable の source の形（例）: `input.md#L12`", nth_prompt(r, "verifier:6v", 0))
+
+    def test_固定の要求文書の行はdecidableの出典になり固定でない文書の行はならない(self):
+        a = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}, {"key": "requirements/a", "fixed": True}])
+        r = self._pass2(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "W/requirements-a.md:40"}]})
+        self.assertFalse(has(r["labels"], "verifier:6v-source"), "固定の要求文書の行は受け取れる")
+        self.assertIn("（決める出典: requirements-a.md#L40）", self._prompt(r, "resolver:6-fix"))
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        hyphen = args(entry="existing", existing_docs=[{"key": "requirements/x", "fixed": False}, {"key": "requirements/research-rag", "fixed": True}])
+        r = self._pass2(args=hyphen, verifier_fail={"6v": [{**self.DECIDABLE, "source": "requirements-research-rag.md#L3"}]})
+        self.assertFalse(has(r["labels"], "verifier:6v-source"), "topic に - を含む固定の要求文書も受け取れる")
+        bad = self._pass2(args=a, verifier_fail={"6v": [{**self.DECIDABLE, "source": "requirements-x.md#L40"}], "6v-source": [self.DECIDABLE]})
+        self.assertIn("requirements-x.md#L40", self._prompt(bad, "verifier:6v-source"), "書き換えてよい文書の行は決める出典にならない")
 
     def test_揃えても受け取れないdecidableは同じverifierに1回だけ聞き直す(self):
         for name, fail, why in (

@@ -264,12 +264,17 @@
 監査で差し戻されて、初稿の後の問いに化ける。要求文書は現行実装の説明書になり、読み手は何を作りたいのかを知れなくなる。
 
 - `measured` が決めてよいのは「今どうなっているか」という事実だけである。「今後どうするか」「続けるか・止めるか」
-  「失敗したら何をするか」を現物の挙動で決めない。
-- 要求文書では、既存実装は（依頼文が読んでよいと言っていても）根拠にならない。仕様書では、依頼者が「現状どおり」と答えた範囲だけ、現物を根拠にしてよい。
+  「失敗したら何をするか」を現物の挙動で決めない（下の、固定の要求文書が実行の手段を委ねている範囲を除く）。
+- 要求文書では、既存実装は（依頼文が読んでよいと言っていても）根拠にならない。仕様書では、依頼者が「現状どおり」と答えた範囲と、
+  固定の要求文書が実行の手段を既存の実装に委ねている範囲だけ、現物を根拠にしてよい。後者は `measured` の `evidence` に、現物の行と並べて
+  委ねている要求文書の行（`requirements-<topic>.md` の file・line・quote）も引く。
 - 既存の実装から文書を起こす依頼では、観測した挙動を決定にせず、次の 3 つを未決に置く。
   - 現在の実装のうち、本当は違う形にしたい挙動はあるか
   - 今は無いが、今後させたいことはあるか
   - 実装がそうなっているだけで、要求として決めたわけではない箇所はあるか
+- ただし、仕様書だけを書く run（書く文書がすべて仕様書で、どれも plan の `covers` で固定の要求文書を実現する）では、この 3 つを置かない。3 つとも何を作るかの問いで、
+  答えは固定の要求文書が持つ。この run で価値の問いが出たら、それは固定の要求文書の抜けで、script は聞かずに止まる（prd-spec.js の
+  `specOnly`、references/workflow-io.md §3 の `upstream_gap`）。
 
 ## §intake
 
@@ -306,7 +311,7 @@
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
-{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\"}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
+{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"covers\":{\"specifications/auth\":[\"requirements/auth\"]}}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
 ```
 
 ## flow.json の形
@@ -517,8 +522,8 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 { "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }, { "id": "RS-003", "kind": "decidable", "reason": "…", "source": "answers/g1.md#L3" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
 ```
 
-`decidable` だけが `source` を持ち、値を決める出典を `input.md#L<n>`・`answers/<ゲート>.md#L<n>`・プロンプトの「根拠にしてよい resolution」の
-RS- のどれか 1 つで書く。`decidable` は回答待ちの問いか保持規則にだけ付ける。script は、出典の無いか形の外の `decidable` と、値のある裁定への
+`decidable` だけが `source` を持ち、値を決める出典を `input.md#L<n>`・`answers/<ゲート>.md#L<n>`・固定の要求文書の行（`requirements-<topic>.md#L<n>`）・
+プロンプトの「根拠にしてよい resolution」の RS- のどれか 1 つで書く。`decidable` は回答待ちの問いか保持規則にだけ付ける。script は、出典の無いか形の外の `decidable` と、値のある裁定への
 `decidable` を受け取らない（prd-spec.js の `decidableDefect`。出典が無いと、差し戻された resolver が同じ問いか保持規則を言い直すだけになる）。
 出典の書き方の揺れ（W の絶対パス・`W/`・行の範囲・`:n`）は script が揃え（`deciding`）、揃えても受け取れなければ同じ verifier に 1 回だけ
 聞き直し（`<label>-source`）、それでも受け取れなければ段を止める。
