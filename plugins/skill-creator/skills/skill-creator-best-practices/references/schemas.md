@@ -400,7 +400,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 | `findings[].severity` | ○ | `blocker` / `major` / `minor`。update の打ち切り判定に使う |
 | `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
-| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本の同じファイルにもそのまま存在し、かつ指摘が成立する条件（参照先・前提）が改稿で変わっていなければ `true`、それ以外は `false`。`[INTENT]` との不一致を指摘するものは、前提である意図が改稿で与えられたので常に `false`。原本が読めなければ省略する（分からないものを `false` にしない）。script はこれで `new` と `preexisting` を分け、diff scope では `out_of_scope` に入れるかも決める（「review_skill.js の戻り値」の `out_of_scope` を参照） |
+| `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本の同じファイルにもそのまま存在し、かつ指摘が成立する条件（参照先・前提）が改稿で変わっていなければ `true`、それ以外は `false`。`[INTENT]` との不一致を指摘するものは、前提である意図が改稿で与えられたので常に `false`。原本が読めなければ省略する（分からないものを `false` にしない）。script はこれで `new` と `preexisting` を分け、`[REVERIFY_SCOPE]` の外の指摘を反証に回すかも決める（「review_skill.js の戻り値」の `reverify_scope` を参照） |
 | `unchecked_judgments` | ○（担当観点のみ） | `[UNCHECKED_ITEMS]` の各 id に対する `pass` / `partial` / `fail` / `unknown` と根拠。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本 |
 
 #### 委譲項目（[UNCHECKED_ITEMS]）の受け渡し
@@ -428,6 +428,14 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 確定側の有効票として数えられる。`unreadable` は集計の分母から外れ、有効票が
 `MIN_VALID_VOTES` に届かなければその指摘は `unverified` になる。
 
+反証は 2 段で起動する。`PERSPECTIVES` の先頭から過半数ぶん（script の `REFUTE_MAJORITY`）を先に
+立て、全員が有効票で同じ verdict を返したら残りの観点は起動しない（残りがどう投じても多数決の
+結論は変わらない）。1 票でも欠測・`unreadable`・不一致があれば残りを立て、全票で従来どおり
+多数決する。先行する観点は並びで固定なので、同じ票なら到着順に関係なく同じ結論になる。
+起動しなかった観点は各指摘の `skipped_perspectives` に残り、起動した観点の票は `votes[]` に
+`{ perspective, verdict, reason }` として残る。反証に回すのは severity が
+`REVISE_SEVERITIES` の指摘だけで、それ以外は戻り値の `reported_minor` に入る。
+
 ### updater の出力（UPDATE_SCHEMA）
 
 ```json
@@ -453,7 +461,9 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
   "mode": "update",
   "target": { "skillPath": "/abs/path", "scope": "full", "diffRef": null, "focus": null },
   "verdict": "applied_to_staging",
-  "findings": { "confirmed": [], "rejected": [], "unverified": [] },
+  "stop_reason": "resolved",
+  "findings": { "confirmed": [], "rejected": [], "unverified": [], "reported_minor": [] },
+  "findings_before": { "confirmed": [], "rejected": [], "unverified": [], "reported_minor": [] },
   "unchecked_failures": [],
   "findings_source": "after",
   "by_category": { "before": { "why-driven": 1 }, "after": { "why-driven": 0 } },
@@ -470,7 +480,14 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
     "changed_files": [],
     "resolved": [], "remaining": [], "new": [],
     "unverified": [], "possibly_rephrased": [], "unobserved": [],
-    "reclassified": [], "out_of_scope": [], "preexisting": [], "reverify_missing": []
+    "reclassified": [], "preexisting": [], "still_unverified": [], "refuted_on_recheck": [],
+    "unverified_absent": [], "unverified_unobserved": [],
+    "reverify_scope": {
+      "changed_files": ["SKILL.md"], "recheck_ids": ["p1-why-driven-1"],
+      "report_files": { "why-driven": ["SKILL.md", "references/a.md"] },
+      "excluded_findings": []
+    },
+    "reverify_missing": []
   },
   "revisions_used": 0
 }
@@ -478,14 +495,22 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 
 | フィールド | 意味 |
 |---|---|
+| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `budget` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review では `null` |
+| `findings.reported_minor` | severity が `REVISE_SEVERITIES` の外のため**設計上反証していない**指摘。改稿を動かさないので反証の票を使わないが、黙って落とすと「見ていないもの」が消えるので未検証のまま返す。updater には渡さない。review では 1 件でもあれば `clean` にならない |
+| `findings_before` | update のとき、改稿前（Verify）の `{ confirmed, rejected, unverified, reported_minor }`。`findings` は再検証後のものに置き換わり、Reverify は報告範囲を絞るため、改稿前の棄却・未検証・minor は再登場しないことがある。持ち越さないと改稿前に見えていた指摘が黙って消える。review では `null`（`findings` がそれ自体） |
+| `still_unverified` | 最初の確定指摘が再検証で再報告され、有効票が `MIN_VALID_VOTES` に届かなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
+| `refuted_on_recheck` | 最初の確定指摘が再検証で再報告され、過半数の反証で棄却されたもの。`resolved`（再検証で報告されなかった）とは別枠で、未解消にも数えない。ただし最初の確定時に blocker で、改稿の手が入っていないものは `contested_blocker` で止まる。改稿前に未検証だった指摘が再確認で棄却・格下げされた場合はここに入れず、`findings.rejected` / `findings.reported_minor` と `findings_before.unverified` に残る（一度も確定していないので、判定が割れたことにはならない） |
+| `unverified_absent` | 改稿前（Verify）に未検証だった指摘のうち、再検証で同じ観点の担当がそのファイルを報告範囲内で読み、再報告しなかったもの。確定したことが無いので消えても不自然ではなく、`resolved` とは呼ばずに提示だけする（未解消にも blocker 判定にも入れない） |
+| `unverified_unobserved` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが同じ観点の担当に読まれなかった（または報告範囲外の）もの。blocker は `unobserved` と同じく `unverified_blocker` で止まる |
 | `findings_source` | `findings` が最後に完了した検査パスのどちらか（`before` = 改稿前 / `after` = 再検証後） |
-| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「3 体の反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る |
+| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る |
 | `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
+| `by_category.after.<観点> === 0` | 報告範囲（`staging.reverify_scope.report_files`）の中で確定指摘が無かった。範囲の外は再走査していないので、スキル全体で問題が無いという意味ではない |
 | `reverify_missing` | Reverify の欠測観点。最初の試行で欠測があれば全観点を一度だけ再試行し、その後も欠測が残れば `reverify_incomplete` として保持する |
 | `reverify_receipt` | update の Reverify 完了証跡。`completed: false` または欠測がある場合、runner は action package を発行しない |
-| `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない |
+| `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない。最初の確定指摘が severity を下げて再報告された（`reported_minor` に入った）ときは `remaining` に数え、`resolved` にしない |
 | `possibly_rephrased` | 観点とファイルは一致するが主張の文言が変わり、機械的には `new` になったもの。`new` にも残る |
-| `unobserved` | 再検証でそのファイルを同じ観点の担当が読んでいないため、`resolved` に数えられないもの |
-| `out_of_scope` | `scope: "diff"` のときだけ。改稿前に読まれたファイルにも今回変更したファイルにも無い場所で再検証が見つけた確定指摘。`present_in_original: true` の指摘だけが入り、提示だけして blocker 判定には入れない（`full` では常に空）。`false` や省略の指摘は、updater が変更を `changed_files` に申告し漏らした場合や意図の未達を隠さないよう、ここには入れず `new` として未解消に数える |
-| `revisions_used` | **再**改稿の回数。初回の改稿は含まない |
+| `unobserved` | 最初の確定指摘のうち、再検証で再報告されず、かつそのファイルを同じ観点の担当が読んでいない、または報告範囲（`reverify_scope.report_files`）の外にあるため、`resolved` に数えられないもの |
+| `reverify_scope` | 再検証の報告範囲の宣言。`report_files` は観点ごとに指摘を報告させたファイル（`changed_files` ∪ その観点で再確認する指摘のファイル）で、**この外は再走査していない**。`recheck_ids` は再確認させた指摘（最初の確定指摘 ∪ 改稿前に未検証だった指摘 ∪ 前巡の未解消。委譲項目は `[UNCHECKED_ITEMS]` で毎回判定するので含めない）。`excluded_findings` は範囲外のファイルで `present_in_original: true` として返ってきたため反証に回さなかった指摘（未検証・未分類で、blocker 判定にも入れない）。`false` や省略の指摘は `[INTENT]` の未達や `changed_files` の申告漏れを隠さないよう範囲外でも反証に回す。Reverify が完了しなかった出口では `null` |
+| `revisions_used` | **再**改稿の回数（起動した updater の数 − 1。1 体も起動しなければ 0）。初回の改稿は含まない |

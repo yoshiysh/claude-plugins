@@ -10,20 +10,22 @@ export const meta = {
   ],
 }
 
-// 有効票の下限。3 体中 2 体以上が返ってこないと、多数決の分母が 1 になり
+// 有効票の下限。これを下回ると多数決の分母が 1 になり、
 // 「1 体が反証しなかった」だけで確定してしまう。欠測は反証の不在ではないので、
 // 確定にも棄却にも回さず unverified として残す。
 const MIN_VALID_VOTES = 2
 
-// 再改稿に回数上限を持たない。回数は「直っているか」と無関係な量で、上限に達した時点で
-// 残った指摘が解ける途中だったのか解けない指摘だったのかを区別しない。代わりに進捗で止める
-// （下の「乾き判定」）。暴走の backstop は workflow runtime が持つ agent 起動上限が外側に
-// 既にあり、内側に二重の打ち切りを置くと「どちらで止まったのか」が結果から読めなくなる。
-// REVISE_SEVERITIES: updater へ再入させる指摘の重さ。実測で major の new が司令塔の
-// 手修正（設計外の運用）に流れていたのは、ここが 'blocker' のみで major が
-// 「提示するだけ」に落ちていたため。minor まで戻すと文言の好みで周回が尽きるので
-// major までにする。この配列が再入規則の正本（SKILL.md はここを参照する）。
+// updater へ再入させ、反証に回す指摘の重さ（再入規則の正本）。minor まで含めると文言の好みで
+// 周回が尽き、改稿を動かさない指摘に反証の票を使う。外の重さは reported_minor として未検証で返す。
 const REVISE_SEVERITIES = ['blocker', 'major']
+
+// 回数ではなく進捗で止める（回数は「直っているか」と無関係な量）。未解消件数がそれまでの最小値を
+// 下回らない巡がこれだけ続いたら止める。前巡比でなく最小値と比べるのは往復を進捗と読まないため。
+const STALL_ROUNDS = 2
+
+// budget（出力 token の hard ceiling）の残りがこれを下回ったら巡を始めない。ceiling で agent() が
+// throw すると staging と突き合わせが返らない。値は 1 巡の出力量の見積もりで実測値ではない。
+const MIN_ROUND_BUDGET_TOKENS = 200_000
 
 // finder 1 体が返す指摘数の上限。指摘ごとに複数の独立反証を起動するため、
 // schema 側で制限しないと runtime data がそのまま無界の fan-out になる。
@@ -241,7 +243,7 @@ if (skillPath.startsWith(`${stagingDir}/`)) {
 if (parsedArgs.maxRevisions !== undefined) {
   throw new Error(
     'args.maxRevisions は廃止されました。改稿の打ち切りは回数ではなく進捗で決まります' +
-      '（未解消の指摘が 0 件になるか、前巡から 1 件も動かなくなるまで回す）。引数を外してください。'
+      '（停止規則は review_skill.js の STALL_ROUNDS / MIN_ROUND_BUDGET_TOKENS を参照）。引数を外してください。'
   )
 }
 
@@ -322,7 +324,7 @@ const FINDERS = [
   },
 ]
 
-// PERSPECTIVES: 反証者の観点。同じ懐疑者を 3 体並べても同じ見落とし方をするため、
+// PERSPECTIVES: 反証者の観点。同じ懐疑者を並べても同じ見落とし方をするため、
 // 「何を疑うか」をずらす。実在 → 重要性 → 代替解釈 の順で、指摘が生き残る条件を狭めていく。
 const PERSPECTIVES = [
   {
@@ -364,9 +366,10 @@ function roleAgent(file, body, opts) {
 
 // 範囲の指示は 2 種類ある。source は対象スキル本体（git 追跡下）、draft は staging。
 // staging は git の追跡外なので、そこで scope=diff の指示をそのまま渡すと差分が空になり、
-// finder は「見るべき箇所が無い」と判断して何も読まない。Reverify は常に full 相当で読ませ、
+// finder は「見るべき箇所が無い」と判断して何も読まない。Reverify は git 差分ではなく
+// reverifyScope（updater の変更ファイル＋再確認する指摘のファイル）で報告範囲を絞り、
 // focus だけは両パスで維持する（人間が見てほしいと言った関心は改稿後も変わらない）。
-function scopeBlock(kind) {
+function scopeBlock(kind, category, reverifyScope) {
   const lines = []
   if (kind === 'draft') {
     lines.push('[SCOPE]: draft')
@@ -384,6 +387,21 @@ function scopeBlock(kind) {
         '[TARGET_DIR] で実際に読んだものだけ。原本は相対パスが同じなので混ぜると観測の有無が狂う）。'
     )
     if (mode === 'update') lines.push(`[INTENT]:\n${intent}`)
+    const recheck = reverifyScope.recheck.filter((f) => f.category === category)
+    lines.push(
+      `[REVERIFY_SCOPE]:\n${JSON.stringify([...scopeFilesFor(reverifyScope, category)], null, 2)}\n` +
+        '指摘として報告してよいのは、上のファイルに置かれたものだけ（文脈のために他のファイルを読むのは構わない）。' +
+        '例外として、改稿が [INTENT] を満たしていない・反している指摘は、どのファイルに置かれていても報告する。'
+    )
+    lines.push(
+      `[RECHECK_FINDINGS]:\n${JSON.stringify(
+        recheck.map((f) => ({ file: f.file, location: f.location, claim: f.claim, severity: f.severity })),
+        null,
+        2
+      )}\n` +
+        '前巡までに確定し、まだ解消が確かめられていない指摘。各指摘のファイルを必ず読み、まだ成立するなら' +
+        ' claim を一字も変えずに再報告する（文言を変えると同じ指摘と照合できず、解消と新規に化ける）。'
+    )
   } else {
     lines.push(`[SCOPE]: ${scope}`)
     lines.push(
@@ -402,7 +420,7 @@ function scopeBlock(kind) {
 
 // pass ごとに id を振り直す。before/after を突き合わせるので、id が衝突すると
 // 「解消された指摘」と「新しく出た指摘」が同一視される。
-function runFinders(dir, phaseTitle, passLabel, scopeKind) {
+function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope = null) {
   // parallel（barrier）を使う理由: 次の集約が全観点を横断して見る必要がある。
   // どの観点が欠測したかを by_category に載せ、1 つでも落ちたら verdict を
   // review_incomplete に固定する判定は、全件が出揃わないと下せない。
@@ -414,7 +432,7 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind) {
           `[TARGET_DIR]: ${dir}`,
           `[CATEGORY]: ${f.id} — ${f.title}`,
           `[CATEGORY_GUIDE]:\n${f.guide}`,
-          scopeBlock(scopeKind),
+          scopeBlock(scopeKind, f.id, reverifyScope),
           f.owns_unchecked ? uncheckedBlock : '',
         ]
           .filter(Boolean)
@@ -512,62 +530,95 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind) {
 
 // ------------------------------------------------------------------ 反証（Verify / Reverify）
 
+// 過半数に必要な票数。先頭からこの数の観点が全員有効票で一致すれば、残りの観点が
+// どう投じても多数決の結論は変わらないので起動しない（PERSPECTIVES の並びが先行順を決める）。
+const REFUTE_MAJORITY = Math.floor(PERSPECTIVES.length / 2) + 1
+
+const isValidVote = (v) => v.verdict === 'refuted' || v.verdict === 'not_refuted'
+
+function refuteOnce(f, p, phaseTitle) {
+  return roleAgent(
+    'refuter.md',
+    [
+      `[PERSPECTIVE]: ${p.id}`,
+      `[PERSPECTIVE_GUIDE]:\n${p.guide}`,
+      `[TARGET_DIR]: ${f.__dir}`,
+      `[FINDING]:\n${JSON.stringify(
+        {
+          category: f.category,
+          file: f.file,
+          location: f.location,
+          claim: f.claim,
+          evidence: f.evidence,
+          severity: f.severity,
+        },
+        null,
+        2
+      )}`,
+      mode === 'update' && phaseTitle === 'Reverify' ? `[INTENT]:\n${intent}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    {
+      model: 'sonnet',
+      schema: REFUTE_SCHEMA,
+      phase: phaseTitle,
+      label: `refute-${f.id}-${p.id}`,
+    }
+  ).then((v) => (v ? { perspective: p.id, verdict: v.verdict, reason: v.reason } : null))
+}
+
+function refuteStaged(f, phaseTitle) {
+  const lead = PERSPECTIVES.slice(0, REFUTE_MAJORITY)
+  const rest = PERSPECTIVES.slice(REFUTE_MAJORITY)
+  // 段ごとの parallel（barrier）は、早期決着の判定が先行段の全票を必要とするため ——
+  // 1 票ずつ流して途中で決めると、到着順で結論と起動数が変わる。先行段の観点は
+  // 並びで固定してあるので、同じ票なら同じ結論・同じ起動数になる。
+  return parallel(lead.map((p) => () => refuteOnce(f, p, phaseTitle))).then((leadRaw) => {
+    const leadVotes = leadRaw.filter(Boolean)
+    const valid = leadVotes.filter(isValidVote)
+    // 欠測・unreadable が先行段に 1 票でもあれば決着させない。欠けた票を一致側に
+    // 数えると、検証していない票で多数決が成立する。
+    const settled =
+      valid.length === lead.length &&
+      valid.length >= MIN_VALID_VOTES &&
+      valid.every((v) => v.verdict === valid[0].verdict)
+    if (settled || rest.length === 0) {
+      return { finding: f, votes: leadVotes, skipped_perspectives: settled ? rest.map((p) => p.id) : [] }
+    }
+    return parallel(rest.map((p) => () => refuteOnce(f, p, phaseTitle))).then((restRaw) => ({
+      finding: f,
+      votes: [...leadVotes, ...restRaw.filter(Boolean)],
+      skipped_perspectives: [],
+    }))
+  })
+}
+
 function verifyFindings(findings, phaseTitle, passLabel) {
-  // 外側の parallel は finding どうしが独立だから。内側の parallel（barrier）は
-  // 多数決の算術が 3 票すべてを必要とするため —— 1 票ずつ流して途中で決めると、
-  // 到着順で結論が変わる。
-  return parallel(
-    findings.map((f) => () =>
-      parallel(
-        PERSPECTIVES.map((p) => () =>
-          roleAgent(
-            'refuter.md',
-            [
-              `[PERSPECTIVE]: ${p.id}`,
-              `[PERSPECTIVE_GUIDE]:\n${p.guide}`,
-              `[TARGET_DIR]: ${f.__dir}`,
-              `[FINDING]:\n${JSON.stringify(
-                {
-                  category: f.category,
-                  file: f.file,
-                  location: f.location,
-                  claim: f.claim,
-                  evidence: f.evidence,
-                  severity: f.severity,
-                },
-                null,
-                2
-              )}`,
-              mode === 'update' && phaseTitle === 'Reverify' ? `[INTENT]:\n${intent}` : '',
-            ]
-              .filter(Boolean)
-              .join('\n\n'),
-            {
-              model: 'sonnet',
-              schema: REFUTE_SCHEMA,
-              phase: phaseTitle,
-              label: `refute-${f.id}-${p.id}`,
-            }
-          )
-        )
-      ).then((votes) => ({ finding: f, votes: votes.filter(Boolean) }))
-    )
-  ).then((raw) => {
+  // REVISE_SEVERITIES の外の指摘は改稿を動かさないので反証しない。黙って捨てると
+  // 「見ていないもの」が消えるため、未検証であることを名前に持つ別枠で返す。
+  const reportedMinor = findings
+    .filter((f) => !REVISE_SEVERITIES.includes(f.severity))
+    .map(({ __dir, ...rest }) => rest)
+  const toVerify = findings.filter((f) => REVISE_SEVERITIES.includes(f.severity))
+  // 外側の parallel は finding どうしが独立だから。
+  return parallel(toVerify.map((f) => () => refuteStaged(f, phaseTitle))).then((raw) => {
     const confirmed = []
     const rejected = []
     const unverified = []
     for (const row of raw.filter(Boolean)) {
       // unreadable は有効票に数えない。読めていない票を分母に入れると、実際には
-      // 1 体しか検証していない指摘が「3 体中 1 体だけが反証した」＝確定として通る。
-      const votes = row.votes.filter((v) => v.verdict === 'refuted' || v.verdict === 'not_refuted')
+      // 1 体しか検証していない指摘が「反証したのは少数だけ」＝確定として通る。
+      const votes = row.votes.filter(isValidVote)
       const unreadableVotes = row.votes.length - votes.length
       const refutedCount = votes.filter((v) => v.verdict === 'refuted').length
       const entry = {
         ...row.finding,
-        votes: row.votes.map((v) => ({ verdict: v.verdict, reason: v.reason })),
+        votes: row.votes,
         valid_votes: votes.length,
         unreadable_votes: unreadableVotes,
         refuted_votes: refutedCount,
+        skipped_perspectives: row.skipped_perspectives,
       }
       delete entry.__dir
       // 欠測は反証の不在ではない。有効票が足りないまま確定させると「誰も反論しなかった」が
@@ -581,10 +632,13 @@ function verifyFindings(findings, phaseTitle, passLabel) {
       if (refutedCount * 2 > votes.length) rejected.push(entry)
       else confirmed.push(entry)
     }
+    const skipped = raw.filter(Boolean).reduce((n, row) => n + row.skipped_perspectives.length, 0)
     log(
-      `${passLabel}: 確定 ${confirmed.length} 件 / 棄却 ${rejected.length} 件 / 未検証 ${unverified.length} 件`
+      `${passLabel}: 確定 ${confirmed.length} 件 / 棄却 ${rejected.length} 件 / 未検証 ${unverified.length} 件` +
+        ` / 先行 ${REFUTE_MAJORITY} 票の一致で省いた反証 ${skipped} 体` +
+        ` / 反証せず提示する ${REVISE_SEVERITIES.join('/')} 以外の指摘 ${reportedMinor.length} 件`
     )
-    return { confirmed, rejected, unverified }
+    return { confirmed, rejected, unverified, reported_minor: reportedMinor }
   })
 }
 
@@ -619,6 +673,30 @@ function coarseKeyOf(f) {
   return [f.category, normPath(f.file)].join('::')
 }
 
+// Reverify で観点ごとに報告させるファイル。updater の変更ファイルに、その観点で再確認する
+// 指摘のファイルを足す。後者を足さないと、変更されなかったファイルに残る指摘が報告されず、
+// 消えたように見えて resolved に化ける。
+function scopeFilesFor(reverifyScope, category) {
+  return new Set([
+    ...reverifyScope.changedFiles,
+    ...reverifyScope.recheck.filter((f) => f.category === category).map((f) => normPath(f.file)),
+  ])
+}
+
+// updater に渡すのは直すのに要る欄だけ。票や理由まで渡すと、反証の議論を改稿の指示と読み違える。
+function forUpdater(c) {
+  return {
+    id: c.id,
+    category: c.category,
+    file: c.file,
+    location: c.location,
+    claim: c.claim,
+    evidence: c.evidence,
+    severity: c.severity,
+    suggested_fix: c.suggested_fix,
+  }
+}
+
 // ------------------------------------------------------------------------- Find / Verify
 
 phase('Find')
@@ -639,15 +717,21 @@ if (reviewIncomplete) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
 }
 
-function result(verdict, findings, findingsSource, afterCategories, staging, revisionsUsed, uncheckedFailures) {
+function result(verdict, findings, findingsSource, afterCategories, staging, revisionsUsed, uncheckedFailures, stopReason) {
   return {
     mode,
+    // update で、どの出口で止まったか。needs_human_decision は複数の出口が共有するので、
+    // verdict だけでは「乾いた」「停滞した」「予算が尽きた」「blocker を検証しきれない」が区別できない。
+    stop_reason: stopReason,
     // 委譲項目の未達。findings と分けているのは、反証を通っていないため
-    // （confirmed に混ぜると「3 体の反証を生き残った指摘」という意味が薄まる）。
+    // （confirmed に混ぜると「反証を生き残った指摘」という意味が薄まる）。
     unchecked_failures: uncheckedFailures || [],
     target: { skillPath, scope, diffRef: diffRef || null, focus },
     verdict,
     findings,
+    // update の findings は再検証後のものに置き換わり、Reverify は報告範囲を絞るので、
+    // 改稿前の棄却・未検証・reported_minor は再登場しないことがある。持ち越さないと結果から黙って消える。
+    findings_before: mode === 'update' ? base : null,
     // findings がどちらの検査パスのものかを明示する。改稿後の結果を改稿前のものと
     // 取り違えると、「まだ直っていない」と「もう直した」が逆に読める。
     findings_source: findingsSource,
@@ -677,15 +761,17 @@ if (mode === 'review') {
   // 確定が 0 件でも未検証が残っていれば clean とは言わない。未検証を clean に丸めると、
   // 「未検証と問題なしを区別する」ために置いた 3 バケットが結果表示で 1 つに戻る。
   // 委譲項目の未達も clean を妨げる。機械検査が判定せず、委譲先も判定しなかった項目が
-  // 残っているなら、見ていない箇所があるという点で未検証と同じ。
+  // 残っているなら、見ていない箇所があるという点で未検証と同じ。反証に回さなかった
+  // reported_minor も同じ理由で clean を妨げる（検証していないものを「問題なし」と言わない）。
   const verdict = reviewIncomplete
     ? 'review_incomplete'
     : base.confirmed.length === 0 &&
         base.unverified.length === 0 &&
+        base.reported_minor.length === 0 &&
         first.uncheckedFailures.length === 0
       ? 'clean'
       : 'findings'
-  return result(verdict, base, 'before', null, null, 0, first.uncheckedFailures)
+  return result(verdict, base, 'before', null, null, 0, first.uncheckedFailures, null)
 }
 
 // -------------------------------------------------------------------------------- Update
@@ -693,53 +779,59 @@ if (mode === 'review') {
 // 観点が欠けたまま改稿しない。部分的な絵から書き換えるのは、見えていない箇所を
 // 「問題なし」と決めつけて手を入れるのと同じで、止まる方が安全。
 if (reviewIncomplete) {
-  return result('review_incomplete', base, 'before', null, null, 0, first.uncheckedFailures)
+  return result('review_incomplete', base, 'before', null, null, 0, first.uncheckedFailures, 'review_incomplete')
 }
 
 // 最後に完了した検査パスの委譲項目未達。update では Reverify の結果で上書きする。
 let latestUnchecked = first.uncheckedFailures
 
 let revision = 0
+// revisions_used は「起動した updater の数 − 1」。revision は巡の番号として巡の末尾で進むので、
+// 巡の頭で止まる出口（budget）では実際の起動数より 1 多くなる。
+let updatesRun = 0
 let staging = null
 let latest = base
 let latestSource = 'before'
 let afterCategories = null
 let verdict = null
+let stopReason = null
 // 前巡の未解消指摘の同一性キー集合。null は「まだ 1 巡もしていない」で、比較対象が無い。
 // 乾き判定（前巡と 1 件も違わなければ打ち切る）のためだけに持つ。
 let prevUnresolvedKeys = null
+let prevUnresolvedFindings = []
+// 停滞判定の状態。最小値は「これまでに到達した最良の未解消件数」で、更新できない巡を数える。
+let minUnresolvedCount = null
+let stallStreak = 0
+// typeof で見るのは、budget を持たない実行環境（Codex runner・単体テスト）では識別子
+// そのものが存在せず、参照しただけで ReferenceError になるため。そこではこの停止は働かない。
+const roundBudget = typeof budget !== 'undefined' && budget && budget.total ? budget : null
 
-// 回数上限を持たないループ。出口は下の break だけで、全部が名前を持つ:
-// update_failed（改稿 agent 欠測）/ reverify_incomplete（再検証の観点欠測）/
-// needs_human_decision（未検証・未観測の blocker、または乾き）/ applied_to_staging（未解消 0 件）。
-// 回数で切らないのは、回数が「直っているか」と無関係な量で、上限到達時に「解ける途中だった」と
-// 「解けない指摘だった」を区別しないため。進捗が止まったことを集合比較で確かめて止める。
+// 回数上限を持たないループ。出口は break だけで、どれも stop_reason を設定する（値の正本は schemas.md）。
 while (true) {
+  if (roundBudget && roundBudget.remaining() < MIN_ROUND_BUDGET_TOKENS) {
+    log(
+      `budget の残り ${roundBudget.remaining()} token が 1 巡の見積もり ${MIN_ROUND_BUDGET_TOKENS} を下回るため、` +
+        '次の改稿を始めずに現時点の結果を返します。'
+    )
+    verdict = 'needs_human_decision'
+    stopReason = 'budget'
+    break
+  }
   phase('Update')
   const updaterThreadId = `update-r${revision + 1}`
   // confirmed が 0 件でも updater は走らせる。intent は必須引数であり、
   // 「レビューでは問題が出ないが依頼された変更はある」場合（Issue 起点の更新が典型）に
   // confirmed の有無で門を作ると、update が黙って何もしないモードになる。
+  // reported_minor は渡さない。反証していない指摘で改稿を広げると、変更ファイルが増えて
+  // Reverify の範囲と新規指摘が膨らむ。
+  updatesRun++
   const changed = await roleAgent(
     'updater.md',
     [
       `[TARGET_DIR]: ${skillPath}`,
       `[STAGING_DIR]: ${stagingDir}`,
       `[INTENT]:\n${intent}`,
-      `[CONFIRMED_FINDINGS]:\n${JSON.stringify(
-        originalConfirmed.map((c) => ({
-          id: c.id,
-          category: c.category,
-          file: c.file,
-          location: c.location,
-          claim: c.claim,
-          evidence: c.evidence,
-          severity: c.severity,
-          suggested_fix: c.suggested_fix,
-        })),
-        null,
-        2
-      )}`,
+      `[CONFIRMED_FINDINGS]:\n${JSON.stringify(originalConfirmed.map(forUpdater), null, 2)}`,
       // 未検証も渡す。「未検証」と「問題なし」を混ぜないという原則は update でも同じで、
       // 渡さないと updater は確定 0 件を「直すところが無い」と読む。ただし確定指摘とは
       // 別枠にして、直すかどうかを updater が判断できるようにする。
@@ -756,8 +848,10 @@ while (true) {
         2
       )}`,
       revision > 0
-        ? `[REVISE_NOTE]:\n前回の改稿後も残った指摘がある。下の残存・新規を解消すること。\n${JSON.stringify(
-            staging ? { remaining: staging.remaining, new: staging.new } : {},
+        ? // ループを回した未解消の集合そのものを渡す。一部（残存・新規）だけを渡すと、再分類や
+          // 再確認で未検証になった指摘が周回の理由なのに updater には見えず、同じ状態で回り続ける。
+          `[REVISE_NOTE]:\n前回の改稿後も未解消の指摘がある。下の unresolved を解消すること。\n${JSON.stringify(
+            { unresolved: prevUnresolvedFindings.map(forUpdater) },
             null,
             2
           )}`
@@ -782,10 +876,15 @@ while (true) {
       possibly_rephrased: [],
       unobserved: [],
       reclassified: [],
-      out_of_scope: [],
       preexisting: [],
+      still_unverified: [],
+      refuted_on_recheck: [],
+      unverified_absent: [],
+      unverified_unobserved: [],
+      reverify_scope: null,
     }
     verdict = 'update_failed'
+    stopReason = 'update_failed'
     break
   }
   log(`staging に ${changed.changed_files.length} ファイルを書きました（改稿 ${revision + 1} 回目）`)
@@ -793,16 +892,36 @@ while (true) {
     log('updater は応答したが変更ファイルを 1 つも報告しなかった。改稿が空のまま再検証に入る。')
   }
 
+  // 再確認の対象は「最初の確定指摘 ∪ 改稿前に未検証だった REVISE_SEVERITIES ∪ 前巡の未解消」。
+  // 最初の確定指摘を毎巡含めるのは、resolved / remaining がそれとの突き合わせで決まるため ——
+  // updater は毎巡原本から複製し直してよいので、前巡で直ったファイルが今巡は原本に戻っていることが
+  // あり、再確認しないとぶり返しが報告されない。未検証を含めるのは、変更されないファイルにある
+  // 未検証の blocker が範囲外として反証されないまま消え、blocker ゲートを素通りするため。
+  // 委譲項目の未達は [UNCHECKED_ITEMS] で毎回判定し直すので含めない。
+  const recheckByKey = new Map()
+  for (const f of [...originalConfirmed, ...base.unverified, ...prevUnresolvedFindings]) {
+    if (!recheckByKey.has(keyOf(f))) recheckByKey.set(keyOf(f), f)
+  }
+  const reverifyScope = {
+    changedFiles: changed.changed_files.map((c) => normPath(c.path)),
+    recheck: [...recheckByKey.values()],
+  }
+  log(
+    `再検証の報告範囲: 変更ファイル ${reverifyScope.changedFiles.length} 件 + 再確認する指摘 ` +
+      `${reverifyScope.recheck.length} 件のファイル（観点ごと）。それ以外のファイルは改稿前と同じ内容のため` +
+      '再走査せず、[INTENT] 未達の指摘だけを範囲外でも受け付ける。'
+  )
+
   phase('Reverify')
   let reverifyPassLabel = `p2r${revision + 1}`
   let freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
-  let after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+  let after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft', reverifyScope)
   reverifyMissing = after.missing
   if (after.missing.length > 0) {
     log(`再検証の欠測（${after.missing.join(', ')}）を保持したまま、全体を 1 回だけ再試行します。`)
     reverifyPassLabel = `${reverifyPassLabel}-retry`
     freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
-    after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft')
+    after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft', reverifyScope)
     reverifyMissing = after.missing
   }
   if (after.missing.length > 0) {
@@ -817,68 +936,99 @@ while (true) {
       possibly_rephrased: [],
       unobserved: [],
       reclassified: [],
-      out_of_scope: [],
       preexisting: [],
+      still_unverified: [],
+      refuted_on_recheck: [],
+      unverified_absent: [],
+      unverified_unobserved: [],
+      reverify_scope: null,
       reverify_missing: after.missing,
     }
     afterCategories = byCategory(after.missing, [])
     reverifyProvenance = { updater_thread_id: updaterThreadId, fresh_thread_id: freshThreadId }
     verdict = 'reverify_incomplete'
+    stopReason = 'reverify_incomplete'
     break
   }
 
-  const post = await verifyFindings(tag(stagingDir, after.findings), 'Reverify', 'after')
+  // 報告範囲の外の指摘は反証に回さない。範囲外のファイルは改稿前と同じ内容なので、そこで
+  // present_in_original: true の指摘は改稿が持ち込んだものではなく、改稿を動かす材料にならない。
+  // true 以外を範囲内に残すのは、[INTENT] 未達の指摘は原本と同一のファイルでも false になり、
+  // 外すと未達が隠れるため（changed_files の申告漏れも同じ形で現れる）。
+  const inReverifyScope = (f) =>
+    scopeFilesFor(reverifyScope, f.category).has(normPath(f.file)) || f.present_in_original !== true
+  const scopedFindings = after.findings.filter(inReverifyScope)
+  const excludedByScope = after.findings.filter((f) => !inReverifyScope(f))
+  if (excludedByScope.length > 0) {
+    log(
+      `報告範囲の外で原本にもある指摘 ${excludedByScope.length} 件は反証せず、` +
+        'staging.reverify_scope.excluded_findings に未検証のまま残します。'
+    )
+  }
+
+  const post = await verifyFindings(tag(stagingDir, scopedFindings), 'Reverify', 'after')
 
   const beforeKeys = new Set(originalConfirmed.map(keyOf))
   const afterKeys = new Set(post.confirmed.map(keyOf))
-  // 「新規」の基準は改稿前に確定した指摘ではなく、改稿前に**見えていた**指摘全体。
-  // 改稿前に unverified / rejected だったものが再検証で票が揃って確定しても、それは改稿が
-  // 持ち込んだ問題ではなく反証の結果が変わっただけ。new は「改稿で悪くなっていないか」を
-  // 人間が判断する唯一の数字なので、ここに混ぜると承認判断が直接歪む。
-  const beforeSeenKeys = new Set(
-    [...base.confirmed, ...base.unverified, ...base.rejected].map(keyOf)
+  // 反証に回さなかった minor も「まだ在る」側に数える。最初の確定指摘が severity を下げて
+  // 再報告されたとき、post.confirmed に無いからと resolved に数えると、消えていないものが
+  // 解消済みに化ける。remaining に置くが REVISE_SEVERITIES の外なので改稿は動かさない。
+  const minorAfter = post.reported_minor.filter((f) => beforeKeys.has(keyOf(f)))
+  // 再報告されたが確定しなかった最初の確定指摘も「消えた」ではない。未検証になったものは
+  // 直ったと確かめられていないので未解消に数え、棄却されたものは反証の結果として別枠に置く。
+  const stillUnverified = post.unverified.filter((f) => beforeKeys.has(keyOf(f)))
+  const refutedOnRecheck = post.rejected.filter((f) => beforeKeys.has(keyOf(f)))
+  const presentAfterKeys = new Set(
+    [...afterKeys, ...minorAfter.map(keyOf), ...stillUnverified.map(keyOf), ...refutedOnRecheck.map(keyOf)]
   )
-  // scope=diff のとき、改稿前は差分に触れた箇所だけ、再検証はドラフト全体を見ている。
-  // 観測範囲が違うまま引き算すると、元からあって今回の変更と無関係な問題が丸ごと new に
-  // 入る。比較対象は「改稿前に読まれたファイル ∪ 今回変更したファイル」に絞り、範囲外は
-  // out_of_scope として提示だけする（blocker の算出には入れない）。full では全件が範囲内。
-  const inScope =
-    scope === 'diff'
-      ? new Set(
-          [
-            ...Object.values(first.scannedByCategory).flat(),
-            ...changed.changed_files.map((c) => c.path),
-          ].map(normPath)
-        )
-      : null
-  // true 以外を範囲外に出さないのは、changed_files の申告漏れに加え、[INTENT] 未達の指摘は
-  // 原本と同一のファイルでも false になり、範囲外に出すと未達が隠れるため。
-  const isInScope = (f) =>
-    inScope === null || inScope.has(normPath(f.file)) || f.present_in_original !== true
+  // 「新規」の基準は改稿前に確定した指摘ではなく、改稿前に**見えていた**指摘全体。
+  // 改稿前に unverified / rejected / reported_minor だったものが再検証で票が揃って確定しても、
+  // それは改稿が持ち込んだ問題ではなく反証の結果（や severity の付け方）が変わっただけ。
+  // new は「改稿で悪くなっていないか」を人間が判断する唯一の数字なので、ここに混ぜると
+  // 承認判断が直接歪む。
+  const beforeSeenKeys = new Set(
+    [...base.confirmed, ...base.unverified, ...base.rejected, ...base.reported_minor].map(keyOf)
+  )
 
   // 「消えた」ように見える指摘のうち、再検証でそのファイルを誰も開かなかったものは
   // resolved に数えない。読まなかっただけかもしれず、それを解消として数えると
   // 改稿の効果が水増しされる。観測の有無は指摘と同じ観点の finder の scanned_files で見る
-  // （別観点の担当が読んでいても、この観点で見られたことにはならない）。
+  // （別観点の担当が読んでいても、この観点で見られたことにはならない）。報告範囲の外の
+  // ファイルは読まれていても報告させていないので、そこで消えたものも解消とは数えない。
+  const observedIn = (f) =>
+    (after.scannedByCategory[f.category] || []).map(normPath).includes(normPath(f.file)) &&
+    scopeFilesFor(reverifyScope, f.category).has(normPath(f.file))
   const resolved = []
   const unobserved = []
   for (const f of originalConfirmed) {
-    if (afterKeys.has(keyOf(f))) continue
-    const scanned = after.scannedByCategory[f.category] || []
-    if (scanned.map(normPath).includes(normPath(f.file))) resolved.push(f)
+    if (presentAfterKeys.has(keyOf(f))) continue
+    if (observedIn(f)) resolved.push(f)
     else unobserved.push(f)
   }
+  // 改稿前に未検証だった指摘も同じ観測の問いにかける。再確認させても、再報告されなかったときの
+  // 行き先が無いと結果から黙って消える。観測したうえで消えたもの（unverified_absent）は、確定した
+  // ことが無いので解消とは呼ばず提示だけする。観測できなかったもの（unverified_unobserved）の
+  // blocker は unobserved と同じく自動確定させない。
+  const seenAfterKeys = new Set(
+    [...post.confirmed, ...post.unverified, ...post.rejected, ...post.reported_minor].map(keyOf)
+  )
+  const unverifiedAbsent = []
+  const unverifiedUnobserved = []
+  for (const f of base.unverified) {
+    if (seenAfterKeys.has(keyOf(f))) continue
+    if (observedIn(f)) unverifiedAbsent.push(f)
+    else unverifiedUnobserved.push(f)
+  }
 
-  const remaining = post.confirmed.filter((f) => beforeKeys.has(keyOf(f)))
+  const remaining = [...post.confirmed.filter((f) => beforeKeys.has(keyOf(f))), ...minorAfter]
   const notOriginal = post.confirmed.filter((f) => !beforeKeys.has(keyOf(f)))
   const reclassified = notOriginal.filter((f) => beforeSeenKeys.has(keyOf(f)))
-  const outOfScope = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)) && !isInScope(f))
-  // 改稿前の Find が見落とした既存の問題は、どのバケット（reclassified / out_of_scope）にも
-  // 落ちずに new へ入る。finder の非決定性由来で前後の Find 結果の差からは区別できないので、
+  // 改稿前の Find が見落とした既存の問題は reclassified に落ちずに new へ入る。
+  // finder の非決定性由来で前後の Find 結果の差からは区別できないので、
   // 再検証の finder が原本を照合した present_in_original を唯一の材料にして分ける。
   // 実在する確定指摘であることに変わりはないので提示はするが、「改稿が持ち込んだ」数字と
   // blocker 判定からは外す（改稿前にも同じ状態だったものを改稿の副作用として止めない）。
-  const candidates = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)) && isInScope(f))
+  const candidates = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)))
   const preexisting = candidates.filter((f) => f.present_in_original === true)
   const introduced = candidates.filter((f) => f.present_in_original !== true)
 
@@ -894,16 +1044,18 @@ while (true) {
     `突き合わせ（最初の確定指摘との比較・観点/ファイル/主張の一致で判定）: ` +
       `解消 ${resolved.length} / 残存 ${remaining.length} / 新規 ${introduced.length} / ` +
       `未観測 ${unobserved.length} / 未検証 ${post.unverified.length} / ` +
-      `再分類 ${reclassified.length} / 範囲外 ${outOfScope.length} / 既存 ${preexisting.length}`
+      `再分類 ${reclassified.length} / 既存 ${preexisting.length} / 範囲外で未検証 ${excludedByScope.length} / ` +
+      `再確認で未検証 ${stillUnverified.length} / 再確認で棄却 ${refutedOnRecheck.length} / ` +
+      `改稿前未検証のうち観測して消えた ${unverifiedAbsent.length} / 観測できなかった ${unverifiedUnobserved.length}`
   )
+  if (minorAfter.length > 0) {
+    log(`残存のうち ${minorAfter.length} 件は severity を下げて再報告された最初の確定指摘（反証していない）。`)
+  }
   if (preexisting.length > 0) {
     log(`既存 ${preexisting.length} 件は引用が改稿前の原本にもそのまま存在する指摘（改稿が持ち込んだものではない）。`)
   }
   if (reclassified.length > 0) {
-    log(`うち ${reclassified.length} 件は改稿前に未検証・棄却だった指摘が再検証で確定したもの（改稿が持ち込んだものではない）。`)
-  }
-  if (outOfScope.length > 0) {
-    log(`範囲外 ${outOfScope.length} 件は diff 範囲の外で元からあった可能性が高い指摘。提示はするが blocker 判定には入れない。`)
+    log(`うち ${reclassified.length} 件は改稿前に未検証・棄却・minor だった指摘が再検証で確定したもの（改稿が持ち込んだものではない）。`)
   }
   if (possiblyRephrased.length > 0) {
     log(
@@ -922,8 +1074,19 @@ while (true) {
     possibly_rephrased: possiblyRephrased,
     unobserved,
     reclassified,
-    out_of_scope: outOfScope,
     preexisting,
+    still_unverified: stillUnverified,
+    refuted_on_recheck: refutedOnRecheck,
+    unverified_absent: unverifiedAbsent,
+    unverified_unobserved: unverifiedUnobserved,
+    // 再検証が何を見なかったかの宣言。report_files（観点ごと）の外は指摘を報告させておらず、
+    // excluded_findings は finder が範囲外で返したため反証に回さなかった指摘（未検証・未分類）。
+    reverify_scope: {
+      changed_files: reverifyScope.changedFiles,
+      recheck_ids: reverifyScope.recheck.map((f) => f.id),
+      report_files: Object.fromEntries(FINDERS.map((f) => [f.id, [...scopeFilesFor(reverifyScope, f.id)]])),
+      excluded_findings: excludedByScope,
+    },
     reverify_missing: [],
   }
   latest = post
@@ -936,13 +1099,25 @@ while (true) {
   // unobserved も同じ扱い。「消えたのか、誰も見なかったのか」が分からない blocker を
   // 解消扱いで通すと、再検証していない改稿が applied_to_staging になる。
   const unverifiedBlockers = post.unverified.filter((f) => f.severity === 'blocker')
-  const unobservedBlockers = unobserved.filter((f) => f.severity === 'blocker')
-  if (unverifiedBlockers.length > 0 || unobservedBlockers.length > 0) {
+  const unobservedBlockers = [...unobserved, ...unverifiedUnobserved].filter((f) => f.severity === 'blocker')
+  // 最初の blocker が再確認で棄却された、または minor に格下げされて反証を通らずに戻ったとき、
+  // 改稿で手が入っていない（ファイルが変更されていない、または引用が原本にもある）なら、直った
+  // 証拠ではなく Verify と Reverify の判定が割れただけ。重さは再報告側ではなく最初の確定時の値で見る。
+  const changedSet = new Set(reverifyScope.changedFiles)
+  const originalSeverity = new Map(originalConfirmed.map((f) => [keyOf(f), f.severity]))
+  const contestedBlockers = [...refutedOnRecheck, ...minorAfter].filter(
+    (f) =>
+      originalSeverity.get(keyOf(f)) === 'blocker' &&
+      (!changedSet.has(normPath(f.file)) || f.present_in_original === true)
+  )
+  if (unverifiedBlockers.length > 0 || unobservedBlockers.length > 0 || contestedBlockers.length > 0) {
     log(
-      `未検証 ${unverifiedBlockers.length} 件 / 未観測 ${unobservedBlockers.length} 件の blocker が` +
-        'あるため、自動では確定させません。'
+      `未検証 ${unverifiedBlockers.length} 件 / 未観測 ${unobservedBlockers.length} 件 / ` +
+        `改稿なしで判定が割れた ${contestedBlockers.length} 件の blocker があるため、自動では確定させません。`
     )
     verdict = 'needs_human_decision'
+    stopReason =
+      unverifiedBlockers.length > 0 || unobservedBlockers.length > 0 ? 'unverified_blocker' : 'contested_blocker'
     break
   }
 
@@ -951,37 +1126,72 @@ while (true) {
   // 委譲項目の未達も未解消に数える。改稿で満たせる種類のもの（検証者経路を足す・参照を
   // 整合させる）なので、ループへ戻す。
   latestUnchecked = after.uncheckedFailures
-  const unresolved = [...remaining, ...introduced, ...reclassified, ...after.uncheckedFailures].filter(
-    (f) => REVISE_SEVERITIES.includes(f.severity)
+  const unresolvedFindings = [...remaining, ...stillUnverified, ...introduced, ...reclassified].filter((f) =>
+    REVISE_SEVERITIES.includes(f.severity)
   )
+  const unresolved = [
+    ...unresolvedFindings,
+    ...after.uncheckedFailures.filter((f) => REVISE_SEVERITIES.includes(f.severity)),
+  ]
   if (unresolved.length === 0) {
     verdict = 'applied_to_staging'
+    stopReason = 'resolved'
     break
   }
 
   // 乾き判定。未解消指摘の同一性キー集合が前巡から動かなかった（1 件も解消されず、新規も
   // 出なかった）なら、同じ入力で回し続けても結果は変わらない。キーは keyOf（= diff_findings.py
   // と同じ規則。正規化を別に書き起こすと判定が 2 つになる）。
-  // possibly_rephrased は文言が変わると厳密キーも変わるため「動いた」と出る。これは意図した
-  // 挙動で、文言が変わったなら updater は実際に手を入れており、まだ乾いていない。
+  // possibly_rephrased は文言が変わると厳密キーも変わるため「動いた」と出る。その揺れや
+  // present_in_original の揺れで集合が毎巡変わる場合は、下の停滞判定が止める。
   const unresolvedKeys = new Set(unresolved.map(keyOf))
   const dried =
     prevUnresolvedKeys !== null &&
     prevUnresolvedKeys.size === unresolvedKeys.size &&
     [...unresolvedKeys].every((k) => prevUnresolvedKeys.has(k))
-  // 1 件の指摘が present_in_original の揺れで introduced と preexisting を行き来すると、
-  // 集合が毎巡変わって乾き判定が効かない。そこで止まらないのは承知のうえで、外側の agent
-  // 起動上限に任せる（内側に回数上限を戻すと、乾きと暴走の区別がまた消える）。
   if (dried) {
     log(
       `${REVISE_SEVERITIES.join('/')} ${unresolved.length} 件が前回の改稿から 1 件も動きませんでした` +
         '（解消も新規も無し）。同じ入力では収束しないため人間の判断へ返します。'
     )
     verdict = 'needs_human_decision'
+    stopReason = 'dried'
     break
   }
+
+  // 停滞判定。集合は動いていても件数が最良値を更新しないなら、直した分だけ新しく湧いている。
+  if (minUnresolvedCount === null || unresolved.length < minUnresolvedCount) {
+    minUnresolvedCount = unresolved.length
+    stallStreak = 0
+  } else {
+    stallStreak++
+  }
+  log(
+    `未解消 ${REVISE_SEVERITIES.join('/')} ${unresolved.length} 件（これまでの最小 ${minUnresolvedCount} 件 / ` +
+      `最小を更新しない巡 ${stallStreak}/${STALL_ROUNDS}）`
+  )
+  if (stallStreak >= STALL_ROUNDS) {
+    log(
+      `未解消の件数が ${STALL_ROUNDS} 巡続けて最小 ${minUnresolvedCount} 件を下回りませんでした。` +
+        '直した分だけ新しい指摘が出ており収束しないため人間の判断へ返します。'
+    )
+    verdict = 'needs_human_decision'
+    stopReason = 'stalled'
+    break
+  }
+
   prevUnresolvedKeys = unresolvedKeys
+  prevUnresolvedFindings = unresolvedFindings
   revision++
 }
 
-return result(verdict, latest, latestSource, afterCategories, staging, revision, latestUnchecked)
+return result(
+  verdict,
+  latest,
+  latestSource,
+  afterCategories,
+  staging,
+  Math.max(0, updatesRun - 1),
+  latestUnchecked,
+  stopReason
+)

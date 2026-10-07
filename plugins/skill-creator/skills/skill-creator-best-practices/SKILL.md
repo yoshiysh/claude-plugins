@@ -81,11 +81,12 @@ Workflow を呼ぶ（scripts/build_skill.js が全て内包）
 
 Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェーズだけ）
   Find     観点別 finder を並列で fan-out（観点の一覧は script の FINDERS が唯一の正）
-  Verify   finding ごとに観点の異なる反証者を独立に立て、過半数の反証で棄却
+  Verify   改稿を動かす重さ（script の REVISE_SEVERITIES）の finding ごとに観点の異なる反証者を
+           独立に立て、過半数の反証で棄却。それ以外の重さは反証せず未検証として返す
   ※ Update / Reverify は起動しない。ファイルは 1 バイトも書かれない
 
 結果の提示（司令塔が単独で実行）
-  └─ 確定・棄却・未検証を件数ごと提示。直すかどうかは人間が決める
+  └─ 確定・棄却・未検証・反証していない軽微な指摘を件数ごと提示。直すかどうかは人間が決める
 ```
 
 **update:**
@@ -95,9 +96,10 @@ Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェー
 
 Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 つ続く）
   Find     観点別 finder を並列で fan-out
-  Verify   finding ごとに反証者を独立に立て、過半数の反証で棄却
+  Verify   review と同じ（反証するのは REVISE_SEVERITIES の finding だけ）
   Update   updater が staging（対象スキルの全ファイルのミラー）に改稿を書く
   Reverify staging に同じ観点を再適用し、最初の Verify の確定指摘と突き合わせる
+           （報告させるのは変更ファイルと再確認する指摘のファイルだけ）
 
 結果の提示と適用（司令塔が単独で実行・人間ゲート）
   └─ 解消/残存/新規/未検証を提示 → 承認後に司令塔が staging を本体へ反映
@@ -283,10 +285,11 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
 `diffRef` が無い、`mode: "update"` なのに `intent` が無い、`uncheckedItems` が無いか形式が不正、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-改稿の打ち切りは回数ではなく進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。
-暴走は workflow runtime の agent 起動上限が外側で止める。
+改稿の打ち切りは回数ではなく進捗で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
+[schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本。
 
-**観点の一覧・反証者の立て方・多数決の閾値・打ち切りの判定・staging の既定値は
+**観点の一覧・反証者の立て方・多数決の閾値・反証する重さ・打ち切りの判定（`STALL_ROUNDS` /
+`MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
 `scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
 存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。中身は script を読む。
 
@@ -294,8 +297,9 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
 
 ```
 {
-  mode, target, verdict,
-  findings: { confirmed[], rejected[], unverified[] },
+  mode, target, verdict, stop_reason,
+  findings: { confirmed[], rejected[], unverified[], reported_minor[] },
+  findings_before: { confirmed[], rejected[], unverified[], reported_minor[] } | null,
   unchecked_failures: [],
   findings_source: "before" | "after",
   by_category: { before, after },
@@ -304,7 +308,10 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
                       updater_thread_id, fresh_thread_id } | null,
   staging: { dir, changed_files[], resolved[], remaining[], new[],
              unverified[], possibly_rephrased[], unobserved[],
-             reclassified[], out_of_scope[], preexisting[], reverify_missing[] } | null,
+             reclassified[], preexisting[], still_unverified[], refuted_on_recheck[],
+             unverified_absent[], unverified_unobserved[],
+             reverify_scope: { changed_files[], recheck_ids[], report_files, excluded_findings[] } | null,
+             reverify_missing[] } | null,
   revisions_used
 }
 ```
@@ -317,16 +324,16 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `clean` | 確定も未検証も、委譲項目の未達も無いと伝える。棄却の件数は添える |
-| `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数も必ず添える |
+| `clean` | 確定も未検証も、反証していない `reported_minor` も、委譲項目の未達も無いと伝える。棄却の件数は添える |
+| `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数と、反証していない `reported_minor` の中身も必ず添える。`confirmed` が 0 件でも `unverified` か `reported_minor` があれば「問題なし」と言わない |
 | `review_incomplete` | `by_category.before` が `null` の観点を名指しし、見ていないと伝える。合格と読ませない |
 
 **update:**
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本） |
-| `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、`REVISE_SEVERITIES` に含まれる severity の未解消指摘が前の巡から 1 件も動かなくなった（解消も新規も無い＝同じ入力では収束しない）とき。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
+| `applied_to_staging` | `references/orchestrator-review.md` の「提示の原則」と update の提示フォーマットに従い、全バケットと staging の指紋を提示して、反映してよいか確認する（updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本） |
+| `needs_human_decision` | どの出口で止まったかを `stop_reason` で言う（値と意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本）。残った指摘を severity ごと提示し、staging があれば残して判断を仰ぐ（改稿前に止まった場合は `staging` が `null`）。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
@@ -378,12 +385,15 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `findings.confirmed[]` | 反証を生き残った指摘 |
 | `findings.rejected[]` | 過半数の反証で棄却された指摘 |
 | `findings.unverified[]` | 有効票が足りず、確定にも棄却にもできなかった指摘 |
+| `findings.reported_minor[]` | severity が `REVISE_SEVERITIES` の外で、**設計上反証に回していない**指摘。確定でも棄却でもない。1 件でもあれば `clean` にならない |
 | `unchecked_failures[]` | 機械検査が判定できないと宣言した項目のうち、担当観点が未達と判定したもの・判定を返さなかったもの。反証を通していないので `confirmed` には混ぜない。合格にならない判定の集合は script の `UNCHECKED_BLOCKING` が正本 |
 | `findings_source` | `"before"` 固定。review では 1 回しか検査しないため、出所は常に最初のパス |
 | `by_category.before` | 観点ごとの確定件数。finder が落ちた観点は件数ではなく `null`（＝欠測） |
 | `by_category.after` | `null` 固定。review では Reverify のパス自体が走らない（欠測ではない） |
 | `staging` | `null` 固定 |
 | `revisions_used` | `0` 固定 |
+| `stop_reason` | `null` 固定（改稿ループが無い） |
+| `findings_before` | `null` 固定（改稿前の結果は `findings` そのもの） |
 
   `null` は 2 階層で意味が違う。`after === null` は「そのパスが走らなかった」（正常）、
   `before.<観点> === null` は「走ったがその担当が応答しなかった」（欠測）。
@@ -398,18 +408,24 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `staging.dir` | 改稿の書き出し先。対象スキルの**全ファイルのミラー**（変更しなかったファイルも入っている） |
 | `staging.changed_files[]` | 実際に書き換えたファイルと、その理由・対応する指摘 |
 | `staging.resolved[]` | **最初の**確定指摘のうち、再検証で消えたもの |
-| `staging.remaining[]` | **最初の**確定指摘のうち、再検証でも残ったもの |
+| `staging.remaining[]` | **最初の**確定指摘のうち、再検証でも残ったもの（severity を下げて再報告され反証に回らなかったものも含む） |
 | `staging.new[]` | 再検証で新しく出た確定指摘（改稿が持ち込んだ可能性がある） |
 | `staging.unverified[]` | 再検証で確定にも棄却にもできなかった指摘。`remaining` と混ぜない |
 | `staging.possibly_rephrased[]` | ファイルと観点は一致するが主張の文言が変わり、機械的には `new` として出たもの。`new` にも載ったまま、別枠でも残す |
 | `staging.unobserved[]` | 再検証時にそのファイルを誰も読んでいないため、消えたのか見られていないのかが分からない指摘。`resolved` には数えない。blocker が含まれる場合は `unverified` の blocker と同様に自動確定せず `needs_human_decision` になる |
 | `staging.reclassified[]` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` には入れない |
 | `staging.preexisting[]` | 再検証で新しく出たが、引用が改稿前の原本にもそのまま存在する確定指摘。改稿前の検査が見落とした既存の問題なので `new` には入れず、blocker 判定にも入れない（提示はする） |
-| `staging.out_of_scope[]` | `scope: "diff"` で差分の範囲外に出た確定指摘。何を入れ何を入れないかは [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) の `out_of_scope` が正本 |
-| `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
+| `staging.reverify_scope` | 再検証が**何を見なかったか**の宣言。観点ごとの報告範囲（`report_files`）、再確認させた指摘（`recheck_ids`）、範囲外で返ってきたため反証しなかった指摘（`excluded_findings`）。定義は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本 |
+| `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証・`reported_minor` と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
+| `stop_reason` | 改稿ループをどの出口で抜けたか。値と意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本 |
 | `by_category.before` | 改稿前（Find）の観点別確定件数。欠測観点は `null` |
-| `by_category.after` | 再検証（Reverify）の観点別確定件数。Reverify が完了していなければ `null` |
-| `revisions_used` | **再**改稿の回数。初回の改稿は含まないので、1 回だけ書いて終わったなら `0` |
+| `by_category.after` | 再検証（Reverify）の観点別確定件数。Reverify が完了していなければ `null`。数えるのは報告範囲（`staging.reverify_scope.report_files`）の中だけで、0 は「スキル全体で問題なし」ではない |
+| `findings_before` | 改稿前（Verify）の確定・棄却・未検証・`reported_minor`。`findings` は再検証後に置き換わり、Reverify は報告範囲を絞るので、改稿前に見えていた指摘が再登場しないことがある。提示から落とさないためにここへ持ち越す |
+| `staging.still_unverified[]` | **最初の**確定指摘のうち、再検証で再報告されたが有効票が揃わなかったもの。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
+| `staging.refuted_on_recheck[]` | **最初の**確定指摘のうち、再検証で再報告されたが過半数の反証で棄却されたもの。消えたのではなく反証の結果なので `resolved` とは別枠。改稿で手が入っていない blocker なら自動確定しない（条件は schemas.md が正本） |
+| `staging.unverified_absent[]` | 改稿前に未検証だった指摘のうち、再検証でそのファイルを読んだうえで報告されなかったもの。確定したことが無いので `resolved` とは呼ばず、提示だけする |
+| `staging.unverified_unobserved[]` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが読まれなかったもの。blocker なら自動確定しない |
+| `revisions_used` | **再**改稿の回数。定義は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本 |
 
   `resolved` / `remaining` / `new` は改稿を 2 回以上重ねても**常に最初の確定指摘と
   突き合わせる**。直前のラウンドと比べると、1 度直った指摘がぶり返しても「元から無かった」
