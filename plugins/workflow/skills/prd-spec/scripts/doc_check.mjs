@@ -3785,11 +3785,68 @@ function wsTreeDigest(ws, opts) {
 // index: INDEX は本体の写しなので、手で書くと必ず本体と drift する。司令塔はこの
 // ファイルを保存先へ逐語で写すだけにする（司令塔が文を書かないため）。
 const cellOf = (v) => String(v == null ? '' : v).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+
+// 文書一覧の行は本文だけから導出する（references/document-splitting.md §6）。
+const NO_SECTION = '（節なし）'
+function headingWalk(md, kind) {
+  let inFence = false
+  const stack = []
+  const out = { title: null, sections: [] }
+  for (const ln of String(md || '').split('\n')) {
+    if (/^\s*(```|~~~)/.test(ln)) inFence = !inFence
+    if (inFence) continue
+    const m = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/.exec(ln)
+    if (!m) continue
+    const level = m[1].length
+    const text = m[2]
+    if (level === 1 && out.title === null) out.title = text
+    while (stack.length && stack[stack.length - 1].level >= level) stack.pop()
+    if ((text.match(ID_IN_TEXT[kind]) || []).length) {
+      const parent = [...stack].reverse().find((h) => h.level > 1 && !(h.text.match(ID_IN_TEXT[kind]) || []).length)
+      const name = parent ? parent.text : NO_SECTION
+      if (!out.sections.includes(name)) out.sections.push(name)
+    }
+    stack.push({ level, text })
+  }
+  if (out.sections.length === 1 && out.sections[0] === NO_SECTION) out.sections = []
+  return out
+}
+
+// 欠番を並べるのは先頭のこの件数まで。誤記の大きな番号が 1 つあるだけで、行が数万件の欠番で埋まるのを防ぐ。
+const GAPS_SHOWN = 10
+function idRanges(ids) {
+  const groups = new Map()
+  for (const id of ids) {
+    const m = /^(.*-)(\d+)$/.exec(id)
+    if (!m) continue
+    const g = groups.get(m[1]) || { width: 0, nums: new Set() }
+    g.width = Math.max(g.width, m[2].length)
+    g.nums.add(Number(m[2]))
+    groups.set(m[1], g)
+  }
+  return [...groups].map(([prefix, g]) => {
+    const nums = [...g.nums].sort((a, b) => a - b)
+    const pad = (n) => String(n).padStart(g.width, '0')
+    const first = Math.min(1, nums[0])
+    const last = nums[nums.length - 1]
+    const missing = last - first + 1 - nums.length
+    const shown = []
+    for (let n = first; n < last && shown.length < GAPS_SHOWN; n++) if (!g.nums.has(n)) shown.push(pad(n))
+    const range = last > first ? `${prefix}${pad(first)}〜${pad(last)}` : `${prefix}${pad(last)}`
+    if (!missing) return range
+    return `${range}、欠番は ${shown.join('・')}${missing > shown.length ? ` ほか ${missing - shown.length} 件` : ''}`
+  })
+}
+
+function docSummary(d) {
+  const { sections } = headingWalk(d.markdown, d.kind)
+  const tail = [...idRanges(d.ids), `${d.ids.length} 件`].join('／')
+  return sections.length ? `${sections.join('／')}（${tail}）` : tail
+}
+
 function wsIndex(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
-  const plan = readJsonFile(path.join(ws, 'plan.json'))
-  const concernOf = (key) => (listOf(plan, 'docs').find((d) => d && d.key === key) || {}).concern || '—'
   const docs = deriveDocs(wsDocs)
   const dirs = { requirements: opts.reqDir || 'docs/requirements', specifications: opts.specDir || 'docs/specifications' }
   const pathOf = (d) => `${dirs[d.kind]}/${d.topic}.md`
@@ -3809,8 +3866,8 @@ function wsIndex(ws, opts) {
     if (!target.length) continue
     const label = kind === 'requirements' ? '要求' : '仕様項目'
     const lines = [`# ${dirs[kind]} 目次`, '', 'この INDEX は doc_check が文書から導出したものである。本体を直したら導出し直す（手書きしない）。', '']
-    lines.push('## 文書一覧', '', `| パス | 扱う関心事 | ${label}の数 |`, '|---|---|---|')
-    for (const d of target) lines.push(`| \`${pathOf(d)}\` | ${cellOf(concernOf(d.key))} | ${d.ids.length} |`)
+    lines.push('## 文書一覧', '', `| パス | 扱う関心事 | どういう${label}が書かれているか |`, '|---|---|---|')
+    for (const d of target) lines.push(`| \`${pathOf(d)}\` | ${cellOf(headingWalk(d.markdown, d.kind).title ?? '（見出し 1 なし）')} | ${cellOf(docSummary(d))} |`)
     lines.push('', `## ${label}一覧`, '', '| ID | 見出し | 所在文書 |', '|---|---|---|')
     for (const d of target) {
       const hs = headings(d)
