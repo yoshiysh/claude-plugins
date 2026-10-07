@@ -64,7 +64,7 @@ document タイプの場合、上記の構成案に従って執筆すること�
 重要な優先順位：
 1. **SKILL.md はフローの進行のみ**：「誰に何を渡すか」の順序・分岐・完了条件だけを書く。以下は必ず外出しする：
 
-   > **`ARCHITECTURE` が `workflow` のときはこの原則の適用先が変わる。** 実行順序を握るのは SKILL.md ではなく script なので、SKILL.md には「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出し」「返り値の解釈と人間への提示」だけを書く。**区間の内側の手順を散文で再掲しない**（script が唯一の正になり、二重管理は必ずズレる）。以下の外出し規則は変わらず適用する。
+   > **`ARCHITECTURE` が `workflow` のときはこの原則の適用先が変わる。** 実行順序を握るのは SKILL.md ではなく script なので、SKILL.md には「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出し」「返り値の解釈と人間への提示」だけを書く（生成するスキルは未公開なので scriptPath で呼ぶ。selector の 1 行・`skillDir` の渡し方・`meta.name` の条件は `references/best-practices.md` §13「script の置き場」に従う）。**区間の内側の手順を散文で再掲しない**（script が唯一の正になり、二重管理は必ずズレる）。以下の外出し規則は変わらず適用する。
 
    - 変換ルール・マッピング表 → `references/` または `assets/`
    - 定型エラーメッセージ・案内文 → `references/` または `assets/`

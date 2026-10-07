@@ -212,42 +212,99 @@ Sub-agent が必要なタイミングで `assets/` を Read する設計にす�
 ## Workflow 型スキルの執筆
 
 `ARCHITECTURE` が `workflow` のときだけ適用する。SKILL.md に加えて `scripts/<スキル名>.js` を生成する。
-背景と選択理由は `references/best-practices.md` §13。
+背景と選択理由は `references/best-practices.md` §13。生成するスキルは未公開なので script は `scripts/` に置き、
+`scriptPath` で呼ぶ。公開後は plugin の `workflows/` へ移って名前で呼ぶ形に変わる（2 段の規則と `meta.name` の条件は
+§13「script の置き場」が正本）。
 
 ### SKILL.md 側に書くこと・書かないこと
 
 | 書く | 書かない |
 |---|---|
 | script を呼ぶ前の準備（要件の構造化・ユーザー確認） | script が回す区間の手順の再掲 |
-| `Workflow({ scriptPath, args })` の呼び出しと `args` の意味 | ループ回数・並列数・閾値の数値（script が持つ） |
+| `Workflow({ scriptPath, args })`（未公開）/ `Workflow({ name, args })`（公開後）の呼び出しと `args` の意味 | ループ回数・並列数・閾値の数値（script が持つ） |
 | 返り値の構造と、その解釈・人間への提示 | 「〜を忘れずに実行する」型の注意書き（構造で保証済み） |
 | 人間ゲートの位置と、止まったときの選択肢 | agent プロンプトの本文（`agents/` に置く） |
 
 **区間の内側を散文で再掲しない。** script が唯一の正になるため、二重管理は必ずズレる。
 
-`scriptPath` にはスキルの実ディレクトリ絶対パスを渡す。script は自身の位置を解決できないので、`agents/*.md` を Read させるための基準パスは `args` で渡すしかない。
+script は自身の位置を解決できないので、`agents/*.md` を Read させるための基準パスはどちらの段でも `args.skillDir` で渡す。
+selector の書き方は §13「script の置き場」に従う（公開時の書き換えはその形にしか効かない）。
 
 ### script の骨格
 
 ```javascript
 export const meta = {
-  name: 'skill-name',
+  name: 'skill-name-run',  // スキルの名前とは別にする（条件は best-practices.md §13「script の置き場」）
   description: '一行の説明（承認ダイアログに出る）',
+  whenToUse: 'skill-name スキルが args を組み立てて呼ぶ。args が無いと起動直後に落ちるため直接は起動しない',
   phases: [
-    { title: 'Collect', detail: '対象を列挙する' },
-    { title: 'Verify',  detail: '各件を独立に検証する' },
+    { title: 'Collect', model: 'haiku', detail: '対象を列挙する' },
+    { title: 'Verify',  model: 'sonnet', detail: '各件を独立に検証する' },
   ],
 }
 
 phase('Collect')
-const found = await agent('対象を列挙する。', { schema: LIST_SCHEMA })
+const found = await agent('対象を列挙する。', { model: 'haiku', effort: 'low', schema: LIST_SCHEMA })
 
 const verified = await pipeline(
   found.items,
-  item => agent(`${item} を検証する。`, { label: item, phase: 'Verify', schema: VERDICT }),
+  item => agent(`${item} を検証する。`, {
+    model: 'sonnet', effort: 'medium', label: item, phase: 'Verify', schema: VERDICT,
+  }),
 )
 return verified.filter(Boolean)
 ```
+
+### meta の任意フィールドと agent() の opts
+
+以下の 3 節で〔同梱〕を付けた事実は、公開 docs（code.claude.com の workflows）ではなく Claude Code 同梱の
+workflow-authoring reference（`/workflow-authoring` で読める）に拠る。版で変わりうるので、食い違ったら同梱側を正とする。
+
+- **`whenToUse`**〔同梱〕は workflow の一覧に出る説明。`args` が無いと落ちる script は、どのスキルから呼ばれるかと
+  「直接は起動しない」を書く。公開後は `/<plugin>:<name>` として補完候補に並ぶので、書かないと利用者が
+  args 無しで起動して落とす。meta は純粋なリテラルにする（`quick_validate.py` はバッククォートと `...` も弾く）。
+- **`phases[].model`**〔同梱〕は、その phase の agent が全て同じ model のときだけ書く。callsite の `model` と同じ値の
+  二重定義になるので、ずれを検出するテスト（phase ごとに実際の `opts.model` と照合する）と組で置く。
+  混在する phase には書かない。
+- **`model` と `effort` は全ての `agent()` で明示する**（理由と選び方は best-practices.md §3「model と effort は
+  役割ごとに組で選ぶ」）。機械的な照合・enum 判定・採点は小さい model と `low`、最も難しい検証・統合判断と
+  改稿だけを上げる。
+- **`isolation: 'worktree'`** は、並列の agent がファイルを書き換えて互いに衝突するときだけ付ける（移行・
+  一括変換を並列に書くスキルの安全な形）。agent ごとに新しい git worktree を作るので 1 体あたり
+  約 200〜500 ms の準備と disk を食う〔同梱〕。変更が無ければ worktree は自動で消える。sub-agents docs の
+  `isolation: worktree` では、worktree は親セッションの HEAD ではなく既定でリポジトリの default branch から切られる
+  ので、作業ブランチの未 merge の変更を前提にする書き換えには使えない。読むだけの agent や、書き手が 1 体の
+  stage には付けない。dynamic-workflow-runner は worktree capability が無い host ではこの opts を拒否する。
+- **`agentType`**〔同梱〕は Agent ツールのレジストリに登録された型の名前で、スキル内の `agents/*.md` の役割名ではない。
+  役割は prompt 本文で渡す。
+
+### budget と workflow()
+
+- **`budget`**〔同梱〕は利用者の「+500k」のような指示から来る token の上限で、`total` / `spent()` / `remaining()` を持つ。
+  上限は助言ではなく hard ceiling で、`spent()` が `total` に達すると以降の `agent()` は throw する。上限の指示が
+  無いと `total` は `null`、`remaining()` は `Infinity` なので、budget で回すループは必ず `budget.total` で守る
+  （`while (budget.total && budget.remaining() > N)`）。守らないと 1 run あたりの通算 agent 上限（best-practices.md §13「実行時制約」）まで回り続ける。
+  budget を持たない実行環境（Codex runner・単体テスト）では識別子自体が無いので `typeof budget` で確かめる。
+- **`workflow(nameOrRef, args)`**〔同梱〕は別の workflow を 1 段だけ入れ子で呼ぶ（子の中で呼ぶと throw）。子は親と
+  同時実行の上限・agent の通算数・中断・budget を共有する。名前の解決に失敗すると throw するので catch する。
+  dynamic-workflow-runner が受け付けるかは runner の互換性基準が正本。
+
+### subagent への指示と prompt cache
+
+- workflow の subagent には起動時に呼び出し側と同じ CLAUDE.md が注入される〔同梱〕（Explore・Plan など一部の組み込み型を
+  除く）。prompt で CLAUDE.md を読み直させたり規則を貼り込んだりしない。注入済みの文書を二重に読ませるだけで、
+  貼った写しは原本の更新に追随しない。その stage に要る規則があれば、名前で 1 つだけ指す。
+- fan-out する兄弟 agent は `model`・`effort`・`schema`・`agentType` を揃える（この規則の理由の正本はここ）。
+  揃っていると tools と system prompt の prefix が一致して、先行する 1 体の cache を残りが読む（仕組みと待ち時間・
+  TTL は best-practices.md §13「規模とコスト」）。兄弟ごとに schema を変えると prefix が割れるので、観点ごとの
+  違いは prompt 本文で渡し、観点ごとの必須性は script が担当の観点についてだけ読むことで保つ。
+- prompt は共通部分（役割の Read 指示・共通の入力）を先頭に置き、item ごとに変わる値を後ろに置く。
+
+### デバッグ
+
+完了した workflow が空・想定外の結果を返したら、原因を推測する前に `<transcriptDir>/journal.jsonl` を読む〔同梱〕。
+各 agent が実際に返した値が記録されている。resume で返るキャッシュ結果も空でないとは限らないので、
+「前回は返っていたはず」を前提にしない。journal が無いときは同じディレクトリの `agent-<id>.jsonl` を読む。
 
 ### 起動前に落ちる・resume が壊れる書き方（禁止）
 

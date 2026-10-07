@@ -1,7 +1,7 @@
 # 統合・保存ガイド
 
 司令塔が Workflow の完了後に単独実行する手順。改善ループは Workflow
-（`scripts/build_skill.js`）で完結済みで、その戻り値を受けてここから始まる。
+（`/skill-creator:skill-creator-build`）で完結済みで、その戻り値を受けてここから始まる。
 
 ## 目次
 
@@ -10,6 +10,7 @@
 - [ユーザーへの提示フォーマット](#ユーザーへの提示フォーマット)
 - [スキルの保存](#スキルの保存)
 - [バリデーションの実行](#バリデーションの実行)
+- [保存後の prompt-audit（audit）](#保存後の-prompt-auditaudit)
 - [eval-viewer によるレビュー（任意・推奨）](#eval-viewer-によるレビュー任意推奨)
 - [description 最適化ループ（任意）](#description-最適化ループ任意)
 - [スキルのパッケージング（任意）](#スキルのパッケージング任意)
@@ -22,7 +23,9 @@ Workflow の `verdict` が `passed` 以外の場合は合格として提示し�
   遡るか、この稿で保存するかをユーザーに選んでもらう。
 - **`revision_failed`**（改稿 agent が応答しなかった）: 品質ではなくツール側の失敗。同じ入力で
   Workflow を再実行すれば解消しうる（`resumeFromRunId` で改稿ステップから再開できる）。
-  品質不足として報告しない。再実行するか、直前の稿で保存するかを聞く。
+  品質不足として報告しない。再実行するか、直前の稿で保存するかを聞く。再実行の前に
+  `<transcriptDir>/journal.jsonl` で各 agent が実際に返した値を確かめる（キャッシュされた結果が
+  空でないとは限らない。理由は `references/skill-writing-guide.md`「Workflow 型スキルの執筆」の「デバッグ」）。
 - **`evaluation_incomplete`**（採点 agent か reviewer が応答せず合否を判定できなかった）:
   これも品質の問題ではない。`iterations[].ungraded_cases` と `evaluation_complete` に実態が
   出ているので、**何件中何件が採点できなかったかを添えて**提示する。`pass_rates` が `null` の
@@ -65,6 +68,12 @@ with_skill 側は script を実行できないため、数字は方法論の実�
 
 ## ユーザーへの提示フォーマット
 
+**delta が測っているもの（この節が正本）**: Evaluate の with_skill / baseline は両側とも `build_skill.js` の
+model hint（`with_skill_executor` / `baseline_executor`）と同じ effort で走る。delta は「その model・effort で
+答えたときにスキルがどれだけ効いたか」で、利用者がふだん使うセッションのモデルでの効果ではない（Codex runner
+では host がその hint に対応付けたモデルでの効果）。`DELTA_THRESHOLD` はこの固定の model・effort の条件では
+較正していない。提示では下のテンプレートの注記 1 行で必ずこれを伝える。
+
 ```
 ## 生成されたスキル: [スキル名]
 
@@ -72,6 +81,7 @@ with_skill 側は script を実行できないため、数字は方法論の実�
 with_skill 平均 pass_rate: X%
 baseline   平均 pass_rate: Y%
 改善幅（delta）: +Z%
+（評価は固定のモデル・effort で回した値で、ふだん使うモデルでの効果とは限りません）
 
 定性チェック：合格 X項目 / 要確認 Y項目 / 失格 Z項目
   （失格は `iterations[].review.criteria_checks` の `fail`・`trigger_checks` の
@@ -117,6 +127,15 @@ baseline   平均 pass_rate: Y%
     └── agent-contracts.md  （エージェント間の入出力契約）
 ```
 
+**Workflow 型（`architecture: "workflow"`）の場合は script も書き出す：**
+```
+.claude/skills/[スキル名]/
+└── scripts/
+    └── [スキル名].js     （戻り値の workflow_script。未公開の間はここに置き、SKILL.md から scriptPath で呼ぶ）
+```
+
+公開すると script は plugin の `workflows/` へ移り、名前の呼び出しに変わる（`best-practices.md` §13「script の置き場」）。
+
 **evals.json を保存する：**
 
 writer.md が生成した evals.json ドラフトを以下に保存する：
@@ -150,6 +169,21 @@ python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked
 - frontmatter（name・description）の必須フィールド
 - name の命名規則（kebab-case・最大64文字）
 - description の文字数（最大1024文字・XML タグなし）
+
+---
+
+## 保存後の prompt-audit（audit）
+
+保存が済んだら、終了を告げる前に保存したスキルへ audit を 1 回かける。対象は**ディスクに保存した
+スキル**で、Workflow の戻り値の草稿ではない（監査は claude-api skill がファイルを読んで行うので、
+未保存の草稿には当てられない）。保存の承認と保存そのものが先で、ここは保存後の追加の確認にあたる。
+
+1. 保存先を `realpath` で実体パスにし、SKILL.md の「Workflow を呼ぶ（review/update）」の呼び出しを
+   `mode: "audit"`・`target.scope: "full"` で行う（透過実行 route も同じ節のものを通す。Codex runner では
+   audit は `rejected_source` で止まるので、「監査は実行していない」と伝えて終える。「問題なし」とは言わない）。
+2. 結果は `references/orchestrator-review.md`「audit の提示フォーマット」で提示する。
+3. 指摘を直すかはユーザーが決める。直すなら audit の指摘を `intent` にして update を呼ぶ
+   （司令塔が保存済みのスキルを手で直さない）。直さないなら、そのまま終える。
 
 ---
 

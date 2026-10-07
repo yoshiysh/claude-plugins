@@ -16,8 +16,9 @@ Claude/Codex 向けの汎用スキルを marketplace plugin として管理・�
 - Marketplace 定義: `.claude-plugin/marketplace.json`
 - Marketplace 名: `yoshiysh-claude-plugins`
 - 公開用 plugin: `plugins/<name>/`
+- 公開済みスキルの Workflow script: `plugins/<plugin>/workflows/<f>.js`（実体。SKILL.md から `Workflow({ name: "<plugin>:<meta.name>" })` で呼ぶ）。`.agents/` からの参照は無い。テストは workflows/ に置かず（runner は workflows/ 直下の `.js` を全て source として読む）、スキルの `scripts/*.test.mjs`・`tests/` に置く。別 plugin のファイルを読むテストは配布物に入れず、リポジトリ直下の `tests/` に置く。
 
-`manage-marketplace-plugin` で公開した瞬間に、`register_plugin.py` が実体を `plugins/` 側へ移し、`.agents/skills/<name>` を逆向き symlink に置き換える。
+`manage-marketplace-plugin` で公開した瞬間に、`register_plugin.py` が実体を `plugins/` 側へ移し、`.agents/skills/<name>` を逆向き symlink に置き換える。初めて公開するスキルの Workflow script も同じ時に `plugins/<plugin>/workflows/` へ移り、callsite が名前の呼び出しに書き換わる。置き場の 2 段の規則は `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md` §13「script の置き場」を正とする。
 
 ### 実体が plugins/ 側にある理由
 
@@ -50,7 +51,8 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 
 ## 作業ルール
 
-- 編集は `.agents/skills/<name>/` から行う（公開済みスキルは symlink 越しに `plugins/` の実体を触ることになる）。`.claude/skills/` は symlink なので直接実体を増やさない。
+- 編集は `.agents/skills/<name>/` から行う（公開済みスキルは symlink 越しに `plugins/` の実体を触ることになる）。`.claude/skills/` は symlink なので直接実体を増やさない。例外は公開済みの Workflow script で、`.agents/` から届く経路が無いので `plugins/<plugin>/workflows/` を直接編集する。
+- `Workflow({ name })` は install 済みの plugin の写しに解決される。このリポジトリの未リリースの改稿を走らせるときは `Workflow({ scriptPath: "<checkout の絶対パス>/plugins/<plugin>/workflows/<f>.js", args })` で起動する（名前で起動すると install 済みの旧版が走り、plugin が未 install なら not found になる）。
 - 新規スキルは `.agents/skills/<name>/` に実体で作る。`plugins/` へ手で置かない（移動は `register_plugin.py` の仕事）。
 - `plugins/` 配下に symlink を作らない。
 - skill の `SKILL.md` は frontmatter の `name` と `description` を必ず持つ。

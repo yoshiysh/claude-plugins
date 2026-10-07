@@ -185,7 +185,6 @@ jobs:
 
           if [ -z "$files" ]; then
             echo "skill_touched=false" >> "$GITHUB_OUTPUT"
-            echo "note=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -218,21 +217,48 @@ jobs:
 
           out=.gemini-input/best-practices-excerpts.txt
           : > "$out"
+          ranges="${RUNNER_TEMP}/bp-ranges.tsv"
+          : > "$ranges"
+          bp_lines=$(awk 'END{print NR}' "$BP")
+          # start/end は LLM 出力で、sed -n に渡すと GNU sed の e/w コマンドで
+          # 任意コード実行になる。数字だけを通し、正本の行数へ丸める。
+          if [ -n "$selections" ] && [ "$selections" != "null" ]; then
+            while IFS= read -r sel; do
+              section=$(printf '%s' "$sel" | jq -r '.section' | tr -d '\t\r\n' | cut -c1-80)
+              start=$(printf '%s' "$sel" | jq -r '.start_line') || true
+              end=$(printf '%s' "$sel" | jq -r '.end_line') || true
+              if ! [[ $start =~ ^[0-9]{1,9}$ && $end =~ ^[0-9]{1,9}$ ]]; then
+                echo "skip selection: 行番号が数字でない" >&2
+                continue
+              fi
+              start=$((10#$start)); end=$((10#$end))
+              [ "$end" -gt "$bp_lines" ] && end=$bp_lines
+              if [ "$start" -lt 1 ] || [ "$start" -gt "$end" ]; then
+                echo "skip selection: 範囲が不正 ${start}-${end}" >&2
+                continue
+              fi
+              printf '%s\t%s\t%s\n' "$start" "$end" "$section" >> "$ranges"
+            done < <(printf '%s' "$selections" | jq -c '.[]')
+          fi
+
           fail_open=false
-          if [ -z "$selections" ] || [ "$selections" = "null" ] || [ "$selections" = "[]" ]; then
+          if [ ! -s "$ranges" ]; then
             fail_open=true
             echo "fail-open: flash-lite の逐語抽出選択が不成立だったため、正本の全文を read_file で読むこと。" >> "$out"
           else
-            echo "$selections" | jq -c '.[]' | while IFS= read -r sel; do
-              section=$(printf '%s' "$sel" | jq -r '.section')
-              start=$(printf '%s' "$sel" | jq -r '.start_line')
-              end=$(printf '%s' "$sel" | jq -r '.end_line')
-              {
-                echo "[${section} ${start}-${end}]"
-                sed -n "${start},${end}p" "$BP"
-                echo ""
-              } >> "$out"
-            done
+            sort -t$'\t' -k1,1n -k2,2n "$ranges" \
+              | awk -F'\t' '
+                  function flush() { if (n) print s "\t" e "\t" l }
+                  n && $1 <= e + 1 { if ($2 > e) e = $2; l = l " / " $3; next }
+                  { flush(); n = 1; s = $1; e = $2; l = $3 }
+                  END { flush() }' \
+              | while IFS=$'\t' read -r start end section; do
+                  {
+                    echo "[${section} ${start}-${end}]"
+                    sed -n "${start},${end}p" "$BP"
+                    echo ""
+                  } >> "$out"
+                done
           fi
 
           heading_line=$(grep -n '^## 10\. チェックリスト' "$BP" | cut -d: -f1)
@@ -250,7 +276,6 @@ jobs:
           fi
 
           {
-            echo "note<<SKILL_NOTE_EOF"
             echo ""
             echo "## 追加観点: スキル資産の best-practices 照合"
             echo ""
@@ -269,8 +294,7 @@ jobs:
             echo ""
             echo "[BEST_PRACTICES_EXCERPTS]"
             cat "$out"
-            echo "SKILL_NOTE_EOF"
-          } >> "$GITHUB_OUTPUT"
+          } > "${RUNNER_TEMP}/skill-note.md"
 
       - name: Record the review start time
         id: review_start
@@ -526,7 +550,9 @@ jobs:
           指摘が 1 件も無い場合は 7 と 9 のみ行い、summary だけを出す。
           確認できなかったことは推測で埋めず、確認できていないと書く。
           PROMPT_EOF
-          printf '%s\n' "${{ steps.skill_check.outputs.note }}" >> "${RUNNER_TEMP}/review-prompt.md"
+          if [ -f "${RUNNER_TEMP}/skill-note.md" ]; then
+            cat "${RUNNER_TEMP}/skill-note.md" >> "${RUNNER_TEMP}/review-prompt.md"
+          fi
 
           # settings テンプレート: {{MODEL}} は run-review.sh が段ごとに埋める。
           # custom modelChains/modelDefinitions/dynamicModelConfiguration は
@@ -557,9 +583,10 @@ jobs:
             "${RUNNER_TEMP}/review-prompt.md" \
             "${RUNNER_TEMP}/review-settings.template.json" \
             "gemini-artifacts" \
-            "${{ secrets.GEMINI_REVIEW_API_KEY }}"
+            "$GEMINI_REVIEW_API_KEY"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
 
       # run-gemini-cli は MCP 呼び出しの失敗（review write エラー等）をステップの
       # 成否に反映しない。ここで実際にレビューが投稿されたかを GitHub 側の事実で
@@ -702,12 +729,14 @@ jobs:
 
       - name: Dump the gemini artifacts
         if: always()
+        env:
+          SUMMARY: ${{ steps.gemini.outputs.summary }}
         run: |
           echo "--- stdout ---"; tail -c 2500 gemini-artifacts/stdout.log || true
           echo "--- stderr ---"; tail -c 2500 gemini-artifacts/stderr.log || true
           if [ "${{ steps.mode.outputs.kind }}" != "review" ] \
              && [ "${{ steps.mode.outputs.kind }}" != "help" ] \
-             && [ -z "${{ steps.gemini.outputs.summary }}" ]; then
+             && [ -z "$SUMMARY" ]; then
             case "${{ github.event_name }}" in
               issue_comment) scope=issues ;;
               pull_request_review_comment) scope=pulls ;;

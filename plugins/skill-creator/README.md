@@ -28,3 +28,13 @@ dynamic staging writeを持つupdateは意味保存できないためexecution�
 このプラグインの `skills/` 配下がスキルの実体です。
 リポジトリ内の `.agents/skills/<name>` がここへの相対シンボリックリンクになっています。スキル実体はディレクトリ名
 （`skill-creator-best-practices`）のまま、frontmatter の `name`（`best-practices`）で公開されます。
+
+Workflow script はスキルの外、このプラグインの `workflows/` に実体で置き、スキルから名前で呼びます
+（理由と置き場の規則は `skills/skill-creator-best-practices/references/best-practices.md` §13「script の置き場」）。
+
+| ファイル | 名前 | 役割 |
+|---|---|---|
+| `workflows/build_skill.js` | `/skill-creator:skill-creator-build` | create の Workflow 本体 |
+| `workflows/review_skill.js` | `/skill-creator:skill-creator-review` | review / update の Workflow 本体 |
+
+`workflows/` にはテストを置きません（runner は `workflows/` 直下の `.js` を全て source として読むため）。

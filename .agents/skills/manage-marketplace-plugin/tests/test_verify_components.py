@@ -260,6 +260,16 @@ class L2ComponentTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("skills/broken/SKILL.md が無い", result["findings"])
 
+    def test_plugin_root_workflow_scripts_are_a_component(self):
+        self.write("skills/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\n")
+        self.write("workflows/demo-run.js", "export const meta = { name: 'demo-run', description: 'x' }\n")
+        self.write("workflows/nested/ignored.js")
+        result = self.check()
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["components"], ["skills", "workflows"])
+        files = VERIFY["distribution"](self.plugin).files
+        self.assertEqual(VERIFY["plugin_components"]("demo", files)[0]["workflows"], ["workflows/demo-run.js"])
+
 
 class L3ComponentTests(unittest.TestCase):
     def setUp(self):
@@ -309,6 +319,16 @@ class L3ComponentTests(unittest.TestCase):
         self.assertTrue(self.check(self.installed, components, 0, inventory(hooks=1))["passed"])
         self.assertFalse(self.check(self.installed, {"hooks": ["hooks/hooks.json", "missing"]},
                                     0, inventory(hooks=1))["passed"])
+
+    def test_workflow_scripts_must_be_real_files_without_an_inventory_label(self):
+        self.write("skills/demo/SKILL.md")
+        self.write("workflows/demo-run.js")
+        components = {"skills": ["skills/demo"], "workflows": ["workflows/demo-run.js"]}
+        result = self.check(self.installed, components, 0, inventory(skills=1))
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["workflows"], {"workflows/demo-run.js": True})
+        missing = {"skills": ["skills/demo"], "workflows": ["workflows/missing.js"]}
+        self.assertFalse(self.check(self.installed, missing, 0, inventory(skills=1))["passed"])
 
     def test_nothing_shipped_or_not_installed_fails(self):
         self.assertFalse(self.check(self.installed, {}, 0, inventory())["passed"])

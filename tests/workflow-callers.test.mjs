@@ -68,6 +68,18 @@ test('every Workflow caller declares the native-first transparent Codex route', 
   }
 })
 
+// args の中の `name:` を source selector と読まないため、入れ子の {...} を外した最上位のキーだけを見る。
+function selectorName(body) {
+  let top = body
+  for (let next = top.replace(/\{[^{}]*\}/g, ''); next !== top; next = top.replace(/\{[^{}]*\}/g, '')) top = next
+  return top.match(/(?:^|[\s,{])name\s*:\s*['"]([^'"]+)['"]/)?.[1] ?? null
+}
+
+test('name-form detection reads only the top-level selector', () => {
+  assert.equal(selectorName(' scriptPath: "[SKILL_DIR]/scripts/run.js", args: { name: "foo" } '), null)
+  assert.equal(selectorName(' name: "p:run", args: { name: "foo", nested: { name: "bar" } } '), 'p:run')
+})
+
 function namedWorkflowCallers() {
   const callers = []
   for (const pluginName of readdirSync(pluginsRoot)) {
@@ -78,9 +90,8 @@ function namedWorkflowCallers() {
       if (!existsSync(skillMd)) continue
       const source = readFileSync(skillMd, 'utf8')
       const names = [...source.matchAll(/Workflow\s*\(\s*\{([\s\S]*?)\}\s*\)/g)]
-        .map((m) => m[1].match(/(?:^|[\s,{])name\s*:\s*['"]([^'"]+)['"]/))
+        .map((m) => selectorName(m[1]))
         .filter(Boolean)
-        .map((m) => m[1])
       if (names.length) callers.push({ pluginName, skillMd, source, names: [...new Set(names)] })
     }
   }
@@ -126,7 +137,7 @@ test('prd-spec caller owns workspace scope and next_args continuation', () => {
 })
 
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {
-  const pluginNames = new Set(workflowCallers().map((caller) => caller.pluginName))
+  const pluginNames = new Set([...workflowCallers(), ...namedWorkflowCallers()].map((caller) => caller.pluginName))
   for (const pluginName of pluginNames) {
     // workflow plugin 自身が caller を含む構成（review-document を収録）では
     // 自己依存は宣言できないので免除する。runner は同 plugin 内に同梱されている。
@@ -152,8 +163,6 @@ test('every active Workflow callsite has an explicit semantic portability classi
     ['workflow/ooda/scripts/ooda.js', 'portable'],
     ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
     ['research/search/scripts/investigate.js', 'portable'],
-    ['skill-creator/skill-creator-best-practices/scripts/build_skill.js', 'portable'],
-    ['skill-creator/skill-creator-best-practices/scripts/review_skill.js', 'rejected_source'],
   ])
   const observed = new Set()
 
@@ -170,6 +179,30 @@ test('every active Workflow callsite has an explicit semantic portability classi
     }
   }
   assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered callsites must match exactly')
+})
+
+test('every name-form Workflow callsite has an explicit semantic portability classification', () => {
+  const expected = new Map([
+    ['skill-creator:skill-creator-build', 'portable'],
+    ['skill-creator:skill-creator-review', 'rejected_source'],
+  ])
+  // prd-spec は classification 行を持たず、Codex 経路は plugins/workflow/skills/prd-spec/tests/test_codex_runner.py が実行で検証する。
+  const exempt = new Set(['workflow:prd-spec-run'])
+  const observed = new Set()
+
+  for (const caller of namedWorkflowCallers()) {
+    for (const name of caller.names) {
+      if (exempt.has(name)) continue
+      const classification = expected.get(name)
+      assert.ok(classification, `${name}: add an explicit portability classification`)
+      observed.add(name)
+      assert.match(caller.source, new RegExp(`Codex classification: .*${classification}`))
+      assert.match(caller.source, /native `Workflow`/, `${caller.skillMd}: native-first route is missing`)
+      assert.match(caller.source, /fallback\s*しない/, `${caller.skillMd}: native-attempt failure boundary is missing`)
+      assert.match(caller.source, /runner\s*内\s*gate\s*に移さない/, `${caller.skillMd}: caller gate ownership is missing`)
+    }
+  }
+  assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered name-form callsites must match exactly')
 })
 
 test('portable sources avoid hidden host state and the research source stays bounded', () => {
@@ -199,7 +232,7 @@ test('portable sources avoid hidden host state and the research source stays bou
 test('portable sources declare every non-load-bearing model hint exactly once', () => {
   const sourcePaths = [
     join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
-    join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'build_skill.js'),
+    join(pluginsRoot, 'skill-creator', 'workflows', 'build_skill.js'),
     join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
   ]
   for (const sourcePath of sourcePaths) {

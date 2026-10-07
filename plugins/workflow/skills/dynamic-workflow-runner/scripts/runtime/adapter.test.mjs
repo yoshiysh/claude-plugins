@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { Codex } from '@openai/codex-sdk';
 import { createWorkflow, executeWorkflow, workflowContext } from './adapter.mjs';
 import { contextPolicy } from './contexts.mjs';
+import { readSourceMetadata } from './source.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../');
 
@@ -100,6 +101,12 @@ test('adapter rejects authority and call-shape overrides without dispatch', asyn
   assert.equal(configs.length, 0);
 });
 
+// runtime.mjs / resume.mjs / adapter.mjs は update の権限判定を meta.name の文字列一致で行う。名前が変わると判定が外れる。
+test('skill-creator review source keeps the meta.name that update authorization keys on', async () => {
+  const source = await readFile(join(repoRoot, 'plugins/skill-creator/workflows/review_skill.js'), 'utf8');
+  assert.equal(readSourceMetadata(source).name, 'skill-creator-review');
+});
+
 test('createWorkflow binds skill-creator update to host policy and returns a staged package', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-update-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -111,13 +118,8 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
     await Promise.all([targetRoot, stagingRoot, runRoot, workerDirectory, targetDir].map(path => realpath(path)));
   await writeFile(join(targetDir, 'SKILL.md'), 'before\n');
 
-  const scriptPath = join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices/scripts/review_skill.js');
-  const plugin = join(dir, 'named-plugin');
-  await mkdir(join(plugin, '.claude-plugin'), { recursive: true });
-  await mkdir(join(plugin, 'workflows'));
-  await writeFile(join(plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'creator-test' }));
-  const namedSource = join(plugin, 'workflows/creator.js');
-  await cp(scriptPath, namedSource);
+  const plugin = await realpath(join(repoRoot, 'plugins/skill-creator'));
+  const scriptPath = join(plugin, 'workflows/review_skill.js');
   const calls = [];
   const originalStartThread = Codex.prototype.startThread;
   Codex.prototype.startThread = function (options) {
@@ -136,10 +138,13 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
         assert.equal(options.sandboxMode, 'read-only');
         assert.equal(options.workingDirectory, canonicalWorkerDirectory);
       }
+      // Codex worker には claude-api skill が無いので、prompt-audit の観点は unavailable を返す。
       const result = prompt.includes('"changed_files"')
         ? { changed_files: [{ path: 'SKILL.md', reason: 'test update', findings_addressed: [] }], summary: 'updated' }
-        : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
-            ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
+        : prompt.includes('[CATEGORY]: prompt-audit')
+          ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'claude-api skill is absent' }
+          : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
+              ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
       return { events: (async function* () {
         yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({ json: JSON.stringify(result) }) } };
         yield { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } };
@@ -152,7 +157,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       cwd: canonicalWorkerDirectory,
       runRoot: canonicalRunRoot,
       trustedSource: true,
-      trustedPluginRoots: [await realpath(plugin)],
+      trustedPluginRoots: [plugin],
       modelMap: {
         sonnet: { model: 'test-reviewer', modelReasoningEffort: 'low' },
         opus: { model: 'test-updater', modelReasoningEffort: 'low' },
@@ -163,7 +168,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       agentTimeoutMs: 48000,
       updatePolicy: { targetRoot: canonicalTargetRoot, stagingRoot: canonicalStagingRoot },
     });
-    for (const selector of [{ scriptPath }, { name: 'creator-test:skill-creator-review' }]) {
+    for (const selector of [{ scriptPath }, { name: 'skill-creator:skill-creator-review' }]) {
       let result;
       try {
         result = await Workflow({
@@ -173,6 +178,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
             mode: 'update',
             target: { skillPath: targetDir, scope: 'full' },
             uncheckedItems: [],
+            promptAuditExpected: false,
             intent: 'exercise the adapter update route',
           },
         });
@@ -184,6 +190,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       }
 
       assert.equal(result.source_result.verdict, 'applied_to_staging');
+      assert.deepEqual([...result.source_result.reverify_receipt.skipped_unavailable], ['prompt-audit']);
       assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
       assert.equal(result.action_package.changed_files[0].operation, 'update');
       assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');

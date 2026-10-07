@@ -166,6 +166,10 @@ model と effort は、その agent を起動する側の 1 箇所に書く。Wo
 agents/*.md の frontmatter は効かない。opts と agent ファイルの frontmatter の両方に書くと、
 片方だけの更新でどちらが効くか決まらない。
 
+**`agent()` の `model` と `effort` は全 callsite で明示する。** 公式の既定は「省略してセッションの値を継承」
+だが、継承は fan-out の体数ぶんセッションのモデル・effort で走ることを意味し、セッションが最上位設定なら
+機械的な照合の 1 体 1 体まで最上位の単価とレート制限を消費する。生成するスキルの script も同じ規則に従う。
+
 | タスクの性質 | モデル |
 |------------|--------|
 | 最高難度・長時間自律実行・多数 subagent のオーケストレーション | Fable |
@@ -182,7 +186,7 @@ effort の選び方:
   既定値は [§11](#11-claude-5-世代の指示設計--世代共通の原則)「モデル別の分岐」
 - `xhigh` / `max` は品質の向上を測れた作業だけに使う。思考を減らしたいなら prompt の指示ではなく
   effort を下げる（Opus 5.5 docs「more reliably than prompt instructions do」）
-- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明、AGENTS.md の実測）
+- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明）
 - GPT-6 の移行指針は逆に「Preserve your current effective reasoning effort where supported」とするが、
   Claude 側の測り直しを採る
 - 指示の密度は、それを読むモデルで決める（GPT-6 blog「Guidance that helps Sol or Luna may overconstrain
@@ -652,13 +656,13 @@ fan-out する既存スキルは「それを指して同じことをする workf
 |---|---|---|
 | 例 | `anthropics/skills` の `docx/scripts/{accept_changes,comment,merge_runs}.py` | `dispatch/scripts/orchestrate.js` |
 | 中身 | OOXML 手術・PDF 処理など、1 操作を確実に行うコード | agent の fan-out・集約・閾値判定 |
-| 呼ぶ人 | agent が Bash で叩く | `Workflow({ scriptPath })` でランタイムが実行 |
+| 呼ぶ人 | agent が Bash で叩く | `Workflow({ scriptPath })`（未公開）/ `Workflow({ name })`（公開後）でランタイムが実行。置き場は下の「script の置き場」 |
 
 `docx` が workflow を持たないのは正しい。あのスキルは fan-out しない（1 agent が Python を叩くだけ）ので、orchestration を決定化する対象が無い。**「scripts/ があるから決定化済み」ではない**——見るべきは「ループと並列と閾値判定を誰が持っているか」。
 
 ### 参照実装と、本家との差
 
-`anthropics/skills`（2026-08 時点）は `workflows/` ディレクトリを 1 つも持たず、`.js` は作画テンプレート 1 本のみ。本家 `skill-creator` も `agents/` + Python の `scripts/` で、全区間が Claude のターンごとの指揮で回る。**このリポジトリの skill-creator-best-practices はその直系だが、create の Workflow 区間（Criteria〜Analyze）を `build_skill.js` に移した時点で本家より先へ出ている。**
+`anthropics/skills`（2026-08 時点）は `workflows/` ディレクトリを 1 つも持たず、`.js` は作画テンプレート 1 本のみ。本家 `skill-creator` も `agents/` + Python の `scripts/` で、全区間が Claude のターンごとの指揮で回る。**このリポジトリの skill-creator-best-practices はその直系だが、create の Workflow 区間（Criteria〜Analyze）を名前付き workflow `/skill-creator:skill-creator-build`（plugin の `workflows/build_skill.js`）に移した時点で本家より先へ出ている。**
 
 継承したパターン表（`coordination-patterns.md` の 1–6）は dynamic workflows 以前の corpus 由来で、Workflow 実行型が候補に入っていなかった。本節が後から足されても選択経路に届いていなかったのが、fan-out するスキルを作っても script 化しない傾向の実際の原因。ステップ 0 の判定はそれを塞ぐために置いてある。
 
@@ -679,19 +683,41 @@ fan-out する既存スキルは「それを指して同じことをする workf
 | `.claude/workflows/*.js` | `/name`（保存済み workflow） | リポジトリローカル。plugin 配布されない |
 | `plugins/<p>/workflows/*.js` | `/plugin:name` | plugin 資産として配布される |
 
-**このリポジトリは `<skill>/scripts/*.js` に統一する。**
+**このリポジトリは公開の前後で 2 段に分ける（この節が置き場の規則の正本）。**
+
+| 段 | script の場所 | SKILL.md の呼び出し |
+|---|---|---|
+| 未公開（plugin に属さない） | `<skill>/scripts/<f>.js` | `Workflow({ scriptPath: "[SKILL_DIR]/scripts/<f>.js", args: { skillDir: "[SKILL_DIR]", ... } })` |
+| 公開後（plugin `<p>` に属する） | `plugins/<p>/workflows/<f>.js` | `Workflow({ name: "<p>:<meta.name>", args: { skillDir: "[SKILL_DIR]", ... } })` |
+
+- **公開後は名前で呼ぶ。** plugin の workflow を名前で呼ぶと承認に「Yes, and don't ask again」が出る（本家の workflows の文書）。
+  scriptPath で呼ぶと、ゲートでの呼び直しや `resumeFromRunId` のたびに承認を繰り返す。
+- **未公開の間は scriptPath で呼ぶ。** 名前は install 済み plugin の `workflows/` にしか解決されず、未公開の script には届かない。
+- **移動は初めての公開の操作が行う。** 公開の操作が、初めて公開するスキルの script を plugin の `workflows/` へ移し、
+  callsite の 1 行を書き換える。書き換えられるのは
+  `scriptPath: "[SKILL_DIR]/scripts/<f>.js",` だけの 1 行に限る（selector を複数行に分けたり本文で script のパスに触れたりすると、
+  移動先と食い違う参照が残るので公開が止まる）。公開済みのスキルに後から足した script は自動では移らず、公開の操作が
+  理由つきで報告するので、手で移して callsite を書き換える。
+- **`meta.name` の条件。** `^[a-z][a-z0-9-]*$` に合う（runner の名前付き解決と同じ形）・plugin 内で一意・どのスキルの名前（frontmatter の
+  `name`）とも違う（skill の呼び出し名と workflow の `/<p>:<name>` が同じときの優先は本家に定めが無い）。先例は `<skill>-run`。
+- **`skillDir` は常に args で渡す。** script は自身の位置を解決できない。公開後は script と `agents/` が別ディレクトリになるので、なおさら args だけが基準パスになる。
+- **公開後の script は plugin の `workflows/` を直接編集する（スキルのディレクトリからは届かない）。**
 
 ### 実行時制約（script を書く前に知っておく）
 
-出典: [workflows docs](https://code.claude.com/docs/en/workflows)（2026-08-09 取得）。
+出典: [workflows docs](https://code.claude.com/docs/en/workflows)（2026-10-07 取得）と Claude Code 同梱の workflow-authoring reference。
 
 | 制約 | 設計への影響 |
 |---|---|
-| **実行中のユーザー入力は不可** | 人間ゲートは workflow の境界に置く。段階ごとに別 workflow として回す |
+| **実行中のユーザー入力は不可**（自分から止まるのは agent の権限確認と使用量上限の待ちだけ） | 人間ゲートは workflow の境界に置く。段階ごとに別 workflow として回す |
 | **script 自身からファイルシステム・shell を触れない** | 読み書き・コマンド実行は agent の仕事。script は agent を並べるだけ |
 | **`import()` を含む script は起動前に失敗する** | ライブラリが要る処理は agent のタスクに寄せる |
-| **同時実行は最大 16 agent**（CPU コア数次第でさらに少ない） | 100 件渡しても全部完走する。並列度は気にしなくてよい |
-| **1 run あたり通算 1000 agent** | 暴走ループのバックストップ。通常の設計で当たる数ではない |
+| **同時実行は既定で最大 16 agent**（使える CPU が少なければさらに少ない。`CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` で 1〜256 に変えられる。v2.1.269 以降） | 100 件渡しても全部完走する。並列度は気にしなくてよい |
+| **1 回の `parallel()` / `pipeline()` に渡せるのは 4096 件まで**。超えると切り捨てではなくエラー | 件数が読めない入力は分割して渡す。黙った切り捨ては起きないが、落ちる |
+| **1 run あたり通算 1000 agent** | 暴走ループのバックストップ。改稿ループ × 観点 × 反証のように掛け算で増える設計は、最悪ケースの体数を見積もる |
+| **schema が自己矛盾していると agent は起動前に落ちる**（例: `required` のキーを `additionalProperties: false` が締め出す） | schema を組み立てるコードを変えたら、その schema で 1 回起動して確かめる |
+| **構造化出力の検証は既定で 5 回まで再試行**（`MAX_STRUCTURED_OUTPUT_RETRIES`）。尽きると `agent()` は `null` ではなく最後の検証失敗を含むエラーで throw する（`null` になるのは停止されたときと回復不能な API エラーのとき。budget の上限に達したときも throw） | `parallel()` / `pipeline()` の中では throw も `null` に変わるので `.filter(Boolean)` で欠測として扱える。単独の `await agent()` は run ごと落ちるので、`null` を欠測の verdict に変えている callsite は try/catch（`.catch`）で包む |
+| **使用量上限に当たった agent は失敗せず reset を待つ**。条件: claude.ai サブスクリプションの対話セッション・`autoContinueAtUsageLimit` が on・24 時間以内に reset・その run で 2 回まで（v2.1.271 以降）。`claude -p`・Agent SDK・background session・Remote Control・agent team の teammate では待たずに失敗する | 非対話の経路で回す workflow は、上限で agent が落ちたときの欠測を必ず扱う |
 | `Date.now()` / `Math.random()` / 引数なし `new Date()` は throw する | resume を壊すため。時刻は `args` で渡し、乱択は index で prompt を変える |
 
 `agent()` はユーザーが停止したり回復不能な API エラーになると `null` を返す。`pipeline()` はその `null` を配列に残すので、**結果を使う前に `.filter(Boolean)` する**。
@@ -722,7 +748,7 @@ fan-out する既存スキルは「それを指して同じことをする workf
 
 判定の目安：`const a = await parallel(...)` → `const b = transform(a)`（flatten/map/filter だけ）→ `const c = await parallel(b.map(...))` と書いていたら、その中間 transform に barrier は要らない。pipeline のステージに畳む。
 
-**このスキル自身の `build_skill.js` が barrier を使っている箇所は正当な例**：Evaluate は with_skill と baseline を 1 つの `parallel()` にまとめて発行する。採点は必ず対で行う必要があり、片側だけ先に進めても意味がないため。逆に「なぜここだけ barrier なのか」を説明できない `parallel()` は pipeline に直す候補。
+**このスキル自身の create の workflow（plugin の `workflows/build_skill.js`）が barrier を使っている箇所は正当な例**：Evaluate は with_skill と baseline を 1 つの `parallel()` にまとめて発行する。採点は必ず対で行う必要があり、片側だけ先に進めても意味がないため。逆に「なぜここだけ barrier なのか」を説明できない `parallel()` は pipeline に直す候補。
 
 ### 品質パターン（構造として強制するもの）
 
@@ -775,8 +801,17 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 ### 規模とコスト
 
 - 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧める
-- size guideline（`/config`）は Claude が狙う agent 数の目安。`small` < 5 / `medium` < 15（既定）/ `large` < 50 / `unrestricted`
-- 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）
+- size guideline は Claude が script を書くときに狙う agent 数の目安で、上限ではない。`/config` では名前で選ぶ:
+  `small` < 5 / `medium` < 10 / `large` < 50 / `unrestricted`。既定は `medium`（Pro では `small`。v2.1.271 以降）。
+  settings ファイルの `workflowSizeGuideline` キーは settings-reference では数値（正の整数の agent 数、既定は未設定）として
+  記載されており、設定すると `/config` の値より優先される
+- 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）。
+  size guideline を自分で選ぶと、その agent 数が 25 の閾値に置き換わる。ultracode が on のセッションでは出ない
+- prompt cache: 同じ run の中で model・effort・agent type・tools・出力 schema・作業ディレクトリが同じ agent は
+  tools と system prompt の prefix が一致し、先に応答が始まった兄弟の cache を読める。fan-out では一致する agent の
+  2 体目以降を 1 体目の応答開始まで最大 `CLAUDE_CODE_WORKFLOW_PREFIX_STAGGER_MS`（既定 5000 ms、0 で無効）待たせる。
+  workflow agent の cache は既定 5 分で切れる（settings の `subagentPromptCacheTtl` で `1h` / `24h` に延ばせる。書き込み単価は上がる）。
+  script 側の書き方は `skill-writing-guide.md`「Workflow 型スキルの執筆」
 - モデルと `effort`: §3
 
 規模はタスクに合わせる。「バグを探して」なら finder 数体＋単票 verify、「徹底的に監査して」なら finder を増やし 3〜5 票の adversarial pass と統合ステージを置く。

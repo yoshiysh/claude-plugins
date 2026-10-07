@@ -1,21 +1,25 @@
 ---
 name: best-practices
 description: >
-  スキルの作成（create）・既存スキルや直近変更の評価（review）・評価にもとづく改稿（update）を、
+  スキルの作成（create）・既存スキルや直近変更の評価（review）・評価にもとづく改稿（update）・
+  既存スキルへの prompt-audit（audit。古くなったプロンプトの書き方や食い違う指示の監査）を、
   マルチエージェントの Workflow で実行する。「スキルをマルチエージェントで作りたい」
   「品質チェック付きでスキルを作って」「このスキルを best-practices に沿ってるか評価して」
-  「直近の変更をレビューして」「Issue に沿ってこのスキルを更新して」といったリクエストで使うこと。
-  既存スキルの実行、通常のチャット質問への回答、SKILL.md を伴わない一般のコードレビューは対象外。
+  「直近の変更をレビューして」「Issue に沿ってこのスキルを更新して」「このスキルに prompt-audit をかけて」
+  「古いプロンプトの書き方が残ってないか監査して」「このスキルを audit して」といったリクエストで使うこと。
+  既存スキルの実行、通常のチャット質問への回答、SKILL.md を伴わない一般のコードレビュー、
+  スキルではないアプリのシステムプロンプトやコードの prompt-audit は対象外。
 ---
 
 # マルチエージェント スキルクリエイター
 
 複数の Sub Agent を実際に起動して役割分担し、単独実行より高品質なスキルを生み出す。
-新規作成だけでなく、既存スキル・直近の変更の評価と改稿も同じ枠組みで扱う。
+新規作成だけでなく、既存スキル・直近の変更の評価と改稿、prompt-audit による監査も同じ枠組みで扱う。
 
 各 Sub Agent のプロンプトは `agents/` 配下の個別ファイルに定義されている。
-実行順序・並列・集約・閾値判定は Workflow スクリプト（`scripts/build_skill.js` /
-`scripts/review_skill.js`）が握る。司令塔が担うのは、その前後にある人間ゲートだけで、
+実行順序・並列・集約・閾値判定は名前付き workflow `/skill-creator:skill-creator-build`（plugin の
+`workflows/build_skill.js`）と `/skill-creator:skill-creator-review`（plugin の `workflows/review_skill.js`。review / update / audit）が握る。
+司令塔が担うのは、その前後にある人間ゲートだけで、
 Agent ツールで agent を直接起動しない。成果物の本文は司令塔ではなく agent が生成し、agent の起動は
 script の集計・欠測検出を通す必要がある（散文で起動すると、欠けた観点や応答しなかった agent が合格に化ける）。
 
@@ -27,7 +31,7 @@ script の集計・欠測検出を通す必要がある（散文で起動する�
   - [要件整理とペルソナ設計（create）](#要件整理とペルソナ設計create)
   - [Workflow を呼ぶ（create）](#workflow-を呼ぶcreate)
   - [統合・改善ループ・ユーザーへの提示（create）](#統合改善ループユーザーへの提示create)
-- review/update の司令塔手順
+- review/update/audit の司令塔手順
   - [対象と範囲の確認（review/update）](#対象と範囲の確認reviewupdate)
   - [Workflow を呼ぶ（review/update）](#workflow-を呼ぶreviewupdate)
   - [結果の提示と適用（review/update）](#結果の提示と適用reviewupdate)
@@ -47,13 +51,16 @@ script の集計・欠測検出を通す必要がある（散文で起動する�
 | 既存スキルのパス・名前を挙げて評価を求める（「このスキルを best-practices に沿ってるか評価して」） | `review` | 「対象と範囲の確認（review/update）」へ |
 | 変更・コミット・PR の範囲を挙げて評価を求める（「直近の変更をレビューして」「main...HEAD を見て」） | `review` | 「対象と範囲の確認（review/update）」へ |
 | 評価に加えて直すことまで求める（「Issue に沿ってこのスキルを更新して」「指摘を反映して」） | `update` | 「対象と範囲の確認（review/update）」へ |
-| スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー | 対象外 | このスキルを使わない旨を伝えて終了 |
-| 何を対象にするか読み取れない・入力が空 | 判定不能 | create / review / update のどれかと対象を 1 回で聞き返す |
+| 既存スキルへの prompt-audit を名指しする（「このスキルに prompt-audit をかけて」「古いプロンプトの書き方が残ってないか監査して」「このスキルを audit して」） | `audit` | 「対象と範囲の確認（review/update）」へ |
+| スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー・スキルではないアプリのプロンプトやコードの prompt-audit | 対象外 | このスキルを使わない旨を伝えて終了（アプリの prompt-audit なら claude-api skill の prompt-audit を直接使うよう伝える） |
+| 何を対象にするか読み取れない・入力が空 | 判定不能 | create / review / update / audit のどれかと対象を 1 回で聞き返す |
 
-**複数行に一致したときの優先順位**：作成・評価・更新の**実体を伴う行**（上 4 行）を優先し、
-それらに 1 行も当たらないときだけ「対象外」「判定不能」を選ぶ。上 4 行の中で `review` と
+**複数行に一致したときの優先順位**：作成・評価・更新・監査の**実体を伴う行**（上 5 行）を優先し、
+それらに 1 行も当たらないときだけ「対象外」「判定不能」を選ぶ。上 5 行の中で `review` と
 `update` の両方に読めるなら `review` を選ぶ。依頼文に「作って」と「見て」が同居するなら、
-まだ存在しないものを作るのが主目的なので `create`。規則が無いと、最も安直な行（対象外）が既定になる。
+まだ存在しないものを作るのが主目的なので `create`。prompt-audit・古いプロンプトの書き方を名指しする
+評価は `audit`（audit 行はスキル＝SKILL.md を持つディレクトリが対象のときだけ当たる。スキル以外への prompt-audit は対象外）、観点を名指ししない一般的な評価は `review`、「audit して直して」のように直す許可まで
+あるなら `update`（audit の観点は update の観点に含まれる）。規則が無いと、最も安直な行（対象外）が既定になる。
 
 `review` と `update` の分かれ目は「直す許可が出ているか」だけ。`review` に倒したときは
 結果提示で「このまま update で直すこともできる」と添える（読み違えて `update` に入ると、承認していない改稿が staging に残る）。
@@ -66,12 +73,12 @@ script の集計・欠測検出を通す必要がある（散文で起動する�
 要件整理とペルソナ設計（司令塔が単独で実行・人間ゲート）
   └─ 要件を構造化 → ドメイン知識を確認（条件付き）→ ペルソナを推論 → ユーザーに確認
 
-Workflow を呼ぶ（scripts/build_skill.js が全て内包）
+Workflow を呼ぶ（/skill-creator:skill-creator-build が全て内包）
   Criteria → Structure → Write（+ Review script）→ Test → Evaluate → Grade → Analyze
   → 閾値を満たさなければ writer(revise) で改稿し Evaluate へ戻る
 
 統合・改善ループ・ユーザーへの提示（司令塔が単独で実行・人間ゲート）
-  └─ pass_rate と定性レポートをユーザーに提示 → 承認後に保存
+  └─ pass_rate と定性レポートをユーザーに提示 → 承認後に保存 → 保存したスキルに audit をかけて提示
 ```
 
 **review:**
@@ -79,13 +86,14 @@ Workflow を呼ぶ（scripts/build_skill.js が全て内包）
 ```
 対象と範囲の確認（司令塔が単独で実行・人間ゲート）
 
-Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェーズだけ）
+Workflow を呼ぶ（/skill-creator:skill-creator-review。ここで回るのは 2 フェーズだけ）
   Find     観点別 finder を並列で fan-out（観点の一覧は script の FINDERS が唯一の正）
-  Verify   finding ごとに観点の異なる反証者を独立に立て、過半数の反証で棄却
+  Verify   改稿を動かす重さ（script の REVISE_SEVERITIES）の finding ごとに観点の異なる反証者を
+           独立に立て、過半数の反証で棄却。それ以外の重さは反証せず未検証として返す
   ※ Update / Reverify は起動しない。ファイルは 1 バイトも書かれない
 
 結果の提示（司令塔が単独で実行）
-  └─ 確定・棄却・未検証を件数ごと提示。直すかどうかは人間が決める
+  └─ 確定・棄却・未検証・反証していない軽微な指摘を件数ごと提示。直すかどうかは人間が決める
 ```
 
 **update:**
@@ -93,15 +101,19 @@ Workflow を呼ぶ（scripts/review_skill.js。ここで回るのは 2 フェー
 ```
 対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート）
 
-Workflow を呼ぶ（scripts/review_skill.js。review の 2 フェーズに 2 つ続く）
+Workflow を呼ぶ（/skill-creator:skill-creator-review。review の 2 フェーズに 2 つ続く）
   Find     観点別 finder を並列で fan-out
-  Verify   finding ごとに反証者を独立に立て、過半数の反証で棄却
+  Verify   review と同じ（反証するのは REVISE_SEVERITIES の finding だけ）
   Update   updater が staging（対象スキルの全ファイルのミラー）に改稿を書く
   Reverify staging に同じ観点を再適用し、最初の Verify の確定指摘と突き合わせる
+           （報告させるのは変更ファイルと再確認する指摘のファイルだけ）
 
 結果の提示と適用（司令塔が単独で実行・人間ゲート）
   └─ 解消/残存/新規/未検証を提示 → 承認後に司令塔が staging を本体へ反映
 ```
+
+**audit:** review と同じ流れで、Workflow（`/skill-creator:skill-creator-review` を mode audit で）は Find / Verify を
+claude-api skill の prompt-audit を当てる観点 1 つだけで回す。ファイルは書かない。直すなら audit の指摘を intent にして update を呼ぶ。
 
 review と改稿の間に人間ゲートは置かない。本体ファイルは承認まで書き換えないため、途中で止める必要が無い。
 
@@ -115,7 +127,7 @@ review と改稿の間に人間ゲートは置かない。本体ファイルは�
 ## Phase 1: 対象と範囲の確認（review/update）
 
 確認は 1 回にまとめる。ここでペルソナ承認ゲートは置かない。review/update の観点は script の `FINDERS` が
-持っており、ユーザーに選ばせる余地が無いため、聞くべきことは対象と範囲だけになる。
+持っており、ユーザーに選ばせる余地が無いため、聞くべきことは対象と範囲だけになる。audit もこの節で同じ確認を行う。
 
 依頼文から次を埋め、埋まらないものだけをまとめて聞き返す。
 
@@ -125,7 +137,7 @@ review と改稿の間に人間ゲートは置かない。本体ファイルは�
 | 範囲 | `full`（スキル全体）か `diff`（変更のみ） | 依頼が変更・コミット・PR を指していれば `diff`、それ以外は `full` |
 | diff の範囲指定 | `diff` のときの git の範囲（例 `main...HEAD`） | `diff` なら必須。無ければ聞く |
 | 焦点 | Issue 本文・見てほしい観点などの自由記述 | 任意。無ければ渡さない |
-| 変更意図 | `update` のとき何をどう変えたいか | `update` では必須。無ければ聞く |
+| 変更意図 | `update` のとき何をどう変えたいか | `update` では必須。無ければ聞く。`review` / `audit` では聞かない |
 
 ### 実パスの解決手順
 
@@ -153,13 +165,18 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 > native 試行後の失敗は runner へ fallback しない。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode create --native-available --runner-installed`
 > **Codex classification: `portable`**（`build_skill.js` create）。
+>
+> native Workflow が現在の tool inventory に無い Codex では、この active callsite から `workflow:dynamic-workflow-runner` を内部利用する。native を試行して失敗した call は runner で実行し直さない。ユーザーに runner の指定を要求しない。
+> host はこの skill-creator plugin の canonical root を `trustedPluginRoots` に明示し、runner の名前付き実行契約（workflow plugin の runner に同梱の `NAMED.md`）の request 形式と照合・上限に従う。ゲートの返却・回答・保存はこの caller が持つ。
+
+native では名前付き workflow を名前で呼ぶ（理由と置き場の規則は `references/best-practices.md` §13「script の置き場」）。
 
 ユーザーへの一言：
 > 「基準づくりから執筆・品質チェックまでをまとめて回しています...」
 
 ```
 Workflow({
-  scriptPath: "[SKILL_DIR]/scripts/build_skill.js",
+  name: "skill-creator:skill-creator-build",
   args: {
     skillDir: "[SKILL_DIR]",
     requirements: "<要件整理で構造化した要件全体>",
@@ -247,30 +264,31 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 > **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら review_skill.js を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
+> `halt: true` なら workflow を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
 > `rejected_source`。update は common caller の host が静的 `updatePolicy` を束縛した場合だけ
-> `--update-policy-bound` で選択でき、runtime も agent dispatch 前に検証する（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update mapping」）。
-> review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`
+> `--update-policy-bound` で選択でき、runtime も agent dispatch 前に検証する（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update / audit mapping」）。
+> review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`（audit は `--mode audit` で同じ判定を通る）
 > update の runner 例: `node [SKILL_DIR]/scripts/select_runtime.js --mode update --no-native --runner-installed --update-policy-bound`（host policy が無ければ flag を付けず停止する）。
-> **Codex classification: review は `rejected_source`、update は host policy 条件付き**。
+> **Codex classification: review と audit は `rejected_source`、update は host policy 条件付き**。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
 
 ```
 Workflow({
-  scriptPath: "[SKILL_DIR]/scripts/review_skill.js",
+  name: "skill-creator:skill-creator-review",
   args: {
     skillDir: "[SKILL_DIR]",
-    mode: "review | update",
+    mode: "review | update | audit",
     target: {
       skillPath: "<対象スキルの実パス>",
       scope: "full | diff",
       diffRef: "<scope=diff のときの git 範囲指定。例 main...HEAD>",
       focus: "<任意。Issue 本文・見てほしい観点>"
     },
-    uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま。必須>,
+    uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま。review/update では必須、audit では渡さない>,
     intent: "<update のときの変更意図。update では必須>",
+    promptAuditExpected: <select_runtime.js の selected_runtime が "native" なら true、"dynamic-workflow-runner" なら false。必須>,
     stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>"
   }
 })
@@ -280,53 +298,39 @@ Workflow({
 どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
 agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
 Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する。
-`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`uncheckedItems` が無いか形式が不正、
+`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
+audit なのに `uncheckedItems` を渡した（audit は委譲項目を判定する観点を走らせない）、
 `stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-改稿の打ち切りは回数ではなく進捗で決まる — 未解消 0 件、または前の巡から 1 件も動かなくなるまで回る。
-暴走は workflow runtime の agent 起動上限が外側で止める。
+改稿の打ち切りは回数ではなく進捗で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
+[schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本。
 
-**観点の一覧・反証者の立て方・多数決の閾値・打ち切りの判定・staging の既定値は
-`scripts/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
+**観点の一覧・反証者の立て方・多数決の閾値・反証する重さ・打ち切りの判定（`STALL_ROUNDS` /
+`MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
+plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
 存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。中身は script を読む。
 
-完了すると以下が返る（フィールドの意味は[入出力の定義](#入出力の定義)を見る）：
-
-```
-{
-  mode, target, verdict,
-  findings: { confirmed[], rejected[], unverified[] },
-  unchecked_failures: [],
-  findings_source: "before" | "after",
-  by_category: { before, after },
-  reverify_missing: [],
-  reverify_receipt: { phase, staging_dir, fresh_thread, completed, by_category,
-                      updater_thread_id, fresh_thread_id } | null,
-  staging: { dir, changed_files[], resolved[], remaining[], new[],
-             unverified[], possibly_rephrased[], unobserved[],
-             reclassified[], out_of_scope[], preexisting[], reverify_missing[] } | null,
-  revisions_used
-}
-```
+戻り値の全フィールドと値は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本（司令塔が見る主なものは[入出力の定義](#入出力の定義)）。
 
 `verdict` は mode ごとに次の値を取る。判定条件は script の precedence chain が持つので、
 ここには**司令塔がどう提示するか**だけを書く。提示フォーマットの実物は
 `references/orchestrator-review.md`。
 
-**review:**
+**review / audit:**（audit は native でしか走らず `promptAuditExpected: true` なので、prompt-audit が実施できなければ `review_incomplete` になる）
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `clean` | 確定も未検証も、委譲項目の未達も無いと伝える。棄却の件数は添える |
-| `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数も必ず添える |
+| `clean` | 確定も未検証も、反証していない `reported_minor` も、委譲項目の未達も、実施できなかった観点も無いと伝える。棄却の件数は添える |
+| `clean_except_unavailable` | 指摘は無いが、`skipped_unavailable.before` の観点は依存する skill が実行環境に無く**見ていない**と名指しして伝える。「問題なし」とは言わない |
+| `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数と、反証していない `reported_minor` の中身も必ず添える。`confirmed` が 0 件でも `unverified` か `reported_minor` があれば「問題なし」と言わない |
 | `review_incomplete` | `by_category.before` が `null` の観点を名指しし、見ていないと伝える。合格と読ませない |
 
 **update:**
 
 | verdict | 司令塔の振る舞い |
 |---|---|
-| `applied_to_staging` | 変更ファイルと `resolved` / `remaining` / `new` / `unverified` / `reclassified` / `out_of_scope` / `preexisting` に、staging の指紋を添えて提示し、反映してよいか確認する（updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本） |
-| `needs_human_decision` | 発火は 2 経路: 未検証・未観測の blocker（即時）と、`REVISE_SEVERITIES` に含まれる severity の未解消指摘が前の巡から 1 件も動かなくなった（解消も新規も無い＝同じ入力では収束しない）とき。残った指摘を severity ごと提示し、staging を残して判断を仰ぐ。自動反映しない |
+| `applied_to_staging` | `references/orchestrator-review.md` の「提示の原則」と update の提示フォーマットに従い、全バケットと staging の指紋を提示して、反映してよいか確認する（updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本） |
+| `needs_human_decision` | どの出口で止まったかを `stop_reason` で言う（値と意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本）。残った指摘を severity ごと提示し、staging があれば残して判断を仰ぐ（改稿前に止まった場合は `staging` が `null`）。自動反映しない |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
@@ -344,14 +348,14 @@ Codex runner の update では `stagingDir` を渡さない。host policy が st
 
 ## Phase 5: 統合・改善ループ・ユーザーへの提示（create）
 
-改善ループは Workflow（`scripts/build_skill.js`）が内包しており、やり直す場合も `resumeFromRunId` で
-Workflow を再実行する。
+改善ループは Workflow（`/skill-creator:skill-creator-build`）が内包しており、やり直す場合も
+`Workflow({ name: "skill-creator:skill-creator-build", resumeFromRunId: "<runId>", args: { <その run の args> } })` で再実行する。
 
 `references/orchestrator-output.md` を Read し、手順に従って実行する。
 
 ## Phase 3: 結果の提示と適用（review/update）
 
-`references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する。
+`references/orchestrator-review.md` を Read し、提示フォーマットと適用手順に従って実行する（audit の結果も同じ参照先の提示フォーマットに従う）。
 
 本体への反映は**承認後に司令塔が行う**（script は staging に書くところで必ず止まる）。司令塔の役割は
 Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・承認後に native は `staging.changed_files` を
@@ -378,12 +382,20 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `findings.confirmed[]` | 反証を生き残った指摘 |
 | `findings.rejected[]` | 過半数の反証で棄却された指摘 |
 | `findings.unverified[]` | 有効票が足りず、確定にも棄却にもできなかった指摘 |
+| `findings.reported_minor[]` | severity が `REVISE_SEVERITIES` の外で、**設計上反証に回していない**指摘。確定でも棄却でもない。1 件でもあれば `clean` にならない |
 | `unchecked_failures[]` | 機械検査が判定できないと宣言した項目のうち、担当観点が未達と判定したもの・判定を返さなかったもの。反証を通していないので `confirmed` には混ぜない。合格にならない判定の集合は script の `UNCHECKED_BLOCKING` が正本 |
 | `findings_source` | `"before"` 固定。review では 1 回しか検査しないため、出所は常に最初のパス |
-| `by_category.before` | 観点ごとの確定件数。finder が落ちた観点は件数ではなく `null`（＝欠測） |
+| `by_category.before` | 観点ごとの確定件数。finder が落ちた観点は `null`（＝欠測）、実施できなかった観点は `"unavailable"`（値の定義は schemas.md） |
 | `by_category.after` | `null` 固定。review では Reverify のパス自体が走らない（欠測ではない） |
 | `staging` | `null` 固定 |
 | `revisions_used` | `0` 固定 |
+| `stop_reason` | `null` 固定（改稿ループが無い） |
+| `findings_before` | `null` 固定（改稿前の結果は `findings` そのもの） |
+| `skipped_unavailable.before` | 依存する skill が実行環境に無く実施できなかった観点。欠測（`by_category.before` の `null`）とは別枠で、`by_category.before` には `"unavailable"` として載る。1 つでもあれば `clean` にならない |
+
+### audit
+
+入力は review と同じ。出力も review と同じフィールドで、観点は prompt-audit の 1 つだけ、`unchecked_failures` は `null`（委譲項目を判定する観点を走らせない）。
 
   `null` は 2 階層で意味が違う。`after === null` は「そのパスが走らなかった」（正常）、
   `before.<観点> === null` は「走ったがその担当が応答しなかった」（欠測）。
@@ -398,18 +410,24 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `staging.dir` | 改稿の書き出し先。対象スキルの**全ファイルのミラー**（変更しなかったファイルも入っている） |
 | `staging.changed_files[]` | 実際に書き換えたファイルと、その理由・対応する指摘 |
 | `staging.resolved[]` | **最初の**確定指摘のうち、再検証で消えたもの |
-| `staging.remaining[]` | **最初の**確定指摘のうち、再検証でも残ったもの |
+| `staging.remaining[]` | **最初の**確定指摘のうち、再検証でも残ったもの（severity を下げて再報告され反証に回らなかったものも含む） |
 | `staging.new[]` | 再検証で新しく出た確定指摘（改稿が持ち込んだ可能性がある） |
 | `staging.unverified[]` | 再検証で確定にも棄却にもできなかった指摘。`remaining` と混ぜない |
 | `staging.possibly_rephrased[]` | ファイルと観点は一致するが主張の文言が変わり、機械的には `new` として出たもの。`new` にも載ったまま、別枠でも残す |
 | `staging.unobserved[]` | 再検証時にそのファイルを誰も読んでいないため、消えたのか見られていないのかが分からない指摘。`resolved` には数えない。blocker が含まれる場合は `unverified` の blocker と同様に自動確定せず `needs_human_decision` になる |
 | `staging.reclassified[]` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` には入れない |
 | `staging.preexisting[]` | 再検証で新しく出たが、引用が改稿前の原本にもそのまま存在する確定指摘。改稿前の検査が見落とした既存の問題なので `new` には入れず、blocker 判定にも入れない（提示はする） |
-| `staging.out_of_scope[]` | `scope: "diff"` で差分の範囲外に出た確定指摘。何を入れ何を入れないかは [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) の `out_of_scope` が正本 |
-| `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
-| `by_category.before` | 改稿前（Find）の観点別確定件数。欠測観点は `null` |
-| `by_category.after` | 再検証（Reverify）の観点別確定件数。Reverify が完了していなければ `null` |
-| `revisions_used` | **再**改稿の回数。初回の改稿は含まないので、1 回だけ書いて終わったなら `0` |
+| `staging.reverify_scope` | 再検証が**何を見なかったか**の宣言。観点ごとの報告範囲（`report_files`）、再確認させた指摘（`recheck_ids`）、範囲外で返ってきたため反証しなかった指摘（`excluded_findings`）。定義は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本 |
+| `findings` / `findings_source` | 最後に**完了した**検査パスの確定・棄却・未検証・`reported_minor` と、それが `"before"`（改稿前）か `"after"`（再検証後）か |
+| `stop_reason` | 改稿ループをどの出口で抜けたか。値と意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本 |
+| `by_category.before` | 改稿前（Find）の観点別確定件数。欠測観点は `null`、実施できなかった観点は `"unavailable"`（値の定義は schemas.md） |
+| `by_category.after` | 再検証（Reverify）の観点別確定件数。Reverify が完了していなければ `null`。数えるのは報告範囲（`staging.reverify_scope.report_files`）の中だけで、0 は「スキル全体で問題なし」ではない。`null` / `"unavailable"` の意味は schemas.md |
+| `findings_before` | 改稿前（Verify）の確定・棄却・未検証・`reported_minor`。`findings` は再検証後に置き換わり、Reverify は報告範囲を絞るので、改稿前に見えていた指摘が再登場しないことがある。提示から落とさないためにここへ持ち越す |
+| `staging.still_unverified[]` | **最初の**確定指摘のうち、再検証で再報告されたが有効票が揃わなかったもの。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
+| `staging.refuted_on_recheck[]` | **最初の**確定指摘のうち、再検証で再報告されたが過半数の反証で棄却されたもの。消えたのではなく反証の結果なので `resolved` とは別枠。改稿で手が入っていない blocker なら自動確定しない（条件は schemas.md が正本） |
+| `staging.unverified_absent[]` | 改稿前に未検証だった指摘のうち、再検証でそのファイルを読んだうえで報告されなかったもの。確定したことが無いので `resolved` とは呼ばず、提示だけする |
+| `staging.unverified_unobserved[]` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが読まれなかったもの。blocker なら自動確定しない |
+| `revisions_used` | **再**改稿の回数。定義は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本 |
 
   `resolved` / `remaining` / `new` は改稿を 2 回以上重ねても**常に最初の確定指摘と
   突き合わせる**。直前のラウンドと比べると、1 度直った指摘がぶり返しても「元から無かった」
@@ -436,12 +454,18 @@ evals/         # evals.json — このスキル自体の評価テストケース
 references/    # orchestrator-requirements / orchestrator-output / orchestrator-review（司令塔の手順）、
                # coordination-patterns / best-practices / skill-writing-guide / criteria-by-task /
                # flow-design（設計ガイド）、schemas（エージェント間入出力の契約書）
-scripts/       # build_skill.js  — create の Workflow 本体
-               # review_skill.js — review/update 本体（観点一覧 FINDERS の唯一の正）
-               # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
+scripts/       # run_eval.py / aggregate_benchmark.py / improve_description.py / run_loop.py /
                # select_runtime.js — Workflow 呼び出し前の経路選択（native / 互換層 / 停止）
                # package_skill.py / quick_validate.py / diff_findings.py / utils.py
 ```
+
+Workflow script はスキルの外、plugin の `workflows/` にある（名前で呼ぶため。置き場の規則は
+`references/best-practices.md` §13「script の置き場」が正本）。
+
+| plugin の `workflows/` | 名前 | 何の正か |
+|---|---|---|
+| `build_skill.js` | `/skill-creator:skill-creator-build` | create の Workflow 本体 |
+| `review_skill.js` | `/skill-creator:skill-creator-review` | review/update/audit の Workflow 本体（観点一覧 FINDERS の唯一の正） |
 
 各ファイルの詳細な役割は、それを Read させている script と `references/schemas.md` が持つ
 （ここに 1 行説明を複製すると、役割が変わったとき片方だけが古くなる）。

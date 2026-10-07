@@ -27,7 +27,7 @@ node [SKILL_DIR]/scripts/select_runtime.js \
    **理由**: native はどの phase まで進んだか（どの副作用が残っているか）を呼び出し側から
    確定できず、同じ call を runner で再実行すると部分実行の上に二重実行が重なる。加えて
    human gate の所有が native 側と runner 側に分かれ、どちらが承認を持つのかが決まらない。
-4. caller root、callsite の exact script path と args、前後 phase、human gate の所有権を runner へ渡す。
+4. callsite の qualified name（`skill-creator:skill-creator-build` / `skill-creator:skill-creator-review`）と args、この plugin の canonical root を `trustedPluginRoots` として、前後 phase、human gate の所有権とともに runner へ渡す。runner は root の `workflows/` から meta.name で source を解決する。
 5. `workflow_complete` と final verification に結合した verified return だけで成功後 phase を再開する。runner 未install、`unsupported_runtime`、`rejected_source`、`workflow_incomplete` では成功後 phase を開始しない。
 
 ## create mapping
@@ -40,7 +40,7 @@ node [SKILL_DIR]/scripts/select_runtime.js \
 - verified returnは草稿を返すだけで保存権限ではない。hash-bound action packageを生成・再検証・read-backできる
   caller-owned executorが無いCodex環境では、草稿と保存候補を提示して停止し、保存済みと報告しない。
 
-## review / update mapping
+## review / update / audit mapping
 
 runner で拒否される mode の正本は `scripts/select_runtime.js` の `RUNNER_REJECTED_MODES`。
 selector の update 許可は経路選択だけであり、runtime の検証を代替しない。
@@ -50,6 +50,13 @@ selector の update 許可は経路選択だけであり、runtime の検証を�
 - `mode: review` は現行runnerでは `rejected_source` とする。対象skill treeはruntimeで決まり、full/diffとも
   file inventory、件数/bytes上限、各content hash、git diff snapshotがcall receiptに無い。finder/refuterがlive treeを
   暗黙入力として読むmanifestへ変換してはならない。
+- `mode: audit` は観点を prompt-audit に絞った review なので、同じ理由で `rejected_source` とする。create の保存後の
+  audit もこの判定で止まり、caller は監査を実行していないと報告する（clean と報告しない）。
+- Codex runner では caller が `selected_runtime` から `promptAuditExpected: false` を渡すので、prompt-audit の
+  `unavailable` は欠測ではなく `skipped_unavailable` になる（native では `true` で、`unavailable` は欠測）。
+- update の Reverify で worker が claude-api skill を起動できず、Find でも実施できていなかった場合、その観点は
+  `skipped_unavailable` として宣言され、`reverify_receipt.by_category` から外れる（receipt の完了判定は残りの観点で行う。
+  Find で実施できた観点が Reverify だけ unavailable なら欠測で、受け付ける条件の正本は `review_skill.js` の `may_be_unavailable` の注釈）。
 - `mode: update` は common caller の host が `createWorkflow({ updatePolicy: { targetRoot, stagingRoot }, ... })`
   を静的に束縛したときだけ `--update-policy-bound` を指定できる。request から policy を作ってはならない。
   runtime は capability と policy を execution agent dispatch 前に照合し、target は読み取り専用、write は
