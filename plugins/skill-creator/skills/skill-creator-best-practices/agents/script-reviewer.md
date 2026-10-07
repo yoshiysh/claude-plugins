@@ -101,6 +101,9 @@ description: >
 - **agent の戻り値に全文ログや transcript を流していないか**。後段の prompt に前段の生出力を丸ごと
   埋め込むと、context を往復するたびに消費が増え、判断に要らない情報が判定を揺らす。要約 + findings +
   パスを返させ、全文は必要な agent だけが Read する形になっているか（`best-practices.md` §14 ②）
+- **全ての `agent()` に `model` と `effort` が明示されているか**。省くとセッションの値を継承し、fan-out の
+  体数ぶん上位設定で走る（規則と理由は `best-practices.md` §3「model と effort は役割ごとに組で選ぶ」）。
+  fan-out する兄弟で `model`・`effort`・`schema` が揃っているか（`skill-writing-guide.md`「Workflow 型スキルの執筆」）
 
 ### C. barrier の誤用
 

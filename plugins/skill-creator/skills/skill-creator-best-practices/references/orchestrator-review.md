@@ -1,12 +1,13 @@
-# 司令塔：review / update の提示と適用
+# 司令塔：review / update / audit の提示と適用
 
 名前付き workflow `/skill-creator:skill-creator-review`（plugin の `workflows/review_skill.js`）の戻り値を人間に見せ、update なら承認を得て本体へ反映するまでの手順。
-SKILL.md の「結果の提示と適用（review/update）」から Read される。
+SKILL.md の「結果の提示と適用（review/update）」と、create の保存後の監査（`references/orchestrator-output.md`）から Read される。
 
 ## 目次
 
 - [提示の原則](#提示の原則)
 - [review の提示フォーマット](#review-の提示フォーマット)
+- [audit の提示フォーマット](#audit-の提示フォーマット)
 - [update の提示フォーマット](#update-の提示フォーマット)
 - [司令塔の役割（3 つだけ）](#司令塔の役割3-つだけ)
 - [承認後の適用手順](#承認後の適用手順)
@@ -25,8 +26,10 @@ SKILL.md の「結果の提示と適用（review/update）」から Read され�
    update では改稿前の分（`findings_before.reported_minor`）も併せて出す。再検証は範囲を絞るので、
    改稿後の一覧に無いことは「消えた」を意味しない。
 2. **観点の欠落を隠さない。** `by_category.before` が `null` の観点は「その観点では見ていない」。
-   合格の材料に数えない。`by_category.after` 全体が `null` なのは別の意味で、
-   「再検証のパス自体が走らなかった」（review、または改稿前に止まった場合）。
+   合格の材料に数えない。`"unavailable"` の観点（`skipped_unavailable` に載る）も見ていない点は同じで、
+   理由が「担当が応答しなかった」ではなく「依存する skill が実行環境に無かった」だと区別して名指しする。
+   `by_category.after` 全体が `null` なのは別の意味で、
+   「再検証のパス自体が走らなかった」（review・audit、または改稿前に止まった場合）。
 3. **どちらの時点の指摘かを言う。** `findings_source` が `"before"` なら改稿前、
    `"after"` なら再検証後。取り違えると「まだ直っていない」と「もう直した」が逆に読める。
 4. **数値の判定を再計算しない。** verdict は script が決めている。ここで条件を
@@ -57,8 +60,12 @@ SKILL.md の「結果の提示と適用（review/update）」から Read され�
 【確かめきれなかったもの】1件（検証が揃わなかったため、判断を保留しています）
 
 観点ごとの確定件数: 理由の無い命令 1 / 散文に残った確定的処理 0 / 二重定義 1 /
-経路の無い依頼 1 / description との乖離 0 / ベストプラクティス準拠 0
+経路の無い依頼 1 / description との乖離 0 / ベストプラクティス準拠 0 /
+古くなったプロンプトの書き方 実施できず（prompt-audit がこの環境に無い）
 ```
+
+観点の名前と並びは戻り値の `by_category.before` のキーから取る（観点の一覧の正本は script の `FINDERS`。
+上の例を一覧として写さない）。
 
 - `confirmed` は `severity` 順（`blocker` → `major`）に並べる。`reported_minor` は確定ではないので
   【直した方がよいもの】に混ぜない。混ぜると「反論を生き残った」と読まれる。
@@ -70,6 +77,31 @@ SKILL.md の「結果の提示と適用（review/update）」から Read され�
 
 ```
 ※ 一部の観点（〜）が実行できなかったため、この結果は全体を見たものではありません。
+```
+
+`skipped_unavailable.before` が空でないとき（`verdict: clean_except_unavailable` を含む）は、冒頭に次を置く。
+
+```
+※ 観点（〜）は、必要な機能がこの環境に無いため実施していません。その観点では見ていません。
+```
+
+---
+
+## audit の提示フォーマット
+
+review の提示フォーマットをそのまま使う（観点は 1 つなので「観点ごとの確定件数」の行は省く）。違いは 3 点。
+
+- 【監査が挙げたが指摘にしなかったもの】として `declared_only.before` を件数と中身（file:location — claim、
+  確信度、Action）で出す。0 件でも行を残す。ここを出さないと「監査が見て何も言わなかった」と区別できない。
+
+- 末尾の一言は「直すなら、この指摘を変更意図にして update で直せます」にする。適用は必ず update を通す
+  （audit は staging を持たず、指摘の文言を司令塔が本体へ書き写すと、誰の検証も通らない改稿になる）。
+  update を呼ぶときは、提示した `findings.confirmed` と `findings.reported_minor` の file / location / claim /
+  suggested_fix を `intent` にそのまま並べる。
+- `verdict: review_incomplete` のときは、指摘の一覧ではなく次だけを伝える。「指摘なし」とは言わない。
+
+```
+※ 古くなったプロンプトの書き方の監査（prompt-audit）を実施できませんでした。監査はしていません。
 ```
 
 ---
@@ -104,6 +136,7 @@ staging に改稿を書きました（本体はまだ変えていません）。
 【再検証で見直さなかった範囲】変更ファイルと、残っていた指摘のファイル以外（改稿前と同じ内容のため）
 　範囲外で報告されたため確かめていない指摘: 0件
 【改稿前から同じ文言で存在していた指摘】0件（改稿前の検査が見落としたもの。改稿が持ち込んだものではありません）
+【この環境で実施できなかった観点】改稿前: なし / 再検証: なし
 
 【この時点の中身の指紋】a1b2c3d4e5f6
 　※ 反映の直前にもう一度この指紋を取ります。変わっていたら、誰かがこの外で書き換えたという
@@ -132,6 +165,10 @@ staging に改稿を書きました（本体はまだ変えていません）。
   `still_unverified` は `unverified` の内数なので、2 つの件数を足さない。
 - `reclassified` / `preexisting` も 0 件で行を残す。`new` が「改稿で悪くなったか」を判断する
   唯一の数字なので、そこに入れなかった理由が読み手に見える必要がある。
+- 【この環境で実施できなかった観点】の行は必ず残す（値は `skipped_unavailable.before` / `.after`。`.after` は
+  `reverify_receipt.skipped_unavailable` と同じ）。空でなければ冒頭にも review と同じ ※ の 1 行を置き、
+  その観点では改稿前も改稿後も見ていないと伝える。receipt の完了はその観点を除いた残りで判定されているので、
+  伝えないと「全観点で再検証を通った」と読まれる。
 - verdict ごとの言い回しは SKILL.md の verdict 表に従う。ここで条件を再解釈しない。
 
 ---
@@ -257,6 +294,9 @@ python3 [SKILL_DIR]/scripts/quick_validate.py <対象スキルの実パス> --ve
 
 ## 非承認・中断のときの扱い
 
+- 完了した Workflow の戻り値が空・想定外（全観点 0 件・`findings` が欠けている等）なら、原因を推測したり
+  `resumeFromRunId` で再実行したりする前に `<transcriptDir>/journal.jsonl` を読み、各 agent が実際に返した値を
+  確かめる（理由は `references/skill-writing-guide.md`「Workflow 型スキルの執筆」の「デバッグ」）。
 - staging は**消さない**。消すと「やっぱり見せて」に応えるために全部を回し直すことになる。
 - 「どこにあるか」だけを伝えて終了する。
 - `verdict: update_failed` のときは、改稿の担当が応答しなかったため

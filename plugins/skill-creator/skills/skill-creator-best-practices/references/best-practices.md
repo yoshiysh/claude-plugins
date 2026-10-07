@@ -166,6 +166,10 @@ model と effort は、その agent を起動する側の 1 箇所に書く。Wo
 agents/*.md の frontmatter は効かない。opts と agent ファイルの frontmatter の両方に書くと、
 片方だけの更新でどちらが効くか決まらない。
 
+**`agent()` の `model` と `effort` は全 callsite で明示する。** 公式の既定は「省略してセッションの値を継承」
+だが、継承は fan-out の体数ぶんセッションのモデル・effort で走ることを意味し、セッションが最上位設定なら
+機械的な照合の 1 体 1 体まで最上位の単価とレート制限を消費する。生成するスキルの script も同じ規則に従う。
+
 | タスクの性質 | モデル |
 |------------|--------|
 | 最高難度・長時間自律実行・多数 subagent のオーケストレーション | Fable |
@@ -182,7 +186,7 @@ effort の選び方:
   既定値は [§11](#11-claude-5-世代の指示設計--世代共通の原則)「モデル別の分岐」
 - `xhigh` / `max` は品質の向上を測れた作業だけに使う。思考を減らしたいなら prompt の指示ではなく
   effort を下げる（Opus 5.5 docs「more reliably than prompt instructions do」）
-- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明、AGENTS.md の実測）
+- 機械的な照合・enum 判定は小さい model + `low`、最も難しい verify / judge と統合判断だけを上げる（workflow-authoring の `agent()` opts 説明）
 - GPT-6 の移行指針は逆に「Preserve your current effective reasoning effort where supported」とするが、
   Claude 側の測り直しを採る
 - 指示の密度は、それを読むモデルで決める（GPT-6 blog「Guidance that helps Sol or Luna may overconstrain
@@ -701,15 +705,19 @@ fan-out する既存スキルは「それを指して同じことをする workf
 
 ### 実行時制約（script を書く前に知っておく）
 
-出典: [workflows docs](https://code.claude.com/docs/en/workflows)（2026-08-09 取得）。
+出典: [workflows docs](https://code.claude.com/docs/en/workflows)（2026-10-07 取得）と Claude Code 同梱の workflow-authoring reference。
 
 | 制約 | 設計への影響 |
 |---|---|
-| **実行中のユーザー入力は不可** | 人間ゲートは workflow の境界に置く。段階ごとに別 workflow として回す |
+| **実行中のユーザー入力は不可**（自分から止まるのは agent の権限確認と使用量上限の待ちだけ） | 人間ゲートは workflow の境界に置く。段階ごとに別 workflow として回す |
 | **script 自身からファイルシステム・shell を触れない** | 読み書き・コマンド実行は agent の仕事。script は agent を並べるだけ |
 | **`import()` を含む script は起動前に失敗する** | ライブラリが要る処理は agent のタスクに寄せる |
-| **同時実行は最大 16 agent**（CPU コア数次第でさらに少ない） | 100 件渡しても全部完走する。並列度は気にしなくてよい |
-| **1 run あたり通算 1000 agent** | 暴走ループのバックストップ。通常の設計で当たる数ではない |
+| **同時実行は既定で最大 16 agent**（使える CPU が少なければさらに少ない。`CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` で 1〜256 に変えられる。v2.1.269 以降） | 100 件渡しても全部完走する。並列度は気にしなくてよい |
+| **1 回の `parallel()` / `pipeline()` に渡せるのは 4096 件まで**。超えると切り捨てではなくエラー | 件数が読めない入力は分割して渡す。黙った切り捨ては起きないが、落ちる |
+| **1 run あたり通算 1000 agent** | 暴走ループのバックストップ。改稿ループ × 観点 × 反証のように掛け算で増える設計は、最悪ケースの体数を見積もる |
+| **schema が自己矛盾していると agent は起動前に落ちる**（例: `required` のキーを `additionalProperties: false` が締め出す） | schema を組み立てるコードを変えたら、その schema で 1 回起動して確かめる |
+| **構造化出力の検証は既定で 5 回まで再試行**（`MAX_STRUCTURED_OUTPUT_RETRIES`）。尽きると `agent()` は `null` ではなく最後の検証失敗を含むエラーで throw する（`null` になるのは停止されたときと回復不能な API エラーのとき。budget の上限に達したときも throw） | `parallel()` / `pipeline()` の中では throw も `null` に変わるので `.filter(Boolean)` で欠測として扱える。単独の `await agent()` は run ごと落ちるので、`null` を欠測の verdict に変えている callsite は try/catch（`.catch`）で包む |
+| **使用量上限に当たった agent は失敗せず reset を待つ**。条件: claude.ai サブスクリプションの対話セッション・`autoContinueAtUsageLimit` が on・24 時間以内に reset・その run で 2 回まで（v2.1.271 以降）。`claude -p`・Agent SDK・background session・Remote Control・agent team の teammate では待たずに失敗する | 非対話の経路で回す workflow は、上限で agent が落ちたときの欠測を必ず扱う |
 | `Date.now()` / `Math.random()` / 引数なし `new Date()` は throw する | resume を壊すため。時刻は `args` で渡し、乱択は index で prompt を変える |
 
 `agent()` はユーザーが停止したり回復不能な API エラーになると `null` を返す。`pipeline()` はその `null` を配列に残すので、**結果を使う前に `.filter(Boolean)` する**。
@@ -793,8 +801,17 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 ### 規模とコスト
 
 - 1 run のトークン消費は通常のセッションより桁で大きくなりうる。blog も docs も「まず狭いスコープで 1 回試して感触を掴む」ことを勧める
-- size guideline（`/config`）は Claude が狙う agent 数の目安。`small` < 5 / `medium` < 15（既定）/ `large` < 50 / `unrestricted`
-- 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）
+- size guideline は Claude が script を書くときに狙う agent 数の目安で、上限ではない。`/config` では名前で選ぶ:
+  `small` < 5 / `medium` < 10 / `large` < 50 / `unrestricted`。既定は `medium`（Pro では `small`。v2.1.271 以降）。
+  settings ファイルの `workflowSizeGuideline` キーは settings-reference では数値（正の整数の agent 数、既定は未設定）として
+  記載されており、設定すると `/config` の値より優先される
+- 25 agent 超、または予測トークンが 150 万を超えると `Large workflow` 警告が出る（助言であって停止はしない）。
+  size guideline を自分で選ぶと、その agent 数が 25 の閾値に置き換わる。ultracode が on のセッションでは出ない
+- prompt cache: 同じ run の中で model・effort・agent type・tools・出力 schema・作業ディレクトリが同じ agent は
+  tools と system prompt の prefix が一致し、先に応答が始まった兄弟の cache を読める。fan-out では一致する agent の
+  2 体目以降を 1 体目の応答開始まで最大 `CLAUDE_CODE_WORKFLOW_PREFIX_STAGGER_MS`（既定 5000 ms、0 で無効）待たせる。
+  workflow agent の cache は既定 5 分で切れる（settings の `subagentPromptCacheTtl` で `1h` / `24h` に延ばせる。書き込み単価は上がる）。
+  script 側の書き方は `skill-writing-guide.md`「Workflow 型スキルの執筆」
 - モデルと `effort`: §3
 
 規模はタスクに合わせる。「バグを探して」なら finder 数体＋単票 verify、「徹底的に監査して」なら finder を増やし 3〜5 票の adversarial pass と統合ステージを置く。

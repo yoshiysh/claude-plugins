@@ -5,19 +5,22 @@ import { Script, createContext } from 'node:vm';
 import { compileSource } from '../../../../workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
 
 const source = await readFile(new URL('../../../workflows/review_skill.js', import.meta.url), 'utf8');
-const { body } = compileSource(source, []);
+const { body, meta } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
+const AUDIT_HEADER = 'Scope: /mock/target\nTarget model: current flagship';
 
-async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}) {
+async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}, extraArgs = {}) {
   const phases = [];
   const context = createContext({
     args: {
       skillDir: '/mock/skill-creator',
       mode,
       target: { skillPath: '/mock/target', ...target },
-      uncheckedItems: [],
+      ...(mode === 'audit' ? {} : { uncheckedItems: [] }),
       ...(mode === 'update' ? { intent: INTENT } : {}),
       stagingDir: '/mock/target-workspace/staging',
+      promptAuditExpected: false,
+      ...extraArgs,
     },
     agent,
     parallel: tasks => Promise.all(tasks.map(task => task())),
@@ -46,7 +49,7 @@ function respondingAgent() {
     if (opts.label.startsWith('update-')) {
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
     }
-    return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [] };
+    return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
   };
   return { agent, calls };
 }
@@ -81,7 +84,7 @@ function reverifyFindingAgent(finding, findingLabels) {
     }
     if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
     const findings = findingLabels.includes(opts.label) ? [finding] : [];
-    return { findings, scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [] };
+    return { findings, scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
   };
   return { agent, calls };
 }
@@ -231,6 +234,7 @@ function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () =
       scanned_files: scannedByLabel[opts.label] || ['SKILL.md'],
       unreadable: false,
       unchecked_judgments: [],
+      audit_header: AUDIT_HEADER,
     };
   };
   return { agent, calls };
@@ -579,4 +583,293 @@ test('an original major re-reported as blocker and refuted in an unchanged file 
   const { result } = await run('update', agent);
   assert.equal(result.staging.refuted_on_recheck.length, 1);
   assert.equal(result.stop_reason, 'resolved');
+});
+
+function optsRecordingAgent(byLabel = {}) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, opts });
+    if (byLabel[opts.label]) return byLabel[opts.label];
+    if (opts.label.startsWith('update-')) {
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
+    }
+    if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
+    return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER };
+  };
+  return { agent, calls };
+}
+
+test('every agent call sets model and effort, and the meta phase model matches the callsites', async () => {
+  const { agent, calls } = optsRecordingAgent({
+    'find-why-driven-p1': {
+      findings: [finding()], scanned_files: ['SKILL.md'], unreadable: false,
+    },
+  });
+  await run('update', agent);
+  const declared = Object.fromEntries(meta.phases.filter(p => p.model).map(p => [p.title, p.model]));
+  const used = {};
+  for (const { opts } of calls) {
+    assert.ok(opts.model && opts.effort, `${opts.label}: model and effort must be explicit`);
+    (used[opts.phase] ??= new Set()).add(opts.model);
+  }
+  for (const [title, models] of Object.entries(used)) {
+    assert.deepEqual([...models], [declared[title]], `${title}: meta.phases model differs from the callsites`);
+  }
+});
+
+test('fan-out siblings share model, effort and schema so they can share the prompt cache prefix', async () => {
+  const { agent, calls } = optsRecordingAgent({
+    'find-why-driven-p1': { findings: [finding()], scanned_files: ['SKILL.md'], unreadable: false },
+  });
+  await run('review', agent);
+  for (const prefix of ['find-', 'refute-']) {
+    const siblings = calls.filter(c => c.opts.label.startsWith(prefix)).map(c => c.opts);
+    assert.ok(siblings.length > 1, prefix);
+    for (const o of siblings) {
+      assert.equal(o.model, siblings[0].model);
+      assert.equal(o.effort, siblings[0].effort);
+      assert.equal(o.schema, siblings[0].schema);
+    }
+  }
+});
+
+test('review runs the prompt-audit lens and declares it skipped when the skill is unavailable', async () => {
+  const { agent, calls } = optsRecordingAgent({
+    'find-prompt-audit-p1': { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'no Skill tool' },
+  });
+  const { result } = await run('review', agent);
+  assert.ok(calls.some(c => c.opts.label === 'find-prompt-audit-p1'));
+  assert.equal(result.verdict, 'clean_except_unavailable');
+  assert.equal(result.by_category.before['prompt-audit'], 'unavailable');
+  assert.deepEqual(Array.from(result.skipped_unavailable.before), ['prompt-audit']);
+  assert.equal(result.skipped_unavailable.after, null);
+});
+
+test('only the prompt-audit lens may report unavailable; any other lens doing so is missing', async () => {
+  const { agent } = optsRecordingAgent({
+    'find-why-driven-p1': { findings: [], scanned_files: ['SKILL.md'], unreadable: false, unavailable: true },
+  });
+  const { result } = await run('review', agent);
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.equal(result.by_category.before['why-driven'], null);
+  assert.deepEqual(Array.from(result.skipped_unavailable.before), []);
+});
+
+test('a prompt-audit result without the audit header is treated as missing', async () => {
+  const { agent } = optsRecordingAgent({
+    'find-prompt-audit-p1': { findings: [], scanned_files: ['SKILL.md'], unreadable: false },
+  });
+  const { result } = await run('review', agent);
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.equal(result.by_category.before['prompt-audit'], null);
+});
+
+test('prompt-audit confidence decides severity; Low and flag never become findings', async () => {
+  const audit = (claim, audit_confidence, audit_action = 'rewrite') =>
+    finding({ claim, severity: 'blocker', audit_confidence, audit_action });
+  const { agent, calls } = optsRecordingAgent({
+    'find-prompt-audit-p1': {
+      findings: [audit('high one', 'High'), audit('medium one', 'Medium'), audit('low one', 'Low'),
+        audit('flagged one', 'High', 'flag'), finding({ claim: 'no confidence' })],
+      scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER,
+    },
+  });
+  const { result } = await run('review', agent);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.findings.confirmed.map(f => [f.claim, f.severity]))), [['high one', 'major']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.findings.reported_minor.map(f => [f.claim, f.severity]))), [['medium one', 'minor']]);
+  const refuted = calls.filter(c => c.opts.label.startsWith('refute-')).map(c => c.opts.label);
+  assert.ok(refuted.every(l => l.startsWith('refute-p1-prompt-audit-1-')));
+});
+
+test('audit mode runs only the prompt-audit lens and never writes', async () => {
+  const { agent, calls } = optsRecordingAgent();
+  const { result, phases } = await run('audit', agent);
+  assert.deepEqual(calls.map(c => c.opts.label), ['find-prompt-audit-p1']);
+  assert.deepEqual(phases, ['Find', 'Verify']);
+  assert.equal(result.verdict, 'clean');
+  assert.equal(result.unchecked_failures, null);
+  assert.equal(result.staging, null);
+  assert.deepEqual(Object.keys(result.by_category.before), ['prompt-audit']);
+});
+
+test('audit mode reports findings, and a missing prompt-audit is review_incomplete when expected', async () => {
+  const withFinding = optsRecordingAgent({
+    'find-prompt-audit-p1': {
+      findings: [finding({ audit_confidence: 'High', audit_action: 'remove' })],
+      scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER,
+    },
+  });
+  assert.equal((await run('audit', withFinding.agent)).result.verdict, 'findings');
+  const missingSkill = optsRecordingAgent({
+    'find-prompt-audit-p1': { findings: [], scanned_files: [], unreadable: false, unavailable: true },
+  });
+  assert.equal((await run('audit', missingSkill.agent, { scope: 'full' }, {}, { promptAuditExpected: true })).result.verdict,
+    'review_incomplete');
+});
+
+test('audit mode rejects uncheckedItems instead of silently ignoring them', async () => {
+  await assert.rejects(run('audit', async () => null, { scope: 'full' }, {}, { uncheckedItems: [] }), /uncheckedItems/);
+});
+
+test('update with the prompt-audit skill unavailable still completes a receipt that declares the skip', async () => {
+  const unavailable = { findings: [], scanned_files: [], unreadable: false, unavailable: true };
+  const { agent } = optsRecordingAgent({
+    'find-prompt-audit-p1': unavailable,
+    'find-prompt-audit-p2r1': unavailable,
+  });
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'applied_to_staging');
+  assert.deepEqual(Array.from(result.reverify_missing), []);
+  assert.equal(result.by_category.after['prompt-audit'], 'unavailable');
+  assert.equal(result.reverify_receipt.completed, true);
+  assert.equal(result.reverify_receipt.by_category['prompt-audit'], undefined);
+  assert.ok(Object.values(result.reverify_receipt.by_category).every(Number.isSafeInteger));
+  assert.deepEqual(Array.from(result.reverify_receipt.skipped_unavailable), ['prompt-audit']);
+  assert.deepEqual(Array.from(result.skipped_unavailable.after), ['prompt-audit']);
+});
+
+test('an owner that omits unchecked_judgments turns every delegated id into a failure', async () => {
+  const { agent } = optsRecordingAgent();
+  const { result } = await run('review', agent, { scope: 'full' }, {}, {
+    uncheckedItems: [{ id: 'verifier-path', item: 'a' }, { id: 'description-triggers', item: 'b' }],
+  });
+  assert.deepEqual(Array.from(result.unchecked_failures, f => f.id).sort(),
+    ['p1-unchecked-description-triggers', 'p1-unchecked-verifier-path']);
+  assert.equal(result.verdict, 'findings');
+});
+
+for (const [name, reReport] of [
+  ['without a confidence', {}],
+  ['at Low confidence', { audit_confidence: 'Low', audit_action: 'rewrite' }],
+]) {
+  test(`a prompt-audit finding re-reported on recheck ${name} stays unresolved`, async () => {
+    const original = finding({ file: 'references/x.md', claim: 'dated emphasis', audit_confidence: 'High', audit_action: 'rewrite' });
+    const again = { ...finding({ file: 'references/x.md', claim: 'dated emphasis' }), ...reReport };
+    const scanned = { findings: [again], scanned_files: ['SKILL.md', 'references/x.md'], unreadable: false, audit_header: AUDIT_HEADER };
+    const { agent } = optsRecordingAgent({
+      'find-prompt-audit-p1': { findings: [original], scanned_files: ['references/x.md'], unreadable: false, audit_header: AUDIT_HEADER },
+      'find-prompt-audit-p2r1': scanned,
+      'find-prompt-audit-p2r2': scanned,
+    });
+    const { result } = await run('update', agent);
+    assert.equal(result.staging.resolved.length, 0);
+    assert.deepEqual(Array.from(result.staging.remaining, f => f.claim), ['dated emphasis']);
+    assert.notEqual(result.verdict, 'applied_to_staging');
+  });
+}
+
+const auditFound = (findings, extra = {}) =>
+  ({ findings, scanned_files: ['SKILL.md', 'references/x.md'], unreadable: false, audit_header: AUDIT_HEADER, ...extra });
+const auditUnavailable = { findings: [], scanned_files: [], unreadable: false, unavailable: true };
+const highAudit = () => finding({ file: 'references/x.md', claim: 'dated emphasis', audit_confidence: 'High', audit_action: 'rewrite' });
+
+test('prompt-audit that ran in Find but reports unavailable in Reverify is missing, not skipped', async () => {
+  const { agent } = optsRecordingAgent({
+    'find-prompt-audit-p1': auditFound([highAudit()]),
+    'find-prompt-audit-p2r1': auditUnavailable,
+    'find-prompt-audit-p2r1-retry': auditUnavailable,
+  });
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'reverify_incomplete');
+  assert.deepEqual(Array.from(result.reverify_missing), ['prompt-audit']);
+  assert.equal(result.reverify_receipt.completed, false);
+});
+
+test('prompt-audit that is missing in Reverify and unavailable on retry is still missing', async () => {
+  const calls = [];
+  const base = optsRecordingAgent({ 'find-prompt-audit-p1': auditFound([]), 'find-prompt-audit-p2r1-retry': auditUnavailable });
+  const agent = async (prompt, opts) => {
+    calls.push(opts.label);
+    if (opts.label === 'find-prompt-audit-p2r1') return null;
+    return base.agent(prompt, opts);
+  };
+  const { result } = await run('update', agent);
+  assert.ok(calls.includes('find-prompt-audit-p2r1-retry'));
+  assert.equal(result.verdict, 'reverify_incomplete');
+  assert.deepEqual(Array.from(result.reverify_missing), ['prompt-audit']);
+});
+
+test('when prompt-audit is expected, unavailable is missing in every mode', async () => {
+  const { agent } = optsRecordingAgent({ 'find-prompt-audit-p1': auditUnavailable });
+  const expected = { promptAuditExpected: true };
+  assert.equal((await run('review', agent, { scope: 'full' }, {}, expected)).result.verdict, 'review_incomplete');
+  assert.equal((await run('audit', agent, { scope: 'full' }, {}, expected)).result.verdict, 'review_incomplete');
+  assert.equal((await run('update', agent, { scope: 'full' }, {}, expected)).result.verdict, 'review_incomplete');
+});
+
+test('promptAuditExpected must be passed explicitly', async () => {
+  await assert.rejects(run('review', async () => null, { scope: 'full' }, {}, { promptAuditExpected: undefined }),
+    /promptAuditExpected/);
+});
+
+for (const [name, reverify] of [
+  ['only in the free-text note', auditFound([], { note: 'flag/Low: references/x.md:L1 — dated emphasis' })],
+  ['in declared_only at Low', auditFound([], { declared_only: [{ file: 'references/x.md', claim: 'dated emphasis', audit_confidence: 'Low', audit_action: 'rewrite' }] })],
+  ['at Medium confidence', auditFound([{ ...highAudit(), audit_confidence: 'Medium' }])],
+]) {
+  test(`an unedited prompt-audit finding re-reported ${name} is not resolved`, async () => {
+    const { agent } = optsRecordingAgent({
+      'find-prompt-audit-p1': auditFound([highAudit()]),
+      'find-prompt-audit-p2r1': reverify,
+      'find-prompt-audit-p2r2': reverify,
+    });
+    const { result } = await run('update', agent);
+    assert.equal(result.staging.resolved.length, 0);
+    assert.deepEqual(Array.from(result.staging.remaining, f => f.claim), ['dated emphasis']);
+    assert.ok(Array.from(result.staging.remaining).every(f => f.severity === 'major'));
+    assert.notEqual(result.verdict, 'applied_to_staging');
+  });
+}
+
+test('prompt-audit items outside the mapping are returned in declared_only and findings keep their confidence', async () => {
+  const { agent } = optsRecordingAgent({
+    'find-prompt-audit-p1': auditFound(
+      [highAudit(), finding({ claim: 'low in findings', audit_confidence: 'Low', audit_action: 'rewrite' })],
+      { declared_only: [{ file: 'SKILL.md', location: 'L9', claim: 'flagged', audit_confidence: 'High', audit_action: 'flag' }] },
+    ),
+  });
+  const { result } = await run('review', agent);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.declared_only.before)), [
+    { file: 'SKILL.md', location: 'L1', claim: 'low in findings', audit_confidence: 'Low', audit_action: 'rewrite' },
+    { file: 'SKILL.md', location: 'L9', claim: 'flagged', audit_confidence: 'High', audit_action: 'flag' },
+  ]);
+  assert.equal(result.declared_only.after, null);
+  assert.equal(result.findings.confirmed[0].audit_confidence, 'High');
+  assert.equal(result.findings.confirmed[0].audit_action, 'rewrite');
+});
+
+test('an updater that throws ends update_failed instead of aborting the run', async () => {
+  const base = optsRecordingAgent();
+  const agent = async (prompt, opts) => {
+    if (opts.label.startsWith('update-')) throw new Error('structured output retries exhausted');
+    return base.agent(prompt, opts);
+  };
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'update_failed');
+  assert.equal(result.staging.dir, '/mock/target-workspace/staging');
+});
+
+// 単体テストの parallel は Promise.all（runner と同じく catch しない）なので、throw が run を落とさないことを確かめられる。
+test('a finder that throws in Reverify degrades to missing and keeps the report', async () => {
+  const base = optsRecordingAgent();
+  const agent = async (prompt, opts) => {
+    if (opts.label.startsWith('find-why-driven-p2r1')) throw new Error('structured output retries exhausted');
+    return base.agent(prompt, opts);
+  };
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'reverify_incomplete');
+  assert.deepEqual(Array.from(result.reverify_missing), ['why-driven']);
+  assert.equal(result.staging.dir, '/mock/target-workspace/staging');
+});
+
+test('a refuter that throws degrades to an unverified finding', async () => {
+  const base = optsRecordingAgent({ 'find-why-driven-p1': auditFound([finding()]) });
+  const agent = async (prompt, opts) => {
+    if (opts.label.startsWith('refute-')) throw new Error('budget exhausted');
+    return base.agent(prompt, opts);
+  };
+  const { result } = await run('review', agent);
+  assert.equal(result.findings.unverified.length, 1);
+  assert.equal(result.findings.confirmed.length, 0);
+  assert.equal(result.verdict, 'findings');
 });

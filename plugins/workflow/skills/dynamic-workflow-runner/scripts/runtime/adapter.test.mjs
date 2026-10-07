@@ -138,10 +138,13 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
         assert.equal(options.sandboxMode, 'read-only');
         assert.equal(options.workingDirectory, canonicalWorkerDirectory);
       }
+      // Codex worker には claude-api skill が無いので、prompt-audit の観点は unavailable を返す。
       const result = prompt.includes('"changed_files"')
         ? { changed_files: [{ path: 'SKILL.md', reason: 'test update', findings_addressed: [] }], summary: 'updated' }
-        : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
-            ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
+        : prompt.includes('[CATEGORY]: prompt-audit')
+          ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'claude-api skill is absent' }
+          : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
+              ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
       return { events: (async function* () {
         yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({ json: JSON.stringify(result) }) } };
         yield { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } };
@@ -175,6 +178,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
             mode: 'update',
             target: { skillPath: targetDir, scope: 'full' },
             uncheckedItems: [],
+            promptAuditExpected: false,
             intent: 'exercise the adapter update route',
           },
         });
@@ -186,6 +190,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       }
 
       assert.equal(result.source_result.verdict, 'applied_to_staging');
+      assert.deepEqual([...result.source_result.reverify_receipt.skipped_unavailable], ['prompt-audit']);
       assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
       assert.equal(result.action_package.changed_files[0].operation, 'update');
       assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');

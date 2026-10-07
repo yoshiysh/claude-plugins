@@ -15,6 +15,7 @@
 // 使い方:
 //   node scripts/select_runtime.js --mode create --native-available --runner-installed
 //   node scripts/select_runtime.js --mode review --no-native --runner-installed
+//   node scripts/select_runtime.js --mode audit --no-native --runner-installed
 //   node scripts/select_runtime.js --mode update --no-native --runner-installed
 //     --update-policy-bound
 //
@@ -23,11 +24,11 @@
 //     "rejected_reason": null | "<理由>", "halt": true|false }
 // halt: true のとき execution agent を 1 体も起動しない。未実施と理由をユーザーへ伝えて止める。
 
-// review inputs are not frozen. Update requires a host-bound policy; the runtime
-// validates that policy against its staging-only SDK backend before dispatch.
-const RUNNER_REJECTED_MODES = ['review']
+// review / audit inputs are not frozen (audit is review restricted to one lens). Update requires a
+// host-bound policy; the runtime validates that policy against its staging-only SDK backend before dispatch.
+const RUNNER_REJECTED_MODES = ['review', 'audit']
 
-const MODES = ['create', 'review', 'update']
+const MODES = ['create', 'review', 'update', 'audit']
 
 function parse(argv) {
   const out = { mode: null, nativeAvailable: null, nativeAttempted: false, runnerInstalled: null, updatePolicyBound: false }

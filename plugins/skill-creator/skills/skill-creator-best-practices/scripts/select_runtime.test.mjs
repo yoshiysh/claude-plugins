@@ -19,3 +19,12 @@ test('update stays native when available and is rejected on the Codex runner', a
     { selected_runtime: 'dynamic-workflow-runner', rejected_reason: null, halt: false });
   assert.equal((await run('--mode', 'update', '--no-native', '--no-runner', '--update-policy-bound')).halt, true);
 });
+
+test('audit stays native when available and is rejected on the Codex runner like review', async () => {
+  assert.deepEqual(await run('--mode', 'audit', '--native-available', '--runner-installed'),
+    { selected_runtime: 'native', rejected_reason: null, halt: false });
+  const rejected = await run('--mode', 'audit', '--no-native', '--runner-installed');
+  assert.equal(rejected.selected_runtime, null);
+  assert.match(rejected.rejected_reason, /rejected_source: mode=audit/);
+  assert.equal(rejected.halt, true);
+});

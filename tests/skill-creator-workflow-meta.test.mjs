@@ -30,3 +30,15 @@ test('quick_validate resolves every name-form callsite of the skill', () => {
   const called = new Set([...source.matchAll(/^\s*name:\s*"(skill-creator:[a-z0-9-]+)"/gm)].map((m) => m[1]));
   assert.deepEqual(called, new Set(['skill-creator:skill-creator-build', 'skill-creator:skill-creator-review']));
 });
+
+// effort や model を省くとセッションの値を継承し、fan-out の体数ぶん上位設定で走る。
+// model hint の数ではなく agent 呼び出しそのものを数えるのは、model ごと省いた呼び出しを取りこぼさないため。
+test('every build agent call pins a model hint and an effort', () => {
+  const source = readFileSync(join(workflowsDir, 'build_skill.js'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+  const calls = [...source.matchAll(/(?<![A-Za-z0-9_.])(?:roleAgent|agent)\(/g)].length;
+  const wrappers = [...source.matchAll(/function roleAgent\(|return agent\(/g)].length;
+  const pinned = [...source.matchAll(/model:\s*modelHint\('[a-z_]+'\),\s*effort:\s*'(?:low|medium|high|xhigh|max)'/g)].length;
+  assert.equal(wrappers, 2);
+  assert.ok(calls - wrappers > 0);
+  assert.equal(pinned, calls - wrappers);
+});

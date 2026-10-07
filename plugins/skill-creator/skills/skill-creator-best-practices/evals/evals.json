@@ -48,6 +48,27 @@
         "staging に書く旨と、本体は承認まで変更しない旨が伝えられているか",
         "Workflow を名前 skill-creator:skill-creator-review で呼ぶ手順に入っているか（ad-hoc な単一 agent に落ちていないか）"
       ]
+    },
+    {
+      "id": 5,
+      "prompt": "plugins/research/skills/search に prompt-audit をかけて。古いプロンプトの書き方が残ってないか見たい。",
+      "expected_output": "audit モードと判定し、対象スキルの実体パスと範囲（指定が無いので full）を確認してから Workflow（名前 skill-creator:skill-creator-review, mode: audit）を呼ぶ。uncheckedItems は渡さない。結果は確定・棄却・未検証・反証していない軽微な指摘を区別して提示し、直すなら指摘を変更意図にして update で直せると添える。監査が実行環境で使えなかった場合は「指摘なし」とは言わない。ファイルは書き換えない。",
+      "assertions": [
+        "audit モードとして扱っているか（review や update に流れていないか）",
+        "Workflow を名前 skill-creator:skill-creator-review・mode audit で呼ぶ手順に入っているか（ad-hoc な単一 agent や司令塔自身の監査に落ちていないか）",
+        "uncheckedItems を渡していないか",
+        "直す場合は audit の指摘を intent にした update を通すと伝え、本体ファイルを書き換えていないか"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "このアプリの src/prompts/ 以下のシステムプロンプトに prompt-audit をかけて。",
+      "expected_output": "対象はスキル（SKILL.md を持つディレクトリ）ではなくアプリのシステムプロンプトなので、このスキルの対象外と判定する。Workflow は呼ばず、claude-api skill の prompt-audit を直接使うよう案内して終了する。",
+      "assertions": [
+        "対象外と判定しているか（audit モードで Workflow を呼んでいないか）",
+        "claude-api skill の prompt-audit を直接使うよう案内しているか",
+        "ファイルを書き換えていないか"
+      ]
     }
   ]
 }

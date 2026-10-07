@@ -1,12 +1,14 @@
 export const meta = {
   name: 'skill-creator-review',
   description:
-    '既存スキル/変更を観点別に評価し、独立した反証に生き残った指摘だけを返す（update では staging への改稿と再検証まで行う）',
+    '既存スキル/変更を観点別に評価し、独立した反証に生き残った指摘だけを返す（update では staging への改稿と再検証まで、audit では prompt-audit の観点だけを行う）',
+  whenToUse:
+    'skill-creator の best-practices スキルが review / update / audit の手順から呼ぶ。skillDir・target・uncheckedItems などの args をそのスキルが組み立てて渡す前提で、args が無いと起動直後に落ちるため直接は起動しない',
   phases: [
-    { title: 'Find', detail: '観点別 finder を並列で走らせる' },
-    { title: 'Verify', detail: '各指摘に観点の異なる反証者を独立に当てる' },
-    { title: 'Update', detail: 'mode=update のとき staging へ改稿する' },
-    { title: 'Reverify', detail: 'staging に同じ観点を再適用し before/after を突き合わせる' },
+    { title: 'Find', model: 'sonnet', detail: '観点別 finder を並列で走らせる' },
+    { title: 'Verify', model: 'sonnet', detail: '各指摘に観点の異なる反証者を独立に当てる' },
+    { title: 'Update', model: 'opus', detail: 'mode=update のとき staging へ改稿する' },
+    { title: 'Reverify', model: 'sonnet', detail: 'staging に同じ観点を再適用し before/after を突き合わせる' },
   ],
 }
 
@@ -42,6 +44,20 @@ const UNCHECKED_BLOCKING = ['fail', 'partial', 'unknown']
 // 未解消のまま applied_to_staging にはならず、改稿ループへ戻る。
 const UNCHECKED_SEVERITY = 'major'
 
+// audit モードで走らせる唯一の観点。外部 skill（claude-api の prompt-audit）に依存するのはこの観点だけ。
+const AUDIT_CATEGORY = 'prompt-audit'
+
+// prompt-audit の確信度から severity への写像（正本はここ 1 箇所）。重さを finder の裁量にすると、
+// 同じ監査結果が実行ごとに反証される側とされない側へ揺れる。High は文書化された挙動かリポジトリ自体と
+// 矛盾する指摘なので反証にかける major、Medium は広く観測される傾向にとどまるので反証しない minor。
+// Low と action=flag は監査ガイド自身が編集を提案しない扱いなので指摘にせず、宣言だけ残す。
+const PROMPT_AUDIT_SEVERITY = { High: 'major', Medium: 'minor' }
+
+// by_category で「外部 skill が実行環境に無く、この観点を実施できなかった」を表す値。null（応答しなかった）
+// とも 0（見て何も無かった）とも違う。欠測に寄せると Codex のように常に無い環境で review/update が
+// 毎回 review_incomplete になり、0 に寄せると見ていない観点が clean に数えられる。
+const UNAVAILABLE = 'unavailable'
+
 const SEVERITY = { type: 'string', enum: ['blocker', 'major', 'minor'] }
 
 const FINDINGS_SCHEMA = {
@@ -66,6 +82,12 @@ const FINDINGS_SCHEMA = {
           // 存在するか。true なら改稿が持ち込んだ問題ではなく、改稿前の Find が見落とした
           // 既存の問題。script はこれを new から preexisting へ分ける唯一の材料にする。
           present_in_original: { type: 'boolean' },
+          // prompt-audit の観点だけが埋める。severity は script が PROMPT_AUDIT_SEVERITY でこれから決める。
+          audit_confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
+          audit_action: {
+            type: 'string',
+            enum: ['remove', 'rewrite', 'move', 'replace-with-API-feature', 'add', 'flag'],
+          },
         },
       },
     },
@@ -76,32 +98,46 @@ const FINDINGS_SCHEMA = {
     // 真偽値で受け取り、script 側で null（未観測）として扱う。
     unreadable: { type: 'boolean' },
     note: { type: 'string' },
+    // 以下は担当する観点だけが埋める任意フィールド。全観点で schema を 1 つにする理由は
+    // skill-writing-guide.md「subagent への指示と prompt cache」。必須性は script が担当の観点についてだけ
+    // 読むことで保つ。unchecked_judgments の欠落は、返ってこなかった id を集合の差で未判定にして拾う。
+    unchecked_judgments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          verdict: { type: 'string', enum: ['pass', 'partial', 'fail', 'unknown'] },
+          evidence: { type: 'string' },
+        },
+        required: ['id', 'verdict', 'evidence'],
+      },
+    },
+    unavailable: { type: 'boolean' },
+    // prompt-audit が実際に走った証跡（監査レポート冒頭の scope と target model の前提行）。
+    // 空なら監査せずに 0 件を返した可能性と区別できないので、script は欠測として扱う。
+    audit_header: { type: 'string' },
+    // prompt-audit の Low・flag の項目。note の自由記述にすると、再確認中の指摘が確信度を下げて
+    // そこへ移ったときに script が照合できず、再報告されなかった（resolved）と数えてしまう。
+    declared_only: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          file: { type: 'string' },
+          location: { type: 'string' },
+          claim: { type: 'string' },
+          audit_confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
+          audit_action: {
+            type: 'string',
+            enum: ['remove', 'rewrite', 'move', 'replace-with-API-feature', 'add', 'flag'],
+          },
+        },
+        required: ['file', 'claim'],
+      },
+    },
   },
   required: ['findings', 'scanned_files', 'unreadable'],
-}
-
-// UNCHECKED_ITEMS を担当する観点だけに足す追加契約。全 finder に required で持たせると、
-// その項目を見る立場に無い観点（why-driven など）が判定をでっち上げることになる。
-const UNCHECKED_JUDGMENT_FIELD = {
-  type: 'array',
-  items: {
-    type: 'object',
-    properties: {
-      id: { type: 'string' },
-      verdict: { type: 'string', enum: ['pass', 'partial', 'fail', 'unknown'] },
-      evidence: { type: 'string' },
-    },
-    required: ['id', 'verdict', 'evidence'],
-  },
-}
-
-function findingsSchemaFor(finder) {
-  if (!finder.owns_unchecked) return FINDINGS_SCHEMA
-  return {
-    ...FINDINGS_SCHEMA,
-    properties: { ...FINDINGS_SCHEMA.properties, unchecked_judgments: UNCHECKED_JUDGMENT_FIELD },
-    required: [...FINDINGS_SCHEMA.required, 'unchecked_judgments'],
-  }
 }
 
 // 反証の結果は三値で受け取る。boolean だと「読めなかった」を false（反証できなかった）に
@@ -161,8 +197,20 @@ function requireAbsolutePath(value, name) {
 const SKILL_DIR = requireAbsolutePath(parsedArgs.skillDir, 'skillDir')
 
 const mode = parsedArgs.mode
-if (!['review', 'update'].includes(mode)) {
-  throw new Error(`args.mode は 'review' か 'update' のいずれかです（受領: ${mode}）。`)
+if (!['review', 'update', 'audit'].includes(mode)) {
+  throw new Error(`args.mode は 'review' / 'update' / 'audit' のいずれかです（受領: ${mode}）。`)
+}
+
+// promptAuditExpected: この実行環境で claude-api skill の prompt-audit が使えるはずか。司令塔が
+// select_runtime.js の selected_runtime から決める（native なら true）。true のとき prompt-audit の
+// unavailable は欠測として扱う。使えるはずの環境で「無い」を受け付けると、観点が黙って外れる。
+// 既定値を置かないのは、未指定を false と読むと native でも観点の脱落が skipped で通るため。
+const promptAuditExpected = parsedArgs.promptAuditExpected
+if (typeof promptAuditExpected !== 'boolean') {
+  throw new Error(
+    'args.promptAuditExpected（true / false）が未指定です。select_runtime.js の selected_runtime が native なら true、' +
+      'dynamic-workflow-runner なら false を渡してください。'
+  )
 }
 
 const target = parsedArgs.target || {}
@@ -187,7 +235,15 @@ const focus = target.focus || null
 // 司令塔が `python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま渡す。
 // script はファイルを開けないので、この委譲を運ぶ経路は args しかない。必須にしているのは、
 // 未指定を「委譲する項目が無い」と読むと、実施されていない検査が黙って通るため。
-const uncheckedItems = parsedArgs.uncheckedItems
+// audit は委譲項目を判定する観点（best-practices）を走らせないので受け取らない。渡されたまま黙って
+// 無視すると「委譲項目も見た」と読まれるため、明示的に落とす。
+if (mode === 'audit' && parsedArgs.uncheckedItems !== undefined) {
+  throw new Error(
+    "args.mode が 'audit' のときは args.uncheckedItems を渡さないでください。" +
+      'audit は prompt-audit の観点だけを走らせ、委譲項目を判定する観点を起動しません。'
+  )
+}
+const uncheckedItems = mode === 'audit' ? [] : parsedArgs.uncheckedItems
 if (!Array.isArray(uncheckedItems) || uncheckedItems.some((x) => !x || !x.id || !x.item)) {
   throw new Error(
     'args.uncheckedItems が未指定か形式が不正です。' +
@@ -322,7 +378,48 @@ const FINDERS = [
       '「逸脱なし」を返すと、この観点が実施済みとして数えられる。',
     ].join('\n'),
   },
+  {
+    id: AUDIT_CATEGORY,
+    title: '古くなったプロンプトの書き方・食い違う指示',
+    // unavailable を受け付ける規則の正本（finder.md / schemas.md は名前で参照する）。受け付けるのはこの観点
+    // だけで、さらに promptAuditExpected が false のとき・Reverify では Find でも unavailable だったときに限る。
+    // claude-api skill は Codex など実行環境によって無いが、どの観点・どの pass でも自分を外せると、
+    // 未実施の観点が clean に化け、Find で確定した指摘が再確認されずに解消扱いになる。
+    may_be_unavailable: true,
+    guide: [
+      'Claude Code 同梱の claude-api skill を、Skill ツールで prompt-audit サブコマンドを付けて起動し、',
+      'その監査結果を指摘に写す観点。監査の基準は claude-api skill 側が持つ。中身をここで再現しない',
+      '（写しは本家の更新に追随せずズレる）。',
+      '',
+      '1. Skill ツールで claude-api skill を起動し、引数に prompt-audit と [TARGET_DIR] の絶対パスを渡す。',
+      '   依頼は「[TARGET_DIR] だけを scope にした報告のみの監査。ファイルは編集しない」と書く。',
+      '   「整理して」「削って」のような語を依頼に入れない。監査ガイドはそれを編集の依頼と読み、',
+      '   Reverify では [TARGET_DIR] が改稿ドラフトなので、検査者がドラフトを書き換えることになる。',
+      '   target model は「対象ファイルが model を固定していればそのモデル、無ければ現行の Claude',
+      '   フラッグシップ世代」と依頼に明記する。省くと監査はあなた自身のモデルを target にし、',
+      '   finder のモデルを変えるたびに指摘が変わる。',
+      '2. Skill ツールが無い、claude-api skill が一覧に無い、prompt-audit を受け付けない、のどれかなら',
+      '   unavailable を true にし、findings を空で返して note に理由を書く。自分の知識で監査を代行したり、',
+      '   監査ガイドのファイルを探して読んだりしない（本家の監査を通っていない指摘が同じ名前で混ざる）。',
+      '3. 監査が走ったら、レポート冒頭の scope と target model の前提行をそのまま audit_header に写す。',
+      '   これが空だと script は監査が走ったと確かめられず、この観点を欠測として扱う。',
+      '4. レポートの各指摘を 1 件ずつ findings に写す: Location → file（[TARGET_DIR] からの相対）と',
+      '   location（行）、Evidence → evidence（引用をそのまま）、Pattern と Why obsolete → claim（1 文）、',
+      '   Action と置換案 → suggested_fix、Confidence → audit_confidence、Action → audit_action。',
+      '   severity は script が audit_confidence から決め直すので、何を入れても上書きされる。',
+      '5. Confidence が Low のもの、Action が flag のものは findings に入れず、declared_only に',
+      '   file・location・claim・audit_confidence・audit_action を入れて全件返す（note の自由記述にしない）。',
+      '   例外として [RECHECK_FINDINGS] の指摘は、まだ成立するなら確信度や Action に関わらず findings に',
+      '   claim を一字も変えずに入れ、今回の audit_confidence / audit_action を付ける（重さは script が前巡の値で決める）。',
+      '   findings の上限を超える分は Confidence の高い順に残し、溢れた件数と位置を note に書く。',
+      '6. 監査が対象を読めなかった（ディレクトリが開けない等）なら unavailable ではなく unreadable を true にする。',
+      'scope・RECHECK_FINDINGS・REVERIFY_SCOPE・present_in_original の規則は他の観点と同じに守る',
+      '（再確認の claim は一字も変えない）。',
+    ].join('\n'),
+  },
 ]
+
+const ACTIVE_FINDERS = mode === 'audit' ? FINDERS.filter((f) => f.id === AUDIT_CATEGORY) : FINDERS
 
 // PERSPECTIVES: 反証者の観点。同じ懐疑者を並べても同じ見落とし方をするため、
 // 「何を疑うか」をずらす。実在 → 重要性 → 代替解釈 の順で、指摘が生き残る条件を狭めていく。
@@ -352,6 +449,9 @@ const PERSPECTIVES = [
 
 // agentType は指定しない。agents/*.md の役割は Agent ツールのレジストリに登録された型ではなく、
 // 指定すると解決に失敗する。役割はプロンプト本文が担う。
+// 構造化出力の再試行が尽きたときや budget の上限に達したとき、agent() は null ではなく throw する。
+// parallel() が throw を null に変えるかは host 次第（runner の parallel は catch しない）なので、ここで
+// null に揃える。呼び出し側はどれも null を欠測（missing / unverified / update_failed）として扱う。
 function roleAgent(file, body, opts) {
   return agent(
     [
@@ -361,7 +461,10 @@ function roleAgent(file, body, opts) {
       body,
     ].join('\n'),
     opts
-  )
+  ).catch((error) => {
+    log(`${opts.label} が失敗しました: ${error && error.message ? error.message : error}`)
+    return null
+  })
 }
 
 // 範囲の指示は 2 種類ある。source は対象スキル本体（git 追跡下）、draft は staging。
@@ -418,14 +521,58 @@ function scopeBlock(kind, category, reverifyScope) {
 
 // --------------------------------------------------------- 観点別の指摘出し（Find / Reverify）
 
+// prompt-audit の監査結果を指摘へ写す。severity は PROMPT_AUDIT_SEVERITY で決め、写像の外（Low・flag・
+// 確信度なし）は指摘にせず declared として返す。
+// 例外は Reverify で再確認中の指摘（観点・ファイル・claim が一致）で、findings と declared_only のどちらに
+// 来ても、確信度に関わらず前巡の severity の指摘として残す。確信度は実行ごとに揺れるので、下がった値で
+// 写すと、手の入っていない指摘が minor や宣言へ逃げて改稿ループを抜け、resolved に数えられる。
+function mapAuditItems(f, items, declaredItems, reverifyScope) {
+  const recheck = new Map(
+    (reverifyScope ? reverifyScope.recheck : []).filter((r) => r.category === f.id).map((r) => [keyOf(r), r])
+  )
+  const keyFor = (it) => keyOf({ category: f.id, file: it.file, claim: it.claim })
+  const outsideMapping = (it) =>
+    it.audit_action === 'flag' || !Object.hasOwn(PROMPT_AUDIT_SEVERITY, it.audit_confidence)
+  const kept = new Map()
+  const out = []
+  const declared = []
+  for (const [it, fromDeclared] of [...items.map((x) => [x, false]), ...declaredItems.map((x) => [x, true])]) {
+    const previous = recheck.get(keyFor(it))
+    if (previous) {
+      if (kept.has(keyFor(it))) continue
+      kept.set(keyFor(it), true)
+      out.push({
+        evidence: previous.evidence,
+        suggested_fix: previous.suggested_fix,
+        location: previous.location,
+        ...it,
+        severity: previous.severity,
+      })
+    } else if (fromDeclared || outsideMapping(it)) {
+      declared.push({
+        file: it.file,
+        location: it.location || '',
+        claim: it.claim,
+        audit_confidence: it.audit_confidence || null,
+        audit_action: it.audit_action || null,
+      })
+    } else {
+      out.push({ ...it, severity: PROMPT_AUDIT_SEVERITY[it.audit_confidence] })
+    }
+  }
+  return { items: out, declared }
+}
+
 // pass ごとに id を振り直す。before/after を突き合わせるので、id が衝突すると
 // 「解消された指摘」と「新しく出た指摘」が同一視される。
-function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope = null) {
+// unavailableAllowed: unavailable を skipped_unavailable として受け付ける観点の id。それ以外の観点が
+// unavailable を返したら欠測として扱う（決め方は呼び出し側の findUnavailableAllowed / Reverify の呼び出し）。
+function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope, unavailableAllowed) {
   // parallel（barrier）を使う理由: 次の集約が全観点を横断して見る必要がある。
   // どの観点が欠測したかを by_category に載せ、1 つでも落ちたら verdict を
   // review_incomplete に固定する判定は、全件が出揃わないと下せない。
   return parallel(
-    FINDERS.map((f) => () =>
+    ACTIVE_FINDERS.map((f) => () =>
       roleAgent(
         'finder.md',
         [
@@ -437,24 +584,57 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope = null)
         ]
           .filter(Boolean)
           .join('\n\n'),
-        { model: 'sonnet', schema: findingsSchemaFor(f), phase: phaseTitle, label: `find-${f.id}-${passLabel}` }
+        {
+          model: 'sonnet',
+          effort: 'medium',
+          schema: FINDINGS_SCHEMA,
+          phase: phaseTitle,
+          label: `find-${f.id}-${passLabel}`,
+        }
       ).then((res) => ({ category: f.id, res }))
     )
   ).then((raw) => {
     const rows = raw.filter(Boolean)
     const findings = []
     const missing = []
+    const unavailable = []
+    const declaredOnly = []
     const scannedByCategory = {}
     // 委譲した項目の未達。build_skill.js の judgmentFailures と同じ原則で、判定フィールドを
     // script が直接走査し、返ってこなかった id は集合の差で拾う（不在は走査に写らないため）。
     // 反証には回さない —— これは finder の主張ではなく、委譲した項目に判定が付いたか
     // どうかという script 側の事実で、反証者が「実害が無い」と落とせる種類のものではない。
     const uncheckedFailures = []
-    for (const f of FINDERS) {
+    for (const f of ACTIVE_FINDERS) {
       const row = rows.find((r) => r.category === f.id)
       if (!row || !row.res) {
         missing.push(f.id)
         log(`観点 ${f.id} の finder が応答しませんでした（${passLabel}）。未実施として扱います。`)
+        continue
+      }
+      if (row.res.unavailable === true && row.res.unreadable !== true) {
+        if (unavailableAllowed.has(f.id)) {
+          unavailable.push(f.id)
+          log(
+            `観点 ${f.id}: 依存する skill が実行環境に無いため実施できませんでした（${passLabel}）。` +
+              '欠測とは別に skipped_unavailable として宣言します。' +
+              (row.res.note ? ` 報告: ${row.res.note}` : '')
+          )
+        } else {
+          missing.push(f.id)
+          log(
+            `観点 ${f.id}: unavailable を返しましたが、この pass では受け付けない観点です（${passLabel}）。欠測として扱います。` +
+              (row.res.note ? ` 報告: ${row.res.note}` : '')
+          )
+        }
+        continue
+      }
+      if (f.id === AUDIT_CATEGORY && row.res.unreadable !== true && !String(row.res.audit_header || '').trim()) {
+        missing.push(f.id)
+        log(
+          `観点 ${f.id}: 監査が走った証跡（audit_header）が空です（${passLabel}）。` +
+            '監査せずに 0 件を返した場合と区別できないため、未実施として扱います。'
+        )
         continue
       }
       // unreadable は 0 件ではなく欠測。読めていないのに findings 0 件を成果として扱うと、
@@ -469,7 +649,18 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope = null)
       }
       if (row.res.note) log(`観点 ${f.id}（${passLabel}）の補足: ${row.res.note}`)
       scannedByCategory[f.id] = row.res.scanned_files || []
-      const items = row.res.findings || []
+      let items = row.res.findings || []
+      if (f.id === AUDIT_CATEGORY) {
+        const audited = mapAuditItems(f, items, row.res.declared_only || [], reverifyScope)
+        items = audited.items
+        declaredOnly.push(...audited.declared)
+        if (audited.declared.length > 0) {
+          log(
+            `観点 ${f.id}: PROMPT_AUDIT_SEVERITY の外の ${audited.declared.length} 件は指摘にせず declared_only に残します（${passLabel}）: ` +
+              audited.declared.map((it) => `${it.file}:${it.location || '?'}`).join(', ')
+          )
+        }
+      }
       items.forEach((item, i) => {
         findings.push({
           id: `${passLabel}-${f.id}-${i + 1}`,
@@ -485,6 +676,8 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope = null)
           // 正規化し、「分からない」を false（＝改稿由来）に丸めない。
           present_in_original:
             typeof item.present_in_original === 'boolean' ? item.present_in_original : undefined,
+          ...(item.audit_confidence ? { audit_confidence: item.audit_confidence } : {}),
+          ...(item.audit_action ? { audit_action: item.audit_action } : {}),
         })
       })
       if (f.owns_unchecked) {
@@ -524,7 +717,7 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope = null)
           (scopeKind === 'draft' ? ` / 原本照合 ${checked}/${items.length}` : '')
       )
     }
-    return { findings, missing, scannedByCategory, uncheckedFailures }
+    return { findings, missing, unavailable, declaredOnly, scannedByCategory, uncheckedFailures }
   })
 }
 
@@ -561,6 +754,7 @@ function refuteOnce(f, p, phaseTitle) {
       .join('\n\n'),
     {
       model: 'sonnet',
+      effort: 'medium',
       schema: REFUTE_SCHEMA,
       phase: phaseTitle,
       label: `refute-${f.id}-${p.id}`,
@@ -647,11 +841,12 @@ function tag(dir, findings) {
   return findings.map((f) => ({ ...f, __dir: dir }))
 }
 
-function byCategory(missing, confirmed) {
+function byCategory(missing, confirmed, unavailable = []) {
   const out = {}
-  for (const f of FINDERS) {
+  for (const f of ACTIVE_FINDERS) {
     // 欠測は 0 件ではなく null。0 と書くと「見たが何も無かった」と読まれる。
-    out[f.id] = missing.includes(f.id) ? null : confirmed.filter((c) => c.category === f.id).length
+    if (unavailable.includes(f.id)) out[f.id] = UNAVAILABLE
+    else out[f.id] = missing.includes(f.id) ? null : confirmed.filter((c) => c.category === f.id).length
   }
   return out
 }
@@ -700,7 +895,10 @@ function forUpdater(c) {
 // ------------------------------------------------------------------------- Find / Verify
 
 phase('Find')
-const first = await runFinders(skillPath, 'Find', 'p1', 'source')
+const findUnavailableAllowed = new Set(
+  promptAuditExpected ? [] : ACTIVE_FINDERS.filter((f) => f.may_be_unavailable).map((f) => f.id)
+)
+const first = await runFinders(skillPath, 'Find', 'p1', 'source', null, findUnavailableAllowed)
 
 phase('Verify')
 const base = await verifyFindings(tag(skillPath, first.findings), 'Verify', 'before')
@@ -709,12 +907,28 @@ const base = await verifyFindings(tag(skillPath, first.findings), 'Verify', 'bef
 // 1 度直った指摘がぶり返しても「元から無かった」ことになり、resolved が水増しされる。
 const originalConfirmed = base.confirmed
 
-const beforeCategories = byCategory(first.missing, base.confirmed)
+const beforeCategories = byCategory(first.missing, base.confirmed, first.unavailable)
 const reviewIncomplete = first.missing.length > 0
 let reverifyProvenance = null
 let reverifyMissing = []
+let reverifyUnavailable = null
+let reverifyDeclared = null
 if (reviewIncomplete) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
+}
+
+function receiptOf(stagingDir, afterCategories) {
+  const observed = Object.fromEntries(Object.entries(afterCategories).filter(([, value]) => value !== UNAVAILABLE))
+  return {
+    phase: 'Reverify',
+    staging_dir: stagingDir,
+    fresh_thread: true,
+    completed:
+      Object.keys(observed).length > 0 && Object.values(observed).every((value) => Number.isSafeInteger(value)),
+    by_category: observed,
+    skipped_unavailable: Object.keys(afterCategories).filter((id) => afterCategories[id] === UNAVAILABLE),
+    ...reverifyProvenance,
+  }
 }
 
 function result(verdict, findings, findingsSource, afterCategories, staging, revisionsUsed, uncheckedFailures, stopReason) {
@@ -725,7 +939,14 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     stop_reason: stopReason,
     // 委譲項目の未達。findings と分けているのは、反証を通っていないため
     // （confirmed に混ぜると「反証を生き残った指摘」という意味が薄まる）。
-    unchecked_failures: uncheckedFailures || [],
+    // audit は委譲項目を判定する観点を走らせないので null（[] だと「全部満たした」と読まれる）。
+    unchecked_failures: mode === 'audit' ? null : uncheckedFailures || [],
+    // 依存する skill が実行環境に無く実施できなかった観点。欠測（by_category の null・review_incomplete）
+    // とは別枠で、見ていない観点として必ず提示する。
+    skipped_unavailable: { before: first.unavailable, after: reverifyUnavailable },
+    // prompt-audit が挙げたが PROMPT_AUDIT_SEVERITY の外のため指摘にしなかった項目。反証も改稿もしないが、
+    // 結果に残さないと「監査が見て何も言わなかった」と区別できない。
+    declared_only: { before: first.declaredOnly, after: reverifyDeclared },
     target: { skillPath, scope, diffRef: diffRef || null, focus },
     verdict,
     findings,
@@ -742,35 +963,36 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     staging,
     // runner 経由の update では action package の発行条件になる。Reverify が走らなかった
     // outcome を completed と偽装しないため、after の全観点が観測済みのときだけ true にする。
+    // 依存 skill が無く実施できなかった観点は by_category から外して skipped_unavailable に宣言する。
+    // 含めると、その skill を持たない Codex runner では receipt が永久に完了せず update が通らない。
     reverify_receipt:
       mode === 'update' && staging && afterCategories && reverifyProvenance
-        ? {
-            phase: 'Reverify',
-            staging_dir: staging.dir,
-            fresh_thread: true,
-            completed: Object.values(afterCategories).every((value) => Number.isSafeInteger(value)),
-            by_category: afterCategories,
-            ...reverifyProvenance,
-          }
+        ? receiptOf(staging.dir, afterCategories)
         : null,
     revisions_used: revisionsUsed,
   }
 }
 
-if (mode === 'review') {
+if (mode === 'review' || mode === 'audit') {
   // 確定が 0 件でも未検証が残っていれば clean とは言わない。未検証を clean に丸めると、
   // 「未検証と問題なしを区別する」ために置いた 3 バケットが結果表示で 1 つに戻る。
   // 委譲項目の未達も clean を妨げる。機械検査が判定せず、委譲先も判定しなかった項目が
   // 残っているなら、見ていない箇所があるという点で未検証と同じ。反証に回さなかった
   // reported_minor も同じ理由で clean を妨げる（検証していないものを「問題なし」と言わない）。
+  // 実施できなかった観点（skipped_unavailable）も同じで、残りが空でも clean ではなく
+  // clean_except_unavailable にする。
+  const nothingFound =
+    base.confirmed.length === 0 &&
+    base.unverified.length === 0 &&
+    base.reported_minor.length === 0 &&
+    first.uncheckedFailures.length === 0
   const verdict = reviewIncomplete
     ? 'review_incomplete'
-    : base.confirmed.length === 0 &&
-        base.unverified.length === 0 &&
-        base.reported_minor.length === 0 &&
-        first.uncheckedFailures.length === 0
-      ? 'clean'
-      : 'findings'
+    : !nothingFound
+      ? 'findings'
+      : first.unavailable.length > 0
+        ? 'clean_except_unavailable'
+        : 'clean'
   return result(verdict, base, 'before', null, null, 0, first.uncheckedFailures, null)
 }
 
@@ -859,7 +1081,7 @@ while (true) {
     ]
       .filter(Boolean)
       .join('\n\n'),
-    { model: 'opus', schema: UPDATE_SCHEMA, phase: 'Update', label: updaterThreadId }
+    { model: 'opus', effort: 'high', schema: UPDATE_SCHEMA, phase: 'Update', label: updaterThreadId }
   )
 
   if (!changed) {
@@ -915,14 +1137,22 @@ while (true) {
   phase('Reverify')
   let reverifyPassLabel = `p2r${revision + 1}`
   let freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
-  let after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft', reverifyScope)
+  // Reverify で unavailable を受け付けるのは、Find でも実施できなかった観点だけ。Find で実施できた観点が
+  // Reverify だけ「無い」と返すと、確定指摘が再確認されないまま resolved / unobserved に流れ、
+  // receipt からも外れて update が通ってしまう。欠測にして既存の再試行と reverify_incomplete へ回す。
+  const reverifyUnavailableAllowed = new Set(promptAuditExpected ? [] : first.unavailable)
+  let after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft', reverifyScope, reverifyUnavailableAllowed)
   reverifyMissing = after.missing
+  reverifyUnavailable = after.unavailable
+  reverifyDeclared = after.declaredOnly
   if (after.missing.length > 0) {
     log(`再検証の欠測（${after.missing.join(', ')}）を保持したまま、全体を 1 回だけ再試行します。`)
     reverifyPassLabel = `${reverifyPassLabel}-retry`
     freshThreadId = `find-${FINDERS[0].id}-${reverifyPassLabel}`
-    after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft', reverifyScope)
+    after = await runFinders(stagingDir, 'Reverify', reverifyPassLabel, 'draft', reverifyScope, reverifyUnavailableAllowed)
     reverifyMissing = after.missing
+    reverifyUnavailable = after.unavailable
+    reverifyDeclared = after.declaredOnly
   }
   if (after.missing.length > 0) {
     // 再検証で観点が欠けた状態を「残存 0 件」と読むと、直っていないものが直ったことになる。
@@ -944,7 +1174,7 @@ while (true) {
       reverify_scope: null,
       reverify_missing: after.missing,
     }
-    afterCategories = byCategory(after.missing, [])
+    afterCategories = byCategory(after.missing, [], after.unavailable)
     reverifyProvenance = { updater_thread_id: updaterThreadId, fresh_thread_id: freshThreadId }
     verdict = 'reverify_incomplete'
     stopReason = 'reverify_incomplete'
@@ -978,8 +1208,30 @@ while (true) {
   // 直ったと確かめられていないので未解消に数え、棄却されたものは反証の結果として別枠に置く。
   const stillUnverified = post.unverified.filter((f) => beforeKeys.has(keyOf(f)))
   const refutedOnRecheck = post.rejected.filter((f) => beforeKeys.has(keyOf(f)))
+  // prompt-audit の確定指摘が、改稿で手の入っていないファイルから消えたときは解消と数えず残存に置く。
+  // 外部の監査は実行ごとに確信度が揺れる。規則どおりなら再確認中の指摘は確信度に関わらず findings か
+  // declared_only で戻り mapAuditItems が拾うが、規則に従わない finder は note に書くだけのことがあり、
+  // ここはその場合の受け皿。ファイルが変わっていない以上、消えたことは直った証拠にならない。
+  const changedSet = new Set(reverifyScope.changedFiles)
+  const auditCarried = originalConfirmed.filter(
+    (f) =>
+      f.category === AUDIT_CATEGORY &&
+      !changedSet.has(normPath(f.file)) &&
+      ![...afterKeys, ...minorAfter.map(keyOf), ...stillUnverified.map(keyOf), ...refutedOnRecheck.map(keyOf)].includes(
+        keyOf(f)
+      )
+  )
+  if (auditCarried.length > 0) {
+    log(`prompt-audit の確定指摘 ${auditCarried.length} 件は、変更の無いファイルから消えたため解消とせず残存に数えます。`)
+  }
   const presentAfterKeys = new Set(
-    [...afterKeys, ...minorAfter.map(keyOf), ...stillUnverified.map(keyOf), ...refutedOnRecheck.map(keyOf)]
+    [
+      ...afterKeys,
+      ...minorAfter.map(keyOf),
+      ...stillUnverified.map(keyOf),
+      ...refutedOnRecheck.map(keyOf),
+      ...auditCarried.map(keyOf),
+    ]
   )
   // 「新規」の基準は改稿前に確定した指摘ではなく、改稿前に**見えていた**指摘全体。
   // 改稿前に unverified / rejected / reported_minor だったものが再検証で票が揃って確定しても、
@@ -1020,7 +1272,7 @@ while (true) {
     else unverifiedUnobserved.push(f)
   }
 
-  const remaining = [...post.confirmed.filter((f) => beforeKeys.has(keyOf(f))), ...minorAfter]
+  const remaining = [...post.confirmed.filter((f) => beforeKeys.has(keyOf(f))), ...minorAfter, ...auditCarried]
   const notOriginal = post.confirmed.filter((f) => !beforeKeys.has(keyOf(f)))
   const reclassified = notOriginal.filter((f) => beforeSeenKeys.has(keyOf(f)))
   // 改稿前の Find が見落とした既存の問題は reclassified に落ちずに new へ入る。
@@ -1091,7 +1343,7 @@ while (true) {
   }
   latest = post
   latestSource = 'after'
-  afterCategories = byCategory(after.missing, post.confirmed)
+  afterCategories = byCategory(after.missing, post.confirmed, after.unavailable)
   reverifyProvenance = { updater_thread_id: updaterThreadId, fresh_thread_id: freshThreadId }
 
   // 未検証の blocker は「検証が足りない」であって「直っていない」ではない。改稿を繰り返しても
@@ -1103,7 +1355,6 @@ while (true) {
   // 最初の blocker が再確認で棄却された、または minor に格下げされて反証を通らずに戻ったとき、
   // 改稿で手が入っていない（ファイルが変更されていない、または引用が原本にもある）なら、直った
   // 証拠ではなく Verify と Reverify の判定が割れただけ。重さは再報告側ではなく最初の確定時の値で見る。
-  const changedSet = new Set(reverifyScope.changedFiles)
   const originalSeverity = new Map(originalConfirmed.map((f) => [keyOf(f), f.severity]))
   const contestedBlockers = [...refutedOnRecheck, ...minorAfter].filter(
     (f) =>
