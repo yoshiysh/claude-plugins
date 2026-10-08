@@ -2635,6 +2635,10 @@ function recordFindings(plan, results) {
 async function stage5() {
   state.pass = 1
   // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路と項目の役を引き継がない（項目は書き直しで別物になる）。
+  // 回の番号は前の監査の続きにする。同じ回の番号で監査すると指摘の ID が前の監査の指摘と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことに
+  // なって（unruled）、新しい指摘が段 6 に届かない。
+  const round = state.audit ? state.audit.n + 1 : 1
+  const base = `audited-${round}`
   delete state.item_routes
   delete state.roles_by_item
   // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
@@ -2652,20 +2656,20 @@ async function stage5() {
   plan[plan.length - 1].designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
+    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
-  const { results, missing } = await runAuditors(plan, 1, '5')
+  const { results, missing } = await runAuditors(plan, round, '5')
   if (missing.length) throw notRun(missing.join(', '))
   const cd = results[results.length - 1]
-  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], 1), cd.designated, designatedCmds(), 'Audit')
+  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
   const audited = parseStdout(cd.designated && cd.designated.audited)
   const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
-  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
-  const moved1 = fixedMoved(audited, 'audited-1')
+  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
+  const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
-  state.audit = { n: 1, digest: audited.digest }
+  state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
-  noteAudited(audited, 'audited-1')
+  noteAudited(audited, base)
   const findings = recordFindings(plan, results)
   setPending(findings, docCheck, [])
   return '6'

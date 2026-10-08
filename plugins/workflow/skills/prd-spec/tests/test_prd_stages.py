@@ -828,6 +828,21 @@ class Stages(unittest.TestCase):
         self.assertIn("flow-check:3a", r2["labels"], "代わりに settle の flow-check が別の agent の stdout を取る")
         self.assertTrue(has(r2["labels"][r2["labels"].index("resolver:3a"):], "writer"), "回答の後に初稿を書き直す")
 
+    def test_書き直した初稿の監査は前の監査の続きの回で指摘を出し段6に届く(self):
+        # 同じ回の番号で監査し直すと指摘の ID が仮の初稿の監査と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことになる。
+        spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]},
+                "findings": {"crossDoc:r1": [{"id": "r1-cd-all-001", "route": "decision"}], "crossDoc:r2": [{"id": "r2-cd-all-001", "route": "decision"}]},
+                "about": {"RS-010": {"finding": "r1-cd-all-001"}, "RS-011": {"finding": "r2-cd-all-001"}}, "ruled_at": {"6": ["RS-010"]}}
+        g1 = run(spec)
+        self.assertEqual((g1["result"]["status"], g1["result"]["question_ids"]), ("needs_answers", ["RS-001"]), g1["result"].get("reason"))
+        r2 = run({**spec, "args": g1["result"]["next_args"], "ruled_at": {"3a": ["RS-001"], "6": ["RS-011"]}})
+        self.assertEqual(r2["result"]["status"], "done", r2["result"].get("reason"))
+        self.assertIn("crossDoc:r2:all", r2["labels"], "書き直した初稿の監査は r2")
+        self.assertNotIn("crossDoc:r1:all", r2["labels"])
+        prompt = lambda label: next(p["prompt"] for p in r2["prompts"] if p["label"] == label)
+        self.assertIn("r2-cd-all-001", prompt("resolver:6"), "書き直した初稿の監査の指摘が段 6 に届く")
+        self.assertIn("--save audited-2", prompt("crossDoc:r2:all"))
+
     def test_自由記述の回答はverifierに通す(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
         res = run(spec)["result"]
@@ -5040,6 +5055,8 @@ class NextArgsBudget(unittest.TestCase):
     # _assert_lean が欄ごとに見る。
     ITEMS_N = 19
     UNAPPLIED = 7
+    # R: 段 3 の問いを持ち越した run の、回答の後に書き直した初稿の監査の回（仮の初稿の監査が r1）。
+    R = 2
 
     @staticmethod
     def _rs(a, b):
@@ -5049,17 +5066,17 @@ class NextArgsBudget(unittest.TestCase):
         return f"PR-CLEANUP-BRANCHES-{i:03d}"
 
     def _writer(self, k, item):
-        return {"id": f"r1-im-requirements__cleanup-branches-{k:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
+        return {"id": f"r{self.R}-im-requirements__cleanup-branches-{k:03d}", "doc": self.DOC, "item_id": item, "route": "writer"}
 
     def _writer_items(self, n):
         # 試走の実データの偏り: writer の指摘は最後の項目以外に 1 件ずつ、先頭 5 項目には 2 件ずつ。最後の項目には decision の指摘 3 件。
         return [self._item(i) for i in range(1, n) for _ in range(2 if i <= 5 else 1)]
 
     def _common(self, n):
-        decision = lambda k: {"id": f"r1-cd-all-{k:03d}", "doc": self.DOC, "item_id": self._item(n), "route": "decision"}
-        return {"units": [{"id": "U-1", "docs": [self.DOC], "depends_on": []}], "long_digests": True, "stray_at": {"r1": 100}, "size_over_at": {"r1": 2},
+        decision = lambda k: {"id": f"r{self.R}-cd-all-{k:03d}", "doc": self.DOC, "item_id": self._item(n), "route": "decision"}
+        return {"units": [{"id": "U-1", "docs": [self.DOC], "depends_on": []}], "long_digests": True, "stray_at": {f"r{self.R}": 100}, "size_over_at": {f"r{self.R}": 2},
                 "doc_flow_refs": {self.DOC: {self._item(i): [f"F-{10 * i + j:03d}" for j in range(3)] for i in range(1, n + 1)}},
-                "findings": {"implementer:r1": [self._writer(k + 1, it) for k, it in enumerate(self._writer_items(n))], "crossDoc:r1": [decision(k) for k in (1, 2, 3)]},
+                "findings": {f"implementer:r{self.R}": [self._writer(k + 1, it) for k, it in enumerate(self._writer_items(n))], f"crossDoc:r{self.R}": [decision(k) for k in (1, 2, 3)]},
                 "routes_at": {"6": [{"id": f"RT-{i:03d}", "unit": "U-1"} for i in range(1, 4)]}}
 
     def _args(self, **kw):
@@ -5087,7 +5104,7 @@ class NextArgsBudget(unittest.TestCase):
         # 段 6 のゲート（g3）の回答を当て、改稿の後の監査役が応答しない。existing は段 5 が settled_written を空にするので、全 resolution を改稿に渡す。
         a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
         g1 = self._gates(a, n)[2]
-        auditor = f"grounding:r2:{self.DOC}"
+        auditor = f"grounding:r{self.R + 1}:{self.DOC}"
         ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:unapplied]
         res = run({"args": g1["next_args"], **self._common(n), "ruled_at": {"3a'": self._rs(23, 25)}, "null_labels": [auditor], "unapplied_seq": [ids]})["result"]
         self.assertEqual((res["status"], res["next_args"]["from"]), ("blocked", "8"), res.get("reason"))
@@ -5153,9 +5170,9 @@ class NextArgsBudget(unittest.TestCase):
         a = self._args() if entry == "new" else self._args(entry="existing", existing_docs=[{"key": self.DOC, "fixed": False}])
         g1 = self._gates(a, n)[2]
         common = self._common(n)
-        decision = [{"id": f"r2-gr-requirements__cleanup-branches-{k:03d}", "doc": self.DOC, "item_id": self._item(k), "route": "decision"} for k in (1, 2, 3)]
+        decision = [{"id": f"r{self.R + 1}-gr-requirements__cleanup-branches-{k:03d}", "doc": self.DOC, "item_id": self._item(k), "route": "decision"} for k in (1, 2, 3)]
         ids = [self._writer(k + 1, it)["id"] for k, it in enumerate(self._writer_items(n))][:self.UNAPPLIED]
-        res = run({"args": g1["next_args"], **common, "findings": {**common["findings"], "grounding:r2": decision}, "ruled_at": {"3a'": self._rs(23, 25)},
+        res = run({"args": g1["next_args"], **common, "findings": {**common["findings"], f"grounding:r{self.R + 1}": decision}, "ruled_at": {"3a'": self._rs(23, 25)},
                    "null_labels": ["resolver:6"], "unapplied_seq": [ids]})["result"]
         self.assertEqual((res["status"], res["next_args"]["from"], res["next_args"]["state"]["pass"]), ("blocked", "6", 2), res.get("reason"))
         self._assert_lean(res["next_args"]["state"])
