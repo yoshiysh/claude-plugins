@@ -135,6 +135,8 @@ jobs:
           jq -r '
             (if type == "array" then . else [.] end)
             | map(select(.type == "result")) | last
-            | "permission_denials: \(.permission_denials | length)",
-              (.permission_denials[]? | "- \(.tool_name): \(.tool_input | tostring | .[0:200])")
+            | if . == null then "permission_denials: unknown (no result message in the execution file)"
+              else "permission_denials: \(.permission_denials | length)",
+                (.permission_denials[]? | "- \(.tool_name): \(.tool_input | tostring | .[0:200])")
+              end
           ' "$EXECUTION_FILE"
