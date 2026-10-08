@@ -2713,15 +2713,20 @@ function wsQuestions(ws, opts) {
 
 const fenceOf = (text) => '`'.repeat(Math.max(4, ...(String(text).match(/`+/g) || []).map((m) => m.length + 1)))
 
-// report: 事後報告は resolutions.json の method・answered_by・hold・upstream_revision から導出する。answered_by は依頼者の回答を
-// 別の論点に当てた裁定で、依頼者はここで初めて見て覆せる。手で書くと、同じ事実を
+// report: 事後報告は resolutions.json の method・answered_by・measured・hold・upstream_revision から導出する。answered_by は依頼者の回答を
+// 別の論点に当てた裁定、measured は聞かずに現物で決めた裁定（仕様書の実現の手段を含む）で、依頼者はここで初めて見て覆せる。手で書くと、同じ事実を
 // resolutions と 2 か所に持ち、型も決まらない。
 function wsReport(ws, opts) {
   const [listName] = Object.keys(ledgerOf('resolutions').lists)
   const rs = listOf(readLedger(ws, 'resolutions'), listName)
   const method = rs.filter((r) => r.ruling === 'method')
   const answeredBy = rs.filter((r) => r.ruling === 'answered_by')
-  const cited = (r) => (Array.isArray(r.evidence) ? r.evidence : []).map((e) => `${path.relative(ws, String((e && e.file) || ''))}#L${e && e.line}「${(e && e.quote) ?? ''}」`).join('、')
+  const measured = rs.filter((r) => r.ruling === 'measured')
+  const shownPath = (file) => {
+    const rel = path.relative(ws, file)
+    return rel.startsWith('..') || path.isAbsolute(rel) ? file : rel
+  }
+  const cited = (r) => (Array.isArray(r.evidence) ? r.evidence : []).map((e) => `${shownPath(String((e && e.file) || ''))}#L${e && e.line}「${(e && e.quote) ?? ''}」`).join('、')
   const draftIds = new Set(opts.drafts || [])
   const unknown = [...draftIds].filter((id) => !rs.some((r) => r.id === id && r.ruling === 'hold'))
   if (unknown.length) throw new Error(`--drafts に hold でない ID があります: ${unknown.join(', ')}`)
@@ -2747,6 +2752,10 @@ function wsReport(ws, opts) {
     '',
     ...(answeredBy.length ? answeredBy.map((r) => `- ${r.id}: ${r.value ?? ''}（${r.why ?? ''}。回答: ${cited(r)}）`) : ['0 件。']),
     '',
+    '## 現物で決めたこと',
+    '',
+    ...(measured.length ? measured.map((r) => `- ${r.id}: ${r.value ?? ''}（出典: ${cited(r)}）`) : ['0 件。']),
+    '',
     '## 保持規則と Issue の文案',
     '',
     ...(holds.length ? [] : ['0 件。', '']),
@@ -2763,7 +2772,7 @@ function wsReport(ws, opts) {
   writeAtomic([path.join(ws, 'report.md'), md])
   // report は司令塔が run の返った後に実行するので、動いている label は無い。
   const swept = sweepWorkDirs(ws, [], 'report')
-  return { path: 'report.md', method: method.length, answered_by: answeredBy.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
+  return { path: 'report.md', method: method.length, answered_by: answeredBy.length, measured: measured.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
 }
 
 function workspaceDocs(ws) {
