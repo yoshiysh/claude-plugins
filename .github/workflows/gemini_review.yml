@@ -19,16 +19,16 @@ jobs:
   gemini:
     if: >-
       ${{ (github.event_name == 'pull_request' &&
-           github.event.pull_request.draft == false) ||
+           github.event.pull_request.draft == false &&
+           github.event.pull_request.head.repo.full_name == github.repository &&
+           github.event.pull_request.user.login != 'dependabot[bot]') ||
           (github.event.sender.type == 'User' &&
            startsWith(github.event.comment.body, '@gemini-cli') &&
            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
                     github.event.comment.author_association) &&
            (github.event_name == 'pull_request_review_comment' ||
             github.event.issue.pull_request)) }}
-    # runner は tools/provision-gh-runner --repo yoshiysh/claude-plugins --target wsl:winbox
-    # で登録する（未登録の間は job が queue で待つ）。
-    runs-on: [self-hosted, linux]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
       issues: write
@@ -52,11 +52,11 @@ jobs:
             "repos/${{ github.repository }}/${scope}/comments/${{ github.event.comment.id }}/reactions" \
             -f content=eyes --silent
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -77,6 +77,24 @@ jobs:
           esac
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
 
+      # 差分は git で 1 回だけ作り、以降のステップはこのファイルを読む。
+      # gh pr diff は 300 ファイル超・巨大差分で HTTP 406（PullRequest.diff too_large）
+      # を返して止まるため使わない。三点ドットで GitHub の Files changed と同じ範囲になる。
+      # core.quotePath=false: 非 ASCII のパスが 8 進エスケープされると、後段の
+      # awk が `diff --git a/... b/...` からパスを取り出せない。
+      - name: Materialize the PR diff
+        if: steps.mode.outputs.kind != 'help'
+        run: |
+          base_ref=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .base.ref)
+          git fetch --no-tags --quiet origin \
+            "+refs/heads/${base_ref}:refs/remotes/origin/pr-base" \
+            "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr-head"
+          git -c core.quotePath=false diff --no-color --no-ext-diff \
+            origin/pr-base...origin/pr-head > "${RUNNER_TEMP}/pr.diff"
+          git -c core.quotePath=false diff --name-only \
+            origin/pr-base...origin/pr-head > "${RUNNER_TEMP}/pr-files.txt"
+          echo "files=$(wc -l < "${RUNNER_TEMP}/pr-files.txt") bytes=$(wc -c < "${RUNNER_TEMP}/pr.diff")"
+
       # 上位モデルは RPD 20（1 レビュー 6〜11 リクエストなので 1 日 2 回程度）。
       # 実コードに触らない PR で使い切ると、本当に見てほしい PR が下位に落ちる。
       - name: Pick the model
@@ -87,7 +105,7 @@ jobs:
           # 乏しい RPD を消費しない。実コードに触れる PR だけ
           # .github/gemini-review/models.txt のフルチェーンを使う。
           if [ "${{ steps.mode.outputs.kind }}" = "review" ] \
-             && gh pr diff "${PR_NUMBER}" --name-only | grep -qE '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$'; then
+             && grep -qE '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$' "${RUNNER_TEMP}/pr-files.txt"; then
             echo "name=gemini-3.8-flash" >> "$GITHUB_OUTPUT"
             echo ".github/gemini-review/models.txt" > "${RUNNER_TEMP}/models.txt.path"
           else
@@ -96,20 +114,6 @@ jobs:
             echo "${RUNNER_TEMP}/lite-only-models.txt" > "${RUNNER_TEMP}/models.txt.path"
           fi
           echo "models_file=$(cat "${RUNNER_TEMP}/models.txt.path")" >> "$GITHUB_OUTPUT"
-
-          # 閾値 120000 バイト: run 35460926014 は free_tier_input_token_count
-          # （TPM、分あたり入力 250,000 token）を Attempt 1/2 で連発して落ちた。
-          # 250K token ≒ 900KB 前後の生テキストだが、system prompt・tool schema・
-          # 履歴が同じ分あたり予算を分け合うため安全側に 120KB を境界とする
-          # （閾値は実測から逆算した安全側の値であり、厳密な token 換算ではない）。
-          if [ "${{ steps.mode.outputs.kind }}" = "review" ]; then
-            diff_bytes=$(gh pr diff "${PR_NUMBER}" | wc -c)
-            if [ "$diff_bytes" -gt 120000 ]; then
-              echo "large_diff=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "large_diff=false" >> "$GITHUB_OUTPUT"
-            fi
-          fi
 
       - name: Collect the PR and the thread
         if: steps.mode.outputs.kind != 'review' && steps.mode.outputs.kind != 'help'
@@ -143,9 +147,9 @@ jobs:
             echo '[]' > .gemini-input/thread.json
           fi
 
-          gh pr diff "${PR_NUMBER}" > "${RUNNER_TEMP}/pr.diff"
           awk -v outdir=.gemini-input/diff '
-            /^diff --git /{ name=$4; sub(/^b\//,"",name); gsub("/","__",name);
+            /^diff --git /{ if (f) close(f);
+                            name=$4; sub(/^b\//,"",name); gsub("/","__",name);
                             f=outdir "/" name ".diff" }
             f { print > f }
           ' "${RUNNER_TEMP}/pr.diff"
@@ -179,9 +183,8 @@ jobs:
           GEMINI_REVIEW_API_KEY: ${{ secrets.GEMINI_REVIEW_API_KEY }}
         run: |
           BP=plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md
-          files=$(gh pr diff "${PR_NUMBER}" --name-only \
-            | grep -E '^plugins/[^/]+/skills/|(^|/)SKILL\.md$|(^|/)agents/[^/]+\.md$|(^|/)references/[^/]+\.md$|(^|/)schemas/[^/]+\.md$' \
-            || true)
+          files=$(grep -E '^plugins/[^/]+/skills/|(^|/)SKILL\.md$|(^|/)agents/[^/]+\.md$|(^|/)references/[^/]+\.md$|(^|/)schemas/[^/]+\.md$' \
+            "${RUNNER_TEMP}/pr-files.txt" || true)
 
           if [ -z "$files" ]; then
             echo "skill_touched=false" >> "$GITHUB_OUTPUT"
@@ -309,12 +312,12 @@ jobs:
         if: steps.mode.outputs.kind == 'review'
         run: |
           mkdir -p .gemini-input/review-diff
-          gh pr diff "${PR_NUMBER}" > "${RUNNER_TEMP}/review-pr.diff"
           awk -v outdir=.gemini-input/review-diff '
-            /^diff --git /{ name=$4; sub(/^b\//,"",name); gsub("/","__",name);
+            /^diff --git /{ if (f) close(f);
+                            name=$4; sub(/^b\//,"",name); gsub("/","__",name);
                             f=outdir "/" name ".diff" }
             f { print > f }
-          ' "${RUNNER_TEMP}/review-pr.diff"
+          ' "${RUNNER_TEMP}/pr.diff"
 
           # ロックファイル: 依存解決の機械的出力で、ロジックのレビューに寄与しない。
           lockfile_pattern='(^|/)(.*\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Gemfile\.lock|poetry\.lock|uv\.lock)$'
@@ -323,8 +326,9 @@ jobs:
 
           : > .gemini-input/review-diff/excluded.txt
           : > .gemini-input/review-diff/index.txt
-          for f in .gemini-input/review-diff/*.diff; do
-            [ -e "$f" ] || continue
+          find .gemini-input/review-diff -maxdepth 1 -type f -name '*.diff' | sort \
+            > "${RUNNER_TEMP}/review-diff-files.txt"
+          while IFS= read -r f; do
             path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
             reason=""
             if printf '%s' "$path" | grep -qE "$lockfile_pattern"; then
@@ -340,7 +344,7 @@ jobs:
             else
               echo "$path $(wc -c < "$f")" >> .gemini-input/review-diff/index.txt
             fi
-          done
+          done < "${RUNNER_TEMP}/review-diff-files.txt"
 
       # 二段スクリーニング: 機械的変更だけを flash-lite に判定させ、レビュー対象を
       # deep_review 分だけに絞る。判定基準は除外側に倒し、迷えば deep_review。
@@ -358,54 +362,97 @@ jobs:
           : > .gemini-input/review-diff/skipped.txt
           : > .gemini-input/review-diff/calibration.txt
 
-          files=$(ls .gemini-input/review-diff/*.diff 2>/dev/null || true)
-          if [ -z "$files" ]; then
-            exit 0
-          fi
+          find .gemini-input/review-diff -maxdepth 1 -type f -name '*.diff' | sort \
+            > "${RUNNER_TEMP}/screen-files.txt"
+          [ -s "${RUNNER_TEMP}/screen-files.txt" ] || exit 0
 
-          payload_file="${RUNNER_TEMP}/screen-files.json"
-          : > "$payload_file"
-          for f in $files; do
-            path=$(awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p')
-            jq -n --arg path "$path" --rawfile diff "$f" '{path:$path, diff:$diff}'
-          done | jq -s . > "$payload_file"
+          path_of() { awk 'NR==1{print}' "$1" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p'; }
+
+          # 1 リクエストの入力上限 120000 バイト: run 35460926014 は
+          # free_tier_input_token_count（TPM、分あたり入力 250,000 token）で落ちた。
+          # 250K token ≒ 900KB 前後の生テキストだが、prompt・schema が同じ予算を
+          # 分け合うため安全側に 120KB とする（実測から逆算した値で、厳密な換算ではない）。
+          # バッチ数の上限 5: バッチ間で TPM の窓を 60 秒待つため、判定だけで 5 分を
+          # 超えないようにする。上限を超えた分は判定にかけず deep_review 候補へ回す
+          # （後段の予算で精読しきれない分は未精読として宣言される）。
+          # 単独で上限を超えるファイルは切り詰めて判定させない。切った先に本当の
+          # 変更があれば skip と誤判定するため、判定にかけず deep_review へ入れる。
+          batch_limit=120000
+          max_batches=5
+          batch_dir="${RUNNER_TEMP}/screen-batches"
+          rm -rf "$batch_dir"; mkdir -p "$batch_dir"
+          batch=0; batch_bytes=0
+          while IFS= read -r f; do
+            size=$(wc -c < "$f")
+            if [ "$size" -gt "$batch_limit" ]; then
+              path_of "$f" >> .gemini-input/review-diff/deep_review.txt
+              continue
+            fi
+            if [ "$batch_bytes" -gt 0 ] && [ $((batch_bytes + size)) -gt "$batch_limit" ]; then
+              batch=$((batch + 1)); batch_bytes=0
+            fi
+            echo "$f" >> "${batch_dir}/${batch}.list"
+            batch_bytes=$((batch_bytes + size))
+          done < "${RUNNER_TEMP}/screen-files.txt"
 
           schema='{"type":"object","properties":{"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"verdict":{"type":"string","enum":["deep_review","skip"]},"reason":{"type":"string"}},"required":["path","verdict","reason"]}}},"required":["files"]}'
 
-          request_file="${RUNNER_TEMP}/screen-request.json"
-          jq -n --slurpfile files "$payload_file" --argjson schema "$schema" '
-            {contents:[{parts:[{text:(
-              "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
-              "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
-              "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
-              ($files[0] | tostring)
-            )}]}],
-             generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}' \
-            > "$request_file"
+          : > "${RUNNER_TEMP}/screen-verdicts.jsonl"
+          first=1
+          n_batch=0
+          for list in $(find "$batch_dir" -name '*.list' | sort -V); do
+            n_batch=$((n_batch + 1))
+            if [ "$n_batch" -gt "$max_batches" ]; then
+              echo "未判定: バッチ上限 ${max_batches} を超えたため $(wc -l < "$list") ファイルを判定にかけず deep_review 候補とした" \
+                >> .gemini-input/review-diff/skipped.txt
+              while IFS= read -r f; do
+                path_of "$f" >> .gemini-input/review-diff/deep_review.txt
+              done < "$list"
+              continue
+            fi
+            # 分あたりの入力予算（TPM）を 1 バッチで使い切る前提で、2 バッチ目以降は
+            # 窓が空くまで待つ。
+            [ "$first" = 1 ] || sleep 60
+            first=0
+            while IFS= read -r f; do
+              jq -n --arg path "$(path_of "$f")" --rawfile diff "$f" '{path:$path, diff:$diff}'
+            done < "$list" | jq -s . > "${RUNNER_TEMP}/screen-files.json"
 
-          response_file="${RUNNER_TEMP}/screen-response.json"
-          : > "$response_file"
-          curl -sS \
-            -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
-            -H 'Content-Type: application/json' \
-            --data-binary "@$request_file" \
-            -o "$response_file" \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
-            || true
+            jq -n --slurpfile files "${RUNNER_TEMP}/screen-files.json" --argjson schema "$schema" '
+              {contents:[{parts:[{text:(
+                "各ファイルの diff を見て deep_review か skip かを判定せよ。skip は " +
+                "rename・純粋な move・フォーマットのみ・コメントのみ・生成物など、明確に " +
+                "機械的な変更だけに限る。判断に迷う場合は必ず deep_review とする。\n\n" +
+                ($files[0] | tostring)
+              )}]}],
+               generationConfig:{responseMimeType:"application/json", responseSchema:$schema}}' \
+              > "${RUNNER_TEMP}/screen-request.json"
 
-          verdicts=$(jq -r '.candidates[0].content.parts[0].text // empty' "$response_file" 2>/dev/null \
-            | jq -c '.files // empty' 2>/dev/null || true)
+            : > "${RUNNER_TEMP}/screen-response.json"
+            curl -sS \
+              -H "x-goog-api-key: ${GEMINI_REVIEW_API_KEY}" \
+              -H 'Content-Type: application/json' \
+              --data-binary "@${RUNNER_TEMP}/screen-request.json" \
+              -o "${RUNNER_TEMP}/screen-response.json" \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent" \
+              || true
 
-          if [ -z "$verdicts" ] || [ "$verdicts" = "null" ]; then
-            echo "fail-open: lite 判定が失敗（応答不成立）したため全ファイルを deep_review とする" \
-              >> .gemini-input/review-diff/skipped.txt
-            for f in $files; do
-              awk 'NR==1{print}' "$f" | sed -nE 's#^diff --git a/(.*) b/.*#\1#p' \
-                >> .gemini-input/review-diff/deep_review.txt
-            done
-            exit 0
-          fi
+            batch_verdicts=$(jq -r '.candidates[0].content.parts[0].text // empty' \
+                "${RUNNER_TEMP}/screen-response.json" 2>/dev/null \
+              | jq -c '.files // empty' 2>/dev/null || true)
 
+            if [ -z "$batch_verdicts" ] || [ "$batch_verdicts" = "null" ]; then
+              echo "fail-open: lite 判定が失敗（応答不成立）したバッチ $(basename "$list" .list) の $(wc -l < "$list") ファイルを deep_review とする" \
+                >> .gemini-input/review-diff/skipped.txt
+              while IFS= read -r f; do
+                path_of "$f" >> .gemini-input/review-diff/deep_review.txt
+              done < "$list"
+              continue
+            fi
+            echo "$batch_verdicts" | jq -c '.[]' >> "${RUNNER_TEMP}/screen-verdicts.jsonl"
+          done
+
+          verdicts=$(jq -s -c . "${RUNNER_TEMP}/screen-verdicts.jsonl")
           echo "$verdicts" | jq -r '.[] | select(.verdict=="deep_review") | .path' \
             >> .gemini-input/review-diff/deep_review.txt
           echo "$verdicts" | jq -r '.[] | select(.verdict=="skip") | "\(.path) — \(.reason)"' \
@@ -425,6 +472,30 @@ jobs:
             printf '%s\n' "$promoted" >> .gemini-input/review-diff/calibration.txt
           fi
 
+      # 精読の予算は script が決める。モデルに任せると、ターン上限を使い切ったうえで
+      # 網羅したかのような review が出る。1 ファイル 1 ターンとして、既定の 15 ターン
+      # （PR 概要・設定・styleguide の読み込みと投稿）に精読ファイル数を足す。
+      # 上限 45 ファイル（= 60 ターン）: 巨大 PR が上位モデルの乏しい RPD と実行時間を
+      # 食い尽くさないための暫定値。溢れた分は unreviewed.txt に書き出し、summary で
+      # 未精読と宣言させる（欠測を成功に変換しない）。実コード（plugins 配下の
+      # スクリプトと SKILL.md）を優先し、残りは元の順に並べる。
+      - name: Budget the deep review
+        id: budget
+        if: steps.mode.outputs.kind == 'review'
+        run: |
+          dr=.gemini-input/review-diff/deep_review.txt
+          max_files=45
+          awk 'NF && !seen[$0]++' "$dr" > "${RUNNER_TEMP}/dr-uniq.txt"
+          { grep -E '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$' "${RUNNER_TEMP}/dr-uniq.txt" || true
+            grep -vE '^plugins/.*\.(sh|py|js|mjs)$|^plugins/.*/SKILL\.md$' "${RUNNER_TEMP}/dr-uniq.txt" || true
+          } > "${RUNNER_TEMP}/dr-ordered.txt"
+          head -n "$max_files" "${RUNNER_TEMP}/dr-ordered.txt" > "$dr"
+          tail -n +"$((max_files + 1))" "${RUNNER_TEMP}/dr-ordered.txt" \
+            > .gemini-input/review-diff/unreviewed.txt
+          count=$(wc -l < "$dr")
+          echo "deep_review=${count} unreviewed=$(wc -l < .gemini-input/review-diff/unreviewed.txt)"
+          echo "turns=$((15 + count))" >> "$GITHUB_OUTPUT"
+
       # gemini-cli 本体（google-github-actions/run-gemini-cli@v0）は使わず、
       # 直接 CLI を叩く。理由: -m 強制指定 + headless 実行では settings.json の
       # modelChains.default による in-process 降格が発火しない（実測: CI での
@@ -432,9 +503,24 @@ jobs:
       # ゼロ）。-m を渡さない場合は router が custom chain を無視して自律選択
       # するため、どちらの経路でも in-process chain には頼れない。よってモデル
       # 降格は .github/gemini-review/run-review.sh の明示ループが担う。
+      # 版を先に確定し、キャッシュのキーとインストール対象の両方に使う。
+      # --prefer-offline はキャッシュ済みメタデータを再検証しないため、@latest の
+      # ままキャッシュを足すと古い版に解決され得る。
+      - name: Resolve the gemini-cli version
+        id: gemini_cli
+        if: steps.mode.outputs.kind == 'review'
+        run: echo "version=$(npm view @google/gemini-cli version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the npm download cache
+        if: steps.mode.outputs.kind == 'review'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-gemini-cli-${{ runner.os }}-${{ steps.gemini_cli.outputs.version }}
+
       - name: Install gemini-cli
         if: steps.mode.outputs.kind == 'review'
-        run: npm install --silent --no-audit --prefer-offline --global @google/gemini-cli@latest
+        run: npm install --silent --no-audit --prefer-offline --global "@google/gemini-cli@${{ steps.gemini_cli.outputs.version }}"
 
       - name: Prepare the review prompt and settings
         id: review_prep
@@ -470,6 +556,8 @@ jobs:
             判定して精読対象から外したファイルと理由
           - `.gemini-input/review-diff/calibration.txt` — skip 判定から較正のため
             deep_review に昇格させたファイル（deep_review.txt にも含まれる）
+          - `.gemini-input/review-diff/unreviewed.txt` — 精読の予算を超えたため
+            今回は読まないファイル（1 行 1 パス）
 
           ## 手順
 
@@ -530,6 +618,12 @@ jobs:
              サンプル。skip 判定が妥当だったかを 1 行で述べよ」への回答を
              このセクションに追記する
 
+             ## ⚠️ 未精読（サイズ予算超過）
+
+             `.gemini-input/review-diff/unreviewed.txt` に列挙されたファイルを
+             すべて列挙し、「PR が大きいため今回は精読していない」と明記する。
+             0 件ならこのセクションごと省く
+
           ## 厳守する制約
 
           - **位置**: インラインコメントは差分で実際に変更された行（`+` または `-`
@@ -557,7 +651,7 @@ jobs:
           # settings テンプレート: {{MODEL}} は run-review.sh が段ごとに埋める。
           # custom modelChains/modelDefinitions/dynamicModelConfiguration は
           # 発火しないことが実測済みのため置かない（構成の単純化）。
-          jq -n --argjson turns "${{ steps.model.outputs.large_diff == 'true' && 30 || 15 }}" '
+          jq -n --argjson turns "${{ steps.budget.outputs.turns }}" '
             {
               model: { name: "{{MODEL}}", maxSessionTurns: $turns },
               tools: { truncateToolOutputThreshold: 100000 },
@@ -606,7 +700,7 @@ jobs:
       - name: Run Gemini
         id: gemini
         if: steps.mode.outputs.kind != 'help' && steps.mode.outputs.kind != 'review'
-        uses: google-github-actions/run-gemini-cli@v0
+        uses: google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489 # v0.1.22
         with:
           gemini_api_key: ${{ secrets.GEMINI_REVIEW_API_KEY }}
           gemini_model: gemini-3.5-flash-lite
