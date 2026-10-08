@@ -48,6 +48,8 @@ jobs:
       - name: Review with the code-review plugin
         id: review_plugin
         if: steps.size.outputs.large == 'false'
+        env:
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -96,6 +98,8 @@ jobs:
       - name: Review a diff too large for the API
         id: review_large
         if: steps.size.outputs.large == 'true'
+        env:
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1.0.245
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
