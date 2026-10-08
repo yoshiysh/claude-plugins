@@ -18,7 +18,8 @@ Workflow({ name: "workflow:prd-spec-run",
 
 intake が「承認したら経理に回る」を確定に、「金額の上限」「速やかに」を未決に仕分け、flow-framer が流れを
 描いて「差し戻しの行き先」を未決に足す。resolver は、差し戻しの行き先を問い（価値の判断）に、通知の文面の
-書式を方法論の決定（事後報告）にする。返り値:
+書式を方法論の決定（事後報告）にする。問いはここでは聞かずに持ち越し、writer はその論点を決めずに初稿を書き、監査と段 6 の裁定を終えてから、
+そこまでに出た問いをまとめて最初のゲートで聞く。返り値:
 
 ```json
 { "status": "needs_answers", "gate": "g1", "questions_path": ".../expense/questions.md", "answers_path": ".../expense/answers/g1.md",
@@ -62,7 +63,7 @@ RS-003: 1 分以内でいい
 
 2 回目の run は、ゲートより前の agent が保存された結果を返し、問いが RS-002・RS-003 のままで `answers/g1.md` が両方に答えていることを
 flow-check の `doc_check answers` で確かめてから、段 3a から live で走る。候補を選んだ回答はそのまま当たり、「1 分以内でいい」は候補の外の自由記述なので
-resolver が RS-003 に対応づけ、verifier がその対応づけを検証する。初稿・監査・改稿・範囲を絞った監査を経て
+resolver が RS-003 に対応づけ、verifier がその対応づけを検証する。回答で flow を組み直し（3b）、初稿を書き直して、監査・改稿・範囲を絞った監査を経て
 `status: "done"` が返る。
 
 **出力（`W/requirements-notification.md` 抜粋）**:

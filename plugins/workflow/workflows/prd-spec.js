@@ -54,8 +54,9 @@ const ROLE_FILES = {
 const MAX_AUDIT_PASSES = 4
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
-// 依頼者を止める回数の上限。問いの出る所が順に 1 回ずつ聞ける数（初稿の前に、最初の問いと回答で flow を組み直した後の問いの 2 回、
-// 改稿のパスごとに 1 回）。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖はここで必ず終わる。
+// 依頼者を止める回数の上限。最初のゲートは初稿の監査の後に開き（collecting）、そこまでに出た問いをまとめて聞く。その後に聞けるのは、
+// 回答で flow を組み直した後の問いと、改稿のパスごとの問い。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖は
+// ここで必ず終わる。
 const MAX_GATES = 2 + MAX_AUDIT_PASSES
 
 const ENTRIES = ['new', 'existing', 'expand']
@@ -659,7 +660,7 @@ const NOT_RUN_WHY = '利用者が止めたか、runtime の出し直しの後も
 const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段からやり直せる（呼び直し方は SKILL.md「## 中継」））`
 
 // STOP_REASONS: 返り値の stop_reason の閉集合（references/workflow-io.md §3。tests が照合する）。budget は token の目標（budget.total）に
-// 達して agent を起動できなくなったとき。upstream_gap は仕様書だけを書く run で価値の問いが出たとき（specOnly）。
+// 達して agent を起動できなくなったとき。upstream_gap は仕様書だけを書く run（specOnly）で、初稿の監査の裁定（段 6）までに価値の問いが出たとき。
 const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
@@ -1368,17 +1369,19 @@ function deciding(src) {
   s = s.replace(/^(?:W|\.)\//, '').replace(/:(\d+)(?:-\d+)?$/, '#L$1')
   return s.replace(/#[lL]0*(\d+)(?:-[lL]?\d+)?$/, '#L$1')
 }
-const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g1.md#L3`・`requirements-auth.md#L40`（固定の要求文書）・`RS-004`（行の範囲は最初の行だけ）'
+const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g1.md#L3`・`requirements-auth.md#L40`（固定の文書）・`/repo/src/auth.py#L12`（仕様書を書く run の現物）・`RS-004`（行の範囲は最初の行だけ）'
 const DECIDING_FILE = /^(?:input\.md|answers\/g[1-9]\d*\.md)#L[1-9]\d*$/
-// 固定の要求文書は別のランで承認された決定なので、その行で値が決まる論点を問いにも保持規則にもしない（仕様書だけを書く run では、問いが
-// upstream_gap で run を止める）。
-const fixedDocLine = (src) => { const m = /^(requirements-[^/#]+)\.md#L[1-9]\d*$/.exec(src); return Boolean(m) && fixedRequirements().has(m[1].replace('-', '/')) }
+// 固定の文書は別のランで承認された決定なので、その行で値が決まる論点を問いにも保持規則にもしない（仕様書だけを書く run では、問いが
+// upstream_gap になる）。仕様書を書く run では、現物（対象リポジトリの行）も実現の手段を決める出典になる（契約「## 現物と既存実装の扱い」）。
+const fixedDocLine = (src) => { const m = /^((?:requirements|specifications)-[^/#]+)\.md#L[1-9]\d*$/.exec(src); return Boolean(m) && FIXED_KEYS.includes(m[1].replace('-', '/')) }
+const writesSpec = () => auditDocs().some((k) => k.startsWith('specifications/'))
+const repoLine = (src) => writesSpec() && /^\/[^#]+#L[1-9]\d*$/.test(src)
 function decidableDefect(f, fc) {
   if (!f || f.kind !== 'decidable') return null
   const row = fc.resolutions.find((x) => x.id === f.id)
   if (!row || !(row.ruling === 'hold' || (row.ruling === 'question' && !row.has_answer))) return `${f.id} は回答待ちの問いでも保持規則でもない`
   const src = typeof f.source === 'string' ? deciding(f.source) : ''
-  if (DECIDING_FILE.test(src) || fixedDocLine(src)) return null
+  if (DECIDING_FILE.test(src) || fixedDocLine(src) || repoLine(src)) return null
   if (RESOLUTION_ID.test(src) && src !== f.id && usableResolutions(state).includes(src)) return null
   return `${f.id} の source（${f.source == null ? 'なし' : f.source}）を決める出典として受け取れない（形の例: ${DECIDING_EXAMPLE}。RS- は根拠にしてよい resolution に限る）`
 }
@@ -2141,12 +2144,30 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
 // gatePassed: 回答済みのゲート（args.gates_answered）を通った段。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい（exitViolation）。
 let gatePassed = null
 
+// collecting: 最初のゲートを開く前の、段 6 より前の段。問いを見つけた段ごとに止めると、後の段（初稿・監査）でしか見えない論点が次のゲートか
+// 次の run に回り、依頼者を止める回数と要求文書の改訂が、論点の見つかった段の数だけ増える（実測: 仕様書だけの run が初稿の前の 3 問で止まり、
+// 要求文書を改訂して起こし直した run が初稿の監査で 4 問目に止まった）。初稿の監査は全文書を読むので、最初のゲート（仕様書だけを書く run では
+// upstream_gap）は、その裁定の段 6 で開く。
+const collecting = () => running !== '6' && (specOnly() || gatesOpened() === 0)
+// carrying: 持ち越した問いを持って、最初のゲート（仕様書だけを書く run では upstream_gap）までの段を通っている。聞くゲートを通ったのと同じく、
+// 回答待ちの問いを持って段を出てよい（exitViolation）。
+const carrying = () => specOnly() || Boolean(state.deferred)
+
 // needsAnswers: 開いた順に g1, g2, … と名乗る。resume も next_args の再開も同じ段を同じ順に通るので、同じ名前になる。
 // gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
 // resume が保存された結果から外れると（pipeline の起動の順・追い出し・runtime の違い）run は live で走り直し、違う問いに古い回答を当てるか、
-// 段 1 の reset が消した回答の無いまま進む。
-async function needsAnswers(from) {
+// 段 1 の reset が消した回答の無いまま進む。onward は、問いを持ち越すとき（collecting）に進む段。持ち越した問いで書いた初稿は回答を
+// 知らないので、最初のゲートの後は 3a から入り、組み直した flow で書き直す（state.deferred）。
+async function needsAnswers(from, onward) {
+  if (onward && collecting()) {
+    if (!specOnly()) state.deferred = true
+    return onward
+  }
   if (specOnly()) return upstreamGap()
+  if (state.deferred) {
+    from = '3a'
+    delete state.deferred
+  }
   state.gates = gatesOpened() + 1
   const gate = `g${state.gates}`
   state.gate = gate
@@ -2172,11 +2193,12 @@ const specOnly = () => {
   return docs.length > 0 && docs.every((k) => k.startsWith('specifications/') && ((state.covers || {})[k] || []).some((r) => fixed.has(r)))
 }
 
-// upstreamGap: 要求文書を直すと固定の文書の sha が変わり、この run は再開できないので next_args を付けない。
+// upstreamGap: 仕様書だけを書く run が、初稿の監査の裁定（段 6）までに出た価値の問いをまとめて返す。要求文書を直すと固定の文書の sha が変わり、
+// この run は再開できないので next_args を付けない。
 function upstreamGap() {
   const ids = pendingQuestions(state)
   return finish('blocked', {
-    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が出ました（${list(ids)}）。仕様書では決めずに止めます。要求文書を改訂してから仕様書を起こし直してください`,
+    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が ${ids.length} 件出ました（${list(ids)}）。仕様書では決めずに、初稿と監査を終えるまでに出た論点をまとめて返します。要求文書を改訂してから仕様書を起こし直してください`,
     stop_reason: 'upstream_gap',
     questions_path: `${W}/questions.md`,
     questions_json_path: `${W}/questions.json`,
@@ -2374,8 +2396,9 @@ async function stage3() {
     allowQuestions: ASKS[3](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3')
-  if (pendingQuestions(state).length) return needsAnswers('3a')
-  return ENTRY === 'existing' ? '5' : '4'
+  const onward = ENTRY === 'existing' ? '5' : '4'
+  if (pendingQuestions(state).length) return needsAnswers('3a', onward)
+  return onward
 }
 
 // 3b の組み直しの前の 3a で出た問いは 3b へ持ち越す。3b が組み直した flow から出る問いと 1 回のゲートで聞くためで、裁定の反映も 3b へ渡す
@@ -2463,11 +2486,20 @@ async function stage3b() {
     allowQuestions: ASKS['3b'](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3b')
-  if (pendingQuestions(state).length) return needsAnswers('3a')
-  return ENTRY === 'existing' ? '5' : '4'
+  const onward = ENTRY === 'existing' ? '5' : '4'
+  if (pendingQuestions(state).length) return needsAnswers('3a', onward)
+  return onward
 }
 
 const writerLabel = (unit, mode) => `writer:${unit.id}:${mode}`
+
+// waitingNote: 持ち越した回答待ちの問い（collecting）。writer が決めると依頼者の判断の置き換えになり、監査役が「決まっていない」と指摘すると
+// 同じ論点の問いがもう 1 つ立つ。
+const WAITING_DO = { writer: '本文で決めず、TBD にも起票しない', auditor: '決まっていないことを指摘にしない', resolver: '同じ論点か、候補が互いを縛る論点を別の問いにしない' }
+function waitingNote(role) {
+  const ids = pendingQuestions(state)
+  return ids.length ? `回答待ちの問い ${list(ids)}（中身は \`${getCli('resolutions', ids)}\`）の論点は依頼者の回答で決まる。${WAITING_DO[role]}。` : ''
+}
 
 function writerPrompt(unit, mode, extra) {
   const deps = state.units.filter((u) => (unit.depends_on || []).includes(u.id)).flatMap((u) => u.docs)
@@ -2477,6 +2509,7 @@ function writerPrompt(unit, mode, extra) {
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
     deps.length ? `依存先の単位の文書（読むだけ）: ${deps.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}` : '',
     existingNote(),
+    waitingNote('writer'),
     `doc_check の内部ループ: \`${cli('doc', `--doc <キー> --lint --open-tbd "${openTbdOf(state).join(',')}"`)}\`（findings と lint の両方を直す。3 回まで）。最後に \`${cli('tree-digest', '--doc <キー>')}\` の digest を返す。`,
     extra || '',
   ]
@@ -2537,6 +2570,7 @@ function auditorPrompt(role, doc, round, opt) {
     groundsBlock(),
     target,
     existingNote(),
+    waitingNote('auditor'),
     opt.items ? `範囲を絞った監査: 対象は項目 ${list(opt.items)}（その項目の節から読む）。` : '',
     opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（${FINDINGS_READ}）` : '',
     opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
@@ -2600,6 +2634,13 @@ function recordFindings(plan, results) {
 
 async function stage5() {
   state.pass = 1
+  // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路と項目の役を引き継がない（項目は書き直しで別物になる）。
+  // 回の番号は前の監査の続きにする。同じ回の番号で監査すると指摘の ID が前の監査の指摘と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことに
+  // なって（unruled）、新しい指摘が段 6 に届かない。
+  const round = state.audit ? state.audit.n + 1 : 1
+  const base = `audited-${round}`
+  delete state.item_routes
+  delete state.roles_by_item
   // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
   delete state.reframed
   // existing は段 4 を通らず、この run の裁定をまだどの writer にも渡していない。
@@ -2615,20 +2656,20 @@ async function stage5() {
   plan[plan.length - 1].designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
+    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
-  const { results, missing } = await runAuditors(plan, 1, '5')
+  const { results, missing } = await runAuditors(plan, round, '5')
   if (missing.length) throw notRun(missing.join(', '))
   const cd = results[results.length - 1]
-  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], 1), cd.designated, designatedCmds(), 'Audit')
+  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
   const audited = parseStdout(cd.designated && cd.designated.audited)
   const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
-  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
-  const moved1 = fixedMoved(audited, 'audited-1')
+  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
+  const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
-  state.audit = { n: 1, digest: audited.digest }
+  state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
-  noteAudited(audited, 'audited-1')
+  noteAudited(audited, base)
   const findings = recordFindings(plan, results)
   setPending(findings, docCheck, [])
   return '6'
@@ -2682,7 +2723,7 @@ async function stage6() {
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
   if (pendingQuestions(state).length) {
-    if (allowQuestions) return needsAnswers("3a'")
+    if (allowQuestions) return needsAnswers("3a'", '7')
     const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
@@ -2715,6 +2756,7 @@ function decide(decision, tbd, allowQuestions, reasked) {
       toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
       reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
       pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),
+      waitingNote('resolver'),
       allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（resolver.md の「8'」）。`,
     ]
       .filter(Boolean)
@@ -2941,12 +2983,12 @@ const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 
 const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
 // exitViolation: 段を出るときの不変条件。破ると、数え直していない台帳の flow の指摘か、誰にも聞かれない問いを持ったまま次の段が走る。
-// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、組み直しの後の問いと一緒に聞くために 3b へ持ち越す 3a だけ。
+// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、問いを持ち越している段（carrying）と、組み直しの後の問いと一緒に聞くために 3b へ持ち越す 3a だけ。
 // 不合格の要素を持って出てよいのは、反映を REFLECT_STAGE に渡す 3a だけで、渡せる要素（reflectable）に限る（REFLECT_STAGE の出口では緩めない）。
 function exitViolation(from, r) {
   if (unchecked) return `resolver:${unchecked.tag} の後に doc_check flow を独立に実行し直さないまま段を出ようとしました（independentFlow を通らない経路があります）`
   const reflectNext = defersReflection(from) && r === REFLECT_STAGE
-  const asking = r.status === 'needs_answers' || gatePassed !== null || reflectNext
+  const asking = r.status === 'needs_answers' || gatePassed !== null || carrying() || reflectNext
   const waiting = asking ? [] : pendingQuestions(state)
   if (waiting.length) return `回答待ちの問い ${list(waiting)} を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました`
   const failedHolds = Object.keys(holdFails).sort()

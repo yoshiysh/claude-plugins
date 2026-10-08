@@ -944,8 +944,8 @@ class Report(_Workspace):
 
     def test_resolutionsが無くても型どおりに0件を書く(self):
         out = _ok(self.ws, "report")
-        self.assertEqual((out["method"], out["answered_by"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0))
-        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 5)
+        self.assertEqual((out["method"], out["answered_by"], out["measured"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0, 0))
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 6)
 
     def test_既にある回答を別の論点に当てた裁定は依頼者に見せる(self):
         # answered_by は依頼者の回答を依頼者の知らない論点に広げる。事後報告に出さないと、依頼者は覆す機会を持てない。
@@ -957,6 +957,18 @@ class Report(_Workspace):
         self.assertEqual(out["answered_by"], 1)
         section = (self.ws / "report.md").read_text().split("## 既にある回答の当てはめ")[1].split("## ")[0]
         self.assertIn("- RS-004: 通知も画面に出す（RS-001 の回答。回答: answers/g1.md#L1「RS-001: 画面」）", section)
+
+    def test_現物で決めた裁定は出典つきで依頼者に見せる(self):
+        # measured は依頼者に聞かずに現物で決めた（仕様書の実現の手段を含む）。事後報告に出さないと、依頼者は覆す機会を持てない。
+        repo = self.ws.parent / "repo"
+        repo.mkdir(exist_ok=True)
+        (repo / "sheet.py").write_text("SHEET = 'script'\n")
+        cite = {"file": str(repo / "sheet.py"), "line": 1, "quote": "SHEET = 'script'"}
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "ruling": "measured", "value": "保有資産データは script タブから読む", "evidence": [cite]}]})
+        out = _ok(self.ws, "report")
+        self.assertEqual(out["measured"], 1)
+        section = (self.ws / "report.md").read_text().split("## 現物で決めたこと")[1].split("## ")[0]
+        self.assertIn(f"- RS-005: 保有資産データは script タブから読む（出典: {repo / 'sheet.py'}#L1「SHEET = 'script'」）", section)
 
     def test_draftsに挙げたholdは本文に未反映の節に分ける(self):
         self._resolutions()
