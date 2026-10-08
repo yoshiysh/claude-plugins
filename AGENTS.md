@@ -171,6 +171,8 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。
 
+PR レビューの観点・根拠の基準・重大度は `REVIEW.md` が正本で、Claude と Gemini のレビュー workflow が共通で読む。実装後はこれに照らして差分を確かめる。
+
 ## インストール
 
 ```bash
