@@ -1,18 +1,10 @@
 name: Gemini Mention Review
 
-# @gemini-cli への応答だけで動く（PR を開いても自動では走らない）。レビューは
-# `@gemini-cli review`。呼び方の一覧は help モードが出す。
 on:
   pull_request_review_comment:
     types: [created]
   issue_comment:
     types: [created]
-
-# メンションは run_id で毎回別グループにする。束ねると待機中の run が後続に
-# 上書きされ、返信が黙って落ちるため。
-concurrency:
-  group: gemini-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.run_id }}
-  cancel-in-progress: false
 
 jobs:
   gemini:
