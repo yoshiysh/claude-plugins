@@ -1,9 +1,8 @@
 name: Gemini Mention Review
 
-# PR オープン時の一次レビューと @gemini-cli への応答。呼び方の一覧は help モードが出す。
+# @gemini-cli への応答だけで動く（PR を開いても自動では走らない）。レビューは
+# `@gemini-cli review`。呼び方の一覧は help モードが出す。
 on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
   pull_request_review_comment:
     types: [created]
   issue_comment:
@@ -12,22 +11,18 @@ on:
 # メンションは run_id で毎回別グループにする。束ねると待機中の run が後続に
 # 上書きされ、返信が黙って落ちるため。
 concurrency:
-  group: gemini-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request' && 'auto' || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: gemini-review-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   gemini:
     if: >-
-      ${{ (github.event_name == 'pull_request' &&
-           github.event.pull_request.draft == false &&
-           github.event.pull_request.head.repo.full_name == github.repository &&
-           github.event.pull_request.user.login != 'dependabot[bot]') ||
-          (github.event.sender.type == 'User' &&
-           startsWith(github.event.comment.body, '@gemini-cli') &&
-           contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
-                    github.event.comment.author_association) &&
-           (github.event_name == 'pull_request_review_comment' ||
-            github.event.issue.pull_request)) }}
+      ${{ github.event.sender.type == 'User' &&
+          startsWith(github.event.comment.body, '@gemini-cli') &&
+          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+                   github.event.comment.author_association) &&
+          (github.event_name == 'pull_request_review_comment' ||
+           github.event.issue.pull_request) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,7 +36,6 @@ jobs:
       THREAD_ROOT_ID: ${{ github.event.comment.in_reply_to_id || github.event.comment.id }}
     steps:
       - name: Acknowledge the mention
-        if: github.event_name != 'pull_request'
         run: |
           if [ "${{ github.event_name }}" = "issue_comment" ]; then
             scope=issues
@@ -69,7 +63,6 @@ jobs:
                     | sed -nE 's/^@gemini-cli[[:space:]]+([a-z]+).*/\1/p')
           case "${{ github.event_name }}:${command}" in
             *:review)                      kind=review ;;
-            pull_request:*)                kind=review ;;
             pull_request_review_comment:*) kind=thread ;;
             *:summary)                     kind=summary ;;
             *:help)                        kind=help ;;
@@ -685,7 +678,7 @@ jobs:
         run: |
           posted=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/reviews" --paginate \
             | jq -s --arg since "${{ steps.review_start.outputs.time }}" \
-              '[add[] | select(.user.login == "github-actions[bot]" and .submitted_at >= $since)] | length')
+              '[add[] | select(.user.login == "github-actions[bot]" and .submitted_at >= $since and (.body // "") != "")] | length')
           if [ "$posted" -eq 0 ]; then
             echo "::error::Gemini review が投稿されなかった（MCP エラーの可能性）。gemini-artifacts のログを確認する。"
             exit 1
@@ -762,7 +755,6 @@ jobs:
           cat > "${RUNNER_TEMP}/help.md" <<'MD'
           | 呼び方 | 動き |
           | --- | --- |
-          | （PR を開く） | 一次レビューを自動で行う |
           | `@gemini-cli review` | 現在の状態でレビューし、summary と行単位の指摘を出す |
           | `@gemini-cli summary` | 変更の要約だけを出す |
           | `@gemini-cli <質問>` | PR コメントとして答える |
