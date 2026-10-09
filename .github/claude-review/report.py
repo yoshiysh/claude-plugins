@@ -13,6 +13,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from prepare import FAILURE_MARK
+
 NUMBERED_LINE = re.compile(r"^\s*(\d+)[\t\u2192]", re.MULTILINE)
 PR_SNAPSHOT = ".claude-pr"
 LISTED_FILES = 30
@@ -65,7 +67,9 @@ def line_count(path: Path) -> int:
 
 
 def coverage(lines: int, ranges: list[tuple[int, int]]) -> str:
-  """読んだ行の範囲から、全体・一部・なしを返す。"""
+  """読んだ行の範囲から、全体・一部・なしを返す。本文の無いファイルは読み終えたものとする。"""
+  if lines == 0:
+    return "full"
   if not ranges:
     return "none"
   covered = set()
@@ -99,6 +103,7 @@ def coverage_note(
   ranges: dict[str, list[tuple[int, int]]],
   root: Path,
   excluded: list[str],
+  symlinks: set[str],
 ) -> list[str]:
   """読んだ範囲の節を組む。"""
   labels = {"full": "全部読んだ", "partial": "一部だけ読んだ", "none": "読んでいない"}
@@ -107,14 +112,9 @@ def coverage_note(
     diff_rel = str((root / diff_file).resolve().relative_to(root))
     status[path] = coverage(line_count(root / diff_file), ranges.get(diff_rel, []))
     snapshot = root / PR_SNAPSHOT / path
-    if (
-      state == "D"
-      or snapshot.is_symlink()
-      or (root / path).is_symlink()
-      or (root / path).is_dir()
-    ):
-      continue
     body_file = snapshot if snapshot.exists() else root / path
+    if state == "D" or path in symlinks or not body_file.is_file():
+      continue
     body[path] = coverage(line_count(body_file), ranges.get(path, []))
   counts, body_counts = Counter(status.values()), Counter(body.values())
   note = [
@@ -169,7 +169,7 @@ def post(env: os._Environ[str], out: Path, note: list[str]) -> None:
   written = out / "summary.md"
   if not written.exists() or not written.read_text().strip():
     body_file.write_text(
-      f"{env['HEADER']}\n\n**レビューの失敗**: 総括が書かれなかった。"
+      f"{env['HEADER']}\n\n{FAILURE_MARK}: 総括が書かれなかった。"
       f"Claude の step: {env['CLAUDE_OUTCOME']}。実行: {env['RUN_URL']}\n"
     )
     gh("pr", "comment", env["PR"], "--repo", env["REPO"], "--body-file", str(body_file))
@@ -190,10 +190,11 @@ def main() -> None:
     line.split("\t") for line in (out / "files.tsv").read_text().splitlines() if line
   ]
   excluded = [line for line in (out / "excluded.tsv").read_text().splitlines() if line]
+  symlinks = set((out / "symlinks.txt").read_text().splitlines())
   messages = load_messages(env.get("EXECUTION_FILE", ""))
   result = next((m for m in reversed(messages) if m.get("type") == "result"), {})
   note = coverage_note(
-    rows, read_ranges(main_thread_reads(messages), root), root, excluded
+    rows, read_ranges(main_thread_reads(messages), root), root, excluded, symlinks
   )
   write_step_summary(env, result, note)
   post(env, out, note)

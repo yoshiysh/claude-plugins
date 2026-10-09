@@ -21,6 +21,12 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+    env:
+      KIND: ${{ matrix.kind }}
+      NAME: ${{ matrix.name }}
+      OUT: .claude-review/${{ matrix.kind }}
+      HEADER: "**Claude レビュー（${{ matrix.name }}）**"
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -69,9 +75,6 @@ jobs:
       - name: Prepare the inputs
         id: prepare
         env:
-          KIND: ${{ matrix.kind }}
-          OUT: .claude-review/${{ matrix.kind }}
-          HEADER: "**Claude レビュー（${{ matrix.name }}）**"
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
@@ -185,9 +188,6 @@ jobs:
       - name: Post the summary with what was read
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' && steps.prepare.outputs.count != '0' }}
         env:
-          NAME: ${{ matrix.name }}
-          OUT: .claude-review/${{ matrix.kind }}
-          HEADER: "**Claude レビュー（${{ matrix.name }}）**"
           EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
           CLAUDE_OUTCOME: ${{ steps.review.outcome }}
           PR: ${{ github.event.pull_request.number }}

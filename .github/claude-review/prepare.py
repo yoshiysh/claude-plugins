@@ -16,6 +16,7 @@ LOCKFILE = re.compile(
   r"(^|/)(.*\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|uv\.lock|poetry\.lock)$"
 )
 SUBMODULE_MODE = "160000"
+SYMLINK_MODE = "120000"
 DOC_SUFFIXES = (".md", ".markdown", ".mdx")
 FAILURE_MARK = "**レビューの失敗**"
 THREADS_QUERY = """
@@ -38,14 +39,16 @@ query($owner: String!, $name: String!, $n: Int!, $endCursor: String) {
 
 def run(*args: str) -> str:
   """コマンドを実行し、失敗したら標準エラーを添えて止まる。"""
-  result = subprocess.run(args, capture_output=True, text=True, check=False)
+  result = subprocess.run(
+    args, capture_output=True, encoding="utf-8", errors="replace", check=False
+  )
   if result.returncode != 0:
     sys.exit(f"{' '.join(args[:3])} failed: {result.stderr.strip()}")
   return result.stdout
 
 
-def changed_files(diff_range: str) -> list[tuple[str, str, list[str], bool]]:
-  """変更ファイルを (表示パス, 状態, git diff に渡すパス, submodule か) で返す。"""
+def changed_files(diff_range: str) -> list[tuple[str, str, list[str], tuple[str, str]]]:
+  """変更ファイルを (表示パス, 状態, git diff に渡すパス, (変更前の mode, 変更後の mode)) で返す。"""
   raw = run(
     "git", "-c", "core.quotePath=false", "diff", "--raw", "-z", "-M", diff_range
   )
@@ -57,13 +60,11 @@ def changed_files(diff_range: str) -> list[tuple[str, str, list[str], bool]]:
     old_mode, new_mode, status = meta[0], meta[1], meta[4]
     if status[0] in "RC":
       old, new = fields[i + 1], fields[i + 2]
-      entries.append(
-        (new, status[0], [old, new], SUBMODULE_MODE in (old_mode, new_mode))
-      )
+      entries.append((new, status[0], [old, new], (old_mode, new_mode)))
       i += 3
     else:
       path = fields[i + 1]
-      entries.append((path, status[0], [path], SUBMODULE_MODE in (old_mode, new_mode)))
+      entries.append((path, status[0], [path], (old_mode, new_mode)))
       i += 2
   return entries
 
@@ -158,13 +159,13 @@ def short(text: str, limit: int = 200) -> str:
 
 def collect(
   kind: str, diff_range: str, diff_dir: Path, attributes: Path
-) -> tuple[list[str], list[str]]:
-  """このジョブのファイルの差分を書き出し、一覧の行と除外の行を返す。"""
-  rows, excluded = [], []
-  for path, status, paths, submodule in changed_files(diff_range):
+) -> tuple[list[str], list[str], list[str]]:
+  """このジョブのファイルの差分を書き出し、一覧の行・除外の行・変更後に symlink のパスを返す。"""
+  rows, excluded, symlinks = [], [], []
+  for path, status, paths, modes in changed_files(diff_range):
     if path.lower().endswith(DOC_SUFFIXES) != (kind == "docs"):
       continue
-    if submodule:
+    if SUBMODULE_MODE in modes:
       excluded.append(f"{path}\tsubmodule")
       continue
     if LOCKFILE.search(path):
@@ -179,7 +180,9 @@ def collect(
     diff_file = diff_dir / f"{len(rows) + 1:04d}.diff"
     diff_file.write_text(text)
     rows.append(f"{path}\t{status}\t{diff_file}\t{len(text.encode())}")
-  return rows, excluded
+    if modes[1] == SYMLINK_MODE:
+      symlinks.append(path)
+  return rows, excluded, symlinks
 
 
 def main() -> None:
@@ -201,11 +204,12 @@ def main() -> None:
     "origin",
     f"+refs/heads/{env['BASE_REF']}:refs/remotes/origin/pr-base",
   )
-  rows, excluded = collect(
+  rows, excluded, symlinks = collect(
     kind, f"origin/pr-base...{env['HEAD_SHA']}", diff_dir, attributes
   )
   (out / "files.tsv").write_text("".join(f"{r}\n" for r in rows))
   (out / "excluded.tsv").write_text("".join(f"{e}\n" for e in excluded))
+  (out / "symlinks.txt").write_text("".join(f"{s}\n" for s in symlinks))
   paths = {r.split("\t", 1)[0] for r in rows}
   if rows:
     (out / "prior.md").write_text(
