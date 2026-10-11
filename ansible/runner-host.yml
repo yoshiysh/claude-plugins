@@ -83,7 +83,8 @@
 
     # 補助グループの追加は動作中のプロセスに反映されない。ここを飛ばすと、導入は成功して
     # 見えるのに job だけが `docker: permission denied` で落ち続け、原因が非常に分かりにくい。
-    # svc.sh のサービス名は環境で変わるため推測せず、listener を直接止めて起動し直す。
+    # systemd で常駐化した runner を pkill + nohup で上げ直すと、サービスの管理から外れた
+    # listener が残る。unit がある runner は、サービス名を知っている svc.sh に任せる。
       tags: restart
     - name: Restart the runners so they pick up the docker group
       # pkill/pgrep の -f は自分自身のコマンドラインにも当たる。Ansible は本文を
@@ -95,10 +96,15 @@
       ansible.builtin.shell: |
         [ -x "{{ item }}/run.sh" ] || { echo "skip: run.sh なし"; exit 0; }
         pat='[/]{{ item[1:] }}/bin/Runner.Listener'
-        pkill -f "$pat" || true
-        sleep 2
         cd "{{ item }}"
-        setsid nohup ./run.sh < /dev/null > runner.log 2>&1 &
+        if grep -lqs "{{ item }}/" /etc/systemd/system/actions.runner.*.service; then
+          sudo -n "{{ item }}/svc.sh" stop && sudo -n "{{ item }}/svc.sh" start \
+            || { echo "svc.sh を sudo -n で実行できない（provision-gh-runner を再実行して sudoers を入れる）"; exit 1; }
+        else
+          pkill -f "$pat" || true
+          sleep 2
+          setsid nohup ./run.sh < /dev/null > runner.log 2>&1 &
+        fi
         sleep 3
         pgrep -f "$pat" > /dev/null
       loop: "{{ found_runners.files | map(attribute='path') | sort }}"
