@@ -2,16 +2,22 @@
 # 設置済みの GitHub Actions self-hosted runner を ssh 越しに起動・停止・確認する。
 # （設置・登録は provision-gh-runner。これは「止まったので上げ直す」ための日常用）
 #
-#   gh-runner-ctl --target TARGET [status|start|stop] [--dir DIR] [--repo owner/repo]
+#   gh-runner-ctl --target TARGET [status|start|stop|enable] [--dir DIR] [--repo owner/repo]
 #
 # TARGET:  provision-gh-runner と同じ（local / ssh:HOST / wsl:HOST / docker:CONTAINER）
 # --dir    対象ディレクトリ（~ 相対。省略時は ~/actions-runner* をすべて対象）
 # --repo   指定すると最後に GitHub 側の runner 一覧（online/offline）も表示
 #
-# 各ディレクトリごとに、systemd/launchd サービスが入っていればそれを、無ければ
-# nohup ./run.sh を使う。wsl: ターゲットでは WSL の起動も兼ねる
+# enable   サービスとして常駐化して起動する（provision-gh-runner が設置の最後に呼ぶ）。
+#          サービス化できないターゲットでは nohup で起動する。
+#
+# status / start / stop は各ディレクトリごとに、systemd/launchd サービスが入っていれば
+# それを、無ければ nohup ./run.sh を使う。wsl: ターゲットでは WSL の起動も兼ねる
 # （wsl --exec で distro が立ち上がり、systemd が有効なら unit も自動で上がる）。
 set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/lib/gh-runner-common.sh"
 
 TARGET="" ACTION=status RDIR="" REPO=""
 while [ $# -gt 0 ]; do
@@ -19,29 +25,30 @@ while [ $# -gt 0 ]; do
     --target) TARGET="$2"; shift 2 ;;
     --dir) RDIR="$2"; shift 2 ;;
     --repo) REPO="$2"; shift 2 ;;
-    status|start|stop) ACTION="$1"; shift ;;
-    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+    status|start|stop|enable) ACTION="$1"; shift ;;
+    -h|--help) print_usage "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$TARGET" ] || { echo "--target は必須。--help 参照" >&2; exit 2; }
 
-KIND="${TARGET%%:*}"; HOST="${TARGET#*:}"
-SSH_OPTS="-o ConnectTimeout=8 -o BatchMode=yes -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no"
-run_target() {
-  case "$KIND" in
-    local)  bash -s ;;
-    ssh)    ssh $SSH_OPTS "$HOST" "bash -s" ;;
-    wsl)    ssh $SSH_OPTS "$HOST" "wsl --exec bash -s" ;;
-    docker) docker exec -i "$HOST" bash -s ;;
-    *) echo "未知の TARGET 種別: ${KIND}" >&2; exit 2 ;;
-  esac
-}
+set_target "$TARGET"
 
 run_target <<EOF | tr -d '\r'
 cd ~ || exit 1
 if [ -n "${RDIR}" ]; then DIRS="\$HOME/${RDIR}"; else DIRS=\$(ls -d \$HOME/actions-runner* 2>/dev/null); fi
 [ -n "\$DIRS" ] || { echo "runner ディレクトリが無い（provision-gh-runner で設置する）"; exit 1; }
+test -d /run/systemd/system && init=systemd || { [ "\$(uname -s)" = Darwin ] && init=launchd || init=none; }
+listening() { pgrep -f "\$1/bin/Runner.Listener" >/dev/null; }
+# 以前の実行が nohup 起動した listener が残ったままサービスを起動すると、
+# GitHub 側がセッション競合で 2 本目を拒否して二重・不安定になる。
+# サービスが active でないのに listener がいる = nohup 残骸なので先に止める。
+stop_orphan_listener() {
+  listening "\$1" || return 0
+  ./svc.sh status 2>/dev/null | grep -qiE "active \(running\)|^Started" && return 0
+  sudo -n ./svc.sh status 2>/dev/null | grep -qiE "active \(running\)" && return 0
+  pkill -f "\$1/bin/Runner.Listener"; sleep 2
+}
 for d in \$DIRS; do
   [ -f "\$d/config.sh" ] || { echo "\$(basename \$d): not-a-runner"; continue; }
   cd "\$d"
@@ -70,12 +77,36 @@ for d in \$DIRS; do
       pkill -f "\$d/bin/Runner.Listener" 2>/dev/null; sleep 1
       pgrep -f "\$d/bin/Runner.Listener" >/dev/null && echo "\$(basename \$d) [\$name] still-running" \
         || echo "\$(basename \$d) [\$name] stopped" ;;
+    enable)
+      # sudo 判定は「svc.sh を NOPASSWD で実行できるか」で見る。sudo -n true だけだと
+      # svc.sh だけ許可した sudoers（provision-gh-runner の WSL フォールバックが入れるもの）を
+      # no と誤判定する。
+      { sudo -n true 2>/dev/null || sudo -n -l "\$d/svc.sh" >/dev/null 2>&1; } && can_sudo=yes || can_sudo=no
+      case "\$init/\$can_sudo" in
+        systemd/yes)
+          stop_orphan_listener "\$d"
+          # sudoers が svc.sh のフルパス限定のことがあるので絶対パスで呼ぶ
+          sudo -n "\$d/svc.sh" install "\$(whoami)" >/dev/null 2>&1 || true
+          sudo -n "\$d/svc.sh" start 2>&1 | tail -1
+          echo "mode=systemd-service (再起動後も自動復帰)" ;;
+        launchd/*)
+          stop_orphan_listener "\$d"
+          ./svc.sh install >/dev/null 2>&1 || true
+          ./svc.sh start 2>&1 | tail -1
+          echo "mode=launchd-service (ログイン中は自動復帰)" ;;
+        *)
+          if listening "\$d"; then echo "already-running (mode=nohup)"; continue; fi
+          nohup ./run.sh > runner.log 2>&1 &
+          sleep 3
+          listening "\$d" && echo "mode=nohup (再起動後は手動)" || { tail -5 runner.log; exit 1; }
+          ;;
+      esac ;;
   esac
 done
 EOF
 RC=$?
 if [ -n "$REPO" ]; then
   [ "$ACTION" = status ] || sleep 5
-  gh api "repos/${REPO}/actions/runners" --jq '.runners[] | "\(.name): \(.status)"'
+  list_runners "$REPO"
 fi
 exit $RC
