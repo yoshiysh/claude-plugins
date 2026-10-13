@@ -330,7 +330,14 @@ class QueueTest(unittest.TestCase):
             QUEUE, "record-proposal", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page",
             "--worker-id", "worker-c", "--proposal-json", json.dumps(corrected_proposal),
         )
-        new_verification = self.registered_verification(application)
+        corrected_application = json.loads(json.dumps(application))
+        corrected_application["knowledge_index"]["row_page_id"] = "corrected-index-row"
+        recorded = self.invoke(
+            QUEUE, "record-application", "--workspace", str(self.workspace), "--run-id", "run", "--job-id", "page",
+            "--worker-id", "worker-c", "--application-json", json.dumps(corrected_application),
+        )
+        self.assertEqual(recorded["phase"], "verify")
+        new_verification = self.registered_verification(corrected_application)
         new_verification["verifier_id"] = "verifier-d"
         new_verification["verified_at"] = "2026-07-12T23:00:00Z"
         new_verification["notion_refetch"]["fetched_at"] = "2026-07-12T23:00:00Z"
@@ -341,6 +348,7 @@ class QueueTest(unittest.TestCase):
         )
         self.assertEqual(completed["job"]["state"], "registered")
         self.assertEqual(completed["job"]["proposal"]["classification"]["source_url"], "https://original.example.com/page")
+        self.assertEqual(completed["job"]["application"], corrected_application)
 
     def test_reopen_rejects_a_non_terminal_job(self) -> None:
         self.create(max_workers=1)
@@ -365,6 +373,112 @@ class QueueTest(unittest.TestCase):
                 "canonical_page_created": False, "source_queue_page_id": None,
             })
         return common, application
+
+    def test_record_application_preserves_phase_and_records_event(self) -> None:
+        common, application = self.prepare_apply()
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        events_path = self.workspace / "runs" / "run" / "events.jsonl"
+        for phase in ("apply", "verify"):
+            with self.subTest(phase=phase):
+                if phase == "verify":
+                    self.invoke(QUEUE, "advance", *common, "--phase", phase)
+                application["knowledge_index"]["row_page_id"] = f"corrected-row-{phase}"
+                before_events = events_path.read_text().splitlines()
+                recorded = self.invoke(QUEUE, "record-application", *common, "--application-json", json.dumps(application))
+                self.assertEqual(recorded["phase"], phase)
+                self.assertEqual(recorded["state"], "leased")
+                self.assertEqual(recorded["application"], application)
+                stored = json.loads((self.workspace / "runs" / "run" / "jobs" / "page.json").read_text())
+                self.assertEqual(stored, recorded)
+                after_events = events_path.read_text().splitlines()
+                self.assertEqual(after_events[:-1], before_events)
+                event = json.loads(after_events[-1])
+                self.assertEqual(event["event"], "application_recorded")
+                self.assertEqual(event["phase"], phase)
+                self.assertEqual(event["job_id"], "page")
+                self.assertEqual(event["worker_id"], "worker-a")
+                self.assertNotIn("from", event)
+                self.assertNotIn("to", event)
+
+    def test_record_application_requires_current_owner_and_unexpired_lease(self) -> None:
+        common, application = self.prepare_apply()
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        job_path = self.workspace / "runs" / "run" / "jobs" / "page.json"
+        events_path = self.workspace / "runs" / "run" / "events.jsonl"
+        original = json.loads(job_path.read_text())
+        for condition, error in (("wrong_owner", "does not own"), ("expired", "expired"), ("not_leased", "not leased")):
+            with self.subTest(condition=condition):
+                job = json.loads(json.dumps(original))
+                worker = "worker-a"
+                if condition == "wrong_owner":
+                    worker = "worker-b"
+                elif condition == "expired":
+                    job["lease"]["expires_at"] = "2000-01-01T00:00:00Z"
+                else:
+                    job["state"] = "registered"
+                    job["phase"] = "done"
+                    job["lease"] = None
+                job_path.write_text(json.dumps(job))
+                before_job, before_events = job_path.read_text(), events_path.read_text()
+                result = self.invoke(QUEUE, "record-application", *common[:-1], worker, "--application-json", json.dumps(application), ok=False)
+                self.assertIn(error, result["error"])
+                self.assertEqual(job_path.read_text(), before_job)
+                self.assertEqual(events_path.read_text(), before_events)
+
+    def test_record_application_rejects_invalid_records_without_mutation(self) -> None:
+        common, application = self.prepare_apply()
+        self.invoke(QUEUE, "advance", *common, "--phase", "apply", "--application-json", json.dumps(application))
+        self.invoke(QUEUE, "advance", *common, "--phase", "verify")
+        job_path = self.workspace / "runs" / "run" / "jobs" / "page.json"
+        events_path = self.workspace / "runs" / "run" / "events.jsonl"
+        before_job, before_events = job_path.read_text(), events_path.read_text()
+        invalid_index = json.loads(json.dumps(application))
+        del invalid_index["knowledge_index"]
+        invalid_identity = json.loads(json.dumps(application))
+        invalid_identity["page_identity"]["canonical_page_id"] = "replacement"
+        invalid_content = json.loads(json.dumps(application))
+        del invalid_content["source_content"]
+        cases = (("{", ""), ("[]", "JSON object"), (json.dumps({}), "page_identity"),
+                 (json.dumps(invalid_index), "knowledge_index"), (json.dumps(invalid_identity), "canonical_page_id"),
+                 (json.dumps(invalid_content), "source_content"))
+        for raw, error in cases:
+            with self.subTest(application=raw):
+                result = self.invoke(QUEUE, "record-application", *common, "--application-json", raw, ok=False)
+                self.assertIn(error, result["error"])
+                self.assertEqual(job_path.read_text(), before_job)
+                self.assertEqual(events_path.read_text(), before_events)
+
+    def test_record_application_rejects_phases_before_apply(self) -> None:
+        common, application = self.prepare_apply()
+        job_path = self.workspace / "runs" / "run" / "jobs" / "page.json"
+        events_path = self.workspace / "runs" / "run" / "events.jsonl"
+        for phase in ("resolve", "enrich", "classify"):
+            with self.subTest(phase=phase):
+                job = json.loads(job_path.read_text())
+                job["phase"] = phase
+                job_path.write_text(json.dumps(job))
+                before_job, before_events = job_path.read_text(), events_path.read_text()
+                result = self.invoke(QUEUE, "record-application", *common, "--application-json", json.dumps(application), ok=False)
+                self.assertIn("only from apply phase onward", result["error"])
+                self.assertEqual(job_path.read_text(), before_job)
+                self.assertEqual(events_path.read_text(), before_events)
+
+    def test_advance_rejects_application_json_outside_apply(self) -> None:
+        common, application = self.prepare_apply()
+        job_path = self.workspace / "runs" / "run" / "jobs" / "page.json"
+        events_path = self.workspace / "runs" / "run" / "events.jsonl"
+        for source, destination in (("resolve", "enrich"), ("enrich", "classify"), ("apply", "verify"), ("verify", "verify")):
+            with self.subTest(source=source, destination=destination):
+                job = json.loads(job_path.read_text())
+                job["phase"] = source
+                job["application"] = application
+                job_path.write_text(json.dumps(job))
+                before_job, before_events = job_path.read_text(), events_path.read_text()
+                result = self.invoke(QUEUE, "advance", *common, "--phase", destination, "--application-json", "{}", ok=False)
+                error = "exactly one step" if source == destination else "allowed only when advancing to apply"
+                self.assertIn(error, result["error"])
+                self.assertEqual(job_path.read_text(), before_job)
+                self.assertEqual(events_path.read_text(), before_events)
 
     def test_index_row_must_be_created_under_the_data_source(self) -> None:
         common, application = self.prepare_apply()
