@@ -129,7 +129,7 @@ class QueueTest(unittest.TestCase):
                 "method": "notion-query-data-sources sql",
                 "queried_at": "2026-07-11T03:00:00Z",
                 "data_source_id": "collection://index-source",
-                "row_page_id": "index-row",
+                "row_page_id": application["knowledge_index"]["row_page_id"],
                 "notion_page_property": f"https://www.notion.so/{identity['canonical_page_id']}",
                 "notion_page_matches_canonical": True,
             },
