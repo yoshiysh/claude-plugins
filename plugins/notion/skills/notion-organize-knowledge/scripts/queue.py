@@ -371,8 +371,12 @@ def cmd_advance(args: argparse.Namespace) -> None:
             proposal = parse_object(args.proposal_json, "--proposal-json")
             validate_proposal(proposal)
             job["proposal"] = proposal
-        if args.application_json:
-            job["application"] = parse_object(args.application_json, "--application-json")
+        if args.application_json is not None:
+            if args.phase != "apply":
+                raise ValueError("--application-json is allowed only when advancing to apply; use record-application to correct an existing record")
+            application = parse_object(args.application_json, "--application-json")
+            validate_application(job, application)
+            job["application"] = application
         if args.phase == "classify" and not job.get("proposal"):
             raise ValueError("classify phase requires an AI proposal")
         if args.phase == "apply" and not job.get("application"):
@@ -409,6 +413,26 @@ def cmd_record_proposal(args: argparse.Namespace) -> None:
         job["proposal"] = proposal
         write_job(path, job)
         append_event(directory, {"event": "proposal_recorded", "job_id": job["job_id"], "worker_id": args.worker_id, "phase": job["phase"]})
+        print(json.dumps(job, ensure_ascii=False, indent=2))
+    finally:
+        unlock(held)
+
+
+def cmd_record_application(args: argparse.Namespace) -> None:
+    workspace = Path(args.workspace).expanduser().resolve()
+    directory, _ = load_run(workspace, args.run_id)
+    path = directory / "jobs" / f"{args.job_id}.json"
+    held = lock(directory)
+    try:
+        job = read_json(path)
+        assert_owner(job, args.worker_id)
+        if PHASE_INDEX[job["phase"]] < PHASE_INDEX["apply"]:
+            raise ValueError("application can be recorded only from apply phase onward")
+        application = parse_object(args.application_json, "--application-json")
+        validate_application(job, application)
+        job["application"] = application
+        write_job(path, job)
+        append_event(directory, {"event": "application_recorded", "job_id": job["job_id"], "worker_id": args.worker_id, "phase": job["phase"]})
         print(json.dumps(job, ensure_ascii=False, indent=2))
     finally:
         unlock(held)
@@ -675,6 +699,14 @@ def parser() -> argparse.ArgumentParser:
     proposal.add_argument("--worker-id", required=True)
     proposal.add_argument("--proposal-json", required=True)
     proposal.set_defaults(func=cmd_record_proposal)
+
+    application = commands.add_parser("record-application")
+    application.add_argument("--workspace", required=True)
+    application.add_argument("--run-id", required=True)
+    application.add_argument("--job-id", required=True)
+    application.add_argument("--worker-id", required=True)
+    application.add_argument("--application-json", required=True)
+    application.set_defaults(func=cmd_record_application)
 
     complete = commands.add_parser("complete")
     complete.add_argument("--workspace", required=True)
