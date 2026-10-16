@@ -36,6 +36,13 @@ const HARD_SUBAGENTS_CAP = meta.caps.subagentsPerRoundCap
 
 // The caller passes this canonical host ceiling unchanged; source args bound each run.
 const CODEX_RUNNER_LIMITS = meta.limits
+if (meta.limits.maxAgents !== meta.caps.maxRounds * (2 + 2 * meta.caps.subagentsPerRoundCap) + 1) {
+  throw new Error('Codex runner meta.limits.maxAgents must cover plan/evaluate plus capped execute/verify calls per round and synthesis.')
+}
+const FANOUT_WAVES = Math.ceil(meta.caps.subagentsPerRoundCap / meta.limits.concurrency)
+if (meta.limits.timeoutMs < (meta.caps.maxRounds * (2 + 2 * FANOUT_WAVES) + 1) * meta.limits.agentTimeoutMs) {
+  throw new Error('Codex runner meta.limits.timeoutMs must cover the sequential agent timeouts of every round and synthesis.')
+}
 
 const CLAUDE_PLAN_SCHEMA = {
   type: 'object',

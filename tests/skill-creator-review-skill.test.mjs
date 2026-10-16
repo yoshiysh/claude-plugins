@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
-import { compileSource } from '../../../../workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { compileSource } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
 
-const source = await readFile(new URL('../../../workflows/review_skill.js', import.meta.url), 'utf8');
-const finderRole = await readFile(new URL('../agents/finder.md', import.meta.url), 'utf8');
-const refuterRole = await readFile(new URL('../agents/refuter.md', import.meta.url), 'utf8');
+const source = await readFile(new URL('../plugins/skill-creator/workflows/review_skill.js', import.meta.url), 'utf8');
+const finderRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/finder.md', import.meta.url), 'utf8');
+const refuterRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/refuter.md', import.meta.url), 'utf8');
 const { body, meta } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 const AUDIT_HEADER = 'Scope: /mock/target\nTarget model: current flagship';

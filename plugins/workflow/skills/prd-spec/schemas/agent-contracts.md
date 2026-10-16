@@ -520,7 +520,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ。変換は ID ごとにプロンプトが指定した方）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
   （変換後の question は別の resolver-verifier が relevance と根拠を再検証し、不合格なら利用者に提示する前に run を止める。返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
   検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
-- 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
+- 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、`about.domain` の resolution はこの差し戻しの対象外（「決定の台帳」の後段 domain assessment 規則が正）。verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
   それぞれ `about` を `{verification}` にした resolution を返す。合わなければ script は段を止める（返らない裁定は再検証にも変換にも回らず、
   不合格のまま台帳に残る。F- は問いにも保持規則にも変えられないので、検証の裁定が無いと settle に写す値も、不合格のまま進めてよい理由も無い）。
 - 1 つの ID は `ruled`・`questions`・`holds`・`free_text` のどれか 1 つでだけ返す（2 つ以上で返せば script は段を止める。回答待ちか回答済みかが返り値から決まらない）。

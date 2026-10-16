@@ -824,6 +824,27 @@ class Stages(unittest.TestCase):
             self.assertEqual(disk["rs"]["RS-051"]["about"], {"domain": "personal_data"})
             self.assertEqual(disk["verdicts"]["RS-051"]["verdict"], "fail")
 
+    def test_合格したdomain_assessmentは回答の反映のresolverへIDで渡る(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            world = str(Path(tmp) / "world.json")
+            first = run({
+                "args": args(),
+                "flow_open": 1,
+                "questions_at": {"3": ["RS-001"]},
+                "ruled_at": {"3": ["RS-051"]},
+                "about": {"RS-051": {"domain": "personal_data"}},
+                "world": world,
+            })["result"]
+            self.assertEqual(first["status"], "needs_answers")
+            self.assertIn("RS-051", first["next_args"]["state"]["passed"])
+            r = run({"args": first["next_args"], "world": world, "ruled_at": {"3a": ["RS-001"]}})
+            self.assertIsNone(r["error"])
+            self.assertEqual(r["result"]["status"], "done")
+            [resolver] = [p["prompt"] for p in r["prompts"] if p["label"] == "resolver:3a"]
+            self.assertIn("有効な domain assessment: personal_data=RS-051", resolver)
+            self.assertIn("--ledger resolutions --ids RS-051 --fields", resolver)
+            self.assertIn("次の resolution ID: RS-052", resolver)
+
     def test_settleのdomain_assessmentが修正後も不合格なら変換せず停止する(self):
         destructive = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
         fail = [{"id": "RS-060", "kind": "insufficient_grounds", "reason": "回答 signal が verdict を支えない"}]

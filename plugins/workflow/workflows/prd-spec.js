@@ -1044,7 +1044,7 @@ function domainAssessmentNote() {
   const knownIds = Object.keys(state.about || {}).filter((id) => RESOLUTION_ID.test(id)).map((id) => Number(id.slice(3)))
   const next = `RS-${String(Math.max(0, ...knownIds) + 1).padStart(3, '0')}`
   if (!rows.length) return `現在の domain assessment はありません。新しい評価を作るときの次の resolution ID は ${next} です。`
-  const ids = rows.map((r) => r.id).join(',')
+  const ids = rows.map((r) => r.id)
   return [
     `有効な domain assessment: ${rows.map((r) => `${r.aspect}=${r.id}`).join('、')}`,
     `内容を読む: \`${getCli('resolutions', ids)} --fields id,about,value,supersedes,domain_assessment\`。新しい信号が同じ軸の状態を変える場合は、ここに示す同じ ID を更新する。`,
