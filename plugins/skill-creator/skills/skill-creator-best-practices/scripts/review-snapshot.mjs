@@ -14,6 +14,13 @@ const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 const MAX_DIFF_BYTES = 16 * 1024 * 1024;
 const MAX_CHANGED_PATHS = 1_000;
 const SNAPSHOT_PREFIX = 'codex-skill-review-';
+const SNAPSHOT_LAYOUT = Object.freeze({
+  receipt: 'receipt.json',
+  manifest: 'manifest.json',
+  tree: 'tree',
+  diff: 'diff.patch',
+  changedPaths: 'changed-paths.json',
+});
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const stableJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -195,15 +202,15 @@ async function createSnapshot({ target, scope, diffRef }) {
   const diffInfo = scope === 'diff' ? await resolveDiff(targetRoot, diffRef) : null;
   const snapshotRoot = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), SNAPSHOT_PREFIX));
   await fs.chmod(snapshotRoot, 0o700);
-  const snapshotDir = path.join(snapshotRoot, 'tree');
+  const snapshotDir = path.join(snapshotRoot, SNAPSHOT_LAYOUT.tree);
   await fs.mkdir(snapshotDir, { mode: 0o700 });
   try {
     const inventory = await collectTree(targetRoot, { copyTo: snapshotDir });
     const sourceAfter = await collectTree(targetRoot);
     if (stableJson(inventory) !== stableJson(sourceAfter)) throw Error('target changed while its review snapshot was being prepared');
     if (diffInfo) {
-      await fs.writeFile(path.join(snapshotRoot, 'diff.patch'), diffInfo.diff, { mode: 0o400, flag: 'wx' });
-      await fs.writeFile(path.join(snapshotRoot, 'changed-paths.json'), stableJson(diffInfo.changedPaths), { mode: 0o400, flag: 'wx' });
+      await fs.writeFile(path.join(snapshotRoot, SNAPSHOT_LAYOUT.diff), diffInfo.diff, { mode: 0o400, flag: 'wx' });
+      await fs.writeFile(path.join(snapshotRoot, SNAPSHOT_LAYOUT.changedPaths), stableJson(diffInfo.changedPaths), { mode: 0o400, flag: 'wx' });
     }
     await chmodSnapshot(snapshotDir);
     const manifest = {
@@ -227,13 +234,13 @@ async function createSnapshot({ target, scope, diffRef }) {
         baseOid: diffInfo.baseOid,
         headOid: diffInfo.headOid,
         changedPaths: diffInfo.changedPaths,
-        diffPath: path.join(snapshotRoot, 'diff.patch'),
-        changedPathsPath: path.join(snapshotRoot, 'changed-paths.json'),
+        diffPath: path.join(snapshotRoot, SNAPSHOT_LAYOUT.diff),
+        changedPathsPath: path.join(snapshotRoot, SNAPSHOT_LAYOUT.changedPaths),
         diffBytes: diffInfo.diff.length,
         diffSha256: sha256(diffInfo.diff),
       } : { diffRef: null, changedPaths: [], diffPath: null, changedPathsPath: null, diffBytes: 0, diffSha256: null }),
     };
-    const manifestPath = path.join(snapshotRoot, 'manifest.json');
+    const manifestPath = path.join(snapshotRoot, SNAPSHOT_LAYOUT.manifest);
     const manifestBytes = Buffer.from(stableJson(manifest));
     await fs.writeFile(manifestPath, manifestBytes, { mode: 0o400, flag: 'wx' });
     const receipt = {
@@ -251,7 +258,7 @@ async function createSnapshot({ target, scope, diffRef }) {
       diffSha256: manifest.diffSha256,
       changedPaths: manifest.changedPaths,
     };
-    const receiptPath = path.join(snapshotRoot, 'receipt.json');
+    const receiptPath = path.join(snapshotRoot, SNAPSHOT_LAYOUT.receipt);
     await fs.writeFile(receiptPath, stableJson(receipt), { mode: 0o400, flag: 'wx' });
     return { ...receipt, receiptPath, fileCount: inventory.files.length, byteCount: inventory.totalBytes,
       changedPathCount: diffInfo?.changedPaths.length || 0 };
@@ -271,8 +278,8 @@ async function readReceipt(receiptPath) {
   const receipt = JSON.parse(receiptBytes.toString('utf8'));
   if (receipt.version !== VERSION || receipt.status !== 'ready') throw Error('invalid or unsupported review snapshot receipt');
   if (!/^[a-f0-9]{64}$/.test(receipt.manifestSha256)) throw Error('receipt has invalid manifest SHA-256');
-  if (receipt.snapshotRoot !== path.dirname(receiptPath) || receipt.manifestPath !== path.join(receipt.snapshotRoot, 'manifest.json') ||
-      receipt.snapshotDir !== path.join(receipt.snapshotRoot, 'tree')) throw Error('receipt paths do not match its snapshot root');
+  if (receipt.snapshotRoot !== path.dirname(receiptPath) || receipt.manifestPath !== path.join(receipt.snapshotRoot, SNAPSHOT_LAYOUT.manifest) ||
+      receipt.snapshotDir !== path.join(receipt.snapshotRoot, SNAPSHOT_LAYOUT.tree)) throw Error('receipt paths do not match its snapshot root');
   const canonicalRoot = await fs.realpath(receipt.snapshotRoot);
   if (canonicalRoot !== receipt.snapshotRoot || path.dirname(receipt.snapshotRoot) !== await fs.realpath(os.tmpdir()) ||
       !path.basename(receipt.snapshotRoot).startsWith(SNAPSHOT_PREFIX))
@@ -379,4 +386,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
 }
 
-export { MAX_DIFF_BYTES, MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_BYTES, cleanupSnapshot, createSnapshot, verifySnapshot };
+export {
+  MAX_DIFF_BYTES,
+  MAX_FILE_BYTES,
+  MAX_FILES,
+  MAX_TOTAL_BYTES,
+  SNAPSHOT_LAYOUT,
+  SNAPSHOT_PREFIX,
+  VERSION,
+  cleanupSnapshot,
+  createSnapshot,
+  verifySnapshot,
+};

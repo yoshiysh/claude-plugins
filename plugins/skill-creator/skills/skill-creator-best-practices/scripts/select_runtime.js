@@ -19,6 +19,7 @@
 //   node scripts/select_runtime.js --mode audit --no-native --runner-installed --snapshot-receipt <receipt>
 //     --snapshot-target <canonical-target> --snapshot-scope diff --snapshot-diff-ref main...HEAD
 //   node scripts/select_runtime.js --mode update --no-native --runner-installed --update-policy-bound --snapshot-receipt <receipt>
+//     --snapshot-target <canonical-target> --snapshot-scope full|diff [--snapshot-diff-ref <range>]
 //
 // 出力（JSON 1 行）:
 //   { "selected_runtime": "native" | "dynamic-workflow-runner" | null,
@@ -73,9 +74,10 @@ function parse(argv) {
   return out
 }
 
-function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotScope, snapshotDiffRef }) {
+async function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotScope, snapshotDiffRef }) {
   if (!['review', 'audit', 'update'].includes(mode)) return { required: false, valid: true }
   try {
+    const { VERSION, SNAPSHOT_LAYOUT, SNAPSHOT_PREFIX } = await import('./review-snapshot.mjs')
     if (!snapshotReceipt || !path.isAbsolute(snapshotReceipt)) throw Error('absolute --snapshot-receipt is required')
     if (!snapshotTarget || !path.isAbsolute(snapshotTarget)) throw Error('absolute --snapshot-target is required')
     if (!['full', 'diff'].includes(snapshotScope)) throw Error('--snapshot-scope must be full or diff')
@@ -85,16 +87,18 @@ function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotScope, s
     if (!receiptInfo.isFile() || receiptInfo.isSymbolicLink()) throw Error('snapshot receipt is not a regular file')
     const receiptPath = realpathSync(snapshotReceipt)
     const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'))
-    if (receipt.version !== 1 || receipt.status !== 'ready' || receipt.scope !== snapshotScope) throw Error('snapshot receipt is not ready for the requested scope')
+    if (receipt.version !== VERSION || receipt.status !== 'ready' || receipt.scope !== snapshotScope) throw Error('snapshot receipt is not ready for the requested scope')
     if (!/^[a-f0-9]{64}$/.test(receipt.manifestSha256 || '')) throw Error('snapshot receipt has an invalid manifest SHA-256')
     const canonicalTarget = realpathSync(snapshotTarget)
     if (canonicalTarget !== snapshotTarget || receipt.targetRoot !== canonicalTarget) throw Error('snapshot receipt target does not match the canonical target')
     if (receipt.diffRef !== (snapshotDiffRef || null)) throw Error('snapshot receipt diff range does not match the request')
     const tmpRoot = realpathSync(os.tmpdir())
     const snapshotRoot = realpathSync(receipt.snapshotRoot)
-    if (snapshotRoot !== receipt.snapshotRoot || path.dirname(snapshotRoot) !== tmpRoot || !path.basename(snapshotRoot).startsWith('codex-skill-review-'))
+    if (snapshotRoot !== receipt.snapshotRoot || path.dirname(snapshotRoot) !== tmpRoot || !path.basename(snapshotRoot).startsWith(SNAPSHOT_PREFIX))
       throw Error('snapshot receipt is outside the managed temporary directory')
-    if (receiptPath !== path.join(snapshotRoot, 'receipt.json') || receipt.manifestPath !== path.join(snapshotRoot, 'manifest.json') || receipt.snapshotDir !== path.join(snapshotRoot, 'tree'))
+    if (receiptPath !== path.join(snapshotRoot, SNAPSHOT_LAYOUT.receipt) ||
+        receipt.manifestPath !== path.join(snapshotRoot, SNAPSHOT_LAYOUT.manifest) ||
+        receipt.snapshotDir !== path.join(snapshotRoot, SNAPSHOT_LAYOUT.tree))
       throw Error('snapshot receipt paths are inconsistent')
     const snapshotInfo = lstatSync(receipt.snapshotDir)
     if (!snapshotInfo.isDirectory() || snapshotInfo.isSymbolicLink()) throw Error('frozen target snapshot is missing or invalid')
@@ -104,7 +108,7 @@ function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotScope, s
     const digest = createHash('sha256').update(manifestBytes).digest('hex')
     if (digest !== receipt.manifestSha256) throw Error('snapshot manifest hash does not match the receipt')
     const manifest = JSON.parse(manifestBytes.toString('utf8'))
-    if (manifest.version !== 1 || manifest.targetRoot !== canonicalTarget || manifest.scope !== snapshotScope || manifest.snapshotDir !== receipt.snapshotDir)
+    if (manifest.version !== VERSION || manifest.targetRoot !== canonicalTarget || manifest.scope !== snapshotScope || manifest.snapshotDir !== receipt.snapshotDir)
       throw Error('snapshot manifest does not match the receipt')
     if (!Array.isArray(manifest.files) || !Array.isArray(manifest.directories) || !Number.isSafeInteger(manifest.totalBytes) ||
         !manifest.limits || !Number.isSafeInteger(manifest.limits.maxFiles) || !Number.isSafeInteger(manifest.limits.maxFileBytes) ||
@@ -132,8 +136,8 @@ function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotScope, s
       throw Error('snapshot file inventory exceeds its declared bounds')
     if (snapshotScope === 'diff') {
       if (manifest.diffRef !== snapshotDiffRef || !Array.isArray(manifest.changedPaths) ||
-          !/^[a-f0-9]{64}$/.test(manifest.diffSha256 || '') || manifest.diffPath !== path.join(snapshotRoot, 'diff.patch') ||
-          manifest.changedPathsPath !== path.join(snapshotRoot, 'changed-paths.json') ||
+          !/^[a-f0-9]{64}$/.test(manifest.diffSha256 || '') || manifest.diffPath !== path.join(snapshotRoot, SNAPSHOT_LAYOUT.diff) ||
+          manifest.changedPathsPath !== path.join(snapshotRoot, SNAPSHOT_LAYOUT.changedPaths) ||
           receipt.diffPath !== manifest.diffPath || receipt.changedPathsPath !== manifest.changedPathsPath || receipt.diffSha256 !== manifest.diffSha256 ||
           JSON.stringify(receipt.changedPaths) !== JSON.stringify(manifest.changedPaths))
         throw Error('snapshot manifest is missing its frozen diff')
@@ -158,7 +162,7 @@ function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotScope, s
   }
 }
 
-function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled, updatePolicyBound, ...snapshotArgs }) {
+async function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled, updatePolicyBound, ...snapshotArgs }) {
   const withProof = (result, proof) => proof.required
     ? {
       ...result,
@@ -169,7 +173,7 @@ function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled
     : result
 
   if (nativeAvailable && !nativeAttempted) {
-    const proof = snapshotProof({ mode, ...snapshotArgs })
+    const proof = await snapshotProof({ mode, ...snapshotArgs })
     if (!proof.valid) {
       return {
         selected_runtime: null,
@@ -198,7 +202,7 @@ function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled
     }
   }
 
-  const proof = snapshotProof({ mode, ...snapshotArgs })
+  const proof = await snapshotProof({ mode, ...snapshotArgs })
   if (!proof.valid) {
     return {
       selected_runtime: null,
@@ -219,9 +223,12 @@ function selectRuntime({ mode, nativeAvailable, nativeAttempted, runnerInstalled
   }, proof)
 }
 
-try {
-  process.stdout.write(JSON.stringify(selectRuntime(parse(process.argv.slice(2)))) + '\n')
-} catch (e) {
-  process.stderr.write(`${e.message}\n`)
-  process.exit(2)
+async function main() {
+  const result = await selectRuntime(parse(process.argv.slice(2)))
+  process.stdout.write(JSON.stringify(result) + '\n')
 }
+
+main().catch((e) => {
+  process.stderr.write(`${e.message}\n`)
+  process.exitCode = 2
+})

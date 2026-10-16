@@ -1622,9 +1622,9 @@ const DECIDABLE_NOTE = 'decidable の項目は、その出典で値を決める�
 // 落ちた保持規則は文面の誤りではないので変換に回す（聞ける段で価値の論点なら問いにする）。
 const convertible = (fails) => fails.filter((f) => RESOLUTION_ID.test(f.id) && (f.kind === 'decidable' || !(state.holds || []).includes(f.id)))
 
-// fixFailed: settle と verifyLeft の verifier に落ちた裁定（RS-）を、段の本体の差し戻しと同じく 1 回だけ直させて検証し直し、まだ落ちるものを
-// 変換する。直させずに変換すると、補えた根拠や決まっていた値が問いや保持規則になる。この差し戻しの verifier の不合格は
-// 変換に回す。問いに変えたものは `convertFailed` の後続 verifier が関連性と根拠を再検証し、さらに resolver へは差し戻さない。
+// fixFailed: settle と verifyLeft の verifier に落ちた裁定（RS-）を、段の本体の差し戻しと同じく 1 回だけ直させて検証し直し、domain assessment 以外で
+// まだ落ちるものを変換する。domain assessment は修正後も不合格なら下のガードで blocked にする。直さずに変換すると、補えた根拠や決まっていた値が問いや保持規則になる。
+// 問いに変えたものは `convertFailed` の後続 verifier が関連性と根拠を再検証し、さらに resolver へは差し戻さない。
 async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   const ids = uniq(fails.map((f) => f.id))
   const label = `resolver:${owner}-fix`

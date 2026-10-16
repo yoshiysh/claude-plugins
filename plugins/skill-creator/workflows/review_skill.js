@@ -25,6 +25,11 @@ const REVISE_SEVERITIES = ['blocker', 'major']
 // 下回らない巡がこれだけ続いたら止める。前巡比でなく最小値と比べるのは往復を進捗と読まないため。
 const STALL_ROUNDS = 2
 
+// Codex runner has no source-level token budget, so progress-only exits do not bound total agent calls.
+// This hard ceiling keeps the worst-case initial pass plus retries within select_runtime's runner maxAgents;
+// select_runtime.test.mjs checks the formula against the source finder, finding and perspective limits.
+const MAX_UPDATE_ROUNDS = 4
+
 // budget（出力 token の hard ceiling）の残りがこれを下回ったら巡を始めない。ceiling で agent() が
 // throw すると staging と突き合わせが返らない。値は 1 巡の出力量の見積もりで実測値ではない。
 const MIN_ROUND_BUDGET_TOKENS = 200_000
@@ -321,11 +326,11 @@ if (skillPath.startsWith(`${stagingDir}/`)) {
 }
 
 // args.maxRevisions は受け取らない（後方互換を切った破壊的変更）。渡されても黙って無視すると
-// 「上限を指定したつもり」で走ることになるため、明示的に落とす。停止は回数ではなく進捗で決まる。
+// 「上限を指定したつもり」で走ることになるため、明示的に落とす。停止規則は script の固定条件に従う。
 if (parsedArgs.maxRevisions !== undefined) {
   throw new Error(
-    'args.maxRevisions は廃止されました。改稿の打ち切りは回数ではなく進捗で決まります' +
-      '（停止規則は review_skill.js の STALL_ROUNDS / MIN_ROUND_BUDGET_TOKENS を参照）。引数を外してください。'
+    'args.maxRevisions は廃止されました。改稿の打ち切りは review_skill.js の進捗・安全上限・予算条件で決まります' +
+      '（STALL_ROUNDS / MAX_UPDATE_ROUNDS / MIN_ROUND_BUDGET_TOKENS を参照）。引数を外してください。'
   )
 }
 
@@ -640,7 +645,7 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope, unavai
         if (unavailableAllowed.has(f.id)) {
           unavailable.push(f.id)
           log(
-            `観点 ${f.id}: 依存する skill が実行環境に無いため実施できませんでした（${passLabel}）。` +
+            `観点 ${f.id}: 必要な skill / criteria / capability を実行環境で利用できないため実施できませんでした（${passLabel}）。` +
               '欠測とは別に skipped_unavailable として宣言します。' +
               (row.res.note ? ` 報告: ${row.res.note}` : '')
           )
@@ -992,7 +997,7 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // （confirmed に混ぜると「反証を生き残った指摘」という意味が薄まる）。
     // audit は委譲項目を判定する観点を走らせないので null（[] だと「全部満たした」と読まれる）。
     unchecked_failures: mode === 'audit' ? null : uncheckedFailures || [],
-    // 依存する skill が実行環境に無く実施できなかった観点。欠測（by_category の null・review_incomplete）
+    // 必要な skill / criteria / capability を実行環境で利用できず実施できなかった観点。欠測（by_category の null・review_incomplete）
     // とは別枠で、見ていない観点として必ず提示する。
     skipped_unavailable: { before: first.unavailable, after: reverifyUnavailable },
     // prompt-audit が挙げたが PROMPT_AUDIT_SEVERITY の外のため指摘にしなかった項目。反証も改稿もしないが、
@@ -1023,8 +1028,8 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     staging,
     // runner 経由の update では action package の発行条件になる。Reverify が走らなかった
     // outcome を completed と偽装しないため、after の全観点が観測済みのときだけ true にする。
-    // 依存 skill が無く実施できなかった観点は by_category から外して skipped_unavailable に宣言する。
-    // 含めると、その skill を持たない Codex runner では receipt が永久に完了せず update が通らない。
+    // 実施できなかった観点は by_category から外して skipped_unavailable に宣言する。
+    // unavailable は件数ではないため、0 件として receipt に入れると未実施を合格に誤読させる。
     reverify_receipt:
       mode === 'update' && staging && afterCategories && reverifyProvenance
         ? receiptOf(staging.dir, afterCategories)
@@ -1088,7 +1093,7 @@ let stallStreak = 0
 // そのものが存在せず、参照しただけで ReferenceError になるため。そこではこの停止は働かない。
 const roundBudget = typeof budget !== 'undefined' && budget && budget.total ? budget : null
 
-// 回数上限を持たないループ。出口は break だけで、どれも stop_reason を設定する（値の正本は schemas.md）。
+// 出口は break だけで、どれも stop_reason を設定する（値の正本は schemas.md）。
 while (true) {
   if (roundBudget && roundBudget.remaining() < MIN_ROUND_BUDGET_TOKENS) {
     log(
@@ -1488,6 +1493,16 @@ while (true) {
     )
     verdict = 'needs_human_decision'
     stopReason = 'stalled'
+    break
+  }
+
+  if (updatesRun >= MAX_UPDATE_ROUNDS) {
+    log(
+      `改稿の安全上限 ${MAX_UPDATE_ROUNDS} 巡に達しましたが未解消の指摘が残るため、` +
+        'staging と現時点の結果を保持して人間の判断へ返します。'
+    )
+    verdict = 'needs_human_decision'
+    stopReason = 'update_round_limit'
     break
   }
 

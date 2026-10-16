@@ -11,15 +11,6 @@ export const meta = {
   ],
   caps: { maxRounds: 6, subagentsPerRoundCap: 8 },
   defaults: { maxRounds: 6, subagentsPerRoundCap: 6 },
-  callBudget: {
-    fixedCallsPerRound: 2,
-    callsPerSubagent: 2,
-    finalCalls: 1,
-    parallelPhasesPerRound: 4,
-    timeoutMarginMs: 600_000,
-    expectedOutputBytesPerCall: 100_000,
-    outputBufferBytes: 1_000_000,
-  },
   limits: {
     maxAgents: 109,
     concurrency: 8,
@@ -43,36 +34,8 @@ const HARD_MAX_ROUNDS = meta.caps.maxRounds
 const DEFAULT_SUBAGENTS_CAP = meta.defaults.subagentsPerRoundCap
 const HARD_SUBAGENTS_CAP = meta.caps.subagentsPerRoundCap
 
-// Top-level dynamic-workflow-runner limits required by the Codex profile.
-// Keep agent-count and concurrency budgets derived from the loop hard caps so
-// the caller does not duplicate them. Time/output limits are finite host bounds
-// sized for the worst-case loop and the runtime's accumulated result journal.
-const MAX_AGENT_CALLS = HARD_MAX_ROUNDS *
-  (meta.callBudget.fixedCallsPerRound + HARD_SUBAGENTS_CAP * meta.callBudget.callsPerSubagent) +
-  meta.callBudget.finalCalls
+// The caller passes this canonical host ceiling unchanged; source args bound each run.
 const CODEX_RUNNER_LIMITS = meta.limits
-const CODEX_AGENT_TIMEOUT_MS = CODEX_RUNNER_LIMITS.agentTimeoutMs
-function runnerLimitsFor(rounds, subagentCap) {
-  const maxAgents = rounds *
-    (meta.callBudget.fixedCallsPerRound + subagentCap * meta.callBudget.callsPerSubagent) +
-    meta.callBudget.finalCalls
-  const timeoutMs = (rounds * meta.callBudget.parallelPhasesPerRound + meta.callBudget.finalCalls) *
-    CODEX_AGENT_TIMEOUT_MS + meta.callBudget.timeoutMarginMs
-  const maxOutputBytes = maxAgents * meta.callBudget.expectedOutputBytesPerCall + meta.callBudget.outputBufferBytes
-  return {
-    ...CODEX_RUNNER_LIMITS,
-    maxAgents,
-    concurrency: Math.min(CODEX_RUNNER_LIMITS.concurrency, subagentCap),
-    timeoutMs,
-    maxOutputBytes,
-  }
-}
-if (CODEX_RUNNER_LIMITS.maxAgents !== MAX_AGENT_CALLS ||
-    CODEX_RUNNER_LIMITS.concurrency < HARD_SUBAGENTS_CAP ||
-    CODEX_RUNNER_LIMITS.timeoutMs !== runnerLimitsFor(HARD_MAX_ROUNDS, HARD_SUBAGENTS_CAP).timeoutMs ||
-    CODEX_RUNNER_LIMITS.maxOutputBytes !== runnerLimitsFor(HARD_MAX_ROUNDS, HARD_SUBAGENTS_CAP).maxOutputBytes) {
-  throw new Error('meta.limits do not cover dispatch hard caps.')
-}
 
 const CLAUDE_PLAN_SCHEMA = {
   type: 'object',
@@ -80,7 +43,7 @@ const CLAUDE_PLAN_SCHEMA = {
     round_goal: { type: 'string' },
     subagents: {
       type: 'array',
-      maxItems: 8,
+      maxItems: HARD_SUBAGENTS_CAP,
       items: {
         type: 'object',
         properties: {
@@ -119,7 +82,7 @@ const CODEX_PLAN_SCHEMA = {
     round_goal: { type: 'string' },
     subagents: {
       type: 'array',
-      maxItems: 8,
+      maxItems: HARD_SUBAGENTS_CAP,
       items: {
         type: 'object',
         properties: {
@@ -397,7 +360,7 @@ return {
         model_equivalence_claimed: false,
         model_id_visibility: 'not exposed to the source result or host-default model.selected event',
         selection_evidence: 'runner model.selected event records origin=host-default',
-        required_runner_limits: runnerLimitsFor(maxRounds, subagentsCap),
+        required_runner_limits: CODEX_RUNNER_LIMITS,
       }
     : {
         provider: 'native Claude Workflow',

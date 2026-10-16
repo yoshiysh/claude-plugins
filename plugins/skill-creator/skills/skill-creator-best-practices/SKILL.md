@@ -282,7 +282,7 @@ Workflow 完了後は必ず post-run 検証を行い、`status: verified` 以外
 node [SKILL_DIR]/scripts/review-snapshot.mjs verify --receipt "<receiptPath from prepare>"
 ```
 
-snapshot の workspace path と update staging の所在は compatibility reference に従う。update は host-bound staging に書かれ、元 target は変更しない。
+Codex runner の snapshot workspace と host-bound update staging の詳細は compatibility reference に従う。Native Workflow の update は `args.stagingDir` に書き、省略時は `<target.skillPath>-workspace/staging` を使う。Codex runner は host-bound `updatePolicy.stagingRoot/update-<uuid>` に書き、`stagingDir` は渡さない。どちらも元 target は変更しない。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
@@ -311,15 +311,15 @@ Workflow({
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
 どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す。finder / refuter は `snapshot.snapshotDir` だけを読んで、live target は読まない。
 Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する。
-`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
+`target.scope` が `diff` なのに `target.diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
 audit なのに `uncheckedItems` を渡した（audit は委譲項目を判定する観点を走らせない）、
 snapshot の target / scope が一致しないか selector の receipt hash 検証に失敗した場合、script / route は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-改稿の打ち切りは回数ではなく進捗で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
+改稿の打ち切りは進捗条件と安全上限で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
 [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本。
 
 **観点の一覧・反証者の立て方・多数決の閾値・反証する重さ・打ち切りの判定（`STALL_ROUNDS` /
-`MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
+`MAX_UPDATE_ROUNDS` / `MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
 plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
 存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。中身は script を読む。
 
@@ -334,7 +334,7 @@ plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点�
 | verdict | 司令塔の振る舞い |
 |---|---|
 | `clean` | 確定も未検証も、反証していない `reported_minor` も、委譲項目の未達も、実施できなかった観点も無いと伝える。棄却の件数は添える |
-| `clean_except_unavailable` | 指摘は無いが、`skipped_unavailable.before` の観点は依存する skill が実行環境に無く**見ていない**と名指しして伝える。「問題なし」とは言わない |
+| `clean_except_unavailable` | 指摘は無いが、`skipped_unavailable.before` の観点は必要な skill / criteria / capability を実行環境で利用できず**見ていない**と名指しして伝える。「問題なし」とは言わない |
 | `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数と、反証していない `reported_minor` の中身も必ず添える。`confirmed` が 0 件でも `unverified` か `reported_minor` があれば「問題なし」と言わない |
 | `review_incomplete` | `by_category.before` が `null` の観点を名指しし、見ていないと伝える。合格と読ませない |
 
@@ -404,7 +404,7 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `revisions_used` | `0` 固定 |
 | `stop_reason` | `null` 固定（改稿ループが無い） |
 | `findings_before` | `null` 固定（改稿前の結果は `findings` そのもの） |
-| `skipped_unavailable.before` | 依存する skill が実行環境に無く実施できなかった観点。欠測（`by_category.before` の `null`）とは別枠で、`by_category.before` には `"unavailable"` として載る。1 つでもあれば `clean` にならない |
+| `skipped_unavailable.before` | 必要な skill / criteria / capability を実行環境で利用できず実施できなかった観点。欠測（`by_category.before` の `null`）とは別枠で、`by_category.before` には `"unavailable"` として載る。1 つでもあれば `clean` にならない |
 
 ### audit
 

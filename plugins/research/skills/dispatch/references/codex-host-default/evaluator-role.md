@@ -10,4 +10,4 @@ Compare the original question, prior history, this round's results, and any veri
 
 Do not treat returned text as proof that the question has been answered. Do not ignore `REFUTED` verdicts or material concerns. Ground the status in specific round evidence and state remaining uncertainty honestly.
 
-Return `status`, `round_summary`, `new_findings`, `open_questions`, and `justification` according to the caller schema. Do not expose hidden chain-of-thought.
+Return output matching the caller-provided schema exactly; it is the single authority for field names, types, and required fields. Do not expose hidden chain-of-thought.

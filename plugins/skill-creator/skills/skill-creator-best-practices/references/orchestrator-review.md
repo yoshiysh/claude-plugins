@@ -27,7 +27,7 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
    改稿後の一覧に無いことは「消えた」を意味しない。
 2. **観点の欠落を隠さない。** `by_category.before` が `null` の観点は「その観点では見ていない」。
    合格の材料に数えない。`"unavailable"` の観点（`skipped_unavailable` に載る）も見ていない点は同じで、
-   理由が「担当が応答しなかった」ではなく「依存する skill が実行環境に無かった」だと区別して名指しする。
+   理由が「担当が応答しなかった」ではなく「必要な skill / criteria / capability を実行環境で利用できなかった」だと区別して名指しする。
    `by_category.after` 全体が `null` なのは別の意味で、
    「再検証のパス自体が走らなかった」（review・audit、または改稿前に止まった場合）。
 3. **どちらの時点の指摘かを言う。** `findings_source` が `"before"` なら改稿前、
@@ -322,11 +322,13 @@ script に埋め込むと、install 先（別ディレクトリに展開され�
 
 ### staging はスキル本体の外に置く
 
-`stagingDir` の既定値は review/update の workflow（plugin の `workflows/review_skill.js`）が持つ（対象スキルディレクトリの**兄弟**で
-あって内部ではない）。スキルディレクトリを列挙する検証スクリプトや参照実在チェックは
-配下を再帰的に見るため、内部に置くと未承認のドラフトが本体スキルの一部として
-検査・配布の対象に入る。明示的に `stagingDir` を渡す場合も対象スキルの配下は指定できず、
-script が起動時に落とす。
+Native Workflow で `args.stagingDir` を省略したときの既定値は review/update の workflow
+（plugin の `workflows/review_skill.js`）が持つ。これは対象スキルディレクトリの**兄弟**であって
+内部ではない。Codex runner では caller が `stagingDir` を渡さず、host policy が
+`updatePolicy.stagingRoot/update-<uuid>` を選んで args に注入する。この staging も対象スキルの外に
+置かれる。スキルディレクトリを列挙する検証スクリプトや参照実在チェックは配下を再帰的に見るため、
+内部に置くと未承認のドラフトが本体スキルの一部として検査・配布の対象に入る。明示的に
+`stagingDir` を渡す場合も対象スキルの配下は指定できず、script が起動時に落とす。
 
 ### staging の指紋は司令塔が計算する（script は返せない）
 

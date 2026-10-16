@@ -26,7 +26,9 @@ Codex profile で全 agent call の model と effort を省略し、runner の h
 native Claude Workflow の Fable 5 model profile と同一・同等とは扱いません。実 model ID は dispatch の
 source result と runner の `model.selected` event のどちらにも現れません。Claude Code は plugin dependency で
 `workflow` も導入しますが、Codex では `research` と `workflow` を一度ずつ install してください。
-Codex runner では `dispatch/scripts/orchestrate.js` の `meta` と実際の上限 args から per-run top-level limits を算出します。
+Codex runner request の top-level `limits` には `dispatch/scripts/orchestrate.js` の literal
+`meta.limits` をそのまま渡します。実行ごとの loop 上限は source が args と `meta.defaults` /
+`meta.caps` から適用します。
 
 ## 構成
 

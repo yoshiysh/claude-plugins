@@ -107,6 +107,8 @@ the same updatePolicy binding, staging and checkpoint restrictions as a scriptPa
 `args.stagingDir`; the host updatePolicy selects staging. Update writes remain scoped to the host-selected staging
 directory and are returned as a hash-bound action package for caller approval and application.
 
+For `review` and `update`, pass `uncheckedItems` as an array of `{id, item}` objects from the caller's quick validator; pass `[]` when it reports no unchecked items. For `audit`, omit the `uncheckedItems` property entirely: audit runs only the prompt-audit lens and does not evaluate delegated unchecked items. `promptAuditExpected` is a separate boolean describing whether the shared prompt-audit criteria should be available; it does not select audit mode.
+
 Configure an explicit `modelMap` for the labels the source passes (`sonnet` for review/audit; `opus` and `sonnet`
 for update; create drops only the hints listed in its portability declaration). Persona approval, saving, result
 verification and update application remain owned by the caller.
@@ -120,6 +122,7 @@ verification and update application remain owned by the caller.
     "mode": "review",
     "target": {"skillPath": "<canonical target>", "scope": "full"},
     "snapshot": {"...": "review-snapshot.mjs prepare output"},
+    "uncheckedItems": [{"id": "verifier-path", "item": "verify that the requested checks were actually run"}],
     "promptAuditExpected": true
   },
   "modelMap": {"sonnet": "<explicit Codex model>"},

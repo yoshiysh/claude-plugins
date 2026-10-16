@@ -72,7 +72,26 @@ script を呼ぶ前に、司令塔（このスキルを読んでいる Claude）
 > runner request の `limits` は source の `meta.limits` をそのまま使う。並列・期限・出力上限は source が所有し、
 > SKILL.md に値を写さない。反証上限を超えた run は欠測扱いで止まり、部分的に「問題なし」とは返さない。
 
+`executionMode` は Codex runner に渡す引数で、native Workflow では省略する。route ごとの入力は次のとおり。
+
+**native Workflow**
+
+```js
+Workflow({
+  scriptPath: "<このスキルの実ディレクトリ絶対パス>/scripts/review-document.js",
+  args: {
+    rubricPath: "<このスキルの実ディレクトリ絶対パス>/references/rubric.md",
+    mode: "review",
+    targets: ["/abs/path/docs/requirements/overview.md"],
+    focus: null,
+    constraints: null
+  }
+})
 ```
+
+**Codex runner fallback**
+
+```js
 Workflow({
   scriptPath: "<このスキルの実ディレクトリ絶対パス>/scripts/review-document.js",
   args: {

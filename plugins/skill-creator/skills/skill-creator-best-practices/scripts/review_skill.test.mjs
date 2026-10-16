@@ -425,6 +425,17 @@ test('strictly decreasing unresolved count keeps revising until resolved', async
   assert.equal(result.revisions_used, 3);
 });
 
+test('update round safety limit returns the last verified staging result with unresolved findings', async () => {
+  const { agent, calls } = perRoundAgent([5, 4, 3, 2, 1]);
+  const { result } = await run('update', agent);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label),
+    ['update-r1', 'update-r2', 'update-r3', 'update-r4']);
+  assert.equal(result.verdict, 'needs_human_decision');
+  assert.equal(result.stop_reason, 'update_round_limit');
+  assert.equal(result.revisions_used, 3);
+  assert.ok(result.staging.new.length > 0);
+});
+
 test('budget below the round threshold stops before the next updater', async () => {
   const { agent, calls } = perRoundAgent([2, 1, 0]);
   const remaining = () => (calls.some(c => c.label === 'update-r1') ? 0 : 1_000_000_000);

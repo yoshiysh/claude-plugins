@@ -218,7 +218,9 @@
   `superseded_categories` はその初期 domain decision ID に紐付いた `plan.required_categories.name` の一覧、`verdict` は回答に基づく有効判定、`required_categories` はその判定の有効カテゴリとする。
   `該当` でもカテゴリが無ければ `required_categories: []`、`非該当` は必ず空配列にする。`value` は `verdict` と一致させる。初期 decision があれば `supersedes` にその ID を入れ、
   初期 decision とそこに紐付く categories を無効化する。初期 `未評価` では `supersedes` と superseded categories は空にする。根拠は `answers/g<n>.md` の逐語引用で、所有表にある回答ファイルだけを受け付ける。
-  `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、resolver-verifier は signal・有効 verdict・カテゴリ導出を検証する。writer/cross-doc は superseded categories を除き、後段の `required_categories` で置き換える。
+  `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、resolver-verifier は signal・有効 verdict・カテゴリ導出を検証する。
+  有効な必須カテゴリは、初期 `plan.required_categories` から `supersedes` が指す初期 domain decision に紐付いたカテゴリだけを除き、後段 `domain_assessment.required_categories` を加えて導く。その他の初期カテゴリは維持し、後段カテゴリが空でも除外したカテゴリを戻さない。この集合の導出と supersession はここを正とする。writer と cross-doc はこの有効集合を使う。
+  有効カテゴリの実現要件は §writer を正とする。cross-doc はその要件に従って文書の中身を検証し、詳細が開いた TBD として残るカテゴリは欠けとしない。
   domain assessment が 1 回修正された後も independent verifier が不合格にした場合は、question / hold に変換せず blocked にする。台帳の評価と不合格 trace は残し、writer に渡さない。
 - ドメイン再評価は `question` ではない。適用評価で必要カテゴリを出す処理と、そのカテゴリ内の具体的な価値判断を分ける。後者を質問にする場合も、`question-policy.md` の条件を別途満たす。
 - `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
@@ -513,7 +515,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
   `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
   prd-spec.js の `RESOLUTION_ID`）。
-- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、依頼者に聞かない問い（聞ける回数の上限に達した後か、前のパスで答えたか保持規則にした論点の再発）を
+- domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked にし、その他の検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、依頼者に聞かない問い（聞ける回数の上限に達した後か、前のパスで答えたか保持規則にした論点の再発）を
   hold に変える呼び出し（`<段>-hold`）と、検証に落ちた保持規則を書き直す呼び出し（`<呼び出し>-rehold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ。変換は ID ごとにプロンプトが指定した方）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
   （変換後の question は別の resolver-verifier が relevance と根拠を再検証し、不合格なら利用者に提示する前に run を止める。返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
@@ -660,8 +662,7 @@ digest と、次の 2 つ。
   `<文書キー>§(meta)`、TBD の候補は TBD の ID。script はこれを段 8 の diff と文字列で比べる。形が違うと、
   直した項目がすべて「申告に無い変更」になり、監査が余分に起動する。初稿では空配列でよい。
 
-writer は、有効な `plan.required_categories` を保ち、domain assessment の `supersedes` が指す初期 decision に紐付いたカテゴリだけを除外して、合格したその assessment の `required_categories` で置き換える。他の decision に紐付く初期カテゴリは維持する。後段カテゴリが空なら、superseded decision 由来のカテゴリは残さない。
-各有効カテゴリは要求 ID か仕様項目 ID で実現し、その trace は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
+有効な必須カテゴリの集合と supersession は「決定の台帳」の後段 domain assessment 規則を正とする。writer は各有効カテゴリを要求 ID または仕様項目 ID の中身として実現し、その `trace` は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
 
 ## 監査役の共通節
 

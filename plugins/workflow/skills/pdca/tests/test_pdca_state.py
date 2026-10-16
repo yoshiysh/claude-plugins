@@ -256,6 +256,7 @@ class TestCodexExecution(Base):
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         route = skill.split("## 実行環境", 1)[1].split("## 役割", 1)[0]
         steps = route.split("Codex では、各 `brief` の後に次を行う。", 1)[1]
+        script = SCRIPT.read_text(encoding="utf-8")
         ordered_steps = [
             "collaboration.spawn_agent",
             "fork_turns",
@@ -275,8 +276,12 @@ class TestCodexExecution(Base):
         self.assertIn("`model` と `reasoning_effort` の override を受け付ける", skill)
         self.assertIn("この PDCA 経路では両方を省略し", skill)
         self.assertIn("呼び出し元の\nCodex セッションから継承する", skill)
-        self.assertIn("`status.next` に合う役割・criteria-verifier の aspect", skill)
-        self.assertIn("既知の未充足 condition を全て `--conditions` に含める", skill)
+        self.assertIn("`brief` の返り値と拒否理由に従って次の入力を決める", skill)
+        self.assertIn("writer の conditions に未充足条件が含まれていない", script)
+        self.assertNotIn("既知の未充足 condition を全て `--conditions` に含める", skill)
+        self.assertNotIn("他の条件が前提にする条件", skill)
+        self.assertNotIn("ほかに未充足の condition があれば writer の `conditions` に必ず含め", skill)
+        self.assertIn("条件間の先行関係を別の writer brief で順次実行する仕組みはなく", skill)
         self.assertIn("同等だとは扱わない", skill)
 
 

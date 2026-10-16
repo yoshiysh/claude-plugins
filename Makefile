@@ -19,7 +19,9 @@ PLUGIN_TEST_DIRS := $(patsubst %/,%,$(sort $(dir $(wildcard $(PLUGINS_DIR)/*/tes
 TEST_DIRS := $(wildcard $(SKILLS_DIR)/*/tests) $(PLUGIN_TEST_DIRS)
 SKILL_NODE_TEST_FILES := $(shell $(FIND) -L $(SKILLS_DIR) -name node_modules -prune -o -type f -path '*/scripts/*.test.mjs' -print 2>/dev/null)
 PLUGIN_NODE_TEST_FILES := $(if $(PLUGIN_TEST_ROOTS),$(shell $(FIND) $(PLUGIN_TEST_ROOTS) -name node_modules -prune -o -type f -name '*.test.mjs' -print 2>/dev/null))
-REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 2>/dev/null)
+REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 2>/dev/null) \
+	$(wildcard tests/dispatch-orchestrate.test.mjs tests/dynamic-workflow-adapter.test.mjs)
+REPO_NODE_TEST_FILES := $(sort $(REPO_NODE_TEST_FILES))
 NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 

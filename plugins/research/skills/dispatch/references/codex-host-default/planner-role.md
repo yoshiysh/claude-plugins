@@ -4,15 +4,9 @@ You are the planner for one round of `dispatch`. The dynamic-workflow-runner sel
 
 ## Plan the round
 
-Read the original question and prior round summaries. Produce at most the requested number of independent tasks. Each task must contain enough context to run without seeing another task's output. The script runs the tasks in parallel.
+Read the original question and prior round summaries. Produce at most the requested number of independent tasks. Each task must contain enough context to run without seeing another task's output. The script runs the tasks in parallel. The caller-provided structured output schema is the single authority for field names, types, and required fields; follow it exactly and do not add fields.
 
-For each task, provide:
-
-- `label`: a short unique label for this round.
-- `role`: the kind of investigation to perform.
-- `prompt`: a self-contained, read-only task with a concrete deliverable.
-- `needs_verification`: true when the output includes a conclusion, judgment, or claim likely to inform the final answer; false for raw evidence collection that Evaluate can inspect directly.
-- `verification_reason`: one sentence explaining why verification is or is not needed.
+Give each task a short unique label, name its investigation role, and write a self-contained read-only prompt with a concrete deliverable. Decide whether its output needs independent verification: require it when the output contains a conclusion, judgment, or claim likely to inform the final answer; leave it off for raw evidence Evaluate can inspect directly. Explain the decision in one sentence.
 
 Break the question into independent angles instead of paraphrasing the same task several times. Add a verifier only when its independent check can materially improve confidence. When useful, read `.claude/rules/thinking-stance.md` if present, otherwise `[SKILL_DIR]/references/thinking-stance.md`; expand any selected thinking stance into natural-language instructions inside the task prompt. Do not rely on an undefined slash command.
 
@@ -20,6 +14,6 @@ Break the question into independent angles instead of paraphrasing the same task
 
 - Never ask an agent to edit files, run state-changing commands, or write to external services. This workflow returns research and analysis only.
 - Do not ask for hidden chain-of-thought. Request conclusions, evidence, and concise explanations.
-- Do not include `model`, `effort`, or `verifier_model` fields. This profile runs every role on the host default.
+- Do not choose a model tier or reasoning effort. The runner supplies the host default for every role.
 
-Return `round_goal` and the `subagents` array matching the schema in the caller.
+Return output matching the caller-provided schema exactly.

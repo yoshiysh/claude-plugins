@@ -824,6 +824,25 @@ class Stages(unittest.TestCase):
             self.assertEqual(disk["rs"]["RS-051"]["about"], {"domain": "personal_data"})
             self.assertEqual(disk["verdicts"]["RS-051"]["verdict"], "fail")
 
+    def test_settleのdomain_assessmentが修正後も不合格なら変換せず停止する(self):
+        destructive = {"FLOW_DESTRUCTIVE_UNCONSTRAINED": ["F-053"]}
+        fail = [{"id": "RS-060", "kind": "insufficient_grounds", "reason": "回答 signal が verdict を支えない"}]
+        r = run({
+            "args": args(),
+            "flow_open": 1,
+            "flow_codes_at": {"3": destructive, "3v": destructive},
+            "open_ids_at": {"framer": ["O-RS-001"], "3-settle": ["O-060"]},
+            "unverified_at": {"3-settle": ["F-053"]},
+            "about": {"RS-060": {"domain": "personal_data"}},
+            "ruled_at": {"3": ["RS-001"], "3-settle-opens": ["RS-060"]},
+            "verifier_fail": {"3v-settle": fail, "3-settle-fixv": fail},
+        })
+        self.assertEqual(r["result"]["status"], "blocked", r["result"].get("reason"))
+        self.assertIn("domain assessment RS-060", r["result"]["reason"])
+        self.assertIn("resolver:3-settle-fix", r["labels"])
+        self.assertIn("verifier:3-settle-fixv", r["labels"])
+        self.assertNotIn("resolver:3-settle-convert", r["labels"])
+
     def test_段3の問いは初稿の監査の後のg1で聞きnext_argsで3aから書き直す(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
         r1 = run(spec)

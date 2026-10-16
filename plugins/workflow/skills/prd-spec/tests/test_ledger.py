@@ -1177,13 +1177,35 @@ class DomainAssessment(_Workspace):
 
         resolver = contract("resolver")
         writer = contract("writer")
+        cross_doc_contract = contract("cross-doc")
         cross_doc = (SKILL / "agents" / "cross-doc.md").read_text(encoding="utf-8")
+        role_map = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
+        contracts = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
+        ledger = contracts.split("## 決定の台帳", 1)[1].split("\n## ", 1)[0]
+        workflow_io = (SKILL / "references" / "workflow-io.md").read_text(encoding="utf-8")
+        resolver_verification_stage = next(line for line in workflow_io.splitlines() if line.startswith("| 3v |"))
+        resolver_shared_stage = next(line for line in workflow_io.splitlines() if line.startswith("| 3・3a・3b・3a'・6 の共通 |"))
         self.assertIn("同じ軸の ID を更新", resolver)
-        self.assertIn("domain assessment の `supersedes` が指す初期 decision", writer)
-        self.assertIn("他の decision に紐付く初期カテゴリは維持する", writer)
-        self.assertIn("decision に紐付いたカテゴリだけを除外", writer)
-        self.assertIn("初期 decision に紐付いた `plan.required_categories` だけを除外", cross_doc)
-        self.assertIn("後段 `domain_assessment.required_categories` を有効", cross_doc)
+        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", ledger)
+        self.assertIn("後段カテゴリが空でも除外したカテゴリを戻さない", ledger)
+        self.assertIn("この集合の導出と supersession はここを正とする", ledger)
+        self.assertIn("有効な必須カテゴリの集合と supersession は「決定の台帳」", writer)
+        self.assertIn("要求 ID または仕様項目 ID の中身として実現", writer)
+        self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", cross_doc)
+        self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", cross_doc)
+        self.assertIn("## 決定の台帳\n", writer)
+        self.assertIn("## 決定の台帳\n", cross_doc_contract)
+        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", cross_doc_contract)
+        self.assertNotIn("初期 decision に紐付いた `plan.required_categories` だけを除外", cross_doc)
+        self.assertIn("初期 verdict にかかわらず", role_map)
+        self.assertIn("agent-contracts.md「決定の台帳」の後段 domain assessment 規則", role_map)
+        self.assertIn("domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked", contracts)
+        self.assertIn("1 回の修正後も不合格なら問いか保持規則に変換せず blocked", resolver_verification_stage)
+        left_conversion = resolver_shared_stage.split("`<段>-left-convert`", 1)[0][-120:]
+        settle_conversion = resolver_shared_stage.split("`<段>-settle-convert`", 1)[0][-120:]
+        conversion_exception = "domain assessment は「決定の台帳」の規則どおり変換せず blocked"
+        self.assertIn(conversion_exception, left_conversion)
+        self.assertIn(conversion_exception, settle_conversion)
 
     def test_保存済み評価はquestionやholdへ変換または削除できない(self):
         self._baseline()

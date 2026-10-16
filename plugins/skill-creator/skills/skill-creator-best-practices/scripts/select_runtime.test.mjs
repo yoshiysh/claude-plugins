@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { createSnapshot } from './review-snapshot.mjs';
+import { VERSION, createSnapshot } from './review-snapshot.mjs';
 
 const execute = promisify(execFile);
 const selector = fileURLToPath(new URL('./select_runtime.js', import.meta.url));
@@ -15,12 +15,23 @@ const RUNNER_LIMITS = { maxAgents: 1000, concurrency: 8, timeoutMs: 3600000, age
 const reviewSource = await fs.readFile(new URL('../../../workflows/review_skill.js', import.meta.url), 'utf8');
 const callerContract = await fs.readFile(new URL('../references/codex-workflow-compatibility.md', import.meta.url), 'utf8');
 
-async function makeSnapshot(t) {
+async function makeSnapshot(t, { scope = 'full', diffRef } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'selector-snapshot-test-'));
-  const target = path.join(root, 'skill');
-  await fs.mkdir(target);
+  const repo = path.join(root, 'repo');
+  const target = path.join(repo, 'skill');
+  await fs.mkdir(target, { recursive: true });
   await fs.writeFile(path.join(target, 'SKILL.md'), 'target\n');
-  const snapshot = await createSnapshot({ target, scope: 'full' });
+  if (scope === 'diff') {
+    await execute('git', ['init', '--quiet', repo]);
+    await execute('git', ['-C', repo, 'config', 'user.name', 'selector test']);
+    await execute('git', ['-C', repo, 'config', 'user.email', 'selector-test@example.invalid']);
+    await execute('git', ['-C', repo, 'add', 'skill/SKILL.md']);
+    await execute('git', ['-C', repo, 'commit', '--quiet', '-m', 'initial target']);
+    await fs.writeFile(path.join(target, 'SKILL.md'), 'changed target\n');
+    await execute('git', ['-C', repo, 'add', 'skill/SKILL.md']);
+    await execute('git', ['-C', repo, 'commit', '--quiet', '-m', 'change target']);
+  }
+  const snapshot = await createSnapshot({ target, scope, diffRef });
   t.after(async () => {
     await fs.chmod(snapshot.snapshotDir, 0o700).catch(() => {});
     await fs.chmod(path.join(snapshot.snapshotDir, 'SKILL.md'), 0o600).catch(() => {});
@@ -31,11 +42,13 @@ async function makeSnapshot(t) {
 }
 
 function proofArgs(snapshot) {
-  return [
+  const args = [
     '--snapshot-receipt', snapshot.receiptPath,
     '--snapshot-target', snapshot.targetRoot,
     '--snapshot-scope', snapshot.scope,
   ];
+  if (snapshot.scope === 'diff') args.push('--snapshot-diff-ref', snapshot.diffRef);
+  return args;
 }
 
 test('review and audit route through the runner only when the prepared snapshot proof matches', async (t) => {
@@ -61,17 +74,40 @@ test('review and audit route through the runner only when the prepared snapshot 
   assert.match(wrongTarget.rejected_reason, /canonical target/);
 });
 
-test('selector runner limits cover the source maximum single review fan-out', async () => {
+test('selector validates the shared snapshot layout for diff scope', async (t) => {
+  const { snapshot } = await makeSnapshot(t, { scope: 'diff', diffRef: 'HEAD~1...HEAD' });
+  for (const mode of ['review', 'audit']) {
+    const routed = await run('--mode', mode, '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(routed.selected_runtime, 'dynamic-workflow-runner');
+    assert.equal(routed.snapshot_manifest_sha256, snapshot.manifestSha256);
+    assert.equal(routed.snapshot_dir, snapshot.snapshotDir);
+    assert.equal(routed.snapshot_receipt_path, snapshot.receiptPath);
+  }
+});
+
+test('workflow sandbox snapshot version check stays aligned with review-snapshot.mjs', () => {
+  const embeddedVersion = Number(reviewSource.match(/reviewSnapshot\.version !== (\d+)/)?.[1]);
+  assert.ok(Number.isSafeInteger(embeddedVersion));
+  assert.equal(embeddedVersion, VERSION);
+});
+
+test('selector runner limits cover one review and the bounded maximum update fan-out', async () => {
   const findingCap = Number(reviewSource.match(/const MAX_FINDINGS_PER_FINDER = (\d+)/)?.[1]);
+  const updateRounds = Number(reviewSource.match(/const MAX_UPDATE_ROUNDS = (\d+)/)?.[1]);
   const finderBlock = reviewSource.match(/const FINDERS = \[([\s\S]*?)\n\]\n\nconst ACTIVE_FINDERS/)?.[1];
   const perspectiveBlock = reviewSource.match(/const PERSPECTIVES = \[([\s\S]*?)\n\]\n\n\/\/ agentType/)?.[1];
   assert.ok(Number.isSafeInteger(findingCap) && findingCap > 0);
+  assert.ok(Number.isSafeInteger(updateRounds) && updateRounds > 0);
   assert.ok(finderBlock && perspectiveBlock);
   const finderCount = [...finderBlock.matchAll(/^\s+id: '/gm)].length;
   const perspectiveCount = [...perspectiveBlock.matchAll(/^\s+id: '/gm)].length;
-  const oneReviewWorstCase = finderCount * 2 + finderCount * findingCap * perspectiveCount;
+  const oneReviewWorstCase = finderCount + finderCount * findingCap * perspectiveCount;
   assert.ok(oneReviewWorstCase <= RUNNER_LIMITS.maxAgents,
     `source can dispatch ${oneReviewWorstCase} agents before runner cap ${RUNNER_LIMITS.maxAgents}`);
+  const oneUpdateRoundWorstCase = 1 + finderCount * 2 + finderCount * findingCap * perspectiveCount;
+  const updateWorstCase = oneReviewWorstCase + updateRounds * oneUpdateRoundWorstCase;
+  assert.ok(updateWorstCase <= RUNNER_LIMITS.maxAgents,
+    `source can dispatch ${updateWorstCase} agents across one update before runner cap ${RUNNER_LIMITS.maxAgents}`);
 });
 
 test('Codex caller places selector runner_limits on the runner request, outside workflow args', () => {

@@ -22,7 +22,7 @@ export const meta = {
 
 const MAX_FINDINGS_PER_PASS = meta.caps.maxFindingsPerPass
 if (meta.limits.maxAgents !== 10 + MAX_FINDINGS_PER_PASS * 6) {
-  throw new Error('meta.limits.maxAgents must cover fixed calls plus before/after refutation caps.')
+  throw new Error('Codex runner meta.limits.maxAgents must cover fixed calls plus before/after refutation caps.')
 }
 
 // 有効票の下限。3 票中 2 票が返らないと多数決の分母が 1 になり、「1 名が反証しなかった」
@@ -677,20 +677,21 @@ function collectFindings(byAxis, passLabel, canonicalTargets = null) {
 
 // --------------------------------------------------------------------- 反証（Refute）
 
-function refute(findings, phaseTitle, passLabel, inlineDocuments = null) {
+function refute(findings, phaseTitle, passLabel, inlineDocuments = null, readPathOf = (path) => path) {
   // 外側の parallel は指摘どうしが独立だから。内側の parallel（barrier）は多数決の算術が
   // 3 票すべてを必要とするため —— 1 票ずつ流して途中で決めると到着順で結論が変わる。
-  const reviewedFindings = findings.slice(0, MAX_FINDINGS_PER_PASS)
-  const cappedFindings = findings.slice(MAX_FINDINGS_PER_PASS).map((finding) => ({
+  // Codex の host budget だけを bounded にする。native Workflow にはこの Codex 上限を適用しない。
+  const reviewedFindings = inlineDraftMode ? findings.slice(0, MAX_FINDINGS_PER_PASS) : findings
+  const cappedFindings = inlineDraftMode ? findings.slice(MAX_FINDINGS_PER_PASS).map((finding) => ({
     id: finding.id,
     axis: finding.axis,
     type: finding.type,
     claim: finding.claim,
     note: `反証上限 ${MAX_FINDINGS_PER_PASS} 件を超えたため未検証`,
-  }))
+  })) : []
   const targetFilesForFinding = (finding) => {
     const matched = (finding.files || []).filter((file) => scoreTargets.includes(file))
-    return matched.length > 0 ? matched : scoreTargets
+    return (matched.length > 0 ? matched : scoreTargets).map(readPathOf)
   }
   return parallel(
     reviewedFindings.map((f) => () =>
@@ -721,7 +722,7 @@ function refute(findings, phaseTitle, passLabel, inlineDocuments = null) {
                 {
                   type: f.type,
                   axis: f.axis,
-                  file: f.file,
+                  file: f.file ? readPathOf(f.file) : f.file,
                   claim: f.claim,
                   evidence: f.evidence,
                 },
@@ -1055,7 +1056,7 @@ if (after.missing.length > 0 || afterMissingCells.length > 0) {
 const afterFindings = collectFindings(after.byAxis, 'p2', scoreTargets)
 const post =
   afterFindings.length > 0
-    ? await refute(afterFindings, 'Rescore', 'after', inlineDocuments)
+    ? await refute(afterFindings, 'Rescore', 'after', inlineDocuments, inlineDraftMode ? undefined : stagingPathOf)
     : { confirmed: [], rejected: [], unverified: [] }
 
 if (post.overflow) {

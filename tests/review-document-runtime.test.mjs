@@ -9,16 +9,23 @@ import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-
 const sourcePath = new URL('../plugins/workflow/skills/review-document/scripts/review-document.js', import.meta.url).pathname;
 const rubricPath = new URL('../plugins/workflow/skills/review-document/references/rubric.md', import.meta.url).pathname;
 
-function score(label, file, suggestionCount = 0) {
+function score(label, file, suggestionCount = 0, worstSentenceCount = 0) {
   return {
     per_file: [{ file, score: 7, rationale: 'fixture score' }],
-    worst_sentences: [], jargon: [], breakdown: [],
+    worst_sentences: Array.from({ length: worstSentenceCount }, (_, index) => ({
+      file, quote: `long sentence ${index + 1}`, rewrite: `short sentence ${index + 1}`,
+    })),
+    jargon: [], breakdown: [],
     suggestions: Array.from({ length: suggestionCount }, (_, index) => `suggestion ${index + 1}`),
     unreadable: false,
   };
 }
 
-async function fixture(t, { revisedContent = '改稿後の完全な本文\n', missingCoverage = false, inline = true, suggestionCount = 0, updateComplete = true, noChanges = false } = {}) {
+async function fixture(t, {
+  revisedContent = '改稿後の完全な本文\n', missingCoverage = false, inline = true,
+  suggestionCount = 0, rescoreSuggestionCount = 0, worstSentenceCount = 0,
+  rescoreWorstSentenceCount = 0, updateComplete = true, noChanges = false,
+} = {}) {
   const root = await mkdtemp(join(tmpdir(), 'review-document-runtime-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const target = inline ? join(root, 'source.md') : join(root, 'docs', 'source.md');
@@ -37,8 +44,12 @@ async function fixture(t, { revisedContent = '改稿後の完全な本文\n', mi
         readable_targets: missingCoverage ? [] : [target],
         unreadable_targets: [], skipped_targets: [],
       };
-      if (label?.startsWith('score-')) return score(label, phase === 'Rescore' && !inline ? join(root, 'staging', 'source.md') : target,
-        label === 'score-shortness-p1' ? suggestionCount : 0);
+      if (label?.startsWith('score-')) return score(
+        label,
+        phase === 'Rescore' && !inline ? join(root, 'staging', 'source.md') : target,
+        label === 'score-shortness-p2' ? rescoreSuggestionCount : label === 'score-shortness-p1' ? suggestionCount : 0,
+        label === 'score-shortness-p2' ? rescoreWorstSentenceCount : label === 'score-shortness-p1' ? worstSentenceCount : 0,
+      );
       if (label?.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'fixture vote' };
       if (label === 'synthesize') return { suggestions: [], note: 'fixture synthesis' };
       if (label === 'update') {
@@ -59,13 +70,13 @@ async function fixture(t, { revisedContent = '改稿後の完全な本文\n', mi
   return { root, target, original, calls, backend };
 }
 
-async function invoke(fixtureValue, args, runName) {
+async function invoke(fixtureValue, args, runName, { maxAgents = 58 } = {}) {
   return Workflow({ scriptPath: sourcePath, args }, {
     backend: fixtureValue.backend,
     trustedSource: true,
     runDir: join(fixtureValue.root, runName),
     requirements: ['read-only'],
-    maxAgents: 58,
+    maxAgents,
     concurrency: 8,
     timeoutMs: 1800000,
     agentTimeoutMs: 240000,
@@ -193,15 +204,26 @@ test('empty inline draft is not reported as ready', async t => {
   assert.equal(await readFile(f.target, 'utf8'), f.original);
 });
 
-test('native revise keeps its file staging contract', async t => {
-  const f = await fixture(t, { revisedContent: 'native draft\n', inline: false });
+test('native revise refutes all findings against staged files and keeps its file staging contract', async t => {
+  const f = await fixture(t, {
+    revisedContent: 'native draft\n', inline: false,
+    suggestionCount: 8, rescoreSuggestionCount: 8,
+    worstSentenceCount: 1, rescoreWorstSentenceCount: 1,
+  });
   const result = await invoke(f, {
     rubricPath, mode: 'revise', targets: [f.target], constraints: 'keep ids', stagingDir: join(f.root, 'staging'),
-  }, 'native-revise-run');
+  }, 'native-revise-run', { maxAgents: 100 });
 
   assert.equal(result.verdict, 'applied_to_staging');
   assert.equal(result.staging.storage, 'filesystem');
   assert.equal(result.staging.dir, join(f.root, 'staging'));
   assert.equal(await readFile(join(f.root, 'staging', 'source.md'), 'utf8'), 'native draft\n');
   assert.equal(await readFile(f.target, 'utf8'), f.original);
+  const beforeRefutes = f.calls.filter(call => call.options.label?.startsWith('refute-p1-'));
+  const afterRefutes = f.calls.filter(call => call.options.label?.startsWith('refute-p2-'));
+  const stagedPath = join(f.root, 'staging', 'source.md');
+  assert.equal(beforeRefutes.length, 9 * 3);
+  assert.equal(afterRefutes.length, 9 * 3);
+  assert.ok(afterRefutes.every(call => call.prompt.includes(`[TARGET_FILES]:\n${stagedPath}\n`)));
+  assert.ok(afterRefutes.some(call => call.prompt.includes(`"file": "${stagedPath}"`)));
 });

@@ -36,7 +36,7 @@ criteria-author が決める。全 run に一律に課すと、依頼に無い�
 | 完了は、固定した完了条件と別の判定役で決める | text だけで終わるターンが完了扱いになる | `close` |
 | 未充足の一覧を台帳から毎回導出する | 文脈が圧縮されるとタスク一覧が消える | `status` |
 | 台帳は script だけが書き、読むたびに行の連鎖・brief との対応・fix と close の前提を検査する（検査の限界は「残るリスク」） | 手で書き換えた行や、brief を経ずに書き足した記録が、正規の記録として合否と完了の判定に使われる | 全サブコマンド |
-| `brief` は現在の `status.next` に合う役割・criteria-verifier の aspect だけへ発行し、前の brief が記録されるまで次を発行しない。verifier は未報告 viewpoint、writer は既知の未充足 condition をすべて含む（対照の smoke は writer 前にも実行できる） | 司令塔が順序を飛ばしたり、台帳に残る並行作業の結果が別の段階として扱われたりする | `brief` |
+| 同時に未記録の brief を残さず、現在の状態が示す役割の brief だけを発行する | 司令塔が順序を飛ばしたり、台帳に残る並行作業の結果が別の段階として扱われたりする | `brief` |
 | 対照入りの試走（smoke）を本番の検証の前に通す | 対照で期待どおりに出ない手段は、成果物を測れていない | `brief` `record` |
 | agent の起動文は `brief` が返す `invoke` だけ | 司令塔の文が混ざると、ループが検証するのは司令塔の仮説になる | `brief` `record` |
 
@@ -90,9 +90,8 @@ Codex では、各 `brief` の後に次を行う。
 4. `status` の `next` を確認してから次の `brief` を発行する。失敗した agent は `followup_task` で別の
    役割へ転用せず、新しい agent で同じ `invoke` をやり直す。
 
-`criteria-verifier` は `status.next` の aspect、`verifier` は現在の work で未報告の viewpoint を使う。
-対照の smoke は work の前にも実行できる。writer は既知の未充足 condition を全て含め、`R-REQUEST` や
-`R-OUTSIDE` のように condition に結び付かない指摘を直す追加条件は司令塔が選ぶ。
+`criteria-verifier`・`verifier`・`writer` は、`brief` の返り値と拒否理由に従って次の入力を決める。
+対照の smoke は work の前にも実行できる。writer の brief は script が受け付ける条件 ID の範囲で作る。
 
 Codex collaboration の agent は同じ作業ツリーを共有する。`pdca_state.py` は未記録の brief が残る間、
 次の brief を拒否するため、同時に複数の agent は走らせない。writer は brief の担当条件にだけ変更を
@@ -116,11 +115,7 @@ Codex セッションから継承する。Claude Code の役割ごとのモデ�
 ## 司令塔が決めること・決めないこと
 
 - **決める**（script は検査しない）:
-  - writer の担当条件: 1 周につき 1 brief / 1 agent とし、複数条件は同じ writer brief にまとめる。
-    並列にすると台帳が未記録の仕事を抱えたまま次の指示を出せるため、script が重複 brief を拒否する。
-    `status.next` が writer なら、既知の未充足 condition を全て `--conditions` に含める。
-  - 周回の形: 同じ原因を持つ指摘は 1 周でまとめて直す。他の条件が前提にする条件（現状を作る試作
-    など）は、先に writer に渡す（前提が無いまま測ると not_done が並ぶ）。
+  - 周回の形: 同じ原因を持つ指摘は 1 周でまとめて直す。条件間の先行関係を別の writer brief で順次実行する仕組みはなく、どう実行順に反映するかは未規定である。
   - writer のモデル（Claude Code のみ）、人間への提示。
 - **決めない**: 完了条件、検証観点、測定手段、予算、合否。これらは criteria-author が書き、
   criteria-verifier が反証し、script が判定する。司令塔がこれらを決めると、検証観点が場当たりになり、
@@ -166,9 +161,8 @@ script の構造では防げず、読み手が知っておくべきもの。
   依存する。同じ agent に別の役割の brief を続けて渡すことは防げない。
 - **名指しの停止条件**: `criteria.json` の `stops` は、script が成立を判定しない（`status` に表示する
   だけ）。当たったと判断したら、司令塔が止めて人間に報告する。機械的に止めたい上限は `budget` で表す。
-- **範囲外の検証結果と writer 条件**: `R-REQUEST` と `R-OUTSIDE` の指摘をどの criteria condition で
-  解消するかは script が対応付けない。ほかに未充足の condition があれば writer の `conditions` に必ず含め、
-  範囲外の指摘に必要な追加条件は司令塔が選ぶ。
+- **範囲外の検証結果**: `R-REQUEST` と `R-OUTSIDE` の指摘をどの criteria condition で解消するかは script が
+  対応付けない。範囲外の指摘に必要な追加条件は司令塔が選ぶ。
 - **人間ゲートと自動継続**: どちらも司令塔が `close`・`continue` を呼ぶ前提で、script はマージや公開、
   `continue` を呼ばずに終わるターンを止められない。
 - **Codex の agent 同一性**: 新しい collaboration agent の起動と別コンテキストは手順で要求するが、

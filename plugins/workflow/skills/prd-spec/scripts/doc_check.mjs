@@ -3724,10 +3724,10 @@ const CONTRACT_SECTIONS = {
   'flow-framer': [...COMMON_SECTIONS, '§flow-framer', FLOW_SHAPE, '不変条件の kind'],
   resolver: [...COMMON_SECTIONS, '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
   'resolver-verifier': [...COMMON_SECTIONS, '§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
-  writer: [...COMMON_SECTIONS, '§writer', '現物と既存実装の扱い'],
+  writer: [...COMMON_SECTIONS, '§writer', '決定の台帳', '現物と既存実装の扱い'],
   implementer: [...COMMON_SECTIONS, '監査役の共通節', '§implementer'],
   grounding: [...COMMON_SECTIONS, '監査役の共通節', '§grounding', '現物と既存実装の扱い'],
-  'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '§cross-doc'],
+  'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§cross-doc'],
   'flow-check': ['§flow-check'],
 }
 

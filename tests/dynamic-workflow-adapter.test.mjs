@@ -4,13 +4,13 @@ import { cp, mkdir, mkdtemp, realpath, writeFile, readdir, readFile, rm, stat } 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Codex } from '@openai/codex-sdk';
-import { createWorkflow, executeWorkflow, workflowContext } from './adapter.mjs';
-import { contextPolicy } from './contexts.mjs';
-import { readSourceMetadata } from './source.mjs';
-import { cleanupSnapshot, createSnapshot } from '../../../../../skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
+import { Codex } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules/@openai/codex-sdk/dist/index.js';
+import { createWorkflow, executeWorkflow, workflowContext } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/adapter.mjs';
+import { contextPolicy } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/contexts.mjs';
+import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-'));

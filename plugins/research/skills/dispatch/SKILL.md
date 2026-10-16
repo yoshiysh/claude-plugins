@@ -66,7 +66,8 @@ native Claude Workflow の副次的な利点: Workflow ツールは `resumeFromR
   │
   └─[2] Workflow を呼ぶ
           scriptPath: scripts/orchestrate.js
-          args: { topic, executionProfile, maxRounds?, subagentsPerRoundCap? }
+          args: { topic, maxRounds?, subagentsPerRoundCap? }
+          Codex only: add executionProfile: codex_host_default
           ループ本体（Plan → Execute → Verify → Evaluate、収束まで反復 → Synthesize）は
           scripts/orchestrate.js が全て内包する。詳細は同ファイルのコメントを参照。
 ```
@@ -99,16 +100,16 @@ subagent を実行します。native Claude は Fable 5 と planner が選ぶモ
 全役割で host-default model を使います。収束すれば途中で打ち切ります。
 ```
 
-`maxRounds` 既定値は 6、`subagentsPerRoundCap` 既定値は 6（詳細な根拠は
-`scripts/orchestrate.js` 冒頭のコメント参照。voodoo constant であることを認めた上での
-初期値であり、実績を見て調整する対象）。ユーザーが明示的に上限を指定した場合はそれを
+既定値と hard cap は `scripts/orchestrate.js` の literal `meta.defaults` / `meta.caps` を正本とする。
+見積もり時にその値を読み、SKILL.md 側へ写さない。ユーザーが上限を明示した場合はその値を
 `args` に渡す。
 
 ## Step 2: Workflow を呼ぶ
 
 > **実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
-> native を1回だけ使い、`args.executionProfile` を `claude_native` にする。native が使えない Codex では
-> `workflow:dynamic-workflow-runner` を使い、`args.executionProfile` を `codex_host_default` にする。
+> native を1回だけ使い、`executionProfile` を省略する（source は `claude_native` を既定にする）。
+> native が使えない Codex では `workflow:dynamic-workflow-runner` を使い、
+> `args.executionProfile` を `codex_host_default` にする。
 > Codex profile は全 agent call の `model` と `effort` を省略し、shared runner の host-default model に委ねる。
 > planner/executor/verifier の役割、独立した検証、bounded loop は維持するが、Codex を Fable 5 と同一・
 > 同等とは扱わない。source result と host-default の `model.selected` event のどちらにも実 model ID は
@@ -135,39 +136,16 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/orchestrate.js", args: {
 }})
 ```
 
-Codex route の dynamic-workflow-runner request には、`limits` を `args` の外側で渡す。
-source の literal `meta` が上限・既定値・call budget の唯一の数値基準で、`meta.limits` は全 hard cap を
-処理する最大 ceiling である。実行時は requested `maxRounds` と `subagentsPerRoundCap` に合わせて
-runner limits を狭め、source の `runnerLimitsFor` と同じ式で top-level limits を作る。
-
-```javascript
-function deriveRunnerLimits(meta, args) {
-  const rounds = args.maxRounds ?? meta.defaults.maxRounds;
-  const cap = args.subagentsPerRoundCap ?? meta.defaults.subagentsPerRoundCap;
-  const maxAgents = rounds * (meta.callBudget.fixedCallsPerRound + cap * meta.callBudget.callsPerSubagent) + meta.callBudget.finalCalls;
-  return {
-    ...meta.limits,
-    maxAgents,
-    concurrency: Math.min(meta.limits.concurrency, cap),
-    timeoutMs: (rounds * meta.callBudget.parallelPhasesPerRound + meta.callBudget.finalCalls) * meta.limits.agentTimeoutMs + meta.callBudget.timeoutMarginMs,
-    maxOutputBytes: maxAgents * meta.callBudget.expectedOutputBytesPerCall + meta.callBudget.outputBufferBytes,
-  };
-}
-```
-
-`maxAgents` は Plan/Evaluate・max Execute/Verify fan-out・最終 Synthesize の全呼出数、`concurrency` は
-実行 subagent cap、`timeoutMs` は round phase 数・agent timeout・margin、`maxOutputBytes` は呼出数ごとの
-出力 allowance と buffer から算出する。caller は `maxAgents` や cap 数を独自に写さず、source `meta` と
-同じ requested args からこの request helper を作る。runner が一度設定した host を使う場合も、得られた
-per-run limits を host に設定する。source result の
-`model_map_disclosure.required_runner_limits` は計算した値の監査記録であり、既に実行された runner host の
-設定を書き換えるものではない。
+Codex route の dynamic-workflow-runner request では、source の literal `meta.limits` を `args` の外側の
+`limits` にそのまま渡す。これは hard cap 全体を処理する host ceiling で、per-run の再計算や縮小はしない。
+source は `args.maxRounds` と `args.subagentsPerRoundCap` を `meta.defaults` / `meta.caps` に照らして検証し、
+実際のループを制限する。返却される `model_map_disclosure.required_runner_limits` も同じ `meta.limits` を示す。
 
 ```javascript
 {
   scriptPath: "[SKILL_DIR]/scripts/orchestrate.js",
   args: { skillDir: "[SKILL_DIR]", topic: "<topic>", executionProfile: "codex_host_default" },
-  limits: <scripts/orchestrate.js の meta と args から算出した per-run limits>
+  limits: <scripts/orchestrate.js の literal meta.limits をそのまま渡す>
 }
 ```
 
@@ -176,7 +154,7 @@ per-run limits を host に設定する。source result の
 Codex 互換経路で caller が所有する前処理は Step 0〜1、成功後処理は「結果の提示」、human gate は無し。
 Codex profile は全 agent role に host-default model を使い、別のモデルを推定しない。結果には
 `execution_profile` と `model_map_disclosure` が含まれる。Codex profile の `required_runner_limits` は
-source の hard loop caps から算出した runner 上限を返す。runner の `model.selected` event で
+source の `meta.limits` を返す。runner の `model.selected` event で
 `origin=host-default` は確認できるが、実 model ID は source result と event のどちらにも公開されない。
 
 Workflow はバックグラウンドで実行される（`Workflow` ツールの標準挙動）。完了すると
@@ -218,20 +196,30 @@ profile は全 agent call で `model` と `effort` を省略し、runner host de
 source result と runner event は host-default の使用を示すが、実 model ID は分からない。
 この分岐で Fable 5 と Codex の同一性や品質同等性を主張しない。
 
+## Claude model update procedure
+
+Claude の native profile が使う named model を交代する場合は、まず現在の Claude model-selection 仕様と
+置き換え先 model の公式 prompting guidance を確認する。そのうえで `scripts/orchestrate.js` の native
+Plan/Evaluate/Synthesize 呼び出し、planner schema の model enum と disclosure、native の verifier
+fallback、`references/planner-role.md` の選択条件と model 固有の実行境界、evaluator/synthesis の
+model 記述、`references/fable-orchestration-prompting-guide.md` の内容と見出し、関連 evals を揃えて更新し、
+両 profile の targeted tests を実行する。Codex の `codex_host_default` route は `model` と `effort` を
+省略して host default を使うため、この native model 交代には追従させない。
+
 ## References（1 level deep）
 
 - `scripts/orchestrate.js` — ループ本体（Plan/Execute/Verify/Evaluate/Synthesize、
   実行はここで完結する。読む場合はコメントを含めて全文読むこと）
-- `references/planner-role.md` — Plan ステップで読む役割定義
-  （subagent 分解・profile 別 model/effort 選択・thinking-stance.md からのペルソナ付与）
-- `references/verifier-role.md` — Verify ステップで検証 subagent が読む役割定義
-  （fresh-context、`code-review` スキルと同じ CONFIRMED/PLAUSIBLE/REFUTED 語彙を再利用）
-- `references/evaluator-role.md` — Evaluate ステップで読む役割定義
+- `references/planner-role.md` — native Claude Plan ステップで読む役割定義
+  （subagent 分解・model/effort 選択・thinking-stance.md からのペルソナ付与）
+- `references/verifier-role.md` — native Claude Verify ステップで検証 subagent が読む役割定義
+  （fresh-context、`code-review` スキルと同じ CONFIRMED/PLAUSIBLE/REFUTED 語彙を再利用。Codex は専用の role file を読む）
+- `references/evaluator-role.md` — native Claude Evaluate ステップで読む役割定義
   （収束判定基準、Ground progress claims 原則）
-- `references/synthesis-role.md` — 最終統合ステップで読む役割定義
+- `references/synthesis-role.md` — native Claude 最終統合ステップで読む役割定義
   （outcome-first、`chat` の readability パターンを参照）
 - `references/codex-host-default/*.md` — Codex profile の各 role instructions。Fable 固有のガイドは参照せず、
   全 worker を host-default model で実行する。
-- `references/fable-orchestration-prompting-guide.md` — 公式 Fable 5 prompting guide の
+- `references/fable-orchestration-prompting-guide.md` — [Claude model update procedure](#claude-model-update-procedure) が対象にする、公式 Fable 5 prompting guide の
   うち、`chat/references/target-model-prompting-guide.md`（単発助言向け）が扱っていない
   「並列委譲・自己検証・メモリ・自律運用」節を条件抜粋したもの
