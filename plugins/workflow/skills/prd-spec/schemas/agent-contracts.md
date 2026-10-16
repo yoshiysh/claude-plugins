@@ -203,7 +203,8 @@
       "value": "該当",
       "why": "回答で個人のメモを取り込むと分かったため、保持期間と削除を要求カテゴリにする。",
       "evidence": [{ "file": "/repo/answers/g1.md", "line": 2, "quote": "個人のメモを取り込む" }],
-      "domain_assessment": { "aspect": "personal_data", "verdict": "該当", "required_categories": ["保持期間と削除"] }
+      "supersedes": "D-018",
+      "domain_assessment": { "aspect": "personal_data", "initial_verdict": "非該当", "superseded_categories": [], "verdict": "該当", "required_categories": ["保持期間と削除"] }
     }
   ]
 }
@@ -211,11 +212,14 @@
 
 - `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
   `{verification}`（3v で不合格になった決定・要素の ID）/ `{domain: <aspect>}`（後段のドメイン再評価）のどれか 1 つ。
-- `about.domain` の resolution は、plan の初期 `未評価` を後段で再評価する唯一の保存先である。resolver は段 3a・3a' の回答反映で具体的な信号が現れた観点ごとに 1 件を作り、段 3b で回答から組み直した flow に新しい信号が見つかった場合も同じ軸の resolution を更新する。
-  同じ観点に新しい信号が加わったときは同じ ID を更新する。`domain_assessment` は `{aspect, verdict, required_categories}` の形にし、`aspect` は `about.domain` と一致、
-  `verdict` は `該当` / `非該当`、`required_categories` は必要な案件固有カテゴリの文字列配列とする（追加カテゴリが無ければ `[]`）。`value` は verdict と同じ値にする。
-  `evidence` は `answers/g<n>.md` の新しい信号を逐語で引く。`doc_check put` は初期 `plan.domain` が `未評価` であること、欄・verdict・カテゴリ・根拠の形と出典を検査し、
-  resolver-verifier は signal から verdict とカテゴリが導けるかを検証する。実際の要求カテゴリは writer が合格した resolution から文書に反映し、cross-doc が欠けを検査する。
+- **後段 domain assessment の正本・phase・検証**: 初期 `plan.domain` は intake が読んだ入力に対する不変の記録であり、その後の有効状態は `about: {"domain":"<aspect>"}` の resolution 1 件が持つ。
+  resolver は段 3a・3a' の回答反映で初期 verdict を変える具体的な信号が現れた観点だけを評価し、段 3b で回答から組み直した flow に新しい信号が見つかれば同じ軸の ID を更新する。新しい信号が無い軸は変更しない。
+  `domain_assessment` は `{aspect, initial_verdict, superseded_categories, verdict, required_categories}` とする。`aspect` は `about.domain`、`initial_verdict` は初期 `plan.domain.verdict`、
+  `superseded_categories` はその初期 domain decision ID に紐付いた `plan.required_categories.name` の一覧、`verdict` は回答に基づく有効判定、`required_categories` はその判定の有効カテゴリとする。
+  `該当` でもカテゴリが無ければ `required_categories: []`、`非該当` は必ず空配列にする。`value` は `verdict` と一致させる。初期 decision があれば `supersedes` にその ID を入れ、
+  初期 decision とそこに紐付く categories を無効化する。初期 `未評価` では `supersedes` と superseded categories は空にする。根拠は `answers/g<n>.md` の逐語引用で、所有表にある回答ファイルだけを受け付ける。
+  `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、resolver-verifier は signal・有効 verdict・カテゴリ導出を検証する。writer/cross-doc は superseded categories を除き、後段の `required_categories` で置き換える。
+  domain assessment が 1 回修正された後も independent verifier が不合格にした場合は、question / hold に変換せず blocked にする。台帳の評価と不合格 trace は残し、writer に渡さない。
 - ドメイン再評価は `question` ではない。適用評価で必要カテゴリを出す処理と、そのカテゴリ内の具体的な価値判断を分ける。後者を質問にする場合も、`question-policy.md` の条件を別途満たす。
 - `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
   `agents/resolver.md` が正。`answered_by` の `evidence` は回答のファイル（所有表の `answers/` の下）の行を 1 つ以上引く（put が検査する。合格した問いの回答を
@@ -308,7 +312,10 @@
   "targets": ["requirements", "specifications"],
   "docs": [{ "key": "requirements/auth", "concern": "認証と権限", "covers": [], "fixed": false, "decision": "D-010" }],
   "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }],
-  "domain": [{ "aspect": "irreversible", "verdict": "該当 | 非該当 | 未評価", "decision": "D-012", "revisit_when": "明示された削除・送信・公開の操作が追加されたとき" }],
+  "domain": [
+    { "aspect": "irreversible", "verdict": "該当 | 非該当 | 未評価", "decision": "D-012", "revisit_when": "明示された削除・送信・公開の操作が追加されたとき" },
+    { "aspect": "personal_data", "verdict": "非該当", "decision": "D-018" }
+  ],
   "required_categories": [{ "name": "案件の言葉で具体化したカテゴリ", "decision": "D-012" }],
   "self_containment": { "decision": "D-015", "inline": ["文書に書くもの"], "reference": ["参照にとどめるもの"] }
 }
@@ -318,8 +325,8 @@
   ラン外の文書）で、どの単位にも入れない。
 - `units[].depends_on` は先に書き終える単位の ID。互いに参照し合う文書は同じ単位に入れる。
 - `domain` は `references/domain-analysis.md` §2 の観点ごとに 1 つで、`aspect` はそのキー。初期の `該当` / `非該当` は根拠のある `decision` を持つ。
-  `未評価` は適用の有無を断定しない intake 時点の状態で、open や決定を作らず、再評価する具体的な信号を `revisit_when` に持つ。後段の状態は `about.domain` resolution の
-  `domain_assessment` が持つ。依頼文に観点の記載が無いだけでは `非該当` にせず、`未評価` を質問へ昇格させない。質問にする場合は `question-policy.md` の全条件を満たす別個の論点と、
+  `未評価` は適用の有無を断定しない intake 時点の状態で、open や決定を作らず、再評価する具体的な信号を `revisit_when` に持つ。後段状態とカテゴリ置換の正本は「決定の台帳」の後段 domain assessment 規則とする。
+  依頼文に観点の記載が無いだけでは `非該当` にせず、`未評価` を質問へ昇格させない。質問にする場合は `question-policy.md` の全条件を満たす別個の論点と、
   具体的な信号の逐語出典を resolution に残す。`irreversible` が該当なら、初期評価でも後段の評価でも、`kind: invariant` の決定か O- が要る（「## 不変条件の kind」）。
 
 **open.json**
@@ -468,8 +475,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 回答を当てる呼び出し（3a・3a' とその差し戻し）では、候補の `label` 1 つだけではない回答の逐語を、`doc_check answers` の `free` から写して渡す。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
 の更新。put）、`W/routes.json`（段 6。put）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
-`about.domain` の resolution は普通の `ruled` で返す。`about.domain` を新しく使うときは新しい RS- を割り当て、同じ軸を後で更新するときは既存の RS- を `get` して同じ ID に put する。
-初期 `未評価` の軸だけがこの経路の対象である。flow は新しい事実を作らないので、根拠には flow の要約ではなく、その要素の source が指す回答の行を引用する。
+後段 domain assessment の phase、resolution ID の割当・更新、flow 由来 signal の扱いは「決定の台帳」の domain assessment 規則を正とする。
 
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
 
@@ -554,8 +560,7 @@ put の stdout の値をそのまま入れる。`pass`・`fail` の resolution�
 出典の書き方の揺れ（W の絶対パス・`W/`・行の範囲・`:n`）は script が揃え（`deciding`）、揃えても受け取れなければ同じ verifier に 1 回だけ
 聞き直し（`<label>-source`）、それでも受け取れなければ段を止める。
 
-`about.domain` の resolution を渡されたら、初期 `plan.domain` が `未評価` であること、evidence がユーザー由来の信号を正確に示すこと、verdict が信号から導けること、required_categories が案件に必要な具体的カテゴリを過不足なく表し、value と一致することを検証する。
-カテゴリ名だけで抽象的なリスクを網羅したとみなさない。合格した `required_categories` は writer に渡り、cross-doc が文書内の実在または開いた TBD を確認する。
+`about.domain` の検証項目と value / required_categories の区別は「決定の台帳」の domain assessment 規則を正とする。カテゴリ名だけで抽象的なリスクを網羅したとみなさない。
 
 検証の最初に `doc_check flow` を実行し、その `unverified` のうち `failed_current` に無い要素すべての出典も検証して、その F- も `pass`・`fail` に入れる
 （script の渡す ID の一覧は、返り値に載せずに書いた役や所有表の外が書いた要素を知らない）。最後はプロンプトのとおり `doc_check flow --rulings` を実行する。
@@ -655,8 +660,8 @@ digest と、次の 2 つ。
   `<文書キー>§(meta)`、TBD の候補は TBD の ID。script はこれを段 8 の diff と文字列で比べる。形が違うと、
   直した項目がすべて「申告に無い変更」になり、監査が余分に起動する。初稿では空配列でよい。
 
-writer は `plan.required_categories` に加え、合格した `resolutions.json` の `domain_assessment.required_categories` を案件固有の必須カテゴリとして本文に反映する。
-各カテゴリは要求 ID か仕様項目 ID で実現し、その trace は対応する resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
+writer は、有効な `plan.required_categories` を保ち、domain assessment の `supersedes` が指す初期 decision に紐付いたカテゴリだけを除外して、合格したその assessment の `required_categories` で置き換える。他の decision に紐付く初期カテゴリは維持する。後段カテゴリが空なら、superseded decision 由来のカテゴリは残さない。
+各有効カテゴリは要求 ID か仕様項目 ID で実現し、その trace は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
 
 ## 監査役の共通節
 

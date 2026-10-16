@@ -31,8 +31,8 @@ ID の重複・片側にしか無い ID・未定義の参照・表の網羅は d
   行を見逃さない）。検証方法が、何をどう確かめるか分かる形か（「テストする」だけではテストを設計できない）。
   各仕様文書は自分が実現する要求の分だけを表に持つので、全要求が載っていないことは欠落ではない。
 - **必須の欠け**:
-  - `plan.required_categories` が、章か項目として中身で実在するか（名前の一致ではなく中身で判断する）。
-  - 合格した `domain_assessment.required_categories` が、要求 ID か仕様項目 ID として中身で実在するか。詳細が開いた TBD なら欠けではない。
+  - domain assessment により supersede されていない `plan.required_categories` が、章か項目として中身で実在するか（名前の一致ではなく中身で判断する）。
+  - domain assessment がある軸では、初期 decision に紐付いた `plan.required_categories` だけを除外し、他の plan カテゴリを維持したうえで、合格した後段 `domain_assessment.required_categories` を有効な必須カテゴリとして扱う。それぞれが要求 ID か仕様項目 ID として中身で実在するか確かめる。詳細が開いた TBD なら欠けではない。
   - `references/document-structure.md` §1・§2 の必須の章があるか。条件付きの章は、置く条件を文書自身の内容が
     満たすのに無いときだけ指摘する。規格やテンプレートに載っていることは、その案件で要る根拠にならない。
   - データを扱う機能で、登録・参照・更新・削除のうち、仕様も「行わない」の明記も無い操作。1 つの操作が丸ごと

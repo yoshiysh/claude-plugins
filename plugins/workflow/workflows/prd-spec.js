@@ -147,6 +147,7 @@ const minus = (xs, ys) => {
 // VALUE_ABOUT: 価値の論点になりうる about の種類。verification は落ちた決定・要素の扱いで、依頼者に聞く論点ではない。
 const VALUE_ABOUT = ['open', 'pair', 'finding', 'tbd']
 const valueKey = (key) => VALUE_ABOUT.some((k) => String(key || '').startsWith(`${k}:`))
+const domainAssessmentFailures = (fails, about) => (fails || []).filter((f) => String((about || {})[f.id] || '').startsWith('domain:'))
 
 // aboutKey: Set は state に載せられないので、閉じた論点の集合を about の文字列の配列で持つ。
 function aboutKey(about) {
@@ -1034,6 +1035,23 @@ function existingNote() {
   return ['既存文書（W に置いてある。topic を維持する）:', ...rows].join('\n')
 }
 
+function domainAssessmentNote() {
+  const usable = new Set(usableResolutions(state))
+  const rows = Object.entries(state.about || {})
+    .filter(([id, about]) => usable.has(id) && String(about || '').startsWith('domain:'))
+    .map(([id, about]) => ({ id, aspect: about.slice('domain:'.length) }))
+    .sort((a, b) => a.aspect.localeCompare(b.aspect))
+  const knownIds = Object.keys(state.about || {}).filter((id) => RESOLUTION_ID.test(id)).map((id) => Number(id.slice(3)))
+  const next = `RS-${String(Math.max(0, ...knownIds) + 1).padStart(3, '0')}`
+  if (!rows.length) return `現在の domain assessment はありません。新しい評価を作るときの次の resolution ID は ${next} です。`
+  const ids = rows.map((r) => r.id).join(',')
+  return [
+    `有効な domain assessment: ${rows.map((r) => `${r.aspect}=${r.id}`).join('、')}`,
+    `内容を読む: \`${getCli('resolutions', ids)} --fields id,about,value,supersedes,domain_assessment\`。新しい信号が同じ軸の状態を変える場合は、ここに示す同じ ID を更新する。`,
+    `新しい軸の評価を作るときの次の resolution ID: ${next}`,
+  ].join('\n')
+}
+
 // CONTRACT_PARTS: doc_check の CONTRACT_PARTS と同じ（tests が照合する）。契約の節は Bash の出力の上限ごとに分かれて出るので、全部を同じターンに並べる。
 const CONTRACT_PARTS = 2
 const contractCmds = (role) => Array.from({ length: CONTRACT_PARTS }, (_, i) => `\`${cli('contract', `--role ${ROLE_FILES[role]} --part ${i + 1}`)}\``).join('・')
@@ -1388,11 +1406,13 @@ function decidableDefect(f, fc) {
 
 // checkIds: questions --check に渡す問いを script が決める呼び出し（書き換え直した分を前の返り値に写すもの）。
 function resolverPrompt(label, stage, task, checkIds) {
+  const domainContext = task && /plan\.domain|domain assessment/i.test(task) ? domainAssessmentNote() : ''
   return [
     header('resolver', stage, label),
     groundsBlock(),
     `${W}/checks/conflicts.json、${W}/precedent.json も読む。`,
     existingNote(),
+    domainContext,
     task,
     checkIds
       ? `返る前に \`${questionsCheck(checkIds)}\` を実行し、stdout を加工せずに questions_check に入れる。`
@@ -1574,6 +1594,8 @@ async function ruleAndVerify(stage, opt) {
   const rh = await reholdFailed(stage, fix, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) verified = rh.fc
+  const domainFailures = domainAssessmentFailures(v2.fail, state.about)
+  if (domainFailures.length) return { error: `段 ${stage}: domain assessment ${list(domainFailures.map((f) => f.id))} の独立検証が修正後も失敗しました。無効な質問や保持規則に変換せず run を停止します`, rerun: false }
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。落ちた要素は settle が直させる（failedOpen）。
   const toConvert = convertible(v2.fail)
   if (!toConvert.length) return { ok: true, passed, verified, kinds }
@@ -1627,6 +1649,8 @@ async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   const rh = await reholdFailed(stage, `${owner}-fix`, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) fc = rh.fc
+  const domainFailures = domainAssessmentFailures(v.fail, state.about)
+  if (domainFailures.length) return { error: `段 ${stage}: domain assessment ${list(domainFailures.map((f) => f.id))} の独立検証が修正後も失敗しました。無効な質問や保持規則に変換せず run を停止します`, rerun: false }
   const ce = await convertFailed(stage, owner, convertible(v.fail), phaseTitle, allowQuestions)
   if (ce && ce.error) return ce
   return { fc: ce ? ce.fc : fc }
@@ -2441,7 +2465,7 @@ async function stageApply(stageId) {
     task: [
       `段 ${stageId}: ${W}/${gateAnswers(gate)} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
       answerExcerpt(gate, pending),
-      `同じ回答で、新しい signal が明示された plan.domain の初期 未評価 軸を再評価する。具体的な signal が無い軸は変更しない。`,
+      `同じ回答で、初期 plan.domain の verdict / categories を変える具体的な signal があれば about.domain の effective assessment を作成または更新する。初期 verdict は該当・非該当・未評価のいずれでもよい。signal が無ければ変更しない。`,
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
       allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（resolver.md の「8'」）。`,
     ]
@@ -2498,7 +2522,7 @@ async function stage3b() {
             `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
             `- 3a から持ち越した問い: ${list(carried)}`,
             pointedLines([...issueItems([...opens, ...pairs]), ...ownItems(carried, state)]),
-            `回答で組み直した flow に新しいユーザー由来の信号が現れた場合は、初期 未評価 軸の domain assessment を同じ resolution ID で更新する。新しい信号が無ければ触らない。`,
+            `回答で組み直した flow に初期 plan.domain の verdict / categories を変える新しいユーザー由来の signal が現れた場合は、domain assessment を同じ resolution ID で更新する。新しい signal が無ければ触らない。`,
             askNote(ASKS['3b']()),
           ]
             .filter(Boolean)

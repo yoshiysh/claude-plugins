@@ -803,6 +803,27 @@ class Stages(unittest.TestCase):
         self.assertEqual(r["result"]["report_path"], "/tmp/prd-w/report.md")
         self.assertIsNone(r["result"]["next_args"])
 
+    def test_domain_assessmentが修正後も不合格ならtraceを残してwriter前に停止する(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            world = str(Path(tmp) / "world.json")
+            first = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}, "world": world})["result"]
+            self.assertEqual(first["status"], "needs_answers")
+            fail = {"id": "RS-051", "kind": "insufficient_grounds", "reason": "回答 signal が verdict を支えない"}
+            stopped = run({
+                "args": first["next_args"],
+                "world": world,
+                "about": {"RS-051": {"domain": "personal_data"}},
+                "ruled_at": {"3a": ["RS-001", "RS-051"], "3a-fix": ["RS-001", "RS-051"]},
+                "verifier_fail": {"3av": [fail], "3a-fixv": [fail]},
+            })
+            self.assertEqual(stopped["result"]["status"], "blocked")
+            self.assertIn("domain assessment RS-051", stopped["result"]["reason"])
+            self.assertNotIn("resolver:3a-convert", stopped["labels"])
+            self.assertNotIn("writer:U-1:draft", stopped["labels"])
+            disk = json.loads(Path(world).read_text())
+            self.assertEqual(disk["rs"]["RS-051"]["about"], {"domain": "personal_data"})
+            self.assertEqual(disk["verdicts"]["RS-051"]["verdict"], "fail")
+
     def test_段3の問いは初稿の監査の後のg1で聞きnext_argsで3aから書き直す(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
         r1 = run(spec)

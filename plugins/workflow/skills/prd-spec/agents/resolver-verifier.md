@@ -33,6 +33,8 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
   1 つ書く（形は契約 §resolver-verifier）。出典を書けないなら合格にする（出典の無い `decidable` を script は受け取らず、段を止める）。
 - **既にある回答の当てはめ**（`answered_by`）: `evidence` の回答の行が実在し、その回答の文面からこの論点の値が言えるか → 言えなければ `mapping`
   （別の問いへの答えを、その問いの範囲を超えて当てはめたものも含む）。
+- **domain assessment**（`about.domain`）: `agent-contracts.md`「決定の台帳」の規則に従う。`value` は `domain_assessment.verdict` と一致する。`required_categories` は `value` と比較せず、
+  後段の回答信号から必要カテゴリを独立して評価し、`domain_assessment.required_categories` の中身と照合する。
 - `supersedes` があるときは、覆す理由が `why` と `evidence` から言えるか。
 
 **decisions（intake の `source: default` と `precedent`、`kind: invariant`）**: 既定と先例は、方法論の範囲に収まっているか（案件の要求そのもの・
