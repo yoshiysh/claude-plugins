@@ -27,7 +27,14 @@ description: review/update/audit の Verify / Reverify フェーズで finder �
 
 ## やること
 
-1. `[TARGET_DIR]` 配下の該当ファイルを**自分で Read する**。
+1. `[TARGET_DIR]` 配下の該当ファイルを**自分で Read する**。ファイルは 1 つずつ読み、複数 path を
+   `cat` / `head` / `tail` の 1 回のコマンドへまとめない —— ローカルの読取 gate がまとめ読みを止める
+   場合があり、その出力は検証の証拠にならない。大きなファイルや複数ファイルの追加確認には
+   `/bulk-reader` が使えれば利用し、使えない場合は別々の bounded line range で読む。必要な証拠を
+   読めないなら、推測で票を埋めず `unreadable` を返す。
+   `[PHASE]` が Find / Verify なら
+   caller が hash 付きで凍結した読み取り専用 snapshot を読む。`Reverify` なら host-bound staging tree を読む。
+   どちらの phase も元の live target や git worktree を読まない。
    指摘に載っている `evidence`（引用）を、実物と照合する。
 2. **指摘の書き手の説明を信じない。** 引用が実物と一致しない、文脈を切り落としている、
    既に別の箇所で手当てされている、といったことは実際に起きる。書き手の要約を信じて

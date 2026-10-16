@@ -46,6 +46,7 @@ LABEL_FAMILIES = [
     ("settle-rework-resolver", "差し戻し（settle・検証し残しの不合格）", rf"resolver:.+-(?:settle|left|entry){N}-fix", ["`resolver:${owner}-fix`"]),
     ("settle-rework-verifier", "差し戻し（settle・検証し残しの不合格）", rf"verifier:.+-(?:settle|left|entry){N}-fixv", ["`verifier:${owner}-fixv`"]),
     ("convert", "変換", r"resolver:.+-convert", ["`resolver:${owner}-convert`"]),
+    ("convert-verifier", "変換後の問いの検証", r"verifier:.+-convertv", ["`verifier:${owner}-convertv`"]),
     ("convert-kind", "変換の種類の直し", r"resolver:.+-convert-kind", ["`resolver:${owner}-convert-kind`"]),
     ("to-question", "聞ける段の指定の外の hold の書き換え直し", r"resolver:.+-toquestion", ["const TO_QUESTION = '-toquestion'"]),
     ("source-verifier", "decidable の出典の聞き直し", rf"verifier:.+-source{N}", ["reworkLabel(`${label}-source`, n)"]),
@@ -98,6 +99,7 @@ SKIPPED_CLUES = {"unchanged": rf"verifier:{S}v", "carried_only": r"resolver:3b"}
 # 段のテストの時間が倍になる）。足りない 1 行は recurring_ledger_spec で足す。
 COVERING_TESTS = [
     "RerunFromTheSameStage.test_止まったrunが書いて検証していないものは再実行が検証してから段を出る",
+    "ReflectIn3b.test_g1の後の3aはsettleを起動せず反映を3b_reframeに渡し3bvが1回で検証する",
     "FlowFixerRoutes.test_重い段の経路でもlabelは重ならない",
     "Convergence.test_decisionの後の再発はholdを指示しholdの後は尽きてno_progressで止まる",
     "FailedHolds.test_settleのverifierに落ちた保持規則も変換せずに書き直させる",
@@ -186,6 +188,8 @@ class Clues(unittest.TestCase):
             "verifier:3-fix-reholdv": ("rehold-verifier",),
             "flow-check:3a-fix": ("independent-flow",),
             "resolver:3-convert": ("convert",),
+            "verifier:3-settle-convertv": ("convert-verifier",),
+            "verifier:3a-convertv": ("convert-verifier",),
             "resolver:3a-settle-2-convert": ("convert",),
             "resolver:3b-reframe-questions": ("questions",),
             "resolver:3-convert-questions-2": ("questions",),

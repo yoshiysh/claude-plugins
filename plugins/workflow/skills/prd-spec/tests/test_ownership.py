@@ -165,8 +165,10 @@ class OwnershipComesFromContract(unittest.TestCase):
         root = Path(self._tmp.name)
         (root / "skill" / "scripts").mkdir(parents=True)
         (root / "skill" / "schemas").mkdir()
+        (root / "skill" / "references").mkdir()
         self.doc_check = root / "skill" / "scripts" / "doc_check.mjs"
         shutil.copy(DOC_CHECK, self.doc_check)
+        shutil.copy(SKILL / "references" / "domain-analysis.md", root / "skill" / "references" / "domain-analysis.md")
         self.contract = root / "skill" / "schemas" / "agent-contracts.md"
         self.ws = root / "W"
         shutil.copytree(FIXTURE, self.ws)
@@ -223,8 +225,23 @@ class OwnershipComesFromContract(unittest.TestCase):
         self.assertIn("所有表", r.stderr)
 
     def test_doc_checkは所有表の写しを持たない(self):
-        for literal in ("precedent.json", "answers/g", "findings/r", "W_FILES", "'tmp", "`tmp"):
+        for literal in ("precedent.json", "answers/g<n>.md", "findings/r", "W_FILES", "'tmp", "`tmp"):
             self.assertNotIn(literal, SOURCE)
+
+    def test_domainAssessmentのevidence許可パスは所有表から導出する(self):
+        text = CONTRACTS.read_text(encoding="utf-8")
+        row = "| `input.md`、`answers/g<n>.md` |"
+        self.assertIn(row, text)
+        self.contract.write_text(text.replace(row, row + "\n| `answers/custom.md` | test fixture | text | — |", 1), encoding="utf-8")
+        _touch(self.ws, "answers/custom.md", "RS-001: 個人のメモを扱う。\n")
+        plan = json.loads((self.ws / "plan.json").read_text(encoding="utf-8"))
+        plan["domain"] = [{"aspect": "personal_data", "verdict": "未評価", "revisit_when": "非公開情報を扱うと明示されたとき"}]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+        _ok(self.ws, "put", "--ledger", "resolutions", "--token", "t1", doc_check=self.doc_check, stdin={"resolutions": [{
+            "id": "RS-051", "about": {"domain": "personal_data"}, "ruling": "answered_by", "value": "該当",
+            "why": "回答で個人のメモを扱うと分かった。", "evidence": [{"file": str(self.ws / "answers/custom.md"), "line": 1, "quote": "個人のメモを扱う"}],
+            "domain_assessment": {"aspect": "personal_data", "initial_verdict": "未評価", "superseded_categories": [], "verdict": "該当", "required_categories": ["保持期間と削除"]},
+        }]})
 
 
 class CopyBanLivesInOnePlace(unittest.TestCase):
@@ -267,15 +284,30 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             ws = Path(td) / "W"
             shutil.copytree(FIXTURE, ws)
+            plan_path = ws / "plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["domain"] = [{"aspect": "personal_data", "verdict": "非該当", "decision": "D-018"}]
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+            _touch(ws, "input.md", "依頼です。個人のメモを取り込む。\n")
+            _ok(ws, "put", "--ledger", "decisions", "--token", "t1", stdin={"decisions": [{
+                "id": "D-018", "topic": "個人情報の扱い", "value": "取り込まない", "why": "入力の初期判定。",
+                "source": "input", "quote": "個人のメモを取り込む", "layer": "要求", "targets": [],
+            }]})
             for r in body["resolutions"]:
                 if "answer" in r:
                     _touch(ws, r["answer"]["path"], f"{r['id']}: {r['answer']['quote']}\n")
                 for e in r.get("evidence", []):
                     self.assertTrue(e["file"].startswith(self.EVIDENCE_ROOT), e["file"])
-                    e["file"] = str(Path(td) / "repo" / e["file"][len(self.EVIDENCE_ROOT) :])
-                    lines = [""] * max(e["line"], e.get("end", e["line"]))
-                    lines[e["line"] - 1] = e["quote"]
-                    _touch(td, e["file"], "\n".join(lines) + "\n")
+                    rel = e["file"][len(self.EVIDENCE_ROOT) :]
+                    root = ws if rel.startswith("answers/") else Path(td) / "repo"
+                    target = root / rel
+                    lines = target.read_text(encoding="utf-8").splitlines() if target.exists() else []
+                    last = e.get("end", e["line"])
+                    lines.extend([""] * max(0, last - len(lines)))
+                    if e["quote"] not in "\n".join(lines[e["line"] - 1 : last]):
+                        lines[e["line"] - 1] = e["quote"]
+                    e["file"] = str(target)
+                    _touch(root, rel, "\n".join(lines) + "\n")
             _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin=body)
             asked = [r["id"] for r in body["resolutions"] if "question" in r]
             answered = [r["id"] for r in body["resolutions"] if "question" in r and "answer" in r]

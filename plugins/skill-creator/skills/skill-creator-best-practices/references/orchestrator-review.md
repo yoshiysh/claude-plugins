@@ -27,7 +27,7 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
    改稿後の一覧に無いことは「消えた」を意味しない。
 2. **観点の欠落を隠さない。** `by_category.before` が `null` の観点は「その観点では見ていない」。
    合格の材料に数えない。`"unavailable"` の観点（`skipped_unavailable` に載る）も見ていない点は同じで、
-   理由が「担当が応答しなかった」ではなく「依存する skill が実行環境に無かった」だと区別して名指しする。
+   理由が「担当が応答しなかった」ではなく「必要な skill / criteria / capability を実行環境で利用できなかった」だと区別して名指しする。
    `by_category.after` 全体が `null` なのは別の意味で、
    「再検証のパス自体が走らなかった」（review・audit、または改稿前に止まった場合）。
 3. **どちらの時点の指摘かを言う。** `findings_source` が `"before"` なら改稿前、
@@ -39,6 +39,11 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
    ファイルシステム上は誰でも書ける場所で、手が入ったかどうかは読み手には見えない。
    ユーザーの目に触れた値があって初めて、反映直前の再計算が帯域外の書き込みを検出できる。
    値は「承認後の適用手順」の手順 0 で取り、そのまま提示に載せる。
+7. **snapshot verify が `status: verified` 以外なら結果を出さない。** 非 0 終了も同じ扱い。
+   確定・棄却・未検証のどのバケットも、verdict も提示せず、「対象が実行中に変わったか snapshot が
+   壊れたため、今回のレビューは見ていない扱い」と verify の出力（理由）をそのまま伝える。update では
+   staging を適用候補として示さない。drift した snapshot に対する指摘を出すと、読み手は現在の
+   対象を見た結果だと受け取り、見ていないものが「見て問題が無かった」に化ける。
 
 ---
 
@@ -61,7 +66,7 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 
 観点ごとの確定件数: 理由の無い命令 1 / 散文に残った確定的処理 0 / 二重定義 1 /
 経路の無い依頼 1 / description との乖離 0 / ベストプラクティス準拠 0 /
-古くなったプロンプトの書き方 実施できず（prompt-audit がこの環境に無い）
+古くなったプロンプトの書き方 0
 ```
 
 観点の名前と並びは戻り値の `by_category.before` のキーから取る（観点の一覧の正本は script の `FINDERS`。
@@ -70,6 +75,8 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 - `confirmed` は `severity` 順（`blocker` → `major`）に並べる。`reported_minor` は確定ではないので
   【直した方がよいもの】に混ぜない。混ぜると「反論を生き残った」と読まれる。
 - `unverified` か `reported_minor` が 1 件でもあれば、`confirmed` が 0 件でも「問題なし」とは言わない。
+- `unverified` の各指摘には、`missing_perspectives` に記録された票の欠けた観点も添える。
+  指摘ごとに反証が揃わなかった理由が分からないと、確認済みの範囲と未検証の範囲を見分けられない。
 - 最後に「このまま直すこともできます（update）」と一言添える。review だけを頼まれた
   ときに勝手に直さないための線引きが、ここで初めて相手に見える。
 
@@ -82,7 +89,7 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 `skipped_unavailable.before` が空でないとき（`verdict: clean_except_unavailable` を含む）は、冒頭に次を置く。
 
 ```
-※ 観点（〜）は、必要な機能がこの環境に無いため実施していません。その観点では見ていません。
+※ 観点（〜）は、必要な skill / criteria / capability がこの環境に無いため実施していません。その観点では見ていません。
 ```
 
 ---
@@ -101,7 +108,7 @@ review の提示フォーマットをそのまま使う（観点は 1 つなの�
 - `verdict: review_incomplete` のときは、指摘の一覧ではなく次だけを伝える。「指摘なし」とは言わない。
 
 ```
-※ 古くなったプロンプトの書き方の監査（prompt-audit）を実施できませんでした。監査はしていません。
+※ 古くなったプロンプトの書き方の監査（prompt-audit）を完了できませんでした。監査はしていません。
 ```
 
 ---
@@ -320,11 +327,13 @@ script に埋め込むと、install 先（別ディレクトリに展開され�
 
 ### staging はスキル本体の外に置く
 
-`stagingDir` の既定値は review/update の workflow（plugin の `workflows/review_skill.js`）が持つ（対象スキルディレクトリの**兄弟**で
-あって内部ではない）。スキルディレクトリを列挙する検証スクリプトや参照実在チェックは
-配下を再帰的に見るため、内部に置くと未承認のドラフトが本体スキルの一部として
-検査・配布の対象に入る。明示的に `stagingDir` を渡す場合も対象スキルの配下は指定できず、
-script が起動時に落とす。
+Native Workflow で `args.stagingDir` を省略したときの既定値は review/update の workflow
+（plugin の `workflows/review_skill.js`）が持つ。これは対象スキルディレクトリの**兄弟**であって
+内部ではない。Codex runner では caller が `stagingDir` を渡さず、host policy が
+`updatePolicy.stagingRoot/update-<uuid>` を選んで args に注入する。この staging も対象スキルの外に
+置かれる。スキルディレクトリを列挙する検証スクリプトや参照実在チェックは配下を再帰的に見るため、
+内部に置くと未承認のドラフトが本体スキルの一部として検査・配布の対象に入る。明示的に
+`stagingDir` を渡す場合も対象スキルの配下は指定できず、script が起動時に落とす。
 
 ### staging の指紋は司令塔が計算する（script は返せない）
 

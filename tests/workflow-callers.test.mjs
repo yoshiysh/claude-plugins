@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, promises as fs, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
+import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
+import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
 const pluginsRoot = join(repoRoot, 'plugins')
@@ -159,9 +161,9 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
+    ['workflow/review-document/scripts/review-document.js', 'read-only supported'],
     ['workflow/ooda/scripts/ooda.js', 'portable'],
-    ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
+    ['research/dispatch/scripts/orchestrate.js', 'host-default supported'],
     ['research/search/scripts/investigate.js', 'portable'],
   ])
   const observed = new Set()
@@ -184,7 +186,7 @@ test('every active Workflow callsite has an explicit semantic portability classi
 test('every name-form Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
     ['skill-creator:skill-creator-build', 'portable'],
-    ['skill-creator:skill-creator-review', 'rejected_source'],
+    ['skill-creator:skill-creator-review', 'portable'],
   ])
   // prd-spec は classification 行を持たず、Codex 経路は plugins/workflow/skills/prd-spec/tests/test_codex_runner.py が実行で検証する。
   const exempt = new Set(['workflow:prd-spec-run'])
@@ -205,10 +207,14 @@ test('every name-form Workflow callsite has an explicit semantic portability cla
   assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered name-form callsites must match exactly')
 })
 
-test('portable sources avoid hidden host state and the research source stays bounded', () => {
+test('portable and host-default sources avoid hidden host state and the research source stays bounded', () => {
   const sourcePath = join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js')
   const source = readFileSync(sourcePath, 'utf8')
-  const sourcePaths = [sourcePath, join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js')]
+  const sourcePaths = [
+    sourcePath,
+    join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
+    join(pluginsRoot, 'research', 'skills', 'dispatch', 'scripts', 'orchestrate.js'),
+  ]
   for (const path of sourcePaths) {
     const portableSource = readFileSync(path, 'utf8')
     for (const forbidden of [
@@ -249,19 +255,37 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   }
 })
 
-test('rejected sources document their runtime boundary', () => {
+test('Codex-enabled caller boundaries are documented', () => {
   const dispatch = readFileSync(join(pluginsRoot, 'research', 'skills', 'dispatch', 'SKILL.md'), 'utf8')
-  assert.match(dispatch, /rejected_source[\s\S]*load-bearing exact model semantics/)
+  assert.match(dispatch, /args\.executionProfile` を `codex_host_default`/)
+  assert.match(dispatch, /Codex classification: host-default supported/)
 
   const creator = readFileSync(
     join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'references', 'codex-workflow-compatibility.md'),
     'utf8'
   )
-  assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
+  const creatorSkill = readFileSync(join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'SKILL.md'), 'utf8')
+  assert.match(creatorSkill, /Codex classification: `portable`.*review \/ audit/)
+  assert.match(creator, /`review` \/ `audit`[\s\S]*target snapshot receipt/)
+  assert.match(creator, /sorted regular-file inventory[\s\S]*SHA-256/)
   assert.match(creator, /mode: update[\s\S]*updatePolicy[\s\S]*apply-update-package/)
+
+  const reviewDocument = readFileSync(join(pluginsRoot, 'workflow', 'skills', 'review-document', 'SKILL.md'), 'utf8')
+  assert.match(reviewDocument, /Codex classification: read-only supported/)
+  assert.match(reviewDocument, /runner request の `limits` は source の `meta\.limits`/)
 })
 
-test('skill-creator update requires an explicitly bound host policy', () => {
+test('named runner contract matches skill-creator review and audit snapshot routing', () => {
+  const named = readFileSync(join(pluginsRoot, 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'NAMED.md'), 'utf8')
+  assert.match(named, /`review` \/ `audit` are runnable[\s\S]*bounded[\s\S]*frozen snapshot/)
+  assert.match(named, /caller verifies the receipt again after the run/)
+  assert.match(named, /`audit` uses the caller's shared criteria reference/)
+  assert.match(named, /"snapshot": \{"\.\.\.": "review-snapshot\.mjs prepare output"\}[\s\S]*"modelMap":/)
+  assert.match(named, /"limits": \{"\.\.\.": "selector runner_limits, unchanged"\}/)
+  assert.doesNotMatch(named, /Only `create` and host-policy-bound `update` are runnable; `review` stops as `rejected_source`/)
+})
+
+test('skill-creator update checks host policy before snapshot proof and still requires both when bound', async () => {
   const selector = join(
     pluginsRoot,
     'skill-creator',
@@ -281,19 +305,41 @@ test('skill-creator update requires an explicitly bound host policy', () => {
   assert.equal(rejected.selected_runtime, null)
   assert.equal(rejected.halt, true)
   assert.match(rejected.rejected_reason, /rejected_source: mode=update/)
+  assert.doesNotMatch(rejected.rejected_reason, /snapshot proof/)
 
-  const bound = select('--update-policy-bound')
-  assert.equal(bound.selected_runtime, 'dynamic-workflow-runner')
-  assert.equal(bound.halt, false)
+  const boundMissingSnapshot = select('--update-policy-bound')
+  assert.equal(boundMissingSnapshot.selected_runtime, null)
+  assert.equal(boundMissingSnapshot.halt, true)
+  assert.match(boundMissingSnapshot.rejected_reason, /snapshot proof failed/)
 
-  const native = JSON.parse(execFileSync(process.execPath, [
-    selector,
-    '--mode', 'update',
-    '--native-available',
-    '--runner-installed',
-  ], { encoding: 'utf8' }))
-  assert.equal(native.selected_runtime, 'native')
-  assert.equal(native.halt, false)
+  const fixture = await fs.mkdtemp(join(tmpdir(), 'workflow-callers-snapshot-'))
+  const target = join(fixture, 'target')
+  await fs.mkdir(target)
+  await fs.writeFile(join(target, 'SKILL.md'), 'snapshot target\n')
+  const snapshot = await createSnapshot({ target, scope: 'full' })
+  try {
+    const proof = [
+      '--snapshot-receipt', snapshot.receiptPath,
+      '--snapshot-target', snapshot.targetRoot,
+      '--snapshot-scope', snapshot.scope,
+    ]
+    const bound = select('--update-policy-bound', ...proof)
+    assert.equal(bound.selected_runtime, 'dynamic-workflow-runner')
+    assert.equal(bound.halt, false)
+
+    const native = JSON.parse(execFileSync(process.execPath, [
+      selector,
+      '--mode', 'update',
+      '--native-available',
+      '--runner-installed',
+      ...proof,
+    ], { encoding: 'utf8' }))
+    assert.equal(native.selected_runtime, 'native')
+    assert.equal(native.halt, false)
+  } finally {
+    await cleanupSnapshot(snapshot.receiptPath)
+    await fs.rm(fixture, { recursive: true, force: true })
+  }
 })
 
 test('the compatibility runner remains internal-only', () => {

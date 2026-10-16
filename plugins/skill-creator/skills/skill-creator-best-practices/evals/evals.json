@@ -52,10 +52,13 @@
     {
       "id": 5,
       "prompt": "plugins/research/skills/search に prompt-audit をかけて。古いプロンプトの書き方が残ってないか見たい。",
-      "expected_output": "audit モードと判定し、対象スキルの実体パスと範囲（指定が無いので full）を確認してから Workflow（名前 skill-creator:skill-creator-review, mode: audit）を呼ぶ。uncheckedItems は渡さない。結果は確定・棄却・未検証・反証していない軽微な指摘を区別して提示し、直すなら指摘を変更意図にして update で直せると添える。監査が実行環境で使えなかった場合は「指摘なし」とは言わない。ファイルは書き換えない。",
+      "expected_output": "audit モードと判定し、対象スキルの実体パスと範囲（指定が無いので full）を確認する。Workflow の前に review-snapshot.mjs prepare で full snapshot を作り、receipt を selector に渡す。Codex runner では selector の runner_limits を top-level limits にそのまま渡し、Workflow args に snapshot receipt を加え、uncheckedItems は渡さない。完了後に review-snapshot.mjs verify が verified になってから結果を信頼する。prompt-audit は同梱 references/prompt-audit.md を使い、利用できなければ unavailable / incomplete として「指摘なし」とは言わない。結果は確定・棄却・未検証・反証していない軽微な指摘を区別して提示し、直すなら指摘を変更意図にして update で直せると添える。ファイルは書き換えない。",
       "assertions": [
         "audit モードとして扱っているか（review や update に流れていないか）",
         "Workflow を名前 skill-creator:skill-creator-review・mode audit で呼ぶ手順に入っているか（ad-hoc な単一 agent や司令塔自身の監査に落ちていないか）",
+        "Codex runner request が select_runtime.js の runner_limits を args の外側の limits としてそのまま渡しているか",
+        "Workflow 前に bounded snapshot / manifest / diff proof を作り、完了後に verify 済み結果だけを信頼するか",
+        "prompt-audit が同梱 criteria を使い、unavailable を no-findings と混同しないか",
         "uncheckedItems を渡していないか",
         "直す場合は audit の指摘を intent にした update を通すと伝え、本体ファイルを書き換えていないか"
       ]
@@ -63,10 +66,10 @@
     {
       "id": 6,
       "prompt": "このアプリの src/prompts/ 以下のシステムプロンプトに prompt-audit をかけて。",
-      "expected_output": "対象はスキル（SKILL.md を持つディレクトリ）ではなくアプリのシステムプロンプトなので、このスキルの対象外と判定する。Workflow は呼ばず、claude-api skill の prompt-audit を直接使うよう案内して終了する。",
+      "expected_output": "対象はスキル（SKILL.md を持つディレクトリ）ではなくアプリのシステムプロンプトなので、このスキルの対象外と判定する。Workflow は呼ばず、このスキルは SKILL.md を持つスキルディレクトリだけを監査対象にすると伝えて終了する。別の skill を起動したとは言わない。",
       "assertions": [
         "対象外と判定しているか（audit モードで Workflow を呼んでいないか）",
-        "claude-api skill の prompt-audit を直接使うよう案内しているか",
+        "対象範囲を説明し、未実施の監査を実施したと主張していないか",
         "ファイルを書き換えていないか"
       ]
     }

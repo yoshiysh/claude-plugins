@@ -175,12 +175,12 @@ python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked
 ## 保存後の prompt-audit（audit）
 
 保存が済んだら、終了を告げる前に保存したスキルへ audit を 1 回かける。対象は**ディスクに保存した
-スキル**で、Workflow の戻り値の草稿ではない（監査は claude-api skill がファイルを読んで行うので、
-未保存の草稿には当てられない）。保存の承認と保存そのものが先で、ここは保存後の追加の確認にあたる。
+スキル**で、Workflow の戻り値の草稿ではない。保存の承認と保存そのものが先で、ここは保存後の追加の確認にあたる。
 
 1. 保存先を `realpath` で実体パスにし、SKILL.md の「Workflow を呼ぶ（review/update）」の呼び出しを
    `mode: "audit"`・`target.scope: "full"` で行う（透過実行 route も同じ節のものを通す。Codex runner では
-   audit は `rejected_source` で止まるので、「監査は実行していない」と伝えて終える。「問題なし」とは言わない）。
+   同梱の `references/prompt-audit.md` を適用する。snapshot の post-run verification が失敗したときは
+   監査結果を信頼せず、「監査完了」とは言わない）。
 2. 結果は `references/orchestrator-review.md`「audit の提示フォーマット」で提示する。
 3. 指摘を直すかはユーザーが決める。直すなら audit の指摘を `intent` にして update を呼ぶ
    （司令塔が保存済みのスキルを手で直さない）。直さないなら、そのまま終える。

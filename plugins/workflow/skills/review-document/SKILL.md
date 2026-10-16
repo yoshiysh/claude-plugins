@@ -1,9 +1,10 @@
 ---
 name: review-document
 description: >
-  日本語の説明的文書（要求文書・rule・README・スキル本文など）を「短さ・平易さ・独自用語の不使用」
-  の3つの軸で採点し、証拠つきの改善策を返すスキル。求められれば、内容を落とさない改稿案を
-  staging（下書き置き場）に書いて before/after を示す。「この要求文書を読みやすさの観点で見て」
+  [When] Use when a Japanese explanatory document (requirements, rules, README, skill text) needs a readability review or revision.
+  または短く書き直したいとき。[What] 「短さ・平易さ・独自用語の不使用」の3軸で証拠つき採点を行い、
+  求められれば内容を落とさない改稿案を作って before/after を示す（native Workflow は staging、Codex runner は本文をインラインで返却）。
+  「この要求文書を読みやすさの観点で見て」
   「この rule、冗長じゃないか採点して」「この README を短く書き直して」「PRD を渾身の言語化の
   基準でレビューして」「独自用語が多すぎないか確認して」といった依頼で使うこと。
   他のドキュメント生成スキル（prd-spec など）から監査の観点として呼ばれる場合にも使う。
@@ -24,7 +25,7 @@ description: >
 | モード | すること | ファイル書き込み |
 |---|---|---|
 | `review`（既定） | 採点・証拠・改善策を返す | 一切しない |
-| `revise` | review に加えて、改稿案を staging に書き、再採点して before/after を返す | staging のみ。本体は触らない |
+| `revise` | review に加えて改稿案を作り、再採点して before/after を返す。Codex runner が変更箇所なしと判断した場合は `no_changes` とする | native Workflow は staging のみ。Codex runner は本文を返却し、ファイルを書かない |
 
 `review` は合否を出さない（非ブロッキング）。採否は呼び出し側か人間が決める。
 
@@ -53,19 +54,29 @@ script を呼ぶ前に、司令塔（このスキルを読んでいる Claude）
 - [ ] `references/rubric.md`（採点基準の正本）がこのスキルの中に存在するか確認する。
       無い場合も止めない。script が「基準を読めなかった」を欠測として返すので、
       その欠測をそのままユーザーに伝える（黙って一般論で採点すると、基準に無い判定が混ざる）。
+- [ ] Codex runner では `executionMode: "codex-runner"` を渡す。runner の現在の `read-only` 能力を必須にし、
+      `workspace-write` は要求しない。レビュー・改稿案とも source と staging を書き換えない。
+      runner の workspace 情報が届かない場合は、native 用の staging 経路へ黙って切り替えず失敗として伝える。
 
 ## S3. Workflow の呼び出しと args の意味
 
 > **透過実行 route**: 現在の tool inventory に native `Workflow` があり、この call が未試行なら
 > native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
-> 内部互換層として自動利用するが、現行 `review-document.js` は runtime-generated な draft / workspace への
-> 書き込みを必須にするため runner では agent 起動前に `rejected_source` となる（弱めて実行した
-> ことにしない）。native を試行後に error / timeout / invalid result となった場合も runner へ
-> fallback しない。caller の human gate は runner内gateに移さない。
+> 内部互換層として使い、`executionMode: "codex-runner"` を args に渡す。runner は read-only で動き、
+> `revise` の完全な本文を返り値に含めて再採点する。本文はファイルへ書かず、返却できる改稿本文の合計は
+> source の `meta.caps.maxInlineDraftBytes` まで。上限超過や本文・対象パスの欠落時は切り詰めずに `update_failed` とする。native を
+> 試行後に error / timeout / invalid result となった場合も runner へ fallback しない。caller の human
+> gate は runner 内 gate に移さない。
 >
-> **Codex classification: `rejected_source`**（runtime-generated artifacts / FS 書き込み）。
+> **Codex classification: read-only supported**（`review` と bounded inline `revise`）。
+> runner request の `limits` は source の `meta.limits` をそのまま使う。並列・期限・出力上限は source が所有し、
+> SKILL.md に値を写さない。反証上限を超えた run は欠測扱いで止まり、部分的に「問題なし」とは返さない。
 
-```
+`executionMode` は Codex runner に渡す引数で、native Workflow では省略する。route ごとの入力は次のとおり。
+
+**native Workflow**
+
+```js
 Workflow({
   scriptPath: "<このスキルの実ディレクトリ絶対パス>/scripts/review-document.js",
   args: {
@@ -73,8 +84,23 @@ Workflow({
     mode: "review",
     targets: ["/abs/path/docs/requirements/overview.md"],
     focus: null,
-    constraints: null,
-    stagingDir: null
+    constraints: null
+  }
+})
+```
+
+**Codex runner fallback**
+
+```js
+Workflow({
+  scriptPath: "<このスキルの実ディレクトリ絶対パス>/scripts/review-document.js",
+  args: {
+    rubricPath: "<このスキルの実ディレクトリ絶対パス>/references/rubric.md",
+    executionMode: "codex-runner",
+    mode: "review",
+    targets: ["/abs/path/docs/requirements/overview.md"],
+    focus: null,
+    constraints: null
   }
 })
 ```
@@ -86,7 +112,13 @@ Workflow({
 | `targets` | ○ | 対象文書の絶対パス配列。複数渡すと、同じ用語が複数ファイルに跨る場合をまとめて見る |
 | `focus` | 任意 | 「導入部だけ見て」など、人間が特に見てほしい関心。両モード・改稿の前後で維持される |
 | `constraints` | `revise` で必須 | 落とせない性質の自由記述。改稿がこれを壊していないかを別の担当が突き合わせる |
-| `stagingDir` | 任意 | 改稿案の置き場。省略時の既定値は script が決める（値を2箇所に置くとズレるので、ここには書かない） |
+| `executionMode` | Codex runner で必須 | `codex-runner` を指定すると draft をインラインで返す。native Workflow では省略する |
+| `stagingDir` | native Workflow のみ | 改稿案の置き場。Codex runner では指定せず、返却本文を受け取る |
+
+Codex runner の host は `workspace.mode: "read-only"` と `requirements: ["read-only"]` を指定する。
+`workspace-write` は不要であり、source 文書が書き込み可能な状態で workflow を実行してはならない。
+result の `source_fingerprints.status` は現在 `unavailable`。runner source VM に文書の raw bytes を読む API が
+無いため、対象範囲は絶対パスと `coverage` で示すが、入力文書の SHA-256 は主張しない。
 
 ループ回数・並列数・多数決のしきい値は script が持つ。SKILL.md には書かない。
 
@@ -104,7 +136,7 @@ Workflow({
     rubricPath: "<このスキルの実ディレクトリ絶対パス>/references/rubric.md",
     mode: "review",
     targets: ["/Users/me/proj/docs/requirements/retrieval.md"],
-    focus: null, constraints: null, stagingDir: null
+    focus: null, constraints: null
   }
 })
 ```
@@ -152,6 +184,16 @@ Workflow({
   "rejected_count": 1,
   "constraints_defaulted": null,
   "note": "",
+  "coverage": {
+    "requested": ["/Users/me/proj/docs/requirements/retrieval.md"],
+    "readable": ["/Users/me/proj/docs/requirements/retrieval.md"],
+    "unreadable": [], "skipped": [], "missing": [], "unexpected": [], "duplicates": [],
+    "complete": true
+  },
+  "source_fingerprints": {
+    "status": "unavailable",
+    "reason": "Workflow source cannot read file bytes deterministically."
+  },
   "staging": null
 }
 ```
@@ -165,6 +207,8 @@ Workflow({
 | `rejected_count` | 反証で棄却された指摘の件数 |
 | `constraints_defaulted` | `revise` で constraints を既定値で補ったか（`review` では null） |
 | `note` | script からの補足 |
+| `coverage` | 入力パスが `readable` / `unreadable` のどちらか一方に一度ずつ分類されたか。`skipped` は読めた対象のうち採点対象外にしたものの部分集合。欠落・余計なパス・重複・readable にない skipped があれば `complete: false` で採点を始めない |
+| `source_fingerprints` | source VM から raw bytes を読めないため `unavailable`。ファイルの SHA-256 として扱わない |
 
 確認すること：`scores` / `jargon` / `worst_sentences` / `breakdown` の4点セットが揃っているか。
 揃っていない場合は必ず `missing_axes`（軸単位）または `missing_cells`（ファイル×軸単位）に載る。
@@ -180,23 +224,27 @@ Workflow({
 
 ## S5. 返り値の解釈（revise）
 
-`revise` では上に加えて `staging` が入る。
+`revise` では上に加えて `staging` が入る。Codex runner は `storage: "inline"`、`dir: null` とし、
+各 `changed_files[].content` に完全な改稿本文を返す。native Workflow は従来どおり `storage: "filesystem"`
+と staging path を返す。
 
 `scores_before` / `scores_after` の行は S4 の `scores` と同じ形（軸ごとに `{score, rationale}`、
 欠測は `score: null`）。**両方とも `file` は本体側の絶対パス**で、before/after はこの `file` を
-鍵に結合する（配列順に頼らない）。after 行には読ませた staging 側の物理パスが
-`staging_path` として添えて返る。指摘系の配列は id だけでなく `{id, axis, type, claim}` の形。
+鍵に結合する（配列順に頼らない）。native Workflow の after 行には staging 側の物理パスを
+`staging_path` として添え、Codex runner の inline draft には `draft_storage: "inline"` を添える。
+指摘系の配列は id だけでなく `{id, axis, type, claim}` の形。
 
 ```json
 "staging": {
-  "dir": "/Users/me/proj/docs/requirements-review-staging",
-  "changed_files": [{ "path": "retrieval.md", "reason": "メタ文の削除と用語置換", "addresses": ["p1-no_jargon-1"] }],
+  "dir": null,
+  "storage": "inline",
+  "changed_files": [{ "path": "/Users/me/proj/docs/requirements/retrieval.md", "reason": "メタ文の削除と用語置換", "addresses": ["p1-no_jargon-1"], "content": "# 検索要求\n\n...改稿後の完全な本文...\n" }],
   "scores_before": [ { "file": "/Users/me/proj/docs/requirements/retrieval.md",
     "shortness": { "score": 4, "rationale": "..." },
     "plainness": { "score": 6, "rationale": "..." },
     "no_jargon": { "score": 5, "rationale": "..." } } ],
   "scores_after": [ { "file": "/Users/me/proj/docs/requirements/retrieval.md",
-    "staging_path": "/Users/me/proj/docs/requirements-review-staging/retrieval.md",
+    "draft_storage": "inline",
     "shortness": { "score": 7, "rationale": "..." },
     "plainness": { "score": 7, "rationale": "..." },
     "no_jargon": { "score": 8, "rationale": "..." } } ],
@@ -224,7 +272,11 @@ Workflow({
 人間へは次の順で出す。**本体ファイルは1バイトも変わっていない**ことを最初に言う
 （改稿が既に適用されたと誤解されると、承認そのものが意味を失う）。
 
-1. staging の場所と、変えたファイル
+`verdict: "no_changes"` の場合は改稿本文がありません。before の採点だけを示し、`scores_after: null` と
+制約照合が未実施であることを伝え、承認や差し戻しは尋ねません。以下の手順は `draft_ready` と
+`applied_to_staging` にだけ適用します。
+
+1. Codex runner ではファイルを作っていないことと、返却された本文が改稿案であることを示す。native Workflow では staging の場所を示す
 2. before/after のスコア表
 3. 解消（`resolved`）／残存（`remaining`）／新規（`new`）／再分類（`reclassified`）／
    未検証の持ち越し（`carried_unverified`）の件数と中身
@@ -232,8 +284,10 @@ Workflow({
    `constraint_unchecked` があれば突き合わせが**未確認**であることを明示する
 5. 承認するか差し戻すかを聞く（承認後の本体への反映は、人間の指示を受けてから行う）
 
-`verdict` は `applied_to_staging`（改稿して再採点まで通った）／`update_failed`（改稿の担当が
-応答しなかった。staging に何が書かれたかは script からは分からないので、dir を示して確認を促す）／
+`verdict` は `no_changes`（Codex runner が変更箇所なしと判断し、本文を返していない。`scores_after` は null で制約照合も未実施）／
+`draft_ready`（Codex runner が改稿をインラインで返し再採点まで通った）／
+`applied_to_staging`（native Workflow が改稿して再採点まで通った）／`update_failed`（改稿担当の失敗、対象・本文の不一致、
+または Codex runner の本文上限超過。Codex runner は本文を切り詰めず、ファイルにも書かない）／
 `reverify_incomplete`（再採点で軸が欠けた。残存0件と読めないので止める）。
 
 ## S6. 欠測とゼロ点の区別
@@ -309,15 +363,15 @@ Workflow({
 
 ## S13. staging のライフサイクル
 
-- 置き場所は対象文書群の**兄弟**ディレクトリ（対象の配下には作らない）。配下に作ると、
+- native Workflow の置き場所は対象文書群の**兄弟**ディレクトリ（対象の配下には作らない）。配下に作ると、
   再採点の担当が本体と下書きの両方を読み、下書きで直した箇所が本体側から同じ指摘として
   再び出て、before/after の突き合わせが成立しない。
-- 承認されたら、人間の指示を受けてから `staging.changed_files` に載っているファイルだけを
-  本体へコピーする。載っていないファイルは中身が変わっていないので、コピーすると
-  承認されていない上書きになる。
-- 差し戻されたら staging はそのまま残す。次に `revise` を回すとき、同じ `stagingDir` を
-  指定すれば前回の下書きが上書きされる。放置された staging を本体と間違えないよう、
-  ユーザーに「不要なら削除してよい」と一度伝える。
+- Codex runner は staging path を作らず、`staging.changed_files[].content` に完全な改稿本文を返す。
+  承認された場合だけ、ユーザーまたは呼び出し側がその本文を保存する。workflow 自身は本体へ適用しない。
+- native Workflow で承認されたら、人間の指示を受けてから `staging.changed_files` に載っているファイルだけを
+  本体へコピーする。載っていないファイルは中身が変わっていないので、コピーすると承認されていない上書きになる。
+- native Workflow で差し戻されたら staging はそのまま残す。次に `revise` を回すとき、同じ `stagingDir` を
+  指定すれば前回の下書きが上書きされる。放置された staging を本体と間違えないよう、ユーザーに「不要なら削除してよい」と一度伝える。
 
 ## S14. 後続スキルからの呼び出し契約
 

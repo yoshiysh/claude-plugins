@@ -58,7 +58,8 @@ source に Codex 専用引数を足したり、ラベル名や自然文から必
    既定の対応値は `read-only`、`fresh-thread`。host の workspace 設定に応じて
    `workspace-write`、`worktree` を追加する。未提供の機能は最初の呼出し前に拒否する。
    動的に構成する option も宣言対象。source 全体の静的推定が完成したとは扱わない。
-   `review` は Codex runner では未対応。`update` は common caller の静的 `updatePolicy`
+   skill-creator の `review` / `audit` は caller が bounded frozen snapshot を準備し、完了後に再検証する経路で対応する。
+   runner 自体は snapshot の準備・post-run validation を代行しない。`update` は common caller の静的 `updatePolicy`
    と runtime capability が揃う場合だけ execution 前の検証を通し、承認後は caller の
    hash-bound apply helper で適用する。詳細は caller の Codex 互換契約を正とする。
 

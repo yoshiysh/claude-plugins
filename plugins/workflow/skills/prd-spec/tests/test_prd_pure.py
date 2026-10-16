@@ -140,6 +140,7 @@ class Pure(unittest.TestCase):
     def test_aboutKeyは組の向きに依らない(self):
         self.assertEqual(value("aboutKey({pair: ['D-2', 'D-1']})"), value("aboutKey({pair: ['D-1', 'D-2']})"))
         self.assertEqual(value("aboutKey({tbd: 'TBD-RA-001'})"), "tbd:TBD-RA-001")
+        self.assertEqual(value("aboutKey({domain: 'personal_data'})"), "domain:personal_data")
         self.assertIsNone(value("aboutKey({})"))
 
     def test_missedTargetsは返り値のaboutに無い対象を数える(self):

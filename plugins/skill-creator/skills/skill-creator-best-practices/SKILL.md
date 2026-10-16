@@ -52,7 +52,7 @@ script の集計・欠測検出を通す必要がある（散文で起動する�
 | 変更・コミット・PR の範囲を挙げて評価を求める（「直近の変更をレビューして」「main...HEAD を見て」） | `review` | 「対象と範囲の確認（review/update）」へ |
 | 評価に加えて直すことまで求める（「Issue に沿ってこのスキルを更新して」「指摘を反映して」） | `update` | 「対象と範囲の確認（review/update）」へ |
 | 既存スキルへの prompt-audit を名指しする（「このスキルに prompt-audit をかけて」「古いプロンプトの書き方が残ってないか監査して」「このスキルを audit して」） | `audit` | 「対象と範囲の確認（review/update）」へ |
-| スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー・スキルではないアプリのプロンプトやコードの prompt-audit | 対象外 | このスキルを使わない旨を伝えて終了（アプリの prompt-audit なら claude-api skill の prompt-audit を直接使うよう伝える） |
+| スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー・スキルではないアプリのプロンプトやコードの prompt-audit | 対象外 | このスキルの対象外と伝えて終了。別の skill や workflow を使ったと偽らない |
 | 何を対象にするか読み取れない・入力が空 | 判定不能 | create / review / update / audit のどれかと対象を 1 回で聞き返す |
 
 **複数行に一致したときの優先順位**：作成・評価・更新・監査の**実体を伴う行**（上 5 行）を優先し、
@@ -86,11 +86,15 @@ Workflow を呼ぶ（/skill-creator:skill-creator-build が全て内包）
 ```
 対象と範囲の確認（司令塔が単独で実行・人間ゲート）
 
+Snapshot prepare → selector（司令塔が script を実行。手順は Phase 2）
+
 Workflow を呼ぶ（/skill-creator:skill-creator-review。ここで回るのは 2 フェーズだけ）
   Find     観点別 finder を並列で fan-out（観点の一覧は script の FINDERS が唯一の正）
   Verify   改稿を動かす重さ（script の REVISE_SEVERITIES）の finding ごとに観点の異なる反証者を
            独立に立て、過半数の反証で棄却。それ以外の重さは反証せず未検証として返す
-  ※ Update / Reverify は起動しない。ファイルは 1 バイトも書かれない
+  ※ Update / Reverify は起動しない。対象スキルは 1 バイトも書き換えない（書くのは prepare の os.tmpdir() 配下の snapshot だけ）
+
+Snapshot verify（司令塔が script を実行。verified 以外なら結果を無効として扱う）
 
 結果の提示（司令塔が単独で実行）
   └─ 確定・棄却・未検証・反証していない軽微な指摘を件数ごと提示。直すかどうかは人間が決める
@@ -101,6 +105,8 @@ Workflow を呼ぶ（/skill-creator:skill-creator-review。ここで回るのは
 ```
 対象と範囲と変更意図の確認（司令塔が単独で実行・人間ゲート）
 
+Snapshot prepare → selector（review と同じ。Codex runner の update は host-bound updatePolicy も要る）
+
 Workflow を呼ぶ（/skill-creator:skill-creator-review。review の 2 フェーズに 2 つ続く）
   Find     観点別 finder を並列で fan-out
   Verify   review と同じ（反証するのは REVISE_SEVERITIES の finding だけ）
@@ -108,12 +114,14 @@ Workflow を呼ぶ（/skill-creator:skill-creator-review。review の 2 フェ�
   Reverify staging に同じ観点を再適用し、最初の Verify の確定指摘と突き合わせる
            （報告させるのは変更ファイルと再確認する指摘のファイルだけ）
 
+Snapshot verify（review と同じ）
+
 結果の提示と適用（司令塔が単独で実行・人間ゲート）
   └─ 解消/残存/新規/未検証を提示 → 承認後に司令塔が staging を本体へ反映
 ```
 
 **audit:** review と同じ流れで、Workflow（`/skill-creator:skill-creator-review` を mode audit で）は Find / Verify を
-claude-api skill の prompt-audit を当てる観点 1 つだけで回す。ファイルは書かない。直すなら audit の指摘を intent にして update を呼ぶ。
+同梱の `references/prompt-audit.md` に照らす観点 1 つだけで回す（snapshot の prepare / verify も review と同じ）。対象スキルは書き換えない。直すなら audit の指摘を intent にして update を呼ぶ。
 
 review と改稿の間に人間ゲートは置かない。本体ファイルは承認まで書き換えないため、途中で止める必要が無い。
 
@@ -162,7 +170,7 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 > 経路（native `Workflow` / native が無い Codex での `workflow:dynamic-workflow-runner` / 停止）はその script が決め、
 > 判定条件を散文から読み取って自己適用しない（「未試行か」の状態追跡が実行者の記憶に乗ると、同じ呼び出しでも経路がブレる）。
 > 出力の `selected_runtime` をそのまま使い、`halt: true` なら agent を 1 体も起動せず `rejected_reason` を伝えて止める。
-> native 試行後の失敗は runner へ fallback しない。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
+> native 試行後の失敗は runner へ fallback しない。Codex request の `limits` は selector が返す `runner_limits` をそのまま args の外側に渡す。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode create --native-available --runner-installed`
 > **Codex classification: `portable`**（`build_skill.js` create）。
 >
@@ -263,13 +271,26 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 
 ## Phase 2: Workflow を呼ぶ（review/update）
 
-> **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら workflow を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
-> `rejected_source`。update は common caller の host が静的 `updatePolicy` を束縛した場合だけ
-> `--update-policy-bound` で選択でき、runtime も agent dispatch 前に検証する（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update / audit mapping」）。
-> review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`（audit は `--mode audit` で同じ判定を通る）
-> update の runner 例: `node [SKILL_DIR]/scripts/select_runtime.js --mode update --no-native --runner-installed --update-policy-bound`（host policy が無ければ flag を付けず停止する）。
-> **Codex classification: review と audit は `rejected_source`、update は host policy 条件付き**。
+> **透過実行 route**: selector は [create と同じ](#workflow-を呼ぶcreate) `scripts/select_runtime.js` だが、review / update / audit は snapshot proof を要するので **prepare を selector より先に**走らせる。receipt を持たずに selector を呼ぶと halt する。
+> 手順と引数の正本は [Codex Workflow 互換契約](references/codex-workflow-compatibility.md)「共通 route」の手順 1・6、Codex の top-level limits / modelMap と update の host-bound `updatePolicy` は同「review / update / audit mapping」。
+> **Codex classification: `portable`**（review / audit は frozen snapshot、update は frozen snapshot と host-bound policy が必要）。
+
+対象と範囲を確定した後、次の順で進める（`<canonical target path>` は `realpath` 済み絶対パス）。
+
+```bash
+# 1. prepare（scope に合う方）
+node [SKILL_DIR]/scripts/review-snapshot.mjs prepare --target "<canonical target path>" --scope full
+node [SKILL_DIR]/scripts/review-snapshot.mjs prepare --target "<canonical target path>" --scope diff --diff-ref "main...HEAD"
+# 2. selector（review・full の例。receipt は 1 の receiptPath、target / scope / diff-ref は 1 の引数そのまま）
+node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed \
+  --snapshot-receipt "<receiptPath>" --snapshot-target "<canonical target path>" --snapshot-scope full
+# 4. Workflow 完了後に必ず verify
+node [SKILL_DIR]/scripts/review-snapshot.mjs verify --receipt "<receiptPath>"
+```
+
+2 で `halt: true` なら workflow を起動せず `rejected_reason` を伝えて止める。3（Workflow）では 1 が返した JSON 全体を `args.snapshot` に渡し、`target` の path / scope / diffRef を 1 の引数と一致させる。4 が `status: verified` 以外（非 0 終了を含む）のときの伝え方は `references/orchestrator-review.md`「提示の原則」が正本。
+
+Native Workflow の update は `args.stagingDir` に書く。省略時の既定は対象スキルの兄弟ディレクトリで、値は plugin の `workflows/review_skill.js` が正本。元 target は変更しない。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
@@ -286,27 +307,27 @@ Workflow({
       diffRef: "<scope=diff のときの git 範囲指定。例 main...HEAD>",
       focus: "<任意。Issue 本文・見てほしい観点>"
     },
+    snapshot: <review-snapshot.mjs prepare が返す JSON object 全体>,
     uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま。review/update では必須、audit では渡さない>,
     intent: "<update のときの変更意図。update では必須>",
-    promptAuditExpected: <select_runtime.js の selected_runtime が "native" なら true、"dynamic-workflow-runner" なら false。必須>,
+    promptAuditExpected: true,
     stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>"
   }
 })
 ```
 
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
-どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
-agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
-Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する。
-`diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
+どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す。finder / refuter は `snapshot.snapshotDir` だけを読んで、live target は読まない。
+Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する（根拠は互換契約「review / update / audit mapping」）。
+`target.scope` が `diff` なのに `target.diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
 audit なのに `uncheckedItems` を渡した（audit は委譲項目を判定する観点を走らせない）、
-`stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
+snapshot の target / scope が一致しないか selector の receipt hash 検証に失敗した場合、script / route は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
-改稿の打ち切りは回数ではなく進捗で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
+改稿の打ち切りは進捗条件と安全上限で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
 [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本。
 
 **観点の一覧・反証者の立て方・多数決の閾値・反証する重さ・打ち切りの判定（`STALL_ROUNDS` /
-`MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
+`MAX_UPDATE_ROUNDS` / `MIN_ROUND_BUDGET_TOKENS`）・staging の既定値は
 plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点名やパスを書き写すと、同じ定義が 2 箇所に
 存在して必ずズレる（それ自体が `duplicate-claims` 観点の指摘対象になる）。中身は script を読む。
 
@@ -316,12 +337,12 @@ plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点�
 ここには**司令塔がどう提示するか**だけを書く。提示フォーマットの実物は
 `references/orchestrator-review.md`。
 
-**review / audit:**（audit は native でしか走らず `promptAuditExpected: true` なので、prompt-audit が実施できなければ `review_incomplete` になる）
+**review / audit:**（audit は native / Codex runner の両方で同梱 criteria を使う。criteria が利用できなければ no-findings にせず `review_incomplete` または unavailable として示す）
 
 | verdict | 司令塔の振る舞い |
 |---|---|
 | `clean` | 確定も未検証も、反証していない `reported_minor` も、委譲項目の未達も、実施できなかった観点も無いと伝える。棄却の件数は添える |
-| `clean_except_unavailable` | 指摘は無いが、`skipped_unavailable.before` の観点は依存する skill が実行環境に無く**見ていない**と名指しして伝える。「問題なし」とは言わない |
+| `clean_except_unavailable` | 指摘は無いが、`skipped_unavailable.before` の観点は必要な skill / criteria / capability を実行環境で利用できず**見ていない**と名指しして伝える。「問題なし」とは言わない |
 | `findings` | `confirmed` を severity 順に提示し、`rejected` / `unverified` / `unchecked_failures` の件数と、反証していない `reported_minor` の中身も必ず添える。`confirmed` が 0 件でも `unverified` か `reported_minor` があれば「問題なし」と言わない |
 | `review_incomplete` | `by_category.before` が `null` の観点を名指しし、見ていないと伝える。合格と読ませない |
 
@@ -391,7 +412,7 @@ Workflow を呼ぶ・script が組んだ収支を verbatim に relay する・�
 | `revisions_used` | `0` 固定 |
 | `stop_reason` | `null` 固定（改稿ループが無い） |
 | `findings_before` | `null` 固定（改稿前の結果は `findings` そのもの） |
-| `skipped_unavailable.before` | 依存する skill が実行環境に無く実施できなかった観点。欠測（`by_category.before` の `null`）とは別枠で、`by_category.before` には `"unavailable"` として載る。1 つでもあれば `clean` にならない |
+| `skipped_unavailable.before` | 必要な skill / criteria / capability を実行環境で利用できず実施できなかった観点。欠測（`by_category.before` の `null`）とは別枠で、`by_category.before` には `"unavailable"` として載る。1 つでもあれば `clean` にならない |
 
 ### audit
 

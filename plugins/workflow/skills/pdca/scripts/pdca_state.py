@@ -678,11 +678,28 @@ def prior_findings(state: State, role: str, conditions: list, viewpoint: str | N
 def cmd_brief(args) -> int:
     state = State(user_path(args.run_dir))
     role = args.role
+    pending = sorted(set(state.briefs) - state.used)
+    if pending:
+        raise StateError(f"未記録の brief がある: {', '.join(pending)}（先に record する）")
     if role != "criteria-author":
         state.check_criteria_digest()
     nxt = state.next()
     if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
         raise StateError(f"停止中（next = {nxt}）")
+    if role == "criteria-author" and state.fixed():
+        raise StateError("fix 済みで、criteria 層の未解決の指摘も amend も無い")
+    if role not in ("criteria-author", "criteria-verifier") and not state.fixed():
+        raise StateError(f"criteria が fix されていない状態で {role} は呼べない")
+    expected_role = "criteria-verifier" if nxt.startswith("criteria-verifier:") else nxt
+    preflight_smoke = False
+    if role == "verifier" and nxt == "writer" and len(args.viewpoint or []) == 1:
+        criteria = state.criteria()
+        vp = viewpoints_of(criteria).get(args.viewpoint[0])
+        preflight_smoke = bool(vp and vp.get("controls") and not state.smoke_ok(args.viewpoint[0]))
+    if role != expected_role and not preflight_smoke:
+        raise StateError(f"brief の role は現在の status.next ({nxt}) と一致しない")
+    if role == "criteria-verifier" and args.aspect != nxt.partition(":")[2]:
+        raise StateError(f"criteria-verifier の aspect は現在の status.next ({nxt}) と一致しない")
     conditions = args.conditions or []
     if conditions and role != "writer":
         raise StateError("--conditions は writer だけが取る")
@@ -696,15 +713,12 @@ def cmd_brief(args) -> int:
     brief: dict = {"role": role}
     record = {"role": role}
     if role == "criteria-author":
-        if state.fixed():
-            raise StateError("fix 済みで、criteria 層の未解決の指摘も amend も無い")
+        pass
     elif role == "criteria-verifier":
         if state.ledger.last("criteria_written") is None:
             raise StateError("criteria-author の記録がまだ無い")
         brief["aspect"] = record["aspect"] = args.aspect
     else:
-        if not state.fixed():
-            raise StateError(f"criteria が fix されていない状態で {role} は呼べない")
         criteria = state.criteria()
         table = viewpoints_of(criteria)
         cond_ids = {c["id"] for c in criteria["conditions"]}
@@ -714,6 +728,17 @@ def cmd_brief(args) -> int:
             unknown = [c for c in conditions if c not in cond_ids]
             if unknown:
                 raise StateError(f"criteria に無い条件 ID: {', '.join(unknown)}")
+            verdicts = state.verdicts(criteria)
+            unmet_conditions = {v["condition"] for v in verdicts.values()
+                                if v["condition"] is not None and v["status"] != "pass"}
+            unmet_unscoped = any(v["condition"] is None and v["status"] != "pass" for v in verdicts.values())
+            supplied_conditions = set(conditions)
+            missing_conditions = sorted(unmet_conditions - supplied_conditions)
+            extra_conditions = sorted(supplied_conditions - unmet_conditions)
+            if missing_conditions:
+                raise StateError(f"writer の conditions に未充足条件が含まれていない: {', '.join(missing_conditions)}")
+            if extra_conditions and unmet_conditions and not unmet_unscoped:
+                raise StateError(f"writer の conditions に未充足でない条件が含まれる: {', '.join(extra_conditions)}")
             if state.next_writer_opens_round and state.rounds_used >= criteria["budget"]["rounds"]:
                 raise StateError(f"rounds の予算（{criteria['budget']['rounds']}）を使い切った")
             brief["conditions"] = record["conditions"] = conditions
@@ -721,6 +746,8 @@ def cmd_brief(args) -> int:
             vid = viewpoints[0]
             if vid not in table:
                 raise StateError(f"criteria に無い観点 ID: {vid}")
+            if state.verdicts(criteria)[vid]["reported"]:
+                raise StateError(f"現在の work では検証済みの viewpoint: {vid}")
             vp = table[vid]
             mode = "smoke" if vp.get("controls") and not state.smoke_ok(vid) else "verify"
             if mode == "verify" and not state.ledger.of("work", after=state.fix_seq):

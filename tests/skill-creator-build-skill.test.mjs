@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
-import { compileSource } from '../../../../workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { compileSource } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
 
-const source = await readFile(new URL('../../../workflows/build_skill.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../plugins/skill-creator/workflows/build_skill.js', import.meta.url), 'utf8');
 const { body, meta } = compileSource(source, []);
 
 const DRAFT = '---\nname: example\ndescription: Use when testing.\n---\n# Example\n';

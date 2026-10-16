@@ -373,6 +373,36 @@ review/update/audit の workflow（plugin の `workflows/review_skill.js`）が 
 `FINDERS` / `PERSPECTIVES` / `MIN_VALID_VOTES` / `REVISE_SEVERITIES` / `PROMPT_AUDIT_SEVERITY` が唯一の正**なので、ここには写さない。
 ここが定義するのはフィールドの形と、その形が保証していることだけ。
 
+### caller input: `snapshot`
+
+`review` / `update` / `audit` は `review-snapshot.mjs prepare` の出力を `args.snapshot` として渡す。
+`targetRoot` は `target.skillPath` と同じ canonical absolute path、`scope` は `target.scope` と同じ値でなければならない。
+`diff` は同じ `diffRef`・実際の diff bytes・changed paths を持つ。`select_runtime.js` は receipt と manifest の hash、
+対象 tree の各 content hash、diff artifacts を検証してから route する。Workflow の戻り値にある
+`source_snapshot.validation` は `required_after_workflow_before_result_is_trusted`。caller は post-run `verify` が
+`status: verified` を返すまで review verdict を信頼しない。
+
+```json
+{
+  "version": 1,
+  "status": "ready",
+  "scope": "diff",
+  "targetRoot": "/abs/repo/plugins/example/skills/demo",
+  "snapshotDir": "/tmp/codex-skill-review-random/tree",
+  "manifestPath": "/tmp/codex-skill-review-random/manifest.json",
+  "manifestSha256": "<sha256>",
+  "receiptPath": "/tmp/codex-skill-review-random/receipt.json",
+  "diffRef": "main...HEAD",
+  "diffPath": "/tmp/codex-skill-review-random/diff.patch",
+  "changedPathsPath": "/tmp/codex-skill-review-random/changed-paths.json",
+  "diffSha256": "<sha256>",
+  "changedPaths": ["SKILL.md"]
+}
+```
+
+`full` では diff 関連フィールドは `null` で、`changedPaths` は空配列。selector の Codex route が返す `runner_limits` は
+dynamic-workflow-runner request の top-level `limits` へ渡し、`args` には入れない。
+
 ### finder の出力（FINDINGS_SCHEMA）
 
 ```json
@@ -402,8 +432,8 @@ review/update/audit の workflow（plugin の `workflows/review_skill.js`）が 
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
 | `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本の同じファイルにもそのまま存在し、かつ指摘が成立する条件（参照先・前提）が改稿で変わっていなければ `true`、それ以外は `false`。`[INTENT]` との不一致を指摘するものは、前提である意図が改稿で与えられたので常に `false`。原本が読めなければ省略する（分からないものを `false` にしない）。script はこれで `new` と `preexisting` を分け、`[REVERIFY_SCOPE]` の外の指摘を反証に回すかも決める（「review_skill.js の戻り値」の `reverify_scope` を参照） |
 | `unchecked_judgments` | 担当観点のみ（schema 上は任意） | `[UNCHECKED_ITEMS]` の各 id に対する `pass` / `partial` / `fail` / `unknown` と根拠。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本。担当が省いても、返ってこなかった id は集合の差で未判定になる |
-| `unavailable` | 任意 | 観点が依存する skill が実行環境に無く、検査を実施できなかったときだけ `true`。`unreadable`（対象が読めない）とは別。受け付ける条件（観点・`args.promptAuditExpected`・pass）は `review_skill.js` の `may_be_unavailable` の注釈が正本で、受け付けないときは欠測として扱う |
-| `audit_header` | prompt-audit の観点のみ | 監査レポート冒頭の scope と target model の前提行。監査が実際に走った証跡で、空なら script はその観点を欠測として扱う |
+| `unavailable` | 任意 | 依存する skill / criteria / capability を利用できず検査を実施できなかったときだけ `true`。`unreadable`（対象が読めない）とは別。受け付ける条件（観点・`args.promptAuditExpected`・pass）は `review_skill.js` の `may_be_unavailable` の注釈が正本で、受け付けないときは欠測として扱う |
+| `audit_header` | prompt-audit の観点のみ | 監査対象 scope、`references/prompt-audit.md` の criteria source、target model の前提（対象に記載が無い場合は未指定）を記した非空の receipt。空なら script は監査済み no-findings と区別できず、その観点を欠測として扱う |
 | `findings[].audit_confidence` / `findings[].audit_action` | prompt-audit の観点のみ | 監査レポートの Confidence（`High` / `Medium` / `Low`）と Action。severity への写像・写像の外の扱い・再確認中の指摘の例外は `review_skill.js` の `PROMPT_AUDIT_SEVERITY` と `mapAuditItems` の注釈が正本。戻り値の指摘にもそのまま残る |
 | `declared_only` | prompt-audit の観点のみ | 写像の外（`Low`・`flag`）の項目の `{ file, location, claim, audit_confidence, audit_action }`。指摘にはせず、戻り値の `declared_only` に載る |
 
@@ -443,6 +473,12 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 `{ perspective, verdict, reason }` として残る。反証に回すのは severity が
 `REVISE_SEVERITIES` の指摘だけで、それ以外は戻り値の `reported_minor` に入る。
 
+`confirmed` / `rejected` に入れるには、`REFUTE_MAJORITY` 以上の有効票が同じ verdict を支持しなければ
+ならない。先行 `REFUTE_MAJORITY` 票が割れた後、残りの観点が応答しない・`unreadable` を返すなどして有効票が
+揃わず、どちらの verdict も `REFUTE_MAJORITY` に達しない場合は `unverified` にする。各指摘の
+`missing_perspectives` は有効な票を返さなかった観点、`skipped_perspectives` は先行票の一致で
+意図的に起動しなかった観点を示す。未実施と意図的な省略を混同しない。
+
 ### updater の出力（UPDATE_SCHEMA）
 
 ```json
@@ -467,6 +503,7 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 {
   "mode": "update",
   "target": { "skillPath": "/abs/path", "scope": "full", "diffRef": null, "focus": null },
+  "source_snapshot": { "target_root": "/abs/path", "snapshot_dir": "/tmp/codex-skill-review-x/tree", "receipt_path": "/tmp/codex-skill-review-x/receipt.json", "manifest_sha256": "<sha256>", "scope": "full", "diff_ref": null, "validation": "required_after_workflow_before_result_is_trusted" },
   "verdict": "applied_to_staging",
   "stop_reason": "resolved",
   "findings": { "confirmed": [], "rejected": [], "unverified": [], "reported_minor": [] },
@@ -505,7 +542,8 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 
 | フィールド | 意味 |
 |---|---|
-| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `budget` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review では `null` |
+| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review では `null` |
+| `source_snapshot` | review / update / audit の対象入力と post-run 検証義務。caller は receipt を `review-snapshot.mjs verify` に渡し、`status: verified` のときだけ他の結果を信頼する。失敗時は workflow の verdict に関係なく結果を無効にする |
 | `findings.reported_minor` | severity が `REVISE_SEVERITIES` の外のため**設計上反証していない**指摘。改稿を動かさないので反証の票を使わないが、黙って落とすと「見ていないもの」が消えるので未検証のまま返す。updater には渡さない。review では 1 件でもあれば `clean` にならない |
 | `findings_before` | update のとき、改稿前（Verify）の `{ confirmed, rejected, unverified, reported_minor }`。`findings` は再検証後のものに置き換わり、Reverify は報告範囲を絞るため、改稿前の棄却・未検証・minor は再登場しないことがある。持ち越さないと改稿前に見えていた指摘が黙って消える。review では `null`（`findings` がそれ自体） |
 | `still_unverified` | 最初の確定指摘が再検証で再報告され、有効票が `MIN_VALID_VOTES` に届かなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
@@ -514,16 +552,16 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 | `unverified_unobserved` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが同じ観点の担当に読まれなかった（または報告範囲外の）もの。blocker は `unobserved` と同じく `unverified_blocker` で止まる |
 | `findings_source` | `findings` が最後に完了した検査パスのどちらか（`before` = 改稿前 / `after` = 再検証後） |
 | `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る。audit では委譲項目を判定する観点を走らせないので `null`（`[]` は「全部満たした」と読まれる） |
-| `verdict`（review / audit） | `clean`（確定・未検証・`reported_minor`・委譲項目の未達・実施できなかった観点のどれも無い）/ `clean_except_unavailable`（指摘は無いが `skipped_unavailable.before` が空でない。見ていない観点があるので `clean` と言わない）/ `findings` / `review_incomplete`（観点が欠測。audit は native でしか走らず `promptAuditExpected: true` なので、prompt-audit を実施できなかった audit もここに入る） |
-| `skipped_unavailable` | `{ before, after }`。依存する skill が実行環境に無く実施できなかった観点の id。欠測（`by_category` の `null`・`review_incomplete`・`reverify_missing`）とは別枠で、Reverify の再試行も起こさない。`after` は Reverify が走らなければ `null` |
+| `verdict`（review / audit） | `clean`（確定・未検証・`reported_minor`・委譲項目の未達・実施できなかった観点のどれも無い）/ `clean_except_unavailable`（指摘は無いが `skipped_unavailable.before` の観点は見ていない）/ `findings` / `review_incomplete`（観点が欠測。prompt-audit は同梱 criteria を実施できなければここに入る） |
+| `skipped_unavailable` | `{ before, after }`。必要な skill / criteria / capability が実行環境に無く実施できなかった観点の id。欠測（`by_category` の `null`・`review_incomplete`・`reverify_missing`）とは別枠で、Reverify の再試行も起こさない。`after` は Reverify が走らなければ `null` |
 | `declared_only` | `{ before, after }`。prompt-audit が挙げたが `PROMPT_AUDIT_SEVERITY` の外のため指摘にしなかった項目（`{ file, location, claim, audit_confidence, audit_action }`）。反証も改稿もしない。`after` は Reverify が走らなければ `null` |
-| `skipped_unavailable` の入力側 | `args.promptAuditExpected`（必須の真偽値）。司令塔が `select_runtime.js` の `selected_runtime` から決め、`native` なら `true`。`true` のとき prompt-audit の `unavailable` はどの pass でも欠測になり、`skipped_unavailable` は常に空 |
-| `by_category.<pass>.<観点> === "unavailable"` | その観点は依存する skill が無く実施できなかった（`skipped_unavailable` と同じ事実）。`null`（応答しなかった）とも `0`（見て何も無かった）とも違う |
+| `skipped_unavailable` の入力側 | `args.promptAuditExpected`（必須の真偽値）。同梱 criteria を使う通常経路では `true`。`true` のとき prompt-audit の `unavailable` は欠測になり、no-findings と混ざらない |
+| `by_category.<pass>.<観点> === "unavailable"` | その観点に必要な skill / criteria / capability が無く実施できなかった（`skipped_unavailable` と同じ事実）。`null`（応答しなかった）とも `0`（見て何も無かった）とも違う |
 | `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
 | `by_category.after.<観点> === 0` | 報告範囲（`staging.reverify_scope.report_files`）の中で確定指摘が無かった。範囲の外は再走査していないので、スキル全体で問題が無いという意味ではない |
 | `reverify_missing` | Reverify の欠測観点。最初の試行で欠測があれば全観点を一度だけ再試行し、その後も欠測が残れば `reverify_incomplete` として保持する |
-| `reverify_receipt` | update の Reverify 完了証跡。`completed: false` または欠測がある場合、runner は action package を発行しない。実施できなかった観点は `by_category` から外して `skipped_unavailable` に宣言する（含めると、その skill を持たない Codex runner では receipt が完了せず update が通らない） |
+| `reverify_receipt` | update の Reverify 完了証跡。`completed: false` または欠測がある場合、runner は action package を発行しない。実施できなかった観点は `by_category` から外して `skipped_unavailable` に宣言する。receipt は欠測を完了扱いせず、利用できた観点の件数と未実施の観点を別々に保持する |
 | `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない。最初の確定指摘が severity を下げて再報告された（`reported_minor` に入った）ときは `remaining` に数え、`resolved` にしない。prompt-audit の確定指摘が `changed_files` に無いファイルから消えたときも `remaining` に数える（外部の監査は確信度が揺れ、消えたことが直った証拠にならない） |
 | `possibly_rephrased` | 観点とファイルは一致するが主張の文言が変わり、機械的には `new` になったもの。`new` にも残る |
 | `unobserved` | 最初の確定指摘のうち、再検証で再報告されず、かつそのファイルを同じ観点の担当が読んでいない、または報告範囲（`reverify_scope.report_files`）の外にあるため、`resolved` に数えられないもの |

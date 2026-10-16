@@ -14,6 +14,8 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
 
 ## 裁定の種類（上から順に試す）
 
+質問候補の採否と記録要件は `references/question-policy.md` を正として適用する。
+
 | ruling | 使う条件 | 書くもの |
 |---|---|---|
 | `answered_by` | 依頼者の既にある回答（`answers/g<n>.md`。合格した問いの回答を含む）がこの論点の値も決めている | `value`、`evidence` にその回答の行（`W/answers/` の下のファイル・行・逐語）、`why` にどの問いへの回答か |
@@ -88,6 +90,8 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   対象に入る（覆すなら `supersedes`）。
 - **差し戻し（verifier の不合格の差し戻し。段の本体・settle・検証し残しの拾い直し）**: verifier が不合格にした ID だけを 1 回直す。`value_as_method` は `question`
   に、`not_reproduced` と `insufficient_grounds` は根拠を補えなければ、プロンプトが聞けるとする段では `question`、聞けない段では `hold` に変える。
+  変換後の question は resolver-verifier が relevance と根拠を独立に再検証する。不合格なら質問条件を満たしたと確認できないので、依頼者に提示する前に run が止まる。
+  `about.domain` の resolution は変換しない（契約「決定の台帳」の後段 domain assessment 規則が正）。
   `decidable` は、verifier が挙げた決める出典を読み、その出典で値を決める（回答なら、回答待ちの問いには `answer` と `value`、それ以外は `answered_by`。固定の要求文書の行なら、その行に揃える `internal` にして `evidence` に引く）。出典が決めていないと言えるなら、その理由を `why` に書いて
   元の種類のまま返す。`mapping` は回答の対応づけを直す。差し戻しは 1 回きりなので、
   同じ根拠で言い直しても次は通らない。不合格の F- ごとに返す resolution は契約 §resolver の差し戻しの項に従う。その要素に

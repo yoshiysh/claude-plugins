@@ -1543,12 +1543,19 @@ const WORKSPACE_TEXT = {
     issue: `観点 ${aspect} の verdict が ${Object.keys(PLAN_VERDICT_NEEDS).join(' / ')} のどれでもない。`,
     fix: 'verdict をそのどれかにする。',
   }),
+  PLAN_UNASSESSED: (aspect, revisitWhen, decision, open) => ({
+    id: `ST-PLAN-UNASSESSED-${aspect}`,
+    location: 'plan.json の domain',
+    quote: `${aspect}: 未評価`,
+    issue: `観点 ${aspect} は未評価だが、再評価する具体的な条件が無いか、decision / open が付いている。再評価の契機が無い状態か、根拠の無い適用判断が作られている。`,
+    fix: `decision と open を外し、${aspect} を再評価する具体的な信号を revisit_when に書く。例: 「${String(revisitWhen || '').trim() || '対象データや操作が具体化されたとき'}」。`,
+  }),
   PLAN_REF: (aspect, need, ref) => ({
     id: `ST-PLAN-REF-${aspect}`,
     location: 'plan.json の domain',
     quote: `${aspect}: ${need} ${ref || '無し'}`,
     issue: `観点 ${aspect} の ${need} が ${need === 'open' ? ledgerOf('open').file() : `${ledgerOf('decisions').file()} にも ${ledgerOf('resolutions').file()}`} に無い。判定の根拠を辿れない。`,
-    fix: `${Object.entries(PLAN_VERDICT_NEEDS).map(([v, k]) => `${v} は ${k}`).join('、')} に、実在する ID を書く。`,
+    fix: `${Object.entries(PLAN_VERDICT_NEEDS).filter(([, k]) => k).map(([v, k]) => `${v} は ${k}`).join('、')} に、実在する ID を書く。`,
   }),
   PLAN_INVARIANT_MISSING: () => ({
     id: `ST-PLAN-INVARIANT-MISSING-${DOMAIN.irreversible}`,
@@ -1696,7 +1703,7 @@ const LEDGERS = {
     keyShape: /^RS-\d+$/,
     scalars: {},
     fields: {
-      resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision', 'kind'],
+      resolutions: ['id', 'about', 'ruling', 'value', 'why', 'evidence', 'domain_assessment', 'supersedes', 'layer', 'targets', 'question', 'options', 'answer', 'hold', 'upstream_revision', 'kind'],
     },
     // objects: 値がオブジェクト（か消すための null）でなければならない欄。about は prd-spec.js が論点のキーに引き直すので、ほかの型を書くと
     // flow --rulings の stdout を script が受け取れず、段のやり直しが繰り返される。
@@ -1860,6 +1867,119 @@ function storedRejects(ws, name, value) {
       if (rows) bad.push(`${list} ${el[key]}: ${row} は ${rows.join(' / ')} のどれでもありません`)
       if (extra && extra.length) bad.push(`${list} ${el[key]}: ${row} では ${extra.join('・')} を持てません`)
       if (lack && lack.length) bad.push(`${list} ${el[key]}: ${row} では ${lack.join('・')} が要ります`)
+    }
+  }
+  if (name === 'resolutions') bad.push(...domainAssessmentRejects(ws, value.resolutions || []))
+  return bad
+}
+
+function domainAssessmentRejects(ws, resolutions) {
+  const axes = new Set(domainAspects())
+  const plan = readJsonFile(path.join(ws, 'plan.json'))
+  const baseline = new Map(listOf(plan, 'domain').filter((x) => x && typeof x.aspect === 'string').map((x) => [x.aspect, x]))
+  const seen = new Map()
+  const bad = []
+  for (const r of resolutions) {
+    if (!r) continue
+    if (r.domain_assessment == null) {
+      if (r.about && r.about.domain !== undefined) bad.push(`resolutions ${r.id}: about.domain には domain_assessment が必要です`)
+      continue
+    }
+    const where = `resolutions ${r.id} domain_assessment`
+    const d = r.domain_assessment
+    if (!d || typeof d !== 'object' || Array.isArray(d)) {
+      bad.push(`${where}: オブジェクトが必要です`)
+      continue
+    }
+    const allowed = ['aspect', 'initial_verdict', 'superseded_categories', 'verdict', 'required_categories']
+    const extra = Object.keys(d).filter((k) => !allowed.includes(k))
+    if (extra.length) bad.push(`${where}: 未知の欄 ${extra.join(' / ')} があります（欄は ${allowed.join(' / ')}）`)
+    const aspect = typeof d.aspect === 'string' ? d.aspect : ''
+    if (!axes.has(aspect)) bad.push(`${where}: aspect ${JSON.stringify(d.aspect)} は ${DOMAIN.file} §2 のキーではありません`)
+    if (!r.about || Object.keys(r.about).length !== 1 || r.about.domain !== aspect) bad.push(`${where}: about は { domain: aspect } で対象軸を指定してください`)
+    if (r.ruling !== 'answered_by' || r.value !== d.verdict) bad.push(`${where}: ruling は answered_by、value は verdict と同じ値にしてください`)
+    if (typeof r.why !== 'string' || !r.why.trim()) bad.push(`${where}: 具体的な信号から verdict と required_categories を導いた why が必要です`)
+    const prior = seen.get(aspect)
+    if (prior && prior !== r.id) bad.push(`${where}: 観点 ${aspect} は ${prior} でも評価されています（観点ごとに 1 件を更新してください）`)
+    seen.set(aspect, r.id)
+    if (!['該当', '非該当'].includes(d.verdict)) bad.push(`${where}: verdict は 該当 / 非該当 のどちらかにしてください`)
+    if (!Array.isArray(d.required_categories)) bad.push(`${where}: required_categories は配列が必要です`)
+    else {
+      const names = d.required_categories
+      if (names.some((x) => typeof x !== 'string' || !x.trim())) bad.push(`${where}: required_categories には空でない文字列だけを入れてください`)
+      if (new Set(names.map((x) => typeof x === 'string' ? x.trim() : '')).size !== names.length) bad.push(`${where}: required_categories に重複があります`)
+      if (d.verdict === '非該当' && names.length) bad.push(`${where}: 非該当の観点に required_categories は設定できません`)
+    }
+    if (!Array.isArray(r.evidence) || !r.evidence.length) {
+      bad.push(`${where}: 具体的な信号を示す resolutions.evidence が 1 件以上必要です`)
+      continue
+    }
+    for (const [i, e] of r.evidence.entries()) {
+      const ew = `${where} evidence[${i}]`
+      const { file, line, end, quote } = e || {}
+      const last = end === undefined ? line : end
+      if (typeof file !== 'string' || !path.isAbsolute(file) || !Number.isInteger(line) || line < 1 || !Number.isInteger(last) || last < line) {
+        bad.push(`${ew}: { file（絶対パス）, line, end?（line 以上）, quote } の形ではありません`)
+        continue
+      }
+      let realFile
+      try {
+        realFile = fs.realpathSync(file)
+        if (fs.lstatSync(path.resolve(file)).isSymbolicLink()) {
+          bad.push(`${ew}: domain の根拠ファイルは symlink にできません`)
+          continue
+        }
+      } catch {
+        bad.push(`${ew}: ${file} を読めません`)
+        continue
+      }
+      const rel = path.relative(fs.realpathSync(ws), realFile).split(path.sep).join('/')
+      if (!answersFile(rel)) {
+        bad.push(`${ew}: 後段で新たに現れた domain の信号は所有表にある回答ファイルを直接引用してください`)
+        continue
+      }
+      let lines
+      try { lines = fs.readFileSync(file, 'utf8').split('\n') } catch {
+        bad.push(`${ew}: ${file} を読めません`)
+        continue
+      }
+      const span = lines.slice(line - 1, last).join('\n')
+      if (last > lines.length || typeof quote !== 'string' || !quote || !span.includes(quote)) bad.push(`${ew}: ${file} の ${line}${last === line ? '' : `〜${last}`} 行目に逐語で無い ${JSON.stringify(quote)}`)
+    }
+    const initial = baseline.get(aspect)
+    if (!initial || !['該当', '非該当', '未評価'].includes(initial.verdict)) {
+      bad.push(`${where}: plan.domain の ${aspect} に有効な初期判定がありません`)
+      continue
+    }
+    if (initial.verdict === '未評価' && (initial.decision !== undefined || initial.open !== undefined || !(typeof initial.revisit_when === 'string' && initial.revisit_when.trim()))) {
+      bad.push(`${where}: 初期 未評価 の plan.domain は decision / open を持たず、revisit_when が必要です`)
+    }
+    if (initial.verdict !== '未評価' && !(typeof initial.decision === 'string' && initial.decision.trim())) {
+      bad.push(`${where}: 初期 ${initial.verdict} の plan.domain には decision が必要です`)
+    }
+    const initialCategories = initial.decision
+      ? listOf(plan, 'required_categories').filter((c) => c && String(c.decision ?? '') === String(initial.decision)).map((c) => String(c.name ?? ''))
+      : []
+    if (d.initial_verdict !== initial.verdict) bad.push(`${where}: initial_verdict は plan.domain の ${initial.verdict} と一致する必要があります`)
+    if (!Array.isArray(d.superseded_categories) || d.superseded_categories.some((x) => typeof x !== 'string') || canonicalJson(d.superseded_categories) !== canonicalJson(initialCategories)) {
+      bad.push(`${where}: superseded_categories は初期 decision ${initial.decision ?? 'なし'} に結び付いた plan.required_categories と一致する必要があります`)
+    }
+    const expectedSupersedes = typeof initial.decision === 'string' ? initial.decision : null
+    if ((r.supersedes ?? null) !== expectedSupersedes) {
+      bad.push(`${where}: supersedes は初期 domain decision ${expectedSupersedes ?? 'なし'} と一致する必要があります`)
+    }
+  }
+  return bad
+}
+
+function domainAssessmentMutationRejects(cur, next) {
+  const before = new Map((cur.resolutions || []).filter((r) => r && r.domain_assessment).map((r) => [r.id, r]))
+  const after = new Map((next.resolutions || []).filter((r) => r && r.domain_assessment).map((r) => [r.id, r]))
+  const bad = []
+  for (const [id, prior] of before) {
+    const current = after.get(id)
+    if (!current || !prior.about || !current.about || prior.about.domain !== current.about.domain || prior.domain_assessment.aspect !== current.domain_assessment.aspect) {
+      bad.push(`resolutions ${id}: 保存済み domain assessment の about.domain と assessment は削除・変更できません。verdict と categories は同じ ID で更新してください`)
     }
   }
   return bad
@@ -2297,7 +2417,7 @@ function answeredByRejects(ws, cur, next, body) {
   const waiting = new Set((cur.resolutions || []).filter((r) => r && r.ruling === 'question' && r.answer == null).map((r) => r.id))
   const mine = (next.resolutions || []).filter((r) => r && touched.has(r.id) && r.ruling === 'answered_by')
   return [
-    ...mine.filter((r) => !cites(r)).map((r) => `resolutions ${r.id}: answered_by の evidence に回答のファイル（所有表の answers/ の下）の行がありません`),
+    ...mine.filter((r) => !(r.about && r.about.domain !== undefined) && !cites(r)).map((r) => `resolutions ${r.id}: answered_by の evidence に回答のファイル（所有表の answers/ の下）の行がありません`),
     ...mine.filter((r) => waiting.has(r.id)).map((r) => `resolutions ${r.id}: 回答待ちの問いは answered_by にできません（その問いに回答を当てるなら、question のまま answer と value を put する）`),
   ]
 }
@@ -2596,6 +2716,8 @@ function wsPut(ws, opts, readStdin) {
   if (aboutBad.length) throw new LedgerRejected(`同じ論点の裁定が 2 つになります（何も書いていません）:\n${aboutBad.join('\n')}`)
   const caseBad = [...caseRejects(ws, name, next, body), ...(name === 'resolutions' ? answeredByRejects(ws, cur, next, body) : [])]
   if (caseBad.length) throw new LedgerRejected(`欄の条件に落ちました（何も書いていません）:\n${caseBad.join('\n')}`)
+  const domainMutationBad = name === 'resolutions' ? domainAssessmentMutationRejects(cur, next) : []
+  if (domainMutationBad.length) throw new LedgerRejected(`domain assessment の保存先を維持してください（何も書いていません）:\n${domainMutationBad.join('\n')}`)
   const storedBad = storedRejects(ws, name, next)
   if (storedBad.length) throw new LedgerRejected(`書いた後の版が台帳の形に合いません（何も書いていません。${STORED_FIX}）:\n${storedBad.join('\n')}`)
   if (name === 'verifications') next = fillVerifications(ws, opts, next, body)
@@ -2623,6 +2745,11 @@ function wsDel(ws, opts) {
   const tally = { added: [], replaced: [], unchanged: [], removed: [] }
   const key = spec.lists[coll]
   const ids = [...new Set(opts.ids)]
+  if (name === 'resolutions') {
+    const protectedIds = new Set((cur && cur.resolutions || []).filter((r) => r && r.domain_assessment).map((r) => r.id))
+    const removing = ids.filter((id) => protectedIds.has(id))
+    if (removing.length) throw new LedgerRejected(`domain assessment ${removing.join(', ')} は削除できません。verdict と categories を同じ ID で更新してください`)
+  }
   for (const id of ids) tally[cur && cur[coll].some((r) => r[key] === id) ? 'removed' : 'unchanged'].push(id)
   if (!cur || !tally.removed.length) return ledgerResult(name, file, tally, cur, ws, opts.doc[0])
   const next = { ...cur, [coll]: cur[coll].filter((r) => !tally.removed.includes(r[key])) }
@@ -2679,7 +2806,8 @@ function wsQuestions(ws, opts) {
     const refBad = r ? flowRefRejects(ws, [r]) : []
     if (!r) bad.push(`${id}: ${ledgerOf('resolutions').file()} にありません`)
     else if (r.answer != null) bad.push(`${id}: 回答（answer）が残っています（続きの問いにするなら answer と value に null を送って消す）`)
-    else if (!q || typeof q.header !== 'string' || typeof q.text !== 'string' || typeof q.searched !== 'string') bad.push(`${id}: question { header, text, searched } がありません`)
+    else if (!q || typeof q.header !== 'string' || typeof q.text !== 'string' || typeof q.searched !== 'string' || !q.searched.trim()) bad.push(`${id}: question { header, text, searched } がありません`)
+    else if (typeof r.why !== 'string' || !r.why.trim() || !Array.isArray(r.evidence) || !r.evidence.length) bad.push(`${id}: 質問には簡潔な why と、具体的な信号を示す出典根拠が 1 件以上必要です`)
     else if (options.length < QUESTION_OPTIONS.min || options.length > QUESTION_OPTIONS.max) bad.push(`${id}: 候補が ${options.length} 個です（${QUESTION_OPTIONS.min}〜${QUESTION_OPTIONS.max} 個）`)
     else if (options.some((o) => !o || typeof o.label !== 'string' || typeof o.description !== 'string' || typeof o.flow_effect !== 'string')) bad.push(`${id}: 候補に label・description・flow_effect の無いものがあります`)
     else if (refBad.length) bad.push(`${id}: ${refBad.join(' / ')}`)
@@ -3299,8 +3427,8 @@ function selectDocs(keys, wanted) {
   return wanted.length ? wanted : keys
 }
 
-// carriesVerdict: 合否を持ち越す書き換えの正本。持ち越すのは根拠を増やさない書き換えだけ: 問いと保持規則への書き換えの不合格（変換した分は
-// もう検証しない）と、検証した候補の decision_text を value に写しただけの候補の選択。合格は、保持規則の文（hold）・問いの形の修正で変えた候補の文・
+// carriesVerdict: 合否を持ち越す書き換えの正本。持ち越すのは根拠を増やさない書き換えだけ: 問いと保持規則への書き換えの不合格（問いは独立 verifier が
+// 関連性と根拠を再検証するまで保持）と、検証した候補の decision_text を value に写しただけの候補の選択。合格は、保持規則の文（hold）・問いの形の修正で変えた候補の文・
 // 自由記述の value を検証していないので持ち越さない（持ち越すと、検証していない文が保持規則や根拠として writer に届く）。
 function carriesVerdict(judged, r) {
   if (judged.digest === digestOf(r)) return true
@@ -3460,7 +3588,7 @@ function wsConflicts(ws) {
 }
 
 const DOMAIN = { file: path.join('references', 'domain-analysis.md'), heading: /^## 2\. /, irreversible: 'irreversible' }
-const PLAN_VERDICT_NEEDS = { 該当: 'decision', 非該当: 'decision', 不明: 'open' }
+const PLAN_VERDICT_NEEDS = { 該当: 'decision', 非該当: 'decision', 未評価: null }
 
 // domainAspects: 観点のキーは domain-analysis.md §2 から毎回読み、写しを持たない（intake が読む一覧と検査がずれない）。
 function domainAspects() {
@@ -3489,9 +3617,17 @@ function wsPlan(ws) {
       continue
     }
     seen.set(aspect, (seen.get(aspect) || 0) + 1)
-    const need = Object.hasOwn(PLAN_VERDICT_NEEDS, d.verdict) ? PLAN_VERDICT_NEEDS[d.verdict] : null
-    if (!need) out.push({ c: 'PLAN_VERDICT', d: 'plan', a: [aspect, String(d.verdict ?? '')] })
-    else if (!refs[need].has(String(d[need] ?? '').trim())) out.push({ c: 'PLAN_REF', d: 'plan', a: [aspect, need, String(d[need] ?? '')] })
+    if (!Object.hasOwn(PLAN_VERDICT_NEEDS, d.verdict)) {
+      out.push({ c: 'PLAN_VERDICT', d: 'plan', a: [aspect, String(d.verdict ?? '')] })
+    } else if (d.verdict === '未評価') {
+      const revisitWhen = typeof d.revisit_when === 'string' ? d.revisit_when.trim() : ''
+      if (!revisitWhen || d.decision !== undefined || d.open !== undefined) {
+        out.push({ c: 'PLAN_UNASSESSED', d: 'plan', a: [aspect, revisitWhen, d.decision, d.open] })
+      }
+    } else {
+      const need = PLAN_VERDICT_NEEDS[d.verdict]
+      if (!refs[need].has(String(d[need] ?? '').trim())) out.push({ c: 'PLAN_REF', d: 'plan', a: [aspect, need, String(d[need] ?? '')] })
+    }
   }
   for (const k of keys) {
     if (!seen.has(k)) out.push({ c: 'PLAN_ASPECT_MISSING', d: 'plan', a: [k] })
@@ -3588,10 +3724,10 @@ const CONTRACT_SECTIONS = {
   'flow-framer': [...COMMON_SECTIONS, '§flow-framer', FLOW_SHAPE, '不変条件の kind'],
   resolver: [...COMMON_SECTIONS, '§resolver', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
   'resolver-verifier': [...COMMON_SECTIONS, '§resolver-verifier', '決定の台帳', '現物と既存実装の扱い', FLOW_SHAPE, '不変条件の kind'],
-  writer: [...COMMON_SECTIONS, '§writer', '現物と既存実装の扱い'],
+  writer: [...COMMON_SECTIONS, '§writer', '決定の台帳', '現物と既存実装の扱い'],
   implementer: [...COMMON_SECTIONS, '監査役の共通節', '§implementer'],
   grounding: [...COMMON_SECTIONS, '監査役の共通節', '§grounding', '現物と既存実装の扱い'],
-  'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '§cross-doc'],
+  'cross-doc': [...COMMON_SECTIONS, '監査役の共通節', '決定の台帳', '§cross-doc'],
   'flow-check': ['§flow-check'],
 }
 
