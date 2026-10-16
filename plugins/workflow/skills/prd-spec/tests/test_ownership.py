@@ -223,7 +223,7 @@ class OwnershipComesFromContract(unittest.TestCase):
         self.assertIn("所有表", r.stderr)
 
     def test_doc_checkは所有表の写しを持たない(self):
-        for literal in ("precedent.json", "answers/g", "findings/r", "W_FILES", "'tmp", "`tmp"):
+        for literal in ("precedent.json", "answers/g<n>.md", "findings/r", "W_FILES", "'tmp", "`tmp"):
             self.assertNotIn(literal, SOURCE)
 
 
@@ -267,15 +267,25 @@ class ContractExampleMatchesImplementation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             ws = Path(td) / "W"
             shutil.copytree(FIXTURE, ws)
+            plan_path = ws / "plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["domain"] = [{"aspect": "personal_data", "verdict": "未評価", "revisit_when": "個人情報の取り込みが具体化されたとき"}]
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
             for r in body["resolutions"]:
                 if "answer" in r:
                     _touch(ws, r["answer"]["path"], f"{r['id']}: {r['answer']['quote']}\n")
                 for e in r.get("evidence", []):
                     self.assertTrue(e["file"].startswith(self.EVIDENCE_ROOT), e["file"])
-                    e["file"] = str(Path(td) / "repo" / e["file"][len(self.EVIDENCE_ROOT) :])
-                    lines = [""] * max(e["line"], e.get("end", e["line"]))
-                    lines[e["line"] - 1] = e["quote"]
-                    _touch(td, e["file"], "\n".join(lines) + "\n")
+                    rel = e["file"][len(self.EVIDENCE_ROOT) :]
+                    root = ws if rel.startswith("answers/") else Path(td) / "repo"
+                    target = root / rel
+                    lines = target.read_text(encoding="utf-8").splitlines() if target.exists() else []
+                    last = e.get("end", e["line"])
+                    lines.extend([""] * max(0, last - len(lines)))
+                    if e["quote"] not in "\n".join(lines[e["line"] - 1 : last]):
+                        lines[e["line"] - 1] = e["quote"]
+                    e["file"] = str(target)
+                    _touch(root, rel, "\n".join(lines) + "\n")
             _ok(ws, "put", "--ledger", "resolutions", "--token", "t1", stdin=body)
             asked = [r["id"] for r in body["resolutions"] if "question" in r]
             answered = [r["id"] for r in body["resolutions"] if "question" in r and "answer" in r]

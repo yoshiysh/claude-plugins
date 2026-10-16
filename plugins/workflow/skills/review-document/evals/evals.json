@@ -32,6 +32,31 @@
         "review-document スキルが発動していないか",
         "3軸（短さ・平易さ・独自用語）による文書採点が行われていないか"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Codex runner で docs/requirements/search.md を短く書き直して。要求 ID と参照 URL は維持して。",
+      "expected_output": "read-only runner で revise を行う。改稿本文を changed_files[].content として返し、その同じ本文を再採点と制約確認に使う。ファイルは一切書かず、改稿完了時の verdict は draft_ready。",
+      "files": [],
+      "assertions": [
+        "Codex runner に workspace-write capability を要求していないか",
+        "args.stagingDir を使わず、改稿本文を完全な内容として返しているか",
+        "scores_before と scores_after が両方あり、after が返却された inline content を採点しているか",
+        "改稿後の指摘検証と要求 ID・参照 URL の制約確認も inline content に対して行っているか",
+        "改稿本文が上限超過または不足した場合に、切り詰めたり部分成功にしたりせず update_failed にするか",
+        "変更なしを報告したときに draft_ready とせず no_changes を返し、scores_after=null と制約未確認を明示するか"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Codex runner で複数文書をレビューして。準備担当が一部のパスを返し忘れた。",
+      "expected_output": "coverage が requested の全絶対パスについて分類の欠落・余計な値・重複を検出し、complete=false と review_incomplete を返す。採点・改稿へ進まない。source_fingerprints は unavailable とし、SHA-256 を捏造しない。",
+      "files": [],
+      "assertions": [
+        "入力された絶対パスが coverage.requested にそのまま載っているか",
+        "未分類・重複・余計なパスがあれば採点を開始せず review_incomplete を返すか",
+        "raw bytes を読めない runner source がファイル fingerprint を作ったと主張していないか"
+      ]
     }
   ]
 }

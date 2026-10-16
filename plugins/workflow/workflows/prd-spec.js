@@ -152,7 +152,7 @@ const valueKey = (key) => VALUE_ABOUT.some((k) => String(key || '').startsWith(`
 function aboutKey(about) {
   if (!about || typeof about !== 'object') return null
   if (Array.isArray(about.pair) && about.pair.length === 2) return `pair:${[...about.pair].map(String).sort().join('|')}`
-  for (const k of ['open', 'finding', 'tbd', 'verification']) if (about[k]) return `${k}:${about[k]}`
+  for (const k of ['open', 'finding', 'tbd', 'verification', 'domain']) if (about[k]) return `${k}:${about[k]}`
   return null
 }
 
@@ -729,7 +729,7 @@ const INT = { type: 'integer', minimum: 0 }
 const STRS = { type: 'array', items: STR }
 const ABOUT = {
   type: 'object',
-  properties: { open: STR, pair: { type: 'array', items: STR, minItems: 2, maxItems: 2 }, finding: STR, tbd: STR, verification: STR },
+  properties: { open: STR, pair: { type: 'array', items: STR, minItems: 2, maxItems: 2 }, finding: STR, tbd: STR, verification: STR, domain: STR },
 }
 const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, about: ABOUT }, required: ['id', 'about'] } }
 
@@ -1068,7 +1068,7 @@ let failedFlow = []
 let carry = []
 // holdFails: hold のまま続けて検証に落ちた回数（ID ごと。合格で消す）。落ちた保持規則は writer に渡すと検証を通っていない規範文が本文に入るので、1 回目は
 // reholdFailed が書き直させて検証し直し、続けて 2 回目に落ちれば止める。変換（convertFailed）で hold になった裁定の不合格は、値の裁定が落ちたもので
-// 保持規則の検証ではないので数えない（変換した分はもう検証しない）。
+// 保持規則の検証ではないので数えない。
 const holdFails = {}
 const see = (fc) => {
   seen = fc
@@ -1459,7 +1459,7 @@ async function askVerifier(label, stage, given, extra, phaseTitle) {
 }
 
 const ANSWERED_KINDS = ['ruled', 'free_text']
-// 変換した分はもう検証しない（検証のループを増やすと、差し戻しの上限が意味を失う）。
+// 変換後の question は関連性と根拠を独立 verifier に再検証させるが、不合格後に resolver へ再度差し戻さない。
 // resolver が doc_check flow の stdout を返したら、検証する ID が無くても verifier を起動する。flow の閉包は、生成者の
 // stdout と別の agent の stdout の照合でしか script から確かめられない。例外は unchanged のときだけで、そのときは
 // settle の independentFlow の flow-check が別の agent の stdout を取る。
@@ -1570,7 +1570,7 @@ async function ruleAndVerify(stage, opt) {
   const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${fix}v`, flowChecked, flowWriter(), ledgerMoved())
   if (ve2) return ve2
   verified = flowCheckOf(v2.flow_check, true)
-  const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
+  let passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
   const rh = await reholdFailed(stage, fix, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) verified = rh.fc
@@ -1578,7 +1578,11 @@ async function ruleAndVerify(stage, opt) {
   const toConvert = convertible(v2.fail)
   if (!toConvert.length) return { ok: true, passed, verified, kinds }
   const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
-  if (ce) return ce
+  if (ce && ce.error) return ce
+  if (ce) {
+    verified = ce.fc
+    passed = uniq([...passed, ...(ce.passed || [])])
+  }
   return { ok: true, passed, verified, kinds }
 }
 
@@ -1598,7 +1602,7 @@ const convertible = (fails) => fails.filter((f) => RESOLUTION_ID.test(f.id) && (
 
 // fixFailed: settle と verifyLeft の verifier に落ちた裁定（RS-）を、段の本体の差し戻しと同じく 1 回だけ直させて検証し直し、まだ落ちるものを
 // 変換する。直させずに変換すると、補えた根拠や決まっていた値が問いや保持規則になる。この差し戻しの verifier の不合格は
-// 変換に回すだけで、変換した分はもう検証しないので、呼び出し 1 回あたりの verifier は 1 体で止まる。
+// 変換に回す。問いに変えたものは `convertFailed` の後続 verifier が関連性と根拠を再検証し、さらに resolver へは差し戻さない。
 async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   const ids = uniq(fails.map((f) => f.id))
   const label = `resolver:${owner}-fix`
@@ -1624,8 +1628,8 @@ async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   if (rh && rh.error) return rh
   if (rh) fc = rh.fc
   const ce = await convertFailed(stage, owner, convertible(v.fail), phaseTitle, allowQuestions)
-  if (ce) return ce
-  return { fc }
+  if (ce && ce.error) return ce
+  return { fc: ce ? ce.fc : fc }
 }
 
 // independentFlow: 判断（settle の起動・残りの数え上げ・直す役の割り当て）に使う doc_check flow の stdout。最後の verifier の後に
@@ -1685,8 +1689,8 @@ function outsideKinds(stage, r, kinds) {
   return extra.length ? `段 ${stage}: ${list(extra)} を resolver が ${kinds.map((k) => KIND_WORDS[k]).join('・')} 以外で返しました（この段では依頼者に聞けない）` : null
 }
 
-// convertFailed: 差し戻しの後も検証に落ちた裁定（RS-）を、値を決めずに question か hold に書き換える。変換した分はもう検証しない
-// （検証のループを増やすと、差し戻しの上限が意味を失う）。聞ける段では、価値の論点（VALUE_ABOUT）・価値の判断・cycle の入口で問いだった ID を
+// convertFailed: 差し戻しの後も検証に落ちた裁定（RS-）を、値を決めずに question か hold に書き換える。question は独立 verifier に relevance と根拠を
+// 再検証させ、落ちたら run を止める（根拠不足の裁定を問いに変えるだけで検証を迂回できると、質問条件を満たさない問いがゲートに届く）。聞ける段では、価値の論点（VALUE_ABOUT）・価値の判断・cycle の入口で問いだった ID を
 // question にする。hold にすると、依頼者に聞けば答えの出る論点が保持規則になる。検証の裁定（{verification}）は decidable でも価値の論点ではない。
 // 依頼者の回答を根拠にした hold（answer_holds。designatedHold）は hold のまま変える（問いにすると、保留と答えた依頼者に聞き直す）。ただし decidable の
 // 出典がその回答の節なら回答は実際の選択で、差し戻しで当てさせても hold のままなので、これまでどおり問いにする（hold のままだと依頼者の回答が保持規則に化ける）。
@@ -1700,7 +1704,7 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
   if (!todo.length) return null
   orderHolds(todo.filter((f) => to(f) === 'hold').map((f) => f.id))
   const convert = todo.map((f) => `- ${f.id} → ${to(f)}（${f.kind}）`).join('\n')
-  log(`段 ${owner}: 検証に落ちた ${todo.length} 件を、理由で問いと保持規則に分けます（検証はもう回しません）`)
+  log(`段 ${owner}: 検証に落ちた ${todo.length} 件を、理由で問いと保持規則に分けます`)
   const label = `resolver:${owner}-convert`
   const r = await once(
     label,
@@ -1730,7 +1734,26 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
     noTwice(l, got)
   }
   absorbResolver(got)
-  return flowKept(`${owner}-convert`, got) || checkQuestions(stage, `${owner}-convert`, got, phaseTitle, null)
+  const kept = flowKept(`${owner}-convert`, got)
+  if (kept) return kept
+  const qe = await checkQuestions(stage, `${owner}-convert`, got, phaseTitle, null)
+  if (qe) return qe
+  const questions = todo.filter((f) => to(f) === 'question').map((f) => f.id)
+  if (!questions.length) return null
+  const checked = await independentFlow(null, phaseTitle)
+  if (checked.error) return checked
+  if (!checked.fc) return { error: `段 ${stage}: 問いへの変換後に resolver の doc_check flow を独立に確認できませんでした`, rerun: false }
+  const labelV = `verifier:${owner}-convertv`
+  const v = await askVerifier(labelV, `${owner}v（問いへの変換）`, questions, '', phaseTitle)
+  const ve = absorbVerifier(v, state.resolutions_sha256, `${owner}-convertv`, false, null)
+  if (ve) return ve
+  const rejected = v.fail.filter((f) => questions.includes(f.id))
+  if (rejected.length) {
+    return { error: `段 ${stage}: 問いへの変換後も関連性・根拠の検証に落ちました（${rejected.map((f) => `${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}`).join(' / ')}）。条件を満たす質問として確認できるまで依頼者に提示できません`, rerun: false }
+  }
+  const missing = minus(questions, v.pass)
+  if (missing.length) return { error: `段 ${stage}: 問いへの変換後の独立検証が合格を返しませんでした（${list(missing)}）。確認できるまで依頼者に提示できません`, rerun: false }
+  return { fc: flowCheckOf(v.flow_check, true), passed: v.pass.filter((id) => questions.includes(id)) }
 }
 
 // claimedIssues: 未裁定の論点を選ぶのに使った組と O- は、flow を書いた生成者の自己申告である。組と O- は flow.json・decisions.json・
@@ -2418,6 +2441,7 @@ async function stageApply(stageId) {
     task: [
       `段 ${stageId}: ${W}/${gateAnswers(gate)} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
       answerExcerpt(gate, pending),
+      `同じ回答で、新しい signal が明示された plan.domain の初期 未評価 軸を再評価する。具体的な signal が無い軸は変更しない。`,
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
       allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（resolver.md の「8'」）。`,
     ]
@@ -2474,6 +2498,7 @@ async function stage3b() {
             `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
             `- 3a から持ち越した問い: ${list(carried)}`,
             pointedLines([...issueItems([...opens, ...pairs]), ...ownItems(carried, state)]),
+            `回答で組み直した flow に新しいユーザー由来の信号が現れた場合は、初期 未評価 軸の domain assessment を同じ resolution ID で更新する。新しい信号が無ければ触らない。`,
             askNote(ASKS['3b']()),
           ]
             .filter(Boolean)

@@ -8,6 +8,7 @@ import { Codex } from '@openai/codex-sdk';
 import { createWorkflow, executeWorkflow, workflowContext } from './adapter.mjs';
 import { contextPolicy } from './contexts.mjs';
 import { readSourceMetadata } from './source.mjs';
+import { cleanupSnapshot, createSnapshot } from '../../../../../skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../');
 
@@ -117,6 +118,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
   const [canonicalTargetRoot, canonicalStagingRoot, canonicalRunRoot, canonicalWorkerDirectory, canonicalTargetDir] =
     await Promise.all([targetRoot, stagingRoot, runRoot, workerDirectory, targetDir].map(path => realpath(path)));
   await writeFile(join(targetDir, 'SKILL.md'), 'before\n');
+  const sourceSnapshot = await createSnapshot({ target: canonicalTargetDir, scope: 'full' });
 
   const plugin = await realpath(join(repoRoot, 'plugins/skill-creator'));
   const scriptPath = join(plugin, 'workflows/review_skill.js');
@@ -138,11 +140,11 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
         assert.equal(options.sandboxMode, 'read-only');
         assert.equal(options.workingDirectory, canonicalWorkerDirectory);
       }
-      // Codex worker には claude-api skill が無いので、prompt-audit の観点は unavailable を返す。
+      // Model an environment that cannot access the shared audit criteria; unavailable must remain explicit.
       const result = prompt.includes('"changed_files"')
         ? { changed_files: [{ path: 'SKILL.md', reason: 'test update', findings_addressed: [] }], summary: 'updated' }
         : prompt.includes('[CATEGORY]: prompt-audit')
-          ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'claude-api skill is absent' }
+          ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'shared audit criteria are unavailable' }
           : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
               ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
       return { events: (async function* () {
@@ -177,6 +179,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
             skillDir: join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices'),
             mode: 'update',
             target: { skillPath: targetDir, scope: 'full' },
+            snapshot: sourceSnapshot,
             uncheckedItems: [],
             promptAuditExpected: false,
             intent: 'exercise the adapter update route',
@@ -192,6 +195,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       assert.equal(result.source_result.verdict, 'applied_to_staging');
       assert.deepEqual([...result.source_result.reverify_receipt.skipped_unavailable], ['prompt-audit']);
       assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
+      assert.equal(result.source_result.source_snapshot.snapshot_dir, sourceSnapshot.snapshotDir);
       assert.equal(result.action_package.changed_files[0].operation, 'update');
       assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
       assert.equal(result.action_package.apply.source_dir, canonicalTargetDir);
@@ -209,6 +213,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
     }
   } finally {
     Codex.prototype.startThread = originalStartThread;
+    await cleanupSnapshot(sourceSnapshot.receiptPath);
   }
 });
 

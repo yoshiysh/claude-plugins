@@ -1,15 +1,28 @@
 export const meta = {
   name: 'review-document',
   description:
-    '日本語の説明的文書を短さ・平易さ・独自用語の不使用の3軸で採点し、反証に生き残った指摘だけを返す（revise では staging への改稿と再採点まで行う）',
+    '日本語の説明的文書を短さ・平易さ・独自用語の不使用の3軸で採点し、反証に生き残った指摘だけを返す（Codex revise は改稿案をインラインで返し、native Workflow は staging を使う）',
   phases: [
     { title: 'Prepare', detail: '採点基準と対象の読み取り可否を確かめる' },
     { title: 'Score', detail: '3つの軸をそれぞれ独立に採点する' },
     { title: 'Refute', detail: '各指摘に観点の違う反証者を独立に当てる' },
     { title: 'Synthesize', detail: '生き残った証拠から改善策を統合する' },
-    { title: 'Update', detail: 'mode=revise のとき staging へ改稿する' },
-    { title: 'Rescore', detail: 'staging を同じ構成で再採点し before/after を突き合わせる' },
+    { title: 'Update', detail: 'mode=revise のとき、Codex runner は本文を返し native Workflow は staging へ改稿する' },
+    { title: 'Rescore', detail: '改稿後の本文を同じ構成で再採点し before/after を突き合わせる' },
   ],
+  caps: { maxFindingsPerPass: 8, maxInlineDraftBytes: 196608 },
+  limits: {
+    maxAgents: 58,
+    concurrency: 8,
+    timeoutMs: 1800000,
+    agentTimeoutMs: 240000,
+    maxOutputBytes: 1000000,
+  },
+}
+
+const MAX_FINDINGS_PER_PASS = meta.caps.maxFindingsPerPass
+if (meta.limits.maxAgents !== 10 + MAX_FINDINGS_PER_PASS * 6) {
+  throw new Error('meta.limits.maxAgents must cover fixed calls plus before/after refutation caps.')
 }
 
 // 有効票の下限。3 票中 2 票が返らないと多数決の分母が 1 になり、「1 名が反証しなかった」
@@ -192,12 +205,29 @@ const UPDATE_SCHEMA = {
           path: { type: 'string' },
           reason: { type: 'string' },
           addresses: { type: 'array', items: { type: 'string' } },
+          content: { type: 'string' },
         },
       },
     },
     summary: { type: 'string' },
   },
   required: ['changed_files', 'summary'],
+}
+
+const INLINE_UPDATE_SCHEMA = {
+  ...UPDATE_SCHEMA,
+  required: [...UPDATE_SCHEMA.required, 'complete'],
+  properties: {
+    ...UPDATE_SCHEMA.properties,
+    complete: { type: 'boolean' },
+    changed_files: {
+      ...UPDATE_SCHEMA.properties.changed_files,
+      items: {
+        ...UPDATE_SCHEMA.properties.changed_files.items,
+        required: [...UPDATE_SCHEMA.properties.changed_files.items.required, 'content'],
+      },
+    },
+  },
 }
 
 const CONSTRAINT_SCHEMA = {
@@ -223,6 +253,13 @@ const CONSTRAINT_SCHEMA = {
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 
+// The Codex runner injects a frozen workspace object for each run. Its source VM
+// has no filesystem API; draft content must therefore travel through the result.
+const runnerWorkspace = typeof workspace === 'undefined' ? null : workspace
+const requestedRunnerMode = parsedArgs.executionMode === 'codex-runner'
+const inlineDraftMode = requestedRunnerMode || Boolean(runnerWorkspace && typeof runnerWorkspace.path === 'string')
+const MAX_INLINE_DRAFT_BYTES = meta.caps.maxInlineDraftBytes
+
 // ------------------------------------------------------------------ 起動時ガード
 // 対象も範囲も定まらないまま走らせると、何を見たのか説明できない結果が「採点結果」として
 // 返る。曖昧さは呼び出し側（SKILL.md S2 の準備）で潰す契約なので、黙って補完せず落とす。
@@ -247,6 +284,12 @@ const mode = parsedArgs.mode
 if (!['review', 'revise'].includes(mode)) {
   throw new Error(`args.mode は 'review' か 'revise' のいずれかです（受領: ${mode}）。`)
 }
+if (parsedArgs.executionMode !== undefined && parsedArgs.executionMode !== 'codex-runner') {
+  throw new Error('args.executionMode は省略するか codex-runner を指定してください。')
+}
+if (requestedRunnerMode && (!runnerWorkspace || typeof runnerWorkspace.path !== 'string' || !runnerWorkspace.path.startsWith('/'))) {
+  throw new Error('Codex runner は runtime-owned workspace.path を渡していません。安全なインライン実行を開始できません。')
+}
 
 const rawTargets = parsedArgs.targets
 if (!Array.isArray(rawTargets) || rawTargets.length === 0) {
@@ -256,6 +299,10 @@ if (!Array.isArray(rawTargets) || rawTargets.length === 0) {
   )
 }
 const targets = rawTargets.map((t, i) => requireAbsolutePath(t, `targets[${i}]`))
+
+if (inlineDraftMode && parsedArgs.stagingDir !== undefined && parsedArgs.stagingDir !== null) {
+  throw new Error('Codex runner drafts are returned in memory; args.stagingDir is not accepted.')
+}
 
 const focus = parsedArgs.focus || null
 
@@ -279,37 +326,49 @@ function commonDir(paths) {
   return base || ''
 }
 const mirrorRoot = commonDir(targets)
-if (!mirrorRoot) {
+if (!inlineDraftMode && !mirrorRoot) {
   throw new Error(
     '対象文書に共通の親ディレクトリがありません。staging のミラーを作る基準が決まらないため、' +
       '同じディレクトリツリーの文書群を渡すか、args.stagingDir を明示してください。'
   )
 }
 
-const stagingDir = parsedArgs.stagingDir
-  ? requireAbsolutePath(parsedArgs.stagingDir, 'stagingDir')
-  : `${mirrorRoot}-review-staging`
+const stagingDir = inlineDraftMode
+  ? null
+  : parsedArgs.stagingDir
+    ? requireAbsolutePath(parsedArgs.stagingDir, 'stagingDir')
+    : `${mirrorRoot}-review-staging`
 
 // 包含は双方向で弾く。staging が対象の配下だと、再採点の担当がミラーと原本の両方を読み、
 // ミラーで直した箇所が原本側から同じ指摘として再び出て remaining に積まれる。
 // 逆に staging が対象の祖先でも同じことが起きる。
-if (stagingDir === mirrorRoot || stagingDir.startsWith(`${mirrorRoot}/`)) {
+if (!inlineDraftMode && (stagingDir === mirrorRoot || stagingDir.startsWith(`${mirrorRoot}/`))) {
   throw new Error(
     `args.stagingDir が対象文書の配下を指しています（${stagingDir}）。` +
       '再採点が下書きと原本の両方を読むことになり、before/after の突き合わせが成立しません。' +
       '兄弟ディレクトリを指定してください。'
   )
 }
-if (mirrorRoot.startsWith(`${stagingDir}/`)) {
+if (!inlineDraftMode && mirrorRoot.startsWith(`${stagingDir}/`)) {
   throw new Error(
     `args.stagingDir が対象文書の祖先を指しています（${stagingDir}）。` +
       '同上の理由で突き合わせが成立しません。兄弟ディレクトリを指定してください。'
   )
 }
 
-const stagingPathOf = (p) => `${stagingDir}${p.slice(mirrorRoot.length)}`
-const originalPathOf = (p) =>
-  p === stagingDir || p.startsWith(`${stagingDir}/`) ? `${mirrorRoot}${p.slice(stagingDir.length)}` : p
+const stagingPathOf = (p) => inlineDraftMode ? null : `${stagingDir}${p.slice(mirrorRoot.length)}`
+const originalPathOf = (p) => inlineDraftMode
+  ? p
+  : p === stagingDir || p.startsWith(`${stagingDir}/`) ? `${mirrorRoot}${p.slice(stagingDir.length)}` : p
+
+function utf8ByteLength(value) {
+  let bytes = 0
+  for (const character of value) {
+    const point = character.codePointAt(0)
+    bytes += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4
+  }
+  return bytes
+}
 
 // agent が返すファイル表記（絶対パス・staging パス・basename・'./' 付き）を、script が持つ
 // 正準パス（scoreTargets の本体側絶対パス）へ解決する。解決できなければ null。
@@ -338,7 +397,7 @@ const prep = await agent(
     '無いことを黙って補って一般論で進めると、基準に無い判定が「基準どおり」として通ってしまう。',
     '',
     `[TARGETS]:\n${targets.join('\n')}`,
-    '各パスを Read し、読めたものを readable_targets、読めなかったものを unreadable_targets に入れる。',
+    '各パスを Read し、入力の絶対パスを一字も変えず、読めたものを readable_targets、読めなかったものを unreadable_targets に入れる。',
     '読めたもののうち、日本語の説明的文書ではないもの（ソースコード、日本語以外の言語の文書、',
     'バイナリ、データだけの表）は skipped_targets に理由つきで入れる。',
     'この 3 軸は日本語の説明文を前提にしており、当てはめると根拠の無い点数が出るため。',
@@ -364,6 +423,8 @@ if (!prep) {
     skipped_targets: [],
     unreadable_targets: [],
     rubric_readable: null,
+    coverage: { requested: targets, readable: [], unreadable: [], skipped: [], missing: targets, unexpected: [], duplicates: [], complete: false },
+    source_fingerprints: { status: 'unavailable', reason: 'Workflow source cannot read file bytes deterministically.' },
     note: '下準備の担当が応答しなかったため、採点は行っていません。',
     staging: null,
   }
@@ -371,6 +432,44 @@ if (!prep) {
 
 const skipped = prep.skipped_targets || []
 const skippedPaths = new Set(skipped.map((s) => s.file))
+const classifiedPaths = [...(prep.readable_targets || []), ...(prep.unreadable_targets || [])]
+const requestedSet = new Set(targets)
+const unexpectedPaths = classifiedPaths.filter((file) => !requestedSet.has(file))
+const duplicates = [...new Set([
+  ...targets.filter((file, index) => targets.indexOf(file) !== index),
+  ...classifiedPaths.filter((file, index) => classifiedPaths.indexOf(file) !== index),
+])]
+const classifiedSet = new Set(classifiedPaths)
+const missingPaths = targets.filter((file) => !classifiedSet.has(file))
+const skippedOutsideReadable = skippedPaths.size !== skipped.length || [...skippedPaths].some((file) => !prep.readable_targets?.includes(file))
+const coverage = {
+  requested: targets,
+  readable: prep.readable_targets || [],
+  unreadable: prep.unreadable_targets || [],
+  skipped: skipped.map((row) => ({ file: row.file, reason: row.reason })),
+  missing: missingPaths,
+  unexpected: [...new Set(unexpectedPaths)],
+  duplicates,
+  complete: missingPaths.length === 0 && unexpectedPaths.length === 0 && duplicates.length === 0 && !skippedOutsideReadable,
+}
+if (!coverage.complete) {
+  return {
+    mode,
+    targets,
+    verdict: 'review_incomplete',
+    scores: [], jargon: [], worst_sentences: [], breakdown: [], suggestions: [],
+    missing_axes: AXES.map((axis) => axis.id), missing_cells: [], unverified: [], rejected_count: 0,
+    constraints_defaulted: mode === 'revise' ? constraintsWereDefaulted : null,
+    skipped_targets: skipped,
+    unreadable_targets: prep.unreadable_targets || [],
+    rubric_readable: prep.rubric_readable === true,
+    coverage,
+    source_fingerprints: { status: 'unavailable', reason: 'Workflow source cannot read file bytes deterministically.' },
+    note: '下準備の対象分類が入力パスと一致しないため、採点・改稿を行っていません。',
+    staging: null,
+  }
+}
+
 const scoreTargets = (prep.readable_targets || []).filter((f) => !skippedPaths.has(f))
 if (prep.note) log(`下準備の補足: ${prep.note}`)
 if ((prep.unreadable_targets || []).length > 0) {
@@ -401,6 +500,8 @@ function incompleteResult(note, missingAxes) {
     skipped_targets: skipped,
     unreadable_targets: prep.unreadable_targets || [],
     rubric_readable: prep.rubric_readable === true,
+    coverage,
+    source_fingerprints: { status: 'unavailable', reason: 'Workflow source cannot read file bytes deterministically.' },
     note,
     staging: null,
   }
@@ -440,7 +541,7 @@ function findPerFile(perFile, file) {
   return byBase.length === 1 ? byBase[0] : null
 }
 
-function runScore(files, phaseTitle, passLabel) {
+function runScore(files, phaseTitle, passLabel, inlineDocuments = null) {
   // parallel（barrier）を使う理由: 次の集約が 3 軸を横断して見る必要がある。
   // どの軸が欠測したかを missing_axes に載せ、1 つでも落ちたら verdict を
   // review_incomplete に固定する判定は、全軸が出揃わないと下せない。
@@ -462,8 +563,17 @@ function runScore(files, phaseTitle, passLabel) {
           '基準はこの指示文に写さない。写しと原本がズレたとき、どちらが正か分からなくなるため。',
           `[EVIDENCE_TO_RETURN]: ${a.evidence}`,
           '',
-          `[FILES]:\n${files.join('\n')}`,
-          '各ファイルを Read し、per_file に 1〜10 点と 1 行の根拠を返す。',
+          inlineDocuments
+            ? `[DOCUMENTS]:\n${files.map((file) => {
+                const text = inlineDocuments[file]
+                return text === undefined
+                  ? `[SOURCE FILE]: ${file}\nこの入力に本文が無いファイルだけを Read する。`
+                  : `[EXACT INLINE DRAFT — ${file}]\n${text}\n[END INLINE DRAFT]`
+              }).join('\n\n')}`
+            : `[FILES]:\n${files.join('\n')}`,
+          inlineDocuments
+            ? '本文が inline draft として渡されたファイルは、その文字列だけを採点する。元ファイルを Read し直してはいけない。本文が無いファイルだけ Read し、per_file に 1〜10 点と 1 行の根拠を返す。'
+            : '各ファイルを Read し、per_file に 1〜10 点と 1 行の根拠を返す。',
           '文字数・行数のしきい値で点を決めないこと。測るのは分量ではなく、',
           '同じ内容をもっと短く言えたはずかという圧縮の余地。',
           '',
@@ -515,8 +625,9 @@ function runScore(files, phaseTitle, passLabel) {
 // 指摘の粒度は 1 用語 / 1 文 / 1 改善策。ここで id を振る。pass ごとに接頭辞を変えるのは、
 // before/after を突き合わせるときに id が衝突すると「解消された指摘」と「新しく出た指摘」が
 // 同一視されるため。
-function collectFindings(byAxis, passLabel) {
+function collectFindings(byAxis, passLabel, canonicalTargets = null) {
   const out = []
+  const canonical = (file) => canonicalTargets ? canonicalPathOf(file, canonicalTargets) || file : file
   for (const a of AXES) {
     const res = byAxis[a.id]
     if (!res) continue
@@ -529,8 +640,8 @@ function collectFindings(byAxis, passLabel) {
         id: `${passLabel}-${a.id}-${++n}`,
         axis: a.id,
         type: 'jargon',
-        file: (j.files || [])[0] || '',
-        files: j.files || [],
+        file: canonical((j.files || [])[0] || ''),
+        files: (j.files || []).map(canonical),
         claim: `独自用語「${j.term}」は「${j.replacement}」で置き換えられる`,
         evidence: `${j.term} / 置換案: ${j.replacement} / 失うもの: ${j.loses}`,
         payload: j,
@@ -541,8 +652,8 @@ function collectFindings(byAxis, passLabel) {
         id: `${passLabel}-${a.id}-${++n}`,
         axis: a.id,
         type: 'worst_sentence',
-        file: w.file,
-        files: [w.file],
+        file: canonical(w.file),
+        files: [canonical(w.file)],
         claim: `この文は書き換えで短く（または平易に）できる: ${String(w.quote).slice(0, 60)}`,
         evidence: `原文: ${w.quote}\n書き換え案: ${w.rewrite}`,
         payload: w,
@@ -566,11 +677,23 @@ function collectFindings(byAxis, passLabel) {
 
 // --------------------------------------------------------------------- 反証（Refute）
 
-function refute(findings, dir, phaseTitle, passLabel) {
+function refute(findings, phaseTitle, passLabel, inlineDocuments = null) {
   // 外側の parallel は指摘どうしが独立だから。内側の parallel（barrier）は多数決の算術が
   // 3 票すべてを必要とするため —— 1 票ずつ流して途中で決めると到着順で結論が変わる。
+  const reviewedFindings = findings.slice(0, MAX_FINDINGS_PER_PASS)
+  const cappedFindings = findings.slice(MAX_FINDINGS_PER_PASS).map((finding) => ({
+    id: finding.id,
+    axis: finding.axis,
+    type: finding.type,
+    claim: finding.claim,
+    note: `反証上限 ${MAX_FINDINGS_PER_PASS} 件を超えたため未検証`,
+  }))
+  const targetFilesForFinding = (finding) => {
+    const matched = (finding.files || []).filter((file) => scoreTargets.includes(file))
+    return matched.length > 0 ? matched : scoreTargets
+  }
   return parallel(
-    findings.map((f) => () =>
+    reviewedFindings.map((f) => () =>
       parallel(
         PERSPECTIVES.map((p) => () =>
           agent(
@@ -582,8 +705,16 @@ function refute(findings, dir, phaseTitle, passLabel) {
               `[PERSPECTIVE]: ${p.id}`,
               `[PERSPECTIVE_GUIDE]:\n${p.guide}`,
               '',
-              `[TARGET_DIR]: ${dir}`,
-              '対象ファイルは自分で Read すること。読めなければ unreadable を返す。',
+              inlineDocuments
+                ? `[DOCUMENTS]:\n${targetFilesForFinding(f).map((file) => {
+                    const text = inlineDocuments[file]
+                    return text === undefined
+                      ? `[SOURCE FILE]: ${file}\nこの入力に本文が無いファイルだけを Read する。`
+                      : `[EXACT INLINE DRAFT — ${file}]\n${text}\n[END INLINE DRAFT]`
+                  }).join('\n\n')}`
+                : `[TARGET_FILES]:\n${targetFilesForFinding(f).join('\n')}\n上記の対象だけを Read すること。読めなければ unreadable を返す。`,
+              'inline draft が渡された指摘はその文字列を検証し、元ファイルを Read し直してはいけない。',
+              '本文がパスで示された指摘は対象を Read すること。読めていなければ unreadable を返す。',
               '読めていないのに not_refuted を返すと、検証していない票が確定側に数えられる。',
               '',
               `[FINDING]:\n${JSON.stringify(
@@ -635,7 +766,7 @@ function refute(findings, dir, phaseTitle, passLabel) {
     log(
       `${passLabel}: 確定 ${confirmed.length} 件 / 棄却 ${rejected.length} 件 / 未検証 ${unverified.length} 件`
     )
-    return { confirmed, rejected, unverified }
+    return { confirmed, rejected, unverified: [...unverified, ...cappedFindings], overflow: cappedFindings.length > 0 }
   })
 }
 
@@ -649,10 +780,11 @@ function scoreRows(byAxis, missing, files, physicalOf) {
   return files.map((file) => {
     const physical = toPhysical(file)
     const row = { file }
-    if (physical !== file) row.staging_path = physical
+    if (physical === null) row.draft_storage = 'inline'
+    else if (physical !== file) row.staging_path = physical
     for (const a of AXES) {
       const res = byAxis[a.id]
-      const hit = res ? findPerFile(res.per_file, physical) : null
+      const hit = res ? findPerFile(res.per_file, physical ?? file) : null
       // 欠測は 0 ではなく null。0 は「見たが最低点だった」という実測値なので、
       // 見ていないことを 0 で表すと、誰も読んでいない文書が「ひどい文書」に化ける。
       row[a.id] = missing.includes(a.id) || !hit
@@ -682,10 +814,10 @@ phase('Score')
 const first = await runScore(scoreTargets, 'Score', 'p1')
 
 phase('Refute')
-const firstFindings = collectFindings(first.byAxis, 'p1')
+const firstFindings = collectFindings(first.byAxis, 'p1', scoreTargets)
 const base =
   firstFindings.length > 0
-    ? await refute(firstFindings, mirrorRoot, 'Refute', 'before')
+    ? await refute(firstFindings, 'Refute', 'before')
     : { confirmed: [], rejected: [], unverified: [] }
 
 phase('Synthesize')
@@ -742,10 +874,18 @@ function baseResult(verdict, staging) {
     skipped_targets: skipped,
     unreadable_targets: prep.unreadable_targets || [],
     rubric_readable: true,
-    unverified: base.unverified.map((u) => ({ id: u.id, axis: u.axis, type: u.type, claim: u.claim })),
+    unverified: base.unverified.map((u) => ({
+      id: u.id, axis: u.axis, type: u.type, claim: u.claim,
+      ...(u.note ? { note: u.note } : {}),
+    })),
     rejected_count: base.rejected.length,
     constraints_defaulted: mode === 'revise' ? constraintsWereDefaulted : null,
-    note: synth ? synth.note || '' : '統合担当が応答しなかったため、改善策は未整理のまま返しています。',
+    coverage,
+    source_fingerprints: { status: 'unavailable', reason: 'Workflow source cannot read file bytes deterministically.' },
+    note: [
+      synth ? synth.note || '' : '統合担当が応答しなかったため、改善策は未整理のまま返しています。',
+      base.overflow ? `反証上限 ${MAX_FINDINGS_PER_PASS} 件を超えた指摘は未検証です。対象を絞って再実行してください。` : '',
+    ].filter(Boolean).join(' '),
     staging,
   }
 }
@@ -756,7 +896,7 @@ if (mode === 'review') {
   // 軸単位の欠測（missing_axes）だけでなく、ファイル×軸単位の欠測（missing_cells）も
   // 同格に扱う。どちらも「誰も見ていない箇所がある」ことに変わりがない。
   const verdict =
-    first.missing.length > 0 || firstMissingCells.length > 0
+    first.missing.length > 0 || firstMissingCells.length > 0 || base.overflow
       ? 'review_incomplete'
       : base.confirmed.length === 0 && base.unverified.length === 0
         ? 'clean'
@@ -768,12 +908,13 @@ if (mode === 'review') {
 
 // 軸が欠けたまま改稿しない。部分的な絵から書き換えるのは、見えていない箇所を
 // 「問題なし」と決めつけて手を入れるのと同じで、止まる方が安全。
-if (first.missing.length > 0 || firstMissingCells.length > 0) {
+if (first.missing.length > 0 || firstMissingCells.length > 0 || base.overflow) {
   return baseResult('review_incomplete', null)
 }
 
 const emptyStaging = (extra) => ({
-  dir: stagingDir,
+  dir: inlineDraftMode ? null : stagingDir,
+  storage: inlineDraftMode ? 'inline' : 'filesystem',
   changed_files: [],
   scores_before: beforeScores,
   scores_after: null,
@@ -792,16 +933,16 @@ const emptyStaging = (extra) => ({
 phase('Update')
 const changed = await agent(
   [
-    'あなたは改稿担当。対象文書を staging（下書き置き場）に丸ごと複製し、複製側だけを書き直す。',
-    '本体ファイルは 1 バイトも変更しないこと。承認前に本体が変わると、人間が承認する対象が',
-    '「これから変わるもの」ではなく「もう変わったもの」になり、承認そのものが意味を失う。',
+    inlineDraftMode
+      ? 'あなたは改稿担当。ファイルを書き換えず、各改稿ファイルの完全な本文を content として返す。'
+      : 'あなたは改稿担当。対象文書を staging（下書き置き場）に丸ごと複製し、複製側だけを書き直す。',
+    inlineDraftMode
+      ? 'Codex runner は read-only で動く。ファイル書き込みを試みず、途中省略や diff だけの返却もせず、完全な本文を返す。'
+      : '本体ファイルは 1 バイトも変更しないこと。承認前に本体が変わると、人間が承認する対象が「これから変わるもの」ではなく「もう変わったもの」になり、承認そのものが意味を失う。',
     '',
-    `[TARGET_DIR]: ${mirrorRoot}`,
-    `[STAGING_DIR]: ${stagingDir}`,
-    '[FILE_MAP]: 各行「原本 → 書き込み先」。書き込み先はこの絶対パスに一字違わず書くこと。',
-    '相対位置を自分で解釈させないのは、階層の取り方が 1 段ズレると再採点が別のパスを読み、',
-    '全セル欠測として突き合わせが破綻するため（実測）。',
-    scoreTargets.map((t) => `${t} → ${stagingPathOf(t)}`).join('\n'),
+    inlineDraftMode
+      ? `[TARGETS]:\n${scoreTargets.join('\n')}\nEach changed_files[].path must equal its exact absolute target path. Return complete UTF-8 document text in changed_files[].content.`
+      : `[TARGET_DIR]: ${mirrorRoot}\n[STAGING_DIR]: ${stagingDir}\n[FILE_MAP]: 各行「原本 → 書き込み先」。書き込み先はこの絶対パスに一字違わず書くこと。\n相対位置を自分で解釈させないのは、階層の取り方が 1 段ズレると再採点が別のパスを読み、全セル欠測として突き合わせが破綻するため（実測）。\n${scoreTargets.map((t) => `${t} → ${stagingPathOf(t)}`).join('\n')}`,
     '',
     `[CONSTRAINTS]:\n${constraints}`,
     'これは落とせない性質。短くするために要求 ID・参照リンク・例外条件を消してはいけない。',
@@ -822,13 +963,13 @@ const changed = await agent(
     )}`,
     focusBlock,
     '',
-    'changed_files には実際に内容を変えたファイルだけを載せる。staging には全ファイルを複製するが、',
-    'この一覧は承認後に本体へコピーする対象そのものなので、無変更のファイルを載せると',
-    '承認されていない上書きが起きる。',
+    inlineDraftMode
+      ? 'complete は、変更対象の全てについて完全な本文を返せる場合だけ true にする。1 件でも欠ける・上限に収まらない場合は false とし、一部だけを返さず changed_files を空にする。changed_files には実際に内容を変えたファイルだけを載せ、各文書の完全な本文を content に含める。'
+      : 'changed_files には実際に内容を変えたファイルだけを載せる。staging には全ファイルを複製するが、この一覧は承認後に本体へコピーする対象そのものなので、無変更のファイルを載せると承認されていない上書きが起きる。',
   ]
     .filter(Boolean)
     .join('\n'),
-  { model: 'sonnet', schema: UPDATE_SCHEMA, phase: 'Update', label: 'update' }
+  { model: 'sonnet', schema: inlineDraftMode ? INLINE_UPDATE_SCHEMA : UPDATE_SCHEMA, phase: 'Update', label: 'update' }
 )
 
 if (!changed) {
@@ -836,41 +977,101 @@ if (!changed) {
   // 「書かれていない」と読まれないよう空の器と dir を返して人間に確認させる。
   return baseResult(
     'update_failed',
-    emptyStaging({ summary: '改稿担当が応答しませんでした。staging の中身を人が確認してください。' })
+    emptyStaging({ summary: inlineDraftMode
+      ? '改稿担当が完全な改稿案を返しませんでした。ファイルへの変更はありません。'
+      : '改稿担当が応答しませんでした。staging の中身を人が確認してください。',
+      constraint_unchecked: ['改稿案を確認できないため、制約照合を実施していません。'],
+    })
   )
 }
-log(`staging に ${changed.changed_files.length} ファイルを書きました。`)
+if (inlineDraftMode && changed.complete !== true) {
+  return baseResult('update_failed', emptyStaging({
+    summary: changed.summary || '改稿本文を全て返せなかったため、部分的な案を破棄しました。ファイルへの変更はありません。',
+    constraint_unchecked: ['完全な改稿案を受け取れなかったため、制約照合を実施していません。'],
+  }))
+}
+if (inlineDraftMode && changed.changed_files.length === 0) {
+  return baseResult('no_changes', emptyStaging({
+    summary: changed.summary || '改稿箇所がないため、Codex runner は本文を返していません。',
+    constraint_unchecked: ['改稿案がないため、before/after の制約照合は実施していません。'],
+  }))
+}
+let inlineDocuments = null
+let changedFiles = changed.changed_files
+if (inlineDraftMode) {
+  inlineDocuments = Object.create(null)
+  const seen = new Set()
+  let draftBytes = 0
+  for (const file of changed.changed_files) {
+    if (typeof file.path !== 'string' || !scoreTargets.includes(file.path) || seen.has(file.path) || typeof file.content !== 'string') {
+      return baseResult('update_failed', emptyStaging({
+        summary: '改稿案の対象パスまたは本文が欠落・重複・不一致です。部分的な案は返していません。',
+        constraint_unchecked: ['改稿案を確認できないため、制約照合を実施していません。'],
+      }))
+    }
+    seen.add(file.path)
+    inlineDocuments[file.path] = file.content
+    draftBytes += utf8ByteLength(file.content)
+  }
+  if (draftBytes > MAX_INLINE_DRAFT_BYTES) {
+    return baseResult('update_failed', emptyStaging({
+      summary: `改稿案の合計サイズ ${draftBytes} bytes が上限 ${MAX_INLINE_DRAFT_BYTES} bytes を超えました。内容を切り詰めず、改稿案の返却と再採点を中止しました。ファイルへの変更はありません。`,
+      constraint_unchecked: ['改稿案が返却上限を超えたため、制約照合を実施していません。'],
+    }))
+  }
+  changedFiles = changed.changed_files.map(({ content, ...metadata }) => ({ ...metadata, content }))
+} else {
+  log(`staging に ${changed.changed_files.length} ファイルを書きました。`)
+}
 if (changed.changed_files.length === 0) {
-  log('改稿担当は応答したが変更ファイルを 1 つも報告しなかった。空の改稿のまま再採点に入る。')
+  log(inlineDraftMode
+    ? '改稿担当は応答したが変更ファイルを報告しなかった。空の改稿案のまま再採点に入る。'
+    : '改稿担当は応答したが変更ファイルを 1 つも報告しなかった。空の改稿のまま再採点に入る。')
 }
 
 // ---------------------------------------------------------------------- Rescore
 
 phase('Rescore')
-const stagedFiles = scoreTargets.map(stagingPathOf)
-const after = await runScore(stagedFiles, 'Rescore', 'p2')
+const stagedFiles = inlineDraftMode ? scoreTargets : scoreTargets.map(stagingPathOf)
+const after = await runScore(stagedFiles, 'Rescore', 'p2', inlineDocuments)
 const afterMissingCells = (after.missing_cells || []).map((c) => ({ file: originalPathOf(c.file), axis: c.axis }))
 if (after.missing.length > 0 || afterMissingCells.length > 0) {
   // 再採点で軸が欠けた状態を「残存 0 件」と読むと、直っていないものが直ったことになる。
   return baseResult(
     'reverify_incomplete',
     emptyStaging({
-      changed_files: changed.changed_files,
+      changed_files: changedFiles,
       summary:
         `再採点で欠測が出たため、before/after を突き合わせていません。` +
         (after.missing.length > 0 ? ` 欠測した観点: ${after.missing.join(', ')}。` : '') +
         (afterMissingCells.length > 0
           ? ` 採点が返らなかった箇所: ${afterMissingCells.map((c) => `${c.file}×${c.axis}`).join(', ')}。`
           : ''),
+      constraint_unchecked: ['再採点が完了していないため、制約照合を実施していません。'],
     })
   )
 }
 
-const afterFindings = collectFindings(after.byAxis, 'p2')
+const afterFindings = collectFindings(after.byAxis, 'p2', scoreTargets)
 const post =
   afterFindings.length > 0
-    ? await refute(afterFindings, stagingDir, 'Rescore', 'after')
+    ? await refute(afterFindings, 'Rescore', 'after', inlineDocuments)
     : { confirmed: [], rejected: [], unverified: [] }
+
+if (post.overflow) {
+  return baseResult('reverify_incomplete', emptyStaging({
+    changed_files: changedFiles,
+    scores_after: scoreRows(after.byAxis, after.missing, scoreTargets, inlineDraftMode
+      ? (file) => Object.hasOwn(inlineDocuments, file) ? null : file
+      : stagingPathOf),
+    unverified: post.unverified.map((finding) => ({
+      id: finding.id, axis: finding.axis, type: finding.type, claim: finding.claim,
+      ...(finding.note ? { note: finding.note } : {}),
+    })),
+    constraint_unchecked: ['反証候補の上限超過により検証が未完了のため、制約照合を実施していません。'],
+    summary: `改稿後の反証候補が上限 ${MAX_FINDINGS_PER_PASS} 件を超えたため、全件の検証を完了していません。`,
+  }))
+}
 
 // 制約の突き合わせ。要求 ID や参照リンクの出現数を改稿前後で数えるのは、
 // 分量のしきい値判定（禁止）ではなく、不変であるべき性質が保たれたかの確認。
@@ -880,10 +1081,12 @@ const constraintCheck = await agent(
     'あなたは制約の突き合わせ担当。改稿が「落としてはいけない性質」を壊していないかだけを見る。',
     '文章の良し悪しは判定しない（採点は担当外）。',
     '',
-    `[ORIGINAL_DIR]: ${mirrorRoot}`,
-    `[STAGING_DIR]: ${stagingDir}`,
-    `[FILES]:\n${scoreTargets.join('\n')}`,
-    '対応するファイルを両方 Read し、次を突き合わせる。',
+    inlineDraftMode
+      ? `[ORIGINAL_FILES]:\n${scoreTargets.join('\n')}\n[DRAFT_CONTENTS]:\n${Object.keys(inlineDocuments).map((file) => `[DRAFT — ${file}]\n${inlineDocuments[file]}\n[END DRAFT]`).join('\n\n')}`
+      : `[ORIGINAL_DIR]: ${mirrorRoot}\n[STAGING_DIR]: ${stagingDir}\n[FILES]:\n${scoreTargets.join('\n')}`,
+    inlineDraftMode
+      ? '原本は Read し、該当する改稿本文と次を突き合わせる。'
+      : '対応するファイルを両方 Read し、次を突き合わせる。',
     '- 要求 ID・章番号など識別子の出現が減っていないか',
     '- 参照リンク・引用元の記載が減っていないか',
     '- 例外条件・否定条件が落ちていないか',
@@ -981,12 +1184,14 @@ for (const f of base.unverified) {
 const beforeSeen = new Set([...base.confirmed, ...base.rejected, ...base.unverified].map(keyOf))
 const fresh = post.confirmed.filter((f) => !beforeSeen.has(keyOf(f))).map((f) => ({ id: f.id, axis: f.axis, type: f.type, claim: f.claim }))
 
-const afterScores = scoreRows(after.byAxis, after.missing, scoreTargets, stagingPathOf)
+const afterScores = scoreRows(after.byAxis, after.missing, scoreTargets, inlineDraftMode
+  ? (file) => Object.hasOwn(inlineDocuments, file) ? null : file
+  : stagingPathOf)
 
 return baseResult(
-  'applied_to_staging',
+  inlineDraftMode ? 'draft_ready' : 'applied_to_staging',
   emptyStaging({
-    changed_files: changed.changed_files,
+    changed_files: changedFiles,
     scores_after: afterScores,
     resolved,
     remaining,

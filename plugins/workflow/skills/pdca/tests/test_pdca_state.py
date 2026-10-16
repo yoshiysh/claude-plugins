@@ -121,13 +121,14 @@ class Run:
         return self.record(brief, {"agent": agent, "viewpoint": "C1-V2",
                                    "controls": [{"input": "既知の PR", "observed": observed}]})
 
-    def verify_all(self, tag, statuses=None):
+    def verify_all(self, tag, statuses=None, findings=None):
         statuses = statuses or {}
+        findings = findings or {}
         ids = ["C1-V1"] + (["C1-V2"] if self.controlled else []) + ["R-REQUEST", "R-OUTSIDE"]
         for vid in ids:
             status = statuses.get(vid, "pass")
             observed = 1 if vid == "C1-V2" else None
-            self.verify(vid, f"{tag}-{vid}", status=status, observed=observed)
+            self.verify(vid, f"{tag}-{vid}", status=status, observed=observed, findings=findings.get(vid, ()))
 
     def judge(self, verdict="complete", open_items=None):
         report = self.root / "report.md"
@@ -193,6 +194,92 @@ class Base(unittest.TestCase):
         return Run(self.root, **kw)
 
 
+class TestCodexExecution(Base):
+    def test_cli_rejects_second_outstanding_writer_and_accepts_sequential_briefs(self):
+        r = self.run_()
+        r.fixed()
+        _, first = r.brief("writer", "--conditions", "C1")
+        before = (r.dir / "ledger.jsonl").read_text()
+        error = r.refused("brief", "--role", "writer", "--conditions", "C1")
+        self.assertIn("未記録の brief", error)
+        self.assertEqual((r.dir / "ledger.jsonl").read_text(), before)
+
+        r.record(first, {"agent": "writer-1", "outputs": [str(self.root / "docs")]})
+        self.assertEqual(r.next(), "verifier")
+        r.verify("C1-V1", "verifier-1")
+        self.assertEqual(r.next(), "verifier")
+
+    def test_cli_enforces_status_next_roles_viewpoints_and_full_cycle(self):
+        r = self.run_()
+        r.fixed()
+        report = self.root / "report.md"
+        report.write_text("完了した\n")
+        error = r.refused("brief", "--role", "completion-judge", "--report-file", str(report))
+        self.assertIn("status.next (writer)", error)
+
+        r.work()
+        error = r.refused("brief", "--role", "writer", "--conditions", "C1")
+        self.assertIn("status.next (verifier)", error)
+        r.verify("C1-V1", "v1")
+        error = r.refused("brief", "--role", "verifier", "--viewpoint", "C1-V1")
+        self.assertIn("検証済みの viewpoint", error)
+        r.verify("R-REQUEST", "v2")
+        r.verify("R-OUTSIDE", "v3")
+        self.assertEqual(r.next(), "completion-judge")
+
+        error = r.refused("brief", "--role", "writer", "--conditions", "C1")
+        self.assertIn("status.next (completion-judge)", error)
+        r.ok("record", "--file", str(r.judge()[1]))
+        self.assertEqual(r.ok("close")["human_gates"], ["マージ"])
+
+    def test_writer_brief_covers_every_unmet_condition(self):
+        r = self.run_()
+        r.init()
+        criteria = r.criteria()
+        second = json.loads(json.dumps(criteria["conditions"][0]))
+        second["id"] = "C2"
+        second["statement"] = "2つ目の条件"
+        for viewpoint in second["viewpoints"]:
+            viewpoint["id"] = "C2-V1"
+        criteria["conditions"].append(second)
+        r.author(criteria=criteria)
+        r.review("scope")
+        r.review("design")
+        r.ok("fix")
+
+        error = r.refused("brief", "--role", "writer", "--conditions", "C1")
+        self.assertIn("C2", error)
+        _, writer = r.brief("writer", "--conditions", "C1", "C2")
+        self.assertEqual(writer["conditions"], ["C1", "C2"])
+
+    def test_codex_route_confirms_exact_agent_completion_before_record(self):
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        route = skill.split("## 実行環境", 1)[1].split("## 役割", 1)[0]
+        steps = route.split("Codex では、各 `brief` の後に次を行う。", 1)[1]
+        ordered_steps = [
+            "collaboration.spawn_agent",
+            "fork_turns",
+            "invoke",
+            "wait_agent",
+            "list_agents",
+            "completed",
+            "record --file",
+            "status",
+        ]
+        positions = [steps.index(step) for step in ordered_steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("`message` には `brief` が返した `invoke` の文字列をそのまま渡す", route)
+        self.assertIn("followup_task", route)
+        self.assertIn("返り値の canonical", route)
+        self.assertIn("`wait_agent` は別 agent の更新でも戻る", route)
+        self.assertIn("`model` と `reasoning_effort` の override を受け付ける", skill)
+        self.assertIn("この PDCA 経路では両方を省略し", skill)
+        self.assertIn("呼び出し元の\nCodex セッションから継承する", skill)
+        self.assertIn("`status.next` に合う役割・criteria-verifier の aspect", skill)
+        self.assertIn("既知の未充足 condition を全て `--conditions` に含める", skill)
+        self.assertIn("同等だとは扱わない", skill)
+
+
 class TestBrokenPaths(Base):
     def test_blocking指摘の後にnextがcriteriaの直しを指す(self):
         r = self.run_()
@@ -223,8 +310,9 @@ class TestBrokenPaths(Base):
         r2 = Run(self.root / "second")
         r2.fixed()
         r2.work()
-        r2.verify_all("r1", {"C1-V1": "fail"})
-        r2.verify("C1-V1", "r1b-C1-V1", status="fail", findings=[finding()])
+        r2.verify("R-REQUEST", "r1-R-REQUEST")
+        r2.verify("R-OUTSIDE", "r1-R-OUTSIDE")
+        r2.verify("C1-V1", "r1-C1-V1", status="fail", findings=[finding()])
         _, writer = r2.brief("writer", "--conditions", "C1")
         self.assertEqual([f["claim"] for f in writer["prior_findings"]], ["欠けている"])
 
@@ -360,7 +448,8 @@ class TestBrokenPaths(Base):
         r.fixed()
         for n in range(3):
             r.work(agent=f"w{n}")
-            r.verify_all(f"r{n}", {"C1-V1": "fail"})
+            r.verify(f"R-REQUEST", f"r{n}-R-REQUEST")
+            r.verify(f"R-OUTSIDE", f"r{n}-R-OUTSIDE")
             r.verify("C1-V1", f"r{n}-C1-V1", status="fail", findings=[finding()])
         self.assertEqual(r.next(), "stop:non_converging:実装")
 
@@ -595,7 +684,9 @@ class TestSeparation(Base):
         path = r.submit(brief, {"agent": "v", "viewpoint": "C1-V2", "status": "pass", "observed": 1,
                                 "evidence": "x", "findings": []})
         self.assertIn("未知のキー", r.refused("record", "--file", str(path)))
-        r.smoke(observed=0)
+        corrected = r.submit(brief, {"agent": "s1", "viewpoint": "C1-V2",
+                                     "controls": [{"input": "既知の PR", "observed": 0}]})
+        r.ok("record", "--file", str(corrected))
         _, again = r.brief("verifier", "--viewpoint", "C1-V2")
         self.assertEqual(again["mode"], "smoke")
         r.submit(again, {"agent": "s2", "viewpoint": "C1-V2", "controls": [{"input": "既知の PR", "observed": 1}]})

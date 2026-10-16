@@ -77,8 +77,10 @@ host request; both are checked before run creation or agent dispatch. Default ca
 are read-only and fresh-thread; explicit workspace configuration can add workspace-write
 and worktree. Callers must declare
 their needs, including capabilities hidden behind dynamically constructed options.
-For the skill-creator caller, its `review` classification remains unsupported and its
-`update` route requires a host-bound `updatePolicy`, matching runtime capability,
+For the skill-creator caller, `review` / `audit` use a caller-prepared bounded, hashed
+snapshot; the caller verifies that snapshot and its source inputs after the run before
+trusting the result. The runner does not prepare or validate that snapshot. Its `update`
+route still requires a host-bound `updatePolicy`, matching runtime capability,
 staging-rooted phase-scoped writes, and a hash-bound action package. That caller applies
 the package only after approval with its apply helper; a selector flag or capability
 declaration alone does not authorize target writes. These are skill-creator's caller

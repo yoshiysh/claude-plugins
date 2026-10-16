@@ -95,22 +95,43 @@ actions remain owned by the caller; see its SKILL.md for the authoritative conti
 the skill-creator plugin root (not this workflow plugin), and `args.skillDir` is
 `<skill-creator plugin root>/skills/skill-creator-best-practices`. Read the
 caller SKILL.md first: it runs `scripts/select_runtime.js` before every call, and its selection decides whether
-a runner request is made at all. Only `create` and host-policy-bound `update` are runnable; `review` stops as
-`rejected_source` before any agent is dispatched. The update authority checks key on the literal metadata name
-`skill-creator-review`, so a named request reaches the same updatePolicy binding, staging and checkpoint
-restrictions as a scriptPath request. Do not pass `args.stagingDir`; the host updatePolicy selects staging.
-Configure an explicit modelMap for the labels the source passes (update uses `opus` and `sonnet`;
-create drops the hints listed in its portability declaration). Persona approval, saving and update
-application remain owned by the caller.
+a runner request is made at all. `review` / `audit` are runnable when the caller first prepares a bounded
+frozen snapshot and passes its ready receipt through the selector; every finder/refuter reads that snapshot,
+and the caller verifies the receipt again after the run before trusting the result. The runner does not create
+or verify the snapshot itself. `audit` uses the caller's shared criteria reference and does not depend on a
+Claude-only skill.
+
+`update` is runnable only through a host configured with a bound `updatePolicy`, plus the same snapshot proof.
+The update authority checks key on the literal metadata name `skill-creator-review`, so a named request reaches
+the same updatePolicy binding, staging and checkpoint restrictions as a scriptPath request. Do not pass
+`args.stagingDir`; the host updatePolicy selects staging. Update writes remain scoped to the host-selected staging
+directory and are returned as a hash-bound action package for caller approval and application.
+
+Configure an explicit `modelMap` for the labels the source passes (`sonnet` for review/audit; `opus` and `sonnet`
+for update; create drops only the hints listed in its portability declaration). Persona approval, saving, result
+verification and update application remain owned by the caller.
 
 ```json
 {
-  "name": "skill-creator:skill-creator-build",
+  "name": "skill-creator:skill-creator-review",
   "trustedPluginRoots": ["<skill-creator plugin root>"],
-  "args": {"skillDir": "<skill-creator plugin root>/skills/skill-creator-best-practices", "...": "caller args"},
+  "args": {
+    "skillDir": "<skill-creator plugin root>/skills/skill-creator-best-practices",
+    "mode": "review",
+    "target": {"skillPath": "<canonical target>", "scope": "full"},
+    "snapshot": {"...": "review-snapshot.mjs prepare output"},
+    "promptAuditExpected": true
+  },
+  "modelMap": {"sonnet": "<explicit Codex model>"},
+  "requirements": ["read-only", "fresh-thread"],
+  "limits": {"...": "selector runner_limits, unchanged"},
   "runDir": "<new external run directory>"
 }
 ```
+
+For `mode: "update"`, the caller must use the host API configured with `updatePolicy`; request JSON alone cannot
+authorize the staging write. The selector's `--update-policy-bound` flag proves only that host binding exists;
+the runner still validates the exact target, capability and staging relationship before dispatch.
 
 ## One-agent live probe
 

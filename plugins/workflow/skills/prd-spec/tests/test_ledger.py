@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_doc_check_workspace import _rulings, stdout_body  # noqa: E402
+from test_doc_check_workspace import _aspect_keys, _rulings, stdout_body  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -84,6 +84,8 @@ RESOLUTION_Q = {
     "id": "RS-001",
     "about": {"open": "O-001"},
     "ruling": "question",
+    "why": "依頼文はログイン後に結果を返すと定めるが、画面表示とメール送信で受け取り方が変わり、どちらが正しいか選べる既定は無い。誤った想定は出力経路の作り直しにつながるため確認する。",
+    "evidence": [{"file": str(FIXTURE / "input.md"), "line": 1, "quote": "結果を返す"}],
     "question": {"header": "結果の返し方", "text": "結果をどう返しますか", "searched": "依頼文に返し方の記述が無い"},
     "options": [
         {"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
@@ -1020,6 +1022,91 @@ class FieldTypes(_Workspace):
         self.assertFalse(any("HISTORY" in i for i in json.loads((self.ws / "checks" / "flow.json").read_text())["findings"]))
 
 
+class DomainAssessment(_Workspace):
+    def _unassessed(self):
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["domain"] = [
+            {"aspect": aspect, "verdict": "未評価", "revisit_when": "対象データや操作が具体化されたとき"}
+            for aspect in _aspect_keys()
+        ]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+
+    def _assessment(self, *, aspect="personal_data", verdict="該当", categories=None, evidence=None):
+        answer = self.ws / "answers" / "g1.md"
+        answer.parent.mkdir(exist_ok=True)
+        answer.write_text("RS-001: 取り込むデータは個人のメモです。\n")
+        return {
+            "id": "RS-051",
+            "about": {"domain": aspect},
+            "ruling": "answered_by",
+            "value": verdict,
+            "why": "具体的なデータの説明があるため適用を判定し、そこから必要なカテゴリを選んだ。",
+            "evidence": evidence or [{"file": str(answer), "line": 1, "quote": "個人のメモ"}],
+            "domain_assessment": {
+                "aspect": aspect,
+                "verdict": verdict,
+                "required_categories": ["保持期間と削除"] if categories is None else categories,
+            },
+        }
+
+    def test_信号のない軸は未評価のままで質問や評価行を作らない(self):
+        self._unassessed()
+        out = _ok(self.ws, "plan")
+        self.assertEqual(out["findings"], 0)
+        domain = json.loads((self.ws / "plan.json").read_text())["domain"]
+        self.assertTrue(all(x["verdict"] == "未評価" for x in domain))
+        self.assertFalse((self.ws / "resolutions.json").exists())
+
+    def test_後段の信号を根拠付きの構造化された評価として保存できる(self):
+        self._unassessed()
+        assessment = self._assessment()
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [assessment]})
+        stored = json.loads((self.ws / "resolutions.json").read_text())["resolutions"][0]
+        self.assertEqual(stored["about"], {"domain": "personal_data"})
+        self.assertEqual(stored["value"], stored["domain_assessment"]["verdict"])
+        self.assertEqual(stored["domain_assessment"]["required_categories"], ["保持期間と削除"])
+        rows = _rulings(self.ws)
+        self.assertTrue(any(x["about"] == {"domain": "personal_data"} for x in rows))
+
+    def test_同じ軸の後続評価は同じIDを更新し別IDの重複を拒否する(self):
+        self._unassessed()
+        first = self._assessment()
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [first]})
+        updated = self._assessment(categories=["保持期間と削除", "訂正と削除の反映"])
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**updated, "id": first["id"]}]})
+        stored = json.loads((self.ws / "resolutions.json").read_text())["resolutions"]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["domain_assessment"]["required_categories"], ["保持期間と削除", "訂正と削除の反映"])
+
+        duplicate = {**updated, "id": "RS-052"}
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [duplicate]})
+        self.assertIn("同じ論点の裁定が 2 つ", result.stderr)
+
+    def test_評価には初期未評価の軸と逐語の回答が必要(self):
+        self._unassessed()
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["domain"][next(i for i, x in enumerate(plan["domain"]) if x["aspect"] == "personal_data")]["verdict"] = "該当"
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+        self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [self._assessment()]})
+
+        self._unassessed()
+        outside = Path(self._tmp.name) / "outside.md"
+        outside.write_text("個人のメモ")
+        bad = self._assessment(evidence=[{"file": str(outside), "line": 1, "quote": "個人のメモ"}])
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [bad]})
+        self.assertIn("domain の信号", result.stderr)
+
+    def test_非該当はカテゴリを持てず_about_domainには評価が要る(self):
+        self._unassessed()
+        bad = self._assessment(verdict="非該当", categories=["保持期間と削除"])
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [bad]})
+        self.assertIn("非該当", result.stderr)
+
+        bare = {k: v for k, v in self._assessment().items() if k != "domain_assessment"}
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [bare]})
+        self.assertIn("about.domain には domain_assessment", result.stderr)
+
+
 class Cases(_Workspace):
     """欄の条件: 型や ruling ごとに持つ欄・持てない欄を宣言し、マージした後の要素で検査する。"""
 
@@ -1047,7 +1134,8 @@ class Cases(_Workspace):
         measured = {"id": "RS-010", "about": {"open": "O-010"}, "ruling": "measured", "value": "失敗したら中断する",
                     "evidence": [{"file": str(src), "line": 2, "quote": "return 'abort'"}]}
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [measured]})
-        q = {"ruling": "question", "question": RESOLUTION_Q["question"], "options": RESOLUTION_Q["options"]}
+        q = {"ruling": "question", "why": RESOLUTION_Q["why"], "evidence": RESOLUTION_Q["evidence"],
+             "question": RESOLUTION_Q["question"], "options": RESOLUTION_Q["options"]}
         self._rejected({"resolutions": [{"id": "RS-010", **q}]}, "value", "null")
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-010", **q, "value": None}]})
         ok = _ok(self.ws, "questions", "--ids", "RS-010", "--check")

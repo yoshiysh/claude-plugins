@@ -17,6 +17,7 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
 
 **resolutions（resolver の裁定）**
 
+- **問いの relevance と根拠**（`ruling: question`）: `references/question-policy.md` の質問条件を確認する。条件を満たさない問いは `insufficient_grounds` とする。
 - **分類**: プロダクトの価値（何をすべきか・何を許すか・何を優先するか）の判断を、`method` / `precedent` /
   `internal` / `measured` で決めていないか → `value_as_method`（`measured` は契約の「## 現物と既存実装の扱い」の
   範囲で判定する）。`question` を方法論の論点に使っている場合も指摘してよい（依頼者の往復を無駄に増やす）が、

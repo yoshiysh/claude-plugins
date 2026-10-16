@@ -9,7 +9,7 @@
 | `search` | `/research:search` | 一次情報検証つき調査。全事実主張を三値判定してから回答を組む |
 | `reference` | `/research:reference` | 技術的な回答で推測と確認済み情報を区別させる（`user-invocable: false`） |
 | `url-reader` | `/research:url-reader` | ドメイン別 reader backend で URL を安定 Markdown 化する |
-| `dispatch` | `/research:dispatch` | Fable 5 が計画・評価し、subagent を複数ラウンド反復実行して難問を解く |
+| `dispatch` | `/research:dispatch` | planner/executor/verifier を分け、複数ラウンドの調査・検証を行う |
 
 ## 使い方
 
@@ -21,9 +21,12 @@
 詳細なフローは `skills/<name>/SKILL.md` を参照してください。
 
 `search` / `dispatch` の Workflow callsite は native Workflow を優先し、それが無い Codex では
-`workflow:dynamic-workflow-runner` を内部利用します。searchはbounded mappingの対象です。Fable 5のexact model semanticsを
-load-bearingにするdispatchはrunnerで証明できないためexecution前にfail closedします。Claude Code は plugin dependency で
+`workflow:dynamic-workflow-runner` を内部利用します。search は bounded mapping を使います。dispatch は
+Codex profile で全 agent call の model と effort を省略し、runner の host-default model で実行します。
+native Claude Workflow の Fable 5 model profile と同一・同等とは扱いません。実 model ID は dispatch の
+source result と runner の `model.selected` event のどちらにも現れません。Claude Code は plugin dependency で
 `workflow` も導入しますが、Codex では `research` と `workflow` を一度ずつ install してください。
+Codex runner では `dispatch/scripts/orchestrate.js` の `meta` と実際の上限 args から per-run top-level limits を算出します。
 
 ## 構成
 

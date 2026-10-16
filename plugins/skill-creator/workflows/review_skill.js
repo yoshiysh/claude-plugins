@@ -44,7 +44,7 @@ const UNCHECKED_BLOCKING = ['fail', 'partial', 'unknown']
 // 未解消のまま applied_to_staging にはならず、改稿ループへ戻る。
 const UNCHECKED_SEVERITY = 'major'
 
-// audit モードで走らせる唯一の観点。外部 skill（claude-api の prompt-audit）に依存するのはこの観点だけ。
+// audit モードで走らせる唯一の観点。criteria は skill-creator の共有 reference を正とする。
 const AUDIT_CATEGORY = 'prompt-audit'
 
 // prompt-audit の確信度から severity への写像（正本はここ 1 箇所）。重さを finder の裁量にすると、
@@ -53,9 +53,8 @@ const AUDIT_CATEGORY = 'prompt-audit'
 // Low と action=flag は監査ガイド自身が編集を提案しない扱いなので指摘にせず、宣言だけ残す。
 const PROMPT_AUDIT_SEVERITY = { High: 'major', Medium: 'minor' }
 
-// by_category で「外部 skill が実行環境に無く、この観点を実施できなかった」を表す値。null（応答しなかった）
-// とも 0（見て何も無かった）とも違う。欠測に寄せると Codex のように常に無い環境で review/update が
-// 毎回 review_incomplete になり、0 に寄せると見ていない観点が clean に数えられる。
+// by_category で「criteria / capability を実行環境から使えず、この観点を実施できなかった」を表す値。
+// null（応答しなかった）とも 0（見て何も無かった）とも違う。0 に寄せると見ていない観点が clean に数えられる。
 const UNAVAILABLE = 'unavailable'
 
 const SEVERITY = { type: 'string', enum: ['blocker', 'major', 'minor'] }
@@ -114,7 +113,7 @@ const FINDINGS_SCHEMA = {
       },
     },
     unavailable: { type: 'boolean' },
-    // prompt-audit が実際に走った証跡（監査レポート冒頭の scope と target model の前提行）。
+    // prompt-audit が実際に走った証跡（scope・criteria source・target model 前提）。
     // 空なら監査せずに 0 件を返した可能性と区別できないので、script は欠測として扱う。
     audit_header: { type: 'string' },
     // prompt-audit の Low・flag の項目。note の自由記述にすると、再確認中の指摘が確信度を下げて
@@ -201,15 +200,14 @@ if (!['review', 'update', 'audit'].includes(mode)) {
   throw new Error(`args.mode は 'review' / 'update' / 'audit' のいずれかです（受領: ${mode}）。`)
 }
 
-// promptAuditExpected: この実行環境で claude-api skill の prompt-audit が使えるはずか。司令塔が
-// select_runtime.js の selected_runtime から決める（native なら true）。true のとき prompt-audit の
-// unavailable は欠測として扱う。使えるはずの環境で「無い」を受け付けると、観点が黙って外れる。
+// promptAuditExpected: 共有 prompt-audit criteria を実行できるべき環境か。Codex では基準をこの plugin 内に
+// 同梱するため true を渡す。false は criteria を利用できない環境でのみ使い、unavailable を「問題なし」にしない。
 // 既定値を置かないのは、未指定を false と読むと native でも観点の脱落が skipped で通るため。
 const promptAuditExpected = parsedArgs.promptAuditExpected
 if (typeof promptAuditExpected !== 'boolean') {
   throw new Error(
-    'args.promptAuditExpected（true / false）が未指定です。select_runtime.js の selected_runtime が native なら true、' +
-      'dynamic-workflow-runner なら false を渡してください。'
+    'args.promptAuditExpected（true / false）が未指定です。同梱 criteria を使う native / Codex route では true を渡し、' +
+      'criteria を利用できない環境に限って false を渡してください。'
   )
 }
 
@@ -227,6 +225,34 @@ if (scope === 'diff' && (!diffRef || !String(diffRef).trim())) {
     "args.target.scope が 'diff' のときは args.target.diffRef（git の範囲指定。例 main...HEAD）が必須です。" +
       '範囲が無いまま差分レビューを始めると、何を見たのかが結果から復元できません。'
   )
+}
+
+const reviewSnapshot = parsedArgs.snapshot
+if (!reviewSnapshot || reviewSnapshot.status !== 'ready' || reviewSnapshot.version !== 1) {
+  throw new Error('args.snapshot に review-snapshot.mjs prepare の ready receipt が必要です。')
+}
+if (reviewSnapshot.targetRoot !== skillPath || reviewSnapshot.scope !== scope) {
+  throw new Error('args.snapshot の canonical target / scope が args.target と一致しません。')
+}
+for (const [field, value] of [
+  ['receiptPath', reviewSnapshot.receiptPath],
+  ['snapshotDir', reviewSnapshot.snapshotDir],
+  ['manifestPath', reviewSnapshot.manifestPath],
+]) {
+  if (typeof value !== 'string' || !value.startsWith('/')) throw new Error(`args.snapshot.${field} は絶対パスで必要です。`)
+}
+if (!/^[a-f0-9]{64}$/.test(reviewSnapshot.manifestSha256 || '')) {
+  throw new Error('args.snapshot.manifestSha256 が有効な SHA-256 ではありません。')
+}
+if (scope === 'diff') {
+  if (reviewSnapshot.diffRef !== diffRef || typeof reviewSnapshot.diffPath !== 'string' || !reviewSnapshot.diffPath.startsWith('/') ||
+      typeof reviewSnapshot.changedPathsPath !== 'string' || !reviewSnapshot.changedPathsPath.startsWith('/') ||
+      !/^[a-f0-9]{64}$/.test(reviewSnapshot.diffSha256 || '') || !Array.isArray(reviewSnapshot.changedPaths)) {
+    throw new Error('args.snapshot に frozen diff / changed paths がありません。')
+  }
+} else if (reviewSnapshot.diffRef !== null || reviewSnapshot.diffPath !== null || reviewSnapshot.changedPathsPath !== null ||
+    reviewSnapshot.diffSha256 !== null || reviewSnapshot.changedPaths.length !== 0) {
+  throw new Error('full scope の args.snapshot に diff 情報は指定できません。')
 }
 
 const focus = target.focus || null
@@ -381,30 +407,21 @@ const FINDERS = [
   {
     id: AUDIT_CATEGORY,
     title: '古くなったプロンプトの書き方・食い違う指示',
-    // unavailable を受け付ける規則の正本（finder.md / schemas.md は名前で参照する）。受け付けるのはこの観点
-    // だけで、さらに promptAuditExpected が false のとき・Reverify では Find でも unavailable だったときに限る。
-    // claude-api skill は Codex など実行環境によって無いが、どの観点・どの pass でも自分を外せると、
-    // 未実施の観点が clean に化け、Find で確定した指摘が再確認されずに解消扱いになる。
+    // prompt-audit criteria は同梱 reference を読む。unavailable を受け付ける規則の正本はこの finder と
+    // promptAuditExpected gate で、見ていない観点が clean に化けないようにする。
     may_be_unavailable: true,
     guide: [
-      'Claude Code 同梱の claude-api skill を、Skill ツールで prompt-audit サブコマンドを付けて起動し、',
-      'その監査結果を指摘に写す観点。監査の基準は claude-api skill 側が持つ。中身をここで再現しない',
-      '（写しは本家の更新に追随せずズレる）。',
+      `Read ${SKILL_DIR}/references/prompt-audit.md and apply its criteria to the frozen target only.`,
+      'This shared criteria file is the audit authority; do not invoke or depend on an external skill.',
       '',
-      '1. Skill ツールで claude-api skill を起動し、引数に prompt-audit と [TARGET_DIR] の絶対パスを渡す。',
-      '   依頼は「[TARGET_DIR] だけを scope にした報告のみの監査。ファイルは編集しない」と書く。',
-      '   「整理して」「削って」のような語を依頼に入れない。監査ガイドはそれを編集の依頼と読み、',
-      '   Reverify では [TARGET_DIR] が改稿ドラフトなので、検査者がドラフトを書き換えることになる。',
-      '   target model は「対象ファイルが model を固定していればそのモデル、無ければ現行の Claude',
-      '   フラッグシップ世代」と依頼に明記する。省くと監査はあなた自身のモデルを target にし、',
-      '   finder のモデルを変えるたびに指摘が変わる。',
-      '2. Skill ツールが無い、claude-api skill が一覧に無い、prompt-audit を受け付けない、のどれかなら',
-      '   unavailable を true にし、findings を空で返して note に理由を書く。自分の知識で監査を代行したり、',
-      '   監査ガイドのファイルを探して読んだりしない（本家の監査を通っていない指摘が同じ名前で混ざる）。',
-      '3. 監査が走ったら、レポート冒頭の scope と target model の前提行をそのまま audit_header に写す。',
-      '   これが空だと script は監査が走ったと確かめられず、この観点を欠測として扱う。',
-      '4. レポートの各指摘を 1 件ずつ findings に写す: Location → file（[TARGET_DIR] からの相対）と',
-      '   location（行）、Evidence → evidence（引用をそのまま）、Pattern と Why obsolete → claim（1 文）、',
+      '1. [TARGET_DIR] に示された frozen snapshot だけを対象にする。git や元の live target は読まない。',
+      '2. prompt-audit.md の Finding criteria を適用し、criteria に書かれた条件を満たす箇所だけ報告する。',
+      '   モデル固有の古さは対象にモデル名があり、根拠となる authoritative source を確認できる場合だけ主張する。',
+      '3. 監査が完了したら、scope と criteria reference を含む非空の receipt を audit_header に記録する。',
+      '   対象モデルが明示されていなければ「Target model: not specified; model-specific freshness not assessed」と記す。',
+      '   criteria reference を読めない場合は unreadable または unavailable を返し、成功した 0 件にしない。',
+      '4. 各指摘を findings に写す: Location → file（[TARGET_DIR] からの相対）と',
+      '   location（行）、Evidence → evidence（引用をそのまま）、Pattern と Why → claim（1 文）、',
       '   Action と置換案 → suggested_fix、Confidence → audit_confidence、Action → audit_action。',
       '   severity は script が audit_confidence から決め直すので、何を入れても上書きされる。',
       '5. Confidence が Low のもの、Action が flag のものは findings に入れず、declared_only に',
@@ -412,7 +429,7 @@ const FINDERS = [
       '   例外として [RECHECK_FINDINGS] の指摘は、まだ成立するなら確信度や Action に関わらず findings に',
       '   claim を一字も変えずに入れ、今回の audit_confidence / audit_action を付ける（重さは script が前巡の値で決める）。',
       '   findings の上限を超える分は Confidence の高い順に残し、溢れた件数と位置を note に書く。',
-      '6. 監査が対象を読めなかった（ディレクトリが開けない等）なら unavailable ではなく unreadable を true にする。',
+      '6. 監査が対象を読めなければ unreadable を true にする。shared criteria が実行環境に無ければ unavailable を true にする。',
       'scope・RECHECK_FINDINGS・REVERIFY_SCOPE・present_in_original の規則は他の観点と同じに守る',
       '（再確認の claim は一字も変えない）。',
     ].join('\n'),
@@ -483,7 +500,7 @@ function scopeBlock(kind, category, reverifyScope) {
     )
     // 改稿前の原本を渡すのは、各指摘に present_in_original を返させるため。改稿前の Find が
     // 見落とした既存の問題を「改稿が持ち込んだ」と報告すると、承認判断が歪む（実際に起きた）。
-    lines.push(`[ORIGINAL_DIR]: ${skillPath}`)
+    lines.push(`[ORIGINAL_DIR]: ${reviewSnapshot.snapshotDir}`)
     lines.push(
       `各指摘の present_in_original を ${SKILL_DIR}/references/schemas.md の「finder の出力（FINDINGS_SCHEMA）」の定義に従って返すこと。` +
         '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
@@ -507,11 +524,18 @@ function scopeBlock(kind, category, reverifyScope) {
     )
   } else {
     lines.push(`[SCOPE]: ${scope}`)
+    lines.push(`[SNAPSHOT_MANIFEST_SHA256]: ${reviewSnapshot.manifestSha256}`)
+    lines.push(
+      '[TARGET_DIR] is the frozen, read-only review snapshot. Do not read the live target, worktree, or git. ' +
+        '各 agent は runner の read-only fresh thread から同じコピーを読む。'
+    )
     lines.push(
       scope === 'diff'
-        ? `[DIFF_REF]: ${diffRef}\n差分は自分で取得すること（例: git diff ${diffRef} -- <対象ディレクトリ>）。` +
-            '差分に関係しない箇所は指摘しない。範囲外を混ぜると、この変更が持ち込んだ問題と' +
-            '元からあった問題が区別できなくなる。'
+        ? `[FROZEN_DIFF_PATH]: ${reviewSnapshot.diffPath}\n` +
+            `[FROZEN_CHANGED_PATHS_PATH]: ${reviewSnapshot.changedPathsPath || ''}\n` +
+            `[CHANGED_PATHS]:\n${JSON.stringify(reviewSnapshot.changedPaths, null, 2)}\n` +
+            '最初に読むのは frozen diff と changed-paths manifest。git diff は実行しない。' +
+            '報告できる file は changed paths に含まれるものだけ。文脈が要る場合も [TARGET_DIR] 内から読む。'
         : 'スキル全体を対象にする。'
     )
   }
@@ -650,6 +674,15 @@ function runFinders(dir, phaseTitle, passLabel, scopeKind, reverifyScope, unavai
       if (row.res.note) log(`観点 ${f.id}（${passLabel}）の補足: ${row.res.note}`)
       scannedByCategory[f.id] = row.res.scanned_files || []
       let items = row.res.findings || []
+      if (scopeKind === 'source' && scope === 'diff') {
+        const changed = new Set(reviewSnapshot.changedPaths.map(normPath))
+        const outside = items.filter((item) => !changed.has(normPath(item.file)))
+        if (outside.length > 0) {
+          missing.push(f.id)
+          log(`観点 ${f.id}: frozen diff に含まれない file の指摘がありました（${passLabel}）。欠測として扱います。`)
+          continue
+        }
+      }
       if (f.id === AUDIT_CATEGORY) {
         const audited = mapAuditItems(f, items, row.res.declared_only || [], reverifyScope)
         items = audited.items
@@ -733,9 +766,13 @@ function refuteOnce(f, p, phaseTitle) {
   return roleAgent(
     'refuter.md',
     [
+      `[PHASE]: ${phaseTitle}`,
       `[PERSPECTIVE]: ${p.id}`,
       `[PERSPECTIVE_GUIDE]:\n${p.guide}`,
       `[TARGET_DIR]: ${f.__dir}`,
+      phaseTitle === 'Reverify'
+        ? '[TARGET_DIR] is the host-bound staging tree for Reverify; do not read the live source target or run git.'
+        : '[TARGET_DIR] is the frozen, read-only review snapshot; do not read the live target or run git.',
       `[FINDING]:\n${JSON.stringify(
         {
           category: f.category,
@@ -765,6 +802,9 @@ function refuteOnce(f, p, phaseTitle) {
 function refuteStaged(f, phaseTitle) {
   const lead = PERSPECTIVES.slice(0, REFUTE_MAJORITY)
   const rest = PERSPECTIVES.slice(REFUTE_MAJORITY)
+  const missingPerspectives = (perspectives, responses) => perspectives
+    .filter((_, index) => !responses[index] || !isValidVote(responses[index]))
+    .map((p) => p.id)
   // 段ごとの parallel（barrier）は、早期決着の判定が先行段の全票を必要とするため ——
   // 1 票ずつ流して途中で決めると、到着順で結論と起動数が変わる。先行段の観点は
   // 並びで固定してあるので、同じ票なら同じ結論・同じ起動数になる。
@@ -778,12 +818,20 @@ function refuteStaged(f, phaseTitle) {
       valid.length >= MIN_VALID_VOTES &&
       valid.every((v) => v.verdict === valid[0].verdict)
     if (settled || rest.length === 0) {
-      return { finding: f, votes: leadVotes, skipped_perspectives: settled ? rest.map((p) => p.id) : [] }
+      return {
+        finding: f,
+        votes: leadVotes,
+        skipped_perspectives: settled ? rest.map((p) => p.id) : [],
+        missing_perspectives: missingPerspectives(lead, leadRaw),
+        required_votes: settled ? lead.length : PERSPECTIVES.length,
+      }
     }
     return parallel(rest.map((p) => () => refuteOnce(f, p, phaseTitle))).then((restRaw) => ({
       finding: f,
       votes: [...leadVotes, ...restRaw.filter(Boolean)],
       skipped_perspectives: [],
+      missing_perspectives: missingPerspectives(PERSPECTIVES, [...leadRaw, ...restRaw]),
+      required_votes: PERSPECTIVES.length,
     }))
   })
 }
@@ -813,22 +861,25 @@ function verifyFindings(findings, phaseTitle, passLabel) {
         unreadable_votes: unreadableVotes,
         refuted_votes: refutedCount,
         skipped_perspectives: row.skipped_perspectives,
+        missing_perspectives: row.missing_perspectives,
       }
       delete entry.__dir
-      // 欠測は反証の不在ではない。有効票が足りないまま確定させると「誰も反論しなかった」が
-      // 「検証を通った」に化ける。確定にも棄却にも回さず未検証として残す。
-      if (votes.length < MIN_VALID_VOTES) {
+      // Split votes require the remaining perspective to establish a majority. If that
+      // required call is missing or unreadable, do not turn a 1-1 split into confirmation.
+      if (votes.length < MIN_VALID_VOTES ||
+          (votes.filter((v) => v.verdict === 'not_refuted').length < REFUTE_MAJORITY &&
+           refutedCount < REFUTE_MAJORITY)) {
         unverified.push(entry)
         continue
       }
-      // 過半数。同数（2 票中 1 票）では棄却しない —— 反証は「疑わしきは落とす」側に
-      // 倒してあるので、そこで割れたなら人間が見るべき材料として残す方が安全。
-      if (refutedCount * 2 > votes.length) rejected.push(entry)
+      // Reject or confirm only when a strict majority of all required perspectives supports it.
+      if (refutedCount >= REFUTE_MAJORITY) rejected.push(entry)
       else confirmed.push(entry)
     }
     const skipped = raw.filter(Boolean).reduce((n, row) => n + row.skipped_perspectives.length, 0)
     log(
       `${passLabel}: 確定 ${confirmed.length} 件 / 棄却 ${rejected.length} 件 / 未検証 ${unverified.length} 件` +
+        ` / 有効票の無い反証観点 ${raw.filter(Boolean).reduce((n, row) => n + row.missing_perspectives.length, 0)} 件` +
         ` / 先行 ${REFUTE_MAJORITY} 票の一致で省いた反証 ${skipped} 体` +
         ` / 反証せず提示する ${REVISE_SEVERITIES.join('/')} 以外の指摘 ${reportedMinor.length} 件`
     )
@@ -898,10 +949,10 @@ phase('Find')
 const findUnavailableAllowed = new Set(
   promptAuditExpected ? [] : ACTIVE_FINDERS.filter((f) => f.may_be_unavailable).map((f) => f.id)
 )
-const first = await runFinders(skillPath, 'Find', 'p1', 'source', null, findUnavailableAllowed)
+const first = await runFinders(reviewSnapshot.snapshotDir, 'Find', 'p1', 'source', null, findUnavailableAllowed)
 
 phase('Verify')
-const base = await verifyFindings(tag(skillPath, first.findings), 'Verify', 'before')
+const base = await verifyFindings(tag(reviewSnapshot.snapshotDir, first.findings), 'Verify', 'before')
 
 // 比較の基準は常にこの最初の確定指摘。改稿を 2 回以上重ねたときに直前のラウンドと比べると、
 // 1 度直った指摘がぶり返しても「元から無かった」ことになり、resolved が水増しされる。
@@ -948,6 +999,15 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // 結果に残さないと「監査が見て何も言わなかった」と区別できない。
     declared_only: { before: first.declaredOnly, after: reverifyDeclared },
     target: { skillPath, scope, diffRef: diffRef || null, focus },
+    source_snapshot: {
+      target_root: reviewSnapshot.targetRoot,
+      snapshot_dir: reviewSnapshot.snapshotDir,
+      receipt_path: reviewSnapshot.receiptPath,
+      manifest_sha256: reviewSnapshot.manifestSha256,
+      scope: reviewSnapshot.scope,
+      diff_ref: reviewSnapshot.diffRef,
+      validation: 'required_after_workflow_before_result_is_trusted',
+    },
     verdict,
     findings,
     // update の findings は再検証後のものに置き換わり、Reverify は報告範囲を絞るので、

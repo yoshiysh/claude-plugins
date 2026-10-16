@@ -853,22 +853,34 @@ class Stages(unittest.TestCase):
     def test_free_textだけに入れた回答が2回落ちると組み直しの前はg2の問いに上限ではholdになる(self):
         fail = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "回答の文面から対応づけが読めない"}
         res = run({"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}})["result"]
-        g0 = run({
+        rejected = run({
             "args": res["next_args"],
             "free_text_at": {"3a": ["RS-001"], "3a-fix": ["RS-001"]},
             "fails_when_asked": [fail],
             "questions_at": {"3a-convert": ["RS-001"]},
         })
-        prompts = {p["label"]: p["prompt"] for p in g0["prompts"]}
+        prompts = {p["label"]: p["prompt"] for p in rejected["prompts"]}
         self.assertIn("RS-001 → question（insufficient_grounds）", prompts["resolver:3a-convert"])
-        self.assertEqual(g0["result"]["status"], "needs_answers")
+        self.assertIn("verifier:3a-convertv", rejected["labels"])
+        self.assertEqual(rejected["result"]["status"], "blocked")
+        self.assertIsNone(rejected["result"]["next_args"])
+        self.assertIn("関連性・根拠の検証に落ちました", rejected["result"]["reason"])
+
+        # A corrected question can pass the post-conversion verifier and reach g2; the failed first two judgments are stage-scoped.
+        verifier_fail = {"3av": [fail], "3a-fixv": [fail]}
+        g0 = run({
+            "args": res["next_args"],
+            "free_text_at": {"3a": ["RS-001"], "3a-fix": ["RS-001"]},
+            "verifier_fail": verifier_fail,
+            "questions_at": {"3a-convert": ["RS-001"]},
+        })
+        self.assertEqual(g0["result"]["status"], "needs_answers", g0["result"].get("reason"))
         self.assertEqual(g0["result"]["question_ids"], ["RS-001"])
         self.assertEqual(g0["result"]["answers_path"], "/tmp/prd-w/answers/g2.md")
-
         g02 = run({
             "args": at_limit(g0["result"]["next_args"]),
             "free_text_at": {"3a": ["RS-001"], "3a-fix": ["RS-001"]},
-            "fails_when_asked": [fail],
+            "verifier_fail": verifier_fail,
             "holds_at": {"3a-convert": ["RS-001"]},
         })
         prompts = {p["label"]: p["prompt"] for p in g02["prompts"]}
@@ -898,11 +910,30 @@ class Stages(unittest.TestCase):
         labels = r["labels"]
         self.assertEqual(
             [l for l in labels if l.startswith(("resolver:", "verifier:"))],
-            ["resolver:3", "verifier:3v", "resolver:3-fix", "verifier:3-fixv", "resolver:3-convert"],
-            "差し戻しは 1 回きりで、変換の後に検証を回さない",
+            ["resolver:3", "verifier:3v", "resolver:3-fix", "verifier:3-fixv", "resolver:3-convert", "verifier:3-convertv"],
+            "値の差し戻しは 1 回で止め、問いへの変換は関連性と根拠を独立に検証する",
         )
         self.assertEqual(r["result"]["status"], "needs_answers", "価値の判断は問いになって g1 に届く")
         self.assertEqual(r["result"]["question_ids"], ["RS-001"])
+
+    def test_問いへの変換後の独立検証に落ちた問いは利用者に提示せず停止する(self):
+        fail = {"id": "RS-001", "kind": "insufficient_grounds", "reason": "案件内の信号が無く、問いの relevance を確認できない"}
+        spec = {
+            "args": args(),
+            "flow_open": 1,
+            "about": {"RS-001": {"open": "O-001"}},
+            "ruled_at": {"3": ["RS-001"], "3-fix": ["RS-001"]},
+            "verifier_fail": {"3v": [fail], "3-fixv": [fail], "3-convertv": [fail]},
+            "questions_at": {"3-convert": ["RS-001"]},
+        }
+        r = run(spec)
+        self.assertIn("verifier:3-convertv", r["labels"])
+        verification = next(p["prompt"] for p in r["prompts"] if p["label"] == "verifier:3-convertv")
+        self.assertIn("RS-001", verification.split("検証する resolution の ID:")[1].split("\n")[0])
+        self.assertEqual(r["result"]["status"], "blocked")
+        self.assertNotIn("question_ids", r["result"])
+        self.assertIsNone(r["result"]["next_args"], "不合格の問いをゲートへ渡さず、同じ変換を自動再試行しない")
+        self.assertIn("関連性・根拠の検証に落ちました", r["result"]["reason"])
 
     def test_実測で価値を決めた裁定は検証役が節を読んで落とし問いに変わる(self):
         # 前回の試走の RS-010: O-010 の失敗の行き先を measured（現行の挙動）で決め、3v を通って G1 まで残った形。
@@ -1809,7 +1840,9 @@ class FlowDigest(unittest.TestCase):
                 s = "3" if g is None else "3a"
                 r = run(self._settle_world(g, kind, **{returned: {f"{s}-settle-convert": ["RS-009"]}}))
                 labels = r["labels"]
-                self.assertEqual(labels[labels.index(f"verifier:{s}v-settle") + 1:][:4], [f"resolver:{s}-settle-fix", f"verifier:{s}-settle-fixv", f"resolver:{s}-settle-convert", f"flow-check:{s}-settle-convert"])
+                expected = [f"resolver:{s}-settle-fix", f"verifier:{s}-settle-fixv", f"resolver:{s}-settle-convert", f"flow-check:{s}-settle-convert", *([f"verifier:{s}-settle-convertv"] if kept == "questions" else [])]
+                start = labels.index(f"verifier:{s}v-settle") + 1
+                self.assertEqual(labels[start:start + len(expected)], expected)
                 convert = next(p["prompt"] for p in r["prompts"] if p["label"] == f"resolver:{s}-settle-convert")
                 self.assertIn(f"RS-009 → {kept[:-1] if kept == 'holds' else 'question'}", convert)
                 self.assertNotIn(f"flow-framer:{s}-settle-2", labels, "保持か問いで O-009 が縛りに戻れば 1 回目で指摘は消える")
@@ -2765,8 +2798,7 @@ class StageExitInvariants(unittest.TestCase):
         self.assertNotIn("flow-check:3-convert", r["labels"])
         res = r["result"]
         self.assertEqual((res["status"], res["next_args"]), ("blocked", None))
-        self.assertIn("script の不変条件に反しました（段 3）: resolver:3-", res["reason"])
-        self.assertIn("の後に doc_check flow を独立に実行し直さないまま", res["reason"])
+        self.assertIn("問いへの変換後に resolver の doc_check flow を独立に確認できませんでした", res["reason"])
 
     def test_flowを数え直さないflow_checkの応答はresolverの後の印を消さない(self):
         # 本文の控え（backup）だけの flow-check が印を消すと、resolver の後の doc_check flow を誰も実行し直さないまま段を出られる。
@@ -2778,7 +2810,7 @@ class StageExitInvariants(unittest.TestCase):
         self.assertIn("flow-check:3-backup", r["labels"])
         res = r["result"]
         self.assertEqual((res["status"], res["next_args"]), ("blocked", None), res.get("reason"))
-        self.assertIn("の後に doc_check flow を独立に実行し直さないまま", res["reason"])
+        self.assertIn("問いへの変換後に resolver の doc_check flow を独立に確認できませんでした", res["reason"])
 
     def test_回答待ちの問いを持ったまま聞くゲートの無い段へ出れば止める(self):
         spec = {"args": args(), "flow_open": 1, "questions_at": {"3": ["RS-001"]}}
@@ -3318,7 +3350,7 @@ class FlowRecheck(unittest.TestCase):
         self.assertEqual((res["status"], res["question_ids"]), ("needs_answers", ["RS-005"]), res.get("reason"))
         self.assertEqual(on_disk(self.world)["failed_current"], ["F-003"])
         r = run({"args": res["next_args"], **spec, "ruled_at": {"3a": ["RS-005"]}, "unverified_at": {"3a-settle": ["F-003"]}})
-        self.assertIn("RS-005", self._prompt(r, "verifier:3av").split("検証する resolution の ID:")[1].split("\n")[0], "落ちた裁定への候補の選択は検証を通す")
+        self.assertNotIn("verifier:3av", r["labels"], "変換後の問いと候補は独立検証済みなので、選択を重ねて検証しない")
         self.assertIn("F-003 ← RS-005", self._prompt(r, "flow-framer:3a-settle"))
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
         self.assertEqual(on_disk(self.world)["unverified"], [])
@@ -3407,6 +3439,7 @@ class FlowRecheck(unittest.TestCase):
         convert = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-fix": ["RS-001"]}, "verifier_fail": {"3v": rs_fail, "3-fixv": rs_fail},
                    "questions_at": {"3-convert": ["RS-001"]}, "supersedes_at": {"3-convert": ["D-001"]}, "stale_refs_at": {"3-convert": stale},
                    "unverified_at": {"3-settle": ["F-002"]}}
+        convert["stale_refs_at"]["3-convertv"] = stale
         hold = {"args": args(), "findings": {"implementer:r1": [{"id": "r1-im-requirements__x-001"}], "grounding:r2": [{"id": "r2-gr-requirements__x-001", "route": "decision"}]},
                 "questions_at": {"6": ["RS-020"]}, "supersedes_at": {"6-hold": ["D-001"]}, "stale_refs_at": {"6-hold": stale, "6-holdv-left": stale},
                 "unverified_at": {"6-hold-settle": ["F-002"]}}
@@ -3662,7 +3695,8 @@ class FlowFixerRoutes(unittest.TestCase):
         # 変換の resolver の stdout は stale_refs を申告していない。verifier の stdout にあった分を落とさない。
         r = self._settle_fails(args(), "3", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
                                ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]}, questions_at={"3-settle-convert": ["RS-009"]},
-                               stale_refs_at={"3v-settle": [{"el": "F-053", "ref": "D-001"}], "3-settle-fixv": [{"el": "F-053", "ref": "D-001"}]})
+                               stale_refs_at={"3v-settle": [{"el": "F-053", "ref": "D-001"}], "3-settle-fixv": [{"el": "F-053", "ref": "D-001"}],
+                                              "3-settle-convertv": [{"el": "F-053", "ref": "D-001"}]})
         self.assertIn("resolver:3-settle-convert", r["labels"])
         self.assertIn("F-053 ← D-001", self._prompt(r, "flow-framer:3-settle-2"))
 
@@ -3695,15 +3729,15 @@ class FlowFixerRoutes(unittest.TestCase):
         fail = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
         spec = self._spec(g0["next_args"], "3a", answered="RS-001", framer="3b-reframe", ruled_at={"3a": [], "3a-fix": ["RS-001"], "3b": ["RS-009"]},
                           free_text_at={"3a": ["RS-001"]}, verifier_fail={"3av": fail, "3a-fixv": fail}, questions_at={"3a-convert": ["RS-001"]},
-                          flow_codes_at={"3a-convert-seen": self.DESTRUCTIVE}, recheck_as={"3a-convert": "3a-convert-seen"})
+                          flow_codes_at={"3a-convert-seen": self.DESTRUCTIVE, "3a-convertv": self.DESTRUCTIVE}, recheck_as={"3a-convert": "3a-convert-seen"})
         r = run(spec)
-        self.assertEqual(self._cycle(r)[4:6], ["resolver:3a-convert", "flow-framer:3b-reframe"])
+        self.assertEqual(self._cycle(r)[4:7], ["resolver:3a-convert", "verifier:3a-convertv", "flow-framer:3b-reframe"])
         self.assertEqual(r["labels"][r["labels"].index("resolver:3a-convert") + 1], "flow-check:3a-convert")
         self.assertIn("F-053: 縛る不変条件が無い", self._prompt(r, "flow-framer:3b-reframe"))
         # g1 の後の 3a は聞けるので、差し戻しの後も落ちた回答は g2 の問いになる。
         self.assertEqual((r["result"]["status"], r["result"]["question_ids"]), ("needs_answers", ["RS-001"]), r["result"].get("reason"))
         self.assertTrue(any("resolver（段 3a-convert）" in x and "codes・findings で違う" in x for x in r["result"]["integrity"]), r["result"]["integrity"])
-        honest = run({**spec, "flow_codes_at": {"3a-convert": self.DESTRUCTIVE}, "recheck_as": {}})["result"]
+        honest = run({**spec, "flow_codes_at": {"3a-convert": self.DESTRUCTIVE, "3a-convertv": self.DESTRUCTIVE}, "recheck_as": {}})["result"]
         self.assertEqual(honest["status"], "needs_answers", honest.get("reason"))
         self.assertEqual(honest["integrity"], [], "申告が一致すれば integrity に残さない")
 
@@ -3713,7 +3747,7 @@ class FlowFixerRoutes(unittest.TestCase):
         spec = self._spec(args(), "3", answered="RS-001", ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]},
                           verifier_fail={"3v-settle": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}], "3-settle-fixv": [{"id": "RS-009", "kind": "value_as_method", "reason": "r"}]},
                           questions_at={"3-settle-convert": ["RS-009"]}, recheck_as={"3-settle-convert": "3-settle-convert-seen"})
-        spec["flow_codes_at"] = {**spec["flow_codes_at"], "3-settle-convert-seen": seen}
+        spec["flow_codes_at"] = {**spec["flow_codes_at"], "3-settle-convert-seen": seen, "3-settle-convertv": seen}
         r = run(spec)
         self.assertIn("flow-check:3-settle-convert", r["labels"])
         self.assertIn("F-071: 縛る不変条件が無い", self._prompt(r, "flow-framer:3-settle-2"))
@@ -3729,11 +3763,13 @@ class FlowFixerRoutes(unittest.TestCase):
             spec = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-fix": ["RS-001"]}, "verifier_fail": {"3v": fail, "3-fixv": fail},
                     "questions_at": {"3-convert": ["RS-001"]}, "recheck_as": {"3-convert": seen}, "unverified_at": {"3-settle": ["F-002"]}}
             with self.subTest(code="FLOW_DANGLING", seen=seen):
-                r = run({**spec, "flow_codes_at": {seen: {"FLOW_DANGLING": ["F-002"]}}})
+                code = {"FLOW_DANGLING": ["F-002"]}
+                r = run({**spec, "flow_codes_at": {seen: code, "3-convertv": code}})
                 self.assertIn("F-002: FLOW_DANGLING", self._prompt(r, "flow-framer:3-settle"))
                 self.assertEqual(r["result"]["status"], "needs_answers", r["result"].get("reason"))
             with self.subTest(code="FLOW_NEW", seen=seen):
-                r = run({**spec, "flow_codes_at": {seen: {"FLOW_NEW": ["F-002"]}}})
+                code = {"FLOW_NEW": ["F-002"]}
+                r = run({**spec, "flow_codes_at": {seen: code, "3-convertv": code}})
                 self.assertFalse(has(r["labels"], "flow-framer:3-settle"), "誰が消せるか分からない符号は渡さない")
                 self.assertEqual((r["result"]["status"], r["result"]["next_args"]), ("blocked", None))
                 self.assertIn("直し手の表（FIXERS_BY_CODE）に無い符号があります: FLOW_NEW", r["result"]["reason"])
@@ -3745,7 +3781,7 @@ class FlowFixerRoutes(unittest.TestCase):
         vam = [{"id": "RS-001", "kind": "value_as_method", "reason": "r"}]
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-fix": ["RS-001"]}, "verifier_fail": {"3v": vam, "3-fixv": vam},
                  "questions_at": {"3-convert": ["RS-001"]}, "bad_questions_at": ["3-convert"], "supersedes_at": {"3-convert-questions": ["D-001"]},
-                 "stale_refs_at": {"3-convert-questions": stale}, "unverified_at": {"3-settle": ["F-002"]}})
+                 "stale_refs_at": {"3-convert-questions": stale, "3-convertv": stale}, "unverified_at": {"3-settle": ["F-002"]}})
         pre = r["labels"][: r["labels"].index("flow-check:4-backup")]
         self.assertEqual([l for l in pre if l.startswith("flow-check:")], ["flow-check:1-entry", "flow-check:3-convert-questions"])
         self.assertEqual([l for l in pre if l.startswith("flow-framer:")], ["flow-framer:3-settle"])
@@ -3790,8 +3826,8 @@ class FlowFixerRoutes(unittest.TestCase):
         rs = [{"id": "RS-001", "kind": "insufficient_grounds", "reason": "r"}]
         base = {"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001", "RS-002"], "3-fix": ["RS-001"]}, "verifier_fail": {"3v": rs, "3-fixv": rs},
                 "questions_at": {"3-convert": ["RS-001"]}, "unverified_at": {"3-settle": ["F-060"]}}
-        for name, kw, line in (("open_only", {"open_only_at": {"3-fixv": [{"el": "F-060", "open": "O-RS-002"}]}}, "F-060（O-RS-002 ← RS-002）"),
-                               ("stale_refs", {"stale_refs_at": {"3-fixv": [{"el": "F-060", "ref": "D-003"}]}}, "F-060 ← D-003")):
+        for name, kw, line in (("open_only", {"open_only_at": {"3-fixv": [{"el": "F-060", "open": "O-RS-002"}], "3-convertv": [{"el": "F-060", "open": "O-RS-002"}]}}, "F-060（O-RS-002 ← RS-002）"),
+                               ("stale_refs", {"stale_refs_at": {"3-fixv": [{"el": "F-060", "ref": "D-003"}], "3-convertv": [{"el": "F-060", "ref": "D-003"}]}}, "F-060 ← D-003")):
             with self.subTest(name):
                 r = run({**base, **kw})
                 self.assertIn("resolver:3-convert", r["labels"])
@@ -3799,7 +3835,8 @@ class FlowFixerRoutes(unittest.TestCase):
                 self.assertEqual(r["result"]["status"], "needs_answers", r["result"].get("reason"))
         r = self._settle_fails(args(), "3", {"id": "RS-009", "kind": "value_as_method", "reason": "r"}, answered="RS-001",
                                ruled_at={"3": ["RS-001"], "3-settle-opens": ["RS-009"]}, questions_at={"3-settle-convert": ["RS-009"]},
-                               open_only_at={"3v-settle": [{"el": "F-060", "open": "O-RS-001"}], "3-settle-fixv": [{"el": "F-060", "open": "O-RS-001"}]})
+                               open_only_at={"3v-settle": [{"el": "F-060", "open": "O-RS-001"}], "3-settle-fixv": [{"el": "F-060", "open": "O-RS-001"}],
+                                             "3-settle-convertv": [{"el": "F-060", "open": "O-RS-001"}]})
         self.assertIn("resolver:3-settle-convert", r["labels"])
         self.assertIn("F-060（O-RS-001 ← RS-001）", self._prompt(r, "flow-framer:3-settle-2"))
 
@@ -5001,7 +5038,7 @@ class Convergence(unittest.TestCase):
         vam = [{"id": "RS-001", "kind": "value_as_method", "reason": "r"}]
         r = run({"args": args(), "flow_open": 1, "ruled_at": {"3": ["RS-001"], "3-fix": ["RS-001"]}, "verifier_fail": {"3v": vam, "3-fixv": vam},
                  "questions_at": {"3-convert": ["RS-001"]}, "bad_questions_at": ["3-convert"], "supersedes_at": {"3-convert-questions": ["D-001"]},
-                 "stale_refs_at": {"3-convert": stale, "3-convert-questions": stale}, "unverified_at": {"3-settle": ["F-002"]}})
+                 "stale_refs_at": {"3-convert": stale, "3-convert-questions": stale, "3-convertv": stale}, "unverified_at": {"3-settle": ["F-002"]}})
         self.assertIn("resolver:3-convert-questions", r["labels"])
         self.assertEqual([l for l in r["labels"] if l.startswith("flow-framer:")], ["flow-framer:3-settle"])
         self.assertEqual(r["result"]["status"], "needs_answers")

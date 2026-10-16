@@ -38,6 +38,21 @@
         "売買判断の材料収集・銘柄分析を dispatch 自身が代行していない",
         "トリガー語彙（複数の観点・徹底的に）に引きずられず、トピックの実質（投資判断）で判定している"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Codex で native Workflow は使えない。このリポジトリの async job が環境により失敗する原因を、複数の観点から調べて。",
+      "expected_output": "正常系（Codex dynamic-workflow-runner profile）。native Workflow が実際に利用できない状態なので、`workflow:dynamic-workflow-runner` を呼び、`args.executionProfile` に `codex_host_default` を指定する。planner/executor/verifier/evaluator/synthesis の役割と既存の bounded loop は維持する。Codex の全 agent call では model と effort を指定せず、runner が選ぶ host-default model を使う。Fable 5 との同一性・同等性は主張しない。`scripts/orchestrate.js` の literal `meta` と実際の requested limits から per-run `limits` を作り、request の top level に設定する。返却値に `execution_profile: codex_host_default`、`model_map_disclosure`、per-run `required_runner_limits` を含める。runner event は `origin=host-default` を記録するが、実 model ID は source result と event のどちらからも分からないと説明する。native Workflow の未試行 call やエラー後 fallback はしない。",
+      "files": [],
+      "assertions": [
+        "Codex runner profileでWorkflow sourceが呼ばれ、`executionProfile: codex_host_default` が渡されている",
+        "Codex であることを理由に `rejected_source` として拒否していない",
+        "planner/executor/verifier とbounded loopが保たれている",
+        "Codex profile の agent call に明示的な model / effort が含まれない",
+        "source metaとrequested argsからmaxAgents/timeout/output limitsを導出してtop-level requestに渡す",
+        "結果に execution_profile と model_map_disclosure があり、host-default routing と実 model ID の不可視性が正確に説明されている",
+        "Codex を Fable 5 と同一または同等と主張していない"
+      ]
     }
   ]
 }

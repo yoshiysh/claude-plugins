@@ -52,7 +52,7 @@ script の集計・欠測検出を通す必要がある（散文で起動する�
 | 変更・コミット・PR の範囲を挙げて評価を求める（「直近の変更をレビューして」「main...HEAD を見て」） | `review` | 「対象と範囲の確認（review/update）」へ |
 | 評価に加えて直すことまで求める（「Issue に沿ってこのスキルを更新して」「指摘を反映して」） | `update` | 「対象と範囲の確認（review/update）」へ |
 | 既存スキルへの prompt-audit を名指しする（「このスキルに prompt-audit をかけて」「古いプロンプトの書き方が残ってないか監査して」「このスキルを audit して」） | `audit` | 「対象と範囲の確認（review/update）」へ |
-| スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー・スキルではないアプリのプロンプトやコードの prompt-audit | 対象外 | このスキルを使わない旨を伝えて終了（アプリの prompt-audit なら claude-api skill の prompt-audit を直接使うよう伝える） |
+| スキルの実行依頼・通常の質問・SKILL.md を伴わない一般のコードレビュー・スキルではないアプリのプロンプトやコードの prompt-audit | 対象外 | このスキルの対象外と伝えて終了。別の skill や workflow を使ったと偽らない |
 | 何を対象にするか読み取れない・入力が空 | 判定不能 | create / review / update / audit のどれかと対象を 1 回で聞き返す |
 
 **複数行に一致したときの優先順位**：作成・評価・更新・監査の**実体を伴う行**（上 5 行）を優先し、
@@ -113,7 +113,7 @@ Workflow を呼ぶ（/skill-creator:skill-creator-review。review の 2 フェ�
 ```
 
 **audit:** review と同じ流れで、Workflow（`/skill-creator:skill-creator-review` を mode audit で）は Find / Verify を
-claude-api skill の prompt-audit を当てる観点 1 つだけで回す。ファイルは書かない。直すなら audit の指摘を intent にして update を呼ぶ。
+同梱の `references/prompt-audit.md` に照らす観点 1 つだけで回す。ファイルは書かない。直すなら audit の指摘を intent にして update を呼ぶ。
 
 review と改稿の間に人間ゲートは置かない。本体ファイルは承認まで書き換えないため、途中で止める必要が無い。
 
@@ -162,7 +162,7 @@ symlink 越しの表記をそのまま渡すと、install 先（別ディレク�
 > 経路（native `Workflow` / native が無い Codex での `workflow:dynamic-workflow-runner` / 停止）はその script が決め、
 > 判定条件を散文から読み取って自己適用しない（「未試行か」の状態追跡が実行者の記憶に乗ると、同じ呼び出しでも経路がブレる）。
 > 出力の `selected_runtime` をそのまま使い、`halt: true` なら agent を 1 体も起動せず `rejected_reason` を伝えて止める。
-> native 試行後の失敗は runner へ fallback しない。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
+> native 試行後の失敗は runner へ fallback しない。Codex request の `limits` は selector が返す `runner_limits` をそのまま args の外側に渡す。caller の human gate は runner 内 gate に移さない。根拠と mapping は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)（active callsite 到達時に読む）。
 > `node [SKILL_DIR]/scripts/select_runtime.js --mode create --native-available --runner-installed`
 > **Codex classification: `portable`**（`build_skill.js` create）。
 >
@@ -264,12 +264,25 @@ Workflow 完了後にユーザーへ案内するコマンドは `references/orch
 ## Phase 2: Workflow を呼ぶ（review/update）
 
 > **透過実行 route**: ここでも [create と同じ route](#workflow-を呼ぶcreate) を先に通す（正本はそのブロックと `scripts/select_runtime.js` 冒頭コメント）。
-> `halt: true` なら workflow を起動せず `rejected_reason` を伝えて止める。review は Codex runner では
-> `rejected_source`。update は common caller の host が静的 `updatePolicy` を束縛した場合だけ
-> `--update-policy-bound` で選択でき、runtime も agent dispatch 前に検証する（根拠は [Codex Workflow互換契約](references/codex-workflow-compatibility.md)「review / update / audit mapping」）。
-> review の例: `node [SKILL_DIR]/scripts/select_runtime.js --mode review --native-available --runner-installed`（audit は `--mode audit` で同じ判定を通る）
-> update の runner 例: `node [SKILL_DIR]/scripts/select_runtime.js --mode update --no-native --runner-installed --update-policy-bound`（host policy が無ければ flag を付けず停止する）。
-> **Codex classification: review と audit は `rejected_source`、update は host policy 条件付き**。
+> `halt: true` なら workflow を起動せず `rejected_reason` を伝えて止める。review / audit / update は snapshot proof が必須。update はさらに host-bound `updatePolicy` が必要。
+> 準備・selector 引数・Codex の top-level limits / modelMap・post-run 検証は [Codex Workflow 互換契約](references/codex-workflow-compatibility.md)「review / update / audit mapping」に従う。
+> **Codex classification: `portable`**（review / audit は frozen snapshot、update は frozen snapshot と host-bound policy が必要）。
+
+対象と範囲を確定した後、review / update / audit は Workflow 前に凍結 snapshot を準備する。`target.skillPath` は `realpath` 済み絶対パスにする。
+
+```bash
+node [SKILL_DIR]/scripts/review-snapshot.mjs prepare --target "<canonical target path>" --scope full
+node [SKILL_DIR]/scripts/review-snapshot.mjs prepare --target "<canonical target path>" --scope diff --diff-ref "main...HEAD"
+```
+
+scope に合う方を使う。返された JSON 全体を `args.snapshot` として渡し、target の path / scope / diffRef と一致させる。
+Workflow 完了後は必ず post-run 検証を行い、`status: verified` 以外は結果を無効として扱う。
+
+```bash
+node [SKILL_DIR]/scripts/review-snapshot.mjs verify --receipt "<receiptPath from prepare>"
+```
+
+snapshot の workspace path と update staging の所在は compatibility reference に従う。update は host-bound staging に書かれ、元 target は変更しない。
 
 ユーザーへの一言：
 > 「観点ごとに見たうえで、それぞれの指摘に反論を当てて、生き残ったものだけ出します...」
@@ -286,21 +299,21 @@ Workflow({
       diffRef: "<scope=diff のときの git 範囲指定。例 main...HEAD>",
       focus: "<任意。Issue 本文・見てほしい観点>"
     },
+    snapshot: <review-snapshot.mjs prepare が返す JSON object 全体>,
     uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま。review/update では必須、audit では渡さない>,
     intent: "<update のときの変更意図。update では必須>",
-    promptAuditExpected: <select_runtime.js の selected_runtime が "native" なら true、"dynamic-workflow-runner" なら false。必須>,
+    promptAuditExpected: true,
     stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>"
   }
 })
 ```
 
 `skillDir` は本スキルの実ディレクトリ、`target.skillPath` は評価対象の実ディレクトリ。
-どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す（script はパスを解決できず、
-agent の Read はこの値だけを頼りにする）。不正な `mode` / `scope`、`scope: "diff"` なのに
+どちらも対象と範囲の確認で `realpath` を通した絶対パスで渡す。finder / refuter は `snapshot.snapshotDir` だけを読んで、live target は読まない。
 Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する。
 `diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
 audit なのに `uncheckedItems` を渡した（audit は委譲項目を判定する観点を走らせない）、
-`stagingDir` が対象スキルの配下を指している場合、script は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
+snapshot の target / scope が一致しないか selector の receipt hash 検証に失敗した場合、script / route は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
 改稿の打ち切りは回数ではなく進捗で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
 [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本。
@@ -316,7 +329,7 @@ plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点�
 ここには**司令塔がどう提示するか**だけを書く。提示フォーマットの実物は
 `references/orchestrator-review.md`。
 
-**review / audit:**（audit は native でしか走らず `promptAuditExpected: true` なので、prompt-audit が実施できなければ `review_incomplete` になる）
+**review / audit:**（audit は native / Codex runner の両方で同梱 criteria を使う。criteria が利用できなければ no-findings にせず `review_incomplete` または unavailable として示す）
 
 | verdict | 司令塔の振る舞い |
 |---|---|

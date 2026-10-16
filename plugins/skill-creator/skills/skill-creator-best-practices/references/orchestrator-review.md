@@ -61,7 +61,7 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 
 観点ごとの確定件数: 理由の無い命令 1 / 散文に残った確定的処理 0 / 二重定義 1 /
 経路の無い依頼 1 / description との乖離 0 / ベストプラクティス準拠 0 /
-古くなったプロンプトの書き方 実施できず（prompt-audit がこの環境に無い）
+古くなったプロンプトの書き方 0
 ```
 
 観点の名前と並びは戻り値の `by_category.before` のキーから取る（観点の一覧の正本は script の `FINDERS`。
@@ -70,6 +70,8 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 - `confirmed` は `severity` 順（`blocker` → `major`）に並べる。`reported_minor` は確定ではないので
   【直した方がよいもの】に混ぜない。混ぜると「反論を生き残った」と読まれる。
 - `unverified` か `reported_minor` が 1 件でもあれば、`confirmed` が 0 件でも「問題なし」とは言わない。
+- `unverified` の各指摘には、`missing_perspectives` に記録された票の欠けた観点も添える。
+  指摘ごとに反証が揃わなかった理由が分からないと、確認済みの範囲と未検証の範囲を見分けられない。
 - 最後に「このまま直すこともできます（update）」と一言添える。review だけを頼まれた
   ときに勝手に直さないための線引きが、ここで初めて相手に見える。
 
@@ -82,7 +84,7 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 `skipped_unavailable.before` が空でないとき（`verdict: clean_except_unavailable` を含む）は、冒頭に次を置く。
 
 ```
-※ 観点（〜）は、必要な機能がこの環境に無いため実施していません。その観点では見ていません。
+※ 観点（〜）は、必要な skill / criteria / capability がこの環境に無いため実施していません。その観点では見ていません。
 ```
 
 ---
@@ -101,7 +103,7 @@ review の提示フォーマットをそのまま使う（観点は 1 つなの�
 - `verdict: review_incomplete` のときは、指摘の一覧ではなく次だけを伝える。「指摘なし」とは言わない。
 
 ```
-※ 古くなったプロンプトの書き方の監査（prompt-audit）を実施できませんでした。監査はしていません。
+※ 古くなったプロンプトの書き方の監査（prompt-audit）を完了できませんでした。監査はしていません。
 ```
 
 ---

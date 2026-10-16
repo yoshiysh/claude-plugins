@@ -105,6 +105,37 @@ class _Workspace(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Questions(_Workspace):
+    def _put_question(self, with_evidence):
+        inp = self.ws / "input.md"
+        question = {
+            "id": "RS-001",
+            "about": {"open": "O-001"},
+            "ruling": "question",
+            "why": "入力はログイン後に結果を返すと定めるが、画面表示と通知では結果を受け取る工程が変わり、適用できる既定は無い。誤った想定を実装すると出力経路の作り直しが発生するため、選択は依頼者にしか決められない。",
+            "question": {"header": "返し方", "text": "結果をどのように返しますか", "searched": "input.md のログイン後の工程"},
+            "options": [
+                {"label": "画面", "description": "ログイン画面に表示する", "flow_effect": "結果を画面に表示する"},
+                {"label": "通知", "description": "通知で送る", "flow_effect": "結果を通知する"},
+            ],
+        }
+        if with_evidence:
+            question["evidence"] = [{"file": str(inp), "line": 1, "quote": "結果を返す"}]
+        _put(self.ws, "resolutions", {"resolutions": [question]})
+
+    def test_questionsは根拠の無い問いを利用者に提示しない(self):
+        self._put_question(False)
+        out = _ok(self.ws, "questions", "--ids", "RS-001", "--check")
+        self.assertEqual(out["findings"], 1)
+        self.assertIn("出典根拠", out["bad"][0])
+
+    def test_questionsは信号の出典と簡潔なwhyがあれば通る(self):
+        self._put_question(True)
+        out = _ok(self.ws, "questions", "--ids", "RS-001", "--check")
+        self.assertEqual((out["findings"], out["questions"]), (0, 1))
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class SnapshotAndDiff(_Workspace):
     def _save(self, label):
         return _ok(self.ws, "snapshot", "--save", label, "--role", "auditor")["digest"]
@@ -575,7 +606,7 @@ class FlowAndConflicts(_Workspace):
         self._judge([{"id": "RS-006", "verdict": "fail", "fail_kind": "value_as_method", "reason": "r"}])
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "ruling": "question", "value": None, "options": options,
                                                        "question": {"header": "h", "text": "t", "searched": "s"}}]})
-        self.assertEqual(self._verdict("RS-006"), "fail", "変換した問いは不合格を持ち越す（変換した分はもう検証しない）")
+        self.assertEqual(self._verdict("RS-006"), "fail", "変換後の独立検証が合否を更新するまで、不合格を引き継ぐ")
 
     def test_answered_byの合格は書き換えると持ち越さない(self):
         # answered_by は値の裁定なので、value を変えたら検証し直す（持ち越すと当てはめ直した値が検証されずに根拠になる）。
@@ -610,7 +641,7 @@ class FlowAndConflicts(_Workspace):
         held = lambda rule: {"ruling": "hold", "value": None, "hold": {"rule": rule, "issue_draft": "d", "item_ids": []}}
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A")}, {"id": "RS-007", **held("保持規則 B")}]})
         self.assertIsNone(self._verdict("RS-006"), "合格の後に書いた保持規則は検証していない")
-        self.assertEqual(self._verdict("RS-007"), "fail", "変換した不合格はもう検証しない")
+        self.assertEqual(self._verdict("RS-007"), "fail", "hold に変えた裁定の既存の不合格を引き継ぐ")
         self._judge([{"id": "RS-006", "verdict": "pass"}])
         self.assertEqual(self._verdict("RS-006"), "pass")
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A を書き換えた")}]})
@@ -823,8 +854,17 @@ class PlanCheck(_Workspace):
 
     def test_verdictの外と根拠のIDの欠けを拾う(self):
         keys = _aspect_keys()
-        domain = self._all(**{keys[0]: {"verdict": "たぶん"}, keys[1]: {"verdict": "不明", "open": "O-404"}, keys[2]: {"verdict": "該当", "decision": "D-404"}, keys[3]: {"verdict": "不明", "open": "O-001"}})
-        self.assertEqual(self._plan(domain), sorted([f"ST-PLAN-VERDICT-{keys[0]}", f"ST-PLAN-REF-{keys[1]}", f"ST-PLAN-REF-{keys[2]}"]))
+        domain = self._all(**{keys[0]: {"verdict": "たぶん"}, keys[1]: {"verdict": "未評価"}, keys[2]: {"verdict": "該当", "decision": "D-404"}, keys[3]: {"verdict": "該当", "decision": "D-003"}})
+        self.assertEqual(self._plan(domain), sorted([f"ST-PLAN-VERDICT-{keys[0]}", f"ST-PLAN-UNASSESSED-{keys[1]}", f"ST-PLAN-REF-{keys[2]}"]))
+
+    def test_未評価は非ブロッキングで再評価条件だけを持つ(self):
+        key = _aspect_keys()[0]
+        domain = self._all(**{key: {"verdict": "未評価", "revisit_when": "対象データや操作が具体化されたとき"}})
+        self.assertEqual(self._plan(domain), [])
+        for extra in ({"open": "O-001"}, {"decision": "D-003"}, {"revisit_when": "  "}):
+            with self.subTest(extra=extra):
+                bad = self._all(**{key: {"verdict": "未評価", "revisit_when": "具体的な信号が追加されたとき", **extra}})
+                self.assertEqual(self._plan(bad), [f"ST-PLAN-UNASSESSED-{key}"])
 
     def test_irreversibleが該当なら生きている不変条件の決定か未決が要る(self):
         domain = self._all(irreversible={"verdict": "該当", "decision": "D-003"})

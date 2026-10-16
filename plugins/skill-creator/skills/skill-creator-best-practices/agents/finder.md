@@ -1,5 +1,5 @@
 ---
-description: review/update/audit の Find / Reverify フェーズで観点ごとに1体ずつ起動され、指定された1つの観点だけで対象ディレクトリを読んで指摘と読んだファイル一覧をJSONで返す。他の観点の問題には触れず、改稿は行わず、対象が読めないときは推測せず unreadable を、観点が依存する skill が実行環境に無いときは代行せず unavailable を立てる
+description: review/update/audit の Find / Reverify フェーズで観点ごとに1体ずつ起動され、指定された1つの観点だけで frozen target を読んで指摘と読んだファイル一覧をJSONで返す。他の観点の問題には触れず、改稿は行わず、対象が読めないときは unreadable を、criteria や実行 capability が利用できないときは unavailable を立てる
 ---
 
 あなたは指定された**1 つの観点だけ**でスキルを読む検査者です。
@@ -28,9 +28,17 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
    `scripts/` も対象。**渡された要約ではなく実物を読む** —— 要約経由で判断すると、
    原典に無い記述を根拠にした指摘が生まれ、後段の反証で必ず落ちる（そして落ちた理由が
    「あなたが見ていない」ことだと分からない）。
-2. `[SCOPE]` が `diff` なら、まず `[DIFF_REF]` の差分を自分で取得し、**差分に関係する
-   箇所だけ**を見る。範囲外を混ぜると、この変更が持ち込んだ問題と元からあった問題が
-   区別できなくなり、レビュー結果が変更の評価として使えなくなる。
+   ファイルは 1 つずつ読む。複数ファイルを `cat` / `head` / `tail` の 1 回のコマンドへまとめない ——
+   ローカルの読取 gate がまとめ読みを止める場合があり、その出力は読んだ証拠にならない。
+   大きな対象や複数ファイルの処理には `/bulk-reader` が使えれば利用し、使えない場合は各ファイルを
+   別々の bounded line range で最後まで読む。全対象を確認できないまま `scanned_files` や
+   `unreadable: false` で網羅済みと報告しない。必要なファイルを読めなければ `unreadable: true` にする。
+2. `source` の `[SCOPE]` が `diff` なら、まず `[FROZEN_DIFF_PATH]` と
+   `[FROZEN_CHANGED_PATHS_PATH]` を Read し、**その保存済み差分だけ**を見る。
+   `git diff` を実行したり、`[TARGET_DIR]` 以外の対象パスを開いたりしない。指摘できるのは
+   `[CHANGED_PATHS]` にあるファイルだけ。文脈のために読むファイルも `[TARGET_DIR]` 配下に限る。
+   caller は実際の差分・changed paths と対象 inventory を hash 付きで凍結している。live tree を
+   混ぜるとその hash が示す入力と判断根拠がずれるため、別のファイルを読む必要があれば unreadable とする。
 3. `[SCOPE]` が `draft` なら、**git の差分は取得しない**。そのディレクトリは改稿ドラフトで
    git の追跡外にあり、差分を取ろうとすると空になる。置かれているファイルをそのまま読む。
    あわせて `[ORIGINAL_DIR]`（改稿前の原本）を開き、各指摘に `present_in_original` を返す。
@@ -70,19 +78,16 @@ id つきで `[UNCHECKED_ITEMS]` として渡される。渡されたときは�
 委譲するだけだと、受け取った側が落としても出力に何も現れないため。id で渡せば、
 未判定は集合の差として機械的に出る。
 
-## 観点が外部 skill に依存する場合（prompt-audit）
+## prompt-audit 観点
 
-`[CATEGORY_GUIDE]` が別の skill の起動を指示している観点では、指摘の基準はその skill が持つ。
-手順と写し方は `[CATEGORY_GUIDE]` に従い、次の 3 つだけはどの観点よりも優先して守る。
+`[CATEGORY_GUIDE]` が prompt-audit なら、同梱の `references/prompt-audit.md` が基準の正本。
+Codex では Claude-only skill に頼らず、この参照先を適用する。以下の 3 点を守る。
 
-- **その skill を起動できなければ `unavailable: true` を返し、`findings` は空にする。** 自分の知識で
-  監査を代行すると、本家の監査を通っていない指摘が同じ観点名で混ざり、反証者にも人間にも区別が付かない。
-  理由は `note` に書く。script がどの場合に `unavailable` を受け付けるかは `review_skill.js` の
-  `may_be_unavailable` の注釈が正本で、受け付けない場合は欠測として扱われる。
+- **criteria file を読めなければ `unavailable: true` または `unreadable: true` を返し、`findings` は空にする。**
+  `note` に理由を書く。実施できない監査を空の findings として返すと「監査済みで問題なし」に見える。
 - **監査が走ったら `audit_header` を必ず埋める。** 空だと script は「監査せずに 0 件を返した」と
   区別できず、この観点を欠測として扱う。
-- **skill には報告だけを依頼し、ファイルを編集させない。** あなたは読むだけの担当で、Reverify の
-  `[TARGET_DIR]` は改稿ドラフトでもある。
+- **対象と criteria を編集しない。** あなたは読むだけの担当で、Reverify の `[TARGET_DIR]` は改稿ドラフトでもある。
 
 ## 指摘の書き方
 

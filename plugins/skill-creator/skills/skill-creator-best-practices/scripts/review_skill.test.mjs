@@ -5,17 +5,37 @@ import { Script, createContext } from 'node:vm';
 import { compileSource } from '../../../../workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
 
 const source = await readFile(new URL('../../../workflows/review_skill.js', import.meta.url), 'utf8');
+const finderRole = await readFile(new URL('../agents/finder.md', import.meta.url), 'utf8');
+const refuterRole = await readFile(new URL('../agents/refuter.md', import.meta.url), 'utf8');
 const { body, meta } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 const AUDIT_HEADER = 'Scope: /mock/target\nTarget model: current flagship';
 
 async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}, extraArgs = {}) {
   const phases = [];
+  const scope = target.scope || 'full';
+  const diffRef = target.diffRef || null;
   const context = createContext({
     args: {
       skillDir: '/mock/skill-creator',
       mode,
       target: { skillPath: '/mock/target', ...target },
+      snapshot: {
+        version: 1,
+        status: 'ready',
+        scope,
+        targetRoot: '/mock/target',
+        snapshotRoot: '/mock/snapshot',
+        snapshotDir: '/mock/snapshot/tree',
+        manifestPath: '/mock/snapshot/manifest.json',
+        manifestSha256: 'a'.repeat(64),
+        receiptPath: '/mock/snapshot/receipt.json',
+        diffRef,
+        diffPath: scope === 'diff' ? '/mock/snapshot/diff.patch' : null,
+        changedPathsPath: scope === 'diff' ? '/mock/snapshot/changed-paths.json' : null,
+        diffSha256: scope === 'diff' ? 'b'.repeat(64) : null,
+        changedPaths: scope === 'diff' ? ['SKILL.md', 'references/untouched.md'] : [],
+      },
       ...(mode === 'audit' ? {} : { uncheckedItems: [] }),
       ...(mode === 'update' ? { intent: INTENT } : {}),
       stagingDir: '/mock/target-workspace/staging',
@@ -163,6 +183,28 @@ test('diff scope treats the same finding on a changed file as preexisting', asyn
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
+test('diff review fails closed when a finder reports a file outside the frozen changed-path list', async () => {
+  const findingOutsideDiff = finding({ file: 'references/not-changed.md', claim: 'outside frozen diff' });
+  const { agent } = optsRecordingAgent({ 'find-why-driven-p1': { findings: [findingOutsideDiff], scanned_files: [], unreadable: false } });
+  const { result } = await run('review', agent, { scope: 'diff', diffRef: 'main...HEAD' });
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.equal(result.by_category.before['why-driven'], null);
+});
+
+test('source Find and Verify agents receive only the frozen snapshot target', async () => {
+  const { agent, calls } = reverifyFindingAgent({
+    file: 'SKILL.md', location: 'L1', claim: 'specific issue', evidence: 'quoted', severity: 'major', suggested_fix: 'fix',
+  }, ['find-why-driven-p1']);
+  await run('review', agent);
+  const sourceCalls = calls.filter(c => c.phase === 'Find' || c.phase === 'Verify');
+  assert.ok(sourceCalls.length > 0);
+  for (const c of sourceCalls) {
+    assert.ok(c.prompt.includes('[TARGET_DIR]: /mock/snapshot/tree'), c.label);
+    assert.ok(c.prompt.includes('frozen, read-only review snapshot'), c.label);
+    assert.ok(!c.prompt.includes('[TARGET_DIR]: /mock/target\n'), c.label);
+  }
+});
+
 test('reverify finding already present in the original is preexisting and does not re-enter the loop', async () => {
   const { agent, calls } = reverifyFindingAgent({
     file: 'SKILL.md',
@@ -265,14 +307,16 @@ test('review with only minor findings is not clean', async () => {
   assert.equal(result.stop_reason, null);
 });
 
-for (const [name, lead, third, expected, calls3] of [
+for (const [name, lead, third, expected, calls3, expectedMissing = []] of [
   ['agreeing not_refuted pair', ['not_refuted', 'not_refuted'], 'refuted', 'confirmed', false],
   ['agreeing refuted pair', ['refuted', 'refuted'], 'not_refuted', 'rejected', false],
   ['split pair resolved by refuting third', ['refuted', 'not_refuted'], 'refuted', 'rejected', true],
   ['split pair resolved by not_refuted third', ['not_refuted', 'refuted'], 'not_refuted', 'confirmed', true],
-  ['refuted and unreadable pair', ['refuted', 'unreadable'], 'not_refuted', 'confirmed', true],
-  ['refuted and missing pair', ['refuted', null], 'refuted', 'rejected', true],
-  ['unreadable and not_refuted pair with unreadable third', ['unreadable', 'not_refuted'], 'unreadable', 'unverified', true],
+  ['split pair with missing third remains unverified', ['refuted', 'not_refuted'], null, 'unverified', true, ['alternative']],
+  ['split pair with unreadable third remains unverified', ['refuted', 'not_refuted'], 'unreadable', 'unverified', true, ['alternative']],
+  ['refuted and unreadable pair remains unverified on split', ['refuted', 'unreadable'], 'not_refuted', 'unverified', true, ['materiality']],
+  ['refuted and missing pair', ['refuted', null], 'refuted', 'rejected', true, ['materiality']],
+  ['unreadable and not_refuted pair with unreadable third', ['unreadable', 'not_refuted'], 'unreadable', 'unverified', true, ['existence', 'alternative']],
 ]) {
   test(`staged refutation: ${name}`, async () => {
     const byPerspective = { existence: lead[0], materiality: lead[1], alternative: third };
@@ -288,6 +332,7 @@ for (const [name, lead, third, expected, calls3] of [
     }
     const entry = result.findings[expected][0];
     assert.deepEqual(Array.from(entry.skipped_perspectives), calls3 ? [] : ['alternative']);
+    assert.deepEqual(Array.from(entry.missing_perspectives), expectedMissing);
   });
 }
 
@@ -633,9 +678,9 @@ test('fan-out siblings share model, effort and schema so they can share the prom
   }
 });
 
-test('review runs the prompt-audit lens and declares it skipped when the skill is unavailable', async () => {
+test('review runs the shared prompt-audit lens and keeps unavailable distinct from no findings', async () => {
   const { agent, calls } = optsRecordingAgent({
-    'find-prompt-audit-p1': { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'no Skill tool' },
+    'find-prompt-audit-p1': { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'shared criteria unavailable' },
   });
   const { result } = await run('review', agent);
   assert.ok(calls.some(c => c.opts.label === 'find-prompt-audit-p1'));
@@ -690,6 +735,9 @@ test('audit mode runs only the prompt-audit lens and never writes', async () => 
   assert.equal(result.unchecked_failures, null);
   assert.equal(result.staging, null);
   assert.deepEqual(Object.keys(result.by_category.before), ['prompt-audit']);
+  assert.equal(result.source_snapshot.validation, 'required_after_workflow_before_result_is_trusted');
+  assert.ok(calls[0].prompt.includes('/mock/skill-creator/references/prompt-audit.md'));
+  assert.ok(!calls[0].prompt.includes('claude-api'));
 });
 
 test('audit mode reports findings, and a missing prompt-audit is review_incomplete when expected', async () => {
@@ -711,7 +759,18 @@ test('audit mode rejects uncheckedItems instead of silently ignoring them', asyn
   await assert.rejects(run('audit', async () => null, { scope: 'full' }, {}, { uncheckedItems: [] }), /uncheckedItems/);
 });
 
-test('update with the prompt-audit skill unavailable still completes a receipt that declares the skip', async () => {
+test('finder and refuter roles avoid combined bulk reads and keep blocked coverage incomplete', () => {
+  for (const [role, body] of [['finder', finderRole], ['refuter', refuterRole]]) {
+    assert.match(body, /1 つずつ/, `${role} must read files individually`);
+    assert.match(body, /`cat` \/ `head` \/ `tail`/, `${role} must avoid bulk shell reads`);
+    assert.match(body, /bounded line range/, `${role} needs a bounded-read fallback`);
+    assert.match(body, /unreadable/, `${role} must report blocked input as incomplete`);
+  }
+  assert.match(finderRole, /unreadable: true/);
+  assert.match(finderRole, /`scanned_files`/);
+});
+
+test('update with audit criteria unavailable still completes only an explicit skip receipt when caller permits it', async () => {
   const unavailable = { findings: [], scanned_files: [], unreadable: false, unavailable: true };
   const { agent } = optsRecordingAgent({
     'find-prompt-audit-p1': unavailable,
