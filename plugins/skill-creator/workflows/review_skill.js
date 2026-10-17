@@ -193,14 +193,14 @@ const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 
 // ------------------------------------------------------------ phase 0: 起動時ガード
 // 対象も範囲も定まらないまま走らせると、何を見たのか説明できない結果が「レビュー結果」として
-// 返る。曖昧さは司令塔（Phase 1 の確認）で潰す契約なので、ここは黙って補完せず落とす。
+// 返る。曖昧さは司令塔（SKILL.md「対象と範囲の確認（review/update）」）で潰す契約なので、ここは黙って補完せず落とす。
 
 function requireAbsolutePath(value, name) {
   if (!value || typeof value !== 'string' || !value.trim()) {
     throw new Error(`args.${name} が未指定です。SKILL.md の Workflow 呼び出し例に従ってください。`)
   }
   // script はファイルシステムに触れず symlink も解決できない。実体パスの解決は呼び出し側の
-  // 責務（SKILL.md Phase 1 の realpath 手順）で、ここでできるのは形式検査だけ。
+  // 責務（SKILL.md「実パスの解決手順」）で、ここでできるのは形式検査だけ。
   if (!value.startsWith('/')) {
     throw new Error(
       `args.${name} は絶対パスで渡してください（受領: ${value}）。` +
@@ -1094,6 +1094,8 @@ let latestSource = 'before'
 let afterCategories = null
 let verdict = null
 let stopReason = null
+// updater は毎巡原本から書き直してよく、前巡の申告を繰り返すとは限らないので、巡をまたいで累積する。
+const outOfScopeByKey = new Map()
 // 前巡の未解消指摘の同一性キー集合。null は「まだ 1 巡もしていない」で、比較対象が無い。
 // 乾き判定（前巡と 1 件も違わなければ打ち切る）のためだけに持つ。
 let prevUnresolvedKeys = null
@@ -1188,6 +1190,11 @@ while (true) {
     break
   }
   const changed = { ...reported, changed_files: reported.changed_files.map((c) => ({ ...c, path: normPath(c.path) })) }
+  for (const c of changed.out_of_scope_changes) {
+    const key = `${c.kind}::${normPath(c.path)}`
+    if (!outOfScopeByKey.has(key)) outOfScopeByKey.set(key, c)
+  }
+  const outOfScopeChanges = [...outOfScopeByKey.values()]
   log(`staging に ${changed.changed_files.length} ファイルを書きました（改稿 ${revision + 1} 回目）`)
   if (changed.changed_files.length === 0) {
     log('updater は応答したが変更ファイルを 1 つも報告しなかった。改稿が空のまま再検証に入る。')
@@ -1238,7 +1245,7 @@ while (true) {
     staging = {
       dir: stagingDir,
       changed_files: changed.changed_files,
-      out_of_scope_changes: changed.out_of_scope_changes,
+      out_of_scope_changes: outOfScopeChanges,
       resolved: [],
       remaining: [],
       new: [],
@@ -1399,7 +1406,7 @@ while (true) {
   staging = {
     dir: stagingDir,
     changed_files: changed.changed_files,
-    out_of_scope_changes: changed.out_of_scope_changes,
+    out_of_scope_changes: outOfScopeChanges,
     resolved,
     remaining,
     new: introduced,

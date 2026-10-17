@@ -280,12 +280,13 @@ function finding(overrides = {}) {
   };
 }
 
-function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () => 'not_refuted' }) {
+function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () => 'not_refuted', outOfScopeByLabel = {} }) {
   const calls = [];
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label, phase: opts.phase });
     if (opts.label.startsWith('update-')) {
-      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }],
+        out_of_scope_changes: outOfScopeByLabel[opts.label] || [], summary: 'updated' };
     }
     if (opts.label.startsWith('refute-')) {
       const verdict = votes(opts.label, opts.phase);
@@ -410,14 +411,26 @@ test('original finding re-reported as minor stays remaining instead of resolved'
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
-function perRoundAgent(countsByRound, globals) {
+function perRoundAgent(countsByRound, outOfScopeByLabel = {}) {
   const findingsByLabel = {};
   countsByRound.forEach((count, i) => {
     findingsByLabel[`find-why-driven-p2r${i + 1}`] = Array.from({ length: count }, (_, j) =>
       finding({ claim: `round ${i + 1} finding ${j + 1}`, present_in_original: false }));
   });
-  return scriptedAgent({ findingsByLabel });
+  return scriptedAgent({ findingsByLabel, outOfScopeByLabel });
 }
+
+test('out_of_scope_changes accumulate across update rounds and collapse the same kind and path', async () => {
+  const workflowChange = { kind: 'outside_skill', path: 'workflows/review_skill.js', change: 'add a field' };
+  const rename = { kind: 'delete_or_rename', path: 'references/old.md', change: 'rename' };
+  const { agent } = perRoundAgent([1, 0], {
+    'update-r1': [workflowChange],
+    'update-r2': [rename, { ...workflowChange, path: './workflows/review_skill.js', change: 'repeated' }],
+  });
+  const { result } = await run('update', agent);
+  assert.equal(result.revisions_used, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), [workflowChange, rename]);
+});
 
 test('stalled: unresolved count not below the best for STALL_ROUNDS rounds stops even when keys keep changing', async () => {
   const { agent, calls } = perRoundAgent([1, 1, 1, 1, 1]);

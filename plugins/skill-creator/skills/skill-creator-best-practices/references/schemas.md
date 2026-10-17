@@ -496,9 +496,9 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 複製されるが、この一覧は承認後に本体へコピーする対象そのものなので、無変更のファイルを
 載せると承認されていない上書きが起きる。`findings_addressed` を必須にしているのは、
 指摘にも意図にも紐づかない改稿を後段の突き合わせで説明できないため（意図由来なら
-`"intent"` と書く）。`out_of_scope_changes` は staging では行えない変更（`delete_or_rename`: スキル内の
-削除・改名・移動、`outside_skill`: 対象スキルの外の変更）で、`summary` と違い script が戻り値の
-`staging` に載せる。
+`"intent"` と書く）。`out_of_scope_changes` は staging では行えない変更（スキル内の削除・改名・移動と、対象スキルの外の
+変更。`kind` の値は `workflows/review_skill.js` の `UPDATE_SCHEMA` の enum が正本）で、`summary` と違い
+script が戻り値の `staging` に、巡をまたいで累積して載せる（同じ `kind`・`path` は 1 件にまとめる）。
 
 ### review_skill.js の戻り値
 
@@ -550,7 +550,7 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 | `staging` | update で改稿を書いた後の結果一式。review / audit と、最初の Update より前に止まった update では `null` |
 | `staging.dir` | 改稿の書き出し先。対象スキルの**全ファイルのミラー**（変更しなかったファイルも入る） |
 | `staging.changed_files` | updater が実際に内容を変えたファイルと、その理由・対応する指摘（UPDATE_SCHEMA の `changed_files` の `path` から先頭の `./` を除いたもの。再検証の範囲もこの値で決まる）。承認後に本体へ適用する対象そのもの |
-| `staging.out_of_scope_changes` | updater が staging では行えないため行わなかった変更（UPDATE_SCHEMA の `out_of_scope_changes` そのまま）。承認しても適用されないので、別途の対応が要る。`update_failed` では updater が応答していないため `null`（0 件とは言えない） |
+| `staging.out_of_scope_changes` | updater が staging では行えないため行わなかった変更（各巡の UPDATE_SCHEMA の `out_of_scope_changes` を累積したもの）。承認しても適用されないので、別途の対応が要る。`update_failed` では updater が応答していないため `null`（0 件とは言えない） |
 | `staging.new` | 再検証で新しく出た確定指摘（改稿が持ち込んだ可能性がある） |
 | `staging.unverified` | 再検証で確定にも棄却にもできなかった指摘。`remaining` と混ぜない |
 | `reclassified` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` に入れない |

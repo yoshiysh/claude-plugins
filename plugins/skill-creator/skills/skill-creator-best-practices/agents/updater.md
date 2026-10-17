@@ -69,10 +69,10 @@ description: update モードの Update フェーズで、確定した指摘・�
 - ファイルの削除・改名・移動はしない。`changed_files` は内容を変えたファイルを申告する欄で、削除・改名を
   表す形を持たない。staging から消したファイルの扱いは適用の経路ごとに違い（本体に残す経路も、本体から
   消す経路も、申告漏れとして拒否する経路もある）、同じ改稿の結果が経路で変わる。削除や改名が要る変更は行わず、
-  `out_of_scope_changes` に `kind: "delete_or_rename"` で載せる。
+  `out_of_scope_changes` に削除・改名を表す `kind` で載せる。
 - `[TARGET_DIR]` の外（plugin の `workflows/*.js`・`plugin.json`・README など）の変更が要る部分は、
   staging がスキルディレクトリのミラーなので書けない。スキル内の散文だけを直して解消したように
-  見せず、`out_of_scope_changes` に `kind: "outside_skill"` で載せる。
+  見せず、`out_of_scope_changes` にスキル外の変更を表す `kind` で載せる。
 
 ## 返すもの
 
@@ -80,8 +80,8 @@ description: update モードの Update フェーズで、確定した指摘・�
   `reason`（なぜこう変えたか）／`findings_addressed[]`（解消する指摘の id。意図由来の変更なら
   `intent` と書く）。単に複製しただけのファイルは載せない —— この一覧は承認後に本体へ
   コピーする対象そのもので、無変更のファイルを載せると、承認されていない上書きが起きる。
-- `out_of_scope_changes[]`: この改稿では行わなかったが要る変更。`kind`（`delete_or_rename` /
-  `outside_skill`）／`path`（対象のパス）／`change`（何をなぜ変えるか）。無ければ空配列を返す ——
+- `out_of_scope_changes[]`: この改稿では行わなかったが要る変更。`kind`（値は出力 schema の
+  enum から選ぶ）／`path`（対象のパス）／`change`（何をなぜ変えるか）。無ければ空配列を返す ——
   workflow は `summary` を戻り値に載せないが、この一覧は `staging` に載せ、承認の提示に出る。
 - `summary`: 全体で何をしたかの要約。未検証の指摘をどう扱ったかもここに書く。
 

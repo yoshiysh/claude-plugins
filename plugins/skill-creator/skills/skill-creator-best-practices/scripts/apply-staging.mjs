@@ -42,9 +42,10 @@ export async function fingerprintStaging({ staging, out }) {
     await writeFile(baselinePath, `${JSON.stringify({ staging_dir: stagingDir, ...manifest })}\n`, { flag: 'wx', mode: 0o600 });
   } catch (error) {
     if (error.code !== 'EEXIST') throw error;
-    throw new Rejection('baseline already exists; if it was taken for this update result, apply with it ' +
-      'instead of fingerprinting again (only a new update result gets a new mktemp -d work directory)',
-    { path: baselinePath });
+    const existing = await readJson(baselinePath, 'existing baseline');
+    throw new Rejection('baseline already exists; see step 0 of references/orchestrator-review.md', {
+      path: baselinePath, staging_dir: existing?.staging_dir,
+      fingerprint: String(existing?.sha256).slice(0, FINGERPRINT_DIGITS) });
   }
   return { status: 'fingerprinted', staging_dir: stagingDir, baseline_path: baselinePath,
     sha256: manifest.sha256, fingerprint: manifest.sha256.slice(0, FINGERPRINT_DIGITS) };

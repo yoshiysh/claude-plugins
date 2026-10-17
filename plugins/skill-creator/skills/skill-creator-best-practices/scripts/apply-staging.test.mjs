@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import fsPromises, { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -77,11 +78,12 @@ test('names a directory-only change in changed_paths, distinct from files', asyn
 
 test('refuses a second fingerprint into the same baseline path and keeps the first', async t => {
   const f = await fixture(t);
-  await fingerprintStaging({ staging: f.staging, out: f.baseline });
+  const print = await fingerprintStaging({ staging: f.staging, out: f.baseline });
   const first = await readFile(f.baseline, 'utf8');
   await writeFile(join(f.staging, 'SKILL.md'), 'rewritten\n');
   await assert.rejects(fingerprintStaging({ staging: f.staging, out: f.baseline }),
-    error => error.message.includes('baseline already exists') && error.detail.path === f.baseline);
+    error => error.message.includes('baseline already exists') && error.detail.path === f.baseline &&
+      error.detail.fingerprint === print.fingerprint && error.detail.staging_dir === print.staging_dir);
   assert.equal(await readFile(f.baseline, 'utf8'), first);
 });
 
@@ -100,6 +102,29 @@ test('a failure after the first copy reports the paths already copied', { skip: 
     applyStaging({ staging: f.staging, target: f.target, baseline: f.baseline, changedFiles: f.changedFiles }),
     error => error.detail.path === 'locked/inner/new.md' && error.detail.copied.join() === 'SKILL.md');
   assert.equal(await readFile(join(f.target, 'SKILL.md'), 'utf8'), 'after\n');
+});
+
+test('rechecks the destination after creating its parent and refuses a symlink that appeared there', async t => {
+  const f = await fixture(t);
+  await mkdir(join(f.root, 'elsewhere'));
+  await fingerprintStaging({ staging: f.staging, out: f.baseline });
+  const original = fsPromises.mkdir;
+  fsPromises.mkdir = async (path, options) => {
+    const made = await original(path, options);
+    if (path === join(f.target, 'scripts')) await symlink(join(f.root, 'elsewhere', 'new.mjs'), join(path, 'new.mjs'));
+    return made;
+  };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(
+      applyStaging({ staging: f.staging, target: f.target, baseline: f.baseline, changedFiles: f.changedFiles }),
+      error => error.message.includes('symlink') && error.detail.path === 'scripts/new.mjs' &&
+        error.detail.copied.join() === 'SKILL.md');
+  } finally {
+    fsPromises.mkdir = original;
+    syncBuiltinESMExports();
+  }
+  assert.ok((await lstat(join(f.target, 'scripts', 'new.mjs'))).isSymbolicLink());
 });
 
 test('rejects a baseline stored inside staging', async t => {
