@@ -165,8 +165,8 @@ script が検査しない、司令塔の workflow の判断:
 - 方法論の行き詰まり（測定手段が成立しない等）は人間の境界ではない。検証者の指摘として、
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら
-  `criteria_open`。保留中の問いがあれば `ask_human`）を人間に報告する。止まった run は `amend` しても
-  再開しない。予算の増額が承認されたら、新しい run-dir で `init` し直し、前の run の request.md を
+  `criteria_open`。保留中の問いがあれば `ask_human`）を人間に報告する。止まった run と、周回の予算を
+  使い切った run は `amend` を受け付けない（足しても直す周が残っていない）。予算の増額が承認されたら、新しい run-dir で `init` し直し、前の run の request.md を
   `--request-file` に、goal.json・scope.json・design.json・ledger.jsonl を `--material` に渡す。
 
 ## 結果の提示

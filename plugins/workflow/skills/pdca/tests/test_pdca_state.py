@@ -361,6 +361,48 @@ class TestCodexExecution(Base):
         forge(r, "discard", {}, brief["brief_id"])
         self.assertIn("discard", r.refused("status"))
 
+    def test_writer_brief_rejects_condition_that_already_passed(self):
+        r = self.run_()
+        r.framed()
+        r.author(doc=r.scope(conditions=[condition(), condition("C2") | {"statement": "2つ目の条件"}]))
+        r.review("scope")
+        design = r.design()
+        design["viewpoints"].append(design["viewpoints"][0] | {"id": "C2-V1", "condition": "C2"})
+        r.author("design", doc=design)
+        r.review("design")
+        r.ok("fix")
+        r.work(conditions=("C1", "C2"))
+        r.verify("C1-V1", "v1")
+        r.verify("C2-V1", "v2", status="fail", findings=[finding()])
+        r.verify("R-REQUEST", "v3")
+        r.verify("R-OUTSIDE", "v4")
+        error = r.refused("brief", "--role", "writer", "--conditions", "C1", "C2")
+        self.assertIn("未充足でない条件が含まれる: C1", error)
+        _, writer = r.brief("writer", "--conditions", "C2")
+        self.assertEqual(writer["conditions"], ["C2"])
+
+    def test_statusのunmetは未報告と本人申告のnot_doneを区別する(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify("C1-V1", "v1", status="not_done")
+        unmet = {u["viewpoint"]: (u["status"], u["reported"]) for u in r.ok("status")["unmet"]}
+        self.assertEqual(unmet, {"C1-V1": ("not_done", True), "R-REQUEST": ("not_done", False),
+                                 "R-OUTSIDE": ("not_done", False)})
+
+    def test_周回の予算を使い切った後のamendは依頼原文を書き換えずに拒否する(self):
+        r = self.run_(rounds=1)
+        r.fixed()
+        r.work()
+        r.verify_all("v")
+        self.assertEqual(r.next(), "completion-judge")
+        request = (r.dir / "request.md").read_text()
+        more = self.root / "more.txt"
+        more.write_text("README も\n")
+        self.assertIn("rounds の予算", r.refused("amend", "--request-file", str(more)))
+        self.assertEqual((r.dir / "request.md").read_text(), request)
+        self.assertEqual(r.next(), "completion-judge")
+
     def test_cli_enforces_status_next_roles_viewpoints_and_full_cycle(self):
         r = self.run_()
         r.fixed()

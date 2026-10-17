@@ -1071,6 +1071,10 @@ class State:
             return "stop:non_converging:退行"
         return None
 
+    def rounds_exhausted(self) -> bool:
+        budget = self.fixed_budget()
+        return bool(budget) and self.next_writer_opens_round and self.rounds_used >= budget["rounds"]
+
     def elapsed(self) -> int:
         return int((now() - self.started).total_seconds())
 
@@ -1096,7 +1100,7 @@ class State:
         if budget and self.elapsed() > budget["wall_seconds"]:
             return "stop:time_budget"
         if self.reopened():
-            if budget and self.next_writer_opens_round and self.rounds_used >= budget["rounds"]:
+            if self.rounds_exhausted():
                 return "stop:rounds"
             if self.pending_asks():
                 return "ask_human"
@@ -1107,9 +1111,9 @@ class State:
                     return f"criteria-verifier:{aspect}"
             return "fix"
         criteria = self.criteria()
-        out_of_rounds = self.rounds_used >= budget["rounds"]
+        out_of_rounds = self.rounds_exhausted()
         if not self.ledger.of("work", after=self.fix_seq):
-            return "stop:rounds" if self.next_writer_opens_round and out_of_rounds else "writer"
+            return "stop:rounds" if out_of_rounds else "writer"
         verdicts = self.verdicts(criteria)
         if not all(v["reported"] for v in verdicts.values()):
             return "verifier"
@@ -1138,7 +1142,8 @@ class State:
                 report["ask_human"] = self.pending_asks()
         else:
             criteria = self.criteria()
-            report["unmet"] = [{"condition": v["condition"], "viewpoint": vid, "status": v["status"]}
+            report["unmet"] = [{"condition": v["condition"], "viewpoint": vid, "status": v["status"],
+                                "reported": v["reported"]}
                                for vid, v in self.verdicts(criteria).items() if v["status"] != "pass"]
             report["stops"] = criteria["stops"]
             report["human_gates"] = criteria["human_gates"]
@@ -1184,6 +1189,8 @@ def cmd_amend(args) -> int:
     nxt = state.next()
     if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
         raise StateError(f"停止か完了の後の run には足せない（next = {nxt}）。新しい run で init する")
+    if state.rounds_exhausted():
+        raise StateError("rounds の予算を使い切っていて、足すと stop:rounds になる。新しい run で init する")
     state.require_recorded()
     text = read_request(args.request_file)
     request = state.run_dir / REQUEST
@@ -1301,7 +1308,7 @@ def cmd_brief(args) -> int:
                 raise StateError(f"writer の conditions に未充足条件が含まれていない: {', '.join(missing_conditions)}")
             if extra_conditions and unmet_conditions and not unmet_unscoped:
                 raise StateError(f"writer の conditions に未充足でない条件が含まれる: {', '.join(extra_conditions)}")
-            if state.next_writer_opens_round and state.rounds_used >= criteria["budget"]["rounds"]:
+            if state.rounds_exhausted():
                 raise StateError(f"rounds の予算（{criteria['budget']['rounds']}）を使い切った")
             brief["conditions"] = record["conditions"] = conditions
         elif role == "verifier":
