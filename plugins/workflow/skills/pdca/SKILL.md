@@ -53,7 +53,6 @@ python3 $S amend --run-dir <run-dir> --request-file <後から来た発言>
 python3 $S answer --run-dir <run-dir> --question <問いの ID> (--option <選ばれた選択肢の ID> | --text-file <選択肢に無い答えの原文>)
 python3 $S brief --run-dir <run-dir> --role <役割> [--aspect <goal か scope か design>] [--conditions <条件 ID>…] [--viewpoint <観点 ID>] [--report-file <最終報告案>]
 python3 $S record --run-dir <run-dir> --file <agent の出力>
-python3 $S discard --run-dir <run-dir> --brief <record が拒否された brief の ID>
 python3 $S fix --run-dir <run-dir>
 python3 $S status --run-dir <run-dir>
 python3 $S continue --run-dir <run-dir>
@@ -75,13 +74,6 @@ python3 $S close --run-dir <run-dir>
 各 agent は `brief` → `invoke` で起動 → `record` の順で回す。ターンを text だけで終えようとして
 未充足が残っているときは `continue` を呼び、返った継続文に従う（完了を宣言しない）。
 
-`record` が拒否されたら、新しい agent を同じ `invoke` で起動し直す。拒否理由は script が brief に
-載せるので、司令塔は文を足さない。拒否の原因が agent の出力でなく作業ツリーの側にあり（固定した
-測定手段の中身が変わった等）、出し直しても消えないときだけ、`status` の `pending_briefs` にある
-その brief を `discard` で破棄する。破棄しないと、未記録の brief が残る間は次の `brief` も `amend` も
-受け付けられず、run を先へ進める手段が無い。破棄できるのは record が拒否された brief だけで、同じ
-役割の拒否が続けば `stop:non_converging:記録の拒否` で止まる。
-
 ## 実行環境
 
 Claude Code では Agent tool で agent を起動する。Codex では native Workflow がこのスキルの状態管理を
@@ -98,9 +90,8 @@ Codex では、各 `brief` の後に次を行う。
    `wait_agent` は別 agent の更新でも戻るため、対象が `completed` でなければ待機と確認を繰り返す。
    対象 agent の終了を確かめてから指定された `out` ファイルが作られ、JSON として読めることを確認し、
    `record --file` を呼ぶ。最終応答の文章だけでは記録しない。
-4. `status` の `next` を確認してから次の `brief` を発行する。agent が `out` を書かずに終わったときも、
-   `record` が拒否されたときも、`followup_task` で別の役割へ転用せず、新しい agent で同じ `invoke` を
-   やり直す（拒否の扱いは「流れ」）。
+4. `status` の `next` を確認してから次の `brief` を発行する。失敗した agent は `followup_task` で別の
+   役割へ転用せず、新しい agent で同じ `invoke` をやり直す。
 5. `next` が agent の役割を指さないときは brief を発行しない。`fix` と `close` は「流れ」の 2 と 5、`stop:*` は
    「流れ」の 4、`ask_human` と `await_human` は「人間の境界」に従い、`closed` なら終える。`ask_human` でも
    agent は起動せず、司令塔が問いを示して答えを `answer` で記録してから `status` に戻る。`completion-judge` の
