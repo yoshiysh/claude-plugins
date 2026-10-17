@@ -279,15 +279,21 @@ class TestCodexExecution(Base):
         self.assertEqual(r.ok("amend", "--request-file", str(more))["next"], "goal-framer:goal")
         r.brief("goal-framer", "--aspect", "goal")
 
-    def test_未記録のbriefがある間はfixを拒否し検証が今の周から外れない(self):
-        r = self.run_()
+    def test_fixはnextがfixのときだけ取り固定した測定手段と検証を差し替えられない(self):
+        r = self.run_(controlled=True)
         r.fixed()
+        r.smoke()
         r.work()
+        r.harness.write_text("print('changed')\n")
+        self.assertIn("fix 済み", r.refused("fix"))
         _, brief = r.brief("verifier", "--viewpoint", "C1-V1")
-        self.assertIn(f"未記録の brief がある: {brief['brief_id']}", r.refused("fix"))
-        r.record(brief, {"agent": "v", "viewpoint": "C1-V1", "status": "pass", "observed": None,
-                         "evidence": "見た", "findings": []})
+        self.assertIn("fix 済み", r.refused("fix"))
+        r.record(brief, {"agent": "v", "viewpoint": "C1-V1", "status": "fail", "observed": None,
+                         "evidence": "見た", "findings": [finding()]})
+        self.assertIn("fix 済み", r.refused("fix"))
         self.assertEqual(r.next(), "verifier")
+        kinds = [json.loads(line)["kind"] for line in (r.dir / "ledger.jsonl").read_text().splitlines()]
+        self.assertEqual(kinds.count("fix"), 1)
 
     def test_cli_enforces_status_next_roles_viewpoints_and_full_cycle(self):
         r = self.run_()

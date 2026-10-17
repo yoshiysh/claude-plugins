@@ -1417,6 +1417,8 @@ def cmd_record(args) -> int:
 
 
 def fix_problem(state: State) -> str | None:
+    if not state.reopened():
+        return "fix 済みで、完了条件の文書への未解決の指摘も amend も無い"
     if state.pending_asks():
         return "人間の答えを待つ問いがある（ask_human）"
     for aspect in ASPECTS:
@@ -1434,13 +1436,12 @@ def fix_problem(state: State) -> str | None:
 def cmd_fix(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
-    nxt = state.next()
-    if nxt.startswith("stop:") or nxt in WAITING:
-        raise StateError(f"停止中（next = {nxt}）")
-    state.require_recorded()
     problem = fix_problem(state)
     if problem:
         raise StateError(problem)
+    nxt = state.next()
+    if nxt != "fix":
+        raise StateError(f"fix は status.next が fix のときだけ取る（next = {nxt}）")
     criteria = state.criteria()
     refs = [(vp["id"], raw) for vp in criteria["viewpoints"]
             for raw in [vp["means"].get("ref")] + [c.get("ref") for c in vp.get("controls", [])] if raw]
