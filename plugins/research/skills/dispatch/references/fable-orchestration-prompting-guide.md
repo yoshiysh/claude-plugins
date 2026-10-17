@@ -5,9 +5,7 @@
 > に従って本ファイル、native model callsites、planner guidance、disclosure、evals を更新すること。
 
 Anthropic 公式ドキュメント "Prompting Claude Fable 5" の抜粋を condensed したもの。
-`chat` スキルの target-model-prompting-guide は**単発助言**（壁打ち
-1往復、subagent 委譲なし）向けの節だけを条件抜粋しており、本ファイルはその補集合——
-**複数ラウンドの subagent 委譲ループ**特有の節だけを条件抜粋している。両者は重複しない。
+本ファイルは**複数ラウンドの subagent 委譲ループ**特有の節だけを条件抜粋している。
 
 ## Parallel subagents（Plan ステップが従う）
 

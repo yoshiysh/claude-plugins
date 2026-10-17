@@ -44,7 +44,7 @@ test -f .agents/skills/<name>/SKILL.md
 
 既存 plugin 名の候補は Claude catalog (`.claude-plugin/marketplace.json`) の `plugins[].name` から得て、Codex catalog (`.agents/plugins/marketplace.json`) でも同じ登録集合か照合する。`plugins/` のディレクトリ一覧だけを marketplace 登録一覧として扱わない。
 
-plugin はカテゴリ単位（例: `git` / `chat` / `research` / `notion` / `skill-creator`）で複数スキルを収録できる。登録先 plugin を次の優先順位で決める：
+plugin はカテゴリ単位（例: `git` / `research` / `notion` / `skill-creator`）で複数スキルを収録できる。登録先 plugin を次の優先順位で決める：
 
 1. **ユーザーが plugin 名を明示**していればそれ（例:「url-reader を research plugin に追加して」）。
 2. 既に `plugins/*/skills/<skill_name>` の symlink がどこかの plugin にあれば、**その plugin**（更新として扱う）。
