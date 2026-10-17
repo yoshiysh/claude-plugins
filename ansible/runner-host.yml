@@ -9,8 +9,8 @@
 #     （GitHub の仕様: Docker container action を動かす self-hosted runner は Linux かつ
 #     Docker 導入済みであること）
 #   - docker ベースの MCP サーバ（github-mcp-server 等）も同様
-#   - Node は run-gemini-cli のような CLI を使う action が要求する。action 自身は
-#     setup-node を呼ばないため、ホスト側に無いと落ちる
+#   - Node は Node 製の CLI を呼ぶ action のうち、自分で setup-node を呼ばないものが
+#     要求する。ホスト側に無いと落ちるので、そうした action を載せるときだけ入れる
 ---
 - name: Provision a self-hosted runner host
   hosts: runner_hosts
