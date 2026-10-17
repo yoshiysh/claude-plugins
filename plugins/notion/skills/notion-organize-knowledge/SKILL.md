@@ -122,11 +122,15 @@ python3 "$QUEUE" claim --workspace "$WORKSPACE" --run-id '<run>' \
 # 既に registered/unresolved/deferred の job を訂正する場合は claim ではなく reopen
 python3 "$QUEUE" reopen --workspace "$WORKSPACE" --run-id '<run>' \
   --job-id '<job-id>' --worker-id 'worker-2' --reason 'source_url should point at the original publisher, not the mirror'
+# apply/verify の application を訂正する。phase は進めない
+python3 "$QUEUE" record-application --workspace "$WORKSPACE" --run-id '<run>' \
+  --job-id '<job-id>' --worker-id 'worker-2' --application-json '<application JSON>'
 ```
 
 - `dispatch` は non-mutating worklist であり、worker reservation ではない。`claimed` 数ではなく `status.capacity.active` の有効 lease 数だけを稼働 worker 数として扱う。
-- worker は `advance` で phase を一段ずつ進める。`classify` には `--proposal-json`、`apply` には `--application-json` が必須である。旧 run を `verify` から再検証する場合は、Notion 更新を再実行せず `record-proposal --proposal-json` で AI の根拠付き分類を補完できる。
-- 旧 terminal（`registered`/`unresolved`/`deferred`）を再検証・訂正するときは `claim` ではなく `reopen --job-id <id> --reason <理由>` を使う。`claim`/`record-proposal`/`advance` はいずれも既に lease 済みの job しか扱えず、terminal job には使えない。`reopen` は対象 job を再度 lease し、既定で `verify` phase へ戻す（`--phase` で `classify`/`apply` からやり直すことも指定できる）。既存の `proposal`/`application` 履歴は保持されるので、`record-proposal` や `advance` で内容を訂正してから改めて `complete` を実行する。preflight はその検証が済むまで dispatch してはいけない。
+- worker は `advance` で phase を一段ずつ進める。`classify` への `advance` には `--proposal-json` が必須。`--application-json` は `apply` への `advance` でのみ指定できる。
+- 適用記録を補完・訂正する場合は `record-application --application-json` を使う。有効な lease の owner が `apply`/`verify` で実行でき、内容を検証して phase を変えずに `application_recorded` event を記録する。旧 run を `verify` から再検証する場合は、Notion 更新を再実行せず `record-proposal --proposal-json` で AI の根拠付き分類を補完できる。
+- 旧 terminal（`registered`/`unresolved`/`deferred`）を再検証・訂正するときは `claim` ではなく `reopen --job-id <id> --reason <理由>` を使う。`reopen` は対象 job を再度 lease し、既定で `verify` phase へ戻す（`--phase` で `classify`/`apply` からやり直すことも指定できる）。`classify` で再開した場合は `record-proposal` で訂正し、`advance --phase apply`（必要なら `--application-json` を指定）から `advance --phase verify` へ一段ずつ進める。`apply` で再開した場合は `record-application` で訂正してから `advance --phase verify` へ進める。`verify` で再開した場合は必要な記録を補完・訂正し、その phase で `complete` する。`--application-json` は `advance --phase apply` でのみ指定でき、`classify` では `--proposal-json` が必要。`complete` は `verify` phase でのみ実行する。preflight はその検証が済むまで dispatch してはいけない。
 - 429 は `retry --retry-after <ISO-8601> --reason rate_limited` を使う。job の domain と同一 domain の claim は指定時刻まで止まる。
 - 長い取得中は `heartbeat` で lease を延長する。
 - verifier が別 role で再 fetch した後だけ `complete --verifier-id ... --verification-json ...` を実行する。完了 event の直後に `dispatch` を再実行する。

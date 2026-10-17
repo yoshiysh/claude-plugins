@@ -21,7 +21,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_doc_check_workspace import _rulings, stdout_body  # noqa: E402
+from test_doc_check_workspace import _aspect_keys, _rulings, stdout_body  # noqa: E402
 
 SKILL = Path(__file__).resolve().parents[1]
 DOC_CHECK = SKILL / "scripts" / "doc_check.mjs"
@@ -84,6 +84,8 @@ RESOLUTION_Q = {
     "id": "RS-001",
     "about": {"open": "O-001"},
     "ruling": "question",
+    "why": "依頼文はログイン後に結果を返すと定めるが、画面表示とメール送信で受け取り方が変わり、どちらが正しいか選べる既定は無い。誤った想定は出力経路の作り直しにつながるため確認する。",
+    "evidence": [{"file": str(FIXTURE / "input.md"), "line": 1, "quote": "結果を返す"}],
     "question": {"header": "結果の返し方", "text": "結果をどう返しますか", "searched": "依頼文に返し方の記述が無い"},
     "options": [
         {"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
@@ -96,11 +98,9 @@ RESOLUTION_Q = {
 class _Workspace(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.ws = Path(self._tmp.name) / "W"
         shutil.copytree(FIXTURE, self.ws)
-
-    def tearDown(self):
-        self._tmp.cleanup()
 
     def _unchanged_after(self, name, mode, *args, stdin=None):
         p = self.ws / name
@@ -992,10 +992,9 @@ class FieldTypes(_Workspace):
         el = {"id": "F-002"}
         cases = [
             ("flow", {"closure": "工程を列挙した。回答の反映（段 3a、RS-020）: F-029 を足した。"}),
-            ("flow", {"closure": "G0-2 の回答で F-020 の枝を除いた"}),
             ("flow", {"elements": [{**el, "label": "承認（段 3a で足した）"}]}),
             ("flow", {"kinds": [{"name": "工程", "definition": "段 3a' で分けた処理"}]}),
-            ("decisions", {"decisions": [{"id": "D-001", "why": "G0-2 の問いで決まった"}]}),
+            ("decisions", {"decisions": [{"id": "D-001", "why": "段 3b の問いで決まった"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "r1-im-requirements__auth-002 への対応"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "続けるか止めるかは価値の判断で、段 3a では続きの問いを聞けない"}]}),
             ("resolutions", {"resolutions": [{"id": "RS-001", "ruling": "internal", "why": "段 9 で聞くゲートが残っていないため保持規則にした"}]}),
@@ -1021,6 +1020,205 @@ class FieldTypes(_Workspace):
             {"id": "RS-004", "ruling": "internal", "why": "型番 3a と 3a' の筐体は同じ部品を使う"}]})
         _ok(self.ws, "flow")
         self.assertFalse(any("HISTORY" in i for i in json.loads((self.ws / "checks" / "flow.json").read_text())["findings"]))
+
+
+class DomainAssessment(_Workspace):
+    def _baseline(self, verdict="未評価", categories=None):
+        source = self.ws / "input.md"
+        source.write_text("利用者は個人のメモを取り込む。\n", encoding="utf-8")
+        plan = json.loads((self.ws / "plan.json").read_text())
+        plan["domain"] = [
+            {"aspect": aspect, "verdict": "未評価", "revisit_when": "対象データや操作が具体化されたとき"}
+            for aspect in _aspect_keys()
+        ]
+        row = next(x for x in plan["domain"] if x["aspect"] == "personal_data")
+        row["verdict"] = verdict
+        row.pop("revisit_when", None) if verdict != "未評価" else None
+        if verdict != "未評価":
+            row["decision"] = "D-012"
+            _ok(self.ws, "put", "--ledger", "decisions", stdin={"decisions": [{
+                "id": "D-012", "topic": "個人情報の扱い", "value": verdict, "why": "入力の記載に基づく初期判定。",
+                "source": "input", "quote": "個人のメモ", "layer": "要求", "targets": [],
+            }]})
+        plan["required_categories"] = [
+            {"name": name, "decision": "D-012"} for name in (categories or [])
+        ]
+        (self.ws / "plan.json").write_text(json.dumps(plan, ensure_ascii=False))
+
+    def _assessment(self, *, aspect="personal_data", verdict="該当", categories=None, evidence=None):
+        plan = json.loads((self.ws / "plan.json").read_text())
+        initial = next(x for x in plan["domain"] if x["aspect"] == aspect)
+        prior_categories = [c["name"] for c in plan.get("required_categories", []) if c.get("decision") == initial.get("decision")]
+        answer = self.ws / "answers" / "g1.md"
+        answer.parent.mkdir(exist_ok=True)
+        answer.write_text("RS-001: 取り込むデータは個人のメモです。\n")
+        row = {
+            "id": "RS-051",
+            "about": {"domain": aspect},
+            "ruling": "answered_by",
+            "value": verdict,
+            "why": "具体的なデータの説明があるため適用を判定し、そこから必要なカテゴリを選んだ。",
+            "evidence": evidence or [{"file": str(answer), "line": 1, "quote": "個人のメモ"}],
+            "domain_assessment": {
+                "aspect": aspect,
+                "initial_verdict": initial["verdict"],
+                "superseded_categories": prior_categories,
+                "verdict": verdict,
+                "required_categories": ["保持期間と削除"] if categories is None else categories,
+            },
+        }
+        if initial.get("decision"):
+            row["supersedes"] = initial["decision"]
+        return row
+
+    def test_信号のない軸は未評価のままで質問や評価行を作らない(self):
+        self._baseline()
+        out = _ok(self.ws, "plan")
+        self.assertEqual(out["findings"], 0)
+        domain = json.loads((self.ws / "plan.json").read_text())["domain"]
+        self.assertTrue(all(x["verdict"] == "未評価" for x in domain))
+        self.assertFalse((self.ws / "resolutions.json").exists())
+
+    def test_後段の信号を根拠付きの構造化された評価として保存できる(self):
+        self._baseline()
+        assessment = self._assessment()
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [assessment]})
+        stored = json.loads((self.ws / "resolutions.json").read_text())["resolutions"][0]
+        self.assertEqual(stored["about"], {"domain": "personal_data"})
+        self.assertEqual(stored["value"], stored["domain_assessment"]["verdict"])
+        self.assertEqual(stored["domain_assessment"]["initial_verdict"], "未評価")
+        self.assertEqual(stored["domain_assessment"]["superseded_categories"], [])
+        self.assertEqual(stored["domain_assessment"]["required_categories"], ["保持期間と削除"])
+        rows = _rulings(self.ws)
+        self.assertTrue(any(x["about"] == {"domain": "personal_data"} for x in rows))
+
+    def test_同じ軸の後続評価は同じIDを更新し別IDの重複を拒否する(self):
+        self._baseline()
+        first = self._assessment()
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [first]})
+        updated = self._assessment(categories=["保持期間と削除", "訂正と削除の反映"])
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{**updated, "id": first["id"]}]})
+        stored = json.loads((self.ws / "resolutions.json").read_text())["resolutions"]
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["domain_assessment"]["required_categories"], ["保持期間と削除", "訂正と削除の反映"])
+
+        duplicate = {**updated, "id": "RS-052"}
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [duplicate]})
+        self.assertIn("同じ論点の裁定が 2 つ", result.stderr)
+
+    def test_評価には初期状態カテゴリと逐語の回答が必要(self):
+        self._baseline()
+        wrong_initial = self._assessment()
+        wrong_initial["domain_assessment"]["initial_verdict"] = "該当"
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [wrong_initial]})
+        self.assertIn("initial_verdict", result.stderr)
+
+        self._baseline()
+        wrong_categories = self._assessment()
+        wrong_categories["domain_assessment"]["superseded_categories"] = ["保持期間と削除"]
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [wrong_categories]})
+        self.assertIn("superseded_categories", result.stderr)
+
+        wrong_value = self._assessment()
+        wrong_value["value"] = "保持期間と削除"
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [wrong_value]})
+        self.assertIn("value は verdict と同じ値", result.stderr)
+
+        self._baseline()
+        outside = Path(self._tmp.name) / "outside.md"
+        outside.write_text("個人のメモ")
+        bad = self._assessment(evidence=[{"file": str(outside), "line": 1, "quote": "個人のメモ"}])
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [bad]})
+        self.assertIn("domain の信号", result.stderr)
+
+    def test_非該当はカテゴリを持てず_about_domainには評価が要る(self):
+        self._baseline()
+        bad = self._assessment(verdict="非該当", categories=["保持期間と削除"])
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [bad]})
+        self.assertIn("非該当", result.stderr)
+
+        bare = {k: v for k, v in self._assessment().items() if k != "domain_assessment"}
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [bare]})
+        self.assertIn("about.domain には domain_assessment", result.stderr)
+
+    def test_初期非該当を後段の該当とカテゴリで置き換える(self):
+        self._baseline("非該当")
+        assessment = self._assessment(verdict="該当", categories=["保持期間と削除"])
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [assessment]})
+        stored = json.loads((self.ws / "resolutions.json").read_text())["resolutions"][0]
+        self.assertEqual(stored["supersedes"], "D-012")
+        self.assertEqual(stored["domain_assessment"]["initial_verdict"], "非該当")
+        self.assertEqual(stored["domain_assessment"]["superseded_categories"], [])
+        self.assertEqual(stored["domain_assessment"]["required_categories"], ["保持期間と削除"])
+
+    def test_初期該当のカテゴリを後段の非該当で置き換える(self):
+        self._baseline("該当", ["保持期間と削除"])
+        assessment = self._assessment(verdict="非該当", categories=[])
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [assessment]})
+        stored = json.loads((self.ws / "resolutions.json").read_text())["resolutions"][0]
+        self.assertEqual(stored["supersedes"], "D-012")
+        self.assertEqual(stored["domain_assessment"]["initial_verdict"], "該当")
+        self.assertEqual(stored["domain_assessment"]["superseded_categories"], ["保持期間と削除"])
+        self.assertEqual(stored["domain_assessment"]["required_categories"], [])
+
+    def test_リスク章の初期判定語は該当と非該当にそろえる(self):
+        structure = (SKILL / "references" / "document-structure.md").read_text(encoding="utf-8")
+        risk_start = structure.index("## 3. 「リスクと影響」")
+        risks = structure[risk_start:structure.index("## 4. ", risk_start)]
+        self.assertIn("`非該当`", risks)
+        self.assertNotIn("非適用", risks)
+        domain = (SKILL / "references" / "domain-analysis.md").read_text(encoding="utf-8")
+        self.assertIn("`非該当`", domain)
+        self.assertNotIn("非適用", domain)
+
+    def test_resolver_writer_crossdoc_prompt使う有効カテゴリと置換規則(self):
+        def contract(role):
+            return "\n".join(_run(self.ws, "contract", "--role", role, "--part", str(part)).stdout for part in (1, 2))
+
+        resolver = contract("resolver")
+        writer = contract("writer")
+        cross_doc_contract = contract("cross-doc")
+        cross_doc = (SKILL / "agents" / "cross-doc.md").read_text(encoding="utf-8")
+        role_map = (SKILL / "schemas" / "role-map.md").read_text(encoding="utf-8")
+        contracts = (SKILL / "schemas" / "agent-contracts.md").read_text(encoding="utf-8")
+        ledger = contracts.split("## 決定の台帳", 1)[1].split("\n## ", 1)[0]
+        workflow_io = (SKILL / "references" / "workflow-io.md").read_text(encoding="utf-8")
+        resolver_verification_stage = next(line for line in workflow_io.splitlines() if line.startswith("| 3v |"))
+        resolver_shared_stage = next(line for line in workflow_io.splitlines() if line.startswith("| 3・3a・3b・3a'・6 の共通 |"))
+        self.assertIn("同じ軸の ID を更新", resolver)
+        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", ledger)
+        self.assertIn("後段カテゴリが空でも除外したカテゴリを戻さない", ledger)
+        self.assertIn("この集合の導出と supersession はここを正とする", ledger)
+        self.assertIn("有効な必須カテゴリの集合と supersession は「決定の台帳」", writer)
+        self.assertIn("要求 ID または仕様項目 ID の中身として実現", writer)
+        self.assertIn("必須カテゴリの有効集合と domain assessment による置き換えは", cross_doc)
+        self.assertIn("`schemas/agent-contracts.md`「決定の台帳」", cross_doc)
+        self.assertIn("## 決定の台帳\n", writer)
+        self.assertIn("## 決定の台帳\n", cross_doc_contract)
+        self.assertIn("有効な必須カテゴリは、初期 `plan.required_categories`", cross_doc_contract)
+        self.assertNotIn("初期 decision に紐付いた `plan.required_categories` だけを除外", cross_doc)
+        self.assertIn("初期 verdict にかかわらず", role_map)
+        self.assertIn("agent-contracts.md「決定の台帳」の後段 domain assessment 規則", role_map)
+        self.assertIn("domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked", contracts)
+        self.assertIn("1 回の修正後も不合格なら問いか保持規則に変換せず blocked", resolver_verification_stage)
+        left_conversion = resolver_shared_stage.split("`<段>-left-convert`", 1)[0][-120:]
+        settle_conversion = resolver_shared_stage.split("`<段>-settle-convert`", 1)[0][-120:]
+        conversion_exception = "domain assessment は「決定の台帳」の規則どおり変換せず blocked"
+        self.assertIn(conversion_exception, left_conversion)
+        self.assertIn(conversion_exception, settle_conversion)
+
+    def test_保存済み評価はquestionやholdへ変換または削除できない(self):
+        self._baseline()
+        assessment = self._assessment()
+        _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [assessment]})
+        held = {"id": assessment["id"], "ruling": "hold", "question": None, "options": None,
+                "answer": None, "value": None, "domain_assessment": None,
+                "hold": {"rule": "評価を再検証するまで、カテゴリを文書に反映してはならない", "issue_draft": "判定を再確認する", "item_ids": ["PR-AUTH-001"]}}
+        result = self._unchanged_after("resolutions.json", "put", "--ledger", "resolutions", stdin={"resolutions": [held]})
+        self.assertIn("保存済み domain assessment", result.stderr)
+        result = _run(self.ws, "del", "--ledger", "resolutions", "--ids", assessment["id"])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("削除できません", result.stderr)
 
 
 class Cases(_Workspace):
@@ -1050,7 +1248,8 @@ class Cases(_Workspace):
         measured = {"id": "RS-010", "about": {"open": "O-010"}, "ruling": "measured", "value": "失敗したら中断する",
                     "evidence": [{"file": str(src), "line": 2, "quote": "return 'abort'"}]}
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [measured]})
-        q = {"ruling": "question", "question": RESOLUTION_Q["question"], "options": RESOLUTION_Q["options"]}
+        q = {"ruling": "question", "why": RESOLUTION_Q["why"], "evidence": RESOLUTION_Q["evidence"],
+             "question": RESOLUTION_Q["question"], "options": RESOLUTION_Q["options"]}
         self._rejected({"resolutions": [{"id": "RS-010", **q}]}, "value", "null")
         _ok(self.ws, "put", "--ledger", "resolutions", stdin={"resolutions": [{"id": "RS-010", **q, "value": None}]})
         ok = _ok(self.ws, "questions", "--ids", "RS-010", "--check")

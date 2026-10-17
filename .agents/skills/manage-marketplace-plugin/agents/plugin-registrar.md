@@ -65,6 +65,7 @@ python3 [SKILL_DIR]/scripts/register_plugin.py \
 - `3`：対象スキルの **SKILL.md が見つからない**。設置不備として、欠落パスを伝えて終了する。
 - `4`：衝突または実体の不整合。stderr を確認して原因を説明する。`--update` 未指定で既存 marketplace entry と衝突した場合は input-resolver の判定とズレているため、**更新してよいか必ずユーザーに明示確認する**。同意後のみステップ2を `--update` 付きで再実行し、拒否なら中断する。他の exit 4 は自動再試行せず、stderr を伝えてユーザーの指示を待つ。
 - `5`：plugin / skill directory 名（`--depends-on` を含む）が許可形式（小文字英数字をハイフンで区切る形式）ではない、または許可 root / write destination が checkout 外へ解決される。対象と理由を伝えて修正を依頼し、修正後に再実行する。
+- `6`：Workflow script を plugin の `workflows/` へ移せない（条件の正本は skill-creator-best-practices の `references/best-practices.md` §13「script の置き場」）。何も書き込まれていないか、移動の途中で失敗して元に戻してある。stderr の理由をそのまま伝え、スキル側の修正を依頼する。自分でスキル本体を直さない（スキルの編集は skill-creator-best-practices の役割）。
 
 不在（marketplace.json が無い）と破損は別物。不在はスクリプトが新規作成し `created_new: true` を返す（エラーではない）。
 
@@ -81,6 +82,8 @@ python3 [SKILL_DIR]/scripts/register_plugin.py \
 - plugin.json: 生成（version <version> / author / description）
 - README.md: 生成 / 既存のため保持
 - relocate: .agents/skills/<skill_name> → plugins/<plugin_name>/skills/<skill_name>（実体移動＋逆symlink）
+- workflow_scripts: レポートの `actions.workflow_scripts` の各項目（from → to と、書き換えた呼び出し名 qualified_name）。空なら「なし」
+- workflow_scripts_skipped: `actions.workflow_scripts_skipped` の各項目（skill・file・reasons）。空でなければ移さなかった script として必ず提示する
 - 検証: bundle_ok の値を提示（true: OK / false: NG）
 - 公開名: /<plugin_name>:<public_name>（レポートの public_name。frontmatter の name 由来）
 
@@ -89,4 +92,4 @@ python3 [SKILL_DIR]/scripts/register_plugin.py \
 （レポートの next_action をそのまま提示する）
 ```
 
-異常終了（exit 2 / 3 / 4）の場合は上記フォーマットではなく、対応する中断理由と対処方法を伝えること。
+異常終了（exit 2 / 3 / 4 / 5 / 6）の場合は上記フォーマットではなく、対応する中断理由と対処方法を伝えること。

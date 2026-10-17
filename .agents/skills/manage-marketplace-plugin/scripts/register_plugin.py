@@ -36,6 +36,9 @@ plugin はカテゴリ単位で複数スキルを収録できる（例: plugins/
 - 相対 symlink のみ: `.agents/skills/<skill>` からの逆参照は相対で張る（クローン先で壊れるため）。
 - 不在 != 破損: marketplace.json 不在は新規作成、破損 JSON は中断（自動修復しない）。
 - スキル実体は複製しない: 実体は常に 1 箇所。複数 plugin での共有はコピーになるため許可しない。
+- 初めて公開するスキルの Workflow script は plugin の workflows/ へ移し、callsite を名前の呼び出しに書き換える
+  （置き場の規則の正本は skill-creator-best-practices の references/best-practices.md §13）。スキル本体に
+  手を入れるのはこの移動だけで、前提が崩れていれば何も書かずに exit 6 で止める。
 """
 
 import argparse
@@ -44,6 +47,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 from path_safety import find_project_root, guard_plugin_root, guard_skill_root, guard_tree
@@ -88,8 +92,13 @@ EXIT_CORRUPT = 2     # marketplace.json が壊れた JSON
 EXIT_NO_SKILL = 3    # 対象スキルの SKILL.md が無い
 EXIT_CONFLICT = 4    # 同名エントリ衝突（--update 未指定）/ 想定外の実体
 EXIT_INVALID = 5    # 名前形式または許可 path root が不正
+EXIT_WORKFLOW = 6   # Workflow script を plugin の workflows/ へ移す前提が崩れている
 PLUGIN_NAME_PATTERN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 SKILL_DIR_NAME_PATTERN = PLUGIN_NAME_PATTERN
+# runner の名前付き解決（named.mjs の localNameShape）と同じ形。外れると名前で呼べない。
+WORKFLOW_NAME_PATTERN = r"[a-z][a-z0-9-]*"
+WORKFLOW_REFERENCE_SUFFIXES = (".md", ".js", ".mjs", ".cjs", ".ts", ".py", ".json",
+                               ".sh", ".txt", ".yaml", ".yml")
 
 
 def fail(exit_code: int, *lines: str) -> None:
@@ -833,6 +842,160 @@ def preflight_relocations(plugin: str, relocations: list[tuple[str, str]]) -> No
             fail(EXIT_CONFLICT, f"ERROR: relocation source is a symlink without destination entity: {src}")
 
 
+def workflow_meta_name(source: str):
+    if not re.match(r"\s*export\s+const\s+meta\s*=\s*\{", source):
+        return None
+    block = re.search(r"export\s+const\s+meta\s*=\s*\{(.*?)\n\}", source, re.S)
+    name = re.search(r"\bname\s*:\s*['\"]([^'\"]*)['\"]", block.group(1)) if block else None
+    return name.group(1) if name else ""
+
+
+def skill_frontmatter_name(skill_dir: Path) -> str:
+    try:
+        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    except OSError:
+        return skill_dir.name
+    m = re.match(r"^---\n(.*?)\n---", text, re.DOTALL)
+    nm = re.search(r"^name:\s*(\S+)\s*$", m.group(1), re.MULTILINE) if m else None
+    return nm.group(1) if nm else skill_dir.name
+
+
+def inspect_workflow_scripts(skill_dir: Path, entry_name: str, skill_names: set,
+                             claimed_names: set, claimed_files: set) -> list[dict]:
+    scripts_dir = skill_dir / "scripts"
+    skill_md = skill_dir / "SKILL.md"
+    if not scripts_dir.is_dir() or not skill_md.is_file():
+        return []
+    md_lines = skill_md.read_text(encoding="utf-8").splitlines(keepends=True)
+    found = []
+    for script in sorted(scripts_dir.glob("*.js")):
+        meta_name = workflow_meta_name(script.read_text(encoding="utf-8"))
+        if meta_name is None:
+            continue
+        exact = re.compile(r'^(\s*)scriptPath: "\[SKILL_DIR\]/scripts/' + re.escape(script.name) + r'"(,?)\s*$')
+        mention = re.compile(r"scriptPath.*\b" + re.escape(script.name) + r"(?![\w.-])")
+        exact_lines = [i for i, line in enumerate(md_lines) if exact.match(line)]
+        loose_lines = [i + 1 for i, line in enumerate(md_lines) if mention.search(line) and i not in exact_lines]
+        if not exact_lines and not loose_lines:
+            continue
+        reasons = []
+        if loose_lines:
+            reasons.append(f"SKILL.md の {loose_lines} 行目が callsite の書き換え可能な形ではありません")
+        if not re.fullmatch(WORKFLOW_NAME_PATTERN, meta_name):
+            reasons.append(f"meta.name {meta_name!r} が名前の形に合いません")
+        if meta_name in skill_names:
+            reasons.append(f"meta.name {meta_name!r} が plugin 内のスキル名と同じです")
+        if meta_name in claimed_names:
+            reasons.append(f"meta.name {meta_name!r} は workflows/ で既に使われています")
+        if script.name in claimed_files:
+            reasons.append(f"workflows/{script.name} が既にあります")
+        refs = re.compile(r"(?:(?<![\w-])scripts/|(?<![\w.])\./)" + re.escape(script.name) + r"(?![\w-])")
+        for other in sorted(skill_dir.rglob("*")):
+            if other == script or not other.is_file() or other.suffix not in WORKFLOW_REFERENCE_SUFFIXES:
+                continue
+            for n, line in enumerate(other.read_text(encoding="utf-8", errors="replace").splitlines()):
+                if not (other == skill_md and n in exact_lines) and refs.search(line):
+                    reasons.append(f"{other.relative_to(skill_dir)}:{n + 1} が移動前のパスを参照しています")
+        found.append({"skill": entry_name, "file": script.name, "name": meta_name, "reasons": reasons,
+                      "callsite_lines": [i + 1 for i in exact_lines]})
+    return found
+
+
+def plan_workflow_moves(plugin: str, relocations: list[tuple[str, str]]) -> tuple[list[dict], list[dict]]:
+    # 移すのは .agents/skills から初めて公開するスキルだけ。公開済みのスキルは自動では移さず、
+    # 移さなかった script を理由つきで返す（既存 plugin の --update を止めないため）。
+    plugin_dir = plugin_dir_path(plugin)
+    workflows_dir = plugin_dir / "workflows"
+    if workflows_dir.is_symlink() or (workflows_dir.exists() and not workflows_dir.is_dir()):
+        fail(EXIT_WORKFLOW, f"ERROR: plugin の workflows が実ディレクトリではありません: {workflows_dir}")
+    claimed_files, claimed_names = set(), set()
+    if workflows_dir.is_dir():
+        for path in sorted(workflows_dir.glob("*.js")):
+            claimed_files.add(path.name)
+            name = workflow_meta_name(path.read_text(encoding="utf-8"))
+            if name:
+                claimed_names.add(name)
+    skills_root = plugin_skills_path(plugin)
+    skill_dirs = {}
+    if skills_root.is_dir():
+        for entry in sorted(skills_root.iterdir()):
+            if entry.is_dir() and not entry.is_symlink():
+                skill_dirs[entry.name] = entry
+    first_publish = {}
+    for source_name, entry_name in relocations:
+        src = skill_source_path(source_name)
+        first_publish[entry_name] = src.is_dir() and not src.is_symlink()
+        skill_dirs[entry_name] = src.resolve()
+    skill_names = {skill_frontmatter_name(d) for d in skill_dirs.values()}
+
+    plan, skipped, problems = [], [], []
+    for source_name, entry_name in relocations:
+        found = inspect_workflow_scripts(skill_dirs[entry_name], entry_name, skill_names,
+                                         claimed_names if first_publish[entry_name] else set(),
+                                         claimed_files if first_publish[entry_name] else set())
+        for item in found:
+            if not first_publish[entry_name]:
+                skipped.append({"skill": entry_name, "file": item["file"],
+                                "reasons": ["公開済みのスキルは自動で移さない", *item["reasons"]]})
+                continue
+            if item["reasons"]:
+                problems.extend(f"skills/{entry_name}/scripts/{item['file']}: {r}" for r in item["reasons"])
+            claimed_names.add(item["name"])
+            claimed_files.add(item["file"])
+            plan.append({"skill": entry_name, "source_dir": str(skill_dirs[entry_name]), "file": item["file"],
+                         "name": item["name"], "qualified_name": f"{plugin}:{item['name']}",
+                         "callsite_lines": item["callsite_lines"]})
+    if problems:
+        fail(EXIT_WORKFLOW, "ERROR: Workflow script を plugin の workflows/ へ移せません（何も書き込んでいません）:",
+             *(f"  - {p}" for p in problems))
+    return plan, skipped
+
+
+def workflow_move_report(plan: list[dict]) -> list[dict]:
+    return [{k: v for k, v in item.items() if k != "source_dir"}
+            | {"from": f"skills/{item['skill']}/scripts/{item['file']}", "to": f"workflows/{item['file']}"}
+            for item in plan]
+
+
+def apply_workflow_moves(plugin: str, plan: list[dict]) -> list[dict]:
+    # relocate_skill より前に、スキルが .agents/skills にあるうちに行う。ここで失敗すればロールバックして
+    # スキルは未公開のまま残り、再実行で同じ移動を計画し直す。ここが済んだ後に relocate_skill が失敗した
+    # ときは移動と書き換えが残るが、スキルは .agents/skills の実体のままなので --update の再実行で公開まで進む。
+    if not plan:
+        return []
+    workflows_dir = plugin_dir_path(plugin) / "workflows"
+    workflows_dir.mkdir(exist_ok=True)
+    by_skill = {}
+    for item in plan:
+        by_skill.setdefault(item["source_dir"], []).append(item)
+    for source_dir, items in by_skill.items():
+        skill_md = Path(source_dir) / "SKILL.md"
+        lines = skill_md.read_text(encoding="utf-8").splitlines(keepends=True)
+        for item in items:
+            for number in item["callsite_lines"]:
+                m = re.match(r'^(\s*)scriptPath: "[^"]*"(,?)(\s*)$', lines[number - 1])
+                lines[number - 1] = f'{m.group(1)}name: "{item["qualified_name"]}"{m.group(2)}{m.group(3)}'
+        # 一時ファイルはスキルの外（.agents/skills 直下）に置く。中断で残ってもスキルと一緒に配布されない。
+        fd, temp_name = tempfile.mkstemp(dir=Path(source_dir).parent, prefix=f".{Path(source_dir).name}-SKILL.md.",
+                                         suffix=".tmp")
+        os.close(fd)
+        temp = Path(temp_name)
+        moved = []
+        try:
+            temp.write_text("".join(lines), encoding="utf-8")
+            for item in items:
+                source = Path(source_dir) / "scripts" / item["file"]
+                source.rename(workflows_dir / item["file"])
+                moved.append((workflows_dir / item["file"], source))
+            os.replace(temp, skill_md)
+        except OSError as exc:
+            for dest, source in reversed(moved):
+                dest.rename(source)
+            temp.unlink(missing_ok=True)
+            fail(EXIT_WORKFLOW, f"ERROR: Workflow script の移動に失敗したため元に戻しました: {skill_md.parent.name}: {exc}")
+    return workflow_move_report(plan)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="既存スキルを marketplace.json にプラグイン登録する")
@@ -940,7 +1103,9 @@ def main() -> None:
             ensure_project_path(skills_root / entry_name, "plugin skill relocation destination")
         for name in (skill, *bundle_skills):
             ensure_project_path(skill_source_path(name), "skill relocation source")
-        preflight_relocations(plugin, [(skill, link_name), *((dep, dep) for dep in bundle_skills)])
+        relocations = [(skill, link_name), *((dep, dep) for dep in bundle_skills)]
+        preflight_relocations(plugin, relocations)
+        workflow_plan, workflow_skipped = plan_workflow_moves(plugin, relocations)
     except (ValueError, json.JSONDecodeError, OSError) as exc:
         fail(EXIT_CORRUPT, f"ERROR: 既存 plugin manifest または保存先が不正です: {exc}")
 
@@ -971,6 +1136,8 @@ def main() -> None:
                     f".agents/skills/{dep} -> ./plugins/{plugin}/skills/{dep}"
                     for dep in bundle_skills
                 ],
+                "workflow_scripts": workflow_move_report(workflow_plan),
+                "workflow_scripts_skipped": workflow_skipped,
             },
             "bundled_skills": bundle_skills,
             "next_action":
@@ -990,6 +1157,7 @@ def main() -> None:
     file_actions = write_plugin_files(plugin, public_name, skill, version,
                                       args.author, args.description, bundle_skills,
                                       args.depends_on or None)
+    workflow_moves = apply_workflow_moves(plugin, workflow_plan)
     relocate_action = relocate_skill(plugin, link_name, skill)
 
     # 4-5b. 依存スキルを同一プラグインに同梱（未登録スキルのみ。既登録は上で中断済み）
@@ -1023,6 +1191,8 @@ def main() -> None:
             "plugin_json": file_actions["plugin_json"],
             "readme": file_actions["readme"],
             "relocate": relocate_action,
+            "workflow_scripts": workflow_moves,
+            "workflow_scripts_skipped": workflow_skipped,
         },
         "bundled_skills": bundled,
         "entities_ok": entities_ok,

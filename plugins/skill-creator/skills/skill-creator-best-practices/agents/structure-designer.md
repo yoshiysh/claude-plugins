@@ -32,7 +32,7 @@ description: 要件と検証基準をもとにSKILL.mdのセクション構成�
 **Workflow 実行型（`ARCHITECTURE` が `workflow`）を採る場合、構成案の意味が変わる。**
 実行順序を握るのは SKILL.md ではなく `scripts/<name>.js` なので、
 
-- SKILL.md の構成は「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出しと `args` の意味」「返り値の解釈と人間への提示」「人間ゲートの位置」の 4 ブロックに絞る
+- SKILL.md の構成は「script を呼ぶ前の準備」「`Workflow({ scriptPath, args })` の呼び出しと `args` の意味」（公開後は plugin の `workflows/` へ移って名前で呼ぶ。2 段の規則は `references/best-practices.md` §13「script の置き場」）「返り値の解釈と人間への提示」「人間ゲートの位置」の 4 ブロックに絞る
 - **区間の内側の手順を SKILL.md のセクションとして起こさない**（script が唯一の正になり、二重管理は必ずズレる）
 - 代わりに **script の phase 構成**を設計する：各 phase の名前・何を fan-out するか・どこで集約するか・閾値判定をどこに置くか・人間ゲートをどの境界に出すか
 - 品質パターン（adversarial verify / perspective-diverse verify / judge panel / loop-until-dry）を使うなら、どの phase に入れるかをここで決める

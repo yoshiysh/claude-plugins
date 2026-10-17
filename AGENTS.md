@@ -16,8 +16,9 @@ Claude/Codex 向けの汎用スキルを marketplace plugin として管理・�
 - Marketplace 定義: `.claude-plugin/marketplace.json`
 - Marketplace 名: `yoshiysh-claude-plugins`
 - 公開用 plugin: `plugins/<name>/`
+- 公開済みスキルの Workflow script: `plugins/<plugin>/workflows/<f>.js`（実体。SKILL.md から `Workflow({ name: "<plugin>:<meta.name>" })` で呼ぶ）。`.agents/` からの参照は無い。テストは workflows/ に置かず（runner は workflows/ 直下の `.js` を全て source として読む）、スキルの `scripts/*.test.mjs`・`tests/` に置く。別 plugin のファイルを読むテストは配布物に入れず、リポジトリ直下の `tests/` に置く。
 
-`manage-marketplace-plugin` で公開した瞬間に、`register_plugin.py` が実体を `plugins/` 側へ移し、`.agents/skills/<name>` を逆向き symlink に置き換える。
+`manage-marketplace-plugin` で公開した瞬間に、`register_plugin.py` が実体を `plugins/` 側へ移し、`.agents/skills/<name>` を逆向き symlink に置き換える。初めて公開するスキルの Workflow script も同じ時に `plugins/<plugin>/workflows/` へ移り、callsite が名前の呼び出しに書き換わる。置き場の 2 段の規則は `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md` §13「script の置き場」を正とする。
 
 ### 実体が plugins/ 側にある理由
 
@@ -50,7 +51,8 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 
 ## 作業ルール
 
-- 編集は `.agents/skills/<name>/` から行う（公開済みスキルは symlink 越しに `plugins/` の実体を触ることになる）。`.claude/skills/` は symlink なので直接実体を増やさない。
+- 編集は `.agents/skills/<name>/` から行う（公開済みスキルは symlink 越しに `plugins/` の実体を触ることになる）。`.claude/skills/` は symlink なので直接実体を増やさない。例外は公開済みの Workflow script で、`.agents/` から届く経路が無いので `plugins/<plugin>/workflows/` を直接編集する。
+- `Workflow({ name })` は install 済みの plugin の写しに解決される。このリポジトリの未リリースの改稿を走らせるときは `Workflow({ scriptPath: "<checkout の絶対パス>/plugins/<plugin>/workflows/<f>.js", args })` で起動する（名前で起動すると install 済みの旧版が走り、plugin が未 install なら not found になる）。
 - 新規スキルは `.agents/skills/<name>/` に実体で作る。`plugins/` へ手で置かない（移動は `register_plugin.py` の仕事）。
 - `plugins/` 配下に symlink を作らない。
 - skill の `SKILL.md` は frontmatter の `name` と `description` を必ず持つ。
@@ -169,6 +171,8 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。
 
+PR レビューの観点・根拠の基準・重大度は `REVIEW.md` が正本で、Claude のレビュー workflow が読む。実装後はこれに照らして差分を確かめる。
+
 ## インストール
 
 ```bash
@@ -177,15 +181,17 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `notion` plugin は `url-reader` スキルを使うため、Codex では `research` plugin も併せて install する（Claude Code は `dependencies` により自動で入る）。
 
-`research` の search/dispatch、`skill-creator`、`workflow` の review-document の
-Workflow callsite は、native Workflow が無い Codex で `workflow:dynamic-workflow-runner` を内部利用する
-（runner は workflow plugin に同梱）。Codex は plugin dependency を自動導入しないため、workflow 以外の
-caller plugin と `workflow` plugin を別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
-runner v1で意味保存して実行できるのは `research:search` と `skill-creator` の create mode、
-host-bound `updatePolicy` と runtime capability が揃う `skill-creator` update である。
-dispatch、review-document、skill-creator の review は execution 前に fail-closed する。
-update の承認後適用は `skill-creator` の Codex 互換契約と apply helper を正とする。
-`workflow` の prd-spec は Codex では実行しない（理由は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
+Workflow caller は、各 SKILL.md の active callsite 契約に従い、native Workflow が無い Codex で
+`workflow:dynamic-workflow-runner` を内部利用する（runner は workflow plugin に同梱）。
+Codex は plugin dependency を自動導入しないため、workflow 以外の caller plugin と `workflow` plugin を
+別々に一度 install する。runner をユーザーが直接呼ぶ必要は無い。
+共通 JavaScript runtime は信頼済み source の `scriptPath` と、信頼済み plugin root 内の source の
+`meta.name` による名前付き呼び出しを受け付け、caller 名の許可リストを要求しない。
+必要 capability・source 構文・host 権限と各 caller の互換性分類は引き続き検証する。
+実行条件は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`、
+旧 receipt 経路の分類は同 skill の `references/claude-workflow-compatibility.md` と各 caller の契約を正とする。
+名前付き source の返り値は変えずに返す。prd-spec のゲート後の再起動は caller の next_args 契約に従う
+（設定は `plugins/workflow/skills/prd-spec/SKILL.md` の「## 実行環境」）。
 
 `performance` plugin は install しただけでは何も収集しない（opt-in）。有効化・境界・保存先は
 `plugins/performance/references/native-hooks.md` を正とする。

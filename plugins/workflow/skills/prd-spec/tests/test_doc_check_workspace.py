@@ -105,6 +105,37 @@ class _Workspace(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class Questions(_Workspace):
+    def _put_question(self, with_evidence):
+        inp = self.ws / "input.md"
+        question = {
+            "id": "RS-001",
+            "about": {"open": "O-001"},
+            "ruling": "question",
+            "why": "入力はログイン後に結果を返すと定めるが、画面表示と通知では結果を受け取る工程が変わり、適用できる既定は無い。誤った想定を実装すると出力経路の作り直しが発生するため、選択は依頼者にしか決められない。",
+            "question": {"header": "返し方", "text": "結果をどのように返しますか", "searched": "input.md のログイン後の工程"},
+            "options": [
+                {"label": "画面", "description": "ログイン画面に表示する", "flow_effect": "結果を画面に表示する"},
+                {"label": "通知", "description": "通知で送る", "flow_effect": "結果を通知する"},
+            ],
+        }
+        if with_evidence:
+            question["evidence"] = [{"file": str(inp), "line": 1, "quote": "結果を返す"}]
+        _put(self.ws, "resolutions", {"resolutions": [question]})
+
+    def test_questionsは根拠の無い問いを利用者に提示しない(self):
+        self._put_question(False)
+        out = _ok(self.ws, "questions", "--ids", "RS-001", "--check")
+        self.assertEqual(out["findings"], 1)
+        self.assertIn("出典根拠", out["bad"][0])
+
+    def test_questionsは信号の出典と簡潔なwhyがあれば通る(self):
+        self._put_question(True)
+        out = _ok(self.ws, "questions", "--ids", "RS-001", "--check")
+        self.assertEqual((out["findings"], out["questions"]), (0, 1))
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
 class SnapshotAndDiff(_Workspace):
     def _save(self, label):
         return _ok(self.ws, "snapshot", "--save", label, "--role", "auditor")["digest"]
@@ -192,7 +223,7 @@ class SnapshotAndDiff(_Workspace):
         self.assertEqual(set(out), {"changed", "added", "removed", "path", "tree_digest"})
         r = _run(self.ws, "doc")
         doc = stdout_body(r.stdout)
-        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
+        self.assertEqual(set(doc), {"findings", "blocking", "degraded", "fixed_findings", "not_checked", "path", "digest", "tree_digest", "flow_refs"})
         self.assertNotIn("issue", r.stdout)
         del doc["flow_refs"]
         self.assertNotIn("PR-AUTH", json.dumps(doc))
@@ -223,6 +254,21 @@ class DocChecks(_Workspace):
         body = json.loads((self.ws / "checks" / "doc.json").read_text())
         self.assertEqual(body["open_tbd"], {"source": "meta", "ids": ["TBD-RAUTH-001", "TBD-RAUTH-002"]})
         self.assertEqual(body["documents"][0]["ids"], ["PR-AUTH-001", "PR-AUTH-002", "PR-AUTH-003"])
+
+    def test_固定の文書の指摘は_blocking_に数えない(self):
+        (self.ws / "requirements-base.md").write_text("# base\n\n#### PR-BASE-001 上位\n\nDesign Input を満たさなければならない。\n")
+        _put(self.ws, "meta", {"fixed": True}, "--doc", "requirements/base")
+        out = _ok(self.ws, "doc")
+        self.assertIn("ST-OBSOLETE-requirements/base-designinput", _findings(self.ws))
+        self.assertEqual((out["findings"], out["blocking"], out["fixed_findings"]), (5, 4, 1))
+
+    def test_書いている仕様書で直せる_ORPHAN_REQ_は固定の要求文書に付いても数える(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003", "#### PR-AUTH-004 追加\n\nシステムは監査ログを残さなければならない。\n\n#### PR-AUTH-003")
+        _put(self.ws, "meta", {"fixed": True}, "--doc", "requirements/auth")
+        out = _ok(self.ws, "doc")
+        self.assertIn("ST-ORPHAN-REQ-PR-AUTH-004", _findings(self.ws))
+        self.assertEqual(out["fixed_findings"], 0)
+        self.assertGreaterEqual(out["blocking"], 1)
 
     def test_曖昧語は複合語と数量に付かない_まで_を拾わない(self):
         _edit(self.ws, "requirements-auth.md", "システムは同等の結果を返さなければならない。",
@@ -542,13 +588,13 @@ class FlowAndConflicts(_Workspace):
 
     def test_問いの合格を持ち越すのは検証した候補を選んだ回答だけ(self):
         (self.ws / "answers").mkdir()
-        (self.ws / "answers" / "g0.md").write_text("RS-005: 画面に出してください\n")
+        (self.ws / "answers" / "g1.md").write_text("RS-005: 画面に出してください\n")
         options = [{"label": "画面", "description": "画面に出す", "flow_effect": "F-003 が画面表示になる", "decision_text": "結果は画面に出す"},
                    {"label": "メール", "description": "メールで送る", "flow_effect": "F-003 がメール送信になる", "decision_text": "結果はメールで送る"}]
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "about": {"open": "O-001"}, "ruling": "question", "options": options,
                                                        "question": {"header": "返し方", "text": "結果をどう返しますか", "searched": "依頼文に無い"}}]})
         self._judge([{"id": "RS-005", "verdict": "pass"}])
-        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面に出す", "answer": {"path": "answers/g0.md", "quote": "画面に出して"}}]})
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面に出す", "answer": {"path": "answers/g1.md", "quote": "画面に出して"}}]})
         self.assertEqual(self._verdict("RS-005"), "pass", "候補の選択は検証した decision_text を写すだけ")
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "value": "結果は画面とメールの両方に出す"}]})
         self.assertIsNone(self._verdict("RS-005"), "候補の外の value は検証していない")
@@ -560,13 +606,13 @@ class FlowAndConflicts(_Workspace):
         self._judge([{"id": "RS-006", "verdict": "fail", "fail_kind": "value_as_method", "reason": "r"}])
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", "ruling": "question", "value": None, "options": options,
                                                        "question": {"header": "h", "text": "t", "searched": "s"}}]})
-        self.assertEqual(self._verdict("RS-006"), "fail", "変換した問いは不合格を持ち越す（変換した分はもう検証しない）")
+        self.assertEqual(self._verdict("RS-006"), "fail", "変換後の独立検証が合否を更新するまで、不合格を引き継ぐ")
 
     def test_answered_byの合格は書き換えると持ち越さない(self):
         # answered_by は値の裁定なので、value を変えたら検証し直す（持ち越すと当てはめ直した値が検証されずに根拠になる）。
         (self.ws / "answers").mkdir()
-        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
-        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        (self.ws / "answers" / "g1.md").write_text("RS-001: 画面\n")
+        cite = {"file": str(self.ws / "answers" / "g1.md"), "line": 1, "quote": "RS-001: 画面"}
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-008", "about": {"tbd": "TBD-X-001"}, "ruling": "answered_by", "value": "画面に出す", "why": "w", "evidence": [cite]}]})
         self._judge([{"id": "RS-008", "verdict": "pass"}])
         self.assertEqual(self._verdict("RS-008"), "pass")
@@ -576,8 +622,8 @@ class FlowAndConflicts(_Workspace):
     def test_回答待ちの問いはanswered_byに変えられない(self):
         # 候補の選択として返されると検証を飛ばして回答済みになる。
         (self.ws / "answers").mkdir()
-        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
-        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        (self.ws / "answers" / "g1.md").write_text("RS-001: 画面\n")
+        cite = {"file": str(self.ws / "answers" / "g1.md"), "line": 1, "quote": "RS-001: 画面"}
         options = [{"label": "画面", "description": "d", "flow_effect": "e", "decision_text": "画面に出す"}, {"label": "メール", "description": "d", "flow_effect": "e", "decision_text": "メールで送る"}]
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-009", "about": {"tbd": "TBD-X-001"}, "ruling": "question", "options": options,
                                                        "question": {"header": "h", "text": "t?", "searched": "s"}}]})
@@ -595,7 +641,7 @@ class FlowAndConflicts(_Workspace):
         held = lambda rule: {"ruling": "hold", "value": None, "hold": {"rule": rule, "issue_draft": "d", "item_ids": []}}
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A")}, {"id": "RS-007", **held("保持規則 B")}]})
         self.assertIsNone(self._verdict("RS-006"), "合格の後に書いた保持規則は検証していない")
-        self.assertEqual(self._verdict("RS-007"), "fail", "変換した不合格はもう検証しない")
+        self.assertEqual(self._verdict("RS-007"), "fail", "hold に変えた裁定の既存の不合格を引き継ぐ")
         self._judge([{"id": "RS-006", "verdict": "pass"}])
         self.assertEqual(self._verdict("RS-006"), "pass")
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-006", **held("保持規則 A を書き換えた")}]})
@@ -808,8 +854,17 @@ class PlanCheck(_Workspace):
 
     def test_verdictの外と根拠のIDの欠けを拾う(self):
         keys = _aspect_keys()
-        domain = self._all(**{keys[0]: {"verdict": "たぶん"}, keys[1]: {"verdict": "不明", "open": "O-404"}, keys[2]: {"verdict": "該当", "decision": "D-404"}, keys[3]: {"verdict": "不明", "open": "O-001"}})
-        self.assertEqual(self._plan(domain), sorted([f"ST-PLAN-VERDICT-{keys[0]}", f"ST-PLAN-REF-{keys[1]}", f"ST-PLAN-REF-{keys[2]}"]))
+        domain = self._all(**{keys[0]: {"verdict": "たぶん"}, keys[1]: {"verdict": "未評価"}, keys[2]: {"verdict": "該当", "decision": "D-404"}, keys[3]: {"verdict": "該当", "decision": "D-003"}})
+        self.assertEqual(self._plan(domain), sorted([f"ST-PLAN-VERDICT-{keys[0]}", f"ST-PLAN-UNASSESSED-{keys[1]}", f"ST-PLAN-REF-{keys[2]}"]))
+
+    def test_未評価は非ブロッキングで再評価条件だけを持つ(self):
+        key = _aspect_keys()[0]
+        domain = self._all(**{key: {"verdict": "未評価", "revisit_when": "対象データや操作が具体化されたとき"}})
+        self.assertEqual(self._plan(domain), [])
+        for extra in ({"open": "O-001"}, {"decision": "D-003"}, {"revisit_when": "  "}):
+            with self.subTest(extra=extra):
+                bad = self._all(**{key: {"verdict": "未評価", "revisit_when": "具体的な信号が追加されたとき", **extra}})
+                self.assertEqual(self._plan(bad), [f"ST-PLAN-UNASSESSED-{key}"])
 
     def test_irreversibleが該当なら生きている不変条件の決定か未決が要る(self):
         domain = self._all(irreversible={"verdict": "該当", "decision": "D-003"})
@@ -929,19 +984,31 @@ class Report(_Workspace):
 
     def test_resolutionsが無くても型どおりに0件を書く(self):
         out = _ok(self.ws, "report")
-        self.assertEqual((out["method"], out["answered_by"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0))
-        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 5)
+        self.assertEqual((out["method"], out["answered_by"], out["measured"], out["holds"], out["drafts"], out["upstream_revisions"]), (0, 0, 0, 0, 0, 0))
+        self.assertEqual((self.ws / "report.md").read_text().count("0 件。"), 6)
 
     def test_既にある回答を別の論点に当てた裁定は依頼者に見せる(self):
         # answered_by は依頼者の回答を依頼者の知らない論点に広げる。事後報告に出さないと、依頼者は覆す機会を持てない。
         (self.ws / "answers").mkdir()
-        (self.ws / "answers" / "g0.md").write_text("RS-001: 画面\n")
-        cite = {"file": str(self.ws / "answers" / "g0.md"), "line": 1, "quote": "RS-001: 画面"}
+        (self.ws / "answers" / "g1.md").write_text("RS-001: 画面\n")
+        cite = {"file": str(self.ws / "answers" / "g1.md"), "line": 1, "quote": "RS-001: 画面"}
         _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-004", "ruling": "answered_by", "value": "通知も画面に出す", "why": "RS-001 の回答", "evidence": [cite]}]})
         out = _ok(self.ws, "report")
         self.assertEqual(out["answered_by"], 1)
         section = (self.ws / "report.md").read_text().split("## 既にある回答の当てはめ")[1].split("## ")[0]
-        self.assertIn("- RS-004: 通知も画面に出す（RS-001 の回答。回答: answers/g0.md#L1「RS-001: 画面」）", section)
+        self.assertIn("- RS-004: 通知も画面に出す（RS-001 の回答。回答: answers/g1.md#L1「RS-001: 画面」）", section)
+
+    def test_現物で決めた裁定は出典つきで依頼者に見せる(self):
+        # measured は依頼者に聞かずに現物で決めた（仕様書の実現の手段を含む）。事後報告に出さないと、依頼者は覆す機会を持てない。
+        repo = self.ws.parent / "repo"
+        repo.mkdir(exist_ok=True)
+        (repo / "sheet.py").write_text("SHEET = 'script'\n")
+        cite = {"file": str(repo / "sheet.py"), "line": 1, "quote": "SHEET = 'script'"}
+        _put(self.ws, "resolutions", {"resolutions": [{"id": "RS-005", "ruling": "measured", "value": "保有資産データは script タブから読む", "evidence": [cite]}]})
+        out = _ok(self.ws, "report")
+        self.assertEqual(out["measured"], 1)
+        section = (self.ws / "report.md").read_text().split("## 現物で決めたこと")[1].split("## ")[0]
+        self.assertIn(f"- RS-005: 保有資産データは script タブから読む（出典: {repo / 'sheet.py'}#L1「SHEET = 'script'」）", section)
 
     def test_draftsに挙げたholdは本文に未反映の節に分ける(self):
         self._resolutions()
@@ -981,6 +1048,53 @@ class Index(_Workspace):
         self.assertNotIn("TBD-RAUTH-001", req)
         _ok(self.ws, "index", "--open-tbd", "")
         self.assertIn("着手を止める未確定事項は 0 件", (self.ws / "checks" / "INDEX.requirements.md").read_text())
+
+    def _rows(self, kind):
+        out = _ok(self.ws, "index", "--req-dir", "docs/requirements")
+        text = (self.ws / out["indexes"][kind]["path"]).read_text()
+        return text.split("## 文書一覧")[1].split("\n## ")[0]
+
+    def test_文書一覧は本文の見出し1と項目を含む節とIDの範囲を出す(self):
+        rows = self._rows("requirements")
+        self.assertIn("| パス | 扱う関心事 | どういう要求が書かれているか |", rows)
+        self.assertIn("| `docs/requirements/auth.md` | 認証の要求 | 要求一覧（PR-AUTH-001〜003／3 件） |", rows)
+        spec = self._rows("specifications")
+        self.assertIn("| パス | 扱う関心事 | どういう仕様項目が書かれているか |", spec)
+        self.assertIn("| `docs/specifications/auth.md` | 認証の仕様 | 仕様項目（SP-AUTH-001〜002／2 件） |", spec)
+
+    def test_文書一覧の行はplanのconcernで変わらない(self):
+        before = self._rows("requirements")
+        plan = self.ws / "plan.json"
+        plan.write_text(plan.read_text().replace('"concern": "認証と承認"', '"concern": "固定の入力"'))
+        after = self._rows("requirements")
+        self.assertEqual(after, before)
+        self.assertNotIn("固定の入力", after)
+
+    def test_振られていない番号を001から数えて欠番に出す(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-001 ログイン", "#### PR-AUTH-004 ログイン")
+        self.assertIn("要求一覧（PR-AUTH-001〜004、欠番は 001／3 件）", self._rows("requirements"))
+
+    def test_節の見出しは項目を含むものだけを並べ見出しの区切りと混ざらない(self):
+        _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", "## 背景\n\n説明。\n\n## 要求一覧\n\n### 入口・認証\n")
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "### 通知\n\n#### PR-AUTH-003 通知")
+        rows = self._rows("requirements")
+        self.assertIn("| 入口・認証／通知（PR-AUTH-001〜003／3 件） |", rows)
+        self.assertNotIn("背景", rows)
+
+    def test_欠番は先頭の10件まで並べ残りは件数で示す(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "#### PR-AUTH-20260101 通知")
+        rows = self._rows("requirements")
+        self.assertIn("PR-AUTH-00000001〜20260101、欠番は 00000003・00000004・00000005・00000006・00000007・00000008・00000009・00000010・00000011・00000012 ほか 20260088 件／3 件", rows)
+
+    def test_節に入っていない項目は節なしとして並べる(self):
+        _edit(self.ws, "requirements-auth.md", "#### PR-AUTH-003 通知", "### 通知 ###\n\n#### PR-AUTH-003 通知")
+        self.assertIn("要求一覧／通知（PR-AUTH-001〜003／3 件）", self._rows("requirements"))
+        _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", "")
+        self.assertIn("| （節なし）／通知（PR-AUTH-001〜003／3 件） |", self._rows("requirements"))
+
+    def test_見出し1が無い文書は無いことを出す(self):
+        _edit(self.ws, "requirements-auth.md", "# 認証の要求\n", "")
+        self.assertIn("| `docs/requirements/auth.md` | （見出し 1 なし） |", self._rows("requirements"))
 
     def test_同じ文書からは同じ_INDEX_になる(self):
         a = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]

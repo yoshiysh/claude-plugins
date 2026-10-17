@@ -18,7 +18,7 @@
 | 6 | 要求文書に設計解が無く、仕様書に根拠不明の要求が無い | 目視 | prd-and-spec.md §3–4 |
 | 7 | スコープ外の節が非空である | 機械（見出し照合） | document-structure.md |
 | 8 | 全要求に meta の `trace` の根拠があり、引用が原本に実在し、認められた根拠原本以外の出所が無い | 機械（ID と trace の突合 `ST-NO-EVIDENCE`）＋引用の照合 | question-policy.md・fixed-premises.md |
-| 9 | 必須の内容項目が揃い、該当が無い必須の章は「該当なし」と明記されている（「リスクと影響」表は判定根拠列付き） | 見出し照合 | document-structure.md §3・§5 |
+| 9 | 必須の内容項目が揃い、分割文書で対象外となる常設章は「この文書では対象外」と明記されている（条件付きの章は該当時だけ置き、「リスクと影響」表は判定根拠列付き） | 見出し照合 | document-structure.md §1・§2・§3・§7 |
 | 10 | 本文が規範だけで構成され（根拠句・決定ログ・経緯・未確定事項の章が無い）、決まっていない論点は保持規則として書かれている | 機械（`ST-NON-NORMATIVE`）＋目視 | document-structure.md §4 |
 | 11 | 改修案件で、保持すべき既存挙動が明示されている（該当時のみ） | 目視 | requirement-writing-rules.md §7 |
 | 12 | 期待挙動を規定しない冗長記述が無い（粒度の上限） | `[SKILL_DIR]/scripts/check_unlinked_prose.py` が候補を列挙 → 目視裁定 | requirement-writing-rules.md §7・prd-and-spec.md §7 |

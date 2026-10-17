@@ -2,6 +2,8 @@ export const meta = {
   name: 'skill-creator-build',
   description:
     'スキル生成の中核（基準生成 → 構成設計/検証 → 執筆 → with_skill vs baseline 評価 → 改稿）を決定的に実行する',
+  whenToUse:
+    'skill-creator の best-practices スキルが create の要件整理とペルソナ承認を終えてから呼ぶ。skillDir・requirements・uncheckedItems などの args をそのスキルが組み立てて渡す前提で、args が無いと起動直後に落ちるため直接は起動しない',
   phases: [
     { title: 'Criteria' },
     { title: 'Structure' },
@@ -26,6 +28,8 @@ export const meta = {
       initial_writer: { requested_model: 'opus', role: 'produce the initial skill artifact' },
       script_reviewer: { requested_model: 'opus', role: 'verify a generated workflow source' },
       test_generator: { requested_model: 'haiku', role: 'generate bounded evaluation cases' },
+      with_skill_executor: { requested_model: 'sonnet', role: 'answer one evaluation prompt with the draft skill' },
+      baseline_executor: { requested_model: 'sonnet', role: 'answer one evaluation prompt without the skill' },
       grader: { requested_model: 'sonnet', role: 'grade one pre-enumerated evaluation slot' },
       quality_reviewer: { requested_model: 'opus', role: 'review criteria and trigger coverage' },
       comparator: { requested_model: 'sonnet', role: 'compare one bounded output pair' },
@@ -448,6 +452,18 @@ function roleAgent(file, body, opts) {
   )
 }
 
+// 構造化出力の再試行が尽きたときや budget の上限に達したとき、agent() は null ではなく throw する。
+// parallel() が throw を null に変えるかは host 次第（runner の parallel は catch しない）なので、
+// null を欠測として扱える callsite（構成レビュー・評価・採点・レビュー・比較・分析・script review・改稿）は
+// これで包み、throw でも run 全体を落とさず欠測の verdict で草稿を返す。null の行き先が無い callsite
+// （基準生成・構成設計・初稿・テスト生成）は包まない（null を文字列として下流へ流すことになる）。
+function nullOnThrow(promise, who) {
+  return promise.catch((error) => {
+    log(`${who} が失敗しました: ${error && error.message ? error.message : error}`)
+    return null
+  })
+}
+
 const persona = (key) => personas[key] || '(ペルソナ指定なし。要件から適切な専門家像を自分で置くこと)'
 
 // ---------------------------------------------------------------- Criteria: 基準生成
@@ -462,7 +478,7 @@ const criteriaGen = await roleAgent(
     `[REQUIREMENTS]:\n${requirements}`,
     knowledgeBlock,
   ].join('\n\n'),
-  { model: modelHint('criteria_generator'), phase: 'Criteria', label: 'criteria-gen' }
+  { model: modelHint('criteria_generator'), effort: 'medium', phase: 'Criteria', label: 'criteria-gen' }
 )
 
 // comp は gen の出力を入力に取るため直列。ここは並列にできない依存関係。
@@ -475,7 +491,7 @@ const criteriaComp = await roleAgent(
     knowledgeBlock,
     `[EXISTING_CRITERIA]:\n${criteriaGen}`,
   ].join('\n\n'),
-  { model: modelHint('criteria_complementer'), phase: 'Criteria', label: 'criteria-comp' }
+  { model: modelHint('criteria_complementer'), effort: 'medium', phase: 'Criteria', label: 'criteria-comp' }
 )
 
 // criteria-comp は「統合後の完全リスト」を返す契約なので、これを確定版として扱う。
@@ -512,11 +528,11 @@ if (taskType === 'document' || architecture === 'workflow') {
       ]
         .filter(Boolean)
         .join('\n\n'),
-      { model: modelHint('structure_designer'), phase: 'Structure', label: `structure-design-${structureAttempts}` }
+      { model: modelHint('structure_designer'), effort: 'medium', phase: 'Structure', label: `structure-design-${structureAttempts}` }
     )
 
     // Generator と Verifier は別 agent（自分の出力を自分で検証させない）。
-    const review = await roleAgent(
+    const review = await nullOnThrow(roleAgent(
       'structure-reviewer.md',
       [
         `[PERSONA_STRUCTURE_REVIEWER]:\n${persona('structureReviewer')}`,
@@ -526,15 +542,22 @@ if (taskType === 'document' || architecture === 'workflow') {
         `[STRUCTURE_PLAN]:\n${plan}`,
       ].join('\n\n'),
       {
-        model: modelHint('structure_reviewer'),
+        model: modelHint('structure_reviewer'), effort: 'medium',
         schema: STRUCTURE_REVIEW_SCHEMA,
         phase: 'Structure',
         label: `structure-review-${structureAttempts}`,
       }
-    )
+    ), 'structure-reviewer')
 
     structurePlan = plan
     structureReview = review
+
+    // 検証者が落ちた構成案を failed[] 0 件として通すと、検証していない構成が「通過」になる。
+    if (!review) {
+      structureUnresolved = ['structure-reviewer が応答しなかったため、構成案は未検証']
+      log('structure-reviewer が応答しませんでした。構成案を未検証のまま進め、unresolved に残します。')
+      break
+    }
 
     // failed[] と checks[].result の両方を見る。reviewer が fail を付けた項目を failed[] へ
     // 書き写さなかった run では、この行が無いと差し戻しが起きない。
@@ -565,7 +588,7 @@ let skillDraft = await roleAgent(
     knowledgeBlock,
     `[STRUCTURE_PLAN]:\n${structurePlan}`,
   ].join('\n\n'),
-  { model: modelHint('initial_writer'), phase: 'Write', label: 'write-initial' }
+  { model: modelHint('initial_writer'), effort: 'high', phase: 'Write', label: 'write-initial' }
 )
 
 if (!skillDraft) {
@@ -616,7 +639,7 @@ if (architecture === 'workflow') {
   }
 
   phase('Review script')
-  scriptReview = await roleAgent(
+  scriptReview = await nullOnThrow(roleAgent(
     'script-reviewer.md',
     [
       `[SKILL_DIR] = ${SKILL_DIR}`,
@@ -627,12 +650,12 @@ if (architecture === 'workflow') {
       `[WORKFLOW_SCRIPT]:\n${workflowScript}`,
     ].join('\n\n'),
     {
-      model: modelHint('script_reviewer'),
+      model: modelHint('script_reviewer'), effort: 'high',
       phase: 'Review script',
       label: 'script-review',
       schema: SCRIPT_REVIEW_SCHEMA,
     }
-  )
+  ), 'script-reviewer')
   // reviewer が落ちた場合を「失格 0 件」と読むと、レビューされていないものが
   // レビューを通ったことになる。欠測は欠測として最終 verdict に残す。
   if (!scriptReview) {
@@ -662,7 +685,7 @@ const testCases = await roleAgent(
     'assertions は後段の採点者が with_skill / baseline 双方の出力に対して pass/fail を' +
       '判定するための基準になるため、「〜している」と観測可能な形で書くこと。',
   ].join('\n'),
-  { model: modelHint('test_generator'), schema: TEST_CASES_SCHEMA, phase: 'Test', label: 'generate-tests' }
+  { model: modelHint('test_generator'), effort: 'low', schema: TEST_CASES_SCHEMA, phase: 'Test', label: 'generate-tests' }
 )
 
 const cases = testCases?.cases || []
@@ -692,10 +715,11 @@ while (true) {
   // with_skill / baseline を全テストケース分まとめて起動する。ここが構造的保証の中核 ——
   // 「同一ターンで並列に」を散文で指示するのではなく parallel() で表現しているので、
   // 直列化も片側だけの実行も起こりえない。
+  // 両側の model と effort は同じ値に揃える。違えると delta がスキルの効果ではなくモデル差を測る。
   const runs = await parallel(
     evalCases.flatMap((tc) => [
       () =>
-        agent(
+        nullOnThrow(agent(
           [
             '以下のスキル定義があなたのシステムプロンプトに含まれているものとして振る舞い、',
             '続くプロンプトにそのまま回答してください。',
@@ -711,10 +735,15 @@ while (true) {
             '# プロンプト',
             tc.prompt,
           ].join('\n'),
-          { phase: 'Evaluate', label: `with_skill-${tc.id}-${iterLabel}` }
-        ).then((output) => ({ id: tc.id, side: 'with_skill', output })),
+          {
+            model: modelHint('with_skill_executor'),
+            effort: 'medium',
+            phase: 'Evaluate',
+            label: `with_skill-${tc.id}-${iterLabel}`,
+          }
+        ), 'with_skill').then((output) => ({ id: tc.id, side: 'with_skill', output })),
       () =>
-        agent(
+        nullOnThrow(agent(
           [
             '以下のプロンプトに対してそのまま回答してください。',
             '',
@@ -723,8 +752,13 @@ while (true) {
             '# プロンプト',
             tc.prompt,
           ].join('\n'),
-          { phase: 'Evaluate', label: `baseline-${tc.id}-${iterLabel}` }
-        ).then((output) => ({ id: tc.id, side: 'baseline', output })),
+          {
+            model: modelHint('baseline_executor'),
+            effort: 'medium',
+            phase: 'Evaluate',
+            label: `baseline-${tc.id}-${iterLabel}`,
+          }
+        ), 'baseline').then((output) => ({ id: tc.id, side: 'baseline', output })),
     ])
   )
 
@@ -735,8 +769,8 @@ while (true) {
   }
 
   phase('Grade')
-  // 採点とレビューは互いに独立なので同時に走らせる。Promise.all ではなく parallel() を使う
-  // のは、agent が落ちたときに全体を reject させず null に落として続行するため。
+  // 採点とレビューは互いに独立なので同時に走らせる。agent が落ちても全体を reject させず null で
+  // 続行できるのは、各 thunk を nullOnThrow で包んでいるから（parallel() 自体は host によって catch しない）。
   const [gradings, review] = await parallel([
     () => parallel(
       evalCases.map((tc) => () => {
@@ -744,7 +778,7 @@ while (true) {
         // 片側でも出力が欠けているペアは採点しない。欠損を採点者に渡すと
         // 「出力が無い＝fail」として実態と違う delta が出る。
         if (!pair.with_skill || !pair.baseline) return Promise.resolve(null)
-        return roleAgent(
+        return nullOnThrow(roleAgent(
           'grader.md',
           [
             `[SKILL_NAME]: ${extractFrontmatter(skillDraft, 'name') || '(不明)'}`,
@@ -753,12 +787,12 @@ while (true) {
             `[WITH_SKILL_OUTPUT]:\n${pair.with_skill}`,
             `[BASELINE_OUTPUT]:\n${pair.baseline}`,
           ].join('\n\n'),
-          { model: modelHint('grader'), schema: GRADING_SCHEMA, phase: 'Grade', label: `grade-${tc.id}-${iterLabel}` }
-        )
+          { model: modelHint('grader'), effort: 'low', schema: GRADING_SCHEMA, phase: 'Grade', label: `grade-${tc.id}-${iterLabel}` }
+        ), 'grader')
       })
     ),
     () =>
-      roleAgent(
+      nullOnThrow(roleAgent(
         'reviewer.md',
         [
           // reviewer.md はベストプラクティスの正本（references/best-practices.md）を自分で
@@ -770,8 +804,8 @@ while (true) {
           `[TEST_CASES]:\n${JSON.stringify(cases, null, 2)}`,
           uncheckedBlock,
         ].join('\n\n'),
-        { model: modelHint('quality_reviewer'), schema: REVIEW_SCHEMA, phase: 'Grade', label: `review-${iterLabel}` }
-      ),
+        { model: modelHint('quality_reviewer'), effort: 'high', schema: REVIEW_SCHEMA, phase: 'Grade', label: `review-${iterLabel}` }
+      ), 'reviewer'),
   ])
 
   // 集計は script が行う。grader は判定だけを返し、pass_rate / delta はここで算出して
@@ -822,7 +856,7 @@ while (true) {
   // 決まらないまま「並列に呼ぶ」とだけ書かれていた元の手順の穴）。1 回の await で解消する。
   const comparison =
     firstPair.with_skill && firstPair.baseline
-      ? await roleAgent(
+      ? await nullOnThrow(roleAgent(
           'comparator.md',
           [
             `[TEST_PROMPT]:\n${firstCase ? firstCase.prompt : ''}`,
@@ -830,11 +864,11 @@ while (true) {
             `[OUTPUT_B]:\n${firstPair.baseline}`,
             `[ASSERTION_RATES]:\n${JSON.stringify({ with_skill: withSkillRate, baseline: baselineRate, delta }, null, 2)}`,
           ].join('\n\n'),
-          { model: modelHint('comparator'), phase: 'Analyze', label: `compare-${iterLabel}` }
-        )
+          { model: modelHint('comparator'), effort: 'medium', phase: 'Analyze', label: `compare-${iterLabel}` }
+        ), 'comparator')
       : null
 
-  const analysis = evalCases.length === 0 ? null : await roleAgent(
+  const analysis = evalCases.length === 0 ? null : await nullOnThrow(roleAgent(
     'analyzer.md',
     [
       '[MODE]: post-hoc',
@@ -842,8 +876,8 @@ while (true) {
       `[GRADING_RESULTS]:\n${JSON.stringify(graded, null, 2)}`,
       `[COMPARATOR_RESULT]:\n${comparison || '(テスト1の出力ペアが揃わず比較を実施できなかった)'}`,
     ].join('\n\n'),
-    { model: modelHint('analyzer'), phase: 'Analyze', label: `analyze-${iterLabel}` }
-  )
+    { model: modelHint('analyzer'), effort: 'medium', phase: 'Analyze', label: `analyze-${iterLabel}` }
+  ), 'analyzer')
 
   // 合格には「閾値を超えた」だけでなく「評価が揃った」ことを要求する。欠測を含む
   // 数字で合格を出すと、達成度を実態より良く見せることになる。
@@ -922,7 +956,7 @@ while (true) {
 
   phase('Write')
   revision++
-  const revised = await roleAgent(
+  const revised = await nullOnThrow(roleAgent(
     'writer.md',
     [
       `[SKILL_DIR] = ${SKILL_DIR}`,
@@ -945,8 +979,8 @@ while (true) {
         2
       )}`,
     ].join('\n\n'),
-    { model: modelHint('revision_writer'), phase: 'Write', label: `write-revise-${revision}` }
-  )
+    { model: modelHint('revision_writer'), effort: 'high', phase: 'Write', label: `write-revise-${revision}` }
+  ), 'writer（改稿）')
 
   // 改稿に失敗したら前の稿を保持したまま打ち切る（草稿を失わない）。
   if (!revised) {

@@ -17,6 +17,7 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
 
 **resolutions（resolver の裁定）**
 
+- **問いの relevance と根拠**（`ruling: question`）: `references/question-policy.md` の質問条件を確認する。条件を満たさない問いは `insufficient_grounds` とする。
 - **分類**: プロダクトの価値（何をすべきか・何を許すか・何を優先するか）の判断を、`method` / `precedent` /
   `internal` / `measured` で決めていないか → `value_as_method`（`measured` は契約の「## 現物と既存実装の扱い」の
   範囲で判定する）。`question` を方法論の論点に使っている場合も指摘してよい（依頼者の往復を無駄に増やす）が、
@@ -26,12 +27,14 @@ put に渡す（渡し方は契約の verifications.json の節、返し方は�
 - **出典の実在**: 先例の `<パス>#<ID>` が実在し同じ種類の論点を決めているか、`internal` の両側の出典が実在するか、
   `value` と `options[].decision_text` が入力・回答・決定台帳・実測に無い値や規則を含んでいないか →
   `insufficient_grounds`。
-- **決まっているのに決めていない**: 回答待ちの `question` と `hold` が、入力（`input.md`）・回答（`answers/*.md`）・合格した裁定（プロンプトの
+- **決まっているのに決めていない**: 回答待ちの `question` と `hold` が、入力（`input.md`）・回答（`answers/*.md`）・固定の要求文書・合格した裁定（プロンプトの
   「根拠にしてよい resolution」）で値の決まる論点ではないか → 決まるなら `decidable`。上の 3 つは決めすぎを落とすが、これは決めなさすぎを落とす
   （落とさないと、依頼者が既に答えたことを聞き直すか、決まっていることが保持規則として本文に残る）。`decidable` には、決める出典を `source` に
   1 つ書く（形は契約 §resolver-verifier）。出典を書けないなら合格にする（出典の無い `decidable` を script は受け取らず、段を止める）。
 - **既にある回答の当てはめ**（`answered_by`）: `evidence` の回答の行が実在し、その回答の文面からこの論点の値が言えるか → 言えなければ `mapping`
   （別の問いへの答えを、その問いの範囲を超えて当てはめたものも含む）。
+- **domain assessment**（`about.domain`）: `agent-contracts.md`「決定の台帳」の規則に従う。`value` は `domain_assessment.verdict` と一致する。`required_categories` は `value` と比較せず、
+  後段の回答信号から必要カテゴリを独立して評価し、`domain_assessment.required_categories` の中身と照合する。
 - `supersedes` があるときは、覆す理由が `why` と `evidence` から言えるか。
 
 **decisions（intake の `source: default` と `precedent`、`kind: invariant`）**: 既定と先例は、方法論の範囲に収まっているか（案件の要求そのもの・

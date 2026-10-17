@@ -1,8 +1,8 @@
 # Claude Fable 5 Prompting Guide — orchestration 抜粋（condensed）
 
 > **時限性の注意**：この reference は Claude Fable 5 というモデル固有の挙動に基づく。
-> 次期フラッグシップモデルへ交代する際は、`SKILL.md`「モデル交代時の更新ポイント」節に
-> 従って本ファイルと `scripts/orchestrate.js` の `model: 'fable'` を差し替えること。
+> Claude native profile の named model を交代する際は、[Claude model update procedure](../SKILL.md#claude-model-update-procedure)
+> に従って本ファイル、native model callsites、planner guidance、disclosure、evals を更新すること。
 
 Anthropic 公式ドキュメント "Prompting Claude Fable 5" の抜粋を condensed したもの。
 `chat` スキルの target-model-prompting-guide は**単発助言**（壁打ち

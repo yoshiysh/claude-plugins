@@ -1,7 +1,7 @@
 export const meta = {
   name: 'dispatch-orchestrate',
   description:
-    'Fable 5 が計画・評価する複数ラウンドの subagent 委譲ループ（generator-verifier 分離 + bounded loop-until-converged/stalled）',
+    '複数ラウンドの subagent 委譲ループ（planner/executor/verifier 分離 + bounded loop-until-converged/stalled）',
   phases: [
     { title: 'Plan' },
     { title: 'Execute' },
@@ -9,28 +9,48 @@ export const meta = {
     { title: 'Evaluate' },
     { title: 'Synthesize' },
   ],
+  caps: { maxRounds: 6, subagentsPerRoundCap: 8 },
+  defaults: { maxRounds: 6, subagentsPerRoundCap: 6 },
+  limits: {
+    maxAgents: 109,
+    concurrency: 8,
+    timeoutMs: 6_600_000,
+    agentTimeoutMs: 240_000,
+    maxOutputBytes: 11_900_000,
+  },
 }
 
 // DEFAULT_MAX_ROUNDS: 難問1件は Plan→Execute→Verify→Evaluate の1ラウンドで
-// Fable 呼び出し2回（Plan/Evaluate）+ 複数 subagent を消費する。6ラウンドあれば
+// native Claude では Fable 呼び出し2回（Plan/Evaluate）+ 複数 subagent を消費する。
+// Codex profile では同じ2つのroleがCodex host-defaultを使う。6ラウンドあれば
 // 通常 3〜4ラウンドで収束する難問の大半をカバーしつつ、暴走時に打ち切れる。
 // voodoo constant であることを認める初期値であり、固定値ではなく実績（収束までの
 // 平均ラウンド数）を見て調整する対象。args.maxRounds はこの上限内だけ変更できる。
-const DEFAULT_MAX_ROUNDS = 6
-const HARD_MAX_ROUNDS = 6
+const DEFAULT_MAX_ROUNDS = meta.defaults.maxRounds
+const HARD_MAX_ROUNDS = meta.caps.maxRounds
 
 // DEFAULT_SUBAGENTS_CAP: 1ラウンドの並列 fan-out が大きすぎるとレビュー困難・
 // コスト超過を招くための上限。args.subagentsPerRoundCap はこの上限内だけ変更できる。
-const DEFAULT_SUBAGENTS_CAP = 6
-const HARD_SUBAGENTS_CAP = 8
+const DEFAULT_SUBAGENTS_CAP = meta.defaults.subagentsPerRoundCap
+const HARD_SUBAGENTS_CAP = meta.caps.subagentsPerRoundCap
 
-const PLAN_SCHEMA = {
+// The caller passes this canonical host ceiling unchanged; source args bound each run.
+const CODEX_RUNNER_LIMITS = meta.limits
+if (meta.limits.maxAgents !== meta.caps.maxRounds * (2 + 2 * meta.caps.subagentsPerRoundCap) + 1) {
+  throw new Error('Codex runner meta.limits.maxAgents must cover plan/evaluate plus capped execute/verify calls per round and synthesis.')
+}
+const FANOUT_WAVES = Math.ceil(meta.caps.subagentsPerRoundCap / meta.limits.concurrency)
+if (meta.limits.timeoutMs < (meta.caps.maxRounds * (2 + 2 * FANOUT_WAVES) + 1) * meta.limits.agentTimeoutMs) {
+  throw new Error('Codex runner meta.limits.timeoutMs must cover the sequential agent timeouts of every round and synthesis.')
+}
+
+const CLAUDE_PLAN_SCHEMA = {
   type: 'object',
   properties: {
     round_goal: { type: 'string' },
     subagents: {
       type: 'array',
-      maxItems: 8,
+      maxItems: HARD_SUBAGENTS_CAP,
       items: {
         type: 'object',
         properties: {
@@ -59,6 +79,33 @@ const PLAN_SCHEMA = {
   required: ['round_goal', 'subagents'],
 }
 
+// Codex host-default runs keep the same work roles and verification contract,
+// but model tier selection is intentionally unavailable: every agent call lets
+// the shared runner choose its configured default. Keep Claude's richer schema
+// and explicit model selections unchanged.
+const CODEX_PLAN_SCHEMA = {
+  type: 'object',
+  properties: {
+    round_goal: { type: 'string' },
+    subagents: {
+      type: 'array',
+      maxItems: HARD_SUBAGENTS_CAP,
+      items: {
+        type: 'object',
+        properties: {
+          label: { type: 'string' },
+          role: { type: 'string' },
+          prompt: { type: 'string' },
+          needs_verification: { type: 'boolean' },
+          verification_reason: { type: 'string' },
+        },
+        required: ['label', 'role', 'prompt', 'needs_verification', 'verification_reason'],
+      },
+    },
+  },
+  required: ['round_goal', 'subagents'],
+}
+
 const VERIFY_SCHEMA = {
   type: 'object',
   properties: {
@@ -81,7 +128,12 @@ const EVAL_SCHEMA = {
   required: ['status', 'round_summary', 'justification'],
 }
 
-function buildPlanPrompt(topic, history, cap) {
+function roleReference(role, executionProfile) {
+  const profileDir = executionProfile === 'codex_host_default' ? 'codex-host-default/' : ''
+  return `${SKILL_DIR}/references/${profileDir}${role}-role.md`
+}
+
+function buildPlanPrompt(topic, history, cap, executionProfile) {
   const historyText = history.length
     ? history
         .map(
@@ -91,7 +143,11 @@ function buildPlanPrompt(topic, history, cap) {
         .join('\n\n')
     : '(初回ラウンド。まだ履歴なし)'
   return [
-    `Read ${SKILL_DIR}/references/planner-role.md for your full role instructions before doing anything else.`,
+    `Execution profile: ${executionProfile}.`,
+    executionProfile === 'codex_host_default'
+      ? 'All agent calls use the Codex runner host-default model. Do not claim Claude Fable 5 or choose model tiers; plan only the task roles, prompts, and verification needs.'
+      : 'Native Claude profile: follow the Fable 5 model-selection instructions in the planner role.',
+    `Read ${roleReference('planner', executionProfile)} for your full role instructions before doing anything else.`,
     '',
     '# 元の難問',
     topic,
@@ -106,9 +162,13 @@ function buildPlanPrompt(topic, history, cap) {
   ].join('\n')
 }
 
-function buildVerifyPrompt(spec, output) {
+function buildVerifyPrompt(spec, output, executionProfile) {
   return [
-    `Read ${SKILL_DIR}/references/verifier-role.md for your full role instructions before doing anything else.`,
+    `Execution profile: ${executionProfile}.`,
+    executionProfile === 'codex_host_default'
+      ? 'You are a Codex-host-default verification worker. Do not claim Claude Fable 5 or any specific model identity.'
+      : 'You are a Claude-native verification worker.',
+    `Read ${roleReference('verifier', executionProfile)} for your full role instructions before doing anything else.`,
     '',
     '# 検証対象の subagent',
     `role: ${spec.role}`,
@@ -119,9 +179,24 @@ function buildVerifyPrompt(spec, output) {
   ].join('\n')
 }
 
-function buildEvalPrompt(topic, roundData, history) {
+function buildExecutePrompt(spec, executionProfile) {
+  if (executionProfile !== 'codex_host_default') return spec.prompt
   return [
-    `Read ${SKILL_DIR}/references/evaluator-role.md for your full role instructions before doing anything else.`,
+    'Execution profile: codex_host_default.',
+    'The shared runner chooses the model for this call. Do not identify yourself as Claude Fable 5 or claim model equivalence.',
+    `Role: ${spec.role}`,
+    '',
+    spec.prompt,
+  ].join('\n')
+}
+
+function buildEvalPrompt(topic, roundData, history, executionProfile) {
+  return [
+    `Execution profile: ${executionProfile}.`,
+    executionProfile === 'codex_host_default'
+      ? 'Evaluate as a Codex-host-default worker. Do not claim Claude Fable 5 or any specific model identity.'
+      : 'Evaluate as a Claude Fable 5 worker under the native Claude profile.',
+    `Read ${roleReference('evaluator', executionProfile)} for your full role instructions before doing anything else.`,
     '',
     '# 元の難問',
     topic,
@@ -134,9 +209,13 @@ function buildEvalPrompt(topic, roundData, history) {
   ].join('\n')
 }
 
-function buildSynthesisPrompt(topic, history, terminationReason) {
+function buildSynthesisPrompt(topic, history, terminationReason, executionProfile) {
   return [
-    `Read ${SKILL_DIR}/references/synthesis-role.md for your full role instructions before doing anything else.`,
+    `Execution profile: ${executionProfile}.`,
+    executionProfile === 'codex_host_default'
+      ? 'Synthesize as a Codex-host-default worker. Do not claim Claude Fable 5 or any specific model identity.'
+      : 'Synthesize as a Claude Fable 5 worker under the native Claude profile.',
+    `Read ${roleReference('synthesis', executionProfile)} for your full role instructions before doing anything else.`,
     '',
     '# 元の難問',
     topic,
@@ -162,6 +241,11 @@ if (!SKILL_DIR) {
   return { error: 'args.skillDir が未指定です。SKILL.md Step 2 の呼び出し例に従ってください。' }
 }
 const topic = parsedArgs.topic
+const executionProfile = parsedArgs.executionProfile ?? 'claude_native'
+if (!['claude_native', 'codex_host_default'].includes(executionProfile)) {
+  throw new Error('args.executionProfile must be claude_native or codex_host_default.')
+}
+const isCodexHostDefault = executionProfile === 'codex_host_default'
 const maxRounds = parsedArgs.maxRounds ?? DEFAULT_MAX_ROUNDS
 const subagentsCap = parsedArgs.subagentsPerRoundCap ?? DEFAULT_SUBAGENTS_CAP
 if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > HARD_MAX_ROUNDS) {
@@ -172,7 +256,7 @@ if (!Number.isInteger(subagentsCap) || subagentsCap < 1 || subagentsCap > HARD_S
 }
 
 // topic の空チェックを Plan ステップに進む前に行う。空のまま起動すると
-// Fable が「調査対象がない」ことに気づくまでに Plan+Evaluate+Synthesis の
+// planner が「調査対象がない」ことに気づくまでに Plan+Evaluate+Synthesis の
 // 3 agent 呼び出し分のコストがかかる（実際に発生した事故から追加）。
 // args の文字列/オブジェクト両対応（上記）を経てもなお topic が空なら、
 // 呼び出し側が本当に topic を渡し忘れている。
@@ -191,10 +275,9 @@ while (status === 'continue' && round < maxRounds) {
   const roundLabel = `r${round}`
 
   phase('Plan')
-  const plan = await agent(buildPlanPrompt(topic, history, subagentsCap), {
-    model: 'fable',
-    effort: 'high',
-    schema: PLAN_SCHEMA,
+  const plan = await agent(buildPlanPrompt(topic, history, subagentsCap, executionProfile), {
+    ...(isCodexHostDefault ? {} : { model: 'fable', effort: 'high' }),
+    schema: isCodexHostDefault ? CODEX_PLAN_SCHEMA : CLAUDE_PLAN_SCHEMA,
     phase: 'Plan',
     label: `plan-${roundLabel}`,
   })
@@ -203,9 +286,8 @@ while (status === 'continue' && round < maxRounds) {
   phase('Execute')
   const executed = await parallel(
     subagentSpecs.map((spec) => () =>
-      agent(spec.prompt, {
-        model: spec.model,
-        effort: spec.effort,
+      agent(buildExecutePrompt(spec, executionProfile), {
+        ...(isCodexHostDefault ? {} : { model: spec.model, effort: spec.effort }),
         phase: 'Execute',
         label: `${spec.label}-${roundLabel}`,
       }).then((output) => ({ spec, output }))
@@ -218,11 +300,11 @@ while (status === 'continue' && round < maxRounds) {
     await parallel(
       results.map(({ spec, output }) => () => {
         if (!spec.needs_verification) return Promise.resolve(null)
-        return agent(buildVerifyPrompt(spec, output), {
-          // verifier_model は Plan ステップ（Fable）が subagent ごとに選ぶ。未指定時のみ
-          // sonnet にフォールバックする（Fable が verifier_model を書き忘れた場合の
+        return agent(buildVerifyPrompt(spec, output, executionProfile), {
+          // Claude native profile では verifier_model は Plan ステップが subagent ごとに選ぶ。
+          // 未指定時のみ sonnet にフォールバックする（verifier_model が省略された場合の
           // "solve, don't punt" 対応。既定を sonnet にする理由は SKILL.md 参照）。
-          model: spec.verifier_model || 'sonnet',
+          ...(isCodexHostDefault ? {} : { model: spec.verifier_model || 'sonnet' }),
           schema: VERIFY_SCHEMA,
           phase: 'Verify',
           label: `verify-${spec.label}-${roundLabel}`,
@@ -238,9 +320,8 @@ while (status === 'continue' && round < maxRounds) {
     results: results.map((r) => ({ label: r.spec.label, role: r.spec.role, output: r.output })),
     verifications,
   }
-  const evaluation = await agent(buildEvalPrompt(topic, roundData, history), {
-    model: 'fable',
-    effort: 'high',
+  const evaluation = await agent(buildEvalPrompt(topic, roundData, history, executionProfile), {
+    ...(isCodexHostDefault ? {} : { model: 'fable', effort: 'high' }),
     schema: EVAL_SCHEMA,
     phase: 'Evaluate',
     label: `eval-${roundLabel}`,
@@ -265,14 +346,40 @@ const terminationReason =
       : 'max_rounds'
 
 phase('Synthesize')
-const synthesis = await agent(buildSynthesisPrompt(topic, history, terminationReason), {
-  model: 'fable',
-  effort: 'high',
+const synthesis = await agent(buildSynthesisPrompt(topic, history, terminationReason, executionProfile), {
+  ...(isCodexHostDefault ? {} : { model: 'fable', effort: 'high' }),
   phase: 'Synthesize',
 })
 
 return {
   topic,
+  execution_profile: executionProfile,
+  model_map_disclosure: isCodexHostDefault
+    ? {
+        provider: 'Codex via dynamic-workflow-runner',
+        roles: {
+          planner: 'Codex host-default',
+          executor: 'Codex host-default',
+          verifier: 'Codex host-default',
+          evaluator: 'Codex host-default',
+          synthesis: 'Codex host-default',
+        },
+        model_equivalence_claimed: false,
+        model_id_visibility: 'not exposed to the source result or host-default model.selected event',
+        selection_evidence: 'runner model.selected event records origin=host-default',
+        required_runner_limits: CODEX_RUNNER_LIMITS,
+      }
+    : {
+        provider: 'native Claude Workflow',
+        roles: {
+          planner: 'Fable 5',
+          evaluator: 'Fable 5',
+          synthesis: 'Fable 5',
+          executor: 'selected by planner from Sonnet/Opus/Haiku/Fable 5',
+          verifier: 'selected by planner from Sonnet/Opus/Haiku/Fable 5',
+        },
+        model_equivalence_claimed: false,
+      },
   rounds_run: round,
   termination_reason: terminationReason,
   synthesis,

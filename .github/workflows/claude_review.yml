@@ -1,0 +1,28 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    # Dependabot と fork の PR には secret が渡らないので、必須 secret を空で渡す呼び出し自体をしない。
+    if: >-
+      ${{ github.event.pull_request.draft == false &&
+          github.event.sender.type == 'User' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+    uses: yoshiysh/github-workflows/.github/workflows/claude-review.yml@9d19a71d56fc9babf47ff037a0e048f47345d076
+    with:
+      runs-on: '"ubuntu-latest"'
+      doc-domains: '["developers.openai.com","learn.chatgpt.com","docs.python.org","nodejs.org"]'
+      doc-sources: '[{"suffixes":[".md",".markdown",".mdx"],"diff-driver":"markdown"}]'
+      copy-sources: '[{"suffixes":[".py"],"ignore":["#","import ","from "]},{"suffixes":[".js",".mjs",".ts"],"ignore":["//","/*","*","#!","import ","} from ","export * ","export {"]},{"suffixes":[".sh"],"ignore":["#"]}]'
+      exclude-paths: '["**/*.lock","**/package-lock.json","**/pnpm-lock.yaml"]'
+      review-policy-path: REVIEW.md
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

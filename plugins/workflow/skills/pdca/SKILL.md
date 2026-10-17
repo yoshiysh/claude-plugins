@@ -38,6 +38,7 @@ criteria-author が決める。全 run に一律に課すと、依頼に無い�
 | 完了は、固定した完了条件と別の判定役で決める | text だけで終わるターンが完了扱いになる | `close` |
 | 未充足の一覧を台帳から毎回導出する | 文脈が圧縮されるとタスク一覧が消える | `status` |
 | 台帳は script だけが書き、読むたびに行の連鎖・brief との対応・fix と close の前提を検査する（検査の限界は「残るリスク」） | 手で書き換えた行や、brief を経ずに書き足した記録が、正規の記録として合否と完了の判定に使われる | 全サブコマンド |
+| 同時に未記録の brief を残さず、現在の状態が示す役割の brief だけを発行する | 司令塔が順序を飛ばしたり、台帳に残る並行作業の結果が別の段階として扱われたりする | `brief` |
 | 対照入りの試走（smoke）を本番の検証の前に通す | 対照で期待どおりに出ない手段は、成果物を測れていない | `brief` `record` |
 | agent の起動文は `brief` が返す `invoke` だけ（書き足した文は agent が `prompt_extra` に申告する） | 司令塔の文が混ざると、ループが検証するのは司令塔の仮説になる | `brief` `record` |
 
@@ -73,19 +74,51 @@ python3 $S close --run-dir <run-dir>
 各 agent は `brief` → `invoke` で起動 → `record` の順で回す。ターンを text だけで終えようとして
 未充足が残っているときは `continue` を呼び、返った継続文に従う（完了を宣言しない）。
 
+## 実行環境
+
+Claude Code では Agent tool で agent を起動する。Codex では native Workflow がこのスキルの状態管理を
+実行しないため、Codex collaboration tools で同じ `brief` → `invoke` → `record` の順を保つ。
+
+Codex では、各 `brief` の後に次を行う。
+
+1. `collaboration.spawn_agent` で新しい agent を 1 体だけ起動する。`fork_turns` は `none` にし、
+   `task_name` は起動ごとに一意にし、`pdca_b3_retry2` のように再試行も区別する。返り値の canonical
+   agent name を控える。過去の司令塔との会話を引き継ぐと、依頼原文以外の仮説や判断が agent に伝わるため。
+2. `message` には `brief` が返した `invoke` の文字列をそのまま渡す。前置き・説明・役割名を追加しない。
+   `invoke` が agent の唯一の指示であり、追加の指示があると `prompt_extra` が空でなくなり `record` が拒否する。
+3. `wait_agent` の後に `list_agents` を呼び、控えた canonical agent name の状態を確かめる。
+   `wait_agent` は別 agent の更新でも戻るため、対象が `completed` でなければ待機と確認を繰り返す。
+   対象 agent の終了を確かめてから指定された `out` ファイルが作られ、JSON として読めることを確認し、
+   `record --file` を呼ぶ。最終応答の文章だけでは記録しない。
+4. `status` の `next` を確認してから次の `brief` を発行する。失敗した agent は `followup_task` で別の
+   役割へ転用せず、新しい agent で同じ `invoke` をやり直す。
+5. `next` が agent の役割を指さないときは brief を発行しない。`fix` なら `fix` を呼ぶ。`ask_human` では
+   agent を起動せず、司令塔が `status` の `ask_human` を「人間の境界」の手順で人間に示し、答えを `answer` で
+   記録してから `status` に戻る。`stop:*` は「流れ」の 4 に従う。
+
+`next` が `<役割>:<aspect>` の形なら、その役割と `--aspect` で `brief` を発行する。
+`criteria-verifier`・`verifier`・`writer` は、`brief` の返り値と拒否理由に従って次の入力を決める。
+対照の smoke は work の前にも実行できる。writer の brief は script が受け付ける条件 ID の範囲で作る。
+
+Codex collaboration の agent は同じ作業ツリーを共有する。`pdca_state.py` は未記録の brief が残る間、
+次の brief を拒否するため、同時に複数の agent は走らせない。writer は brief の担当条件にだけ変更を
+加える。基準・依頼・台帳は各役割の出力物と混ぜず、状態遷移は必ず `pdca_state.py` に記録する。
+
 ## 役割
 
-| 役割 | 定義 | モデルの格 |
+| 役割 | 定義 | Claude Code でのモデルの格 |
 |---|---|---|
 | goal-framer | [agents/goal-framer.md](agents/goal-framer.md) | 上位 |
 | criteria-author | [agents/criteria-author.md](agents/criteria-author.md) | 上位 |
 | criteria-verifier | [agents/criteria-verifier.md](agents/criteria-verifier.md) | 上位 |
-| writer | [agents/writer.md](agents/writer.md) | 司令塔が作業ごとに選ぶ |
+| writer | [agents/writer.md](agents/writer.md) | Claude Code では司令塔が作業ごとに選ぶ |
 | verifier | [agents/verifier.md](agents/verifier.md) | 中位 |
 | completion-judge | [agents/completion-judge.md](agents/completion-judge.md) | 小（作業を回したモデルと別の小さいモデル） |
 
-モデルの格はここだけに書く。Claude Code では Agent 呼び出しの `model` で指定する。fan-out を
-既定のまま起動すると全員がセッションのモデルを継承し、観点の数だけ上位モデルを消費する。
+Claude Code では Agent 呼び出しの `model` で表の格を指定する。Codex の `collaboration.spawn_agent` は
+`model` と `reasoning_effort` の override を受け付けるが、この PDCA 経路では両方を省略し、呼び出し元の
+Codex セッションから継承する。Claude Code の役割ごとのモデル格は Codex の agent に割り当てず、出力品質も
+同等だとは扱わない。
 
 ## 司令塔の持ち場
 
@@ -102,13 +135,10 @@ python3 $S close --run-dir <run-dir>
 
 script が検査しない、司令塔の workflow の判断:
 
-- writer の分け方と並列度: 条件が互いのファイルに触れないなら並列にし、同じファイルに触れるなら
-  1 writer にまとめる（ぶつかると、どの変更がどの条件のためか追えない）。
-- 周回の形: 同じ原因を持つ指摘は 1 周でまとめて直す。他の条件が前提にする条件（現状を作る試作
-  など）は、先に writer に渡す（前提が無いまま測ると not_done が並ぶ）。
+- 周回の形: 同じ原因を持つ指摘は 1 周でまとめて直す。条件間の先行関係を別の writer brief で順次実行する仕組みはなく、どう実行順に反映するかは未規定である。
 - 成果物が互いに依存するときは、PFD（どの工程がどの成果物を入力にしてどの成果物を出すか）を描いて、
-  上の分け方と順を決めてもよい。必須の成果物ではない。
-- writer のモデル。
+  周回の形を決めてもよい。必須の成果物ではない。
+- writer のモデル（Claude Code のみ）。
 - criteria-verifier の `notes` は `record` の返り値で司令塔にだけ届く（書き手には渡らない）。環境の
   制約で反証が成り立っていないと書かれていれば、人間に報告する。
 
@@ -161,7 +191,13 @@ script の構造では防げず、読み手が知っておくべきもの。
   依存する。同じ agent に別の役割の brief を続けて渡すことは防げない。
 - **名指しの停止条件**: design.json の `stops` は、script が成立を判定しない（`status` に表示する
   だけ）。当たったと判断したら、司令塔が止めて人間に報告する。
+- **範囲外の検証結果**: 条件に属さない観点（`pdca_state.py` の `ALWAYS_VIEWPOINTS`）の指摘を、どの条件で
+  解消するかは script が対応付けない。それらの指摘だけが残った周で writer の `--conditions` に渡す条件 ID は
+  司令塔が選ぶ。
 - **人間ゲートと自動継続**: どちらも司令塔が `close`・`continue` を呼ぶ前提で、script はマージや公開、
   `continue` を呼ばずに終わるターンを止められない。
-- **モデル**: Codex（GPT-6）上の挙動は未測定。Codex で役割ごとにモデルを指定する方法も未確認。
-  effort の指定が効くかも未確認。
+- **Codex の agent 同一性**: 新しい collaboration agent の起動と別コンテキストは手順で要求するが、
+  script は Codex の agent ID や会話履歴を検査できない。出力内の `agent` と空の `prompt_extra` は
+  自己申告のまま残る。
+- **モデル**: Codex route は `model` / `reasoning_effort` の override を意図的に省略するため、agent は
+  呼び出し元の Codex セッション設定を継承する。Claude Code の役割ごとの格には対応付けない。

@@ -3,7 +3,7 @@ import { readFile, realpath, mkdir, writeFile, appendFile } from 'node:fs/promis
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import Ajv from 'ajv';
-import { compileSource } from './source.mjs';
+import { compileSource, readSourceMetadata } from './source.mjs';
 import { agentOptionKeys, exactObject, requestKeys, limitKeys, validateRequirements } from './inputs.mjs';
 import { resumableWorkflow } from './resume.mjs';
 import { enforcesUpdateBoundary } from './codex.mjs';
@@ -11,17 +11,44 @@ import { finalizeUpdateContract, prepareUpdateContract, verifyUpdateTarget } fro
 import { validateEffort } from './models.mjs';
 import { runAgent } from './agent-run.mjs';
 import { createRunWorkspace } from './run-workspace.mjs';
+import { namedHostKeys, resolveNamedWorkflow, readExecutionSource } from './named.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
+function validateExecutionHost(host) {
+  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'updateContract', 'checkpoint', 'resume', ...namedHostKeys, ...limitKeys], 'Workflow host');
+  if (host.trustedSource !== true) throw Error('trustedSource acknowledgement required; not a hostile-code sandbox');
+}
+
 export async function Workflow(request, host = {}) {
   exactObject(request, requestKeys, 'Workflow request');
-  exactObject(host, ['backend', 'runDir', 'trustedSource', 'requirements', 'updateContract', 'checkpoint', 'resume', ...limitKeys], 'Workflow host');
+  validateExecutionHost(host);
+  const resolved = await resolveNamedWorkflow(request, host);
+  return executeResolvedWorkflow(resolved.request, host, resolved);
+}
+
+export async function prepareWorkflowInvocation(request, host) {
+  exactObject(request, requestKeys, 'Workflow request');
+  const resolved = await resolveNamedWorkflow(request, host);
+  let creatorUpdate = false;
+  if (request.args?.mode === 'update') {
+    const meta = resolved.meta ?? readSourceMetadata(await readFile(await realpath(resolved.request.scriptPath), 'utf8'));
+    creatorUpdate = meta.name === 'skill-creator-review';
+  }
+  return {
+    creatorUpdate,
+    execute(args, executionHost) {
+      validateExecutionHost(executionHost);
+      return executeResolvedWorkflow({ ...resolved.request, args }, executionHost, resolved);
+    },
+  };
+}
+
+async function executeResolvedWorkflow(request, host, resolved) {
+  const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
   if (host.updateContract !== undefined && (host.checkpoint !== undefined || host.resume !== undefined))
     throw new Error('update contract cannot use checkpoint or resume');
-  if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host);
-  const capabilities = Object.freeze([...(host.backend?.capabilities ?? ['read-only', 'fresh-thread'])]);
+  if (host.checkpoint !== undefined || host.resume !== undefined) return resumableWorkflow(request, host, resolved);
   validateRequirements(host.requirements, capabilities);
-  const { scriptPath } = request;
   let args;
   try {
     args = structuredClone(request.args ?? {});
@@ -37,8 +64,7 @@ export async function Workflow(request, host = {}) {
   for (const [key, value] of Object.entries({ maxAgents, concurrency, timeoutMs, agentTimeoutMs, maxOutputBytes }))
     if (!Number.isSafeInteger(value) || value < 1) throw new Error(`invalid ${key}`);
   if (maxAgents > 1000 || concurrency > 16) throw new Error('agent limits exceed supported maximum');
-  const path = await realpath(scriptPath);
-  const source = await readFile(path, 'utf8');
+  const { path, source } = await readExecutionSource(request, resolved);
   const { meta, body } = compileSource(source, capabilities);
   const creatorUpdate = meta.name === 'skill-creator-review' && args?.mode === 'update';
   if (creatorUpdate && host.updateContract === undefined)
@@ -77,6 +103,7 @@ export async function Workflow(request, host = {}) {
     : null;
   await writeFile(join(runDir, 'source.txt'), source, { mode: 0o600 });
   await writeFile(join(runDir, 'request.json'), JSON.stringify({ scriptPath: path, args: JSON.parse(encodedArgs),
+    ...(resolved.named ? { namedWorkflow: resolved.identity } : {}),
     sourceHash: hash(source), argsHash: hash(encodedArgs), meta, requirements: host.requirements ?? [], backendPolicy,
     workspace,
     ...(update === null ? {} : { updateContract: { targetRoot: update.targetRoot, stagingRoot: update.stagingRoot,

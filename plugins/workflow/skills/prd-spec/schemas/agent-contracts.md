@@ -112,7 +112,7 @@
 
 | ファイル | 書き手 | 形 | 守られなかったときの検出 |
 |---|---|---|---|
-| `input.md`、`answers/g0.md`・`answers/g0-2.md`・`answers/g1.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
+| `input.md`、`answers/g<n>.md` | 司令塔（依頼者の言葉を逐語で書くだけ） | テキスト | — |
 | `precedent.json` | 司令塔（`[SKILL_DIR]/scripts/precedent.py list` の出力をそのまま） | `{ "paths": ["過去の decisions.json / verifications.json の絶対パス"] }`。旧い形式のランを変換したものは、`legacy: true` の decisions.json と、依頼者の回答を逐語で写した `answers.md` になる（検証を通っていないので verifications.json は無い。回答を引くときは ref を `<パス>#L<行>` にする） | — |
 | `decisions.json`、`plan.json` | intake。decisions は put で書く。plan.json は Write で書く（段 1 の差し戻しでは書き直す）。段 1 の後は誰も書かない（決定の追加と置き換えは resolutions に置く） | [決定の台帳](#決定の台帳)・[§intake](#intake) | 検証の put（`--expect-decisions`）が、検証の途中で変わった decisions.json への合否の記録を拒否する |
 | `open.json` | intake、flow-framer（追記だけ）。put で書く | [§intake](#intake) | — |
@@ -186,22 +186,43 @@
         { "label": "案 A", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文", "flow_refs": ["F-003"] },
         { "label": "案 B", "description": "選ばれたら何が変わるか（依頼者向けの短い文）", "flow_effect": "選ばれたら flow のどの要素がどこへ行くか", "decision_text": "選ばれたら value になる文" }
       ],
-      "answer": { "path": "answers/g0.md", "quote": "回答の該当箇所を逐語で" }
+      "answer": { "path": "answers/g1.md", "quote": "回答の該当箇所を逐語で" }
     },
     {
       "id": "RS-002",
       "about": { "tbd": "TBD-RAUTH-002" },
       "ruling": "hold",
-      "why": "価値の判断だが、聞くゲートが残っていない",
+      "why": "価値の判断だが、依頼者に聞ける回数の上限に達した",
       "hold": { "rule": "〜の裁定が下るまで、…してはならない", "issue_draft": "Issue の本文案", "item_ids": ["その論点に触れる項目 ID"] },
       "upstream_revision": "上位文書（固定の文書・ラン外の文書）の改訂が要るときだけ、その改訂の文案"
+    },
+    {
+      "id": "RS-003",
+      "about": { "domain": "personal_data" },
+      "ruling": "answered_by",
+      "value": "該当",
+      "why": "回答で個人のメモを取り込むと分かったため、保持期間と削除を要求カテゴリにする。",
+      "evidence": [{ "file": "/repo/answers/g1.md", "line": 2, "quote": "個人のメモを取り込む" }],
+      "supersedes": "D-018",
+      "domain_assessment": { "aspect": "personal_data", "initial_verdict": "非該当", "superseded_categories": [], "verdict": "該当", "required_categories": ["保持期間と削除"] }
     }
   ]
 }
 ```
 
 - `about` は裁定の対象で、`{open}` / `{pair: [a, b]}`（conflicts の組）/ `{finding}` / `{tbd}` /
-  `{verification}`（3v で不合格になった決定・要素の ID）のどれか 1 つ。
+  `{verification}`（3v で不合格になった決定・要素の ID）/ `{domain: <aspect>}`（後段のドメイン再評価）のどれか 1 つ。
+- **後段 domain assessment の正本・phase・検証**: 初期 `plan.domain` は intake が読んだ入力に対する不変の記録であり、その後の有効状態は `about: {"domain":"<aspect>"}` の resolution 1 件が持つ。
+  resolver は段 3a・3a' の回答反映で初期 verdict を変える具体的な信号が現れた観点だけを評価し、段 3b で回答から組み直した flow に新しい信号が見つかれば同じ軸の ID を更新する。新しい信号が無い軸は変更しない。
+  `domain_assessment` は `{aspect, initial_verdict, superseded_categories, verdict, required_categories}` とする。`aspect` は `about.domain`、`initial_verdict` は初期 `plan.domain.verdict`、
+  `superseded_categories` はその初期 domain decision ID に紐付いた `plan.required_categories.name` の一覧、`verdict` は回答に基づく有効判定、`required_categories` はその判定の有効カテゴリとする。
+  `該当` でもカテゴリが無ければ `required_categories: []`、`非該当` は必ず空配列にする。`value` は `verdict` と一致させる。初期 decision があれば `supersedes` にその ID を入れ、
+  初期 decision とそこに紐付く categories を無効化する。初期 `未評価` では `supersedes` と superseded categories は空にする。根拠は `answers/g<n>.md` の逐語引用で、所有表にある回答ファイルだけを受け付ける。
+  `doc_check put` は初期 verdict・decision・categories と evidence の一致を検査し、resolver-verifier は signal・有効 verdict・カテゴリ導出を検証する。
+  有効な必須カテゴリは、初期 `plan.required_categories` から `supersedes` が指す初期 domain decision に紐付いたカテゴリだけを除き、後段 `domain_assessment.required_categories` を加えて導く。その他の初期カテゴリは維持し、後段カテゴリが空でも除外したカテゴリを戻さない。この集合の導出と supersession はここを正とする。writer と cross-doc はこの有効集合を使う。
+  有効カテゴリの実現要件は §writer を正とする。cross-doc はその要件に従って文書の中身を検証し、詳細が開いた TBD として残るカテゴリは欠けとしない。
+  domain assessment が 1 回修正された後も independent verifier が不合格にした場合は、question / hold に変換せず blocked にする。台帳の評価と不合格 trace は残し、writer に渡さない。
+- ドメイン再評価は `question` ではない。適用評価で必要カテゴリを出す処理と、そのカテゴリ内の具体的な価値判断を分ける。後者を質問にする場合も、`question-policy.md` の条件を別途満たす。
 - `ruling` は `answered_by` / `precedent` / `internal` / `measured` / `method` / `question` / `hold` のどれかで、意味と順序は
   `agents/resolver.md` が正。`answered_by` の `evidence` は回答のファイル（所有表の `answers/` の下）の行を 1 つ以上引く（put が検査する。合格した問いの回答を
   当てるときも、その問いの `answer` の行を引く。引かないと verifier が当てた回答を照合できない）。どの `ruling` がどの欄を持てるかは doc_check の `LEDGERS` の欄の条件が正で、put が
@@ -212,6 +233,7 @@
 - `options[].flow_refs` は、その候補が選ばれたら変わる flow の要素の ID。put は flow.json に無い ID を拒否する。
 - 問いの文面の正本は `question` と `options` だけである。依頼者に見せる `questions.md`・`questions.json` は、ここから
   `doc_check questions` が導出する。候補の数は `doc_check questions` が検査する（選択式の表示の制約による）。
+- `ruling: question` の採否・根拠・説明の条件は `references/question-policy.md` を正とする。この契約は格納欄を定め、`evidence` に出典を、`why` に裁定理由を、`question.searched` に回答を探した箇所を記録する。
 - 回答を当てるときは、候補の選択でも自由記述でも、その問いの resolution に `answer` と `value` を足す（question の `answer` と `value` は
   両方あるか両方無いかで、put が検査する）。ID は変えない（writer の trace が回答の
   前後で同じ ID を指し続けるため）。
@@ -264,12 +286,21 @@
 監査で差し戻されて、初稿の後の問いに化ける。要求文書は現行実装の説明書になり、読み手は何を作りたいのかを知れなくなる。
 
 - `measured` が決めてよいのは「今どうなっているか」という事実だけである。「今後どうするか」「続けるか・止めるか」
-  「失敗したら何をするか」を現物の挙動で決めない。
-- 要求文書では、既存実装は（依頼文が読んでよいと言っていても）根拠にならない。仕様書では、依頼者が「現状どおり」と答えた範囲だけ、現物を根拠にしてよい。
+  「失敗したら何をするか」を現物の挙動で決めない（下の、仕様書で現物を根拠にしてよい範囲を除く）。
+- 要求文書では、既存実装は（依頼文が読んでよいと言っていても）根拠にならない。仕様書では、次の範囲だけ現物を根拠にしてよい。
+  - 依頼者が「現状どおり」と答えた範囲
+  - 固定の要求文書が実行の手段を既存の実装に委ねている範囲。`measured` の `evidence` に、現物の行と並べて委ねている要求文書の行
+    （`requirements-<topic>.md` の file・line・quote）も引く
+  - 要求文書が決めていない実現の手段（取得元・置き場・形式・呼び出し方）で、現物か固定の文書が手段を 1 つに定めていて、入力にも要求文書にも
+    それを変える記述が無い範囲。`evidence` に、手段を定める現物か固定の文書の行と、その手段が実現する要求文書の行を引く。手段の候補が
+    2 つ以上あるか、候補によって依頼者がすることや見えるものが変わるのに現物がどれも定めていなければ、価値の問いにする
 - 既存の実装から文書を起こす依頼では、観測した挙動を決定にせず、次の 3 つを未決に置く。
   - 現在の実装のうち、本当は違う形にしたい挙動はあるか
   - 今は無いが、今後させたいことはあるか
   - 実装がそうなっているだけで、要求として決めたわけではない箇所はあるか
+- ただし、仕様書だけを書く run（書く文書がすべて仕様書で、どれも plan の `covers` で固定の要求文書を実現する）では、この 3 つを置かない。3 つとも何を作るかの問いで、
+  答えは固定の要求文書が持つ。この run で価値の問いが出たら、それは固定の要求文書の抜けで、script は聞かずに止まる（prd-spec.js の
+  `specOnly`、references/workflow-io.md §3 の `upstream_gap`）。
 
 ## §intake
 
@@ -283,17 +314,22 @@
   "targets": ["requirements", "specifications"],
   "docs": [{ "key": "requirements/auth", "concern": "認証と権限", "covers": [], "fixed": false, "decision": "D-010" }],
   "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }],
-  "domain": [{ "aspect": "irreversible", "verdict": "該当 | 非該当 | 不明", "decision": "D-012", "open": "O-003" }],
+  "domain": [
+    { "aspect": "irreversible", "verdict": "該当 | 非該当 | 未評価", "decision": "D-012", "revisit_when": "明示された削除・送信・公開の操作が追加されたとき" },
+    { "aspect": "personal_data", "verdict": "非該当", "decision": "D-018" }
+  ],
   "required_categories": [{ "name": "案件の言葉で具体化したカテゴリ", "decision": "D-012" }],
   "self_containment": { "decision": "D-015", "inline": ["文書に書くもの"], "reference": ["参照にとどめるもの"] }
 }
 ```
 
-- `docs[].covers` は仕様文書が実現する要求文書のキー。`fixed: true` は固定の入力（`expand` の要求文書・
+- `docs[].covers` は仕様文書が実現する要求文書のキー。構造検査はこれで `ST-ORPHAN-REQ-` を問う要求文書を決める。`fixed: true` は固定の入力（`expand` の要求文書・
   ラン外の文書）で、どの単位にも入れない。
 - `units[].depends_on` は先に書き終える単位の ID。互いに参照し合う文書は同じ単位に入れる。
-- `domain` は `references/domain-analysis.md` §2 の観点ごとに 1 つで、`aspect` はそのキー。`該当` / `非該当` は `decision`、
-  `不明` は `open` を持つ。`irreversible` が `該当` なら、`kind: invariant` の決定か O- が要る（「## 不変条件の kind」）。
+- `domain` は `references/domain-analysis.md` §2 の観点ごとに 1 つで、`aspect` はそのキー。初期の `該当` / `非該当` は根拠のある `decision` を持つ。
+  `未評価` は適用の有無を断定しない intake 時点の状態で、open や決定を作らず、再評価する具体的な信号を `revisit_when` に持つ。後段状態とカテゴリ置換の正本は「決定の台帳」の後段 domain assessment 規則とする。
+  依頼文に観点の記載が無いだけでは `非該当` にせず、`未評価` を質問へ昇格させない。質問にする場合は `question-policy.md` の全条件を満たす別個の論点と、
+  具体的な信号の逐語出典を resolution に残す。`irreversible` が該当なら、初期評価でも後段の評価でも、`kind: invariant` の決定か O- が要る（「## 不変条件の kind」）。
 
 **open.json**
 
@@ -306,7 +342,7 @@
 plan.json が検査の後に書き換えられたとして段 1 で止まる）:
 
 ```json
-{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\"}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
+{ "plan_check": "{\"findings\":0,\"path\":\"checks/plan.json\",\"digest\":\"…\",\"content_sha256\":\"…\",\"covers\":{\"specifications/auth\":[\"requirements/auth\"]}}", "units": [{ "id": "U-1", "docs": ["requirements/auth"], "depends_on": [] }] }
 ```
 
 ## flow.json の形
@@ -399,7 +435,7 @@ flow.json の形の正本。書くのは flow-framer と、回答を当てる re
 - 出典が `{open}` だけの要素と case は、doc_check `flow` の stdout の `open_only` に出る（case は `case` に 1 からの番号が付く）。
   `constrained_by` の O- も `{el, constraint}` で出る。script が判断に使う stdout（§flow-check）で、その O- が合格か回答で閉じていたら、script は最後の verifier の後に flow-framer を `flow-framer:<段>-settle` で起動し、裁定に合わせて直させる（出典と `constrained_by` の O- の
   閉じた resolution への差し替え・要らなくなった要素の del。裁定の中身は変えない）。続く `verifier:<段>v-settle` が、検証を通っていない要素を検証する（直させた要素は
-  必ず含める。G0 の後の 3a の例外は references/workflow-io.md §4 の 3a の行）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
+  必ず含める。3b の組み直しの前の 3a の例外は references/workflow-io.md §4 の 3a の行）。直らなければ段は blocked になる。hold と回答待ちの問いで閉じた O- は対象にしない（未決のまま残るのが正しい）。
 - stdout の `unverified` は今の digest で合格の無い要素、`failed_current` は今の digest で不合格の要素である（検証の状態は
   (id, digest) で持つ。不合格の要素を書き換えると `failed_current` から外れ、`unverified` に残る）。`unverified` のうち `failed_current` に無い要素は、
   verifier が自分の最初の `doc_check flow` から取って検証する（§resolver-verifier。書き換えていない不合格の要素は、渡すと同じ理由で落ちて
@@ -441,6 +477,8 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 回答を当てる呼び出し（3a・3a' とその差し戻し）では、候補の `label` 1 つだけではない回答の逐語を、`doc_check answers` の `free` から写して渡す。書くもの: `W/resolutions.json`（追記と、回答・差し戻しで
 の更新。put）、`W/routes.json`（段 6。put）、`W/flow.json`（回答を当てるときだけ。put / del）。
 
+後段 domain assessment の phase、resolution ID の割当・更新、flow 由来 signal の扱いは「決定の台帳」の domain assessment 規則を正とする。
+
 **routes.json**（段 6。この段で裁定した resolution を、当てる単位と項目で束ねたもの）
 
 ```json
@@ -477,12 +515,12 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
   verifier の合格と突き合わせて閉じた ID の集合（開いている TBD の算出に使う）をその都度導出する。渡した対象のうち
   `about` に現れないものは裁定漏れとして数える。ID は `RS-` と数字の形に限る（形の外の ID を返せば script は段を止める。
   prd-spec.js の `RESOLUTION_ID`）。
-- 検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、聞くゲートの残っていない問いを
+- domain assessment の修正後も不合格なら「決定の台帳」の規則どおり blocked にし、その他の検証に落ちた裁定を question か hold に変える呼び出し（`<段>-convert`・`<段>-settle-convert`・`<段>-left-convert`）と、依頼者に聞かない問い（聞ける回数の上限に達した後か、前のパスで答えたか保持規則にした論点の再発）を
   hold に変える呼び出し（`<段>-hold`）と、検証に落ちた保持規則を書き直す呼び出し（`<呼び出し>-rehold`。起動の条件はどれも references/workflow-io.md §4）では、渡された ID をすべて、渡された ID だけを
   `questions` か `holds`（`<段>-hold`・`-rehold` と、聞けない段の変換は `holds` だけ。変換は ID ごとにプロンプトが指定した方）に入れて返し、`ruled` は空にする。合わなければ script は段を止める
-  （変えた ID はもう検証しないので、返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
+  （変換後の question は別の resolver-verifier が relevance と根拠を再検証し、不合格なら利用者に提示する前に run を止める。返らない ID の論点は裁定も保持規則も無いまま文書に届き、渡していない ID を変えると
   検証を通った裁定が問いや保持規則に戻る。`ruled` に入れた裁定も検証されないまま根拠になる）。
-- 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
+- 差し戻し（label は references/workflow-io.md §4 の 3v の行）では、`about.domain` の resolution はこの差し戻しの対象外（「決定の台帳」の後段 domain assessment 規則が正）。verifier が不合格にした RS- をすべて `ruled`・`questions`・`holds`・`free_text` のどれかで返し、不合格にした F- には
   それぞれ `about` を `{verification}` にした resolution を返す。合わなければ script は段を止める（返らない裁定は再検証にも変換にも回らず、
   不合格のまま台帳に残る。F- は問いにも保持規則にも変えられないので、検証の裁定が無いと settle に写す値も、不合格のまま進めてよい理由も無い）。
 - 1 つの ID は `ruled`・`questions`・`holds`・`free_text` のどれか 1 つでだけ返す（2 つ以上で返せば script は段を止める。回答待ちか回答済みかが返り値から決まらない）。
@@ -498,7 +536,7 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 - `flow_check` に resolver が消せる指摘（「## flow.json の形」の直し手）があるとき、`questions_check` が無いか問いの ID を検査していないか
   不合格のとき、script は prd-spec.js の `MAX_CHECK_REWORK` を上限に差し戻し、直らなければ blocked にする。resolver が消せない指摘は差し戻さない。
 - flow.json を変えた呼び出しの後、script は `conflicts_check` の `pair_keys` のうちどの resolution の `about` にも無い組を、settle の
-  flow-framer（G0 の後の 3a の反映は 3b-reframe。references/workflow-io.md §4 の 3a の行）の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
+  flow-framer（3b の組み直しの前の 3a の反映は 3b-reframe。references/workflow-io.md §4 の 3a の行）の後はさらに `open_ids` のうちどの resolution の `about` にも無い O- を、同じ段の resolver 1 回（flow は書かない）に渡し、
   検証を通っていない要素の出典を verifier に回す（除くものは §flow-framer の `failed_current`。起動の条件・label・聞けない段の扱いは
   references/workflow-io.md §4）。聞けない段のこの呼び出しが `questions` を返せば、script は段を止める（聞けない段の問いは、聞くゲートにも
   段の最後の保持規則への変換にも届かない）。渡した組と O- は生成者の申告なので、script は次の verifier の stdout と照合する（§resolver-verifier）。回答で要素を足すと、段 3 で誰も裁定していない組と、誰も検証していない出典が生まれ、settle の
@@ -507,21 +545,24 @@ resolutions・verifications・precedent。どれを get・grep で引くかは�
 
 ## §resolver-verifier
 
-入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/input.md`、
+入力: `W/resolutions.json`（問いの文面は `question`・`options`）、`W/decisions.json`、`W/flow.json`、`W/plan.json`、`W/input.md`、
 `W/answers/*.md`、script が渡す検証対象の ID（読み方は「## 共通の約束」の表）。書くもの: `W/verifications.json`（put）。返り値の `resolutions_sha256` は、
 put の stdout の値をそのまま入れる。`pass`・`fail` の resolution（RS-）は渡された ID に限る。script は渡していない RS- の合否を数えず
 （差し戻しにも変換にも台帳の集合にも入れない。入れると、回答待ちの問いが保持規則に書き換わり、回答済みの問いは不合格のまま黙って消える）、
 `notices` に 1 行残す。W に put されたその合否が script の持つ合否と違えば、script はその RS- を次の verifier（`<段>v-left`）に検証させ直す:
 
 ```json
-{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }, { "id": "RS-003", "kind": "decidable", "reason": "…", "source": "answers/g0.md#L3" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
+{ "pass": ["RS-001", "D-004"], "fail": [{ "id": "RS-002", "kind": "value_as_method", "reason": "…" }, { "id": "RS-003", "kind": "decidable", "reason": "…", "source": "answers/g1.md#L3" }], "resolutions_sha256": "検証した resolutions.json の sha256", "flow_check": "検証の最後に実行した doc_check flow の stdout" }
 ```
 
-`decidable` だけが `source` を持ち、値を決める出典を `input.md#L<n>`・`answers/<ゲート>.md#L<n>`・プロンプトの「根拠にしてよい resolution」の
-RS- のどれか 1 つで書く。`decidable` は回答待ちの問いか保持規則にだけ付ける。script は、出典の無いか形の外の `decidable` と、値のある裁定への
+`decidable` だけが `source` を持ち、値を決める出典を `input.md#L<n>`・`answers/<ゲート>.md#L<n>`・固定の文書の行（`requirements-<topic>.md#L<n>`・
+`specifications-<topic>.md#L<n>`）・仕様書を書く run の現物の行（対象リポジトリの絶対パスに `#L<n>`。範囲は「## 現物と既存実装の扱い」）・
+プロンプトの「根拠にしてよい resolution」の RS- のどれか 1 つで書く。`decidable` は回答待ちの問いか保持規則にだけ付ける。script は、出典の無いか形の外の `decidable` と、値のある裁定への
 `decidable` を受け取らない（prd-spec.js の `decidableDefect`。出典が無いと、差し戻された resolver が同じ問いか保持規則を言い直すだけになる）。
 出典の書き方の揺れ（W の絶対パス・`W/`・行の範囲・`:n`）は script が揃え（`deciding`）、揃えても受け取れなければ同じ verifier に 1 回だけ
 聞き直し（`<label>-source`）、それでも受け取れなければ段を止める。
+
+`about.domain` の検証項目と value / required_categories の区別は「決定の台帳」の domain assessment 規則を正とする。カテゴリ名だけで抽象的なリスクを網羅したとみなさない。
 
 検証の最初に `doc_check flow` を実行し、その `unverified` のうち `failed_current` に無い要素すべての出典も検証して、その F- も `pass`・`fail` に入れる
 （script の渡す ID の一覧は、返り値に載せずに書いた役や所有表の外が書いた要素を知らない）。最後はプロンプトのとおり `doc_check flow --rulings` を実行する。
@@ -530,7 +571,7 @@ settle の n 回目の後は `<段>v-left-<n+1>`）にそれだけを検証さ�
 
 `flow_check` は、script が生成者（flow-framer・resolver）の stdout と突き合わせる 2 本目である。`content_sha256` が
 違う（生成者が検査した後に flow.json が変わった）か、その cycle で flow を書いた生成者が消せる指摘が 1 件でもあれば、script はその段を
-blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer。G0 の後の 3a の例外は references/workflow-io.md §4 の 3a の行）。台帳の書き込みで出た指摘も
+blocked にする。生成者が消せない指摘（「## flow.json の形」の直し手）は settle の flow-framer に渡る（§flow-framer。3b の組み直しの前の 3a の例外は references/workflow-io.md §4 の 3a の行）。台帳の書き込みで出た指摘も
 生成者には消せないので、すべて settle の flow-framer に渡る。誰も flow を書いていない cycle（`state.flow_digest` が cycle の入口のまま）の指摘と、
 settle の flow-framer が返した同じ digest の stdout に無く、その後に resolutions.json が変わった（`resolutions_sha256` が動いた）回の指摘がそれで、
 settle では次の回の flow-framer に渡る（台帳が変わっていない回に stdout に無かった指摘は flow-framer の過少申告で、`integrity` に 1 行足して止める。3b-reframe の書き込みを照合する `verifier:3bv` も同じ）。
@@ -620,6 +661,8 @@ digest と、次の 2 つ。
   `<文書キー>§<見出し>`（同じ見出しが続けば `#2`）、冒頭は `<文書キー>§(冒頭)`、meta の trace・TBD 以外は
   `<文書キー>§(meta)`、TBD の候補は TBD の ID。script はこれを段 8 の diff と文字列で比べる。形が違うと、
   直した項目がすべて「申告に無い変更」になり、監査が余分に起動する。初稿では空配列でよい。
+
+有効な必須カテゴリの集合と supersession は「決定の台帳」の後段 domain assessment 規則を正とする。writer は各有効カテゴリを要求 ID または仕様項目 ID の中身として実現し、その `trace` は対応する初期 decision または後段 resolution ID を指す。詳細が決まっていない場合はカテゴリ自体を落とさず TBD にする。
 
 ## 監査役の共通節
 
@@ -803,7 +846,7 @@ script は起動した監査役のうち 1 体を指名し、プロンプトで�
 | `id` の接頭辞 | 検出内容 |
 |---|---|
 | `ST-DUP-` / `ST-DUP-TBD-` | 同じ ID・TBD ID が複数文書で定義されている |
-| `ST-ORPHAN-REQ-` / `ST-ORPHAN-SPEC-` | 要求 ID・仕様項目 ID がトレーサビリティ表に無い |
+| `ST-ORPHAN-REQ-` / `ST-ORPHAN-SPEC-` | 要求 ID・仕様項目 ID がトレーサビリティ表に無い。`ST-ORPHAN-REQ-` はラン内で書く仕様書が実現する要求文書（その仕様書の `covers`、トレースが指す要求文書、同じランで書く要求文書）の要求にだけ出す（要求文書だけを書くランでは出さない） |
 | `ST-DANGLING-` | 表が参照する ID がどの文書にも無い |
 | `ST-REF-UNDEFINED-` | 本文が参照する ID がどの文書の見出しにも無く、欠番の申告も無い |
 | `ST-OBSOLETE-` / `ST-UNVERIFIED-` | 廃止済み規制の語・本文未確認の規格の条番号（`references/citation-policy.md`） |

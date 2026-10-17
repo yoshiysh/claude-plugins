@@ -41,16 +41,16 @@ workspace を用意し、保存することだけである。** 決定・問い�
 
 ## 流れ
 
-`/workflow:prd-spec-run` が 1 本で走り、止まるのは依頼者の入力を待つ地点（G0・G0-2・G1）だけである。問いが 0 件なら 1 回で終わる。
+`/workflow:prd-spec-run` が 1 本で走り、止まるのは依頼者の入力を待つ地点（ゲート。価値の問いが出たとき、聞ける回数 `MAX_GATES` の内で開く）だけである。問いが 0 件なら 1 回で終わる。
 
 | 段 | 何をするか |
 |---|---|
 | S0 | 司令塔: workspace を作り、依頼文を逐語で書き、先例を並べる |
 | 1〜3 | 依頼を仕分け（intake）、流れを閉じ（flow-framer）、未決と矛盾を裁定する（resolver → resolver-verifier） |
-| G0 | 初稿の前に、プロダクトの価値の判断だけを聞く（流れの抜けもここで届く） |
-| 3a・3b・G0-2 | 回答を当て、回答で flow を組み直す。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
+| ゲート | プロダクトの価値の判断だけを聞く（流れの抜けもここで届く）。最初のゲートは初稿の監査の裁定（段 6）の後に開き、それまでの段で出た問いをまとめて聞く。その後は価値の問いが出た段の終わりに聞き、何パス目かでは閉じない。聞ける回数の上限に達した後と改稿の輪を出た後に出た論点だけを保持規則にする |
+| 3a・3b | 最初のゲートの回答を当てて flow を組み直し、初稿を書き直す（最初の初稿は回答待ちの論点を決めずに書いたもの）。回答の反映で出た問い（差し戻しで問いに戻したものを含む）と、組み直した flow から出た問いを 1 回にまとめて聞く |
 | 4〜5 | 初稿を書き（writer）、implementer・grounding・cross-doc で 1 回監査する |
-| 6・G1 | 決定が要る指摘を裁定する。初稿の後に初めて出た価値の問いだけを聞く |
+| 6・3a' | 決定が要る指摘を裁定する。価値の問いはどのパスでも聞き、回答を当ててから改稿する。答えたか保持規則にした論点の再発は聞き直さない |
 | 7〜8 | 改稿し、変えた範囲だけを監査する。blocking が 0 になるか進展が止まるまで回す（上限は `MAX_AUDIT_PASSES`。残れば blocked） |
 | 9 | 事後報告（resolver）→ 司令塔が照合して保存する |
 
@@ -66,8 +66,8 @@ workspace を用意し、保存することだけである。** 決定・問い�
    | 既存の要求文書・仕様書の監査と改訂（所在が示されている） | `existing` |
    | 要求文書から仕様書を起こす | `expand` |
 
-2. **W を作る**: `[SKILL_DIR]/workspace/<案件>/`（`[SKILL_DIR]` は絶対パスに置き換える）。W の置き場はここにだけ書く。
-   この skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない（W の形は版ごとに変わってよく、
+2. **W を作る**: native では `[SKILL_DIR]/workspace/<案件>/`、Codex runner では plugin install と対象リポジトリの外に専用ディレクトリを作り、realpath で得た絶対パスを W とする。W の置き場はここにだけ書く。
+   native はこの skill の版ごとの install 先に置くので、plugin を更新すると W は新しい版に引き継がれない（W の形は版ごとに変わってよく、
    旧い版の W を読む互換は持たない）。
    対象リポジトリの中に作業ファイルを置かない（そのリポジトリの `.gitignore` は利用者の持ち物である）。
 3. **依頼文を `W/input.md` に逐語で書く。** 貼り付けられた議事録やメモも含め、要約も整形もしない。要約すると、
@@ -77,7 +77,7 @@ workspace を用意し、保存することだけである。** 決定・問い�
    （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。固定の印の meta は書かない。段 1 の入口の
    `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` から書く。`existing_docs` に無い文書はその reset が消す
    （`references/workflow-io.md` §3）。
-5. **許可と設定を確かめる**: run の前に、`references/permissions.md` の前提（auto mode）・allow rule・推奨する cache の TTL を利用者に示し、足すかを確かめる。
+5. **許可と設定を確かめる**: native では `references/permissions.md` の前提（auto mode）・allow rule・推奨する cache の TTL を利用者に示し、足すかを確かめる。Codex は「実行環境」の host 設定と W の書込範囲を確認する。
    settings は書かない（利用者の持ち物である）。
 6. **先例を並べる**: `python3 [SKILL_DIR]/scripts/precedent.py list --root <W の親> --workspace <W>`。
    規則どおり全部並べるだけで、選ばない（選ぶのは intake と resolver）。依頼者が旧い形式の過去のランを先例に
@@ -98,7 +98,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
 （`references/workflow-io.md` §2）。返った `next_args` は変えずに渡す（変えてよい欄と、変えたときに止まる仕組みは
 `references/workflow-io.md` §3）。返り値の `status` で次を決める。
 
-- **`needs_answers`**（G0・G0-2・G1）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
+- **`needs_answers`**（ゲート `g1`・`g2`・…）: 先に `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>`
   を実行する。INDEX と同じく、resolutions.json の問いから `questions_path`・`questions_json_path` を導出するだけの
   実行である。exit 0 で終わらなければ、問いを出さずに同じコマンドを流し直す（2 つのファイルの片方だけが新しい
   ことがある）。`questions_json_path` の問いを AskUserQuestion で出す（1 回に 4 問まで。
@@ -114,15 +114,21 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
   `node [SKILL_DIR]/scripts/doc_check.mjs report --workspace <W> --drafts "<返り値の hold_drafts をカンマで>"` で導出して
   そのまま見せ、止まった理由（`stop_reason`）、返り値の `holds` と `hold_drafts`、残った blocking（`remaining_blocking`・`carried_blocking`・`doc_blocking`）を
   並べて見せる（意味は `references/workflow-io.md` §3）。blocked のまま保存しない。
+  `stop_reason` が `upstream_gap` なら、固定の要求文書に答えが見つからなかった価値の論点が出ている（初稿の監査の裁定までに出た論点がまとめて載る）。問いとして聞かずに、
+  `node [SKILL_DIR]/scripts/doc_check.mjs questions --ids <question_ids をカンマで> --workspace <W>` で導出した `questions_path` の本文をそのまま見せ、
+  要求文書の改訂（`entry: existing`）を先に走らせてから仕様書を起こし直すことを伝える。
+  ここで答えをもらって仕様書の run に渡すと、要求文書に無い判断が仕様書にだけ入る。
 - **Workflow が例外で終わった、または `reason` が「script の不変条件に反しました」**: `references/workflow-io.md` §5 に従う。
 - **`done`**: 下の「保存」へ進む。
 
 **呼び直し**（resume と `next_args` の使い分けは、ここにだけ書く）:
 
+- **Codex runner は毎回 `next_args` で起動する。** source が返す `resumable` は native 用の hint であり、Codex での resume 可否の判定には使わない。回答を answers に逐語で書き、返った `next_args` を変えずに同じ名前へ渡す。`gates_answered` は足さず、runDir は新規にする。native `resumeFromRunId` と runner checkpoint は使わない。`next_args` が無ければ原因を直すまで再起動しない。以下の resume の規則は native のみに適用する。
+
 - **同じセッションの中では resume する。** 返り値の `resumable` が true なら、返った run の `runId` を `resumeFromRunId` に渡し、
   args はその run を起動した args を変えずに渡す。needs_answers の後は、返り値の `gate` をキーに、同じ返り値の `question_ids` を
   そのまま `gates_answered` に足す（前の resume で足したゲートも残す）:
-  `Workflow({ name: "workflow:prd-spec-run", resumeFromRunId: "<runId>", args: { <その run の args>, gates_answered: { g0: ["RS-001"] } } })`。
+  `Workflow({ name: "workflow:prd-spec-run", resumeFromRunId: "<runId>", args: { <その run の args>, gates_answered: { g1: ["RS-001"] } } })`。
   完了した agent は保存された結果を返し（費用 0。W にも書かない）、ゲートの後か、失敗した agent とその後に起動した agent だけが走る。
   保存された結果が使われず live で走り直した run は、今の問いが `gates_answered` と違うか回答のファイルが問いに答えていなければ、
   もう一度 needs_answers を返す。そのときは古い回答を使い回さず、返った `question_ids` で問いを出し直し、`answers_path` をその回答だけで
@@ -157,7 +163,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    新規の文書に化けて元の文書が古いまま残る）。INDEX の `--req-dir`・`--spec-dir` も保存先に合わせる。`fixed` の文書は写さない。meta は写さない（根拠は W と commit に残る）。
    - 新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
-4. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
+4. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
    できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
    `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
@@ -184,8 +190,12 @@ Claude Code の中で混ぜると W を 2 つの経路で書く）。
 1 run の agent は 25 体を超えることが多く、本家の進捗の行に `Large workflow` の警告が出ることがある（体数と費用の実測は
 `references/telemetry.md`）。
 
-native の Workflow が無い Codex では実行しない。`workflow:dynamic-workflow-runner` は skill の中の `scriptPath` の callsite だけを扱い、
-名前の callsite と skill の外の script を受けないので、この skill は runner が実行の前に拒否する対象である。
+native Workflow が現在の tool inventory に無い Codex では、この active callsite から `workflow:dynamic-workflow-runner` を内部利用する。native を試行して失敗した call は runner で実行し直さない。ユーザーに runner の指定を要求しない。
+
+host はこの workflow plugin の canonical root を `trustedPluginRoots` に明示し、W を worker `cwd` にして `workspace.mode: "workspace-write"` と `requirements: ["workspace-write"]` を設定する。source の model label に対応する `modelMap` と call 数・並行数・期限を明示する。
+対象リポジトリ・適用する規則の絶対パスは入力として運ぶ。worker は親会話を継承しない。native の auto mode・allow rule・cache TTL を Codex に要求しない。
+[runner の名前付き実行契約](../dynamic-workflow-runner/scripts/runtime/NAMED.md) の request 形式と照合・上限に従う。ゲートの返却・回答・保存はこの caller が持つ。
+Codex の質問UIで問いを逐語搬送できない場合は、`questions_path` の原文を表示して通常の返答を受ける。モデルで問いを作り直さない。
 
 ## 参照ファイル
 

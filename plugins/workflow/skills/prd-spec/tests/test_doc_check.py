@@ -115,10 +115,11 @@ class CliEdgeCases(unittest.TestCase):
         base = inp["documents"][2]
         base["ids"] = []
         base["extract_ids"] = True
+        inp["documents"][1]["traceability"].append({"requirement_id": "PR-BASE-001", "spec_id": "SP-AUTH-004"})
         out = json.loads(_run_cli(inp).stdout)
         self.assertEqual(out["documents"][2]["ids_in_text"], ["PR-BASE-001"])
-        # 補った ID で照合される（補わなければ ORPHAN にならず、トレーサビリティの穴が見えない）
-        self.assertIn("ST-ORPHAN-REQ-PR-BASE-001", [f["id"] for f in _expand(out["structural"])["findings"]])
+        # 補った ID で照合される（補わなければ仕様書が指す PR-BASE-001 が実在しない要求に化ける）
+        self.assertNotIn("ST-DANGLING-REQ-PR-BASE-001", [f["id"] for f in _expand(out["structural"])["findings"]])
 
     def test_不正な入力は非ゼロで終わる(self):
         r = _run_cli({"documents": [{"key": "x"}]})
@@ -168,7 +169,8 @@ class CompactOutput(unittest.TestCase):
                     p = Path(tmp) / f"{kind}-{topic}.md"
                     p.write_text(f"# {kind} {topic}\n\n" + "".join(f"- {i}: {topic} の項目 {i} を満たす。\n" for i in ids))
                     docs.append({"key": f"{kind}/{topic}", "kind": kind, "topic": topic, "path": str(p), "fixed": False,
-                                 "ids": ids, "referenced": [], "vacant": [], "tbd_items": [], "traceability": []})
+                                 "ids": ids, "referenced": [], "vacant": [], "tbd_items": [], "traceability": [],
+                                 "covers": [f"requirements/{topic}"] if kind == "specifications" else []})
             r = _run_cli({"documents": docs})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertLess(len(r.stdout.encode()), _exported("m.STDOUT_BUDGET"))

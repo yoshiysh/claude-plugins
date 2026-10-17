@@ -4,9 +4,9 @@ import { createHash } from 'node:crypto';
 import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyApprovedUpdatePackage, MAX_ACTION_PACKAGE_BYTES, MAX_APPLY_TREE_BYTES } from './apply-update-package.mjs';
-import { replaceDirectoryTransactional } from './transactional-replace.mjs';
-import { finalizeUpdateContract, prepareUpdateContract } from '../../../../workflow/skills/dynamic-workflow-runner/scripts/runtime/update-contract.mjs';
+import { applyApprovedUpdatePackage, MAX_ACTION_PACKAGE_BYTES, MAX_APPLY_TREE_BYTES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/apply-update-package.mjs';
+import { replaceDirectoryTransactional } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/transactional-replace.mjs';
+import { finalizeUpdateContract, prepareUpdateContract } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/update-contract.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const provenance = ['update-r1', 'reverify-r1'];

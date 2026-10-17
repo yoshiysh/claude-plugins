@@ -248,3 +248,26 @@ test('update runs each phase in its scoped cwd and returns the caller package wi
     Codex.prototype.startThread = originalStartThread;
   }
 });
+
+test('pipeline settles every item and turns callback exceptions into null', async t => {
+  const calls = [];
+  const { result } = await run(t, `return await pipeline(['before','after','slow'], async x => {
+    if (x === 'before') throw Error('callback before dispatch');
+    const out = await agent(x);
+    if (x === 'after') throw Error('callback after dispatch');
+    return out;
+  });`, { run: async prompt => {
+    calls.push(prompt);
+    if (prompt === 'slow') await new Promise(r => setTimeout(r, 30));
+    return prompt;
+  } });
+  assert.deepEqual(result, [null, null, 'slow']);
+  assert.deepEqual(calls.sort(), ['after', 'slow']);
+});
+
+test('pipeline cannot turn host budget or invalid agent options into success', async t => {
+  await assert.rejects(run(t, `return await pipeline(['a','b'], x => agent(x));`,
+    { run: async p => p }, { maxAgents: 1 }), /budget exceeded/);
+  await assert.rejects(run(t, `return await pipeline(['a'], x => agent(x,{unknown:true}));`,
+    { run: async p => p }), /unsupported agent option/);
+});

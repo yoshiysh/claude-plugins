@@ -8,6 +8,7 @@ SKILL.md の基本バリデーション。
   python scripts/quick_validate.py .claude/skills/[スキル名] --verbose
 """
 
+import json
 import sys
 import re
 from pathlib import Path
@@ -107,10 +108,15 @@ def validate_skill(skill_dir: str, verbose: bool = False) -> bool:
             if not agent_content.startswith("---"):
                 warnings.append(f"agents/{agent_file.name} にフロントマターがありません（description: の記載を推奨）")
 
-    # scripts/ 配下の workflow script（`export const meta` で始まる .js）を検査する。
     # 構文と「起動前に落ちる書き方」は静的に判定できるので、ここで潰しておく。
     for js in sorted((path / "scripts").glob("*.js")) if (path / "scripts").is_dir() else []:
         errors.extend(validate_workflow_script(js))
+    errors.extend(validate_named_workflows(path, content))
+    if plugin_name(path) and any(_WORKFLOW_SCRIPT_PATH.search(_top_level(call.group(1)))
+                                 for call in _WORKFLOW_CALL.finditer(content)):
+        # 公開済みスキルの scriptPath は公開時の自動移動の対象外で、承認の don't-ask-again が出ない。
+        warnings.append("SKILL.md: plugin に属するスキルが Workflow を scriptPath で呼んでいます。"
+                        "plugin の workflows/ へ移して名前で呼ぶ形を検討してください（skill-creator-best-practices の references/best-practices.md §13）")
 
     _print_result(errors, warnings, verbose, has_agents=agents_dir.exists())
     return len(errors) == 0
@@ -126,7 +132,64 @@ _FORBIDDEN = [
 ]
 
 
-def validate_workflow_script(js_path: Path) -> list:
+_WORKFLOW_CALL = re.compile(r"Workflow\s*\(\s*\{([\s\S]*?)\}\s*\)")
+_WORKFLOW_NAME = re.compile(r"(?:^|[\s,{])name\s*:\s*['\"]([^'\"]+)['\"]")
+_WORKFLOW_SCRIPT_PATH = re.compile(r"(?:^|[\s,{])scriptPath\s*:")
+
+
+def _top_level(body: str) -> str:
+    # args などの入れ子の中の `name:` を source selector と読まないため、入れ子の {...} を外してから見る。
+    while True:
+        stripped = re.sub(r"\{[^{}]*\}", "", body)
+        if stripped == body:
+            return body
+        body = stripped
+
+
+def plugin_name(skill_dir: Path):
+    manifest = skill_dir.resolve().parent.parent / ".claude-plugin" / "plugin.json"
+    if skill_dir.resolve().parent.name != "skills" or not manifest.is_file():
+        return None
+    try:
+        name = json.loads(manifest.read_text(encoding="utf-8")).get("name")
+    except (OSError, ValueError):
+        return None
+    return name if isinstance(name, str) and name else None
+
+
+def validate_named_workflows(skill_dir: Path, content: str) -> list:
+    # 解決できない名前は install 先でも起動できない（置き場の規則は references/best-practices.md §13）。
+    names = sorted({m.group(1) for call in _WORKFLOW_CALL.finditer(content)
+                    for m in [_WORKFLOW_NAME.search(_top_level(call.group(1)))] if m})
+    if not names:
+        return []
+    plugin = plugin_name(skill_dir)
+    if not plugin:
+        return [f"SKILL.md: plugin に属さないスキルは Workflow を名前で呼べません（{', '.join(names)}）。"
+                "scriptPath で scripts/ の script を呼んでください"]
+    plugin_root = skill_dir.resolve().parent.parent
+    sources = {}
+    for js in sorted((plugin_root / "workflows").glob("*.js")) if (plugin_root / "workflows").is_dir() else []:
+        m = re.match(r"\s*export\s+const\s+meta\s*=\s*\{(.*?)\n\}", js.read_text(encoding="utf-8"), re.S)
+        meta_name = _WORKFLOW_NAME.search(_top_level(m.group(1))) if m else None
+        if meta_name:
+            sources.setdefault(meta_name.group(1), []).append(js)
+    errors = []
+    for name in names:
+        namespace, _, local = name.partition(":")
+        if namespace != plugin or not local:
+            errors.append(f"SKILL.md: Workflow 名 {name} は自分の plugin（{plugin}:<meta.name>）の形ではありません")
+            continue
+        found = sources.get(local, [])
+        if len(found) != 1:
+            errors.append(f"SKILL.md: Workflow 名 {name} を plugins/{plugin}/workflows/*.js の meta.name に"
+                          f"一意に解決できません（{len(found)} 件）")
+            continue
+        errors.extend(validate_workflow_script(found[0], f"plugins/{plugin}/workflows/{found[0].name}"))
+    return errors
+
+
+def validate_workflow_script(js_path: Path, label: str | None = None) -> list:
     """workflow script を静的検査する。workflow script でなければ何も見ない。
 
     ランタイムは script 本体を async 関数として実行するため、top-level の `await` と
@@ -142,7 +205,7 @@ def validate_workflow_script(js_path: Path) -> list:
         return []  # workflow script ではない（通常のヘルパー .js）
 
     errors = []
-    rel = f"scripts/{js_path.name}"
+    rel = label or f"scripts/{js_path.name}"
 
     # meta は純粋なリテラルでなければならない。中身に変数展開・関数呼び出し・スプレッドが
     # 入っていると承認ダイアログの表示前に評価できず落ちる。

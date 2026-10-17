@@ -147,14 +147,14 @@
 
 **SKILL.md への反映**：
 - SKILL.md は「script を呼ぶ前」と「結果を受け取った後」だけを書く。区間の内側の手順を散文で再掲しない（script が唯一の正）
-- script は `<skill>/scripts/<name>.js` に置き、`Workflow({ scriptPath, args })` で呼ぶ
+- script は未公開の間 `<skill>/scripts/<name>.js` に置いて `Workflow({ scriptPath, args })` で呼び、公開後は plugin の `workflows/` へ移って名前で呼ぶ（2 段の規則は `best-practices.md` §13「script の置き場」が正本）
 - 人間ゲートは script の**境界**に置く。段階ごとに別 workflow として回し、gate FAIL は `status: "BLOCKED"` と理由・証拠を返して止める
 - agent プロンプトは `agents/` に残す（skill は専門知識、workflow は実行順序という分担）
 - Claude Code 専用である旨を SKILL.md に明記する
 
 **入れ子**：パターン 1–6 は script の制御フローとしてそのまま内側に入る（`parallel()` = Parallelization、designer→reviewer の until-pass = Generator-Verifier）。置換ではなく階層。
 
-**参照実装**：`dispatch`（`scripts/orchestrate.js`）、`skill-creator-best-practices`（`scripts/build_skill.js`）、`search`（`scripts/investigate.js`）。
+**参照実装**：`dispatch`（`scripts/orchestrate.js`）、`skill-creator-best-practices`（名前付き workflow `/skill-creator:skill-creator-build`）、`search`（`scripts/investigate.js`）。
 
 ---
 

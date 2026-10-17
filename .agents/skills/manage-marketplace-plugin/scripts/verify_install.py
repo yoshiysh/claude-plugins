@@ -5,13 +5,14 @@ register_plugin.py（登録）＋ claude plugin validate（構造=L1）だけで
 「install 先で実際に解決・展開されるか」は確認できない。本スクリプトは：
 
 - L2（バンドル解決・読み取り専用）：ルートの plugin dir を辿り、Claude 用・Codex 用
-  両方の plugin.json が揃って内容一致すること／配布コンポーネント（skills・agents・hooks）を
-  1 つ以上持つこと／各スキルが SKILL.md を持つこと／hooks 定義が解釈でき、command が参照する
+  両方の plugin.json が揃って内容一致すること／配布コンポーネント（skills・agents・hooks・
+  名前で呼ぶ Workflow script の workflows/*.js）を 1 つ以上持つこと／各スキルが SKILL.md を持つこと／hooks 定義が解釈でき、command が参照する
   同梱ファイルが実在すること／**配布サブツリーに symlink が 1 つも無いこと**を確認する。
 - L3（隔離 install スモーク）：一時 marketplace を複製し、HOME を一時ディレクトリに
   差し替えて `claude plugin marketplace add` + `install` を実行する。
   キャッシュに各コンポーネントの資産が実体として展開され、`claude plugin details` の
-  Component inventory がそのコンポーネントを 1 件以上数えることを確認する。
+  Component inventory がそのコンポーネントを 1 件以上数えることを確認する（workflows は
+  inventory の表示を実測していないので、実体の展開だけを見る）。
   HOME を隔離するため**ユーザーの実 ~/.claude/plugins を一切変更しない**。終了時に確実に後始末する。
 
 plugin はカテゴリ単位で複数スキルを持ちうる（例: plugins/git/skills/{commit,pr-create,...}）。
@@ -231,6 +232,10 @@ def hook_bundle(plugin: str, files: set[str]) -> tuple[list[str], list[str]]:
     return findings, assets
 
 
+def workflow_entries(files: set[str]) -> list[str]:
+    return sorted(f for f in files if re.fullmatch(r"workflows/[^/]+\.js", f))
+
+
 def plugin_components(plugin: str, files: set[str]) -> tuple[dict[str, list[str]], list[str]]:
     """配布コンポーネントごとの install 先で実在すべき root 相対パスと、hooks の指摘を返す。"""
     hook_findings, hook_assets = hook_bundle(plugin, files)
@@ -238,6 +243,7 @@ def plugin_components(plugin: str, files: set[str]) -> tuple[dict[str, list[str]
         "skills": skill_entries(plugin, files),
         "agents": agent_entries(plugin, files),
         "hooks": hook_assets,
+        "workflows": workflow_entries(files),
     }
     return {k: v for k, v in components.items() if v}, hook_findings
 
@@ -306,7 +312,7 @@ def l2_bundle_check(plugin: str) -> dict:
     findings.extend(hook_findings)
     if not components:
         findings.append(
-            "配布コンポーネントが無い: skills/・agents/*.md・hooks/hooks.json と "
+            "配布コンポーネントが無い: skills/・agents/*.md・hooks/hooks.json・workflows/*.js と "
             "plugin.json の skills/agents/hooks 宣言のいずれも見つからない")
     for rel in components.get("skills", []):
         if f"{rel}/SKILL.md" not in files:
@@ -371,16 +377,19 @@ def l3_component_check(root: Path | None, components: dict[str, list[str]],
         }
     hooks = {rel: is_real_path(root / rel) for rel in components.get("hooks", [])}
     agents = {rel: is_real_file(root / rel) for rel in components.get("agents", [])}
+    workflows = {rel: is_real_file(root / rel) for rel in components.get("workflows", [])}
     inventory = {label: int(n) for label, n in INVENTORY_RE.findall(details_out)}
+    # workflows の inventory 表示は実測していない。ラベルを仮定すると根拠の無い合否になるので数えない。
     details_ok = details_rc == 0 and all(
-        inventory.get(INVENTORY_LABELS[kind], 0) > 0 for kind in components)
+        inventory.get(INVENTORY_LABELS[kind], 0) > 0 for kind in components if kind != "workflows")
     assets_ok = all(v["bundled_skill_md"] and v["bundled_scripts_real"]
                     for v in per_skill.values()) and all(
-        (*hooks.values(), *agents.values()))
+        (*hooks.values(), *agents.values(), *workflows.values()))
     return {
         "skills": per_skill,
         "hooks": hooks,
         "agents": agents,
+        "workflows": workflows,
         "inventory": inventory,
         "details_ok": details_ok,
         "passed": bool(components) and assets_ok and details_ok,

@@ -6,7 +6,7 @@ export const meta = {
     { title: 'Intake', detail: '段 1: 依頼を確定・決定・未決に仕分け、分割と writer の単位を決める' },
     { title: 'Flow', detail: '段 2: 出典付きの流れを描き、閉包を検査する' },
     { title: 'Resolve', detail: '段 3・3v: 未決と組を裁定し、独立に検証する（差し戻しは 1 回）' },
-    { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、G0 の後は回答で flow を組み直す' },
+    { title: 'Answers', detail: '段 3a・3b・3a\': 依頼者の回答を流れと裁定に当て、最初のゲートの後は回答で flow を組み直す' },
     { title: 'Draft', detail: '段 4: writer の単位ごとに初稿を書く（依存の向きに順番、独立な単位は並列）' },
     { title: 'Audit', detail: '段 5: implementer・grounding を文書ごと、cross-doc を全文書で 1 回当てる' },
     { title: 'Decide', detail: '段 6: 決定が要る指摘と新しい TBD を裁定する' },
@@ -54,10 +54,15 @@ const ROLE_FILES = {
 const MAX_AUDIT_PASSES = 4
 const MAX_CHECK_REWORK = 3
 const MAX_SETTLE_ROUNDS = 3
+// 依頼者を止める回数の上限。最初のゲートは初稿の監査の後に開き（collecting）、そこまでに出た問いをまとめて聞く。その後に聞けるのは、
+// 回答で flow を組み直した後の問いと、改稿のパスごとの問い。答えを当てた段から出る続きの問いも同じ上限から引くので、問いと回答の連鎖は
+// ここで必ず終わる。
+const MAX_GATES = 2 + MAX_AUDIT_PASSES
 
 const ENTRIES = ['new', 'existing', 'expand']
 const STAGES = ['1', '2', '3', '3a', '3b', '4', '5', '6', "3a'", '7', '8', '9']
-const GATE_ANSWERS = { g0: 'answers/g0.md', 'g0-2': 'answers/g0-2.md', g1: 'answers/g1.md' }
+const GATE_NAME = /^g([1-9]\d*)$/
+const gateAnswers = (gate) => `answers/${gate}.md`
 
 // ---------------------------------------------------------------- 純粋関数（tests が抽出して呼ぶ）
 // PURE_BEGIN
@@ -142,12 +147,13 @@ const minus = (xs, ys) => {
 // VALUE_ABOUT: 価値の論点になりうる about の種類。verification は落ちた決定・要素の扱いで、依頼者に聞く論点ではない。
 const VALUE_ABOUT = ['open', 'pair', 'finding', 'tbd']
 const valueKey = (key) => VALUE_ABOUT.some((k) => String(key || '').startsWith(`${k}:`))
+const domainAssessmentFailures = (fails, about) => (fails || []).filter((f) => String((about || {})[f.id] || '').startsWith('domain:'))
 
 // aboutKey: Set は state に載せられないので、閉じた論点の集合を about の文字列の配列で持つ。
 function aboutKey(about) {
   if (!about || typeof about !== 'object') return null
   if (Array.isArray(about.pair) && about.pair.length === 2) return `pair:${[...about.pair].map(String).sort().join('|')}`
-  for (const k of ['open', 'finding', 'tbd', 'verification']) if (about[k]) return `${k}:${about[k]}`
+  for (const k of ['open', 'finding', 'tbd', 'verification', 'domain']) if (about[k]) return `${k}:${about[k]}`
   return null
 }
 
@@ -447,7 +453,7 @@ async function rework(first, defectOf, redo, limit) {
   return { got, defect, error: null }
 }
 
-// closedInCycle: before で引かないと、前の cycle で写した裁定を次の cycle（G1 の後の 3a' など）で写し直す。
+// closedInCycle: before で引かないと、前の cycle で写した裁定を次の cycle（改稿のパスのゲートの後の 3a' など）で写し直す。
 function closedInCycle(state, before, kind) {
   const done = new Set(before || [])
   const settled = new Set(usableResolutions(state).filter((id) => !done.has(id)))
@@ -539,7 +545,8 @@ const copyFault = (text) => stdoutRaw(text) !== null && !parseStdout(text)
 
 function planCheckOf(text) {
   const o = parseStdout(text)
-  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 ? o : null
+  const coversOk = (c) => c && typeof c === 'object' && !Array.isArray(c) && Object.values(c).every((v) => Array.isArray(v) && v.every((k) => typeof k === 'string'))
+  return o && Number.isInteger(o.findings) && typeof o.content_sha256 === 'string' && o.content_sha256 && coversOk(o.covers) ? o : null
 }
 
 // rulingRows: doc_check flow --rulings の resolutions（ruling・has_answer・verdict・fail_kind の組ごとに束ねたもの。束ね方は doc_check の rulingsCompact）を
@@ -624,12 +631,12 @@ const REQUIRES = {
   1: [],
   2: ['units', 'plan_sha256'],
   3: ['units', 'flow_digest'],
-  '3a': ['units', 'flow_digest', 'gate', 'questions'],
-  '3b': ['units', 'flow_digest', 'gate', 'questions'],
+  '3a': ['units', 'flow_digest', 'gate', 'gates', 'questions'],
+  '3b': ['units', 'flow_digest', 'gate', 'gates', 'questions'],
   4: ['units', 'flow_digest'],
   5: ['units', 'flow_digest'],
   6: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
-  "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'questions'],
+  "3a'": ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'gate', 'gates', 'questions'],
   7: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written'],
   8: ['units', 'flow_digest', 'audit', 'pending', 'pass', 'settled_written', 'revised'],
   9: ['units', 'tree_digest'],
@@ -654,8 +661,8 @@ const NOT_RUN_WHY = '利用者が止めたか、runtime の出し直しの後も
 const NOT_RUN = `応答しませんでした（${NOT_RUN_WHY}。この段からやり直せる（呼び直し方は SKILL.md「## 中継」））`
 
 // STOP_REASONS: 返り値の stop_reason の閉集合（references/workflow-io.md §3。tests が照合する）。budget は token の目標（budget.total）に
-// 達して agent を起動できなくなったとき。
-const STOP_REASONS = ['pass_limit', 'no_progress', 'budget']
+// 達して agent を起動できなくなったとき。upstream_gap は仕様書だけを書く run（specOnly）で、初稿の監査の裁定（段 6）までに価値の問いが出たとき。
+const STOP_REASONS = ['pass_limit', 'no_progress', 'budget', 'upstream_gap']
 
 // SKIP_FACTS: 返り値の skipped の fact の閉集合（references/workflow-io.md §3。tests が照合する）。skipped は制御の流れの記録なので、
 // W の状態の所見（notices）に混ぜず、state にも載せない（next_args を増やさない）。
@@ -723,7 +730,7 @@ const INT = { type: 'integer', minimum: 0 }
 const STRS = { type: 'array', items: STR }
 const ABOUT = {
   type: 'object',
-  properties: { open: STR, pair: { type: 'array', items: STR, minItems: 2, maxItems: 2 }, finding: STR, tbd: STR, verification: STR },
+  properties: { open: STR, pair: { type: 'array', items: STR, minItems: 2, maxItems: 2 }, finding: STR, tbd: STR, verification: STR, domain: STR },
 }
 const RULED = { type: 'array', items: { type: 'object', properties: { id: STR, about: ABOUT }, required: ['id', 'about'] } }
 
@@ -887,15 +894,17 @@ const KNOWN_CALL = { schemas: new Set(Object.values(SCHEMAS)) }
 const GATES_ANSWERED = input.gates_answered === undefined ? {} : input.gates_answered
 if (
   !GATES_ANSWERED || typeof GATES_ANSWERED !== 'object' || Array.isArray(GATES_ANSWERED) ||
-  Object.entries(GATES_ANSWERED).some(([g, ids]) => !Object.hasOwn(GATE_ANSWERS, g) || !Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string' || !RESOLUTION_ID.test(id)))
+  Object.entries(GATES_ANSWERED).some(([g, ids]) => !GATE_NAME.test(g) || Number(GATE_NAME.exec(g)[1]) > MAX_GATES || !Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string' || !RESOLUTION_ID.test(id)))
 ) {
-  throw new Error(`args.gates_answered は { <ゲート（${Object.keys(GATE_ANSWERS).join(' / ')}）>: [<needs_answers の question_ids>] } です: ${canonicalText(GATES_ANSWERED)}`)
+  throw new Error(`args.gates_answered は { <ゲート（g1〜g${MAX_GATES}）>: [<needs_answers の question_ids>] } です: ${canonicalText(GATES_ANSWERED)}`)
 }
 if (input.state !== undefined && input.state_hash !== nextArgsHash(input)) {
   throw new Error('args が next_args の版と違います（state_hash が合いません）。環境の欄（ENV_ARGS）のほかは、返った next_args を変えずに渡し直してください（references/workflow-io.md §3）')
 }
 const state = JSON.parse(JSON.stringify(input.state || {}))
 const startErrors = stateErrors(FROM, state)
+// ゲートを g0・g0-2・g1 と名乗っていた版の state には開いた数が無い。0 から数え直すと、次のゲートが前の回答のファイルを同じ名前で上書きする。
+if (state.gate !== undefined && state.gates === undefined) startErrors.push('state.gate があるのに state.gates がありません（ゲートを開いた数を持たない版の next_args です。S0 から流し直してください）')
 if (startErrors.length) throw new Error(`再開に要る値が args.state にありません: ${startErrors.join(' / ')}`)
 // 固定の文書の照合の基準は段 1 の入口の reset だけが作る。基準の無い run を通すと、照合が黙って飛ぶ。
 if (FROM !== '1' && canonicalText(Object.keys(state.fixed_sha || {})) !== canonicalText(FIXED_KEYS)) {
@@ -1026,6 +1035,23 @@ function existingNote() {
   return ['既存文書（W に置いてある。topic を維持する）:', ...rows].join('\n')
 }
 
+function domainAssessmentNote() {
+  const usable = new Set(usableResolutions(state))
+  const rows = Object.entries(state.about || {})
+    .filter(([id, about]) => usable.has(id) && String(about || '').startsWith('domain:'))
+    .map(([id, about]) => ({ id, aspect: about.slice('domain:'.length) }))
+    .sort((a, b) => a.aspect.localeCompare(b.aspect))
+  const knownIds = Object.keys(state.about || {}).filter((id) => RESOLUTION_ID.test(id)).map((id) => Number(id.slice(3)))
+  const next = `RS-${String(Math.max(0, ...knownIds) + 1).padStart(3, '0')}`
+  if (!rows.length) return `現在の domain assessment はありません。新しい評価を作るときの次の resolution ID は ${next} です。`
+  const ids = rows.map((r) => r.id)
+  return [
+    `有効な domain assessment: ${rows.map((r) => `${r.aspect}=${r.id}`).join('、')}`,
+    `内容を読む: \`${getCli('resolutions', ids)} --fields id,about,value,supersedes,domain_assessment\`。新しい信号が同じ軸の状態を変える場合は、ここに示す同じ ID を更新する。`,
+    `新しい軸の評価を作るときの次の resolution ID: ${next}`,
+  ].join('\n')
+}
+
 // CONTRACT_PARTS: doc_check の CONTRACT_PARTS と同じ（tests が照合する）。契約の節は Bash の出力の上限ごとに分かれて出るので、全部を同じターンに並べる。
 const CONTRACT_PARTS = 2
 const contractCmds = (role) => Array.from({ length: CONTRACT_PARTS }, (_, i) => `\`${cli('contract', `--role ${ROLE_FILES[role]} --part ${i + 1}`)}\``).join('・')
@@ -1060,7 +1086,7 @@ let failedFlow = []
 let carry = []
 // holdFails: hold のまま続けて検証に落ちた回数（ID ごと。合格で消す）。落ちた保持規則は writer に渡すと検証を通っていない規範文が本文に入るので、1 回目は
 // reholdFailed が書き直させて検証し直し、続けて 2 回目に落ちれば止める。変換（convertFailed）で hold になった裁定の不合格は、値の裁定が落ちたもので
-// 保持規則の検証ではないので数えない（変換した分はもう検証しない）。
+// 保持規則の検証ではないので数えない。
 const holdFails = {}
 const see = (fc) => {
   seen = fc
@@ -1361,25 +1387,32 @@ function deciding(src) {
   s = s.replace(/^(?:W|\.)\//, '').replace(/:(\d+)(?:-\d+)?$/, '#L$1')
   return s.replace(/#[lL]0*(\d+)(?:-[lL]?\d+)?$/, '#L$1')
 }
-const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g0.md#L3`・`RS-004`（行の範囲は最初の行だけ）'
-const DECIDING_FILE = new RegExp(`^(?:input\\.md|${Object.values(GATE_ANSWERS).map((p) => p.replace(/[.]/g, '\\.')).join('|')})#L[1-9]\\d*$`)
+const DECIDING_EXAMPLE = '`input.md#L12`・`answers/g1.md#L3`・`requirements-auth.md#L40`（固定の文書）・`/repo/src/auth.py#L12`（仕様書を書く run の現物）・`RS-004`（行の範囲は最初の行だけ）'
+const DECIDING_FILE = /^(?:input\.md|answers\/g[1-9]\d*\.md)#L[1-9]\d*$/
+// 固定の文書は別のランで承認された決定なので、その行で値が決まる論点を問いにも保持規則にもしない（仕様書だけを書く run では、問いが
+// upstream_gap になる）。仕様書を書く run では、現物（対象リポジトリの行）も実現の手段を決める出典になる（契約「## 現物と既存実装の扱い」）。
+const fixedDocLine = (src) => { const m = /^((?:requirements|specifications)-[^/#]+)\.md#L[1-9]\d*$/.exec(src); return Boolean(m) && FIXED_KEYS.includes(m[1].replace('-', '/')) }
+const writesSpec = () => auditDocs().some((k) => k.startsWith('specifications/'))
+const repoLine = (src) => writesSpec() && /^\/[^#]+#L[1-9]\d*$/.test(src)
 function decidableDefect(f, fc) {
   if (!f || f.kind !== 'decidable') return null
   const row = fc.resolutions.find((x) => x.id === f.id)
   if (!row || !(row.ruling === 'hold' || (row.ruling === 'question' && !row.has_answer))) return `${f.id} は回答待ちの問いでも保持規則でもない`
   const src = typeof f.source === 'string' ? deciding(f.source) : ''
-  if (DECIDING_FILE.test(src)) return null
+  if (DECIDING_FILE.test(src) || fixedDocLine(src) || repoLine(src)) return null
   if (RESOLUTION_ID.test(src) && src !== f.id && usableResolutions(state).includes(src)) return null
-  return `${f.id} の source（${f.source == null ? 'なし' : f.source}）が input.md#L<n>・answers/<ゲート>.md#L<n>・根拠にしてよい resolution のどれでもない`
+  return `${f.id} の source（${f.source == null ? 'なし' : f.source}）を決める出典として受け取れない（形の例: ${DECIDING_EXAMPLE}。RS- は根拠にしてよい resolution に限る）`
 }
 
 // checkIds: questions --check に渡す問いを script が決める呼び出し（書き換え直した分を前の返り値に写すもの）。
 function resolverPrompt(label, stage, task, checkIds) {
+  const domainContext = task && /plan\.domain|domain assessment/i.test(task) ? domainAssessmentNote() : ''
   return [
     header('resolver', stage, label),
     groundsBlock(),
     `${W}/checks/conflicts.json、${W}/precedent.json も読む。`,
     existingNote(),
+    domainContext,
     task,
     checkIds
       ? `返る前に \`${questionsCheck(checkIds)}\` を実行し、stdout を加工せずに questions_check に入れる。`
@@ -1446,7 +1479,7 @@ async function askVerifier(label, stage, given, extra, phaseTitle) {
 }
 
 const ANSWERED_KINDS = ['ruled', 'free_text']
-// 変換した分はもう検証しない（検証のループを増やすと、差し戻しの上限が意味を失う）。
+// 変換後の question は関連性と根拠を独立 verifier に再検証させるが、不合格後に resolver へ再度差し戻さない。
 // resolver が doc_check flow の stdout を返したら、検証する ID が無くても verifier を起動する。flow の閉包は、生成者の
 // stdout と別の agent の stdout の照合でしか script から確かめられない。例外は unchanged のときだけで、そのときは
 // settle の independentFlow の flow-check が別の agent の stdout を取る。
@@ -1455,7 +1488,7 @@ async function resolveCycle(stage, opt) {
   const res = await ruleAndVerify(stage, opt)
   if (res.error) return res
   // 自由記述の回答は、対応づけが verifier に合格して初めて回答が当たったことになる。合格は問いの形の合格でもありうるので、この cycle の
-  // resolver が最後に回答として返した（ANSWERED_KINDS）ものに限る。差し戻しで続きの問いに変えた ID を入れると、G0-2 で聞かれずに落ちる。
+  // resolver が最後に回答として返した（ANSWERED_KINDS）ものに限る。差し戻しで続きの問いに変えた ID を入れると、次のゲートで聞かれずに落ちる。
   if (opt.answered) state.answered = uniq([...(state.answered || []), ...opt.answered.filter((id) => (res.passed || []).includes(id) && ANSWERED_KINDS.includes((res.kinds || {})[id]))])
   const se = await settle(stage, res.verified || null, opt.phase, before, opt.allowQuestions, opt.reflectLater)
   if (se) return se
@@ -1557,15 +1590,21 @@ async function ruleAndVerify(stage, opt) {
   const ve2 = absorbVerifier(v2, state.resolutions_sha256, `${fix}v`, flowChecked, flowWriter(), ledgerMoved())
   if (ve2) return ve2
   verified = flowCheckOf(v2.flow_check, true)
-  const passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
+  let passed = uniq([...minus(v1.pass, v2.fail.map((f) => f.id)), ...v2.pass])
   const rh = await reholdFailed(stage, fix, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) verified = rh.fc
+  const domainFailures = domainAssessmentFailures(v2.fail, state.about)
+  if (domainFailures.length) return { error: `段 ${stage}: domain assessment ${list(domainFailures.map((f) => f.id))} の独立検証が修正後も失敗しました。無効な質問や保持規則に変換せず run を停止します`, rerun: false }
   // 変換は resolution を question か hold に書き換えるだけで、決定や flow の要素は変えられない。落ちた要素は settle が直させる（failedOpen）。
   const toConvert = convertible(v2.fail)
   if (!toConvert.length) return { ok: true, passed, verified, kinds }
   const ce = await convertFailed(stage, stage, toConvert, phaseTitle, opt.allowQuestions, wasQuestion)
-  if (ce) return ce
+  if (ce && ce.error) return ce
+  if (ce) {
+    verified = ce.fc
+    passed = uniq([...passed, ...(ce.passed || [])])
+  }
   return { ok: true, passed, verified, kinds }
 }
 
@@ -1583,9 +1622,9 @@ const DECIDABLE_NOTE = 'decidable の項目は、その出典で値を決める�
 // 落ちた保持規則は文面の誤りではないので変換に回す（聞ける段で価値の論点なら問いにする）。
 const convertible = (fails) => fails.filter((f) => RESOLUTION_ID.test(f.id) && (f.kind === 'decidable' || !(state.holds || []).includes(f.id)))
 
-// fixFailed: settle と verifyLeft の verifier に落ちた裁定（RS-）を、段の本体の差し戻しと同じく 1 回だけ直させて検証し直し、まだ落ちるものを
-// 変換する。直させずに変換すると、補えた根拠や決まっていた値が問いや保持規則になる。この差し戻しの verifier の不合格は
-// 変換に回すだけで、変換した分はもう検証しないので、呼び出し 1 回あたりの verifier は 1 体で止まる。
+// fixFailed: settle と verifyLeft の verifier に落ちた裁定（RS-）を、段の本体の差し戻しと同じく 1 回だけ直させて検証し直し、domain assessment 以外で
+// まだ落ちるものを変換する。domain assessment は修正後も不合格なら下のガードで blocked にする。直さずに変換すると、補えた根拠や決まっていた値が問いや保持規則になる。
+// 問いに変えたものは `convertFailed` の後続 verifier が関連性と根拠を再検証し、さらに resolver へは差し戻さない。
 async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   const ids = uniq(fails.map((f) => f.id))
   const label = `resolver:${owner}-fix`
@@ -1610,9 +1649,11 @@ async function fixFailed(stage, owner, fails, phaseTitle, allowQuestions) {
   const rh = await reholdFailed(stage, `${owner}-fix`, phaseTitle)
   if (rh && rh.error) return rh
   if (rh) fc = rh.fc
+  const domainFailures = domainAssessmentFailures(v.fail, state.about)
+  if (domainFailures.length) return { error: `段 ${stage}: domain assessment ${list(domainFailures.map((f) => f.id))} の独立検証が修正後も失敗しました。無効な質問や保持規則に変換せず run を停止します`, rerun: false }
   const ce = await convertFailed(stage, owner, convertible(v.fail), phaseTitle, allowQuestions)
-  if (ce) return ce
-  return { fc }
+  if (ce && ce.error) return ce
+  return { fc: ce ? ce.fc : fc }
 }
 
 // independentFlow: 判断（settle の起動・残りの数え上げ・直す役の割り当て）に使う doc_check flow の stdout。最後の verifier の後に
@@ -1672,8 +1713,8 @@ function outsideKinds(stage, r, kinds) {
   return extra.length ? `段 ${stage}: ${list(extra)} を resolver が ${kinds.map((k) => KIND_WORDS[k]).join('・')} 以外で返しました（この段では依頼者に聞けない）` : null
 }
 
-// convertFailed: 差し戻しの後も検証に落ちた裁定（RS-）を、値を決めずに question か hold に書き換える。変換した分はもう検証しない
-// （検証のループを増やすと、差し戻しの上限が意味を失う）。聞ける段では、価値の論点（VALUE_ABOUT）・価値の判断・cycle の入口で問いだった ID を
+// convertFailed: 差し戻しの後も検証に落ちた裁定（RS-）を、値を決めずに question か hold に書き換える。question は独立 verifier に relevance と根拠を
+// 再検証させ、落ちたら run を止める（根拠不足の裁定を問いに変えるだけで検証を迂回できると、質問条件を満たさない問いがゲートに届く）。聞ける段では、価値の論点（VALUE_ABOUT）・価値の判断・cycle の入口で問いだった ID を
 // question にする。hold にすると、依頼者に聞けば答えの出る論点が保持規則になる。検証の裁定（{verification}）は decidable でも価値の論点ではない。
 // 依頼者の回答を根拠にした hold（answer_holds。designatedHold）は hold のまま変える（問いにすると、保留と答えた依頼者に聞き直す）。ただし decidable の
 // 出典がその回答の節なら回答は実際の選択で、差し戻しで当てさせても hold のままなので、これまでどおり問いにする（hold のままだと依頼者の回答が保持規則に化ける）。
@@ -1687,7 +1728,7 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
   if (!todo.length) return null
   orderHolds(todo.filter((f) => to(f) === 'hold').map((f) => f.id))
   const convert = todo.map((f) => `- ${f.id} → ${to(f)}（${f.kind}）`).join('\n')
-  log(`段 ${owner}: 検証に落ちた ${todo.length} 件を、理由で問いと保持規則に分けます（検証はもう回しません）`)
+  log(`段 ${owner}: 検証に落ちた ${todo.length} 件を、理由で問いと保持規則に分けます`)
   const label = `resolver:${owner}-convert`
   const r = await once(
     label,
@@ -1717,7 +1758,26 @@ async function convertFailed(stage, owner, fails, phaseTitle, allowQuestions, wa
     noTwice(l, got)
   }
   absorbResolver(got)
-  return flowKept(`${owner}-convert`, got) || checkQuestions(stage, `${owner}-convert`, got, phaseTitle, null)
+  const kept = flowKept(`${owner}-convert`, got)
+  if (kept) return kept
+  const qe = await checkQuestions(stage, `${owner}-convert`, got, phaseTitle, null)
+  if (qe) return qe
+  const questions = todo.filter((f) => to(f) === 'question').map((f) => f.id)
+  if (!questions.length) return null
+  const checked = await independentFlow(null, phaseTitle)
+  if (checked.error) return checked
+  if (!checked.fc) return { error: `段 ${stage}: 問いへの変換後に resolver の doc_check flow を独立に確認できませんでした`, rerun: false }
+  const labelV = `verifier:${owner}-convertv`
+  const v = await askVerifier(labelV, `${owner}v（問いへの変換）`, questions, '', phaseTitle)
+  const ve = absorbVerifier(v, state.resolutions_sha256, `${owner}-convertv`, false, null)
+  if (ve) return ve
+  const rejected = v.fail.filter((f) => questions.includes(f.id))
+  if (rejected.length) {
+    return { error: `段 ${stage}: 問いへの変換後も関連性・根拠の検証に落ちました（${rejected.map((f) => `${f.id}: ${f.kind}${f.reason ? `（${f.reason}）` : ''}`).join(' / ')}）。条件を満たす質問として確認できるまで依頼者に提示できません`, rerun: false }
+  }
+  const missing = minus(questions, v.pass)
+  if (missing.length) return { error: `段 ${stage}: 問いへの変換後の独立検証が合格を返しませんでした（${list(missing)}）。確認できるまで依頼者に提示できません`, rerun: false }
+  return { fc: flowCheckOf(v.flow_check, true), passed: v.pass.filter((id) => questions.includes(id)) }
 }
 
 // claimedIssues: 未裁定の論点を選ぶのに使った組と O- は、flow を書いた生成者の自己申告である。組と O- は flow.json・decisions.json・
@@ -2059,10 +2119,12 @@ async function reholdFailed(stage, owner, phaseTitle) {
   return { fc: flowCheckOf(v.flow_check, true) }
 }
 
-// holdLeft: 聞くゲートが残っていない問いを保持規則に変える。
-async function holdLeft(stage, ids, phaseTitle) {
+// holdLeft: 依頼者に聞かない問いを保持規則に変える。why はその理由（聞ける回数の上限か、回答済みの論点の再発）。
+// 聞ける段でも呼ぶので、script の指定として holdOrders に入れる（入れないと newHoldsInW が段の出口で止める）。
+async function holdLeft(stage, ids, phaseTitle, why) {
+  orderHolds(ids)
   const label = `resolver:${stage}-hold`
-  const r = await once(label, 'resolver', resolverPrompt(label, `${stage}（保持規則への変換）`, keepFlow(`次の問いにはもう聞くゲートが残っていない。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(ids)}`)), RESOLVER_SCHEMA, phaseTitle)
+  const r = await once(label, 'resolver', resolverPrompt(label, `${stage}（保持規則への変換）`, keepFlow(`次の問いは依頼者に聞かない（${why}）。hold（保持規則・Issue の文案・触れる項目 ID）に書き換える。ID は変えない: ${list(ids)}`)), RESOLVER_SCHEMA, phaseTitle)
   const bad = onlyAsked(`${stage}-hold`, r, ids, ['holds'])
   if (bad) return { error: bad }
   absorbResolver(r)
@@ -2129,10 +2191,32 @@ async function checkQuestions(stage, owner, r, phaseTitle, recheck) {
 // gatePassed: 回答済みのゲート（args.gates_answered）を通った段。聞くゲートを通ったのと同じく、回答待ちの問いを持って段を出てよい（exitViolation）。
 let gatePassed = null
 
-// needsAnswers: gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
+// collecting: 最初のゲートを開く前の、段 6 より前の段。問いを見つけた段ごとに止めると、後の段（初稿・監査）でしか見えない論点が次のゲートか
+// 次の run に回り、依頼者を止める回数と要求文書の改訂が、論点の見つかった段の数だけ増える（実測: 仕様書だけの run が初稿の前の 3 問で止まり、
+// 要求文書を改訂して起こし直した run が初稿の監査で 4 問目に止まった）。初稿の監査は全文書を読むので、最初のゲート（仕様書だけを書く run では
+// upstream_gap）は、その裁定の段 6 で開く。
+const collecting = () => running !== '6' && (specOnly() || gatesOpened() === 0)
+// carrying: 持ち越した問いを持って、最初のゲート（仕様書だけを書く run では upstream_gap）までの段を通っている。聞くゲートを通ったのと同じく、
+// 回答待ちの問いを持って段を出てよい（exitViolation）。
+const carrying = () => specOnly() || Boolean(state.deferred)
+
+// needsAnswers: 開いた順に g1, g2, … と名乗る。resume も next_args の再開も同じ段を同じ順に通るので、同じ名前になる。
+// gates_answered のゲートを越えるのは、今の問いが聞いた問いと同じで、回答のファイルがそのすべてに答えているときだけ。
 // resume が保存された結果から外れると（pipeline の起動の順・追い出し・runtime の違い）run は live で走り直し、違う問いに古い回答を当てるか、
-// 段 1 の reset が消した回答の無いまま進む。
-async function needsAnswers(gate, from) {
+// 段 1 の reset が消した回答の無いまま進む。onward は、問いを持ち越すとき（collecting）に進む段。持ち越した問いで書いた初稿は回答を
+// 知らないので、最初のゲートの後は 3a から入り、組み直した flow で書き直す（state.deferred）。
+async function needsAnswers(from, onward) {
+  if (onward && collecting()) {
+    if (!specOnly()) state.deferred = true
+    return onward
+  }
+  if (specOnly()) return upstreamGap()
+  if (state.deferred) {
+    from = '3a'
+    delete state.deferred
+  }
+  state.gates = gatesOpened() + 1
+  const gate = `g${state.gates}`
   state.gate = gate
   const ids = pendingQuestions(state)
   const asked = GATES_ANSWERED[gate]
@@ -2146,12 +2230,35 @@ async function needsAnswers(gate, from) {
   return from
 }
 
+// specOnly: 書く文書がすべて仕様書で、そのどれもが固定の要求文書を実現する（plan の covers）run。価値の判断は要求文書が持ち、問いにして
+// よいのは価値の判断だけなので、この run で出る問いは要求文書の抜けである。聞いて仕様書に書くと、要求文書に無い判断が仕様書にだけ入り、
+// 仕様項目が要求に辿れなくなる。covers を見ないと、INDEX のために並べただけの無関係な固定の文書で、聞けば済む run まで止まる。
+const fixedRequirements = () => new Set(EXISTING.filter((d) => d.fixed && String(d.key).startsWith('requirements/')).map((d) => d.key))
+const specOnly = () => {
+  const docs = (state.units || []).flatMap((u) => u.docs)
+  const fixed = fixedRequirements()
+  return docs.length > 0 && docs.every((k) => k.startsWith('specifications/') && ((state.covers || {})[k] || []).some((r) => fixed.has(r)))
+}
+
+// upstreamGap: 仕様書だけを書く run が、初稿の監査の裁定（段 6）までに出た価値の問いをまとめて返す。要求文書を直すと固定の文書の sha が変わり、
+// この run は再開できないので next_args を付けない。
+function upstreamGap() {
+  const ids = pendingQuestions(state)
+  return finish('blocked', {
+    reason: `仕様書だけを書く run で、固定の要求文書に答えが見つからなかった価値の論点が ${ids.length} 件出ました（${list(ids)}）。仕様書では決めずに、初稿と監査を終えるまでに出た論点をまとめて返します。要求文書を改訂してから仕様書を起こし直してください`,
+    stop_reason: 'upstream_gap',
+    questions_path: `${W}/questions.md`,
+    questions_json_path: `${W}/questions.json`,
+    question_ids: ids,
+  })
+}
+
 function answersStop(gate, from, ids, extra) {
   return finish('needs_answers', {
     gate,
     questions_path: `${W}/questions.md`,
     questions_json_path: `${W}/questions.json`,
-    answers_path: `${W}/${GATE_ANSWERS[gate]}`,
+    answers_path: `${W}/${gateAnswers(gate)}`,
     question_ids: ids,
     next_args: nextArgs(from),
     ...extra,
@@ -2163,16 +2270,16 @@ function answersStop(gate, from, ids, extra) {
 // 返り、同じ所で止まり続ける。
 async function answersUnchecked(gate, from, ids) {
   const label = `flow-check:${gate}-answers`
-  const cmd = cli('answers', `--file ${GATE_ANSWERS[gate]} --ids ${ids.join(',')}`)
+  const cmd = cli('answers', `--file ${gateAnswers(gate)} --ids ${ids.join(',')}`)
   const x = await once(label, 'flowCheck', [header('flowCheck', from, label), `実行する: \`${cmd}\`。stdout を加工せずに answers_check に入れて返す。`].join('\n\n'), ANSWERS_SCHEMA, PHASE_OF[from], { answers_check: cmd })
   const ac = parseStdout(x && x.answers_check)
-  const echoed = ac && ac.file === GATE_ANSWERS[gate] && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
+  const echoed = ac && ac.file === gateAnswers(gate) && canonicalText(ac.ids) === canonicalText(uniq(ids)) && Array.isArray(ac.missing) && Array.isArray(ac.free)
   if (echoed && !ac.missing.length) {
     answersFree[gate] = ac.free
     return null
   }
   const why = !echoed ? 'doc_check answers の stdout が返りませんでした' : ac.exists !== true ? 'ファイルがありません（段 1 の reset が消したことがある）' : `回答の行の無い問い ${list(ac.missing)}`
-  return answersStop(gate, from, ids, { reason: `${W}/${GATE_ANSWERS[gate]}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
+  return answersStop(gate, from, ids, { reason: `${W}/${gateAnswers(gate)}: ${why}。問いを聞き直して回答を書き、next_args で呼び直してください`, resumable: false })
 }
 
 // answersFree: ゲートごとの、候補の label だけでない回答の節の逐語（doc_check answers の free）。回答を当てる resolver のプロンプトに写す。
@@ -2184,7 +2291,7 @@ function answerExcerpt(gate, ids) {
   const rows = (answersFree[gate] || []).filter((x) => ids.includes(x.id))
   if (!rows.length) return ''
   return [
-    `候補の label だけでない回答（${GATE_ANSWERS[gate]} の逐語。doc_check answers の stdout から写した。当て方は resolver.md の「回答の反映」）:`,
+    `候補の label だけでない回答（${gateAnswers(gate)} の逐語。doc_check answers の stdout から写した。当て方は resolver.md の「回答の反映」）:`,
     ...rows.map((x) => `- ${x.id}（L${x.from}${x.to > x.from ? `〜L${x.to}` : ''}）: ${x.text.split('\n').map((l) => `「${l}」`).join('')}`),
   ].join('\n')
 }
@@ -2257,7 +2364,9 @@ async function stage1() {
   if (wrongFixed.length) return blocked(`固定の文書が writer の単位に入っています: ${wrongFixed.join(', ')}`, '1')
   if (lost.length) return blocked(`既存文書がどの writer の単位にも入っていません（topic を変えると改稿が別名の新規執筆に化ける）: ${lost.join(', ')}`, '1')
   state.units = r.units.map((u) => ({ id: u.id, docs: uniq(u.docs), depends_on: uniq(u.depends_on) }))
-  state.plan_sha256 = planCheckOf(r.plan_check).content_sha256
+  const pc = planCheckOf(r.plan_check)
+  state.plan_sha256 = pc.content_sha256
+  state.covers = pc.covers
   return '2'
 }
 
@@ -2275,24 +2384,32 @@ async function stage2() {
   // plan_check を intake の申告だけにすると、検査の後に書き換えた plan.json が通る。別の agent が実行した stdout と照合する。
   const pc = planCheckOf(got.plan_check)
   if (!pc) return blocked('flow-framer が doc_check plan の stdout を返しませんでした', '2')
-  if (pc.content_sha256 !== planSha || pc.findings > 0) {
+  // covers も intake の申告だけから入るので、同じ照合に含める（specOnly が読む）。
+  const coversMoved = canonicalText(pc.covers) !== canonicalText(state.covers)
+  if (pc.content_sha256 !== planSha || pc.findings > 0 || coversMoved) {
     if (pc.content_sha256 !== planSha) noteIntegrity(`flow-framer が検査した plan.json（${pc.content_sha256}）が、intake が検査した版（${planSha}）と違う`)
+    else if (coversMoved) noteIntegrity(`flow-framer が返した plan の covers が、intake が返した covers と違う（${canonicalText(pc.covers)} / ${canonicalText(state.covers)}）`)
     return blocked(`plan.json が intake の検査を通った版ではありません（doc_check plan の指摘 ${pc.findings} 件。${W}/checks/plan.json）`, '1')
   }
   framed = { open_ids: got.fc.open_ids, pair_keys: got.cc.pair_keys }
   return '3'
 }
 
-// ASKS: settle を持つ段と、その段で依頼者に問いを返してよいか。入口の変換（enterFromDisk）も同じ値で回す（入口だけ聞けないことにすると、
-// 段の本体では問いになる不合格が、入口では保持規則になる）。
-const ASKS = { 3: () => true, '3a': () => state.gate === 'g0', '3b': () => true, 6: () => state.pass === 1, "3a'": () => state.gate === 'g0' }
+// ASKS: settle を持つ段と、その段で依頼者に問いを返してよいか。聞けるかは段の位置やパスではなく、聞ける回数（MAX_GATES）が残っているかで決める
+// （位置で決めると、同じ論点が見つかった時期だけで問いにも保持規則にもなる）。入口の変換（enterFromDisk）も同じ値で回す（入口だけ聞けないことに
+// すると、段の本体では問いになる不合格が、入口では保持規則になる）。数は段の入口の値を使う: 段の中でゲートを開いた後に偽になると、その段の出口の
+// newHoldsInW の検査が抜ける。
+const gatesOpened = () => state.gates || 0
+const canAsk = () => (entryState.gates || 0) < MAX_GATES
+const ASKS = { 3: canAsk, '3a': canAsk, '3b': canAsk, 6: canAsk, "3a'": canAsk }
+const LIMIT_WHY = `依頼者に聞ける回数の上限（MAX_GATES = ${MAX_GATES}）に達した`
 
-// REFLECT_STAGE: 聞ける回答の段（G0 の後の 3a）が settle の裁定の反映を回さずに渡す段。3b-reframe は同じ回答で flow を組み直すので、3a の反映も
+// REFLECT_STAGE: 聞ける回答の段（3b の組み直しの前の 3a）が settle の裁定の反映を回さずに渡す段。3b-reframe は同じ回答で flow を組み直すので、3a の反映も
 // そこで書かせ、未裁定の組と O- は resolver:3b に、flow の検証は 3bv に 1 回にまとめる（別々に回すと同じ回答の反映を 2 回書いて 2 回検証する）。
 // 3a は回答を当てた resolver の書き込みを 3av と verifyLeft で検証し終えてから出るので、渡すのは検証に落ちた要素と未反映の裁定だけで、
 // 検証を通っていない書き込みは渡らない。渡した不合格の要素は 3b の出口の不変条件（緩めない）が止めるので、writer（段 4）には届かない。
 const REFLECT_STAGE = '3b'
-const defersReflection = (stage) => stage === '3a' && ASKS['3a']()
+const defersReflection = (stage) => stage === '3a' && !state.reframed
 const reflector = (stage) => (defersReflection(stage) ? `flow-framer:${REFLECT_STAGE}-reframe` : 'settle の flow-framer')
 // reflectable: 3a が渡せる不合格の要素。3a の verifier に落ちた F- には差し戻しが必ず検証の裁定を返す（ruleAndVerify）ので、裁定の無い不合格は
 // 3a の書き込みではなく、渡さずに 3a の settle で直す（REFLECT_STAGE の入口では所有表の外の書き込みとして止める）。
@@ -2326,12 +2443,13 @@ async function stage3() {
     allowQuestions: ASKS[3](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3')
-  if (pendingQuestions(state).length) return needsAnswers('g0', '3a')
-  return ENTRY === 'existing' ? '5' : '4'
+  const onward = ENTRY === 'existing' ? '5' : '4'
+  if (pendingQuestions(state).length) return needsAnswers('3a', onward)
+  return onward
 }
 
-// G0 の回答で出た問いは hold にせず 3b へ持ち越す。3b が組み直した flow から出る問いと 1 回の G0-2 で聞くためで、ここで hold に
-// すると聞けたはずの問いが保持規則になる。裁定の反映も 3b へ渡す（REFLECT_STAGE）。G0-2 と G1 の後には聞くゲートが残っていない。
+// 3b の組み直しの前の 3a で出た問いは 3b へ持ち越す。3b が組み直した flow から出る問いと 1 回のゲートで聞くためで、裁定の反映も 3b へ渡す
+// （REFLECT_STAGE）。ほかの回答の段で出た続きの問いは、聞ける回数が残っていれば次のゲートで聞き、残っていなければ保持規則にする。
 async function stageApply(stageId) {
   const gate = state.gate
   const pending = pendingQuestions(state)
@@ -2345,10 +2463,11 @@ async function stageApply(stageId) {
   const res = await resolveCycle(stageId, {
     phase: 'Answers',
     task: [
-      `段 ${stageId}: ${W}/${GATE_ANSWERS[gate]} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
+      `段 ${stageId}: ${W}/${gateAnswers(gate)} の回答を、問い ${list(pending)} に当てる（resolver.md の「回答の反映」）。`,
       answerExcerpt(gate, pending),
+      `同じ回答で、初期 plan.domain の verdict / categories を変える具体的な signal があれば about.domain の effective assessment を作成または更新する。初期 verdict は該当・非該当・未評価のいずれでもよい。signal が無ければ変更しない。`,
       `実行する: \`${cli('flow')}\`（flow.json を変えなくても）→ flow_check。flow.json を変えたら \`${cli('conflicts')}\` → conflicts_check。`,
-      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : '依頼者にはもう聞けない。価値に関わる新しい矛盾は hold にする。',
+      allowQuestions ? `反映で価値に関わる新しい矛盾が出たら question にする。${askNote(true)}` : `${LIMIT_WHY}ので、価値に関わる新しい矛盾は hold にする（resolver.md の「8'」）。`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2361,7 +2480,8 @@ async function stageApply(stageId) {
   if (nextStage) return nextStage
   const left = pendingQuestions(state)
   if (left.length) {
-    const he = await holdLeft(stageId, left, 'Answers')
+    if (allowQuestions) return needsAnswers(stageId)
+    const he = await holdLeft(stageId, left, 'Answers', LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : stageId)
   }
   if (stageId === "3a'") return '7'
@@ -2369,6 +2489,7 @@ async function stageApply(stageId) {
 }
 
 async function stage3b() {
+  state.reframed = true
   const waiting = pendingQuestions(state)
   const carriedIn = reflectFc ? reflection(reflectFc, null) : null
   const reframe = await frameFlow('flow-framer:3b-reframe', (label, run) => [
@@ -2389,7 +2510,7 @@ async function stage3b() {
   const { opens, pairs } = unruledIssues(reframe.fc.open_ids, reframe.cc.pair_keys)
   const carried = pendingQuestions(state)
   // 持ち越した問いだけなら resolver を起動しない。問いの形は上の検査が組み直した flow で確かめており、決まっていたかの判定は依頼者の回答に委ねる
-  // （G0-2 で 1 問余分に聞くことはあっても、推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
+  // （次のゲートで 1 問余分に聞くことはあっても、推測で埋めない）。組み直した flow は flowChanged で verifier:3bv が照合する。
   if (!opens.length && !pairs.length && carried.length) skipped.push({ step: 'resolver:3b', fact: SKIP.carriedOnly, ids: carried })
   const res = await resolveCycle('3b', {
     phase: 'Answers',
@@ -2401,6 +2522,7 @@ async function stage3b() {
             `- まだ裁定の無い組（${W}/checks/conflicts.json）: ${list(pairs)}`,
             `- 3a から持ち越した問い: ${list(carried)}`,
             pointedLines([...issueItems([...opens, ...pairs]), ...ownItems(carried, state)]),
+            `回答で組み直した flow に初期 plan.domain の verdict / categories を変える新しいユーザー由来の signal が現れた場合は、domain assessment を同じ resolution ID で更新する。新しい signal が無ければ触らない。`,
             askNote(ASKS['3b']()),
           ]
             .filter(Boolean)
@@ -2413,11 +2535,20 @@ async function stage3b() {
     allowQuestions: ASKS['3b'](),
   })
   if (res.error) return blocked(res.error, res.rerun === false ? null : '3b')
-  if (pendingQuestions(state).length) return needsAnswers('g0-2', '3a')
-  return ENTRY === 'existing' ? '5' : '4'
+  const onward = ENTRY === 'existing' ? '5' : '4'
+  if (pendingQuestions(state).length) return needsAnswers('3a', onward)
+  return onward
 }
 
 const writerLabel = (unit, mode) => `writer:${unit.id}:${mode}`
+
+// waitingNote: 持ち越した回答待ちの問い（collecting）。writer が決めると依頼者の判断の置き換えになり、監査役が「決まっていない」と指摘すると
+// 同じ論点の問いがもう 1 つ立つ。
+const WAITING_DO = { writer: '本文で決めず、TBD にも起票しない', auditor: '決まっていないことを指摘にしない', resolver: '同じ論点か、候補が互いを縛る論点を別の問いにしない' }
+function waitingNote(role) {
+  const ids = pendingQuestions(state)
+  return ids.length ? `回答待ちの問い ${list(ids)}（中身は \`${getCli('resolutions', ids)}\`）の論点は依頼者の回答で決まる。${WAITING_DO[role]}。` : ''
+}
 
 function writerPrompt(unit, mode, extra) {
   const deps = state.units.filter((u) => (unit.depends_on || []).includes(u.id)).flatMap((u) => u.docs)
@@ -2427,6 +2558,7 @@ function writerPrompt(unit, mode, extra) {
     `担当の単位: ${unit.id}（文書: ${list(unit.docs)}）。書くのは ${unit.docs.map((k) => `${W}/${k.replace('/', '-')}.md とその .meta.json`).join('、')} だけ。`,
     deps.length ? `依存先の単位の文書（読むだけ）: ${deps.map((k) => `${W}/${k.replace('/', '-')}.md`).join('、')}` : '',
     existingNote(),
+    waitingNote('writer'),
     `doc_check の内部ループ: \`${cli('doc', `--doc <キー> --lint --open-tbd "${openTbdOf(state).join(',')}"`)}\`（findings と lint の両方を直す。3 回まで）。最後に \`${cli('tree-digest', '--doc <キー>')}\` の digest を返す。`,
     extra || '',
   ]
@@ -2487,6 +2619,7 @@ function auditorPrompt(role, doc, round, opt) {
     groundsBlock(),
     target,
     existingNote(),
+    waitingNote('auditor'),
     opt.items ? `範囲を絞った監査: 対象は項目 ${list(opt.items)}（その項目の節から読む）。` : '',
     opt.items && prev.length ? `同じ項目への前のパスの指摘: ${list(prev)}（${FINDINGS_READ}）` : '',
     opt.items && ruled.length ? `同じ項目への前のパスの指摘を裁定した resolution: ${list(ruled)}（中身は \`${getCli('resolutions', ruled)}\`）` : '',
@@ -2550,6 +2683,15 @@ function recordFindings(plan, results) {
 
 async function stage5() {
   state.pass = 1
+  // 最初のゲートの後に書き直した初稿の監査は、持ち越した問いのまま書いた初稿の監査の経路と項目の役を引き継がない（項目は書き直しで別物になる）。
+  // 回の番号は前の監査の続きにする。同じ回の番号で監査すると指摘の ID が前の監査の指摘と重なり、その指摘を閉じた裁定が新しい指摘も閉じたことに
+  // なって（unruled）、新しい指摘が段 6 に届かない。
+  const round = state.audit ? state.audit.n + 1 : 1
+  const base = `audited-${round}`
+  delete state.item_routes
+  delete state.roles_by_item
+  // 組み直しの印は初稿の前の 3a だけが読む。この先の next_args に運ぶと、読まれない値が字数を使う。
+  delete state.reframed
   // existing は段 4 を通らず、この run の裁定をまだどの writer にも渡していない。
   if (ENTRY === 'existing') state.settled_written = []
   const docs = auditDocs()
@@ -2563,20 +2705,20 @@ async function stage5() {
   plan[plan.length - 1].designatedText = [
     `監査の判定とは別に、次を実行して stdout を加工せずに designated に入れる。`,
     `最初に: \`${cli('doc', `--open-tbd "${openTbdOf(state).join(',')}"`)}\` → designated.doc_check`,
-    `最後に: \`${cli('snapshot', `--save audited-1 --role auditor --live ${liveDirs(plan, 1)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
+    `最後に: \`${cli('snapshot', `--save ${base} --role auditor --live ${liveDirs(plan, round)} --sweep${FIXED_FLAG}`)}\` → designated.audited`,
   ].join('\n')
-  const { results, missing } = await runAuditors(plan, 1, '5')
+  const { results, missing } = await runAuditors(plan, round, '5')
   if (missing.length) throw notRun(missing.join(', '))
   const cd = results[results.length - 1]
-  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], 1), cd.designated, designatedCmds(), 'Audit')
+  if (cd.designated) cd.designated = await recopy(auditorLabel(plan[plan.length - 1], round), cd.designated, designatedCmds(), 'Audit')
   const audited = parseStdout(cd.designated && cd.designated.audited)
   const docCheck = parseStdout(cd.designated && cd.designated.doc_check)
-  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（audited-1 の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
-  const moved1 = fixedMoved(audited, 'audited-1')
+  if (!audited || !audited.digest) return blocked(`cross-doc が監査の基準（${base} の snapshot）を返しませんでした${snapshotFault(cd.designated)}。どの版を監査したかの記録が無いまま進めません`, '5')
+  const moved1 = fixedMoved(audited, base)
   if (moved1) return blocked(moved1.error, moved1.rerun ? '5' : null)
-  state.audit = { n: 1, digest: audited.digest }
+  state.audit = { n: round, digest: audited.digest }
   state.tree_digest = audited.digest
-  noteAudited(audited, 'audited-1')
+  noteAudited(audited, base)
   const findings = recordFindings(plan, results)
   setPending(findings, docCheck, [])
   return '6'
@@ -2618,33 +2760,53 @@ async function stage6() {
   const decision = unruled(pendingView(state.pending, state.item_routes).decision.map((id) => `finding:${id}`), 'finding').map((k) => k.slice(8))
   const tbd = unruled((state.new_tbd || []).map((id) => `tbd:${id}`), 'tbd').map((k) => k.slice(4))
   const allowQuestions = ASKS[6]()
+  const reasked = new Set(answeredRecurrences(decision).map((id) => `finding:${id}`))
   if (decision.length || tbd.length) {
-    const res = await decide(decision, tbd, allowQuestions)
+    const res = await decide(decision, tbd, allowQuestions, reasked)
     if (res.error) return blocked(res.error, res.rerun === false ? null : '6')
   }
   state.new_tbd = []
+  const again = pendingQuestions(state).filter((id) => reasked.has((state.about || {})[id]))
+  if (again.length) {
+    const he = await holdLeft('6', again, 'Decide', '前の裁定に回答か保持規則がある項目の再発で、同じことを二度聞かない')
+    if (he) return blocked(he.error, he.rerun === false ? null : '6')
+  }
   if (pendingQuestions(state).length) {
-    if (allowQuestions) return needsAnswers('g1', "3a'")
-    const he = await holdLeft('6', pendingQuestions(state), 'Decide')
+    if (allowQuestions) return needsAnswers("3a'", '7')
+    const he = await holdLeft('6', pendingQuestions(state), 'Decide', LIMIT_WHY)
     if (he) return blocked(he.error, he.rerun === false ? null : '6')
   }
   return '7'
 }
 
-function decide(decision, tbd, allowQuestions) {
+const rulingsOfFindings = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
+
+// answeredRecurrences: 再発した項目のうち、前のパスの指摘の裁定に依頼者の回答か保持規則があるものの今の指摘。同じ論点を二度聞くと、依頼者を
+// 止める回数を増やすだけで答えは変わらない（保留と答えた論点も、上限で聞けなかった論点も同じ）ので、回答を当てるか保持規則にする。段 3・3b で答えた問い（about が open・組）と同じ論点の新しい指摘は、
+// 項目の再発に数えられないので、verifier の decidable（回答で決まる論点を問いにした）が止める。
+function answeredRecurrences(decision) {
+  const rec = state.pending.recurring || {}
+  const settled = new Set([...(state.answered || []), ...(state.holds || [])])
+  const items = new Set(Object.keys(rec).filter((k) => rulingsOfFindings(rec[k]).some((id) => settled.has(id))))
+  return uniq(pendingFindings(state.pending).filter((f) => decision.includes(f.id) && items.has(itemKey(f))).map((f) => f.id))
+}
+
+function decide(decision, tbd, allowQuestions, reasked) {
   const rec = state.pending.recurring || {}
   const routeOf = (k) => (state.item_routes || {})[k]
   const redecide = Object.keys(rec).filter((k) => routeOf(k) === 'decision')
   const toHold = uniq(pendingFindings(state.pending).filter((f) => rec[itemKey(f)] && routeOf(itemKey(f)) === 'hold').map((f) => f.id))
-  const rulingsOf = (ids) => uniq(Object.entries(state.about || {}).filter(([, k]) => ids.some((id) => k === `finding:${id}`)).map(([id]) => id))
+  orderHolds([], [...toHold.map((id) => `finding:${id}`), ...reasked])
   return resolveCycle('6', {
     phase: 'Decide',
     task: [
       `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、writer の meta の新しい TBD ${list(tbd)}。`,
-      redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOf(rec[k]))}`).join(' / ')}` : '',
+      redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOfFindings(rec[k]))}`).join(' / ')}` : '',
       toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
+      reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',
       pointedLines([...findingItems(decision, state), ...issueItems(tbd.map((id) => `tbd:${id}`))]),
-      allowQuestions ? askNote(true) : "2 パス目以降なので、問いを聞くゲートが残っていない。価値の判断は question ではなく hold にする（resolver.md の「8'」）。",
+      waitingNote('resolver'),
+      allowQuestions ? askNote(true) : `${LIMIT_WHY}ので、価値の判断は question ではなく hold にする（resolver.md の「8'」）。`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -2659,7 +2821,7 @@ async function stage7() {
   for (const { unit, id } of state.routes || []) routesByUnit[unit] = uniq([...(routesByUnit[unit] || []), id])
   const applied = new Set(state.applied_routes || [])
   // 前回の書き込みの後に決まった裁定（合格・回答・保持規則）。routes は段 6 で resolver が起動したときにしか無く、
-  // 問いを保持規則に変えたときや G1 の回答を当てたときは載らないことがある。載らない分を落とすと、決まったことや
+  // 問いを保持規則に変えたときや改稿のパスのゲートの回答を当てたときは載らないことがある。載らない分を落とすと、決まったことや
   // 決まっていないことが文書に入らないまま保存される。routes が無ければ全単位に渡し、各 writer が自分の分を当てる。
   const newSettled = minus(uniq([...usableResolutions(state), ...(state.holds || [])]), state.settled_written || [])
   const anyRoutes = state.units.some((u) => (routesByUnit[u.id] || []).some((id) => !applied.has(id)))
@@ -2870,12 +3032,12 @@ const PHASE_OF = { 1: 'Intake', 2: 'Flow', 3: 'Resolve', '3a': 'Answers', '3b': 
 const STAGE_FNS = { 1: stage1, 2: stage2, 3: stage3, '3a': () => stageApply('3a'), '3b': stage3b, 4: stage4, 5: stage5, 6: stage6, "3a'": () => stageApply("3a'"), 7: stage7, 8: stage8, 9: stage9 }
 
 // exitViolation: 段を出るときの不変条件。破ると、数え直していない台帳の flow の指摘か、誰にも聞かれない問いを持ったまま次の段が走る。
-// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、G0-2 で一緒に聞くために 3b へ持ち越す 3a だけ。
+// 回答待ちの問いを持って出てよいのは、聞くゲート（needs_answers）か回答済みのゲート（gatePassed）を通る段と、問いを持ち越している段（carrying）と、組み直しの後の問いと一緒に聞くために 3b へ持ち越す 3a だけ。
 // 不合格の要素を持って出てよいのは、反映を REFLECT_STAGE に渡す 3a だけで、渡せる要素（reflectable）に限る（REFLECT_STAGE の出口では緩めない）。
 function exitViolation(from, r) {
   if (unchecked) return `resolver:${unchecked.tag} の後に doc_check flow を独立に実行し直さないまま段を出ようとしました（independentFlow を通らない経路があります）`
   const reflectNext = defersReflection(from) && r === REFLECT_STAGE
-  const asking = r.status === 'needs_answers' || gatePassed !== null || reflectNext
+  const asking = r.status === 'needs_answers' || gatePassed !== null || carrying() || reflectNext
   const waiting = asking ? [] : pendingQuestions(state)
   if (waiting.length) return `回答待ちの問い ${list(waiting)} を、聞くゲートも保持規則への変換も通らないまま段を出ようとしました`
   const failedHolds = Object.keys(holdFails).sort()

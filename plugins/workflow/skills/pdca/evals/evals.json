@@ -63,6 +63,24 @@
     "not_done を pass として数えていないか",
     "司令塔が自分で成果物を直したり合否を決めたりしていないか"
    ]
+  },
+  {
+   "id": 6,
+   "prompt": "この改善を Codex で PDCA として回して。",
+   "expected_output": "pdca_state.py の状態管理をそのまま使い、各 brief の invoke 文字列だけを新しい Codex collaboration agent（fork_turns=none）に渡す。spawn_agent の canonical agent name を控え、wait_agent の後に list_agents でその agent が completed と確認できるまで待つ。brief の role と aspect（goal-framer・criteria-author・criteria-verifier）は status.next に一致させ、verifier は未報告 viewpoint を選び、対照の smoke だけは writer 前にも実行できる。writer は全ての既知の未充足 condition を渡す。out ファイルを確認して record し、status の next に従う。next が ask_human なら agent を起動せず、status の問いと選択肢を文を変えずに人間へ示し、答えを answer で記録する。model / reasoning_effort は意図的に省略して呼び出し元の Codex セッション設定を継承し、Claude Code の役割格には対応付けない。",
+   "files": [],
+   "assertions": [
+    "各役割と viewpoint の起動ごとに別の collaboration agent を使い、followup_task で再利用していないか",
+    "brief の invoke が agent の message と逐語で一致し、追加指示を足していないか",
+    "spawn_agent の canonical agent name を控え、wait_agent の後に list_agents でその agent が completed と確認できるまで待つか",
+    "agent が終わる前に record せず、out ファイルを確認してから record しているか",
+    "毎回 status の next に従い、script だけが台帳を更新しているか",
+    "brief の role / aspect が現在の status.next に合い、既報告 viewpoint を verifier が再選択していないか",
+    "next が ask_human のとき agent を起動せず、問いと選択肢を文を変えずに人間へ示し、答えを answer で記録してから status に戻るか",
+    "対照の smoke を除き、status.next が要求する役割より先の brief を発行していないか",
+    "writer brief が全ての既知の未充足 condition を担当し、完了判定段階で writer を起動していないか",
+    "Codex agent の model / reasoning_effort override を意図的に省略し、呼び出し元セッションから継承することと Claude Code の格に対応付けないことを正確に述べているか"
+   ]
   }
  ]
 }

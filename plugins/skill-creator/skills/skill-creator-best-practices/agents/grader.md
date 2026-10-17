@@ -54,7 +54,7 @@ with_skill（スキルあり）と baseline（スキルなし）の出力ペア�
 ```
 
 **集計はしない。** `pass_rate`・`delta`・件数の合計は返さず、各アサーションの判定と根拠だけを返す。
-算術は `scripts/build_skill.js` が行う（partial の重み付けと side 間の差はそこに 1 箇所だけある）。
+算術は create の workflow（plugin の `workflows/build_skill.js`）が行う（partial の重み付けと side 間の差はそこに 1 箇所だけある）。
 
 自己申告の数値を受け取ると、判定の内訳と数値が食い違っていても突き合わせる材料が無く、
 しかもゲートに入るのは数値の方になる。判定だけを返せば、内訳と数字は常に一致する。

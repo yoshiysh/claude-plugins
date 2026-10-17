@@ -175,7 +175,15 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
     "codex_marketplace": { "added": ["..."], "updated": ["..."], "kept": ["..."] },
     "plugin_json": "created",
     "readme": "created | kept",
-    "relocate": "created | migrated | kept"
+    "relocate": "created | migrated | kept",
+    "workflow_scripts": [
+      { "skill": "<entry>", "file": "<f>.js", "name": "<meta.name>",
+        "qualified_name": "<plugin>:<meta.name>", "callsite_lines": [164],
+        "from": "skills/<entry>/scripts/<f>.js", "to": "workflows/<f>.js" }
+    ],
+    "workflow_scripts_skipped": [
+      { "skill": "<entry>", "file": "<f>.js", "reasons": ["公開済みのスキルは自動で移さない", "..."] }
+    ]
   },
   "bundled_skills": [
     { "skill": "<dep>", "public_name": "<dep公開名>",
@@ -191,11 +199,13 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 - `public_name`: 呼び出し名 `/plugin:skill` の skill 部分。`skills/` 配下のディレクトリ名は実体名を保つ（install 先キャッシュのディレクトリ名になるため、`../<兄弟スキル>/` 参照を壊さない）。
 - `codex_marketplace`: Claude catalog の plugin 集合を Codex catalog へ同期した結果。既存 Codex-only entries と top-level metadata は保持し、既存 entry の policy/category は維持して不足フィールドだけ補う。
 - `actions.relocate`: `created`=未登録スキルを移動／`migrated`=旧 symlink レイアウトから反転／`kept`=既に移動済み。
+- `actions.workflow_scripts`: `.agents/skills/` から初めて公開するスキルについて、plugin の `workflows/` へ移した Workflow script と、名前の呼び出しに書き換えた SKILL.md の行番号。移す条件の正本は skill-creator-best-practices の `references/best-practices.md` §13「script の置き場」。
+- `actions.workflow_scripts_skipped`: 公開済みのスキルにあって移さなかった Workflow script と、その理由。
 - `leftover_symlinks`: `plugins/<plugin>/` 配下に残った symlink の相対パス。**常に空でなければならない**（残っていると Codex の install 先で中身ごと落ちる）。`bundle_ok` は `entities_ok` かつこれが空であること。
 
 - `version`: 実際に plugin.json へ書いた version。`version_bump`: その決め方（`explicit`=ユーザー明示／`X -> patch+1`=更新で patch を上げた／`default(0.1.0)`=新規）。
 - `bundled_skills`: `--bundle-skill` で同一プラグインに取り込んだ依存スキルの移動結果（`skills/<dep>`）。指定が無ければ空配列。既に別 plugin に属するスキルを指定した場合は exit 4 で中断する。
-- `--dry-run` 時は `actions` の代わりに `planned_actions`（`marketplace_entry` / `plugin_json: would_create (version X)` / `readme` / `relocate` / `bundled_relocations`）を返し、`version` / `version_bump` / `bundled_skills`（同梱予定の名前リスト）も返る。
+- `--dry-run` 時は `actions` の代わりに `planned_actions`（`marketplace_entry` / `plugin_json: would_create (version X)` / `readme` / `relocate` / `bundled_relocations` / `workflow_scripts` / `workflow_scripts_skipped`）を返し、`version` / `version_bump` / `bundled_skills`（同梱予定の名前リスト）も返る。
 
 ### 終了コード
 
@@ -206,6 +216,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 | 3 | 対象スキルの SKILL.md が無い | 設置不備として欠落パスを案内 |
 | 4 | 既存 catalog entry との衝突（`--update` 未指定）、依存スキルが別 plugin 所属、relocation preflight の二重実体・移動元欠落・不正状態など実体不整合 | `--update` 未指定時だけ更新可否をユーザーに明示確認。別 plugin 所属は共有不可の説明に従って対処し、その他は自動再試行せず stderr を説明して指示を待つ。preflight は catalog / manifest の書き込み前に全対象を検査する |
 | 5 | plugin / skill directory 名（`--depends-on` を含む）が許可形式でない、または許可 root / write destination が checkout 外へ解決される | fail-closed で中断し、入力または symlink 配置の修正を案内 |
+| 6 | Workflow script を plugin の `workflows/` へ移せない（条件の正本は skill-creator-best-practices の `references/best-practices.md` §13）。理由は stderr に出る | 何も書き込まずに、または移動の途中の失敗を元に戻してから中断する。stderr の理由をスキル側で直してから再実行する |
 
 ---
 
@@ -232,6 +243,7 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
     },
     "hooks": { "hooks/hooks.json": true, "scripts/<hook が参照する同梱ファイル>": true },
     "agents": { "agents/<name>.md": true },
+    "workflows": { "workflows/<f>.js": true },
     "inventory": { "Skills": 1, "Agents": 0, "Hooks": 1, "MCP servers": 0, "LSP servers": 0 },
     "details_ok": true
   },
@@ -240,10 +252,10 @@ input-resolver の出力（`status: ok`）＋ dependency-resolver で確定し�
 ```
 
 - **配布集合**：L2 の全検査（plugin.json の有無を含む）と L3 の一時 marketplace への複製は、plugin dir 配下の tracked ファイルと、gitignore されていない untracked ファイルだけを対象にする。marketplace は git リポジトリとして取得されるため実際に配布されるのは commit 済みのファイルで、untracked は commit するまで配布されない。登録直後の未 commit 状態も検証するために untracked を配布候補として含め、L2 の `untracked`（`count` と `paths`）に列挙する。gitignore された生成物（`make test` が作る `node_modules/` など）は検査も複製もしない。submodule（mode 160000）と untracked の入れ子 git リポジトリは中身が配布集合として見えないため、L2 の finding（`入れ子の git リポジトリか submodule がある: …`）で失敗する。git の呼び出しは `GIT_DIR` / `GIT_WORK_TREE` / `GIT_INDEX_FILE` など（`git rev-parse --local-env-vars` が返す変数）を継承しない。git 管理外で実行した場合は配布集合を決められないため、L2 は finding（`git 管理下に無いため配布集合を決められない: …`）で失敗し、L3 は `steps` に `distribution` の失敗を記録して install せずに失敗する。
-- **配布コンポーネント**：配布集合に含まれる skills（`skills/` と plugin.json の `skills` 宣言が指す dir 配下）・agents（`agents/*.md` と `agents` 宣言）・hooks（`hooks/hooks.json` と `hooks` のパス宣言）。plugin は検出したコンポーネントの分だけ検証される。スキルを持たない hooks だけの plugin も正当。どれも無ければ L2 で失敗する。
+- **配布コンポーネント**：配布集合に含まれる skills（`skills/` と plugin.json の `skills` 宣言が指す dir 配下）・agents（`agents/*.md` と `agents` 宣言）・hooks（`hooks/hooks.json` と `hooks` のパス宣言）・workflows（plugin 直下 `workflows/` の直下の `*.js`。名前で呼ぶ Workflow script）。plugin は検出したコンポーネントの分だけ検証される。スキルを持たない hooks だけの plugin も正当。どれも無ければ L2 で失敗する。
 - **L2**：Claude 用・Codex 用 plugin.json が揃い共通フィールドが一致すること／配布コンポーネントが 1 つ以上あること／各スキルが SKILL.md を持つこと／hooks 定義が JSON として読め、top-level が `hooks` だけで（Codex のパーサは他のフィールドがあると hook 全体を無効にする）、hook が 1 つ以上あり、command が `${CLAUDE_PLUGIN_ROOT}/…`・`$CLAUDE_PLUGIN_ROOT/…`・`${PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/…` で参照する同梱ファイル（ディレクトリ可）が plugin root 内に実在すること／**配布サブツリーに symlink が 1 つも無いこと**（読み取り専用）。plugin.json のインライン hooks 宣言は検証できないため失敗扱い。
-- **L3**：HOME を一時ディレクトリに差し替えた**実 install**。キャッシュの plugin root（`cache/<marketplace>/<plugin>/<version>`）に各コンポーネントの資産（SKILL.md・スキルの scripts・hooks.json と hook が参照するファイル・agent 定義）が実体（symlink でない）として展開され、`claude plugin details` の Component inventory がそのコンポーネントを 1 件以上数えるか（`details_ok`）。**実ホーム ~/.claude は変更しない**（終了時に一時ディレクトリごと後始末）。
-- install キャッシュに plugin root が見つからない場合、L3 の判定部分は `{"passed": false, "installed_root": null}` だけを返す（`steps` は付く。`skills` / `hooks` / `agents` / `inventory` / `details_ok` は含まない）。
+- **L3**：HOME を一時ディレクトリに差し替えた**実 install**。キャッシュの plugin root（`cache/<marketplace>/<plugin>/<version>`）に各コンポーネントの資産（SKILL.md・スキルの scripts・hooks.json と hook が参照するファイル・agent 定義・`workflows/*.js`）が実体（symlink でない）として展開され、`claude plugin details` の Component inventory がそのコンポーネントを 1 件以上数えるか（`details_ok`。workflows は inventory の表示を実測していないので数えず、実体の展開だけを見る）。**実ホーム ~/.claude は変更しない**（終了時に一時ディレクトリごと後始末）。
+- install キャッシュに plugin root が見つからない場合、L3 の判定部分は `{"passed": false, "installed_root": null}` だけを返す（`steps` は付く。`skills` / `hooks` / `agents` / `workflows` / `inventory` / `details_ok` は含まない）。
 - 終了コード：0=overall_passed / 5=検証失敗 / 3=登録 plugin dir 不在。
 - L4（実データ実行）は本スクリプト外。司令塔が AskUserQuestion で入力を聞いて実行する。
 

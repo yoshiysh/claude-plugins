@@ -4,11 +4,13 @@ import { cp, mkdir, mkdtemp, realpath, writeFile, readdir, readFile, rm, stat } 
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Codex } from '@openai/codex-sdk';
-import { createWorkflow, executeWorkflow, workflowContext } from './adapter.mjs';
-import { contextPolicy } from './contexts.mjs';
+import { Codex } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules/@openai/codex-sdk/dist/index.js';
+import { createWorkflow, executeWorkflow, workflowContext } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/adapter.mjs';
+import { contextPolicy } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/contexts.mjs';
+import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../../');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-'));
@@ -85,12 +87,14 @@ test('one-shot and bound adapters apply identical defaults and explicit inherit 
 });
 
 test('adapter rejects authority and call-shape overrides without dispatch', async t => {
-  const { host, configs } = await fixture(t);
+  const { dir, host, configs } = await fixture(t);
+  const creatorSource = join(dir, 'creator.js');
+  await writeFile(creatorSource, 'export const meta={name:"skill-creator-review",description:"x"}; return null;');
   assert.throws(() => createWorkflow({ ...host, trustedSource: false }), /trustedSource/);
   assert.throws(() => createWorkflow({ ...host, runRoot: 'relative' }), /absolute/);
   assert.throws(() => createWorkflow({ ...host, arbitrary: true }), /unsupported/);
   assert.throws(() => createWorkflow({ ...host, updateContract: { targetRoot: host.cwd, stagingRoot: host.cwd, targetDir: host.cwd, stagingDir: host.cwd } }), /unsupported/);
-  assert.throws(() => executeWorkflow({ scriptPath: '/unused', args: { mode: 'update' } },
+  await assert.rejects(executeWorkflow({ scriptPath: creatorSource, args: { mode: 'update' } },
     { cwd: host.cwd, runDir: host.cwd, trustedSource: true, CodexClass: host.CodexClass }), /createWorkflow host updatePolicy/);
   await assert.rejects(createWorkflow(host)({ scriptPath: '/missing', context: workflowContext() }), /unsupported/);
   const { runRoot, ...once } = host;
@@ -98,17 +102,26 @@ test('adapter rejects authority and call-shape overrides without dispatch', asyn
   assert.equal(configs.length, 0);
 });
 
+// runtime.mjs / resume.mjs / adapter.mjs は update の権限判定を meta.name の文字列一致で行う。名前が変わると判定が外れる。
+test('skill-creator review source keeps the meta.name that update authorization keys on', async () => {
+  const source = await readFile(join(repoRoot, 'plugins/skill-creator/workflows/review_skill.js'), 'utf8');
+  assert.equal(readSourceMetadata(source).name, 'skill-creator-review');
+});
+
 test('createWorkflow binds skill-creator update to host policy and returns a staged package', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-update-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const targetRoot = join(dir, 'targets'), stagingRoot = join(dir, 'staging'), runRoot = join(dir, 'runs');
   const workerDirectory = join(dir, 'worker'), targetDir = join(targetRoot, 'example');
-  await Promise.all([mkdir(targetRoot), mkdir(stagingRoot), mkdir(runRoot), mkdir(workerDirectory), mkdir(targetDir)]);
+  await Promise.all([mkdir(targetRoot), mkdir(stagingRoot), mkdir(runRoot), mkdir(workerDirectory)]);
+  await mkdir(targetDir);
   const [canonicalTargetRoot, canonicalStagingRoot, canonicalRunRoot, canonicalWorkerDirectory, canonicalTargetDir] =
     await Promise.all([targetRoot, stagingRoot, runRoot, workerDirectory, targetDir].map(path => realpath(path)));
   await writeFile(join(targetDir, 'SKILL.md'), 'before\n');
+  const sourceSnapshot = await createSnapshot({ target: canonicalTargetDir, scope: 'full' });
 
-  const scriptPath = join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices/scripts/review_skill.js');
+  const plugin = await realpath(join(repoRoot, 'plugins/skill-creator'));
+  const scriptPath = join(plugin, 'workflows/review_skill.js');
   const calls = [];
   const originalStartThread = Codex.prototype.startThread;
   Codex.prototype.startThread = function (options) {
@@ -127,10 +140,13 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
         assert.equal(options.sandboxMode, 'read-only');
         assert.equal(options.workingDirectory, canonicalWorkerDirectory);
       }
+      // Model an environment that cannot access the shared audit criteria; unavailable must remain explicit.
       const result = prompt.includes('"changed_files"')
         ? { changed_files: [{ path: 'SKILL.md', reason: 'test update', findings_addressed: [] }], summary: 'updated' }
-        : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
-            ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
+        : prompt.includes('[CATEGORY]: prompt-audit')
+          ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'shared audit criteria are unavailable' }
+          : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
+              ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
       return { events: (async function* () {
         yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({ json: JSON.stringify(result) }) } };
         yield { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } };
@@ -143,6 +159,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       cwd: canonicalWorkerDirectory,
       runRoot: canonicalRunRoot,
       trustedSource: true,
+      trustedPluginRoots: [plugin],
       modelMap: {
         sonnet: { model: 'test-reviewer', modelReasoningEffort: 'low' },
         opus: { model: 'test-updater', modelReasoningEffort: 'low' },
@@ -153,43 +170,50 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       agentTimeoutMs: 48000,
       updatePolicy: { targetRoot: canonicalTargetRoot, stagingRoot: canonicalStagingRoot },
     });
-    let result;
-    try {
-      result = await Workflow({
-        scriptPath,
-        args: {
-          skillDir: join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices'),
-          mode: 'update',
-          target: { skillPath: targetDir, scope: 'full' },
-          uncheckedItems: [],
-          intent: 'exercise the adapter update route',
-        },
-      });
-    } catch (error) {
-      const runs = await readdir(canonicalRunRoot);
-      const events = (await readFile(join(canonicalRunRoot, runs[0], 'events.jsonl'), 'utf8'))
-        .trim().split('\n').map(line => JSON.parse(line)).filter(event => event.type === 'agent.failed');
-      throw new Error(`${error.message}; agent failures: ${JSON.stringify(events.map(({ id, error: message }) => ({ id, message })))}`);
-    }
+    for (const selector of [{ scriptPath }, { name: 'skill-creator:skill-creator-review' }]) {
+      let result;
+      try {
+        result = await Workflow({
+          ...selector,
+          args: {
+            skillDir: join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices'),
+            mode: 'update',
+            target: { skillPath: targetDir, scope: 'full' },
+            snapshot: sourceSnapshot,
+            uncheckedItems: [],
+            promptAuditExpected: false,
+            intent: 'exercise the adapter update route',
+          },
+        });
+      } catch (error) {
+        const runs = await readdir(canonicalRunRoot);
+        const events = (await readFile(join(canonicalRunRoot, runs[0], 'events.jsonl'), 'utf8'))
+          .trim().split('\n').map(line => JSON.parse(line)).filter(event => event.type === 'agent.failed');
+        throw new Error(`${error.message}; agent failures: ${JSON.stringify(events.map(({ id, error: message }) => ({ id, message })))}`);
+      }
 
-    assert.equal(result.source_result.verdict, 'applied_to_staging');
-    assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
-    assert.equal(result.action_package.changed_files[0].operation, 'update');
-    assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
-    assert.equal(result.action_package.apply.source_dir, canonicalTargetDir);
-    assert.equal(result.action_package.apply.staging_dir.startsWith(canonicalStagingRoot + '/update-'), true);
-    assert.equal(result.action_package_sha256.length, 64);
-    assert.equal(await readFile(join(canonicalTargetDir, 'SKILL.md'), 'utf8'), 'before\n');
-    assert.equal(await readFile(join(result.action_package.apply.staging_dir, 'SKILL.md'), 'utf8'), 'after\n');
-    assert.ok(calls.some(call => call.sandboxMode === 'workspace-write'));
-    assert.ok(calls.filter(call => call.sandboxMode === 'workspace-write').every(call =>
-      call.sdkConfig.sandbox_workspace_write.network_access === false &&
-      call.sdkConfig.sandbox_workspace_write.exclude_slash_tmp === true &&
-      call.sdkConfig.sandbox_workspace_write.exclude_tmpdir_env_var === true &&
-      call.sdkConfig.sandbox_workspace_write.writable_roots.length === 0));
-    assert.ok(calls.filter(call => call.sandboxMode === 'read-only').every(call => call.workingDirectory === canonicalWorkerDirectory));
+      assert.equal(result.source_result.verdict, 'applied_to_staging');
+      assert.deepEqual([...result.source_result.reverify_receipt.skipped_unavailable], ['prompt-audit']);
+      assert.equal(result.source_result.target.skillPath, canonicalTargetDir);
+      assert.equal(result.source_result.source_snapshot.snapshot_dir, sourceSnapshot.snapshotDir);
+      assert.equal(result.action_package.changed_files[0].operation, 'update');
+      assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
+      assert.equal(result.action_package.apply.source_dir, canonicalTargetDir);
+      assert.equal(result.action_package.apply.staging_dir.startsWith(canonicalStagingRoot + '/update-'), true);
+      assert.equal(result.action_package_sha256.length, 64);
+      assert.equal(await readFile(join(canonicalTargetDir, 'SKILL.md'), 'utf8'), 'before\n');
+      assert.equal(await readFile(join(result.action_package.apply.staging_dir, 'SKILL.md'), 'utf8'), 'after\n');
+      assert.ok(calls.some(call => call.sandboxMode === 'workspace-write'));
+      assert.ok(calls.filter(call => call.sandboxMode === 'workspace-write').every(call =>
+        call.sdkConfig.sandbox_workspace_write.network_access === false &&
+        call.sdkConfig.sandbox_workspace_write.exclude_slash_tmp === true &&
+        call.sdkConfig.sandbox_workspace_write.exclude_tmpdir_env_var === true &&
+        call.sdkConfig.sandbox_workspace_write.writable_roots.length === 0));
+      assert.ok(calls.filter(call => call.sandboxMode === 'read-only').every(call => call.workingDirectory === canonicalWorkerDirectory));
+    }
   } finally {
     Codex.prototype.startThread = originalStartThread;
+    await cleanupSnapshot(sourceSnapshot.receiptPath);
   }
 });
 
@@ -207,7 +231,9 @@ test('createWorkflow requires host update policy and rejects mismatched target o
     dispatches++;
     throw new Error('must fail before dispatch');
   };
-  const request = target => ({ scriptPath: '/unused', args: { mode: 'update', target: { skillPath: target } } });
+  const creatorSource = join(dir, 'creator.js');
+  await writeFile(creatorSource, 'export const meta={name:"skill-creator-review",description:"x"}; return null;');
+  const request = target => ({ scriptPath: creatorSource, args: { mode: 'update', target: { skillPath: target } } });
   try {
     const noPolicy = createWorkflow({ cwd: workerDirectory, runRoot, trustedSource: true });
     await assert.rejects(noPolicy(request(targetDir)), /explicit host updatePolicy/);
@@ -216,7 +242,7 @@ test('createWorkflow requires host update policy and rejects mismatched target o
       updatePolicy: { targetRoot, stagingRoot } });
     await assert.rejects(Workflow(request(outsideTarget)), /outside updatePolicy\.targetRoot/);
     await assert.rejects(Workflow({
-      scriptPath: '/unused',
+      scriptPath: creatorSource,
       args: { mode: 'update', target: { skillPath: targetDir }, stagingDir: join(stagingRoot, 'caller-selected') },
     }), /cannot override it/);
     assert.equal(dispatches, 0);

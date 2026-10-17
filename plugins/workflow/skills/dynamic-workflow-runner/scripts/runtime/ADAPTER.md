@@ -1,7 +1,7 @@
 # Common Workflow adapter
 
 The common host binds the adapter once; callers retain the standard request shape.
-No caller-name registry, source filename convention, per-skill patch, prompt classifier,
+The scriptPath route needs no caller-name registry, source filename convention, per-skill patch, prompt classifier,
 model translator or additional coordinator is used.
 
 ```javascript
@@ -28,9 +28,10 @@ The existing runtime capability, permission and source validation still applies.
 creates it exclusively and stores its normal request/source/event journal there.
 No cleanup, overwrite or retry is added. Host configuration and each request are
 snapshotted so concurrent calls and later caller mutations do not share mutable policy.
-Each run has its own backend. Results are returned unchanged, without a new envelope.
+Each run has its own backend. Results from either selector are returned unchanged, without a new envelope.
 Limits are per Workflow call, not a global budget across calls. This adapter does not
-add native tool registration, global interception, approval forwarding or resume.
+add native tool registration, global interception, approval forwarding or native saved-agent resume.
+The explicit runtime checkpoint protocol is available to sources that implement its boundaries; see [runtime README](README.md).
 `agentTimeoutMs` bounds each backend call; for this one-shot adapter, when omitted it
 defaults to 80% of `timeoutMs`. A timed-out call is aborted and returned to the source as `null`, while
 the runtime journal records `agent.timeout`; the workflow-level `timeoutMs` still
@@ -66,7 +67,7 @@ The default is a declared `defaultProfile`, not an automatic guess. It handles r
 generated and absent labels. Advanced hosts can still supply exact assignments; these
 take precedence. Without defaultProfile, an unassigned label remains an error.
 An unknown defaultProfile is rejected. Selection origin is recorded as `host-default`
-or `exact-label`. Source request keys remain only scriptPath/args; a source cannot add
+or `exact-label`. Source request keys remain scriptPath or name, plus args; a source cannot add
 context, permission or host overrides to that call.
 
 The adapter does not inspect prompt prose to decide which plugins to disable, nor does
@@ -84,3 +85,7 @@ returns, default/explicit settings and rejection of host overrides. No model inf
 is required. These tests do not establish every Claude source construct or installed
 caller route is supported. Existing caller-side legacy instructions are outside this
 patch; hosts must select this common JS entry rather than the old manifest bridge.
+
+## Named call route
+
+Host `trustedPluginRoots` selects reviewed plugin roots. The manifest namespace and a unique literal `meta.name` in a direct `workflows/*.js` source resolve the qualified name, without a caller-name allowlist or separate Codex registry. See [the named contract](NAMED.md) for path/source validation, result preservation and caller-owned continuation. Native `resumeFromRunId` remains unsupported; the explicit runtime checkpoint protocol applies equally to both selectors.

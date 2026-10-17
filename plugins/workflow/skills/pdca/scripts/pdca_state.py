@@ -1187,6 +1187,9 @@ def prior_findings(state: State, role: str, conditions: list, viewpoint: str | N
 def cmd_brief(args) -> int:
     state = State(user_path(args.run_dir))
     role = args.role
+    pending = sorted(set(state.briefs) - state.used)
+    if pending:
+        raise StateError(f"未記録の brief がある: {', '.join(pending)}（先に record する）")
     if role not in AUTHORS:
         state.check_criteria_digest()
     nxt = state.next()
@@ -1228,6 +1231,17 @@ def cmd_brief(args) -> int:
             unknown = [c for c in conditions if c not in cond_ids]
             if unknown:
                 raise StateError(f"criteria に無い条件 ID: {', '.join(unknown)}")
+            verdicts = state.verdicts(criteria)
+            unmet_conditions = {v["condition"] for v in verdicts.values()
+                                if v["condition"] is not None and v["status"] != "pass"}
+            unmet_unscoped = any(v["condition"] is None and v["status"] != "pass" for v in verdicts.values())
+            supplied_conditions = set(conditions)
+            missing_conditions = sorted(unmet_conditions - supplied_conditions)
+            extra_conditions = sorted(supplied_conditions - unmet_conditions)
+            if missing_conditions:
+                raise StateError(f"writer の conditions に未充足条件が含まれていない: {', '.join(missing_conditions)}")
+            if extra_conditions and unmet_conditions and not unmet_unscoped:
+                raise StateError(f"writer の conditions に未充足でない条件が含まれる: {', '.join(extra_conditions)}")
             if state.next_writer_opens_round and state.rounds_used >= criteria["budget"]["rounds"]:
                 raise StateError(f"rounds の予算（{criteria['budget']['rounds']}）を使い切った")
             brief["conditions"] = record["conditions"] = conditions
@@ -1235,6 +1249,8 @@ def cmd_brief(args) -> int:
             vid = viewpoints[0]
             if vid not in table:
                 raise StateError(f"criteria に無い観点 ID: {vid}")
+            if state.verdicts(criteria)[vid]["reported"]:
+                raise StateError(f"現在の work では検証済みの viewpoint: {vid}")
             vp = table[vid]
             mode = "smoke" if vp.get("controls") and not state.smoke_ok(vid) else "verify"
             if mode == "verify" and not state.ledger.of("work", after=state.fix_seq):
@@ -1249,6 +1265,11 @@ def cmd_brief(args) -> int:
                 raise StateError(f"最終報告案が存在しない: {args.report_file}")
             brief["report"] = {"path": str(report.resolve()), "sha256": digest(report)}
             record["report_sha256"] = brief["report"]["sha256"]
+    expected_role, _, expected_aspect = nxt.partition(":")
+    if role != expected_role and not (role == "verifier" and nxt == "writer" and brief["mode"] == "smoke"):
+        raise StateError(f"brief の role は現在の status.next ({nxt}) と一致しない")
+    if args.aspect is not None and args.aspect != expected_aspect:
+        raise StateError(f"{role} の aspect は現在の status.next ({nxt}) と一致しない")
     entry = state.ledger.append("brief", record, brief_id=f"b{len(state.ledger.entries) + 1}")
     brief_id = entry["brief_id"]
     out_dir = state.run_dir / OUT

@@ -13,22 +13,29 @@
 #   --name NAME        runner 名（既定: ターゲットから自動生成）
 #   --labels a,b,c     追加ラベル（self-hosted と OS ラベルは自動付与）
 #   --version X.Y.Z    runner バージョン（既定: 最新を gh で解決）
-#   --dir DIR          設置ディレクトリ（~ 相対。既定: actions-runner。
-#                      同一マシンに複数 runner を置いて並列化する場合に変える）
+#   --dir DIR          設置ディレクトリ（~ 相対）。省略時は、--repo に登録済みの
+#                      ~/actions-runner* が 1 つならそれを使い、無ければ actions-runner
+#                      （別リポジトリが使用中なら actions-runner-<repo 名>）に新設する。
+#                      同じリポジトリに 2 台目以降を足すときは必ず指定する
+#   --allow-nohup      サービス化できるターゲットで nohup 起動に落ちても成功扱いにする
 #   --remove           設置ではなく登録解除して runner を削除する
 #
+# 終了コード: 0 成功 / 1 失敗 / 2 引数の誤り /
+#   3 登録と起動はできたが常駐化できていない（再起動で止まる。--allow-nohup で 0 にできる）
+#
 # 設計メモ:
-# - ターゲットへの到達方法は run_target() の 1 関数に隔離し、処理本体は常に
-#   stdin でターゲットの bash に流す。ssh → cmd.exe → wsl の多層クォートは
-#   cmd.exe がシングルクォートを剥がさず必ず壊れるため、クォートを一切
-#   経路に見せないことが唯一の安全な渡し方（wsl 経路の実測で確認済み）。
+# - ターゲットへの到達方法は lib/gh-runner-common.sh の run_target() に隔離し、
+#   起動と常駐化は gh-runner-ctl の enable に任せる（日常の start と同じ判定を使う）。
 # - 登録トークンはこのスクリプトを実行するマシンの gh 認証で実行時に取得する。
 #   トークンや秘密をスクリプト・ターゲットに保存しない。
 # - 既知の環境の壁は検出してエラーメッセージに対処コマンドを埋める（下記
 #   KNOWN WALLS）。ドキュメントではなくスクリプトが知識を持つ。
 set -uo pipefail
 
-REPO="" TARGET="" NAME="" EXTRA_LABELS="" VERSION="" REMOVE=0 RDIR="actions-runner"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/lib/gh-runner-common.sh"
+
+REPO="" TARGET="" NAME="" EXTRA_LABELS="" VERSION="" REMOVE=0 RDIR="" ALLOW_NOHUP=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
@@ -37,8 +44,9 @@ while [ $# -gt 0 ]; do
     --labels) EXTRA_LABELS="$2"; shift 2 ;;
     --version) VERSION="$2"; shift 2 ;;
     --dir) RDIR="$2"; shift 2 ;;
+    --allow-nohup) ALLOW_NOHUP=1; shift ;;
     --remove) REMOVE=1; shift ;;
-    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
+    -h|--help) print_usage "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -47,18 +55,43 @@ done
 say() { printf '\n===== %s =====\n' "$*"; }
 die() { printf 'NG: %s\n' "$*" >&2; exit 1; }
 
-# --- ターゲット到達アダプタ（唯一の分岐点） -------------------------------
-KIND="${TARGET%%:*}"; HOST="${TARGET#*:}"
-SSH_OPTS="-o ConnectTimeout=8 -o BatchMode=yes -o IgnoreUnknown=WarnWeakCrypto -o WarnWeakCrypto=no"
-run_target() {
-  case "$KIND" in
-    local)  bash -s ;;
-    ssh)    ssh $SSH_OPTS "$HOST" "bash -s" ;;
-    wsl)    ssh $SSH_OPTS "$HOST" "wsl --exec bash -s" ;;
-    docker) docker exec -i "$HOST" bash -s ;;
-    *) die "未知の TARGET 種別: ${KIND}（local / ssh: / wsl: / docker: のいずれか）" ;;
+set_target "$TARGET"
+
+UNREACHABLE="ターゲットに到達できない。ssh 疎通 / docker ps を確認。
+  macOS から LAN 先に 'No route to host' が出る場合はアプリの
+  ローカルネットワーク権限（TCC）が原因のことがある — Terminal.app から実行する"
+
+# 設置済みディレクトリは「登録済みならスキップ」で素通りするので、登録先を確かめないと
+# 別リポジトリの runner を掴んだまま、頼まれたリポジトリには何も登録せずに成功で終わる。
+say "設置先の確認"
+# macOS の bash 3.2 はコマンド置換の中の heredoc にある括弧と引用符を誤って解釈するので、ファイルに受ける。
+REGISTERED_FILE=$(mktemp)
+run_target > "$REGISTERED_FILE" <<EOF || die "$UNREACHABLE"
+for d in "\$HOME"/actions-runner*; do
+  [ -f "\$d/.runner" ] || continue
+  printf '%s\t%s\n' "\$(basename "\$d")" "\$(tr -d '\r\n' < "\$d/.runner" | sed -n 's/.*"gitHubUrl": *"\([^"]*\)".*/\1/p')"
+done
+EOF
+REGISTERED=$(tr -d '\r' < "$REGISTERED_FILE")
+rm -f "$REGISTERED_FILE"
+WANT_URL=$(printf 'https://github.com/%s' "$REPO" | tr '[:upper:]' '[:lower:]')
+registered_url() { printf '%s\n' "$REGISTERED" | awk -F'\t' -v d="$1" '$1 == d { print tolower($2) }'; }
+if [ -n "$RDIR" ]; then
+  CURRENT_URL=$(registered_url "$RDIR")
+  [ -z "$CURRENT_URL" ] || [ "$CURRENT_URL" = "$WANT_URL" ] \
+    || die "~/${RDIR} は ${CURRENT_URL} に登録済みで、--repo ${REPO} と違う。別の --dir を指定する"
+else
+  MATCHES=$(printf '%s\n' "$REGISTERED" | awk -F'\t' -v u="$WANT_URL" 'tolower($2) == u { print $1 }')
+  case "$(printf '%s' "$MATCHES" | grep -c .)" in
+    0)
+      RDIR=actions-runner
+      [ -z "$(registered_url "$RDIR")" ] || RDIR="actions-runner-${REPO##*/}"
+      [ -z "$(registered_url "$RDIR")" ] || die "~/${RDIR} は別のリポジトリに登録済み。--dir を指定する" ;;
+    1) RDIR="$MATCHES" ;;
+    *) die "${REPO} に登録済みのディレクトリが複数ある: $(printf '%s' "$MATCHES" | tr '\n' ' ')。--dir で対象を指定する" ;;
   esac
-}
+fi
+echo "~/${RDIR}"
 
 say "ターゲット調査 ($TARGET)"
 # sudo 判定は「svc.sh を NOPASSWD で実行できるか」で見る。`sudo -n true` だと
@@ -71,9 +104,7 @@ test -d /run/systemd/system && echo init=systemd || { [ "\$(uname -s)" = Darwin 
 { sudo -n true 2>/dev/null || sudo -n -l "\$HOME/${RDIR}/svc.sh" >/dev/null 2>&1; } && echo sudo=yes || echo sudo=no
 command -v curl >/dev/null && echo curl=yes || echo curl=no
 EOF
-) || die "ターゲットに到達できない。ssh 疎通 / docker ps を確認。
-  macOS から LAN 先に 'No route to host' が出る場合はアプリの
-  ローカルネットワーク権限（TCC）が原因のことがある — Terminal.app から実行する"
+) || die "$UNREACHABLE"
 OS=$(echo "$INFO"  | sed -n 1p | tr -d '\r')
 ARCH=$(echo "$INFO" | sed -n 2p | tr -d '\r')
 RUSER=$(echo "$INFO" | sed -n 3p | tr -d '\r')
@@ -119,6 +150,7 @@ esac
 LABELS="self-hosted,$OS_LABEL${EXTRA_LABELS:+,$EXTRA_LABELS}"
 [ "$KIND" = wsl ] && LABELS="$LABELS,wsl"
 [ "$KIND" = docker ] && LABELS="$LABELS,docker"
+LABELS=$(printf '%s' "$LABELS" | tr ',' '\n' | awk 'NF && !seen[$0]++' | paste -sd, -)
 
 # --- 登録解除モード ---------------------------------------------------------
 if [ "$REMOVE" = 1 ]; then
@@ -138,7 +170,7 @@ pkill -f "\$HOME/${RDIR}/bin/Runner.Listener" 2>/dev/null || true
 sleep 1
 ./config.sh remove --token "${RM_TOKEN}"
 EOF
-  gh api "repos/${REPO}/actions/runners" --jq '.runners[] | "\(.name): \(.status)"'
+  list_runners "$REPO"
   exit 0
 fi
 
@@ -173,46 +205,26 @@ EOF
 
 say "起動・常駐化（init=${INIT} sudo=${SUDO}）"
 START_LOG=$(mktemp)
-run_target <<EOF | tee "$START_LOG" || die "起動に失敗"
-cd ~/"${RDIR}"
-# 以前の実行が nohup 起動した listener が残ったままサービスを起動すると、
-# GitHub 側がセッション競合で 2 本目を拒否して二重・不安定になる。
-# サービスが active でないのに listener がいる = nohup 残骸なので先に止める。
-stop_orphan_listener() {
-  pgrep -f "\$HOME/${RDIR}/bin/Runner.Listener" >/dev/null || return 0
-  ./svc.sh status 2>/dev/null | grep -qiE "active \(running\)|^Started" && return 0
-  sudo -n ./svc.sh status 2>/dev/null | grep -qiE "active \(running\)" && return 0
-  pkill -f "\$HOME/${RDIR}/bin/Runner.Listener"; sleep 2
-}
-case "${INIT}/${SUDO}" in
-  systemd/yes)
-    stop_orphan_listener
-    # sudoers が svc.sh のフルパス限定のことがあるので絶対パスで呼ぶ
-    sudo -n "\$HOME/${RDIR}/svc.sh" install "${RUSER}" >/dev/null 2>&1 || true
-    sudo -n "\$HOME/${RDIR}/svc.sh" start 2>&1 | tail -1
-    echo "mode=systemd-service (再起動後も自動復帰)" ;;
-  launchd/*)
-    stop_orphan_listener
-    ./svc.sh install >/dev/null 2>&1 || true
-    ./svc.sh start 2>&1 | tail -1
-    echo "mode=launchd-service (ログイン中は自動復帰)" ;;
-  *)
-    if pgrep -f "\$HOME/${RDIR}/bin/Runner.Listener" >/dev/null; then echo already-running; exit 0; fi
-    nohup ./run.sh > runner.log 2>&1 &
-    sleep 3
-    pgrep -f "\$HOME/${RDIR}/bin/Runner.Listener" >/dev/null && echo "mode=nohup (再起動後は手動)" \
-      || { tail -5 runner.log; exit 1; }
-    ;;
-esac
-EOF
+"$HERE/gh-runner-ctl" --target "$TARGET" --dir "$RDIR" enable | tee "$START_LOG" || die "起動に失敗"
 
 say "GitHub 側の認識（repo の全 runner 一覧）"
 sleep 5
-gh api "repos/${REPO}/actions/runners" --jq '.runners[] | "\(.name): \(.status)"'
+list_runners "$REPO"
+
+# サービス化できるターゲットで nohup に落ちた runner は、登録も起動も済んで online に見えるが、
+# 次の再起動で消える。成功として終わると気づけないので、終了コードで区別する。
+NOT_PERSISTENT=0
+if grep -q 'mode=nohup' "$START_LOG" && [ "$INIT" != none ] && [ "$ALLOW_NOHUP" = 0 ]; then NOT_PERSISTENT=1; fi
+finish() {
+  [ "$NOT_PERSISTENT" = 1 ] || exit 0
+  printf '\nNG: %s は起動したが常駐化できていない（mode=nohup）。再起動すると止まる。\n' "$NAME" >&2
+  printf '    sudo を通してから再実行するか、承知のうえなら --allow-nohup を付ける。\n' >&2
+  exit 3
+}
 
 # --- KNOWN WALLS: 起動後に job が失敗する既知の環境の壁と対処 ---------------
 # 変化のない冪等再実行（already-running）では省略する。
-grep -q already-running "$START_LOG" && { rm -f "$START_LOG"; exit 0; }
+grep -q already-running "$START_LOG" && { rm -f "$START_LOG"; finish; }
 rm -f "$START_LOG"
 if [ "$OS_LABEL" = macos ]; then
   cat <<'NOTE'
@@ -245,3 +257,4 @@ if [ "$KIND" = docker ]; then
   echo "[docker の補足] コンテナ再作成で消える。イメージ側で ENTRYPOINT に run.sh を含めるか、"
   echo "restart policy のあるコンテナで /actions-runner を volume にすることを検討。"
 fi
+finish

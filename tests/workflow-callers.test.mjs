@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, promises as fs, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
+import { tmpdir } from 'node:os'
 import test from 'node:test'
+import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
+import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
 const pluginsRoot = join(repoRoot, 'plugins')
@@ -67,6 +70,18 @@ test('every Workflow caller declares the native-first transparent Codex route', 
   }
 })
 
+// args の中の `name:` を source selector と読まないため、入れ子の {...} を外した最上位のキーだけを見る。
+function selectorName(body) {
+  let top = body
+  for (let next = top.replace(/\{[^{}]*\}/g, ''); next !== top; next = top.replace(/\{[^{}]*\}/g, '')) top = next
+  return top.match(/(?:^|[\s,{])name\s*:\s*['"]([^'"]+)['"]/)?.[1] ?? null
+}
+
+test('name-form detection reads only the top-level selector', () => {
+  assert.equal(selectorName(' scriptPath: "[SKILL_DIR]/scripts/run.js", args: { name: "foo" } '), null)
+  assert.equal(selectorName(' name: "p:run", args: { name: "foo", nested: { name: "bar" } } '), 'p:run')
+})
+
 function namedWorkflowCallers() {
   const callers = []
   for (const pluginName of readdirSync(pluginsRoot)) {
@@ -77,9 +92,8 @@ function namedWorkflowCallers() {
       if (!existsSync(skillMd)) continue
       const source = readFileSync(skillMd, 'utf8')
       const names = [...source.matchAll(/Workflow\s*\(\s*\{([\s\S]*?)\}\s*\)/g)]
-        .map((m) => m[1].match(/(?:^|[\s,{])name\s*:\s*['"]([^'"]+)['"]/))
+        .map((m) => selectorName(m[1]))
         .filter(Boolean)
-        .map((m) => m[1])
       if (names.length) callers.push({ pluginName, skillMd, source, names: [...new Set(names)] })
     }
   }
@@ -98,24 +112,34 @@ function workflowMetaNames(pluginName) {
   )
 }
 
-// 名前で呼ぶ callsite は scriptPath を持たないので、runner の bridge（--declared-script-path）が受けられない。
-// caller は Codex で実行しないことを自分で書く。書かないと Codex の利用者は runner の拒否の理由を知らずに止まる。
-test('every name-form Workflow caller resolves to a plugin workflow and documents its Codex route', () => {
+test('every name-form Workflow caller resolves source metadata and documents its Codex route', async () => {
   const callers = namedWorkflowCallers()
   assert.ok(callers.length > 0, 'expected at least one name-form Workflow caller')
   for (const caller of callers) {
     for (const name of caller.names) {
       const [pluginName, workflowName] = name.split(':')
       assert.equal(pluginName, caller.pluginName, `${caller.skillMd}: ${name} must name a workflow of its own plugin`)
-      assert.ok(workflowMetaNames(pluginName).has(workflowName), `${caller.skillMd}: no plugins/${pluginName}/workflows/*.js has meta.name '${workflowName}'`)
+      const resolved = await resolveNamedWorkflow({ name }, { trustedPluginRoots: [join(pluginsRoot, pluginName)] })
+      assert.equal(resolved.identity.name, name)
+      assert.ok(workflowMetaNames(pluginName).has(workflowName))
+      assert.match(caller.source, /native Workflow が現在の tool inventory に無い Codex[^。]*`workflow:dynamic-workflow-runner`/)
+      assert.match(caller.source, /native を試行して失敗した call は runner で実行し直さない/)
+      assert.ok(caller.source.includes('`trustedPluginRoots`'), `${caller.skillMd}: trusted plugin roots are missing`)
+      assert.match(caller.source, /ゲートの返却・回答・保存はこの caller が持つ/)
     }
-    assert.match(caller.source, /native\s*の\s*Workflow\s*が無い\s*Codex\s*では実行しない/, `${caller.skillMd}: Codex fail-closed statement is missing`)
-    assert.match(caller.source, /`workflow:dynamic-workflow-runner`[^。]*名前の\s*callsite[^。]*受けない/, `${caller.skillMd}: runner rejection reason is missing`)
   }
 })
 
+test('prd-spec caller owns workspace scope and next_args continuation', () => {
+  const source = readFileSync(join(pluginsRoot, 'workflow/skills/prd-spec/SKILL.md'), 'utf8')
+  for (const field of ['modelMap', 'cwd', 'workspace.mode']) assert.ok(source.includes(`\`${field}`))
+  assert.match(source, /workspace-write/)
+  assert.match(source, /Codex runner は毎回 `next_args` で起動する/)
+  assert.match(source, /native `resumeFromRunId` と runner checkpoint は使わない/)
+})
+
 test('Workflow caller plugins declare Claude dependency without leaking it to Codex manifests', () => {
-  const pluginNames = new Set(workflowCallers().map((caller) => caller.pluginName))
+  const pluginNames = new Set([...workflowCallers(), ...namedWorkflowCallers()].map((caller) => caller.pluginName))
   for (const pluginName of pluginNames) {
     // workflow plugin 自身が caller を含む構成（review-document を収録）では
     // 自己依存は宣言できないので免除する。runner は同 plugin 内に同梱されている。
@@ -137,12 +161,10 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
-    ['workflow/review-document/scripts/review-document.js', 'rejected_source'],
+    ['workflow/review-document/scripts/review-document.js', 'read-only supported'],
     ['workflow/ooda/scripts/ooda.js', 'portable'],
-    ['research/dispatch/scripts/orchestrate.js', 'rejected_source'],
+    ['research/dispatch/scripts/orchestrate.js', 'host-default supported'],
     ['research/search/scripts/investigate.js', 'portable'],
-    ['skill-creator/skill-creator-best-practices/scripts/build_skill.js', 'portable'],
-    ['skill-creator/skill-creator-best-practices/scripts/review_skill.js', 'rejected_source'],
   ])
   const observed = new Set()
 
@@ -161,10 +183,38 @@ test('every active Workflow callsite has an explicit semantic portability classi
   assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered callsites must match exactly')
 })
 
-test('portable sources avoid hidden host state and the research source stays bounded', () => {
+test('every name-form Workflow callsite has an explicit semantic portability classification', () => {
+  const expected = new Map([
+    ['skill-creator:skill-creator-build', 'portable'],
+    ['skill-creator:skill-creator-review', 'portable'],
+  ])
+  // prd-spec は classification 行を持たず、Codex 経路は plugins/workflow/skills/prd-spec/tests/test_codex_runner.py が実行で検証する。
+  const exempt = new Set(['workflow:prd-spec-run'])
+  const observed = new Set()
+
+  for (const caller of namedWorkflowCallers()) {
+    for (const name of caller.names) {
+      if (exempt.has(name)) continue
+      const classification = expected.get(name)
+      assert.ok(classification, `${name}: add an explicit portability classification`)
+      observed.add(name)
+      assert.match(caller.source, new RegExp(`Codex classification: .*${classification}`))
+      assert.match(caller.source, /native `Workflow`/, `${caller.skillMd}: native-first route is missing`)
+      assert.match(caller.source, /fallback\s*しない/, `${caller.skillMd}: native-attempt failure boundary is missing`)
+      assert.match(caller.source, /runner\s*内\s*gate\s*に移さない/, `${caller.skillMd}: caller gate ownership is missing`)
+    }
+  }
+  assert.deepEqual(observed, new Set(expected.keys()), 'classification registry and discovered name-form callsites must match exactly')
+})
+
+test('portable and host-default sources avoid hidden host state and the research source stays bounded', () => {
   const sourcePath = join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js')
   const source = readFileSync(sourcePath, 'utf8')
-  const sourcePaths = [sourcePath, join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js')]
+  const sourcePaths = [
+    sourcePath,
+    join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
+    join(pluginsRoot, 'research', 'skills', 'dispatch', 'scripts', 'orchestrate.js'),
+  ]
   for (const path of sourcePaths) {
     const portableSource = readFileSync(path, 'utf8')
     for (const forbidden of [
@@ -188,7 +238,7 @@ test('portable sources avoid hidden host state and the research source stays bou
 test('portable sources declare every non-load-bearing model hint exactly once', () => {
   const sourcePaths = [
     join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
-    join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'build_skill.js'),
+    join(pluginsRoot, 'skill-creator', 'workflows', 'build_skill.js'),
     join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
   ]
   for (const sourcePath of sourcePaths) {
@@ -205,19 +255,37 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   }
 })
 
-test('rejected sources document their runtime boundary', () => {
+test('Codex-enabled caller boundaries are documented', () => {
   const dispatch = readFileSync(join(pluginsRoot, 'research', 'skills', 'dispatch', 'SKILL.md'), 'utf8')
-  assert.match(dispatch, /rejected_source[\s\S]*load-bearing exact model semantics/)
+  assert.match(dispatch, /args\.executionProfile` を `codex_host_default`/)
+  assert.match(dispatch, /Codex classification: host-default supported/)
 
   const creator = readFileSync(
     join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'references', 'codex-workflow-compatibility.md'),
     'utf8'
   )
-  assert.match(creator, /mode: review[\s\S]*rejected_source[\s\S]*file inventory/)
+  const creatorSkill = readFileSync(join(pluginsRoot, 'skill-creator', 'skills', 'skill-creator-best-practices', 'SKILL.md'), 'utf8')
+  assert.match(creatorSkill, /Codex classification: `portable`.*review \/ audit/)
+  assert.match(creator, /`review` \/ `audit`[\s\S]*target snapshot receipt/)
+  assert.match(creator, /sorted regular-file inventory[\s\S]*SHA-256/)
   assert.match(creator, /mode: update[\s\S]*updatePolicy[\s\S]*apply-update-package/)
+
+  const reviewDocument = readFileSync(join(pluginsRoot, 'workflow', 'skills', 'review-document', 'SKILL.md'), 'utf8')
+  assert.match(reviewDocument, /Codex classification: read-only supported/)
+  assert.match(reviewDocument, /runner request の `limits` は source の `meta\.limits`/)
 })
 
-test('skill-creator update requires an explicitly bound host policy', () => {
+test('named runner contract matches skill-creator review and audit snapshot routing', () => {
+  const named = readFileSync(join(pluginsRoot, 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'NAMED.md'), 'utf8')
+  assert.match(named, /`review` \/ `audit` are runnable[\s\S]*bounded[\s\S]*frozen snapshot/)
+  assert.match(named, /caller verifies the receipt again after the run/)
+  assert.match(named, /`audit` uses the caller's shared criteria reference/)
+  assert.match(named, /"snapshot": \{"\.\.\.": "review-snapshot\.mjs prepare output"\}[\s\S]*"modelMap":/)
+  assert.match(named, /"limits": \{"\.\.\.": "selector runner_limits, unchanged"\}/)
+  assert.doesNotMatch(named, /Only `create` and host-policy-bound `update` are runnable; `review` stops as `rejected_source`/)
+})
+
+test('skill-creator update checks host policy before snapshot proof and still requires both when bound', async () => {
   const selector = join(
     pluginsRoot,
     'skill-creator',
@@ -237,19 +305,41 @@ test('skill-creator update requires an explicitly bound host policy', () => {
   assert.equal(rejected.selected_runtime, null)
   assert.equal(rejected.halt, true)
   assert.match(rejected.rejected_reason, /rejected_source: mode=update/)
+  assert.doesNotMatch(rejected.rejected_reason, /snapshot proof/)
 
-  const bound = select('--update-policy-bound')
-  assert.equal(bound.selected_runtime, 'dynamic-workflow-runner')
-  assert.equal(bound.halt, false)
+  const boundMissingSnapshot = select('--update-policy-bound')
+  assert.equal(boundMissingSnapshot.selected_runtime, null)
+  assert.equal(boundMissingSnapshot.halt, true)
+  assert.match(boundMissingSnapshot.rejected_reason, /snapshot proof failed/)
 
-  const native = JSON.parse(execFileSync(process.execPath, [
-    selector,
-    '--mode', 'update',
-    '--native-available',
-    '--runner-installed',
-  ], { encoding: 'utf8' }))
-  assert.equal(native.selected_runtime, 'native')
-  assert.equal(native.halt, false)
+  const fixture = await fs.mkdtemp(join(tmpdir(), 'workflow-callers-snapshot-'))
+  const target = join(fixture, 'target')
+  await fs.mkdir(target)
+  await fs.writeFile(join(target, 'SKILL.md'), 'snapshot target\n')
+  const snapshot = await createSnapshot({ target, scope: 'full' })
+  try {
+    const proof = [
+      '--snapshot-receipt', snapshot.receiptPath,
+      '--snapshot-target', snapshot.targetRoot,
+      '--snapshot-scope', snapshot.scope,
+    ]
+    const bound = select('--update-policy-bound', ...proof)
+    assert.equal(bound.selected_runtime, 'dynamic-workflow-runner')
+    assert.equal(bound.halt, false)
+
+    const native = JSON.parse(execFileSync(process.execPath, [
+      selector,
+      '--mode', 'update',
+      '--native-available',
+      '--runner-installed',
+      ...proof,
+    ], { encoding: 'utf8' }))
+    assert.equal(native.selected_runtime, 'native')
+    assert.equal(native.halt, false)
+  } finally {
+    await cleanupSnapshot(snapshot.receiptPath)
+    await fs.rm(fixture, { recursive: true, force: true })
+  }
 })
 
 test('the compatibility runner remains internal-only', () => {

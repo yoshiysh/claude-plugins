@@ -1,9 +1,10 @@
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Workflow as runWorkflow } from './runtime.mjs';
+import { prepareWorkflowInvocation } from './runtime.mjs';
 import { codexBackend } from './codex.mjs';
 import { exactObject, backendKeys, limitKeys, requestKeys } from './inputs.mjs';
+import { namedHostKeys } from './named.mjs';
 
 // Common execution policy, not inference from a caller name, label or prompt.
 // Keep dependency catalogs available; source owns explicit task knowledge.
@@ -12,7 +13,7 @@ export function workflowContext() {
     assignments: {}, defaultProfile: 'workflow' };
 }
 
-const hostKeys = [...new Set([...backendKeys.filter(key => key !== 'updateContract'), 'trustedSource', 'requirements', 'updatePolicy', 'checkpoint', 'resume', ...limitKeys])];
+const hostKeys = [...new Set([...backendKeys.filter(key => key !== 'updateContract'), 'trustedSource', 'requirements', 'updatePolicy', 'checkpoint', 'resume', ...namedHostKeys, ...limitKeys])];
 const updatePolicyKeys = ['targetRoot', 'stagingRoot'];
 const inside = (root, path) => {
   const rel = relative(root, path);
@@ -67,33 +68,35 @@ async function bindUpdatePolicy(request, policy) {
   return { request: { ...request, args }, updateContract: { targetRoot, stagingRoot, targetDir, stagingDir } };
 }
 
-function executeBoundWorkflow(request, host, updateContract) {
+function executeBoundWorkflow(invocation, request, host, updateContract) {
   exactObject(request, requestKeys, 'Workflow request');
   const ownedRequest = structuredClone(request);
   const owned = snapshot(host, 'runDir');
   if (owned.updatePolicy !== undefined || owned.updateContract !== undefined)
     throw Error('update authorization is available only through createWorkflow updatePolicy');
-  const updateMode = ownedRequest.args?.mode === 'update';
-  if (updateMode !== (updateContract !== undefined))
-    throw Error('skill-creator update requires a createWorkflow host updatePolicy');
   const backendConfig = Object.fromEntries(backendKeys.filter(k => Object.hasOwn(owned, k)).map(k => [k, owned[k]]));
   if (updateContract !== undefined) backendConfig.updateContract = updateContract;
   backendConfig.context ??= workflowContext();
   // Null is invalid configuration, never an instruction to silently use defaults.
   if (owned.context === null) throw Error('context must be an object');
   const limits = Object.fromEntries(limitKeys.filter(k => Object.hasOwn(owned, k)).map(k => [k, owned[k]]));
-  return runWorkflow(ownedRequest, { ...limits, backend: codexBackend(backendConfig),
+  return invocation.execute(ownedRequest.args, { ...limits, backend: codexBackend(backendConfig),
     trustedSource: true, runDir: owned.runDir, requirements: owned.requirements,
     updateContract,
-    checkpoint: owned.checkpoint, resume: owned.resume });
+    checkpoint: owned.checkpoint, resume: owned.resume,
+    trustedPluginRoots: owned.trustedPluginRoots });
 }
 
 // The one-shot entry remains read-only; only the bound host can mint an update contract.
 export function executeWorkflow(request, host) {
   exactObject(request, requestKeys, 'Workflow request');
-  if (request.args?.mode === 'update')
-    throw Error('skill-creator update requires a createWorkflow host updatePolicy');
-  return executeBoundWorkflow(request, host);
+  const call = structuredClone(request), owned = snapshot(host, 'runDir');
+  if (owned.context === null) throw Error('context must be an object');
+  return (async () => {
+    const invocation = await prepareWorkflowInvocation(call, owned);
+    if (invocation.creatorUpdate) throw Error('skill-creator update requires a createWorkflow host updatePolicy');
+    return executeBoundWorkflow(invocation, call, owned);
+  })();
 }
 
 // Configure the host once. Each call keeps the standard {scriptPath,args} shape
@@ -106,15 +109,17 @@ export function createWorkflow(host) {
     exactObject(request, requestKeys, 'Workflow request');
     let call = structuredClone(request);
     let updateContract = owned.updateContract;
-    if (call.args?.mode === 'update' && updatePolicy !== undefined) {
+    const invocation = await prepareWorkflowInvocation(call, owned);
+    const isUpdate = invocation.creatorUpdate;
+    if (isUpdate && updatePolicy !== undefined) {
       const bound = await bindUpdatePolicy(call, updatePolicy);
       call = bound.request;
       updateContract = bound.updateContract;
-    } else if (call.args?.mode === 'update' && updateContract === undefined) {
+    } else if (isUpdate && updateContract === undefined) {
       throw Error('skill-creator update requires an explicit host updatePolicy');
     }
     const root = await realpath(runRoot);
     if (!(await stat(root)).isDirectory()) throw Error('runRoot must be a directory');
-    return executeBoundWorkflow(call, { ...owned, runDir: join(root, randomUUID()) }, updateContract);
+    return executeBoundWorkflow(invocation, call, { ...owned, runDir: join(root, randomUUID()) }, updateContract);
   };
 }
