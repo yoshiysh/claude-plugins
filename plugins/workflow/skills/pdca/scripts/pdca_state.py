@@ -85,6 +85,8 @@ DATA_SCHEMA = {
                       "observed": ANY, "evidence": ANY, "findings": list_of(ANY), "agent": TEXT}, {}),
     "judgment": ({"verdict": one_of(("complete", "not_complete")), "open": list_of(TEXT), "reason": ANY,
                   "agent": TEXT}, {}),
+    "rejected": ({"reason": TEXT}, {}),
+    "discard": ({}, {}),
     "continue": ({"count": natural(0), "next": TEXT}, {"refused": FLAG}),
     "close": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)), "human_gates": list_of(TEXT)}, {}),
 }
@@ -96,6 +98,9 @@ ALWAYS_VIEWPOINTS = {
 MAX_ROUNDS = 5
 # guide「stop after two or three automatic continuations」。
 MAX_AUTO_CONTINUE = 3
+# 較正した値ではない。周回の backstop をそのまま借りた。
+MAX_REJECTIONS = MAX_ROUNDS
+REJECTIONS_NOTE = "script が同じ役割の前の出力を拒否した理由（古い順）。同じ理由で拒否されない出力を書く"
 WAITING = ("ask_human", "await_human", "closed")
 INVOKE = "{brief} とそこに挙げたパスを自分で読み、{agent} に従い、結果を JSON で {out} に書け。"
 CONTINUE = "未充足の項目が残っている: {items}。完了を宣言せず、status の next（{next}）に従って続けよ。"
@@ -186,6 +191,11 @@ OUTPUT = {
 
 
 RECORD_KINDS = ("criteria_written", "criteria_review", "work", "smoke", "verification", "judgment")
+CONSUMING = (*RECORD_KINDS, "discard")
+
+
+def brief_key(brief_data: dict) -> tuple:
+    return brief_data["role"], brief_data.get("aspect") or brief_data.get("viewpoint")
 
 
 def record_kind(brief_data: dict) -> str:
@@ -726,23 +736,30 @@ class State:
         self.last_fix = self.ledger.last("fix")
         self.fix_seq = self.last_fix["seq"] if self.last_fix else 0
         self.briefs = {e["brief_id"]: e for e in self.ledger.of("brief")}
-        self.used = {e["brief_id"] for e in self.ledger.entries if e["kind"] != "brief" and "brief_id" in e}
+        self.used = {e["brief_id"] for e in self.ledger.of(*CONSUMING)}
+        self.discarded = {e["brief_id"] for e in self.ledger.of("discard")}
         self._assign_rounds()
 
     def _replay(self) -> None:
         issued: dict[str, dict] = {}
         consumed: set = set()
+        rejected: set = set()
         for e in self.ledger.entries:
             where = f"{self.ledger.path}:{e['seq']}"
             if e["kind"] == "brief":
                 if e.get("brief_id") != f"b{e['seq']}":
                     raise StateError(f"{where}: brief_id が script の採番と違う（script を経ない追記）")
                 issued[e["brief_id"]] = e
-            elif e["kind"] in RECORD_KINDS:
+            elif e["kind"] in (*CONSUMING, "rejected"):
                 brief = issued.get(e.get("brief_id"))
-                if brief is None or e["brief_id"] in consumed or record_kind(brief["data"]) != e["kind"]:
+                if brief is None or e["brief_id"] in consumed or (
+                        e["kind"] in RECORD_KINDS and record_kind(brief["data"]) != e["kind"]) or (
+                        e["kind"] == "discard" and e["brief_id"] not in rejected):
                     raise StateError(f"{where}: 発行済みで未使用の brief に対応しない {e['kind']}（script を経ない追記）")
-                consumed.add(e["brief_id"])
+                if e["kind"] == "rejected":
+                    rejected.add(e["brief_id"])
+                else:
+                    consumed.add(e["brief_id"])
             elif "brief_id" in e:
                 raise StateError(f"{where}: {e['kind']} は brief_id を持たない")
             if e["kind"] in ("fix", "close"):
@@ -776,10 +793,33 @@ class State:
         self.rounds_used = work_round
         self.next_writer_opens_round = verified_since_work
 
+    def pending_briefs(self) -> list[dict]:
+        return [{"brief_id": bid, **e["data"], "invoke": self.invoke(bid, e["data"]["role"]),
+                 "rejections": [r["reason"] for r in self.rejections(brief_key(e["data"])) if r["brief_id"] == bid]}
+                for bid, e in self.briefs.items() if bid not in self.used]
+
     def require_recorded(self) -> None:
-        pending = sorted(set(self.briefs) - self.used)
+        pending = [b["brief_id"] for b in self.pending_briefs()]
         if pending:
-            raise StateError(f"未記録の brief がある: {', '.join(pending)}（先に record する）")
+            raise StateError(f"未記録の brief がある: {', '.join(pending)}（先に record する。status の pending_briefs）")
+
+    def invoke(self, brief_id: str, role: str) -> str:
+        out_dir = self.run_dir / OUT
+        return INVOKE.format(brief=out_dir / f"{brief_id}.brief.json", agent=SKILL_DIR / "agents" / f"{role}.md",
+                             out=out_dir / f"{brief_id}.json")
+
+    def rejection_runs(self) -> dict[tuple, list[dict]]:
+        runs: dict[tuple, list[dict]] = {}
+        for e in self.ledger.entries:
+            if e["kind"] in RECORD_KINDS:
+                runs[brief_key(self.briefs[e["brief_id"]]["data"])] = []
+            elif e["kind"] == "rejected":
+                runs.setdefault(brief_key(self.briefs[e["brief_id"]]["data"]), []).append(
+                    {"brief_id": e["brief_id"], "reason": e["data"]["reason"]})
+        return runs
+
+    def rejections(self, key: tuple) -> list[dict]:
+        return self.rejection_runs().get(key, [])
 
     def doc_path(self, aspect: str) -> Path:
         return self.run_dir / DOCS[aspect]
@@ -1031,6 +1071,8 @@ class State:
         stuck = self.non_converging()
         if stuck:
             return stuck
+        if any(len(run) >= MAX_REJECTIONS for run in self.rejection_runs().values()):
+            return "stop:non_converging:記録の拒否"
         answered = self.ledger.last("answer")
         if answered and self.unreflected() and len([e for e in self.ledger.of("criteria_written", after=answered["seq"])
                                                     if e["data"]["aspect"] == "goal"]) >= 2:
@@ -1072,7 +1114,7 @@ class State:
         report = {"next": self.next(), "criteria_fixed": self.fixed(),
                   "auto_continue": {"count": self.auto_continues(), "max": MAX_AUTO_CONTINUE},
                   "findings": self.finding_counts(), "regressions": self.regressions(), "unmet": None,
-                  "sizes": self.sizes()}
+                  "sizes": self.sizes(), "pending_briefs": self.pending_briefs()}
         budget = self.fixed_budget()
         if budget:
             report["rounds"] = {"used": self.rounds_used, "budget": budget["rounds"]}
@@ -1289,7 +1331,7 @@ def cmd_brief(args) -> int:
         "output": COMMON_OUTPUT | OUTPUT[brief.get("mode", role)],
         "prior_findings": prior_findings(state, role, conditions, viewpoints[0] if viewpoints else None, args.aspect),
         "answers": list(state.answers().values()),
-    })
+    } | rejections_field(state.rejections(brief_key(record))))
     reads = ASPECTS[:ASPECTS.index(args.aspect) + 1] if args.aspect else ASPECTS
     brief["documents"] = {a: {"path": str(state.doc_path(a).resolve()), "sha256": state.doc_sha(a)} for a in reads}
     if role in DOCUMENT_READERS:
@@ -1304,14 +1346,17 @@ def cmd_brief(args) -> int:
         brief["status"] = str(status_file)
     brief_file = out_dir / f"{brief_id}.brief.json"
     brief_file.write_text(json.dumps(brief, ensure_ascii=False, indent=1), encoding="utf-8")
-    return emit({"brief_id": brief_id, "brief": str(brief_file),
-                 "invoke": INVOKE.format(brief=brief_file, agent=agent_file, out=out)})
+    return emit({"brief_id": brief_id, "brief": str(brief_file), "invoke": state.invoke(brief_id, role)})
 
 
 def check_means(state: State, vid: str) -> None:
     for m in state.last_fix["data"]["means"]:
         if m["viewpoint"] == vid and digest(Path(m["ref"])) != m["sha256"]:
             raise StateError(f"means.ref か controls の ref の digest が fix 時と違う: {m['ref']}")
+
+
+def rejections_field(items: list[dict]) -> dict:
+    return {"rejections": {"note": REJECTIONS_NOTE, "items": items}} if items else {}
 
 
 def cmd_record(args) -> int:
@@ -1321,14 +1366,28 @@ def cmd_record(args) -> int:
         raise StateError("出力は 1 つの object に限る（配列は受け付けない）")
     if not isinstance(out, dict):
         raise StateError("出力は object である必要がある")
-    stamped = SCRIPT_KEYS & set(out)
-    if stamped:
-        raise StateError(f"script が付けるキーを含む: {', '.join(sorted(stamped))}")
     brief = state.briefs.get(out.get("brief_id"))
     if brief is None:
         raise StateError(f"未発行の brief_id: {out.get('brief_id')!r}")
-    if brief["brief_id"] in state.used:
-        raise StateError(f"使用済みの brief_id: {brief['brief_id']}")
+    bid = brief["brief_id"]
+    if bid in state.discarded:
+        raise StateError(f"破棄した brief_id: {bid}（status の next に従って brief を出し直す）")
+    if bid in state.used:
+        raise StateError(f"使用済みの brief_id: {bid}")
+    try:
+        return record_output(state, brief, out)
+    except StateError as exc:
+        state.ledger.append("rejected", {"reason": str(exc)}, bid)
+        brief_file = state.run_dir / OUT / f"{bid}.brief.json"
+        content = read_json(brief_file) | rejections_field(state.rejections(brief_key(brief["data"])))
+        brief_file.write_text(json.dumps(content, ensure_ascii=False, indent=1), encoding="utf-8")
+        raise
+
+
+def record_output(state: State, brief: dict, out: dict) -> int:
+    stamped = SCRIPT_KEYS & set(out)
+    if stamped:
+        raise StateError(f"script が付けるキーを含む: {', '.join(sorted(stamped))}")
     role = brief["data"]["role"]
     if out.get("role") != role:
         raise StateError(f"ロールが brief と違う: brief は {role}")
@@ -1451,6 +1510,19 @@ def cmd_fix(args) -> int:
     return emit({"fixed": documents, "means": means, "next": State(state.run_dir).next()})
 
 
+def cmd_discard(args) -> int:
+    state = State(user_path(args.run_dir))
+    pending = {b["brief_id"]: b for b in state.pending_briefs()}
+    brief = pending.get(args.brief)
+    if brief is None:
+        raise StateError(f"未記録の brief ではない: {args.brief}（未記録の brief: {', '.join(pending) or 'なし'}）")
+    if not brief["rejections"]:
+        raise StateError(f"{args.brief} の record はまだ拒否されていない（破棄できるのは record が拒否された brief だけ）")
+    state.ledger.append("discard", {}, args.brief)
+    after = State(state.run_dir)
+    return emit({"discarded": args.brief, "next": after.next(), "pending_briefs": after.pending_briefs()})
+
+
 def cmd_status(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
@@ -1529,6 +1601,8 @@ def build_parser() -> Parser:
     p.add_argument("--report-file")
     p = command("record", cmd_record)
     p.add_argument("--file", required=True)
+    p = command("discard", cmd_discard)
+    p.add_argument("--brief", required=True)
     command("fix", cmd_fix)
     command("status", cmd_status)
     command("continue", cmd_continue)

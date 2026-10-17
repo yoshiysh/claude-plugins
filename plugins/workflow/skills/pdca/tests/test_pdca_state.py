@@ -84,10 +84,8 @@ class Run:
         return out, json.loads(Path(out["brief"]).read_text())
 
     def pending(self):
-        entries = [json.loads(line) for line in (self.dir / "ledger.jsonl").read_text().splitlines()]
-        used = {e["brief_id"] for e in entries if e["kind"] != "brief" and "brief_id" in e}
-        open_ = [e["brief_id"] for e in entries if e["kind"] == "brief" and e["brief_id"] not in used]
-        return json.loads((self.dir / "out" / f"{open_[0]}.brief.json").read_text()) if open_ else None
+        pending = self.ok("status")["pending_briefs"]
+        return json.loads((self.dir / "out" / f"{pending[0]['brief_id']}.brief.json").read_text()) if pending else None
 
     def submit(self, brief, body):
         path = Path(brief["out"])
@@ -294,6 +292,74 @@ class TestCodexExecution(Base):
         self.assertEqual(r.next(), "verifier")
         kinds = [json.loads(line)["kind"] for line in (r.dir / "ledger.jsonl").read_text().splitlines()]
         self.assertEqual(kinds.count("fix"), 1)
+
+    def test_未記録のbriefをstatusが返し拒否が続くbriefは破棄してamendへ進める(self):
+        r = self.run_(controlled=True)
+        r.fixed()
+        r.smoke()
+        r.work()
+        out, brief = r.brief("verifier", "--viewpoint", "C1-V2")
+        self.assertIn("record はまだ拒否されていない", r.refused("discard", "--brief", brief["brief_id"]))
+        r.harness.write_text("print(2)\n")
+        body = {"agent": "v", "viewpoint": "C1-V2", "status": "pass", "observed": 1, "evidence": "x", "findings": []}
+        reason = r.refused("record", "--file", str(r.submit(brief, body)))
+        self.assertIn("digest", reason)
+        [pending] = r.ok("status")["pending_briefs"]
+        self.assertEqual({k: pending[k] for k in ("brief_id", "role", "viewpoint", "mode", "invoke", "rejections")},
+                         {"brief_id": brief["brief_id"], "role": "verifier", "viewpoint": "C1-V2", "mode": "verify",
+                          "invoke": out["invoke"], "rejections": [reason]})
+        more = self.root / "more.txt"
+        more.write_text("追加の発言\n")
+        self.assertIn("未記録の brief", r.refused("amend", "--request-file", str(more)))
+        self.assertEqual(r.ok("discard", "--brief", brief["brief_id"])["pending_briefs"], [])
+        self.assertIn("破棄した brief_id", r.refused("record", "--file", str(r.submit(brief, body))))
+        self.assertEqual(r.ok("amend", "--request-file", str(more))["next"], "goal-framer:goal")
+        r.brief("goal-framer", "--aspect", "goal")
+
+    def test_recordの拒否理由をscriptがbriefに載せ破棄後の出し直しにも届ける(self):
+        r = self.run_()
+        r.init()
+        out, brief = r.brief("goal-framer", "--aspect", "goal")
+        bad = r.goal()
+        bad["phrases"] = bad["phrases"][:1]
+        r.write("goal", bad)
+        reason = r.refused("record", "--file", str(r.submit(brief, {"agent": "g1"})))
+        again = json.loads(Path(out["brief"]).read_text())
+        self.assertEqual(again["rejections"]["items"], [{"brief_id": brief["brief_id"], "reason": reason}])
+        self.assertEqual(r.ok("status")["pending_briefs"][0]["invoke"], out["invoke"])
+        r.ok("discard", "--brief", brief["brief_id"])
+        _, second = r.brief("goal-framer", "--aspect", "goal")
+        self.assertEqual(second["rejections"]["items"], again["rejections"]["items"])
+        r.write("goal", r.goal())
+        r.record(second, {"agent": "g2"})
+        _, review = r.brief("criteria-verifier", "--aspect", "goal")
+        self.assertNotIn("rejections", review)
+
+    def test_同じ役割のrecordの拒否が続けば非収束で止まり記録が通れば数え直す(self):
+        module = load_module()
+        r = self.run_()
+        r.init()
+        _, brief = r.brief("goal-framer", "--aspect", "goal")
+        bad = r.goal()
+        bad["phrases"] = bad["phrases"][:1]
+        r.write("goal", bad)
+        for _ in range(module.MAX_REJECTIONS - 1):
+            r.refused("record", "--file", str(r.submit(brief, {"agent": "g1"})))
+        self.assertEqual(r.next(), "goal-framer:goal")
+        r.write("goal", r.goal())
+        r.record(brief, {"agent": "g1"})
+        _, review = r.brief("criteria-verifier", "--aspect", "goal")
+        for _ in range(module.MAX_REJECTIONS):
+            r.refused("record", "--file", str(r.submit(review, {"agent": "c", "aspect": "goal", "reviewed_sha256": "x",
+                                                                "findings": [], "notes": []})))
+        self.assertEqual(r.next(), "stop:non_converging:記録の拒否")
+
+    def test_拒否の記録が無いbriefの破棄を台帳の読み込みが拒否する(self):
+        r = self.run_()
+        r.init()
+        _, brief = r.brief("goal-framer", "--aspect", "goal")
+        forge(r, "discard", {}, brief["brief_id"])
+        self.assertIn("discard", r.refused("status"))
 
     def test_cli_enforces_status_next_roles_viewpoints_and_full_cycle(self):
         r = self.run_()
@@ -1215,7 +1281,7 @@ class TestInputShape(Base):
             "amend": {"--run-dir", "--request-file"},
             "answer": {"--run-dir", "--question", "--option", "--text-file"},
             "brief": {"--run-dir", "--role", "--conditions", "--viewpoint", "--aspect", "--report-file"},
-            "record": {"--run-dir", "--file"},
+            "record": {"--run-dir", "--file"}, "discard": {"--run-dir", "--brief"},
             "fix": {"--run-dir"}, "status": {"--run-dir"}, "continue": {"--run-dir"}, "close": {"--run-dir"},
         })
 
