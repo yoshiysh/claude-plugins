@@ -10,10 +10,6 @@
             "source": "./plugins/git"
         },
         {
-            "name": "chat",
-            "source": "./plugins/chat"
-        },
-        {
             "name": "research",
             "source": "./plugins/research"
         },

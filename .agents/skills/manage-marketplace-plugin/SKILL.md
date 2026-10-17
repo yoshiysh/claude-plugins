@@ -34,7 +34,7 @@ SKILL.md はフロー進行（誰に何を渡すか・分岐・完了条件）�
 agents/input-resolver（sonnet）
   │  スキル名の表記ゆれを .agents/skills/ のスキルディレクトリ名と照合して解決
   │  SKILL.md 実在確認 / 登録先 plugin（既存追加・新カテゴリ新設・同名新規）の決定
-  │  plugin 名と公開名の重複・冗長（chat:chat / notion:notion-* 型）を検出したら
+  │  plugin 名と公開名の重複・冗長（research:research / notion:notion-* 型）を検出したら
   │  簡潔化候補つきで AskUserQuestion 確認
   │  version・author・description の決定
   │  marketplace.json を plugin 名で照合して登録済みか判定 → 登録済みなら update=true

@@ -59,7 +59,7 @@ ls -d plugins/*/skills/<skill_name> 2>/dev/null
 
 呼び出し名は `<plugin>:<公開名>` になる（公開名 = SKILL.md frontmatter の `name`。無ければディレクトリ名）。plugin 名は名前空間として機能するので、公開名側に plugin 名の情報が重複していると呼び出し名が冗長になる。次の 2 パターンを検出する：
 
-1. **完全一致**（`chat:chat` 型）：plugin 名と公開名が同じ。
+1. **完全一致**（`foo:foo` 型）：plugin 名と公開名が同じ。
 2. **接頭辞・包含の冗長**（`notion:notion-organize-knowledge` 型）：公開名が plugin 名（またはそのハイフン区切りの語）を含む。この場合、plugin 名部分を取り除いた簡潔な候補を作れる（例: `notion-organize-knowledge` → `organize-knowledge`、`skill-creator-best-practices` → `best-practices`）。
 
 どちらかを検出したら、**AskUserQuestion で確認する**。選択肢には**具体的な簡潔化候補を提示**する（機械的に plugin 名部分を除去した名前を第一候補とし、中身の動作から考えてより適切な名前があれば併記する）：
