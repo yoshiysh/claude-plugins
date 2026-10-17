@@ -78,20 +78,15 @@ description: >
 
 ### A. 起動前・実行中に落ちる（最優先）
 
-- `meta` が純粋なリテラルか（変数・関数呼び出し・スプレッド・テンプレート展開が入っていないか）
+- `[SKILL_DIR]/references/skill-writing-guide.md`「起動前に落ちる・resume が壊れる書き方（禁止）」表を Read し、
+  その全行（`agent()` の結果の扱いを含む）について script に該当箇所が無いかを 1 行ずつ照合する（表が正本。ここに列挙しない）
 - `meta` に `name` / `description` / `phases` が揃っているか
 - `meta.name` が `best-practices.md` §13「script の置き場」の `meta.name` の条件を満たすか（満たさないと公開時に
   plugin の `workflows/` へ移せず、名前で呼べない）
 - SKILL.md の selector と `skillDir` の渡し方が同じ節の規則どおりか（外れると公開時の書き換えが止まる）
-- `import()` を含まないか
-- `Date.now()` / `Math.random()` / 引数なし `new Date()` を含まないか
-- script から直接ファイル読み書き・shell 実行をしていないか（agent のタスクに寄せてあるか）
-- `phase()` のタイトルが `meta.phases[].title` と一致しているか
 
 ### B. 黙って間違える（次点。実行しても気づきにくい）
 
-- `agent()` の返り値を `.filter(Boolean)` せずに使っている箇所はないか。
-  `null` が混じったまま `.map()` や集計に流れると、欠測が値として数えられる
 - **集計を LLM にさせていないか**。平均・比率・件数は script の算術で出す
 - 閾値判定が式になっているか。「おおむね」「十分なら」のような自然言語判定が残っていないか
 - 検証結果を `schema` の構造化配列で受けているか。markdown 中の記号（❌ 等）を数えていないか

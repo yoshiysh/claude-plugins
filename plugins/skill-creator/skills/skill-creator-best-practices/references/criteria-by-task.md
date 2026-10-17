@@ -100,10 +100,8 @@
 これらは「散文で守らせる」のではなく「構造として満たされているか」を見る項目。
 
 - SKILL.md が script の**内側の手順を再掲していない**（script が唯一の正になっているか）
-- `meta` が純粋なリテラルで、`name` / `description` / `phases` を持つか
-- `phase()` のタイトルが `meta.phases[].title` と一致しているか
-- `import()` / `Date.now()` / `Math.random()` / 引数なし `new Date()` を含まないか
-- `agent()` の返り値を使う前に `.filter(Boolean)` しているか
+- `meta` が `name` / `description` / `phases` を持つか
+- `skill-writing-guide.md`「起動前に落ちる・resume が壊れる書き方（禁止）」表のどの行にも当たらないか（表が正本。ここに列挙しない）
 - `parallel()`（barrier）を使っている箇所に、**全件が揃う必要がある理由**が書かれているか。書けないなら `pipeline()` が正しい
 - 平均・比率・件数の**集計を LLM にさせていない**（script の算術になっているか）
 - 閾値判定が式で書かれているか（目分量の余地が無いか）

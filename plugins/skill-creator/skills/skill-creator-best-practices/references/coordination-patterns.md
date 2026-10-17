@@ -143,14 +143,14 @@
 - ループの正しさを監視するコード（skip 検出・bypass 検出・記録漏れ検知）を書き始めた
 
 **利点**：スキップ・bypass・閾値の目分量判定が**構造的に起こりえなくなる**（監視機構ごと削除できる）。集計を LLM にさせないので数字が正確。中断しても同一 session 内で resume 可能。
-**欠点**：**実行中にユーザー入力を受け取れない**。Claude Code 専用（Codex には該当機能が無い）。1 run のトークン消費が大きい。
+**欠点**：**実行中にユーザー入力を受け取れない**。1 run のトークン消費が大きい。native Workflow が無い Codex では `workflow:dynamic-workflow-runner` が実行し、runner が意味を保って実行できない graph は起動前に拒否される（互換性は `codex-workflow-compatibility.md` が正本）。
 
 **SKILL.md への反映**：
 - SKILL.md は「script を呼ぶ前」と「結果を受け取った後」だけを書く。区間の内側の手順を散文で再掲しない（script が唯一の正）
 - script は未公開の間 `<skill>/scripts/<name>.js` に置いて `Workflow({ scriptPath, args })` で呼び、公開後は plugin の `workflows/` へ移って名前で呼ぶ（2 段の規則は `best-practices.md` §13「script の置き場」が正本）
 - 人間ゲートは script の**境界**に置く。段階ごとに別 workflow として回し、gate FAIL は `status: "BLOCKED"` と理由・証拠を返して止める
 - agent プロンプトは `agents/` に残す（skill は専門知識、workflow は実行順序という分担）
-- Claude Code 専用である旨を SKILL.md に明記する
+- native Workflow が無い環境での経路（runner 経由の実行）と、runner が拒否したときの停止条件を SKILL.md に書く（書き方は `codex-workflow-compatibility.md`）
 
 **入れ子**：パターン 1–6 は script の制御フローとしてそのまま内側に入る（`parallel()` = Parallelization、designer→reviewer の until-pass = Generator-Verifier）。置換ではなく階層。
 
@@ -192,10 +192,4 @@ Workflow 実行型を採る場合でも、人間ゲートは workflow の**境�
 
 ## モデル選定基準
 
-| タスクの性質 | モデル |
-|------------|--------|
-| 深い創造・推論・高品質な生成 | Opus |
-| 構造的判断・分類・計画 | Sonnet |
-| 定型処理・パターンマッチング | Haiku |
-
-**注意**：Haiku は処理が完全に定型化できてから適用する。曖昧さや推論が残るタスクには Sonnet 以上を使う。
+`best-practices.md` §3「model と effort は役割ごとに組で選ぶ」の表と規則に従う（ここに写さない。写しは正本の更新に追随しない）。
