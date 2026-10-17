@@ -443,6 +443,32 @@ class TestCodexExecution(Base):
         _, writer = r.brief("writer", "--conditions", "C1", "C2")
         self.assertEqual(writer["conditions"], ["C1", "C2"])
 
+    def test_境界の問いを先に聞き答えた後に句の問いを聞くことをSKILL_mdが示す(self):
+        r = self.run_()
+        r.init()
+        ask = {"question": {"ask": "docs の外まで及ぶか", "options": [{"id": "a", "text": "docs の中だけ"},
+                                                                  {"id": "b", "text": "外も", "widen": [str(self.root)]}]}}
+        r.author("goal", doc=asking(r.goal(boundary=boundary(r, ask))))
+        r.review("goal")
+        self.assertEqual([q["id"] for q in r.ok("status")["ask_human"]], ["B"])
+        self.assertEqual(r.ok("answer", "--question", "B", "--option", "a")["next"], "ask_human")
+        self.assertEqual([q["id"] for q in r.ok("status")["ask_human"]], ["P1"])
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        boundary_text = skill.split("## 人間の境界", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("境界（`B`）か段階（`S`）の\n  問いが残る間、`ask_human` はそれだけを出す", boundary_text)
+
+    def test_codex手順はagentを起動しない全てのnextを流れか人間の境界へ辿らせ重複を持たない(self):
+        skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
+        route = skill.split("## 実行環境", 1)[1].split("## 役割", 1)[0]
+        step5 = route.split("\n5. ", 1)[1].split("\n\n", 1)[0]
+        for token in ("`fix`", "`close`", "`stop:*`", "`ask_human`", "`await_human`", "`closed`", "`--report-file`"):
+            self.assertIn(token, step5)
+        self.assertIn("未記録の brief は同時に 1 つまで\n（「固定するもの」）", route)
+        self.assertNotIn("次の brief を拒否するため", route)
+        risks = skill.split("## 残るリスク", 1)[1]
+        self.assertNotIn("reasoning_effort", risks)
+        self.assertEqual(skill.count("`reasoning_effort`"), 1)
+
     def test_codex_route_confirms_exact_agent_completion_before_record(self):
         skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
         route = skill.split("## 実行環境", 1)[1].split("## 役割", 1)[0]

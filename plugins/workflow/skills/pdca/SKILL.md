@@ -101,16 +101,17 @@ Codex では、各 `brief` の後に次を行う。
 4. `status` の `next` を確認してから次の `brief` を発行する。agent が `out` を書かずに終わったときも、
    `record` が拒否されたときも、`followup_task` で別の役割へ転用せず、新しい agent で同じ `invoke` を
    やり直す（拒否の扱いは「流れ」）。
-5. `next` が agent の役割を指さないときは brief を発行しない。`fix` なら `fix` を呼ぶ。`ask_human` では
-   agent を起動せず、司令塔が `status` の `ask_human` を「人間の境界」の手順で人間に示し、答えを `answer` で
-   記録してから `status` に戻る。`stop:*` は「流れ」の 4 に従う。
+5. `next` が agent の役割を指さないときは brief を発行しない。`fix` と `close` は「流れ」の 2 と 5、`stop:*` は
+   「流れ」の 4、`ask_human` と `await_human` は「人間の境界」に従い、`closed` なら終える。`ask_human` でも
+   agent は起動せず、司令塔が問いを示して答えを `answer` で記録してから `status` に戻る。`completion-judge` の
+   brief には、「流れ」の 5 の最終報告案を `--report-file` で渡す。
 
 `next` が `<役割>:<aspect>` の形なら、その役割と `--aspect` で `brief` を発行する。
 `criteria-verifier`・`verifier`・`writer` は、`brief` の返り値と拒否理由に従って次の入力を決める。
 対照の smoke は work の前にも実行できる。writer の brief は script が受け付ける条件 ID の範囲で作る。
 
-Codex collaboration の agent は同じ作業ツリーを共有する。`pdca_state.py` は未記録の brief が残る間、
-次の brief を拒否するため、同時に複数の agent は走らせない。writer は brief の担当条件にだけ変更を
+Codex collaboration の agent は同じ作業ツリーを共有する。未記録の brief は同時に 1 つまで
+（「固定するもの」）なので、同時に複数の agent は走らせない。writer は brief の担当条件にだけ変更を
 加える。基準・依頼・台帳は各役割の出力物と混ぜず、状態遷移は必ず `pdca_state.py` に記録する。
 
 ## 役割
@@ -158,7 +159,9 @@ script が検査しない、司令塔の workflow の判断:
 - プロダクトの価値に関わる判断（問いを続ける価値、目標や許容リスクの変更、予算の増額）は、
   人間に返す。
 - `next` が `ask_human` のとき（goal.json の問いと、`ask` を持つ検証者の指摘）は、`status` の
-  `ask_human` の問いと選択肢を、文を変えずにまとめて 1 回で人間に示す。選択肢の選び直しや言い換え、
+  `ask_human` に出ている問いと選択肢を、文を変えずにまとめて 1 回で人間に示す。境界（`B`）か段階（`S`）の
+  問いが残る間、`ask_human` はそれだけを出す。その答えで goal.json が書き直されることがあり、句の問いは
+  書き直した goal.json から出し直されるため。選択肢の選び直しや言い換え、
   選択肢の足し引きをしない。選ばれたら `answer --question <ID> --option <選択肢 ID>`、選択肢に無い答え
   なら、その発言を書き換えずにファイルへ写して `answer --question <ID> --text-file <ファイル>` で記録する。
   答えを `amend` で依頼原文に足さない（`amend` は答えでない新しい発言だけ）。
@@ -166,8 +169,9 @@ script が検査しない、司令塔の workflow の判断:
   完了条件の直しに戻る。
 - `stop:*` で止まったら、どの停止に当たったかと未充足の一覧（`unmet`。完了条件が未固定なら
   `criteria_open`。保留中の問いがあれば `ask_human`）を人間に報告する。止まった run と、周回の予算を
-  使い切った run は `amend` を受け付けない（足しても直す周が残っていない）。予算の増額が承認されたら、新しい run-dir で `init` し直し、前の run の request.md を
-  `--request-file` に、goal.json・scope.json・design.json・ledger.jsonl を `--material` に渡す。
+  使い切った run は `amend` を受け付けない（足しても直す周が残っていない）。予算の増額が承認されたら、
+  新しい run-dir で `init` し直し、前の run の request.md を `--request-file` に、
+  goal.json・scope.json・design.json・ledger.jsonl を `--material` に渡す。
 
 ## 結果の提示
 
@@ -208,5 +212,3 @@ script の構造では防げず、読み手が知っておくべきもの。
 - **Codex の agent 同一性**: 新しい collaboration agent の起動と別コンテキストは手順で要求するが、
   script は Codex の agent ID や会話履歴を検査できない。出力内の `agent` と空の `prompt_extra` は
   自己申告のまま残る。
-- **モデル**: Codex route は `model` / `reasoning_effort` の override を意図的に省略するため、agent は
-  呼び出し元の Codex セッション設定を継承する。Claude Code の役割ごとの格には対応付けない。
