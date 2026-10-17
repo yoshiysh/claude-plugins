@@ -1,6 +1,6 @@
 # Review Guidelines
 
-PR をレビューする AI（Claude・Gemini）向けの指示。実装の規約そのものは `AGENTS.md`「作業ルール」と `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md`（以下 best-practices.md）が正本で、ここでは写さない。
+PR をレビューする AI 向けの指示。実装の規約そのものは `AGENTS.md`「作業ルール」と `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md`（以下 best-practices.md）が正本で、ここでは写さない。
 
 ## 読むもの
 
@@ -8,7 +8,7 @@ PR をレビューする AI（Claude・Gemini）向けの指示。実装の規�
 
 | 変更 | 読むもの |
 |---|---|
-| `plugins/*/skills/` `.agents/skills/` の `SKILL.md`・`agents/*.md`・`references/*.md` | best-practices.md §1「SKILL.md の設計原則」・§2「description の設計」・§3「Sub-agent 設計」・§5「確定的処理はスクリプトに追い出す」・§10「チェックリスト（スキル公開前の確認）」・§11「Claude 5 世代の指示設計 — 世代共通の原則」・§12「制約の較正 — right altitude と代理指標の排除」 |
+| `plugins/*/skills/` `.agents/skills/` の `SKILL.md`・`agents/*.md`・`references/*.md` | `AGENTS.md`「現在の実体」、best-practices.md §1「SKILL.md の設計原則」・§2「description の設計」・§3「Sub-agent 設計」・§5「確定的処理はスクリプトに追い出す」・§10「チェックリスト（スキル公開前の確認）」・§11「Claude 5 世代の指示設計 — 世代共通の原則」・§12「制約の較正 — right altitude と代理指標の排除」 |
 | `plugins/*/workflows/*.js` | best-practices.md §13「オーケストレーション層の決定化 — Workflow 実行型」 |
 | スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `AGENTS.md`「注意点」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
 | `plugins/*/.claude-plugin/plugin.json`・`plugins/*/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json` | `AGENTS.md`「注意点」（2 つの `plugin.json` の同期、Claude 専用の `dependencies` と Codex 専用の `interface`、marketplace 名） |
@@ -16,6 +16,10 @@ PR をレビューする AI（Claude・Gemini）向けの指示。実装の規�
 | `*.md` | 事実の誤り、存在しないファイルやコマンドへの参照、正本との重複 |
 | `.github/workflows/` | 権限が必要以上に広い、Secret の露出、SHA で固定していない Action |
 | すべて | `AGENTS.md`「作業ルール」 |
+
+スキルを探すときは `plugins/` と、`.agents/skills/` のうち symlink でない entry（未公開スキルの実体）を検索する。`.agents/skills/` の公開済みスキルは `plugins/` の実体への symlink で、symlink を辿らない検索では中身が出ない（`AGENTS.md`「現在の実体」「注意点」）。
+
+`CLAUDE.md` と `.claude/skills` は `AGENTS.md` と `.agents/skills` への symlink なので、基底ブランチから戻された後も PR 側の実体を指す。`AGENTS.md` とスキルは実パス（`AGENTS.md`、`plugins/`、`.agents/skills/`）で読み、`CLAUDE.md`・`.claude/skills`・`.claude-pr/` 経由では読まない。PR がこの symlink 自体を変えたときは、その変更は差分（必要なら `.claude-pr/` のスナップショット）で確かめる。
 
 ## 観点
 
@@ -31,6 +35,7 @@ PR をレビューする AI（Claude・Gemini）向けの指示。実装の規�
 
 - 指摘には根拠の `file:line` を付ける。名前やコメントからの推測で指摘しない
 - 言語・ライブラリ・ツールの挙動についての主張（「この式は null でエラーになる」など）は、実行して確かめたか、使っている版の公式ドキュメントで確認できたものだけを書く。版ごとの文書が無いときは最新版で確かめ、そう書く。ドキュメントで確かめた指摘にはその URL を付ける。確かめられないなら書かない
+- 公式ドキュメントの版: Node.js は変更に関係する `package.json`（例: `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package.json`）の `engines` のメジャー版（`nodejs.org/docs/latest-v<major>.x/api/`）。Python は版を固定していないので `docs.python.org/3/` を使い、そう書く。Claude Code・Codex・GitHub Actions は現行の文書を使う
 - 指摘する前に、作者がそう書いた理由を考える。妥当な理由がありうるなら、断定せず質問の形で書く
 - 参照先の不在や frontmatter の欠落も指摘の対象にする。`make test`（中身は `AGENTS.md`「検証」）は GitHub Actions では走らないので、レビューで見なければ main に入る
 - この PR が持ち込んでいない既存の問題は、重大なものだけを書き、既存の問題だと明記する
@@ -49,6 +54,6 @@ LOW は 1 回のレビューで 5 件まで。それを超えた分は件数だ�
 ## 出力
 
 - 日本語で書く
-- 指摘は変更行（差分で追加・削除された行）にインラインで付け、全体の所見は summary に書く。変更されていない行の問題（変更で古くなった記述など）はインラインに付けられないので、summary に `path:line` で書く
+- 指摘は変更行（差分で追加・削除された行）にインラインで付け、先頭に「重大度」の表の名前を `[HIGH]` のように角括弧で書く。全体の所見は summary に書く。変更されていない行の問題（変更で古くなった記述など）はインラインに付けられないので、summary に `path:line` で書く
 - summary の冒頭に重大度ごとの件数を書く。指摘が無ければそう書く
-- 読めなかったファイルがあれば summary に列挙する。網羅したかのように書かない。Claude のレビューでは、読んだ範囲を workflow が実行ログから数えて summary に付けるので、Claude は列挙しない
+- 読めなかったファイルがあれば summary に列挙する。網羅したかのように書かない
