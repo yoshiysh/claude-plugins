@@ -67,16 +67,8 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
 
 観点によっては、`scripts/quick_validate.py` が「機械では判定できない」と宣言した項目が
 id つきで `[UNCHECKED_ITEMS]` として渡される。渡されたときは、**その id すべてについて**
-`unchecked_judgments` を返す。
-
-- 判定は `pass` / `partial` / `fail` / `unknown`。根拠（`evidence`）を必ず付ける。
-- 対象から判断できないなら `unknown`。`pass` に丸めない。
-- `partial` と `unknown` は `fail` と同格に扱われる（どれも「満たしている」と言えていない）。
-- 返ってこなかった id は script が未判定として指摘に変換する。黙って落とす経路は無い。
-
-機械検査が見ていない項目が id つきで届くのは、「設計レビューで見てください」と文章で
-委譲するだけだと、受け取った側が落としても出力に何も現れないため。id で渡せば、
-未判定は集合の差として機械的に出る。
+`unchecked_judgments` に `verdict` と `evidence` を返す。判定値の意味と扱いは、この役割定義と同じスキルの
+`references/schemas.md`「委譲項目（[UNCHECKED_ITEMS]）の受け渡し」に従う（返さなかった id は未判定として指摘に変換される）。
 
 ## prompt-audit 観点
 
@@ -102,7 +94,7 @@ Codex では Claude-only skill に頼らず、この参照先を適用する。�
 | `severity` | `blocker` / `major` / `minor` | update の打ち切り判定に使う。誇張すると不要な改稿ループを招く |
 | `suggested_fix` | どう直すか | 直し方が書けない指摘は、問題の所在がまだ特定できていない兆候 |
 | `present_in_original` | `draft` のみ。定義は `references/schemas.md`「finder の出力（FINDINGS_SCHEMA）」 | 「改稿が持ち込んだ」と「元からあった」を分ける唯一の材料 |
-| `audit_confidence` / `audit_action` | 外部 skill の監査を写す観点のみ。監査レポートの Confidence と Action をそのまま | script がここから severity を決め直す（写像と理由の正本は `review_skill.js` の `PROMPT_AUDIT_SEVERITY`） |
+| `audit_confidence` / `audit_action` | prompt-audit の観点のみ。監査の Confidence と Action をそのまま | script がここから severity を決め直す（写像と理由の正本は `review_skill.js` の `PROMPT_AUDIT_SEVERITY`） |
 
 `severity` の目安：
 

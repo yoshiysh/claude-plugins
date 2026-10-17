@@ -135,10 +135,7 @@ agent への切り出し原則そのものは変わらない — script のノ�
    - サブタスクが長期・複数ステップか → Agent Teams を追加
    - Workflow 実行型を採った場合、これらは script の制御フローとして内側に入る（置換ではなく入れ子）
 
-3. **各 Sub-agent のモデルを決定する**：
-   - 深い創造・推論・高品質な生成 → Opus
-   - 構造的判断・分類・計画 → Sonnet
-   - 定型処理・パターンマッチング → Haiku（定型化できてから）
+3. **各 Sub-agent のモデルと effort を決定する**：`references/best-practices.md` §3「model と effort は役割ごとに組で選ぶ」の表と規則に従う
 
 4. 以下をユーザーに提示して確認を取る：
 ```

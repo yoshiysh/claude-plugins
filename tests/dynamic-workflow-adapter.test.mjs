@@ -142,7 +142,7 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
       }
       // Model an environment that cannot access the shared audit criteria; unavailable must remain explicit.
       const result = prompt.includes('"changed_files"')
-        ? { changed_files: [{ path: 'SKILL.md', reason: 'test update', findings_addressed: [] }], summary: 'updated' }
+        ? { changed_files: [{ path: 'SKILL.md', reason: 'test update', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' }
         : prompt.includes('[CATEGORY]: prompt-audit')
           ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'shared audit criteria are unavailable' }
           : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,

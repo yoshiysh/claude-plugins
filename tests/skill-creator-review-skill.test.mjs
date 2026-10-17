@@ -62,13 +62,13 @@ for (const mode of ['review', 'update']) {
   });
 }
 
-function respondingAgent() {
+function respondingAgent(updaterResult = {
+  changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated',
+}) {
   const calls = [];
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label });
-    if (opts.label.startsWith('update-')) {
-      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
-    }
+    if (opts.label.startsWith('update-')) return updaterResult;
     return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
   };
   return { agent, calls };
@@ -81,6 +81,26 @@ test('update reverify finders receive intent verbatim', async () => {
   assert.ok(reverify.length > 0);
   for (const c of reverify) assert.ok(c.prompt.includes(`[INTENT]:\n${INTENT}`), c.label);
   assert.equal(result.verdict, 'applied_to_staging');
+});
+
+test('updater paths are normalized once so reverify and the returned changed_files agree', async () => {
+  const { agent } = respondingAgent({
+    changed_files: [{ path: './SKILL.md', reason: 'intent', findings_addressed: ['intent'] }],
+    out_of_scope_changes: [], summary: 'updated',
+  });
+  const { result } = await run('update', agent);
+  assert.equal(result.staging.changed_files[0].path, 'SKILL.md');
+  assert.deepEqual(Array.from(result.staging.reverify_scope.changed_files), ['SKILL.md']);
+});
+
+test('updater out_of_scope_changes reach the returned staging', async () => {
+  const outOfScope = [{ kind: 'outside_skill', path: 'plugins/skill-creator/workflows/review_skill.js', change: 'add a field' }];
+  const { agent } = respondingAgent({
+    changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: ['intent'] }],
+    out_of_scope_changes: outOfScope, summary: 'updated',
+  });
+  const { result } = await run('update', agent);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), outOfScope);
 });
 
 function intentMismatchAgent(presentInOriginal, findingLabels = ['find-why-driven-p2r1'], file = 'SKILL.md') {
@@ -100,7 +120,7 @@ function reverifyFindingAgent(finding, findingLabels) {
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label, phase: opts.phase });
     if (opts.label.startsWith('update-')) {
-      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
     }
     if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
     const findings = findingLabels.includes(opts.label) ? [finding] : [];
@@ -260,12 +280,14 @@ function finding(overrides = {}) {
   };
 }
 
-function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () => 'not_refuted' }) {
+function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () => 'not_refuted', outOfScopeByLabel = {} }) {
   const calls = [];
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label, phase: opts.phase });
     if (opts.label.startsWith('update-')) {
-      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
+      if (outOfScopeByLabel[opts.label] === null) return null;
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }],
+        out_of_scope_changes: outOfScopeByLabel[opts.label] || [], summary: 'updated' };
     }
     if (opts.label.startsWith('refute-')) {
       const verdict = votes(opts.label, opts.phase);
@@ -390,14 +412,49 @@ test('original finding re-reported as minor stays remaining instead of resolved'
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
-function perRoundAgent(countsByRound, globals) {
+function perRoundAgent(countsByRound, outOfScopeByLabel = {}) {
   const findingsByLabel = {};
   countsByRound.forEach((count, i) => {
     findingsByLabel[`find-why-driven-p2r${i + 1}`] = Array.from({ length: count }, (_, j) =>
       finding({ claim: `round ${i + 1} finding ${j + 1}`, present_in_original: false }));
   });
-  return scriptedAgent({ findingsByLabel });
+  return scriptedAgent({ findingsByLabel, outOfScopeByLabel });
 }
+
+test('out_of_scope_changes keep the same path under different kinds as separate entries', async () => {
+  const outside = { kind: 'outside_skill', path: 'references/old.md', change: 'a' };
+  const rename = { kind: 'delete_or_rename', path: 'references/old.md', change: 'b' };
+  const { agent } = perRoundAgent([0], { 'update-r1': [outside, rename] });
+  const { result } = await run('update', agent);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), [outside, rename]);
+});
+
+test('an updater failing in the first round leaves out_of_scope_changes unknown', async () => {
+  const { agent } = perRoundAgent([0], { 'update-r1': null });
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'update_failed');
+  assert.equal(result.staging.out_of_scope_changes, null);
+});
+
+test('an updater failing in a later round keeps the earlier rounds out_of_scope_changes', async () => {
+  const outside = { kind: 'outside_skill', path: 'workflows/review_skill.js', change: 'a' };
+  const { agent } = perRoundAgent([1], { 'update-r1': [outside], 'update-r2': null });
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'update_failed');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), [outside]);
+});
+
+test('out_of_scope_changes accumulate across update rounds and collapse the same kind and path', async () => {
+  const workflowChange = { kind: 'outside_skill', path: 'workflows/review_skill.js', change: 'add a field' };
+  const rename = { kind: 'delete_or_rename', path: 'references/old.md', change: 'rename' };
+  const { agent } = perRoundAgent([1, 0], {
+    'update-r1': [workflowChange],
+    'update-r2': [rename, { ...workflowChange, path: './workflows/review_skill.js', change: 'repeated' }],
+  });
+  const { result } = await run('update', agent);
+  assert.equal(result.revisions_used, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), [workflowChange, rename]);
+});
 
 test('stalled: unresolved count not below the best for STALL_ROUNDS rounds stops even when keys keep changing', async () => {
   const { agent, calls } = perRoundAgent([1, 1, 1, 1, 1]);
@@ -647,7 +704,7 @@ function optsRecordingAgent(byLabel = {}) {
     calls.push({ prompt, opts });
     if (byLabel[opts.label]) return byLabel[opts.label];
     if (opts.label.startsWith('update-')) {
-      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], summary: 'updated' };
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
     }
     if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
     return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER };

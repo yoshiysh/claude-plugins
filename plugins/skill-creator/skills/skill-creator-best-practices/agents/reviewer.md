@@ -79,9 +79,8 @@ SKILL.md が Orchestrator-Subagent パターンを採用している場合、以
 - その他パターンが採用されている場合：選択理由が要件と一致しているか
 
 **4. モデル適合性**
-- 深い創造・推論・高品質な生成 → Opus が割り当てられているか
-- 構造的判断・分類・計画 → Sonnet が割り当てられているか
-- 定型処理・パターンマッチング → Haiku が割り当てられているか（定型化済みのタスクのみ）
+- `[SKILL_DIR]/references/best-practices.md` §3「model と effort は役割ごとに組で選ぶ」を Read し、各 agent の
+  タスクの性質に対する model と effort の割り当てが妥当かを照合する（表をここに写さない。写しは正本の更新に追随しない）
 
 **5. インターフェースの整合性**
 - 各 agent の `[PLACEHOLDER]` 入力と、前の agent の出力が対応しているか
@@ -129,15 +128,9 @@ SKILL.md が Orchestrator-Subagent パターンを採用している場合、以
 ### 機械検査が判定できない項目（[UNCHECKED_ITEMS]）
 
 `scripts/quick_validate.py` が「機械では判定できない」と宣言した項目が、id つきで
-`[UNCHECKED_ITEMS]` に渡される。**渡された id すべてについて判定を返すこと。**
-
-- 判定は `pass` / `partial` / `fail` / `unknown`。根拠（`evidence`）を必ず付ける。
-- 対象から判断できないなら `unknown`。`pass` に丸めない。
-- `partial` と `unknown` は `fail` と同じく合格にならない。`fail` を避けて中間の値を選ぶ意味は無い。
-- 返ってこなかった id は script が未判定として失格に数える。項目を黙って落とす経路は無い。
-
-この委譲が id つきで届くのは、「設計レビューで見てください」と文章で渡すだけだと、
-受け取った側が落としても出力に何も現れず、誰にも分からないため。
+`[UNCHECKED_ITEMS]` に渡される。**渡された id すべてについて `verdict` と `evidence` を返すこと。**
+判定値の意味と扱いは `[SKILL_DIR]/references/schemas.md`「委譲項目（[UNCHECKED_ITEMS]）の受け渡し」に従う
+（返さなかった id は未判定として失格に数えられる）。
 
 ### トリガー判定
 テストケースを見て、このSKILL.mdのdescriptionが正しく機能するか確認する：
