@@ -9,7 +9,7 @@
 最終統合は、作業過程を見ていない読者が最初に読む唯一の文章になる。ツール呼び出しの間の
 terse な shorthand は許容されるが、この文章は作業スレッドの続きではなく、読者が初めて
 読む再説明として書く。作業中に作った語彙は読者のものではないので、再導入しない限り持ち込まない。
-壊れると、読者が矢印連鎖や自作ラベルを解読できず、結論に辿り着けない。
+これを守らないと、読者は作業中の矢印連鎖や自作ラベルを解読できず、結論に辿り着けない。
 
 ```
 Terse shorthand is fine between tool calls (that's you thinking out loud, and brevity there is good). Your final summary is different: it's for a reader who didn't see any of that.
