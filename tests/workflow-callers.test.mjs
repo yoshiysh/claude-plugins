@@ -162,7 +162,6 @@ test('Workflow caller plugins declare Claude dependency without leaking it to Co
 test('every active Workflow callsite has an explicit semantic portability classification', () => {
   const expected = new Map([
     ['workflow/review-document/scripts/review-document.js', 'read-only supported'],
-    ['workflow/ooda/scripts/ooda.js', 'portable'],
     ['research/dispatch/scripts/orchestrate.js', 'host-default supported'],
     ['research/search/scripts/investigate.js', 'portable'],
   ])
@@ -212,7 +211,6 @@ test('portable and host-default sources avoid hidden host state and the research
   const source = readFileSync(sourcePath, 'utf8')
   const sourcePaths = [
     sourcePath,
-    join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
     join(pluginsRoot, 'research', 'skills', 'dispatch', 'scripts', 'orchestrate.js'),
   ]
   for (const path of sourcePaths) {
@@ -239,7 +237,6 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
   const sourcePaths = [
     join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
     join(pluginsRoot, 'skill-creator', 'workflows', 'build_skill.js'),
-    join(pluginsRoot, 'workflow', 'skills', 'ooda', 'scripts', 'ooda.js'),
   ]
   for (const sourcePath of sourcePaths) {
     const source = readFileSync(sourcePath, 'utf8')

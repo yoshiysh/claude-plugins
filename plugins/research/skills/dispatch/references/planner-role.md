@@ -64,9 +64,8 @@ When the user is describing a problem, asking a question, or thinking out loud r
 **重要**: `/devil` のようなコマンド文字列をそのまま subagent の prompt に書いても、
 subagent 側にその定義は存在しないため効果がない。選んだコマンドの**効果を自然言語で
 展開して prompt 本文に埋め込む**こと（例: `/devil` を選んだら「この結論への最強の
-反論を先に構築してから見解を述べよ」という指示文にする）。これは
-`chat` スキルの prompt-compiler が単発助言相談に対して既に行っている
-のと同じ変換であり、本ロールではそれをあなた自身（Fable）が行う。
+反論を先に構築してから見解を述べよ」という指示文にする）。この変換は
+本ロールではあなた自身（Fable）が行う。
 
 選んだコマンド名は `persona_commands` フィールドにそのまま列挙する（監査用。展開後の
 自然言語指示は `prompt` フィールドに書く）。

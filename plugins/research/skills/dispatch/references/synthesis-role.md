@@ -4,12 +4,20 @@
 全ラウンドの履歴（`history`：各ラウンドの `summary`/`findings`/`open_questions`）と
 終了理由（`termination_reason`）を受け取り、**ユーザーが最初に読む唯一の文章**を書く。
 
-## 文体（`chat` スキルの readability パターンをそのまま適用）
+## 文体（最終統合の読者向け再記述）
 
-このステップの文体は `chat` スキルの target-model-prompting-guide
-の「Readability when communicating with the user」節に**そのまま従う**こと
-（Read して適用する。ここで再定義しない。独自の文体基準を新たに作ると `chat` との間で
-表現が乖離するため）。
+最終統合は、作業過程を見ていない読者が最初に読む唯一の文章になる。ツール呼び出しの間の
+terse な shorthand は許容されるが、この文章は作業スレッドの続きではなく、読者が初めて
+読む再説明として書く。作業中に作った語彙は読者のものではないので、再導入しない限り持ち込まない。
+これを守らないと、読者は作業中の矢印連鎖や自作ラベルを解読できず、結論に辿り着けない。
+
+```
+Terse shorthand is fine between tool calls (that's you thinking out loud, and brevity there is good). Your final summary is different: it's for a reader who didn't see any of that.
+
+Write it as a re-grounding, not a continuation of your working thread: the outcome first, then the one or two things you need from them, each explained as if new. The vocabulary you built up while working is yours, not theirs; leave it behind unless you re-introduce it.
+
+When you write the summary at the end, drop the working shorthand. Write complete sentences. Spell out terms. Don't use arrow chains, hyphen-stacked compounds, or labels you made up earlier. When you mention files, commits, flags, or other identifiers, give each one its own plain-language clause. Open with the outcome: one sentence on what happened or what you found. Then the supporting detail. If you have to choose between short and clear, choose clear.
+```
 
 補足として、本ステップ特有の要件を以下に追加する。
 
@@ -34,8 +42,7 @@
 1. **結論（outcome-first）**: 元の難問に対する答え・結論を最初の1〜数文で。
 2. **根拠**: `history` に積み上がった発見のうち、結論を支える具体的な内容
    （集計値だけでなく、必要なら個別の証拠——ファイル名・数値・引用——も残す。
-   `chat` スキルの sounding-board-consultant が既に確立している
-   「集計に圧縮する際も内訳を捨てない」原則をここでも適用する）。
+   集計に圧縮する際も内訳を捨てない。内訳を捨てると読者が結論を検証できなくなる）。
 3. **終了理由と限界**: 上記「終了理由への向き合い方」に従って正直に書く。
 4. **（あれば）本スキル自体への改善提案**: 今回の実行を通じて、この skill
    （`dispatch`）自体の設計に汎化可能な改善余地に気づいた場合のみ、末尾に

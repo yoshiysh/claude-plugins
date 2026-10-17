@@ -6,7 +6,7 @@ description: >
   （コードの根本原因調査、アーキテクチャ考古学、オープンエンドな調査統合、設計空間の多角探索、
   複雑な意思決定の材料集めなど）。投資判断（銘柄評価・売買
   タイミング・ポートフォリオ構築）は扱わない（→ investment-strategist / magi）。単発の壁打ちで
-  十分な相談は扱わない（→ chat）。ユーザーが「徹底的に調べてほしい」「多角的に検証しながら
+  十分な相談は扱わない。ユーザーが「徹底的に調べてほしい」「多角的に検証しながら
   深掘りしてほしい」「一人の視点では信用できないので複数の観点でチェックしながら進めてほしい」
   のように、反復的な検証を伴う難しい調査・分析タスクを持ちかけたときに使う。
 ---
@@ -43,9 +43,8 @@ native Claude Workflow の副次的な利点: Workflow ツールは `resumeFromR
 ## 何をしないか（境界）
 
 - **投資判断を扱わない**：銘柄評価・売買タイミング・ポートフォリオ構築の相談は
-  `investment-strategist` / `magi` へ誘導する。理由は `chat/SKILL.md` と同じ
-  （投資助言の規制境界を一元管理から外さない）。
-- **単発の壁打ちには使わない**：1往復の助言で足りる相談は `chat` の方が速く安い。
+  `investment-strategist` / `magi` へ誘導する。理由は、投資助言の規制境界を一元管理から外さないため。
+- **単発の壁打ちには使わない**：1往復の助言で足りる相談では複数ラウンドの費用に見合わない。
   本スキルは「複数ラウンドの反復検証が本質的に必要な難問」向け。
 - **agent に状態変更をさせない**：本スキルの deliverable は
   synthesis（統合された見解・調査結果）であり、ファイル変更やコマンド実行の実施ではない。
@@ -217,9 +216,8 @@ model 記述、`references/fable-orchestration-prompting-guide.md` の内容と�
 - `references/evaluator-role.md` — native Claude Evaluate ステップで読む役割定義
   （収束判定基準、Ground progress claims 原則）
 - `references/synthesis-role.md` — native Claude 最終統合ステップで読む役割定義
-  （outcome-first、`chat` の readability パターンを参照）
+  （outcome-first、読者向け再記述の文体を本文に持つ）
 - `references/codex-host-default/*.md` — Codex profile の各 role instructions。Fable 固有のガイドは参照せず、
   全 worker を host-default model で実行する。
 - `references/fable-orchestration-prompting-guide.md` — [Claude model update procedure](#claude-model-update-procedure) が対象にする、公式 Fable 5 prompting guide の
-  うち、`chat/references/target-model-prompting-guide.md`（単発助言向け）が扱っていない
-  「並列委譲・自己検証・メモリ・自律運用」節を条件抜粋したもの
+  うち「並列委譲・自己検証・メモリ・自律運用」節を条件抜粋したもの

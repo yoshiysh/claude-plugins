@@ -7,11 +7,10 @@ Claude Code / Codex 向けの汎用スキル集。marketplace plugin として�
 | plugin | 内容 |
 |---|---|
 | `git` | commit メッセージ生成・PR 作成・ブランチ掃除 |
-| `chat` | Fable 5 を壁打ち相手にする技術相談（fable / rigorous） |
 | `research` | 一次情報検証つき調査（search）・多角深掘り（dispatch）・URL 読み取り（url-reader） |
 | `notion` | Notion の capture queue を根拠付きで整理・登録 |
 | `skill-creator` | マルチエージェントでスキルを作成・評価・更新 |
-| `workflow` | PDCA ループ実行（pdca）・要求文書/仕様書の作成（prd-spec）・文書レビュー（review-document）・PR 等の多観点レビューと指摘修正（pr-review / pr-review-fix）・Codex 向け Workflow 互換層 |
+| `workflow` | 要求文書/仕様書の作成（prd-spec）・文書レビュー（review-document）・PR 等の多観点レビューと指摘修正（pr-review / pr-review-fix）・Codex 向け Workflow 互換層 |
 | `performance` | エージェント作業のトークン使用量の opt-in 計測と、品質を維持した改善候補の提示 |
 | `claim-gate` | 不在・網羅型の断定に裏付けか手段スコープが無ければ排出前に差し戻す Stop hook（opt-in・既定 off） |
 | `shunt` | 大きなファイルの読み込みとボイラープレート生成を Gemini worker へ委譲してトークンを節約する（`CLAUDE_PLUGINS_GEMINI_API_KEY` が必要） |
