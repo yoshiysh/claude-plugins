@@ -85,9 +85,7 @@ DATA_SCHEMA = {
                       "observed": ANY, "evidence": ANY, "findings": list_of(ANY), "agent": TEXT}, {}),
     "judgment": ({"verdict": one_of(("complete", "not_complete")), "open": list_of(TEXT), "reason": ANY,
                   "agent": TEXT}, {}),
-    "rejected": ({"reason": TEXT, "drift": FLAG},
-                 {"output_sha256": TEXT, "status": one_of(VERIFY_STATUSES), "verdict": one_of(("not_complete",)),
-                  "findings": list_of(ANY), "open": list_of(TEXT)}),
+    "rejected": ({"reason": TEXT}, {}),
     "discard": ({}, {}),
     "continue": ({"count": natural(0), "next": TEXT}, {"refused": FLAG}),
     "close": ({"documents": shaped(dict.fromkeys(ASPECTS, TEXT)), "human_gates": list_of(TEXT)}, {}),
@@ -96,17 +94,14 @@ ALWAYS_VIEWPOINTS = {
     "R-REQUEST": "依頼原文と成果物を直接照らし合わせ、依頼の各文が満たされているか",
     "R-OUTSIDE": "条件に書かれていない所（範囲外のファイル・既存の利用者・他のスキル）への影響",
 }
-# 2 つとも改修前の周回 backstop（5）を引き継いだ値で、較正した値ではない。
+# 改修前の周回 backstop（5）を引き継いだ値で、較正した値ではない。
 MAX_ROUNDS = 5
-MAX_REJECTIONS = MAX_ROUNDS
 # guide「stop after two or three automatic continuations」。
 MAX_AUTO_CONTINUE = 3
-REJECTIONS_NOTE = ("script が同じ役割の前の出力を拒否した理由と、その出力から読めた否定の結論（古い順）。"
-                   "否定の結論は記録に引き継がれる。同じ理由で拒否されない出力を書く")
-NOT_REOPENED = "fix 済みで、完了条件の文書への未解決の指摘も amend も無い"
-FINISHED = ("await_human", "closed")
-WAITING = ("ask_human", *FINISHED)
-STATUS_RANK = {"pass": 0, "not_done": 1, "fail": 2}
+# 較正した値ではない。周回の backstop をそのまま借りた。
+MAX_REJECTIONS = MAX_ROUNDS
+REJECTIONS_NOTE = "script が同じ役割の前の出力を拒否した理由（古い順）。同じ理由で拒否されない出力を書く"
+WAITING = ("ask_human", "await_human", "closed")
 INVOKE = "{brief} とそこに挙げたパスを自分で読み、{agent} に従い、結果を JSON で {out} に書け。"
 CONTINUE = "未充足の項目が残っている: {items}。完了を宣言せず、status の next（{next}）に従って続けよ。"
 
@@ -197,7 +192,6 @@ OUTPUT = {
 
 RECORD_KINDS = ("criteria_written", "criteria_review", "work", "smoke", "verification", "judgment")
 CONSUMING = (*RECORD_KINDS, "discard")
-SUBJECT_CHANGES = ("fix", "work", "criteria_written")
 
 
 def brief_key(brief_data: dict) -> tuple:
@@ -216,10 +210,6 @@ def judged_complete(judgment: dict | None) -> bool:
 
 
 class StateError(Exception):
-    pass
-
-
-class DriftError(StateError):
     pass
 
 
@@ -763,7 +753,7 @@ class State:
     def _replay(self) -> None:
         issued: dict[str, dict] = {}
         consumed: set = set()
-        drift: dict[str, bool] = {}
+        rejected: set = set()
         for e in self.ledger.entries:
             where = f"{self.ledger.path}:{e['seq']}"
             if e["kind"] == "brief":
@@ -774,10 +764,10 @@ class State:
                 brief = issued.get(e.get("brief_id"))
                 if brief is None or e["brief_id"] in consumed or (
                         e["kind"] in RECORD_KINDS and record_kind(brief["data"]) != e["kind"]) or (
-                        e["kind"] == "discard" and not drift.get(e["brief_id"])):
+                        e["kind"] == "discard" and e["brief_id"] not in rejected):
                     raise StateError(f"{where}: 発行済みで未使用の brief に対応しない {e['kind']}（script を経ない追記）")
                 if e["kind"] == "rejected":
-                    drift[e["brief_id"]] = e["data"]["drift"]
+                    rejected.add(e["brief_id"])
                 else:
                     consumed.add(e["brief_id"])
             elif "brief_id" in e:
@@ -816,14 +806,8 @@ class State:
 
     def pending_briefs(self) -> list[dict]:
         return [{"brief_id": bid, **e["data"], "invoke": self.invoke(bid, e["data"]["role"]),
-                 "rejections": [r for r in self.rejections(brief_key(e["data"])) if r["brief_id"] == bid]}
+                 "rejections": [r["reason"] for r in self.rejections(brief_key(e["data"])) if r["brief_id"] == bid]}
                 for bid, e in self.briefs.items() if bid not in self.used]
-
-    def require_live(self) -> str:
-        nxt = self.next()
-        if nxt.startswith("stop:") or nxt in FINISHED:
-            raise StateError(f"停止中（next = {nxt}）。止まった run の台帳は進めない。続けるなら新しい run で init する")
-        return nxt
 
     def require_recorded(self) -> None:
         pending = [b["brief_id"] for b in self.pending_briefs()]
@@ -838,13 +822,11 @@ class State:
     def rejection_runs(self) -> dict[tuple, list[dict]]:
         runs: dict[tuple, list[dict]] = {}
         for e in self.ledger.entries:
-            if e["kind"] in SUBJECT_CHANGES:
-                runs = {}
-            elif e["kind"] in RECORD_KINDS:
+            if e["kind"] in RECORD_KINDS:
                 runs[brief_key(self.briefs[e["brief_id"]]["data"])] = []
             elif e["kind"] == "rejected":
                 runs.setdefault(brief_key(self.briefs[e["brief_id"]]["data"]), []).append(
-                    {"brief_id": e["brief_id"]} | {k: v for k, v in e["data"].items() if k != "output_sha256"})
+                    {"brief_id": e["brief_id"], "reason": e["data"]["reason"]})
         return runs
 
     def rejections(self, key: tuple) -> list[dict]:
@@ -901,7 +883,7 @@ class State:
             return
         changed = [DOCS[a] for a in ASPECTS if self.doc_sha(a) != self.last_fix["data"]["documents"][a]]
         if changed:
-            raise DriftError(f"{', '.join(changed)} の digest が最後の fix と一致しない（固定後の書き換え）")
+            raise StateError(f"{', '.join(changed)} の digest が最後の fix と一致しない（固定後の書き換え）")
 
     def criteria_findings_after_fix(self) -> list[dict]:
         return [e for e in self.ledger.of("verification", "smoke", after=self.fix_seq)
@@ -948,20 +930,18 @@ class State:
         for f in (f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]):
             a = by_sha.get(ask_sha(f)) if "ask" in f else None
             found.append(f | {"answer": a["answer"], "answer_source": ANSWER_SOURCE + a["question"]} if a else f)
-        if aspect == "scope":
-            found += self.design_stuck()
+        stuck = self.design_stuck() if aspect == "scope" else None
+        if stuck:
+            found += [f for f in stuck["data"]["findings"] if f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"]]
         return found
 
-    def design_stuck(self) -> list[dict]:
-        rows = self.finding_counts()["design"][-2:]
-        counts = [row["blocking"][LAYER_OF["design"]] for row in rows]
-        if len(counts) < 2 or not 0 < counts[0] <= counts[1]:
-            return []
-        last = [e for name, r, e in self.series_entries() if name == "design" and r == rows[-1]["round"]]
-        if self.written("scope")["seq"] > last[-1]["seq"]:
-            return []
-        return [f for e in last for f in e["data"]["findings"]
-                if f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"]]
+    def design_stuck(self) -> dict | None:
+        reviews = [e for e in self.ledger.of("criteria_review") if e["data"]["aspect"] == "design"][-2:]
+        counts = [sum(f["severity"] == "blocking" and f["layer"] == LAYER_OF["design"] for f in e["data"]["findings"])
+                  for e in reviews]
+        if len(counts) == 2 and 0 < counts[0] <= counts[1] and self.written("scope")["seq"] < reviews[-1]["seq"]:
+            return reviews[-1]
+        return None
 
     def needs_author(self, aspect: str) -> bool:
         written = self.written(aspect)
@@ -1050,20 +1030,15 @@ class State:
         return {vid: {"condition": vp["condition"], "status": latest[vid]["status"] if vid in latest else "not_done",
                       "reported": vid in latest} for vid, vp in table.items()}
 
-    def series_entries(self) -> list[tuple[str, int, dict]]:
-        found = []
-        for e in self.ledger.of("criteria_review", "verification", "smoke"):
-            if e["kind"] == "verification":
-                found.append(("verification", self.round_of[e["seq"]], e))
-            else:
-                name = "design" if e["kind"] == "smoke" else e["data"]["aspect"]
-                found.append((name, self.criteria_round_of[e["seq"]], e))
-        return found
-
     def finding_counts(self) -> dict:
         series: dict[str, dict] = {name: {} for name in (*ASPECTS, "verification")}
         answered = {a["question_sha256"] for a in self.answers().values()}
-        for name, r, e in self.series_entries():
+        for e in self.ledger.of("criteria_review", "verification", "smoke"):
+            if e["kind"] == "verification":
+                name, r = "verification", self.round_of[e["seq"]]
+            else:
+                name = "design" if e["kind"] == "smoke" else e["data"]["aspect"]
+                r = self.criteria_round_of[e["seq"]]
             bucket = series[name].setdefault(r, dict.fromkeys(LAYERS, 0))
             for f in e["data"]["findings"]:
                 if f["severity"] == "blocking" and ("ask" not in f or ask_sha(f) in answered):
@@ -1211,7 +1186,9 @@ def cmd_init(args) -> int:
 def cmd_amend(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
-    state.require_live()
+    nxt = state.next()
+    if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
+        raise StateError(f"停止か完了の後の run には足せない（next = {nxt}）。新しい run で init する")
     if state.rounds_exhausted():
         raise StateError("rounds の予算を使い切っていて、足すと stop:rounds になる。新しい run で init する")
     state.require_recorded()
@@ -1281,9 +1258,9 @@ def cmd_brief(args) -> int:
     state.require_recorded()
     if role not in AUTHORS:
         state.check_criteria_digest()
-    nxt = state.require_live()
-    if nxt == "ask_human":
-        raise StateError("人間の答えを待っている（next = ask_human）")
+    nxt = state.next()
+    if nxt.startswith("stop:") or nxt in WAITING:
+        raise StateError(f"停止中（next = {nxt}）")
     conditions = args.conditions or []
     if conditions and role != "writer":
         raise StateError("--conditions は writer だけが取る")
@@ -1300,7 +1277,7 @@ def cmd_brief(args) -> int:
     record = {"role": role}
     if args.aspect:
         if role in AUTHORS and state.fixed():
-            raise StateError(NOT_REOPENED)
+            raise StateError("fix 済みで、完了条件の文書への未解決の指摘も amend も無い")
         index = ASPECTS.index(args.aspect)
         if index and not state.ready(ASPECTS[index - 1]):
             prev = ASPECTS[index - 1]
@@ -1395,86 +1372,39 @@ def cmd_brief(args) -> int:
 def check_means(state: State, vid: str) -> None:
     for m in state.last_fix["data"]["means"]:
         if m["viewpoint"] == vid and digest(Path(m["ref"])) != m["sha256"]:
-            raise DriftError(f"means.ref か controls の ref の digest が fix 時と違う: {m['ref']}")
+            raise StateError(f"means.ref か controls の ref の digest が fix 時と違う: {m['ref']}")
 
 
 def rejections_field(items: list[dict]) -> dict:
     return {"rejections": {"note": REJECTIONS_NOTE, "items": items}} if items else {}
 
 
-def negatives(brief_data: dict, out: object) -> dict:
-    if not isinstance(out, dict):
-        return {}
-    role, found = brief_data["role"], {}
-    if role == "verifier" and brief_data["mode"] == "verify" and out.get("status") in ("fail", "not_done"):
-        found["status"] = out["status"]
-    if role == "completion-judge" and out.get("verdict") == "not_complete":
-        found["verdict"] = "not_complete"
-        opens = out.get("open") if isinstance(out.get("open"), list) else []
-        found["open"] = [o for o in opens if isinstance(o, str) and o.strip()]
-    if role in ("verifier", "criteria-verifier") and isinstance(out.get("findings"), list):
-        layers = REVIEW_LAYERS[brief_data["aspect"]] if role == "criteria-verifier" else LAYERS
-        kept = []
-        for f in out["findings"]:
-            f = {k: v for k, v in f.items() if k != "ask"} if isinstance(f, dict) else f
-            try:
-                validate_findings([f], "findings", False)
-            except StateError:
-                continue
-            if f["severity"] == "blocking" and f["layer"] in layers:
-                kept.append(f)
-        if kept:
-            found["findings"] = kept
-    return found
-
-
-def read_output(path: Path, brief_id: str) -> dict:
-    if not path.is_file():
-        raise StateError(f"出力が無い: {path}")
-    out = read_json(path)
+def cmd_record(args) -> int:
+    state = State(user_path(args.run_dir))
+    out = read_json(user_path(args.file))
     if isinstance(out, list):
         raise StateError("出力は 1 つの object に限る（配列は受け付けない）")
     if not isinstance(out, dict):
         raise StateError("出力は object である必要がある")
-    if out.get("brief_id") != brief_id:
-        raise StateError(f"出力の brief_id が {brief_id} と違う: {out.get('brief_id')!r}")
-    return out
-
-
-def cmd_record(args) -> int:
-    state = State(user_path(args.run_dir))
-    state.require_live()
-    bid = args.brief
-    brief = state.briefs.get(bid)
+    brief = state.briefs.get(out.get("brief_id"))
     if brief is None:
-        raise StateError(f"未発行の brief_id: {bid!r}")
+        raise StateError(f"未発行の brief_id: {out.get('brief_id')!r}")
+    bid = brief["brief_id"]
     if bid in state.discarded:
         raise StateError(f"破棄した brief_id: {bid}（status の next に従って brief を出し直す）")
     if bid in state.used:
         raise StateError(f"使用済みの brief_id: {bid}")
-    path = state.run_dir / OUT / f"{bid}.json"
     try:
-        out = read_output(path, bid)
-        kind, data, extra = record_output(state, brief, out)
-    except Exception as exc:
-        raw = path.read_bytes() if path.is_file() else None
-        try:
-            parsed = json.loads(raw) if raw is not None else None
-        except ValueError:
-            parsed = None
-        row = {"reason": str(exc) or type(exc).__name__, "drift": isinstance(exc, DriftError)}
-        row |= {"output_sha256": sha256_bytes(raw)} if raw is not None else {}
-        state.ledger.append("rejected", row | negatives(brief["data"], parsed), bid)
+        return record_output(state, brief, out)
+    except StateError as exc:
+        state.ledger.append("rejected", {"reason": str(exc)}, bid)
         brief_file = state.run_dir / OUT / f"{bid}.brief.json"
         content = read_json(brief_file) | rejections_field(state.rejections(brief_key(brief["data"])))
         brief_file.write_text(json.dumps(content, ensure_ascii=False, indent=1), encoding="utf-8")
         raise
-    entry = state.ledger.append(kind, data, bid)
-    after = State(state.run_dir)
-    return emit({"recorded": kind, "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()} | extra)
 
 
-def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict]:
+def record_output(state: State, brief: dict, out: dict) -> int:
     stamped = SCRIPT_KEYS & set(out)
     if stamped:
         raise StateError(f"script が付けるキーを含む: {', '.join(sorted(stamped))}")
@@ -1492,8 +1422,6 @@ def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict
         validate_findings(out["findings"], role, role == "criteria-verifier")
     bid = brief["brief_id"]
     aspect = brief["data"].get("aspect")
-    carried = state.rejections(brief_key(brief["data"]))
-    carried_findings = [f for r in carried for f in r.get("findings", []) if f not in out.get("findings", [])]
     if role in AUTHORS:
         others = {e["data"]["agent"] for e in state.ledger.of("criteria_written")
                   if (e["data"]["aspect"] == "goal") != (aspect == "goal")}
@@ -1506,7 +1434,7 @@ def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict
             state.scope()
         else:
             state.criteria()
-        return "criteria_written", data, {}
+        entry = state.ledger.append("criteria_written", data, bid)
     elif role == "criteria-verifier":
         if out["aspect"] != aspect:
             raise StateError("aspect が brief と違う")
@@ -1521,13 +1449,12 @@ def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict
         for i, f in enumerate(out["findings"]):
             if "ask" in f:
                 validate_options(f["ask"]["options"], f"findings[{i}].ask.options", kinds)
-        data = {k: out[k] for k in OUTPUT[role]} | {"agent": agent}
-        data["findings"] = out["findings"] + carried_findings
-        return "criteria_review", data, {"notes": out["notes"]}
+        entry = state.ledger.append("criteria_review", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
     elif role == "writer":
         if not isinstance(out["outputs"], list) or not all(isinstance(p, str) and p for p in out["outputs"]):
             raise StateError("outputs はパスの配列")
-        return "work", {"conditions": brief["data"]["conditions"], "outputs": out["outputs"], "agent": agent}, {}
+        entry = state.ledger.append("work", {"conditions": brief["data"]["conditions"], "outputs": out["outputs"],
+                                             "agent": agent}, bid)
     elif role == "verifier":
         vid = brief["data"]["viewpoint"]
         if out["viewpoint"] != vid:
@@ -1539,8 +1466,8 @@ def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict
                     isinstance(o, dict) and set(o) == {"input", "observed"} for o in out["controls"]):
                 raise StateError("controls は {input, observed} の配列")
             findings = smoke_findings(vid, bid, vp.get("controls", []), out["controls"])
-            return "smoke", {"viewpoint": vid, "passed": not findings, "controls": out["controls"],
-                             "findings": findings, "agent": agent}, {"passed": not findings, "findings": findings}
+            entry = state.ledger.append("smoke", {"viewpoint": vid, "passed": not findings, "controls": out["controls"],
+                                                  "findings": findings, "agent": agent}, bid)
         else:
             if out["status"] not in VERIFY_STATUSES:
                 raise StateError(f"status は {VERIFY_STATUSES} のどれか")
@@ -1550,12 +1477,11 @@ def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict
                 raise StateError("検証役が、この周の work の writer と同じ agent")
             if any(e["data"]["agent"] == agent and e["data"]["viewpoint"] != vid for e in state.round_entries("verification")):
                 raise StateError("同じ周で、別の観点を記録済みの agent と同じ")
-            findings = out["findings"] + carried_findings
-            worst = max([out["status"], *(r["status"] for r in carried if "status" in r)], key=STATUS_RANK.__getitem__)
-            return "verification", {"viewpoint": vid, "reported": out["status"],
-                                    "status": effective_status(vp, worst, out["observed"], findings),
-                                    "observed": out["observed"], "evidence": out["evidence"], "findings": findings,
-                                    "agent": agent}, {}
+            data = {"viewpoint": vid, "reported": out["status"],
+                    "status": effective_status(vp, out["status"], out["observed"], out["findings"]),
+                    "observed": out["observed"], "evidence": out["evidence"], "findings": out["findings"],
+                    "agent": agent}
+            entry = state.ledger.append("verification", data, bid)
     else:
         if out["verdict"] not in ("complete", "not_complete"):
             raise StateError("verdict は complete か not_complete")
@@ -1563,18 +1489,16 @@ def record_output(state: State, brief: dict, out: dict) -> tuple[str, dict, dict
             raise StateError("open は空でない文字列の配列")
         if (out["verdict"] == "complete") != (not out["open"]):
             raise StateError("open は complete なら空、not_complete なら当たった項目を挙げる")
-        data = {k: out[k] for k in OUTPUT[role]} | {"agent": agent}
-        refused = [r for r in carried if "verdict" in r]
-        if refused:
-            data["verdict"] = "not_complete"
-            data["open"] = data["open"] + [o for r in refused for o in r["open"]] or [
-                f"拒否された出力の not_complete: {', '.join(r['brief_id'] for r in refused)}"]
-        return "judgment", data, {}
+        entry = state.ledger.append("judgment", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
+    after = State(state.run_dir)
+    notes = {"notes": out["notes"]} if role == "criteria-verifier" else {}
+    smoke = {"passed": entry["data"]["passed"], "findings": entry["data"]["findings"]} if entry["kind"] == "smoke" else {}
+    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()} | notes | smoke)
 
 
 def fix_problem(state: State) -> str | None:
     if not state.reopened():
-        return NOT_REOPENED
+        return "fix 済みで、完了条件の文書への未解決の指摘も amend も無い"
     if state.pending_asks():
         return "人間の答えを待つ問いがある（ask_human）"
     for aspect in ASPECTS:
@@ -1609,14 +1533,12 @@ def cmd_fix(args) -> int:
 
 def cmd_discard(args) -> int:
     state = State(user_path(args.run_dir))
-    state.require_live()
     pending = {b["brief_id"]: b for b in state.pending_briefs()}
     brief = pending.get(args.brief)
     if brief is None:
         raise StateError(f"未記録の brief ではない: {args.brief}（未記録の brief: {', '.join(pending) or 'なし'}）")
-    if not brief["rejections"] or not brief["rejections"][-1]["drift"]:
-        raise StateError(f"{args.brief} の最後の拒否は、固定した文書か測定手段の digest の不一致ではない"
-                         "（agent の出力が原因の拒否は、同じ invoke の出し直しで直す）")
+    if not brief["rejections"]:
+        raise StateError(f"{args.brief} の record はまだ拒否されていない（破棄できるのは record が拒否された brief だけ）")
     state.ledger.append("discard", {}, args.brief)
     after = State(state.run_dir)
     return emit({"discarded": args.brief, "next": after.next(), "pending_briefs": after.pending_briefs()})
@@ -1631,9 +1553,9 @@ def cmd_status(args) -> int:
 def cmd_continue(args) -> int:
     state = State(user_path(args.run_dir))
     state.check_criteria_digest()
-    nxt = state.require_live()
-    if nxt == "ask_human":
-        raise StateError("人間の答えを待っている（next = ask_human）。継続せず、問いを人間に示す")
+    nxt = state.next()
+    if nxt.startswith("stop:") or nxt in WAITING:
+        raise StateError(f"停止を指している（next = {nxt}）。継続せず、未充足を名指しして報告する")
     count = state.auto_continues()
     if count >= MAX_AUTO_CONTINUE:
         state.ledger.append("continue", {"count": count, "next": "stop:auto_continue", "refused": True})
@@ -1699,7 +1621,7 @@ def build_parser() -> Parser:
     p.add_argument("--aspect", choices=ASPECTS)
     p.add_argument("--report-file")
     p = command("record", cmd_record)
-    p.add_argument("--brief", required=True)
+    p.add_argument("--file", required=True)
     p = command("discard", cmd_discard)
     p.add_argument("--brief", required=True)
     command("fix", cmd_fix)
