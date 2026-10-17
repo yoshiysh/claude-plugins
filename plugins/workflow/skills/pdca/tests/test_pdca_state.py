@@ -734,6 +734,42 @@ class TestDocuments(Base):
         _, brief = r.brief("criteria-author", "--aspect", "scope")
         self.assertEqual([f["layer"] for f in brief["prior_findings"]], ["範囲の導出"])
 
+    def test_smokeの失敗は測定の文書への設計の指摘として開き直し3版続けば非収束(self):
+        r = self.run_(controlled=True)
+        r.fixed()
+        for n in range(3):
+            if n:
+                self.assertEqual(r.next(), "criteria-author:design")
+                _, author = r.brief("criteria-author", "--aspect", "design")
+                self.assertIn("C1-V2 の測定手段", author["prior_findings"][0]["claim"])
+                r.write("design", r.design(stops=[f"s{n}"]))
+                r.record(author, {"agent": f"a{n}"})
+                r.review("design", agent=f"d{n}")
+                r.ok("fix")
+            out = r.smoke(agent=f"sm{n}", observed=0)
+            self.assertFalse(out["passed"])
+            self.assertEqual(out["findings"][0]["layer"], "設計")
+        status = r.ok("status")
+        self.assertEqual(status["next"], "stop:non_converging:設計")
+        self.assertEqual([row["blocking"]["設計"] for row in status["findings"]["design"]], [1, 1, 1])
+
+    def test_fix後に開き直した測定の文書でも2版で範囲の書き手に回り3版で止まる(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        r.verify("C1-V1", "v1", status="fail", findings=[finding(layer="設計", target="design.json")])
+        d = finding(layer="設計", target="design.json")
+        r.author("design", agent="a2", doc=r.design(stops=["x"]))
+        r.review("design", agent="d2", findings=[d])
+        r.author("design", agent="a3", doc=r.design(stops=["y"]))
+        r.review("design", agent="d3", findings=[d])
+        self.assertEqual(r.next(), "criteria-author:scope")
+        r.author(agent="s2")
+        r.review("scope", agent="rs2")
+        r.author("design", agent="a4", doc=r.design(stops=["z"]))
+        r.review("design", agent="d4", findings=[d])
+        self.assertEqual(r.next(), "stop:non_converging:設計")
+
     def test_測定の設計の指摘が2版続けて減らなければ範囲の書き手に回る(self):
         r = self.run_()
         r.scoped()
@@ -1468,10 +1504,15 @@ class TestSeparation(Base):
         corrected = r.submit(brief, {"agent": "s1", "viewpoint": "C1-V2",
                                      "controls": [{"input": "既知の PR", "observed": 0}]})
         r.ok("record", "--file", str(corrected))
+        self.assertEqual(r.next(), "criteria-author:design")
+        r.author("design", agent="a2", doc=r.design(stops=["x"]))
+        r.review("design", agent="d2")
+        r.ok("fix")
         _, again = r.brief("verifier", "--viewpoint", "C1-V2")
         self.assertEqual(again["mode"], "smoke")
         r.submit(again, {"agent": "s2", "viewpoint": "C1-V2", "controls": [{"input": "既知の PR", "observed": 1}]})
         r.ok("record", "--file", again["out"])
+        r.work(agent="w2")
         _, verify = r.brief("verifier", "--viewpoint", "C1-V2")
         self.assertEqual(verify["mode"], "verify")
 

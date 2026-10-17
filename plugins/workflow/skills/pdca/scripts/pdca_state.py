@@ -80,7 +80,7 @@ DATA_SCHEMA = {
              "budget": shaped({"rounds": natural(1), "wall_seconds": natural(1)})}, {}),
     "work": ({"conditions": list_of(TEXT), "outputs": list_of(PATH), "agent": TEXT}, {}),
     "smoke": ({"viewpoint": TEXT, "passed": FLAG, "controls": list_of(shaped({"input": ANY, "observed": ANY})),
-               "agent": TEXT}, {}),
+               "findings": list_of(ANY), "agent": TEXT}, {}),
     "verification": ({"viewpoint": TEXT, "reported": one_of(VERIFY_STATUSES), "status": one_of(VERIFY_STATUSES),
                       "observed": ANY, "evidence": ANY, "findings": list_of(ANY), "agent": TEXT}, {}),
     "judgment": ({"verdict": one_of(("complete", "not_complete")), "open": list_of(TEXT), "reason": ANY,
@@ -703,6 +703,16 @@ def smoke_passed(controls: list, outputs: list) -> bool:
     )
 
 
+def smoke_findings(vid: str, brief_id: str, controls: list, outputs: list) -> list[dict]:
+    if smoke_passed(controls, outputs):
+        return []
+    expected = [{"input": c["input"], "expected": c["expected"]} for c in controls]
+    return [{"target": DOCS["design"], "severity": "blocking", "layer": LAYER_OF["design"],
+             "claim": f"{vid} の測定手段が、対照で期待どおりの値を出さない（成果物を測れていない）",
+             "evidence": f"smoke {brief_id}: 期待 {json.dumps(expected, ensure_ascii=False)}、"
+                         f"観測 {json.dumps(outputs, ensure_ascii=False)}"}]
+
+
 def effective_status(vp: dict, reported: str, observed: object, findings: list) -> str:
     if any(f["severity"] == "blocking" for f in findings):
         return "fail"
@@ -786,6 +796,7 @@ class State:
                 self.round_of[e["seq"]] = work_round
             elif e["kind"] == "smoke":
                 self.round_of[e["seq"]] = work_round
+                self.criteria_round_of[e["seq"]] = criteria_round["design"]
             elif e["kind"] == "criteria_written":
                 criteria_round[e["data"]["aspect"]] += 1
             elif e["kind"] == "criteria_review":
@@ -875,7 +886,7 @@ class State:
             raise StateError(f"{', '.join(changed)} の digest が最後の fix と一致しない（固定後の書き換え）")
 
     def criteria_findings_after_fix(self) -> list[dict]:
-        return [e for e in self.ledger.of("verification", after=self.fix_seq)
+        return [e for e in self.ledger.of("verification", "smoke", after=self.fix_seq)
                 if any(f["severity"] == "blocking" and f["layer"] in LAYER_OF.values() for f in e["data"]["findings"])]
 
     def reopened(self) -> bool:
@@ -913,7 +924,7 @@ class State:
         written = self.written(aspect)
         after = written["seq"] if written else 0
         reviews = [r for r in (self.latest_review(a) for a in ASPECTS) if r and r["seq"] > after]
-        entries = reviews + self.ledger.of("verification", after=max(after, self.fix_seq))
+        entries = reviews + self.ledger.of("verification", "smoke", after=max(after, self.fix_seq))
         by_sha = {a["question_sha256"]: a for a in self.answers().values()}
         found = []
         for f in (f for e in entries for f in e["data"]["findings"] if f["layer"] == LAYER_OF[aspect]):
@@ -1022,11 +1033,12 @@ class State:
     def finding_counts(self) -> dict:
         series: dict[str, dict] = {name: {} for name in (*ASPECTS, "verification")}
         answered = {a["question_sha256"] for a in self.answers().values()}
-        for e in self.ledger.of("criteria_review", "verification"):
+        for e in self.ledger.of("criteria_review", "verification", "smoke"):
             if e["kind"] == "verification":
                 name, r = "verification", self.round_of[e["seq"]]
             else:
-                name, r = e["data"]["aspect"], self.criteria_round_of[e["seq"]]
+                name = "design" if e["kind"] == "smoke" else e["data"]["aspect"]
+                r = self.criteria_round_of[e["seq"]]
             bucket = series[name].setdefault(r, dict.fromkeys(LAYERS, 0))
             for f in e["data"]["findings"]:
                 if f["severity"] == "blocking" and ("ask" not in f or ask_sha(f) in answered):
@@ -1046,12 +1058,13 @@ class State:
 
     def non_converging(self) -> str | None:
         counts = self.finding_counts()
-        for series in counts.values():
+        for name, series in counts.items():
             rows = [row["blocking"] for row in series]
             for layer in LAYERS:
                 seq = [row[layer] for row in rows]
+                rerouted = name == "design" and layer == LAYER_OF["design"]
                 for a, b, c in zip(seq, seq[1:], seq[2:]):
-                    if b > 0 and c > 0 and b >= a and c >= b:
+                    if (a > 0 or not rerouted) and b > 0 and c > 0 and b >= a and c >= b:
                         return f"stop:non_converging:{layer}"
         regressed = [r["regressed"] for r in self.regressions()]
         if any(a > 0 and b > 0 for a, b in zip(regressed, regressed[1:])):
@@ -1445,9 +1458,9 @@ def record_output(state: State, brief: dict, out: dict) -> int:
             if not isinstance(out["controls"], list) or not all(
                     isinstance(o, dict) and set(o) == {"input", "observed"} for o in out["controls"]):
                 raise StateError("controls は {input, observed} の配列")
-            passed = smoke_passed(vp.get("controls", []), out["controls"])
-            entry = state.ledger.append("smoke", {"viewpoint": vid, "passed": passed, "controls": out["controls"],
-                                                  "agent": agent}, bid)
+            findings = smoke_findings(vid, bid, vp.get("controls", []), out["controls"])
+            entry = state.ledger.append("smoke", {"viewpoint": vid, "passed": not findings, "controls": out["controls"],
+                                                  "findings": findings, "agent": agent}, bid)
         else:
             if out["status"] not in VERIFY_STATUSES:
                 raise StateError(f"status は {VERIFY_STATUSES} のどれか")
@@ -1472,7 +1485,8 @@ def record_output(state: State, brief: dict, out: dict) -> int:
         entry = state.ledger.append("judgment", {k: out[k] for k in OUTPUT[role]} | {"agent": agent}, bid)
     after = State(state.run_dir)
     notes = {"notes": out["notes"]} if role == "criteria-verifier" else {}
-    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()} | notes)
+    smoke = {"passed": entry["data"]["passed"], "findings": entry["data"]["findings"]} if entry["kind"] == "smoke" else {}
+    return emit({"recorded": entry["kind"], "seq": entry["seq"], "next": after.next(), "sizes": after.sizes()} | notes | smoke)
 
 
 def fix_problem(state: State) -> str | None:
