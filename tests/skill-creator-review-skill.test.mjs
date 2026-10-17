@@ -285,6 +285,7 @@ function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () =
   const agent = async (prompt, opts) => {
     calls.push({ prompt, label: opts.label, phase: opts.phase });
     if (opts.label.startsWith('update-')) {
+      if (outOfScopeByLabel[opts.label] === null) return null;
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }],
         out_of_scope_changes: outOfScopeByLabel[opts.label] || [], summary: 'updated' };
     }
@@ -419,6 +420,29 @@ function perRoundAgent(countsByRound, outOfScopeByLabel = {}) {
   });
   return scriptedAgent({ findingsByLabel, outOfScopeByLabel });
 }
+
+test('out_of_scope_changes keep the same path under different kinds as separate entries', async () => {
+  const outside = { kind: 'outside_skill', path: 'references/old.md', change: 'a' };
+  const rename = { kind: 'delete_or_rename', path: 'references/old.md', change: 'b' };
+  const { agent } = perRoundAgent([0], { 'update-r1': [outside, rename] });
+  const { result } = await run('update', agent);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), [outside, rename]);
+});
+
+test('an updater failing in the first round leaves out_of_scope_changes unknown', async () => {
+  const { agent } = perRoundAgent([0], { 'update-r1': null });
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'update_failed');
+  assert.equal(result.staging.out_of_scope_changes, null);
+});
+
+test('an updater failing in a later round keeps the earlier rounds out_of_scope_changes', async () => {
+  const outside = { kind: 'outside_skill', path: 'workflows/review_skill.js', change: 'a' };
+  const { agent } = perRoundAgent([1], { 'update-r1': [outside], 'update-r2': null });
+  const { result } = await run('update', agent);
+  assert.equal(result.verdict, 'update_failed');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.staging.out_of_scope_changes)), [outside]);
+});
 
 test('out_of_scope_changes accumulate across update rounds and collapse the same kind and path', async () => {
   const workflowChange = { kind: 'outside_skill', path: 'workflows/review_skill.js', change: 'add a field' };

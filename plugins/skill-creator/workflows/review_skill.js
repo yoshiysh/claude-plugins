@@ -191,7 +191,7 @@ const UPDATE_SCHEMA = {
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 
-// ------------------------------------------------------------ phase 0: 起動時ガード
+// ------------------------------------------------------------ 起動時ガード
 // 対象も範囲も定まらないまま走らせると、何を見たのか説明できない結果が「レビュー結果」として
 // 返る。曖昧さは司令塔（SKILL.md「対象と範囲の確認（review/update）」）で潰す契約なので、ここは黙って補完せず落とす。
 
@@ -1170,7 +1170,7 @@ while (true) {
     staging = {
       dir: stagingDir,
       changed_files: [],
-      out_of_scope_changes: null,
+      out_of_scope_changes: revision === 0 ? null : [...outOfScopeByKey.values()],
       resolved: [],
       remaining: [],
       new: [],
