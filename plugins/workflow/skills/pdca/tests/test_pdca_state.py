@@ -348,6 +348,15 @@ class TestCodexExecution(Base):
         self.assertEqual(r.next(), "goal-framer:goal")
         r.write("goal", r.goal())
         r.record(brief, {"agent": "g1"})
+        more = self.root / "more.txt"
+        more.write_text("追加の発言\n")
+        r.ok("amend", "--request-file", str(more))
+        _, brief = r.brief("goal-framer", "--aspect", "goal")
+        for _ in range(module.MAX_REJECTIONS - 1):
+            r.refused("record", "--file", str(r.submit(brief, {"agent": "g2"})))
+        self.assertEqual(r.next(), "goal-framer:goal")
+        r.write("goal", r.goal())
+        r.record(brief, {"agent": "g2"})
         _, review = r.brief("criteria-verifier", "--aspect", "goal")
         for _ in range(module.MAX_REJECTIONS):
             r.refused("record", "--file", str(r.submit(review, {"agent": "c", "aspect": "goal", "reviewed_sha256": "x",
