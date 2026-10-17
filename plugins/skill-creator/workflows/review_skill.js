@@ -172,9 +172,21 @@ const UPDATE_SCHEMA = {
         },
       },
     },
+    out_of_scope_changes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['kind', 'path', 'change'],
+        properties: {
+          kind: { type: 'string', enum: ['delete_or_rename', 'outside_skill'] },
+          path: { type: 'string' },
+          change: { type: 'string' },
+        },
+      },
+    },
     summary: { type: 'string' },
   },
-  required: ['changed_files', 'summary'],
+  required: ['changed_files', 'out_of_scope_changes', 'summary'],
 }
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
@@ -1112,7 +1124,7 @@ while (true) {
   // reported_minor は渡さない。反証していない指摘で改稿を広げると、変更ファイルが増えて
   // Reverify の範囲と新規指摘が膨らむ。
   updatesRun++
-  const changed = await roleAgent(
+  const reported = await roleAgent(
     'updater.md',
     [
       `[TARGET_DIR]: ${skillPath}`,
@@ -1149,13 +1161,14 @@ while (true) {
     { model: 'opus', effort: 'high', schema: UPDATE_SCHEMA, phase: 'Update', label: updaterThreadId }
   )
 
-  if (!changed) {
+  if (!reported) {
     // 改稿 agent が落ちた。ここまでに staging へ何が書かれたかは script からは分からない。
     // staging を null で返すと「書かれていない」と読まれるので、空の一覧を持つ器を返し、
     // dir を提示して人間に確認させる。
     staging = {
       dir: stagingDir,
       changed_files: [],
+      out_of_scope_changes: null,
       resolved: [],
       remaining: [],
       new: [],
@@ -1174,6 +1187,7 @@ while (true) {
     stopReason = 'update_failed'
     break
   }
+  const changed = { ...reported, changed_files: reported.changed_files.map((c) => ({ ...c, path: normPath(c.path) })) }
   log(`staging に ${changed.changed_files.length} ファイルを書きました（改稿 ${revision + 1} 回目）`)
   if (changed.changed_files.length === 0) {
     log('updater は応答したが変更ファイルを 1 つも報告しなかった。改稿が空のまま再検証に入る。')
@@ -1190,7 +1204,7 @@ while (true) {
     if (!recheckByKey.has(keyOf(f))) recheckByKey.set(keyOf(f), f)
   }
   const reverifyScope = {
-    changedFiles: changed.changed_files.map((c) => normPath(c.path)),
+    changedFiles: changed.changed_files.map((c) => c.path),
     recheck: [...recheckByKey.values()],
   }
   log(
@@ -1224,6 +1238,7 @@ while (true) {
     staging = {
       dir: stagingDir,
       changed_files: changed.changed_files,
+      out_of_scope_changes: changed.out_of_scope_changes,
       resolved: [],
       remaining: [],
       new: [],
@@ -1384,6 +1399,7 @@ while (true) {
   staging = {
     dir: stagingDir,
     changed_files: changed.changed_files,
+    out_of_scope_changes: changed.out_of_scope_changes,
     resolved,
     remaining,
     new: introduced,

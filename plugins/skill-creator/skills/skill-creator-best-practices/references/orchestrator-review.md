@@ -124,6 +124,7 @@ staging に改稿を書きました（本体はまだ変えていません）。
 【変更したファイル】
 - SKILL.md — モード判定セクションを追加（指摘 2 件を解消）
 - agents/finder.md — 新規（意図: Issue #31 の観点分離）
+【この反映では行われない変更】0件（削除・改名・移動と、スキル外のファイルの変更。承認しても適用されません）
 
 【解消できた指摘】3件
 【まだ残っている指摘】1件
@@ -161,6 +162,8 @@ staging に改稿を書きました（本体はまだ変えていません）。
   提示できる状態は「一致」しかない。不一致は報告する結果ではなく反映の拒否なので、
   「手直しの再検証を通した」形の行は存在しない。
 - `remaining` / `new` / `unverified` / `still_unverified` は件数だけでなく中身を出す。件数だけだと承認の判断ができない。
+- 【この反映では行われない変更】の行は 0 件でも残す（値は `staging.out_of_scope_changes`。1 件以上なら
+  `kind`・`path`・`change` を 1 件ずつ出す）。行が無いと、承認すれば依頼の全部が反映されると読まれる。
 - `possibly_rephrased` と `unobserved` は 0 件でも行を消さない。0 と「その概念を出さない」は
   読み手にとって別の意味で、行が無いと「そういう区別はされていない」と読まれる。
 - `unobserved` があるときは、`resolved` の件数に含まれていないことを明示する。
@@ -235,12 +238,19 @@ helper は package と target / staging の tree hash、add/update/delete manife
 
 #### 手順 0: 基準の指紋を取る（Workflow の戻り値を受け取った直後）
 
+`<作業ディレクトリ>` は、update の戻り値を受け取るたびに `mktemp -d` で新しく作り、その出力したパス。
+手順 1 でも同じパスを使う。既定の `staging.dir` は update を回し直しても同じパスなので、基準ファイルの置き場を
+staging から決めると前の run の基準と衝突する（script は既存の基準ファイルを上書きせずに拒否する。
+上書きを許すと、帯域外の書き込みのあとに取り直した基準で照合が通ってしまう）。
+
 ```bash
+mktemp -d
 node [SKILL_DIR]/scripts/apply-staging.mjs fingerprint --staging "<staging.dir>" --out "<作業ディレクトリ>/staging-baseline.json"
 ```
 
 出力の `fingerprint` を提示メッセージの【この時点の中身の指紋】行にそのまま載せる。基準ファイルは
 staging の外に置く（中に置くと指紋を取る対象自体が変わるため、script が拒否する）。
+`baseline already exists` で拒否されたら、新しい `<作業ディレクトリ>` を作って取り直す。
 
 - **戻り値を受け取った直後**に 1 回実行する。書き換えのあとに基準を取れば不一致は起きないので、後から
   取る運用では自分で取った 2 つの値を自分で比べるだけになる。ユーザーの目に触れた値になって初めて
@@ -258,7 +268,8 @@ node [SKILL_DIR]/scripts/apply-staging.mjs apply --staging "<staging.dir>" --tar
 
 - **成功（`status: applied`）** → `copied` の一覧を伝え、基本バリデーションに進む。
 - **拒否（非 0 終了・`status: rejected`）** → 照合や検査で止まったなら何もコピーしていない。コピーの
-  途中で止まったなら、出力の `copied` にコピー済みのパスが載る。出力の `reason`・`changed_paths`・`copied` をそのまま伝える。指紋の不一致なら、
+  途中で止まったなら、出力の `copied` にコピー済みのパスが載る。出力の `reason`・`changed_paths`・`copied` をそのまま伝える（`changed_paths` のうち `/` で終わるものは
+  ディレクトリで、`./` は staging の直下）。指紋の不一致なら、
   その変更を反映したいときは**改めて update を回す**（変えたい内容を新しい `intent` にする）。
   ここで内容を検証して通す経路は置かない（上の「司令塔は staging を書かない」）。
 

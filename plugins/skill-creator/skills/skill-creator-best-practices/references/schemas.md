@@ -485,6 +485,9 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
     { "path": "SKILL.md", "reason": "モード判定に優先順位規則を追加", "findings_addressed": ["p1-loopholes-1"] },
     { "path": "agents/finder.md", "reason": "unreadable の返し方を追記", "findings_addressed": ["intent"] }
   ],
+  "out_of_scope_changes": [
+    { "kind": "outside_skill", "path": "plugins/skill-creator/workflows/review_skill.js", "change": "戻り値に観点の件数を足す（スキル内の散文だけでは指摘が解消しないため）" }
+  ],
   "summary": "指摘2件を解消し、意図どおり observability を追加した。未検証の指摘1件は判断できず据え置いた。"
 }
 ```
@@ -493,7 +496,9 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 複製されるが、この一覧は承認後に本体へコピーする対象そのものなので、無変更のファイルを
 載せると承認されていない上書きが起きる。`findings_addressed` を必須にしているのは、
 指摘にも意図にも紐づかない改稿を後段の突き合わせで説明できないため（意図由来なら
-`"intent"` と書く）。
+`"intent"` と書く）。`out_of_scope_changes` は staging では行えない変更（`delete_or_rename`: スキル内の
+削除・改名・移動、`outside_skill`: 対象スキルの外の変更）で、`summary` と違い script が戻り値の
+`staging` に載せる。
 
 ### review_skill.js の戻り値
 
@@ -523,6 +528,7 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
   "staging": {
     "dir": "/abs/path-workspace/staging",
     "changed_files": [],
+    "out_of_scope_changes": [],
     "resolved": [], "remaining": [], "new": [],
     "unverified": [], "possibly_rephrased": [], "unobserved": [],
     "reclassified": [], "preexisting": [], "still_unverified": [], "refuted_on_recheck": [],
@@ -543,15 +549,16 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 | `findings.confirmed` / `findings.rejected` / `findings.unverified` | 反証を生き残った指摘 / 過半数の反証で棄却された指摘 / 有効票が足りず確定にも棄却にもできなかった指摘（票の欠けた観点は各指摘の `missing_perspectives`） |
 | `staging` | update で改稿を書いた後の結果一式。review / audit と、最初の Update より前に止まった update では `null` |
 | `staging.dir` | 改稿の書き出し先。対象スキルの**全ファイルのミラー**（変更しなかったファイルも入る） |
-| `staging.changed_files` | updater が実際に内容を変えたファイルと、その理由・対応する指摘（UPDATE_SCHEMA の `changed_files` そのまま）。承認後に本体へ適用する対象そのもの |
+| `staging.changed_files` | updater が実際に内容を変えたファイルと、その理由・対応する指摘（UPDATE_SCHEMA の `changed_files` の `path` から先頭の `./` を除いたもの。再検証の範囲もこの値で決まる）。承認後に本体へ適用する対象そのもの |
+| `staging.out_of_scope_changes` | updater が staging では行えないため行わなかった変更（UPDATE_SCHEMA の `out_of_scope_changes` そのまま）。承認しても適用されないので、別途の対応が要る。`update_failed` では updater が応答していないため `null`（0 件とは言えない） |
 | `staging.new` | 再検証で新しく出た確定指摘（改稿が持ち込んだ可能性がある） |
 | `staging.unverified` | 再検証で確定にも棄却にもできなかった指摘。`remaining` と混ぜない |
 | `reclassified` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` に入れない |
 | `preexisting` | 再検証で新しく出た確定指摘のうち `present_in_original: true` のもの。改稿前の検査が見落とした既存の問題なので `new` にも blocker 判定にも入れない（提示はする） |
-| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review では `null` |
+| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review / audit では `null` |
 | `source_snapshot` | review / update / audit の対象入力と post-run 検証義務。caller は receipt を `review-snapshot.mjs verify` に渡し、`status: verified` のときだけ他の結果を信頼する。失敗時は workflow の verdict に関係なく結果を無効にする |
 | `findings.reported_minor` | severity が `REVISE_SEVERITIES` の外のため**設計上反証していない**指摘。改稿を動かさないので反証の票を使わないが、黙って落とすと「見ていないもの」が消えるので未検証のまま返す。updater には渡さない。review では 1 件でもあれば `clean` にならない |
-| `findings_before` | update のとき、改稿前（Verify）の `{ confirmed, rejected, unverified, reported_minor }`。`findings` は再検証後のものに置き換わり、Reverify は報告範囲を絞るため、改稿前の棄却・未検証・minor は再登場しないことがある。持ち越さないと改稿前に見えていた指摘が黙って消える。review では `null`（`findings` がそれ自体） |
+| `findings_before` | update のとき、改稿前（Verify）の `{ confirmed, rejected, unverified, reported_minor }`。`findings` は再検証後のものに置き換わり、Reverify は報告範囲を絞るため、改稿前の棄却・未検証・minor は再登場しないことがある。持ち越さないと改稿前に見えていた指摘が黙って消える。review / audit では `null`（`findings` がそれ自体） |
 | `still_unverified` | 最初の確定指摘が再検証で再報告され、有効票が `MIN_VALID_VOTES` に届かなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
 | `refuted_on_recheck` | 最初の確定指摘が再検証で再報告され、過半数の反証で棄却されたもの。`resolved`（再検証で報告されなかった）とは別枠で、未解消にも数えない。ただし最初の確定時に blocker で、改稿の手が入っていないものは `contested_blocker` で止まる。改稿前に未検証だった指摘が再確認で棄却・格下げされた場合はここに入れず、`findings.rejected` / `findings.reported_minor` と `findings_before.unverified` に残る（一度も確定していないので、判定が割れたことにはならない） |
 | `unverified_absent` | 改稿前（Verify）に未検証だった指摘のうち、再検証で同じ観点の担当がそのファイルを報告範囲内で読み、再報告しなかったもの。確定したことが無いので消えても不自然ではなく、`resolved` とは呼ばずに提示だけする（未解消にも blocker 判定にも入れない） |
@@ -563,7 +570,7 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 | `declared_only` | `{ before, after }`。prompt-audit が挙げたが `PROMPT_AUDIT_SEVERITY` の外のため指摘にしなかった項目（`{ file, location, claim, audit_confidence, audit_action }`）。反証も改稿もしない。`after` は Reverify が走らなければ `null` |
 | `skipped_unavailable` の入力側 | `args.promptAuditExpected`（必須の真偽値）。同梱 criteria を使う通常経路では `true`。`true` のとき prompt-audit の `unavailable` は欠測になり、no-findings と混ざらない |
 | `by_category.<pass>.<観点> === "unavailable"` | その観点に必要な skill / criteria / capability が無く実施できなかった（`skipped_unavailable` と同じ事実）。`null`（応答しなかった）とも `0`（見て何も無かった）とも違う |
-| `by_category.after === null` | 再検証のパス自体が走らなかった（review、または改稿前に止まった） |
+| `by_category.after === null` | 再検証のパス自体が走らなかった（review / audit、または改稿前に止まった） |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
 | `by_category.after.<観点> === 0` | 報告範囲（`staging.reverify_scope.report_files`）の中で確定指摘が無かった。範囲の外は再走査していないので、スキル全体で問題が無いという意味ではない |
 | `reverify_missing` | Reverify の欠測観点。最初の試行で欠測があれば全観点を一度だけ再試行し、その後も欠測が残れば `reverify_incomplete` として保持する |

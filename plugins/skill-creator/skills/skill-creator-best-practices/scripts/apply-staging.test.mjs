@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -57,11 +57,49 @@ test('refuses to copy when staging changed after the fingerprint and names the c
 test('rejects a listed path that is missing from staging or escapes the target', async t => {
   const f = await fixture(t);
   await fingerprintStaging({ staging: f.staging, out: f.baseline });
-  for (const path of ['removed.md', '../outside.md']) {
+  for (const [path, reason] of [['removed.md', 'not a regular file in staging'], ['../outside.md', 'not a safe relative path']]) {
     await writeFile(f.changedFiles, JSON.stringify([{ path, reason: 'x', findings_addressed: [] }]));
-    await assert.rejects(applyStaging({ staging: f.staging, target: f.target, baseline: f.baseline, changedFiles: f.changedFiles }));
+    await assert.rejects(
+      applyStaging({ staging: f.staging, target: f.target, baseline: f.baseline, changedFiles: f.changedFiles }),
+      error => error.message.includes(reason) && error.detail.path === path);
   }
   assert.equal(await readFile(join(f.target, 'SKILL.md'), 'utf8'), 'before\n');
+});
+
+test('names a directory-only change in changed_paths, distinct from files', async t => {
+  const f = await fixture(t);
+  await fingerprintStaging({ staging: f.staging, out: f.baseline });
+  await mkdir(join(f.staging, 'empty'));
+  await assert.rejects(
+    applyStaging({ staging: f.staging, target: f.target, baseline: f.baseline, changedFiles: f.changedFiles }),
+    error => error.message.includes('staging changed') && error.detail.changed_paths.join() === 'empty/');
+});
+
+test('refuses a second fingerprint into the same baseline path and keeps the first', async t => {
+  const f = await fixture(t);
+  await fingerprintStaging({ staging: f.staging, out: f.baseline });
+  const first = await readFile(f.baseline, 'utf8');
+  await writeFile(join(f.staging, 'SKILL.md'), 'rewritten\n');
+  await assert.rejects(fingerprintStaging({ staging: f.staging, out: f.baseline }),
+    error => error.message.includes('baseline already exists') && error.detail.path === f.baseline);
+  assert.equal(await readFile(f.baseline, 'utf8'), first);
+});
+
+test('a failure after the first copy reports the paths already copied', { skip: process.getuid?.() === 0 }, async t => {
+  const f = await fixture(t);
+  await mkdir(join(f.staging, 'locked', 'inner'), { recursive: true });
+  await writeFile(join(f.staging, 'locked', 'inner', 'new.md'), 'new\n');
+  await mkdir(join(f.target, 'locked'));
+  await writeFile(f.changedFiles, JSON.stringify([
+    { path: 'SKILL.md', reason: 'intent', findings_addressed: ['intent'] },
+    { path: 'locked/inner/new.md', reason: 'intent', findings_addressed: ['intent'] },
+  ]));
+  await fingerprintStaging({ staging: f.staging, out: f.baseline });
+  await chmod(join(f.target, 'locked'), 0o500);
+  await assert.rejects(
+    applyStaging({ staging: f.staging, target: f.target, baseline: f.baseline, changedFiles: f.changedFiles }),
+    error => error.detail.path === 'locked/inner/new.md' && error.detail.copied.join() === 'SKILL.md');
+  assert.equal(await readFile(join(f.target, 'SKILL.md'), 'utf8'), 'after\n');
 });
 
 test('rejects a baseline stored inside staging', async t => {

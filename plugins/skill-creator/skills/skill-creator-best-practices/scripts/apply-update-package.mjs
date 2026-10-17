@@ -63,7 +63,7 @@ function validateManifest(value, name) {
   return Object.freeze({ directories: Object.freeze(directories), files: Object.freeze(files), sha256: value.sha256 });
 }
 
-function changedPaths(before, after) {
+export function changedPaths(before, after) {
   const original = new Map(before.files.map(file => [file.path, file]));
   const staged = new Map(after.files.map(file => [file.path, file]));
   return [...new Set([...original.keys(), ...staged.keys()])].sort((a, b) => a.localeCompare(b)).flatMap(path => {
@@ -79,7 +79,7 @@ function changedPaths(before, after) {
   });
 }
 
-function changedDirectories(before, after) {
+export function changedDirectories(before, after) {
   const original = new Map(before.directories.map(directory => [directory.path, directory]));
   const staged = new Map(after.directories.map(directory => [directory.path, directory]));
   return [...new Set([...original.keys(), ...staged.keys()])].sort((a, b) => a.localeCompare(b)).flatMap(path => {

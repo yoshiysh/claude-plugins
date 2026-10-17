@@ -3,7 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { canonicalDirectory, inside, MAX_APPLY_TREE_BYTES, safeRelativePath, snapshotTree } from './apply-update-package.mjs';
+import { canonicalDirectory, changedDirectories, changedPaths, inside, MAX_APPLY_TREE_BYTES, safeRelativePath, snapshotTree }
+  from './apply-update-package.mjs';
 import { readRegularFileBounded } from './safe-update-read.mjs';
 
 export const FINGERPRINT_DIGITS = 12;
@@ -26,19 +27,24 @@ function outsideOf(root, path, name) {
   return resolve(path);
 }
 
-function diffManifests(before, after) {
-  const key = file => `${file.sha256}:${file.mode}:${file.bytes}`;
-  const original = new Map(before.files.map(file => [file.path, key(file)]));
-  const current = new Map(after.files.map(file => [file.path, key(file)]));
-  return [...new Set([...original.keys(), ...current.keys()])].sort()
-    .filter(path => original.get(path) !== current.get(path));
+function changedPathsBetween(before, after) {
+  return [
+    ...changedPaths(before, after).map(change => change.path),
+    ...changedDirectories(before, after).map(change => `${change.path || '.'}/`),
+  ].sort();
 }
 
 export async function fingerprintStaging({ staging, out }) {
   const stagingDir = await canonicalDirectory(staging, 'staging');
   const baselinePath = outsideOf(stagingDir, out, 'baseline');
   const manifest = await snapshotTree(stagingDir);
-  await writeFile(baselinePath, `${JSON.stringify({ staging_dir: stagingDir, ...manifest })}\n`, { flag: 'wx', mode: 0o600 });
+  try {
+    await writeFile(baselinePath, `${JSON.stringify({ staging_dir: stagingDir, ...manifest })}\n`, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    throw new Rejection('baseline already exists; fingerprint this update result into a new work directory ' +
+      '(mktemp -d) instead of reusing an earlier one', { path: baselinePath });
+  }
   return { status: 'fingerprinted', staging_dir: stagingDir, baseline_path: baselinePath,
     sha256: manifest.sha256, fingerprint: manifest.sha256.slice(0, FINGERPRINT_DIGITS) };
 }
@@ -87,33 +93,40 @@ export async function applyStaging({ staging, target, baseline, changedFiles }) 
   const baselinePath = outsideOf(stagingDir, baseline, 'baseline');
   const changedFilesPath = outsideOf(stagingDir, changedFiles, 'changed files');
   const recorded = await readJson(baselinePath, 'baseline');
-  if (recorded?.staging_dir !== stagingDir || !Array.isArray(recorded?.files))
+  if (recorded?.staging_dir !== stagingDir || !Array.isArray(recorded?.files) || !Array.isArray(recorded?.directories))
     throw new Rejection('baseline was not taken for this staging directory');
   const current = await snapshotTree(stagingDir);
   if (current.sha256 !== recorded.sha256)
     throw new Rejection('staging changed after the baseline fingerprint', {
       baseline_fingerprint: String(recorded.sha256).slice(0, FINGERPRINT_DIGITS),
       current_fingerprint: current.sha256.slice(0, FINGERPRINT_DIGITS),
-      changed_paths: diffManifests(recorded, current),
+      changed_paths: changedPathsBetween(recorded, current),
     });
   const files = changedPathsFrom(await readJson(changedFilesPath, 'changed files'), current);
   for (const file of files) await assertWritableDestination(targetDir, file.path);
   const copied = [];
   for (const file of files) {
-    const source = join(stagingDir, ...file.path.split('/'));
-    const contents = await readRegularFileBounded(source, await lstat(source), MAX_APPLY_TREE_BYTES);
-    if (sha256(contents) !== file.sha256)
-      throw new Rejection('staged file changed during apply', { path: file.path, copied });
-    const destination = join(targetDir, ...file.path.split('/'));
-    await mkdir(dirname(destination), { recursive: true });
-    await assertWritableDestination(targetDir, file.path);
-    const temporary = join(dirname(destination), `.apply-staging-${randomUUID()}`);
     try {
-      await writeFile(temporary, contents, { flag: 'wx', mode: 0o600 });
-      await chmod(temporary, file.mode);
-      await rename(temporary, destination);
+      const source = join(stagingDir, ...file.path.split('/'));
+      const contents = await readRegularFileBounded(source, await lstat(source), MAX_APPLY_TREE_BYTES);
+      if (sha256(contents) !== file.sha256) throw new Rejection('staged file changed during apply', { path: file.path });
+      const destination = join(targetDir, ...file.path.split('/'));
+      await mkdir(dirname(destination), { recursive: true });
+      await assertWritableDestination(targetDir, file.path);
+      const temporary = join(dirname(destination), `.apply-staging-${randomUUID()}`);
+      try {
+        await writeFile(temporary, contents, { flag: 'wx', mode: 0o600 });
+        await chmod(temporary, file.mode);
+        await rename(temporary, destination);
+      } catch (error) {
+        await rm(temporary, { force: true });
+        throw error;
+      }
     } catch (error) {
-      await rm(temporary, { force: true });
+      if (error instanceof Rejection) {
+        error.detail = { ...error.detail, copied };
+        throw error;
+      }
       throw new Rejection(`copy failed: ${error.message}`, { path: file.path, copied });
     }
     copied.push(file.path);
