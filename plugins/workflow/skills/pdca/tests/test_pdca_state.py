@@ -263,6 +263,32 @@ class TestCodexExecution(Base):
         r.verify("C1-V1", "verifier-1")
         self.assertEqual(r.next(), "verifier")
 
+    def test_未記録のbriefがある間はamendを拒否し記録後はゴールの書き手に回る(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        _, brief = r.brief("verifier", "--viewpoint", "C1-V1")
+        more = self.root / "more.txt"
+        more.write_text("追加の発言\n")
+        request = (r.dir / "request.md").read_text()
+        error = r.refused("amend", "--request-file", str(more))
+        self.assertIn(f"未記録の brief がある: {brief['brief_id']}", error)
+        self.assertEqual((r.dir / "request.md").read_text(), request)
+        r.record(brief, {"agent": "v", "viewpoint": "C1-V1", "status": "pass", "observed": None,
+                         "evidence": "見た", "findings": []})
+        self.assertEqual(r.ok("amend", "--request-file", str(more))["next"], "goal-framer:goal")
+        r.brief("goal-framer", "--aspect", "goal")
+
+    def test_未記録のbriefがある間はfixを拒否し検証が今の周から外れない(self):
+        r = self.run_()
+        r.fixed()
+        r.work()
+        _, brief = r.brief("verifier", "--viewpoint", "C1-V1")
+        self.assertIn(f"未記録の brief がある: {brief['brief_id']}", r.refused("fix"))
+        r.record(brief, {"agent": "v", "viewpoint": "C1-V1", "status": "pass", "observed": None,
+                         "evidence": "見た", "findings": []})
+        self.assertEqual(r.next(), "verifier")
+
     def test_cli_enforces_status_next_roles_viewpoints_and_full_cycle(self):
         r = self.run_()
         r.fixed()

@@ -776,6 +776,11 @@ class State:
         self.rounds_used = work_round
         self.next_writer_opens_round = verified_since_work
 
+    def require_recorded(self) -> None:
+        pending = sorted(set(self.briefs) - self.used)
+        if pending:
+            raise StateError(f"未記録の brief がある: {', '.join(pending)}（先に record する）")
+
     def doc_path(self, aspect: str) -> Path:
         return self.run_dir / DOCS[aspect]
 
@@ -1124,6 +1129,7 @@ def cmd_amend(args) -> int:
     nxt = state.next()
     if nxt.startswith("stop:") or nxt in ("await_human", "closed"):
         raise StateError(f"停止か完了の後の run には足せない（next = {nxt}）。新しい run で init する")
+    state.require_recorded()
     text = read_request(args.request_file)
     request = state.run_dir / REQUEST
     current = request.read_text(encoding="utf-8")
@@ -1187,9 +1193,7 @@ def prior_findings(state: State, role: str, conditions: list, viewpoint: str | N
 def cmd_brief(args) -> int:
     state = State(user_path(args.run_dir))
     role = args.role
-    pending = sorted(set(state.briefs) - state.used)
-    if pending:
-        raise StateError(f"未記録の brief がある: {', '.join(pending)}（先に record する）")
+    state.require_recorded()
     if role not in AUTHORS:
         state.check_criteria_digest()
     nxt = state.next()
@@ -1433,6 +1437,7 @@ def cmd_fix(args) -> int:
     nxt = state.next()
     if nxt.startswith("stop:") or nxt in WAITING:
         raise StateError(f"停止中（next = {nxt}）")
+    state.require_recorded()
     problem = fix_problem(state)
     if problem:
         raise StateError(problem)
