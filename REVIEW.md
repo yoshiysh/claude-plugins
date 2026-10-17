@@ -17,7 +17,7 @@ PR をレビューする AI 向けの指示。実装の規約そのものは `AG
 | `.github/workflows/` | 権限が必要以上に広い、Secret の露出、SHA で固定していない Action |
 | すべて | `AGENTS.md`「作業ルール」 |
 
-スキルを探すときは `plugins/` と、`.agents/skills/` のうち symlink でない entry（未公開スキルの実体）を検索する。`.agents/skills/` の公開済みスキルは `plugins/` の実体への symlink で、symlink を辿らない検索では中身が出ない（`AGENTS.md`「注意点」）。
+スキルを探すときは `plugins/` と、`.agents/skills/` のうち symlink でない entry（未公開スキルの実体）を検索する。`.agents/skills/` の公開済みスキルは `plugins/` の実体への symlink で、symlink を辿らない検索では中身が出ない（`AGENTS.md`「現在の実体」「注意点」）。
 
 `CLAUDE.md` と `.claude/skills` は `AGENTS.md` と `.agents/skills` への symlink なので、基底ブランチから戻された後も PR 側の実体を指す。`AGENTS.md` とスキルは実パス（`AGENTS.md`、`plugins/`、`.agents/skills/`）で読み、`CLAUDE.md`・`.claude/skills`・`.claude-pr/` 経由では読まない。PR がこの symlink 自体を変えたときは、その変更は差分（必要なら `.claude-pr/` のスナップショット）で確かめる。
 
