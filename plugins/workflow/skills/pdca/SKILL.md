@@ -36,10 +36,13 @@ criteria-author が決める。全 run に一律に課すと、依頼に無い�
 | 宣言した検証を実施しなかったら `not_done` | 測れなかったことが合格に化ける | `status` `close` |
 | 予算（周回数・経過時間）・非収束・自動継続で止める。人に聞けば決まる指摘（`ask` 付き）は人間に回し、答えが出るまで非収束に数えない（答えた問いの出し直しは数える） | 周回がいくらでも伸びる。答えを待つだけの指摘で run が止まる | `brief` `fix` `continue` `status` |
 | 完了は、固定した完了条件と別の判定役で決める | text だけで終わるターンが完了扱いになる | `close` |
-| 未充足の一覧を台帳から毎回導出する | 文脈が圧縮されるとタスク一覧が消える | `status` |
+| 未充足の一覧と、未記録の brief（`pending_briefs`。起動文の `invoke` 付き）を台帳から毎回導出する | 文脈が圧縮されるとタスク一覧と、走らせている agent の起動文が消える | `status` |
 | 台帳は script だけが書き、読むたびに行の連鎖・brief との対応・fix と close の前提を検査する（検査の限界は「残るリスク」） | 手で書き換えた行や、brief を経ずに書き足した記録が、正規の記録として合否と完了の判定に使われる | 全サブコマンド |
-| 同時に未記録の brief を残さず、現在の状態が示す役割の brief と `fix` だけを受け付ける。未記録の brief がある間は `amend` も受け付けない（後から来た発言は、その brief を record してから足す） | 司令塔が順序を飛ばしたり、台帳に残る並行作業の結果が別の段階として扱われたりする。固定し直しで測定手段や記録済みの検証が差し替わる。記録の前に依頼が変わると、その brief の record が新しい依頼との照合で落ち続け、次の brief も出せずに run が止まる | `brief` `fix` `amend` |
-| 対照入りの試走（smoke）を本番の検証の前に通す。期待どおりに出なければ、測定の文書への設計の指摘として design を開き直す | 対照で期待どおりに出ない手段は、成果物を測れていない。試走をやり直すだけでは、同じ手段のまま出口が無い | `brief` `record` |
+| 同時に未記録の brief を残さず、現在の状態が示す役割の brief だけを受け付ける。`fix` は `next` が `fix` のときだけ受け付ける（そのとき未記録の brief は残らない）。未記録の brief がある間は `amend` も受け付けない（後から来た発言は、その brief を record してから足す） | 司令塔が順序を飛ばしたり、台帳に残る並行作業の結果が別の段階として扱われたりする。固定し直しで測定手段や記録済みの検証が差し替わる。記録の前に依頼が変わると、その brief の record が新しい依頼との照合で落ち続け、次の brief も出せずに run が止まる | `brief` `fix` `amend` |
+| 止まった run（`stop:*`）と完了した run は、記録と破棄を含めて台帳を進めない | 停止の後に記録が通ると、next が変わって停止が解けたように見える | 全サブコマンド |
+| record が拒否された出力は、理由と、読めた否定の結論（fail・not_done・blocking の指摘・not_complete）を台帳に残し、同じ役割と aspect か観点の次の記録に引き継ぐ。その拒否が続けば止める | 評価役の否定の結論を、出力を壊して拒否させてから出し直すことで消せる。壊れた出力を書き続ける agent で run が止まらない | `record` |
+| 未記録の brief の破棄（`discard`）は、最後の拒否が固定した文書か測定手段の digest の不一致のときだけ受け付ける | agent の出力が原因の拒否を破棄で流すと、否定の結論を記録せずに次の brief へ進める | `discard` |
+| 対照入りの試走（smoke）を本番の検証の前に通す。期待どおりに出なければ、測定の文書への設計の指摘として design を開き直す。開き直した後の fix から、それまでの work と検証は判定に使わず、writer の周からやり直す（使った周回は戻らない） | 対照で期待どおりに出ない手段は、成果物を測れていない。試走をやり直すだけでは、同じ手段のまま出口が無い。固定し直す前の手段で測った検証を残すと、合否が別の手段の結果で決まる | `brief` `record` `fix` |
 | agent の起動文は `brief` が返す `invoke` だけ（書き足した文は agent が `prompt_extra` に申告する） | 司令塔の文が混ざると、ループが検証するのは司令塔の仮説になる | `brief` `record` |
 
 ## 流れ
@@ -52,7 +55,7 @@ python3 $S init --run-dir <run-dir> --request-file <依頼原文> --material <�
 python3 $S amend --run-dir <run-dir> --request-file <後から来た発言>
 python3 $S answer --run-dir <run-dir> --question <問いの ID> (--option <選ばれた選択肢の ID> | --text-file <選択肢に無い答えの原文>)
 python3 $S brief --run-dir <run-dir> --role <役割> [--aspect <goal か scope か design>] [--conditions <条件 ID>…] [--viewpoint <観点 ID>] [--report-file <最終報告案>]
-python3 $S record --run-dir <run-dir> --file <agent の出力>
+python3 $S record --run-dir <run-dir> --brief <brief の ID>   # out/<brief の ID>.json を読む
 python3 $S discard --run-dir <run-dir> --brief <record が拒否された brief の ID>
 python3 $S fix --run-dir <run-dir>
 python3 $S status --run-dir <run-dir>
@@ -68,19 +71,28 @@ python3 $S close --run-dir <run-dir>
    - criteria-author が範囲の文書（scope.json: 条件・除外・人間ゲート）を書く。
    - criteria-author が測定の文書（design.json: 観点・測定手段・対照・予算・停止）を書く → `fix`。
 3. writer が作る → verifier が観点ごとに 1 agent ずつ検証する（対照を持つ観点は先に smoke）。
-4. 各 `record` と `status` が返す `next` に従う。`writer` なら次の周、`<書き手>:<aspect>` なら
-   その文書の直し、`ask_human` なら「人間の境界」に従い、`stop:*` なら止めて報告する。
+4. 各 `record` と `status` が返す `next` に従う。`next` は次のどれかで、値の正本は `pdca_state.py` の
+   `State.next`。
+   - `goal-framer:goal`・`criteria-author:scope`・`criteria-author:design`: 書き手がその文書を書くか直す。
+   - `criteria-verifier:<aspect>`: その文書の検証者が反証する。
+   - `fix`: `fix` を呼ぶ。
+   - `writer`: 次の周の writer。`verifier`: まだ報告の無い観点の verifier。`completion-judge`: 5 の判定役。
+   - `close`: `close` を呼ぶ。
+   - `ask_human`・`await_human`: 「人間の境界」に従う。`closed`: 終わる。
+   - `stop:<理由>`: 止めて、理由を添えて報告する。
 5. 全観点が pass になったら、最終報告案をファイルに書いて completion-judge に渡し、complete なら `close`。
 
 各 agent は `brief` → `invoke` で起動 → `record` の順で回す。ターンを text だけで終えようとして
 未充足が残っているときは `continue` を呼び、返った継続文に従う（完了を宣言しない）。
 
-`record` が拒否されたら、新しい agent を同じ `invoke` で起動し直す。拒否理由は script が brief に
-載せるので、司令塔は文を足さない。拒否の原因が agent の出力でなく作業ツリーの側にあり（固定した
-測定手段の中身が変わった等）、出し直しても消えないときだけ、`status` の `pending_briefs` にある
-その brief を `discard` で破棄する。破棄しないと、未記録の brief が残る間は次の `brief` も `amend` も
-受け付けられず、run を先へ進める手段が無い。破棄できるのは record が拒否された brief だけで、同じ
-役割の拒否が続けば `stop:non_converging:記録の拒否` で止まる。
+`record` が拒否されたら、新しい agent を同じ `invoke` で起動し直す。拒否理由と、拒否された出力から
+読めた否定の結論は script が brief に載せ、否定の結論は次の記録に引き継ぐので、司令塔は文を足さない。
+最後の拒否が、固定した文書か測定手段の digest の不一致（作業ツリーの側の変化）のときだけ、`status` の
+`pending_briefs` にあるその brief を `discard` で破棄できる。破棄しないと、未記録の brief が残る間は
+次の `brief` も `amend` も受け付けられないため。破棄しても変化そのものは消えない。破棄の後は `next` に
+従って brief を出し直す。拒否は同じ役割と aspect か観点で、破棄をはさんでも続けて数えるので、変化が
+消えなければ `stop:non_converging:記録の拒否` で止まる。止まったら人間に報告する（作業ツリーを戻すか、
+新しい run で始め直すかは人間が決める）。
 
 ## 実行環境
 
@@ -97,12 +109,12 @@ Codex では、各 `brief` の後に次を行う。
 3. `wait_agent` の後に `list_agents` を呼び、控えた canonical agent name の状態を確かめる。
    `wait_agent` は別 agent の更新でも戻るため、対象が `completed` でなければ待機と確認を繰り返す。
    対象 agent の終了を確かめてから指定された `out` ファイルが作られ、JSON として読めることを確認し、
-   `record --file` を呼ぶ。最終応答の文章だけでは記録しない。
+   `record --brief` を呼ぶ。最終応答の文章だけでは記録しない。
 4. `status` の `next` を確認してから次の `brief` を発行する。agent が `out` を書かずに終わったときも、
    `record` が拒否されたときも、`followup_task` で別の役割へ転用せず、新しい agent で同じ `invoke` を
    やり直す（拒否の扱いは「流れ」）。
-5. `next` が agent の役割を指さないときは brief を発行しない。`fix` と `close` は「流れ」の 2 と 5、`stop:*` は
-   「流れ」の 4、`ask_human` と `await_human` は「人間の境界」に従い、`closed` なら終える。`ask_human` でも
+5. `next` が agent の役割を指さないときは brief を発行しない。`fix`・`close`・`stop:*`・`closed` は「流れ」の 4、
+   `ask_human` と `await_human` は「人間の境界」に従う。`ask_human` でも
    agent は起動せず、司令塔が問いを示して答えを `answer` で記録してから `status` に戻る。`completion-judge` の
    brief には、「流れ」の 5 の最終報告案を `--report-file` で渡す。
 
@@ -198,8 +210,9 @@ script の構造では防げず、読み手が知っておくべきもの。
 - **問いの中継と資料の選択**: 人間に見せる問いと選択肢の文を司令塔が変えても、script は検出できない
   （記録されるのは選択肢の ID と goal-framer の文）。どの資料を `--material` に渡すかも司令塔が選び、
   依頼が名指ししていない資料を足すと、agent の注意がその資料へ向く。
-- **台帳の手書き**: 読むたびの検査（「固定するもの」の台帳の行）でも、最終行の書き換えと、
-  辻褄を合わせて書き足した記録は検出できない。
+- **台帳と出力の手書き**: 読むたびの検査（「固定するもの」の台帳の行）でも、最終行の書き換えと、
+  辻褄を合わせて書き足した記録は検出できない。拒否（`rejected`）や破棄（`discard`）の行を連鎖ごと
+  書き足すことも、agent が書いた `out/<brief の ID>.json` を記録の前に書き換えることも同じく通る。
 - **agent の同一性と起動文**: 生成者と検証者の分離は、出力の `agent` と `prompt_extra` の自己申告に
   依存する。同じ agent に別の役割の brief を続けて渡すことは防げない。
 - **名指しの停止条件**: design.json の `stops` は、script が成立を判定しない（`status` に表示する

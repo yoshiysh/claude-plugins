@@ -81,6 +81,20 @@
     "writer brief が全ての既知の未充足 condition を担当し、完了判定段階で writer を起動していないか",
     "Codex agent の model / reasoning_effort override を意図的に省略し、呼び出し元セッションから継承することと Claude Code の格に対応付けないことを正確に述べているか"
    ]
+  },
+  {
+   "id": 7,
+   "prompt": "（fix 済みの run で、C1-V2 の verifier の出力が record で拒否された。拒否理由は出力に evidence が無いこと。status の pending_briefs にその brief が残っている。続けて。）",
+   "expected_output": "司令塔は文を足さず、新しい agent を同じ invoke で起動し直して record --brief で記録する。拒否理由と、拒否された出力の否定の結論は script が brief に載せて次の記録に引き継ぐ。最後の拒否が digest の不一致でないので discard しない。未記録の brief がある間は amend しない。smoke が期待どおりに出なければ design の直しに戻り、fix の後は writer の周からやり直す。stop:non_converging:記録の拒否 で止まったら、記録も破棄もせずに人間に報告する。",
+   "files": [],
+   "assertions": [
+    "status の pending_briefs から未記録の brief と invoke を取り、新しい agent に invoke だけを渡しているか",
+    "record を --brief で呼び、拒否理由を司令塔の文として agent に足していないか",
+    "最後の拒否が digest の不一致でない brief を discard していないか",
+    "未記録の brief がある間に amend を呼んでいないか",
+    "smoke の失敗の後、next に従って design の直しに戻り、fix の後の writer の周から作業をやり直しているか",
+    "stop:non_converging:記録の拒否 の後に record・discard を呼ばず、停止の理由と未記録の brief を人間に報告しているか"
+   ]
   }
  ]
 }
