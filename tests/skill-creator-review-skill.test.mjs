@@ -9,6 +9,7 @@ import { SNAPSHOT_LAYOUT } from '../plugins/skill-creator/skills/skill-creator-b
 const source = await readFile(new URL('../plugins/skill-creator/workflows/review_skill.js', import.meta.url), 'utf8');
 const finderRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/finder.md', import.meta.url), 'utf8');
 const refuterRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/refuter.md', import.meta.url), 'utf8');
+const updaterRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/updater.md', import.meta.url), 'utf8');
 const { body, meta } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 const AUDIT_HEADER = 'Scope: /mock/target\nTarget model: current flagship';
@@ -1572,4 +1573,23 @@ test('a snapshot whose root does not hold its tree is rejected even when the pac
   };
   await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /snapshotDir/);
   assert.equal(dispatched, 0);
+});
+
+// 見出しの改名で updater.md の節名が宙に浮くとここで落ちる。
+test('the updater receives the writing guide path and names sections that exist in it', async () => {
+  const { agent, calls } = respondingAgent();
+  await run('update', agent);
+  const updater = calls.find(c => c.label === 'update-r1');
+  assert.ok(updater, 'update-r1 was not dispatched');
+  assert.ok(updater.prompt.includes('[WRITING_GUIDE]: /mock/skill-creator/references/best-practices.md'));
+  const lines = (await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md', import.meta.url), 'utf8')).split('\n');
+  const refs = [...updaterRole.matchAll(/§(\d+)「([^」]+)」/g)].map((m) => ({ chapter: m[1], heading: m[2] }));
+  assert.ok(refs.length > 0, 'updater.md names no best-practices sections');
+  for (const { chapter, heading } of refs) {
+    const at = lines.findIndex((l) => /^#{2,4} /.test(l) && l.replace(/^#{2,4} /, '') === heading);
+    assert.ok(at >= 0, `best-practices.md has no heading "${heading}"`);
+    const parent = lines.slice(0, at + 1).reverse().find((l) => /^## /.test(l));
+    assert.ok(parent, `best-practices.md「${heading}」 has no enclosing chapter heading`);
+    assert.ok(parent.startsWith(`## ${chapter}. `), `best-practices.md「${heading}」 is not under §${chapter}`);
+  }
 });
