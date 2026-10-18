@@ -527,7 +527,7 @@ dynamic-workflow-runner request の top-level `limits` へ渡し、`args` には
 | `scanned_files` | ○ | 再検査で「指摘が消えた」と「そのファイルを誰も開かなかった」を区別する唯一の手がかり。任意にすると `unobserved` の判定が動かない |
 | `unreadable` | ○ | 読めなかったことを「指摘 0 件」と区別する。`true` の観点は欠測として `by_category` に `null` で載る |
 | `findings[].present_in_original` | 任意（Reverify のみ） | evidence の引用が改稿前の原本の同じファイルにもそのまま存在し、かつ指摘が成立する条件（参照先・前提）が改稿で変わっていなければ `true`、それ以外は `false`。`[INTENT]` との不一致を指摘するものは、前提である意図が改稿で与えられたので常に `false`。原本が読めなければ省略する（分からないものを `false` にしない）。script はこれで `new` と `preexisting` を分け、`[REVERIFY_SCOPE]` の外の指摘を反証に回すかも決める（「review_skill.js の戻り値」の `reverify_scope` を参照） |
-| `unchecked_judgments` | 担当観点のみ（schema 上は任意） | `[UNCHECKED_ITEMS]` の各 id に対する `pass` / `partial` / `fail` / `unknown` と根拠。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本。担当が省いても、返ってこなかった id は集合の差で未判定になる |
+| `unchecked_judgments` | 担当観点のみ（schema 上は任意） | `[UNCHECKED_ITEMS]` の各 id に対する判定と根拠（`file` / `location` を含む欄の契約は「委譲項目（[UNCHECKED_ITEMS]）の受け渡し」）。どの観点が担当するかは script の `FINDERS` の `owns_unchecked` が正本。担当が省いても、返ってこなかった id は集合の差で未判定になる |
 | `unavailable` | 任意 | 依存する skill / criteria / capability を利用できず検査を実施できなかったときだけ `true`。`unreadable`（対象が読めない）とは別。受け付ける条件（観点・`args.promptAuditExpected`・pass）は `review_skill.js` の `may_be_unavailable` の注釈が正本で、受け付けないときは欠測として扱う |
 | `audit_header` | prompt-audit の観点のみ | 監査対象 scope、`references/prompt-audit.md` の criteria source、target model の前提（対象に記載が無い場合は未指定）を記した非空の receipt。空なら script は監査済み no-findings と区別できず、その観点を欠測として扱う |
 | `findings[].audit_confidence` / `findings[].audit_action` | prompt-audit の観点のみ | 監査レポートの Confidence（`High` / `Medium` / `Low`）と Action。severity への写像・写像の外の扱い・再確認中の指摘の例外は `review_skill.js` の `PROMPT_AUDIT_SEVERITY` と `mapAuditItems` の注釈が正本。戻り値の指摘にもそのまま残る |
@@ -539,7 +539,7 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 #### 委譲項目（[UNCHECKED_ITEMS]）の受け渡し
 
 ```json
-{ "unchecked_judgments": [ { "id": "verifier-path", "verdict": "fail", "evidence": "..." } ] }
+{ "unchecked_judgments": [ { "id": "verifier-path", "verdict": "fail", "evidence": "...", "file": "SKILL.md", "location": "L120" } ] }
 ```
 
 委譲項目の判定契約の正本はこの節で、受け取る agent（reviewer・finder）はここを参照する。
@@ -549,6 +549,11 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
   そのまま渡し、script が prompt へ verbatim 注入する。js 側に id を書き写さない。
 - 受け取った agent は、渡された id **すべて**について `verdict`（`pass` / `partial` / `fail` / `unknown`）と
   根拠の `evidence` を返す。対象から判断できないなら `unknown` にし、`pass` に丸めない。
+- finder（review_skill.js）は、`partial` / `fail` の判定に、満たしていない箇所の `file`（`[TARGET_DIR]` からの相対）と
+  `location` を付け、`evidence` には何が足りないかを書く。未達は `unchecked_failures` の要素として updater に渡り、
+  updater はこの欄だけで直す箇所を決めるため（省くと `file` は `SKILL.md`、`location` は `機械判定できない項目: <id>` になる）。`unknown` は
+  判定できなかったことを表し、満たしていない箇所を特定していないので付けない。reviewer（build_skill.js）の schema には
+  この 2 欄が無い。
 - 合格にならない verdict の集合は script の `UNCHECKED_BLOCKING` が正本。`fail` を避けて中間の値を
   選んでも合格にはならない。
 - 各項目は真偽値の `requires_measurement` を持つ（正本は同じ `UNCHECKED_ITEMS`）。`true` は「満たしたかを evals の
@@ -655,7 +660,9 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
     "out_of_scope_changes": [],
     "resolved": [], "remaining": [], "new": [],
     "unverified": [], "possibly_rephrased": [], "unobserved": [],
-    "reclassified": [], "preexisting": [], "still_unverified": [], "refuted_on_recheck": [],
+    "reclassified": [], "preexisting": [],
+    "preexisting_recheck": { "still_confirmed": [], "resolved": [], "minor": [], "still_unverified": [], "refuted_on_recheck": [], "unobserved": [] },
+    "still_unverified": [], "refuted_on_recheck": [],
     "unverified_absent": [], "unverified_unobserved": [],
     "reverify_scope": {
       "changed_files": ["SKILL.md"], "recheck_ids": ["p1-why-driven-1"],
@@ -679,21 +686,22 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 | `staging.dir` | 改稿の書き出し先。対象スキルの**全ファイルのミラー**（変更しなかったファイルも入る） |
 | `staging.changed_files` | updater が実際に内容を変えたファイルと、その理由・対応する指摘（UPDATE_SCHEMA の `changed_files` の `path` から先頭の `./` を除いたもの。再検証の範囲もこの値で決まる）。承認後に本体へ適用する対象そのもの |
 | `staging.out_of_scope_changes` | updater が staging では行えないため行わなかった変更（各巡の UPDATE_SCHEMA の `out_of_scope_changes` を累積したもの）。承認しても適用されないので、別途の対応が要る。`update_failed` では落ちた巡の申告が含まれない。1 巡目で落ちたときは申告が 1 つも無いため `null`（0 件とは言えない）、2 巡目以降で落ちたときは前の巡までの累積 |
-| `staging.new` | 再検証で新しく出た確定指摘（改稿が持ち込んだ可能性がある） |
+| `staging.new` | 再検証で新しく出た確定指摘のうち、改稿が持ち込んだ可能性があるもの（`preexisting` との分け方は `preexisting` の行） |
 | `staging.unverified` | 再検証で確定にも棄却にもできなかった指摘。`remaining` と混ぜない |
 | `reclassified` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` に入れない |
-| `preexisting` | 再検証で新しく出た確定指摘のうち `present_in_original: true` のもの。改稿前の検査が見落とした既存の問題なので `new` にも blocker 判定にも入れない（提示はする） |
-| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `seeds_refuted`（`seedFindings` が Verify で全件棄却され、確定も未検証も残らなかった。改稿の根拠が無いので updater を起動しない。`staging` は `null`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` / `seeds_refuted` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review / audit では `null` |
+| `preexisting` | 分類: 再検証で確定した指摘のうち、最初の確定指摘でも改稿前に見えていた指摘でもないものは、`present_in_original: true` なら preexisting、それ以外は `new` に分ける。分類は指摘が最初に分けられた巡で固定し、以後の巡で `present_in_original` が揺れても変えない。中身: その巡で初めて preexisting に分けられた指摘だけ（前巡までに分けられた指摘のその後は `preexisting_recheck`）。改稿前の検査が見落とした既存の問題なので `new` には入れないが、`REVISE_SEVERITIES` のものは未解消に数え、以後の全巡の updater に `[PREEXISTING_FINDINGS]` として渡し、再確認の対象にも入れる |
+| `preexisting_recheck` | 前巡までに `preexisting` に入った指摘の、この巡の再確認の結果。`still_confirmed`（再び確定した。prompt-audit の指摘が `changed_files` に無いファイルから消えたときもここに置く。理由は `resolved` / `remaining` / `new` の行の prompt-audit の扱いと同じ。未解消に数える）/ `resolved`（そのファイルを同じ観点の担当が報告範囲内で読み、再報告しなかった）/ `minor`（minor に格下げして再報告された）/ `still_unverified`（再報告されたが確定にも棄却にもならなかった。`staging.unverified` の内数で、未解消に数える）/ `refuted_on_recheck`（過半数の反証で棄却された）/ `unobserved`（読まれなかった、または報告範囲外）。blocker だったものでどこに入ると止まるかは `stop_reason` の行 |
+| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` / `preexisting_recheck.unobserved` の blocker）/ `contested_blocker`（最初の確定時（`preexisting` は最初に入った時）に blocker だった指摘が再確認で棄却された（`refuted_on_recheck` / `preexisting_recheck.refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor / `preexisting_recheck.minor`）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `seeds_refuted`（`seedFindings` が Verify で全件棄却され、確定も未検証も残らなかった。改稿の根拠が無いので updater を起動しない。`staging` は `null`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` / `seeds_refuted` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review / audit では `null` |
 | `source_snapshot` | review / update / audit の対象入力と post-run 検証義務。caller は receipt を `review-snapshot.mjs verify` に渡し、`status: verified` のときだけ他の結果を信頼する。失敗時は workflow の verdict に関係なく結果を無効にする |
 | `source_snapshot.evidence_pack_sha256` | snapshot 作成時に `review-snapshot.mjs prepare` が書いた evidence pack（`evidence-pack.txt`）の sha256（receipt の `evidencePackSha256`）。`verify` が pack の実体と manifest・receipt の値を照合するので、Find / 反証役が読んだ pack が作成後に差し替わっていないことを caller が確かめる根拠になる |
 | `findings.reported_minor` | severity が `REVISE_SEVERITIES` の外のため**設計上反証していない**指摘。改稿を動かさないので反証の票を使わないが、黙って落とすと「見ていないもの」が消えるので未検証のまま返す。updater には渡さない。review では 1 件でもあれば `clean` にならない |
 | `findings_before` | update のとき、改稿前（Verify）の `{ confirmed, rejected, unverified, reported_minor }`。`findings` は再検証後のものに置き換わり、Reverify は報告範囲を絞るため、改稿前の棄却・未検証・minor は再登場しないことがある。持ち越さないと改稿前に見えていた指摘が黙って消える。review / audit では `null`（`findings` がそれ自体） |
-| `still_unverified` | 最初の確定指摘が再検証で再報告され、反証で確定にも棄却にもならなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
-| `refuted_on_recheck` | 最初の確定指摘が再検証で再報告され、過半数の反証で棄却されたもの。`resolved`（再検証で報告されなかった）とは別枠で、未解消にも数えない。ただし最初の確定時に blocker で、改稿の手が入っていないものは `contested_blocker` で止まる。改稿前に未検証だった指摘が再確認で棄却・格下げされた場合はここに入れず、`findings.rejected` / `findings.reported_minor` と `findings_before.unverified` に残る（一度も確定していないので、判定が割れたことにはならない） |
+| `still_unverified` | 最初の確定指摘、または前巡の未解消の `new` / `reclassified` が再検証で再報告され、反証で確定にも棄却にもならなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
+| `refuted_on_recheck` | 最初の確定指摘が再検証で再報告され、過半数の反証で棄却されたもの。`resolved`（再検証で報告されなかった）とは別枠で、未解消にも数えない（止まる条件は `stop_reason` の行）。改稿前に未検証だった指摘が再確認で棄却・格下げされた場合はここに入れず、`findings.rejected` / `findings.reported_minor` と `findings_before.unverified` に残る（一度も確定していないので、判定が割れたことにはならない） |
 | `unverified_absent` | 改稿前（Verify）に未検証だった指摘のうち、再検証で同じ観点の担当がそのファイルを報告範囲内で読み、再報告しなかったもの。確定したことが無いので消えても不自然ではなく、`resolved` とは呼ばずに提示だけする（未解消にも blocker 判定にも入れない） |
-| `unverified_unobserved` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが同じ観点の担当に読まれなかった（または報告範囲外の）もの。blocker は `unobserved` と同じく `unverified_blocker` で止まる |
+| `unverified_unobserved` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが同じ観点の担当に読まれなかった（または報告範囲外の）もの（止まる条件は `stop_reason` の行） |
 | `findings_source` | `findings` が最後に完了した検査パスのどちらか（`before` = 改稿前 / `after` = 再検証後）。review / audit では検査が 1 回なので常に `before` |
-| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならない。各要素は `requires_measurement` を持ち、`false` のものは update で未解消として改稿ループへ戻る。`true` のものは evals の実測で確かめる項目で、改稿では満たせないため未解消（ループの継続・`dried`・`stalled` の判定）に数えず、ここに残すだけ。audit では委譲項目を判定する観点を走らせないので `null`（`[]` は「全部満たした」と読まれる）。update で委譲項目を判定する観点が一度も走らずに止まった（`seed` か `target.intentScope` で外したうえで最初の Reverify より前に止まった）ときも `null` |
+| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならない。各要素は委譲項目の id（`item_id`）と `requires_measurement` を持ち、`false` のものは update で未解消として改稿ループへ戻る（`dried` の同一性は `item_id` で見る。`file` / `location` は判定ごとに finder が申告し直す updater 向けの情報で、同一性に入れると同じ未達が毎巡動いたことになる）。`true` のものは evals の実測で確かめる項目で、改稿では満たせないため未解消（ループの継続・`dried`・`stalled` の判定）に数えず、ここに残すだけ。audit では委譲項目を判定する観点を走らせないので `null`（`[]` は「全部満たした」と読まれる）。update で委譲項目を判定する観点が一度も走らずに止まった（`seed` か `target.intentScope` で外したうえで最初の Reverify より前に止まった）ときも `null` |
 | `verdict`（review / audit） | `clean`（確定・未検証・`reported_minor`・委譲項目の未達・実施できなかった観点のどれも無い）/ `clean_except_unavailable`（指摘は無いが `skipped_unavailable.before` の観点は見ていない）/ `findings` / `review_incomplete`（観点が欠測。prompt-audit は同梱 criteria を実施できなければここに入る） |
 | `skipped_unavailable` | `{ before, after }`。必要な skill / criteria / capability が実行環境に無く実施できなかった観点の id。欠測（`by_category` の `null`・`review_incomplete`・`reverify_missing`）とは別枠で、Reverify の再試行も起こさない。`after` は Reverify が走らなければ `null` |
 | `declared_only` | `{ before, after }`。prompt-audit が挙げたが `PROMPT_AUDIT_SEVERITY` の外のため指摘にしなかった項目（`{ file, location, claim, audit_confidence, audit_action }`）。反証も改稿もしない。`after` は Reverify が走らなければ `null` |
@@ -708,6 +716,6 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 | `reverify_receipt` | update の Reverify 完了証跡。`completed: false` または欠測がある場合、runner は action package を発行しない。実施できなかった観点は `by_category` から外して `skipped_unavailable` に宣言する。receipt は欠測を完了扱いせず、利用できた観点の件数と未実施の観点を別々に保持する |
 | `resolved` / `remaining` / `new` | 常に**最初の**確定指摘との突き合わせ。直前ラウンドとの比較ではない。最初の確定指摘が severity を下げて再報告された（`reported_minor` に入った）ときは `remaining` に数え、`resolved` にしない。prompt-audit の確定指摘が `changed_files` に無いファイルから消えたときも `remaining` に数える（prompt-audit の確信度は揺れうるので、手を入れていないファイルで消えたことは直った証拠にならない） |
 | `possibly_rephrased` | 観点とファイルは一致するが主張の文言が変わり、機械的には `new` になったもの。`new` にも残る |
-| `unobserved` | 最初の確定指摘のうち、再検証で再報告されず、かつそのファイルを同じ観点の担当が読んでいない、または報告範囲（`reverify_scope.report_files`）の外にあるため、`resolved` に数えられないもの |
-| `reverify_scope` | 再検証の報告範囲の宣言。`report_files` は観点ごとに指摘を報告させたファイル（`changed_files` ∪ その観点で再確認する指摘のファイル）で、**この外は再走査していない**。`recheck_ids` は再確認させた指摘（最初の確定指摘 ∪ 改稿前に未検証だった指摘 ∪ 前巡の未解消。委譲項目は `[UNCHECKED_ITEMS]` で毎回判定するので含めない）。`excluded_findings` は範囲外のファイルで `present_in_original: true` として返ってきたため反証に回さなかった指摘（未検証・未分類で、blocker 判定にも入れない）。`false` や省略の指摘は `[INTENT]` の未達や `changed_files` の申告漏れを隠さないよう範囲外でも反証に回す。Reverify が完了しなかった出口では `null` |
+| `unobserved` | 最初の確定指摘、または前巡の未解消の `new` / `reclassified` のうち、再検証で再報告されず、かつそのファイルを同じ観点の担当が読んでいない、または報告範囲（`reverify_scope.report_files`）の外にあるため、`resolved` に数えられないもの |
+| `reverify_scope` | 再検証の報告範囲の宣言。`report_files` は観点ごとに指摘を報告させたファイル（`changed_files` ∪ その観点で再確認する指摘のファイル）で、**この外は再走査していない**。`recheck_ids` は再確認させた指摘（最初の確定指摘 ∪ 改稿前に未検証だった指摘 ∪ 前巡の未解消 ∪ それまでの巡の `preexisting`。委譲項目は `[UNCHECKED_ITEMS]` で毎回判定するので含めない）。`excluded_findings` は範囲外のファイルで `present_in_original: true` として返ってきたため反証に回さなかった指摘（未検証・未分類で、blocker 判定にも入れない）。`false` や省略の指摘は `[INTENT]` の未達や `changed_files` の申告漏れを隠さないよう範囲外でも反証に回す。Reverify が完了しなかった出口では `null` |
 | `revisions_used` | **再**改稿の回数（起動した updater の数 − 1。1 体も起動しなければ 0）。初回の改稿は含まない。review / audit では `0` |

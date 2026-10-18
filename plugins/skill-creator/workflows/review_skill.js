@@ -126,6 +126,9 @@ const FINDINGS_SCHEMA = {
           id: { type: 'string' },
           verdict: { type: 'string', enum: ['pass', 'partial', 'fail', 'unknown'] },
           evidence: { type: 'string' },
+          // 未達の箇所。無いと未達は file が SKILL.md、location が `機械判定できない項目: <id>` だけになり、updater は直す箇所を決められない。
+          file: { type: 'string' },
+          location: { type: 'string' },
         },
         required: ['id', 'verdict', 'evidence'],
       },
@@ -237,6 +240,11 @@ function requireAbsolutePath(value, name) {
 
 const SKILL_DIR = requireAbsolutePath(parsedArgs.skillDir, 'skillDir')
 const BEST_PRACTICES_PATH = `${SKILL_DIR}/references/best-practices.md`
+const SKILL_WRITING_GUIDE_PATH = `${SKILL_DIR}/references/skill-writing-guide.md`
+const PROMPT_AUDIT_PATH = `${SKILL_DIR}/references/prompt-audit.md`
+// 観点の基準文書。finder の guide と updater の [REVERIFY_PERSPECTIVES] の両方がここから組み立てる。
+const BEST_PRACTICES_REFS = [BEST_PRACTICES_PATH, SKILL_WRITING_GUIDE_PATH]
+const PROMPT_AUDIT_REFS = [PROMPT_AUDIT_PATH]
 
 const mode = parsedArgs.mode
 if (!['review', 'update', 'audit'].includes(mode)) {
@@ -452,14 +460,14 @@ const FINDERS = [
     // 参照整合）がどれもガイド照合と同じ読み方で、他の観点は見る立場に無い。
     owns_unchecked: true,
     title: 'ベストプラクティス準拠',
+    references: BEST_PRACTICES_REFS,
     guide: [
-      `${BEST_PRACTICES_PATH} と`,
-      `${SKILL_DIR}/references/skill-writing-guide.md に照らして逸脱している箇所を探す。`,
-      'この 2 つは絶対パスで示してある。評価対象は別のスキルなので、相対パスでは解決しない。',
+      `${BEST_PRACTICES_REFS.join(' と ')} に照らして逸脱している箇所を探す。`,
+      'これらは絶対パスで示してある。評価対象は別のスキルなので、相対パスでは解決しない。',
       '参照ファイルは自分で Read すること（要約を渡していないのは、要約経由だと原典に',
       '無い基準を作りかねないため）。',
       '逸脱を挙げるときは、どのガイドのどの記述に反するかを evidence に引用する。',
-      '2 つのガイドがどちらも読めなかった場合は unreadable を true にする。読めていないまま',
+      'ガイドがどれも読めなかった場合は unreadable を true にする。読めていないまま',
       '「逸脱なし」を返すと、この観点が実施済みとして数えられる。',
     ].join('\n'),
   },
@@ -469,8 +477,9 @@ const FINDERS = [
     // prompt-audit criteria は同梱 reference を読む。unavailable を受け付ける規則の正本はこの finder と
     // promptAuditExpected gate で、見ていない観点が clean に化けないようにする。
     may_be_unavailable: true,
+    references: PROMPT_AUDIT_REFS,
     guide: [
-      `Read ${SKILL_DIR}/references/prompt-audit.md and apply its criteria to the frozen target only.`,
+      `Read ${PROMPT_AUDIT_REFS.join(' and ')} and apply its criteria to the frozen target only.`,
       'This shared criteria file is the audit authority; do not invoke or depend on an external skill.',
       '',
       '1. [TARGET_DIR] に示された frozen snapshot だけを対象にする。git や元の live target は読まない。',
@@ -809,12 +818,13 @@ function runFinders(finders, dir, phaseTitle, passLabel, scopeKind, reverifyScop
             uncheckedFailures.push({
               id: `${passLabel}-unchecked-${j.id}`,
               category: f.id,
-              file: 'SKILL.md',
-              location: `機械判定できない項目: ${j.id}`,
+              file: j.file && j.file.trim() ? normPath(j.file) : 'SKILL.md',
+              location: j.location && j.location.trim() ? j.location : `機械判定できない項目: ${j.id}`,
               claim: `委譲項目 ${j.id} が満たされていない（判定: ${j.verdict}）`,
               evidence: j.evidence,
               severity: UNCHECKED_SEVERITY,
-              suggested_fix: `${uncheckedItems.find((x) => x.id === j.id)?.item || j.id} を満たす経路を設ける`,
+              item_id: j.id,
+              suggested_fix: `${uncheckedItems.find((x) => x.id === j.id)?.item || j.id} を満たすよう、evidence が示す不足を直す`,
               requires_measurement: measuredIds.has(j.id),
             })
           }
@@ -828,6 +838,7 @@ function runFinders(finders, dir, phaseTitle, passLabel, scopeKind, reverifyScop
             claim: `委譲項目 ${id} の判定が返ってこなかった（未判定）`,
             evidence: '(判定なし)',
             severity: UNCHECKED_SEVERITY,
+            item_id: id,
             suggested_fix: `${uncheckedItems.find((x) => x.id === id)?.item || id} を判定する`,
             requires_measurement: measuredIds.has(id),
           })
@@ -1075,7 +1086,8 @@ function byCategory(finders, missing, confirmed, unavailable = []) {
 // ファイル表記は `./SKILL.md` と `SKILL.md` のような揺れが出る。文字列一致で突き合わせる
 // 以上、揺れは resolved を unobserved に倒す（安全側だが誤判定）。先頭の `./` だけ正規化する。
 // この正規化の正本は scripts/diff_findings.py。片方だけ変えると、同じ「同じ指摘か」の問いに
-// 2 つの答えが生まれる（resolved/new の突き合わせと、下の乾き判定がどちらもこのキーで動く）。
+// 2 つの答えが生まれる（resolved/new の突き合わせと、下の乾き判定の指摘側がこのキーで動く。委譲項目の未達だけは
+// 乾き判定で項目 id を使う）。
 const normPath = (p) => String(p).replace(/^\.\//, '')
 
 function keyOf(f) {
@@ -1422,6 +1434,28 @@ const outOfScopeByKey = new Map()
 // 乾き判定（前巡と 1 件も違わなければ打ち切る）のためだけに持つ。
 let prevUnresolvedKeys = null
 let prevUnresolvedFindings = []
+// Reverify が確定させた元からある問題（preexisting）。原本にあるので originalConfirmed と同じく毎巡 updater に渡し、
+// 毎巡再確認する。前巡分だけにすると、原本から複製し直した巡でそのファイルが報告範囲から外れ、直っていないまま消える。
+const preexistingByKey = new Map()
+// staging.preexisting_recheck の形。枠の一覧はここだけに置き、途中で止まる出口は空のまま返す。
+const preexistingRecheck = (parts = {}) => ({
+  still_confirmed: [],
+  resolved: [],
+  minor: [],
+  still_unverified: [],
+  refuted_on_recheck: [],
+  unobserved: [],
+  ...parts,
+})
+// 改稿が持ち込んだと一度分類した指摘のキー。preexisting と同じく最初の分類で固定する。
+const introducedKeys = new Set()
+// updater は改稿後にこの観点で再検証される。基準を知らずに書くと、指摘を直す書き換えが別の観点の新規指摘になって
+// 収束しない。焦点は FINDERS の title を正本として渡し、guide は渡さない（全文を足すと入力が観点数に比例して膨らむ）。
+const reverifyPerspectivesBlock = `[REVERIFY_PERSPECTIVES]:\n${JSON.stringify(
+  ACTIVE_FINDERS.map((f) => ({ id: f.id, title: f.title, ...(f.references ? { references: f.references } : {}) })),
+  null,
+  2
+)}`
 // 停滞判定の状態。最小値は「これまでに到達した最良の未解消件数」で、更新できない巡を数える。
 let minUnresolvedCount = null
 let stallStreak = 0
@@ -1454,6 +1488,7 @@ while (true) {
       `[TARGET_DIR]: ${skillPath}`,
       `[STAGING_DIR]: ${stagingDir}`,
       `[WRITING_GUIDE]: ${BEST_PRACTICES_PATH}`,
+      reverifyPerspectivesBlock,
       `[INTENT]:\n${intent}`,
       `[CONFIRMED_FINDINGS]:\n${JSON.stringify(originalConfirmed.map(forUpdater), null, 2)}`,
       seeded ? '[FINDINGS_ORIGIN]: seed（先行 run の指摘のうち、この run の反証を生き残ったもの。Find で探し直していない）' : '',
@@ -1479,9 +1514,14 @@ while (true) {
         null,
         2
       )}`,
-      revision > 0
-        ? // ループを回した未解消の集合そのものを渡す。一部（残存・新規）だけを渡すと、再分類や
-          // 再確認で未検証になった指摘が周回の理由なのに updater には見えず、同じ状態で回り続ける。
+      // 元からある問題は改稿が持ち込んだ指摘と枠を分ける。混ぜると、updater は前巡の改稿を疑って原本の記述まで
+      // 戻しにいくか、原本にある問題を改稿の副作用と読んで手を付けない。
+      preexistingByKey.size > 0
+        ? `[PREEXISTING_FINDINGS]:\n${JSON.stringify([...preexistingByKey.values()].map(forUpdater), null, 2)}`
+        : '',
+      prevUnresolvedFindings.length > 0
+        ? // 前巡の未解消のうち、元からある問題は PREEXISTING_FINDINGS（累積）が、委譲項目は UNCHECKED_FAILURES が運び、
+          // 残りをここで渡す。どれかが欠けると、周回の理由なのに updater に見えない指摘ができて同じ状態で回り続ける。
           `[REVISE_NOTE]:\n前回の改稿後も未解消の指摘がある。下の unresolved を解消すること。\n${JSON.stringify(
             { unresolved: prevUnresolvedFindings.map(forUpdater) },
             null,
@@ -1510,6 +1550,7 @@ while (true) {
       unobserved: [],
       reclassified: [],
       preexisting: [],
+      preexisting_recheck: preexistingRecheck(),
       still_unverified: [],
       refuted_on_recheck: [],
       unverified_absent: [],
@@ -1531,14 +1572,14 @@ while (true) {
     log('updater は応答したが変更ファイルを 1 つも報告しなかった。改稿が空のまま再検証に入る。')
   }
 
-  // 再確認の対象は「最初の確定指摘 ∪ 改稿前に未検証だった REVISE_SEVERITIES ∪ 前巡の未解消」。
+  // 再確認の対象は「最初の確定指摘 ∪ 改稿前に未検証だった REVISE_SEVERITIES ∪ 前巡の未解消 ∪ これまでの preexisting」。
   // 最初の確定指摘を毎巡含めるのは、resolved / remaining がそれとの突き合わせで決まるため ——
   // updater は毎巡原本から複製し直してよいので、前巡で直ったファイルが今巡は原本に戻っていることが
   // あり、再確認しないとぶり返しが報告されない。未検証を含めるのは、変更されないファイルにある
   // 未検証の blocker が範囲外として反証されないまま消え、blocker ゲートを素通りするため。
   // 委譲項目の未達は [UNCHECKED_ITEMS] で毎回判定し直すので含めない。
   const recheckByKey = new Map()
-  for (const f of [...originalConfirmed, ...base.unverified, ...prevUnresolvedFindings]) {
+  for (const f of [...originalConfirmed, ...base.unverified, ...prevUnresolvedFindings, ...preexistingByKey.values()]) {
     if (!recheckByKey.has(keyOf(f))) recheckByKey.set(keyOf(f), f)
   }
   const reverifyScope = {
@@ -1585,6 +1626,7 @@ while (true) {
       unobserved: [],
       reclassified: [],
       preexisting: [],
+      preexisting_recheck: preexistingRecheck(),
       still_unverified: [],
       refuted_on_recheck: [],
       unverified_absent: [],
@@ -1602,8 +1644,8 @@ while (true) {
   // 委譲項目の判定は Reverify が揃った時点で反映する。下の blocker ゲートで抜けても、返すのはこの判定。
   latestUnchecked = after.uncheckedFailures
 
-  // 報告範囲の外の指摘は反証に回さない。範囲外のファイルは改稿前と同じ内容なので、そこで
-  // present_in_original: true の指摘は改稿が持ち込んだものではなく、改稿を動かす材料にならない。
+  // 報告範囲の外の指摘は反証に回さない。範囲外のファイルは改稿前と同じ内容で Reverify は再走査していないので、
+  // そこから present_in_original: true で返った指摘まで反証すると、範囲を絞って票を抑えた意味が無くなる。
   // true 以外を範囲内に残すのは、[INTENT] 未達の指摘は原本と同一のファイルでも false になり、
   // 外すと未達が隠れるため（changed_files の申告漏れも同じ形で現れる）。
   const inReverifyScope = (f) =>
@@ -1621,13 +1663,24 @@ while (true) {
 
   const beforeKeys = new Set(originalConfirmed.map(keyOf))
   const afterKeys = new Set(post.confirmed.map(keyOf))
+  // 前巡までに確定した preexisting も、最初の確定指摘と同じ問いで行方を決める。確定以外で戻ったものや
+  // 戻らなかったものを拾わないと、直っていないのに未解消からも blocker 判定からも黙って消える。
+  const trackedPreexisting = [...preexistingByKey.values()]
+  const preexistingKeys = new Set(preexistingByKey.keys())
+  const preexistingMinor = post.reported_minor.filter((f) => preexistingKeys.has(keyOf(f)))
+  const preexistingStillUnverified = post.unverified.filter((f) => preexistingKeys.has(keyOf(f)))
+  const preexistingRefuted = post.rejected.filter((f) => preexistingKeys.has(keyOf(f)))
   // 反証に回さなかった minor も「まだ在る」側に数える。最初の確定指摘が severity を下げて
   // 再報告されたとき、post.confirmed に無いからと resolved に数えると、消えていないものが
   // 解消済みに化ける。remaining に置くが REVISE_SEVERITIES の外なので改稿は動かさない。
   const minorAfter = post.reported_minor.filter((f) => beforeKeys.has(keyOf(f)))
   // 再報告されたが確定しなかった最初の確定指摘も「消えた」ではない。未検証になったものは
   // 直ったと確かめられていないので未解消に数え、棄却されたものは反証の結果として別枠に置く。
-  const stillUnverified = post.unverified.filter((f) => beforeKeys.has(keyOf(f)))
+  // 前巡の未解消のうち改稿で見つかった指摘（new / reclassified）も同じ扱い。最初の確定指摘だけを見ると、
+  // 再確認で未検証になったり見られなかったりしたとき未解消から黙って消える。
+  const carried = prevUnresolvedFindings.filter((f) => !beforeKeys.has(keyOf(f)))
+  const carriedKeys = new Set(carried.map(keyOf))
+  const stillUnverified = post.unverified.filter((f) => beforeKeys.has(keyOf(f)) || carriedKeys.has(keyOf(f)))
   const refutedOnRecheck = post.rejected.filter((f) => beforeKeys.has(keyOf(f)))
   // prompt-audit の確定指摘が、改稿で手の入っていないファイルから消えたときは解消と数えず残存に置く。
   // 外部の監査は実行ごとに確信度が揺れる。規則どおりなら再確認中の指摘は確信度に関わらず findings か
@@ -1692,6 +1745,24 @@ while (true) {
     if (observedIn(f)) unverifiedAbsent.push(f)
     else unverifiedUnobserved.push(f)
   }
+  // 前巡の new / reclassified は解消の数（最初の確定指摘との突き合わせ）に入れない。観測して消えたものは
+  // どの枠にも残さず、観測できなかったものだけを unobserved に置く。
+  for (const f of carried) {
+    if (seenAfterKeys.has(keyOf(f)) || observedIn(f)) continue
+    unobserved.push(f)
+  }
+  // prompt-audit の preexisting が変更の無いファイルから消えたときは、auditCarried と同じ理由で解消とせず残す。
+  const preexistingAuditCarried = trackedPreexisting.filter(
+    (f) => f.category === AUDIT_CATEGORY && !changedSet.has(normPath(f.file)) && !seenAfterKeys.has(keyOf(f))
+  )
+  const preexistingAuditCarriedKeys = new Set(preexistingAuditCarried.map(keyOf))
+  const preexistingResolved = []
+  const preexistingUnobserved = []
+  for (const f of trackedPreexisting) {
+    if (seenAfterKeys.has(keyOf(f)) || preexistingAuditCarriedKeys.has(keyOf(f))) continue
+    if (observedIn(f)) preexistingResolved.push(f)
+    else preexistingUnobserved.push(f)
+  }
 
   const remaining = [...post.confirmed.filter((f) => beforeKeys.has(keyOf(f))), ...minorAfter, ...auditCarried]
   const notOriginal = post.confirmed.filter((f) => !beforeKeys.has(keyOf(f)))
@@ -1699,11 +1770,21 @@ while (true) {
   // 改稿前の Find が見落とした既存の問題は reclassified に落ちずに new へ入る。
   // finder の非決定性由来で前後の Find 結果の差からは区別できないので、
   // 再検証の finder が原本を照合した present_in_original を唯一の材料にして分ける。
-  // 実在する確定指摘であることに変わりはないので提示はするが、「改稿が持ち込んだ」数字と
-  // blocker 判定からは外す（改稿前にも同じ状態だったものを改稿の副作用として止めない）。
+  // 「改稿が持ち込んだ」数字（new）からは外すが、実在する確定指摘なので未解消に数えて次巡で直させる
+  // （Reverify で全観点の監査を払って見つけた問題を、報告だけして捨てない）。
+  // 分類は最初の巡で固定し、以後 present_in_original が揺れても変えない。preexisting から new へ揺れると同じ指摘が
+  // [PREEXISTING_FINDINGS] と [REVISE_NOTE] に二重に渡り、new から preexisting へ揺れると改稿が持ち込んだ指摘が
+  // new から消え、「前巡の改稿を戻さない」の対象になる。
   const candidates = notOriginal.filter((f) => !beforeSeenKeys.has(keyOf(f)))
-  const preexisting = candidates.filter((f) => f.present_in_original === true)
-  const introduced = candidates.filter((f) => f.present_in_original !== true)
+  const isPreexisting = (f) =>
+    preexistingKeys.has(keyOf(f)) || (!introducedKeys.has(keyOf(f)) && f.present_in_original === true)
+  const preexistingConfirmed = candidates.filter(isPreexisting)
+  const preexisting = preexistingConfirmed.filter((f) => !preexistingKeys.has(keyOf(f)))
+  const preexistingStillConfirmed = [
+    ...preexistingConfirmed.filter((f) => preexistingKeys.has(keyOf(f))),
+    ...preexistingAuditCarried,
+  ]
+  const introduced = candidates.filter((f) => !isPreexisting(f))
 
   // 粗いキー（観点＋ファイル）だけが一致する新規は、文言が変わっただけの同じ指摘である
   // 可能性がある。script は意味の一致を判定できないので new から取り除かず、別枠に併記する。
@@ -1725,7 +1806,14 @@ while (true) {
     log(`残存のうち ${minorAfter.length} 件は severity を下げて再報告された最初の確定指摘（反証していない）。`)
   }
   if (preexisting.length > 0) {
-    log(`既存 ${preexisting.length} 件は引用が改稿前の原本にもそのまま存在する指摘（改稿が持ち込んだものではない）。`)
+    log(`既存 ${preexisting.length} 件は引用が改稿前の原本にもそのまま存在する指摘（改稿が持ち込んだものではないが、未解消に数える）。`)
+  }
+  if (trackedPreexisting.length > 0) {
+    log(
+      `前巡までの既存 ${trackedPreexisting.length} 件の再確認: 再び確定 ${preexistingStillConfirmed.length} / 解消 ${preexistingResolved.length} / ` +
+        `minor で再報告 ${preexistingMinor.length} / 未検証 ${preexistingStillUnverified.length} / ` +
+        `棄却 ${preexistingRefuted.length} / 未観測 ${preexistingUnobserved.length}`
+    )
   }
   if (reclassified.length > 0) {
     log(`うち ${reclassified.length} 件は改稿前に未検証・棄却・minor だった指摘が再検証で確定したもの（改稿が持ち込んだものではない）。`)
@@ -1749,6 +1837,14 @@ while (true) {
     unobserved,
     reclassified,
     preexisting,
+    preexisting_recheck: preexistingRecheck({
+      still_confirmed: preexistingStillConfirmed,
+      resolved: preexistingResolved,
+      minor: preexistingMinor,
+      still_unverified: preexistingStillUnverified,
+      refuted_on_recheck: preexistingRefuted,
+      unobserved: preexistingUnobserved,
+    }),
     still_unverified: stillUnverified,
     refuted_on_recheck: refutedOnRecheck,
     unverified_absent: unverifiedAbsent,
@@ -1773,12 +1869,14 @@ while (true) {
   // unobserved も同じ扱い。「消えたのか、誰も見なかったのか」が分からない blocker を
   // 解消扱いで通すと、再検証していない改稿が applied_to_staging になる。
   const unverifiedBlockers = post.unverified.filter((f) => f.severity === 'blocker')
-  const unobservedBlockers = [...unobserved, ...unverifiedUnobserved].filter((f) => f.severity === 'blocker')
+  const unobservedBlockers = [...unobserved, ...unverifiedUnobserved, ...preexistingUnobserved].filter(
+    (f) => f.severity === 'blocker'
+  )
   // 最初の blocker が再確認で棄却された、または minor に格下げされて反証を通らずに戻ったとき、
   // 改稿で手が入っていない（ファイルが変更されていない、または引用が原本にもある）なら、直った
   // 証拠ではなく Verify と Reverify の判定が割れただけ。重さは再報告側ではなく最初の確定時の値で見る。
-  const originalSeverity = new Map(originalConfirmed.map((f) => [keyOf(f), f.severity]))
-  const contestedBlockers = [...refutedOnRecheck, ...minorAfter].filter(
+  const originalSeverity = new Map([...originalConfirmed, ...trackedPreexisting].map((f) => [keyOf(f), f.severity]))
+  const contestedBlockers = [...refutedOnRecheck, ...minorAfter, ...preexistingRefuted, ...preexistingMinor].filter(
     (f) =>
       originalSeverity.get(keyOf(f)) === 'blocker' &&
       (!changedSet.has(normPath(f.file)) || f.present_in_original === true)
@@ -1794,16 +1892,21 @@ while (true) {
     break
   }
 
-  // reclassified は「改稿が持ち込んだ」ものではないが、ドラフトに実在する確定指摘ではある。
-  // new から外すのは提示上の分類であって、承認判断から外す理由にはならない。
+  // reclassified / preexisting は「改稿が持ち込んだ」ものではないが、ドラフトに実在する確定指摘ではある。
+  // new から外すのは提示上の分類であって、未解消から外す理由にはならない。
   // 委譲項目の未達のうち改稿で満たせるもの（検証者経路を足す・参照を整合させる）は未解消に数えてループへ戻す。
   // requires_measurement の項目は数えない。改稿しても判定は変わらず、数えると直せない 1 件を理由に巡が空回りする。
   // unchecked_failures には残すので、実測待ちであることは結果から読める。
   const unresolvedFindings = [...remaining, ...stillUnverified, ...introduced, ...reclassified].filter((f) =>
     REVISE_SEVERITIES.includes(f.severity)
   )
+  const revisablePreexisting = [...preexisting, ...preexistingStillConfirmed].filter((f) =>
+    REVISE_SEVERITIES.includes(f.severity)
+  )
   const unresolved = [
+    ...preexistingStillUnverified.filter((f) => REVISE_SEVERITIES.includes(f.severity)),
     ...unresolvedFindings,
+    ...revisablePreexisting,
     ...after.uncheckedFailures.filter((f) => REVISE_SEVERITIES.includes(f.severity) && !f.requires_measurement),
   ]
   if (unresolved.length === 0) {
@@ -1813,11 +1916,11 @@ while (true) {
   }
 
   // 乾き判定。未解消指摘の同一性キー集合が前巡から動かなかった（1 件も解消されず、新規も
-  // 出なかった）なら、同じ入力で回し続けても結果は変わらない。キーは keyOf（= diff_findings.py
-  // と同じ規則。正規化を別に書き起こすと判定が 2 つになる）。
-  // possibly_rephrased は文言が変わると厳密キーも変わるため「動いた」と出る。その揺れや
-  // present_in_original の揺れで集合が毎巡変わる場合は、下の停滞判定が止める。
-  const unresolvedKeys = new Set(unresolved.map(keyOf))
+  // 出なかった）なら、同じ入力で回し続けても結果は変わらない。指摘のキーは keyOf（= diff_findings.py
+  // と同じ規則。正規化を別に書き起こすと判定が 2 つになる）、委譲項目の未達のキーは項目 id（理由は schemas.md の
+  // unchecked_failures の行）。possibly_rephrased は文言が変わると厳密キーも変わるため「動いた」と出る。その揺れで
+  // 集合が毎巡変わる場合は、下の停滞判定が止める。
+  const unresolvedKeys = new Set(unresolved.map((f) => (f.item_id ? `unchecked::${f.item_id}` : keyOf(f))))
   const dried =
     prevUnresolvedKeys !== null &&
     prevUnresolvedKeys.size === unresolvedKeys.size &&
@@ -1865,6 +1968,10 @@ while (true) {
 
   prevUnresolvedKeys = unresolvedKeys
   prevUnresolvedFindings = unresolvedFindings
+  for (const f of revisablePreexisting) {
+    if (!preexistingByKey.has(keyOf(f))) preexistingByKey.set(keyOf(f), f)
+  }
+  for (const f of introduced) introducedKeys.add(keyOf(f))
   revision++
 }
 
