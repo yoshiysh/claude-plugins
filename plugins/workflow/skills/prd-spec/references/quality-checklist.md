@@ -11,7 +11,7 @@
 | # | 項目 | 判定方法 | 定義の正 |
 |---|---|---|---|
 | 1 | 全要求文が 4 語尾のいずれかで終わる | 機械（script 検査 `ST-MODAL` ＋採点者確認。語尾は活用形対応の後方一致 — literal 照合は五段動詞を偽陽性にする） | requirement-writing-rules.md §1 |
-| 2 | 要求文中の禁止曖昧語の出現が 0 件 | 機械（grep） | requirement-writing-rules.md §2 |
+| 2 | 要求文中の禁止曖昧語の出現が 0 件 | 機械（script 検査 `ST-AMBIGUOUS-`） | requirement-writing-rules.md §2 |
 | 3 | 条件付き要求文が EARS 5 パターンのいずれかに一致する | 目視＋パターン照合 | requirement-writing-rules.md §2.5 |
 | 4 | 数量に単位・境界包含・上下限・超過時挙動の 4 点が揃う | 数値抽出→目視 | requirement-writing-rules.md §2.6 |
 | 5 | 全項目に ID があり、仕様項目→要求 ID の紐付けが 100% | 機械（表と突合） | traceability.md §1–3 |
