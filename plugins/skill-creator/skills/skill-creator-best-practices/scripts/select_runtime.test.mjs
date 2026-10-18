@@ -154,3 +154,36 @@ test('create mode does not require a review snapshot', async () => {
     selected_runtime: 'dynamic-workflow-runner', rejected_reason: null, halt: false, runner_limits: RUNNER_LIMITS,
   });
 });
+
+// pack は Find / Verify の根拠そのものなので、欠けた・書き換わった・receipt と食い違う pack では起動しない。
+test('selector halts when the evidence pack is missing, tampered with, or disagrees with the receipt', async (t) => {
+  const writable = async (snapshot, file) => {
+    await fs.chmod(snapshot.snapshotRoot, 0o700);
+    await fs.chmod(file, 0o600).catch(() => {});
+  };
+  {
+    const { snapshot } = await makeSnapshot(t);
+    await writable(snapshot, snapshot.evidencePackPath);
+    await fs.appendFile(snapshot.evidencePackPath, 'tampered\n');
+    const result = await run('--mode', 'review', '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(result.halt, true);
+    assert.match(result.rejected_reason, /evidence pack hash/);
+  }
+  {
+    const { snapshot } = await makeSnapshot(t);
+    await writable(snapshot, snapshot.evidencePackPath);
+    await fs.rm(snapshot.evidencePackPath);
+    const result = await run('--mode', 'review', '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(result.halt, true);
+    assert.match(result.rejected_reason, /snapshot proof failed/);
+  }
+  {
+    const { snapshot } = await makeSnapshot(t);
+    await writable(snapshot, snapshot.receiptPath);
+    const receipt = JSON.parse(await fs.readFile(snapshot.receiptPath, 'utf8'));
+    await fs.writeFile(snapshot.receiptPath, JSON.stringify({ ...receipt, evidencePackSha256: 'f'.repeat(64) }));
+    const result = await run('--mode', 'review', '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(result.halt, true);
+    assert.match(result.rejected_reason, /evidence pack is missing or inconsistent/);
+  }
+});

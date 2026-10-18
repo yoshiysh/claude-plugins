@@ -283,7 +283,9 @@ for (const [field, value] of [
 if (!/^[a-f0-9]{64}$/.test(reviewSnapshot.manifestSha256 || '')) {
   throw new Error('args.snapshot.manifestSha256 が有効な SHA-256 ではありません。')
 }
-if (typeof reviewSnapshot.evidencePackPath !== 'string' || !reviewSnapshot.evidencePackPath.startsWith('/') ||
+// 置き場は prepare の layout で決まっている。別の場所を指す pack を配ると、凍結した snapshot ではない文書が根拠になる。
+if (typeof reviewSnapshot.snapshotRoot !== 'string' ||
+    reviewSnapshot.evidencePackPath !== `${reviewSnapshot.snapshotRoot.replace(/\/+$/, '')}/evidence-pack.txt` ||
     !/^[a-f0-9]{64}$/.test(reviewSnapshot.evidencePackSha256 || '')) {
   throw new Error('args.snapshot に evidence pack（evidencePackPath / evidencePackSha256）がありません。review-snapshot.mjs prepare の出力をそのまま渡してください。')
 }
@@ -563,7 +565,7 @@ function scopeBlock(kind, category, reverifyScope) {
     )
     lines.push(
       `各指摘の present_in_original を ${SKILL_DIR}/references/schemas.md の「finder の出力（FINDINGS_SCHEMA）」の定義に従って返すこと。` +
-        '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
+        '[ORIGINAL_DIR] と [ORIGINAL_EVIDENCE_PACK] で読んだファイルは scanned_files に含めない（scanned_files は' +
         '[TARGET_DIR] で実際に読んだものだけ。原本は相対パスが同じなので混ぜると観測の有無が狂う）。'
     )
     if (mode === 'update') lines.push(`[INTENT]:\n${intent}`)
@@ -959,8 +961,8 @@ function refuteStaged(batch, phaseTitle, labelPrefix) {
 
 // refuteAll: severity に関わらず全件を反証にかける（seed 用。seed は intent が直すと決めた指摘で、今の対象に
 // まだ存在するかの確認が要る）。
-// 段ごとの反証の起動数。before は Verify、after は最後に完了した Reverify。
-const refuterDispatch = { before: null, after: null }
+// 段ごとの反証の起動数。before は Verify、after は Reverify の巡ごとの記録（update 全体の帳簿）。
+const refuterDispatch = { before: null, after: [] }
 
 function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = false) {
   // REVISE_SEVERITIES の外の指摘は改稿を動かさないので反証しない。黙って捨てると
@@ -1030,7 +1032,8 @@ function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = 
       else if (votes.length - refutedCount >= REFUTE_MAJORITY) confirmed.push(entry)
       else unverified.push(entry)
     }
-    refuterDispatch[passLabel] = dispatch
+    if (passLabel === 'before') refuterDispatch.before = dispatch
+    else refuterDispatch.after.push({ pass: labelPass, ...dispatch })
     log(
       `${passLabel}: 確定 ${confirmed.length} 件 / 棄却 ${rejected.length} 件 / 未検証 ${unverified.length} 件` +
         ` / 有効票の無い反証観点 ${raw.reduce((n, row) => n + row.missing_perspectives.length, 0)} 件` +
@@ -1308,7 +1311,7 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // seedFindings で Find を省いた run の出所。null は通常の Find から始めた run。
     seed: seeded ? { source_run_id: seedFindings[0].source_run_id, count: seedFindings.length } : null,
     // 反証役の起動数（段ごと）。体数は script が段の判定だけで決めており、その帳簿。
-    refuter_dispatch: refuterDispatch,
+    refuter_dispatch: { before: refuterDispatch.before, after: mode === 'update' ? refuterDispatch.after : null },
     source_snapshot: {
       target_root: reviewSnapshot.targetRoot,
       snapshot_dir: reviewSnapshot.snapshotDir,

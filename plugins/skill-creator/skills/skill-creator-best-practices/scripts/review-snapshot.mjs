@@ -199,30 +199,39 @@ async function chmodSnapshot(snapshotDir) {
 }
 
 // 元ファイルの相対パスと行番号で引用できるよう、各行を `<元の行番号>| <本文>` の形で書く。pack 自体の行番号は使わない。
+// 目次に各ファイルの pack 上の開始行・終了行を載せるのは、Read の offset / limit で必要な区間だけを読めるようにするため。
 async function buildEvidencePack(snapshotDir, files) {
   const included = files.filter((f) => EVIDENCE_PACK_EXTENSIONS.includes(path.posix.extname(f.path)));
   const excluded = files.filter((f) => !included.includes(f)).map((f) => f.path);
-  const sections = [];
-  const index = [];
+  const bodies = [];
   for (const file of included) {
     const lines = (await fs.readFile(safeRelative(snapshotDir, file.path), 'utf8')).split('\n');
     if (lines.at(-1) === '') lines.pop();
-    index.push(`- ${file.path}（${lines.length} 行）`);
-    sections.push([`===== FILE: ${file.path} =====`, ...lines.map((line, n) => `${n + 1}| ${line}`)].join('\n'));
+    bodies.push({ path: file.path, lines });
   }
-  const header = [
+  const headerFor = (ranges) => [
     '# evidence pack（review snapshot から決定的に生成）',
     `入れた拡張子: ${EVIDENCE_PACK_EXTENSIONS.join(', ')}`,
     '各行は `<元ファイルの行番号>| <本文>`。引用は `===== FILE: <相対パス> =====` の相対パスとこの行番号で書く。',
     '',
-    `## 入れたファイル（${included.length} 件）`,
-    ...index,
+    `## 入れたファイル（${bodies.length} 件。元の行数 / この pack 上の行範囲）`,
+    ...bodies.map((b, k) => `- ${b.path}: 元 ${b.lines.length} 行 / pack ${ranges[k][0]}-${ranges[k][1]}`),
     '',
     `## 入れなかったファイル（${excluded.length} 件。要るときは snapshot から個別に読む）`,
     ...excluded.map((name) => `- ${name}`),
     '',
-  ].join('\n');
-  return { bytes: Buffer.from(`${[header, ...sections].join('\n\n')}\n`), included: included.map((f) => f.path), excluded };
+  ];
+  // 目次の行数はファイル数だけで決まり、載せる数値には依らないので、1 回目の行数から各区間の位置を出せる。
+  const headerLength = headerFor(bodies.map(() => [0, 0])).length;
+  const ranges = [];
+  let next = headerLength + 1;
+  for (const b of bodies) {
+    ranges.push([next, next + b.lines.length]);
+    next += b.lines.length + 2;
+  }
+  const out = [...headerFor(ranges)];
+  for (const b of bodies) out.push(`===== FILE: ${b.path} =====`, ...b.lines.map((line, n) => `${n + 1}| ${line}`), '');
+  return { bytes: Buffer.from(`${out.join('\n')}\n`), included: included.map((f) => f.path), excluded };
 }
 
 async function createSnapshot({ target, scope, diffRef }) {

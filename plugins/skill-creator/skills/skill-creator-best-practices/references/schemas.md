@@ -579,7 +579,7 @@ refuter 1 体は同じファイルにある指摘の束（最大 `MAX_FINDINGS_P
 確定側の有効票として数えられる。`unreadable` と欠測は有効票に数えない。
 
 反証は 2 段で起動する。体数は指摘の重さと票だけで script が決め、agent の申告では変わらない。
-1 段目の観点は script の `FIRST_STAGE_PERSPECTIVES`（重さごとの一覧。blocker は 2 体、それ以外は 1 体）。
+1 段目の観点（重さごとに何体・どれか）は script の `FIRST_STAGE_PERSPECTIVES` が正本。
 1 体の段は `not_refuted` の有効票 1 つで確定する。2 体以上の段は全員が有効票で同じ verdict を返したときだけ
 その verdict で決着する。決着しなかった指摘（`refuted`・`unreadable`・欠測・不一致）だけを観点ごとに束ね直して
 残りの観点を全て起動し、全観点の有効票のうち同じ verdict が `REFUTE_MAJORITY` に届いたときだけ確定・棄却する。
@@ -591,7 +591,7 @@ refuter 1 体は同じファイルにある指摘の束（最大 `MAX_FINDINGS_P
 関わらず全件を反証にかける）。束の thunk が落ちて行が返らなかった指摘も、集合の差で拾って票の無い `unverified` にする
 （結果から消さない）。
 
-各指摘の `missing_perspectives` は起動したが有効な票を返さなかった観点、`skipped_perspectives` は 1 段目で決着した
+各指摘の `missing_perspectives` は起動したが有効な票を返さなかった観点（束の thunk ごと落ちた指摘は、起動していない観点も含めて全観点）、`skipped_perspectives` は 1 段目で決着した
 ため意図的に起動しなかった観点を示す。未実施と意図的な省略を混同しない。
 
 ### updater の出力（UPDATE_SCHEMA）
@@ -665,7 +665,7 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 
 | フィールド | 意味 |
 |---|---|
-| `refuter_dispatch` | `{ before, after }`。反証の段ごとの起動数 `{ batches, stage_agents: [1 段目, 2 段目], lost_batches }`（`lost_batches` は thunk が落ちて行が返らなかった束の数）。`before` は Verify、`after` は最後に完了した Reverify。走らなかったパスは `null` |
+| `refuter_dispatch` | `{ before, after }`。反証の段ごとの起動数 `{ batches, stage_agents: [1 段目, 2 段目], lost_batches }`（`lost_batches` は thunk が落ちて行が返らなかった束の数）。`before` は Verify の記録（走らなければ `null`）。`after` は update で完了した Reverify の巡ごとの記録の配列（各要素は `pass` に Reverify の pass ラベルを足したもの。update 全体の帳簿）。review / audit では `null` |
 | `seed` | `seedFindings` で Find を省いた run なら `{ source_run_id, count }`（`count` は渡された指摘の数）、それ以外は `null`。`seed` のとき `findings_before` は渡された指摘をこの run で反証した結果（`confirmed` は生き残った指摘、`rejected` / `unverified` はそれ以外。`reported_minor` は空） |
 | `target.intentScope` | 受け取った `target.intentScope` を正規化した値（`{ categories, files }`。省略した欄は `null`）。無ければ `null` |
 | `unscanned_intent_files` | `target.intentScope.files` のうち Find のどの観点も読まなかったもの。1 件でもあれば `review_incomplete`。`files` が無ければ `null` |

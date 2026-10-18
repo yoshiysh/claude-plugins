@@ -363,6 +363,8 @@ for (const [name, severity, votes, expected, calls, expectedMissing = []] of [
   ['blocker settled by an agreeing refuted pair', 'blocker', { materiality: 'refuted', existence: 'refuted' }, 'rejected', ['materiality', 'existence']],
   ['blocker split pair resolved by a refuting third', 'blocker', { materiality: 'not_refuted', existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative']],
   ['blocker with unreadable second vote upheld by the third', 'blocker', { materiality: 'not_refuted', existence: 'unreadable', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['existence']],
+  ['blocker with unreadable first vote upheld by the others', 'blocker', { materiality: 'unreadable', existence: 'not_refuted', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['blocker with missing first vote refuted by the others', 'blocker', { materiality: null, existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative'], ['materiality']],
   ['blocker split pair with a missing third stays unverified', 'blocker', { materiality: 'not_refuted', existence: 'refuted', alternative: null }, 'unverified', ['materiality', 'existence', 'alternative'], ['alternative']],
 ]) {
   test(`staged refutation: ${name}`, async () => {
@@ -1476,6 +1478,65 @@ test('a snapshot without an evidence pack is rejected before any agent runs', as
     version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/mock/snapshot',
     snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
     receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+  };
+  await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /evidence pack/);
+  assert.equal(dispatched, 0);
+});
+
+test('a minor seed is refuted through the default first stage (materiality alone)', async () => {
+  const { agent, calls } = seedAgent();
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed({ id: 's-minor', severity: 'minor' })));
+  const verify = calls.filter(c => c.phase === 'Verify').map(c => [c.label.split('-').at(-1), batchIds(c.prompt)]);
+  assert.deepEqual(verify, [['materiality', ['s-minor']]]);
+  assert.deepEqual(Array.from(result.findings_before.confirmed, f => f.id), ['s-minor']);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [1, 0]);
+});
+
+test('a batch mixing a blocker and a major keeps each stage membership and vote with its own finding', async () => {
+  const blocker = finding({ claim: 'blocker one', severity: 'blocker' });
+  const major = finding({ claim: 'major one' });
+  const calls = [];
+  const verdictFor = { 'p1-why-driven-1': { materiality: 'not_refuted', existence: 'not_refuted' },
+    'p1-why-driven-2': { materiality: 'refuted', existence: 'refuted', alternative: 'not_refuted' } };
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, id => verdictFor[id][opts.label.split('-').at(-1)]);
+    return { findings: opts.label === 'find-why-driven-p1' ? [blocker, major] : [], scanned_files: ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  const { result } = await run('review', agent);
+  const members = calls.filter(c => c.label.startsWith('refute-')).map(c => [c.label.split('-').slice(-2).join('-'), batchIds(c.prompt)]);
+  assert.deepEqual(members, [
+    ['s1-materiality', ['p1-why-driven-1', 'p1-why-driven-2']],
+    ['s1-existence', ['p1-why-driven-1']],
+    ['s2-existence', ['p1-why-driven-2']],
+    ['s2-alternative', ['p1-why-driven-2']],
+  ]);
+  const confirmed = Object.fromEntries(result.findings.confirmed.map(f => [f.claim, f]));
+  assert.deepEqual(confirmed['blocker one'].votes.map(v => [v.perspective, v.verdict]), [['materiality', 'not_refuted'], ['existence', 'not_refuted']]);
+  assert.deepEqual(Array.from(result.findings.rejected, f => f.claim), ['major one']);
+  assert.deepEqual(result.findings.rejected[0].votes.map(v => [v.perspective, v.verdict]),
+    [['materiality', 'refuted'], ['existence', 'refuted'], ['alternative', 'not_refuted']]);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [2, 2]);
+});
+
+test('refuter_dispatch.after keeps one record per Reverify round, and review leaves it null', async () => {
+  const { agent } = perRoundAgent([1, 0]);
+  const { result } = await run('update', agent);
+  assert.deepEqual(Array.from(result.refuter_dispatch.after, r => r.pass), ['p2r1', 'p2r2']);
+  assert.deepEqual(Array.from(result.refuter_dispatch.after[0].stage_agents), [1, 0]);
+  assert.deepEqual(Array.from(result.refuter_dispatch.after[1].stage_agents), [0, 0]);
+  const review = await run('review', scriptedAgent({}).agent);
+  assert.equal(review.result.refuter_dispatch.after, null);
+});
+
+test('an evidence pack path outside the snapshot layout is rejected before any agent runs', async () => {
+  let dispatched = 0;
+  const snapshot = {
+    version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/mock/snapshot',
+    snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
+    receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+    evidencePackPath: '/elsewhere/evidence-pack.txt', evidencePackSha256: 'c'.repeat(64),
   };
   await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /evidence pack/);
   assert.equal(dispatched, 0);

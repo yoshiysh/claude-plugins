@@ -664,7 +664,7 @@ fan-out する既存スキルは「それを指して同じことをする workf
 
 `anthropics/skills`（2026-08 時点）は `workflows/` ディレクトリを 1 つも持たず、`.js` は作画テンプレート 1 本のみ。本家 `skill-creator` も `agents/` + Python の `scripts/` で、全区間が Claude のターンごとの指揮で回る。**このリポジトリの skill-creator-best-practices はその直系だが、create の Workflow 区間（Criteria〜Analyze）を名前付き workflow `/skill-creator:skill-creator-build`（plugin の `workflows/build_skill.js`）に移した時点で本家より先へ出ている。**
 
-継承したパターン表（`coordination-patterns.md` の 1–6）は dynamic workflows 以前の corpus 由来で、Workflow 実行型が候補に入っていなかった。本節が後から足されても選択経路に届いていなかったのが、fan-out するスキルを作っても script 化しない傾向の実際の原因。ステップ 0 の判定はそれを塞ぐために置いてある。
+継承したパターン表（`coordination-patterns.md` の 1–6。後から足した付加型の位置づけは同ファイル冒頭の段落）は dynamic workflows 以前の corpus 由来で、Workflow 実行型が候補に入っていなかった。本節が後から足されても選択経路に届いていなかったのが、fan-out するスキルを作っても script 化しない傾向の実際の原因。ステップ 0 の判定はそれを塞ぐために置いてある。
 
 より進んだ参照実装は別リポジトリの `magi`（`stock-valuation-dcf`）:
 
@@ -778,8 +778,8 @@ blog が挙げる収束形は「独立した角度から取り組む agent 群 �
 重さ、票の割れ方、差分・対象の大きさ）から段ごとに決める。どれも、守られないと費用か精度のどちらかが黙って壊れる。
 
 - **反論役は 1 体から始め、反論されたか票が割れたときだけ足す。** 重い指摘（不可逆な結論につながるもの）は最初から
-  複数でよい。足した後は全観点の有効票の過半数で決め、欠測・読めなかった票は有効票に数えない（数えると検証して
-  いない票で多数決が成立する）。
+  複数でよい。段の判定規則は参照実装の `schemas.md`「refuter の出力（REFUTE_SCHEMA）」が正本。欠測・読めなかった票を
+  有効票に数えないのは、数えると検証していない票で多数決が成立するため。
 - **先頭に置く観点は実測で選ぶ。** 反論をほとんど出さない観点を先頭にすると、1 票で確定する経路を誤りが素通りする。
   記録済みの票を再生して、先頭の 1 体だけで判定が変わらない観点を選ぶ（参照実装の実測は `workflows/review_skill.js`
   の `PERSPECTIVES` の注釈）。
