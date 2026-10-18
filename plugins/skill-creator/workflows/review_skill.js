@@ -236,6 +236,7 @@ function requireAbsolutePath(value, name) {
 }
 
 const SKILL_DIR = requireAbsolutePath(parsedArgs.skillDir, 'skillDir')
+const BEST_PRACTICES_PATH = `${SKILL_DIR}/references/best-practices.md`
 
 const mode = parsedArgs.mode
 if (!['review', 'update', 'audit'].includes(mode)) {
@@ -452,7 +453,7 @@ const FINDERS = [
     owns_unchecked: true,
     title: 'ベストプラクティス準拠',
     guide: [
-      `${SKILL_DIR}/references/best-practices.md と`,
+      `${BEST_PRACTICES_PATH} と`,
       `${SKILL_DIR}/references/skill-writing-guide.md に照らして逸脱している箇所を探す。`,
       'この 2 つは絶対パスで示してある。評価対象は別のスキルなので、相対パスでは解決しない。',
       '参照ファイルは自分で Read すること（要約を渡していないのは、要約経由だと原典に',
@@ -1452,7 +1453,7 @@ while (true) {
     [
       `[TARGET_DIR]: ${skillPath}`,
       `[STAGING_DIR]: ${stagingDir}`,
-      `[WRITING_GUIDE]: ${SKILL_DIR}/references/best-practices.md`,
+      `[WRITING_GUIDE]: ${BEST_PRACTICES_PATH}`,
       `[INTENT]:\n${intent}`,
       `[CONFIRMED_FINDINGS]:\n${JSON.stringify(originalConfirmed.map(forUpdater), null, 2)}`,
       seeded ? '[FINDINGS_ORIGIN]: seed（先行 run の指摘のうち、この run の反証を生き残ったもの。Find で探し直していない）' : '',
