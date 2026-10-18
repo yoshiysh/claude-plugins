@@ -20,7 +20,11 @@ const SNAPSHOT_LAYOUT = Object.freeze({
   tree: 'tree',
   diff: 'diff.patch',
   changedPaths: 'changed-paths.json',
+  evidencePack: 'evidence-pack.txt',
 });
+// evidence pack に入れる拡張子。review の finder / refuter が毎回 1 つずつ冷読みしていた文書をここで 1 回だけ
+// 連結し、行番号を付けて配る。入れなかったファイル（scripts/ など）は pack の冒頭に一覧で宣言する。
+const EVIDENCE_PACK_EXTENSIONS = Object.freeze(['.md']);
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const stableJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -194,6 +198,33 @@ async function chmodSnapshot(snapshotDir) {
   await fs.chmod(snapshotDir, 0o555);
 }
 
+// 元ファイルの相対パスと行番号で引用できるよう、各行を `<元の行番号>| <本文>` の形で書く。pack 自体の行番号は使わない。
+async function buildEvidencePack(snapshotDir, files) {
+  const included = files.filter((f) => EVIDENCE_PACK_EXTENSIONS.includes(path.posix.extname(f.path)));
+  const excluded = files.filter((f) => !included.includes(f)).map((f) => f.path);
+  const sections = [];
+  const index = [];
+  for (const file of included) {
+    const lines = (await fs.readFile(safeRelative(snapshotDir, file.path), 'utf8')).split('\n');
+    if (lines.at(-1) === '') lines.pop();
+    index.push(`- ${file.path}（${lines.length} 行）`);
+    sections.push([`===== FILE: ${file.path} =====`, ...lines.map((line, n) => `${n + 1}| ${line}`)].join('\n'));
+  }
+  const header = [
+    '# evidence pack（review snapshot から決定的に生成）',
+    `入れた拡張子: ${EVIDENCE_PACK_EXTENSIONS.join(', ')}`,
+    '各行は `<元ファイルの行番号>| <本文>`。引用は `===== FILE: <相対パス> =====` の相対パスとこの行番号で書く。',
+    '',
+    `## 入れたファイル（${included.length} 件）`,
+    ...index,
+    '',
+    `## 入れなかったファイル（${excluded.length} 件。要るときは snapshot から個別に読む）`,
+    ...excluded.map((name) => `- ${name}`),
+    '',
+  ].join('\n');
+  return { bytes: Buffer.from(`${[header, ...sections].join('\n\n')}\n`), included: included.map((f) => f.path), excluded };
+}
+
 async function createSnapshot({ target, scope, diffRef }) {
   const targetRoot = await canonicalDirectory(target, 'target');
   if (!['full', 'diff'].includes(scope)) throw Error('scope must be full or diff');
@@ -213,6 +244,9 @@ async function createSnapshot({ target, scope, diffRef }) {
       await fs.writeFile(path.join(snapshotRoot, SNAPSHOT_LAYOUT.changedPaths), stableJson(diffInfo.changedPaths), { mode: 0o400, flag: 'wx' });
     }
     await chmodSnapshot(snapshotDir);
+    const pack = await buildEvidencePack(snapshotDir, inventory.files);
+    const evidencePackPath = path.join(snapshotRoot, SNAPSHOT_LAYOUT.evidencePack);
+    await fs.writeFile(evidencePackPath, pack.bytes, { mode: 0o400, flag: 'wx' });
     const manifest = {
       version: VERSION,
       scope,
@@ -226,6 +260,14 @@ async function createSnapshot({ target, scope, diffRef }) {
         maxFileBytes: MAX_FILE_BYTES,
         maxTotalBytes: MAX_TOTAL_BYTES,
         maxDiffBytes: MAX_DIFF_BYTES,
+      },
+      evidencePack: {
+        path: evidencePackPath,
+        sha256: sha256(pack.bytes),
+        bytes: pack.bytes.length,
+        extensions: EVIDENCE_PACK_EXTENSIONS,
+        includedFiles: pack.included,
+        excludedFiles: pack.excluded,
       },
       ...(diffInfo ? {
         diffRef: diffInfo.diffRef,
@@ -257,6 +299,8 @@ async function createSnapshot({ target, scope, diffRef }) {
       changedPathsPath: manifest.changedPathsPath,
       diffSha256: manifest.diffSha256,
       changedPaths: manifest.changedPaths,
+      evidencePackPath,
+      evidencePackSha256: manifest.evidencePack.sha256,
     };
     const receiptPath = path.join(snapshotRoot, SNAPSHOT_LAYOUT.receipt);
     await fs.writeFile(receiptPath, stableJson(receipt), { mode: 0o400, flag: 'wx' });
@@ -292,6 +336,9 @@ async function readReceipt(receiptPath) {
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
   if (manifest.version !== VERSION || manifest.targetRoot !== receipt.targetRoot || manifest.snapshotDir !== receipt.snapshotDir || manifest.scope !== receipt.scope)
     throw Error('review snapshot receipt and manifest do not match');
+  if (!manifest.evidencePack || receipt.evidencePackPath !== path.join(receipt.snapshotRoot, SNAPSHOT_LAYOUT.evidencePack) ||
+      manifest.evidencePack.path !== receipt.evidencePackPath || manifest.evidencePack.sha256 !== receipt.evidencePackSha256)
+    throw Error('review snapshot receipt and manifest disagree on the evidence pack');
   return { receipt, manifest };
 }
 
@@ -304,6 +351,10 @@ async function verifySnapshot(receiptPath) {
   const snapshotNow = await collectTree(receipt.snapshotDir);
   const expected = { files: manifest.files, directories: manifest.directories, totalBytes: manifest.totalBytes };
   if (stableJson(snapshotNow) !== stableJson(expected)) throw Error('frozen target snapshot drifted from its manifest');
+  const packInfo = await fs.lstat(manifest.evidencePack.path);
+  if (!packInfo.isFile() || packInfo.isSymbolicLink() || packInfo.size !== manifest.evidencePack.bytes ||
+      sha256(await fs.readFile(manifest.evidencePack.path)) !== manifest.evidencePack.sha256)
+    throw Error('evidence pack drifted from its manifest');
   const sourceNow = await collectTree(targetRoot);
   if (stableJson(sourceNow) !== stableJson(expected)) throw Error('live target changed after snapshot preparation');
   if (manifest.scope === 'diff') {
@@ -387,6 +438,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 }
 
 export {
+  EVIDENCE_PACK_EXTENSIONS,
   MAX_DIFF_BYTES,
   MAX_FILE_BYTES,
   MAX_FILES,

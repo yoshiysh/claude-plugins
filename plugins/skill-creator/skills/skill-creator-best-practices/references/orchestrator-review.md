@@ -191,6 +191,8 @@ staging に改稿を書きました（本体はまだ変えていません）。
 - 【実測で確かめる項目】の行は 0 件でも残す（値は `unchecked_failures` のうち `requires_measurement: true` のもの）。
   `applied_to_staging` でもこれが残っていれば、反映後に evals で実測するよう添える（手順は
   `references/orchestrator-output.md`「description 最適化ループ」）。
+- `stop_reason: seeds_refuted` のときは、渡した指摘が今の対象では反証で全て成り立たなかったため改稿していないと伝え、
+  `findings_before.rejected` の各指摘と反証の理由を出す。staging は無い。
 - `seed` が `null` でないときは、冒頭に「先行 run（`seed.source_run_id`）の指摘 `seed.count` 件を反証にかけ、生き残った
   `findings_before.confirmed` の件数を対象にした。Find での探し直しはしていない」と 1 行添える（`by_category.before` が
   `null` なのはこのため）。反証で消えた seed（`findings_before.rejected`）と確かめきれなかった seed
@@ -225,8 +227,8 @@ staging に改稿を書きました（本体はまだ変えていません）。
 
 適用してよいのは verdict が `applied_to_staging` の staging だけ。`needs_human_decision` /
 `reverify_incomplete` / `update_failed` で人間が反映を望んだ場合も staging は適用せず、`seedFindings` を渡した update を
-回し直す（再検証を通っていない、または通らなかった改稿を本体に入れないため）。コピー元はこの run の
-`findings_before.confirmed` だけで、その理由と `source_run_id` は `references/schemas.md`「caller input: `seedFindings`」が正本。
+回し直す（再検証を通っていない、または通らなかった改稿を本体に入れないため）。コピー元・`source_run_id` は
+`references/schemas.md`「caller input: `seedFindings`」が正本。
 
 ### Codex runner の approved package 適用
 

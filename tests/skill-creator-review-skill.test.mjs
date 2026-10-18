@@ -47,6 +47,8 @@ async function run(mode, agent = async () => null, target = { scope: 'full' }, g
         snapshotDir: '/mock/snapshot/tree',
         manifestPath: '/mock/snapshot/manifest.json',
         manifestSha256: 'a'.repeat(64),
+        evidencePackPath: '/mock/snapshot/evidence-pack.txt',
+        evidencePackSha256: 'c'.repeat(64),
         receiptPath: '/mock/snapshot/receipt.json',
         diffRef,
         diffPath: scope === 'diff' ? '/mock/snapshot/diff.patch' : null,
@@ -347,32 +349,38 @@ test('review with only minor findings is not clean', async () => {
   assert.equal(result.stop_reason, null);
 });
 
-for (const [name, lead, third, expected, calls3, expectedMissing = []] of [
-  ['agreeing not_refuted pair', ['not_refuted', 'not_refuted'], 'refuted', 'confirmed', false],
-  ['agreeing refuted pair', ['refuted', 'refuted'], 'not_refuted', 'rejected', false],
-  ['split pair resolved by refuting third', ['refuted', 'not_refuted'], 'refuted', 'rejected', true],
-  ['split pair resolved by not_refuted third', ['not_refuted', 'refuted'], 'not_refuted', 'confirmed', true],
-  ['split pair with missing third remains unverified', ['refuted', 'not_refuted'], null, 'unverified', true, ['alternative']],
-  ['split pair with unreadable third remains unverified', ['refuted', 'not_refuted'], 'unreadable', 'unverified', true, ['alternative']],
-  ['refuted and unreadable pair remains unverified on split', ['refuted', 'unreadable'], 'not_refuted', 'unverified', true, ['materiality']],
-  ['refuted and missing pair', ['refuted', null], 'refuted', 'rejected', true, ['materiality']],
-  ['unreadable and not_refuted pair with unreadable third', ['unreadable', 'not_refuted'], 'unreadable', 'unverified', true, ['existence', 'alternative']],
+// 段: major 以下は materiality の 1 体で始め、not_refuted なら確定。それ以外は existence と alternative を足して
+// 全観点の過半数で決める。blocker は materiality と existence の 2 体で始め、一致しなければ alternative を足す。
+for (const [name, severity, votes, expected, calls, expectedMissing = []] of [
+  ['major settled by one not_refuted vote', 'major', { materiality: 'not_refuted' }, 'confirmed', ['materiality']],
+  ['major refuted once then by majority', 'major', { materiality: 'refuted', existence: 'refuted', alternative: 'not_refuted' }, 'rejected', ['materiality', 'existence', 'alternative']],
+  ['major refuted once but upheld by the others', 'major', { materiality: 'refuted', existence: 'not_refuted', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative']],
+  ['major with unreadable first vote upheld by the others', 'major', { materiality: 'unreadable', existence: 'not_refuted', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['major with missing first vote refuted by the others', 'major', { materiality: null, existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['major split with an unreadable third stays unverified', 'major', { materiality: 'refuted', existence: 'not_refuted', alternative: 'unreadable' }, 'unverified', ['materiality', 'existence', 'alternative'], ['alternative']],
+  ['major refuted once with the rest missing stays unverified', 'major', { materiality: 'refuted', existence: null, alternative: null }, 'unverified', ['materiality', 'existence', 'alternative'], ['existence', 'alternative']],
+  ['blocker settled by an agreeing not_refuted pair', 'blocker', { materiality: 'not_refuted', existence: 'not_refuted' }, 'confirmed', ['materiality', 'existence']],
+  ['blocker settled by an agreeing refuted pair', 'blocker', { materiality: 'refuted', existence: 'refuted' }, 'rejected', ['materiality', 'existence']],
+  ['blocker split pair resolved by a refuting third', 'blocker', { materiality: 'not_refuted', existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative']],
+  ['blocker with unreadable second vote upheld by the third', 'blocker', { materiality: 'not_refuted', existence: 'unreadable', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['existence']],
+  ['blocker split pair with a missing third stays unverified', 'blocker', { materiality: 'not_refuted', existence: 'refuted', alternative: null }, 'unverified', ['materiality', 'existence', 'alternative'], ['alternative']],
 ]) {
   test(`staged refutation: ${name}`, async () => {
-    const byPerspective = { existence: lead[0], materiality: lead[1], alternative: third };
-    const { agent, calls } = scriptedAgent({
-      findingsByLabel: { 'find-why-driven-p1': [finding()] },
-      votes: label => byPerspective[label.split('-').at(-1)],
+    const { agent, calls: made } = scriptedAgent({
+      findingsByLabel: { 'find-why-driven-p1': [finding({ severity })] },
+      votes: label => votes[label.split('-').at(-1)] ?? null,
     });
     const { result } = await run('review', agent);
-    const perspectives = calls.filter(c => c.label.startsWith('refute-')).map(c => c.label.split('-').at(-1));
-    assert.deepEqual(perspectives, calls3 ? ['existence', 'materiality', 'alternative'] : ['existence', 'materiality']);
+    const perspectives = made.filter(c => c.label.startsWith('refute-')).map(c => c.label.split('-').at(-1));
+    assert.deepEqual(perspectives, calls);
     for (const bucket of ['confirmed', 'rejected', 'unverified']) {
       assert.equal(result.findings[bucket].length, bucket === expected ? 1 : 0, bucket);
     }
     const entry = result.findings[expected][0];
-    assert.deepEqual(Array.from(entry.skipped_perspectives), calls3 ? [] : ['alternative']);
+    assert.deepEqual(Array.from(entry.skipped_perspectives), ['materiality', 'existence', 'alternative'].filter(p => !calls.includes(p)));
     assert.deepEqual(Array.from(entry.missing_perspectives), expectedMissing);
+    const firstStage = severity === 'blocker' ? 2 : 1;
+    assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [firstStage, calls.length - firstStage]);
   });
 }
 
@@ -750,7 +758,7 @@ test('every agent call sets model and effort, and the meta phase model matches t
 
 test('fan-out siblings share model, effort and schema so they can share the prompt cache prefix', async () => {
   const { agent, calls } = optsRecordingAgent({
-    'find-why-driven-p1': { findings: [finding()], scanned_files: ['SKILL.md'], unreadable: false },
+    'find-why-driven-p1': { findings: [finding(), finding({ file: 'references/a.md' })], scanned_files: ['SKILL.md'], unreadable: false },
   });
   await run('review', agent);
   for (const prefix of ['find-', 'refute-']) {
@@ -1034,11 +1042,12 @@ test('refuters judge findings on the same file in one batch per perspective and 
   });
   const { result } = await run('review', agent);
   const refuters = calls.filter(c => c.label.startsWith('refute-'));
-  const batches = refuters.filter(c => c.label.endsWith('-existence')).map(c => batchIds(c.prompt));
+  const batches = refuters.filter(c => c.label.endsWith('-materiality')).map(c => batchIds(c.prompt));
   assert.equal(batches.length, 3);
   assert.ok(batches.every(ids => ids.length <= MAX_PER_REFUTER));
   assert.deepEqual(batches.map(ids => ids.length).sort(), [1, 1, MAX_PER_REFUTER].sort());
-  assert.equal(refuters.length, batches.length * 2);
+  assert.equal(refuters.length, batches.length);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.refuter_dispatch.before)), { batches: 3, stage_agents: [3, 0], lost_batches: 0 });
   assert.equal(result.findings.confirmed.length, MAX_PER_REFUTER + 2);
   for (const ids of batches) {
     const files = new Set(ids.map(id => result.findings.confirmed.find(f => f.id === id).file));
@@ -1068,13 +1077,13 @@ test('a batch reply that omits an id or repeats it leaves that finding without a
   assert.deepEqual(Array.from(result.findings.confirmed, f => f.claim), ['answered']);
   assert.deepEqual(Array.from(result.findings.unverified, f => f.claim).sort(), ['duplicated', 'omitted']);
   for (const f of result.findings.unverified) {
-    assert.deepEqual(Array.from(f.missing_perspectives), ['existence', 'materiality', 'alternative']);
+    assert.deepEqual(Array.from(f.missing_perspectives), ['materiality', 'existence', 'alternative']);
   }
-  const third = calls.filter(c => c.label.endsWith('-alternative')).map(c => batchIds(c.prompt));
-  assert.deepEqual(third.map(ids => ids.length), [2]);
+  const second = calls.filter(c => c.label.includes('-s2-')).map(c => [c.label.split('-').at(-1), batchIds(c.prompt).length]);
+  assert.deepEqual(second, [['existence', 2], ['alternative', 2]]);
 });
 
-test('early settlement stays per finding inside a batch: only the split finding goes to the third perspective', async () => {
+test('early settlement stays per finding inside a batch: only the refuted finding goes to the second stage', async () => {
   const findings = [finding({ claim: 'agreed' }), finding({ claim: 'split' })];
   const calls = [];
   const agent = async (prompt, opts) => {
@@ -1087,13 +1096,14 @@ test('early settlement stays per finding inside a batch: only the split finding 
       unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
   };
   const { result } = await run('review', agent);
-  const third = calls.filter(c => c.label.endsWith('-alternative')).map(c => batchIds(c.prompt));
-  assert.deepEqual(third, [['p1-why-driven-2']]);
+  const second = calls.filter(c => c.label.includes('-s2-')).map(c => [c.label.split('-').at(-1), batchIds(c.prompt)]);
+  assert.deepEqual(second, [['existence', ['p1-why-driven-2']], ['alternative', ['p1-why-driven-2']]]);
   const agreed = result.findings.confirmed.find(f => f.claim === 'agreed');
   const split = result.findings.confirmed.find(f => f.claim === 'split');
-  assert.deepEqual(Array.from(agreed.skipped_perspectives), ['alternative']);
+  assert.deepEqual(Array.from(agreed.skipped_perspectives), ['existence', 'alternative']);
   assert.deepEqual(Array.from(split.skipped_perspectives), []);
   assert.equal(split.refuted_votes, 1);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [1, 2]);
 });
 
 test('refuter labels stay unique across update rounds', async () => {
@@ -1390,7 +1400,7 @@ for (const [name, intentScope, pattern, mode = 'update'] of [
 // native の parallel は落ちた thunk を null で返す。束の行が丸ごと返らなくても、反証に回した指摘を消さない。
 test('a refutation batch whose thunk fails keeps its findings as unverified instead of dropping them', async () => {
   const dropBatchRows = tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip)))
-    .then(results => results.map(r => (Array.isArray(r) && r[0] && r[0].finding ? null : r)));
+    .then(results => results.map(r => (r && Array.isArray(r.rows) ? null : r)));
   const { agent } = scriptedAgent({
     findingsByLabel: { 'find-why-driven-p1': [finding({ claim: 'a' }), finding({ claim: 'b', file: 'references/a.md' })] },
   });
@@ -1398,10 +1408,11 @@ test('a refutation batch whose thunk fails keeps its findings as unverified inst
   assert.equal(result.findings.confirmed.length, 0);
   assert.deepEqual(Array.from(result.findings.unverified, f => f.claim).sort(), ['a', 'b']);
   for (const f of result.findings.unverified) {
-    assert.deepEqual(Array.from(f.missing_perspectives), ['existence', 'materiality', 'alternative']);
+    assert.deepEqual(Array.from(f.missing_perspectives), ['materiality', 'existence', 'alternative']);
     assert.equal(f.valid_votes, 0);
   }
   assert.equal(result.verdict, 'findings');
+  assert.equal(result.refuter_dispatch.before.lost_batches, 2);
 });
 
 test('a revisable delegated failure that the revision fixes resolves the loop', async () => {
@@ -1413,4 +1424,59 @@ test('a revisable delegated failure that the revision fixes resolves the loop', 
   assert.deepEqual(uncheckedSentToUpdater(calls.find(c => c.label === 'update-r1').prompt), ['verifier-path']);
   assert.equal(result.stop_reason, 'resolved');
   assert.deepEqual(Array.from(result.unchecked_failures, f => f.requires_measurement), [true]);
+});
+
+test('seeds that are all refuted stop before the updater with seeds_refuted', async () => {
+  const { agent, calls } = seedAgent({ votesFor: () => 'refuted' });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed(), seed({ id: 's2', claim: 'other' })));
+  assert.equal(calls.filter(c => c.label.startsWith('update-')).length, 0);
+  assert.equal(result.verdict, 'needs_human_decision');
+  assert.equal(result.stop_reason, 'seeds_refuted');
+  assert.equal(result.staging, null);
+  assert.equal(result.findings_before.rejected.length, 2);
+});
+
+test('a blocker gate stop still returns the delegated-item judgments of the Reverify that ran', async () => {
+  const blocker = finding({ file: 'references/x.md', claim: 'blocker claim', severity: 'blocker' });
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push(opts.label);
+    if (opts.label.startsWith('update-')) {
+      return { changed_files: [{ path: 'SKILL.md', reason: 'u', findings_addressed: [] }], out_of_scope_changes: [], summary: 'u' };
+    }
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
+    return {
+      findings: opts.label === 'find-why-driven-p1' ? [blocker] : [],
+      scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER,
+      unchecked_judgments: opts.label.startsWith('find-best-practices-')
+        ? [{ id: 'verifier-path', verdict: opts.label.endsWith('-p1') ? 'pass' : 'fail', evidence: 'e' },
+          { id: 'description-triggers', verdict: 'pass', evidence: 'e' }]
+        : [],
+    };
+  };
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.equal(result.stop_reason, 'unverified_blocker');
+  assert.deepEqual(Array.from(result.unchecked_failures, f => f.location), ['機械判定できない項目: verifier-path']);
+});
+
+test('Find and Verify agents get the evidence pack; Reverify finders get it only as the original for comparison', async () => {
+  const { agent, calls } = intentMismatchAgent(false, ['find-why-driven-p1', 'find-why-driven-p2r1']);
+  await run('update', agent);
+  const pack = '[EVIDENCE_PACK]: /mock/snapshot/evidence-pack.txt';
+  for (const c of calls.filter(c => c.phase === 'Find' || c.phase === 'Verify')) assert.ok(c.prompt.includes(pack), c.label);
+  for (const c of calls.filter(c => c.phase === 'Reverify')) assert.ok(!c.prompt.includes(pack), c.label);
+  for (const c of calls.filter(c => c.phase === 'Reverify' && c.label.startsWith('find-'))) {
+    assert.ok(c.prompt.includes('[ORIGINAL_EVIDENCE_PACK]: /mock/snapshot/evidence-pack.txt'), c.label);
+  }
+});
+
+test('a snapshot without an evidence pack is rejected before any agent runs', async () => {
+  let dispatched = 0;
+  const snapshot = {
+    version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/mock/snapshot',
+    snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
+    receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+  };
+  await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /evidence pack/);
+  assert.equal(dispatched, 0);
 });

@@ -22,9 +22,24 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
 
 ---
 
+## evidence pack（[EVIDENCE_PACK] が渡されたとき）
+
+`[EVIDENCE_PACK]` は、凍結した snapshot の文書（SKILL.md・`agents/`・`references/` の `.md` など）を script が 1 回だけ
+行番号つきで連結したファイル。**まずこれを読む。** 同じ文書を各担当が 1 つずつ開き直すと、その往復だけで
+ターンと入力が膨らむため、文書はここで読む。
+
+- 冒頭の目次に、入れたファイル（行数つき）と入れなかったファイルの一覧がある。Read は 1 回で読める行数に上限が
+  あるので、目次で総量を見てから offset / limit で区切って最後まで読む（例: 1 回 1500 行ずつ）。
+- 各行は `<元ファイルの行番号>| <本文>` で、`===== FILE: <相対パス> =====` が区切り。**引用・`file`・`location` は
+  pack の行番号ではなく、この元ファイルの相対パスと行番号で書く**（後段は元ファイルで照合する）。
+- pack に入れなかったファイル（`scripts/` など）が要るときだけ、`[TARGET_DIR]` から個別に読む（下の「やること」の読み方に従う）。
+  pack から読んだ文書も `scanned_files` に元の相対パスで入れる。
+- `[ORIGINAL_EVIDENCE_PACK]`（Reverify）は改稿前の原本の pack で、`present_in_original` の照合にだけ使う。
+  改稿ドラフト（`[TARGET_DIR]`）の中身は入っていないので、指摘はドラフトを読んで書く。
+
 ## やること
 
-1. `[TARGET_DIR]` 配下を自分で Read する。SKILL.md だけでなく `agents/` `references/`
+1. `[TARGET_DIR]` 配下を自分で Read する（`[EVIDENCE_PACK]` があれば、文書はまず pack で読む）。SKILL.md だけでなく `agents/` `references/`
    `scripts/` も対象。**渡された要約ではなく実物を読む** —— 要約経由で判断すると、
    原典に無い記述を根拠にした指摘が生まれ、後段の反証で必ず落ちる（そして落ちた理由が
    「あなたが見ていない」ことだと分からない）。

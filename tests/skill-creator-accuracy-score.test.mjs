@@ -83,11 +83,12 @@ test('location の行番号は明示的な書式だけを拾う', () => {
 });
 
 // 「N 行」は位置でなく数にも使う。数を行番号と取ると、無関係な行の仕込みや囮に当たる。
-test('location の行数の表現（全N行・N 行以上）は行番号と取らない', () => {
+test('location の行数の表現（全N行・N 行以上）だけを除き、位置を表す N 行は拾う', () => {
   assert.deepEqual(extractRanges('全160行のうち'), []);
   assert.deepEqual(extractRanges('3 行以上の説明'), []);
   assert.deepEqual(extractRanges('2-3 行程度'), []);
-  assert.deepEqual(extractRanges('120 行'), []);
+  assert.deepEqual(extractRanges('（118 行）'), [[118, 118]]);
+  assert.deepEqual(extractRanges('42 行付近'), [[42, 42]]);
   assert.deepEqual(extractRanges('12-18行目'), [[12, 18]]);
   assert.deepEqual(extractRanges('全体の 40 行目'), [[40, 40]]);
 });

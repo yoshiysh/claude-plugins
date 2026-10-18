@@ -134,6 +134,14 @@ async function snapshotProof({ mode, snapshotReceipt, snapshotTarget, snapshotSc
     }
     if (totalBytes !== manifest.totalBytes || manifest.files.length > manifest.limits.maxFiles || totalBytes > manifest.limits.maxTotalBytes)
       throw Error('snapshot file inventory exceeds its declared bounds')
+    const packPath = path.join(snapshotRoot, SNAPSHOT_LAYOUT.evidencePack)
+    if (!manifest.evidencePack || manifest.evidencePack.path !== packPath || receipt.evidencePackPath !== packPath ||
+        receipt.evidencePackSha256 !== manifest.evidencePack.sha256 || !/^[a-f0-9]{64}$/.test(manifest.evidencePack.sha256 || ''))
+      throw Error('snapshot evidence pack is missing or inconsistent')
+    const packInfo = lstatSync(packPath)
+    if (!packInfo.isFile() || packInfo.isSymbolicLink() ||
+        createHash('sha256').update(readFileSync(packPath)).digest('hex') !== manifest.evidencePack.sha256)
+      throw Error('snapshot evidence pack hash does not match the manifest')
     if (snapshotScope === 'diff') {
       if (manifest.diffRef !== snapshotDiffRef || !Array.isArray(manifest.changedPaths) ||
           !/^[a-f0-9]{64}$/.test(manifest.diffSha256 || '') || manifest.diffPath !== path.join(snapshotRoot, SNAPSHOT_LAYOUT.diff) ||

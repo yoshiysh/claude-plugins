@@ -9,6 +9,7 @@
   - [5. Shared State](#5-shared-state共有状態)
   - [6. Message Bus](#6-message-busメッセージバス)
   - [7. Workflow 実行型](#7-workflow-実行型orchestration-の決定化)
+  - [8. 完了の監査（coordinator 型）](#8-完了の監査coordinator-型)
 - [パターン選択ガイド](#パターン選択ガイド)
 - [モデル選定基準](#モデル選定基準)
 
@@ -151,10 +152,35 @@
 - 人間ゲートは script の**境界**に置く。段階ごとに別 workflow として回し、gate FAIL は `status: "BLOCKED"` と理由・証拠を返して止める
 - agent プロンプトは `agents/` に残す（skill は専門知識、workflow は実行順序という分担）
 - native Workflow が無い環境での経路（runner 経由の実行）と、runner が拒否したときの停止条件を SKILL.md に書く（書き方は `codex-workflow-compatibility.md`）
+- fan-out する検証の体数は固定にせず、script が測れる値から段階的に決める（反論役は 1 体から・先頭の観点は実測で選ぶ・
+  体数を agent に決めさせない・反論役どうしを通信させない・根拠は evidence pack で配る。正本は `best-practices.md` §13
+  「体数は測れる値から段階的に決める」）
 
 **入れ子**：パターン 1–6 は script の制御フローとしてそのまま内側に入る（`parallel()` = Parallelization、designer→reviewer の until-pass = Generator-Verifier）。置換ではなく階層。
 
 **参照実装**：`dispatch`（`scripts/orchestrate.js`）、`skill-creator-best-practices`（名前付き workflow `/skill-creator:skill-creator-build`）、`search`（`scripts/investigate.js`）。
+
+---
+
+### 8. 完了の監査（coordinator 型）
+
+**定義**：Workflow を使わず Claude がターンごとに指揮する型（パターン 1–6）で、「全ての段を終えた」の判定を司令塔の
+自己申告ではなく、照合だけを担う監査役に行わせる。TODO リスト（Task 系ツール）は手順を忘れないために使うが、
+それにチェックを付けるのは司令塔自身なので、完了の証拠にはならない（起動し忘れた段も、司令塔の記憶の中では済んでいる）。
+
+**条件**（どれか 1 つでも欠けると、監査が自己申告の言い直しになる）：
+1. **計画の時点で、どの段が何を出すかを閉じた一覧として固定する。** 監査役にはその一覧と実物（成果ファイル・返り値）を
+   渡し、司令塔の完了報告は渡さない。報告を渡すと監査役はそれを読んで頷くだけになる。一覧と実物を突き合わせれば、
+   起動し忘れた段は「成果が無い」として見つかる。
+2. **監査役は段の境界（人間ゲートの前・完了宣言の前）だけに置く。** 毎ステップに置くと費用が段の数に比例し、
+   照合の対象（揃うべき成果）もまだ揃っていない。
+3. **監査役は照合だけを担うので、小さいモデルと低い effort を明示して起動する。** 中身の良し悪しは検証役（パターン 2）の
+   仕事のままにする。監査役に質の判定まで持たせると、照合の役割がぼやけ、上位モデルの費用もかかる。
+
+**限界**：一覧に載せ忘れた段は見つからない。一覧そのものの網羅は計画段の検証（generator-verifier）で担保する。
+
+**Workflow 実行型との関係**：段の起動を script が握るパターン 7 では、起動し忘れが構造的に起きないので、この監査は要らない。
+司令塔が段を起動する型を選んだときに、その弱点（自己申告で完了が通る）を塞ぐ型として使う。
 
 ---
 
@@ -185,6 +211,7 @@ Workflow 実行型を採る場合でも、人間ゲートは workflow の**境�
 | 独立した長期並列サブタスク | Agent Teams |
 | 協調調査・発見の共有 | Shared State |
 | イベント駆動・エコシステム拡張予定 | Message Bus |
+| 司令塔が段を起動し、全段を終えたかを確かめる必要がある | 完了の監査（coordinator 型） |
 
 **基本方針**：ステップ 0 で Workflow 実行型を採らないと決めた場合は、まず Orchestrator-Subagent から始め、具体的な課題が見えてから他パターンを組み合わせる。採る場合は、同じ表で選んだ形を script の制御フローとして表現する（`parallel()` = Parallelization、designer→reviewer の until-pass ループ = Generator-Verifier）。本番設計はパターンの組み合わせが一般的。
 

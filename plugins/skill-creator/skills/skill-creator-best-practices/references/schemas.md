@@ -402,7 +402,7 @@ eval-viewer のレビュー完了後にダウンロードされる形式。
 
 review/update/audit の workflow（plugin の `workflows/review_skill.js`）が finder / refuter / updater と交換する契約。
 **観点の一覧・反証者の観点・閾値・改稿ループの停止条件・prompt-audit の確信度から severity への写像は script の
-`FINDERS` / `PERSPECTIVES` / `MIN_VALID_VOTES` / `REVISE_SEVERITIES` / `PROMPT_AUDIT_SEVERITY` が唯一の正**なので、ここには写さない。
+`FINDERS` / `PERSPECTIVES` / `FIRST_STAGE_PERSPECTIVES` / `REVISE_SEVERITIES` / `PROMPT_AUDIT_SEVERITY` が唯一の正**なので、ここには写さない。
 ここが定義するのはフィールドの形と、その形が保証していることだけ。
 
 ### caller input: `snapshot`
@@ -428,10 +428,16 @@ review/update/audit の workflow（plugin の `workflows/review_skill.js`）が 
   "diffPath": "/tmp/codex-skill-review-random/diff.patch",
   "changedPathsPath": "/tmp/codex-skill-review-random/changed-paths.json",
   "diffSha256": "<sha256>",
-  "changedPaths": ["SKILL.md"]
+  "changedPaths": ["SKILL.md"],
+  "evidencePackPath": "/tmp/codex-skill-review-random/evidence-pack.txt",
+  "evidencePackSha256": "<sha256>"
 }
 ```
 
+`evidencePackPath` / `evidencePackSha256` は prepare が snapshot の文書を行番号つきで連結した evidence pack と、その
+SHA-256（manifest の `evidencePack` にも入り、selector と verify が照合する）。pack に入れる拡張子は
+`review-snapshot.mjs` の `EVIDENCE_PACK_EXTENSIONS` が正本で、入れなかったファイルは pack の冒頭と manifest の
+`evidencePack.excludedFiles` に宣言される。workflow は Find / Verify の各体に `[EVIDENCE_PACK]` としてパスを渡す。
 `full` では diff 関連フィールドは `null` で、`changedPaths` は空配列。selector の Codex route が返す `runner_limits` は
 dynamic-workflow-runner request の top-level `limits` へ渡し、`args` には入れない。
 
@@ -449,7 +455,8 @@ dynamic-workflow-runner request の top-level `limits` へ渡し、`args` には
 ```
 
 - `source_run_id`: 指摘を出した Workflow run の識別子。native Workflow ではその run の `runId`（`resumeFromRunId` に
-  渡す値）、Codex runner ではその run の request の `runDir`（runner は run ごとに新しい `runDir` を割り当てる）。
+  渡す値）、Codex runner ではその run の request に caller が割り当てた `runDir`（run ごとに新しく作る）。checkpoint から
+  続けた run は新しい `runDir` で走るので、指摘を返した最後の run の `runDir` を使う。
   script は値を照合せず出所として戻り値の `seed` に載せるだけなので、他の文書はこの定義を参照する。
 - 1 つの run の指摘だけを受ける。指摘 id は run ごとに振られ、別の run の id は衝突する（review と audit の両方に
   `p1-prompt-audit-1` が出る）。複数の run の指摘を直すときは update を分ける。
@@ -457,8 +464,9 @@ dynamic-workflow-runner request の top-level `limits` へ渡し、`args` には
   - review / audit の結果を直すとき: その run の `findings.confirmed` と `findings.reported_minor` のうち、
     ユーザーが直すと選んだ要素。
   - update の `needs_human_decision` / `reverify_incomplete` / `update_failed` から回し直すとき: その run の
-    `findings_before.confirmed` だけ。先の staging は捨てられ原本には最初の確定指摘が全部残っている。`staging.new` などは
-    捨てた staging にしか無い欠陥なので含めない。
+    `findings_before.confirmed` と `findings_before.unverified`。先の staging は捨てられ、原本には改稿前に見えていた
+    指摘が全部残っている（未検証の blocker を落とすと追跡から消える。seed は全件 Verify にかかるので、未検証が
+    確定に化けることは無い）。`staging.new` などは捨てた staging にしか無い欠陥なので含めない。
   - `unchecked_failures` の要素はコピーしない（下の拒否条件）。委譲項目は Reverify で毎回判定し直される。
 - 司令塔は要素を**加工せずにコピーする**（内容を書き換えない）。`votes` などの余分な欄は script が読まずに捨てる。
   script が読むのは `id`・`category`・`file`・`location`・`claim`・`evidence`・`severity`・`suggested_fix`。
@@ -568,24 +576,23 @@ refuter 1 体は同じファイルにある指摘の束（最大 `MAX_FINDINGS_P
 
 `verdict` は `refuted` / `not_refuted` / `unreadable` の三値。boolean にすると
 「読めなかった」を `false`（反証できなかった）に押し込むことになり、検証していない票が
-確定側の有効票として数えられる。`unreadable` は集計の分母から外れ、有効票が
-`MIN_VALID_VOTES` に届かなければその指摘は `unverified` になる。
+確定側の有効票として数えられる。`unreadable` と欠測は有効票に数えない。
 
-反証は 2 段で起動する。`PERSPECTIVES` の先頭から過半数ぶん（script の `REFUTE_MAJORITY`）を先に
-立て、ある指摘に全員が有効票で同じ verdict を返したら、その指摘には残りの観点を起動しない（残りがどう投じても
-多数決の結論は変わらない）。1 票でも欠測・`unreadable`・不一致があった指摘だけを束ね直して残りの観点に回し、
-全票で多数決する。先行する観点は並びで固定なので、同じ票なら到着順に関係なく同じ結論になる。
+反証は 2 段で起動する。体数は指摘の重さと票だけで script が決め、agent の申告では変わらない。
+1 段目の観点は script の `FIRST_STAGE_PERSPECTIVES`（重さごとの一覧。blocker は 2 体、それ以外は 1 体）。
+1 体の段は `not_refuted` の有効票 1 つで確定する。2 体以上の段は全員が有効票で同じ verdict を返したときだけ
+その verdict で決着する。決着しなかった指摘（`refuted`・`unreadable`・欠測・不一致）だけを観点ごとに束ね直して
+残りの観点を全て起動し、全観点の有効票のうち同じ verdict が `REFUTE_MAJORITY` に届いたときだけ確定・棄却する。
+届かなければ `unverified`。観点の並び（1 段目に何を置くか）の根拠は `PERSPECTIVES` の注釈が正本。
+反論役どうしは互いの票を見ない（票の独立が崩れると多数決が 1 つの判断の写しになる）。
 起動しなかった観点は各指摘の `skipped_perspectives` に残り、起動した観点の票は `votes[]` に
-`{ perspective, verdict, reason }` として残る。反証に回すのは severity が
+`{ perspective, verdict, reason }` として残る。段ごとの起動数は戻り値の `refuter_dispatch` に残る。反証に回すのは severity が
 `REVISE_SEVERITIES` の指摘だけで、それ以外は戻り値の `reported_minor` に入る（例外は `seedFindings` で、severity に
 関わらず全件を反証にかける）。束の thunk が落ちて行が返らなかった指摘も、集合の差で拾って票の無い `unverified` にする
 （結果から消さない）。
 
-`confirmed` / `rejected` に入れるには、`REFUTE_MAJORITY` 以上の有効票が同じ verdict を支持しなければ
-ならない。先行 `REFUTE_MAJORITY` 票が割れた後、残りの観点が応答しない・`unreadable` を返すなどして有効票が
-揃わず、どちらの verdict も `REFUTE_MAJORITY` に達しない場合は `unverified` にする。各指摘の
-`missing_perspectives` は有効な票を返さなかった観点、`skipped_perspectives` は先行票の一致で
-意図的に起動しなかった観点を示す。未実施と意図的な省略を混同しない。
+各指摘の `missing_perspectives` は起動したが有効な票を返さなかった観点、`skipped_perspectives` は 1 段目で決着した
+ため意図的に起動しなかった観点を示す。未実施と意図的な省略を混同しない。
 
 ### updater の出力（UPDATE_SCHEMA）
 
@@ -658,6 +665,7 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 
 | フィールド | 意味 |
 |---|---|
+| `refuter_dispatch` | `{ before, after }`。反証の段ごとの起動数 `{ batches, stage_agents: [1 段目, 2 段目], lost_batches }`（`lost_batches` は thunk が落ちて行が返らなかった束の数）。`before` は Verify、`after` は最後に完了した Reverify。走らなかったパスは `null` |
 | `seed` | `seedFindings` で Find を省いた run なら `{ source_run_id, count }`（`count` は渡された指摘の数）、それ以外は `null`。`seed` のとき `findings_before` は渡された指摘をこの run で反証した結果（`confirmed` は生き残った指摘、`rejected` / `unverified` はそれ以外。`reported_minor` は空） |
 | `target.intentScope` | 受け取った `target.intentScope` を正規化した値（`{ categories, files }`。省略した欄は `null`）。無ければ `null` |
 | `unscanned_intent_files` | `target.intentScope.files` のうち Find のどの観点も読まなかったもの。1 件でもあれば `review_incomplete`。`files` が無ければ `null` |
@@ -670,11 +678,11 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 | `staging.unverified` | 再検証で確定にも棄却にもできなかった指摘。`remaining` と混ぜない |
 | `reclassified` | 改稿前に未検証・棄却だった指摘が、再検証で票が揃って確定したもの。改稿が持ち込んだものではないので `new` に入れない |
 | `preexisting` | 再検証で新しく出た確定指摘のうち `present_in_original: true` のもの。改稿前の検査が見落とした既存の問題なので `new` にも blocker 判定にも入れない（提示はする） |
-| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review / audit では `null` |
+| `stop_reason` | update の改稿ループをどの出口で抜けたか。`resolved`（未解消 0 件 → `applied_to_staging`）/ `unverified_blocker`（未検証の blocker、または `unobserved` / `unverified_unobserved` の blocker）/ `contested_blocker`（最初の確定時に blocker だった指摘が再確認で棄却された（`refuted_on_recheck`）か minor に格下げされて反証を通らずに戻った（`remaining` の minor）もので、ファイルが `changed_files` に無いか `present_in_original: true` のもの。重さは再報告側ではなく最初の確定時の値で見る。改稿で手が入っていないのに Verify と Reverify の判定が割れただけで、直った証拠ではない）/ `dried`（未解消の同一性キー集合が前巡と同一）/ `stalled`（未解消件数がそれまでの最小値を下回らない巡が `STALL_ROUNDS` 続いた）/ `update_round_limit`（再検証後も未解消項目が残った状態で、固定安全上限 `MAX_UPDATE_ROUNDS` に達した）/ `budget`（Workflow の `budget.total` が設定され、残りが `MIN_ROUND_BUDGET_TOKENS` を下回った。`budget` を持たない Codex runner では発火しない。最初の Update より前に止まると `staging` は `null`、`findings_source` は `before`）/ `seeds_refuted`（`seedFindings` が Verify で全件棄却され、確定も未検証も残らなかった。改稿の根拠が無いので updater を起動しない。`staging` は `null`）/ `update_failed` / `reverify_incomplete` / `review_incomplete`（verdict と同名）。`unverified_blocker` / `contested_blocker` / `dried` / `stalled` / `update_round_limit` / `budget` / `seeds_refuted` はどれも verdict が `needs_human_decision` になるため、区別はこのフィールドだけが持つ。review / audit では `null` |
 | `source_snapshot` | review / update / audit の対象入力と post-run 検証義務。caller は receipt を `review-snapshot.mjs verify` に渡し、`status: verified` のときだけ他の結果を信頼する。失敗時は workflow の verdict に関係なく結果を無効にする |
 | `findings.reported_minor` | severity が `REVISE_SEVERITIES` の外のため**設計上反証していない**指摘。改稿を動かさないので反証の票を使わないが、黙って落とすと「見ていないもの」が消えるので未検証のまま返す。updater には渡さない。review では 1 件でもあれば `clean` にならない |
 | `findings_before` | update のとき、改稿前（Verify）の `{ confirmed, rejected, unverified, reported_minor }`。`findings` は再検証後のものに置き換わり、Reverify は報告範囲を絞るため、改稿前の棄却・未検証・minor は再登場しないことがある。持ち越さないと改稿前に見えていた指摘が黙って消える。review / audit では `null`（`findings` がそれ自体） |
-| `still_unverified` | 最初の確定指摘が再検証で再報告され、有効票が `MIN_VALID_VOTES` に届かなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
+| `still_unverified` | 最初の確定指摘が再検証で再報告され、反証で確定にも棄却にもならなかったもの。`staging.unverified` にも載る（その内数）。直ったと確かめられていないので `resolved` に数えず、未解消として改稿ループへ戻す |
 | `refuted_on_recheck` | 最初の確定指摘が再検証で再報告され、過半数の反証で棄却されたもの。`resolved`（再検証で報告されなかった）とは別枠で、未解消にも数えない。ただし最初の確定時に blocker で、改稿の手が入っていないものは `contested_blocker` で止まる。改稿前に未検証だった指摘が再確認で棄却・格下げされた場合はここに入れず、`findings.rejected` / `findings.reported_minor` と `findings_before.unverified` に残る（一度も確定していないので、判定が割れたことにはならない） |
 | `unverified_absent` | 改稿前（Verify）に未検証だった指摘のうち、再検証で同じ観点の担当がそのファイルを報告範囲内で読み、再報告しなかったもの。確定したことが無いので消えても不自然ではなく、`resolved` とは呼ばずに提示だけする（未解消にも blocker 判定にも入れない） |
 | `unverified_unobserved` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが同じ観点の担当に読まれなかった（または報告範囲外の）もの。blocker は `unobserved` と同じく `unverified_blocker` で止まる |

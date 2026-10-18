@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { existsSync, promises as fs, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
-import { tokenizer } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules/acorn/dist/acorn.mjs'
 import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
+// acorn はリポジトリ直下ではなく runner の runtime にだけ install される。パッケージ名で、runtime の位置から解決する。
+const { tokenizer } = createRequire(join(repoRoot, 'plugins', 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'package.json'))('acorn')
 const pluginsRoot = join(repoRoot, 'plugins')
 
 function json(path) {

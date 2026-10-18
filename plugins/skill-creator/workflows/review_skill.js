@@ -12,10 +12,11 @@ export const meta = {
   ],
 }
 
-// 有効票の下限。これを下回ると多数決の分母が 1 になり、
-// 「1 体が反証しなかった」だけで確定してしまう。欠測は反証の不在ではないので、
-// 確定にも棄却にも回さず unverified として残す。
-const MIN_VALID_VOTES = 2
+// 反証の最初の段で起動する観点（PERSPECTIVES の id）。blocker は最初から 2 体、それ以外は 1 体で始め、
+// 最初の段が決着しなければ残りの観点を全て足して、全観点の有効票の過半数で決める。
+// 1 体の段は not_refuted の 1 票だけで確定する（棄却には反証の過半数が要る）。2 体以上の段は全員が有効票で
+// 一致したときだけ決着する。欠測・unreadable は有効票に数えず、その段は決着させない。
+const FIRST_STAGE_PERSPECTIVES = { blocker: ['materiality', 'existence'], default: ['materiality'] }
 
 // updater へ再入させ、反証に回す指摘の重さ（再入規則の正本）。minor まで含めると文言の好みで
 // 周回が尽き、改稿を動かさない指摘に反証の票を使う。外の重さは reported_minor として未検証で返す。
@@ -282,6 +283,10 @@ for (const [field, value] of [
 if (!/^[a-f0-9]{64}$/.test(reviewSnapshot.manifestSha256 || '')) {
   throw new Error('args.snapshot.manifestSha256 が有効な SHA-256 ではありません。')
 }
+if (typeof reviewSnapshot.evidencePackPath !== 'string' || !reviewSnapshot.evidencePackPath.startsWith('/') ||
+    !/^[a-f0-9]{64}$/.test(reviewSnapshot.evidencePackSha256 || '')) {
+  throw new Error('args.snapshot に evidence pack（evidencePackPath / evidencePackSha256）がありません。review-snapshot.mjs prepare の出力をそのまま渡してください。')
+}
 if (scope === 'diff') {
   if (reviewSnapshot.diffRef !== diffRef || typeof reviewSnapshot.diffPath !== 'string' || !reviewSnapshot.diffPath.startsWith('/') ||
       typeof reviewSnapshot.changedPathsPath !== 'string' || !reviewSnapshot.changedPathsPath.startsWith('/') ||
@@ -481,22 +486,24 @@ const FINDERS = [
 
 const ACTIVE_FINDERS = mode === 'audit' ? FINDERS.filter((f) => f.id === AUDIT_CATEGORY) : FINDERS
 
-// PERSPECTIVES: 反証者の観点。同じ懐疑者を並べても同じ見落とし方をするため、
-// 「何を疑うか」をずらす。実在 → 重要性 → 代替解釈 の順で、指摘が生き残る条件を狭めていく。
+// PERSPECTIVES: 反証者の観点。同じ懐疑者を並べても同じ見落とし方をするため、「何を疑うか」をずらす。
+// 並びは段を足す順。materiality を先頭に置くのは実測による: 記録済みの 6 run・79 件の票では existence の
+// refuted は 1 件だけで、existence を 1 体目にすると現行で棄却された 12 件が全て確定に化けた。materiality を
+// 1 体目にすると記録の揃った 78 件で判定が変わらず（確定 66・棄却 12）、票は 181 から 127 に減った。
 const PERSPECTIVES = [
-  {
-    id: 'existence',
-    guide:
-      '指摘された記述が本当にそのファイルのその位置に存在するかを確認する観点。' +
-      '引用が実物と一致しない、既に別の箇所で手当てされている、そもそも該当行が無い、' +
-      'のいずれかなら反証が成立する。',
-  },
   {
     id: 'materiality',
     guide:
       '記述が存在するとして、それが実害につながるかを問う観点。' +
       '直さなくても誰も困らない、様式の好みでしかない、指摘された severity が実際の' +
       '影響に対して過大、のいずれかなら反証が成立する。',
+  },
+  {
+    id: 'existence',
+    guide:
+      '指摘された記述が本当にそのファイルのその位置に存在するかを確認する観点。' +
+      '引用が実物と一致しない、既に別の箇所で手当てされている、そもそも該当行が無い、' +
+      'のいずれかなら反証が成立する。',
   },
   {
     id: 'alternative',
@@ -532,6 +539,12 @@ function roleAgent(file, body, opts) {
 // finder は「見るべき箇所が無い」と判断して何も読まない。Reverify は git 差分ではなく
 // reverifyScope（updater の変更ファイル＋再確認する指摘のファイル）で報告範囲を絞り、
 // focus だけは両パスで維持する（人間が見てほしいと言った関心は改稿後も変わらない）。
+// 根拠の共有。Find / Verify の各体が同じ文書を 1 つずつ冷読みしてターンを重ねないよう、prepare が 1 回だけ
+// 作った pack を配る。pack は凍結した snapshot の文書なので、Reverify（staging を読む）には対象として渡さない。
+const evidencePackLine =
+  `[EVIDENCE_PACK]: ${reviewSnapshot.evidencePackPath}\n` +
+  `[EVIDENCE_PACK_SHA256]: ${reviewSnapshot.evidencePackSha256}`
+
 function scopeBlock(kind, category, reverifyScope) {
   const lines = []
   if (kind === 'draft') {
@@ -544,6 +557,10 @@ function scopeBlock(kind, category, reverifyScope) {
     // 改稿前の原本を渡すのは、各指摘に present_in_original を返させるため。改稿前の Find が
     // 見落とした既存の問題を「改稿が持ち込んだ」と報告すると、承認判断が歪む（実際に起きた）。
     lines.push(`[ORIGINAL_DIR]: ${reviewSnapshot.snapshotDir}`)
+    lines.push(
+      `[ORIGINAL_EVIDENCE_PACK]: ${reviewSnapshot.evidencePackPath}\n` +
+        '改稿前の原本の文書を連結したもの。present_in_original の照合に使ってよい。[TARGET_DIR]（改稿ドラフト）の中身はここに無いので、指摘はドラフトを読んで書く。'
+    )
     lines.push(
       `各指摘の present_in_original を ${SKILL_DIR}/references/schemas.md の「finder の出力（FINDINGS_SCHEMA）」の定義に従って返すこと。` +
         '[ORIGINAL_DIR] 側で読んだファイルは scanned_files に含めない（scanned_files は' +
@@ -568,6 +585,7 @@ function scopeBlock(kind, category, reverifyScope) {
   } else {
     lines.push(`[SCOPE]: ${scope}`)
     lines.push(`[SNAPSHOT_MANIFEST_SHA256]: ${reviewSnapshot.manifestSha256}`)
+    lines.push(evidencePackLine)
     lines.push(
       '[TARGET_DIR] is the frozen, read-only review snapshot. Do not read the live target, worktree, or git. ' +
         '各 agent は runner の read-only fresh thread から同じコピーを読む。'
@@ -816,9 +834,11 @@ function runFinders(finders, dir, phaseTitle, passLabel, scopeKind, reverifyScop
 
 // ------------------------------------------------------------------ 反証（Verify / Reverify）
 
-// 過半数に必要な票数。先頭からこの数の観点が全員有効票で一致すれば、残りの観点が
-// どう投じても多数決の結論は変わらないので起動しない（PERSPECTIVES の並びが先行順を決める）。
+// 全観点を起動したときの多数決に必要な同じ verdict の有効票数。
 const REFUTE_MAJORITY = Math.floor(PERSPECTIVES.length / 2) + 1
+
+const firstStageOf = (f) =>
+  PERSPECTIVES.filter((p) => (FIRST_STAGE_PERSPECTIVES[f.severity] || FIRST_STAGE_PERSPECTIVES.default).includes(p.id))
 
 const isValidVote = (v) => v.verdict === 'refuted' || v.verdict === 'not_refuted'
 
@@ -837,6 +857,7 @@ function refuteBatch(batch, p, phaseTitle, label) {
       phaseTitle === 'Reverify'
         ? '[TARGET_DIR] is the host-bound staging tree for Reverify; do not read the live source target or run git.'
         : '[TARGET_DIR] is the frozen, read-only review snapshot; do not read the live target or run git.',
+      phaseTitle === 'Reverify' ? '' : evidencePackLine,
       mode === 'update' && phaseTitle === 'Reverify' ? `[INTENT]:\n${intent}` : '',
       `[FINDINGS]:\n${JSON.stringify(
         batch.map((f) => ({
@@ -889,61 +910,58 @@ function refuteBatches(findings) {
   return out
 }
 
-// 早期決着・多数決は束ではなく指摘ごとに判定する。束の中で決着しなかった指摘だけを残りの観点に回す。
+// 段の判定・多数決は束ではなく指摘ごとに下す。段ごとに、決着しなかった指摘だけを観点ごとに束ね直して次の段に回す。
+// 起動はすべて script が行い、段ごとの起動数を dispatched に残す（agent の申告で体数を変える経路は無い）。
 function refuteStaged(batch, phaseTitle, labelPrefix) {
-  const lead = PERSPECTIVES.slice(0, REFUTE_MAJORITY)
-  const rest = PERSPECTIVES.slice(REFUTE_MAJORITY)
-  const missingPerspectives = (perspectives, responses) => perspectives
-    .filter((_, index) => !responses[index] || !isValidVote(responses[index]))
-    .map((p) => p.id)
-  // 段ごとの parallel（barrier）は、早期決着の判定が先行段の全票を必要とするため ——
-  // 1 票ずつ流して途中で決めると、到着順で結論と起動数が変わる。先行段の観点は
-  // 並びで固定してあるので、同じ票なら同じ結論・同じ起動数になる。
-  return parallel(lead.map((p) => () => refuteBatch(batch, p, phaseTitle, `${labelPrefix}-${p.id}`))).then((leadVotesByPerspective) => {
-    const rows = []
-    const unsettled = []
-    batch.forEach((f, i) => {
-      const leadRaw = leadVotesByPerspective.map((votes) => (Array.isArray(votes) ? votes[i] || null : null))
-      const leadVotes = leadRaw.filter(Boolean)
-      const valid = leadVotes.filter(isValidVote)
-      // 欠測・unreadable が先行段に 1 票でもあれば決着させない。欠けた票を一致側に
-      // 数えると、検証していない票で多数決が成立する。
-      const settled =
-        valid.length === lead.length &&
-        valid.length >= MIN_VALID_VOTES &&
-        valid.every((v) => v.verdict === valid[0].verdict)
-      if (settled || rest.length === 0) {
-        rows[i] = {
-          finding: f,
-          votes: leadVotes,
-          skipped_perspectives: settled ? rest.map((p) => p.id) : [],
-          missing_perspectives: missingPerspectives(lead, leadRaw),
-          required_votes: settled ? lead.length : PERSPECTIVES.length,
-        }
-      } else {
-        unsettled.push({ f, at: i, leadRaw, leadVotes })
-      }
-    })
-    if (unsettled.length === 0) return rows
-    const restBatch = unsettled.map((u) => u.f)
-    return parallel(rest.map((p) => () => refuteBatch(restBatch, p, phaseTitle, `${labelPrefix}-${p.id}`))).then((restVotesByPerspective) => {
-      unsettled.forEach(({ f, at, leadRaw, leadVotes }, i) => {
-        const restRaw = restVotesByPerspective.map((votes) => (Array.isArray(votes) ? votes[i] || null : null))
-        rows[at] = {
-          finding: f,
-          votes: [...leadVotes, ...restRaw.filter(Boolean)],
-          skipped_perspectives: [],
-          missing_perspectives: missingPerspectives(PERSPECTIVES, [...leadRaw, ...restRaw]),
-          required_votes: PERSPECTIVES.length,
-        }
+  const votesOf = batch.map(() => ({}))
+  const dispatched = [0, 0]
+  const runStage = (stage, needs) => {
+    const calls = PERSPECTIVES.map((p) => ({ p, members: batch.map((f, i) => i).filter((i) => needs(i).includes(p)) }))
+      .filter((c) => c.members.length > 0)
+    dispatched[stage - 1] += calls.length
+    // 段ごとの parallel（barrier）は、次の段に回すかの判定がこの段の全票を必要とするため。
+    return parallel(calls.map(({ p, members }) => () =>
+      refuteBatch(members.map((i) => batch[i]), p, phaseTitle, `${labelPrefix}-s${stage}-${p.id}`)
+    )).then((replies) => {
+      calls.forEach(({ p, members }, c) => {
+        const votes = Array.isArray(replies[c]) ? replies[c] : []
+        members.forEach((i, k) => { votesOf[i][p.id] = votes[k] || null })
       })
-      return rows
     })
+  }
+  const firstStage = batch.map(firstStageOf)
+  const settledFirst = (i) => {
+    const votes = firstStage[i].map((p) => votesOf[i][p.id])
+    if (!votes.every((v) => v && isValidVote(v))) return null
+    if (!votes.every((v) => v.verdict === votes[0].verdict)) return null
+    if (votes.length === 1 && votes[0].verdict !== 'not_refuted') return null
+    return votes[0].verdict
+  }
+  return runStage(1, (i) => firstStage[i]).then(() => {
+    const early = batch.map((_, i) => settledFirst(i))
+    const rest = (i) => (early[i] ? [] : PERSPECTIVES.filter((p) => !firstStage[i].includes(p)))
+    return runStage(2, rest).then(() => ({
+      dispatched,
+      rows: batch.map((f, i) => {
+        const asked = early[i] ? firstStage[i] : PERSPECTIVES
+        const raw = asked.map((p) => votesOf[i][p.id] || null)
+        return {
+          finding: f,
+          votes: raw.filter(Boolean),
+          early_verdict: early[i],
+          skipped_perspectives: PERSPECTIVES.filter((p) => !asked.includes(p)).map((p) => p.id),
+          missing_perspectives: asked.filter((p, k) => !raw[k] || !isValidVote(raw[k])).map((p) => p.id),
+        }
+      }),
+    }))
   })
 }
 
 // refuteAll: severity に関わらず全件を反証にかける（seed 用。seed は intent が直すと決めた指摘で、今の対象に
 // まだ存在するかの確認が要る）。
+// 段ごとの反証の起動数。before は Verify、after は最後に完了した Reverify。
+const refuterDispatch = { before: null, after: null }
+
 function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = false) {
   // REVISE_SEVERITIES の外の指摘は改稿を動かさないので反証しない。黙って捨てると
   // 「見ていないもの」が消えるため、未検証であることを名前に持つ別枠で返す。
@@ -957,7 +975,13 @@ function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = 
   return parallel(
     batches.map((batch, b) => () => refuteStaged(batch, phaseTitle, `refute-${labelPass}-b${b + 1}`))
   ).then((perBatch) => {
-    const returned = perBatch.filter(Array.isArray).flat().filter((row) => row && row.finding)
+    const completed = perBatch.filter((b) => b && Array.isArray(b.rows))
+    const dispatch = {
+      batches: batches.length,
+      stage_agents: [0, 1].map((k) => completed.reduce((n, b) => n + (b.dispatched[k] || 0), 0)),
+      lost_batches: batches.length - completed.length,
+    }
+    const returned = completed.flatMap((b) => b.rows).filter((row) => row && row.finding)
     // 束の thunk が落ちると、その束の行は返らない。反証に回した指摘を集合の差で拾い、票の無い行として
     // unverified へ入れる（行が無いまま進むと、反証に回した指摘が結果から黙って消える）。
     const returnedIds = new Set(returned.map((row) => row.finding.id))
@@ -968,9 +992,9 @@ function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = 
       ...lost.map((f) => ({
         finding: f,
         votes: [],
+        early_verdict: null,
         skipped_perspectives: [],
         missing_perspectives: PERSPECTIVES.map((p) => p.id),
-        required_votes: PERSPECTIVES.length,
       })),
     ]
     const confirmed = []
@@ -992,23 +1016,25 @@ function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = 
         missing_perspectives: row.missing_perspectives,
       }
       delete entry.__dir
-      // Split votes require the remaining perspective to establish a majority. If that
-      // required call is missing or unreadable, do not turn a 1-1 split into confirmation.
-      if (votes.length < MIN_VALID_VOTES ||
-          (votes.filter((v) => v.verdict === 'not_refuted').length < REFUTE_MAJORITY &&
-           refutedCount < REFUTE_MAJORITY)) {
-        unverified.push(entry)
+      if (row.early_verdict === 'not_refuted') {
+        confirmed.push(entry)
         continue
       }
-      // Reject or confirm only when a strict majority of all required perspectives supports it.
+      if (row.early_verdict === 'refuted') {
+        rejected.push(entry)
+        continue
+      }
+      // 全観点を起動した指摘は、同じ verdict の有効票が REFUTE_MAJORITY に届いたときだけ確定・棄却する。
+      // 欠測・unreadable で届かなければ、割れた票を確定に化けさせず unverified に残す。
       if (refutedCount >= REFUTE_MAJORITY) rejected.push(entry)
-      else confirmed.push(entry)
+      else if (votes.length - refutedCount >= REFUTE_MAJORITY) confirmed.push(entry)
+      else unverified.push(entry)
     }
-    const skipped = raw.filter(Boolean).reduce((n, row) => n + row.skipped_perspectives.length, 0)
+    refuterDispatch[passLabel] = dispatch
     log(
       `${passLabel}: 確定 ${confirmed.length} 件 / 棄却 ${rejected.length} 件 / 未検証 ${unverified.length} 件` +
-        ` / 有効票の無い反証観点 ${raw.filter(Boolean).reduce((n, row) => n + row.missing_perspectives.length, 0)} 件` +
-        ` / 先行 ${REFUTE_MAJORITY} 票の一致で省いた反証 ${skipped} 票（束 ${batches.length} 個）` +
+        ` / 有効票の無い反証観点 ${raw.reduce((n, row) => n + row.missing_perspectives.length, 0)} 件` +
+        ` / 起動した反証 1 段目 ${dispatch.stage_agents[0]} 体・2 段目 ${dispatch.stage_agents[1]} 体（束 ${batches.length} 個）` +
         ` / 反証せず提示する ${REVISE_SEVERITIES.join('/')} 以外の指摘 ${reportedMinor.length} 件`
     )
     return { confirmed, rejected, unverified, reported_minor: reportedMinor }
@@ -1240,7 +1266,7 @@ let reverifyProvenance = null
 let reverifyMissing = []
 let reverifyUnavailable = null
 let reverifyDeclared = null
-if (reviewIncomplete) {
+if (first.missing.length > 0) {
   log(`観点 ${first.missing.join(', ')} が未実施のため、この結果は網羅していません。`)
 }
 
@@ -1279,13 +1305,16 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     target: { skillPath, scope, diffRef: diffRef || null, focus, intentScope },
     // intentScope.files のうち Find のどの観点も読まなかったもの（1 件でもあれば review_incomplete）。intentScope.files が無ければ null。
     unscanned_intent_files: unscannedIntentFiles,
-    // seedFindings で Find / Verify を省いた run の出所。null は通常の Find から始めた run。
+    // seedFindings で Find を省いた run の出所。null は通常の Find から始めた run。
     seed: seeded ? { source_run_id: seedFindings[0].source_run_id, count: seedFindings.length } : null,
+    // 反証役の起動数（段ごと）。体数は script が段の判定だけで決めており、その帳簿。
+    refuter_dispatch: refuterDispatch,
     source_snapshot: {
       target_root: reviewSnapshot.targetRoot,
       snapshot_dir: reviewSnapshot.snapshotDir,
       receipt_path: reviewSnapshot.receiptPath,
       manifest_sha256: reviewSnapshot.manifestSha256,
+      evidence_pack_sha256: reviewSnapshot.evidencePackSha256,
       scope: reviewSnapshot.scope,
       diff_ref: reviewSnapshot.diffRef,
       validation: 'required_after_workflow_before_result_is_trusted',
@@ -1356,6 +1385,13 @@ const reverifyUnavailableAllowed = new Set(
 
 // 最後に完了した検査パスの委譲項目未達。update では Reverify の結果で上書きする。
 let latestUnchecked = first.uncheckedFailures
+
+// seed が反証で全件消えた（確定も未検証も無い）なら改稿の根拠が無い。intent だけで updater を走らせると、
+// 直す対象として渡された指摘とは無関係な改稿になる。
+if (seeded && base.confirmed.length === 0 && base.unverified.length === 0) {
+  log('seedFindings が反証で全件棄却されたため、改稿せずに返します。')
+  return result('needs_human_decision', base, 'before', null, null, 0, latestUnchecked, 'seeds_refuted')
+}
 
 let revision = 0
 // revisions_used は「起動した updater の数 − 1」。revision は巡の番号として巡の末尾で進むので、
@@ -1548,6 +1584,9 @@ while (true) {
     stopReason = 'reverify_incomplete'
     break
   }
+
+  // 委譲項目の判定は Reverify が揃った時点で反映する。下の blocker ゲートで抜けても、返すのはこの判定。
+  latestUnchecked = after.uncheckedFailures
 
   // 報告範囲の外の指摘は反証に回さない。範囲外のファイルは改稿前と同じ内容なので、そこで
   // present_in_original: true の指摘は改稿が持ち込んだものではなく、改稿を動かす材料にならない。
@@ -1746,7 +1785,6 @@ while (true) {
   // 委譲項目の未達のうち改稿で満たせるもの（検証者経路を足す・参照を整合させる）は未解消に数えてループへ戻す。
   // requires_measurement の項目は数えない。改稿しても判定は変わらず、数えると直せない 1 件を理由に巡が空回りする。
   // unchecked_failures には残すので、実測待ちであることは結果から読める。
-  latestUnchecked = after.uncheckedFailures
   const unresolvedFindings = [...remaining, ...stillUnverified, ...introduced, ...reclassified].filter((f) =>
     REVISE_SEVERITIES.includes(f.severity)
   )
