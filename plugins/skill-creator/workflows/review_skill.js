@@ -67,6 +67,10 @@ const PROMPT_AUDIT_SEVERITY = { High: 'major', Medium: 'minor' }
 // null（応答しなかった）とも 0（見て何も無かった）とも違う。0 に寄せると見ていない観点が clean に数えられる。
 const UNAVAILABLE = 'unavailable'
 
+// by_category.before で「intentScope で外したため、この観点は走らせていない」を表す値。null（応答しなかった）とも
+// 0（見て何も無かった）とも違う。キーごと消すと、外した観点が結果から見えなくなる。
+const OUT_OF_INTENT_SCOPE = 'out_of_intent_scope'
+
 const SEVERITY = { type: 'string', enum: ['blocker', 'major', 'minor'] }
 
 const FINDINGS_SCHEMA = {
@@ -818,9 +822,10 @@ const REFUTE_MAJORITY = Math.floor(PERSPECTIVES.length / 2) + 1
 
 const isValidVote = (v) => v.verdict === 'refuted' || v.verdict === 'not_refuted'
 
-// 1 体の refuter に同じファイルの指摘を最大 MAX_FINDINGS_PER_REFUTER 件まとめて渡す。返り値は指摘 id ごとの票で、
-// 返答に無い id・重複した id・agent の失敗は欠測（null）にする。not_refuted に寄せると、判定されていない
-// 指摘が確定側の有効票を得る。
+// 1 体の refuter に同じファイルの指摘を最大 MAX_FINDINGS_PER_REFUTER 件まとめて渡す。返り値は batch と同じ並びの
+// 票の配列で、返答に無い id・重複した id・agent の失敗は欠測（null）にする。not_refuted に寄せると、判定されて
+// いない指摘が確定側の有効票を得る。配列にしているのは、native の parallel が返り値を JSON で往復させ、
+// Map などは空の object に化けるため（agent() / parallel() の境界を越える値は JSON で表せる形に限る）。
 function refuteBatch(batch, p, phaseTitle, label) {
   return roleAgent(
     'refuter.md',
@@ -857,21 +862,15 @@ function refuteBatch(batch, p, phaseTitle, label) {
       label,
     }
   ).then((res) => {
-    const votes = new Map(batch.map((f) => [f.id, null]))
-    if (!res) return votes
-    const counts = new Map()
-    for (const v of res.verdicts || []) {
-      if (!votes.has(v.id)) {
-        log(`${label}: 束に無い指摘 id ${v.id} の票を無視します。`)
-        continue
-      }
-      counts.set(v.id, (counts.get(v.id) || 0) + 1)
-    }
-    for (const v of res.verdicts || []) {
-      if (counts.get(v.id) === 1) votes.set(v.id, { perspective: p.id, verdict: v.verdict, reason: v.reason })
-    }
-    for (const [id, n] of counts) if (n > 1) log(`${label}: 指摘 ${id} の票が ${n} 件返ったため欠測として扱います。`)
-    return votes
+    const ids = batch.map((f) => f.id)
+    if (!res) return ids.map(() => null)
+    const replies = (Array.isArray(res.verdicts) ? res.verdicts : []).filter((v) => v && typeof v.id === 'string')
+    for (const v of replies) if (!ids.includes(v.id)) log(`${label}: 束に無い指摘 id ${v.id} の票を無視します。`)
+    return ids.map((id) => {
+      const mine = replies.filter((v) => v.id === id)
+      if (mine.length > 1) log(`${label}: 指摘 ${id} の票が ${mine.length} 件返ったため欠測として扱います。`)
+      return mine.length === 1 ? { perspective: p.id, verdict: mine[0].verdict, reason: mine[0].reason } : null
+    })
   })
 }
 
@@ -900,11 +899,11 @@ function refuteStaged(batch, phaseTitle, labelPrefix) {
   // 段ごとの parallel（barrier）は、早期決着の判定が先行段の全票を必要とするため ——
   // 1 票ずつ流して途中で決めると、到着順で結論と起動数が変わる。先行段の観点は
   // 並びで固定してあるので、同じ票なら同じ結論・同じ起動数になる。
-  return parallel(lead.map((p) => () => refuteBatch(batch, p, phaseTitle, `${labelPrefix}-${p.id}`))).then((leadMaps) => {
-    const rows = new Map()
+  return parallel(lead.map((p) => () => refuteBatch(batch, p, phaseTitle, `${labelPrefix}-${p.id}`))).then((leadVotesByPerspective) => {
+    const rows = []
     const unsettled = []
-    for (const f of batch) {
-      const leadRaw = leadMaps.map((m) => (m ? m.get(f.id) : null))
+    batch.forEach((f, i) => {
+      const leadRaw = leadVotesByPerspective.map((votes) => (Array.isArray(votes) ? votes[i] || null : null))
       const leadVotes = leadRaw.filter(Boolean)
       const valid = leadVotes.filter(isValidVote)
       // 欠測・unreadable が先行段に 1 票でもあれば決着させない。欠けた票を一致側に
@@ -914,48 +913,66 @@ function refuteStaged(batch, phaseTitle, labelPrefix) {
         valid.length >= MIN_VALID_VOTES &&
         valid.every((v) => v.verdict === valid[0].verdict)
       if (settled || rest.length === 0) {
-        rows.set(f.id, {
+        rows[i] = {
           finding: f,
           votes: leadVotes,
           skipped_perspectives: settled ? rest.map((p) => p.id) : [],
           missing_perspectives: missingPerspectives(lead, leadRaw),
           required_votes: settled ? lead.length : PERSPECTIVES.length,
-        })
+        }
       } else {
-        unsettled.push({ f, leadRaw, leadVotes })
+        unsettled.push({ f, at: i, leadRaw, leadVotes })
       }
-    }
-    if (unsettled.length === 0) return batch.map((f) => rows.get(f.id))
+    })
+    if (unsettled.length === 0) return rows
     const restBatch = unsettled.map((u) => u.f)
-    return parallel(rest.map((p) => () => refuteBatch(restBatch, p, phaseTitle, `${labelPrefix}-${p.id}`))).then((restMaps) => {
-      for (const { f, leadRaw, leadVotes } of unsettled) {
-        const restRaw = restMaps.map((m) => (m ? m.get(f.id) : null))
-        rows.set(f.id, {
+    return parallel(rest.map((p) => () => refuteBatch(restBatch, p, phaseTitle, `${labelPrefix}-${p.id}`))).then((restVotesByPerspective) => {
+      unsettled.forEach(({ f, at, leadRaw, leadVotes }, i) => {
+        const restRaw = restVotesByPerspective.map((votes) => (Array.isArray(votes) ? votes[i] || null : null))
+        rows[at] = {
           finding: f,
           votes: [...leadVotes, ...restRaw.filter(Boolean)],
           skipped_perspectives: [],
           missing_perspectives: missingPerspectives(PERSPECTIVES, [...leadRaw, ...restRaw]),
           required_votes: PERSPECTIVES.length,
-        })
-      }
-      return batch.map((f) => rows.get(f.id))
+        }
+      })
+      return rows
     })
   })
 }
 
-function verifyFindings(findings, phaseTitle, passLabel, labelPass) {
+// refuteAll: severity に関わらず全件を反証にかける（seed 用。seed は intent が直すと決めた指摘で、今の対象に
+// まだ存在するかの確認が要る）。
+function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = false) {
   // REVISE_SEVERITIES の外の指摘は改稿を動かさないので反証しない。黙って捨てると
   // 「見ていないもの」が消えるため、未検証であることを名前に持つ別枠で返す。
+  const shouldRefute = (f) => refuteAll || REVISE_SEVERITIES.includes(f.severity)
   const reportedMinor = findings
-    .filter((f) => !REVISE_SEVERITIES.includes(f.severity))
+    .filter((f) => !shouldRefute(f))
     .map(({ __dir, ...rest }) => rest)
-  const toVerify = findings.filter((f) => REVISE_SEVERITIES.includes(f.severity))
+  const toVerify = findings.filter(shouldRefute)
   // 外側の parallel は束どうしが独立だから。
   const batches = refuteBatches(toVerify)
   return parallel(
     batches.map((batch, b) => () => refuteStaged(batch, phaseTitle, `refute-${labelPass}-b${b + 1}`))
   ).then((perBatch) => {
-    const raw = perBatch.filter(Boolean).flat()
+    const returned = perBatch.filter(Array.isArray).flat().filter((row) => row && row.finding)
+    // 束の thunk が落ちると、その束の行は返らない。反証に回した指摘を集合の差で拾い、票の無い行として
+    // unverified へ入れる（行が無いまま進むと、反証に回した指摘が結果から黙って消える）。
+    const returnedIds = new Set(returned.map((row) => row.finding.id))
+    const lost = toVerify.filter((f) => !returnedIds.has(f.id))
+    if (lost.length > 0) log(`${passLabel}: 反証の結果が返らなかった指摘 ${lost.length} 件を未検証として残します。`)
+    const raw = [
+      ...returned,
+      ...lost.map((f) => ({
+        finding: f,
+        votes: [],
+        skipped_perspectives: [],
+        missing_perspectives: PERSPECTIVES.map((p) => p.id),
+        required_votes: PERSPECTIVES.length,
+      })),
+    ]
     const confirmed = []
     const rejected = []
     const unverified = []
@@ -1070,72 +1087,72 @@ function requireRelativePath(value, name) {
 
 const FINDER_IDS = new Set(FINDERS.map((f) => f.id))
 
-// seedFindings: 先行する review / audit run の指摘を逐語で受け取り、Find と Verify を走らせずに改稿の対象にする。
-// 既に反証を通った（または audit が出した）指摘を同じ対象でもう一度全観点から探し直すと、頼まれていない
-// 指摘まで確定して改稿が広がる。要素は司令塔が先行結果から加工せずにコピーするので、余分な欄は読まずに残す。
+// seedFindings: 先行する 1 つの review / audit / update run の指摘を逐語で受け取り、Find を走らせずに改稿の候補にする。
+// 同じ対象をもう一度全観点から探し直すと、頼まれていない指摘まで確定して改稿が広がる。Verify には severity に
+// 関わらずかける（先行 run の後に対象が変わっていれば evidence が今の snapshot に無く、未反証のまま渡すと
+// 存在しない指摘を「直した」と数える）。要素は司令塔が先行結果から加工せずにコピーするので、余分な欄は読まない。
+// 1 run に限るのは、指摘 id が run ごとに振られ、別の run の id が衝突するため。
 const seedFindings = (() => {
   if (parsedArgs.seedFindings === undefined) return null
   if (mode !== 'update') throw new Error("args.seedFindings は mode が 'update' のときだけ渡せます。")
-  const groups = parsedArgs.seedFindings
-  if (!Array.isArray(groups) || groups.length === 0) {
-    throw new Error('args.seedFindings は [{ source_run_id, findings: [...] }] の空でない配列で渡してください。')
+  const group = parsedArgs.seedFindings
+  if (!group || typeof group !== 'object' || Array.isArray(group)) {
+    throw new Error('args.seedFindings は { source_run_id, findings: [...] } の形で 1 つの run の指摘だけを渡してください。')
   }
   const out = []
   const ids = new Set()
   const keys = new Set()
   const perCategory = {}
-  for (const group of groups) {
-    if (!group || typeof group.source_run_id !== 'string' || !group.source_run_id.trim()) {
-      throw new Error('args.seedFindings[].source_run_id（指摘を出した run の識別子）が必要です。')
+  if (typeof group.source_run_id !== 'string' || !group.source_run_id.trim()) {
+    throw new Error('args.seedFindings.source_run_id（指摘を出した run の識別子）が必要です。')
+  }
+  if (!Array.isArray(group.findings) || group.findings.length === 0) {
+    throw new Error(`args.seedFindings（${group.source_run_id}）の findings が空です。`)
+  }
+  for (const f of group.findings) {
+    // 委譲項目の未達（unchecked_failures の要素）は指摘ではない。Reverify は委譲項目を [UNCHECKED_ITEMS] で
+    // 判定し直すだけで指摘として再報告しないので、seed にすると読んだだけで resolved に数えられてしまう。
+    if (f && Object.hasOwn(f, 'requires_measurement')) {
+      throw new Error(
+        `args.seedFindings に委譲項目の未達（${f.id}）が含まれています。委譲項目は update の Reverify で毎回判定し直すので、` +
+          'seed には findings の要素だけを渡してください。'
+      )
     }
-    if (!Array.isArray(group.findings) || group.findings.length === 0) {
-      throw new Error(`args.seedFindings（${group.source_run_id}）の findings が空です。`)
+    for (const field of ['id', 'category', 'file', 'claim', 'evidence', 'suggested_fix']) {
+      if (!f || typeof f[field] !== 'string' || !f[field].trim()) {
+        throw new Error(`args.seedFindings（${group.source_run_id}）の指摘に ${field} がありません。`)
+      }
     }
-    for (const f of group.findings) {
-      // 委譲項目の未達（unchecked_failures の要素）は指摘ではない。Reverify は委譲項目を [UNCHECKED_ITEMS] で
-      // 判定し直すだけで指摘として再報告しないので、seed にすると読んだだけで resolved に数えられてしまう。
-      if (f && Object.hasOwn(f, 'requires_measurement')) {
-        throw new Error(
-          `args.seedFindings に委譲項目の未達（${f.id}）が含まれています。委譲項目は update の Reverify で毎回判定し直すので、` +
-            'seed には findings の要素だけを渡してください。'
-        )
-      }
-      for (const field of ['id', 'category', 'file', 'claim', 'evidence', 'suggested_fix']) {
-        if (!f || typeof f[field] !== 'string' || !f[field].trim()) {
-          throw new Error(`args.seedFindings（${group.source_run_id}）の指摘に ${field} がありません。`)
-        }
-      }
-      if (typeof f.location !== 'string') throw new Error(`args.seedFindings の指摘 ${f.id} に location がありません。`)
-      if (!SEVERITY.enum.includes(f.severity)) throw new Error(`args.seedFindings の指摘 ${f.id} の severity が不正です。`)
-      if (!FINDER_IDS.has(f.category)) {
-        throw new Error(`args.seedFindings の指摘 ${f.id} の category（${f.category}）は FINDERS の id ではありません。`)
-      }
-      requireRelativePath(f.file, `args.seedFindings の指摘 ${f.id} の file`)
-      if (ids.has(f.id)) throw new Error(`args.seedFindings の id が重複しています（${f.id}）。`)
-      if (keys.has(keyOf(f))) throw new Error(`args.seedFindings に同じ観点・ファイル・主張の指摘が重複しています（${f.id}）。`)
-      // Reverify の finder は観点ごとに MAX_FINDINGS_PER_FINDER 件しか返せない。超えた分は再報告されないまま
-      // そのファイルを読んだことで resolved に数えられる。
-      perCategory[f.category] = (perCategory[f.category] || 0) + 1
-      if (perCategory[f.category] > MAX_FINDINGS_PER_FINDER) {
-        throw new Error(
-          `args.seedFindings の観点 ${f.category} が ${MAX_FINDINGS_PER_FINDER} 件を超えています。` +
-            '再検証で全件を再確認できないため、update を分けてください。'
-        )
-      }
-      ids.add(f.id)
-      keys.add(keyOf(f))
-      out.push({
-        id: f.id,
-        category: f.category,
-        file: f.file,
-        location: f.location,
-        claim: f.claim,
-        evidence: f.evidence,
-        severity: f.severity,
-        suggested_fix: f.suggested_fix,
-        source_run_id: group.source_run_id,
-      })
+    if (typeof f.location !== 'string') throw new Error(`args.seedFindings の指摘 ${f.id} に location がありません。`)
+    if (!SEVERITY.enum.includes(f.severity)) throw new Error(`args.seedFindings の指摘 ${f.id} の severity が不正です。`)
+    if (!FINDER_IDS.has(f.category)) {
+      throw new Error(`args.seedFindings の指摘 ${f.id} の category（${f.category}）は FINDERS の id ではありません。`)
     }
+    requireRelativePath(f.file, `args.seedFindings の指摘 ${f.id} の file`)
+    if (ids.has(f.id)) throw new Error(`args.seedFindings の id が重複しています（${f.id}）。`)
+    if (keys.has(keyOf(f))) throw new Error(`args.seedFindings に同じ観点・ファイル・主張の指摘が重複しています（${f.id}）。`)
+    // Reverify の finder は観点ごとに MAX_FINDINGS_PER_FINDER 件しか返せない。超えた分は再報告されないまま
+    // そのファイルを読んだことで resolved に数えられる。
+    perCategory[f.category] = (perCategory[f.category] || 0) + 1
+    if (perCategory[f.category] > MAX_FINDINGS_PER_FINDER) {
+      throw new Error(
+        `args.seedFindings の観点 ${f.category} が ${MAX_FINDINGS_PER_FINDER} 件を超えています。` +
+          '再検証で全件を再確認できないため、update を分けてください。'
+      )
+    }
+    ids.add(f.id)
+    keys.add(keyOf(f))
+    out.push({
+      id: f.id,
+      category: f.category,
+      file: f.file,
+      location: f.location,
+      claim: f.claim,
+      evidence: f.evidence,
+      severity: f.severity,
+      suggested_fix: f.suggested_fix,
+      source_run_id: group.source_run_id,
+    })
   }
   return out
 })()
@@ -1182,9 +1199,10 @@ const findUnavailableAllowed = new Set(
 let first
 let base
 if (seeded) {
-  log(`seedFindings の ${seedFindings.length} 件を改稿の対象にし、Find と Verify は走らせません。`)
+  log(`seedFindings の ${seedFindings.length} 件を反証にかけ、生き残ったものを改稿の対象にします（Find は走らせません）。`)
   first = { findings: [], missing: [], unavailable: null, declaredOnly: null, scannedByCategory: {}, uncheckedFailures: null }
-  base = { confirmed: seedFindings, rejected: [], unverified: [], reported_minor: [] }
+  phase('Verify')
+  base = await verifyFindings(tag(reviewSnapshot.snapshotDir, seedFindings), 'Verify', 'before', 'p1', true)
 } else {
   phase('Find')
   first = await runFinders(findFinders, reviewSnapshot.snapshotDir, 'Find', 'p1', 'source', null, findUnavailableAllowed)
@@ -1196,8 +1214,28 @@ if (seeded) {
 // 1 度直った指摘がぶり返しても「元から無かった」ことになり、resolved が水増しされる。
 const originalConfirmed = base.confirmed
 
-const beforeCategories = seeded ? null : byCategory(findFinders, first.missing, base.confirmed, first.unavailable)
-const reviewIncomplete = first.missing.length > 0
+const beforeCategories = seeded
+  ? null
+  : Object.fromEntries(
+      ACTIVE_FINDERS.map((f) => [
+        f.id,
+        findFinders.includes(f)
+          ? byCategory([f], first.missing, base.confirmed, first.unavailable)[f.id]
+          : OUT_OF_INTENT_SCOPE,
+      ])
+    )
+// intentScope.files のうち、走らせたどの観点も読まなかったもの。存在しないパスや読めなかったパスを渡すと、
+// 何も見ないまま指摘 0 件で通るので、欠測として止める。
+const unscannedIntentFiles =
+  seeded || !intentScope || !intentScope.files
+    ? null
+    : intentScope.files.filter(
+        (file) => !Object.values(first.scannedByCategory).some((scanned) => scanned.map(normPath).includes(normPath(file)))
+      )
+if (unscannedIntentFiles && unscannedIntentFiles.length > 0) {
+  log(`intentScope.files のうち ${unscannedIntentFiles.join(', ')} をどの観点も読みませんでした。未実施として扱います。`)
+}
+const reviewIncomplete = first.missing.length > 0 || (unscannedIntentFiles || []).length > 0
 let reverifyProvenance = null
 let reverifyMissing = []
 let reverifyUnavailable = null
@@ -1239,10 +1277,10 @@ function result(verdict, findings, findingsSource, afterCategories, staging, rev
     // 結果に残さないと「監査が見て何も言わなかった」と区別できない。
     declared_only: { before: first.declaredOnly, after: reverifyDeclared },
     target: { skillPath, scope, diffRef: diffRef || null, focus, intentScope },
+    // intentScope.files のうち Find のどの観点も読まなかったもの（1 件でもあれば review_incomplete）。intentScope.files が無ければ null。
+    unscanned_intent_files: unscannedIntentFiles,
     // seedFindings で Find / Verify を省いた run の出所。null は通常の Find から始めた run。
-    seed: seeded
-      ? { source_run_ids: [...new Set(seedFindings.map((f) => f.source_run_id))], count: seedFindings.length }
-      : null,
+    seed: seeded ? { source_run_id: seedFindings[0].source_run_id, count: seedFindings.length } : null,
     source_snapshot: {
       target_root: reviewSnapshot.targetRoot,
       snapshot_dir: reviewSnapshot.snapshotDir,
@@ -1368,11 +1406,17 @@ while (true) {
       `[STAGING_DIR]: ${stagingDir}`,
       `[INTENT]:\n${intent}`,
       `[CONFIRMED_FINDINGS]:\n${JSON.stringify(originalConfirmed.map(forUpdater), null, 2)}`,
-      seeded ? '[FINDINGS_ORIGIN]: seed（先行 run の指摘をそのまま渡している。この run では探し直していない）' : '',
+      seeded ? '[FINDINGS_ORIGIN]: seed（先行 run の指摘のうち、この run の反証を生き残ったもの。Find で探し直していない）' : '',
       intentScope && intentScope.files ? `[INTENT_SCOPE_FILES]:\n${JSON.stringify(intentScope.files, null, 2)}` : '',
       // 未検証も渡す。「未検証」と「問題なし」を混ぜないという原則は update でも同じで、
       // 渡さないと updater は確定 0 件を「直すところが無い」と読む。ただし確定指摘とは
       // 別枠にして、直すかどうかを updater が判断できるようにする。
+      // 改稿で満たせる委譲項目の未達も渡す。渡さないと未解消には数えるのに updater は知らず、同じ状態で巡が空回りする。
+      `[UNCHECKED_FAILURES]:\n${JSON.stringify(
+        (latestUnchecked || []).filter((f) => !f.requires_measurement).map(forUpdater),
+        null,
+        2
+      )}`,
       `[UNVERIFIED_FINDINGS]:\n${JSON.stringify(
         base.unverified.map((c) => ({
           id: c.id,

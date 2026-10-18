@@ -25,6 +25,10 @@ function batchReply(prompt, verdictFor) {
   return { verdicts };
 }
 
+// native host は agent() / parallel() の境界で値を JSON 往復させる（Map などは空の object に化ける）。
+// 模擬側でも同じ往復をかけ、境界を越える値が JSON で表せない形になっていれば全テストで落ちるようにする。
+const roundTrip = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+
 async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}, extraArgs = {}) {
   const phases = [];
   const scope = target.scope || 'full';
@@ -56,8 +60,8 @@ async function run(mode, agent = async () => null, target = { scope: 'full' }, g
       promptAuditExpected: false,
       ...extraArgs,
     },
-    agent,
-    parallel: tasks => Promise.all(tasks.map(task => task())),
+    agent: async (prompt, opts) => roundTrip(await agent(prompt, opts)),
+    parallel: tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip))),
     phase: value => phases.push(value),
     log() {},
     ...globals,
@@ -1134,10 +1138,18 @@ test('a delegated item that needs measurement does not keep the update loop goin
     [['機械判定できない項目: description-triggers', true]]);
 });
 
+function uncheckedSentToUpdater(prompt) {
+  const start = prompt.indexOf('[UNCHECKED_FAILURES]:\n') + '[UNCHECKED_FAILURES]:\n'.length;
+  return JSON.parse(prompt.slice(start, prompt.indexOf('\n\n[', start))).map(f => f.location.split(': ')[1]);
+}
+
+// 改稿で満たせる委譲項目は updater に渡す。この模擬 updater は直さないので、渡したうえで動かなければ dried で止まる。
 test('an unjudged measurement item is also excluded from the loop, while a revisable item still loops', async () => {
   const { agent, calls } = uncheckedAgent(() => [{ id: 'verifier-path', verdict: 'fail', evidence: 'no verifier' }]);
   const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
-  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  const updaters = calls.filter(c => c.label.startsWith('update-'));
+  assert.deepEqual(updaters.map(c => c.label), ['update-r1', 'update-r2']);
+  for (const c of updaters) assert.deepEqual(uncheckedSentToUpdater(c.prompt), ['verifier-path'], c.label);
   assert.equal(result.stop_reason, 'dried');
   const byId = Object.fromEntries(result.unchecked_failures.map(f => [f.location.split(': ')[1], f.requires_measurement]));
   assert.deepEqual(byId, { 'verifier-path': false, 'description-triggers': true });
@@ -1167,29 +1179,114 @@ function seed(overrides = {}) {
     evidence: 'quoted', severity: 'major', suggested_fix: 'fix', votes: [{ perspective: 'existence' }], ...overrides };
 }
 
-test('seedFindings skip Find and Verify and become the updater target and the recheck baseline', async () => {
-  const { agent, calls } = scriptedAgent({});
-  const seeds = [{ source_run_id: 'wf_audit-1', findings: [seed(), seed({ id: 'p1-why-driven-2', claim: 'minor seed', severity: 'minor' })] }];
-  const { result, phases } = await run('update', agent, { scope: 'full' }, {}, { seedFindings: seeds });
-  assert.ok(!phases.includes('Find') && !phases.includes('Verify'));
-  assert.equal(calls.filter(c => c.phase === 'Find' || c.phase === 'Verify').length, 0);
+const seeds = (...findings) => ({ seedFindings: { source_run_id: 'wf_audit-1', findings } });
+
+// refuter の票を指摘 id ごとに決め、finder は label ごとの返り値を使う模擬 agent。
+function seedAgent({ votesFor = () => 'not_refuted', findingsByLabel = {}, scannedByLabel = {}, updater } = {}) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label, phase: opts.phase });
+    if (opts.label.startsWith('update-')) {
+      if (updater) return updater(opts.label);
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'u' };
+    }
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, id => votesFor(id, opts.phase));
+    return { findings: findingsByLabel[opts.label] || [], scanned_files: scannedByLabel[opts.label] || ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  return { agent, calls };
+}
+
+function confirmedSentToUpdater(prompt) {
+  const start = prompt.indexOf('[CONFIRMED_FINDINGS]:\n') + '[CONFIRMED_FINDINGS]:\n'.length;
+  return JSON.parse(prompt.slice(start, prompt.indexOf('\n\n[', start))).map(f => f.id);
+}
+
+test('seedFindings skip Find but every seed, minor included, goes through Verify; only survivors reach the updater', async () => {
+  const { agent, calls } = seedAgent({ votesFor: id => (id === 'p1-why-driven-3' ? 'refuted' : 'not_refuted') });
+  const { result, phases } = await run('update', agent, { scope: 'full' }, {}, seeds(
+    seed(),
+    seed({ id: 'p1-why-driven-2', claim: 'minor seed', severity: 'minor' }),
+    seed({ id: 'p1-why-driven-3', claim: 'gone since the audit' }),
+  ));
+  assert.ok(!phases.includes('Find'));
+  assert.ok(phases.includes('Verify'));
+  assert.equal(calls.filter(c => c.phase === 'Find').length, 0);
+  const verified = new Set(calls.filter(c => c.phase === 'Verify').flatMap(c => batchIds(c.prompt)));
+  assert.deepEqual([...verified].sort(), ['p1-why-driven-1', 'p1-why-driven-2', 'p1-why-driven-3']);
   const updater = calls.find(c => c.label === 'update-r1').prompt;
-  const confirmed = JSON.parse(updater.slice(updater.indexOf('[CONFIRMED_FINDINGS]:\n') + 22, updater.indexOf('\n\n[FINDINGS_ORIGIN]')));
-  assert.deepEqual(confirmed.map(f => f.id), ['p1-why-driven-1', 'p1-why-driven-2']);
+  assert.deepEqual(confirmedSentToUpdater(updater), ['p1-why-driven-1', 'p1-why-driven-2']);
   assert.ok(!updater.includes('"votes"'));
-  assert.match(calls.find(c => c.label === 'find-why-driven-p2r1').prompt, /\[RECHECK_FINDINGS\]:[\s\S]*"claim": "seeded claim"/);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.seed)), { source_run_ids: ['wf_audit-1'], count: 2 });
+  assert.deepEqual(Array.from(result.findings_before.rejected, f => f.id), ['p1-why-driven-3']);
+  assert.deepEqual(Array.from(result.findings_before.reported_minor), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.seed)), { source_run_id: 'wf_audit-1', count: 3 });
   assert.equal(result.by_category.before, null);
   assert.equal(result.skipped_unavailable.before, null);
   assert.equal(result.declared_only.before, null);
-  assert.equal(result.findings_before.confirmed.length, 2);
+});
+
+test('an unverified seed is not a confirmed target, and update_failed never reports unrefuted seeds as confirmed', async () => {
+  const { agent, calls } = seedAgent({
+    votesFor: id => (id === 'p1-why-driven-2' ? 'unreadable' : 'not_refuted'),
+    updater: () => { throw new Error('structured output retries exhausted'); },
+  });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed(), seed({ id: 'p1-why-driven-2', claim: 'unreadable seed' })));
+  assert.equal(result.verdict, 'update_failed');
+  assert.deepEqual(Array.from(result.findings.confirmed, f => f.id), ['p1-why-driven-1']);
+  assert.deepEqual(Array.from(result.findings.unverified, f => f.id), ['p1-why-driven-2']);
+  const updater = calls.find(c => c.label === 'update-r1').prompt;
+  assert.deepEqual(confirmedSentToUpdater(updater), ['p1-why-driven-1']);
+  assert.match(updater, /\[UNVERIFIED_FINDINGS\]:[\s\S]*p1-why-driven-2/);
+});
+
+test('seed reconciliation: re-reported seeds stay remaining, minor ones do not loop, unseen ones are unobserved, new ones split by origin', async () => {
+  const reverify = [
+    finding({ claim: 'major seed', present_in_original: true }),
+    finding({ claim: 'minor seed', severity: 'minor', present_in_original: true }),
+    finding({ claim: 'already there', present_in_original: true }),
+    finding({ claim: 'introduced', present_in_original: false }),
+  ];
+  const { agent, calls } = seedAgent({
+    findingsByLabel: { 'find-why-driven-p2r1': reverify, 'find-why-driven-p2r2': reverify },
+  });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(
+    seed({ id: 's-major', claim: 'major seed' }),
+    seed({ id: 's-minor', claim: 'minor seed', severity: 'minor' }),
+    seed({ id: 's-unseen', file: 'references/x.md', claim: 'unseen seed' }),
+    seed({ id: 's-fixed', claim: 'fixed seed' }),
+  ));
+  const claims = bucket => Array.from(result.staging[bucket], f => f.claim).sort();
+  assert.deepEqual(claims('remaining'), ['major seed', 'minor seed']);
+  assert.deepEqual(claims('resolved'), ['fixed seed']);
+  assert.deepEqual(claims('unobserved'), ['unseen seed']);
+  assert.deepEqual(claims('preexisting'), ['already there']);
+  assert.deepEqual(claims('new'), ['introduced']);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  const note = calls.find(c => c.label === 'update-r2').prompt;
+  const unresolved = JSON.parse(note.slice(note.indexOf('[REVISE_NOTE]')).match(/(\{[\s\S]*\})\s*$/)[1]).unresolved.map(f => f.claim).sort();
+  assert.deepEqual(unresolved, ['introduced', 'major seed']);
+  assert.equal(result.stop_reason, 'dried');
+});
+
+test('a seed refuted on recheck lands in refuted_on_recheck, and one refuted in Verify never becomes a baseline', async () => {
+  const { agent } = seedAgent({
+    votesFor: (id, phase) => (phase === 'Reverify' ? 'refuted' : id === 's-gone' ? 'refuted' : 'not_refuted'),
+    findingsByLabel: { 'find-why-driven-p2r1': [finding({ claim: 'kept seed', present_in_original: true })] },
+  });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(
+    seed({ id: 's-kept', claim: 'kept seed' }),
+    seed({ id: 's-gone', claim: 'gone seed' }),
+  ));
+  assert.deepEqual(Array.from(result.staging.refuted_on_recheck, f => f.claim), ['kept seed']);
+  assert.deepEqual(Array.from(result.findings_before.rejected, f => f.id), ['s-gone']);
+  assert.ok(![...result.staging.resolved, ...result.staging.unobserved].some(f => f.claim === 'gone seed'));
   assert.equal(result.verdict, 'applied_to_staging');
 });
 
 test('a seeded run stopped before the first updater reports delegated items as not judged', async () => {
-  const { agent } = scriptedAgent({});
+  const { agent } = seedAgent();
   const { result } = await run('update', agent, { scope: 'full' }, { budget: { total: 1, spent: () => 1, remaining: () => 0 } },
-    { seedFindings: [{ source_run_id: 'r', findings: [seed()] }] });
+    seeds(seed()));
   assert.equal(result.stop_reason, 'budget');
   assert.equal(result.unchecked_failures, null);
 });
@@ -1197,30 +1294,28 @@ test('a seeded run stopped before the first updater reports delegated items as n
 test('a seeded run accepts prompt-audit unavailable in Reverify when the caller permits it', async () => {
   const unavailable = { findings: [], scanned_files: [], unreadable: false, unavailable: true };
   const { agent } = optsRecordingAgent({ 'find-prompt-audit-p2r1': unavailable });
-  const { result } = await run('update', agent, { scope: 'full' }, {}, { seedFindings: [{ source_run_id: 'r', findings: [seed()] }] });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed()));
   assert.equal(result.verdict, 'applied_to_staging');
   assert.deepEqual(Array.from(result.skipped_unavailable.after), ['prompt-audit']);
 });
 
 for (const [name, extra, pattern, target = { scope: 'full' }, mode = 'update'] of [
-  ['outside update', { seedFindings: [{ source_run_id: 'r', findings: [seed()] }] }, /seedFindings/, { scope: 'full' }, 'review'],
-  ['without a source run id', { seedFindings: [{ findings: [seed()] }] }, /source_run_id/],
-  ['with an unknown category', { seedFindings: [{ source_run_id: 'r', findings: [seed({ category: 'style' })] }] }, /FINDERS/],
-  ['with a missing evidence', { seedFindings: [{ source_run_id: 'r', findings: [seed({ evidence: '' })] }] }, /evidence/],
-  ['with a bad severity', { seedFindings: [{ source_run_id: 'r', findings: [seed({ severity: 'high' })] }] }, /severity/],
-  ['with an absolute file', { seedFindings: [{ source_run_id: 'r', findings: [seed({ file: '/etc/x' })] }] }, /相対パス/],
-  ['with a duplicate id across runs',
-    { seedFindings: [{ source_run_id: 'a', findings: [seed()] }, { source_run_id: 'b', findings: [seed({ claim: 'other' })] }] }, /重複/],
-  ['with a duplicate finding', { seedFindings: [{ source_run_id: 'a', findings: [seed(), seed({ id: 'other-id' })] }] }, /重複/],
-  ['above the per-lens cap',
-    { seedFindings: [{ source_run_id: 'a', findings: Array.from({ length: 9 }, (_, i) => seed({ id: `s${i}`, claim: `c${i}` })) }] }, /超えて/],
-  ['outside the frozen diff', { seedFindings: [{ source_run_id: 'a', findings: [seed({ file: 'references/other.md' })] }] },
-    /changed paths/, { scope: 'diff', diffRef: 'main...HEAD' }],
+  ['outside update', seeds(seed()), /seedFindings/, { scope: 'full' }, 'review'],
+  ['from several runs', { seedFindings: [{ source_run_id: 'a', findings: [seed()] }] }, /1 つの run/],
+  ['without a source run id', { seedFindings: { findings: [seed()] } }, /source_run_id/],
+  ['with no findings', { seedFindings: { source_run_id: 'a', findings: [] } }, /findings が空/],
+  ['with an unknown category', seeds(seed({ category: 'style' })), /FINDERS/],
+  ['with a missing evidence', seeds(seed({ evidence: '' })), /evidence/],
+  ['with a non-string location', seeds(seed({ location: 3 })), /location/],
+  ['with a bad severity', seeds(seed({ severity: 'high' })), /severity/],
+  ['with an absolute file', seeds(seed({ file: '/etc/x' })), /相対パス/],
+  ['with a duplicate id', seeds(seed(), seed({ claim: 'other' })), /重複/],
+  ['with a duplicate finding', seeds(seed(), seed({ id: 'other-id' })), /重複/],
+  ['above the per-lens cap', seeds(...Array.from({ length: 9 }, (_, i) => seed({ id: `s${i}`, claim: `c${i}` }))), /超えて/],
+  ['outside the frozen diff', seeds(seed({ file: 'references/other.md' })), /changed paths/, { scope: 'diff', diffRef: 'main...HEAD' }],
   ['containing a delegated-item failure',
-    { seedFindings: [{ source_run_id: 'a', findings: [seed({ id: 'p1-unchecked-verifier-path', category: 'best-practices', requires_measurement: false })] }] },
-    /委譲項目/],
-  ['together with intentScope', { seedFindings: [{ source_run_id: 'a', findings: [seed()] }] }, /同時に/,
-    { scope: 'full', intentScope: { categories: ['why-driven'] } }],
+    seeds(seed({ id: 'p1-unchecked-verifier-path', category: 'best-practices', requires_measurement: false })), /委譲項目/],
+  ['together with intentScope', seeds(seed()), /同時に/, { scope: 'full', intentScope: { categories: ['why-driven'] } }],
 ]) {
   test(`seedFindings ${name} are rejected before any agent runs`, async () => {
     let dispatched = 0;
@@ -1231,9 +1326,10 @@ for (const [name, extra, pattern, target = { scope: 'full' }, mode = 'update'] o
 
 // --------------------------------------------------------------------------- intentScope
 
-test('intentScope narrows Find to the chosen lenses and files while Reverify keeps every lens', async () => {
+test('intentScope narrows Find to the chosen lenses and files, declares the rest, and Reverify keeps every lens', async () => {
   const { agent, calls } = scriptedAgent({
     findingsByLabel: { 'find-why-driven-p1': [finding({ file: 'references/a.md', claim: 'scoped' })] },
+    scannedByLabel: { 'find-why-driven-p1': ['references/a.md'], 'find-loopholes-p1': ['references/a.md'] },
   });
   const intentScope = { categories: ['why-driven', 'loopholes'], files: ['references/a.md'] };
   const { result } = await run('update', agent, { scope: 'full', intentScope });
@@ -1245,9 +1341,21 @@ test('intentScope narrows Find to the chosen lenses and files while Reverify kee
   const reverify = new Set(calls.filter(c => c.phase === 'Reverify' && c.label.startsWith('find-')).map(c => c.label.split('-p2r')[0]));
   assert.equal(reverify.size, Object.keys(result.by_category.after).length);
   assert.ok(reverify.size > 2);
-  assert.deepEqual(Object.keys(result.by_category.before).sort(), ['loopholes', 'why-driven']);
+  for (const [lens, value] of Object.entries(result.by_category.before)) {
+    assert.equal(value, ['why-driven', 'loopholes'].includes(lens) ? (lens === 'why-driven' ? 1 : 0) : 'out_of_intent_scope', lens);
+  }
+  assert.deepEqual(Object.keys(result.by_category.before).sort(), Object.keys(result.by_category.after).sort());
+  assert.deepEqual(Array.from(result.unscanned_intent_files), []);
   assert.deepEqual(JSON.parse(JSON.stringify(result.target.intentScope)), { categories: ['why-driven', 'loopholes'], files: ['references/a.md'] });
   assert.match(calls.find(c => c.label === 'update-r1').prompt, /\[INTENT_SCOPE_FILES\]/);
+});
+
+test('intentScope files that no Find lens read stop the run instead of passing with nothing seen', async () => {
+  const { agent, calls } = scriptedAgent({ scannedByLabel: {} });
+  const { result } = await run('update', agent, { scope: 'full', intentScope: { files: ['references/missing.md'] } });
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.deepEqual(Array.from(result.unscanned_intent_files), ['references/missing.md']);
+  assert.equal(calls.filter(c => c.label.startsWith('update-')).length, 0);
 });
 
 test('a Find finding outside intentScope.files makes that lens missing', async () => {
@@ -1272,8 +1380,37 @@ for (const [name, intentScope, pattern, mode = 'update'] of [
   ['with no keys', {}, /categories か files/],
   ['with a parent path', { files: ['../other/SKILL.md'] }, /相対パス/],
   ['with an empty file list', { files: [] }, /files/],
+  ['with a repeated file', { files: ['SKILL.md', './SKILL.md'] }, /重複/],
 ]) {
   test(`intentScope ${name} is rejected`, async () => {
     await assert.rejects(run(mode, async () => null, { scope: 'full', intentScope }), pattern);
   });
 }
+
+// native の parallel は落ちた thunk を null で返す。束の行が丸ごと返らなくても、反証に回した指摘を消さない。
+test('a refutation batch whose thunk fails keeps its findings as unverified instead of dropping them', async () => {
+  const dropBatchRows = tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip)))
+    .then(results => results.map(r => (Array.isArray(r) && r[0] && r[0].finding ? null : r)));
+  const { agent } = scriptedAgent({
+    findingsByLabel: { 'find-why-driven-p1': [finding({ claim: 'a' }), finding({ claim: 'b', file: 'references/a.md' })] },
+  });
+  const { result } = await run('review', agent, { scope: 'full' }, { parallel: dropBatchRows });
+  assert.equal(result.findings.confirmed.length, 0);
+  assert.deepEqual(Array.from(result.findings.unverified, f => f.claim).sort(), ['a', 'b']);
+  for (const f of result.findings.unverified) {
+    assert.deepEqual(Array.from(f.missing_perspectives), ['existence', 'materiality', 'alternative']);
+    assert.equal(f.valid_votes, 0);
+  }
+  assert.equal(result.verdict, 'findings');
+});
+
+test('a revisable delegated failure that the revision fixes resolves the loop', async () => {
+  const { agent, calls } = uncheckedAgent(label => [
+    { id: 'verifier-path', verdict: label.endsWith('-p1') ? 'fail' : 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.deepEqual(uncheckedSentToUpdater(calls.find(c => c.label === 'update-r1').prompt), ['verifier-path']);
+  assert.equal(result.stop_reason, 'resolved');
+  assert.deepEqual(Array.from(result.unchecked_failures, f => f.requires_measurement), [true]);
+});

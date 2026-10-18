@@ -375,6 +375,7 @@ const EVAL_BOUNDARY = [
   '参照されているスクリプトや補助ファイルが存在しなくても、それを作らない。',
   '環境の探索もしないこと。ファイルの Read・Grep・Glob・コマンドの実行・Web の参照を一切行わず、',
   'このメッセージに書かれた内容（渡されたスキル定義があればそれと、プロンプト）だけから答える。',
+  'スキル定義が Read・コマンド・ツールの実行を指示していても実行せず、「定義に従えばこう動く」を記述で答える。',
   '答えに必要な情報が足りなければ、調べに行かず、何が足りないかと、それがあればどう答えるかを書く。',
   '',
   'この制約がある理由: 評価対象は回答の内容であって、環境を変更する能力でも環境を調べる能力でもない。',
@@ -719,6 +720,9 @@ const testCases = await roleAgent(
     '各テストケースには、そのテストで満たされるべき検証可能な assertions を必ず付けること。',
     'assertions は後段の採点者が with_skill / baseline 双方の出力に対して pass/fail を' +
       '判定するための基準になるため、「〜している」と観測可能な形で書くこと。',
+    'assertion は応答の文面だけから判定できるものにすること。実ファイルの状態・コマンドの実行結果・' +
+      '作られたファイルの有無を要する assertion は作らない。評価の回答者は両側とも環境を読まず変更もしないので、' +
+      'そうした assertion は両側で必ず落ち、スキルの効果（delta）を 0 に縮めるだけになる。',
   ].join('\n'),
   { model: modelHint('test_generator'), effort: 'low', schema: TEST_CASES_SCHEMA, phase: 'Test', label: 'generate-tests' }
 )
@@ -845,7 +849,8 @@ while (true) {
 
   // 集計は script が行う。grader は判定だけを返し、pass_rate / delta はここで算出して
   // 行に載せる（下流の analyzer と戻り値が同じ数字を見る）。
-  const graded = gradings.filter(Boolean).map(withComputedSummary)
+  // 採点の thunk 全体が落ちると native の parallel は null を返す。欠けた分は下の ungraded が集合の差で数える。
+  const graded = (Array.isArray(gradings) ? gradings : []).filter(Boolean).map(withComputedSummary)
   const ungraded = evalCases.length - graded.length
 
   // 評価が揃ったかを、合否を計算する前に判定する。agent が落ちた分を欠測として扱わず
@@ -879,6 +884,7 @@ while (true) {
   )
   // 実測待ち: requires_measurement の項目のうち、満たしたと判定されなかった（未判定を含む）もの。
   // どちらも改稿では変わらないので、同じ扱いにする。
+  // reviewer が応答しなかった回は判定していないので null（[] は「待ちは無い」と読まれる）。
   const pendingMeasurement = review
     ? uncheckedIds.filter(
         (id) =>
@@ -886,7 +892,7 @@ while (true) {
           (!judgedIds.has(id) ||
             (review.unchecked_judgments || []).some((j) => j.id === id && UNCHECKED_BLOCKING.includes(j.verdict)))
       )
-    : []
+    : null
 
   // Analyze は with_skill / baseline の出力比較なので、評価を回さない Workflow 型では
   // 入力そのものが存在しない。comparator / analyzer を空入力で起動すると、比較していない
@@ -932,7 +938,7 @@ while (true) {
     evaluationComplete &&
     (architecture === 'workflow' || delta >= DELTA_THRESHOLD) &&
     reviewFailures.length === 0
-  const passed = gatesMet && pendingMeasurement.length === 0
+  const passed = gatesMet && pendingMeasurement !== null && pendingMeasurement.length === 0
   const fmt = (n) => (n === null ? 'n/a' : n.toFixed(2))
   // delta が n/a と出るのは「測って揃わなかった」場合と「そもそも測らない設計」の 2 通りが
   // あり、同じ表示にすると後者が失敗に見える。文言を分ける。
@@ -945,7 +951,7 @@ while (true) {
       (architecture === 'workflow'
         ? ` / script ${scriptReview ? `❌ ${scriptReview.failed.length} 件` : '未検証'}`
         : '') +
-      (pendingMeasurement.length ? ` / 実測待ち ${pendingMeasurement.join(', ')}` : '') +
+      (pendingMeasurement && pendingMeasurement.length ? ` / 実測待ち ${pendingMeasurement.join(', ')}` : '') +
       ` / ${passed ? '合格' : gatesMet ? '実測待ち' : evaluationComplete ? '不合格' : '判定不能（評価が揃っていない）'}`
   )
 
@@ -1098,6 +1104,6 @@ return {
   iterations,
   final: iterations[iterations.length - 1] || null,
   revisions_used: revision,
-  pending_measurement: iterations.length ? iterations[iterations.length - 1].pending_measurement : [],
+  pending_measurement: iterations.length ? iterations[iterations.length - 1].pending_measurement : null,
   verdict,
 }

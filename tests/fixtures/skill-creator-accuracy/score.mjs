@@ -6,12 +6,17 @@ import { pathToFileURL } from 'node:url'
 export const LINE_TOLERANCE = 3
 // これより短い引用は本文の別の箇所にも現れやすく、誤った行へ当たる。
 export const MIN_QUOTE_CHARS = 6
+// location の 1 つの行範囲がこの行数を超えたら位置不明として扱う。ファイル全体のような広い範囲は
+// 仕込みも囮もまとめて覆い、どこを指したかを表さない。
+export const MAX_LOCATION_SPAN = 20
 
 const DASH = '\\s*[-–—〜~]\\s*'
 // 裸の数字（§3・手順2・3件）は拾わない。位置を表すと書式で分かるものだけを行番号とみなす。
+// 「N 行」は数（全160行のうち・3 行以上）にも使うので、位置と分かる「N行目」と「N-M行」の範囲だけを取る。
 const LINE_PATTERNS = [
   new RegExp(`(?<![A-Za-z])L(\\d+)(?:${DASH}L?(\\d+))?`, 'g'),
-  new RegExp(`(\\d+)(?:${DASH}(\\d+))?\\s*行`, 'g'),
+  new RegExp(`(?<![全\\d])(\\d+)(?:${DASH}(\\d+))?\\s*行目`, 'g'),
+  new RegExp(`(?<![全\\d])(\\d+)${DASH}(\\d+)\\s*行(?!目|以上|以下|未満|程度|ほど|分)`, 'g'),
   new RegExp(`\\blines?\\s+(\\d+)(?:${DASH}(\\d+))?`, 'gi'),
   new RegExp(`\\.[A-Za-z]+:(\\d+)(?:${DASH}(\\d+))?`, 'g'),
 ]
@@ -46,17 +51,19 @@ export function extractRanges(text) {
   return locateRanges(text).found.map((f) => f.range)
 }
 
+const narrowEnough = ([start, end]) => end - start + 1 <= MAX_LOCATION_SPAN
+
 // location が別ファイルの行も挙げることがある（二重定義の両側など）。各行番号は直前に書かれた
 // パスのものとして扱い、パスが前に無ければ finding.file のものとする。
 export function rangesByFile(finding, snapshotDir) {
   const own = normalizeFile(finding.file, snapshotDir)
   const { normalized, found } = locateRanges(finding.location)
   const paths = [...normalized.matchAll(PATH_TOKEN)].map((m) => ({ index: m.index, file: normalizeFile(m[0], snapshotDir) }))
-  const out = found.map(({ index, range }) => {
+  const out = found.filter(({ range }) => narrowEnough(range)).map(({ index, range }) => {
     const owner = paths.filter((p) => p.index < index).at(-1)
     return { file: owner ? owner.file : own, range, via: 'location' }
   })
-  for (const range of extractRanges(finding.file)) out.push({ file: own, range, via: 'location' })
+  for (const range of extractRanges(finding.file).filter(narrowEnough)) out.push({ file: own, range, via: 'location' })
   return out
 }
 
@@ -138,13 +145,13 @@ export function evidenceRanges(finding, index, snapshotDir) {
   for (const piece of pieces) {
     const cited = paths.filter((p) => p.index < piece.index).at(-1)
     const candidates = [...(cited ? [sourceFilesFor(cited.file, index)] : []), sourceFilesFor(own, index)]
+    // 断片が候補のファイルに 2 回以上出るなら、どの箇所を引いたか決まらないので当たりにしない
+    // （一意に定まるときだけ採る。短い語は仕込みと囮の両方に現れる）。
     for (const seg of quoteSegments(piece.text)) {
       for (const files of candidates) {
         const found = files.flatMap((file) => findSegment(index[file], seg).map((range) => ({ file, range, via: 'evidence' })))
-        if (found.length > 0) {
-          out.push(...found)
-          break
-        }
+        if (found.length === 1) out.push(...found)
+        if (found.length > 0) break
       }
     }
   }

@@ -217,8 +217,9 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
   }
 });
 
-// runner は args を丸ごと運ぶ。seed と intentScope が adapter の args 組み立てで落ちると、Find が全観点で走り直す。
-test('createWorkflow carries seedFindings through to the skill-creator update source', async t => {
+// runner は args を丸ごと運ぶ。seed が adapter の args 組み立てで落ちると、Find が全観点で走り直す。
+// seed は Verify の束の反証にかかるので、束の返答 schema（verdicts[]）が Codex runner の検証を通る経路もここで見る。
+test('createWorkflow carries seedFindings through to the skill-creator update source and its batched refuters', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-seed-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const targetRoot = join(dir, 'targets'), stagingRoot = join(dir, 'staging'), runRoot = join(dir, 'runs');
@@ -240,8 +241,12 @@ test('createWorkflow carries seedFindings through to the skill-creator update so
           await cp(join(targetDir, entry), join(options.workingDirectory, entry), { recursive: true });
         await writeFile(join(options.workingDirectory, 'SKILL.md'), 'after\n');
       }
+      const findingsBlock = prompt.match(/\[FINDINGS\]:\n(\[[\s\S]*?\n\])/)?.[1];
       const result = prompt.includes('"changed_files"')
         ? { changed_files: [{ path: 'SKILL.md', reason: 'seed', findings_addressed: ['seed-1'] }], out_of_scope_changes: [], summary: 'updated' }
+        : findingsBlock
+          ? { verdicts: JSON.parse(findingsBlock)
+            .map(f => ({ id: f.id, verdict: f.id === 'seed-2' ? 'refuted' : 'not_refuted', reason: 'checked' })) }
         : prompt.includes('[CATEGORY]: prompt-audit')
           ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'unavailable' }
           : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
@@ -272,13 +277,18 @@ test('createWorkflow carries seedFindings through to the skill-creator update so
         uncheckedItems: [],
         promptAuditExpected: false,
         intent: 'fix the seeded finding',
-        seedFindings: [{ source_run_id: 'wf_audit-1', findings: [{ id: 'seed-1', category: 'why-driven', file: 'SKILL.md',
-          location: 'L1', claim: 'seeded claim', evidence: 'before', severity: 'major', suggested_fix: 'fix' }] }],
+        seedFindings: { source_run_id: 'wf_audit-1', findings: [
+          { id: 'seed-1', category: 'why-driven', file: 'SKILL.md', location: 'L1', claim: 'seeded claim', evidence: 'before', severity: 'major', suggested_fix: 'fix' },
+          { id: 'seed-2', category: 'loopholes', file: 'SKILL.md', location: 'L1', claim: 'stale claim', evidence: 'gone', severity: 'minor', suggested_fix: 'fix' },
+        ] },
       },
     });
-    assert.deepEqual(JSON.parse(JSON.stringify(result.source_result.seed)), { source_run_ids: ['wf_audit-1'], count: 1 });
+    assert.deepEqual(JSON.parse(JSON.stringify(result.source_result.seed)), { source_run_id: 'wf_audit-1', count: 2 });
+    assert.deepEqual(result.source_result.findings_before.confirmed.map(f => f.id), ['seed-1']);
+    assert.deepEqual(result.source_result.findings_before.rejected.map(f => f.id), ['seed-2']);
+    assert.ok(prompts.some(prompt => prompt.includes('[FINDINGS]:\n') && prompt.includes('[PERSPECTIVE]: existence')));
     assert.equal(result.source_result.verdict, 'applied_to_staging');
-    assert.ok(!prompts.some(prompt => prompt.includes(`[TARGET_DIR]: ${sourceSnapshot.snapshotDir}`)));
+    assert.ok(!prompts.some(prompt => prompt.includes('[CATEGORY]:') && prompt.includes(`[TARGET_DIR]: ${sourceSnapshot.snapshotDir}`)));
     assert.ok(prompts.some(prompt => prompt.includes('"claim": "seeded claim"') && prompt.includes('[RECHECK_FINDINGS]')));
   } finally {
     Codex.prototype.startThread = originalStartThread;

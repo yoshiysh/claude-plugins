@@ -19,11 +19,12 @@ Workflow の `verdict` が `passed` 以外の場合は合格として提示し�
 `references/schemas.md`「build_skill.js の戻り値」が正本）。いずれも `skill_draft` には
 直近の有効な稿が入っているので、草稿を失うことはない。
 
-- **`pending_measurement`**（改稿で直せるものは満たしたが、`pending_measurement` の項目が evals の実測待ち）:
-  合格として提示しない。草稿と評価結果は `passed` と同じ形で示したうえで、`pending_measurement` の各項目を
-  「文書を直しても判定は変わらず、実測で確かめる」と名指しする。保存の承認を得て保存したあと、
-  description の発火であれば [description 最適化ループ](#description-最適化ループ任意) で実測する。実測するか、
-  未実測と明示して保存だけで終えるかはユーザーが決める。Workflow を回し直さない（改稿しても結果は変わらない）。
+- **`pending_measurement`**（意味は `references/schemas.md`「build_skill.js の戻り値」）:
+  合格として提示しない。草稿と評価結果は `passed` と同じ形で示し、下の提示フォーマットの【実測待ちの項目】の行で
+  `pending_measurement` の各項目を「文書を直しても判定は変わらず、実測で確かめる」と名指しする。保存の承認を得て
+  保存したあと、description の発火であれば [description 最適化ループ](#description-最適化ループ任意) で実測する。
+  実測するか、未実測と明示して保存だけで終えるかはユーザーが決める。保存だけで終えるときは、終了の報告に
+  「未実測: <項目>（合格とは確かめていない）」の 1 行を必ず残す。Workflow を回し直さない（改稿しても結果は変わらない）。
 - **`needs_human_decision`**（改稿上限に達しても閾値に届かなかった）: 品質の問題。pass_rate・
   reviewer の失格項目・analyzer の改善提案をそのまま示し、要件・基準まで
   遡るか、この稿で保存するかをユーザーに選んでもらう。
@@ -90,6 +91,7 @@ baseline   平均 pass_rate: Y%
 （評価は固定のモデル・effort で回した値で、ふだん使うモデルでの効果とは限りません）
 
 定性チェック：合格 X項目 / 要確認 Y項目 / 失格 Z項目
+実測待ちの項目：<pending_measurement の id。空なら「なし」、null なら「判定していない」>
   （失格は `iterations[].review_failures` の件数。script が判定フィールドから合算したもので、
    reviewer の `failed[]` の件数ではない。実測待ちの項目は `pending_measurement` に別に出る）
 

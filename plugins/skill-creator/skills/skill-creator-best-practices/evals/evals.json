@@ -60,7 +60,7 @@
         "Workflow 前に bounded snapshot / manifest / diff proof を作り、完了後に verify 済み結果だけを信頼するか",
         "prompt-audit が同梱 criteria を使い、unavailable を no-findings と混同しないか",
         "uncheckedItems を渡していないか",
-        "直す場合は audit の指摘を intent にした update を通すと伝え、本体ファイルを書き換えていないか"
+        "直す場合はその指摘を seedFindings にコピーした update を通すと伝え、本体ファイルを書き換えていないか"
       ]
     },
     {

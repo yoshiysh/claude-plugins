@@ -5,7 +5,8 @@ import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
-import { compileSource, readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
+import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
+import { tokenizer } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/node_modules/acorn/dist/acorn.mjs'
 import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
@@ -261,13 +262,35 @@ const skillCreatorWorkflows = () => readdirSync(skillCreatorWorkflowsDir)
 
 // native host は `export const meta` を本体のスコープに残さない。本体が meta を読むと agent を 1 体も起動せずに
 // ReferenceError で落ちるが、meta を context に注入する単体テストではその失敗が見えない。
+// 識別子 meta の出現を token で数える。コメント・文字列・テンプレートの文字列部分は token にならないので誤検出せず、
+// meta?.x・分割代入・関数への引数渡しのような形も、直前が `.` / `?.` でない識別子として拾う。
+// 除くのは `export const meta =` の定義そのものだけ。
+function metaReferences(source) {
+  const tokens = [...tokenizer(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true })]
+  return tokens.filter((token, i) => {
+    if (token.type.label !== 'name' || token.value !== 'meta') return false
+    const previous = tokens[i - 1]
+    if (previous && (previous.type.label === '.' || previous.type.label === '?.')) return false
+    const isDefinition = previous?.type.keyword === 'const' && tokens[i - 2]?.type.keyword === 'export'
+    return !isDefinition
+  }).length
+}
+
+test('the meta reference detector sees past comments and strings and catches every read form', () => {
+  const definition = 'export const meta = { name: "x" }\n'
+  for (const read of ['meta.x', 'meta?.x', 'meta["x"]', 'const { a } = meta', 'f(meta)', 'Object.keys(meta)', '`${meta.x}`']) {
+    assert.equal(metaReferences(definition + read), 1, read)
+  }
+  for (const quiet of ['/* meta.x */', 'x = 1 // meta.x', '"meta.json"', '`${W}.meta.json`', 'obj.meta.x', 'obj?.meta']) {
+    assert.equal(metaReferences(definition + quiet), 0, quiet)
+  }
+})
+
 test('skill-creator workflow bodies never read meta, which native hosts do not bind', () => {
   const sources = skillCreatorWorkflows()
   assert.ok(sources.some((path) => path.endsWith('build_skill.js')))
   for (const sourcePath of sources) {
-    const { body } = compileSource(readFileSync(sourcePath, 'utf8'), ['read-only', 'fresh-thread', 'workspace-write', 'worktree'])
-    const code = body.replace(/^\s*\/\/.*$/gm, '')
-    assert.doesNotMatch(code, /(?<![.\w$])meta\s*[.[]/, `${sourcePath}: body reads meta`)
+    assert.equal(metaReferences(readFileSync(sourcePath, 'utf8')), 0, `${sourcePath}: body reads meta`)
   }
 })
 

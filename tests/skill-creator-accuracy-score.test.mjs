@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { LINE_TOLERANCE, MIN_QUOTE_CHARS, extractQuotes, extractRanges, normalizeFile, score, unwrapResult } from './fixtures/skill-creator-accuracy/score.mjs';
+import { LINE_TOLERANCE, MAX_LOCATION_SPAN, MIN_QUOTE_CHARS, extractQuotes, extractRanges, normalizeFile, score, unwrapResult } from './fixtures/skill-creator-accuracy/score.mjs';
 
 const fixtureDir = new URL('./fixtures/skill-creator-accuracy/', import.meta.url);
 const truth = JSON.parse(await readFile(new URL('truth.json', fixtureDir), 'utf8'));
@@ -80,6 +80,16 @@ test('location の行番号は明示的な書式だけを拾う', () => {
   assert.deepEqual(extractRanges('L5 と L40'), [[5, 5], [40, 40]]);
   assert.deepEqual(extractRanges('§3 手順2 の 3件'), []);
   assert.deepEqual(extractRanges('## 出力'), []);
+});
+
+// 「N 行」は位置でなく数にも使う。数を行番号と取ると、無関係な行の仕込みや囮に当たる。
+test('location の行数の表現（全N行・N 行以上）は行番号と取らない', () => {
+  assert.deepEqual(extractRanges('全160行のうち'), []);
+  assert.deepEqual(extractRanges('3 行以上の説明'), []);
+  assert.deepEqual(extractRanges('2-3 行程度'), []);
+  assert.deepEqual(extractRanges('120 行'), []);
+  assert.deepEqual(extractRanges('12-18行目'), [[12, 18]]);
+  assert.deepEqual(extractRanges('全体の 40 行目'), [[40, 40]]);
 });
 
 test('file は ./ と snapshot の接頭辞と :行 の接尾辞を外して照合する', () => {
@@ -263,4 +273,24 @@ test('CLI は --json で機械可読な採点を返す', async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('location の行範囲が MAX_LOCATION_SPAN を超えたら位置不明に数える', () => {
+  const report = score(SYNTH_TRUTH, reviewResult([
+    finding('why-driven', 'SKILL.md', 'L1-L160'),
+    finding('why-driven', 'SKILL.md', `L20-L${20 + MAX_LOCATION_SPAN - 1}`),
+  ]));
+  assert.deepEqual(report.findings.map((f) => f.bucket), ['unlocated', 'defect']);
+  assert.equal(report.false_positive.hit, 0);
+});
+
+test('evidence の断片が対象ファイルに 2 回以上出るときは当たりにしない', () => {
+  const sources = {
+    'SKILL.md': SYNTH_SOURCES['SKILL.md'].split('\n').map((line, i) => (i + 1 === 21 || i + 1 === 101 ? 'run the script here' : line)).join('\n'),
+  };
+  const report = score(SYNTH_TRUTH, reviewResult([
+    { ...finding('why-driven', 'SKILL.md', '## 本文'), evidence: '「run the script here」' },
+    { ...finding('why-driven', 'SKILL.md', '## 本文'), evidence: '「担当者欄に「未定」と書く。」' },
+  ]), { sources });
+  assert.deepEqual(report.findings.map((f) => [f.bucket, [...f.defects, ...f.decoys]]), [['unlocated', []], ['defect', ['B2']]]);
 });

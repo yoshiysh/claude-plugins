@@ -26,7 +26,9 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
    update では改稿前の分（`findings_before.reported_minor`）も併せて出す。再検証は範囲を絞るので、
    改稿後の一覧に無いことは「消えた」を意味しない。
 2. **観点の欠落を隠さない。** `by_category.before` が `null` の観点は「その観点では見ていない」。
-   合格の材料に数えない。`"unavailable"` の観点（`skipped_unavailable` に載る）も見ていない点は同じで、
+   合格の材料に数えない。`"out_of_intent_scope"` の観点（`target.intentScope` で外した）も見ていないので、外したと名指しし、
+   `target.intentScope.files` があればその外のファイルも改稿前は見ていないと伝える。`by_category.before` 自体が `null`
+   なのは `seedFindings` で Find を走らせなかった run で、どの観点でも探し直していない（`seed` の行で伝える）。`"unavailable"` の観点（`skipped_unavailable` に載る）も見ていない点は同じで、
    理由が「担当が応答しなかった」ではなく「必要な skill / criteria / capability を実行環境で利用できなかった」だと区別して名指しする。
    `by_category.after` 全体が `null` なのは別の意味で、
    「再検証のパス自体が走らなかった」（review・audit、または改稿前に止まった場合）。
@@ -106,9 +108,8 @@ review の提示フォーマットをそのまま使う（観点は 1 つなの�
 
 - 末尾の一言は「直すなら、この指摘を対象にして update で直せます」にする。適用は必ず update を通す
   （audit は staging を持たず、指摘の文言を司令塔が本体へ書き写すと、誰の検証も通らない改稿になる）。
-  update を呼ぶときは、直す対象に選ばれた `findings.confirmed` / `findings.reported_minor` の要素を加工せずに
-  `seedFindings` へコピーし、この audit run の識別子を `source_run_id` に入れる（形と検査は
-  `references/schemas.md`「caller input: `seedFindings`」）。`intent` には「この指摘を直す」旨だけを書き、指摘の
+  update を呼ぶときは、ユーザーが直すと選んだ指摘を `seedFindings` にコピーする（コピー元・`source_run_id`・形は
+  `references/schemas.md`「caller input: `seedFindings`」が正本）。`intent` には「この指摘を直す」旨だけを書き、指摘の
   中身を書き写さない。seed を渡すと Find を走らせ直さないので、頼まれていない指摘まで確定して改稿が広がらない。
 - `verdict: review_incomplete` のときは、指摘の一覧ではなく次だけを伝える。「指摘なし」とは言わない。
 
@@ -190,8 +191,12 @@ staging に改稿を書きました（本体はまだ変えていません）。
 - 【実測で確かめる項目】の行は 0 件でも残す（値は `unchecked_failures` のうち `requires_measurement: true` のもの）。
   `applied_to_staging` でもこれが残っていれば、反映後に evals で実測するよう添える（手順は
   `references/orchestrator-output.md`「description 最適化ループ」）。
-- `seed` が `null` でないときは、冒頭に「先行 run（`seed.source_run_ids`）の指摘 `seed.count` 件を対象にし、
-  改稿前の探し直しはしていない」と 1 行添える（`by_category.before` が `null` なのはこのため）。
+- `seed` が `null` でないときは、冒頭に「先行 run（`seed.source_run_id`）の指摘 `seed.count` 件を反証にかけ、生き残った
+  `findings_before.confirmed` の件数を対象にした。Find での探し直しはしていない」と 1 行添える（`by_category.before` が
+  `null` なのはこのため）。反証で消えた seed（`findings_before.rejected`）と確かめきれなかった seed
+  （`findings_before.unverified`）も件数と中身を出す。
+- `target.intentScope` があるときは【改稿前に見た範囲】の行を置き、走らせた観点・外した観点（`"out_of_intent_scope"`）・
+  `files` を出す。`unscanned_intent_files` が空でなければ（`review_incomplete`）、どの観点も読めなかったファイルとして名指しする。
 - verdict ごとの言い回しは SKILL.md の verdict 表に従う。ここで条件を再解釈しない。
 
 ---
@@ -219,10 +224,9 @@ staging に改稿を書きました（本体はまだ変えていません）。
 ## 承認後の適用手順
 
 適用してよいのは verdict が `applied_to_staging` の staging だけ。`needs_human_decision` /
-`reverify_incomplete` / `update_failed` で人間が反映を望んだ場合も staging は適用せず、残った指摘を
-`seedFindings` に逐語でコピーした update を回し直す（再検証を通っていない、または通らなかった改稿を本体に入れないため）。
-残った指摘は戻り値の `staging.remaining` / `staging.new` などの要素（再検証が揃わなかった・改稿が落ちた出口では
-`findings_before.confirmed`）で、加工せずにコピーし、この run の識別子を `source_run_id` に入れる。
+`reverify_incomplete` / `update_failed` で人間が反映を望んだ場合も staging は適用せず、`seedFindings` を渡した update を
+回し直す（再検証を通っていない、または通らなかった改稿を本体に入れないため）。コピー元はこの run の
+`findings_before.confirmed` だけで、その理由と `source_run_id` は `references/schemas.md`「caller input: `seedFindings`」が正本。
 
 ### Codex runner の approved package 適用
 

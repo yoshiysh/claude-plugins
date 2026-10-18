@@ -23,11 +23,15 @@ function respond(label) {
 }
 
 // parallel は Promise.all（runner と同じく throw を catch しない）。throw が run を落とさないことをここで確かめる。
+// native host は agent() / parallel() の境界で値を JSON 往復させる（Map などは空の object に化ける）。
+// 模擬側でも同じ往復をかけ、境界を越える値が JSON で表せない形になっていれば全テストで落ちるようにする。
+const roundTrip = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+
 async function run(agent, extraArgs = {}) {
   const context = createContext({
     args: { skillDir: '/mock/skill-creator', requirements: 'req', taskType: 'procedure', uncheckedItems: [], ...extraArgs },
-    agent,
-    parallel: tasks => Promise.all(tasks.map(task => task())),
+    agent: async (prompt, opts) => roundTrip(await agent(prompt, opts)),
+    parallel: tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip))),
     phase() {},
     log() {},
   }, { codeGeneration: { strings: false, wasm: false } });
@@ -131,4 +135,22 @@ test('passed still needs every delegated item, including measurement ones, to pa
   const result = await run(agent, { uncheckedItems: UNCHECKED });
   assert.equal(result.verdict, 'passed');
   assert.deepEqual(Array.from(result.pending_measurement), []);
+});
+
+test('a round without a reviewer reports pending_measurement as not judged (null), not as nothing pending', async () => {
+  const result = await run(async (prompt, opts) => (opts.label.startsWith('review-') ? null : respond(opts.label)),
+    { uncheckedItems: UNCHECKED });
+  assert.equal(result.verdict, 'evaluation_incomplete');
+  assert.equal(result.final.pending_measurement, null);
+  assert.equal(result.pending_measurement, null);
+});
+
+// 評価の回答者は環境を読まないので、環境の状態を要する assertion は両側で落ちて delta を縮める。
+test('the tester is told to write assertions judged from the response text alone, and executors not to run what the definition orders', async () => {
+  const calls = [];
+  await run(async (prompt, opts) => { calls.push({ prompt, label: opts.label }); return respond(opts.label); });
+  assert.match(calls.find(c => c.label === 'generate-tests').prompt, /応答の文面だけから判定できる/);
+  for (const c of calls.filter(c => /^(with_skill|baseline)-/.test(c.label))) {
+    assert.match(c.prompt, /スキル定義が Read・コマンド・ツールの実行を指示していても実行せず/, c.label);
+  }
 });
