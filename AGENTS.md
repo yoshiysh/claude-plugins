@@ -171,7 +171,7 @@ python3 .agents/skills/manage-marketplace-plugin/scripts/verify_install.py --plu
 
 `make test` は `.codex/hooks.json` の PostToolUse hook（matcher `Edit|Write|MultiEdit`）からも呼ばれる。
 
-push する差分は push の前に、生成者とは別の fresh context で読み取り専用の検証役へ差分とテスト結果を渡し、`REVIEW.md`（レビューの観点・根拠の基準・重大度の正本）で見させる。Claude Code では `.claude/agents/diff-verifier.md` を使い、Codex でも同じ条件で検証役を立てる。
+PR を開いた後に足した差分は、マージ前に、生成者とは別の fresh context で読み取り専用の検証役へ差分とテスト結果を渡し、`REVIEW.md` を基準に見させる。Claude Code では `.claude/agents/diff-verifier.md` を使い、Codex でも同じ条件で検証役を立てる。
 
 ## インストール
 
