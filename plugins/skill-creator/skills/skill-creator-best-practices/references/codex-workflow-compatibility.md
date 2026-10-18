@@ -51,8 +51,8 @@ Codex runner に渡す review request は、`limits` と `modelMap` を args の
 
 ## create mapping
 
-- caller の前処理は Phase 1、成功後処理は Phase 5。
-- Phase 1 のペルソナ承認と Phase 5 の保存承認は caller が所有し、runner 内 gate に移さない。
+- caller の前処理は SKILL.md「要件整理とペルソナ設計（create）」、成功後処理は「統合・改善ループ・ユーザーへの提示（create）」。
+- 前処理のペルソナ承認と成功後処理の保存承認は caller が所有し、runner 内 gate に移さない。
 - create source内の固定model identityは分岐・上限・schema・返却式を決めないscheduling hintであり、sourceの
   machine-readable declarationに列挙されたcallsiteだけCodex翻訳時にdropできる。役割とresult contractを保存するが、
   provider/model差による品質同等性は保証しない。未列挙model callsiteが1つでもあれば`rejected_source`。
@@ -64,8 +64,8 @@ Codex runner に渡す review request は、`limits` と `modelMap` を args の
 `review` / `audit` の許可条件は `scripts/review-snapshot.mjs` の target snapshot receipt と
 `scripts/select_runtime.js` の proof validation が正本。snapshot validation failure は結果を無効にする。
 
-- caller の前処理は Phase 1、成功後処理は Phase 3。
-- Phase 1 の対象・範囲・意図確認と、update 時の Phase 3 適用承認は caller が所有し、runner 内 gate に移さない。
+- caller の前処理は SKILL.md「対象と範囲の確認（review/update）」、成功後処理は「結果の提示と適用（review/update）」。
+- 前処理の対象・範囲・意図確認と、update 時の成功後処理の適用承認は caller が所有し、runner 内 gate に移さない。
 - `review-snapshot.mjs` は target を canonicalize し、sorted regular-file inventory、file / byte caps、各 file の
   SHA-256 を持つ manifest と読み取り専用コピーを作る。symlink、special file、path escape、cap 超過を拒否する。
   `diff` では指定した two-endpoint commit range の diff bytes と target-relative changed paths も保存する。

@@ -37,7 +37,7 @@ description: 要件・構成案・検証レポートをもとにSKILL.mdの初�
 
 document タイプの場合、上記の構成案に従って執筆すること。
 「何を書くか」はすでに決まっているので「どう書くか」に集中する。
-構成案にないセクションを勝手に追加したり、指定されたコンポーネントを変更しないこと。
+構成案にないセクションを勝手に追加したり、構成案の位置・目的を変えたりしないこと。
 
 ---
 
@@ -111,14 +111,9 @@ description: >
 1b. **`scripts/<スキル名>.js`（`ARCHITECTURE` が `workflow` のときのみ）**
    `[SKILL_DIR]/references/skill-writing-guide.md` の「Workflow 型スキルの執筆」を Read し、その規則に従って**動作する workflow script 全文**を出力すること。骨組みだけ・`// TODO` で中身を省くのは不可。
 
-   最低限これらを満たさないとランタイムが起動前に落ちる、または resume が壊れる：
-   - `export const meta = { name, description, phases }` から始める。**meta は純粋なリテラル**（変数・関数呼び出し・スプレッド・テンプレート展開を含めない）
-   - `phase()` に渡すタイトルは `meta.phases[].title` と**完全一致**させる
-   - `import()` を書かない（含むと起動前に失敗する）
-   - `Date.now()` / `Math.random()` / 引数なし `new Date()` を書かない（throw する）
-   - `agent()` の結果は `null` になりうる。使う前に `.filter(Boolean)` する
-   - 人間の判断が要る地点は script の**内側に置かない**（実行中にユーザー入力を受け取れない）。境界で `status: "BLOCKED"` 等を返して止める
-   - 既定は `pipeline()`。`parallel()`（barrier）を使うなら、次のステージが前ステージの**全件を横断して見る必要がある**理由をコメントに書く
+   `export const meta = { name, description, phases }` から始める。同ガイドの「起動前に落ちる・resume が壊れる書き方（禁止）」表の
+   全行・「pipeline を既定にする」・「人間ゲートは境界に置く」に従う（ここに列挙しない。禁止表を外れるとランタイムが
+   起動前に落ちるか resume が壊れ、写しは正本の更新に追随しない）。
 
 2. **evals.json のドラフト**
    以下のフォーマットで3件のテストケースを生成すること。

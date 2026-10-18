@@ -12,11 +12,11 @@ export const MAX_ACTION_PACKAGE_BYTES = 8 * 1024 * 1024;
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const canonical = value => JSON.stringify(value);
 const isSafeMode = value => Number.isSafeInteger(value) && value >= 0 && value <= 0o777;
-const inside = (root, path) => {
+export const inside = (root, path) => {
   const rel = relative(root, path);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 };
-const safeRelativePath = value => typeof value === 'string' && value.length > 0 &&
+export const safeRelativePath = value => typeof value === 'string' && value.length > 0 &&
   !isAbsolute(value) && !value.includes('\\') &&
   value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 
@@ -63,7 +63,7 @@ function validateManifest(value, name) {
   return Object.freeze({ directories: Object.freeze(directories), files: Object.freeze(files), sha256: value.sha256 });
 }
 
-function changedPaths(before, after) {
+export function changedPaths(before, after) {
   const original = new Map(before.files.map(file => [file.path, file]));
   const staged = new Map(after.files.map(file => [file.path, file]));
   return [...new Set([...original.keys(), ...staged.keys()])].sort((a, b) => a.localeCompare(b)).flatMap(path => {
@@ -79,7 +79,7 @@ function changedPaths(before, after) {
   });
 }
 
-function changedDirectories(before, after) {
+export function changedDirectories(before, after) {
   const original = new Map(before.directories.map(directory => [directory.path, directory]));
   const staged = new Map(after.directories.map(directory => [directory.path, directory]));
   return [...new Set([...original.keys(), ...staged.keys()])].sort((a, b) => a.localeCompare(b)).flatMap(path => {
@@ -92,7 +92,7 @@ function changedDirectories(before, after) {
   });
 }
 
-async function snapshotTree(root) {
+export async function snapshotTree(root) {
   const files = [];
   const directories = [];
   let totalBytes = 0;
@@ -128,7 +128,7 @@ async function snapshotTree(root) {
     sha256: sha256(canonical({ directories: frozenDirectories, files: frozenFiles })) });
 }
 
-async function canonicalDirectory(path, name) {
+export async function canonicalDirectory(path, name) {
   if (typeof path !== 'string' || !isAbsolute(path)) throw Error(`${name} must be absolute`);
   const metadata = await lstat(path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw Error(`${name} must be a real directory`);
