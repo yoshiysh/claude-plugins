@@ -256,23 +256,31 @@ def validate_workflow_script(js_path: Path, label: str | None = None) -> list:
 # **この一覧がこの委譲の唯一の正本**。workflow script はファイルを開けないので、
 # 司令塔が `--emit-unchecked` の出力をそのまま args へ渡し、script がそれを
 # prompt へ verbatim 注入して集合比較する。js 側に id を書き写さない（写すとズレる）。
+#
+# requires_measurement は「満たしたかを evals の実測でしか確かめられない」項目の属性（真偽値）。
+# true の項目は文書の改稿では満たせないので、workflow はその未達を改稿ループの継続・起動の条件に
+# 数えず、実測待ちとして返す（数えると直せないものを理由に改稿が空回りする）。
 UNCHECKED_ITEMS = [
     {
         "id": "verifier-path",
         "item": "生成物を、それを生成した agent 以外が検証する経路があるか"
         "（状態変更・下流で行動の根拠になる出力を持つスキルに適用。agents/ の有無では判定しない）",
+        "requires_measurement": False,
     },
     {
         "id": "verifier-before-mutation",
         "item": "その検証が状態変更の前に置かれているか",
+        "requires_measurement": False,
     },
     {
         "id": "description-triggers",
         "item": "description が実際に狙ったリクエストで発火するか（evals での実測が必要）",
+        "requires_measurement": True,
     },
     {
         "id": "reference-consistency",
         "item": "参照ファイルの内容が SKILL.md の記述と整合しているか",
+        "requires_measurement": False,
     },
 ]
 

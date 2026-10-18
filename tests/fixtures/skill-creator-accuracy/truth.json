@@ -1,0 +1,270 @@
+{
+  "purpose": "review_skill.js の review / audit 結果を score.mjs で採点し、改修前後の検出率と誤検出率を比べるための事前登録の正解表。target/ は意図的に欠陥を仕込んだ架空スキル。",
+  "skill": "summarizing-meeting-notes",
+  "defects": [
+    {
+      "id": "WD1",
+      "category": "why-driven",
+      "file": "SKILL.md",
+      "lines": [
+        59,
+        59
+      ],
+      "description": "複数ファイルをファイル名昇順で連結して 1 記録とする命令に理由が無く、別会議の記録が混ざる場合などに実行者が例外を判断できない。"
+    },
+    {
+      "id": "WD2",
+      "category": "why-driven",
+      "file": "references/speaker-rules.md",
+      "lines": [
+        18,
+        18
+      ],
+      "description": "発言者が特定できない発言を要約から除外する命令に理由が無く、話者不明の決定事項まで黙って落ちる。"
+    },
+    {
+      "id": "SP1",
+      "category": "script-vs-prose",
+      "file": "SKILL.md",
+      "lines": [
+        92,
+        93
+      ],
+      "description": "議題ごとの発言数を数えて全体の 15% 未満を「その他」へ統合する集計・閾値判定を散文で指示しており、目分量の数え違いで議題（と決定事項）が埋もれる。"
+    },
+    {
+      "id": "SP2",
+      "category": "script-vs-prose",
+      "file": "references/output-format.md",
+      "lines": [
+        72,
+        74
+      ],
+      "description": "期限と開催日の日数差を数え 30 日超が 3 件以上なら注記する日付演算と件数判定を散文で指示している。"
+    },
+    {
+      "id": "DC1",
+      "category": "duplicate-claims",
+      "file": "SKILL.md",
+      "lines": [
+        118,
+        119
+      ],
+      "also": [
+        {
+          "file": "references/output-format.md",
+          "lines": [
+            44,
+            45
+          ]
+        }
+      ],
+      "description": "要約本文の上限 800 字が SKILL.md と output-format.md の両方に値として書かれ、参照になっていない。"
+    },
+    {
+      "id": "DC2",
+      "category": "duplicate-claims",
+      "file": "SKILL.md",
+      "lines": [
+        101,
+        104
+      ],
+      "also": [
+        {
+          "file": "references/speaker-rules.md",
+          "lines": [
+            34,
+            37
+          ]
+        }
+      ],
+      "description": "伏せ字の対象 4 項目の一覧が SKILL.md と speaker-rules.md に複製されている。"
+    },
+    {
+      "id": "LH1",
+      "category": "loopholes",
+      "file": "references/speaker-rules.md",
+      "lines": [
+        8,
+        11
+      ],
+      "description": "発言者ラベルの形式が 2 種しか定義されず、ラベル無し・タイムスタンプ付き（行頭の 00:12:03 を最初のコロンで切ると発言者を誤読する）などの記録に経路が無い。"
+    },
+    {
+      "id": "LH2",
+      "category": "loopholes",
+      "file": "SKILL.md",
+      "lines": [
+        111,
+        111
+      ],
+      "description": "要約言語の分岐が日本語と英語だけで、両言語が混在する会議や他言語の記録の扱いが実行者の裁量に落ちる。"
+    },
+    {
+      "id": "DA1",
+      "category": "description-alignment",
+      "file": "SKILL.md",
+      "lines": [
+        30,
+        30
+      ],
+      "also": [
+        {
+          "file": "SKILL.md",
+          "lines": [
+            4,
+            4
+          ]
+        },
+        {
+          "file": "SKILL.md",
+          "lines": [
+            51,
+            52
+          ]
+        }
+      ],
+      "description": "description は録音ファイル（.mp3 / .m4a）を入力に含めるが、本文の入力定義と手順 1 はテキストと Markdown しか扱わず、録音の経路が無い。"
+    },
+    {
+      "id": "DA2",
+      "category": "description-alignment",
+      "file": "SKILL.md",
+      "lines": [
+        140,
+        142
+      ],
+      "also": [
+        {
+          "file": "SKILL.md",
+          "lines": [
+            11,
+            11
+          ]
+        }
+      ],
+      "description": "description は 1on1・面談の記録を対象外とするが、本文の「面談記録の扱い」は面談記録を要約する手順を持ち、除外条件が食い違う。"
+    },
+    {
+      "id": "BP1",
+      "category": "best-practices",
+      "file": "references/output-format.md",
+      "lines": [
+        65,
+        65
+      ],
+      "description": "宿題の書式の実体が SKILL.md から直接参照されない action-item-template.md にあり、SKILL.md → output-format.md → action-item-template.md の 2 段の参照になっている（参照は 1 レベルまで）。"
+    },
+    {
+      "id": "BP2",
+      "category": "best-practices",
+      "file": "SKILL.md",
+      "lines": [
+        159,
+        160
+      ],
+      "description": "「2026 年 4 月以降は宿題をアクションと表記する」という時間依存の規則を本文に置いており、出力形式の区分名とも食い違う。",
+      "also": [
+        {
+          "file": "references/output-format.md",
+          "lines": [
+            13,
+            13
+          ]
+        },
+        {
+          "file": "references/output-format.md",
+          "lines": [
+            32,
+            36
+          ]
+        }
+      ]
+    },
+    {
+      "id": "PA1",
+      "category": "prompt-audit",
+      "file": "SKILL.md",
+      "lines": [
+        126,
+        128
+      ],
+      "also": [
+        {
+          "file": "references/action-item-template.md",
+          "lines": [
+            22,
+            23
+          ]
+        }
+      ],
+      "description": "担当者不明のアクションアイテムを SKILL.md は「未定」で出力せよと言い、action-item-template.md は出力するなと言う。解決規則の無い矛盾した指示。"
+    },
+    {
+      "id": "PA2",
+      "category": "prompt-audit",
+      "file": "SKILL.md",
+      "lines": [
+        66,
+        67
+      ],
+      "description": "存在しない scripts/normalize_speakers.py の実行を手順として要求しており、到達できない手順になっている。"
+    }
+  ],
+  "decoys": [
+    {
+      "id": "DY1",
+      "file": "references/output-format.md",
+      "lines": [
+        52,
+        56
+      ],
+      "why_legit": "引用を言い換えない命令の理由（合意の範囲の根拠になる）が直後の段落に書かれている。"
+    },
+    {
+      "id": "DY2",
+      "file": "SKILL.md",
+      "lines": [
+        75,
+        75
+      ],
+      "why_legit": "区分の名前と定義を書き写さず、output-format.md「区分」を正として参照しているだけ。"
+    },
+    {
+      "id": "DY3",
+      "file": "SKILL.md",
+      "lines": [
+        149,
+        152
+      ],
+      "why_legit": "伏せ字と引用の原文保持がぶつかる場合の優先順位が、理由とともに明記されている。"
+    },
+    {
+      "id": "DY4",
+      "file": "SKILL.md",
+      "lines": [
+        82,
+        85
+      ],
+      "why_legit": "決定かどうかの判定は文脈依存の意味判断で、機械的な判定に置き換えない理由が本文に書かれており、script に落とす対象ではない。"
+    },
+    {
+      "id": "DY5",
+      "file": "SKILL.md",
+      "lines": [
+        41,
+        44
+      ],
+      "why_legit": "短いメモも対象にすることと description の「会議中のリアルタイムな記録取り」除外は矛盾せず、両者の違いが本文で説明されている。"
+    },
+    {
+      "id": "DY6",
+      "file": "references/output-format.md",
+      "lines": [
+        81,
+        87
+      ],
+      "why_legit": "日付は出力例のサンプル値で、時期によって手順が変わる時間依存の規則ではない。"
+    }
+  ]
+}

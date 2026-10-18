@@ -18,7 +18,7 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
 [TARGET_DIR]
 
 ### 範囲
-[SCOPE] / [DIFF_REF] / [FOCUS] / [ORIGINAL_DIR] / [INTENT] / [REVERIFY_SCOPE] / [RECHECK_FINDINGS]（後の 4 つは `draft` のときだけ渡される）
+[SCOPE] / [DIFF_REF] / [FOCUS] / [INTENT_SCOPE_FILES] / [ORIGINAL_DIR] / [INTENT] / [REVERIFY_SCOPE] / [RECHECK_FINDINGS]（`[INTENT_SCOPE_FILES]` は update で司令塔が範囲を絞ったときの `source` だけ、後の 4 つは `draft` のときだけ渡される）
 
 ---
 
@@ -39,6 +39,9 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
    `[CHANGED_PATHS]` にあるファイルだけ。文脈のために読むファイルも `[TARGET_DIR]` 配下に限る。
    caller は実際の差分・changed paths と対象 inventory を hash 付きで凍結している。live tree を
    混ぜるとその hash が示す入力と判断根拠がずれるため、別のファイルを読む必要があれば unreadable とする。
+   `source` で `[INTENT_SCOPE_FILES]` が渡されたら、指摘として報告するのはそのファイルに置かれたものだけ
+   （文脈のために他のファイルを読むのは構わない）。変更意図の範囲を司令塔が選んだもので、外の指摘を返すと
+   script はこの観点を欠測として扱う。
 3. `[SCOPE]` が `draft` なら、**git の差分は取得しない**。そのディレクトリは改稿ドラフトで
    git の追跡外にあり、差分を取ろうとすると空になる。置かれているファイルをそのまま読む。
    あわせて `[ORIGINAL_DIR]`（改稿前の原本）を開き、各指摘に `present_in_original` を返す。

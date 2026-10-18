@@ -8,7 +8,9 @@ skill-creator-best-practices 内の各エージェントが入出力するデー
 - [Structure：構成設計の出力](#structure構成設計の出力)
 - [Write：執筆の出力](#write執筆の出力)
 - [Test/Grade：テスト・検証の出力](#testgradeテスト検証の出力)
+- [build_skill.js の戻り値](#build_skilljs-の戻り値)
 - [eval framework](#eval-framework優先度c)
+- [review/update/audit の入出力](#reviewupdateaudit-の入出力)
 
 ---
 
@@ -226,6 +228,42 @@ partial の重み（`PARTIAL_WEIGHT`）と側間の差の定義は script の 1 
 同じことが `STRUCTURE_REVIEW_SCHEMA` の `checks[].result` にも当てはまる（`fail` は
 script が直接失格へ回し、`failed[]` への転記に依存しない）。
 
+`unchecked_judgments` のうち `requires_measurement: true` の項目（「委譲項目（[UNCHECKED_ITEMS]）の受け渡し」）は
+失格に数えず、満たしたと判定されなかったもの（未判定を含む）を `pending_measurement` に分ける。
+
+---
+
+## build_skill.js の戻り値
+
+create の workflow（plugin の `workflows/build_skill.js`）が返す値。
+
+```
+{
+  task_type, architecture, workflow_script, script_review,
+  criteria, structure: { plan, attempts, unresolved, review },
+  skill_draft, test_cases, iterations[], final, revisions_used, pending_measurement, verdict
+}
+```
+
+| フィールド | 意味 |
+|---|---|
+| `iterations[].review_failures` | reviewer の失格（`criteria_checks` の `fail`・`trigger_checks` の `expectation_met: false`・改稿で満たせる委譲項目の未達と未判定・`failed[]`）を script が合算したもの。改稿の writer にはこれだけを渡す |
+| `iterations[].pending_measurement` | `requires_measurement: true` の委譲項目のうち、reviewer が満たしたと判定しなかった（`UNCHECKED_BLOCKING` の verdict か未判定）ものの id。改稿では変わらないので失格にも改稿の起動条件にも数えない。reviewer が応答しなかった回は `[]` |
+| `pending_measurement` | 最後の `iterations[]` の `pending_measurement`（評価が 1 回も走らなかったときは `[]`） |
+
+`verdict` は次の値を取る（`script_rejected` / `script_review_incomplete` は `architecture: "workflow"` のときだけ出る）。
+判定の順は script が持つ。
+
+| verdict | 意味 |
+|---|---|
+| `passed` | 全テストケースが採点され、reviewer も応答し、delta が `DELTA_THRESHOLD` 以上（workflow は delta を見ない）、失格 0 件、かつ `pending_measurement` が空 |
+| `pending_measurement` | `passed` の条件のうち `pending_measurement` が空でないことだけが欠けている。改稿で直せるものは満たしたが、残りは evals の実測でしか確かめられないので改稿を起動していない。合格ではない |
+| `needs_human_decision` | 評価は揃ったが、改稿上限に達しても閾値に届かなかった（品質の問題） |
+| `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係）。workflow では reviewer 欠測のみが該当 |
+| `revision_failed` | 改稿 agent が応答しなかった |
+| `script_rejected` | **workflow のみ**。評価は通ったが script-reviewer が失格項目を挙げた |
+| `script_review_incomplete` | **workflow のみ**。script-reviewer が応答せず、script を検証できなかった |
+
 ---
 
 ## eval framework（優先度C）
@@ -397,6 +435,50 @@ review/update/audit の workflow（plugin の `workflows/review_skill.js`）が 
 `full` では diff 関連フィールドは `null` で、`changedPaths` は空配列。selector の Codex route が返す `runner_limits` は
 dynamic-workflow-runner request の top-level `limits` へ渡し、`args` には入れない。
 
+### caller input: `seedFindings`（update のみ・任意）
+
+先行する review / audit run が出した指摘を、改稿の対象としてそのまま渡す欄。渡すと Find と Verify を走らせず、
+この指摘を updater の `[CONFIRMED_FINDINGS]` と Reverify の突き合わせの基準（`resolved` / `remaining` を決める
+最初の確定指摘）にする。既に反証を通った（または audit が出した）指摘を、同じ対象でもう一度全観点から探し直すと、
+頼まれていない指摘まで確定して改稿が広がるため。
+
+```json
+[
+  { "source_run_id": "<先行 run の識別子>",
+    "findings": [ <先行 run の戻り値の findings.confirmed / findings.reported_minor / staging.remaining などの指摘の要素をそのまま> ] }
+]
+```
+
+- 司令塔は先行 run の戻り値から要素を**加工せずにコピーする**（内容を書き換えない）。`votes` などの余分な欄は
+  script が読まずに捨てる。script が読むのは `id`・`category`・`file`・`location`・`claim`・`evidence`・
+  `severity`・`suggested_fix` で、`location` 以外は空でない文字列、`location` は文字列でなければならない。
+- 起動直後に落とす条件: mode が `update` でない、`source_run_id` が無い、`category` が `FINDERS` の id でない、
+  `severity` が `blocker` / `major` / `minor` でない、`file` が相対パスでない（`/` で始まる・`..` を含む）、
+  diff scope で `file` が changed paths に無い、`id` が全体で重複する、観点・ファイル・主張が同じ指摘が重複する、
+  1 観点あたり `MAX_FINDINGS_PER_FINDER` 件を超える（Reverify の finder がその件数しか再報告できず、溢れた指摘が
+  再確認されないまま解消に数えられるため）、`requires_measurement` を持つ要素（`unchecked_failures` の要素。
+  委譲項目は Reverify で毎回判定し直し、指摘としては再報告されないので、seed にすると読んだだけで解消に数えられる）が
+  ある、`target.intentScope` と同時に渡された。
+- 戻り値の `seed` に出所が載り、`by_category.before`・`skipped_unavailable.before`・`declared_only.before` は
+  `null`（Find を走らせていない）。委譲項目は Reverify で初めて判定される。
+
+### caller input: `target.intentScope`（update のみ・任意）
+
+`seedFindings` を渡さず自由文の `intent` だけで回すときに、Find を変更意図の範囲に絞る欄。司令塔が閉集合から選ぶ。
+
+```json
+{ "categories": ["why-driven", "loopholes"], "files": ["SKILL.md"] }
+```
+
+| フィールド | 意味 |
+|---|---|
+| `categories` | 任意。Find で走らせる観点（`FINDERS` の id の重複のない空でない部分集合）。省略すると全観点 |
+| `files` | 任意。Find が指摘を報告してよいファイル（対象スキルからの相対パスの空でない配列。diff scope では changed paths の部分集合）。範囲外の指摘を返した観点は欠測になる（diff scope の changed paths と同じ扱い）。updater にも同じ一覧が渡り、その外は変えない |
+
+少なくとも一方が要る。未指定なら従来どおり全観点・全体。Reverify は改稿後の回帰の守りなので、この欄に関わらず
+変更されたファイルに全観点をかける（報告範囲は「review_skill.js の戻り値」の `reverify_scope`）。走らせなかった
+観点は `by_category.before` のキーに現れない。
+
 ### finder の出力（FINDINGS_SCHEMA）
 
 ```json
@@ -449,14 +531,27 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
   根拠の `evidence` を返す。対象から判断できないなら `unknown` にし、`pass` に丸めない。
 - 合格にならない verdict の集合は script の `UNCHECKED_BLOCKING` が正本。`fail` を避けて中間の値を
   選んでも合格にはならない。
+- 各項目は真偽値の `requires_measurement` を持つ（正本は同じ `UNCHECKED_ITEMS`）。`true` は「満たしたかを evals の
+  実測でしか確かめられず、文書の改稿では満たせない」項目。workflow はこの値を args から読むだけで、項目 id を
+  自分では持たない。欠けている・真偽値でない要素があれば起動直後に落ちる。`true` の項目の未達と未判定は、
+  create では失格に数えず `pending_measurement` に、review / update では `unchecked_failures` に
+  `requires_measurement: true` を付けて残す（update の未解消には数えない）。どちらも「満たした」扱いにはしない。
 - 返ってこなかった id は script が集合の差で拾い、未判定として失格／未解消に変換する。
   id で渡すのは、委譲を散文で宣言するだけだと、受け取った側が落としても出力に現れず誰にも分からないため。
 
 ### refuter の出力（REFUTE_SCHEMA）
 
 ```json
-{ "verdict": "refuted", "reason": "SKILL.md L52 に該当の記述があり、指摘の引用と一致しない" }
+{ "verdicts": [
+  { "id": "p1-why-driven-1", "verdict": "refuted", "reason": "SKILL.md L52 に該当の記述があり、指摘の引用と一致しない" },
+  { "id": "p1-loopholes-2", "verdict": "not_refuted", "reason": "L80-L84 を読んだが分岐の優先順位は書かれていない" }
+] }
 ```
+
+refuter 1 体は同じファイルにある指摘の束（最大 `MAX_FINDINGS_PER_REFUTER` 件。超えた分は別の束）を観点 1 つで判定し、
+指摘 `id` ごとの票を返す。script は `id` で照合し、返答に無い `id`・2 回以上返った `id`・agent の失敗はその指摘の
+欠測（有効票に数えない）にする。`not_refuted` に寄せると、判定されていない指摘が確定側の票を得るため。
+束に無い `id` の票は捨てる。多数決・早期決着は束ではなく指摘ごとに下す。
 
 `verdict` は `refuted` / `not_refuted` / `unreadable` の三値。boolean にすると
 「読めなかった」を `false`（反証できなかった）に押し込むことになり、検証していない票が
@@ -464,9 +559,9 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 `MIN_VALID_VOTES` に届かなければその指摘は `unverified` になる。
 
 反証は 2 段で起動する。`PERSPECTIVES` の先頭から過半数ぶん（script の `REFUTE_MAJORITY`）を先に
-立て、全員が有効票で同じ verdict を返したら残りの観点は起動しない（残りがどう投じても多数決の
-結論は変わらない）。1 票でも欠測・`unreadable`・不一致があれば残りを立て、全票で従来どおり
-多数決する。先行する観点は並びで固定なので、同じ票なら到着順に関係なく同じ結論になる。
+立て、ある指摘に全員が有効票で同じ verdict を返したら、その指摘には残りの観点を起動しない（残りがどう投じても
+多数決の結論は変わらない）。1 票でも欠測・`unreadable`・不一致があった指摘だけを束ね直して残りの観点に回し、
+全票で多数決する。先行する観点は並びで固定なので、同じ票なら到着順に関係なく同じ結論になる。
 起動しなかった観点は各指摘の `skipped_perspectives` に残り、起動した観点の票は `votes[]` に
 `{ perspective, verdict, reason }` として残る。反証に回すのは severity が
 `REVISE_SEVERITIES` の指摘だけで、それ以外は戻り値の `reported_minor` に入る。
@@ -496,8 +591,9 @@ schema は全観点で 1 つにしてある（理由は `skill-writing-guide.md`
 複製されるが、この一覧は承認後に本体へコピーする対象そのものなので、無変更のファイルを
 載せると承認されていない上書きが起きる。`findings_addressed` を必須にしているのは、
 指摘にも意図にも紐づかない改稿を後段の突き合わせで説明できないため（意図由来なら
-`"intent"` と書く）。`out_of_scope_changes` は staging では行えない変更（スキル内の削除・改名・移動と、対象スキルの外の
-変更。`kind` の値は `workflows/review_skill.js` の `UPDATE_SCHEMA` の enum が正本）で、`summary` と違い
+`"intent"` と書く）。`out_of_scope_changes` は staging では行わなかった変更（スキル内の削除・改名・移動、対象スキルの外の
+変更、渡された指摘と `intent` の範囲の外で必要だと updater が判断した変更。`kind` の値は `workflows/review_skill.js` の
+`UPDATE_SCHEMA` の enum が正本）で、`summary` と違い
 script が戻り値の `staging` に、巡をまたいで累積して載せる（同じ `kind`・`path` は 1 件にまとめる）。
 
 ### review_skill.js の戻り値
@@ -505,7 +601,8 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 ```json
 {
   "mode": "update",
-  "target": { "skillPath": "/abs/path", "scope": "full", "diffRef": null, "focus": null },
+  "target": { "skillPath": "/abs/path", "scope": "full", "diffRef": null, "focus": null, "intentScope": null },
+  "seed": null,
   "source_snapshot": { "target_root": "/abs/path", "snapshot_dir": "/tmp/codex-skill-review-x/tree", "receipt_path": "/tmp/codex-skill-review-x/receipt.json", "manifest_sha256": "<sha256>", "scope": "full", "diff_ref": null, "validation": "required_after_workflow_before_result_is_trusted" },
   "verdict": "applied_to_staging",
   "stop_reason": "resolved",
@@ -546,6 +643,8 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 
 | フィールド | 意味 |
 |---|---|
+| `seed` | `seedFindings` で Find / Verify を省いた run なら `{ source_run_ids, count }`、それ以外は `null`。`seed` のとき `findings_before.confirmed` は渡された指摘そのもの（この run では反証していない） |
+| `target.intentScope` | 受け取った `target.intentScope`（無ければ `null`） |
 | `findings.confirmed` / `findings.rejected` / `findings.unverified` | 反証を生き残った指摘 / 過半数の反証で棄却された指摘 / 有効票が足りず確定にも棄却にもできなかった指摘（票の欠けた観点は各指摘の `missing_perspectives`） |
 | `staging` | update で改稿を書いた後の結果一式。review / audit と、最初の Update より前に止まった update では `null` |
 | `staging.dir` | 改稿の書き出し先。対象スキルの**全ファイルのミラー**（変更しなかったファイルも入る） |
@@ -564,13 +663,14 @@ script が戻り値の `staging` に、巡をまたいで累積して載せる�
 | `unverified_absent` | 改稿前（Verify）に未検証だった指摘のうち、再検証で同じ観点の担当がそのファイルを報告範囲内で読み、再報告しなかったもの。確定したことが無いので消えても不自然ではなく、`resolved` とは呼ばずに提示だけする（未解消にも blocker 判定にも入れない） |
 | `unverified_unobserved` | 改稿前に未検証だった指摘のうち、再検証でそのファイルが同じ観点の担当に読まれなかった（または報告範囲外の）もの。blocker は `unobserved` と同じく `unverified_blocker` で止まる |
 | `findings_source` | `findings` が最後に完了した検査パスのどちらか（`before` = 改稿前 / `after` = 再検証後）。review / audit では検査が 1 回なので常に `before` |
-| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならず、update では未解消として改稿ループへ戻る。audit では委譲項目を判定する観点を走らせないので `null`（`[]` は「全部満たした」と読まれる） |
+| `unchecked_failures` | 委譲項目（`[UNCHECKED_ITEMS]`）の未達と未判定。反証を通していないので `findings.confirmed` には混ぜない（混ぜると「反証を生き残った指摘」という意味が薄まる）。1 件でもあれば `clean` にならない。各要素は `requires_measurement` を持ち、`false` のものは update で未解消として改稿ループへ戻る。`true` のものは evals の実測で確かめる項目で、改稿では満たせないため未解消（ループの継続・`dried`・`stalled` の判定）に数えず、ここに残すだけ。audit では委譲項目を判定する観点を走らせないので `null`（`[]` は「全部満たした」と読まれる）。update で委譲項目を判定する観点が一度も走らずに止まった（`seed` か `target.intentScope` で外したうえで最初の Reverify より前に止まった）ときも `null` |
 | `verdict`（review / audit） | `clean`（確定・未検証・`reported_minor`・委譲項目の未達・実施できなかった観点のどれも無い）/ `clean_except_unavailable`（指摘は無いが `skipped_unavailable.before` の観点は見ていない）/ `findings` / `review_incomplete`（観点が欠測。prompt-audit は同梱 criteria を実施できなければここに入る） |
 | `skipped_unavailable` | `{ before, after }`。必要な skill / criteria / capability が実行環境に無く実施できなかった観点の id。欠測（`by_category` の `null`・`review_incomplete`・`reverify_missing`）とは別枠で、Reverify の再試行も起こさない。`after` は Reverify が走らなければ `null` |
 | `declared_only` | `{ before, after }`。prompt-audit が挙げたが `PROMPT_AUDIT_SEVERITY` の外のため指摘にしなかった項目（`{ file, location, claim, audit_confidence, audit_action }`）。反証も改稿もしない。`after` は Reverify が走らなければ `null` |
 | `skipped_unavailable` の入力側 | `args.promptAuditExpected`（必須の真偽値）。同梱 criteria を使う通常経路では `true`。`true` のとき prompt-audit の `unavailable` は欠測になり、no-findings と混ざらない |
 | `by_category.<pass>.<観点> === "unavailable"` | その観点に必要な skill / criteria / capability が無く実施できなかった（`skipped_unavailable` と同じ事実）。`null`（応答しなかった）とも `0`（見て何も無かった）とも違う |
 | `by_category.after === null` | 再検証のパス自体が走らなかった（review / audit、または改稿前に止まった） |
+| `by_category.before === null` / `skipped_unavailable.before === null` / `declared_only.before === null` | `seedFindings` を渡したため Find が走らなかった |
 | `by_category.<pass>.<観点> === null` | そのパスは走ったが、その観点の担当が応答しなかった（欠測） |
 | `by_category.after.<観点> === 0` | 報告範囲（`staging.reverify_scope.report_files`）の中で確定指摘が無かった。範囲の外は再走査していないので、スキル全体で問題が無いという意味ではない |
 | `reverify_missing` | Reverify の欠測観点。最初の試行で欠測があれば全観点を一度だけ再試行し、その後も欠測が残れば `reverify_incomplete` として保持する |

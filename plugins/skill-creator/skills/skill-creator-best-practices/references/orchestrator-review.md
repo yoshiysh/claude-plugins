@@ -75,6 +75,9 @@ SKILL.md の「結果の提示と適用（review/update）」と、create の保
 - `confirmed` は `severity` 順（`blocker` → `major`）に並べる。`reported_minor` は確定ではないので
   【直した方がよいもの】に混ぜない。混ぜると「反論を生き残った」と読まれる。
 - `unverified` か `reported_minor` が 1 件でもあれば、`confirmed` が 0 件でも「問題なし」とは言わない。
+- `unchecked_failures` のうち `requires_measurement: true` のものは【実測で確かめる項目】として別の行に出し、
+  「文書を直しても判定は変わらず、evals での実測が要る」と添える（実測の手順は `references/orchestrator-output.md`
+  「description 最適化ループ」）。直すべき指摘の一覧に混ぜると、update で直せるものと読まれる。
 - `unverified` の各指摘には、`missing_perspectives` に記録された票の欠けた観点も添える。
   指摘ごとに反証が揃わなかった理由が分からないと、確認済みの範囲と未検証の範囲を見分けられない。
 - 最後に「このまま直すこともできます（update）」と一言添える。review だけを頼まれた
@@ -101,10 +104,12 @@ review の提示フォーマットをそのまま使う（観点は 1 つなの�
 - 【監査が挙げたが指摘にしなかったもの】として `declared_only.before` を件数と中身（file:location — claim、
   確信度、Action）で出す。0 件でも行を残す。ここを出さないと「監査が見て何も言わなかった」と区別できない。
 
-- 末尾の一言は「直すなら、この指摘を変更意図にして update で直せます」にする。適用は必ず update を通す
+- 末尾の一言は「直すなら、この指摘を対象にして update で直せます」にする。適用は必ず update を通す
   （audit は staging を持たず、指摘の文言を司令塔が本体へ書き写すと、誰の検証も通らない改稿になる）。
-  update を呼ぶときは、提示した `findings.confirmed` と `findings.reported_minor` の file / location / claim /
-  suggested_fix を `intent` にそのまま並べる。
+  update を呼ぶときは、直す対象に選ばれた `findings.confirmed` / `findings.reported_minor` の要素を加工せずに
+  `seedFindings` へコピーし、この audit run の識別子を `source_run_id` に入れる（形と検査は
+  `references/schemas.md`「caller input: `seedFindings`」）。`intent` には「この指摘を直す」旨だけを書き、指摘の
+  中身を書き写さない。seed を渡すと Find を走らせ直さないので、頼まれていない指摘まで確定して改稿が広がらない。
 - `verdict: review_incomplete` のときは、指摘の一覧ではなく次だけを伝える。「指摘なし」とは言わない。
 
 ```
@@ -124,7 +129,7 @@ staging に改稿を書きました（本体はまだ変えていません）。
 【変更したファイル】
 - SKILL.md — モード判定セクションを追加（指摘 2 件を解消）
 - agents/finder.md — 新規（意図: Issue #31 の観点分離）
-【この反映では行われない変更】0件（削除・改名・移動と、スキル外のファイルの変更。承認しても適用されません）
+【この反映では行われない変更】0件（削除・改名・移動、スキル外のファイルの変更、意図の外で必要とされた変更。承認しても適用されません）
 
 【解消できた指摘】3件
 【まだ残っている指摘】1件
@@ -145,6 +150,7 @@ staging に改稿を書きました（本体はまだ変えていません）。
 　範囲外で報告されたため確かめていない指摘: 0件
 【改稿前から同じ文言で存在していた指摘】0件（改稿前の検査が見落としたもの。改稿が持ち込んだものではありません）
 【この環境で実施できなかった観点】改稿前: なし / 再検証: なし
+【実測で確かめる項目】0件（改稿では判定が変わらないため、改稿ループの理由にしていません）
 
 【この時点の中身の指紋】a1b2c3d4e5f6
 　※ 反映の直前にもう一度この指紋を取ります。変わっていたら、誰かがこの外で書き換えたという
@@ -181,6 +187,11 @@ staging に改稿を書きました（本体はまだ変えていません）。
   `reverify_receipt.skipped_unavailable` と同じ）。空でなければ冒頭にも review と同じ ※ の 1 行を置き、
   その観点では改稿前も改稿後も見ていないと伝える。receipt の完了はその観点を除いた残りで判定されているので、
   伝えないと「全観点で再検証を通った」と読まれる。
+- 【実測で確かめる項目】の行は 0 件でも残す（値は `unchecked_failures` のうち `requires_measurement: true` のもの）。
+  `applied_to_staging` でもこれが残っていれば、反映後に evals で実測するよう添える（手順は
+  `references/orchestrator-output.md`「description 最適化ループ」）。
+- `seed` が `null` でないときは、冒頭に「先行 run（`seed.source_run_ids`）の指摘 `seed.count` 件を対象にし、
+  改稿前の探し直しはしていない」と 1 行添える（`by_category.before` が `null` なのはこのため）。
 - verdict ごとの言い回しは SKILL.md の verdict 表に従う。ここで条件を再解釈しない。
 
 ---
@@ -209,7 +220,9 @@ staging に改稿を書きました（本体はまだ変えていません）。
 
 適用してよいのは verdict が `applied_to_staging` の staging だけ。`needs_human_decision` /
 `reverify_incomplete` / `update_failed` で人間が反映を望んだ場合も staging は適用せず、残った指摘を
-新しい `intent` にした update を回し直す（再検証を通っていない、または通らなかった改稿を本体に入れないため）。
+`seedFindings` に逐語でコピーした update を回し直す（再検証を通っていない、または通らなかった改稿を本体に入れないため）。
+残った指摘は戻り値の `staging.remaining` / `staging.new` などの要素（再検証が揃わなかった・改稿が落ちた出口では
+`findings_before.confirmed`）で、加工せずにコピーし、この run の識別子を `source_run_id` に入れる。
 
 ### Codex runner の approved package 適用
 

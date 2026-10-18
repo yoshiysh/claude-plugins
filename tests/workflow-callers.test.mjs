@@ -5,6 +5,7 @@ import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
+import { compileSource, readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
@@ -250,6 +251,45 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
     assert.equal(new Set(used).size, used.length, `${sourcePath}: one model hint is reused by multiple source callsites`)
     assert.deepEqual(new Set(used), new Set(declared), `${sourcePath}: declared and used model callsites differ`)
   }
+})
+
+// 対象は skill-creator の workflow だけ。他 plugin の source にも同じ欠陥が残っており、別作業で直すため。
+const skillCreatorWorkflowsDir = join(pluginsRoot, 'skill-creator', 'workflows')
+const skillCreatorWorkflows = () => readdirSync(skillCreatorWorkflowsDir)
+  .filter((name) => name.endsWith('.js'))
+  .map((name) => join(skillCreatorWorkflowsDir, name))
+
+// native host は `export const meta` を本体のスコープに残さない。本体が meta を読むと agent を 1 体も起動せずに
+// ReferenceError で落ちるが、meta を context に注入する単体テストではその失敗が見えない。
+test('skill-creator workflow bodies never read meta, which native hosts do not bind', () => {
+  const sources = skillCreatorWorkflows()
+  assert.ok(sources.some((path) => path.endsWith('build_skill.js')))
+  for (const sourcePath of sources) {
+    const { body } = compileSource(readFileSync(sourcePath, 'utf8'), ['read-only', 'fresh-thread', 'workspace-write', 'worktree'])
+    const code = body.replace(/^\s*\/\/.*$/gm, '')
+    assert.doesNotMatch(code, /(?<![.\w$])meta\s*[.[]/, `${sourcePath}: body reads meta`)
+  }
+})
+
+// 本体の定数は meta の写し。meta はリテラルでなければならず本体を参照できないので、写しの一致はここでしか保てない。
+function bodyConstant(source, name) {
+  const literal = source.match(new RegExp(`\\nconst ${name} = (\\{[^\\n]*\\}|\\{\\n[\\s\\S]*?\\n\\})\\n`))?.[1]
+  assert.ok(literal, `body constant ${name} is missing`)
+  return new Function(`return (${literal})`)()
+}
+
+test('skill-creator workflow body constants mirror the meta values the runner reads', () => {
+  const hints = (meta) => Object.fromEntries(Object.entries(meta.codex_workflow_compatibility.model_hints)
+    .map(([callsite, hint]) => [callsite, hint.requested_model]))
+  for (const sourcePath of skillCreatorWorkflows()) {
+    const source = readFileSync(sourcePath, 'utf8')
+    const meta = readSourceMetadata(source)
+    if (!meta.codex_workflow_compatibility?.model_hints) continue
+    assert.deepEqual(bodyConstant(source, 'MODEL_HINTS'), JSON.parse(JSON.stringify(hints(meta))),
+      `${sourcePath}: MODEL_HINTS differs from meta`)
+  }
+  assert.ok(readSourceMetadata(readFileSync(join(skillCreatorWorkflowsDir, 'build_skill.js'), 'utf8'))
+    .codex_workflow_compatibility.model_hints)
 })
 
 test('Codex-enabled caller boundaries are documented', () => {

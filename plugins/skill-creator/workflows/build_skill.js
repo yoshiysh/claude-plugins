@@ -39,10 +39,30 @@ export const meta = {
   },
 }
 
+// native host は `export const meta` を本体のスコープに残さないので、本体から meta を読むと起動直後に落ちる。
+// meta は純粋なリテラルでなければならず本体の値を参照できないため、値はここと meta の 2 箇所に置き、
+// 一致は tests/workflow-callers.test.mjs が検査する。
+const MODEL_HINTS = {
+  criteria_generator: 'sonnet',
+  criteria_complementer: 'sonnet',
+  structure_designer: 'sonnet',
+  structure_reviewer: 'sonnet',
+  initial_writer: 'opus',
+  script_reviewer: 'opus',
+  test_generator: 'haiku',
+  with_skill_executor: 'sonnet',
+  baseline_executor: 'sonnet',
+  grader: 'sonnet',
+  quality_reviewer: 'opus',
+  comparator: 'sonnet',
+  analyzer: 'sonnet',
+  revision_writer: 'opus',
+}
+
 function modelHint(callsite) {
-  const hint = meta.codex_workflow_compatibility.model_hints[callsite]
-  if (!hint) throw new Error(`undeclared model hint callsite: ${callsite}`)
-  return hint.requested_model
+  const model = MODEL_HINTS[callsite]
+  if (!model) throw new Error(`undeclared model hint callsite: ${callsite}`)
+  return model
 }
 
 // DELTA_THRESHOLD: with_skill と baseline の pass_rate 差がこの値未満なら「スキルが効いて
@@ -119,7 +139,8 @@ const REVIEW_JUDGMENTS = [
   {
     field: 'unchecked_judgments',
     label: '機械判定できない項目',
-    isFail: (c) => UNCHECKED_BLOCKING.includes(c?.verdict),
+    // requires_measurement の項目は改稿では満たせないので、ここ（改稿へ回す失格）ではなく実測待ちに分ける。
+    isFail: (c) => UNCHECKED_BLOCKING.includes(c?.verdict) && !measuredIds.has(c?.id),
     describe: (c) => `${c.id}（${c.verdict}）— ${c.evidence}`,
   },
 ]
@@ -342,16 +363,24 @@ function withComputedSummary(grading) {
 // 実際に baseline 側だけ抜けていた時期があり、「README が雛形のままなので直して」という
 // テストプロンプトに対して baseline agent が追跡ファイルを書き換えた。スキル定義を
 // 渡されない baseline の方がむしろ歯止めが無い。
+//
+// 環境の探索も両側で禁じる。測りたいのはスキル定義の差で、片側だけが Read / Grep / コマンドで環境から
+// 補えば、delta は定義の差ではなく探索量の差を測る。tools を opts で絞らないのは、Codex runner の source 検査が
+// tools 指定を拒むため。
 const EVAL_BOUNDARY = [
   '# 境界（この評価実行に限った制約）',
   'これはプロンプトに対する応答の質を測るための評価実行であり、依頼の遂行ではない。',
   'ファイルの作成・編集・削除を一切行わないこと。プロンプトが変更・修正・作成を',
   '求めていても、実際には適用せず「こう変更する」という内容を回答として書くこと。',
   '参照されているスクリプトや補助ファイルが存在しなくても、それを作らない。',
-  '読み取り専用の調査（Read / Grep / 状態を変えないコマンド）は通常どおり行ってよい。',
+  '環境の探索もしないこと。ファイルの Read・Grep・Glob・コマンドの実行・Web の参照を一切行わず、',
+  'このメッセージに書かれた内容（渡されたスキル定義があればそれと、プロンプト）だけから答える。',
+  '答えに必要な情報が足りなければ、調べに行かず、何が足りないかと、それがあればどう答えるかを書く。',
   '',
-  'この制約がある理由: 評価対象は回答の内容であって、環境を変更する能力ではない。',
-  '実際に適用してしまうと、評価のたびにリポジトリへ意図しない変更が残る。',
+  'この制約がある理由: 評価対象は回答の内容であって、環境を変更する能力でも環境を調べる能力でもない。',
+  '実際に適用してしまうと、評価のたびにリポジトリへ意図しない変更が残る。また、比べる 2 つの回答の',
+  'どちらか一方だけが環境から補うと、差がスキル定義の質ではなく調べた量の差になる。この制約は',
+  '比べる両方の回答に同じ文面でかけてある。',
 ].join('\n')
 
 const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
@@ -373,13 +402,19 @@ if (!requirements || typeof requirements !== 'string' || !requirements.trim()) {
 // 必須にしているのは、渡されないときに「委譲する項目が無い」と「渡し忘れ」を区別できず、
 // 前者として静かに通ると、この委譲が実施されないまま合格が出るため。
 const uncheckedItems = parsedArgs.uncheckedItems
-if (!Array.isArray(uncheckedItems) || uncheckedItems.some((x) => !x || !x.id || !x.item)) {
+if (
+  !Array.isArray(uncheckedItems) ||
+  uncheckedItems.some((x) => !x || !x.id || !x.item || typeof x.requires_measurement !== 'boolean')
+) {
   throw new Error(
     'args.uncheckedItems が未指定か形式が不正です。' +
-      '`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力（[{id, item}]）を' +
+      '`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力（[{id, item, requires_measurement}]）を' +
       'そのまま渡してください。'
   )
 }
+// requires_measurement の項目は evals の実測でしか確かめられず、改稿しても判定は変わらない
+// （正本は quick_validate.py の UNCHECKED_ITEMS）。改稿の起動条件から外し、実測待ちとして返す。
+const measuredIds = new Set(uncheckedItems.filter((x) => x.requires_measurement).map((x) => x.id))
 const uncheckedIds = uncheckedItems.map((x) => x.id)
 const uncheckedBlock = [
   '[UNCHECKED_ITEMS] 機械検査が判定できないと宣言した項目（id つき）',
@@ -598,9 +633,9 @@ if (!skillDraft) {
 // 戻り値が SKILL.md 本文を含んでいることを、評価に入る前に確認する。
 // writer が成果物をファイルへ書き出して「書きました」という報告だけを返す run が実測で
 // あった。その状態でも文字列は非空なので上の !skillDraft は通過し、評価 agent には
-// スキル定義の代わりにパス案内が渡る。読み取りは許可されているので with_skill 側だけが
-// そのファイルを読んで実質的に定義を得てしまい、delta は大きく出るが測っているものは
-// 「定義の質」ではなくなる。数字が良い方向に壊れるため気づきにくい。
+// スキル定義の代わりにパス案内が渡る。EVAL_BOUNDARY は探索を禁じているが、それを破った
+// with_skill 側だけがそのファイルを読めば実質的に定義を得てしまい、delta は大きく出るが
+// 測っているものは「定義の質」ではなくなる。数字が良い方向に壊れるため気づきにくい。
 if (!extractFrontmatter(skillDraft, 'name') || !extractFrontmatter(skillDraft, 'description')) {
   throw new Error(
     'writer の戻り値から name / description を持つ frontmatter を取り出せませんでした。' +
@@ -840,8 +875,18 @@ while (true) {
   const reviewFailures = mergeFailures(
     review?.failed || [],
     judgmentFailures(review, REVIEW_JUDGMENTS),
-    unjudged.map((id) => `機械判定できない項目: ${id}（判定が返ってこなかった）`)
+    unjudged.filter((id) => !measuredIds.has(id)).map((id) => `機械判定できない項目: ${id}（判定が返ってこなかった）`)
   )
+  // 実測待ち: requires_measurement の項目のうち、満たしたと判定されなかった（未判定を含む）もの。
+  // どちらも改稿では変わらないので、同じ扱いにする。
+  const pendingMeasurement = review
+    ? uncheckedIds.filter(
+        (id) =>
+          measuredIds.has(id) &&
+          (!judgedIds.has(id) ||
+            (review.unchecked_judgments || []).some((j) => j.id === id && UNCHECKED_BLOCKING.includes(j.verdict)))
+      )
+    : []
 
   // Analyze は with_skill / baseline の出力比較なので、評価を回さない Workflow 型では
   // 入力そのものが存在しない。comparator / analyzer を空入力で起動すると、比較していない
@@ -883,10 +928,11 @@ while (true) {
   // 数字で合格を出すと、達成度を実態より良く見せることになる。
   // Workflow 型は delta を持たないので、基準充足（reviewer）だけを品質ゲートにする。
   // script の合否はこの後段で別に見る（評価が揃わなくても報告するため）。
-  const passed =
+  const gatesMet =
     evaluationComplete &&
     (architecture === 'workflow' || delta >= DELTA_THRESHOLD) &&
     reviewFailures.length === 0
+  const passed = gatesMet && pendingMeasurement.length === 0
   const fmt = (n) => (n === null ? 'n/a' : n.toFixed(2))
   // delta が n/a と出るのは「測って揃わなかった」場合と「そもそも測らない設計」の 2 通りが
   // あり、同じ表示にすると後者が失敗に見える。文言を分ける。
@@ -899,7 +945,8 @@ while (true) {
       (architecture === 'workflow'
         ? ` / script ${scriptReview ? `❌ ${scriptReview.failed.length} 件` : '未検証'}`
         : '') +
-      ` / ${passed ? '合格' : evaluationComplete ? '不合格' : '判定不能（評価が揃っていない）'}`
+      (pendingMeasurement.length ? ` / 実測待ち ${pendingMeasurement.join(', ')}` : '') +
+      ` / ${passed ? '合格' : gatesMet ? '実測待ち' : evaluationComplete ? '不合格' : '判定不能（評価が揃っていない）'}`
   )
 
   iterations.push({
@@ -909,6 +956,8 @@ while (true) {
     evaluation_complete: evaluationComplete,
     gradings: graded,
     review,
+    review_failures: reviewFailures,
+    pending_measurement: pendingMeasurement,
     comparison,
     analysis,
     passed,
@@ -936,6 +985,13 @@ while (true) {
 
   if (passed) {
     verdict = 'passed'
+    break
+  }
+
+  // 改稿で直せるものは全て満たし、残りが実測でしか確かめられない項目だけなら改稿しない。
+  // 改稿しても判定は変わらず、writer と評価の全ペアをもう一巡回すだけになる。passed とは言わない。
+  if (gatesMet) {
+    verdict = 'pending_measurement'
     break
   }
 
@@ -1042,5 +1098,6 @@ return {
   iterations,
   final: iterations[iterations.length - 1] || null,
   revisions_used: revision,
+  pending_measurement: iterations.length ? iterations[iterations.length - 1].pending_measurement : [],
   verdict,
 }

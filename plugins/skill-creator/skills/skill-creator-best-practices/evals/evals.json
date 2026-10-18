@@ -52,7 +52,7 @@
     {
       "id": 5,
       "prompt": "plugins/research/skills/search に prompt-audit をかけて。古いプロンプトの書き方が残ってないか見たい。",
-      "expected_output": "audit モードと判定し、対象スキルの実体パスと範囲（指定が無いので full）を確認する。Workflow の前に review-snapshot.mjs prepare で full snapshot を作り、receipt を selector に渡す。Codex runner では selector の runner_limits を top-level limits にそのまま渡し、Workflow args に snapshot receipt を加え、uncheckedItems は渡さない。完了後に review-snapshot.mjs verify が verified になってから結果を信頼する。prompt-audit は同梱 references/prompt-audit.md を使い、利用できなければ unavailable / incomplete として「指摘なし」とは言わない。結果は確定・棄却・未検証・反証していない軽微な指摘を区別して提示し、直すなら指摘を変更意図にして update で直せると添える。ファイルは書き換えない。",
+      "expected_output": "audit モードと判定し、対象スキルの実体パスと範囲（指定が無いので full）を確認する。Workflow の前に review-snapshot.mjs prepare で full snapshot を作り、receipt を selector に渡す。Codex runner では selector の runner_limits を top-level limits にそのまま渡し、Workflow args に snapshot receipt を加え、uncheckedItems は渡さない。完了後に review-snapshot.mjs verify が verified になってから結果を信頼する。prompt-audit は同梱 references/prompt-audit.md を使い、利用できなければ unavailable / incomplete として「指摘なし」とは言わない。結果は確定・棄却・未検証・反証していない軽微な指摘を区別して提示し、直すならその指摘を seedFindings に逐語でコピーした update で直せると添える。ファイルは書き換えない。",
       "assertions": [
         "audit モードとして扱っているか（review や update に流れていないか）",
         "Workflow を名前 skill-creator:skill-creator-review・mode audit で呼ぶ手順に入っているか（ad-hoc な単一 agent や司令塔自身の監査に落ちていないか）",

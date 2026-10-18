@@ -93,6 +93,7 @@ test('workflow sandbox snapshot version check stays aligned with review-snapshot
 
 test('selector runner limits cover one review and the bounded maximum update fan-out', async () => {
   const findingCap = Number(reviewSource.match(/const MAX_FINDINGS_PER_FINDER = (\d+)/)?.[1]);
+  const batchCap = Number(reviewSource.match(/const MAX_FINDINGS_PER_REFUTER = (\d+)/)?.[1]);
   const updateRounds = Number(reviewSource.match(/const MAX_UPDATE_ROUNDS = (\d+)/)?.[1]);
   const finderBlock = reviewSource.match(/const FINDERS = \[([\s\S]*?)\n\]\n\nconst ACTIVE_FINDERS/)?.[1];
   const perspectiveBlock = reviewSource.match(/const PERSPECTIVES = \[([\s\S]*?)\n\]\n\n\/\/ agentType/)?.[1];
@@ -101,10 +102,14 @@ test('selector runner limits cover one review and the bounded maximum update fan
   assert.ok(finderBlock && perspectiveBlock);
   const finderCount = [...finderBlock.matchAll(/^\s+id: '/gm)].length;
   const perspectiveCount = [...perspectiveBlock.matchAll(/^\s+id: '/gm)].length;
-  const oneReviewWorstCase = finderCount + finderCount * findingCap * perspectiveCount;
+  assert.ok(Number.isSafeInteger(batchCap) && batchCap > 0);
+  // refuter は同じファイルの指摘を最大 batchCap 件ずつ束ねて 1 体で判定する。束は 1 件以上の指摘を持つので、
+  // 最悪（全指摘が別々のファイル）でも 1 pass の refuter 数は指摘数 x 観点数を超えない。
+  const refutersPerPass = finderCount * findingCap * perspectiveCount;
+  const oneReviewWorstCase = finderCount + refutersPerPass;
   assert.ok(oneReviewWorstCase <= RUNNER_LIMITS.maxAgents,
     `source can dispatch ${oneReviewWorstCase} agents before runner cap ${RUNNER_LIMITS.maxAgents}`);
-  const oneUpdateRoundWorstCase = 1 + finderCount * 2 + finderCount * findingCap * perspectiveCount;
+  const oneUpdateRoundWorstCase = 1 + finderCount * 2 + refutersPerPass;
   const updateWorstCase = oneReviewWorstCase + updateRounds * oneUpdateRoundWorstCase;
   assert.ok(updateWorstCase <= RUNNER_LIMITS.maxAgents,
     `source can dispatch ${updateWorstCase} agents across one update before runner cap ${RUNNER_LIMITS.maxAgents}`);

@@ -11,6 +11,20 @@ const { body, meta } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 const AUDIT_HEADER = 'Scope: /mock/target\nTarget model: current flagship';
 
+// refuter は指摘の束を [FINDINGS] で受け取り、id ごとの票を返す。null の票は返答から外す（欠測）。
+function batchIds(prompt) {
+  return JSON.parse(prompt.slice(prompt.indexOf('[FINDINGS]:\n') + '[FINDINGS]:\n'.length)).map(f => f.id);
+}
+
+function batchReply(prompt, verdictFor) {
+  const verdicts = [];
+  for (const id of batchIds(prompt)) {
+    const verdict = verdictFor(id);
+    if (verdict !== null) verdicts.push({ id, verdict, reason: 'r' });
+  }
+  return { verdicts };
+}
+
 async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}, extraArgs = {}) {
   const phases = [];
   const scope = target.scope || 'full';
@@ -122,7 +136,7 @@ function reverifyFindingAgent(finding, findingLabels) {
     if (opts.label.startsWith('update-')) {
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
     }
-    if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
     const findings = findingLabels.includes(opts.label) ? [finding] : [];
     return { findings, scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
   };
@@ -291,7 +305,7 @@ function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () =
     }
     if (opts.label.startsWith('refute-')) {
       const verdict = votes(opts.label, opts.phase);
-      return verdict === null ? null : { verdict, reason: 'r' };
+      return verdict === null ? null : batchReply(prompt, () => verdict);
     }
     return {
       findings: findingsByLabel[opts.label] || [],
@@ -311,7 +325,7 @@ test('review sends only REVISE_SEVERITIES findings to refuters and reports minor
     },
   });
   const { result } = await run('review', agent);
-  const refuted = new Set(calls.filter(c => c.label.startsWith('refute-')).map(c => c.label.split('-').slice(1, -1).join('-')));
+  const refuted = new Set(calls.filter(c => c.label.startsWith('refute-')).flatMap(c => batchIds(c.prompt)));
   assert.deepEqual([...refuted], ['p1-why-driven-1']);
   assert.equal(result.findings.confirmed.length, 1);
   assert.equal(result.findings.reported_minor.length, 1);
@@ -706,7 +720,7 @@ function optsRecordingAgent(byLabel = {}) {
     if (opts.label.startsWith('update-')) {
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
     }
-    if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
     return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER };
   };
   return { agent, calls };
@@ -790,8 +804,8 @@ test('prompt-audit confidence decides severity; Low and flag never become findin
   const { result } = await run('review', agent);
   assert.deepEqual(JSON.parse(JSON.stringify(result.findings.confirmed.map(f => [f.claim, f.severity]))), [['high one', 'major']]);
   assert.deepEqual(JSON.parse(JSON.stringify(result.findings.reported_minor.map(f => [f.claim, f.severity]))), [['medium one', 'minor']]);
-  const refuted = calls.filter(c => c.opts.label.startsWith('refute-')).map(c => c.opts.label);
-  assert.ok(refuted.every(l => l.startsWith('refute-p1-prompt-audit-1-')));
+  const refuted = new Set(calls.filter(c => c.opts.label.startsWith('refute-')).flatMap(c => batchIds(c.prompt)));
+  assert.deepEqual([...refuted], ['p1-prompt-audit-1']);
 });
 
 test('audit mode runs only the prompt-audit lens and never writes', async () => {
@@ -858,7 +872,8 @@ test('update with audit criteria unavailable still completes only an explicit sk
 test('an owner that omits unchecked_judgments turns every delegated id into a failure', async () => {
   const { agent } = optsRecordingAgent();
   const { result } = await run('review', agent, { scope: 'full' }, {}, {
-    uncheckedItems: [{ id: 'verifier-path', item: 'a' }, { id: 'description-triggers', item: 'b' }],
+    uncheckedItems: [{ id: 'verifier-path', item: 'a', requires_measurement: false },
+      { id: 'description-triggers', item: 'b', requires_measurement: true }],
   });
   assert.deepEqual(Array.from(result.unchecked_failures, f => f.id).sort(),
     ['p1-unchecked-description-triggers', 'p1-unchecked-verifier-path']);
@@ -1000,3 +1015,265 @@ test('a refuter that throws degrades to an unverified finding', async () => {
   assert.equal(result.findings.confirmed.length, 0);
   assert.equal(result.verdict, 'findings');
 });
+
+// ---------------------------------------------------------------- 反証の束（refuter 1 体に複数の指摘）
+
+const MAX_PER_REFUTER = Number(source.match(/const MAX_FINDINGS_PER_REFUTER = (\d+)/)[1]);
+
+test('refuters judge findings on the same file in one batch per perspective and split at the cap', async () => {
+  const sameFile = Array.from({ length: MAX_PER_REFUTER + 1 }, (_, i) => finding({ claim: `same file ${i}` }));
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: {
+      'find-why-driven-p1': sameFile.slice(0, 4),
+      'find-loopholes-p1': [...sameFile.slice(4), finding({ file: 'references/a.md', claim: 'other file' })],
+    },
+  });
+  const { result } = await run('review', agent);
+  const refuters = calls.filter(c => c.label.startsWith('refute-'));
+  const batches = refuters.filter(c => c.label.endsWith('-existence')).map(c => batchIds(c.prompt));
+  assert.equal(batches.length, 3);
+  assert.ok(batches.every(ids => ids.length <= MAX_PER_REFUTER));
+  assert.deepEqual(batches.map(ids => ids.length).sort(), [1, 1, MAX_PER_REFUTER].sort());
+  assert.equal(refuters.length, batches.length * 2);
+  assert.equal(result.findings.confirmed.length, MAX_PER_REFUTER + 2);
+  for (const ids of batches) {
+    const files = new Set(ids.map(id => result.findings.confirmed.find(f => f.id === id).file));
+    assert.equal(files.size, 1);
+  }
+});
+
+test('a batch reply that omits an id or repeats it leaves that finding without a vote, never not_refuted', async () => {
+  const findings = [finding({ claim: 'answered' }), finding({ claim: 'omitted' }), finding({ claim: 'duplicated' })];
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('refute-')) {
+      const ids = batchIds(prompt);
+      const verdicts = [];
+      for (const id of ids) {
+        if (id.endsWith('-2')) continue;
+        verdicts.push({ id, verdict: 'not_refuted', reason: 'r' });
+        if (id.endsWith('-3')) verdicts.push({ id, verdict: 'not_refuted', reason: 'again' });
+      }
+      return { verdicts: [...verdicts, { id: 'not-in-batch', verdict: 'refuted', reason: 'stray' }] };
+    }
+    return { findings: opts.label === 'find-why-driven-p1' ? findings : [], scanned_files: ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  const { result } = await run('review', agent);
+  assert.deepEqual(Array.from(result.findings.confirmed, f => f.claim), ['answered']);
+  assert.deepEqual(Array.from(result.findings.unverified, f => f.claim).sort(), ['duplicated', 'omitted']);
+  for (const f of result.findings.unverified) {
+    assert.deepEqual(Array.from(f.missing_perspectives), ['existence', 'materiality', 'alternative']);
+  }
+  const third = calls.filter(c => c.label.endsWith('-alternative')).map(c => batchIds(c.prompt));
+  assert.deepEqual(third.map(ids => ids.length), [2]);
+});
+
+test('early settlement stays per finding inside a batch: only the split finding goes to the third perspective', async () => {
+  const findings = [finding({ claim: 'agreed' }), finding({ claim: 'split' })];
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('refute-')) {
+      const perspective = opts.label.split('-').at(-1);
+      return batchReply(prompt, id => (id.endsWith('-2') && perspective === 'materiality' ? 'refuted' : 'not_refuted'));
+    }
+    return { findings: opts.label === 'find-why-driven-p1' ? findings : [], scanned_files: ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  const { result } = await run('review', agent);
+  const third = calls.filter(c => c.label.endsWith('-alternative')).map(c => batchIds(c.prompt));
+  assert.deepEqual(third, [['p1-why-driven-2']]);
+  const agreed = result.findings.confirmed.find(f => f.claim === 'agreed');
+  const split = result.findings.confirmed.find(f => f.claim === 'split');
+  assert.deepEqual(Array.from(agreed.skipped_perspectives), ['alternative']);
+  assert.deepEqual(Array.from(split.skipped_perspectives), []);
+  assert.equal(split.refuted_votes, 1);
+});
+
+test('refuter labels stay unique across update rounds', async () => {
+  const { agent, calls } = perRoundAgent([2, 1, 0]);
+  await run('update', agent);
+  const labels = calls.filter(c => c.label.startsWith('refute-')).map(c => c.label);
+  assert.ok(labels.length > 0);
+  assert.equal(new Set(labels).size, labels.length);
+});
+
+// ---------------------------------------------------- 改稿では満たせない委譲項目（requires_measurement）
+
+const MEASURED = [
+  { id: 'verifier-path', item: 'a', requires_measurement: false },
+  { id: 'description-triggers', item: 'b', requires_measurement: true },
+];
+
+function uncheckedAgent(judgmentsFor) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('update-')) {
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'u' };
+    }
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
+    return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER,
+      unchecked_judgments: opts.label.startsWith('find-best-practices-') ? judgmentsFor(opts.label) : [] };
+  };
+  return { agent, calls };
+}
+
+test('a delegated item that needs measurement does not keep the update loop going', async () => {
+  const { agent, calls } = uncheckedAgent(() => [
+    { id: 'verifier-path', verdict: 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1']);
+  assert.equal(result.verdict, 'applied_to_staging');
+  assert.equal(result.stop_reason, 'resolved');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.unchecked_failures.map(f => [f.location, f.requires_measurement]))),
+    [['機械判定できない項目: description-triggers', true]]);
+});
+
+test('an unjudged measurement item is also excluded from the loop, while a revisable item still loops', async () => {
+  const { agent, calls } = uncheckedAgent(() => [{ id: 'verifier-path', verdict: 'fail', evidence: 'no verifier' }]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  assert.equal(result.stop_reason, 'dried');
+  const byId = Object.fromEntries(result.unchecked_failures.map(f => [f.location.split(': ')[1], f.requires_measurement]));
+  assert.deepEqual(byId, { 'verifier-path': false, 'description-triggers': true });
+});
+
+test('review stays non-clean when only a measurement item is unmet', async () => {
+  const { agent } = uncheckedAgent(() => [
+    { id: 'verifier-path', verdict: 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  const { result } = await run('review', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.equal(result.verdict, 'findings');
+  assert.equal(result.unchecked_failures.length, 1);
+});
+
+test('uncheckedItems without a boolean requires_measurement are rejected', async () => {
+  await assert.rejects(run('review', async () => null, { scope: 'full' }, {}, { uncheckedItems: [{ id: 'x', item: 'y' }] }),
+    /requires_measurement/);
+  await assert.rejects(run('review', async () => null, { scope: 'full' }, {},
+    { uncheckedItems: [{ id: 'x', item: 'y', requires_measurement: 'yes' }] }), /requires_measurement/);
+});
+
+// --------------------------------------------------------------------------- seedFindings
+
+function seed(overrides = {}) {
+  return { id: 'p1-why-driven-1', category: 'why-driven', file: 'SKILL.md', location: 'L1', claim: 'seeded claim',
+    evidence: 'quoted', severity: 'major', suggested_fix: 'fix', votes: [{ perspective: 'existence' }], ...overrides };
+}
+
+test('seedFindings skip Find and Verify and become the updater target and the recheck baseline', async () => {
+  const { agent, calls } = scriptedAgent({});
+  const seeds = [{ source_run_id: 'wf_audit-1', findings: [seed(), seed({ id: 'p1-why-driven-2', claim: 'minor seed', severity: 'minor' })] }];
+  const { result, phases } = await run('update', agent, { scope: 'full' }, {}, { seedFindings: seeds });
+  assert.ok(!phases.includes('Find') && !phases.includes('Verify'));
+  assert.equal(calls.filter(c => c.phase === 'Find' || c.phase === 'Verify').length, 0);
+  const updater = calls.find(c => c.label === 'update-r1').prompt;
+  const confirmed = JSON.parse(updater.slice(updater.indexOf('[CONFIRMED_FINDINGS]:\n') + 22, updater.indexOf('\n\n[FINDINGS_ORIGIN]')));
+  assert.deepEqual(confirmed.map(f => f.id), ['p1-why-driven-1', 'p1-why-driven-2']);
+  assert.ok(!updater.includes('"votes"'));
+  assert.match(calls.find(c => c.label === 'find-why-driven-p2r1').prompt, /\[RECHECK_FINDINGS\]:[\s\S]*"claim": "seeded claim"/);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.seed)), { source_run_ids: ['wf_audit-1'], count: 2 });
+  assert.equal(result.by_category.before, null);
+  assert.equal(result.skipped_unavailable.before, null);
+  assert.equal(result.declared_only.before, null);
+  assert.equal(result.findings_before.confirmed.length, 2);
+  assert.equal(result.verdict, 'applied_to_staging');
+});
+
+test('a seeded run stopped before the first updater reports delegated items as not judged', async () => {
+  const { agent } = scriptedAgent({});
+  const { result } = await run('update', agent, { scope: 'full' }, { budget: { total: 1, spent: () => 1, remaining: () => 0 } },
+    { seedFindings: [{ source_run_id: 'r', findings: [seed()] }] });
+  assert.equal(result.stop_reason, 'budget');
+  assert.equal(result.unchecked_failures, null);
+});
+
+test('a seeded run accepts prompt-audit unavailable in Reverify when the caller permits it', async () => {
+  const unavailable = { findings: [], scanned_files: [], unreadable: false, unavailable: true };
+  const { agent } = optsRecordingAgent({ 'find-prompt-audit-p2r1': unavailable });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { seedFindings: [{ source_run_id: 'r', findings: [seed()] }] });
+  assert.equal(result.verdict, 'applied_to_staging');
+  assert.deepEqual(Array.from(result.skipped_unavailable.after), ['prompt-audit']);
+});
+
+for (const [name, extra, pattern, target = { scope: 'full' }, mode = 'update'] of [
+  ['outside update', { seedFindings: [{ source_run_id: 'r', findings: [seed()] }] }, /seedFindings/, { scope: 'full' }, 'review'],
+  ['without a source run id', { seedFindings: [{ findings: [seed()] }] }, /source_run_id/],
+  ['with an unknown category', { seedFindings: [{ source_run_id: 'r', findings: [seed({ category: 'style' })] }] }, /FINDERS/],
+  ['with a missing evidence', { seedFindings: [{ source_run_id: 'r', findings: [seed({ evidence: '' })] }] }, /evidence/],
+  ['with a bad severity', { seedFindings: [{ source_run_id: 'r', findings: [seed({ severity: 'high' })] }] }, /severity/],
+  ['with an absolute file', { seedFindings: [{ source_run_id: 'r', findings: [seed({ file: '/etc/x' })] }] }, /相対パス/],
+  ['with a duplicate id across runs',
+    { seedFindings: [{ source_run_id: 'a', findings: [seed()] }, { source_run_id: 'b', findings: [seed({ claim: 'other' })] }] }, /重複/],
+  ['with a duplicate finding', { seedFindings: [{ source_run_id: 'a', findings: [seed(), seed({ id: 'other-id' })] }] }, /重複/],
+  ['above the per-lens cap',
+    { seedFindings: [{ source_run_id: 'a', findings: Array.from({ length: 9 }, (_, i) => seed({ id: `s${i}`, claim: `c${i}` })) }] }, /超えて/],
+  ['outside the frozen diff', { seedFindings: [{ source_run_id: 'a', findings: [seed({ file: 'references/other.md' })] }] },
+    /changed paths/, { scope: 'diff', diffRef: 'main...HEAD' }],
+  ['containing a delegated-item failure',
+    { seedFindings: [{ source_run_id: 'a', findings: [seed({ id: 'p1-unchecked-verifier-path', category: 'best-practices', requires_measurement: false })] }] },
+    /委譲項目/],
+  ['together with intentScope', { seedFindings: [{ source_run_id: 'a', findings: [seed()] }] }, /同時に/,
+    { scope: 'full', intentScope: { categories: ['why-driven'] } }],
+]) {
+  test(`seedFindings ${name} are rejected before any agent runs`, async () => {
+    let dispatched = 0;
+    await assert.rejects(run(mode, async () => { dispatched++; return null; }, target, {}, extra), pattern);
+    assert.equal(dispatched, 0);
+  });
+}
+
+// --------------------------------------------------------------------------- intentScope
+
+test('intentScope narrows Find to the chosen lenses and files while Reverify keeps every lens', async () => {
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: { 'find-why-driven-p1': [finding({ file: 'references/a.md', claim: 'scoped' })] },
+  });
+  const intentScope = { categories: ['why-driven', 'loopholes'], files: ['references/a.md'] };
+  const { result } = await run('update', agent, { scope: 'full', intentScope });
+  const find = calls.filter(c => c.phase === 'Find').map(c => c.label);
+  assert.deepEqual(find.sort(), ['find-loopholes-p1', 'find-why-driven-p1']);
+  for (const c of calls.filter(c => c.phase === 'Find')) {
+    assert.match(c.prompt, /\[INTENT_SCOPE_FILES\]:\n\[\n  "references\/a\.md"\n\]/);
+  }
+  const reverify = new Set(calls.filter(c => c.phase === 'Reverify' && c.label.startsWith('find-')).map(c => c.label.split('-p2r')[0]));
+  assert.equal(reverify.size, Object.keys(result.by_category.after).length);
+  assert.ok(reverify.size > 2);
+  assert.deepEqual(Object.keys(result.by_category.before).sort(), ['loopholes', 'why-driven']);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.target.intentScope)), { categories: ['why-driven', 'loopholes'], files: ['references/a.md'] });
+  assert.match(calls.find(c => c.label === 'update-r1').prompt, /\[INTENT_SCOPE_FILES\]/);
+});
+
+test('a Find finding outside intentScope.files makes that lens missing', async () => {
+  const { agent } = scriptedAgent({ findingsByLabel: { 'find-why-driven-p1': [finding({ file: 'SKILL.md' })] } });
+  const { result } = await run('update', agent, { scope: 'full', intentScope: { files: ['references/a.md'] } });
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.equal(result.by_category.before['why-driven'], null);
+});
+
+test('intentScope without the delegated-item lens leaves unchecked_failures unjudged until Reverify', async () => {
+  const { agent } = scriptedAgent({});
+  const { result } = await run('update', agent, { scope: 'full', intentScope: { categories: ['why-driven'] } },
+    { budget: { total: 1, spent: () => 1, remaining: () => 0 } });
+  assert.equal(result.stop_reason, 'budget');
+  assert.equal(result.unchecked_failures, null);
+});
+
+for (const [name, intentScope, pattern, mode = 'update'] of [
+  ['in review', { categories: ['why-driven'] }, /intentScope/, 'review'],
+  ['with an unknown lens', { categories: ['style'] }, /categories/],
+  ['with a repeated lens', { categories: ['why-driven', 'why-driven'] }, /categories/],
+  ['with no keys', {}, /categories か files/],
+  ['with a parent path', { files: ['../other/SKILL.md'] }, /相対パス/],
+  ['with an empty file list', { files: [] }, /files/],
+]) {
+  test(`intentScope ${name} is rejected`, async () => {
+    await assert.rejects(run(mode, async () => null, { scope: 'full', intentScope }), pattern);
+  });
+}
