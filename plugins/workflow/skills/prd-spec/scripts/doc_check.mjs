@@ -118,7 +118,7 @@ const FINDING_TEXT = {
     location: '未確定事項',
     quote: id,
     issue: `TBD ${id} が ${keys.join(' / ')} の複数文書から別々の内容で申告されている（「${text0}」と「${text1}」）。統合時に片方が消えるため、消えた側が着手を止める項目でも人間に提示されない。`,
-    fix: 'TBD の番号にも文書の領域プレフィックスを付けて振り直す（例 TBD-AUTH-001）。',
+    fix: 'TBD の番号にも文書種別（R/S）と領域のプレフィックスを付けて振り直す（例 TBD-RAUTH-001）。',
   }),
   ORPHAN_REQ: (id) => ({
     id: `ST-ORPHAN-REQ-${id}`,
