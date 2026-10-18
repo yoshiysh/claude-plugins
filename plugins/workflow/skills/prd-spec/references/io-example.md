@@ -71,7 +71,11 @@ resolver が RS-003 に対応づけ、verifier がその対応づけを検証す
 ```markdown
 #### PR-NOTIFICATION-001 承認完了の通知
 申請が承認されたとき、システムは承認から 1 分以内に申請者へ承認完了を通知しなければならない。
+```
 
+**出力（`W/requirements-expense.md` 抜粋）**:
+
+```markdown
 #### PR-EXPENSE-004 金額の上限
 金額の上限の裁定が下るまで、金額を伴う自動承認を設けてはならない。
 ```
