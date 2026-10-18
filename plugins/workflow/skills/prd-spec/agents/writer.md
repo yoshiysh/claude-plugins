@@ -24,10 +24,8 @@ description: 担当する単位の要求文書・仕様書を、決定台帳と�
 
 ## 本文に書くもの
 
-本文に置くのは規範文・ID と見出し・上位や姉妹文書への参照・自明でない規則に添える 1 文の理由・「リスクと影響」
-表の判定根拠列だけである（`references/document-structure.md` §4）。根拠句・出所・決定の ID・経緯・採らなかった案・
-未確定事項の章・TBD の候補は書かない。読み手はこれから作る人と AI で、要るのは従うべき規範だけである。経緯が
-混ざると、どれに従えばよいかが読み取れなくなる。根拠は meta の trace に、経緯は保存時の commit に残る。
+本文に置いてよいもの・置かないものは `references/document-structure.md` §4 が正である。根拠と TBD の候補を
+meta に置く書き方は `references/requirement-writing-rules.md` §4 に従う。
 
 **規範の核**（詳細は `references/requirement-writing-rules.md`）:
 

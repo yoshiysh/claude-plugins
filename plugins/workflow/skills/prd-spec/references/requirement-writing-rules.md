@@ -47,27 +47,14 @@ MUST / SHOULD / MAY を使う場合は、**全て大文字で書かれている�
 
 ## 2. 曖昧語（検出したら欠陥として指摘する）
 
-次の語が要求文に含まれていたら、測定可能な形への書き換えを求める。
+要求文に曖昧語があれば、測定可能な形への書き換えを求める。拾う語と適用条件は
+`[SKILL_DIR]/scripts/doc_check.mjs` の `AMBIGUOUS_JA`・`AMBIGUOUS_EN` が正であり、`doc_check doc` が
+`ST-AMBIGUOUS-` として拾う。数量に付く語の書き方は §2.6 が扱う。
 
-```
-適切に / 必要に応じて / 可能な限り / 柔軟に / 速やかに / 原則として / 等（など）/
-十分な / 適宜 / 基本的に / 高速に / 使いやすい / 安定した / 極力 / なるべく /
-場合によっては / 想定される / 考慮する / **〜まで / 最大 / 最小 / 程度 / 前後**
-
-末尾の 5 語は境界値に関わる（§2.6）。数量に付くと「境界を含むか」が読み手によって変わる。
-
-英語で出力する場合の対応リスト:
-
-minimize / maximize / optimize / fast / prompt / quick / rapid / user-friendly / easy /
-intuitive / sufficient / adequate / appropriate / approximately / about / around /
-usually / typically / normally / as needed / as required / if necessary / etc. /
-and so on / including but not limited to
-
-加えて英語では次の 2 種を疑う。
+英語では、検査が拾わない次の語も疑う。
 
 - **all / any / both** — 集合全体に作用するのか各要素に作用するのかが判別できない
 - **and / or / but** — 1 文に複数の要求が入っている兆候（§3 の単一要求違反）
-```
 
 指摘するときは、どの語のせいで判定が割れるかと解消の方向（`direction`）を示す。書き換えの
 文案・候補値は検査者は書かず、writer が根拠原本から起草する（正は `schemas/role-map.md`）。
@@ -169,7 +156,7 @@ EARS（Easy Approach to Requirements Syntax）。2009 年に Alistair Mavin と 
 |---|---|
 | 申請者へ通知し、かつ経理へ連携しなければならない | PR-001 申請者へ通知しなければならない<br>PR-002 経理システムへ連携しなければならない |
 
-**条件節（〜の場合）は分割対象ではない。** 「承認された場合、通知しなければならない」は
+**条件節（§2.5）は分割対象ではない。** 「承認されたとき、通知しなければならない」は
 単一要求である。分割するのは**動作が 2 つ以上ある**とき。
 
 ## 4. 根拠の申告
@@ -179,7 +166,7 @@ EARS（Easy Approach to Requirements Syntax）。2009 年に Alistair Mavin と 
 
 ```markdown
 #### PR-APPROVAL-001 承認完了の通知
-申請が承認された場合、システムは申請者へ承認完了を 3 秒以内に通知しなければならない。
+申請が承認されたとき、システムは申請者へ承認完了を 3 秒以内に通知しなければならない。
 ```
 
 ```json
@@ -243,7 +230,7 @@ EARS（Easy Approach to Requirements Syntax）。2009 年に Alistair Mavin と 
 AI を読み手とする仕様駆動ツールの公開仕様から採る規範。いずれも出典を確認済み。
 
 - **変更しない挙動の明記**: 既存システムの改修を扱う要求では、保持すべき既存挙動を
-  「〜の場合、システムは引き続き〜しなければならない」の形で明示する。書かれていない
+  「〜したとき、システムは引き続き〜しなければならない」の形で明示する。書かれていない
   既存挙動は AI 実装者に保護されない（出典: Kiro best practices の
   「WHEN … THEN the system SHALL CONTINUE TO …」 https://kiro.dev/docs/specs/best-practices/）。
 - **曖昧箇所のマーカー**: 未確定を暗黙の仮定で埋めさせないためのマーカー運用は、
