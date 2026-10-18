@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
 import { compileSource } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { hostAgent, hostParallel } from './fixtures/native-host.mjs';
 import { SNAPSHOT_LAYOUT } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
 
 const source = await readFile(new URL('../plugins/skill-creator/workflows/review_skill.js', import.meta.url), 'utf8');
@@ -25,10 +26,6 @@ function batchReply(prompt, verdictFor) {
   }
   return { verdicts };
 }
-
-// native host は agent() / parallel() の境界で値を JSON 往復させる（Map などは空の object に化ける）。
-// 模擬側でも同じ往復をかけ、境界を越える値が JSON で表せない形になっていれば全テストで落ちるようにする。
-const roundTrip = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
 async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}, extraArgs = {}) {
   const phases = [];
@@ -63,8 +60,8 @@ async function run(mode, agent = async () => null, target = { scope: 'full' }, g
       promptAuditExpected: false,
       ...extraArgs,
     },
-    agent: async (prompt, opts) => roundTrip(await agent(prompt, opts)),
-    parallel: tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip))),
+    agent: hostAgent(agent),
+    parallel: hostParallel,
     phase: value => phases.push(value),
     log() {},
     ...globals,
@@ -1402,7 +1399,7 @@ for (const [name, intentScope, pattern, mode = 'update'] of [
 
 // native の parallel は落ちた thunk を null で返す。束の行が丸ごと返らなくても、反証に回した指摘を消さない。
 test('a refutation batch whose thunk fails keeps its findings as unverified instead of dropping them', async () => {
-  const dropBatchRows = tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip)))
+  const dropBatchRows = tasks => hostParallel(tasks)
     .then(results => results.map(r => (r && Array.isArray(r.rows) ? null : r)));
   const { agent } = scriptedAgent({
     findingsByLabel: { 'find-why-driven-p1': [finding({ claim: 'a' }), finding({ claim: 'b', file: 'references/a.md' })] },
@@ -1484,14 +1481,29 @@ test('a snapshot without an evidence pack is rejected before any agent runs', as
   assert.equal(dispatched, 0);
 });
 
-test('a minor seed is refuted through the default first stage (materiality alone)', async () => {
+test('a minor seed starts with materiality and existence, and both agreeing settles it without the third lens', async () => {
   const { agent, calls } = seedAgent();
   const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed({ id: 's-minor', severity: 'minor' })));
   const verify = calls.filter(c => c.phase === 'Verify').map(c => [c.label.split('-').at(-1), batchIds(c.prompt)]);
-  assert.deepEqual(verify, [['materiality', ['s-minor']]]);
+  assert.deepEqual(verify, [['materiality', ['s-minor']], ['existence', ['s-minor']]]);
   assert.deepEqual(Array.from(result.findings_before.confirmed, f => f.id), ['s-minor']);
-  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [1, 0]);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [2, 0]);
 });
+
+for (const severity of ['minor', 'major']) {
+  test(`a ${severity} seed whose evidence is gone is not settled by materiality alone and is rejected by the other lenses`, async () => {
+    const { agent, calls } = seedAgent({ votesFor: () => 'not_refuted' });
+    const evidenceGone = async (prompt, opts) => {
+      if (/-(existence|alternative)$/.test(opts.label) && opts.label.startsWith('refute-')) return batchReply(prompt, () => 'refuted');
+      return agent(prompt, opts);
+    };
+    const { result } = await run('update', evidenceGone, { scope: 'full' }, {}, seeds(seed({ id: 's-gone', severity })));
+    assert.ok(calls.some(c => c.label.endsWith('-s1-materiality')));
+    assert.deepEqual(Array.from(result.findings_before.confirmed), []);
+    assert.deepEqual(Array.from(result.findings_before.rejected, f => f.id), ['s-gone']);
+    assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [2, 1]);
+  });
+}
 
 test('a batch mixing a blocker and a major keeps each stage membership and vote with its own finding', async () => {
   const blocker = finding({ claim: 'blocker one', severity: 'blocker' });

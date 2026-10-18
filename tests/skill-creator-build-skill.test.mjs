@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
+import { hostAgent, hostParallel } from './fixtures/native-host.mjs';
 import { compileSource } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
 
 const source = await readFile(new URL('../plugins/skill-creator/workflows/build_skill.js', import.meta.url), 'utf8');
@@ -22,16 +23,11 @@ function respond(label) {
   return `${label} output`;
 }
 
-// parallel は Promise.all（runner と同じく throw を catch しない）。throw が run を落とさないことをここで確かめる。
-// native host は agent() / parallel() の境界で値を JSON 往復させる（Map などは空の object に化ける）。
-// 模擬側でも同じ往復をかけ、境界を越える値が JSON で表せない形になっていれば全テストで落ちるようにする。
-const roundTrip = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
-
 async function run(agent, extraArgs = {}) {
   const context = createContext({
     args: { skillDir: '/mock/skill-creator', requirements: 'req', taskType: 'procedure', uncheckedItems: [], ...extraArgs },
-    agent: async (prompt, opts) => roundTrip(await agent(prompt, opts)),
-    parallel: tasks => Promise.all(tasks.map(task => Promise.resolve(task()).then(roundTrip))),
+    agent: hostAgent(agent),
+    parallel: hostParallel,
     phase() {},
     log() {},
   }, { codeGeneration: { strings: false, wasm: false } });

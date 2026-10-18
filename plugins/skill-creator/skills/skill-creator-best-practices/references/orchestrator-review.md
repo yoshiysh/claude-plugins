@@ -189,6 +189,8 @@ staging に改稿を書きました（本体はまだ変えていません）。
   その観点では改稿前も改稿後も見ていないと伝える。receipt の完了はその観点を除いた残りで判定されているので、
   伝えないと「全観点で再検証を通った」と読まれる。
 - 【実測で確かめる項目】の行は 0 件でも残す（値は `unchecked_failures` のうち `requires_measurement: true` のもの）。
+  `unchecked_failures` が `null` なら委譲項目を判定していないので「判定していない」と書き、0 件とは書かない
+  （0 件と書くと「全部満たした」と読まれる）。
   `applied_to_staging` でもこれが残っていれば、反映後に evals で実測するよう添える（手順は
   `references/orchestrator-output.md`「description 最適化ループ」）。
 - `stop_reason: seeds_refuted` のときは、渡した指摘が今の対象では反証で全て成り立たなかったため改稿していないと伝え、
@@ -211,7 +213,10 @@ staging に改稿を書きました（本体はまだ変えていません）。
 検証されない変更が本体に入る。
 
 例外は置かない。**ユーザーの明示指示でも、minor の文言 1 つでも、司令塔は staging を書かない。**
-直すべきものが出てきたら、それを新しい `intent` にして update をもう 1 周回す。
+直すべきものが出てきたら update をもう 1 周回す。前の run の指摘を直すなら `seedFindings` に渡す
+（コピー元・`source_run_id` は `references/schemas.md`「caller input: `seedFindings`」が正本）。`intent` に指摘を
+書き写して回してはならない（理由は同「caller input: `seedFindings`」）。`intent` に書くのは、自由文の
+追加指示と、指摘に無い修正だけ。
 「明示指示なら可」という例外には severity の上限が無く、`あなたが直して` の一言で blocker 級の改稿まで
 この経路に流れる。例外の境界は言葉では守れない。
 

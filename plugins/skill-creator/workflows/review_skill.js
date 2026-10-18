@@ -12,11 +12,14 @@ export const meta = {
   ],
 }
 
-// 反証の最初の段で起動する観点（PERSPECTIVES の id）。blocker は最初から 2 体、それ以外は 1 体で始め、
-// 最初の段が決着しなければ残りの観点を全て足して、全観点の有効票の過半数で決める。
+// 反証の最初の段で起動する観点（PERSPECTIVES の id）。行は指摘の重さ（blocker / default）と、seed の Verify
+// （fromSeed。severity に関わらず seed の行）で選ぶ。最初の段が決着しなければ残りの観点を全て足して、
+// 全観点の有効票の過半数で決める。
 // 1 体の段は not_refuted の 1 票だけで確定する（棄却には反証の過半数が要る）。2 体以上の段は全員が有効票で
 // 一致したときだけ決着する。欠測・unreadable は有効票に数えず、その段は決着させない。
-const FIRST_STAGE_PERSPECTIVES = { blocker: ['materiality', 'existence'], default: ['materiality'] }
+// seed に existence を含めるのは、materiality が記述の存在を前提に害を問う観点で、引用が今の対象に無いこと
+// （先行 run の後に消えた evidence）を反証できるのは existence だけだから。
+const FIRST_STAGE_PERSPECTIVES = { blocker: ['materiality', 'existence'], default: ['materiality'], seed: ['materiality', 'existence'] }
 
 // updater へ再入させ、反証に回す指摘の重さ（再入規則の正本）。minor まで含めると文言の好みで
 // 周回が尽き、改稿を動かさない指摘に反証の票を使う。外の重さは reported_minor として未検証で返す。
@@ -497,6 +500,7 @@ const ACTIVE_FINDERS = mode === 'audit' ? FINDERS.filter((f) => f.id === AUDIT_C
 // 並びは段を足す順。materiality を先頭に置くのは実測による: 記録済みの 6 run・79 件の票では existence の
 // refuted は 1 件だけで、existence を 1 体目にすると現行で棄却された 12 件が全て確定に化けた。materiality を
 // 1 体目にすると記録の揃った 78 件で判定が変わらず（確定 66・棄却 12）、票は 181 から 127 に減った。
+// この実測は Find 直後の指摘のもの。seed の 1 段目は FIRST_STAGE_PERSPECTIVES の seed の行が正本。
 const PERSPECTIVES = [
   {
     id: 'materiality',
@@ -844,8 +848,8 @@ function runFinders(finders, dir, phaseTitle, passLabel, scopeKind, reverifyScop
 // 全観点を起動したときの多数決に必要な同じ verdict の有効票数。
 const REFUTE_MAJORITY = Math.floor(PERSPECTIVES.length / 2) + 1
 
-const firstStageOf = (f) =>
-  PERSPECTIVES.filter((p) => (FIRST_STAGE_PERSPECTIVES[f.severity] || FIRST_STAGE_PERSPECTIVES.default).includes(p.id))
+const firstStageOf = (f, fromSeed) =>
+  PERSPECTIVES.filter((p) => (FIRST_STAGE_PERSPECTIVES[fromSeed ? 'seed' : f.severity] || FIRST_STAGE_PERSPECTIVES.default).includes(p.id))
 
 const isValidVote = (v) => v.verdict === 'refuted' || v.verdict === 'not_refuted'
 
@@ -919,7 +923,7 @@ function refuteBatches(findings) {
 
 // 段の判定・多数決は束ではなく指摘ごとに下す。段ごとに、決着しなかった指摘だけを観点ごとに束ね直して次の段に回す。
 // 起動はすべて script が行い、段ごとの起動数を dispatched に残す（agent の申告で体数を変える経路は無い）。
-function refuteStaged(batch, phaseTitle, labelPrefix) {
+function refuteStaged(batch, phaseTitle, labelPrefix, fromSeed) {
   const votesOf = batch.map(() => ({}))
   const dispatched = [0, 0]
   const runStage = (stage, needs) => {
@@ -936,7 +940,7 @@ function refuteStaged(batch, phaseTitle, labelPrefix) {
       })
     })
   }
-  const firstStage = batch.map(firstStageOf)
+  const firstStage = batch.map((f) => firstStageOf(f, fromSeed))
   const settledFirst = (i) => {
     const votes = firstStage[i].map((p) => votesOf[i][p.id])
     if (!votes.every((v) => v && isValidVote(v))) return null
@@ -964,15 +968,15 @@ function refuteStaged(batch, phaseTitle, labelPrefix) {
   })
 }
 
-// refuteAll: severity に関わらず全件を反証にかける（seed 用。seed は intent が直すと決めた指摘で、今の対象に
-// まだ存在するかの確認が要る）。
 // 段ごとの反証の起動数。before は Verify、after は Reverify の巡ごとの記録（update 全体の帳簿）。
 const refuterDispatch = { before: null, after: [] }
 
-function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = false) {
+// fromSeed: seedFindings の Verify であること。seed は intent が直すと決めた指摘で、今の対象にまだ存在するかの
+// 確認が要るので、severity に関わらず全件を反証にかけ、1 段目も FIRST_STAGE_PERSPECTIVES の seed の行で始める。
+function verifyFindings(findings, phaseTitle, passLabel, labelPass, fromSeed = false) {
   // REVISE_SEVERITIES の外の指摘は改稿を動かさないので反証しない。黙って捨てると
   // 「見ていないもの」が消えるため、未検証であることを名前に持つ別枠で返す。
-  const shouldRefute = (f) => refuteAll || REVISE_SEVERITIES.includes(f.severity)
+  const shouldRefute = (f) => fromSeed || REVISE_SEVERITIES.includes(f.severity)
   const reportedMinor = findings
     .filter((f) => !shouldRefute(f))
     .map(({ __dir, ...rest }) => rest)
@@ -980,7 +984,7 @@ function verifyFindings(findings, phaseTitle, passLabel, labelPass, refuteAll = 
   // 外側の parallel は束どうしが独立だから。
   const batches = refuteBatches(toVerify)
   return parallel(
-    batches.map((batch, b) => () => refuteStaged(batch, phaseTitle, `refute-${labelPass}-b${b + 1}`))
+    batches.map((batch, b) => () => refuteStaged(batch, phaseTitle, `refute-${labelPass}-b${b + 1}`, fromSeed))
   ).then((perBatch) => {
     const completed = perBatch.filter((b) => b && Array.isArray(b.rows))
     const dispatch = {
