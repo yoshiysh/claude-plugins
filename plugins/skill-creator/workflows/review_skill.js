@@ -283,9 +283,14 @@ for (const [field, value] of [
 if (!/^[a-f0-9]{64}$/.test(reviewSnapshot.manifestSha256 || '')) {
   throw new Error('args.snapshot.manifestSha256 が有効な SHA-256 ではありません。')
 }
-// 置き場は prepare の layout で決まっている。別の場所を指す pack を配ると、凍結した snapshot ではない文書が根拠になる。
-if (typeof reviewSnapshot.snapshotRoot !== 'string' ||
-    reviewSnapshot.evidencePackPath !== `${reviewSnapshot.snapshotRoot.replace(/\/+$/, '')}/evidence-pack.txt` ||
+// 置き場は prepare の layout（review-snapshot.mjs の SNAPSHOT_LAYOUT）で決まっている。別の場所を指す pack や tree を配ると、
+// 凍結した snapshot ではない文書が根拠になる。workflow は layout を import できないので名前をここに置き、一致はテストで見る。
+const SNAPSHOT_LAYOUT_NAMES = { tree: 'tree', evidencePack: 'evidence-pack.txt' }
+const snapshotRoot = typeof reviewSnapshot.snapshotRoot === 'string' ? reviewSnapshot.snapshotRoot.replace(/\/+$/, '') : null
+if (!snapshotRoot || reviewSnapshot.snapshotDir !== `${snapshotRoot}/${SNAPSHOT_LAYOUT_NAMES.tree}`) {
+  throw new Error('args.snapshot.snapshotDir が snapshotRoot の tree と一致しません。review-snapshot.mjs prepare の出力をそのまま渡してください。')
+}
+if (reviewSnapshot.evidencePackPath !== `${snapshotRoot}/${SNAPSHOT_LAYOUT_NAMES.evidencePack}` ||
     !/^[a-f0-9]{64}$/.test(reviewSnapshot.evidencePackSha256 || '')) {
   throw new Error('args.snapshot に evidence pack（evidencePackPath / evidencePackSha256）がありません。review-snapshot.mjs prepare の出力をそのまま渡してください。')
 }

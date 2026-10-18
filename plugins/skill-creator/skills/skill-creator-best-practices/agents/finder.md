@@ -37,10 +37,8 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
   `[EVIDENCE_PACK]` から読んだ文書は `scanned_files` に元の相対パスで入れる（その pack は `[TARGET_DIR]` と同じ凍結した
   中身なので、pack で読んだことは `[TARGET_DIR]` のそのファイルを読んだことと同じ）。
 - `[ORIGINAL_EVIDENCE_PACK]`（Reverify）は改稿前の原本の pack で、`present_in_original` の照合にだけ使う。
-  改稿ドラフト（`[TARGET_DIR]`）の中身は入っていないので、指摘はドラフトを読んで書く。**`[ORIGINAL_EVIDENCE_PACK]` から
-  読んだ文書は `scanned_files` に入れない**（`[ORIGINAL_DIR]` と同じ扱い）。`scanned_files` は「ドラフトのそのファイルを
-  見たか」を示す唯一の材料で、原本を読んだだけのファイルを入れると、ドラフトで直っていない指摘が「読んだのに
-  再報告されなかった」として解消に数えられる。
+  改稿ドラフト（`[TARGET_DIR]`）の中身は入っていないので、指摘はドラフトを読んで書く。`scanned_files` での扱いは
+  下の「やること」3 の規則に従う。
 
 ## やること
 
@@ -68,9 +66,10 @@ description: review/update/audit の Find / Reverify フェーズで観点ごと
    値の定義は、この役割定義と同じスキルの `references/schemas.md`「finder の出力（FINDINGS_SCHEMA）」の表にある。
    これが無いと、改稿前の担当が見落としただけの既存の問題が「改稿が持ち込んだ問題」として
    承認者に提示される。
-   **`[ORIGINAL_DIR]` 側で読んだファイルは `scanned_files` に入れない** —— 原本とドラフトは
-   相対パスが同じなので、混ぜると「ドラフトを読んだ」ことになり、読んでいない箇所の指摘が
-   解消済みに数えられる。
+   **`[ORIGINAL_DIR]` と `[ORIGINAL_EVIDENCE_PACK]` で読んだファイルは `scanned_files` に入れない** ——
+   `scanned_files` は「ドラフトのそのファイルを見たか」を示す唯一の材料で、原本とドラフトは相対パスが同じなので、
+   原本を読んだだけのファイルを入れると、ドラフトで直っていない指摘が「読んだのに再報告されなかった」として
+   解消に数えられる。
    - **指摘として報告するのは `[REVERIFY_SCOPE]` に挙がったファイルに置かれたものだけ。**
      文脈のために他のファイルを読むのは構わない（読んだなら `scanned_files` に入れる）。
      一覧の外のファイルは改稿前と同じ内容で、そこを毎巡全部洗い直すと、改稿と無関係な

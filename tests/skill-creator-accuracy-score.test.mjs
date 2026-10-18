@@ -88,6 +88,10 @@ test('location の行数の表現（全N行・N 行以上）だけを除き、�
   assert.deepEqual(extractRanges('3 行以上の説明'), []);
   assert.deepEqual(extractRanges('2-3 行程度'), []);
   assert.deepEqual(extractRanges('SKILL.md 118 行'), [[118, 118]]);
+  assert.deepEqual(extractRanges('設計 42 行'), [[42, 42]]);
+  assert.deepEqual(extractRanges('集計 12 行の表'), [[12, 12]]);
+  assert.deepEqual(extractRanges('42 行 分岐の条件'), [[42, 42]]);
+  assert.deepEqual(extractRanges('SKILL.md 30 行 強調部分'), [[30, 30]]);
   for (const count of ['全 160 行のうち', '約 3 行で書く', '3 行に分けて', '20 行超', '2 行ずつ', '- SKILL.md: 元 118 行 / pack 9-127']) {
     assert.deepEqual(extractRanges(count), [], count);
   }

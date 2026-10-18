@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
 import { compileSource } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { SNAPSHOT_LAYOUT } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
 
 const source = await readFile(new URL('../plugins/skill-creator/workflows/review_skill.js', import.meta.url), 'utf8');
 const finderRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/finder.md', import.meta.url), 'utf8');
@@ -1539,5 +1540,24 @@ test('an evidence pack path outside the snapshot layout is rejected before any a
     evidencePackPath: '/elsewhere/evidence-pack.txt', evidencePackSha256: 'c'.repeat(64),
   };
   await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /evidence pack/);
+  assert.equal(dispatched, 0);
+});
+
+// workflow は review-snapshot.mjs を import できないので layout の名前を写している。写しのずれはここで捕まえる。
+test('the snapshot layout names in the workflow match review-snapshot.mjs', () => {
+  const names = source.match(/const SNAPSHOT_LAYOUT_NAMES = \{ tree: '([^']+)', evidencePack: '([^']+)' \}/);
+  assert.ok(names);
+  assert.deepEqual({ tree: names[1], evidencePack: names[2] }, { tree: SNAPSHOT_LAYOUT.tree, evidencePack: SNAPSHOT_LAYOUT.evidencePack });
+});
+
+test('a snapshot whose root does not hold its tree is rejected even when the pack sits under that root', async () => {
+  let dispatched = 0;
+  const snapshot = {
+    version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/elsewhere',
+    snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
+    receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+    evidencePackPath: '/elsewhere/evidence-pack.txt', evidencePackSha256: 'c'.repeat(64),
+  };
+  await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /snapshotDir/);
   assert.equal(dispatched, 0);
 });
