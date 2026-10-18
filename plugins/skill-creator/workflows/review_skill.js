@@ -1452,6 +1452,7 @@ while (true) {
     [
       `[TARGET_DIR]: ${skillPath}`,
       `[STAGING_DIR]: ${stagingDir}`,
+      `[WRITING_GUIDE]: ${SKILL_DIR}/references/best-practices.md`,
       `[INTENT]:\n${intent}`,
       `[CONFIRMED_FINDINGS]:\n${JSON.stringify(originalConfirmed.map(forUpdater), null, 2)}`,
       seeded ? '[FINDINGS_ORIGIN]: seed（先行 run の指摘のうち、この run の反証を生き残ったもの。Find で探し直していない）' : '',
