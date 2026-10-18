@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { existsSync, promises as fs, readdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
 import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
+import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
+// acorn はリポジトリ直下ではなく runner の runtime にだけ install される。パッケージ名で、runtime の位置から解決する。
+const { tokenizer } = createRequire(join(repoRoot, 'plugins', 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'package.json'))('acorn')
 const pluginsRoot = join(repoRoot, 'plugins')
 
 function json(path) {
@@ -250,6 +254,67 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
     assert.equal(new Set(used).size, used.length, `${sourcePath}: one model hint is reused by multiple source callsites`)
     assert.deepEqual(new Set(used), new Set(declared), `${sourcePath}: declared and used model callsites differ`)
   }
+})
+
+// 対象は skill-creator の workflow だけ。他 plugin の source にも同じ欠陥が残っており、別作業で直すため。
+const skillCreatorWorkflowsDir = join(pluginsRoot, 'skill-creator', 'workflows')
+const skillCreatorWorkflows = () => readdirSync(skillCreatorWorkflowsDir)
+  .filter((name) => name.endsWith('.js'))
+  .map((name) => join(skillCreatorWorkflowsDir, name))
+
+// native host は `export const meta` を本体のスコープに残さない。本体が meta を読むと agent を 1 体も起動せずに
+// ReferenceError で落ちるが、meta を context に注入する単体テストではその失敗が見えない。
+// 識別子 meta の出現を token で数える。コメント・文字列・テンプレートの文字列部分は token にならないので誤検出せず、
+// meta?.x・分割代入・関数への引数渡しのような形も、直前が `.` / `?.` でない識別子として拾う。
+// 除くのは `export const meta =` の定義そのものだけ。
+function metaReferences(source) {
+  const tokens = [...tokenizer(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true })]
+  return tokens.filter((token, i) => {
+    if (token.type.label !== 'name' || token.value !== 'meta') return false
+    const previous = tokens[i - 1]
+    if (previous && (previous.type.label === '.' || previous.type.label === '?.')) return false
+    const isDefinition = previous?.type.keyword === 'const' && tokens[i - 2]?.type.keyword === 'export'
+    return !isDefinition
+  }).length
+}
+
+test('the meta reference detector sees past comments and strings and catches every read form', () => {
+  const definition = 'export const meta = { name: "x" }\n'
+  for (const read of ['meta.x', 'meta?.x', 'meta["x"]', 'const { a } = meta', 'f(meta)', 'Object.keys(meta)', '`${meta.x}`']) {
+    assert.equal(metaReferences(definition + read), 1, read)
+  }
+  for (const quiet of ['/* meta.x */', 'x = 1 // meta.x', '"meta.json"', '`${W}.meta.json`', 'obj.meta.x', 'obj?.meta']) {
+    assert.equal(metaReferences(definition + quiet), 0, quiet)
+  }
+})
+
+test('skill-creator workflow bodies never read meta, which native hosts do not bind', () => {
+  const sources = skillCreatorWorkflows()
+  assert.ok(sources.some((path) => path.endsWith('build_skill.js')))
+  for (const sourcePath of sources) {
+    assert.equal(metaReferences(readFileSync(sourcePath, 'utf8')), 0, `${sourcePath}: body reads meta`)
+  }
+})
+
+// 本体の定数は meta の写し。meta はリテラルでなければならず本体を参照できないので、写しの一致はここでしか保てない。
+function bodyConstant(source, name) {
+  const literal = source.match(new RegExp(`\\nconst ${name} = (\\{[^\\n]*\\}|\\{\\n[\\s\\S]*?\\n\\})\\n`))?.[1]
+  assert.ok(literal, `body constant ${name} is missing`)
+  return new Function(`return (${literal})`)()
+}
+
+test('skill-creator workflow body constants mirror the meta values the runner reads', () => {
+  const hints = (meta) => Object.fromEntries(Object.entries(meta.codex_workflow_compatibility.model_hints)
+    .map(([callsite, hint]) => [callsite, hint.requested_model]))
+  for (const sourcePath of skillCreatorWorkflows()) {
+    const source = readFileSync(sourcePath, 'utf8')
+    const meta = readSourceMetadata(source)
+    if (!meta.codex_workflow_compatibility?.model_hints) continue
+    assert.deepEqual(bodyConstant(source, 'MODEL_HINTS'), JSON.parse(JSON.stringify(hints(meta))),
+      `${sourcePath}: MODEL_HINTS differs from meta`)
+  }
+  assert.ok(readSourceMetadata(readFileSync(join(skillCreatorWorkflowsDir, 'build_skill.js'), 'utf8'))
+    .codex_workflow_compatibility.model_hints)
 })
 
 test('Codex-enabled caller boundaries are documented', () => {

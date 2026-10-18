@@ -101,10 +101,13 @@ test('selector runner limits cover one review and the bounded maximum update fan
   assert.ok(finderBlock && perspectiveBlock);
   const finderCount = [...finderBlock.matchAll(/^\s+id: '/gm)].length;
   const perspectiveCount = [...perspectiveBlock.matchAll(/^\s+id: '/gm)].length;
-  const oneReviewWorstCase = finderCount + finderCount * findingCap * perspectiveCount;
+  // refuter は同じファイルの指摘を束ねて 1 体で判定する（束の上限は MAX_FINDINGS_PER_REFUTER）。束は 1 件以上の指摘を持つので、
+  // 最悪（全指摘が別々のファイル）でも 1 pass の refuter 数は指摘数 x 観点数を超えない。
+  const refutersPerPass = finderCount * findingCap * perspectiveCount;
+  const oneReviewWorstCase = finderCount + refutersPerPass;
   assert.ok(oneReviewWorstCase <= RUNNER_LIMITS.maxAgents,
     `source can dispatch ${oneReviewWorstCase} agents before runner cap ${RUNNER_LIMITS.maxAgents}`);
-  const oneUpdateRoundWorstCase = 1 + finderCount * 2 + finderCount * findingCap * perspectiveCount;
+  const oneUpdateRoundWorstCase = 1 + finderCount * 2 + refutersPerPass;
   const updateWorstCase = oneReviewWorstCase + updateRounds * oneUpdateRoundWorstCase;
   assert.ok(updateWorstCase <= RUNNER_LIMITS.maxAgents,
     `source can dispatch ${updateWorstCase} agents across one update before runner cap ${RUNNER_LIMITS.maxAgents}`);
@@ -150,4 +153,37 @@ test('create mode does not require a review snapshot', async () => {
   assert.deepEqual(await run('--mode', 'create', '--no-native', '--runner-installed'), {
     selected_runtime: 'dynamic-workflow-runner', rejected_reason: null, halt: false, runner_limits: RUNNER_LIMITS,
   });
+});
+
+// pack は Find / Verify の根拠そのものなので、欠けた・書き換わった・receipt と食い違う pack では起動しない。
+test('selector halts when the evidence pack is missing, tampered with, or disagrees with the receipt', async (t) => {
+  const writable = async (snapshot, file) => {
+    await fs.chmod(snapshot.snapshotRoot, 0o700);
+    await fs.chmod(file, 0o600).catch(() => {});
+  };
+  {
+    const { snapshot } = await makeSnapshot(t);
+    await writable(snapshot, snapshot.evidencePackPath);
+    await fs.appendFile(snapshot.evidencePackPath, 'tampered\n');
+    const result = await run('--mode', 'review', '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(result.halt, true);
+    assert.match(result.rejected_reason, /evidence pack hash/);
+  }
+  {
+    const { snapshot } = await makeSnapshot(t);
+    await writable(snapshot, snapshot.evidencePackPath);
+    await fs.rm(snapshot.evidencePackPath);
+    const result = await run('--mode', 'review', '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(result.halt, true);
+    assert.match(result.rejected_reason, /snapshot proof failed/);
+  }
+  {
+    const { snapshot } = await makeSnapshot(t);
+    await writable(snapshot, snapshot.receiptPath);
+    const receipt = JSON.parse(await fs.readFile(snapshot.receiptPath, 'utf8'));
+    await fs.writeFile(snapshot.receiptPath, JSON.stringify({ ...receipt, evidencePackSha256: 'f'.repeat(64) }));
+    const result = await run('--mode', 'review', '--no-native', '--runner-installed', ...proofArgs(snapshot));
+    assert.equal(result.halt, true);
+    assert.match(result.rejected_reason, /evidence pack is missing or inconsistent/);
+  }
 });

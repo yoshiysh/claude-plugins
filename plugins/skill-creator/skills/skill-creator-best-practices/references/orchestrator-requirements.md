@@ -99,7 +99,7 @@ writer は自分が知っていることで空白を埋める。
 
 `references/coordination-patterns.md` を Read し、生成するスキルに適したパターンを選択する。
 
-**最初に判定するのは「誰が plan を握るか」**（`coordination-patterns.md` のパターン選択ガイドが持つ判定。同ファイル内の番号であって、この文書の番号ではない）。パターン 1–6 はいずれも Claude がターンごとに指揮する形で、Workflow 実行型だけが軸が違う。ここを飛ばして 1–6 から選び始めると、orchestration を script に移す選択肢が最後まで検討されない。判定の根拠は `references/best-practices.md` §13 を Read すること。
+**最初に判定するのは「誰が plan を握るか」**（`coordination-patterns.md` のパターン選択ガイドが持つ判定。同ファイル内の番号であって、この文書の番号ではない）。パターン 1–6 はいずれも Claude がターンごとに指揮する形で、Workflow 実行型だけが軸が違う（1–6 に足す付加型の位置づけは同ファイル冒頭の段落が正本）。ここを飛ばして 1–6 から選び始めると、orchestration を script に移す選択肢が最後まで検討されない。判定の根拠は `references/best-practices.md` §13 を Read すること。
 
 ### 責務分離の原則
 
@@ -122,7 +122,7 @@ agent への切り出し原則そのものは変わらない — script のノ�
    - adversarial verify・多角比較を構造として強制したいか
    - **「警察装置」シグナル**：ループが正しく回るかの監視（skip 検出・bypass 検出・記録漏れ検知）を SKILL.md に書きたくなっていないか。書きたくなっていれば、それはループ自体を script に移すサイン（`best-practices.md` §13）
    - いずれかに当てはまれば **Workflow 実行型**。この場合も人間ゲートは script の境界に置けるので、全区間を script にする必要はない
-   - 当てはまらなければ 1–6 のまま進む
+   - 当てはまらなければ 1–6 のまま進む（完了の判定は `coordination-patterns.md` の付加型に従う）
 
 この判定結果は、Workflow へ `architecture` として渡す（`workflow` か `coordinator`）。`taskType` とは別のフィールドなので、両方を明示的に設定する。ここを渡し忘れると既定の `coordinator` になり、Workflow 実行型を選んだ判断が下流に届かない。
 

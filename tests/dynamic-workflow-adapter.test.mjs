@@ -217,6 +217,85 @@ test('createWorkflow binds skill-creator update to host policy and returns a sta
   }
 });
 
+// runner は args を丸ごと運ぶ。seed が adapter の args 組み立てで落ちると、Find が全観点で走り直す。
+// seed は Verify の束の反証にかかるので、束の返答 schema（verdicts[]）が Codex runner の検証を通る経路もここで見る。
+test('createWorkflow carries seedFindings through to the skill-creator update source and its batched refuters', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-seed-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const targetRoot = join(dir, 'targets'), stagingRoot = join(dir, 'staging'), runRoot = join(dir, 'runs');
+  const workerDirectory = join(dir, 'worker'), targetDir = join(targetRoot, 'example');
+  await Promise.all([mkdir(targetRoot), mkdir(stagingRoot), mkdir(runRoot), mkdir(workerDirectory)]);
+  await mkdir(targetDir);
+  const [canonicalTargetRoot, canonicalStagingRoot, canonicalRunRoot, canonicalWorkerDirectory, canonicalTargetDir] =
+    await Promise.all([targetRoot, stagingRoot, runRoot, workerDirectory, targetDir].map(path => realpath(path)));
+  await writeFile(join(targetDir, 'SKILL.md'), 'before\n');
+  const sourceSnapshot = await createSnapshot({ target: canonicalTargetDir, scope: 'full' });
+  const plugin = await realpath(join(repoRoot, 'plugins/skill-creator'));
+  const prompts = [];
+  const originalStartThread = Codex.prototype.startThread;
+  Codex.prototype.startThread = function (options) {
+    return { async runStreamed(prompt) {
+      prompts.push(prompt);
+      if (options.model === 'test-updater') {
+        for (const entry of await readdir(targetDir))
+          await cp(join(targetDir, entry), join(options.workingDirectory, entry), { recursive: true });
+        await writeFile(join(options.workingDirectory, 'SKILL.md'), 'after\n');
+      }
+      const findingsBlock = prompt.match(/\[FINDINGS\]:\n(\[[\s\S]*?\n\])/)?.[1];
+      const result = prompt.includes('"changed_files"')
+        ? { changed_files: [{ path: 'SKILL.md', reason: 'seed', findings_addressed: ['seed-1'] }], out_of_scope_changes: [], summary: 'updated' }
+        : findingsBlock
+          ? { verdicts: JSON.parse(findingsBlock)
+            .map(f => ({ id: f.id, verdict: f.id === 'seed-2' ? 'refuted' : 'not_refuted', reason: 'checked' })) }
+        : prompt.includes('[CATEGORY]: prompt-audit')
+          ? { findings: [], scanned_files: [], unreadable: false, unavailable: true, note: 'unavailable' }
+          : { findings: [], scanned_files: ['SKILL.md'], unreadable: false,
+              ...(prompt.includes('"unchecked_judgments"') ? { unchecked_judgments: [] } : {}) };
+      return { events: (async function* () {
+        yield { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({ json: JSON.stringify(result) }) } };
+        yield { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } };
+      })() };
+    } };
+  };
+  try {
+    const Workflow = createWorkflow({
+      cwd: canonicalWorkerDirectory, runRoot: canonicalRunRoot, trustedSource: true, trustedPluginRoots: [plugin],
+      modelMap: {
+        sonnet: { model: 'test-reviewer', modelReasoningEffort: 'low' },
+        opus: { model: 'test-updater', modelReasoningEffort: 'low' },
+      },
+      maxAgents: 64, concurrency: 8, timeoutMs: 60000, agentTimeoutMs: 48000,
+      updatePolicy: { targetRoot: canonicalTargetRoot, stagingRoot: canonicalStagingRoot },
+    });
+    const result = await Workflow({
+      name: 'skill-creator:skill-creator-review',
+      args: {
+        skillDir: join(repoRoot, 'plugins/skill-creator/skills/skill-creator-best-practices'),
+        mode: 'update',
+        target: { skillPath: targetDir, scope: 'full' },
+        snapshot: sourceSnapshot,
+        uncheckedItems: [],
+        promptAuditExpected: false,
+        intent: 'fix the seeded finding',
+        seedFindings: { source_run_id: 'wf_audit-1', findings: [
+          { id: 'seed-1', category: 'why-driven', file: 'SKILL.md', location: 'L1', claim: 'seeded claim', evidence: 'before', severity: 'major', suggested_fix: 'fix' },
+          { id: 'seed-2', category: 'loopholes', file: 'SKILL.md', location: 'L1', claim: 'stale claim', evidence: 'gone', severity: 'minor', suggested_fix: 'fix' },
+        ] },
+      },
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(result.source_result.seed)), { source_run_id: 'wf_audit-1', count: 2 });
+    assert.deepEqual(result.source_result.findings_before.confirmed.map(f => f.id), ['seed-1']);
+    assert.deepEqual(result.source_result.findings_before.rejected.map(f => f.id), ['seed-2']);
+    assert.ok(prompts.some(prompt => prompt.includes('[FINDINGS]:\n') && prompt.includes('[PERSPECTIVE]: existence')));
+    assert.equal(result.source_result.verdict, 'applied_to_staging');
+    assert.ok(!prompts.some(prompt => prompt.includes('[CATEGORY]:') && prompt.includes(`[TARGET_DIR]: ${sourceSnapshot.snapshotDir}`)));
+    assert.ok(prompts.some(prompt => prompt.includes('"claim": "seeded claim"') && prompt.includes('[RECHECK_FINDINGS]')));
+  } finally {
+    Codex.prototype.startThread = originalStartThread;
+    await cleanupSnapshot(sourceSnapshot.receiptPath);
+  }
+});
+
 test('createWorkflow requires host update policy and rejects mismatched target or staging before dispatch', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'workflow-adapter-update-policy-'));
   t.after(() => rm(dir, { recursive: true, force: true }));

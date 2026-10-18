@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Script, createContext } from 'node:vm';
 import { compileSource } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { hostAgent, hostParallel } from './fixtures/native-host.mjs';
+import { SNAPSHOT_LAYOUT } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs';
 
 const source = await readFile(new URL('../plugins/skill-creator/workflows/review_skill.js', import.meta.url), 'utf8');
 const finderRole = await readFile(new URL('../plugins/skill-creator/skills/skill-creator-best-practices/agents/finder.md', import.meta.url), 'utf8');
@@ -10,6 +12,20 @@ const refuterRole = await readFile(new URL('../plugins/skill-creator/skills/skil
 const { body, meta } = compileSource(source, []);
 const INTENT = 'exercise missing-finder path';
 const AUDIT_HEADER = 'Scope: /mock/target\nTarget model: current flagship';
+
+// refuter は指摘の束を [FINDINGS] で受け取り、id ごとの票を返す。null の票は返答から外す（欠測）。
+function batchIds(prompt) {
+  return JSON.parse(prompt.slice(prompt.indexOf('[FINDINGS]:\n') + '[FINDINGS]:\n'.length)).map(f => f.id);
+}
+
+function batchReply(prompt, verdictFor) {
+  const verdicts = [];
+  for (const id of batchIds(prompt)) {
+    const verdict = verdictFor(id);
+    if (verdict !== null) verdicts.push({ id, verdict, reason: 'r' });
+  }
+  return { verdicts };
+}
 
 async function run(mode, agent = async () => null, target = { scope: 'full' }, globals = {}, extraArgs = {}) {
   const phases = [];
@@ -29,6 +45,8 @@ async function run(mode, agent = async () => null, target = { scope: 'full' }, g
         snapshotDir: '/mock/snapshot/tree',
         manifestPath: '/mock/snapshot/manifest.json',
         manifestSha256: 'a'.repeat(64),
+        evidencePackPath: '/mock/snapshot/evidence-pack.txt',
+        evidencePackSha256: 'c'.repeat(64),
         receiptPath: '/mock/snapshot/receipt.json',
         diffRef,
         diffPath: scope === 'diff' ? '/mock/snapshot/diff.patch' : null,
@@ -42,8 +60,8 @@ async function run(mode, agent = async () => null, target = { scope: 'full' }, g
       promptAuditExpected: false,
       ...extraArgs,
     },
-    agent,
-    parallel: tasks => Promise.all(tasks.map(task => task())),
+    agent: hostAgent(agent),
+    parallel: hostParallel,
     phase: value => phases.push(value),
     log() {},
     ...globals,
@@ -122,7 +140,7 @@ function reverifyFindingAgent(finding, findingLabels) {
     if (opts.label.startsWith('update-')) {
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
     }
-    if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
     const findings = findingLabels.includes(opts.label) ? [finding] : [];
     return { findings, scanned_files: ['SKILL.md'], unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
   };
@@ -291,7 +309,7 @@ function scriptedAgent({ findingsByLabel = {}, scannedByLabel = {}, votes = () =
     }
     if (opts.label.startsWith('refute-')) {
       const verdict = votes(opts.label, opts.phase);
-      return verdict === null ? null : { verdict, reason: 'r' };
+      return verdict === null ? null : batchReply(prompt, () => verdict);
     }
     return {
       findings: findingsByLabel[opts.label] || [],
@@ -311,7 +329,7 @@ test('review sends only REVISE_SEVERITIES findings to refuters and reports minor
     },
   });
   const { result } = await run('review', agent);
-  const refuted = new Set(calls.filter(c => c.label.startsWith('refute-')).map(c => c.label.split('-').slice(1, -1).join('-')));
+  const refuted = new Set(calls.filter(c => c.label.startsWith('refute-')).flatMap(c => batchIds(c.prompt)));
   assert.deepEqual([...refuted], ['p1-why-driven-1']);
   assert.equal(result.findings.confirmed.length, 1);
   assert.equal(result.findings.reported_minor.length, 1);
@@ -329,32 +347,40 @@ test('review with only minor findings is not clean', async () => {
   assert.equal(result.stop_reason, null);
 });
 
-for (const [name, lead, third, expected, calls3, expectedMissing = []] of [
-  ['agreeing not_refuted pair', ['not_refuted', 'not_refuted'], 'refuted', 'confirmed', false],
-  ['agreeing refuted pair', ['refuted', 'refuted'], 'not_refuted', 'rejected', false],
-  ['split pair resolved by refuting third', ['refuted', 'not_refuted'], 'refuted', 'rejected', true],
-  ['split pair resolved by not_refuted third', ['not_refuted', 'refuted'], 'not_refuted', 'confirmed', true],
-  ['split pair with missing third remains unverified', ['refuted', 'not_refuted'], null, 'unverified', true, ['alternative']],
-  ['split pair with unreadable third remains unverified', ['refuted', 'not_refuted'], 'unreadable', 'unverified', true, ['alternative']],
-  ['refuted and unreadable pair remains unverified on split', ['refuted', 'unreadable'], 'not_refuted', 'unverified', true, ['materiality']],
-  ['refuted and missing pair', ['refuted', null], 'refuted', 'rejected', true, ['materiality']],
-  ['unreadable and not_refuted pair with unreadable third', ['unreadable', 'not_refuted'], 'unreadable', 'unverified', true, ['existence', 'alternative']],
+// 段: major 以下は materiality の 1 体で始め、not_refuted なら確定。それ以外は existence と alternative を足して
+// 全観点の過半数で決める。blocker は materiality と existence の 2 体で始め、一致しなければ alternative を足す。
+for (const [name, severity, votes, expected, calls, expectedMissing = []] of [
+  ['major settled by one not_refuted vote', 'major', { materiality: 'not_refuted' }, 'confirmed', ['materiality']],
+  ['major refuted once then by majority', 'major', { materiality: 'refuted', existence: 'refuted', alternative: 'not_refuted' }, 'rejected', ['materiality', 'existence', 'alternative']],
+  ['major refuted once but upheld by the others', 'major', { materiality: 'refuted', existence: 'not_refuted', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative']],
+  ['major with unreadable first vote upheld by the others', 'major', { materiality: 'unreadable', existence: 'not_refuted', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['major with missing first vote refuted by the others', 'major', { materiality: null, existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['major split with an unreadable third stays unverified', 'major', { materiality: 'refuted', existence: 'not_refuted', alternative: 'unreadable' }, 'unverified', ['materiality', 'existence', 'alternative'], ['alternative']],
+  ['major refuted once with the rest missing stays unverified', 'major', { materiality: 'refuted', existence: null, alternative: null }, 'unverified', ['materiality', 'existence', 'alternative'], ['existence', 'alternative']],
+  ['blocker settled by an agreeing not_refuted pair', 'blocker', { materiality: 'not_refuted', existence: 'not_refuted' }, 'confirmed', ['materiality', 'existence']],
+  ['blocker settled by an agreeing refuted pair', 'blocker', { materiality: 'refuted', existence: 'refuted' }, 'rejected', ['materiality', 'existence']],
+  ['blocker split pair resolved by a refuting third', 'blocker', { materiality: 'not_refuted', existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative']],
+  ['blocker with unreadable second vote upheld by the third', 'blocker', { materiality: 'not_refuted', existence: 'unreadable', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['existence']],
+  ['blocker with unreadable first vote upheld by the others', 'blocker', { materiality: 'unreadable', existence: 'not_refuted', alternative: 'not_refuted' }, 'confirmed', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['blocker with missing first vote refuted by the others', 'blocker', { materiality: null, existence: 'refuted', alternative: 'refuted' }, 'rejected', ['materiality', 'existence', 'alternative'], ['materiality']],
+  ['blocker split pair with a missing third stays unverified', 'blocker', { materiality: 'not_refuted', existence: 'refuted', alternative: null }, 'unverified', ['materiality', 'existence', 'alternative'], ['alternative']],
 ]) {
   test(`staged refutation: ${name}`, async () => {
-    const byPerspective = { existence: lead[0], materiality: lead[1], alternative: third };
-    const { agent, calls } = scriptedAgent({
-      findingsByLabel: { 'find-why-driven-p1': [finding()] },
-      votes: label => byPerspective[label.split('-').at(-1)],
+    const { agent, calls: made } = scriptedAgent({
+      findingsByLabel: { 'find-why-driven-p1': [finding({ severity })] },
+      votes: label => votes[label.split('-').at(-1)] ?? null,
     });
     const { result } = await run('review', agent);
-    const perspectives = calls.filter(c => c.label.startsWith('refute-')).map(c => c.label.split('-').at(-1));
-    assert.deepEqual(perspectives, calls3 ? ['existence', 'materiality', 'alternative'] : ['existence', 'materiality']);
+    const perspectives = made.filter(c => c.label.startsWith('refute-')).map(c => c.label.split('-').at(-1));
+    assert.deepEqual(perspectives, calls);
     for (const bucket of ['confirmed', 'rejected', 'unverified']) {
       assert.equal(result.findings[bucket].length, bucket === expected ? 1 : 0, bucket);
     }
     const entry = result.findings[expected][0];
-    assert.deepEqual(Array.from(entry.skipped_perspectives), calls3 ? [] : ['alternative']);
+    assert.deepEqual(Array.from(entry.skipped_perspectives), ['materiality', 'existence', 'alternative'].filter(p => !calls.includes(p)));
     assert.deepEqual(Array.from(entry.missing_perspectives), expectedMissing);
+    const firstStage = severity === 'blocker' ? 2 : 1;
+    assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [firstStage, calls.length - firstStage]);
   });
 }
 
@@ -706,7 +732,7 @@ function optsRecordingAgent(byLabel = {}) {
     if (opts.label.startsWith('update-')) {
       return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'updated' };
     }
-    if (opts.label.startsWith('refute-')) return { verdict: 'not_refuted', reason: 'holds' };
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
     return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER };
   };
   return { agent, calls };
@@ -732,7 +758,7 @@ test('every agent call sets model and effort, and the meta phase model matches t
 
 test('fan-out siblings share model, effort and schema so they can share the prompt cache prefix', async () => {
   const { agent, calls } = optsRecordingAgent({
-    'find-why-driven-p1': { findings: [finding()], scanned_files: ['SKILL.md'], unreadable: false },
+    'find-why-driven-p1': { findings: [finding(), finding({ file: 'references/a.md' })], scanned_files: ['SKILL.md'], unreadable: false },
   });
   await run('review', agent);
   for (const prefix of ['find-', 'refute-']) {
@@ -790,8 +816,8 @@ test('prompt-audit confidence decides severity; Low and flag never become findin
   const { result } = await run('review', agent);
   assert.deepEqual(JSON.parse(JSON.stringify(result.findings.confirmed.map(f => [f.claim, f.severity]))), [['high one', 'major']]);
   assert.deepEqual(JSON.parse(JSON.stringify(result.findings.reported_minor.map(f => [f.claim, f.severity]))), [['medium one', 'minor']]);
-  const refuted = calls.filter(c => c.opts.label.startsWith('refute-')).map(c => c.opts.label);
-  assert.ok(refuted.every(l => l.startsWith('refute-p1-prompt-audit-1-')));
+  const refuted = new Set(calls.filter(c => c.opts.label.startsWith('refute-')).flatMap(c => batchIds(c.prompt)));
+  assert.deepEqual([...refuted], ['p1-prompt-audit-1']);
 });
 
 test('audit mode runs only the prompt-audit lens and never writes', async () => {
@@ -858,7 +884,8 @@ test('update with audit criteria unavailable still completes only an explicit sk
 test('an owner that omits unchecked_judgments turns every delegated id into a failure', async () => {
   const { agent } = optsRecordingAgent();
   const { result } = await run('review', agent, { scope: 'full' }, {}, {
-    uncheckedItems: [{ id: 'verifier-path', item: 'a' }, { id: 'description-triggers', item: 'b' }],
+    uncheckedItems: [{ id: 'verifier-path', item: 'a', requires_measurement: false },
+      { id: 'description-triggers', item: 'b', requires_measurement: true }],
   });
   assert.deepEqual(Array.from(result.unchecked_failures, f => f.id).sort(),
     ['p1-unchecked-description-triggers', 'p1-unchecked-verifier-path']);
@@ -999,4 +1026,550 @@ test('a refuter that throws degrades to an unverified finding', async () => {
   assert.equal(result.findings.unverified.length, 1);
   assert.equal(result.findings.confirmed.length, 0);
   assert.equal(result.verdict, 'findings');
+});
+
+// ---------------------------------------------------------------- 反証の束（refuter 1 体に複数の指摘）
+
+const MAX_PER_REFUTER = Number(source.match(/const MAX_FINDINGS_PER_REFUTER = (\d+)/)[1]);
+
+test('refuters judge findings on the same file in one batch per perspective and split at the cap', async () => {
+  const sameFile = Array.from({ length: MAX_PER_REFUTER + 1 }, (_, i) => finding({ claim: `same file ${i}` }));
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: {
+      'find-why-driven-p1': sameFile.slice(0, 4),
+      'find-loopholes-p1': [...sameFile.slice(4), finding({ file: 'references/a.md', claim: 'other file' })],
+    },
+  });
+  const { result } = await run('review', agent);
+  const refuters = calls.filter(c => c.label.startsWith('refute-'));
+  const batches = refuters.filter(c => c.label.endsWith('-materiality')).map(c => batchIds(c.prompt));
+  assert.equal(batches.length, 3);
+  assert.ok(batches.every(ids => ids.length <= MAX_PER_REFUTER));
+  assert.deepEqual(batches.map(ids => ids.length).sort(), [1, 1, MAX_PER_REFUTER].sort());
+  assert.equal(refuters.length, batches.length);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.refuter_dispatch.before)), { batches: 3, stage_agents: [3, 0], lost_batches: 0 });
+  assert.equal(result.findings.confirmed.length, MAX_PER_REFUTER + 2);
+  for (const ids of batches) {
+    const files = new Set(ids.map(id => result.findings.confirmed.find(f => f.id === id).file));
+    assert.equal(files.size, 1);
+  }
+});
+
+test('a batch reply that omits an id or repeats it leaves that finding without a vote, never not_refuted', async () => {
+  const findings = [finding({ claim: 'answered' }), finding({ claim: 'omitted' }), finding({ claim: 'duplicated' })];
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('refute-')) {
+      const ids = batchIds(prompt);
+      const verdicts = [];
+      for (const id of ids) {
+        if (id.endsWith('-2')) continue;
+        verdicts.push({ id, verdict: 'not_refuted', reason: 'r' });
+        if (id.endsWith('-3')) verdicts.push({ id, verdict: 'not_refuted', reason: 'again' });
+      }
+      return { verdicts: [...verdicts, { id: 'not-in-batch', verdict: 'refuted', reason: 'stray' }] };
+    }
+    return { findings: opts.label === 'find-why-driven-p1' ? findings : [], scanned_files: ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  const { result } = await run('review', agent);
+  assert.deepEqual(Array.from(result.findings.confirmed, f => f.claim), ['answered']);
+  assert.deepEqual(Array.from(result.findings.unverified, f => f.claim).sort(), ['duplicated', 'omitted']);
+  for (const f of result.findings.unverified) {
+    assert.deepEqual(Array.from(f.missing_perspectives), ['materiality', 'existence', 'alternative']);
+  }
+  const second = calls.filter(c => c.label.includes('-s2-')).map(c => [c.label.split('-').at(-1), batchIds(c.prompt).length]);
+  assert.deepEqual(second, [['existence', 2], ['alternative', 2]]);
+});
+
+test('early settlement stays per finding inside a batch: only the refuted finding goes to the second stage', async () => {
+  const findings = [finding({ claim: 'agreed' }), finding({ claim: 'split' })];
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('refute-')) {
+      const perspective = opts.label.split('-').at(-1);
+      return batchReply(prompt, id => (id.endsWith('-2') && perspective === 'materiality' ? 'refuted' : 'not_refuted'));
+    }
+    return { findings: opts.label === 'find-why-driven-p1' ? findings : [], scanned_files: ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  const { result } = await run('review', agent);
+  const second = calls.filter(c => c.label.includes('-s2-')).map(c => [c.label.split('-').at(-1), batchIds(c.prompt)]);
+  assert.deepEqual(second, [['existence', ['p1-why-driven-2']], ['alternative', ['p1-why-driven-2']]]);
+  const agreed = result.findings.confirmed.find(f => f.claim === 'agreed');
+  const split = result.findings.confirmed.find(f => f.claim === 'split');
+  assert.deepEqual(Array.from(agreed.skipped_perspectives), ['existence', 'alternative']);
+  assert.deepEqual(Array.from(split.skipped_perspectives), []);
+  assert.equal(split.refuted_votes, 1);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [1, 2]);
+});
+
+test('refuter labels stay unique across update rounds', async () => {
+  const { agent, calls } = perRoundAgent([2, 1, 0]);
+  await run('update', agent);
+  const labels = calls.filter(c => c.label.startsWith('refute-')).map(c => c.label);
+  assert.ok(labels.length > 0);
+  assert.equal(new Set(labels).size, labels.length);
+});
+
+// ---------------------------------------------------- 改稿では満たせない委譲項目（requires_measurement）
+
+const MEASURED = [
+  { id: 'verifier-path', item: 'a', requires_measurement: false },
+  { id: 'description-triggers', item: 'b', requires_measurement: true },
+];
+
+function uncheckedAgent(judgmentsFor) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('update-')) {
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'u' };
+    }
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
+    return { findings: [], scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER,
+      unchecked_judgments: opts.label.startsWith('find-best-practices-') ? judgmentsFor(opts.label) : [] };
+  };
+  return { agent, calls };
+}
+
+test('a delegated item that needs measurement does not keep the update loop going', async () => {
+  const { agent, calls } = uncheckedAgent(() => [
+    { id: 'verifier-path', verdict: 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1']);
+  assert.equal(result.verdict, 'applied_to_staging');
+  assert.equal(result.stop_reason, 'resolved');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.unchecked_failures.map(f => [f.location, f.requires_measurement]))),
+    [['機械判定できない項目: description-triggers', true]]);
+});
+
+function uncheckedSentToUpdater(prompt) {
+  const start = prompt.indexOf('[UNCHECKED_FAILURES]:\n') + '[UNCHECKED_FAILURES]:\n'.length;
+  return JSON.parse(prompt.slice(start, prompt.indexOf('\n\n[', start))).map(f => f.location.split(': ')[1]);
+}
+
+// 改稿で満たせる委譲項目は updater に渡す。この模擬 updater は直さないので、渡したうえで動かなければ dried で止まる。
+test('an unjudged measurement item is also excluded from the loop, while a revisable item still loops', async () => {
+  const { agent, calls } = uncheckedAgent(() => [{ id: 'verifier-path', verdict: 'fail', evidence: 'no verifier' }]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  const updaters = calls.filter(c => c.label.startsWith('update-'));
+  assert.deepEqual(updaters.map(c => c.label), ['update-r1', 'update-r2']);
+  for (const c of updaters) assert.deepEqual(uncheckedSentToUpdater(c.prompt), ['verifier-path'], c.label);
+  assert.equal(result.stop_reason, 'dried');
+  const byId = Object.fromEntries(result.unchecked_failures.map(f => [f.location.split(': ')[1], f.requires_measurement]));
+  assert.deepEqual(byId, { 'verifier-path': false, 'description-triggers': true });
+});
+
+test('review stays non-clean when only a measurement item is unmet', async () => {
+  const { agent } = uncheckedAgent(() => [
+    { id: 'verifier-path', verdict: 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  const { result } = await run('review', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.equal(result.verdict, 'findings');
+  assert.equal(result.unchecked_failures.length, 1);
+});
+
+test('uncheckedItems without a boolean requires_measurement are rejected', async () => {
+  await assert.rejects(run('review', async () => null, { scope: 'full' }, {}, { uncheckedItems: [{ id: 'x', item: 'y' }] }),
+    /requires_measurement/);
+  await assert.rejects(run('review', async () => null, { scope: 'full' }, {},
+    { uncheckedItems: [{ id: 'x', item: 'y', requires_measurement: 'yes' }] }), /requires_measurement/);
+});
+
+// --------------------------------------------------------------------------- seedFindings
+
+function seed(overrides = {}) {
+  return { id: 'p1-why-driven-1', category: 'why-driven', file: 'SKILL.md', location: 'L1', claim: 'seeded claim',
+    evidence: 'quoted', severity: 'major', suggested_fix: 'fix', votes: [{ perspective: 'existence' }], ...overrides };
+}
+
+const seeds = (...findings) => ({ seedFindings: { source_run_id: 'wf_audit-1', findings } });
+
+// refuter の票を指摘 id ごとに決め、finder は label ごとの返り値を使う模擬 agent。
+function seedAgent({ votesFor = () => 'not_refuted', findingsByLabel = {}, scannedByLabel = {}, updater } = {}) {
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label, phase: opts.phase });
+    if (opts.label.startsWith('update-')) {
+      if (updater) return updater(opts.label);
+      return { changed_files: [{ path: 'SKILL.md', reason: 'intent', findings_addressed: [] }], out_of_scope_changes: [], summary: 'u' };
+    }
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, id => votesFor(id, opts.phase));
+    return { findings: findingsByLabel[opts.label] || [], scanned_files: scannedByLabel[opts.label] || ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  return { agent, calls };
+}
+
+function confirmedSentToUpdater(prompt) {
+  const start = prompt.indexOf('[CONFIRMED_FINDINGS]:\n') + '[CONFIRMED_FINDINGS]:\n'.length;
+  return JSON.parse(prompt.slice(start, prompt.indexOf('\n\n[', start))).map(f => f.id);
+}
+
+test('seedFindings skip Find but every seed, minor included, goes through Verify; only survivors reach the updater', async () => {
+  const { agent, calls } = seedAgent({ votesFor: id => (id === 'p1-why-driven-3' ? 'refuted' : 'not_refuted') });
+  const { result, phases } = await run('update', agent, { scope: 'full' }, {}, seeds(
+    seed(),
+    seed({ id: 'p1-why-driven-2', claim: 'minor seed', severity: 'minor' }),
+    seed({ id: 'p1-why-driven-3', claim: 'gone since the audit' }),
+  ));
+  assert.ok(!phases.includes('Find'));
+  assert.ok(phases.includes('Verify'));
+  assert.equal(calls.filter(c => c.phase === 'Find').length, 0);
+  const verified = new Set(calls.filter(c => c.phase === 'Verify').flatMap(c => batchIds(c.prompt)));
+  assert.deepEqual([...verified].sort(), ['p1-why-driven-1', 'p1-why-driven-2', 'p1-why-driven-3']);
+  const updater = calls.find(c => c.label === 'update-r1').prompt;
+  assert.deepEqual(confirmedSentToUpdater(updater), ['p1-why-driven-1', 'p1-why-driven-2']);
+  assert.ok(!updater.includes('"votes"'));
+  assert.deepEqual(Array.from(result.findings_before.rejected, f => f.id), ['p1-why-driven-3']);
+  assert.deepEqual(Array.from(result.findings_before.reported_minor), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.seed)), { source_run_id: 'wf_audit-1', count: 3 });
+  assert.equal(result.by_category.before, null);
+  assert.equal(result.skipped_unavailable.before, null);
+  assert.equal(result.declared_only.before, null);
+});
+
+test('an unverified seed is not a confirmed target, and update_failed never reports unrefuted seeds as confirmed', async () => {
+  const { agent, calls } = seedAgent({
+    votesFor: id => (id === 'p1-why-driven-2' ? 'unreadable' : 'not_refuted'),
+    updater: () => { throw new Error('structured output retries exhausted'); },
+  });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed(), seed({ id: 'p1-why-driven-2', claim: 'unreadable seed' })));
+  assert.equal(result.verdict, 'update_failed');
+  assert.deepEqual(Array.from(result.findings.confirmed, f => f.id), ['p1-why-driven-1']);
+  assert.deepEqual(Array.from(result.findings.unverified, f => f.id), ['p1-why-driven-2']);
+  const updater = calls.find(c => c.label === 'update-r1').prompt;
+  assert.deepEqual(confirmedSentToUpdater(updater), ['p1-why-driven-1']);
+  assert.match(updater, /\[UNVERIFIED_FINDINGS\]:[\s\S]*p1-why-driven-2/);
+});
+
+test('seed reconciliation: re-reported seeds stay remaining, minor ones do not loop, unseen ones are unobserved, new ones split by origin', async () => {
+  const reverify = [
+    finding({ claim: 'major seed', present_in_original: true }),
+    finding({ claim: 'minor seed', severity: 'minor', present_in_original: true }),
+    finding({ claim: 'already there', present_in_original: true }),
+    finding({ claim: 'introduced', present_in_original: false }),
+  ];
+  const { agent, calls } = seedAgent({
+    findingsByLabel: { 'find-why-driven-p2r1': reverify, 'find-why-driven-p2r2': reverify },
+  });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(
+    seed({ id: 's-major', claim: 'major seed' }),
+    seed({ id: 's-minor', claim: 'minor seed', severity: 'minor' }),
+    seed({ id: 's-unseen', file: 'references/x.md', claim: 'unseen seed' }),
+    seed({ id: 's-fixed', claim: 'fixed seed' }),
+  ));
+  const claims = bucket => Array.from(result.staging[bucket], f => f.claim).sort();
+  assert.deepEqual(claims('remaining'), ['major seed', 'minor seed']);
+  assert.deepEqual(claims('resolved'), ['fixed seed']);
+  assert.deepEqual(claims('unobserved'), ['unseen seed']);
+  assert.deepEqual(claims('preexisting'), ['already there']);
+  assert.deepEqual(claims('new'), ['introduced']);
+  assert.deepEqual(calls.filter(c => c.label.startsWith('update-')).map(c => c.label), ['update-r1', 'update-r2']);
+  const note = calls.find(c => c.label === 'update-r2').prompt;
+  const unresolved = JSON.parse(note.slice(note.indexOf('[REVISE_NOTE]')).match(/(\{[\s\S]*\})\s*$/)[1]).unresolved.map(f => f.claim).sort();
+  assert.deepEqual(unresolved, ['introduced', 'major seed']);
+  assert.equal(result.stop_reason, 'dried');
+});
+
+test('a seed refuted on recheck lands in refuted_on_recheck, and one refuted in Verify never becomes a baseline', async () => {
+  const { agent } = seedAgent({
+    votesFor: (id, phase) => (phase === 'Reverify' ? 'refuted' : id === 's-gone' ? 'refuted' : 'not_refuted'),
+    findingsByLabel: { 'find-why-driven-p2r1': [finding({ claim: 'kept seed', present_in_original: true })] },
+  });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(
+    seed({ id: 's-kept', claim: 'kept seed' }),
+    seed({ id: 's-gone', claim: 'gone seed' }),
+  ));
+  assert.deepEqual(Array.from(result.staging.refuted_on_recheck, f => f.claim), ['kept seed']);
+  assert.deepEqual(Array.from(result.findings_before.rejected, f => f.id), ['s-gone']);
+  assert.ok(![...result.staging.resolved, ...result.staging.unobserved].some(f => f.claim === 'gone seed'));
+  assert.equal(result.verdict, 'applied_to_staging');
+});
+
+test('a seeded run stopped before the first updater reports delegated items as not judged', async () => {
+  const { agent } = seedAgent();
+  const { result } = await run('update', agent, { scope: 'full' }, { budget: { total: 1, spent: () => 1, remaining: () => 0 } },
+    seeds(seed()));
+  assert.equal(result.stop_reason, 'budget');
+  assert.equal(result.unchecked_failures, null);
+});
+
+test('a seeded run accepts prompt-audit unavailable in Reverify when the caller permits it', async () => {
+  const unavailable = { findings: [], scanned_files: [], unreadable: false, unavailable: true };
+  const { agent } = optsRecordingAgent({ 'find-prompt-audit-p2r1': unavailable });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed()));
+  assert.equal(result.verdict, 'applied_to_staging');
+  assert.deepEqual(Array.from(result.skipped_unavailable.after), ['prompt-audit']);
+});
+
+for (const [name, extra, pattern, target = { scope: 'full' }, mode = 'update'] of [
+  ['outside update', seeds(seed()), /seedFindings/, { scope: 'full' }, 'review'],
+  ['from several runs', { seedFindings: [{ source_run_id: 'a', findings: [seed()] }] }, /1 つの run/],
+  ['without a source run id', { seedFindings: { findings: [seed()] } }, /source_run_id/],
+  ['with no findings', { seedFindings: { source_run_id: 'a', findings: [] } }, /findings が空/],
+  ['with an unknown category', seeds(seed({ category: 'style' })), /FINDERS/],
+  ['with a missing evidence', seeds(seed({ evidence: '' })), /evidence/],
+  ['with a non-string location', seeds(seed({ location: 3 })), /location/],
+  ['with a bad severity', seeds(seed({ severity: 'high' })), /severity/],
+  ['with an absolute file', seeds(seed({ file: '/etc/x' })), /相対パス/],
+  ['with a duplicate id', seeds(seed(), seed({ claim: 'other' })), /重複/],
+  ['with a duplicate finding', seeds(seed(), seed({ id: 'other-id' })), /重複/],
+  ['above the per-lens cap', seeds(...Array.from({ length: 9 }, (_, i) => seed({ id: `s${i}`, claim: `c${i}` }))), /超えて/],
+  ['outside the frozen diff', seeds(seed({ file: 'references/other.md' })), /changed paths/, { scope: 'diff', diffRef: 'main...HEAD' }],
+  ['containing a delegated-item failure',
+    seeds(seed({ id: 'p1-unchecked-verifier-path', category: 'best-practices', requires_measurement: false })), /委譲項目/],
+  ['together with intentScope', seeds(seed()), /同時に/, { scope: 'full', intentScope: { categories: ['why-driven'] } }],
+]) {
+  test(`seedFindings ${name} are rejected before any agent runs`, async () => {
+    let dispatched = 0;
+    await assert.rejects(run(mode, async () => { dispatched++; return null; }, target, {}, extra), pattern);
+    assert.equal(dispatched, 0);
+  });
+}
+
+// --------------------------------------------------------------------------- intentScope
+
+test('intentScope narrows Find to the chosen lenses and files, declares the rest, and Reverify keeps every lens', async () => {
+  const { agent, calls } = scriptedAgent({
+    findingsByLabel: { 'find-why-driven-p1': [finding({ file: 'references/a.md', claim: 'scoped' })] },
+    scannedByLabel: { 'find-why-driven-p1': ['references/a.md'], 'find-loopholes-p1': ['references/a.md'] },
+  });
+  const intentScope = { categories: ['why-driven', 'loopholes'], files: ['references/a.md'] };
+  const { result } = await run('update', agent, { scope: 'full', intentScope });
+  const find = calls.filter(c => c.phase === 'Find').map(c => c.label);
+  assert.deepEqual(find.sort(), ['find-loopholes-p1', 'find-why-driven-p1']);
+  for (const c of calls.filter(c => c.phase === 'Find')) {
+    assert.match(c.prompt, /\[INTENT_SCOPE_FILES\]:\n\[\n  "references\/a\.md"\n\]/);
+  }
+  const reverify = new Set(calls.filter(c => c.phase === 'Reverify' && c.label.startsWith('find-')).map(c => c.label.split('-p2r')[0]));
+  assert.equal(reverify.size, Object.keys(result.by_category.after).length);
+  assert.ok(reverify.size > 2);
+  for (const [lens, value] of Object.entries(result.by_category.before)) {
+    assert.equal(value, ['why-driven', 'loopholes'].includes(lens) ? (lens === 'why-driven' ? 1 : 0) : 'out_of_intent_scope', lens);
+  }
+  assert.deepEqual(Object.keys(result.by_category.before).sort(), Object.keys(result.by_category.after).sort());
+  assert.deepEqual(Array.from(result.unscanned_intent_files), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.target.intentScope)), { categories: ['why-driven', 'loopholes'], files: ['references/a.md'] });
+  assert.match(calls.find(c => c.label === 'update-r1').prompt, /\[INTENT_SCOPE_FILES\]/);
+});
+
+test('intentScope files that no Find lens read stop the run instead of passing with nothing seen', async () => {
+  const { agent, calls } = scriptedAgent({ scannedByLabel: {} });
+  const { result } = await run('update', agent, { scope: 'full', intentScope: { files: ['references/missing.md'] } });
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.deepEqual(Array.from(result.unscanned_intent_files), ['references/missing.md']);
+  assert.equal(calls.filter(c => c.label.startsWith('update-')).length, 0);
+});
+
+test('a Find finding outside intentScope.files makes that lens missing', async () => {
+  const { agent } = scriptedAgent({ findingsByLabel: { 'find-why-driven-p1': [finding({ file: 'SKILL.md' })] } });
+  const { result } = await run('update', agent, { scope: 'full', intentScope: { files: ['references/a.md'] } });
+  assert.equal(result.verdict, 'review_incomplete');
+  assert.equal(result.by_category.before['why-driven'], null);
+});
+
+test('intentScope without the delegated-item lens leaves unchecked_failures unjudged until Reverify', async () => {
+  const { agent } = scriptedAgent({});
+  const { result } = await run('update', agent, { scope: 'full', intentScope: { categories: ['why-driven'] } },
+    { budget: { total: 1, spent: () => 1, remaining: () => 0 } });
+  assert.equal(result.stop_reason, 'budget');
+  assert.equal(result.unchecked_failures, null);
+});
+
+for (const [name, intentScope, pattern, mode = 'update'] of [
+  ['in review', { categories: ['why-driven'] }, /intentScope/, 'review'],
+  ['with an unknown lens', { categories: ['style'] }, /categories/],
+  ['with a repeated lens', { categories: ['why-driven', 'why-driven'] }, /categories/],
+  ['with no keys', {}, /categories か files/],
+  ['with a parent path', { files: ['../other/SKILL.md'] }, /相対パス/],
+  ['with an empty file list', { files: [] }, /files/],
+  ['with a repeated file', { files: ['SKILL.md', './SKILL.md'] }, /重複/],
+]) {
+  test(`intentScope ${name} is rejected`, async () => {
+    await assert.rejects(run(mode, async () => null, { scope: 'full', intentScope }), pattern);
+  });
+}
+
+// native の parallel は落ちた thunk を null で返す。束の行が丸ごと返らなくても、反証に回した指摘を消さない。
+test('a refutation batch whose thunk fails keeps its findings as unverified instead of dropping them', async () => {
+  const dropBatchRows = tasks => hostParallel(tasks)
+    .then(results => results.map(r => (r && Array.isArray(r.rows) ? null : r)));
+  const { agent } = scriptedAgent({
+    findingsByLabel: { 'find-why-driven-p1': [finding({ claim: 'a' }), finding({ claim: 'b', file: 'references/a.md' })] },
+  });
+  const { result } = await run('review', agent, { scope: 'full' }, { parallel: dropBatchRows });
+  assert.equal(result.findings.confirmed.length, 0);
+  assert.deepEqual(Array.from(result.findings.unverified, f => f.claim).sort(), ['a', 'b']);
+  for (const f of result.findings.unverified) {
+    assert.deepEqual(Array.from(f.missing_perspectives), ['materiality', 'existence', 'alternative']);
+    assert.equal(f.valid_votes, 0);
+  }
+  assert.equal(result.verdict, 'findings');
+  assert.equal(result.refuter_dispatch.before.lost_batches, 2);
+});
+
+test('a revisable delegated failure that the revision fixes resolves the loop', async () => {
+  const { agent, calls } = uncheckedAgent(label => [
+    { id: 'verifier-path', verdict: label.endsWith('-p1') ? 'fail' : 'pass', evidence: 'e' },
+    { id: 'description-triggers', verdict: 'unknown', evidence: 'needs evals' },
+  ]);
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.deepEqual(uncheckedSentToUpdater(calls.find(c => c.label === 'update-r1').prompt), ['verifier-path']);
+  assert.equal(result.stop_reason, 'resolved');
+  assert.deepEqual(Array.from(result.unchecked_failures, f => f.requires_measurement), [true]);
+});
+
+test('seeds that are all refuted stop before the updater with seeds_refuted', async () => {
+  const { agent, calls } = seedAgent({ votesFor: () => 'refuted' });
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed(), seed({ id: 's2', claim: 'other' })));
+  assert.equal(calls.filter(c => c.label.startsWith('update-')).length, 0);
+  assert.equal(result.verdict, 'needs_human_decision');
+  assert.equal(result.stop_reason, 'seeds_refuted');
+  assert.equal(result.staging, null);
+  assert.equal(result.findings_before.rejected.length, 2);
+});
+
+test('a blocker gate stop still returns the delegated-item judgments of the Reverify that ran', async () => {
+  const blocker = finding({ file: 'references/x.md', claim: 'blocker claim', severity: 'blocker' });
+  const calls = [];
+  const agent = async (prompt, opts) => {
+    calls.push(opts.label);
+    if (opts.label.startsWith('update-')) {
+      return { changed_files: [{ path: 'SKILL.md', reason: 'u', findings_addressed: [] }], out_of_scope_changes: [], summary: 'u' };
+    }
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, () => 'not_refuted');
+    return {
+      findings: opts.label === 'find-why-driven-p1' ? [blocker] : [],
+      scanned_files: ['SKILL.md'], unreadable: false, audit_header: AUDIT_HEADER,
+      unchecked_judgments: opts.label.startsWith('find-best-practices-')
+        ? [{ id: 'verifier-path', verdict: opts.label.endsWith('-p1') ? 'pass' : 'fail', evidence: 'e' },
+          { id: 'description-triggers', verdict: 'pass', evidence: 'e' }]
+        : [],
+    };
+  };
+  const { result } = await run('update', agent, { scope: 'full' }, {}, { uncheckedItems: MEASURED });
+  assert.equal(result.stop_reason, 'unverified_blocker');
+  assert.deepEqual(Array.from(result.unchecked_failures, f => f.location), ['機械判定できない項目: verifier-path']);
+});
+
+test('Find and Verify agents get the evidence pack; Reverify finders get it only as the original for comparison', async () => {
+  const { agent, calls } = intentMismatchAgent(false, ['find-why-driven-p1', 'find-why-driven-p2r1']);
+  await run('update', agent);
+  const pack = '[EVIDENCE_PACK]: /mock/snapshot/evidence-pack.txt';
+  for (const c of calls.filter(c => c.phase === 'Find' || c.phase === 'Verify')) assert.ok(c.prompt.includes(pack), c.label);
+  for (const c of calls.filter(c => c.phase === 'Reverify')) assert.ok(!c.prompt.includes(pack), c.label);
+  for (const c of calls.filter(c => c.phase === 'Reverify' && c.label.startsWith('find-'))) {
+    assert.ok(c.prompt.includes('[ORIGINAL_EVIDENCE_PACK]: /mock/snapshot/evidence-pack.txt'), c.label);
+  }
+});
+
+test('a snapshot without an evidence pack is rejected before any agent runs', async () => {
+  let dispatched = 0;
+  const snapshot = {
+    version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/mock/snapshot',
+    snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
+    receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+  };
+  await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /evidence pack/);
+  assert.equal(dispatched, 0);
+});
+
+test('a minor seed starts with materiality and existence, and both agreeing settles it without the third lens', async () => {
+  const { agent, calls } = seedAgent();
+  const { result } = await run('update', agent, { scope: 'full' }, {}, seeds(seed({ id: 's-minor', severity: 'minor' })));
+  const verify = calls.filter(c => c.phase === 'Verify').map(c => [c.label.split('-').at(-1), batchIds(c.prompt)]);
+  assert.deepEqual(verify, [['materiality', ['s-minor']], ['existence', ['s-minor']]]);
+  assert.deepEqual(Array.from(result.findings_before.confirmed, f => f.id), ['s-minor']);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [2, 0]);
+});
+
+for (const severity of ['minor', 'major']) {
+  test(`a ${severity} seed whose evidence is gone is not settled by materiality alone and is rejected by the other lenses`, async () => {
+    const { agent, calls } = seedAgent({ votesFor: () => 'not_refuted' });
+    const evidenceGone = async (prompt, opts) => {
+      if (/-(existence|alternative)$/.test(opts.label) && opts.label.startsWith('refute-')) return batchReply(prompt, () => 'refuted');
+      return agent(prompt, opts);
+    };
+    const { result } = await run('update', evidenceGone, { scope: 'full' }, {}, seeds(seed({ id: 's-gone', severity })));
+    assert.ok(calls.some(c => c.label.endsWith('-s1-materiality')));
+    assert.deepEqual(Array.from(result.findings_before.confirmed), []);
+    assert.deepEqual(Array.from(result.findings_before.rejected, f => f.id), ['s-gone']);
+    assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [2, 1]);
+  });
+}
+
+test('a batch mixing a blocker and a major keeps each stage membership and vote with its own finding', async () => {
+  const blocker = finding({ claim: 'blocker one', severity: 'blocker' });
+  const major = finding({ claim: 'major one' });
+  const calls = [];
+  const verdictFor = { 'p1-why-driven-1': { materiality: 'not_refuted', existence: 'not_refuted' },
+    'p1-why-driven-2': { materiality: 'refuted', existence: 'refuted', alternative: 'not_refuted' } };
+  const agent = async (prompt, opts) => {
+    calls.push({ prompt, label: opts.label });
+    if (opts.label.startsWith('refute-')) return batchReply(prompt, id => verdictFor[id][opts.label.split('-').at(-1)]);
+    return { findings: opts.label === 'find-why-driven-p1' ? [blocker, major] : [], scanned_files: ['SKILL.md'],
+      unreadable: false, unchecked_judgments: [], audit_header: AUDIT_HEADER };
+  };
+  const { result } = await run('review', agent);
+  const members = calls.filter(c => c.label.startsWith('refute-')).map(c => [c.label.split('-').slice(-2).join('-'), batchIds(c.prompt)]);
+  assert.deepEqual(members, [
+    ['s1-materiality', ['p1-why-driven-1', 'p1-why-driven-2']],
+    ['s1-existence', ['p1-why-driven-1']],
+    ['s2-existence', ['p1-why-driven-2']],
+    ['s2-alternative', ['p1-why-driven-2']],
+  ]);
+  const confirmed = Object.fromEntries(result.findings.confirmed.map(f => [f.claim, f]));
+  assert.deepEqual(confirmed['blocker one'].votes.map(v => [v.perspective, v.verdict]), [['materiality', 'not_refuted'], ['existence', 'not_refuted']]);
+  assert.deepEqual(Array.from(result.findings.rejected, f => f.claim), ['major one']);
+  assert.deepEqual(result.findings.rejected[0].votes.map(v => [v.perspective, v.verdict]),
+    [['materiality', 'refuted'], ['existence', 'refuted'], ['alternative', 'not_refuted']]);
+  assert.deepEqual(Array.from(result.refuter_dispatch.before.stage_agents), [2, 2]);
+});
+
+test('refuter_dispatch.after keeps one record per Reverify round, and review leaves it null', async () => {
+  const { agent } = perRoundAgent([1, 0]);
+  const { result } = await run('update', agent);
+  assert.deepEqual(Array.from(result.refuter_dispatch.after, r => r.pass), ['p2r1', 'p2r2']);
+  assert.deepEqual(Array.from(result.refuter_dispatch.after[0].stage_agents), [1, 0]);
+  assert.deepEqual(Array.from(result.refuter_dispatch.after[1].stage_agents), [0, 0]);
+  const review = await run('review', scriptedAgent({}).agent);
+  assert.equal(review.result.refuter_dispatch.after, null);
+});
+
+test('an evidence pack path outside the snapshot layout is rejected before any agent runs', async () => {
+  let dispatched = 0;
+  const snapshot = {
+    version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/mock/snapshot',
+    snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
+    receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+    evidencePackPath: '/elsewhere/evidence-pack.txt', evidencePackSha256: 'c'.repeat(64),
+  };
+  await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /evidence pack/);
+  assert.equal(dispatched, 0);
+});
+
+// workflow は review-snapshot.mjs を import できないので layout の名前を写している。写しのずれはここで捕まえる。
+test('the snapshot layout names in the workflow match review-snapshot.mjs', () => {
+  const names = source.match(/const SNAPSHOT_LAYOUT_NAMES = \{ tree: '([^']+)', evidencePack: '([^']+)' \}/);
+  assert.ok(names);
+  assert.deepEqual({ tree: names[1], evidencePack: names[2] }, { tree: SNAPSHOT_LAYOUT.tree, evidencePack: SNAPSHOT_LAYOUT.evidencePack });
+});
+
+test('a snapshot whose root does not hold its tree is rejected even when the pack sits under that root', async () => {
+  let dispatched = 0;
+  const snapshot = {
+    version: 1, status: 'ready', scope: 'full', targetRoot: '/mock/target', snapshotRoot: '/elsewhere',
+    snapshotDir: '/mock/snapshot/tree', manifestPath: '/mock/snapshot/manifest.json', manifestSha256: 'a'.repeat(64),
+    receiptPath: '/mock/snapshot/receipt.json', diffRef: null, diffPath: null, changedPathsPath: null, diffSha256: null, changedPaths: [],
+    evidencePackPath: '/elsewhere/evidence-pack.txt', evidencePackSha256: 'c'.repeat(64),
+  };
+  await assert.rejects(run('review', async () => { dispatched++; return null; }, { scope: 'full' }, {}, { snapshot }), /snapshotDir/);
+  assert.equal(dispatched, 0);
 });

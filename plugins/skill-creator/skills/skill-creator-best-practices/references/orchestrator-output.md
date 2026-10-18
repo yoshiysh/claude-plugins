@@ -15,9 +15,16 @@
 - [description 最適化ループ（任意）](#description-最適化ループ任意)
 - [スキルのパッケージング（任意）](#スキルのパッケージング任意)
 
-Workflow の `verdict` が `passed` 以外の場合は合格として提示しない。いずれも `skill_draft` には
+Workflow の `verdict` が `passed` 以外の場合は合格として提示しない（値の意味は
+`references/schemas.md`「build_skill.js の戻り値」が正本）。いずれも `skill_draft` には
 直近の有効な稿が入っているので、草稿を失うことはない。
 
+- **`pending_measurement`**（意味は `references/schemas.md`「build_skill.js の戻り値」）:
+  合格として提示しない。草稿と評価結果は `passed` と同じ形で示し、下の提示フォーマットの【実測待ちの項目】の行で
+  `pending_measurement` の各項目を「文書を直しても判定は変わらず、実測で確かめる」と名指しする。保存の承認を得て
+  保存したあと、description の発火であれば [description 最適化ループ](#description-最適化ループ任意) で実測する。
+  実測するか、未実測と明示して保存だけで終えるかはユーザーが決める。保存だけで終えるときは、終了の報告に
+  「未実測: <項目>（合格とは確かめていない）」の 1 行を必ず残す。Workflow を回し直さない（改稿しても結果は変わらない）。
 - **`needs_human_decision`**（改稿上限に達しても閾値に届かなかった）: 品質の問題。pass_rate・
   reviewer の失格項目・analyzer の改善提案をそのまま示し、要件・基準まで
   遡るか、この稿で保存するかをユーザーに選んでもらう。
@@ -84,9 +91,9 @@ baseline   平均 pass_rate: Y%
 （評価は固定のモデル・effort で回した値で、ふだん使うモデルでの効果とは限りません）
 
 定性チェック：合格 X項目 / 要確認 Y項目 / 失格 Z項目
-  （失格は `iterations[].review.criteria_checks` の `fail`・`trigger_checks` の
-   `expectation_met: false`・`unchecked_judgments` の未達を script が合算した数。
-   reviewer の `failed[]` の件数ではない）
+実測待ちの項目：<pending_measurement の id。空なら「なし」、null なら「判定していない」>
+  （失格は `iterations[].review_failures` の件数。script が判定フィールドから合算したもので、
+   reviewer の `failed[]` の件数ではない。実測待ちの項目は `pending_measurement` に別に出る）
 
 ### スキル本文
 [SKILL.md の内容]
@@ -182,8 +189,9 @@ python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked
    同梱の `references/prompt-audit.md` を適用する。snapshot の post-run verification が失敗したときは
    監査結果を信頼せず、「監査完了」とは言わない）。
 2. 結果は `references/orchestrator-review.md`「audit の提示フォーマット」で提示する。
-3. 指摘を直すかはユーザーが決める。直すなら audit の指摘を `intent` にして update を呼ぶ
-   （司令塔が保存済みのスキルを手で直さない）。直さないなら、そのまま終える。
+3. 指摘を直すかはユーザーが決める。直すなら audit の指摘を `seedFindings` に逐語でコピーした update を呼ぶ
+   （手順は `references/orchestrator-review.md`「audit の提示フォーマット」。司令塔が保存済みのスキルを手で直さない）。
+   直さないなら、そのまま終える。
 
 ---
 

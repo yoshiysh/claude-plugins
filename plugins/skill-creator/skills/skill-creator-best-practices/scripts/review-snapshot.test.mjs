@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { MAX_FILE_BYTES, createSnapshot, verifySnapshot } from './review-snapshot.mjs';
+import { EVIDENCE_PACK_EXTENSIONS, MAX_FILE_BYTES, createSnapshot, verifySnapshot } from './review-snapshot.mjs';
 
 const run = promisify(execFile);
 
@@ -125,4 +125,51 @@ test('diff scope requires a literal two-endpoint revision range and full scope r
   await fs.mkdir(target);
   await assert.rejects(createSnapshot({ target, scope: 'diff', diffRef: '--output=/tmp/attack' }), /revision range/);
   await assert.rejects(createSnapshot({ target, scope: 'full', diffRef: 'main...HEAD' }), /cannot use --diff-ref/);
+});
+
+test('prepare writes a hash-bound evidence pack with original line numbers and declares the files it left out', async (t) => {
+  const root = await tempDir(t);
+  const target = path.join(root, 'skill');
+  await fs.mkdir(path.join(target, 'references'), { recursive: true });
+  await fs.mkdir(path.join(target, 'scripts'), { recursive: true });
+  await fs.writeFile(path.join(target, 'SKILL.md'), 'first line\nsecond line\n');
+  await fs.writeFile(path.join(target, 'references', 'guide.md'), 'guide\n');
+  await fs.writeFile(path.join(target, 'scripts', 'run.py'), 'print(1)\n');
+  const snapshot = await createSnapshot({ target, scope: 'full' });
+  t.after(() => removeSnapshot(snapshot));
+  assert.deepEqual(EVIDENCE_PACK_EXTENSIONS, ['.md']);
+  assert.equal(snapshot.evidencePackPath, path.join(snapshot.snapshotRoot, 'evidence-pack.txt'));
+  const pack = await fs.readFile(snapshot.evidencePackPath, 'utf8');
+  assert.match(pack, /===== FILE: SKILL\.md =====\n1\| first line\n2\| second line/);
+  assert.match(pack, /===== FILE: references\/guide\.md =====\n1\| guide/);
+  assert.match(pack, /## 入れなかったファイル（1 件[^\n]*\n- scripts\/run\.py/);
+  assert.doesNotMatch(pack, /print\(1\)/);
+  const packLines = pack.split('\n');
+  for (const [name, count] of [['SKILL.md', 2], ['references/guide.md', 1]]) {
+    const [, start, end] = pack.match(new RegExp(`- ${name.replace('.', '\\.')}: 元 ${count} 行 / pack (\\d+)-(\\d+)`)).map(Number);
+    assert.equal(packLines[start - 1], `===== FILE: ${name} =====`, name);
+    assert.equal(end - start, count, name);
+    assert.match(packLines[end - 1], new RegExp(`^${count}\\| `), name);
+  }
+  const manifest = JSON.parse(await fs.readFile(snapshot.manifestPath, 'utf8'));
+  assert.equal(manifest.evidencePack.sha256, snapshot.evidencePackSha256);
+  assert.deepEqual(manifest.evidencePack.excludedFiles, ['scripts/run.py']);
+  assert.equal((await verifySnapshot(snapshot.receiptPath)).status, 'verified');
+  await fs.chmod(snapshot.evidencePackPath, 0o600);
+  await fs.appendFile(snapshot.evidencePackPath, 'tampered\n');
+  await assert.rejects(verifySnapshot(snapshot.receiptPath), /evidence pack drifted/);
+});
+
+test('verify rejects a receipt whose evidence pack fields disagree with the manifest', async (t) => {
+  const root = await tempDir(t);
+  const target = path.join(root, 'skill');
+  await fs.mkdir(target, { recursive: true });
+  await fs.writeFile(path.join(target, 'SKILL.md'), 'skill\n');
+  const snapshot = await createSnapshot({ target, scope: 'full' });
+  t.after(() => removeSnapshot(snapshot));
+  await fs.chmod(snapshot.snapshotRoot, 0o700);
+  await fs.chmod(snapshot.receiptPath, 0o600);
+  const receipt = JSON.parse(await fs.readFile(snapshot.receiptPath, 'utf8'));
+  await fs.writeFile(snapshot.receiptPath, JSON.stringify({ ...receipt, evidencePackSha256: 'f'.repeat(64) }));
+  await assert.rejects(verifySnapshot(snapshot.receiptPath), /disagree on the evidence pack/);
 });

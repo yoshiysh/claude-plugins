@@ -106,7 +106,7 @@ Snapshot verify（司令塔が script を実行。verified 以外なら結果を
 Snapshot prepare → selector（review と同じ）
 
 Workflow を呼ぶ（/skill-creator:skill-creator-review）
-  Find → Verify → Update → Reverify
+  Find → Verify → Update → Reverify（先行 run の指摘を seedFindings で渡すと Find を省き、その指摘を Verify にかける）
 
 Snapshot verify（review と同じ）
 
@@ -118,7 +118,7 @@ Snapshot verify（review と同じ）
 戻り値の意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が持つ。ここに再掲しない
 （script と散文の二重管理は必ずズレる）。audit は同じ Workflow を mode `audit` で呼び、同梱の
 `references/prompt-audit.md` に照らす prompt-audit の観点 1 つだけで回す。review / audit は対象スキルを書き換えず、
-audit の指摘を直すならそれを intent にして update を呼ぶ。
+audit の指摘を直すなら、ユーザーが選んだ指摘を `seedFindings` にコピーした update を呼ぶ（Find を走らせ直さない）。
 
 review と改稿の間に人間ゲートは置かない。本体ファイルは承認まで書き換えないため、途中で止める必要が無い。
 
@@ -152,6 +152,8 @@ review と改稿の間に人間ゲートは置かない。本体ファイルは�
 | 変更範囲が複数のスキルにまたがる | スキルごとに対象を分け、1 スキルずつ別の実行にする。どれから回すかを 1 回で聞き返す |
 | 未コミットの変更を見てほしい（`HEAD~1` のような 1 点指定も含む） | snapshot はコミット 2 点の範囲しか凍結できない。コミットしてから範囲を指定するか、`full` で見るかを聞き返す。scope を勝手に `full` へ切り替えない |
 | `update` の変更意図が対象スキルの外（plugin の `workflows/*.js`・`plugin.json`・README 等）の変更を要する | staging は対象スキルのミラーなので、外側は update で直せない。外側の部分は update の範囲外と伝え、スキル内の部分だけを変更意図にする |
+| `update` の変更意図が、先行する 1 つの review / audit の指摘を直すこと | どの指摘を直すかは**ユーザーが選ぶ**（司令塔は選ばない。選び方次第で改稿の範囲が決まるため）。選ばれた指摘をその run の戻り値から `seedFindings` に加工せずコピーする（Find を走らせ直すと、頼まれていない指摘まで確定して改稿が広がる）。コピー元・`source_run_id`・形は schemas.md の caller input が正本。複数の run の指摘は update を分ける |
+| `update` の変更意図が自由文で、直す観点やファイルが依頼から読み取れる | `target.intentScope` に観点（`FINDERS` の id）とファイルを選んで渡す。読み取れなければ渡さない（全観点・全体で回る）。値の形は schemas.md の caller input |
 
 ### 実パスの解決手順
 
@@ -228,26 +230,8 @@ writer・reviewer のプロンプトへ注入され、writer は `references/<�
 ペルソナ説明文を役割ごとに入れる（未指定の役割は script 側で「要件から自分で置く」旨の
 指示に落ちる）。
 
-完了すると以下が返る：
-
-```
-{
-  task_type, architecture, workflow_script, script_review,
-  criteria, structure: { plan, attempts, unresolved, review },
-  skill_draft, test_cases, iterations[], final, revisions_used, verdict
-}
-```
-
-`verdict` は次の 6 値（下 2 つは `architecture: "workflow"` のときだけ出る）。
-
-| verdict | 意味 |
-|---|---|
-| `passed` | 全テストケースが採点され、reviewer も応答し、delta が `DELTA_THRESHOLD` 以上かつ失格 0 件 |
-| `needs_human_decision` | 評価は揃ったが、改稿上限に達しても閾値に届かなかった（品質の問題） |
-| `evaluation_incomplete` | 採点 agent か reviewer が応答せず、合否を判定できなかった（品質とは無関係）。workflow では reviewer 欠測のみが該当 |
-| `revision_failed` | 改稿 agent が応答しなかった |
-| `script_rejected` | **workflow のみ**。評価は通ったが script-reviewer が失格項目を挙げた |
-| `script_review_incomplete` | **workflow のみ**。script-reviewer が応答せず、script を検証できなかった |
+戻り値のフィールドと `verdict` の値・意味は [schemas.md の build_skill.js の戻り値](references/schemas.md#build_skilljs-の戻り値) が正本。
+verdict ごとに司令塔がどう扱うかは `references/orchestrator-output.md` の冒頭。
 
 `architecture: "workflow"` を渡すと、writer は SKILL.md に加えて `scripts/<name>.js` を生成し、
 script-reviewer（別 context）がそれを検査する。合否は **reviewer（基準充足）＋ script-reviewer** で決まり、
@@ -313,11 +297,13 @@ Workflow({
       skillPath: "<対象スキルの実パス>",
       scope: "full | diff",
       diffRef: "<scope=diff のときの git 範囲指定。例 main...HEAD>",
-      focus: "<任意。Issue 本文・見てほしい観点>"
+      focus: "<任意。Issue 本文・見てほしい観点>",
+      intentScope: <任意・update のみ。seedFindings を渡さないとき Find を絞る観点とファイル。形は schemas.md>
     },
     snapshot: <review-snapshot.mjs prepare が返す JSON object 全体>,
     uncheckedItems: <`python3 [SKILL_DIR]/scripts/quick_validate.py --emit-unchecked` の出力をそのまま。review/update では必須、audit では渡さない>,
     intent: "<update のときの変更意図。update では必須>",
+    seedFindings: <任意・update のみ。先行する 1 つの run の指摘をコピーした { source_run_id, findings }。形は schemas.md>,
     promptAuditExpected: true,
     stagingDir: "<任意。省略時の既定は script が決める（対象スキルの兄弟ディレクトリ）>"
   }
@@ -329,7 +315,8 @@ Workflow({
 Codex runner の update では `stagingDir` を渡さない。host policy が staging を束縛する（根拠は互換契約「review / update / audit mapping」）。
 `target.scope` が `diff` なのに `target.diffRef` が無い、`mode: "update"` なのに `intent` が無い、`promptAuditExpected` が真偽値でない、review/update で `uncheckedItems` が無いか形式が不正、
 audit なのに `uncheckedItems` を渡した（audit は委譲項目を判定する観点を走らせない）、
-snapshot の target / scope が一致しないか selector の receipt hash 検証に失敗した場合、script / route は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
+snapshot の target / scope が一致しないか selector の receipt hash 検証に失敗した場合、`seedFindings` / `target.intentScope` が
+schemas.md の caller input（[seedFindings](references/schemas.md#caller-input-seedfindingsupdate-のみ任意) / [target.intentScope](references/schemas.md#caller-input-targetintentscopeupdate-のみ任意)）の条件に合わない場合、script / route は起動直後に落ちる。対象も範囲も定まらないレビューが「結果」として返らないように。
 
 改稿の打ち切りは進捗条件と安全上限で決まる。出口は戻り値の `stop_reason` の値で区別され、値は
 [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本。
@@ -359,7 +346,7 @@ plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点�
 | verdict | 司令塔の振る舞い |
 |---|---|
 | `applied_to_staging` | `references/orchestrator-review.md` の「提示の原則」と update の提示フォーマットに従い、全バケットと staging の指紋を提示して、反映してよいか確認する（updater へ戻す重さの規則は script の `REVISE_SEVERITIES` が正本） |
-| `needs_human_decision` | どの出口で止まったかを `stop_reason` で言う（値と意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本）。残った指摘を severity ごと提示し、staging があれば残して判断を仰ぐ（改稿前に止まった場合は `staging` が `null`）。自動反映しない。人間が反映を望んでもこの staging は適用せず、残った指摘を変更意図にした update を回し直す（適用できる verdict は `references/orchestrator-review.md`「承認後の適用手順」が正本） |
+| `needs_human_decision` | どの出口で止まったかを `stop_reason` で言う（値と意味は [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が正本）。残った指摘を severity ごと提示し、staging があれば残して判断を仰ぐ（改稿前に止まった場合は `staging` が `null`）。自動反映しない。人間が反映を望んでもこの staging は適用せず、`seedFindings` を渡した update を回し直す（コピー元は schemas.md の caller input「seedFindings」、適用できる verdict は `references/orchestrator-review.md`「承認後の適用手順」が正本） |
 | `update_failed` | 改稿 agent が応答しなかったと伝える。**書き込みの有無は不明**なので `staging.dir` を示して確認を促す |
 | `reverify_incomplete` | staging には書かれたが再検証が揃わなかったと伝える。「直った」とは読ませない |
 | `review_incomplete` | 改稿前に観点が欠けたため**改稿していない**と伝える。部分的な指摘から書き換えるより止まる方が安全 |
@@ -399,7 +386,7 @@ plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点�
 ### review / audit / update
 
 - **入力**：対象スキルの実パス、範囲（`full` か `diff` + git の範囲指定）、任意の焦点（Issue 本文・観点）。
-  update はこれに変更意図（必須）と、任意で staging の出力先が加わる
+  update はこれに変更意図（必須）と、任意で先行 run の指摘（`seedFindings`）・範囲（`target.intentScope`）・staging の出力先が加わる
 - **出力**：各フィールドの意味・取りうる値・mode ごとの固定値は
   [schemas.md の戻り値](references/schemas.md#review_skilljs-の戻り値) が唯一の正本（ここに写さない）。
   司令塔が提示に使うのは次のフィールドで、並べ方は `references/orchestrator-review.md` の提示フォーマットが持つ。
@@ -407,7 +394,7 @@ plugin の `workflows/review_skill.js` が持つ。** ここに数値や観点�
 | mode | 提示に使うフィールド |
 |---|---|
 | review / audit | `verdict` / `findings`（`confirmed` `rejected` `unverified` `reported_minor`）/ `unchecked_failures` / `by_category.before` / `skipped_unavailable.before` / `declared_only.before`（audit） |
-| update | 上に加えて `stop_reason` / `findings_source` / `findings_before` / `by_category.after` / `staging`（`dir` `changed_files` と突き合わせの各バケット・`reverify_scope`）/ `reverify_missing` / `revisions_used` |
+| update | 上に加えて `stop_reason` / `seed` / `target.intentScope` / `unscanned_intent_files` / `findings_source` / `findings_before` / `by_category.after` / `staging`（`dir` `changed_files` と突き合わせの各バケット・`reverify_scope`）/ `reverify_missing` / `revisions_used` |
 
 ## ユーザーへの話し方
 
