@@ -132,8 +132,8 @@ create・update は、対象スキルの役ごとの制限について、配布�
 
 | 配布先 | 確かめ方 | 確かめられなかった制限 |
 |---|---|---|
-| Claude Code | 確かめない。plugin から読み込む agent で無視される設定の一覧は Claude Code 公式 docs「Create custom subagents」にあり、判定基準の写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）に入る文書が一覧を持たない間は、PR-BPDESIGNEDSKILL-014 の判定の単位（設計方針文書「権限」の表の最後の行を含む）を「未検査」とし、適合とも不適合ともしてはならない（TBD-SBPCONFORMANCE-005。create・update の合否を妨げない：`docs/specifications/bp-authoring.md` の用語「強いられた未検査」） | 役ごとの制限の全て |
-| Codex runner | 確かめない。runner は agent ごとの道具の許可を持たず、権限は全ての呼び出しに一律に効く（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md` の Codex SDK backend と workspace の節） | 役ごとの制限の全て |
+| Claude Code | 確かめない。plugin から読み込む agent で無視される設定の一覧は Claude Code 公式 docs「Create custom subagents」にあり、判定基準の写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）に入る文書が一覧を持たない間は、PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の判定の単位のうち設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014）を「未検査」とし、適合とも不適合ともしてはならない（TBD-SBPCONFORMANCE-005。create・update の合否を妨げない：`docs/specifications/bp-authoring.md` の用語「強いられた未検査」） | 役ごとの制限の全て |
+| Codex runner | 確かめない。runner は agent ごとの道具の許可を持たず、権限は全ての呼び出しに一律に効く（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`。道具の許可を持たないことは Explicit live execution の節の tool allowlists の段落と Deliberate gaps / rollout gate の節、権限の一律は Explicit writable and isolated checkouts の節） | 役ごとの制限の全て |
 
 #### SP-BPCONFORMANCE-020 確かめられなかった制限の報告
 SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・update は「残る危険」として結果に載せなければならない。載せる項目は、役の名前・制限の中身・配布先・確かめられなかった理由の 4 つである。結果の中のどこに載せるかは、`docs/specifications/bp-authoring.md` の完了時の出力を正とする。
@@ -144,6 +144,9 @@ SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・up
 
 #### SP-BPCONFORMANCE-021 起動数の上限の受け取り
 対象スキルの Workflow script は、起動数の上限を、省略できる入力（`args` の 1 項目）として受け取らなければならない。値は 1 以上の整数とする。項目の綴りは対象スキルが決め、SKILL.md の Workflow callsite の契約に書かなければならない。項目が無いときは、上限を渡されなかったものとして扱う。
+
+#### SP-BPCONFORMANCE-037 起動数の上限の入力が不正なとき
+起動数の上限の項目に 1 以上の整数でない値が渡されたとき、対象スキルの script は、`docs/specifications/bp-run.md` の SP-BPRUN-037 のとおり止まらなければならない。反すれば PR-BPDESIGNEDSKILL-016 を不適合とする。
 
 #### SP-BPCONFORMANCE-022 上限を渡された run の起動数
 起動数の上限を渡された run で、script は、項目を、最後まで走らせても上限を超えないと確かめられるときだけ始めなければならない（項目は同時に走る（SP-BPCONFORMANCE-027）ので、呼び終えた数だけで確かめると、同時に始めた項目どうしの残りの呼び出しが合わさって上限を超える）。項目の処理の外で呼ぶ役（計画役・集約・完了の照合など）も、呼ぶ前に同じく確かめる。確かめは、script が定数から決定的に行う。
@@ -204,7 +207,7 @@ SP-BPCONFORMANCE-023 で止まった run から再開した run は、`docs/spec
 探索グラフ型で、1 run の周は 5 周以下でなければならない（依頼者の裁定）。5 周目の終わりで完了していなければ、反復の上限で止まる。
 
 #### SP-BPCONFORMANCE-031 同じ意図の試行の上限
-探索グラフ型での同じ意図の試行と、それ以外の形で fan-out の項目の工程が結果を返さなかったときに同じ項目を起動し直す試行は、どちらも最初の 1 回を含めて 3 回以下でなければならない（出所は SP-BPCONFORMANCE-028 と同じ。どちらも 1 つの課題を自動で続行する回数に当たる）。3 回とも工程の欠けになった意図・項目は打ち切る。best-practices 自身の項目への当て方は `docs/specifications/bp-run.md` の SP-BPRUN-028 を正とする。試行の回数は run の外の状態に持ち、再開しても数え直してはならない。
+探索グラフ型での同じ意図の試行と、それ以外の形で fan-out の項目の工程が結果を返さなかったときに同じ項目を起動し直す試行は、どちらも最初の 1 回を含めて 3 回以下でなければならない（出所は SP-BPCONFORMANCE-028 と同じ。どちらも 1 つの課題を自動で続行する回数に当たる）。3 回とも工程の欠けになった意図・項目は打ち切る。best-practices 自身の項目への当て方は `docs/specifications/bp-run.md` の SP-BPRUN-028 を、fan-out でない段の agent の結果が拒否されたときの起動し直しへの当て方は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-034 を正とする。試行の回数は run の外の状態に持ち、再開しても数え直してはならない。
 
 #### SP-BPCONFORMANCE-032 乾きの定義と乾き停止
 乾きは、設計方針文書「用語」の節の「乾き」の定義を、本書の確定した定義として採る。乾き停止の K は 2 とする（K ≥ 2 の最小。設計方針文書「停止」の表の docs の例と同じ）。2 周連続の乾きで、読まれていないヒントが無いときに乾きで止まる。同じ方向の再確認の意図（設計方針文書「計画役」の表の「見つからなかった」の行）は、1 つの方向につき 1 回までとする（K = 2 の 2 周の間に再確認が 1 回収まる）。
@@ -234,9 +237,6 @@ best-practices 自身の役には、設計方針文書の役ごとの表と SP-B
 ## エラー処理と異常系
 
 本書の機能に固有の異常系だけを置く。agent の失敗・続けられない失敗・途中終了は `docs/specifications/bp-run.md` を正とする。
-
-#### SP-BPCONFORMANCE-037 起動数の上限の入力が不正なとき
-起動数の上限の項目に 1 以上の整数でない値が渡されたとき、対象スキルの script は、`docs/specifications/bp-run.md` の SP-BPRUN-037 のとおり止まらなければならない。反すれば PR-BPDESIGNEDSKILL-016 を不適合とする。
 
 #### SP-BPCONFORMANCE-038 判定の単位を判定できないとき
 判定の単位に当たる記述が対象スキルに見つからず、適合とも不適合とも決められないとき、判定する者は、その単位に理由を付けて「未検査」を付けなければならない（SP-BPCONFORMANCE-018）。「適合」としてはならない。

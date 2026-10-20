@@ -120,7 +120,7 @@ review・update・audit の run を起動する前に、入口は、CLI に対�
 前の機能が create・update のときにパスの一覧を作り直すのは、update が全体を作り直してよく（PR-BPOPERATIONS-018）、create・update の run の後に自分の plugin の workflow script が増減していることがあるからである。review・audit は対象スキルを書き換えないので、一覧を引き継ぐ。create・update の指摘を修正の根拠として渡さないのは、修正の根拠の形が review・audit の指摘と利用者の指示の 2 つだけだからである（SP-BPFINDINGS-031）。修正の根拠が 0 件になった update の扱いは `docs/specifications/bp-authoring.md` に従う。
 
 #### SP-BPENTRY-010 結果を書き換えずに渡す
-入口は、前の run の返り値から次の run へ渡す指摘の一覧とパスの一覧を、返り値のまま渡さなければならない。入口は、指摘を要約・言い換え・並べ替えしてはならず、状態（open・dismissed）や観点で絞ってもならない（絞るのは SP-BPFINDINGS-031）。利用者の修正の指示は、依頼の文言をそのまま渡さなければならない。
+入口は、前の run の返り値から次の run へ渡す指摘の一覧を、返り値のまま渡さなければならない（パスの一覧は SP-BPENTRY-009 の判定表に従う）。入口は、指摘を要約・言い換え・並べ替えしてはならず、状態（open・dismissed）や観点で絞ってもならない（絞るのは SP-BPFINDINGS-031）。利用者の修正の指示は、依頼の文言をそのまま渡さなければならない。
 
 #### SP-BPENTRY-011 当たる機能が無い依頼
 依頼の全ての部分が SP-BPENTRY-003 で「当たる機能が無い」になったとき、入口は run を 1 つも起動してはならず、当たる機能が無いことを利用者に返さなければならない（SP-BPENTRY-021）。
@@ -183,7 +183,7 @@ Codex runner の経路で、callsite は request に次を書かなければな�
 |---|---|
 | `limits.maxAgents` | 省略してはならない。値は TBD-SBPENTRY-001 |
 | `limits.timeoutMs` | 値は TBD-SBPENTRY-001 |
-| `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（対応が無いと、役ごとの model の指定が Codex で効かない：SP-BPRUN-023）。対応させる Codex の model は TBD-SBPENTRY-001 |
+| `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（全ての `agent()` が model を明示する（SP-BPRUN-023）ので、対応が欠けると、runner はその名前を使う最初の `agent()` を dispatch する前に例外を投げ、run 全体が失敗する：`scripts/runtime/models.mjs` の 27〜28 行、runtime README の Explicit live execution の節）。対応させる Codex の model は TBD-SBPENTRY-001 |
 | workspace の mode と `requirements` | 4 機能とも書き込みのできる mode にし、`requirements` にその mode に合う capability を宣言する。review・audit も運搬役が作業場所の状態を CLI で書く（SP-BPRUN-008）。runner の既定は読み取りだけで、`requirements` は run の作成前に照合される（runtime README の Explicit live execution の節）。host に `updatePolicy`・`updateContract` を書かない（SP-BPENTRY-024） |
 
 `limits.maxAgents` の値が決まるまで（TBD-SBPENTRY-001）、callsite は `limits.maxAgents` を省略した request で起動してはならない（runner の既定の `limits.maxAgents` は、開始と停止の運搬役だけで使い切る数であり、SP-BPRUN-021 の最小の起動数に満たないので、run が必ず BLOCKED になる）。
@@ -205,7 +205,7 @@ SP-BPENTRY-024 の前提のために、`plugins/workflow/skills/dynamic-workflow
 | リポジトリ直下の `tests/` の、上の分岐と項目を前提にするテスト（`dynamic-workflow-adapter.test.mjs`・`skill-creator-workflow-meta.test.mjs`・`workflow-callers.test.mjs`。どれも上の grep に当たる） | 外した分岐に合わせて直すか消す |
 | 今の skill-creator の caller が runner に渡す `updatePolicy`・`updateContract` の扱い（`plugins/skill-creator/` の中） | 新しい best-practices と同じ変更で置き換える（分岐を外した runner は、この項目を未知の項目として拒否する） |
 
-変更の後に、runner の skill の中とリポジトリ直下の `tests/` で、上の grep に当たる箇所が 0 件であることを確かめる。
+変更の後に、runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で、上の grep に当たる箇所が 0 件であることを確かめる。
 
 runner の `requirements` の照合と workspace の mode（runtime README の Explicit writable and isolated checkouts の節）は変えない。best-practices の update が対象スキルに書けるのは、SP-BPENTRY-016 の workspace の mode による。
 
@@ -246,13 +246,15 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 
 ## 検証方法
 
-各仕様項目は、次の 3 つの手段のどれかで確かめる。項目ごとの手段と測るものは、トレーサビリティ表の検証方法の列に置く。
+各仕様項目は、次の手段のどれかで確かめる。項目ごとの手段と測るものは、トレーサビリティ表の検証方法の列に置く。
 
 | 手段 | 中身 |
 |---|---|
 | 振り分けの eval | 依頼文の fixture ごとに、期待する機能の列・当たらなかった部分・run を起動しないことを用意し、入口が作る機能の列と照らす |
 | 静的な照合 | SKILL.md の本文を読み、callsite の経路の選び方・入力の項目・起動数の上限の有無・request の項目を照らす |
 | 連鎖の結合テスト | agent を模擬の backend に置き換えた run の返り値を入口に渡し、次の run の入力・起動の有無・利用者への返り値を照らす（Codex runner の runtime は模擬の backend でのテストを持つ：runtime README の Install and verify without inference の節） |
+| CLI の単体テスト | `docs/specifications/bp-run.md` の「検証方法」の同名の手段 |
+| runner のテストの実行 | SP-BPENTRY-025 の変更を入れた runner について、runner の skill の中のテストとリポジトリ直下の `tests/` のテストを模擬の backend で走らせ、結果を照らす（runtime README の Install and verify without inference の節） |
 
 ## TBD の宣言
 
@@ -260,7 +262,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 
 | TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
 |---|---|---|---|---|
-| TBD-SBPENTRY-001 | Codex runner の request の `limits.maxAgents` と `limits.timeoutMs` の値と、`modelMap` で SP-BPCONFORMANCE-035 の各 `model` に対応させる Codex の model | 値の出所が入力に無い。runner は Claude の model と Codex の model の対応を何も含意しない（runtime README の `modelMap` の段落）。Claude 側の `model` と `effort` は SP-BPCONFORMANCE-035 で決まっている | false | 決まるまで、callsite は `limits.maxAgents` を省略した request で起動してはならない（SP-BPENTRY-016）。`limits.timeoutMs` と `modelMap` も request から省いて runner の既定に任せてはならない（既定の 60 秒と既定の model は、best-practices の run に合わせて決めた値ではない） |
+| TBD-SBPENTRY-001 | Codex runner の request の `limits.maxAgents` と `limits.timeoutMs` の値と、`modelMap` で SP-BPCONFORMANCE-035 の各 `model` に対応させる Codex の model | 値の出所が入力に無い。runner は Claude の model と Codex の model の対応を何も含意しない（runtime README の `modelMap` の段落）。Claude 側の `model` と `effort` は SP-BPCONFORMANCE-035 で決まっている | false | 決まるまで、callsite は `limits.maxAgents` を省略した request で起動してはならない（SP-BPENTRY-016）。`limits.timeoutMs` も request から省いて runner の既定に任せてはならない（既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。`modelMap` を省いてはならず、SP-BPCONFORMANCE-035 の `model` の名前を 1 つも欠いてはならない（model を明示する `agent()` には runner の既定の model が使われず、対応の無い名前で run が失敗する：SP-BPENTRY-016） |
 | TBD-SBPENTRY-002 | callsite が best-practices の Workflow に渡す入力の項目の綴り（起動数の上限の項目を含む） | 綴りは最初の実装でテストとともに決めると、上位文書（`docs/requirements/bp-operations.md`・設計方針文書「水準と未決事項」）が定めている | false | 決まるまで、入力の項目の意味と有無を SP-BPENTRY-013 の表から変えてはならない。綴りを決めるときは、script の定数と SKILL.md の callsite の契約を同じ変更で揃える |
 | TBD-SBPENTRY-003 | 変更（SP-BPENTRY-025）の入っていない runner を callsite が見分ける手段と、見分けたときに入口が利用者へ返すもの | runner の変更の有無を caller が知る手段が、runtime README に書かれていない | false | 決まるまで、best-practices は SP-BPENTRY-025 の変更と同じ変更で配布し、変更の入っていない runner と組み合わせて配布してはならない（見分けられないまま起動すると、runner が update の run を失敗させる：SP-BPENTRY-024） |
 
@@ -302,4 +304,4 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-014 | 静的な照合（native Workflow が道具の一覧にあれば native の経路を 1 回だけ選ぶ） | 未着手 |
 | PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-015 | 連鎖の結合テスト（native Workflow の経路で、最初の起動と再開の起動のどちらにも上限が渡らない） | 未着手 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-024 | 連鎖の結合テスト（模擬の backend の Codex runner で、update の run が `updatePolicy`・`updateContract` の無い host で起動でき、対象スキルに書ける） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-025 | 静的な照合（runner の skill の中で SP-BPENTRY-025 の grep が 0 件）と runner のテストの実行（`meta.name` が `skill-creator-review` で `args.mode` が `update` の source が、他の source と同じ条件で動く） | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-025 | 静的な照合（runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で SP-BPENTRY-025 の grep が 0 件）と runner のテストの実行（`meta.name` が `skill-creator-review` で `args.mode` が `update` の source が、他の source と同じ条件で動く） | 未着手 |

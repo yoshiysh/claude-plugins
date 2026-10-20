@@ -43,7 +43,7 @@
 | 現在の run | 状態に最後に開始を記録した run |
 | 作業場所 | 状態と作業ファイルを置く場所。状態 ID ごとに 1 つ |
 | 前提 | 状態に書く入力。固定した目標、update の修正の根拠、needs_input への利用者の回答を指す。検証役による受理を通さない（設計方針文書「目標の固定」：生成した主張ではなく入力だから） |
-| 修正の根拠の記録 ID | update の修正の根拠を前提に書いたときに、CLI の「前提の追記」が根拠ごとに返す記録の ID（SP-BPRUN-004）。利用者の指示は指摘 ID を持たない（SP-BPFINDINGS-031）ので、根拠を指すときはこの ID を使う |
+| 修正の根拠の記録 ID | update の修正の根拠を前提に書いたときに、最初の run の開始の操作（SP-BPRUN-003・SP-BPRUN-004）が根拠ごとに返す記録の ID。利用者の指示は指摘 ID を持たない（SP-BPFINDINGS-031）ので、根拠を指すときはこの ID を使う |
 | 起動数 | 1 つの run の中で script が `agent()` を呼んだ回数。呼んだ形を問わず（fan-out・pipeline の工程・until-pass の繰り返し・回収役・運搬役を含む）、結果が null になった呼び出しも 1 回に数える。対象スキルの起動数も同じ数え方とする |
 | 起動数の上限 | best-practices 自身の Workflow が入力として受け取る、1 run の起動数の上限（PR-BPDESIGNEDSKILL-016 の上限を best-practices 自身に当てたもの） |
 | 未着手の項目 | 段の項目のうち、結果が状態に書かれていないもの。起動数の上限で起動しなかった項目と、起動したが結果が書かれる前に run が終わった項目を含む。打ち切った項目と、破棄した未着手の項目は含まない |
@@ -67,9 +67,9 @@ best-practices は、create・review・update・audit のそれぞれを別の W
 best-practices の Workflow script は、run の途中で人間の承認・回答を待つ手順を持ってはならない。待たれる入力が要ると判断した時点で、script は needs_input で止まらなければならない（SP-BPRUN-011）。この規則は create と、create と同じ処理を行う update（PR-BPOPERATIONS-017）に当てる。
 
 #### SP-BPRUN-003 run の開始
-script は、run の最初の起動として運搬役を起動し、CLI に run の開始を記録させなければならない。
+script は、run の最初の起動として運搬役を起動し、CLI に run の開始を記録させなければならない。ただし、script が入力の値だけで行う確かめ（SP-BPRUN-037、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029 の「agent の起動の前」の行）に当たったときは、運搬役も起動せずに止まる。
 
-- 入力に状態 ID が無いとき: CLI は、まず入力を確かめる（create・update は `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029、review・audit は `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）。当たれば、状態と作業場所を作らずに理由を返す。当たらなければ、状態と作業場所を新しく作り、状態 ID と run ID を発行する。create の依頼文と update の修正の根拠は、状態を作るのと同じ 1 回の書き込みで状態に書く（分けると、その間で止まった run を再開したとき、再開の入力に無い依頼文と修正の根拠が状態にも無い）。
+- 入力に状態 ID が無いとき: CLI は、まず入力を確かめる。CLI の開始の操作が確かめるのは、create・update では SP-BPAUTHORING-029 の「開始の操作」の行、review・audit では `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026 だけとする。当たれば、状態と作業場所を作らずに理由を返す。当たらなければ、状態と作業場所を新しく作り、状態 ID と run ID を発行する。create の依頼文と update の修正の根拠は、状態を作るのと同じ 1 回の書き込みで状態に書く（分けると、その間で止まった run を再開したとき、再開の入力に無い依頼文と修正の根拠が状態にも無い）。
 - 入力に状態 ID があるとき（再開）: CLI はその状態に新しい run ID を登録し、その run を現在の run にする。
 
 運搬役は、CLI が返す状態 ID・run ID・状態の要約を、script へ逐語で写して運ばなければならない（設計方針文書「状態の書き込み」）。
@@ -92,14 +92,14 @@ script は、run の最初の起動として運搬役を起動し、CLI に run 
 
 | 記録 | 中身 |
 |---|---|
-| 機能と対象スキル | 機能の名前、対象スキルのパスの一覧。一覧は取り直すたびに足し、最後の記録を今の一覧とする |
+| 機能と対象スキル | 機能の名前、対象スキルのパスの一覧。一覧は取り直すたびに足し、最後の記録を今の一覧とする。取り直しで解決できなかった callsite は、その一覧の記録とともに書く（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015） |
 | 依頼文 | create の依頼文の逐語（SP-BPRUN-003、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-003） |
 | 作り直す前の写し | update の写しを置いた作業場所の中のパスと、写しの各ファイルの内容の指紋（SP-BPAUTHORING-004）。写しの本体は作業場所に置く |
 | run | run ID、起動数、停止の記録の有無 |
 | 前提 | SP-BPRUN-004 の 3 つ |
 | 段の進み | 始めた段、終えた段、止まった段 |
 | 段ごとの繰り返しの回数 | 段の名前ごとの until-pass の繰り返しの回数の累計と、各 run の開始時の値。段の項目の ID が変わっても段ごとに引き継ぐ（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-007）。繰り返しの上限は、現在の run の開始時の累計からの増分に当てる（理由は SP-BPRUN-013 と同じ） |
-| 項目 | 段ごとの項目の ID と列挙の順、結果が書かれたか、試行の回数、打ち切りの印と理由 |
+| 項目 | 段ごとの項目の ID と列挙の順、結果が書かれたか（create・update の合否の段では結果の中身も：`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-023）、試行の回数、打ち切りの印と理由 |
 | 未着手の項目 | 順位付きの一覧（SP-BPRUN-020） |
 | 破棄した未着手の項目 | 項目の ID と、破棄した run の ID（SP-BPRUN-015） |
 | 反復の回数 | 累計と、各 run の開始時の値（SP-BPRUN-013） |
@@ -149,14 +149,14 @@ best-practices の run が書き込む先は、次の判定表に従わなけれ
 対象スキルの範囲は `docs/requirements/bp-operations.md` の用語「対象スキル」に従う。
 
 #### SP-BPRUN-009 書いたファイルの記録
-書き手は、書いたファイルと消したファイルのパスを結果として返さなければならない。script は、そのパスを、書いたか消したかの印とともに、運搬役に書いたファイルの一覧として状態へ書かせなければならない。検証の結果が出たら、script は各ファイルが検証を通ったかを同じ一覧に追記させなければならない。
+書き手は、書いたファイルと消したファイルのパスを結果として返さなければならない。script は、そのパスのうち対象スキルのパスの一覧の中のもの（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015）を、書いたか消したかの印とともに、運搬役に書いたファイルの一覧として状態へ書かせなければならない。検証の結果が出たら、script は各ファイルが検証を通ったかを同じ一覧に追記させなければならない。
 
 #### SP-BPRUN-038 段の開始と項目の列挙
 script は、段を始めるたびに、運搬役を通じて CLI に、段を始めたことと段の項目の一覧を状態へ書かせなければならない（書かないと、停止の記録を書かずに終わった run から再開したとき、止まった段と未着手の項目が状態から決まらない：SP-BPRUN-018）。項目を持たない段も、段を始めたことを書く。
 
 CLI は、項目の ID を、段の名前、機能の文書が区別させる回（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-036）、項目の鍵（機能の段の表の「項目」の列が定める単位を、状態にある ID の組で表したもの）から決定的に作らなければならない。同じ入力からは同じ ID を作る（再開で同じ段を列挙し直しても、結果のある項目を同じ ID で見分けるため）。ID に含める値の表し方と形は TBD-SBPRUN-001 で決める。
 
-CLI は、項目の ID の一覧を、機能の文書が定める順位の順（`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-016・SP-BPINSPECTION-018 など）で返し、その順を状態に書かなければならない。同じ段で同じ項目の鍵を 2 回以上列挙したときは、1 つの項目にまとめる。同じ鍵をまとめる規則は本項だけに置く（反証の段の項目は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012）。
+CLI は、項目の ID の一覧を、機能の文書が定める順位の順（review・audit は `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-016・SP-BPINSPECTION-018、create・update は `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-041、消えた資産の照合の段は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-020）で返し、その順を状態に書かなければならない。同じ段で同じ項目の鍵を 2 回以上列挙したときは、1 つの項目にまとめる。同じ鍵をまとめる規則は本項だけに置く（反証の段の項目は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012）。
 
 ### 停止
 
@@ -189,7 +189,7 @@ run が止まるとき、script は運搬役に、次の項目を停止の記録
 - 止まった段
 - 未着手の項目の順位付きの一覧
 - その run の起動数
-- create・update では、書いたファイルの一覧のうち検証を通っていないもの
+- create・update では、書いたファイルの一覧のうち検証を通っていないものと、書き手が返した一覧の外のパス（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015・SP-BPAUTHORING-031）
 
 script は、停止の記録が書かれたことを CLI の出力で確かめてから、返り値（SP-BPRUN-032）を返さなければならない。運搬役か CLI が失敗して停止の記録を書けないときは SP-BPRUN-027 に従う。状態に書かずに止まるとき（SP-BPRUN-037、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）は、停止の記録を書かない。
 
@@ -462,7 +462,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 |---|---|---|---|
 | PR-BPOPERATIONS-006 | SP-BPRUN-001 | script の模擬実行（1 つの run が 1 つの機能だけを実行する） | 未着手 |
 | PR-BPOPERATIONS-006 | SP-BPRUN-002 | 静的な照合（入力を待つ手順が無い）と script の模擬実行（入力の不足で needs_input を返す） | 未着手 |
-| PR-BPOPERATIONS-006 | SP-BPRUN-003 | script の模擬実行（最初の起動が開始の運搬役である） | 未着手 |
+| PR-BPOPERATIONS-006 | SP-BPRUN-003 | script の模擬実行（値だけの確かめに当たらない入力で、最初の起動が開始の運搬役である。依頼文が空の create、修正の根拠が 0 件の update、不正な上限、最小の起動数に満たない上限では、運搬役も起動しない） | 未着手 |
 | PR-BPOPERATIONS-006 | SP-BPRUN-014 | CLI の単体テスト（完了した状態への開始を拒否する） | 未着手 |
 | PR-BPOPERATIONS-006 | SP-BPRUN-017 | CLI の単体テスト（現在でない run の書き込みを拒否し、状態が変わらない） | 未着手 |
 | PR-BPOPERATIONS-005 | SP-BPRUN-002 | script の模擬実行（目標の固定に要る回答が無いとき needs_input と理由を返す） | 未着手 |

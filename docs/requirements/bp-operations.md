@@ -20,7 +20,7 @@
 | 設計方針文書 | `docs/design/skill-design-patterns.md`。スキルを multi-agent の Workflow として設計するときの方針 |
 | 対象スキル | create が作るスキル、または review・update・audit が扱う既存のスキル。スキルのディレクトリと、そのスキルが呼ぶ自分の plugin の workflow script からなる |
 | 修正の根拠 | update に渡す、review の指摘・audit の指摘・利用者の修正の指示 |
-| best-practices の仕様書 | 本文書と `docs/requirements/bp-designed-skill.md` を実現する手段を定める仕様書。本文書の後に作る |
+| best-practices の仕様書 | 本文書と `docs/requirements/bp-designed-skill.md` を実現する手段を定める仕様書（`docs/specifications/bp-*.md`） |
 | 現行の prompt-audit | 現行の best-practices スキルが持つ監査の観点の基準（`plugins/skill-creator/skills/skill-creator-best-practices/references/prompt-audit.md`） |
 | 資産・指摘・カバレッジ・skip 一覧 | 設計方針文書の「資産台帳」の節が定める意味で使う |
 | 形・探索グラフ型 | 設計方針文書の「用語」の節が定める意味で使う（選び方は同文書の「形の判定」の節） |

@@ -10,7 +10,7 @@
 | `docs/specifications/elicitation.md` | 未確定事項の抽出と問いの生成 | 依頼文などの入力から確定・未確定・保留の事項を区分し、着手を止める論点についてのみ問いを作る条件と、回答・無回答・論点の変化を受けたときの区分の付け替えを定める仕様書。 |
 | `docs/specifications/authoring.md` | 生成文書そのものの記述規律 | 生成される要求文書・仕様書そのものの記述仕様（分量・章構成・要求文と仕様項目の書き方・ID 体系・トレーサビリティ表・未確定事項の書式・ファイル配置と INDEX・状態とイベントの記述・外部規格への言及）を定める仕様書。 |
 | `docs/specifications/verification.md` | 生成文書の検査と改稿の反復 | 生成された文書一式に対する検査の観点と実施単位、指摘を受けた改稿、検査と改稿の反復の上限（2 往復）、検査記録の保持と引き渡し、未実施の検査を指摘 0 件と区別して扱う規律を定める仕様書。 |
-| `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜040／40 件） |
+| `docs/specifications/bp-authoring.md` | 仕様書: create と update の流れ | 対象スキルと run の入力／段の並び／目標の固定／書く／検証／合否／停止／エラー処理と異常系／外部インタフェース（SP-BPAUTHORING-001〜041／41 件） |
 | `docs/specifications/bp-conformance.md` | 仕様書: 対象スキルが備える性質の判定基準と、対象スキルに課す確定値 | 判定の当て方／形の判定／資産台帳／形に関わる原則／配布先での確認／fan-out の起動数の上限／性能・容量（対象スキルに課す確定値）／エラー処理と異常系（SP-BPCONFORMANCE-001〜038／38 件） |
 | `docs/specifications/bp-entry.md` | 仕様書: 依頼の振り分け・機能の連鎖・Workflow callsite | 振り分け／連鎖／Workflow callsite／エラー処理と異常系／外部インタフェース（SP-BPENTRY-001〜025／25 件） |
 | `docs/specifications/bp-findings.md` | 仕様書: 指摘と資産台帳 | 台帳と資産／結果の結び付き／反証／指摘の状態／カバレッジと skip 一覧／run をまたぐ指摘の扱い／指摘の形／エラー処理と異常系（SP-BPFINDINGS-001〜037／37 件） |
@@ -242,6 +242,7 @@
 | SP-BPAUTHORING-039 | 契約の変化の返し方 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-040 | 既存の振る舞いの判定 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-020 | 1 回の反復の中の検証の順 | `docs/specifications/bp-authoring.md` |
+| SP-BPAUTHORING-041 | fan-out の項目の順位 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-021 | 判定の単位の結果 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-022 | 指摘による合否 | `docs/specifications/bp-authoring.md` |
 | SP-BPAUTHORING-023 | 反復の合否 | `docs/specifications/bp-authoring.md` |
@@ -278,6 +279,7 @@
 | SP-BPCONFORMANCE-019 | 役ごとの制限の確かめ方 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-020 | 確かめられなかった制限の報告 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-021 | 起動数の上限の受け取り | `docs/specifications/bp-conformance.md` |
+| SP-BPCONFORMANCE-037 | 起動数の上限の入力が不正なとき | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-022 | 上限を渡された run の起動数 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-023 | 上限に収まらない項目 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-024 | 残した項目からの再開 | `docs/specifications/bp-conformance.md` |
@@ -293,7 +295,6 @@
 | SP-BPCONFORMANCE-034 | 実行役の時間の上限 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-035 | 役ごとのモデルと effort の初期値 | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-036 | 確定値の置き方 | `docs/specifications/bp-conformance.md` |
-| SP-BPCONFORMANCE-037 | 起動数の上限の入力が不正なとき | `docs/specifications/bp-conformance.md` |
 | SP-BPCONFORMANCE-038 | 判定の単位を判定できないとき | `docs/specifications/bp-conformance.md` |
 | SP-BPENTRY-001 | 4 機能の入口 | `docs/specifications/bp-entry.md` |
 | SP-BPENTRY-002 | 振り分けを行う場所 | `docs/specifications/bp-entry.md` |
