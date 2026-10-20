@@ -374,7 +374,7 @@ flowchart TD
 本書が決めるのは原則と初期値まで。「（暫定）」の印を付けた規則と値、CLI の形とキー・ID の作り方は、最初の実装でテストとともに決め、本書へ書き戻す。
 
 未決事項：
-- Codex runner との互換：本書は fan-out の件数に上限を置かないので、起動前に体数の上限を計算できず、runner はこの fan-out を拒否する。runner でどう動かすかは決まっていない
+- Codex runner との互換：裁定済み。fan-out を含むスキルは 1 run の起動数の上限を入力として受け取れるようにし、Codex runner で起動するときだけ、上限を 1 run の agent の総数の上限として渡す。Claude Code の native Workflow では渡さない（`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-016・017・019〜023）
 - 指摘の状態を run をまたいで resolved / regressed まで追うか。ゲートつきの課題のように run が分かれる場合も含む
 
 ## 出所
