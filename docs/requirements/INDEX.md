@@ -9,6 +9,8 @@
 | `docs/requirements/requester.md` | 生成の工程（依頼者とのやり取り） | 依頼者から見たシステムの振る舞いに関する要求文書。起動時の対象判定と実行基盤の確認、問いかけと「決まっていない」回答の扱い、保存前の提示と承認、根拠として読み取ってよい入力の範囲、中断時の扱いを定め、迷う判定の共通規則を 2 件にまとめている。 |
 | `docs/requirements/consumer.md` | 生成物（引き渡す文書一式）の性質 | 後続作業者（実装・テスト設計を行う AI）へ引き渡す生成文書一式が備えるべき性質を、完成の判定条件と依頼文の 5 つの語（戻りなく・不具合なく・精度高く・迷いなく・ぶれない）の分解として 29 件の要求で置く。読み手が AI であることに由来する記述規律と、要求文書・仕様書の分量の決まり方も扱う。 |
 | `docs/requirements/cleanup.md` | ブランチ整理と作業場所の同期（cleanup-branches） | 利用者から見た cleanup-branches の振る舞いに関する要求文書。取り込み済みの判定と確認なしの削除、判断が要る対象の 1 回の問いと承認された対象の削除、作業状態の提示、起点ブランチへの同期と作業用ブランチの作成、後処理、完了報告を定め、承認なしに失わないものと削除の対象から外すブランチを置いている。 |
+| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／配布先での確認（PR-BPDESIGNEDSKILL-001〜018／18 件） |
+| `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜046／46 件） |
 
 ## 要求一覧
 
@@ -150,6 +152,70 @@
 | PR-CLEANUP-062 | 完了報告の項目 | `docs/requirements/cleanup.md` |
 | PR-CLEANUP-073 | 作業状態の件数の時点 | `docs/requirements/cleanup.md` |
 | PR-CLEANUP-063 | 残したものの明示 | `docs/requirements/cleanup.md` |
+| PR-BPDESIGNEDSKILL-001 | 形の判定の順序 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-002 | 選んだ形を強いた条件の記録 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-003 | Workflow にしない判定 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-004 | 部品による組み立て | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-005 | 資産台帳の適用条件を満たすとき | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-018 | 資産台帳の適用条件を満たさないとき | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-006 | 目標の固定 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-007 | 停止・再開と人間の入力 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-008 | 体数と同時実行 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-009 | モデル・effort・prompt | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-010 | 権限 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-011 | 探索グラフ | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-012 | 状態の書き込み | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-013 | 資産台帳の原則 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-014 | 役ごとの制限の実効性の確認 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-015 | 確かめられなかった制限の報告 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-016 | Codex での完了報告（保持規則） | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-017 | Codex で動くかの報告（保持規則） | `docs/requirements/bp-designed-skill.md` |
+| PR-BPOPERATIONS-001 | 4 機能の提供 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-002 | 1 つの機能への振り分け | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-038 | 複数の機能にまたがる依頼 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-039 | どの機能にも当たらない依頼 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-003 | 目標の固定 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-004 | 依頼文に無い目標の禁止 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-005 | 待たれる入力の不足 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-006 | run の中で入力を待たない | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-007 | 1 回で解ける課題と探索グラフ型 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-008 | 設計方針への適合 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-037 | create が書き換える範囲 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-009 | 生成と別の context での検証 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-010 | 検証を通るまでの完了の扱い | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-011 | 書き直しの許容 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-012 | 検証を通らずに止まるとき | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-013 | 続けられない失敗 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-014 | create の完了時の出力 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-015 | update の入力 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-016 | 修正の根拠を出発点にする | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-017 | create と同じ処理 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-018 | 全体の作り直しの許容 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-019 | 既存の振る舞いの判定 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-020 | 書き換える範囲 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-021 | run の中での指摘の追跡 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-044 | 指摘の追跡の原則 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-022 | 前の run の指摘の状態（保持規則） | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-042 | 報告する指摘の状態（保持規則） | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-023 | update の完了時の出力 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-045 | update の完了時の指摘の状態 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-046 | update の完了時の skip 一覧 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-040 | 途中で止まったときの書いたファイル | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-041 | 途中で止まったときの報告 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-024 | フローの観点 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-025 | 仕様の観点 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-026 | 仕様書が無いとき | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-027 | audit の対象 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-028 | 監査の観点の引き継ぎ | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-029 | 監査の流れ | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-030 | 対象を書き換えない | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-031 | 指摘の反証 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-032 | 指摘の状態 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-043 | dismissed の指摘の扱い | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-033 | 資産への結び付け | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-034 | カバレッジと skip 一覧 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-035 | 見ていない資産の扱い | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-036 | update への受け渡し | `docs/requirements/bp-operations.md` |
 
 ## 関連する仕様文書
 
@@ -158,6 +224,8 @@
 | `docs/requirements/requester.md` | `docs/specifications/flow.md` / `docs/specifications/elicitation.md` / `docs/specifications/authoring.md` / `docs/specifications/verification.md` |
 | `docs/requirements/consumer.md` | `docs/specifications/flow.md` / `docs/specifications/elicitation.md` / `docs/specifications/authoring.md` / `docs/specifications/verification.md` |
 | `docs/requirements/cleanup.md` | （対応する仕様文書なし） |
+| `docs/requirements/bp-designed-skill.md` | （対応する仕様文書なし） |
+| `docs/requirements/bp-operations.md` | （対応する仕様文書なし） |
 
 ## 未解決（着手を止める未確定事項）
 
@@ -222,4 +290,4 @@
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 74 件
+- 実現する仕様項目が無い要求: 138 件
