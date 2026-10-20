@@ -9,7 +9,7 @@
 | `docs/requirements/requester.md` | 生成の工程（依頼者とのやり取り） | 依頼者から見たシステムの振る舞いに関する要求文書。起動時の対象判定と実行基盤の確認、問いかけと「決まっていない」回答の扱い、保存前の提示と承認、根拠として読み取ってよい入力の範囲、中断時の扱いを定め、迷う判定の共通規則を 2 件にまとめている。 |
 | `docs/requirements/consumer.md` | 生成物（引き渡す文書一式）の性質 | 後続作業者（実装・テスト設計を行う AI）へ引き渡す生成文書一式が備えるべき性質を、完成の判定条件と依頼文の 5 つの語（戻りなく・不具合なく・精度高く・迷いなく・ぶれない）の分解として 29 件の要求で置く。読み手が AI であることに由来する記述規律と、要求文書・仕様書の分量の決まり方も扱う。 |
 | `docs/requirements/cleanup.md` | ブランチ整理と作業場所の同期（cleanup-branches） | 利用者から見た cleanup-branches の振る舞いに関する要求文書。取り込み済みの判定と確認なしの削除、判断が要る対象の 1 回の問いと承認された対象の削除、作業状態の提示、起点ブランチへの同期と作業用ブランチの作成、後処理、完了報告を定め、承認なしに失わないものと削除の対象から外すブランチを置いている。 |
-| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／配布先での確認（PR-BPDESIGNEDSKILL-001〜018／18 件） |
+| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／配布先での確認（PR-BPDESIGNEDSKILL-001〜023／23 件） |
 | `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜046／46 件） |
 
 ## 要求一覧
@@ -168,8 +168,13 @@
 | PR-BPDESIGNEDSKILL-013 | 資産台帳の原則 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-014 | 役ごとの制限の実効性の確認 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-015 | 確かめられなかった制限の報告 | `docs/requirements/bp-designed-skill.md` |
-| PR-BPDESIGNEDSKILL-016 | Codex での完了報告（保持規則） | `docs/requirements/bp-designed-skill.md` |
-| PR-BPDESIGNEDSKILL-017 | Codex で動くかの報告（保持規則） | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-016 | 起動数の上限の受け取り | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-017 | 上限を渡された run の起動数 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-019 | 上限に収まらない項目 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-020 | 残した項目からの再開 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-021 | 上限を渡されない run | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-022 | Codex runner での起動 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-023 | Claude Code の native Workflow での起動 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPOPERATIONS-001 | 4 機能の提供 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-002 | 1 つの機能への振り分け | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-038 | 複数の機能にまたがる依頼 | `docs/requirements/bp-operations.md` |
@@ -224,8 +229,8 @@
 | `docs/requirements/requester.md` | `docs/specifications/flow.md` / `docs/specifications/elicitation.md` / `docs/specifications/authoring.md` / `docs/specifications/verification.md` |
 | `docs/requirements/consumer.md` | `docs/specifications/flow.md` / `docs/specifications/elicitation.md` / `docs/specifications/authoring.md` / `docs/specifications/verification.md` |
 | `docs/requirements/cleanup.md` | （対応する仕様文書なし） |
-| `docs/requirements/bp-designed-skill.md` | （対応する仕様文書なし） |
-| `docs/requirements/bp-operations.md` | （対応する仕様文書なし） |
+| `docs/requirements/bp-designed-skill.md` | `docs/specifications/bp-authoring.md` / `docs/specifications/bp-conformance.md` / `docs/specifications/bp-entry.md` / `docs/specifications/bp-run.md` |
+| `docs/requirements/bp-operations.md` | `docs/specifications/bp-authoring.md` / `docs/specifications/bp-conformance.md` / `docs/specifications/bp-entry.md` / `docs/specifications/bp-findings.md` / `docs/specifications/bp-inspection.md` / `docs/specifications/bp-run.md` |
 
 ## 未解決（着手を止める未確定事項）
 
@@ -290,4 +295,4 @@
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 138 件
+- 実現する仕様項目が無い要求: 74 件

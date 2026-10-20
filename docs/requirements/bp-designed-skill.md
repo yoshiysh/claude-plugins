@@ -26,7 +26,7 @@ create と update が作るスキルが設計方針文書に沿っているか�
 
 スコープ: 対象スキルが設計方針文書に適合するための性質。
 
-スコープ外: 設計方針文書が未決事項とする論点の裁定（Codex runner での実行方法、run をまたぐ指摘の追跡）。裁定が下るまでの扱いは保持規則として置く（Codex runner での実行方法は本文書の PR-BPDESIGNEDSKILL-016・017、run をまたぐ指摘の追跡は `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-022・042）。
+スコープ外: 設計方針文書が未決事項とする論点のうち、run をまたぐ指摘の追跡の裁定。裁定が下るまでの扱いは保持規則として `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-022・042 に置く。もう一つの未決事項である Codex runner での実行方法は依頼者が裁定済みで、本文書の PR-BPDESIGNEDSKILL-016・017・019〜023 が定める。
 
 ## 前提と依存
 
@@ -97,8 +97,23 @@ create と update は、対象スキルの役ごとの制限が配布先で実�
 #### PR-BPDESIGNEDSKILL-015 確かめられなかった制限の報告
 create と update は、配布先で効くかを確かめられなかった役ごとの制限を、残る危険として結果に書かなければならない。
 
-#### PR-BPDESIGNEDSKILL-016 Codex での完了報告（保持規則）
-Codex runner での実行方法の裁定が下るまで、create と update は、件数に上限を置かない fan-out を含む対象スキルを、Codex で動くものとして完了を報告してはならない。
+#### PR-BPDESIGNEDSKILL-016 起動数の上限の受け取り
+対象スキルの Workflow script が fan-out を含む場合、対象スキルは、1 run で起動する agent の数の上限を入力として受け取れなければならない（Codex runner は 1 run の agent 呼び出しの総数に上限を課し、超えると run 全体が失敗する。出所は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`）。
 
-#### PR-BPDESIGNEDSKILL-017 Codex で動くかの報告（保持規則）
-Codex runner での実行方法の裁定が下るまで、create と update は、件数に上限を置かない fan-out を含む対象スキルについて、Codex runner で動くかが決まっていないことを、残る危険として結果に書かなければならない。
+#### PR-BPDESIGNEDSKILL-017 上限を渡された run の起動数
+起動数の上限を渡されたとき、対象スキルは、その run で起動する agent の数を上限以下に収めなければならない。
+
+#### PR-BPDESIGNEDSKILL-019 上限に収まらない項目
+起動数の上限を渡された run で、上限に収まらず処理していない fan-out の項目が残るとき、対象スキルは、その項目を順位付きの未着手として状態に残して止まらなければならない（切り捨てると、見ていない項目が「見た」と読まれる）。
+
+#### PR-BPDESIGNEDSKILL-020 残した項目からの再開
+PR-BPDESIGNEDSKILL-019 で止まった run から再開したとき、対象スキルは、状態に残した未着手の項目から処理を続けなければならない。
+
+#### PR-BPDESIGNEDSKILL-021 上限を渡されない run
+起動数の上限を渡されないとき、対象スキルは、fan-out の項目の件数にも、1 run で起動する agent の数にも、固定の上限を置いてはならない（起動数の固定の上限とは、入力に依らず対象スキルが決め打ちする件数をいう。件数を決め打ちすると、PR-BPDESIGNEDSKILL-008 が参照する原則に反する。反復・周・試行の上限はこの要求の対象外とする）。
+
+#### PR-BPDESIGNEDSKILL-022 Codex runner での起動
+対象スキルの Workflow script が fan-out を含む場合、対象スキルは、自分の Workflow を Codex runner で起動するとき、起動数の上限を渡さなければならない。
+
+#### PR-BPDESIGNEDSKILL-023 Claude Code の native Workflow での起動
+対象スキルの Workflow script が fan-out を含む場合、対象スキルは、自分の Workflow を Claude Code の native Workflow で起動するとき、起動数の上限を渡してはならない。
