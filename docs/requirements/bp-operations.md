@@ -21,7 +21,7 @@
 | 対象スキル | create が作るスキル、または review・update・audit が扱う既存のスキル。スキルのディレクトリと、そのスキルが呼ぶ自分の plugin の workflow script からなる |
 | 修正の根拠 | update に渡す、review の指摘・audit の指摘・利用者の修正の指示 |
 | best-practices の仕様書 | 本文書と `docs/requirements/bp-designed-skill.md` を実現する手段を定める仕様書。本文書の後に作る |
-| 現行の prompt-audit | 現行の best-practices スキルが持つ監査の手順（`plugins/skill-creator/skills/skill-creator-best-practices/references/prompt-audit.md`） |
+| 現行の prompt-audit | 現行の best-practices スキルが持つ監査の観点の基準（`plugins/skill-creator/skills/skill-creator-best-practices/references/prompt-audit.md`） |
 | 資産・指摘・カバレッジ・skip 一覧 | 設計方針文書の「資産台帳」の節が定める意味で使う |
 | 形・探索グラフ型 | 設計方針文書の「用語」の節が定める意味で使う（選び方は同文書の「形の判定」の節） |
 | needs_input・BLOCKED | 設計方針文書の「用語」の節が定める停止の種類。needs_input は人間の入力を待って止まったこと、BLOCKED は失敗して続けられずに止まったことを指す |
@@ -126,7 +126,7 @@ create は、書いたスキルが検証を通るまで、そのスキルを完�
 続けられない失敗が起きたならば、create は BLOCKED と理由を返して止まらなければならない（理由が残らないと、どこから再開すればよいかが分からない）。
 
 #### PR-BPOPERATIONS-014 create の完了時の出力
-create が完了したとき、create は作ったスキル・スキルの設計の説明・検証の結果を返さなければならない（完了の主張を利用者が検証の結果に照らして確かめられるようにするため）。
+create が完了したとき、create は作ったスキル・スキルの設計の説明・検証の結果を返さなければならない（完了の主張を利用者が検証の結果に照らして確かめられるようにするため）。指摘の状態と skip 一覧は PR-BPOPERATIONS-045・046 が定める。
 
 ### update
 
@@ -148,12 +148,6 @@ update は、修正の根拠が触れない既存の振る舞いが保たれた�
 #### PR-BPOPERATIONS-020 書き換える範囲
 update は、対象スキルの外にあるファイルを書き換えてはならない（書き換えは取り消せない操作なので、頼まれた対象の外へ広げない）。
 
-#### PR-BPOPERATIONS-021 run の中での指摘の追跡
-update の run の中で対象スキルを書き換えたとき、update は、その run の中で付けた指摘を resolved（直った）/ regressed（再発した）まで追わなければならない（追わないと、直った指摘と再発した指摘を区別できない）。
-
-#### PR-BPOPERATIONS-044 指摘の追跡の原則
-update は、run の中での指摘の追跡を、設計方針文書の「資産台帳」の節の原則に従って行わなければならない。
-
 #### PR-BPOPERATIONS-022 前の run の指摘の状態（保持規則）
 指摘の状態を run をまたいで追うかの裁定が下るまで、update は、入力に受け取った前の run の指摘を resolved / regressed として報告してはならない。
 
@@ -161,21 +155,27 @@ update は、run の中での指摘の追跡を、設計方針文書の「資産
 指摘の状態を run をまたいで追うかの裁定が下るまで、update は、指摘の状態として、update の run の中で付けた状態だけを報告しなければならない。
 
 #### PR-BPOPERATIONS-023 update の完了時の出力
-update が完了したとき、update は直したスキルと検証の結果を返さなければならない。
-
-#### PR-BPOPERATIONS-045 update の完了時の指摘の状態
-update が完了したとき、update は、update の run の中で付けた指摘ごとの状態を返さなければならない。
-
-#### PR-BPOPERATIONS-046 update の完了時の skip 一覧
-update が完了したとき、update は skip 一覧を返さなければならない（見ていない箇所が「問題なし」と読まれないようにするため）。
+update が完了したとき、update は直したスキルと検証の結果を返さなければならない。指摘の状態と skip 一覧は PR-BPOPERATIONS-045・046 が定める。
 
 ### create と update に共通
+
+#### PR-BPOPERATIONS-021 run の中での指摘の追跡
+create と update の run の中で対象スキルを書き換えたとき、create と update は、その run の中で付けた指摘を resolved（直った）/ regressed（再発した）まで追わなければならない（追わないと、直った指摘と再発した指摘を区別できない）。
+
+#### PR-BPOPERATIONS-044 指摘の追跡の原則
+create と update は、run の中での指摘の追跡を、設計方針文書の「資産台帳」の節の原則に従って行わなければならない。
+
+#### PR-BPOPERATIONS-045 完了時の指摘の状態
+create と update が完了したとき、create と update は、その run の中で付けた指摘ごとの状態を返さなければならない。
+
+#### PR-BPOPERATIONS-046 完了時の skip 一覧
+create と update が完了したとき、create と update は skip 一覧を返さなければならない（見ていない箇所が「問題なし」と読まれないようにするため）。
 
 #### PR-BPOPERATIONS-040 途中で止まったときの書いたファイル
 完了の前に止まったならば、create と update は、それまでに書いたファイルを残さなければならない（戻すかどうかは利用者が決める）。
 
 #### PR-BPOPERATIONS-041 途中で止まったときの報告
-完了の前に止まったならば、create と update は、書いたファイルが未検証であることと、止まった理由を報告しなければならない。
+完了の前に止まったならば、create と update は、書いたファイルが検証を通っていないことと、止まった理由を報告しなければならない。
 
 ### review
 
@@ -197,7 +197,7 @@ audit は、既存のスキルを対象にしなければならない。
 audit は、現行の prompt-audit が定める監査の観点を引き継がなければならない。
 
 #### PR-BPOPERATIONS-029 監査の流れ
-audit は、監査の流れを、現行の prompt-audit の流れではなく設計方針文書に沿って組まなければならない（4 機能を同じ設計方針に揃えるため）。
+audit は、監査の流れを、現行の best-practices スキルが行う監査の流れではなく設計方針文書に沿って組まなければならない（4 機能を同じ設計方針に揃えるため）。
 
 ### review と audit に共通
 

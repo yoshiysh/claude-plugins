@@ -193,13 +193,13 @@
 | PR-BPOPERATIONS-018 | 全体の作り直しの許容 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-019 | 既存の振る舞いの判定 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-020 | 書き換える範囲 | `docs/requirements/bp-operations.md` |
-| PR-BPOPERATIONS-021 | run の中での指摘の追跡 | `docs/requirements/bp-operations.md` |
-| PR-BPOPERATIONS-044 | 指摘の追跡の原則 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-022 | 前の run の指摘の状態（保持規則） | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-042 | 報告する指摘の状態（保持規則） | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-023 | update の完了時の出力 | `docs/requirements/bp-operations.md` |
-| PR-BPOPERATIONS-045 | update の完了時の指摘の状態 | `docs/requirements/bp-operations.md` |
-| PR-BPOPERATIONS-046 | update の完了時の skip 一覧 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-021 | run の中での指摘の追跡 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-044 | 指摘の追跡の原則 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-045 | 完了時の指摘の状態 | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-046 | 完了時の skip 一覧 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-040 | 途中で止まったときの書いたファイル | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-041 | 途中で止まったときの報告 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-024 | フローの観点 | `docs/requirements/bp-operations.md` |
