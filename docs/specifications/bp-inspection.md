@@ -250,7 +250,7 @@ SP-BPINSPECTION-010 の照合で一致しなかったならば、script は、�
 前の run が照らす先の決定の段を終える前に止まったとき（照らす先を読めずに BLOCKED になったときなど）は、本項を当てず、照らす先の決定の段を最初から行う（SP-BPINSPECTION-030。照合すると、利用者が直した照らす先が前の記録と食い違い、再開のたびに BLOCKED になる）。段を終えたかは、状態の段の進み（`docs/specifications/bp-run.md` の SP-BPRUN-005）の終えた段で決める。
 
 #### SP-BPINSPECTION-030 再開した run の段の順
-review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従い、終えていない段から続け、終えた段の結果（状態にある担当の組と適用の判定を含む）を作り直してはならない。ただし、再開した run の開始で行う台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）と、それに伴う資産の束の書き直し（SP-BPINSPECTION-017）と、その取り直しで消えた資産が新しく記録されたときの消えた資産の照合の段は、それぞれの段を終えていても行い、本項の例外とする。照らす先の決定の段を終える前に止まった run はその段を最初から行い、終えた後に止まった run は同じ段で SP-BPINSPECTION-029 の照合を行う。audit は適用の判定の段を持たないので、その段を飛ばす。止まった段ごとの段の順の細目は TBD-SBPINSPECTION-002 で決める。
+review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従い、終えていない段から続け、終えた段の結果（状態にある担当の組と適用の判定を含む）を作り直してはならない。ただし、再開した run の開始で行う台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）と、それに伴う資産の束の書き直し（SP-BPINSPECTION-017）と、その取り直しで消えた資産が新しく記録されたときの消えた資産の照合の段は、それぞれの段を終えていても行い、本項の例外とする。再び行う消えた資産の照合の段の回は、`docs/specifications/bp-run.md` の SP-BPRUN-038 のとおり、その取り直しの番号とする（台帳の作成と資産の束の段は項目を持たないので回を持たない）。照らす先の決定の段を終える前に止まった run はその段を最初から行い、終えた後に止まった run は同じ段で SP-BPINSPECTION-029 の照合を行う。audit は適用の判定の段を持たないので、その段を飛ばす。止まった段ごとの段の順の細目は TBD-SBPINSPECTION-002 で決める。
 
 ## 検証方法
 
@@ -300,7 +300,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | script の模擬実行（追加の起動が返した候補を含め、重複でない候補のまとめた鍵ごとに反証役が 1 体起動され、全ての反証役が観点ごとの検証の段の後に起動されることを確認） | 未着手 |
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-019 | script の模擬実行（結果の項目が CLI の出力から逐語で返り、集約の agent が起動されないことを確認） | 未着手 |
 | PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 静的な照合（review・audit の script に書き手の起動が無く、各役の prompt に対象を書き換える指示が無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-021 | CLI の単体テスト（根が `SKILL.md` のあるディレクトリのときだけ、開始の操作が状態を作ることを確認） | 未着手 |
+| PR-BPOPERATIONS-027 | SP-BPINSPECTION-021 | CLI の単体テスト（根が `SKILL.md` のあるディレクトリのときだけ、開始の操作が状態を作ることを確認） | 完了 |
 | PR-BPOPERATIONS-027 | SP-BPINSPECTION-022 | script の模擬実行（入口が渡したパスの一覧がそのまま開始の操作に渡り、run の中でパスの一覧の作成が呼ばれないことを確認） | 未着手 |
 | PR-BPOPERATIONS-027 | SP-BPINSPECTION-023 | 静的な照合（review・audit の入力の表が `docs/specifications/bp-entry.md` の SP-BPENTRY-013 だけにあり、本文書に無いことを確認） | 未着手 |
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-024 | script の模擬実行（未検査の観点が空の run でも結果に項目があることを確認） | 未着手 |
