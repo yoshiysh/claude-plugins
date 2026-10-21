@@ -103,7 +103,9 @@ test('SP-BPRUN-036: create・update の検証役と反証役と書き手の prom
     const s = await setup(t, { fn });
     if (!s) return;
     const { calls } = await runAuthor(t, { env: s.env, args: args(s.target) });
-    for (const c of calls.filter((x) => ['verify', 'refute', 'write'].includes(x.role))) {
+    const judged = calls.filter((x) => ['verify', 'refute', 'write'].includes(x.role));
+    assert.ok(judged.some((c) => c.role === 'verify') && judged.some((c) => c.role === 'write'), fn);
+    for (const c of judged) {
       assert.match(c.prompt, /references\/criteria\/specifications\/bp-conformance\.md/, c.label);
       assert.doesNotMatch(c.prompt, /(^|[\s/])docs\//, c.label);
     }
