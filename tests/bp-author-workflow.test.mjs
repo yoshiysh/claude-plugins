@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, variant, writePayload,
+  REPO_ROOT, SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, variant, writePayload,
 } from './helpers/bp-harness.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -284,6 +284,7 @@ test('SP-BPAUTHORING-008・SP-BPRUN-002・SP-BPRUN-032・SP-BPRUN-004: 書き手
   assert.match(first.result.reason, /対象の形式は？（指示語が指すものが無い）/);
   assert.deepEqual(first.result.nextArgs, { function: 'create', state: first.result.state });
   assert.equal(first.calls.filter((c) => c.role === 'write').length, 0);
+  assert.equal((await viewOf(s.env, first.result.state)).iterations, 0);
   const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result, { answer: 'YAML だけ' }) });
   assert.equal(second.result.stopKind, 'complete', second.result.reason);
   const view = await viewOf(s.env, first.result.state);
@@ -440,6 +441,7 @@ test('SP-BPAUTHORING-030・SP-BPAUTHORING-023・SP-BPFINDINGS-015: 反証役が�
   assert.equal(calls.filter((c) => c.role === 'refute').length, 4);
   assert.equal(result.verification.decision.value, 'unverifiable');
   assert.deepEqual(result.verification.ledger.findings.map((f) => [f.viewpoint, f.state]), [['conformance', 'dismissed']]);
+  assert.deepEqual(result.verification.iterations, { total: 1, run: 1 });
 });
 
 test('SP-BPAUTHORING-030・SP-BPAUTHORING-023・SP-BPFINDINGS-025: 検証役が結果を返さず追加の検証でも見られないと skip 一覧が残り、BLOCKED と skip 一覧の資産を理由に返す', async (t) => {
@@ -752,4 +754,225 @@ test('SP-BPFINDINGS-028・SP-BPAUTHORING-022: 再開した update の結果で�
   assert.equal(f.judgement, 'absent');
   const gateFinding = second.result.verification.decision;
   assert.equal(gateFinding.value, 'pass');
+});
+
+// TBD-SBPRUN-003・TBD-SBPCONFORMANCE-004 の値の根拠: 最悪の経路を強いて、単位ごとの起動を数える。
+test('TBD-SBPRUN-003: 最悪の経路で、fan-out の項目は試行ごとに 3 回・計 9 回、目標の固定は 1 回あたり 2 回・計 6 回、書く段は 3 回起動し、最小の起動数ちょうどの上限で最初の検証の項目を始められる', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const bad = { goal: { deliverables: [{ text: 'x', sources: [{ kind: 'request', quote: '無い文' }] }], scope: [], prohibitions: [], numeric: [], deixis: [] } };
+  let goals = 0;
+  const goal = async (prompt) => ((goals += 1) < 3 ? bad : defaults.goal(prompt));
+  const verify = async (prompt, options, env) => {
+    if (options.label !== 'verifier:conformance') return defaults.verify(prompt, options, env);
+    const out = { judgements: [{ asset: 'ANOPE', judgement: 'ok' }], candidates: [], applicability: { row: 1 }, units: [], residualRisks: [] };
+    await writePayload(prompt, out);
+    return out;
+  };
+  const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target, { maxLaunches: MIN.create }), maxAgents: MIN.create, scenario: { goal, verify } });
+  assert.ok(calls.some((c) => c.label === 'verifier:conformance'));
+  assert.ok(result.launches <= MIN.create);
+  const s2 = await setup(t);
+  goals = 0;
+  const full = await runAuthor(t, { env: s2.env, args: createArgs(s2.target), scenario: { goal, verify } });
+  assert.equal(full.result.stopKind, 'blocked');
+  assert.equal(full.result.verification.decision.unverifiable.aborted.length, 1);
+  assert.deepEqual(full.result.verification.units, []);
+  const view = await viewOf(s2.env, full.result.state);
+  const conf = view.stages.get('verify|1').items.find((id) => view.items.get(id).key.viewpoint === 'conformance');
+  assert.equal(full.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(conf)).length, 9);
+  const goalCalls = full.calls.filter((c) => c.role === 'goal' || c.prompt.includes(' goal-check <<'));
+  assert.equal(goalCalls.length, 6);
+  const w = full.calls.findIndex((c) => c.role === 'write');
+  const v = full.calls.findIndex((c) => c.role === 'verify');
+  assert.equal(v - w, 3);
+  const lost = await setup(t);
+  let dropped = false;
+  const carrier = async (prompt, options, env) => {
+    const out = await env.carry(prompt);
+    if (!dropped && prompt.includes(' verdicts <<')) { dropped = true; return null; }
+    return out;
+  };
+  const resent = await runAuthor(t, { env: lost.env, args: createArgs(lost.target), scenario: { carrier } });
+  const lview = await viewOf(lost.env, resent.result.state);
+  const first = lview.stages.get('verify|1').items[0];
+  assert.equal(resent.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(first)).length, 3);
+});
+
+// §5.9 の教訓 5: 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす。
+function returnRules() {
+  const read = (file) => readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', file), 'utf8');
+  const table = (text, header) => {
+    const lines = text.slice(text.indexOf(header)).split('\n');
+    return lines.slice(2).filter((_, i, all) => all.slice(0, i + 1).every((l) => l.startsWith('|'))).map((l) => l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
+  };
+  const keys = (cell) => [...cell.matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]);
+  const common = table(read('bp-run.md'), '| 項目 | 綴り | 返すとき |').map(([, spell, when]) => ({ keys: keys(spell), when }));
+  const complete = table(read('bp-authoring.md'), '| 条件: 機能 | 条件: 項目 | 綴り | 結果 |').map(([fn, , spell, body]) => ({ keys: keys(spell), when: `完了:${fn}:${body}` }));
+  const stopped = table(read('bp-authoring.md'), '| 項目 | 綴り | 中身 |').map(([, spell, body]) => ({ keys: keys(spell), when: `完了以外:${body}` }));
+  return [...common, ...complete, ...stopped];
+}
+
+function expectation(rule, ctx) {
+  const w = rule.when;
+  if (w === '常に') return true;
+  if (w === '完了以外') return !ctx.complete;
+  if (w.startsWith('完了以外。状態を作らずに')) return !ctx.complete && ctx.state;
+  if (w === '状態が書かれたとき') return ctx.state;
+  if (w.startsWith('create・update で、1 つ以上書いた')) return ctx.written;
+  if (w.startsWith('SP-BPRUN-025 に当たるとき')) return ctx.state;
+  if (w.startsWith('完了:')) {
+    const [, fn, body] = w.split(':');
+    if (!ctx.complete || (fn !== '*' && fn !== ctx.fn)) return 'absentOrOther';
+    if (body.startsWith('載せない')) return 'absentOrOther';
+    if (body.startsWith('最後の取り直しで')) return 'maybe';
+    return true;
+  }
+  if (w.startsWith('完了以外:')) {
+    const body = w.slice('完了以外:'.length);
+    if (ctx.complete || !ctx.state) return 'absentOrOther';
+    if (body.startsWith('合否を書いた反復が 1 回以上あるとき')) return ctx.gated;
+    if (body.startsWith('最後の取り直しで')) return 'maybe';
+    return true;
+  }
+  throw new Error(`返すときの列を読めない: ${w}`);
+}
+
+function checkShape(result, ctx) {
+  const rules = returnRules();
+  const allowed = new Set(['ok', 'op', 'sum', ...rules.flatMap((r) => r.keys)]);
+  for (const key of Object.keys(result)) assert.ok(allowed.has(key), `表に無い返り値の鍵: ${key}`);
+  const want = new Map();
+  for (const rule of rules) {
+    const e = expectation(rule, ctx);
+    for (const key of rule.keys) {
+      if (e === true) want.set(key, true);
+      else if (e === false && !want.has(key)) want.set(key, false);
+    }
+  }
+  for (const [key, present] of want) assert.equal(Object.hasOwn(result, key), present, `${ctx.label}: ${key}`);
+}
+
+test('SP-BPRUN-032・SP-BPAUTHORING-033・SP-BPAUTHORING-034・SP-BPAUTHORING-028: 停止の種類ごとの返り値の鍵が、仕様の表の「返すとき」の列のとおりである', async (t) => {
+  const runs = [];
+  const add = async (label, fn, args, scenario = {}, ctx = {}) => {
+    const s = await setup(t, { fn });
+    if (!s) return;
+    const { result } = await runAuthor(t, { env: s.env, args: args(s.target), scenario });
+    runs.push({ result, ctx: { label, fn, complete: result.stopKind === 'complete', state: Boolean(result.state && result.run), ...ctx } });
+  };
+  await add('create の完了', 'create', createArgs, {}, { written: true });
+  await add('update の完了', 'update', updateArgs, {}, { written: true });
+  await add('反復の上限', 'create', createArgs, { verify: nonconformVerifier() }, { written: true, gated: true });
+  await add('needs_input', 'create', createArgs, { goal: async () => ({ missing: [{ question: 'q', reason: 'r' }] }) }, { written: false, gated: false });
+  await add('書く段の BLOCKED', 'create', createArgs, { write: async () => null }, { written: false, gated: false });
+  await add('状態を作らない停止', 'create', (target) => createArgs(target, { request: '' }), {}, { written: false, gated: false });
+  for (const { result, ctx } of runs) checkShape(result, ctx);
+  assert.equal(runs.length, 6);
+});
+
+test('SP-BPAUTHORING-015: update で一覧の外のパスを返す書き手で BLOCKED になる', async (t) => {
+  const s = await setup(t, { fn: 'update' });
+  if (!s) return;
+  const outside = path.join(s.base, 'elsewhere.md');
+  const write = async () => {
+    await fs.writeFile(outside, 'x');
+    return { written: [{ path: outside, action: 'write' }], designNote: { path: 'SKILL.md' } };
+  };
+  const { result } = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { write } });
+  assert.equal(result.stopKind, 'blocked');
+  assert.deepEqual(result.unverified, [{ path: outside, outside: true }]);
+});
+
+test('SP-BPAUTHORING-035・SP-BPAUTHORING-004: 作り直す前の写しの段で BLOCKED になった update を再開すると、記録のある写しを作り直さない', async (t) => {
+  const s = await setup(t, { fn: 'update' });
+  if (!s) return;
+  let dropped = false;
+  const carrier = async (prompt, options, env) => {
+    const out = await env.carry(prompt);
+    if (!dropped && prompt.includes(' snapshot <<')) { dropped = true; return null; }
+    return out;
+  };
+  const first = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { carrier } });
+  assert.equal(first.result.stopKind, 'blocked');
+  assert.equal(first.result.stoppedStage, '作り直す前の写し');
+  await fs.writeFile(path.join(s.target.root, 'SKILL.md'), '---\nname: x\n---\n# 再開の前に変えた\n');
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  const lines = await logOf(s.env, first.result.state);
+  assert.equal(lines.filter((l) => l.records.some((r) => r.t === 'snapshot')).length, 1);
+  const goal = second.calls.find((c) => c.role === 'goal');
+  assert.ok(goal);
+});
+
+test('SP-BPRUN-018: 段の開始の記録が 1 つも無い状態から再開すると、機能の最初の段から始める', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const carrier = async (prompt, options, env) => (prompt.includes(' stage-start <<') || prompt.includes(' stop <<') ? null : env.carry(prompt));
+  const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { carrier } });
+  assert.equal(first.result.stopKind, 'blocked');
+  const view = await viewOf(s.env, first.result.state);
+  assert.equal(view.stages.size, 0);
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  assert.equal(second.calls.filter((c) => c.role === 'goal').length, 1);
+});
+
+test('SP-BPRUN-029: 状態の構造を指す ID の誤りとして CLI が書き込みを拒否すると、BLOCKED で止まる', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
+  const carrier = async (prompt, options, env) => {
+    if (!prompt.includes(' verdicts <<')) return env.carry(prompt);
+    const body = { ok: false, code: 'E_UNKNOWN_ID', reason: '状態に無い項目の ID' };
+    return { responses: [JSON.stringify({ ...body, sum: sum(body) })] };
+  };
+  const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { carrier } });
+  assert.equal(result.stopKind, 'blocked');
+  assert.match(result.reason, /段「検証」の CLI が結果の書き込みを拒否した: verdicts: E_UNKNOWN_ID/);
+});
+
+test('§5.9 の教訓 3: 検証の段の並行の運搬役を子 process の CLI で走らせても、記録が欠けず E_LOCK が出ない', async (t) => {
+  const s = await setup(t, { fn: 'update' });
+  if (!s) return;
+  const { spawn } = await import('node:child_process');
+  const { commands } = await import('./helpers/bp-harness.mjs');
+  // 判定基準の写しは 4 段目まで本番の置き場に無いので、子 process でも写しの場所を渡せる入口で CLI の main を呼ぶ。
+  const wrapper = path.join(s.base, 'cli-wrapper.mjs');
+  await fs.writeFile(wrapper, [
+    `import { main } from ${JSON.stringify(path.join(SKILL_DIR, 'scripts', 'bp-state.mjs'))};`,
+    'const chunks = []; for await (const c of process.stdin) chunks.push(c);',
+    `const { exitCode, output } = await main(process.argv.slice(2), Buffer.concat(chunks).toString('utf8'), { criteriaDir: ${JSON.stringify(s.env.criteriaDir)} });`,
+    "process.stdout.write(`${JSON.stringify(output)}\\n`); process.exitCode = exitCode;",
+  ].join('\n'));
+  const viaProcess = (c) => new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [wrapper, c.op], { env: { ...process.env, BP_STATE_ROOT: s.env.root }, cwd: REPO_ROOT });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('error', reject);
+    child.on('close', () => resolve(out.trim()));
+    child.stdin.end(c.text);
+  });
+  const codes = [];
+  const carrier = async (prompt, options, env) => {
+    if (!options.label.startsWith('carrier:verify')) return env.carry(prompt);
+    const responses = [];
+    for (const c of commands(prompt)) {
+      const line = await viaProcess(c);
+      responses.push(line);
+      const parsed = JSON.parse(line);
+      codes.push(parsed.code ?? 'ok');
+      if (!parsed.ok) break;
+    }
+    return { responses };
+  };
+  const verify = async (prompt, options, env) => {
+    await new Promise((r) => setTimeout(r, 20));
+    return defaults.verify(prompt, options, env);
+  };
+  const { result } = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { carrier, verify } });
+  assert.ok(codes.length >= 3);
+  assert.ok(!codes.includes('E_LOCK'));
+  assert.ok(!codes.includes('E_INPUT'), codes.join(','));
+  assert.equal(result.stopKind, 'complete', result.reason);
 });

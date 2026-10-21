@@ -317,19 +317,29 @@ CLI は、止まった段を次の順に決める。
 ### 起動数の上限
 
 #### SP-BPRUN-019 起動数の上限の受け取り
-best-practices 自身の Workflow は、起動数の上限を省略できる入力として受け取れなければならない（項目の綴りは `docs/specifications/bp-entry.md` の TBD-SBPENTRY-002）。上限を渡すかどうかは callsite が決める（`docs/specifications/bp-entry.md` の SP-BPENTRY-015）。値が 1 以上の整数でないときは SP-BPRUN-037 に従う。
+best-practices 自身の Workflow は、起動数の上限を省略できる入力として受け取れなければならない（項目の綴りは `maxLaunches`：`docs/specifications/bp-entry.md` の SP-BPENTRY-013 の綴りの表）。上限を渡すかどうかは callsite が決める（`docs/specifications/bp-entry.md` の SP-BPENTRY-015）。値が 1 以上の整数でないときは SP-BPRUN-037 に従う。
 
 #### SP-BPRUN-040 上限を渡されない run と、起動数の上限の数え方
 上限を渡されない run で、script は `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-025 に従わなければならない。起動数の上限は 1 run の起動数の総数に当て、同時に走る agent の数（SP-BPCONFORMANCE-027）とは別に数えなければならない（Codex runner の `limits.maxAgents` と `limits.concurrency` は別の上限で、前者を超えると run 全体が失敗する：runtime README の Contract と Explicit live execution の節）。
 
 #### SP-BPRUN-020 上限に収まらない項目
-起動数の上限を渡された run で、script は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-022 に従い、項目と agent の起動が上限に収まるかを起動の前に確かめなければならない。確かめの式と予約分は同項（TBD-SBPCONFORMANCE-004）に従い、式に入れる best-practices 自身の段ごとの値は TBD-SBPRUN-003 で決める。収まらないとき、script はその agent を起動せず、始めた項目の終わりを待ってから、次の手順で止まらなければならない。
+起動数の上限を渡された run で、script は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-022 に従い、項目と agent の起動が上限に収まるかを起動の前に確かめなければならない。確かめの式と予約分は同項に従い、式に入れる best-practices 自身の段ごとの値は、create・update は SP-BPRUN-021 の表、review・audit は TBD-SBPRUN-003 で決める。収まらないとき、script はその agent を起動せず、始めた項目の終わりを待ってから、次の手順で止まらなければならない。
 
 1. 始めなかった項目を、未着手の項目として順位付きで状態に書かせる。順位は、上限が無ければ起動していた順（段の順、段の中では CLI が列挙した項目の順：SP-BPRUN-038）とする。
 2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。
 
 #### SP-BPRUN-021 最小の起動数
-best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。定数の求め方は TBD-SBPRUN-003 で決める。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
+best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、最初の fan-out の項目（検証の段の適合の観点）を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものとする。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は TBD-SBPRUN-003）。
+
+| 値 | 回数 | 中身 |
+|---|---|---|
+| `worst(fan-out の項目)` | 9 | 試行の上限 3 回 ×（検証役・反証役・消えた資産の照合の検証役 1 + 結果を書く運搬役 1 + 試行の失敗か、応答を失った要求の送り直しの運搬役 1） |
+| `worst(目標の固定の 1 回)` | 2 | 書き手 1 + 出所の照合の運搬役 1。until-pass の上限の回数まで繰り返す |
+| `worst(書く)` | 3 | 書き手 1 + 項目の結果と書いたファイルを書く運搬役 1 + パスの一覧の取り直し・台帳・担当・検証の段の開始をまとめた運搬役 1 |
+| `worst(段の境の運搬役)` | 1 | 段の開始・終わりと読み出しをまとめた 1 回の運搬役 |
+| `R`（予約分） | 1 | 停止の運搬役。書いたファイルの照らし合わせ（`files-scan`）・停止（`stop`）・返り値（`outcome`）を 1 回で運ぶ |
+
+create の最小の起動数は 22、update は 23 とする。内訳は、開始 1、（update だけ）作り直す前の写し 1、目標の固定の段の開始 1、目標の固定 2 × 3、書く段の開始 1、書く 3、最初の fan-out の項目 9、予約分 1 である。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
 
 #### SP-BPRUN-037 不正な上限と、1 件も始められない上限
 起動数の上限を渡された run が次のどちらかに当たるとき、Workflow は host によらず、`agent()` を 1 回も呼ばずに BLOCKED で止まらなければならない。best-practices 自身の run はこの項目に従い、`docs/specifications/bp-conformance.md` が対象スキルを PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-019 に照らす判定の基準もこの項目を参照する。
@@ -485,13 +495,13 @@ BLOCKED の理由は、利用者がどこを直してから再開すればよい
 ## 外部インタフェース
 
 #### SP-BPRUN-031 CLI の操作
-CLI は、本書群が CLI の処理と定めたものを全て操作として持たなければならない（run の開始：SP-BPRUN-003、前提の追記：SP-BPRUN-004、段の開始：SP-BPRUN-038、パスの一覧の作成と取り直し：`docs/specifications/bp-entry.md` の SP-BPENTRY-022・`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015、未完了の状態の列挙：SP-BPRUN-018、要約の読み出し：`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 など）。パスの一覧の作成と取り直しは、解決できなかった callsite を `SKILL.md` の行番号とともに返す。判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036）と、下の表に無い操作は TBD-SBPRUN-001 で決める。best-practices の Workflow の入力の項目の綴りは `docs/specifications/bp-entry.md` の TBD-SBPENTRY-002 で決める。資産 ID と指摘 ID の作り方は `docs/specifications/bp-findings.md` に従う。項目の ID の形は SP-BPRUN-038、作業場所のパスは SP-BPRUN-007 に従う。
+CLI は、本書群が CLI の処理と定めたものを全て操作として持たなければならない（run の開始：SP-BPRUN-003、前提の追記：SP-BPRUN-004、段の開始：SP-BPRUN-038、パスの一覧の作成と取り直し：`docs/specifications/bp-entry.md` の SP-BPENTRY-022・`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015、未完了の状態の列挙：SP-BPRUN-018、要約の読み出し：`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 など）。パスの一覧の作成と取り直しは、解決できなかった callsite を `SKILL.md` の行番号とともに返す。判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036）は TBD-SBPRUN-001 で決める。best-practices の Workflow の入力の項目の綴りは `docs/specifications/bp-entry.md` の SP-BPENTRY-013 の綴りの表に従う。資産 ID と指摘 ID の作り方は `docs/specifications/bp-findings.md` に従う。項目の ID の形は SP-BPRUN-038、作業場所のパスは SP-BPRUN-007 に従う。
 
 CLI の呼び方と要求・応答の形は次のとおりとする。操作の名前・記録の種類・段の slug・next_args の綴り・作業場所の既定・要約の上限は、CLI の 1 箇所の定数（`scripts/bp/constants.mjs`）に置き、script はそこから写した名前を運搬役の要求に埋める。
 
 - 呼び方は `node <スキルのディレクトリ>/scripts/bp-state.mjs <操作> < <要求の JSON>` とする。要求は JSON のオブジェクト 1 つとし、`start`（新規）と `list` を除く操作は `state` を持ち、書き込みの操作は `state` と `run` を持つ。
 - 要求は `sum` を持たなければならない。`sum` は、`sum` を除いた要求を正規化した JSON（オブジェクトのキーを昇順に並べ、空白を入れない JSON）の、UTF-16 の code unit ごとの FNV-1a 32bit（初期値 `0x811c9dc5`、乗数 `0x01000193`）を 8 桁の小文字の 16 進にしたものとする（script は import を持てないので、同じ式を自分で書ける形にする）。CLI は `sum` を計算し直し、合わなければ状態を変えずに `E_TRANSPORT` を返す。応答も同じ式の `sum` を持ち、script は運搬役が返した応答の `sum` を照らす。
-- 大きい値（検証役の結果など）は、運搬役に写させず、作業ファイルで渡してよい。要求に `payloadFile`（作業場所の `work/` からの相対パス）と `payloadSum`（ファイルの中身の JSON に同じ式を当てた値）を入れると、CLI はファイルを読み、`payloadSum` が合えば中身のオブジェクトの欄を要求に足して扱う。`work/` の外のパス、読めないファイル、合わない `payloadSum`、要求と同じ欄を持つ中身は `E_TRANSPORT` で拒否する。
+- 大きい値（検証役の結果など）は、運搬役に写させず、作業ファイルで渡してよい。create・update の script は、検証役の結果を既定で作業ファイルで渡す（script の定数 `PAYLOAD_MODE`）。本物の agent が返り値と作業ファイルに同じ JSON を書けるか（`E_TRANSPORT` の率）は実測しておらず、公開前の本物の agent での試走（依頼者の裁定 Q5）で測る。要求に `payloadFile`（作業場所の `work/` からの相対パス）と `payloadSum`（ファイルの中身の JSON に同じ式を当てた値）を入れると、CLI はファイルを読み、`payloadSum` が合えば中身のオブジェクトの欄を要求に足して扱う。`work/` の外のパス、読めないファイル、合わない `payloadSum`、要求と同じ欄を持つ中身は `E_TRANSPORT` で拒否する。
 - 応答は JSON のオブジェクト 1 つとし、受理は `{"ok":true,"op":<操作>,…}`、拒否は `{"ok":false,"code":<符号>,"reason":<理由>}` とする。同じ内容の書き込みの繰り返しは受理とし、`"same":true` を返す。終了コードは受理 0、拒否 2、内部の失敗 1 とする。
 
 | 符号 | 意味 | script の扱い |
@@ -553,15 +563,15 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 #### SP-BPRUN-032 run の返り値
 run は、どの停止でも次の項目を返さなければならない。機能に固有の返すもの（作ったスキル、指摘、カバレッジなど）は `docs/specifications/bp-authoring.md`・`docs/specifications/bp-inspection.md` が定める。
 
-| 項目 | 返すとき |
-|---|---|
-| 停止の種類 | 常に |
-| 理由 | 完了以外 |
-| next_args | 完了以外。状態を作らずに止まったとき（SP-BPRUN-037 で入力に状態 ID が無いとき、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）は返さない |
-| 状態 ID と run ID | 状態が書かれたとき |
-| 起動数 | 常に |
-| 書いたファイルの一覧（パス、書いたか消したかの印、検証を通ったか） | create・update で、1 つ以上書いたか消したとき |
-| 確かめられなかった役ごとの制限 | SP-BPRUN-025 に当たるとき |
+| 項目 | 綴り | 返すとき |
+|---|---|---|
+| 停止の種類 | `stopKind` | 常に |
+| 理由 | `reason` | 完了以外 |
+| next_args | `nextArgs` | 完了以外。状態を作らずに止まったとき（SP-BPRUN-037 で入力に状態 ID が無いとき、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）は返さない |
+| 状態 ID と run ID | `state`・`run` | 状態が書かれたとき |
+| 起動数 | `launches` | 常に |
+| 書いたファイルの一覧（パス、書いたか消したかの印、検証を通ったか） | `writtenFiles` | create・update で、1 つ以上書いたか消したとき |
+| 確かめられなかった役ごとの制限 | `unverifiedRoleLimits` | SP-BPRUN-025 に当たるとき。状態を作らずに止まった run は当たらない（対象スキルにも作業場所にも書く役を起動していない） |
 
 #### SP-BPRUN-033 next_args の中身
 next_args は、機能と状態 ID だけを持たなければならない。綴りは `{"function":<機能>,"state":<状態 ID>}` とする。起動数の上限（SP-BPRUN-035 の 4）と利用者の回答を next_args に入れてはならない。それ以外に再開に要る値は、再開した run が状態から読む（再開は新しい run の起動なので、script の変数は残らない：設計方針文書「停止・再開と人間の入力」）。利用者の回答は、再開の run の入力として next_args と別に渡す（SP-BPRUN-004）。入力の受け取り方は `docs/specifications/bp-entry.md` が定める。
@@ -588,8 +598,8 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 
 | TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
 |---|---|---|---|---|
-| TBD-SBPRUN-001 | 判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036）と、SP-BPRUN-031 の表に無い操作（パスの一覧の作成と取り直し、作り直す前の写し、照らす先の決定など）の名前と入出力 | 写す script と写しの検査、create・update・review・audit の段の操作はまだ実装しておらず、形・綴り・パスは最初の実装でテストとともに決めると、上位文書（`docs/requirements/bp-operations.md`・設計方針文書「水準と未決事項」）が定めている | false | 決まるまで、綴りとパスを CLI の外（script・SKILL.md・agent の prompt）に書き分けてはならず、CLI の 1 箇所の定数から参照する。足す操作は SP-BPRUN-031 の要求・応答の形と符号に従う。写しが置かれるまで、写しの置き場が無いとき、CLI は閉集合を要する操作（`verdicts`・`kinds`）を理由つきの `E_INPUT` で拒否する |
-| TBD-SBPRUN-003 | best-practices 自身の段ごとの値（段ごとの最悪の回数、段ごとの運搬役の回数、最小の起動数の定数）。値は SP-BPCONFORMANCE-022 の式（TBD-SBPCONFORMANCE-004）で求める | 値は script の段の組み方で決まり、最初の実装でテストとともに決める細部である（設計方針文書「水準と未決事項」） | false | SP-BPRUN-020・SP-BPRUN-021 |
+| TBD-SBPRUN-001 | 判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036）と、SP-BPRUN-031 の表に無い review・audit の段の操作（照らす先の決定など）の名前と入出力 | 写す script と写しの検査、review・audit の段の操作はまだ実装しておらず、形・綴り・パスは最初の実装でテストとともに決めると、上位文書（`docs/requirements/bp-operations.md`・設計方針文書「水準と未決事項」）が定めている | false | 決まるまで、綴りとパスを CLI の外（script・SKILL.md・agent の prompt）に書き分けてはならず、CLI の 1 箇所の定数から参照する。足す操作は SP-BPRUN-031 の要求・応答の形と符号に従う。写しが置かれるまで、写しの置き場が無いとき、CLI は閉集合を要する操作（`verdicts`・`kinds`）を理由つきの `E_INPUT` で拒否する |
+| TBD-SBPRUN-003 | best-practices 自身の review・audit の段ごとの値（段ごとの最悪の回数、段ごとの運搬役の回数、最小の起動数の定数）。値は SP-BPCONFORMANCE-022 の式で求める。create・update の値は SP-BPRUN-021 に書き戻した | 値は script の段の組み方で決まり、最初の実装でテストとともに決める細部である（設計方針文書「水準と未決事項」） | false | SP-BPRUN-020・SP-BPRUN-021 |
 
 ## トレーサビリティ表
 

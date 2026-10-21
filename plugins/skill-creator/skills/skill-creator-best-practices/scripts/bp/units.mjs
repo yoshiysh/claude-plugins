@@ -41,8 +41,9 @@ function unitsBySpec(criteriaDir) {
   return map;
 }
 
+// 基準が求めた制約と契約の変化に選べるのは、写しの bp-conformance の章を問わず全ての仕様項目 ID。
 export function specItemIds(criteriaDir) {
-  return [...unitsBySpec(criteriaDir).keys()].sort();
+  return parseDoc(read(criteriaDir, 'conformance')).filter((n) => n.level === 4).map((n) => /^SP-BPCONFORMANCE-\d{3}/.exec(n.text)?.[0]).filter(Boolean).sort();
 }
 
 // SP-BPCONFORMANCE-003 の表の行ごとに、当たる要求 → トレーサビリティ表の仕様項目 → 判定の単位、の順で単位を決める。

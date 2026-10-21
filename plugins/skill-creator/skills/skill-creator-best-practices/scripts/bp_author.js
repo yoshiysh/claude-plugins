@@ -62,6 +62,11 @@ const UNCHECKED_KINDS = { forced: 'forced', unforced: 'unforced' }
 const CONTRACT_ELEMENTS = ['発火する条件', '発火しない条件', '入力', '出力', '停止の種類']
 const GATE_NEXT = { complete: 'complete', rewrite: 'rewrite', iterationLimit: 'iterationLimit', blocked: 'blocked' }
 const LIMIT_HITS = ['iteration', 'launch']
+const ROLE_WRITE_LIMITS = [
+  { role: '書き手', writes: '対象スキルと作業ファイル' },
+  { role: '検証役・反証役・抽出役', writes: '作業ファイルだけ' },
+  { role: '運搬役', writes: 'CLI を通した状態だけ' },
+]
 const CRITERIA_DIR = 'references/criteria'
 const CRITERIA_FILES = {
   conformance: ['specifications', 'bp-conformance.md'],
@@ -972,6 +977,7 @@ async function finish(stop) {
       ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
       [RESULT_KEYS.run]: run.run,
       [RESULT_KEYS.launches]: budget.used(),
+      [RESULT_KEYS.unverifiedRoleLimits]: ROLE_WRITE_LIMITS,
     }
   }
   return r.responses.at(-1)
