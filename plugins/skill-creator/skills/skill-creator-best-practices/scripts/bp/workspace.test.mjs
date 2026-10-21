@@ -49,3 +49,29 @@ test('ロックは生きていない pid の古いロックを壊し、待ちが
   await fs.writeFile(path.join(dir, 'lock'), JSON.stringify({ pid: process.pid, host: os.hostname() }));
   await assert.rejects(withLock(dir, async () => 'never', { waitMs: 50 }), (e) => e.code === CODES.lock);
 });
+
+test('中身の読めない古いロックは mtime で古さを判定して壊す', async (t) => {
+  const dir = await tmpDir(t, 'bp-lock-');
+  const lock = path.join(dir, 'lock');
+  await fs.writeFile(lock, '');
+  const old = new Date(Date.now() - 60000);
+  await fs.utimes(lock, old, old);
+  assert.equal(await withLock(dir, async () => 'ran', { waitMs: 1000 }), 'ran');
+  await fs.writeFile(lock, '');
+  await assert.rejects(withLock(dir, async () => 'never', { waitMs: 50 }), (e) => e.code === CODES.lock);
+});
+
+test('古いロックを並行して壊しても、排他の区間に同時に入るのは 1 つだけ', async (t) => {
+  const dir = await tmpDir(t, 'bp-lock-');
+  await fs.writeFile(path.join(dir, 'lock'), JSON.stringify({ pid: 999999, host: os.hostname() }));
+  let inside = 0;
+  let max = 0;
+  await Promise.all(Array.from({ length: 40 }, () => withLock(dir, async () => {
+    inside += 1;
+    max = Math.max(max, inside);
+    await new Promise((r) => setTimeout(r, 5));
+    inside -= 1;
+  })));
+  assert.equal(max, 1);
+  assert.deepEqual((await fs.readdir(dir)).filter((n) => n.startsWith('lock')), []);
+});

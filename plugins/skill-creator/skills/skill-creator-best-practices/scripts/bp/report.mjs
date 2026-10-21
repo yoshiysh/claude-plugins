@@ -1,4 +1,4 @@
-import { FINDING_STATES, JUDGEMENTS, OUTCOMES } from './constants.mjs';
+import { FINDING_STATES, JUDGEMENTS, OUTCOMES, RECORDS } from './constants.mjs';
 import { keyString } from './ids.mjs';
 import { currentAssets, currentRun } from './view.mjs';
 
@@ -32,7 +32,6 @@ function findingByKey(v, key) {
   return [...v.findings.values()].find((f) => f.keys.includes(s)) ?? null;
 }
 
-// 資産の結末（SP-BPFINDINGS-024）。今の内容の指紋を含む記録だけから、上から順に当てる。
 export function outcome(v, asset, viewpoint) {
   const live = [...v.findings.values()].filter((f) => f.key.viewpoint === viewpoint && f.assets.includes(asset.id));
   if (live.some((f) => {
@@ -45,7 +44,7 @@ export function outcome(v, asset, viewpoint) {
     const covered = flagged.every((s) => {
       const items = [...v.candidates, ...v.dups].filter((c) => c.item === s.item && c.key.asset === asset.id);
       return items.length > 0 && items.every((c) => {
-        if (c.t === 'dup') return true;
+        if (c.t === RECORDS.dup) return true;
         const f = findingByKey(v, c.key);
         return f && f.states.at(-1)?.state === FINDING_STATES.dismissed;
       });
@@ -85,10 +84,8 @@ export function findingsForResult(v) {
       judgedOnCurrent: judgedOnCurrent(v, f),
     };
     if (!rewriting || last.run === run.id) out.state = last.state;
-    else {
-      const j = f.judgements.filter((x) => x.run === run.id).at(-1);
-      if (j) out.judgement = j.value;
-    }
+    const j = f.judgements.filter((x) => x.run === run.id).at(-1);
+    if (j && (!rewriting || last.run !== run.id)) out.judgement = j.value;
     if (out.state === FINDING_STATES.dismissed) out.dismissReason = [...f.states].reverse().find((s) => s.reason)?.reason ?? null;
     return out;
   });

@@ -12,6 +12,10 @@ export const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..', '..', '..');
 export const CRITERIA_FIXTURE = path.join(HERE, 'criteria');
 export const CLI = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
 
+export function newKey() {
+  return `k-${randomBytes(6).toString('hex')}`;
+}
+
 export const LIMITS = Object.freeze({ attempts: 3, iterations: 3, untilPass: 3 });
 
 // 作業場所の判定は /tmp 系を拒否するので、状態の root はリポジトリの .gitignore 済みの場所に作る。

@@ -1,4 +1,4 @@
-import { SUMMARY_MAX_CHARS } from './constants.mjs';
+import { RECORDED, SUMMARY_CLIP_CHARS, SUMMARY_MAX_CHARS, SUMMARY_RESERVE_CHARS } from './constants.mjs';
 import { currentAssets, currentRun, pendingItems, stoppedStage } from './view.mjs';
 
 function clip(text, n) {
@@ -16,9 +16,9 @@ function sections(v) {
     `現在の run: ${run?.id} run の数: ${v.runs.length} 停止: ${[...v.stops.values()].map((s) => `${s.run}=${s.kind}`).join(' ') || 'なし'}`,
     `止まった段: ${stopped.stage ?? '未開始'}${stopped.round != null ? `.${stopped.round}` : ''}（${stopped.status}） 反復の回数: ${v.iterations}`,
   ] });
-  if (v.state.request !== undefined) out.push({ kind: '依頼文', lines: [`依頼文: ${clip(v.state.request, 1500)}`] });
-  out.push({ kind: '修正の根拠', lines: v.grounds.map((g) => `${g.id}: ${clip(JSON.stringify(g.ground), 300)}`) });
-  out.push({ kind: '前提', lines: v.premises.map((p) => `${p.id} ${p.kind} (${p.run}): ${clip(p.text, 400)}`) });
+  if (v.state.request !== undefined) out.push({ kind: '依頼文', lines: [`依頼文: ${clip(v.state.request, SUMMARY_CLIP_CHARS.request)}`] });
+  out.push({ kind: '修正の根拠', lines: v.grounds.map((g) => `${g.id}: ${clip(JSON.stringify(g.ground), SUMMARY_CLIP_CHARS.ground)}`) });
+  out.push({ kind: '前提', lines: v.premises.map((p) => `${p.id} ${p.kind} (${p.run}): ${clip(p.text, SUMMARY_CLIP_CHARS.premise)}`) });
   out.push({ kind: '未着手の項目', lines: pending.map((id) => `未着手: ${id}`) });
   out.push({ kind: '段', lines: v.stageOrder.map((k) => {
     const s = v.stages.get(k);
@@ -30,7 +30,7 @@ function sections(v) {
     const assets = currentAssets(v);
     const byState = {};
     for (const f of v.findings.values()) {
-      const s = f.states.at(-1)?.state ?? 'none';
+      const s = f.states.at(-1)?.state ?? RECORDED.none;
       byState[s] = (byState[s] ?? 0) + 1;
     }
     out.push({ kind: '台帳', lines: [`資産: ${assets.length} 指摘: ${v.findings.size} ${Object.entries(byState).map(([k, n]) => `${k}=${n}`).join(' ')}`] });
@@ -39,10 +39,9 @@ function sections(v) {
   return out;
 }
 
-// 8,000 字以下に収め、載せなかったものは件数と種類を宣言する（SP-BPCONFORMANCE-033）。
 export function summarize(v, budget = SUMMARY_MAX_CHARS) {
   const parts = sections(v);
-  const reserve = 600;
+  const reserve = SUMMARY_RESERVE_CHARS;
   const kept = [];
   const omitted = [];
   let used = 0;

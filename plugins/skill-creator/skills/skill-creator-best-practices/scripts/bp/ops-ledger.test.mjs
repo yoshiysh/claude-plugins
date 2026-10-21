@@ -7,7 +7,7 @@ import * as ledger from './ops-ledger.mjs';
 import { CODES, OUTCOMES, STATES_DIR } from './constants.mjs';
 import { readAll } from './journal.mjs';
 import { buildView } from './view.mjs';
-import { LIMITS, context, skillDir } from './fixtures/harness.mjs';
+import { LIMITS, context, skillDir, newKey } from './fixtures/harness.mjs';
 
 const K1 = 'SP-BPCONFORMANCE-010/目標の固定/t2/r1';
 const K2 = 'SP-BPCONFORMANCE-010/目標の固定/t2/r2';
@@ -28,7 +28,7 @@ async function setup(t, { fn = 'update', files = FOUR, ctx: given } = {}) {
   const ctx = given ?? context(t);
   if (!ctx) return {};
   const root = await skillDir(t, files);
-  const s = await run.start(ctx, { function: fn, target: { root }, limits: LIMITS, ...(fn === 'update' ? { grounds: [{ text: 'a' }] } : {}) });
+  const s = await run.start(ctx, { key: newKey(), function: fn, target: { root }, limits: LIMITS, ...(fn === 'update' ? { grounds: [{ text: 'a' }] } : {}) });
   const req = { state: s.state, run: s.run };
   const made = await ledger.ledgerCreate(ctx, req);
   const byLoc = (name) => made.assets.find((a) => JSON.stringify(a.loc).includes(name) || a.path === name)?.id;
@@ -80,7 +80,7 @@ test('SP-BPFINDINGS-033: ファイルが 0 件の対象スキルで台帳の作�
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t, { 'SKILL.md': '' });
-  const s = await run.start(ctx, { function: 'review', target: { root }, limits: LIMITS });
+  const s = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
   await assert.rejects(ledger.ledgerCreate(ctx, { state: s.state, run: s.run }), (e) => e.code === CODES.input && /0 件/.test(e.reason));
   assert.equal((await viewOf(ctx, s.state)).ledger, null);
 });
@@ -203,7 +203,7 @@ test('SP-BPFINDINGS-011: 別の台帳 ID の台帳では指摘 ID が異なり�
   const f2 = (await refuteAll(ctx, two.req, 1, 'uphold'))[0].finding;
   assert.notEqual(f1, f2);
   await fs.writeFile(path.join(one.root, 'SKILL.md'), '---\nname: y\n---\n# A\na\n# B\nb\n');
-  const r2 = await run.start(ctx, { state: one.req.state });
+  const r2 = await run.start(ctx, { key: newKey(), state: one.req.state });
   const req2 = { state: one.req.state, run: r2.run };
   assert.equal(r2.retake.counts.changed, 1);
   await verify(ctx, req2, { round: 2, judgements: allJudged(one.assets, 'ok', { [a1]: 'candidate' }), candidates: [cand(a1, K1, 'conformance', '再開後')] });
@@ -259,9 +259,27 @@ test('SP-BPFINDINGS-016: 書き換えない run の台帳に resolved を記録�
   const { items } = await run.stageStart(ctx, { ...req, stage: 'refute', keys });
   const made = await ledger.refutation(ctx, { ...req, item: items[0], verdict: 'uphold', reason: 'x' });
   await rejects(ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: null }] }), CODES.conflict);
-  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding: made.finding, gone: 1 }] });
-  await rejects(ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: 'none' }), CODES.conflict);
   assert.deepEqual((await viewOf(ctx, req.state)).findings.get(made.finding).states.map((s) => s.state), ['open']);
+});
+
+test('SP-BPFINDINGS-016・SP-BPFINDINGS-037: 書き換えない run の照合の「該当なし」は状態を遷移させず、見直しの判定だけを記録する', async (t) => {
+  const { ctx, req, root, assets } = await setup(t, { fn: 'review' });
+  if (!ctx) return;
+  const a = assets[2].id;
+  await verify(ctx, req, { viewpoint: 'flow', judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a, K1, 'flow')] });
+  const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: null }] });
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'refute', keys });
+  const made = await ledger.refutation(ctx, { ...req, item: items[0], verdict: 'uphold', reason: 'x' });
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
+  const retake = await ledger.ledgerRetake(ctx, req);
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding: made.finding, gone: retake.retake }] });
+  const out = await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: 'none' });
+  assert.deepEqual([out.value, out.recorded, out.state], ['absent', 'judgement', null]);
+  const f = (await viewOf(ctx, req.state)).findings.get(made.finding);
+  assert.deepEqual(f.states.map((s) => s.state), ['open']);
+  assert.deepEqual(f.judgements.map((j) => j.value), ['absent']);
+  const rep = await ledger.report(ctx, { ...req, viewpoints: ['flow'] });
+  assert.deepEqual([rep.findings[0].state, rep.findings[0].judgement], ['open', 'absent']);
 });
 
 async function openFinding(t, opts) {
@@ -336,7 +354,7 @@ test('SP-BPFINDINGS-018: 却下された候補と同じ内容の候補が別の�
 test('SP-BPFINDINGS-019: 前の run が open を記録した指摘に、再開した run で「存在しない」を与えると、状態が記録されず見直しの判定だけが記録される', async (t) => {
   const { ctx, req, root, finding } = await openFinding(t);
   if (!ctx) return;
-  const r2 = await run.start(ctx, { state: req.state });
+  const r2 = await run.start(ctx, { key: newKey(), state: req.state });
   const req2 = { state: req.state, run: r2.run };
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nfixed\n');
   await ledger.ledgerRetake(ctx, req2);
@@ -506,7 +524,7 @@ test('SP-BPRUN-031: 台帳の書き込みの操作が SP-BPRUN-017 に反する�
   await ledger.verdicts(ctx, { ...req, item: items[0], assignment: sid, viewpoint: 'conformance', result });
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
   const refute = await run.stageStart(ctx, { ...req, stage: 'refute', round: 1, keys });
-  await run.start(ctx, { state: req.state });
+  await run.start(ctx, { key: newKey(), state: req.state });
   const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state));
   const calls = {
     ledgerCreate: { ...req },
@@ -521,4 +539,102 @@ test('SP-BPRUN-031: 台帳の書き込みの操作が SP-BPRUN-017 に反する�
     await assert.rejects(ledger[name](ctx, body), (e) => e.code === CODES.staleRun && /現在の run ではない/.test(e.reason), name);
   }
   assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state)), before);
+});
+
+test('SP-BPRUN-006: 反証の後に届いた同じ verdicts の送り直しは記録を増やさず、見直しも内部の失敗にならない', async (t) => {
+  const { ctx, req, root, finding, assets } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nb2\n');
+  await ledger.ledgerRetake(ctx, req);
+  const now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
+  const b = assets[2].id;
+  const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'verify', rule: 'all' });
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 2, keys: [{ assignment: assignments[0].id }] });
+  const body = { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'conformance', result: { judgements: now.map((x) => ({ asset: x.id, judgement: x.id === b ? 'candidate' : 'ok' })), candidates: [cand(b)] } };
+  const first = await ledger.verdicts(ctx, body);
+  await refuteAll(ctx, req, 2, 'uphold');
+  const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state));
+  const again = await ledger.verdicts(ctx, body);
+  assert.equal(again.same, true);
+  assert.deepEqual(again.refutationKeys, first.refutationKeys);
+  assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state)), before);
+  await rejects(ledger.verdicts(ctx, { ...body, result: { ...body.result, candidates: [] } }), CODES.conflict);
+  const out = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 2 }], round: 2 });
+  assert.equal(out.judgements.find((j) => j.finding === finding).row, 3);
+});
+
+test('SP-BPFINDINGS-018: 見直しの記録の担当の指紋の組は、判定に使った担当の組の fpset そのものである', async (t) => {
+  const { ctx, req, root, finding } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nfixed\n');
+  await ledger.ledgerRetake(ctx, req);
+  const now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
+  const v = await verify(ctx, req, { round: 2, judgements: now.map((x) => ({ asset: x.id, judgement: 'ok' })) });
+  await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 2 }], round: 2 });
+  const last = (await viewOf(ctx, req.state)).findings.get(finding).states.at(-1);
+  assert.equal(last.fpset, v.assignment.fpset);
+});
+
+test('SP-BPFINDINGS-034: 同じ試行の番号で届いた別の不正な結果も拒否の件数に数える', async (t) => {
+  const { ctx, req, assets } = await setup(t);
+  if (!ctx) return;
+  const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'verify', rule: 'all' });
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 1, keys: [{ assignment: assignments[0].id }] });
+  const body = { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'conformance' };
+  await rejects(ledger.verdicts(ctx, { ...body, result: { judgements: [{ asset: 'ANOPE1', judgement: 'ok' }] } }), CODES.result);
+  await rejects(ledger.verdicts(ctx, { ...body, result: { judgements: [{ asset: 'ANOPE2', judgement: 'ok' }] } }), CODES.result);
+  await rejects(ledger.verdicts(ctx, { ...body, result: { judgements: [{ asset: 'ANOPE2', judgement: 'ok' }] } }), CODES.result);
+  assert.equal((await ledger.report(ctx, { ...req, viewpoints: ['conformance'] })).rejected.count, 2);
+  assert.ok(assets.length > 0);
+});
+
+test('SP-BPFINDINGS-020: 指摘の資産が消えていない照合の項目を拒否する', async (t) => {
+  const { ctx, req, finding } = await openFinding(t);
+  if (!ctx) return;
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: 1 }] });
+  await rejects(ledger.vanishMatch(ctx, { ...req, item: items[0], choice: 'none' }), CODES.conflict);
+});
+
+test('SP-BPRUN-031: stages の要素が {stage, round} でなければ E_INPUT', async (t) => {
+  const { ctx, req } = await setup(t);
+  if (!ctx) return;
+  await rejects(ledger.refutationItems(ctx, { ...req, stages: [null] }), CODES.input);
+  await rejects(ledger.reviewJudge(ctx, { ...req, stages: [{ round: 1 }] }), CODES.input);
+});
+
+test('SP-BPFINDINGS-018: 照合で資産を足した指摘は資産ごとに条件を決めて畳み、重複と重複でない候補が資産をまたいで混ざっても内部の失敗にならない', async (t) => {
+  const { ctx, req, root, finding, a } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
+  const r1 = await ledger.ledgerRetake(ctx, req);
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] });
+  const renamed = [...(await viewOf(ctx, req.state)).assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
+  await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: renamed });
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n# B\nnew\n');
+  await ledger.ledgerRetake(ctx, req);
+  const now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
+  const out = await verify(ctx, req, { round: 2, judgements: now.map((x) => ({ asset: x.id, judgement: [a, renamed].includes(x.id) ? 'candidate' : 'ok' })), candidates: [cand(a), cand(renamed)] });
+  assert.deepEqual([out.duplicates, out.refutationKeys.length], [1, 1]);
+  await refuteAll(ctx, req, 2, 'uphold');
+  const judged = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 2 }], round: 2 });
+  assert.deepEqual([judged.judgements[0].value, judged.judgements[0].state], ['exists', 'open']);
+});
+
+test('SP-BPFINDINGS-012: 反証で却下されて resolved になった指摘に同じ内容の候補が返ると重複になり、resolved のまま', async (t) => {
+  const { ctx, req, root, finding, a } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nb2\n');
+  await ledger.ledgerRetake(ctx, req);
+  let now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
+  await verify(ctx, req, { round: 2, judgements: now.map((x) => ({ asset: x.id, judgement: x.id === a ? 'candidate' : 'ok' })), candidates: [cand(a)] });
+  await refuteAll(ctx, req, 2, 'reject');
+  let judged = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 2 }], round: 2 });
+  assert.deepEqual([judged.judgements[0].row, judged.judgements[0].state], [6, 'resolved']);
+  await fs.writeFile(path.join(root, 'scripts/x.js'), 'other\n');
+  await ledger.ledgerRetake(ctx, req);
+  now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
+  const out = await verify(ctx, req, { round: 3, judgements: now.map((x) => ({ asset: x.id, judgement: x.id === a ? 'candidate' : 'ok' })), candidates: [cand(a)] });
+  assert.equal(out.duplicates, 1);
+  judged = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 3 }], round: 3 });
+  assert.deepEqual([judged.judgements[0].finding, judged.judgements[0].row, judged.judgements[0].state], [finding, 5, 'resolved']);
 });

@@ -47,7 +47,7 @@ function forbiddenPrefixes() {
   return [...new Set(list.map((p) => path.resolve(p)))];
 }
 
-function within(child, parent) {
+export function within(child, parent) {
   const rel = path.relative(parent, child);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }

@@ -1,35 +1,31 @@
-import { FINDING_STATES, REVIEW_VALUES } from './constants.mjs';
+import { FINDING_STATES, REVIEW_INPUT, REVIEW_VALUES } from './constants.mjs';
 import { internal } from './errors.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
 const SAME_AS_LAST = 'same_as_last';
 
-// 見直しの判定の入力の値（SP-BPFINDINGS-018）。
-export const REVIEW_INPUT_VALUES = Object.freeze({
-  r: ['empty', 'present'],
-  content: ['changed', 'same'],
-  candidates: ['none', 'upheld', 'unrefuted', 'dup', 'rejected', 'mixed_dup'],
-  judged: ['none', 'decided', 'unsure'],
-});
+const { r: R, content: C, candidates: K, judged: J } = REVIEW_INPUT;
 
-// 上から順に当て、最初に当たった行を取る。行の番号は bp-findings.md の SP-BPFINDINGS-018 の表の「順」と同じ。
+export const REVIEW_INPUT_VALUES = Object.freeze(Object.fromEntries(Object.entries(REVIEW_INPUT).map(([k, v]) => [k, Object.values(v)])));
+
+// 行の番号は SP-BPFINDINGS-018 の表の「順」で、上から順に当てる。
 export const REVIEW_ROWS = Object.freeze([
-  { row: 1, when: (i) => i.r === 'empty' && i.content === 'changed', value: unknown },
-  { row: 2, when: (i) => i.r === 'empty' && i.content === 'same', value: skip },
-  { row: 3, when: (i) => i.candidates === 'upheld', value: exists },
-  { row: 4, when: (i) => i.candidates === 'unrefuted', value: unknown },
-  { row: 5, when: (i) => i.candidates === 'dup', value: SAME_AS_LAST },
-  { row: 6, when: (i) => i.candidates === 'rejected', value: absent },
-  { row: 7, when: (i) => i.candidates === 'none' && i.judged === 'decided', value: absent },
-  { row: 8, when: (i) => i.candidates === 'none' && i.judged === 'unsure', value: unknown },
+  { row: 1, when: (i) => i.r === R.empty && i.content === C.changed, value: unknown },
+  { row: 2, when: (i) => i.r === R.empty && i.content === C.same, value: skip },
+  { row: 3, when: (i) => i.candidates === K.upheld, value: exists },
+  { row: 4, when: (i) => i.candidates === K.unrefuted, value: unknown },
+  { row: 5, when: (i) => i.candidates === K.dup, value: SAME_AS_LAST },
+  { row: 6, when: (i) => i.candidates === K.rejected, value: absent },
+  { row: 7, when: (i) => i.candidates === K.none && i.judged === J.decided, value: absent },
+  { row: 8, when: (i) => i.candidates === K.none && i.judged === J.unsure, value: unknown },
 ]);
 
 export function impossibleReason(i) {
-  if (i.r === 'empty' && (i.candidates !== 'none' || i.judged !== 'none')) return 'R が空なのに候補か判定がある';
-  if (i.r === 'present' && i.judged === 'none') return 'R があるのにその資産の判定が無い';
-  if (i.candidates === 'mixed_dup') return '同じ鍵の候補に重複と重複でないものが混ざる（1 つの段の中で資産の内容は同じ）';
-  if (i.candidates === 'dup' && i.content === 'changed') return '内容の指紋が変わったのに重複がある（重複は最後の判定と同じ内容の指紋の候補だけ）';
-  if (i.candidates !== 'none' && i.judged === 'unsure') return '同じ鍵の候補があるのに、その資産の判定が全て「判断できない」';
+  if (i.r === R.empty && (i.candidates !== K.none || i.judged !== J.none)) return 'R が空なのに候補か判定がある';
+  if (i.r === R.present && i.judged === J.none) return 'R があるのにその資産の判定が無い';
+  if (i.candidates === K.mixedDup) return '同じ鍵の候補に重複と重複でないものが混ざる（1 つの段の中で資産の内容は同じ）';
+  if (i.candidates === K.dup && i.content === C.changed) return '内容の指紋が変わったのに重複がある（重複は最後の判定と同じ内容の指紋の候補だけ）';
+  if (i.candidates !== K.none && i.judged === J.unsure) return '同じ鍵の候補があるのに、その資産の判定が全て「判断できない」';
   return null;
 }
 

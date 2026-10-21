@@ -27,7 +27,6 @@ export async function readState(ctx, id) {
   return { dir, lines, view: buildView(lines) };
 }
 
-// 現在でない run と、停止を書いた後の run の書き込みを拒否する（SP-BPRUN-017）。
 function checkRun(view, run) {
   if (typeof run !== 'string') reject(CODES.unknownId, '要求に run が無い');
   if (!view.runs.some((r) => r.id === run)) reject(CODES.unknownId, `状態に無い run ID: ${run}`);

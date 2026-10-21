@@ -23,8 +23,9 @@ export const OPS = Object.freeze({
   kinds: 'kinds',
 });
 
-export const FUNCTIONS = Object.freeze(['create', 'review', 'update', 'audit']);
-export const REWRITING_FUNCTIONS = new Set(['create', 'update']);
+export const FUNCTION = Object.freeze({ create: 'create', review: 'review', update: 'update', audit: 'audit' });
+export const FUNCTIONS = Object.freeze(Object.values(FUNCTION));
+export const REWRITING_FUNCTIONS = new Set([FUNCTION.create, FUNCTION.update]);
 
 export const STOP_KINDS = Object.freeze({
   complete: 'complete',
@@ -33,11 +34,13 @@ export const STOP_KINDS = Object.freeze({
   blocked: 'blocked',
 });
 export const LIMIT_HITS = Object.freeze(['iteration', 'launch']);
+const REWRITING_STOPS = Object.freeze([STOP_KINDS.complete, STOP_KINDS.needsInput, STOP_KINDS.iterationLimit, STOP_KINDS.blocked]);
+const INSPECTING_STOPS = Object.freeze([STOP_KINDS.complete, STOP_KINDS.iterationLimit, STOP_KINDS.blocked]);
 export const STOP_KINDS_BY_FUNCTION = Object.freeze({
-  create: [STOP_KINDS.complete, STOP_KINDS.needsInput, STOP_KINDS.iterationLimit, STOP_KINDS.blocked],
-  update: [STOP_KINDS.complete, STOP_KINDS.needsInput, STOP_KINDS.iterationLimit, STOP_KINDS.blocked],
-  review: [STOP_KINDS.complete, STOP_KINDS.iterationLimit, STOP_KINDS.blocked],
-  audit: [STOP_KINDS.complete, STOP_KINDS.iterationLimit, STOP_KINDS.blocked],
+  [FUNCTION.create]: REWRITING_STOPS,
+  [FUNCTION.update]: REWRITING_STOPS,
+  [FUNCTION.review]: INSPECTING_STOPS,
+  [FUNCTION.audit]: INSPECTING_STOPS,
 });
 
 export const NEXT_ARGS_KEYS = Object.freeze({ function: 'function', state: 'state' });
@@ -46,26 +49,95 @@ export const LIMIT_KEYS = Object.freeze({ attempts: 'attempts', iterations: 'ite
 
 export const PREMISE_KINDS = Object.freeze(['answer', 'goal']);
 
-// 段の slug は項目の ID の接頭辞になる。名前は bp-authoring SP-BPAUTHORING-005 と bp-inspection SP-BPINSPECTION-001 の「段」の列。
-export const STAGES = Object.freeze({
-  start: '開始',
-  snapshot: '作り直す前の写し',
-  goal: '目標の固定',
-  write: '書く',
-  ledger: '台帳',
-  targets: '照らす先の決定',
-  bundle: '台帳の作成と資産の束',
-  assign: '担当の作成',
-  applicability: '適用の判定',
-  verify: '検証',
-  'verify-extra': '追加の検証',
-  refute: '反証',
-  vanish: '消えた資産の照合',
-  rejudge: '見直し',
-  gate: '合否',
-  close: '照合と停止',
+export const STAGE = Object.freeze({
+  start: 'start',
+  snapshot: 'snapshot',
+  goal: 'goal',
+  write: 'write',
+  ledger: 'ledger',
+  targets: 'targets',
+  bundle: 'bundle',
+  assign: 'assign',
+  applicability: 'applicability',
+  verify: 'verify',
+  verifyExtra: 'verify-extra',
+  refute: 'refute',
+  vanish: 'vanish',
+  rejudge: 'rejudge',
+  gate: 'gate',
+  close: 'close',
 });
-export const VERIFY_STAGES = new Set(['verify', 'verify-extra']);
+export const STAGES = Object.freeze({
+  [STAGE.start]: '開始',
+  [STAGE.snapshot]: '作り直す前の写し',
+  [STAGE.goal]: '目標の固定',
+  [STAGE.write]: '書く',
+  [STAGE.ledger]: '台帳',
+  [STAGE.targets]: '照らす先の決定',
+  [STAGE.bundle]: '台帳の作成と資産の束',
+  [STAGE.assign]: '担当の作成',
+  [STAGE.applicability]: '適用の判定',
+  [STAGE.verify]: '検証',
+  [STAGE.verifyExtra]: '追加の検証',
+  [STAGE.refute]: '反証',
+  [STAGE.vanish]: '消えた資産の照合',
+  [STAGE.rejudge]: '見直し',
+  [STAGE.gate]: '合否',
+  [STAGE.close]: '照合と停止',
+});
+export const VERIFY_STAGES = new Set([STAGE.verify, STAGE.verifyExtra]);
+export const STAGE_STATUS = Object.freeze({ open: 'open', finished: 'finished', none: 'none', stopped: 'stopped' });
+
+export const RECORDS = Object.freeze({
+  state: 'state',
+  ground: 'ground',
+  run: 'run',
+  premise: 'premise',
+  paths: 'paths',
+  fingerprint: 'fingerprint',
+  stage: 'stage',
+  result: 'result',
+  fail: 'fail',
+  abort: 'abort',
+  discard: 'discard',
+  stageEnd: 'stageEnd',
+  repeat: 'repeat',
+  file: 'file',
+  verified: 'verified',
+  stop: 'stop',
+  ledger: 'ledger',
+  asset: 'asset',
+  digest: 'digest',
+  gone: 'gone',
+  assignment: 'assignment',
+  seen: 'seen',
+  candidate: 'candidate',
+  dup: 'dup',
+  rejected: 'rejected',
+  refute: 'refute',
+  unrefuted: 'unrefuted',
+  finding: 'finding',
+  fstate: 'fstate',
+  judgement: 'judgement',
+  addAsset: 'addAsset',
+});
+export const FINGERPRINT_AT = Object.freeze({ start: 'start', retake: 'retake', stop: 'stop' });
+export const FILE_ACTIONS = Object.freeze({ write: 'write', delete: 'delete' });
+export const ASSIGN_RULES = Object.freeze({ all: 'all', skip: 'skip' });
+export const RESULT_KINDS = Object.freeze({ verdicts: 'verdicts', refutation: 'refutation', vanish: 'vanish' });
+export const BASIS = Object.freeze({ upheld: 'upheld', rejected: 'rejected', noCandidate: 'no-candidate', unknown: 'unknown', vanish: 'vanish' });
+export const RECORDED = Object.freeze({ state: 'state', judgement: 'judgement', none: 'none' });
+export const ROUND_PREFIX = Object.freeze({ refute: 'refute:', judge: 'judge:', vanish: 'vanish:' });
+export const REVIEW_INPUT = Object.freeze({
+  r: Object.freeze({ empty: 'empty', present: 'present' }),
+  content: Object.freeze({ changed: 'changed', same: 'same' }),
+  candidates: Object.freeze({ none: 'none', upheld: 'upheld', unrefuted: 'unrefuted', dup: 'dup', rejected: 'rejected', mixedDup: 'mixed_dup' }),
+  judged: Object.freeze({ none: 'none', decided: 'decided', unsure: 'unsure' }),
+});
+
+export function emptyRunBase() {
+  return { iterations: 0, repeats: {} };
+}
 
 export const VIEWPOINTS = Object.freeze({
   flow: 'フローの観点',
@@ -109,8 +181,19 @@ export const LOG_FILE = 'log.jsonl';
 export const LOCK_FILE = 'lock';
 export const WORK_DIR = 'work';
 export const CRITERIA_DIR = 'references/criteria';
+export const CRITERIA_FILES = Object.freeze({
+  conformance: Object.freeze(['specifications', 'bp-conformance.md']),
+  design: Object.freeze(['design', 'skill-design-patterns.md']),
+  authoring: Object.freeze(['specifications', 'bp-authoring.md']),
+  inspection: Object.freeze(['specifications', 'bp-inspection.md']),
+});
+export const CRITERIA_CHAPTERS = Object.freeze({ functional: '機能仕様', capacityPrefix: '性能・容量' });
+export const PRINCIPLE_HEADER = '原則';
+export const UPDATE_ONLY_MARK = '（update だけ）';
 
 export const SUMMARY_MAX_CHARS = 8000;
+export const SUMMARY_RESERVE_CHARS = 600;
+export const SUMMARY_CLIP_CHARS = Object.freeze({ request: 1500, ground: 300, premise: 400 });
 export const LOCK_WAIT_MS = 10000;
 
 export const ID_LENGTHS = Object.freeze({ asset: 10, finding: 10, item: 8, stateRandom: 8 });

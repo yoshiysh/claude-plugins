@@ -1,19 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { FUNCTION, CRITERIA_CHAPTERS, CRITERIA_FILES, PRINCIPLE_HEADER, UPDATE_ONLY_MARK } from './constants.mjs';
 import { internal } from './errors.mjs';
 
-// 判定基準の写しの中の置き場。写しは docs/ と同じ並びを持つ（bp-run SP-BPRUN-036）。
-const CRITERIA_FILES = Object.freeze({
-  conformance: ['specifications', 'bp-conformance.md'],
-  design: ['design', 'skill-design-patterns.md'],
-  authoring: ['specifications', 'bp-authoring.md'],
-  inspection: ['specifications', 'bp-inspection.md'],
-});
-
-const FUNCTIONAL_CHAPTER = '機能仕様';
-const CAPACITY_CHAPTER_PREFIX = '性能・容量';
-const PRINCIPLE_HEADER = '原則';
-const UPDATE_ONLY = '（update だけ）';
 const ROW_RULE = /設計方針文書「([^」]+)」の節の原則の表の全ての行/;
 const BULLET_RULE = /同節の定義の箇条書き/;
 const EACH_TABLE_RULE = /設計方針文書「([^」]+)」の節の、([^の]+(?:・[^の]+)*)の各表の全ての行/;
@@ -103,12 +92,11 @@ function specItems(nodes, chapterMatch) {
   }));
 }
 
-// フロー・適合の観点の閉集合（SP-BPFINDINGS-010）。原則の表の行を単位にする仕様項目は、その行ごとの値を持つ。
 export function conformanceUnits(criteriaDir) {
   const spec = parseDoc(read(criteriaDir, 'conformance'));
   const design = parseDoc(read(criteriaDir, 'design'));
   const out = [];
-  for (const item of specItems(spec, (t) => t === FUNCTIONAL_CHAPTER)) {
+  for (const item of specItems(spec, (t) => t === CRITERIA_CHAPTERS.functional)) {
     const units = [];
     const each = EACH_TABLE_RULE.exec(item.body);
     const rows = ROW_RULE.exec(item.body);
@@ -137,7 +125,7 @@ export function conformanceUnits(criteriaDir) {
 
 export function specUnits(criteriaDir) {
   const spec = parseDoc(read(criteriaDir, 'conformance'));
-  return specItems(spec, (t) => t.startsWith(CAPACITY_CHAPTER_PREFIX)).map((i) => ({ value: i.id, meaning: i.title }));
+  return specItems(spec, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix)).map((i) => ({ value: i.id, meaning: i.title }));
 }
 
 function tableAfter(nodes, headingPrefix, firstHeader) {
@@ -152,8 +140,8 @@ export function authoringUnits(criteriaDir, viewpointLabel, fn) {
   const table = tableAfter(parseDoc(read(criteriaDir, 'authoring')), 'SP-BPAUTHORING-016', '観点');
   const row = table.rows.find((r) => r[0] === viewpointLabel);
   if (!row) internal(`SP-BPAUTHORING-016 の表に観点が無い: ${viewpointLabel}`);
-  return row[1].split('、').map((s) => s.trim()).filter((s) => fn === 'update' || !s.endsWith(UPDATE_ONLY))
-    .map((s) => s.replace(UPDATE_ONLY, '')).map((s) => ({ value: `${viewpointLabel}:${s}`, meaning: s }));
+  return row[1].split('、').map((s) => s.trim()).filter((s) => fn === FUNCTION.update || !s.endsWith(UPDATE_ONLY_MARK))
+    .map((s) => s.replace(UPDATE_ONLY_MARK, '')).map((s) => ({ value: `${viewpointLabel}:${s}`, meaning: s }));
 }
 
 export function auditUnits(criteriaDir) {

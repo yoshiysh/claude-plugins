@@ -3,6 +3,7 @@ import { splitAssets } from './assets.mjs';
 import { targetFiles } from './fingerprint.mjs';
 import { internal } from './errors.mjs';
 import { locationKey } from './ids.mjs';
+import { RECORDS } from './constants.mjs';
 
 export async function enumerateAssets(pathsRecord) {
   const out = [];
@@ -26,15 +27,14 @@ function checkCollision(view, asset) {
 export function createLedgerRecords(view, assets, { ledgerId, rewriting }) {
   for (const a of assets) checkCollision(view, a);
   return [
-    { t: 'ledger', id: ledgerId, rewriting },
+    { t: RECORDS.ledger, id: ledgerId, rewriting },
     ...assets.flatMap((a) => [
-      { t: 'asset', id: a.id, path: a.path, loc: a.loc },
-      { t: 'digest', id: a.id, digest: a.digest, retake: 0 },
+      { t: RECORDS.asset, id: a.id, path: a.path, loc: a.loc },
+      { t: RECORDS.digest, id: a.id, digest: a.digest, retake: 0 },
     ]),
   ];
 }
 
-// 取り直しの 4 行（SP-BPFINDINGS-005）: 同じ指紋は足さない・違う指紋・新しい資産・消えた資産。
 export function retakeRecords(view, assets) {
   const retake = view.retakes + 1;
   const records = [];
@@ -45,10 +45,10 @@ export function retakeRecords(view, assets) {
     now.add(a.id);
     const known = view.assets.get(a.id);
     if (!known) {
-      records.push({ t: 'asset', id: a.id, path: a.path, loc: a.loc }, { t: 'digest', id: a.id, digest: a.digest, retake });
+      records.push({ t: RECORDS.asset, id: a.id, path: a.path, loc: a.loc }, { t: RECORDS.digest, id: a.id, digest: a.digest, retake });
       counts.added += 1;
     } else if (known.gone || known.digest !== a.digest) {
-      records.push({ t: 'digest', id: a.id, digest: a.digest, retake });
+      records.push({ t: RECORDS.digest, id: a.id, digest: a.digest, retake });
       counts.changed += 1;
     } else {
       counts.unchanged += 1;
@@ -57,7 +57,7 @@ export function retakeRecords(view, assets) {
   const gone = [];
   for (const known of view.assets.values()) {
     if (!known.gone && !now.has(known.id)) {
-      records.push({ t: 'gone', id: known.id, retake });
+      records.push({ t: RECORDS.gone, id: known.id, retake });
       gone.push({ id: known.id, path: known.path, loc: known.loc });
       counts.gone += 1;
     }

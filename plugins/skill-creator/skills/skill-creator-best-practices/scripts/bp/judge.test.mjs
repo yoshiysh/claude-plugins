@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CODES, FINDING_STATES, REVIEW_VALUES } from './constants.mjs';
-import { REVIEW_INPUT_VALUES, REVIEW_ROWS, impossibleReason, nextState, reviewJudgement } from './judge.mjs';
+import { REVIEW_INPUT_VALUES, REVIEW_ROWS, nextState, reviewJudgement } from './judge.mjs';
 
 function* combos() {
   for (const r of REVIEW_INPUT_VALUES.r) for (const content of REVIEW_INPUT_VALUES.content) {
@@ -29,19 +29,37 @@ test('SP-BPFINDINGS-018: 表の 8 行の条件を 1 つずつ作り、判定を�
   assert.equal(reviewJudgement({ r: 'present', content: 'same', candidates: 'dup', judged: 'decided' }, REVIEW_VALUES.exists).value, REVIEW_VALUES.exists);
 });
 
+// 期待値は実装の表から取らず、bp-findings.md の SP-BPFINDINGS-018 の文言から独立に書く。
+function fromSpec(i, last) {
+  const impossible =
+    (i.r === 'empty' && (i.candidates !== 'none' || i.judged !== 'none'))
+    || (i.r === 'present' && i.judged === 'none')
+    || i.candidates === 'mixed_dup'
+    || (i.candidates === 'dup' && i.content === 'changed')
+    || (i.candidates !== 'none' && i.judged === 'unsure');
+  if (impossible) return null;
+  if (i.r === 'empty') return i.content === 'changed' ? { row: 1, value: 'unknown' } : { row: 2, value: 'skip' };
+  if (i.candidates === 'upheld') return { row: 3, value: 'exists' };
+  if (i.candidates === 'unrefuted') return { row: 4, value: 'unknown' };
+  if (i.candidates === 'dup') return { row: 5, value: last };
+  if (i.candidates === 'rejected') return { row: 6, value: 'absent' };
+  return i.judged === 'decided' ? { row: 7, value: 'absent' } : { row: 8, value: 'unknown' };
+}
+
 test('SP-BPFINDINGS-018: 組の列挙で、漏れが無く、死んだ行が無く、起こりえない組は内部の失敗になる', () => {
   const hits = new Map(REVIEW_ROWS.map((r) => [r.row, 0]));
-  let possible = 0;
-  for (const input of combos()) {
-    if (impossibleReason(input)) {
-      assert.throws(() => reviewJudgement(input, REVIEW_VALUES.exists), (e) => e.code === CODES.internal, JSON.stringify(input));
-      continue;
+  for (const last of ['exists', 'absent']) {
+    for (const input of combos()) {
+      const expected = fromSpec(input, last);
+      if (expected === null) {
+        assert.throws(() => reviewJudgement(input, last), (e) => e.code === CODES.internal, JSON.stringify(input));
+        continue;
+      }
+      const got = reviewJudgement(input, last);
+      assert.deepEqual(got, expected, JSON.stringify(input));
+      hits.set(got.row, hits.get(got.row) + 1);
     }
-    possible += 1;
-    const { row } = reviewJudgement(input, REVIEW_VALUES.exists);
-    hits.set(row, hits.get(row) + 1);
   }
-  assert.ok(possible > 0);
   for (const [row, n] of hits) assert.ok(n > 0, `死んだ行: ${row}`);
 });
 

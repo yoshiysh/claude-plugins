@@ -1,15 +1,10 @@
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { sha256Hex } from './ids.mjs';
-import { realpathLoose } from './workspace.mjs';
+import { realpathLoose, within } from './workspace.mjs';
 
 export function fileDigest(bytes) {
   return sha256Hex(bytes);
-}
-
-function within(child, parent) {
-  const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
 function pluginRoot(file) {
@@ -22,7 +17,6 @@ function pluginRoot(file) {
   }
 }
 
-// 一覧の中のパスを ID の材料にする形へ正規化する。根の中は根からの相対、根の外の workflow script は plugin の根からの相対に plugin: を付ける。
 export function pathKey(root, file) {
   const realRoot = realpathLoose(root);
   const real = realpathLoose(file);
@@ -57,7 +51,6 @@ async function walk(dir, out) {
   }
 }
 
-// 対象スキルを構成するファイル: 根の中の今の全てのファイルと、一覧にある根の外のファイル。
 export async function targetFiles(pathsRecord) {
   const root = realpathLoose(pathsRecord.root);
   const files = [];

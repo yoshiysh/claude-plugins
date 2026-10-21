@@ -6,7 +6,7 @@ import * as run from './ops-run.mjs';
 import { CODES, NEXT_ARGS_KEYS, STATES_DIR } from './constants.mjs';
 import { readAll } from './journal.mjs';
 import { buildView } from './view.mjs';
-import { LIMITS, context, skillDir, tmpDir } from './fixtures/harness.mjs';
+import { LIMITS, context, skillDir, tmpDir, newKey } from './fixtures/harness.mjs';
 
 async function rejects(promise, code) {
   await assert.rejects(promise, (error) => {
@@ -23,19 +23,19 @@ async function startReview(t, files) {
   const ctx = context(t);
   if (!ctx) return {};
   const root = await skillDir(t, files);
-  const out = await run.start(ctx, { function: 'review', target: { root }, limits: LIMITS });
+  const out = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
   return { ctx, root, ...out, req: { state: out.state, run: out.run } };
 }
 
 async function stateDirs(ctx) {
-  return fs.readdir(path.join(ctx.stateRoot, STATES_DIR)).catch(() => []);
+  return (await fs.readdir(path.join(ctx.stateRoot, STATES_DIR)).catch(() => [])).filter((n) => !n.startsWith('.'));
 }
 
 test('SP-BPRUN-003: 開始の操作が状態と修正の根拠を 1 回の書き込みで書く', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const out = await run.start(ctx, { function: 'update', target: { root }, limits: LIMITS, grounds: [{ kind: '利用者の指示', text: 'a' }] });
+  const out = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ kind: '利用者の指示', text: 'a' }] });
   const lines = await logOf(ctx, out.state);
   assert.equal(lines.length, 1);
   assert.deepEqual(lines[0].records.map((r) => r.t), ['state', 'ground', 'run', 'paths', 'fingerprint']);
@@ -46,7 +46,7 @@ test('SP-BPRUN-003: staging の書き込みを失敗させると、状態も根�
   const ctx = context(t, { writeFile: async () => { throw new Error('書き込みの失敗'); } });
   if (!ctx) return;
   const root = await skillDir(t);
-  await assert.rejects(run.start(ctx, { function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] }), /書き込みの失敗/);
+  await assert.rejects(run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] }), /書き込みの失敗/);
   assert.deepEqual(await stateDirs(ctx), []);
 });
 
@@ -59,7 +59,7 @@ test('SP-BPRUN-004: 修正の根拠 3 件で記録 ID が 3 つ返り、dismisse
     { id: 'F2', state: 'dismissed', dismissReason: 'x' },
     { kind: '利用者の指示', text: '直して' },
   ];
-  const out = await run.start(ctx, { function: 'update', target: { root }, limits: LIMITS, grounds });
+  const out = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds });
   assert.deepEqual(out.groundIds, ['G1', 'G2', 'G3']);
   const view = buildView(await logOf(ctx, out.state));
   assert.deepEqual(view.grounds.map((g) => g.ground), grounds);
@@ -80,7 +80,7 @@ test('SP-BPRUN-005: 未着手の項目・試行の回数・反復の回数が状
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const s = await run.start(ctx, { function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
   const req = { state: s.state, run: s.run };
   const { items } = await run.stageStart(ctx, { ...req, stage: 'gate', round: 1, keys: [{ n: 1 }] });
   await run.itemResult(ctx, { ...req, item: items[0], result: { pass: false }, iteration: 1 });
@@ -89,7 +89,7 @@ test('SP-BPRUN-005: 未着手の項目・試行の回数・反復の回数が状
   const view = buildView(await logOf(ctx, s.state));
   assert.equal(view.iterations, 1);
   assert.equal(view.items.get(v.items[0]).fails.length, 1);
-  const resumed = await run.start(ctx, { state: s.state });
+  const resumed = await run.start(ctx, { key: newKey(), state: s.state });
   assert.deepEqual(resumed.pending, v.items);
 });
 
@@ -120,7 +120,7 @@ test('SP-BPRUN-007: 作業場所を対象スキルの中と既存のディレク
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  await rejects(run.start({ ...ctx, stateRoot: path.join(root, 'state') }, { function: 'review', target: { root }, limits: LIMITS }), CODES.place);
+  await rejects(run.start({ ...ctx, stateRoot: path.join(root, 'state') }, { key: newKey(), function: 'review', target: { root }, limits: LIMITS }), CODES.place);
   assert.equal((await fs.readdir(root)).includes('state'), false);
 });
 
@@ -129,7 +129,7 @@ test('SP-BPRUN-039: 作業場所を /tmp 系に作らない', async (t) => {
   if (!ctx) return;
   const root = await skillDir(t);
   const tmp = await tmpDir(t, 'bp-state-');
-  await rejects(run.start({ ...ctx, stateRoot: tmp }, { function: 'review', target: { root }, limits: LIMITS }), CODES.place);
+  await rejects(run.start({ ...ctx, stateRoot: tmp }, { key: newKey(), function: 'review', target: { root }, limits: LIMITS }), CODES.place);
   assert.deepEqual(await fs.readdir(tmp), []);
 });
 
@@ -137,12 +137,12 @@ test('SP-BPRUN-009: 書いたファイルの一覧が run ごとに残り、消�
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const s = await run.start(ctx, { function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
   const req = { state: s.state, run: s.run };
   const out = await run.files(ctx, { ...req, entries: [
-    { path: path.join(root, 'SKILL.md'), action: 'write' },
-    { path: path.join(root, 'old.md'), action: 'delete' },
-    { path: '/elsewhere/x.md', action: 'write' },
+    { path: path.join(root, 'SKILL.md'), iteration: 1, action: 'write' },
+    { path: path.join(root, 'old.md'), iteration: 1, action: 'delete' },
+    { path: '/elsewhere/x.md', iteration: 1, action: 'write' },
   ] });
   assert.deepEqual(out.recorded, ['SKILL.md', 'old.md']);
   assert.deepEqual(out.outside, ['/elsewhere/x.md']);
@@ -157,9 +157,9 @@ test('SP-BPRUN-011: 停止の記録に種類・理由・検証を通っていな
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const s = await run.start(ctx, { function: 'create', target: { root: path.join(path.dirname(root), 'new-skill') }, limits: LIMITS, request: '作って' });
+  const s = await run.start(ctx, { key: newKey(), function: 'create', target: { root: path.join(path.dirname(root), 'new-skill') }, limits: LIMITS, request: '作って' });
   const req = { state: s.state, run: s.run };
-  await run.files(ctx, { ...req, entries: [{ path: path.join(path.dirname(root), 'new-skill', 'SKILL.md'), action: 'write' }] });
+  await run.files(ctx, { ...req, entries: [{ path: path.join(path.dirname(root), 'new-skill', 'SKILL.md'), iteration: 1, action: 'write' }] });
   const out = await run.stop(ctx, { ...req, kind: 'needs_input', reason: '回答が要る', pending: [], launches: 3, outside: ['/x/y'] });
   assert.equal(out.stop.kind, 'needs_input');
   assert.equal(out.stop.reason, '回答が要る');
@@ -190,7 +190,7 @@ test('SP-BPRUN-014: 完了した状態への開始を拒否する', async (t) =>
   if (!ctx) return;
   await run.stop(ctx, { ...req, kind: 'complete', pending: [], launches: 1 });
   const before = await logOf(ctx, req.state);
-  await rejects(run.start(ctx, { state: req.state }), CODES.input);
+  await rejects(run.start(ctx, { key: newKey(), state: req.state }), CODES.input);
   assert.deepEqual(await logOf(ctx, req.state), before);
 });
 
@@ -199,7 +199,7 @@ test('SP-BPRUN-016: 停止時と再開時の指紋の食い違いを出力する
   if (!ctx) return;
   await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
   await fs.writeFile(path.join(root, 'b.md'), 'changed\n');
-  const out = await run.start(ctx, { state: req.state });
+  const out = await run.start(ctx, { key: newKey(), state: req.state });
   assert.deepEqual(out.changed, ['b.md']);
   assert.deepEqual(out.baseline, { run: 'r1', at: 'stop' });
 });
@@ -208,7 +208,7 @@ test('SP-BPRUN-016: 停止の記録の無い状態では、最後に記録した
   const { ctx, req, root } = await startReview(t, { 'SKILL.md': '# A\n' });
   if (!ctx) return;
   await fs.writeFile(path.join(root, 'new.md'), 'n\n');
-  const out = await run.start(ctx, { state: req.state });
+  const out = await run.start(ctx, { key: newKey(), state: req.state });
   assert.deepEqual(out.changed, ['new.md']);
   assert.deepEqual(out.baseline, { run: 'r1', at: 'start' });
 });
@@ -217,7 +217,7 @@ test('SP-BPRUN-017: 現在でない run の書き込みを拒否し、状態が�
   const { ctx, req } = await startReview(t);
   if (!ctx) return;
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ a: 1 }] });
-  const r2 = await run.start(ctx, { state: req.state });
+  const r2 = await run.start(ctx, { key: newKey(), state: req.state });
   assert.equal(r2.run, 'r2');
   const before = await logOf(ctx, req.state);
   await rejects(run.itemResult(ctx, { ...req, item: items[0], result: { late: true } }), CODES.staleRun);
@@ -228,7 +228,7 @@ test('SP-BPRUN-017: 前の run の遅れた書き込みが新しい run の状�
   const { ctx, req } = await startReview(t);
   if (!ctx) return;
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ a: 1 }, { a: 2 }] });
-  await run.start(ctx, { state: req.state });
+  await run.start(ctx, { key: newKey(), state: req.state });
   const r2 = { state: req.state, run: 'r2' };
   await run.itemResult(ctx, { ...r2, item: items[0], result: { ok: 1 } });
   await rejects(run.itemResult(ctx, { ...req, item: items[1], result: { late: 1 } }), CODES.staleRun);
@@ -255,7 +255,7 @@ test('SP-BPRUN-018: 止まった段の決め方の 4 通りと、list が未完�
   assert.deepEqual(listed.states[0].pending, [v.items[1]]);
   assert.deepEqual(listed.states[0].nextArgs, { [NEXT_ARGS_KEYS.function]: 'review', [NEXT_ARGS_KEYS.state]: req.state });
   await run.stop(ctx, { ...req, kind: 'iteration_limit', limitHit: 'launch', reason: '起動数の上限', pending: [v.items[1]], launches: 4 });
-  const resumed = await run.start(ctx, { state: req.state });
+  const resumed = await run.start(ctx, { key: newKey(), state: req.state });
   assert.deepEqual(resumed.stoppedStage, { stage: 'verify', round: null, status: 'stopped' });
   assert.deepEqual(resumed.pending, [v.items[1]]);
   assert.equal((await run.list(ctx, { function: 'audit', target: { root } })).states.length, 0);
@@ -306,7 +306,7 @@ const WRITE_OPS = [
   ['stageRepeat', (r) => ({ ...r, stage: 'assign', n: 1, limitKey: 'attempts' })],
   ['stageFinish', (r) => ({ ...r, stage: 'verify', round: 1 })],
   ['discard', (r, item) => ({ ...r, items: [item] })],
-  ['files', (r, item, root) => ({ ...r, entries: [{ path: path.join(root, 'SKILL.md'), action: 'write' }] })],
+  ['files', (r, item, root) => ({ ...r, entries: [{ path: path.join(root, 'SKILL.md'), iteration: 1, action: 'write' }] })],
   ['stop', (r) => ({ ...r, kind: 'blocked', reason: 'x', pending: [], launches: 1 })],
 ];
 
@@ -315,10 +315,10 @@ for (const [name, build] of WRITE_OPS) {
     const ctx = context(t);
     if (!ctx) return;
     const root = await skillDir(t);
-    const s = await run.start(ctx, { function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+    const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
     const r1 = { state: s.state, run: s.run };
     const { items } = await run.stageStart(ctx, { ...r1, stage: 'verify', round: 1, keys: [{ a: 1 }] });
-    await run.start(ctx, { state: s.state });
+    await run.start(ctx, { key: newKey(), state: s.state });
     const before = await logOf(ctx, s.state);
     await assert.rejects(run[name](ctx, build(r1, items[0], root)), (error) => {
       assert.equal(error.code, CODES.staleRun);
@@ -378,7 +378,7 @@ test('SP-BPRUN-013: 反復の回数は累計で持ち、上限は run の開始�
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  const s = await run.start(ctx, { function: 'update', target: { root }, limits: { ...LIMITS, iterations: 2 }, grounds: [{ text: 'a' }] });
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: { ...LIMITS, iterations: 2 }, grounds: [{ text: 'a' }] });
   let req = { state: s.state, run: s.run };
   for (const n of [1, 2]) {
     const { items } = await run.stageStart(ctx, { ...req, stage: 'gate', round: n, keys: [{ n }] });
@@ -386,7 +386,7 @@ test('SP-BPRUN-013: 反復の回数は累計で持ち、上限は run の開始�
     assert.equal(out.iterations.hit, n === 2);
   }
   await run.stop(ctx, { ...req, kind: 'iteration_limit', limitHit: 'iteration', reason: '反復の上限', pending: [], launches: 6 });
-  const r2 = await run.start(ctx, { state: s.state });
+  const r2 = await run.start(ctx, { key: newKey(), state: s.state });
   req = { state: s.state, run: r2.run };
   const { items } = await run.stageStart(ctx, { ...req, stage: 'gate', round: 3, keys: [{ n: 3 }] });
   await rejects(run.itemResult(ctx, { ...req, item: items[0], result: {}, iteration: 5 }), CODES.conflict);
@@ -398,7 +398,7 @@ test('SP-BPRUN-015: 破棄した未着手の項目は未着手に数えない', 
   const { ctx, req } = await startReview(t);
   if (!ctx) return;
   const v = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ k: 1 }, { k: 2 }] });
-  await run.start(ctx, { state: req.state });
+  await run.start(ctx, { key: newKey(), state: req.state });
   const r2 = { state: req.state, run: 'r2' };
   await run.discard(ctx, { ...r2, items: v.items });
   const listed = await run.list(ctx, { function: 'review', target: { root: buildView(await logOf(ctx, req.state)).paths[0].root } });
@@ -421,10 +421,10 @@ test('SP-BPAUTHORING-029: 既にあるディレクトリと symlink を指す cr
   if (!ctx) return;
   const root = await skillDir(t);
   const before = await fs.readdir(root);
-  await rejects(run.start(ctx, { function: 'create', target: { root }, limits: LIMITS, request: 'x' }), CODES.input);
+  await rejects(run.start(ctx, { key: newKey(), function: 'create', target: { root }, limits: LIMITS, request: 'x' }), CODES.input);
   const link = path.join(path.dirname(root), 'linked');
   await fs.symlink(path.join(path.dirname(root), 'missing-target'), link);
-  await assert.rejects(run.start(ctx, { function: 'create', target: { root: link }, limits: LIMITS, request: 'x' }), (e) => e.code === CODES.input && /symlink/.test(e.reason));
+  await assert.rejects(run.start(ctx, { key: newKey(), function: 'create', target: { root: link }, limits: LIMITS, request: 'x' }), (e) => e.code === CODES.input && /symlink/.test(e.reason));
   assert.deepEqual(await fs.readdir(root), before);
   assert.deepEqual(await stateDirs(ctx), []);
 });
@@ -433,7 +433,7 @@ test('SP-BPAUTHORING-029: update で無いディレクトリを拒否し、状�
   const ctx = context(t);
   if (!ctx) return;
   const base = await tmpDir(t);
-  await rejects(run.start(ctx, { function: 'update', target: { root: path.join(base, 'none') }, limits: LIMITS, grounds: [{ text: 'a' }] }), CODES.input);
+  await rejects(run.start(ctx, { key: newKey(), function: 'update', target: { root: path.join(base, 'none') }, limits: LIMITS, grounds: [{ text: 'a' }] }), CODES.input);
   assert.deepEqual(await stateDirs(ctx), []);
 });
 
@@ -442,12 +442,12 @@ test('SP-BPINSPECTION-021・SP-BPINSPECTION-026: 根が SKILL.md のあるディ
   if (!ctx) return;
   const noSkill = await skillDir(t, { 'README.md': 'x' });
   for (const fn of ['review', 'audit']) {
-    await assert.rejects(run.start(ctx, { function: fn, target: { root: noSkill }, limits: LIMITS }), (e) => e.code === CODES.input && /SKILL\.md/.test(e.reason));
-    await rejects(run.start(ctx, { function: fn, target: { root: path.join(noSkill, 'none') }, limits: LIMITS }), CODES.input);
+    await assert.rejects(run.start(ctx, { key: newKey(), function: fn, target: { root: noSkill }, limits: LIMITS }), (e) => e.code === CODES.input && /SKILL\.md/.test(e.reason));
+    await rejects(run.start(ctx, { key: newKey(), function: fn, target: { root: path.join(noSkill, 'none') }, limits: LIMITS }), CODES.input);
   }
   assert.deepEqual(await stateDirs(ctx), []);
   const ok = await skillDir(t);
-  const out = await run.start(ctx, { function: 'audit', target: { root: ok }, limits: LIMITS });
+  const out = await run.start(ctx, { key: newKey(), function: 'audit', target: { root: ok }, limits: LIMITS });
   assert.deepEqual(await stateDirs(ctx), [out.state]);
 });
 
@@ -455,8 +455,8 @@ test('開始の操作は limits が 1 以上の整数でないと状態を作ら
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
-  await rejects(run.start(ctx, { function: 'review', target: { root }, limits: { attempts: 0, iterations: 3, untilPass: 3 } }), CODES.input);
-  await rejects(run.start(ctx, { function: 'review', target: { root } }), CODES.input);
+  await rejects(run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: { attempts: 0, iterations: 3, untilPass: 3 } }), CODES.input);
+  await rejects(run.start(ctx, { key: newKey(), function: 'review', target: { root } }), CODES.input);
   assert.deepEqual(await stateDirs(ctx), []);
 });
 
@@ -470,4 +470,60 @@ test('SP-BPRUN-026: onTargetChanged の停止は、対象スキルが変わっ�
   assert.match(out.stop.reason, /SKILL\.md/);
   assert.deepEqual(out.stop.requested, { kind: 'complete', reason: '' });
   assert.equal((await logOf(ctx, req.state)).length, before + 1);
+});
+
+test('SP-BPRUN-009・SP-BPRUN-011: 通った後に書き直したファイルと、通った後に落ちたファイルは検証を通っていないものとして残る', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t, { 'SKILL.md': '# A\n', 'a.md': 'a\n', 'b.md': 'b\n' });
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const req = { state: s.state, run: s.run };
+  const f = (name) => path.join(root, name);
+  await run.files(ctx, { ...req, entries: ['SKILL.md', 'a.md', 'b.md'].map((n) => ({ path: f(n), iteration: 1, action: 'write' })) });
+  await run.files(ctx, { ...req, entries: ['SKILL.md', 'a.md', 'b.md'].map((n) => ({ path: f(n), iteration: 1, verified: true })) });
+  await run.files(ctx, { ...req, entries: [{ path: f('a.md'), iteration: 2, action: 'write' }] });
+  await run.files(ctx, { ...req, entries: [{ path: f('b.md'), iteration: 2, verified: false }] });
+  const view = buildView(await logOf(ctx, s.state));
+  assert.deepEqual(run.unverifiedFiles(view).map((x) => x.path).sort(), ['a.md', 'b.md']);
+  await rejects(run.files(ctx, { ...req, entries: [{ path: f('a.md'), action: 'write' }] }), CODES.input);
+});
+
+test('SP-BPRUN-031: 同じ key の開始の送り直しは状態も run も増やさない', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const key = newKey();
+  const one = await run.start(ctx, { key, function: 'review', target: { root }, limits: LIMITS });
+  const two = await run.start(ctx, { key, function: 'review', target: { root }, limits: LIMITS });
+  assert.deepEqual([two.state, two.run, two.same], [one.state, 'r1', true]);
+  assert.deepEqual(await stateDirs(ctx), [one.state]);
+  await rejects(run.start(ctx, { key, function: 'audit', target: { root }, limits: LIMITS }), CODES.conflict);
+  const rkey = newKey();
+  const r2 = await run.start(ctx, { key: rkey, state: one.state });
+  const again = await run.start(ctx, { key: rkey, state: one.state });
+  assert.deepEqual([r2.run, again.run, again.same], ['r2', 'r2', true]);
+  assert.deepEqual(again.changed, r2.changed);
+  assert.equal(buildView(await logOf(ctx, one.state)).runs.length, 2);
+  await rejects(run.start(ctx, { function: 'review', target: { root }, limits: LIMITS }), CODES.input);
+});
+
+test('SP-BPRUN-028: 打ち切った項目と破棄した項目に新しい試行の失敗を書けない', async (t) => {
+  const { ctx, req } = await startReview(t);
+  if (!ctx) return;
+  const v = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ k: 1 }, { k: 2 }] });
+  for (const n of [1, 2, 3]) await run.itemFail(ctx, { ...req, item: v.items[0], attempt: n, reason: 'x' });
+  await rejects(run.itemFail(ctx, { ...req, item: v.items[0], attempt: 4, reason: 'x' }), CODES.conflict);
+  assert.equal((await run.itemFail(ctx, { ...req, item: v.items[0], attempt: 3, reason: 'x' })).same, true);
+  await run.discard(ctx, { ...req, items: [v.items[1]] });
+  await rejects(run.itemFail(ctx, { ...req, item: v.items[1], attempt: 1, reason: 'x' }), CODES.conflict);
+});
+
+test('SP-BPRUN-018: list は読めない状態を理由つきで飛ばして宣言する', async (t) => {
+  const { ctx, req, root } = await startReview(t);
+  if (!ctx) return;
+  const other = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  await fs.appendFile(path.join(ctx.stateRoot, STATES_DIR, other.state, 'log.jsonl'), '{broken\n');
+  const listed = await run.list(ctx, { function: 'review', target: { root } });
+  assert.deepEqual(listed.states.map((s) => s.state), [req.state].filter((id) => id !== other.state));
+  assert.deepEqual(listed.unreadable.map((u) => u.state), [other.state]);
 });

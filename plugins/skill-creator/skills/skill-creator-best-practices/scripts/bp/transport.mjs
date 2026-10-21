@@ -4,7 +4,6 @@ import { CODES, WORK_DIR } from './constants.mjs';
 import { reject } from './errors.mjs';
 import { sum } from './ids.mjs';
 
-// 運搬役（haiku・low）の写し崩れを、要求の sum で構造的に検出する（bp-run SP-BPRUN-031）。
 export function verifyRequest(text) {
   let request;
   try {
@@ -23,6 +22,7 @@ export function verifyRequest(text) {
 export async function resolvePayload(request, stateDirPath) {
   if (request.payloadFile === undefined) return request;
   const { payloadFile, payloadSum, ...rest } = request;
+  if (typeof payloadFile !== 'string' || typeof payloadSum !== 'string') reject(CODES.transport, 'payloadFile と payloadSum は文字列でなければならない');
   const work = path.join(stateDirPath, WORK_DIR);
   const file = path.resolve(work, payloadFile);
   const rel = path.relative(work, file);
@@ -37,7 +37,7 @@ export async function resolvePayload(request, stateDirPath) {
   if (payloadSum !== actual) reject(CODES.transport, `payloadFile の sum が合わない（受け取った ${payloadSum}、計算した ${actual}）`);
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) reject(CODES.transport, 'payloadFile の中身は JSON のオブジェクトでなければならない');
   for (const key of Object.keys(payload)) {
-    if (key in rest) reject(CODES.transport, `payloadFile と要求に同じ欄がある: ${key}`);
+    if (Object.hasOwn(rest, key)) reject(CODES.transport, `payloadFile と要求に同じ欄がある: ${key}`);
   }
   return { ...rest, ...payload };
 }
