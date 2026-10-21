@@ -91,10 +91,10 @@ test('parallel out-of-order completion and race branch replay preserves transcri
   const invoked = [];
   const f = await fixture(t, `const a=agent('slow'), b=agent('fast'); const winner=await Promise.race([a,b]);
     const ordered=await Promise.all([a,b]); await checkpoint('one'); return await agent(winner+ordered.join(','));`, {
-    backend: { run: async prompt => { invoked.push(prompt); if(prompt==='slow') await fastReleased(); return prompt; } },
+    backend: { run: async (prompt, _, { signal }) => { invoked.push(prompt); if(prompt==='slow') await fastReleased(signal); return prompt; } },
   });
-  const fastReleased = async () => {
-    for (;;) {
+  const fastReleased = async signal => {
+    while (!signal.aborted) {
       const events = (await readFile(join(f.dir, 'run-1', 'events.jsonl'), 'utf8').catch(() => '')).split('\n')
         .flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
       const fast = events.find(event => event.type === 'agent.accepted' && event.prompt === 'fast');

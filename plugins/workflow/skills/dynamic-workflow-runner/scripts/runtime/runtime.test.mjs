@@ -50,10 +50,10 @@ test('parallel/pipeline preserve order, null and bound nested concurrency', asyn
   const bothActive = new Promise(r => { saturated = r; });
   const { result } = await run(t, `return await parallel([
     () => pipeline(['a','bad','c'], x => agent(x)), () => agent('d')]);`, {
-    run: async prompt => {
+    run: async (prompt, _, { signal }) => {
       peak = Math.max(peak, ++active);
       if (active === 2) saturated();
-      await bothActive;
+      await Promise.race([bothActive, new Promise(r => signal.addEventListener('abort', r, { once: true }))]);
       await new Promise(r => setTimeout(r, 10)); active--;
       if (prompt === 'bad') throw Error('API failure'); return prompt;
     },
