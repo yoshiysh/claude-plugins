@@ -208,7 +208,7 @@ export function refutation(ctx, req) {
     if (cands.length === 0) reject(CODES.unknownId, `反証の項目に候補が無い: ${req.item}`);
     const attempt = item.fails.length + 1;
     if (req.verdict == null) {
-      return { records: [{ t: 'unrefuted', item: req.item, attempt }], output: { unrefuted: true, finding: null, state: null } };
+      return { records: [{ t: 'unrefuted', item: req.item, attempt }], output: { unrefuted: true, finding: null, created: false, state: null } };
     }
     if (!Object.values(REFUTATION_VERDICTS).includes(req.verdict)) return rejected(`item:${req.item}`, attempt, null, `反証の結果が選択肢に無い: ${JSON.stringify(req.verdict)}`);
     if (typeof req.reason !== 'string') return rejected(`item:${req.item}`, attempt, null, '反証の理由が文字列でない');
@@ -219,6 +219,7 @@ export function refutation(ctx, req) {
     const ks = keyString(item.key);
     let f = findingWithKey(view, ks);
     let state = null;
+    const created = !f;
     if (!f) {
       const id = findingId(view.ledger.id, item.key);
       if (view.findings.has(id)) internal(`指摘 ID が衝突した: ${id}`);
@@ -235,7 +236,7 @@ export function refutation(ctx, req) {
       );
       f = { id };
     }
-    return { records, output: { unrefuted: false, finding: f.id, state } };
+    return { records, output: { unrefuted: false, finding: f.id, created, state } };
   });
 }
 

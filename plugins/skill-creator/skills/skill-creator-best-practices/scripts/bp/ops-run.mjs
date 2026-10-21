@@ -13,7 +13,7 @@ import { freshRecords } from './records.mjs';
 import { locateState, mutate, readState, stateRootOf } from './store.mjs';
 import { summarize } from './summary.mjs';
 import {
-  buildView, currentRun, isCompleted, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
+  buildView, isCompleted, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
 } from './view.mjs';
 import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir } from './workspace.mjs';
 

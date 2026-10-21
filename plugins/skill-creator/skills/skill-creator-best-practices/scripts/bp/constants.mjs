@@ -23,8 +23,6 @@ export const OPS = Object.freeze({
   kinds: 'kinds',
 });
 
-export const READ_OPS = new Set([OPS.summary, OPS.list, OPS.report, OPS.kinds, OPS.refutationItems]);
-
 export const FUNCTIONS = Object.freeze(['create', 'review', 'update', 'audit']);
 export const REWRITING_FUNCTIONS = new Set(['create', 'update']);
 
@@ -112,7 +110,6 @@ export const LOG_FILE = 'log.jsonl';
 export const LOCK_FILE = 'lock';
 export const WORK_DIR = 'work';
 export const CRITERIA_DIR = 'references/criteria';
-export const PROMPT_AUDIT_PATH = 'references/prompt-audit.md';
 
 export const SUMMARY_MAX_CHARS = 8000;
 export const LOCK_WAIT_MS = 10000;

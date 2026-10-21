@@ -165,10 +165,6 @@ export function stoppedStage(v, { includeCurrentRun = false } = {}) {
   return openOrLastStage(v);
 }
 
-export function stageOfLiveRun(v) {
-  return openOrLastStage(v);
-}
-
 export function pendingItems(v, ref) {
   if (!ref || ref.stage == null) return [];
   const entry = stageEntry(v, ref.stage, ref.round);
