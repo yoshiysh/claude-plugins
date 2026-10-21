@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
   CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
-  LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, RUN_VIEWPOINTS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
+  INSPECTING_FUNCTIONS, LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
 import { checkWritableItem, needPosInt } from './checks.mjs';
@@ -16,7 +16,8 @@ import { checkRepeatNumber, limitState, nextArgs, unverifiedFiles } from './ops-
 import { findingsForResult, judgedOnCurrent, ledgerReport, skipList, unrefutedCandidates } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { applicability, contractKind } from './units.mjs';
-import { currentRun, itemStatus, lastFingerprint, runBase, stageEntry, stoppedStage } from './view.mjs';
+import { currentRun, itemStatus, lastFingerprint, runBase, runViewpoints, stageEntry, stoppedStage } from './view.mjs';
+import { inspectOutcome, inspectProgress } from './ops-inspect.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
 import { identity } from './records.mjs';
@@ -274,7 +275,7 @@ export function computeGate(view, number) {
   const unverifiable = {
     findings: gates.filter((g) => g.result === FINDING_GATE.unverifiable).map((g) => g.finding.id),
     unrefuted: unrefutedCandidates(view).filter((u) => refuteItems.has(u.item)).map((u) => u.key),
-    skip: RUN_VIEWPOINTS[fn].map((vp) => ({ viewpoint: vp, assets: skipList(view, vp).map((a) => a.id) })).filter((s) => s.assets.length > 0),
+    skip: runViewpoints(view).map((vp) => ({ viewpoint: vp, assets: skipList(view, vp).map((a) => a.id) })).filter((s) => s.assets.length > 0),
     aborted: conf ? aborted : ['conformance'],
   };
   const failingUnits = unitResults.filter((u) => u.result === UNIT_RESULTS.nonconform || (u.result === UNIT_RESULTS.unchecked && u.unchecked === UNCHECKED_KINDS.unforced));
@@ -369,7 +370,7 @@ function verification(view, gateItem) {
     [VERIFICATION_KEYS.units]: g.units,
     [VERIFICATION_KEYS.forcedUnchecked]: g.forced,
     [VERIFICATION_KEYS.basisConstraints]: extraOf(view, g.number, 'goal')?.basisConstraints ?? [],
-    [VERIFICATION_KEYS.ledger]: ledgerReport(view, RUN_VIEWPOINTS[view.state.function]),
+    [VERIFICATION_KEYS.ledger]: ledgerReport(view, runViewpoints(view)),
   };
   if (view.state.function === FUNCTION.update) {
     const changes = extraOf(view, g.number, 'contract')?.contractChanges ?? [];
@@ -384,7 +385,7 @@ function verification(view, gateItem) {
 // SP-BPRUN-032、SP-BPAUTHORING-032〜034: 返り値は状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。
 export async function outcome(ctx, req) {
   const { view } = await readState(ctx, req.state);
-  needRewriting(view);
+  if (INSPECTING_FUNCTIONS.has(view.state.function)) return inspectOutcome(ctx, req);
   const run = currentRun(view);
   const stop = view.stops.get(run.id);
   if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
@@ -405,7 +406,7 @@ export async function outcome(ctx, req) {
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
   }
   if (complete) {
-    const report = ledgerReport(view, RUN_VIEWPOINTS[view.state.function]);
+    const report = ledgerReport(view, runViewpoints(view));
     out[RESULT_KEYS.skill] = await skillOf(view);
     out[RESULT_KEYS.designNote] = await designNote(view);
     out[RESULT_KEYS.findings] = report.findings;
@@ -453,6 +454,7 @@ export function progress(view) {
     groundCount: view.grounds.length,
     answers: view.premises.filter((p) => p.kind === 'answer').map((p) => ({ id: p.id, text: p.text })),
     stopped: stoppedDetail(view),
+    ...(INSPECTING_FUNCTIONS.has(view.state.function) ? { inspection: inspectProgress(view) } : {}),
   };
 }
 

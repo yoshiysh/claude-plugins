@@ -311,15 +311,17 @@ run をまたいで指摘の状態を追うかの裁定が下るまで、create 
 #### SP-BPFINDINGS-030 結果に載せる台帳の項目
 4 機能は、結果に次の項目を載せなければならない。
 
-| 項目 | 中身 |
-|---|---|
-| 指摘の一覧 | 台帳の全ての指摘。dismissed の指摘も含める（PR-BPOPERATIONS-043） |
-| カバレッジ | 観点ごとの値（SP-BPFINDINGS-022） |
-| skip 一覧 | 観点ごとの一覧（SP-BPFINDINGS-023・025） |
-| 資産の結末 | 資産と観点の組ごとの値（SP-BPFINDINGS-024） |
-| 未反証の候補 | SP-BPFINDINGS-015 の一覧 |
-| 拒否された結果 | SP-BPFINDINGS-034 で台帳に入らなかった結果の件数と、それを返した担当 |
-| 未検査の観点 | review と audit だけ。中身は `docs/specifications/bp-inspection.md` が定める |
+| 項目 | review・audit の綴り | 中身 |
+|---|---|---|
+| 指摘の一覧 | `findings` | 台帳の全ての指摘。dismissed の指摘も含める（PR-BPOPERATIONS-043） |
+| カバレッジ | `ledger` | 観点ごとの値（SP-BPFINDINGS-022） |
+| skip 一覧 | `ledger` | 観点ごとの一覧（SP-BPFINDINGS-023・025） |
+| 資産の結末 | `ledger` | 資産と観点の組ごとの値（SP-BPFINDINGS-024） |
+| 未反証の候補 | `ledger` | SP-BPFINDINGS-015 の一覧 |
+| 拒否された結果 | `ledger` | SP-BPFINDINGS-034 で台帳に入らなかった結果の件数と、それを返した担当 |
+| 未検査の観点 | `uncheckedViewpoints` | review と audit だけ。中身は `docs/specifications/bp-inspection.md` が定める |
+
+review・audit の `ledger` は、`docs/specifications/bp-run.md` の SP-BPRUN-031 の `report` の操作の出力のうち、指摘の一覧を除いた欄（カバレッジ・skip 一覧・資産の結末・未反証の候補・拒否された結果）を同じ形で持つ。指摘の一覧を `ledger` の外の `findings` に置くのは、4 機能の返り値で同じ鍵から指摘を取り、update の修正の根拠にそのまま渡せるようにするため（`docs/specifications/bp-entry.md` の SP-BPENTRY-009）。create・update の綴りは `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-032〜SP-BPAUTHORING-034 が定める。
 
 #### SP-BPFINDINGS-031 修正の根拠の形
 update が受け取る修正の根拠は、次のどちらかの形でなければならない（PR-BPOPERATIONS-015）。前の機能の結果を update に渡すとき（PR-BPOPERATIONS-038）、渡す側は結果の指摘の一覧を SP-BPFINDINGS-029 の形のまま渡さなければならない。

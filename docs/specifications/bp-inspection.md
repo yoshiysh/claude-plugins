@@ -115,6 +115,17 @@ CLI は、答えを状態に書き、答えから最初に到達した形を決�
 
 `docs/specifications/bp-conformance.md` の「機能仕様」の章の仕様項目が「性能・容量（対象スキルに課す確定値）」の章の仕様項目の値で判定するとした行（SP-BPCONFORMANCE-012 の同時実行の行など）は、フローの観点の判定の単位にしてはならず、仕様の観点の判定の単位（SP-BPINSPECTION-008）としてだけ判定する（両方の観点が判定すると、同じ違反が観点の違う 2 件の指摘になる。指摘の鍵は観点を含むので、CLI は観点をまたいで指摘をまとめない：`docs/specifications/bp-findings.md` の SP-BPFINDINGS-011）。この規則は review にだけ当てる（create・update は仕様の観点を持たないので、適合の観点が値の行も判定する）。
 
+除く単位は次の表とする（単位の値は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 の判定の単位の値）。CLI はこの表を判定基準の写しから読み、review のフローの観点の閉集合と適用の判定の行の単位から除く。表の行は、bp-conformance の「機能仕様」の章で「SP-BPCONFORMANCE-0xx（の値）で判定する」とした文のうち、参照先が「性能・容量（対象スキルに課す確定値）」の章の仕様項目であるものの主語の行である。SP-BPCONFORMANCE-013 の「役ごとのモデルと effort は、SP-BPCONFORMANCE-035 で判定する」は、原則の表の行ではなく役ごとの表を指すので、除く単位を持たない。
+
+| 除く単位 | 判定する仕様の観点の仕様項目 |
+|---|---|
+| `SP-BPCONFORMANCE-012/体数と同時実行/t1/r3` | SP-BPCONFORMANCE-027 |
+| `SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r8` | SP-BPCONFORMANCE-032 |
+| `SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r1` | SP-BPCONFORMANCE-030 |
+| `SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r4` | SP-BPCONFORMANCE-032 |
+| `SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r7` | SP-BPCONFORMANCE-031 |
+| `SP-BPCONFORMANCE-016/状態の書き込み/t1/r12` | SP-BPCONFORMANCE-033 |
+
 #### SP-BPINSPECTION-008 仕様の観点の判定
 仕様の観点の検証役は、`docs/specifications/bp-conformance.md` の「性能・容量（対象スキルに課す確定値）」の章の仕様項目を 1 つずつ判定の単位とし（SP-BPCONFORMANCE-002）、対象スキルの値と規則をその章に照らさなければならない（PR-BPOPERATIONS-025）。不適合の単位は、その仕様項目 ID を指摘の種類にした指摘の候補として返し、未検査の単位は SP-BPINSPECTION-007 と同じく返す。検証役の prompt に章の値を書き写してはならず、照らす先のパスを渡さなければならない（写しは照らす先から drift する）。
 
@@ -211,12 +222,12 @@ review と audit の Workflow の入力は、`docs/specifications/bp-entry.md` �
 #### SP-BPINSPECTION-024 review と audit に固有の結果の項目
 review と audit は、完了したとき、`docs/specifications/bp-run.md` の SP-BPRUN-032 と `docs/specifications/bp-findings.md` の SP-BPFINDINGS-030 の項目に加えて、次の項目を返さなければならない。
 
-| 項目 | 機能 | 中身 |
-|---|---|---|
-| 照らした先 | review・audit | 観点ごとの照らす先のパスと照らす先の指紋（SP-BPINSPECTION-004） |
-| 適用の判定 | review | SP-BPINSPECTION-006 の答えと引用と、到達した形 |
-| 未検査の観点 | review・audit | SP-BPINSPECTION-025 の一覧。空でも項目を返す |
-| 対象スキルのパスの一覧 | audit | 状態にある今の対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-005）を、CLI が状態から逐語で写したもの（監査した範囲：SP-BPINSPECTION-014） |
+| 項目 | 綴り | 機能 | 中身 |
+|---|---|---|---|
+| 照らした先 | `targets` | review・audit | 観点ごとの照らす先のパスと照らす先の指紋（SP-BPINSPECTION-004） |
+| 適用の判定 | `applicability` | review | SP-BPINSPECTION-006 の答えと引用と、到達した形と SP-BPCONFORMANCE-003 の判定表の行 |
+| 未検査の観点 | `uncheckedViewpoints` | review・audit | SP-BPINSPECTION-025 の一覧。空でも項目を返す |
+| 対象スキルのパスの一覧 | `target` | audit | 状態にある今の対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-005）を、CLI が状態から逐語で写したもの（監査した範囲：SP-BPINSPECTION-014）。入力の `target`（`docs/specifications/bp-entry.md` の SP-BPENTRY-013）と同じ形にし、連鎖の次の run の入力にそのまま渡せるようにする |
 
 #### SP-BPINSPECTION-025 未検査の観点の形と載せるもの
 未検査の観点の 1 件は、観点、範囲、理由、記録した run を持たなければならない。範囲は、観点の全体か、判定の単位か、監査の観点の識別子のどれかとする。CLI は次の表の全ての場合に未検査の観点を作り、同じ観点と範囲と理由の重複は 1 件にまとめなければならない。

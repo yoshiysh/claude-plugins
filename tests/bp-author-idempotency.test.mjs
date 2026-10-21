@@ -55,6 +55,26 @@ function conformanceCandidate() {
   };
 }
 
+// review の段の書き込み（照らす先・資産の束・適用の判定）を、受理と拒否の両方で 2 回ずつ届ける。
+async function inspectWrites(t, env) {
+  const s = await setup(t, { fn: 'update' });
+  const started = await env.request(OPS.start, { key: `k-inspect-${Date.now()}`, function: 'review', target: s.target, limits: { attempts: 3, iterations: 3, untilPass: 3 } });
+  const req = { state: started.state, run: started.run };
+  const w = (op, b = {}) => env.request(op, { ...req, ...b });
+  await w(OPS.stageStart, { stage: 'targets', keys: [] });
+  await w(OPS.targets);
+  await w(OPS.stageStart, { stage: 'bundle', keys: [] });
+  const ledger = await w(OPS.ledgerCreate);
+  await w(OPS.bundle);
+  await w(OPS.stageStart, { stage: 'applicability', keys: [] });
+  const quote = [{ asset: ledger.assets[0].id, line: 1, text: '---' }];
+  const answer = (a) => ({ answer: a, quotes: quote });
+  const bad = await w(OPS.applicability, { n: 1, result: { answers: { A: answer('いいえ'), Q1: answer('はい'), Q2: answer('問いに到達しない'), Q3: answer('問いに到達しない') }, ledger: answer('無'), fanout: answer('無') } });
+  const good = await w(OPS.applicability, { n: 2, result: { answers: { A: answer('いいえ'), Q1: answer('問いに到達しない'), Q2: answer('問いに到達しない'), Q3: answer('問いに到達しない') }, ledger: answer('無'), fanout: answer('無') } });
+  assert.equal(bad.code, 'E_RESULT');
+  assert.equal(good.shape, 'ターンごとの指揮', good.reason);
+}
+
 test('SP-BPRUN-006・SP-BPRUN-031: 書き込みの操作の全てが、同じ要求の 2 回目を記録を足さずに受け、読み出しの操作は記録を変えない', async (t) => {
   const seen = new Set();
   const violations = [];
@@ -95,6 +115,7 @@ test('SP-BPRUN-006・SP-BPRUN-031: 書き込みの操作の全てが、同じ要
   const third = await env.request(OPS.start, { key: 'k-direct', state: first.result.state });
   await env.request(OPS.premise, { state: third.state, run: third.run, kind: 'answer', text: '直接' });
   await env.request(OPS.stageRepeat, { state: third.state, run: third.run, stage: 'goal', n: 1, limitKey: 'untilPass' });
+  await inspectWrites(t, env);
   assert.deepEqual([...new Set(violations)], []);
   const missing = WRITE_OPS.filter((op) => !seen.has(op));
   assert.deepEqual(missing, [], `書き込みの操作のうち 2 回届けて照らしていないもの: ${missing.join(', ')}`);

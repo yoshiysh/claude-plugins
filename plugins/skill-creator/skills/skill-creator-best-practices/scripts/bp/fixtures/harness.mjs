@@ -10,6 +10,7 @@ const HERE = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
 export const SKILL_DIR = path.resolve(HERE, '..', '..', '..');
 export const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..', '..', '..');
 export const CRITERIA_FIXTURE = path.join(HERE, 'criteria');
+export const PROMPT_AUDIT_FIXTURE = path.join(HERE, 'prompt-audit.md');
 export const CLI = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
 
 export function newKey() {
@@ -55,5 +56,5 @@ export async function skillDir(t, files = { 'SKILL.md': '---\nname: x\n---\n# X\
 export function context(t, extra = {}) {
   const root = stateRoot(t);
   if (!root) return null;
-  return { stateRoot: root, criteriaDir: CRITERIA_FIXTURE, cwd: REPO_ROOT, env: {}, ...extra };
+  return { stateRoot: root, criteriaDir: CRITERIA_FIXTURE, promptAudit: PROMPT_AUDIT_FIXTURE, cwd: REPO_ROOT, env: {}, ...extra };
 }

@@ -26,6 +26,7 @@ const OPS = {
   verdicts: 'verdicts', refutationItems: 'refutation-items', refutation: 'refutation', reviewJudge: 'review-judge',
   vanishMatch: 'vanish-match', report: 'report', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
   snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
+  targets: 'targets', bundle: 'bundle', applicability: 'applicability',
 }
 const STAGE = {
   start: 'start', snapshot: 'snapshot', goal: 'goal', write: 'write', ledger: 'ledger', targets: 'targets', bundle: 'bundle',
@@ -52,9 +53,10 @@ const RESULT_KEYS = {
   stopKind: 'stopKind', reason: 'reason', nextArgs: 'nextArgs', state: 'state', run: 'run', launches: 'launches',
   writtenFiles: 'writtenFiles', unverifiedRoleLimits: 'unverifiedRoleLimits', skill: 'skill', designNote: 'designNote',
   verification: 'verification', findings: 'findings', skip: 'skip', residualRisks: 'residualRisks', receivedGrounds: 'receivedGrounds',
-  excludedCallsites: 'excludedCallsites', unverified: 'unverified', stoppedStage: 'stoppedStage',
+  excludedCallsites: 'excludedCallsites', unverified: 'unverified', stoppedStage: 'stoppedStage', targets: 'targets',
+  applicability: 'applicability', uncheckedViewpoints: 'uncheckedViewpoints', target: 'target', ledger: 'ledger',
 }
-const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance', 'goal', 'contract'] }
+const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance', 'goal', 'contract'], review: ['flow', 'spec'], audit: ['audit'] }
 const GOAL_KEYS = { deliverables: 'deliverables', scope: 'scope', prohibitions: 'prohibitions', numeric: 'numeric', deixis: 'deixis' }
 const SOURCE_KINDS = { request: 'request', answer: 'answer', snapshot: 'snapshot', ground: 'ground' }
 const GROUND_INSTRUCTION = { kindKey: 'kind', kind: '利用者の指示', textKey: 'text' }

@@ -1,16 +1,16 @@
-import { CONTRACT_ELEMENTS, CONTRACT_NONE, UNCHECKED_KINDS, UNIT_RESULTS, VIEWPOINTS } from './constants.mjs';
+import { CONTRACT_ELEMENTS, CONTRACT_NONE, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINTS } from './constants.mjs';
 import { internal } from './errors.mjs';
 import { keyString } from './ids.mjs';
-import { conformanceUnits, parseDoc, read, specUnits } from './kinds.mjs';
+import { conformanceUnits, kindsFor, parseDoc, read, specUnits } from './kinds.mjs';
 
 const PR = 'PR-BPDESIGNEDSKILL-';
 const SP = /^SP-BPCONFORMANCE-\d{3}$/;
 const ALWAYS = /PR-BPDESIGNEDSKILL-(\d{3}(?:・\d{3})*) はどの行でも当たる/;
-const TURN_FORM = 'ターンごとの指揮';
 const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
 const EXECUTOR_TIME_ROW = '実行役の時間に上限を置く';
-// 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）のうち、要求ごとに全ての単位が当たるもの。
+// 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
 const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`], turnForm: [`${PR}002`] });
+const FORCED_BY = Object.freeze({ always: 'SP-BPCONFORMANCE-019', permission: 'SP-BPCONFORMANCE-019', executorTime: 'SP-BPCONFORMANCE-034', turnForm: 'SP-BPCONFORMANCE-006' });
 
 function numbers(text) {
   const out = [];
@@ -46,7 +46,7 @@ export function specItemIds(criteriaDir) {
   return parseDoc(read(criteriaDir, 'conformance')).filter((n) => n.level === 4).map((n) => /^SP-BPCONFORMANCE-\d{3}/.exec(n.text)?.[0]).filter(Boolean).sort();
 }
 
-export function applicability(criteriaDir) {
+function sources(criteriaDir) {
   const nodes = parseDoc(read(criteriaDir, 'conformance'));
   const item = nodes.find((n) => n.level === 4 && n.text.startsWith('SP-BPCONFORMANCE-003'));
   const table = item?.tables.find((t) => t.header[0] === '条件: 形');
@@ -54,26 +54,40 @@ export function applicability(criteriaDir) {
   if (!table || !always) internal('判定基準の写しに SP-BPCONFORMANCE-003 の適用の判定表が無い');
   const trace = traceability(nodes);
   const bySpec = unitsBySpec(criteriaDir);
-  const forcedAlways = new Set();
-  const forcedTurn = new Set();
   const unitsOf = (req) => (trace.get(req) ?? []).flatMap((sp) => {
     const list = bySpec.get(sp);
     if (!list) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
     return list;
   });
-  for (const req of FORCED_REQUIREMENTS.always) unitsOf(req).forEach((u) => forcedAlways.add(u.value));
-  for (const req of FORCED_REQUIREMENTS.turnForm) unitsOf(req).forEach((u) => forcedTurn.add(u.value));
+  return { table, always, bySpec, unitsOf };
+}
+
+// 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも、turnForm はターンごとの指揮だけ）。
+export function forcedSources(criteriaDir) {
+  const { bySpec, unitsOf } = sources(criteriaDir);
+  const always = new Map();
+  const turnForm = new Map();
+  for (const req of FORCED_REQUIREMENTS.always) unitsOf(req).forEach((u) => always.set(u.value, FORCED_BY.always));
+  for (const req of FORCED_REQUIREMENTS.turnForm) unitsOf(req).forEach((u) => turnForm.set(u.value, FORCED_BY.turnForm));
   const permission = bySpec.get(PERMISSION_SP) ?? [];
   const lastPermission = permission.filter((u) => /\/t1\/r\d+$/.test(u.value)).at(-1);
-  if (lastPermission) forcedAlways.add(lastPermission.value);
-  for (const list of bySpec.values()) for (const u of list) if (u.meaning?.startsWith(EXECUTOR_TIME_ROW)) forcedAlways.add(u.value);
+  if (lastPermission) always.set(lastPermission.value, FORCED_BY.permission);
+  for (const list of bySpec.values()) for (const u of list) if (u.meaning?.startsWith(EXECUTOR_TIME_ROW)) always.set(u.value, FORCED_BY.executorTime);
+  return { always, turnForm };
+}
+
+export function applicability(criteriaDir) {
+  const { table, always, unitsOf } = sources(criteriaDir);
+  const forcedSet = forcedSources(criteriaDir);
+  const forcedAlways = forcedSet.always;
+  const forcedTurn = forcedSet.turnForm;
   const alwaysReqs = always[1].split('・').map((n) => `${PR}${n}`);
   return table.rows.map(([form, ledger, fanout, result], i) => {
     const reqs = [...new Set([...alwaysReqs, ...numbers(result.split('が当た')[0])])].sort();
     const seen = new Map();
     for (const u of reqs.flatMap(unitsOf)) if (!seen.has(u.value)) seen.set(u.value, u);
     const units = [...seen.values()];
-    const forced = units.filter((u) => forcedAlways.has(u.value) || (form === TURN_FORM && forcedTurn.has(u.value))).map((u) => u.value);
+    const forced = units.filter((u) => forcedAlways.has(u.value) || (form === SHAPES.turn && forcedTurn.has(u.value))).map((u) => u.value);
     return { row: i + 1, form, ledger, fanout, requirements: reqs, units: units.map((u) => ({ value: u.value, meaning: u.meaning })), forced };
   });
 }
@@ -163,4 +177,30 @@ export function checkExtra(viewpoint, result, { criteriaDir, assignment, groundI
   if (viewpoint === 'goal') return checkGoal(result, assignment, specItemIds(criteriaDir));
   if (viewpoint === 'contract') return checkContract(result, groundIds, specItemIds(criteriaDir));
   return null;
+}
+
+// review・audit の検証役の足した欄（SP-BPINSPECTION-017）。範囲は観点の全体・判定の単位・監査の観点の識別子だけで、値はその観点の閉集合から選ぶ。
+export function checkInspectExtra(viewpoint, result, { criteriaDir, fn, viewpoints, forced }) {
+  if (!Array.isArray(result.unchecked)) return 'review・audit の検証役の結果に未検査の観点の候補 unchecked の並びが無い';
+  for (const u of result.unchecked) {
+    if (!u || !Object.values(UNCHECKED_SCOPES).includes(u.scope)) return `未検査の観点の候補の範囲が ${Object.values(UNCHECKED_SCOPES).join('・')} のどれでもない: ${JSON.stringify(u?.scope)}`;
+    if (!viewpoints.includes(u.viewpoint)) return `未検査の観点の候補の観点が run の観点の集合に無い: ${JSON.stringify(u.viewpoint)}`;
+    if (!isStr(u.reason)) return `未検査の観点の候補の理由が文字列でない: ${JSON.stringify(u.value)}`;
+    if (u.scope === UNCHECKED_SCOPES.whole) {
+      if (u.value !== u.viewpoint) return `観点の全体の未検査の値は観点そのもの: ${JSON.stringify(u.value)}`;
+      continue;
+    }
+    if ((u.scope === UNCHECKED_SCOPES.pa) !== (u.viewpoint === 'audit')) return `監査の観点の識別子の範囲は監査の観点だけが持つ: ${u.viewpoint}/${u.scope}`;
+    const kinds = new Set(kindsFor(criteriaDir, u.viewpoint, fn).map((k) => k.value));
+    if (!kinds.has(u.value)) return `未検査の観点の候補の値がその観点の閉集合に無い: ${JSON.stringify(u.value)}`;
+  }
+  if (viewpoint === 'flow') {
+    const stray = (result.candidates ?? []).find((c) => forced.includes(c.kind));
+    if (stray) return `強いられた未検査の判定の単位を指摘の種類にした候補: ${stray.kind}（未検査の観点として載る：SP-BPINSPECTION-025）`;
+  }
+  return null;
+}
+
+export function inspectExtraFields(result) {
+  return { unchecked: result.unchecked };
 }

@@ -36,6 +36,9 @@ export const IDENTITY = Object.freeze({
   [RECORDS.addAsset]: (r) => `${r.t}|${r.finding}|${r.asset}`,
   [RECORDS.snapshot]: () => RECORDS.snapshot,
   [RECORDS.extra]: (r) => `${r.t}|${r.item}`,
+  [RECORDS.target]: (r) => `${r.t}|${r.run}`,
+  [RECORDS.bundle]: (r) => `${r.t}|${r.generation}`,
+  [RECORDS.applicability]: () => RECORDS.applicability,
 });
 
 export function identity(record) {

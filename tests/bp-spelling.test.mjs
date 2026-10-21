@@ -67,6 +67,7 @@ const SOURCE = readFileSync(SCRIPT, 'utf8');
 const AUTHORING = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-authoring.md'), 'utf8');
 const CONFORMANCE = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-conformance.md'), 'utf8');
 const ENTRY = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-entry.md'), 'utf8');
+const INSPECTION = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-inspection.md'), 'utf8');
 const acorn = createRequire(path.join(ROOT, 'plugins', 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'package.json'))('acorn');
 
 function parseScript() {
@@ -211,12 +212,14 @@ test('TBD-SBPENTRY-002 の書き戻し: SP-BPENTRY-013 の綴りの表と script
   assert.deepEqual(literalOf('INPUT_KEYS'), JSON.parse(JSON.stringify(CLI_CONSTANTS.INPUT_KEYS)));
 });
 
-test('TBD-SBPAUTHORING-001 の書き戻し: SP-BPRUN-032・SP-BPAUTHORING-032〜034 の綴りの列が CLI の返り値の綴りと一致する', () => {
+test('TBD-SBPAUTHORING-001 の書き戻し・SP-BPINSPECTION-024・SP-BPFINDINGS-030: SP-BPRUN-032・SP-BPAUTHORING-032〜034・SP-BPINSPECTION-024・SP-BPFINDINGS-030 の綴りの列が CLI の返り値の綴りと一致する', () => {
   const common = spellings(RUN, '| 項目 | 綴り | 返すとき |', 1);
   const complete = spellings(AUTHORING, '| 条件: 機能 | 条件: 項目 | 綴り | 結果 |', 2);
   const stopped = spellings(AUTHORING, '| 項目 | 綴り | 中身 |', 1);
   const verification = spellings(AUTHORING, '| 項目 | 綴り | 中身（検証の結果） |', 1);
-  assert.deepEqual([...new Set([...common, ...complete, ...stopped])].sort(), Object.values(CLI_CONSTANTS.RESULT_KEYS).sort());
+  const inspected = spellings(INSPECTION, '| 項目 | 綴り | 機能 | 中身 |', 1);
+  const ledgerItems = spellings(FINDINGS, '| 項目 | review・audit の綴り | 中身 |', 1);
+  assert.deepEqual([...new Set([...common, ...complete, ...stopped, ...inspected, ...ledgerItems])].sort(), Object.values(CLI_CONSTANTS.RESULT_KEYS).sort());
   assert.deepEqual([...new Set(verification)].sort(), Object.values(CLI_CONSTANTS.VERIFICATION_KEYS).sort());
 });
 

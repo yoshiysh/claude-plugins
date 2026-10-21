@@ -114,7 +114,7 @@ test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数
   const made = await send('ledger-create', req);
   const { assignments } = await send('assignments', { ...req, stage: 'verify', rule: 'all' });
   const { items } = await send('stage-start', { ...req, stage: 'verify', keys: [{ assignment: assignments[0].id }] });
-  const out = await send('verdicts', { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'flow', result: { judgements: made.assets.map((a) => ({ asset: a.id, judgement: 'unsure' })) } });
+  const out = await send('verdicts', { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'flow', result: { judgements: made.assets.map((a) => ({ asset: a.id, judgement: 'unsure' })), unchecked: [] } });
   assert.equal(out.ok, true);
   assert.equal(out.judgedOk, 0);
   assert.equal(out.judgedUnsure, made.assets.length);

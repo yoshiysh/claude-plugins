@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import {
-  ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
+  ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, INSPECTING_FUNCTIONS, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
   REVIEW_VALUES, REWRITING_FUNCTIONS, ROUND_PREFIX, STAGE, STAGES, VANISH_NONE, VERIFY_STAGES, VIEWPOINTS,
 } from './constants.mjs';
 import { checkAttempt, checkStage, checkWritableItem } from './checks.mjs';
@@ -11,15 +11,15 @@ import { createLedgerRecords, enumerateAssets, retakeRecords } from './ledger.mj
 import { nextState, reviewJudgement } from './judge.mjs';
 import { ledgerReport, liveAssets, skipList } from './report.mjs';
 import { mutate, readState } from './store.mjs';
-import { checkExtra, extraFields } from './units.mjs';
+import { checkExtra, checkInspectExtra, extraFields, inspectExtraFields } from './units.mjs';
 import { treatedGroundIds } from './ops-author.mjs';
-import { currentAssets, currentRun } from './view.mjs';
+import { currentAssets, currentRun, runViewpoints } from './view.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
 const { r: R_IN, content: C_IN, candidates: K_IN, judged: J_IN } = REVIEW_INPUT;
 const FOLD_ORDER = [exists, unknown, absent, skip];
 
-function needLedger(view) {
+export function needLedger(view) {
   if (!view.ledger) reject(CODES.unknownId, '状態に台帳が無い');
 }
 
@@ -28,7 +28,7 @@ function checkViewpoint(viewpoint) {
 }
 
 // 判定基準の写しは別の段で置くので、置かれる前は閉集合を作れないことを理由つきで返す（TBD-SBPRUN-001）。
-function needCriteria(ctx) {
+export function needCriteria(ctx) {
   if (!existsSync(ctx.criteriaDir)) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
 }
 
@@ -175,11 +175,14 @@ export function verdicts(ctx, req) {
     if (again) return again;
     needCriteria(ctx);
     const kinds = new Set(kindsFor(ctx.criteriaDir, req.viewpoint, view.state.function).map((k) => k.value));
+    const fn = view.state.function;
+    const inspecting = INSPECTING_FUNCTIONS.has(fn);
     const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds)
-      ?? (REWRITING_FUNCTIONS.has(view.state.function) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null);
+      ?? (REWRITING_FUNCTIONS.has(fn) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null)
+      ?? (inspecting ? checkInspectExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, fn, viewpoints: runViewpoints(view), forced: view.applicability?.forced ?? [] }) : null);
     if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
     const records = [resultRecord];
-    const extra = REWRITING_FUNCTIONS.has(view.state.function) ? extraFields(req.viewpoint, req.result) : null;
+    const extra = REWRITING_FUNCTIONS.has(fn) ? extraFields(req.viewpoint, req.result) : inspecting ? inspectExtraFields(req.result) : null;
     if (extra) records.push({ t: RECORDS.extra, item: req.item, viewpoint: req.viewpoint, data: extra });
     for (const j of req.result.judgements) {
       records.push({ t: RECORDS.seen, item: req.item, asset: j.asset, viewpoint: req.viewpoint, assignment: assignment.id, fpset: assignment.fpset, digest: assignment.fps[j.asset], value: j.judgement });
