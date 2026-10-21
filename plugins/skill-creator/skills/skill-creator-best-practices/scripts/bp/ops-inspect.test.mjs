@@ -380,3 +380,13 @@ test('SP-BPINSPECTION-029: 2 つの観点が照らす同じ写しが変わった
   const again = await inspect.targets(ctx, req);
   assert.deepEqual(again.blocked.paths, [conformance]);
 });
+
+test('SP-BPINSPECTION-028・SP-BPINSPECTION-027: bp-inspection の写しはあるが SP-BPINSPECTION-009 の表を読めないとき、audit の BLOCKED は読めない写しのパスを指す', async (t) => {
+  const criteriaDir = await sixRows(t, (s) => s.replace('#### SP-BPINSPECTION-009 監査の観点の一覧', '#### SP-BPINSPECTION-099 別の項目'));
+  const ctx = context(t, { criteriaDir });
+  if (!ctx) return;
+  const { targets } = await begin(t, 'audit', { ctx });
+  assert.match(targets.blocked.reason, /写しの SP-BPINSPECTION-009 の表を読めない/);
+  assert.deepEqual(targets.blocked.paths, [path.join(criteriaDir, 'specifications', 'bp-inspection.md')]);
+  assert.ok(!Object.hasOwn(targets.targets[0], 'culprit'));
+});

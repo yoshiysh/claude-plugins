@@ -73,7 +73,7 @@ function auditTarget(ctx) {
     table = auditUnits(ctx.criteriaDir);
   } catch (error) {
     if (!(error instanceof BpError) && !MISSING.has(error?.code)) throw error;
-    return { files, section, reason: null, mismatch: [`写しの SP-BPINSPECTION-009 の表を読めない: ${error.reason ?? error.message}`] };
+    return { files, section, reason: null, mismatch: [`写しの SP-BPINSPECTION-009 の表を読めない: ${error.reason ?? error.message}`], culprit: files.find((f) => f.name === TARGET_FILES.inspection).path };
   }
   const diff = compareAudit(items, table);
   return { files, section, reason: null, mismatch: diff.length ? diff : null };
@@ -94,17 +94,14 @@ function culprit(target) {
 export function readTargets(ctx, fn) {
   const targets = RUN_VIEWPOINTS[fn].map((viewpoint) => {
     const r = READERS[viewpoint](ctx);
-    return { viewpoint, files: r.files, section: r.section, fingerprint: fingerprintOf(r.files), readable: r.reason === null, reason: r.reason, ...(r.mismatch ? { mismatch: r.mismatch } : {}) };
+    return { viewpoint, files: r.files, section: r.section, fingerprint: fingerprintOf(r.files), readable: r.reason === null, reason: r.reason, ...(r.mismatch ? { mismatch: r.mismatch, culprit: r.culprit } : {}) };
   });
   const viewpoints = targets.filter((t) => t.readable).map((t) => t.viewpoint);
   const main = targets.find((t) => t.viewpoint === (fn === FUNCTION.review ? VIEWPOINT.flow : VIEWPOINT.audit));
   let blocked = null;
   if (!main.readable) blocked = { reason: `照らす先を読めない（${main.reason}）: ${culprit(main)}`, paths: [culprit(main)] };
-  else if (main.mismatch) {
-    // 一覧の写しが欠けて照合できないときは、利用者が直す写しを指す。
-    const missing = main.files.find((f) => f.name === TARGET_FILES.inspection && f.sha256 === null);
-    blocked = { reason: `監査の観点の一覧が出所と食い違う: ${main.mismatch.join(' / ')}`, paths: [(missing ?? main.files[0]).path] };
-  }
+  // 一覧の写しを読めずに照合できないときは、利用者が直す写し（欠けたか表を読めない bp-inspection）を指す。
+  else if (main.mismatch) blocked = { reason: `監査の観点の一覧が出所と食い違う: ${main.mismatch.join(' / ')}`, paths: [main.culprit ?? main.files[0].path] };
   return { viewpoints, targets, blocked };
 }
 
