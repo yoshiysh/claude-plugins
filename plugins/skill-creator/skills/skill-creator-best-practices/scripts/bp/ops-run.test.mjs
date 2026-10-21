@@ -700,3 +700,44 @@ test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後の run に届いた、�
   await rejects(run.stageStart(ctx, { ...req, stage: 'close', keys: [] }), CODES.staleRun);
   assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, s.state)), before);
 });
+
+test('SP-BPRUN-017: 停止を書いた後の run への受理していない書き込みは build を走らせずに拒否し、作業ファイルを書かず（資産の束・作り直す前の写し）、符号は E_STALE_RUN', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const { snapshot } = await import('./ops-author.mjs');
+  const { bundle } = await import('./ops-inspect.mjs');
+  const root = await skillDir(t);
+  const u = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const ureq = { state: u.state, run: u.run };
+  await run.stop(ctx, { ...ureq, kind: 'blocked', reason: 'x', launches: 1 });
+  const uwork = path.join(ctx.stateRoot, STATES_DIR, u.state, 'work');
+  await rejects(snapshot(ctx, ureq), CODES.staleRun);
+  assert.deepEqual(await fs.readdir(uwork), []);
+  const r = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const rreq = { state: r.state, run: r.run };
+  await ledger.ledgerCreate(ctx, rreq);
+  await run.stop(ctx, { ...rreq, kind: 'blocked', reason: 'x', launches: 1 });
+  await rejects(bundle(ctx, rreq), CODES.staleRun);
+  assert.deepEqual(await fs.readdir(path.join(ctx.stateRoot, STATES_DIR, r.state, 'work')), []);
+  // 受理していない要求の build は走らないので、走れば別の符号で拒否する要求（台帳の無い状態の取り直し）も E_STALE_RUN になる。
+  await rejects(ledger.ledgerRetake(ctx, { ...ureq }), CODES.staleRun);
+});
+
+test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後に届いた、この run で受理した要求そのものの送り直しは、build を走らせずに最初の応答を返す（今の対象から計算し直すと結果が変わる場合も）', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const { filesScan } = await import('./ops-author.mjs');
+  const root = await skillDir(t);
+  const u = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const req = { state: u.state, run: u.run, iteration: 1 };
+  await fs.writeFile(path.join(root, 'a.md'), 'a\n');
+  const first = await filesScan(ctx, req);
+  assert.deepEqual(first.recorded, ['a.md']);
+  await run.stop(ctx, { state: u.state, run: u.run, kind: 'blocked', reason: 'x', launches: 1 });
+  await fs.writeFile(path.join(root, 'b.md'), 'b\n');
+  const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, u.state));
+  const again = await filesScan(ctx, req);
+  assert.deepEqual(again, { ...first, same: true });
+  assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, u.state)), before);
+  await rejects(filesScan(ctx, { ...req, iteration: 2 }), CODES.staleRun);
+});

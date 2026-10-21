@@ -1,8 +1,10 @@
 import { promises as fs } from 'node:fs';
-import { CODES } from './constants.mjs';
+import path from 'node:path';
+import { CODES, OPS, REQUESTS_FILE } from './constants.mjs';
 import { BpError, reject } from './errors.mjs';
 import { append, readAll, withLock } from './journal.mjs';
 import { freshRecords } from './records.mjs';
+import { canonical, sha256Hex } from './ids.mjs';
 import { buildView, currentRun } from './view.mjs';
 import { resolveStateRoot, stateDir } from './workspace.mjs';
 
@@ -35,22 +37,42 @@ function checkRun(view, run) {
   return view.stops.has(run);
 }
 
+// 要求の鍵は要求の本文そのもの（作業ファイルで渡した中身を足した後）から作る。運搬役の sum は本文を照らす値で、本文の無い要求の鍵にはならない。
+function requestKey(req) {
+  return sha256Hex(canonical(req));
+}
+
+async function appliedResponse(dir, req, op) {
+  let text;
+  try {
+    text = await fs.readFile(path.join(dir, REQUESTS_FILE), 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    const r = JSON.parse(line);
+    if (r.run === req.run && r.op === op && r.key === requestKey(req)) return r.output;
+  }
+  return null;
+}
+
+// 停止を書いた後の run への書き込みは build を走らせずに決める（走らせると作業ファイルを書き、時刻で変わる結果が送り直しを拒否させ、内部の失敗の符号がすり替わる）。
+// この run で既に受理した要求そのもの（操作と sum が同じ）の送り直しだけを最初の応答で受ける（SP-BPRUN-017・SP-BPRUN-027）。
 export async function mutate(ctx, req, op, build) {
   const dir = await locateState(ctx, req.state);
   return withLock(dir, async () => {
     const lines = await readAll(dir);
     const view = buildView(lines);
     const stopped = checkRun(view, req.run);
-    // 停止を書いた後に届いた、既に書いた記録と同じ要求（停止の運搬役の送り直し：SP-BPRUN-027）は記録を足さずに同じ応答で受け、記録を足す要求は E_STALE_RUN で拒否する。
-    let built;
-    let fresh;
-    try {
-      built = await build(view, dir);
-      fresh = freshRecords(view, built.records ?? []);
-    } catch (error) {
-      if (stopped) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
-      throw error;
+    if (stopped && op !== OPS.stop) {
+      const applied = await appliedResponse(dir, req, op);
+      if (applied === null) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
+      return { ...applied, same: true };
     }
+    const built = await build(view, dir);
+    const fresh = freshRecords(view, built.records ?? []);
     const records = built.records ?? [];
     if (stopped && fresh.length > 0) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
     let after = view;
@@ -60,7 +82,8 @@ export async function mutate(ctx, req, op, build) {
       after = buildView([...lines, line]);
     }
     if (built.error) throw new BpError(built.error.code, built.error.reason, built.error.detail);
-    const output = typeof built.output === 'function' ? built.output(after) : (built.output ?? {});
-    return { ...output, same: records.length > 0 && fresh.length === 0 };
+    const output = { ...(typeof built.output === 'function' ? built.output(after) : (built.output ?? {})), same: records.length > 0 && fresh.length === 0 };
+    if (op !== OPS.stop) await fs.appendFile(path.join(dir, REQUESTS_FILE), `${JSON.stringify({ run: req.run, op, key: requestKey(req), output })}\n`);
+    return output;
   });
 }
