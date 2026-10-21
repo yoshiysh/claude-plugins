@@ -196,7 +196,5 @@ export const SUMMARY_MAX_CHARS = 8000;
 export const SUMMARY_RESERVE_CHARS = 600;
 export const SUMMARY_CLIP_CHARS = Object.freeze({ request: 1500, ground: 300, premise: 400 });
 export const LOCK_WAIT_MS = 10000;
-// 古いロックを破る競合をテストで子プロセスに再現させるための遅延。運用では設定しない。
-export const LOCK_BREAK_DELAY_ENV = 'BP_LOCK_BREAK_DELAY_MS';
 
 export const ID_LENGTHS = Object.freeze({ asset: 10, finding: 10, item: 8, stateRandom: 8 });

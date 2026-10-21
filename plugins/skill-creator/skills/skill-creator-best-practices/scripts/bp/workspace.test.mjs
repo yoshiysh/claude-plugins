@@ -3,11 +3,10 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { CODES, LOCK_BREAK_DELAY_ENV } from './constants.mjs';
+import { CODES } from './constants.mjs';
 import { append, readAll, withLock } from './journal.mjs';
 import { assertAllowedRoot, createStateDir, forbiddenReason } from './workspace.mjs';
-import { LOCK_CHILD, REPO_ROOT, skillDir, stateRoot, tmpDir } from './fixtures/harness.mjs';
+import { REPO_ROOT, skillDir, stateRoot, tmpDir } from './fixtures/harness.mjs';
 
 test('SP-BPRUN-039: 作業場所を /tmp 系と Codex runner の run ごとの workspace に作らない', (t) => {
   for (const root of [
@@ -43,28 +42,44 @@ test('記録の末尾の書きかけの行は読むときに捨て、次の書�
   assert.equal(await fs.readFile(path.join(dir, 'log.jsonl'), 'utf8'), '{"seq":1,"records":[]}\n{"seq":2,"records":[]}\n');
 });
 
-test('ロックは生きていない pid の古いロックを壊し、待ちが上限を超えると E_LOCK を返す', async (t) => {
+test('解放は自分の nonce のロックだけを消す', async (t) => {
   const dir = await tmpDir(t, 'bp-lock-');
-  await fs.writeFile(path.join(dir, 'lock'), JSON.stringify({ pid: 999999, host: os.hostname() }));
-  assert.equal(await withLock(dir, async () => 'ran'), 'ran');
-  await fs.writeFile(path.join(dir, 'lock'), JSON.stringify({ pid: process.pid, host: os.hostname() }));
-  await assert.rejects(withLock(dir, async () => 'never', { waitMs: 50 }), (e) => e.code === CODES.lock);
+  const other = JSON.stringify({ pid: process.pid, host: os.hostname(), nonce: 'someone-else' });
+  await withLock(dir, async () => {
+    await fs.rm(path.join(dir, 'lock'));
+    await fs.writeFile(path.join(dir, 'lock'), other);
+  });
+  assert.equal(await fs.readFile(path.join(dir, 'lock'), 'utf8'), other);
 });
 
-test('中身の読めない古いロックは mtime で古さを判定して壊す', async (t) => {
+test('SP-BPRUN-005: 持ち主の死んだロックも CLI は破らず、E_LOCK で持ち主とパスと消し方を返し、ロックを残す。利用者が消した後は取れる', async (t) => {
   const dir = await tmpDir(t, 'bp-lock-');
   const lock = path.join(dir, 'lock');
-  await fs.writeFile(lock, '');
+  const dead = JSON.stringify({ pid: 999999, host: os.hostname(), at: '2026-01-01T00:00:00.000Z', nonce: 'gone' });
+  await fs.writeFile(lock, dead);
   const old = new Date(Date.now() - 60000);
   await fs.utimes(lock, old, old);
-  assert.equal(await withLock(dir, async () => 'ran', { waitMs: 1000 }), 'ran');
-  await fs.writeFile(lock, '');
-  await assert.rejects(withLock(dir, async () => 'never', { waitMs: 50 }), (e) => e.code === CODES.lock);
+  await assert.rejects(withLock(dir, async () => 'never', { waitMs: 50 }), (e) => {
+    assert.equal(e.code, CODES.lock);
+    assert.ok(e.reason.includes(lock) && e.reason.includes('999999') && e.reason.includes('gone') && /利用者がこのファイルを消す/.test(e.reason), e.reason);
+    return true;
+  });
+  assert.equal(await fs.readFile(lock, 'utf8'), dead);
+  await fs.rm(lock);
+  assert.equal(await withLock(dir, async () => 'ran', { waitMs: 50 }), 'ran');
 });
 
-test('古いロックを並行して壊しても、排他の区間に同時に入るのは 1 つだけ', async (t) => {
+test('SP-BPRUN-005: 中身の読めないロックも破らずに E_LOCK を返す', async (t) => {
   const dir = await tmpDir(t, 'bp-lock-');
-  await fs.writeFile(path.join(dir, 'lock'), JSON.stringify({ pid: 999999, host: os.hostname() }));
+  await fs.writeFile(path.join(dir, 'lock'), '');
+  const old = new Date(Date.now() - 60000);
+  await fs.utimes(path.join(dir, 'lock'), old, old);
+  await assert.rejects(withLock(dir, async () => 'never', { waitMs: 50 }), (e) => e.code === CODES.lock);
+  assert.equal(await fs.readFile(path.join(dir, 'lock'), 'utf8'), '');
+});
+
+test('SP-BPRUN-006: 同じプロセスの中の並行の取得でも、排他の区間に同時に入るのは 1 つだけ', async (t) => {
+  const dir = await tmpDir(t, 'bp-lock-');
   let inside = 0;
   let max = 0;
   await Promise.all(Array.from({ length: 12 }, () => withLock(dir, async () => {
@@ -75,34 +90,4 @@ test('古いロックを並行して壊しても、排他の区間に同時に�
   })));
   assert.equal(max, 1);
   assert.deepEqual((await fs.readdir(dir)).filter((n) => n.startsWith('lock')), []);
-});
-
-test('古いロックを破る 2 体の間に第三者が取っても、排他の区間に同時に入るのは 1 体だけ（子プロセスで遅延を差し込む）', async (t) => {
-  const dir = await tmpDir(t, 'bp-lock-');
-  await fs.writeFile(path.join(dir, 'lock'), JSON.stringify({ pid: 999999, host: os.hostname() }));
-  const child = (label, env) => new Promise((resolve, reject) => {
-    const p = spawn(process.execPath, [LOCK_CHILD, dir, label, '600'], { env: { ...process.env, ...env }, stdio: 'ignore' });
-    p.on('error', reject);
-    p.on('close', resolve);
-  });
-  const breakers = [child('slow', { [LOCK_BREAK_DELAY_ENV]: '200' }), child('fast', {})];
-  await new Promise((r) => setTimeout(r, 250));
-  const third = child('third', {});
-  assert.deepEqual(await Promise.all([...breakers, third]), [0, 0, 0]);
-  const trace = (await fs.readFile(path.join(dir, 'trace'), 'utf8')).trim().split('\n');
-  assert.equal(trace.length, 6);
-  for (let i = 0; i < trace.length; i += 2) {
-    assert.match(trace[i], /^enter /);
-    assert.equal(trace[i + 1], trace[i].replace('enter', 'exit'), trace.join(' / '));
-  }
-});
-
-test('解放は自分の nonce のロックだけを消す', async (t) => {
-  const dir = await tmpDir(t, 'bp-lock-');
-  const other = JSON.stringify({ pid: process.pid, host: os.hostname(), nonce: 'someone-else' });
-  await withLock(dir, async () => {
-    await fs.rm(path.join(dir, 'lock'));
-    await fs.writeFile(path.join(dir, 'lock'), other);
-  });
-  assert.equal(await fs.readFile(path.join(dir, 'lock'), 'utf8'), other);
 });

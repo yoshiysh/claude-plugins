@@ -2,20 +2,11 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { CODES, LOCK_BREAK_DELAY_ENV, LOCK_FILE, LOCK_WAIT_MS, LOG_FILE } from './constants.mjs';
+import { CODES, LOCK_FILE, LOCK_WAIT_MS, LOG_FILE } from './constants.mjs';
 import { reject } from './errors.mjs';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function alive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error.code === 'EPERM';
-  }
 }
 
 function tempName(lockPath, tag) {
@@ -40,46 +31,10 @@ async function createLock(lockPath) {
 
 async function readOwner(file) {
   try {
-    const stat = await fs.stat(file);
-    return { text: await fs.readFile(file, 'utf8'), mtimeMs: stat.mtimeMs };
+    return { text: await fs.readFile(file, 'utf8') };
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
-  }
-}
-
-function isStale({ text, mtimeMs }) {
-  let owner;
-  try {
-    owner = JSON.parse(text);
-  } catch {
-    return Date.now() - mtimeMs > LOCK_WAIT_MS;
-  }
-  return owner.host === os.hostname() && !alive(owner.pid);
-}
-
-// 古いロックを消すのは lock.break を持つ 1 体だけにする。持ち主の死んだロックを消すのはこの 1 体だけなので、
-// 読み直してから消すまでの間にロックが入れ替わることは無い。
-async function breakStale(lockPath) {
-  const first = await readOwner(lockPath);
-  if (!first) return true;
-  if (!isStale(first)) return false;
-  const breakPath = `${lockPath}.break`;
-  if (!(await createLock(breakPath))) {
-    const breaker = await readOwner(breakPath);
-    if (breaker && isStale(breaker)) await fs.rm(breakPath, { force: true });
-    return false;
-  }
-  try {
-    const delay = Number(process.env[LOCK_BREAK_DELAY_ENV] ?? 0);
-    if (delay > 0) await sleep(delay);
-    const again = await readOwner(lockPath);
-    if (!again) return true;
-    if (!isStale(again)) return false;
-    await fs.rm(lockPath, { force: true });
-    return true;
-  } finally {
-    await fs.rm(breakPath, { force: true });
   }
 }
 
@@ -91,14 +46,20 @@ async function release(lockPath, nonce) {
   if (mine) await fs.rm(lockPath, { force: true });
 }
 
+// 他のプロセスのロックは古く見えても破らない。破る仕組みを重ねると、破る側の排他が同じ問題を持つ。
+// 消してよいかは、他に CLI が動いていないことを確かめられる利用者だけが決める。
 export async function withLock(dir, fn, { waitMs = LOCK_WAIT_MS } = {}) {
   const lockPath = path.join(dir, LOCK_FILE);
   const deadline = Date.now() + waitMs;
   let delay = 5;
   let nonce;
   while (!(nonce = await createLock(lockPath))) {
-    if (await breakStale(lockPath)) continue;
-    if (Date.now() >= deadline) reject(CODES.lock, `状態のロックを ${waitMs} ms 待っても取れない: ${lockPath}`);
+    if (Date.now() >= deadline) {
+      const owner = await readOwner(lockPath);
+      let holder = owner?.text ?? '（読めない）';
+      try { holder = JSON.stringify(JSON.parse(holder)); } catch { /* 中身をそのまま載せる */ }
+      reject(CODES.lock, `状態のロックを ${waitMs} ms 待っても取れない: ${lockPath}。持ち主: ${holder}。他に CLI が動いていないことを確かめてから、利用者がこのファイルを消す`, { lockPath, holder: owner?.text ?? null });
+    }
     await sleep(delay);
     delay = Math.min(delay * 2, 200);
   }
