@@ -1,4 +1,4 @@
-import { CONTRACT_ELEMENTS, CONTRACT_NONE, CRITERIA_CHAPTERS, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINTS } from './constants.mjs';
+import { CONTRACT_ELEMENTS, CONTRACT_NONE, CRITERIA_CHAPTERS, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINT, VIEWPOINTS } from './constants.mjs';
 import { internal } from './errors.mjs';
 import { keyString } from './ids.mjs';
 import { conformanceUnits, hasChapter, kindsFor, parseDoc, read, specUnits } from './kinds.mjs';
@@ -192,11 +192,11 @@ export function checkInspectExtra(viewpoint, result, { criteriaDir, fn, viewpoin
       if (u.value !== u.viewpoint) return `観点の全体の未検査の値は観点そのもの: ${JSON.stringify(u.value)}`;
       continue;
     }
-    if ((u.scope === UNCHECKED_SCOPES.pa) !== (u.viewpoint === 'audit')) return `監査の観点の識別子の範囲は監査の観点だけが持つ: ${u.viewpoint}/${u.scope}`;
+    if ((u.scope === UNCHECKED_SCOPES.pa) !== (u.viewpoint === VIEWPOINT.audit)) return `監査の観点の識別子の範囲は監査の観点だけが持つ: ${u.viewpoint}/${u.scope}`;
     const kinds = new Set(kindsFor(criteriaDir, u.viewpoint, fn).map((k) => k.value));
     if (!kinds.has(u.value)) return `未検査の観点の候補の値がその観点の閉集合に無い: ${JSON.stringify(u.value)}`;
   }
-  if (viewpoint === 'flow') {
+  if (viewpoint === VIEWPOINT.flow) {
     const stray = (result.candidates ?? []).find((c) => forced.includes(c.kind));
     if (stray) return `強いられた未検査の判定の単位を指摘の種類にした候補: ${stray.kind}（未検査の観点として載る：SP-BPINSPECTION-025）`;
   }

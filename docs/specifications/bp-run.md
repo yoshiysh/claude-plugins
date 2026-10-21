@@ -355,9 +355,18 @@ review・audit の段ごとの最悪の回数は次の表とする（値は revi
 | `worst(束)` | 1 | 台帳の作成と資産の束の段の開始・台帳の作成・資産の束・段の終わり・担当の作成の段の開始をまとめた運搬役 1 |
 | `worst(fan-out でない段の 1 回)` | 2 | 抽出役か適用の判定の検証役 1 + 結果を書く運搬役 1（段ごとの繰り返しの回数・結果・次の段の開始を同じ運搬役で運ぶ）。試行の上限の回数まで繰り返す（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034） |
 | `worst(fan-out の項目)` | 15 | create・update と同じ |
+| `worst(段の境の運搬役)` | 1 | audit で、担当の組を書いた応答から得た担当 ID を項目の鍵にして観点ごとの検証の段の開始を書く運搬役 1（review は適用の判定の結果を書く運搬役に含める） |
 | `R`（予約分） | 1 | 照合と停止の運搬役。反証の段の終わり・照合と停止の段の開始・停止（`stop`）・返り値（`outcome`）を 1 回で運ぶ |
 
-review の最小の起動数は 32、audit は 26 とする。最も大きくなる経路は最初の run（照らす先の決定を終える前に止まった run の再開も同じ）で、内訳は、開始 2、照らす先 1、束 1、担当の作成 2 × 3、（review だけ）適用の判定 2 × 3、最初の fan-out の項目（観点ごとの検証の段の最初の観点・最初の担当）15、予約分 1 である。再開の開始の取り直しで消えた資産が見つかる経路では、消えた資産の照合の段の項目が最初の fan-out の項目になり、開始 2、照らす先 1、束 1、その項目 15、予約分 1 で収まる。
+review の最小の起動数は 32、audit は 27 とする。最も大きくなる経路は最初の run（照らす先の決定を終える前に止まった run の再開も同じ）で、内訳は次のとおり。
+
+- 開始 2、照らす先 1、資産の束 1
+- 担当の作成 2 × 3
+- review は適用の判定 2 × 3、audit は段の境の運搬役 1
+- 最初の fan-out の項目（観点ごとの検証の段の最初の観点・最初の担当）15
+- 予約分 1
+
+再開の開始の取り直しで消えた資産が見つかる経路では、消えた資産の照合の段の項目が最初の fan-out の項目になる。内訳は、開始 2、照らす先 1、資産の束 1、消えた資産の照合の段の開始を書く運搬役 1、その項目 15、予約分 1 の 21 で、上の値に収まる。
 
 #### SP-BPRUN-037 不正な上限と、1 件も始められない上限
 起動数の上限を渡された run が次のどちらかに当たるとき、Workflow は host によらず、`agent()` を 1 回も呼ばずに BLOCKED で止まらなければならない。best-practices 自身の run はこの項目に従い、`docs/specifications/bp-conformance.md` が対象スキルを PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-019 に照らす判定の基準もこの項目を参照する。
@@ -494,7 +503,7 @@ E1 は状態を新しく作るので、既にある状態には起きない。E2
 4 機能に共通の異常系はここだけに置く。機能に固有の異常系（create の目標を固定する入力の不足、update の修正の根拠が 0 件など）は `docs/specifications/bp-authoring.md`・`docs/specifications/bp-inspection.md` が持つ。
 
 #### SP-BPRUN-027 fan-out の外の agent の失敗
-fan-out の項目の工程の外で直接起動した agent（運搬役を含む）が、例外を投げるか結果を返さなかったとき（Codex runner で agent の時間切れが null を返したときを含む）、run は BLOCKED と理由を返して止まらなければならない。理由には、失敗した段・役・host が返した失敗の内容を含めなければならない。停止の記録を書く運搬役が失敗したときは、停止の記録を書かずに BLOCKED と理由を返し、状態は SP-BPRUN-018 の扱いになる。ただし、新しい状態の開始の運搬役が応答を失ったときは、同じ key の開始を 1 回だけ送り直す（状態 ID は開始の応答でしか得られず、同じ key の開始は同じ状態を返す：SP-BPRUN-031）。
+fan-out の項目の工程の外で直接起動した agent（運搬役を含む）が、例外を投げるか結果を返さなかったとき（Codex runner で agent の時間切れが null を返したときを含む）、run は BLOCKED と理由を返して止まらなければならない。理由には、失敗した段・役・host が返した失敗の内容を含めなければならない。停止の記録を書く運搬役が応答を失ったときは、停止と返り値の読み出しの 2 つの要求だけを同じ本文で 1 回送り直す（停止を書いた後に応答を失った完了の状態は、再開できず未完了の状態の列挙にも出ないので、送り直さないと結果を失う。同じ停止の送り直しは CLI が受ける：SP-BPRUN-031）。送り直しは起動数の上限を超えないときだけ行い、停止の記録の起動数に入れない（停止の記録の本文は送り直しでも変えられない）。送り直しでも応答が無いか、運搬役が拒否を返したときは、停止の記録を書かずに BLOCKED と理由を返し、状態は SP-BPRUN-018 の扱いになる。ただし、新しい状態の開始の運搬役が応答を失ったときは、同じ key の開始を 1 回だけ送り直す（状態 ID は開始の応答でしか得られず、同じ key の開始は同じ状態を返す：SP-BPRUN-031）。
 
 #### SP-BPRUN-028 fan-out の項目の工程の欠け
 fan-out の項目の工程が結果を返さなかったとき、script はその項目の結果を書かず、試行の回数を 1 増やして状態に書かせ、その項目を未着手に戻さなければならない。1 件の欠けだけで run を止めてはならない。script は同じ段の中でその項目を再び起動してよい。試行の回数が `docs/specifications/bp-conformance.md` の試行の上限（SP-BPCONFORMANCE-031）に達したら、打ち切りの印と理由を書かせ、未着手から外さなければならない。打ち切った項目が見るはずだった資産の扱いは `docs/specifications/bp-findings.md` に従う。工程の中の運搬役が応答を失ったとき（CLI が書いたかが分からない）は、同じ要求を 1 回だけ送り直し、送り直しの応答も 1 回目と同じく分類する。`E_RESULT`・`E_TRANSPORT`・`E_LOCK`（CLI は状態を変えていない）は工程の欠けとして試行の回数を 1 増やし、送り直しでも応答が無ければ BLOCKED にする。試行の失敗を書く運搬役も、応答を失ったら同じ要求を 1 回だけ送り直す。1 回目の応答を失った後の送り直しが `E_TRANSPORT`・`E_LOCK` だったときは、1 回目を CLI が書いたかが分からないので、試行の失敗の要求に `ifNoResult` を付け、CLI は項目に結果があれば記録を足さずに `resulted: true` を返す。script はその項目を結果のある項目として扱う。
@@ -502,7 +511,7 @@ fan-out の項目の工程が結果を返さなかったとき、script はそ�
 #### SP-BPRUN-029 全件の欠けと CLI の拒否
 次のどちらかが起きたとき、run は BLOCKED と理由を返して止まらなければならない。
 
-- 1 つの段で、処理した項目が 1 件以上あり、その全てが打ち切りになった。
+- 1 つの段で、現在の run で処理した項目が 1 件以上あり、その全てが打ち切りになった。前の run で打ち切った項目は、処理した項目にも打ち切りにも数えない（数えると、原因を直して再開した run が同じ BLOCKED を返し続ける：SP-BPRUN-014）。
 - 現在の run の書き込みを、CLI が SP-BPRUN-006 の食い違いか、状態の構造を指す ID の誤りとして拒否した。状態の構造を指す ID は、CLI が発行して状態に置き、script が状態から取って書き込みに入れる ID（状態 ID・run ID・段の名前・項目の ID・担当 ID・指摘 ID・修正の根拠の記録 ID）とし、状態に無いその ID を指す書き込みを誤りとする。
 
 agent の結果の中の値（検証役・反証役が返した資産 ID・指摘の種類・選択肢、検証役が選んだ記録 ID や仕様項目 ID など）の誤りは本項に当てず、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034 に従う。
@@ -519,7 +528,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 
 - 呼び方は `node <スキルのディレクトリ>/scripts/bp-state.mjs <操作> < <要求の JSON>` とする。要求は JSON のオブジェクト 1 つとし、`start`（新規）・`list`・`key`・`paths`・`units`（状態を読まない操作）を除く操作は `state` を持ち、書き込みの操作は `state` と `run` を持つ。
 - 要求は `sum` を持たなければならない。`sum` は、`sum` を除いた要求を正規化した JSON（オブジェクトのキーを昇順に並べ、空白を入れない JSON）の、UTF-16 の code unit ごとの FNV-1a 32bit（初期値 `0x811c9dc5`、乗数 `0x01000193`）を 8 桁の小文字の 16 進にしたものとする（script は import を持てないので、同じ式を自分で書ける形にする）。CLI は `sum` を計算し直し、合わなければ状態を変えずに `E_TRANSPORT` を返す。応答も同じ式の `sum` を持ち、script は運搬役が返した応答の `sum` を照らす。
-- 大きい値（検証役の結果など）は、運搬役に写させず、作業ファイルで渡してよい。create・update の script は、検証役の結果を既定で作業ファイルで渡す（script の定数 `PAYLOAD_MODE`）。本物の agent が返り値と作業ファイルに同じ JSON を書けるか（`E_TRANSPORT` の率）は実測しておらず、公開前の本物の agent での試走（`docs/specifications/bp-authoring.md` の「検証方法」）で測る。要求に `payloadFile`（作業場所の `work/` からの相対パス）と `payloadSum`（ファイルの中身の JSON に同じ式を当てた値）を入れると、CLI はファイルを読み、`payloadSum` が合えば中身のオブジェクトの欄を要求に足して扱う。`work/` の外のパス、読めないファイル、合わない `payloadSum`、要求と同じ欄を持つ中身は `E_TRANSPORT` で拒否する。
+- 大きい値（検証役の結果など）は、運搬役に写させず、作業ファイルで渡してよい。create・update と review・audit の script は、検証役の結果を既定で作業ファイルで渡す（script の定数 `PAYLOAD_MODE`）。本物の agent が返り値と作業ファイルに同じ JSON を書けるか（`E_TRANSPORT` の率）は実測しておらず、公開前の本物の agent での試走（`docs/specifications/bp-authoring.md` の「検証方法」）で測る。要求に `payloadFile`（作業場所の `work/` からの相対パス）と `payloadSum`（ファイルの中身の JSON に同じ式を当てた値）を入れると、CLI はファイルを読み、`payloadSum` が合えば中身のオブジェクトの欄を要求に足して扱う。`work/` の外のパス、読めないファイル、合わない `payloadSum`、要求と同じ欄を持つ中身は `E_TRANSPORT` で拒否する。
 - 応答は JSON のオブジェクト 1 つとし、受理は `{"ok":true,"op":<操作>,…}`、拒否は `{"ok":false,"code":<符号>,"reason":<理由>}` とする。同じ内容の書き込みの繰り返しは受理とし、`"same":true` を返す。終了コードは受理 0、拒否 2、内部の失敗 1 とする。
 
 | 符号 | 意味 | script の扱い |
@@ -552,7 +561,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `ledger-create` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-001・SP-BPFINDINGS-002・SP-BPFINDINGS-033 | — | `ledger`（台帳 ID）と `assets`（資産ごとの `id`・`path`・`loc`・`digest`）。資産が 0 件なら `E_INPUT` |
 | `ledger-retake` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-005 | — | `counts`（`unchanged`・`changed`・`added`・`gone` の件数）、消えた資産 `gone`（`id`・`path`・`loc`）、取り直しの番号 `retake`（足した記録が無ければ `null`）、消えた資産に結び付いた指摘 ID を台帳に作った順に並べた `affected` |
 | `assignments` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-025・SP-BPFINDINGS-034 | `stage` と、`groups`（資産 ID の組の並び。抽出役の結果）、`rule: "all"`（台帳の今の資産の全てを 1 つの担当にする）、`rule: "skip"` と `viewpoint`（その観点の skip 一覧を 1 つの担当にする）のどれか。`groups` だけ `attempt`（省略時は段ごとの繰り返しの回数 + 1） | `assignments`（担当ごとの `id`・`assets`・`fpset`）。同じ段で資産と担当の指紋の組が同じ担当には同じ ID を返す。台帳の今の資産に無い ID を含む `groups` は、拒否の記録を足して `E_RESULT` |
-| `verdicts` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-006〜SP-BPFINDINGS-012・SP-BPFINDINGS-034・SP-BPFINDINGS-036 | `item`（検証か追加の検証の段の項目）、`assignment`、`viewpoint`、`result`（`judgements`: `{asset, judgement}` の並び。`judgement` は `candidate`・`ok`・`unsure`。`candidates`: `{asset, viewpoint, kind, quote, content, fix}` の並び。ほかの欄は機能の文書が足してよい。create・update の足した欄 `applicability`・`units`・`residualRisks`（適合）・`basisConstraints`（目標）・`contractChanges`（契約）は必ず持ち、欠けた結果と値を `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017・SP-BPAUTHORING-038・SP-BPAUTHORING-039 で照らし、同じ 1 行で項目ごとに記録する） | `seen`・`judgedOk`・`judgedUnsure`・`duplicates` の件数と、反証に回す鍵 `refutationKeys`。値が台帳・閉集合・選択肢に無ければ、拒否の記録を足して `E_RESULT` |
+| `verdicts` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-006〜SP-BPFINDINGS-012・SP-BPFINDINGS-034・SP-BPFINDINGS-036 | `item`（検証か追加の検証の段の項目）、`assignment`、`viewpoint`、`result`（`judgements`: `{asset, judgement}` の並び。`judgement` は `candidate`・`ok`・`unsure`。`candidates`: `{asset, viewpoint, kind, quote, content, fix}` の並び。ほかの欄は機能の文書が足してよい。create・update の足した欄 `applicability`・`units`・`residualRisks`（適合）・`basisConstraints`（目標）・`contractChanges`（契約）は必ず持ち、欠けた結果と値を `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-017・SP-BPAUTHORING-038・SP-BPAUTHORING-039 で照らし、同じ 1 行で項目ごとに記録する） | `seen`・`judgedOk`・`judgedUnsure`・`duplicates` の件数と、反証に回す鍵 `refutationKeys`。値が台帳・閉集合・選択肢に無ければ、拒否の記録を足して `E_RESULT`。項目の鍵が担当 ID（`assignment`）を持つとき、別の担当の結果は `E_CONFLICT` |
 | `refutation-items` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012・SP-BPFINDINGS-013 | `stages`（`{"stage":<段の slug>,"round":<回か null>}` の 1 つ以上の並び）、`texts`（省略できる。`true` なら候補の引用・内容・直し方も返す） | その段の重複でない候補の鍵 `keys`（`{asset, viewpoint, kind}`。最初に現れた順で、同じ鍵は 1 つ）。`texts` のときは加えて、鍵ごとにまとめた全ての候補の文言 `candidates` |
 | `refutation` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-013〜SP-BPFINDINGS-015・SP-BPFINDINGS-035 | `item`（反証の段の項目。鍵は `refutation-items` が返した鍵、回は検証の段と同じ回）、`verdict`（`uphold`・`reject`。結果なしは `null`）、`reason`、結果なしだけ `attempt`（同じ運搬役で送る `item-fail` と同じ番号：今の回数 + 1） | `finding`（指摘 ID。未反証なら `null`）、`created`（この項目で指摘を作ったか）、`state`（作ったときの状態）、`unrefuted` |
 | `review-judge` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-018・SP-BPFINDINGS-019・SP-BPFINDINGS-021 | `stages`（`refutation-items` と同じ形）、`round`（見直しの回。省略できる） | `judgements`（台帳の指摘ごとに `finding`・`value`（`exists`・`absent`・`unknown`・`skip`）・`row`（表の順）・`recorded`（`state`・`judgement`・`none`）・`state`。資産が全て消えた指摘は `value: null`・`recorded: "none"`・`vanished: true`）。書き換えない run の台帳では `E_CONFLICT` |
@@ -601,7 +610,7 @@ next_args は、機能と状態 ID だけを持たなければならない。綴
 ## 性能・容量
 
 #### SP-BPRUN-034 起動数の記録
-script は、run ごとに起動数を数え、停止の記録に書かせなければならない（SP-BPRUN-011）。起動数の上限を渡された run では、この数を SP-BPRUN-020 の確かめに使う。
+script は、run ごとに起動数を数え、停止の記録に書かせなければならない（SP-BPRUN-011）。停止の記録を書く運搬役の送り直し（SP-BPRUN-027）の 1 回は、停止の記録の起動数に入らない。起動数の上限を渡された run では、この数を SP-BPRUN-020 の確かめに使う。
 
 ## 検証方法
 

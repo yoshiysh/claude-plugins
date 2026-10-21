@@ -143,18 +143,17 @@ test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証
   assert.ok(extractor.includes('bundle.0.md') && extractor.includes(conformance));
 });
 
-test('SP-BPINSPECTION-011・SP-BPINSPECTION-012・SP-BPINSPECTION-013: 監査の観点の prompt が prompt-audit のパスと 4 つの当て方を持ち、担当の資産を絞る指示が無く、優先と鮮度を未検査の観点の候補として返させる', async (t) => {
+test('SP-BPINSPECTION-011・SP-BPINSPECTION-012・SP-BPINSPECTION-013・SP-BPINSPECTION-017: 監査の観点の prompt が prompt-audit と bp-inspection と bp-designed-skill の写しのパスを渡して当て方を SP-BPINSPECTION-011〜013 に照らさせ、当て方の文を書き写さず、担当の資産を絞る指示が無い', async (t) => {
   const got = await promptsOf(t, 'audit');
   if (!got) return;
   const { s, calls } = got;
   const audit = calls.find((c) => viewpointOf(c.prompt) === 'audit').prompt;
   assert.ok(audit.includes(s.env.promptAudit));
-  for (const part of ['「Scope」の節', '導入文と末尾の style preference の段落', '「Confidence and action」の節の Low の行', '「Confidence and action」の節の最後の 2 段落']) assert.ok(audit.includes(part), part);
+  assert.ok(audit.includes(path.join(s.criteriaDir, 'specifications', 'bp-inspection.md')));
+  assert.ok(audit.includes(path.join(s.criteriaDir, 'requirements', 'bp-designed-skill.md')));
+  assert.match(audit, /SP-BPINSPECTION-011〜SP-BPINSPECTION-013 に従う/);
   assert.match(audit, /担当の資産を減らさない/);
-  assert.match(audit, /全ての監査の観点を担当の全ての資産に当てる/);
-  assert.match(audit, /bp-designed-skill\.md の要求と食い違うときは、その要求を優先して候補を返さず/);
-  assert.match(audit, /PA-4 の未検査の観点の候補/);
-  assert.match(audit, /PA-3 を当てない/);
+  for (const copied of ['style preference', 'Low に当たる懸念', '「Scope」', '「Confidence and action」']) assert.ok(!audit.includes(copied), copied);
 });
 
 test(`SP-BPINSPECTION-020・SP-BPRUN-025: 各役の prompt の書いてよい先が作業ファイルか CLI を通した状態だけで、対象スキルを書き換える指示が無い${BOTH}`, async (t) => {
@@ -174,7 +173,7 @@ test(`SP-BPINSPECTION-020・SP-BPRUN-025: 各役の prompt の書いてよい先
 });
 
 test('SP-BPINSPECTION-016: 検証の段の項目の鍵を観点の順・担当の順で並べる（列挙の順が未着手の順位になる）', () => {
-  assert.match(fnSource('verifyKeys'), /run\.viewpoints\.flatMap\(\(viewpoint\) => run\.groups\.map\(\(g, i\) => \(\{ viewpoint, group: i \+ 1 \}\)\)\)/);
+  assert.match(fnSource('verifyKeys'), /run\.viewpoints\.flatMap\(\(viewpoint\) => run\.groups\.map\(\(g\) => \(\{ viewpoint, assignment: g\.id \}\)\)\)/);
   assert.ok(OPS.stageStart);
 });
 
@@ -189,21 +188,15 @@ const section = (id) => INSPECTION.slice(INSPECTION.indexOf(`#### ${id}`), INSPE
 const spList = (text) => [...text.matchAll(/SP-BPCONFORMANCE-(\d{3})((?:・\d{3})*)/g)].flatMap((m) => [m[1], ...m[2].split('・').filter(Boolean)]).map((n) => `SP-BPCONFORMANCE-${n}`);
 
 test('SP-BPINSPECTION-006: 適用の判定の検証役の schema の答えの enum が、CLI の閉集合（SP-BPINSPECTION-006 の表の選択肢）と一致する', () => {
-  const schema = Function('APPLICABILITY_QUESTIONS', 'APPLICABILITY_ANSWERS', 'PRESENCE', `${fnSource('answerSchema')}\n${fnSource('applicabilitySchema')}\nreturn applicabilitySchema();`)(literal('APPLICABILITY_QUESTIONS'), literal('APPLICABILITY_ANSWERS'), literal('PRESENCE'));
+  const schema = Function('APPLICABILITY_QUESTIONS', 'APPLICABILITY_ANSWERS', 'PRESENCE', 'PRESENCE_QUESTIONS', `${fnSource('answerSchema')}\n${fnSource('applicabilitySchema')}\nreturn applicabilitySchema();`)(literal('APPLICABILITY_QUESTIONS'), literal('APPLICABILITY_ANSWERS'), literal('PRESENCE'), literal('PRESENCE_QUESTIONS'));
   for (const q of literal('APPLICABILITY_QUESTIONS')) assert.deepEqual(schema.properties.answers.properties[q].properties.answer.enum, Object.values(APPLICABILITY_ANSWERS));
-  for (const f of ['ledger', 'fanout']) assert.deepEqual(schema.properties[f].properties.answer.enum, Object.values(PRESENCE));
+  for (const f of literal('PRESENCE_QUESTIONS')) assert.deepEqual(schema.properties[f].properties.answer.enum, Object.values(PRESENCE));
   assert.deepEqual(schema.properties.answers.required, literal('APPLICABILITY_QUESTIONS'));
 });
 
-test('SP-BPINSPECTION-012・SP-BPINSPECTION-013・SP-BPINSPECTION-009: script と CLI に書いた監査の観点の識別子が、SP-BPINSPECTION-012・013 が名指す識別子で、SP-BPINSPECTION-009 の表にあり、PA-3 の固定の 1 件が SP-BPINSPECTION-012 の固定の記述と一致する', () => {
-  const named = new Set([...`${section('SP-BPINSPECTION-012')}${section('SP-BPINSPECTION-013')}`.matchAll(/PA-\d/g)].map((m) => m[0]));
-  const table = new Set(auditUnits(DOCS).map((u) => u.value));
-  const used = [...new Set([...SOURCE.matchAll(/PA-\d/g)].map((m) => m[0]))];
-  assert.ok(used.length > 0);
-  for (const id of [...used, FIXED_AUDIT_UNCHECKED.value]) {
-    assert.ok(named.has(id), id);
-    assert.ok(table.has(id), id);
-  }
+test('SP-BPINSPECTION-012・SP-BPINSPECTION-009: script は監査の観点の識別子を書き写さず、CLI の PA-3 の固定の 1 件が SP-BPINSPECTION-012 の固定の記述と SP-BPINSPECTION-009 の表に一致する', () => {
+  assert.deepEqual([...SOURCE.matchAll(/PA-\d/g)].map((m) => m[0]), []);
+  assert.ok(auditUnits(DOCS).some((u) => u.value === FIXED_AUDIT_UNCHECKED.value));
   const fixed = /次の 1 件は[\s\S]*?- ([^\n]+)/.exec(section('SP-BPINSPECTION-012'))[1];
   assert.ok(fixed.includes(`${FIXED_AUDIT_UNCHECKED.value} を当ててはならない`));
   for (const ref of ['PR-BPDESIGNEDSKILL-021', 'SP-BPCONFORMANCE-025']) {
@@ -217,14 +210,26 @@ test('SP-BPINSPECTION-025: 強いられた未検査の単位に付ける理由�
   assert.deepEqual([...new Set([...always.values(), ...turnForm.values()])].sort(), spList(row[3]).sort());
 });
 
-test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-011: prompt に書いた仕様項目 ID と prompt-audit の節の名前が、写し元の SP-BPINSPECTION-006・007・011 の記述と一致する', () => {
-  const lines = fnSource('viewpointLines');
-  const flow = /観点: フローの観点。[^`]*?(SP-BPCONFORMANCE-[\d・]+) のとおり/.exec(lines)[1];
-  assert.deepEqual(spList(flow), spList(section('SP-BPINSPECTION-007').split('\n').find((l) => l.startsWith('フローの観点の検証役は'))));
+test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-008: script は照らす先の章・節の名前を書き写さず照らす先の決定の出力から得て、適用の判定の prompt の仕様項目 ID が SP-BPINSPECTION-006 の表の判定基準と一致する', async (t) => {
+  const { CRITERIA_CHAPTERS, PROMPT_AUDIT_SECTION } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs');
+  for (const name of [CRITERIA_CHAPTERS.functional, CRITERIA_CHAPTERS.capacityPrefix, PROMPT_AUDIT_SECTION]) assert.ok(!SOURCE.includes(name), name);
   const applicability = fnSource('applicabilityPrompt');
   const criteria = tableAfter(INSPECTION, '| 問い | 選択肢 | 判定基準 |').flatMap((r) => spList(r[2]));
   assert.deepEqual([...new Set(spList(applicability))].sort(), [...new Set(criteria)].sort());
-  const sections = [...new Set([...lines.matchAll(/「([A-Za-z ]+)」の節/g)].map((m) => m[1]))].sort();
-  const spec = [...new Set(tableAfter(INSPECTION, '| 現行の prompt-audit の記述 | 当て方 |').flatMap((r) => [...r[0].matchAll(/「([A-Za-z ]+)」の節/g)].map((m) => m[1])))].sort();
-  assert.deepEqual(sections, spec);
+  const got = await promptsOf(t, 'review');
+  if (!got) return;
+  const flow = got.calls.find((c) => viewpointOf(c.prompt) === 'flow').prompt;
+  const spec = got.calls.find((c) => viewpointOf(c.prompt) === 'spec').prompt;
+  assert.ok(flow.includes(`「${CRITERIA_CHAPTERS.functional}」の章`));
+  assert.ok(spec.includes(`「${CRITERIA_CHAPTERS.capacityPrefix}」で始まる章`));
+});
+
+test(`SP-BPRUN-027: host の agent() が投げた失敗の内容を、そのラベルの BLOCKED の理由に載せる${BOTH}`, async () => {
+  const make = Function('agent', 'ROLE_MODELS', `const budget = { charge() {} }; const run = { launched: 0 }; const failures = new Map();\n${fnSource('launch')}\n${fnSource('failureNote')}\nreturn { launch, failureNote };`);
+  const { launch, failureNote } = make(async () => { throw new Error('agent の時間切れ'); }, { extractor: { model: 'sonnet', effort: 'medium' } });
+  assert.equal(await launch('extractor', 'p', { label: 'extractor' }), null);
+  assert.equal(failureNote('extractor'), '（host の失敗: agent の時間切れ）');
+  assert.equal(failureNote('carrier'), '');
+  assert.match(fnSource('assignStage'), /抽出役が結果を返さなかった\$\{failureNote\('extractor'\)\}/);
+  assert.match(fnSource('carry'), /運搬役が結果を返さなかった\$\{failureNote\(label\)\}/);
 });

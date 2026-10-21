@@ -296,7 +296,9 @@ for (const fn of FNS) {
     const view = await viewOf(s.env, first.result.state);
     const entry = view.stages.get('verify|');
     const keys = entry.items.map((id) => view.items.get(id).key);
-    assert.deepEqual(keys, VIEWPOINTS[fn].flatMap((viewpoint) => [1, 2].map((group) => ({ viewpoint, group }))));
+    const groups = [...view.assignments.values()].filter((a) => a.stage === 'assign').map((a) => a.id);
+    assert.equal(groups.length, 2);
+    assert.deepEqual(keys, VIEWPOINTS[fn].flatMap((viewpoint) => groups.map((assignment) => ({ viewpoint, assignment }))));
     const pending = view.stops.get('r1').pending;
     assert.deepEqual(pending, entry.items.filter((id) => !view.items.get(id).result));
     assert.ok(pending.length >= 1);
@@ -402,7 +404,7 @@ for (const fn of FNS) {
       lostItem = lostItem ?? (items.length === 2 ? item : null);
       return item === lostItem ? null : undefined;
     };
-    const carrier = compose(verdicts, failCarrier(OPS.stop));
+    const carrier = compose(verdicts, failCarrier(OPS.stop, { nth: [1, 2] }));
     const first = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier } });
     assert.equal(first.result.stopKind, 'blocked');
     assert.match(first.result.reason, /停止の記録を書けなかった/);

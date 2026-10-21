@@ -1,4 +1,4 @@
-import { APPLICABILITY_ANSWERS, APPLICABILITY_QUESTIONS, PRESENCE, SHAPES } from './constants.mjs';
+import { APPLICABILITY_ANSWERS, APPLICABILITY_QUESTIONS, PRESENCE, PRESENCE_QUESTIONS, SHAPES } from './constants.mjs';
 
 const { yes, no, unreached } = APPLICABILITY_ANSWERS;
 
@@ -41,7 +41,7 @@ export function judgeApplicability(result, { assetIds, rows, allowed }) {
     if (bad) return { error: bad };
     answers.push(a.answer);
   }
-  for (const field of ['ledger', 'fanout']) {
+  for (const field of PRESENCE_QUESTIONS) {
     const a = result[field];
     if (!a || !Object.values(PRESENCE).includes(a.answer)) return { error: `${field} の答えが選択肢に無い: ${JSON.stringify(a?.answer)}` };
     const bad = checkQuotes(a.quotes, assetIds, `${field} `);

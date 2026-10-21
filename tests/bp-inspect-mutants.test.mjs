@@ -70,14 +70,14 @@ const CASES = [
   },
   {
     name: '検証の項目の鍵を担当の順・観点の順で入れ替えると、未着手の項目が観点の順・担当の順で残らない（SP-BPINSPECTION-016）',
-    from: 'return run.viewpoints.flatMap((viewpoint) => run.groups.map((g, i) => ({ viewpoint, group: i + 1 })))',
-    to: 'return run.groups.flatMap((g, i) => run.viewpoints.map((viewpoint) => ({ viewpoint, group: i + 1 })))',
+    from: 'return run.viewpoints.flatMap((viewpoint) => run.groups.map((g) => ({ viewpoint, assignment: g.id })))',
+    to: 'return run.groups.flatMap((g) => run.viewpoints.map((viewpoint) => ({ viewpoint, assignment: g.id })))',
     async check(t, scriptPath) {
       const s = await setupInspect(t);
       const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs('review', s.target, { maxLaunches: MIN_LAUNCHES.review }), scriptPath });
       const start = calls.flatMap((c) => commands(c.prompt)).find((x) => x.op === OPS.stageStart && x.text.includes('"stage":"verify"'));
       const keys = JSON.parse(start.text).keys;
-      return result.stopKind === 'iteration_limit' && JSON.stringify(keys) === JSON.stringify([{ viewpoint: 'flow', group: 1 }, { viewpoint: 'flow', group: 2 }, { viewpoint: 'spec', group: 1 }, { viewpoint: 'spec', group: 2 }]);
+      return result.stopKind === 'iteration_limit' && JSON.stringify(keys.map((k) => k.viewpoint)) === JSON.stringify(['flow', 'flow', 'spec', 'spec']);
     },
   },
   {

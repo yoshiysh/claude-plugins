@@ -168,6 +168,8 @@ export function verdicts(ctx, req) {
     const item = itemIn(view, req.item, [...VERIFY_STAGES]);
     const assignment = view.assignments.get(req.assignment);
     if (!assignment) reject(CODES.unknownId, `状態に無い担当 ID: ${JSON.stringify(req.assignment)}`);
+    // 項目の鍵が担当を持つ（review・audit の観点ごとの検証）ときは、その担当の結果だけを受ける。別の担当の結果を書くと、見ていない資産を見たと数える。
+    if (item.key?.assignment !== undefined && item.key.assignment !== req.assignment) reject(CODES.conflict, `項目の鍵の担当と違う担当の結果: ${req.item}（鍵 ${item.key.assignment}、結果 ${req.assignment}）`);
     checkViewpoint(req.viewpoint);
     const resultRecord = { t: RECORDS.result, item: req.item, result: { kind: RESULT_KINDS.verdicts, assignment: req.assignment, viewpoint: req.viewpoint, sum: sum(req.result ?? null) } };
     const output = (after) => verdictsOutput(after, req.item);

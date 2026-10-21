@@ -31,7 +31,7 @@ function needStage(view, stage) {
 }
 
 function publicTargets(list) {
-  return list.map(({ viewpoint, files, fingerprint, readable, reason }) => ({ viewpoint, files, fingerprint, readable, reason }));
+  return list.map(({ viewpoint, files, section, fingerprint, readable, reason }) => ({ viewpoint, files, section, fingerprint, readable, reason }));
 }
 
 // SP-BPINSPECTION-004・SP-BPINSPECTION-029: 段を終えていなければ読んで記録し、終えていれば読み直した指紋を記録と照らすだけにする。

@@ -389,3 +389,36 @@ export function failCarrier(op, { execute = false, nth = [1], when = () => true 
     return null;
   };
 }
+
+export function compose(...carriers) {
+  return async (...a) => {
+    for (const c of carriers) {
+      const out = await c(...a);
+      if (out !== undefined) return out;
+    }
+    return undefined;
+  };
+}
+
+// op を含む運搬役のうち when に当たる最初の 1 つで、先頭の k 個の要求だけを実行して応答を失う（段の途中まで書いて止まった run を作る）。
+export function partialCarrier(op, k, when = () => true) {
+  let done = false;
+  return async (prompt, options, env) => {
+    if (done || !prompt.includes(` ${op} <<`) || !when(prompt)) return undefined;
+    done = true;
+    for (const c of commands(prompt).slice(0, k)) await env.call(c.op, c.text);
+    return null;
+  };
+}
+
+// op の要求の項目のうち、現れた順で index 番目の項目の運搬役を全て失う（送り直しも失うので、その項目の書き込みで BLOCKED になる）。
+export function loseItem(op, index = 0) {
+  const seen = [];
+  return async (prompt) => {
+    if (!prompt.includes(` ${op} <<`)) return undefined;
+    const item = /"item":"([^"]+)"/.exec(prompt)[1];
+    if (!seen.includes(item)) seen.push(item);
+    return seen.indexOf(item) === index ? null : undefined;
+  };
+}
+

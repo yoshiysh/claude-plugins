@@ -332,8 +332,9 @@ function checkHostArgs(a, nextState) {
   if (typeof skillDir !== 'string' || !skillDir.startsWith('/') || skillDir.includes("'")) {
     return early(STOP_KINDS.blocked, `skillDir は ' を含まない絶対パスでなければならない: ${JSON.stringify(skillDir)}`, nextState)
   }
-  if (typeof a[INPUT_KEYS.key] !== 'string' || !/^[A-Za-z0-9._-]+$/.test(a[INPUT_KEYS.key])) {
-    return early(STOP_KINDS.blocked, `key は英数字と . _ - だけの文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState)
+  // key の形は CLI の開始の操作が照らす（写しを持たない）。ここでは要求の JSON に入れられる文字列であることだけを確かめる。
+  if (typeof a[INPUT_KEYS.key] !== 'string' || a[INPUT_KEYS.key] === '') {
+    return early(STOP_KINDS.blocked, `key は空でない文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState)
   }
   return null
 }
@@ -402,11 +403,13 @@ const VIEWPOINT_LIST = RUN_VIEWPOINTS[fn]
 const CLI = `${input.skillDir}/scripts/bp-state.mjs`
 const CRITERIA = Object.fromEntries(Object.entries(CRITERIA_FILES).map(([k, parts]) => [k, [input.skillDir, CRITERIA_DIR, ...parts].join('/')]))
 let open = null
+const failures = new Map()
 const viewpointByItem = new Map()
 const memo = { written: [], outside: [], target: input.target ?? null, goalText: null, request: input.request ?? null, answers: [], grounds: [] }
 
 function track(stage, round, status, { append = false } = {}) {
-  const items = status.map((s) => ({ id: s.id, done: s.result, aborted: s.aborted, discarded: s.discarded }))
+  // 列挙の時点で済んでいた項目（前の run の打ち切りを含む）は、この run の全件の打ち切りに数えない（数えると、原因を直した再開が同じ BLOCKED を返し続ける）。
+  const items = status.map((s) => ({ id: s.id, done: s.result, aborted: s.aborted, discarded: s.discarded, prior: s.result || s.aborted || s.discarded }))
   if (append && open && open.stage === stage && open.round === round) {
     for (const it of items) if (!open.items.some((x) => x.id === it.id)) open.items.push(it)
     open.finished = false
@@ -440,14 +443,21 @@ function command(req) {
   return `node '${CLI}' ${req.op} <<'${delim}'\n${text}\n${delim}`
 }
 
+// host が投げた失敗はラベルごとに残し、BLOCKED の理由に載せる（SP-BPRUN-027。null を返すだけだと理由に失敗の内容が無い）。
 async function launch(role, prompt, { unit, label, schema }) {
   budget.charge(unit)
   run.launched += 1
+  failures.delete(label)
   try {
     return await agent(prompt, { ...ROLE_MODELS[role], label, schema })
   } catch (error) {
+    failures.set(label, String(error?.message ?? error))
     return null
   }
+}
+
+function failureNote(label) {
+  return failures.has(label) ? `（host の失敗: ${failures.get(label)}）` : ''
 }
 
 function carrierPrompt(requests) {
@@ -464,7 +474,7 @@ function carrierPrompt(requests) {
 
 async function carry(requests, { unit, label = 'carrier' } = {}) {
   const res = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
-  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: '運搬役が結果を返さなかった', responses: [] }
+  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: `運搬役が結果を返さなかった${failureNote(label)}`, responses: [] }
   if (res.responses.length > requests.length) return { failed: true, lost: true, reason: '運搬役が要求より多い応答を返した', responses: [] }
   const parsed = []
   for (const [i, line] of res.responses.entries()) {
@@ -550,8 +560,9 @@ async function fanOut(stage, entries, worker) {
     await worker(entry)
   })
   if (short) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
-  if (open.items.length && open.items.every((x) => x.aborted)) {
-    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
+  const live = open.items.filter((x) => !x.prior)
+  if (live.length && live.every((x) => x.aborted)) {
+    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${live.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
   }
 }
 
@@ -614,7 +625,7 @@ async function goalStage(plan) {
     const unit = budget.open(WORST.goalAttempt)
     try {
       const res = await launch('writer', goalPrompt(plan.goalRound, failures), { unit, label: 'writer:goal', schema: goalSchema() })
-      if (!res) throw new Stop(STOP_KINDS.blocked, '段「目標の固定」の書き手が結果を返さなかった')
+      if (!res) throw new Stop(STOP_KINDS.blocked, `段「目標の固定」の書き手が結果を返さなかった${failureNote('writer:goal')}`)
       if (res.missing) {
         throw new Stop(STOP_KINDS.needsInput, `目標を固定する入力が足りない。問い: ${res.missing.map((m) => `${m.question}（${m.reason}）`).join(' / ')}`)
       }
@@ -664,7 +675,7 @@ async function writeStage(number, rewrite) {
   const unit = budget.open(WORST.write)
   try {
     const res = await launch('writer', writePrompt(number, rewrite), { unit, label: 'writer:write', schema: WRITE_SCHEMA })
-    if (!res) throw new Stop(STOP_KINDS.blocked, '段「書く」の書き手が結果を返さなかった。一覧の外は確かめていない', { scan: number })
+    if (!res) throw new Stop(STOP_KINDS.blocked, `段「書く」の書き手が結果を返さなかった${failureNote('writer:write')}。一覧の外は確かめていない`, { scan: number })
     memo.written = res.written
     const entries = res.written.map((w) => ({ path: w.path, iteration: number, action: w.action }))
     // 書いたファイルを先に記録する。結果が拒否されても、書いたファイルが一覧と返り値から漏れないようにするため。
@@ -986,7 +997,11 @@ async function finish(stop) {
     outside: memo.outside,
   }
   reqs.push(write(OPS.stop, body), read(OPS.outcome))
-  const r = await carry(reqs)
+  // 停止を書いた後に応答を失うと、完了した状態は再開できず list にも出ないので、同じ要求を 1 回だけ送り直す（停止は受け取った要求の sha256 で同じ停止として受ける）。
+  // 送り直しは停止の記録の起動数に入らず、上限を超える送り直しはしない（SP-BPRUN-027・SP-BPRUN-034）。
+  const first = await carry(reqs)
+  // 送り直しは停止と返り値だけにする（停止を書いた後の run への他の書き込みは CLI が E_STALE_RUN で拒否する）。
+  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs.slice(-2)) : first
   if (!r.ok) {
     return {
       ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),

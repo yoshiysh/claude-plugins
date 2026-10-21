@@ -65,6 +65,8 @@ const STOP_CAUSES = { verifiers: 'verifiers' }
 const APPLICABILITY_QUESTIONS = ['A', 'Q1', 'Q2', 'Q3']
 const APPLICABILITY_ANSWERS = { yes: 'はい', no: 'いいえ', unreached: '問いに到達しない' }
 const PRESENCE = { present: '有', absent: '無' }
+const PRESENCE_QUESTIONS = ['ledger', 'fanout']
+const TARGET_FILES = { conformance: 'conformance', design: 'design', inspection: 'inspection', promptAudit: 'promptAudit', designedSkill: 'designedSkill' }
 const UNCHECKED_SCOPES = { whole: 'whole', unit: 'unit', pa: 'pa' }
 const INSPECT_ROLE_WRITE_LIMITS = [
   { role: '検証役・反証役・抽出役', writes: '作業ファイルだけ' },
@@ -97,8 +99,9 @@ const RESERVE = 1
 
 function minimalLaunches(fn) {
   // 最大は最初の run（照らす先の決定を終える前に止まった run の再開も同じ）。担当の作成と適用の判定は試行の上限の回数まで起動し直す（SP-BPFINDINGS-034）。
-  return WORST.start + WORST.targets + WORST.bundle + LIMITS.attempts * WORST.attempt + (fn === FUNCTION.review ? LIMITS.attempts * WORST.attempt : 0)
-    + WORST.item + RESERVE
+  // audit は担当 ID を得てから観点ごとの検証の段の開始を書く運搬役が 1 回多い（review は適用の判定の運搬役に含める）。
+  return WORST.start + WORST.targets + WORST.bundle + LIMITS.attempts * WORST.attempt
+    + (fn === FUNCTION.review ? LIMITS.attempts * WORST.attempt : WORST.carrier) + WORST.item + RESERVE
 }
 
 function canonical(value) {
@@ -194,8 +197,8 @@ function applicabilitySchema() {
   }
   return {
     type: 'object',
-    properties: { answers, ledger: answerSchema(Object.values(PRESENCE)), fanout: answerSchema(Object.values(PRESENCE)) },
-    required: ['answers', 'ledger', 'fanout'],
+    properties: { answers, ...Object.fromEntries(PRESENCE_QUESTIONS.map((q) => [q, answerSchema(Object.values(PRESENCE))])) },
+    required: ['answers', ...PRESENCE_QUESTIONS],
     additionalProperties: false,
   }
 }
@@ -254,8 +257,9 @@ function checkHostArgs(a, nextState) {
   if (typeof skillDir !== 'string' || !skillDir.startsWith('/') || skillDir.includes("'")) {
     return early(STOP_KINDS.blocked, `skillDir は ' を含まない絶対パスでなければならない: ${JSON.stringify(skillDir)}`, nextState)
   }
-  if (typeof a[INPUT_KEYS.key] !== 'string' || !/^[A-Za-z0-9._-]+$/.test(a[INPUT_KEYS.key])) {
-    return early(STOP_KINDS.blocked, `key は英数字と . _ - だけの文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState)
+  // key の形は CLI の開始の操作が照らす（写しを持たない）。ここでは要求の JSON に入れられる文字列であることだけを確かめる。
+  if (typeof a[INPUT_KEYS.key] !== 'string' || a[INPUT_KEYS.key] === '') {
+    return early(STOP_KINDS.blocked, `key は空でない文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState)
   }
   return null
 }
@@ -309,10 +313,12 @@ const CLI = `${input.skillDir}/scripts/bp-state.mjs`
 // review・audit の段は回を持たない（反復が無い：SP-BPINSPECTION-002）。
 const JUDGED = [{ stage: STAGE.verify, round: null }, { stage: STAGE.verifyExtra, round: null }]
 let open = null
+const failures = new Map()
 const memo = { target: input.target ?? null }
 
 function track(stage, round, status, { append = false } = {}) {
-  const items = status.map((s) => ({ id: s.id, done: s.result, aborted: s.aborted, discarded: s.discarded }))
+  // 列挙の時点で済んでいた項目（前の run の打ち切りを含む）は、この run の全件の打ち切りに数えない（数えると、原因を直した再開が同じ BLOCKED を返し続ける）。
+  const items = status.map((s) => ({ id: s.id, done: s.result, aborted: s.aborted, discarded: s.discarded, prior: s.result || s.aborted || s.discarded }))
   if (append && open && open.stage === stage && open.round === round) {
     for (const it of items) if (!open.items.some((x) => x.id === it.id)) open.items.push(it)
     open.finished = false
@@ -346,14 +352,21 @@ function command(req) {
   return `node '${CLI}' ${req.op} <<'${delim}'\n${text}\n${delim}`
 }
 
+// host が投げた失敗はラベルごとに残し、BLOCKED の理由に載せる（SP-BPRUN-027。null を返すだけだと理由に失敗の内容が無い）。
 async function launch(role, prompt, { unit, label, schema }) {
   budget.charge(unit)
   run.launched += 1
+  failures.delete(label)
   try {
     return await agent(prompt, { ...ROLE_MODELS[role], label, schema })
   } catch (error) {
+    failures.set(label, String(error?.message ?? error))
     return null
   }
+}
+
+function failureNote(label) {
+  return failures.has(label) ? `（host の失敗: ${failures.get(label)}）` : ''
 }
 
 function carrierPrompt(requests) {
@@ -370,7 +383,7 @@ function carrierPrompt(requests) {
 
 async function carry(requests, { unit, label = 'carrier' } = {}) {
   const res = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
-  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: '運搬役が結果を返さなかった', responses: [] }
+  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: `運搬役が結果を返さなかった${failureNote(label)}`, responses: [] }
   if (res.responses.length > requests.length) return { failed: true, lost: true, reason: '運搬役が要求より多い応答を返した', responses: [] }
   const parsed = []
   for (const [i, line] of res.responses.entries()) {
@@ -456,8 +469,9 @@ async function fanOut(stage, entries, worker) {
     await worker(entry)
   })
   if (short) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
-  if (open.items.length && open.items.every((x) => x.aborted)) {
-    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
+  const live = open.items.filter((x) => !x.prior)
+  if (live.length && live.every((x) => x.aborted)) {
+    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${live.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
   }
 }
 
@@ -492,6 +506,10 @@ function targetPaths(viewpoints) {
 
 function targetOf(viewpoint) {
   return run.targets.find((t) => t.viewpoint === viewpoint)
+}
+
+function targetFile(viewpoint, name) {
+  return targetOf(viewpoint).files.find((f) => f.name === name).path
 }
 
 // 照らす先を読めない run が台帳まで作らないよう、照らす先の決定は単独の運搬役で運ぶ（読めないことも受理なので、後ろに続けると止まらない）。
@@ -538,42 +556,37 @@ function extractorPrompt(failures) {
 }
 
 function applicabilityPrompt(failures) {
-  const flow = targetOf('flow').files.map((f) => f.path)
+  const conformance = targetFile('flow', TARGET_FILES.conformance)
   return [
     ...commonPart('検証役（適用の判定）', 'フローの観点の検証役が全て同じ答えを判定表の条件として使うよう、対象スキルのフローに形の判定の問いを 1 回だけ答える（担当ごとに答えが割れると、当たる要求が担当ごとに変わる）。'),
-    `問い ${APPLICABILITY_QUESTIONS.join('・')} の中身は ${flow[0]} の用語定義に従い、SP-BPCONFORMANCE-004 の順に答え、答えた問いを飛ばさない。Q3 は SP-BPCONFORMANCE-005 に従う。形の判定の図は ${flow[1]} の「形の判定」の節。`,
-    `問いの答えは ${Object.values(APPLICABILITY_ANSWERS).join('・')} のどれか。形に到達した後の問いは ${APPLICABILITY_ANSWERS.unreached}。資産台帳（ledger）と fan-out（fanout）は対象スキルが実際に持つかを ${Object.values(PRESENCE).join('・')} で答える（SP-BPCONFORMANCE-003）。`,
+    `問い ${APPLICABILITY_QUESTIONS.join('・')} の中身は ${conformance} の用語定義に従い、SP-BPCONFORMANCE-004 の順に答え、答えた問いを飛ばさない。Q3 は SP-BPCONFORMANCE-005 に従う（形の判定の図は同項が参照する ${targetFile('flow', TARGET_FILES.design)} の節）。`,
+    `問いの答えは ${Object.values(APPLICABILITY_ANSWERS).join('・')} のどれか。形に到達した後の問いは ${APPLICABILITY_ANSWERS.unreached}。${PRESENCE_QUESTIONS.join('・')} は対象スキルが実際に資産台帳・fan-out を持つかを ${Object.values(PRESENCE).join('・')} で答える（SP-BPCONFORMANCE-003）。`,
     '答えごとに、その答えを示す箇所の引用を {"asset": <資産の束の資産 ID>, "line": <行番号>, "text": <その行の原文>} で 1 件以上添える。',
-    `返すもの: {"answers": {${APPLICABILITY_QUESTIONS.map((q) => `"${q}": {"answer", "quotes"}`).join(', ')}}, "ledger": {"answer", "quotes"}, "fanout": {"answer", "quotes"}}`,
+    `返すもの: {"answers": {${APPLICABILITY_QUESTIONS.map((q) => `"${q}": {"answer", "quotes"}`).join(', ')}}, ${PRESENCE_QUESTIONS.map((q) => `"${q}": {"answer", "quotes"}`).join(', ')}}`,
     failures.length ? `前の回に拒否された理由:\n${failures.join('\n')}` : '',
   ].filter((l) => l !== '').join('\n')
 }
 
+// 章・節の名前と当て方は照らす先の決定の出力と bp-inspection の写しから渡し、prompt に書き写さない（書き写すと写し元だけが変わったときに古いまま残る）。
 function viewpointLines(viewpoint) {
+  const t = targetOf(viewpoint)
+  const inspection = targetFile(viewpoint === 'spec' ? 'flow' : viewpoint, TARGET_FILES.inspection)
   if (viewpoint === 'flow') {
-    const [conformance, design] = targetOf('flow').files.map((f) => f.path)
     return [
-      `観点: フローの観点。${conformance} の「機能仕様」の章と、そこが参照する ${design} の節に、SP-BPCONFORMANCE-001・002・003・018・038 のとおり当たる要求の判定の単位を照らす。`,
+      `観点: フローの観点。${targetFile('flow', TARGET_FILES.conformance)} の「${t.section}」の章と、そこが参照する ${targetFile('flow', TARGET_FILES.design)} の節に、${inspection} の SP-BPINSPECTION-007 のとおり当たる要求の判定の単位を照らす。`,
       '不適合の単位は、その単位の値を指摘の種類にした候補として、違反が現れている担当の資産に結び付けて返す。判定のために担当の外の資産を読んでよいが、判定を返すのは担当の資産だけ。',
       `判定の単位と強いられた未検査は、次の適用の判定の行に従う。形と資産台帳・fan-out の有無を答え直さない（SP-BPINSPECTION-006）。強いられた未検査の単位は候補にしない:\n${JSON.stringify(run.applicability)}`,
     ]
   }
   if (viewpoint === 'spec') {
     return [
-      `観点: 仕様の観点。${targetOf('spec').files[0].path} の「性能・容量」で始まる章の仕様項目を 1 つずつ判定の単位にし、対象スキルの値と規則をその章に照らす（値は照らす先から読む）。`,
+      `観点: 仕様の観点。${targetFile('spec', TARGET_FILES.conformance)} の「${t.section}」で始まる章の仕様項目を 1 つずつ判定の単位にし、対象スキルの値と規則をその章に照らす（値は照らす先から読む。${inspection} の SP-BPINSPECTION-008）。`,
       '不適合の単位は、その仕様項目 ID を指摘の種類にした候補として返す。',
     ]
   }
-  const [criteria, designedSkill] = targetOf('audit').files.map((f) => f.path)
   return [
-    `観点: 監査の観点。${criteria} の「Finding criteria」の節の番号付きの項目を、指摘の種類の識別子（下の閉集合）に当て、全ての監査の観点を担当の全ての資産に当てる。監査の観点の間に優先を置かない。`,
-    '「Scope」の節: 照らす対象を model・agent に向けた指示に限る。モデル・道具・API・版を名指す指示は、対象スキルか今の環境にある権威ある文書の証拠に照らす。',
-    '「Finding criteria」の節の導入文と末尾の style preference の段落: 具体的な証拠と実行への影響を説明できる箇所だけを候補にし、好みの違いを候補にしない。',
-    '「Confidence and action」の節の Low の行: Low に当たる懸念を候補にしない。',
-    '「Confidence and action」の節の最後の 2 段落: 候補の引用・内容・直し方を、引用と位置・実行への影響・証拠が支える最小の変更として書く。モデルや API に固有の主張には権威ある出所を内容に書く。対象が置き換えの指示を決めていないときは、直し方に具体的な置き換えを作らず、根拠が足りないことを書く。',
-    `範囲は候補を絞るだけで、担当の資産を減らさない。監査の観点を当てた結果が ${designedSkill} の要求と食い違うときは、その要求を優先して候補を返さず、識別子と優先した要求 ID と理由を未検査の観点の候補として返す。`,
-    '対象スキルがモデル・道具・API・版を名指さないか、名指した対象に権威ある文書の証拠が無いときは、モデルに固有の指示が古いとする候補を返さず、PA-4 の未検査の観点の候補として、名指しが無いか証拠が無いかを理由にして返す。',
-    '起動数の上限を渡されない run で fan-out の項目の件数と 1 run の起動数に上限が無いことには PA-3 を当てない（この除外は CLI が毎回未検査の観点に載せる）。',
+    `観点: 監査の観点。${targetFile('audit', TARGET_FILES.promptAudit)} の「${t.section}」の節の番号付きの項目を、指摘の種類の識別子（下の閉集合）に当てる。`,
+    `当て方は ${inspection} の SP-BPINSPECTION-011〜SP-BPINSPECTION-013 に従う（範囲は候補を絞るだけで担当の資産を減らさない。${targetFile('audit', TARGET_FILES.designedSkill)} の要求と食い違うときはその要求を優先し、優先と評価できない鮮度は未検査の観点の候補として返す。同項が固定した除外は CLI が毎回未検査の観点に載せるので返さない）。`,
   ]
 }
 
@@ -623,9 +636,9 @@ async function verifyItem({ itemId, viewpoint, attempts, assignment, assets, ext
   }, stage)
 }
 
-// 項目の鍵の group は担当の順（1 から）。担当の組は 1 回だけ書くので、再開しても同じ鍵が同じ担当を指す。
+// 鍵は状態にある担当 ID で持つ（SP-BPRUN-038。CLI が担当の実在を照らす）。担当 ID は担当の組を書いた応答でしか分からないので、audit は観点ごとの検証の段の開始を別の運搬役で書く。
 function verifyKeys() {
-  return run.viewpoints.flatMap((viewpoint) => run.groups.map((g, i) => ({ viewpoint, group: i + 1 })))
+  return run.viewpoints.flatMap((viewpoint) => run.groups.map((g) => ({ viewpoint, assignment: g.id })))
 }
 
 function verifyStartRequest() {
@@ -659,27 +672,28 @@ async function assignStage(insp, started) {
   if (insp.assignments.length) {
     // 結果を書いた運搬役が段の終わりの前に応答を失った run の再開。作り直すと別の担当 ID の組が増える（SP-BPINSPECTION-030）。
     run.groups = insp.assignments
-    const out = await mustCarry(STAGE.assign, [...start, write(OPS.stageFinish, { stage: STAGE.assign }), next ?? verifyStartRequest()])
-    return next ? null : out.at(-1).status
+    await mustCarry(STAGE.assign, [...start, write(OPS.stageFinish, { stage: STAGE.assign }), ...(next ? [next] : [])])
+    return null
   }
   if (start.length) await mustCarry(STAGE.assign, start)
   const out = await retried(STAGE.assign, insp.repeats[STAGE.assign], async (n, failures, unit) => {
     const res = await launch('extractor', extractorPrompt(failures), { unit, label: 'extractor', schema: EXTRACT_SCHEMA })
-    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.assign}」の抽出役が結果を返さなかった`)
-    run.groups = res.groups.map((assets) => ({ id: null, assets }))
+    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.assign}」の抽出役が結果を返さなかった${failureNote('extractor')}`)
     return carry([
       write(OPS.stageRepeat, { stage: STAGE.assign, n, limitKey: LIMIT_KEYS.attempts }),
       write(OPS.assignments, { stage: STAGE.assign, groups: res.groups, attempt: n }),
       write(OPS.stageFinish, { stage: STAGE.assign }),
-      next ?? verifyStartRequest(),
+      ...(next ? [next] : []),
     ], { unit })
   })
   run.groups = out[1].assignments.map((a) => ({ id: a.id, assets: a.assets }))
-  return next ? null : out[3].status
+  return null
 }
 
-async function applicabilityStage(insp) {
+async function applicabilityStage(insp, started) {
   phase(STAGE_TITLES.applicability)
+  // 担当の作成の段を終えた後、次の段の開始を書く前に止まった run の再開では、段の開始の記録が無い（無いまま結果を書くと CLI が E_UNKNOWN_ID で拒否し続ける）。
+  if (!started && !insp.applicability) await mustCarry(STAGE.applicability, [write(OPS.stageStart, { stage: STAGE.applicability, keys: [] })])
   if (insp.applicability) {
     // 結果は段の終わりと同じ 1 行で書かれているので、起動し直さずに次の段を始める（起動し直すと最初の結果と食い違い E_CONFLICT になる）。
     run.applicability = insp.applicability
@@ -688,7 +702,7 @@ async function applicabilityStage(insp) {
   }
   const out = await retried(STAGE.applicability, insp.repeats[STAGE.applicability], async (n, failures, unit) => {
     const res = await launch('verifier', applicabilityPrompt(failures), { unit, label: 'verifier:applicability', schema: applicabilitySchema() })
-    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.applicability}」の検証役が結果を返さなかった`)
+    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.applicability}」の検証役が結果を返さなかった${failureNote('verifier:applicability')}`)
     return carry([
       write(OPS.stageRepeat, { stage: STAGE.applicability, n, limitKey: LIMIT_KEYS.attempts }),
       write(OPS.applicability, { n, result: res }),
@@ -706,7 +720,7 @@ async function verifyStage(status) {
   const st = status ?? (await mustCarry(STAGE.verify, [verifyStartRequest()]))[0].status
   track(STAGE.verify, null, st)
   const entries = st.map((s, i) => ({ s, key: keys[i] })).filter(({ s }) => !s.result && !s.aborted && !s.discarded)
-    .map(({ s, key }) => ({ itemId: s.id, viewpoint: key.viewpoint, attempts: s.attempts, assignment: run.groups[key.group - 1].id, assets: run.groups[key.group - 1].assets }))
+    .map(({ s, key }) => ({ itemId: s.id, viewpoint: key.viewpoint, attempts: s.attempts, assignment: key.assignment, assets: run.groups.find((g) => g.id === key.assignment).assets }))
   await fanOut(STAGE.verify, entries, (e) => verifyItem({ ...e, stage: STAGE.verify }))
 }
 
@@ -796,15 +810,22 @@ async function vanishStage(retake) {
   if (!retake || !retake.affected.length) return
   phase(STAGE_TITLES.vanish)
   const keys = retake.affected.map((f) => ({ finding: f, gone: retake.round }))
-  const status = await stageStart(STAGE.vanish, retake.round, keys)
-  const listCmd = command(read(OPS.report, { viewpoints: run.viewpoints, fields: ['findings', 'assets'] }))
-  const entries = status.map((s, i) => ({ ...s, key: keys[i] })).filter((s) => !s.result && !s.aborted && !s.discarded)
+  // 指摘の観点の照らす先を渡すため、段の開始と同じ運搬役で指摘の一覧を読む（起動数を増やさない）。
+  const [started, listed] = await mustCarry(STAGE.vanish, [
+    write(OPS.stageStart, { stage: STAGE.vanish, round: retake.round, keys }),
+    read(OPS.report, { viewpoints: run.viewpoints, fields: ['findings'] }),
+  ])
+  track(STAGE.vanish, retake.round, started.status)
+  const viewpointOf = new Map(listed.findings.map((f) => [f.id, f.viewpoint]))
+  const listCmd = command(read(OPS.report, { viewpoints: run.viewpoints, fields: ['findings'] }))
+  const entries = started.status.map((s, i) => ({ ...s, key: keys[i] })).filter((s) => !s.result && !s.aborted && !s.discarded)
   await fanOut(STAGE.vanish, entries, (e) => itemLoop(e.id, e.attempts, async (attempt, unit) => {
     const prompt = [
       ...commonPart('検証役（消えた資産の照合）', '指摘のあった資産が消えたので、今の資産の中に同じ内容を持つ資産があるかを閉集合から選ぶ。'),
-      `指摘の引用・内容と今の資産 ID の一覧は次の読み出しで得る:\n${listCmd}`,
+      `今の資産 ID の一覧は資産の束（書き直した束）の見出しから選ぶ。指摘の観点・引用・内容は次の読み出しで得る:\n${listCmd}`,
       `返すもの: {"choice": <今の資産 ID か ${JSON.stringify(VANISH_NONE)}>}`,
       '',
+      `指摘の観点: ${viewpointOf.get(e.key.finding)}（照らす先: ${targetPaths([viewpointOf.get(e.key.finding)]).join(' ')}）`,
       `指摘 ID: ${e.key.finding}`,
     ].join('\n')
     // 検証役が結果を返さなかったときは「判定できない」として記録する（SP-BPFINDINGS-037）。
@@ -824,6 +845,7 @@ function resumePlan(p) {
   const stopped = p.stopped
   return {
     from,
+    reached: r?.stage ?? null,
     vanish: stopped.stage === STAGE.vanish ? { round: stopped.round, affected: stopped.items.map((x) => x.key.finding) } : null,
     extra: from === STAGE.verifyExtra && r?.stage === STAGE.verifyExtra ? { parts: r.parts, items: r.items } : null,
   }
@@ -840,7 +862,12 @@ async function finish(stop, before = []) {
     // どの停止でも対象スキルの指紋を照らさせる（SP-BPRUN-026 は停止の種類を限らない）。変わっていれば CLI が BLOCKED を書く。
     onTargetChanged: STOP_KINDS.blocked,
   }
-  const r = await carry([...before, write(OPS.stop, body), read(OPS.outcome)])
+  // 停止を書いた後に応答を失うと、完了した状態は再開できず list にも出ないので、同じ要求を 1 回だけ送り直す（停止は受け取った要求の sha256 で同じ停止として受ける）。
+  // 送り直しは停止の記録の起動数に入らず、上限を超える送り直しはしない（SP-BPRUN-027・SP-BPRUN-034）。
+  const reqs = [...before, write(OPS.stop, body), read(OPS.outcome)]
+  const first = await carry(reqs)
+  // 送り直しは停止と返り値だけにする（停止を書いた後の run への他の書き込みは CLI が E_STALE_RUN で拒否する）。
+  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs.slice(-2)) : first
   if (!r.ok) {
     return {
       ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
@@ -859,7 +886,7 @@ async function main() {
   const insp = p.inspection
   memo.target = p.target
   run.ledger = p.ledger
-  const plan = input.resume ? resumePlan(p) : { from: STAGE.assign, vanish: null, extra: null }
+  const plan = input.resume ? resumePlan(p) : { from: STAGE.assign, reached: null, vanish: null, extra: null }
   const order = INSPECT_PIPELINE
   const before = (stage) => order.indexOf(plan.from) <= order.indexOf(stage)
   const retake = s.retake?.affected?.length ? { round: s.retake.retake, affected: s.retake.affected } : null
@@ -871,8 +898,9 @@ async function main() {
   run.groups = insp.assignments
   run.applicability = insp.applicability
   let status = null
-  if (before(STAGE.assign)) status = await assignStage(insp, !vanishing)
-  if (fn === FUNCTION.review && before(STAGE.applicability)) status = await applicabilityStage(insp)
+  const assigned = before(STAGE.assign)
+  if (assigned) status = await assignStage(insp, !vanishing)
+  if (fn === FUNCTION.review && before(STAGE.applicability)) status = await applicabilityStage(insp, assigned || plan.reached === STAGE.applicability)
   if (before(STAGE.verify)) await verifyStage(status)
   let keys
   if (before(STAGE.verifyExtra)) keys = await closeVerify(before(STAGE.verify), plan.extra)

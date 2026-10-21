@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  assetIds, candidateVerifier, commands, failCarrier, inspectArgs, inspectDefaults, logOf, resumeArgs, runInspect, setupInspect, viewOf, viewpointOf,
+  assetIds, candidateVerifier, commands, compose, failCarrier, loseItem, partialCarrier, inspectArgs, inspectDefaults, logOf, resumeArgs, runInspect, setupInspect, viewOf, viewpointOf,
 } from './helpers/bp-harness.mjs';
 import { OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
@@ -12,38 +12,6 @@ const VIEWPOINTS = { review: ['flow', 'spec'], audit: ['audit'] };
 const mark = (fn) => `［${fn}］`;
 const roles = (calls) => calls.filter((c) => c.role !== 'carrier').map((c) => c.role);
 const ops = (calls) => calls.filter((c) => c.role === 'carrier').flatMap((c) => commands(c.prompt).map((x) => x.op));
-
-function compose(...carriers) {
-  return async (...a) => {
-    for (const c of carriers) {
-      const out = await c(...a);
-      if (out !== undefined) return out;
-    }
-    return undefined;
-  };
-}
-
-// op を含む運搬役のうち when に当たる最初の 1 つで、先頭の k 個の要求だけを実行して応答を失う（段の途中まで書いて止まった run を作る）。
-function partialCarrier(op, k, when = () => true) {
-  let done = false;
-  return async (prompt, options, env) => {
-    if (done || !prompt.includes(` ${op} <<`) || !when(prompt)) return undefined;
-    done = true;
-    for (const c of commands(prompt).slice(0, k)) await env.call(c.op, c.text);
-    return null;
-  };
-}
-
-// op の要求の項目のうち、現れた順で index 番目の項目の運搬役を全て失う（送り直しも失うので、その項目の書き込みで BLOCKED になる）。
-function loseItem(op, index = 0) {
-  const seen = [];
-  return async (prompt) => {
-    if (!prompt.includes(` ${op} <<`)) return undefined;
-    const item = /"item":"([^"]+)"/.exec(prompt)[1];
-    if (!seen.includes(item)) seen.push(item);
-    return seen.indexOf(item) === index ? null : undefined;
-  };
-}
 
 async function editFile(file, edit) {
   await fs.writeFile(file, edit(await fs.readFile(file, 'utf8')));
@@ -194,7 +162,7 @@ for (const fn of FNS) {
   test(`SP-BPINSPECTION-030・SP-BPRUN-027: 停止の記録を書く運搬役が失敗して記録の無いまま照合と停止で止まった run の再開は、agent を起動せずにその段を最初から行う${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
-    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier: failCarrier(OPS.stop) } });
+    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier: failCarrier(OPS.stop, { nth: [1, 2] }) } });
     assert.equal(r1.result.stopKind, 'blocked');
     assert.match(r1.result.reason, /停止の記録を書けなかった/);
     assert.equal((await viewOf(s.env, r1.result.state)).stops.size, 0);
@@ -228,7 +196,7 @@ for (const fn of FNS) {
   test(`SP-BPINSPECTION-030・SP-BPFINDINGS-005: 台帳の作成と資産の束の段を終えた状態から、停止の間に節を 1 つ書き換えて再開すると、台帳が取り直され資産の束が書き直され、書き換えた資産が skip 一覧に戻る${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
-    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier: failCarrier(OPS.stop) } });
+    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier: failCarrier(OPS.stop, { nth: [1, 2] }) } });
     const v1 = await viewOf(s.env, r1.result.state);
     assert.equal(v1.bundles.length, 1);
     const changed = [...v1.assets.values()].find((a) => JSON.stringify(a.loc).includes('手順'));
@@ -249,8 +217,10 @@ for (const fn of FNS) {
   test(`SP-BPFINDINGS-020・SP-BPFINDINGS-037・SP-BPINSPECTION-030: 停止の間に指摘のある節を消した run を再開すると、消えた資産の照合の段で検証役が指摘を台帳に作った順に起動され、状態が記録されず見直しの判定だけが記録され、照合の段で止まった run の再開はその回の未着手を処理する${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
-    const verify = candidateVerifier({ viewpoint: VIEWPOINTS[fn][0], asset: (ids) => ids.at(-1) });
-    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { verify, carrier: failCarrier(OPS.stop) } });
+    const first = candidateVerifier({ viewpoint: VIEWPOINTS[fn][0], asset: (ids) => ids.at(-1) });
+    const second = candidateVerifier({ viewpoint: VIEWPOINTS[fn].at(-1), asset: (ids) => ids.at(-1) });
+    const verify = (prompt, ...rest) => (viewpointOf(prompt) === VIEWPOINTS[fn][0] ? first(prompt, ...rest) : second(prompt, ...rest));
+    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { verify, carrier: failCarrier(OPS.stop, { nth: [1, 2] }) } });
     const v1 = await viewOf(s.env, r1.result.state);
     const findings = [...v1.findings.values()].sort((a, b) => a.order - b.order);
     assert.ok(findings.length >= 2);
@@ -260,16 +230,27 @@ for (const fn of FNS) {
     assert.equal(r2.result.stopKind, 'blocked');
     assert.equal(r2.result.stoppedStage, '消えた資産の照合');
     const vanishCalls = r2.calls.filter((c) => c.role === 'vanish');
-    assert.deepEqual(vanishCalls.map((c) => /指摘 ID: (\S+)/.exec(c.prompt)[1]), findings.map((f) => f.id));
+    const v2 = await viewOf(s.env, r1.result.state);
+    const affected = findings.filter((f) => f.assets.some((a) => v2.assets.get(a).gone));
+    assert.ok(affected.length >= 2);
+    const launched = vanishCalls.map((c) => /指摘 ID: (\S+)/.exec(c.prompt)[1]);
+    assert.deepEqual(launched, affected.slice(0, launched.length).map((f) => f.id));
+    const pending = [...v2.items.values()].filter((i) => i.stage === 'vanish' && !i.result).length;
+    assert.ok(pending >= 1);
+    const bundle = await fs.readFile(path.join(s.env.root, 'states', r1.result.state, 'work', `bundle.${v2.retakes}.md`), 'utf8');
+    const listedIds = [...bundle.matchAll(/^## (\S+) /gm)].map((m) => m[1]);
+    assert.deepEqual(listedIds, [...v2.assets.values()].filter((a) => !a.gone).sort((a, b) => a.order - b.order).map((a) => a.id));
+    if (fn === 'review') assert.deepEqual([...new Set(affected.map((f) => f.key.viewpoint))].sort(), ['flow', 'spec']);
     for (const c of vanishCalls) {
-      const list = commands(c.prompt).find((x) => x.op === OPS.report);
-      assert.deepEqual(JSON.parse(list.text).fields, ['findings', 'assets']);
+      const f = findings.find((x) => c.prompt.includes(`指摘 ID: ${x.id}`));
+      assert.ok(c.prompt.includes(`bundle.${v2.retakes}.md`));
+      assert.ok(c.prompt.includes(`指摘の観点: ${f.key.viewpoint}（照らす先: `), f.id);
     }
     const r3 = await runInspect(t, { env: s.env, args: resumeArgs(r2.result) });
     assert.equal(r3.result.stopKind, 'complete', r3.result.reason);
-    assert.equal(r3.calls.filter((c) => c.role === 'vanish').length, 1);
+    assert.equal(r3.calls.filter((c) => c.role === 'vanish').length, pending);
     const v3 = await viewOf(s.env, r1.result.state);
-    for (const f of findings) {
+    for (const f of affected) {
       const g = v3.findings.get(f.id);
       assert.equal(g.states.length, 1);
       assert.ok(g.judgements.some((j) => j.round.startsWith('vanish:')), f.id);

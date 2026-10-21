@@ -76,7 +76,9 @@ test('SP-BPINSPECTION-004: review の照らす先の決定が、観点ごとの�
   assert.deepEqual(targets.viewpoints, ['flow', 'spec']);
   const spec = targets.targets.find((x) => x.viewpoint === 'spec');
   const file = path.join(CRITERIA_FIXTURE, 'specifications', 'bp-conformance.md');
-  assert.deepEqual(spec.files, [{ path: file, sha256: sha256Hex(readFileSync(file)) }]);
+  assert.deepEqual(spec.files, [{ name: 'conformance', path: file, sha256: sha256Hex(readFileSync(file)) }]);
+  assert.equal(spec.section, '性能・容量');
+  assert.deepEqual(targets.targets.find((x) => x.viewpoint === 'flow').files.map((f) => f.name), ['conformance', 'design', 'inspection']);
   const view = await viewOf(ctx, req.state);
   assert.deepEqual(view.targets[0].targets.find((x) => x.viewpoint === 'spec').fingerprint, spec.fingerprint);
   assert.equal(view.stages.get('targets|').ended, true);
@@ -323,4 +325,32 @@ test('SP-BPINSPECTION-018・SP-BPAUTHORING-041: 反証に回す鍵を、候補�
   await ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: cand(assets[1].id, 'flow', 'SP-BPCONFORMANCE-001') });
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: null }, { stage: 'verify-extra', round: null }] });
   assert.deepEqual(keys.map((k) => k.viewpoint), ['flow', 'spec']);
+});
+
+test('SP-BPINSPECTION-004: 照らす先の指紋はファイルの名前と内容だけから作り、同じ内容の写しを別の置き場に置いても変わらない', async (t) => {
+  const a = await begin(t, 'review');
+  if (!a.ctx) return;
+  const moved = await tmpDir(t, 'bp-criteria-');
+  await fs.cp(CRITERIA_FIXTURE, moved, { recursive: true });
+  const b = await begin(t, 'review', { ctx: context(t, { criteriaDir: moved }) });
+  assert.deepEqual(b.targets.targets.map((x) => x.fingerprint), a.targets.targets.map((x) => x.fingerprint));
+  assert.notEqual(b.targets.targets[0].files[0].path, a.targets.targets[0].files[0].path);
+});
+
+test('SP-BPINSPECTION-027: 照らす先を読めない理由は欠けたファイルのパスを指す', async (t) => {
+  const dir = await tmpDir(t, 'bp-criteria-');
+  await fs.cp(CRITERIA_FIXTURE, dir, { recursive: true });
+  const design = path.join(dir, 'design', 'skill-design-patterns.md');
+  await fs.rm(design);
+  const { targets } = await begin(t, 'review', { ctx: context(t, { criteriaDir: dir }) });
+  assert.deepEqual(targets.blocked.paths, [design]);
+});
+
+test('SP-BPRUN-038・SP-BPRUN-031: 項目の鍵が担当 ID を持つとき、状態に無い担当の鍵の列挙を E_UNKNOWN_ID、別の担当の結果を E_CONFLICT で拒否する', async (t) => {
+  const { ctx, req, assets } = await withLedger(t, 'review');
+  if (!ctx) return;
+  await rejects(run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ viewpoint: 'flow', assignment: 'Sassign9' }] }), CODES.unknownId);
+  const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'assign', groups: [[assets[0].id], [assets[1].id]], attempt: 1 });
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ viewpoint: 'flow', assignment: assignments[0].id }] });
+  await rejects(ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignments[1].id, viewpoint: 'flow', result: { judgements: [{ asset: assets[1].id, judgement: 'ok' }], candidates: [], unchecked: [] } }), CODES.conflict);
 });

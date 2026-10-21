@@ -12,7 +12,7 @@ const acorn = createRequire(path.join(ROOT, 'plugins', 'workflow', 'skills', 'dy
 // 2 本の script は import できないので部品を字面で写し合う。直しを片方にだけ入れると、運搬役・冪等・起動数の契約が機能ごとに分かれる。
 const SHARED = [
   'canonical', 'fnvSum', 'Stop', 'makeBudget', 'early', 'checkHostArgs', 'track', 'markItem', 'request', 'write', 'read', 'command', 'launch',
-  'carrierPrompt', 'carry', 'mustCarry', 'launchReason', 'pool', 'itemLoop', 'fanOut', 'stageStart', 'writeResult',
+  'carrierPrompt', 'carry', 'mustCarry', 'launchReason', 'pool', 'itemLoop', 'fanOut', 'stageStart', 'writeResult', 'failureNote', 'failures',
   'CARRIER_SCHEMA', 'REFUTE_SCHEMA', 'VANISH_SCHEMA', 'ROLE_MODELS', 'LIMITS', 'CONCURRENCY', 'PAYLOAD_MODE', 'RESERVE',
 ];
 

@@ -97,7 +97,7 @@ const SCRIPTS = {
     file: 'bp_inspect.js',
     copied: ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
       'INSPECT_PIPELINE', 'LIMIT_HITS', 'ASSIGN_RULES', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE', 'STOP_CAUSES', 'APPLICABILITY_QUESTIONS',
-      'APPLICABILITY_ANSWERS', 'PRESENCE', 'UNCHECKED_SCOPES', 'INSPECT_ROLE_WRITE_LIMITS'],
+      'APPLICABILITY_ANSWERS', 'PRESENCE', 'UNCHECKED_SCOPES', 'INSPECT_ROLE_WRITE_LIMITS', 'PRESENCE_QUESTIONS', 'TARGET_FILES'],
     skipFunctions: [],
   },
 };
@@ -194,12 +194,12 @@ test('TBD-SBPRUN-003 の書き戻し・SP-BPRUN-021: 仕様に書いた review�
   const limits = literalIn(s, 'LIMITS');
   const reserve = literalIn(s, 'RESERVE');
   const w = Function('LIMITS', `return (${s.source.slice(s.source.indexOf('const WORST = ') + 'const WORST = '.length, s.source.indexOf('\nconst RESERVE'))});`)(limits);
-  const min = (fn) => w.start + w.targets + w.bundle + limits.attempts * w.attempt + (fn === 'review' ? limits.attempts * w.attempt : 0) + w.item + reserve;
+  const min = (fn) => w.start + w.targets + w.bundle + limits.attempts * w.attempt + (fn === 'review' ? limits.attempts * w.attempt : w.carrier) + w.item + reserve;
   assert.deepEqual([Number(m[1]), Number(m[2])], [min('review'), min('audit')]);
   const section = RUN.slice(RUN.indexOf('review・audit の段ごとの最悪の回数は次の表とする'));
   const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(section)?.[1]);
-  assert.deepEqual([row('`worst\\(開始\\)`'), row('`worst\\(照らす先\\)`'), row('`worst\\(束\\)`'), row('`worst\\(fan-out でない段の 1 回\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`R`（予約分）')],
-    [w.start, w.targets, w.bundle, w.attempt, w.item, reserve]);
+  assert.deepEqual([row('`worst\\(開始\\)`'), row('`worst\\(照らす先\\)`'), row('`worst\\(束\\)`'), row('`worst\\(fan-out でない段の 1 回\\)`'), row('`worst\\(段の境の運搬役\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`R`（予約分）')],
+    [w.start, w.targets, w.bundle, w.attempt, w.carrier, w.item, reserve]);
   const fnText = s.source.slice(s.source.indexOf('function minimalLaunches'), s.source.indexOf('\n}\n', s.source.indexOf('function minimalLaunches')));
   assert.equal(Function('WORST', 'LIMITS', 'RESERVE', 'FUNCTION', `${fnText}\n}\nreturn [minimalLaunches('review'), minimalLaunches('audit')];`)(w, limits, reserve, { review: 'review', audit: 'audit' }).join(','), `${m[1]},${m[2]}`);
 });
