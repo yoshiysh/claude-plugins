@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SCRIPT, createArgs, defaults, runAuthor, setup, updateArgs, variant } from './helpers/bp-harness.mjs';
+import { MIN_LAUNCHES, SCRIPT, createArgs, defaults, runAuthor, setup, updateArgs, variant } from './helpers/bp-harness.mjs';
 
-const MIN_UPDATE = 23;
+const MIN_UPDATE = MIN_LAUNCHES.update;
 
 // §5.9 の教訓 4: script に欠陥を入れた写しで、決めておいた場合が必ず落ちることを照らす。
 // 各場合は「正しい script なら true」を返す。元の script で true、欠陥を入れた写しで false でなければならない。

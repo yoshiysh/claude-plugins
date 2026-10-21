@@ -1,4 +1,4 @@
-import { promises as fs, realpathSync } from 'node:fs';
+import { promises as fs, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,13 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export const SKILL_DIR = path.join(REPO_ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 export const SCRIPT = path.join(SKILL_DIR, 'scripts', 'bp_author.js');
 const CLI_PATH = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
+
+// 最小の起動数は SP-BPRUN-021 に書き戻した値を正本にし、テストは仕様から読む（script の定数との一致は bp-spelling が照らす）。
+export const MIN_LAUNCHES = (() => {
+  const m = /create の最小の起動数は (\d+)、update は (\d+) とする/.exec(readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8'));
+  if (!m) throw new Error('SP-BPRUN-021 に最小の起動数が無い');
+  return Object.freeze({ create: Number(m[1]), update: Number(m[2]) });
+})();
 const COMMAND = /node '([^']+)' (\S+) <<'(BP_[0-9a-f]{8})'\n(.*)\n\3/g;
 
 export async function tmp(t, prefix) {

@@ -303,7 +303,7 @@ const REFUTE_SCHEMA = {
 }
 const VANISH_SCHEMA = { type: 'object', properties: { choice: { type: 'string' } }, required: ['choice'], additionalProperties: false }
 
-// ---- 入力の確かめ（agent を起動しない。SP-BPRUN-037 を先に当て、次に SP-BPAUTHORING-029 の「agent の起動の前」の行）
+// SP-BPRUN-037 を SP-BPAUTHORING-029 の「agent の起動の前」の行より先に当てる（同時に当たるときの順を仕様が定める）。
 
 function early(kind, reason, nextState) {
   const out = { [RESULT_KEYS.stopKind]: kind, [RESULT_KEYS.reason]: reason, [RESULT_KEYS.launches]: 0 }
@@ -371,8 +371,6 @@ function validateArgs(input) {
   }
   return { fn, resume: false, skillDir, key: a[INPUT_KEYS.key], target, grounds, limit: a[INPUT_KEYS.maxLaunches] }
 }
-
-// ---- 本体
 
 const input = validateArgs(args)
 if (input.stop) return input.stop
@@ -488,7 +486,7 @@ function launchReason() {
   return `起動数の上限 ${budget.limit} で止まった（その時点の起動数 ${budget.used()}、残した項目 ${pendingNow().length} 件）`
 }
 
-// 同時に走る agent を CONCURRENCY 体に抑える（SP-BPCONFORMANCE-027。TBD-SBPCONFORMANCE-003 は script が守る形に決めた）。
+// 同時に走る agent を CONCURRENCY 体に抑える（SP-BPCONFORMANCE-027。best-practices 自身は host の設定に頼らず script が守る）。
 // 1 件が失敗しても走っている項目の終わりを待つ。待たずに返すと、走っている agent の呼び出しが run の終わりに残る。
 async function pool(items, worker) {
   const queue = [...items]
@@ -540,8 +538,6 @@ async function fanOut(stage, entries, worker) {
     throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`)
   }
 }
-
-// ---- 段
 
 async function stageStart(stage, round, keys, extra = {}) {
   const [res] = await mustCarry(stage, [write(OPS.stageStart, { stage, round, keys, ...extra })])
@@ -934,7 +930,7 @@ async function iteration(number, rewrite, startAt, retakePaths = false) {
   return afterRefute(number, refuted, ctx.retake)
 }
 
-// ---- 再開の段の表（TBD-SBPAUTHORING-002 の書き戻し。BLOCKED の台帳〜合否は書かずに台帳の段から検証し直す：依頼者の裁定 Q6）
+// 表は SP-BPAUTHORING-035 が正本。BLOCKED の台帳〜合否からの再開は、書き直す入力が無いので書かずに台帳の段から検証し直す。
 
 function resumePlan(p) {
   const stopped = p.stopped

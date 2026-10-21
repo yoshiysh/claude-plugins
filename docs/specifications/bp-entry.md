@@ -279,6 +279,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
 |---|---|---|---|---|
 | TBD-SBPENTRY-001 | Codex runner の request の `limits.maxAgents` と `limits.timeoutMs` の値と、`modelMap` で SP-BPCONFORMANCE-035 の各 `model` に対応させる Codex の model | 値の出所が入力に無い。runner は Claude の model と Codex の model の対応を何も含意しない（runtime README の `modelMap` の段落）。Claude 側の `model` と `effort` は SP-BPCONFORMANCE-035 で決まっている | false | 決まるまで、callsite は `limits.maxAgents` を省略した request で起動してはならない（SP-BPENTRY-016）。`limits.timeoutMs` も request から省いて runner の既定に任せてはならない（既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。`modelMap` を省いてはならず、SP-BPCONFORMANCE-035 の `model` の名前を 1 つも欠いてはならない（model を明示する `agent()` には runner の既定の model が使われず、対応の無い名前で run が失敗する：SP-BPENTRY-016） |
+| TBD-SBPENTRY-002 | SKILL.md の callsite の契約に書く入力の綴り。綴りそのものは SP-BPENTRY-013 の綴りの表に書き戻した | callsite は新しい入口と同じ変更（SP-BPENTRY-025）で書き、それまで新しい Workflow を呼ぶ callsite が無い | false | callsite の契約は SP-BPENTRY-013 の綴りの表（script と CLI の定数 `INPUT_KEYS`）と同じ綴りで書き、表から変えてはならない。表と script・CLI の定数の一致は `tests/bp-spelling.test.mjs` が照らし、callsite を書く変更で同じテストを callsite に当てる |
 | TBD-SBPENTRY-003 | 変更（SP-BPENTRY-025）の入っていない runner を callsite が見分ける手段と、見分けたときに入口が利用者へ返すもの | runner の変更の有無を caller が知る手段が、runtime README に書かれていない | false | 決まるまで、best-practices は SP-BPENTRY-025 の変更と同じ変更で配布し、変更の入っていない runner と組み合わせて配布してはならない（見分けられないまま起動すると、runner が update の run を失敗させる：SP-BPENTRY-024） |
 
 ## トレーサビリティ表

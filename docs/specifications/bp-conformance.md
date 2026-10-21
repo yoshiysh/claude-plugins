@@ -209,7 +209,7 @@ SP-BPCONFORMANCE-023 で止まった run から再開した run は、`docs/spec
 本章の値は、設計方針文書が「（暫定）」とした値と規則を確定したものである。review の仕様の観点（PR-BPOPERATIONS-025）はこの章に照らす。best-practices 自身の実行も同じ値に従う（役ごとのモデルと effort は SP-BPCONFORMANCE-035 の best-practices の表に従う）。`docs/specifications/bp-run.md` は本章の SP ID を参照し、値を書き写さない。
 
 #### SP-BPCONFORMANCE-027 同時実行の上限
-対象スキルの Workflow script で同時に走る agent は、3 体以下でなければならない（設計方針文書「体数と同時実行」の表の初期値）。残りは枠が空くまで待たせ、切り捨ててはならない。守らせ方（runtime の設定か script か）は TBD-SBPCONFORMANCE-003 で決める（Claude Code で、利用者の環境変数のほかにスキルから同時実行の上限を設定できるかが入力から決まらず、設計方針文書「体数と同時実行」の表も実装で決めるとしている）。この裁定が下るまで、判定する者は同時に走る数だけを判定し、守らせ方が runtime の設定か script かで適合・不適合を分けてはならない。
+対象スキルの Workflow script で同時に走る agent は、3 体以下でなければならない（設計方針文書「体数と同時実行」の表の初期値）。残りは枠が空くまで待たせ、切り捨ててはならない。守らせ方（runtime の設定か script か）は TBD-SBPCONFORMANCE-003 で決める（Claude Code で、利用者の環境変数のほかにスキルから同時実行の上限を設定できるかが入力から決まらず、設計方針文書「体数と同時実行」の表も実装で決めるとしている）。この裁定が下るまで、判定する者は同時に走る数だけを判定し、守らせ方が runtime の設定か script かで適合・不適合を分けてはならない。best-practices 自身は、host の設定に頼らず script の名前付きの定数で守る。
 
 #### SP-BPCONFORMANCE-028 until-pass の繰り返しの上限
 項目ごとの until-pass の部品で、1 項目の工程を繰り返す回数は、最初の 1 回を含めて 3 回以下でなければならない（設計方針文書「停止」の表が引く、同じ課題の自動の続行は 2〜3 回まで、の上端）。最初の 1 回を含めて数えるのは本書の決定である。出所は最初の 1 回を含むかを定めておらず、含めて数えれば、続行を最初の後の回数と読んでも全体の回数と読んでも 3 を超えない。本書の「最初の 1 回を含めて 3 回以下」は全てこの数え方による。3 回目で通らなければ、その項目の結果として、通らなかったことと理由を返す。
@@ -277,7 +277,7 @@ best-practices 自身の役には、設計方針文書の役ごとの表と SP-B
 |---|---|---|---|---|
 | TBD-SBPCONFORMANCE-001 | 探索グラフ型の実行役の時間の上限の値と、守らせ方 | Claude Code の `agent()` に経過時間の上限を指定する手段が入力に無い（Codex runner は `agentTimeoutMs` を持つ）。当たるのは探索グラフ型の対象スキルの実行役だけで、best-practices 自身は実行役を持たない | false | SP-BPCONFORMANCE-034 |
 | TBD-SBPCONFORMANCE-002 | ターンごとの指揮が重い形に当たるか | 形の判定の図では、ターンごとの指揮に問い A の「いいえ」からも、問い Q1 に「いいえ」と答えた後の問い Q3 の「いいえ」からも到達するので、重い形（Q1 に「いいえ」と答えて初めて到達する形）に当たるかが道によって変わり、図から決まらない | false | SP-BPCONFORMANCE-006 |
-| TBD-SBPCONFORMANCE-003 | 同時実行の上限の守らせ方（runtime の設定か script か） | Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている | false | SP-BPCONFORMANCE-027 |
+| TBD-SBPCONFORMANCE-003 | 対象スキルの同時実行の上限の守らせ方（runtime の設定か script か）。best-practices 自身は script で守ると SP-BPCONFORMANCE-027 に書き戻した | Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている | false | SP-BPCONFORMANCE-027 |
 | TBD-SBPCONFORMANCE-005 | Claude Code の plugin から読み込む agent で無視される設定の一覧を、判定基準の写しに入る文書に持つか | 一覧は Claude Code 公式 docs にあり、run の中の agent は写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）の外を判定基準として当てられない | false | SP-BPCONFORMANCE-019。加えて、決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない |
 
 ## トレーサビリティ表

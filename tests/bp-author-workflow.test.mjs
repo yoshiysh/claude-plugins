@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  REPO_ROOT, SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, variant, writePayload,
+  MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, variant, writePayload,
 } from './helpers/bp-harness.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -25,7 +25,7 @@ function stageOrder(lines) {
   return lines.flatMap((l) => l.records.filter((r) => r.t === 'stage').map((r) => `${r.stage}${r.round == null ? '' : `.${r.round}`}`));
 }
 
-const MIN = { create: 22, update: 23 };
+const MIN = MIN_LAUNCHES;
 
 // 候補を 1 件だけ返す適合の観点の検証役（不適合の単位に鍵を添える）。
 function nonconformVerifier({ when = () => true } = {}) {
@@ -787,16 +787,15 @@ test('TBD-SBPRUN-003: 最悪の経路で、fan-out の項目は試行ごとに 3
   const v = full.calls.findIndex((c) => c.role === 'verify');
   assert.equal(v - w, 3);
   const lost = await setup(t);
-  let dropped = false;
+  let droppedItem = null;
   const carrier = async (prompt, options, env) => {
     const out = await env.carry(prompt);
-    if (!dropped && prompt.includes(' verdicts <<')) { dropped = true; return null; }
+    if (!droppedItem && prompt.includes(' verdicts <<')) { droppedItem = /"item":"([^"]+)"/.exec(prompt)[1]; return null; }
     return out;
   };
   const resent = await runAuthor(t, { env: lost.env, args: createArgs(lost.target), scenario: { carrier } });
-  const lview = await viewOf(lost.env, resent.result.state);
-  const first = lview.stages.get('verify|1').items[0];
-  assert.equal(resent.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(first)).length, 3);
+  assert.equal(resent.result.stopKind, 'complete', resent.result.reason);
+  assert.equal(resent.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(droppedItem)).length, 3);
 });
 
 // §5.9 の教訓 5: 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす。

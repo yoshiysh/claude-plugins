@@ -7,8 +7,8 @@ import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-prac
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
 import { STATES_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { applicability } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
+import { LIMITS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs';
 
-const LIMITS = { attempts: 3, iterations: 3, untilPass: 3 };
 const REQUEST = '設定ファイルを整形するスキルを作る。対象は YAML だけ。';
 
 async function begin(t, fn = 'create', { grounds, files } = {}) {
