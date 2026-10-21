@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { Env, VANISH_FILES, assetIds, createArgs, defaults, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, writePayload } from './helpers/bp-harness.mjs';
+import {
+  Env, VANISH_FILES, assetIds, candidateVerifier, createArgs, defaults, inspectArgs, resumeArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, vanishScenario, writePayload,
+} from './helpers/bp-harness.mjs';
 import { LOG_FILE, OPS, STATES_DIR, WRITE_OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
 // 全ての要求を 2 回ずつ届け、2 回目が記録を足さず同じ受理か同じ拒否になることを照らす（§5.9 の教訓 2）。
@@ -116,6 +118,12 @@ test('SP-BPRUN-006・SP-BPRUN-031: 書き込みの操作の全てが、同じ要
   await env.request(OPS.premise, { state: third.state, run: third.run, kind: 'answer', text: '直接' });
   await env.request(OPS.stageRepeat, { state: third.state, run: third.run, stage: 'goal', n: 1, limitKey: 'untilPass' });
   await inspectWrites(t, env);
+  for (const [fn, viewpoint] of [['review', 'flow'], ['audit', 'audit']]) {
+    const i = await setupInspect(t);
+    const twice = new TwiceEnv(i.env, seen, violations);
+    const { result } = await runInspect(t, { env: twice, args: inspectArgs(fn, i.target), scenario: { verify: candidateVerifier({ viewpoint }) } });
+    assert.equal(result.stopKind, 'complete', `${fn}: ${result.reason}`);
+  }
   assert.deepEqual([...new Set(violations)], []);
   const missing = WRITE_OPS.filter((op) => !seen.has(op));
   assert.deepEqual(missing, [], `書き込みの操作のうち 2 回届けて照らしていないもの: ${missing.join(', ')}`);

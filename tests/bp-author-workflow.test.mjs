@@ -201,7 +201,7 @@ test('SP-BPENTRY-013: 表に無い項目と、再開に渡してはならない�
   assert.deepEqual(resume.result.nextArgs, { function: 'create', state: 'bp-x' });
 });
 
-test('SP-BPAUTHORING-033・SP-BPAUTHORING-032: create の完了の返り値にパスと指紋・設計の説明の逐語の本文・検証の結果・skip 一覧・残る危険がある', async (t) => {
+test('SP-BPAUTHORING-033・SP-BPAUTHORING-032・SP-BPFINDINGS-032: create の完了の返り値にパスと指紋・設計の説明の逐語の本文・検証の結果・skip 一覧・残る危険がある', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target) });
@@ -700,7 +700,7 @@ test('SP-BPAUTHORING-022・SP-BPAUTHORING-040: 契約の指摘が open の反復
   assert.equal(contract.state, 'resolved');
 });
 
-test('SP-BPFINDINGS-028: update の完了の返り値で、受け取った指摘に状態が付かず、状態の付いた指摘は全て update の台帳 ID から作った指摘 ID と今の run の記録を持つ', async (t) => {
+test('SP-BPFINDINGS-028・SP-BPFINDINGS-032: update の完了の返り値で、受け取った指摘に状態が付かず、台帳の指摘が全て載り、状態の付いた指摘は全て update の台帳 ID から作った指摘 ID と今の run の記録を持つ', async (t) => {
   const { findingId } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
   const s = await setup(t, { fn: 'update' });
   if (!s) return;
@@ -721,6 +721,8 @@ test('SP-BPFINDINGS-028: update の完了の返り値で、受け取った指摘
   const view = await viewOf(s.env, result.state);
   const stated = result.findings.filter((f) => f.state !== undefined);
   assert.ok(stated.length > 0);
+  assert.deepEqual(result.findings.map((f) => f.id), [...view.findings.values()].sort((a, b) => a.order - b.order).map((f) => f.id));
+  assert.deepEqual(stated.map((f) => f.state), [...view.findings.values()].filter((f) => f.states.at(-1).run === result.run).sort((a, b) => a.order - b.order).map((f) => f.states.at(-1).state));
   for (const f of stated) {
     assert.equal(f.stateRun, result.run, f.id);
     assert.equal(findingId(view.ledger.id, view.findings.get(f.id).key), f.id);
