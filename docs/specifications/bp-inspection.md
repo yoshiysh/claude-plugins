@@ -323,6 +323,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-001 | script の模擬実行（review と audit の起動が表の段の順に並び、audit に適用の判定の段が無いことを確認。抽出役の失敗で BLOCKED になり、観点ごとの検証の項目の欠けでは試行を繰り返すことを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-001 | 静的な照合（best-practices の設計の説明に、本項の表の段と部品の対応があることを確認。設計の説明は新しい入口の SKILL.md とともに置く：`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更） | 未着手 |
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-002 | script の模擬実行（指摘のある結果を返しても観点ごとの検証の段より前の段の起動が再び起きないことを確認） | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | script の模擬実行（review の検証の項目の観点がフローと仕様の 2 つだけであることを確認） | 完了 |
 | PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | script の模擬実行（audit の検証の項目の観点が監査の観点だけであることを確認） | 完了 |

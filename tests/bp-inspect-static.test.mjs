@@ -233,3 +233,29 @@ test(`SP-BPRUN-027: host の agent() が投げた失敗の内容を、そのラ�
   assert.match(fnSource('assignStage'), /抽出役が結果を返さなかった\$\{failureNote\('extractor'\)\}/);
   assert.match(fnSource('carry'), /運搬役が結果を返さなかった\$\{failureNote\(label\)\}/);
 });
+
+test('SP-BPINSPECTION-017・SP-BPINSPECTION-018・SP-BPRUN-036: audit の検証役の prompt が資産の束と照らす先のパスを共通の部分として先頭に持ち、反証役の prompt が資産の束と候補の観点の照らす先のパスを持つ［review］［audit］', async (t) => {
+  for (const fn of ['review', 'audit']) {
+    const vp = fn === 'review' ? 'flow' : 'audit';
+    const got = await promptsOf(t, fn, { verify: candidateVerifier({ viewpoint: vp }) });
+    if (!got) return;
+    const { s, calls } = got;
+    const verifiers = calls.filter((c) => c.role === 'verify' && viewpointOf(c.prompt) === vp).map((c) => c.prompt);
+    assert.equal(verifiers.length, 2);
+    let i = 0;
+    while (verifiers[0][i] === verifiers[1][i]) i += 1;
+    const common = verifiers[0].slice(0, i);
+    for (const part of ['資産の束', '照らす先（判定基準', '書いてよいのは作業ファイル', '対象スキル:', '観点:']) assert.ok(common.includes(part), `${fn}: ${part}`);
+    const refuter = calls.find((c) => c.role === 'refute').prompt;
+    assert.match(refuter, /資産の束（[^）]*）: \S+bundle\.0\.md/);
+    const own = /候補の観点の照らす先: (.+)/.exec(refuter)[1].split(' ');
+    if (fn === 'review') {
+      assert.ok(own.includes(path.join(s.criteriaDir, 'design', 'skill-design-patterns.md')));
+      const spec = calls.find((c) => viewpointOf(c.prompt) === 'spec').prompt;
+      const specLine = spec.split('\n').find((l) => l.startsWith('観点: 仕様の観点'));
+      assert.ok(!specLine.includes('skill-design-patterns.md'));
+    } else {
+      assert.ok(own.includes(s.env.promptAudit));
+    }
+  }
+});

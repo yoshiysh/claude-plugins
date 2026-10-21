@@ -53,6 +53,8 @@ for (const fn of FNS) {
     assert.deepEqual([...new Set(order)], fn === 'review' ? ['extract', 'applicability', 'verify', 'refute'] : ['extract', 'verify', 'refute']);
     const refuter = calls.find((c) => c.role === 'refute');
     assert.ok(verifiers(calls).every((v) => v.n < refuter.n));
+    assert.match(refuter.prompt, /^あなたは best-practices の反証役。候補を出した検証役と別の context で/);
+    assert.equal(refuter.label, 'refuter');
     assert.equal(verifiers(calls).length, VIEWPOINTS[fn].length * 2);
   });
 
@@ -317,7 +319,7 @@ for (const fn of FNS) {
     assert.equal(after.runs.at(-1).id, 'r2');
   });
 
-  test(`SP-BPINSPECTION-018・SP-BPFINDINGS-013・SP-BPFINDINGS-025・SP-BPFINDINGS-007: どの組にも入らない資産が skip 一覧に残って追加の起動の担当になり、追加の起動の候補も含めて重複でない鍵ごとに反証役が 1 体、全ての検証の後に起動される${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-018・SP-BPINSPECTION-015・SP-BPFINDINGS-013・SP-BPFINDINGS-025・SP-BPFINDINGS-007: どの組にも入らない資産が skip 一覧に残って追加の起動の担当になり、追加の起動の候補も含めて重複でない鍵ごとに反証役が 1 体、全ての検証の後に起動される${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     let left = null;

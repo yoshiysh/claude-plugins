@@ -7,7 +7,7 @@ import {
 } from './helpers/bp-harness.mjs';
 
 const RUN = readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-// SP-BPRUN-031 の report の行の findings の綴り（SP-BPFINDINGS-029 の項目）。
+// SP-BPFINDINGS-029 の表は項目の名前だけを持ち、綴りは SP-BPRUN-031 の report の行の findings が持つ（その綴りで照らす）。
 const FINDING_FIELDS = (() => {
   const row = RUN.split('\n').find((l) => l.startsWith('| `report` |'));
   const m = /`findings`（SP-BPFINDINGS-029 の項目: ([^）]+)）/.exec(row);
@@ -64,11 +64,16 @@ for (const fn of ['review', 'audit']) {
     assert.deepEqual(passed.map((g) => g.ground), [open, INSTRUCTION]);
     assert.ok(!goal.includes(dismissed.id));
     const view = await viewOf(s.env, updated.result.state);
+    const before = await viewOf(s.env, inspected.result.state);
+    // update の台帳の指摘は、update の検証役が返した候補（資産 1 つ・反復 1 だけ）から作った 1 件だけで、前の機能の台帳とは別の台帳 ID を持つ。
+    assert.deepEqual([...view.findings.values()].map((f) => [f.key.asset, f.key.viewpoint]), [[open.assets[0].id, 'conformance']]);
+    assert.notEqual(view.ledger.id, before.ledger.id);
     const ids = [...view.findings.values()].map((f) => f.id);
     for (const f of findings) assert.ok(!ids.includes(f.id), f.id);
-    const same = [...view.findings.values()].find((f) => f.key.asset === open.assets[0].id);
-    assert.ok(same, 'update の指摘が無い');
+    const same = [...view.findings.values()][0];
+    if (fn === 'review') assert.equal(same.key.kind, open.kind);
     assert.notEqual(same.id, open.id);
+    assert.equal((await viewOf(s.env, inspected.result.state)).findings.size, findings.length);
     assert.deepEqual(updated.result.receivedGrounds.filter((g) => g.finding).map((g) => g.finding), findings.map((f) => f.id));
   });
 }

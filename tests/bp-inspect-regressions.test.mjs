@@ -150,3 +150,23 @@ for (const fn of FNS) {
     assert.match(lost.result.reason, /段「台帳の作成と資産の束」の運搬役（CLI）が失敗した: 運搬役が結果を返さなかった/);
   });
 }
+
+for (const fn of FNS) {
+  test(`SP-BPRUN-018: 段の開始の記録が 1 つも無く停止の記録も無い状態から再開すると、機能の最初の段から始める${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const carrier = compose(failCarrier(OPS.targets), failCarrier(OPS.stop, { nth: [1, 2] }));
+    const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier } });
+    assert.equal(r1.result.stopKind, 'blocked');
+    const v1 = await viewOf(s.env, r1.result.state);
+    assert.equal(v1.stages.size, 0);
+    assert.equal(v1.stops.size, 0);
+    const r2 = await runInspect(t, { env: s.env, args: resumeArgs(r1.result) });
+    assert.equal(r2.result.stopKind, 'complete', r2.result.reason);
+    const lines = await (await import('./helpers/bp-harness.mjs')).logOf(s.env, r1.result.state);
+    const first = lines.find((l) => l.records.some((r) => r.t === 'stage'));
+    assert.equal(first.run, 'r2');
+    assert.equal(first.records.find((r) => r.t === 'stage').stage, 'targets');
+    assert.equal(roles(r2.calls)[0], 'extract');
+  });
+}

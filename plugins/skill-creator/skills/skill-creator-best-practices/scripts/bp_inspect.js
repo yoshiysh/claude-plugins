@@ -645,7 +645,7 @@ function verifyStartRequest() {
   return write(OPS.stageStart, { stage: STAGE.verify, keys: verifyKeys() })
 }
 
-// fan-out でない段（担当の作成・適用の判定）の 1 回は、agent 1 と結果を書く運搬役 1。拒否された結果は理由を足して試行の上限まで起動し直す（SP-BPFINDINGS-034）。
+// 拒否の理由を次の起動の prompt に足すのは、同じ誤りの結果を試行の上限まで繰り返させないため（SP-BPFINDINGS-034）。1 回の起動の数は WORST.attempt。
 async function retried(stage, repeats, attemptFn) {
   let n = repeats
   const failures = []
@@ -835,8 +835,7 @@ async function vanishStage(retake) {
   await mustCarry(STAGE.vanish, [write(OPS.stageFinish, { stage: STAGE.vanish, round: retake.round })])
 }
 
-// 表は bp-inspection.md の SP-BPINSPECTION-030 の表が正本。照らす先の決定・資産の束・消えた資産の照合は
-// どの再開でも先に行い、その後は段の並びで最も後ろの始めた段から続ける（終えていれば次の段から）。停止の種類と cause で始め方を変えない。
+// 表は bp-inspection.md の SP-BPINSPECTION-030 が正本。止まった段を停止の記録でなく段の並びで決めるのは、消えた資産の照合の段で止まった run でも続ける段が分かるようにするため。
 function resumePlan(p) {
   const order = INSPECT_PIPELINE.filter((s) => s !== STAGE.applicability || fn === FUNCTION.review)
   const r = p.inspection.reached
