@@ -254,6 +254,8 @@ run が止まるとき、script は運搬役に、次の項目を停止の記録
 - 未着手の項目の順位付きの一覧
 - その run の起動数
 - create・update では、書いたファイルの一覧のうち検証を通っていないものと、書き手が返した一覧の外のパス（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015・SP-BPAUTHORING-031）
+- 指紋から除いたファイル `excluded`（plugin の外にあるファイル。根の中のものは根からの相対パス（symlink の位置）、根の外のものは実体の絶対パス：`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）
+- 停止の要求を正規化した JSON の sha256 `asked`（送り直しの照合に使う：SP-BPRUN-031）
 
 script は、停止の記録が書かれたことを CLI の出力で確かめてから、返り値（SP-BPRUN-032）を返さなければならない。運搬役か CLI が失敗して停止の記録を書けないときは SP-BPRUN-027 に従う。状態に書かずに止まるとき（SP-BPRUN-037、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）は、停止の記録を書かない。
 
@@ -388,7 +390,7 @@ script は、検証役と反証役を、書き手や指摘の候補を出した�
 host が役ごとに権限を分ける手段を持たないとき、その制限は役の prompt だけで伝わる。この場合、run は、その制限を確かめられなかった制限として返り値（SP-BPRUN-032）に書かなければならない。permission rules は Claude Code でも workflow の全ての subagent に同じく効き（設計方針文書「権限」）、Codex runner でも host の権限が全ての呼び出しに一律に効く（runtime README の Explicit writable and isolated checkouts の節）。
 
 #### SP-BPRUN-026 対象を書き換えていないことの照合
-review・audit の run は、停止の記録を書く前に、CLI に対象スキルの今の指紋を作らせ、開始時の指紋と照らさなければならない。食い違ったら、run は BLOCKED と理由（変わったファイルのパス）を返し、結果を完了として返してはならない（役ごとの権限を host が強制できない（SP-BPRUN-025）ので、PR-BPOPERATIONS-030 の違反を run の中で見つける手段がこの照合だけになる）。
+review・audit の run は、停止の記録を書く前に、CLI に対象スキルの今の指紋を作らせ、開始時の指紋と照らさなければならない。食い違ったら、run は BLOCKED と理由（変わったファイルのパス）を返し、結果を完了として返してはならない（役ごとの権限を host が強制できない（SP-BPRUN-025）ので、PR-BPOPERATIONS-030 の違反を run の中で見つける手段がこの照合だけになる）。停止の時点で指紋から除いたファイル（SP-BPRUN-011 の `excluded`）が 1 件でもあれば、対象スキルが変わったとして同じく扱う（開始の操作は plugin の外のファイルを拒否するので、除いたファイルは開始の後に現れたものである）。
 
 ## 状態とイベント
 
@@ -515,7 +517,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `stage-repeat` | SP-BPRUN-005、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034 | `stage`、`n`（今の回数 + 1）、当てる上限 `limitKey` | 段ごとの繰り返しの回数と上限に達したか |
 | `stage-finish` | SP-BPRUN-005 | `stage`、`round` | 受理 |
 | `discard` | SP-BPRUN-015 | `items` | 受理 |
-| `files` | SP-BPRUN-009 | `entries`（`{path, iteration, action: write\|delete}` か `{path, iteration, verified}`。`iteration` は 1 以上の整数の反復の番号） 。1 つの要求に書いたファイルの記録（`action`）と検証の記録（`verified`）を混ぜてはならず、混ぜた要求は `E_INPUT`（要求の中の順に意味を持たせない） | 記録したパスと、一覧の外のパス `outside`（記録しない） |
+| `files` | SP-BPRUN-009 | `entries`（`{path, iteration, action: write\|delete}` か `{path, iteration, verified}`。`iteration` は 1 以上の整数の反復の番号） 。1 つの要求に書いたファイルの記録（`action`）と検証の記録（`verified`）を混ぜてはならず、混ぜた要求は `E_INPUT`（要求の中の順に意味を持たせない）。一覧の中でも plugin の外にあるファイル（開始の後に作られたものなど）は理由つきの `E_INPUT` | 記録したパスと、一覧の外のパス `outside`（記録しない） |
 | `stop` | SP-BPRUN-011・SP-BPRUN-020・SP-BPRUN-026・SP-BPRUN-034 | `kind`、`reason`、反復の上限だけ `limitHit`（`iteration`・`launch`）、`pending`、`launches`、`outside`、review・audit だけ `onTargetChanged: "blocked"` | 書いた停止の記録と、完了以外は `nextArgs` |
 | `summary` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 | — | 要約の文字列・字数・省いたものの種類と件数 |
 | `list` | SP-BPRUN-018 | `function`、`target` | 未完了の状態ごとの `state`・`nextArgs`・`stoppedStage`・`pending` と、読めなかった状態の `unreadable`（状態 ID と理由。飛ばした状態を宣言する） |

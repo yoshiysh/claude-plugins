@@ -18,6 +18,11 @@ export function pluginRoot(file) {
   }
 }
 
+export function isHomeless(root, file) {
+  const real = realpathLoose(file);
+  return !within(real, realpathLoose(root)) && !pluginRoot(real);
+}
+
 export function pathKey(root, file) {
   const realRoot = realpathLoose(root);
   const real = realpathLoose(file);
@@ -64,8 +69,7 @@ export async function targetFiles(pathsRecord) {
   const entries = [];
   const homeless = [];
   for (const f of files) {
-    const real = realpathLoose(f);
-    if (!within(real, root) && !pluginRoot(real)) homeless.push(f);
+    if (isHomeless(root, f)) homeless.push(within(f, root) ? path.relative(root, f).split(path.sep).join('/') : f);
     else entries.push({ file: f, key: pathKey(root, f) });
   }
   entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));

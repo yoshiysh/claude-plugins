@@ -610,8 +610,10 @@ test('SP-BPRUN-011・SP-BPRUN-016: 開始の後に plugin の外を指す symlin
   await fs.symlink(path.join(base, 'outside.md'), path.join(root, 'link.md'));
   await rejects(ledger.ledgerRetake(ctx, req), CODES.input);
   const out = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
-  assert.deepEqual(out.stop.excluded, [path.join(root, 'link.md')]);
-  await rejects(run.start(ctx, { key: newKey(), state: s.state }), CODES.input);
+  assert.deepEqual(out.stop.excluded, ['link.md']);
+  const again = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
+  assert.equal(again.same, true);
+  await assert.rejects(run.start(ctx, { key: newKey(), state: s.state }), (e) => e.code === CODES.input && e.reason.includes('link.md') && /plugin\.json/.test(e.reason));
   assert.equal(buildView(await logOf(ctx, s.state)).runs.length, 1);
 });
 
@@ -621,4 +623,38 @@ test('SP-BPRUN-031: 停止の送り直しを照らす要求の値は、正規化
   const out = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
   const expected = sha256Hex(canonical({ kind: 'blocked', reason: 'x', limitHit: null, pending: [], launches: 1, outside: [], onTargetChanged: null }));
   assert.equal(out.stop.asked, expected);
+});
+
+test('SP-BPFINDINGS-001: 台帳の作成は plugin の外のファイルがあれば理由つきの E_INPUT で、台帳を作らない', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const base = await tmpDir(t);
+  const s = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  await fs.writeFile(path.join(base, 'outside.md'), 'x\n');
+  await fs.symlink(path.join(base, 'outside.md'), path.join(root, 'link.md'));
+  await assert.rejects(ledger.ledgerCreate(ctx, { state: s.state, run: s.run }), (e) => e.code === CODES.input && e.reason.includes('link.md'));
+  assert.equal(buildView(await logOf(ctx, s.state)).ledger, null);
+});
+
+test('SP-BPRUN-026: 停止で plugin の外のファイルを除いたら、対象が変わったとして review の完了を BLOCKED にする', async (t) => {
+  const { ctx, req, root } = await startReview(t);
+  if (!ctx) return;
+  const base = await tmpDir(t);
+  await fs.writeFile(path.join(base, 'outside.md'), 'x\n');
+  await fs.symlink(path.join(base, 'outside.md'), path.join(root, 'link.md'));
+  const out = await run.stop(ctx, { ...req, kind: 'complete', pending: [], launches: 1, onTargetChanged: 'blocked' });
+  assert.equal(out.stop.kind, 'blocked');
+  assert.match(out.stop.reason, /link\.md/);
+});
+
+test('SP-BPRUN-009: 開始の後に plugin の外に作られた一覧のファイルの files は E_INPUT', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const base = await tmpDir(t);
+  const later = path.join(base, 'later.js');
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root, files: [later] }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  await fs.writeFile(later, 'x\n');
+  await assert.rejects(run.files(ctx, { state: s.state, run: s.run, entries: [{ path: later, iteration: 1, action: 'write' }] }), (e) => e.code === CODES.input && e.reason.includes(later));
 });

@@ -6,7 +6,7 @@ import {
 } from './constants.mjs';
 import { checkFunction, checkStage, checkWritableItem } from './checks.mjs';
 import { reject } from './errors.mjs';
-import { diffFingerprints, homelessReason, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
+import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
 import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
 import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
@@ -318,6 +318,7 @@ export function files(ctx, req) {
     for (const entry of req.entries) {
       if (!entry || typeof entry.path !== 'string' || !path.isAbsolute(entry.path)) reject(CODES.input, 'entries の path は絶対パスでなければならない');
       if (!isInList(paths, entry.path)) { outside.push(entry.path); continue; }
+      if (isHomeless(paths.root, entry.path)) reject(CODES.input, homelessReason([entry.path]));
       const key = pathKey(paths.root, entry.path);
       if (!isPosInt(entry.iteration)) reject(CODES.input, `entries の iteration は 1 以上の整数でなければならない: ${JSON.stringify(entry.iteration)}`);
       if (entry.action !== undefined) {
@@ -381,7 +382,7 @@ export function stop(ctx, req) {
     let limitHit = req.limitHit;
     let requested;
     if (req.onTargetChanged) {
-      const changed = diffFingerprints(startFp?.files, now);
+      const changed = [...new Set([...diffFingerprints(startFp?.files, now), ...excluded])].sort();
       if (changed.length > 0) {
         requested = { kind, reason };
         kind = STOP_KINDS.blocked;
