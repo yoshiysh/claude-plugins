@@ -19,6 +19,7 @@ import { applicability, contractKind } from './units.mjs';
 import { currentRun, lastFingerprint, runBase, stageEntry, stoppedStage } from './view.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
+import { identity } from './records.mjs';
 
 const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 const strip = ({ seq, line, ...record }) => record;
@@ -190,8 +191,12 @@ export function goalCheck(ctx, req) {
     needPosInt(req.n, 'n');
     const current = view.repeats.get(STAGE.goal) ?? 0;
     if (req.n > current + 1) reject(CODES.conflict, `繰り返しの番号が今の回数 + 1 を超える: ${req.n}（今の回数 ${current}）`);
+    if (item.result !== undefined && !view.byKey.has(identity({ t: RECORDS.repeat, stage: STAGE.goal, n: req.n }))) {
+      reject(CODES.conflict, `固定した目標が既にある項目に別の繰り返しの番号の照合が届いた: ${req.item}（${req.n}）`);
+    }
     const failures = await checkGoal(view, dir, req.goal);
-    const records = [{ t: RECORDS.repeat, stage: STAGE.goal, n: req.n }];
+    // 同じ番号に違う目標が届いたら食い違いとして拒否するため、繰り返しの記録に目標の sha256 を持たせる。
+    const records = [{ t: RECORDS.repeat, stage: STAGE.goal, n: req.n, goal: sha256Hex(canonical(req.goal ?? null)) }];
     let id = null;
     if (failures.length === 0) {
       const text = canonical(req.goal);

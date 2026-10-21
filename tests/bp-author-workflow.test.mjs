@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  SKILL_DIR, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, variant, writePayload,
+  SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, variant, writePayload,
 } from './helpers/bp-harness.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -727,37 +727,16 @@ test('SP-BPFINDINGS-018・SP-BPFINDINGS-012: 反復 1 で反証に却下され�
 });
 
 test('SP-BPFINDINGS-020・SP-BPFINDINGS-037: 指摘のある節を書き手が消すと、消えた資産の照合の段で検証役が起動され、「該当なし」で状態が記録される', async (t) => {
-  const s = await setup(t, { fn: 'update', files: { 'SKILL.md': '---\nname: x\n---\n# X\n## 設計の説明\nd\n## 消す節\n中身\n' } });
+  const s = await setup(t, { fn: 'update', files: VANISH_FILES });
   if (!s) return;
-  const write = async (prompt) => {
-    const file = path.join(s.target.root, 'SKILL.md');
-    const n = /反復の番号: (\d+)/.exec(prompt)[1];
-    await fs.writeFile(file, n === '1' ? '---\nname: x\n---\n# X\n## 設計の説明\nd1\n## 消す節\n中身\n' : '---\nname: x\n---\n# X\n## 設計の説明\nd2\n');
-    return { written: [{ path: file, action: 'write' }], designNote: { path: 'SKILL.md', heading: '設計の説明' } };
-  };
-  const verify = async (prompt, options, env, call, calls) => {
-    const iteration = calls.filter((c) => c.role === 'write').length;
-    if (options.label !== 'verifier:conformance' || iteration !== 1) return defaults.verify(prompt, options, env);
-    const result = await defaults.verify(prompt, options, env);
-    const { assets } = await env.readFromPrompt(prompt, 'report');
-    const target = assets.find((a) => JSON.stringify(a.loc).includes('消す節')).id;
-    const { kinds } = await env.readFromPrompt(prompt, 'kinds');
-    const unit = result.units.find((u) => u.result === 'conform');
-    const key = { asset: target, viewpoint: 'conformance', kind: kinds[0].value };
-    result.judgements.find((j) => j.asset === target).judgement = 'candidate';
-    result.candidates = [{ ...key, quote: 'L8: 中身', content: 'c', fix: 'f' }];
-    unit.result = 'nonconform';
-    unit.keys = [key];
-    await writePayload(prompt, result);
-    return result;
-  };
-  const { result, calls } = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { write, verify } });
+  const { result, calls } = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: vanishScenario(s.target.root) });
   assert.equal(result.stopKind, 'complete', result.reason);
   const vanish = calls.filter((c) => c.role === 'vanish');
   assert.equal(vanish.length, 1);
   assert.match(vanish[0].prompt, /指摘 ID: F/);
   const f = result.findings.find((x) => x.viewpoint === 'conformance');
   assert.equal(f.state, 'resolved');
+  assert.equal(f.judgedOnCurrent, true);
 });
 
 test('SP-BPFINDINGS-028・SP-BPAUTHORING-022: 再開した update の結果で、前の run が最後の状態を記録した指摘に状態が載らず、記録した run と見直しの判定が載る', async (t) => {

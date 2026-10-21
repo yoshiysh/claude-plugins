@@ -223,3 +223,31 @@ export function updateArgs(target, extra = {}) {
 export function resumeArgs(prev, extra = {}) {
   return { nextArgs: prev.nextArgs, skillDir: SKILL_DIR, key: newKey(), ...extra };
 }
+
+// 反復 1 で「消す節」に適合の観点の指摘を出し、反復 2 の書き手がその節を消す（消えた資産の照合の段が走る）。
+export const VANISH_FILES = { 'SKILL.md': '---\nname: x\n---\n# X\n## 設計の説明\nd\n## 消す節\n中身\n' };
+
+export function vanishScenario(root) {
+  const write = async (prompt) => {
+    const file = path.join(root, 'SKILL.md');
+    const n = /反復の番号: (\d+)/.exec(prompt)[1];
+    await fs.writeFile(file, n === '1' ? '---\nname: x\n---\n# X\n## 設計の説明\nd1\n## 消す節\n中身\n' : '---\nname: x\n---\n# X\n## 設計の説明\nd2\n');
+    return { written: [{ path: file, action: 'write' }], designNote: { path: 'SKILL.md', heading: '設計の説明' } };
+  };
+  const verify = async (prompt, options, env, call, calls) => {
+    const iteration = calls.filter((c) => c.role === 'write').length;
+    const result = await defaults.verify(prompt, options, env);
+    if (options.label !== 'verifier:conformance' || iteration !== 1) return result;
+    const { assets } = await env.readFromPrompt(prompt, 'report');
+    const target = assets.find((a) => JSON.stringify(a.loc).includes('消す節')).id;
+    const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+    const unit = result.units.find((u) => u.result === 'conform');
+    const key = { asset: target, viewpoint: 'conformance', kind: kinds[0].value };
+    result.judgements.find((j) => j.asset === target).judgement = 'candidate';
+    result.candidates = [{ ...key, quote: 'L8: 中身', content: 'c', fix: 'f' }];
+    Object.assign(unit, { result: 'nonconform', keys: [key] });
+    await writePayload(prompt, result);
+    return result;
+  };
+  return { write, verify };
+}
