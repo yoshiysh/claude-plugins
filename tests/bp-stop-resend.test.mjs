@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { STAGES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { stoppedStage } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
 import {
   MIN_LAUNCHES, candidateVerifier, commands, createArgs, inspectArgs, resumeArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, viewOf,
 } from './helpers/bp-harness.mjs';
@@ -132,8 +134,13 @@ for (const c of CASES) {
 }
 
 const FN_OF = ['update', 'create', 'create', 'review', 'audit'];
-// 停止の記録を書けなかったときの理由の段（SP-BPRUN-027）。照合と停止の段を持たない create・update は止まった段。
-const STOP_STAGE = ['書く', '書く', '合否', '照合と停止', '照合と停止'];
+
+// 停止の記録を書けなかったときの理由の段は、CLI が停止の記録に書くはずだった段（SP-BPRUN-018・SP-BPRUN-027）。状態から同じ規則で導いて照らす。
+async function cliStage(env, state) {
+  const view = await viewOf(env, state);
+  const live = stoppedStage(view, { includeCurrentRun: true });
+  return live.stage == null ? null : STAGES[live.stage];
+}
 
 for (const [n, c] of CASES.entries()) {
   test(`SP-BPRUN-027・SP-BPRUN-017・SP-BPAUTHORING-015: 停止の前の書き込みの運搬役と停止の運搬役の間に対象スキルが変わっても、書いたファイルの記録と返り値が変わらない run と同じになり、偽の「停止の記録を書けなかった」を返さない［${FN_OF[n]}］（${c.name}）`, async (t) => {
@@ -173,7 +180,9 @@ for (const [n, c] of CASES.entries()) {
       let lost = 0;
       const got = await c.run(t, () => async (prompt, options) => (options.label === 'carrier' && match(prompt) && (lost += 1) <= 2 ? null : undefined));
       assert.equal(got.result.stopKind, 'blocked', label);
-      assert.ok(got.result.reason.includes(`（段「${STOP_STAGE[n]}」の${label}の運搬役。止めようとした停止: ${base.result.stopKind}`), got.result.reason);
+      const stage = await cliStage(got.env, got.result.state);
+      assert.ok(stage, label);
+      assert.ok(got.result.reason.includes(`（段「${stage}」の${label}の運搬役。止めようとした停止: ${base.result.stopKind}`), got.result.reason);
       assert.deepEqual(got.result.nextArgs, { function: FN_OF[n], state: got.result.state });
       assert.equal((await viewOf(got.env, got.result.state)).stops.size, 0, label);
       // 返り値の書いたファイルの一覧は、状態にある記録と同じで、停止の記録を書けなかったので検証を通っていない（完了の停止だけが検証を通った記録を足す）。
@@ -243,6 +252,19 @@ for (const fn of ['review', 'audit']) {
     assert.equal((await viewOf(got.env, got.result.state)).stops.size, 0);
     const again = await runInspect(t, { env: got.env, args: resumeArgs(got.result) });
     assert.equal(again.result.stopKind, 'complete', again.result.reason);
+    // 停止の運搬役を失うと、上限に当たっているので停止も段の読み出しも送らず、段を読めなかったことを理由に書く。
+    const s3 = await setupInspect(t);
+    const items = worstItems();
+    let lost = false;
+    const carrier = async (prompt, options, env) => {
+      if (!lost && options.label === 'carrier' && IS_STOP(prompt)) { lost = true; return null; }
+      return items(prompt, options, env);
+    };
+    const stopLost = await runInspect(t, { env: s3.env, args: inspectArgs(fn, s3.target, { maxLaunches: limit }), scenario: { carrier }, maxAgents: limit });
+    assert.ok(stopLost.calls.length <= limit);
+    assert.equal(stopLost.calls.filter((x) => IS_STOP(x.prompt)).length, 1);
+    assert.ok(!stopLost.calls.some((x) => x.prompt.includes(' stop-draft <<')));
+    assert.match(stopLost.result.reason, /^停止の記録を書けなかった（段は読めなかった。停止の運搬役。止めようとした停止: complete）/);
   });
 }
 
@@ -262,18 +284,57 @@ test('SP-BPRUN-027・SP-BPRUN-040: 最小の起動数の上限の create・updat
   }
 });
 
-test('SP-BPRUN-027・SP-BPRUN-032: 停止の記録を書けなかった update で書いたファイルの一覧の読み出しも失うと、返り値に載せず理由を変えない［update］', async (t) => {
+test('SP-BPRUN-027・SP-BPRUN-032: 停止の記録を書けなかった update で段と書いたファイルの一覧の読み出しも失うと、段を読めなかったことを理由に書き、一覧を載せない［update］', async (t) => {
   const c = CASES[0];
   let lost = 0;
   const got = await c.run(t, () => async (prompt, options) => {
     if (options.label !== 'carrier') return undefined;
     if (IS_STOP(prompt) && (lost += 1) <= 2) return null;
-    return prompt.includes(' written-files <<') ? null : undefined;
+    return prompt.includes(' stop-draft <<') ? null : undefined;
   });
   if (!got) return;
   assert.equal(got.result.stopKind, 'blocked');
-  assert.match(got.result.reason, /^停止の記録を書けなかった（段「書く」の停止の運搬役。止めようとした停止: blocked: /);
+  assert.match(got.result.reason, /^停止の記録を書けなかった（段は読めなかった。停止の運搬役。止めようとした停止: blocked: /);
   assert.equal(got.result.writtenFiles, undefined);
-  assert.equal(got.calls.filter((x) => x.prompt.includes(' written-files <<')).length, 1);
+  assert.equal(got.calls.filter((x) => x.prompt.includes(' stop-draft <<')).length, 1);
   assert.ok((await viewOf(got.env, got.result.state)).files.length > 0);
+});
+
+// 再開した run では、停止の記録に書くはずだった段に前の run の終えていない段が入る（SP-BPRUN-018）。script の手元の値では分からない段を CLI から読む。
+for (const fn of ['create', 'update', 'review', 'audit']) {
+  test(`SP-BPRUN-027・SP-BPRUN-018・SP-BPRUN-030: 再開した run が最初の段の書き込みで止まり停止の記録も書けないと、理由の段は CLI が状態から導いた止まった段になる［${fn}］`, async (t) => {
+    const inspect = fn === 'review' || fn === 'audit';
+    const s = inspect ? await setupInspect(t) : await setup(t, { fn });
+    if (!s) return;
+    const run = inspect ? runInspect : runAuthor;
+    const args = inspect ? inspectArgs(fn, s.target) : fn === 'create' ? createArgs(s.target) : updateArgs(s.target);
+    const scenario = inspect ? { extract: async () => null } : { goal: async () => null };
+    const r1 = await run(t, { env: s.env, args, scenario });
+    assert.equal(r1.result.stopKind, 'blocked');
+    let started = false;
+    const carrier = async (prompt, options, env) => {
+      if (options.label !== 'carrier') return undefined;
+      if (!started) { started = true; return undefined; }
+      return prompt.includes(' stop-draft <<') ? undefined : null;
+    };
+    const r2 = await run(t, { env: s.env, args: resumeArgs(r1.result), scenario: { carrier } });
+    assert.equal(r2.result.stopKind, 'blocked');
+    const stage = await cliStage(s.env, r1.result.state);
+    assert.ok(stage);
+    assert.match(r2.result.reason, new RegExp(`^停止の記録を書けなかった（段「${stage}」の停止の運搬役`));
+    assert.equal((await viewOf(s.env, r1.result.state)).stops.get(r2.result.run), undefined);
+  });
+}
+
+test('SP-BPRUN-027: 段の記録が 1 つも無いまま停止の記録も書けないと、段の記録が無いことを理由に書く［review］', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  let started = false;
+  const carrier = async (prompt, options) => {
+    if (options.label !== 'carrier') return undefined;
+    if (!started) { started = true; return undefined; }
+    return prompt.includes(' stop-draft <<') ? undefined : null;
+  };
+  const { result } = await runInspect(t, { env: s.env, args: inspectArgs('review', s.target), scenario: { carrier } });
+  assert.match(result.reason, /^停止の記録を書けなかった（段の記録は無い。停止の運搬役。止めようとした停止: blocked: /);
 });

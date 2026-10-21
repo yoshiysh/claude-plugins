@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
-  RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
+  RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
-import { lastGate, progress } from './ops-author.mjs';
+import { lastGate, progress, writtenFiles } from './ops-author.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
@@ -486,4 +486,11 @@ export async function list(ctx, req) {
 export async function summary(ctx, req) {
   const { view } = await readState(ctx, req.state);
   return { summary: summarize(view) };
+}
+
+// 停止の記録を書けなかった run の返り値のための読み出し。停止の記録に書くはずだった段（停止と同じ規則：SP-BPRUN-018）と書いたファイルの一覧を返す。
+export async function stopDraft(ctx, req) {
+  const { view } = await readState(ctx, req.state);
+  const live = stoppedStage(view, { includeCurrentRun: true });
+  return { stage: live.stage == null ? null : STAGES[live.stage], writtenFiles: writtenFiles(view) };
 }

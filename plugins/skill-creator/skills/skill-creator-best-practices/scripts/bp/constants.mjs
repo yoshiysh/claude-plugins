@@ -33,7 +33,7 @@ export const OPS = Object.freeze({
   targets: 'targets',
   bundle: 'bundle',
   applicability: 'applicability',
-  writtenFiles: 'written-files',
+  stopDraft: 'stop-draft',
 });
 
 // 送り直しで記録が増えないことをテストが操作ごとに照らすので、書き込みの操作の集合はここだけに置く。

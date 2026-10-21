@@ -26,7 +26,7 @@ const OPS = {
   verdicts: 'verdicts', refutationItems: 'refutation-items', refutation: 'refutation', reviewJudge: 'review-judge',
   vanishMatch: 'vanish-match', report: 'report', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
   snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
-  targets: 'targets', bundle: 'bundle', applicability: 'applicability', writtenFiles: 'written-files',
+  targets: 'targets', bundle: 'bundle', applicability: 'applicability', stopDraft: 'stop-draft',
 }
 const STAGE = {
   start: 'start', snapshot: 'snapshot', goal: 'goal', write: 'write', ledger: 'ledger', targets: 'targets', bundle: 'bundle',
@@ -991,35 +991,32 @@ function resumePlan(p) {
   return fresh({ goal: false, start: STAGE.ledger, number: p.number + 1 })
 }
 
-// 理由は SP-BPRUN-027・SP-BPRUN-030 の段・役・失敗の内容を持つ（完了の停止は理由を持たないので、止めようとした停止の種類も書く）。
-// 段は、照合と停止の段を持つ機能はその段、持たない機能は止まった段（停止の記録に書くはずだった段）とする。
-function stopFailure(stop, carrier, r) {
-  const stage = STAGE_TITLES.close ?? STAGE_TITLES[open?.stage ?? STAGE.start]
-  return `停止の記録を書けなかった（段「${stage}」の${carrier}の運搬役。止めようとした停止: ${stop.kind}${stop.reason ? `: ${stop.reason}` : ''}）: ${r.reason}`
+// 段と書いたファイルの一覧は、停止の記録に書くはずだったものを CLI が状態から導いて返す（段の規則を CLI の 1 箇所に置く：SP-BPRUN-018）。
+// 上限に当たるか読めないときに推測で埋めると、再開した run で CLI の段と食い違うので、読めなかったことを書く（SP-BPRUN-027）。
+async function unwrittenStop(stop, carrier, r, roleLimits) {
+  let draft = null
+  if (budget.limit === undefined || budget.used() < budget.limit) {
+    const d = await carry([read(OPS.stopDraft)])
+    if (d.ok) draft = d.responses[0]
+  }
+  const stage = draft === null ? '段は読めなかった。' : draft.stage === null ? '段の記録は無い。' : `段「${draft.stage}」の`
+  return {
+    ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stage}${carrier}の運搬役。止めようとした停止: ${stop.kind}${stop.reason ? `: ${stop.reason}` : ''}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
+    [RESULT_KEYS.run]: run.run,
+    ...(draft?.writtenFiles.length ? { [RESULT_KEYS.writtenFiles]: draft.writtenFiles } : {}),
+    [RESULT_KEYS.launches]: budget.used(),
+    [RESULT_KEYS.unverifiedRoleLimits]: roleLimits,
+  }
 }
 
 async function finish(stop) {
   const kind = stop.kind
   const before = stop.extra.scan ? [write(OPS.filesScan, { iteration: stop.extra.scan })] : []
-  // 停止の記録が無くても書いたファイルの記録は状態にあるので、上限を超えないときは読んで返り値に載せる（SP-BPRUN-032 はどの停止でも書いたファイルを返す）。
-  const unwritten = async (r, carrier) => {
-    const out = {
-      ...early(STOP_KINDS.blocked, stopFailure(stop, carrier, r), { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
-      [RESULT_KEYS.run]: run.run,
-      [RESULT_KEYS.unverifiedRoleLimits]: ROLE_WRITE_LIMITS,
-    }
-    if (budget.limit === undefined || budget.used() < budget.limit) {
-      const w = await carry([read(OPS.writtenFiles)])
-      if (w.ok && w.responses[0].writtenFiles.length) out[RESULT_KEYS.writtenFiles] = w.responses[0].writtenFiles
-    }
-    out[RESULT_KEYS.launches] = budget.used()
-    return out
-  }
   // 停止の前の書き込みは停止と別の運搬役で先に書き、応答を確かめてから停止を送る。停止を書いた後の run への書き込みは CLI が拒否するので、
   // 同じ運搬役に積むと、停止の後に応答を失ったときに送り直せない（SP-BPRUN-027）。
   if (before.length) {
     const pre = await carryTwice(before, 1)
-    if (!pre.ok) return unwritten(pre, '停止の前の書き込み')
+    if (!pre.ok) return unwrittenStop(stop, '停止の前の書き込み', pre, ROLE_WRITE_LIMITS)
   }
   const body = {
     kind,
@@ -1031,7 +1028,7 @@ async function finish(stop) {
   }
   // 停止は受け取った要求の sha256 で同じ停止として受け、返り値は読むだけなので、応答を失っても同じ 2 つの要求を送り直せる。送り直しは停止の記録の起動数に入らない（SP-BPRUN-034）。
   const r = await carryTwice([write(OPS.stop, body), read(OPS.outcome)])
-  if (!r.ok) return unwritten(r, '停止')
+  if (!r.ok) return unwrittenStop(stop, '停止', r, ROLE_WRITE_LIMITS)
   return r.responses.at(-1)
 }
 

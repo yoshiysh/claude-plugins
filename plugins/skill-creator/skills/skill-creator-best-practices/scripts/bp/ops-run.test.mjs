@@ -726,18 +726,20 @@ test('SP-BPRUN-017: 停止を書いた後の run への受理していない書�
   await rejects(ledger.ledgerRetake(ctx, { ...ureq }), CODES.staleRun);
 });
 
-
-test('SP-BPRUN-031・SP-BPRUN-032: written-files の操作は、停止の記録が無くても状態にある書いたファイルの一覧を、outcome の writtenFiles と同じ形で返す', async (t) => {
+test('SP-BPRUN-031・SP-BPRUN-032・SP-BPRUN-018: stop-draft の操作は、停止の記録が無くても、stop が停止の記録に書く段と同じ段と、outcome の writtenFiles と同じ形の書いたファイルの一覧を返す', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
-  const { writtenFilesOp, outcome } = await import('./ops-author.mjs');
+  const { outcome } = await import('./ops-author.mjs');
   const root = await skillDir(t);
   const u = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
   const req = { state: u.state, run: u.run };
-  assert.deepEqual((await writtenFilesOp(ctx, req)).writtenFiles, []);
+  assert.deepEqual(await run.stopDraft(ctx, req), { stage: null, writtenFiles: [] });
+  await run.stageStart(ctx, { ...req, stage: 'write', round: 1, keys: [{ iteration: 1 }] });
   await run.files(ctx, { ...req, entries: [{ path: path.join(root, 'SKILL.md'), iteration: 1, action: 'write' }] });
-  const before = await writtenFilesOp(ctx, req);
-  assert.deepEqual(before.writtenFiles, [{ path: 'SKILL.md', action: 'write', verified: false }]);
+  const draft = await run.stopDraft(ctx, req);
+  assert.deepEqual(draft, { stage: '書く', writtenFiles: [{ path: 'SKILL.md', action: 'write', verified: false }] });
   await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', launches: 1 });
-  assert.deepEqual((await outcome(ctx, req)).writtenFiles, before.writtenFiles);
+  const out = await outcome(ctx, req);
+  assert.equal(out.stoppedStage, draft.stage);
+  assert.deepEqual(out.writtenFiles, draft.writtenFiles);
 });

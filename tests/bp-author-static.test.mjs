@@ -128,8 +128,3 @@ test('SP-BPRUN-026・SP-BPFINDINGS-034: create・update の script は抽出役�
     await assert.rejects(run.stop(ctx, { state: s.state, run: s.run, kind: 'blocked', reason: 'x', launches: 1, onTargetChanged: 'blocked' }), (e) => e.code === 'E_INPUT' && /review・audit/.test(e.reason));
   }
 });
-
-test('SP-BPRUN-027・SP-BPRUN-032: 停止の記録を書けなかった create・update は、起動数の上限を超えないときだけ書いたファイルの一覧を読み、読めたときだけ返り値に載せる', () => {
-  const finish = fnSource('finish');
-  assert.match(finish, /if \(budget\.limit === undefined \|\| budget\.used\(\) < budget\.limit\) \{\n\s+const w = await carry\(\[read\(OPS\.writtenFiles\)\]\)\n\s+if \(w\.ok && w\.responses\[0\]\.writtenFiles\.length\) out\[RESULT_KEYS\.writtenFiles\] = w\.responses\[0\]\.writtenFiles/);
-});

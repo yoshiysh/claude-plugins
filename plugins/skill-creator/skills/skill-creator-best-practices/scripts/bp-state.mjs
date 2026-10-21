@@ -48,7 +48,7 @@ const HANDLERS = {
   [OPS.targets]: inspect.targets,
   [OPS.bundle]: inspect.bundle,
   [OPS.applicability]: inspect.applicability,
-  [OPS.writtenFiles]: author.writtenFilesOp,
+  [OPS.stopDraft]: run.stopDraft,
 };
 
 const RESERVED = ['ok', 'op', 'sum'];

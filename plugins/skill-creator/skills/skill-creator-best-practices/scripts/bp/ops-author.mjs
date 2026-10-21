@@ -350,7 +350,7 @@ async function skillOf(view) {
     : { files, deleted };
 }
 
-function writtenFiles(view) {
+export function writtenFiles(view) {
   const open = new Set(unverifiedFiles(view).map((f) => f.path));
   const latest = new Map();
   for (const f of view.files) latest.set(f.path, f);
@@ -380,12 +380,6 @@ function verification(view, gateItem) {
     }));
   }
   return out;
-}
-
-// 停止の記録を書けなかった BLOCKED の返り値にも、状態にある書いたファイルの一覧を載せるための読み出し（SP-BPRUN-027・SP-BPRUN-032）。
-export async function writtenFilesOp(ctx, req) {
-  const { view } = await readState(ctx, req.state);
-  return { writtenFiles: writtenFiles(view) };
 }
 
 // SP-BPRUN-032、SP-BPAUTHORING-032〜034: 返り値は状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。
