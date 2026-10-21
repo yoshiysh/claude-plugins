@@ -732,7 +732,7 @@ test('SP-BPFINDINGS-028・SP-BPFINDINGS-032: update の完了の返り値で、�
   assert.equal(view.ledger.id, result.state);
 });
 
-test('SP-BPFINDINGS-018・SP-BPFINDINGS-012: 反復 1 で反証に却下された候補と同じ鍵の候補が、別の資産だけを書き換えた反復 2 で重複になり、dismissed が今の担当の指紋の組で記録され BLOCKED にならない', async (t) => {
+test('SP-BPFINDINGS-018・SP-BPFINDINGS-012・SP-BPFINDINGS-030: 反復 1 で反証に却下された候補と同じ鍵の候補が、別の資産だけを書き換えた反復 2 で重複になり、dismissed が今の担当の指紋の組で記録され BLOCKED にならない', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const write = async (prompt) => {

@@ -89,7 +89,7 @@ review と audit の観点は次の表のとおりとし、他の観点を足し
 #### SP-BPINSPECTION-004 照らす先の決定
 照らす先の決定の段で、script は運搬役を通じて CLI に、その機能の観点ごとに照らす先を読ませなければならない。CLI は観点ごとに、照らす先を読めたか、照らす先のファイルのパスと照らす先の指紋を状態に書き、読めた観点の集合を run の観点の集合として書かなければならない。読めたとするのは、照らす先の章・節の見出しがファイルにあり、その中に判定の単位（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-002）か監査の観点（SP-BPINSPECTION-009）が 1 件以上あるときだけとする。
 
-review の照らす先のファイルは、`docs/specifications/bp-run.md` の SP-BPRUN-036 の判定基準の写しとする。run は、照らす先を照らす先の決定の段で読んだファイル以外から当ててはならず、当ててはならないものは同項に従う。
+review の照らす先のファイルは、`docs/specifications/bp-run.md` の SP-BPRUN-036 の判定基準の写しとする。audit の監査の観点の照らす先の指紋には、SP-BPINSPECTION-012 が優先させる `docs/requirements/bp-designed-skill.md` の写しも含める（その要求が変わると、優先して外した指摘の基準が変わる）。監査の観点を読めたかは、現行の prompt-audit だけで決める。run は、照らす先を照らす先の決定の段で読んだファイル以外から当ててはならず、当ててはならないものは同項に従う。
 
 #### SP-BPINSPECTION-005 仕様書を読めないとき
 照らす先の決定の段で仕様の観点の照らす先を読めなかったならば、script は、仕様の観点を run の観点の集合に入れてはならず、仕様の観点の全体を未検査の観点として結果に載せなければならない（PR-BPOPERATIONS-026）。このとき、仕様の観点の検証役を起動してはならない。カバレッジ・skip 一覧・skip 一覧への追加の起動は run の観点の集合の観点だけに作る（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-022・SP-BPFINDINGS-023・SP-BPFINDINGS-025）ので、仕様の観点にはどれも作らない（観点を照らしていないことは、未検査の観点として 1 回だけ宣言する）。
@@ -324,7 +324,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | CLI の単体テスト（仕様の観点の照らす先のパスと指紋が状態に書かれることを確認） | 完了 |
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-004 | CLI の単体テスト（「性能・容量」の章の見出しが無い写しを与え、仕様の観点が読めないと記録されることを確認） | 完了 |
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-005 | script の模擬実行（仕様の観点を読めない review で、仕様の観点の検証役が起動されず、未検査の観点に全体が載り、仕様の観点の skip 一覧と追加の起動が無いことを確認） | 完了 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | script の模擬実行（適用の判定の答えが閉集合の外のとき記録が拒否され、フローの観点の全ての検証役に同じ形が渡ることを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | script の模擬実行（CLI に拒否された適用の判定の結果で検証役が拒否の理由とともに起動し直され、フローの観点の全ての検証役に同じ形が渡ることを確認）と静的な照合（検証役の schema の答えの enum が閉集合と一致することを確認。閉集合の外の答えは host の schema が CLI に届く前に通さないので、CLI の拒否は CLI の単体テストで確かめる） | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認） | 作成中 |
 | PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認） | 作成中 |
 | PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | CLI の単体テスト（PA-1〜PA-6 以外の指摘の種類を含む候補が拒否されることを確認） | 完了 |

@@ -309,3 +309,18 @@ test('SP-BPINSPECTION-014・SP-BPINSPECTION-024: audit の完了の返り値が�
   for (const k of ['confidence', 'declared_only', 'audit_header', 'declaredOnly', 'auditHeader']) assert.ok(!JSON.stringify(out).includes(`"${k}"`), k);
   assert.deepEqual(out.unverifiedRoleLimits.map((r) => r.role), ['検証役・反証役・抽出役', '運搬役']);
 });
+
+test('SP-BPINSPECTION-018・SP-BPAUTHORING-041: 反証に回す鍵を、候補を書いた順でなく、鍵の最初の候補を返した検証の項目の列挙の順（段は stages の順）に並べる', async (t) => {
+  const { ctx, req, assets } = await withLedger(t, 'review');
+  if (!ctx) return;
+  const { items, assignment } = await verifyItems(ctx, req, ['flow', 'spec']);
+  const cand = (asset, viewpoint, kind) => ({
+    judgements: assets.map((a) => ({ asset: a.id, judgement: a.id === asset ? 'candidate' : 'ok' })),
+    candidates: [{ asset, viewpoint, kind, quote: 'L1', content: 'c', fix: 'f' }],
+    unchecked: [],
+  });
+  await ledger.verdicts(ctx, { ...req, item: items[1], assignment: assignment.id, viewpoint: 'spec', result: cand(assets[0].id, 'spec', 'SP-BPCONFORMANCE-027') });
+  await ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: cand(assets[1].id, 'flow', 'SP-BPCONFORMANCE-001') });
+  const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: null }, { stage: 'verify-extra', round: null }] });
+  assert.deepEqual(keys.map((k) => k.viewpoint), ['flow', 'spec']);
+});

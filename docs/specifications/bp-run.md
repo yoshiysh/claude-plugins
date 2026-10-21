@@ -617,7 +617,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 トレーサビリティ表のステータスは、best-practices の仕様書（bp-*.md）で次の基準にそろえる。
 
 - 行の検証方法のテストが入り、通ったら「完了」とする。
-- script の模擬実行・結合テスト・静的な照合の行で機能を名指ししないものは、4 機能（create・review・update・audit）のどれでも確かめるまで「作成中」とする。機能の文書（bp-authoring・bp-inspection）の行は、その文書の機能で確かめれば「完了」とする。CLI の単体テストの行は機能によらない。needs_input・書き手・書いたファイルのように create・update にしか無いものを確かめる行も、機能を名指ししなければこの基準のとおり「作成中」とする（例外を置かない）。そうした行は、review・audit ではそれが無いこと（needs_input でなく BLOCKED を返す、書き手を起動しない、書いたファイルの記録の要求を送らない、反復の回数では止まらない、など）を確かめるテストで確かめたとする（機能に無いものは、無いことしか確かめられない）。
+- script の模擬実行・結合テスト・静的な照合の行で機能を名指ししないものは、4 機能（create・review・update・audit）のどれでも確かめるまで「作成中」とする。機能の文書（bp-authoring・bp-inspection）の行は、その文書の機能で確かめれば「完了」とする。CLI の単体テストの行は機能によらない。needs_input・書き手・書いたファイルのように create・update にしか無いものを確かめる行も、機能を名指ししなければこの基準のとおり「作成中」とする（例外を置かない）。そうした行は、review・audit ではそれが無いこと（needs_input でなく BLOCKED を返す、書き手を起動しない、書いたファイルの記録の要求を送らない、反復の回数では止まらない、など）を確かめるテストで確かめたとする（機能に無いものは、無いことしか確かめられない）。逆に、抽出役・対象を書き換えていないことの照合のように review・audit にしか無いものを確かめる行は、create・update ではそれが無いこと（抽出役を起動しない、CLI が create・update の `onTargetChanged` を拒否する、など）を確かめるテストで確かめたとする。
 - 「fixture の run」の行（bp-authoring）と「fixture」の行（bp-inspection）は、`docs/specifications/bp-authoring.md` の「検証方法」の本物の agent での試走（create・update・review・audit を 1 回ずつ）で確かめるまで「作成中」とする。
 
 ## TBD の宣言

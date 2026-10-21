@@ -111,3 +111,20 @@ test('SP-BPRUN-036: create・update の検証役と反証役と書き手の prom
     }
   }
 });
+
+// review・audit にだけある振る舞い（抽出役・対象を書き換えていないことの照合）は、create・update ではそれが無いことで確かめる（bp-run.md の「検証方法」のステータスの基準）。
+test('SP-BPRUN-026・SP-BPFINDINGS-034: create・update の script は抽出役を起動せず onTargetChanged を送らず、CLI は create・update の停止の onTargetChanged を拒否する', async (t) => {
+  const roles = new Set();
+  walk(AST, (n) => { if (n.type === 'CallExpression' && n.callee.name === 'launch') roles.add(n.arguments[0].value); });
+  assert.ok(!roles.has('extractor'));
+  assert.ok(!SOURCE.includes('onTargetChanged'));
+  const { context, newKey, skillDir, LIMITS } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs');
+  const run = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-run.mjs');
+  const ctx = context(t);
+  if (!ctx) return;
+  for (const fn of ['create', 'update']) {
+    const root = fn === 'create' ? path.join(await skillDir(t), 'new') : await skillDir(t);
+    const s = await run.start(ctx, { key: newKey(), function: fn, target: { root }, limits: LIMITS, ...(fn === 'create' ? { request: 'r' } : { grounds: [{ text: 'a' }] }) });
+    await assert.rejects(run.stop(ctx, { state: s.state, run: s.run, kind: 'blocked', reason: 'x', launches: 1, onTargetChanged: 'blocked' }), (e) => e.code === 'E_INPUT' && /review・audit/.test(e.reason));
+  }
+});

@@ -177,3 +177,54 @@ test('SP-BPINSPECTION-016: 検証の段の項目の鍵を観点の順・担当�
   assert.match(fnSource('verifyKeys'), /run\.viewpoints\.flatMap\(\(viewpoint\) => run\.groups\.map\(\(g, i\) => \(\{ viewpoint, group: i \+ 1 \}\)\)\)/);
   assert.ok(OPS.stageStart);
 });
+
+// ---- prompt と CLI に置いた写しを、写し元の仕様の記述に照らす（照らさない写しは仕様だけが変わったときに古いまま残る）
+
+import { APPLICABILITY_ANSWERS, FIXED_AUDIT_UNCHECKED, PRESENCE } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { auditUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
+import { forcedSources } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
+
+const DOCS = path.join(ROOT, 'docs');
+const section = (id) => INSPECTION.slice(INSPECTION.indexOf(`#### ${id}`), INSPECTION.indexOf('\n#### ', INSPECTION.indexOf(`#### ${id}`) + 1));
+const spList = (text) => [...text.matchAll(/SP-BPCONFORMANCE-(\d{3})((?:・\d{3})*)/g)].flatMap((m) => [m[1], ...m[2].split('・').filter(Boolean)]).map((n) => `SP-BPCONFORMANCE-${n}`);
+
+test('SP-BPINSPECTION-006: 適用の判定の検証役の schema の答えの enum が、CLI の閉集合（SP-BPINSPECTION-006 の表の選択肢）と一致する', () => {
+  const schema = Function('APPLICABILITY_QUESTIONS', 'APPLICABILITY_ANSWERS', 'PRESENCE', `${fnSource('answerSchema')}\n${fnSource('applicabilitySchema')}\nreturn applicabilitySchema();`)(literal('APPLICABILITY_QUESTIONS'), literal('APPLICABILITY_ANSWERS'), literal('PRESENCE'));
+  for (const q of literal('APPLICABILITY_QUESTIONS')) assert.deepEqual(schema.properties.answers.properties[q].properties.answer.enum, Object.values(APPLICABILITY_ANSWERS));
+  for (const f of ['ledger', 'fanout']) assert.deepEqual(schema.properties[f].properties.answer.enum, Object.values(PRESENCE));
+  assert.deepEqual(schema.properties.answers.required, literal('APPLICABILITY_QUESTIONS'));
+});
+
+test('SP-BPINSPECTION-012・SP-BPINSPECTION-013・SP-BPINSPECTION-009: script と CLI に書いた監査の観点の識別子が、SP-BPINSPECTION-012・013 が名指す識別子で、SP-BPINSPECTION-009 の表にあり、PA-3 の固定の 1 件が SP-BPINSPECTION-012 の固定の記述と一致する', () => {
+  const named = new Set([...`${section('SP-BPINSPECTION-012')}${section('SP-BPINSPECTION-013')}`.matchAll(/PA-\d/g)].map((m) => m[0]));
+  const table = new Set(auditUnits(DOCS).map((u) => u.value));
+  const used = [...new Set([...SOURCE.matchAll(/PA-\d/g)].map((m) => m[0]))];
+  assert.ok(used.length > 0);
+  for (const id of [...used, FIXED_AUDIT_UNCHECKED.value]) {
+    assert.ok(named.has(id), id);
+    assert.ok(table.has(id), id);
+  }
+  const fixed = /次の 1 件は[\s\S]*?- ([^\n]+)/.exec(section('SP-BPINSPECTION-012'))[1];
+  assert.ok(fixed.includes(`${FIXED_AUDIT_UNCHECKED.value} を当ててはならない`));
+  for (const ref of ['PR-BPDESIGNEDSKILL-021', 'SP-BPCONFORMANCE-025']) {
+    assert.ok(fixed.includes(ref) && FIXED_AUDIT_UNCHECKED.reason.includes(ref), ref);
+  }
+});
+
+test('SP-BPINSPECTION-025: 強いられた未検査の単位に付ける理由の仕様項目 ID の集合が、SP-BPINSPECTION-025 の表の検証役の未検査の行が名指す ID と一致する', () => {
+  const row = tableAfter(INSPECTION, '| 場合 | 観点 | 範囲 | 理由 |').find((r) => r[0].includes('検証役が判定の単位を未検査とした'));
+  const { always, turnForm } = forcedSources(DOCS);
+  assert.deepEqual([...new Set([...always.values(), ...turnForm.values()])].sort(), spList(row[3]).sort());
+});
+
+test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-011: prompt に書いた仕様項目 ID と prompt-audit の節の名前が、写し元の SP-BPINSPECTION-006・007・011 の記述と一致する', () => {
+  const lines = fnSource('viewpointLines');
+  const flow = /観点: フローの観点。[^`]*?(SP-BPCONFORMANCE-[\d・]+) のとおり/.exec(lines)[1];
+  assert.deepEqual(spList(flow), spList(section('SP-BPINSPECTION-007').split('\n').find((l) => l.startsWith('フローの観点の検証役は'))));
+  const applicability = fnSource('applicabilityPrompt');
+  const criteria = tableAfter(INSPECTION, '| 問い | 選択肢 | 判定基準 |').flatMap((r) => spList(r[2]));
+  assert.deepEqual([...new Set(spList(applicability))].sort(), [...new Set(criteria)].sort());
+  const sections = [...new Set([...lines.matchAll(/「([A-Za-z ]+)」の節/g)].map((m) => m[1]))].sort();
+  const spec = [...new Set(tableAfter(INSPECTION, '| 現行の prompt-audit の記述 | 当て方 |').flatMap((r) => [...r[0].matchAll(/「([A-Za-z ]+)」の節/g)].map((m) => m[1])))].sort();
+  assert.deepEqual(sections, spec);
+});
