@@ -32,6 +32,19 @@ export async function criteriaCopy(t) {
   return dir;
 }
 
+// 本文を置き換えた script の写しを作る。置き換えが 1 箇所も当たらなければ、黙って元の script を試さないよう落とす。
+export async function variant(t, replacements) {
+  let source = await fs.readFile(SCRIPT, 'utf8');
+  for (const [from, to] of replacements) {
+    if (!source.includes(from)) throw new Error(`置き換え元が script に無い: ${from}`);
+    source = source.replace(from, to);
+  }
+  const dir = await tmp(t, 'bp-variant-');
+  const file = path.join(dir, 'bp_author.js');
+  await fs.writeFile(file, source);
+  return file;
+}
+
 export function commands(prompt) {
   return [...prompt.matchAll(COMMAND)].map((m) => ({ script: m[1], op: m[2], delim: m[3], text: m[4] }));
 }
@@ -152,7 +165,7 @@ function roleOf(label) {
   throw new Error(`未知の役のラベル: ${label}`);
 }
 
-export async function runAuthor(t, { env, args, scenario = {}, maxAgents = 1000, concurrency = 3 }) {
+export async function runAuthor(t, { env, args, scenario = {}, maxAgents = 1000, concurrency = 3, scriptPath = SCRIPT }) {
   const calls = [];
   const backend = {
     capabilities: ['read-only', 'fresh-thread', 'workspace-write'],
@@ -167,7 +180,7 @@ export async function runAuthor(t, { env, args, scenario = {}, maxAgents = 1000,
     },
   };
   const runDir = path.join(await tmp(t, 'bp-run-'), 'run');
-  const result = await Workflow({ scriptPath: SCRIPT, args }, {
+  const result = await Workflow({ scriptPath, args }, {
     backend, trustedSource: true, runDir, maxAgents, concurrency, timeoutMs: 120000, maxOutputBytes: 100_000_000, requirements: ['workspace-write'],
   });
   return { result, calls };

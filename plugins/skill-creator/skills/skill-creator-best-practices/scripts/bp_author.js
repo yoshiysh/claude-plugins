@@ -446,24 +446,24 @@ function carrierPrompt(requests) {
 
 async function carry(requests, { unit, label = 'carrier' } = {}) {
   const res = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
-  if (!res || !Array.isArray(res.responses)) return { failed: true, reason: '運搬役が結果を返さなかった', responses: [] }
-  if (res.responses.length > requests.length) return { failed: true, reason: '運搬役が要求より多い応答を返した', responses: [] }
+  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: '運搬役が結果を返さなかった', responses: [] }
+  if (res.responses.length > requests.length) return { failed: true, lost: true, reason: '運搬役が要求より多い応答を返した', responses: [] }
   const parsed = []
   for (const [i, line] of res.responses.entries()) {
     let r
     try {
       r = JSON.parse(line)
     } catch {
-      return { failed: true, reason: `運搬役の応答 ${i + 1} が JSON ではない`, responses: parsed }
+      return { failed: true, lost: true, reason: `運搬役の応答 ${i + 1} が JSON ではない`, responses: parsed }
     }
-    if (!r || typeof r !== 'object' || typeof r.sum !== 'string') return { failed: true, reason: `運搬役の応答 ${i + 1} に sum が無い`, responses: parsed }
+    if (!r || typeof r !== 'object' || typeof r.sum !== 'string') return { failed: true, lost: true, reason: `運搬役の応答 ${i + 1} に sum が無い`, responses: parsed }
     const { sum, ...rest } = r
-    if (fnvSum(rest) !== sum) return { failed: true, reason: `運搬役の応答 ${i + 1} の sum が合わない`, responses: parsed }
-    if (r.ok === true && r.op !== requests[i].op) return { failed: true, reason: `運搬役の応答 ${i + 1} の操作が要求と違う`, responses: parsed }
+    if (fnvSum(rest) !== sum) return { failed: true, lost: true, reason: `運搬役の応答 ${i + 1} の sum が合わない`, responses: parsed }
+    if (r.ok === true && r.op !== requests[i].op) return { failed: true, lost: true, reason: `運搬役の応答 ${i + 1} の操作が要求と違う`, responses: parsed }
     parsed.push(r)
   }
   const last = parsed.at(-1)
-  if (parsed.length < requests.length && last?.ok !== false) return { failed: true, reason: '運搬役が全ての要求を実行しなかった', responses: parsed }
+  if (parsed.length < requests.length && last?.ok !== false) return { failed: true, lost: true, reason: '運搬役が全ての要求を実行しなかった', responses: parsed }
   if (last?.ok === false) {
     const transport = last.code === CODES.transport || last.code === CODES.lock
     return { failed: transport, rejected: !transport, code: last.code, reason: `${requests[parsed.length - 1].op}: ${last.code} ${last.reason}`, response: last, responses: parsed }
@@ -738,12 +738,13 @@ function verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra 
   return { prompt: lines.filter((l) => l !== '').join('\n'), payloadFile }
 }
 
-// 結果を書く運搬役の失敗は、CLI が書いたかが分からないので同じ要求を 1 回だけ送り直す（全ての書き込みは同じ要求を same で受ける）。
+// 応答を失った運搬役は CLI が書いたかが分からないので、同じ要求を 1 回だけ送り直す（全ての書き込みは同じ要求を same で受ける）。
+// CLI が応答した E_TRANSPORT・E_LOCK は状態を変えていないので、試行の失敗として数える（SP-BPRUN-028）。
 async function writeResult(stage, req, unit) {
   const label = `carrier:${stage}`
   const r = await carry([req], { unit, label })
   if (r.ok) return { done: true }
-  if (r.code === CODES.result) return { reason: r.reason }
+  if (r.code === CODES.result || (r.failed && !r.lost)) return { reason: r.reason }
   if (!r.failed) return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の CLI が結果の書き込みを拒否した: ${r.reason}`) }
   const again = await carry([req], { unit, label })
   if (again.ok) return { done: true }

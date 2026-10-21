@@ -1,4 +1,4 @@
-import { FINDING_STATES, JUDGEMENTS, OUTCOMES, RECORDS } from './constants.mjs';
+import { BASIS, FINDING_STATES, JUDGEMENTS, OUTCOMES, RECORDS, REVIEW_VALUES } from './constants.mjs';
 import { keyString } from './ids.mjs';
 import { currentAssets, currentRun } from './view.mjs';
 
@@ -10,7 +10,9 @@ export function judgedOnCurrent(v, finding) {
   const d = finding.decisions.at(-1);
   if (!d) return false;
   const assets = liveAssets(v, finding);
-  return assets.length > 0 && assets.every((id) => d.fps[id] === v.assets.get(id).digest);
+  // 資産が全て消えた指摘は、消えた資産の照合が今の資産の一覧に照らして「該当なし」とした判定だけを今の内容での判定とする。
+  if (assets.length === 0) return d.basis === BASIS.vanish && d.value === REVIEW_VALUES.absent;
+  return assets.every((id) => d.fps[id] === v.assets.get(id).digest);
 }
 
 function seenOnCurrent(v, asset, viewpoint) {
