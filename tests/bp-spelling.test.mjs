@@ -164,7 +164,7 @@ for (const [label, s] of Object.entries(SCRIPTS)) {
   });
 
   test(`SP-BPFINDINGS-011: ${s.file} が観点を比べるリテラルは CLI の観点の値にある`, () => {
-    const used = [...s.source.matchAll(/viewpoint === '([^']+)'|targetOf\('([^']+)'\)/g)].map((m) => m[1] ?? m[2]);
+    const used = [...s.source.matchAll(/viewpoint === '([^']+)'|target(?:Of|File)\('([^']+)'|viewpoint === '[^']+' \? '([^']+)'/g)].map((m) => m[1] ?? m[2] ?? m[3]);
     assert.ok(used.length > 0);
     for (const v of used) assert.ok(Object.hasOwn(CLI_CONSTANTS.VIEWPOINTS, v), v);
   });
@@ -286,4 +286,25 @@ test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最�
   assert.deepEqual([Number(m[1]), Number(m[2])], [min('create'), min('update')]);
   const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(RUN)?.[1]);
   assert.deepEqual([row('`worst\\(再開の破棄\\)`'), row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.resumeDiscard, w.start, w.item, w.goalAttempt, w.write, worst]);
+});
+
+test('SP-BPRUN-031・SP-BPINSPECTION-004: targets の操作の出力の欄と files の name・section の値が、仕様の操作の表の targets の行と CLI の定数に一致する', async () => {
+  const row = RUN.split('\n').find((l) => l.startsWith('| `targets` |'));
+  const { readTargets } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/targets.mjs');
+  const out = readTargets({ criteriaDir: path.join(ROOT, 'docs'), promptAudit: path.join(SCRIPT_DIR, '..', 'references', 'prompt-audit.md') }, 'review');
+  for (const key of Object.keys(out.targets[0])) assert.ok(row.includes(`\`${key}\``), key);
+  for (const key of ['name', 'path', 'sha256']) assert.ok(row.includes(key), key);
+  for (const name of Object.values(CLI_CONSTANTS.TARGET_FILES)) assert.ok(row.includes(`\`${name}\``), name);
+  for (const section of [CLI_CONSTANTS.CRITERIA_CHAPTERS.functional, CLI_CONSTANTS.CRITERIA_CHAPTERS.capacityPrefix, CLI_CONSTANTS.PROMPT_AUDIT_SECTION]) assert.ok(row.includes(`「${section}」`), section);
+  assert.deepEqual(out.targets.map((t) => t.section), [CLI_CONSTANTS.CRITERIA_CHAPTERS.functional, CLI_CONSTANTS.CRITERIA_CHAPTERS.capacityPrefix]);
+});
+
+test('SP-BPRUN-031: CLI の照らす先の決定が名指す判定基準の写しの鍵が CRITERIA_FILES の鍵にある', () => {
+  const source = readFileSync(path.join(SCRIPT_DIR, 'bp', 'targets.mjs'), 'utf8');
+  const used = [...source.matchAll(/criteriaFile\(ctx, '([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(used.length >= 4);
+  for (const key of used) {
+    assert.ok(Object.hasOwn(CLI_CONSTANTS.CRITERIA_FILES, key), key);
+    assert.ok(Object.hasOwn(CLI_CONSTANTS.TARGET_FILES, key), key);
+  }
 });

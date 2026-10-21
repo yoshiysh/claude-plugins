@@ -354,3 +354,17 @@ test('SP-BPRUN-038・SP-BPRUN-031: 項目の鍵が担当 ID を持つとき、�
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ viewpoint: 'flow', assignment: assignments[0].id }] });
   await rejects(ledger.verdicts(ctx, { ...req, item: items[0], assignment: assignments[1].id, viewpoint: 'flow', result: { judgements: [{ asset: assets[1].id, judgement: 'ok' }], candidates: [], unchecked: [] } }), CODES.conflict);
 });
+
+test('SP-BPINSPECTION-004・SP-BPINSPECTION-027・SP-BPINSPECTION-028: bp-inspection の写しが無いと、フローの観点は読めず欠けた写しのパスで BLOCKED、監査の観点は一覧の食い違いで BLOCKED になる', async (t) => {
+  const dir = await tmpDir(t, 'bp-criteria-');
+  await fs.cp(CRITERIA_FIXTURE, dir, { recursive: true });
+  const inspection = path.join(dir, 'specifications', 'bp-inspection.md');
+  await fs.rm(inspection);
+  const review = await begin(t, 'review', { ctx: context(t, { criteriaDir: dir }) });
+  if (!review.ctx) return;
+  assert.deepEqual(review.targets.blocked.paths, [inspection]);
+  assert.equal(review.targets.targets.find((x) => x.viewpoint === 'flow').readable, false);
+  const audit = await begin(t, 'audit', { ctx: context(t, { criteriaDir: dir }) });
+  assert.equal(audit.targets.targets[0].readable, true);
+  assert.match(audit.targets.blocked.reason, /監査の観点の一覧が出所と食い違う: 写しの SP-BPINSPECTION-009 の表を読めない/);
+});

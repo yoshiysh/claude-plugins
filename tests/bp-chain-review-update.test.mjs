@@ -72,6 +72,10 @@ for (const fn of ['review', 'audit']) {
     for (const f of findings) assert.ok(!ids.includes(f.id), f.id);
     const same = [...view.findings.values()][0];
     if (fn === 'review') assert.equal(same.key.kind, open.kind);
+    // 指摘 ID は台帳 ID と鍵から作る（SP-BPFINDINGS-011）。update の指摘が update の台帳 ID から作られ、前の機能の台帳 ID から作った ID と違うことで、台帳が分かれていることを照らす。
+    const { findingId } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
+    assert.equal(same.id, findingId(view.ledger.id, same.key));
+    assert.notEqual(same.id, findingId(before.ledger.id, same.key));
     assert.notEqual(same.id, open.id);
     assert.equal((await viewOf(s.env, inspected.result.state)).findings.size, findings.length);
     assert.deepEqual(updated.result.receivedGrounds.filter((g) => g.finding).map((g) => g.finding), findings.map((f) => f.id));

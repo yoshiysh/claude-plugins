@@ -137,7 +137,7 @@ test('SP-BPINSPECTION-004・SP-BPINSPECTION-029: 停止の間に判定基準の�
 
 
 for (const fn of FNS) {
-  test(`SP-BPRUN-027・SP-BPRUN-030: fan-out の外の agent の失敗で BLOCKED になる理由に、段・役と host が返した失敗の内容がある${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-027・SP-BPRUN-030: fan-out の外の agent の失敗で BLOCKED になる理由に段と役があり、host が null を返したときは結果を返さなかったこと、運搬役の失敗では失敗の内容がある${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     // Codex runner は backend の失敗を null として返す（失敗の内容は script に届かない）。host が投げたときの内容は静的な照合で確かめる。
@@ -170,3 +170,30 @@ for (const fn of FNS) {
     assert.equal(roles(r2.calls)[0], 'extract');
   });
 }
+
+for (const fn of FNS) {
+  test(`SP-BPRUN-031・SP-BPINSPECTION-026: 形の誤った key は CLI の開始の操作が E_INPUT で拒否し、状態を作らず next_args の無い BLOCKED になる${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, { key: 'bad key!' }) });
+    assert.equal(result.stopKind, 'blocked');
+    assert.match(result.reason, /start: E_INPUT key は英数字と/);
+    assert.equal(result.nextArgs, undefined);
+    assert.deepEqual(roles(calls), []);
+    assert.deepEqual((await fs.readdir(path.join(s.env.root, 'states')).catch(() => [])).filter((d) => !d.startsWith('.')), []);
+  });
+}
+
+test('SP-BPINSPECTION-029: 判定基準の写しの置き場を移してから内容を変えた再開の BLOCKED の理由は、今のファイルのパスを指す［review］', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  const r1 = await runInspect(t, { env: s.env, args: inspectArgs('review', s.target), scenario: { extract: async () => null } });
+  const moved = path.join(s.base, 'moved-criteria');
+  await fs.cp(s.criteriaDir, moved, { recursive: true });
+  s.env.criteriaDir = moved;
+  const file = path.join(moved, 'specifications', 'bp-inspection.md');
+  await fs.appendFile(file, '\n追記\n');
+  const r2 = await runInspect(t, { env: s.env, args: resumeArgs(r1.result) });
+  assert.equal(r2.result.stopKind, 'blocked');
+  assert.ok(r2.result.reason.includes(file), r2.result.reason);
+});

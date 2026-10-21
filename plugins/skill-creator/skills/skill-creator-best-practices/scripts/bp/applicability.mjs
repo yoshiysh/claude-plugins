@@ -30,7 +30,7 @@ function cellMatches(cell, value) {
   return cell === '*' || cell === value;
 }
 
-// SP-BPINSPECTION-006: 答えを確かめ、到達した形と SP-BPCONFORMANCE-003 の行を決める。行の単位はフローの観点の閉集合（allowed）に絞る（仕様の観点の単位と除く単位はフローの観点が判定しない：SP-BPINSPECTION-007）。
+// 行の単位をフローの観点の閉集合（allowed）に絞るのは、仕様の観点の単位と除く単位をフローの観点の検証役に判定させないため（SP-BPINSPECTION-007。両方が判定すると同じ違反が 2 件の指摘になる）。
 export function judgeApplicability(result, { assetIds, rows, allowed }) {
   if (result === null || typeof result !== 'object' || !result.answers || typeof result.answers !== 'object') return { error: '結果に answers が無い' };
   const answers = [];

@@ -7,11 +7,14 @@ import { auditUnits, flowUnits, parseDoc, specUnits } from './kinds.mjs';
 
 const ITEM = /^(\d+)\. \*\*(.+?)\*\*/;
 
+// ファイルが無いことを示す失敗（置き場がディレクトリか、途中がファイルのときを含む）。これ以外の失敗は CLI の失敗として返す。
+const MISSING = new Set(['ENOENT', 'EISDIR', 'ENOTDIR']);
+
 function fileOf(name, p) {
   try {
     return { name, path: p, sha256: sha256Hex(readFileSync(p)) };
   } catch (error) {
-    if (error.code !== 'ENOENT' && error.code !== 'EISDIR' && error.code !== 'ENOTDIR') throw error;
+    if (!MISSING.has(error.code)) throw error;
     return { name, path: p, sha256: null };
   }
 }
@@ -26,7 +29,7 @@ function attempt(fn) {
     const n = fn();
     return n > 0 ? null : '判定の単位か監査の観点が 1 件も無い';
   } catch (error) {
-    if (error instanceof BpError || error?.code === 'ENOENT') return String(error.reason ?? error.message);
+    if (error instanceof BpError || MISSING.has(error?.code)) return String(error.reason ?? error.message);
     throw error;
   }
 }
@@ -37,7 +40,7 @@ export function auditItems(text) {
   return node.body.map((l) => ITEM.exec(l)).filter(Boolean).map((m) => `${m[1]}. ${m[2]}`);
 }
 
-// SP-BPINSPECTION-010: 出所の番号付きの項目と、写しの SP-BPINSPECTION-009 の表の 2 列目を、件数・順・字面の全てで比べる。
+// 件数・順・字面の全てで比べる（SP-BPINSPECTION-010）。名前だけで比べると、足された項目や並べ替えが黙って通る。
 export function compareAudit(items, table) {
   const want = table.map((u) => u.meaning);
   const diff = [];
@@ -69,7 +72,7 @@ function auditTarget(ctx) {
   try {
     table = auditUnits(ctx.criteriaDir);
   } catch (error) {
-    if (!(error instanceof BpError) && error?.code !== 'ENOENT') throw error;
+    if (!(error instanceof BpError) && !MISSING.has(error?.code)) throw error;
     return { files, section, reason: null, mismatch: [`写しの SP-BPINSPECTION-009 の表を読めない: ${error.reason ?? error.message}`] };
   }
   const diff = compareAudit(items, table);
@@ -83,7 +86,7 @@ function fingerprintOf(files) {
   return sha256Hex(canonical(files.map((f) => ({ name: f.name, sha256: f.sha256 }))));
 }
 
-// 読めない理由は、欠けたファイルがあればそのパスを、無ければ観点の最初のファイルのパスを指す。
+// 利用者が直すファイルを指すため（SP-BPINSPECTION-027）、欠けたファイルを先に指す。
 function culprit(target) {
   return (target.files.find((f) => f.sha256 === null) ?? target.files[0]).path;
 }
@@ -104,6 +107,7 @@ export function readTargets(ctx, fn) {
 export function changedTargets(recorded, now) {
   return recorded.flatMap((t) => {
     const cur = now.find((x) => x.viewpoint === t.viewpoint);
-    return t.files.filter((f) => cur?.files.find((x) => x.name === f.name)?.sha256 !== f.sha256).map((f) => f.path);
+    // 置き場を移した写しでも利用者が直すのは今のファイルなので、今のパスを指す（SP-BPINSPECTION-029）。
+    return t.files.map((f) => ({ f, now: cur?.files.find((x) => x.name === f.name) })).filter(({ f, now }) => now?.sha256 !== f.sha256).map(({ f, now }) => now?.path ?? f.path);
   });
 }

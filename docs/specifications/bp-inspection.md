@@ -89,7 +89,7 @@ review と audit の観点は次の表のとおりとし、他の観点を足し
 #### SP-BPINSPECTION-004 照らす先の決定
 照らす先の決定の段で、script は運搬役を通じて CLI に、その機能の観点ごとに照らす先を読ませなければならない。CLI は観点ごとに、照らす先を読めたか、照らす先のファイルのパスと照らす先の指紋を状態に書き、読めた観点の集合を run の観点の集合として書かなければならない。読めたとするのは、照らす先の章・節の見出しがファイルにあり、その中に判定の単位（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-002）か監査の観点（SP-BPINSPECTION-009）が 1 件以上あるときだけとする。
 
-review の照らす先のファイルは、`docs/specifications/bp-run.md` の SP-BPRUN-036 の判定基準の写しとする。照らす先の指紋には、照らす先の章・節のファイルに加えて、次の写しも含める。どれも run の中で判定に使い、停止の間に変わると、付けた指摘と判定の基準が 1 つの台帳の中で混ざる（SP-BPINSPECTION-029）。読めたかは、照らす先の章・節のファイルだけで決める。
+review の照らす先のファイルは、`docs/specifications/bp-run.md` の SP-BPRUN-036 の判定基準の写しとする。照らす先の指紋には、照らす先の章・節のファイルに加えて、次の写しも含める。どれも run の中で判定に使い、停止の間に変わると、付けた指摘と判定の基準が 1 つの台帳の中で混ざる（SP-BPINSPECTION-029）。読めたかは、照らす先の章・節のファイルと、そこから判定の単位か監査の観点の一覧を作るのに要る写しで決める（フローの観点は bp-inspection の写しの除く単位の表が無いと判定の単位を作れないので、読めない。監査の観点は bp-inspection の写しの SP-BPINSPECTION-009 の表が読めないと、SP-BPINSPECTION-028 の食い違いとして止まる。bp-designed-skill の写しは読めたかに使わない）。
 
 - フローの観点と監査の観点: 本文書の写し（除く単位の表：SP-BPINSPECTION-007、監査の観点の一覧：SP-BPINSPECTION-009、当て方：SP-BPINSPECTION-011〜SP-BPINSPECTION-013）
 - 監査の観点: `docs/requirements/bp-designed-skill.md` の写し（SP-BPINSPECTION-012 が優先させる要求）
@@ -241,7 +241,7 @@ review と audit は、完了したとき、`docs/specifications/bp-run.md` の 
 
 | 項目 | 綴り | 機能 | 中身 |
 |---|---|---|---|
-| 照らした先 | `targets` | review・audit | 観点ごとの照らす先のパスと照らす先の指紋（SP-BPINSPECTION-004） |
+| 照らした先 | `targets` | review・audit | 観点ごとの照らす先のパスと照らす先の指紋（SP-BPINSPECTION-004）。形は `docs/specifications/bp-run.md` の SP-BPRUN-031 の `targets` の操作の出力の `targets` と同じ |
 | 適用の判定 | `applicability` | review | SP-BPINSPECTION-006 の答えと引用と、到達した形と SP-BPCONFORMANCE-003 の判定表の行 |
 | 未検査の観点 | `uncheckedViewpoints` | review・audit | SP-BPINSPECTION-025 の一覧。空でも項目を返す |
 | 対象スキルのパスの一覧 | `target` | audit | 状態にある今の対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-005）を、CLI が状態から逐語で写したもの（監査した範囲：SP-BPINSPECTION-014）。入力の `target`（`docs/specifications/bp-entry.md` の SP-BPENTRY-013）と同じ形にし、連鎖の次の run の入力にそのまま渡せるようにする |

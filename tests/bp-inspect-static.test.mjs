@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { candidateVerifier, inspectArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
-import { INPUT_KEYS, OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { INPUT_KEYS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { PATHS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/applicability.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -174,7 +174,6 @@ test(`SP-BPINSPECTION-020・SP-BPRUN-025: 各役の prompt の書いてよい先
 
 test('SP-BPINSPECTION-016: 検証の段の項目の鍵を観点の順・担当の順で並べる（列挙の順が未着手の順位になる）', () => {
   assert.match(fnSource('verifyKeys'), /run\.viewpoints\.flatMap\(\(viewpoint\) => run\.groups\.map\(\(g\) => \(\{ viewpoint, assignment: g\.id \}\)\)\)/);
-  assert.ok(OPS.stageStart);
 });
 
 // ---- prompt と CLI に置いた写しを、写し元の仕様の記述に照らす（照らさない写しは仕様だけが変わったときに古いまま残る）
@@ -220,8 +219,11 @@ test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-008: script �
   if (!got) return;
   const flow = got.calls.find((c) => viewpointOf(c.prompt) === 'flow').prompt;
   const spec = got.calls.find((c) => viewpointOf(c.prompt) === 'spec').prompt;
+  const inspection = path.join(got.s.criteriaDir, 'specifications', 'bp-inspection.md');
   assert.ok(flow.includes(`「${CRITERIA_CHAPTERS.functional}」の章`));
+  assert.ok(flow.includes(`${inspection} の SP-BPINSPECTION-007 のとおり`));
   assert.ok(spec.includes(`「${CRITERIA_CHAPTERS.capacityPrefix}」で始まる章`));
+  assert.ok(spec.includes(`${inspection} の SP-BPINSPECTION-008`));
 });
 
 test(`SP-BPRUN-027: host の agent() が投げた失敗の内容を、そのラベルの BLOCKED の理由に載せる${BOTH}`, async () => {
