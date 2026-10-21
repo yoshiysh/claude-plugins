@@ -293,7 +293,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-002 | SP-BPENTRY-003 | 振り分けの eval（4 機能のそれぞれに当たる依頼文が、その機能だけの列になる） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-005 | 振り分けの eval（review と audit のどちらにも読める依頼で、run を起動せずに尋ねる） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-006 | 連鎖の結合テスト（review・update・audit の run の入力に、根が対象スキルのディレクトリのパスの一覧が渡る） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 未着手 |
+| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 作成中 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 連鎖の結合テスト（解決できない callsite が行番号とともに返り値に外したものとして載る）と振り分けの eval（対象スキルを特定できない依頼で run を起動せずに尋ねる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 未着手 |
