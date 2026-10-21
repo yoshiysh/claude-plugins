@@ -97,7 +97,7 @@ const COPIED = ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KE
 
 function scriptLiterals() {
   const top = AST.body[0].body.body;
-  const skip = top.filter((s) => (s.type === 'VariableDeclaration' && /^[A-Z_]+$/.test(s.declarations[0].id.name)) || (s.type === 'FunctionDeclaration' && s.id.name === 'isTreatedGround'));
+  const skip = top.filter((s) => (s.type === 'VariableDeclaration' && COPIED.includes(s.declarations[0].id.name)) || (s.type === 'FunctionDeclaration' && s.id.name === 'isTreatedGround'));
   const out = [];
   const visit = (node, parentKey) => {
     if (!node || typeof node !== 'object') return;

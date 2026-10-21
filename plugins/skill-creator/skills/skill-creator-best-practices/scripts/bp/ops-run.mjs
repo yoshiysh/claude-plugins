@@ -28,7 +28,7 @@ export function nextArgs(view) {
 function checkLimits(limits) {
   if (limits === null || typeof limits !== 'object' || Array.isArray(limits)) reject(CODES.input, 'limits はオブジェクトでなければならない');
   for (const key of Object.values(LIMIT_KEYS)) {
-    needPosInt(limits[key], `limits.${key}`);
+    needPosInt(limits[key], `limits.${key} は`);
   }
 }
 
@@ -202,7 +202,7 @@ export function premise(ctx, req) {
 }
 
 function checkRound(round) {
-  if (round != null) needPosInt(round, '回');
+  if (round != null) needPosInt(round, '回は');
 }
 
 export function stageStart(ctx, req) {
@@ -274,7 +274,7 @@ export function itemResult(ctx, req) {
     }
     const record = { t: RECORDS.result, item: req.item, result: req.result };
     if (req.iteration !== undefined) {
-      needPosInt(req.iteration, 'iteration');
+      needPosInt(req.iteration, 'iteration は');
       if (item.result === undefined && req.iteration !== view.iterations + 1) reject(CODES.conflict, `反復の番号が今の回数 + 1 ではない: ${req.iteration}（今の回数 ${view.iterations}）`);
       record.iteration = req.iteration;
     }
@@ -311,7 +311,7 @@ export function itemFail(ctx, req) {
 }
 
 export function checkRepeatNumber(view, stage, n) {
-  needPosInt(n, 'n');
+  needPosInt(n, 'n は');
   const current = view.repeats.get(stage) ?? 0;
   if (n > current + 1) reject(CODES.conflict, `繰り返しの番号が今の回数 + 1 を超える: ${n}（今の回数 ${current}）`);
 }
@@ -364,7 +364,7 @@ export function files(ctx, req) {
       if (!isInList(paths, entry.path)) { outside.push(entry.path); continue; }
       if (isHomeless(paths.root, entry.path)) reject(CODES.input, homelessReason([entry.path]));
       const key = pathKey(paths.root, entry.path);
-      needPosInt(entry.iteration, 'entries の iteration');
+      needPosInt(entry.iteration, 'entries の iteration は');
       if (entry.action !== undefined) {
         if (!Object.values(FILE_ACTIONS).includes(entry.action)) reject(CODES.input, `action は ${Object.values(FILE_ACTIONS).join('・')} のどれか: ${JSON.stringify(entry.action)}`);
         records.push({ t: RECORDS.file, run: req.run, path: key, iteration: entry.iteration, action: entry.action });

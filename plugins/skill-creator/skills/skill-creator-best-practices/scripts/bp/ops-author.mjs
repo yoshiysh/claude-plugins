@@ -50,7 +50,7 @@ export async function paths(ctx, req) {
 
 export function pathsRetake(ctx, req) {
   return mutate(ctx, req, OPS.pathsRetake, async (view) => {
-    needPosInt(req.iteration, 'iteration');
+    needPosInt(req.iteration, 'iteration は');
     const known = view.paths.find((p) => p.run === req.run && p.iteration === req.iteration);
     const output = (after) => {
       const rec = after.paths.find((p) => p.run === req.run && p.iteration === req.iteration);
@@ -214,7 +214,7 @@ export function goalCheck(ctx, req) {
 export function filesScan(ctx, req) {
   return mutate(ctx, req, OPS.filesScan, async (view) => {
     needRewriting(view);
-    needPosInt(req.iteration, 'iteration');
+    needPosInt(req.iteration, 'iteration は');
     const last = lastFingerprint(view);
     const now = await targetFingerprint(view.paths.at(-1));
     const changed = diffFingerprints(last?.files, now.digests);
@@ -299,7 +299,7 @@ export function computeGate(view, number) {
 export function gate(ctx, req) {
   return mutate(ctx, req, OPS.gate, (view) => {
     needRewriting(view);
-    needPosInt(req.number, 'number');
+    needPosInt(req.number, 'number は');
     const entry = stageEntry(view, STAGE.gate, req.number);
     if (!entry || entry.items.length !== 1) reject(CODES.unknownId, `反復 ${req.number} の合否の段の項目が無い`);
     const item = view.items.get(entry.items[0]);
