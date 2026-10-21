@@ -3,10 +3,8 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  candidateVerifier, commands, inspectArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, createArgs, viewOf,
+  MIN_LAUNCHES, candidateVerifier, commands, createArgs, inspectArgs, resumeArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, viewOf,
 } from './helpers/bp-harness.mjs';
-
-import { MIN_LAUNCHES, resumeArgs } from './helpers/bp-harness.mjs';
 
 const IS_STOP = (prompt) => prompt.includes(' stop <<');
 // 停止の前の書き込みの運搬役は、停止の直前に起動する、停止を運ばない運搬役（files-scan か照合と停止の段の開始を運ぶ）。
@@ -134,6 +132,8 @@ for (const c of CASES) {
 }
 
 const FN_OF = ['update', 'create', 'create', 'review', 'audit'];
+// 停止の記録を書けなかったときの理由の段（SP-BPRUN-027）。照合と停止の段を持たない create・update は止まった段。
+const STOP_STAGE = ['書く', '書く', '合否', '照合と停止', '照合と停止'];
 
 for (const [n, c] of CASES.entries()) {
   test(`SP-BPRUN-027・SP-BPRUN-017・SP-BPAUTHORING-015: 停止の前の書き込みの運搬役と停止の運搬役の間に対象スキルが変わっても、書いたファイルの記録と返り値が変わらない run と同じになり、偽の「停止の記録を書けなかった」を返さない［${FN_OF[n]}］（${c.name}）`, async (t) => {
@@ -173,12 +173,13 @@ for (const [n, c] of CASES.entries()) {
       let lost = 0;
       const got = await c.run(t, () => async (prompt, options) => (options.label === 'carrier' && match(prompt) && (lost += 1) <= 2 ? null : undefined));
       assert.equal(got.result.stopKind, 'blocked', label);
-      assert.ok(got.result.reason.includes(`${label}の運搬役。止めようとした停止: ${base.result.stopKind}`), got.result.reason);
+      assert.ok(got.result.reason.includes(`（段「${STOP_STAGE[n]}」の${label}の運搬役。止めようとした停止: ${base.result.stopKind}`), got.result.reason);
       assert.deepEqual(got.result.nextArgs, { function: FN_OF[n], state: got.result.state });
       assert.equal((await viewOf(got.env, got.result.state)).stops.size, 0, label);
-      if (label === '停止' && base.result.writtenFiles) {
-        assert.deepEqual(got.result.writtenFiles.map((f) => [f.path, f.action]), base.result.writtenFiles.map((f) => [f.path, f.action]), label);
-      }
+      // 返り値の書いたファイルの一覧は、状態にある記録と同じで、停止の記録を書けなかったので検証を通っていない（完了の停止だけが検証を通った記録を足す）。
+      const recorded = [...new Map((await viewOf(got.env, got.result.state)).files.map((f) => [f.path, f])).values()].map((f) => ({ path: f.path, action: f.action, verified: false }));
+      assert.deepEqual(got.result.writtenFiles, recorded.length ? recorded : undefined, label);
+      if (label === '停止' && base.result.writtenFiles) assert.deepEqual(recorded.map((f) => f.path), base.result.writtenFiles.map((f) => f.path), label);
     }
   });
 }
@@ -245,8 +246,9 @@ for (const fn of ['review', 'audit']) {
   });
 }
 
-// create・update の停止の前の書き込み（files-scan）は書く段で止まったときだけ起き、書く段の起動の前に WORST.write を確保しているので、上限との余りが停止の予約分より大きい。
-test('SP-BPRUN-027・SP-BPRUN-021・SP-BPRUN-040: 最小の起動数の上限の create・update で停止の前の書き込みの運搬役が応答を失っても、起動数が上限を超えない［create］［update］', async (t) => {
+// create・update の停止の前の書き込み（files-scan）は書く段で止まったときだけ起き、書く段の起動の前に WORST.write を確保しているので、
+// 最小の上限でも停止の前の書き込みの送り直しと停止の運搬役の分の余りがある（following を外しても同じ結果になる。上限との噛み合いは review・audit のテストが照らす）。
+test('SP-BPRUN-027・SP-BPRUN-040: 最小の起動数の上限の create・update で停止の前の書き込みの運搬役が応答を失うと、余りがあるので送り直して停止の記録を書き、起動数が上限を超えない［create］［update］', async (t) => {
   for (const [n, c] of CASES.entries()) {
     if (!c.pre.includes('files-scan')) continue;
     const limit = MIN_LAUNCHES[FN_OF[n]];
@@ -254,6 +256,24 @@ test('SP-BPRUN-027・SP-BPRUN-021・SP-BPRUN-040: 最小の起動数の上限の
     const got = await c.run(t, () => loseOnce(IS_PRE, 0, seen), { maxLaunches: limit });
     if (!got) return;
     assert.equal(seen.lost, true, c.name);
+    assert.equal(got.calls.filter((x) => x.role === 'carrier' && IS_PRE(x.prompt)).length, 2, c.name);
+    assert.equal((await viewOf(got.env, got.result.state)).stops.size, 1, c.name);
     assert.ok(got.calls.length <= limit, `${c.name}: ${got.calls.length} > ${limit}`);
   }
+});
+
+test('SP-BPRUN-027・SP-BPRUN-032: 停止の記録を書けなかった update で書いたファイルの一覧の読み出しも失うと、返り値に載せず理由を変えない［update］', async (t) => {
+  const c = CASES[0];
+  let lost = 0;
+  const got = await c.run(t, () => async (prompt, options) => {
+    if (options.label !== 'carrier') return undefined;
+    if (IS_STOP(prompt) && (lost += 1) <= 2) return null;
+    return prompt.includes(' written-files <<') ? null : undefined;
+  });
+  if (!got) return;
+  assert.equal(got.result.stopKind, 'blocked');
+  assert.match(got.result.reason, /^停止の記録を書けなかった（段「書く」の停止の運搬役。止めようとした停止: blocked: /);
+  assert.equal(got.result.writtenFiles, undefined);
+  assert.equal(got.calls.filter((x) => x.prompt.includes(' written-files <<')).length, 1);
+  assert.ok((await viewOf(got.env, got.result.state)).files.length > 0);
 });

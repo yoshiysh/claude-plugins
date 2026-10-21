@@ -36,7 +36,7 @@ const DIFFERENT = {
   refuteStage: '段の回の有無と反証役の prompt が違う',
   vanishStage: 'review・audit は資産の束と照らす先を共通の部分として渡す',
   resumePlan: '再開の段の表が機能の文書ごとに違う（SP-BPAUTHORING-035・SP-BPINSPECTION-030）',
-  finish: 'review・audit は全ての停止で onTargetChanged を付け、完了の前に段の終わりを書く',
+  finish: '停止の前の書き込みの作り方が違い（create・update は書き手が結果を返さなかったときの files-scan、review・audit は完了の前の反証の段の終わりと照合と停止の段の開始）、review・audit は全ての停止で onTargetChanged を付け、create・update は停止の記録を書けなかったときに書いたファイルの一覧を読み、確かめられなかった制限の行が違う',
   main: '段の並びが違う',
 };
 

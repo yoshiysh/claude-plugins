@@ -44,7 +44,6 @@ for (const fn of FNS) {
     assert.deepEqual(r2.result.findings, []);
   });
 
-
 }
 
 test('SP-BPINSPECTION-030・SP-BPRUN-018: 担当の作成の段を終えて適用の判定の段を始める前に止まった review の再開は、段の開始を書いてから適用の判定を行う', async (t) => {
@@ -107,7 +106,6 @@ test('SP-BPINSPECTION-004・SP-BPINSPECTION-029: 停止の間に判定基準の�
     assert.deepEqual(roles(r2.calls), []);
   }
 });
-
 
 for (const fn of FNS) {
   test(`SP-BPRUN-027・SP-BPRUN-030: fan-out の外の agent の失敗で BLOCKED になる理由に段と役があり、host が null を返したときは結果を返さなかったこと、運搬役の失敗では失敗の内容がある${mark(fn)}`, async (t) => {

@@ -409,7 +409,6 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
   return { ok: true, responses: parsed }
 }
 
-
 // 応答を失った運搬役は CLI が書いたかが分からないので、同じ要求を 1 回だけ送り直す（書き込みは冪等の鍵で同じ要求を same で受ける）。
 // following はこの後に必ず起動する運搬役の数。それを残して上限を超えないときだけ送り直す（送り直しが後の停止の運搬役の予約分を食うと、上限を超える）。
 async function carryTwice(requests, following = 0) {
@@ -859,8 +858,10 @@ function resumePlan(p) {
 }
 
 // 理由は SP-BPRUN-027・SP-BPRUN-030 の段・役・失敗の内容を持つ（完了の停止は理由を持たないので、止めようとした停止の種類も書く）。
+// 段は、照合と停止の段を持つ機能はその段、持たない機能は止まった段（停止の記録に書くはずだった段）とする。
 function stopFailure(stop, carrier, r) {
-  return `停止の記録を書けなかった（${STAGE_TITLES.close ? `段「${STAGE_TITLES.close}」の` : ''}${carrier}の運搬役。止めようとした停止: ${stop.kind}${stop.reason ? `: ${stop.reason}` : ''}）: ${r.reason}`
+  const stage = STAGE_TITLES.close ?? STAGE_TITLES[open?.stage ?? STAGE.start]
+  return `停止の記録を書けなかった（段「${stage}」の${carrier}の運搬役。止めようとした停止: ${stop.kind}${stop.reason ? `: ${stop.reason}` : ''}）: ${r.reason}`
 }
 
 async function finish(stop, before = []) {
