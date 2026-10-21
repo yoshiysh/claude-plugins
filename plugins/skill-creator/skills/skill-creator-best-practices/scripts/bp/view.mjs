@@ -36,6 +36,8 @@ export function buildView(lines) {
     refutes: new Map(),
     unrefuted: [],
     findings: new Map(),
+    snapshot: null,
+    extras: new Map(),
   };
   let n = 0;
   for (const line of lines) {
@@ -61,8 +63,14 @@ function apply(v, r) {
     case RECORDS.fingerprint: v.fingerprints.push(r); break;
     case RECORDS.stage: {
       const key = stageKey(r.stage, r.round);
-      v.stages.set(key, { stage: r.stage, round: r.round ?? null, items: r.items.map((i) => i.id), seq: r.seq, ended: false });
-      v.stageOrder.push(key);
+      const known = v.stages.get(key);
+      if (known) {
+        known.items.push(...r.items.map((i) => i.id).filter((id) => !known.items.includes(id)));
+        known.parts = Math.max(known.parts, r.part ?? 1);
+      } else {
+        v.stages.set(key, { stage: r.stage, round: r.round ?? null, items: r.items.map((i) => i.id), seq: r.seq, ended: false, parts: r.part ?? 1 });
+        v.stageOrder.push(key);
+      }
       for (const item of r.items) {
         if (!v.items.has(item.id)) {
           v.items.set(item.id, { id: item.id, key: item.key, stage: r.stage, round: r.round ?? null, result: undefined, fails: [], aborted: null, discarded: null });
@@ -127,8 +135,15 @@ function apply(v, r) {
       f.keys.push(keyString({ asset: r.asset, viewpoint: f.key.viewpoint, kind: f.key.kind }));
       break;
     }
+    case RECORDS.snapshot: v.snapshot = r; break;
+    case RECORDS.extra: v.extras.set(r.item, r); break;
     default: throw new Error(`未知の記録の種類: ${r.t}`);
   }
+}
+
+// script は stage-start と停止の段の項目の両方からこの形を同じ意味で読む。
+export function itemStatus(item) {
+  return { id: item.id, attempts: item.fails.length, result: item.result !== undefined, aborted: Boolean(item.aborted), discarded: Boolean(item.discarded) };
 }
 
 export function currentRun(v) {

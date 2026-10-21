@@ -3,7 +3,7 @@ import {
   ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
   REVIEW_VALUES, REWRITING_FUNCTIONS, ROUND_PREFIX, STAGE, STAGES, VANISH_NONE, VERIFY_STAGES, VIEWPOINTS,
 } from './constants.mjs';
-import { checkStage, checkWritableItem } from './checks.mjs';
+import { checkAttempt, checkStage, checkWritableItem } from './checks.mjs';
 import { internal, reject } from './errors.mjs';
 import { assignmentId, canonical, findingId, fingerprintSet, keyString, sum } from './ids.mjs';
 import { kindsFor } from './kinds.mjs';
@@ -11,6 +11,8 @@ import { createLedgerRecords, enumerateAssets, retakeRecords } from './ledger.mj
 import { nextState, reviewJudgement } from './judge.mjs';
 import { ledgerReport, liveAssets, skipList } from './report.mjs';
 import { mutate, readState } from './store.mjs';
+import { checkExtra, extraFields } from './units.mjs';
+import { treatedGroundIds } from './ops-author.mjs';
 import { currentAssets, currentRun } from './view.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
@@ -30,10 +32,10 @@ function needCriteria(ctx) {
   if (!existsSync(ctx.criteriaDir)) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
 }
 
-function itemIn(view, id, stages) {
+function itemIn(view, id, stages, { writable = true } = {}) {
   const item = view.items.get(id);
   if (!item || !stages.includes(item.stage)) reject(CODES.unknownId, `状態に無い${stages.map((s) => STAGES[s]).join('・')}の段の項目の ID: ${JSON.stringify(id)}`);
-  checkWritableItem(item);
+  if (writable) checkWritableItem(item);
   return item;
 }
 
@@ -47,7 +49,7 @@ function fpsOf(view, assetIds) {
   return fps;
 }
 
-function rejected(scope, attempt, assignment, payload, reason) {
+export function rejected(scope, attempt, assignment, payload, reason) {
   return {
     records: [{ t: RECORDS.rejected, scope, attempt, sum: sum(payload ?? null), assignment, reason }],
     error: { code: CODES.result, reason },
@@ -58,6 +60,11 @@ function rejected(scope, attempt, assignment, payload, reason) {
 function resent(item, resultRecord, output) {
   if (item.result === undefined) return null;
   return { records: [resultRecord], output };
+}
+
+export function affectedFindings(view, gone) {
+  const ids = new Set(gone.map((g) => g.id));
+  return [...view.findings.values()].sort((a, b) => a.order - b.order).filter((f) => f.assets.some((a) => ids.has(a))).map((f) => f.id);
 }
 
 export function ledgerCreate(ctx, req) {
@@ -75,7 +82,7 @@ export function ledgerRetake(ctx, req) {
   return mutate(ctx, req, OPS.ledgerRetake, async (view) => {
     needLedger(view);
     const r = retakeRecords(view, await enumerateAssets(view.paths.at(-1)));
-    return { records: r.records, output: { counts: r.counts, gone: r.gone, retake: r.records.length ? r.retake : null } };
+    return { records: r.records, output: { counts: r.counts, gone: r.gone, retake: r.records.length ? r.retake : null, affected: affectedFindings(view, r.gone) } };
   });
 }
 
@@ -168,9 +175,12 @@ export function verdicts(ctx, req) {
     if (again) return again;
     needCriteria(ctx);
     const kinds = new Set(kindsFor(ctx.criteriaDir, req.viewpoint, view.state.function).map((k) => k.value));
-    const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds);
+    const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds)
+      ?? (REWRITING_FUNCTIONS.has(view.state.function) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null);
     if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
     const records = [resultRecord];
+    const extra = REWRITING_FUNCTIONS.has(view.state.function) ? extraFields(req.viewpoint, req.result) : null;
+    if (extra) records.push({ t: RECORDS.extra, item: req.item, viewpoint: req.viewpoint, data: extra });
     for (const j of req.result.judgements) {
       records.push({ t: RECORDS.seen, item: req.item, asset: j.asset, viewpoint: req.viewpoint, assignment: assignment.id, fpset: assignment.fpset, digest: assignment.fps[j.asset], value: j.judgement });
     }
@@ -211,15 +221,14 @@ export async function refutationItems(ctx, req) {
   const { view } = await readState(ctx, req.state);
   const refs = stageRefs(req);
   const keys = [];
-  const seenKeys = new Set();
+  const texts = new Map();
   for (const c of view.candidates) {
     if (!inStages(view.items.get(c.item), refs)) continue;
     const ks = keyString(c.key);
-    if (seenKeys.has(ks)) continue;
-    seenKeys.add(ks);
-    keys.push(c.key);
+    if (!texts.has(ks)) { texts.set(ks, []); keys.push(c.key); }
+    texts.get(ks).push(...c.texts);
   }
-  return { keys };
+  return req.texts ? { keys, candidates: keys.map((k) => ({ key: k, texts: texts.get(keyString(k)) })) } : { keys };
 }
 
 function candidatesOfRefuteItem(view, item) {
@@ -244,15 +253,20 @@ function refutationOutput(view, item) {
 export function refutation(ctx, req) {
   return mutate(ctx, req, OPS.refutation, (view) => {
     needLedger(view);
-    const item = itemIn(view, req.item, [STAGE.refute]);
+    // 未反証の記録は試行の失敗と組で送られるので、打ち切りを足した組の送り直しも受けられるよう、書けるかは試行の番号で決める。
+    const item = itemIn(view, req.item, [STAGE.refute], { writable: req.verdict != null });
     const cands = candidatesOfRefuteItem(view, item);
     if (cands.length === 0) reject(CODES.unknownId, `反証の項目に候補が無い: ${req.item}`);
     const output = (after) => refutationOutput(after, after.items.get(req.item));
     const resultRecord = { t: RECORDS.result, item: req.item, result: { kind: RESULT_KINDS.refutation, verdict: req.verdict ?? null, reason: req.reason ?? null } };
     const again = resent(item, resultRecord, output);
     if (again) return again;
+    if (req.verdict == null) {
+      if (item.discarded) reject(CODES.conflict, `破棄した項目に未反証の記録を書けない: ${req.item}`);
+      checkAttempt(item, req.attempt, '未反証の記録');
+      return { records: [{ t: RECORDS.unrefuted, item: req.item, attempt: req.attempt }], output };
+    }
     const attempt = item.fails.length + 1;
-    if (req.verdict == null) return { records: [{ t: RECORDS.unrefuted, item: req.item, attempt }], output };
     const payload = { verdict: req.verdict, reason: req.reason };
     if (!Object.values(REFUTATION_VERDICTS).includes(req.verdict)) return rejected(`${REJECT_SCOPE.item}${req.item}`, attempt, null, payload, `反証の結果が選択肢に無い: ${JSON.stringify(req.verdict)}`);
     if (typeof req.reason !== 'string') return rejected(`${REJECT_SCOPE.item}${req.item}`, attempt, null, payload, '反証の理由が文字列でない');
@@ -393,7 +407,10 @@ export async function report(ctx, req) {
   needLedger(view);
   if (!Array.isArray(req.viewpoints)) reject(CODES.input, 'viewpoints は観点の並び');
   req.viewpoints.forEach(checkViewpoint);
-  return { run: currentRun(view).id, ...ledgerReport(view, req.viewpoints) };
+  const full = { run: currentRun(view).id, ...ledgerReport(view, req.viewpoints), assets: currentAssets(view).map((a) => ({ id: a.id, path: a.path, loc: a.loc })) };
+  if (req.fields === undefined) return full;
+  if (!Array.isArray(req.fields) || req.fields.some((f) => !Object.hasOwn(full, f))) reject(CODES.input, `fields は ${Object.keys(full).join('・')} の並び`);
+  return Object.fromEntries(req.fields.map((f) => [f, full[f]]));
 }
 
 export async function kinds(ctx, req) {

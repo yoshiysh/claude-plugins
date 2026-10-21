@@ -186,7 +186,7 @@ CLI は、反証の結果を次のとおり記録しなければならない。
 | 台帳にある | 却下 | 却下の理由を記録し、見直しの「存在しない」の材料にする（SP-BPFINDINGS-018） |
 
 #### SP-BPFINDINGS-015 未反証の候補
-反証役が結果を返さなかったならば、CLI はその候補を未反証の候補として記録しなければならない。未反証の候補は、open の指摘にも dismissed の指摘にもしてはならない。
+反証役が結果を返さなかったならば、CLI はその候補を未反証の候補として記録しなければならない。未反証の候補は、open の指摘にも dismissed の指摘にもしてはならない。未反証の記録は、反証役が結果を返さなかった試行ごとに 1 つとし、どの試行かは script が要求に持たせた番号で決める（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `refutation`）。
 
 ### 指摘の状態
 
@@ -245,10 +245,10 @@ CLI は、指摘の状態の変化を新しい記録として足し、前の記�
 資産が消えたこと（SP-BPFINDINGS-005）が記録されたならば、script は、その資産に結び付いた指摘ごとに、その指摘の観点の検証役を起動し、指摘の引用・内容と、台帳にある今の資産 ID の一覧を渡さなければならない。検証役は、今の資産 ID の一覧から 1 つを選ぶか「該当なし」を選んで返さなければならない。結果の記録は SP-BPFINDINGS-037 に従う。この段の項目の順位（`docs/specifications/bp-run.md` の SP-BPRUN-038）は、指摘を台帳に作った順とする。
 
 #### SP-BPFINDINGS-037 消えた資産の照合の結果の記録
-CLI は、SP-BPFINDINGS-020 の検証役の結果について、資産 ID が選ばれたら「存在する」、「該当なし」が選ばれたら「存在しない」、検証役が結果を返さなかったら「判定できない」として SP-BPFINDINGS-019 を当てなければならない。資産 ID が選ばれたとき、CLI は指摘 ID を変えずに、その指摘に選ばれた資産を足して記録し、以後はその資産 ID を含む鍵も同じ指摘の鍵として照合しなければならない。書き換えない run の台帳では、CLI は状態を遷移させず（SP-BPFINDINGS-016 の resolved・regressed を記録しない。拒否はしない）、照合の結果を見直しの判定だけとして記録する（書き換えない run では resolved・regressed が決まらない：SP-BPFINDINGS-016）。
+CLI は、SP-BPFINDINGS-020 の検証役の結果について、資産 ID が選ばれたら「存在する」、「該当なし」が選ばれたら「存在しない」、検証役が結果を返さなかったら「判定できない」として SP-BPFINDINGS-019 を当てなければならない。資産 ID が選ばれたとき、CLI は指摘 ID を変えずに、その指摘に選ばれた資産を足して記録し、以後はその資産 ID を含む鍵も同じ指摘の鍵として照合しなければならない。「今の内容で判定したか」の扱いは SP-BPFINDINGS-021 に従う。書き換えない run の台帳では、CLI は状態を遷移させず（SP-BPFINDINGS-016 の resolved・regressed を記録しない。拒否はしない）、照合の結果を見直しの判定だけとして記録する（書き換えない run では resolved・regressed が決まらない：SP-BPFINDINGS-016）。
 
 #### SP-BPFINDINGS-021 判定の時点の記録
-CLI は、指摘ごとに、最後に判定したときの担当の指紋の組が、台帳の今の内容の指紋と一致するかを結果に載せなければならない（一致しない指摘の状態は、今の内容で確かめていない）。見直しの判定が「判定できない」のとき（SP-BPFINDINGS-018 の表の 1・4・8 行と、SP-BPFINDINGS-037 の結果なし）は、状態の記録を足しても最後に判定した時点を更新しない（今の内容で確かめていない）。
+CLI は、指摘ごとに、最後に判定したときの担当の指紋の組が、台帳の今の内容の指紋と一致するかを結果に載せなければならない（一致しない指摘の状態は、今の内容で確かめていない）。見直しの判定が「判定できない」のとき（SP-BPFINDINGS-018 の表の 1・4・8 行と、SP-BPFINDINGS-037 の結果なし）は、状態の記録を足しても最後に判定した時点を更新しない（今の内容で確かめていない）。資産が全て消えた指摘は、比べる今の内容の指紋が無いので、最後の判定が消えた資産の照合（SP-BPFINDINGS-037）の「存在しない」のときだけ今の内容で判定したとし、それ以外は判定していないとする（照合は台帳の今の資産の一覧に照らした判定である）。
 
 ### カバレッジと skip 一覧
 
@@ -426,14 +426,14 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-001 | CLI の単体テスト（ファイル 3 つの対象スキルで台帳を作り、全てのファイルの資産が列挙されることを確認） | 完了 |
-| PR-BPOPERATIONS-044 | SP-BPFINDINGS-001 | script の結合テスト（最初の検証の段の前に台帳を作る CLI が運搬役から呼ばれることを確認） | 未着手 |
+| PR-BPOPERATIONS-044 | SP-BPFINDINGS-001 | script の結合テスト（最初の検証の段の前に台帳を作る CLI が運搬役から呼ばれることを確認） | 作成中 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-002 | CLI の単体テスト（frontmatter・前置き・同名の見出し 2 つ・コードブロック内の `#` 行を含む Markdown と script 1 つを与え、資産の数と範囲の位置を確認） | 完了 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-003 | CLI の単体テスト（節の本文だけを書き換えて列挙し直し、資産 ID が変わらないことを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-003 | CLI の単体テスト（同じ入力で 2 回列挙し、資産 ID が一致することを確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-004 | CLI の単体テスト（1 字だけ変えた節の内容の指紋が変わり、他の節の指紋が変わらないことを確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | CLI の単体テスト（変更・追加・削除・不変の資産を 1 つずつ含む書き換えの後に列挙し直し、表の 4 行どおりの記録を確認） | 完了 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-006 | CLI の単体テスト（agent が台帳に無い資産 ID を返したとき記録が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-007 | script の結合テスト（3 種の判定を返す偽の検証役で、各資産の判定が台帳に入ることを確認） | 未着手 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-007 | script の結合テスト（3 種の判定を返す偽の検証役で、各資産の判定が台帳に入ることを確認） | 作成中 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-008 | CLI の単体テスト（指摘も問題なしも返さない「判断できない」の資産にも「見た」が記録されることを確認） | 完了 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-008 | CLI の単体テスト（「見た」の記録が反証の結果を待たずに入ることを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-009 | CLI の単体テスト（「確認済みで問題なし」が観点と担当の指紋の組とともに記録されることを確認） | 完了 |
@@ -443,43 +443,43 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-012 | script の結合テスト（同じ担当を 2 体が見て同じ鍵の候補を返したとき、反証役の起動が 1 回で、その結果が 2 件の候補の両方に記録されることを計数） | 未着手 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-036 | CLI の単体テスト（引用と内容の文言だけが違う同じ鍵の候補 2 件が同じ指摘になり、観点だけが違う 2 件が別の指摘 ID になることを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-010 | CLI の単体テスト（同じ資産に、同じ仕様項目の原則の表の別の行の違反を 2 件記録し、別の指摘になることを確認） | 完了 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | script の結合テスト（全ての重複でない候補が、それを返した検証役と別の反証役に渡ることを確認） | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | script の結合テスト（全ての重複でない候補が、それを返した検証役と別の反証役に渡ることを確認） | 作成中 |
 | PR-BPOPERATIONS-031 | SP-BPFINDINGS-014 | CLI の単体テスト（表の 4 行の入力を与え、記録を確認） | 完了 |
 | PR-BPOPERATIONS-032 | SP-BPFINDINGS-014 | CLI の単体テスト（維持の候補が open、却下の候補が dismissed になることを確認） | 完了 |
 | PR-BPOPERATIONS-043 | SP-BPFINDINGS-014 | CLI の単体テスト（dismissed の指摘に却下の理由が記録されることを確認） | 完了 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-015 | script の結合テスト（反証役を結果なしにし、その候補が open にも dismissed にもならず未反証の候補になることを確認） | 未着手 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-015 | script の結合テスト（反証役を結果なしにし、その候補が open にも dismissed にもならず未反証の候補になることを確認） | 作成中 |
 | PR-BPOPERATIONS-032 | SP-BPFINDINGS-016 | CLI の単体テスト（書き換えない run の台帳に resolved を記録させ、拒否されることを確認） | 完了 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-017 | CLI の単体テスト（状態の遷移の後に前の記録が残っていることと、同じ書き込みの繰り返しで台帳が変わらないことを確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | CLI の単体テスト（表の 8 行の条件を 1 つずつ作り、判定を確認。条件の値の全ての組を列挙し、起こりうる組がどれかの行に当たり、どの行にも当たる組があり、起こりえない組が内部の失敗になることを確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-019 | CLI の単体テスト（4 状態 × 3 判定の 12 通りを与え、次の状態を確認） | 完了 |
 | PR-BPOPERATIONS-022 | SP-BPFINDINGS-019 | CLI の単体テスト（前の run が open を記録した指摘に、再開した run で「存在しない」を与え、状態が記録されず見直しの判定だけが記録されることを確認） | 完了 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-020 | script の結合テスト（指摘のある節を削除し、その指摘の観点の検証役が今の資産 ID の一覧とともに起動されることを確認） | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-020 | script の結合テスト（指摘のある節を削除し、その指摘の観点の検証役が今の資産 ID の一覧とともに起動されることを確認） | 作成中 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-037 | CLI の単体テスト（照合の検証役の資産 ID・「該当なし」・結果なしの 3 通りで、状態と資産の記録を確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-019 | CLI の単体テスト（内容の指紋も担当の指紋の組も最後の判定と同じ指摘に状態の記録も見直しの判定の記録も足されないことを確認） | 完了 |
 | PR-BPOPERATIONS-045 | SP-BPFINDINGS-021 | CLI の単体テスト（最後の判定の後に資産を書き換え、見直さずに結果を作り、「今の内容で判定したか」が否になることを確認） | 完了 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-022 | CLI の単体テスト（資産 4 つのうち 3 つに「見た」を記録し、カバレッジが 3/4 になることを確認。1 つを書き換えると 2/4 になることを確認） | 完了 |
-| PR-BPOPERATIONS-046 | SP-BPFINDINGS-022 | script の結合テスト（create の完了時の結果に観点ごとのカバレッジが載ることを確認） | 未着手 |
+| PR-BPOPERATIONS-046 | SP-BPFINDINGS-022 | script の結合テスト（create の完了時の結果に観点ごとのカバレッジが載ることを確認） | 完了 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-023 | CLI の単体テスト（「見た」が 0 件の資産が観点ごとの skip 一覧に載ることを確認） | 完了 |
-| PR-BPOPERATIONS-046 | SP-BPFINDINGS-023 | script の結合テスト（update の完了時の結果に skip 一覧が載ることを確認） | 未着手 |
+| PR-BPOPERATIONS-046 | SP-BPFINDINGS-023 | script の結合テスト（update の完了時の結果に skip 一覧が載ることを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-024 | CLI の単体テスト（表の 5 行に当たる資産を 1 つずつ作り、結末を確認。「見た」だけの資産と未反証の候補だけの資産が「確認済みで問題なし」にならないことを確認） | 完了 |
-| PR-BPOPERATIONS-034 | SP-BPFINDINGS-025 | script の結合テスト（1 回目の追加の起動で一部の資産が見られ、2 回目で 0 件になったとき、追加の起動が止まり残りの skip 一覧が結果に載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-035 | SP-BPFINDINGS-025 | script の結合テスト（追加の起動の担当に skip 一覧の資産だけが含まれることを確認） | 未着手 |
+| PR-BPOPERATIONS-034 | SP-BPFINDINGS-025 | script の結合テスト（1 回目の追加の起動で一部の資産が見られ、2 回目で 0 件になったとき、追加の起動が止まり残りの skip 一覧が結果に載ることを確認） | 作成中 |
+| PR-BPOPERATIONS-035 | SP-BPFINDINGS-025 | script の結合テスト（追加の起動の担当に skip 一覧の資産だけが含まれることを確認） | 作成中 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-026 | script の結合テスト（起動数の上限で止まった review を再開し、前の run の「見た」と指摘が再開後の結果に載ることを確認） | 未着手 |
 | PR-BPOPERATIONS-022 | SP-BPFINDINGS-026 | CLI の単体テスト（別の状態の台帳の指摘 ID を指定した状態の記録が拒否されることを確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | script の結合テスト（停止の間に対象スキルの節を 1 つ書き換えて再開し、その節の資産が skip 一覧に戻ることを確認） | 未着手 |
 | PR-BPOPERATIONS-022 | SP-BPFINDINGS-027 | script の結合テスト（review の open の指摘を update に渡し、update の台帳にその指摘が記録されないことと、同じ鍵の update の指摘が別の ID になることを確認） | 未着手 |
-| PR-BPOPERATIONS-042 | SP-BPFINDINGS-028 | script の結合テスト（update の結果で、受け取った指摘に状態が付かず指摘 ID だけが載り、状態の付いた指摘が全て update の台帳 ID と今の run の記録を持つことを確認） | 未着手 |
-| PR-BPOPERATIONS-042 | SP-BPFINDINGS-028 | script の結合テスト（再開した update の結果で、前の run が最後の状態を記録した指摘に状態が載らず、記録した run と見直しの判定が載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-045 | SP-BPFINDINGS-028 | script の結合テスト（create の結果の指摘の状態が全て create の台帳の記録と一致することを確認） | 未着手 |
+| PR-BPOPERATIONS-042 | SP-BPFINDINGS-028 | script の結合テスト（update の結果で、受け取った指摘に状態が付かず指摘 ID だけが載り、状態の付いた指摘が全て update の台帳 ID と今の run の記録を持つことを確認） | 完了 |
+| PR-BPOPERATIONS-042 | SP-BPFINDINGS-028 | script の結合テスト（再開した update の結果で、前の run が最後の状態を記録した指摘に状態が載らず、記録した run と見直しの判定が載ることを確認） | 完了 |
+| PR-BPOPERATIONS-045 | SP-BPFINDINGS-028 | script の結合テスト（create の結果の指摘の状態が全て create の台帳の記録と一致することを確認） | 完了 |
 | PR-BPOPERATIONS-036 | SP-BPFINDINGS-029 | script の結合テスト（review の結果の指摘を update の入力にそのまま渡し、修正の根拠として受け付けられることを確認） | 未着手 |
 | PR-BPOPERATIONS-043 | SP-BPFINDINGS-029 | CLI の単体テスト（dismissed の指摘の結果に却下の理由が載ることを確認） | 完了 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-030 | script の結合テスト（review と audit の結果に表の項目が全て載ることを確認） | 未着手 |
 | PR-BPOPERATIONS-043 | SP-BPFINDINGS-030 | script の結合テスト（dismissed の指摘が結果の指摘の一覧に含まれることを確認） | 未着手 |
 | PR-BPOPERATIONS-036 | SP-BPFINDINGS-031 | script の結合テスト（open と dismissed の指摘を含む review の結果を update に渡し、open の指摘だけが修正の根拠になることを確認） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPFINDINGS-031 | script の結合テスト（review → update の連鎖で、update に渡る指摘が SP-BPFINDINGS-029 の項目を全て持つことを確認） | 未着手 |
-| PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | script の結合テスト（利用者の指示だけを修正の根拠として渡し、資産 ID の無い根拠が受け付けられることを確認） | 未着手 |
-| PR-BPOPERATIONS-045 | SP-BPFINDINGS-032 | script の結合テスト（update の完了時の出力に、台帳の指摘ごとの状態が全て載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-046 | SP-BPFINDINGS-032 | script の結合テスト（create の完了時の出力に skip 一覧が載ることを確認） | 未着手 |
+| PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | script の結合テスト（利用者の指示だけを修正の根拠として渡し、資産 ID の無い根拠が受け付けられることを確認） | 作成中 |
+| PR-BPOPERATIONS-045 | SP-BPFINDINGS-032 | script の結合テスト（update の完了時の出力に、台帳の指摘ごとの状態が全て載ることを確認） | 完了 |
+| PR-BPOPERATIONS-046 | SP-BPFINDINGS-032 | script の結合テスト（create の完了時の出力に skip 一覧が載ることを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-033 | CLI の単体テスト（ファイルが 0 件の対象スキルで台帳の作成が理由つきで失敗することを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-034 | CLI の単体テスト（台帳に無い資産 ID を含む結果を拒否し、その担当の資産が skip 一覧に残り、拒否の件数と担当が状態に記録されることを確認）と script の結合テスト（検証役の結果の拒否で run が BLOCKED にならず、その項目が未着手に戻って試行の回数が増えることを確認） | 作成中 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-010 | CLI の単体テスト（目標の観点・契約の観点の閉集合に無い指摘の種類を含む候補と、SP-BPINSPECTION-009 の一覧に無い監査の指摘の種類を含む候補の記録が拒否されることを確認） | 完了 |
@@ -487,6 +487,6 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-022 | CLI の単体テスト（run の観点の集合に無い観点についてカバレッジと skip 一覧が作られないことを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-034 | CLI の単体テスト（機能の文書が足した欄を持つ結果が、足した欄を理由に拒否されないことを確認） | 完了 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-035 | CLI の単体テスト（同じ候補に 2 つの異なる反証の結果を記録させ、2 つ目が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | script の結合テスト（反復 1 で資産 Y の候補が反証で却下され、反復 2 で別の資産だけを書き換え、検証役が Y に同じ鍵の候補を返すと、重複になり、見直しの判定が「存在しない」で dismissed が今の担当の指紋の組とともに記録され、「今の内容で判定したか」がはいになり、BLOCKED にならないことを確認） | 未着手 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | script の結合テスト（反復 1 で資産 Y の候補が反証で却下され、反復 2 で別の資産だけを書き換え、検証役が Y に同じ鍵の候補を返すと、重複になり、見直しの判定が「存在しない」で dismissed が今の担当の指紋の組とともに記録され、「今の内容で判定したか」がはいになり、BLOCKED にならないことを確認） | 作成中 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-020 | script の結合テスト（停止の間に指摘のある節を消した review を再開し、消えた資産の照合の段で検証役が指摘を台帳に作った順に起動され、状態が記録されず見直しの判定だけが記録されることを確認） | 未着手 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-034 | script の結合テスト（一覧に無い資産 ID を含む担当の組を返す偽の抽出役が試行の上限の回まで起動し直され、上限の回でも拒否されると BLOCKED になり、途中の回で受理されると run が続くことを確認） | 未着手 |

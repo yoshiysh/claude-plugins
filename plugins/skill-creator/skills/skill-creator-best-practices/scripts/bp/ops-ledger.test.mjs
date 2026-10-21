@@ -8,7 +8,8 @@ import { CODES, OUTCOMES, REJECT_SCOPE, STATES_DIR } from './constants.mjs';
 import { fingerprintSet } from './ids.mjs';
 import { readAll } from './journal.mjs';
 import { buildView } from './view.mjs';
-import { LIMITS, context, skillDir, newKey } from './fixtures/harness.mjs';
+import { CRITERIA_FIXTURE, LIMITS, context, skillDir, newKey } from './fixtures/harness.mjs';
+import { applicability } from './units.mjs';
 
 const K1 = 'SP-BPCONFORMANCE-010/目標の固定/t2/r1';
 const K2 = 'SP-BPCONFORMANCE-010/目標の固定/t2/r2';
@@ -36,6 +37,17 @@ async function setup(t, { fn = 'update', files = FOUR, ctx: given } = {}) {
   return { ctx, root, req, assets: made.assets, byLoc };
 }
 
+// create・update の検証役の結果は観点ごとの足した欄を必ず持つ（SP-BPAUTHORING-017・038・039）。
+const ROW = applicability(CRITERIA_FIXTURE)[0];
+function withExtra(viewpoint, result) {
+  const extra = {
+    conformance: { applicability: { row: ROW.row }, units: ROW.units.map((u) => ({ unit: u.value, result: 'conform', reason: 'r' })), residualRisks: [] },
+    goal: { basisConstraints: [] },
+    contract: { contractChanges: [] },
+  }[viewpoint] ?? {};
+  return { ...extra, ...result };
+}
+
 async function verifyMany(ctx, req, { round = null, stage = 'verify', entries }) {
   const prepared = [];
   for (const e of entries) {
@@ -45,7 +57,7 @@ async function verifyMany(ctx, req, { round = null, stage = 'verify', entries })
   const { items } = await run.stageStart(ctx, { ...req, stage, round, keys: prepared.map((p, i) => ({ n: i, viewpoint: p.viewpoint, assignment: p.assignment.id })) });
   const outs = [];
   for (const [i, p] of prepared.entries()) {
-    const out = await ledger.verdicts(ctx, { ...req, item: items[i], assignment: p.assignment.id, viewpoint: p.viewpoint, result: p.result ?? { judgements: p.judgements, candidates: p.candidates ?? [] } });
+    const out = await ledger.verdicts(ctx, { ...req, item: items[i], assignment: p.assignment.id, viewpoint: p.viewpoint, result: p.result ?? withExtra(p.viewpoint, { judgements: p.judgements, candidates: p.candidates ?? [] }) });
     outs.push({ ...out, item: items[i], assignment: p.assignment });
   }
   return outs;
@@ -67,7 +79,7 @@ async function refuteAll(ctx, req, round, verdict, reason = '理由') {
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round }] });
   const { items } = await run.stageStart(ctx, { ...req, stage: 'refute', round, keys });
   const out = [];
-  for (const item of items) out.push(await ledger.refutation(ctx, { ...req, item, verdict, reason }));
+  for (const item of items) out.push(await ledger.refutation(ctx, { ...req, item, verdict, reason, ...(verdict == null ? { attempt: 1 } : {}) }));
   return out;
 }
 
@@ -121,7 +133,7 @@ test('SP-BPFINDINGS-006・SP-BPFINDINGS-034: 台帳に無い資産 ID を含む�
 test('SP-BPFINDINGS-034: 機能の文書が足した欄を持つ結果が、足した欄を理由に拒否されない', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
-  const out = await verify(ctx, req, { result: { judgements: allJudged(assets, 'ok'), candidates: [], units: [{ unit: K1, result: '適合' }], uninspected: [] } });
+  const out = await verify(ctx, req, { result: withExtra('conformance', { judgements: allJudged(assets, 'ok'), candidates: [], uninspected: [], note: '機能の文書が足した欄' }) });
   assert.equal(out.judgedOk, assets.length);
 });
 
@@ -463,7 +475,7 @@ test('SP-BPFINDINGS-024: 表の 5 行に当たる資産を 1 つずつ作り、�
   const { items } = await run.stageStart(ctx, { ...req, stage: 'refute', round: 1, keys });
   await ledger.refutation(ctx, { ...req, item: items[0], verdict: 'uphold', reason: 'x' });
   await ledger.refutation(ctx, { ...req, item: items[1], verdict: 'reject', reason: 'y' });
-  await ledger.refutation(ctx, { ...req, item: items[2], verdict: null });
+  await ledger.refutation(ctx, { ...req, item: items[2], verdict: null, attempt: 1 });
   const rep = await ledger.report(ctx, { ...req, viewpoints: ['conformance'] });
   const of = (id) => rep.outcomes.find((o) => o.asset === id).outcome;
   assert.deepEqual(assets.map((a) => of(a.id)), [OUTCOMES.finding, OUTCOMES.dismissedOnly, OUTCOMES.ok, OUTCOMES.seenOnly, OUTCOMES.skip, OUTCOMES.seenOnly]);
@@ -478,6 +490,28 @@ test('SP-BPFINDINGS-015: 反証役が結果を返さなかった候補は、open
   const out = await refuteAll(ctx, req, 1, null);
   assert.deepEqual(out[0], { unrefuted: true, finding: null, created: false, state: null, same: false });
   assert.equal((await viewOf(ctx, req.state)).findings.size, 0);
+});
+
+test('SP-BPFINDINGS-015・SP-BPRUN-031: 未反証の記録は要求の attempt で書き、試行の失敗と同じ規則で、打ち切った後の同じ番号は受け、先の番号と打ち切った後の新しい番号は E_CONFLICT にする', async (t) => {
+  const { ctx, req, assets } = await setup(t);
+  if (!ctx) return;
+  const a = assets[0].id;
+  await verify(ctx, req, { round: 1, judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a)] });
+  const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
+  const { items: [item] } = await run.stageStart(ctx, { ...req, stage: 'refute', round: 1, keys });
+  const unrefuted = (attempt) => ledger.refutation(ctx, { ...req, item, verdict: null, ...(attempt === undefined ? {} : { attempt }) });
+  await rejects(unrefuted(undefined), CODES.input);
+  await rejects(unrefuted(2), CODES.conflict);
+  for (const attempt of [1, 2, 3]) {
+    await unrefuted(attempt);
+    await run.itemFail(ctx, { ...req, item, attempt, reason: 'x' });
+  }
+  const before = (await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state))).length;
+  for (const attempt of [1, 2, 3]) assert.equal((await unrefuted(attempt)).same, true, String(attempt));
+  assert.equal((await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state))).length, before);
+  await rejects(unrefuted(4), CODES.conflict);
+  await rejects(ledger.refutation(ctx, { ...req, item, verdict: 'uphold', reason: 'r' }), CODES.conflict);
+  assert.deepEqual((await viewOf(ctx, req.state)).unrefuted.map((u) => u.attempt), [1, 2, 3]);
 });
 
 test('SP-BPFINDINGS-026: 別の状態の台帳の指摘 ID を指定した状態の記録が拒否される', async (t) => {
@@ -508,7 +542,7 @@ test('SP-BPFINDINGS-012: 同じ担当を 2 体が見て同じ鍵の候補を返�
   const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'verify', rule: 'all' });
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 1, keys: [{ who: 1, assignment: assignments[0].id }, { who: 2, assignment: assignments[0].id }] });
   for (const item of items) {
-    await ledger.verdicts(ctx, { ...req, item, assignment: assignments[0].id, viewpoint: 'conformance', result: { judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a)] } });
+    await ledger.verdicts(ctx, { ...req, item, assignment: assignments[0].id, viewpoint: 'conformance', result: withExtra('conformance', { judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a)] }) });
   }
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
   assert.equal(keys.length, 1);
@@ -521,7 +555,7 @@ test('SP-BPRUN-031: 台帳の書き込みの操作が SP-BPRUN-017 に反する�
   const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'verify', rule: 'all' });
   const sid = assignments[0].id;
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 1, keys: [{ n: 1, assignment: sid }, { n: 2, assignment: sid }] });
-  const result = { judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a)] };
+  const result = withExtra('conformance', { judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a)] });
   await ledger.verdicts(ctx, { ...req, item: items[0], assignment: sid, viewpoint: 'conformance', result });
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
   const refute = await run.stageStart(ctx, { ...req, stage: 'refute', round: 1, keys });
@@ -551,7 +585,7 @@ test('SP-BPRUN-006: 反証の後に届いた同じ verdicts の送り直しは�
   const b = assets[2].id;
   const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'verify', rule: 'all' });
   const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 2, keys: [{ assignment: assignments[0].id }] });
-  const body = { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'conformance', result: { judgements: now.map((x) => ({ asset: x.id, judgement: x.id === b ? 'candidate' : 'ok' })), candidates: [cand(b)] } };
+  const body = { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'conformance', result: withExtra('conformance', { judgements: now.map((x) => ({ asset: x.id, judgement: x.id === b ? 'candidate' : 'ok' })), candidates: [cand(b)] }) };
   const first = await ledger.verdicts(ctx, body);
   await refuteAll(ctx, req, 2, 'uphold');
   const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state));

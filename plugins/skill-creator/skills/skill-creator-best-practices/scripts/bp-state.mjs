@@ -6,6 +6,7 @@ import { CODES, CRITERIA_DIR, EXIT, OPS } from './bp/constants.mjs';
 import { BpError } from './bp/errors.mjs';
 import * as run from './bp/ops-run.mjs';
 import * as ledger from './bp/ops-ledger.mjs';
+import * as author from './bp/ops-author.mjs';
 import { locateState } from './bp/store.mjs';
 import { resolvePayload, sealResponse, verifyRequest } from './bp/transport.mjs';
 
@@ -34,6 +35,15 @@ const HANDLERS = {
   [OPS.vanishMatch]: ledger.vanishMatch,
   [OPS.report]: ledger.report,
   [OPS.kinds]: ledger.kinds,
+  [OPS.key]: author.key,
+  [OPS.paths]: author.paths,
+  [OPS.pathsRetake]: author.pathsRetake,
+  [OPS.snapshot]: author.snapshot,
+  [OPS.goalCheck]: author.goalCheck,
+  [OPS.filesScan]: author.filesScan,
+  [OPS.units]: author.units,
+  [OPS.gate]: author.gate,
+  [OPS.outcome]: author.outcome,
 };
 
 const RESERVED = ['ok', 'op', 'sum'];

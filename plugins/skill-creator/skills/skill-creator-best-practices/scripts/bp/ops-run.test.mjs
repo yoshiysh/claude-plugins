@@ -658,3 +658,29 @@ test('SP-BPRUN-009: 開始の後に plugin の外に作られた一覧のファ�
   await fs.writeFile(later, 'x\n');
   await assert.rejects(run.files(ctx, { state: s.state, run: s.run, entries: [{ path: later, iteration: 1, action: 'write' }] }), (e) => e.code === CODES.input && e.reason.includes(later));
 });
+
+test('SP-BPRUN-028: ifNoResult を付けた試行の失敗は、結果のある項目なら記録を足さずに resulted を返し、結果の無い項目なら通常どおり数える', async (t) => {
+  const { ctx, req } = await startReview(t);
+  if (!ctx) return;
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 1, keys: [{ n: 1 }, { n: 2 }] });
+  await run.itemResult(ctx, { ...req, item: items[0], result: { x: 1 } });
+  const before = await logOf(ctx, req.state);
+  const done = await run.itemFail(ctx, { ...req, item: items[0], attempt: 1, reason: 'r', ifNoResult: true });
+  assert.equal(done.resulted, true);
+  assert.equal(done.attempts, 0);
+  assert.deepEqual(await logOf(ctx, req.state), before);
+  await rejects(run.itemFail(ctx, { ...req, item: items[0], attempt: 1, reason: 'r' }), CODES.conflict);
+  const counted = await run.itemFail(ctx, { ...req, item: items[1], attempt: 1, reason: 'r', ifNoResult: true });
+  assert.equal(counted.resulted, undefined);
+  assert.equal(counted.attempts, 1);
+});
+
+test('SP-BPRUN-011・SP-BPRUN-031: 停止の cause は BLOCKED にだけ verifiers を付けられ、記録に残る', async (t) => {
+  const { ctx, req } = await startReview(t);
+  if (!ctx) return;
+  await rejects(run.stop(ctx, { ...req, kind: 'complete', pending: [], launches: 1, cause: 'verifiers' }), CODES.input);
+  await rejects(run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1, cause: 'carrier' }), CODES.input);
+  const out = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1, cause: 'verifiers' });
+  assert.equal(out.stop.cause, 'verifiers');
+  await rejects(run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 }), CODES.staleRun);
+});

@@ -131,10 +131,10 @@ review・update・audit の run を起動する前に、入口は、CLI に対�
 ### Workflow callsite
 
 #### SP-BPENTRY-013 callsite の入力
-callsite は、best-practices の Workflow に次の入力を渡さなければならない。4 機能の入力の表は本項だけに置き、他の文書は参照する。入力の項目の綴り（起動数の上限の項目を含む）は TBD-SBPENTRY-002 で決める。
+callsite は、best-practices の Workflow に次の入力を渡さなければならない。4 機能の入力の表は本項だけに置き、他の文書は参照する。入力の項目の綴り（起動数の上限の項目を含む）は表の後の綴りの表とする。
 
 > 条件の値: 起動 = 新しい状態での起動 / 再開
-> 条件の値: 項目 = 機能 / 依頼文 / 対象スキルのパスの一覧 / 修正の根拠 / next_args / 利用者の回答 / 起動数の上限
+> 条件の値: 項目 = 機能 / 依頼文 / 対象スキルのパスの一覧 / 修正の根拠 / next_args / 利用者の回答 / 起動数の上限 / スキルのディレクトリ / 起動の key
 
 | 条件: 起動 | 条件: 項目 | 結果 |
 |---|---|---|
@@ -152,6 +152,22 @@ callsite は、best-practices の Workflow に次の入力を渡さなければ�
 | 再開 | next_args | 止まった run が返した next_args を、1 字も変えずに渡す |
 | 再開 | 利用者の回答 | 利用者が回答を足したときだけ、next_args と別の項目として、回答の文言をそのまま渡す（SP-BPRUN-033） |
 | 再開 | 起動数の上限 | SP-BPENTRY-015 に従う |
+| * | スキルのディレクトリ | 渡す。best-practices のスキルのディレクトリの絶対パス（script は自分の位置を解けず、運搬役が呼ぶ CLI のパスをこれから作る：`plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md` §13） |
+| * | 起動の key | 渡す。CLI の `key` の操作で起動ごとに得た値（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `start` の `key`。script は乱数を作れない） |
+
+綴りは次の表とする。script の定数 `INPUT_KEYS` と CLI の定数 `INPUT_KEYS` に置き、表との一致はテストが照らす。表に無い項目と、その起動の種類で「渡さない」とした項目を持つ入力は、script が agent を起動せずに BLOCKED で止める（SP-BPRUN-037 と同じく状態を書かない）。
+
+| 項目 | 綴り | 渡すとき |
+|---|---|---|
+| 機能 | `function` | 新しい状態での起動 |
+| 依頼文 | `request` | 新しい状態での create |
+| 対象スキルのパスの一覧 | `target`（`{"root": <根>, "files": [<根の外のファイル>]}`） | 新しい状態での起動 |
+| 修正の根拠 | `grounds` | 新しい状態での update |
+| next_args | `nextArgs` | 再開 |
+| 利用者の回答 | `answer` | 回答を足した再開 |
+| 起動数の上限 | `maxLaunches` | SP-BPENTRY-015 |
+| スキルのディレクトリ | `skillDir` | 常に。`'` を含むパスは受けない（運搬役が呼ぶコマンドで CLI のパスを `'` で囲む） |
+| 起動の key | `key` | 常に |
 
 #### SP-BPENTRY-014 経路の選び方
 callsite は、Workflow を起動するたびに、次の判定表で経路を選ばなければならない（native-first の経路の契約：AGENTS.md、`references/claude-workflow-compatibility.md` の目的の節）。この規則は再開の起動にも当てる。
@@ -263,7 +279,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
 |---|---|---|---|---|
 | TBD-SBPENTRY-001 | Codex runner の request の `limits.maxAgents` と `limits.timeoutMs` の値と、`modelMap` で SP-BPCONFORMANCE-035 の各 `model` に対応させる Codex の model | 値の出所が入力に無い。runner は Claude の model と Codex の model の対応を何も含意しない（runtime README の `modelMap` の段落）。Claude 側の `model` と `effort` は SP-BPCONFORMANCE-035 で決まっている | false | 決まるまで、callsite は `limits.maxAgents` を省略した request で起動してはならない（SP-BPENTRY-016）。`limits.timeoutMs` も request から省いて runner の既定に任せてはならない（既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。`modelMap` を省いてはならず、SP-BPCONFORMANCE-035 の `model` の名前を 1 つも欠いてはならない（model を明示する `agent()` には runner の既定の model が使われず、対応の無い名前で run が失敗する：SP-BPENTRY-016） |
-| TBD-SBPENTRY-002 | callsite が best-practices の Workflow に渡す入力の項目の綴り（起動数の上限の項目を含む） | 綴りは最初の実装でテストとともに決めると、上位文書（`docs/requirements/bp-operations.md`・設計方針文書「水準と未決事項」）が定めている | false | 決まるまで、入力の項目の意味と有無を SP-BPENTRY-013 の表から変えてはならない。綴りを決めるときは、script の定数と SKILL.md の callsite の契約を同じ変更で揃える |
+| TBD-SBPENTRY-002 | SKILL.md の callsite の契約に書く入力の綴り。綴りそのものは SP-BPENTRY-013 の綴りの表に書き戻した | callsite は新しい入口と同じ変更（SP-BPENTRY-025）で書き、それまで新しい Workflow を呼ぶ callsite が無い | false | callsite の契約は SP-BPENTRY-013 の綴りの表（script と CLI の定数 `INPUT_KEYS`）と同じ綴りで書き、表から変えてはならない。表と script・CLI の定数の一致は `tests/bp-spelling.test.mjs` が照らし、callsite を書く変更で同じテストを callsite に当てる |
 | TBD-SBPENTRY-003 | 変更（SP-BPENTRY-025）の入っていない runner を callsite が見分ける手段と、見分けたときに入口が利用者へ返すもの | runner の変更の有無を caller が知る手段が、runtime README に書かれていない | false | 決まるまで、best-practices は SP-BPENTRY-025 の変更と同じ変更で配布し、変更の入っていない runner と組み合わせて配布してはならない（見分けられないまま起動すると、runner が update の run を失敗させる：SP-BPENTRY-024） |
 
 ## トレーサビリティ表
@@ -278,7 +294,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-002 | SP-BPENTRY-003 | 振り分けの eval（4 機能のそれぞれに当たる依頼文が、その機能だけの列になる） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-005 | 振り分けの eval（review と audit のどちらにも読める依頼で、run を起動せずに尋ねる） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-006 | 連鎖の結合テスト（review・update・audit の run の入力に、根が対象スキルのディレクトリのパスの一覧が渡る） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 未着手 |
+| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 作成中 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 連鎖の結合テスト（解決できない callsite が行番号とともに返り値に外したものとして載る）と振り分けの eval（対象スキルを特定できない依頼で run を起動せずに尋ねる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 未着手 |
