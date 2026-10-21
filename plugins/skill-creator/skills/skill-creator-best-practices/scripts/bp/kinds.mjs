@@ -8,11 +8,11 @@ const ROW_RULE = /設計方針文書「([^」]+)」の節の原則の表の全�
 const BULLET_RULE = /同節の定義の箇条書き/;
 const EACH_TABLE_RULE = /設計方針文書「([^」]+)」の節の、([^の]+(?:・[^の]+)*)の各表の全ての行/;
 
-function read(dir, key) {
+export function read(dir, key) {
   return readFileSync(path.join(dir, ...CRITERIA_FILES[key]), 'utf8');
 }
 
-function parseDoc(text) {
+export function parseDoc(text) {
   const lines = text.split('\n').map((l) => l.replace(/\r$/, ''));
   const { headings, fenced } = scanMarkdown(lines);
   const byStart = new Map(headings.map((h) => [h.start, h]));
@@ -47,7 +47,7 @@ function parseDoc(text) {
   return nodes;
 }
 
-function descendants(nodes, node) {
+export function descendants(nodes, node) {
   return nodes.filter((n) => n !== node && n.chain.length > node.chain.length && node.chain.every((t, i) => n.chain[i] === t));
 }
 

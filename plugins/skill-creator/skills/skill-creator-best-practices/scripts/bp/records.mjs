@@ -9,7 +9,7 @@ export const IDENTITY = Object.freeze({
   [RECORDS.premise]: (r) => `${r.t}|${r.run}|${r.kind}|${r.hash}`,
   [RECORDS.paths]: (r) => `${r.t}|${r.n}`,
   [RECORDS.fingerprint]: (r) => `${r.t}|${r.run}|${r.at}|${r.n}`,
-  [RECORDS.stage]: (r) => `${r.t}|${r.stage}|${r.round ?? ''}`,
+  [RECORDS.stage]: (r) => `${r.t}|${r.stage}|${r.round ?? ''}${r.part == null ? '' : `|${r.part}`}`,
   [RECORDS.result]: (r) => `${r.t}|${r.item}`,
   [RECORDS.fail]: (r) => `${r.t}|${r.item}|${r.attempt}`,
   [RECORDS.abort]: (r) => `${r.t}|${r.item}`,
@@ -34,6 +34,8 @@ export const IDENTITY = Object.freeze({
   [RECORDS.fstate]: (r) => `${r.t}|${r.finding}|${r.run}|${r.round}`,
   [RECORDS.judgement]: (r) => `${r.t}|${r.finding}|${r.run}|${r.round}`,
   [RECORDS.addAsset]: (r) => `${r.t}|${r.finding}|${r.asset}`,
+  [RECORDS.snapshot]: () => RECORDS.snapshot,
+  [RECORDS.extra]: (r) => `${r.t}|${r.item}`,
 });
 
 export function identity(record) {

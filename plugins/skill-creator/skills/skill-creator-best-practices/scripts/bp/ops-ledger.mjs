@@ -11,6 +11,8 @@ import { createLedgerRecords, enumerateAssets, retakeRecords } from './ledger.mj
 import { nextState, reviewJudgement } from './judge.mjs';
 import { ledgerReport, liveAssets, skipList } from './report.mjs';
 import { mutate, readState } from './store.mjs';
+import { checkExtra, extraFields } from './units.mjs';
+import { treatedGroundIds } from './ops-author.mjs';
 import { currentAssets, currentRun } from './view.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
@@ -60,6 +62,12 @@ function resent(item, resultRecord, output) {
   return { records: [resultRecord], output };
 }
 
+// 消えた資産に結び付いた指摘を、台帳に作った順に返す（SP-BPFINDINGS-020 の項目の順位）。
+export function affectedFindings(view, gone) {
+  const ids = new Set(gone.map((g) => g.id));
+  return [...view.findings.values()].sort((a, b) => a.order - b.order).filter((f) => f.assets.some((a) => ids.has(a))).map((f) => f.id);
+}
+
 export function ledgerCreate(ctx, req) {
   return mutate(ctx, req, OPS.ledgerCreate, async (view) => {
     const assets = await enumerateAssets(view.paths.at(-1));
@@ -75,7 +83,7 @@ export function ledgerRetake(ctx, req) {
   return mutate(ctx, req, OPS.ledgerRetake, async (view) => {
     needLedger(view);
     const r = retakeRecords(view, await enumerateAssets(view.paths.at(-1)));
-    return { records: r.records, output: { counts: r.counts, gone: r.gone, retake: r.records.length ? r.retake : null } };
+    return { records: r.records, output: { counts: r.counts, gone: r.gone, retake: r.records.length ? r.retake : null, affected: affectedFindings(view, r.gone) } };
   });
 }
 
@@ -168,9 +176,12 @@ export function verdicts(ctx, req) {
     if (again) return again;
     needCriteria(ctx);
     const kinds = new Set(kindsFor(ctx.criteriaDir, req.viewpoint, view.state.function).map((k) => k.value));
-    const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds);
+    const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds)
+      ?? (REWRITING_FUNCTIONS.has(view.state.function) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null);
     if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
     const records = [resultRecord];
+    const extra = REWRITING_FUNCTIONS.has(view.state.function) ? extraFields(req.viewpoint, req.result) : null;
+    if (extra) records.push({ t: RECORDS.extra, item: req.item, viewpoint: req.viewpoint, data: extra });
     for (const j of req.result.judgements) {
       records.push({ t: RECORDS.seen, item: req.item, asset: j.asset, viewpoint: req.viewpoint, assignment: assignment.id, fpset: assignment.fpset, digest: assignment.fps[j.asset], value: j.judgement });
     }
@@ -211,15 +222,14 @@ export async function refutationItems(ctx, req) {
   const { view } = await readState(ctx, req.state);
   const refs = stageRefs(req);
   const keys = [];
-  const seenKeys = new Set();
+  const texts = new Map();
   for (const c of view.candidates) {
     if (!inStages(view.items.get(c.item), refs)) continue;
     const ks = keyString(c.key);
-    if (seenKeys.has(ks)) continue;
-    seenKeys.add(ks);
-    keys.push(c.key);
+    if (!texts.has(ks)) { texts.set(ks, []); keys.push(c.key); }
+    texts.get(ks).push(...c.texts);
   }
-  return { keys };
+  return req.texts ? { keys, candidates: keys.map((k) => ({ key: k, texts: texts.get(keyString(k)) })) } : { keys };
 }
 
 function candidatesOfRefuteItem(view, item) {
@@ -393,7 +403,10 @@ export async function report(ctx, req) {
   needLedger(view);
   if (!Array.isArray(req.viewpoints)) reject(CODES.input, 'viewpoints は観点の並び');
   req.viewpoints.forEach(checkViewpoint);
-  return { run: currentRun(view).id, ...ledgerReport(view, req.viewpoints) };
+  const full = { run: currentRun(view).id, ...ledgerReport(view, req.viewpoints), assets: currentAssets(view).map((a) => ({ id: a.id, path: a.path, loc: a.loc })) };
+  if (req.fields === undefined) return full;
+  if (!Array.isArray(req.fields) || req.fields.some((f) => !Object.hasOwn(full, f))) reject(CODES.input, `fields は ${Object.keys(full).join('・')} の並び`);
+  return Object.fromEntries(req.fields.map((f) => [f, full[f]]));
 }
 
 export async function kinds(ctx, req) {

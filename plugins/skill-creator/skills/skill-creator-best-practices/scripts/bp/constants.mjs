@@ -21,7 +21,23 @@ export const OPS = Object.freeze({
   vanishMatch: 'vanish-match',
   report: 'report',
   kinds: 'kinds',
+  key: 'key',
+  paths: 'paths',
+  pathsRetake: 'paths-retake',
+  snapshot: 'snapshot',
+  goalCheck: 'goal-check',
+  filesScan: 'files-scan',
+  units: 'units',
+  gate: 'gate',
+  outcome: 'outcome',
 });
+
+// 送り直しで記録が増えないことをテストが操作ごとに照らすので、書き込みの操作の集合はここだけに置く。
+export const WRITE_OPS = Object.freeze([
+  OPS.start, OPS.premise, OPS.stageStart, OPS.itemResult, OPS.itemFail, OPS.stageRepeat, OPS.stageFinish, OPS.discard,
+  OPS.files, OPS.stop, OPS.ledgerCreate, OPS.ledgerRetake, OPS.assignments, OPS.verdicts, OPS.refutation, OPS.reviewJudge,
+  OPS.vanishMatch, OPS.pathsRetake, OPS.snapshot, OPS.goalCheck, OPS.filesScan, OPS.gate,
+]);
 
 export const FUNCTION = Object.freeze({ create: 'create', review: 'review', update: 'update', audit: 'audit' });
 export const FUNCTIONS = Object.freeze(Object.values(FUNCTION));
@@ -120,6 +136,8 @@ export const RECORDS = Object.freeze({
   fstate: 'fstate',
   judgement: 'judgement',
   addAsset: 'addAsset',
+  snapshot: 'snapshot',
+  extra: 'extra',
 });
 export const FINGERPRINT_AT = Object.freeze({ start: 'start', retake: 'retake', stop: 'stop' });
 export const FILE_ACTIONS = Object.freeze({ write: 'write', delete: 'delete' });
@@ -140,6 +158,71 @@ export function emptyRunBase() {
   return { iterations: 0, repeats: {} };
 }
 
+export const INPUT_KEYS = Object.freeze({
+  function: 'function',
+  request: 'request',
+  target: 'target',
+  grounds: 'grounds',
+  nextArgs: 'nextArgs',
+  answer: 'answer',
+  maxLaunches: 'maxLaunches',
+  skillDir: 'skillDir',
+  key: 'key',
+});
+
+export const RESULT_KEYS = Object.freeze({
+  stopKind: 'stopKind',
+  reason: 'reason',
+  nextArgs: 'nextArgs',
+  state: 'state',
+  run: 'run',
+  launches: 'launches',
+  writtenFiles: 'writtenFiles',
+  unverifiedRoleLimits: 'unverifiedRoleLimits',
+  skill: 'skill',
+  designNote: 'designNote',
+  verification: 'verification',
+  findings: 'findings',
+  skip: 'skip',
+  residualRisks: 'residualRisks',
+  receivedGrounds: 'receivedGrounds',
+  excludedCallsites: 'excludedCallsites',
+  unverified: 'unverified',
+  stoppedStage: 'stoppedStage',
+});
+export const VERIFICATION_KEYS = Object.freeze({
+  decision: 'decision',
+  iterations: 'iterations',
+  units: 'units',
+  forcedUnchecked: 'forcedUnchecked',
+  basisConstraints: 'basisConstraints',
+  contract: 'contract',
+  ledger: 'ledger',
+});
+
+export const GOAL_KEYS = Object.freeze({
+  deliverables: 'deliverables',
+  scope: 'scope',
+  prohibitions: 'prohibitions',
+  numeric: 'numeric',
+  deixis: 'deixis',
+});
+export const SOURCE_KINDS = Object.freeze({ request: 'request', answer: 'answer', snapshot: 'snapshot', ground: 'ground' });
+export const GROUND_INSTRUCTION = Object.freeze({ kindKey: 'kind', kind: '利用者の指示', textKey: 'text' });
+export const SNAPSHOT_DIR = 'snapshot';
+export const SNAPSHOT_PARTS = Object.freeze({ root: 'root', plugin: 'plugin' });
+
+export const UNIT_RESULTS = Object.freeze({ conform: 'conform', nonconform: 'nonconform', na: 'na', unchecked: 'unchecked' });
+export const UNCHECKED_KINDS = Object.freeze({ forced: 'forced', unforced: 'unforced' });
+export const CONTRACT_ELEMENTS = Object.freeze(['発火する条件', '発火しない条件', '入力', '出力', '停止の種類']);
+export const CONTRACT_NONE = 'none';
+export const GATE_DECISIONS = Object.freeze({ pass: 'pass', fail: 'fail', unverifiable: 'unverifiable' });
+export const FINDING_GATE = Object.freeze({ fail: 'fail', ok: 'ok', unverifiable: 'unverifiable' });
+export const GATE_NEXT = Object.freeze({ complete: 'complete', rewrite: 'rewrite', iterationLimit: 'iterationLimit', blocked: 'blocked' });
+export const ITERATION_STAGES = Object.freeze([STAGE.write, STAGE.ledger, STAGE.verify, STAGE.verifyExtra, STAGE.refute, STAGE.rejudge, STAGE.gate]);
+// 追加の検証は「見た」が増えなくなるまで回を重ねるので、同じ段・回に部分の列挙を足せる段をここだけに置く（SP-BPFINDINGS-025）。
+export const PARTED_STAGES = Object.freeze([STAGE.verifyExtra]);
+
 export const VIEWPOINTS = Object.freeze({
   flow: 'フローの観点',
   spec: '仕様の観点',
@@ -148,6 +231,18 @@ export const VIEWPOINTS = Object.freeze({
   contract: '契約の観点',
   audit: '監査の観点',
 });
+
+export const RUN_VIEWPOINTS = Object.freeze({
+  create: Object.freeze(['conformance', 'goal']),
+  update: Object.freeze(['conformance', 'goal', 'contract']),
+});
+
+// 役の制限は host が役ごとに強制できない（SP-BPRUN-025）ので、どの run の返り値にも確かめられなかった制限として載せる。
+export const ROLE_WRITE_LIMITS = Object.freeze([
+  Object.freeze({ role: '書き手', writes: '対象スキルと作業ファイル' }),
+  Object.freeze({ role: '検証役・反証役・抽出役', writes: '作業ファイルだけ' }),
+  Object.freeze({ role: '運搬役', writes: 'CLI を通した状態だけ' }),
+]);
 
 export const JUDGEMENTS = Object.freeze({ candidate: 'candidate', ok: 'ok', unsure: 'unsure' });
 export const REFUTATION_VERDICTS = Object.freeze({ uphold: 'uphold', reject: 'reject' });
@@ -187,6 +282,7 @@ export const CRITERIA_FILES = Object.freeze({
   design: Object.freeze(['design', 'skill-design-patterns.md']),
   authoring: Object.freeze(['specifications', 'bp-authoring.md']),
   inspection: Object.freeze(['specifications', 'bp-inspection.md']),
+  designedSkill: Object.freeze(['requirements', 'bp-designed-skill.md']),
 });
 export const CRITERIA_CHAPTERS = Object.freeze({ functional: '機能仕様', capacityPrefix: '性能・容量' });
 export const PRINCIPLE_HEADER = '原則';

@@ -121,7 +121,7 @@ test('SP-BPFINDINGS-006・SP-BPFINDINGS-034: 台帳に無い資産 ID を含む�
 test('SP-BPFINDINGS-034: 機能の文書が足した欄を持つ結果が、足した欄を理由に拒否されない', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
-  const out = await verify(ctx, req, { result: { judgements: allJudged(assets, 'ok'), candidates: [], units: [{ unit: K1, result: '適合' }], uninspected: [] } });
+  const out = await verify(ctx, req, { result: { judgements: allJudged(assets, 'ok'), candidates: [], uninspected: [], note: '機能の文書が足した欄' } });
   assert.equal(out.judgedOk, assets.length);
 });
 
