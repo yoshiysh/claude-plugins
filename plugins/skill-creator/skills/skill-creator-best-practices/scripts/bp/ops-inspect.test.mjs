@@ -367,4 +367,16 @@ test('SP-BPINSPECTION-004・SP-BPINSPECTION-027・SP-BPINSPECTION-028: bp-inspec
   const audit = await begin(t, 'audit', { ctx: context(t, { criteriaDir: dir }) });
   assert.equal(audit.targets.targets[0].readable, true);
   assert.match(audit.targets.blocked.reason, /監査の観点の一覧が出所と食い違う: 写しの SP-BPINSPECTION-009 の表を読めない/);
+  assert.deepEqual(audit.targets.blocked.paths, [inspection]);
+});
+
+test('SP-BPINSPECTION-029: 2 つの観点が照らす同じ写しが変わったとき、食い違ったパスを 1 回だけ返す', async (t) => {
+  const dir = await tmpDir(t, 'bp-criteria-');
+  await fs.cp(CRITERIA_FIXTURE, dir, { recursive: true });
+  const { req, ctx } = await begin(t, 'review', { ctx: context(t, { criteriaDir: dir }) });
+  if (!ctx) return;
+  const conformance = path.join(dir, 'specifications', 'bp-conformance.md');
+  await fs.appendFile(conformance, '\n追記\n');
+  const again = await inspect.targets(ctx, req);
+  assert.deepEqual(again.blocked.paths, [conformance]);
 });

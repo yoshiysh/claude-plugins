@@ -164,7 +164,10 @@ for (const [label, s] of Object.entries(SCRIPTS)) {
   });
 
   test(`SP-BPFINDINGS-011: ${s.file} が観点を比べるリテラルは CLI の観点の値にある`, () => {
-    const used = [...s.source.matchAll(/viewpoint === '([^']+)'|target(?:Of|File)\('([^']+)'|viewpoint === '[^']+' \? '([^']+)'/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+    // 選択肢ごとに別に走査する（1 つの正規表現の選択肢にすると、前の選択肢が先に当たって三項の結果を拾わない）。
+    const patterns = [/viewpoint === '([^']+)'/g, /target(?:Of|File)\('([^']+)'/g, /viewpoint === '[^']+' \? '([^']+)' : /g, /viewpoint === '[^']+' \? '[^']+' : '([^']+)'/g];
+    const used = patterns.flatMap((re) => [...s.source.matchAll(re)].map((m) => m[1]));
+    if (s.file === 'bp_inspect.js') assert.ok(patterns.slice(2).some((re) => re.test(s.source)), '三項の観点のリテラルを拾っていない');
     assert.ok(used.length > 0);
     for (const v of used) assert.ok(Object.hasOwn(CLI_CONSTANTS.VIEWPOINTS, v), v);
   });

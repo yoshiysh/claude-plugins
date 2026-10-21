@@ -7,7 +7,7 @@ import { auditUnits, flowUnits, parseDoc, specUnits } from './kinds.mjs';
 
 const ITEM = /^(\d+)\. \*\*(.+?)\*\*/;
 
-// ファイルが無いことを示す失敗（置き場がディレクトリか、途中がファイルのときを含む）。これ以外の失敗は CLI の失敗として返す。
+// 写しの欠けは利用者が直す「読めない」照らす先として返し、それ以外の失敗（権限など）は隠さずに CLI の失敗にする。
 const MISSING = new Set(['ENOENT', 'EISDIR', 'ENOTDIR']);
 
 function fileOf(name, p) {
@@ -100,14 +100,19 @@ export function readTargets(ctx, fn) {
   const main = targets.find((t) => t.viewpoint === (fn === FUNCTION.review ? VIEWPOINT.flow : VIEWPOINT.audit));
   let blocked = null;
   if (!main.readable) blocked = { reason: `照らす先を読めない（${main.reason}）: ${culprit(main)}`, paths: [culprit(main)] };
-  else if (main.mismatch) blocked = { reason: `監査の観点の一覧が出所と食い違う: ${main.mismatch.join(' / ')}`, paths: [main.files[0].path] };
+  else if (main.mismatch) {
+    // 一覧の写しが欠けて照合できないときは、利用者が直す写しを指す。
+    const missing = main.files.find((f) => f.name === TARGET_FILES.inspection && f.sha256 === null);
+    blocked = { reason: `監査の観点の一覧が出所と食い違う: ${main.mismatch.join(' / ')}`, paths: [(missing ?? main.files[0]).path] };
+  }
   return { viewpoints, targets, blocked };
 }
 
 export function changedTargets(recorded, now) {
-  return recorded.flatMap((t) => {
+  // 同じ写しを 2 つの観点が照らす（review の bp-conformance）ので、パスは 1 回だけ返す。
+  return [...new Set(recorded.flatMap((t) => {
     const cur = now.find((x) => x.viewpoint === t.viewpoint);
     // 置き場を移した写しでも利用者が直すのは今のファイルなので、今のパスを指す（SP-BPINSPECTION-029）。
     return t.files.map((f) => ({ f, now: cur?.files.find((x) => x.name === f.name) })).filter(({ f, now }) => now?.sha256 !== f.sha256).map(({ f, now }) => now?.path ?? f.path);
-  });
+  }))];
 }
