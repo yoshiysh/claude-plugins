@@ -335,6 +335,7 @@ best-practices 自身の run の最小の起動数は機能ごとの定数とし
 
 | 値 | 回数 | 中身 |
 |---|---|---|
+| `worst(再開の破棄)` | 1 | 再開した run が止まった段の未着手の項目の破棄と段の終わりを書く運搬役 1（SP-BPRUN-015 の 5。最初の run には無い） |
 | `worst(開始)` | 2 | 開始の運搬役 1 + 応答を失ったときの同じ key での送り直し 1（状態 ID は開始の応答でしか得られない） |
 | `worst(fan-out の項目)` | 15 | 試行の上限 3 回 ×（検証役・反証役・消えた資産の照合の検証役 1 + 結果を書く運搬役 1 + その応答を失ったときの送り直し 1 + 試行の失敗を書く運搬役 1 + その応答を失ったときの送り直し 1） |
 | `worst(目標の固定の 1 回)` | 2 | 書き手 1 + 出所の照合の運搬役 1。until-pass の上限の回数まで繰り返す |
@@ -342,7 +343,7 @@ best-practices 自身の run の最小の起動数は機能ごとの定数とし
 | `worst(段の境の運搬役)` | 1 | 段の開始・終わりと読み出しをまとめた 1 回の運搬役 |
 | `R`（予約分） | 1 | 停止の運搬役。書いたファイルの照らし合わせ（`files-scan`）・停止（`stop`）・返り値（`outcome`）を 1 回で運ぶ |
 
-create の最小の起動数は 29、update は 30 とする。内訳は、開始 2、（update だけ）作り直す前の写し 1、目標の固定の段の開始 1、目標の固定 2 × 3、書く段の開始 1、書く 3、最初の fan-out の項目 15、予約分 1 である。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
+create の最小の起動数は 30、update は 31 とする。再開した run も同じ値を使うので、最初の run と再開した run の最悪の大きい方（再開）を取る。内訳は、開始 2、再開の破棄 1、（update だけ）作り直す前の写し 1、目標の固定の段の開始 1、目標の固定 2 × 3、書く段の開始 1、書く 3、最初の fan-out の項目 15、予約分 1 である。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
 
 #### SP-BPRUN-037 不正な上限と、1 件も始められない上限
 起動数の上限を渡された run が次のどちらかに当たるとき、Workflow は host によらず、`agent()` を 1 回も呼ばずに BLOCKED で止まらなければならない。best-practices 自身の run はこの項目に従い、`docs/specifications/bp-conformance.md` が対象スキルを PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-019 に照らす判定の基準もこの項目を参照する。
@@ -482,7 +483,7 @@ E1 は状態を新しく作るので、既にある状態には起きない。E2
 fan-out の項目の工程の外で直接起動した agent（運搬役を含む）が、例外を投げるか結果を返さなかったとき（Codex runner で agent の時間切れが null を返したときを含む）、run は BLOCKED と理由を返して止まらなければならない。理由には、失敗した段・役・host が返した失敗の内容を含めなければならない。停止の記録を書く運搬役が失敗したときは、停止の記録を書かずに BLOCKED と理由を返し、状態は SP-BPRUN-018 の扱いになる。ただし、新しい状態の開始の運搬役が応答を失ったときは、同じ key の開始を 1 回だけ送り直す（状態 ID は開始の応答でしか得られず、同じ key の開始は同じ状態を返す：SP-BPRUN-031）。
 
 #### SP-BPRUN-028 fan-out の項目の工程の欠け
-fan-out の項目の工程が結果を返さなかったとき、script はその項目の結果を書かず、試行の回数を 1 増やして状態に書かせ、その項目を未着手に戻さなければならない。1 件の欠けだけで run を止めてはならない。script は同じ段の中でその項目を再び起動してよい。試行の回数が `docs/specifications/bp-conformance.md` の試行の上限（SP-BPCONFORMANCE-031）に達したら、打ち切りの印と理由を書かせ、未着手から外さなければならない。打ち切った項目が見るはずだった資産の扱いは `docs/specifications/bp-findings.md` に従う。工程の中の運搬役が応答を失ったとき（CLI が書いたかが分からない）は、同じ要求を 1 回だけ送り直し、送り直しの応答も 1 回目と同じく分類する。`E_RESULT`・`E_TRANSPORT`・`E_LOCK`（CLI は状態を変えていない）は工程の欠けとして試行の回数を 1 増やし、送り直しでも応答が無ければ BLOCKED にする。試行の失敗を書く運搬役も、応答を失ったら同じ要求を 1 回だけ送り直す。
+fan-out の項目の工程が結果を返さなかったとき、script はその項目の結果を書かず、試行の回数を 1 増やして状態に書かせ、その項目を未着手に戻さなければならない。1 件の欠けだけで run を止めてはならない。script は同じ段の中でその項目を再び起動してよい。試行の回数が `docs/specifications/bp-conformance.md` の試行の上限（SP-BPCONFORMANCE-031）に達したら、打ち切りの印と理由を書かせ、未着手から外さなければならない。打ち切った項目が見るはずだった資産の扱いは `docs/specifications/bp-findings.md` に従う。工程の中の運搬役が応答を失ったとき（CLI が書いたかが分からない）は、同じ要求を 1 回だけ送り直し、送り直しの応答も 1 回目と同じく分類する。`E_RESULT`・`E_TRANSPORT`・`E_LOCK`（CLI は状態を変えていない）は工程の欠けとして試行の回数を 1 増やし、送り直しでも応答が無ければ BLOCKED にする。試行の失敗を書く運搬役も、応答を失ったら同じ要求を 1 回だけ送り直す。1 回目の応答を失った後の送り直しが `E_TRANSPORT`・`E_LOCK` だったときは、1 回目を CLI が書いたかが分からないので、試行の失敗の要求に `ifNoResult` を付け、CLI は項目に結果があれば記録を足さずに `resulted: true` を返す。script はその項目を結果のある項目として扱う。
 
 #### SP-BPRUN-029 全件の欠けと CLI の拒否
 次のどちらかが起きたとき、run は BLOCKED と理由を返して止まらなければならない。
@@ -526,12 +527,12 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `premise` | SP-BPRUN-004 | `kind`（`answer`・`goal`）、`text` | 前提の記録 ID |
 | `stage-start` | SP-BPRUN-038 | `stage`、`round`（省略できる）、`keys`（項目の鍵の並び）、追加の検証の段だけ `part`（回の中の部分の番号。部分ごとに鍵の並びを足す：`docs/specifications/bp-findings.md` の SP-BPFINDINGS-025） | 項目の ID の並び `items` と、項目ごとの試行の回数・結果の有無・打ち切り・破棄 `status` |
 | `item-result` | SP-BPRUN-005・SP-BPRUN-006 | `item`、`result`、合否の段だけ `iteration` | 反復の回数と上限に達したか |
-| `item-fail` | SP-BPRUN-028 | `item`、`attempt`（今の回数 + 1）、`reason` | 試行の回数と打ち切ったか |
+| `item-fail` | SP-BPRUN-028 | `item`、`attempt`（今の回数 + 1）、`reason`、`ifNoResult`（省略できる） | 試行の回数と打ち切ったか。`ifNoResult` を付けた要求で項目に結果があれば、記録を足さずに `resulted: true` |
 | `stage-repeat` | SP-BPRUN-005、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034 | `stage`、`n`（今の回数 + 1）、当てる上限 `limitKey` | 段ごとの繰り返しの回数と上限に達したか |
 | `stage-finish` | SP-BPRUN-005 | `stage`、`round` | 受理 |
 | `discard` | SP-BPRUN-015 | `items` | 受理 |
 | `files` | SP-BPRUN-009 | `entries`（`{path, iteration, action: write\|delete}` か `{path, iteration, verified}`。`iteration` は 1 以上の整数の反復の番号） 。1 つの要求に書いたファイルの記録（`action`）と検証の記録（`verified`）を混ぜてはならず、混ぜた要求は `E_INPUT`（要求の中の順に意味を持たせない）。一覧の中でも plugin の外にあるファイル（開始の後に作られたものなど）は理由つきの `E_INPUT` | 記録したパスと、一覧の外のパス `outside`（記録しない） |
-| `stop` | SP-BPRUN-011・SP-BPRUN-020・SP-BPRUN-026・SP-BPRUN-034 | `kind`、`reason`、反復の上限だけ `limitHit`（`iteration`・`launch`）、`pending`（省くと CLI が状態から導いた並びを書く）、`launches`、`outside`、review・audit だけ `onTargetChanged: "blocked"` | 書いた停止の記録と、完了以外は `nextArgs`。create・update の完了は、最後の合否が `pass` でなければ `E_CONFLICT` で拒否し、書いたファイルの一覧で検証を通っていないファイルに検証を通った記録を同じ 1 行で足す（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-026） |
+| `stop` | SP-BPRUN-011・SP-BPRUN-020・SP-BPRUN-026・SP-BPRUN-034 | `kind`、`reason`、反復の上限だけ `limitHit`（`iteration`・`launch`）、`pending`（省くと CLI が状態から導いた並びを書く）、`launches`、`outside`、BLOCKED だけ `cause`（省略できる。`verifiers` は検証役・反証役が結果を返せないことによる BLOCKED：`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-005）、review・audit だけ `onTargetChanged: "blocked"` | 書いた停止の記録と、完了以外は `nextArgs`。create・update の完了は、最後の合否が `pass` でなければ `E_CONFLICT` で拒否し、書いたファイルの一覧で検証を通っていないファイルに検証を通った記録を同じ 1 行で足す（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-026） |
 | `summary` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 | — | 要約の文字列・字数・省いたものの種類と件数 |
 | `list` | SP-BPRUN-018 | `function`、`target` | 未完了の状態ごとの `state`・`nextArgs`・`stoppedStage`・`pending` と、読めなかった状態の `unreadable`（状態 ID と理由。飛ばした状態を宣言する） |
 | `ledger-create` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-001・SP-BPFINDINGS-002・SP-BPFINDINGS-033 | — | `ledger`（台帳 ID）と `assets`（資産ごとの `id`・`path`・`loc`・`digest`）。資産が 0 件なら `E_INPUT` |
@@ -558,7 +559,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 - `start` の新規の要求は、`limits` の `attempts`・`iterations`・`untilPass` が 1 以上の整数でなければ、状態を作らずに `E_INPUT` で拒否する。
 - `start` は `key`（英数字と `.`・`_`・`-` だけの文字列。callsite が CLI の `key` の操作で起動ごとに得て、入力の `key` で script に渡す）を持たなければならない（運搬役の失敗で開始を送り直しても、状態と run を増やさない）。新規の開始は、同じ key の状態があれば、機能と対象スキルの根が同じなら新しく作らずにその状態と最初の run を `same: true` で返し、違えば `E_CONFLICT` で拒否する。CLI は、状態を作ってから key の記録を一時ファイルの link で作る。key の記録が無い状態を指すときは、理由つきの `E_CONFLICT` で拒否する（利用者が記録を消してから起動し直す）。状態を作ってから key の記録を書くまでの間で止まったときは、その状態は key の記録を持たない未完了の状態として残り、`list` に現れる。同じ key の送り直しは新しい状態を作り、残った状態は利用者が消してよい。再開は、現在の run が同じ key で始めた run なら、新しい run を足さずにその run を `same: true` で返す。
 - 結果を書いた項目への `verdicts`・`refutation`・`vanish-match` の送り直しは、最初の結果の記録とだけ照らし、同じなら `same: true`、違えば `E_CONFLICT` を返す（後の書き込みで変わった台帳から分類し直すと、同じ結果から記録が増える）。
-- 停止を書いた run への `stop` は、指紋を計算し直さず、受け取った要求（`kind`・`reason`・`limitHit`・`pending`・`launches`・`outside`・`onTargetChanged`）を正規化した JSON の sha256 を、停止の記録に残した値（`asked`）と照らす。同じなら記録を足さずに `same: true` を返し、違えば `E_STALE_RUN` で拒否する（停止の後に対象スキルが変わってから届いた送り直しも、同じ停止として受ける）。
+- 停止を書いた run への `stop` は、指紋を計算し直さず、受け取った要求（`kind`・`reason`・`limitHit`・`pending`・`launches`・`outside`・`onTargetChanged`・`cause`）を正規化した JSON の sha256 を、停止の記録に残した値（`asked`）と照らす。同じなら記録を足さずに `same: true` を返し、違えば `E_STALE_RUN` で拒否する（停止の後に対象スキルが変わってから届いた送り直しも、同じ停止として受ける）。
 - 受理の応答の `ok`・`op`・`sum` は CLI の予約欄とし、操作の出力はこの名前の欄を持ってはならない（持つと受理の印を上書きし、応答の `ok` で受理を見分ける運搬役が誤る）。衝突は `E_INTERNAL` とする。
 
 全ての書き込みの操作は、SP-BPRUN-006 と SP-BPRUN-017 に反する書き込みを拒否し、拒否の理由を出力しなければならない。
@@ -598,7 +599,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 トレーサビリティ表のステータスは、best-practices の仕様書（bp-*.md）で次の基準にそろえる。
 
 - 行の検証方法のテストが入り、通ったら「完了」とする。
-- script の模擬実行・結合テスト・静的な照合の行で機能を名指ししないものは、4 機能（create・review・update・audit）のどれでも確かめるまで「作成中」とする。機能の文書（bp-authoring・bp-inspection）の行は、その文書の機能で確かめれば「完了」とする。CLI の単体テストの行は機能によらない。
+- script の模擬実行・結合テスト・静的な照合の行で機能を名指ししないものは、4 機能（create・review・update・audit）のどれでも確かめるまで「作成中」とする。機能の文書（bp-authoring・bp-inspection）の行は、その文書の機能で確かめれば「完了」とする。CLI の単体テストの行は機能によらない。needs_input・書き手・書いたファイルのように create・update にしか無いものを確かめる行も、機能を名指ししなければこの基準のとおり「作成中」とする（例外を置かない）。
 - 「fixture の run」の行は、`docs/specifications/bp-authoring.md` の「検証方法」の本物の agent での試走で確かめるまで「作成中」とする。
 
 ## TBD の宣言
@@ -615,25 +616,25 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
 | PR-BPOPERATIONS-006 | SP-BPRUN-001 | script の模擬実行（1 つの run が 1 つの機能だけを実行する） | 作成中 |
-| PR-BPOPERATIONS-006 | SP-BPRUN-002 | 静的な照合（入力を待つ手順が無い）と script の模擬実行（入力の不足で needs_input を返す） | 完了 |
+| PR-BPOPERATIONS-006 | SP-BPRUN-002 | 静的な照合（入力を待つ手順が無い）と script の模擬実行（入力の不足で needs_input を返す） | 作成中 |
 | PR-BPOPERATIONS-006 | SP-BPRUN-003 | script の模擬実行（値だけの確かめに当たらない入力で、最初の起動が開始の運搬役である。依頼文が空の create、修正の根拠が 0 件の update、不正な上限、最小の起動数に満たない上限では、運搬役も起動しない） | 完了 |
 | PR-BPOPERATIONS-006 | SP-BPRUN-014 | CLI の単体テスト（完了した状態への開始を拒否する） | 完了 |
 | PR-BPOPERATIONS-006 | SP-BPRUN-017 | CLI の単体テスト（現在でない run の書き込みを拒否し、状態が変わらない） | 完了 |
-| PR-BPOPERATIONS-005 | SP-BPRUN-002 | script の模擬実行（目標の固定に要る回答が無いとき needs_input と理由を返す） | 完了 |
-| PR-BPOPERATIONS-005 | SP-BPRUN-004 | script の模擬実行（再開で足した回答が前提として書かれる） | 完了 |
+| PR-BPOPERATIONS-005 | SP-BPRUN-002 | script の模擬実行（目標の固定に要る回答が無いとき needs_input と理由を返す） | 作成中 |
+| PR-BPOPERATIONS-005 | SP-BPRUN-004 | script の模擬実行（再開で足した回答が前提として書かれる） | 作成中 |
 | PR-BPOPERATIONS-005 | SP-BPRUN-010 | script の模擬実行（create・update だけが needs_input で止まる） | 作成中 |
-| PR-BPOPERATIONS-005 | SP-BPRUN-032 | script の模擬実行（needs_input の返り値に理由と next_args がある） | 完了 |
+| PR-BPOPERATIONS-005 | SP-BPRUN-032 | script の模擬実行（needs_input の返り値に理由と next_args がある） | 作成中 |
 | PR-BPOPERATIONS-005 | SP-BPRUN-033 | script の模擬実行（next_args が機能と状態 ID だけを持つ） | 作成中 |
 | PR-BPOPERATIONS-009 | SP-BPRUN-023 | 静的な照合（検証役の起動の model と effort が SP-BPCONFORMANCE-035 の検証役の値である） | 作成中 |
-| PR-BPOPERATIONS-009 | SP-BPRUN-024 | script の模擬実行（検証役が書き手と別の起動である） | 完了 |
+| PR-BPOPERATIONS-009 | SP-BPRUN-024 | script の模擬実行（検証役が書き手と別の起動である） | 作成中 |
 | PR-BPOPERATIONS-031 | SP-BPRUN-023 | 静的な照合（反証役の起動の model と effort が SP-BPCONFORMANCE-035 の反証役の値である） | 作成中 |
 | PR-BPOPERATIONS-031 | SP-BPRUN-024 | script の模擬実行（反証役が候補を出した役と別の起動である） | 作成中 |
-| PR-BPOPERATIONS-012 | SP-BPRUN-010 | script の模擬実行（検証を通らないまま反復の上限で止まる） | 完了 |
+| PR-BPOPERATIONS-012 | SP-BPRUN-010 | script の模擬実行（検証を通らないまま反復の上限で止まる） | 作成中 |
 | PR-BPOPERATIONS-012 | SP-BPRUN-011 | CLI の単体テスト（停止の記録に種類・理由・検証を通っていないファイルが残る） | 完了 |
-| PR-BPOPERATIONS-012 | SP-BPRUN-013 | script の模擬実行（再開した run が開始時からの増分で上限を数え、すぐには止まらない） | 完了 |
+| PR-BPOPERATIONS-012 | SP-BPRUN-013 | script の模擬実行（再開した run が開始時からの増分で上限を数え、すぐには止まらない） | 作成中 |
 | PR-BPOPERATIONS-013 | SP-BPRUN-010 | script の模擬実行（続けられない失敗で BLOCKED を返す） | 作成中 |
 | PR-BPOPERATIONS-013 | SP-BPRUN-011 | CLI の単体テスト（BLOCKED の停止の記録に理由が残る） | 完了 |
-| PR-BPOPERATIONS-013 | SP-BPRUN-018 | script の模擬実行（停止の記録の無い状態から再開し、止まった段の結果の無い項目を処理し直す。段の開始の記録が無い状態では最初の段から始める） | 完了 |
+| PR-BPOPERATIONS-013 | SP-BPRUN-018 | script の模擬実行（停止の記録の無い状態から再開し、止まった段の結果の無い項目を処理し直す。段の開始の記録が無い状態では最初の段から始める） | 作成中 |
 | PR-BPOPERATIONS-013 | SP-BPRUN-037 | script の模擬実行（最小に満たない上限で agent を起動せず BLOCKED を返し、状態が変わらない） | 作成中 |
 | PR-BPOPERATIONS-013 | SP-BPRUN-027 | script の模擬実行（運搬役の失敗で BLOCKED を返す。停止の記録の運搬役の失敗では記録を書かずに返す） | 作成中 |
 | PR-BPOPERATIONS-013 | SP-BPRUN-028 | script の模擬実行（1 件の欠けで run が止まらず、試行の上限で打ち切る） | 作成中 |
@@ -646,15 +647,15 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | PR-BPOPERATIONS-037 | SP-BPRUN-007 | CLI の単体テスト（作業場所を対象スキルの外の既存のファイルに作らない） | 完了 |
 | PR-BPOPERATIONS-037 | SP-BPRUN-039 | CLI の単体テスト（作業場所を `/tmp` 系と Codex runner の run ごとの workspace に作らない） | 完了 |
 | PR-BPOPERATIONS-037 | SP-BPRUN-008 | script の模擬実行（create の run が判定表の外へ書き込まない） | 作成中 |
-| PR-BPOPERATIONS-037 | SP-BPRUN-025 | 静的な照合（書き手の prompt が書いてよい先を対象スキルと作業ファイルに限る） | 完了 |
+| PR-BPOPERATIONS-037 | SP-BPRUN-025 | 静的な照合（書き手の prompt が書いてよい先を対象スキルと作業ファイルに限る） | 作成中 |
 | PR-BPOPERATIONS-020 | SP-BPRUN-007 | CLI の単体テスト（作業場所を対象スキルの外の既存のファイルに作らない） | 完了 |
 | PR-BPOPERATIONS-020 | SP-BPRUN-008 | script の模擬実行（update の run が判定表の外へ書き込まない） | 作成中 |
-| PR-BPOPERATIONS-020 | SP-BPRUN-025 | 静的な照合（書き手の prompt が書いてよい先を対象スキルと作業ファイルに限る） | 完了 |
+| PR-BPOPERATIONS-020 | SP-BPRUN-025 | 静的な照合（書き手の prompt が書いてよい先を対象スキルと作業ファイルに限る） | 作成中 |
 | PR-BPOPERATIONS-030 | SP-BPRUN-008 | script の模擬実行（review・audit の run が対象スキルに書き込まない） | 未着手 |
 | PR-BPOPERATIONS-030 | SP-BPRUN-025 | 静的な照合（review・audit に書き手の役が無い）と script の模擬実行（確かめられなかった制限が返り値に載る） | 未着手 |
 | PR-BPOPERATIONS-030 | SP-BPRUN-026 | script の模擬実行（run の中で対象スキルを変えると BLOCKED を返し、完了を返さない） | 未着手 |
 | PR-BPOPERATIONS-040 | SP-BPRUN-009 | CLI の単体テスト（書いたファイルの一覧が run ごとに残る） | 完了 |
-| PR-BPOPERATIONS-040 | SP-BPRUN-012 | script の模擬実行（完了の前の停止で書いたファイルが残る） | 完了 |
+| PR-BPOPERATIONS-040 | SP-BPRUN-012 | script の模擬実行（完了の前の停止で書いたファイルが残る） | 作成中 |
 | PR-BPOPERATIONS-041 | SP-BPRUN-009 | CLI の単体テスト（検証を通ったかが一覧に追記される） | 完了 |
 | PR-BPOPERATIONS-041 | SP-BPRUN-011 | CLI の単体テスト（停止の記録に検証を通っていないファイルが載る） | 完了 |
 | PR-BPOPERATIONS-041 | SP-BPRUN-032 | script の模擬実行（停止の返り値に理由と、書いたファイルの検証の有無がある） | 作成中 |
@@ -665,25 +666,25 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | PR-BPDESIGNEDSKILL-017 | SP-BPRUN-021 | script の模擬実行（review と create のそれぞれで、最小の起動数が機能ごとの定数で、再開した run でも同じ値を使う） | 作成中 |
 | PR-BPDESIGNEDSKILL-017 | SP-BPRUN-037 | script の模擬実行（review と create のそれぞれで、最小に 1 足りない上限で agent を 1 体も起動せず、最小と同じ上限では起動する） | 作成中 |
 | PR-BPDESIGNEDSKILL-017 | SP-BPRUN-034 | script の模擬実行（停止の記録の起動数が実際の起動数と一致する） | 作成中 |
-| PR-BPDESIGNEDSKILL-019 | SP-BPRUN-010 | script の模擬実行（上限に達した run が反復の上限で止まり、理由に起動数の上限がある） | 完了 |
+| PR-BPDESIGNEDSKILL-019 | SP-BPRUN-010 | script の模擬実行（上限に達した run が反復の上限で止まり、理由に起動数の上限がある） | 作成中 |
 | PR-BPDESIGNEDSKILL-019 | SP-BPRUN-011 | CLI の単体テスト（反復の上限の停止の記録に、当たった上限が反復の回数か起動数の上限かが残る） | 完了 |
 | PR-BPDESIGNEDSKILL-019 | SP-BPRUN-020 | CLI の単体テスト（起動しなかった項目が上限の無いときの起動順で未着手として残る） | 完了 |
-| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-003 | script の模擬実行（再開の run に新しい run ID が登録され現在の run になる） | 完了 |
+| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-003 | script の模擬実行（再開の run に新しい run ID が登録され現在の run になる） | 作成中 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-005 | CLI の単体テスト（未着手の項目・試行の回数・反復の回数が状態に残る） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-006 | CLI の単体テスト（同じ書き込みの繰り返しで状態が変わらず、食い違う書き込みを拒否する） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-014 | script の模擬実行（next_args で起動した新しい run が続きから進む） | 作成中 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-015 | script の模擬実行（再開した run が止まった段の未着手の項目だけを順位の順に処理する。項目を持たない段で上限に当たって止まった run の再開では、その段を最初から行う） | 作成中 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-016 | CLI の単体テスト（停止時と再開時の指紋の食い違いを出力する。停止の記録の無い状態では、最後に記録した指紋と照らす） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-038 | CLI の単体テスト（同じ段を同じ入力で列挙し直すと同じ項目の ID と順が返り、同じ鍵の 2 回の列挙が 1 項目になる） | 完了 |
-| PR-BPOPERATIONS-013 | SP-BPRUN-038 | script の模擬実行（段の途中で run を止め、停止の記録の無い状態から再開すると、列挙した項目のうち結果の無いものだけが処理される） | 完了 |
+| PR-BPOPERATIONS-013 | SP-BPRUN-038 | script の模擬実行（段の途中で run を止め、停止の記録の無い状態から再開すると、列挙した項目のうち結果の無いものだけが処理される） | 作成中 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-017 | CLI の単体テスト（前の run の遅れた書き込みが新しい run の状態を変えない） | 完了 |
-| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-022 | script の模擬実行（起動数の上限で止まった run からの再開で未着手の項目から続け、next_args に上限が無い） | 完了 |
-| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-035 | 静的な照合（bp-conformance の判定基準がこの手順を参照する）と script の模擬実行（上限で止めて再開し、未着手の項目を順位の順に処理し、結果のある項目を処理し直さない） | 完了 |
-| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-033 | script の模擬実行（next_args だけで状態を指して再開できる） | 完了 |
+| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-022 | script の模擬実行（起動数の上限で止まった run からの再開で未着手の項目から続け、next_args に上限が無い） | 作成中 |
+| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-035 | 静的な照合（bp-conformance の判定基準がこの手順を参照する）と script の模擬実行（上限で止めて再開し、未着手の項目を順位の順に処理し、結果のある項目を処理し直さない） | 作成中 |
+| PR-BPDESIGNEDSKILL-020 | SP-BPRUN-033 | script の模擬実行（next_args だけで状態を指して再開できる） | 作成中 |
 | PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（写しを正本から 1 字変えると失敗し、bp-conformance に写しの無い `docs/` の文書への参照を足すと失敗する）と静的な照合（create・update の検証役の prompt が写しのパスだけを渡し、`docs/` のパスを渡さない） | 作成中 |
 | PR-BPOPERATIONS-024 | SP-BPRUN-036 | 静的な照合（review のフローの観点の照らす先が写しのパスである） | 未着手 |
 | PR-BPOPERATIONS-025 | SP-BPRUN-036 | 静的な照合（review の仕様の観点の照らす先が写しのパスである） | 未着手 |
 | PR-BPOPERATIONS-016 | SP-BPRUN-004 | CLI の単体テスト（修正の根拠 3 件を開始の操作に渡すと記録 ID が 3 つ返り、dismissed の指摘も絞らずに書かれる） | 完了 |
 | PR-BPOPERATIONS-040 | SP-BPRUN-009 | CLI の単体テスト（消したファイルが消したの印とともに書いたファイルの一覧に残る） | 完了 |
 | PR-BPOPERATIONS-013 | SP-BPRUN-015 | script の模擬実行（新しい反復から始めた再開で前の回の未着手の項目が破棄した項目として書かれ、その後の停止の記録の無い run からの再開で処理されない） | 作成中 |
-| PR-BPOPERATIONS-005 | SP-BPRUN-011 | script の模擬実行（状態を作らずに needs_input で止まる run が停止の記録を書かず、next_args を返さない） | 完了 |
+| PR-BPOPERATIONS-005 | SP-BPRUN-011 | script の模擬実行（状態を作らずに needs_input で止まる run が停止の記録を書かず、next_args を返さない） | 作成中 |

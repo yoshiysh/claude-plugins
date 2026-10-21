@@ -50,6 +50,8 @@ export const STOP_KINDS = Object.freeze({
   blocked: 'blocked',
 });
 export const LIMIT_HITS = Object.freeze(['iteration', 'launch']);
+// 書き直さずに検証し直す再開（SP-BPAUTHORING-005 のただし書き）に当てる BLOCKED の原因の区分。
+export const STOP_CAUSES = Object.freeze({ verifiers: 'verifiers' });
 const REWRITING_STOPS = Object.freeze([STOP_KINDS.complete, STOP_KINDS.needsInput, STOP_KINDS.iterationLimit, STOP_KINDS.blocked]);
 const INSPECTING_STOPS = Object.freeze([STOP_KINDS.complete, STOP_KINDS.iterationLimit, STOP_KINDS.blocked]);
 export const STOP_KINDS_BY_FUNCTION = Object.freeze({

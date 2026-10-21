@@ -93,7 +93,7 @@ function scriptFunction(names) {
 
 const COPIED = ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
   'GOAL_KEYS', 'SOURCE_KINDS', 'GROUND_INSTRUCTION', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'CONTRACT_ELEMENTS', 'GATE_NEXT', 'LIMIT_HITS', 'CRITERIA_DIR', 'CRITERIA_FILES',
-  'ROLE_WRITE_LIMITS'];
+  'ROLE_WRITE_LIMITS', 'STOP_CAUSES'];
 
 test('SP-BPRUN-031・TBD-SBPRUN-001 の保持規則: script の定数の写しが CLI の定数と深く一致する', () => {
   for (const name of COPIED) assert.deepEqual(literalOf(name), JSON.parse(JSON.stringify(CLI_CONSTANTS[name])), name);
@@ -192,8 +192,8 @@ test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最�
   assert.ok(m, 'SP-BPRUN-021 に最小の起動数の書き戻しが無い');
   const limits = literalOf('LIMITS');
   const w = Function('LIMITS', `return (${SOURCE.slice(SOURCE.indexOf('const WORST = ') + 'const WORST = '.length, SOURCE.indexOf('\nconst RESERVE'))});`)(limits);
-  const min = (fn) => w.start + (fn === 'update' ? w.carrier : 0) + w.carrier + limits.untilPass * w.goalAttempt + w.carrier + w.write + w.item + worst;
+  const min = (fn) => w.start + w.resumeDiscard + (fn === 'update' ? w.carrier : 0) + w.carrier + limits.untilPass * w.goalAttempt + w.carrier + w.write + w.item + worst;
   assert.deepEqual([Number(m[1]), Number(m[2])], [min('create'), min('update')]);
   const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(RUN)?.[1]);
-  assert.deepEqual([row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.start, w.item, w.goalAttempt, w.write, worst]);
+  assert.deepEqual([row('`worst\\(再開の破棄\\)`'), row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.resumeDiscard, w.start, w.item, w.goalAttempt, w.write, worst]);
 });

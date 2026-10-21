@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GOAL_KEYS, GROUND_INSTRUCTION,
+  CODES, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
   LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, RUN_VIEWPOINTS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
@@ -440,14 +440,6 @@ function stoppedDetail(view) {
   };
 }
 
-// 検証役・反証役が結果を返せないことによる BLOCKED か（打ち切り・未反証・skip・判定できない）。書き直さずに検証し直す再開はこれに限る。
-function verifierBlocked(view, number, gate) {
-  if (gate && gate.result.result.number === number && gate.result.result.decision === GATE_DECISIONS.unverifiable) return true;
-  return [...view.stages.values()].some((s) => (s.round === number || s.stage === STAGE.vanish)
-    && [STAGE.verify, STAGE.verifyExtra, STAGE.refute, STAGE.vanish].includes(s.stage)
-    && s.items.length > 0 && s.items.every((id) => view.items.get(id).aborted));
-}
-
 export function progress(view) {
   const rounds = (stage) => [...view.stages.values()].filter((s) => s.stage === stage).map((s) => s.round ?? 0);
   const number = Math.max(0, ...[STAGE.write, STAGE.verify, STAGE.gate].flatMap(rounds));
@@ -462,8 +454,7 @@ export function progress(view) {
     goalRepeats: view.repeats.get(STAGE.goal) ?? 0,
     snapshot: Boolean(view.snapshot),
     ledger: Boolean(view.ledger),
-    lastStop: prior ? { kind: prior.kind, limitHit: prior.limitHit ?? null, stage: prior.stage } : null,
-    verifierBlocked: verifierBlocked(view, number, g),
+    lastStop: prior ? { kind: prior.kind, limitHit: prior.limitHit ?? null, stage: prior.stage, cause: prior.cause ?? null } : null,
     lastGate: g ? { number: g.result.result.number, decision: g.result.result.decision, next: g.result.result.next, rewrite: g.result.result.rewrite } : null,
     target: { root: view.paths.at(-1).root, files: view.paths.at(-1).files },
     goalText: view.premises.filter((p) => p.kind === 'goal').at(-1)?.text ?? null,

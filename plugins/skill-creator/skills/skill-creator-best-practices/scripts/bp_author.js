@@ -62,6 +62,7 @@ const UNCHECKED_KINDS = { forced: 'forced', unforced: 'unforced' }
 const CONTRACT_ELEMENTS = ['発火する条件', '発火しない条件', '入力', '出力', '停止の種類']
 const GATE_NEXT = { complete: 'complete', rewrite: 'rewrite', iterationLimit: 'iterationLimit', blocked: 'blocked' }
 const LIMIT_HITS = ['iteration', 'launch']
+const STOP_CAUSES = { verifiers: 'verifiers' }
 const ROLE_WRITE_LIMITS = [
   { role: '書き手', writes: '対象スキルと作業ファイル' },
   { role: '検証役・反証役・抽出役', writes: '作業ファイルだけ' },
@@ -92,6 +93,7 @@ const PAYLOAD_MODE = 'file'
 // 起動数の勘定（SP-BPCONFORMANCE-022 の式。値の根拠は tests/bp-author-workflow.test.mjs の最悪の経路の計数）。
 const WORST = {
   start: 2,
+  resumeDiscard: 1,
   carrier: 1,
   goalAttempt: 2,
   write: 3,
@@ -100,7 +102,8 @@ const WORST = {
 const RESERVE = 1
 
 function minimalLaunches(fn) {
-  return WORST.start + (fn === FUNCTION.update ? WORST.carrier : 0) + WORST.carrier + LIMITS.untilPass * WORST.goalAttempt
+  // 再開した run は未着手の破棄と段の終わりの運搬役を足す。再開も同じ値を使うので、最初の run と再開の最悪の大きい方を取る。
+  return WORST.start + WORST.resumeDiscard + (fn === FUNCTION.update ? WORST.carrier : 0) + WORST.carrier + LIMITS.untilPass * WORST.goalAttempt
     + WORST.carrier + WORST.write + WORST.item + RESERVE
 }
 
@@ -400,11 +403,6 @@ function markItem(id, field) {
   if (it) it[field] = true
 }
 
-function pendingNow() {
-  if (!open) return []
-  return open.items.filter((x) => !x.done && !x.aborted && !x.discarded).map((x) => x.id)
-}
-
 function request(op, body) {
   const b = JSON.parse(JSON.stringify(body))
   return { op, body: { ...b, sum: fnvSum(b) } }
@@ -483,7 +481,7 @@ async function mustCarry(stage, requests) {
 }
 
 function launchReason() {
-  return `起動数の上限 ${budget.limit} で止まった（その時点の起動数 ${budget.used()}、残した項目 ${pendingNow().length} 件）`
+  return `起動数の上限 ${budget.limit} で止まった（その時点の起動数 ${budget.used()}。残した項目は停止の記録の未着手の項目）`
 }
 
 // 同時に走る agent を CONCURRENCY 体に抑える（SP-BPCONFORMANCE-027。best-practices 自身は host の設定に頼らず script が守る）。
@@ -514,11 +512,12 @@ async function itemLoop(item, attempts, attemptFn, label) {
       const outcome = await attemptFn(current + 1, unit)
       if (outcome.done) { markItem(item, 'done'); return outcome }
       if (outcome.fatal) throw outcome.fatal
-      const fail = [...(outcome.alsoWrite ? [outcome.alsoWrite] : []), write(OPS.itemFail, { item, attempt: current + 1, reason: outcome.reason })]
+      const fail = [...(outcome.alsoWrite ? [outcome.alsoWrite] : []), write(OPS.itemFail, { item, attempt: current + 1, reason: outcome.reason, ...(outcome.ambiguous ? { ifNoResult: true } : {}) })]
       let r = await carry(fail, { unit, label: `carrier:${label}` })
       if (r.lost) r = await carry(fail, { unit, label: `carrier:${label}` })
       if (!r.ok) throw new Stop(STOP_KINDS.blocked, `段の項目 ${item} の試行の失敗を書く運搬役が失敗した: ${r.reason}`)
       current += 1
+      if (r.responses.at(-1).resulted) { markItem(item, 'done'); return { done: true } }
       if (r.responses.at(-1).aborted) { markItem(item, 'aborted'); return { aborted: true } }
     }
   } finally {
@@ -535,7 +534,7 @@ async function fanOut(stage, entries, worker) {
   })
   if (short) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: 'launch' })
   if (open.items.length && open.items.every((x) => x.aborted)) {
-    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`)
+    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
   }
 }
 
@@ -651,15 +650,16 @@ async function writeStage(number, rewrite) {
     if (!res) throw new Stop(STOP_KINDS.blocked, '段「書く」の書き手が結果を返さなかった。一覧の外は確かめていない', { scan: number })
     memo.written = res.written
     const entries = res.written.map((w) => ({ path: w.path, iteration: number, action: w.action }))
+    // 書いたファイルを先に記録する。結果が拒否されても、書いたファイルが一覧と返り値から漏れないようにするため。
     const r = await carry([
-      write(OPS.itemResult, { item: itemId, result: { written: res.written, designNote: res.designNote } }),
       write(OPS.files, { entries }),
+      write(OPS.itemResult, { item: itemId, result: { written: res.written, designNote: res.designNote } }),
     ], { unit })
+    if (r.responses[0]?.ok) memo.outside = r.responses[0].outside
     if (!r.ok) throw new Stop(STOP_KINDS.blocked, `段「書く」の運搬役（CLI）が失敗した: ${r.reason}`)
     markItem(itemId, 'done')
-    const outside = r.responses[1].outside
+    const outside = r.responses[0].outside
     if (outside.length) {
-      memo.outside = outside
       throw new Stop(STOP_KINDS.blocked, `書き手が対象スキルのパスの一覧の外のパスを返した（戻していない）: ${outside.join(', ')}`, { outside })
     }
     return await ledgerBatch(number, unit)
@@ -747,7 +747,8 @@ async function writeResult(stage, req, unit) {
   const first = await carry([req], { unit, label })
   const r = first.lost ? await carry([req], { unit, label }) : first
   if (r.ok) return { done: true }
-  if (r.code === CODES.result || (r.failed && !r.lost)) return { reason: r.reason }
+  if (r.code === CODES.result) return { reason: r.reason }
+  if (r.failed && !r.lost) return { reason: r.reason, ambiguous: first.lost }
   if (r.lost) return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の結果を書く運搬役が送り直しでも応答を返さなかった: ${first.reason} / ${r.reason}`) }
   return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の CLI が結果の書き込みを拒否した: ${r.reason}`) }
 }
@@ -926,7 +927,7 @@ async function iteration(number, rewrite, startAt, retakePaths = false) {
   return afterRefute(number, refuted, ctx.retake)
 }
 
-// 表は SP-BPAUTHORING-035 が正本。BLOCKED の台帳〜合否からの再開は、書き直す入力が無いので書かずに台帳の段から検証し直す。
+// 表は SP-BPAUTHORING-035 が正本。書かずに台帳の段から検証し直すのは、検証役・反証役が結果を返せない BLOCKED だけ（書き直す入力が無い）。
 
 function resumePlan(p) {
   const stopped = p.stopped
@@ -948,7 +949,7 @@ function resumePlan(p) {
   const at = last.stage?.stage ?? null
   if (at === STAGE.snapshot || at === STAGE.start || at === null) return fresh({ ...(goalNext ?? { goal: false }), start: STAGE.write, number: p.number + 1 })
   if (at === STAGE.goal) return fresh({ ...(goalNext ?? { goal: false }), start: STAGE.write, number: p.number + 1 })
-  if (at === STAGE.write || !p.verifierBlocked) return fresh({ goal: false, start: STAGE.write, number: p.number + 1 })
+  if (at === STAGE.write || last.cause !== STOP_CAUSES.verifiers) return fresh({ goal: false, start: STAGE.write, number: p.number + 1 })
   return fresh({ goal: false, start: STAGE.ledger, number: p.number + 1 })
 }
 
@@ -960,6 +961,7 @@ async function finish(stop) {
     kind,
     ...(kind === STOP_KINDS.complete ? {} : { reason: stop.reason }),
     ...(stop.extra.limitHit ? { limitHit: stop.extra.limitHit } : {}),
+    ...(stop.extra.cause ? { cause: stop.extra.cause } : {}),
     launches: budget.used() + 1,
     outside: memo.outside,
   }
@@ -1019,7 +1021,7 @@ async function main() {
     if (startAt === 'resume-verify') g = await continueIteration(number, plan.continue)
     else g = await iteration(number, rewrite, startAt, plan.continue?.stage === STAGE.write)
     if (g.next === GATE_NEXT.complete) throw new Stop(STOP_KINDS.complete, '')
-    if (g.next === GATE_NEXT.blocked) throw new Stop(STOP_KINDS.blocked, `反復 ${number} の検証が成り立たない: ${gateReason(g)}`)
+    if (g.next === GATE_NEXT.blocked) throw new Stop(STOP_KINDS.blocked, `反復 ${number} の検証が成り立たない: ${gateReason(g)}`, { cause: STOP_CAUSES.verifiers })
     if (g.next === GATE_NEXT.iterationLimit) {
       throw new Stop(STOP_KINDS.iterationLimit, `反復の上限 ${g.iterations.limit} 回に達した。不合格の指摘: ${g.failing.findings.join(', ') || 'なし'}。不合格の判定の単位: ${g.failing.units.join(', ') || 'なし'}`, { limitHit: 'iteration' })
     }

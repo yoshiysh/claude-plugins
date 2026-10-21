@@ -36,7 +36,7 @@ const CASES = [
   },
   {
     name: '再開の段の表で、検証役によらない BLOCKED にも書かずに検証し直す例外を当てると、書く段から始めない',
-    from: 'if (at === STAGE.write || !p.verifierBlocked)', to: 'if (at === STAGE.write)',
+    from: 'if (at === STAGE.write || last.cause !== STOP_CAUSES.verifiers)', to: 'if (at === STAGE.write)',
     async check(t, scriptPath) {
       const s = await setup(t);
       let drop = true;
@@ -62,7 +62,7 @@ const CASES = [
   },
   {
     name: '送り直しの E_RESULT を試行の失敗でなく BLOCKED にすると、1 件の拒否で run が止まる',
-    from: "  if (r.code === CODES.result || (r.failed && !r.lost)) return { reason: r.reason }\n  if (r.lost)", to: "  if (first === r && r.code === CODES.result) return { reason: r.reason }\n  if (r.lost)",
+    from: "  if (r.code === CODES.result) return { reason: r.reason }\n", to: "  if (first === r && r.code === CODES.result) return { reason: r.reason }\n",
     async check(t, scriptPath) {
       const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
       const s = await setup(t);
@@ -120,7 +120,7 @@ const CASES = [
   },
   {
     name: '試行の失敗の番号を 1 ずらすと、CLI が拒否して 1 件の欠けで BLOCKED になる',
-    from: 'write(OPS.itemFail, { item, attempt: current + 1, reason: outcome.reason })', to: 'write(OPS.itemFail, { item, attempt: current + 2, reason: outcome.reason })',
+    from: 'write(OPS.itemFail, { item, attempt: current + 1, reason: outcome.reason,', to: 'write(OPS.itemFail, { item, attempt: current + 2, reason: outcome.reason,',
     async check(t, scriptPath) {
       const s = await setup(t);
       let n = 0;

@@ -477,7 +477,7 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-043 | SP-BPFINDINGS-030 | script の結合テスト（dismissed の指摘が結果の指摘の一覧に含まれることを確認） | 未着手 |
 | PR-BPOPERATIONS-036 | SP-BPFINDINGS-031 | script の結合テスト（open と dismissed の指摘を含む review の結果を update に渡し、open の指摘だけが修正の根拠になることを確認） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPFINDINGS-031 | script の結合テスト（review → update の連鎖で、update に渡る指摘が SP-BPFINDINGS-029 の項目を全て持つことを確認） | 未着手 |
-| PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | script の結合テスト（利用者の指示だけを修正の根拠として渡し、資産 ID の無い根拠が受け付けられることを確認） | 完了 |
+| PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | script の結合テスト（利用者の指示だけを修正の根拠として渡し、資産 ID の無い根拠が受け付けられることを確認） | 作成中 |
 | PR-BPOPERATIONS-045 | SP-BPFINDINGS-032 | script の結合テスト（update の完了時の出力に、台帳の指摘ごとの状態が全て載ることを確認） | 完了 |
 | PR-BPOPERATIONS-046 | SP-BPFINDINGS-032 | script の結合テスト（create の完了時の出力に skip 一覧が載ることを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-033 | CLI の単体テスト（ファイルが 0 件の対象スキルで台帳の作成が理由つきで失敗することを確認） | 完了 |
@@ -487,6 +487,6 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-022 | CLI の単体テスト（run の観点の集合に無い観点についてカバレッジと skip 一覧が作られないことを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-034 | CLI の単体テスト（機能の文書が足した欄を持つ結果が、足した欄を理由に拒否されないことを確認） | 完了 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-035 | CLI の単体テスト（同じ候補に 2 つの異なる反証の結果を記録させ、2 つ目が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | script の結合テスト（反復 1 で資産 Y の候補が反証で却下され、反復 2 で別の資産だけを書き換え、検証役が Y に同じ鍵の候補を返すと、重複になり、見直しの判定が「存在しない」で dismissed が今の担当の指紋の組とともに記録され、「今の内容で判定したか」がはいになり、BLOCKED にならないことを確認） | 完了 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-018 | script の結合テスト（反復 1 で資産 Y の候補が反証で却下され、反復 2 で別の資産だけを書き換え、検証役が Y に同じ鍵の候補を返すと、重複になり、見直しの判定が「存在しない」で dismissed が今の担当の指紋の組とともに記録され、「今の内容で判定したか」がはいになり、BLOCKED にならないことを確認） | 作成中 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-020 | script の結合テスト（停止の間に指摘のある節を消した review を再開し、消えた資産の照合の段で検証役が指摘を台帳に作った順に起動され、状態が記録されず見直しの判定だけが記録されることを確認） | 未着手 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-034 | script の結合テスト（一覧に無い資産 ID を含む担当の組を返す偽の抽出役が試行の上限の回まで起動し直され、上限の回でも拒否されると BLOCKED になり、途中の回で受理されると run が続くことを確認） | 未着手 |

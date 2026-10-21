@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
+  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
   RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
 import { lastGate, progress } from './ops-author.mjs';
@@ -297,6 +297,10 @@ export function itemResult(ctx, req) {
 export function itemFail(ctx, req) {
   return mutate(ctx, req, OPS.itemFail, (view) => {
     const item = itemOf(view, req.item);
+    // 結果を書く要求の応答を失った後は、CLI が結果を書いたかを script が知らないので、結果のある項目を「済み」として返させる。
+    if (item.result !== undefined && req.ifNoResult === true) {
+      return { records: [], output: { item: req.item, attempts: item.fails.length, limit: view.state.limits[LIMIT_KEYS.attempts], aborted: false, resulted: true } };
+    }
     if (item.result !== undefined) reject(CODES.conflict, `結果のある項目に試行の失敗を書けない: ${req.item}`);
     if (item.discarded) reject(CODES.conflict, `破棄した項目に試行の失敗を書けない: ${req.item}`);
     if (item.aborted && req.attempt > item.fails.length) reject(CODES.conflict, `打ち切った項目に試行の失敗を書けない: ${req.item}`);
@@ -396,7 +400,7 @@ export function unverifiedFiles(view) {
 export function stop(ctx, req) {
   return mutate(ctx, req, OPS.stop, async (view) => {
     const fn = view.state.function;
-    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? null, launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null }));
+    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? null, launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null, cause: req.cause }));
     const output = (after) => {
       const stopped = after.stops.get(req.run);
       return { stop: stopped, ...(stopped.kind === STOP_KINDS.complete ? {} : { nextArgs: nextArgs(after) }) };
@@ -412,6 +416,7 @@ export function stop(ctx, req) {
     if (req.kind !== STOP_KINDS.complete && (typeof req.reason !== 'string' || req.reason === '')) reject(CODES.input, '完了以外の停止には理由が要る');
     if ((req.kind === STOP_KINDS.iterationLimit) !== (req.limitHit !== undefined)) reject(CODES.input, 'limitHit は反復の上限の停止にだけ、必ず付ける');
     if (req.limitHit !== undefined && !LIMIT_HITS.includes(req.limitHit)) reject(CODES.input, `limitHit が ${LIMIT_HITS.join('・')} のどれでもない: ${JSON.stringify(req.limitHit)}`);
+    if (req.cause !== undefined && (req.kind !== STOP_KINDS.blocked || !Object.values(STOP_CAUSES).includes(req.cause))) reject(CODES.input, `cause は BLOCKED にだけ ${Object.values(STOP_CAUSES).join('・')} を付ける: ${JSON.stringify(req.cause)}`);
     if (!Number.isInteger(req.launches) || req.launches < 0) reject(CODES.input, `launches は 0 以上の整数でなければならない: ${JSON.stringify(req.launches)}`);
     if (req.onTargetChanged !== undefined && (req.onTargetChanged !== STOP_KINDS.blocked || REWRITING_FUNCTIONS.has(fn))) reject(CODES.input, 'onTargetChanged は review・audit の blocked だけ');
     const rewriting = REWRITING_FUNCTIONS.has(fn);
@@ -444,7 +449,7 @@ export function stop(ctx, req) {
       }
     }
     const record = {
-      t: RECORDS.stop, run: req.run, kind, reason, limitHit, requested,
+      t: RECORDS.stop, run: req.run, kind, reason, limitHit, requested, cause: kind === req.kind ? req.cause : undefined,
       stage: live.stage == null ? null : { stage: live.stage, round: live.round },
       pending, launches: req.launches,
       unverified: rewriting && req.kind !== STOP_KINDS.complete ? unverifiedFiles(view) : [],
