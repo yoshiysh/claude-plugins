@@ -102,7 +102,7 @@ test('SP-BPFINDINGS-005: 変更・追加・削除・不変を 1 つずつ含む�
   assert.equal((await ledger.ledgerRetake(ctx, req)).retake, null);
 });
 
-test('SP-BPFINDINGS-006・034: 台帳に無い資産 ID を含む結果を拒否し、その担当の資産が skip 一覧に残り、拒否の件数と担当が状態に記録される', async (t) => {
+test('SP-BPFINDINGS-006・SP-BPFINDINGS-034: 台帳に無い資産 ID を含む結果を拒否し、その担当の資産が skip 一覧に残り、拒否の件数と担当が状態に記録される', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
   await assert.rejects(
@@ -170,7 +170,7 @@ test('SP-BPFINDINGS-010: 同じ資産に、同じ仕様項目の原則の表の�
   assert.equal(new Set(made.map((m) => m.finding)).size, 2);
 });
 
-test('SP-BPFINDINGS-011・036: 引用と内容の文言だけが違う同じ鍵の候補 2 件が同じ指摘になり、観点だけが違う 2 件が別の指摘 ID になる', async (t) => {
+test('SP-BPFINDINGS-011・SP-BPFINDINGS-036: 引用と内容の文言だけが違う同じ鍵の候補 2 件が同じ指摘になり、観点だけが違う 2 件が別の指摘 ID になる', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
   const a = assets[0].id;
@@ -412,7 +412,7 @@ test('SP-BPFINDINGS-022: 資産 4 つのうち 3 つに「見た」を記録す�
   assert.equal((await ledger.report(ctx, { ...req, viewpoints: ['conformance'] })).coverage[0].ratio, '2/4');
 });
 
-test('SP-BPFINDINGS-022・023: run の観点の集合に無い観点についてカバレッジと skip 一覧が作られず、「見た」が 0 件の資産が観点ごとの skip 一覧に載る', async (t) => {
+test('SP-BPFINDINGS-022・SP-BPFINDINGS-023: run の観点の集合に無い観点についてカバレッジと skip 一覧が作られず、「見た」が 0 件の資産が観点ごとの skip 一覧に載る', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
   const two = assets.slice(0, 2).map((a) => a.id);

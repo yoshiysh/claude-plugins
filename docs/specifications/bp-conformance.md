@@ -32,7 +32,7 @@
 create・update の検証役と review のフローの観点は、対象スキルに本書の判定基準を当てなければならない。`docs/specifications/bp-authoring.md` と `docs/specifications/bp-inspection.md` は本書の判定基準を ID で参照し、書き写してはならない（同じ基準が 2 箇所にあると、片方だけが直る）。
 
 #### SP-BPCONFORMANCE-002 判定の単位
-設計方針文書の節を参照する要求（PR-BPDESIGNEDSKILL-006〜013）について、判定する者は、参照する節の原則の表の各行を 1 つの判定の単位としなければならない。そのうえで、行ごとに判定の結果を付けなければならない。本書は行の中身を書き写さない。判定の単位を示す値の形は `docs/specifications/bp-findings.md` の TBD-SBPFINDINGS-001 で決める。
+設計方針文書の節を参照する要求（PR-BPDESIGNEDSKILL-006〜013）について、判定する者は、参照する節の原則の表の各行を 1 つの判定の単位としなければならない。そのうえで、行ごとに判定の結果を付けなければならない。本書は行の中身を書き写さない。判定の単位を示す値の形は `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 に従う。
 
 #### SP-BPCONFORMANCE-003 適用の判定表
 判定する者は、下の判定表で、対象スキルに当たる要求を決めなければならない。表の結果の列の番号は、PR-BPDESIGNEDSKILL- を略した要求番号である（例: 003 は PR-BPDESIGNEDSKILL-003）。条件の「形」は、対象スキルのフローに SP-BPCONFORMANCE-004 の順で問いを当てて得る形である（対象スキルが選んだと称する形ではない）。「資産台帳」と「fan-out」は、対象スキルが実際に持つかどうかである。PR-BPDESIGNEDSKILL-001・002・006・014・015 はどの行でも当たる。それ以外で結果の列に無い要求は対象外とし、その判定の単位には「対象外」を付ける。

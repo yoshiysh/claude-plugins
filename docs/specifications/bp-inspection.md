@@ -300,7 +300,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | script の模擬実行（追加の起動が返した候補を含め、重複でない候補のまとめた鍵ごとに反証役が 1 体起動され、全ての反証役が観点ごとの検証の段の後に起動されることを確認） | 未着手 |
 | PR-BPOPERATIONS-029 | SP-BPINSPECTION-019 | script の模擬実行（結果の項目が CLI の出力から逐語で返り、集約の agent が起動されないことを確認） | 未着手 |
 | PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 静的な照合（review・audit の script に書き手の起動が無く、各役の prompt に対象を書き換える指示が無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-021 | CLI の単体テスト（根が `SKILL.md` のあるディレクトリのときだけ、開始の操作が状態を作ることを確認） | 未着手 |
+| PR-BPOPERATIONS-027 | SP-BPINSPECTION-021 | CLI の単体テスト（根が `SKILL.md` のあるディレクトリのときだけ、開始の操作が状態を作ることを確認） | 完了 |
 | PR-BPOPERATIONS-027 | SP-BPINSPECTION-022 | script の模擬実行（入口が渡したパスの一覧がそのまま開始の操作に渡り、run の中でパスの一覧の作成が呼ばれないことを確認） | 未着手 |
 | PR-BPOPERATIONS-027 | SP-BPINSPECTION-023 | 静的な照合（review・audit の入力の表が `docs/specifications/bp-entry.md` の SP-BPENTRY-013 だけにあり、本文書に無いことを確認） | 未着手 |
 | PR-BPOPERATIONS-026 | SP-BPINSPECTION-024 | script の模擬実行（未検査の観点が空の run でも結果に項目があることを確認） | 未着手 |

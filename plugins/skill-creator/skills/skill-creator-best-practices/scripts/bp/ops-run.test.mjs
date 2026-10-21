@@ -436,7 +436,7 @@ test('SP-BPAUTHORING-029: update で無いディレクトリを拒否し、状�
   assert.deepEqual(await stateDirs(ctx), []);
 });
 
-test('SP-BPINSPECTION-021・026: 根が SKILL.md のあるディレクトリのときだけ、開始の操作が状態を作る', async (t) => {
+test('SP-BPINSPECTION-021・SP-BPINSPECTION-026: 根が SKILL.md のあるディレクトリのときだけ、開始の操作が状態を作る', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const noSkill = await skillDir(t, { 'README.md': 'x' });
