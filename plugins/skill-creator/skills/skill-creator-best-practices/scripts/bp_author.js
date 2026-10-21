@@ -102,7 +102,7 @@ const WORST = {
 const RESERVE = 1
 
 function minimalLaunches(fn) {
-  // 再開した run は未着手の破棄と段の終わりの運搬役を足す。再開も同じ値を使うので、最初の run と再開の最悪の大きい方を取る。
+  // その run で最初に始める fan-out の項目までの最悪を、全ての経路で最も大きいもので取る（再開も同じ値を使う）。最大は目標の固定より前で止まった run の再開。
   return WORST.start + WORST.resumeDiscard + (fn === FUNCTION.update ? WORST.carrier : 0) + WORST.carrier + LIMITS.untilPass * WORST.goalAttempt
     + WORST.carrier + WORST.write + WORST.item + RESERVE
 }
@@ -656,7 +656,10 @@ async function writeStage(number, rewrite) {
       write(OPS.itemResult, { item: itemId, result: { written: res.written, designNote: res.designNote } }),
     ], { unit })
     if (r.responses[0]?.ok) memo.outside = r.responses[0].outside
-    if (!r.ok) throw new Stop(STOP_KINDS.blocked, `段「書く」の運搬役（CLI）が失敗した: ${r.reason}`)
+    if (!r.ok) {
+      const outsideReason = memo.outside.length ? `。書き手が対象スキルのパスの一覧の外のパスも返した（戻していない）: ${memo.outside.join(', ')}` : ''
+      throw new Stop(STOP_KINDS.blocked, `段「書く」の運搬役（CLI）が失敗した: ${r.reason}${outsideReason}`)
+    }
     markItem(itemId, 'done')
     const outside = r.responses[0].outside
     if (outside.length) {

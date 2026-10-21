@@ -257,6 +257,7 @@ run が止まるとき、script は運搬役に、次の項目を停止の記録
 - その run の起動数
 - create・update では、書いたファイルの一覧のうち検証を通っていないものと、書き手が返した一覧の外のパス（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015・SP-BPAUTHORING-031）
 - 指紋から除いたファイル `excluded`（plugin の外にあるファイル。根の中のものは根からの相対パス（symlink の位置）、根の外のものは実体の絶対パス：`docs/specifications/bp-findings.md` の SP-BPFINDINGS-002）
+- BLOCKED の原因の区分 `cause`（検証役・反証役が結果を返せないときだけ `verifiers`。再開の始め方を分ける：`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-005）
 - 停止の要求を正規化した JSON の sha256 `asked`（送り直しの照合に使う：SP-BPRUN-031）
 
 script は、停止の記録が書かれたことを CLI の出力で確かめてから、返り値（SP-BPRUN-032）を返さなければならない。運搬役か CLI が失敗して停止の記録を書けないときは SP-BPRUN-027 に従う。状態に書かずに止まるとき（SP-BPRUN-037、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）は、停止の記録を書かない。
@@ -331,7 +332,7 @@ best-practices 自身の Workflow は、起動数の上限を省略できる入�
 2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。
 
 #### SP-BPRUN-021 最小の起動数
-best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、最初の fan-out の項目（検証の段の適合の観点）を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものとする。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は TBD-SBPRUN-003）。
+best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、その run で最初に始める fan-out の項目を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものを、最初の run と再開した run の全ての経路について求め、その最も大きいものとする（SP-BPRUN-037 の「1 件も始められない」と同じ考え方で、上限がこの値以上なら、どの経路でもその run の最初の fan-out の項目を始められる）。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は TBD-SBPRUN-003）。
 
 | 値 | 回数 | 中身 |
 |---|---|---|
@@ -343,7 +344,7 @@ best-practices 自身の run の最小の起動数は機能ごとの定数とし
 | `worst(段の境の運搬役)` | 1 | 段の開始・終わりと読み出しをまとめた 1 回の運搬役 |
 | `R`（予約分） | 1 | 停止の運搬役。書いたファイルの照らし合わせ（`files-scan`）・停止（`stop`）・返り値（`outcome`）を 1 回で運ぶ |
 
-create の最小の起動数は 30、update は 31 とする。再開した run も同じ値を使うので、最初の run と再開した run の最悪の大きい方（再開）を取る。内訳は、開始 2、再開の破棄 1、（update だけ）作り直す前の写し 1、目標の固定の段の開始 1、目標の固定 2 × 3、書く段の開始 1、書く 3、最初の fan-out の項目 15、予約分 1 である。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
+create の最小の起動数は 30、update は 31 とする。最も大きくなる経路は、目標の固定より前で止まった run の再開で、内訳は、開始 2、再開の破棄 1、（update だけ）作り直す前の写し 1、目標の固定の段の開始 1、目標の固定 2 × 3、書く段の開始 1、書く 3、最初の fan-out の項目（検証の段の適合の観点）15、予約分 1 である。再開の開始で消えた資産が見つかる経路では、目標の固定より前の消えた資産の照合の段の項目が最初の fan-out の項目になり、開始 2、再開の破棄 1、（update だけ）写し 1、段の開始 1、その項目 15、予約分 1 で収まる（その run が上限で止まっても、次の再開は続きから検証の段へ進む）。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
 
 #### SP-BPRUN-037 不正な上限と、1 件も始められない上限
 起動数の上限を渡された run が次のどちらかに当たるとき、Workflow は host によらず、`agent()` を 1 回も呼ばずに BLOCKED で止まらなければならない。best-practices 自身の run はこの項目に従い、`docs/specifications/bp-conformance.md` が対象スキルを PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-019 に照らす判定の基準もこの項目を参照する。

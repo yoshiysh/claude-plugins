@@ -1227,3 +1227,45 @@ test('SP-BPRUN-021: 再開した run も、最小の起動数ちょうどの上�
   assert.ok(r2.calls.some((c) => c.prompt.includes(' discard <<')));
   assert.ok(r2.result.launches <= MIN.create);
 });
+
+test('SP-BPRUN-021・SP-BPRUN-022: 再開の開始で消えた資産が見つかる run は、上限がちょうど最小でも最初の fan-out の項目（消えた資産の照合）を始め、次の再開で検証の段へ進む', async (t) => {
+  const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
+  const s = await setup(t, { fn: 'update', files: VANISH_FILES });
+  if (!s) return;
+  const sc = vanishScenario(s.target.root);
+  const write = async (prompt, o, env) => { const r = await sc.write(prompt, o, env); return /反復の番号: 2/.test(prompt) ? null : r; };
+  const r1 = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { ...sc, write } });
+  assert.equal(r1.result.stopKind, 'blocked');
+  let n = 0;
+  const carrier = async (prompt, o, env) => {
+    if (prompt.includes(' vanish-match <<') && n < 4) {
+      n += 1;
+      if (n % 2 === 1) return null;
+      const b = { ok: false, code: 'E_LOCK', reason: 'l' };
+      return { responses: [JSON.stringify({ ...b, sum: sum(b) })] };
+    }
+    return env.carry(prompt);
+  };
+  const r2 = await runAuthor(t, { env: s.env, args: resumeArgs(r1.result, { maxLaunches: MIN.update }), maxAgents: MIN.update, scenario: { write: sc.write, carrier } });
+  assert.ok(r2.calls.some((c) => c.label === 'verifier:vanish'));
+  assert.ok(r2.result.launches <= MIN.update);
+  assert.equal(r2.result.stopKind, 'iteration_limit', r2.result.reason);
+  const r3 = await runAuthor(t, { env: s.env, args: resumeArgs(r2.result, { maxLaunches: MIN.update }), maxAgents: MIN.update, scenario: { write: sc.write } });
+  assert.ok(r3.calls.some((c) => c.label === 'verifier:conformance'), r3.result.reason);
+});
+
+test('SP-BPAUTHORING-031・SP-BPAUTHORING-013: 設計の説明の拒否と一覧の外のパスが重なっても、理由に一覧の外のパスを全て書く', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const outside = path.join(s.base, 'outside.md');
+  const write = async (prompt) => {
+    const r = await defaults.write(prompt);
+    await fs.writeFile(outside, 'x');
+    return { ...r, designNote: { path: 'nope.md' }, written: [...r.written, { path: outside, action: 'write' }] };
+  };
+  const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { write } });
+  assert.equal(result.stopKind, 'blocked');
+  assert.match(result.reason, /設計の説明のファイルが無い/);
+  assert.ok(result.reason.includes(outside), result.reason);
+  assert.deepEqual(result.unverified, [{ path: 'SKILL.md', action: 'write' }, { path: outside, outside: true }]);
+});
