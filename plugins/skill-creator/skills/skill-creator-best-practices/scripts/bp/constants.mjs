@@ -308,8 +308,6 @@ export const STATE_ROOT_ENV = 'BP_STATE_ROOT';
 export const STATE_DIR_NAME = '.best-practices';
 export const STATES_DIR = 'states';
 export const LOG_FILE = 'log.jsonl';
-// 受理した書き込みの要求の鍵（run・操作・sum）と応答。停止を書いた後に届いた送り直しを、build を走らせずに最初の応答で受けるために使う。
-export const REQUESTS_FILE = 'requests.jsonl';
 export const LOCK_FILE = 'lock';
 export const WORK_DIR = 'work';
 export const CRITERIA_DIR = 'references/criteria';

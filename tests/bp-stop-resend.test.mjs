@@ -6,15 +6,17 @@ import {
   candidateVerifier, commands, inspectArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, createArgs, viewOf,
 } from './helpers/bp-harness.mjs';
 
-// 停止の運搬役を、要求の先頭の k 個だけ実行して 1 回だけ応答を失わせる（k は 0 から全要求まで）。
-// between は応答を失った後、送り直しの前に行うこと（対象スキルが変わる場合を作る）。
-function loseStopOnce(k, seen, between = async () => {}) {
+const IS_STOP = (prompt) => prompt.includes(' stop <<');
+// 停止の前の書き込みの運搬役は、停止の直前に起動する、停止を運ばない運搬役（files-scan か照合と停止の段の開始を運ぶ）。
+const IS_PRE = (prompt) => !IS_STOP(prompt) && (prompt.includes(' files-scan <<') || prompt.includes('"stage":"close"'));
+
+// match に当たる運搬役を、要求の先頭の k 個だけ実行して 1 回だけ応答を失わせる。between は応答を失った後、送り直しの前に行うこと。
+function loseOnce(match, k, seen, between = async () => {}) {
   let done = false;
   return async (prompt, options, env) => {
-    if (done || options.label !== 'carrier' || !prompt.includes(' stop <<')) return undefined;
+    if (done || options.label !== 'carrier' || !match(prompt)) return undefined;
     done = true;
     const list = commands(prompt);
-    seen.count = list.length;
     seen.ops = list.map((c) => c.op);
     for (const c of list.slice(0, k)) await env.call(c.op, c.text);
     seen.lost = true;
@@ -50,11 +52,11 @@ function writerNull(s) {
   };
 }
 
-// ops は停止の運搬役の要求の並びの期待値。送り直しを停止と返り値だけに縮めると、先頭の要求が落ちて k=0 で食い違う。
+// pre は停止の前の書き込みの運搬役の要求の並びの期待値（無ければ空）。停止の運搬役は常に stop と outcome だけを運ぶ。
 const CASES = [
   {
     name: '書き手が結果を返さず書いたファイルの照らし合わせを停止と同じ運搬役で運ぶ update',
-    ops: ['files-scan', 'stop', 'outcome'],
+    pre: ['files-scan'],
     async run(t, carrier) {
       const s = await setup(t, { fn: 'update' });
       if (!s) return null;
@@ -64,7 +66,7 @@ const CASES = [
   },
   {
     name: '書き手が結果を返さず書いたファイルの照らし合わせを停止と同じ運搬役で運ぶ create',
-    ops: ['files-scan', 'stop', 'outcome'],
+    pre: ['files-scan'],
     async run(t, carrier) {
       const s = await setup(t);
       if (!s) return null;
@@ -80,7 +82,7 @@ const CASES = [
   },
   {
     name: '完了する create',
-    ops: ['stop', 'outcome'],
+    pre: [],
     async run(t, carrier) {
       const s = await setup(t);
       if (!s) return null;
@@ -90,7 +92,7 @@ const CASES = [
   },
   ...['review', 'audit'].map((fn) => ({
     name: `反証の段の終わりと照合と停止の段の開始を停止と同じ運搬役で運ぶ ${fn}`,
-    ops: ['stage-finish', 'stage-start', 'stop', 'outcome'],
+    pre: ['stage-finish', 'stage-start'],
     async run(t, carrier) {
       const s = await setupInspect(t);
       if (!s) return null;
@@ -101,31 +103,51 @@ const CASES = [
   })),
 ];
 
+const STOP_OPS = ['stop', 'outcome'];
+
 for (const c of CASES) {
-  test(`SP-BPRUN-027・SP-BPAUTHORING-015・SP-BPRUN-038: 停止の運搬役が要求の各位置まで実行して 1 回だけ応答を失っても、失わない run と同じ状態と返り値になる（${c.name}）`, async (t) => {
+  test(`SP-BPRUN-027・SP-BPRUN-034・SP-BPAUTHORING-015・SP-BPRUN-038: 停止の前の書き込みの運搬役と停止の運搬役のそれぞれが要求の各位置まで実行して 1 回だけ応答を失っても、失わない run と同じ状態と返り値になり、停止の記録の起動数は停止の運搬役の送り直しを除いた起動数になる（${c.name}）`, async (t) => {
     const base = await c.run(t, null);
     if (!base) return;
     const want = await digest(base.env, base.result);
-    for (let k = 0; k <= c.ops.length; k += 1) {
-      const seen = {};
-      const got = await c.run(t, () => loseStopOnce(k, seen));
-      assert.equal(seen.lost, true, `k=${k} で応答を失っていない`);
-      assert.deepEqual(seen.ops, c.ops, `k=${k}`);
-      assert.equal(got.calls.filter((x) => x.prompt.includes(' stop <<')).length, 2, `k=${k}`);
-      assert.deepEqual(await digest(got.env, got.result), want, `k=${k}`);
+    const baseView = await viewOf(base.env, base.result.state);
+    assert.equal(baseView.stops.get(base.result.run).launches, base.calls.length);
+    assert.equal(base.calls.filter((x) => x.role === 'carrier' && IS_PRE(x.prompt)).length, c.pre.length ? 1 : 0);
+    assert.ok(base.calls.filter((x) => IS_STOP(x.prompt)).every((x) => commands(x.prompt).map((y) => y.op).join() === STOP_OPS.join()));
+    const kinds = [['stop', IS_STOP, STOP_OPS], ...(c.pre.length ? [['pre', IS_PRE, c.pre]] : [])];
+    for (const [kind, match, ops] of kinds) {
+      for (let k = 0; k <= ops.length; k += 1) {
+        const seen = {};
+        const got = await c.run(t, () => loseOnce(match, k, seen));
+        const at = `${kind} k=${k}`;
+        assert.equal(seen.lost, true, `${at} で応答を失っていない`);
+        assert.deepEqual(seen.ops, ops, at);
+        assert.equal(got.calls.filter((x) => x.role === 'carrier' && match(x.prompt)).length, 2, at);
+        assert.deepEqual(await digest(got.env, got.result), want, at);
+        const view = await viewOf(got.env, got.result.state);
+        assert.equal(view.stops.get(got.result.run).launches, got.calls.length - (kind === 'stop' ? 1 : 0), at);
+      }
     }
   });
 }
 
-test('SP-BPRUN-027・SP-BPRUN-017・SP-BPAUTHORING-015: 停止の運搬役が全ての要求を実行した後に応答を失い、送り直しの前に対象スキルが変わっても、送り直しは最初の応答を返し、書いたファイルの記録と返り値が失わない run と同じになる［update］', async (t) => {
+test('SP-BPRUN-027・SP-BPRUN-017・SP-BPAUTHORING-015: 停止の前の書き込みの運搬役と停止の運搬役の間に対象スキルが変わっても、書いたファイルの記録と返り値が変わらない run と同じになり、偽の「停止の記録を書けなかった」を返さない［update］', async (t) => {
   const c = CASES[0];
   const base = await c.run(t, null);
   if (!base) return;
   const want = await digest(base.env, base.result);
-  const seen = {};
-  const got = await c.run(t, (s) => loseStopOnce(c.ops.length, seen, () => fs.writeFile(path.join(s.target.root, 'later.md'), 'y\n')));
-  assert.equal(seen.lost, true);
-  assert.equal(got.result.stopKind, 'blocked');
-  assert.doesNotMatch(got.result.reason, /停止の記録を書けなかった/);
-  assert.deepEqual(await digest(got.env, got.result), want);
+  for (const lose of [false, true]) {
+    let done = false;
+    const got = await c.run(t, (s) => async (prompt, options, env) => {
+      if (done || !IS_STOP(prompt)) return undefined;
+      done = true;
+      await fs.writeFile(path.join(s.target.root, 'later.md'), 'y\n');
+      if (!lose) return undefined;
+      await env.carry(prompt);
+      return null;
+    });
+    assert.equal(got.result.stopKind, 'blocked');
+    assert.doesNotMatch(got.result.reason, /停止の記録を書けなかった/);
+    assert.deepEqual(await digest(got.env, got.result), want, `lose=${lose}`);
+  }
 });

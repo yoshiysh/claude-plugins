@@ -87,6 +87,7 @@ const CONCURRENCY = 3
 const PAYLOAD_MODE = 'file'
 
 // 起動数の勘定（SP-BPCONFORMANCE-022 の式。値の根拠は tests/bp-inspect-workflow.test.mjs の最悪の経路の計数）。鍵が bp_author.js と同じものは同じ値にする。
+// RESERVE は停止の前の書き込みの運搬役 1 と停止の運搬役 1（SP-BPRUN-021 の予約分）。
 const WORST = {
   start: 2,
   carrier: 1,
@@ -95,7 +96,7 @@ const WORST = {
   attempt: 2,
   item: LIMITS.attempts * 5,
 }
-const RESERVE = 1
+const RESERVE = 2
 
 function minimalLaunches(fn) {
   // 最大は最初の run（照らす先の決定を終える前に止まった run の再開も同じ）。担当の作成と適用の判定は試行の上限の回数まで起動し直す（SP-BPFINDINGS-034）。
@@ -408,6 +409,12 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
   return { ok: true, responses: parsed }
 }
 
+
+// 応答を失った運搬役は CLI が書いたかが分からないので、同じ要求を 1 回だけ送り直す（書き込みは冪等の鍵で同じ要求を same で受ける）。上限を超える送り直しはしない。
+async function carryTwice(requests) {
+  const first = await carry(requests)
+  return first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? carry(requests) : first
+}
 // fan-out の外の書き込みは試行を繰り返す項目を持たないので、失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
 async function mustCarry(stage, requests) {
   if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
@@ -852,6 +859,18 @@ function resumePlan(p) {
 
 async function finish(stop, before = []) {
   const kind = stop.kind
+  const unwritten = (r) => ({
+    ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
+    [RESULT_KEYS.run]: run.run,
+    [RESULT_KEYS.launches]: budget.used(),
+    [RESULT_KEYS.unverifiedRoleLimits]: INSPECT_ROLE_WRITE_LIMITS,
+  })
+  // 停止の前の書き込みは停止と別の運搬役で先に書き、応答を確かめてから停止を送る。停止を書いた後の run への書き込みは CLI が拒否するので、
+  // 同じ運搬役に積むと、停止の後に応答を失ったときに送り直せない（SP-BPRUN-027）。
+  if (before.length) {
+    const pre = await carryTwice(before)
+    if (!pre.ok) return unwritten(pre)
+  }
   const body = {
     kind,
     ...(kind === STOP_KINDS.complete ? {} : { reason: stop.reason }),
@@ -861,20 +880,9 @@ async function finish(stop, before = []) {
     // どの停止でも対象スキルの指紋を照らさせる（SP-BPRUN-026 は停止の種類を限らない）。変わっていれば CLI が BLOCKED を書く。
     onTargetChanged: STOP_KINDS.blocked,
   }
-  // 停止を書いた後に応答を失うと、完了した状態は再開できず list にも出ないので、同じ要求を 1 回だけ送り直す（停止は受け取った要求の sha256 で同じ停止として受ける）。
-  // 送り直しは停止の記録の起動数に入らず、上限を超える送り直しはしない（SP-BPRUN-027・SP-BPRUN-034）。
-  const reqs = [...before, write(OPS.stop, body), read(OPS.outcome)]
-  const first = await carry(reqs)
-  // 停止の前の書き込みも含めて全て送り直す。停止を書いた後に届いた同じ要求は CLI が記録を足さずに受ける（落とすと書いたファイルの記録や段の終わりが欠ける）。
-  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs) : first
-  if (!r.ok) {
-    return {
-      ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
-      [RESULT_KEYS.run]: run.run,
-      [RESULT_KEYS.launches]: budget.used(),
-      [RESULT_KEYS.unverifiedRoleLimits]: INSPECT_ROLE_WRITE_LIMITS,
-    }
-  }
+  // 停止は受け取った要求の sha256 で同じ停止として受け、返り値は読むだけなので、応答を失っても同じ 2 つの要求を送り直せる。送り直しは停止の記録の起動数に入らない（SP-BPRUN-034）。
+  const r = await carryTwice([write(OPS.stop, body), read(OPS.outcome)])
+  if (!r.ok) return unwritten(r)
   return r.responses.at(-1)
 }
 

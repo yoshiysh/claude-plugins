@@ -267,10 +267,14 @@ for (const fn of FNS) {
     assert.equal(calls.filter((c) => c.role === 'extract').length, 3);
     assert.equal(calls.filter((c) => c.role === 'applicability').length, fn === 'review' ? 3 : 0);
     const first = calls.indexOf(verifiers(calls)[0]);
-    assert.equal(first, MIN_LAUNCHES[fn] - 15 - 1);
+    // 最初の項目の前の起動の数は、最小の起動数から最初の項目の 15 と予約分（SP-BPRUN-021 の表の R）を引いたもの。
+    const reserve = Number(/\| `R`（予約分） \| (\d+) \|/.exec(readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8').slice(readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8').indexOf('review・audit の段ごとの最悪の回数')))[1]);
+    assert.equal(first, MIN_LAUNCHES[fn] - 15 - reserve);
     assert.equal(calls.slice(first, -1).length, 15);
     assert.equal(new Set(verifiers(calls).map((c) => itemOfPrompt(c.prompt))).size, 1);
-    assert.equal(result.launches, MIN_LAUNCHES[fn]);
+    // 反復の上限の停止は停止の前の書き込みを持たないので、予約分のうち停止の運搬役だけを使う。
+    assert.equal(result.launches, first + 15 + 1);
+    assert.ok(result.launches <= MIN_LAUNCHES[fn]);
     assert.equal(result.stopKind, 'iteration_limit');
   });
 

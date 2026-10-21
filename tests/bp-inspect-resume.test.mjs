@@ -208,10 +208,9 @@ for (const fn of FNS) {
     assert.deepEqual(v2.bundles.map((b) => b.generation), [0, 1]);
     const bundle = await fs.readFile(path.join(s.env.root, 'states', r1.result.state, 'work', 'bundle.1.md'), 'utf8');
     assert.ok(bundle.includes('手順の本文を書き換えた'));
-    // r1 は追加の起動の段を始める前に止まったので、r2 は追加の起動から続け、skip 一覧に戻った資産だけを担当にする。
-    const extras = r2.calls.filter((c) => c.role !== 'carrier');
-    assert.deepEqual(extras.map((c) => c.label), VIEWPOINTS[fn].map((v) => `verifier:${v}:extra`));
-    for (const c of extras) assert.deepEqual(assetIds(c.prompt), [changed.id]);
+    // r1 は照合と停止の段まで進んで停止の記録を書けずに止まったので、r2 は検証をやり直さず（SP-BPINSPECTION-030 の表の照合と停止の行）、書き換えた資産は skip 一覧に戻ったまま結果に出る。
+    assert.deepEqual(r2.calls.filter((c) => c.role !== 'carrier'), []);
+    assert.deepEqual(r2.result.ledger.skip.map((x) => x.assets.map((a) => a.id)), VIEWPOINTS[fn].map(() => [changed.id]));
   });
 
   test(`SP-BPFINDINGS-020・SP-BPFINDINGS-037・SP-BPINSPECTION-030: 停止の間に指摘のある節を消した run を再開すると、消えた資産の照合の段で検証役が指摘を台帳に作った順に起動され、状態が記録されず見直しの判定だけが記録され、照合の段で止まった run の再開はその回の未着手を処理する${mark(fn)}`, async (t) => {

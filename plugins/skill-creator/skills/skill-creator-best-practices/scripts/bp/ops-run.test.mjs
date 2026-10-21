@@ -685,7 +685,7 @@ test('SP-BPRUN-011・SP-BPRUN-031: 停止の cause は BLOCKED にだけ verifie
   await rejects(run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 }), CODES.staleRun);
 });
 
-test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後の run に届いた、既に書いた記録と同じ要求は記録を足さずに受け、記録を足す要求は E_STALE_RUN で拒否する', async (t) => {
+test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後の run への stop 以外の書き込みは、既に書いた記録と同じ要求も E_STALE_RUN で拒否し、同じ内容の stop の送り直しは記録を足さずに受ける', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);
@@ -693,11 +693,14 @@ test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後の run に届いた、�
   const req = { state: s.state, run: s.run };
   await run.stageStart(ctx, { ...req, stage: 'refute', keys: [] });
   await run.stageFinish(ctx, { ...req, stage: 'refute' });
-  await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', launches: 1 });
+  const body = { ...req, kind: 'blocked', reason: 'x', launches: 1 };
+  await run.stop(ctx, body);
   const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, s.state));
-  assert.equal((await run.stageFinish(ctx, { ...req, stage: 'refute' })).same, true);
-  assert.equal((await run.stageStart(ctx, { ...req, stage: 'refute', keys: [] })).same, true);
+  await rejects(run.stageFinish(ctx, { ...req, stage: 'refute' }), CODES.staleRun);
   await rejects(run.stageStart(ctx, { ...req, stage: 'close', keys: [] }), CODES.staleRun);
+  assert.equal((await run.stop(ctx, body)).same, true);
+  await fs.rm(root, { recursive: true, force: true });
+  assert.equal((await run.stop(ctx, body)).same, true);
   assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, s.state)), before);
 });
 
@@ -723,21 +726,3 @@ test('SP-BPRUN-017: 停止を書いた後の run への受理していない書�
   await rejects(ledger.ledgerRetake(ctx, { ...ureq }), CODES.staleRun);
 });
 
-test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後に届いた、この run で受理した要求そのものの送り直しは、build を走らせずに最初の応答を返す（今の対象から計算し直すと結果が変わる場合も）', async (t) => {
-  const ctx = context(t);
-  if (!ctx) return;
-  const { filesScan } = await import('./ops-author.mjs');
-  const root = await skillDir(t);
-  const u = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
-  const req = { state: u.state, run: u.run, iteration: 1 };
-  await fs.writeFile(path.join(root, 'a.md'), 'a\n');
-  const first = await filesScan(ctx, req);
-  assert.deepEqual(first.recorded, ['a.md']);
-  await run.stop(ctx, { state: u.state, run: u.run, kind: 'blocked', reason: 'x', launches: 1 });
-  await fs.writeFile(path.join(root, 'b.md'), 'b\n');
-  const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, u.state));
-  const again = await filesScan(ctx, req);
-  assert.deepEqual(again, { ...first, same: true });
-  assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, u.state)), before);
-  await rejects(filesScan(ctx, { ...req, iteration: 2 }), CODES.staleRun);
-});
