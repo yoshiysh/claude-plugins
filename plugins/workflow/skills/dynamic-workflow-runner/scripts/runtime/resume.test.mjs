@@ -16,7 +16,7 @@ async function fixture(t, body, extra = {}) {
   await writeFile(dependency, 'evidence');
   const invoked = [];
   const host = { backend: { run: async prompt => { invoked.push(prompt); return prompt; } },
-    trustedSource: true, maxAgents: 4, concurrency: 2, timeoutMs: 10000,
+    trustedSource: true, maxAgents: 4, concurrency: 2,
     checkpoint: { files: [dependency], dependenciesComplete: true, backendIdentity: 'mock-v1', stopAfter: 'one' }, ...extra };
   let index = 0;
   const run = (overrides = {}, args = {}) => Workflow({ scriptPath, args }, { ...host, runDir: join(dir, `run-${++index}`), ...overrides });
@@ -91,8 +91,17 @@ test('parallel out-of-order completion and race branch replay preserves transcri
   const invoked = [];
   const f = await fixture(t, `const a=agent('slow'), b=agent('fast'); const winner=await Promise.race([a,b]);
     const ordered=await Promise.all([a,b]); await checkpoint('one'); return await agent(winner+ordered.join(','));`, {
-    backend: { run: async prompt => { invoked.push(prompt); if(prompt==='slow') await new Promise(r=>setTimeout(r,30)); return prompt; } },
+    backend: { run: async prompt => { invoked.push(prompt); if(prompt==='slow') await fastReleased(); return prompt; } },
   });
+  const fastReleased = async () => {
+    for (;;) {
+      const events = (await readFile(join(f.dir, 'run-1', 'events.jsonl'), 'utf8').catch(() => '')).split('\n')
+        .flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } });
+      const fast = events.find(event => event.type === 'agent.accepted' && event.prompt === 'fast');
+      if (fast && events.some(event => event.type === 'reply.released' && event.id === fast.id)) return;
+      await new Promise(r => setTimeout(r, 2));
+    }
+  };
   const stopped = await f.run();
   assert.equal(await f.run({ resume: resume(stopped) }), 'fastslow,fast');
   assert.deepEqual(invoked, ['slow', 'fast', 'fastslow,fast']);
@@ -258,7 +267,7 @@ test('common adapter exposes checkpoint/resume with pinned mock SDK model policy
     } }; }
   }
   const host = { trustedSource: true, cwd: f.dir, CodexClass: MockCodex,
-    model: 'test-model', modelReasoningEffort: 'low', checkpoint: f.host.checkpoint, timeoutMs: 10000,
+    model: 'test-model', modelReasoningEffort: 'low', checkpoint: f.host.checkpoint,
     environment: { path: '/usr/bin:/bin', requiredCommands: ['sh'] } };
   const request = { scriptPath: f.scriptPath, args: {} };
   const stopped = await executeWorkflow(request, { ...host, runDir: join(f.dir, 'adapter-one') });
