@@ -122,7 +122,7 @@ test('SP-BPFINDINGS-034: 機能の文書が足した欄を持つ結果が、足�
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
   const out = await verify(ctx, req, { result: { judgements: allJudged(assets, 'ok'), candidates: [], units: [{ unit: K1, result: '適合' }], uninspected: [] } });
-  assert.equal(out.ok, assets.length);
+  assert.equal(out.judgedOk, assets.length);
 });
 
 test('SP-BPFINDINGS-008: 「判断できない」の資産にも「見た」が記録され、反証の結果を待たずに入る', async (t) => {
@@ -273,7 +273,7 @@ test('SP-BPFINDINGS-016・SP-BPFINDINGS-037: 書き換えない run の照合の
   const made = await ledger.refutation(ctx, { ...req, item: items[0], verdict: 'uphold', reason: 'x' });
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
   const retake = await ledger.ledgerRetake(ctx, req);
-  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding: made.finding, gone: retake.retake }] });
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', round: retake.retake, keys: [{ finding: made.finding, gone: retake.retake }] });
   const out = await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: 'none' });
   assert.deepEqual([out.value, out.recorded, out.state], ['absent', 'judgement', null]);
   const f = (await viewOf(ctx, req.state)).findings.get(made.finding);
@@ -387,7 +387,7 @@ test('SP-BPFINDINGS-037: 照合の検証役の資産 ID・「該当なし」・�
     await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
     const retake = await ledger.ledgerRetake(ctx, req);
     assert.deepEqual(retake.gone.map((g) => g.id), [a]);
-    const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: retake.retake }] });
+    const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', round: retake.retake, keys: [{ finding, gone: retake.retake }] });
     const renamed = [...(await viewOf(ctx, req.state)).assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
     const out = await ledger.vanishMatch(ctx, { ...req, item: items[0], choice: choice === 'asset' ? renamed : choice });
     assert.deepEqual([out.value, out.state], [value, state], String(choice));
@@ -401,7 +401,7 @@ test('SP-BPFINDINGS-037: 照合で資産を足した指摘は、足した資産�
   if (!ctx) return;
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
   const retake = await ledger.ledgerRetake(ctx, req);
-  const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: retake.retake }] });
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', round: retake.retake, keys: [{ finding, gone: retake.retake }] });
   const now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
   const renamed = now.find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
   await ledger.vanishMatch(ctx, { ...req, item: items[0], choice: renamed });
@@ -485,7 +485,7 @@ test('SP-BPFINDINGS-026: 別の状態の台帳の指摘 ID を指定した状態
   if (!ctx) return;
   const one = await openFinding(t, { ctx });
   const two = await setup(t, { ctx });
-  await rejects(run.stageStart(ctx, { ...two.req, stage: 'vanish', keys: [{ finding: one.finding, gone: 1 }] }), CODES.unknownId);
+  await rejects(run.stageStart(ctx, { ...two.req, stage: 'vanish', round: 1, keys: [{ finding: one.finding, gone: 1 }] }), CODES.unknownId);
 });
 
 test('SP-BPFINDINGS-029: dismissed の指摘の結果に却下の理由が載る', async (t) => {
@@ -580,7 +580,7 @@ test('SP-BPFINDINGS-034: 同じ試行の番号で届いた別の不正な結果�
 test('SP-BPFINDINGS-020: 指摘の資産が消えていない照合の項目を拒否する', async (t) => {
   const { ctx, req, finding } = await openFinding(t);
   if (!ctx) return;
-  const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: 1 }] });
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'vanish', round: 1, keys: [{ finding, gone: 1 }] });
   await rejects(ledger.vanishMatch(ctx, { ...req, item: items[0], choice: 'none' }), CODES.conflict);
 });
 
@@ -596,7 +596,7 @@ test('SP-BPFINDINGS-018: 照合で資産を足した指摘は資産ごとに条�
   if (!ctx) return;
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
   const r1 = await ledger.ledgerRetake(ctx, req);
-  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] });
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', round: r1.retake, keys: [{ finding, gone: r1.retake }] });
   const renamed = [...(await viewOf(ctx, req.state)).assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
   await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: renamed });
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n# B\nnew\n');
@@ -633,7 +633,7 @@ test('SP-BPFINDINGS-018: 資産 2 つの指摘を片方だけの担当で見直�
   if (!ctx) return;
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
   const r1 = await ledger.ledgerRetake(ctx, req);
-  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] });
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', round: r1.retake, keys: [{ finding, gone: r1.retake }] });
   const renamed = [...(await viewOf(ctx, req.state)).assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
   const matched = await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: renamed });
   assert.equal(matched.value, 'exists');
@@ -654,7 +654,7 @@ test('SP-BPFINDINGS-037: 照合の記録の fpset は消えていない資産だ
   if (!ctx) return;
   await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
   const r1 = await ledger.ledgerRetake(ctx, req);
-  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] });
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', round: r1.retake, keys: [{ finding, gone: r1.retake }] });
   const view = await viewOf(ctx, req.state);
   const renamed = [...view.assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
   await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: renamed });
@@ -670,4 +670,22 @@ test('rejected の scope の接頭辞は定数から作る', async (t) => {
   await rejects(ledger.assignments(ctx, { ...req, stage: 'assign', groups: [[assets[0].id, 'ANOPE']] }), CODES.result);
   const view = await viewOf(ctx, req.state);
   assert.equal(view.rejected[0].scope, `${REJECT_SCOPE.assign}assign`);
+});
+
+test('SP-BPRUN-038: 消えた資産の照合の段は取り直しの番号を回にし、再開で取り直すたびに別の段になって食い違わない', async (t) => {
+  const { ctx, req, root, finding } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
+  const r1 = await ledger.ledgerRetake(ctx, req);
+  await rejects(run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] }), CODES.input);
+  await rejects(run.stageStart(ctx, { ...req, stage: 'vanish', round: r1.retake + 1, keys: [{ finding, gone: r1.retake }] }), CODES.input);
+  const one = await run.stageStart(ctx, { ...req, stage: 'vanish', round: r1.retake, keys: [{ finding, gone: r1.retake }] });
+  await ledger.vanishMatch(ctx, { ...req, item: one.items[0], choice: null });
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nb\n');
+  await ledger.ledgerRetake(ctx, req);
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Other\nb\n');
+  const r3 = await ledger.ledgerRetake(ctx, req);
+  const two = await run.stageStart(ctx, { ...req, stage: 'vanish', round: r3.retake, keys: [{ finding, gone: r3.retake }] });
+  assert.notEqual(two.items[0], one.items[0]);
+  assert.match(two.items[0], new RegExp(`^vanish\\.${r3.retake}-`));
 });

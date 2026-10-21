@@ -36,12 +36,21 @@ const HANDLERS = {
   [OPS.kinds]: ledger.kinds,
 };
 
-export function context({ cwd = process.cwd(), env = process.env } = {}) {
-  return { cwd, env, criteriaDir: path.join(SKILL_DIR, CRITERIA_DIR) };
+const RESERVED = ['ok', 'op', 'sum'];
+
+export function context({ cwd = process.cwd(), env = process.env, criteriaDir = path.join(SKILL_DIR, CRITERIA_DIR) } = {}) {
+  return { cwd, env, criteriaDir };
 }
 
-export async function main(argv, stdinText, { cwd, env } = {}) {
-  const ctx = context({ cwd, env });
+// 操作の出力が受理の印を上書きすると、応答の ok で受理を見分ける運搬役が誤るので、衝突は内部の失敗にする。
+export function acceptance(op, output) {
+  const clash = RESERVED.filter((k) => Object.hasOwn(output, k));
+  if (clash.length) throw new BpError(CODES.internal, `操作の出力が応答の予約欄と衝突する: ${op}（${clash.join('・')}）`);
+  return sealResponse({ ok: true, op, ...output });
+}
+
+export async function main(argv, stdinText, { cwd, env, criteriaDir } = {}) {
+  const ctx = context({ cwd, env, criteriaDir });
   try {
     const op = argv[0];
     const handler = Object.hasOwn(HANDLERS, op) ? HANDLERS[op] : null;
@@ -49,7 +58,7 @@ export async function main(argv, stdinText, { cwd, env } = {}) {
     let req = verifyRequest(stdinText);
     if (req.payloadFile !== undefined) req = await resolvePayload(req, await locateState(ctx, req.state));
     const output = await handler(ctx, req);
-    return { exitCode: EXIT.ok, output: sealResponse({ ok: true, op, ...output }) };
+    return { exitCode: EXIT.ok, output: acceptance(op, output) };
   } catch (error) {
     if (error instanceof BpError && error.code !== CODES.internal) {
       return { exitCode: EXIT.rejected, output: sealResponse({ ok: false, code: error.code, reason: error.reason, ...error.detail }) };

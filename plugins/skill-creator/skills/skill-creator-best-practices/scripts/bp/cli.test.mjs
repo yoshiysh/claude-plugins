@@ -5,7 +5,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { CODES, EXIT, STATE_ROOT_ENV } from './constants.mjs';
 import { sum } from './ids.mjs';
-import { CLI, LIMITS, REPO_ROOT, skillDir, stateRoot, tmpDir, newKey } from './fixtures/harness.mjs';
+import { acceptance, main } from '../bp-state.mjs';
+import { CLI, CRITERIA_FIXTURE, LIMITS, REPO_ROOT, skillDir, stateRoot, tmpDir, newKey } from './fixtures/harness.mjs';
 
 function call(root, op, body, { raw } = {}) {
   return new Promise((resolve, reject) => {
@@ -100,4 +101,26 @@ test('運搬役が写さない大きい値は作業ファイルと sum で渡し
   assert.equal(outside.response.code, CODES.transport);
   const ok = await call(root, 'item-result', { ...req, item: staged.response.items[0], payloadFile: file, payloadSum: sum(payload) });
   assert.equal(ok.code, EXIT.ok);
+});
+
+test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数は judgedOk に入る', async (t) => {
+  const root = stateRoot(t);
+  if (!root) return;
+  const target = await skillDir(t);
+  const env = { ...process.env, [STATE_ROOT_ENV]: root };
+  const send = async (op, body) => (await main([op], JSON.stringify({ ...body, sum: sum(body) }), { cwd: REPO_ROOT, env, criteriaDir: CRITERIA_FIXTURE })).output;
+  const s = await send('start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const req = { state: s.state, run: s.run };
+  const made = await send('ledger-create', req);
+  const { assignments } = await send('assignments', { ...req, stage: 'verify', rule: 'all' });
+  const { items } = await send('stage-start', { ...req, stage: 'verify', keys: [{ assignment: assignments[0].id }] });
+  const out = await send('verdicts', { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'flow', result: { judgements: made.assets.map((a) => ({ asset: a.id, judgement: 'unsure' })) } });
+  assert.equal(out.ok, true);
+  assert.equal(out.judgedOk, 0);
+  assert.equal(out.judgedUnsure, made.assets.length);
+});
+
+test('操作の出力が応答の予約欄と衝突すると内部の失敗にする', () => {
+  for (const key of ['ok', 'op', 'sum']) assert.throws(() => acceptance('x', { [key]: 1 }), (e) => e.code === CODES.internal, key);
+  assert.equal(acceptance('x', { n: 1 }).ok, true);
 });

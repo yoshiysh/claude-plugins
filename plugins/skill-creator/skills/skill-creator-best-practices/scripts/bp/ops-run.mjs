@@ -1,14 +1,14 @@
 import { promises as fs } from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, FUNCTIONS, LIMIT_HITS, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PREMISE_KINDS,
-  RECORDS, REWRITING_FUNCTIONS, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
+  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, LIMIT_HITS, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PREMISE_KINDS,
+  RECORDS, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
+import { checkFunction, checkStage, checkWritableItem } from './checks.mjs';
 import { reject } from './errors.mjs';
-import { diffFingerprints, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
-import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
-import { append, readAll, withLock } from './journal.mjs';
+import { diffFingerprints, isInList, pathKey, pluginRoot, targetFingerprint } from './fingerprint.mjs';
+import { canonical, sum, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
+import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
 import { freshRecords } from './records.mjs';
 import { locateState, mutate, readState, stateRootOf } from './store.mjs';
@@ -16,7 +16,7 @@ import { summarize } from './summary.mjs';
 import {
   buildView, currentRun, isCompleted, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
 } from './view.mjs';
-import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir } from './workspace.mjs';
+import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
 const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 
@@ -73,27 +73,7 @@ function keyMarker(root, key) {
 }
 
 async function readMarker(marker) {
-  try {
-    return (await fs.readFile(marker, 'utf8')).trim();
-  } catch (error) {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  }
-}
-
-// 中身を書いた一時ファイルを link するので、中身の無い key の記録が見える瞬間を作らない。
-async function writeMarker(marker, id) {
-  const tmp = `${marker}.new.${randomBytes(6).toString('hex')}`;
-  await fs.writeFile(tmp, id, { flag: 'wx' });
-  try {
-    await fs.link(tmp, marker);
-    return true;
-  } catch (error) {
-    if (error.code === 'EEXIST') return false;
-    throw error;
-  } finally {
-    await fs.rm(tmp, { force: true });
-  }
+  return (await readOrNull(marker))?.trim() ?? null;
 }
 
 function startOutput(view, dir, run, extra = {}) {
@@ -112,13 +92,15 @@ async function existingStart(root, id, req) {
 }
 
 async function startNew(ctx, req) {
-  if (!FUNCTIONS.includes(req.function)) reject(CODES.input, `機能が ${FUNCTIONS.join('・')} のどれでもない: ${JSON.stringify(req.function)}`);
+  checkFunction(req.function);
   checkKey(req.key);
   checkLimits(req.limits);
   const target = req.target;
   if (!target || typeof target.root !== 'string' || !path.isAbsolute(target.root)) reject(CODES.input, 'target.root は絶対パスでなければならない');
   const files = target.files ?? [];
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string' || !path.isAbsolute(f))) reject(CODES.input, 'target.files は絶対パスの並びでなければならない');
+  const homeless = files.filter((f) => !within(realpathLoose(f), realpathLoose(target.root)) && !pluginRoot(realpathLoose(f)));
+  if (homeless.length) reject(CODES.input, `根の外のファイルは .claude-plugin/plugin.json を持つ plugin の中になければならない: ${homeless.join(', ')}`);
   if (req.function === FUNCTION.create && typeof req.request !== 'string') reject(CODES.input, 'create の request は文字列でなければならない');
   if (req.function === FUNCTION.update && !Array.isArray(req.grounds)) reject(CODES.input, 'update の grounds は並びでなければならない');
   const root = assertAllowedRoot(stateRootOf(ctx), { targetRoots: [target.root] });
@@ -141,7 +123,7 @@ async function startNew(ctx, req) {
   ];
   const line = { seq: 1, run, op: OPS.start, records };
   const dir = await createStateDir(root, id, line, { writeFile: ctx.writeFile });
-  if (!(await writeMarker(marker, id))) {
+  if (!(await linkCreate(marker, id))) {
     await fs.rm(dir, { recursive: true, force: true });
     return existingStart(root, await readMarker(marker), req);
   }
@@ -205,10 +187,6 @@ export function premise(ctx, req) {
   });
 }
 
-function checkStage(stage) {
-  if (!Object.hasOwn(STAGES, stage)) reject(CODES.unknownId, `段の名前が無い: ${JSON.stringify(stage)}`);
-}
-
 function checkRound(round) {
   if (round != null && !isPosInt(round)) reject(CODES.input, `回は 1 以上の整数でなければならない: ${JSON.stringify(round)}`);
 }
@@ -230,6 +208,9 @@ export function stageStart(ctx, req) {
       ids.add(id);
       items.push({ id, key });
     }
+    if (req.stage === STAGE.vanish && (round === null || req.keys.some((k) => k?.gone !== round))) {
+      reject(CODES.input, `消えた資産の照合の段の回は、照合する取り直しの番号（項目の鍵の gone）でなければならない: ${JSON.stringify(round)}`);
+    }
     return { records: [{ t: RECORDS.stage, stage: req.stage, round, items }], output: { items: items.map((i) => i.id) } };
   });
 }
@@ -249,7 +230,7 @@ function limitState(view, key, count, base) {
 export function itemResult(ctx, req) {
   return mutate(ctx, req, OPS.itemResult, (view) => {
     const item = itemOf(view, req.item);
-    if (item.aborted || item.discarded) reject(CODES.conflict, `打ち切りか破棄の記録がある項目に結果を書けない: ${req.item}`);
+    checkWritableItem(item);
     if (req.result === undefined) reject(CODES.input, 'result が無い');
     const record = { t: RECORDS.result, item: req.item, result: req.result };
     if (req.iteration !== undefined) {
@@ -365,6 +346,18 @@ export function unverifiedFiles(view) {
 export function stop(ctx, req) {
   return mutate(ctx, req, OPS.stop, async (view) => {
     const fn = view.state.function;
+    const asked = sum({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? [], launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null });
+    const output = (after) => {
+      const stopped = after.stops.get(req.run);
+      return { stop: stopped, ...(stopped.kind === STOP_KINDS.complete ? {} : { nextArgs: nextArgs(after) }) };
+    };
+    const written = view.stops.get(req.run);
+    // 停止の後に対象が変わってから届いた送り直しも同じ停止として受けるため、指紋を計算し直さず、受け取った要求だけを照らす。
+    if (written) {
+      if (written.asked !== asked) reject(CODES.staleRun, `停止を書いた後の run の違う停止: ${req.run}`);
+      const { seq, line, ...record } = written;
+      return { records: [record], output };
+    }
     if (!STOP_KINDS_BY_FUNCTION[fn].includes(req.kind)) reject(CODES.input, `${fn} が使わない停止の種類: ${JSON.stringify(req.kind)}`);
     if (req.kind !== STOP_KINDS.complete && (typeof req.reason !== 'string' || req.reason === '')) reject(CODES.input, '完了以外の停止には理由が要る');
     if ((req.kind === STOP_KINDS.iterationLimit) !== (req.limitHit !== undefined)) reject(CODES.input, 'limitHit は反復の上限の停止にだけ、必ず付ける');
@@ -400,19 +393,17 @@ export function stop(ctx, req) {
       pending, launches: req.launches,
       unverified: REWRITING_FUNCTIONS.has(fn) ? unverifiedFiles(view) : [],
       outside: outsidePaths,
+      asked,
     };
     return {
       records: [record, { t: RECORDS.fingerprint, run: req.run, at: FINGERPRINT_AT.stop, n: 1, files: now }],
-      output: (after) => {
-        const written = after.stops.get(req.run);
-        return { stop: written, ...(written.kind === STOP_KINDS.complete ? {} : { nextArgs: nextArgs(after) }) };
-      },
+      output,
     };
   });
 }
 
 export async function list(ctx, req) {
-  if (!FUNCTIONS.includes(req.function)) reject(CODES.input, `機能が ${FUNCTIONS.join('・')} のどれでもない: ${JSON.stringify(req.function)}`);
+  checkFunction(req.function);
   if (!req.target || typeof req.target.root !== 'string') reject(CODES.input, 'target.root が要る');
   const root = stateRootOf(ctx);
   const wanted = realpathLoose(req.target.root);

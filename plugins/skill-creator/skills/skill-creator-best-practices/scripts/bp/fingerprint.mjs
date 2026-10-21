@@ -1,5 +1,6 @@
 import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
+import { internal } from './errors.mjs';
 import { sha256Hex } from './ids.mjs';
 import { realpathLoose, within } from './workspace.mjs';
 
@@ -7,7 +8,7 @@ export function fileDigest(bytes) {
   return sha256Hex(bytes);
 }
 
-function pluginRoot(file) {
+export function pluginRoot(file) {
   let dir = path.dirname(file);
   for (;;) {
     if (existsSync(path.join(dir, '.claude-plugin', 'plugin.json'))) return dir;
@@ -23,7 +24,7 @@ export function pathKey(root, file) {
   if (within(real, realRoot)) return path.relative(realRoot, real).split(path.sep).join('/');
   const plugin = pluginRoot(real);
   if (plugin) return `plugin:${path.relative(plugin, real).split(path.sep).join('/')}`;
-  return `abs:${real}`;
+  return internal(`根の外で plugin の根を持たないファイルはパスの一覧に入れない: ${real}`);
 }
 
 export function isInList(pathsRecord, file) {

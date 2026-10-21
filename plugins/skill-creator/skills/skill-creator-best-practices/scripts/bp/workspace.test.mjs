@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { CODES } from './constants.mjs';
 import { append, readAll, withLock } from './journal.mjs';
-import { assertAllowedRoot, createStateDir, forbiddenReason } from './workspace.mjs';
+import { assertAllowedRoot, createStateDir, forbiddenReason, within } from './workspace.mjs';
+import { resolvePayload } from './transport.mjs';
+import { sum } from './ids.mjs';
 import { REPO_ROOT, skillDir, stateRoot, tmpDir } from './fixtures/harness.mjs';
 
 test('SP-BPRUN-039: 作業場所を /tmp 系と Codex runner の run ごとの workspace に作らない', (t) => {
@@ -90,4 +92,18 @@ test('SP-BPRUN-006: 同じプロセスの中の並行の取得でも、排他の
   })));
   assert.equal(max, 1);
   assert.deepEqual((await fs.readdir(dir)).filter((n) => n.startsWith('lock')), []);
+});
+
+test('SP-BPRUN-039: `..` で始まる名前の子も配下として扱う（/tmp/..x は /tmp 系、work/..a.json は作業場所の中）', async (t) => {
+  assert.ok(forbiddenReason('/tmp/..x/state'));
+  assert.equal(within('/a/b/..c', '/a/b'), true);
+  assert.equal(within('/a/c', '/a/b'), false);
+  assert.equal(within('/a', '/a/b'), false);
+  const dir = await tmpDir(t, 'bp-work-');
+  await fs.mkdir(path.join(dir, 'work'));
+  const payload = { result: { x: 1 } };
+  await fs.writeFile(path.join(dir, 'work', '..a.json'), JSON.stringify(payload));
+  const out = await resolvePayload({ payloadFile: '..a.json', payloadSum: sum(payload) }, dir);
+  assert.deepEqual(out.result, { x: 1 });
+  await assert.rejects(resolvePayload({ payloadFile: '../x.json', payloadSum: sum(payload) }, dir), (e) => e.code === CODES.transport);
 });

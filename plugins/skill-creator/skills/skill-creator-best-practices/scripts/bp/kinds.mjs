@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { FUNCTION, CRITERIA_CHAPTERS, CRITERIA_FILES, PRINCIPLE_HEADER, UPDATE_ONLY_MARK } from './constants.mjs';
+import { scanMarkdown } from './assets.mjs';
 import { internal } from './errors.mjs';
 
 const ROW_RULE = /設計方針文書「([^」]+)」の節の原則の表の全ての行/;
@@ -12,37 +13,37 @@ function read(dir, key) {
 }
 
 function parseDoc(text) {
-  const lines = text.split('\n');
+  const lines = text.split('\n').map((l) => l.replace(/\r$/, ''));
+  const { headings, fenced } = scanMarkdown(lines);
+  const byStart = new Map(headings.map((h) => [h.start, h]));
   const nodes = [];
   const stack = [];
-  let fence = false;
   let table = null;
   let current = { level: 0, text: '', chain: [], tables: [], bullets: [], body: [] };
   const root = current;
   nodes.push(root);
-  lines.forEach((raw) => {
-    const line = raw.replace(/\r$/, '');
-    if (/^ {0,3}(```|~~~)/.test(line)) { fence = !fence; table = null; current.body.push(line); return; }
-    const h = !fence && /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const h = byStart.get(i);
     if (h) {
       table = null;
-      const level = h[1].length;
-      while (stack.length && stack.at(-1).level >= level) stack.pop();
-      current = { level, text: h[2], chain: [...stack.map((s) => s.text), h[2]], tables: [], bullets: [], body: [], parent: stack.at(-1) ?? root };
+      while (stack.length && stack.at(-1).level >= h.level) stack.pop();
+      current = { level: h.level, text: h.text, chain: [...stack.map((x) => x.text), h.text], tables: [], bullets: [], body: [], parent: stack.at(-1) ?? root };
       stack.push(current);
       nodes.push(current);
-      return;
+      if (h.underline) i += 1;
+      continue;
     }
     current.body.push(line);
-    if (!fence && /^\|/.test(line)) {
+    if (!fenced.has(i) && /^\|/.test(line)) {
       const cells = line.replace(/^\||\|\s*$/g, '').split('|').map((c) => c.trim());
-      if (!table) { table = { header: cells, rows: [], sep: false }; current.tables.push(table); return; }
-      if (!table.sep && cells.every((c) => /^:?-+:?$/.test(c))) { table.sep = true; return; }
+      if (!table) { table = { header: cells, rows: [], sep: false }; current.tables.push(table); continue; }
+      if (!table.sep && cells.every((c) => /^:?-+:?$/.test(c))) { table.sep = true; continue; }
       table.rows.push(cells);
-      return;
+      continue;
     }
     table = null;
-  });
+  }
   return nodes;
 }
 

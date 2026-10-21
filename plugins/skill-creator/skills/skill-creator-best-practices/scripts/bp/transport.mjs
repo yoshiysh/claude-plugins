@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CODES, WORK_DIR } from './constants.mjs';
 import { reject } from './errors.mjs';
 import { sum } from './ids.mjs';
+import { within } from './workspace.mjs';
 
 export function verifyRequest(text) {
   let request;
@@ -25,8 +26,7 @@ export async function resolvePayload(request, stateDirPath) {
   if (typeof payloadFile !== 'string' || typeof payloadSum !== 'string') reject(CODES.transport, 'payloadFile と payloadSum は文字列でなければならない');
   const work = path.join(stateDirPath, WORK_DIR);
   const file = path.resolve(work, payloadFile);
-  const rel = path.relative(work, file);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) reject(CODES.transport, `payloadFile は作業場所の ${WORK_DIR}/ の中でなければならない: ${payloadFile}`);
+  if (!within(file, work)) reject(CODES.transport, `payloadFile は作業場所の ${WORK_DIR}/ の中でなければならない: ${payloadFile}`);
   let payload;
   try {
     payload = JSON.parse(await fs.readFile(file, 'utf8'));

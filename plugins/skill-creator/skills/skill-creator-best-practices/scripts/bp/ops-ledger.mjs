@@ -3,6 +3,7 @@ import {
   ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
   REVIEW_VALUES, REWRITING_FUNCTIONS, ROUND_PREFIX, STAGE, STAGES, VANISH_NONE, VERIFY_STAGES, VIEWPOINTS,
 } from './constants.mjs';
+import { checkStage, checkWritableItem } from './checks.mjs';
 import { internal, reject } from './errors.mjs';
 import { assignmentId, canonical, findingId, fingerprintSet, keyString, sum } from './ids.mjs';
 import { kindsFor } from './kinds.mjs';
@@ -32,7 +33,7 @@ function needCriteria(ctx) {
 function itemIn(view, id, stages) {
   const item = view.items.get(id);
   if (!item || !stages.includes(item.stage)) reject(CODES.unknownId, `状態に無い${stages.map((s) => STAGES[s]).join('・')}の段の項目の ID: ${JSON.stringify(id)}`);
-  if (item.aborted || item.discarded) reject(CODES.conflict, `打ち切りか破棄の記録がある項目に結果を書けない: ${id}`);
+  checkWritableItem(item);
   return item;
 }
 
@@ -81,7 +82,7 @@ export function ledgerRetake(ctx, req) {
 export function assignments(ctx, req) {
   return mutate(ctx, req, OPS.assignments, (view) => {
     needLedger(view);
-    if (!Object.hasOwn(STAGES, req.stage)) reject(CODES.unknownId, `段の名前が無い: ${JSON.stringify(req.stage)}`);
+    checkStage(req.stage);
     let groups;
     if (req.rule === ASSIGN_RULES.all) groups = [currentAssets(view).map((a) => a.id)];
     else if (req.rule === ASSIGN_RULES.skip) {
@@ -147,8 +148,8 @@ function verdictsOutput(view, itemId) {
   const seen = view.seen.filter((s) => s.item === itemId);
   return {
     seen: seen.length,
-    ok: seen.filter((s) => s.value === JUDGEMENTS.ok).length,
-    unsure: seen.filter((s) => s.value === JUDGEMENTS.unsure).length,
+    judgedOk: seen.filter((s) => s.value === JUDGEMENTS.ok).length,
+    judgedUnsure: seen.filter((s) => s.value === JUDGEMENTS.unsure).length,
     duplicates: view.dups.filter((d) => d.item === itemId).length,
     refutationKeys: view.candidates.filter((c) => c.item === itemId).map((c) => c.key),
   };
@@ -306,8 +307,6 @@ export function reviewInputForAsset(view, finding, asset, refs) {
   return { input: { r: R.length ? R_IN.present : R_IN.empty, content, candidates, judged }, decision: d, latest: R.at(-1) ?? null };
 }
 
-const BASIS_BY_ROW = { 3: BASIS.upheld, 6: BASIS.rejected, 7: BASIS.noCandidate };
-
 function decisionRecords(view, finding, { run, round, value, basis, fps, fpset }) {
   const last = finding.states.at(-1);
   if (last.run === run && view.ledger.rewriting) {
@@ -330,12 +329,11 @@ export function reviewJudge(ctx, req) {
       if (assets.length === 0) { results.push({ finding: f.id, value: null, recorded: RECORDED.none, vanished: true }); continue; }
       const perAsset = assets.map((asset) => {
         const r = reviewInputForAsset(view, f, asset, refs);
-        return { ...r, ...reviewJudgement(r.input, r.decision.value) };
+        return { ...r, ...reviewJudgement(r.input, r.decision) };
       });
       const chosen = FOLD_ORDER.map((v) => perAsset.find((p) => p.value === v)).find(Boolean);
-      const { row, value, decision, latest } = chosen;
+      const { row, value, basis, decision, latest } = chosen;
       if (value === skip) { results.push({ finding: f.id, value, row, recorded: RECORDED.none }); continue; }
-      const basis = value === unknown ? BASIS.unknown : row === 5 ? decision.basis : BASIS_BY_ROW[row];
       const assignment = value !== unknown && latest ? view.assignments.get(latest.assignment) : null;
       const out = decisionRecords(view, f, {
         run: req.run, round, value, basis,

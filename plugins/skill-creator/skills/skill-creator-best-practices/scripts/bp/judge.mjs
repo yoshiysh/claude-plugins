@@ -1,4 +1,4 @@
-import { FINDING_STATES, REVIEW_INPUT, REVIEW_VALUES } from './constants.mjs';
+import { BASIS, FINDING_STATES, REVIEW_INPUT, REVIEW_VALUES } from './constants.mjs';
 import { internal } from './errors.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
@@ -8,16 +8,16 @@ const { r: R, content: C, candidates: K, judged: J } = REVIEW_INPUT;
 
 export const REVIEW_INPUT_VALUES = Object.freeze(Object.fromEntries(Object.entries(REVIEW_INPUT).map(([k, v]) => [k, Object.values(v)])));
 
-// 行の番号は SP-BPFINDINGS-018 の表の「順」で、上から順に当てる。
+// 行の番号は SP-BPFINDINGS-018 の表の「順」で、上から順に当てる。basis は記録に残す判定の出所で、判定しない行は持たない。
 export const REVIEW_ROWS = Object.freeze([
-  { row: 1, when: (i) => i.r === R.empty && i.content === C.changed, value: unknown },
-  { row: 2, when: (i) => i.r === R.empty && i.content === C.same, value: skip },
-  { row: 3, when: (i) => i.candidates === K.upheld, value: exists },
-  { row: 4, when: (i) => i.candidates === K.unrefuted, value: unknown },
-  { row: 5, when: (i) => i.candidates === K.dup, value: SAME_AS_LAST },
-  { row: 6, when: (i) => i.candidates === K.rejected, value: absent },
-  { row: 7, when: (i) => i.candidates === K.none && i.judged === J.decided, value: absent },
-  { row: 8, when: (i) => i.candidates === K.none && i.judged === J.unsure, value: unknown },
+  { row: 1, when: (i) => i.r === R.empty && i.content === C.changed, value: unknown, basis: BASIS.unknown },
+  { row: 2, when: (i) => i.r === R.empty && i.content === C.same, value: skip, basis: null },
+  { row: 3, when: (i) => i.candidates === K.upheld, value: exists, basis: BASIS.upheld },
+  { row: 4, when: (i) => i.candidates === K.unrefuted, value: unknown, basis: BASIS.unknown },
+  { row: 5, when: (i) => i.candidates === K.dup, value: SAME_AS_LAST, basis: SAME_AS_LAST },
+  { row: 6, when: (i) => i.candidates === K.rejected, value: absent, basis: BASIS.rejected },
+  { row: 7, when: (i) => i.candidates === K.none && i.judged === J.decided, value: absent, basis: BASIS.noCandidate },
+  { row: 8, when: (i) => i.candidates === K.none && i.judged === J.unsure, value: unknown, basis: BASIS.unknown },
 ]);
 
 export function impossibleReason(i) {
@@ -29,16 +29,17 @@ export function impossibleReason(i) {
   return null;
 }
 
-export function reviewJudgement(input, lastValue) {
+export function reviewJudgement(input, last) {
   const impossible = impossibleReason(input);
   if (impossible) internal(`起こりえない見直しの入力: ${impossible}`, { input });
   const row = REVIEW_ROWS.find((r) => r.when(input));
   if (!row) internal('見直しの表のどの行にも当たらない', { input });
   if (row.value === SAME_AS_LAST) {
-    if (lastValue !== exists && lastValue !== absent) internal(`重複の行で最後の判定の値が無い: ${lastValue}`);
-    return { row: row.row, value: lastValue };
+    if (last?.value !== exists && last?.value !== absent) internal(`重複の行で最後の判定の値が無い: ${last?.value}`);
+    if (!last.basis) internal('重複の行で最後の判定の basis が無い');
+    return { row: row.row, value: last.value, basis: last.basis };
   }
-  return { row: row.row, value: row.value };
+  return { row: row.row, value: row.value, basis: row.basis };
 }
 
 const TRANSITIONS = Object.freeze({

@@ -11,6 +11,12 @@ function* combos() {
   }
 }
 
+const LAST = (value, basis = value === 'exists' ? 'upheld' : 'rejected') => ({ value, basis });
+const rv = (input, last) => {
+  const { row, value } = reviewJudgement(input, last);
+  return { row, value };
+};
+
 const EXPECTED = [
   [{ r: 'empty', content: 'changed', candidates: 'none', judged: 'none' }, 1, REVIEW_VALUES.unknown],
   [{ r: 'empty', content: 'same', candidates: 'none', judged: 'none' }, 2, REVIEW_VALUES.skip],
@@ -24,9 +30,9 @@ const EXPECTED = [
 
 test('SP-BPFINDINGS-018: 表の 8 行の条件を 1 つずつ作り、判定を確かめる', () => {
   for (const [input, row, value] of EXPECTED) {
-    assert.deepEqual(reviewJudgement(input, REVIEW_VALUES.absent), { row, value }, JSON.stringify(input));
+    assert.deepEqual(rv(input, LAST(REVIEW_VALUES.absent)), { row, value }, JSON.stringify(input));
   }
-  assert.equal(reviewJudgement({ r: 'present', content: 'same', candidates: 'dup', judged: 'decided' }, REVIEW_VALUES.exists).value, REVIEW_VALUES.exists);
+  assert.equal(reviewJudgement({ r: 'present', content: 'same', candidates: 'dup', judged: 'decided' }, LAST(REVIEW_VALUES.exists)).value, REVIEW_VALUES.exists);
 });
 
 // 期待値は実装の表から取らず、bp-findings.md の SP-BPFINDINGS-018 の文言から独立に書く。
@@ -52,10 +58,10 @@ test('SP-BPFINDINGS-018: 組の列挙で、漏れが無く、死んだ行が無�
     for (const input of combos()) {
       const expected = fromSpec(input, last);
       if (expected === null) {
-        assert.throws(() => reviewJudgement(input, last), (e) => e.code === CODES.internal, JSON.stringify(input));
+        assert.throws(() => reviewJudgement(input, LAST(last)), (e) => e.code === CODES.internal, JSON.stringify(input));
         continue;
       }
-      const got = reviewJudgement(input, last);
+      const got = rv(input, LAST(last));
       assert.deepEqual(got, expected, JSON.stringify(input));
       hits.set(got.row, hits.get(got.row) + 1);
     }
@@ -64,11 +70,11 @@ test('SP-BPFINDINGS-018: 組の列挙で、漏れが無く、死んだ行が無�
 });
 
 test('SP-BPFINDINGS-018: 内容が不変・組が変化・候補が未反証の組が「判定できない」に当たる（係り先の曖昧さが残らない）', () => {
-  assert.deepEqual(reviewJudgement({ r: 'present', content: 'same', candidates: 'unrefuted', judged: 'decided' }, REVIEW_VALUES.exists), { row: 4, value: REVIEW_VALUES.unknown });
+  assert.deepEqual(rv({ r: 'present', content: 'same', candidates: 'unrefuted', judged: 'decided' }, LAST(REVIEW_VALUES.exists)), { row: 4, value: REVIEW_VALUES.unknown });
 });
 
 test('SP-BPFINDINGS-018: R の全てがその資産を「判断できない」と判定したときは「判定できない」で、「存在しない」に倒さない', () => {
-  assert.equal(reviewJudgement({ r: 'present', content: 'changed', candidates: 'none', judged: 'unsure' }, REVIEW_VALUES.exists).value, REVIEW_VALUES.unknown);
+  assert.equal(reviewJudgement({ r: 'present', content: 'changed', candidates: 'none', judged: 'unsure' }, LAST(REVIEW_VALUES.exists)).value, REVIEW_VALUES.unknown);
 });
 
 test('SP-BPFINDINGS-019: 4 状態 × 3 判定の 12 通りの次の状態', () => {
@@ -83,4 +89,16 @@ test('SP-BPFINDINGS-019: 4 状態 × 3 判定の 12 通りの次の状態', () =
   for (const [state, e, a, u] of table) {
     assert.deepEqual([nextState(state, exists), nextState(state, absent), nextState(state, unknown)], [e, a, u], state);
   }
+});
+
+test('SP-BPFINDINGS-018: 存在する・存在しないの判定は必ず basis を持ち、重複の行は最後の判定の basis を引き継ぐ', () => {
+  for (const last of [LAST('exists'), LAST('absent'), LAST('absent', 'no-candidate')]) {
+    for (const input of combos()) {
+      let got;
+      try { got = reviewJudgement(input, last); } catch { continue; }
+      if (got.value === 'exists' || got.value === 'absent') assert.ok(got.basis, JSON.stringify(input));
+      if (got.row === 5) assert.equal(got.basis, last.basis);
+    }
+  }
+  assert.throws(() => reviewJudgement({ r: 'present', content: 'same', candidates: 'dup', judged: 'decided' }, { value: 'exists' }), (e) => e.code === CODES.internal);
 });

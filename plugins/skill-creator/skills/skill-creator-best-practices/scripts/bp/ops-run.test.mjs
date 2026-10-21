@@ -294,7 +294,7 @@ test('SP-BPRUN-029: 状態に無い run ID・項目の ID の書き込みを E_U
   await rejects(run.itemResult(ctx, { ...req, run: 'r9', item: 'verify-XXXX', result: {} }), CODES.unknownId);
   await rejects(run.itemResult(ctx, { ...req, item: 'verify-XXXX', result: {} }), CODES.unknownId);
   await rejects(run.stageStart(ctx, { ...req, stage: 'nope', keys: [] }), CODES.unknownId);
-  await rejects(run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding: 'FNOPE' }] }), CODES.unknownId);
+  await rejects(run.stageStart(ctx, { ...req, stage: 'vanish', round: 1, keys: [{ finding: 'FNOPE', gone: 1 }] }), CODES.unknownId);
   await rejects(run.premise(ctx, { state: 'bp-00000000000000-nope', run: 'r1', kind: 'goal', text: 'x' }), CODES.unknownId);
 });
 
@@ -551,4 +551,36 @@ test('SP-BPRUN-009: 書いたファイルの記録と検証の記録を 1 つの
   const file = path.join(root, 'SKILL.md');
   await rejects(run.files(ctx, { ...req, entries: [{ path: file, iteration: 1, action: 'write' }, { path: file, iteration: 1, verified: true }] }), CODES.input);
   assert.deepEqual(buildView(await logOf(ctx, s.state)).files, []);
+});
+
+test('SP-BPRUN-017: 停止を書いた後に対象が変わってから届いた同じ stop の送り直しは same で受理する', async (t) => {
+  const { ctx, req, root } = await startReview(t, { 'SKILL.md': '# A\n' });
+  if (!ctx) return;
+  const body = { ...req, kind: 'complete', pending: [], launches: 2, onTargetChanged: 'blocked' };
+  const first = await run.stop(ctx, body);
+  assert.equal(first.stop.kind, 'complete');
+  await fs.writeFile(path.join(root, 'SKILL.md'), '# changed after stop\n');
+  const before = await logOf(ctx, req.state);
+  const again = await run.stop(ctx, body);
+  assert.deepEqual([again.same, again.stop.kind], [true, 'complete']);
+  assert.deepEqual(await logOf(ctx, req.state), before);
+  await rejects(run.stop(ctx, { ...body, launches: 3 }), CODES.staleRun);
+});
+
+test('SP-BPFINDINGS-002: 根の外で plugin.json を持つ祖先の無いファイルを含む開始は E_INPUT で、状態を作らない', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const base = await tmpDir(t);
+  await fs.writeFile(path.join(base, 'loose.js'), 'x\n');
+  await assert.rejects(run.start(ctx, { key: newKey(), function: 'review', target: { root, files: [path.join(base, 'loose.js')] }, limits: LIMITS }), (e) => e.code === CODES.input && /plugin\.json/.test(e.reason));
+  assert.deepEqual(await stateDirs(ctx), []);
+  const plugin = path.join(base, 'plug');
+  await fs.mkdir(path.join(plugin, '.claude-plugin'), { recursive: true });
+  await fs.mkdir(path.join(plugin, 'workflows'));
+  await fs.writeFile(path.join(plugin, '.claude-plugin', 'plugin.json'), '{}');
+  await fs.writeFile(path.join(plugin, 'workflows', 'w.js'), 'w\n');
+  const ok = await run.start(ctx, { key: newKey(), function: 'review', target: { root, files: [path.join(plugin, 'workflows', 'w.js')] }, limits: LIMITS });
+  const fp = buildView(await logOf(ctx, ok.state)).fingerprints[0].files;
+  assert.ok('plugin:workflows/w.js' in fp);
 });

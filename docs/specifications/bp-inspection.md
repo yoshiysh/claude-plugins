@@ -250,7 +250,7 @@ SP-BPINSPECTION-010 の照合で一致しなかったならば、script は、�
 前の run が照らす先の決定の段を終える前に止まったとき（照らす先を読めずに BLOCKED になったときなど）は、本項を当てず、照らす先の決定の段を最初から行う（SP-BPINSPECTION-030。照合すると、利用者が直した照らす先が前の記録と食い違い、再開のたびに BLOCKED になる）。段を終えたかは、状態の段の進み（`docs/specifications/bp-run.md` の SP-BPRUN-005）の終えた段で決める。
 
 #### SP-BPINSPECTION-030 再開した run の段の順
-review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従い、終えていない段から続け、終えた段の結果（状態にある担当の組と適用の判定を含む）を作り直してはならない。ただし、再開した run の開始で行う台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）と、それに伴う資産の束の書き直し（SP-BPINSPECTION-017）と、その取り直しで消えた資産が新しく記録されたときの消えた資産の照合の段は、それぞれの段を終えていても行い、本項の例外とする。照らす先の決定の段を終える前に止まった run はその段を最初から行い、終えた後に止まった run は同じ段で SP-BPINSPECTION-029 の照合を行う。audit は適用の判定の段を持たないので、その段を飛ばす。止まった段ごとの段の順の細目は TBD-SBPINSPECTION-002 で決める。
+review と audit の再開した run は、`docs/specifications/bp-run.md` の SP-BPRUN-015 の 3 に従い、終えていない段から続け、終えた段の結果（状態にある担当の組と適用の判定を含む）を作り直してはならない。ただし、再開した run の開始で行う台帳の取り直し（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-005）と、それに伴う資産の束の書き直し（SP-BPINSPECTION-017）と、その取り直しで消えた資産が新しく記録されたときの消えた資産の照合の段は、それぞれの段を終えていても行い、本項の例外とする。再び行う消えた資産の照合の段の回は、`docs/specifications/bp-run.md` の SP-BPRUN-038 のとおり、その取り直しの番号とする（台帳の作成と資産の束の段は項目を持たないので回を持たない）。照らす先の決定の段を終える前に止まった run はその段を最初から行い、終えた後に止まった run は同じ段で SP-BPINSPECTION-029 の照合を行う。audit は適用の判定の段を持たないので、その段を飛ばす。止まった段ごとの段の順の細目は TBD-SBPINSPECTION-002 で決める。
 
 ## 検証方法
 

@@ -26,28 +26,31 @@ function bare(line) {
   return line.replace(/\r?\n$/, '');
 }
 
-function headingsOf(lines, from) {
-  const out = [];
+// Markdown の見出しとフェンスの中の行を 1 箇所で決める（資産の切り出しと閉集合の抽出が同じ読み方をする）。
+export function scanMarkdown(lines, from = 0) {
+  const headings = [];
+  const fenced = new Set();
   let fence = null;
   for (let i = from; i < lines.length; i += 1) {
     const line = bare(lines[i]);
     const f = FENCE.exec(line);
     if (fence) {
+      fenced.add(i);
       const close = CLOSE.exec(line);
       if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
       continue;
     }
-    if (f) { fence = f[1]; continue; }
+    if (f) { fence = f[1]; fenced.add(i); continue; }
     const atx = ATX.exec(line);
-    if (atx) { out.push({ start: i, level: atx[1].length, text: atxText(atx[2]) }); continue; }
+    if (atx) { headings.push({ start: i, level: atx[1].length, text: atxText(atx[2]) }); continue; }
     const next = i + 1 < lines.length ? bare(lines[i + 1]) : null;
     if (next != null && line.trim() !== '' && SETEXT.test(next) && !FENCE.test(line)) {
       const level = next.trim()[0] === '=' ? 1 : 2;
-      out.push({ start: i, level, text: line.trim(), underline: true });
+      headings.push({ start: i, level, text: line.trim(), underline: true });
       i += 1;
     }
   }
-  return out;
+  return { headings, fenced };
 }
 
 function markdownRanges(text) {
@@ -61,7 +64,7 @@ function markdownRanges(text) {
       body = end + 1;
     }
   }
-  const heads = headingsOf(lines, body);
+  const heads = scanMarkdown(lines, body).headings;
   const firstHead = heads.length ? heads[0].start : lines.length;
   const pre = lines.slice(body, firstHead).join('');
   if (pre.trim() !== '') ranges.push({ loc: { k: 'pre' }, content: pre });
