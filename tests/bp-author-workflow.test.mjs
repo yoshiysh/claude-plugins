@@ -46,13 +46,15 @@ function nonconformVerifier({ when = () => true } = {}) {
   };
 }
 
-test('SP-BPRUN-001・SP-BPAUTHORING-005・SP-BPAUTHORING-020: create の 1 run が段を表の順に進め、1 つの機能だけを実行して完了する', async (t) => {
+test('SP-BPRUN-001・SP-BPAUTHORING-005・SP-BPAUTHORING-020・SP-BPFINDINGS-001: create の 1 run が段を表の順に進め、最初の検証の前に台帳を作り、1 つの機能だけを実行して完了する', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target) });
   assert.equal(result.stopKind, 'complete', result.reason);
   const lines = await logOf(s.env, result.state);
   assert.deepEqual(stageOrder(lines), ['goal.1', 'write.1', 'ledger.1', 'verify.1', 'refute.1', 'rejudge.1', 'gate.1']);
+  const ledger = lines.findIndex((l) => l.op === 'ledger-create');
+  assert.ok(ledger >= 0 && ledger < lines.findIndex((l) => l.op === 'verdicts'));
   assert.equal(lines[0].records[0].function, 'create');
   assert.ok(lines.every((l) => l.run === 'r1'));
   assert.deepEqual([...new Set(calls.filter((c) => c.role === 'verify').map((c) => c.label))], ['verifier:conformance', 'verifier:goal']);
@@ -512,7 +514,7 @@ test('SP-BPAUTHORING-035・SP-BPRUN-015: 検証が成り立たない BLOCKED か
   assert.equal(second.result.verification.iterations.total, 1);
 });
 
-test('SP-BPRUN-028・SP-BPRUN-029: 1 件の欠けでは run が止まらず試行を繰り返し、検証役の結果の台帳に無い資産 ID は BLOCKED にならず試行の回数が増える', async (t) => {
+test('SP-BPRUN-028・SP-BPRUN-029・SP-BPFINDINGS-034: 1 件の欠けでは run が止まらず試行を繰り返し、検証役の結果の台帳に無い資産 ID は BLOCKED にならず試行の回数が増える', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const seen = new Map();
@@ -535,7 +537,7 @@ test('SP-BPRUN-028・SP-BPRUN-029: 1 件の欠けでは run が止まらず試�
   assert.equal(result.verification.ledger.rejected.count, 1);
 });
 
-test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN-035・SP-BPRUN-015: 同時実行 3 で上限に収まらない項目を起動せず表の順で未着手に残して反復の上限で止まり、再開が未着手の項目だけを処理し、next_args に上限が無い', async (t) => {
+test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN-035・SP-BPRUN-015・SP-BPRUN-014: 同時実行 3 で上限に収まらない項目を起動せず表の順で未着手に残して反復の上限で止まり、再開が未着手の項目だけを処理し、next_args に上限が無い', async (t) => {
   const s = await setup(t, { fn: 'update' });
   if (!s) return;
   const limit = MIN.update + 1;

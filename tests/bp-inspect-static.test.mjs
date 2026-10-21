@@ -63,7 +63,7 @@ async function promptsOf(t, fn, scenario = {}) {
   return { s, calls };
 }
 
-test(`SP-BPINSPECTION-001・SP-BPRUN-038: meta.phases が SP-BPINSPECTION-001 の表の段の列の順に並び、各段の名前が SP-BPRUN-038 の slug の表にあり、見直しと合否の操作を要求に入れない${BOTH}`, () => {
+test(`SP-BPINSPECTION-001・SP-BPRUN-038・SP-BPFINDINGS-018: meta.phases が SP-BPINSPECTION-001 の表の段の列の順に並び、各段の名前が SP-BPRUN-038 の slug の表にあり、見直しと合否の操作を要求に入れない${BOTH}`, () => {
   const phases = literal('meta').phases.map((p) => p.title);
   assert.deepEqual(phases, tableAfter(INSPECTION, '| 順 | 段 | 部品 | 起動する役 | 機能 | 項目 | 定める項目 |').map((r) => r[1]));
   const slugs = new Map(tableAfter(RUN, '段の slug は次の表とする。').map(([name, slug]) => [slug.replace(/`/g, ''), name.split('・')]));
@@ -117,7 +117,7 @@ test('SP-BPINSPECTION-023: bp-inspection.md に review・audit の入力の表�
   assert.match(INSPECTION, /`docs\/specifications\/bp-entry\.md` の SP-BPENTRY-013 の表を正とし、本文書に表を置かない/);
 });
 
-test('SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証役の prompt が資産の束と照らす先（判定基準の写し）のパスを持ち、共通の部分が先頭にあり、仕様の観点の prompt に「性能・容量」の章の値が無く、docs/ のパスを渡さない', async (t) => {
+test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証役の prompt が資産の束と照らす先（判定基準の写し）のパスを持ち、共通の部分が先頭にあり、仕様の観点の prompt に「性能・容量」の章の値が無く、docs/ のパスを渡さない［review］`, async (t) => {
   const got = await promptsOf(t, 'review');
   if (!got) return;
   const { s, calls } = got;

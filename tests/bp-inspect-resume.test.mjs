@@ -80,7 +80,7 @@ for (const fn of FNS) {
     assert.deepEqual(r2.result.targets.map((x) => x.readable), VIEWPOINTS[fn].map(() => true));
   });
 
-  test(`SP-BPINSPECTION-030: 台帳の作成と資産の束の段で止まった run の再開は、その段を最初から行う${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-030・SP-BPRUN-015: 項目を持たない段（台帳の作成と資産の束）で止まった run の再開は、その段を最初から行う${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const r1 = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier: partialCarrier(OPS.bundle, 1) } });
@@ -149,7 +149,7 @@ for (const fn of FNS) {
     assert.equal(itemsOf(view, 'verify').filter((i) => view.lineRuns.get(i.result.line) === 'r2').length, roles(r2.calls).length);
   });
 
-  test(`SP-BPINSPECTION-030・SP-BPRUN-035: 追加の起動で止まった run の再開は、止まった部分の未着手の項目を破棄せずに処理し、skip 一覧が空になれば段を終える${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-030・SP-BPRUN-035・SP-BPRUN-015: 追加の起動で止まった run の再開は、止まった部分の未着手の項目を破棄せずに処理し、skip 一覧が空になれば段を終える${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const extract = async (prompt) => {
@@ -261,6 +261,10 @@ for (const fn of FNS) {
     assert.equal(r2.result.stoppedStage, '消えた資産の照合');
     const vanishCalls = r2.calls.filter((c) => c.role === 'vanish');
     assert.deepEqual(vanishCalls.map((c) => /指摘 ID: (\S+)/.exec(c.prompt)[1]), findings.map((f) => f.id));
+    for (const c of vanishCalls) {
+      const list = commands(c.prompt).find((x) => x.op === OPS.report);
+      assert.deepEqual(JSON.parse(list.text).fields, ['findings', 'assets']);
+    }
     const r3 = await runInspect(t, { env: s.env, args: resumeArgs(r2.result) });
     assert.equal(r3.result.stopKind, 'complete', r3.result.reason);
     assert.equal(r3.calls.filter((c) => c.role === 'vanish').length, 1);

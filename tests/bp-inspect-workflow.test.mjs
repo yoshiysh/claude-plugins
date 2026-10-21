@@ -56,7 +56,7 @@ for (const fn of FNS) {
     assert.equal(verifiers(calls).length, VIEWPOINTS[fn].length * 2);
   });
 
-  test(`SP-BPINSPECTION-001・SP-BPRUN-027・SP-BPRUN-030・SP-BPRUN-010: 抽出役が結果を返さないと BLOCKED になり、理由に段・役・失敗の内容がある${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-001・SP-BPRUN-027・SP-BPRUN-030・SP-BPRUN-010・SP-BPRUN-032: 抽出役が結果を返さないと BLOCKED になり、理由に段・役・失敗の内容がある${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { extract: async () => null } });
@@ -98,7 +98,7 @@ for (const fn of FNS) {
     assert.equal(v2.stops.get('r1').cause, 'verifiers');
   });
 
-  test(`SP-BPINSPECTION-002: 候補のある結果を返しても、観点ごとの検証より前の段の起動が再び起きない${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-002・SP-BPRUN-010: 候補のある結果を返しても反復の上限で止まらず完了し、観点ごとの検証より前の段の起動が再び起きない${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const verify = candidateVerifier({ viewpoint: VIEWPOINTS[fn][0] });
@@ -141,7 +141,7 @@ for (const fn of FNS) {
     assert.ok(!opsOf(calls).some((op) => op === OPS.paths || op === OPS.pathsRetake));
   });
 
-  test(`SP-BPINSPECTION-026・SP-BPRUN-011・SP-BPRUN-032: 存在しないパスと SKILL.md の無いディレクトリで、開始の運搬役の後に agent を起動せず、状態を作らず、BLOCKED と理由を返し next_args が無い${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-026・SP-BPRUN-011・SP-BPRUN-032・SP-BPRUN-002: 存在しないパスと SKILL.md の無いディレクトリで、開始の運搬役の後に agent を起動せず、状態を作らず、BLOCKED と理由を返し next_args が無い${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const missing = path.join(s.base, 'none');
@@ -160,7 +160,7 @@ for (const fn of FNS) {
     assert.deepEqual(states.filter((d) => !d.startsWith('.')), []);
   });
 
-  test(`SP-BPRUN-008・SP-BPINSPECTION-020: run が対象スキルに書き込まず、書いたファイルの記録の要求を送らない${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-008・SP-BPINSPECTION-020・SP-BPFINDINGS-018: run が対象スキルに書き込まず、見直しと合否の操作を送らず、書いたファイルの記録の要求を送らない${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const before = await targetFingerprint({ root: s.target.root, files: [] });
@@ -272,7 +272,7 @@ for (const fn of FNS) {
     assert.equal(result.stopKind, 'iteration_limit');
   });
 
-  test(`SP-BPRUN-020・SP-BPRUN-040: 上限を渡さない run は項目を切らず、上限を渡した run の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-020・SP-BPRUN-040・SP-BPRUN-010: 上限を渡さない run は項目を切らず、上限を渡した run の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const free = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target) });
@@ -541,3 +541,109 @@ test('SP-BPINSPECTION-028: 一覧が食い違う prompt-audit の写しで、検
   assert.match(result.reason, /6\. Stale internal guidance/);
   assert.deepEqual(agents(calls), []);
 });
+
+for (const fn of FNS) {
+  test(`SP-BPRUN-004: 再開で足した回答が run の開始と同じ 1 行で前提として書かれる${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const first = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { extract: async () => null } });
+    const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result, { answer: '担当は節ごとに作る' }) });
+    assert.equal(second.result.stopKind, 'complete', second.result.reason);
+    const lines = await logOf(s.env, first.result.state);
+    const start = lines.find((l) => l.run === 'r2' && l.op === OPS.start);
+    assert.deepEqual(start.records.filter((r) => r.t === 'premise').map((r) => [r.kind, r.text]), [['answer', '担当は節ごとに作る']]);
+  });
+
+  test(`SP-BPRUN-013・SP-BPFINDINGS-034: 担当の作成の拒否が試行の上限で止まった run を再開すると、繰り返しの回数を開始時からの増分で数え、すぐには止まらない${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const first = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { extract: async () => ({ groups: [['ANOPE']] }) } });
+    assert.equal(first.result.stopKind, 'blocked');
+    let n = 0;
+    const extract = async (prompt) => ((n += 1) < 3 ? { groups: [['ANOPE']] } : inspectDefaults.extract(prompt));
+    const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result), scenario: { extract } });
+    assert.equal(second.result.stopKind, 'complete', second.result.reason);
+    assert.equal(second.calls.filter((c) => c.role === 'extract').length, 3);
+    const view = await viewOf(s.env, first.result.state);
+    assert.equal(view.repeats.get('assign'), 6);
+  });
+
+  test(`SP-BPRUN-029: 状態の構造を指す ID の誤りとして CLI が書き込みを拒否すると、BLOCKED で止まる${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
+    for (const code of ['E_UNKNOWN_ID', 'E_STALE_RUN']) {
+      const carrier = async (prompt, options, env) => {
+        if (!prompt.includes(' verdicts <<')) return env.carry(prompt);
+        const body = { ok: false, code, reason: '状態に無い項目の ID か現在でない run' };
+        return { responses: [JSON.stringify({ ...body, sum: sum(body) })] };
+      };
+      const { result } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier } });
+      assert.equal(result.stopKind, 'blocked');
+      assert.match(result.reason, new RegExp(`段「観点ごとの検証」の CLI が結果の書き込みを拒否した: verdicts: ${code}`));
+    }
+  });
+
+  test(`SP-BPFINDINGS-015: 反証役が結果を返さないと、その候補が open にも dismissed にもならず未反証の候補として残る${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const verify = candidateVerifier({ viewpoint: VIEWPOINTS[fn][0], when: (p) => /担当 ID: Sassign1/.test(p) });
+    const { result } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { verify, refute: async () => null } });
+    assert.equal(result.stopKind, 'blocked');
+    assert.equal(result.stoppedStage, '反証');
+    const view = await viewOf(s.env, result.state);
+    assert.equal(view.findings.size, 0);
+    const refute = [...view.items.values()].filter((i) => i.stage === 'refute');
+    assert.equal(refute.length, 1);
+    assert.equal(view.unrefuted.filter((u) => u.item === refute[0].id).length, 3);
+    const report = await s.env.request(OPS.report, { state: result.state, viewpoints: VIEWPOINTS[fn], fields: ['unrefuted'] });
+    assert.deepEqual(report.unrefuted.map((u) => u.key), [refute[0].key]);
+  });
+
+  test(`SP-BPFINDINGS-025: 1 回目の追加の起動で一部の資産が見られ、2 回目で 0 件になると追加の起動が止まり、残りの skip 一覧が結果に載る${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const extract = async (prompt) => ({ groups: [[(await bundleAssets(prompt))[0].id]] });
+    let extraCalls = 0;
+    const verify = async (prompt, options) => {
+      const ids = assetIds(prompt);
+      if (!options.label.endsWith(':extra')) return inspectDefaults.verify(prompt);
+      extraCalls += 1;
+      // 1 回目の部分は担当の先頭の資産だけを見て、2 回目の部分は何も見ない（判定は担当の資産の一部だけを返してよい）。
+      const judged = extraCalls <= VIEWPOINTS[fn].length ? ids.slice(0, 1) : [];
+      const result = { judgements: judged.map((asset) => ({ asset, judgement: 'ok' })), candidates: [], unchecked: [] };
+      await writePayload(prompt, result);
+      return result;
+    };
+    const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { extract, verify } });
+    assert.equal(result.stopKind, 'complete', result.reason);
+    const extras = calls.filter((c) => c.label.endsWith(':extra'));
+    assert.equal(extras.length, VIEWPOINTS[fn].length * 2);
+    const [p1, p2] = [extras.slice(0, VIEWPOINTS[fn].length), extras.slice(VIEWPOINTS[fn].length)];
+    assert.ok(p2.every((c, i) => assetIds(c.prompt).length === assetIds(p1[i].prompt).length - 1));
+    assert.deepEqual(result.ledger.skip.map((x) => x.assets.length), VIEWPOINTS[fn].map(() => assetIds(p2[0].prompt).length));
+  });
+
+  test(`SP-BPFINDINGS-031・SP-BPENTRY-013: 修正の根拠と依頼文を受け取らず、渡すと agent を起動せずに BLOCKED にする（修正の根拠は update だけが持つ）${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    for (const extra of [{ grounds: [{ kind: '利用者の指示', text: 'x' }] }, { request: '依頼文' }]) {
+      const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, extra) });
+      assert.equal(result.stopKind, 'blocked');
+      assert.match(result.reason, /渡してはならない項目がある/);
+      assert.equal(calls.length, 0);
+    }
+  });
+
+  test(`SP-BPRUN-021・SP-BPRUN-037: 再開した run も最初の run と同じ最小の起動数を使い、ちょうどの上限で最初の項目を始められる${mark(fn)}`, async (t) => {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const first = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { extract: async () => null } });
+    const short = await runInspect(t, { env: s.env, args: resumeArgs(first.result, { maxLaunches: MIN_LAUNCHES[fn] - 1 }) });
+    assert.equal(short.result.stopKind, 'blocked');
+    assert.equal(short.calls.length, 0);
+    const exact = await runInspect(t, { env: s.env, args: resumeArgs(first.result, { maxLaunches: MIN_LAUNCHES[fn] }) });
+    assert.ok(verifiers(exact.calls).length >= 1);
+    assert.ok(exact.result.launches <= MIN_LAUNCHES[fn]);
+  });
+}

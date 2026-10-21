@@ -305,7 +305,7 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 | script の模擬実行 | 抽出役・検証役・反証役・運搬役の返り値を固定した模擬の backend で script を走らせ、起動の数と順と prompt の中身、状態の記録、返り値を照らす |
 | CLI の単体テスト | 照らす先・対象スキル・prompt-audit の写しを与えて CLI の操作を呼び、状態の記録と出力と拒否を照らす |
 | 静的な照合 | script の本文と各役の prompt を読み、起動する役の集合、prompt に書き写した基準の有無、対象を書き換える指示の有無を照らす |
-| fixture | 違反を仕込んだ対象スキルを review・audit にかけ、指摘の種類と未検査の観点を期待値と照らす |
+| fixture | 違反を仕込んだ対象スキルを review・audit にかけ、指摘の種類と未検査の観点を期待値と照らす。模擬の検証役は対象スキルの中身によらず決めた答えを返すので、模擬で確かめられるのは配線（閉集合・未検査の観点の記録・PA-3 の固定の 1 件・除く単位・強いられた未検査）だけである。判断の質は `docs/specifications/bp-authoring.md` の「検証方法」の本物の agent での試走で確かめ、その試走で確かめた行だけを「完了」にする |
 
 ## TBD の宣言
 
@@ -317,43 +317,43 @@ review と audit の再開した run は、`docs/specifications/bp-run.md` の S
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-001 | script の模擬実行（review と audit の起動が表の段の順に並び、audit に適用の判定の段が無いことを確認。抽出役の失敗で BLOCKED になり、観点ごとの検証の項目の欠けでは試行を繰り返すことを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-002 | script の模擬実行（指摘のある結果を返しても観点ごとの検証の段より前の段の起動が再び起きないことを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | script の模擬実行（review の検証の項目の観点がフローと仕様の 2 つだけであることを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | script の模擬実行（audit の検証の項目の観点が監査の観点だけであることを確認） | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | CLI の単体テスト（仕様の観点の照らす先のパスと指紋が状態に書かれることを確認） | 未着手 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-004 | CLI の単体テスト（「性能・容量」の章の見出しが無い写しを与え、仕様の観点が読めないと記録されることを確認） | 未着手 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-005 | script の模擬実行（仕様の観点を読めない review で、仕様の観点の検証役が起動されず、未検査の観点に全体が載り、仕様の観点の skip 一覧と追加の起動が無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | script の模擬実行（適用の判定の答えが閉集合の外のとき記録が拒否され、フローの観点の全ての検証役に同じ形が渡ることを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認） | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | CLI の単体テスト（PA-1〜PA-6 以外の指摘の種類を含む候補が拒否されることを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-010 | CLI の単体テスト（項目を 1 つ足した prompt-audit の写しで照合が不一致になることを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-011 | fixture（指示でない文の欠陥と、好みの違いだけの箇所を含む対象スキルで、どちらも指摘にならず、担当の資産が減らないことを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-012 | fixture（上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず、PA-3 の一部の未検査の観点が載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-013 | fixture（モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず、PA-4 の未検査の観点が載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-014 | script の模擬実行（audit の結果に確度・declared_only・audit_header の項目が無く、照らした先と対象スキルのパスの一覧が載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-033 | SP-BPINSPECTION-015 | script の模擬実行（抽出役が一覧に無い資産 ID を返すと組が拒否され、試行の上限の回まで拒否されると BLOCKED になり、どの組にも入らない資産が追加の起動の担当になることを確認） | 未着手 |
-| PR-BPOPERATIONS-034 | SP-BPINSPECTION-015 | script の模擬実行（どの組にも入らない資産が最初の起動の後に skip 一覧に載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-016 | script の模擬実行（起動数の上限で止めた review の未着手の項目が、観点の順・担当の順で残ることを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-017 | 静的な照合（検証役の prompt が資産の束と照らす先のパスを持ち、共通の部分が先頭にあることを確認） | 未着手 |
-| PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | script の模擬実行（追加の起動が返した候補を含め、重複でない候補のまとめた鍵ごとに反証役が 1 体起動され、全ての反証役が観点ごとの検証の段の後に起動されることを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-019 | script の模擬実行（結果の項目が CLI の出力から逐語で返り、集約の agent が起動されないことを確認） | 未着手 |
-| PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 静的な照合（review・audit の script に書き手の起動が無く、各役の prompt に対象を書き換える指示が無いことを確認） | 未着手 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-001 | script の模擬実行（review と audit の起動が表の段の順に並び、audit に適用の判定の段が無いことを確認。抽出役の失敗で BLOCKED になり、観点ごとの検証の項目の欠けでは試行を繰り返すことを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-002 | script の模擬実行（指摘のある結果を返しても観点ごとの検証の段より前の段の起動が再び起きないことを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-003 | script の模擬実行（review の検証の項目の観点がフローと仕様の 2 つだけであることを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-003 | script の模擬実行（audit の検証の項目の観点が監査の観点だけであることを確認） | 完了 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-004 | CLI の単体テスト（仕様の観点の照らす先のパスと指紋が状態に書かれることを確認） | 完了 |
+| PR-BPOPERATIONS-026 | SP-BPINSPECTION-004 | CLI の単体テスト（「性能・容量」の章の見出しが無い写しを与え、仕様の観点が読めないと記録されることを確認） | 完了 |
+| PR-BPOPERATIONS-026 | SP-BPINSPECTION-005 | script の模擬実行（仕様の観点を読めない review で、仕様の観点の検証役が起動されず、未検査の観点に全体が載り、仕様の観点の skip 一覧と追加の起動が無いことを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-006 | script の模擬実行（適用の判定の答えが閉集合の外のとき記録が拒否され、フローの観点の全ての検証役に同じ形が渡ることを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認） | 作成中 |
+| PR-BPOPERATIONS-025 | SP-BPINSPECTION-008 | fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認） | 作成中 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-009 | CLI の単体テスト（PA-1〜PA-6 以外の指摘の種類を含む候補が拒否されることを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-010 | CLI の単体テスト（項目を 1 つ足した prompt-audit の写しで照合が不一致になることを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-011 | fixture（指示でない文の欠陥と、好みの違いだけの箇所を含む対象スキルで、どちらも指摘にならず、担当の資産が減らないことを確認） | 作成中 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-012 | fixture（上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず、PA-3 の一部の未検査の観点が載ることを確認） | 作成中 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-013 | fixture（モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず、PA-4 の未検査の観点が載ることを確認） | 作成中 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-014 | script の模擬実行（audit の結果に確度・declared_only・audit_header の項目が無く、照らした先と対象スキルのパスの一覧が載ることを確認） | 完了 |
+| PR-BPOPERATIONS-033 | SP-BPINSPECTION-015 | script の模擬実行（抽出役が一覧に無い資産 ID を返すと組が拒否され、試行の上限の回まで拒否されると BLOCKED になり、どの組にも入らない資産が追加の起動の担当になることを確認） | 完了 |
+| PR-BPOPERATIONS-034 | SP-BPINSPECTION-015 | script の模擬実行（どの組にも入らない資産が最初の起動の後に skip 一覧に載ることを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-016 | script の模擬実行（起動数の上限で止めた review の未着手の項目が、観点の順・担当の順で残ることを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-017 | 静的な照合（検証役の prompt が資産の束と照らす先のパスを持ち、共通の部分が先頭にあることを確認） | 完了 |
+| PR-BPOPERATIONS-031 | SP-BPINSPECTION-018 | script の模擬実行（追加の起動が返した候補を含め、重複でない候補のまとめた鍵ごとに反証役が 1 体起動され、全ての反証役が観点ごとの検証の段の後に起動されることを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-019 | script の模擬実行（結果の項目が CLI の出力から逐語で返り、集約の agent が起動されないことを確認） | 完了 |
+| PR-BPOPERATIONS-030 | SP-BPINSPECTION-020 | 静的な照合（review・audit の script に書き手の起動が無く、各役の prompt に対象を書き換える指示が無いことを確認） | 完了 |
 | PR-BPOPERATIONS-027 | SP-BPINSPECTION-021 | CLI の単体テスト（根が `SKILL.md` のあるディレクトリのときだけ、開始の操作が状態を作ることを確認） | 完了 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-022 | script の模擬実行（入口が渡したパスの一覧がそのまま開始の操作に渡り、run の中でパスの一覧の作成が呼ばれないことを確認） | 未着手 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-023 | 静的な照合（review・audit の入力の表が `docs/specifications/bp-entry.md` の SP-BPENTRY-013 だけにあり、本文書に無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-024 | script の模擬実行（未検査の観点が空の run でも結果に項目があることを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果に prompt-audit のパスと指紋が載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-025 | CLI の単体テスト（表の 5 つの場合を 1 つずつ作り、未検査の観点の観点・範囲・理由を確認。同じ未検査を 2 体が返したとき 1 件になることを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | fixture（ターンごとの指揮の対象スキルで、PR-BPDESIGNEDSKILL-002 の単位が SP-BPCONFORMANCE-006 を理由に未検査の観点に載ることを確認） | 未着手 |
-| PR-BPOPERATIONS-027 | SP-BPINSPECTION-026 | script の模擬実行（存在しないパスと `SKILL.md` の無いディレクトリで、開始の運搬役の後に agent が起動されず、状態が作られず、BLOCKED と理由が返り、next_args が無いことを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-027 | script の模擬実行（フローの観点の照らす先を読めない review が、指摘 0 件の完了ではなく BLOCKED を返すことを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-027 | script の模擬実行（prompt-audit を読めない audit が BLOCKED を返すことを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-028 | script の模擬実行（一覧が食い違う prompt-audit の写しで検証役が起動されず BLOCKED を返すことを確認） | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（同時実行の定数を 4 にした対象スキルの review で、フローの観点の指摘が出ず、仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになることを確認） | 未着手 |
-| PR-BPOPERATIONS-026 | SP-BPINSPECTION-017 | CLI の単体テスト（未検査の観点の候補を足した結果が受理され、範囲が 3 種の外の候補を含む結果が拒否されることを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-029 | script の模擬実行（停止中に照らす先を書き換えて再開し BLOCKED になること、書き換えずに再開すると抽出役と適用の判定が再び起動されないこと、照らす先を読めずに BLOCKED になった run を照らす先を直して再開すると照らす先の決定の段をやり直して進むことを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（止まった段ごとに状態を作って再開し、終えた段の結果が作り直されず、照らす先の決定の段を終えた状態からの再開でだけ照合が行われることを確認） | 未着手 |
-| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果の対象スキルのパスの一覧が、状態にある今の一覧と 1 字も違わないことを確認） | 未着手 |
-| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（台帳の作成と資産の束の段を終えた状態から、停止の間に節を 1 つ書き換えて再開し、台帳が取り直され資産の束が書き直されることを確認） | 未着手 |
+| PR-BPOPERATIONS-027 | SP-BPINSPECTION-022 | script の模擬実行（入口が渡したパスの一覧がそのまま開始の操作に渡り、run の中でパスの一覧の作成が呼ばれないことを確認） | 完了 |
+| PR-BPOPERATIONS-027 | SP-BPINSPECTION-023 | 静的な照合（review・audit の入力の表が `docs/specifications/bp-entry.md` の SP-BPENTRY-013 だけにあり、本文書に無いことを確認） | 完了 |
+| PR-BPOPERATIONS-026 | SP-BPINSPECTION-024 | script の模擬実行（未検査の観点が空の run でも結果に項目があることを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果に prompt-audit のパスと指紋が載ることを確認） | 完了 |
+| PR-BPOPERATIONS-026 | SP-BPINSPECTION-025 | CLI の単体テスト（表の 5 つの場合を 1 つずつ作り、未検査の観点の観点・範囲・理由を確認。同じ未検査を 2 体が返したとき 1 件になることを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-025 | fixture（ターンごとの指揮の対象スキルで、PR-BPDESIGNEDSKILL-002 の単位が SP-BPCONFORMANCE-006 を理由に未検査の観点に載ることを確認） | 作成中 |
+| PR-BPOPERATIONS-027 | SP-BPINSPECTION-026 | script の模擬実行（存在しないパスと `SKILL.md` の無いディレクトリで、開始の運搬役の後に agent が起動されず、状態が作られず、BLOCKED と理由が返り、next_args が無いことを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-027 | script の模擬実行（フローの観点の照らす先を読めない review が、指摘 0 件の完了ではなく BLOCKED を返すことを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-027 | script の模擬実行（prompt-audit を読めない audit が BLOCKED を返すことを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-028 | script の模擬実行（一覧が食い違う prompt-audit の写しで検証役が起動されず BLOCKED を返すことを確認） | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPINSPECTION-007 | fixture（同時実行の定数を 4 にした対象スキルの review で、フローの観点の指摘が出ず、仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになることを確認） | 作成中 |
+| PR-BPOPERATIONS-026 | SP-BPINSPECTION-017 | CLI の単体テスト（未検査の観点の候補を足した結果が受理され、範囲が 3 種の外の候補を含む結果が拒否されることを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-029 | script の模擬実行（停止中に照らす先を書き換えて再開し BLOCKED になること、書き換えずに再開すると抽出役と適用の判定が再び起動されないこと、照らす先を読めずに BLOCKED になった run を照らす先を直して再開すると照らす先の決定の段をやり直して進むことを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（止まった段ごとに状態を作って再開し、終えた段の結果が作り直されず、照らす先の決定の段を終えた状態からの再開でだけ照合が行われることを確認） | 完了 |
+| PR-BPOPERATIONS-028 | SP-BPINSPECTION-024 | script の模擬実行（audit の結果の対象スキルのパスの一覧が、状態にある今の一覧と 1 字も違わないことを確認） | 完了 |
+| PR-BPOPERATIONS-029 | SP-BPINSPECTION-030 | script の模擬実行（台帳の作成と資産の束の段を終えた状態から、停止の間に節を 1 つ書き換えて再開し、台帳が取り直され資産の束が書き直されることを確認） | 完了 |
