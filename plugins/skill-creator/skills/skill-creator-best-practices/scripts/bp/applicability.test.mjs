@@ -27,21 +27,21 @@ test('SP-BPINSPECTION-006: 3 × 3 × 3 × 3 = 81 通りの答えの並びのう�
   assert.deepEqual(PATHS.map((p) => p.answers.join(',')).sort(), accepted.map(([k]) => k).sort());
 });
 
-test('SP-BPINSPECTION-006: 行の条件の「*」に資産台帳・fan-out のどちらの答えも当たり、除く単位を行の単位と強いられた未検査から外す', () => {
+test('SP-BPINSPECTION-006・SP-BPINSPECTION-007: 行の条件の「*」に資産台帳・fan-out のどちらの答えも当たり、フローの観点の閉集合に無い単位を行の単位と強いられた未検査から外す', () => {
   const turn = ['いいえ', '問いに到達しない', '問いに到達しない', '問いに到達しない'];
   for (const fanout of Object.values(PRESENCE)) {
-    const out = judgeApplicability(result(turn, PRESENCE.present, fanout), { assetIds: new Set(['A1']), rows: ROWS, excluded: ['X'] });
+    const out = judgeApplicability(result(turn, PRESENCE.present, fanout), { assetIds: new Set(['A1']), rows: ROWS, allowed: new Set(['U1', 'U2', 'U3']) });
     assert.equal(out.row, 2);
     assert.deepEqual(out.units, [{ value: 'U2' }]);
     assert.deepEqual(out.forced, []);
   }
-  const none = judgeApplicability(result(['はい', 'はい', '問いに到達しない', '問いに到達しない']), { assetIds: new Set(['A1']), rows: ROWS, excluded: [] });
+  const none = judgeApplicability(result(['はい', 'はい', '問いに到達しない', '問いに到達しない']), { assetIds: new Set(['A1']), rows: ROWS, allowed: new Set(['U1', 'U2', 'U3', 'X']) });
   assert.match(none.error, /当たる行が無い/);
 });
 
 test('SP-BPINSPECTION-006: 引用の無い答え・行番号の無い引用・台帳に無い資産 ID・閉集合の外の資産台帳の答えを拒否する', () => {
   const base = ['はい', 'はい', '問いに到達しない', '問いに到達しない'];
-  const ctx = { assetIds: new Set(['A1']), rows: ROWS, excluded: [] };
+  const ctx = { assetIds: new Set(['A1']), rows: ROWS, allowed: new Set(['U1', 'U2', 'U3', 'X']) };
   const noQuote = result(base, PRESENCE.absent, PRESENCE.present);
   noQuote.answers.Q1.quotes = [];
   assert.match(judgeApplicability(noQuote, ctx).error, /引用が 1 件も無い/);

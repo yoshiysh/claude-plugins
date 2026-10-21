@@ -83,6 +83,10 @@ function bulletUnits(sp, section) {
   return units;
 }
 
+export function hasChapter(criteriaDir, chapterMatch) {
+  return parseDoc(read(criteriaDir, 'conformance')).some((n) => n.level === 2 && chapterMatch(n.text));
+}
+
 function specItems(nodes, chapterMatch) {
   const chapter = nodes.find((n) => n.level === 2 && chapterMatch(n.text));
   if (!chapter) internal('判定基準の写しに章が無い');

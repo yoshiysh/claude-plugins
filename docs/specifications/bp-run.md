@@ -326,13 +326,13 @@ best-practices 自身の Workflow は、起動数の上限を省略できる入�
 上限を渡されない run で、script は `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-025 に従わなければならない。起動数の上限は 1 run の起動数の総数に当て、同時に走る agent の数（SP-BPCONFORMANCE-027）とは別に数えなければならない（Codex runner の `limits.maxAgents` と `limits.concurrency` は別の上限で、前者を超えると run 全体が失敗する：runtime README の Contract と Explicit live execution の節）。
 
 #### SP-BPRUN-020 上限に収まらない項目
-起動数の上限を渡された run で、script は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-022 に従い、項目と agent の起動が上限に収まるかを起動の前に確かめなければならない。確かめの式と予約分は同項に従い、式に入れる best-practices 自身の段ごとの値は、create・update は SP-BPRUN-021 の表、review・audit は TBD-SBPRUN-003 で決める。収まらないとき、script はその agent を起動せず、始めた項目の終わりを待ってから、次の手順で止まらなければならない。
+起動数の上限を渡された run で、script は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-022 に従い、項目と agent の起動が上限に収まるかを起動の前に確かめなければならない。確かめの式と予約分は同項に従い、式に入れる best-practices 自身の段ごとの値は SP-BPRUN-021 の表とする。収まらないとき、script はその agent を起動せず、始めた項目の終わりを待ってから、次の手順で止まらなければならない。
 
 1. 始めなかった項目を、未着手の項目として順位付きで状態に書かせる。順位は、上限が無ければ起動していた順（段の順、段の中では CLI が列挙した項目の順：SP-BPRUN-038）とする。未着手の項目の並びの正本は CLI が状態から導いた並びとし、create・update の script は停止の要求に `pending` を入れずに CLI に導かせる（まとめた要求の途中で運搬役が止まると、script の手元の並びが状態とずれる）。
 2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。
 
 #### SP-BPRUN-021 最小の起動数
-best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、その run で最初に始める fan-out の項目を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものを、最初の run と再開した run の全ての経路について求め、その最も大きいものとする（SP-BPRUN-037 の「1 件も始められない」と同じ考え方で、上限がこの値以上なら、どの経路でもその run の最初の fan-out の項目を始められる）。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は TBD-SBPRUN-003）。
+best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、その run で最初に始める fan-out の項目を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものを、最初の run と再開した run の全ての経路について求め、その最も大きいものとする（SP-BPRUN-037 の「1 件も始められない」と同じ考え方で、上限がこの値以上なら、どの経路でもその run の最初の fan-out の項目を始められる）。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は本項の後の表）。
 
 | 値 | 回数 | 中身 |
 |---|---|---|
@@ -345,6 +345,19 @@ best-practices 自身の run の最小の起動数は機能ごとの定数とし
 | `R`（予約分） | 1 | 停止の運搬役。書いたファイルの照らし合わせ（`files-scan`）・停止（`stop`）・返り値（`outcome`）を 1 回で運ぶ |
 
 create の最小の起動数は 30、update は 31 とする。最も大きくなる経路は、目標の固定より前で止まった run の再開で、内訳は、開始 2、再開の破棄 1、（update だけ）作り直す前の写し 1、目標の固定の段の開始 1、目標の固定 2 × 3、書く段の開始 1、書く 3、最初の fan-out の項目（検証の段の適合の観点）15、予約分 1 である。再開の開始で消えた資産が見つかる経路では、目標の固定より前の消えた資産の照合の段の項目が最初の fan-out の項目になり、開始 2、再開の破棄 1、（update だけ）写し 1、段の開始 1、その項目 15、予約分 1 で収まる（その run が上限で止まっても、次の再開は続きから検証の段へ進む）。再開した run も、最初の run と同じ値を使わなければならない（上限の確かめは agent を起動する前に行う。止まった段を知るには状態を読む運搬役の起動が要るので、止まった段に応じて計算し直せない）。上限がこの値に満たないときは SP-BPRUN-037 に従う。
+
+review・audit の段ごとの最悪の回数は次の表とする（値は review・audit の script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、create・update の script と同じ名前の値は同じ値にする。表との一致はテストが照らす）。
+
+| 値 | 回数 | 中身 |
+|---|---|---|
+| `worst(開始)` | 2 | create・update と同じ |
+| `worst(照らす先)` | 1 | 照らす先の決定の段の開始と照らす先の決定を運ぶ運搬役 1（照らせない run が台帳まで作らないよう、単独で運ぶ。review・audit の再開は前の回の未着手を破棄しないので、再開の破棄の回数は無い：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-030） |
+| `worst(束)` | 1 | 台帳の作成と資産の束の段の開始・台帳の作成・資産の束・段の終わり・担当の作成の段の開始をまとめた運搬役 1 |
+| `worst(fan-out でない段の 1 回)` | 2 | 抽出役か適用の判定の検証役 1 + 結果を書く運搬役 1（段ごとの繰り返しの回数・結果・次の段の開始を同じ運搬役で運ぶ）。試行の上限の回数まで繰り返す（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034） |
+| `worst(fan-out の項目)` | 15 | create・update と同じ |
+| `R`（予約分） | 1 | 照合と停止の運搬役。反証の段の終わり・照合と停止の段の開始・停止（`stop`）・返り値（`outcome`）を 1 回で運ぶ |
+
+review の最小の起動数は 32、audit は 26 とする。最も大きくなる経路は最初の run（照らす先の決定を終える前に止まった run の再開も同じ）で、内訳は、開始 2、照らす先 1、束 1、担当の作成 2 × 3、（review だけ）適用の判定 2 × 3、最初の fan-out の項目（観点ごとの検証の段の最初の観点・最初の担当）15、予約分 1 である。再開の開始の取り直しで消えた資産が見つかる経路では、消えた資産の照合の段の項目が最初の fan-out の項目になり、開始 2、照らす先 1、束 1、その項目 15、予約分 1 で収まる。
 
 #### SP-BPRUN-037 不正な上限と、1 件も始められない上限
 起動数の上限を渡された run が次のどちらかに当たるとき、Workflow は host によらず、`agent()` を 1 回も呼ばずに BLOCKED で止まらなければならない。best-practices 自身の run はこの項目に従い、`docs/specifications/bp-conformance.md` が対象スキルを PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-019 に照らす判定の基準もこの項目を参照する。
@@ -614,7 +627,6 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
 |---|---|---|---|---|
 | TBD-SBPRUN-001 | 判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036） | 写す script と写しの検査はまだ実装しておらず、形・綴り・パスは最初の実装でテストとともに決めると、上位文書（`docs/requirements/bp-operations.md`・設計方針文書「水準と未決事項」）が定めている | false | 決まるまで、綴りとパスを CLI の外（script・SKILL.md・agent の prompt）に書き分けてはならず、CLI の 1 箇所の定数から参照する。足す操作は SP-BPRUN-031 の要求・応答の形と符号に従う。写しが置かれるまで、写しの置き場が無いとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`）を理由つきの `E_INPUT` で拒否する |
-| TBD-SBPRUN-003 | best-practices 自身の review・audit の段ごとの値（段ごとの最悪の回数、段ごとの運搬役の回数、最小の起動数の定数）。値は SP-BPCONFORMANCE-022 の式で求める。create・update の値は SP-BPRUN-021 に書き戻した | 値は script の段の組み方で決まり、最初の実装でテストとともに決める細部である（設計方針文書「水準と未決事項」） | false | SP-BPRUN-020・SP-BPRUN-021 |
 
 ## トレーサビリティ表
 

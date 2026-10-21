@@ -13,7 +13,7 @@ import { ledgerReport, liveAssets, skipList } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { checkExtra, checkInspectExtra, extraFields, inspectExtraFields } from './units.mjs';
 import { treatedGroundIds } from './ops-author.mjs';
-import { currentAssets, currentRun, runViewpoints } from './view.mjs';
+import { currentAssets, currentRun, runViewpoints, stageEntry } from './view.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
 const { r: R_IN, content: C_IN, candidates: K_IN, judged: J_IN } = REVIEW_INPUT;
@@ -225,8 +225,15 @@ export async function refutationItems(ctx, req) {
   const refs = stageRefs(req);
   const keys = [];
   const texts = new Map();
-  for (const c of view.candidates) {
-    if (!inStages(view.items.get(c.item), refs)) continue;
+  // 鍵の順位は、鍵の最初の候補を返した検証の項目の列挙の順（段は stages の順）、同じ項目の中では候補が返った順（SP-BPINSPECTION-018）。
+  // 書き込みの順で並べると、同時に走る検証役の終わった順が順位になる。
+  const rank = (c) => {
+    const item = view.items.get(c.item);
+    return [refs.findIndex((r) => r.stage === item.stage && r.round === item.round), stageEntry(view, item.stage, item.round).items.indexOf(c.item), c.seq];
+  };
+  const ordered = view.candidates.filter((c) => inStages(view.items.get(c.item), refs)).map((c) => ({ c, k: rank(c) }))
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map((x) => x.c);
+  for (const c of ordered) {
     const ks = keyString(c.key);
     if (!texts.has(ks)) { texts.set(ks, []); keys.push(c.key); }
     texts.get(ks).push(...c.texts);

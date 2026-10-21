@@ -4,20 +4,23 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Workflow } from '../../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
 import { main as cli } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp-state.mjs';
-import { CRITERIA_FILES, STATE_ROOT_ENV } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { CRITERIA_FILES, PROMPT_AUDIT_FILE, STATES_DIR, STATE_ROOT_ENV } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { stateRoot } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs';
 import { sum } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const SKILL_DIR = path.join(REPO_ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 export const SCRIPT = path.join(SKILL_DIR, 'scripts', 'bp_author.js');
+export const INSPECT_SCRIPT = path.join(SKILL_DIR, 'scripts', 'bp_inspect.js');
 const CLI_PATH = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
 
 // 最小の起動数は SP-BPRUN-021 に書き戻した値を正本にし、テストは仕様から読む（script の定数との一致は bp-spelling が照らす）。
 export const MIN_LAUNCHES = (() => {
-  const m = /create の最小の起動数は (\d+)、update は (\d+) とする/.exec(readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8'));
-  if (!m) throw new Error('SP-BPRUN-021 に最小の起動数が無い');
-  return Object.freeze({ create: Number(m[1]), update: Number(m[2]) });
+  const text = readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
+  const m = /create の最小の起動数は (\d+)、update は (\d+) とする/.exec(text);
+  const n = /review の最小の起動数は (\d+)、audit は (\d+) とする/.exec(text);
+  if (!m || !n) throw new Error('SP-BPRUN-021 に最小の起動数が無い');
+  return Object.freeze({ create: Number(m[1]), update: Number(m[2]), review: Number(n[1]), audit: Number(n[2]) });
 })();
 const COMMAND = /node '([^']+)' (\S+) <<'(BP_[0-9a-f]{8})'\n(.*)\n\3/g;
 
@@ -40,14 +43,14 @@ export async function criteriaCopy(t) {
 }
 
 // 本文を置き換えた script の写しを作る。置き換えが 1 箇所も当たらなければ、黙って元の script を試さないよう落とす。
-export async function variant(t, replacements) {
-  let source = await fs.readFile(SCRIPT, 'utf8');
+export async function variant(t, replacements, script = SCRIPT) {
+  let source = await fs.readFile(script, 'utf8');
   for (const [from, to] of replacements) {
     if (!source.includes(from)) throw new Error(`置き換え元が script に無い: ${from}`);
     source = source.replace(from, to);
   }
   const dir = await tmp(t, 'bp-variant-');
-  const file = path.join(dir, 'bp_author.js');
+  const file = path.join(dir, path.basename(script));
   await fs.writeFile(file, source);
   return file;
 }
@@ -56,15 +59,17 @@ export function commands(prompt) {
   return [...prompt.matchAll(COMMAND)].map((m) => ({ script: m[1], op: m[2], delim: m[3], text: m[4] }));
 }
 
+// prompt-audit は既定で本物の references/prompt-audit.md を使う（写しを書き換えるテストは promptAudit に一時ファイルを渡す）。
 export class Env {
-  constructor({ root, criteriaDir }) {
+  constructor({ root, criteriaDir, promptAudit = path.join(SKILL_DIR, PROMPT_AUDIT_FILE) }) {
     this.root = root;
     this.criteriaDir = criteriaDir;
+    this.promptAudit = promptAudit;
     this.cliCalls = [];
   }
 
   async call(op, text) {
-    const { output } = await cli([op], text, { cwd: REPO_ROOT, env: { [STATE_ROOT_ENV]: this.root }, criteriaDir: this.criteriaDir });
+    const { output } = await cli([op], text, { cwd: REPO_ROOT, env: { [STATE_ROOT_ENV]: this.root }, criteriaDir: this.criteriaDir, promptAudit: this.promptAudit });
     this.cliCalls.push({ op, ok: output.ok, code: output.code });
     return output;
   }
@@ -161,17 +166,22 @@ export const defaults = {
   },
 };
 
+// 2 本の script のラベルの和集合。未知のラベルは prompt の形の誤りとしてテストを落とす。
+const VERIFY_LABEL = /^verifier:(conformance|goal|contract|flow|spec|audit)(:extra)?$/;
+
 function roleOf(label) {
   if (label.startsWith('carrier')) return 'carrier';
   if (label === 'writer:goal') return 'goal';
   if (label === 'writer:write') return 'write';
   if (label === 'verifier:vanish') return 'vanish';
-  if (label.startsWith('verifier:')) return 'verify';
+  if (label === 'verifier:applicability') return 'applicability';
+  if (label === 'extractor') return 'extract';
+  if (VERIFY_LABEL.test(label)) return 'verify';
   if (label === 'refuter') return 'refute';
   throw new Error(`未知の役のラベル: ${label}`);
 }
 
-export async function runAuthor(t, { env, args, scenario = {}, maxAgents = 1000, concurrency = 3, scriptPath = SCRIPT }) {
+export async function runWorkflow(t, { env, args, scenario = {}, maxAgents = 1000, concurrency = 3, scriptPath, defaultRoles = defaults }) {
   const calls = [];
   const backend = {
     capabilities: ['read-only', 'fresh-thread', 'workspace-write'],
@@ -179,7 +189,7 @@ export async function runAuthor(t, { env, args, scenario = {}, maxAgents = 1000,
       const role = roleOf(options.label);
       const call = { role, label: options.label, model: options.model, effort: options.effort, prompt, n: calls.length };
       calls.push(call);
-      const fn = scenario[role] ?? (role === 'carrier' ? null : defaults[role]);
+      const fn = scenario[role] ?? (role === 'carrier' ? null : defaultRoles[role]);
       const value = fn ? await fn(prompt, options, env, call, calls) : await env.carry(prompt);
       if (value === undefined && role === 'carrier') return env.carry(prompt);
       return value;
@@ -190,6 +200,78 @@ export async function runAuthor(t, { env, args, scenario = {}, maxAgents = 1000,
     backend, trustedSource: true, runDir, maxAgents, concurrency, timeoutMs: 120000, maxOutputBytes: 100_000_000, requirements: ['workspace-write'],
   });
   return { result, calls };
+}
+
+export function runAuthor(t, options) {
+  return runWorkflow(t, { scriptPath: SCRIPT, ...options });
+}
+
+export function runInspect(t, options) {
+  return runWorkflow(t, { scriptPath: INSPECT_SCRIPT, defaultRoles: inspectDefaults, ...options });
+}
+
+export function bundlePath(prompt) {
+  const m = /資産の束（[^）]*）: (\S+)/.exec(prompt);
+  if (!m) throw new Error('prompt に資産の束のパスが無い');
+  return m[1];
+}
+
+export async function bundleAssets(prompt) {
+  const text = await fs.readFile(bundlePath(prompt), 'utf8');
+  return [...text.matchAll(/^## (\S+) (\S+) /gm)].map((m) => ({ id: m[1], path: m[2] }));
+}
+
+export function viewpointOf(prompt) {
+  return /^観点の値: (\S+)$/m.exec(prompt)?.[1] ?? null;
+}
+
+function presence(answer, quotes) {
+  return { answer, quotes };
+}
+
+// review・audit の既定の模擬の役。抽出役はファイルごとに 1 組、適用の判定は固定パイプライン型（資産台帳・fan-out 無）、検証役は全て ok。
+export const inspectDefaults = {
+  async extract(prompt) {
+    const assets = await bundleAssets(prompt);
+    const byFile = new Map();
+    for (const a of assets) byFile.set(a.path, [...(byFile.get(a.path) ?? []), a.id]);
+    return { groups: [...byFile.values()] };
+  },
+  async applicability(prompt) {
+    const [first] = await bundleAssets(prompt);
+    const quotes = [{ asset: first.id, line: 1, text: '---' }];
+    const a = (answer) => presence(answer, quotes);
+    return { answers: { A: a('はい'), Q1: a('はい'), Q2: a('問いに到達しない'), Q3: a('問いに到達しない') }, ledger: a('無'), fanout: a('無') };
+  },
+  async verify(prompt) {
+    const result = { judgements: assetIds(prompt).map((asset) => ({ asset, judgement: 'ok' })), candidates: [], unchecked: [] };
+    await writePayload(prompt, result);
+    return result;
+  },
+  refute: defaults.refute,
+  vanish: defaults.vanish,
+};
+
+export const INSPECT_FILES = {
+  'SKILL.md': '---\nname: x\ndescription: d\n---\n# X\n本文\n## 手順\n手順の本文\n',
+  'scripts/x.js': 'export const meta = { name: "x" }\n',
+};
+
+export async function setupInspect(t, { files = INSPECT_FILES, promptAudit } = {}) {
+  const root = stateRoot(t);
+  if (!root) return null;
+  const criteriaDir = await criteriaCopy(t);
+  const base = await tmp(t, 'bp-target-');
+  const skill = path.join(base, 'skill');
+  for (const [rel, content] of Object.entries(files)) {
+    await fs.mkdir(path.dirname(path.join(skill, rel)), { recursive: true });
+    await fs.writeFile(path.join(skill, rel), content);
+  }
+  return { env: new Env({ root, criteriaDir, ...(promptAudit ? { promptAudit } : {}) }), target: { root: skill }, base, criteriaDir };
+}
+
+export function inspectArgs(fn, target, extra = {}) {
+  return { function: fn, target, skillDir: SKILL_DIR, key: newKey(), ...extra };
 }
 
 export async function setup(t, { fn = 'create', files } = {}) {
@@ -256,4 +338,54 @@ export function vanishScenario(root) {
     return result;
   };
   return { write, verify };
+}
+
+export async function logOf(env, state) {
+  const { readAll } = await import('../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs');
+  return readAll(path.join(env.root, STATES_DIR, state));
+}
+
+export async function viewOf(env, state) {
+  const { buildView } = await import('../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs');
+  return buildView(await logOf(env, state));
+}
+
+export function stagesIn(lines) {
+  return lines.flatMap((l) => l.records.filter((r) => r.t === 'stage').map((r) => r.stage));
+}
+
+// 観点が viewpoint の検証役のうち when に当たる起動で、担当の資産の 1 つに候補を返す（閉集合の先頭の、強いられた未検査でない種類）。
+export function candidateVerifier({ viewpoint, when = () => true, asset = (ids) => ids[0], judgement = 'candidate', also = {} } = {}) {
+  return async (prompt, options, env, call, calls) => {
+    // when は起動の時点の calls で決める（await の後では並行の起動が calls に足されている）。
+    const hit = viewpointOf(prompt) === viewpoint && when(prompt, calls.slice(0, call.n + 1), call);
+    const base = await inspectDefaults.verify(prompt);
+    if (!hit) return base;
+    const ids = assetIds(prompt);
+    const target = asset(ids);
+    if (!ids.includes(target)) return base;
+    const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+    const forced = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
+    const kind = kinds.find((k) => !(forced ? JSON.parse(forced) : []).includes(k.value)).value;
+    const result = {
+      ...base,
+      judgements: ids.map((id) => ({ asset: id, judgement: id === target ? judgement : 'ok' })),
+      candidates: judgement === 'candidate' ? [{ asset: target, viewpoint, kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' }] : [],
+      ...also,
+    };
+    await writePayload(prompt, result);
+    return result;
+  };
+}
+
+// 要求に op を含む運搬役の n 回目（when に当たるもの）を失わせる。execute なら CLI を実行した後に応答を捨てる。
+export function failCarrier(op, { execute = false, nth = [1], when = () => true } = {}) {
+  let seen = 0;
+  return async (prompt, options, env) => {
+    if (!prompt.includes(` ${op} <<`) || !when(prompt)) return undefined;
+    seen += 1;
+    if (!nth.includes(seen)) return undefined;
+    if (execute) await env.carry(prompt);
+    return null;
+  };
 }

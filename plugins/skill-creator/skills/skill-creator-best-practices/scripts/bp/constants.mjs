@@ -273,6 +273,8 @@ export const ROLE_WRITE_LIMITS = Object.freeze([
   Object.freeze({ role: '検証役・反証役・抽出役', writes: '作業ファイルだけ' }),
   Object.freeze({ role: '運搬役', writes: 'CLI を通した状態だけ' }),
 ]);
+// review・audit は書き手を起動しないので、確かめられなかった制限から書き手の行を除く（SP-BPRUN-025 の表は書き手を create・update だけとする）。
+export const INSPECT_ROLE_WRITE_LIMITS = Object.freeze(ROLE_WRITE_LIMITS.slice(1));
 
 export const JUDGEMENTS = Object.freeze({ candidate: 'candidate', ok: 'ok', unsure: 'unsure' });
 export const REFUTATION_VERDICTS = Object.freeze({ uphold: 'uphold', reject: 'reject' });

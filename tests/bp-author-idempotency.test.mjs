@@ -8,7 +8,7 @@ import { LOG_FILE, OPS, STATES_DIR, WRITE_OPS } from '../plugins/skill-creator/s
 // 全ての要求を 2 回ずつ届け、2 回目が記録を足さず同じ受理か同じ拒否になることを照らす（§5.9 の教訓 2）。
 class TwiceEnv extends Env {
   constructor(base, seen, violations) {
-    super({ root: base.root, criteriaDir: base.criteriaDir });
+    super({ root: base.root, criteriaDir: base.criteriaDir, promptAudit: base.promptAudit });
     this.seen = seen;
     this.violations = violations;
   }

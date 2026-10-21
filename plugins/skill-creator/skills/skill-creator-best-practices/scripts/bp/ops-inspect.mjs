@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  CODES, FUNCTION, INSPECTING_FUNCTIONS, OPS, RECORDS, REJECT_SCOPE, RESULT_KEYS, ROLE_WRITE_LIMITS, STAGE, STAGES, STOP_KINDS, WORK_DIR,
+  CODES, FUNCTION, INSPECT_ROLE_WRITE_LIMITS, INSPECTING_FUNCTIONS, OPS, RECORDS, REJECT_SCOPE, RESULT_KEYS, STAGE, STAGES, STOP_KINDS, WORK_DIR,
 } from './constants.mjs';
 import { judgeApplicability } from './applicability.mjs';
 import { assetTexts } from './assets.mjs';
@@ -10,7 +10,7 @@ import { internal, reject } from './errors.mjs';
 import { targetFiles } from './fingerprint.mjs';
 import { canonical, sha256Hex } from './ids.mjs';
 import { readOrNull } from './journal.mjs';
-import { flowExclusions } from './kinds.mjs';
+import { flowUnits } from './kinds.mjs';
 import { needCriteria, needLedger, rejected } from './ops-ledger.mjs';
 import { nextArgs } from './ops-run.mjs';
 import { ledgerReport } from './report.mjs';
@@ -18,12 +18,9 @@ import { mutate, readState } from './store.mjs';
 import { uncheckedViewpoints } from './unchecked.mjs';
 import { applicability as applicabilityRows, forcedSources } from './units.mjs';
 import { changedTargets, readTargets } from './targets.mjs';
-import { currentAssets, currentRun, reachedStage, runViewpoints, stageEntry, validTarget } from './view.mjs';
+import { currentAssets, currentRun, itemStatus, reachedStage, runViewpoints, stageEntry, validTarget } from './view.mjs';
 
 const strip = ({ seq, line, ...record }) => record;
-
-// 書き手を起動しない機能の返り値には、書き手の行を載せない（SP-BPRUN-025 の表は書き手を create・update だけとする）。
-const INSPECT_ROLE_LIMITS = ROLE_WRITE_LIMITS.slice(1);
 
 export function needInspecting(view) {
   if (!INSPECTING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `review・audit だけの操作: ${view.state.function}`);
@@ -116,14 +113,21 @@ export function applicability(ctx, req) {
       return { records: [strip(view.applicability), end], output };
     }
     needPosInt(req.n, 'n は');
-    const excluded = flowExclusions(ctx.criteriaDir).map((e) => e.unit);
-    const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir), excluded });
+    const allowed = new Set(flowUnits(ctx.criteriaDir).map((u) => u.value));
+    const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir), allowed });
     if (judged.error) return rejected(REJECT_SCOPE.applicability, req.n, null, req.result, judged.error);
     const sources = forcedSources(ctx.criteriaDir);
     const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, sources.turnForm.get(u) ?? sources.always.get(u)]));
     const record = { t: RECORDS.applicability, run: req.run, result: req.result, ...judged, forcedBy };
     return { records: [record, end], output };
   });
+}
+
+function reachedDetail(view) {
+  const r = reachedStage(view);
+  if (!r) return null;
+  const entry = stageEntry(view, r.stage, null);
+  return { ...r, parts: entry.parts, items: entry.items.map((id) => ({ ...itemStatus(view.items.get(id)), key: view.items.get(id).key })) };
 }
 
 export function inspectProgress(view) {
@@ -137,7 +141,7 @@ export function inspectProgress(view) {
     assignments: [...view.assignments.values()].filter((a) => a.stage === STAGE.assign).map((a) => ({ id: a.id, assets: a.assets })),
     applicability: rec ? applicabilityOutput(rec) : null,
     repeats: { [STAGE.assign]: view.repeats.get(STAGE.assign) ?? 0, [STAGE.applicability]: view.repeats.get(STAGE.applicability) ?? 0 },
-    reached: reachedStage(view),
+    reached: reachedDetail(view),
   };
 }
 
@@ -148,7 +152,7 @@ export async function inspectOutcome(ctx, req) {
   const stop = view.stops.get(run.id);
   if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
   const out = { [RESULT_KEYS.stopKind]: stop.kind, [RESULT_KEYS.state]: view.state.id, [RESULT_KEYS.run]: run.id, [RESULT_KEYS.launches]: stop.launches };
-  out[RESULT_KEYS.unverifiedRoleLimits] = INSPECT_ROLE_LIMITS;
+  out[RESULT_KEYS.unverifiedRoleLimits] = INSPECT_ROLE_WRITE_LIMITS;
   if (stop.kind !== STOP_KINDS.complete) {
     out[RESULT_KEYS.reason] = stop.reason;
     out[RESULT_KEYS.nextArgs] = nextArgs(view);

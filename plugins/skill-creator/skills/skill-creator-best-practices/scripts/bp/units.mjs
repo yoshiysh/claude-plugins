@@ -1,7 +1,7 @@
-import { CONTRACT_ELEMENTS, CONTRACT_NONE, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINTS } from './constants.mjs';
+import { CONTRACT_ELEMENTS, CONTRACT_NONE, CRITERIA_CHAPTERS, SHAPES, UNCHECKED_KINDS, UNCHECKED_SCOPES, UNIT_RESULTS, VIEWPOINTS } from './constants.mjs';
 import { internal } from './errors.mjs';
 import { keyString } from './ids.mjs';
-import { conformanceUnits, kindsFor, parseDoc, read, specUnits } from './kinds.mjs';
+import { conformanceUnits, hasChapter, kindsFor, parseDoc, read, specUnits } from './kinds.mjs';
 
 const PR = 'PR-BPDESIGNEDSKILL-';
 const SP = /^SP-BPCONFORMANCE-\d{3}$/;
@@ -34,10 +34,11 @@ function traceability(nodes) {
   return map;
 }
 
+// 「性能・容量」の章を読めない写しでも適用の判定表は引けるようにする（仕様の観点を読めない review は止まらない：SP-BPINSPECTION-005）。
 function unitsBySpec(criteriaDir) {
   const map = new Map();
   for (const item of conformanceUnits(criteriaDir)) map.set(item.sp, item.units);
-  for (const u of specUnits(criteriaDir)) map.set(u.value, [u]);
+  if (hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix))) for (const u of specUnits(criteriaDir)) map.set(u.value, [u]);
   return map;
 }
 
@@ -54,10 +55,11 @@ function sources(criteriaDir) {
   if (!table || !always) internal('判定基準の写しに SP-BPCONFORMANCE-003 の適用の判定表が無い');
   const trace = traceability(nodes);
   const bySpec = unitsBySpec(criteriaDir);
+  const capacity = hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
   const unitsOf = (req) => (trace.get(req) ?? []).flatMap((sp) => {
     const list = bySpec.get(sp);
-    if (!list) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
-    return list;
+    if (!list && capacity) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
+    return list ?? [];
   });
   return { table, always, bySpec, unitsOf };
 }

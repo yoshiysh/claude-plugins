@@ -30,8 +30,8 @@ function cellMatches(cell, value) {
   return cell === '*' || cell === value;
 }
 
-// SP-BPINSPECTION-006: 答えを確かめ、到達した形と SP-BPCONFORMANCE-003 の行を決める。誤りは理由の文字列で返す。
-export function judgeApplicability(result, { assetIds, rows, excluded }) {
+// SP-BPINSPECTION-006: 答えを確かめ、到達した形と SP-BPCONFORMANCE-003 の行を決める。行の単位はフローの観点の閉集合（allowed）に絞る（仕様の観点の単位と除く単位はフローの観点が判定しない：SP-BPINSPECTION-007）。
+export function judgeApplicability(result, { assetIds, rows, allowed }) {
   if (result === null || typeof result !== 'object' || !result.answers || typeof result.answers !== 'object') return { error: '結果に answers が無い' };
   const answers = [];
   for (const q of APPLICABILITY_QUESTIONS) {
@@ -51,11 +51,10 @@ export function judgeApplicability(result, { assetIds, rows, excluded }) {
   if (!shape) return { error: `答えの並びが形の判定の図の道に無い: ${APPLICABILITY_QUESTIONS.map((q, i) => `${q}=${answers[i]}`).join(' ')}` };
   const row = rows.find((r) => r.form === shape && cellMatches(r.ledger, result.ledger.answer) && cellMatches(r.fanout, result.fanout.answer));
   if (!row) return { error: `適用の判定表に当たる行が無い: ${shape}・${result.ledger.answer}・${result.fanout.answer}` };
-  const skip = new Set(excluded);
   return {
     shape,
     row: row.row,
-    units: row.units.filter((u) => !skip.has(u.value)),
-    forced: row.forced.filter((u) => !skip.has(u)),
+    units: row.units.filter((u) => allowed.has(u.value)),
+    forced: row.forced.filter((u) => allowed.has(u)),
   };
 }
