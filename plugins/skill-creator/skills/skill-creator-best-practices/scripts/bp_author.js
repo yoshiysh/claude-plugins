@@ -325,6 +325,17 @@ function early(kind, reason, nextState) {
   return out
 }
 
+function checkHostArgs(a, nextState) {
+  const skillDir = a[INPUT_KEYS.skillDir]
+  if (typeof skillDir !== 'string' || !skillDir.startsWith('/') || skillDir.includes("'")) {
+    return early(STOP_KINDS.blocked, `skillDir は ' を含まない絶対パスでなければならない: ${JSON.stringify(skillDir)}`, nextState)
+  }
+  if (typeof a[INPUT_KEYS.key] !== 'string' || !/^[A-Za-z0-9._-]+$/.test(a[INPUT_KEYS.key])) {
+    return early(STOP_KINDS.blocked, `key は英数字と . _ - だけの文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState)
+  }
+  return null
+}
+
 function validateArgs(input) {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
   const resume = Object.hasOwn(a, INPUT_KEYS.nextArgs)
@@ -351,13 +362,9 @@ function validateArgs(input) {
       return { stop: early(STOP_KINDS.blocked, `起動数の上限 ${limit} が最小の起動数 ${min} に満たない。上限が 1 件の項目にも足りない`, nextState) }
     }
   }
+  const host = checkHostArgs(a, nextState)
+  if (host) return { stop: host }
   const skillDir = a[INPUT_KEYS.skillDir]
-  if (typeof skillDir !== 'string' || !skillDir.startsWith('/') || skillDir.includes("'")) {
-    return { stop: early(STOP_KINDS.blocked, `skillDir は ' を含まない絶対パスでなければならない: ${JSON.stringify(skillDir)}`, nextState) }
-  }
-  if (typeof a[INPUT_KEYS.key] !== 'string' || !/^[A-Za-z0-9._-]+$/.test(a[INPUT_KEYS.key])) {
-    return { stop: early(STOP_KINDS.blocked, `key は英数字と . _ - だけの文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState) }
-  }
   if (resume) {
     const answer = a[INPUT_KEYS.answer]
     if (answer !== undefined && (typeof answer !== 'string' || answer === '')) return { stop: early(STOP_KINDS.blocked, 'answer は空でない文字列でなければならない', nextState) }
