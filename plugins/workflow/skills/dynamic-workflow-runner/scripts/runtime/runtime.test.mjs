@@ -106,7 +106,7 @@ test('agent timeout aborts a pending backend and records a null result', async t
     run: async (_, __, { signal }) => new Promise(resolve => {
       signal.addEventListener('abort', () => { aborted = true; resolve(null); }, { once: true });
     }),
-  }, { timeoutMs: 200 });
+  }, { timeoutMs: 5000, agentTimeoutMs: 50 });
   assert.equal(result, null);
   assert.equal(aborted, true);
   assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
