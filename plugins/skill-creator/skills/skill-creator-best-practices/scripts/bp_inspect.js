@@ -814,7 +814,7 @@ async function vanishStage(retake) {
   await mustCarry(STAGE.vanish, [write(OPS.stageFinish, { stage: STAGE.vanish, round: retake.round })])
 }
 
-// 表は TBD-SBPINSPECTION-002 の書き戻し（bp-inspection.md の SP-BPINSPECTION-030 の表）が正本。照らす先の決定・資産の束・消えた資産の照合は
+// 表は bp-inspection.md の SP-BPINSPECTION-030 の表が正本。照らす先の決定・資産の束・消えた資産の照合は
 // どの再開でも先に行い、その後は段の並びで最も後ろの始めた段から続ける（終えていれば次の段から）。停止の種類と cause で始め方を変えない。
 function resumePlan(p) {
   const order = INSPECT_PIPELINE.filter((s) => s !== STAGE.applicability || fn === FUNCTION.review)
