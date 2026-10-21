@@ -6,7 +6,7 @@ import {
   LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, RUN_VIEWPOINTS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
-import { checkWritableItem } from './checks.mjs';
+import { checkWritableItem, isPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { resolveCallsites } from './callsites.mjs';
 import { diffFingerprints, homelessReason, targetFiles, targetFingerprint } from './fingerprint.mjs';
@@ -21,7 +21,6 @@ import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
 import { identity } from './records.mjs';
 
-const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 const strip = ({ seq, line, ...record }) => record;
 
 function needPosInt(value, name) {

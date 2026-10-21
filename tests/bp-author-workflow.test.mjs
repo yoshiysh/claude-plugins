@@ -1269,3 +1269,64 @@ test('SP-BPAUTHORING-031・SP-BPAUTHORING-013: 設計の説明の拒否と一覧
   assert.ok(result.reason.includes(outside), result.reason);
   assert.deepEqual(result.unverified, [{ path: 'SKILL.md', action: 'write' }, { path: outside, outside: true }]);
 });
+
+test('SP-BPRUN-031・SP-BPFINDINGS-015: 未反証の記録と試行の失敗の組を毎回送り直しても、未反証の記録は試行ごとに 1 つで、上限の回の送り直しも受けて検証役による BLOCKED になる', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const seen = new Set();
+  const grew = [];
+  const carrier = async (prompt, options, env) => {
+    if (!prompt.includes(' refutation <<')) return env.carry(prompt);
+    const state = /"state":"([^"]+)"/.exec(prompt)[1];
+    if (!seen.has(prompt)) { seen.add(prompt); await env.carry(prompt); return null; }
+    const before = (await logOf(env, state)).length;
+    const out = await env.carry(prompt);
+    if ((await logOf(env, state)).length !== before) grew.push(prompt);
+    return out;
+  };
+  const r1 = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { verify: nonconformVerifier(), refute: async () => null, carrier } });
+  assert.equal(r1.result.stopKind, 'blocked', r1.result.reason);
+  assert.equal(seen.size, 3);
+  assert.equal(grew.length, 0, '組の送り直しが記録を足した');
+  const view = await viewOf(s.env, r1.result.state);
+  const item = view.items.get(view.stages.get('refute|1').items[0]);
+  assert.ok(item.aborted);
+  assert.deepEqual(view.unrefuted.filter((u) => u.item === item.id).map((u) => u.attempt), [1, 2, 3]);
+  assert.deepEqual([...view.stops.values()].map((x) => x.cause ?? null), ['verifiers']);
+});
+
+test('SP-BPRUN-031・SP-BPAUTHORING-005: 上限の回の未反証の記録と試行の失敗の組の応答だけを失っても、打ち切り・検証が成り立たない合否・cause verifiers の BLOCKED になり、再開は台帳の段から始める', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  let first = true;
+  const conformance = nonconformVerifier({ when: () => first });
+  const verify = async (prompt, options, env, call, calls) => {
+    if (!first || options.label !== 'verifier:goal') return conformance(prompt, options, env, call, calls);
+    const result = await defaults.verify(prompt, options, env);
+    const asset = assetIds(prompt)[0];
+    const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+    result.judgements[0].judgement = 'candidate';
+    result.candidates = [{ asset, viewpoint: 'goal', kind: kinds[0].value, quote: 'L1: 本文', content: '目標から外れる', fix: '直す' }];
+    await writePayload(prompt, result);
+    return result;
+  };
+  const refute = async (prompt) => (prompt.includes('"viewpoint":"conformance"') ? null : { verdict: 'reject', reason: '成り立たない' });
+  let dropped = false;
+  const carrier = async (prompt, options, env) => {
+    const out = await env.carry(prompt);
+    if (!dropped && prompt.includes(' refutation <<') && prompt.includes('"attempt":3')) { dropped = true; return null; }
+    return out;
+  };
+  const r1 = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { verify, refute, carrier } });
+  assert.ok(dropped);
+  assert.equal(r1.result.stopKind, 'blocked', r1.result.reason);
+  assert.equal(r1.result.verification?.decision.value, 'unverifiable', r1.result.reason);
+  assert.equal(r1.result.verification.decision.unverifiable.unrefuted.length, 1);
+  const view = await viewOf(s.env, r1.result.state);
+  assert.deepEqual(view.stages.get('refute|1').items.map((id) => Boolean(view.items.get(id).aborted)).sort(), [false, true]);
+  assert.deepEqual([...view.stops.values()].map((x) => x.cause ?? null), ['verifiers']);
+  first = false;
+  const r2 = await runAuthor(t, { env: s.env, args: resumeArgs(r1.result) });
+  assert.equal(r2.result.stopKind, 'complete', r2.result.reason);
+  assert.equal(r2.calls.filter((c) => c.role === 'write').length, 0);
+});

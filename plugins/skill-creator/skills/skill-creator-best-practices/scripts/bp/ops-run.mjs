@@ -5,7 +5,7 @@ import {
   RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
 import { lastGate, progress } from './ops-author.mjs';
-import { checkFunction, checkStage, checkWritableItem } from './checks.mjs';
+import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
 import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId, sum } from './ids.mjs';
@@ -20,7 +20,6 @@ import {
 } from './view.mjs';
 import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
-const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 
 export function nextArgs(view) {
   return { [NEXT_ARGS_KEYS.function]: view.state.function, [NEXT_ARGS_KEYS.state]: view.state.id };
@@ -303,10 +302,8 @@ export function itemFail(ctx, req) {
     }
     if (item.result !== undefined) reject(CODES.conflict, `結果のある項目に試行の失敗を書けない: ${req.item}`);
     if (item.discarded) reject(CODES.conflict, `破棄した項目に試行の失敗を書けない: ${req.item}`);
-    if (item.aborted && req.attempt > item.fails.length) reject(CODES.conflict, `打ち切った項目に試行の失敗を書けない: ${req.item}`);
-    if (!isPosInt(req.attempt)) reject(CODES.input, `attempt は 1 以上の整数でなければならない: ${JSON.stringify(req.attempt)}`);
+    checkAttempt(item, req.attempt, '試行の失敗');
     const current = item.fails.length;
-    if (req.attempt > current + 1) reject(CODES.conflict, `試行の番号が今の回数 + 1 を超える: ${req.attempt}（今の回数 ${current}）`);
     const reason = String(req.reason ?? '');
     const records = [{ t: RECORDS.fail, item: req.item, attempt: req.attempt, reason }];
     const limit = view.state.limits[LIMIT_KEYS.attempts];

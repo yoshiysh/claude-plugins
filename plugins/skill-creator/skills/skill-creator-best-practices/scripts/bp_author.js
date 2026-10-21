@@ -843,7 +843,7 @@ async function refuteStage(number, keys) {
     const res = await launch('refuter', refuterPrompt(e.key, readCmd), { unit, label: 'refuter', schema: REFUTE_SCHEMA })
     if (!res) {
       // 未反証の記録と試行の失敗は、どちらも本文が起動の前に決まるので 1 回の運搬役で書く（SP-BPFINDINGS-015・SP-BPRUN-028）。
-      return { reason: '反証役が結果を返さなかった', alsoWrite: write(OPS.refutation, { item: e.id, verdict: null }) }
+      return { reason: '反証役が結果を返さなかった', alsoWrite: write(OPS.refutation, { item: e.id, verdict: null, attempt }) }
     }
     return writeResult(STAGE.refute, write(OPS.refutation, { item: e.id, verdict: res.verdict, reason: res.reason }), unit)
   }, STAGE.refute))

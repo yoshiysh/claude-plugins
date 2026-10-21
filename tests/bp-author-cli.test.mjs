@@ -314,7 +314,7 @@ async function gateWith(t, { refute, abort = false, rewrite = false }) {
     assert.equal(out.ok, true, out.reason);
     const { keys } = await c.w('refutation-items', { stages: [{ stage: 'verify', round: 1 }] });
     const ref = await c.w('stage-start', { stage: 'refute', round: 1, keys });
-    if (refute !== undefined) await c.w('refutation', { item: ref.items[0], verdict: refute, reason: 'r' });
+    if (refute !== undefined) await c.w('refutation', { item: ref.items[0], verdict: refute, reason: 'r', ...(refute === null ? { attempt: 1 } : {}) });
     if (rewrite) {
       await fs.writeFile(path.join(c.target.root, 'SKILL.md'), '---\nname: changed\n---\n# M\n書き換えた\n');
       await c.w('ledger-retake', {});
