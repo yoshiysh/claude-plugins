@@ -7,7 +7,7 @@ import {
 } from './helpers/bp-harness.mjs';
 import { LOG_FILE, OPS, STATES_DIR, WRITE_OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
-// 全ての要求を 2 回ずつ届け、2 回目が記録を足さず同じ受理か同じ拒否になることを照らす（§5.9 の教訓 2）。
+// 全ての要求を 2 回ずつ届け、2 回目が記録を足さず同じ受理か同じ拒否になることを照らす（送り直しで記録が増えないことの確かめ）。
 class TwiceEnv extends Env {
   constructor(base, seen, violations) {
     super({ root: base.root, criteriaDir: base.criteriaDir, promptAudit: base.promptAudit });

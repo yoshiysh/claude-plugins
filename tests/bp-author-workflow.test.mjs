@@ -867,7 +867,7 @@ test('SP-BPRUN-028・SP-BPRUN-031: 結果を書く運搬役が応答を失うと
   }
 });
 
-// §5.9 の教訓 5: 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす。
+// 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす（仕様の表と応答の形を手で合わせない）。
 function returnRules() {
   const read = (file) => readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', file), 'utf8');
   const table = (text, header) => {
@@ -1000,7 +1000,7 @@ test('SP-BPRUN-029: 状態の構造を指す ID の誤りとして CLI が書き
   assert.match(result.reason, /段「検証」の CLI が結果の書き込みを拒否した: verdicts: E_UNKNOWN_ID/);
 });
 
-test('§5.9 の教訓 3: 検証の段の並行の運搬役を子 process の CLI で走らせても、記録が欠けず E_LOCK が出ない', async (t) => {
+test('SP-BPRUN-005・SP-BPRUN-006: 検証の段の並行の運搬役を子 process の CLI で走らせても、記録が欠けず E_LOCK が出ない', async (t) => {
   const s = await setup(t, { fn: 'update' });
   if (!s) return;
   const { spawn } = await import('node:child_process');

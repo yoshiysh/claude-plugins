@@ -55,7 +55,7 @@ test('SP-BPFINDINGS-011: 仕様の観点の値と CLI の定数が一致する',
   assert.deepEqual(Object.fromEntries(values), VIEWPOINTS);
 });
 
-// ---- 2 段目: script の写しを CLI の定数と仕様の表に照らす（script は import できないので写しを持つ。§5.9 の教訓 1・5）
+// ---- 2 段目: script の写しを CLI の定数と仕様の表に照らす（script は import できないので写しを持つ。写しの照合漏れと、仕様の表と応答の形のずれを止める）
 
 import { createRequire } from 'node:module';
 import * as CLI_CONSTANTS from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
@@ -190,7 +190,7 @@ for (const [label, s] of Object.entries(SCRIPTS)) {
   });
 }
 
-test('TBD-SBPRUN-003 の書き戻し・SP-BPRUN-021: 仕様に書いた review・audit の最小の起動数と段ごとの最悪の回数が bp_inspect.js の定数から計算した値と一致する', () => {
+test('SP-BPRUN-021: 仕様に書いた review・audit の最小の起動数と段ごとの最悪の回数が bp_inspect.js の定数から計算した値と一致する', () => {
   const s = SCRIPTS.inspect;
   const m = /review の最小の起動数は (\d+)、audit は (\d+) とする/.exec(RUN);
   assert.ok(m, 'SP-BPRUN-021 に review・audit の最小の起動数の書き戻しが無い');
@@ -279,7 +279,7 @@ test('TBD-SBPAUTHORING-001 の書き戻し・SP-BPINSPECTION-024・SP-BPFINDINGS
   assert.deepEqual([...new Set(verification)].sort(), Object.values(CLI_CONSTANTS.VERIFICATION_KEYS).sort());
 });
 
-test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最小の起動数と段ごとの最悪の回数が script の定数から計算した値と一致する', () => {
+test('SP-BPRUN-021: 仕様に書いた create・update の最小の起動数と段ごとの最悪の回数が script の定数から計算した値と一致する', () => {
   const worst = literalOf('RESERVE');
   const m = /create の最小の起動数は (\d+)、update は (\d+) とする/.exec(RUN);
   assert.ok(m, 'SP-BPRUN-021 に最小の起動数の書き戻しが無い');
@@ -288,7 +288,7 @@ test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最�
   const min = (fn) => w.start + w.resumeDiscard + (fn === 'update' ? w.carrier : 0) + w.carrier + limits.untilPass * w.goalAttempt + w.carrier + w.write + w.item + worst;
   assert.deepEqual([Number(m[1]), Number(m[2])], [min('create'), min('update')]);
   const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(RUN)?.[1]);
-  assert.deepEqual([row('`worst\\(再開の破棄\\)`'), row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.resumeDiscard, w.start, w.item, w.goalAttempt, w.write, worst]);
+  assert.deepEqual([row('`worst\\(再開の破棄\\)`'), row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`worst\\(段の境の運搬役\\)`'), row('`R`（予約分）')], [w.resumeDiscard, w.start, w.item, w.goalAttempt, w.write, w.carrier, worst]);
 });
 
 test('SP-BPRUN-031・SP-BPINSPECTION-004: targets の操作の出力の欄と files の name・section の値が、仕様の操作の表の targets の行と CLI の定数に一致する', async () => {

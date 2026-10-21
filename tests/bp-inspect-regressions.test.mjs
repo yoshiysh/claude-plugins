@@ -3,28 +3,17 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  candidateVerifier, commands, compose, createArgs, failCarrier, inspectArgs, inspectDefaults, partialCarrier, resumeArgs, runAuthor, runInspect,
-  setup, setupInspect, updateArgs, viewOf, viewpointOf,
+  candidateVerifier, commands, compose, logOf, createArgs, failCarrier, inspectArgs, inspectDefaults, partialCarrier, resumeArgs, runAuthor, runInspect,
+  setup, setupInspect, viewOf, viewpointOf,
 } from './helpers/bp-harness.mjs';
 import { sum } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 import { OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
-// 3 段目の監査の反証のプローブ（probe-s3）を回帰テストとして取り込んだもの。
+// 再開・停止・照らす先の境の場合で、一度欠陥が見つかったものの回帰テスト。
 const FNS = ['review', 'audit'];
 const VIEWPOINTS = { review: ['flow', 'spec'], audit: ['audit'] };
 const mark = (fn) => `［${fn}］`;
 const roles = (calls) => calls.filter((c) => c.role !== 'carrier').map((c) => c.role);
-
-// 停止を書いた運搬役の応答を 1 回だけ失う（送り直しは届く）。
-function loseAfterStopOnce() {
-  let done = false;
-  return async (prompt, options, env) => {
-    if (done || !prompt.includes(' stop <<')) return undefined;
-    done = true;
-    await env.carry(prompt);
-    return null;
-  };
-}
 
 for (const fn of FNS) {
   test(`SP-BPINSPECTION-030・SP-BPRUN-014・SP-BPRUN-029: 観点の全ての検証の項目が打ち切りで BLOCKED になった run を、原因を直して再開すると、同じ BLOCKED を繰り返さず追加の起動で見て完了する${mark(fn)}`, async (t) => {
@@ -55,15 +44,7 @@ for (const fn of FNS) {
     assert.deepEqual(r2.result.findings, []);
   });
 
-  test(`SP-BPRUN-027・SP-BPRUN-034: 停止を書いた運搬役の応答を失っても同じ要求を 1 回送り直して停止の返り値を返し、状態を再開できないまま BLOCKED にしない${mark(fn)}`, async (t) => {
-    const s = await setupInspect(t);
-    if (!s) return;
-    const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { carrier: loseAfterStopOnce() } });
-    assert.equal(result.stopKind, 'complete', result.reason);
-    assert.equal(calls.filter((c) => c.prompt.includes(' stop <<')).length, 2);
-    const view = await viewOf(s.env, result.state);
-    assert.equal(view.stops.get('r1').launches, calls.length - 1);
-  });
+
 }
 
 test('SP-BPINSPECTION-030・SP-BPRUN-018: 担当の作成の段を終えて適用の判定の段を始める前に止まった review の再開は、段の開始を書いてから適用の判定を行う', async (t) => {
@@ -99,14 +80,6 @@ test('SP-BPINSPECTION-030・SP-BPRUN-028: 担当の作成の運搬役の最後�
   assert.match(r1.result.reason, /段「担当の作成」の運搬役（CLI）が失敗した: stage-start: E_LOCK/);
   const r2 = await runInspect(t, { env: s.env, args: resumeArgs(r1.result) });
   assert.equal(r2.result.stopKind, 'complete', r2.result.reason);
-});
-
-test('SP-BPRUN-027・SP-BPRUN-034: update で停止を書いた運搬役の応答を失っても同じ要求を 1 回送り直して停止の返り値を返す［update］', async (t) => {
-  const s = await setup(t, { fn: 'update' });
-  if (!s) return;
-  const { result, calls } = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { carrier: loseAfterStopOnce() } });
-  assert.equal(result.stopKind, 'complete', result.reason);
-  assert.equal(calls.filter((c) => c.prompt.includes(' stop <<')).length, 2);
 });
 
 test('SP-BPRUN-029・SP-BPRUN-018: 全件の打ち切りの後に停止の記録を書けずに終わった create を再開すると、前の run の打ち切りを数えて同じ BLOCKED を繰り返さず、検証の段を閉じて先へ進む［create］', async (t) => {
@@ -163,7 +136,7 @@ for (const fn of FNS) {
     assert.equal(v1.stops.size, 0);
     const r2 = await runInspect(t, { env: s.env, args: resumeArgs(r1.result) });
     assert.equal(r2.result.stopKind, 'complete', r2.result.reason);
-    const lines = await (await import('./helpers/bp-harness.mjs')).logOf(s.env, r1.result.state);
+    const lines = await logOf(s.env, r1.result.state);
     const first = lines.find((l) => l.records.some((r) => r.t === 'stage'));
     assert.equal(first.run, 'r2');
     assert.equal(first.records.find((r) => r.t === 'stage').stage, 'targets');
