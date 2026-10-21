@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, FUNCTIONS, LIMIT_HITS, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PREMISE_KINDS,
@@ -80,14 +81,30 @@ async function readMarker(marker) {
   }
 }
 
+// 中身を書いた一時ファイルを link するので、中身の無い key の記録が見える瞬間を作らない。
+async function writeMarker(marker, id) {
+  const tmp = `${marker}.new.${randomBytes(6).toString('hex')}`;
+  await fs.writeFile(tmp, id, { flag: 'wx' });
+  try {
+    await fs.link(tmp, marker);
+    return true;
+  } catch (error) {
+    if (error.code === 'EEXIST') return false;
+    throw error;
+  } finally {
+    await fs.rm(tmp, { force: true });
+  }
+}
+
 function startOutput(view, dir, run, extra = {}) {
   return { state: view.state.id, run, workDir: path.join(dir, WORK_DIR), groundIds: view.grounds.map((g) => g.id), ...extra, summary: summarize(view) };
 }
 
 // 運搬役の失敗で開始を送り直しても状態と run が増えないよう、呼び出し側の key で同じ開始を見分ける（SP-BPRUN-031）。
 async function existingStart(root, id, req) {
-  const dir = stateDir(root, id);
-  const view = buildView(await readAll(dir));
+  const dir = id ? stateDir(root, id) : null;
+  const view = dir ? buildView(await readAll(dir)) : null;
+  if (!view?.state) reject(CODES.conflict, `key の記録が指す状態が無い: ${req.key}（${keyMarker(root, req.key)} が ${JSON.stringify(id)} を指す。記録を消してから起動し直す）`);
   if (view.state.key !== req.key || view.state.function !== req.function || view.paths[0].root !== realpathLoose(req.target.root)) {
     reject(CODES.conflict, `同じ key の開始が別の機能か対象で既にある: ${req.key}`);
   }
@@ -107,7 +124,7 @@ async function startNew(ctx, req) {
   const root = assertAllowedRoot(stateRootOf(ctx), { targetRoots: [target.root] });
   const marker = keyMarker(root, req.key);
   const known = await readMarker(marker);
-  if (known) return existingStart(root, known, req);
+  if (known !== null) return existingStart(root, known, req);
   await checkTarget(req.function, target.root);
   const id = stateId(ctx.now ?? new Date(), ctx.random);
   const paths = { t: RECORDS.paths, n: 1, root: realpathLoose(target.root), files: files.map(realpathLoose), unresolved: [] };
@@ -124,10 +141,7 @@ async function startNew(ctx, req) {
   ];
   const line = { seq: 1, run, op: OPS.start, records };
   const dir = await createStateDir(root, id, line, { writeFile: ctx.writeFile });
-  try {
-    await fs.writeFile(marker, id, { flag: 'wx' });
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error;
+  if (!(await writeMarker(marker, id))) {
     await fs.rm(dir, { recursive: true, force: true });
     return existingStart(root, await readMarker(marker), req);
   }
@@ -311,6 +325,9 @@ export function discard(ctx, req) {
 export function files(ctx, req) {
   return mutate(ctx, req, OPS.files, (view) => {
     if (!Array.isArray(req.entries)) reject(CODES.input, 'entries は並びでなければならない');
+    if (req.entries.some((e) => e?.action !== undefined) && req.entries.some((e) => e?.verified !== undefined)) {
+      reject(CODES.input, '書いたファイルの記録と検証の記録は別の要求で送る（同じ要求の中の順に意味を持たせない）');
+    }
     const paths = view.paths.at(-1);
     const records = [];
     const outside = [];

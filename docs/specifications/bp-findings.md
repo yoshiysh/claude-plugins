@@ -191,7 +191,7 @@ CLI は、反証の結果を次のとおり記録しなければならない。
 ### 指摘の状態
 
 #### SP-BPFINDINGS-016 状態の集合
-指摘の状態は open・dismissed・resolved・regressed の 4 つとする。書き換えない run の台帳では、CLI は resolved と regressed の記録を拒否しなければならない（対象が書き換わらない run では resolved / regressed が決まらない。PR-BPOPERATIONS-032）。
+指摘の状態は open・dismissed・resolved・regressed の 4 つとする。書き換えない run の台帳では、CLI は resolved と regressed を記録してはならず、見直しの判定の要求（SP-BPFINDINGS-018）は拒否しなければならない。消えた資産の照合の結果は、拒否せずに見直しの判定だけとして記録する（SP-BPFINDINGS-037）（対象が書き換わらない run では resolved / regressed が決まらない。PR-BPOPERATIONS-032）。
 
 #### SP-BPFINDINGS-017 状態の記録の仕方
 CLI は、指摘の状態の変化を新しい記録として足し、前の記録を書き換えてはならない（設計方針文書「状態の書き込み」）。各記録には、そのときの担当の指紋の組と、記録した run を含めなければならない。同じ内容の書き込みが繰り返されたとき、CLI は台帳を変えてはならない。
@@ -228,7 +228,7 @@ CLI は、指摘の状態の変化を新しい記録として足し、前の記�
 指摘の資産が全て消えた場合は、本項を当てず、SP-BPFINDINGS-020 の照合の結果（記録は SP-BPFINDINGS-037）で判定する。
 
 #### SP-BPFINDINGS-019 状態の遷移
-指摘の最後の状態の記録を記録した run が今の run であるとき、CLI は、見直しの判定に従って、指摘の状態を次のとおり記録しなければならない（遷移の全体は「状態とイベント」の章）。
+指摘の最後の状態の記録を記録した run が今の run であるとき、CLI は、見直しの判定に従って、指摘の状態を次のとおり記録しなければならない（遷移の全体は「状態とイベント」の章）。ただし、書き換えない run の台帳の消えた資産の照合は SP-BPFINDINGS-037 に従い、状態を遷移させない。
 
 | 現在の状態 | 存在する | 存在しない | 判定できない |
 |---|---|---|---|
@@ -245,7 +245,7 @@ CLI は、指摘の状態の変化を新しい記録として足し、前の記�
 資産が消えたこと（SP-BPFINDINGS-005）が記録されたならば、script は、その資産に結び付いた指摘ごとに、その指摘の観点の検証役を起動し、指摘の引用・内容と、台帳にある今の資産 ID の一覧を渡さなければならない。検証役は、今の資産 ID の一覧から 1 つを選ぶか「該当なし」を選んで返さなければならない。結果の記録は SP-BPFINDINGS-037 に従う。この段の項目の順位（`docs/specifications/bp-run.md` の SP-BPRUN-038）は、指摘を台帳に作った順とする。
 
 #### SP-BPFINDINGS-037 消えた資産の照合の結果の記録
-CLI は、SP-BPFINDINGS-020 の検証役の結果について、資産 ID が選ばれたら「存在する」、「該当なし」が選ばれたら「存在しない」、検証役が結果を返さなかったら「判定できない」として SP-BPFINDINGS-019 を当てなければならない。資産 ID が選ばれたとき、CLI は指摘 ID を変えずに、その指摘に選ばれた資産を足して記録し、以後はその資産 ID を含む鍵も同じ指摘の鍵として照合しなければならない。 書き換えない run の台帳では、CLI は状態を遷移させず、照合の結果を見直しの判定だけとして記録する（書き換えない run では resolved・regressed が決まらない：SP-BPFINDINGS-016）。
+CLI は、SP-BPFINDINGS-020 の検証役の結果について、資産 ID が選ばれたら「存在する」、「該当なし」が選ばれたら「存在しない」、検証役が結果を返さなかったら「判定できない」として SP-BPFINDINGS-019 を当てなければならない。資産 ID が選ばれたとき、CLI は指摘 ID を変えずに、その指摘に選ばれた資産を足して記録し、以後はその資産 ID を含む鍵も同じ指摘の鍵として照合しなければならない。書き換えない run の台帳では、CLI は状態を遷移させず（SP-BPFINDINGS-016 の resolved・regressed を記録しない。拒否はしない）、照合の結果を見直しの判定だけとして記録する（書き換えない run では resolved・regressed が決まらない：SP-BPFINDINGS-016）。
 
 #### SP-BPFINDINGS-021 判定の時点の記録
 CLI は、指摘ごとに、最後に判定したときの担当の指紋の組が、台帳の今の内容の指紋と一致するかを結果に載せなければならない（一致しない指摘の状態は、今の内容で確かめていない）。見直しの判定が「判定できない」のとき（SP-BPFINDINGS-018 の表の 1・4・8 行と、SP-BPFINDINGS-037 の結果なし）は、状態の記録を足しても最後に判定した時点を更新しない（今の内容で確かめていない）。
@@ -382,14 +382,14 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | open | E3 | 正常系エッジ | open | ✅ SP-BPFINDINGS-019 |
 | open | E5 | 準正常系 | open | ✅ SP-BPFINDINGS-019・SP-BPFINDINGS-021 |
 | open | E6 | 正常系エッジ | open | ✅ SP-BPFINDINGS-012 |
-| open | E7 | 異常系 | open | ✅ SP-BPFINDINGS-016・SP-BPFINDINGS-035 |
+| open | E7 | 異常系 | open | ✅ SP-BPFINDINGS-016・SP-BPFINDINGS-035・SP-BPFINDINGS-037 |
 | open | E8 | 準正常系 | open | ✅ SP-BPFINDINGS-019・SP-BPFINDINGS-028 |
 | dismissed | E1 | — | — | 発生しない（台帳にある鍵の候補は E3〜E6・E8 になる） |
 | dismissed | E2 | — | — | 発生しない（台帳にある鍵の候補は E3〜E6・E8 になる） |
 | dismissed | E4 | 正常系エッジ | dismissed | ✅ SP-BPFINDINGS-019 |
 | dismissed | E5 | 準正常系 | dismissed | ✅ SP-BPFINDINGS-019・SP-BPFINDINGS-021 |
 | dismissed | E6 | 正常系エッジ | dismissed | ✅ SP-BPFINDINGS-012 |
-| dismissed | E7 | 異常系 | dismissed | ✅ SP-BPFINDINGS-016・SP-BPFINDINGS-035 |
+| dismissed | E7 | 異常系 | dismissed | ✅ SP-BPFINDINGS-016・SP-BPFINDINGS-035・SP-BPFINDINGS-037 |
 | dismissed | E8 | 準正常系 | dismissed | ✅ SP-BPFINDINGS-019・SP-BPFINDINGS-028 |
 | resolved | E1 | — | — | 発生しない（台帳にある鍵の候補は E3〜E6・E8 になる） |
 | resolved | E2 | — | — | 発生しない（台帳にある鍵の候補は E3〜E6・E8 になる） |

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { CODES, LOCK_FILE, LOCK_WAIT_MS, LOG_FILE } from './constants.mjs';
+import { CODES, LOCK_BREAK_DELAY_ENV, LOCK_FILE, LOCK_WAIT_MS, LOG_FILE } from './constants.mjs';
 import { reject } from './errors.mjs';
 
 function sleep(ms) {
@@ -24,20 +24,31 @@ function tempName(lockPath, tag) {
 
 // 一時ファイルに中身を書いてから link するので、中身の無いロックが見える瞬間を作らない。
 async function createLock(lockPath) {
+  const nonce = randomBytes(6).toString('hex');
   const tmp = tempName(lockPath, 'new');
-  await fs.writeFile(tmp, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString(), nonce: randomBytes(6).toString('hex') }), { flag: 'wx' });
+  await fs.writeFile(tmp, JSON.stringify({ pid: process.pid, host: os.hostname(), at: new Date().toISOString(), nonce }), { flag: 'wx' });
   try {
     await fs.link(tmp, lockPath);
-    return true;
+    return nonce;
   } catch (error) {
-    if (error.code === 'EEXIST') return false;
+    if (error.code === 'EEXIST') return null;
     throw error;
   } finally {
     await fs.rm(tmp, { force: true });
   }
 }
 
-function isStale(text, mtimeMs) {
+async function readOwner(file) {
+  try {
+    const stat = await fs.stat(file);
+    return { text: await fs.readFile(file, 'utf8'), mtimeMs: stat.mtimeMs };
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function isStale({ text, mtimeMs }) {
   let owner;
   try {
     owner = JSON.parse(text);
@@ -47,40 +58,45 @@ function isStale(text, mtimeMs) {
   return owner.host === os.hostname() && !alive(owner.pid);
 }
 
-// 古いと見たロックを一意の名前へ rename してから中身を照らす。間に別の者が作り直したロックを消さないため。
+// 古いロックを消すのは lock.break を持つ 1 体だけにする。持ち主の死んだロックを消すのはこの 1 体だけなので、
+// 読み直してから消すまでの間にロックが入れ替わることは無い。
 async function breakStale(lockPath) {
-  let text;
-  let stat;
-  try {
-    stat = await fs.stat(lockPath);
-    text = await fs.readFile(lockPath, 'utf8');
-  } catch (error) {
-    if (error.code === 'ENOENT') return true;
-    throw error;
-  }
-  if (!isStale(text, stat.mtimeMs)) return false;
-  const grave = tempName(lockPath, 'stale');
-  try {
-    await fs.rename(lockPath, grave);
-  } catch (error) {
-    if (error.code === 'ENOENT') return true;
-    throw error;
-  }
-  const moved = await fs.readFile(grave, 'utf8').catch(() => null);
-  if (moved !== text) {
-    await fs.link(grave, lockPath).catch((error) => { if (error.code !== 'EEXIST') throw error; });
-    await fs.rm(grave, { force: true });
+  const first = await readOwner(lockPath);
+  if (!first) return true;
+  if (!isStale(first)) return false;
+  const breakPath = `${lockPath}.break`;
+  if (!(await createLock(breakPath))) {
+    const breaker = await readOwner(breakPath);
+    if (breaker && isStale(breaker)) await fs.rm(breakPath, { force: true });
     return false;
   }
-  await fs.rm(grave, { force: true });
-  return true;
+  try {
+    const delay = Number(process.env[LOCK_BREAK_DELAY_ENV] ?? 0);
+    if (delay > 0) await sleep(delay);
+    const again = await readOwner(lockPath);
+    if (!again) return true;
+    if (!isStale(again)) return false;
+    await fs.rm(lockPath, { force: true });
+    return true;
+  } finally {
+    await fs.rm(breakPath, { force: true });
+  }
+}
+
+async function release(lockPath, nonce) {
+  const owner = await readOwner(lockPath);
+  if (!owner) return;
+  let mine = false;
+  try { mine = JSON.parse(owner.text).nonce === nonce; } catch { mine = false; }
+  if (mine) await fs.rm(lockPath, { force: true });
 }
 
 export async function withLock(dir, fn, { waitMs = LOCK_WAIT_MS } = {}) {
   const lockPath = path.join(dir, LOCK_FILE);
   const deadline = Date.now() + waitMs;
   let delay = 5;
-  while (!(await createLock(lockPath))) {
+  let nonce;
+  while (!(nonce = await createLock(lockPath))) {
     if (await breakStale(lockPath)) continue;
     if (Date.now() >= deadline) reject(CODES.lock, `状態のロックを ${waitMs} ms 待っても取れない: ${lockPath}`);
     await sleep(delay);
@@ -89,7 +105,7 @@ export async function withLock(dir, fn, { waitMs = LOCK_WAIT_MS } = {}) {
   try {
     return await fn();
   } finally {
-    await fs.rm(lockPath, { force: true });
+    await release(lockPath, nonce);
   }
 }
 

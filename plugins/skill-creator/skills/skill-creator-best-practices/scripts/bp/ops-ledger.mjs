@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import {
-  ASSIGN_RULES, BASIS, RECORDED, CODES, FINDING_STATES, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
+  ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
   REVIEW_VALUES, REWRITING_FUNCTIONS, ROUND_PREFIX, STAGE, STAGES, VANISH_NONE, VERIFY_STAGES, VIEWPOINTS,
 } from './constants.mjs';
 import { internal, reject } from './errors.mjs';
@@ -34,6 +34,10 @@ function itemIn(view, id, stages) {
   if (!item || !stages.includes(item.stage)) reject(CODES.unknownId, `状態に無い${stages.map((s) => STAGES[s]).join('・')}の段の項目の ID: ${JSON.stringify(id)}`);
   if (item.aborted || item.discarded) reject(CODES.conflict, `打ち切りか破棄の記録がある項目に結果を書けない: ${id}`);
   return item;
+}
+
+function liveFps(view, fps) {
+  return Object.fromEntries(Object.entries(fps).filter(([id]) => view.assets.get(id) && !view.assets.get(id).gone));
 }
 
 function fpsOf(view, assetIds) {
@@ -88,7 +92,7 @@ export function assignments(ctx, req) {
       const attempt = req.attempt ?? (view.repeats.get(req.stage) ?? 0) + 1;
       for (const group of req.groups) {
         const bad = !Array.isArray(group) || group.length === 0 ? ['（空か並びでない組）'] : group.filter((id) => !view.assets.get(id) || view.assets.get(id).gone);
-        if (bad.length) return rejected(`assign:${req.stage}`, attempt, null, req.groups, `担当の組に台帳の今の資産に無い ID がある: ${bad.join(', ')}`);
+        if (bad.length) return rejected(`${REJECT_SCOPE.assign}${req.stage}`, attempt, null, req.groups, `担当の組に台帳の今の資産に無い ID がある: ${bad.join(', ')}`);
       }
       groups = req.groups;
     } else reject(CODES.input, `groups か rule（${Object.values(ASSIGN_RULES).join('・')}）が要る`);
@@ -164,7 +168,7 @@ export function verdicts(ctx, req) {
     needCriteria(ctx);
     const kinds = new Set(kindsFor(ctx.criteriaDir, req.viewpoint, view.state.function).map((k) => k.value));
     const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds);
-    if (bad) return rejected(`item:${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
+    if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
     const records = [resultRecord];
     for (const j of req.result.judgements) {
       records.push({ t: RECORDS.seen, item: req.item, asset: j.asset, viewpoint: req.viewpoint, assignment: assignment.id, fpset: assignment.fpset, digest: assignment.fps[j.asset], value: j.judgement });
@@ -249,8 +253,8 @@ export function refutation(ctx, req) {
     const attempt = item.fails.length + 1;
     if (req.verdict == null) return { records: [{ t: RECORDS.unrefuted, item: req.item, attempt }], output };
     const payload = { verdict: req.verdict, reason: req.reason };
-    if (!Object.values(REFUTATION_VERDICTS).includes(req.verdict)) return rejected(`item:${req.item}`, attempt, null, payload, `反証の結果が選択肢に無い: ${JSON.stringify(req.verdict)}`);
-    if (typeof req.reason !== 'string') return rejected(`item:${req.item}`, attempt, null, payload, '反証の理由が文字列でない');
+    if (!Object.values(REFUTATION_VERDICTS).includes(req.verdict)) return rejected(`${REJECT_SCOPE.item}${req.item}`, attempt, null, payload, `反証の結果が選択肢に無い: ${JSON.stringify(req.verdict)}`);
+    if (typeof req.reason !== 'string') return rejected(`${REJECT_SCOPE.item}${req.item}`, attempt, null, payload, '反証の理由が文字列でない');
     const records = [resultRecord, { t: RECORDS.refute, item: req.item, key: item.key, verdict: req.verdict, reason: req.reason }];
     if (!findingWithKey(view, keyString(item.key))) {
       const id = findingId(view.ledger.id, item.key);
@@ -335,7 +339,7 @@ export function reviewJudge(ctx, req) {
       const assignment = value !== unknown && latest ? view.assignments.get(latest.assignment) : null;
       const out = decisionRecords(view, f, {
         run: req.run, round, value, basis,
-        fps: assignment ? assignment.fps : decision.fps,
+        fps: assignment ? { ...decision.fps, ...assignment.fps } : decision.fps,
         fpset: assignment ? assignment.fpset : decision.fpset,
       });
       records.push(...out.records);
@@ -373,13 +377,13 @@ export function vanishMatch(ctx, req) {
     else if (req.choice === VANISH_NONE) value = absent;
     else {
       const asset = view.assets.get(req.choice);
-      if (!asset || asset.gone) return rejected(`item:${req.item}`, item.fails.length + 1, null, req.choice, `台帳の今の資産に無い ID を選んだ: ${JSON.stringify(req.choice)}`);
+      if (!asset || asset.gone) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, null, req.choice, `台帳の今の資産に無い ID を選んだ: ${JSON.stringify(req.choice)}`);
       value = exists;
       fps = { ...d.fps, [asset.id]: asset.digest };
       if (!finding.assets.includes(asset.id)) records.push({ t: RECORDS.addAsset, finding: finding.id, asset: asset.id });
     }
     const out = decisionRecords(view, finding, {
-      run: req.run, round: `${ROUND_PREFIX.vanish}${req.item}`, value, basis: value === unknown ? BASIS.unknown : BASIS.vanish, fps, fpset: fingerprintSet(fps),
+      run: req.run, round: `${ROUND_PREFIX.vanish}${req.item}`, value, basis: value === unknown ? BASIS.unknown : BASIS.vanish, fps, fpset: fingerprintSet(liveFps(view, fps)),
     });
     records.push(...out.records);
     return { records, output };

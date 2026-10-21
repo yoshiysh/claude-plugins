@@ -4,7 +4,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import * as run from './ops-run.mjs';
 import * as ledger from './ops-ledger.mjs';
-import { CODES, OUTCOMES, STATES_DIR } from './constants.mjs';
+import { CODES, OUTCOMES, REJECT_SCOPE, STATES_DIR } from './constants.mjs';
+import { fingerprintSet } from './ids.mjs';
 import { readAll } from './journal.mjs';
 import { buildView } from './view.mjs';
 import { LIMITS, context, skillDir, newKey } from './fixtures/harness.mjs';
@@ -563,18 +564,6 @@ test('SP-BPRUN-006: 反証の後に届いた同じ verdicts の送り直しは�
   assert.equal(out.judgements.find((j) => j.finding === finding).row, 3);
 });
 
-test('SP-BPFINDINGS-018: 見直しの記録の担当の指紋の組は、判定に使った担当の組の fpset そのものである', async (t) => {
-  const { ctx, req, root, finding } = await openFinding(t);
-  if (!ctx) return;
-  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# B\nfixed\n');
-  await ledger.ledgerRetake(ctx, req);
-  const now = [...(await viewOf(ctx, req.state)).assets.values()].filter((x) => !x.gone);
-  const v = await verify(ctx, req, { round: 2, judgements: now.map((x) => ({ asset: x.id, judgement: 'ok' })) });
-  await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 2 }], round: 2 });
-  const last = (await viewOf(ctx, req.state)).findings.get(finding).states.at(-1);
-  assert.equal(last.fpset, v.assignment.fpset);
-});
-
 test('SP-BPFINDINGS-034: 同じ試行の番号で届いた別の不正な結果も拒否の件数に数える', async (t) => {
   const { ctx, req, assets } = await setup(t);
   if (!ctx) return;
@@ -637,4 +626,48 @@ test('SP-BPFINDINGS-012: 反証で却下されて resolved になった指摘に
   assert.equal(out.duplicates, 1);
   judged = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 3 }], round: 3 });
   assert.deepEqual([judged.judgements[0].finding, judged.judgements[0].row, judged.judgements[0].state], [finding, 5, 'resolved']);
+});
+
+test('SP-BPFINDINGS-018: 資産 2 つの指摘を片方だけの担当で見直しても、記録の fps は他方の指紋を残し、fpset は担当の組の値になる', async (t) => {
+  const { ctx, req, root, finding, a } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
+  const r1 = await ledger.ledgerRetake(ctx, req);
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] });
+  const renamed = [...(await viewOf(ctx, req.state)).assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
+  const matched = await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: renamed });
+  assert.equal(matched.value, 'exists');
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n# B\nb\n');
+  await ledger.ledgerRetake(ctx, req);
+  const checked = await verify(ctx, req, { round: 2, groups: [[renamed]], judgements: [{ asset: renamed, judgement: 'ok' }] });
+  const second = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 2 }], round: 2 });
+  assert.deepEqual([second.judgements[0].value, second.judgements[0].state], ['absent', 'resolved']);
+  const last = (await viewOf(ctx, req.state)).findings.get(finding).states.at(-1);
+  assert.equal(last.fpset, checked.assignment.fpset);
+  assert.ok(a in last.fps && renamed in last.fps);
+  const third = await ledger.reviewJudge(ctx, { ...req, stages: [{ stage: 'verify', round: 3 }], round: 3 });
+  assert.deepEqual([third.judgements[0].value, third.judgements[0].recorded], ['skip', 'none']);
+});
+
+test('SP-BPFINDINGS-037: 照合の記録の fpset は消えていない資産だけで作る', async (t) => {
+  const { ctx, req, root, finding, a } = await openFinding(t);
+  if (!ctx) return;
+  await fs.writeFile(path.join(root, 'SKILL.md'), '---\nname: x\n---\n# A\na\n# Renamed\nb\n');
+  const r1 = await ledger.ledgerRetake(ctx, req);
+  const v = await run.stageStart(ctx, { ...req, stage: 'vanish', keys: [{ finding, gone: r1.retake }] });
+  const view = await viewOf(ctx, req.state);
+  const renamed = [...view.assets.values()].find((x) => JSON.stringify(x.loc).includes('Renamed')).id;
+  await ledger.vanishMatch(ctx, { ...req, item: v.items[0], choice: renamed });
+  const last = (await viewOf(ctx, req.state)).findings.get(finding).states.at(-1);
+  assert.ok(a in last.fps);
+  const live = Object.fromEntries(Object.entries(last.fps).filter(([id]) => id !== a));
+  assert.equal(last.fpset, fingerprintSet(live));
+});
+
+test('rejected の scope の接頭辞は定数から作る', async (t) => {
+  const { ctx, req, assets } = await setup(t);
+  if (!ctx) return;
+  await rejects(ledger.assignments(ctx, { ...req, stage: 'assign', groups: [[assets[0].id, 'ANOPE']] }), CODES.result);
+  const view = await viewOf(ctx, req.state);
+  assert.equal(view.rejected[0].scope, `${REJECT_SCOPE.assign}assign`);
 });

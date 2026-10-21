@@ -10,6 +10,7 @@ const HERE = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
 export const SKILL_DIR = path.resolve(HERE, '..', '..', '..');
 export const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..', '..', '..');
 export const CRITERIA_FIXTURE = path.join(HERE, 'criteria');
+export const LOCK_CHILD = path.join(HERE, 'lock-child.mjs');
 export const CLI = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
 
 export function newKey() {

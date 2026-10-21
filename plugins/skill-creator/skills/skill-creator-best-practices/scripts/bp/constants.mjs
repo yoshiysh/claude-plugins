@@ -127,6 +127,7 @@ export const ASSIGN_RULES = Object.freeze({ all: 'all', skip: 'skip' });
 export const RESULT_KINDS = Object.freeze({ verdicts: 'verdicts', refutation: 'refutation', vanish: 'vanish' });
 export const BASIS = Object.freeze({ upheld: 'upheld', rejected: 'rejected', noCandidate: 'no-candidate', unknown: 'unknown', vanish: 'vanish' });
 export const RECORDED = Object.freeze({ state: 'state', judgement: 'judgement', none: 'none' });
+export const REJECT_SCOPE = Object.freeze({ item: 'item:', assign: 'assign:' });
 export const ROUND_PREFIX = Object.freeze({ refute: 'refute:', judge: 'judge:', vanish: 'vanish:' });
 export const REVIEW_INPUT = Object.freeze({
   r: Object.freeze({ empty: 'empty', present: 'present' }),
@@ -195,5 +196,7 @@ export const SUMMARY_MAX_CHARS = 8000;
 export const SUMMARY_RESERVE_CHARS = 600;
 export const SUMMARY_CLIP_CHARS = Object.freeze({ request: 1500, ground: 300, premise: 400 });
 export const LOCK_WAIT_MS = 10000;
+// 古いロックを破る競合をテストで子プロセスに再現させるための遅延。運用では設定しない。
+export const LOCK_BREAK_DELAY_ENV = 'BP_LOCK_BREAK_DELAY_MS';
 
 export const ID_LENGTHS = Object.freeze({ asset: 10, finding: 10, item: 8, stateRandom: 8 });

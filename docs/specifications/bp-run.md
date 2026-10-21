@@ -117,12 +117,12 @@ script は、run の最初の起動として運搬役を起動し、CLI に run 
 
 - 状態 1 つにつき、作業場所（SP-BPRUN-007）に追記だけの記録のファイル `log.jsonl` を 1 つ置く。1 行は CLI の 1 回の操作が足した記録の並び（`{"seq":<行の番号>,"run":<run ID>,"op":<操作>,"records":[…]}`）とし、1 行の全てが書かれるか、全く書かれないかのどちらかにする。開始の操作の最初の行は SP-BPRUN-007 の rename で確定させる（状態と依頼文と修正の根拠が 1 回の書き込みになる：SP-BPRUN-003）。
 - 状態の見え方（段の進み・項目・未着手の項目・回数・現在の run・停止の有無）は、CLI が操作のたびに全ての行を順に当てて導き、別の写しを持たない。改行で終わらない末尾の行は書きかけで止まった行として、読むときに捨て、次の書き込みが切り詰める。
-- CLI は、状態ごとの排他のロック（作業場所の `lock`。pid と host を書き、同じ host で pid が生きていなければ壊す）の中で「読む → 照らす → 足す」を行い、足した後に fsync する。ロックを 10 秒待っても取れないときは、状態を変えずに `E_LOCK`（SP-BPRUN-031）を返す（fan-out の項目の運搬役は CLI を並行して呼ぶ）。
+- CLI は、状態ごとの排他のロック（作業場所の `lock`）の中で「読む → 照らす → 足す」を行い、足した後に fsync する。ロックは、pid・host・時刻・nonce を書いた一時ファイルを link して作り（中身の無いロックが見える瞬間を作らない）、解放では自分の nonce のロックだけを消す。持ち主の死んだロック（同じ host で pid が生きていないもの。中身の読めないロックは mtime が 10 秒より古いもの）を消すのは、`lock.break` を同じ作り方で取った 1 体だけとし、その下で読み直して古いままのときだけ消す。ロックを 10 秒待っても取れないときは、状態を変えずに `E_LOCK`（SP-BPRUN-031）を返す（fan-out の項目の運搬役は CLI を並行して呼ぶ）。
 - 記録は種類ごとに同一性の鍵を持つ。同じ鍵で同じ内容の記録は足さず、同じ鍵で違う内容の記録は `E_CONFLICT` で拒否する（SP-BPRUN-006）。鍵は次の表とし、台帳の記録の鍵は `docs/specifications/bp-findings.md` の各項目の記録の単位に従う。
 
 | 記録 | 同一性の鍵 | 足し方 |
 |---|---|---|
-| 状態の作成（機能・依頼文・limits） | 状態に 1 つ | 開始の操作だけが書く |
+| 状態の作成（機能・依頼文・limits・開始の `key`） | 状態に 1 つ | 開始の操作だけが書く |
 | 修正の根拠 | 修正の根拠の記録 ID | 開始の操作だけが書く |
 | run の開始 | run ID | 再開のたびに足す。最後のものが現在の run。開始の `key`、開始時の反復の回数と段ごとの繰り返しの回数、再開では照らした指紋の時点・変わったパス・台帳の取り直しの結果を持つ |
 | 前提 | run・種類・本文の sha256 | 同じ本文は 1 つ |
@@ -163,6 +163,7 @@ script は、run の最初の起動として運搬役を起動し、CLI に run 
 
 - 状態の root は、環境変数 `BP_STATE_ROOT`（絶対パス）があればそれとし、無ければ CLI を起動した cwd の git toplevel（git の外なら cwd）の `.best-practices` とする（Codex runner の経路で運搬役が書けるのは request の `cwd` の配下だけで、`~/.local/state` などには書けない）。
 - 状態ごとの作業場所は `<root>/states/<状態 ID>/` とし、記録 `log.jsonl`、ロック `lock`、作業ファイルを置く `work/` を持つ。
+- 開始の `key` の記録は `<root>/states/.key-<key の sha256 の 16 進>` とし、中身は状態 ID とする（SP-BPRUN-031）。`.` で始まる名前は状態として列挙しない。
 - 開始の操作は、`<root>/states/.staging-<状態 ID>/` に最初の記録を書き、rename で `<root>/states/<状態 ID>/` に確定させる。既にある `<状態 ID>` のディレクトリには書かない。書き込みが失敗したら staging を消し、状態を残さない。
 - 開始の操作は、root を symlink を辿った実体のパスに正規化し、SP-BPRUN-039 の場所か対象スキルの根の配下に当たれば、状態と作業場所を作らずに `E_PLACE` で拒否する。
 - next_args は root を持たない（SP-BPRUN-033）ので、最初の起動と再開は同じ cwd（対象スキルのリポジトリの git toplevel）から行う。
@@ -512,7 +513,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `stage-repeat` | SP-BPRUN-005、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034 | `stage`、`n`（今の回数 + 1）、当てる上限 `limitKey` | 段ごとの繰り返しの回数と上限に達したか |
 | `stage-finish` | SP-BPRUN-005 | `stage`、`round` | 受理 |
 | `discard` | SP-BPRUN-015 | `items` | 受理 |
-| `files` | SP-BPRUN-009 | `entries`（`{path, iteration, action: write\|delete}` か `{path, iteration, verified}`。`iteration` は 1 以上の整数の反復の番号） | 記録したパスと、一覧の外のパス `outside`（記録しない） |
+| `files` | SP-BPRUN-009 | `entries`（`{path, iteration, action: write\|delete}` か `{path, iteration, verified}`。`iteration` は 1 以上の整数の反復の番号） 。1 つの要求に書いたファイルの記録（`action`）と検証の記録（`verified`）を混ぜてはならず、混ぜた要求は `E_INPUT`（要求の中の順に意味を持たせない） | 記録したパスと、一覧の外のパス `outside`（記録しない） |
 | `stop` | SP-BPRUN-011・SP-BPRUN-020・SP-BPRUN-026・SP-BPRUN-034 | `kind`、`reason`、反復の上限だけ `limitHit`（`iteration`・`launch`）、`pending`、`launches`、`outside`、review・audit だけ `onTargetChanged: "blocked"` | 書いた停止の記録と、完了以外は `nextArgs` |
 | `summary` | `docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 | — | 要約の文字列・字数・省いたものの種類と件数 |
 | `list` | SP-BPRUN-018 | `function`、`target` | 未完了の状態ごとの `state`・`nextArgs`・`stoppedStage`・`pending` と、読めなかった状態の `unreadable`（状態 ID と理由。飛ばした状態を宣言する） |
@@ -522,14 +523,14 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `verdicts` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-006〜SP-BPFINDINGS-012・SP-BPFINDINGS-034・SP-BPFINDINGS-036 | `item`（検証か追加の検証の段の項目）、`assignment`、`viewpoint`、`result`（`judgements`: `{asset, judgement}` の並び。`judgement` は `candidate`・`ok`・`unsure`。`candidates`: `{asset, viewpoint, kind, quote, content, fix}` の並び。ほかの欄は機能の文書が足してよい） | `seen`・`ok`・`unsure`・`duplicates` の件数と、反証に回す鍵 `refutationKeys`。値が台帳・閉集合・選択肢に無ければ、拒否の記録を足して `E_RESULT` |
 | `refutation-items` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-012・SP-BPFINDINGS-013 | `stages`（`{"stage":<段の slug>,"round":<回か null>}` の 1 つ以上の並び） | その段の重複でない候補の鍵 `keys`（`{asset, viewpoint, kind}`。最初に現れた順で、同じ鍵は 1 つ） |
 | `refutation` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-013〜SP-BPFINDINGS-015・SP-BPFINDINGS-035 | `item`（反証の段の項目。鍵は `refutation-items` が返した鍵、回は検証の段と同じ回）、`verdict`（`uphold`・`reject`。結果なしは `null`）、`reason` | `finding`（指摘 ID。未反証なら `null`）、`created`（この項目で指摘を作ったか）、`state`（作ったときの状態）、`unrefuted` |
-| `review-judge` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-018・SP-BPFINDINGS-019・SP-BPFINDINGS-021 | `stages`（`refutation-items` と同じ形）、`round`（見直しの回。省略できる） | 指摘ごとの `finding`・`value`（`exists`・`absent`・`unknown`・`skip`）・`row`（表の順）・`recorded`（`state`・`judgement`・`none`）・`state`。書き換えない run の台帳では `E_CONFLICT` |
+| `review-judge` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-018・SP-BPFINDINGS-019・SP-BPFINDINGS-021 | `stages`（`refutation-items` と同じ形）、`round`（見直しの回。省略できる） | `judgements`（台帳の指摘ごとに `finding`・`value`（`exists`・`absent`・`unknown`・`skip`）・`row`（表の順）・`recorded`（`state`・`judgement`・`none`）・`state`。資産が全て消えた指摘は `value: null`・`recorded: "none"`・`vanished: true`）。書き換えない run の台帳では `E_CONFLICT` |
 | `vanish-match` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-020・SP-BPFINDINGS-037 | `item`（消えた資産の照合の段の項目。鍵は `{"finding":<指摘 ID>,"gone":<取り直しの番号>}`）、`choice`（資産 ID・`none`。結果なしは `null`） | `finding`・`value`・`recorded`・`state`。鍵の指摘の資産がその取り直しで消えていなければ `E_CONFLICT`。台帳の今の資産に無い ID は、拒否の記録を足して `E_RESULT` |
 | `report` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-021〜SP-BPFINDINGS-024・SP-BPFINDINGS-028〜SP-BPFINDINGS-030 | `viewpoints`（run の観点の集合の観点の並び） | `run`、`findings`（SP-BPFINDINGS-029 の項目: `id`・`function`・`viewpoint`・`kind`・`assets`・`quote`・`content`・`fix`・`state`・`stateRun`・`judgement`・`dismissReason`・`judgedOnCurrent`）、観点ごとの `coverage`・`skip`、`outcomes`（`finding`・`dismissed_only`・`ok`・`seen_only`・`skip`）、`unrefuted`、`rejected` |
 | `kinds` | `docs/specifications/bp-findings.md` の SP-BPFINDINGS-010 | `viewpoint` | `kinds`（値 `value` と、検証役に見せる意味の 1 行 `meaning`）。判定基準の写しが無ければ `E_INPUT` |
 
 - `stop` は、受け取った `pending` が、状態から導いた止まった段の未着手の項目の並び（CLI が列挙した順：SP-BPRUN-020）と同じでなければ `E_CONFLICT` で拒否する（script の取り違えを構造で止める）。検証を通っていないファイルは、CLI が書いたファイルの一覧から導いて停止の記録に書く。`onTargetChanged` を持つ要求で、対象スキルの指紋が現在の run の開始時と食い違うときは、受け取った種類と理由の代わりに BLOCKED と変わったパスを、同じ 1 行の停止の記録として書く（何を書くかは要求が先に指示しているので、受理を決めるのは script のまま：SP-BPRUN-006）。
 - `start` の新規の要求は、`limits` の `attempts`・`iterations`・`untilPass` が 1 以上の整数でなければ、状態を作らずに `E_INPUT` で拒否する。
-- `start` は `key`（英数字と `.`・`_`・`-` だけの文字列。script が起動ごとに作る）を持たなければならない（運搬役の失敗で開始を送り直しても、状態と run を増やさない）。新規の開始は、同じ key の状態があれば、機能と対象スキルの根が同じなら新しく作らずにその状態と最初の run を `same: true` で返し、違えば `E_CONFLICT` で拒否する。CLI は key を `<root>/states/.key-<key の sha256 の 16 進>` に状態 ID とともに記録する。再開は、現在の run が同じ key で始めた run なら、新しい run を足さずにその run を `same: true` で返す。
+- `start` は `key`（英数字と `.`・`_`・`-` だけの文字列。script が起動ごとに作る）を持たなければならない（運搬役の失敗で開始を送り直しても、状態と run を増やさない）。新規の開始は、同じ key の状態があれば、機能と対象スキルの根が同じなら新しく作らずにその状態と最初の run を `same: true` で返し、違えば `E_CONFLICT` で拒否する。CLI は、状態を作ってから key の記録を一時ファイルの link で作る。key の記録が無い状態を指すときは、理由つきの `E_CONFLICT` で拒否する（利用者が記録を消してから起動し直す）。状態を作ってから key の記録を書くまでの間で止まったときは、その状態は key の記録を持たない未完了の状態として残り、`list` に現れる。同じ key の送り直しは新しい状態を作り、残った状態は利用者が消してよい。再開は、現在の run が同じ key で始めた run なら、新しい run を足さずにその run を `same: true` で返す。
 - 結果を書いた項目への `verdicts`・`refutation`・`vanish-match` の送り直しは、最初の結果の記録とだけ照らし、同じなら `same: true`、違えば `E_CONFLICT` を返す（後の書き込みで変わった台帳から分類し直すと、同じ結果から記録が増える）。
 - 停止を書いた run への同じ内容の `stop` は受理して `same: true` を返し、違う内容は `E_STALE_RUN` で拒否する（停止の応答を失った運搬役の送り直しを受け付ける）。
 

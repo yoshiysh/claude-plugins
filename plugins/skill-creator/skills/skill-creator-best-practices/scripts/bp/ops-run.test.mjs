@@ -527,3 +527,28 @@ test('SP-BPRUN-018: list は読めない状態を理由つきで飛ばして宣�
   assert.deepEqual(listed.states.map((s) => s.state), [req.state].filter((id) => id !== other.state));
   assert.deepEqual(listed.unreadable.map((u) => u.state), [other.state]);
 });
+
+test('SP-BPRUN-031: key の記録が無い状態を指すときは理由つきの E_CONFLICT で、一時ファイルを残さない', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const key = newKey();
+  const made = await run.start(ctx, { key, function: 'review', target: { root }, limits: LIMITS });
+  const states = path.join(ctx.stateRoot, STATES_DIR);
+  const markers = (await fs.readdir(states)).filter((n) => n.startsWith('.key-'));
+  assert.equal(markers.length, 1);
+  assert.equal(await fs.readFile(path.join(states, markers[0]), 'utf8'), made.state);
+  await fs.rm(path.join(states, made.state), { recursive: true });
+  await assert.rejects(run.start(ctx, { key, function: 'review', target: { root }, limits: LIMITS }), (e) => e.code === CODES.conflict && /指す状態が無い/.test(e.reason));
+});
+
+test('SP-BPRUN-009: 書いたファイルの記録と検証の記録を 1 つの要求で送ると E_INPUT', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const req = { state: s.state, run: s.run };
+  const file = path.join(root, 'SKILL.md');
+  await rejects(run.files(ctx, { ...req, entries: [{ path: file, iteration: 1, action: 'write' }, { path: file, iteration: 1, verified: true }] }), CODES.input);
+  assert.deepEqual(buildView(await logOf(ctx, s.state)).files, []);
+});
