@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { CODES, OPS } from './constants.mjs';
+import { CODES } from './constants.mjs';
 import { BpError, reject } from './errors.mjs';
 import { append, readAll, withLock } from './journal.mjs';
 import { freshRecords } from './records.mjs';
@@ -41,7 +41,7 @@ export async function mutate(ctx, req, op, build) {
     const lines = await readAll(dir);
     const view = buildView(lines);
     const stopped = checkRun(view, req.run);
-    if (stopped && op !== OPS.stop) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
+    // 停止を書いた後に届いた、既に書いた記録と同じ要求（停止の運搬役の送り直し：SP-BPRUN-027）は記録を足さずに同じ応答で受け、記録を足す要求は E_STALE_RUN で拒否する。
     let built;
     let fresh;
     try {

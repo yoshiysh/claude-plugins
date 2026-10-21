@@ -499,7 +499,7 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
   return { ok: true, responses: parsed }
 }
 
-// fan-out の外の書き込み。失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
+// fan-out の外の書き込みは試行を繰り返す項目を持たないので、失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
 async function mustCarry(stage, requests) {
   if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const r = await carry(requests)
@@ -1000,8 +1000,8 @@ async function finish(stop) {
   // 停止を書いた後に応答を失うと、完了した状態は再開できず list にも出ないので、同じ要求を 1 回だけ送り直す（停止は受け取った要求の sha256 で同じ停止として受ける）。
   // 送り直しは停止の記録の起動数に入らず、上限を超える送り直しはしない（SP-BPRUN-027・SP-BPRUN-034）。
   const first = await carry(reqs)
-  // 送り直しは停止と返り値だけにする（停止を書いた後の run への他の書き込みは CLI が E_STALE_RUN で拒否する）。
-  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs.slice(-2)) : first
+  // 停止の前の書き込みも含めて全て送り直す。停止を書いた後に届いた同じ要求は CLI が記録を足さずに受ける（落とすと書いたファイルの記録や段の終わりが欠ける）。
+  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs) : first
   if (!r.ok) {
     return {
       ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),

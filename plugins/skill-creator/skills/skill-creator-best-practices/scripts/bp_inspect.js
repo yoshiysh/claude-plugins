@@ -408,7 +408,7 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
   return { ok: true, responses: parsed }
 }
 
-// fan-out の外の書き込み。失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
+// fan-out の外の書き込みは試行を繰り返す項目を持たないので、失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
 async function mustCarry(stage, requests) {
   if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const r = await carry(requests)
@@ -828,7 +828,7 @@ async function vanishStage(retake) {
       `指摘の観点: ${viewpointOf.get(e.key.finding)}（照らす先: ${targetPaths([viewpointOf.get(e.key.finding)]).join(' ')}）`,
       `指摘 ID: ${e.key.finding}`,
     ].join('\n')
-    // 検証役が結果を返さなかったときは「判定できない」として記録する（SP-BPFINDINGS-037）。
+    // 結果の無い照合を試行の失敗にせず「判定できない」として書くのは、消えた資産の指摘を未判定のまま止めないため（SP-BPFINDINGS-037）。
     const res = await launch('verifier', prompt, { unit, label: 'verifier:vanish', schema: VANISH_SCHEMA })
     return writeResult(STAGE.vanish, write(OPS.vanishMatch, { item: e.id, choice: res ? res.choice : null }), unit)
   }, STAGE.vanish))
@@ -865,8 +865,8 @@ async function finish(stop, before = []) {
   // 送り直しは停止の記録の起動数に入らず、上限を超える送り直しはしない（SP-BPRUN-027・SP-BPRUN-034）。
   const reqs = [...before, write(OPS.stop, body), read(OPS.outcome)]
   const first = await carry(reqs)
-  // 送り直しは停止と返り値だけにする（停止を書いた後の run への他の書き込みは CLI が E_STALE_RUN で拒否する）。
-  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs.slice(-2)) : first
+  // 停止の前の書き込みも含めて全て送り直す。停止を書いた後に届いた同じ要求は CLI が記録を足さずに受ける（落とすと書いたファイルの記録や段の終わりが欠ける）。
+  const r = first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? await carry(reqs) : first
   if (!r.ok) {
     return {
       ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),

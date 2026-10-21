@@ -684,3 +684,19 @@ test('SP-BPRUN-011・SP-BPRUN-031: 停止の cause は BLOCKED にだけ verifie
   assert.equal(out.stop.cause, 'verifiers');
   await rejects(run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 }), CODES.staleRun);
 });
+
+test('SP-BPRUN-017・SP-BPRUN-027: 停止を書いた後の run に届いた、既に書いた記録と同じ要求は記録を足さずに受け、記録を足す要求は E_STALE_RUN で拒否する', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const s = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const req = { state: s.state, run: s.run };
+  await run.stageStart(ctx, { ...req, stage: 'refute', keys: [] });
+  await run.stageFinish(ctx, { ...req, stage: 'refute' });
+  await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', launches: 1 });
+  const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, s.state));
+  assert.equal((await run.stageFinish(ctx, { ...req, stage: 'refute' })).same, true);
+  assert.equal((await run.stageStart(ctx, { ...req, stage: 'refute', keys: [] })).same, true);
+  await rejects(run.stageStart(ctx, { ...req, stage: 'close', keys: [] }), CODES.staleRun);
+  assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, s.state)), before);
+});
