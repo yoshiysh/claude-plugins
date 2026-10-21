@@ -105,7 +105,7 @@ test('SP-BPAUTHORING-025: 判定表の 4 行の入力で進み方が表と一致
 });
 
 test('SP-BPAUTHORING-023: 検証が成り立たない条件は不合格の条件より先に当たり、どちらも無ければ合格', () => {
-  const none = { findings: [], unrefuted: [], skip: [], aborted: [], unitsMissing: [] };
+  const none = { findings: [], unrefuted: [], skip: [], aborted: [] };
   assert.equal(iterationDecision({ unverifiable: { ...none, unrefuted: [{}] }, failing: { findings: ['F'], units: [] } }), 'unverifiable');
   for (const key of Object.keys(none)) assert.equal(iterationDecision({ unverifiable: { ...none, [key]: ['x'] }, failing: { findings: [], units: [] } }), 'unverifiable', key);
   assert.equal(iterationDecision({ unverifiable: none, failing: { findings: [], units: ['u'] } }), 'fail');

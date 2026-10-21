@@ -38,7 +38,6 @@ export const UNIT_ROWS = Object.freeze([
   { given: UNIT_RESULTS.nonconform, keys: KEYS_VERDICT.other, result: UNIT_RESULTS.unchecked, unchecked: UNCHECKED_KINDS.unforced },
 ]);
 
-// SP-BPAUTHORING-025 の表。
 export const NEXT_ROWS = Object.freeze([
   { decision: GATE_DECISIONS.pass, increment: ANY, next: GATE_NEXT.complete },
   { decision: GATE_DECISIONS.fail, increment: INCREMENT.below, next: GATE_NEXT.rewrite },
@@ -67,7 +66,6 @@ export function nextStep(input, rows = NEXT_ROWS) {
   return only(rows, input, ['decision', 'increment'], '合否の後の進み方').next;
 }
 
-// SP-BPAUTHORING-023: 上から順に当て、最初に当たった値を取る。
 export function iterationDecision({ unverifiable, failing }) {
   if (Object.values(unverifiable).some((list) => list.length > 0)) return GATE_DECISIONS.unverifiable;
   if (Object.values(failing).some((list) => list.length > 0)) return GATE_DECISIONS.fail;

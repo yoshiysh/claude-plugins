@@ -68,7 +68,6 @@ export function extractCallsites(text) {
   return out;
 }
 
-// SP-BPENTRY-022: 自分の plugin の workflow script だけを一覧に足し、解決できない自分の callsite は行番号つきで返す。
 export function resolveCallsites(root) {
   const realRoot = realpathLoose(root);
   const skillMd = path.join(realRoot, 'SKILL.md');

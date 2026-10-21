@@ -192,8 +192,8 @@ test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最�
   assert.ok(m, 'SP-BPRUN-021 に最小の起動数の書き戻しが無い');
   const limits = literalOf('LIMITS');
   const w = Function('LIMITS', `return (${SOURCE.slice(SOURCE.indexOf('const WORST = ') + 'const WORST = '.length, SOURCE.indexOf('\nconst RESERVE'))});`)(limits);
-  const min = (fn) => 1 + (fn === 'update' ? w.carrier : 0) + w.carrier + limits.untilPass * w.goalAttempt + w.carrier + w.write + w.item + worst;
+  const min = (fn) => w.start + (fn === 'update' ? w.carrier : 0) + w.carrier + limits.untilPass * w.goalAttempt + w.carrier + w.write + w.item + worst;
   assert.deepEqual([Number(m[1]), Number(m[2])], [min('create'), min('update')]);
   const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(RUN)?.[1]);
-  assert.deepEqual([row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.item, w.goalAttempt, w.write, worst]);
+  assert.deepEqual([row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.start, w.item, w.goalAttempt, w.write, worst]);
 });

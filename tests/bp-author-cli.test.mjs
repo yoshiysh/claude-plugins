@@ -230,6 +230,9 @@ test('SP-BPAUTHORING-017: 適合の観点の結果で、不適合の単位に同
   const notForced = forced.units.find((u) => !row.forced.includes(u.unit));
   Object.assign(notForced, { result: 'unchecked', unchecked: 'forced' });
   assert.match((await c.w('verdicts', body(forced))).reason, /強いられた未検査でない単位/);
+  const lacking = base();
+  delete lacking.residualRisks;
+  assert.match((await c.w('verdicts', body(lacking))).reason, /欄が無い: residualRisks/);
   const missing = base();
   missing.units.pop();
   assert.match((await c.w('verdicts', body(missing))).reason, /判定の結果を付けていない単位/);
@@ -240,7 +243,7 @@ test('SP-BPAUTHORING-017: 適合の観点の結果で、不適合の単位に同
   assert.equal(accepted.ok, true, accepted.reason);
   const view = buildView(await logOf(c));
   assert.equal(view.extras.get(item).data.units.length, row.units.length);
-  assert.equal(view.rejected.length, 3);
+  assert.equal(view.rejected.length, 4);
 });
 
 test('SP-BPAUTHORING-038・SP-BPAUTHORING-039: 基準が求めた制約の仕様項目 ID と、契約の変化に選んだ記録 ID・仕様項目 ID を照らし、当たらなければ拒否する', async (t) => {
@@ -249,11 +252,13 @@ test('SP-BPAUTHORING-038・SP-BPAUTHORING-039: 基準が求めた制約の仕様
   const g = await verifyReady(c, 'goal');
   const body = (result, x = g, viewpoint = 'goal') => ({ item: x.item, assignment: x.assignment.id, viewpoint, result });
   const basis = (sp) => ({ judgements: judged(g.assignment), candidates: [], basisConstraints: [{ asset: g.assignment.assets[0], sp }] });
+  assert.match((await c.w('verdicts', body({ judgements: judged(g.assignment), candidates: [] }))).reason, /欄が無い: basisConstraints/);
   assert.match((await c.w('verdicts', body(basis('SP-BPCONFORMANCE-999')))).reason, /bp-conformance の写しに無い/);
   assert.equal((await c.w('verdicts', body(basis('SP-BPCONFORMANCE-027')))).ok, true);
   const { items } = await c.w('stage-start', { stage: 'verify', round: 2, keys: [{ viewpoint: 'contract' }] });
   const k = { item: items[0], assignment: g.assignment };
   const change = (choice, candidates = []) => ({ judgements: judged(g.assignment), candidates, contractChanges: [{ element: '出力', change: 'c', choice }] });
+  assert.match((await c.w('verdicts', body({ judgements: judged(g.assignment), candidates: [] }, k, 'contract'))).reason, /欄が無い: contractChanges/);
   assert.match((await c.w('verdicts', body(change('G2'), k, 'contract'))).reason, /渡した修正の根拠の記録 ID でも/);
   assert.match((await c.w('verdicts', body(change('none'), k, 'contract'))).reason, /「該当なし」の変化に、その要素の指摘の種類の候補が無い/);
   assert.equal((await c.w('verdicts', body(change('G1'), k, 'contract'))).ok, true);
@@ -288,4 +293,65 @@ test('SP-BPENTRY-022・SP-BPENTRY-006: name と scriptPath の callsite を持�
   assert.deepEqual(first.files, [path.join(plugin, 'workflows', 'flow.js'), path.join(plugin, 'workflows', 'other.js')].sort());
   assert.deepEqual(first.unresolved.map((u) => u.line), [5, 7]);
   assert.deepEqual({ ...second, sum: undefined }, { ...first, sum: undefined });
+});
+
+// 合否の導き方（keysVerdict・今の内容で判定したか・打ち切り）を状態から直接照らす。
+async function gateWith(t, { refute, abort = false, rewrite = false }) {
+  const c = await begin(t);
+  if (!c) return null;
+  const { assignment, item } = await verifyReady(c, 'conformance');
+  const row = (await criteriaUnits(c))[8];
+  const asset = assignment.assets[0];
+  const { kinds } = await c.w('kinds', { viewpoint: 'conformance' });
+  const key = { asset, viewpoint: 'conformance', kind: kinds[0].value };
+  if (abort) {
+    for (const attempt of [1, 2, 3]) await c.w('item-fail', { item, attempt, reason: 'x' });
+  } else {
+    const units = row.units.map((u) => ({ unit: u.value, result: row.forced.includes(u.value) ? 'unchecked' : 'conform', reason: 'r', ...(row.forced.includes(u.value) ? { unchecked: 'forced' } : {}) }));
+    const target = units.find((u) => u.result === 'conform');
+    Object.assign(target, { result: 'nonconform', keys: [key] });
+    const out = await c.w('verdicts', { item, assignment: assignment.id, viewpoint: 'conformance', result: { judgements: assignment.assets.map((a) => ({ asset: a, judgement: a === asset ? 'candidate' : 'ok' })), candidates: [{ ...key, quote: 'q', content: 'c', fix: 'f' }], applicability: { row: row.row }, units, residualRisks: [] } });
+    assert.equal(out.ok, true, out.reason);
+    const { keys } = await c.w('refutation-items', { stages: [{ stage: 'verify', round: 1 }] });
+    const ref = await c.w('stage-start', { stage: 'refute', round: 1, keys });
+    if (refute !== undefined) await c.w('refutation', { item: ref.items[0], verdict: refute, reason: 'r' });
+    if (rewrite) {
+      await fs.writeFile(path.join(c.target.root, 'SKILL.md'), '---\nname: changed\n---\n# M\n書き換えた\n');
+      await c.w('ledger-retake', {});
+    }
+    await c.w('review-judge', { stages: [{ stage: 'verify', round: 1 }] });
+    return { g: await c.w('gate', { number: 1 }), unit: target.unit };
+  }
+  return { g: await c.w('gate', { number: 1 }) };
+}
+
+test('SP-BPAUTHORING-021・SP-BPAUTHORING-022: 合否は添えた鍵の指摘の合否から単位の結果を導く（維持なら不適合、却下なら適合、未反証なら強いられていない未検査）', async (t) => {
+  const upheld = await gateWith(t, { refute: 'uphold' });
+  if (!upheld) return;
+  assert.equal(upheld.g.units.find((u) => u.unit === upheld.unit).result, 'nonconform');
+  assert.equal(upheld.g.decision, 'unverifiable');
+  const rejected = await gateWith(t, { refute: 'reject' });
+  const r = rejected.g.units.find((u) => u.unit === rejected.unit);
+  assert.equal(r.result, 'conform');
+  assert.match(r.reason, /反証で退けられたか直った: F/);
+  const unrefuted = await gateWith(t, { refute: null });
+  assert.deepEqual(unrefuted.g.units.find((u) => u.unit === unrefuted.unit), { ...unrefuted.g.units.find((u) => u.unit === unrefuted.unit), result: 'unchecked', unchecked: 'unforced' });
+  assert.equal(unrefuted.g.unverifiable.unrefuted.length, 1);
+});
+
+test('SP-BPAUTHORING-022・SP-BPFINDINGS-021: 却下した指摘の資産を判定の後に書き換えると、今の内容で判定していないので検証が成り立たない', async (t) => {
+  const out = await gateWith(t, { refute: 'reject', rewrite: true });
+  if (!out) return;
+  const f = out.g.findings[0];
+  assert.deepEqual([f.run, f.state, f.onCurrent, f.result], ['current', 'dismissed', false, 'unverifiable']);
+  assert.ok(out.g.unverifiable.findings.includes(f.id));
+});
+
+test('SP-BPAUTHORING-021: 適合の観点の検証役の項目が打ち切りになると、単位の一覧を空にして打ち切った項目 ID を載せ、検証が成り立たない', async (t) => {
+  const out = await gateWith(t, { abort: true });
+  if (!out) return;
+  assert.deepEqual(out.g.units, []);
+  assert.equal(out.g.unverifiable.aborted.length, 1);
+  assert.match(out.g.unverifiable.aborted[0], /^verify\.1-/);
+  assert.equal(out.g.decision, 'unverifiable');
 });

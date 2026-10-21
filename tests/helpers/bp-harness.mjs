@@ -73,7 +73,6 @@ export class Env {
     return this.call(op, JSON.stringify({ ...body, sum: sum(body) }));
   }
 
-  // 運搬役の模擬: prompt から要求を区切りの文字列で抜き出し、本物の CLI の処理として順に実行する。
   async carry(prompt) {
     const list = commands(prompt);
     if (list.length === 0) throw new Error(`運搬役の prompt に要求が無い:\n${prompt}`);

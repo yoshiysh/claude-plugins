@@ -2,13 +2,13 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
-  RECORDS, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
+  RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
 import { lastGate, progress } from './ops-author.mjs';
 import { checkFunction, checkStage, checkWritableItem } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
-import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
+import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId, sum } from './ids.mjs';
 import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
 import { affectedFindings } from './ops-ledger.mjs';
@@ -18,7 +18,7 @@ import { summarize } from './summary.mjs';
 import {
   buildView, currentRun, isCompleted, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
 } from './view.mjs';
-import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir } from './workspace.mjs';
+import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
 const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 
@@ -254,11 +254,33 @@ export function limitState(view, key, count, base) {
   return { limit, count, sinceRunStart: since, hit: since >= limit };
 }
 
+// SP-BPAUTHORING-013: 設計の説明は対象スキルの根の配下の既存のファイルでなければならない。外を指すと、返り値が対象スキルの外を逐語で写す。
+async function designNoteProblem(view, result) {
+  const note = result?.designNote;
+  if (note === null || typeof note !== 'object' || typeof note.path !== 'string' || note.path === '') return '書く段の結果に設計の説明のパス designNote.path が無い';
+  if (path.isAbsolute(note.path)) return `設計の説明のパスは根からの相対パスでなければならない: ${note.path}`;
+  const root = realpathLoose(view.paths.at(-1).root);
+  const file = realpathLoose(path.join(root, note.path));
+  if (!within(file, root)) return `設計の説明のパスが対象スキルの根の外を指す: ${note.path}`;
+  const st = await statOrNull(file);
+  if (!st?.isFile()) return `設計の説明のファイルが無い: ${note.path}`;
+  return null;
+}
+
 export function itemResult(ctx, req) {
-  return mutate(ctx, req, OPS.itemResult, (view) => {
+  return mutate(ctx, req, OPS.itemResult, async (view) => {
     const item = itemOf(view, req.item);
     checkWritableItem(item);
     if (req.result === undefined) reject(CODES.input, 'result が無い');
+    if (item.stage === STAGE.write && REWRITING_FUNCTIONS.has(view.state.function) && item.result === undefined) {
+      const bad = await designNoteProblem(view, req.result);
+      if (bad) {
+        return {
+          records: [{ t: RECORDS.rejected, scope: `${REJECT_SCOPE.item}${req.item}`, attempt: item.fails.length + 1, sum: sum(req.result), assignment: null, reason: bad }],
+          error: { code: CODES.result, reason: bad },
+        };
+      }
+    }
     const record = { t: RECORDS.result, item: req.item, result: req.result };
     if (req.iteration !== undefined) {
       if (!isPosInt(req.iteration)) reject(CODES.input, `iteration は 1 以上の整数でなければならない: ${JSON.stringify(req.iteration)}`);
@@ -374,7 +396,7 @@ export function unverifiedFiles(view) {
 export function stop(ctx, req) {
   return mutate(ctx, req, OPS.stop, async (view) => {
     const fn = view.state.function;
-    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? [], launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null }));
+    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? null, launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null }));
     const output = (after) => {
       const stopped = after.stops.get(req.run);
       return { stop: stopped, ...(stopped.kind === STOP_KINDS.complete ? {} : { nextArgs: nextArgs(after) }) };
@@ -401,7 +423,8 @@ export function stop(ctx, req) {
     if (!Array.isArray(outsidePaths)) reject(CODES.input, 'outside は並びでなければならない');
     const live = stoppedStage(view, { includeCurrentRun: true });
     const derived = pendingItems(view, live);
-    const pending = req.pending ?? [];
+    // pending を省いた停止は状態から導いた並びを書く（未着手の正本を CLI の 1 箇所にする。SP-BPRUN-020）。
+    const pending = req.pending === undefined ? derived : req.pending;
     if (!Array.isArray(pending) || canonical(pending) !== canonical(derived)) {
       reject(CODES.conflict, `pending が状態から導いた未着手の項目の並び（列挙の順）と一致しない（状態: ${derived.join(',') || 'なし'}）`, { derived });
     }

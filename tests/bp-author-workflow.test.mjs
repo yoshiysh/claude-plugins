@@ -490,7 +490,7 @@ test('SP-BPFINDINGS-025: 1 回目の追加の起動で一部の資産が見ら�
   assert.equal(result.verification.ledger.skip.find((x) => x.viewpoint === 'goal').assets.length, 1);
 });
 
-test('SP-BPAUTHORING-035・SP-BPRUN-015: 検証が成り立たない BLOCKED から再開すると、書き手を起動せず新しい反復の台帳の段から検証し直し、前の回の打ち切りを引き継がない（依頼者の裁定 Q6）', async (t) => {
+test('SP-BPAUTHORING-035・SP-BPRUN-015: 検証が成り立たない BLOCKED から再開すると、書き手を起動せず新しい反復の台帳の段から検証し直し、前の回の打ち切りを引き継がない', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { verify: async () => null } });
@@ -756,8 +756,17 @@ test('SP-BPFINDINGS-028・SP-BPAUTHORING-022: 再開した update の結果で�
   assert.equal(gateFinding.value, 'pass');
 });
 
-// TBD-SBPRUN-003・TBD-SBPCONFORMANCE-004 の値の根拠: 最悪の経路を強いて、単位ごとの起動を数える。
-test('TBD-SBPRUN-003: 最悪の経路で、fan-out の項目は試行ごとに 3 回・計 9 回、目標の固定は 1 回あたり 2 回・計 6 回、書く段は 3 回起動し、最小の起動数ちょうどの上限で最初の検証の項目を始められる', async (t) => {
+// SP-BPRUN-021 の段ごとの最悪の回数の根拠: 最悪の経路を強いて、単位ごとの起動を数える。
+function dropFirstDelivery(ops) {
+  const seen = new Set();
+  return async (prompt, options, env) => {
+    const out = await env.carry(prompt);
+    if (ops.some((op) => prompt.includes(` ${op} <<`)) && !seen.has(prompt)) { seen.add(prompt); return null; }
+    return out;
+  };
+}
+
+test('SP-BPRUN-021: 最悪の経路で、開始は 2 回、fan-out の項目は試行ごとに 5 回・計 15 回、目標の固定は 1 回あたり 2 回・計 6 回、書く段は 3 回起動し、最小の起動数ちょうどの上限で最初の検証の項目を始められる', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const bad = { goal: { deliverables: [{ text: 'x', sources: [{ kind: 'request', quote: '無い文' }] }], scope: [], prohibitions: [], numeric: [], deixis: [] } };
@@ -769,24 +778,31 @@ test('TBD-SBPRUN-003: 最悪の経路で、fan-out の項目は試行ごとに 3
     await writePayload(prompt, out);
     return out;
   };
-  const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target, { maxLaunches: MIN.create }), maxAgents: MIN.create, scenario: { goal, verify } });
+  const scenario = () => ({ goal, verify, carrier: dropFirstDelivery(['start', 'verdicts', 'item-fail']) });
+  const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target, { maxLaunches: MIN.create }), maxAgents: MIN.create, scenario: scenario() });
   assert.ok(calls.some((c) => c.label === 'verifier:conformance'));
   assert.ok(result.launches <= MIN.create);
   const s2 = await setup(t);
   goals = 0;
-  const full = await runAuthor(t, { env: s2.env, args: createArgs(s2.target), scenario: { goal, verify } });
+  const full = await runAuthor(t, { env: s2.env, args: createArgs(s2.target), scenario: scenario() });
   assert.equal(full.result.stopKind, 'blocked');
   assert.equal(full.result.verification.decision.unverifiable.aborted.length, 1);
   assert.deepEqual(full.result.verification.units, []);
+  assert.equal(full.calls.filter((c) => c.prompt.includes(' start <<')).length, 2);
   const view = await viewOf(s2.env, full.result.state);
   const conf = view.stages.get('verify|1').items.find((id) => view.items.get(id).key.viewpoint === 'conformance');
-  assert.equal(full.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(conf)).length, 9);
+  assert.equal(full.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(conf)).length, 15);
   const goalCalls = full.calls.filter((c) => c.role === 'goal' || c.prompt.includes(' goal-check <<'));
   assert.equal(goalCalls.length, 6);
   const w = full.calls.findIndex((c) => c.role === 'write');
   const v = full.calls.findIndex((c) => c.role === 'verify');
   assert.equal(v - w, 3);
+});
+
+test('SP-BPRUN-028・SP-BPRUN-031: 結果を書く運搬役が応答を失うと同じ要求を 1 回送り直し、送り直しの E_RESULT・E_TRANSPORT・E_LOCK は試行の失敗として数えて BLOCKED にしない', async (t) => {
+  const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
   const lost = await setup(t);
+  if (!lost) return;
   let droppedItem = null;
   const carrier = async (prompt, options, env) => {
     const out = await env.carry(prompt);
@@ -796,6 +812,23 @@ test('TBD-SBPRUN-003: 最悪の経路で、fan-out の項目は試行ごとに 3
   const resent = await runAuthor(t, { env: lost.env, args: createArgs(lost.target), scenario: { carrier } });
   assert.equal(resent.result.stopKind, 'complete', resent.result.reason);
   assert.equal(resent.calls.filter((c) => c.label !== 'carrier' && c.prompt.includes(droppedItem)).length, 3);
+  for (const code of ['E_RESULT', 'E_TRANSPORT', 'E_LOCK']) {
+    const s = await setup(t);
+    let n = 0;
+    const carrier2 = async (prompt, options, env) => {
+      if (prompt.includes(' verdicts <<') && prompt.includes('"viewpoint":"goal"') && n < 2) {
+        n += 1;
+        if (n === 1) return null;
+        const body = { ok: false, code, reason: '送り直しへの拒否' };
+        return { responses: [JSON.stringify({ ...body, sum: sum(body) })] };
+      }
+      return env.carry(prompt);
+    };
+    const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { carrier: carrier2 } });
+    assert.equal(result.stopKind, 'complete', `${code}: ${result.reason}`);
+    const view = await viewOf(s.env, result.state);
+    assert.equal(view.stages.get('verify|1').items.map((id) => view.items.get(id)).find((i) => i.key.viewpoint === 'goal').fails.length, 1, code);
+  }
 });
 
 // §5.9 の教訓 5: 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす。
@@ -974,4 +1007,144 @@ test('§5.9 の教訓 3: 検証の段の並行の運搬役を子 process の CLI
   assert.ok(!codes.includes('E_LOCK'));
   assert.ok(!codes.includes('E_INPUT'), codes.join(','));
   assert.equal(result.stopKind, 'complete', result.reason);
+});
+
+test('SP-BPRUN-020・SP-BPRUN-031: 運搬役がまとめた要求の途中まで実行して応答を失っても、停止の記録は CLI が状態から導いた未着手の項目で書かれる', async (t) => {
+  const { commands } = await import('./helpers/bp-harness.mjs');
+  const s = await setup(t);
+  if (!s) return;
+  let once = false;
+  const carrier = async (prompt, options, env) => {
+    if (!once && prompt.includes(' gate <<')) {
+      once = true;
+      for (const c of commands(prompt)) { if (c.op === 'gate') break; await env.call(c.op, c.text); }
+      return null;
+    }
+    return env.carry(prompt);
+  };
+  const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { carrier } });
+  assert.equal(first.result.stopKind, 'blocked');
+  assert.doesNotMatch(first.result.reason, /停止の記録を書けなかった/);
+  const view = await viewOf(s.env, first.result.state);
+  assert.deepEqual(view.stops.get('r1').pending, view.stages.get('gate|1').items);
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  const s2 = await setup(t);
+  let dropped = false;
+  const carrier2 = async (prompt, options, env) => {
+    if (!dropped && prompt.includes(' ledger-create <<')) {
+      dropped = true;
+      for (const c of commands(prompt)) await env.call(c.op, c.text);
+      return null;
+    }
+    return env.carry(prompt);
+  };
+  const blocked = await runAuthor(t, { env: s2.env, args: createArgs(s2.target), scenario: { carrier: carrier2 } });
+  assert.equal(blocked.result.stopKind, 'blocked');
+  const v2 = await viewOf(s2.env, blocked.result.state);
+  assert.deepEqual(v2.stops.get('r1').pending, v2.stages.get('verify|1').items);
+});
+
+test('SP-BPAUTHORING-013・SP-BPAUTHORING-033: 設計の説明のパスが根の外か無いファイルを指す書き手の結果を拒否し、外のファイルを返り値に写さない', async (t) => {
+  for (const [bad, pattern] of [['../../../../../../../../../../etc/hosts', /根の外を指す/], ['/etc/hosts', /相対パスでなければならない/], ['none.md', /ファイルが無い/]]) {
+    const s = await setup(t);
+    if (!s) return;
+    const write = async (prompt) => ({ ...(await defaults.write(prompt)), designNote: { path: bad } });
+    const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { write } });
+    assert.equal(result.stopKind, 'blocked', bad);
+    assert.match(result.reason, pattern);
+    assert.equal(result.designNote, undefined);
+    const view = await viewOf(s.env, result.state);
+    assert.equal(view.rejected.length, 1);
+  }
+});
+
+test('SP-BPAUTHORING-035・SP-BPRUN-018: 停止の記録が無いまま目標の固定か作り直す前の写しで止まった run の再開は、目標の固定と新しい反復の書く段へ進む', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const noStop = async (prompt, options, env) => (prompt.includes(' stop <<') ? null : env.carry(prompt));
+  const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { goal: async () => null, carrier: noStop } });
+  assert.match(first.result.reason, /停止の記録を書けなかった/);
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  assert.equal(second.calls.filter((c) => c.role === 'goal').length, 1);
+  const view = await viewOf(s.env, first.result.state);
+  assert.ok(view.stages.has('goal|1') && !view.stages.has('goal|2') && view.stages.has('write|1'));
+  const u = await setup(t, { fn: 'update' });
+  let drop = true;
+  const snap = async (prompt, options, env) => {
+    if (prompt.includes(' stop <<')) return null;
+    const out = await env.carry(prompt);
+    if (drop && prompt.includes(' snapshot <<')) { drop = false; return null; }
+    return out;
+  };
+  const b1 = await runAuthor(t, { env: u.env, args: updateArgs(u.target), scenario: { carrier: snap } });
+  const b2 = await runAuthor(t, { env: u.env, args: resumeArgs(b1.result) });
+  assert.equal(b2.result.stopKind, 'complete', b2.result.reason);
+  assert.ok((await viewOf(u.env, b1.result.state)).stages.has('goal|1'));
+});
+
+test('SP-BPRUN-035・SP-BPAUTHORING-035: 追加の検証の段で止まった run の再開は、前の部分の未着手を破棄し、skip 一覧から次の部分を作り直して段を終える', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const empty = async (prompt, options, env) => {
+    if (options.label !== 'verifier:goal') return options.label === 'verifier:goal:extra' ? null : defaults.verify(prompt, options, env);
+    const out = { judgements: [], candidates: [], basisConstraints: [] };
+    await writePayload(prompt, out);
+    return out;
+  };
+  const crash = async (prompt, options, env) => (prompt.includes(' item-fail <<') || prompt.includes(' stop <<') ? null : env.carry(prompt));
+  const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { verify: empty, carrier: crash } });
+  assert.match(first.result.reason, /停止の記録を書けなかった/);
+  const before = await viewOf(s.env, first.result.state);
+  const old = before.stages.get('verify-extra|1').items;
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  const view = await viewOf(s.env, first.result.state);
+  assert.ok(old.every((id) => view.items.get(id).discarded));
+  assert.equal(view.stages.get('verify-extra|1').parts, 2);
+  assert.ok(view.stages.get('verify-extra|1').ended);
+});
+
+test('SP-BPAUTHORING-005・SP-BPAUTHORING-035: 検証役・反証役によらない BLOCKED（運搬役の失敗）で台帳〜合否に止まった run の再開は、書かずに検証し直す例外に当たらず、書く段から始める', async (t) => {
+  const s = await setup(t, { fn: 'update' });
+  if (!s) return;
+  let drop = true;
+  const carrier = async (prompt, options, env) => {
+    if (drop && prompt.includes(' review-judge <<')) { drop = false; return null; }
+    return env.carry(prompt);
+  };
+  const first = await runAuthor(t, { env: s.env, args: updateArgs(s.target), scenario: { carrier } });
+  assert.equal(first.result.stopKind, 'blocked');
+  assert.match(first.result.reason, /段「見直し」の運搬役/);
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  assert.equal(second.calls.filter((c) => c.role === 'write').length, 1);
+  assert.ok((await viewOf(s.env, first.result.state)).stages.has('write|2'));
+});
+
+test('SP-BPRUN-035・SP-BPFINDINGS-025: 追加の検証の部分を終えた後に止まった run の再開で skip 一覧が空なら、次の部分を作らずに追加の検証の段を終える', async (t) => {
+  const s = await setup(t);
+  if (!s) return;
+  const verify = async (prompt, options, env) => {
+    if (options.label !== 'verifier:goal') return defaults.verify(prompt, options, env);
+    const out = { judgements: [], candidates: [], basisConstraints: [] };
+    await writePayload(prompt, out);
+    return out;
+  };
+  let extraRan = false;
+  const crash = async (prompt, options, env) => {
+    if (prompt.includes(' stop <<')) return null;
+    if (extraRan && prompt.includes(' report <<') && prompt.includes('"fields":["skip"]')) return null;
+    if (options.label === 'carrier:verify-extra') extraRan = true;
+    return env.carry(prompt);
+  };
+  const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { verify, carrier: crash } });
+  assert.match(first.result.reason, /停止の記録を書けなかった/);
+  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+  assert.equal(second.result.stopKind, 'complete', second.result.reason);
+  assert.equal(second.calls.filter((c) => c.label.endsWith(':extra')).length, 0);
+  const view = await viewOf(s.env, first.result.state);
+  assert.ok(view.stages.get('verify-extra|1').ended);
+  assert.equal(view.stages.get('verify-extra|1').parts, 1);
 });

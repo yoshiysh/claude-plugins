@@ -62,7 +62,6 @@ function resent(item, resultRecord, output) {
   return { records: [resultRecord], output };
 }
 
-// 消えた資産に結び付いた指摘を、台帳に作った順に返す（SP-BPFINDINGS-020 の項目の順位）。
 export function affectedFindings(view, gone) {
   const ids = new Set(gone.map((g) => g.id));
   return [...view.findings.values()].sort((a, b) => a.order - b.order).filter((f) => f.assets.some((a) => ids.has(a))).map((f) => f.id);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MIN_LAUNCHES, SCRIPT, createArgs, defaults, runAuthor, setup, updateArgs, variant } from './helpers/bp-harness.mjs';
+import { MIN_LAUNCHES, SCRIPT, createArgs, defaults, resumeArgs, runAuthor, setup, updateArgs, variant } from './helpers/bp-harness.mjs';
 
 const MIN_UPDATE = MIN_LAUNCHES.update;
 
@@ -35,12 +35,49 @@ const CASES = [
     },
   },
   {
-    name: '未着手の項目を並べ替えると、停止の記録が拒否されて反復の上限で止まれない',
-    from: '  return open.items.filter((x) => !x.done && !x.aborted && !x.discarded).map((x) => x.id)', to: '  return open.items.filter((x) => !x.done && !x.aborted && !x.discarded).map((x) => x.id).reverse()',
+    name: '再開の段の表で、検証役によらない BLOCKED にも書かずに検証し直す例外を当てると、書く段から始めない',
+    from: 'if (at === STAGE.write || !p.verifierBlocked)', to: 'if (at === STAGE.write)',
     async check(t, scriptPath) {
-      const s = await setup(t, { fn: 'update' });
-      const { result } = await runAuthor(t, { env: s.env, args: updateArgs(s.target, { maxLaunches: MIN_UPDATE }), maxAgents: MIN_UPDATE, scriptPath, concurrency: 1 });
-      return result.stopKind === 'iteration_limit';
+      const s = await setup(t);
+      let drop = true;
+      const carrier = async (prompt, options, env) => {
+        if (drop && prompt.includes(' review-judge <<')) { drop = false; return null; }
+        return env.carry(prompt);
+      };
+      const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { carrier }, scriptPath });
+      const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result), scriptPath });
+      return second.result.stopKind === 'complete' && second.calls.some((c) => c.role === 'write');
+    },
+  },
+  {
+    name: '停止の記録が無いまま目標の固定で止まった run の再開で反復の番号を進めないと、書く段を始められない',
+    from: 'start: stopped.stage, number: beforeWrite ? p.number + 1 : p.number,', to: 'start: stopped.stage, number: p.number,',
+    async check(t, scriptPath) {
+      const s = await setup(t);
+      const noStop = async (prompt, options, env) => (prompt.includes(' stop <<') ? null : env.carry(prompt));
+      const first = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { goal: async () => null, carrier: noStop }, scriptPath });
+      const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result), scriptPath });
+      return second.result.stopKind === 'complete';
+    },
+  },
+  {
+    name: '送り直しの E_RESULT を試行の失敗でなく BLOCKED にすると、1 件の拒否で run が止まる',
+    from: "  if (r.code === CODES.result || (r.failed && !r.lost)) return { reason: r.reason }\n  if (r.lost)", to: "  if (first === r && r.code === CODES.result) return { reason: r.reason }\n  if (r.lost)",
+    async check(t, scriptPath) {
+      const { sum } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
+      const s = await setup(t);
+      let n = 0;
+      const carrier = async (prompt, options, env) => {
+        if (prompt.includes(' verdicts <<') && prompt.includes('"viewpoint":"goal"') && n < 2) {
+          n += 1;
+          if (n === 1) return null;
+          const body = { ok: false, code: 'E_RESULT', reason: 'x' };
+          return { responses: [JSON.stringify({ ...body, sum: sum(body) })] };
+        }
+        return env.carry(prompt);
+      };
+      const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { carrier }, scriptPath });
+      return result.stopKind === 'complete';
     },
   },
   {

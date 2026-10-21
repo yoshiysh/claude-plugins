@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
+  CODES, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GOAL_KEYS, GROUND_INSTRUCTION,
   LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, RUN_VIEWPOINTS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
@@ -89,7 +89,6 @@ async function verifySnapshot(dir, record) {
   return bad;
 }
 
-// SP-BPAUTHORING-004: 写しは CLI が作り、状態に 1 つ。記録があれば作り直さずに照らす。
 export function snapshot(ctx, req) {
   return mutate(ctx, req, OPS.snapshot, async (view, dir) => {
     if (view.state.function !== FUNCTION.update) reject(CODES.input, '作り直す前の写しは update だけの段');
@@ -150,7 +149,6 @@ async function checkSource(view, dir, source, answers) {
   }
 }
 
-// SP-BPAUTHORING-006・007: 出所の照合は CLI が決定的に行い、通らなかった要素と理由を返す。
 export async function checkGoal(view, dir, goal) {
   const failures = [];
   if (goal === null || typeof goal !== 'object' || Array.isArray(goal)) return [{ element: null, index: null, reason: 'goal はオブジェクトでなければならない' }];
@@ -220,7 +218,6 @@ export function goalCheck(ctx, req) {
   });
 }
 
-// SP-BPAUTHORING-015 の 3 段落目: 書き手が結果を返さなかったとき、最後に記録した指紋と食い違うファイルを書いたファイルの一覧に書く。
 export function filesScan(ctx, req) {
   return mutate(ctx, req, OPS.filesScan, async (view) => {
     needRewriting(view);
@@ -272,7 +269,7 @@ export function computeGate(view, number) {
   const conf = verify.find((i) => i.key?.viewpoint === 'conformance');
   const extra = conf ? view.extras.get(conf.id)?.data : null;
   const aborted = conf && conf.result === undefined ? [conf.id] : [];
-  const unitResults = (aborted.length || !extra?.units ? [] : extra.units).map((u) => {
+  const unitResults = (aborted.length || !extra ? [] : extra.units).map((u) => {
     const keys = u.keys ?? [];
     const verdict = u.result === UNIT_RESULTS.nonconform ? keysVerdict(keys, byKey) : KEYS_VERDICT.other;
     const g = unitGate({ given: u.result, keys: verdict, unchecked: u.unchecked });
@@ -286,7 +283,6 @@ export function computeGate(view, number) {
     unrefuted: unrefutedCandidates(view).filter((u) => refuteItems.has(u.item)).map((u) => u.key),
     skip: RUN_VIEWPOINTS[fn].map((vp) => ({ viewpoint: vp, assets: skipList(view, vp).map((a) => a.id) })).filter((s) => s.assets.length > 0),
     aborted: conf ? aborted : ['conformance'],
-    unitsMissing: conf && !aborted.length && !extra?.units ? [conf.id] : [],
   };
   const failingUnits = unitResults.filter((u) => u.result === UNIT_RESULTS.nonconform || (u.result === UNIT_RESULTS.unchecked && u.unchecked === UNCHECKED_KINDS.unforced));
   const failing = { findings: gates.filter((g) => g.result === FINDING_GATE.fail).map((g) => g.finding.id), units: failingUnits.map((u) => u.unit) };
@@ -306,7 +302,7 @@ export function computeGate(view, number) {
   };
 }
 
-// SP-BPAUTHORING-021〜025: 合否は CLI が状態から決め、同じ 1 行で合否の項目の結果と反復の回数の + 1 を書く（依頼者の裁定 Q7）。
+// 合否の項目の結果と反復の回数の + 1 を分けて書くと、その間で止まった run の再開で数えが抜ける（SP-BPAUTHORING-024）。
 export function gate(ctx, req) {
   return mutate(ctx, req, OPS.gate, (view) => {
     needRewriting(view);
@@ -444,6 +440,14 @@ function stoppedDetail(view) {
   };
 }
 
+// 検証役・反証役が結果を返せないことによる BLOCKED か（打ち切り・未反証・skip・判定できない）。書き直さずに検証し直す再開はこれに限る。
+function verifierBlocked(view, number, gate) {
+  if (gate && gate.result.result.number === number && gate.result.result.decision === GATE_DECISIONS.unverifiable) return true;
+  return [...view.stages.values()].some((s) => (s.round === number || s.stage === STAGE.vanish)
+    && [STAGE.verify, STAGE.verifyExtra, STAGE.refute, STAGE.vanish].includes(s.stage)
+    && s.items.length > 0 && s.items.every((id) => view.items.get(id).aborted));
+}
+
 export function progress(view) {
   const rounds = (stage) => [...view.stages.values()].filter((s) => s.stage === stage).map((s) => s.round ?? 0);
   const number = Math.max(0, ...[STAGE.write, STAGE.verify, STAGE.gate].flatMap(rounds));
@@ -459,6 +463,7 @@ export function progress(view) {
     snapshot: Boolean(view.snapshot),
     ledger: Boolean(view.ledger),
     lastStop: prior ? { kind: prior.kind, limitHit: prior.limitHit ?? null, stage: prior.stage } : null,
+    verifierBlocked: verifierBlocked(view, number, g),
     lastGate: g ? { number: g.result.result.number, decision: g.result.result.decision, next: g.result.result.next, rewrite: g.result.result.rewrite } : null,
     target: { root: view.paths.at(-1).root, files: view.paths.at(-1).files },
     goalText: view.premises.filter((p) => p.kind === 'goal').at(-1)?.text ?? null,

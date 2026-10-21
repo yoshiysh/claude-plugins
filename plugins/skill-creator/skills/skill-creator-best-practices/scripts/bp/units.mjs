@@ -46,7 +46,6 @@ export function specItemIds(criteriaDir) {
   return parseDoc(read(criteriaDir, 'conformance')).filter((n) => n.level === 4).map((n) => /^SP-BPCONFORMANCE-\d{3}/.exec(n.text)?.[0]).filter(Boolean).sort();
 }
 
-// SP-BPCONFORMANCE-003 の表の行ごとに、当たる要求 → トレーサビリティ表の仕様項目 → 判定の単位、の順で単位を決める。
 export function applicability(criteriaDir) {
   const nodes = parseDoc(read(criteriaDir, 'conformance'));
   const item = nodes.find((n) => n.level === 4 && n.text.startsWith('SP-BPCONFORMANCE-003'));
@@ -151,14 +150,15 @@ const EXTRA_FIELDS = Object.freeze({
 
 export function extraFields(viewpoint, result) {
   const fields = EXTRA_FIELDS[viewpoint] ?? [];
-  if (!fields.some((f) => Object.hasOwn(result, f))) return null;
+  if (!fields.length) return null;
   return Object.fromEntries(fields.map((f) => [f, result[f]]));
 }
 
-// SP-BPAUTHORING-017・038・039: 機能の文書が足した欄の値を、閉集合から選んだかで照らす。
+// 欄が欠けた結果を受けると、合否の段で判定の単位を付けていない単位が残る（SP-BPCONFORMANCE-018）。
 export function checkExtra(viewpoint, result, { criteriaDir, assignment, groundIds }) {
-  if (!extraFields(viewpoint, result)) return null;
   if (!Object.hasOwn(VIEWPOINTS, viewpoint)) return null;
+  const missing = (EXTRA_FIELDS[viewpoint] ?? []).filter((f) => !Object.hasOwn(result, f));
+  if (missing.length) return `create・update の${VIEWPOINTS[viewpoint]}の結果に欄が無い: ${missing.join('・')}`;
   if (viewpoint === 'conformance') return checkConformance(result, applicability(criteriaDir));
   if (viewpoint === 'goal') return checkGoal(result, assignment, specItemIds(criteriaDir));
   if (viewpoint === 'contract') return checkContract(result, groundIds, specItemIds(criteriaDir));

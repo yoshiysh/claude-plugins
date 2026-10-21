@@ -76,7 +76,6 @@ const CRITERIA_FILES = {
   designedSkill: ['requirements', 'bp-designed-skill.md'],
 }
 
-// SP-BPCONFORMANCE-035 の best-practices の役の表の写し。
 const ROLE_MODELS = {
   writer: { model: 'opus', effort: 'high' },
   verifier: { model: 'opus', effort: 'high' },
@@ -87,20 +86,21 @@ const ROLE_MODELS = {
 // SP-BPCONFORMANCE-031・029・028・027 の値。script が値の唯一の持ち主で、CLI は start で受け取って状態の limits から判定する。
 const LIMITS = { attempts: 3, iterations: 3, untilPass: 3 }
 const CONCURRENCY = 3
-// 検証役の大きい結果を運搬役に写させないため作業ファイルで渡す。本物の agent での拒否の率は未実測（Q5 の試走で測る）。
+// 検証役の大きい結果を運搬役に写させないため作業ファイルで渡す。本物の agent での拒否の率は未実測（公開前の本物の agent での試走で測る）。
 const PAYLOAD_MODE = 'file'
 
 // 起動数の勘定（SP-BPCONFORMANCE-022 の式。値の根拠は tests/bp-author-workflow.test.mjs の最悪の経路の計数）。
 const WORST = {
+  start: 2,
   carrier: 1,
   goalAttempt: 2,
   write: 3,
-  item: LIMITS.attempts * 3,
+  item: LIMITS.attempts * 5,
 }
 const RESERVE = 1
 
 function minimalLaunches(fn) {
-  return 1 + (fn === FUNCTION.update ? WORST.carrier : 0) + WORST.carrier + LIMITS.untilPass * WORST.goalAttempt
+  return WORST.start + (fn === FUNCTION.update ? WORST.carrier : 0) + WORST.carrier + LIMITS.untilPass * WORST.goalAttempt
     + WORST.carrier + WORST.write + WORST.item + RESERVE
 }
 
@@ -505,8 +505,7 @@ async function pool(items, worker) {
   if (failure) throw failure
 }
 
-// fan-out の項目: 結果が無いか拒否されたら試行の失敗を書かせ、打ち切りは CLI の aborted に従う（SP-BPRUN-028）。
-// 1 回の試行の起動は agent・結果を書く運搬役・試行の失敗か送り直しの運搬役の 3 つまで（WORST.item の根拠）。
+// 1 回の試行の起動は、agent・結果を書く運搬役とその送り直し・試行の失敗を書く運搬役とその送り直しの 5 つまで（WORST.item の根拠）。
 async function itemLoop(item, attempts, attemptFn, label) {
   let current = attempts
   const unit = budget.open(WORST.item)
@@ -515,7 +514,9 @@ async function itemLoop(item, attempts, attemptFn, label) {
       const outcome = await attemptFn(current + 1, unit)
       if (outcome.done) { markItem(item, 'done'); return outcome }
       if (outcome.fatal) throw outcome.fatal
-      const r = await carry([...(outcome.alsoWrite ? [outcome.alsoWrite] : []), write(OPS.itemFail, { item, attempt: current + 1, reason: outcome.reason })], { unit, label: `carrier:${label}` })
+      const fail = [...(outcome.alsoWrite ? [outcome.alsoWrite] : []), write(OPS.itemFail, { item, attempt: current + 1, reason: outcome.reason })]
+      let r = await carry(fail, { unit, label: `carrier:${label}` })
+      if (r.lost) r = await carry(fail, { unit, label: `carrier:${label}` })
       if (!r.ok) throw new Stop(STOP_KINDS.blocked, `段の項目 ${item} の試行の失敗を書く運搬役が失敗した: ${r.reason}`)
       current += 1
       if (r.responses.at(-1).aborted) { markItem(item, 'aborted'); return { aborted: true } }
@@ -525,7 +526,6 @@ async function itemLoop(item, attempts, attemptFn, label) {
   }
 }
 
-// 起動数の上限に収まる項目だけを始め、収まらない項目は未着手として残す（SP-BPRUN-020）。
 async function fanOut(stage, entries, worker) {
   let short = false
   await pool(entries, async (entry) => {
@@ -553,8 +553,9 @@ async function startRun() {
         key: input.key, function: fn, target: input.target, limits: LIMITS,
         ...(fn === FUNCTION.create ? { request: input.request } : { grounds: input.grounds }),
       }
-  if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.blocked, launchReason())
-  const r = await carry([request(OPS.start, body)])
+  const first = await carry([request(OPS.start, body)])
+  // 状態 ID は開始の応答でしか得られないので、応答を失ったら同じ key で 1 回だけ送り直す（同じ key の開始は同じ状態を返す）。
+  const r = first.lost ? await carry([request(OPS.start, body)]) : first
   if (!r.ok) {
     const reason = `開始の操作が失敗した: ${r.reason}`
     return { early: { ...early(STOP_KINDS.blocked, reason, input.resume ? { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: input.state } : null), [RESULT_KEYS.launches]: budget.used() } }
@@ -743,13 +744,12 @@ function verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra 
 // CLI が応答した E_TRANSPORT・E_LOCK は状態を変えていないので、試行の失敗として数える（SP-BPRUN-028）。
 async function writeResult(stage, req, unit) {
   const label = `carrier:${stage}`
-  const r = await carry([req], { unit, label })
+  const first = await carry([req], { unit, label })
+  const r = first.lost ? await carry([req], { unit, label }) : first
   if (r.ok) return { done: true }
   if (r.code === CODES.result || (r.failed && !r.lost)) return { reason: r.reason }
-  if (!r.failed) return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の CLI が結果の書き込みを拒否した: ${r.reason}`) }
-  const again = await carry([req], { unit, label })
-  if (again.ok) return { done: true }
-  return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の結果を書く運搬役が送り直しでも受理されなかった: ${r.reason} / ${again.reason}`) }
+  if (r.lost) return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の結果を書く運搬役が送り直しでも応答を返さなかった: ${first.reason} / ${r.reason}`) }
+  return { fatal: new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の CLI が結果の書き込みを拒否した: ${r.reason}`) }
 }
 
 async function verifyItem({ itemId, viewpoint, attempts, assignment, assets, extra, stage }) {
@@ -774,7 +774,6 @@ function judgedStages(number) {
   return [{ stage: STAGE.verify, round: number }, { stage: STAGE.verifyExtra, round: number }]
 }
 
-// 検証の段を終え、skip 一覧と反証に回す鍵を同じ運搬役で読む。追加の検証を回したときだけ鍵を読み直す。
 async function closeVerify(number, { finishVerify = true } = {}) {
   const out = await mustCarry(STAGE.verify, [
     ...(finishVerify ? [write(OPS.stageFinish, { stage: STAGE.verify, round: number })] : []),
@@ -788,11 +787,10 @@ async function closeVerify(number, { finishVerify = true } = {}) {
     write(OPS.stageFinish, { stage: STAGE.verifyExtra, round: number }),
     read(OPS.refutationItems, { stages: judgedStages(number) }),
   ])
-  open.finished = true
+  open = { stage: STAGE.verifyExtra, round: number, items: open?.stage === STAGE.verifyExtra ? open.items : [], finished: true }
   return again.keys
 }
 
-// SP-BPFINDINGS-025: skip 一覧の資産だけを担当にして追加で起動し、新しく「見た」が 0 件になった観点から止める。
 async function verifyExtraStage(number, initialSkip) {
   let part = 0
   let active = [...VIEWPOINT_LIST]
@@ -816,7 +814,7 @@ async function verifyExtraStage(number, initialSkip) {
     active = active.filter((v) => (after.get(v) ?? 0) < (skips.get(v) ?? []).length)
     skip = next.skip
   }
-  return part > 0
+  return part > 0 || run.extraParts > 0
 }
 
 function refuterPrompt(key, readCmd) {
@@ -848,7 +846,6 @@ async function refuteStage(number, keys) {
   return true
 }
 
-// 反証の段の開始（項目が 0 件のとき）と終わりを、次の段の運搬役にまとめる。
 function refuteBookends(number, started) {
   return [
     ...(started ? [] : [write(OPS.stageStart, { stage: STAGE.refute, round: number, keys: [] })]),
@@ -906,7 +903,6 @@ function gateReason(g) {
     u.unrefuted.length ? `未反証の候補: ${u.unrefuted.map((k) => `${k.asset}/${k.viewpoint}/${k.kind}`).join(', ')}` : '',
     u.skip.length ? `skip 一覧に残った資産: ${u.skip.map((s) => `${s.viewpoint}=${s.assets.join(',')}`).join(' ')}` : '',
     u.aborted.length ? `打ち切りになった項目: ${u.aborted.join(', ')}` : '',
-    u.unitsMissing.length ? `判定の単位の結果の無い項目: ${u.unitsMissing.join(', ')}` : '',
   ].filter(Boolean).join(' / ')
 }
 
@@ -939,8 +935,10 @@ function resumePlan(p) {
   const fresh = (stage) => ({ ...base, discard: stopped.items.filter((x) => !x.result && !x.aborted && !x.discarded).map((x) => x.id), finish: stopped.stage && stopped.status !== 'finished' ? stopped : null, ...stage })
   const goalNext = p.goal ? null : { goal: true, goalRound: p.goalRound + 1 }
   if (!last && !stopped.stage) return { ...base, goal: !p.goal, goalRound: Math.max(1, p.goalRound), start: STAGE.write, number: p.number + 1 }
+  const beforeWrite = [STAGE.start, STAGE.snapshot, STAGE.goal].includes(stopped.stage)
   const continueSame = () => ({
-    ...base, continue: stopped, goal: !p.goal && stopped.stage === STAGE.goal, goalRound: p.goalRound, start: stopped.stage, number: p.number,
+    ...base, continue: stopped, goal: !p.goal, goalRound: stopped.stage === STAGE.goal ? p.goalRound : p.goalRound + 1,
+    start: stopped.stage, number: beforeWrite ? p.number + 1 : p.number,
     discard: stopped.stage === STAGE.verifyExtra ? stopped.items.filter((x) => !x.result && !x.aborted && !x.discarded).map((x) => x.id) : [],
   })
   if (!last) return continueSame()
@@ -950,7 +948,7 @@ function resumePlan(p) {
   const at = last.stage?.stage ?? null
   if (at === STAGE.snapshot || at === STAGE.start || at === null) return fresh({ ...(goalNext ?? { goal: false }), start: STAGE.write, number: p.number + 1 })
   if (at === STAGE.goal) return fresh({ ...(goalNext ?? { goal: false }), start: STAGE.write, number: p.number + 1 })
-  if (at === STAGE.write) return fresh({ goal: false, start: STAGE.write, number: p.number + 1 })
+  if (at === STAGE.write || !p.verifierBlocked) return fresh({ goal: false, start: STAGE.write, number: p.number + 1 })
   return fresh({ goal: false, start: STAGE.ledger, number: p.number + 1 })
 }
 
@@ -962,7 +960,6 @@ async function finish(stop) {
     kind,
     ...(kind === STOP_KINDS.complete ? {} : { reason: stop.reason }),
     ...(stop.extra.limitHit ? { limitHit: stop.extra.limitHit } : {}),
-    pending: pendingNow(),
     launches: budget.used() + 1,
     outside: memo.outside,
   }
@@ -1032,7 +1029,6 @@ async function main() {
   }
 }
 
-// 起動数の上限で止まった run の続き（SP-BPRUN-035）: 止まった段を同じ鍵で列挙し直し、結果の無い項目だけを処理する。
 async function continueIteration(number, stopped) {
   const at = stopped.stage
   if (at === STAGE.verify) {

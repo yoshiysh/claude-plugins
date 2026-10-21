@@ -166,7 +166,7 @@ callsite は、best-practices の Workflow に次の入力を渡さなければ�
 | next_args | `nextArgs` | 再開 |
 | 利用者の回答 | `answer` | 回答を足した再開 |
 | 起動数の上限 | `maxLaunches` | SP-BPENTRY-015 |
-| スキルのディレクトリ | `skillDir` | 常に |
+| スキルのディレクトリ | `skillDir` | 常に。`'` を含むパスは受けない（運搬役が呼ぶコマンドで CLI のパスを `'` で囲む） |
 | 起動の key | `key` | 常に |
 
 #### SP-BPENTRY-014 経路の選び方
