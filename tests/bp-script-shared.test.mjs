@@ -12,7 +12,7 @@ const acorn = createRequire(path.join(ROOT, 'plugins', 'workflow', 'skills', 'dy
 // 2 本の script は import できないので部品を字面で写し合う。直しを片方にだけ入れると、運搬役・冪等・起動数の契約が機能ごとに分かれる。
 const SHARED = [
   'canonical', 'fnvSum', 'Stop', 'makeBudget', 'early', 'checkHostArgs', 'track', 'markItem', 'request', 'write', 'read', 'command', 'launch',
-  'carrierPrompt', 'carry', 'mustCarry', 'launchReason', 'pool', 'itemLoop', 'fanOut', 'stageStart', 'writeResult', 'failureNote', 'failures',
+  'carrierPrompt', 'carry', 'mustCarry', 'launchReason', 'pool', 'itemLoop', 'fanOut', 'stageStart', 'writeResult', 'failureNote', 'failures', 'carryTwice', 'stopFailure',
   'CARRIER_SCHEMA', 'REFUTE_SCHEMA', 'VANISH_SCHEMA', 'ROLE_MODELS', 'LIMITS', 'CONCURRENCY', 'PAYLOAD_MODE', 'RESERVE',
 ];
 
@@ -56,7 +56,7 @@ function declarations(file) {
 const AUTHOR = declarations('bp_author.js');
 const INSPECT = declarations('bp_inspect.js');
 
-test('§6.9 の 1(d): 2 本の script に同じ名前で現れる最上位の関数・定数は、許可したものを除き字面（空白を正規化）が同じ', () => {
+test('SP-BPRUN-031: 2 本の script に同じ名前で現れる最上位の関数・定数は、許可したものを除き字面（空白を正規化）が同じ', () => {
   for (const name of SHARED) {
     assert.ok(AUTHOR.has(name) && INSPECT.has(name), `共通の部品が片方に無い: ${name}`);
   }
@@ -69,7 +69,7 @@ test('§6.9 の 1(d): 2 本の script に同じ名前で現れる最上位の関
   for (const name of Object.keys(DIFFERENT)) assert.notEqual(INSPECT.get(name).text, AUTHOR.get(name).text, `許可したのに字面が同じ（許可を外す）: ${name}`);
 });
 
-test('§6.9 の 1(d)・SP-BPRUN-021: 2 本の WORST で鍵の名前が同じものは値も同じ', () => {
+test('SP-BPRUN-021: 2 本の WORST で鍵の名前が同じものは値も同じ', () => {
   const value = (decl) => {
     const init = decl.node.declarations[0].init;
     const text = decl.source.slice(init.start - decl.offset, init.end - decl.offset);

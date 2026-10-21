@@ -24,7 +24,7 @@ const OPS = {
   verdicts: 'verdicts', refutationItems: 'refutation-items', refutation: 'refutation', reviewJudge: 'review-judge',
   vanishMatch: 'vanish-match', report: 'report', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
   snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
-  targets: 'targets', bundle: 'bundle', applicability: 'applicability',
+  targets: 'targets', bundle: 'bundle', applicability: 'applicability', writtenFiles: 'written-files',
 }
 const STAGE = {
   start: 'start', snapshot: 'snapshot', goal: 'goal', write: 'write', ledger: 'ledger', targets: 'targets', bundle: 'bundle',
@@ -346,10 +346,10 @@ function read(op, body = {}) {
   return request(op, { state: run.state, ...body })
 }
 
+// JSON.stringify の出力は改行を含まない 1 行なので、heredoc の区切りの行（BP_<sum>）が本文の中に現れることは無い。
 function command(req) {
   const text = JSON.stringify(req.body)
   const delim = `BP_${req.body.sum}`
-  if (text.split('\n').includes(delim)) throw new Error(`区切りの文字列が要求の中にある: ${delim}`)
   return `node '${CLI}' ${req.op} <<'${delim}'\n${text}\n${delim}`
 }
 
@@ -410,10 +410,11 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
 }
 
 
-// 応答を失った運搬役は CLI が書いたかが分からないので、同じ要求を 1 回だけ送り直す（書き込みは冪等の鍵で同じ要求を same で受ける）。上限を超える送り直しはしない。
-async function carryTwice(requests) {
+// 応答を失った運搬役は CLI が書いたかが分からないので、同じ要求を 1 回だけ送り直す（書き込みは冪等の鍵で同じ要求を same で受ける）。
+// following はこの後に必ず起動する運搬役の数。それを残して上限を超えないときだけ送り直す（送り直しが後の停止の運搬役の予約分を食うと、上限を超える）。
+async function carryTwice(requests, following = 0) {
   const first = await carry(requests)
-  return first.lost && (budget.limit === undefined || budget.used() < budget.limit) ? carry(requests) : first
+  return first.lost && (budget.limit === undefined || budget.used() + following < budget.limit) ? carry(requests) : first
 }
 // fan-out の外の書き込みは試行を繰り返す項目を持たないので、失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
 async function mustCarry(stage, requests) {
@@ -857,10 +858,15 @@ function resumePlan(p) {
   }
 }
 
+// 理由は SP-BPRUN-027・SP-BPRUN-030 の段・役・失敗の内容を持つ（完了の停止は理由を持たないので、止めようとした停止の種類も書く）。
+function stopFailure(stop, carrier, r) {
+  return `停止の記録を書けなかった（${STAGE_TITLES.close ? `段「${STAGE_TITLES.close}」の` : ''}${carrier}の運搬役。止めようとした停止: ${stop.kind}${stop.reason ? `: ${stop.reason}` : ''}）: ${r.reason}`
+}
+
 async function finish(stop, before = []) {
   const kind = stop.kind
-  const unwritten = (r) => ({
-    ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
+  const unwritten = (r, carrier) => ({
+    ...early(STOP_KINDS.blocked, stopFailure(stop, carrier, r), { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
     [RESULT_KEYS.run]: run.run,
     [RESULT_KEYS.launches]: budget.used(),
     [RESULT_KEYS.unverifiedRoleLimits]: INSPECT_ROLE_WRITE_LIMITS,
@@ -868,8 +874,8 @@ async function finish(stop, before = []) {
   // 停止の前の書き込みは停止と別の運搬役で先に書き、応答を確かめてから停止を送る。停止を書いた後の run への書き込みは CLI が拒否するので、
   // 同じ運搬役に積むと、停止の後に応答を失ったときに送り直せない（SP-BPRUN-027）。
   if (before.length) {
-    const pre = await carryTwice(before)
-    if (!pre.ok) return unwritten(pre)
+    const pre = await carryTwice(before, 1)
+    if (!pre.ok) return unwritten(pre, '停止の前の書き込み')
   }
   const body = {
     kind,
@@ -882,7 +888,7 @@ async function finish(stop, before = []) {
   }
   // 停止は受け取った要求の sha256 で同じ停止として受け、返り値は読むだけなので、応答を失っても同じ 2 つの要求を送り直せる。送り直しは停止の記録の起動数に入らない（SP-BPRUN-034）。
   const r = await carryTwice([write(OPS.stop, body), read(OPS.outcome)])
-  if (!r.ok) return unwritten(r)
+  if (!r.ok) return unwritten(r, '停止')
   return r.responses.at(-1)
 }
 
