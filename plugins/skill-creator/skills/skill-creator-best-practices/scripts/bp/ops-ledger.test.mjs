@@ -494,3 +494,31 @@ test('SP-BPFINDINGS-012: 同じ担当を 2 体が見て同じ鍵の候補を返�
   const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
   assert.equal(keys.length, 1);
 });
+
+test('SP-BPRUN-031: 台帳の書き込みの操作が SP-BPRUN-017 に反する書き込みを拒否し、状態が変わらない', async (t) => {
+  const { ctx, req, assets } = await setup(t);
+  if (!ctx) return;
+  const a = assets[0].id;
+  const { assignments } = await ledger.assignments(ctx, { ...req, stage: 'verify', rule: 'all' });
+  const sid = assignments[0].id;
+  const { items } = await run.stageStart(ctx, { ...req, stage: 'verify', round: 1, keys: [{ n: 1, assignment: sid }, { n: 2, assignment: sid }] });
+  const result = { judgements: allJudged(assets, 'ok', { [a]: 'candidate' }), candidates: [cand(a)] };
+  await ledger.verdicts(ctx, { ...req, item: items[0], assignment: sid, viewpoint: 'conformance', result });
+  const { keys } = await ledger.refutationItems(ctx, { ...req, stages: [{ stage: 'verify', round: 1 }] });
+  const refute = await run.stageStart(ctx, { ...req, stage: 'refute', round: 1, keys });
+  await run.start(ctx, { state: req.state });
+  const before = await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state));
+  const calls = {
+    ledgerCreate: { ...req },
+    ledgerRetake: { ...req },
+    assignments: { ...req, stage: 'verify', rule: 'all' },
+    verdicts: { ...req, item: items[1], assignment: sid, viewpoint: 'conformance', result },
+    refutation: { ...req, item: refute.items[0], verdict: 'uphold', reason: 'x' },
+    reviewJudge: { ...req, stages: [{ stage: 'verify', round: 1 }], round: 1 },
+    vanishMatch: { ...req, item: refute.items[0], choice: 'none' },
+  };
+  for (const [name, body] of Object.entries(calls)) {
+    await assert.rejects(ledger[name](ctx, body), (e) => e.code === CODES.staleRun && /現在の run ではない/.test(e.reason), name);
+  }
+  assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state)), before);
+});

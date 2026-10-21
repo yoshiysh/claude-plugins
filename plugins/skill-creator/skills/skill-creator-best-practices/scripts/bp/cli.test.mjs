@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { CODES, CRITERIA_DIR_ENV, EXIT, STATE_ROOT_ENV } from './constants.mjs';
+import { CODES, EXIT, STATE_ROOT_ENV } from './constants.mjs';
 import { sum } from './ids.mjs';
-import { CLI, CRITERIA_FIXTURE, LIMITS, REPO_ROOT, skillDir, stateRoot, tmpDir } from './fixtures/harness.mjs';
+import { CLI, LIMITS, REPO_ROOT, skillDir, stateRoot, tmpDir } from './fixtures/harness.mjs';
 
 function call(root, op, body, { raw } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [CLI, op], { cwd: REPO_ROOT, env: { ...process.env, [STATE_ROOT_ENV]: root, [CRITERIA_DIR_ENV]: CRITERIA_FIXTURE } });
+    const child = spawn(process.execPath, [CLI, op], { cwd: REPO_ROOT, env: { ...process.env, [STATE_ROOT_ENV]: root } });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.on('error', reject);

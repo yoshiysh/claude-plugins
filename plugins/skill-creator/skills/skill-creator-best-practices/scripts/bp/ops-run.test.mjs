@@ -267,6 +267,7 @@ test('SP-BPRUN-020: 起動しなかった項目が上限の無いときの起動
   const v = await run.stageStart(ctx, { ...req, stage: 'verify', keys: [{ k: 1 }, { k: 2 }, { k: 3 }] });
   await run.itemResult(ctx, { ...req, item: v.items[0], result: {} });
   await rejects(run.stop(ctx, { ...req, kind: 'iteration_limit', limitHit: 'launch', reason: 'x', pending: [v.items[2]], launches: 5 }), CODES.conflict);
+  await rejects(run.stop(ctx, { ...req, kind: 'iteration_limit', limitHit: 'launch', reason: 'x', pending: [v.items[2], v.items[1]], launches: 5 }), CODES.conflict);
   const out = await run.stop(ctx, { ...req, kind: 'iteration_limit', limitHit: 'launch', reason: '起動数の上限 5', pending: [v.items[1], v.items[2]], launches: 5 });
   assert.deepEqual(out.stop.pending, [v.items[1], v.items[2]]);
   assert.deepEqual(out.stop.stage, { stage: 'verify', round: null });

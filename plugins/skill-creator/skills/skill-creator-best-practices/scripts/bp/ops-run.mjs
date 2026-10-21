@@ -310,8 +310,8 @@ export function stop(ctx, req) {
     const live = stoppedStage(view, { includeCurrentRun: true });
     const derived = pendingItems(view, live);
     const pending = req.pending ?? [];
-    if (!Array.isArray(pending) || pending.length !== derived.length || new Set(pending).size !== pending.length || pending.some((id) => !derived.includes(id))) {
-      reject(CODES.conflict, `pending が状態から導いた未着手の項目と一致しない（状態: ${derived.join(',') || 'なし'}）`, { derived });
+    if (!Array.isArray(pending) || canonical(pending) !== canonical(derived)) {
+      reject(CODES.conflict, `pending が状態から導いた未着手の項目の並び（列挙の順）と一致しない（状態: ${derived.join(',') || 'なし'}）`, { derived });
     }
     const now = await targetFingerprint(view.paths.at(-1));
     const startFp = view.fingerprints.find((f) => f.run === req.run && f.at === 'start');

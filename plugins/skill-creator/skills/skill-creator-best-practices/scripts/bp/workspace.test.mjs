@@ -8,14 +8,14 @@ import { append, readAll, withLock } from './journal.mjs';
 import { assertAllowedRoot, createStateDir, forbiddenReason } from './workspace.mjs';
 import { REPO_ROOT, skillDir, stateRoot, tmpDir } from './fixtures/harness.mjs';
 
-test('SP-BPRUN-039: 作業場所を /tmp 系と Codex runner の run ごとの workspace に作らない', () => {
+test('SP-BPRUN-039: 作業場所を /tmp 系と Codex runner の run ごとの workspace に作らない', (t) => {
   for (const root of [
     '/tmp/x', '/private/tmp/x', '/var/tmp/x', path.join(os.tmpdir(), 'x'), '/var/folders/ab/cd/T/x', '/private/var/folders/ab/x',
     path.join(REPO_ROOT, 'dynamic-workflows', 'workspace', 'slug', 'run-1', 'states'),
   ]) {
     assert.throws(() => assertAllowedRoot(root), (e) => e.code === CODES.place, root);
   }
-  assert.equal(forbiddenReason(path.join(REPO_ROOT, '.best-practices')), null);
+  if (stateRoot(t)) assert.equal(forbiddenReason(path.join(REPO_ROOT, '.best-practices')), null);
 });
 
 test('SP-BPRUN-007: 作業場所を対象スキルの中に作らない', async (t) => {

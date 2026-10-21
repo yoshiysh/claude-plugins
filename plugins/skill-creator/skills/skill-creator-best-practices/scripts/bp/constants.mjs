@@ -103,7 +103,6 @@ export const CODES = Object.freeze({
 export const EXIT = Object.freeze({ ok: 0, internal: 1, rejected: 2 });
 
 export const STATE_ROOT_ENV = 'BP_STATE_ROOT';
-export const CRITERIA_DIR_ENV = 'BP_CRITERIA_DIR';
 export const STATE_DIR_NAME = '.best-practices';
 export const STATES_DIR = 'states';
 export const LOG_FILE = 'log.jsonl';

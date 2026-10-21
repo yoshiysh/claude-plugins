@@ -2,7 +2,7 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CODES, CRITERIA_DIR, CRITERIA_DIR_ENV, EXIT, OPS } from './bp/constants.mjs';
+import { CODES, CRITERIA_DIR, EXIT, OPS } from './bp/constants.mjs';
 import { BpError } from './bp/errors.mjs';
 import * as run from './bp/ops-run.mjs';
 import * as ledger from './bp/ops-ledger.mjs';
@@ -37,7 +37,7 @@ const HANDLERS = {
 };
 
 export function context({ cwd = process.cwd(), env = process.env } = {}) {
-  return { cwd, env, criteriaDir: env[CRITERIA_DIR_ENV] || path.join(SKILL_DIR, CRITERIA_DIR) };
+  return { cwd, env, criteriaDir: path.join(SKILL_DIR, CRITERIA_DIR) };
 }
 
 export async function main(argv, stdinText, { cwd, env } = {}) {
