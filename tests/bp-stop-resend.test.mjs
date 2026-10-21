@@ -172,7 +172,7 @@ for (const [n, c] of CASES.entries()) {
     }
   });
 
-  test(`SP-BPRUN-027・SP-BPRUN-018・SP-BPRUN-030・SP-BPRUN-032: 停止の前の書き込みの運搬役か停止の運搬役が送り直しでも応答を失うと、停止の記録を書かずに、失敗した運搬役と止めようとした停止を理由に持つ BLOCKED と next_args を返し、再開で失わない run と同じ結果になる［${FN_OF[n]}］（${c.name}）`, async (t) => {
+  test(`SP-BPRUN-027・SP-BPRUN-018・SP-BPRUN-030・SP-BPRUN-032: 停止の前の書き込みの運搬役か停止の運搬役が送り直しでも応答を失うと、停止の記録を書かずに、CLI が導いた段・失敗した運搬役・止めようとした停止を理由に持ち、状態にある書いたファイルの一覧を持つ BLOCKED と next_args を返す［${FN_OF[n]}］（${c.name}）`, async (t) => {
     const base = await c.run(t, null);
     if (!base) return;
     const kinds = [['停止', IS_STOP], ...(c.pre.length ? [['停止の前の書き込み', IS_PRE]] : [])];

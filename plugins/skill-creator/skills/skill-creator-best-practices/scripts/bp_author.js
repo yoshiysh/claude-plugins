@@ -991,8 +991,7 @@ function resumePlan(p) {
   return fresh({ goal: false, start: STAGE.ledger, number: p.number + 1 })
 }
 
-// 段と書いたファイルの一覧は、停止の記録に書くはずだったものを CLI が状態から導いて返す（段の規則を CLI の 1 箇所に置く：SP-BPRUN-018）。
-// 上限に当たるか読めないときに推測で埋めると、再開した run で CLI の段と食い違うので、読めなかったことを書く（SP-BPRUN-027）。
+// 段を CLI から読むのは、段の規則を CLI の 1 箇所に置くため（SP-BPRUN-018）。読めないときに推測で埋めると、再開した run で CLI の段と食い違う（SP-BPRUN-027）。
 async function unwrittenStop(stop, carrier, r, roleLimits) {
   let draft = null
   if (budget.limit === undefined || budget.used() < budget.limit) {

@@ -20,7 +20,6 @@ import {
 } from './view.mjs';
 import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
-
 export function nextArgs(view) {
   return { [NEXT_ARGS_KEYS.function]: view.state.function, [NEXT_ARGS_KEYS.state]: view.state.id };
 }
@@ -488,7 +487,7 @@ export async function summary(ctx, req) {
   return { summary: summarize(view) };
 }
 
-// 停止の記録を書けなかった run の返り値のための読み出し。停止の記録に書くはずだった段（停止と同じ規則：SP-BPRUN-018）と書いたファイルの一覧を返す。
+// 停止と同じ規則で段を導くのは、停止の記録を書けなかった run の理由の段を、停止の記録が書かれたときの段と食い違わせないため（SP-BPRUN-018・SP-BPRUN-027）。
 export async function stopDraft(ctx, req) {
   const { view } = await readState(ctx, req.state);
   const live = stoppedStage(view, { includeCurrentRun: true });
