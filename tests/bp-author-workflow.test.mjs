@@ -211,6 +211,10 @@ test('SP-BPAUTHORING-033・SP-BPAUTHORING-032: create の完了の返り値に�
   assert.match(result.skill.files[0].digest, /^[0-9a-f]{64}$/);
   for (const key of ['decision', 'iterations', 'units', 'forcedUnchecked', 'basisConstraints', 'ledger']) assert.ok(Object.hasOwn(result.verification, key), key);
   assert.equal(result.verification.contract, undefined);
+  const view = await viewOf(s.env, result.state);
+  const total = [...view.assets.values()].filter((a) => !a.gone).length;
+  assert.ok(total > 0);
+  assert.deepEqual(result.verification.ledger.coverage, ['conformance', 'goal'].map((viewpoint) => ({ viewpoint, seen: total, total, ratio: `${total}/${total}` })));
   assert.deepEqual(result.skip.map((x) => x.viewpoint), ['conformance', 'goal']);
   assert.deepEqual(Object.keys(result.residualRisks[0]).sort(), ['host', 'reason', 'restriction', 'role']);
   assert.ok(result.verification.forcedUnchecked.length > 0);
@@ -694,6 +698,34 @@ test('SP-BPAUTHORING-022・SP-BPAUTHORING-040: 契約の指摘が open の反復
   assert.deepEqual(result.verification.contract, [{ element: '入力', change: '入力が変わった', choice: 'G1' }]);
   const contract = result.findings.find((f) => f.viewpoint === 'contract');
   assert.equal(contract.state, 'resolved');
+});
+
+test('SP-BPFINDINGS-028: update の完了の返り値で、受け取った指摘に状態が付かず、状態の付いた指摘は全て update の台帳 ID から作った指摘 ID と今の run の記録を持つ', async (t) => {
+  const { findingId } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
+  const s = await setup(t, { fn: 'update' });
+  if (!s) return;
+  const verify = async (prompt, options, env, call, calls) => {
+    const result = await defaults.verify(prompt, options, env);
+    if (options.label !== 'verifier:contract' || calls.filter((c) => c.role === 'write').length !== 1) return result;
+    result.judgements[0].judgement = 'candidate';
+    result.candidates = [{ asset: assetIds(prompt)[0], viewpoint: 'contract', kind: '契約:発火する条件の変化', quote: 'L1', content: 'c', fix: 'f' }];
+    result.contractChanges = [{ element: '発火する条件', change: '発火の条件が変わった', choice: 'none' }];
+    await writePayload(prompt, result);
+    return result;
+  };
+  const grounds = [{ id: 'F9', state: 'open', viewpoint: 'conformance' }];
+  const { result } = await runAuthor(t, { env: s.env, args: updateArgs(s.target, { grounds }), scenario: { verify } });
+  assert.equal(result.stopKind, 'complete', result.reason);
+  assert.deepEqual(result.receivedGrounds, [{ ground: 'G1', finding: 'F9' }]);
+  assert.equal(result.findings.some((f) => f.id === 'F9'), false);
+  const view = await viewOf(s.env, result.state);
+  const stated = result.findings.filter((f) => f.state !== undefined);
+  assert.ok(stated.length > 0);
+  for (const f of stated) {
+    assert.equal(f.stateRun, result.run, f.id);
+    assert.equal(findingId(view.ledger.id, view.findings.get(f.id).key), f.id);
+  }
+  assert.equal(view.ledger.id, result.state);
 });
 
 test('SP-BPFINDINGS-018・SP-BPFINDINGS-012: 反復 1 で反証に却下された候補と同じ鍵の候補が、別の資産だけを書き換えた反復 2 で重複になり、dismissed が今の担当の指紋の組で記録され BLOCKED にならない', async (t) => {

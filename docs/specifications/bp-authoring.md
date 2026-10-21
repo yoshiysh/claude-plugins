@@ -349,7 +349,7 @@ create・update の fan-out の項目の順位（SP-BPRUN-038 の列挙の順。
    - SP-BPAUTHORING-022 で「検証が成り立たない」とした指摘がある。
    - 未反証の候補（SP-BPFINDINGS-015）がある。
    - 追加の検証の段の後に、どれかの観点の skip 一覧が空でない。
-   - SP-BPAUTHORING-021 で「未検査（強いられていない未検査）」とした単位のうち、適合の観点の検証役の項目が打ち切りになったことによるものがある。
+   - その反復の検証の段に、結果を持つ適合の観点の検証役の項目が無い（打ち切りになった）。当たった項目 ID は合否の `unverifiable.aborted` に載せる。このとき判定の単位ごとの結果は空なので（SP-BPAUTHORING-021）、この条件は判定の単位の結果からではなく項目から決める。
 2. 次のどれかに当たれば「不合格」。
    - SP-BPAUTHORING-022 で「不合格」とした指摘がある。
    - SP-BPAUTHORING-021 で「不適合」か、強いられた未検査でない「未検査」とした単位がある。
@@ -492,7 +492,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 
 各仕様項目は、`docs/specifications/bp-run.md` の「検証方法」の手段（CLI の単体テスト・script の模擬実行・静的な照合）か、次の手段で確かめる。項目ごとの手段と測るものは、トレーサビリティ表の検証方法の列に置く。
 
-「fixture の run」の行は、模擬の検証役が対象スキルの中身によらず決めた答えを返しても通るので、検証役の判断の質を確かめない。そこで、新しい入口の公開（`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更）の前に、本物の agent で create と update を 1 回ずつ試走し、その試走で確かめた「fixture の run」の行だけを「完了」にしなければならない（依頼者の裁定）。
+「fixture の run」の行は、模擬の検証役が対象スキルの中身によらず決めた答えを返しても通るので、検証役の判断の質を確かめない。そこで、新しい入口の公開（`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更）の前に、本物の agent で create と update を 1 回ずつ試走し、その試走で確かめた「fixture の run」の行だけを「完了」にしなければならない（依頼者の裁定）。この試走では、検証役が返り値と作業ファイルに同じ JSON を書けずに `E_TRANSPORT` になった率も測る（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `PAYLOAD_MODE`）。
 
 | 手段 | 中身 |
 |---|---|
@@ -583,5 +583,5 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-014 | SP-BPAUTHORING-033 | fixture の run（create の完了の返り値に作ったスキルのディレクトリのパスがある） | 作成中 |
 | PR-BPOPERATIONS-013 | SP-BPAUTHORING-035 | script の模擬実行（起動数の上限で止まった run の再開が止まった段の未着手の項目から続き、結果のある項目を処理し直さない。作り直す前の写しの段で BLOCKED になった update を再開すると、記録のある写しを作り直さない） | 完了 |
 | PR-BPOPERATIONS-005 | SP-BPAUTHORING-007 | script の模擬実行（目標の固定を BLOCKED から始め直しても段ごとの繰り返しの回数の累計が引き継がれ、上限の回で needs_input になった run を回答を足して再開すると、目標の固定の書き手が 1 回以上起動される） | 完了 |
-| PR-BPDESIGNEDSKILL-019 | SP-BPAUTHORING-041 | script の模擬実行（起動数の上限で止めた create・update の未着手の項目が、表の段ごとの順位で残ることを確認） | 完了 |
+| PR-BPDESIGNEDSKILL-019 | SP-BPAUTHORING-041 | script の模擬実行（起動数の上限で止めた create・update の未着手の項目が、表の段ごとの順位で残ることを確認） | 作成中 |
 | PR-BPOPERATIONS-011 | SP-BPAUTHORING-024 | CLI の単体テスト（合否の段の項目の結果と反復の回数の +1 が 1 回の書き込みで書かれ、同じ書き込みを繰り返しても反復の回数が増えない） | 完了 |

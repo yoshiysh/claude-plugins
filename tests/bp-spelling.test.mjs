@@ -93,7 +93,41 @@ function scriptFunction(names) {
 
 const COPIED = ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
   'GOAL_KEYS', 'SOURCE_KINDS', 'GROUND_INSTRUCTION', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'CONTRACT_ELEMENTS', 'GATE_NEXT', 'LIMIT_HITS', 'CRITERIA_DIR', 'CRITERIA_FILES',
-  'ROLE_WRITE_LIMITS', 'STOP_CAUSES'];
+  'ROLE_WRITE_LIMITS', 'STOP_CAUSES', 'FILE_ACTIONS', 'ASSIGN_RULES', 'STAGE_STATUS', 'CONTRACT_NONE', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE'];
+
+function scriptLiterals() {
+  const top = AST.body[0].body.body;
+  const skip = top.filter((s) => (s.type === 'VariableDeclaration' && /^[A-Z_]+$/.test(s.declarations[0].id.name)) || (s.type === 'FunctionDeclaration' && s.id.name === 'isTreatedGround'));
+  const out = [];
+  const visit = (node, parentKey) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach((n) => visit(n, parentKey)); return; }
+    if (skip.includes(node)) return;
+    if (node.type === 'Property' && node.key.name === 'fields') return;
+    if (node.type === 'Literal' && typeof node.value === 'string') out.push({ value: node.value, line: SOURCE.slice(0, node.start - OFFSET).split('\n').length });
+    if (node.type === 'TemplateElement') out.push({ value: node.value.cooked, line: SOURCE.slice(0, node.start - OFFSET).split('\n').length });
+    for (const k of Object.keys(node)) if (k !== 'type' && k !== 'start' && k !== 'end') visit(node[k], k);
+  };
+  visit(AST.body[0].body.body);
+  return out;
+}
+
+// 写しの定数を照らしても、本文が閉集合の値をリテラルで書き直すと、CLI の値が変わったときに本文だけ古いまま残る
+// （模擬の agent は schema を見ないので結合テストでも落ちない）。report の欄の名前（fields）と、CLI の関数と振る舞いで照らす isTreatedGround は除く。
+test('SP-BPRUN-031: script の本文は、写しの定数の閉集合の値をリテラルや prompt の引用で書き直さず、定数から引く', () => {
+  const closed = ['FILE_ACTIONS', 'ASSIGN_RULES', 'STAGE_STATUS', 'CONTRACT_NONE', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE', 'LIMIT_HITS', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'GATE_NEXT', 'STOP_KINDS', 'STOP_CAUSES', 'CODES'];
+  const values = new Set(closed.flatMap((n) => { const v = literalOf(n); return typeof v === 'string' ? [v] : Object.values(v); }));
+  // 引用の "ok" は応答の予約欄（SP-BPRUN-031）を指し、judgement の ok と字面が同じなので引用の照合から外す。
+  const quotedOnly = new Set(['ok']);
+  const hits = scriptLiterals().filter((l) => values.has(l.value) || [...l.value.matchAll(/"([^"]+)"/g)].some((m) => values.has(m[1]) && !quotedOnly.has(m[1])));
+  assert.deepEqual(hits, []);
+});
+
+test('SP-BPFINDINGS-011: script が観点を比べるリテラルは CLI の観点の値にある', () => {
+  const used = [...SOURCE.matchAll(/viewpoint === '([^']+)'/g)].map((m) => m[1]);
+  assert.ok(used.length > 0);
+  for (const v of used) assert.ok(Object.hasOwn(CLI_CONSTANTS.VIEWPOINTS, v), v);
+});
 
 test('SP-BPRUN-031・TBD-SBPRUN-001 の保持規則: script の定数の写しが CLI の定数と深く一致する', () => {
   for (const name of COPIED) assert.deepEqual(literalOf(name), JSON.parse(JSON.stringify(CLI_CONSTANTS[name])), name);

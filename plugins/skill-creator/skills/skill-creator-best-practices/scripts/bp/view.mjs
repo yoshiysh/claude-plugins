@@ -141,6 +141,11 @@ function apply(v, r) {
   }
 }
 
+// script は stage-start と停止の段の項目の両方からこの形を同じ意味で読む。
+export function itemStatus(item) {
+  return { id: item.id, attempts: item.fails.length, result: item.result !== undefined, aborted: Boolean(item.aborted), discarded: Boolean(item.discarded) };
+}
+
 export function currentRun(v) {
   return v.runs.at(-1) ?? null;
 }

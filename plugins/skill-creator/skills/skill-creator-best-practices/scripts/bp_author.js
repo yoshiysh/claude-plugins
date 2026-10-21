@@ -17,7 +17,8 @@ export const meta = {
 }
 
 // 以下の定数は CLI の scripts/bp/constants.mjs と仕様の表の写し。script は import できないので写しを持ち、
-// 一致は tests/bp-spelling.test.mjs が照らす（写しを 1 字でも変えるとテストが落ちる）。
+// 一致は tests/bp-spelling.test.mjs が照らす（写しを 1 字でも変えるとテストが落ちる）。本文が閉集合の値をリテラルで書き直すと照合の外に出るので、
+// 本文は定数から引く（同じテストが本文のリテラルと prompt の引用を照らす）。
 const OPS = {
   start: 'start', premise: 'premise', stageStart: 'stage-start', itemResult: 'item-result', itemFail: 'item-fail',
   stageRepeat: 'stage-repeat', stageFinish: 'stage-finish', discard: 'discard', files: 'files', stop: 'stop',
@@ -61,7 +62,14 @@ const UNIT_RESULTS = { conform: 'conform', nonconform: 'nonconform', na: 'na', u
 const UNCHECKED_KINDS = { forced: 'forced', unforced: 'unforced' }
 const CONTRACT_ELEMENTS = ['発火する条件', '発火しない条件', '入力', '出力', '停止の種類']
 const GATE_NEXT = { complete: 'complete', rewrite: 'rewrite', iterationLimit: 'iterationLimit', blocked: 'blocked' }
-const LIMIT_HITS = ['iteration', 'launch']
+const LIMIT_HITS = { iteration: 'iteration', launch: 'launch' }
+const FILE_ACTIONS = { write: 'write', delete: 'delete' }
+const ASSIGN_RULES = { all: 'all', skip: 'skip' }
+const STAGE_STATUS = { open: 'open', finished: 'finished', none: 'none', stopped: 'stopped' }
+const CONTRACT_NONE = 'none'
+const JUDGEMENTS = { candidate: 'candidate', ok: 'ok', unsure: 'unsure' }
+const REFUTATION_VERDICTS = { uphold: 'uphold', reject: 'reject' }
+const VANISH_NONE = 'none'
 const STOP_CAUSES = { verifiers: 'verifiers' }
 const ROLE_WRITE_LIMITS = [
   { role: '書き手', writes: '対象スキルと作業ファイル' },
@@ -214,7 +222,7 @@ const WRITE_SCHEMA = {
   properties: {
     written: {
       type: 'array',
-      items: { type: 'object', properties: { path: { type: 'string' }, action: { type: 'string', enum: ['write', 'delete'] } }, required: ['path', 'action'], additionalProperties: false },
+      items: { type: 'object', properties: { path: { type: 'string' }, action: { type: 'string', enum: Object.values(FILE_ACTIONS) } }, required: ['path', 'action'], additionalProperties: false },
     },
     designNote: { type: 'object', properties: { path: { type: 'string' }, heading: { type: 'string' } }, required: ['path'], additionalProperties: false },
   },
@@ -235,7 +243,7 @@ function verifySchema(viewpoint) {
   const properties = {
     judgements: {
       type: 'array',
-      items: { type: 'object', properties: { asset: { type: 'string' }, judgement: { type: 'string', enum: ['candidate', 'ok', 'unsure'] } }, required: ['asset', 'judgement'], additionalProperties: false },
+      items: { type: 'object', properties: { asset: { type: 'string' }, judgement: { type: 'string', enum: Object.values(JUDGEMENTS) } }, required: ['asset', 'judgement'], additionalProperties: false },
     },
     candidates: {
       type: 'array',
@@ -300,7 +308,7 @@ function verifySchema(viewpoint) {
 
 const REFUTE_SCHEMA = {
   type: 'object',
-  properties: { verdict: { type: 'string', enum: ['uphold', 'reject'] }, reason: { type: 'string' } },
+  properties: { verdict: { type: 'string', enum: Object.values(REFUTATION_VERDICTS) }, reason: { type: 'string' } },
   required: ['verdict', 'reason'],
   additionalProperties: false,
 }
@@ -474,7 +482,7 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
 
 // fan-out の外の書き込み。失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
 async function mustCarry(stage, requests) {
-  if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: 'launch' })
+  if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const r = await carry(requests)
   if (!r.ok) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage] ?? stage}」の運搬役（CLI）が失敗した: ${r.reason}`, { carrierFailed: r.failed })
   return r.responses
@@ -532,7 +540,7 @@ async function fanOut(stage, entries, worker) {
     if (!budget.fits(WORST.item)) { short = true; return }
     await worker(entry)
   })
-  if (short) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: 'launch' })
+  if (short) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   if (open.items.length && open.items.every((x) => x.aborted)) {
     throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
   }
@@ -593,7 +601,7 @@ async function goalStage(plan) {
   let n = plan.goalRepeats
   let failures = []
   while (true) {
-    if (!budget.fits(WORST.goalAttempt)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: 'launch' })
+    if (!budget.fits(WORST.goalAttempt)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
     const unit = budget.open(WORST.goalAttempt)
     try {
       const res = await launch('writer', goalPrompt(plan.goalRound, failures), { unit, label: 'writer:goal', schema: goalSchema() })
@@ -630,7 +638,7 @@ function writePrompt(number, rewrite) {
     '固定した目標に無い目標・制約を入れない。実行役の時間の上限の値を入れない。',
     `形は判定基準（${CRITERIA.conformance} の SP-BPCONFORMANCE-004 の順、Q3 は SP-BPCONFORMANCE-005）で問いに答えて決め、資産台帳の要否（SP-BPCONFORMANCE-009）と部品（SP-BPCONFORMANCE-008）を選ぶ。要求は ${CRITERIA.designedSkill}。`,
     '答えた問いと答え、重い形を強いた事実、段ごとの部品の名前を、対象スキルのディレクトリの中の 1 つのファイルに設計の説明として書く。形が変わらない反復でも今の対象スキルと食い違わないように保つ。',
-    '返すもの: {"written": [{"path": <絶対パス>, "action": "write"|"delete"}], "designNote": {"path": <根からの相対パス>, "heading": <節の見出し、ファイル全体なら省く>}}。説明の文は返さない（検証役に渡さないため）。',
+    `返すもの: {"written": [{"path": <絶対パス>, "action": ${Object.values(FILE_ACTIONS).map((a) => JSON.stringify(a)).join('|')}}], "designNote": {"path": <根からの相対パス>, "heading": <節の見出し、ファイル全体なら省く>}}。説明の文は返さない（検証役に渡さないため）。`,
     '',
     `反復の番号: ${number}`,
     `固定した目標:\n${memo.goalText}`,
@@ -643,7 +651,7 @@ async function writeStage(number, rewrite) {
   phase(STAGE_TITLES.write)
   const status = await stageStart(STAGE.write, number, [{ iteration: number }])
   const itemId = status[0].id
-  if (!budget.fits(WORST.write)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: 'launch' })
+  if (!budget.fits(WORST.write)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const unit = budget.open(WORST.write)
   try {
     const res = await launch('writer', writePrompt(number, rewrite), { unit, label: 'writer:write', schema: WRITE_SCHEMA })
@@ -678,10 +686,10 @@ async function ledgerBatch(number, unit, { retakePaths = true } = {}) {
     write(OPS.stageStart, { stage: STAGE.ledger, round: number, keys: [] }),
     write(run.ledger ? OPS.ledgerRetake : OPS.ledgerCreate, {}),
     write(OPS.stageFinish, { stage: STAGE.ledger, round: number }),
-    write(OPS.assignments, { stage: STAGE.verify, rule: 'all' }),
+    write(OPS.assignments, { stage: STAGE.verify, rule: ASSIGN_RULES.all }),
     write(OPS.stageStart, { stage: STAGE.verify, round: number, keys: VIEWPOINT_LIST.map((v) => ({ viewpoint: v })) }),
   ]
-  if (!budget.fits(WORST.carrier) && unit === undefined) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: 'launch' })
+  if (!budget.fits(WORST.carrier) && unit === undefined) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const r = await carry(requests, { unit })
   if (!r.ok) throw new Stop(STOP_KINDS.blocked, `段「台帳」の運搬役（CLI）が失敗した: ${r.reason}`)
   const out = r.responses
@@ -709,12 +717,12 @@ function verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra 
     `対象スキル: ${memo.target.root}（根の外のファイル ${JSON.stringify(memo.target.files ?? [])}）`,
     `資産の位置（パスと範囲）は次の読み出しで得る:\n${reportCmd}`,
     `指摘の種類は次の閉集合から選ぶ:\n${kindsCmd}`,
-    '担当の資産ごとに judgement を candidate・ok・unsure のどれか 1 つ返す。candidate の資産には候補（asset・viewpoint・kind・quote（行番号つきの原文）・content・fix）を 1 件以上添える。',
+    `担当の資産ごとに judgement を ${Object.values(JUDGEMENTS).join('・')} のどれか 1 つ返す。${JUDGEMENTS.candidate} の資産には候補（asset・viewpoint・kind・quote（行番号つきの原文）・content・fix）を 1 件以上添える。`,
   ]
   if (viewpoint === 'conformance') {
     lines.push(
       `適用の判定表（SP-BPCONFORMANCE-003）の行と、行ごとの判定の単位の一覧は次の読み出しで得る:\n${unitsCmd}`,
-      'applicability.row に、対象スキルに当たる行を 1 つ選ぶ。units には、その行の判定の単位の全てについて、一覧の unit の値をそのまま写して result（conform・nonconform・na・unchecked）と reason を付ける。nonconform には同じ結果の中の候補の鍵を keys に添え、unchecked には unchecked（forced は一覧の forced の単位だけ）を添える。',
+      `applicability.row に、対象スキルに当たる行を 1 つ選ぶ。units には、その行の判定の単位の全てについて、一覧の unit の値をそのまま写して result（${Object.values(UNIT_RESULTS).join('・')}）と reason を付ける。${UNIT_RESULTS.nonconform} には同じ結果の中の候補の鍵を keys に添え、${UNIT_RESULTS.unchecked} には unchecked（${UNCHECKED_KINDS.forced} は一覧の forced の単位だけ）を添える。`,
       'residualRisks に、配布先で効くかを確かめられなかった役ごとの制限を {role, restriction, host, reason} で全て挙げる。',
     )
   }
@@ -730,7 +738,7 @@ function verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra 
     lines.push(
       `作り直す前の写し: ${run.workDir}/snapshot/`,
       `修正の根拠（記録 ID と中身）:\n${JSON.stringify(memo.grounds)}`,
-      `契約の 5 つの要素（${CONTRACT_ELEMENTS.join('・')}）ごとに写しと今の対象スキルを照らし、変わったところを全て contractChanges に挙げる。choice は修正の根拠の記録 ID・判定基準の仕様項目 ID・"none" のどれか。"none" の変化はその要素の指摘の種類の候補にする。`,
+      `契約の 5 つの要素（${CONTRACT_ELEMENTS.join('・')}）ごとに写しと今の対象スキルを照らし、変わったところを全て contractChanges に挙げる。choice は修正の根拠の記録 ID・判定基準の仕様項目 ID・${JSON.stringify(CONTRACT_NONE)} のどれか。${JSON.stringify(CONTRACT_NONE)} の変化はその要素の指摘の種類の候補にする。`,
     )
   }
   if (extra) lines.push(`この起動は追加の検証（skip 一覧の資産だけ）。`)
@@ -803,10 +811,10 @@ async function verifyExtraStage(number, initialSkip) {
     const skips = new Map(skip.map((s) => [s.viewpoint, s.assets.map((a) => a.id)]))
     active = active.filter((v) => (skips.get(v) ?? []).length > 0)
     if (!active.length) break
-    if (part === 0) phase(STAGE_TITLES['verify-extra'])
+    if (part === 0) phase(STAGE_TITLES[STAGE.verifyExtra])
     part += 1
     const n = part + run.extraParts
-    const reqs = active.map((v) => write(OPS.assignments, { stage: STAGE.verifyExtra, rule: 'skip', viewpoint: v }))
+    const reqs = active.map((v) => write(OPS.assignments, { stage: STAGE.verifyExtra, rule: ASSIGN_RULES.skip, viewpoint: v }))
     reqs.push(write(OPS.stageStart, { stage: STAGE.verifyExtra, round: number, part: n, keys: active.map((v) => ({ viewpoint: v, pass: n })) }))
     const out = await mustCarry(STAGE.verifyExtra, reqs)
     const started = out.at(-1)
@@ -827,7 +835,7 @@ function refuterPrompt(key, readCmd) {
     `書いてよいのは作業ファイル（${run.workDir}）だけ。判定基準は写しだけを読む: ${Object.values(CRITERIA).join(' ')}`,
     `対象スキル: ${memo.target.root}`,
     `候補の引用・内容・直し方は次の読み出しで、指摘の鍵が下と同じものを読む（同じ鍵の候補は全て）:\n${readCmd}`,
-    '鍵ごとに 1 つの判定として "uphold"（維持）か "reject"（却下）を選び、理由を添えて {"verdict", "reason"} で返す。',
+    `鍵ごとに 1 つの判定として ${JSON.stringify(REFUTATION_VERDICTS.uphold)}（維持）か ${JSON.stringify(REFUTATION_VERDICTS.reject)}（却下）を選び、理由を添えて {"verdict", "reason"} で返す。`,
     '',
     `指摘の鍵: ${JSON.stringify(key)}`,
   ].join('\n')
@@ -866,9 +874,9 @@ async function vanishStage(retake) {
   const entries = status.map((s, i) => ({ ...s, key: keys[i] })).filter((s) => !s.result && !s.aborted && !s.discarded)
   await fanOut(STAGE.vanish, entries, (e) => itemLoop(e.id, e.attempts, async (attempt, unit) => {
     const prompt = [
-      'あなたは best-practices の検証役（消えた資産の照合）。指摘のあった資産が消えたので、今の資産 ID の一覧から同じ内容を持つ資産を 1 つ選ぶか "none" を返す。',
+      `あなたは best-practices の検証役（消えた資産の照合）。指摘のあった資産が消えたので、今の資産 ID の一覧から同じ内容を持つ資産を 1 つ選ぶか ${JSON.stringify(VANISH_NONE)} を返す。`,
       `書いてよいのは作業ファイル（${run.workDir}）だけ。指摘の引用・内容と今の資産 ID の一覧は次の読み出しで得る:\n${listCmd}`,
-      '返すもの: {"choice": <今の資産 ID か "none">}',
+      `返すもの: {"choice": <今の資産 ID か ${JSON.stringify(VANISH_NONE)}>}`,
       '',
       `指摘 ID: ${e.key.finding}`,
     ].join('\n')
@@ -936,7 +944,7 @@ function resumePlan(p) {
   const stopped = p.stopped
   const last = p.lastStop
   const base = { goalRound: p.goalRound, goalRepeats: p.goalRepeats, number: p.number, rewrite: p.lastGate?.rewrite ?? null }
-  const fresh = (stage) => ({ ...base, discard: stopped.items.filter((x) => !x.result && !x.aborted && !x.discarded).map((x) => x.id), finish: stopped.stage && stopped.status !== 'finished' ? stopped : null, ...stage })
+  const fresh = (stage) => ({ ...base, discard: stopped.items.filter((x) => !x.result && !x.aborted && !x.discarded).map((x) => x.id), finish: stopped.stage && stopped.status !== STAGE_STATUS.finished ? stopped : null, ...stage })
   const goalNext = p.goal ? null : { goal: true, goalRound: p.goalRound + 1 }
   if (!last && !stopped.stage) return { ...base, goal: !p.goal, goalRound: Math.max(1, p.goalRound), start: STAGE.write, number: p.number + 1 }
   const beforeWrite = [STAGE.start, STAGE.snapshot, STAGE.goal].includes(stopped.stage)
@@ -946,7 +954,7 @@ function resumePlan(p) {
     discard: stopped.stage === STAGE.verifyExtra ? stopped.items.filter((x) => !x.result && !x.aborted && !x.discarded).map((x) => x.id) : [],
   })
   if (!last) return continueSame()
-  if (last.kind === STOP_KINDS.iterationLimit && last.limitHit === 'launch') return continueSame()
+  if (last.kind === STOP_KINDS.iterationLimit && last.limitHit === LIMIT_HITS.launch) return continueSame()
   if (last.kind === STOP_KINDS.needsInput) return fresh({ goal: true, goalRound: p.goalRound + 1, start: STAGE.write, number: p.number + 1 })
   if (last.kind === STOP_KINDS.iterationLimit) return fresh({ ...(goalNext ?? {}), start: STAGE.write, number: p.number + 1 })
   const at = last.stage?.stage ?? null
@@ -1026,7 +1034,7 @@ async function main() {
     if (g.next === GATE_NEXT.complete) throw new Stop(STOP_KINDS.complete, '')
     if (g.next === GATE_NEXT.blocked) throw new Stop(STOP_KINDS.blocked, `反復 ${number} の検証が成り立たない: ${gateReason(g)}`, { cause: STOP_CAUSES.verifiers })
     if (g.next === GATE_NEXT.iterationLimit) {
-      throw new Stop(STOP_KINDS.iterationLimit, `反復の上限 ${g.iterations.limit} 回に達した。不合格の指摘: ${g.failing.findings.join(', ') || 'なし'}。不合格の判定の単位: ${g.failing.units.join(', ') || 'なし'}`, { limitHit: 'iteration' })
+      throw new Stop(STOP_KINDS.iterationLimit, `反復の上限 ${g.iterations.limit} 回に達した。不合格の指摘: ${g.failing.findings.join(', ') || 'なし'}。不合格の判定の単位: ${g.failing.units.join(', ') || 'なし'}`, { limitHit: LIMIT_HITS.iteration })
     }
     number += 1
     rewrite = g.rewrite
@@ -1037,7 +1045,7 @@ async function main() {
 async function continueIteration(number, stopped) {
   const at = stopped.stage
   if (at === STAGE.verify) {
-    const [asg] = await mustCarry(STAGE.verify, [write(OPS.assignments, { stage: STAGE.verify, rule: 'all' })])
+    const [asg] = await mustCarry(STAGE.verify, [write(OPS.assignments, { stage: STAGE.verify, rule: ASSIGN_RULES.all })])
     const { id: assignment, assets } = asg.assignments[0]
     const status = await stageStart(STAGE.verify, number, VIEWPOINT_LIST.map((v) => ({ viewpoint: v })))
     status.forEach((st, i) => viewpointByItem.set(st.id, VIEWPOINT_LIST[i]))

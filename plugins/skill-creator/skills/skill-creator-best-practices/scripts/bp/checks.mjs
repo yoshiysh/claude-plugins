@@ -11,10 +11,14 @@ export function checkFunction(fn) {
 
 export const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 
+export function needPosInt(value, name) {
+  if (!isPosInt(value)) reject(CODES.input, `${name} は 1 以上の整数でなければならない: ${JSON.stringify(value)}`);
+}
+
 // 試行の番号は今の回数 + 1 まで。それ以下は前に書いた試行の送り直しなので、打ち切った後でも同じ記録として受ける（SP-BPRUN-028）。
 export function checkAttempt(item, attempt, what) {
   if (item.aborted && attempt > item.fails.length) reject(CODES.conflict, `打ち切った項目に${what}を書けない: ${item.id}`);
-  if (!isPosInt(attempt)) reject(CODES.input, `attempt は 1 以上の整数でなければならない: ${JSON.stringify(attempt)}`);
+  needPosInt(attempt, 'attempt');
   if (attempt > item.fails.length + 1) reject(CODES.conflict, `試行の番号が今の回数 + 1 を超える: ${attempt}（今の回数 ${item.fails.length}）`);
 }
 

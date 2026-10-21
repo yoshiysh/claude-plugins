@@ -2,30 +2,26 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
+  CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
   LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, RUN_VIEWPOINTS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
-import { checkWritableItem, isPosInt } from './checks.mjs';
+import { checkWritableItem, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { resolveCallsites } from './callsites.mjs';
 import { diffFingerprints, homelessReason, targetFiles, targetFingerprint } from './fingerprint.mjs';
 import { KEYS_VERDICT, NO_JUDGEMENT, RECORDED_RUN, findingGate, INCREMENT, iterationDecision, nextStep, unitGate } from './gate.mjs';
 import { canonical, keyString, premiseId, sha256Hex } from './ids.mjs';
-import { limitState, nextArgs, unverifiedFiles } from './ops-run.mjs';
+import { checkRepeatNumber, limitState, nextArgs, unverifiedFiles } from './ops-run.mjs';
 import { findingsForResult, judgedOnCurrent, ledgerReport, skipList, unrefutedCandidates } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { applicability, contractKind } from './units.mjs';
-import { currentRun, lastFingerprint, runBase, stageEntry, stoppedStage } from './view.mjs';
+import { currentRun, itemStatus, lastFingerprint, runBase, stageEntry, stoppedStage } from './view.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
 import { identity } from './records.mjs';
 
 const strip = ({ seq, line, ...record }) => record;
-
-function needPosInt(value, name) {
-  if (!isPosInt(value)) reject(CODES.input, `${name} は 1 以上の整数でなければならない: ${JSON.stringify(value)}`);
-}
 
 function needRewriting(view) {
   if (!REWRITING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `create・update だけの操作: ${view.state.function}`);
@@ -185,9 +181,7 @@ export function goalCheck(ctx, req) {
     const item = view.items.get(req.item);
     if (!item || item.stage !== STAGE.goal) reject(CODES.unknownId, `状態に無い目標の固定の段の項目の ID: ${JSON.stringify(req.item)}`);
     checkWritableItem(item);
-    needPosInt(req.n, 'n');
-    const current = view.repeats.get(STAGE.goal) ?? 0;
-    if (req.n > current + 1) reject(CODES.conflict, `繰り返しの番号が今の回数 + 1 を超える: ${req.n}（今の回数 ${current}）`);
+    checkRepeatNumber(view, STAGE.goal, req.n);
     if (item.result !== undefined && !view.byKey.has(identity({ t: RECORDS.repeat, stage: STAGE.goal, n: req.n }))) {
       reject(CODES.conflict, `固定した目標が既にある項目に別の繰り返しの番号の照合が届いた: ${req.item}（${req.n}）`);
     }
@@ -381,7 +375,7 @@ function verification(view, gateItem) {
     const changes = extraOf(view, g.number, 'contract')?.contractChanges ?? [];
     out[VERIFICATION_KEYS.contract] = changes.map((c) => ({
       ...c,
-      ...(c.choice === 'none' ? { findings: [...view.findings.values()].filter((f) => f.key.viewpoint === 'contract' && f.key.kind === contractKind(c.element)).map((f) => f.id) } : {}),
+      ...(c.choice === CONTRACT_NONE ? { findings: [...view.findings.values()].filter((f) => f.key.viewpoint === 'contract' && f.key.kind === contractKind(c.element)).map((f) => f.id) } : {}),
     }));
   }
   return out;
@@ -432,10 +426,7 @@ function stoppedDetail(view) {
   if (!entry) return { stage: null, round: null, status: s.status, parts: 0, items: [] };
   return {
     stage: s.stage, round: s.round, status: s.status, parts: entry.parts,
-    items: entry.items.map((id) => {
-      const it = view.items.get(id);
-      return { id, key: it.key, attempts: it.fails.length, result: it.result !== undefined, aborted: Boolean(it.aborted), discarded: Boolean(it.discarded) };
-    }),
+    items: entry.items.map((id) => ({ ...itemStatus(view.items.get(id)), key: view.items.get(id).key })),
   };
 }
 

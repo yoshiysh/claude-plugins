@@ -49,7 +49,7 @@ function fpsOf(view, assetIds) {
   return fps;
 }
 
-function rejected(scope, attempt, assignment, payload, reason) {
+export function rejected(scope, attempt, assignment, payload, reason) {
   return {
     records: [{ t: RECORDS.rejected, scope, attempt, sum: sum(payload ?? null), assignment, reason }],
     error: { code: CODES.result, reason },

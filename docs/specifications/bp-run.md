@@ -506,7 +506,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 
 - 呼び方は `node <スキルのディレクトリ>/scripts/bp-state.mjs <操作> < <要求の JSON>` とする。要求は JSON のオブジェクト 1 つとし、`start`（新規）・`list`・`key`・`paths`・`units`（状態を読まない操作）を除く操作は `state` を持ち、書き込みの操作は `state` と `run` を持つ。
 - 要求は `sum` を持たなければならない。`sum` は、`sum` を除いた要求を正規化した JSON（オブジェクトのキーを昇順に並べ、空白を入れない JSON）の、UTF-16 の code unit ごとの FNV-1a 32bit（初期値 `0x811c9dc5`、乗数 `0x01000193`）を 8 桁の小文字の 16 進にしたものとする（script は import を持てないので、同じ式を自分で書ける形にする）。CLI は `sum` を計算し直し、合わなければ状態を変えずに `E_TRANSPORT` を返す。応答も同じ式の `sum` を持ち、script は運搬役が返した応答の `sum` を照らす。
-- 大きい値（検証役の結果など）は、運搬役に写させず、作業ファイルで渡してよい。create・update の script は、検証役の結果を既定で作業ファイルで渡す（script の定数 `PAYLOAD_MODE`）。本物の agent が返り値と作業ファイルに同じ JSON を書けるか（`E_TRANSPORT` の率）は実測しておらず、公開前の本物の agent での試走（依頼者の裁定 Q5）で測る。要求に `payloadFile`（作業場所の `work/` からの相対パス）と `payloadSum`（ファイルの中身の JSON に同じ式を当てた値）を入れると、CLI はファイルを読み、`payloadSum` が合えば中身のオブジェクトの欄を要求に足して扱う。`work/` の外のパス、読めないファイル、合わない `payloadSum`、要求と同じ欄を持つ中身は `E_TRANSPORT` で拒否する。
+- 大きい値（検証役の結果など）は、運搬役に写させず、作業ファイルで渡してよい。create・update の script は、検証役の結果を既定で作業ファイルで渡す（script の定数 `PAYLOAD_MODE`）。本物の agent が返り値と作業ファイルに同じ JSON を書けるか（`E_TRANSPORT` の率）は実測しておらず、公開前の本物の agent での試走（`docs/specifications/bp-authoring.md` の「検証方法」）で測る。要求に `payloadFile`（作業場所の `work/` からの相対パス）と `payloadSum`（ファイルの中身の JSON に同じ式を当てた値）を入れると、CLI はファイルを読み、`payloadSum` が合えば中身のオブジェクトの欄を要求に足して扱う。`work/` の外のパス、読めないファイル、合わない `payloadSum`、要求と同じ欄を持つ中身は `E_TRANSPORT` で拒否する。
 - 応答は JSON のオブジェクト 1 つとし、受理は `{"ok":true,"op":<操作>,…}`、拒否は `{"ok":false,"code":<符号>,"reason":<理由>}` とする。同じ内容の書き込みの繰り返しは受理とし、`"same":true` を返す。終了コードは受理 0、拒否 2、内部の失敗 1 とする。
 
 | 符号 | 意味 | script の扱い |

@@ -7,8 +7,8 @@ const NAME = /(?:^|[\s,{])name\s*:\s*(['"])([^'"]+)\1/;
 const SCRIPT_PATH = /(?:^|[\s,{])scriptPath\s*:\s*(\S)/;
 const LITERAL_PATH = /(?:^|[\s,{])scriptPath\s*:\s*(['"])([^'"`$]+)\1/;
 const META = /^\s*export\s+const\s+meta\s*=\s*\{([\s\S]*?)\n\}/;
-// callsite の scriptPath は「このスキルのディレクトリ」を表す置き換えの印で始まる書き方を持つ（[SKILL_DIR]・<…>・${…}）。
-const DIR_MARK = /^(?:\[[^\]]+\]|<[^>]+>|\$\{[^}]+\})\//;
+// callsite の scriptPath は「このスキルのディレクトリ」を表す置き換えの印で始まる書き方を持つ（[SKILL_DIR]・<…>）。
+const DIR_MARK = /^(?:\[[^\]]+\]|<[^>]+>)\//;
 
 function topLevel(body) {
   let out = body;

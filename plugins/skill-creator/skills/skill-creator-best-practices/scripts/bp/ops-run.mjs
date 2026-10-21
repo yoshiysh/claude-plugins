@@ -5,18 +5,18 @@ import {
   RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
 import { lastGate, progress } from './ops-author.mjs';
-import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt } from './checks.mjs';
+import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
-import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId, sum } from './ids.mjs';
+import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
 import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
-import { affectedFindings } from './ops-ledger.mjs';
+import { affectedFindings, rejected } from './ops-ledger.mjs';
 import { freshRecords } from './records.mjs';
 import { locateState, mutate, readState, stateRootOf } from './store.mjs';
 import { summarize } from './summary.mjs';
 import {
-  buildView, currentRun, isCompleted, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
+  buildView, currentRun, isCompleted, itemStatus, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
 } from './view.mjs';
 import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
@@ -28,7 +28,7 @@ export function nextArgs(view) {
 function checkLimits(limits) {
   if (limits === null || typeof limits !== 'object' || Array.isArray(limits)) reject(CODES.input, 'limits はオブジェクトでなければならない');
   for (const key of Object.values(LIMIT_KEYS)) {
-    if (!isPosInt(limits[key])) reject(CODES.input, `limits.${key} は 1 以上の整数でなければならない: ${JSON.stringify(limits[key])}`);
+    needPosInt(limits[key], `limits.${key}`);
   }
 }
 
@@ -202,7 +202,7 @@ export function premise(ctx, req) {
 }
 
 function checkRound(round) {
-  if (round != null && !isPosInt(round)) reject(CODES.input, `回は 1 以上の整数でなければならない: ${JSON.stringify(round)}`);
+  if (round != null) needPosInt(round, '回');
 }
 
 export function stageStart(ctx, req) {
@@ -232,10 +232,7 @@ export function stageStart(ctx, req) {
       records: [record],
       output: (after) => ({
         items: items.map((i) => i.id),
-        status: items.map((i) => {
-          const it = after.items.get(i.id);
-          return { id: i.id, attempts: it.fails.length, result: it.result !== undefined, aborted: Boolean(it.aborted), discarded: Boolean(it.discarded) };
-        }),
+        status: items.map((i) => itemStatus(after.items.get(i.id))),
       }),
     };
   });
@@ -273,16 +270,11 @@ export function itemResult(ctx, req) {
     if (req.result === undefined) reject(CODES.input, 'result が無い');
     if (item.stage === STAGE.write && REWRITING_FUNCTIONS.has(view.state.function) && item.result === undefined) {
       const bad = await designNoteProblem(view, req.result);
-      if (bad) {
-        return {
-          records: [{ t: RECORDS.rejected, scope: `${REJECT_SCOPE.item}${req.item}`, attempt: item.fails.length + 1, sum: sum(req.result), assignment: null, reason: bad }],
-          error: { code: CODES.result, reason: bad },
-        };
-      }
+      if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, null, req.result, bad);
     }
     const record = { t: RECORDS.result, item: req.item, result: req.result };
     if (req.iteration !== undefined) {
-      if (!isPosInt(req.iteration)) reject(CODES.input, `iteration は 1 以上の整数でなければならない: ${JSON.stringify(req.iteration)}`);
+      needPosInt(req.iteration, 'iteration');
       if (item.result === undefined && req.iteration !== view.iterations + 1) reject(CODES.conflict, `反復の番号が今の回数 + 1 ではない: ${req.iteration}（今の回数 ${view.iterations}）`);
       record.iteration = req.iteration;
     }
@@ -318,13 +310,17 @@ export function itemFail(ctx, req) {
   });
 }
 
+export function checkRepeatNumber(view, stage, n) {
+  needPosInt(n, 'n');
+  const current = view.repeats.get(stage) ?? 0;
+  if (n > current + 1) reject(CODES.conflict, `繰り返しの番号が今の回数 + 1 を超える: ${n}（今の回数 ${current}）`);
+}
+
 export function stageRepeat(ctx, req) {
   return mutate(ctx, req, OPS.stageRepeat, (view) => {
     checkStage(req.stage);
     if (!Object.values(LIMIT_KEYS).includes(req.limitKey)) reject(CODES.input, `limitKey が ${Object.values(LIMIT_KEYS).join('・')} のどれでもない: ${JSON.stringify(req.limitKey)}`);
-    if (!isPosInt(req.n)) reject(CODES.input, `n は 1 以上の整数でなければならない: ${JSON.stringify(req.n)}`);
-    const current = view.repeats.get(req.stage) ?? 0;
-    if (req.n > current + 1) reject(CODES.conflict, `繰り返しの番号が今の回数 + 1 を超える: ${req.n}（今の回数 ${current}）`);
+    checkRepeatNumber(view, req.stage, req.n);
     return {
       records: [{ t: RECORDS.repeat, stage: req.stage, n: req.n }],
       output: (after) => ({ stage: req.stage, ...limitState(after, req.limitKey, after.repeats.get(req.stage) ?? 0, runBase(after).repeats[req.stage] ?? 0) }),
@@ -368,7 +364,7 @@ export function files(ctx, req) {
       if (!isInList(paths, entry.path)) { outside.push(entry.path); continue; }
       if (isHomeless(paths.root, entry.path)) reject(CODES.input, homelessReason([entry.path]));
       const key = pathKey(paths.root, entry.path);
-      if (!isPosInt(entry.iteration)) reject(CODES.input, `entries の iteration は 1 以上の整数でなければならない: ${JSON.stringify(entry.iteration)}`);
+      needPosInt(entry.iteration, 'entries の iteration');
       if (entry.action !== undefined) {
         if (!Object.values(FILE_ACTIONS).includes(entry.action)) reject(CODES.input, `action は ${Object.values(FILE_ACTIONS).join('・')} のどれか: ${JSON.stringify(entry.action)}`);
         records.push({ t: RECORDS.file, run: req.run, path: key, iteration: entry.iteration, action: entry.action });
@@ -412,7 +408,7 @@ export function stop(ctx, req) {
     if (!STOP_KINDS_BY_FUNCTION[fn].includes(req.kind)) reject(CODES.input, `${fn} が使わない停止の種類: ${JSON.stringify(req.kind)}`);
     if (req.kind !== STOP_KINDS.complete && (typeof req.reason !== 'string' || req.reason === '')) reject(CODES.input, '完了以外の停止には理由が要る');
     if ((req.kind === STOP_KINDS.iterationLimit) !== (req.limitHit !== undefined)) reject(CODES.input, 'limitHit は反復の上限の停止にだけ、必ず付ける');
-    if (req.limitHit !== undefined && !LIMIT_HITS.includes(req.limitHit)) reject(CODES.input, `limitHit が ${LIMIT_HITS.join('・')} のどれでもない: ${JSON.stringify(req.limitHit)}`);
+    if (req.limitHit !== undefined && !Object.values(LIMIT_HITS).includes(req.limitHit)) reject(CODES.input, `limitHit が ${Object.values(LIMIT_HITS).join('・')} のどれでもない: ${JSON.stringify(req.limitHit)}`);
     if (req.cause !== undefined && (req.kind !== STOP_KINDS.blocked || !Object.values(STOP_CAUSES).includes(req.cause))) reject(CODES.input, `cause は BLOCKED にだけ ${Object.values(STOP_CAUSES).join('・')} を付ける: ${JSON.stringify(req.cause)}`);
     if (!Number.isInteger(req.launches) || req.launches < 0) reject(CODES.input, `launches は 0 以上の整数でなければならない: ${JSON.stringify(req.launches)}`);
     if (req.onTargetChanged !== undefined && (req.onTargetChanged !== STOP_KINDS.blocked || REWRITING_FUNCTIONS.has(fn))) reject(CODES.input, 'onTargetChanged は review・audit の blocked だけ');
