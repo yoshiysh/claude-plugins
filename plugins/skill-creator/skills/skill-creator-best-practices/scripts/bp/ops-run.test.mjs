@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import * as run from './ops-run.mjs';
+import * as ledger from './ops-ledger.mjs';
 import { CODES, NEXT_ARGS_KEYS, STATES_DIR } from './constants.mjs';
 import { readAll } from './journal.mjs';
+import { canonical, sha256Hex } from './ids.mjs';
 import { buildView } from './view.mjs';
 import { LIMITS, context, skillDir, tmpDir, newKey } from './fixtures/harness.mjs';
 
@@ -583,4 +585,40 @@ test('SP-BPFINDINGS-002: 根の外で plugin.json を持つ祖先の無いファ
   const ok = await run.start(ctx, { key: newKey(), function: 'review', target: { root, files: [path.join(plugin, 'workflows', 'w.js')] }, limits: LIMITS });
   const fp = buildView(await logOf(ctx, ok.state)).fingerprints[0].files;
   assert.ok('plugin:workflows/w.js' in fp);
+});
+
+test('SP-BPFINDINGS-002: 根の中の symlink が plugin の外のファイルを指す開始は E_INPUT で、状態を作らない', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const base = await tmpDir(t);
+  await fs.writeFile(path.join(base, 'outside.md'), 'x\n');
+  await fs.symlink(path.join(base, 'outside.md'), path.join(root, 'link.md'));
+  await assert.rejects(run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS }), (e) => e.code === CODES.input && /symlink/.test(e.reason));
+  assert.deepEqual(await stateDirs(ctx), []);
+});
+
+test('SP-BPRUN-011・SP-BPRUN-016: 開始の後に plugin の外を指す symlink が置かれても、停止は書けてその実体を除外の一覧に残し、再開と取り直しは E_INPUT で止まる', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t);
+  const base = await tmpDir(t);
+  const s = await run.start(ctx, { key: newKey(), function: 'update', target: { root }, limits: LIMITS, grounds: [{ text: 'a' }] });
+  const req = { state: s.state, run: s.run };
+  await ledger.ledgerCreate(ctx, req);
+  await fs.writeFile(path.join(base, 'outside.md'), 'x\n');
+  await fs.symlink(path.join(base, 'outside.md'), path.join(root, 'link.md'));
+  await rejects(ledger.ledgerRetake(ctx, req), CODES.input);
+  const out = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
+  assert.deepEqual(out.stop.excluded, [path.join(root, 'link.md')]);
+  await rejects(run.start(ctx, { key: newKey(), state: s.state }), CODES.input);
+  assert.equal(buildView(await logOf(ctx, s.state)).runs.length, 1);
+});
+
+test('SP-BPRUN-031: 停止の送り直しを照らす要求の値は、正規化した要求の sha256 である', async (t) => {
+  const { ctx, req } = await startReview(t);
+  if (!ctx) return;
+  const out = await run.stop(ctx, { ...req, kind: 'blocked', reason: 'x', pending: [], launches: 1 });
+  const expected = sha256Hex(canonical({ kind: 'blocked', reason: 'x', limitHit: null, pending: [], launches: 1, outside: [], onTargetChanged: null }));
+  assert.equal(out.stop.asked, expected);
 });

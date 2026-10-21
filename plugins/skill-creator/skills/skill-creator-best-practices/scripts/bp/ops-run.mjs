@@ -6,8 +6,8 @@ import {
 } from './constants.mjs';
 import { checkFunction, checkStage, checkWritableItem } from './checks.mjs';
 import { reject } from './errors.mjs';
-import { diffFingerprints, isInList, pathKey, pluginRoot, targetFingerprint } from './fingerprint.mjs';
-import { canonical, sum, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
+import { diffFingerprints, homelessReason, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
+import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } from './ids.mjs';
 import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
 import { freshRecords } from './records.mjs';
@@ -16,7 +16,7 @@ import { summarize } from './summary.mjs';
 import {
   buildView, currentRun, isCompleted, lastFingerprint, pendingItems, runBase, stageEntry, stoppedStage,
 } from './view.mjs';
-import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
+import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir } from './workspace.mjs';
 
 const isPosInt = (n) => Number.isInteger(n) && n >= 1;
 
@@ -99,8 +99,6 @@ async function startNew(ctx, req) {
   if (!target || typeof target.root !== 'string' || !path.isAbsolute(target.root)) reject(CODES.input, 'target.root は絶対パスでなければならない');
   const files = target.files ?? [];
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string' || !path.isAbsolute(f))) reject(CODES.input, 'target.files は絶対パスの並びでなければならない');
-  const homeless = files.filter((f) => !within(realpathLoose(f), realpathLoose(target.root)) && !pluginRoot(realpathLoose(f)));
-  if (homeless.length) reject(CODES.input, `根の外のファイルは .claude-plugin/plugin.json を持つ plugin の中になければならない: ${homeless.join(', ')}`);
   if (req.function === FUNCTION.create && typeof req.request !== 'string') reject(CODES.input, 'create の request は文字列でなければならない');
   if (req.function === FUNCTION.update && !Array.isArray(req.grounds)) reject(CODES.input, 'update の grounds は並びでなければならない');
   const root = assertAllowedRoot(stateRootOf(ctx), { targetRoots: [target.root] });
@@ -114,12 +112,14 @@ async function startNew(ctx, req) {
   const state = { t: RECORDS.state, id, key: req.key, function: req.function, limits: req.limits };
   if (req.function === FUNCTION.create) state.request = req.request;
   const run = runId(1);
+  const started = await targetFingerprint(paths);
+  if (started.homeless.length) reject(CODES.input, homelessReason(started.homeless));
   const records = [
     state,
     ...grounds,
     { t: RECORDS.run, id: run, key: req.key, base: emptyRunBase() },
     paths,
-    { t: RECORDS.fingerprint, run, at: FINGERPRINT_AT.start, n: 1, files: await targetFingerprint(paths) },
+    { t: RECORDS.fingerprint, run, at: FINGERPRINT_AT.start, n: 1, files: started.digests },
   ];
   const line = { seq: 1, run, op: OPS.start, records };
   const dir = await createStateDir(root, id, line, { writeFile: ctx.writeFile });
@@ -153,7 +153,9 @@ async function resume(ctx, req) {
     const run = runId(view.runs.length + 1);
     const paths = view.paths.at(-1);
     const baseline = lastFingerprint(view);
-    const now = await targetFingerprint(paths);
+    const fresh = await targetFingerprint(paths);
+    if (fresh.homeless.length) reject(CODES.input, homelessReason(fresh.homeless));
+    const now = fresh.digests;
     let retake = null;
     const ledgerRecords = [];
     if (view.ledger) {
@@ -346,7 +348,7 @@ export function unverifiedFiles(view) {
 export function stop(ctx, req) {
   return mutate(ctx, req, OPS.stop, async (view) => {
     const fn = view.state.function;
-    const asked = sum({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? [], launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null });
+    const asked = sha256Hex(canonical({ kind: req.kind, reason: req.reason ?? '', limitHit: req.limitHit ?? null, pending: req.pending ?? [], launches: req.launches, outside: req.outside ?? [], onTargetChanged: req.onTargetChanged ?? null }));
     const output = (after) => {
       const stopped = after.stops.get(req.run);
       return { stop: stopped, ...(stopped.kind === STOP_KINDS.complete ? {} : { nextArgs: nextArgs(after) }) };
@@ -372,7 +374,7 @@ export function stop(ctx, req) {
     if (!Array.isArray(pending) || canonical(pending) !== canonical(derived)) {
       reject(CODES.conflict, `pending が状態から導いた未着手の項目の並び（列挙の順）と一致しない（状態: ${derived.join(',') || 'なし'}）`, { derived });
     }
-    const now = await targetFingerprint(view.paths.at(-1));
+    const { digests: now, homeless: excluded } = await targetFingerprint(view.paths.at(-1));
     const startFp = view.fingerprints.find((f) => f.run === req.run && f.at === FINGERPRINT_AT.start);
     let kind = req.kind;
     let reason = req.reason ?? '';
@@ -393,6 +395,7 @@ export function stop(ctx, req) {
       pending, launches: req.launches,
       unverified: REWRITING_FUNCTIONS.has(fn) ? unverifiedFiles(view) : [],
       outside: outsidePaths,
+      excluded,
       asked,
     };
     return {

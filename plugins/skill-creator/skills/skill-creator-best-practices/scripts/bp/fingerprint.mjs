@@ -52,6 +52,7 @@ async function walk(dir, out) {
   }
 }
 
+// 根の中の symlink が plugin の外を指すと、その実体は ID にできる形のパスを持たない。列挙から外して呼び出し側に渡す。
 export async function targetFiles(pathsRecord) {
   const root = realpathLoose(pathsRecord.root);
   const files = [];
@@ -60,17 +61,26 @@ export async function targetFiles(pathsRecord) {
     const real = realpathLoose(extra);
     if (!within(real, root) && existsSync(real)) files.push(real);
   }
-  const keyed = files.map((f) => ({ file: f, key: pathKey(root, f) }));
-  keyed.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  return keyed;
+  const entries = [];
+  const homeless = [];
+  for (const f of files) {
+    const real = realpathLoose(f);
+    if (!within(real, root) && !pluginRoot(real)) homeless.push(f);
+    else entries.push({ file: f, key: pathKey(root, f) });
+  }
+  entries.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return { entries, homeless };
+}
+
+export function homelessReason(homeless) {
+  return `根の外で .claude-plugin/plugin.json を持つ plugin の中にないファイル（根の中の symlink の実体を含む）がある: ${homeless.join(', ')}`;
 }
 
 export async function targetFingerprint(pathsRecord) {
-  const out = {};
-  for (const { file, key } of await targetFiles(pathsRecord)) {
-    out[key] = fileDigest(await fs.readFile(file));
-  }
-  return out;
+  const { entries, homeless } = await targetFiles(pathsRecord);
+  const digests = {};
+  for (const { file, key } of entries) digests[key] = fileDigest(await fs.readFile(file));
+  return { digests, homeless };
 }
 
 export function diffFingerprints(before, after) {

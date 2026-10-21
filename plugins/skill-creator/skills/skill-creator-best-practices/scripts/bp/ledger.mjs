@@ -1,14 +1,16 @@
 import { promises as fs } from 'node:fs';
 import { splitAssets } from './assets.mjs';
-import { targetFiles } from './fingerprint.mjs';
-import { internal } from './errors.mjs';
+import { homelessReason, targetFiles } from './fingerprint.mjs';
+import { internal, reject } from './errors.mjs';
 import { locationKey } from './ids.mjs';
-import { RECORDS } from './constants.mjs';
+import { CODES, RECORDS } from './constants.mjs';
 
 export async function enumerateAssets(pathsRecord) {
   const out = [];
   const seen = new Map();
-  for (const { file, key } of await targetFiles(pathsRecord)) {
+  const { entries, homeless } = await targetFiles(pathsRecord);
+  if (homeless.length) reject(CODES.input, homelessReason(homeless));
+  for (const { file, key } of entries) {
     for (const asset of splitAssets(key, await fs.readFile(file))) {
       const where = `${asset.path}\0${locationKey(asset.loc)}`;
       if (seen.has(asset.id) && seen.get(asset.id) !== where) internal(`資産 ID が衝突した: ${asset.id}`);
