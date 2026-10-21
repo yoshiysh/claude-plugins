@@ -29,7 +29,7 @@ async function fixture(t, body, checkpoint = false) {
     environment: { path: '/usr/bin:/bin', requiredCommands: ['sh'] }, CodexClass: FakeCodex });
   let index = 0;
   const run = extra => Workflow({ scriptPath, args: {} }, { backend, trustedSource: true,
-    timeoutMs: 10000, maxAgents: 8, runDir: join(dir, `run-${++index}`),
+    maxAgents: 8, runDir: join(dir, `run-${++index}`),
     ...(checkpoint ? { checkpoint: { files: [scriptPath], dependenciesComplete: true, stopAfter: 'one' } } : {}),
     ...extra });
   const events = async number => (await readFile(join(dir, `run-${number}`, 'events.jsonl'), 'utf8'))

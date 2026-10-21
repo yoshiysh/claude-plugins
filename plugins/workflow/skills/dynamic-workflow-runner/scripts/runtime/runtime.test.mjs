@@ -16,7 +16,7 @@ async function run(t, body, backend, options = {}) {
   const scriptPath = join(dir, 'arbitrary-name.flow');
   await writeFile(scriptPath, header + body);
   return { result: await Workflow({ scriptPath, args: { text: 'hello' } }, {
-    backend, trustedSource: true, runDir: join(dir, 'run'), timeoutMs: 3000, ...options,
+    backend, trustedSource: true, runDir: join(dir, 'run'), ...options,
   }), events: (await readFile(join(dir, 'run/events.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse) };
 }
 
@@ -46,11 +46,14 @@ test('non-JSON and non-cloneable args fail with the JSON serializability error',
     { ...host, runDir: join(dir, 'valid-run') }), 'valid');
 });
 test('parallel/pipeline preserve order, null and bound nested concurrency', async t => {
-  let active = 0, peak = 0;
+  let active = 0, peak = 0, saturated;
+  const bothActive = new Promise(r => { saturated = r; });
   const { result } = await run(t, `return await parallel([
     () => pipeline(['a','bad','c'], x => agent(x)), () => agent('d')]);`, {
-    run: async prompt => {
+    run: async (prompt, _, { signal }) => {
       peak = Math.max(peak, ++active);
+      if (active === 2) saturated();
+      await Promise.race([bothActive, new Promise(r => signal.addEventListener('abort', r, { once: true }))]);
       await new Promise(r => setTimeout(r, 10)); active--;
       if (prompt === 'bad') throw Error('API failure'); return prompt;
     },
@@ -79,7 +82,7 @@ test('unknown agent option fails before backend invocation', async t => {
 });
 test('unawaited agent work is not successful completion', async t => {
   await assert.rejects(run(t, `agent('x'); return 'done';`,
-    { run: async () => new Promise(() => {}) }), /unawaited/);
+    { run: async (_, __, { signal }) => new Promise(resolve => signal.addEventListener('abort', () => resolve(null), { once: true })) }), /unawaited/);
 });
 test('randomness, clock and direct process access are absent', async t => {
   for (const expression of ['Date.now()', 'new Date()', 'Math.random()', 'process.cwd()'])
@@ -106,7 +109,7 @@ test('agent timeout aborts a pending backend and records a null result', async t
     run: async (_, __, { signal }) => new Promise(resolve => {
       signal.addEventListener('abort', () => { aborted = true; resolve(null); }, { once: true });
     }),
-  }, { timeoutMs: 5000, agentTimeoutMs: 50 });
+  }, { agentTimeoutMs: 50 });
   assert.equal(result, null);
   assert.equal(aborted, true);
   assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
@@ -117,7 +120,7 @@ test('agent timeout returns null, records timeout, and aborts only that backend 
     run: async (_, __, { signal }) => new Promise(resolve => {
       signal.addEventListener('abort', () => { aborted = true; resolve(null); }, { once: true });
     }),
-  }, { timeoutMs: 1000, agentTimeoutMs: 25 });
+  }, { agentTimeoutMs: 25 });
   assert.equal(result, null);
   assert.equal(aborted, true);
   assert.equal(events.filter(e => e.type === 'agent.timeout').length, 1);
@@ -173,7 +176,7 @@ test('update rejects a backend that only self-advertises staging capabilities', 
   await assert.rejects(Workflow({ scriptPath, args: { mode: 'update', target: { skillPath: target } } }, {
     backend: { capabilities: ['read-only', 'fresh-thread', 'staging-write', 'artifact-manifest', 'fresh-reverify', 'hash-bound-action-package'],
       async run() { calls++; } },
-    trustedSource: true, runDir: join(root, 'run'), timeoutMs: 3000,
+    trustedSource: true, runDir: join(root, 'run'),
     updateContract: { targetRoot, stagingRoot, targetDir: target, stagingDir: staging },
   }), /Codex SDK staging-only backend/);
   assert.equal(calls, 0);
@@ -193,7 +196,7 @@ test('update binds the contract to the exact caller target before staging or dis
   const contract = { targetRoot, stagingRoot, targetDir: target, stagingDir: staging };
   const backend = codexBackend({ cwd: root, updateContract: contract });
   await assert.rejects(Workflow({ scriptPath, args: { mode: 'update', target: { skillPath: other } } }, {
-    backend, trustedSource: true, runDir: join(root, 'run'), timeoutMs: 3000,
+    backend, trustedSource: true, runDir: join(root, 'run'),
     updateContract: contract,
   }), /must match args\.target\.skillPath/);
   await assert.rejects(readFile(staging), { code: 'ENOENT' });
@@ -232,7 +235,7 @@ test('update runs each phase in its scoped cwd and returns the caller package wi
     const contract = { targetRoot, stagingRoot, targetDir: target, stagingDir: staging };
     const result = await Workflow({ scriptPath, args: { mode: 'update', target: { skillPath: target }, stagingDir: staging } }, {
       backend: codexBackend({ cwd: root, updateContract: contract }), updateContract: contract,
-      trustedSource: true, runDir, timeoutMs: 3000,
+      trustedSource: true, runDir,
     });
     assert.equal(result.source_result.verdict, 'applied_to_staging');
     assert.equal(result.action_package.changed_files[0].path, 'SKILL.md');
