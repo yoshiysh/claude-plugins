@@ -16,9 +16,10 @@ test('検証方法: 表を読む処理は、表の直前の文を目印に読み
   assert.deepEqual(tableAfter('段の表は次のとおり。\n\n| a | b |\n|---|---|\n| x \\| y | 2 |\n', '段の表は次のとおり。'), [['x \\| y', '2']]);
 });
 
-test('検証方法: 模擬の検証役の種類の選び方は、prompt に埋めた強いられた未検査を除いた閉集合の先頭を選び、全て強いられていれば落ちる', async () => {
+test('検証方法: 模擬の検証役の種類の選び方は、prompt に埋めた強いられた未検査を除いた閉集合の先頭を選び、全て強いられているか一覧の形を読めなければ落ちる', async () => {
   const env = { readFromPrompt: async () => ({ kinds: [{ value: 'a' }, { value: 'b' }] }) };
   assert.equal(await firstUnforcedKind('"forced":["a"]', env), 'b');
-  assert.equal(await firstUnforcedKind('埋め込み無し', env), 'a');
+  assert.equal(await firstUnforcedKind('一覧を埋めない観点', env), 'a');
   await assert.rejects(firstUnforcedKind('"forced":["a","b"]', env), /閉集合に無い/);
+  await assert.rejects(firstUnforcedKind('"forced": ["a"]', env), /形を読めない/);
 });

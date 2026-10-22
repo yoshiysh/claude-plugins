@@ -362,11 +362,13 @@ export function stagesIn(lines) {
   return lines.flatMap((l) => l.records.filter((r) => r.t === 'stage').map((r) => r.stage));
 }
 
-// 観点が viewpoint の検証役のうち when に当たる起動で、担当の資産の 1 つに候補を返す（閉集合の先頭の、強いられた未検査でない種類）。
-// prompt に埋めた強いられた未検査の一覧の外から、閉集合の先頭の種類を選ぶ（埋め込みの形が変わったら、黙って別の種類を選ばずに落とす）。
+// prompt に埋めた強いられた未検査の一覧の外から、閉集合の先頭の種類を選ぶ。一覧を埋めているのに形が違えば（空白入りなど）、
+// 強いられた種類を選んだり黙って先頭を選んだりせずに落とす。一覧を埋めない観点の prompt では、閉集合の先頭を選ぶ。
 export async function firstUnforcedKind(prompt, env) {
   const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+  const embeds = prompt.includes('"forced"');
   const embedded = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
+  if (embeds && !embedded) throw new Error('prompt の強いられた未検査の一覧の形を読めない');
   const forced = embedded ? JSON.parse(embedded) : [];
   const kind = kinds.find((k) => !forced.includes(k.value));
   if (!kind) throw new Error('強いられた未検査でない指摘の種類が閉集合に無い');
@@ -377,6 +379,7 @@ export function candidateOf(asset, viewpoint, kind) {
   return { asset, viewpoint, kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' };
 }
 
+// 観点が viewpoint の検証役のうち when に当たる起動で、担当の資産の 1 つに候補を返す（閉集合の先頭の、強いられた未検査でない種類）。
 export function candidateVerifier({ viewpoint, when = () => true, asset = (ids) => ids[0], judgement = 'candidate', also = {} } = {}) {
   return async (prompt, options, env, call, calls) => {
     // when は起動の時点の calls で決める（await の後では並行の起動が calls に足されている）。
