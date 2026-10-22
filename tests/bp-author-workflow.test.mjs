@@ -46,13 +46,15 @@ function nonconformVerifier({ when = () => true } = {}) {
   };
 }
 
-test('SP-BPRUN-001・SP-BPAUTHORING-005・SP-BPAUTHORING-020: create の 1 run が段を表の順に進め、1 つの機能だけを実行して完了する', async (t) => {
+test('SP-BPRUN-001・SP-BPAUTHORING-005・SP-BPAUTHORING-020・SP-BPFINDINGS-001: create の 1 run が段を表の順に進め、最初の検証の前に台帳を作り、1 つの機能だけを実行して完了する', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target) });
   assert.equal(result.stopKind, 'complete', result.reason);
   const lines = await logOf(s.env, result.state);
   assert.deepEqual(stageOrder(lines), ['goal.1', 'write.1', 'ledger.1', 'verify.1', 'refute.1', 'rejudge.1', 'gate.1']);
+  const ledger = lines.findIndex((l) => l.op === 'ledger-create');
+  assert.ok(ledger >= 0 && ledger < lines.findIndex((l) => l.op === 'verdicts'));
   assert.equal(lines[0].records[0].function, 'create');
   assert.ok(lines.every((l) => l.run === 'r1'));
   assert.deepEqual([...new Set(calls.filter((c) => c.role === 'verify').map((c) => c.label))], ['verifier:conformance', 'verifier:goal']);
@@ -201,7 +203,7 @@ test('SP-BPENTRY-013: 表に無い項目と、再開に渡してはならない�
   assert.deepEqual(resume.result.nextArgs, { function: 'create', state: 'bp-x' });
 });
 
-test('SP-BPAUTHORING-033・SP-BPAUTHORING-032: create の完了の返り値にパスと指紋・設計の説明の逐語の本文・検証の結果・skip 一覧・残る危険がある', async (t) => {
+test('SP-BPAUTHORING-033・SP-BPAUTHORING-032・SP-BPFINDINGS-032: create の完了の返り値にパスと指紋・設計の説明の逐語の本文・検証の結果・skip 一覧・残る危険がある', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const { result } = await runAuthor(t, { env: s.env, args: createArgs(s.target) });
@@ -512,7 +514,7 @@ test('SP-BPAUTHORING-035・SP-BPRUN-015: 検証が成り立たない BLOCKED か
   assert.equal(second.result.verification.iterations.total, 1);
 });
 
-test('SP-BPRUN-028・SP-BPRUN-029: 1 件の欠けでは run が止まらず試行を繰り返し、検証役の結果の台帳に無い資産 ID は BLOCKED にならず試行の回数が増える', async (t) => {
+test('SP-BPRUN-028・SP-BPRUN-029・SP-BPFINDINGS-034: 1 件の欠けでは run が止まらず試行を繰り返し、検証役の結果の台帳に無い資産 ID は BLOCKED にならず試行の回数が増える', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const seen = new Map();
@@ -535,7 +537,7 @@ test('SP-BPRUN-028・SP-BPRUN-029: 1 件の欠けでは run が止まらず試�
   assert.equal(result.verification.ledger.rejected.count, 1);
 });
 
-test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN-035・SP-BPRUN-015: 同時実行 3 で上限に収まらない項目を起動せず表の順で未着手に残して反復の上限で止まり、再開が未着手の項目だけを処理し、next_args に上限が無い', async (t) => {
+test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN-035・SP-BPRUN-015・SP-BPRUN-014: 同時実行 3 で上限に収まらない項目を起動せず表の順で未着手に残して反復の上限で止まり、再開が未着手の項目だけを処理し、next_args に上限が無い', async (t) => {
   const s = await setup(t, { fn: 'update' });
   if (!s) return;
   const limit = MIN.update + 1;
@@ -700,7 +702,7 @@ test('SP-BPAUTHORING-022・SP-BPAUTHORING-040: 契約の指摘が open の反復
   assert.equal(contract.state, 'resolved');
 });
 
-test('SP-BPFINDINGS-028: update の完了の返り値で、受け取った指摘に状態が付かず、状態の付いた指摘は全て update の台帳 ID から作った指摘 ID と今の run の記録を持つ', async (t) => {
+test('SP-BPFINDINGS-028・SP-BPFINDINGS-032: update の完了の返り値で、受け取った指摘に状態が付かず、台帳の指摘が全て載り、状態の付いた指摘は全て update の台帳 ID から作った指摘 ID と今の run の記録を持つ', async (t) => {
   const { findingId } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs');
   const s = await setup(t, { fn: 'update' });
   if (!s) return;
@@ -721,6 +723,8 @@ test('SP-BPFINDINGS-028: update の完了の返り値で、受け取った指摘
   const view = await viewOf(s.env, result.state);
   const stated = result.findings.filter((f) => f.state !== undefined);
   assert.ok(stated.length > 0);
+  assert.deepEqual(result.findings.map((f) => f.id), [...view.findings.values()].sort((a, b) => a.order - b.order).map((f) => f.id));
+  assert.deepEqual(stated.map((f) => f.state), [...view.findings.values()].filter((f) => f.states.at(-1).run === result.run).sort((a, b) => a.order - b.order).map((f) => f.states.at(-1).state));
   for (const f of stated) {
     assert.equal(f.stateRun, result.run, f.id);
     assert.equal(findingId(view.ledger.id, view.findings.get(f.id).key), f.id);
@@ -728,7 +732,7 @@ test('SP-BPFINDINGS-028: update の完了の返り値で、受け取った指摘
   assert.equal(view.ledger.id, result.state);
 });
 
-test('SP-BPFINDINGS-018・SP-BPFINDINGS-012: 反復 1 で反証に却下された候補と同じ鍵の候補が、別の資産だけを書き換えた反復 2 で重複になり、dismissed が今の担当の指紋の組で記録され BLOCKED にならない', async (t) => {
+test('SP-BPFINDINGS-018・SP-BPFINDINGS-012・SP-BPFINDINGS-030: 反復 1 で反証に却下された候補と同じ鍵の候補が、別の資産だけを書き換えた反復 2 で重複になり、dismissed が今の担当の指紋の組で記録され BLOCKED にならない', async (t) => {
   const s = await setup(t);
   if (!s) return;
   const write = async (prompt) => {
@@ -863,7 +867,7 @@ test('SP-BPRUN-028・SP-BPRUN-031: 結果を書く運搬役が応答を失うと
   }
 });
 
-// §5.9 の教訓 5: 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす。
+// 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす（仕様の表と応答の形を手で合わせない）。
 function returnRules() {
   const read = (file) => readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', file), 'utf8');
   const table = (text, header) => {
@@ -996,12 +1000,12 @@ test('SP-BPRUN-029: 状態の構造を指す ID の誤りとして CLI が書き
   assert.match(result.reason, /段「検証」の CLI が結果の書き込みを拒否した: verdicts: E_UNKNOWN_ID/);
 });
 
-test('§5.9 の教訓 3: 検証の段の並行の運搬役を子 process の CLI で走らせても、記録が欠けず E_LOCK が出ない', async (t) => {
+test('SP-BPRUN-005・SP-BPRUN-006: 検証の段の並行の運搬役を子 process の CLI で走らせても、記録が欠けず E_LOCK が出ない', async (t) => {
   const s = await setup(t, { fn: 'update' });
   if (!s) return;
   const { spawn } = await import('node:child_process');
   const { commands } = await import('./helpers/bp-harness.mjs');
-  // 判定基準の写しは 4 段目まで本番の置き場に無いので、子 process でも写しの場所を渡せる入口で CLI の main を呼ぶ。
+  // 判定基準の写しはまだ本番の置き場（CRITERIA_DIR）に無いので、子 process でも写しの場所を渡せる入口で CLI の main を呼ぶ。
   const wrapper = path.join(s.base, 'cli-wrapper.mjs');
   await fs.writeFile(wrapper, [
     `import { main } from ${JSON.stringify(path.join(SKILL_DIR, 'scripts', 'bp-state.mjs'))};`,

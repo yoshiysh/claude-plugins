@@ -2,6 +2,9 @@ import { canonical, keyString } from './ids.mjs';
 import { CODES, RECORDS } from './constants.mjs';
 import { reject } from './errors.mjs';
 
+// 状態の行の位置（seq・line）を外した記録。送り直しに同じ記録を返すときの形。
+export const strip = ({ seq, line, ...record }) => record;
+
 export const IDENTITY = Object.freeze({
   [RECORDS.state]: () => RECORDS.state,
   [RECORDS.ground]: (r) => `${r.t}|${r.id}`,
@@ -36,6 +39,9 @@ export const IDENTITY = Object.freeze({
   [RECORDS.addAsset]: (r) => `${r.t}|${r.finding}|${r.asset}`,
   [RECORDS.snapshot]: () => RECORDS.snapshot,
   [RECORDS.extra]: (r) => `${r.t}|${r.item}`,
+  [RECORDS.target]: (r) => `${r.t}|${r.run}`,
+  [RECORDS.bundle]: (r) => `${r.t}|${r.generation}`,
+  [RECORDS.applicability]: () => RECORDS.applicability,
 });
 
 export function identity(record) {

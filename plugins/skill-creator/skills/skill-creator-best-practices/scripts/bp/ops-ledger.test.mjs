@@ -37,7 +37,7 @@ async function setup(t, { fn = 'update', files = FOUR, ctx: given } = {}) {
   return { ctx, root, req, assets: made.assets, byLoc };
 }
 
-// create・update の検証役の結果は観点ごとの足した欄を必ず持つ（SP-BPAUTHORING-017・038・039）。
+// create・update の検証役の結果は観点ごとの足した欄を必ず持ち（SP-BPAUTHORING-017・038・039）、review・audit は未検査の観点の候補を持つ（SP-BPINSPECTION-017）。
 const ROW = applicability(CRITERIA_FIXTURE)[0];
 function withExtra(viewpoint, result) {
   const extra = {
@@ -45,7 +45,7 @@ function withExtra(viewpoint, result) {
     goal: { basisConstraints: [] },
     contract: { contractChanges: [] },
   }[viewpoint] ?? {};
-  return { ...extra, ...result };
+  return { unchecked: [], ...extra, ...result };
 }
 
 async function verifyMany(ctx, req, { round = null, stage = 'verify', entries }) {

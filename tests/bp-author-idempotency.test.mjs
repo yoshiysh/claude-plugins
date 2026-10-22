@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { Env, VANISH_FILES, assetIds, createArgs, defaults, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, writePayload } from './helpers/bp-harness.mjs';
+import {
+  Env, VANISH_FILES, assetIds, candidateVerifier, createArgs, defaults, inspectArgs, resumeArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, vanishScenario, writePayload,
+} from './helpers/bp-harness.mjs';
 import { LOG_FILE, OPS, STATES_DIR, WRITE_OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
-// 全ての要求を 2 回ずつ届け、2 回目が記録を足さず同じ受理か同じ拒否になることを照らす（§5.9 の教訓 2）。
+// 全ての要求を 2 回ずつ届け、2 回目が記録を足さず同じ受理か同じ拒否になることを照らす（送り直しで記録が増えないことの確かめ）。
 class TwiceEnv extends Env {
   constructor(base, seen, violations) {
-    super({ root: base.root, criteriaDir: base.criteriaDir });
+    super({ root: base.root, criteriaDir: base.criteriaDir, promptAudit: base.promptAudit });
     this.seen = seen;
     this.violations = violations;
   }
@@ -55,6 +57,26 @@ function conformanceCandidate() {
   };
 }
 
+// review の段の書き込み（照らす先・資産の束・適用の判定）を、受理と拒否の両方で 2 回ずつ届ける。
+async function inspectWrites(t, env) {
+  const s = await setup(t, { fn: 'update' });
+  const started = await env.request(OPS.start, { key: `k-inspect-${Date.now()}`, function: 'review', target: s.target, limits: { attempts: 3, iterations: 3, untilPass: 3 } });
+  const req = { state: started.state, run: started.run };
+  const w = (op, b = {}) => env.request(op, { ...req, ...b });
+  await w(OPS.stageStart, { stage: 'targets', keys: [] });
+  await w(OPS.targets);
+  await w(OPS.stageStart, { stage: 'bundle', keys: [] });
+  const ledger = await w(OPS.ledgerCreate);
+  await w(OPS.bundle);
+  await w(OPS.stageStart, { stage: 'applicability', keys: [] });
+  const quote = [{ asset: ledger.assets[0].id, line: 1, text: '---' }];
+  const answer = (a) => ({ answer: a, quotes: quote });
+  const bad = await w(OPS.applicability, { n: 1, result: { answers: { A: answer('いいえ'), Q1: answer('はい'), Q2: answer('問いに到達しない'), Q3: answer('問いに到達しない') }, ledger: answer('無'), fanout: answer('無') } });
+  const good = await w(OPS.applicability, { n: 2, result: { answers: { A: answer('いいえ'), Q1: answer('問いに到達しない'), Q2: answer('問いに到達しない'), Q3: answer('問いに到達しない') }, ledger: answer('無'), fanout: answer('無') } });
+  assert.equal(bad.code, 'E_RESULT');
+  assert.equal(good.shape, 'ターンごとの指揮', good.reason);
+}
+
 test('SP-BPRUN-006・SP-BPRUN-031: 書き込みの操作の全てが、同じ要求の 2 回目を記録を足さずに受け、読み出しの操作は記録を変えない', async (t) => {
   const seen = new Set();
   const violations = [];
@@ -95,6 +117,13 @@ test('SP-BPRUN-006・SP-BPRUN-031: 書き込みの操作の全てが、同じ要
   const third = await env.request(OPS.start, { key: 'k-direct', state: first.result.state });
   await env.request(OPS.premise, { state: third.state, run: third.run, kind: 'answer', text: '直接' });
   await env.request(OPS.stageRepeat, { state: third.state, run: third.run, stage: 'goal', n: 1, limitKey: 'untilPass' });
+  await inspectWrites(t, env);
+  for (const [fn, viewpoint] of [['review', 'flow'], ['audit', 'audit']]) {
+    const i = await setupInspect(t);
+    const twice = new TwiceEnv(i.env, seen, violations);
+    const { result } = await runInspect(t, { env: twice, args: inspectArgs(fn, i.target), scenario: { verify: candidateVerifier({ viewpoint }) } });
+    assert.equal(result.stopKind, 'complete', `${fn}: ${result.reason}`);
+  }
   assert.deepEqual([...new Set(violations)], []);
   const missing = WRITE_OPS.filter((op) => !seen.has(op));
   assert.deepEqual(missing, [], `書き込みの操作のうち 2 回届けて照らしていないもの: ${missing.join(', ')}`);

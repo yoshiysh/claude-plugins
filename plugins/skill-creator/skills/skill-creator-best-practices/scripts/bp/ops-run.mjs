@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
-  RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
+  RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
-import { lastGate, progress } from './ops-author.mjs';
+import { lastGate, progress, writtenFiles } from './ops-author.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
@@ -12,7 +12,7 @@ import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } fro
 import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
 import { affectedFindings, rejected } from './ops-ledger.mjs';
-import { freshRecords } from './records.mjs';
+import { freshRecords, strip } from './records.mjs';
 import { locateState, mutate, readState, stateRootOf } from './store.mjs';
 import { summarize } from './summary.mjs';
 import {
@@ -20,9 +20,22 @@ import {
 } from './view.mjs';
 import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
-
 export function nextArgs(view) {
   return { [NEXT_ARGS_KEYS.function]: view.state.function, [NEXT_ARGS_KEYS.state]: view.state.id };
+}
+
+// 4 機能に共通の返り値の欄（SP-BPRUN-032）と完了以外の止まった段（SP-BPAUTHORING-034・SP-BPINSPECTION-024）。機能ごとの欄は呼び出し側が足す。
+export function stopOutcome(view) {
+  const run = currentRun(view);
+  const stop = view.stops.get(run.id);
+  if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
+  const out = { [RESULT_KEYS.stopKind]: stop.kind, [RESULT_KEYS.state]: view.state.id, [RESULT_KEYS.run]: run.id, [RESULT_KEYS.launches]: stop.launches };
+  if (stop.kind !== STOP_KINDS.complete) {
+    out[RESULT_KEYS.reason] = stop.reason;
+    out[RESULT_KEYS.nextArgs] = nextArgs(view);
+    out[RESULT_KEYS.stoppedStage] = stop.stage ? STAGES[stop.stage.stage] : null;
+  }
+  return { stop, out };
 }
 
 function checkLimits(limits) {
@@ -402,8 +415,7 @@ export function stop(ctx, req) {
     // 停止の後に対象が変わってから届いた送り直しも同じ停止として受けるため、指紋を計算し直さず、受け取った要求だけを照らす。
     if (written) {
       if (written.asked !== asked) reject(CODES.staleRun, `停止を書いた後の run の違う停止: ${req.run}`);
-      const { seq, line, ...record } = written;
-      return { records: [record], output };
+      return { records: [strip(written)], output };
     }
     if (!STOP_KINDS_BY_FUNCTION[fn].includes(req.kind)) reject(CODES.input, `${fn} が使わない停止の種類: ${JSON.stringify(req.kind)}`);
     if (req.kind !== STOP_KINDS.complete && (typeof req.reason !== 'string' || req.reason === '')) reject(CODES.input, '完了以外の停止には理由が要る');
@@ -486,4 +498,11 @@ export async function list(ctx, req) {
 export async function summary(ctx, req) {
   const { view } = await readState(ctx, req.state);
   return { summary: summarize(view) };
+}
+
+// 停止と同じ規則で段を導くのは、停止の記録を書けなかった run の理由の段を、停止の記録が書かれたときの段と食い違わせないため（SP-BPRUN-018・SP-BPRUN-027）。
+export async function stopDraft(ctx, req) {
+  const { view } = await readState(ctx, req.state);
+  const live = stoppedStage(view, { includeCurrentRun: true });
+  return { stage: live.stage == null ? null : STAGES[live.stage], writtenFiles: writtenFiles(view) };
 }

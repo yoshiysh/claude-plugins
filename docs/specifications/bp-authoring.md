@@ -492,7 +492,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 
 各仕様項目は、`docs/specifications/bp-run.md` の「検証方法」の手段（CLI の単体テスト・script の模擬実行・静的な照合）か、次の手段で確かめる。項目ごとの手段と測るものは、トレーサビリティ表の検証方法の列に置く。
 
-「fixture の run」の行は、模擬の検証役が対象スキルの中身によらず決めた答えを返しても通るので、検証役の判断の質を確かめない。そこで、新しい入口の公開（`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更）の前に、本物の agent で create と update を 1 回ずつ試走し、その試走で確かめた「fixture の run」の行だけを「完了」にしなければならない（依頼者の裁定）。この試走では、検証役が返り値と作業ファイルに同じ JSON を書けずに `E_TRANSPORT` になった率も測る（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `PAYLOAD_MODE`）。
+「fixture の run」の行は、模擬の検証役が対象スキルの中身によらず決めた答えを返しても通るので、検証役の判断の質を確かめない。そこで、新しい入口の公開（`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更）の前に、本物の agent で create・update・review・audit を 1 回ずつ試走し、その試走で確かめた「fixture の run」の行と、`docs/specifications/bp-inspection.md` の「fixture」の行だけを「完了」にしなければならない（依頼者の裁定。review・audit の行も、模擬の検証役では判断の質を確かめられないので同じ扱いにする）。この試走では、検証役が返り値と作業ファイルに同じ JSON を書けずに `E_TRANSPORT` になった率も測る（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `PAYLOAD_MODE`）。
 
 | 手段 | 中身 |
 |---|---|

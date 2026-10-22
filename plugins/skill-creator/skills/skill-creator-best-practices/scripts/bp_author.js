@@ -26,6 +26,7 @@ const OPS = {
   verdicts: 'verdicts', refutationItems: 'refutation-items', refutation: 'refutation', reviewJudge: 'review-judge',
   vanishMatch: 'vanish-match', report: 'report', kinds: 'kinds', key: 'key', paths: 'paths', pathsRetake: 'paths-retake',
   snapshot: 'snapshot', goalCheck: 'goal-check', filesScan: 'files-scan', units: 'units', gate: 'gate', outcome: 'outcome',
+  targets: 'targets', bundle: 'bundle', applicability: 'applicability', stopDraft: 'stop-draft',
 }
 const STAGE = {
   start: 'start', snapshot: 'snapshot', goal: 'goal', write: 'write', ledger: 'ledger', targets: 'targets', bundle: 'bundle',
@@ -52,9 +53,10 @@ const RESULT_KEYS = {
   stopKind: 'stopKind', reason: 'reason', nextArgs: 'nextArgs', state: 'state', run: 'run', launches: 'launches',
   writtenFiles: 'writtenFiles', unverifiedRoleLimits: 'unverifiedRoleLimits', skill: 'skill', designNote: 'designNote',
   verification: 'verification', findings: 'findings', skip: 'skip', residualRisks: 'residualRisks', receivedGrounds: 'receivedGrounds',
-  excludedCallsites: 'excludedCallsites', unverified: 'unverified', stoppedStage: 'stoppedStage',
+  excludedCallsites: 'excludedCallsites', unverified: 'unverified', stoppedStage: 'stoppedStage', targets: 'targets',
+  applicability: 'applicability', uncheckedViewpoints: 'uncheckedViewpoints', target: 'target', ledger: 'ledger',
 }
-const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance', 'goal', 'contract'] }
+const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance', 'goal', 'contract'], review: ['flow', 'spec'], audit: ['audit'] }
 const GOAL_KEYS = { deliverables: 'deliverables', scope: 'scope', prohibitions: 'prohibitions', numeric: 'numeric', deixis: 'deixis' }
 const SOURCE_KINDS = { request: 'request', answer: 'answer', snapshot: 'snapshot', ground: 'ground' }
 const GROUND_INSTRUCTION = { kindKey: 'kind', kind: '利用者の指示', textKey: 'text' }
@@ -99,6 +101,7 @@ const CONCURRENCY = 3
 const PAYLOAD_MODE = 'file'
 
 // 起動数の勘定（SP-BPCONFORMANCE-022 の式。値の根拠は tests/bp-author-workflow.test.mjs の最悪の経路の計数）。
+// RESERVE は停止の前の書き込みの運搬役 1 と停止の運搬役 1（SP-BPRUN-021 の予約分）。
 const WORST = {
   start: 2,
   resumeDiscard: 1,
@@ -107,7 +110,7 @@ const WORST = {
   write: 3,
   item: LIMITS.attempts * 5,
 }
-const RESERVE = 1
+const RESERVE = 2
 
 function minimalLaunches(fn) {
   // その run で最初に始める fan-out の項目までの最悪を、全ての経路で最も大きいもので取る（再開も同じ値を使う）。最大は目標の固定より前で止まった run の再開。
@@ -325,6 +328,18 @@ function early(kind, reason, nextState) {
   return out
 }
 
+function checkHostArgs(a, nextState) {
+  const skillDir = a[INPUT_KEYS.skillDir]
+  if (typeof skillDir !== 'string' || !skillDir.startsWith('/') || skillDir.includes("'")) {
+    return early(STOP_KINDS.blocked, `skillDir は ' を含まない絶対パスでなければならない: ${JSON.stringify(skillDir)}`, nextState)
+  }
+  // key の形は CLI の開始の操作が照らす（写しを持たない）。ここでは要求の JSON に入れられる文字列であることだけを確かめる。
+  if (typeof a[INPUT_KEYS.key] !== 'string' || a[INPUT_KEYS.key] === '') {
+    return early(STOP_KINDS.blocked, `key は空でない文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState)
+  }
+  return null
+}
+
 function validateArgs(input) {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
   const resume = Object.hasOwn(a, INPUT_KEYS.nextArgs)
@@ -351,13 +366,9 @@ function validateArgs(input) {
       return { stop: early(STOP_KINDS.blocked, `起動数の上限 ${limit} が最小の起動数 ${min} に満たない。上限が 1 件の項目にも足りない`, nextState) }
     }
   }
+  const host = checkHostArgs(a, nextState)
+  if (host) return { stop: host }
   const skillDir = a[INPUT_KEYS.skillDir]
-  if (typeof skillDir !== 'string' || !skillDir.startsWith('/') || skillDir.includes("'")) {
-    return { stop: early(STOP_KINDS.blocked, `skillDir は ' を含まない絶対パスでなければならない: ${JSON.stringify(skillDir)}`, nextState) }
-  }
-  if (typeof a[INPUT_KEYS.key] !== 'string' || !/^[A-Za-z0-9._-]+$/.test(a[INPUT_KEYS.key])) {
-    return { stop: early(STOP_KINDS.blocked, `key は英数字と . _ - だけの文字列でなければならない: ${JSON.stringify(a[INPUT_KEYS.key])}`, nextState) }
-  }
   if (resume) {
     const answer = a[INPUT_KEYS.answer]
     if (answer !== undefined && (typeof answer !== 'string' || answer === '')) return { stop: early(STOP_KINDS.blocked, 'answer は空でない文字列でなければならない', nextState) }
@@ -397,7 +408,8 @@ const viewpointByItem = new Map()
 const memo = { written: [], outside: [], target: input.target ?? null, goalText: null, request: input.request ?? null, answers: [], grounds: [] }
 
 function track(stage, round, status, { append = false } = {}) {
-  const items = status.map((s) => ({ id: s.id, done: s.result, aborted: s.aborted, discarded: s.discarded }))
+  // 列挙の時点で済んでいた項目（前の run の打ち切りを含む）は、この run の全件の打ち切りに数えない（数えると、原因を直した再開が同じ BLOCKED を返し続ける）。
+  const items = status.map((s) => ({ id: s.id, done: s.result, aborted: s.aborted, discarded: s.discarded, prior: s.result || s.aborted || s.discarded }))
   if (append && open && open.stage === stage && open.round === round) {
     for (const it of items) if (!open.items.some((x) => x.id === it.id)) open.items.push(it)
     open.finished = false
@@ -424,20 +436,21 @@ function read(op, body = {}) {
   return request(op, { state: run.state, ...body })
 }
 
+// JSON.stringify の出力は改行を含まない 1 行なので、heredoc の区切りの行（BP_<sum>）が本文の中に現れることは無い。
 function command(req) {
   const text = JSON.stringify(req.body)
   const delim = `BP_${req.body.sum}`
-  if (text.split('\n').includes(delim)) throw new Error(`区切りの文字列が要求の中にある: ${delim}`)
   return `node '${CLI}' ${req.op} <<'${delim}'\n${text}\n${delim}`
 }
 
+// host が投げた失敗は呼び出しごとに返し、BLOCKED の理由に載せる（SP-BPRUN-027。null を返すだけだと理由に失敗の内容が無い）。
 async function launch(role, prompt, { unit, label, schema }) {
   budget.charge(unit)
   run.launched += 1
   try {
-    return await agent(prompt, { ...ROLE_MODELS[role], label, schema })
+    return { out: await agent(prompt, { ...ROLE_MODELS[role], label, schema }), failure: '' }
   } catch (error) {
-    return null
+    return { out: null, failure: `（host の失敗: ${String(error?.message ?? error)}）` }
   }
 }
 
@@ -454,8 +467,8 @@ function carrierPrompt(requests) {
 }
 
 async function carry(requests, { unit, label = 'carrier' } = {}) {
-  const res = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
-  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: '運搬役が結果を返さなかった', responses: [] }
+  const { out: res, failure } = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
+  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: `運搬役が結果を返さなかった${failure}`, responses: [] }
   if (res.responses.length > requests.length) return { failed: true, lost: true, reason: '運搬役が要求より多い応答を返した', responses: [] }
   const parsed = []
   for (const [i, line] of res.responses.entries()) {
@@ -480,7 +493,13 @@ async function carry(requests, { unit, label = 'carrier' } = {}) {
   return { ok: true, responses: parsed }
 }
 
-// fan-out の外の書き込み。失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
+// 応答を失った運搬役は CLI が書いたかが分からないので、同じ要求を 1 回だけ送り直す（書き込みは冪等の鍵で同じ要求を same で受ける）。
+// following はこの後に必ず起動する運搬役の数。それを残して上限を超えないときだけ送り直す（送り直しが後の停止の運搬役の予約分を食うと、上限を超える）。
+async function carryTwice(requests, following = 0) {
+  const first = await carry(requests)
+  return first.lost && (budget.limit === undefined || budget.used() + following < budget.limit) ? carry(requests) : first
+}
+// fan-out の外の書き込みは試行を繰り返す項目を持たないので、失敗も拒否も BLOCKED にする（SP-BPRUN-027・029）。
 async function mustCarry(stage, requests) {
   if (!budget.fits(WORST.carrier)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const r = await carry(requests)
@@ -541,8 +560,9 @@ async function fanOut(stage, entries, worker) {
     await worker(entry)
   })
   if (short) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
-  if (open.items.length && open.items.every((x) => x.aborted)) {
-    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${open.items.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
+  const live = open.items.filter((x) => !x.prior)
+  if (live.length && live.every((x) => x.aborted)) {
+    throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES[stage]}」の全ての項目が試行の上限で打ち切りになった: ${live.map((x) => x.id).join(', ')}`, { cause: STOP_CAUSES.verifiers })
   }
 }
 
@@ -604,8 +624,8 @@ async function goalStage(plan) {
     if (!budget.fits(WORST.goalAttempt)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
     const unit = budget.open(WORST.goalAttempt)
     try {
-      const res = await launch('writer', goalPrompt(plan.goalRound, failures), { unit, label: 'writer:goal', schema: goalSchema() })
-      if (!res) throw new Stop(STOP_KINDS.blocked, '段「目標の固定」の書き手が結果を返さなかった')
+      const { out: res, failure } = await launch('writer', goalPrompt(plan.goalRound, failures), { unit, label: 'writer:goal', schema: goalSchema() })
+      if (!res) throw new Stop(STOP_KINDS.blocked, `段「目標の固定」の書き手が結果を返さなかった${failure}`)
       if (res.missing) {
         throw new Stop(STOP_KINDS.needsInput, `目標を固定する入力が足りない。問い: ${res.missing.map((m) => `${m.question}（${m.reason}）`).join(' / ')}`)
       }
@@ -654,8 +674,8 @@ async function writeStage(number, rewrite) {
   if (!budget.fits(WORST.write)) throw new Stop(STOP_KINDS.iterationLimit, launchReason(), { limitHit: LIMIT_HITS.launch })
   const unit = budget.open(WORST.write)
   try {
-    const res = await launch('writer', writePrompt(number, rewrite), { unit, label: 'writer:write', schema: WRITE_SCHEMA })
-    if (!res) throw new Stop(STOP_KINDS.blocked, '段「書く」の書き手が結果を返さなかった。一覧の外は確かめていない', { scan: number })
+    const { out: res, failure } = await launch('writer', writePrompt(number, rewrite), { unit, label: 'writer:write', schema: WRITE_SCHEMA })
+    if (!res) throw new Stop(STOP_KINDS.blocked, `段「書く」の書き手が結果を返さなかった${failure}。一覧の外は確かめていない`, { scan: number })
     memo.written = res.written
     const entries = res.written.map((w) => ({ path: w.path, iteration: number, action: w.action }))
     // 書いたファイルを先に記録する。結果が拒否されても、書いたファイルが一覧と返り値から漏れないようにするため。
@@ -767,8 +787,8 @@ async function writeResult(stage, req, unit) {
 async function verifyItem({ itemId, viewpoint, attempts, assignment, assets, extra, stage }) {
   return itemLoop(itemId, attempts, async (attempt, unit) => {
     const { prompt, payloadFile } = verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra })
-    const res = await launch('verifier', prompt, { unit, label: `verifier:${viewpoint}${extra ? ':extra' : ''}`, schema: verifySchema(viewpoint) })
-    if (!res) return { reason: '検証役が結果を返さなかった' }
+    const { out: res, failure } = await launch('verifier', prompt, { unit, label: `verifier:${viewpoint}${extra ? ':extra' : ''}`, schema: verifySchema(viewpoint) })
+    if (!res) return { reason: `検証役が結果を返さなかった${failure}` }
     const body = PAYLOAD_MODE === 'file'
       ? { item: itemId, assignment, viewpoint, payloadFile, payloadSum: fnvSum({ result: res }) }
       : { item: itemId, assignment, viewpoint, result: res }
@@ -848,10 +868,10 @@ async function refuteStage(number, keys) {
   const readCmd = command(read(OPS.refutationItems, { stages: judgedStages(number), texts: true }))
   const entries = status.map((s, i) => ({ ...s, key: keys[i] })).filter((s) => !s.result && !s.aborted && !s.discarded)
   await fanOut(STAGE.refute, entries, (e) => itemLoop(e.id, e.attempts, async (attempt, unit) => {
-    const res = await launch('refuter', refuterPrompt(e.key, readCmd), { unit, label: 'refuter', schema: REFUTE_SCHEMA })
+    const { out: res, failure } = await launch('refuter', refuterPrompt(e.key, readCmd), { unit, label: 'refuter', schema: REFUTE_SCHEMA })
     if (!res) {
       // 未反証の記録と試行の失敗は、どちらも本文が起動の前に決まるので 1 回の運搬役で書く（SP-BPFINDINGS-015・SP-BPRUN-028）。
-      return { reason: '反証役が結果を返さなかった', alsoWrite: write(OPS.refutation, { item: e.id, verdict: null, attempt }) }
+      return { reason: `反証役が結果を返さなかった${failure}`, alsoWrite: write(OPS.refutation, { item: e.id, verdict: null, attempt }) }
     }
     return writeResult(STAGE.refute, write(OPS.refutation, { item: e.id, verdict: res.verdict, reason: res.reason }), unit)
   }, STAGE.refute))
@@ -881,7 +901,7 @@ async function vanishStage(retake) {
       `指摘 ID: ${e.key.finding}`,
     ].join('\n')
     // 検証役が結果を返さなかったときは「判定できない」として記録する（SP-BPFINDINGS-037）。
-    const res = await launch('verifier', prompt, { unit, label: 'verifier:vanish', schema: VANISH_SCHEMA })
+    const { out: res } = await launch('verifier', prompt, { unit, label: 'verifier:vanish', schema: VANISH_SCHEMA })
     return writeResult(STAGE.vanish, write(OPS.vanishMatch, { item: e.id, choice: res ? res.choice : null }), unit)
   }, STAGE.vanish))
   await mustCarry(STAGE.vanish, [write(OPS.stageFinish, { stage: STAGE.vanish, round: retake.round })])
@@ -964,10 +984,32 @@ function resumePlan(p) {
   return fresh({ goal: false, start: STAGE.ledger, number: p.number + 1 })
 }
 
+// 段を CLI から読むのは、段の規則を CLI の 1 箇所に置くため（SP-BPRUN-018）。読めないときに推測で埋めると、再開した run で CLI の段と食い違う（SP-BPRUN-027）。
+async function unwrittenStop(stop, carrier, r, roleLimits) {
+  let draft = null
+  if (budget.limit === undefined || budget.used() < budget.limit) {
+    const d = await carry([read(OPS.stopDraft)])
+    if (d.ok) draft = d.responses[0]
+  }
+  const stage = draft === null ? '段は読めなかった。' : draft.stage === null ? '段の記録は無い。' : `段「${draft.stage}」の`
+  return {
+    ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stage}${carrier}の運搬役。止めようとした停止: ${stop.kind}${stop.reason ? `: ${stop.reason}` : ''}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
+    [RESULT_KEYS.run]: run.run,
+    ...(draft?.writtenFiles.length ? { [RESULT_KEYS.writtenFiles]: draft.writtenFiles } : {}),
+    [RESULT_KEYS.launches]: budget.used(),
+    [RESULT_KEYS.unverifiedRoleLimits]: roleLimits,
+  }
+}
+
 async function finish(stop) {
   const kind = stop.kind
-  const reqs = []
-  if (stop.extra.scan) reqs.push(write(OPS.filesScan, { iteration: stop.extra.scan }))
+  const before = stop.extra.scan ? [write(OPS.filesScan, { iteration: stop.extra.scan })] : []
+  // 停止の前の書き込みは停止と別の運搬役で先に書き、応答を確かめてから停止を送る。停止を書いた後の run への書き込みは CLI が拒否するので、
+  // 同じ運搬役に積むと、停止の後に応答を失ったときに送り直せない（SP-BPRUN-027）。
+  if (before.length) {
+    const pre = await carryTwice(before, 1)
+    if (!pre.ok) return unwrittenStop(stop, '停止の前の書き込み', pre, ROLE_WRITE_LIMITS)
+  }
   const body = {
     kind,
     ...(kind === STOP_KINDS.complete ? {} : { reason: stop.reason }),
@@ -976,16 +1018,9 @@ async function finish(stop) {
     launches: budget.used() + 1,
     outside: memo.outside,
   }
-  reqs.push(write(OPS.stop, body), read(OPS.outcome))
-  const r = await carry(reqs)
-  if (!r.ok) {
-    return {
-      ...early(STOP_KINDS.blocked, `停止の記録を書けなかった（${stop.reason ?? kind}）: ${r.reason}`, { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: run.state }),
-      [RESULT_KEYS.run]: run.run,
-      [RESULT_KEYS.launches]: budget.used(),
-      [RESULT_KEYS.unverifiedRoleLimits]: ROLE_WRITE_LIMITS,
-    }
-  }
+  // 停止は受け取った要求の sha256 で同じ停止として受け、返り値は読むだけなので、応答を失っても同じ 2 つの要求を送り直せる。送り直しは停止の記録の起動数に入らない（SP-BPRUN-034）。
+  const r = await carryTwice([write(OPS.stop, body), read(OPS.outcome)])
+  if (!r.ok) return unwrittenStop(stop, '停止', r, ROLE_WRITE_LIMITS)
   return r.responses.at(-1)
 }
 

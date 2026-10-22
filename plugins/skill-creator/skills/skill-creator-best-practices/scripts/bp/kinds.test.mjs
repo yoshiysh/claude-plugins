@@ -20,7 +20,7 @@ test('SP-BPFINDINGS-010: 判定基準の写しから観点ごとの閉集合を�
     'SP-BPCONFORMANCE-017/資産台帳/b1',
     'SP-BPCONFORMANCE-017/資産台帳/b2',
   ]);
-  assert.deepEqual(kinds.flow, kinds.conformance);
+  assert.deepEqual(kinds.flow, kinds.conformance.filter((k) => k.value !== 'SP-BPCONFORMANCE-010/目標の固定/t2/r3'));
   assert.deepEqual(kinds.spec.map((k) => k.value), ['SP-BPCONFORMANCE-027', 'SP-BPCONFORMANCE-033']);
   assert.deepEqual(kinds.goal.map((k) => k.value), ['目標:成果物の未達', '目標:範囲の逸脱']);
   assert.deepEqual(buildKinds(CRITERIA_FIXTURE, 'update').goal.map((k) => k.value), ['目標:成果物の未達', '目標:範囲の逸脱', '目標:修正の根拠の未反映']);

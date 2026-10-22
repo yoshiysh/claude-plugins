@@ -1,6 +1,6 @@
 import { canonical, keyString } from './ids.mjs';
 import { identity } from './records.mjs';
-import { RECORDS, REVIEW_VALUES, STAGE_STATUS, STOP_KINDS, emptyRunBase } from './constants.mjs';
+import { INSPECT_PIPELINE, RECORDS, REVIEW_VALUES, REWRITING_FUNCTIONS, RUN_VIEWPOINTS, STAGE, STAGE_STATUS, STOP_KINDS, emptyRunBase } from './constants.mjs';
 
 function stageKey(stage, round) {
   return `${stage}|${round ?? ''}`;
@@ -38,10 +38,15 @@ export function buildView(lines) {
     findings: new Map(),
     snapshot: null,
     extras: new Map(),
+    targets: [],
+    bundles: [],
+    applicability: null,
+    lineRuns: new Map(),
   };
   let n = 0;
   for (const line of lines) {
     v.lastSeq = line.seq;
+    v.lineRuns.set(line.seq, line.run);
     for (const record of line.records) {
       n += 1;
       const r = { ...record, seq: n, line: line.seq };
@@ -80,7 +85,7 @@ function apply(v, r) {
     }
     case RECORDS.stageEnd: {
       const s = v.stages.get(stageKey(r.stage, r.round));
-      if (s) { s.ended = true; s.endSeq = r.seq; }
+      if (s) { s.ended = true; s.endSeq = r.seq; s.endLine = r.line; }
       break;
     }
     case RECORDS.result: {
@@ -137,6 +142,9 @@ function apply(v, r) {
     }
     case RECORDS.snapshot: v.snapshot = r; break;
     case RECORDS.extra: v.extras.set(r.item, r); break;
+    case RECORDS.target: v.targets.push(r); break;
+    case RECORDS.bundle: v.bundles.push(r); break;
+    case RECORDS.applicability: v.applicability = r; break;
     default: throw new Error(`未知の記録の種類: ${r.t}`);
   }
 }
@@ -200,4 +208,24 @@ export function currentAssets(v) {
 export function lastFingerprint(v, { beforeRun } = {}) {
   const list = beforeRun ? v.fingerprints.filter((f) => f.run !== beforeRun) : v.fingerprints;
   return list.at(-1) ?? null;
+}
+
+// 照らす先の段を終えた行より前の最後の記録だけを有効にする。照らせずに止まった前の run の記録が、直した後の観点の集合に残らないようにするため。
+export function validTarget(v) {
+  const s = stageEntry(v, STAGE.targets, null);
+  if (!s?.ended) return null;
+  return v.targets.filter((t) => t.line <= s.endLine).at(-1) ?? null;
+}
+
+export function runViewpoints(v) {
+  const fn = v.state.function;
+  if (REWRITING_FUNCTIONS.has(fn)) return RUN_VIEWPOINTS[fn];
+  return validTarget(v)?.viewpoints ?? [];
+}
+
+// review・audit の再開が続ける段は、段の並びで最も後ろの始めた段（消えた資産の照合は並びの外）。
+export function reachedStage(v) {
+  const started = INSPECT_PIPELINE.filter((stage) => stageEntry(v, stage, null));
+  const stage = started.at(-1);
+  return stage ? { stage, finished: stageEntry(v, stage, null).ended } : null;
 }

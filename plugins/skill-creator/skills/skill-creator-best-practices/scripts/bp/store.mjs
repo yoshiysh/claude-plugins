@@ -35,6 +35,7 @@ function checkRun(view, run) {
   return view.stops.has(run);
 }
 
+// 停止を書いた後の run への stop 以外の書き込みは、操作の処理（build）を走らせる前に拒否する。走らせると作業ファイルを書くか、内部の失敗の符号が拒否の符号にすり替わる（SP-BPRUN-017）。
 export async function mutate(ctx, req, op, build) {
   const dir = await locateState(ctx, req.state);
   return withLock(dir, async () => {
@@ -42,15 +43,8 @@ export async function mutate(ctx, req, op, build) {
     const view = buildView(lines);
     const stopped = checkRun(view, req.run);
     if (stopped && op !== OPS.stop) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
-    let built;
-    let fresh;
-    try {
-      built = await build(view, dir);
-      fresh = freshRecords(view, built.records ?? []);
-    } catch (error) {
-      if (stopped) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
-      throw error;
-    }
+    const built = await build(view, dir);
+    const fresh = freshRecords(view, built.records ?? []);
     const records = built.records ?? [];
     if (stopped && fresh.length > 0) reject(CODES.staleRun, `停止を書いた後の run の書き込み: ${req.run}`);
     let after = view;

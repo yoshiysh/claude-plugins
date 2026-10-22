@@ -83,6 +83,10 @@ function bulletUnits(sp, section) {
   return units;
 }
 
+export function hasChapter(criteriaDir, chapterMatch) {
+  return parseDoc(read(criteriaDir, 'conformance')).some((n) => n.level === 2 && chapterMatch(n.text));
+}
+
 function specItems(nodes, chapterMatch) {
   const chapter = nodes.find((n) => n.level === 2 && chapterMatch(n.text));
   if (!chapter) internal('判定基準の写しに章が無い');
@@ -150,19 +154,35 @@ export function auditUnits(criteriaDir) {
   return table.rows.map((r) => ({ value: r[0], meaning: r[1] }));
 }
 
+// SP-BPINSPECTION-007 の除く単位の表。「性能・容量」の章の値で判定する行を、review のフローの観点の閉集合から除く（仕様の観点だけが判定する）。
+export function flowExclusions(criteriaDir) {
+  const table = tableAfter(parseDoc(read(criteriaDir, 'inspection')), 'SP-BPINSPECTION-007', '除く単位');
+  const excluded = table.rows.map((r) => ({ unit: r[0].replace(/`/g, ''), by: r[1].replace(/`/g, '') }));
+  const known = new Set(conformanceUnits(criteriaDir).flatMap((s) => s.units.map((u) => u.value)));
+  const stray = excluded.filter((e) => !known.has(e.unit));
+  if (stray.length) internal(`SP-BPINSPECTION-007 の除く単位が判定の単位に無い: ${stray.map((e) => e.unit).join(', ')}`);
+  return excluded;
+}
+
+export function flowUnits(criteriaDir) {
+  const excluded = new Set(flowExclusions(criteriaDir).map((e) => e.unit));
+  return conformanceUnits(criteriaDir).flatMap((s) => s.units).filter((u) => !excluded.has(u.value));
+}
+
+const BUILDERS = Object.freeze({
+  flow: (dir) => flowUnits(dir),
+  conformance: (dir) => conformanceUnits(dir).flatMap((s) => s.units),
+  spec: (dir) => specUnits(dir),
+  goal: (dir, fn) => authoringUnits(dir, '目標', fn),
+  contract: (dir, fn) => authoringUnits(dir, '契約', fn),
+  audit: (dir) => auditUnits(dir),
+});
+
 export function buildKinds(criteriaDir, fn) {
-  return {
-    flow: conformanceUnits(criteriaDir).flatMap((s) => s.units),
-    conformance: conformanceUnits(criteriaDir).flatMap((s) => s.units),
-    spec: specUnits(criteriaDir),
-    goal: authoringUnits(criteriaDir, '目標', fn),
-    contract: authoringUnits(criteriaDir, '契約', fn),
-    audit: auditUnits(criteriaDir),
-  };
+  return Object.fromEntries(Object.entries(BUILDERS).map(([k, build]) => [k, build(criteriaDir, fn)]));
 }
 
 export function kindsFor(criteriaDir, viewpoint, fn) {
-  const all = buildKinds(criteriaDir, fn);
-  if (!Object.hasOwn(all, viewpoint)) internal(`観点が無い: ${viewpoint}`);
-  return all[viewpoint];
+  if (!Object.hasOwn(BUILDERS, viewpoint)) internal(`観点が無い: ${viewpoint}`);
+  return BUILDERS[viewpoint](criteriaDir, fn);
 }

@@ -3,8 +3,8 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
   CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
-  LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, RUN_VIEWPOINTS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
-  SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
+  INSPECTING_FUNCTIONS, LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
+  SOURCE_KINDS, STAGE, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
 import { checkWritableItem, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
@@ -12,16 +12,16 @@ import { resolveCallsites } from './callsites.mjs';
 import { diffFingerprints, homelessReason, targetFiles, targetFingerprint } from './fingerprint.mjs';
 import { KEYS_VERDICT, NO_JUDGEMENT, RECORDED_RUN, findingGate, INCREMENT, iterationDecision, nextStep, unitGate } from './gate.mjs';
 import { canonical, keyString, premiseId, sha256Hex } from './ids.mjs';
-import { checkRepeatNumber, limitState, nextArgs, unverifiedFiles } from './ops-run.mjs';
+import { checkRepeatNumber, limitState, stopOutcome, unverifiedFiles } from './ops-run.mjs';
 import { findingsForResult, judgedOnCurrent, ledgerReport, skipList, unrefutedCandidates } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { applicability, contractKind } from './units.mjs';
-import { currentRun, itemStatus, lastFingerprint, runBase, stageEntry, stoppedStage } from './view.mjs';
+import { currentRun, itemStatus, lastFingerprint, runBase, runViewpoints, stageEntry, stoppedStage } from './view.mjs';
+import { inspectOutcome, inspectProgress } from './ops-inspect.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
-import { identity } from './records.mjs';
+import { identity, strip } from './records.mjs';
 
-const strip = ({ seq, line, ...record }) => record;
 
 function needRewriting(view) {
   if (!REWRITING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `create・update だけの操作: ${view.state.function}`);
@@ -274,7 +274,7 @@ export function computeGate(view, number) {
   const unverifiable = {
     findings: gates.filter((g) => g.result === FINDING_GATE.unverifiable).map((g) => g.finding.id),
     unrefuted: unrefutedCandidates(view).filter((u) => refuteItems.has(u.item)).map((u) => u.key),
-    skip: RUN_VIEWPOINTS[fn].map((vp) => ({ viewpoint: vp, assets: skipList(view, vp).map((a) => a.id) })).filter((s) => s.assets.length > 0),
+    skip: runViewpoints(view).map((vp) => ({ viewpoint: vp, assets: skipList(view, vp).map((a) => a.id) })).filter((s) => s.assets.length > 0),
     aborted: conf ? aborted : ['conformance'],
   };
   const failingUnits = unitResults.filter((u) => u.result === UNIT_RESULTS.nonconform || (u.result === UNIT_RESULTS.unchecked && u.unchecked === UNCHECKED_KINDS.unforced));
@@ -349,7 +349,7 @@ async function skillOf(view) {
     : { files, deleted };
 }
 
-function writtenFiles(view) {
+export function writtenFiles(view) {
   const open = new Set(unverifiedFiles(view).map((f) => f.path));
   const latest = new Map();
   for (const f of view.files) latest.set(f.path, f);
@@ -369,7 +369,7 @@ function verification(view, gateItem) {
     [VERIFICATION_KEYS.units]: g.units,
     [VERIFICATION_KEYS.forcedUnchecked]: g.forced,
     [VERIFICATION_KEYS.basisConstraints]: extraOf(view, g.number, 'goal')?.basisConstraints ?? [],
-    [VERIFICATION_KEYS.ledger]: ledgerReport(view, RUN_VIEWPOINTS[view.state.function]),
+    [VERIFICATION_KEYS.ledger]: ledgerReport(view, runViewpoints(view)),
   };
   if (view.state.function === FUNCTION.update) {
     const changes = extraOf(view, g.number, 'contract')?.contractChanges ?? [];
@@ -384,17 +384,10 @@ function verification(view, gateItem) {
 // SP-BPRUN-032、SP-BPAUTHORING-032〜034: 返り値は状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。
 export async function outcome(ctx, req) {
   const { view } = await readState(ctx, req.state);
-  needRewriting(view);
-  const run = currentRun(view);
-  const stop = view.stops.get(run.id);
-  if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
+  if (INSPECTING_FUNCTIONS.has(view.state.function)) return inspectOutcome(ctx, req);
+  const { stop, out } = stopOutcome(view);
   const complete = stop.kind === STOP_KINDS.complete;
   const gateItem = lastGate(view);
-  const out = { [RESULT_KEYS.stopKind]: stop.kind, [RESULT_KEYS.state]: view.state.id, [RESULT_KEYS.run]: run.id, [RESULT_KEYS.launches]: stop.launches };
-  if (!complete) {
-    out[RESULT_KEYS.reason] = stop.reason;
-    out[RESULT_KEYS.nextArgs] = nextArgs(view);
-  }
   const written = writtenFiles(view);
   if (written.length) out[RESULT_KEYS.writtenFiles] = written;
   out[RESULT_KEYS.unverifiedRoleLimits] = ROLE_WRITE_LIMITS;
@@ -405,7 +398,7 @@ export async function outcome(ctx, req) {
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
   }
   if (complete) {
-    const report = ledgerReport(view, RUN_VIEWPOINTS[view.state.function]);
+    const report = ledgerReport(view, runViewpoints(view));
     out[RESULT_KEYS.skill] = await skillOf(view);
     out[RESULT_KEYS.designNote] = await designNote(view);
     out[RESULT_KEYS.findings] = report.findings;
@@ -415,7 +408,6 @@ export async function outcome(ctx, req) {
     }
   } else {
     out[RESULT_KEYS.unverified] = [...stop.unverified.map((f) => ({ path: f.path, action: f.action })), ...stop.outside.map((p) => ({ path: p, outside: true }))];
-    out[RESULT_KEYS.stoppedStage] = stop.stage ? STAGES[stop.stage.stage] : null;
   }
   return out;
 }
@@ -453,6 +445,7 @@ export function progress(view) {
     groundCount: view.grounds.length,
     answers: view.premises.filter((p) => p.kind === 'answer').map((p) => ({ id: p.id, text: p.text })),
     stopped: stoppedDetail(view),
+    ...(INSPECTING_FUNCTIONS.has(view.state.function) ? { inspection: inspectProgress(view) } : {}),
   };
 }
 
