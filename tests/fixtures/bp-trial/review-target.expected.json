@@ -2,9 +2,18 @@
   "seed": "bp-trial-1",
   "row": 15,
   "forced": [
-    "SP-BPCONFORMANCE-014/権限/t1/r6",
-    "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8",
-    "SP-BPCONFORMANCE-019"
+    {
+      "unit": "SP-BPCONFORMANCE-014/権限/t1/r6",
+      "reason": "SP-BPCONFORMANCE-019"
+    },
+    {
+      "unit": "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8",
+      "reason": "SP-BPCONFORMANCE-034"
+    },
+    {
+      "unit": "SP-BPCONFORMANCE-019",
+      "reason": "SP-BPCONFORMANCE-019"
+    }
   ],
   "injections": [
     {

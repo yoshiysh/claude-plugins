@@ -10,8 +10,9 @@ const SKILL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-bes
 const DOCS = 'docs';
 const ROOT_DOC = 'specifications/bp-conformance.md';
 
-// 前が URL の一部（/ = ? & % # : ~ +）の docs/ は外部のページで、リポジトリの文書ではない。
-const DOCS_PATH = /(?<![\w./=?&%#:~+-])docs\/[\w./*-]*/g;
+const DOCS_PATH = /(?<![\w./-])docs\/[\w./*-]*/g;
+// URL の中の docs/ は外部のページで、リポジトリの文書ではない。URL を先に除き、前置きの字で見分けない（見分けると「正本:docs/…」を落とす）。
+const URL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s)>"'`]+/gi;
 const INLINE_LINK = /\]\(\s*(<[^>]*>|[^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
 const LINK_DEFINITION = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
 const HTML_LINK = /\bhref\s*=\s*"([^"]+)"/g;
@@ -55,7 +56,8 @@ function linkTarget(raw) {
 
 function references(text, fromRel, names) {
   const out = [];
-  for (const m of text.matchAll(DOCS_PATH)) {
+  const plain = text.replace(URL, ' ');
+  for (const m of plain.matchAll(DOCS_PATH)) {
     const token = m[0].replace(/\.+$/, '');
     const unparsed = token.includes('*') || token.endsWith('/');
     out.push({ token, rel: unparsed ? null : token.slice(DOCS.length + 1), unparsed });
@@ -66,7 +68,7 @@ function references(text, fromRel, names) {
     const rel = path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), target));
     out.push({ token, rel: inside(rel) ? rel : null, unparsed: target.includes('*') || target.endsWith('/') });
   }
-  for (const m of text.matchAll(BARE_NAME)) {
+  for (const m of plain.matchAll(BARE_NAME)) {
     const hits = names.get(m[1]) ?? [];
     out.push({ token: m[1], rel: hits.length === 1 ? hits[0] : null, unparsed: false });
   }
@@ -111,10 +113,13 @@ function lstatOrNull(p) {
   }
 }
 
-// 写しの置き場までの途中に symlink があると、配布先（Codex は symlink を落とす）で写しが空になる。リポジトリからの相対パスで返す。
+// 写しの置き場までの途中に symlink か通常のファイルがあると、配布先（Codex は symlink を落とす）で写しが空になる。リポジトリからの相対パスで返す。
 function linkedAncestors(root) {
   const parts = path.relative(root, copyRoot(root)).split(path.sep);
-  return parts.map((_, i) => parts.slice(0, i + 1).join('/')).filter((rel) => lstatOrNull(path.join(root, rel))?.isSymbolicLink());
+  return parts.map((_, i) => parts.slice(0, i + 1).join('/')).filter((rel) => {
+    const st = lstatOrNull(path.join(root, rel));
+    return st !== null && !st.isDirectory();
+  });
 }
 
 // 置き場の中を辿る。symlink は辿らずに別に返す（辿ると、symlink の先の正本を写しと読む）。
@@ -187,7 +192,7 @@ function write(root) {
   const base = copyRoot(root);
   const above = linkedAncestors(root).filter((rel) => path.join(root, rel) !== base);
   if (above.length) return above.map((rel) => ({ kind: 'symlink', path: rel }));
-  if (lstatOrNull(base)?.isSymbolicLink()) unlinkSync(base);
+  if (lstatOrNull(base) && !lstatOrNull(base).isDirectory()) unlinkSync(base);
   const wanted = new Set(files);
   const entries = copyEntries(root);
   for (const rel of entries.links) unlinkSync(path.join(base, rel));

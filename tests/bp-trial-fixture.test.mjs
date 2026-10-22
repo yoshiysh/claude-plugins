@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { assetTexts } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/assets.mjs';
 import { specUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { applicability } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
-import { CRITERIA, EXPECTED_FILE, FIXTURE_DIR, MEASURES, belongs, forcedBy, inject, injectable, main, pick, read, render } from '../tools/read-bp-trial.mjs';
+import { CRITERIA, EXPECTED_FILE, FIXTURE_DIR, MEASURES, belongs, forcedBy, forcedReasons, inject, injectable, main, pick, read, render } from '../tools/read-bp-trial.mjs';
 import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -97,7 +97,8 @@ test('検証方法（bp-conformance）: 試走の表で review の試走が測�
 });
 
 test('検証方法（bp-conformance）: 正解表の強いられた未検査は題材の行の強いられた未検査の全てで、フローの観点の仕込みごとに、選ばなかった単位を確かめていない単位として持つ', () => {
-  assert.deepEqual(EXPECTED.forced, ROW.forced);
+  assert.deepEqual(EXPECTED.forced, forcedReasons(CRITERIA, EXPECTED.row));
+  assert.deepEqual(EXPECTED.forced.map((f) => f.unit), ROW.forced);
   for (const i of EXPECTED.injections) {
     if (i.viewpoint !== 'flow') assert.equal(i.unseen, undefined, i.unit);
     else assert.deepEqual(i.unseen, injectable(CRITERIA, EXPECTED.row, spOf(i.unit)).filter((u) => u !== i.unit), i.unit);
@@ -112,7 +113,7 @@ function finding(i, extra = {}) {
 const CLEAN = { stopKind: 'complete', findings: [], applicability: { row: EXPECTED.row } };
 
 function injectedResult(findings, extra = {}) {
-  return { stopKind: 'complete', findings, applicability: { row: EXPECTED.row }, uncheckedViewpoints: EXPECTED.forced.map((value) => ({ viewpoint: 'flow', scope: 'unit', value, reason: 'x' })), ...extra };
+  return { stopKind: 'complete', findings, applicability: { row: EXPECTED.row }, uncheckedViewpoints: EXPECTED.forced.map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason })), ...extra };
 }
 
 const ALL = () => EXPECTED.injections.map((i) => finding(i));
@@ -130,7 +131,7 @@ test('検証方法（bp-conformance）: 試走の読み取りが、全て当た�
   assert.ok(all.rows.some((r) => r.status === '完了') && all.rows.some((r) => r.unmeasured.length && r.status === '作成中'));
 });
 
-test('検証方法（bp-conformance）: 基準の run の完了・指摘 0・行への到達、仕込んだ版の完了・行への到達のどれかが欠けるか、干渉があれば、全ての行を作成中にする', () => {
+test('検証方法（bp-conformance）: 基準の run の完了・指摘 0・行への到達、仕込んだ版の完了・行への到達、返り値の findings と未検査の観点の欄のどれかが欠けるか、干渉があれば、全ての行を作成中にする', () => {
   const [first, ...rest] = EXPECTED.injections;
   const cases = {
     基準の指摘: { baseline: { ...CLEAN, findings: [finding(first)] } },
@@ -139,6 +140,9 @@ test('検証方法（bp-conformance）: 基準の run の完了・指摘 0・行
     仕込みの未完了: { injected: injectedResult(ALL(), { stopKind: 'blocked' }) },
     仕込みの行違い: { injected: injectedResult(ALL(), { applicability: { row: EXPECTED.row - 1 } }) },
     仕込みの行無し: { injected: injectedResult(ALL(), { applicability: undefined }) },
+    '基準の findings の欠け': { baseline: { stopKind: 'complete', applicability: { row: EXPECTED.row } } },
+    '仕込みの findings の欠け': { injected: injectedResult(undefined) },
+    仕込みの未検査の観点の欠け: { injected: injectedResult(ALL(), { uncheckedViewpoints: undefined }) },
     干渉: { injected: injectedResult([finding(first, { kind: rest.find((i) => i.viewpoint === first.viewpoint).unit }), ...rest.map((i) => finding(i))]) },
   };
   for (const [label, c] of Object.entries(cases)) {
@@ -148,7 +152,7 @@ test('検証方法（bp-conformance）: 基準の run の完了・指摘 0・行
   }
 });
 
-test('検証方法（bp-conformance）: 行の仕様項目の偽陽性・外れ・強いられた未検査の欠けは、その行だけを作成中にする', () => {
+test('検証方法（bp-conformance）: 行の仕様項目の偽陽性（どの指摘かを出す）・外れ・強いられた未検査の欠けと範囲や理由の違いは、その行だけを作成中にする', () => {
   const [first, ...rest] = EXPECTED.injections;
   const ownRows = (unit) => EXPECTED.rows.filter((r) => Object.keys(r.measures).some((sp) => belongs(unit, sp))).map((r) => r.req);
   const missed = read({ baseline: CLEAN, injected: injectedResult(rest.map((i) => finding(i))), expected: EXPECTED });
@@ -160,14 +164,19 @@ test('検証方法（bp-conformance）: 行の仕様項目の偽陽性・外れ�
   const stray = read({ baseline: CLEAN, injected: injectedResult([...ALL(), elsewhere]), expected: EXPECTED });
   assert.equal(stray.valid, true);
   for (const r of stray.rows) {
-    if (ownRows(spec.unit).includes(r.req)) assert.equal(r.status, '作成中', r.req);
+    if (!ownRows(spec.unit).includes(r.req)) continue;
+    assert.equal(r.status, '作成中', r.req);
+    assert.ok(r.falsePositives.some((f) => f.includes(spec.unit) && f.includes('SKILL.md#trace-cause')), `${r.req}: どの偽陽性かを出さない`);
   }
   assert.ok(stray.rows.some((r) => r.status === '完了'), '偽陽性の無い行は完了のまま');
 
-  const permission = EXPECTED.forced.find((u) => u.startsWith('SP-BPCONFORMANCE-014/'));
-  const noForced = injectedResult(ALL(), { uncheckedViewpoints: EXPECTED.forced.filter((u) => u !== permission).map((value) => ({ viewpoint: 'flow', scope: 'unit', value })) });
-  const r = read({ baseline: CLEAN, injected: noForced, expected: EXPECTED });
-  assert.equal(r.rows.find((x) => x.req === 'PR-BPDESIGNEDSKILL-010').status, '作成中');
+  const permission = EXPECTED.forced.find((f) => f.unit.startsWith('SP-BPCONFORMANCE-014/'));
+  const listed = (edit) => injectedResult(ALL(), { uncheckedViewpoints: EXPECTED.forced.map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason, ...(f === permission ? edit : {}) })) });
+  for (const [label, edit] of [['欠け', null], ['範囲の違い', { scope: 'whole' }], ['理由の違い', { reason: 'SP-BPCONFORMANCE-034' }]]) {
+    const injected = edit === null ? injectedResult(ALL(), { uncheckedViewpoints: EXPECTED.forced.filter((f) => f !== permission).map((f) => ({ viewpoint: 'flow', scope: 'unit', value: f.unit, reason: f.reason })) }) : listed(edit);
+    const r = read({ baseline: CLEAN, injected, expected: EXPECTED });
+    assert.equal(r.rows.find((x) => x.req === 'PR-BPDESIGNEDSKILL-010').status, '作成中', label);
+  }
 });
 
 test('検証方法（bp-conformance）: 読み取りの出力が、確かめていない単位を仕込みごとに宣言し、tool の入口が使い方の誤りを 2 で返す', async (t) => {

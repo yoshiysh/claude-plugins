@@ -10,15 +10,16 @@ export function cells(line) {
   return line.split('|').slice(1, -1).map((c) => c.trim());
 }
 
-// 見出しの行の次の区切りの行を飛ばし、表の終わり（| で始まらない行）までを返す。表が無ければ落とす（黙って 0 行と読まない）。
+// 表の途中に空行などが挟まると、残りの行が全ての検査から黙って消えるので、表の後に表の行が続けば落とす。
 export function tableAfter(text, header) {
   const lines = text.split('\n');
   const at = lines.indexOf(header);
   if (at < 0) throw new Error(`表が無い: ${header}`);
   const rows = [];
-  for (const l of lines.slice(at + 2)) {
-    if (!l.startsWith('|')) break;
-    rows.push(cells(l));
+  let i = at + 2;
+  for (; i < lines.length && lines[i].startsWith('|'); i += 1) rows.push(cells(lines[i]));
+  for (; i < lines.length && !lines[i].startsWith('#'); i += 1) {
+    if (lines[i].startsWith('|')) throw new Error(`表の途中に表の行でない行がある: ${header}（${i + 1} 行目の前）`);
   }
   return rows;
 }

@@ -38,6 +38,13 @@ export function forcedBy(criteriaDir, row, sp) {
   return r.forced.filter((u) => (always.get(u) ?? turnForm.get(u)) === sp);
 }
 
+// 未検査の観点の理由は強いられた未検査の出所の仕様項目 ID（SP-BPINSPECTION-025）なので、読み取りは理由まで照らす。
+export function forcedReasons(criteriaDir, row) {
+  const r = applicability(criteriaDir).find((x) => x.row === row);
+  const { always, turnForm } = forcedSources(criteriaDir);
+  return r.forced.map((unit) => ({ unit, reason: always.get(unit) ?? turnForm.get(unit) }));
+}
+
 export function inject(expected, outDir, fixtureDir = FIXTURE_DIR) {
   cpSync(fixtureDir, outDir, { recursive: true });
   for (const i of expected.injections) {
@@ -47,6 +54,10 @@ export function inject(expected, outDir, fixtureDir = FIXTURE_DIR) {
     if (at < 0 || text.indexOf(i.from, at + 1) >= 0) throw new Error(`置き換え元がちょうど 1 回現れない: ${i.file} ${JSON.stringify(i.from)}`);
     writeFileSync(file, text.slice(0, at) + i.to + text.slice(at + i.from.length));
   }
+}
+
+function describe(f) {
+  return `${f.id ?? ''} ${f.viewpoint} ${f.kind} ${f.assets.map((a) => `${a.path}${a.loc?.k === 'sec' ? `#${a.loc.h.map((x) => x[1]).join('/')}` : ''}`).join(',')}`.trim();
 }
 
 function open(result) {
@@ -63,18 +74,24 @@ function matches(f, i) {
   return f.viewpoint === i.viewpoint && f.kind === i.unit && f.assets.some((a) => sameAsset(a, i));
 }
 
-// 次のどれかがあると全ての行の読みが崩れる（bp-conformance の「検証方法」）: 基準の run が完了していない・指摘がある・題材の行に着かない、
-// 仕込んだ版の run が完了していない・題材の行に着かない、仕込んだ違反が別の単位の種類で出た（干渉）。
+// 読みが崩れる条件と行ごとの規則は bp-conformance の「検証方法」を正とする。
 export function read({ baseline, injected, expected }) {
   const findings = open(injected);
+  const shape = [
+    ...(Array.isArray(baseline.findings) ? [] : ['基準の run の返り値に findings が無い']),
+    ...(Array.isArray(injected.findings) ? [] : ['仕込んだ版の返り値に findings が無い']),
+    ...(Array.isArray(injected.uncheckedViewpoints) ? [] : ['仕込んだ版の返り値に uncheckedViewpoints が無い']),
+  ];
   const hits = expected.injections.map((i) => findings.some((f) => matches(f, i)));
   const falsePositives = findings.filter((f) => !expected.injections.some((i) => matches(f, i)));
   const interference = falsePositives.filter((f) => expected.injections.some((i) => f.viewpoint === i.viewpoint && f.assets.some((a) => sameAsset(a, i))));
-  const unchecked = new Set((injected.uncheckedViewpoints ?? []).map((u) => `${u.viewpoint}|${u.value}`));
+  const unchecked = new Set((injected.uncheckedViewpoints ?? []).map((u) => `${u.viewpoint}|${u.scope}|${u.value}|${u.reason}`));
+  const reasonOf = new Map(expected.forced.map((f) => [f.unit, f.reason]));
   const reachedRow = injected.applicability?.row ?? null;
   const baselineRow = baseline.applicability?.row ?? null;
   const baselineFindings = open(baseline).length;
   const broken = [
+    ...shape,
     ...(baseline.stopKind === 'complete' ? [] : [`基準の run が完了していない（${baseline.stopKind ?? '停止の種類が無い'}）`]),
     ...(baselineFindings === 0 ? [] : [`基準の run に open の指摘が ${baselineFindings} 件ある`]),
     ...(baselineRow === expected.row ? [] : [`基準の run が判定表の ${expected.row} 行目に着かない（${baselineRow}）`]),
@@ -82,8 +99,9 @@ export function read({ baseline, injected, expected }) {
     ...(reachedRow === expected.row ? [] : [`仕込んだ版の run が判定表の ${expected.row} 行目に着かない（${reachedRow}）`]),
     ...(interference.length === 0 ? [] : [`干渉 ${interference.length} 件`]),
   ];
-  const forcedSeen = (units) => units.every((u) => unchecked.has(`flow|${u}`));
-  const whole = falsePositives.length === 0 && hits.every(Boolean) && forcedSeen(expected.forced);
+  const forcedSeen = (units) => units.every((u) => unchecked.has(`flow|unit|${u}|${reasonOf.get(u)}`));
+  const forcedUnits = expected.forced.map((f) => f.unit);
+  const whole = falsePositives.length === 0 && hits.every(Boolean) && forcedSeen(forcedUnits);
   const rows = expected.rows.map((row) => {
     const sps = Object.keys(row.measures);
     const parts = Object.entries(row.measures).map(([sp, m]) => {
@@ -93,16 +111,15 @@ export function read({ baseline, injected, expected }) {
       const own = expected.injections.map((i, n) => [i, hits[n]]).filter(([i]) => belongs(i.unit, sp));
       return { sp, ok: own.length > 0 && own.every(([, h]) => h), note: own.map(([i, h]) => `${i.unit}:${h ? '当たり' : '外れ'}`).join(' ') };
     });
-    // 行の仕様項目の強いられた未検査が未検査に載らないか、行の仕様項目の偽陽性があれば、仕込みが当たっても行を測れていない。
-    const ownForced = expected.forced.filter((u) => sps.some((sp) => belongs(u, sp)));
+    const ownForced = forcedUnits.filter((u) => sps.some((sp) => belongs(u, sp)));
     if (ownForced.length) parts.push({ sp: '強いられた未検査', ok: forcedSeen(ownForced), note: ownForced.join(' ') });
     const ownFalse = falsePositives.filter((f) => sps.some((sp) => belongs(f.kind, sp)));
     const unmeasured = row.unmeasured ?? [];
     const status = broken.length || unmeasured.length || ownFalse.length || parts.some((p) => p.ok === null) || !parts.every((p) => p.ok) ? '作成中' : '完了';
-    return { req: row.req, spec: row.spec, parts, unmeasured, falsePositives: ownFalse.length, status };
+    return { req: row.req, spec: row.spec, parts, unmeasured, falsePositives: ownFalse.map(describe), status };
   });
   const unseen = expected.injections.filter((i) => i.unseen?.length).map((i) => ({ sp: i.unit.split('/')[0], picked: i.unit, units: i.unseen }));
-  return { baselineFindings, reachedRow, broken, valid: broken.length === 0, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map((f) => `${f.viewpoint} ${f.kind} ${f.assets.map((a) => a.path).join(',')}`), interference: interference.length, rows, unseen };
+  return { baselineFindings, reachedRow, broken, valid: broken.length === 0, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map(describe), interference: interference.length, rows, unseen };
 }
 
 export function render(r) {
@@ -118,7 +135,7 @@ export function render(r) {
     ...r.rows.map((x) => `| ${x.req} | ${x.spec} | ${[
       ...x.parts.map((p) => `${p.sp}: ${p.ok === null ? `測らない（${p.note}）` : `${p.ok ? '当たり' : '外れ'}（${p.note}）`}`),
       ...x.unmeasured.map((u) => `試走で測らない句: ${u.clause}（${u.reason}）`),
-      ...(x.falsePositives ? [`この行の仕様項目の偽陽性: ${x.falsePositives} 件`] : []),
+      ...x.falsePositives.map((f) => `この行の仕様項目の偽陽性: ${f}`),
     ].join('<br>')} | ${x.status} |`),
     '',
     '確かめていない単位（原則の表の単位から種で 1 つだけ仕込み、残りは仕込んでいない）:',

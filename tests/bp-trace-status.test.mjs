@@ -33,7 +33,7 @@ function titleIds(titles) {
   return ids;
 }
 
-// 表の行を表として読む（行の字面の正規表現で拾うと、書式の崩れた行が検査から黙って消える）。
+// 行の字面の正規表現で拾うと、書式の崩れた行が検査から黙って消える。
 function traceRows(file) {
   return tableAfter(readFileSync(path.join(SPECS, file), 'utf8'), TRACE_HEADER).map(([req, spec, method, status, ...rest]) => (
     { file, req, spec, ids: (spec ?? '').split(',').map((x) => x.trim()), method, status, extra: rest.length }

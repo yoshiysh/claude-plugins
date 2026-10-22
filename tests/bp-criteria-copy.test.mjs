@@ -106,6 +106,21 @@ test('SP-BPRUN-036: 変異の無い作業コピーでは sync-bp-criteria --chec
   assert.deepEqual(tool(await tmpRoot(t), '--check'), { code: 0, lines: [] });
 });
 
+test('SP-BPRUN-036: 空白の無い前置き（「正本:」）の後の docs/ のパスは参照に数え、写しが無ければ落とす', async (t) => {
+  const root = await tmpRoot(t);
+  await editConformance(root, '正本:docs/specifications/bp-zz.md');
+  assert.deepEqual(tool(root, '--check'), { code: 1, lines: [`unclosed ${CONFORMANCE} docs/specifications/bp-zz.md`] });
+});
+
+test('SP-BPRUN-036: 写しの置き場が通常のファイルのとき、--check は symlink を返し、書き込みはディレクトリに作り直す', async (t) => {
+  const root = await tmpRoot(t);
+  await fs.rm(path.join(root, COPY), { recursive: true });
+  await fs.writeFile(path.join(root, COPY), 'x');
+  assert.deepEqual(tool(root, '--check'), { code: 1, lines: [`symlink ${COPY}`] });
+  assert.deepEqual(tool(root), { code: 0, lines: [] });
+  assert.deepEqual(tool(root, '--check'), { code: 0, lines: [] });
+});
+
 test('SP-BPRUN-036: URL の問い合わせの中の docs/ は参照に数えない', async (t) => {
   const root = await tmpRoot(t);
   await editConformance(root, 'https://x.example/?p=docs/specifications/bp-zz.md');
