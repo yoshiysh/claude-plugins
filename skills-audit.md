@@ -110,7 +110,7 @@ re_self = re.compile(r"\.claude/skills/" + re.escape(name) + r"/[\w.\-]")
 
 - `worktree-sync`（`env_build` 2 件）— `make venv && make install-dev` は `.claude/worktree-sync.json` に**リポジトリ自身が宣言する例**として本文に書かれているもので、スキルが実行するコマンドではない。
 - `manage-marketplace-plugin`（`external_script` 19 件）— 自身の `scripts/*.py` をフロー説明の中で名指ししているもの。このスキルの scripts は同名で同梱されている。
-- `skill-creator-best-practices`（`env_build` のうち判定基準の写しの分）— `references/criteria/specifications/bp-run.md` の SP-BPRUN-036 と「検証方法」が `make test`・`node tools/sync-bp-criteria.mjs` を名指す散文。写しは `docs/` の正本の逐語で、スキルが実行するコマンドではない。件数は正本の書き方で変わる（写しを置いた時点で 4 件）。`check_portability.py` に写しの除外は足さない（写しの散文を除くと本物の `make` の指示も見逃す）。
+- `skill-creator-best-practices`（`env_build` のうち判定基準の写しの分）— `references/criteria/specifications/bp-run.md` の SP-BPRUN-036 と「検証方法」が `make test`・`node tools/sync-bp-criteria.mjs` を名指す散文。写しは `docs/` の正本の逐語で、スキルが実行するコマンドではない。件数は正本の書き方で変わる（SP-BPRUN-036 の書き戻しの後で 4 件）。`check_portability.py` に写しの除外は足さない（写しの散文を除くと本物の `make` の指示も見逃す）。
 - 同じ写しで `make references` が落ちたら、正本に `.agents/skills/<実名>/<パス>` か、`docs/` の中で解けない相対リンクを書いている。写しでなく正本の書き方を直す（`check_references.py` に写しの除外を足すと、写しの相対リンクの壊れも見なくなる）。
 
 ### 4.2 description の [What] + [When]（優先度: 中）

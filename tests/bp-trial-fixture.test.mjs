@@ -84,7 +84,7 @@ test('検証方法（bp-conformance）: 置き換え元が仕込む前の版に�
   assert.throws(() => inject(twice, again), /ちょうど 1 回現れない/);
 });
 
-test('検証方法（bp-conformance）: 試走の表で review の試走が測る行の全ての仕様項目 ID に、仕込み・強いられた未検査・run 全体・測らないのどれかの読み方があり、強いられた未検査は写しの出所と一致する', () => {
+test('検証方法（bp-conformance）: 試走の表で review の試走が測る行の全ての仕様項目 ID に、仕込み・強いられた未検査・run 全体・測らないのどれかの読み方があり、強いられた未検査は写しの出所と一致し、決定的なテストで測る句はそのテストがある', () => {
   assert.deepEqual(EXPECTED.rows.map((r) => `${r.req}|${r.spec}`), reviewTrialRows().map((r) => `${r.req}|${r.spec}`));
   for (const row of EXPECTED.rows) {
     assert.deepEqual(Object.keys(row.measures), row.spec.split(',').map((s) => s.trim()), row.req);
@@ -94,6 +94,11 @@ test('検証方法（bp-conformance）: 試走の表で review の試走が測�
       if (m.by === MEASURES.forced) assert.deepEqual(m.units, forcedBy(CRITERIA, EXPECTED.row, sp), `${row.req} ${sp}`);
       if (m.by === MEASURES.forced) assert.ok(!EXPECTED.injections.some((i) => belongs(i.unit, sp) || m.units.includes(i.unit)), `${row.req}: 強いられた未検査に仕込んだ ${sp}`);
       if (m.by === MEASURES.none) assert.ok(m.reason, `${row.req} ${sp}`);
+    }
+    for (const u of row.unmeasured ?? []) assert.ok(u.clause && u.reason, row.req);
+    for (const d of row.deterministic ?? []) {
+      const titles = [...readFileSync(path.join(ROOT, d.test), 'utf8').matchAll(/\btest\(\s*([`'"])((?:(?!\1).)*)\1/g)].map((m) => m[2]);
+      assert.ok(titles.some((t) => t.includes(d.id)), `${row.req}: ${d.test} に ${d.id} のテストが無い（${d.clause}）`);
     }
   }
 });
@@ -108,15 +113,17 @@ function injectedResult(findings) {
   return { findings, applicability: { row: EXPECTED.row }, uncheckedViewpoints: forced.map((value) => ({ viewpoint: 'flow', scope: 'unit', value, reason: 'x' })) };
 }
 
-test('検証方法（bp-conformance）: 試走の読み取りが、全て当たった run では測らない句の無い行だけを完了にし、基準の run の指摘か干渉があれば全ての行を作成中にする', () => {
+test('検証方法（bp-conformance）: 試走の読み取りが、全て当たった run では試走で測らない句の無い行だけを完了にし、基準の run の指摘か干渉があれば全ての行を作成中にする', () => {
   const clean = { findings: [] };
   const all = read({ baseline: clean, injected: injectedResult(EXPECTED.injections.map((i) => finding(i))), expected: EXPECTED });
   assert.equal(all.valid, true);
   assert.equal(all.hits, EXPECTED.injections.length);
   for (const r of all.rows) {
-    const unmeasured = Object.values(EXPECTED.rows.find((x) => x.req === r.req).measures).some((m) => m.by === MEASURES.none);
+    const row = EXPECTED.rows.find((x) => x.req === r.req);
+    const unmeasured = Object.values(row.measures).some((m) => m.by === MEASURES.none) || (row.unmeasured ?? []).length > 0;
     assert.equal(r.status, unmeasured ? '作成中' : '完了', r.req);
   }
+  assert.ok(all.rows.some((r) => r.status === '完了') && all.rows.some((r) => r.unmeasured.length && r.status === '作成中'));
 
   const [first, ...rest] = EXPECTED.injections;
   const swapped = read({ baseline: clean, injected: injectedResult([finding(first, { kind: rest.find((i) => i.viewpoint === first.viewpoint).unit }), ...rest.map((i) => finding(i))]), expected: EXPECTED });

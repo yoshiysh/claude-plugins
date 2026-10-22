@@ -286,10 +286,10 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPDESIGNEDSKILL-018 | SP-BPCONFORMANCE-009 | 無し（fan-out の無い対象スキルを要し、review の試走の題材は fan-out を持つ） |
 | PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
 | PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
-| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027 | review の試走（原則の行を 1 つ選んで違反を仕込み、同時実行の定数を変える） |
-| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035 | review の試走（原則の行を 1 つ選んで違反を仕込み、役のモデルか effort を変える） |
+| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027 | review の試走（原則の行を 1 つ選んで違反を仕込み、同時実行の定数を変える）。runtime の設定で守る形と script で守る形を比べる句は、題材が script の形だけなので測れず、行は「作成中」に留まる |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035 | review の試走（原則の行を 1 つ選んで違反を仕込み、役のモデルか effort を変える）。`agent()` の model・effort の有無の句は、題材に無い呼び出しを仕込んでいないので測れず、行は「作成中」に留まる |
 | PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034 | review の試走（原則の行を 1 つ選んで違反を仕込み、周と試行の上限の定数を変える） |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034 | review の試走（原則の行を 1 つ選んで違反を仕込み、周と試行の上限の定数を変える）。上限に達する fixture での停止の句は、review が題材を走らせないので測れず、行は「作成中」に留まる |
 | PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | review の試走（原則の行を 1 つ選んで違反を仕込み、要約の上限の定数を変える） |
 | PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
 | PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無し（配布先ごとの試走を要し、試走は Claude Code の 1 つだけ） |

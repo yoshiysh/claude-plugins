@@ -177,7 +177,14 @@
         "SP-BPCONFORMANCE-006": {
           "by": "injection"
         }
-      }
+      },
+      "deterministic": [
+        {
+          "clause": "ターンごとの指揮で未検査",
+          "test": "tests/bp-units-real-docs.test.mjs",
+          "id": "SP-BPCONFORMANCE-006"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-004",
@@ -222,7 +229,13 @@
         "SP-BPCONFORMANCE-027": {
           "by": "injection"
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "同時実行の上限を runtime の設定で守る fixture と script で守る fixture が同じ判定の結果になる",
+          "reason": "題材は script で守る形だけを持つ"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-009",
@@ -234,7 +247,20 @@
         "SP-BPCONFORMANCE-035": {
           "by": "injection"
         }
-      }
+      },
+      "deterministic": [
+        {
+          "clause": "best-practices 自身の script の定数が SP-BPCONFORMANCE-035 の表と一致する",
+          "test": "tests/bp-spelling.test.mjs",
+          "id": "SP-BPCONFORMANCE-035"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "agent() の model・effort の有無の決定的照合",
+          "reason": "題材の全ての agent() が model と effort を持ち、無い呼び出しを仕込んでいない（SP-BPCONFORMANCE-035 の単位は値の違反に使った）"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-010",
@@ -267,7 +293,13 @@
             "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8"
           ]
         }
-      }
+      },
+      "unmeasured": [
+        {
+          "clause": "上限に達する fixture での停止",
+          "reason": "review の試走は題材の script を読むだけで走らせない"
+        }
+      ]
     },
     {
       "req": "PR-BPDESIGNEDSKILL-012",

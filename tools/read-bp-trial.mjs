@@ -84,8 +84,10 @@ export function read({ baseline, injected, expected }) {
       const own = expected.injections.map((i, n) => [i, hits[n]]).filter(([i]) => belongs(i.unit, sp));
       return { sp, ok: own.length > 0 && own.every(([, h]) => h), note: own.map(([i, h]) => `${i.unit}:${h ? '当たり' : '外れ'}`).join(' ') };
     });
-    const status = !valid || parts.some((p) => p.ok === null) ? '作成中' : parts.every((p) => p.ok) ? '完了' : '作成中';
-    return { req: row.req, spec: row.spec, parts, status };
+    // 試走で測らない句が 1 つでもある行は、仕込んだ違反が全て当たっても完了にしない（行は句ごとに測って初めて完了）。
+    const unmeasured = row.unmeasured ?? [];
+    const status = !valid || unmeasured.length || parts.some((p) => p.ok === null) ? '作成中' : parts.every((p) => p.ok) ? '完了' : '作成中';
+    return { req: row.req, spec: row.spec, parts, unmeasured, status };
   });
   return { baselineFindings, reachedRow, valid, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map((f) => `${f.viewpoint} ${f.kind} ${f.assets.map((a) => a.path).join(',')}`), interference: interference.length, rows };
 }
@@ -100,7 +102,7 @@ export function render(r) {
     '',
     '| 要求 ID | 仕様項目 ID | 句ごとの読み | 判定 |',
     '|---|---|---|---|',
-    ...r.rows.map((x) => `| ${x.req} | ${x.spec} | ${x.parts.map((p) => `${p.sp}: ${p.ok === null ? `測らない（${p.note}）` : `${p.ok ? '当たり' : '外れ'}（${p.note}）`}`).join('<br>')} | ${x.status} |`),
+    ...r.rows.map((x) => `| ${x.req} | ${x.spec} | ${[...x.parts.map((p) => `${p.sp}: ${p.ok === null ? `測らない（${p.note}）` : `${p.ok ? '当たり' : '外れ'}（${p.note}）`}`), ...x.unmeasured.map((u) => `試走で測らない句: ${u.clause}（${u.reason}）`)].join('<br>')} | ${x.status} |`),
     ...r.falsePositives.map((f) => `偽陽性: ${f}`),
   ];
   return lines.join('\n');
