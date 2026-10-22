@@ -224,3 +224,6 @@ review と audit は、結果が結び付かなかった資産を「問題なし
 
 #### PR-BPOPERATIONS-036 update への受け渡し
 review と audit は、返した指摘を update の修正の根拠として渡せる形で返さなければならない。
+
+#### PR-BPOPERATIONS-047 途中で止まったときの報告（review と audit）
+完了の前に止まったならば、review と audit は、止まった段と止まった理由を報告しなければならない（利用者が、再開した run がどこから続くかと、止まった原因を知るため）。
