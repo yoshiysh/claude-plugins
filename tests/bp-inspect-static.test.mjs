@@ -226,14 +226,24 @@ test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-008: script �
   assert.ok(spec.includes(`${inspection} の SP-BPINSPECTION-008`));
 });
 
-test(`SP-BPRUN-027: host の agent() が投げた失敗の内容を、そのラベルの BLOCKED の理由に載せる${BOTH}`, async () => {
-  const make = Function('agent', 'ROLE_MODELS', `const budget = { charge() {} }; const run = { launched: 0 }; const failures = new Map();\n${fnSource('launch')}\n${fnSource('failureNote')}\nreturn { launch, failureNote };`);
-  const { launch, failureNote } = make(async () => { throw new Error('agent の時間切れ'); }, { extractor: { model: 'sonnet', effort: 'medium' } });
-  assert.equal(await launch('extractor', 'p', { label: 'extractor' }), null);
-  assert.equal(failureNote('extractor'), '（host の失敗: agent の時間切れ）');
-  assert.equal(failureNote('carrier'), '');
-  assert.match(fnSource('assignStage'), /抽出役が結果を返さなかった\$\{failureNote\('extractor'\)\}/);
-  assert.match(fnSource('carry'), /運搬役が結果を返さなかった\$\{failureNote\(label\)\}/);
+test(`SP-BPRUN-027・SP-BPRUN-028: host の agent() が投げた失敗の内容を、その呼び出しの理由に載せ、同じラベルで並行した起動の失敗と混ざらず、後の起動に消されない${BOTH}`, async () => {
+  const make = Function('agent', 'ROLE_MODELS', `const budget = { charge() {} }; const run = { launched: 0 };\n${fnSource('launch')}\nreturn launch;`);
+  const launch = make(async (p) => {
+    await null;
+    if (p === 'ok') return { fine: true };
+    throw new Error(`${p} の失敗`);
+  }, { carrier: { model: 'sonnet', effort: 'low' } });
+  const label = 'carrier:verify';
+  const together = await Promise.all(['A', 'ok', 'B'].map((p) => launch('carrier', p, { label })));
+  assert.deepEqual(together, [{ out: null, failure: '（host の失敗: A の失敗）' }, { out: { fine: true }, failure: '' }, { out: null, failure: '（host の失敗: B の失敗）' }]);
+  const first = launch('carrier', 'A', { label });
+  const later = Promise.resolve().then(() => launch('carrier', 'ok', { label }));
+  assert.equal((await first).failure, '（host の失敗: A の失敗）');
+  await later;
+  assert.match(fnSource('assignStage'), /抽出役が結果を返さなかった\$\{failure\}/);
+  assert.match(fnSource('carry'), /運搬役が結果を返さなかった\$\{failure\}/);
+  assert.match(fnSource('verifyItem'), /検証役が結果を返さなかった\$\{failure\}/);
+  assert.match(fnSource('refuteStage'), /反証役が結果を返さなかった\$\{failure\}/);
 });
 
 test('SP-BPINSPECTION-017・SP-BPINSPECTION-018・SP-BPRUN-036: audit の検証役の prompt が資産の束と照らす先のパスを共通の部分として先頭に持ち、反証役の prompt が資産の束と候補の観点の照らす先のパスを持つ［review］［audit］', async (t) => {

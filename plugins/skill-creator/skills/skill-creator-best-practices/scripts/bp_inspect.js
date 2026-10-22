@@ -314,7 +314,6 @@ const CLI = `${input.skillDir}/scripts/bp-state.mjs`
 // review・audit の段は回を持たない（反復が無い：SP-BPINSPECTION-002）。
 const JUDGED = [{ stage: STAGE.verify, round: null }, { stage: STAGE.verifyExtra, round: null }]
 let open = null
-const failures = new Map()
 const memo = { target: input.target ?? null }
 
 function track(stage, round, status, { append = false } = {}) {
@@ -353,21 +352,16 @@ function command(req) {
   return `node '${CLI}' ${req.op} <<'${delim}'\n${text}\n${delim}`
 }
 
-// host が投げた失敗はラベルごとに残し、BLOCKED の理由に載せる（SP-BPRUN-027。null を返すだけだと理由に失敗の内容が無い）。
+// host が投げた失敗は呼び出しごとに返し、BLOCKED の理由に載せる（SP-BPRUN-027。null を返すだけだと理由に失敗の内容が無い）。
+// fan-out の項目は同じラベルで並行して走るので、ラベルで持つと別の項目の失敗が載るか、後の起動に消される。
 async function launch(role, prompt, { unit, label, schema }) {
   budget.charge(unit)
   run.launched += 1
-  failures.delete(label)
   try {
-    return await agent(prompt, { ...ROLE_MODELS[role], label, schema })
+    return { out: await agent(prompt, { ...ROLE_MODELS[role], label, schema }), failure: '' }
   } catch (error) {
-    failures.set(label, String(error?.message ?? error))
-    return null
+    return { out: null, failure: `（host の失敗: ${String(error?.message ?? error)}）` }
   }
-}
-
-function failureNote(label) {
-  return failures.has(label) ? `（host の失敗: ${failures.get(label)}）` : ''
 }
 
 function carrierPrompt(requests) {
@@ -383,8 +377,8 @@ function carrierPrompt(requests) {
 }
 
 async function carry(requests, { unit, label = 'carrier' } = {}) {
-  const res = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
-  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: `運搬役が結果を返さなかった${failureNote(label)}`, responses: [] }
+  const { out: res, failure } = await launch('carrier', carrierPrompt(requests), { unit, label, schema: CARRIER_SCHEMA })
+  if (!res || !Array.isArray(res.responses)) return { failed: true, lost: true, reason: `運搬役が結果を返さなかった${failure}`, responses: [] }
   if (res.responses.length > requests.length) return { failed: true, lost: true, reason: '運搬役が要求より多い応答を返した', responses: [] }
   const parsed = []
   for (const [i, line] of res.responses.entries()) {
@@ -634,8 +628,8 @@ async function writeResult(stage, req, unit) {
 async function verifyItem({ itemId, viewpoint, attempts, assignment, assets, extra, stage }) {
   return itemLoop(itemId, attempts, async (attempt, unit) => {
     const { prompt, payloadFile } = verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra })
-    const res = await launch('verifier', prompt, { unit, label: `verifier:${viewpoint}${extra ? ':extra' : ''}`, schema: verifySchema() })
-    if (!res) return { reason: '検証役が結果を返さなかった' }
+    const { out: res, failure } = await launch('verifier', prompt, { unit, label: `verifier:${viewpoint}${extra ? ':extra' : ''}`, schema: verifySchema() })
+    if (!res) return { reason: `検証役が結果を返さなかった${failure}` }
     const body = PAYLOAD_MODE === 'file'
       ? { item: itemId, assignment, viewpoint, payloadFile, payloadSum: fnvSum({ result: res }) }
       : { item: itemId, assignment, viewpoint, result: res }
@@ -684,8 +678,8 @@ async function assignStage(insp, started) {
   }
   if (start.length) await mustCarry(STAGE.assign, start)
   const out = await retried(STAGE.assign, insp.repeats[STAGE.assign], async (n, failures, unit) => {
-    const res = await launch('extractor', extractorPrompt(failures), { unit, label: 'extractor', schema: EXTRACT_SCHEMA })
-    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.assign}」の抽出役が結果を返さなかった${failureNote('extractor')}`)
+    const { out: res, failure } = await launch('extractor', extractorPrompt(failures), { unit, label: 'extractor', schema: EXTRACT_SCHEMA })
+    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.assign}」の抽出役が結果を返さなかった${failure}`)
     return carry([
       write(OPS.stageRepeat, { stage: STAGE.assign, n, limitKey: LIMIT_KEYS.attempts }),
       write(OPS.assignments, { stage: STAGE.assign, groups: res.groups, attempt: n }),
@@ -708,8 +702,8 @@ async function applicabilityStage(insp, started) {
     return res.status
   }
   const out = await retried(STAGE.applicability, insp.repeats[STAGE.applicability], async (n, failures, unit) => {
-    const res = await launch('verifier', applicabilityPrompt(failures), { unit, label: 'verifier:applicability', schema: applicabilitySchema() })
-    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.applicability}」の検証役が結果を返さなかった${failureNote('verifier:applicability')}`)
+    const { out: res, failure } = await launch('verifier', applicabilityPrompt(failures), { unit, label: 'verifier:applicability', schema: applicabilitySchema() })
+    if (!res) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.applicability}」の検証役が結果を返さなかった${failure}`)
     return carry([
       write(OPS.stageRepeat, { stage: STAGE.applicability, n, limitKey: LIMIT_KEYS.attempts }),
       write(OPS.applicability, { n, result: res }),
@@ -803,10 +797,10 @@ async function refuteStage(keys) {
   const readCmd = command(read(OPS.refutationItems, { stages: JUDGED, texts: true }))
   const entries = status.map((s, i) => ({ ...s, key: keys[i] })).filter((s) => !s.result && !s.aborted && !s.discarded)
   await fanOut(STAGE.refute, entries, (e) => itemLoop(e.id, e.attempts, async (attempt, unit) => {
-    const res = await launch('refuter', refuterPrompt(e.key, readCmd), { unit, label: 'refuter', schema: REFUTE_SCHEMA })
+    const { out: res, failure } = await launch('refuter', refuterPrompt(e.key, readCmd), { unit, label: 'refuter', schema: REFUTE_SCHEMA })
     if (!res) {
       // 未反証の記録と試行の失敗は、どちらも本文が起動の前に決まるので 1 回の運搬役で書く（SP-BPFINDINGS-015・SP-BPRUN-028）。
-      return { reason: '反証役が結果を返さなかった', alsoWrite: write(OPS.refutation, { item: e.id, verdict: null, attempt }) }
+      return { reason: `反証役が結果を返さなかった${failure}`, alsoWrite: write(OPS.refutation, { item: e.id, verdict: null, attempt }) }
     }
     return writeResult(STAGE.refute, write(OPS.refutation, { item: e.id, verdict: res.verdict, reason: res.reason }), unit)
   }, STAGE.refute))
@@ -836,7 +830,7 @@ async function vanishStage(retake) {
       `指摘 ID: ${e.key.finding}`,
     ].join('\n')
     // 結果の無い照合を試行の失敗にせず「判定できない」として書くのは、消えた資産の指摘を未判定のまま止めないため（SP-BPFINDINGS-037）。
-    const res = await launch('verifier', prompt, { unit, label: 'verifier:vanish', schema: VANISH_SCHEMA })
+    const { out: res } = await launch('verifier', prompt, { unit, label: 'verifier:vanish', schema: VANISH_SCHEMA })
     return writeResult(STAGE.vanish, write(OPS.vanishMatch, { item: e.id, choice: res ? res.choice : null }), unit)
   }, STAGE.vanish))
   await mustCarry(STAGE.vanish, [write(OPS.stageFinish, { stage: STAGE.vanish, round: retake.round })])
