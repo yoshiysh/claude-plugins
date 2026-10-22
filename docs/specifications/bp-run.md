@@ -400,12 +400,22 @@ run の中の agent と CLI が判定基準として読む文書は、次の写�
 - `docs/specifications/bp-conformance.md`
 - `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する全ての文書。`docs/requirements/bp-designed-skill.md` と設計方針文書（`docs/design/skill-design-patterns.md`）のほか、bp-conformance が対象スキルの判定基準として参照する項目（本文書の SP-BPRUN-035・SP-BPRUN-037、`docs/specifications/bp-entry.md` の SP-BPENTRY-014、`docs/specifications/bp-findings.md` の指摘の形）を持つ仕様書を含む
 
-正本は `docs/` の文書とする。写しは、リポジトリの script が正本から 1 字も変えずに、best-practices を配布する plugin の `references/` へ書く。`make test` は次の 2 つを検出し、どちらかに当たれば失敗しなければならない。
+正本は `docs/` の文書とする。写しは、リポジトリの tool（`node tools/sync-bp-criteria.mjs`）が正本から 1 字も変えずに、best-practices のスキルのディレクトリの `references/criteria/`（CLI の定数 `CRITERIA_DIR`）へ、`docs/` からの相対パスと同じ構成で書く（`docs/specifications/bp-run.md` の写しは `references/criteria/specifications/bp-run.md`）。`make test` は次の 2 つを検出し、どちらかに当たれば失敗しなければならない。
 
 - 写しが正本と食い違う。
 - `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する文書のうち、写しの無いものがある（参照先が写しの外にあると、配布先でその基準を判定できない）。
 
-run の中の agent と CLI は写しだけを判定基準として読み、正本の `docs/`、agent の記憶、prompt に書き写した写しを判定基準として当ててはならない（当てると、照らしていない基準を照らしたと返す）。写す script のコマンド名と写しのパスは TBD-SBPRUN-001 で決める。
+写す文書の集合は、`docs/specifications/bp-conformance.md` と、その本文の次の 3 つの形の参照が指す文書と、CLI が読む文書（CLI の定数 `CRITERIA_FILES`）の和とする。参照は推移的に辿らない（上の箇条の「bp-conformance が参照する全ての文書」は直接の参照である）。
+
+- `docs/` で始まるパス（URL の中のものを除く）
+- markdown の相対リンク
+- 前置きの無い `bp-*.md`・`skill-design-patterns.md` のファイル名（`docs/` の中で同じ名前の文書がちょうど 1 つのときだけ、その文書に解く）
+
+glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの種類は、正本と違う写し・無い写し・集合の外のファイル・通常のファイルでない写し・解けない参照・解けない形の参照の 6 つとする。`make test` の検出は、この検査を Node のテストから当てて行う。
+
+写しの中の `docs/X` は、best-practices のスキルのディレクトリの `references/criteria/X` と読む（写しは逐語なので、本文は正本のパスで互いを指したまま残る）。script は、判定基準の写しのパスを渡す全ての prompt に、この読み替えを写しの置き場の絶対パスで書く。写しの中に残る、写しの外を指す `docs/` の参照は、tool の除外一覧（`OUTSIDE_COPY`）に理由とともに載せる。
+
+run の中の agent と CLI は写しだけを判定基準として読み、正本の `docs/`、agent の記憶、prompt に書き写した写しを判定基準として当ててはならない（当てると、照らしていない基準を照らしたと返す）。写しの置き場が無いとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`）を理由つきの `E_INPUT` で拒否する（配布物の欠けで、空の閉集合で判定すると照らしていない基準を照らしたと返す）。
 
 ### モデル・effort・権限
 
@@ -522,7 +532,7 @@ BLOCKED の理由は、利用者がどこを直してから再開すればよい
 ## 外部インタフェース
 
 #### SP-BPRUN-031 CLI の操作
-CLI は、本書群が CLI の処理と定めたものを全て操作として持たなければならない（run の開始：SP-BPRUN-003、前提の追記：SP-BPRUN-004、段の開始：SP-BPRUN-038、パスの一覧の作成と取り直し：`docs/specifications/bp-entry.md` の SP-BPENTRY-022・`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015、未完了の状態の列挙：SP-BPRUN-018、要約の読み出し：`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 など）。パスの一覧の作成と取り直しは、解決できなかった callsite を `SKILL.md` の行番号とともに返す。判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036）は TBD-SBPRUN-001 で決める。best-practices の Workflow の入力の項目の綴りは `docs/specifications/bp-entry.md` の SP-BPENTRY-013 の綴りの表に従う。資産 ID と指摘 ID の作り方は `docs/specifications/bp-findings.md` に従う。項目の ID の形は SP-BPRUN-038、作業場所のパスは SP-BPRUN-007 に従う。
+CLI は、本書群が CLI の処理と定めたものを全て操作として持たなければならない（run の開始：SP-BPRUN-003、前提の追記：SP-BPRUN-004、段の開始：SP-BPRUN-038、パスの一覧の作成と取り直し：`docs/specifications/bp-entry.md` の SP-BPENTRY-022・`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-015、未完了の状態の列挙：SP-BPRUN-018、要約の読み出し：`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-033 など）。パスの一覧の作成と取り直しは、解決できなかった callsite を `SKILL.md` の行番号とともに返す。判定基準を写す tool は CLI の操作でなく、コマンド名と写しのパスは SP-BPRUN-036 に従う。best-practices の Workflow の入力の項目の綴りは `docs/specifications/bp-entry.md` の SP-BPENTRY-013 の綴りの表に従う。資産 ID と指摘 ID の作り方は `docs/specifications/bp-findings.md` に従う。項目の ID の形は SP-BPRUN-038、作業場所のパスは SP-BPRUN-007 に従う。
 
 CLI の呼び方と要求・応答の形は次のとおりとする。操作の名前・記録の種類・段の slug・next_args の綴り・作業場所の既定・要約の上限は、CLI の 1 箇所の定数（`scripts/bp/constants.mjs`）に置き、script はそこから写した名前を運搬役の要求に埋める。
 
@@ -537,7 +547,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `E_UNKNOWN_ID` | 状態に無い状態 ID・run ID・段の名前・項目の ID・担当 ID・指摘 ID・修正の根拠の記録 ID を指す | BLOCKED（SP-BPRUN-029） |
 | `E_STALE_RUN` | SP-BPRUN-017 が拒否する書き込み | 古い run にだけ返す。現在の run の停止の理由にしない（SP-BPRUN-017） |
 | `E_RESULT` | agent の結果の値が台帳・閉集合・選択肢に無い（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034）。CLI は拒否した結果の件数と担当を記録してから返す | 項目を未着手に戻すか起動し直す。BLOCKED にしない（書く段の設計の説明のパスの拒否は除く：`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-013） |
-| `E_INPUT` | 要求の形の誤り、開始の操作の入力の確かめ（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029 の「開始の操作」の行、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）、完了した状態の再開（SP-BPRUN-014）、資産が 0 件の台帳（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-033）、判定基準の写しが無い（TBD-SBPRUN-001） | `start` への拒否なら状態を作らずに止まる。それ以外は BLOCKED |
+| `E_INPUT` | 要求の形の誤り、開始の操作の入力の確かめ（`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-029 の「開始の操作」の行、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-026）、完了した状態の再開（SP-BPRUN-014）、資産が 0 件の台帳（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-033）、判定基準の写しが無い（SP-BPRUN-036。配布物の欠け） | `start` への拒否なら状態を作らずに止まる。それ以外は BLOCKED |
 | `E_PLACE` | 作業場所が SP-BPRUN-007・SP-BPRUN-039 の禁じる場所 | BLOCKED |
 | `E_TRANSPORT`・`E_LOCK` | 要求か作業ファイルの写しの崩れ、ロックの待ちの超過（理由にロックの持ち主とパスと消し方を書く。CLI はロックを破らない：SP-BPRUN-005） | 運搬役の失敗（fan-out の項目の工程の中なら SP-BPRUN-028、外なら SP-BPRUN-027） |
 | `E_INTERNAL` | CLI の内部の失敗（ID の衝突、SP-BPFINDINGS-018 の起こりえない組など）。終了コード 1 | BLOCKED |
@@ -578,7 +588,7 @@ CLI の呼び方と要求・応答の形は次のとおりとする。操作の�
 | `gate` | `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-021〜SP-BPAUTHORING-025、SP-BPRUN-013 | `number`（反復の番号。合否の段の回） | 合否 `decision`（`pass`・`fail`・`unverifiable`）、指摘ごとの合否 `findings`、判定の単位ごとの結果 `units`、強いられた未検査 `forced`、検証が成り立たない理由 `unverifiable`、不合格の理由 `failing`、進み方 `next`（`complete`・`rewrite`・`iterationLimit`・`blocked`）、書き直しの入力 `rewrite`、`iterations`。合否の段の項目の結果と反復の回数の + 1 を同じ 1 行で書く。create・update だけ |
 | `outcome` | SP-BPRUN-032、`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-032〜SP-BPAUTHORING-034、`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-014・SP-BPINSPECTION-019・SP-BPINSPECTION-024、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-030 | — | 現在の run の停止の記録と状態から作る run の返り値（綴りは各項目の表の「綴り」の列）。停止の記録が無ければ `E_INPUT`。review・audit の確かめられなかった役ごとの制限は、SP-BPRUN-025 の表の書き手の行を除いた行 |
 | `stop-draft` | SP-BPRUN-027・SP-BPRUN-032 | — | `stage`（停止の記録に書くはずだった段の名前。`stop` が停止の記録に書く段と同じ規則：SP-BPRUN-018。段の記録が無ければ `null`）と `writtenFiles`（状態にある書いたファイルの一覧。形は `outcome` の `writtenFiles` と同じ。書き換えない機能では空の並び）。停止の記録が無くても読める読み出しだけの操作 |
-| `targets` | `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-003〜SP-BPINSPECTION-005・SP-BPINSPECTION-010・SP-BPINSPECTION-027〜SP-BPINSPECTION-029、SP-BPRUN-036 | —（観点の集合は状態の機能から決める。照らす先の決定の段の開始の後に送る） | `viewpoints`（run の観点の集合。読めた観点を SP-BPINSPECTION-003 の表の順に並べる）、`targets`（観点ごとの `viewpoint`・`files`（`{name, path, sha256}`。`name` は `conformance`・`design`・`inspection`・`promptAudit`・`designedSkill` のどれかで、CLI の定数 `TARGET_FILES` の値。フローの観点は bp-conformance・設計方針文書・bp-inspection の写し、仕様の観点は bp-conformance の写し、監査の観点は prompt-audit・bp-designed-skill・bp-inspection の写し。ファイルが無ければ `sha256` は `null`）・`section`（照らす先の章・節の名前。フローの観点は「機能仕様」、仕様の観点は「性能・容量」で始まる章、監査の観点は「Finding criteria」の節で、CLI の定数 `CRITERIA_CHAPTERS`・`PROMPT_AUDIT_SECTION` の値）・`fingerprint`（`files` の `name` と `sha256` だけから作る）・`readable`・`reason`）、`blocked`（`null` か `{reason, paths}`。フローの観点か監査の観点を読めないとき、監査の観点の一覧が出所と食い違うとき）、`compared`（照合をしたか）。段を終えていない状態では、観点ごとの記録と run の観点の集合を記録の種類 `target` として書き、`blocked` でなければ同じ 1 行で段の終わりを書く。段を終えた状態では書き込まず、読み直した指紋を有効な記録（段の終わりより前の最後の `target`）と照らし、食い違えば `blocked` に食い違ったパスを返す。判定基準の写しが無ければ `E_INPUT`。review・audit だけ |
+| `targets` | `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-003〜SP-BPINSPECTION-005・SP-BPINSPECTION-010・SP-BPINSPECTION-027〜SP-BPINSPECTION-029、SP-BPRUN-036 | —（観点の集合は状態の機能から決める。照らす先の決定の段の開始の後に送る） | `viewpoints`（run の観点の集合。読めた観点を SP-BPINSPECTION-003 の表の順に並べる）、`targets`（観点ごとの `viewpoint`・`files`（`{name, path, sha256}`。`name` は `conformance`・`design`・`inspection`・`promptAudit`・`designedSkill` のどれかで、CLI の定数 `TARGET_FILES` の値。フローの観点は bp-conformance・設計方針文書・bp-inspection の写し、仕様の観点は bp-conformance の写し、監査の観点は prompt-audit・bp-designed-skill・bp-inspection の写し。ファイルが無ければ `sha256` は `null`）・`section`（照らす先の章・節の名前。フローの観点は「機能仕様」、仕様の観点は「性能・容量」で始まる章、監査の観点は「Finding criteria」の節で、CLI の定数 `CRITERIA_CHAPTERS`・`PROMPT_AUDIT_SECTION` の値）・`fingerprint`（`files` の `name` と `sha256` だけから作る）・`readable`・`reason`）、`criteriaDir`（判定基準の写しの置き場の絶対パス。script は SP-BPRUN-036 の写しの中の `docs/` の読み替えにこれを使う）、`blocked`（`null` か `{reason, paths}`。フローの観点か監査の観点を読めないとき、監査の観点の一覧が出所と食い違うとき）、`compared`（照合をしたか）。段を終えていない状態では、観点ごとの記録と run の観点の集合を記録の種類 `target` として書き、`blocked` でなければ同じ 1 行で段の終わりを書く。段を終えた状態では書き込まず、読み直した指紋を有効な記録（段の終わりより前の最後の `target`）と照らし、食い違えば `blocked` に食い違ったパスを返す。判定基準の写しが無ければ `E_INPUT`。review・audit だけ |
 | `bundle` | `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-017 | — | `path`（作業場所の `work/bundle.<世代>.md`。世代は台帳の取り直しの番号で、取り直していなければ 0）、`generation`、`assets`（件数）。資産ごとに資産 ID・パス・範囲の見出しと、ファイルの中の行番号を付けた本文を書き、記録の種類 `bundle` に世代とファイルの sha256 を書く。同じ世代の送り直しは `same`。ファイルが無いか記録の sha256 と違えば状態の台帳から書き直し、書き直しても合わなければ `E_INTERNAL`。review・audit だけ |
 | `applicability` | `docs/specifications/bp-inspection.md` の SP-BPINSPECTION-006、`docs/specifications/bp-findings.md` の SP-BPFINDINGS-034 | `n`（段ごとの繰り返しの番号。同じ運搬役で先に送る `stage-repeat` と同じ番号）、`result`（`answers`: 問い `A`・`Q1`・`Q2`・`Q3` ごとの `{answer, quotes}`、`ledger`・`fanout`: `{answer, quotes}`。`quotes` は `{asset, line, text}` の 1 つ以上の並び） | `shape`（到達した形）、`row`（SP-BPCONFORMANCE-003 の判定表の行の番号）、`units`（その行の判定の単位。SP-BPINSPECTION-007 の除く単位を除く）、`forced`（そのうちの強いられた未検査の単位）。受理した結果と段の終わりを同じ 1 行で書く。閉集合の外の答え、台帳の今の資産に無い資産 ID、図の道と合わない答えの並び（SP-BPINSPECTION-006）を含む結果は、拒否の記録を足して `E_RESULT`。結果のある状態への送り直しは最初の結果とだけ照らし、違えば `E_CONFLICT`。review だけ |
 
@@ -622,7 +632,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | CLI の単体テスト | 作業場所の写しに対して CLI の操作を呼び、状態の記録・拒否・出力を照らす |
 | script の模擬実行 | agent を模擬の backend に置き換えて script を走らせ、起動の数と順、停止の記録、返り値を照らす（Codex runner の runtime は模擬の backend でのテストを持つ：runtime README の Install and verify without inference の節） |
 | 静的な照合 | script の本文を読み、agent の起動ごとの model・effort の明示と、入力を待つ手順の有無を照らす |
-| `make test` の実行 | 判定基準の写しを正本から変えた作業コピーと、bp-conformance に写しの無い `docs/` の文書への参照を足した作業コピーで `make test` を走らせ、失敗することを照らす |
+| `make test` の実行 | `make test` に入るテストが、実際のリポジトリで写しの一致と写す集合を照らす。そのうえで、同じ検査の入口（`node tools/sync-bp-criteria.mjs --check`）を、判定基準の写しを正本から変えた作業コピーと、bp-conformance に写しの無い `docs/` の文書への参照を足した作業コピーに当て、失敗することを照らす |
 
 トレーサビリティ表のステータスは、best-practices の仕様書（bp-*.md）で次の基準にそろえる。
 
@@ -632,11 +642,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 
 ## TBD の宣言
 
-本文書が所属先の TBD。どれも着手を止めない（blocking: false）。どれも、最初の実装でテストとともに決め、本書へ書き戻す（設計方針文書「水準と未決事項」：CLI の形とキー・ID の作り方は最初の実装でテストとともに決める）。
-
-| TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
-|---|---|---|---|---|
-| TBD-SBPRUN-001 | 判定基準を写す script のコマンド名と写しのパス（SP-BPRUN-036） | 写す script と写しの検査はまだ実装しておらず、形・綴り・パスは最初の実装でテストとともに決めると、上位文書（`docs/requirements/bp-operations.md`・設計方針文書「水準と未決事項」）が定めている | false | 決まるまで、綴りとパスを CLI の外（script・SKILL.md・agent の prompt）に書き分けてはならず、CLI の 1 箇所の定数から参照する。足す操作は SP-BPRUN-031 の要求・応答の形と符号に従う。写しが置かれるまで、写しの置き場が無いとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`）を理由つきの `E_INPUT` で拒否する |
+本文書が所属先の TBD は無い。
 
 ## トレーサビリティ表
 
@@ -709,7 +715,8 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-022 | script の模擬実行（起動数の上限で止まった run からの再開で未着手の項目から続け、next_args に上限が無い） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-035 | 静的な照合（bp-conformance の判定基準がこの手順を参照する）と script の模擬実行（上限で止めて再開し、未着手の項目を順位の順に処理し、結果のある項目を処理し直さない） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-033 | script の模擬実行（next_args だけで状態を指して再開できる） | 完了 |
-| PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（写しを正本から 1 字変えると失敗し、bp-conformance に写しの無い `docs/` の文書への参照を足すと失敗する）と静的な照合（create・update の検証役の prompt が写しのパスだけを渡し、`docs/` のパスを渡さない） | 作成中 |
+| PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（実際のリポジトリで写しが正本と一致し、写す集合が CLI の読む文書を全て含む。検査の入口が、写しを正本から 1 字変えた作業コピーと、bp-conformance に写しの無い `docs/` の文書への参照を足した作業コピーで失敗する）と静的な照合（create・update の検証役の prompt が写しのパスと写しの中の `docs/` の読み替えを渡し、読み替えを除くと `docs/` のパスを渡さない） | 完了 |
+| PR-BPOPERATIONS-008 | SP-BPRUN-036 | 静的な照合（判定基準の写しのパスを含む全ての prompt が写しの中の `docs/` の読み替えを持ち、それを除くと `docs/` のパスを含まない。create・update・review・audit で確かめる） | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPRUN-036 | 静的な照合（review のフローの観点の照らす先が写しのパスである） | 完了 |
 | PR-BPOPERATIONS-025 | SP-BPRUN-036 | 静的な照合（review の仕様の観点の照らす先が写しのパスである） | 完了 |
 | PR-BPOPERATIONS-016 | SP-BPRUN-004 | CLI の単体テスト（修正の根拠 3 件を開始の操作に渡すと記録 ID が 3 つ返り、dismissed の指摘も絞らずに書かれる） | 完了 |

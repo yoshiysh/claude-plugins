@@ -17,6 +17,7 @@ const BARE_NAME = /(?<![\w./-])((?:bp-[a-z-]+|skill-design-patterns)\.md)/g;
 // 写しの中に残る、写しの外を指す docs/ の参照。ここに無い参照が写しに現れると、配布先で開けない基準を指すことになる。
 export const OUTSIDE_COPY = Object.freeze([
   { file: 'specifications/bp-run.md', token: 'docs/', reason: '正本の置き場そのものを指す散文で、判定基準の文書を指さない' },
+  { file: 'specifications/bp-run.md', token: 'docs/X', reason: '写しの中の docs/ の読み替えの規則の変数で、文書を指さない' },
   { file: 'requirements/bp-operations.md', token: 'docs/specifications/bp-*.md', reason: 'bp の仕様書の全体を指す glob で、展開した先は全て写しにある' },
 ]);
 
