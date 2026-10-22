@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  CODES, FUNCTION, INSPECT_ROLE_WRITE_LIMITS, INSPECTING_FUNCTIONS, OPS, RECORDS, REJECT_SCOPE, RESULT_KEYS, STAGE, STAGES, STOP_KINDS, WORK_DIR,
+  CODES, FUNCTION, INSPECT_ROLE_WRITE_LIMITS, INSPECTING_FUNCTIONS, OPS, RECORDS, REJECT_SCOPE, RESULT_KEYS, STAGE, STOP_KINDS, WORK_DIR,
 } from './constants.mjs';
 import { judgeApplicability } from './applicability.mjs';
 import { assetTexts } from './assets.mjs';
@@ -12,15 +12,15 @@ import { canonical, sha256Hex } from './ids.mjs';
 import { readOrNull } from './journal.mjs';
 import { flowUnits } from './kinds.mjs';
 import { needCriteria, needLedger, rejected } from './ops-ledger.mjs';
-import { nextArgs } from './ops-run.mjs';
+import { stopOutcome } from './ops-run.mjs';
+import { strip } from './records.mjs';
 import { ledgerReport } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { uncheckedViewpoints } from './unchecked.mjs';
 import { applicability as applicabilityRows, forcedSources } from './units.mjs';
 import { changedTargets, readTargets } from './targets.mjs';
-import { currentAssets, currentRun, itemStatus, reachedStage, runViewpoints, stageEntry, validTarget } from './view.mjs';
+import { currentAssets, itemStatus, reachedStage, runViewpoints, stageEntry, validTarget } from './view.mjs';
 
-const strip = ({ seq, line, ...record }) => record;
 
 export function needInspecting(view) {
   if (!INSPECTING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `review・audit だけの操作: ${view.state.function}`);
@@ -150,17 +150,9 @@ export function inspectProgress(view) {
 // SP-BPINSPECTION-024・SP-BPFINDINGS-030・SP-BPRUN-032: 返り値は状態だけから作り、確度・declared_only・audit_header に当たる鍵を持たない（SP-BPINSPECTION-014）。
 export async function inspectOutcome(ctx, req) {
   const { view } = await readState(ctx, req.state);
-  const run = currentRun(view);
-  const stop = view.stops.get(run.id);
-  if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
-  const out = { [RESULT_KEYS.stopKind]: stop.kind, [RESULT_KEYS.state]: view.state.id, [RESULT_KEYS.run]: run.id, [RESULT_KEYS.launches]: stop.launches };
+  const { stop, out } = stopOutcome(view);
   out[RESULT_KEYS.unverifiedRoleLimits] = INSPECT_ROLE_WRITE_LIMITS;
-  if (stop.kind !== STOP_KINDS.complete) {
-    out[RESULT_KEYS.reason] = stop.reason;
-    out[RESULT_KEYS.nextArgs] = nextArgs(view);
-    out[RESULT_KEYS.stoppedStage] = stop.stage ? STAGES[stop.stage.stage] : null;
-    return out;
-  }
+  if (stop.kind !== STOP_KINDS.complete) return out;
   const report = ledgerReport(view, runViewpoints(view));
   const { findings, ...ledger } = report;
   out[RESULT_KEYS.findings] = findings;

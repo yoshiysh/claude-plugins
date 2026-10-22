@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
   INSPECTING_FUNCTIONS, LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
-  SOURCE_KINDS, STAGE, STAGES, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
+  SOURCE_KINDS, STAGE, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
 import { checkWritableItem, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
@@ -12,7 +12,7 @@ import { resolveCallsites } from './callsites.mjs';
 import { diffFingerprints, homelessReason, targetFiles, targetFingerprint } from './fingerprint.mjs';
 import { KEYS_VERDICT, NO_JUDGEMENT, RECORDED_RUN, findingGate, INCREMENT, iterationDecision, nextStep, unitGate } from './gate.mjs';
 import { canonical, keyString, premiseId, sha256Hex } from './ids.mjs';
-import { checkRepeatNumber, limitState, nextArgs, unverifiedFiles } from './ops-run.mjs';
+import { checkRepeatNumber, limitState, stopOutcome, unverifiedFiles } from './ops-run.mjs';
 import { findingsForResult, judgedOnCurrent, ledgerReport, skipList, unrefutedCandidates } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { applicability, contractKind } from './units.mjs';
@@ -20,9 +20,8 @@ import { currentRun, itemStatus, lastFingerprint, runBase, runViewpoints, stageE
 import { inspectOutcome, inspectProgress } from './ops-inspect.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
-import { identity } from './records.mjs';
+import { identity, strip } from './records.mjs';
 
-const strip = ({ seq, line, ...record }) => record;
 
 function needRewriting(view) {
   if (!REWRITING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `create・update だけの操作: ${view.state.function}`);
@@ -386,16 +385,9 @@ function verification(view, gateItem) {
 export async function outcome(ctx, req) {
   const { view } = await readState(ctx, req.state);
   if (INSPECTING_FUNCTIONS.has(view.state.function)) return inspectOutcome(ctx, req);
-  const run = currentRun(view);
-  const stop = view.stops.get(run.id);
-  if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
+  const { stop, out } = stopOutcome(view);
   const complete = stop.kind === STOP_KINDS.complete;
   const gateItem = lastGate(view);
-  const out = { [RESULT_KEYS.stopKind]: stop.kind, [RESULT_KEYS.state]: view.state.id, [RESULT_KEYS.run]: run.id, [RESULT_KEYS.launches]: stop.launches };
-  if (!complete) {
-    out[RESULT_KEYS.reason] = stop.reason;
-    out[RESULT_KEYS.nextArgs] = nextArgs(view);
-  }
   const written = writtenFiles(view);
   if (written.length) out[RESULT_KEYS.writtenFiles] = written;
   out[RESULT_KEYS.unverifiedRoleLimits] = ROLE_WRITE_LIMITS;
@@ -416,7 +408,6 @@ export async function outcome(ctx, req) {
     }
   } else {
     out[RESULT_KEYS.unverified] = [...stop.unverified.map((f) => ({ path: f.path, action: f.action })), ...stop.outside.map((p) => ({ path: p, outside: true }))];
-    out[RESULT_KEYS.stoppedStage] = stop.stage ? STAGES[stop.stage.stage] : null;
   }
   return out;
 }
