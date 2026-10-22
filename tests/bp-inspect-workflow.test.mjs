@@ -186,6 +186,33 @@ for (const fn of FNS) {
     assert.equal(blocked.result.stoppedStage, '担当の作成');
   });
 
+  test(`SP-BPINSPECTION-024・SP-BPRUN-032: 完了以外の返り値は SP-BPRUN-032 の表の鍵に止まった段だけを足し、状態を作らずに止まった run と停止の記録を書けなかった BLOCKED は止まった段を持たない${mark(fn)}`, async (t) => {
+    const docs = (file) => readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', file), 'utf8');
+    const spelled = (text, header) => {
+      const lines = text.slice(text.indexOf(header)).split('\n');
+      const rows = lines.slice(2).filter((_, i, all) => all.slice(0, i + 1).every((l) => l.startsWith('|')));
+      return rows.flatMap((l) => [...l.split('|')[2].matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]));
+    };
+    // ok・op・sum は CLI の応答の予約欄（SP-BPRUN-031）で、返り値の項目ではない。
+    const common = new Set(['ok', 'op', 'sum', ...spelled(docs('bp-run.md'), '| 項目 | 綴り | 返すとき |')]);
+    const stopped = spelled(docs('bp-inspection.md'), '| 項目 | 綴り | 中身（完了以外） |');
+    assert.deepEqual(stopped, [RESULT_KEYS.stoppedStage]);
+    const s = await setupInspect(t);
+    if (!s) return;
+    const extract = async () => null;
+    const blocked = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { extract } });
+    assert.equal(blocked.result.stopKind, 'blocked');
+    assert.deepEqual(Object.keys(blocked.result).filter((k) => !common.has(k)), stopped);
+    assert.equal(blocked.result.stoppedStage, '担当の作成');
+    const early = await runInspect(t, { env: s.env, args: inspectArgs(fn, { root: path.join(s.base, 'none') }) });
+    assert.equal(early.result.stopKind, 'blocked');
+    assert.ok(!Object.hasOwn(early.result, RESULT_KEYS.stoppedStage));
+    const s2 = await setupInspect(t);
+    const unwritten = await runInspect(t, { env: s2.env, args: inspectArgs(fn, s2.target), scenario: { extract, carrier: failCarrier(OPS.stop, { nth: [1, 2] }) } });
+    assert.match(unwritten.result.reason, /^停止の記録を書けなかった（段「担当の作成」の停止の運搬役/);
+    assert.ok(!Object.hasOwn(unwritten.result, RESULT_KEYS.stoppedStage));
+  });
+
   test(`SP-BPRUN-026: run の中で対象スキルを変えると、BLOCKED と変わったパスを返し、完了を返さない${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;

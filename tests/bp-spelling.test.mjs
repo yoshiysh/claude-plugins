@@ -274,8 +274,9 @@ test('TBD-SBPAUTHORING-001 の書き戻し・SP-BPINSPECTION-024・SP-BPFINDINGS
   const stopped = spellings(AUTHORING, '| 項目 | 綴り | 中身 |', 1);
   const verification = spellings(AUTHORING, '| 項目 | 綴り | 中身（検証の結果） |', 1);
   const inspected = spellings(INSPECTION, '| 項目 | 綴り | 機能 | 中身 |', 1);
+  const inspectStopped = spellings(INSPECTION, '| 項目 | 綴り | 中身（完了以外） |', 1);
   const ledgerItems = spellings(FINDINGS, '| 項目 | review・audit の綴り | 中身 |', 1);
-  assert.deepEqual([...new Set([...common, ...complete, ...stopped, ...inspected, ...ledgerItems])].sort(), Object.values(CLI_CONSTANTS.RESULT_KEYS).sort());
+  assert.deepEqual([...new Set([...common, ...complete, ...stopped, ...inspected, ...inspectStopped, ...ledgerItems])].sort(), Object.values(CLI_CONSTANTS.RESULT_KEYS).sort());
   assert.deepEqual([...new Set(verification)].sort(), Object.values(CLI_CONSTANTS.VERIFICATION_KEYS).sort());
 });
 

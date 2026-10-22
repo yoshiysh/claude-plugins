@@ -246,6 +246,16 @@ review と audit は、完了したとき、`docs/specifications/bp-run.md` の 
 | 未検査の観点 | `uncheckedViewpoints` | review・audit | SP-BPINSPECTION-025 の一覧。空でも項目を返す |
 | 対象スキルのパスの一覧 | `target` | audit | 状態にある今の対象スキルのパスの一覧（`docs/specifications/bp-run.md` の SP-BPRUN-005）を、CLI が状態から逐語で写したもの（監査した範囲：SP-BPINSPECTION-014）。入力の `target`（`docs/specifications/bp-entry.md` の SP-BPENTRY-013）と同じ形にし、連鎖の次の run の入力にそのまま渡せるようにする |
 
+review と audit が完了以外で止まったとき、返り値は `docs/specifications/bp-run.md` の SP-BPRUN-032 の項目に加えて、次の項目を持たなければならない。
+
+| 項目 | 綴り | 中身（完了以外） |
+|---|---|---|
+| 止まった段 | `stoppedStage` | 停止の記録の段（CLI が `docs/specifications/bp-run.md` の SP-BPRUN-018 の規則で決めた段）の名前。名前は同文書の SP-BPRUN-038 の表の「段」の列とし、1 行に 2 つの名前がある `verify` は、create・update と同じ「検証」とする。停止の記録に段が無いときは `null` |
+
+次の 2 つの run は、CLI の `outcome` を読まずに script が返り値を作るので、止まった段を持たない。
+- 状態を作らずに止まった run（SP-BPINSPECTION-026。入力の誤りで開始の操作の前に止まったときを含む）。
+- 停止の記録を書けなかった BLOCKED（`docs/specifications/bp-run.md` の SP-BPRUN-027）。止まった段は、CLI の `stop-draft`（同文書の SP-BPRUN-031）から読めたときだけ、理由に書く（SP-BPRUN-027）。
+
 #### SP-BPINSPECTION-025 未検査の観点の形と載せるもの
 未検査の観点の 1 件は、観点、範囲、理由、記録した run を持たなければならない。範囲は、観点の全体か、判定の単位か、監査の観点の識別子のどれかとする。CLI は次の表の全ての場合に未検査の観点を作り、同じ観点と範囲と理由の重複は 1 件にまとめなければならない。
 
