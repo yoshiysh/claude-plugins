@@ -5,7 +5,8 @@ import path from 'node:path';
 import * as run from './ops-run.mjs';
 import * as ledger from './ops-ledger.mjs';
 import * as inspect from './ops-inspect.mjs';
-import { outcome } from './ops-author.mjs';
+import { outcome, units } from './ops-author.mjs';
+import { checkExtra } from './units.mjs';
 import { CODES, FIXED_AUDIT_UNCHECKED, STATES_DIR } from './constants.mjs';
 import { sha256Hex } from './ids.mjs';
 import { readAll } from './journal.mjs';
@@ -201,6 +202,13 @@ test('SP-BPINSPECTION-017: 未検査の観点の候補を足した結果を受�
   const view = await viewOf(ctx, req.state);
   assert.equal(view.rejected.length, 4);
   assert.deepEqual(uncheckedViewpoints(view).filter((u) => u.viewpoint === 'spec').map((u) => [u.scope, u.value, u.reason]), [['unit', 'SP-BPCONFORMANCE-027', '値を読めない']]);
+});
+
+test('SP-BPINSPECTION-005・SP-BPCONFORMANCE-003: 「性能・容量」の章の見出しが無い写しを、create・update の適用の判定表と適合の観点の結果の検査は許さず E_INTERNAL で止まる', async (t) => {
+  const noSpec = await edited(t, path.join('specifications', 'bp-conformance.md'), (s) => s.replace('## 性能・容量（対象スキルに課す確定値）', '## 容量'));
+  await rejects(units({ criteriaDir: noSpec }), CODES.internal);
+  assert.throws(() => checkExtra('conformance', { applicability: { row: 1 }, units: [], residualRisks: [] }, { criteriaDir: noSpec }), (error) => error.code === CODES.internal);
+  assert.ok((await units({ criteriaDir: CRITERIA_FIXTURE })).rows.length > 0);
 });
 
 test('SP-BPINSPECTION-025: 未検査の観点の 5 つの場合を観点・範囲・理由・記録した run とともに作り、同じ未検査を 2 体が返すと 1 件にまとめる', async (t) => {

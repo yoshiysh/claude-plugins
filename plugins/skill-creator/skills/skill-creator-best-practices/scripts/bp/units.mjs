@@ -34,11 +34,10 @@ function traceability(nodes) {
   return map;
 }
 
-// 「性能・容量」の章を読めない写しでも適用の判定表は引けるようにする（仕様の観点を読めない review は止まらない：SP-BPINSPECTION-005）。
-function unitsBySpec(criteriaDir) {
+function unitsBySpec(criteriaDir, capacity) {
   const map = new Map();
   for (const item of conformanceUnits(criteriaDir)) map.set(item.sp, item.units);
-  if (hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix))) for (const u of specUnits(criteriaDir)) map.set(u.value, [u]);
+  if (capacity) for (const u of specUnits(criteriaDir)) map.set(u.value, [u]);
   return map;
 }
 
@@ -47,15 +46,17 @@ export function specItemIds(criteriaDir) {
   return parseDoc(read(criteriaDir, 'conformance')).filter((n) => n.level === 4).map((n) => /^SP-BPCONFORMANCE-\d{3}/.exec(n.text)?.[0]).filter(Boolean).sort();
 }
 
-function sources(criteriaDir) {
+// 「性能・容量」の章の無い写しを許すのは review の適用の判定だけ（仕様の観点を読めない review は止まらない：SP-BPINSPECTION-005）。
+// create・update が許すと、その章にトレースされた単位が宣言なしに表から落ち、検証役が判定しないまま進む。
+function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   const nodes = parseDoc(read(criteriaDir, 'conformance'));
   const item = nodes.find((n) => n.level === 4 && n.text.startsWith('SP-BPCONFORMANCE-003'));
   const table = item?.tables.find((t) => t.header[0] === '条件: 形');
   const always = ALWAYS.exec(item?.body.join('\n') ?? '');
   if (!table || !always) internal('判定基準の写しに SP-BPCONFORMANCE-003 の適用の判定表が無い');
   const trace = traceability(nodes);
-  const bySpec = unitsBySpec(criteriaDir);
-  const capacity = hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
+  const capacity = !tolerateNoCapacity || hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
+  const bySpec = unitsBySpec(criteriaDir, capacity);
   const unitsOf = (req) => (trace.get(req) ?? []).flatMap((sp) => {
     const list = bySpec.get(sp);
     if (!list && capacity) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
@@ -65,8 +66,8 @@ function sources(criteriaDir) {
 }
 
 // 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも、turnForm はターンごとの指揮だけ）。
-export function forcedSources(criteriaDir) {
-  const { bySpec, unitsOf } = sources(criteriaDir);
+export function forcedSources(criteriaDir, options) {
+  const { bySpec, unitsOf } = sources(criteriaDir, options);
   const always = new Map();
   const turnForm = new Map();
   for (const req of FORCED_REQUIREMENTS.always) unitsOf(req).forEach((u) => always.set(u.value, FORCED_BY.always));
@@ -78,9 +79,9 @@ export function forcedSources(criteriaDir) {
   return { always, turnForm };
 }
 
-export function applicability(criteriaDir) {
-  const { table, always, unitsOf } = sources(criteriaDir);
-  const forcedSet = forcedSources(criteriaDir);
+export function applicability(criteriaDir, options) {
+  const { table, always, unitsOf } = sources(criteriaDir, options);
+  const forcedSet = forcedSources(criteriaDir, options);
   const forcedAlways = forcedSet.always;
   const forcedTurn = forcedSet.turnForm;
   const alwaysReqs = always[1].split('・').map((n) => `${PR}${n}`);

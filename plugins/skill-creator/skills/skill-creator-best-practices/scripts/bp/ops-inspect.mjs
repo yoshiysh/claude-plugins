@@ -100,6 +100,8 @@ function applicabilityOutput(rec) {
 }
 
 // SP-BPINSPECTION-006・SP-BPFINDINGS-034: 受理した結果と段の終わりを同じ 1 行で書く。結果のある段への送り直しは最初の結果とだけ照らす。
+const REVIEW_UNITS = Object.freeze({ tolerateNoCapacity: true });
+
 export function applicability(ctx, req) {
   return mutate(ctx, req, OPS.applicability, (view) => {
     if (view.state.function !== FUNCTION.review) reject(CODES.input, `review だけの操作: ${view.state.function}`);
@@ -114,9 +116,9 @@ export function applicability(ctx, req) {
     }
     needPosInt(req.n, 'n は');
     const allowed = new Set(flowUnits(ctx.criteriaDir).map((u) => u.value));
-    const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir), allowed });
+    const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir, REVIEW_UNITS), allowed });
     if (judged.error) return rejected(REJECT_SCOPE.applicability, req.n, null, req.result, judged.error);
-    const sources = forcedSources(ctx.criteriaDir);
+    const sources = forcedSources(ctx.criteriaDir, REVIEW_UNITS);
     const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, sources.turnForm.get(u) ?? sources.always.get(u)]));
     const record = { t: RECORDS.applicability, run: req.run, result: req.result, ...judged, forcedBy };
     return { records: [record, end], output };
