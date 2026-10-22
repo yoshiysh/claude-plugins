@@ -4,12 +4,13 @@ import {
   INSPECT_SCRIPT, MIN_LAUNCHES, SCRIPT, createArgs, defaults, inspectArgs, inspectDefaults, runAuthor, runInspect, setup, setupInspect, updateArgs, variant, viewOf, writePayload,
 } from './helpers/bp-harness.mjs';
 
-// 予約分を食うのは、検証の結果の拒否で試行を使い切り、運搬役が応答を失って送り直す経路だけ。他の経路では予約分を除いても上限を超えない。
-function dropFirst(ops) {
+// 予約分（2）を両方使い切るのは、試行を使い切った項目の後の停止で、停止の運搬役が応答を失って送り直す経路（停止は実行されないまま失う）。
+function worstCarrier() {
   const seen = new Set();
   return async (prompt, options, env) => {
+    if (prompt.includes(' stop <<') && !seen.has(prompt)) { seen.add(prompt); return null; }
     const out = await env.carry(prompt);
-    if (ops.some((op) => prompt.includes(` ${op} <<`)) && !seen.has(prompt)) { seen.add(prompt); return null; }
+    if ([' start <<', ' verdicts <<', ' item-fail <<'].some((op) => prompt.includes(op)) && !seen.has(prompt)) { seen.add(prompt); return null; }
     return out;
   };
 }
@@ -26,7 +27,7 @@ function authorWorst() {
       await writePayload(prompt, out);
       return out;
     },
-    carrier: dropFirst(['start', 'verdicts', 'item-fail']),
+    carrier: worstCarrier(),
   };
 }
 
@@ -46,13 +47,12 @@ function inspectWorst() {
       await writePayload(prompt, bad);
       return bad;
     },
-    carrier: dropFirst(['start', 'verdicts', 'item-fail']),
+    carrier: worstCarrier(),
   };
 }
 
 const NO_RESERVE = ['return used + rest + worst + RESERVE <= limit', 'return used + rest + worst <= limit'];
-// 予約分を除いた script が上限を超え始める帯（最小の起動数からの差。実測で 4 機能とも 12〜13）。帯の外では予約分を測れない。
-const EXTRA = [10, 11, 12, 13, 14, 15];
+const RESERVE_MINUS_1 = ['return used + rest + worst + RESERVE <= limit', 'return used + rest + worst + RESERVE - 1 <= limit'];
 
 async function runOnce(t, fn, limit, concurrency, scriptPath) {
   const author = fn === 'create' || fn === 'update';
@@ -62,28 +62,45 @@ async function runOnce(t, fn, limit, concurrency, scriptPath) {
   const { result, calls } = await (author ? runAuthor : runInspect)(t, {
     env: s.env, args, scenario: author ? authorWorst() : inspectWorst(), concurrency, maxAgents: 1000, ...(scriptPath ? { scriptPath } : {}),
   });
-  const recorded = result.state ? (await viewOf(s.env, result.state)).stops.get('r1')?.launches : undefined;
-  return { calls: calls.length, recorded };
+  const stop = result.state ? (await viewOf(s.env, result.state)).stops.get('r1') : undefined;
+  return { calls: calls.length, stop };
+}
+
+// 帯を書き写さず、上限を最小から上げて、最初の fan-out の項目を始められる最小の上限（起動数が跳ねる点）を測る。予約分はその手前の上限で効く。
+async function firstItemExtra(t, fn) {
+  const base = await runOnce(t, fn, MIN_LAUNCHES[fn], 3);
+  if (!base) return null;
+  for (let extra = 1; extra <= 40; extra += 1) {
+    if ((await runOnce(t, fn, MIN_LAUNCHES[fn] + extra, 3)).calls > base.calls) return extra;
+  }
+  throw new Error(`${fn}: 上限を 40 上げても最初の項目を始めない`);
 }
 
 for (const fn of ['create', 'update', 'review', 'audit']) {
-  test(`SP-BPRUN-020・SP-BPRUN-021・SP-BPCONFORMANCE-022: 試行と送り直しで起動が最も多くなる経路でも、同時実行 1・2・3 のどれでも起動数と停止の記録の起動数が上限を超えず、予約分を除いた script では上限を超える［${fn}］`, async (t) => {
+  test(`SP-BPRUN-020・SP-BPRUN-021・SP-BPCONFORMANCE-022: 試行を使い切った項目の後で停止の運搬役が応答を失っても、同時実行 1・2・3 のどれでも起動数が上限を超えず停止の記録が残り、予約分を除くと上限を超え、予約分を 1 減らすと停止の記録が残らない（予約分の大きさ 2）［${fn}］`, async (t) => {
+    const edge = await firstItemExtra(t, fn);
+    if (edge === null) return;
+    const window = [edge - 2, edge - 1, edge, edge + 1];
     for (const concurrency of [1, 2, 3]) {
-      for (const extra of EXTRA) {
+      for (const extra of window) {
         const limit = MIN_LAUNCHES[fn] + extra;
         const got = await runOnce(t, fn, limit, concurrency);
-        if (!got) return;
         assert.ok(got.calls <= limit, `同時実行 ${concurrency}・上限 ${limit}: ${got.calls} 体`);
-        if (got.recorded !== undefined) assert.ok(got.recorded <= limit, `同時実行 ${concurrency}・上限 ${limit}: 記録 ${got.recorded}`);
+        assert.ok(got.stop, `同時実行 ${concurrency}・上限 ${limit}: 停止の記録が無い`);
+        assert.ok(got.stop.launches <= limit, `同時実行 ${concurrency}・上限 ${limit}: 記録 ${got.stop.launches}`);
       }
     }
-    const mutant = await variant(t, [NO_RESERVE], fn === 'create' || fn === 'update' ? SCRIPT : INSPECT_SCRIPT);
+    const scriptOf = (cut) => variant(t, [cut], fn === 'create' || fn === 'update' ? SCRIPT : INSPECT_SCRIPT);
+    const none = await scriptOf(NO_RESERVE);
+    const minus1 = await scriptOf(RESERVE_MINUS_1);
     const over = [];
-    for (const extra of EXTRA) {
+    const lost = [];
+    for (const extra of window) {
       const limit = MIN_LAUNCHES[fn] + extra;
-      const got = await runOnce(t, fn, limit, 3, mutant);
-      if (got.calls > limit) over.push(limit);
+      if ((await runOnce(t, fn, limit, 3, none)).calls > limit) over.push(limit);
+      if (!(await runOnce(t, fn, limit, 3, minus1)).stop) lost.push(limit);
     }
     assert.ok(over.length > 0, '予約分を除いた script でも上限を超えない（この経路は予約分を測っていない）');
+    assert.ok(lost.length > 0, '予約分を 1 減らした script でも停止の記録が残る（この経路は予約分の大きさを測っていない）');
   });
 }
