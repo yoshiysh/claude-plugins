@@ -1,6 +1,7 @@
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import {
-  ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, INSPECTING_FUNCTIONS, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
+  ASSIGN_RULES, BASIS, CRITERIA_FILES, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, INSPECTING_FUNCTIONS, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
   REVIEW_VALUES, REWRITING_FUNCTIONS, ROUND_PREFIX, STAGE, STAGES, VANISH_NONE, VERIFY_STAGES, VIEWPOINTS,
 } from './constants.mjs';
 import { checkAttempt, checkStage, checkWritableItem } from './checks.mjs';
@@ -28,8 +29,21 @@ function checkViewpoint(viewpoint) {
 }
 
 // 写しの欠けは配布物の欠けなので、閉集合を作らずに理由つきで拒否する（空の閉集合で判定すると、照らしていない基準を照らしたと返す：SP-BPRUN-036）。
-export function needCriteria(ctx) {
-  if (!existsSync(ctx.criteriaDir)) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
+function isKind(p, kind) {
+  try {
+    return statSync(p)[kind]();
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
+    throw error;
+  }
+}
+
+// 照らす先の決定（targets）は欠けた写しを「読めない」照らす先として返す（SP-BPINSPECTION-027）ので、置き場だけを求める。
+export function needCriteria(ctx, { files = true } = {}) {
+  if (!isKind(ctx.criteriaDir, 'isDirectory')) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
+  if (!files) return;
+  const missing = Object.values(CRITERIA_FILES).map((parts) => path.join(ctx.criteriaDir, ...parts)).filter((p) => !isKind(p, 'isFile'));
+  if (missing.length) reject(CODES.input, `判定基準の写しが欠けているので観点の閉集合を作れない: ${missing.join(', ')}`);
 }
 
 function itemIn(view, id, stages, { writable = true } = {}) {

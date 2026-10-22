@@ -18,6 +18,7 @@ import { mutate, readState } from './store.mjs';
 import { applicability, contractKind } from './units.mjs';
 import { currentRun, itemStatus, lastFingerprint, runBase, runViewpoints, stageEntry, stoppedStage } from './view.mjs';
 import { inspectOutcome, inspectProgress } from './ops-inspect.mjs';
+import { needCriteria } from './ops-ledger.mjs';
 import { realpathLoose } from './workspace.mjs';
 import { readOrNull } from './journal.mjs';
 import { identity, strip } from './records.mjs';
@@ -224,6 +225,7 @@ export function filesScan(ctx, req) {
 }
 
 export async function units(ctx) {
+  needCriteria(ctx);
   return { rows: applicability(ctx.criteriaDir) };
 }
 

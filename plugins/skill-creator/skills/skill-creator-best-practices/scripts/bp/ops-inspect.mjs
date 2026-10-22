@@ -38,7 +38,7 @@ function publicTargets(list) {
 export function targets(ctx, req) {
   return mutate(ctx, req, OPS.targets, (view) => {
     needInspecting(view);
-    needCriteria(ctx);
+    needCriteria(ctx, { files: false });
     needStage(view, STAGE.targets);
     const fn = view.state.function;
     const now = readTargets(ctx, fn);

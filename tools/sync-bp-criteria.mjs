@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR, CRITERIA_FILES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
@@ -10,9 +10,12 @@ const SKILL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-bes
 const DOCS = 'docs';
 const ROOT_DOC = 'specifications/bp-conformance.md';
 
-const DOCS_PATH = /(?<![\w./-])docs\/[\w./*-]*/g;
-const RELATIVE_LINK = /\]\(([^)\s]+)\)/g;
-const BARE_NAME = /(?<![\w./-])((?:bp-[a-z-]+|skill-design-patterns)\.md)/g;
+// 前が URL の一部（/ = ? & % # : ~ +）の docs/ は外部のページで、リポジトリの文書ではない。
+const DOCS_PATH = /(?<![\w./=?&%#:~+-])docs\/[\w./*-]*/g;
+const INLINE_LINK = /\]\(\s*(<[^>]*>|[^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+const LINK_DEFINITION = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
+const HTML_LINK = /\bhref\s*=\s*"([^"]+)"/g;
+const BARE_NAME = /(?<![\w./-])((?:bp-[\w-]+|skill-design-patterns)\.md)/g;
 
 // 写しの中に残る、写しの外を指す docs/ の参照。ここに無い参照が写しに現れると、配布先で開けない基準を指すことになる。
 export const OUTSIDE_COPY = Object.freeze([
@@ -41,7 +44,15 @@ function inside(rel) {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-// 本文の参照を 3 つの形で抜き、docs/ からの相対パスに解く。解けない形は呼び出し側が失敗か範囲の外として扱う。
+function linkTarget(raw) {
+  const bare = raw.startsWith('<') ? raw.slice(1, -1) : raw;
+  try {
+    return decodeURI(bare.split('#')[0]);
+  } catch {
+    return bare.split('#')[0];
+  }
+}
+
 function references(text, fromRel, names) {
   const out = [];
   for (const m of text.matchAll(DOCS_PATH)) {
@@ -49,11 +60,11 @@ function references(text, fromRel, names) {
     const unparsed = token.includes('*') || token.endsWith('/');
     out.push({ token, rel: unparsed ? null : token.slice(DOCS.length + 1), unparsed });
   }
-  for (const m of text.matchAll(RELATIVE_LINK)) {
-    const target = m[1].split('#')[0];
+  const links = [INLINE_LINK, LINK_DEFINITION, HTML_LINK].flatMap((re) => [...text.matchAll(re)].map((m) => ({ token: m[0].trim(), target: linkTarget(m[1]) })));
+  for (const { token, target } of links) {
     if (target === '' || /^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('/')) continue;
     const rel = path.posix.normalize(path.posix.join(path.posix.dirname(fromRel), target));
-    out.push({ token: `](${m[1]})`, rel: inside(rel) ? rel : null, unparsed: target.includes('*') || target.endsWith('/') });
+    out.push({ token, rel: inside(rel) ? rel : null, unparsed: target.includes('*') || target.endsWith('/') });
   }
   for (const m of text.matchAll(BARE_NAME)) {
     const hits = names.get(m[1]) ?? [];
@@ -100,36 +111,51 @@ function lstatOrNull(p) {
   }
 }
 
+// 写しの置き場までの途中に symlink があると、配布先（Codex は symlink を落とす）で写しが空になる。リポジトリからの相対パスで返す。
+function linkedAncestors(root) {
+  const parts = path.relative(root, copyRoot(root)).split(path.sep);
+  return parts.map((_, i) => parts.slice(0, i + 1).join('/')).filter((rel) => lstatOrNull(path.join(root, rel))?.isSymbolicLink());
+}
+
+// 置き場の中を辿る。symlink は辿らずに別に返す（辿ると、symlink の先の正本を写しと読む）。
 function copyEntries(root) {
   const base = copyRoot(root);
-  const out = [];
+  const files = [];
+  const links = [];
   const walk = (rel) => {
     for (const e of readdirSync(path.join(base, rel), { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) walk(r);
-      else out.push(r);
+      if (e.isSymbolicLink()) links.push(r);
+      else if (e.isDirectory()) walk(r);
+      else files.push(r);
     }
   };
   if (lstatOrNull(base)?.isDirectory()) walk('');
-  return out;
+  return { files, links };
 }
 
 export function check(root = REPO_ROOT) {
   const { files, problems } = closure(root);
+  const above = linkedAncestors(root);
+  if (above.length) return [...problems, ...above.map((rel) => ({ kind: 'symlink', path: rel }))];
   const out = [...problems];
   const wanted = new Set(files);
+  const entries = copyEntries(root);
+  const linkedDirs = entries.links.filter((l) => files.some((f) => f.startsWith(`${l}/`)));
+  for (const l of entries.links) out.push({ kind: 'symlink', path: l });
   for (const rel of files) {
+    if (linkedDirs.some((l) => rel.startsWith(`${l}/`))) continue;
     const dest = path.join(copyRoot(root), rel);
     const st = lstatOrNull(dest);
     if (st === null) out.push({ kind: 'missing', path: rel });
+    else if (st.isSymbolicLink()) continue;
     else if (!st.isFile()) out.push({ kind: 'symlink', path: rel });
     else if (sha(dest) !== sha(path.join(root, DOCS, rel))) out.push({ kind: 'differ', path: rel });
   }
-  for (const rel of copyEntries(root)) if (!wanted.has(rel)) out.push({ kind: 'extra', path: rel });
+  for (const rel of entries.files) if (!wanted.has(rel)) out.push({ kind: 'extra', path: rel });
   return out;
 }
 
-// 写しの中で、写しの集合の外を指す docs/ の参照を全て返す（写しを読んだ agent がそこへ届けない参照）。
 export function outside(root = REPO_ROOT) {
   const { files } = closure(root);
   const copied = new Set(files);
@@ -154,19 +180,25 @@ function removeEmptyDirs(dir, stop) {
   }
 }
 
+// 置き場より上の symlink は置き場の外のファイル（references の他の文書など）を巻き込むので、書かずに知らせる。置き場とその中の symlink は消して作り直す。
 function write(root) {
   const { files, problems } = closure(root);
   if (problems.length) return problems;
   const base = copyRoot(root);
+  const above = linkedAncestors(root).filter((rel) => path.join(root, rel) !== base);
+  if (above.length) return above.map((rel) => ({ kind: 'symlink', path: rel }));
+  if (lstatOrNull(base)?.isSymbolicLink()) unlinkSync(base);
   const wanted = new Set(files);
-  for (const rel of copyEntries(root)) {
+  const entries = copyEntries(root);
+  for (const rel of entries.links) unlinkSync(path.join(base, rel));
+  for (const rel of entries.files) {
     if (wanted.has(rel)) continue;
-    unlinkSync(path.join(base, rel));
+    rmSync(path.join(base, rel));
     removeEmptyDirs(path.dirname(path.join(base, rel)), base);
   }
   for (const rel of files) {
     const dest = path.join(base, rel);
-    if (lstatOrNull(dest) && !lstatOrNull(dest).isFile()) unlinkSync(dest);
+    if (lstatOrNull(dest) && !lstatOrNull(dest).isFile()) rmSync(dest, { recursive: true });
     mkdirSync(path.dirname(dest), { recursive: true });
     copyFileSync(path.join(root, DOCS, rel), dest);
   }
@@ -177,8 +209,8 @@ function line(p) {
   return `${p.kind} ${p.path}${p.detail ? ` ${p.detail}` : ''}`;
 }
 
-export function main(argv, { root: given } = {}) {
-  let root = given ?? REPO_ROOT;
+export function main(argv) {
+  let root = REPO_ROOT;
   let mode = 'write';
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--check') mode = 'check';

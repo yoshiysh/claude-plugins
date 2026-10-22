@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { promises as fs, lstatSync, realpathSync } from 'node:fs';
+import { promises as fs, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +62,36 @@ const MUTATIONS = [
     await editConformance(r, '[zz](../requirements/bp-zz.md)');
   }, ['missing requirements/bp-zz.md']],
   ['bp-conformance に前置きの無いファイル名を足し、文書を置かない', async (r) => editConformance(r, 'bp-zz.md'), [`unclosed ${CONFORMANCE} bp-zz.md`]],
+  ['bp-conformance に数字を含む前置きの無いファイル名を足し、文書も置く', async (r) => {
+    await fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-v2.md'), 'v2');
+    await editConformance(r, 'bp-v2.md');
+  }, ['missing specifications/bp-v2.md']],
+  ...[
+    ['title 付きの相対リンク', '[zz](../requirements/bp-zz.md "題")'],
+    ['山括弧の相対リンク', '[zz](<../requirements/bp-zz.md>)'],
+    ['参照形式のリンクの定義', '[zz]: ../requirements/bp-zz.md'],
+    ['HTML のリンク', '<a href="../requirements/bp-zz.md">zz</a>'],
+  ].map(([label, ref]) => [`bp-conformance に${label}を足し、文書も置く`, async (r) => {
+    await fs.writeFile(path.join(r, 'docs', 'requirements', 'bp-zz.md'), 'zz');
+    await editConformance(r, ref);
+  }, ['missing requirements/bp-zz.md']]),
+  ['bp-conformance に %20 を含む相対リンクを足し、文書も置く', async (r) => {
+    await fs.writeFile(path.join(r, 'docs', 'requirements', 'bp z.md'), 'zz');
+    await editConformance(r, '[zz](../requirements/bp%20z.md)');
+  }, ['missing requirements/bp z.md']],
+  ['写しの置き場を正本への symlink に置き換える', async (r) => {
+    await fs.rm(path.join(r, COPY), { recursive: true });
+    await fs.symlink(path.join(r, 'docs'), path.join(r, COPY));
+  }, [`symlink ${COPY}`]],
+  ['写しの置き場の親（references）を symlink に置き換える', async (r) => {
+    const refs = path.dirname(path.join(r, COPY));
+    await fs.rename(refs, path.join(r, 'refs-real'));
+    await fs.symlink(path.join(r, 'refs-real'), refs);
+  }, [`symlink ${path.dirname(COPY)}`]],
+  ['写しの中のディレクトリを正本への symlink に置き換える', async (r) => {
+    await fs.rm(path.join(r, COPY, 'specifications'), { recursive: true });
+    await fs.symlink(path.join(r, 'docs', 'specifications'), path.join(r, COPY, 'specifications'));
+  }, ['symlink specifications']],
 ];
 
 for (const [label, mutate, expected] of MUTATIONS) {
@@ -76,6 +106,36 @@ test('SP-BPRUN-036: 変異の無い作業コピーでは sync-bp-criteria --chec
   assert.deepEqual(tool(await tmpRoot(t), '--check'), { code: 0, lines: [] });
 });
 
+test('SP-BPRUN-036: URL の問い合わせの中の docs/ は参照に数えない', async (t) => {
+  const root = await tmpRoot(t);
+  await editConformance(root, 'https://x.example/?p=docs/specifications/bp-zz.md');
+  assert.deepEqual(tool(root, '--check'), { code: 0, lines: [] });
+});
+
+test('SP-BPRUN-036: 書き込みの mode は、写しの置き場とその中の symlink とディレクトリを通常のファイルに作り直し、置き場より上の symlink では書かずに 1 で終わる', async (t) => {
+  const linkedRoot = await tmpRoot(t);
+  await fs.rm(path.join(linkedRoot, COPY), { recursive: true });
+  await fs.symlink(path.join(linkedRoot, 'docs'), path.join(linkedRoot, COPY));
+  assert.deepEqual(tool(linkedRoot), { code: 0, lines: [] });
+  assert.deepEqual(tool(linkedRoot, '--check'), { code: 0, lines: [] });
+  assert.ok(lstatSync(path.join(linkedRoot, COPY)).isDirectory() && lstatSync(path.join(linkedRoot, 'docs', CONFORMANCE)).isFile());
+
+  const inner = await tmpRoot(t);
+  await fs.rm(path.join(inner, COPY, 'specifications'), { recursive: true });
+  await fs.symlink(path.join(inner, 'docs', 'specifications'), path.join(inner, COPY, 'specifications'));
+  await fs.rm(path.join(inner, COPY, 'requirements', 'bp-operations.md'));
+  await fs.mkdir(path.join(inner, COPY, 'requirements', 'bp-operations.md'));
+  assert.deepEqual(tool(inner), { code: 0, lines: [] });
+  assert.deepEqual(tool(inner, '--check'), { code: 0, lines: [] });
+  assert.ok(lstatSync(path.join(inner, 'docs', 'specifications', 'bp-run.md')).isFile(), '正本を消していない');
+
+  const above = await tmpRoot(t);
+  const refs = path.dirname(path.join(above, COPY));
+  await fs.rename(refs, path.join(above, 'refs-real'));
+  await fs.symlink(path.join(above, 'refs-real'), refs);
+  assert.deepEqual(tool(above), { code: 1, lines: [`symlink ${path.dirname(COPY)}`] });
+});
+
 test('SP-BPRUN-036: 写しの無い作業コピーに書き込みの mode を走らせると --check が 0 になり、写しは全て通常のファイルである', async (t) => {
   const root = await tmpRoot(t, { copies: false });
   assert.equal(tool(root, '--check').code, 1);
@@ -84,11 +144,13 @@ test('SP-BPRUN-036: 写しの無い作業コピーに書き込みの mode を走
   for (const rel of closure(root).files) assert.ok(lstatSync(path.join(root, COPY, rel)).isFile(), rel);
 });
 
-test('SP-BPRUN-036: 写しの集合は bp-conformance とその直接の参照先の 9 ファイルで、CLI が読む CRITERIA_FILES を全て含む', () => {
+test('SP-BPRUN-036: 写しの集合は bp-conformance と CLI が読む CRITERIA_FILES を全て含み、ほかは bp-conformance が名指す文書だけである', () => {
   const { files, problems } = closure(ROOT);
   assert.deepEqual(problems, []);
-  assert.equal(files.length, 9);
-  for (const parts of Object.values(CRITERIA_FILES)) assert.ok(files.includes(parts.join('/')), parts.join('/'));
+  const cli = Object.values(CRITERIA_FILES).map((parts) => parts.join('/'));
+  for (const f of [CONFORMANCE, ...cli]) assert.ok(files.includes(f), f);
+  const text = readFileSync(path.join(ROOT, 'docs', CONFORMANCE), 'utf8');
+  for (const f of files.filter((x) => x !== CONFORMANCE && !cli.includes(x))) assert.ok(text.includes(`docs/${f}`) || text.includes(path.basename(f)), f);
 });
 
 test('SP-BPRUN-036: URL の中の docs/ は閉包の参照に数えない', async (t) => {
