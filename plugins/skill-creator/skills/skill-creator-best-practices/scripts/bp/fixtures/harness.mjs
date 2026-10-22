@@ -3,14 +3,14 @@ import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STATE_DIR_NAME } from '../constants.mjs';
+import { PROMPT_AUDIT_FILE, STATE_DIR_NAME } from '../constants.mjs';
 import { forbiddenReason } from '../workspace.mjs';
 
 const HERE = path.dirname(realpathSync(fileURLToPath(import.meta.url)));
 export const SKILL_DIR = path.resolve(HERE, '..', '..', '..');
 export const REPO_ROOT = path.resolve(SKILL_DIR, '..', '..', '..', '..');
 export const CRITERIA_FIXTURE = path.join(HERE, 'criteria');
-export const PROMPT_AUDIT_FIXTURE = path.join(HERE, 'prompt-audit.md');
+export const PROMPT_AUDIT_FIXTURE = path.join(SKILL_DIR, PROMPT_AUDIT_FILE);
 export const CLI = path.join(SKILL_DIR, 'scripts', 'bp-state.mjs');
 
 export function newKey() {

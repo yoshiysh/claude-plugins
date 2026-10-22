@@ -41,7 +41,7 @@ test('SP-BPFINDINGS-010: 実際の docs/ から仕様・目標・契約・監査
   assert.deepEqual(kinds.audit.map((k) => k.value), ['PA-1', 'PA-2', 'PA-3', 'PA-4', 'PA-5', 'PA-6']);
 });
 
-// ---- review のフローの観点から除く単位（SP-BPINSPECTION-007）と prompt-audit の fixture
+// ---- review のフローの観点から除く単位（SP-BPINSPECTION-007）と prompt-audit
 
 import { flowExclusions, flowUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 
@@ -90,10 +90,6 @@ test('SP-BPINSPECTION-007: フローの観点の閉集合に除く単位が無�
     assert.ok(conformance.has(u), u);
   }
   assert.equal(conformance.size - flow.size, excluded.length);
-});
-
-test('SP-BPINSPECTION-010: CLI の単体テストの fixture の prompt-audit.md が references/prompt-audit.md と 1 字も違わない', () => {
-  assert.equal(readFileSync(path.join(SKILL, 'scripts', 'bp', 'fixtures', 'prompt-audit.md'), 'utf8'), readFileSync(path.join(SKILL, 'references', 'prompt-audit.md'), 'utf8'));
 });
 
 import { auditUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
