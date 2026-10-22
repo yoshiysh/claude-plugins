@@ -21,12 +21,13 @@ host に native Workflow があればそれを使い、無いとき（Codex）�
 | 項目 | 最初の起動 | 再開 | 中身 |
 |---|---|---|---|
 | `request` | 必須 | 渡さない | 依頼文 |
-| `repo` | 必須 | 必須（`nextArgs` にある） | 調べるリポジトリの根（`.git` のあるディレクトリ）の絶対パス。状態もこの下の `.trace-cause/` に置く |
+| `repo` | 必須 | 必須（`nextArgs` にある） | 調べるリポジトリの根（`.git` のあるディレクトリ）の絶対パス。状態と作業ファイルはこのリポジトリの外の置き場（以下「状態の置き場」。既定は `~/.local/state/trace-cause/`、環境変数 `TRACE_CAUSE_HOME` で変える）に置く |
 | `skillDir` | 必須 | 必須（`nextArgs` にある） | このスキルのディレクトリの絶対パス。役の指示と状態の CLI をここから読む |
 | `state` | 渡さない | 必須（`nextArgs` にある） | 状態 ID |
+| `resumeKey` | 渡さない | 必須（`nextArgs` にある） | 再開の鍵。CLI が開始のときに発行し、無いか違えば再開を拒否する |
 | `maxLaunches` | 経路の表に従う | 経路の表に従う | 1 以上の整数 |
 
-止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。
+止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`・`resumeKey`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。
 
 起動したら、次の「ヒントの足し方」を利用者に示す。
 
@@ -52,16 +53,17 @@ EOF
 
 ## 必要な許可
 
-run の途中で権限の確認が出ると、その間 run が進まない。auto mode では script が agent に渡す prompt は利用者の依頼として扱われず、このスキルの側からは変えられないので、起動の前に次の 4 つを allow rules に入れる。これより広い許可は要らない（permission rules は run の全ての agent に同じく効く）。
+run の途中で権限の確認が出ると、その間 run が進まない。auto mode では script が agent に渡す prompt は利用者の依頼として扱われず、このスキルの側からは変えられないので、起動の前に次の許可を allow rules に入れる。これより広い許可は要らない（permission rules は run の全ての agent に同じく効く）。
 
 - `Bash(node <このスキルのディレクトリ>/scripts/state.mjs:*)`（状態の読み書き。状態を書くのは CLI だけ）
-- `Write(<リポジトリ>/.trace-cause/runs/**)`（作業ファイル。意図ごとの記録ファイルと大きな出力、試行ごとの写しの置き場）
-- `Bash(git -C <リポジトリ> log:*)`・`show:*`・`diff:*`・`blame:*`・`ls-files:*`・`grep:*` と `Bash(git -C <リポジトリ> worktree add --detach <リポジトリ>/.trace-cause/runs/*)`・`Bash(git -C <リポジトリ> worktree remove --force <リポジトリ>/.trace-cause/runs/*)`（読むだけの git と、試行ごとの写しを作り直す git。`--detach` なので対象のリポジトリに枝を作らない）
+- `Bash(node <このスキルのディレクトリ>/scripts/copy.mjs:*)`（試行ごとの写しを作り直す。`git archive` で取り出すので、対象のリポジトリの作業ツリーにも `.git` にも書かない。写しは状態の置き場の下にだけ作る）
+- `Write(<状態の置き場>/**)`（作業ファイル。意図ごとの記録ファイルと大きな出力、各役の出力の写し、試行ごとの写しの置き場）
+- `Bash(git -C <リポジトリ> log:*)`・`show:*`・`diff:*`・`blame:*`・`ls-files:*`・`grep:*`（読むだけの git）
 - 依頼文の再現手順のコマンドを、試行ごとの写しの中で実行する許可（実行役と検証役が再実行で確かめるため。リポジトリそのものでは実行しない）
 
 ## 役ごとの制限
 
-状態を書けるのは運搬役の経路だけにする。CLI は開始と再開のたびに run ごとの書き込みの鍵を発行し（状態には鍵の digest だけを残す）、script はその鍵を運搬役の prompt にだけ入れる。CLI は鍵の無い書き込みを拒否する（他の役が CLI で事実を直接書くと、検証を飛ばした内容が状態に入るため）。他の役は CLI を読み出しにだけ使う。利用者のヒントは例外で、鍵なしで足せる。
+状態を書けるのは運搬役の経路だけにする。CLI は開始と再開のたびに run ごとの書き込みの鍵を発行し（状態には鍵の digest だけを残す）、script はその鍵を運搬役の prompt にだけ入れる。CLI は鍵の無い書き込みを拒否する（他の役が CLI で事実を直接書くと、検証を飛ばした内容が状態に入るため）。新しい run と書き込みの鍵を作る再開も、開始のときに発行して `nextArgs` にだけ載る再開の鍵を要る。他の役は CLI を読み出しにだけ使う。利用者のヒントは例外で、鍵なしで足せる。
 
 | 役 | 書いてよい先 |
 |---|---|

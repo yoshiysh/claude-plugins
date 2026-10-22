@@ -2,11 +2,11 @@
 // trace-cause の状態の CLI。状態を書くのはこの CLI だけ（script はファイルに触れず、運搬役がこの CLI を呼ぶ）。
 import { createHash, randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const STATE_DIR = '.trace-cause';
 const SUMMARY_MAX_CHARS = 8000;
 const SUMMARY_TRAILER_CHARS = 200;
 const STOP_KINDS = ['complete', 'dry', 'needs_input', 'iteration_limit', 'blocked'];
@@ -27,20 +27,26 @@ class Rejected extends Error {
 const reject = (code, reason) => { throw new Rejected(code, reason); };
 const digest = (v) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 // 既知の事実の照合は言い換えに強いキーで行う（空白と句読点の違いを同じ事実と数える）。
-const factKey = (text) => digest(text.normalize('NFKC').replace(/[\s、。,.]/g, '').toLowerCase()).slice(0, 12);
+// 数字の間の . と , は値の一部なので残す（「1.5 秒」と「15 秒」は別の事実）。
+const factKey = (text) => digest(text.normalize('NFKC').replace(/\s|[、。]|(?<!\d)[.,]|[.,](?!\d)/g, '').toLowerCase()).slice(0, 12);
 const isRound = (n) => Number.isInteger(n) && n >= 1;
 
+// 状態と作業ファイルは対象のリポジトリの外に置く（対象の作業ツリーにも .git にも書かない）。置き場は TRACE_CAUSE_HOME で変えられる。
+const homeOf = () => process.env.TRACE_CAUSE_HOME || path.join(os.homedir(), '.local', 'state', 'trace-cause');
+const repoDir = (repo) => path.join(homeOf(), digest(path.resolve(repo)).slice(0, 16));
+
 function dirOf(repo, state) {
-  return path.join(repo, STATE_DIR, 'states', state);
+  return path.join(repoDir(repo), 'states', state);
 }
 
 const logOf = (repo, state) => path.join(dirOf(repo, state), 'log.jsonl');
-const workDirOf = (repo, state, run) => path.join(repo, STATE_DIR, 'runs', state, run);
+export const workRootOf = (repo) => path.join(repoDir(repo), 'runs');
+const workDirOf = (repo, state, run) => path.join(workRootOf(repo), state, run);
 
 function load(repo, state) {
   const file = logOf(repo, state);
   if (!existsSync(file)) reject('E_UNKNOWN_ID', `状態が無い: ${state}`);
-  const v = { records: [], runs: [], keys: new Map(), premises: [], hints: [], intents: new Map(), facts: new Map(), assets: new Map(), seen: new Map(), scope: null, rounds: [], claims: [], stops: new Map(), asked: new Map(), limits: null, request: null };
+  const v = { records: [], runs: [], keys: new Map(), resumeKey: null, premises: [], hints: [], intents: new Map(), facts: new Map(), disputes: [], assets: new Map(), seen: new Map(), scope: null, rounds: [], claims: [], stops: new Map(), asked: new Map(), limits: null, request: null };
   for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) {
     const r = JSON.parse(line);
     v.records.push(r);
@@ -48,6 +54,8 @@ function load(repo, state) {
     if (r.t === 'start') { v.limits = r.limits; v.request = r.request; v.key = r.key; v.runs.push(r.run); }
     if (r.t === 'run') v.runs.push(r.run);
     if (r.t === 'key') v.keys.set(r.run, r.digest);
+    if (r.t === 'resumeKey') v.resumeKey = r.digest;
+    if (r.t === 'dispute') v.disputes.push(r);
     if (r.t === 'premise') v.premises.push(r);
     if (r.t === 'hint') v.hints.push(r);
     if (r.t === 'intent') v.intents.set(r.id, { ...r, attempts: 0, status: 'pending' });
@@ -72,17 +80,35 @@ function append(repo, state, records) {
 
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+const alive = (pid) => {
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+};
+const holderOf = (lock) => { try { return Number.parseInt(readFileSync(lock, 'utf8'), 10); } catch { return Number.NaN; } };
+
 // 同時に走る意図の運搬役が並んで書くので、読んでから足すまでを排他にする（排他が無いと、照合と追記の間に別の書き込みが入る）。
+// 排他の持ち主の pid を残し、持ち主が終わっていれば取り直す（途中で落ちた CLI の排他が残ると、以後の書き込みが全て止まる）。
 function locked(repo, state, fn) {
   if (!existsSync(logOf(repo, state))) reject('E_UNKNOWN_ID', `状態が無い: ${state}`);
   const lock = path.join(dirOf(repo, state), 'lock');
   for (let n = 0; ; n += 1) {
     try {
-      closeSync(openSync(lock, 'wx'));
+      const fd = openSync(lock, 'wx');
+      writeSync(fd, String(process.pid));
+      closeSync(fd);
       break;
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      if (n >= LOCK_TRIES) reject('E_BUSY', `状態の排他を取れない（書き込み中の CLI が無いのに残っていれば消す: ${lock}）`);
+      if (!alive(holderOf(lock))) {
+        try { unlinkSync(lock); } catch {}
+        continue;
+      }
+      if (n >= LOCK_TRIES) reject('E_BUSY', `状態の排他を持つ CLI（pid ${holderOf(lock)}）が終わらない`);
       pause(LOCK_WAIT_MS);
     }
   }
@@ -100,20 +126,28 @@ function issueKey(repo, state, run) {
   return { state, run, workDir: workDirOf(repo, state, run), writeKey, methods: METHODS };
 }
 
+// 再開の鍵は開始の応答で script に渡り、nextArgs にだけ載る（鍵の無い再開を拒否し、他の役が run を増やして書き込みの鍵を得られないようにする）。
+function issueResumeKey(repo, state) {
+  const resumeKey = randomBytes(16).toString('hex');
+  append(repo, state, [{ t: 'resumeKey', digest: digest(resumeKey) }]);
+  return resumeKey;
+}
+
 // まだ何も書いていない run（開始・再開の応答が運搬役から失われた送り直しのときだけ起きる）。
 const SAME = Symbol('same');
 const sameAs = (record) => ({ [SAME]: record });
 
-const fresh = (v, run) => !v.records.some((r) => r.run === run && !['start', 'run', 'key'].includes(r.t));
+const fresh = (v, run) => !v.records.some((r) => r.run === run && !['start', 'run', 'key', 'resumeKey'].includes(r.t));
 
 // 同じ要求の繰り返しは同じ記録を返す（runtime が agent を再起動して同じ書き込みを送り直しても状態が変わらない）。
-function write(repo, state, req, make, { keyed = true } = {}) {
+// 人間のヒントは運搬役を通らず送り直しが起きないので、同じ本文でも足す（読まれた後に足し直したヒントを未読に戻す）。
+function write(repo, state, req, make, { keyed = true, once = true } = {}) {
   return locked(repo, state, () => {
     const { writeKey, ...body } = req;
     const asked = digest(body);
     const v = load(repo, state);
     if (keyed && v.keys.get(v.runs.at(-1)) !== digest(String(writeKey))) reject('E_KEY', '書き込みの鍵が今の run のものでない（状態を書くのは運搬役だけ）');
-    if (v.asked.has(asked)) return { ...v.asked.get(asked), same: true };
+    if (once && v.asked.has(asked)) return { ...v.asked.get(asked), same: true };
     if (req.run !== undefined && req.run !== v.runs.at(-1)) reject('E_STALE_RUN', `現在の run でない: ${req.run}`);
     if (req.run !== undefined && v.stops.has(req.run)) reject('E_STALE_RUN', `停止を書いた後の run: ${req.run}`);
     const made = make(v);
@@ -140,20 +174,24 @@ const pendingOf = (v) => pending(v).map((i) => ({ id: i.id, text: i.text, rank: 
 const withAfter = (req, record, read) => ({ ...record, ...read(load(req.repo, req.state)) });
 const assetId = (file) => `A${digest(file).slice(0, 10)}`;
 // 資産 ID はパスから決める（台帳を取り直しても、同じファイルは同じ ID）。再開では範囲の今のファイルを足し直す。
-const newAssets = (repo, v, scope) => execFileSync('git', ['-C', repo, 'ls-files', '--', ...scope], { encoding: 'utf8' }).split('\n').filter(Boolean)
-  .filter((f) => !v.assets.has(assetId(f))).map((f) => ({ t: 'asset', id: assetId(f), path: f }));
+const newAssets = (repo, v, scope) => (scope.length === 0 ? [] : execFileSync('git', ['-C', repo, 'ls-files', '--', ...scope], { encoding: 'utf8' }).split('\n').filter(Boolean)
+  .filter((f) => !v.assets.has(assetId(f))).map((f) => ({ t: 'asset', id: assetId(f), path: f })));
 const pending = (v) => [...v.intents.values()].filter((i) => i.status === 'pending').sort((a, b) => a.rank - b.rank);
 const accepted = (v) => [...v.facts.values()].filter((f) => f.verdict === 'accept');
 const goalOf = (v) => { try { return JSON.parse(v.premises.find((p) => p.kind === 'goal')?.text ?? '{}'); } catch { return {}; } };
 const premiseLine = (p) => `前提 ${p.id}（${PREMISE_NAMES[p.kind] ?? p.kind}）: ${p.text}`;
 const statesOf = (repo) => {
-  const root = path.join(repo, STATE_DIR, 'states');
+  const root = path.join(repoDir(repo), 'states');
   return (existsSync(root) ? readdirSync(root) : []).filter((id) => existsSync(logOf(repo, id)));
 };
 const abortedOf = (v) => [...v.intents.values()].filter((i) => i.status === 'aborted').map((i) => i.id);
+const verdictName = { accept: '受理', reject: '却下', unverifiable: '検証不能' };
+const factsOut = (v) => accepted(v).map((f) => ({ id: f.id, text: f.text, method: f.method, evidence: f.evidence }));
+// 停止の応答と、完了が書かれた状態の再開の応答は、同じ返り値の項目を運ぶ。
+const stopView = (repo, v, record) => ({ ...skipOf(repo)(v), facts: factsOut(v), pending: record.pending, aborted: record.aborted, rounds: v.rounds.filter((r) => r.run === record.run).map((r) => ({ round: r.n, launches: r.launches })) });
 const lastStop = (v) => (v.runs.length > 1 ? v.stops.get(v.runs.at(-2)) : undefined);
 
-// 要約の項目の種類。載せなかった項目の宣言と、get の種類の引き方の両方がこの並びを使う。
+// 要約の項目の種類。載せなかった項目の宣言と、get の種類の引き方の両方がこの並びを使う（ヒントは get で引かせない。計画役が読むヒントを要約に載ったものに限るため）。
 const KINDS = [
   ['前提', (v) => v.premises.map((p) => ({ id: p.id, line: premiseLine(p) }))],
   ['前の run の停止', (v) => [lastStop(v)].filter(Boolean).map((s) => ({ id: s.run, line: `前の run の停止 ${s.run}（${s.kind}）: ${s.reason}` }))],
@@ -161,6 +199,7 @@ const KINDS = [
   ['検証不能', (v) => [...v.facts.values()].filter((f) => f.verdict === 'unverifiable').map((f) => ({ id: f.id, line: `検証不能 ${f.id}: ${f.text}` }))],
   ['未着手', (v) => pending(v).map((i) => ({ id: i.id, line: `未着手 ${i.id}（順位 ${i.rank}）: ${i.text}` }))],
   ['打ち切り', (v) => [...v.intents.values()].filter((i) => i.status === 'aborted').map((i) => ({ id: i.id, line: `打ち切り ${i.id}: ${i.text}` }))],
+  ['判定の食い違い', (v) => v.disputes.map((d) => ({ id: d.fact, line: `判定の食い違い ${d.fact}: ${verdictName[v.facts.get(d.fact)?.verdict]}と${verdictName[d.verdict]}（意図 ${d.intent}）` }))],
   ['却下した完了の主張', (v) => v.claims.filter((c) => c.verdict === 'reject').map((c) => ({ id: c.id, line: `却下した完了の主張 ${c.id}: ${c.reason}` }))],
   ['読まれていないヒント', (v) => unreadHints(v).map((h) => ({ id: h.id, line: `読まれていないヒント ${h.id}: ${h.text}` }))],
 ];
@@ -175,16 +214,18 @@ function summary(v) {
       if (text.length + item.line.length + 1 > SUMMARY_MAX_CHARS - SUMMARY_TRAILER_CHARS) left += 1;
       else {
         text += `\n${item.line}`;
-        if (kind === '読まれていないヒント') hints.push(item.id);
+        if (kind === HINT_KIND) hints.push(item.id);
       }
     }
     if (left) omitted.push(`${kind} ${left} 件`);
   }
-  if (omitted.length) text += `\n載せなかった項目（CLI の get に種類を渡すと全件を引ける）: ${omitted.join('・')}`;
+  if (omitted.length) text += `\n載せなかった項目（ヒントは次の周で渡す。他は CLI の get に種類を渡すと全件を引ける）: ${omitted.join('・')}`;
   return { summary: text, hints };
 }
 
-const findById = (v, id) => v.premises.find((p) => p.id === id) ?? v.facts.get(id) ?? v.intents.get(id) ?? v.hints.find((h) => h.id === id) ?? v.claims.find((c) => c.id === id);
+const HINT_KIND = '読まれていないヒント';
+const GET_KINDS = KINDS.filter(([k]) => k !== HINT_KIND);
+const findById = (v, id) => v.premises.find((p) => p.id === id) ?? v.facts.get(id) ?? v.intents.get(id) ?? v.claims.find((c) => c.id === id);
 
 const OPS = {
   // 同じ鍵の開始の送り直しは、まだ何も書いていない状態を返す（runtime が運搬役を再起動しても状態を 2 つ作らない）。
@@ -192,20 +233,22 @@ const OPS = {
     if (!req.request || !req.key) reject('E_INPUT', 'request と key が要る');
     for (const id of statesOf(req.repo)) {
       const v = load(req.repo, id);
-      if (v.key === req.key && v.runs.length === 1 && fresh(v, 'r1')) return { ...locked(req.repo, id, () => issueKey(req.repo, id, 'r1')), same: true };
+      if (v.key === req.key && v.runs.length === 1 && fresh(v, 'r1')) return { ...locked(req.repo, id, () => ({ ...issueKey(req.repo, id, 'r1'), resumeKey: issueResumeKey(req.repo, id) })), same: true };
     }
     const state = `tc-${randomBytes(4).toString('hex')}`;
     mkdirSync(dirOf(req.repo, state), { recursive: true });
     append(req.repo, state, [{ t: 'start', run: 'r1', key: req.key, request: req.request, limits: req.limits, asked: digest(req) }]);
-    return locked(req.repo, state, () => issueKey(req.repo, state, 'r1'));
+    return locked(req.repo, state, () => ({ ...issueKey(req.repo, state, 'r1'), resumeKey: issueResumeKey(req.repo, state) }));
   },
   // 停止の記録の応答が失われた run も、ここで状態に書かれた停止を読んで続ける。
   resume: (req) => locked(req.repo, req.state, () => {
     const v = load(req.repo, req.state);
+    if (v.resumeKey !== digest(String(req.resumeKey))) reject('E_KEY', '再開の鍵が無いか違う（再開は nextArgs の resumeKey を要る）');
     const last = v.runs.at(-1);
     const stopped = v.stops.get(last);
-    if (stopped?.kind === 'complete') return { completed: true, reason: stopped.reason, cause: stopped.cause, facts: accepted(v).map((f) => ({ id: f.id, text: f.text, method: f.method, evidence: f.evidence })) };
-    const needsGoal = !v.premises.some((p) => p.kind === 'goal');
+    if (stopped?.kind === 'complete') return { completed: true, reason: stopped.reason, cause: stopped.cause, ...stopView(req.repo, v, stopped) };
+    // 目標・出発点・台帳は 1 回の書き込みでそろうので、台帳が無ければ目標の固定からやり直す。
+    const needsGoal = v.scope === null;
     const read = { rounds: v.rounds.length, ...(needsGoal ? { request: v.request } : {}) };
     if (!stopped && fresh(v, last)) return { ...issueKey(req.repo, req.state, last), ...read, same: true };
     const run = `r${v.runs.length + 1}`;
@@ -213,17 +256,25 @@ const OPS = {
     append(req.repo, req.state, [...records, { t: 'run', run }, ...newAssets(req.repo, v, v.scope ?? [])]);
     return { ...issueKey(req.repo, req.state, run), ...read };
   }),
-  premise: (req) => write(req.repo, req.state, req, (v) => {
-    if (!PREMISE_NAMES[req.kind]) reject('E_INPUT', `前提の種類が無い: ${req.kind}`);
-    const same = v.premises.find((p) => p.kind === req.kind);
-    if (same && same.text !== req.text) reject('E_CONFLICT', `${same.id} と食い違う前提: ${req.kind}`);
-    if (same) return sameAs(same);
-    return { t: 'premise', run: req.run, id: `P${v.premises.length + 1}`, kind: req.kind, text: req.text };
+  // 目標・出発点・台帳と範囲の資産を 1 回の追記で書く（途中で切れると、範囲の無い台帳や出発点の無い状態が残る）。
+  goal: (req) => write(req.repo, req.state, req, (v) => {
+    if (typeof req.goal !== 'string' || typeof req.origin !== 'string' || !Array.isArray(req.scope) || req.scope.length === 0) reject('E_INPUT', 'goal・origin と 1 件以上の scope が要る');
+    if (v.scope !== null) {
+      const now = Object.fromEntries(v.premises.map((p) => [p.kind, p.text]));
+      if (now.goal !== req.goal || now.origin !== req.origin || JSON.stringify(v.scope) !== JSON.stringify(req.scope)) reject('E_CONFLICT', '既にある目標・出発点・台帳の範囲と食い違う');
+      return sameAs(v.records.find((r) => r.t === 'ledger'));
+    }
+    return [
+      { t: 'premise', run: req.run, id: 'P1', kind: 'goal', text: req.goal },
+      { t: 'premise', run: req.run, id: 'P2', kind: 'origin', text: req.origin },
+      ...newAssets(req.repo, v, req.scope),
+      { t: 'ledger', run: req.run, scope: req.scope },
+    ];
   }),
   hint: (req) => write(req.repo, req.state, req, (v) => {
     if ([...v.stops.values()].some((s) => s.kind === 'complete')) reject('E_INPUT', '完了した状態にはヒントを足せない');
     return { t: 'hint', id: `H${v.hints.length + 1}`, text: req.text };
-  }, { keyed: false }),
+  }, { keyed: false, once: false }),
   // 読んだヒントは、計画役に渡した要約に載ったヒント（script が要約の応答から写す）。停止の判定の「読まれていないヒント」と同じ集合にする。
   plan: (req) => withAfter(req, write(req.repo, req.state, req, (v) => {
     if (!isRound(req.round)) reject('E_INPUT', 'round（周の番号）が要る');
@@ -238,22 +289,24 @@ const OPS = {
     records.push({ t: 'rank', run: req.run, round: req.round, ranks, hintsRead: req.hintsRead ?? [] });
     return records;
   }), (v) => ({ pending: pendingOf(v) })),
-  // 1 件の意図の事実をまとめて書く（件数で運搬役が増えると、意図の最悪の起動数が決まらない）。既知の事実は受理済みの記録を変えず、別の記録として足す。
+  // 1 件の意図の事実と意図の終わりを 1 回で書く（件数で運搬役が増えると、意図の最悪の起動数が決まらない。分けると、事実を拒否された後に終わりだけが書かれうる）。
+  // 既知の事実は受理済みの記録を変えず、別の記録として足す。判定が食い違えば最初の判定を残し、食い違いを記録して応答で返す（script が BLOCKED で止める）。
   facts: (req) => withAfter(req, write(req.repo, req.state, req, (v) => {
     if (!v.intents.has(req.intent)) reject('E_UNKNOWN_ID', `状態に無い意図: ${req.intent}`);
     if (!Array.isArray(req.facts)) reject('E_INPUT', 'facts は並びでなければならない');
     const added = new Map();
-    return req.facts.map((f) => {
+    const records = req.facts.map((f) => {
       if (!Object.hasOwn(METHODS, f.method) || !VERDICTS.includes(f.verdict)) reject('E_INPUT', `検証方式か判定が選択肢に無い（方式は ${Object.keys(METHODS).join('・')}）`);
       const key = factKey(f.text);
       const id = `F${key}`;
       const same = v.facts.get(id) ?? added.get(id);
-      if (same && same.verdict !== f.verdict) reject('E_CONFLICT', `既にある事実と判定が食い違う: ${id}`);
+      if (same && same.verdict !== f.verdict) return { t: 'dispute', run: req.run, intent: req.intent, fact: id, verdict: f.verdict, text: f.text, evidence: f.evidence };
       if (same) return { t: 'known', run: req.run, intent: req.intent, fact: id };
       const record = { t: 'fact', run: req.run, id, key, intent: req.intent, text: f.text, method: f.method, evidence: f.evidence, verdict: f.verdict };
       added.set(id, record);
       return record;
     });
+    return [...records, { t: 'done', run: req.run, intent: req.intent, blank: false, disputes: records.filter((r) => r.t === 'dispute').map((r) => r.fact) }];
   }), () => ({})),
   done: (req) => write(req.repo, req.state, req, (v) => {
     if (!v.intents.has(req.intent)) reject('E_UNKNOWN_ID', `状態に無い意図: ${req.intent}`);
@@ -264,11 +317,6 @@ const OPS = {
     if (!isRound(req.round) || !isRound(req.attempt)) reject('E_INPUT', 'round（周の番号）と attempt（試行の番号）が要る');
     const i = v.intents.get(req.intent) ?? reject('E_UNKNOWN_ID', `状態に無い意図: ${req.intent}`);
     return { t: 'attempt', run: req.run, round: req.round, attempt: req.attempt, intent: req.intent, n: i.attempts + 1, aborted: i.attempts + 1 >= v.limits.attempts, reason: req.reason };
-  }),
-  ledger: (req) => write(req.repo, req.state, req, (v) => {
-    if (v.scope !== null && JSON.stringify(v.scope) !== JSON.stringify(req.scope)) reject('E_CONFLICT', '台帳の範囲が既にある範囲と食い違う');
-    if (v.scope !== null) return sameAs(v.records.find((r) => r.t === 'ledger'));
-    return [...newAssets(req.repo, v, req.scope), { t: 'ledger', run: req.run, scope: req.scope }];
   }),
   // 追加の実行の「見た」は意図を持たない。意図を書くのは計画の書き込みだけ。
   seen: (req) => withAfter(req, write(req.repo, req.state, req, (v) => {
@@ -311,7 +359,7 @@ const OPS = {
   get: (req) => {
     const v = load(req.repo, req.state);
     if (req.id !== undefined) return { record: findById(v, req.id) ?? reject('E_UNKNOWN_ID', `状態に無い ID: ${req.id}`) };
-    const kind = KINDS.find(([k]) => k === req.kind) ?? reject('E_INPUT', `種類が無い（${KINDS.map(([k]) => k).join('・')}）`);
+    const kind = GET_KINDS.find(([k]) => k === req.kind) ?? reject('E_INPUT', `種類が無い（${GET_KINDS.map(([k]) => k).join('・')}）`);
     return { lines: kind[1](v).map((x) => x.line) };
   },
   // 最初の run の実行中は利用者に状態 ID が返っていないので、止まっていない状態をリポジトリから引けるようにする。読むだけ。
@@ -325,7 +373,7 @@ const OPS = {
     const left = pending(v).map((i) => i.id);
     const reason = req.limitHit === 'launch' ? `${req.reason}。残した意図 ${left.length} 件` : req.reason;
     return { t: 'stop', run: req.run, kind: req.kind, reason, limitHit: req.limitHit, cause: req.cause, launches: req.launches, roundLaunches: req.roundLaunches, pending: left, aborted: abortedOf(v) };
-  }), (v) => ({ ...skipOf(req.repo)(v), facts: accepted(v).map((f) => ({ id: f.id, text: f.text, method: f.method, evidence: f.evidence })), rounds: v.rounds.filter((r) => r.run === req.run).map((r) => ({ round: r.n, launches: r.launches })) })),
+  }), (v) => stopView(req.repo, v, v.stops.get(req.run))),
 };
 
 const STATELESS = new Set(['start', 'active']);

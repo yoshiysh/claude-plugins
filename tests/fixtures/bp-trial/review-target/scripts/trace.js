@@ -69,28 +69,33 @@ class Stop {
   }
 }
 
-// 入力の項目の正本は SKILL.md の「起動」の表。再開は nextArgs（state・repo・skillDir）をそのまま受ける。
+// 入力の項目の正本は SKILL.md の「起動」の表。再開は nextArgs（state・repo・skillDir・resumeKey）をそのまま受ける。
 function validate(a) {
   const missing = ['repo', 'skillDir'].filter((k) => typeof a?.[k] !== 'string' || a[k] === '')
-  if (typeof a?.state === 'string') return missing.length ? { error: `再開に要る項目が無い: ${missing.join(', ')}` } : { state: a.state, repo: a.repo, skillDir: a.skillDir, limit: a.maxLaunches }
+  if (typeof a?.state === 'string') {
+    if (typeof a.resumeKey !== 'string' || a.resumeKey === '') missing.push('resumeKey')
+    return missing.length ? { error: `再開に要る項目が無い: ${missing.join(', ')}` } : { state: a.state, repo: a.repo, skillDir: a.skillDir, resumeKey: a.resumeKey, limit: a.maxLaunches }
+  }
   if (typeof a?.request !== 'string' || a.request === '') missing.unshift('request')
   if (missing.length) return { error: `起動に要る項目が無い: ${missing.join(', ')}` }
   return { request: a.request, repo: a.repo, skillDir: a.skillDir, limit: a.maxLaunches }
 }
 
+// 上限の確かめを他の項目の確かめより先に行う（docs/specifications/bp-run.md の SP-BPRUN-037。同時に当たる入力でも上限の理由を返す）。
+// 上限の誤りは利用者が直してから同じ状態で起動し直すので、再開の入力なら渡された nextArgs の項目を返す。
+const limit = args?.maxLaunches
+const retry = typeof args?.state === 'string' ? { nextArgs: { state: args.state, repo: args.repo, skillDir: args.skillDir, resumeKey: args.resumeKey } } : {}
+if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1)) {
+  return { stopKind: 'blocked', reason: `起動数の上限 ${JSON.stringify(limit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 }
+}
+if (limit !== undefined && limit < MIN_LAUNCHES) {
+  return { stopKind: 'blocked', reason: `起動数の上限 ${limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, ...retry, launches: 0 }
+}
 const input = validate(args)
 if (input.error) return { stopKind: 'blocked', reason: input.error, launches: 0 }
-// 上限の誤りは利用者が直してから同じ状態で起動し直すので、再開の入力なら状態 ID を返す。
-const retry = input.state ? { nextArgs: { state: input.state, repo: input.repo, skillDir: input.skillDir } } : {}
-if (input.limit !== undefined && !(Number.isInteger(input.limit) && input.limit >= 1)) {
-  return { stopKind: 'blocked', reason: `起動数の上限 ${JSON.stringify(input.limit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 }
-}
-if (input.limit !== undefined && input.limit < MIN_LAUNCHES) {
-  return { stopKind: 'blocked', reason: `起動数の上限 ${input.limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, ...retry, launches: 0 }
-}
 const SKILL = input.skillDir
 const ROLES = `${SKILL}/references/roles`
-const run = { state: input.state ?? null, run: null, repo: input.repo, workDir: null, writeKey: null, methods: null, premises: '', roundLaunches: 0 }
+const run = { state: input.state ?? null, run: null, repo: input.repo, workDir: null, writeKey: null, resumeKey: input.resumeKey ?? null, methods: null, premises: '', roundLaunches: 0 }
 
 // 検証方式の綴りは CLI が開始と再開の応答で渡す（CLI の受け付ける綴りと、実行役に書かせる綴りを 1 つにする）。
 function factSchemas() {
@@ -100,6 +105,8 @@ function factSchemas() {
     collector: { type: 'object', properties: { facts }, required: ['facts'] },
   }
 }
+// 写しは CLI と同じ置き場の下に、対象のリポジトリに書かない形で作る（scripts/copy.mjs）。
+const copyLine = (to) => `写しを作り直すコマンド（同じパスにあれば消して作り直す）: node '${SKILL}/scripts/copy.mjs' <<'EOF'\n${JSON.stringify({ repo: run.repo, to })}\nEOF`
 const methodsLine = () => `検証方式の綴り（method に書く）: ${Object.entries(run.methods).map(([k, name]) => `${k}（${name}）`).join('・')}`
 
 // 走っている単位の残りの最悪の数も足して確かめる。呼び終えた数だけで確かめると、同時に走る意図の残りが合わさって上限を超える。
@@ -212,11 +219,7 @@ async function fixGoal(request) {
     ], SCHEMAS.goal, 'goal')
     if (!g) throw new Stop('blocked', '目標の固定役が結果を返さなかった')
     if (g.missing.length) throw new Stop('needs_input', `目標の固定に要る入力が無い: ${g.missing.join(' / ')}`)
-    await cli(u, [
-      ['premise', { kind: 'goal', text: JSON.stringify({ goal: g.goal, scope: g.scope, prohibitions: g.prohibitions, numeric: g.numeric }) }],
-      ['premise', { kind: 'origin', text: g.origin }],
-      ['ledger', { scope: g.scope }],
-    ])
+    await cli(u, [['goal', { goal: JSON.stringify({ goal: g.goal, scope: g.scope, prohibitions: g.prohibitions, numeric: g.numeric }), origin: g.origin, scope: g.scope }]])
   })
 }
 
@@ -264,6 +267,7 @@ async function item(intent, round) {
         `リポジトリ: ${run.repo}`,
         `作業ファイルの置き場: ${run.workDir}`,
         `試行: ${attempt}`,
+        copyLine(`${run.workDir}/${intent.id}.${attempt}`),
         `前提（目標・範囲・禁止事項と出発点。範囲の外へ広げない）:\n${run.premises}`,
         `意図 ${intent.id}: ${intent.text}`,
         methodsLine(),
@@ -288,6 +292,7 @@ async function item(intent, round) {
         `リポジトリ: ${run.repo}`,
         `作業ファイルの置き場: ${run.workDir}`,
         `意図 ${intent.id}・試行 ${attempt}`,
+        copyLine(`${run.workDir}/${intent.id}.${attempt}.verify`),
         `前提:\n${run.premises}`,
         `事実の候補（行頭が候補の番号）:\n${candidates.map((f, n) => `${n}: ${JSON.stringify(f)}`).join('\n')}`,
       ], SCHEMAS.verifier, `verifier:${intent.id}`)
@@ -301,7 +306,8 @@ async function item(intent, round) {
         if ((await failed('実行役が結果を返さず、回収した候補が 1 件も受理されなかった')).aborted) break
         continue
       }
-      await cli(u, [...seen, ['facts', { intent: intent.id, facts }], ['done', { intent: intent.id }]])
+      const written = (await cli(u, [...seen, ['facts', { intent: intent.id, facts }]])).at(-1)
+      if (written.disputes.length) throw new Stop('blocked', `同じ事実の判定が意図の間で食い違った: ${written.disputes.join(', ')}（最初の判定を残し、食い違いは要約に載る。確かめる意図かヒントを足してから再開する）`)
       return { facts: facts.length }
     }
     return { facts: 0, failed: true }
@@ -372,20 +378,21 @@ function begin(r) {
 
 async function main() {
   if (run.state) {
-    const [r] = await unit(WORST.start, (u) => cli(u, [['resume', {}]]))
-    if (r.completed) throw new Stop('complete', r.reason, { cause: r.cause, facts: r.facts })
+    const [r] = await unit(WORST.start, (u) => cli(u, [['resume', { resumeKey: run.resumeKey }]]))
+    if (r.completed) throw new Stop('complete', r.reason, { cause: r.cause, written: r })
     begin(r)
     if (r.request !== undefined) await fixGoal(r.request)
     return rounds(r.rounds)
   }
   const [r] = await unit(WORST.start, (u) => cli(u, [['start', { key: startKey(), request: input.request, limits: { rounds: MAX_ROUNDS, attempts: MAX_ATTEMPTS } }]]))
   begin(r)
+  run.resumeKey = r.resumeKey
   await fixGoal(input.request)
   return rounds(0)
 }
 
 function nextArgs() {
-  return { state: run.state, repo: run.repo, skillDir: SKILL }
+  return { state: run.state, repo: run.repo, skillDir: SKILL, resumeKey: run.resumeKey }
 }
 
 let stop
@@ -394,14 +401,24 @@ try {
 } catch (e) {
   stop = e instanceof Stop ? e : new Stop('blocked', `script が止まった: ${e?.message ?? String(e)}`)
 }
+// 停止の記録と、完了が書かれた状態の再開は、同じ返り値の項目を返す（SKILL.md の「返り値」）。
+const result = (written) => ({
+  stopKind: stop.kind,
+  reason: written.reason,
+  ...(stop.kind === 'complete' ? {} : { nextArgs: nextArgs() }),
+  pending: written.pending,
+  aborted: written.aborted,
+  coverage: written.coverage,
+  skip: written.skip,
+  facts: written.facts,
+  ...(stop.kind === 'complete' ? { cause: stop.extra.cause } : {}),
+  launches: budget.used(),
+  roundLaunches: written.rounds,
+  residualRisks: RESIDUAL_RISKS,
+})
+if (stop.extra.written) return result(stop.extra.written)
 if (!run.run) {
-  return {
-    stopKind: stop.kind,
-    reason: stop.reason,
-    ...(stop.kind === 'complete' ? { cause: stop.extra.cause, facts: stop.extra.facts } : run.state ? { nextArgs: nextArgs() } : {}),
-    launches: budget.used(),
-    residualRisks: RESIDUAL_RISKS,
-  }
+  return { stopKind: stop.kind, reason: stop.reason, ...(run.state ? { nextArgs: nextArgs() } : {}), launches: budget.used(), residualRisks: RESIDUAL_RISKS }
 }
 const final = budget.open(RESERVE)
 let written = null
@@ -417,17 +434,4 @@ try {
     residualRisks: RESIDUAL_RISKS,
   }
 }
-return {
-  stopKind: stop.kind,
-  reason: written.reason,
-  ...(stop.kind === 'complete' ? {} : { nextArgs: nextArgs() }),
-  pending: written.pending,
-  aborted: written.aborted,
-  coverage: written.coverage,
-  skip: written.skip,
-  facts: written.facts,
-  ...(stop.kind === 'complete' ? { cause: stop.extra.cause } : {}),
-  launches: budget.used(),
-  roundLaunches: written.rounds,
-  residualRisks: RESIDUAL_RISKS,
-}
+return result(written)
