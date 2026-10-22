@@ -17,7 +17,7 @@ import { strip } from './records.mjs';
 import { ledgerReport } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { uncheckedViewpoints } from './unchecked.mjs';
-import { applicability as applicabilityRows, forcedSources } from './units.mjs';
+import { applicability as applicabilityRows, forcedReason, forcedSources } from './units.mjs';
 import { changedTargets, readTargets } from './targets.mjs';
 import { currentAssets, itemStatus, reachedStage, runViewpoints, stageEntry, validTarget } from './view.mjs';
 
@@ -120,7 +120,7 @@ export function applicability(ctx, req) {
     const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir, REVIEW_UNITS), allowed });
     if (judged.error) return rejected(REJECT_SCOPE.applicability, req.n, null, req.result, judged.error);
     const sources = forcedSources(ctx.criteriaDir, REVIEW_UNITS);
-    const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, sources.turnForm.get(u) ?? sources.always.get(u)]));
+    const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, forcedReason(sources, u)]));
     const record = { t: RECORDS.applicability, run: req.run, result: req.result, ...judged, forcedBy };
     return { records: [record, end], output };
   });

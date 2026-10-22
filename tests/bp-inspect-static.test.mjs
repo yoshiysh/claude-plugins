@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, criteriaNoteOf, inspectArgs, resumeArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
 import { INPUT_KEYS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { PATHS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/applicability.mjs';
+import { tableAfter } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp_inspect.js');
@@ -42,17 +43,6 @@ function fnSource(name) {
 function literal(name) {
   const d = BODY.filter((s) => s.type === 'VariableDeclaration').flatMap((s) => s.declarations).find((x) => x.id.name === name);
   return Function(`"use strict"; return (${SOURCE.slice(d.init.start - OFFSET, d.init.end - OFFSET)});`)();
-}
-
-function tableAfter(text, marker) {
-  const lines = text.slice(text.indexOf(marker)).split('\n');
-  const first = lines.findIndex((l) => l.startsWith('|'));
-  const rows = [];
-  for (const line of lines.slice(first + 2)) {
-    if (!line.startsWith('|')) break;
-    rows.push(line.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
-  }
-  return rows;
 }
 
 async function promptsOf(t, fn, scenario = {}) {

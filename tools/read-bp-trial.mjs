@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { flowUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
-import { applicability, forcedSources } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
+import { applicability, forcedReason, forcedSources } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CRITERIA = path.join(REPO_ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', CRITERIA_DIR);
@@ -34,15 +34,15 @@ export function injectable(criteriaDir, row, sp) {
 
 export function forcedBy(criteriaDir, row, sp) {
   const r = applicability(criteriaDir).find((x) => x.row === row);
-  const { always, turnForm } = forcedSources(criteriaDir);
-  return r.forced.filter((u) => (always.get(u) ?? turnForm.get(u)) === sp);
+  const sources = forcedSources(criteriaDir);
+  return r.forced.filter((u) => forcedReason(sources, u) === sp);
 }
 
 // 未検査の観点の理由は強いられた未検査の出所の仕様項目 ID（SP-BPINSPECTION-025）なので、読み取りは理由まで照らす。
 export function forcedReasons(criteriaDir, row) {
   const r = applicability(criteriaDir).find((x) => x.row === row);
-  const { always, turnForm } = forcedSources(criteriaDir);
-  return r.forced.map((unit) => ({ unit, reason: always.get(unit) ?? turnForm.get(unit) }));
+  const sources = forcedSources(criteriaDir);
+  return r.forced.map((unit) => ({ unit, reason: forcedReason(sources, unit) }));
 }
 
 export function inject(expected, outDir, fixtureDir = FIXTURE_DIR) {

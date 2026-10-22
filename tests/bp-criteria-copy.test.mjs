@@ -121,6 +121,12 @@ test('SP-BPRUN-036: 写しの置き場が通常のファイルのとき、--chec
   assert.deepEqual(tool(root, '--check'), { code: 0, lines: [] });
 });
 
+test('SP-BPRUN-036: URL の直後に空白なしで続く日本語の本文の docs/ のパスは参照に数え、写しが無ければ落とす', async (t) => {
+  const root = await tmpRoot(t);
+  await editConformance(root, '出所は https://x.example/a、正本は（docs/specifications/bp-zz.md）');
+  assert.deepEqual(tool(root, '--check'), { code: 1, lines: [`unclosed ${CONFORMANCE} docs/specifications/bp-zz.md`] });
+});
+
 test('SP-BPRUN-036: URL の問い合わせの中の docs/ は参照に数えない', async (t) => {
   const root = await tmpRoot(t);
   await editConformance(root, 'https://x.example/?p=docs/specifications/bp-zz.md');

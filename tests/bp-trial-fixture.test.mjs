@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assetTexts } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/assets.mjs';
 import { specUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
-import { applicability } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
+import { applicability, forcedReason } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
 import { CRITERIA, EXPECTED_FILE, FIXTURE_DIR, MEASURES, belongs, forcedBy, forcedReasons, inject, injectable, main, pick, read, render } from '../tools/read-bp-trial.mjs';
 import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
 
@@ -195,4 +195,13 @@ test('検証方法（bp-conformance）: 読み取りの出力が、確かめて�
   const out = main(['read', '--baseline', b, '--injected', i]);
   assert.equal(out.exitCode, 0);
   assert.equal(out.text, text);
+});
+
+test('検証方法（bp-conformance）: 強いられた未検査の理由は CLI の forcedReason 1 箇所で決め、2 つの出所に当たる単位は形から強いられたことを理由にし、読み取りの tool は理由を自分で計算しない', () => {
+  const both = { turnForm: new Map([['u', 'SP-BPCONFORMANCE-006']]), always: new Map([['u', 'SP-BPCONFORMANCE-019']]) };
+  assert.equal(forcedReason(both, 'u'), 'SP-BPCONFORMANCE-006');
+  const tool = readFileSync(path.join(ROOT, 'tools', 'read-bp-trial.mjs'), 'utf8');
+  assert.doesNotMatch(tool, /\b(always|turnForm)\.get\(/);
+  const ops = readFileSync(path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp', 'ops-inspect.mjs'), 'utf8');
+  assert.doesNotMatch(ops, /\b(always|turnForm)\.get\(/);
 });
