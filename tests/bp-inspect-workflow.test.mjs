@@ -191,9 +191,11 @@ for (const fn of FNS) {
     assert.equal(blocked.result.stopKind, 'blocked');
     assert.deepEqual(Object.keys(blocked.result).filter((k) => !common.has(k)), stopped);
     assert.equal(blocked.result.stoppedStage, '担当の作成');
+    assert.match(blocked.result.reason, /抽出役が結果を返さなかった/);
     const early = await runInspect(t, { env: s.env, args: inspectArgs(fn, { root: path.join(s.base, 'none') }) });
     assert.equal(early.result.stopKind, 'blocked');
     assert.ok(!Object.hasOwn(early.result, RESULT_KEYS.stoppedStage));
+    assert.match(early.result.reason, /ディレクトリが無い/);
     const s2 = await setupInspect(t);
     const unwritten = await runInspect(t, { env: s2.env, args: inspectArgs(fn, s2.target), scenario: { extract, carrier: failCarrier(OPS.stop, { nth: [1, 2] }) } });
     assert.match(unwritten.result.reason, /^停止の記録を書けなかった（段「担当の作成」の停止の運搬役/);

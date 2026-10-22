@@ -29,7 +29,7 @@
 ### 本文書が実現する要求
 
 - 主担当: `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-006・PR-BPOPERATIONS-013
-- 併せて実現: PR-BPOPERATIONS-005・PR-BPOPERATIONS-008・PR-BPOPERATIONS-009・PR-BPOPERATIONS-012・PR-BPOPERATIONS-016・PR-BPOPERATIONS-020・PR-BPOPERATIONS-024・PR-BPOPERATIONS-025・PR-BPOPERATIONS-030・PR-BPOPERATIONS-031・PR-BPOPERATIONS-037・PR-BPOPERATIONS-040・PR-BPOPERATIONS-041、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-017・PR-BPDESIGNEDSKILL-019・PR-BPDESIGNEDSKILL-020・PR-BPDESIGNEDSKILL-021（この 5 件は best-practices 自身に当てたもの。主担当は `docs/specifications/bp-conformance.md`）
+- 併せて実現: PR-BPOPERATIONS-005・PR-BPOPERATIONS-008・PR-BPOPERATIONS-009・PR-BPOPERATIONS-012・PR-BPOPERATIONS-016・PR-BPOPERATIONS-020・PR-BPOPERATIONS-024・PR-BPOPERATIONS-025・PR-BPOPERATIONS-030・PR-BPOPERATIONS-031・PR-BPOPERATIONS-037・PR-BPOPERATIONS-040・PR-BPOPERATIONS-041・PR-BPOPERATIONS-047、`docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-016・PR-BPDESIGNEDSKILL-017・PR-BPDESIGNEDSKILL-019・PR-BPDESIGNEDSKILL-020・PR-BPDESIGNEDSKILL-021（この 5 件は best-practices 自身に当てたもの。主担当は `docs/specifications/bp-conformance.md`）
 
 ## 用語定義
 
@@ -686,6 +686,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | PR-BPOPERATIONS-041 | SP-BPRUN-009 | CLI の単体テスト（検証を通ったかが一覧に追記される） | 完了 |
 | PR-BPOPERATIONS-041 | SP-BPRUN-011 | CLI の単体テスト（停止の記録に検証を通っていないファイルが載る） | 完了 |
 | PR-BPOPERATIONS-041 | SP-BPRUN-032 | script の模擬実行（停止の返り値に理由と、書いたファイルの検証の有無がある。停止の記録を書けなかった BLOCKED の返り値にも、状態にある書いたファイルの一覧がある） | 完了 |
+| PR-BPOPERATIONS-047 | SP-BPRUN-032 | script の模擬実行（review・audit の完了以外の停止の返り値に、空でない理由がある。状態を作らずに止まった run と停止の記録を書けなかった BLOCKED も同じ） | 完了 |
 | PR-BPDESIGNEDSKILL-016 | SP-BPRUN-019 | 静的な照合（Workflow が上限を省略できる入力として受け取る） | 完了 |
 | PR-BPDESIGNEDSKILL-016 | SP-BPRUN-037 | script の模擬実行（0・小数・文字列の上限で `agent()` を 0 回呼び、BLOCKED と渡された値を返す） | 完了 |
 | PR-BPDESIGNEDSKILL-021 | SP-BPRUN-040 | script の模擬実行（上限を渡さない run が件数と起動数に上限を置かない） | 完了 |
