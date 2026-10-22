@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  INSPECT_SCRIPT, MIN_LAUNCHES, SCRIPT, assetIds, createArgs, defaults, inspectArgs, inspectDefaults, runAuthor, runInspect, setup, setupInspect, updateArgs, variant, viewOf, viewpointOf, writePayload,
+  INSPECT_SCRIPT, MIN_LAUNCHES, SCRIPT, assetIds, candidateOf, createArgs, firstUnforcedKind, defaults, inspectArgs, inspectDefaults, runAuthor, runInspect, setup, setupInspect, updateArgs, variant, viewOf, viewpointOf, writePayload,
 } from './helpers/bp-harness.mjs';
 import { sealResponse } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/transport.mjs';
 
@@ -118,10 +118,8 @@ function refuteWorst(fn) {
       const base = await inspectDefaults.verify(prompt);
       if (viewpointOf(prompt) !== VIEWPOINT[fn] || options.label.endsWith(':extra')) return base;
       const ids = assetIds(prompt);
-      const { kinds } = await env.readFromPrompt(prompt, 'kinds');
-      const forced = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
-      const kind = kinds.find((k) => !(forced ? JSON.parse(forced) : []).includes(k.value)).value;
-      const result = { ...base, judgements: ids.map((id) => ({ asset: id, judgement: 'candidate' })), candidates: ids.map((id) => ({ asset: id, viewpoint: VIEWPOINT[fn], kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' })) };
+      const kind = await firstUnforcedKind(prompt, env);
+      const result = { ...base, judgements: ids.map((id) => ({ asset: id, judgement: 'candidate' })), candidates: ids.map((id) => candidateOf(id, VIEWPOINT[fn], kind)) };
       await writePayload(prompt, result);
       return result;
     },

@@ -28,7 +28,6 @@ function checkViewpoint(viewpoint) {
   if (!Object.hasOwn(VIEWPOINTS, viewpoint)) reject(CODES.unknownId, `観点が無い: ${JSON.stringify(viewpoint)}`);
 }
 
-// 写しの欠けは配布物の欠けなので、閉集合を作らずに理由つきで拒否する（空の閉集合で判定すると、照らしていない基準を照らしたと返す：SP-BPRUN-036）。
 function isKind(p, kind) {
   try {
     return statSync(p)[kind]();
@@ -38,6 +37,7 @@ function isKind(p, kind) {
   }
 }
 
+// 写しの欠けは配布物の欠けなので、閉集合を作らずに理由つきで拒否する（空の閉集合で判定すると、照らしていない基準を照らしたと返す：SP-BPRUN-036）。
 // 照らす先の決定（targets）は欠けた写しを「読めない」照らす先として返す（SP-BPINSPECTION-027）ので、置き場だけを求める。
 export function needCriteria(ctx, { files = true } = {}) {
   if (!isKind(ctx.criteriaDir, 'isDirectory')) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);

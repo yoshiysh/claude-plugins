@@ -363,6 +363,20 @@ export function stagesIn(lines) {
 }
 
 // 観点が viewpoint の検証役のうち when に当たる起動で、担当の資産の 1 つに候補を返す（閉集合の先頭の、強いられた未検査でない種類）。
+// prompt に埋めた強いられた未検査の一覧の外から、閉集合の先頭の種類を選ぶ（埋め込みの形が変わったら、黙って別の種類を選ばずに落とす）。
+export async function firstUnforcedKind(prompt, env) {
+  const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+  const embedded = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
+  const forced = embedded ? JSON.parse(embedded) : [];
+  const kind = kinds.find((k) => !forced.includes(k.value));
+  if (!kind) throw new Error('強いられた未検査でない指摘の種類が閉集合に無い');
+  return kind.value;
+}
+
+export function candidateOf(asset, viewpoint, kind) {
+  return { asset, viewpoint, kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' };
+}
+
 export function candidateVerifier({ viewpoint, when = () => true, asset = (ids) => ids[0], judgement = 'candidate', also = {} } = {}) {
   return async (prompt, options, env, call, calls) => {
     // when は起動の時点の calls で決める（await の後では並行の起動が calls に足されている）。
@@ -372,13 +386,11 @@ export function candidateVerifier({ viewpoint, when = () => true, asset = (ids) 
     const ids = assetIds(prompt);
     const target = asset(ids);
     if (!ids.includes(target)) return base;
-    const { kinds } = await env.readFromPrompt(prompt, 'kinds');
-    const forced = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
-    const kind = kinds.find((k) => !(forced ? JSON.parse(forced) : []).includes(k.value)).value;
+    const kind = await firstUnforcedKind(prompt, env);
     const result = {
       ...base,
       judgements: ids.map((id) => ({ asset: id, judgement: id === target ? judgement : 'ok' })),
-      candidates: judgement === 'candidate' ? [{ asset: target, viewpoint, kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' }] : [],
+      candidates: judgement === 'candidate' ? [candidateOf(target, viewpoint, kind)] : [],
       ...also,
     };
     await writePayload(prompt, result);
