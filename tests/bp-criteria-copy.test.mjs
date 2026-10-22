@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR, CRITERIA_FILES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
-import { OUTSIDE_COPY, check, closure, outside } from '../tools/sync-bp-criteria.mjs';
+import { OUTSIDE_COPY, check, closure, outside, repoPaths } from '../tools/sync-bp-criteria.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TOOL = path.join(ROOT, 'tools', 'sync-bp-criteria.mjs');
@@ -202,4 +202,14 @@ test('SP-BPRUN-036: 写しの中の、写しの外を指す docs/ の参照は�
   const root = await tmpRoot(t);
   await fs.appendFile(path.join(root, COPY, 'specifications', 'bp-findings.md'), '\n`docs/design/zz.md`\n');
   assert.deepEqual(keyed(outside(root)), keyed([...OUTSIDE_COPY, { file: 'specifications/bp-findings.md', token: 'docs/design/zz.md' }]));
+});
+
+test('SP-BPRUN-036: 写しの中の docs/ 以外のリポジトリの相対パスは、全て SP-BPRUN-036 が開かずに判定すると決めた最上位のディレクトリから始まる', () => {
+  const run = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
+  const rule = /写しの中の `docs\/` 以外のリポジトリやほかのスキルからの相対パス（([^）]*)で始まるもの/.exec(run);
+  assert.ok(rule, 'SP-BPRUN-036 に docs/ 以外のリポジトリの相対パスの扱いが無い');
+  const listed = new Set([...rule[1].matchAll(/`([^`]+)\/`/g)].map((m) => m[1]));
+  const found = repoPaths(ROOT);
+  assert.ok(found.length > 0);
+  assert.deepEqual([...new Set(found.map((r) => r.top))].filter((top) => !listed.has(top)), [], '扱いを決めていない最上位のディレクトリのパスが写しにある');
 });

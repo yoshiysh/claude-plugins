@@ -178,6 +178,19 @@ export function outside(root = REPO_ROOT) {
   return [...seen.values()];
 }
 
+// 写しの中の、docs/ 以外のリポジトリの最上位のディレクトリから始まる相対パス（配布先では開けない出所の引用）。
+export function repoPaths(root = REPO_ROOT) {
+  const tops = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory() && ![DOCS, '.git', 'node_modules'].includes(d.name)).map((d) => d.name.replace(/\./g, '\\.'));
+  const re = new RegExp(`(?<![\\w./-])(${tops.join('|')})/[\\w./<>*-]*`, 'g');
+  const out = [];
+  for (const rel of closure(root).files) {
+    const dest = path.join(copyRoot(root), rel);
+    if (!lstatOrNull(dest)?.isFile()) continue;
+    for (const m of readFileSync(dest, 'utf8').replace(URL, ' ').matchAll(re)) out.push({ file: rel, token: m[0], top: m[1] });
+  }
+  return out;
+}
+
 function removeEmptyDirs(dir, stop) {
   if (dir === stop || !lstatOrNull(dir)?.isDirectory()) return;
   if (readdirSync(dir).length === 0) {
