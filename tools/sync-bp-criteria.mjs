@@ -185,8 +185,10 @@ export function repoPaths(root = REPO_ROOT) {
   const escape = (name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const dirs = entries.filter((d) => d.isDirectory()).map((d) => escape(d.name));
   const files = entries.filter((d) => d.isFile()).map((d) => escape(d.name));
-  const dirRe = new RegExp(`(?<![\\w./-])(${dirs.join('|')})/[\\w./<>*-]*`, 'g');
-  const fileRe = new RegExp(`(?<![\\w./-])(${files.join('|')})(?![\\w/-])`, 'g');
+  // ./ と ../ で始まる相対の書き方も、根から数えたパスとして拾う。
+  const lead = '(?<![\\w./-])(?:\\.{1,2}/)*';
+  const dirRe = new RegExp(`${lead}(${dirs.join('|')})/[\\w./<>*-]*`, 'g');
+  const fileRe = new RegExp(`${lead}(${files.join('|')})(?![\\w/-])`, 'g');
   const out = [];
   for (const rel of closure(root).files) {
     const dest = path.join(copyRoot(root), rel);

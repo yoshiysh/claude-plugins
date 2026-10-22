@@ -219,6 +219,15 @@ test('SP-BPRUN-036: 写しの中の docs/ 以外のリポジトリの相対パ�
   assert.deepEqual([...new Set(found.map((r) => r.top))].filter((top) => !listed.has(top)), [], '扱いを決めていないパスが写しにある');
 });
 
+test('SP-BPRUN-036: docs/ 以外のパスの数え方は、./ と ../ で始まる相対の書き方の根のファイルとディレクトリも拾う', async (t) => {
+  const root = await tmpRoot(t);
+  await fs.writeFile(path.join(root, 'REVIEW.md'), 'x');
+  await fs.mkdir(path.join(root, 'tools'));
+  await fs.appendFile(path.join(root, COPY, 'specifications', 'bp-run.md'), '\n./REVIEW.md と [r](../../../REVIEW.md) と ./tools/x.mjs\n');
+  const tops = repoPaths(root).filter((r) => r.file === 'specifications/bp-run.md').map((r) => `${r.top} ${r.token}`);
+  for (const want of ['REVIEW.md ./REVIEW.md', 'REVIEW.md ../../../REVIEW.md', 'tools/ ./tools/x.mjs']) assert.ok(tops.includes(want), `${want}: ${tops.join(' / ')}`);
+});
+
 test('SP-BPRUN-036: 2 本の script の読み替えの文が、docs/ 以外のリポジトリの相対パスとして SP-BPRUN-036 と同じ列挙を挙げる', () => {
   for (const file of ['bp_author.js', 'bp_inspect.js']) {
     const source = readFileSync(path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', file), 'utf8');
