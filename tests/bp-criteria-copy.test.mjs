@@ -127,6 +127,12 @@ test('SP-BPRUN-036: URL の直後に空白なしで続く日本語の本文の d
   assert.deepEqual(tool(root, '--check'), { code: 1, lines: [`unclosed ${CONFORMANCE} docs/specifications/bp-zz.md`] });
 });
 
+test('SP-BPRUN-036: URL の中の ( に続く docs/ は URL の一部で、参照に数えない', async (t) => {
+  const root = await tmpRoot(t);
+  await editConformance(root, 'https://x.example/a(docs/specifications/bp-absent.md)');
+  assert.deepEqual(tool(root, '--check'), { code: 0, lines: [] });
+});
+
 test('SP-BPRUN-036: URL の問い合わせの中の docs/ は参照に数えない', async (t) => {
   const root = await tmpRoot(t);
   await editConformance(root, 'https://x.example/?p=docs/specifications/bp-zz.md');

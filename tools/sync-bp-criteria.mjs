@@ -13,7 +13,7 @@ const ROOT_DOC = 'specifications/bp-conformance.md';
 const DOCS_PATH = /(?<![\w./-])docs\/[\w./*-]*/g;
 // URL の中の docs/ は外部のページで、リポジトリの文書ではない。URL を先に除き、前置きの字で見分けない（見分けると「正本:docs/…」を落とす）。
 // URL は ASCII の URL の字で終わる（日本語の本文が空白なしで続いても、そこから先を URL に飲み込まない）。
-const URL = /\b[a-z][a-z0-9+.-]*:\/\/[\w\-.~:/?#@!$&*+,;=%]+/gi;
+const URL = /\b[a-z][a-z0-9+.-]*:\/\/[\w\-.~:/?#@!$&*+,;=%(]+/gi;
 const INLINE_LINK = /\]\(\s*(<[^>]*>|[^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
 const LINK_DEFINITION = /^ {0,3}\[[^\]]+\]:\s*(<[^>]*>|\S+)/gm;
 const HTML_LINK = /\bhref\s*=\s*"([^"]+)"/g;

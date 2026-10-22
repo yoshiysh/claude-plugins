@@ -81,12 +81,12 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   return { table, always, bySpec, unitsOf };
 }
 
-// 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも、turnForm はターンごとの指揮だけ）。
-// 未検査の観点の理由（SP-BPINSPECTION-025）。同じ単位が 2 つの出所に当たれば、形から強いられたことを理由にする（理由の選び方を CLI と読み取りの tool で割らない）。
+// 理由の選び方を CLI と読み取りの tool で割らないため、SP-BPINSPECTION-025 の規則をここ 1 箇所で当てる。
 export function forcedReason(sources, unit) {
   return sources.turnForm.get(unit) ?? sources.always.get(unit);
 }
 
+// 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも、turnForm はターンごとの指揮だけ）。
 export function forcedSources(criteriaDir, options) {
   const { bySpec, unitsOf } = sources(criteriaDir, options);
   const always = new Map();
