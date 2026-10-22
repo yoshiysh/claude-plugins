@@ -9,21 +9,21 @@ const MAX_ROUNDS = 5
 const MAX_ATTEMPTS = 3
 const DRY_ROUNDS = 2
 const ROLE_MODELS = {
-  goal: { model: 'opus', effort: 'medium' },
-  planner: { model: 'opus', effort: 'medium' },
+  goal: { model: 'fable', effort: 'high' },
+  planner: { model: 'fable', effort: 'high' },
   executor: { model: 'sonnet', effort: 'medium' },
   collector: { model: 'haiku', effort: 'low' },
   verifier: { model: 'opus', effort: 'medium' },
   completion: { model: 'opus', effort: 'medium' },
   carrier: { model: 'haiku', effort: 'low' },
 }
-// 起動の単位ごとの最悪の起動数（references/design.md の「起動数の上限」）。事実は 1 回の運搬役でまとめて書くので、件数で増えない。
-// 意図は試行の上限 ×（工程の agent 3: 実行役・回収役・検証役 + 状態を書く呼び出し 2: 見た資産・事実と終わりか試行の失敗）。
+// 起動の単位ごとの最悪の起動数（references/design.md の「起動数の上限」）。
+// 1 試行は、工程の agent 3（実行役・回収役・検証役）と、見た資産・事実・終わりか試行の失敗を 1 回で書く運搬役 1。
 const WORST = {
   start: 1,
   goal: 2,
   plan: 5,
-  item: MAX_ATTEMPTS * (3 + 2),
+  item: MAX_ATTEMPTS * (3 + 1),
   extra: 2,
   scan: 1,
   round: 1,
@@ -31,17 +31,32 @@ const WORST = {
 // 止まるときに必ず起動する停止の運搬役 1（停止の記録と、返り値の skip 一覧・カバレッジを 1 回で運ぶ）。
 const RESERVE = 1
 const MIN_LAUNCHES = WORST.start + WORST.goal + WORST.plan + WORST.item + RESERVE
+// SKILL.md の「役ごとの制限」の行ごとに載せる（確かめられなかった制限の全て）。agent を起動した後のどの返り値にも載せる。
+const RESIDUAL_RISKS = [
+  { role: '運搬役', restriction: 'CLI を通した状態だけに書く', host: 'Claude Code', reason: 'plugin から読み込む agent では設定の一部が無視され、効くかを確かめられない' },
+  { role: '実行役・回収役', restriction: '作業ファイルだけに書く（リポジトリには書かない）', host: 'Claude Code', reason: 'plugin から読み込む agent では設定の一部が無視され、効くかを確かめられない' },
+  { role: '検証役・完了の照合の検証役・計画役・目標の固定役', restriction: '作業ファイルだけに書く', host: 'Claude Code', reason: 'plugin から読み込む agent では設定の一部が無視され、効くかを確かめられない' },
+  { role: '全ての役', restriction: '上の 3 行の役ごとの制限', host: 'Codex runner', reason: 'runner は agent ごとの道具の許可を持たず、権限は全ての呼び出しに一律に効く' },
+]
 
 const STR = { type: 'string' }
 const LIST = { type: 'array' }
-const FACTS = { type: 'array', items: { type: 'object', properties: { text: STR, method: STR, evidence: STR }, required: ['text', 'method', 'evidence'] } }
+const IDS = { type: 'array', items: STR }
 const SCHEMAS = {
   carrier: { type: 'object', properties: { responses: { type: 'array', items: STR } }, required: ['responses'] },
-  goal: { type: 'object', properties: { goal: STR, scope: LIST, prohibitions: LIST, numeric: LIST, origin: STR, missing: LIST }, required: ['goal', 'scope', 'origin', 'missing'] },
-  planner: { type: 'object', properties: { kind: { enum: ['intents', 'claim', 'needs_input'] }, intents: LIST, rerank: LIST, hintsRead: LIST, claim: { type: 'object' }, question: STR }, required: ['kind'] },
-  executor: { type: 'object', properties: { facts: FACTS, blank: { type: 'boolean' }, seen: LIST }, required: ['facts', 'blank', 'seen'] },
-  collector: { type: 'object', properties: { facts: FACTS }, required: ['facts'] },
-  verifier: { type: 'object', properties: { verdicts: LIST }, required: ['verdicts'] },
+  goal: { type: 'object', properties: { goal: STR, scope: IDS, prohibitions: IDS, numeric: LIST, origin: STR, missing: IDS }, required: ['goal', 'scope', 'prohibitions', 'numeric', 'origin', 'missing'] },
+  planner: {
+    type: 'object',
+    properties: {
+      kind: { enum: ['intents', 'claim', 'needs_input'] },
+      intents: { type: 'array', items: { type: 'object', properties: { key: STR, text: STR, basis: IDS, rank: { type: 'integer' } }, required: ['key', 'text', 'basis', 'rank'] } },
+      rerank: { type: 'array', items: { type: 'object', properties: { intent: STR, rank: { type: 'integer' } }, required: ['intent', 'rank'] } },
+      claim: { type: 'object', properties: { cause: STR, facts: IDS, numeric: { type: 'array', items: { type: 'object', properties: { condition: { type: 'integer' }, fact: STR }, required: ['condition', 'fact'] } }, answers: STR }, required: ['cause', 'facts', 'numeric'] },
+      question: STR,
+    },
+    required: ['kind'],
+  },
+  verifier: { type: 'object', properties: { verdicts: { type: 'array', items: { type: 'object', properties: { candidate: { type: 'integer' }, verdict: { enum: ['accept', 'reject', 'unverifiable'] }, reason: STR }, required: ['candidate', 'verdict', 'reason'] } } }, required: ['verdicts'] },
   completion: { type: 'object', properties: { verdict: { enum: ['accept', 'reject'] }, reason: STR }, required: ['verdict', 'reason'] },
 }
 
@@ -64,15 +79,27 @@ function validate(a) {
 
 const input = validate(args)
 if (input.error) return { stopKind: 'blocked', reason: input.error, launches: 0 }
+// 上限の誤りは利用者が直してから同じ状態で起動し直すので、再開の入力なら状態 ID を返す。
+const retry = input.state ? { nextArgs: { state: input.state, repo: input.repo, skillDir: input.skillDir } } : {}
 if (input.limit !== undefined && !(Number.isInteger(input.limit) && input.limit >= 1)) {
-  return { stopKind: 'blocked', reason: `起動数の上限 ${JSON.stringify(input.limit)} は 1 以上の整数でなければならない`, launches: 0 }
+  return { stopKind: 'blocked', reason: `起動数の上限 ${JSON.stringify(input.limit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 }
 }
 if (input.limit !== undefined && input.limit < MIN_LAUNCHES) {
-  return { stopKind: 'blocked', reason: `起動数の上限 ${input.limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, launches: 0 }
+  return { stopKind: 'blocked', reason: `起動数の上限 ${input.limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, ...retry, launches: 0 }
 }
 const SKILL = input.skillDir
 const ROLES = `${SKILL}/references/roles`
-const run = { state: input.state ?? null, run: null, repo: input.repo, workDir: null, roundLaunches: 0 }
+const run = { state: input.state ?? null, run: null, repo: input.repo, workDir: null, writeKey: null, methods: null, premises: '', roundLaunches: 0 }
+
+// 検証方式の綴りは CLI が開始と再開の応答で渡す（CLI の受け付ける綴りと、実行役に書かせる綴りを 1 つにする）。
+function factSchemas() {
+  const facts = { type: 'array', items: { type: 'object', properties: { text: STR, method: { enum: Object.keys(run.methods) }, evidence: STR }, required: ['text', 'method', 'evidence'] } }
+  return {
+    executor: { type: 'object', properties: { facts, blank: { type: 'boolean' }, seen: IDS }, required: ['facts', 'blank', 'seen'] },
+    collector: { type: 'object', properties: { facts }, required: ['facts'] },
+  }
+}
+const methodsLine = () => `検証方式の綴り（method に書く）: ${Object.entries(run.methods).map(([k, name]) => `${k}（${name}）`).join('・')}`
 
 // 走っている単位の残りの最悪の数も足して確かめる。呼び終えた数だけで確かめると、同時に走る意図の残りが合わさって上限を超える。
 const budget = (() => {
@@ -118,42 +145,54 @@ async function unit(worst, body) {
   }
 }
 
-async function launch(u, role, prompt, schema, label) {
+// agent() の失敗（throw）も結果の欠けとして返す。工程の中では試行の失敗に、工程の外では BLOCKED の停止になり、どちらも理由が状態に残る。
+async function launch(u, role, lines, schema, label) {
   budget.charge(u)
   run.roundLaunches += 1
-  return agent(prompt, { ...ROLE_MODELS[role], label, schema })
+  // 運搬役の出力は CLI の標準出力で、状態に残る。他の役の出力は run のディレクトリに写しを残す。
+  const copy = role === 'carrier' ? [] : [`出力の写し: ${run.workDir}/${String(budget.used()).padStart(4, '0')}-${label.replace(/[^\w.-]/g, '_')}.json`]
+  try {
+    return await agent([...lines, ...copy].join('\n'), { ...ROLE_MODELS[role], label, schema })
+  } catch {
+    return null
+  }
 }
 
-// 1 回の運搬役で、渡した順に CLI のコマンドを実行させる。
+// 1 回の運搬役で、渡した順に CLI のコマンドを実行させる。書き込みの鍵は運搬役の prompt にだけ入れる。
 async function cli(u, ops) {
+  const names = ops.map(([op]) => op).join(',')
   const commands = ops.map(([op, body]) => {
-    const req = JSON.stringify({ repo: run.repo, state: run.state, run: run.run, ...body })
+    const req = JSON.stringify({ repo: run.repo, state: run.state, run: run.run, writeKey: run.writeKey, ...body })
     return `node '${SKILL}/scripts/state.mjs' ${op} <<'EOF'\n${req}\nEOF`
   })
-  const prompt = [`役の指示: ${ROLES}/carrier.md を読む。`, `次のコマンドを順に実行し、各コマンドの標準出力を 1 行ずつ逐語で返す:\n${commands.join('\n')}`].join('\n')
-  const out = await launch(u, 'carrier', prompt, SCHEMAS.carrier, `carrier:${ops.map(([op]) => op).join(',')}`)
-  const responses = (out?.responses ?? []).map((line) => JSON.parse(line))
-  if (responses.length !== ops.length) throw new Stop('blocked', `運搬役が ${ops.map(([op]) => op).join(',')} の応答を返さなかった`)
-  const bad = responses.find((r) => !r.ok)
-  if (bad) throw new Stop('blocked', `CLI が ${bad.op ?? ''} を拒否した: ${bad.code} ${bad.reason}`)
+  const out = await launch(u, 'carrier', [`役の指示: ${ROLES}/carrier.md を読む。`, `次のコマンドを順に実行し、各コマンドの標準出力を 1 行ずつ逐語で返す:\n${commands.join('\n')}`], SCHEMAS.carrier, `carrier:${names}`)
+  let responses
+  try {
+    responses = (out?.responses ?? []).map((line) => JSON.parse(line))
+  } catch {
+    throw new Stop('blocked', `運搬役が ${names} の応答を CLI の出力の行のまま返さなかった`)
+  }
+  if (responses.length !== ops.length) throw new Stop('blocked', `運搬役が ${names} の応答を返さなかった`)
+  const bad = responses.find((r) => !r?.ok)
+  if (bad) throw new Stop('blocked', `CLI が ${bad.op ?? names} を拒否した: ${bad.code} ${bad.reason}`)
   return responses
 }
 
-// 1 件が止まっても走っている意図の終わりを待つ（待たずに返すと、走っている agent の呼び出しが run の終わりに残る）。
+// 1 件が止まったら新しい意図を始めず、走っている意図の終わりを待つ（待たずに返すと、走っている agent の呼び出しが run の終わりに残る）。
 async function pool(items, work) {
   const queue = [...items]
   const running = new Set()
   const out = []
   const errors = []
   let full = false
-  while ((queue.length && !full) || running.size) {
-    while (queue.length && !full && running.size < CONCURRENCY) {
-      const item = queue[0]
+  const open = () => queue.length && !full && !errors.length
+  while (open() || running.size) {
+    while (open() && running.size < CONCURRENCY) {
       if (!budget.fits(WORST.item)) {
         full = true
         break
       }
-      queue.shift()
+      const item = queue.shift()
       const p = work(item).then((r) => { out.push(r) }, (e) => { errors.push(e) }).finally(() => running.delete(p))
       running.add(p)
     }
@@ -163,17 +202,17 @@ async function pool(items, work) {
   return { out, notStarted: queue.length }
 }
 
-async function fixGoal() {
+async function fixGoal(request) {
   await unit(WORST.goal, async (u) => {
     const g = await launch(u, 'goal', [
       `役の指示: ${ROLES}/goal.md を読む。`,
-      `依頼文:\n${input.request}`,
+      `依頼文:\n${request}`,
       `リポジトリ: ${run.repo}`,
-    ].join('\n'), SCHEMAS.goal, 'goal')
+    ], SCHEMAS.goal, 'goal')
     if (!g) throw new Stop('blocked', '目標の固定役が結果を返さなかった')
     if (g.missing.length) throw new Stop('needs_input', `目標の固定に要る入力が無い: ${g.missing.join(' / ')}`)
     await cli(u, [
-      ['premise', { kind: 'goal', text: JSON.stringify({ goal: g.goal, prohibitions: g.prohibitions, numeric: g.numeric }) }],
+      ['premise', { kind: 'goal', text: JSON.stringify({ goal: g.goal, scope: g.scope, prohibitions: g.prohibitions, numeric: g.numeric }) }],
       ['premise', { kind: 'origin', text: g.origin }],
       ['ledger', { scope: g.scope }],
     ])
@@ -181,83 +220,107 @@ async function fixGoal() {
 }
 
 // 計画の単位: 要約・計画役・（意図の書き込み、または完了の主張の照合 2 回と完了の照合の検証役）。最悪は完了の主張の 5。
+// 読んだヒントは要約に載ったヒント（計画役の申告でなく、渡したものを CLI に返す）。
 async function plan(round) {
   return unit(WORST.plan, async (u) => {
-    const [{ summary }] = await cli(u, [['summary', {}]])
+    const [s] = await cli(u, [['summary', {}]])
+    run.premises = s.premises
     const p = await launch(u, 'planner', [
       `役の指示: ${ROLES}/planner.md を読む。`,
       `周: ${round}`,
-      `状態の要約:\n${summary}`,
-    ].join('\n'), SCHEMAS.planner, 'planner')
+      `細部を引く CLI（読み出しだけ）: node '${SKILL}/scripts/state.mjs' get <<'EOF'\n${JSON.stringify({ repo: run.repo, state: run.state, id: '<ID>' })}\nEOF`,
+      `状態の要約:\n${s.summary}`,
+    ], SCHEMAS.planner, 'planner')
     if (!p) throw new Stop('blocked', '計画役が結果を返さなかった')
-    if (p.kind === 'needs_input') throw new Stop('needs_input', p.question)
+    if (p.kind === 'needs_input') throw new Stop('needs_input', p.question ?? '計画役が人間の入力が要ると返した')
     if (p.kind !== 'claim') {
-      const [planned] = await cli(u, [['plan', { round, intents: p.intents, rerank: p.rerank, hintsRead: p.hintsRead }]])
+      const [planned] = await cli(u, [['plan', { round, intents: p.intents ?? [], rerank: p.rerank ?? [], hintsRead: s.hints }]])
       return { pending: planned.pending, claimed: false }
     }
-    const [c] = await cli(u, [['claim', { facts: p.claim.facts, numeric: p.claim.numeric, hintsRead: p.hintsRead }]])
+    const claim = { round, facts: p.claim.facts, numeric: p.claim.numeric, hintsRead: s.hints }
+    const [c] = await cli(u, [['claim', claim]])
     if (c.verdict === 'reject') return { pending: c.pending, claimed: true, reason: c.reason }
     const j = await launch(u, 'completion', [
       `役の指示: ${ROLES}/completion.md を読む。`,
+      `固定した目標:\n${c.goal}`,
       `完了の主張:\n${JSON.stringify(p.claim)}`,
-    ].join('\n'), SCHEMAS.completion, 'completion')
+      `主張が挙げた受理済みの事実:\n${c.cited.map((f) => `${f.id}: ${f.text}`).join('\n')}`,
+    ], SCHEMAS.completion, 'completion')
     if (!j) throw new Stop('blocked', '完了の照合の検証役が結果を返さなかった')
-    const [judged] = await cli(u, [['claim', { facts: p.claim.facts, numeric: p.claim.numeric, hintsRead: p.hintsRead, verdict: j.verdict, reason: j.reason }]])
-    if (j.verdict === 'accept') throw new Stop('complete', j.reason, { cause: { reason: j.reason, facts: p.claim.facts } })
+    const [judged] = await cli(u, [['claim', { ...claim, verdict: j.verdict, reason: j.reason }]])
+    if (j.verdict === 'accept') throw new Stop('complete', j.reason, { cause: { explanation: p.claim.cause, reason: j.reason, facts: p.claim.facts } })
     return { pending: judged.pending, claimed: true, reason: j.reason }
   })
 }
 
-async function item(intent) {
+// 工程の欠けは、実行の工程が欠け、回収でも受理が 1 件も出なかった試行（事実を書かず、試行の失敗だけを書く）。
+async function item(intent, round) {
   return unit(WORST.item, async (u) => {
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       const x = await launch(u, 'executor', [
         `役の指示: ${ROLES}/executor.md を読む。`,
+        `リポジトリ: ${run.repo}`,
         `作業ファイルの置き場: ${run.workDir}`,
+        `試行: ${attempt}`,
+        `前提（目標・範囲・禁止事項と出発点。範囲の外へ広げない）:\n${run.premises}`,
         `意図 ${intent.id}: ${intent.text}`,
-      ].join('\n'), SCHEMAS.executor, `executor:${intent.id}`)
-      const got = x ?? await launch(u, 'collector', [
+        methodsLine(),
+      ], factSchemas().executor, `executor:${intent.id}`)
+      const seen = x?.seen?.length ? [['seen', { round, attempt, intent: intent.id, paths: x.seen }]] : []
+      const failed = async (reason) => (await cli(u, [...seen, ['attempt', { round, attempt, intent: intent.id, reason }]])).at(-1)
+      if (x && (x.blank || !x.facts.length)) {
+        await cli(u, [...seen, ['done', { intent: intent.id, blank: true }]])
+        return { facts: 0 }
+      }
+      const candidates = x ? x.facts : (await launch(u, 'collector', [
         `役の指示: ${ROLES}/collector.md を読む。`,
         `記録ファイル: ${run.workDir}/${intent.id}.log`,
-      ].join('\n'), SCHEMAS.collector, `collector:${intent.id}`)
-      if (!got) {
-        const [a] = await cli(u, [['attempt', { intent: intent.id, reason: '実行と回収のどちらも結果を返さなかった' }]])
-        if (a.aborted) break
+        methodsLine(),
+      ], factSchemas().collector, `collector:${intent.id}`))?.facts ?? []
+      if (!candidates.length) {
+        if ((await failed('実行役が結果を返さず、回収役も事実の候補を返さなかった')).aborted) break
         continue
-      }
-      if (x?.seen?.length) await cli(u, [['seen', { intent: intent.id, paths: x.seen }]])
-      if (x?.blank) {
-        await cli(u, [['done', { intent: intent.id, blank: true }]])
-        return { started: true, facts: 0 }
       }
       const v = await launch(u, 'verifier', [
         `役の指示: ${ROLES}/verifier.md を読む。`,
-        `事実の候補:\n${JSON.stringify(got.facts)}`,
-      ].join('\n'), SCHEMAS.verifier, `verifier:${intent.id}`)
-      if (!v) {
-        const [a] = await cli(u, [['attempt', { intent: intent.id, reason: '検証役が結果を返さなかった' }]])
-        if (a.aborted) break
+        `リポジトリ: ${run.repo}`,
+        `作業ファイルの置き場: ${run.workDir}`,
+        `意図 ${intent.id}・試行 ${attempt}`,
+        `前提:\n${run.premises}`,
+        `事実の候補（行頭が候補の番号）:\n${candidates.map((f, n) => `${n}: ${JSON.stringify(f)}`).join('\n')}`,
+      ], SCHEMAS.verifier, `verifier:${intent.id}`)
+      const verdicts = candidates.map((_, n) => v?.verdicts?.find((d) => d.candidate === n)?.verdict)
+      if (verdicts.some((d) => d === undefined)) {
+        if ((await failed('検証役が全ての候補に判定を返さなかった')).aborted) break
         continue
       }
-      const facts = got.facts.map((f, n) => ({ text: f.text, method: f.method, evidence: f.evidence, verdict: v.verdicts.find((d) => d.candidate === n)?.verdict ?? 'reject' }))
-      await cli(u, [['facts', { intent: intent.id, facts }], ['done', { intent: intent.id }]])
-      return { started: true, facts: facts.length }
+      const facts = candidates.map((f, n) => ({ text: f.text, method: f.method, evidence: f.evidence, verdict: verdicts[n] }))
+      if (!x && !facts.some((f) => f.verdict === 'accept')) {
+        if ((await failed('実行役が結果を返さず、回収した候補が 1 件も受理されなかった')).aborted) break
+        continue
+      }
+      await cli(u, [...seen, ['facts', { intent: intent.id, facts }], ['done', { intent: intent.id }]])
+      return { facts: facts.length }
     }
-    return { started: true, facts: 0, failed: true }
+    return { facts: 0, failed: true }
   })
 }
 
-async function extraSeen() {
+async function extraSeen(round) {
   let [{ skip }] = await unit(WORST.scan, (u) => cli(u, [['skip', {}]]))
-  while (skip.length) {
+  for (let pass = 1; skip.length; pass += 1) {
     const before = skip.length
     skip = await unit(WORST.extra, async (u) => {
       const x = await launch(u, 'executor', [
         `役の指示: ${ROLES}/executor.md を読む。`,
+        `リポジトリ: ${run.repo}`,
         `作業ファイルの置き場: ${run.workDir}`,
-        `意図: 次のファイルを読み、目標に関わる事実があれば返す: ${skip.join(' ')}`,
-      ].join('\n'), SCHEMAS.executor, 'executor:extra')
-      const [seen] = await cli(u, [['seen', { intent: 'extra', paths: x?.seen ?? [] }]])
+        `前提:\n${run.premises}`,
+        `意図: 台帳で誰も見ていない次のファイルを読み、読んだファイルを seen に返す。facts は空にする（この起動は見ていないファイルを無くすためのもので、事実は計画役の意図で確かめる）: ${skip.join(' ')}`,
+        methodsLine(),
+      ], factSchemas().executor, 'executor:extra')
+      if (!x) throw new Stop('blocked', '追加の実行役が結果を返さなかった')
+      const [seen] = await cli(u, [['seen', { round, pass, extra: true, paths: x.seen }]])
       return seen.skip
     })
     if (skip.length === before) return
@@ -271,15 +334,17 @@ async function rounds(startRound) {
   for (let i = 1; i <= MAX_ROUNDS; i += 1) {
     const round = startRound + i
     run.roundLaunches = 0
+    // 意図は周の中で終わるか打ち切られるので、周の終わりの未着手は 0 件になる。毎周の計画役の呼び出しは「未着手の意図が無くなったとき」に当たる。
     const p = await plan(round)
     if (p.claimed) {
       rejections += 1
       lastRejection = p.reason
     }
-    const { out, notStarted } = await pool(p.pending, item)
+    const { out, notStarted } = await pool(p.pending, (intent) => item(intent, round))
     if (notStarted) throw launchStop()
-    await extraSeen()
+    await extraSeen(round)
     const [r] = await unit(WORST.round, (u) => cli(u, [['round', { round, launches: run.roundLaunches + 1, allFailed: out.length > 0 && out.every((x) => x.failed) }]]))
+    run.roundLaunches = 0
     if (r.failed >= 2) throw new Stop('blocked', '方向を選び直しても全ての意図が失敗した')
     if (r.newFacts > 0) rejections = 0
     if (rejections >= 2 && r.unreadHints === 0) throw new Stop('needs_input', `完了の主張が新しい事実を挟まずに却下され続けた（最後の却下の理由: ${lastRejection}）`)
@@ -295,18 +360,25 @@ function startKey() {
   return h.toString(16).padStart(8, '0')
 }
 
-async function main() {
-  if (run.state) {
-    const [r] = await unit(WORST.start, (u) => cli(u, [['resume', {}]]))
-    run.run = r.run
-    run.workDir = r.workDir
-    return rounds(r.rounds)
-  }
-  const [r] = await unit(WORST.start, (u) => cli(u, [['start', { key: startKey(), request: input.request, limits: { rounds: MAX_ROUNDS, attempts: MAX_ATTEMPTS } }]]))
+function begin(r) {
   run.state = r.state
   run.run = r.run
   run.workDir = r.workDir
-  await fixGoal()
+  run.writeKey = r.writeKey
+  run.methods = r.methods
+}
+
+async function main() {
+  if (run.state) {
+    const [r] = await unit(WORST.start, (u) => cli(u, [['resume', {}]]))
+    if (r.completed) throw new Stop('complete', r.reason, { cause: r.cause, facts: r.facts })
+    begin(r)
+    if (r.request !== undefined) await fixGoal(r.request)
+    return rounds(r.rounds)
+  }
+  const [r] = await unit(WORST.start, (u) => cli(u, [['start', { key: startKey(), request: input.request, limits: { rounds: MAX_ROUNDS, attempts: MAX_ATTEMPTS } }]]))
+  begin(r)
+  await fixGoal(input.request)
   return rounds(0)
 }
 
@@ -318,17 +390,30 @@ let stop
 try {
   await main()
 } catch (e) {
-  if (!(e instanceof Stop)) throw e
-  stop = e
+  stop = e instanceof Stop ? e : new Stop('blocked', `script が止まった: ${e?.message ?? String(e)}`)
 }
-if (!run.run) return { stopKind: stop.kind, reason: stop.reason, launches: budget.used() }
+if (!run.run) {
+  return {
+    stopKind: stop.kind,
+    reason: stop.reason,
+    ...(stop.kind === 'complete' ? { cause: stop.extra.cause, facts: stop.extra.facts } : run.state ? { nextArgs: nextArgs() } : {}),
+    launches: budget.used(),
+    residualRisks: RESIDUAL_RISKS,
+  }
+}
 const final = budget.open(RESERVE)
 let written = null
 try {
-  ;[written] = await cli(final, [['stop', { kind: stop.kind, reason: stop.reason, limitHit: stop.extra.limitHit, launches: budget.used() + 1, roundLaunches: run.roundLaunches + 1 }]])
+  ;[written] = await cli(final, [['stop', { kind: stop.kind, reason: stop.reason, limitHit: stop.extra.limitHit, cause: stop.extra.cause, launches: budget.used() + 1, roundLaunches: run.roundLaunches + 1 }]])
 } catch (e) {
-  if (!(e instanceof Stop)) throw e
-  return { stopKind: 'blocked', reason: `停止の記録を書けなかった（止めようとした停止: ${stop.kind}: ${stop.reason}）: ${e.reason}`, nextArgs: nextArgs(), launches: budget.used() }
+  const why = e instanceof Stop ? e.reason : String(e)
+  return {
+    stopKind: 'blocked',
+    reason: `停止の記録を書けたかが分からない（止めようとした停止: ${stop.kind}: ${stop.reason}）: ${why}。nextArgs で再開すると、CLI が状態に書かれた停止を読む（完了が書かれていれば完了を返し、停止が書かれていなければ BLOCKED の停止を足してから続ける）`,
+    nextArgs: nextArgs(),
+    launches: budget.used(),
+    residualRisks: RESIDUAL_RISKS,
+  }
 }
 return {
   stopKind: stop.kind,
@@ -341,11 +426,6 @@ return {
   facts: written.facts,
   ...(stop.kind === 'complete' ? { cause: stop.extra.cause } : {}),
   launches: budget.used(),
-  // SKILL.md の「役ごとの制限」の行ごとに載せる（確かめられなかった制限の全て）。
-  residualRisks: [
-    { role: '運搬役', restriction: 'CLI を通した状態だけに書く', host: 'Claude Code', reason: 'plugin から読み込む agent では設定の一部が無視され、効くかを確かめられない' },
-    { role: '実行役・回収役', restriction: '作業ファイルだけに書く（リポジトリには書かない）', host: 'Claude Code', reason: 'plugin から読み込む agent では設定の一部が無視され、効くかを確かめられない' },
-    { role: '検証役・完了の照合の検証役・計画役・目標の固定役', restriction: '作業ファイルだけに書く', host: 'Claude Code', reason: 'plugin から読み込む agent では設定の一部が無視され、効くかを確かめられない' },
-    { role: '全ての役', restriction: '上の 3 行の役ごとの制限', host: 'Codex runner', reason: 'runner は agent ごとの道具の許可を持たず、権限は全ての呼び出しに一律に効く' },
-  ],
+  roundLaunches: written.rounds,
+  residualRisks: RESIDUAL_RISKS,
 }
