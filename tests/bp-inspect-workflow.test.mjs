@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  INSPECT_FILES, MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, assetIds, bundleAssets, candidateVerifier, commands, failCarrier, inspectArgs, inspectDefaults,
+  MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, assetIds, bundleAssets, candidateVerifier, commands, compose, editFile, failCarrier, inspectArgs, inspectDefaults,
   logOf, resumeArgs, runInspect, setupInspect, stagesIn, viewOf, viewpointOf, writePayload,
 } from './helpers/bp-harness.mjs';
 import { OPS, RESULT_KEYS, ROLE_WRITE_LIMITS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
@@ -15,23 +15,10 @@ const mark = (fn) => `［${fn}］`;
 const agents = (calls) => calls.filter((c) => c.role !== 'carrier');
 const itemOfPrompt = (prompt) => /\/([^/\s]+)\.a\d+\.json/.exec(prompt)[1];
 
-function compose(...carriers) {
-  return async (...a) => {
-    for (const c of carriers) {
-      const out = await c(...a);
-      if (out !== undefined) return out;
-    }
-    return undefined;
-  };
-}
 const verifiers = (calls) => calls.filter((c) => c.role === 'verify');
 
 function opsOf(calls) {
   return calls.filter((c) => c.role === 'carrier').flatMap((c) => commands(c.prompt).map((x) => x.op));
-}
-
-async function editFile(file, edit) {
-  await fs.writeFile(file, edit(await fs.readFile(file, 'utf8')));
 }
 
 for (const fn of FNS) {

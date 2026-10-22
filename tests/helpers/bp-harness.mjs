@@ -390,6 +390,10 @@ export function failCarrier(op, { execute = false, nth = [1], when = () => true 
   };
 }
 
+export async function editFile(file, edit) {
+  await fs.writeFile(file, edit(await fs.readFile(file, 'utf8')));
+}
+
 export function compose(...carriers) {
   return async (...a) => {
     for (const c of carriers) {

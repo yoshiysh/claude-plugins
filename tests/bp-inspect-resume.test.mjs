@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  assetIds, candidateVerifier, commands, compose, failCarrier, loseItem, partialCarrier, inspectArgs, inspectDefaults, logOf, resumeArgs, runInspect, setupInspect, viewOf, viewpointOf,
+  assetIds, candidateVerifier, commands, compose, editFile, failCarrier, loseItem, partialCarrier, inspectArgs, inspectDefaults, logOf, resumeArgs, runInspect, setupInspect, viewOf, viewpointOf,
 } from './helpers/bp-harness.mjs';
 import { OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
@@ -12,10 +12,6 @@ const VIEWPOINTS = { review: ['flow', 'spec'], audit: ['audit'] };
 const mark = (fn) => `［${fn}］`;
 const roles = (calls) => calls.filter((c) => c.role !== 'carrier').map((c) => c.role);
 const ops = (calls) => calls.filter((c) => c.role === 'carrier').flatMap((c) => commands(c.prompt).map((x) => x.op));
-
-async function editFile(file, edit) {
-  await fs.writeFile(file, edit(await fs.readFile(file, 'utf8')));
-}
 
 function itemsOf(view, stage) {
   return [...view.items.values()].filter((i) => i.stage === stage);

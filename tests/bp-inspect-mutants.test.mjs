@@ -3,25 +3,11 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, commands, inspectArgs, resumeArgs, runInspect, setupInspect, variant, viewpointOf,
+  INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, commands, editFile, inspectArgs, loseItem, resumeArgs, runInspect, setupInspect, variant, viewpointOf,
 } from './helpers/bp-harness.mjs';
 import { OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
 const agents = (calls) => calls.filter((c) => c.role !== 'carrier');
-
-async function editFile(file, edit) {
-  await fs.writeFile(file, edit(await fs.readFile(file, 'utf8')));
-}
-
-function loseItem(op) {
-  let lost = null;
-  return async (prompt) => {
-    if (!prompt.includes(` ${op} <<`)) return undefined;
-    const item = /"item":"([^"]+)"/.exec(prompt)[1];
-    lost = lost ?? item;
-    return item === lost ? null : undefined;
-  };
-}
 
 // bp_inspect.js に欠陥を入れた写しで、決めておいた場合が必ず落ちることを照らす（テストが壊れた実装で落ちるかの確かめ）。
 // 各場合は「正しい script なら true」を返す。元の script で true、欠陥を入れた写しで false でなければならない。
