@@ -27,7 +27,7 @@ function checkViewpoint(viewpoint) {
   if (!Object.hasOwn(VIEWPOINTS, viewpoint)) reject(CODES.unknownId, `観点が無い: ${JSON.stringify(viewpoint)}`);
 }
 
-// 判定基準の写しは別の段で置くので、置かれる前は閉集合を作れないことを理由つきで返す（TBD-SBPRUN-001）。
+// 写しの欠けは配布物の欠けなので、閉集合を作らずに理由つきで拒否する（空の閉集合で判定すると、照らしていない基準を照らしたと返す：SP-BPRUN-036）。
 export function needCriteria(ctx) {
   if (!existsSync(ctx.criteriaDir)) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
 }

@@ -150,7 +150,7 @@ test('SP-BPINSPECTION-029: 照らす先の決定の段を終えた後の照ら�
   assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state)), before);
 });
 
-test('TBD-SBPRUN-001 の保持規則: 判定基準の写しが無いと照らす先の決定を理由つきの E_INPUT で拒否する', async (t) => {
+test('SP-BPRUN-036: 判定基準の写しが無いと照らす先の決定を理由つきの E_INPUT で拒否する', async (t) => {
   const ctx = context(t, { criteriaDir: path.join(await tmpDir(t), 'none') });
   if (!ctx) return;
   const root = await skillDir(t, FILES);

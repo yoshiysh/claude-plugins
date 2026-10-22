@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Workflow } from '../../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
 import { main as cli } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp-state.mjs';
-import { CRITERIA_FILES, PROMPT_AUDIT_FILE, STATES_DIR, STATE_ROOT_ENV } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { CRITERIA_DIR, PROMPT_AUDIT_FILE, STATES_DIR, STATE_ROOT_ENV } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { stateRoot } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs';
 import { sum } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 
@@ -30,15 +30,10 @@ export async function tmp(t, prefix) {
   return dir;
 }
 
-// 判定基準の写しはまだ本番の置き場（CRITERIA_DIR）に無いので、docs の正本を CRITERIA_FILES と同じ配置で一時ディレクトリへ写す。
+// 模擬実行も配布する写しそのものを読む（書き換えるテストが本物の写しを汚さないよう一時ディレクトリへ写す）。
 export async function criteriaCopy(t) {
   const dir = await tmp(t, 'bp-criteria-');
-  for (const parts of Object.values(CRITERIA_FILES)) {
-    const src = path.join(REPO_ROOT, 'docs', ...parts);
-    const dest = path.join(dir, ...parts);
-    await fs.mkdir(path.dirname(dest), { recursive: true });
-    await fs.copyFile(src, dest);
-  }
+  await fs.cp(path.join(SKILL_DIR, CRITERIA_DIR), dir, { recursive: true });
   return dir;
 }
 
