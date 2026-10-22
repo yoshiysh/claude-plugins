@@ -9,25 +9,34 @@ description: リポジトリで再現する 1 つの失敗（落ちるテスト�
 
 ## 起動
 
-Claude Code の native Workflow で起動する。
+host に native Workflow があればそれを使い、無いとき（Codex）だけ runner を使う（native-first）。経路は起動のたびに、再開の起動でも選び直す。
 
-```
-Workflow({ scriptPath: "<このスキルのディレクトリ>/scripts/trace.js", args: { request: "<依頼文>", repo: "<調べるリポジトリの絶対パス>" } })
-```
+| 経路 | 起動のしかた | 起動数の上限 `maxLaunches` |
+|---|---|---|
+| native Workflow（Claude Code） | `Workflow({ scriptPath: "<このスキルのディレクトリ>/scripts/trace.js", args })` | 渡さない（上限を置かない run にする） |
+| Codex runner | `workflow:dynamic-workflow-runner` に同じ `scriptPath` と `args` を渡す | 必ず渡す。値はその起動の request の `limits.maxAgents` と同じ値（超えると runner が run 全体を失敗させる） |
 
-- `request` と `repo` は必須。`repo` はリポジトリの根（`.git` のあるディレクトリ）を指す。
-- 起動数の上限を付けたいときは `maxLaunches`（1 以上の整数）を足す。付けなければ上限を置かない。
-- 止まった run を続けるときは、返り値の `nextArgs` だけを `args` に渡す。`nextArgs` は起動数の上限を含まないので、上限が要れば起動のたびに `maxLaunches` を足す。
+`args` の項目は次の表を正とする。script は、必須の項目の欠けを BLOCKED で返し、agent を起動しない。
+
+| 項目 | 最初の起動 | 再開 | 中身 |
+|---|---|---|---|
+| `request` | 必須 | 渡さない | 依頼文 |
+| `repo` | 必須 | 必須（`nextArgs` にある） | 調べるリポジトリの根（`.git` のあるディレクトリ）の絶対パス。状態もこの下の `.trace-cause/` に置く |
+| `skillDir` | 必須 | 必須（`nextArgs` にある） | このスキルのディレクトリの絶対パス。役の指示と状態の CLI をここから読む |
+| `state` | 渡さない | 必須（`nextArgs` にある） | 状態 ID |
+| `maxLaunches` | 経路の表に従う | 経路の表に従う | 1 以上の整数 |
+
+止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。
 
 起動したら、次の「ヒントの足し方」を利用者に示す。
 
 ## ヒントの足し方
 
-run の実行中も、完了以外で止まっている間も、利用者はヒントを足せる。ヒントは計画役が次に呼ばれたときに読む。run を止める必要は無い。
+run の実行中も、完了以外で止まっている間も、利用者はヒントを足せる。ヒントは計画役が次に呼ばれたときに読む。run を止める必要は無い。`repo` と `state` は `nextArgs` か、起動したときの返り値と同じ値を使う。
 
 ```
 node <このスキルのディレクトリ>/scripts/state.mjs hint <<'EOF'
-{"state": "<状態 ID>", "text": "<ヒントの本文>"}
+{"repo": "<調べるリポジトリの絶対パス>", "state": "<状態 ID>", "text": "<ヒントの本文>"}
 EOF
 ```
 
@@ -35,11 +44,12 @@ EOF
 
 ## 必要な許可
 
-run の途中で権限の確認が出ると、その間 run が進まない。起動の前に、次の 3 つを allow rules に入れる。これより広い許可は要らない。
+run の途中で権限の確認が出ると、その間 run が進まない。auto mode では script が agent に渡す prompt は利用者の依頼として扱われず、このスキルの側からは変えられないので、起動の前に次の 4 つを allow rules に入れる。これより広い許可は要らない（permission rules は run の全ての agent に同じく効く）。
 
 - `Bash(node <このスキルのディレクトリ>/scripts/state.mjs:*)`（状態の読み書き。状態を書くのは CLI だけ）
-- `Write(<リポジトリ>/.trace-cause/runs/**)`（作業ファイル。意図ごとの記録ファイルと大きな出力の置き場）
-- `Bash(git -C <リポジトリ> *)` と、依頼文の再現手順のコマンド（実行役が再実行で確かめるため）
+- `Write(<リポジトリ>/.trace-cause/runs/**)`（作業ファイル。意図ごとの記録ファイルと大きな出力、試行ごとの写しの置き場）
+- `Bash(git -C <リポジトリ> log:*)`・`show:*`・`diff:*`・`blame:*`・`ls-files:*`・`grep:*` と `Bash(git -C <リポジトリ> worktree add <リポジトリ>/.trace-cause/runs/*)`（読むだけの git と、試行ごとの写しを作る git）
+- 依頼文の再現手順のコマンドを、試行ごとの写しの中で実行する許可（実行役と検証役が再実行で確かめるため。リポジトリそのものでは実行しない）
 
 ## 役ごとの制限
 
@@ -51,7 +61,7 @@ run の途中で権限の確認が出ると、その間 run が進まない。�
 
 対象のリポジトリに書き込む役は無い。修正は、このスキルの結果を入力にした別の作業として行う。
 
-Claude Code では、plugin から読み込む agent の設定の一部が無視されるため、上の制限が配布先で効くかをこのスキルは確かめられない。確かめられなかった制限は、返り値の `residualRisks` に役の名前・制限の中身・配布先・確かめられなかった理由の 4 つで載せる。
+Claude Code では、plugin から読み込む agent の設定の一部が無視されるため、上の制限が配布先で効くかをこのスキルは確かめられない。Codex runner は agent ごとの道具の許可を持たず、権限は全ての呼び出しに一律に効く。確かめられなかった制限は全て、返り値の `residualRisks` に役の名前・制限の中身・配布先・確かめられなかった理由の 4 つで載せる。
 
 ## 停止と再開
 

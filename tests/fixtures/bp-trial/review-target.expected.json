@@ -281,8 +281,8 @@
       "unit": "SP-BPCONFORMANCE-036",
       "file": "scripts/state.mjs",
       "section": null,
-      "from": "limitHit: v.rounds.length + 1 >= v.limits.rounds };",
-      "to": "limitHit: v.rounds.length + 1 >= 5 };"
+      "from": "limitHit: v.rounds.filter((r) => r.run === req.run).length + 1 >= v.limits.rounds };",
+      "to": "limitHit: v.rounds.filter((r) => r.run === req.run).length + 1 >= 5 };"
     }
   ],
   "rows": [
