@@ -121,7 +121,7 @@ const CASES = [
     },
   },
   {
-    name: '停止の要求に script が並べた pending を入れると、CLI が状態から導いた並びと食い違って停止を書けない（A3）',
+    name: '停止の要求に script が並べた pending を入れると、CLI が状態から導いた並びと食い違って停止を書けない（SP-BPRUN-020）',
     from: '    launches: budget.used() + 1,\n    // どの停止でも', to: '    launches: budget.used() + 1,\n    pending: [],\n    // どの停止でも',
     async check(t, scriptPath) {
       const s = await setupInspect(t);

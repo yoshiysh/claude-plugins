@@ -1005,7 +1005,7 @@ test('SP-BPRUN-005・SP-BPRUN-006: 検証の段の並行の運搬役を子 proce
   if (!s) return;
   const { spawn } = await import('node:child_process');
   const { commands } = await import('./helpers/bp-harness.mjs');
-  // 判定基準の写しは 4 段目まで本番の置き場に無いので、子 process でも写しの場所を渡せる入口で CLI の main を呼ぶ。
+  // 判定基準の写しはまだ本番の置き場（CRITERIA_DIR）に無いので、子 process でも写しの場所を渡せる入口で CLI の main を呼ぶ。
   const wrapper = path.join(s.base, 'cli-wrapper.mjs');
   await fs.writeFile(wrapper, [
     `import { main } from ${JSON.stringify(path.join(SKILL_DIR, 'scripts', 'bp-state.mjs'))};`,

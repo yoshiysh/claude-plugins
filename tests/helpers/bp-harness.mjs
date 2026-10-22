@@ -30,7 +30,7 @@ export async function tmp(t, prefix) {
   return dir;
 }
 
-// 判定基準の写しは 4 段目まで本番の置き場に無いので、docs の正本を CRITERIA_FILES と同じ配置で一時ディレクトリへ写す。
+// 判定基準の写しはまだ本番の置き場（CRITERIA_DIR）に無いので、docs の正本を CRITERIA_FILES と同じ配置で一時ディレクトリへ写す。
 export async function criteriaCopy(t) {
   const dir = await tmp(t, 'bp-criteria-');
   for (const parts of Object.values(CRITERIA_FILES)) {

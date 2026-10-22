@@ -55,7 +55,7 @@ test('SP-BPFINDINGS-011: 仕様の観点の値と CLI の定数が一致する',
   assert.deepEqual(Object.fromEntries(values), VIEWPOINTS);
 });
 
-// ---- 2 段目: script の写しを CLI の定数と仕様の表に照らす（script は import できないので写しを持つ。写しの照合漏れと、仕様の表と応答の形のずれを止める）
+// ---- script の写しを CLI の定数と仕様の表に照らす（script は import できないので写しを持つ。写しの照合漏れと、仕様の表と応答の形のずれを止める）
 
 import { createRequire } from 'node:module';
 import * as CLI_CONSTANTS from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';

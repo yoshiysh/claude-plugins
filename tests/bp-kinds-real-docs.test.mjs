@@ -41,7 +41,7 @@ test('SP-BPFINDINGS-010: 実際の docs/ から仕様・目標・契約・監査
   assert.deepEqual(kinds.audit.map((k) => k.value), ['PA-1', 'PA-2', 'PA-3', 'PA-4', 'PA-5', 'PA-6']);
 });
 
-// ---- 3 段目: review のフローの観点から除く単位（SP-BPINSPECTION-007）と prompt-audit の fixture
+// ---- review のフローの観点から除く単位（SP-BPINSPECTION-007）と prompt-audit の fixture
 
 import { flowExclusions, flowUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 
