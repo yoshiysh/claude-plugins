@@ -178,15 +178,22 @@ export function outside(root = REPO_ROOT) {
   return [...seen.values()];
 }
 
-// 写しの中の、docs/ 以外のリポジトリの最上位のディレクトリから始まる相対パス（配布先では開けない出所の引用）。
+// 写しの中の、docs/ 以外のリポジトリの最上位のディレクトリから始まる相対パスと、根のファイルの名指し（配布先では開けない出所の引用）。
+// top はディレクトリなら末尾に / を付けた名前、根のファイルならファイル名。
 export function repoPaths(root = REPO_ROOT) {
-  const tops = readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory() && ![DOCS, '.git', 'node_modules'].includes(d.name)).map((d) => d.name.replace(/\./g, '\\.'));
-  const re = new RegExp(`(?<![\\w./-])(${tops.join('|')})/[\\w./<>*-]*`, 'g');
+  const entries = readdirSync(root, { withFileTypes: true }).filter((d) => ![DOCS, '.git', 'node_modules'].includes(d.name));
+  const escape = (name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const dirs = entries.filter((d) => d.isDirectory()).map((d) => escape(d.name));
+  const files = entries.filter((d) => d.isFile()).map((d) => escape(d.name));
+  const dirRe = new RegExp(`(?<![\\w./-])(${dirs.join('|')})/[\\w./<>*-]*`, 'g');
+  const fileRe = new RegExp(`(?<![\\w./-])(${files.join('|')})(?![\\w/-])`, 'g');
   const out = [];
   for (const rel of closure(root).files) {
     const dest = path.join(copyRoot(root), rel);
     if (!lstatOrNull(dest)?.isFile()) continue;
-    for (const m of readFileSync(dest, 'utf8').replace(URL, ' ').matchAll(re)) out.push({ file: rel, token: m[0], top: m[1] });
+    const text = readFileSync(dest, 'utf8').replace(URL, ' ');
+    for (const m of text.matchAll(dirRe)) out.push({ file: rel, token: m[0], top: `${m[1]}/` });
+    for (const m of text.matchAll(fileRe)) out.push({ file: rel, token: m[0], top: m[1] });
   }
   return out;
 }

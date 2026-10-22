@@ -204,12 +204,26 @@ test('SP-BPRUN-036: 写しの中の、写しの外を指す docs/ の参照は�
   assert.deepEqual(keyed(outside(root)), keyed([...OUTSIDE_COPY, { file: 'specifications/bp-findings.md', token: 'docs/design/zz.md' }]));
 });
 
-test('SP-BPRUN-036: 写しの中の docs/ 以外のリポジトリの相対パスは、全て SP-BPRUN-036 が開かずに判定すると決めた最上位のディレクトリから始まる', () => {
+// 扱いを決めた最上位のディレクトリと根のファイルの列挙は SP-BPRUN-036 を正本にし、tool の数えた結果と criteriaNote を照らす。
+function listedRepoPaths() {
   const run = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-  const rule = /写しの中の `docs\/` 以外のリポジトリやほかのスキルからの相対パス（([^）]*)で始まるもの/.exec(run);
+  const rule = /写しの中の `docs\/` 以外のリポジトリやほかのスキルからの相対パス（([^。]*)。/.exec(run);
   assert.ok(rule, 'SP-BPRUN-036 に docs/ 以外のリポジトリの相対パスの扱いが無い');
-  const listed = new Set([...rule[1].matchAll(/`([^`]+)\/`/g)].map((m) => m[1]));
+  return [...rule[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+}
+
+test('SP-BPRUN-036: 写しの中の docs/ 以外のリポジトリの相対パスと根のファイルの名指しは、全て SP-BPRUN-036 が列挙したものから始まる', () => {
+  const listed = new Set(listedRepoPaths());
   const found = repoPaths(ROOT);
-  assert.ok(found.length > 0);
-  assert.deepEqual([...new Set(found.map((r) => r.top))].filter((top) => !listed.has(top)), [], '扱いを決めていない最上位のディレクトリのパスが写しにある');
+  assert.ok(found.some((r) => r.top.endsWith('/')) && found.some((r) => !r.top.endsWith('/')), 'ディレクトリのパスと根のファイルの両方を数えていない');
+  assert.deepEqual([...new Set(found.map((r) => r.top))].filter((top) => !listed.has(top)), [], '扱いを決めていないパスが写しにある');
+});
+
+test('SP-BPRUN-036: 2 本の script の読み替えの文が、docs/ 以外のリポジトリの相対パスとして SP-BPRUN-036 と同じ列挙を挙げる', () => {
+  for (const file of ['bp_author.js', 'bp_inspect.js']) {
+    const source = readFileSync(path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', file), 'utf8');
+    const m = /写しの中のそれ以外のリポジトリの相対パス（([^）]*)）/.exec(source);
+    assert.ok(m, file);
+    assert.deepEqual(m[1].split('・').sort(), listedRepoPaths().sort(), file);
+  }
 });
