@@ -444,7 +444,6 @@ function command(req) {
 }
 
 // host が投げた失敗は呼び出しごとに返し、BLOCKED の理由に載せる（SP-BPRUN-027。null を返すだけだと理由に失敗の内容が無い）。
-// fan-out の項目は同じラベルで並行して走るので、ラベルで持つと別の項目の失敗が載るか、後の起動に消される。
 async function launch(role, prompt, { unit, label, schema }) {
   budget.charge(unit)
   run.launched += 1

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, commands, editFile, inspectArgs, loseItem, resumeArgs, runInspect, setupInspect, variant, viewpointOf,
+  INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, commands, editFile, inspectArgs, loseItem, partialCarrier, resumeArgs, runInspect, setupInspect, variant, viewpointOf,
 } from './helpers/bp-harness.mjs';
 import { OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
@@ -94,13 +94,7 @@ const CASES = [
     from: '  if (insp.assignments.length) {', to: '  if (false) {',
     async check(t, scriptPath) {
       const s = await setupInspect(t);
-      let done = false;
-      const carrier = async (prompt, options, env) => {
-        if (done || !prompt.includes(' assignments <<') || !prompt.includes('"groups"')) return undefined;
-        done = true;
-        for (const c of commands(prompt).slice(0, 2)) await env.call(c.op, c.text);
-        return null;
-      };
+      const carrier = partialCarrier(OPS.assignments, 2, (prompt) => prompt.includes('"groups"'));
       const first = await runInspect(t, { env: s.env, args: inspectArgs('audit', s.target), scenario: { carrier }, scriptPath });
       const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result), scriptPath });
       return second.result.stopKind === 'complete' && !second.calls.some((c) => c.role === 'extract');

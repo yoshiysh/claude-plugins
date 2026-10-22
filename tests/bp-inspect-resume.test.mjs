@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  assetIds, candidateVerifier, commands, compose, editFile, failCarrier, loseItem, partialCarrier, inspectArgs, inspectDefaults, logOf, resumeArgs, runInspect, setupInspect, viewOf, viewpointOf,
+  candidateVerifier, commands, editFile, failCarrier, loseItem, partialCarrier, inspectArgs, inspectDefaults, resumeArgs, runInspect, setupInspect, viewOf, viewpointOf,
 } from './helpers/bp-harness.mjs';
 import { OPS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 

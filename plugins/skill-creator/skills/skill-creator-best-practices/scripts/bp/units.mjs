@@ -57,9 +57,11 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   const trace = traceability(nodes);
   const capacity = !tolerateNoCapacity || hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
   const bySpec = unitsBySpec(criteriaDir, capacity);
+  // 落としてよいのは、読めない章にある仕様項目だけ。写しに見出しの無い仕様項目は写しの破損なので止まる。
+  const present = new Set(specItemIds(criteriaDir));
   const unitsOf = (req) => (trace.get(req) ?? []).flatMap((sp) => {
     const list = bySpec.get(sp);
-    if (!list && capacity) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
+    if (!list && (capacity || !present.has(sp))) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
     return list ?? [];
   });
   return { table, always, bySpec, unitsOf };

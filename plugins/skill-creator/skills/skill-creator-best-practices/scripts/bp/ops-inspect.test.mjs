@@ -6,7 +6,7 @@ import * as run from './ops-run.mjs';
 import * as ledger from './ops-ledger.mjs';
 import * as inspect from './ops-inspect.mjs';
 import { outcome, units } from './ops-author.mjs';
-import { checkExtra } from './units.mjs';
+import { applicability as applicabilityRows, checkExtra } from './units.mjs';
 import { CODES, FIXED_AUDIT_UNCHECKED, STATES_DIR } from './constants.mjs';
 import { sha256Hex } from './ids.mjs';
 import { readAll } from './journal.mjs';
@@ -209,6 +209,17 @@ test('SP-BPINSPECTION-005・SP-BPCONFORMANCE-003: 「性能・容量」の章の
   await rejects(units({ criteriaDir: noSpec }), CODES.internal);
   assert.throws(() => checkExtra('conformance', { applicability: { row: 1 }, units: [], residualRisks: [] }, { criteriaDir: noSpec }), (error) => error.code === CODES.internal);
   assert.ok((await units({ criteriaDir: CRITERIA_FIXTURE })).rows.length > 0);
+});
+
+test('SP-BPINSPECTION-005: review の適用の判定が「性能・容量」の章の無い写しで落とすのは、写しに見出しのある仕様項目だけで、見出しの無い仕様項目は E_INTERNAL で止まる', async (t) => {
+  const renamed = (s) => s.replace('## 性能・容量（対象スキルに課す確定値）', '## 容量');
+  const traced = (sp) => (s) => s.replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 |', `| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010, ${sp} |`);
+  const conformance = path.join('specifications', 'bp-conformance.md');
+  const inRenamed = await edited(t, conformance, (s) => traced('SP-BPCONFORMANCE-027')(renamed(s)));
+  const rows = applicabilityRows(inRenamed, { tolerateNoCapacity: true });
+  assert.ok(rows.every((r) => !r.units.some((u) => u.value === 'SP-BPCONFORMANCE-027')));
+  const missing = await edited(t, conformance, (s) => traced('SP-BPCONFORMANCE-099')(renamed(s)));
+  assert.throws(() => applicabilityRows(missing, { tolerateNoCapacity: true }), (error) => error.code === CODES.internal && /SP-BPCONFORMANCE-099/.test(error.reason));
 });
 
 test('SP-BPINSPECTION-025: 未検査の観点の 5 つの場合を観点・範囲・理由・記録した run とともに作り、同じ未検査を 2 体が返すと 1 件にまとめる', async (t) => {

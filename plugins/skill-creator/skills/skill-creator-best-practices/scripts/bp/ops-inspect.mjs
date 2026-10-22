@@ -99,9 +99,10 @@ function applicabilityOutput(rec) {
   return { shape: rec.shape, row: rec.row, units: rec.units, forced: rec.forced };
 }
 
-// SP-BPINSPECTION-006・SP-BPFINDINGS-034: 受理した結果と段の終わりを同じ 1 行で書く。結果のある段への送り直しは最初の結果とだけ照らす。
+// 「性能・容量」の章を読めない写しでも、フローの観点の適用の判定は止めない（仕様の観点の全体を未検査として宣言する：SP-BPINSPECTION-005・025）。
 const REVIEW_UNITS = Object.freeze({ tolerateNoCapacity: true });
 
+// SP-BPINSPECTION-006・SP-BPFINDINGS-034: 受理した結果と段の終わりを同じ 1 行で書く。結果のある段への送り直しは最初の結果とだけ照らす。
 export function applicability(ctx, req) {
   return mutate(ctx, req, OPS.applicability, (view) => {
     if (view.state.function !== FUNCTION.review) reject(CODES.input, `review だけの操作: ${view.state.function}`);

@@ -226,7 +226,7 @@ test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-008: script �
   assert.ok(spec.includes(`${inspection} の SP-BPINSPECTION-008`));
 });
 
-test(`SP-BPRUN-027・SP-BPRUN-028: host の agent() が投げた失敗の内容を、その呼び出しの理由に載せ、同じラベルで並行した起動の失敗と混ざらず、後の起動に消されない${BOTH}`, async () => {
+test(`SP-BPRUN-027・SP-BPRUN-028: host の agent() が投げた失敗の内容を、その呼び出しの理由に載せ、同じラベルで並行した起動の失敗と混ざらず、全ての起動が受け取った失敗を理由に載せる${BOTH}`, async () => {
   const make = Function('agent', 'ROLE_MODELS', `const budget = { charge() {} }; const run = { launched: 0 };\n${fnSource('launch')}\nreturn launch;`);
   const launch = make(async (p) => {
     await null;
@@ -236,14 +236,13 @@ test(`SP-BPRUN-027・SP-BPRUN-028: host の agent() が投げた失敗の内容�
   const label = 'carrier:verify';
   const together = await Promise.all(['A', 'ok', 'B'].map((p) => launch('carrier', p, { label })));
   assert.deepEqual(together, [{ out: null, failure: '（host の失敗: A の失敗）' }, { out: { fine: true }, failure: '' }, { out: null, failure: '（host の失敗: B の失敗）' }]);
-  const first = launch('carrier', 'A', { label });
-  const later = Promise.resolve().then(() => launch('carrier', 'ok', { label }));
-  assert.equal((await first).failure, '（host の失敗: A の失敗）');
-  await later;
-  assert.match(fnSource('assignStage'), /抽出役が結果を返さなかった\$\{failure\}/);
-  assert.match(fnSource('carry'), /運搬役が結果を返さなかった\$\{failure\}/);
-  assert.match(fnSource('verifyItem'), /検証役が結果を返さなかった\$\{failure\}/);
-  assert.match(fnSource('refuteStage'), /反証役が結果を返さなかった\$\{failure\}/);
+  // 失敗を受け取った起動は、次の関数の宣言までに理由へ載せる（受け取って捨てると理由に失敗の内容が無い）。2 本の script の全ての起動を照らす。
+  for (const file of ['bp_inspect.js', 'bp_author.js']) {
+    const text = readFileSync(path.join(path.dirname(SCRIPT), file), 'utf8');
+    const sites = text.split('const { out: res, failure } = await launch(').slice(1);
+    assert.ok(sites.length >= 5, file);
+    for (const site of sites) assert.match(site.split(/\nasync function |\nfunction /)[0], /結果を返さなかった\$\{failure\}/, `${file}: ${site.slice(0, 60)}`);
+  }
 });
 
 test('SP-BPINSPECTION-017・SP-BPINSPECTION-018・SP-BPRUN-036: audit の検証役の prompt が資産の束と照らす先のパスを共通の部分として先頭に持ち、反証役の prompt が資産の束と候補の観点の照らす先のパスを持つ［review］［audit］', async (t) => {
