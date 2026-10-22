@@ -14,4 +14,6 @@
 
 ## 返すもの
 
-`{"goal": <目標の文>, "scope": [<パス>], "prohibitions": [<文>], "numeric": [{"text", "value"}], "origin": <再現手順と失敗の出力>, "missing": [<足りない入力の問い>]}`。`missing` が空でなければ、run は needs_input で止まる。
+`{"goal": <目標の文>, "scope": [<パス>], "prohibitions": [<文>], "numeric": [{"text", "value"}], "origin": <再現手順と失敗の出力>, "missing": [<足りない入力の問い>]}`。`missing` が空でなければ、run は needs_input で止まる。範囲と禁止事項は目標と一緒に前提として状態に書かれ、実行役と検証役の prompt に渡る。
+
+返す JSON と同じものを、prompt の「出力の写し」のパスにも書く（各役の出力を run のディレクトリに残し、後から辿れるようにするため）。
