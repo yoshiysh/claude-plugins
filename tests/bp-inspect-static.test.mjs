@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INSPECT_SCRIPT, candidateVerifier, criteriaNoteOf, inspectArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
+import { INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, criteriaNoteOf, inspectArgs, resumeArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
 import { INPUT_KEYS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { PATHS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/applicability.mjs';
 
@@ -270,5 +270,19 @@ test('SP-BPINSPECTION-017・SP-BPINSPECTION-018・SP-BPRUN-036: audit の検証�
     } else {
       assert.ok(own.includes(s.env.promptAudit));
     }
+  }
+});
+
+test('SP-BPRUN-036: 再開した run の検証役の prompt も、写しの中の docs/ の読み替えを写しの置き場の絶対パスで持つ［review］［audit］', async (t) => {
+  for (const fn of ['review', 'audit']) {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const first = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, { maxLaunches: MIN_LAUNCHES[fn] }) });
+    assert.equal(first.result.stopKind, 'iteration_limit');
+    const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result) });
+    const verifiers = second.calls.filter((c) => c.role === 'verify');
+    assert.ok(verifiers.length > 0, fn);
+    const note = criteriaNoteOf(s.criteriaDir, INSPECT_SCRIPT);
+    for (const c of verifiers) assert.ok(c.prompt.includes(note), `${fn}: ${c.label}`);
   }
 });

@@ -300,6 +300,11 @@ for (const fn of FNS) {
     const free = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target) });
     assert.equal(free.result.stopKind, 'complete');
     assert.equal(verifiers(free.calls).length, VIEWPOINTS[fn].length * 2);
+    const fv = await viewOf(s.env, free.result.state);
+    const entry = fv.stages.get('verify|');
+    assert.equal(entry.items.length, VIEWPOINTS[fn].length * 2);
+    assert.ok(entry.items.every((id) => fv.items.get(id).result));
+    assert.ok(verifiers(free.calls).every((c) => !c.label.endsWith(':extra')));
     const limit = MIN_LAUNCHES[fn] + 3;
     const capped = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, { maxLaunches: limit }) });
     assert.ok(capped.calls.length <= limit);
@@ -332,6 +337,10 @@ for (const fn of FNS) {
     assert.equal(facts.limit, MIN_LAUNCHES[fn]);
     assert.ok(facts.used > 0 && facts.used <= view.stops.get('r1').launches);
     assert.equal(facts.left, pending.length);
+    // 同時実行 1 では止まる時点に走っている項目が無く、その後の起動は停止の運搬役だけなので、その時点の起動数が 1 つに決まる。
+    const s1 = await setupInspect(t);
+    const serial = await runInspect(t, { env: s1.env, args: inspectArgs(fn, s1.target, { maxLaunches: MIN_LAUNCHES[fn] }), scenario: { verify: candidateVerifier({ viewpoint: VIEWPOINTS[fn][0], when: (p, calls) => verifiers(calls).length === 1 }) }, concurrency: 1 });
+    assert.equal(launchStopFacts(serial.result.reason)?.used, serial.calls.length - 1, `${fn}: ${serial.result.reason}`);
     const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result) });
     assert.equal(second.result.stopKind, 'complete', second.result.reason);
     assert.equal(second.result.run, 'r2');

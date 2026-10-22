@@ -293,6 +293,7 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | review の試走（原則の行を 1 つ選んで違反を仕込み、要約の上限の定数を変える） |
 | PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
 | PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無し（配布先ごとの試走を要し、試走は Claude Code の 1 つだけ） |
+| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | create の試走（無視される設定に頼る役を持つ題材で、確かめられなかった制限の全てが 4 項目で残る危険に載る。`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-033 の fixture の run の行と同じ試走。4 項目の形と返り値への運搬は決定的なテストで測るが、全ての制限が載るかは検証役の判断） |
 | PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | create の試走（目標の固定に「目標の固定」の行を当てた判定の結果） |
 | PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | create の試走（依頼文を 1 回で解ける課題にする） |
 | PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review の試走（仕込んだ違反が指摘として、仕込まない単位が指摘の無いまま返る） |
@@ -307,7 +308,7 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | TBD-SBPCONFORMANCE-001 | 探索グラフ型の実行役の時間の上限の値と、守らせ方 | Claude Code の `agent()` に経過時間の上限を指定する手段が入力に無い（Codex runner は `agentTimeoutMs` を持つ）。当たるのは探索グラフ型の対象スキルの実行役だけで、best-practices 自身は実行役を持たない | false | SP-BPCONFORMANCE-034 |
 | TBD-SBPCONFORMANCE-002 | ターンごとの指揮が重い形に当たるか | 形の判定の図では、ターンごとの指揮に問い A の「いいえ」からも、問い Q1 に「いいえ」と答えた後の問い Q3 の「いいえ」からも到達するので、重い形（Q1 に「いいえ」と答えて初めて到達する形）に当たるかが道によって変わり、図から決まらない | false | SP-BPCONFORMANCE-006 |
 | TBD-SBPCONFORMANCE-003 | 対象スキルの同時実行の上限の守らせ方（runtime の設定か script か）。best-practices 自身は script で守ると SP-BPCONFORMANCE-027 に書き戻した | Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている | false | SP-BPCONFORMANCE-027 |
-| TBD-SBPCONFORMANCE-005 | Claude Code の plugin から読み込む agent で無視される設定の一覧を、判定基準の写しに入る文書に持つか | 一覧は Claude Code 公式 docs にあり、run の中の agent は写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）の外を判定基準として当てられない | false | SP-BPCONFORMANCE-019。加えて、決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない |
+| TBD-SBPCONFORMANCE-005 | Claude Code の plugin から読み込む agent で無視される設定の一覧を、判定基準の写しに入る文書に持つか | 一覧は Claude Code 公式 docs にあり、run の中の agent は写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）の外を判定基準として当てられない。一覧は Claude Code の版で変わる外部の事実で、写しに入れた一覧は版が上がると黙って古くなり、無視される設定に頼る制限を誤って「適合」とする（誤った適合は、判定していないと宣言する未検査より悪く、古くなったことを機械で検出する手段も無い） | false | SP-BPCONFORMANCE-019。加えて、決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない |
 
 ## トレーサビリティ表
 
@@ -328,7 +329,7 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | 原則の行ごとの fixture と、要約の字数の決定的照合 | 作成中 |
 | PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | 原則の行ごとに違反を仕込んだ fixture | 作成中 |
 | PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無視される設定に頼る制限を持つ fixture を配布先ごとに確かめる | 作成中 |
-| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | 確かめられなかった制限が 4 項目そろって結果に載ることを照合 | 完了 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | 確かめられなかった制限が 4 項目そろって結果に載ることを照合 | 作成中 |
 | PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-021, SP-BPCONFORMANCE-037 | mock backend で上限の有無・不正な値を渡して走らせ、不正な値で `agent()` が 0 回で BLOCKED になることを照合 | 完了 |
 | PR-BPDESIGNEDSKILL-017 | SP-BPCONFORMANCE-022 | mock backend で起動数の記録が上限を超えないことを照合 | 完了 |
 | PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-023 | mock backend で、残った項目が順位付きで状態に残り、停止の種類が反復の上限で、理由に起動数の上限・その時点の起動数・件数が載ることを照合 | 完了 |

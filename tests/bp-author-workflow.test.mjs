@@ -226,21 +226,24 @@ test('SP-BPAUTHORING-033・SP-BPAUTHORING-032・SP-BPFINDINGS-032: create の完
   for (const key of Object.keys(result)) assert.ok(['ok', 'op', 'sum', ...Object.values(RESULT_KEYS)].includes(key), key);
 });
 
-test('SP-BPCONFORMANCE-020: create・update は受理した残る危険を完了の返り値の residualRisks に 4 項目のまま逐語で載せ、確かめられなかった役の制限（unverifiedRoleLimits）と別の鍵に置き、review・audit の返り値は residualRisks を持たない［create］［update］［review］［audit］', async (t) => {
+test('SP-BPCONFORMANCE-020・SP-BPCONFORMANCE-018: create・update は判定の単位の全ての結果と、受理した残る危険を完了の返り値に載せ（残る危険は residualRisks に 4 項目のまま逐語で）、確かめられなかった役の制限（unverifiedRoleLimits）と別の鍵に置き、review・audit の返り値は residualRisks を持たない［create］［update］［review］［audit］', async (t) => {
   const risk = { role: '検証役', restriction: 'Read だけを許す', host: 'Claude Code', reason: 'plugin から読み込む agent では無視される' };
   for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
     const s = await setup(t, { fn });
     if (!s) return;
+    const sent = {};
     const verify = async (prompt, options, env) => {
       const result = await defaults.verify(prompt, options, env);
       if (options.label !== 'verifier:conformance') return result;
       result.residualRisks = [risk];
+      sent.units = result.units;
       await writePayload(prompt, result);
       return result;
     };
     const { result } = await runAuthor(t, { env: s.env, args: args(s.target), scenario: { verify } });
     assert.equal(result.stopKind, 'complete', result.reason);
     assert.deepEqual(result[RESULT_KEYS.residualRisks], [risk], fn);
+    assert.deepEqual(result.verification.units.map((u) => u.unit).sort(), sent.units.map((u) => u.unit).sort(), `${fn}: 返り値に全ての単位の結果が載る`);
     assert.ok(Array.isArray(result[RESULT_KEYS.unverifiedRoleLimits]) && result[RESULT_KEYS.unverifiedRoleLimits].length > 0, fn);
     assert.ok(!result[RESULT_KEYS.unverifiedRoleLimits].some((r) => r.restriction === risk.restriction), fn);
   }
@@ -590,6 +593,10 @@ test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN
     assert.equal(facts.limit, limit);
     assert.ok(facts.used > 0 && facts.used <= stop.launches, `${facts.used} / ${stop.launches}`);
     assert.equal(facts.left, stop.pending.length);
+    // 同時実行 1 では止まる時点に走っている項目が無く、その後の起動は停止の運搬役だけなので、その時点の起動数が 1 つに決まる。
+    const s1 = await setup(t, { fn });
+    const serial = await runAuthor(t, { env: s1.env, args: args(s1.target, { maxLaunches: limit }), maxAgents: limit, concurrency: 1 });
+    assert.equal(launchStopFacts(serial.result.reason)?.used, serial.calls.length - 1, `${fn}: ${serial.result.reason}`);
     const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
     assert.equal(second.result.stopKind, 'complete', second.result.reason);
     const relaunched = second.calls.filter((c) => c.role === 'verify').map((c) => c.label);
@@ -599,7 +606,7 @@ test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN
 });
 
 test('SP-BPRUN-020・SP-BPRUN-040・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-022・SP-BPCONFORMANCE-025: 上限を渡さない run は項目を切らず、上限を渡した run の起動数と停止の記録の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる［create］［update］', async (t) => {
-  for (const [fn, args, viewpoints] of [['create', createArgs, 2], ['update', updateArgs, 3]]) {
+  for (const [fn, args, viewpoints] of [['create', createArgs, ['conformance', 'goal']], ['update', updateArgs, ['conformance', 'goal', 'contract']]]) {
     for (const limit of [MIN[fn], MIN[fn] + 4, MIN[fn] + 9]) {
       const s = await setup(t, { fn });
       if (!s) return;
@@ -612,7 +619,11 @@ test('SP-BPRUN-020・SP-BPRUN-040・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-022�
     const s = await setup(t, { fn });
     const { result, calls } = await runAuthor(t, { env: s.env, args: args(s.target) });
     assert.equal(result.stopKind, 'complete', result.reason);
-    assert.equal(calls.filter((c) => c.role === 'verify').length, viewpoints, fn);
+    const view = await viewOf(s.env, result.state);
+    const items = view.stages.get('verify|1').items;
+    assert.deepEqual(items.map((id) => view.items.get(id).key.viewpoint), viewpoints, fn);
+    assert.ok(items.every((id) => view.items.get(id).result !== undefined), fn);
+    assert.deepEqual(calls.filter((c) => c.role === 'verify').map((c) => c.label), viewpoints.map((v) => `verifier:${v}`), fn);
   }
 });
 

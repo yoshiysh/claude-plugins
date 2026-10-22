@@ -329,7 +329,7 @@ best-practices 自身の Workflow は、起動数の上限を省略できる入�
 起動数の上限を渡された run で、script は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-022 に従い、項目と agent の起動が上限に収まるかを起動の前に確かめなければならない。確かめの式と予約分は同項に従い、式に入れる best-practices 自身の段ごとの値は SP-BPRUN-021 の表とする。収まらないとき、script はその agent を起動せず、始めた項目の終わりを待ってから、次の手順で止まらなければならない。
 
 1. 始めなかった項目を、未着手の項目として順位付きで状態に書かせる。順位は、上限が無ければ起動していた順（段の順、段の中では CLI が列挙した項目の順：SP-BPRUN-038）とする。未着手の項目の並びの正本は CLI が状態から導いた並びとし、create・update の script は停止の要求に `pending` を入れずに CLI に導かせる（まとめた要求の途中で運搬役が止まると、script の手元の並びが状態とずれる）。
-2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。理由には script が上限とその時点の起動数を書き、CLI が状態から導いた未着手の項目の件数を足す（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-023 の「残った件数」。件数の正本は CLI が導いた並びなので、script の手元で数えない）。
+2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。理由には script が上限とその時点の起動数を書き、CLI が状態から導いた未着手の項目の件数を「。残した項目の件数 <件数>」の形で末尾に足す（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-023 の「残った件数」。件数の正本は CLI が導いた並びなので、script の手元で数えない）。
 
 #### SP-BPRUN-021 最小の起動数
 best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、その run で最初に始める fan-out の項目を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものを、最初の run と再開した run の全ての経路について求め、その最も大きいものとする（SP-BPRUN-037 の「1 件も始められない」と同じ考え方で、上限がこの値以上なら、どの経路でもその run の最初の fan-out の項目を始められる）。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は本項の後の表）。
@@ -411,11 +411,11 @@ run の中の agent と CLI が判定基準として読む文書は、次の写�
 - markdown の相対リンク
 - 前置きの無い `bp-*.md`・`skill-design-patterns.md` のファイル名（`docs/` の中で同じ名前の文書がちょうど 1 つのときだけ、その文書に解く）
 
-glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの種類は、正本と違う写し・無い写し・集合の外のファイル・通常のファイルでない写し・解けない参照・解けない形の参照の 6 つとする。`make test` の検出は、この検査を Node のテストから当てて行う。
+glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの 1 行は `<種類> <docs/ からの相対パス>[ <参照の字面>]`（写しの置き場とそれより上の symlink はリポジトリからの相対パス）とし、種類は次の 6 つとする: `differ`（正本と違う写し）・`missing`（無い写し）・`extra`（集合の外のファイル）・`symlink`（写しか、写しまでの途中のディレクトリが通常のファイル・ディレクトリでない）・`unclosed`（解けない参照）・`unparsed`（解けない形の参照）。書き込みの mode は、写しの置き場とその中の symlink を消して通常のファイルで作り直す。置き場より上の symlink は置き場の外の文書を巻き込むので、書かずに `symlink` を出して 1 で終わる。`make test` の検出は、この検査を Node のテストから当てて行う。
 
 写しの中の `docs/X` は、best-practices のスキルのディレクトリの `references/criteria/X` と読む（写しは逐語なので、本文は正本のパスで互いを指したまま残る）。script は、判定基準の写しのパスを渡す全ての prompt に、この読み替えを写しの置き場の絶対パスで書く。写しの中に残る、写しの外を指す `docs/` の参照は、tool の除外一覧（`OUTSIDE_COPY`）に理由とともに載せる。
 
-run の中の agent と CLI は写しだけを判定基準として読み、正本の `docs/`、agent の記憶、prompt に書き写した写しを判定基準として当ててはならない（当てると、照らしていない基準を照らしたと返す）。写しの置き場が無いとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`）を理由つきの `E_INPUT` で拒否する（配布物の欠けで、空の閉集合で判定すると照らしていない基準を照らしたと返す）。
+run の中の agent と CLI は写しだけを判定基準として読み、正本の `docs/`、agent の記憶、prompt に書き写した写しを判定基準として当ててはならない（当てると、照らしていない基準を照らしたと返す）。写しの置き場が無いかディレクトリでないとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`・`units`）を理由つきの `E_INPUT` で拒否する（配布物の欠けで、空の閉集合で判定すると照らしていない基準を照らしたと返す）。CLI が読む写し（`CRITERIA_FILES`）のどれかが欠けたときも、`targets` 以外の同じ操作を `E_INPUT` で拒否する（`targets` は欠けた写しを読めない照らす先として返す：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-027）。
 
 ### モデル・effort・権限
 
