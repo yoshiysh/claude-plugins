@@ -50,6 +50,13 @@ export async function variant(t, replacements, script = SCRIPT) {
   return file;
 }
 
+// 読み替えの文は script の criteriaNote を正本にし、テストは字面を書き写さない（2 本の字面の一致は bp-script-shared が照らす）。
+export function criteriaNoteOf(root, script = SCRIPT) {
+  const m = /^function criteriaNote\(root\) \{\n([\s\S]*?)\n\}/m.exec(readFileSync(script, 'utf8'));
+  if (!m) throw new Error(`script に criteriaNote が無い: ${script}`);
+  return new Function('root', m[1])(root);
+}
+
 export function commands(prompt) {
   return [...prompt.matchAll(COMMAND)].map((m) => ({ script: m[1], op: m[2], delim: m[3], text: m[4] }));
 }

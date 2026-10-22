@@ -46,12 +46,12 @@ export function targets(ctx, req) {
       const valid = validTarget(view);
       const changed = changedTargets(valid.targets, now.targets);
       const blocked = changed.length ? { reason: `再開した run の照らす先が状態の指紋と食い違う: ${changed.join(', ')}`, paths: changed } : null;
-      return { records: [], output: { viewpoints: valid.viewpoints, targets: publicTargets(valid.targets), blocked, compared: true } };
+      return { records: [], output: { viewpoints: valid.viewpoints, targets: publicTargets(valid.targets), criteriaDir: ctx.criteriaDir, blocked, compared: true } };
     }
     const record = { t: RECORDS.target, run: req.run, viewpoints: now.viewpoints, targets: publicTargets(now.targets) };
     const records = [record];
     if (!now.blocked) records.push({ t: RECORDS.stageEnd, stage: STAGE.targets, round: null });
-    return { records, output: { viewpoints: now.viewpoints, targets: record.targets, blocked: now.blocked, compared: false } };
+    return { records, output: { viewpoints: now.viewpoints, targets: record.targets, criteriaDir: ctx.criteriaDir, blocked: now.blocked, compared: false } };
   });
 }
 

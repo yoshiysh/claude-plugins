@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { candidateVerifier, inspectArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
+import { INSPECT_SCRIPT, candidateVerifier, criteriaNoteOf, inspectArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
 import { INPUT_KEYS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { PATHS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/applicability.mjs';
 
@@ -117,7 +117,7 @@ test('SP-BPINSPECTION-023: bp-inspection.md に review・audit の入力の表�
   assert.match(INSPECTION, /`docs\/specifications\/bp-entry\.md` の SP-BPENTRY-013 の表を正とし、本文書に表を置かない/);
 });
 
-test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証役の prompt が資産の束と照らす先（判定基準の写し）のパスを持ち、共通の部分が先頭にあり、仕様の観点の prompt に「性能・容量」の章の値が無く、docs/ のパスを渡さない［review］`, async (t) => {
+test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証役の prompt が資産の束と照らす先（判定基準の写し）のパスを持ち、共通の部分が先頭にあり、仕様の観点の prompt に「性能・容量」の章の値が無く、写しの中の docs/ の読み替えを除くと docs/ のパスを渡さない［review］`, async (t) => {
   const got = await promptsOf(t, 'review');
   if (!got) return;
   const { s, calls } = got;
@@ -125,10 +125,12 @@ test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証
   const spec = calls.find((c) => viewpointOf(c.prompt) === 'spec').prompt;
   const conformance = path.join(s.criteriaDir, 'specifications', 'bp-conformance.md');
   const design = path.join(s.criteriaDir, 'design', 'skill-design-patterns.md');
+  const note = criteriaNoteOf(s.criteriaDir, INSPECT_SCRIPT);
   for (const p of [flow, spec]) {
     assert.ok(p.includes(conformance) && p.includes(design));
     assert.match(p, /資産の束（[^）]*）: \S+bundle\.0\.md/);
-    assert.doesNotMatch(p, /(^|[\s/])docs\//);
+    assert.ok(p.includes(note));
+    assert.doesNotMatch(p.replace(note, ''), /(^|[\s/`])docs\//);
   }
   let i = 0;
   while (flow[i] === spec[i]) i += 1;

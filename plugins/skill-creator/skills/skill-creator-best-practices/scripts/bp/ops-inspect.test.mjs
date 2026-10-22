@@ -70,10 +70,11 @@ function judged(assets, extra = {}) {
   return { judgements: assets.map((a) => ({ asset: a.id, judgement: 'ok' })), candidates: [], unchecked: [], ...extra };
 }
 
-test('SP-BPINSPECTION-004: review の照らす先の決定が、観点ごとの照らす先のパスと指紋を状態に書き、読めた観点を run の観点の集合にする', async (t) => {
+test('SP-BPINSPECTION-004・SP-BPRUN-031: review の照らす先の決定が、観点ごとの照らす先のパスと指紋を状態に書き、読めた観点を run の観点の集合にし、判定基準の写しの置き場を返す', async (t) => {
   const { ctx, req, targets } = await begin(t, 'review');
   if (!ctx) return;
   assert.equal(targets.blocked, null);
+  assert.equal(targets.criteriaDir, ctx.criteriaDir);
   assert.deepEqual(targets.viewpoints, ['flow', 'spec']);
   const spec = targets.targets.find((x) => x.viewpoint === 'spec');
   const file = path.join(CRITERIA_FIXTURE, 'specifications', 'bp-conformance.md');
@@ -143,6 +144,7 @@ test('SP-BPINSPECTION-029: 照らす先の決定の段を終えた後の照ら�
   const again = await inspect.targets(ctx, req);
   assert.equal(again.compared, true);
   assert.equal(again.blocked, null);
+  assert.equal(again.criteriaDir, criteriaDir);
   const design = path.join(criteriaDir, 'design', 'skill-design-patterns.md');
   await fs.appendFile(design, '\n追記\n');
   const changed = await inspect.targets(ctx, req);
