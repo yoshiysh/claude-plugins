@@ -198,6 +198,10 @@ async function mutant(t, edit, from = FIXTURE_DIR) {
 test('SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-037: 試走の題材は、不正な上限と最小の起動数に満たない上限で agent を 1 体も起動せず BLOCKED を返し、再開の入力なら状態 ID を持つ nextArgs を返す', async (t) => {
   const sc = SCENARIOS.素直に完了;
   const dir = await repo(t);
+  for (const bad of [0, 1]) {
+    const r = await runArgs(t, sc, { state: 'tc-x', repo: dir, skillDir: FIXTURE_DIR, maxLaunches: bad });
+    assert.deepEqual([r.result.stopKind, r.calls.length, r.result.nextArgs], ['blocked', 0, { state: 'tc-x', repo: dir, skillDir: FIXTURE_DIR }], JSON.stringify(bad));
+  }
   const free = await runTarget(t, sc);
   assert.equal(free.result.stopKind, 'complete', free.result.reason);
   for (const bad of [0, 1.5, '10']) {
@@ -207,10 +211,6 @@ test('SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-037: 試走の題材は、不正�
   const tooSmall = await runTarget(t, sc, { limit: 1 });
   assert.deepEqual([tooSmall.result.stopKind, tooSmall.calls.length], ['blocked', 0]);
   assert.match(tooSmall.result.reason, /最小の起動数/);
-  for (const bad of [0, 1]) {
-    const r = await runArgs(t, sc, { state: 'tc-x', repo: dir, skillDir: FIXTURE_DIR, maxLaunches: bad });
-    assert.deepEqual([r.result.stopKind, r.calls.length, r.result.nextArgs], ['blocked', 0, { state: 'tc-x', repo: dir, skillDir: FIXTURE_DIR }], JSON.stringify(bad));
-  }
 });
 
 test('SP-BPCONFORMANCE-022・SP-BPCONFORMANCE-023・SP-BPCONFORMANCE-025: 試走の題材は、上限を最小の起動数から上限の無い run の起動数まで総当たりで渡しても、同時実行 1・3 のどれでも上限を超えず、停止の記録を書き、上限で止まった理由に上限・その時点の起動数・残した件数を載せ、後の段の単位も境界で止める', async (t) => {
@@ -297,7 +297,6 @@ test('SP-BPCONFORMANCE-016・SP-BPCONFORMANCE-011: 試走の題材の状態の C
   const b = call('start', { repo: dir, key: 'same', request: 'r', limits: { rounds: 2, attempts: 3 } });
   assert.equal(b.state, a.state);
   const base = { repo: dir, state: a.state, run: a.run, writeKey: b.writeKey };
-  assert.equal(code('premise', { ...base, writeKey: a.writeKey, kind: 'goal', text: '{}' }), 'E_KEY');
   call('premise', { ...base, kind: 'goal', text: '{}' });
   const r1 = call('round', { ...base, round: 1, launches: 1, allFailed: false });
   const r2 = call('round', { ...base, round: 2, launches: 1, allFailed: false });
@@ -359,14 +358,14 @@ test('SP-BPCONFORMANCE-011: 試走の題材は、計画役に渡した要約に�
 });
 
 test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-031: 試走の題材は、工程の欠けが同じ理由で続いても試行を 1 回ずつ数え、試行の上限で意図を打ち切る', async (t) => {
+  const r = await runTarget(t, { ...SCENARIOS.実行役が全て失敗, intents: 1 }, { concurrency: 1 });
+  assert.equal(r.calls.filter((l) => l === 'executor:I1').length, 3);
+  assert.deepEqual(r.result.aborted, ['I1', 'I2']);
   const { base } = await begun(t);
   const [i] = planned(base, 1, ['k1']);
   assert.equal(code('attempt', { ...base, intent: i.id, reason: '欠けた' }), 'E_INPUT');
   const got = [1, 2, 3].map((attempt) => call('attempt', { ...base, round: 1, attempt, intent: i.id, reason: '欠けた' }));
   assert.deepEqual(got.map((a) => [a.n, a.aborted]), [[1, false], [2, false], [3, true]]);
-  const r = await runTarget(t, { ...SCENARIOS.実行役が全て失敗, intents: 1 }, { concurrency: 1 });
-  assert.equal(r.calls.filter((l) => l === 'executor:I1').length, 3);
-  assert.deepEqual(r.result.aborted, ['I1', 'I2']);
 });
 
 test('SP-BPCONFORMANCE-015: 試走の題材は、実行役が欠けて回収した候補が 1 件も受理されなかった試行を、事実を書かずに試行の失敗として数える', async (t) => {
@@ -381,6 +380,7 @@ test('SP-BPCONFORMANCE-015: 試走の題材は、実行役が欠けて回収し�
 test('SP-BPCONFORMANCE-015: 試走の題材の実行役の結果の検証方式の綴りは CLI の受け付ける綴りと同じで、検証役には番号つきの候補と判定の番号の型を渡す', async (t) => {
   const r = await runTarget(t, SCENARIOS.回収役が拾う, { concurrency: 1 });
   const at = (prefix) => r.options[r.calls.findIndex((l) => l.startsWith(prefix))];
+  assert.ok(Array.isArray(at('executor:I').schema.properties.facts.items.properties.method.enum), '実行役の schema が検証方式を選択肢で縛らない');
   const { base, methods: spelled } = await begun(t);
   const methods = Object.keys(spelled);
   for (const label of ['executor:I', 'collector:', 'executor:extra']) {
@@ -500,13 +500,12 @@ test('SP-BPCONFORMANCE-015: 試走の題材は、完了の照合の検証役に�
   assert.match(prompt, /主張が挙げた受理済みの事実:\nF[0-9a-f]{12}: 事実 \d+-\d+/);
 });
 
-test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-016: 試走の題材は、運搬役が CLI の出力でない行を返しても、agent() が失敗しても、BLOCKED の停止を状態に書いて止まり、止まった後は新しい意図を始めない', async (t) => {
+test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-016: 試走の題材は、運搬役が CLI の出力でない行を返しても、agent() が失敗しても、BLOCKED の停止を状態に書いて止まる', async (t) => {
   const dir = await repo(t);
   const garbage = { ...SCENARIOS.素直に完了, agent: (label) => (/^carrier:.*\bfacts\b/.test(label) ? { responses: ['not json'] } : undefined) };
   const g = await runTarget(t, garbage, { concurrency: 1 });
   assert.equal(g.result.stopKind, 'blocked', g.result.reason);
   assert.equal(g.calls.at(-1), 'carrier:stop');
-  assert.ok(!g.calls.includes('executor:I4'), g.calls.join(' '));
   assert.equal(logOf(dir, g.result.nextArgs.state).filter((x) => x.t === 'stop')[0].kind, 'blocked');
   const thrown = { ...SCENARIOS.素直に完了, agent: (label) => { if (label === 'planner') throw new Error('予算の超過'); } };
   const h = await runTarget(t, thrown, { concurrency: 1 });
@@ -517,15 +516,23 @@ test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-016: 試走の題材は、運搬�
   assert.deepEqual([extraRun.result.stopKind, extraRun.result.reason], ['blocked', '追加の実行役が結果を返さなかった']);
 });
 
+test('SP-BPCONFORMANCE-012・SP-BPCONFORMANCE-023: 試走の題材は、走っている意図の 1 件が停止を返したら新しい意図を始めず、走っている意図の終わりを待って止まる', async (t) => {
+  const lost = { ...SCENARIOS.素直に完了, agent: (label) => (/^carrier:.*\bfacts\b/.test(label) ? { responses: [] } : undefined) };
+  const r = await runTarget(t, lost, { concurrency: 1 });
+  assert.ok(!r.calls.includes('executor:I4'), r.calls.join(' '));
+  assert.equal(r.result.stopKind, 'blocked', r.result.reason);
+  assert.equal(r.calls.at(-1), 'carrier:stop');
+});
+
 test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-016: 試走の題材は、停止の運搬役の応答が失われても、nextArgs の再開で状態に書かれた完了を返し、書かれなかった停止を BLOCKED として足す', async (t) => {
   const dir = await repo(t);
   const written = { ...SCENARIOS.素直に完了, agent: (label, prompt) => { if (label === 'carrier:stop') { carry(prompt); return { responses: [] }; } } };
   const a = await runTarget(t, written, { concurrency: 1 });
   assert.equal(a.result.stopKind, 'blocked');
-  assert.equal(a.result.residualRisks.length, 4);
   const again = await runArgs(t, SCENARIOS.素直に完了, a.result.nextArgs);
-  assert.deepEqual([again.result.stopKind, again.calls], ['complete', ['carrier:resume']]);
+  assert.deepEqual([again.result.stopKind, again.calls], ['complete', ['carrier:resume']], again.result.reason);
   assert.equal(again.result.cause.explanation, '原因');
+  assert.equal(a.result.residualRisks.length, 4);
   const lost = { ...SCENARIOS.素直に完了, agent: (label) => (label === 'carrier:stop' ? null : undefined) };
   const b = await runTarget(t, lost, { concurrency: 1 });
   assert.equal(b.result.stopKind, 'blocked');

@@ -8,6 +8,7 @@ const CONCURRENCY = 3
 const MAX_ROUNDS = 5
 const MAX_ATTEMPTS = 3
 const DRY_ROUNDS = 2
+const RECHECKS = 1
 const ROLE_MODELS = {
   goal: { model: 'fable', effort: 'high' },
   planner: { model: 'fable', effort: 'high' },
@@ -228,6 +229,7 @@ async function plan(round) {
     const p = await launch(u, 'planner', [
       `役の指示: ${ROLES}/planner.md を読む。`,
       `周: ${round}`,
+      `同じ方向の再確認の意図の上限: 1 つの方向につき ${RECHECKS} 回`,
       `細部を引く CLI（読み出しだけ）: node '${SKILL}/scripts/state.mjs' get <<'EOF'\n${JSON.stringify({ repo: run.repo, state: run.state, id: '<ID>' })}\nEOF`,
       `状態の要約:\n${s.summary}`,
     ], SCHEMAS.planner, 'planner')
