@@ -269,6 +269,35 @@ best-practices 自身の役には、設計方針文書の役ごとの表と SP-B
 - 確定値（SP-BPCONFORMANCE-027〜033・035・036）: 対象スキルの script の定数を読み、本章の値と一致するかを決定的に照合する。そのうえで、上限に達する fixture で、上限の回数で止まることを確かめる。
 - 保留の項目（SP-BPCONFORMANCE-006 のターンごとの指揮、SP-BPCONFORMANCE-019 の Claude Code、SP-BPCONFORMANCE-034）: 判定の結果が「未検査」になり、適合にも不適合にもならないことを確かめる。
 
+best-practices 自身の挙動で測れない行（対象スキルに対する検証役の判断の質を問う行）は、模擬の検証役では配線しか測れないので、本物の agent での試走（`docs/specifications/bp-authoring.md` の「検証方法」）で確かめる。どの行がそれに当たり、どの試走で測るかは次の試走の表を正とする。行の検証方法のうち決定的に測れる句はテストで確かめるが、行は試走で当たるまで「完了」にしない。
+
+- review の試走の題材は、判定表の「探索グラフ型・資産台帳 有・fan-out 有」の行に到達する対象スキルとする（1 回の review が到達する判定表の行は 1 つなので、当たる単位の最も多い行を選ぶ）。違反を仕込む前の版の review で指摘が 0 件になることを、先に確かめる（基準の run。省くと、仕込んだ違反と元からの違反を見分けられない）。
+- 違反は資産 1 つに 1 つだけ仕込み、行ごとに当たり・偽陽性・偽陰性を読む。原則の表の仕様項目は単位を無作為に 1 つ選んで仕込み、選ばなかった単位は確かめていないと宣言する。仕込んだ単位と測る行は正解表（`tests/fixtures/bp-trial/review-target.expected.json`）を正とする。
+- 基準の run で指摘が 0 件にならないか、仕込んだ違反の指摘が別の単位の種類で出たときは、仕込んだ全ての行を「作成中」のままにする（一部だけを「完了」にしない）。
+- 「無し」の行は、どの試走でも条件の組が作れないので、測る試走を足すまで「作成中」とする。
+
+| 要求 ID | 仕様項目 ID | 測る試走 |
+|---|---|---|
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | 無し（形ごとの正例・負例を要し、1 回の review は 1 つの形しか見ない） |
+| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | review の試走（答えだけで事実の無い設計の説明を仕込む） |
+| PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | update の試走（題材をターンごとの指揮で script を持つ形にする） |
+| PR-BPDESIGNEDSKILL-004 | SP-BPCONFORMANCE-008 | review の試走（部品名の無い段を仕込む） |
+| PR-BPDESIGNEDSKILL-005 | SP-BPCONFORMANCE-009 | 無し（資産台帳の無い対象スキルを要し、review の試走の題材は台帳を持つ） |
+| PR-BPDESIGNEDSKILL-018 | SP-BPCONFORMANCE-009 | 無し（fan-out の無い対象スキルを要し、review の試走の題材は fan-out を持つ） |
+| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027 | review の試走（原則の行を 1 つ選んで違反を仕込み、同時実行の定数を変える） |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035 | review の試走（原則の行を 1 つ選んで違反を仕込み、役のモデルか effort を変える） |
+| PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034 | review の試走（原則の行を 1 つ選んで違反を仕込み、周と試行の上限の定数を変える） |
+| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | review の試走（原則の行を 1 つ選んで違反を仕込み、要約の上限の定数を変える） |
+| PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無し（配布先ごとの試走を要し、試走は Claude Code の 1 つだけ） |
+| PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | create の試走（目標の固定に「目標の固定」の行を当てた判定の結果） |
+| PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | create の試走（依頼文を 1 回で解ける課題にする） |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review の試走（仕込んだ違反が指摘として、仕込まない単位が指摘の無いまま返る） |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | review の試走（仕様の観点で、確定値の定数ごとに違反を仕込む） |
+
 ## TBD の宣言
 
 本書が所属先の TBD。どれも着手を止めない（blocking: false）。保持規則は各 TBD を参照する仕様項目に置く。
