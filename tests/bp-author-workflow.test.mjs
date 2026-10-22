@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, newKey, resumeArgs, runAuthor, setup, updateArgs, vanishScenario, variant, writePayload,
+  MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, inspectArgs, launchStopFacts, newKey, resumeArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, vanishScenario, variant, writePayload,
 } from './helpers/bp-harness.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -137,14 +137,16 @@ test('SP-BPAUTHORING-029: dismissed の指摘だけの修正の根拠の update 
   assert.match(result.reason, /受け取った 2 件、扱わなかった 2 件/);
 });
 
-test('SP-BPRUN-037: 0・小数・文字列の上限で agent() を 0 回呼び、BLOCKED と渡された値を返す', async (t) => {
-  const s = await setup(t);
-  if (!s) return;
-  for (const bad of [0, 1.5, '30']) {
-    const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target, { maxLaunches: bad }) });
-    assert.deepEqual(calls, []);
-    assert.equal(result.stopKind, 'blocked');
-    assert.ok(result.reason.includes(JSON.stringify(bad)), result.reason);
+test('SP-BPRUN-037・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-037: 0・小数・文字列の上限で agent() を 0 回呼び、BLOCKED と渡された値を返す［create］［update］', async (t) => {
+  for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
+    const s = await setup(t, { fn });
+    if (!s) return;
+    for (const bad of [0, 1.5, '30']) {
+      const { result, calls } = await runAuthor(t, { env: s.env, args: args(s.target, { maxLaunches: bad }) });
+      assert.deepEqual(calls, [], fn);
+      assert.equal(result.stopKind, 'blocked', fn);
+      assert.ok(result.reason.includes(JSON.stringify(bad)), result.reason);
+    }
   }
 });
 
@@ -224,6 +226,33 @@ test('SP-BPAUTHORING-033・SP-BPAUTHORING-032・SP-BPFINDINGS-032: create の完
   for (const key of Object.keys(result)) assert.ok(['ok', 'op', 'sum', ...Object.values(RESULT_KEYS)].includes(key), key);
 });
 
+test('SP-BPCONFORMANCE-020: create・update は受理した残る危険を完了の返り値の residualRisks に 4 項目のまま逐語で載せ、確かめられなかった役の制限（unverifiedRoleLimits）と別の鍵に置き、review・audit の返り値は residualRisks を持たない［create］［update］［review］［audit］', async (t) => {
+  const risk = { role: '検証役', restriction: 'Read だけを許す', host: 'Claude Code', reason: 'plugin から読み込む agent では無視される' };
+  for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
+    const s = await setup(t, { fn });
+    if (!s) return;
+    const verify = async (prompt, options, env) => {
+      const result = await defaults.verify(prompt, options, env);
+      if (options.label !== 'verifier:conformance') return result;
+      result.residualRisks = [risk];
+      await writePayload(prompt, result);
+      return result;
+    };
+    const { result } = await runAuthor(t, { env: s.env, args: args(s.target), scenario: { verify } });
+    assert.equal(result.stopKind, 'complete', result.reason);
+    assert.deepEqual(result[RESULT_KEYS.residualRisks], [risk], fn);
+    assert.ok(Array.isArray(result[RESULT_KEYS.unverifiedRoleLimits]) && result[RESULT_KEYS.unverifiedRoleLimits].length > 0, fn);
+    assert.ok(!result[RESULT_KEYS.unverifiedRoleLimits].some((r) => r.restriction === risk.restriction), fn);
+  }
+  for (const fn of ['review', 'audit']) {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const { result } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target) });
+    assert.equal(result.stopKind, 'complete', result.reason);
+    assert.ok(!Object.hasOwn(result, RESULT_KEYS.residualRisks), fn);
+  }
+});
+
 test('SP-BPAUTHORING-026: 完了で止まると書いたファイルに検証を通ったことが追記され、完了以外の停止では追記されない', async (t) => {
   const s = await setup(t);
   if (!s) return;
@@ -237,21 +266,23 @@ test('SP-BPAUTHORING-026: 完了で止まると書いたファイルに検証を
   assert.ok(limited.result.writtenFiles.every((f) => !f.verified));
 });
 
-test('SP-BPAUTHORING-025・SP-BPAUTHORING-034・SP-BPRUN-010・SP-BPAUTHORING-024: 不合格が続くと反復の上限で止まり、理由に指摘 ID と判定の単位があり、返り値に検証の結果と止まった段がある', async (t) => {
-  const s = await setup(t);
-  if (!s) return;
-  const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target), scenario: { verify: nonconformVerifier() } });
-  assert.equal(result.stopKind, 'iteration_limit');
-  assert.equal(calls.filter((c) => c.role === 'write').length, 3);
-  const finding = result.verification.decision.findings[0];
-  assert.match(finding, /^F/);
-  assert.ok(result.reason.includes(finding));
-  assert.ok(result.reason.includes(result.verification.decision.units[0]));
-  assert.equal(result.stoppedStage, '合否');
-  assert.deepEqual(result.verification.iterations, { total: 3, run: 3 });
-  const view = await viewOf(s.env, result.state);
-  assert.equal(view.stops.get('r1').limitHit, 'iteration');
-  assert.ok(result.unverified.length > 0);
+test('SP-BPAUTHORING-025・SP-BPAUTHORING-034・SP-BPRUN-010・SP-BPAUTHORING-024・SP-BPCONFORMANCE-029: 不合格が続くと書き直しが 3 回で反復の上限で止まり、理由に指摘 ID と判定の単位があり、返り値に検証の結果と止まった段がある［create］［update］', async (t) => {
+  for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
+    const s = await setup(t, { fn });
+    if (!s) return;
+    const { result, calls } = await runAuthor(t, { env: s.env, args: args(s.target), scenario: { verify: nonconformVerifier() } });
+    assert.equal(result.stopKind, 'iteration_limit', fn);
+    assert.equal(calls.filter((c) => c.role === 'write').length, 3, fn);
+    const finding = result.verification.decision.findings[0];
+    assert.match(finding, /^F/);
+    assert.ok(result.reason.includes(finding));
+    assert.ok(result.reason.includes(result.verification.decision.units[0]));
+    assert.equal(result.stoppedStage, '合否');
+    assert.deepEqual(result.verification.iterations, { total: 3, run: 3 });
+    const view = await viewOf(s.env, result.state);
+    assert.equal(view.stops.get('r1').limitHit, 'iteration');
+    assert.ok(result.unverified.length > 0);
+  }
 });
 
 test('SP-BPAUTHORING-014: 2 回目の書く段に不合格の指摘と判定の単位だけが渡る', async (t) => {
@@ -537,42 +568,52 @@ test('SP-BPRUN-028・SP-BPRUN-029・SP-BPFINDINGS-034: 1 件の欠けでは run 
   assert.equal(result.verification.ledger.rejected.count, 1);
 });
 
-test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN-035・SP-BPRUN-015・SP-BPRUN-014: 同時実行 3 で上限に収まらない項目を起動せず表の順で未着手に残して反復の上限で止まり、再開が未着手の項目だけを処理し、next_args に上限が無い', async (t) => {
-  const s = await setup(t, { fn: 'update' });
-  if (!s) return;
-  const limit = MIN.update + 1;
-  const first = await runAuthor(t, { env: s.env, args: updateArgs(s.target, { maxLaunches: limit }), maxAgents: limit });
-  assert.equal(first.result.stopKind, 'iteration_limit');
-  assert.match(first.result.reason, new RegExp(`起動数の上限 ${limit}`));
-  assert.ok(first.result.launches <= limit);
-  assert.deepEqual(Object.keys(first.result.nextArgs).sort(), ['function', 'state']);
-  const view = await viewOf(s.env, first.result.state);
-  const stop = view.stops.get('r1');
-  assert.equal(stop.limitHit, 'launch');
-  const verifyItems = view.stages.get('verify|1').items;
-  const done = verifyItems.filter((id) => view.items.get(id).result !== undefined);
-  assert.deepEqual(stop.pending, verifyItems.filter((id) => !done.includes(id)));
-  assert.deepEqual(verifyItems.map((id) => view.items.get(id).key.viewpoint), ['conformance', 'goal', 'contract']);
-  const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
-  assert.equal(second.result.stopKind, 'complete', second.result.reason);
-  const relaunched = second.calls.filter((c) => c.role === 'verify').map((c) => c.label);
-  assert.deepEqual(relaunched, stop.pending.map((id) => `verifier:${view.items.get(id).key.viewpoint}`));
-  assert.equal(second.calls.filter((c) => c.role === 'write').length, 0);
+test('SP-BPRUN-020・SP-BPAUTHORING-041・SP-BPRUN-010・SP-BPRUN-022・SP-BPRUN-035・SP-BPRUN-015・SP-BPRUN-014・SP-BPCONFORMANCE-023・SP-BPCONFORMANCE-024: 同時実行 3 で上限に収まらない項目を起動せず表の順で未着手に残して反復の上限で止まり、理由に上限・その時点の起動数・残した件数があり、再開が未着手の項目だけを順位の順に処理し、next_args に上限が無い［create］［update］', async (t) => {
+  for (const [fn, args, viewpoints] of [['create', createArgs, ['conformance', 'goal']], ['update', updateArgs, ['conformance', 'goal', 'contract']]]) {
+    const s = await setup(t, { fn });
+    if (!s) return;
+    const limit = MIN[fn] + 1;
+    const first = await runAuthor(t, { env: s.env, args: args(s.target, { maxLaunches: limit }), maxAgents: limit });
+    assert.equal(first.result.stopKind, 'iteration_limit', fn);
+    assert.ok(first.result.launches <= limit);
+    assert.deepEqual(Object.keys(first.result.nextArgs).sort(), ['function', 'state']);
+    const view = await viewOf(s.env, first.result.state);
+    const stop = view.stops.get('r1');
+    assert.equal(stop.limitHit, 'launch');
+    const verifyItems = view.stages.get('verify|1').items;
+    const done = verifyItems.filter((id) => view.items.get(id).result !== undefined);
+    assert.deepEqual(stop.pending, verifyItems.filter((id) => !done.includes(id)));
+    assert.ok(stop.pending.length > 0, fn);
+    assert.deepEqual(verifyItems.map((id) => view.items.get(id).key.viewpoint), viewpoints);
+    const facts = launchStopFacts(first.result.reason);
+    assert.ok(facts, first.result.reason);
+    assert.equal(facts.limit, limit);
+    assert.ok(facts.used > 0 && facts.used <= stop.launches, `${facts.used} / ${stop.launches}`);
+    assert.equal(facts.left, stop.pending.length);
+    const second = await runAuthor(t, { env: s.env, args: resumeArgs(first.result) });
+    assert.equal(second.result.stopKind, 'complete', second.result.reason);
+    const relaunched = second.calls.filter((c) => c.role === 'verify').map((c) => c.label);
+    assert.deepEqual(relaunched, stop.pending.map((id) => `verifier:${view.items.get(id).key.viewpoint}`));
+    assert.equal(second.calls.filter((c) => c.role === 'write').length, 0);
+  }
 });
 
-test('SP-BPRUN-020・SP-BPRUN-040: 上限を渡さない run は項目を切らず、上限を渡した run の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる', async (t) => {
-  for (const limit of [MIN.create, MIN.create + 4, MIN.create + 9]) {
-    const s = await setup(t);
-    if (!s) return;
-    const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target, { maxLaunches: limit }), maxAgents: limit, scenario: { verify: candidateVerifier('goal') } });
-    assert.ok(calls.length <= limit, `${limit}: ${calls.length}`);
-    assert.equal(result.launches, calls.length);
-    assert.match(calls.at(-1).prompt, / stop <</);
+test('SP-BPRUN-020・SP-BPRUN-040・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-022・SP-BPCONFORMANCE-025: 上限を渡さない run は項目を切らず、上限を渡した run の起動数と停止の記録の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる［create］［update］', async (t) => {
+  for (const [fn, args, viewpoints] of [['create', createArgs, 2], ['update', updateArgs, 3]]) {
+    for (const limit of [MIN[fn], MIN[fn] + 4, MIN[fn] + 9]) {
+      const s = await setup(t, { fn });
+      if (!s) return;
+      const { result, calls } = await runAuthor(t, { env: s.env, args: args(s.target, { maxLaunches: limit }), maxAgents: limit, scenario: { verify: candidateVerifier('goal') } });
+      assert.ok(calls.length <= limit, `${fn} ${limit}: ${calls.length}`);
+      assert.equal(result.launches, calls.length);
+      assert.ok((await viewOf(s.env, result.state)).stops.get('r1').launches <= limit, `${fn} ${limit}`);
+      assert.match(calls.at(-1).prompt, / stop <</);
+    }
+    const s = await setup(t, { fn });
+    const { result, calls } = await runAuthor(t, { env: s.env, args: args(s.target) });
+    assert.equal(result.stopKind, 'complete', result.reason);
+    assert.equal(calls.filter((c) => c.role === 'verify').length, viewpoints, fn);
   }
-  const s = await setup(t);
-  const { result, calls } = await runAuthor(t, { env: s.env, args: createArgs(s.target) });
-  assert.equal(result.stopKind, 'complete', result.reason);
-  assert.equal(calls.filter((c) => c.role === 'verify').length, 2);
 });
 
 test('SP-BPRUN-031・SP-BPRUN-006: 結果を書いた運搬役が応答を失っても、同じ要求の送り直しで記録が 1 回分のままになる', async (t) => {

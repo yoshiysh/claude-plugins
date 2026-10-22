@@ -57,6 +57,12 @@ export function criteriaNoteOf(root, script = SCRIPT) {
   return new Function('root', m[1])(root);
 }
 
+// 起動数の上限で止まった停止の理由から、上限・その時点の起動数・残した件数を読む（SP-BPCONFORMANCE-023）。読めなければ null。
+export function launchStopFacts(reason) {
+  const m = /起動数の上限 (\d+) で止まった（その時点の起動数 (\d+)。[^）]*）。残した項目の件数 (\d+)/.exec(reason ?? '');
+  return m ? { limit: Number(m[1]), used: Number(m[2]), left: Number(m[3]) } : null;
+}
+
 export function commands(prompt) {
   return [...prompt.matchAll(COMMAND)].map((m) => ({ script: m[1], op: m[2], delim: m[3], text: m[4] }));
 }

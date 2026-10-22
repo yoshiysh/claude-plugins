@@ -329,7 +329,7 @@ best-practices 自身の Workflow は、起動数の上限を省略できる入�
 起動数の上限を渡された run で、script は、`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-022 に従い、項目と agent の起動が上限に収まるかを起動の前に確かめなければならない。確かめの式と予約分は同項に従い、式に入れる best-practices 自身の段ごとの値は SP-BPRUN-021 の表とする。収まらないとき、script はその agent を起動せず、始めた項目の終わりを待ってから、次の手順で止まらなければならない。
 
 1. 始めなかった項目を、未着手の項目として順位付きで状態に書かせる。順位は、上限が無ければ起動していた順（段の順、段の中では CLI が列挙した項目の順：SP-BPRUN-038）とする。未着手の項目の並びの正本は CLI が状態から導いた並びとし、create・update の script は停止の要求に `pending` を入れずに CLI に導かせる（まとめた要求の途中で運搬役が止まると、script の手元の並びが状態とずれる）。
-2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。
+2. SP-BPRUN-035 のとおり反復の上限で停止の記録を書かせ、next_args を返す。理由には script が上限とその時点の起動数を書き、CLI が状態から導いた未着手の項目の件数を足す（`docs/specifications/bp-conformance.md` の SP-BPCONFORMANCE-023 の「残った件数」。件数の正本は CLI が導いた並びなので、script の手元で数えない）。
 
 #### SP-BPRUN-021 最小の起動数
 best-practices 自身の run の最小の起動数は機能ごとの定数とし、script が自分の定数から決定的に計算しなければならない。最小の起動数は、その run で最初に始める fan-out の項目を始めるまでの段の最悪の回数の和に、その項目の最悪の回数と予約分を足したものを、最初の run と再開した run の全ての経路について求め、その最も大きいものとする（SP-BPRUN-037 の「1 件も始められない」と同じ考え方で、上限がこの値以上なら、どの経路でもその run の最初の fan-out の項目を始められる）。create・update の段ごとの最悪の回数は次の表とする（値は script の定数 `WORST`・`RESERVE` に 1 箇所だけ置き、表との一致はテストが照らす。review・audit の値は本項の後の表）。

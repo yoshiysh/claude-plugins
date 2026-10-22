@@ -216,7 +216,7 @@ function judged(assignment) {
   return assignment.assets.map((asset) => ({ asset, judgement: 'ok' }));
 }
 
-test('SP-BPAUTHORING-017: 適合の観点の結果で、不適合の単位に同じ結果の中に無い鍵を添えたものと、強いられた未検査でない単位の強いられた未検査を拒否する', async (t) => {
+test('SP-BPAUTHORING-017・SP-BPCONFORMANCE-001・SP-BPCONFORMANCE-018・SP-BPCONFORMANCE-038・SP-BPCONFORMANCE-020: create の適合の観点の結果で、判定の結果を付けていない単位・理由の無い未検査・不適合の単位に同じ結果の中に無い鍵を添えたもの・強いられた未検査でない単位の強いられた未検査・4 項目の並びでない残る危険を拒否し、理由つきの未検査を受ける', async (t) => {
   const c = await begin(t);
   if (!c) return;
   const { assignment, item } = await verifyReady(c, 'conformance');
@@ -236,14 +236,25 @@ test('SP-BPAUTHORING-017: 適合の観点の結果で、不適合の単位に同
   const missing = base();
   missing.units.pop();
   assert.match((await c.w('verdicts', body(missing))).reason, /判定の結果を付けていない単位/);
+  const silent = base();
+  Object.assign(silent.units.find((u) => !row.forced.includes(u.unit)), { result: 'unchecked', unchecked: 'unforced', reason: '' });
+  assert.match((await c.w('verdicts', body(silent))).reason, /未検査の単位に理由が無い/);
+  for (const risk of [{ role: '書き手', restriction: 'r', reason: 'x' }, { role: '書き手', restriction: 'r', host: '', reason: 'x' }]) {
+    const partial = base();
+    partial.residualRisks = [risk];
+    assert.match((await c.w('verdicts', body(partial))).reason, /residualRisks は \{role, restriction, host, reason\} の並びでなければならない/);
+  }
   const ok = base();
   const f = ok.units.find((u) => row.forced.includes(u.unit));
   Object.assign(f, { result: 'unchecked', unchecked: 'forced' });
+  const unforced = ok.units.find((u) => !row.forced.includes(u.unit));
+  Object.assign(unforced, { result: 'unchecked', unchecked: 'unforced', reason: '当たる記述が対象スキルに無い' });
   const accepted = await c.w('verdicts', body(ok));
   assert.equal(accepted.ok, true, accepted.reason);
   const view = buildView(await logOf(c));
   assert.equal(view.extras.get(item).data.units.length, row.units.length);
-  assert.equal(view.rejected.length, 4);
+  assert.deepEqual(view.extras.get(item).data.units.find((u) => u.unit === unforced.unit), unforced);
+  assert.equal(view.rejected.length, 7);
 });
 
 test('SP-BPAUTHORING-038・SP-BPAUTHORING-039: 基準が求めた制約の仕様項目 ID と、契約の変化に選んだ記録 ID・仕様項目 ID を照らし、当たらなければ拒否する', async (t) => {

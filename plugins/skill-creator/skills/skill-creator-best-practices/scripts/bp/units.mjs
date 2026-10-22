@@ -133,6 +133,7 @@ function checkConformance(result, rows) {
       if (stray) return `不適合の単位に、同じ結果の中に無い候補の鍵を添えた: ${u.unit} ${JSON.stringify(stray)}`;
     }
     if (u.result === UNIT_RESULTS.unchecked) {
+      if (!isStr(u.reason)) return `未検査の単位に理由が無い: ${u.unit}`;
       if (!Object.values(UNCHECKED_KINDS).includes(u.unchecked)) return `未検査の区分が選択肢に無い: ${u.unit}`;
       if (u.unchecked === UNCHECKED_KINDS.forced && !forced.has(u.unit)) return `強いられた未検査を、強いられた未検査でない単位に付けた: ${u.unit}`;
     }
