@@ -10,7 +10,9 @@ const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
 const EXECUTOR_TIME_ROW = '実行役の時間に上限を置く';
 // 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
 const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`], turnForm: [`${PR}002`] });
-const FORCED_BY = Object.freeze({ always: 'SP-BPCONFORMANCE-019', permission: 'SP-BPCONFORMANCE-019', executorTime: 'SP-BPCONFORMANCE-034', turnForm: 'SP-BPCONFORMANCE-006' });
+// Claude Code で確かめない制限（SP-BPCONFORMANCE-019）は、PR-BPDESIGNEDSKILL-014 の単位と「権限」の表の最後の行の 2 つの出所を持つ。
+const CLAUDE_CODE_UNCHECKED = 'SP-BPCONFORMANCE-019';
+const FORCED_BY = Object.freeze({ always: CLAUDE_CODE_UNCHECKED, permission: CLAUDE_CODE_UNCHECKED, executorTime: 'SP-BPCONFORMANCE-034', turnForm: 'SP-BPCONFORMANCE-006' });
 
 function numbers(text) {
   const out = [];

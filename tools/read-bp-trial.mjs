@@ -25,7 +25,7 @@ export function pick(seed, sp, candidates) {
   return candidates[n % candidates.length];
 }
 
-// フローの観点が指摘にできる単位（判定表の行の単位から、除く単位と強いられた未検査を除いたもの）。
+// 除く単位と強いられた未検査は指摘にならないので、そこに仕込むと外れとしか読めない。
 export function injectable(criteriaDir, row, sp) {
   const r = applicability(criteriaDir).find((x) => x.row === row);
   const flow = new Set(flowUnits(criteriaDir).map((u) => u.value));
@@ -63,7 +63,8 @@ function matches(f, i) {
   return f.viewpoint === i.viewpoint && f.kind === i.unit && f.assets.some((a) => sameAsset(a, i));
 }
 
-// 基準の run の指摘と、仕込んだ違反が別の単位の種類で出た指摘（干渉）は、全ての行の読みを崩す（bp-conformance の「検証方法」）。
+// 次のどれかがあると全ての行の読みが崩れる（bp-conformance の「検証方法」）: 基準の run が完了していない・指摘がある・題材の行に着かない、
+// 仕込んだ版の run が完了していない・題材の行に着かない、仕込んだ違反が別の単位の種類で出た（干渉）。
 export function read({ baseline, injected, expected }) {
   const findings = open(injected);
   const hits = expected.injections.map((i) => findings.some((f) => matches(f, i)));
@@ -71,25 +72,37 @@ export function read({ baseline, injected, expected }) {
   const interference = falsePositives.filter((f) => expected.injections.some((i) => f.viewpoint === i.viewpoint && f.assets.some((a) => sameAsset(a, i))));
   const unchecked = new Set((injected.uncheckedViewpoints ?? []).map((u) => `${u.viewpoint}|${u.value}`));
   const reachedRow = injected.applicability?.row ?? null;
+  const baselineRow = baseline.applicability?.row ?? null;
   const baselineFindings = open(baseline).length;
-  const valid = baselineFindings === 0 && interference.length === 0;
-  const forcedUnits = expected.rows.flatMap((r) => Object.values(r.measures)).filter((m) => m.by === MEASURES.forced).flatMap((m) => m.units);
-  // run 全体で読む句（判定の単位の全てに結果を付ける）は、行の到達・仕込んだ違反の全ての指摘・強いられた未検査・偽陽性 0 がそろったときだけ当たりにする。
-  const whole = reachedRow === expected.row && falsePositives.length === 0 && hits.every(Boolean) && forcedUnits.every((u) => unchecked.has(`flow|${u}`));
+  const broken = [
+    ...(baseline.stopKind === 'complete' ? [] : [`基準の run が完了していない（${baseline.stopKind ?? '停止の種類が無い'}）`]),
+    ...(baselineFindings === 0 ? [] : [`基準の run に open の指摘が ${baselineFindings} 件ある`]),
+    ...(baselineRow === expected.row ? [] : [`基準の run が判定表の ${expected.row} 行目に着かない（${baselineRow}）`]),
+    ...(injected.stopKind === 'complete' ? [] : [`仕込んだ版の run が完了していない（${injected.stopKind ?? '停止の種類が無い'}）`]),
+    ...(reachedRow === expected.row ? [] : [`仕込んだ版の run が判定表の ${expected.row} 行目に着かない（${reachedRow}）`]),
+    ...(interference.length === 0 ? [] : [`干渉 ${interference.length} 件`]),
+  ];
+  const forcedSeen = (units) => units.every((u) => unchecked.has(`flow|${u}`));
+  const whole = falsePositives.length === 0 && hits.every(Boolean) && forcedSeen(expected.forced);
   const rows = expected.rows.map((row) => {
+    const sps = Object.keys(row.measures);
     const parts = Object.entries(row.measures).map(([sp, m]) => {
       if (m.by === MEASURES.none) return { sp, ok: null, note: m.reason };
-      if (m.by === MEASURES.forced) return { sp, ok: m.units.every((u) => unchecked.has(`flow|${u}`)), note: '強いられた未検査' };
-      if (m.by === MEASURES.whole) return { sp, ok: whole, note: '到達した行・全ての仕込みの指摘・強いられた未検査・偽陽性 0' };
+      if (m.by === MEASURES.forced) return { sp, ok: forcedSeen(m.units), note: '強いられた未検査' };
+      if (m.by === MEASURES.whole) return { sp, ok: whole, note: '全ての仕込みの指摘・強いられた未検査・偽陽性 0' };
       const own = expected.injections.map((i, n) => [i, hits[n]]).filter(([i]) => belongs(i.unit, sp));
       return { sp, ok: own.length > 0 && own.every(([, h]) => h), note: own.map(([i, h]) => `${i.unit}:${h ? '当たり' : '外れ'}`).join(' ') };
     });
-    // 試走で測らない句が 1 つでもある行は、仕込んだ違反が全て当たっても完了にしない（行は句ごとに測って初めて完了）。
+    // 行の仕様項目の強いられた未検査が未検査に載らないか、行の仕様項目の偽陽性があれば、仕込みが当たっても行を測れていない。
+    const ownForced = expected.forced.filter((u) => sps.some((sp) => belongs(u, sp)));
+    if (ownForced.length) parts.push({ sp: '強いられた未検査', ok: forcedSeen(ownForced), note: ownForced.join(' ') });
+    const ownFalse = falsePositives.filter((f) => sps.some((sp) => belongs(f.kind, sp)));
     const unmeasured = row.unmeasured ?? [];
-    const status = !valid || unmeasured.length || parts.some((p) => p.ok === null) ? '作成中' : parts.every((p) => p.ok) ? '完了' : '作成中';
-    return { req: row.req, spec: row.spec, parts, unmeasured, status };
+    const status = broken.length || unmeasured.length || ownFalse.length || parts.some((p) => p.ok === null) || !parts.every((p) => p.ok) ? '作成中' : '完了';
+    return { req: row.req, spec: row.spec, parts, unmeasured, falsePositives: ownFalse.length, status };
   });
-  return { baselineFindings, reachedRow, valid, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map((f) => `${f.viewpoint} ${f.kind} ${f.assets.map((a) => a.path).join(',')}`), interference: interference.length, rows };
+  const unseen = expected.injections.filter((i) => i.unseen?.length).map((i) => ({ sp: i.unit.split('/')[0], picked: i.unit, units: i.unseen }));
+  return { baselineFindings, reachedRow, broken, valid: broken.length === 0, hits: hits.filter(Boolean).length, injections: hits.length, falsePositives: falsePositives.map((f) => `${f.viewpoint} ${f.kind} ${f.assets.map((a) => a.path).join(',')}`), interference: interference.length, rows, unseen };
 }
 
 export function render(r) {
@@ -98,11 +111,18 @@ export function render(r) {
     `到達した判定表の行: ${r.reachedRow}`,
     `仕込んだ違反の当たり: ${r.hits}/${r.injections}`,
     `偽陽性: ${r.falsePositives.length}（うち干渉 ${r.interference}）`,
-    `読みが成り立つ: ${r.valid ? 'はい' : 'いいえ（全ての行を作成中のままにする）'}`,
+    `読みが成り立つ: ${r.valid ? 'はい' : `いいえ（全ての行を作成中のままにする。${r.broken.join('、')}）`}`,
     '',
     '| 要求 ID | 仕様項目 ID | 句ごとの読み | 判定 |',
     '|---|---|---|---|',
-    ...r.rows.map((x) => `| ${x.req} | ${x.spec} | ${[...x.parts.map((p) => `${p.sp}: ${p.ok === null ? `測らない（${p.note}）` : `${p.ok ? '当たり' : '外れ'}（${p.note}）`}`), ...x.unmeasured.map((u) => `試走で測らない句: ${u.clause}（${u.reason}）`)].join('<br>')} | ${x.status} |`),
+    ...r.rows.map((x) => `| ${x.req} | ${x.spec} | ${[
+      ...x.parts.map((p) => `${p.sp}: ${p.ok === null ? `測らない（${p.note}）` : `${p.ok ? '当たり' : '外れ'}（${p.note}）`}`),
+      ...x.unmeasured.map((u) => `試走で測らない句: ${u.clause}（${u.reason}）`),
+      ...(x.falsePositives ? [`この行の仕様項目の偽陽性: ${x.falsePositives} 件`] : []),
+    ].join('<br>')} | ${x.status} |`),
+    '',
+    '確かめていない単位（原則の表の単位から種で 1 つだけ仕込み、残りは仕込んでいない）:',
+    ...r.unseen.map((u) => `- ${u.sp}（仕込んだ単位 ${u.picked}）: ${u.units.join(' ')}`),
     ...r.falsePositives.map((f) => `偽陽性: ${f}`),
   ];
   return lines.join('\n');

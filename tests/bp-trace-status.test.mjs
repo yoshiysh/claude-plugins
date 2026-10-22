@@ -3,19 +3,21 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPECS = path.join(ROOT, 'docs', 'specifications');
 const SKILL = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 const TEST_DIRS = [path.join(ROOT, 'tests'), path.join(SKILL, 'scripts', 'bp')];
-const TRACE_ROW = /^\| PR-[^|]*\|[^|]*\|[^|]*\| (未着手|作成中|完了) \|$/;
+const TRACE_HEADER = '| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |';
+const STATUSES = ['未着手', '作成中', '完了'];
+const EXPECTED_TRIAL = JSON.parse(readFileSync(path.join(ROOT, 'tests', 'fixtures', 'bp-trial', 'review-target.expected.json'), 'utf8'));
 
-// 試走で確かめた行（仕様書・要求 ID・仕様項目 ID の列）。試走の PR が、記録を PR 本文に貼ったうえで足す。
+// 試走の行は名前の付いたテストでは縛れないので、試走の記録で確かめた行（仕様書|要求 ID|仕様項目 ID の列）だけをここに足す。
 const TRIAL_CONFIRMED = new Set([]);
 
-function testTitles() {
-  return TEST_DIRS.flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.test.mjs')).map((f) => readFileSync(path.join(dir, f), 'utf8')))
-    .flatMap((text) => [...text.matchAll(/\btest\(\s*([`'"])((?:(?!\1).)*)\1/g)].map((m) => m[2]));
+function allTitles() {
+  return TEST_DIRS.flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.test.mjs')).flatMap((f) => testTitles(path.join(dir, f))));
 }
 
 // テスト名の「SP-X-027〜031」「SP-X-011〜SP-X-013」は範囲の全ての ID を名指すものとして数える（端だけを拾うと間の ID が漏れる）。
@@ -31,27 +33,11 @@ function titleIds(titles) {
   return ids;
 }
 
-function cells(line) {
-  return line.split('|').slice(1, -1).map((c) => c.trim());
-}
-
+// 表の行を表として読む（行の字面の正規表現で拾うと、書式の崩れた行が検査から黙って消える）。
 function traceRows(file) {
-  return readFileSync(path.join(SPECS, file), 'utf8').split('\n').filter((l) => TRACE_ROW.test(l)).map((l) => {
-    const [req, spec, method, status] = cells(l);
-    return { file, req, spec, ids: spec.split(',').map((s) => s.trim()), method, status };
-  });
-}
-
-function tableAfter(text, header) {
-  const lines = text.split('\n');
-  const at = lines.indexOf(header);
-  if (at < 0) throw new Error(`表が無い: ${header}`);
-  const rows = [];
-  for (const l of lines.slice(at + 2)) {
-    if (!l.startsWith('|')) break;
-    rows.push(cells(l));
-  }
-  return rows;
+  return tableAfter(readFileSync(path.join(SPECS, file), 'utf8'), TRACE_HEADER).map(([req, spec, method, status, ...rest]) => (
+    { file, req, spec, ids: (spec ?? '').split(',').map((x) => x.trim()), method, status, extra: rest.length }
+  ));
 }
 
 // bp-run.md の「検証方法」の見分け方の表を正本にし、テストに見分け方を書き写さない。
@@ -62,9 +48,27 @@ function trialRules() {
     const prefix = /検証方法の列が `([^`]+)` で始まる/.exec(rule);
     if (prefix) return { file: name, isTrial: (r) => r.method.startsWith(prefix[1]) };
     if (!/「検証方法」の試走の表/.test(rule)) throw new Error(`見分け方を読めない: ${rule}`);
-    const pairs = tableAfter(readFileSync(path.join(SPECS, name), 'utf8'), '| 要求 ID | 仕様項目 ID | 測る試走 |').map(([req, spec]) => `${req}|${spec}`);
-    return { file: name, pairs, isTrial: (r) => pairs.includes(`${r.req}|${r.spec}`) };
+    const table = tableAfter(readFileSync(path.join(SPECS, name), 'utf8'), '| 要求 ID | 仕様項目 ID | 測る試走 |');
+    const how = new Map(table.map(([req, spec, h]) => [`${req}|${spec}`, h]));
+    return { file: name, pairs: [...how.keys()], how, isTrial: (r) => how.has(`${r.req}|${r.spec}`) };
   });
+}
+
+// 「完了」にしてよいのは、トレーサビリティ表にあり、試走で確かめる行で、試走で全ての句を測れる行だけ（測る試走が無い行・測れない句を持つ行は入れられない）。
+function confirmedProblems(confirmed, rules) {
+  const problems = [];
+  for (const key of confirmed) {
+    const [file, req, spec] = key.split('|');
+    const rule = rules.find((r) => r.file === file);
+    const row = rule && traceRows(file).find((r) => r.req === req && r.spec === spec);
+    if (!row) { problems.push(`トレーサビリティ表に無い: ${key}`); continue; }
+    if (!rule.isTrial(row)) { problems.push(`試走で確かめる行でない: ${key}`); continue; }
+    if (!rule.how) continue;
+    if (rule.how.get(`${req}|${spec}`).startsWith('無し')) problems.push(`測る試走が無い: ${key}`);
+    const exp = EXPECTED_TRIAL.rows.find((r) => r.req === req && r.spec === spec);
+    if (exp && ((exp.unmeasured ?? []).length || Object.values(exp.measures).some((m) => m.by === 'none'))) problems.push(`試走で測れない句がある: ${key}`);
+  }
+  return problems;
 }
 
 const SPEC_FILES = readdirSync(SPECS).filter((f) => /^bp-.*\.md$/.test(f));
@@ -72,7 +76,7 @@ const SPEC_FILES = readdirSync(SPECS).filter((f) => /^bp-.*\.md$/.test(f));
 // テストの有無しか見ない（確かめ方が行の検証方法に足りるかは見ない。それは生成者と別の検証役が行とテストを突き合わせて見る）。
 // 「完了」の行に、テスト名の無い仕様項目が 1 つでもあれば、テストの無い行を「完了」にしている。
 test('検証方法: best-practices の仕様書のトレーサビリティ表で「完了」の行の仕様項目 ID が全て、どれかのテスト名に現れる', () => {
-  const ids = titleIds(testTitles());
+  const ids = titleIds(allTitles());
   const missing = [];
   let rows = 0;
   for (const r of SPEC_FILES.flatMap(traceRows).filter((x) => x.status === '完了')) {
@@ -105,6 +109,30 @@ test('検証方法: 試走で確かめる行は、試走で確かめた行の集
   }
   assert.ok(trial > 0);
   assert.deepEqual(early, []);
+  assert.deepEqual(confirmedProblems(TRIAL_CONFIRMED, rules), []);
+});
+
+test('検証方法: 試走で確かめた行の集合は、トレーサビリティ表に無い行・試走の行でない行・測る試走が無い行・試走で測れない句を持つ行を受けない', () => {
+  const rules = trialRules();
+  const C = 'bp-conformance.md';
+  const bad = [
+    `${C}|PR-BPDESIGNEDSKILL-999|SP-BPCONFORMANCE-006`,
+    `${C}|PR-BPDESIGNEDSKILL-017|SP-BPCONFORMANCE-022`,
+    `${C}|PR-BPDESIGNEDSKILL-001|SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004`,
+    `${C}|PR-BPDESIGNEDSKILL-008|SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027`,
+    `${C}|PR-BPOPERATIONS-025|${EXPECTED_TRIAL.rows.find((r) => r.req === 'PR-BPOPERATIONS-025').spec}`,
+  ];
+  assert.equal(confirmedProblems(new Set(bad), rules).length, bad.length);
+  assert.deepEqual(confirmedProblems(new Set([`${C}|PR-BPDESIGNEDSKILL-002|SP-BPCONFORMANCE-006`]), rules), []);
+});
+
+test('検証方法: best-practices の仕様書のトレーサビリティ表の全ての行が 4 列で、ステータスが未着手・作成中・完了のどれかである', () => {
+  const rows = SPEC_FILES.flatMap(traceRows);
+  assert.ok(rows.length > 100);
+  for (const r of rows) {
+    assert.equal(r.extra, 0, `${r.file}: ${r.req}`);
+    assert.ok(STATUSES.includes(r.status), `${r.file}: ${r.req} ${r.spec}: ${JSON.stringify(r.status)}`);
+  }
 });
 
 function filesUnder(dir, keep) {
