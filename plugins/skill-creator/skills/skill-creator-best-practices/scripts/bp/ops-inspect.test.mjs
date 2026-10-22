@@ -211,7 +211,7 @@ test('SP-BPINSPECTION-005・SP-BPCONFORMANCE-003: 「性能・容量」の章の
   assert.ok((await units({ criteriaDir: CRITERIA_FIXTURE })).rows.length > 0);
 });
 
-test('SP-BPINSPECTION-005: review の適用の判定が「性能・容量」の章の無い写しで落とすのは、写しに見出しのある仕様項目だけで、見出しの無い仕様項目は E_INTERNAL で止まる', async (t) => {
+test('SP-BPINSPECTION-005: review の適用の判定が「性能・容量」の章の無い写しで落とすのは、読める章のどれにも属さない仕様項目だけで、見出しの無い仕様項目と読める章（エラー処理と異常系など）の仕様項目は E_INTERNAL で止まる', async (t) => {
   const renamed = (s) => s.replace('## 性能・容量（対象スキルに課す確定値）', '## 容量');
   const traced = (sp) => (s) => s.replace('| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010 |', `| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-010, ${sp} |`);
   const conformance = path.join('specifications', 'bp-conformance.md');
@@ -220,6 +220,9 @@ test('SP-BPINSPECTION-005: review の適用の判定が「性能・容量」の�
   assert.ok(rows.every((r) => !r.units.some((u) => u.value === 'SP-BPCONFORMANCE-027')));
   const missing = await edited(t, conformance, (s) => traced('SP-BPCONFORMANCE-099')(renamed(s)));
   assert.throws(() => applicabilityRows(missing, { tolerateNoCapacity: true }), (error) => error.code === CODES.internal && /SP-BPCONFORMANCE-099/.test(error.reason));
+  const otherChapter = (s) => s.replace('## トレーサビリティ表', '## エラー処理と異常系\n\n#### SP-BPCONFORMANCE-038 判定の単位を判定できないとき\n本文。\n\n## トレーサビリティ表');
+  const inOther = await edited(t, conformance, (s) => traced('SP-BPCONFORMANCE-038')(otherChapter(renamed(s))));
+  assert.throws(() => applicabilityRows(inOther, { tolerateNoCapacity: true }), (error) => error.code === CODES.internal && /SP-BPCONFORMANCE-038/.test(error.reason));
 });
 
 test('SP-BPINSPECTION-025: 未検査の観点の 5 つの場合を観点・範囲・理由・記録した run とともに作り、同じ未検査を 2 体が返すと 1 件にまとめる', async (t) => {

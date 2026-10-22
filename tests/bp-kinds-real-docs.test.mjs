@@ -111,3 +111,11 @@ test('SP-BPINSPECTION-006: 適用の判定の選択肢と形の閉集合が、SP
   assert.deepEqual([...new Set(rows.map((r) => r.form))].sort(), Object.values(SHAPES).sort());
   assert.ok(rows.every((r) => [...Object.values(PRESENCE), '*'].includes(r.ledger) && [...Object.values(PRESENCE), '*'].includes(r.fanout)));
 });
+
+test('SP-BPINSPECTION-005: 読める章の閉集合（CRITERIA_CHAPTERS）が、実際の docs の bp-conformance の章の見出しと一致する', async () => {
+  const { CRITERIA_CHAPTERS } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs');
+  const titles = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-conformance.md'), 'utf8').split('\n').filter((l) => l.startsWith('## ')).map((l) => l.slice(3));
+  const capacity = titles.filter((t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
+  assert.equal(capacity.length, 1);
+  assert.deepEqual(titles.filter((t) => !capacity.includes(t) && t !== CRITERIA_CHAPTERS.functional).sort(), [...CRITERIA_CHAPTERS.others].sort());
+});

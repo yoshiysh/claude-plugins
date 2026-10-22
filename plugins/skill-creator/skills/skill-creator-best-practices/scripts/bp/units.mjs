@@ -34,6 +34,17 @@ function traceability(nodes) {
   return map;
 }
 
+function chapterOf(nodes) {
+  const out = new Map();
+  let chapter = null;
+  for (const n of nodes) {
+    if (n.level === 2) chapter = n.text;
+    const id = n.level === 4 ? /^SP-BPCONFORMANCE-\d{3}/.exec(n.text)?.[0] : null;
+    if (id) out.set(id, chapter);
+  }
+  return out;
+}
+
 function unitsBySpec(criteriaDir, capacity) {
   const map = new Map();
   for (const item of conformanceUnits(criteriaDir)) map.set(item.sp, item.units);
@@ -57,11 +68,12 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   const trace = traceability(nodes);
   const capacity = !tolerateNoCapacity || hasChapter(criteriaDir, (t) => t.startsWith(CRITERIA_CHAPTERS.capacityPrefix));
   const bySpec = unitsBySpec(criteriaDir, capacity);
-  // 落としてよいのは、読めない章にある仕様項目だけ。写しに見出しの無い仕様項目は写しの破損なので止まる。
-  const present = new Set(specItemIds(criteriaDir));
+  // 落としてよいのは、読める章のどれにも属さない仕様項目だけ。見出しの無い仕様項目と、読める章にあって単位を持たない仕様項目は写しの破損なので止まる。
+  const chapters = chapterOf(nodes);
+  const readable = new Set([CRITERIA_CHAPTERS.functional, ...CRITERIA_CHAPTERS.others]);
   const unitsOf = (req) => (trace.get(req) ?? []).flatMap((sp) => {
     const list = bySpec.get(sp);
-    if (!list && (capacity || !present.has(sp))) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
+    if (!list && (capacity || !chapters.has(sp) || readable.has(chapters.get(sp)))) internal(`トレーサビリティ表の仕様項目が判定基準の写しに無い: ${sp}`);
     return list ?? [];
   });
   return { table, always, bySpec, unitsOf };
