@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitOk } from './git-safe.mjs';
 import { STATE_ID, commandsOf, workRootOf } from './state.mjs';
 
 const COPY_NAME = /^I\d+\.\d+(\.verify)?$/;
@@ -62,7 +63,7 @@ export function make({ repo, to }) {
   if (old?.isSymbolicLink()) unlinkSync(dest);
   else if (old) rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest);
-  const files = execFileSync('git', ['-C', repo, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: MAX_OUTPUT }).split('\0').filter(Boolean);
+  const files = gitOk(repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0').filter(Boolean);
   const root = realpathSync(repo);
   const dropped = [];
   for (const file of new Set(files)) {

@@ -2,9 +2,9 @@
 // 調べるリポジトリを git で読むだけの CLI。git の生の許可は前方一致なので、引数を足すと書き込み・コマンドの実行・リポジトリの外の読み出しに化ける。
 // 許可はこの CLI だけに出し、操作ごとに受け付ける引数の一覧に無い引数は全て拒否する（拒否する引数の一覧では、載せ忘れた引数がすり抜ける）。
 import { lstatSync, existsSync, realpathSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { git } from './git-safe.mjs';
 
 const DIFF_FLAGS = ['--patch', '--no-patch', '--raw', '--stat', '--numstat', '--shortstat', '--summary', '--name-only', '--name-status', '--text',
   '--ignore-all-space', '--ignore-space-change', '--ignore-blank-lines', '--no-renames', '--full-index', '--word-diff', '--minimal', '--patience',
@@ -33,9 +33,6 @@ const GRAMMAR = {
   valued: ['--max-depth', '--context', '--after-context', '--before-context', '--max-count'], short: 'niwvlLchHEFPGIoqWpz', value: 'eABCm', attached: '', count: true },
 };
 const NO_EXTERNAL = { log: ['--no-ext-diff', '--no-textconv'], show: ['--no-ext-diff', '--no-textconv'], diff: ['--no-ext-diff', '--no-textconv'], blame: ['--no-textconv'], grep: ['--no-textconv'], 'ls-files': [] };
-const MAX_OUTPUT = 1 << 28;
-// 読むだけの操作でも、索引の更新（.git/index の書き換え）や、リポジトリの設定による外部のコマンド（fsmonitor・署名の確かめ）が起きるので止める。
-const SAFE_CONFIG = ['core.fsmonitor=false', 'diff.autoRefreshIndex=false', 'core.untrackedCache=false', 'log.showSignature=false', 'gpg.program=false', 'gpg.ssh.program=false', 'gpg.x509.program=false'];
 
 const within = (root, p) => { const rel = path.relative(root, p); return !rel.startsWith('..') && !path.isAbsolute(rel); };
 const realOr = (p) => { try { return realpathSync(p); } catch { return null; } };
@@ -100,8 +97,7 @@ export function read(sub, { repo, args = [] }) {
   if (typeof repo !== 'string' || !Array.isArray(args)) throw new Error('repo と args（並び）が要る');
   const why = refusal(sub, realpathSync(repo), args);
   if (why) throw new Error(why);
-  const r = spawnSync('git', [...SAFE_CONFIG.flatMap((c) => ['-c', c]), '-C', repo, sub, ...NO_EXTERNAL[sub], ...args], { encoding: 'utf8', maxBuffer: MAX_OUTPUT, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } });
-  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  return git(repo, [sub, ...NO_EXTERNAL[sub], ...args]);
 }
 
 if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {

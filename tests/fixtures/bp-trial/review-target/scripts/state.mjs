@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // trace-cause の状態の CLI。状態を書くのはこの CLI だけ（script はファイルに触れず、運搬役がこの CLI を呼ぶ）。
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, truncateSync, unlinkSync, writeSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitOk } from './git-safe.mjs';
 
 const SUMMARY_MAX_CHARS = 8000;
 const SUMMARY_TRAILER_CHARS = 200;
@@ -215,7 +215,7 @@ const relOf = (repo, p) => {
   return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : null;
 };
 // 資産 ID はパスから決める（台帳を取り直しても、同じファイルは同じ ID）。再開では範囲の今のファイルを足し直す。
-const newAssets = (repo, v, scope) => (scope.length === 0 ? [] : execFileSync('git', ['-C', repo, 'ls-files', '--', ...scope], { encoding: 'utf8' }).split('\n').filter(Boolean)
+const newAssets = (repo, v, scope) => (scope.length === 0 ? [] : gitOk(repo, ['ls-files', '--', ...scope]).split('\n').filter(Boolean)
   .filter((f) => !v.assets.has(assetId(f))).map((f) => ({ t: 'asset', id: assetId(f), path: f })));
 const pending = (v) => [...v.intents.values()].filter((i) => i.status === 'pending').sort((a, b) => a.rank - b.rank);
 const accepted = (v) => [...v.facts.values()].filter((f) => verdictOf(v, f.id) === 'accept');

@@ -1176,3 +1176,16 @@ test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、log の�
     assert.throws(() => gitRead('grep', { repo: src, args }), /リポジトリの外のパス/, args.join(' '));
   }
 });
+
+test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-016: 試走の題材は、写しを作るときも台帳を取るときも、対象のリポジトリの .git を書き換えず、停止の記録の無い run の再開の扱いを SKILL.md に実装どおりに書く', async (t) => {
+  const src = await dirtyRepo(t);
+  execFileSync('git', ['config', 'core.untrackedCache', 'true'], { cwd: src });
+  const future = new Date(Date.now() + 120_000);
+  utimesSync(path.join(src, 'a.txt'), future, future);
+  const before = gitSnapshot(src);
+  const { workDir } = stateFor(src, []);
+  make({ repo: src, to: path.join(workDir, 'I1.1') });
+  assert.equal(gitSnapshot(src), before);
+  const skill = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8');
+  assert.match(skill, /まだ何も書いていなければ[^。]*同じ run と同じ書き込みの鍵を返し、書き込みのあった run には BLOCKED の停止を足して/);
+});
