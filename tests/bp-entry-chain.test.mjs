@@ -378,3 +378,37 @@ test('SP-BPAUTHORING-029・SP-BPFINDINGS-031: 参照だけの修正の根拠で�
   assert.equal(wrong.stopKind, 'blocked');
   assert.match(wrong.reason, /開始の操作が失敗した.*完了で止まっていない/);
 });
+
+test('SP-BPENTRY-023・SP-BPRUN-032: chain-report の review の外した callsite の行番号は review の開始の時点の状態から作り、後の update が SKILL.md の行をずらしても変わらない', async (t) => {
+  const s = await setupInspect(t, { files: { 'SKILL.md': '---\nname: x\ndescription: d\n---\n# X\n本文\nWorkflow({ name: "p:missing", args })\n## 手順\n手順の本文\n' } });
+  if (!s) return;
+  s.env.t = t;
+  const target = { root: await fs.realpath(s.target.root), files: [] };
+  const write = async () => {
+    const f = path.join(target.root, 'SKILL.md');
+    await fs.writeFile(f, (await fs.readFile(f, 'utf8')).replace('# X\n', '# X\n挿入1\n挿入2\n挿入3\n'));
+    return { written: [{ path: f, action: 'write' }], designNote: { path: 'SKILL.md' } };
+  };
+  const c = await entry(s.env, { functions: ['review', 'update'], first: { function: 'review', target }, instructions: [INSTRUCTION], scenarios: [{}, { write }] });
+  assert.equal(c.runs[1].result.stopKind, 'complete', c.runs[1].result.reason);
+  assert.deepEqual(c.report.excludedCallsites.filter((e) => e.run === 1).map((e) => e.line), [7]);
+});
+
+test('SP-BPENTRY-008・SP-BPENTRY-021・SP-BPRUN-032: chain-report は完了以外で止まった run の後の run、状態の無い完了の run、完了以外で止まった run の後の host の失敗を、起こりえない並びとして拒否する', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  s.env.t = t;
+  const target = { root: await fs.realpath(s.target.root), files: [] };
+  const blocked = await entry(s.env, { functions: ['review'], first: { function: 'review', target }, scenarios: [{ carrier: async (prompt) => (prompt.includes(' targets <<') ? null : undefined) }] });
+  const done = await entry(s.env, { functions: ['review'], first: { function: 'review', target } });
+  const report = (body) => s.env.request('chain-report', body);
+  const after = await report({ functions: ['review', 'review'], runs: [{ state: blocked.runs[0].state }, { state: done.runs[0].state }] });
+  assert.equal(after.ok, false);
+  assert.equal(after.code, 'E_INPUT');
+  const fake = await report({ functions: ['review', 'update'], runs: [{ function: 'review', result: { stopKind: 'complete', findings: [] } }] });
+  assert.equal(fake.ok, false);
+  const hf = await report({ functions: ['review', 'update'], runs: [{ state: blocked.runs[0].state }], hostFailure: 'boom', target });
+  assert.equal(hf.ok, false);
+  const ok = await report({ functions: ['review', 'update'], runs: [{ state: done.runs[0].state }], hostFailure: 'boom', target });
+  assert.equal(ok.ok, true, ok.reason);
+});

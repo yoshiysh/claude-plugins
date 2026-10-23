@@ -165,13 +165,14 @@ async function runResult(ctx, run) {
   if (run && typeof run === 'object' && typeof run.state === 'string' && Object.keys(run).length === 1) {
     const { view } = await readState(ctx, run.state);
     const result = await outcome(ctx, { state: run.state });
-    const p = view.paths[0];
-    // review・audit は対象を書き換えず、状態のパスの一覧は外した callsite を持たないので、一覧の根から解き直す（SP-BPENTRY-023）。
-    const excluded = INSPECTING_FUNCTIONS.has(view.state.function) ? excludedOf(resolveCallsites(p.root)) : (result[RESULT_KEYS.excludedCallsites] ?? []);
+    const p = view.paths.at(-1);
+    // 行番号は状態のパスの一覧（開始と取り直しの時点）から作る。報告の時点のファイルから解き直すと、後の run が行をずらしたときに変わる。
+    const excluded = INSPECTING_FUNCTIONS.has(view.state.function) ? excludedOf(p) : (result[RESULT_KEYS.excludedCallsites] ?? []);
     return { function: view.state.function, result, excluded };
   }
   if (run && typeof run === 'object' && run.result && typeof run.result === 'object' && FUNCTIONS.includes(run.function) && Object.keys(run).length === 2) {
     if (run.result[RESULT_KEYS.state] !== undefined) reject(CODES.input, '状態のある run は {"state": <状態 ID>} で渡す（返り値は状態から作り直す）');
+    if (run.result[RESULT_KEYS.stopKind] === STOP_KINDS.complete) reject(CODES.input, '状態を作らずに止まった run は完了で止まらない（SP-BPRUN-032）');
     return { function: run.function, result: run.result, excluded: [] };
   }
   reject(CODES.input, `runs の要素は {"state"} か、状態を作らずに止まった run の {"function", "result"}: ${JSON.stringify(run)}`);
@@ -186,12 +187,15 @@ export async function chainReport(ctx, req) {
   for (const [i, r] of req.runs.entries()) {
     const one = await runResult(ctx, r);
     if (one.function !== req.functions[i]) reject(CODES.input, `${i + 1} 番目の run の機能 ${one.function} が列の ${req.functions[i]} と違う`);
+    // 完了以外で止まった run の後に入口は次を起動しない（SP-BPENTRY-008）。
+    if (runs.length && runs.at(-1).result[RESULT_KEYS.stopKind] !== STOP_KINDS.complete) reject(CODES.input, `${i} 番目の run が完了で止まっていないのに、その後の run がある`);
     runs.push(one);
   }
   const out = { results: runs.map((r) => r.result) };
   const last = runs.at(-1)?.result;
   const failure = req.hostFailure;
   if (failure !== undefined && (typeof failure !== 'string' || failure === '')) reject(CODES.input, 'hostFailure は host が返した失敗の文言');
+  if (failure !== undefined && last !== undefined && last[RESULT_KEYS.stopKind] !== STOP_KINDS.complete) reject(CODES.input, 'hostFailure の起動は、前の run が完了で止まったときにしか起こらない');
   const stopped = failure !== undefined || (last !== undefined && last[RESULT_KEYS.stopKind] !== STOP_KINDS.complete);
   const launched = failure !== undefined ? runs.length + 1 : runs.length;
   if (launched > req.functions.length) reject(CODES.input, 'hostFailure の run が機能の列に無い');

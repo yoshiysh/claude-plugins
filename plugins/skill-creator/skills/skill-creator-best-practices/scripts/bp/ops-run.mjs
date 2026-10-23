@@ -4,6 +4,7 @@ import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GROUND_REF_KEY, INSPECTING_FUNCTIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
   RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
+import { resolveCallsites } from './callsites.mjs';
 import { designNote, isTreatedGround, lastGate, progress, writtenFiles } from './ops-author.mjs';
 import { inspectOutcome } from './ops-inspect.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
@@ -145,7 +146,8 @@ async function startNew(ctx, req) {
   if (known !== null) return existingStart(root, known, req);
   await checkTarget(req.function, target.root);
   const id = stateId(ctx.now ?? new Date(), ctx.random);
-  const paths = { t: RECORDS.paths, n: 1, root: realpathLoose(target.root), files: files.map(realpathLoose), unresolved: [] };
+  // 外した callsite は開始の時点の SKILL.md の行番号で記録する。後の run が行をずらしても、この状態の返り値の行番号を変えない（SP-BPENTRY-023）。
+  const paths = { t: RECORDS.paths, n: 1, root: realpathLoose(target.root), files: files.map(realpathLoose), unresolved: resolveCallsites(target.root).unresolved };
   const grounds = req.function === FUNCTION.update ? (await expandGrounds(ctx, req.grounds, target.root)).map((g, i) => ({ t: RECORDS.ground, id: groundId(i + 1), ...g })) : [];
   const state = { t: RECORDS.state, id, key: req.key, function: req.function, limits: req.limits };
   if (req.function === FUNCTION.create) state.request = req.request;
