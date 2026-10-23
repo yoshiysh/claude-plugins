@@ -1028,7 +1028,7 @@ test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、作業ツ
   }
   assert.equal(gitSnapshot(src), before);
   for (const [sub, args] of [['diff', ['--no-index', '/etc/hosts', '/dev/null']], ['diff', ['--no-ind', '/etc/hosts', '/dev/null']], ['blame', ['--contents', '/etc/hosts', 'a.txt']], ['diff', ['-O/etc/hosts']], ['log', ['-1', '--show-signature']], ['log', ['--orderfile=/etc/hosts']], ['blame', ['-S', '/etc/hosts', 'a.txt']], ['ls-files', ['-X', '/etc/hosts']], ['ls-files', ['--exclude-from=/etc/hosts']], ['grep', ['-f', '/etc/hosts']], ['log', ['--pathspec-from-file=/etc/hosts']]]) {
-    assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外の読み出し/, `${sub} ${args.join(' ')}`);
+    assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外/, `${sub} ${args.join(' ')}`);
   }
 });
 
@@ -1047,7 +1047,7 @@ test('SP-BPCONFORMANCE-015: 試走の題材の写しは、自分のディレク�
   });
   const { workDir } = stateFor(src, ['cat self-root/a.txt sub/here/s.txt out-dir/o.txt; test ! -e up && test ! -e out-dir/root-link && echo ok']);
   const to = path.join(workDir, 'I1.1');
-  make({ repo: src, to });
+  assert.deepEqual(make({ repo: src, to }).dropped.sort(), ['out-dir/root-link', 'up']);
   const ran = exec({ repo: src, to, command: 1 });
   assert.deepEqual([ran.code, ran.stdout], [0, 'dirty\ns\noutside\nok\n'], ran.stderr);
 });
@@ -1066,4 +1066,38 @@ test('SP-BPCONFORMANCE-032: 試走の題材は、確かめ直しで既に受理�
   call('facts', { ...next, intent: c.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'accept' }] });
   const r2 = call('round', { ...next, round: 2, launches: 1, allFailed: false });
   assert.deepEqual([r2.newFacts, r2.dry], [0, 1]);
+});
+
+test('SP-BPCONFORMANCE-015: 試走の題材の写しは、外の中身を写す途中で輪になるリンクに出会っても止まらずにそのリンクを落とし、落としたリンクを応答に載せる', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-loop-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  mkdirSync(path.join(outside, 'loopdir', 'inner'), { recursive: true });
+  writeFileSync(path.join(outside, 'loopdir', 'x.txt'), 'x\n');
+  symlinkSync(path.join(outside, 'loopdir'), path.join(outside, 'loopdir', 'self'));
+  symlinkSync('..', path.join(outside, 'loopdir', 'inner', 'back'));
+  symlinkSync(path.join(outside, 'nowhere'), path.join(outside, 'loopdir', 'dangling'));
+  const src = await dirtyRepo(t, (d) => symlinkSync(path.join(outside, 'loopdir'), path.join(d, 'loop-out')));
+  const { workDir } = stateFor(src, ['cat loop-out/x.txt']);
+  const to = path.join(workDir, 'I1.1');
+  const made = make({ repo: src, to });
+  assert.deepEqual(made.dropped.sort(), ['loop-out/dangling', 'loop-out/inner/back', 'loop-out/self']);
+  assert.equal(exec({ repo: src, to, command: 1 }).stdout, 'x\n');
+  const skill = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8');
+  assert.ok(skill.includes('`dropped`'), 'SKILL.md に落としたリンクの扱いが無い');
+});
+
+test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、リポジトリの外に解決するパスを位置の引数でもファイルを読む引数の値でも拒否し、短い引数の値の中の文字を引数と取り違えない', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-secret-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  const secret = path.join(outside, 'secret.txt');
+  writeFileSync(secret, 'secret\n');
+  const src = await dirtyRepo(t, (d) => symlinkSync(secret, path.join(d, 'secret-link')));
+  for (const [sub, args] of [['diff', [secret, path.join(src, 'a.txt')]], ['diff', ['--', secret, 'a.txt']], ['diff', ['--stat', secret, '/dev/null']], ['diff', ['secret-link', 'a.txt']], ['grep', [`--file=${secret}`]], ['grep', ['-f', secret]], ['grep', [`-nf${secret}`]], ['blame', ['--contents', secret, 'a.txt']], ['diff', [`-O${secret}`]], ['ls-files', ['-X', secret]], ['log', [`--orderfile=${secret}`]], ['diff', ['../']]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外/, `${sub} ${args.join(' ')}`);
+  }
+  for (const [sub, args] of [['log', ['-SOldName', '--oneline']], ['log', ['-GOld', '--oneline']], ['blame', ['-L/committed/,+1', 'a.txt']], ['grep', ['-efoo']], ['grep', ['-nfoo']], ['grep', ['-e', '-O', 'a.txt']], ['ls-files', ['-X', '.gitignore', '-o', '-i']], ['log', ['-n', '1', 'HEAD']], ['diff', ['HEAD', '--', 'a.txt']]]) {
+    const r = gitRead(sub, { repo: src, args });
+    assert.ok(!r.stdout.includes('secret'), `${sub} ${args.join(' ')}`);
+  }
+  assert.throws(() => gitRead('grep', { repo: src, args: ['-nO', 'a'] }), /外部のコマンド/);
 });
