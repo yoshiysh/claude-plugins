@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { SKILL_DIR, TRIAL_DIR, checkWorktree, prepareIn, criteriaBody, evidenceProblems, expectedSource, fingerprint, launchesOf, runnerTimeouts, sameFingerprint, workflowEvidence, writeRecord } from '../tools/bp-trial.mjs';
+import { SKILL_DIR, TRIAL_DIR, WORKFLOW_STATUSES, checkWorktree, prepareIn, sourceProblems, criteriaBody, evidenceProblems, expectedSource, fingerprint, launchesOf, runnerTimeouts, sameFingerprint, workflowEvidence, writeRecord } from '../tools/bp-trial.mjs';
 import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -436,4 +436,20 @@ test('検証方法: prepare は入口の launch-args で args を作り（skillD
   const blocked = (await runInspect(t, { env: s.env, args: { ...r3, key: (await s.env.request('key', {})).key }, scenario: { carrier: async (p) => (p.includes(' targets <<') ? null : undefined) } })).result;
   await fs.writeFile(path.join(opts.recordsDir, 'R3.json'), JSON.stringify({ state: blocked.state, target: r3.target.root }));
   await assert.rejects(prepareIn('U1', opts), /R3 の状態から U1 へ進めない/);
+});
+
+test('検証方法: 参照を持たずに始めるはずの run の出所が参照を持てば拒否し、持たなければ受ける', () => {
+  const expected = { files: { 'SKILL.md': 'x' }, grounds: { instructions: [{ kind: '利用者の指示', text: 'a' }], from: null } };
+  const base = { key: ISSUED, files: expected.files, grounds: { instructions: expected.grounds.instructions, from: [] } };
+  assert.deepEqual(sourceProblems(base, expected), []);
+  assert.ok(sourceProblems({ ...base, grounds: { ...base.grounds, from: ['bp-x'] } }, expected).some((p) => /参照の形/.test(p)));
+});
+
+test('検証方法: bp-run の検証方法の記録を受ける条件が、照合の受ける Workflow の実行の状態を全て名指す', () => {
+  const run = readFileSync(path.join(SKILL_DIR, '..', '..', '..', '..', 'docs', 'specifications', 'bp-run.md'), 'utf8');
+  const para = run.split('\n').find((l) => l.startsWith('- 記録は次の全てを持つときだけ受ける。'));
+  assert.ok(para);
+  for (const status of WORKFLOW_STATUSES) assert.ok(para.includes(status), status);
+  assert.match(para, /completed の記録は、返り値の状態が記録の状態と同じで、agent を 1 体以上起動した/);
+  assert.match(para, /最後でない run の key[^。]*completed の記録か[^。]*killed・failed の記録でよい/);
 });

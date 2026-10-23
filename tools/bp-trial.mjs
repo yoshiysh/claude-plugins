@@ -332,6 +332,7 @@ function roleOfFunction(fn) {
 const WORKFLOW_DONE = 'completed';
 // host の失敗で止まった run が残す記録の状態。agent を起動する前に失敗すると agentCount は 0 になるので、止まった記録には agent の数を求めない。
 const WORKFLOW_STOPPED = Object.freeze(['killed', 'failed']);
+export const WORKFLOW_STATUSES = Object.freeze([WORKFLOW_DONE, ...WORKFLOW_STOPPED]);
 const HOUR_MS = 3_600_000;
 
 function argsOf(json) {

@@ -119,7 +119,7 @@ review・update・audit の run を起動する前に、入口は、CLI に対�
 
 入口は、この判定表の結果を CLI の `chain-next` の操作に作らせ、出力の `input` を書き換えずに `launch-args` の操作（SP-BPENTRY-013）へ渡さなければならない。review・audit の指摘の一覧は、前の run の状態 ID の参照の形（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-031）で渡る。
 
-前の機能が create・update のときにパスの一覧を作り直すのは、update が全体を作り直してよく（PR-BPOPERATIONS-018）、create・update の run の後に自分の plugin の workflow script が増減していることがあるからである。review・audit は対象スキルを書き換えないので、一覧を引き継ぐ。create・update の指摘を修正の根拠として渡さないのは、修正の根拠の形が review・audit の指摘と利用者の指示の 2 つだけだからである（SP-BPFINDINGS-031）。修正の根拠が 0 件になった update の扱いは `docs/specifications/bp-authoring.md` に従う。
+前の機能が create・update のときにパスの一覧を作り直すのは、update が全体を作り直してよく（PR-BPOPERATIONS-018）、create・update の run の後に自分の plugin の workflow script が増減していることがあるからである。review・audit は対象スキルを書き換えないので、一覧を引き継ぐ。create・update の指摘を修正の根拠として渡さないのは、修正の根拠の形（`docs/specifications/bp-findings.md` の SP-BPFINDINGS-031 の表）に create・update の指摘が無いからである。修正の根拠が 0 件になった update の扱いは `docs/specifications/bp-authoring.md` に従う。
 
 #### SP-BPENTRY-010 結果を書き換えずに渡す
 入口は、前の run の返り値から次の run へ渡す指摘の一覧を、返り値のまま渡さなければならない（パスの一覧は SP-BPENTRY-009 の判定表に従う）。指摘の一覧は前の run の参照の形で渡し（SP-BPENTRY-009）、入口は指摘を書き写してはならない。同じバイト列であることは、CLI の開始の操作が参照を前の状態の返り値の指摘の一覧に展開することで保つ（SP-BPFINDINGS-031）。入口は、指摘を要約・言い換え・並べ替えしてはならず、状態（open・dismissed）や観点で絞ってもならない（絞るのは SP-BPFINDINGS-031）。利用者の修正の指示は、依頼の文言をそのまま渡さなければならない。

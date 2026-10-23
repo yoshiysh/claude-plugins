@@ -125,7 +125,7 @@ async function expandGrounds(ctx, grounds, root) {
   // 参照の無い並びは script が agent の起動の前に数えて止めるので、ここで数えるのは参照を含む並びだけ（参照が 0 件の指摘に展開されても数える）。
   const refs = grounds.some((g) => g !== null && typeof g === 'object' && !Array.isArray(g) && Object.hasOwn(g, GROUND_REF_KEY));
   if (treated === 0 && refs) {
-    reject(CODES.input, `修正の根拠として扱う根拠が 0 件（参照を展開して受け取った ${out.length} 件、扱わなかった ${out.length} 件）。open の指摘か利用者の指示を 1 件以上渡す（SP-BPAUTHORING-029）`, { treatedGrounds: 0, receivedGrounds: out.length });
+    reject(CODES.input, `修正の根拠として扱う根拠が 0 件（参照を展開して受け取った ${out.length} 件は、全て扱わない根拠だった）。open の指摘か利用者の指示を 1 件以上渡す（SP-BPAUTHORING-029）`, { treatedGrounds: 0, receivedGrounds: out.length });
   }
   return out;
 }
