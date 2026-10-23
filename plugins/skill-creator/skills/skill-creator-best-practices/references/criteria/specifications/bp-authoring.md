@@ -541,6 +541,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-014 | SP-BPAUTHORING-033 | fixture の run（create の完了の返り値に、パスと指紋の一覧、設計の説明の場所と逐語の本文がある） | 作成中 |
 | PR-BPOPERATIONS-015 | SP-BPAUTHORING-006 | script の模擬実行（update の目標の固定の書き手に、写しのパスと修正の根拠が渡る） | 完了 |
 | PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | script の模擬実行（dismissed の指摘だけの修正の根拠で、agent を起動せず needs_input と件数を返す） | 完了 |
+| PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | script の模擬実行（前の review の参照だけの修正の根拠で、展開した指摘が 0 件か全て dismissed なら、開始の操作の後に agent を起動せず状態を作らずに needs_input と件数を返し、完了していない状態を指す参照では BLOCKED を返す） | 完了 |
 | PR-BPOPERATIONS-016 | SP-BPAUTHORING-006 | CLI の単体テスト（修正の根拠のどれかを出所として指さない目標を照合が通さない） | 完了 |
 | PR-BPOPERATIONS-016 | SP-BPAUTHORING-007 | CLI の単体テスト（前提に無い記録 ID や dismissed の指摘の記録 ID を出所にした要素を照合が通さない） | 完了 |
 | PR-BPOPERATIONS-017 | SP-BPAUTHORING-005 | script の模擬実行（update が create と同じ段の順で進み、作り直す前の写しの段と契約の観点だけが足される） | 完了 |

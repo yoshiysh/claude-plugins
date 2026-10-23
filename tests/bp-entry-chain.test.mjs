@@ -348,3 +348,33 @@ test('SP-BPENTRY-019: create を列の先頭以外に置く依頼では chain-ch
   assert.equal(out.check.buildable, false);
   assert.equal(out.runs.length, 0);
 });
+
+// 参照の形の修正の根拠は script から中身が見えないので、展開した後の 0 件は開始の操作が拒否し、script が needs_input に直す。
+test('SP-BPAUTHORING-029・SP-BPFINDINGS-031: 参照だけの修正の根拠で、前の review の指摘が 0 件か全て dismissed なら update は状態を作らずに needs_input と件数の理由を返し、完了していない review を指す参照では BLOCKED を返す', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  s.env.t = t;
+  const target = { root: await fs.realpath(s.target.root), files: [] };
+  const update = async (state) => (await runAuthor(t, { env: s.env, args: { function: 'update', target, grounds: [{ from: state }], skillDir: SKILL_DIR, key: newKey() } })).result;
+  const clean = await entry(s.env, { functions: ['review'], first: { function: 'review', target } });
+  assert.deepEqual(clean.runs[0].result.findings, []);
+  const empty = await update(clean.runs[0].state);
+  assert.equal(empty.stopKind, 'needs_input', empty.reason);
+  assert.match(empty.reason, /扱う根拠が 0 件/);
+  assert.ok(!Object.hasOwn(empty, 'state'));
+  assert.equal(empty.launches, 1);
+  const dismissedOnly = await entry(s.env, {
+    functions: ['review'], first: { function: 'review', target },
+    scenarios: [{ verify: candidateVerifier({ viewpoint: 'flow' }), refute: async () => ({ verdict: 'reject', reason: '基準に反しない' }) }],
+  });
+  assert.ok(dismissedOnly.runs[0].result.findings.length > 0);
+  assert.ok(dismissedOnly.runs[0].result.findings.every((f) => f.state === 'dismissed'));
+  const none = await update(dismissedOnly.runs[0].state);
+  assert.equal(none.stopKind, 'needs_input', none.reason);
+  assert.match(none.reason, new RegExp(`受け取った ${dismissedOnly.runs[0].result.findings.length} 件`));
+  const blocked = await entry(s.env, { functions: ['review'], first: { function: 'review', target }, scenarios: [{ carrier: async (prompt) => (prompt.includes(' targets <<') ? null : undefined) }] });
+  assert.equal(blocked.runs[0].result.stopKind, 'blocked');
+  const wrong = await update(blocked.runs[0].state);
+  assert.equal(wrong.stopKind, 'blocked');
+  assert.match(wrong.reason, /開始の操作が失敗した.*完了で止まっていない/);
+});
