@@ -1,7 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, promises as fs, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, promises as fs, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
@@ -1014,8 +1014,9 @@ test('SP-BPCONFORMANCE-015: 試走の題材は、意図ごとの工程を pipeli
   assert.equal(most, 3);
 });
 
-// .git の下の全てのファイルの中身と更新時刻（読むだけの操作が索引などを書き換えていないかを照らす）。
-const gitSnapshot = (dir) => execFileSync('find', [path.join(dir, '.git'), '-type', 'f', '-exec', 'stat', '-f', '%N %m %z', '{}', '+'], { encoding: 'utf8' }).split('\n').sort().join('\n');
+// .git の下の全てのファイルのパス・更新時刻・大きさ（読むだけの操作が索引などを書き換えていないかを照らす）。外部の stat は OS で書式が違うので使わない。
+const gitSnapshot = (dir) => readdirSync(path.join(dir, '.git'), { recursive: true }).map((rel) => [rel, statSync(path.join(dir, '.git', rel))])
+  .filter(([, st]) => st.isFile()).map(([rel, st]) => `${rel} ${st.mtimeMs} ${st.size}`).sort().join('\n');
 
 test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、作業ツリーのファイルの時刻が変わっていても .git を書き換えず、リポジトリの外を読む引数と署名の確かめを拒否し、正確な名前の引数は省略形と取り違えない', async (t) => {
   const src = await dirtyRepo(t);
@@ -1136,6 +1137,8 @@ test('SP-BPCONFORMANCE-015: 試走の題材の写しは、外の中身を写す�
   assert.equal(made.ok, true, JSON.stringify(made));
   assert.deepEqual(made.dropped, ['out-dir/pipe']);
   assert.equal(exec({ repo: src, to, command: 1 }).stdout, 'x\n');
+  const allowed = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8').split('\n').find((l) => l.includes("scripts/copy.mjs':*)"));
+  for (const kind of ['祖先', '輪', '写しを指す', '解決できない', 'FIFO']) assert.ok(allowed.includes(kind), `SKILL.md の dropped の説明に ${kind} が無い`);
 });
 
 test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、値を省略できる引数（-U・--unified・--pretty）の次の引数を値と読まずにパスとして照らし、値を取る引数の値・grep のパターン・-- の後ろを git と同じに読む', async (t) => {
