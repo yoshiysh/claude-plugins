@@ -19,10 +19,11 @@ const LOG_VALUED = ['--max-count', '--skip', '--since', '--after', '--until', '-
 // valued は --name=値 か、次の引数を値として読む（git が次の引数を値に読むものだけ）。値は位置の引数として照らさない。
 // 短い引数はまとめて書けるので 1 文字ずつ読む。value は次の文字以降か次の引数を値として取り、attached は続く文字だけを値として取る
 // （値を省略できる -U・-M・-C・-B。-U の次の引数を値と読むと、git がパスとして読む引数を照らさずに通してしまう）。
+// unbundled の操作（log・show・diff）は値を取る短い引数を束ねて読まないので、束ねた形（-pn）は拒否する（値と読むと、次の引数を照らさずに通す）。
 const GRAMMAR = {
-  log: { flags: [...DIFF_FLAGS, ...LOG_FLAGS], valued: [...DIFF_VALUED, ...LOG_VALUED], short: 'puswbRaziEF', value: 'nSGL', attached: 'UMC', count: true },
-  show: { flags: [...DIFF_FLAGS, '--oneline', '--format', '--pretty'], valued: [...DIFF_VALUED, '--date'], short: 'puswbRaz', value: 'SG', attached: 'UMC' },
-  diff: { flags: [...DIFF_FLAGS, '--cached', '--staged'], valued: DIFF_VALUED, short: 'puswbRaz', value: 'SG', attached: 'UMCB' },
+  log: { flags: [...DIFF_FLAGS, ...LOG_FLAGS], valued: [...DIFF_VALUED, ...LOG_VALUED], short: 'puswbRaziEF', value: 'nSGL', attached: 'UMC', count: true, unbundled: true },
+  show: { flags: [...DIFF_FLAGS, '--oneline', '--format', '--pretty'], valued: [...DIFF_VALUED, '--date'], short: 'puswbRaz', value: 'SG', attached: 'UMC', unbundled: true },
+  diff: { flags: [...DIFF_FLAGS, '--cached', '--staged'], valued: DIFF_VALUED, short: 'puswbRaz', value: 'SG', attached: 'UMCB', unbundled: true },
   blame: { flags: ['--porcelain', '--line-porcelain', '--root', '--show-email', '--show-name', '--show-number'], valued: ['--date'], short: 'wesltfnpc', value: 'L', attached: 'MC' },
   'ls-files': { flags: ['--cached', '--deleted', '--modified', '--others', '--ignored', '--stage', '--unmerged', '--killed', '--directory', '--no-empty-directory', '--exclude-standard', '--full-name', '--error-unmatch'],
     valued: ['--exclude'], short: 'cdmoisukzt', value: 'x', attached: '' },
@@ -57,12 +58,13 @@ function escapes(root, p) {
 }
 
 // 引数を操作の文法で読み、拒否する理由を返す。grep で -e が無いときの最初の位置の引数はパターンで、パスとして照らさない。
+// ただし、パターンの式（--and・--or・--not・( ・)）があれば、git は位置の引数をパターンと読まないので、全てパスとして照らす。
 function refusal(sub, root, args) {
   const g = GRAMMAR[sub];
   const notListed = (arg) => `受け付ける引数の一覧に無い（書き込み・外部のコマンドの実行・リポジトリの外の読み出しを防ぐため、一覧の引数だけを受け付ける）: ${arg}`;
   let value = false;
   let paths = false;
-  let pattern = sub === 'grep' && !args.some((a) => a === '-e' || /^-[^-]*e/.test(a));
+  let pattern = sub === 'grep' && !args.some((a) => a === '-e' || /^-[^-]*e/.test(a) || ['--and', '--or', '--not', '(', ')'].includes(a));
   for (const arg of args) {
     if (typeof arg !== 'string') return '引数は文字列に限る';
     if (value) { value = false; continue; }
@@ -81,7 +83,11 @@ function refusal(sub, root, args) {
     if (g.count && /^-\d+$/.test(arg)) continue;
     for (let k = 1; k < arg.length; k += 1) {
       const c = arg[k];
-      if (g.value.includes(c)) { value = k === arg.length - 1; break; }
+      if (g.value.includes(c)) {
+        if (g.unbundled && k > 1) return notListed(arg);
+        value = k === arg.length - 1;
+        break;
+      }
       if (g.attached.includes(c)) break;
       if (!g.short.includes(c)) return notListed(arg);
     }

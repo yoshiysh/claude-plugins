@@ -1156,3 +1156,20 @@ test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、値を省
     assert.equal(typeof gitRead(sub, { repo: src, args }).code, 'number', `${sub} ${args.join(' ')}`);
   }
 });
+
+test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、log の正規表現の長い引数を受け付け、log・show・diff で値を取る短い引数を束ねた形と、grep のパターンの式の後ろの位置の引数を git の版によらず照らす', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-secret-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  mkdirSync(path.join(outside, 'sub'));
+  const secret = path.join(outside, 'secret.txt');
+  writeFileSync(secret, 'SECRET\n');
+  const src = await dirtyRepo(t, (d) => symlinkSync(path.join(outside, 'sub'), path.join(d, 'lnk')));
+  const up = path.relative(src, secret);
+  for (const args of [['--extended-regexp', '--grep', 'c|d'], ['--fixed-strings', '--grep', 'c']]) assert.equal(typeof gitRead('log', { repo: src, args }).code, 'number', args.join(' '));
+  for (const [sub, args] of [['log', ['-pn', up]], ['log', ['-pL', up]], ['diff', ['-pS', up]], ['show', ['-wG', up]]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /受け付ける引数の一覧に無い/, `${sub} ${args.join(' ')}`);
+  }
+  for (const args of [['--and', 'lnk'], ['--not', 'lnk'], ['--or', up], ['(', 'lnk'], ['SECRET', ')', up]]) {
+    assert.throws(() => gitRead('grep', { repo: src, args }), /リポジトリの外のパス/, args.join(' '));
+  }
+});
