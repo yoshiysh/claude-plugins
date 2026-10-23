@@ -27,14 +27,17 @@ function target(repo, to) {
   return { dest: path.join(runDir, parts[2]), commands };
 }
 
+const within = (outer, inner) => { const rel = path.relative(outer, inner); return !rel.startsWith('..') && !path.isAbsolute(rel); };
+const realOr = (p) => { try { return realpathSync(p); } catch { return null; } };
+
 // リポジトリの中を指す symlink は、写しの中の同じ場所を指すリンクにする。外を指すもの（絶対パスと、解決先が根の外に出る相対パス）は
 // リンク先の中身を写す（リンクのまま写すと、写しの中の書き込みがリンクを通って対象のリポジトリや外へ届き、写しが隔離されない）。
+// リポジトリを含む祖先を指すものと、中身を写すときに出会うそうしたリンクは写さない（祖先ごと写すと、リポジトリと置き場を丸ごと深く写し、置き場が祖先の下にあると写しが自分の中へ写る）。
 function linkInto(root, from, at, dest) {
-  let real;
-  try { real = realpathSync(from); } catch { return; }
-  const rel = path.relative(root, real);
-  if (!rel.startsWith('..') && !path.isAbsolute(rel)) symlinkSync(path.relative(path.dirname(at), path.join(dest, rel)), at);
-  else if (statSync(real).isDirectory()) cpSync(real, at, { recursive: true, dereference: true });
+  const real = realOr(from);
+  if (real === null || (within(real, root) && real !== root)) return;
+  if (within(root, real)) symlinkSync(path.relative(path.dirname(at), path.join(dest, path.relative(root, real))) || '.', at);
+  else if (statSync(real).isDirectory()) cpSync(real, at, { recursive: true, dereference: true, filter: (src) => { const r = realOr(src); return r !== null && !within(r, root) && !within(r, dest) && !within(dest, r); } });
   else copyFileSync(real, at);
 }
 

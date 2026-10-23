@@ -1,7 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, promises as fs, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, promises as fs, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
@@ -1012,4 +1012,58 @@ test('SP-BPCONFORMANCE-015: 試走の題材は、意図ごとの工程を pipeli
   const r = await runTarget(t, slow, { concurrency: 8 });
   assert.equal(r.result.stopKind, 'complete', r.result.reason);
   assert.equal(most, 3);
+});
+
+// .git の下の全てのファイルの中身と更新時刻（読むだけの操作が索引などを書き換えていないかを照らす）。
+const gitSnapshot = (dir) => execFileSync('find', [path.join(dir, '.git'), '-type', 'f', '-exec', 'stat', '-f', '%N %m %z', '{}', '+'], { encoding: 'utf8' }).split('\n').sort().join('\n');
+
+test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、作業ツリーのファイルの時刻が変わっていても .git を書き換えず、リポジトリの外を読む引数と署名の確かめを拒否し、正確な名前の引数は省略形と取り違えない', async (t) => {
+  const src = await dirtyRepo(t);
+  const future = new Date(Date.now() + 120_000);
+  utimesSync(path.join(src, 'a.txt'), future, future);
+  utimesSync(path.join(src, '.gitignore'), future, future);
+  const before = gitSnapshot(src);
+  for (const [sub, args] of [['diff', []], ['diff', ['HEAD']], ['diff', ['--stat']], ['log', ['-1', '-p']], ['show', ['HEAD']], ['blame', ['a.txt']], ['ls-files', ['--others', '--modified']], ['grep', ['committed']], ['diff', ['--text', 'HEAD']], ['ls-files', ['--exclude=*.txt', '--others', '--ignored']]]) {
+    assert.equal(typeof gitRead(sub, { repo: src, args }).code, 'number', `${sub} ${args.join(' ')}`);
+  }
+  assert.equal(gitSnapshot(src), before);
+  for (const [sub, args] of [['diff', ['--no-index', '/etc/hosts', '/dev/null']], ['diff', ['--no-ind', '/etc/hosts', '/dev/null']], ['blame', ['--contents', '/etc/hosts', 'a.txt']], ['diff', ['-O/etc/hosts']], ['log', ['-1', '--show-signature']], ['log', ['--orderfile=/etc/hosts']], ['blame', ['-S', '/etc/hosts', 'a.txt']], ['ls-files', ['-X', '/etc/hosts']], ['ls-files', ['--exclude-from=/etc/hosts']], ['grep', ['-f', '/etc/hosts']], ['log', ['--pathspec-from-file=/etc/hosts']]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外の読み出し/, `${sub} ${args.join(' ')}`);
+  }
+});
+
+test('SP-BPCONFORMANCE-015: 試走の題材の写しは、自分のディレクトリを指すリンクを写しの中で使える形にし、リポジトリを含む祖先を指すリンクは写さず、外の中身を写すときも祖先と写し自身へは辿らない', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-outside-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  writeFileSync(path.join(outside, 'o.txt'), 'outside\n');
+  symlinkSync('/', path.join(outside, 'root-link'));
+  const src = await dirtyRepo(t, (d) => {
+    mkdirSync(path.join(d, 'sub'));
+    writeFileSync(path.join(d, 'sub', 's.txt'), 's\n');
+    symlinkSync('.', path.join(d, 'self-root'));
+    symlinkSync('.', path.join(d, 'sub', 'here'));
+    symlinkSync('..', path.join(d, 'up'));
+    symlinkSync(outside, path.join(d, 'out-dir'));
+  });
+  const { workDir } = stateFor(src, ['cat self-root/a.txt sub/here/s.txt out-dir/o.txt; test ! -e up && test ! -e out-dir/root-link && echo ok']);
+  const to = path.join(workDir, 'I1.1');
+  make({ repo: src, to });
+  const ran = exec({ repo: src, to, command: 1 });
+  assert.deepEqual([ran.code, ran.stdout], [0, 'dirty\ns\noutside\nok\n'], ran.stderr);
+});
+
+test('SP-BPCONFORMANCE-032: 試走の題材は、確かめ直しで既に受理の事実を受理し直した周を、新しい事実の受理と数えない', async (t) => {
+  const { dir, base, resumeKey } = await begun(t);
+  const [a, b] = planned(base, 1, ['k1', 'k2']);
+  call('facts', { ...base, intent: a.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'accept' }] });
+  call('facts', { ...base, intent: b.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'reject' }] });
+  call('round', { ...base, round: 1, launches: 1, allFailed: false });
+  call('stop', { ...base, kind: 'blocked', reason: '食い違い', launches: 1 });
+  const r = call('resume', { repo: dir, state: base.state, resumeKey, limits: LIMITS });
+  const next = { ...base, run: r.run, writeKey: r.writeKey };
+  const [, x] = /^事実 (F\w+):/.exec(call('get', { ...next, kind: '事実' }).lines[0]);
+  const [c] = call('plan', { ...next, round: 2, intents: [{ key: 'r1', text: 'r', basis: ['P1'], rank: 1, recheck: x }], rerank: [], hintsRead: [] }).pending;
+  call('facts', { ...next, intent: c.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'accept' }] });
+  const r2 = call('round', { ...next, round: 2, launches: 1, allFailed: false });
+  assert.deepEqual([r2.newFacts, r2.dry], [0, 1]);
 });
