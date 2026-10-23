@@ -328,6 +328,8 @@ function roleOfFunction(fn) {
 }
 
 const WORKFLOW_DONE = 'completed';
+// host の失敗で止まった run が残す記録の状態。agent を起動する前に失敗すると agentCount は 0 になるので、止まった記録には agent の数を求めない。
+const WORKFLOW_STOPPED = Object.freeze(['killed', 'failed']);
 const HOUR_MS = 3_600_000;
 
 function argsOf(json) {
@@ -345,13 +347,18 @@ function completedFor(stateId) {
   return (f) => f.json.status === WORKFLOW_DONE && f.json.result?.state === stateId && Number.isInteger(f.json.agentCount) && f.json.agentCount >= 1;
 }
 
-function evidenceOf({ file, sha: fileSha, json }, key) {
+function agentsOf(json) {
+  return (Array.isArray(json.workflowProgress) ? json.workflowProgress : []).filter((a) => a.type === 'workflow_agent')
+    .map((a) => ({ label: a.label ?? null, model: a.model ?? null, state: a.state ?? null, attempt: a.attempt ?? null, durationMs: a.durationMs ?? null }));
+}
+
+// 同じ key の止まった記録の後に native が同じ run を続けると、続きの記録の agent は cached で所要時間を持たないので、同じ key の止まった記録の agent も持たせる。
+function evidenceOf({ file, sha: fileSha, json }, key, siblings = []) {
   return {
     key, runId: json.runId ?? null, file, fileSha, scriptPath: json.scriptPath ?? null, scriptSha: typeof json.script === 'string' ? sha(json.script) : null,
     status: json.status ?? null, agentCount: json.agentCount ?? null, durationMs: json.durationMs ?? null, totalTokens: json.totalTokens ?? null,
     resultState: json.result?.state ?? null,
-    agents: (Array.isArray(json.workflowProgress) ? json.workflowProgress : []).filter((a) => a.type === 'workflow_agent')
-      .map((a) => ({ label: a.label ?? null, model: a.model ?? null, state: a.state ?? null, attempt: a.attempt ?? null, durationMs: a.durationMs ?? null })),
+    agents: [...siblings.flatMap((f) => agentsOf(f.json)), ...agentsOf(json)],
   };
 }
 
@@ -374,12 +381,16 @@ export function workflowEvidence(view, stateId, configDir) {
     const last = i === view.runs.length - 1;
     const where = path.join(configDir, 'projects');
     if (done.length > 1) throw new Error(`run ${r.id} の key ${r.key} の completed の Workflow の実行の記録が ${done.length} 件（1 件でなければならない）: ${where}`);
-    if (ok.length === 1) return evidenceOf(ok[0], r.key);
+    const stopped = mine.filter((f) => WORKFLOW_STOPPED.includes(f.json.status));
+    const other = mine.filter((f) => f.json.status !== WORKFLOW_DONE && !WORKFLOW_STOPPED.includes(f.json.status));
+    if (other.length) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録の状態が completed・${WORKFLOW_STOPPED.join('・')} のどれでもない: ${other.map((f) => f.file).join(', ')}`);
+    const foreign = stopped.filter((f) => f.json.result?.state !== undefined && f.json.result?.state !== null && f.json.result.state !== stateId);
+    if (foreign.length) throw new Error(`run ${r.id} の key ${r.key} の止まった Workflow の実行の記録の返り値が別の状態を持つ: ${foreign.map((f) => f.file).join(', ')}`);
+    if (ok.length === 1) return evidenceOf(ok[0], r.key, stopped);
     if (done.length === 1) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録の返り値が状態 ${stateId} を持たないか、agent を起動していない: ${done[0].file}`);
-    const stopped = mine.filter((f) => f.json.status !== WORKFLOW_DONE);
     if (last) throw new Error(`最後の run ${r.id} の key ${r.key} の completed の Workflow の実行の記録が無い（${mine.length} 件。模擬の backend の run は記録を残さない）: ${where}`);
     if (stopped.length === 0) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録が 0 件（模擬の backend の run は記録を残さない）: ${where}`);
-    return evidenceOf(stopped.at(-1), r.key);
+    return evidenceOf(stopped.at(-1), r.key, stopped.slice(0, -1));
   });
 }
 
@@ -398,9 +409,9 @@ export function evidenceProblems(rec, current) {
   const problems = [];
   if (ev[0].key !== rec.source?.key) problems.push('最初の Workflow の実行の key が状態の key と違う');
   const want = current.scripts[roleOfFunction(rec.function)];
-  const done = ev.filter((e) => e.status === WORKFLOW_DONE);
-  if (done.some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
-  if (done.some((e) => e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
+  if (ev.some((e) => e.status !== WORKFLOW_DONE && !WORKFLOW_STOPPED.includes(e.status))) problems.push(`Workflow の実行の状態が completed・${WORKFLOW_STOPPED.join('・')} のどれでもない`);
+  if (ev.some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
+  if (ev.some((e) => (e.status === WORKFLOW_DONE || e.resultState !== null) && e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
   if (ev.at(-1).status !== WORKFLOW_DONE) problems.push('最後の Workflow の実行が completed でない');
   return problems;
 }
