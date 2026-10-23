@@ -295,6 +295,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-001 | SP-BPENTRY-001 | 静的な照合（SKILL.md が 4 機能のそれぞれで Workflow を 1 run として起動する） | 未着手 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-013 | 静的な照合（callsite の入力の項目が機能と起動の種類ごとに表と一致する） | 作成中 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-016 | CLI の単体テスト（`launch-args` が Codex runner の経路で出す request が `limits.maxAgents`・`modelMap` の全ての鍵・書き込みのできる workspace の mode を持つ） | 完了 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | 静的な照合（SKILL.md の手順が、`launch-args` の request の `modelMap` の値を host の Codex の model で埋め、`limits`・workspace の mode・`requirements` を書き換えずに渡す） | 未着手 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-018 | 振り分けの eval（native も runner も無い環境で run を起動せず install を案内する） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-002 | 静的な照合（振り分けが run の起動より前の手順にあり、script に振り分けが無い） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-003 | 振り分けの eval（4 機能のそれぞれに当たる依頼文が、その機能だけの列になる） | 未着手 |
@@ -308,10 +309,12 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | PR-BPOPERATIONS-038 | SP-BPENTRY-004 | 振り分けの eval（順を述べた依頼と述べない依頼で、期待する列になる） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 連鎖の結合テスト（前の run の返り値より前に次の run が起動されない） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 連鎖の結合テスト（前の run が needs_input・BLOCKED で止まると次の run を起動せず、未実行の機能を返す） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 静的な照合（SKILL.md の手順が、次の機能を起動するかを `chain-next` の答えに従って決め、答えの入力を書き換えずに `launch-args` に渡す） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（判定表の行ごとに、次の run の対象スキルと修正の根拠が表と一致し、update の後に足された workflow script が次の review の一覧に入る） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-010 | 連鎖の結合テスト（open と dismissed の指摘を含む review・audit の返り値の指摘の一覧が、入口に書き写されずに参照の形で渡り、update の修正の根拠の記録に同じバイト列で入る） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-012 | 振り分けの eval（一部が当たらない依頼で、当たった部分だけを実行し、当たらなかった部分を返す） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（返り値に各 run の返り値が列の順に変えずに載り、止まったときは未実行の機能と next_args が載る） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 静的な照合（SKILL.md の手順が、`chain-report` の出力を書き換えずに利用者へ返す） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-017 | 連鎖の結合テスト（native の起動の失敗で runner に切り替えず、未実行の機能と再開の手段を返す） | 作成中 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-019 | 振り分けの eval（review の後に create を求める依頼で run を起動しない） | 未着手 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-020 | 連鎖の結合テスト（項目の欠けた指摘の一覧で update の run を起動しない） | 完了 |

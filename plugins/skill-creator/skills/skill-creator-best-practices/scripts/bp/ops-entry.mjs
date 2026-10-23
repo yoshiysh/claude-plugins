@@ -17,8 +17,8 @@ import { currentRun } from './view.mjs';
 // timeoutMs は実測までの暫定で、旧 caller の先例の値。runner の既定の 60 秒に任せない（TBD-SBPENTRY-001 の保持規則）。
 export const RUNNER_REQUEST = Object.freeze({ maxAgents: 1000, timeoutMs: 3_600_000, mode: 'workspace-write' });
 
-// SP-BPFINDINGS-029 の項目のうち、どの指摘にも載る欄（状態・状態を記録した run・見直しの判定・却下の理由は、載せない指摘がある）。
-export const FINDING_REQUIRED = Object.freeze(['id', 'function', 'viewpoint', 'kind', 'assets', 'quote', 'content', 'fix', 'judgedOnCurrent']);
+// SP-BPFINDINGS-029 の項目のうち、どの指摘にも載る欄（状態・見直しの判定・却下の理由は、載せない指摘がある）。
+export const FINDING_REQUIRED = Object.freeze(['id', 'function', 'viewpoint', 'kind', 'assets', 'quote', 'content', 'fix', 'stateRun', 'judgedOnCurrent']);
 
 const RESUME_TODO = Object.freeze({
   [STOP_KINDS.needsInput]: '利用者の回答を answer に足して、next_args で再開する',
@@ -54,7 +54,7 @@ function excludedOf(r) {
   return r.unresolved.map((u) => ({ ...u, file: path.join(r.root, 'SKILL.md') }));
 }
 
-function missingFields(findings) {
+export function missingFields(findings) {
   if (!Array.isArray(findings)) return [{ finding: null, fields: [RESULT_KEYS.findings] }];
   return findings.flatMap((f, i) => {
     const fields = FINDING_REQUIRED.filter((k) => f === null || typeof f !== 'object' || f[k] === undefined);

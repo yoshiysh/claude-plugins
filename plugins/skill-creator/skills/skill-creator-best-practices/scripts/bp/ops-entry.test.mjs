@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import * as run from './ops-run.mjs';
-import { chainCheck, chainNext, chainReport, launchArgs, modelNames, RUNNER_REQUEST } from './ops-entry.mjs';
+import { FINDING_REQUIRED, chainCheck, chainNext, chainReport, launchArgs, missingFields, modelNames, RUNNER_REQUEST } from './ops-entry.mjs';
 import { CODES, CRITERIA_DIR, FUNCTIONS, INPUT_KEYS, LAUNCH_KINDS, ROUTES, STOP_KINDS, WORKFLOW_SOURCES } from './constants.mjs';
 import { conformanceValue } from './kinds.mjs';
 import { LIMITS, SKILL_DIR, context, newKey, skillDir } from './fixtures/harness.mjs';
@@ -136,4 +136,14 @@ test('SP-BPENTRY-021: chain-report は状態を作らずに止まった run に 
   await rejects(chainReport(ctx, { functions: ['review'], runs: [{ function: 'create', result: early }] }), CODES.input);
   await rejects(chainReport(ctx, { functions: ['review'], runs: [{ function: 'review', result: { ...early, state: 'bp-1' } }] }), CODES.input);
   await rejects(chainReport(ctx, { functions: ['review'], runs: [{}, {}] }), CODES.input);
+});
+
+test('SP-BPENTRY-020: どの指摘にも載る SP-BPFINDINGS-029 の欄を 1 つでも欠く指摘は、その欄を欠けた項目として返し、欠けの無い指摘の一覧は空を返す', () => {
+  const full = (id) => Object.fromEntries(FINDING_REQUIRED.map((k) => [k, k === 'id' ? id : k === 'assets' ? [] : 'x']));
+  assert.deepEqual(missingFields([full('F1')]), []);
+  for (const k of FINDING_REQUIRED) {
+    const { [k]: _, ...rest } = full('F2');
+    assert.deepEqual(missingFields([full('F1'), rest]), [{ finding: k === 'id' ? 1 : 'F2', fields: [k] }], k);
+  }
+  assert.deepEqual(missingFields(undefined), [{ finding: null, fields: ['findings'] }]);
 });

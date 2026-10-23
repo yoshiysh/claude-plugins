@@ -308,3 +308,16 @@ test('SP-BPENTRY-001: 入口が起動する source の名前の定数が 2 本�
   assert.equal(literalIn(SCRIPTS.author, 'meta').name, WORKFLOW_SOURCES.author);
   assert.equal(literalIn(SCRIPTS.inspect, 'meta').name, WORKFLOW_SOURCES.inspect);
 });
+
+test('SP-BPENTRY-016・TBD-SBPENTRY-001: launch-args が出す runner の request の maxAgents と暫定の timeoutMs が bp-entry の書き戻しの値と一致し、指摘の必須の欄が report の findings の綴りにある', async () => {
+  const { FINDING_REQUIRED, RUNNER_REQUEST } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-entry.mjs');
+  const max = /\| `limits\.maxAgents` \| [^|]*値は runner が受ける上限の (\d+) とする/.exec(ENTRY);
+  const timeout = /旧 caller の先例の値 ([\d,]+) を渡す/.exec(ENTRY);
+  assert.ok(max && timeout);
+  assert.equal(RUNNER_REQUEST.maxAgents, Number(max[1]));
+  assert.equal(RUNNER_REQUEST.timeoutMs, Number(timeout[1].replace(/,/g, '')));
+  const row = RUN.split('\n').find((l) => l.startsWith('| `report` |'));
+  const fields = [...(/`findings`（SP-BPFINDINGS-029 の項目: ([^）]+)）/.exec(row)[1]).matchAll(/`(\w+)`/g)].map((x) => x[1]);
+  // 状態・見直しの判定・却下の理由は、載せない指摘がある（SP-BPFINDINGS-028・019・030）。それ以外は全て必須にする。
+  assert.deepEqual([...FINDING_REQUIRED].sort(), fields.filter((f) => !['state', 'judgement', 'dismissReason'].includes(f)).sort());
+});
