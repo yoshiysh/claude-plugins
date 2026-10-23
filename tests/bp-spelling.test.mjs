@@ -253,7 +253,7 @@ function spellings(text, marker, column) {
   return rows.flatMap((r) => [...r[column].matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]));
 }
 
-test('TBD-SBPENTRY-002 の書き戻し: SP-BPENTRY-013 の綴りの表と script・CLI の入力の綴りが一致する', () => {
+test('SP-BPENTRY-013: 入力の綴りの表と script・CLI の入力の綴りが一致する', () => {
   const spec = spellings(ENTRY, '| 項目 | 綴り | 渡すとき |', 1);
   assert.deepEqual(spec.sort(), Object.values(literalOf('INPUT_KEYS')).sort());
   assert.deepEqual(literalOf('INPUT_KEYS'), JSON.parse(JSON.stringify(CLI_CONSTANTS.INPUT_KEYS)));

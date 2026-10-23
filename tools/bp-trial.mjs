@@ -327,6 +327,37 @@ function roleOfFunction(fn) {
   return fn === 'create' || fn === 'update' ? 'author' : 'inspect';
 }
 
+const WORKFLOW_DONE = 'completed';
+const HOUR_MS = 3_600_000;
+
+function argsOf(json) {
+  if (typeof json.args !== 'string') return json.args;
+  try {
+    return JSON.parse(json.args);
+  } catch {
+    return null;
+  }
+}
+
+// 本物の run は completed で、返り値に状態を持ち、運搬役を 1 体以上起動する（開始の運搬役）。状態の無い返り値（入力の確かめで止まった run）は、
+// 同じ key で別に走らせた模擬の run の状態と組めてしまうので受けない。
+function completedFor(stateId) {
+  return (f) => f.json.status === WORKFLOW_DONE && f.json.result?.state === stateId && Number.isInteger(f.json.agentCount) && f.json.agentCount >= 1;
+}
+
+function evidenceOf({ file, sha: fileSha, json }, key) {
+  return {
+    key, runId: json.runId ?? null, file, fileSha, scriptPath: json.scriptPath ?? null, scriptSha: typeof json.script === 'string' ? sha(json.script) : null,
+    status: json.status ?? null, agentCount: json.agentCount ?? null, durationMs: json.durationMs ?? null, totalTokens: json.totalTokens ?? null,
+    resultState: json.result?.state ?? null,
+    agents: (Array.isArray(json.workflowProgress) ? json.workflowProgress : []).filter((a) => a.type === 'workflow_agent')
+      .map((a) => ({ label: a.label ?? null, model: a.model ?? null, state: a.state ?? null, attempt: a.attempt ?? null, durationMs: a.durationMs ?? null })),
+  };
+}
+
+// 再開は next_args と新しい key で別の Workflow を起動する（SP-BPRUN-014）ので、状態の run ごとに key の違う記録ができる。
+// 状態の run ごとに、その key の completed の記録が 1 つ（返り値の状態が同じもの）か、host の失敗で止まった前の run なら killed・failed の記録を受ける。
+// 最後の run は completed でなければならない（記録を書くのは止まった run の返り値が状態にあるときだけ）。同じ key の completed が 2 つあれば、どちらの run の記録かを決められないので拒否する。
 export function workflowEvidence(view, stateId, configDir) {
   const files = workflowRunFiles(configDir).map((file) => {
     const bytes = readFileSync(file);
@@ -335,19 +366,29 @@ export function workflowEvidence(view, stateId, configDir) {
     } catch {
       return null;
     }
-  }).filter(Boolean);
-  return view.runs.map((r) => {
-    const hits = files.filter((f) => f.json?.args?.key === r.key);
-    if (hits.length !== 1) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録が ${hits.length} 件（1 件でなければならない。模擬の backend の run は記録を残さない）: ${path.join(configDir, 'projects')}`);
-    const { file, sha: fileSha, json } = hits[0];
-    if (typeof json.script !== 'string') throw new Error(`Workflow の実行の記録に script の本文が無い: ${file}`);
-    const resultState = json.result?.state ?? null;
-    if (resultState !== null && resultState !== stateId) throw new Error(`Workflow の実行の記録の返り値の状態 ${resultState} が ${stateId} と違う: ${file}`);
-    return {
-      key: r.key, runId: json.runId ?? null, file, fileSha, scriptPath: json.scriptPath ?? null, scriptSha: sha(json.script),
-      status: json.status ?? null, agentCount: json.agentCount ?? null, durationMs: json.durationMs ?? null, totalTokens: json.totalTokens ?? null, resultState,
-    };
+  }).filter((f) => f && f.json && typeof f.json === 'object');
+  return view.runs.map((r, i) => {
+    const mine = files.filter((f) => argsOf(f.json)?.key === r.key);
+    const done = mine.filter((f) => f.json.status === WORKFLOW_DONE);
+    const ok = done.filter(completedFor(stateId));
+    const last = i === view.runs.length - 1;
+    const where = path.join(configDir, 'projects');
+    if (done.length > 1) throw new Error(`run ${r.id} の key ${r.key} の completed の Workflow の実行の記録が ${done.length} 件（1 件でなければならない）: ${where}`);
+    if (ok.length === 1) return evidenceOf(ok[0], r.key);
+    if (done.length === 1) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録の返り値が状態 ${stateId} を持たないか、agent を起動していない: ${done[0].file}`);
+    const stopped = mine.filter((f) => f.json.status !== WORKFLOW_DONE);
+    if (last) throw new Error(`最後の run ${r.id} の key ${r.key} の completed の Workflow の実行の記録が無い（${mine.length} 件。模擬の backend の run は記録を残さない）: ${where}`);
+    if (stopped.length === 0) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録が 0 件（模擬の backend の run は記録を残さない）: ${where}`);
+    return evidenceOf(stopped.at(-1), r.key);
   });
+}
+
+// runner の request の時間の上限を試走の記録から決める（SP-BPENTRY-016）。Codex runner では試走を記録できないので、native の所要時間から決める。
+export function runnerTimeouts(records) {
+  const ev = records.flatMap((r) => r.evidence ?? []);
+  const run = Math.max(0, ...ev.map((e) => e.durationMs ?? 0));
+  const agent = Math.max(0, ...ev.flatMap((e) => (e.agents ?? []).map((a) => a.durationMs ?? 0)));
+  return { timeoutMs: Math.ceil((run * 2) / HOUR_MS) * HOUR_MS, agentTimeoutMs: agent * 2 };
 }
 
 // 記録が照らせるのは、状態・Workflow の実行の記録・script の本文の整合まで。ファイルを書き換えた偽造は区別できないので、記録の出所は記録を足す PR の人間のレビューが保証する。
@@ -357,8 +398,10 @@ export function evidenceProblems(rec, current) {
   const problems = [];
   if (ev[0].key !== rec.source?.key) problems.push('最初の Workflow の実行の key が状態の key と違う');
   const want = current.scripts[roleOfFunction(rec.function)];
-  if (ev.some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
-  if (ev.some((e) => e.resultState !== null && e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
+  const done = ev.filter((e) => e.status === WORKFLOW_DONE);
+  if (done.some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
+  if (done.some((e) => e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
+  if (ev.at(-1).status !== WORKFLOW_DONE) problems.push('最後の Workflow の実行が completed でない');
   return problems;
 }
 

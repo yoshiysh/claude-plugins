@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { SKILL_DIR, TRIAL_DIR, checkWorktree, criteriaBody, expectedSource, fingerprint, launchesOf, sameFingerprint, writeRecord } from '../tools/bp-trial.mjs';
+import { SKILL_DIR, TRIAL_DIR, checkWorktree, criteriaBody, expectedSource, fingerprint, launchesOf, runnerTimeouts, sameFingerprint, workflowEvidence, writeRecord } from '../tools/bp-trial.mjs';
 import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -95,7 +95,7 @@ function forged(name, fn, source, result, current, { state = `bp-${name}`, evide
   const role = fn === 'create' || fn === 'update' ? 'author' : 'inspect';
   return {
     run: name, function: fn, state, source, result, fingerprint: current,
-    evidence: evidence ?? [{ key: source?.key, scriptSha: current.scripts[role], resultState: state }],
+    evidence: evidence ?? [{ key: source?.key, status: 'completed', scriptSha: current.scripts[role], resultState: state }],
   };
 }
 
@@ -151,9 +151,10 @@ test('検証方法: prepare の key で始めていない run・runs.json と違
     a1({ ...good, files: { ...good.files, 'extra.md': '0'.repeat(64) } }),
     c1({ ...sourceFor('C1'), request: 'x' }),
     a1(good, { evidence: [] }),
-    a1(good, { evidence: [{ key: good.key, scriptSha: '0'.repeat(64), resultState: 'bp-A1' }] }),
-    a1(good, { evidence: [{ key: 'k-fedcba9876543210', scriptSha: current.scripts.inspect, resultState: 'bp-A1' }] }),
-    a1(good, { evidence: [{ key: good.key, scriptSha: current.scripts.inspect, resultState: 'bp-other' }] }),
+    a1(good, { evidence: [{ key: good.key, status: 'completed', scriptSha: '0'.repeat(64), resultState: 'bp-A1' }] }),
+    a1(good, { evidence: [{ key: 'k-fedcba9876543210', status: 'completed', scriptSha: current.scripts.inspect, resultState: 'bp-A1' }] }),
+    a1(good, { evidence: [{ key: good.key, status: 'killed', scriptSha: current.scripts.inspect, resultState: null }] }),
+    a1(good, { evidence: [{ key: good.key, status: 'completed', scriptSha: current.scripts.inspect, resultState: 'bp-other' }] }),
   ];
   for (const map of bad) assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, map), current })).size, 0, JSON.stringify(Object.values(map)[0].source)?.slice(0, 80));
   const r3 = forged('R3', 'review', sourceFor('R3'), { stopKind: 'complete' }, current, { state: 'bp-r3' });
@@ -247,14 +248,14 @@ test('検証方法: record は prepare の key でない run・題材の違う r
   await assert.rejects(writeRecord('A1', harnessKey.state, await opts()), /key の操作で得た形でない/);
   const issued = (await s.env.request('key', {})).key;
   const mock = await run(issued);
-  await assert.rejects(writeRecord('A1', mock.state, await opts()), /Workflow の実行の記録が 0 件/);
+  await assert.rejects(writeRecord('A1', mock.state, await opts()), /completed の Workflow の実行の記録が無い（0 件/);
   const o = await opts();
   const wf = path.join(o.configDir, 'projects', 'p', 's', 'workflows');
   await fs.mkdir(wf, { recursive: true });
   const script = await fs.readFile(path.join(SKILL_DIR, 'scripts', 'bp_inspect.js'), 'utf8');
-  await fs.writeFile(path.join(wf, 'wf_x.json'), JSON.stringify({ runId: 'wf_x', args: { key: issued }, script: `${script}\n`, result: { state: mock.state } }));
+  await fs.writeFile(path.join(wf, 'wf_x.json'), JSON.stringify({ runId: 'wf_x', status: 'completed', agentCount: 15, args: { key: issued }, script: `${script}\n`, result: { state: mock.state } }));
   await assert.rejects(writeRecord('A1', mock.state, o), /script の本文が今の script と違う/);
-  await fs.writeFile(path.join(wf, 'wf_x.json'), JSON.stringify({ runId: 'wf_x', args: { key: issued }, script, result: { state: mock.state }, agentCount: 15 }));
+  await fs.writeFile(path.join(wf, 'wf_x.json'), JSON.stringify({ runId: 'wf_x', status: 'completed', args: { key: issued }, script, result: { state: mock.state }, agentCount: 15 }));
   const rec = await writeRecord('A1', mock.state, o);
   assert.equal(rec.evidence[0].runId, 'wf_x');
   const other = path.join(s.base, 'other');
@@ -263,4 +264,70 @@ test('検証方法: record は prepare の key でない run・題材の違う r
   const otherKey = (await s.env.request('key', {})).key;
   const otherRun = (await runInspect(t, { env: s.env, args: { ...inspectArgs('audit', { root: await fs.realpath(other), files: [] }), key: otherKey } })).result;
   await assert.rejects(writeRecord('A1', otherRun.state, await opts()), /runs.json の題材/);
+});
+
+const INSPECT_SCRIPT = readFileSync(path.join(SKILL_DIR, 'scripts', 'bp_inspect.js'), 'utf8');
+
+// 本物の native Workflow の run の記録の形（~/.claude/projects/*/*/workflows/wf_*.json の鍵）。値は試験用に作る。
+function wfRun(runId, { key, state, status = 'completed', agentCount = 3, args, agents = [] }) {
+  return {
+    runId, timestamp: '2026-10-23T00:00:00.000Z', taskId: 't', script: INSPECT_SCRIPT, scriptPath: '/x/bp_inspect.js', args: args ?? { key },
+    result: state === undefined ? null : state === null ? { stopKind: 'blocked', reason: 'x', launches: 0 } : { stopKind: 'complete', state }, agentCount,
+    logs: [], durationMs: 1000, summary: '', workflowName: 'best-practices-inspect', status, startTime: 0, phases: [], defaultModel: 'x',
+    workflowProgress: agents.map((a, i) => ({ type: 'workflow_agent', index: i + 1, label: a.label, model: a.model, state: 'done', attempt: 1, durationMs: a.ms })), totalTokens: 10, totalToolCalls: 1,
+  };
+}
+
+async function configWith(t, runs) {
+  const dir = await tmp(t, 'bp-cc-');
+  const wf = path.join(dir, 'projects', 'p', 's', 'workflows');
+  await fs.mkdir(wf, { recursive: true });
+  for (const [i, r] of runs.entries()) await fs.writeFile(path.join(wf, `wf_${i}.json`), JSON.stringify(r));
+  return dir;
+}
+
+const viewOfRuns = (keys) => ({ runs: keys.map((key, i) => ({ id: `r${i + 1}`, key })) });
+
+test('検証方法: Workflow の実行の証拠は、最後の run が completed で返り値の状態が記録の状態と同じで agent を 1 体以上起動したときだけ受け、状態の無い返り値・killed・状態の違う返り値・同じ key の completed の 2 つを拒否する', async (t) => {
+  const K = 'k-0123456789abcdef';
+  const bad = [
+    [wfRun('a', { key: K, state: null })],
+    [wfRun('a', { key: K, status: 'killed' })],
+    [wfRun('a', { key: K, state: 'bp-other' })],
+    [wfRun('a', { key: K, state: 'bp-s', agentCount: 0 })],
+    [wfRun('a', { key: K, state: 'bp-s' }), wfRun('b', { key: K, state: 'bp-s' })],
+    [],
+  ];
+  for (const runs of bad) {
+    const dir = await configWith(t, runs);
+    assert.throws(() => workflowEvidence(viewOfRuns([K]), 'bp-s', dir), /Workflow の実行の記録/, JSON.stringify(runs.map((r) => [r.status, r.result, r.agentCount])));
+  }
+  const ok = await configWith(t, [wfRun('a', { key: K, state: 'bp-s' })]);
+  assert.equal(workflowEvidence(viewOfRuns([K]), 'bp-s', ok).length, 1);
+  const asString = await configWith(t, [wfRun('a', { key: K, state: 'bp-s', args: JSON.stringify({ key: K }) })]);
+  assert.equal(workflowEvidence(viewOfRuns([K]), 'bp-s', asString).length, 1);
+});
+
+// 再開は next_args と新しい key で別の Workflow を起動する（SP-BPRUN-014）ので、状態の run ごとに key の違う記録が 1 つずつできる。
+// host の失敗で止まった run は killed・failed の記録を残し、同じ状態を別の key で再開する。
+test('検証方法: 再開した状態は run ごとの key の記録を 1 つずつ受け、host の失敗で止まった前の run の killed・failed の記録と、同じ key の送り直しで残った killed の記録を誤って拒否しない', async (t) => {
+  const [K1, K2, K3] = ['k-1111111111111111', 'k-2222222222222222', 'k-3333333333333333'];
+  const dir = await configWith(t, [
+    wfRun('a', { key: K1, state: 'bp-s', status: 'completed' }),
+    wfRun('b', { key: K2, status: 'killed' }),
+    wfRun('c', { key: K3, status: 'killed' }),
+    wfRun('d', { key: K3, state: 'bp-s' }),
+  ]);
+  const ev = workflowEvidence(viewOfRuns([K1, K2, K3]), 'bp-s', dir);
+  assert.deepEqual(ev.map((e) => [e.key, e.status]), [[K1, 'completed'], [K2, 'killed'], [K3, 'completed']]);
+  const lastKilled = await configWith(t, [wfRun('a', { key: K1, state: 'bp-s' }), wfRun('b', { key: K2, status: 'killed' })]);
+  assert.throws(() => workflowEvidence(viewOfRuns([K1, K2]), 'bp-s', lastKilled), /最後の run/);
+});
+
+test('検証方法: 証拠は 1 体ごとの所要時間を持ち、runner の timeoutMs と agentTimeoutMs を記録から計算できる（最長の run の 2 倍を時間の単位で切り上げ、最長の 1 体の 2 倍）', async (t) => {
+  const K = 'k-0123456789abcdef';
+  const dir = await configWith(t, [{ ...wfRun('a', { key: K, state: 'bp-s', agents: [{ label: 'carrier', model: 'haiku', ms: 1200 }, { label: 'verifier:flow', model: 'opus', ms: 95000 }] }), durationMs: 5_400_000 }]);
+  const ev = workflowEvidence(viewOfRuns([K]), 'bp-s', dir);
+  assert.deepEqual(ev[0].agents, [{ label: 'carrier', model: 'haiku', state: 'done', attempt: 1, durationMs: 1200 }, { label: 'verifier:flow', model: 'opus', state: 'done', attempt: 1, durationMs: 95000 }]);
+  assert.deepEqual(runnerTimeouts([{ evidence: ev }, { evidence: [{ durationMs: 60_000, agents: [{ durationMs: 10 }] }] }]), { timeoutMs: 3 * 3_600_000, agentTimeoutMs: 190000 });
 });

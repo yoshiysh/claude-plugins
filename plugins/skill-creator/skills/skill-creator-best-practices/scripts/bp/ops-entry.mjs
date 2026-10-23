@@ -14,7 +14,7 @@ import { currentRun } from './view.mjs';
 
 // 入口だけが使う runner の request の値。試走の記録の指紋に入れないファイルに置き、仕様に値を書き写さない（実測の値を書き戻しても、run の中の処理も判定基準の写しも変わらないので記録を古くしない）。
 // maxAgents は runner が受ける上限そのもの（native の run は上限を持たないので、上限の役目は runner に収めることだけ：SP-BPENTRY-015）。
-// timeoutMs は試走の記録の最長の run の 2 倍（SP-BPENTRY-016）。試走の記録が無い間は旧 caller の先例の値。
+// timeoutMs は試走の記録の最長の run の 2 倍を時間の単位で切り上げた値（SP-BPENTRY-016。tools/bp-trial.mjs の runnerTimeouts で計算する）。試走の記録が無い間は旧 caller の先例の値。
 export const RUNNER_REQUEST = Object.freeze({ maxAgents: 1000, timeoutMs: 3_600_000, mode: 'workspace-write' });
 
 // SP-BPFINDINGS-029 の項目のうち、どの指摘にも載る欄（状態・見直しの判定・却下の理由は、載せない指摘がある）。

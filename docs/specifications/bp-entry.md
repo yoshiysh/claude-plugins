@@ -202,9 +202,9 @@ Codex runner の経路で、callsite は request に次を書かなければな�
 | request の項目 | 書くもの |
 |---|---|
 | `limits.maxAgents` | 省略してはならない。値は runner が受ける上限の 1000 とする（native の run は上限を持たないので、上限の役目は runner に収めることだけである：SP-BPENTRY-015） |
-| `limits.timeoutMs` | 省略してはならない（runner の既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。値は公開前の本物の agent での試走の記録の最長の run の所要時間の 2 倍を時間の単位で切り上げた値とし、入口の操作のモジュールの定数（`docs/specifications/bp-run.md` の SP-BPRUN-031）にだけ置く。試走の記録が無い間は、旧 caller の先例の値を置く |
+| `limits.timeoutMs` | 省略してはならない（runner の既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。値は公開前の本物の agent での試走の記録の最長の run の所要時間の 2 倍を時間の単位で切り上げた値とし、入口の操作のモジュールの定数（`docs/specifications/bp-run.md` の SP-BPRUN-031）にだけ置く。試走は Claude Code の native Workflow でだけ記録できる（`docs/specifications/bp-run.md` の「検証方法」）ので、Codex runner の値も native の run の所要時間から決める（runner の上で同じ run がどれだけかかるかは測っていない）。試走の記録が無い間は、旧 caller の先例の値を置く |
 | `limits.concurrency` | SP-BPCONFORMANCE-027 の値（runner の既定の 2 に任せると、script の同時実行の定数が runner で絞られる） |
-| `limits.agentTimeoutMs` | 試走の記録の最長の 1 体の所要時間の 2 倍を、`limits.timeoutMs` と同じ定数にだけ置く。置くまでは省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
+| `limits.agentTimeoutMs` | 試走の記録の最長の 1 体の所要時間（native Workflow の run の記録の agent ごとの所要時間）の 2 倍を、`limits.timeoutMs` と同じ定数にだけ置く。置くまでは省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
 | `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（全ての `agent()` が model を明示する（SP-BPRUN-023）ので、対応が欠けると、runner はその名前を使う最初の `agent()` を dispatch する前に例外を投げ、run 全体が失敗する：`scripts/runtime/models.mjs` の 27〜28 行、runtime README の Explicit live execution の節）。`modelMap` の鍵は、SP-BPCONFORMANCE-035 の best-practices の役の表の `model` の列の名前の全てとする。値は、起動する host がその時の Codex の model を明示で選んで埋める（Codex の model の名前を本書群に書くと、Codex の版で黙って古くなる）。callsite は、値の欠けた `modelMap` で起動してはならない |
 | workspace の mode と `requirements` | 4 機能とも書き込みのできる mode にし、`requirements` にその mode に合う capability を宣言する。review・audit も運搬役が作業場所の状態を CLI で書く（SP-BPRUN-008）。runner の既定は読み取りだけで、`requirements` は run の作成前に照合される（runtime README の Explicit live execution の節）。host に `updatePolicy`・`updateContract` を書かない（SP-BPENTRY-024） |
 
