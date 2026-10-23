@@ -1,0 +1,9 @@
+{
+  "R1": { "function": "review", "target": "review-target", "expected": [] },
+  "R2": { "function": "review", "target": "review-target", "inject": "all", "baseline": "R1", "expected": ["review-target.expected.json", "expected/R2.json"] },
+  "R3": { "function": "review", "target": "update-target", "expected": ["expected/R3.json"] },
+  "R4": { "function": "review", "target": "review-target", "inject": ["SP-BPCONFORMANCE-027"], "expected": ["expected/R4.json"] },
+  "A1": { "function": "audit", "target": "audit-target", "expected": ["expected/A1.json"] },
+  "C1": { "function": "create", "request": "create-request.md", "skill": "lint-zero", "expected": ["expected/C1.json"] },
+  "U1": { "function": "update", "target": "update-target", "grounds": "update-grounds.json", "from": "R3", "expected": ["expected/U1.json"] }
+}

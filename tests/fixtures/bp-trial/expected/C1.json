@@ -1,0 +1,363 @@
+{
+  "rows": [
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-007",
+      "spec": "SP-BPAUTHORING-012",
+      "method": "fixture の run（1 回で解ける課題の依頼文で、設計の説明の Q3 の答えが「いいえ」になり、適合の観点で SP-BPCONFORMANCE-005 の指摘が出ない）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "設計の説明の Q3 の答えが「いいえ」になり",
+          "by": "field",
+          "path": "designNote.text",
+          "test": "matches",
+          "value": "Q3[^\\n]*?[:：]\\s*いいえ"
+        },
+        {
+          "clause": "適合の観点で SP-BPCONFORMANCE-005 の指摘が出ない",
+          "by": "findings",
+          "match": {
+            "viewpoint": "conformance",
+            "kind": "SP-BPCONFORMANCE-005",
+            "state": "any"
+          },
+          "max": 0
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-008",
+      "spec": "SP-BPAUTHORING-012",
+      "method": "fixture の run（設計の説明に問いの答え・重い形を強いた事実・段ごとの部品の名前がある）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "設計の説明に問いの答え",
+          "by": "field",
+          "path": "designNote.text",
+          "test": "matches",
+          "value": "A[^\\n]*?[:：][\\s\\S]*Q1[^\\n]*?[:：][\\s\\S]*Q2[^\\n]*?[:：][\\s\\S]*Q3[^\\n]*?[:：]"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "重い形を強いた事実",
+          "reason": "題材の依頼はターンごとの指揮に着き、重い形を持たない（ターンごとの指揮の SP-BPCONFORMANCE-006 は強いられた未検査）"
+        },
+        {
+          "clause": "段ごとの部品の名前がある",
+          "reason": "題材の依頼はターンごとの指揮に着き、段と部品を持たない（SP-BPCONFORMANCE-008 が当たらない）"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-008",
+      "spec": "SP-BPAUTHORING-017",
+      "method": "fixture の run（当たる判定の単位の全てに結果が付き、不適合の単位に候補の鍵が添う。結果の中に無い鍵を添えた結果が拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "当たる判定の単位の全てに結果が付き",
+          "by": "units",
+          "match": {
+            "unitPrefix": "SP-BPCONFORMANCE-"
+          },
+          "results": [
+            "conform",
+            "nonconform",
+            "na",
+            "unchecked"
+          ],
+          "min": 1
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "不適合の単位に候補の鍵が添う",
+          "reason": "合格した run では不適合の単位が無く、鍵の有無を読めない（模擬実行のテストが測る）"
+        },
+        {
+          "clause": "結果の中に無い鍵を添えた結果が拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る",
+          "reason": "本物の検証役に誤った結果を強いられない（模擬実行のテストが測る）"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-014",
+      "spec": "SP-BPAUTHORING-032",
+      "method": "fixture の run（create の完了の返り値に検証の結果の全項目がある）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "create の完了の返り値に検証の結果の全項目がある",
+          "by": "field",
+          "path": "verification",
+          "test": "keys",
+          "value": [
+            "decision",
+            "iterations",
+            "units",
+            "forcedUnchecked",
+            "basisConstraints",
+            "ledger"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-014",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（create の完了の返り値に、パスと指紋の一覧、設計の説明の場所と逐語の本文がある）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "パスと指紋の一覧",
+          "by": "field",
+          "path": "skill.files",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "パスと指紋の一覧",
+          "by": "field",
+          "path": "skill.files",
+          "test": "every",
+          "value": [
+            "path",
+            "digest"
+          ]
+        },
+        {
+          "clause": "設計の説明の場所と逐語の本文",
+          "by": "field",
+          "path": "designNote",
+          "test": "keys",
+          "value": [
+            "path",
+            "heading",
+            "text"
+          ]
+        },
+        {
+          "clause": "設計の説明の場所と逐語の本文",
+          "by": "field",
+          "path": "designNote.text",
+          "test": "nonEmpty"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-045",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（完了の返り値に指摘ごとの状態が載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "完了の返り値に指摘ごとの状態が載る",
+          "by": "field",
+          "path": "findings",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "完了の返り値に指摘ごとの状態が載る",
+          "by": "field",
+          "path": "findings",
+          "test": "every",
+          "value": [
+            "state"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-046",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（完了の返り値に観点ごとの skip 一覧が載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip.0.viewpoint",
+          "test": "equals",
+          "value": "conformance"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip.1.viewpoint",
+          "test": "equals",
+          "value": "goal"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip",
+          "test": "every",
+          "value": [
+            "viewpoint",
+            "assets"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPDESIGNEDSKILL-001",
+      "spec": "SP-BPAUTHORING-012",
+      "method": "fixture の run（設計の説明に A・Q1・Q2・Q3 の答えが順に、到達した形まで載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "設計の説明に A・Q1・Q2・Q3 の答えが順に、到達した形まで載る",
+          "by": "field",
+          "path": "designNote.text",
+          "test": "matches",
+          "value": "A[^\\n]*?[:：][\\s\\S]*Q1[^\\n]*?[:：][\\s\\S]*Q2[^\\n]*?[:：][\\s\\S]*Q3[^\\n]*?[:：]"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-008",
+      "spec": "SP-BPAUTHORING-038",
+      "method": "fixture の run（判定基準が求める制約だけを持ち依頼文に無い対象スキルで、「依頼に無い目標・制約」の指摘が出ず、基準が求めた制約に仕様項目 ID が載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "「依頼に無い目標・制約」の指摘が出ず",
+          "by": "findings",
+          "match": {
+            "viewpoint": "goal",
+            "kind": "依頼に無い目標・制約",
+            "state": "any"
+          },
+          "max": 0
+        },
+        {
+          "clause": "基準が求めた制約に仕様項目 ID が載る",
+          "by": "field",
+          "path": "verification.basisConstraints",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "基準が求めた制約に仕様項目 ID が載る",
+          "by": "field",
+          "path": "verification.basisConstraints",
+          "test": "every",
+          "value": [
+            "asset",
+            "sp"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-014",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（create の完了の返り値に作ったスキルのディレクトリのパスがある）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "create の完了の返り値に作ったスキルのディレクトリのパスがある",
+          "by": "field",
+          "path": "skill.root",
+          "test": "matches",
+          "value": "/\\.agents/skills/lint-zero$"
+        }
+      ]
+    },
+    {
+      "file": "bp-conformance.md",
+      "req": "PR-BPOPERATIONS-003",
+      "spec": "SP-BPCONFORMANCE-010",
+      "method": "create の目標の固定に「目標の固定」の行を当てた判定の結果を照合",
+      "checks": [
+        {
+          "clause": "create",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "create の目標の固定に「目標の固定」の行を当てた判定の結果を照合",
+          "by": "units",
+          "match": {
+            "unitPrefix": "SP-BPCONFORMANCE-010/目標の固定/"
+          },
+          "results": [
+            "conform",
+            "nonconform"
+          ],
+          "min": 1
+        }
+      ]
+    },
+    {
+      "file": "bp-conformance.md",
+      "req": "PR-BPOPERATIONS-007",
+      "spec": "SP-BPCONFORMANCE-005",
+      "method": "fixture（1 回で解ける課題）で Q3 が「いいえ」になることを照合",
+      "checks": [
+        {
+          "clause": "fixture",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "Q3 が「いいえ」になることを照合",
+          "by": "field",
+          "path": "designNote.text",
+          "test": "matches",
+          "value": "Q3[^\\n]*?[:：]\\s*いいえ"
+        }
+      ]
+    }
+  ]
+}

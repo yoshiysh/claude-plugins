@@ -1,0 +1,60 @@
+{
+  "rows": [
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPINSPECTION-025",
+      "method": "fixture（ターンごとの指揮の対象スキルで、PR-BPDESIGNEDSKILL-002 の単位が SP-BPCONFORMANCE-006 を理由に未検査の観点に載ることを確認）",
+      "checks": [
+        {
+          "clause": "fixture（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "ターンごとの指揮の対象スキル",
+          "by": "row",
+          "row": 2
+        },
+        {
+          "clause": "PR-BPDESIGNEDSKILL-002 の単位が SP-BPCONFORMANCE-006 を理由に未検査の観点に載る",
+          "by": "unchecked",
+          "match": {
+            "viewpoint": "flow",
+            "scope": "unit",
+            "value": "SP-BPCONFORMANCE-006",
+            "reason": "SP-BPCONFORMANCE-006"
+          },
+          "min": 1
+        }
+      ]
+    },
+    {
+      "file": "bp-conformance.md",
+      "req": "PR-BPDESIGNEDSKILL-003",
+      "spec": "SP-BPCONFORMANCE-007",
+      "method": "fixture（ターンごとの指揮で script を持つもの）で不適合を照合",
+      "checks": [
+        {
+          "clause": "fixture（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "ターンごとの指揮で script を持つもの",
+          "by": "row",
+          "row": 2
+        },
+        {
+          "clause": "不適合を照合",
+          "by": "findings",
+          "match": {
+            "viewpoint": "flow",
+            "kind": "SP-BPCONFORMANCE-007"
+          },
+          "min": 1
+        }
+      ]
+    }
+  ]
+}

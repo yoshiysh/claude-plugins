@@ -290,7 +290,7 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 |---|---|---|
 | PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | 無し（形ごとの正例・負例を要し、1 回の review は 1 つの形しか見ない） |
 | PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | review の試走（答えだけで事実の無い設計の説明を仕込む） |
-| PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | update の試走（題材をターンごとの指揮で script を持つ形にする） |
+| PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | ターンごとの指揮の題材の review の試走（題材は script を持つ。同じ題材の update の試走の前に走らせ、update はその指摘を修正の根拠に受ける。update が script を消した後の題材では不適合を作れない） |
 | PR-BPDESIGNEDSKILL-004 | SP-BPCONFORMANCE-008 | review の試走（部品名の無い段を仕込む） |
 | PR-BPDESIGNEDSKILL-005 | SP-BPCONFORMANCE-009 | 無し（資産台帳の無い対象スキルを要し、review の試走の題材は台帳を持つ） |
 | PR-BPDESIGNEDSKILL-018 | SP-BPCONFORMANCE-009 | 無し（fan-out の無い対象スキルを要し、review の試走の題材は fan-out を持つ） |
