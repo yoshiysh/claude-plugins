@@ -845,7 +845,10 @@ test('SP-BPCONFORMANCE-016: 試走の題材の CLI は、1 回の書き込みの
   call('goal', { ...next, goal: '{"goal":"second"}', origin: 'o2', scope: ['src'] });
   assert.deepEqual(logOf(dir, base.state).filter((x) => x.t === 'premise').map((x) => [x.id, x.text]), [['P1', '{"goal":"second"}'], ['P2', 'o2']]);
   assert.equal(call('claim', { ...next, round: 1, facts: ['P1'], numeric: [] }).goal, '{"goal":"second"}');
-  for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) assert.ok(Array.isArray(JSON.parse(line)));
+  const batches = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.ok(batches.every(Array.isArray));
+  assert.equal(batches.filter((b) => b.some((x) => x.t === 'premise')).length, 1);
+  assert.ok(batches.some((b) => ['premise', 'asset', 'ledger'].every((t) => b.some((x) => x.t === t))), '目標の書き込みが 1 行にそろわない');
 });
 
 test('SP-BPCONFORMANCE-016: 試走の題材は、判定の食い違いで止まった状態を再開すると、計画役の確かめ直しの意図の検証役の判定で食い違いを解き、同じ食い違いで止まり続けない', async (t) => {
