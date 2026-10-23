@@ -1137,3 +1137,22 @@ test('SP-BPCONFORMANCE-015: 試走の題材の写しは、外の中身を写す�
   assert.deepEqual(made.dropped, ['out-dir/pipe']);
   assert.equal(exec({ repo: src, to, command: 1 }).stdout, 'x\n');
 });
+
+test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、値を省略できる引数（-U・--unified・--pretty）の次の引数を値と読まずにパスとして照らし、値を取る引数の値・grep のパターン・-- の後ろを git と同じに読む', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-secret-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  mkdirSync(path.join(outside, 'sub'));
+  const secret = path.join(outside, 'secret.txt');
+  writeFileSync(secret, 'SECRET\n');
+  const src = await dirtyRepo(t, (d) => symlinkSync(path.join(outside, 'sub'), path.join(d, 'lnk')));
+  const up = path.relative(src, secret);
+  for (const [sub, args] of [['diff', ['-U', secret, 'a.txt']], ['diff', ['--unified', secret, 'a.txt']], ['diff', ['-U', up, 'a.txt']], ['diff', ['-pU', up, 'a.txt']], ['diff', ['-U', 'lnk/../secret.txt', 'a.txt']], ['show', ['--pretty', up]], ['log', ['--pretty', up]], ['log', ['-U', up]],
+    ['diff', ['--diff-filter=M', up, 'a.txt']], ['diff', ['-SOld', up, 'a.txt']], ['grep', ['--', up]], ['grep', ['-ne', 'SECRET', up]], ['grep', ['-e', 'SECRET', '--untracked', up]]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外のパス/, `${sub} ${args.join(' ')}`);
+  }
+  for (const [sub, args] of [['diff', ['-U5', 'HEAD']], ['diff', ['--unified=1', 'HEAD']], ['diff', ['-pU0', 'HEAD']], ['diff', ['-M50%', 'HEAD']], ['log', ['-C', '--stat']], ['log', ['--pretty=oneline']], ['log', ['--format=%H %s', '--date=iso']], ['show', ['--pretty=%s', 'HEAD']],
+    ['log', ['-i', '--grep', 'C']], ['log', ['-E', '--grep', 'c|d']], ['log', ['--author', 't', '--since', '2.weeks', '-n', '1']], ['log', ['--max-count', '1', '--skip', '0']], ['blame', ['--date', 'iso', 'a.txt']], ['ls-files', ['--exclude', '*.txt', '-o', '-i']], ['grep', ['--max-depth', '1', 'committed']],
+    ['log', ['--', '../存在しないパス']]]) {
+    assert.equal(typeof gitRead(sub, { repo: src, args }).code, 'number', `${sub} ${args.join(' ')}`);
+  }
+});

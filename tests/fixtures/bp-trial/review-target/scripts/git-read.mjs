@@ -8,18 +8,21 @@ import { fileURLToPath } from 'node:url';
 
 const DIFF_FLAGS = ['--patch', '--no-patch', '--raw', '--stat', '--numstat', '--shortstat', '--summary', '--name-only', '--name-status', '--text',
   '--ignore-all-space', '--ignore-space-change', '--ignore-blank-lines', '--no-renames', '--full-index', '--word-diff', '--minimal', '--patience',
-  '--histogram', '--abbrev', '--no-abbrev', '--color', '--no-color', '--find-renames', '--find-copies'];
-const DIFF_VALUED = ['--unified', '--diff-filter'];
+  '--histogram', '--abbrev', '--no-abbrev', '--color', '--no-color', '--find-renames', '--find-copies', '--unified'];
+const DIFF_VALUED = ['--diff-filter'];
 const LOG_FLAGS = ['--oneline', '--graph', '--all', '--branches', '--tags', '--decorate', '--no-decorate', '--no-merges', '--merges', '--first-parent',
-  '--reverse', '--follow', '--full-history', '--date-order', '--topo-order', '--left-right', '--boundary', '--source', '--regexp-ignore-case', '--all-match'];
-const LOG_VALUED = ['--max-count', '--skip', '--since', '--after', '--until', '--before', '--author', '--committer', '--grep', '--format', '--pretty', '--date'];
+  '--reverse', '--follow', '--full-history', '--date-order', '--topo-order', '--left-right', '--boundary', '--source', '--regexp-ignore-case', '--all-match',
+  '--extended-regexp', '--fixed-strings', '--format', '--pretty'];
+const LOG_VALUED = ['--max-count', '--skip', '--since', '--after', '--until', '--before', '--author', '--committer', '--grep', '--date'];
 // 長い引数は名前の正確な一致だけを受け付ける（git は省略形も受け付けるが、ここでは省略形を一覧の外として拒否する）。
-// 値を取る長い引数は --name=値 か、次の引数を値として読む。値は位置の引数として照らさない。
-// 短い引数はまとめて書けるので 1 文字ずつ読む。value は次の文字以降か次の引数を値として取り、attached は続く文字だけを値として取る（-M50% など）。
+// flags は値を取らないか、--name=値 の形でだけ値を取る（--unified・--format・--pretty・--stat など。git は次の引数を値に読まない）。
+// valued は --name=値 か、次の引数を値として読む（git が次の引数を値に読むものだけ）。値は位置の引数として照らさない。
+// 短い引数はまとめて書けるので 1 文字ずつ読む。value は次の文字以降か次の引数を値として取り、attached は続く文字だけを値として取る
+// （値を省略できる -U・-M・-C・-B。-U の次の引数を値と読むと、git がパスとして読む引数を照らさずに通してしまう）。
 const GRAMMAR = {
-  log: { flags: [...DIFF_FLAGS, ...LOG_FLAGS], valued: [...DIFF_VALUED, ...LOG_VALUED], short: 'puswbRaz', value: 'nUSGL', attached: 'MC', count: true },
-  show: { flags: [...DIFF_FLAGS, '--oneline'], valued: [...DIFF_VALUED, '--format', '--pretty', '--date'], short: 'puswbRaz', value: 'USG', attached: 'MC' },
-  diff: { flags: [...DIFF_FLAGS, '--cached', '--staged'], valued: DIFF_VALUED, short: 'puswbRaz', value: 'USG', attached: 'MCB' },
+  log: { flags: [...DIFF_FLAGS, ...LOG_FLAGS], valued: [...DIFF_VALUED, ...LOG_VALUED], short: 'puswbRaziEF', value: 'nSGL', attached: 'UMC', count: true },
+  show: { flags: [...DIFF_FLAGS, '--oneline', '--format', '--pretty'], valued: [...DIFF_VALUED, '--date'], short: 'puswbRaz', value: 'SG', attached: 'UMC' },
+  diff: { flags: [...DIFF_FLAGS, '--cached', '--staged'], valued: DIFF_VALUED, short: 'puswbRaz', value: 'SG', attached: 'UMCB' },
   blame: { flags: ['--porcelain', '--line-porcelain', '--root', '--show-email', '--show-name', '--show-number'], valued: ['--date'], short: 'wesltfnpc', value: 'L', attached: 'MC' },
   'ls-files': { flags: ['--cached', '--deleted', '--modified', '--others', '--ignored', '--stage', '--unmerged', '--killed', '--directory', '--no-empty-directory', '--exclude-standard', '--full-name', '--error-unmatch'],
     valued: ['--exclude'], short: 'cdmoisukzt', value: 'x', attached: '' },
