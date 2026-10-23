@@ -6,18 +6,17 @@ import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { flowUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { applicability, forcedReason, forcedSources } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
-import { RECORDS_DIR, RUNS_FILE, TRIAL_DIR, fingerprint, readRuns, sameFingerprint } from './bp-trial.mjs';
+import {
+  EVAL_FUNCTION, EXPECTED_FILE, RECORDS_DIR, RUNS_FILE, TRIAL_DIR, applyInjections, belongs, expectedSource, fingerprint, injectUnits, readRuns, sameFingerprint, sourceProblems,
+} from './bp-trial.mjs';
+
+export { EXPECTED_FILE, belongs, injectUnits };
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CRITERIA = path.join(REPO_ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', CRITERIA_DIR);
 export const FIXTURE_DIR = path.join(REPO_ROOT, 'tests', 'fixtures', 'bp-trial', 'review-target');
-export const EXPECTED_FILE = path.join(REPO_ROOT, 'tests', 'fixtures', 'bp-trial', 'review-target.expected.json');
 export const MEASURES = Object.freeze({ injection: 'injection', forced: 'forced', whole: 'whole', none: 'none' });
 const EXIT = Object.freeze({ ok: 0, usage: 2 });
-
-export function belongs(unit, sp) {
-  return unit === sp || unit.startsWith(`${sp}/`);
-}
 
 // 仕込む単位は人が選ばず、種と仕様項目から決める（選ばなかった単位は確かめていないと宣言する）。
 export function pick(seed, sp, candidates) {
@@ -49,23 +48,6 @@ export function forcedReasons(criteriaDir, row) {
 export function inject(expected, outDir, fixtureDir = FIXTURE_DIR) {
   cpSync(fixtureDir, outDir, { recursive: true });
   applyInjections(expected.injections, outDir);
-}
-
-// 単独の仕込みの run は、全ての仕込みと同じ正解表から仕様項目で選ぶ（置き換えの文字列を 2 箇所に書かない）。
-export function injectUnits(dir, sps, expected = json(EXPECTED_FILE)) {
-  const chosen = sps === null ? expected.injections : expected.injections.filter((i) => sps.some((sp) => belongs(i.unit, sp)));
-  if (sps !== null && sps.some((sp) => !chosen.some((i) => belongs(i.unit, sp)))) throw new Error(`正解表に仕込みが無い仕様項目がある: ${sps.join(', ')}`);
-  applyInjections(chosen, dir);
-}
-
-function applyInjections(injections, outDir) {
-  for (const i of injections) {
-    const file = path.join(outDir, i.file);
-    const text = readFileSync(file, 'utf8');
-    const at = text.indexOf(i.from);
-    if (at < 0 || text.indexOf(i.from, at + 1) >= 0) throw new Error(`置き換え元がちょうど 1 回現れない: ${i.file} ${JSON.stringify(i.from)}`);
-    writeFileSync(file, text.slice(0, at) + i.to + text.slice(at + i.from.length));
-  }
 }
 
 function describe(f) {
@@ -253,24 +235,27 @@ function loadRecords(dir) {
   return Object.fromEntries(readdirSync(dir).filter((n) => n.endsWith('.json')).map((n) => [n.slice(0, -'.json'.length), json(path.join(dir, n))]));
 }
 
-function recordProblems(name, rec, current, def) {
+function recordProblems(name, rec, current, runs, records) {
+  const def = runs[name];
   if (!rec) return [`${name} の記録が無い`];
   if (rec.function !== def.function) return [`${name} の記録の機能 ${rec.function} が ${def.function} と違う`];
   if (!sameFingerprint(rec.fingerprint, current)) return [`${name} の記録の指紋が今の script・CLI・prompt-audit・判定基準の写しと違う（走らせ直すまで完了にしない）`];
-  return [];
+  if (def.from && !records[def.from]) return [`${name} が参照する ${def.from} の記録が無い`];
+  return sourceProblems(rec.source, expectedSource(name, runs, def.from ? records[def.from].state : null)).map((p) => `${name}: ${p}`);
 }
 
 // 行ごとの判定。記録が無い・古い・崩れた run の行と、測れない句を持つ行は作成中にする。同じ行を 2 つの run が測るときは、どちらかの完了で足りる。
-export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FILE), current = fingerprint(), specsDir = SPECS, trialDir = TRIAL_DIR } = {}) {
+export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FILE), current, specsDir = SPECS, trialDir = TRIAL_DIR } = {}) {
+  const now = (def) => current ?? fingerprint(undefined, { entry: def.function === EVAL_FUNCTION });
   const records = loadRecords(recordsDir);
   const out = [];
   for (const [name, def] of Object.entries(runs)) {
     const rec = records[name] ?? null;
-    const problems = recordProblems(name, rec, current, def);
+    const problems = recordProblems(name, rec, now(def), runs, records);
     let injected = null;
     if (def.baseline) {
       const base = records[def.baseline] ?? null;
-      problems.push(...recordProblems(def.baseline, base, current, runs[def.baseline]));
+      problems.push(...recordProblems(def.baseline, base, now(runs[def.baseline]), runs, records));
       if (rec && base) injected = read({ baseline: base.result, injected: rec.result, expected: json(path.join(trialDir, def.expected[0])) });
     }
     for (const file of def.expected) {

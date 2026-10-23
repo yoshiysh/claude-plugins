@@ -39,8 +39,12 @@ export function treatedGroundIds(view) {
   return view.grounds.filter((g) => isTreatedGround(g.ground)).map((g) => g.id);
 }
 
+const KEY_BYTES = 8;
+// key の操作が出す形。試走の記録は、この形の key で始めた run（callsite が CLI から key を得た run）だけを受ける。
+export const ISSUED_KEY = new RegExp(`^k-[0-9a-f]{${KEY_BYTES * 2}}$`);
+
 export async function key() {
-  return { key: `k-${randomBytes(8).toString('hex')}` };
+  return { key: `k-${randomBytes(KEY_BYTES).toString('hex')}` };
 }
 
 export async function paths(ctx, req) {

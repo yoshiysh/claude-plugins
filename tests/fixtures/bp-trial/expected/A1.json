@@ -53,6 +53,10 @@
           "kind": "complete"
         },
         {
+          "clause": "上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず",
+          "by": "coverage"
+        },
+        {
           "clause": "PA-3 の指摘が出ず",
           "by": "findings",
           "match": {
@@ -83,6 +87,10 @@
           "clause": "fixture（",
           "by": "stop",
           "kind": "complete"
+        },
+        {
+          "clause": "モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず",
+          "by": "coverage"
         },
         {
           "clause": "PA-4 の鮮度の指摘が出ず",

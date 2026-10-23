@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { SKILL_DIR, checkWorktree, criteriaBody, fingerprint, launchesOf, sameFingerprint } from '../tools/bp-trial.mjs';
+import { SKILL_DIR, checkWorktree, criteriaBody, expectedSource, fingerprint, launchesOf, sameFingerprint } from '../tools/bp-trial.mjs';
 import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -23,20 +23,23 @@ async function edit(file, from, to) {
   await fs.writeFile(file, text.replace(from, to));
 }
 
-test('検証方法: 判定基準の写しのトレーサビリティ表のステータス・検証方法の 1 文・TBD の行・入口の操作のモジュールを変えても、script を workflows/ へ移しても、試走の記録の指紋は変わらない', async (t) => {
+test('検証方法: 判定基準の写しのトレーサビリティ表のステータスの列・入口の操作のモジュール・入口の SKILL.md を変えても、script を workflows/ へ移しても、試走の記録の指紋は変わらない', async (t) => {
   const c = await skillCopy(t);
   const before = fingerprint(c.skill);
   await edit(c.conformance, '| 完了 |', '| 作成中 |');
-  await edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:');
-  await edit(c.conformance, '| TBD-SBPCONFORMANCE-', '| TBD-SBPCONFORMANCEX-');
   await edit(path.join(c.skill, 'scripts', 'bp', 'ops-entry.mjs'), 'timeoutMs: 3_600_000', 'timeoutMs: 7_200_000');
+  await edit(path.join(c.skill, 'SKILL.md'), '---', '---\n');
   await fs.mkdir(path.join(c.plugin, 'workflows'));
   for (const f of ['bp_author.js', 'bp_inspect.js']) await fs.rename(path.join(c.skill, 'scripts', f), path.join(c.plugin, 'workflows', f));
   assert.ok(sameFingerprint(fingerprint(c.skill), before));
 });
 
-test('検証方法: 判定基準の写しの規範の文・script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
+// CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作り、検証役は写しの全文（検証方法・TBD の保持規則を含む）を読むので、ステータスの列のほかは全て指紋に入れる。
+test('検証方法: トレーサビリティ表の仕様項目 ID の列・検証方法の 1 文・TBD の保持規則・規範の文・script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
   const changes = [
+    (c) => edit(c.conformance, '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 |', '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-007 |'),
+    (c) => edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:'),
+    (c) => edit(c.conformance, '| TBD-SBPCONFORMANCE-005 |', '| TBD-SBPCONFORMANCE-005 | x'),
     (c) => edit(c.conformance, '3 体以下でなければならない', '4 体以下でなければならない'),
     (c) => edit(path.join(c.skill, 'scripts', 'bp_author.js'), "const PAYLOAD_MODE = 'file'", "const PAYLOAD_MODE = 'inline'"),
     (c) => edit(path.join(c.skill, 'scripts', 'bp', 'ops-run.mjs'), 'export function nextArgs(view) {', 'export function nextArgs(view)  {'),
@@ -48,7 +51,17 @@ test('検証方法: 判定基準の写しの規範の文・script・run の中�
     await change(c);
     assert.ok(!sameFingerprint(fingerprint(c.skill), before), change.toString());
   }
-  assert.equal(criteriaBody('# x\n本文\n## トレーサビリティ表\n| a |\n## 機能仕様\n規範\n'), '# x\n本文\n## 機能仕様\n規範\n');
+  assert.equal(criteriaBody('# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | 完了 |\n## 次\n| a | b | c | d |\n'),
+    '# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | |\n|---|---|---|---|\n| PR-1 | SP-1 | m | |\n## 次\n| a | b | c | d |\n');
+});
+
+test('検証方法: 振り分けの eval の記録の指紋だけが入口の SKILL.md を含む', async (t) => {
+  const c = await skillCopy(t);
+  const trial = fingerprint(c.skill);
+  const entry = fingerprint(c.skill, { entry: true });
+  await edit(path.join(c.skill, 'SKILL.md'), '---', '---\n');
+  assert.ok(sameFingerprint(fingerprint(c.skill), trial));
+  assert.ok(!sameFingerprint(fingerprint(c.skill, { entry: true }), entry));
 });
 
 const A1_RESULT = {
@@ -60,6 +73,13 @@ const A1_RESULT = {
     { viewpoint: 'audit', scope: 'pa', value: 'PA-4', reason: 'y', run: 'r1' },
   ],
 };
+
+const ISSUED = 'k-0123456789abcdef';
+
+// prepare が CLI の key で始めた、runs.json どおりの題材の run の出所（本物の試走の記録が持つもの）。
+function sourceFor(name) {
+  return { key: ISSUED, ...expectedSource(name) };
+}
 
 async function records(t, map) {
   const dir = await tmp(t, 'bp-records-');
@@ -73,16 +93,16 @@ function keysOf(rows, run) {
 
 test('検証方法: 今の指紋の記録で全ての句が当たった行だけが確かめた行の集合に入り、記録が無いか指紋の古い記録の行は入らない', async (t) => {
   const current = fingerprint();
-  const fresh = await records(t, { A1: { run: 'A1', function: 'audit', result: A1_RESULT, fingerprint: current } });
+  const fresh = await records(t, { A1: { run: 'A1', function: 'audit', source: sourceFor('A1'), result: A1_RESULT, fingerprint: current } });
   const rows = readRecords({ recordsDir: fresh, current });
   const a1 = keysOf(rows, 'A1');
   assert.equal(a1.length, 3);
   assert.deepEqual([...confirmedKeys(rows)].sort(), [...a1].sort());
-  const stale = await records(t, { A1: { run: 'A1', function: 'audit', result: A1_RESULT, fingerprint: { ...current, promptAudit: '0'.repeat(64) } } });
+  const stale = await records(t, { A1: { run: 'A1', function: 'audit', source: sourceFor('A1'), result: A1_RESULT, fingerprint: { ...current, promptAudit: '0'.repeat(64) } } });
   assert.equal(confirmedKeys(readRecords({ recordsDir: stale, current })).size, 0);
   assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, {}), current })).size, 0);
   const missed = { ...A1_RESULT, uncheckedViewpoints: A1_RESULT.uncheckedViewpoints.slice(0, 1) };
-  const partial = await records(t, { A1: { run: 'A1', function: 'audit', result: missed, fingerprint: current } });
+  const partial = await records(t, { A1: { run: 'A1', function: 'audit', source: sourceFor('A1'), result: missed, fingerprint: current } });
   assert.equal(confirmedKeys(readRecords({ recordsDir: partial, current })).size, 2);
 });
 
@@ -92,7 +112,7 @@ test('検証方法: 同じ要求 ID と仕様項目 ID を持つ 2 行は検証�
   const pair = traceRows(A).filter((r) => r.req === 'PR-BPOPERATIONS-014' && r.spec === 'SP-BPAUTHORING-033');
   assert.equal(pair.length, 2);
   const result = { stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } };
-  const dir = await records(t, { C1: { run: 'C1', function: 'create', result, fingerprint: current } });
+  const dir = await records(t, { C1: { run: 'C1', function: 'create', source: sourceFor('C1'), result, fingerprint: current } });
   const confirmed = confirmedKeys(readRecords({ recordsDir: dir, current }));
   const [path583] = pair.filter((r) => r.method.includes('作ったスキルのディレクトリのパスがある'));
   const [path541] = pair.filter((r) => r.method.includes('設計の説明の場所と逐語の本文'));
@@ -100,10 +120,35 @@ test('検証方法: 同じ要求 ID と仕様項目 ID を持つ 2 行は検証�
   assert.ok(!confirmed.has(rowKey(path541)));
 });
 
+test('検証方法: prepare の key で始めていない run・runs.json と違う依頼文・違う題材・仕込みの違う題材・出所の無い記録は、句が全て当たっても確かめた行にしない', async (t) => {
+  const current = fingerprint();
+  const a1 = (source) => ({ A1: { run: 'A1', function: 'audit', source, result: A1_RESULT, fingerprint: current } });
+  const c1 = (source) => ({ C1: { run: 'C1', function: 'create', source, result: { stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } }, fingerprint: current } });
+  const good = sourceFor('A1');
+  const otherFile = Object.keys(good.files)[0];
+  const bad = [
+    a1({ ...good, key: 'k-123-4-567' }),
+    a1(undefined),
+    a1({ ...good, files: { ...good.files, [otherFile]: '0'.repeat(64) } }),
+    a1({ ...good, files: { ...good.files, 'extra.md': '0'.repeat(64) } }),
+    c1({ ...sourceFor('C1'), request: 'x' }),
+  ];
+  for (const map of bad) assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, map), current })).size, 0, JSON.stringify(Object.values(map)[0].source)?.slice(0, 80));
+  const r3 = { run: 'R3', function: 'review', state: 'bp-r3', source: sourceFor('R3'), result: { stopKind: 'complete' }, fingerprint: current };
+  const u1 = (grounds) => ({ R3: r3, U1: { run: 'U1', function: 'update', source: { ...sourceFor('U1'), grounds }, result: { stopKind: 'complete' }, fingerprint: current } });
+  const notes = async (map) => readRecords({ recordsDir: await records(t, map), current }).filter((r) => r.run === 'U1').flatMap((r) => r.notes);
+  const expected = expectedSource('U1', undefined, 'bp-r3').grounds;
+  assert.deepEqual(await notes(u1({ instructions: expected.instructions, from: ['bp-r3'] })), []);
+  assert.ok((await notes(u1({ instructions: expected.instructions.slice(1), from: ['bp-r3'] }))).some((n) => /利用者の指示/.test(n)));
+  assert.ok((await notes(u1({ instructions: expected.instructions, from: ['bp-other'] }))).some((n) => /参照の形/.test(n)));
+  assert.notDeepEqual(expectedSource('R4').files, expectedSource('R1').files);
+  assert.notDeepEqual(expectedSource('R2').files, expectedSource('R4').files);
+});
+
 test('検証方法: R2 の行は基準の run の記録が無ければ、仕込んだ版の記録があっても確かめた行にしない', async (t) => {
   const current = fingerprint();
   const injected = { stopKind: 'complete', findings: [], uncheckedViewpoints: [], applicability: { row: 15 } };
-  const dir = await records(t, { R2: { run: 'R2', function: 'review', result: injected, fingerprint: current } });
+  const dir = await records(t, { R2: { run: 'R2', function: 'review', source: sourceFor('R2'), result: injected, fingerprint: current } });
   const rows = readRecords({ recordsDir: dir, current }).filter((r) => r.run === 'R2');
   assert.ok(rows.length > 0);
   assert.ok(rows.every((r) => r.status === '作成中'));

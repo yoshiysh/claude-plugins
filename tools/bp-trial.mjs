@@ -13,7 +13,7 @@ import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-prac
 import { conformanceTable } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
 import { resolveStateRoot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/workspace.mjs';
-import { injectUnits } from './read-bp-trial.mjs';
+import { ISSUED_KEY } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-author.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL_REL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
@@ -21,12 +21,16 @@ export const SKILL_DIR = path.join(REPO_ROOT, SKILL_REL);
 export const TRIAL_DIR = path.join(REPO_ROOT, 'tests', 'fixtures', 'bp-trial');
 export const RUNS_FILE = path.join(TRIAL_DIR, 'runs.json');
 export const RECORDS_DIR = path.join(TRIAL_DIR, 'records');
+export const EXPECTED_FILE = path.join(TRIAL_DIR, 'review-target.expected.json');
 const WORK_DIR_NAME = '.bp-trial';
+// 振り分けの eval の run の機能の名前。eval の記録の指紋だけが入口の SKILL.md を含む。
+export const EVAL_FUNCTION = 'eval';
 const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
-// run の中の agent の判定に使わない章。ステータス・検証方法・TBD の書き戻しのたびに記録が古くなると、行を完了にした瞬間にその証拠が無効になる。
-export const UNFINGERPRINTED_CHAPTERS = Object.freeze(CRITERIA_CHAPTERS.others.filter((c) => ['トレーサビリティ表', '検証方法', 'TBD の宣言'].includes(c)));
-if (UNFINGERPRINTED_CHAPTERS.length !== 3) throw new Error('指紋から除く章が判定基準の章の閉集合に無い');
+// 検証役は写しの全文を読み、CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作るので、どちらも run の判定に使う。
+// 指紋から除くのは、トレーサビリティ表のステータスの列だけ（試走の記録からステータスを書き換えるたびに、その証拠の記録を古くしないため）。
+const TRACE_CHAPTER = CRITERIA_CHAPTERS.others.find((c) => c === 'トレーサビリティ表');
+if (!TRACE_CHAPTER) throw new Error('トレーサビリティ表の章が判定基準の章の閉集合に無い');
 // 入口の操作のモジュールは run の中の script から呼ばれない（script の操作の写しは OPS だけを持つ）。runner の request の実測値を書き戻しても記録を古くしない。
 const UNFINGERPRINTED_CLI = Object.freeze(['ops-entry.mjs']);
 
@@ -35,14 +39,15 @@ function sha(text) {
 }
 
 export function criteriaBody(text) {
-  const out = [];
-  let skip = false;
-  for (const line of text.split('\n')) {
+  let trace = false;
+  return text.split('\n').map((line) => {
     const h2 = /^## (.+?)\s*$/.exec(line);
-    if (h2) skip = UNFINGERPRINTED_CHAPTERS.includes(h2[1]);
-    if (!skip) out.push(line);
-  }
-  return out.join('\n');
+    if (h2) trace = h2[1] === TRACE_CHAPTER;
+    if (!trace || !/^\|.*\|\s*$/.test(line) || /^\|[\s:|-]+\|\s*$/.test(line)) return line;
+    const cells = line.replace(/\|\s*$/, '').split(/(?<!\\)\|/);
+    if (cells.length < 5) return line;
+    return `${cells.slice(0, -1).join('|')}| |`;
+  }).join('\n');
 }
 
 function metaName(text) {
@@ -76,9 +81,11 @@ function cliFiles(skillDir) {
 }
 
 // 試走の記録の指紋の範囲はこの関数だけに置く（record が書く値と、記録を照らす側が計算する値を同じ関数から得る）。
-export function fingerprint(skillDir = SKILL_DIR) {
+// 入口の SKILL.md は試走の run の中で読まれない（args は prepare が作る）ので、振り分けの eval の記録（entry）だけに入れる。
+export function fingerprint(skillDir = SKILL_DIR, { entry = false } = {}) {
   const criteria = path.join(skillDir, CRITERIA_DIR);
   return {
+    ...(entry ? { skill: sha(readFileSync(path.join(skillDir, 'SKILL.md'))) } : {}),
     scripts: scriptsOf(skillDir),
     cli: cliFiles(skillDir),
     promptAudit: sha(readFileSync(path.join(skillDir, PROMPT_AUDIT_FILE))),
@@ -88,6 +95,95 @@ export function fingerprint(skillDir = SKILL_DIR) {
 
 export function sameFingerprint(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+export function belongs(unit, sp) {
+  return unit === sp || unit.startsWith(`${sp}/`);
+}
+
+function chosenInjections(sps, expected) {
+  const chosen = sps === null ? expected.injections : expected.injections.filter((i) => sps.some((sp) => belongs(i.unit, sp)));
+  if (sps !== null && sps.some((sp) => !chosen.some((i) => belongs(i.unit, sp)))) throw new Error(`正解表に仕込みが無い仕様項目がある: ${sps.join(', ')}`);
+  return chosen;
+}
+
+function injected(text, i) {
+  const at = text.indexOf(i.from);
+  if (at < 0 || text.indexOf(i.from, at + 1) >= 0) throw new Error(`置き換え元がちょうど 1 回現れない: ${i.file} ${JSON.stringify(i.from)}`);
+  return text.slice(0, at) + i.to + text.slice(at + i.from.length);
+}
+
+export function applyInjections(injections, outDir) {
+  for (const i of injections) {
+    const file = path.join(outDir, i.file);
+    writeFileSync(file, injected(readFileSync(file, 'utf8'), i));
+  }
+}
+
+// 単独の仕込みの run は、全ての仕込みと同じ正解表から仕様項目で選ぶ（置き換えの文字列を 2 箇所に書かない）。
+export function injectUnits(dir, sps, expected = JSON.parse(readFileSync(EXPECTED_FILE, 'utf8'))) {
+  applyInjections(chosenInjections(sps, expected), dir);
+}
+
+function walkFiles(dir, base = dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(dir, e.name);
+    return e.isDirectory() ? walkFiles(p, base) : [path.relative(base, p).split(path.sep).join('/')];
+  });
+}
+
+// 題材の写しを作らずに、runs.json の題材（と仕込み）から run の開始の時点の指紋を作る。CLI の指紋と同じ sha256。
+function fixtureDigests(name, inject) {
+  const dir = path.join(TRIAL_DIR, name);
+  const chosen = inject ? chosenInjections(inject === 'all' ? null : inject, JSON.parse(readFileSync(EXPECTED_FILE, 'utf8'))) : [];
+  return Object.fromEntries(walkFiles(dir).sort().map((rel) => {
+    let bytes = readFileSync(path.join(dir, rel));
+    for (const i of chosen.filter((x) => x.file === rel)) bytes = Buffer.from(injected(bytes.toString('utf8'), i));
+    return [rel, sha(bytes)];
+  }));
+}
+
+function instructionGrounds(def) {
+  return JSON.parse(readFileSync(path.join(TRIAL_DIR, def.grounds), 'utf8')).map((text) => ({ kind: '利用者の指示', text }));
+}
+
+// 試走の記録は、runs.json の題材・依頼文・修正の根拠で始めた run の状態からだけ作る（模擬の run や別の題材の状態の記録で、試走の行を完了にしない）。
+export function expectedSource(name, runs = readRuns(), from = null) {
+  const def = runs[name];
+  if (def.function === 'create') return { request: readFileSync(path.join(TRIAL_DIR, def.request), 'utf8').trim() };
+  const base = def.from ? runs[def.from] : def;
+  const out = { files: fixtureDigests(base.target, base.inject) };
+  if (def.function === 'update') out.grounds = { instructions: instructionGrounds(def), from: def.from ? from : null };
+  return out;
+}
+
+export function sourceOfState(view) {
+  const run = view.runs[0].id;
+  const start = view.fingerprints.find((f) => f.run === run && f.at === 'start');
+  const out = { key: view.state.key };
+  if (view.state.function === 'create') out.request = view.state.request;
+  else out.files = start.files;
+  if (view.state.function === 'update') {
+    out.grounds = {
+      instructions: view.grounds.filter((g) => !g.from).map((g) => g.ground),
+      from: [...new Set(view.grounds.filter((g) => g.from).map((g) => g.from))],
+    };
+  }
+  return out;
+}
+
+export function sourceProblems(source, expected) {
+  const problems = [];
+  if (!source) return ['記録に run の出所が無い'];
+  if (typeof source.key !== 'string' || !ISSUED_KEY.test(source.key)) problems.push(`起動の key が CLI の key の操作で得た形でない: ${JSON.stringify(source.key)}（prepare を通さずに始めた run）`);
+  if (expected.request !== undefined && source.request !== expected.request) problems.push('依頼文が runs.json の依頼文と違う');
+  if (expected.files !== undefined && JSON.stringify(source.files) !== JSON.stringify(expected.files)) problems.push('開始の時点の対象スキルが runs.json の題材（と仕込み）と違う');
+  if (expected.grounds !== undefined) {
+    if (JSON.stringify(source.grounds?.instructions) !== JSON.stringify(expected.grounds.instructions)) problems.push('利用者の指示の修正の根拠が runs.json と違う');
+    const refs = source.grounds?.from ?? [];
+    if (expected.grounds.from === null ? refs.length > 0 : refs.some((f) => f !== expected.grounds.from)) problems.push(`参照の形の修正の根拠が前の run の状態と違う: ${refs.join(', ')}`);
+  }
+  return problems;
 }
 
 export function readRuns(file = RUNS_FILE) {
@@ -155,8 +251,7 @@ export async function prepare(name, { cwd = process.cwd(), env = process.env, re
     const paths = await call('paths', { root }, ctx);
     input = { function: def.function, target: { root: paths.root, files: paths.files } };
     if (def.function === 'update') {
-      const instructions = JSON.parse(readFileSync(path.join(TRIAL_DIR, def.grounds), 'utf8'));
-      input.grounds = [...(def.from ? [{ from: recordOf(def.from, recordsDir).state }] : []), ...instructions.map((text) => ({ kind: '利用者の指示', text }))];
+      input.grounds = [...(def.from ? [{ from: recordOf(def.from, recordsDir).state }] : []), ...instructionGrounds(def)];
     }
   }
   const { key } = await call('key', {}, ctx);
@@ -217,6 +312,9 @@ export async function record(name, stateId, { cwd = process.cwd(), env = process
   const dir = path.join(resolveStateRoot(ctx), STATES_DIR, stateId);
   const view = buildView(await readAll(dir));
   if (view.state?.function !== def.function) throw new Error(`状態 ${stateId} の機能 ${view.state?.function} が ${name} の ${def.function} と違う`);
+  const source = sourceOfState(view);
+  const refused = sourceProblems(source, expectedSource(name, readRuns(), def.from ? recordOf(def.from, recordsDir).state : null));
+  if (refused.length) throw new Error(`${name} の記録を書かない: ${refused.join('。')}`);
   const result = await call('outcome', { state: stateId }, ctx);
   const started = startedAt(stateId);
   const out = {
@@ -224,10 +322,11 @@ export async function record(name, stateId, { cwd = process.cwd(), env = process
     function: def.function,
     state: stateId,
     target: view.paths[0].root,
+    source,
     result,
     launches: launchesOf(view, path.join(skillDir, CRITERIA_DIR)),
     durationMs: started === null ? null : statSync(path.join(dir, 'log.jsonl')).mtimeMs - started,
-    fingerprint: fingerprint(skillDir),
+    fingerprint: fingerprint(skillDir, { entry: def.function === EVAL_FUNCTION }),
   };
   mkdirSync(recordsDir, { recursive: true });
   writeFileSync(path.join(recordsDir, `${name}.json`), `${JSON.stringify(out, null, 2)}\n`);
