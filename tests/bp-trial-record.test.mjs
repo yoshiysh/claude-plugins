@@ -115,7 +115,7 @@ test('検証方法: 試走の道具は本物の checkout では走らず、workt
   assert.doesNotThrow(() => checkWorktree({ gitDir: '/r/.git/worktrees/x', commonDir: '/r/.git' }));
 });
 
-test('検証方法: 記録の役ごとの起動数は、停止の記録の起動数から項目の試行を役ごとに引いて運搬役の数を出し、E_TRANSPORT の試行の失敗を役ごとに数える', () => {
+test('検証方法: 記録の役ごとの起動数は、停止の記録の起動数から項目の試行（review・audit では担当の作成と適用の判定の繰り返しの番号も）を役ごとに引いて運搬役の数を出し、E_TRANSPORT の試行の失敗を役ごとに数える', () => {
   const lines = [{
     seq: 1, run: 'r1', op: 'start', records: [
       { t: 'state', id: 'bp-1', key: 'k', function: 'update', limits: { attempts: 3, iterations: 3, untilPass: 3 } },
@@ -136,4 +136,16 @@ test('検証方法: 記録の役ごとの起動数は、停止の記録の起動
   assert.equal(out.byRole['検証役'].n, 2);
   assert.equal(out.byRole['運搬役'].n, 7);
   assert.deepEqual(out.transport.byRole, { 検証役: 1 });
+  const review = buildView([{
+    seq: 1, run: 'r1', op: 'start', records: [
+      { t: 'state', id: 'bp-2', key: 'k', function: 'review', limits: { attempts: 3, iterations: 3, untilPass: 3 } },
+      { t: 'run', id: 'r1', key: 'k', base: { iterations: 0, repeats: {} } },
+      { t: 'paths', n: 1, root: '/x', files: [], unresolved: [] },
+      { t: 'repeat', stage: 'assign', n: 2 },
+      { t: 'repeat', stage: 'applicability', n: 1 },
+      { t: 'stop', run: 'r1', kind: 'complete', launches: 9 },
+    ],
+  }]);
+  const r = launchesOf(review, path.join(SKILL_DIR, CRITERIA_DIR));
+  assert.deepEqual([r.byRole['抽出役'].n, r.byRole['検証役'].n, r.byRole['運搬役'].n], [2, 1, 6]);
 });

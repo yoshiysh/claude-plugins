@@ -179,9 +179,15 @@ export function launchesOf(view, criteriaDir) {
   const models = Object.fromEntries(conformanceTable(criteriaDir, 'SP-BPCONFORMANCE-035', 'best-practices の役').rows.map(([role, model, effort]) => [role, { model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }]));
   const byRole = {};
   const transport = {};
-  const roleOf = (stage) => ROLE_BY_STAGE[stage] ?? (stage === STAGE.assign && INSPECTING_FUNCTIONS.has(view.state.function) ? '抽出役' : null);
+  // review・audit の担当の作成と適用の判定は項目を持たず、agent の結果ごとに段の繰り返しの番号を書くので、その番号を起動数に数える。
+  if (INSPECTING_FUNCTIONS.has(view.state.function)) {
+    for (const [stage, role] of [[STAGE.assign, '抽出役'], [STAGE.applicability, '検証役']]) {
+      const n = view.repeats.get(stage) ?? 0;
+      if (n) byRole[role] = (byRole[role] ?? 0) + n;
+    }
+  }
   for (const item of view.items.values()) {
-    const role = roleOf(item.stage);
+    const role = ROLE_BY_STAGE[item.stage];
     if (!role) continue;
     byRole[role] = (byRole[role] ?? 0) + item.fails.length + (item.result !== undefined ? 1 : 0);
     const lost = item.fails.filter((f) => /E_TRANSPORT/.test(f.reason)).length;
