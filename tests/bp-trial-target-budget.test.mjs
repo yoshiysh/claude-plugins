@@ -920,3 +920,21 @@ test('SP-BPCONFORMANCE-017: 試走の題材の CLI は、実行役が返すパ�
   symlinkSync(dir, alias);
   assert.deepEqual(call('summary', { repo: alias, state: base.state }).premises.split('\n')[0], '前提 P1（目標）: {"goal":"g","scope":["src"],"prohibitions":[],"numeric":[]}');
 });
+
+test('SP-BPCONFORMANCE-014: 試走の題材の CLI の Bash の許可は、script が agent に渡す全てのコマンドと SKILL.md が示すコマンドに前方一致し、許可ごとに当たるコマンドがある', async (t) => {
+  const skill = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8');
+  const allows = [...skill.split('## 必要な許可')[1].split('\n## ')[0].matchAll(/`Bash\((node [^`]*):\*\)`/g)].map(([, p]) => p);
+  assert.ok(allows.length >= 2, allows.join(' / '));
+  const covered = (line, dir) => allows.some((p) => line.startsWith(p.replaceAll('<このスキルのディレクトリ>', dir)));
+  const lines = [];
+  for (const sc of [SCENARIOS.回収役が拾う, SCENARIOS.完了の主張の却下]) {
+    const r = await runTarget(t, sc, { concurrency: 1 });
+    for (const prompt of r.prompts) lines.push(...prompt.split('\n').map((l) => l.replace(/^[^:]*: (?=node )/, '')).filter((l) => l.startsWith('node ')));
+  }
+  assert.ok(lines.length > 0);
+  for (const line of lines) assert.ok(covered(line, FIXTURE_DIR), `許可に当たらないコマンド: ${line}`);
+  for (const p of allows) assert.ok(lines.some((l) => l.startsWith(p.replaceAll('<このスキルのディレクトリ>', FIXTURE_DIR))), `当たるコマンドの無い許可: ${p}`);
+  const shown = [...skill.matchAll(/^node .*$/gm)].map(([l]) => l);
+  assert.ok(shown.length >= 2);
+  for (const line of shown) assert.ok(covered(line, '<このスキルのディレクトリ>'), `SKILL.md のコマンドが許可に当たらない: ${line}`);
+});

@@ -104,13 +104,15 @@ function factSchemas() {
     collector: { type: 'object', properties: { facts }, required: ['facts'] },
   }
 }
+// agent に渡す CLI のコマンドは全てここで作る。SKILL.md の「必要な許可」の Bash の許可はこの字面（パスを ' で囲む）との前方一致で効くので、形を変えるときは許可の文も合わせる。
+const command = (script, op, body) => `node '${SKILL}/scripts/${script}' ${op} <<'EOF'\n${typeof body === 'string' ? body : JSON.stringify(body)}\nEOF`
 // 写しは CLI と同じ置き場の下に、対象のリポジトリに書かない形で作る（scripts/copy.mjs）。写しの中で実行できるのは、開始で記録した再現手順のコマンドだけ。
 const copyLines = (to) => [
-  `写しを作り直すコマンド（同じパスにあれば消して作り直す）: node '${SKILL}/scripts/copy.mjs' make <<'EOF'\n${JSON.stringify({ repo: run.repo, to })}\nEOF`,
-  `写しの中で再現手順のコマンドを実行するコマンド（command に下の番号を書く）: node '${SKILL}/scripts/copy.mjs' exec <<'EOF'\n${JSON.stringify({ repo: run.repo, to, command: 1 })}\nEOF`,
+  `写しを作り直すコマンド（同じパスにあれば消して作り直す）: ${command('copy.mjs', 'make', { repo: run.repo, to })}`,
+  `写しの中で再現手順のコマンドを実行するコマンド（command に下の番号を書く）: ${command('copy.mjs', 'exec', { repo: run.repo, to, command: 1 })}`,
   `再現手順のコマンド:\n${run.commands.map((c, n) => `${n + 1}: ${c}`).join('\n') || '（無い）'}`,
 ]
-const knownLine = () => `既知の事実を引く CLI（読み出しだけ）: node '${SKILL}/scripts/state.mjs' get <<'EOF'\n${JSON.stringify({ repo: run.repo, state: run.state, kind: '事実' })}\nEOF`
+const knownLine = () => `既知の事実を引く CLI（読み出しだけ）: ${command('state.mjs', 'get', { repo: run.repo, state: run.state, kind: '事実' })}`
 const methodsLine = () => `検証方式の綴り（method に書く）: ${Object.entries(run.methods).map(([k, name]) => `${k}（${name}）`).join('・')}`
 
 // 走っている単位の残りの最悪の数も足して確かめる。呼び終えた数だけで確かめると、同時に走る意図の残りが合わさって上限を超える。
@@ -175,7 +177,7 @@ async function cli(u, ops) {
   const names = ops.map(([op]) => op).join(',')
   const commands = ops.map(([op, body]) => {
     const req = JSON.stringify({ repo: run.repo, state: run.state, run: run.run, writeKey: run.writeKey, ...body })
-    return `node '${SKILL}/scripts/state.mjs' ${op} <<'EOF'\n${req}\nEOF`
+    return command('state.mjs', op, req)
   })
   const out = await launch(u, 'carrier', [`役の指示: ${ROLES}/carrier.md を読む。`, `次のコマンドを順に実行し、各コマンドの標準出力を 1 行ずつ逐語で返す:\n${commands.join('\n')}`], SCHEMAS.carrier, `carrier:${names}`)
   let responses
@@ -240,7 +242,7 @@ async function plan(round) {
       `役の指示: ${ROLES}/planner.md を読む。`,
       `周: ${round}`,
       `同じ方向の再確認の意図の上限: 1 つの方向につき ${RECHECKS} 回`,
-      `細部を引く CLI（読み出しだけ）: node '${SKILL}/scripts/state.mjs' get <<'EOF'\n${JSON.stringify({ repo: run.repo, state: run.state, id: '<ID>' })}\nEOF`,
+      `細部を引く CLI（読み出しだけ）: ${command('state.mjs', 'get', { repo: run.repo, state: run.state, id: '<ID>' })}`,
       `状態の要約:\n${s.summary}`,
     ], SCHEMAS.planner, 'planner')
     if (!p) throw new Stop('blocked', '計画役が結果を返さなかった')
