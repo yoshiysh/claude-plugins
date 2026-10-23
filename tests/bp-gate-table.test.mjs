@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tableAfter } from './helpers/bp-docs.mjs';
 import {
   FINDING_ROWS, NEXT_ROWS, UNIT_ROWS, findingGate, iterationDecision, nextStep, unitGate,
 } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/gate.mjs';
@@ -11,15 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AUTHORING = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-authoring.md'), 'utf8');
 
 function table(header) {
-  const start = AUTHORING.indexOf(header);
-  assert.ok(start >= 0, header);
-  const lines = AUTHORING.slice(start).split('\n');
-  const rows = [];
-  for (const line of lines.slice(2)) {
-    if (!line.startsWith('|')) break;
-    rows.push(line.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
-  }
-  return rows;
+  return tableAfter(AUTHORING, header);
 }
 
 const ANY = '*';
@@ -112,7 +105,7 @@ test('SP-BPAUTHORING-023: 検証が成り立たない条件は不合格の条件
   assert.equal(iterationDecision({ unverifiable: none, failing: { findings: [], units: [] } }), 'pass');
 });
 
-// §5.9 の教訓 4: 行の結果を 1 つずつ入れ替えた表で、表の照合が必ず落ちる。
+// 行の結果を 1 つずつ入れ替えた表で、表の照合が必ず落ちる（テストが壊れた表で落ちるかの確かめ）。
 test('SP-BPAUTHORING-021・022・025: 実装の表の行の結果を 1 つでも入れ替えると、仕様の表との照合が落ちる', () => {
   const swaps = { finding: ['fail', 'ok', 'unverifiable'], unit: ['conform', 'nonconform', 'na', 'unchecked'], next: ['complete', 'rewrite', 'iterationLimit', 'blocked'] };
   const tables = { finding: FINDING_ROWS, unit: UNIT_ROWS, next: NEXT_ROWS };

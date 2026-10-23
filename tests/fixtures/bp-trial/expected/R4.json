@@ -1,0 +1,41 @@
+{
+  "rows": [
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPINSPECTION-007",
+      "method": "fixture（同時実行の定数を 4 にした対象スキルの review で、フローの観点の指摘が出ず、仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになることを確認）",
+      "checks": [
+        {
+          "clause": "fixture（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "フローの観点の指摘が出ず",
+          "by": "findings",
+          "match": {
+            "viewpoint": "flow"
+          },
+          "max": 0
+        },
+        {
+          "clause": "仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになる",
+          "by": "findings",
+          "match": {},
+          "min": 1,
+          "max": 1
+        },
+        {
+          "clause": "仕様の観点の SP-BPCONFORMANCE-027 の指摘 1 件だけになる",
+          "by": "onlyFindings",
+          "match": {
+            "viewpoint": "spec",
+            "kind": "SP-BPCONFORMANCE-027",
+            "path": "scripts/trace.js"
+          }
+        }
+      ]
+    }
+  ]
+}

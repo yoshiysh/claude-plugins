@@ -22,7 +22,7 @@
 | 判定の結果 | 判定の単位ごとに付ける、適合・不適合・対象外・未検査のどれか 1 つ。対象外は、適用の判定表（SP-BPCONFORMANCE-003）でその単位が当たらないことを指す。未検査は、判定できなかったか、本書が判定を保留させたことを指す |
 | 重い形 | 固定集合の反復型と探索グラフ型。どちらも形の判定の図で、問い Q1（段と段の間に結果による戻りが無い）に「いいえ」と答えて初めて到達する形である |
 | 起動数の上限 | PR-BPDESIGNEDSKILL-016 が定める、対象スキルが入力として受け取る起動数の上限 |
-| 予約分 | 起動数の上限を渡された run で、未着手の項目を状態に書いて止まるのに要る呼び出しのために、上限の中に残しておく起動数（SP-BPCONFORMANCE-022 の式の `R`） |
+| 予約分 | 起動数の上限を渡された run で、止まるときに起動しうる、状態を書く呼び出し（未着手の項目と停止の記録、停止の前に書く記録）の最大の数。上限の中に残しておく。停止の前に書く記録は、それが要る停止のときだけ起動するが、予約には常に入れる（SP-BPCONFORMANCE-022 の式の `R`） |
 
 ## 機能仕様
 
@@ -151,7 +151,7 @@ SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・up
 #### SP-BPCONFORMANCE-022 上限を渡された run の起動数
 起動数の上限を渡された run で、script は、項目を、最後まで走らせても上限を超えないと確かめられるときだけ始めなければならない（項目は同時に走る（SP-BPCONFORMANCE-027）ので、呼び終えた数だけで確かめると、同時に始めた項目どうしの残りの呼び出しが合わさって上限を超える）。項目の処理の外で呼ぶ役（計画役・集約・完了の照合など）も、呼ぶ前に同じく確かめる。確かめは、script が定数から決定的に行う。
 
-止まるのに要る記録の呼び出し（予約分）は上限の中に必ず残し、その呼び出し自体を確かめで締め出してはならない。確かめの式は次のとおりとする。起動の単位 u は、fan-out の項目 1 件か、fan-out でない段の 1 回の agent の起動（とその結果を書く呼び出し）を指す。
+止まるときに起動しうる記録の呼び出し（予約分）は上限の中に必ず残し、その呼び出し自体を確かめで締め出してはならない。確かめの式は次のとおりとする。起動の単位 u は、fan-out の項目 1 件か、fan-out でない段の 1 回の agent の起動（とその結果を書く呼び出し）を指す。
 
 ```
 used + Σ_{走っている単位 v} (worst(v) − usedBy(v)) + worst(u) + R ≤ L
@@ -163,9 +163,9 @@ used + Σ_{走っている単位 v} (worst(v) − usedBy(v)) + worst(u) + R ≤ 
 | `used` | この run でここまでに呼んだ `agent()` の数（結果が null の呼び出しを含む） |
 | `worst(u)` | 単位 u を最後まで走らせたときの最悪の呼び出しの数。fan-out の項目は、試行の上限 ×（工程の agent の数 + 工程の中で状態を書く呼び出しの数） |
 | `usedBy(v)` | 走っている単位 v がここまでに呼んだ数 |
-| `R` | 予約分。止まるときに未着手の項目と停止の記録を書く呼び出しの数 |
+| `R` | 予約分（用語の定義に従う） |
 
-判定する者は、上の 2 つの規則を判定する。式と違う形で確かめていても、2 つの規則を満たせば適合とする（式は 2 つの規則を満たす確かめの形の 1 つで、対象スキルの段の組み方で項の中身が変わる）。best-practices 自身の確かめ（`docs/specifications/bp-run.md` の SP-BPRUN-020）はこの式で行い、create・update の値は同文書の SP-BPRUN-021 に置く。
+判定する者は、上の 2 つの規則を判定する。式と違う形で確かめていても、2 つの規則を満たせば適合とする（式は 2 つの規則を満たす確かめの形の 1 つで、対象スキルの段の組み方で項の中身が変わる）。best-practices 自身の確かめ（`docs/specifications/bp-run.md` の SP-BPRUN-020）はこの式で行い、4 機能の値と `R` の中身は同文書の SP-BPRUN-021 に置く。
 
 #### SP-BPCONFORMANCE-023 上限に収まらない項目
 SP-BPCONFORMANCE-022 で始められない項目が 1 件以上残ったとき、script は新しい項目を始めてはならない。そのうえで、始めた項目が終わるのを待ち、次の 2 つを状態に書いて止まらなければならない。
@@ -269,6 +269,49 @@ best-practices 自身の役には、設計方針文書の役ごとの表と SP-B
 - 確定値（SP-BPCONFORMANCE-027〜033・035・036）: 対象スキルの script の定数を読み、本章の値と一致するかを決定的に照合する。そのうえで、上限に達する fixture で、上限の回数で止まることを確かめる。
 - 保留の項目（SP-BPCONFORMANCE-006 のターンごとの指揮、SP-BPCONFORMANCE-019 の Claude Code、SP-BPCONFORMANCE-034）: 判定の結果が「未検査」になり、適合にも不適合にもならないことを確かめる。
 
+best-practices 自身の挙動で測れない行（対象スキルに対する検証役の判断の質を問う行）は、模擬の検証役では配線しか測れないので、本物の agent での試走（`docs/specifications/bp-authoring.md` の「検証方法」）で確かめる。どの行がそれに当たり、どの試走で測るかは次の試走の表を正とする。行の検証方法のうち決定的に測れる句はテストで確かめるが、行は試走で当たるまで「完了」にしない。
+
+- 次の 4 項目は、違反を仕込む review の試走（試走の表の「review の試走」）にだけ当てる。仕込まない試走は、4 項目の後の 2 項目に従う。
+- review の試走の題材は、判定表の「探索グラフ型・資産台帳 有・fan-out 有」の行に到達する対象スキルとする（1 回の review が到達する判定表の行は 1 つなので、当たる単位の最も多い行を選ぶ）。違反を仕込む前の版の review で指摘が 0 件になることを、先に確かめる（基準の run。省くと、仕込んだ違反と元からの違反を見分けられない）。
+- フローの観点の違反は資産 1 つに 1 つだけ仕込む（同じ資産の違反どうしが干渉すると、指摘がどの違反に当たったかを読めない）。仕様の観点の違反は確定値ごとに script の定数へ仕込み、同じ資産に置いてよい（script のファイルは 1 つの資産で、指摘の種類が仕様項目 ID なので読み分けられる）。行ごとに当たり・偽陽性・偽陰性を読む。原則の表の仕様項目は単位を無作為に 1 つ選んで仕込み、選ばなかった単位は確かめていないと宣言する。仕込んだ単位と測る行は正解表（`tests/fixtures/bp-trial/review-target.expected.json`）を正とする。
+- 次のどれかに当たれば、仕込んだ全ての行を「作成中」のままにする（一部だけを「完了」にしない。どれも、指摘の有無を違反の当たり・外れとして読めなくする）。
+  - 基準の run が完了で止まっていないか、open の指摘が 0 件でないか、題材の判定表の行に着かない。
+  - 仕込んだ版の run が完了で止まっていないか、題材の判定表の行に着かない。
+  - どちらかの返り値に指摘の一覧の欄が無いか、仕込んだ版の返り値に未検査の観点の欄が無い（欄の欠けを 0 件と読むと、測っていない行を「完了」にする）。
+  - 仕込んだ違反の指摘が、仕込んだ資産に別の単位の種類で出た（干渉）。
+- 上のどれにも当たらないとき、行ごとに次の全てがそろった行だけを「完了」にする。
+  - 行の仕様項目に仕込んだ違反が全て、仕込んだ資産に、仕込んだ単位の種類の指摘として出た。
+  - 行の仕様項目の強いられた未検査が全て、判定の単位の範囲で、出所の仕様項目 ID を理由として未検査の観点に載った。
+  - 行の仕様項目を種類に持つ偽陽性（仕込まなかった資産・観点の指摘）が無い。
+  - run 全体で読む仕様項目は、仕込んだ違反の全ての指摘と強いられた未検査の全てがそろい、偽陽性が 0 件である。
+  - 試走で測れない句が無い。
+- ターンごとの指揮の題材の review の試走（違反を仕込まない）は、判定表の「ターンごとの指揮」の行のうち fan-out 有の行（2 行目）に到達し、自分の Workflow script を持つ（SP-BPCONFORMANCE-007 に反する）対象スキルを題材とする。題材そのものが測る違反なので、基準の run は置かない。run が完了で止まり、題材の判定表の行に着き、フローの観点で種類が SP-BPCONFORMANCE-007 の open の指摘が出たときだけ、その行を「完了」にする。
+- 仕込まない試走（上のターンごとの指揮の題材の review の試走と、create・update の試走）の行は、run が完了で止まり、run ごとの正解表（`tests/fixtures/bp-trial/expected/<run>.json`）の行の句の読みが全て当たり、試走で測れない句が無いときだけ「完了」にする。句の読みは正解表を正とする。
+- 「無し」の行は、どの試走でも条件の組が作れないので、測る試走を足すまで「作成中」とする。
+
+| 要求 ID | 仕様項目 ID | 測る試走 |
+|---|---|---|
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | 無し（形ごとの正例・負例を要し、1 回の review は 1 つの形しか見ない） |
+| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | review の試走（答えだけで事実の無い設計の説明を仕込む） |
+| PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | ターンごとの指揮の題材の review の試走（題材は script を持つ。同じ題材の update の試走の前に走らせ、update はその指摘を修正の根拠に受ける。update が script を消した後の題材では不適合を作れない） |
+| PR-BPDESIGNEDSKILL-004 | SP-BPCONFORMANCE-008 | review の試走（部品名の無い段を仕込む） |
+| PR-BPDESIGNEDSKILL-005 | SP-BPCONFORMANCE-009 | 無し（資産台帳の無い対象スキルを要し、review の試走の題材は台帳を持つ） |
+| PR-BPDESIGNEDSKILL-018 | SP-BPCONFORMANCE-009 | 無し（fan-out の無い対象スキルを要し、review の試走の題材は fan-out を持つ） |
+| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027 | review の試走（原則の行を 1 つ選んで違反を仕込み、同時実行の定数を変える）。runtime の設定で守る形と script で守る形を比べる句は、題材が script の形だけなので測れず、行は「作成中」に留まる |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035 | review の試走（原則の行を 1 つ選んで違反を仕込み、役のモデルか effort を変える）。`agent()` の model・effort の有無の句は、題材に無い呼び出しを仕込んでいないので測れず、行は「作成中」に留まる |
+| PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034 | review の試走（原則の行を 1 つ選んで違反を仕込み、周と試行の上限の定数を変える）。上限に達する fixture での停止の句は、review が題材を走らせないので測れず、行は「作成中」に留まる |
+| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | review の試走（原則の行を 1 つ選んで違反を仕込み、要約の上限の定数を変える） |
+| PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | review の試走（原則の行を 1 つ選んで違反を仕込む） |
+| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無し（配布先ごとの試走を要し、試走は Claude Code の 1 つだけ） |
+| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | update の試走（無視される設定に頼る役を持つ題材で、確かめられなかった制限の全てが 4 項目で残る危険に載る。create の書き手には無視される設定に頼る役を作らせられないので、その役を持つ題材を直す update で測る。`docs/specifications/bp-authoring.md` の SP-BPAUTHORING-033 の fixture の run の行と同じ試走。4 項目の形と返り値への運搬は決定的なテストで測るが、全ての制限が載るかは検証役の判断） |
+| PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | create の試走（目標の固定に「目標の固定」の行を当てた判定の結果） |
+| PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | create の試走（依頼文を 1 回で解ける課題にする） |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review の試走（仕込んだ違反が指摘として、仕込まない単位が指摘の無いまま返る） |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | review の試走（仕様の観点で、確定値の定数ごとに違反を仕込む）。SP-BPCONFORMANCE-028・SP-BPCONFORMANCE-029 は探索グラフ型の題材に当てる部品が無く測れないので、測る題材の試走を足すまで「作成中」 |
+
 ## TBD の宣言
 
 本書が所属先の TBD。どれも着手を止めない（blocking: false）。保持規則は各 TBD を参照する仕様項目に置く。
@@ -278,38 +321,38 @@ best-practices 自身の役には、設計方針文書の役ごとの表と SP-B
 | TBD-SBPCONFORMANCE-001 | 探索グラフ型の実行役の時間の上限の値と、守らせ方 | Claude Code の `agent()` に経過時間の上限を指定する手段が入力に無い（Codex runner は `agentTimeoutMs` を持つ）。当たるのは探索グラフ型の対象スキルの実行役だけで、best-practices 自身は実行役を持たない | false | SP-BPCONFORMANCE-034 |
 | TBD-SBPCONFORMANCE-002 | ターンごとの指揮が重い形に当たるか | 形の判定の図では、ターンごとの指揮に問い A の「いいえ」からも、問い Q1 に「いいえ」と答えた後の問い Q3 の「いいえ」からも到達するので、重い形（Q1 に「いいえ」と答えて初めて到達する形）に当たるかが道によって変わり、図から決まらない | false | SP-BPCONFORMANCE-006 |
 | TBD-SBPCONFORMANCE-003 | 対象スキルの同時実行の上限の守らせ方（runtime の設定か script か）。best-practices 自身は script で守ると SP-BPCONFORMANCE-027 に書き戻した | Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている | false | SP-BPCONFORMANCE-027 |
-| TBD-SBPCONFORMANCE-005 | Claude Code の plugin から読み込む agent で無視される設定の一覧を、判定基準の写しに入る文書に持つか | 一覧は Claude Code 公式 docs にあり、run の中の agent は写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）の外を判定基準として当てられない | false | SP-BPCONFORMANCE-019。加えて、決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない |
+| TBD-SBPCONFORMANCE-005 | Claude Code の plugin から読み込む agent で無視される設定の一覧を、判定基準の写しに入る文書に持つか | 一覧は Claude Code 公式 docs にあり、run の中の agent は写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）の外を判定基準として当てられない。一覧は Claude Code の版で変わる外部の事実で、写しに入れた一覧は版が上がると黙って古くなり、無視される設定に頼る制限を誤って「適合」とする（誤った適合は、判定していないと宣言する未検査より悪く、古くなったことを機械で検出する手段も無い） | false | SP-BPCONFORMANCE-019。加えて、決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない |
 
 ## トレーサビリティ表
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
-| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | fixture（形ごとの正例・負例）で判定の結果を照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | fixture（答えだけで事実の無い設計の説明）で不適合、ターンごとの指揮で未検査を照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | fixture（ターンごとの指揮で script を持つもの）で不適合を照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-004 | SP-BPCONFORMANCE-008 | fixture（部品名の無い段）で不適合を照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-005 | SP-BPCONFORMANCE-009 | fixture（適用条件を満たすが台帳の無いもの）で不適合を照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-018 | SP-BPCONFORMANCE-009 | fixture（fan-out が無いのに台帳を持つもの）で不適合を照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010 | 原則の行ごとに違反を仕込んだ fixture | 未着手 |
-| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011 | 原則の行ごとに違反を仕込んだ fixture | 未着手 |
-| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027 | 原則の行ごとの fixture と、同時実行数の記録の照合。同時実行の上限を runtime の設定で守る fixture と script で守る fixture が、同じ判定の結果になることの照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035 | 原則の行ごとの fixture と、`agent()` の model・effort の有無の決定的照合。best-practices 自身の script の定数が SP-BPCONFORMANCE-035 の best-practices の役の表と一致することの照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | 原則の行ごとに違反を仕込んだ fixture | 未着手 |
-| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034 | 原則の行ごとの fixture と、上限に達する fixture での停止の照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | 原則の行ごとの fixture と、要約の字数の決定的照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | 原則の行ごとに違反を仕込んだ fixture | 未着手 |
-| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無視される設定に頼る制限を持つ fixture を配布先ごとに確かめる | 未着手 |
-| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | 確かめられなかった制限が 4 項目そろって結果に載ることを照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-021, SP-BPCONFORMANCE-037 | mock backend で上限の有無・不正な値を渡して走らせ、不正な値で `agent()` が 0 回で BLOCKED になることを照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-017 | SP-BPCONFORMANCE-022 | mock backend で起動数の記録が上限を超えないことを照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-023 | mock backend で、残った項目が順位付きで状態に残り、停止の種類が反復の上限で、理由に起動数の上限・その時点の起動数・件数が載ることを照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-020 | SP-BPCONFORMANCE-024 | mock backend で再開した run が残った項目だけを順位の順に処理し、next_args に上限が無いことを照合 | 未着手 |
-| PR-BPDESIGNEDSKILL-021 | SP-BPCONFORMANCE-025 | mock backend で上限を渡さない run が項目を切らないことを照合 | 未着手 |
+| PR-BPDESIGNEDSKILL-001 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004 | fixture（形ごとの正例・負例）で判定の結果を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 | fixture（答えだけで事実の無い設計の説明）で不適合、ターンごとの指揮で未検査を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-003 | SP-BPCONFORMANCE-007 | fixture（ターンごとの指揮で script を持つもの）で不適合を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-004 | SP-BPCONFORMANCE-008 | fixture（部品名の無い段）で不適合を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-005 | SP-BPCONFORMANCE-009 | fixture（適用条件を満たすが台帳の無いもの）で不適合を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-018 | SP-BPCONFORMANCE-009 | fixture（fan-out が無いのに台帳を持つもの）で不適合を照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-006 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010 | 原則の行ごとに違反を仕込んだ fixture | 作成中 |
+| PR-BPDESIGNEDSKILL-007 | SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011 | 原則の行ごとに違反を仕込んだ fixture | 作成中 |
+| PR-BPDESIGNEDSKILL-008 | SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027 | 原則の行ごとの fixture と、同時実行数の記録の照合。同時実行の上限を runtime の設定で守る fixture と script で守る fixture が、同じ判定の結果になることの照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-009 | SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035 | 原則の行ごとの fixture と、`agent()` の model・effort の有無の決定的照合。best-practices 自身の script の定数が SP-BPCONFORMANCE-035 の best-practices の役の表と一致することの照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-010 | SP-BPCONFORMANCE-014 | 原則の行ごとに違反を仕込んだ fixture | 作成中 |
+| PR-BPDESIGNEDSKILL-011 | SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034 | 原則の行ごとの fixture と、上限に達する fixture での停止の照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-012 | SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033 | 原則の行ごとの fixture と、要約の字数の決定的照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-013 | SP-BPCONFORMANCE-017 | 原則の行ごとに違反を仕込んだ fixture | 作成中 |
+| PR-BPDESIGNEDSKILL-014 | SP-BPCONFORMANCE-019 | 無視される設定に頼る制限を持つ fixture を配布先ごとに確かめる | 作成中 |
+| PR-BPDESIGNEDSKILL-015 | SP-BPCONFORMANCE-020 | 確かめられなかった制限が 4 項目そろって結果に載ることを照合 | 作成中 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPCONFORMANCE-021, SP-BPCONFORMANCE-037 | mock backend で上限の有無・不正な値を渡して走らせ、不正な値で `agent()` が 0 回で BLOCKED になることを照合 | 完了 |
+| PR-BPDESIGNEDSKILL-017 | SP-BPCONFORMANCE-022 | mock backend で起動数の記録が上限を超えないことを照合 | 完了 |
+| PR-BPDESIGNEDSKILL-019 | SP-BPCONFORMANCE-023 | mock backend で、残った項目が順位付きで状態に残り、停止の種類が反復の上限で、理由に起動数の上限・その時点の起動数・件数が載ることを照合 | 完了 |
+| PR-BPDESIGNEDSKILL-020 | SP-BPCONFORMANCE-024 | mock backend で再開した run が残った項目だけを順位の順に処理し、next_args に上限が無いことを照合 | 完了 |
+| PR-BPDESIGNEDSKILL-021 | SP-BPCONFORMANCE-025 | mock backend で上限を渡さない run が項目を切らないことを照合 | 完了 |
 | PR-BPDESIGNEDSKILL-022 | SP-BPCONFORMANCE-026 | fixture の callsite で、Codex runner の経路の上限が `limits.maxAgents` 以下であることを照合 | 未着手 |
 | PR-BPDESIGNEDSKILL-023 | SP-BPCONFORMANCE-026 | fixture の callsite で、native Workflow の経路が上限を渡さないことを照合 | 未着手 |
-| PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | create の目標の固定に「目標の固定」の行を当てた判定の結果を照合 | 未着手 |
-| PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | fixture（1 回で解ける課題）で Q3 が「いいえ」になることを照合 | 未着手 |
-| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | create の検証役が当たる判定の単位の全てに結果を付けることを照合 | 未着手 |
-| PR-BPOPERATIONS-011 | SP-BPCONFORMANCE-029 | 書き直しが 3 回で止まることを照合 | 未着手 |
-| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review のフローの観点が本書の判定の単位の全てに結果を付け、不適合が指摘、未検査が未検査の観点として返り値に載ることを照合 | 未着手 |
-| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | 対象スキルの定数と本章の値の決定的照合 | 未着手 |
+| PR-BPOPERATIONS-003 | SP-BPCONFORMANCE-010 | create の目標の固定に「目標の固定」の行を当てた判定の結果を照合 | 作成中 |
+| PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | fixture（1 回で解ける課題）で Q3 が「いいえ」になることを照合 | 作成中 |
+| PR-BPOPERATIONS-008 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | create の検証役が当たる判定の単位の全てに結果を付けることを照合 | 完了 |
+| PR-BPOPERATIONS-011 | SP-BPCONFORMANCE-029 | 書き直しが 3 回で止まることを照合 | 完了 |
+| PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review のフローの観点が本書の判定の単位の全てに結果を付け、不適合が指摘、未検査が未検査の観点として返り値に載ることを照合 | 作成中 |
+| PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | 対象スキルの定数と本章の値の決定的照合 | 作成中 |

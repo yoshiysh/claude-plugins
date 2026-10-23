@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createArgs, runAuthor, setup, updateArgs } from './helpers/bp-harness.mjs';
+import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { INSPECT_SCRIPT, SKILL_DIR, candidateVerifier, createArgs, criteriaNoteOf, defaults, writePayload, inspectArgs, runAuthor, runInspect, setup, setupInspect, updateArgs } from './helpers/bp-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp_author.js');
@@ -45,7 +46,7 @@ test('SP-BPRUN-023: agent() を呼ぶのは launch の 1 箇所だけで、launc
   for (const r of roles) assert.ok(['writer', 'verifier', 'refuter', 'carrier'].includes(r), r);
 });
 
-test('SP-BPRUN-002・SP-BPAUTHORING-027: 入力を待つ手順が無く、needs_input で止まる箇所は入力の確かめと目標の固定の段だけ', () => {
+test('SP-BPRUN-002・SP-BPAUTHORING-027: 入力を待つ手順が無く、needs_input で止まる箇所は入力の確かめ（agent の起動の前と、参照の形の修正の根拠を展開する開始の操作）と目標の固定の段だけ', () => {
   const places = new Set();
   walk(AST, (n, parents) => {
     const stops = (n.type === 'NewExpression' && n.callee.name === 'Stop') || (n.type === 'CallExpression' && n.callee.name === 'early');
@@ -53,7 +54,7 @@ test('SP-BPRUN-002・SP-BPAUTHORING-027: 入力を待つ手順が無く、needs_
     if (stops && first?.type === 'MemberExpression' && first.object.name === 'STOP_KINDS' && first.property.name === 'needsInput') places.add(enclosing(parents));
     if (n.type === 'Identifier' && n.name === 'checkpoint') places.add(`checkpoint in ${enclosing(parents)}`);
   });
-  assert.deepEqual([...places].sort(), ['goalStage', 'validateArgs']);
+  assert.deepEqual([...places].sort(), ['goalStage', 'startRun', 'validateArgs']);
 });
 
 test('script の制約: 本体が meta を読まず、Date.now・Math.random・引数の無い new Date・import() を使わない（native host で throw する）', () => {
@@ -98,16 +99,77 @@ test('SP-BPRUN-035: bp-conformance の判定基準が残した項目からの再
   assert.match(item, /SP-BPRUN-035 の手順に従わなければならない/);
 });
 
-test('SP-BPRUN-036: create・update の検証役と反証役と書き手の prompt が判定基準の写しのパスだけを渡し、docs/ のパスを渡さない', async (t) => {
+test('SP-BPRUN-036: create・update の検証役と反証役と書き手の prompt が判定基準の写しのパスと写しの中の docs/ の読み替えを渡し、読み替えを除くと docs/ のパスを渡さない', async (t) => {
   for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
     const s = await setup(t, { fn });
     if (!s) return;
     const { calls } = await runAuthor(t, { env: s.env, args: args(s.target) });
     const judged = calls.filter((x) => ['verify', 'refute', 'write'].includes(x.role));
     assert.ok(judged.some((c) => c.role === 'verify') && judged.some((c) => c.role === 'write'), fn);
+    const note = criteriaNoteOf([SKILL_DIR, CRITERIA_DIR].join('/'));
     for (const c of judged) {
       assert.match(c.prompt, /references\/criteria\/specifications\/bp-conformance\.md/, c.label);
-      assert.doesNotMatch(c.prompt, /(^|[\s/])docs\//, c.label);
+      assert.ok(c.prompt.includes(note), c.label);
+      assert.doesNotMatch(c.prompt.replace(note, ''), DOCS_PATH, c.label);
+    }
+  }
+});
+
+// review・audit にだけある振る舞い（抽出役・対象を書き換えていないことの照合）は、create・update ではそれが無いことで確かめる（bp-run.md の「検証方法」のステータスの基準）。
+test('SP-BPRUN-026・SP-BPFINDINGS-034: create・update の script は抽出役を起動せず onTargetChanged を送らず、CLI は create・update の停止の onTargetChanged を拒否する', async (t) => {
+  const roles = new Set();
+  walk(AST, (n) => { if (n.type === 'CallExpression' && n.callee.name === 'launch') roles.add(n.arguments[0].value); });
+  assert.ok(!roles.has('extractor'));
+  assert.ok(!SOURCE.includes('onTargetChanged'));
+  const { context, newKey, skillDir, LIMITS } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs');
+  const run = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-run.mjs');
+  const ctx = context(t);
+  if (!ctx) return;
+  for (const fn of ['create', 'update']) {
+    const root = fn === 'create' ? path.join(await skillDir(t), 'new') : await skillDir(t);
+    const s = await run.start(ctx, { key: newKey(), function: fn, target: { root }, limits: LIMITS, ...(fn === 'create' ? { request: 'r' } : { grounds: [{ text: 'a' }] }) });
+    await assert.rejects(run.stop(ctx, { state: s.state, run: s.run, kind: 'blocked', reason: 'x', launches: 1, onTargetChanged: 'blocked' }), (e) => e.code === 'E_INPUT' && /review・audit/.test(e.reason));
+  }
+});
+
+const DOCS_PATH = /(^|[\s/`])docs\//;
+
+async function goalCandidate(prompt, options, env) {
+  const result = await defaults.verify(prompt, options, env);
+  if (options.label !== 'verifier:goal') return result;
+  const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+  result.judgements[0].judgement = 'candidate';
+  result.candidates = [{ asset: result.judgements[0].asset, viewpoint: 'goal', kind: kinds[0].value, quote: 'q', content: 'c', fix: 'f' }];
+  await writePayload(prompt, result);
+  return result;
+}
+
+// 写しは正本と 1 字も違わず docs/ のパスで互いを指すので、写しのパスを渡す prompt には読み替えが要る（無いと agent が正本か、配布先に無いパスを開く）。
+test('SP-BPRUN-036: 判定基準の写しのパスを含む全ての prompt が写しの中の docs/ の読み替えを持ち、それを除くと docs/ のパスを含まない［create］［update］［review］［audit］', async (t) => {
+  for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
+    const s = await setup(t, { fn });
+    if (!s) return;
+    const root = [SKILL_DIR, CRITERIA_DIR].join('/');
+    const note = criteriaNoteOf(root);
+    const { calls } = await runAuthor(t, { env: s.env, args: args(s.target), scenario: { verify: goalCandidate } });
+    const carrying = calls.filter((c) => c.prompt.includes(`${root}/`));
+    assert.deepEqual([...new Set(carrying.map((c) => c.role))].sort(), ['refute', 'verify', 'write'], fn);
+    for (const c of carrying) {
+      assert.ok(c.prompt.includes(note), `${fn}: ${c.label}`);
+      assert.doesNotMatch(c.prompt.replace(note, ''), DOCS_PATH, `${fn}: ${c.label}`);
+    }
+  }
+  for (const fn of ['review', 'audit']) {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const note = criteriaNoteOf(s.criteriaDir, INSPECT_SCRIPT);
+    const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { verify: candidateVerifier({ viewpoint: fn === 'review' ? 'flow' : 'audit' }) } });
+    assert.equal(result.stopKind, 'complete', result.reason);
+    const carrying = calls.filter((c) => c.prompt.includes(`${s.criteriaDir}/`));
+    assert.deepEqual([...new Set(carrying.map((c) => c.role))].sort(), fn === 'review' ? ['applicability', 'extract', 'refute', 'verify'] : ['extract', 'refute', 'verify'], fn);
+    for (const c of carrying) {
+      assert.ok(c.prompt.includes(note), `${fn}: ${c.label}`);
+      assert.doesNotMatch(c.prompt.replace(note, ''), DOCS_PATH, `${fn}: ${c.label}`);
     }
   }
 });

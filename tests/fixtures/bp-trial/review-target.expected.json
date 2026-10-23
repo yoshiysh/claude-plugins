@@ -1,0 +1,498 @@
+{
+  "seed": "bp-trial-1",
+  "row": 15,
+  "forced": [
+    {
+      "unit": "SP-BPCONFORMANCE-014/権限/t1/r6",
+      "reason": "SP-BPCONFORMANCE-019"
+    },
+    {
+      "unit": "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8",
+      "reason": "SP-BPCONFORMANCE-034"
+    },
+    {
+      "unit": "SP-BPCONFORMANCE-019",
+      "reason": "SP-BPCONFORMANCE-019"
+    }
+  ],
+  "injections": [
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-006",
+      "file": "references/design.md",
+      "section": [
+        "設計の説明",
+        "形の判定"
+      ],
+      "from": "- Q1（段と段の間に結果による戻りが無い）: いいえ。検証の段で受理した事実が、次の計画の段で出す意図を変える。たとえば「設定ファイルを読む」意図の事実が、次の周で「環境変数の上書きを調べる」意図を生む。検証の段の結果が計画の段への戻りを要する。\n- Q2（試すものの集合が事前に決まり、結果で増えも減りもしない）: いいえ。調べる方向は、受理した事実から計画役が作る。最初の周で調べる方向は依頼文の再現手順からしか決まらず、2 周目以降の方向は前の周の事実で増える（呼び出し元が分かると、その呼び出し元の入力が新しい方向になる）。",
+      "to": "- Q1（段と段の間に結果による戻りが無い）: いいえ。\n- Q2（試すものの集合が事前に決まり、結果で増えも減りもしない）: いいえ。",
+      "unseen": []
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-008",
+      "file": "references/design.md",
+      "section": [
+        "設計の説明",
+        "部品"
+      ],
+      "from": "| 実行・回収・検証・書き込み | 並列化（意図ごとに 1 item。item の中は 実行 →（欠けたら回収）→ 検証 → 書き込み の定型の並び） |",
+      "to": "| 実行・回収・検証・書き込み | 意図ごとに実行役・回収役・検証役・運搬役を起動する |",
+      "unseen": []
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-010/目標の固定/t1/r2",
+      "file": "references/roles/goal.md",
+      "section": [
+        "目標の固定役",
+        "抜き出すもの"
+      ],
+      "from": "依頼文から、範囲（調べてよいディレクトリ・ファイル）と禁止事項（触れてはならないもの・実行してはならないコマンド）を先に抜き出す。依頼文の「これ」「さっきのテスト」のような指示語は、依頼文の中の固有名（テストの名前・コマンド・パス）に置き換え、目標だけを読んだ別の agent にも意味が通るようにする。指示語が依頼文の中で何も指さないときは、推測で埋めずに、足りない入力として返す。",
+      "to": "依頼文をそのまま目標の材料にする。範囲や禁止事項を別に抜き出さず、「これ」「さっきのテスト」のような指示語も依頼文のとおりに残す（依頼した利用者の言葉を変えないため）。",
+      "unseen": [
+        "SP-BPCONFORMANCE-010/目標の固定/t1/r1",
+        "SP-BPCONFORMANCE-010/目標の固定/t1/r3",
+        "SP-BPCONFORMANCE-010/目標の固定/t1/r4",
+        "SP-BPCONFORMANCE-010/目標の固定/t1/r5"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r10",
+      "file": "SKILL.md",
+      "section": [
+        "trace-cause",
+        "停止と再開"
+      ],
+      "from": "再開した run は必ず計画役から始め、止まっていた間に足されたヒントを読ませる。",
+      "to": "再開した run は、止まった周の未着手の意図の実行から続け、計画役は次の周の始めに呼ぶ（止まる前の計画を無駄にしないため）。",
+      "unseen": [
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r1",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r2",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r3",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r4",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r5",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r8",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r11",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r12",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r13",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r14"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-012/体数と同時実行/t1/r4",
+      "file": "references/design.md",
+      "section": [
+        "設計の説明",
+        "周の実行"
+      ],
+      "from": "- agent は意図ごとに 1 回ずつ起動し、意図の一覧を 1 回の呼び出しに渡さない。そのため runtime の 1 回の呼び出しの件数の上限に当たらず、意図を切り捨てない。",
+      "to": "- agent は意図ごとに 1 回ずつ起動する。意図の件数が runtime の 1 回の呼び出しの件数の上限を超えるときは、順位の高いものから上限の件数だけを流し、残りは捨てる。",
+      "unseen": [
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r1",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r2"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r6",
+      "file": "references/roles/executor.md",
+      "section": [
+        "実行役",
+        "返すもの"
+      ],
+      "from": "- 事実ごとに、検証方式（再取得・再実行・出典照合・検証不能のどれか）と、その事実を示したツールの結果（読んだパスと行・実行したコマンドと出力の要点）を添える。検証役はこれを手がかりに確かめ直す。",
+      "to": "- 事実ごとに、検証方式（再取得・再実行・出典照合・検証不能のどれか）を添える。どのファイルやコマンドで確かめたかは書かなくてよい（返り値を短く保つため）。",
+      "unseen": [
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r1",
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r2",
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r3",
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r4",
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r5",
+        "SP-BPCONFORMANCE-013/モデル・effort・prompt/t2/r7"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-014/権限/t1/r5",
+      "file": "SKILL.md",
+      "section": [
+        "trace-cause",
+        "役ごとの制限"
+      ],
+      "from": "| 検証役・完了の照合の検証役・計画役・目標の固定役 | 作業ファイルだけ |\n\n対象のリポジトリに書き込む役は無い。修正は、このスキルの結果を入力にした別の作業として行う。",
+      "to": "| 検証役・完了の照合の検証役・計画役・目標の固定役 | 作業ファイルと、対象のリポジトリ（再実行で確かめるときに、手元で直して試せるように） |\n\n修正の本番は、このスキルの結果を入力にした別の作業として行う。",
+      "unseen": [
+        "SP-BPCONFORMANCE-014/権限/t1/r1",
+        "SP-BPCONFORMANCE-014/権限/t1/r2",
+        "SP-BPCONFORMANCE-014/権限/t1/r3",
+        "SP-BPCONFORMANCE-014/権限/t1/r4"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r9",
+      "file": "references/roles/planner.md",
+      "section": [
+        "計画役",
+        "順位"
+      ],
+      "from": "意図には順位を付ける。呼ばれるたびに、新しく出す意図だけでなく、状態に残っている未着手の意図も含めて順位を付け直す（同時実行の上限で待つ意図をどの順で始めるかを、1 つの並びで決めるため）。",
+      "to": "意図には順位を付ける。呼ばれたときは、新しく出す意図にだけ順位を付け、状態に残っている未着手の意図は前の呼び出しで付けた順位をそのまま使う（付け直すと前の判断が無駄になるため）。",
+      "unseen": [
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r1",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r2",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r3",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r4",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r5",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r6",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r7",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r10",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r11",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r1",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r2",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r3",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r4",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r5",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r6",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r7",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r9",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r10",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r11",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r12",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t2/r1",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t2/r2",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t2/r3",
+        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t2/r4",
+        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r2",
+        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r3",
+        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r5",
+        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r6"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-016/状態の書き込み/t1/r2",
+      "file": "references/roles/carrier.md",
+      "section": [
+        "運搬役",
+        "運ぶもの"
+      ],
+      "from": "- 運ぶのは script が決めた書き込み（受理した事実・意図・停止）と読み出しだけ。受理するかどうかは script が検証役の結果から決めて要求に入れてあるので、あなたは要求を変えずに渡す。",
+      "to": "- 事実の候補と検証役の結果を受け取ったら、あなたが検証役の理由を読んで受理するかを決め、受理した事実だけを CLI に書く。",
+      "unseen": [
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r1",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r3",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r4",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r5",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r6",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r7",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r8",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r9",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r10",
+        "SP-BPCONFORMANCE-016/状態の書き込み/t1/r11"
+      ]
+    },
+    {
+      "viewpoint": "flow",
+      "unit": "SP-BPCONFORMANCE-017/資産台帳/t2/r12",
+      "file": "references/design.md",
+      "section": [
+        "設計の説明",
+        "資産台帳"
+      ],
+      "from": "- このスキルは指摘を持たない。台帳に結び付くのは「見た」だけで、事実は探索グラフの層の記録として意図に結び付く。対象のリポジトリを run の中で書き換えないので、指摘の状態（open / dismissed、resolved / regressed）を追う記録も無い。",
+      "to": "- 台帳に結び付く「見た」を指摘として扱い、対象のリポジトリを run の中で書き換えなくても、状態に open / dismissed に加えて resolved / regressed を持たせ、周ごとに前の周の結果と照らして遷移させる。",
+      "unseen": [
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r1",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r2",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r3",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r4",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r5",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r6",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r7",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r8",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r9",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r10",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r11",
+        "SP-BPCONFORMANCE-017/資産台帳/t2/r13",
+        "SP-BPCONFORMANCE-017/資産台帳/b1",
+        "SP-BPCONFORMANCE-017/資産台帳/b2",
+        "SP-BPCONFORMANCE-017/資産台帳/b3",
+        "SP-BPCONFORMANCE-017/資産台帳/b4",
+        "SP-BPCONFORMANCE-017/資産台帳/b5"
+      ]
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-027",
+      "file": "scripts/trace.js",
+      "section": null,
+      "from": "const CONCURRENCY = 3",
+      "to": "const CONCURRENCY = 4"
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-030",
+      "file": "scripts/trace.js",
+      "section": null,
+      "from": "const MAX_ROUNDS = 5",
+      "to": "const MAX_ROUNDS = 6"
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-031",
+      "file": "scripts/trace.js",
+      "section": null,
+      "from": "const MAX_ATTEMPTS = 3",
+      "to": "const MAX_ATTEMPTS = 4"
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-032",
+      "file": "scripts/trace.js",
+      "section": null,
+      "from": "const DRY_ROUNDS = 2",
+      "to": "const DRY_ROUNDS = 1"
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-035",
+      "file": "scripts/trace.js",
+      "section": null,
+      "from": "  collector: { model: 'haiku', effort: 'low' },",
+      "to": "  collector: { model: 'opus', effort: 'high' },"
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-033",
+      "file": "scripts/state.mjs",
+      "section": null,
+      "from": "const SUMMARY_MAX_CHARS = 8000;",
+      "to": "const SUMMARY_MAX_CHARS = 12000;"
+    },
+    {
+      "viewpoint": "spec",
+      "unit": "SP-BPCONFORMANCE-036",
+      "file": "scripts/state.mjs",
+      "section": null,
+      "from": "limitHit: v.rounds.filter((r) => r.run === req.run).length + 1 >= v.limits.rounds };",
+      "to": "limitHit: v.rounds.filter((r) => r.run === req.run).length + 1 >= 5 };"
+    }
+  ],
+  "rows": [
+    {
+      "req": "PR-BPDESIGNEDSKILL-002",
+      "spec": "SP-BPCONFORMANCE-006",
+      "measures": {
+        "SP-BPCONFORMANCE-006": {
+          "by": "injection"
+        }
+      },
+      "deterministic": [
+        {
+          "clause": "ターンごとの指揮で未検査",
+          "test": "tests/bp-units-real-docs.test.mjs",
+          "id": "SP-BPCONFORMANCE-006"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-004",
+      "spec": "SP-BPCONFORMANCE-008",
+      "measures": {
+        "SP-BPCONFORMANCE-008": {
+          "by": "injection"
+        }
+      }
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-006",
+      "spec": "SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-010",
+      "measures": {
+        "SP-BPCONFORMANCE-002": {
+          "by": "whole"
+        },
+        "SP-BPCONFORMANCE-010": {
+          "by": "injection"
+        }
+      }
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-007",
+      "spec": "SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-011",
+      "measures": {
+        "SP-BPCONFORMANCE-002": {
+          "by": "whole"
+        },
+        "SP-BPCONFORMANCE-011": {
+          "by": "injection"
+        }
+      }
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-008",
+      "spec": "SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027",
+      "measures": {
+        "SP-BPCONFORMANCE-012": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-027": {
+          "by": "injection"
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "同時実行の上限を runtime の設定で守る fixture と script で守る fixture が同じ判定の結果になる",
+          "reason": "題材は script で守る形だけを持つ"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-009",
+      "spec": "SP-BPCONFORMANCE-013, SP-BPCONFORMANCE-035",
+      "measures": {
+        "SP-BPCONFORMANCE-013": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-035": {
+          "by": "injection"
+        }
+      },
+      "deterministic": [
+        {
+          "clause": "best-practices 自身の script の定数が SP-BPCONFORMANCE-035 の表と一致する",
+          "test": "tests/bp-spelling.test.mjs",
+          "id": "SP-BPCONFORMANCE-035"
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "agent() の model・effort の有無の決定的照合",
+          "reason": "題材の全ての agent() が model と effort を持ち、無い呼び出しを仕込んでいない（SP-BPCONFORMANCE-035 の単位は値の違反に使った）"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-010",
+      "spec": "SP-BPCONFORMANCE-014",
+      "measures": {
+        "SP-BPCONFORMANCE-014": {
+          "by": "injection"
+        }
+      }
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-011",
+      "spec": "SP-BPCONFORMANCE-015, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-034",
+      "measures": {
+        "SP-BPCONFORMANCE-015": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-030": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-031": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-032": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-034": {
+          "by": "forced",
+          "units": [
+            "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r8"
+          ]
+        }
+      },
+      "unmeasured": [
+        {
+          "clause": "上限に達する fixture での停止",
+          "reason": "review の試走は題材の script を読むだけで走らせない"
+        }
+      ]
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-012",
+      "spec": "SP-BPCONFORMANCE-016, SP-BPCONFORMANCE-033",
+      "measures": {
+        "SP-BPCONFORMANCE-016": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-033": {
+          "by": "injection"
+        }
+      }
+    },
+    {
+      "req": "PR-BPDESIGNEDSKILL-013",
+      "spec": "SP-BPCONFORMANCE-017",
+      "measures": {
+        "SP-BPCONFORMANCE-017": {
+          "by": "injection"
+        }
+      }
+    },
+    {
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038",
+      "measures": {
+        "SP-BPCONFORMANCE-001": {
+          "by": "whole"
+        },
+        "SP-BPCONFORMANCE-002": {
+          "by": "whole"
+        },
+        "SP-BPCONFORMANCE-003": {
+          "by": "whole"
+        },
+        "SP-BPCONFORMANCE-018": {
+          "by": "whole"
+        },
+        "SP-BPCONFORMANCE-038": {
+          "by": "whole"
+        }
+      }
+    },
+    {
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036",
+      "measures": {
+        "SP-BPCONFORMANCE-028": {
+          "by": "none",
+          "reason": "探索グラフ型の題材に until-pass の部品が無い"
+        },
+        "SP-BPCONFORMANCE-029": {
+          "by": "none",
+          "reason": "探索グラフ型の題材は固定集合の反復型でない"
+        },
+        "SP-BPCONFORMANCE-030": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-031": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-032": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-033": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-035": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-027": {
+          "by": "injection"
+        },
+        "SP-BPCONFORMANCE-036": {
+          "by": "injection"
+        }
+      }
+    }
+  ]
+}

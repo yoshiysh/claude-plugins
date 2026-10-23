@@ -4,7 +4,7 @@ import { MIN_LAUNCHES, SCRIPT, createArgs, defaults, resumeArgs, runAuthor, setu
 
 const MIN_UPDATE = MIN_LAUNCHES.update;
 
-// §5.9 の教訓 4: script に欠陥を入れた写しで、決めておいた場合が必ず落ちることを照らす。
+// script に欠陥を入れた写しで、決めておいた場合が必ず落ちることを照らす（テストが壊れた実装で落ちるかの確かめ）。
 // 各場合は「正しい script なら true」を返す。元の script で true、欠陥を入れた写しで false でなければならない。
 const CASES = [
   {
@@ -132,7 +132,7 @@ const CASES = [
 ];
 
 for (const c of CASES) {
-  test(`教訓 4（壊した script で落ちる）: ${c.name}`, async (t) => {
+  test(`壊した bp_author.js で落ちる: ${c.name}`, async (t) => {
     const s = await setup(t);
     if (!s) return;
     assert.equal(await c.check(t, SCRIPT), true, '元の script で場合が通らない');

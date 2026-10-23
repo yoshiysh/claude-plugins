@@ -30,18 +30,29 @@ export const OPS = Object.freeze({
   units: 'units',
   gate: 'gate',
   outcome: 'outcome',
+  targets: 'targets',
+  bundle: 'bundle',
+  applicability: 'applicability',
+  stopDraft: 'stop-draft',
 });
 
 // 送り直しで記録が増えないことをテストが操作ごとに照らすので、書き込みの操作の集合はここだけに置く。
 export const WRITE_OPS = Object.freeze([
   OPS.start, OPS.premise, OPS.stageStart, OPS.itemResult, OPS.itemFail, OPS.stageRepeat, OPS.stageFinish, OPS.discard,
   OPS.files, OPS.stop, OPS.ledgerCreate, OPS.ledgerRetake, OPS.assignments, OPS.verdicts, OPS.refutation, OPS.reviewJudge,
-  OPS.vanishMatch, OPS.pathsRetake, OPS.snapshot, OPS.goalCheck, OPS.filesScan, OPS.gate,
+  OPS.vanishMatch, OPS.pathsRetake, OPS.snapshot, OPS.goalCheck, OPS.filesScan, OPS.gate, OPS.targets, OPS.bundle, OPS.applicability,
 ]);
+
+// 入口（SKILL.md）だけが呼ぶ読み出しの操作。run の中の script は呼ばないので、script が写す OPS と分ける（分けないと、入口の操作を足すたびに script の写しが変わる）。
+export const ENTRY_OPS = Object.freeze({ chainCheck: 'chain-check', chainNext: 'chain-next', launchArgs: 'launch-args', chainReport: 'chain-report' });
+export const ROUTES = Object.freeze({ native: 'native', codex: 'codex' });
+export const LAUNCH_KINDS = Object.freeze({ new: 'new', resume: 'resume' });
+export const WORKFLOW_SOURCES = Object.freeze({ author: 'best-practices-author', inspect: 'best-practices-inspect' });
 
 export const FUNCTION = Object.freeze({ create: 'create', review: 'review', update: 'update', audit: 'audit' });
 export const FUNCTIONS = Object.freeze(Object.values(FUNCTION));
 export const REWRITING_FUNCTIONS = new Set([FUNCTION.create, FUNCTION.update]);
+export const INSPECTING_FUNCTIONS = new Set([FUNCTION.review, FUNCTION.audit]);
 
 export const STOP_KINDS = Object.freeze({
   complete: 'complete',
@@ -104,6 +115,8 @@ export const STAGES = Object.freeze({
   [STAGE.close]: '照合と停止',
 });
 export const VERIFY_STAGES = new Set([STAGE.verify, STAGE.verifyExtra]);
+// review・audit の段の並び（SP-BPINSPECTION-001。消えた資産の照合は再開の開始の取り直しにだけ伴うので並びに入れない）。再開した run はこの順で止まった段を決める。
+export const INSPECT_PIPELINE = Object.freeze([STAGE.targets, STAGE.bundle, STAGE.assign, STAGE.applicability, STAGE.verify, STAGE.verifyExtra, STAGE.refute, STAGE.close]);
 export const STAGE_STATUS = Object.freeze({ open: 'open', finished: 'finished', none: 'none', stopped: 'stopped' });
 
 export const RECORDS = Object.freeze({
@@ -140,6 +153,9 @@ export const RECORDS = Object.freeze({
   addAsset: 'addAsset',
   snapshot: 'snapshot',
   extra: 'extra',
+  target: 'target',
+  bundle: 'bundle',
+  applicability: 'applicability',
 });
 export const FINGERPRINT_AT = Object.freeze({ start: 'start', retake: 'retake', stop: 'stop' });
 export const FILE_ACTIONS = Object.freeze({ write: 'write', delete: 'delete' });
@@ -147,7 +163,7 @@ export const ASSIGN_RULES = Object.freeze({ all: 'all', skip: 'skip' });
 export const RESULT_KINDS = Object.freeze({ verdicts: 'verdicts', refutation: 'refutation', vanish: 'vanish' });
 export const BASIS = Object.freeze({ upheld: 'upheld', rejected: 'rejected', noCandidate: 'no-candidate', unknown: 'unknown', vanish: 'vanish' });
 export const RECORDED = Object.freeze({ state: 'state', judgement: 'judgement', none: 'none' });
-export const REJECT_SCOPE = Object.freeze({ item: 'item:', assign: 'assign:' });
+export const REJECT_SCOPE = Object.freeze({ item: 'item:', assign: 'assign:', applicability: 'applicability' });
 export const ROUND_PREFIX = Object.freeze({ refute: 'refute:', judge: 'judge:', vanish: 'vanish:' });
 export const REVIEW_INPUT = Object.freeze({
   r: Object.freeze({ empty: 'empty', present: 'present' }),
@@ -191,6 +207,11 @@ export const RESULT_KEYS = Object.freeze({
   excludedCallsites: 'excludedCallsites',
   unverified: 'unverified',
   stoppedStage: 'stoppedStage',
+  targets: 'targets',
+  applicability: 'applicability',
+  uncheckedViewpoints: 'uncheckedViewpoints',
+  target: 'target',
+  ledger: 'ledger',
 });
 export const VERIFICATION_KEYS = Object.freeze({
   decision: 'decision',
@@ -211,6 +232,8 @@ export const GOAL_KEYS = Object.freeze({
 });
 export const SOURCE_KINDS = Object.freeze({ request: 'request', answer: 'answer', snapshot: 'snapshot', ground: 'ground' });
 export const GROUND_INSTRUCTION = Object.freeze({ kindKey: 'kind', kind: '利用者の指示', textKey: 'text' });
+// 前の review・audit の run の指摘を状態 ID で指す修正の根拠の形（SP-BPFINDINGS-031）。開始の操作が状態の返り値の指摘の一覧に展開する。
+export const GROUND_REF_KEY = 'from';
 export const SNAPSHOT_DIR = 'snapshot';
 export const SNAPSHOT_PARTS = Object.freeze({ root: 'root', plugin: 'plugin' });
 
@@ -233,10 +256,26 @@ export const VIEWPOINTS = Object.freeze({
   contract: '契約の観点',
   audit: '監査の観点',
 });
+export const VIEWPOINT = Object.freeze(Object.fromEntries(Object.keys(VIEWPOINTS).map((k) => [k, k])));
+export const PRESENCE_QUESTIONS = Object.freeze(['ledger', 'fanout']);
 
 export const RUN_VIEWPOINTS = Object.freeze({
   create: Object.freeze(['conformance', 'goal']),
   update: Object.freeze(['conformance', 'goal', 'contract']),
+  review: Object.freeze(['flow', 'spec']),
+  audit: Object.freeze(['audit']),
+});
+
+// 適用の判定の閉集合（SP-BPINSPECTION-006 の表の選択肢と、SP-BPCONFORMANCE-003 の条件の値）。値は表の字面そのままにし、表との一致はテストが照らす。
+export const APPLICABILITY_QUESTIONS = Object.freeze(['A', 'Q1', 'Q2', 'Q3']);
+export const APPLICABILITY_ANSWERS = Object.freeze({ yes: 'はい', no: 'いいえ', unreached: '問いに到達しない' });
+export const PRESENCE = Object.freeze({ present: '有', absent: '無' });
+export const SHAPES = Object.freeze({ turn: 'ターンごとの指揮', pipeline: '固定パイプライン型', iterative: '固定集合の反復型', explore: '探索グラフ型' });
+export const UNCHECKED_SCOPES = Object.freeze({ whole: 'whole', unit: 'unit', pa: 'pa' });
+// SP-BPINSPECTION-012 の固定の 1 件。検証役に判断させないので、audit の完了のたびに CLI が状態から載せる。
+export const FIXED_AUDIT_UNCHECKED = Object.freeze({
+  value: 'PA-3',
+  reason: 'PR-BPDESIGNEDSKILL-021・SP-BPCONFORMANCE-025: 起動数の上限を渡されない run で、fan-out の項目の件数と 1 run の起動数に上限が無いことに PA-3 を当てない（SP-BPINSPECTION-012）',
 });
 
 // 役の制限は host が役ごとに強制できない（SP-BPRUN-025）ので、どの run の返り値にも確かめられなかった制限として載せる。
@@ -245,6 +284,8 @@ export const ROLE_WRITE_LIMITS = Object.freeze([
   Object.freeze({ role: '検証役・反証役・抽出役', writes: '作業ファイルだけ' }),
   Object.freeze({ role: '運搬役', writes: 'CLI を通した状態だけ' }),
 ]);
+// review・audit は書き手を起動しないので、確かめられなかった制限から書き手の行を除く（SP-BPRUN-025 の表は書き手を create・update だけとする）。
+export const INSPECT_ROLE_WRITE_LIMITS = Object.freeze(ROLE_WRITE_LIMITS.slice(1));
 
 export const JUDGEMENTS = Object.freeze({ candidate: 'candidate', ok: 'ok', unsure: 'unsure' });
 export const REFUTATION_VERDICTS = Object.freeze({ uphold: 'uphold', reject: 'reject' });
@@ -286,7 +327,16 @@ export const CRITERIA_FILES = Object.freeze({
   inspection: Object.freeze(['specifications', 'bp-inspection.md']),
   designedSkill: Object.freeze(['requirements', 'bp-designed-skill.md']),
 });
-export const CRITERIA_CHAPTERS = Object.freeze({ functional: '機能仕様', capacityPrefix: '性能・容量' });
+// others は bp-conformance の、機能仕様と性能・容量のほかの章（読める章）。章を読めない写しでどの章の仕様項目を落としてよいかを、この閉集合で決める。
+export const CRITERIA_CHAPTERS = Object.freeze({
+  functional: '機能仕様',
+  capacityPrefix: '性能・容量',
+  others: Object.freeze(['対象範囲', '用語定義', 'エラー処理と異常系', '検証方法', 'TBD の宣言', 'トレーサビリティ表']),
+});
+export const PROMPT_AUDIT_FILE = 'references/prompt-audit.md';
+// 照らす先の決定の出力で、観点ごとのファイルを名前で指す（パスの順に意味を持たせない）。
+export const TARGET_FILES = Object.freeze({ conformance: 'conformance', design: 'design', inspection: 'inspection', promptAudit: 'promptAudit', designedSkill: 'designedSkill' });
+export const PROMPT_AUDIT_SECTION = 'Finding criteria';
 export const PRINCIPLE_HEADER = '原則';
 export const UPDATE_ONLY_MARK = '（update だけ）';
 

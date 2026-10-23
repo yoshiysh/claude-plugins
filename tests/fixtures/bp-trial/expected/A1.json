@@ -1,0 +1,116 @@
+{
+  "rows": [
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-028",
+      "spec": "SP-BPINSPECTION-011",
+      "method": "fixture（指示でない文の欠陥と、好みの違いだけの箇所を含む対象スキルで、どちらも指摘にならず、担当の資産が減らないことを確認）",
+      "checks": [
+        {
+          "clause": "fixture（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "指示でない文の欠陥",
+          "by": "findings",
+          "match": {
+            "path": "SKILL.md",
+            "section": [
+              "glossary-sync",
+              "概要"
+            ]
+          },
+          "max": 0
+        },
+        {
+          "clause": "好みの違いだけの箇所",
+          "by": "findings",
+          "match": {
+            "path": "SKILL.md",
+            "section": [
+              "glossary-sync",
+              "書き方"
+            ]
+          },
+          "max": 0
+        },
+        {
+          "clause": "担当の資産が減らない",
+          "by": "coverage"
+        }
+      ]
+    },
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-028",
+      "spec": "SP-BPINSPECTION-012",
+      "method": "fixture（上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず、PA-3 の一部の未検査の観点が載ることを確認）",
+      "checks": [
+        {
+          "clause": "fixture（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "上限の無い fan-out を持つ対象スキルで PA-3 の指摘が出ず",
+          "by": "coverage"
+        },
+        {
+          "clause": "PA-3 の指摘が出ず",
+          "by": "findings",
+          "match": {
+            "kind": "PA-3",
+            "path": "scripts/check.js"
+          },
+          "max": 0
+        },
+        {
+          "clause": "PA-3 の一部の未検査の観点が載る",
+          "by": "unchecked",
+          "match": {
+            "viewpoint": "audit",
+            "scope": "pa",
+            "value": "PA-3"
+          },
+          "min": 1
+        }
+      ]
+    },
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-028",
+      "spec": "SP-BPINSPECTION-013",
+      "method": "fixture（モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず、PA-4 の未検査の観点が載ることを確認）",
+      "checks": [
+        {
+          "clause": "fixture（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "モデルを名指さない対象スキルで PA-4 の鮮度の指摘が出ず",
+          "by": "coverage"
+        },
+        {
+          "clause": "PA-4 の鮮度の指摘が出ず",
+          "by": "findings",
+          "match": {
+            "kind": "PA-4"
+          },
+          "max": 0
+        },
+        {
+          "clause": "PA-4 の未検査の観点が載る",
+          "by": "unchecked",
+          "match": {
+            "viewpoint": "audit",
+            "scope": "pa",
+            "value": "PA-4"
+          },
+          "min": 1
+        }
+      ]
+    }
+  ]
+}

@@ -3,24 +3,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CODES, NEXT_ARGS_KEYS, OPS, STAGES, VIEWPOINTS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { CODES, ENTRY_OPS, NEXT_ARGS_KEYS, OPS, STAGES, VIEWPOINTS, WORKFLOW_SOURCES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { tableAfter } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RUN = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
 const FINDINGS = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-findings.md'), 'utf8');
-
-function tableAfter(text, marker) {
-  const start = text.indexOf(marker);
-  assert.ok(start >= 0, marker);
-  const lines = text.slice(start).split('\n');
-  const first = lines.findIndex((l) => l.startsWith('|'));
-  const rows = [];
-  for (const line of lines.slice(first + 2)) {
-    if (!line.startsWith('|')) break;
-    rows.push(line.replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim()));
-  }
-  return rows;
-}
 
 test('SP-BPRUN-038: 仕様の段の slug の表と CLI の定数が一致する', () => {
   const rows = tableAfter(RUN, '段の slug は次の表とする。');
@@ -35,10 +23,11 @@ test('SP-BPRUN-031: 仕様の符号の表と CLI の定数が一致する', () =
   assert.deepEqual(spec.sort(), Object.values(CODES).sort());
 });
 
-test('SP-BPRUN-031: 仕様の操作の表と CLI の定数が一致する', () => {
+test('SP-BPRUN-031: 仕様の操作の表と CLI の定数（run の中の操作と入口の操作）が一致し、2 つの集合が交わらない', () => {
   const rows = tableAfter(RUN, '| 操作 | 実現する項目 | 受け取るもの | 返すもの |');
   const spec = rows.map(([cell]) => cell.replace(/`/g, ''));
-  assert.deepEqual(spec.sort(), Object.values(OPS).sort());
+  assert.deepEqual(spec.sort(), [...Object.values(OPS), ...Object.values(ENTRY_OPS)].sort());
+  assert.deepEqual(Object.values(OPS).filter((op) => Object.values(ENTRY_OPS).includes(op)), []);
 });
 
 test('SP-BPRUN-033: 仕様の next_args の綴りと CLI の定数が一致する', () => {
@@ -55,82 +44,157 @@ test('SP-BPFINDINGS-011: 仕様の観点の値と CLI の定数が一致する',
   assert.deepEqual(Object.fromEntries(values), VIEWPOINTS);
 });
 
-// ---- 2 段目: script の写しを CLI の定数と仕様の表に照らす（script は import できないので写しを持つ。§5.9 の教訓 1・5）
+// ---- script の写しを CLI の定数と仕様の表に照らす（script は import できないので写しを持つ。写しの照合漏れと、仕様の表と応答の形のずれを止める）
 
 import { createRequire } from 'node:module';
 import * as CLI_CONSTANTS from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { sum as cliSum } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 import { isTreatedGround as cliTreated } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-author.mjs';
 
-const SCRIPT = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp_author.js');
-const SOURCE = readFileSync(SCRIPT, 'utf8');
+const SCRIPT_DIR = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts');
 const AUTHORING = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-authoring.md'), 'utf8');
 const CONFORMANCE = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-conformance.md'), 'utf8');
 const ENTRY = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-entry.md'), 'utf8');
+const INSPECTION = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-inspection.md'), 'utf8');
 const acorn = createRequire(path.join(ROOT, 'plugins', 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'package.json'))('acorn');
-
-function parseScript() {
-  const body = SOURCE.replace(/^export const meta =/, 'const meta =');
-  return acorn.parse(`async function __s() {\n${body}\n}`, { ecmaVersion: 'latest', sourceType: 'module' });
-}
-
-const AST = parseScript();
 const OFFSET = 'async function __s() {\n'.length - 'export '.length;
 
-function literalOf(name) {
-  const decl = AST.body[0].body.body.filter((s) => s.type === 'VariableDeclaration').flatMap((s) => s.declarations).find((d) => d.id.name === name);
-  assert.ok(decl, `script に ${name} の定数が無い`);
-  const text = SOURCE.slice(decl.init.start - OFFSET, decl.init.end - OFFSET);
+// 写しの定数のうち閉集合として本文のリテラルを照らさないもの。鍵・欄・操作の名前の集合で、本文の欄名・観点の値・英単語と字面がぶつかる（観点の値は SP-BPFINDINGS-011 のテストが別に照らす）。
+const NOT_CLOSED = {
+  OPS: '操作の名前。運搬役の要求の op として定数から引き、CLI の実行が照らす',
+  STAGE: '段の slug。観点の値（goal）と同じ字面を持つ',
+  INSPECT_PIPELINE: '段の slug の並び。STAGE と同じ',
+  FUNCTION: '機能の名前。prompt の文に機能を名指す語として現れる',
+  NEXT_ARGS_KEYS: '欄の名前', LIMIT_KEYS: '欄の名前', INPUT_KEYS: '欄の名前', RESULT_KEYS: '欄の名前', GOAL_KEYS: '欄の名前',
+  RUN_VIEWPOINTS: '観点の値（SP-BPFINDINGS-011 のテストが照らす）',
+  SOURCE_KINDS: 'schema の enum と prompt の例示で定数から引く。例示の "kind" の値はテストが別に照らす（SP-BPAUTHORING-006）',
+  GROUND_INSTRUCTION: '欄の名前と種別の文言。CLI の関数と振る舞いで照らす',
+  GROUND_REF_KEY: '欄の名前。CLI の関数と振る舞いで照らす',
+  CONTRACT_ELEMENTS: '契約の要素の文言。prompt に要素の名前として並べる',
+  CRITERIA_DIR: 'パス', CRITERIA_FILES: 'パス',
+  ROLE_WRITE_LIMITS: '返り値に載せる役の文言', INSPECT_ROLE_WRITE_LIMITS: '返り値に載せる役の文言',
+};
+
+const SCRIPTS = {
+  author: {
+    file: 'bp_author.js',
+    copied: ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
+      'GOAL_KEYS', 'SOURCE_KINDS', 'GROUND_INSTRUCTION', 'GROUND_REF_KEY', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'CONTRACT_ELEMENTS', 'GATE_NEXT', 'LIMIT_HITS', 'CRITERIA_DIR', 'CRITERIA_FILES',
+      'ROLE_WRITE_LIMITS', 'STOP_CAUSES', 'FILE_ACTIONS', 'ASSIGN_RULES', 'STAGE_STATUS', 'CONTRACT_NONE', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE'],
+    skipFunctions: ['isTreatedGround'],
+  },
+  inspect: {
+    file: 'bp_inspect.js',
+    copied: ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
+      'INSPECT_PIPELINE', 'LIMIT_HITS', 'ASSIGN_RULES', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE', 'STOP_CAUSES', 'APPLICABILITY_QUESTIONS',
+      'APPLICABILITY_ANSWERS', 'PRESENCE', 'UNCHECKED_SCOPES', 'INSPECT_ROLE_WRITE_LIMITS', 'PRESENCE_QUESTIONS', 'TARGET_FILES'],
+    skipFunctions: [],
+  },
+};
+
+for (const s of Object.values(SCRIPTS)) {
+  s.source = readFileSync(path.join(SCRIPT_DIR, s.file), 'utf8');
+  s.ast = acorn.parse(`async function __s() {\n${s.source.replace(/^export const meta =/, 'const meta =')}\n}`, { ecmaVersion: 'latest', sourceType: 'module' });
+  s.top = s.ast.body[0].body.body;
+}
+
+function literalIn(s, name) {
+  const decl = s.top.filter((x) => x.type === 'VariableDeclaration').flatMap((x) => x.declarations).find((d) => d.id.name === name);
+  assert.ok(decl, `${s.file} に ${name} の定数が無い`);
+  const text = s.source.slice(decl.init.start - OFFSET, decl.init.end - OFFSET);
   return Function(`"use strict"; return (${text});`)();
 }
 
+const SOURCE = SCRIPTS.author.source;
+const literalOf = (name) => literalIn(SCRIPTS.author, name);
+
 function scriptFunction(names) {
-  const decls = AST.body[0].body.body.filter((s) => s.type === 'FunctionDeclaration' && names.includes(s.id.name));
-  const text = decls.map((d) => SOURCE.slice(d.start - OFFSET, d.end - OFFSET)).join('\n');
-  const consts = ['GROUND_INSTRUCTION'].map((n) => `const ${n} = ${JSON.stringify(literalOf(n))};`).join('\n');
+  const s = SCRIPTS.author;
+  const decls = s.top.filter((x) => x.type === 'FunctionDeclaration' && names.includes(x.id.name));
+  const text = decls.map((d) => s.source.slice(d.start - OFFSET, d.end - OFFSET)).join('\n');
+  const consts = ['GROUND_INSTRUCTION', 'GROUND_REF_KEY'].map((n) => `const ${n} = ${JSON.stringify(literalOf(n))};`).join('\n');
   return Function(`"use strict"; ${consts}\n${text}\nreturn { ${names.join(', ')} };`)();
 }
 
-const COPIED = ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
-  'GOAL_KEYS', 'SOURCE_KINDS', 'GROUND_INSTRUCTION', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'CONTRACT_ELEMENTS', 'GATE_NEXT', 'LIMIT_HITS', 'CRITERIA_DIR', 'CRITERIA_FILES',
-  'ROLE_WRITE_LIMITS', 'STOP_CAUSES', 'FILE_ACTIONS', 'ASSIGN_RULES', 'STAGE_STATUS', 'CONTRACT_NONE', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE'];
-
-function scriptLiterals() {
-  const top = AST.body[0].body.body;
-  const skip = top.filter((s) => (s.type === 'VariableDeclaration' && COPIED.includes(s.declarations[0].id.name)) || (s.type === 'FunctionDeclaration' && s.id.name === 'isTreatedGround'));
+function scriptLiterals(s) {
+  const skip = s.top.filter((x) => (x.type === 'VariableDeclaration' && s.copied.includes(x.declarations[0].id.name)) || (x.type === 'FunctionDeclaration' && s.skipFunctions.includes(x.id.name)));
   const out = [];
-  const visit = (node, parentKey) => {
+  const visit = (node) => {
     if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach((n) => visit(n, parentKey)); return; }
+    if (Array.isArray(node)) { node.forEach(visit); return; }
     if (skip.includes(node)) return;
     if (node.type === 'Property' && node.key.name === 'fields') return;
-    if (node.type === 'Literal' && typeof node.value === 'string') out.push({ value: node.value, line: SOURCE.slice(0, node.start - OFFSET).split('\n').length });
-    if (node.type === 'TemplateElement') out.push({ value: node.value.cooked, line: SOURCE.slice(0, node.start - OFFSET).split('\n').length });
-    for (const k of Object.keys(node)) if (k !== 'type' && k !== 'start' && k !== 'end') visit(node[k], k);
+    if (node.type === 'Literal' && typeof node.value === 'string') out.push({ value: node.value, line: s.source.slice(0, node.start - OFFSET).split('\n').length });
+    if (node.type === 'TemplateElement') out.push({ value: node.value.cooked, line: s.source.slice(0, node.start - OFFSET).split('\n').length });
+    for (const k of Object.keys(node)) if (k !== 'type' && k !== 'start' && k !== 'end') visit(node[k]);
   };
-  visit(AST.body[0].body.body);
+  visit(s.top);
   return out;
 }
 
-// 写しの定数を照らしても、本文が閉集合の値をリテラルで書き直すと、CLI の値が変わったときに本文だけ古いまま残る
-// （模擬の agent は schema を見ないので結合テストでも落ちない）。report の欄の名前（fields）と、CLI の関数と振る舞いで照らす isTreatedGround は除く。
-test('SP-BPRUN-031: script の本文は、写しの定数の閉集合の値をリテラルや prompt の引用で書き直さず、定数から引く', () => {
-  const closed = ['FILE_ACTIONS', 'ASSIGN_RULES', 'STAGE_STATUS', 'CONTRACT_NONE', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE', 'LIMIT_HITS', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'GATE_NEXT', 'STOP_KINDS', 'STOP_CAUSES', 'CODES'];
-  const values = new Set(closed.flatMap((n) => { const v = literalOf(n); return typeof v === 'string' ? [v] : Object.values(v); }));
-  // 引用の "ok" は応答の予約欄（SP-BPRUN-031）を指し、judgement の ok と字面が同じなので引用の照合から外す。
-  const quotedOnly = new Set(['ok']);
-  const hits = scriptLiterals().filter((l) => values.has(l.value) || [...l.value.matchAll(/"([^"]+)"/g)].some((m) => values.has(m[1]) && !quotedOnly.has(m[1])));
-  assert.deepEqual(hits, []);
-});
+for (const [label, s] of Object.entries(SCRIPTS)) {
+  // 写しの定数を照らしても、本文が閉集合の値をリテラルで書き直すと、CLI の値が変わったときに本文だけ古いまま残る
+  // （模擬の agent は schema を見ないので結合テストでも落ちない）。閉集合は写しから NOT_CLOSED を引いたもので、新しく写した定数は既定で照らす。
+  test(`SP-BPRUN-031: ${s.file} の本文は、写しの定数の閉集合の値をリテラルや prompt の引用で書き直さず、定数から引く`, () => {
+    const closed = s.copied.filter((n) => !Object.hasOwn(NOT_CLOSED, n));
+    assert.ok(closed.length > 0);
+    const values = new Set(closed.flatMap((n) => { const v = literalIn(s, n); return typeof v === 'string' ? [v] : Object.values(v).flat(); }));
+    // 引用の "ok" は応答の予約欄（SP-BPRUN-031）を指し、judgement の ok と字面が同じなので引用の照合から外す。
+    const quotedOnly = new Set(['ok']);
+    const hits = scriptLiterals(s).filter((l) => values.has(l.value) || [...l.value.matchAll(/"([^"]+)"/g)].some((m) => values.has(m[1]) && !quotedOnly.has(m[1])));
+    assert.deepEqual(hits, []);
+  });
 
-test('SP-BPFINDINGS-011: script が観点を比べるリテラルは CLI の観点の値にある', () => {
-  const used = [...SOURCE.matchAll(/viewpoint === '([^']+)'/g)].map((m) => m[1]);
-  assert.ok(used.length > 0);
-  for (const v of used) assert.ok(Object.hasOwn(CLI_CONSTANTS.VIEWPOINTS, v), v);
-});
+  test(`SP-BPRUN-031: ${s.file} の定数の写しが CLI の定数と深く一致し、CLI の定数と同じ名前の最上位の定数は全て照合に入っている`, () => {
+    for (const name of s.copied) assert.deepEqual(literalIn(s, name), JSON.parse(JSON.stringify(CLI_CONSTANTS[name])), `${label}: ${name}`);
+    const names = s.top.filter((x) => x.type === 'VariableDeclaration').map((x) => x.declarations[0].id.name);
+    const stray = names.filter((n) => Object.hasOwn(CLI_CONSTANTS, n) && !s.copied.includes(n));
+    assert.deepEqual(stray, [], `${label}: CLI の定数と同じ名前なのに照合に入っていない`);
+    for (const n of Object.keys(NOT_CLOSED)) assert.ok(Object.hasOwn(CLI_CONSTANTS, n), `NOT_CLOSED の名前が CLI の定数に無い: ${n}`);
+  });
 
-test('SP-BPRUN-031・TBD-SBPRUN-001 の保持規則: script の定数の写しが CLI の定数と深く一致する', () => {
-  for (const name of COPIED) assert.deepEqual(literalOf(name), JSON.parse(JSON.stringify(CLI_CONSTANTS[name])), name);
+  test(`SP-BPFINDINGS-011: ${s.file} が観点を比べるリテラルは CLI の観点の値にある`, () => {
+    // 選択肢ごとに別に走査する（1 つの正規表現の選択肢にすると、前の選択肢が先に当たって三項の結果を拾わない）。
+    const patterns = [/viewpoint === '([^']+)'/g, /target(?:Of|File)\('([^']+)'/g, /viewpoint === '[^']+' \? '([^']+)' : /g, /viewpoint === '[^']+' \? '[^']+' : '([^']+)'/g];
+    const used = patterns.flatMap((re) => [...s.source.matchAll(re)].map((m) => m[1]));
+    if (s.file === 'bp_inspect.js') assert.ok(patterns.slice(2).some((re) => re.test(s.source)), '三項の観点のリテラルを拾っていない');
+    assert.ok(used.length > 0);
+    for (const v of used) assert.ok(Object.hasOwn(CLI_CONSTANTS.VIEWPOINTS, v), v);
+  });
+
+  test(`SP-BPRUN-023・SP-BPCONFORMANCE-035: ${s.file} の役ごとの model と effort が bp-conformance の best-practices の役の表と一致する`, () => {
+    const rows = tableAfter(CONFORMANCE, '| best-practices の役 | `model` | `effort` |');
+    const roles = { 書き手: 'writer', 検証役: 'verifier', 反証役: 'refuter', 抽出役: 'extractor', 運搬役: 'carrier' };
+    const spec = Object.fromEntries(rows.map(([role, model, effort]) => [roles[role], { model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }]));
+    assert.deepEqual(literalIn(s, 'ROLE_MODELS'), spec);
+  });
+
+  test(`SP-BPCONFORMANCE-027〜031・SP-BPCONFORMANCE-036: ${s.file} の上限の定数が bp-conformance の確定値と一致する`, () => {
+    const value = (id, unit) => Number(new RegExp(`#### ${id}[\\s\\S]*?(\\d+) ${unit}以下`).exec(CONFORMANCE)[1]);
+    assert.equal(literalIn(s, 'CONCURRENCY'), value('SP-BPCONFORMANCE-027', '体'));
+    assert.deepEqual(literalIn(s, 'LIMITS'), {
+      untilPass: value('SP-BPCONFORMANCE-028', '回'),
+      iterations: value('SP-BPCONFORMANCE-029', '回'),
+      attempts: value('SP-BPCONFORMANCE-031', '回'),
+    });
+  });
+}
+
+test('SP-BPRUN-021: 仕様に書いた review・audit の最小の起動数と段ごとの最悪の回数が bp_inspect.js の定数から計算した値と一致する', () => {
+  const s = SCRIPTS.inspect;
+  const m = /review の最小の起動数は (\d+)、audit は (\d+) とする/.exec(RUN);
+  assert.ok(m, 'SP-BPRUN-021 に review・audit の最小の起動数の書き戻しが無い');
+  const limits = literalIn(s, 'LIMITS');
+  const reserve = literalIn(s, 'RESERVE');
+  const w = Function('LIMITS', `return (${s.source.slice(s.source.indexOf('const WORST = ') + 'const WORST = '.length, s.source.indexOf('\nconst RESERVE'))});`)(limits);
+  const min = (fn) => w.start + w.targets + w.bundle + limits.attempts * w.attempt + (fn === 'review' ? limits.attempts * w.attempt : w.carrier) + w.item + reserve;
+  assert.deepEqual([Number(m[1]), Number(m[2])], [min('review'), min('audit')]);
+  const section = RUN.slice(RUN.indexOf('review・audit の段ごとの最悪の回数は次の表とする'));
+  const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(section)?.[1]);
+  assert.deepEqual([row('`worst\\(開始\\)`'), row('`worst\\(照らす先\\)`'), row('`worst\\(束\\)`'), row('`worst\\(fan-out でない段の 1 回\\)`'), row('`worst\\(段の境の運搬役\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`R`（予約分）')],
+    [w.start, w.targets, w.bundle, w.attempt, w.carrier, w.item, reserve]);
+  const fnText = s.source.slice(s.source.indexOf('function minimalLaunches'), s.source.indexOf('\n}\n', s.source.indexOf('function minimalLaunches')));
+  assert.equal(Function('WORST', 'LIMITS', 'RESERVE', 'FUNCTION', `${fnText}\n}\nreturn [minimalLaunches('review'), minimalLaunches('audit')];`)(w, limits, reserve, { review: 'review', audit: 'audit' }).join(','), `${m[1]},${m[2]}`);
 });
 
 test('SP-BPRUN-038: script の段の名前と meta.phases の title が CLI の段の名前と一致し、create・update の段の表の順に並ぶ', () => {
@@ -142,23 +206,6 @@ test('SP-BPRUN-038: script の段の名前と meta.phases の title が CLI の�
   const order = ['開始', '作り直す前の写し', '目標の固定', '書く', '台帳', '検証', '追加の検証', '反証', '消えた資産の照合', '見直し', '合否'];
   assert.deepEqual(order.filter((n) => table.includes(n)), table);
   assert.deepEqual(phases, order);
-});
-
-test('SP-BPRUN-023・SP-BPCONFORMANCE-035: script の役ごとの model と effort が bp-conformance の best-practices の役の表と一致する', () => {
-  const rows = tableAfter(CONFORMANCE, '| best-practices の役 | `model` | `effort` |');
-  const roles = { 書き手: 'writer', 検証役: 'verifier', 反証役: 'refuter', 抽出役: 'extractor', 運搬役: 'carrier' };
-  const spec = Object.fromEntries(rows.map(([role, model, effort]) => [roles[role], { model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }]));
-  assert.deepEqual(literalOf('ROLE_MODELS'), spec);
-});
-
-test('SP-BPCONFORMANCE-027〜031・SP-BPCONFORMANCE-036: script の上限の定数が bp-conformance の確定値と一致する', () => {
-  const value = (id, unit) => Number(new RegExp(`#### ${id}[\\s\\S]*?(\\d+) ${unit}以下`).exec(CONFORMANCE)[1]);
-  assert.equal(literalOf('CONCURRENCY'), value('SP-BPCONFORMANCE-027', '体'));
-  assert.deepEqual(literalOf('LIMITS'), {
-    untilPass: value('SP-BPCONFORMANCE-028', '回'),
-    iterations: value('SP-BPCONFORMANCE-029', '回'),
-    attempts: value('SP-BPCONFORMANCE-031', '回'),
-  });
 });
 
 function seeded(seed) {
@@ -191,11 +238,12 @@ test('SP-BPRUN-031: script の fnvSum が CLI の sum と 500 個の値（日本
   }
 });
 
-test('SP-BPFINDINGS-031・SP-BPAUTHORING-029: script と CLI が修正の根拠として扱う根拠を同じに決める', () => {
+test('SP-BPFINDINGS-031・SP-BPAUTHORING-029: script と CLI が修正の根拠として扱う根拠（参照の形を含む）を同じに決める', () => {
   const { isTreatedGround } = scriptFunction(['isTreatedGround']);
   const cases = [
     { kind: '利用者の指示', text: 'a' }, { kind: '利用者の指示' }, { text: 'a' }, { id: 'F1', state: 'open' }, { id: 'F1', state: 'dismissed' },
     { state: 'open' }, { kind: '利用者の指示', text: 'a', state: 'resolved' }, null, 'x', [], {},
+    { from: 'bp-20261023000000-abcdefgh' }, { from: 1 }, { from: 'bp-x', state: 'open' }, { from: 'bp-x', kind: '利用者の指示', text: 'a' },
   ];
   for (const c of cases) assert.equal(isTreatedGround(c), cliTreated(c), JSON.stringify(c));
 });
@@ -205,22 +253,25 @@ function spellings(text, marker, column) {
   return rows.flatMap((r) => [...r[column].matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]));
 }
 
-test('TBD-SBPENTRY-002 の書き戻し: SP-BPENTRY-013 の綴りの表と script・CLI の入力の綴りが一致する', () => {
+test('SP-BPENTRY-013: 入力の綴りの表と script・CLI の入力の綴りが一致する', () => {
   const spec = spellings(ENTRY, '| 項目 | 綴り | 渡すとき |', 1);
   assert.deepEqual(spec.sort(), Object.values(literalOf('INPUT_KEYS')).sort());
   assert.deepEqual(literalOf('INPUT_KEYS'), JSON.parse(JSON.stringify(CLI_CONSTANTS.INPUT_KEYS)));
 });
 
-test('TBD-SBPAUTHORING-001 の書き戻し: SP-BPRUN-032・SP-BPAUTHORING-032〜034 の綴りの列が CLI の返り値の綴りと一致する', () => {
+test('TBD-SBPAUTHORING-001 の書き戻し・SP-BPINSPECTION-024・SP-BPFINDINGS-030: SP-BPRUN-032・SP-BPAUTHORING-032〜034・SP-BPINSPECTION-024・SP-BPFINDINGS-030 の綴りの列が CLI の返り値の綴りと一致する', () => {
   const common = spellings(RUN, '| 項目 | 綴り | 返すとき |', 1);
   const complete = spellings(AUTHORING, '| 条件: 機能 | 条件: 項目 | 綴り | 結果 |', 2);
   const stopped = spellings(AUTHORING, '| 項目 | 綴り | 中身 |', 1);
   const verification = spellings(AUTHORING, '| 項目 | 綴り | 中身（検証の結果） |', 1);
-  assert.deepEqual([...new Set([...common, ...complete, ...stopped])].sort(), Object.values(CLI_CONSTANTS.RESULT_KEYS).sort());
+  const inspected = spellings(INSPECTION, '| 項目 | 綴り | 機能 | 中身 |', 1);
+  const inspectStopped = spellings(INSPECTION, '| 項目 | 綴り | 中身（完了以外） |', 1);
+  const ledgerItems = spellings(FINDINGS, '| 項目 | review・audit の綴り | 中身 |', 1);
+  assert.deepEqual([...new Set([...common, ...complete, ...stopped, ...inspected, ...inspectStopped, ...ledgerItems])].sort(), Object.values(CLI_CONSTANTS.RESULT_KEYS).sort());
   assert.deepEqual([...new Set(verification)].sort(), Object.values(CLI_CONSTANTS.VERIFICATION_KEYS).sort());
 });
 
-test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最小の起動数と段ごとの最悪の回数が script の定数から計算した値と一致する', () => {
+test('SP-BPRUN-021: 仕様に書いた create・update の最小の起動数と段ごとの最悪の回数が script の定数から計算した値と一致する', () => {
   const worst = literalOf('RESERVE');
   const m = /create の最小の起動数は (\d+)、update は (\d+) とする/.exec(RUN);
   assert.ok(m, 'SP-BPRUN-021 に最小の起動数の書き戻しが無い');
@@ -229,5 +280,58 @@ test('TBD-SBPRUN-003 の書き戻し: 仕様に書いた create・update の最�
   const min = (fn) => w.start + w.resumeDiscard + (fn === 'update' ? w.carrier : 0) + w.carrier + limits.untilPass * w.goalAttempt + w.carrier + w.write + w.item + worst;
   assert.deepEqual([Number(m[1]), Number(m[2])], [min('create'), min('update')]);
   const row = (name) => Number(new RegExp(`\\| ${name} \\| (\\d+) \\|`).exec(RUN)?.[1]);
-  assert.deepEqual([row('`worst\\(再開の破棄\\)`'), row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`R`（予約分）')], [w.resumeDiscard, w.start, w.item, w.goalAttempt, w.write, worst]);
+  assert.deepEqual([row('`worst\\(再開の破棄\\)`'), row('`worst\\(開始\\)`'), row('`worst\\(fan-out の項目\\)`'), row('`worst\\(目標の固定の 1 回\\)`'), row('`worst\\(書く\\)`'), row('`worst\\(段の境の運搬役\\)`'), row('`R`（予約分）')], [w.resumeDiscard, w.start, w.item, w.goalAttempt, w.write, w.carrier, worst]);
+});
+
+test('SP-BPRUN-031・SP-BPINSPECTION-004: targets の操作の出力の欄と files の name・section の値が、仕様の操作の表の targets の行と CLI の定数に一致する', async () => {
+  const row = RUN.split('\n').find((l) => l.startsWith('| `targets` |'));
+  const { readTargets } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/targets.mjs');
+  const out = readTargets({ criteriaDir: path.join(ROOT, 'docs'), promptAudit: path.join(SCRIPT_DIR, '..', 'references', 'prompt-audit.md') }, 'review');
+  for (const key of Object.keys(out.targets[0])) assert.ok(row.includes(`\`${key}\``), key);
+  for (const key of ['name', 'path', 'sha256']) assert.ok(row.includes(key), key);
+  for (const name of Object.values(CLI_CONSTANTS.TARGET_FILES)) assert.ok(row.includes(`\`${name}\``), name);
+  for (const section of [CLI_CONSTANTS.CRITERIA_CHAPTERS.functional, CLI_CONSTANTS.CRITERIA_CHAPTERS.capacityPrefix, CLI_CONSTANTS.PROMPT_AUDIT_SECTION]) assert.ok(row.includes(`「${section}」`), section);
+  assert.deepEqual(out.targets.map((t) => t.section), [CLI_CONSTANTS.CRITERIA_CHAPTERS.functional, CLI_CONSTANTS.CRITERIA_CHAPTERS.capacityPrefix]);
+});
+
+test('SP-BPRUN-031: CLI の照らす先の決定が名指す判定基準の写しの鍵が CRITERIA_FILES の鍵にある', () => {
+  const source = readFileSync(path.join(SCRIPT_DIR, 'bp', 'targets.mjs'), 'utf8');
+  const used = [...source.matchAll(/criteriaFile\(ctx, '([^']+)'\)/g)].map((m) => m[1]);
+  assert.ok(used.length >= 4);
+  for (const key of used) {
+    assert.ok(Object.hasOwn(CLI_CONSTANTS.CRITERIA_FILES, key), key);
+    assert.ok(Object.hasOwn(CLI_CONSTANTS.TARGET_FILES, key), key);
+  }
+});
+
+test('SP-BPENTRY-001: 入口が起動する source の名前の定数が 2 本の script の meta.name と一致する', () => {
+  assert.equal(literalIn(SCRIPTS.author, 'meta').name, WORKFLOW_SOURCES.author);
+  assert.equal(literalIn(SCRIPTS.inspect, 'meta').name, WORKFLOW_SOURCES.inspect);
+});
+
+// timeoutMs は試走で測って定数にだけ置き、仕様に書き写さない（書き写すと、書き戻しのたびに判定基準の写しの指紋が変わり、試走の記録を古くする）。
+test('SP-BPENTRY-016: launch-args が出す runner の request の maxAgents が bp-entry の値と一致し、timeoutMs の値は仕様に書き写されておらず、指摘の必須の欄が report の findings の綴りにある', async () => {
+  const { FINDING_REQUIRED, RUNNER_REQUEST } = await import('../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-entry.mjs');
+  const max = /\| `limits\.maxAgents` \| [^|]*値は runner が受ける上限の (\d+) とする/.exec(ENTRY);
+  assert.ok(max);
+  assert.equal(RUNNER_REQUEST.maxAgents, Number(max[1]));
+  const timeout = RUNNER_REQUEST.timeoutMs;
+  for (const doc of [ENTRY, RUN]) for (const form of [String(timeout), timeout.toLocaleString('en-US')]) assert.ok(!doc.includes(form), form);
+  const row = RUN.split('\n').find((l) => l.startsWith('| `report` |'));
+  const fields = [...(/`findings`（SP-BPFINDINGS-029 の項目: ([^）]+)）/.exec(row)[1]).matchAll(/`(\w+)`/g)].map((x) => x[1]);
+  // 状態・見直しの判定・却下の理由は、載せない指摘がある（SP-BPFINDINGS-028・019・030）。それ以外は全て必須にする。
+  assert.deepEqual([...FINDING_REQUIRED].sort(), fields.filter((f) => !['state', 'judgement', 'dismissReason'].includes(f)).sort());
+});
+
+// 展開後 0 件の拒否を needs_input に分ける合図は、拒否の理由の文言でなく欄で渡す。欄の名前を仕様・CLI・script の 3 箇所で照らす。
+test('SP-BPRUN-031・SP-BPAUTHORING-029: 参照を展開して扱う根拠が 0 件の start の拒否の欄（treatedGrounds・receivedGrounds）が、仕様の start の行と SP-BPAUTHORING-029・CLI の拒否・script の分岐で同じ綴りである', () => {
+  const startRow = RUN.split('\n').find((l) => l.startsWith('| `start` |'));
+  const item = AUTHORING.slice(AUTHORING.indexOf('#### SP-BPAUTHORING-029'), AUTHORING.indexOf('#### SP-BPAUTHORING-030'));
+  const cli = readFileSync(path.join(SCRIPT_DIR, 'bp', 'ops-run.mjs'), 'utf8');
+  for (const field of ['treatedGrounds', 'receivedGrounds']) {
+    assert.ok(startRow.includes(`\`${field}\``), `start の行に ${field} が無い`);
+    assert.ok(item.includes(`\`${field}\``), `SP-BPAUTHORING-029 に ${field} が無い`);
+  }
+  assert.match(cli, /reject\(CODES\.input, [^\n]*\{ treatedGrounds: 0, receivedGrounds: out\.length \}\)/);
+  assert.match(SCRIPTS.author.source, /r\.rejected && r\.response\?\.treatedGrounds === 0/);
 });

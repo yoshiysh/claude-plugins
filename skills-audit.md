@@ -104,12 +104,17 @@ re_self = re.compile(r"\.claude/skills/" + re.escape(name) + r"/[\w.\-]")
 
 これは §12「残すべき機械検証（契約・安全そのもの）」に属するゲートが**静かに素通りしていた**ケースで、代理指標の問題ではなく単純な検出漏れ。
 
-**適用済み**: 正規表現を `\.(?:claude|agents)/skills/` に拡張。修正後、url-reader 3 件・notion 3 件を検出。他 10 スキルで新たな誤検出は発生しない（回帰確認済み）。修正後は 12 スキル中 10 スキルが blocker 0 件。
+**適用済み**: 正規表現を `\.(?:claude|agents)/skills/` に拡張。修正後、url-reader 3 件・notion 3 件を検出。他 10 スキルで新たな誤検出は発生しない（回帰確認済み）。修正後は 12 スキル中 10 スキルが blocker 0 件（この監査の当時の値。後から足したスキルと下の項目は含まない）。
 
 残る 2 件はいずれも本監査のスコープ外の既知の false positive:
 
 - `worktree-sync`（`env_build` 2 件）— `make venv && make install-dev` は `.claude/worktree-sync.json` に**リポジトリ自身が宣言する例**として本文に書かれているもので、スキルが実行するコマンドではない。
 - `manage-marketplace-plugin`（`external_script` 19 件）— 自身の `scripts/*.py` をフロー説明の中で名指ししているもの。このスキルの scripts は同名で同梱されている。
+
+後から足した既知の false positive と、それに伴う手順:
+
+- `skill-creator-best-practices`（`env_build` のうち判定基準の写しの分）— `references/criteria/specifications/bp-run.md` の SP-BPRUN-036 と「検証方法」が `make test`・`node tools/sync-bp-criteria.mjs` を名指す散文。写しは `docs/` の正本の逐語で、スキルが実行するコマンドではない。件数は正本の書き方で変わるので書かない。`check_portability.py` に写しの除外は足さない（写しの散文を除くと本物の `make` の指示も見逃す）。
+- 手順: 同じ写しで `make references` が落ちたら、正本に `.agents/skills/<実名>/<パス>` か、`docs/` の中で解けない相対リンクを書いている。写しでなく正本の書き方を直す（`check_references.py` に写しの除外を足すと、写しの相対リンクの壊れも見なくなる）。
 
 ### 4.2 description の [What] + [When]（優先度: 中）
 

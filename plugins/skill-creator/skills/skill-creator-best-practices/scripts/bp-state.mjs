@@ -2,11 +2,13 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CODES, CRITERIA_DIR, EXIT, OPS } from './bp/constants.mjs';
+import { CODES, CRITERIA_DIR, EXIT, OPS, PROMPT_AUDIT_FILE } from './bp/constants.mjs';
 import { BpError } from './bp/errors.mjs';
 import * as run from './bp/ops-run.mjs';
 import * as ledger from './bp/ops-ledger.mjs';
 import * as author from './bp/ops-author.mjs';
+import * as inspect from './bp/ops-inspect.mjs';
+import { HANDLERS as ENTRY_HANDLERS } from './bp/ops-entry.mjs';
 import { locateState } from './bp/store.mjs';
 import { resolvePayload, sealResponse, verifyRequest } from './bp/transport.mjs';
 
@@ -44,12 +46,17 @@ const HANDLERS = {
   [OPS.units]: author.units,
   [OPS.gate]: author.gate,
   [OPS.outcome]: author.outcome,
+  [OPS.targets]: inspect.targets,
+  [OPS.bundle]: inspect.bundle,
+  [OPS.applicability]: inspect.applicability,
+  [OPS.stopDraft]: run.stopDraft,
+  ...ENTRY_HANDLERS,
 };
 
 const RESERVED = ['ok', 'op', 'sum'];
 
-export function context({ cwd = process.cwd(), env = process.env, criteriaDir = path.join(SKILL_DIR, CRITERIA_DIR) } = {}) {
-  return { cwd, env, criteriaDir };
+export function context({ cwd = process.cwd(), env = process.env, criteriaDir = path.join(SKILL_DIR, CRITERIA_DIR), promptAudit = path.join(SKILL_DIR, PROMPT_AUDIT_FILE) } = {}) {
+  return { cwd, env, criteriaDir, promptAudit, skillDir: SKILL_DIR };
 }
 
 // 操作の出力が受理の印を上書きすると、応答の ok で受理を見分ける運搬役が誤るので、衝突は内部の失敗にする。
@@ -59,12 +66,12 @@ export function acceptance(op, output) {
   return sealResponse({ ok: true, op, ...output });
 }
 
-export async function main(argv, stdinText, { cwd, env, criteriaDir } = {}) {
-  const ctx = context({ cwd, env, criteriaDir });
+export async function main(argv, stdinText, { cwd, env, criteriaDir, promptAudit } = {}) {
+  const ctx = context({ cwd, env, criteriaDir, promptAudit });
   try {
     const op = argv[0];
     const handler = Object.hasOwn(HANDLERS, op) ? HANDLERS[op] : null;
-    if (!handler) throw new BpError(CODES.input, `操作が無い: ${JSON.stringify(op)}（${Object.values(OPS).join(' ')}）`);
+    if (!handler) throw new BpError(CODES.input, `操作が無い: ${JSON.stringify(op)}（${Object.keys(HANDLERS).join(' ')}）`);
     let req = verifyRequest(stdinText);
     if (req.payloadFile !== undefined) req = await resolvePayload(req, await locateState(ctx, req.state));
     const output = await handler(ctx, req);

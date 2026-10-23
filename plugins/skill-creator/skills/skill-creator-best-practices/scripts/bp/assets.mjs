@@ -60,14 +60,14 @@ function markdownRanges(text) {
   if (lines.length > 0 && bare(lines[0]) === '---') {
     const end = lines.findIndex((l, i) => i > 0 && bare(l) === '---');
     if (end > 0) {
-      ranges.push({ loc: { k: 'fm' }, content: lines.slice(0, end + 1).join('') });
+      ranges.push({ loc: { k: 'fm' }, start: 0, content: lines.slice(0, end + 1).join('') });
       body = end + 1;
     }
   }
   const heads = scanMarkdown(lines, body).headings;
   const firstHead = heads.length ? heads[0].start : lines.length;
   const pre = lines.slice(body, firstHead).join('');
-  if (pre.trim() !== '') ranges.push({ loc: { k: 'pre' }, content: pre });
+  if (pre.trim() !== '') ranges.push({ loc: { k: 'pre' }, start: body, content: pre });
   const stack = [];
   const counts = new Map();
   heads.forEach((h, idx) => {
@@ -78,7 +78,7 @@ function markdownRanges(text) {
     const n = (counts.get(chainKey) ?? 0) + 1;
     counts.set(chainKey, n);
     const end = idx + 1 < heads.length ? heads[idx + 1].start : lines.length;
-    ranges.push({ loc: { k: 'sec', h: chain, n }, content: lines.slice(h.start, end).join('') });
+    ranges.push({ loc: { k: 'sec', h: chain, n }, start: h.start, content: lines.slice(h.start, end).join('') });
   });
   return ranges;
 }
@@ -87,9 +87,24 @@ export function isMarkdown(relPath) {
   return /\.(md|markdown)$/i.test(relPath);
 }
 
-export function splitAssets(relPath, bytes) {
+function rangesOf(relPath, bytes) {
   const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-  const ranges = isMarkdown(relPath) ? markdownRanges(buffer.toString('utf8')) : [{ loc: { k: 'file' }, content: buffer }];
+  return isMarkdown(relPath) ? markdownRanges(buffer.toString('utf8')) : [{ loc: { k: 'file' }, start: 0, content: buffer }];
+}
+
+// 資産の束（SP-BPINSPECTION-017）は資産の切り出しと同じ範囲を、ファイルの中の行番号（1 から）つきで返す。
+export function assetTexts(relPath, bytes) {
+  return rangesOf(relPath, bytes).map((r) => ({
+    id: assetId(relPath, r.loc),
+    path: relPath,
+    loc: r.loc,
+    firstLine: r.start + 1,
+    text: Buffer.isBuffer(r.content) ? r.content.toString('utf8') : r.content,
+  }));
+}
+
+export function splitAssets(relPath, bytes) {
+  const ranges = rangesOf(relPath, bytes);
   return ranges.map((r) => ({
     id: assetId(relPath, r.loc),
     path: relPath,

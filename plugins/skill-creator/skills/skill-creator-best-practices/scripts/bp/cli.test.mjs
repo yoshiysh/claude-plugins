@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { CODES, EXIT, STATE_ROOT_ENV } from './constants.mjs';
+import { CODES, ENTRY_OPS, EXIT, OPS, STATE_ROOT_ENV } from './constants.mjs';
 import { sum } from './ids.mjs';
 import { acceptance, main } from '../bp-state.mjs';
 import { CLI, CRITERIA_FIXTURE, LIMITS, REPO_ROOT, skillDir, stateRoot, tmpDir, newKey } from './fixtures/harness.mjs';
@@ -66,14 +66,25 @@ test('SP-BPRUN-006: 3 本の子 process の並行の書き込みで記録が欠�
   assert.deepEqual(lines.map((l) => l.seq), [1, 2, 3, 4, 5]);
 });
 
-test('SP-BPRUN-036: 判定基準の写しが置かれていない既定の置き場では、閉集合を要する操作が理由つきの E_INPUT になる', async (t) => {
+test('SP-BPRUN-036: 既定の置き場の判定基準の写しから、本物の CLI の process が閉集合を作る', async (t) => {
   const root = stateRoot(t);
   if (!root) return;
   const target = await skillDir(t);
   const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
   const out = await call(root, 'kinds', { state: response.state, viewpoint: 'flow' });
-  assert.deepEqual([out.code, out.response.code], [EXIT.rejected, CODES.input]);
-  assert.match(out.response.reason, /判定基準の写しが無い/);
+  assert.equal(out.code, EXIT.ok, JSON.stringify(out.response));
+  assert.ok(out.response.kinds.length > 0);
+});
+
+test('SP-BPRUN-036: 判定基準の写しが無い置き場では、閉集合を要する操作が理由つきの E_INPUT になる', async (t) => {
+  const root = stateRoot(t);
+  if (!root) return;
+  const target = await skillDir(t);
+  const { response } = await call(root, 'start', { key: newKey(), function: 'review', target: { root: target }, limits: LIMITS });
+  const body = { state: response.state, viewpoint: 'flow' };
+  const out = await main(['kinds'], JSON.stringify({ ...body, sum: sum(body) }), { cwd: REPO_ROOT, env: { [STATE_ROOT_ENV]: root }, criteriaDir: path.join(await tmpDir(t), 'none') });
+  assert.deepEqual([out.exitCode, out.output.code], [EXIT.rejected, CODES.input]);
+  assert.match(out.output.reason, /判定基準の写しが無い/);
 });
 
 test('payloadFile と payloadSum が文字列でない要求は E_TRANSPORT', async (t) => {
@@ -114,7 +125,7 @@ test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数
   const made = await send('ledger-create', req);
   const { assignments } = await send('assignments', { ...req, stage: 'verify', rule: 'all' });
   const { items } = await send('stage-start', { ...req, stage: 'verify', keys: [{ assignment: assignments[0].id }] });
-  const out = await send('verdicts', { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'flow', result: { judgements: made.assets.map((a) => ({ asset: a.id, judgement: 'unsure' })) } });
+  const out = await send('verdicts', { ...req, item: items[0], assignment: assignments[0].id, viewpoint: 'flow', result: { judgements: made.assets.map((a) => ({ asset: a.id, judgement: 'unsure' })), unchecked: [] } });
   assert.equal(out.ok, true);
   assert.equal(out.judgedOk, 0);
   assert.equal(out.judgedUnsure, made.assets.length);
@@ -123,4 +134,10 @@ test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数
 test('操作の出力が応答の予約欄と衝突すると内部の失敗にする', () => {
   for (const key of ['ok', 'op', 'sum']) assert.throws(() => acceptance('x', { [key]: 1 }), (e) => e.code === CODES.internal, key);
   assert.equal(acceptance('x', { n: 1 }).ok, true);
+});
+
+test('CLI: 知らない操作の拒否の理由は、受け付ける全ての操作（run の中の操作と入口の操作）を挙げる', async () => {
+  const { output } = await main(['no-such-op'], JSON.stringify({ sum: sum({}) }), { cwd: REPO_ROOT, env: {} });
+  assert.equal(output.code, CODES.input);
+  for (const op of [...Object.values(OPS), ...Object.values(ENTRY_OPS)]) assert.ok(output.reason.split(/[（ ）]/).includes(op), op);
 });

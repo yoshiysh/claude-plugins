@@ -1,10 +1,12 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
-  RECORDS, REJECT_SCOPE, REWRITING_FUNCTIONS, STAGE, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
+  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GROUND_REF_KEY, INSPECTING_FUNCTIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
+  RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
-import { lastGate, progress } from './ops-author.mjs';
+import { resolveCallsites } from './callsites.mjs';
+import { designNote, isTreatedGround, lastGate, progress, writtenFiles } from './ops-author.mjs';
+import { inspectOutcome } from './ops-inspect.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
@@ -12,7 +14,7 @@ import { canonical, groundId, itemId, premiseId, runId, sha256Hex, stateId } fro
 import { append, linkCreate, readAll, readOrNull, withLock } from './journal.mjs';
 import { enumerateAssets, retakeRecords } from './ledger.mjs';
 import { affectedFindings, rejected } from './ops-ledger.mjs';
-import { freshRecords } from './records.mjs';
+import { freshRecords, strip } from './records.mjs';
 import { locateState, mutate, readState, stateRootOf } from './store.mjs';
 import { summarize } from './summary.mjs';
 import {
@@ -20,9 +22,22 @@ import {
 } from './view.mjs';
 import { assertAllowedRoot, createStateDir, listStateIds, realpathLoose, stateDir, within } from './workspace.mjs';
 
-
 export function nextArgs(view) {
   return { [NEXT_ARGS_KEYS.function]: view.state.function, [NEXT_ARGS_KEYS.state]: view.state.id };
+}
+
+// 4 機能に共通の返り値の欄（SP-BPRUN-032）と完了以外の止まった段（SP-BPAUTHORING-034・SP-BPINSPECTION-024）。機能ごとの欄は呼び出し側が足す。
+export function stopOutcome(view) {
+  const run = currentRun(view);
+  const stop = view.stops.get(run.id);
+  if (!stop) reject(CODES.input, `現在の run に停止の記録が無い: ${run.id}`);
+  const out = { [RESULT_KEYS.stopKind]: stop.kind, [RESULT_KEYS.state]: view.state.id, [RESULT_KEYS.run]: run.id, [RESULT_KEYS.launches]: stop.launches };
+  if (stop.kind !== STOP_KINDS.complete) {
+    out[RESULT_KEYS.reason] = stop.reason;
+    out[RESULT_KEYS.nextArgs] = nextArgs(view);
+    out[RESULT_KEYS.stoppedStage] = stop.stage ? STAGES[stop.stage.stage] : null;
+  }
+  return { stop, out };
 }
 
 function checkLimits(limits) {
@@ -92,6 +107,29 @@ async function existingStart(root, id, req) {
   return { ...startOutput(view, dir, view.runs[0].id), same: true };
 }
 
+// 参照の形の修正の根拠を、指す状態の返り値の指摘の一覧（返り値を作るのと同じ関数）に展開する。入口が指摘を書き写すと同じバイト列を保てない（SP-BPENTRY-010・SP-BPFINDINGS-031）。
+async function expandGrounds(ctx, grounds, root) {
+  const out = [];
+  for (const g of grounds) {
+    if (g === null || typeof g !== 'object' || Array.isArray(g) || !Object.hasOwn(g, GROUND_REF_KEY)) { out.push({ ground: g }); continue; }
+    const id = g[GROUND_REF_KEY];
+    if (typeof id !== 'string' || Object.keys(g).length !== 1) reject(CODES.input, `参照の形の修正の根拠は {"${GROUND_REF_KEY}": <状態 ID>} だけを持つ: ${JSON.stringify(g)}`);
+    const { view } = await readState(ctx, id);
+    if (!INSPECTING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `参照の形の修正の根拠が review・audit でない状態を指す: ${id}（${view.state.function}）`);
+    if (!isCompleted(view)) reject(CODES.input, `参照の形の修正の根拠が完了で止まっていない状態を指す: ${id}`);
+    if (view.paths[0].root !== realpathLoose(root)) reject(CODES.input, `参照の形の修正の根拠が別の対象スキルの状態を指す: ${id}（${view.paths[0].root}）`);
+    const result = await inspectOutcome(ctx, { state: id });
+    for (const f of result[RESULT_KEYS.findings]) out.push({ ground: f, from: id });
+  }
+  const treated = out.filter((g) => isTreatedGround(g.ground)).length;
+  // 参照の無い並びは script が agent の起動の前に数えて止めるので、ここで数えるのは参照を含む並びだけ（参照が 0 件の指摘に展開されても数える）。
+  const refs = grounds.some((g) => g !== null && typeof g === 'object' && !Array.isArray(g) && Object.hasOwn(g, GROUND_REF_KEY));
+  if (treated === 0 && refs) {
+    reject(CODES.input, `修正の根拠として扱う根拠が 0 件（参照を展開して受け取った ${out.length} 件、扱わなかった ${out.length - treated} 件${out.length === 0 ? '。参照先に指摘が無かった' : ''}）。open の指摘か利用者の指示を 1 件以上渡す（SP-BPAUTHORING-029）`, { treatedGrounds: 0, receivedGrounds: out.length });
+  }
+  return out;
+}
+
 async function startNew(ctx, req) {
   checkFunction(req.function);
   checkKey(req.key);
@@ -108,8 +146,9 @@ async function startNew(ctx, req) {
   if (known !== null) return existingStart(root, known, req);
   await checkTarget(req.function, target.root);
   const id = stateId(ctx.now ?? new Date(), ctx.random);
-  const paths = { t: RECORDS.paths, n: 1, root: realpathLoose(target.root), files: files.map(realpathLoose), unresolved: [] };
-  const grounds = req.function === FUNCTION.update ? req.grounds.map((g, i) => ({ t: RECORDS.ground, id: groundId(i + 1), ground: g })) : [];
+  // 外した callsite は開始の時点の SKILL.md の行番号で記録する。後の run が行をずらしても、この状態の返り値の行番号を変えない（SP-BPENTRY-023）。
+  const paths = { t: RECORDS.paths, n: 1, root: realpathLoose(target.root), files: files.map(realpathLoose), unresolved: resolveCallsites(target.root).unresolved };
+  const grounds = req.function === FUNCTION.update ? (await expandGrounds(ctx, req.grounds, target.root)).map((g, i) => ({ t: RECORDS.ground, id: groundId(i + 1), ...g })) : [];
   const state = { t: RECORDS.state, id, key: req.key, function: req.function, limits: req.limits };
   if (req.function === FUNCTION.create) state.request = req.request;
   const run = runId(1);
@@ -402,8 +441,7 @@ export function stop(ctx, req) {
     // 停止の後に対象が変わってから届いた送り直しも同じ停止として受けるため、指紋を計算し直さず、受け取った要求だけを照らす。
     if (written) {
       if (written.asked !== asked) reject(CODES.staleRun, `停止を書いた後の run の違う停止: ${req.run}`);
-      const { seq, line, ...record } = written;
-      return { records: [record], output };
+      return { records: [strip(written)], output };
     }
     if (!STOP_KINDS_BY_FUNCTION[fn].includes(req.kind)) reject(CODES.input, `${fn} が使わない停止の種類: ${JSON.stringify(req.kind)}`);
     if (req.kind !== STOP_KINDS.complete && (typeof req.reason !== 'string' || req.reason === '')) reject(CODES.input, '完了以外の停止には理由が要る');
@@ -441,6 +479,8 @@ export function stop(ctx, req) {
         limitHit = undefined;
       }
     }
+    // 残した件数の正本は CLI が導いた未着手の並びなので、script の理由に CLI が足す（SP-BPCONFORMANCE-023）。
+    if (limitHit === LIMIT_HITS.launch) reason = `${reason}。残した項目の件数 ${pending.length}`;
     const record = {
       t: RECORDS.stop, run: req.run, kind, reason, limitHit, requested, cause: kind === req.kind ? req.cause : undefined,
       stage: live.stage == null ? null : { stage: live.stage, round: live.round },
@@ -449,6 +489,8 @@ export function stop(ctx, req) {
       outside: outsidePaths,
       excluded,
       asked,
+      // 完了の返り値の設計の説明は停止の時点の本文で返す。後の run が対象スキルを書き換えても、同じ状態から同じ返り値を作る（SP-BPRUN-032）。
+      designNote: rewriting && kind === STOP_KINDS.complete ? await designNote(view) : undefined,
     };
     // 完了だけが書いたファイルに検証を通ったことを追記する（SP-BPAUTHORING-026）。
     const verified = rewriting && kind === STOP_KINDS.complete
@@ -486,4 +528,11 @@ export async function list(ctx, req) {
 export async function summary(ctx, req) {
   const { view } = await readState(ctx, req.state);
   return { summary: summarize(view) };
+}
+
+// 停止と同じ規則で段を導くのは、停止の記録を書けなかった run の理由の段を、停止の記録が書かれたときの段と食い違わせないため（SP-BPRUN-018・SP-BPRUN-027）。
+export async function stopDraft(ctx, req) {
+  const { view } = await readState(ctx, req.state);
+  const live = stoppedStage(view, { includeCurrentRun: true });
+  return { stage: live.stage == null ? null : STAGES[live.stage], writtenFiles: writtenFiles(view) };
 }

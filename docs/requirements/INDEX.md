@@ -10,7 +10,7 @@
 | `docs/requirements/consumer.md` | 生成物（引き渡す文書一式）の性質 | 後続作業者（実装・テスト設計を行う AI）へ引き渡す生成文書一式が備えるべき性質を、完成の判定条件と依頼文の 5 つの語（戻りなく・不具合なく・精度高く・迷いなく・ぶれない）の分解として 29 件の要求で置く。読み手が AI であることに由来する記述規律と、要求文書・仕様書の分量の決まり方も扱う。 |
 | `docs/requirements/cleanup.md` | ブランチ整理と作業場所の同期（cleanup-branches） | 利用者から見た cleanup-branches の振る舞いに関する要求文書。取り込み済みの判定と確認なしの削除、判断が要る対象の 1 回の問いと承認された対象の削除、作業状態の提示、起点ブランチへの同期と作業用ブランチの作成、後処理、完了報告を定め、承認なしに失わないものと削除の対象から外すブランチを置いている。 |
 | `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／配布先での確認（PR-BPDESIGNEDSKILL-001〜023／23 件） |
-| `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜046／46 件） |
+| `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜047／47 件） |
 
 ## 要求一覧
 
@@ -221,6 +221,7 @@
 | PR-BPOPERATIONS-034 | カバレッジと skip 一覧 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-035 | 見ていない資産の扱い | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-036 | update への受け渡し | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-047 | 途中で止まったときの報告（review と audit） | `docs/requirements/bp-operations.md` |
 
 ## 関連する仕様文書
 

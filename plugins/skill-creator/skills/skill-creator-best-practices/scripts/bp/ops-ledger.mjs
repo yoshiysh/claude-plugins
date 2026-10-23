@@ -1,6 +1,7 @@
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import {
-  ASSIGN_RULES, BASIS, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
+  ASSIGN_RULES, BASIS, CRITERIA_FILES, RECORDED, REJECT_SCOPE, CODES, FINDING_STATES, INSPECTING_FUNCTIONS, JUDGEMENTS, OPS, RECORDS, REFUTATION_VERDICTS, RESULT_KINDS, REVIEW_INPUT,
   REVIEW_VALUES, REWRITING_FUNCTIONS, ROUND_PREFIX, STAGE, STAGES, VANISH_NONE, VERIFY_STAGES, VIEWPOINTS,
 } from './constants.mjs';
 import { checkAttempt, checkStage, checkWritableItem } from './checks.mjs';
@@ -11,15 +12,15 @@ import { createLedgerRecords, enumerateAssets, retakeRecords } from './ledger.mj
 import { nextState, reviewJudgement } from './judge.mjs';
 import { ledgerReport, liveAssets, skipList } from './report.mjs';
 import { mutate, readState } from './store.mjs';
-import { checkExtra, extraFields } from './units.mjs';
+import { checkExtra, checkInspectExtra, extraFields, inspectExtraFields } from './units.mjs';
 import { treatedGroundIds } from './ops-author.mjs';
-import { currentAssets, currentRun } from './view.mjs';
+import { currentAssets, currentRun, runViewpoints, stageEntry } from './view.mjs';
 
 const { exists, absent, unknown, skip } = REVIEW_VALUES;
 const { r: R_IN, content: C_IN, candidates: K_IN, judged: J_IN } = REVIEW_INPUT;
 const FOLD_ORDER = [exists, unknown, absent, skip];
 
-function needLedger(view) {
+export function needLedger(view) {
   if (!view.ledger) reject(CODES.unknownId, '状態に台帳が無い');
 }
 
@@ -27,9 +28,22 @@ function checkViewpoint(viewpoint) {
   if (!Object.hasOwn(VIEWPOINTS, viewpoint)) reject(CODES.unknownId, `観点が無い: ${JSON.stringify(viewpoint)}`);
 }
 
-// 判定基準の写しは別の段で置くので、置かれる前は閉集合を作れないことを理由つきで返す（TBD-SBPRUN-001）。
-function needCriteria(ctx) {
-  if (!existsSync(ctx.criteriaDir)) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
+function isKind(p, kind) {
+  try {
+    return statSync(p)[kind]();
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
+    throw error;
+  }
+}
+
+// 写しの欠けは配布物の欠けなので、閉集合を作らずに理由つきで拒否する（空の閉集合で判定すると、照らしていない基準を照らしたと返す：SP-BPRUN-036）。
+// 照らす先の決定（targets）は欠けた写しを「読めない」照らす先として返す（SP-BPINSPECTION-027）ので、置き場だけを求める。
+export function needCriteria(ctx, { files = true } = {}) {
+  if (!isKind(ctx.criteriaDir, 'isDirectory')) reject(CODES.input, `判定基準の写しが無いので観点の閉集合を作れない: ${ctx.criteriaDir}`);
+  if (!files) return;
+  const missing = Object.values(CRITERIA_FILES).map((parts) => path.join(ctx.criteriaDir, ...parts)).filter((p) => !isKind(p, 'isFile'));
+  if (missing.length) reject(CODES.input, `判定基準の写しが欠けているので観点の閉集合を作れない: ${missing.join(', ')}`);
 }
 
 function itemIn(view, id, stages, { writable = true } = {}) {
@@ -168,6 +182,8 @@ export function verdicts(ctx, req) {
     const item = itemIn(view, req.item, [...VERIFY_STAGES]);
     const assignment = view.assignments.get(req.assignment);
     if (!assignment) reject(CODES.unknownId, `状態に無い担当 ID: ${JSON.stringify(req.assignment)}`);
+    // 項目の鍵が担当を持つ（review・audit の観点ごとの検証）ときは、その担当の結果だけを受ける。別の担当の結果を書くと、見ていない資産を見たと数える。
+    if (item.key?.assignment !== undefined && item.key.assignment !== req.assignment) reject(CODES.conflict, `項目の鍵の担当と違う担当の結果: ${req.item}（鍵 ${item.key.assignment}、結果 ${req.assignment}）`);
     checkViewpoint(req.viewpoint);
     const resultRecord = { t: RECORDS.result, item: req.item, result: { kind: RESULT_KINDS.verdicts, assignment: req.assignment, viewpoint: req.viewpoint, sum: sum(req.result ?? null) } };
     const output = (after) => verdictsOutput(after, req.item);
@@ -175,11 +191,14 @@ export function verdicts(ctx, req) {
     if (again) return again;
     needCriteria(ctx);
     const kinds = new Set(kindsFor(ctx.criteriaDir, req.viewpoint, view.state.function).map((k) => k.value));
+    const fn = view.state.function;
+    const inspecting = INSPECTING_FUNCTIONS.has(fn);
     const bad = checkVerdictResult(req.result, assignment, req.viewpoint, kinds)
-      ?? (REWRITING_FUNCTIONS.has(view.state.function) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null);
+      ?? (REWRITING_FUNCTIONS.has(fn) ? checkExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, assignment, groundIds: treatedGroundIds(view) }) : null)
+      ?? (inspecting ? checkInspectExtra(req.viewpoint, req.result, { criteriaDir: ctx.criteriaDir, fn, viewpoints: runViewpoints(view), forced: view.applicability?.forced ?? [] }) : null);
     if (bad) return rejected(`${REJECT_SCOPE.item}${req.item}`, item.fails.length + 1, req.assignment, req.result, bad);
     const records = [resultRecord];
-    const extra = REWRITING_FUNCTIONS.has(view.state.function) ? extraFields(req.viewpoint, req.result) : null;
+    const extra = REWRITING_FUNCTIONS.has(fn) ? extraFields(req.viewpoint, req.result) : inspecting ? inspectExtraFields(req.result) : null;
     if (extra) records.push({ t: RECORDS.extra, item: req.item, viewpoint: req.viewpoint, data: extra });
     for (const j of req.result.judgements) {
       records.push({ t: RECORDS.seen, item: req.item, asset: j.asset, viewpoint: req.viewpoint, assignment: assignment.id, fpset: assignment.fpset, digest: assignment.fps[j.asset], value: j.judgement });
@@ -222,8 +241,15 @@ export async function refutationItems(ctx, req) {
   const refs = stageRefs(req);
   const keys = [];
   const texts = new Map();
-  for (const c of view.candidates) {
-    if (!inStages(view.items.get(c.item), refs)) continue;
+  // 鍵の順位は、鍵の最初の候補を返した検証の項目の列挙の順（段は stages の順）、同じ項目の中では候補が返った順（SP-BPINSPECTION-018）。
+  // 書き込みの順で並べると、同時に走る検証役の終わった順が順位になる。
+  const rank = (c) => {
+    const item = view.items.get(c.item);
+    return [refs.findIndex((r) => r.stage === item.stage && r.round === item.round), stageEntry(view, item.stage, item.round).items.indexOf(c.item), c.seq];
+  };
+  const ordered = view.candidates.filter((c) => inStages(view.items.get(c.item), refs)).map((c) => ({ c, k: rank(c) }))
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2]).map((x) => x.c);
+  for (const c of ordered) {
     const ks = keyString(c.key);
     if (!texts.has(ks)) { texts.set(ks, []); keys.push(c.key); }
     texts.get(ks).push(...c.texts);
