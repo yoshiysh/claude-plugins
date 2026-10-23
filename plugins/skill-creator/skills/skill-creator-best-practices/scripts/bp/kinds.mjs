@@ -141,6 +141,23 @@ function tableAfter(nodes, headingPrefix, firstHeader) {
   return table;
 }
 
+export function conformanceTable(criteriaDir, headingPrefix, firstHeader) {
+  return tableAfter(parseDoc(read(criteriaDir, 'conformance')), headingPrefix, firstHeader);
+}
+
+// SP-BPCONFORMANCE-035 の best-practices の役の表を読む唯一の関数（役・model・effort）。
+export function roleModels(criteriaDir) {
+  return conformanceTable(criteriaDir, 'SP-BPCONFORMANCE-035', 'best-practices の役').rows.map(([role, model, effort]) => ({ role, model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }));
+}
+
+// 確定値の仕様項目の本文の「<数> <単位>以下」を読む（値を CLI に書き写さない）。
+export function conformanceValue(criteriaDir, id, unit) {
+  const node = parseDoc(read(criteriaDir, 'conformance')).find((n) => n.level === 4 && n.text.startsWith(id));
+  const m = node && new RegExp(`(\\d+) ${unit}以下`).exec(node.body.join('\n'));
+  if (!m) internal(`${id} に「<数> ${unit}以下」が無い`);
+  return Number(m[1]);
+}
+
 export function authoringUnits(criteriaDir, viewpointLabel, fn) {
   const table = tableAfter(parseDoc(read(criteriaDir, 'authoring')), 'SP-BPAUTHORING-016', '観点');
   const row = table.rows.find((r) => r[0] === viewpointLabel);

@@ -1,0 +1,350 @@
+{
+  "rows": [
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-018",
+      "spec": "SP-BPAUTHORING-002",
+      "method": "fixture の run（update の書き手がスキルのディレクトリの中でファイルを足し・消しても BLOCKED にならない）",
+      "checks": [
+        {
+          "clause": "BLOCKED にならない",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "ファイルを足し",
+          "by": "written",
+          "action": "write",
+          "min": 1
+        },
+        {
+          "clause": "消しても",
+          "by": "written",
+          "action": "delete",
+          "min": 1
+        },
+        {
+          "clause": "消しても",
+          "by": "field",
+          "path": "skill.deleted",
+          "test": "nonEmpty"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-019",
+      "spec": "SP-BPAUTHORING-019",
+      "method": "fixture の run（契約の 5 つの要素のそれぞれを変えた対象スキルで、変わったところが全て挙がる）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "変わったところが全て挙がる",
+          "by": "contract",
+          "elements": [
+            "発火する条件",
+            "発火しない条件",
+            "入力",
+            "出力",
+            "停止の種類"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-023",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（update の完了の返り値に、直したスキルのパスと指紋・消したファイル・検証の結果と、受け取った修正の根拠ごとの記録 ID と指摘の根拠の指摘 ID がある）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "直したスキルのパスと指紋",
+          "by": "field",
+          "path": "skill.files",
+          "test": "every",
+          "value": [
+            "path",
+            "digest"
+          ]
+        },
+        {
+          "clause": "直したスキルのパスと指紋",
+          "by": "field",
+          "path": "skill.files",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "消したファイル",
+          "by": "field",
+          "path": "skill.deleted",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "検証の結果",
+          "by": "field",
+          "path": "verification",
+          "test": "keys",
+          "value": [
+            "decision",
+            "iterations",
+            "units",
+            "forcedUnchecked",
+            "basisConstraints",
+            "ledger",
+            "contract"
+          ]
+        },
+        {
+          "clause": "受け取った修正の根拠ごとの記録 ID",
+          "by": "field",
+          "path": "receivedGrounds",
+          "test": "every",
+          "value": [
+            "ground"
+          ]
+        },
+        {
+          "clause": "指摘の根拠の指摘 ID",
+          "by": "field",
+          "path": "receivedGrounds",
+          "test": "some",
+          "value": [
+            "finding"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-045",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（完了の返り値に指摘ごとの状態が載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "完了の返り値に指摘ごとの状態が載る",
+          "by": "field",
+          "path": "findings",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "完了の返り値に指摘ごとの状態が載る",
+          "by": "field",
+          "path": "findings",
+          "test": "every",
+          "value": [
+            "state"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-046",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（完了の返り値に観点ごとの skip 一覧が載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip.0.viewpoint",
+          "test": "equals",
+          "value": "conformance"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip.1.viewpoint",
+          "test": "equals",
+          "value": "goal"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip.2.viewpoint",
+          "test": "equals",
+          "value": "contract"
+        },
+        {
+          "clause": "完了の返り値に観点ごとの skip 一覧が載る",
+          "by": "field",
+          "path": "skip",
+          "test": "every",
+          "value": [
+            "viewpoint",
+            "assets"
+          ]
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPDESIGNEDSKILL-014",
+      "spec": "SP-BPAUTHORING-017",
+      "method": "fixture の run（plugin から読み込むと無視される設定に頼る役を持つ対象スキルで、その制限が残る危険に載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "その制限が残る危険に載る",
+          "by": "field",
+          "path": "residualRisks",
+          "test": "someMatches",
+          "value": "permissionMode"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPDESIGNEDSKILL-015",
+      "spec": "SP-BPAUTHORING-033",
+      "method": "fixture の run（完了の返り値の残る危険に 4 項目があり、SP-BPRUN-032 の項目と別に載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "完了の返り値の残る危険に 4 項目があり",
+          "by": "field",
+          "path": "residualRisks",
+          "test": "nonEmpty"
+        },
+        {
+          "clause": "完了の返り値の残る危険に 4 項目があり",
+          "by": "field",
+          "path": "residualRisks",
+          "test": "every",
+          "value": [
+            "role",
+            "restriction",
+            "host",
+            "reason"
+          ]
+        },
+        {
+          "clause": "SP-BPRUN-032 の項目と別に載る",
+          "by": "field",
+          "path": "unverifiedRoleLimits",
+          "test": "nonEmpty"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-019",
+      "spec": "SP-BPAUTHORING-039",
+      "method": "fixture の run（判定基準に合わせるために停止の種類を変えた update で、契約の指摘が出ずに合格でき、契約の判定の結果に変わった契約と強いた仕様項目 ID が載る。bp-conformance に無い仕様項目 ID を選んだ結果は拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "契約の指摘が出ずに",
+          "by": "findings",
+          "match": {
+            "viewpoint": "contract"
+          },
+          "max": 0
+        },
+        {
+          "clause": "契約の判定の結果に変わった契約と強いた仕様項目 ID が載る",
+          "by": "contract",
+          "choicePrefix": "SP-BPCONFORMANCE-",
+          "min": 1
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "判定基準に合わせるために停止の種類を変えた update",
+          "reason": "題材の停止の種類の変化は修正の根拠の指示で起き、判定基準が強いた変化かを返り値から決定的に見分けられない"
+        },
+        {
+          "clause": "bp-conformance に無い仕様項目 ID を選んだ結果は拒否され、試行の上限まで拒否されると、その担当の資産が skip 一覧に残る",
+          "reason": "本物の検証役に誤った結果を強いられない（模擬実行のテストが測る）"
+        }
+      ]
+    },
+    {
+      "file": "bp-authoring.md",
+      "req": "PR-BPOPERATIONS-023",
+      "spec": "SP-BPAUTHORING-032",
+      "method": "fixture の run（update の完了の返り値の検証の結果に、判定基準が強いた契約の変化が全て載る）",
+      "checks": [
+        {
+          "clause": "fixture の run（",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "判定基準が強いた契約の変化",
+          "by": "contract",
+          "choicePrefix": "SP-BPCONFORMANCE-",
+          "min": 1
+        }
+      ],
+      "unmeasured": [
+        {
+          "clause": "全て載る",
+          "reason": "判定基準が強いた変化の全体の集合は検証役の判断で決まり、返り値から決定的に数えられない"
+        }
+      ]
+    },
+    {
+      "file": "bp-conformance.md",
+      "req": "PR-BPDESIGNEDSKILL-015",
+      "spec": "SP-BPCONFORMANCE-020",
+      "method": "確かめられなかった制限が 4 項目そろって結果に載ることを照合",
+      "checks": [
+        {
+          "clause": "照合",
+          "by": "stop",
+          "kind": "complete"
+        },
+        {
+          "clause": "確かめられなかった制限が 4 項目そろって結果に載る",
+          "by": "field",
+          "path": "residualRisks",
+          "test": "every",
+          "value": [
+            "role",
+            "restriction",
+            "host",
+            "reason"
+          ]
+        },
+        {
+          "clause": "確かめられなかった制限が 4 項目そろって結果に載る",
+          "by": "field",
+          "path": "residualRisks",
+          "test": "someMatches",
+          "value": "permissionMode"
+        }
+      ]
+    }
+  ]
+}

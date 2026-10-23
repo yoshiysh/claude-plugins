@@ -309,7 +309,7 @@ if (input.stop) return input.stop
 
 const fn = input.fn
 const budget = makeBudget(input.limit)
-const run = { state: input.state ?? null, run: null, workDir: null, launched: 0, ledger: false, viewpoints: [], targets: [], bundle: null, groups: [], applicability: null }
+const run = { state: input.state ?? null, run: null, workDir: null, launched: 0, ledger: false, viewpoints: [], targets: [], criteriaDir: null, bundle: null, groups: [], applicability: null }
 const CLI = `${input.skillDir}/scripts/bp-state.mjs`
 // review・audit の段は回を持たない（反復が無い：SP-BPINSPECTION-002）。
 const JUDGED = [{ stage: STAGE.verify, round: null }, { stage: STAGE.verifyExtra, round: null }]
@@ -361,6 +361,11 @@ async function launch(role, prompt, { unit, label, schema }) {
   } catch (error) {
     return { out: null, failure: `（host の失敗: ${String(error?.message ?? error)}）` }
   }
+}
+
+// 写しは正本と 1 字も違わないので、本文の docs/ のパスは正本を指したまま残る。開くと配布先では読めず、このリポジトリでは写しでない正本を判定基準にする（SP-BPRUN-036）。
+function criteriaNote(root) {
+  return `判定基準の写しの中の \`docs/X\` は \`${root}/X\` と読む（写しは docs/ と同じ構成）。\`docs/\` を開かない。写しの中のそれ以外のリポジトリの相対パス（plugins/・scripts/・tests/・tools/・.agents/・.claude-plugin/・AGENTS.md）は出所の引用で判定基準でないので開かずに判定し、その中身が要る判定の単位は理由つきの未検査にする。`
 }
 
 function carrierPrompt(requests) {
@@ -519,6 +524,7 @@ async function targetsStage() {
   if (t.blocked) throw new Stop(STOP_KINDS.blocked, `段「${STAGE_TITLES.targets}」で照らせない: ${t.blocked.reason}`)
   run.viewpoints = t.viewpoints
   run.targets = t.targets
+  run.criteriaDir = t.criteriaDir
 }
 
 async function bundleStage(startAssign) {
@@ -539,6 +545,7 @@ function commonPart(role, reason) {
     `あなたは best-practices の${role}。${reason}`,
     `書いてよいのは作業ファイル（${run.workDir}）だけ。対象スキルにも状態にも書かない（review・audit は対象スキルを書き換えない。直し方は書き換えの内容を文で返す）。`,
     `照らす先（判定基準。この run で読んだファイルだけを当て、記憶やほかの文書を判定基準にしない）: ${targetPaths(run.viewpoints).join(' ')}`,
+    criteriaNote(run.criteriaDir),
     `資産の束（資産 ID・パス・範囲の見出しと、ファイルの中の行番号を付けた本文）: ${run.bundle}`,
     `対象スキル: ${memo.target.root}（根の外のファイル ${JSON.stringify(memo.target.files ?? [])}）`,
   ]

@@ -70,10 +70,11 @@ function judged(assets, extra = {}) {
   return { judgements: assets.map((a) => ({ asset: a.id, judgement: 'ok' })), candidates: [], unchecked: [], ...extra };
 }
 
-test('SP-BPINSPECTION-004: review の照らす先の決定が、観点ごとの照らす先のパスと指紋を状態に書き、読めた観点を run の観点の集合にする', async (t) => {
+test('SP-BPINSPECTION-004・SP-BPRUN-031: review の照らす先の決定が、観点ごとの照らす先のパスと指紋を状態に書き、読めた観点を run の観点の集合にし、判定基準の写しの置き場を返す', async (t) => {
   const { ctx, req, targets } = await begin(t, 'review');
   if (!ctx) return;
   assert.equal(targets.blocked, null);
+  assert.equal(targets.criteriaDir, ctx.criteriaDir);
   assert.deepEqual(targets.viewpoints, ['flow', 'spec']);
   const spec = targets.targets.find((x) => x.viewpoint === 'spec');
   const file = path.join(CRITERIA_FIXTURE, 'specifications', 'bp-conformance.md');
@@ -143,6 +144,7 @@ test('SP-BPINSPECTION-029: 照らす先の決定の段を終えた後の照ら�
   const again = await inspect.targets(ctx, req);
   assert.equal(again.compared, true);
   assert.equal(again.blocked, null);
+  assert.equal(again.criteriaDir, criteriaDir);
   const design = path.join(criteriaDir, 'design', 'skill-design-patterns.md');
   await fs.appendFile(design, '\n追記\n');
   const changed = await inspect.targets(ctx, req);
@@ -150,7 +152,7 @@ test('SP-BPINSPECTION-029: 照らす先の決定の段を終えた後の照ら�
   assert.deepEqual(await readAll(path.join(ctx.stateRoot, STATES_DIR, req.state)), before);
 });
 
-test('TBD-SBPRUN-001 の保持規則: 判定基準の写しが無いと照らす先の決定を理由つきの E_INPUT で拒否する', async (t) => {
+test('SP-BPRUN-036: 判定基準の写しが無いと照らす先の決定を理由つきの E_INPUT で拒否する', async (t) => {
   const ctx = context(t, { criteriaDir: path.join(await tmpDir(t), 'none') });
   if (!ctx) return;
   const root = await skillDir(t, FILES);
@@ -411,4 +413,32 @@ test('SP-BPINSPECTION-028・SP-BPINSPECTION-027: bp-inspection の写しはあ�
   assert.match(targets.blocked.reason, /写しの SP-BPINSPECTION-009 の表を読めない/);
   assert.deepEqual(targets.blocked.paths, [path.join(criteriaDir, 'specifications', 'bp-inspection.md')]);
   assert.ok(!Object.hasOwn(targets.targets[0], 'culprit'));
+});
+
+test('SP-BPRUN-036: 写しの置き場が無い・空・一部が欠ける・通常のファイルのとき、閉集合を要する操作（verdicts・kinds・applicability・units）が理由つきの E_INPUT で拒否し、照らす先の決定は欠けた写しを読めない照らす先として返す', async (t) => {
+  const ctx = context(t, { criteriaDir: await sixRows(t) });
+  if (!ctx) return;
+  const { req, assets } = await withLedger(t, 'review', { ctx });
+  const { items, assignment } = await verifyItems(ctx, req, ['flow']);
+  const base = await tmpDir(t, 'bp-bad-criteria-');
+  const empty = path.join(base, 'empty');
+  await fs.mkdir(empty);
+  const partial = path.join(base, 'partial');
+  await fs.cp(ctx.criteriaDir, partial, { recursive: true });
+  await fs.rm(path.join(partial, 'design', 'skill-design-patterns.md'));
+  const file = path.join(base, 'file');
+  await fs.writeFile(file, 'x');
+  for (const criteriaDir of [path.join(base, 'none'), empty, partial, file]) {
+    const bad = { ...ctx, criteriaDir };
+    await rejects(ledger.verdicts(bad, { ...req, item: items[0], assignment: assignment.id, viewpoint: 'flow', result: judged(assets) }), CODES.input);
+    await rejects(ledger.kinds(bad, { state: req.state, viewpoint: 'flow' }), CODES.input);
+    await rejects(units(bad), CODES.input);
+    await rejects(inspect.applicability(bad, { ...req, n: 1, result: {} }), CODES.input);
+  }
+  const s2 = await run.start(ctx, { key: newKey(), function: 'review', target: { root: await skillDir(t, FILES) }, limits: LIMITS });
+  const req2 = { state: s2.state, run: s2.run };
+  await run.stageStart(ctx, { ...req2, stage: 'targets', keys: [] });
+  await rejects(inspect.targets({ ...ctx, criteriaDir: file }, req2), CODES.input);
+  const unreadable = await inspect.targets({ ...ctx, criteriaDir: partial }, req2);
+  assert.ok(unreadable.blocked, '欠けた写しは読めない照らす先として返る');
 });

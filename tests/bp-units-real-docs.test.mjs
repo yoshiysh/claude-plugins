@@ -21,7 +21,7 @@ test('SP-BPCONFORMANCE-003・SP-BPAUTHORING-017: 実際の docs/ から、適用
   assert.deepEqual(rows[3].requirements.map((x) => x.slice(-3)), ['001', '002', '004', '005', '006', '007', '008', '009', '010', '014', '015', '018']);
 });
 
-test('SP-BPAUTHORING-017: 強いられた未検査の 4 つの出所が、実際の docs/ の判定の単位に全て解決する', () => {
+test('SP-BPAUTHORING-017・SP-BPCONFORMANCE-006・SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-019・SP-BPCONFORMANCE-034: 強いられた未検査の 4 つの出所（ターンごとの指揮・Claude Code・「権限」の表の最後の行・実行役の時間の上限）が、実際の docs/ の判定の単位に全て解決する', () => {
   const rows = applicability(DOCS);
   const turn = rows.find((r) => r.form === 'ターンごとの指揮');
   const graph = rows.find((r) => r.form === '探索グラフ型' && r.ledger === '有' && r.fanout === '有');

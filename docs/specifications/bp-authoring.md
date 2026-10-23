@@ -233,7 +233,7 @@ CLI は、次の結果の記録を拒否しなければならない。拒否さ�
 - その行の判定の単位でない単位、同じ単位の 2 つ目の結果、選択肢に無い結果、文字列でない理由がある。
 - その行の判定の単位のうち、結果を付けていないものがある。
 - 不適合の単位に、候補の鍵が無いか、同じ結果の中に無い指摘の候補の鍵を添えた。
-- 未検査の単位に未検査の区分が無いか、強いられた未検査を、強いられた未検査でない単位に付けた。
+- 未検査の単位に、空でない理由と未検査の区分のどちらかが無いか、強いられた未検査を、強いられた未検査でない単位に付けた（理由の無い未検査は、判定できなかったわけを読み手に渡さない：SP-BPCONFORMANCE-038）。
 - 残る危険が 4 項目（役の名前・制限の中身・配布先・確かめられなかった理由）の並びでない。
 
 #### SP-BPAUTHORING-018 目標の観点
@@ -427,7 +427,7 @@ create・update の run は、状態を作る前に、入力を次の判定表�
 | update | 対象スキルのディレクトリが既にある | 起こりえない（update はディレクトリがあることを前提にする） |
 | update | 対象スキルのディレクトリが無い | 開始の操作で、BLOCKED と理由（無いパス）を返す |
 
-「修正の根拠として扱う根拠」は、SP-BPFINDINGS-031 が update の修正の根拠として扱うとしたものとし、本項で絞り直してはならない。どの行でも状態を作らないので、停止の記録を書かず、返り値は next_args と状態 ID を持たない（SP-BPRUN-011・SP-BPRUN-032）。利用者は入力を直して新しく起動する。
+「修正の根拠として扱う根拠」は、SP-BPFINDINGS-031 が update の修正の根拠として扱うとしたものとし、本項で絞り直してはならない。前の run の参照の形（SP-BPFINDINGS-031）は、script には中身が見えないので、agent の起動の前には扱う根拠として数える。参照を含む修正の根拠は、開始の操作が参照を展開した後に扱う根拠を数え、0 件なら状態と作業場所を作らずに `E_INPUT` で拒否し、拒否の応答に `treatedGrounds`（値 0）と `receivedGrounds`（展開した後に受け取った件数）を載せる（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `start` の行）。script は、`start` の拒否のうち `treatedGrounds` が 0 のものだけを needs_input と理由（展開した後に受け取った修正の根拠の件数と、扱わなかった件数と、1 件以上の修正の根拠が要ること）で返し、他の `start` の拒否は BLOCKED で返す（拒否の理由の文言で分けない）。参照が指す状態が完了で止まった review・audit の状態でないか、対象スキルの根が違うときは、開始の操作で BLOCKED と理由を返す。どの行でも状態を作らないので、停止の記録を書かず、返り値は next_args と状態 ID を持たない（SP-BPRUN-011・SP-BPRUN-032）。利用者は入力を直して新しく起動する。
 
 #### SP-BPAUTHORING-030 検証が成り立たない
 反復の合否が「検証が成り立たない」のとき、run は BLOCKED で止まらなければならない。理由には、SP-BPAUTHORING-023 の 1 で当たった項目（指摘 ID、未反証の候補、skip 一覧に残った資産 ID、打ち切りになった項目）を全て書かなければならない（書き直しでは直らず、検証役か反証役が結果を返せない原因を利用者が直す必要がある）。この反復を反復の上限で止まった反復として扱ってはならない。
@@ -492,7 +492,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 
 各仕様項目は、`docs/specifications/bp-run.md` の「検証方法」の手段（CLI の単体テスト・script の模擬実行・静的な照合）か、次の手段で確かめる。項目ごとの手段と測るものは、トレーサビリティ表の検証方法の列に置く。
 
-「fixture の run」の行は、模擬の検証役が対象スキルの中身によらず決めた答えを返しても通るので、検証役の判断の質を確かめない。そこで、新しい入口の公開（`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更）の前に、本物の agent で create・update・review・audit を 1 回ずつ試走し、その試走で確かめた「fixture の run」の行と、`docs/specifications/bp-inspection.md` の「fixture」の行だけを「完了」にしなければならない（依頼者の裁定。review・audit の行も、模擬の検証役では判断の質を確かめられないので同じ扱いにする）。この試走では、検証役が返り値と作業ファイルに同じ JSON を書けずに `E_TRANSPORT` になった率も測る（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `PAYLOAD_MODE`）。
+「fixture の run」の行は、模擬の検証役が対象スキルの中身によらず決めた答えを返しても通るので、検証役の判断の質を確かめない。そこで、新しい入口の公開（`docs/specifications/bp-entry.md` の SP-BPENTRY-025 の変更）の前に、本物の agent で create・update・review・audit を 1 回ずつ試走し、その試走で確かめた「fixture の run」の行と、`docs/specifications/bp-inspection.md` の「fixture」の行だけを「完了」にしなければならない（依頼者の裁定。review・audit の行も、模擬の検証役では判断の質を確かめられないので同じ扱いにする）。この試走では、検証役が返り値と作業ファイルに同じ JSON を書けずに `E_TRANSPORT` になった率も測る。率は試走の記録を正とし、本書に書き写さない（`docs/specifications/bp-run.md` の SP-BPRUN-031 の `PAYLOAD_MODE`）。
 
 | 手段 | 中身 |
 |---|---|
@@ -535,12 +535,13 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-011 | SP-BPAUTHORING-025 | script の模擬実行（判定表の 4 行の入力で進み方を照らす） | 完了 |
 | PR-BPOPERATIONS-012 | SP-BPAUTHORING-025 | script の模擬実行（反復の上限で止まった返り値の理由に、不合格の指摘 ID と判定の単位がある） | 完了 |
 | PR-BPOPERATIONS-012 | SP-BPAUTHORING-034 | script の模擬実行（反復の上限で止まった返り値に検証の結果がある） | 完了 |
-| PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | script の模擬実行（未反証の候補・skip 一覧の残り・判定できない指摘のそれぞれで BLOCKED と、当たった項目の理由を返す） | 作成中 |
+| PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | script の模擬実行（未反証の候補・skip 一覧の残り・判定できない指摘のそれぞれで BLOCKED と、当たった項目の理由を返す） | 完了 |
 | PR-BPOPERATIONS-013 | SP-BPAUTHORING-031 | script の模擬実行（一覧の外へのパスの BLOCKED の理由にパスが全て載る） | 完了 |
 | PR-BPOPERATIONS-014 | SP-BPAUTHORING-032 | fixture の run（create の完了の返り値に検証の結果の全項目がある） | 作成中 |
 | PR-BPOPERATIONS-014 | SP-BPAUTHORING-033 | fixture の run（create の完了の返り値に、パスと指紋の一覧、設計の説明の場所と逐語の本文がある） | 作成中 |
 | PR-BPOPERATIONS-015 | SP-BPAUTHORING-006 | script の模擬実行（update の目標の固定の書き手に、写しのパスと修正の根拠が渡る） | 完了 |
 | PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | script の模擬実行（dismissed の指摘だけの修正の根拠で、agent を起動せず needs_input と件数を返す） | 完了 |
+| PR-BPOPERATIONS-015 | SP-BPAUTHORING-029 | script の模擬実行（前の review の参照だけの修正の根拠で、展開した指摘が 0 件か全て dismissed なら、開始の操作の後に agent を起動せず状態を作らずに needs_input と件数を返し、完了していない状態を指す参照では BLOCKED を返す） | 完了 |
 | PR-BPOPERATIONS-016 | SP-BPAUTHORING-006 | CLI の単体テスト（修正の根拠のどれかを出所として指さない目標を照合が通さない） | 完了 |
 | PR-BPOPERATIONS-016 | SP-BPAUTHORING-007 | CLI の単体テスト（前提に無い記録 ID や dismissed の指摘の記録 ID を出所にした要素を照合が通さない） | 完了 |
 | PR-BPOPERATIONS-017 | SP-BPAUTHORING-005 | script の模擬実行（update が create と同じ段の順で進み、作り直す前の写しの段と契約の観点だけが足される） | 完了 |

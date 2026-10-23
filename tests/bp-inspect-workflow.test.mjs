@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, assetIds, bundleAssets, candidateVerifier, commands, compose, editFile, failCarrier, inspectArgs, inspectDefaults,
+  MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, assetIds, bundleAssets, candidateVerifier, commands, compose, editFile, failCarrier, inspectArgs, inspectDefaults, launchStopFacts,
   logOf, resumeArgs, runInspect, setupInspect, stagesIn, viewOf, viewpointOf, writePayload,
 } from './helpers/bp-harness.mjs';
 import { OPS, RESULT_KEYS, ROLE_WRITE_LIMITS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
@@ -87,7 +87,7 @@ for (const fn of FNS) {
     assert.equal(v2.stops.get('r1').cause, 'verifiers');
   });
 
-  test(`SP-BPINSPECTION-002・SP-BPRUN-010: 候補のある結果を返しても反復の上限で止まらず完了し、観点ごとの検証より前の段の起動が再び起きない${mark(fn)}`, async (t) => {
+  test(`SP-BPINSPECTION-002・SP-BPRUN-010・SP-BPCONFORMANCE-029: 候補のある結果を返しても反復の上限で止まらず完了し、観点ごとの検証より前の段の起動が再び起きない${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const verify = candidateVerifier({ viewpoint: VIEWPOINTS[fn][0] });
@@ -238,7 +238,7 @@ for (const fn of FNS) {
     assert.ok(exact.result.launches <= MIN_LAUNCHES[fn]);
   });
 
-  test(`SP-BPRUN-037: 0・小数・文字列の上限で agent() を 0 回呼び、BLOCKED と渡された値を返し、状態が変わらない${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-037・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-037: 0・小数・文字列の上限で agent() を 0 回呼び、BLOCKED と渡された値を返し、状態が変わらない${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     for (const bad of [0, 1.5, '40']) {
@@ -294,21 +294,28 @@ for (const fn of FNS) {
     assert.equal(result.stopKind, 'iteration_limit');
   });
 
-  test(`SP-BPRUN-020・SP-BPRUN-040・SP-BPRUN-010: 上限を渡さない run は項目を切らず、上限を渡した run の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-020・SP-BPRUN-040・SP-BPRUN-010・SP-BPCONFORMANCE-021・SP-BPCONFORMANCE-022・SP-BPCONFORMANCE-025: 上限を渡さない run は項目を切らず、上限を渡した run の起動数と停止の記録の起動数は同時実行 3 でも上限以下で、予約分の停止の運搬役が起動できる${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const free = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target) });
     assert.equal(free.result.stopKind, 'complete');
     assert.equal(verifiers(free.calls).length, VIEWPOINTS[fn].length * 2);
+    const fv = await viewOf(s.env, free.result.state);
+    const entry = fv.stages.get('verify|');
+    assert.equal(entry.items.length, VIEWPOINTS[fn].length * 2);
+    assert.ok(entry.items.every((id) => fv.items.get(id).result));
+    assert.ok(verifiers(free.calls).every((c) => !c.label.endsWith(':extra')));
     const limit = MIN_LAUNCHES[fn] + 3;
     const capped = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, { maxLaunches: limit }) });
     assert.ok(capped.calls.length <= limit);
+    assert.equal(capped.result.launches, capped.calls.length);
+    assert.ok((await viewOf(s.env, capped.result.state)).stops.get('r1').launches <= limit);
     assert.equal(capped.result.stopKind, 'iteration_limit');
     assert.match(capped.result.reason, /起動数の上限/);
     assert.ok(capped.calls.at(-1).prompt.includes(' stop <<'));
   });
 
-  test(`SP-BPRUN-022・SP-BPRUN-014・SP-BPRUN-033・SP-BPRUN-003・SP-BPRUN-035・SP-BPINSPECTION-016・SP-BPFINDINGS-026: 起動数の上限で止めた run の未着手の項目が観点の順・担当の順で残り、next_args だけの再開が未着手の項目だけを順位の順に処理し、前の run の見たと指摘が結果に載る${mark(fn)}`, async (t) => {
+  test(`SP-BPRUN-022・SP-BPRUN-014・SP-BPRUN-033・SP-BPRUN-003・SP-BPRUN-035・SP-BPINSPECTION-016・SP-BPFINDINGS-026・SP-BPCONFORMANCE-023・SP-BPCONFORMANCE-024: 起動数の上限で止めた run の未着手の項目が観点の順・担当の順で残り、理由に上限・その時点の起動数・残した件数があり、next_args だけの再開が未着手の項目だけを順位の順に処理し、前の run の見たと指摘が結果に載る${mark(fn)}`, async (t) => {
     const s = await setupInspect(t);
     if (!s) return;
     const verify = candidateVerifier({ viewpoint: VIEWPOINTS[fn][0], when: (p, calls) => verifiers(calls).length === 1 });
@@ -324,6 +331,16 @@ for (const fn of FNS) {
     const pending = view.stops.get('r1').pending;
     assert.deepEqual(pending, entry.items.filter((id) => !view.items.get(id).result));
     assert.ok(pending.length >= 1);
+    assert.equal(view.stops.get('r1').limitHit, 'launch');
+    const facts = launchStopFacts(first.result.reason);
+    assert.ok(facts, first.result.reason);
+    assert.equal(facts.limit, MIN_LAUNCHES[fn]);
+    assert.ok(facts.used > 0 && facts.used <= view.stops.get('r1').launches);
+    assert.equal(facts.left, pending.length);
+    // 同時実行 1 では止まる時点に走っている項目が無く、その後の起動は停止の運搬役だけなので、その時点の起動数が 1 つに決まる。
+    const s1 = await setupInspect(t);
+    const serial = await runInspect(t, { env: s1.env, args: inspectArgs(fn, s1.target, { maxLaunches: MIN_LAUNCHES[fn] }), scenario: { verify: candidateVerifier({ viewpoint: VIEWPOINTS[fn][0], when: (p, calls) => verifiers(calls).length === 1 }) }, concurrency: 1 });
+    assert.equal(launchStopFacts(serial.result.reason)?.used, serial.calls.length - 1, `${fn}: ${serial.result.reason}`);
     const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result) });
     assert.equal(second.result.stopKind, 'complete', second.result.reason);
     assert.equal(second.result.run, 'r2');
