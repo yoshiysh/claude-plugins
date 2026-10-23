@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 試行ごとの写しを作り直し（make）、目標の固定で状態に記録した再現手順のコマンドを写しの中で実行する（exec）。
+// 試行ごとの写しを作り直し（make）、開始で状態に記録した再現手順のコマンドを写しの中で実行する（exec）。
 // 写しは作業ツリーの今の内容から、ファイルを読むだけで作る（git worktree や git stash create は対象の .git に書く）。
 import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';

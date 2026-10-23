@@ -62,7 +62,7 @@ function backend(sc, rec) {
         if (r !== undefined) return r;
       }
       if (label.startsWith('carrier:')) return carry(prompt);
-      if (label === 'goal') return { goal: '原因の説明', scope: ['src', 'test'], prohibitions: [], numeric: sc.numeric ?? [], origin: '再現手順', commands: ['cat src/a.js'], missing: [] };
+      if (label === 'goal') return { goal: '原因の説明', scope: ['src', 'test'], prohibitions: [], numeric: sc.numeric ?? [], origin: '再現手順', missing: [] };
       if (label === 'planner') {
         n.plans += 1;
         const facts = [...prompt.matchAll(/^事実 (F[0-9a-f]+):/gm)].map((m) => m[1]);
@@ -102,8 +102,8 @@ async function runArgs(t, sc, args, { concurrency = 3, root = FIXTURE_DIR } = {}
 }
 
 // 状態は SKILL.md の「起動」のとおり、呼び出し元が run の前に CLI の start で作る。
-function started(dir, request = 'テスト a が落ちる原因を調べる') {
-  const { out } = cli('start', JSON.stringify({ repo: dir, request }));
+function started(dir, request = 'テスト a が落ちる原因を調べる', commands = ['cat src/a.js']) {
+  const { out } = cli('start', JSON.stringify({ repo: dir, request, commands }));
   assert.equal(out.ok, true, JSON.stringify(out));
   return out;
 }
@@ -312,14 +312,14 @@ const LIMITS = { rounds: 5, attempts: 3 };
 // run の前の開始と、run の始めの再開まで（目標はまだ固定しない）。
 async function opened(t, limits = LIMITS) {
   const dir = await repo(t);
-  const s = call('start', { repo: dir, request: 'r' });
+  const s = call('start', { repo: dir, request: 'r', commands: [] });
   const r = call('resume', { repo: dir, state: s.state, resumeKey: s.resumeKey, limits });
   return { dir, base: { repo: dir, state: s.state, run: r.run, writeKey: r.writeKey }, methods: r.methods, resumeKey: s.resumeKey };
 }
 
 async function begun(t, { numeric = [] } = {}) {
   const o = await opened(t);
-  call('goal', { ...o.base, goal: JSON.stringify({ goal: 'g', scope: ['src'], prohibitions: [], numeric }), origin: 'o', commands: [], scope: ['src'] });
+  call('goal', { ...o.base, goal: JSON.stringify({ goal: 'g', scope: ['src'], prohibitions: [], numeric }), origin: 'o', scope: ['src'] });
   return o;
 }
 
@@ -330,7 +330,7 @@ test('SP-BPCONFORMANCE-016・SP-BPCONFORMANCE-011: 試走の題材の状態の C
   const twice = call('resume', { repo: dir, state: first.state, resumeKey, limits: { rounds: 2, attempts: 3 } });
   assert.deepEqual([twice.run, twice.writeKey], [first.run, first.writeKey]);
   const base = first;
-  call('goal', { ...base, goal: '{}', origin: 'o', commands: [], scope: ['src'] });
+  call('goal', { ...base, goal: '{}', origin: 'o', scope: ['src'] });
   const r1 = call('round', { ...base, round: 1, launches: 1, allFailed: false });
   const r2 = call('round', { ...base, round: 2, launches: 1, allFailed: false });
   assert.deepEqual([r1.dry, r2.dry, r2.limitHit], [1, 2, true]);
@@ -481,10 +481,9 @@ test('SP-BPCONFORMANCE-016: 試走の題材の CLI は、事実の ID を内容�
   }
   assert.deepEqual(call('get', { ...base, kind: '事実' }).lines.length, 2);
   const goal = JSON.stringify({ goal: 'g', scope: ['src'], prohibitions: [], numeric: [] });
-  assert.equal(code('goal', { ...base, goal: '{"goal":"別"}', origin: 'o', commands: [], scope: ['src'] }), 'E_CONFLICT');
-  assert.equal(code('goal', { ...base, goal, origin: 'o', commands: [], scope: ['test'] }), 'E_CONFLICT');
-  assert.equal(code('goal', { ...base, goal, origin: 'o', commands: ['npm test'], scope: ['src'] }), 'E_CONFLICT');
-  assert.equal(call('goal', { ...base, goal, origin: 'o', commands: [], scope: ['src'], again: true }).scope[0], 'src');
+  assert.equal(code('goal', { ...base, goal: '{"goal":"別"}', origin: 'o', scope: ['src'] }), 'E_CONFLICT');
+  assert.equal(code('goal', { ...base, goal, origin: 'o', scope: ['test'] }), 'E_CONFLICT');
+  assert.equal(call('goal', { ...base, goal, origin: 'o', scope: ['src'], again: true }).scope[0], 'src');
   assert.equal(code('get', { ...base, id: 'F0' }), 'E_UNKNOWN_ID');
 });
 
@@ -500,7 +499,7 @@ test('SP-BPCONFORMANCE-033: 試走の題材の要約は 8,000 字以下で、載
 test('SP-BPCONFORMANCE-016・SP-BPCONFORMANCE-014: 試走の題材の CLI は、書き込みの鍵の無い状態の書き込みを拒否し、人間のヒントは書き込みの鍵でなく再開の鍵で受け付け、再開の鍵の無いヒントを拒否する', async (t) => {
   const { dir, base, resumeKey } = await begun(t);
   const { writeKey, ...noKey } = base;
-  assert.equal(code('goal', { ...noKey, goal: '{}', origin: 'o', commands: [], scope: ['src'] }), 'E_KEY');
+  assert.equal(code('goal', { ...noKey, goal: '{}', origin: 'o', scope: ['src'] }), 'E_KEY');
   assert.equal(code('round', { ...noKey, round: 1, launches: 1, allFailed: false }), 'E_KEY');
   assert.equal(code('hint', { repo: dir, state: base.state, text: 'h' }), 'E_KEY');
   assert.equal(code('hint', { repo: dir, state: base.state, writeKey, text: 'h' }), 'E_KEY');
@@ -521,7 +520,7 @@ test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-014: 試走の題材は、run の�
   assert.equal(r.result.stopKind, 'complete', r.result.reason);
   assert.notEqual(stolen.state, s.state);
   assert.equal(code('resume', { repo: dir, state: s.state, resumeKey: stolen.resumeKey, limits: LIMITS }), 'E_KEY');
-  assert.equal(code('goal', { repo: dir, state: s.state, run: 'r1', writeKey: stolen.resumeKey, goal: '{}', origin: 'o', commands: [], scope: ['src'] }), 'E_KEY');
+  assert.equal(code('goal', { repo: dir, state: s.state, run: 'r1', writeKey: stolen.resumeKey, goal: '{}', origin: 'o', scope: ['src'] }), 'E_KEY');
 });
 
 test('SP-BPCONFORMANCE-015: 試走の題材の CLI は、目標の数値条件の全てに受理済みの事実が当たらない完了の主張を却下し、周の違う同じ主張に前の却下を返さない', async (t) => {
@@ -630,12 +629,12 @@ test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-010・SP-BPCONFORMANCE-017: 試走
   assert.equal(r.request, 'r');
   const next = { ...base, run: r.run, writeKey: r.writeKey };
   assert.deepEqual(call('skip', next).skip, []);
-  const g = call('goal', { ...next, goal: '{}', origin: 'o', commands: [], scope: ['src'] });
+  const g = call('goal', { ...next, goal: '{}', origin: 'o', scope: ['src'] });
   assert.equal(g.t, 'ledger');
   assert.deepEqual(call('skip', next).skip.sort(), ['src/a.js', 'src/b.js']);
   assert.deepEqual(logOf(dir, base.state).filter((x) => x.t === 'premise').map((x) => [x.id, x.kind]), [['P1', 'goal'], ['P2', 'origin']]);
-  assert.equal(code('goal', { ...next, goal: '{}', origin: 'o', commands: [], scope: [] }), 'E_INPUT');
-  const asking = { ...SCENARIOS.素直に完了, agent: (label, _p, rec) => (label === 'goal' && !rec.asked ? (rec.asked = true, { goal: 'g', scope: ['src'], prohibitions: [], numeric: [], origin: 'o', commands: [], missing: ['どのテストか'] }) : undefined) };
+  assert.equal(code('goal', { ...next, goal: '{}', origin: 'o', scope: [] }), 'E_INPUT');
+  const asking = { ...SCENARIOS.素直に完了, agent: (label, _p, rec) => (label === 'goal' && !rec.asked ? (rec.asked = true, { goal: 'g', scope: ['src'], prohibitions: [], numeric: [], origin: 'o', missing: ['どのテストか'] }) : undefined) };
   const first = await runTarget(t, asking, { concurrency: 1 });
   assert.equal(first.result.stopKind, 'needs_input');
   const second = await runArgs(t, SCENARIOS.素直に完了, first.result.nextArgs, { concurrency: 1 });
@@ -675,9 +674,9 @@ async function dirtyRepo(t, extra = () => {}) {
 
 // 写しを作る状態を、再現手順のコマンドを記録して用意する。
 function stateFor(src, commands) {
-  const s = call('start', { repo: src, request: 'r' });
+  const s = call('start', { repo: src, request: 'r', commands });
   const r = call('resume', { repo: src, state: s.state, resumeKey: s.resumeKey, limits: LIMITS });
-  call('goal', { repo: src, state: s.state, run: r.run, writeKey: r.writeKey, goal: '{}', origin: 'o', commands, scope: ['a.txt'] });
+  call('goal', { repo: src, state: s.state, run: r.run, writeKey: r.writeKey, goal: '{}', origin: 'o', scope: ['a.txt'] });
   return { state: s.state, workDir: r.workDir };
 }
 
@@ -727,7 +726,7 @@ test('SP-BPCONFORMANCE-015・SP-BPCONFORMANCE-014: 試走の題材の写しは�
   assert.equal(readFileSync(path.join(victim, 'important', 'data.txt'), 'utf8'), 'precious\n');
 });
 
-test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-015: 試走の題材は、目標の固定で記録した再現手順のコマンドだけを写しの中で実行し、写しの中の git は置き場の上のリポジトリへ上がらない', async (t) => {
+test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-015: 試走の題材は、run の前の開始で記録した再現手順のコマンドだけを写しの中で実行し、run の中では足させず、写しの中の git は置き場の上のリポジトリへ上がらない', async (t) => {
   const outer = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-outer-')));
   t.after(() => fs.rm(outer, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q'], { cwd: outer });
@@ -743,6 +742,11 @@ test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-015: 試走の題材は、目標�
   assert.equal(exec({ repo: src, to, command: 2 }).stdout.trim(), to);
   for (const bad of [0, 3, 'cat a.txt', '1']) assert.throws(() => exec({ repo: src, to, command: bad }), /command は再現手順のコマンドの番号/, String(bad));
   assert.throws(() => exec({ repo: src, to: path.join(workDir, 'I2.1'), command: 1 }), /写しが無い/);
+  assert.equal(code('start', { repo: src, request: 'r' }), 'E_INPUT');
+  const { base } = await begun(t);
+  call('goal', { ...base, goal: JSON.stringify({ goal: 'g', scope: ['src'], prohibitions: [], numeric: [] }), origin: 'o', scope: ['src'], commands: ['touch x'] });
+  assert.deepEqual(call('summary', base).commands, []);
+  assert.ok(!logOf(base.repo, base.state).some((x) => x.t !== 'start' && 'commands' in x));
   const skill = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8').split('## 必要な許可')[1].split('\n## ')[0];
   assert.ok(!/^- 依頼文の再現手順のコマンド/m.test(skill), '再現手順のコマンドをそのまま実行する許可が残る');
 });
@@ -818,7 +822,7 @@ test('SP-BPCONFORMANCE-023: 試走の題材は、最小の起動数の上限で 
 
 test('SP-BPCONFORMANCE-011: 試走の題材は、目標の固定役が足りない入力を返して止まった状態を、足したヒントを目標の固定役に渡して再開し、同じ理由ですぐに止まらず、ヒントを計画役に読ませる', async (t) => {
   const answer = 'npm test の auth.test.js';
-  const goal = (label, prompt) => (label === 'goal' ? { goal: 'g', scope: ['src'], prohibitions: [], numeric: [], origin: 'o', commands: [], missing: prompt.includes(answer) ? [] : ['どのテストか'] } : undefined);
+  const goal = (label, prompt) => (label === 'goal' ? { goal: 'g', scope: ['src'], prohibitions: [], numeric: [], origin: 'o', missing: prompt.includes(answer) ? [] : ['どのテストか'] } : undefined);
   const sc = { ...SCENARIOS.素直に完了, agent: goal };
   const first = await runTarget(t, sc, { concurrency: 1 });
   assert.equal(first.result.stopKind, 'needs_input', first.result.reason);
@@ -838,7 +842,7 @@ test('SP-BPCONFORMANCE-016: 試走の題材の CLI は、1 回の書き込みの
   const r = call('resume', { repo: dir, state: base.state, resumeKey, limits: LIMITS });
   assert.equal(r.request, 'r');
   const next = { ...base, run: r.run, writeKey: r.writeKey };
-  call('goal', { ...next, goal: '{"goal":"second"}', origin: 'o2', commands: [], scope: ['src'] });
+  call('goal', { ...next, goal: '{"goal":"second"}', origin: 'o2', scope: ['src'] });
   assert.deepEqual(logOf(dir, base.state).filter((x) => x.t === 'premise').map((x) => [x.id, x.text]), [['P1', '{"goal":"second"}'], ['P2', 'o2']]);
   assert.equal(call('claim', { ...next, round: 1, facts: ['P1'], numeric: [] }).goal, '{"goal":"second"}');
   for (const line of readFileSync(file, 'utf8').split('\n').filter(Boolean)) assert.ok(Array.isArray(JSON.parse(line)));
@@ -864,6 +868,19 @@ test('SP-BPCONFORMANCE-016: 試走の題材は、判定の食い違いで止ま�
   assert.ok(second.result.facts.some((f) => f.id === id), JSON.stringify(second.result.facts));
   const { base } = await begun(t);
   assert.equal(code('plan', { ...base, round: 1, intents: [{ key: 'x', text: 'x', basis: ['P1'], rank: 1, recheck: id }], rerank: [], hintsRead: [] }), 'E_UNKNOWN_ID');
+  verdicts = 0;
+  const again = await runTarget(t, split, { concurrency: 1 });
+  const [, id2] = /判定が意図の間で食い違った: (F\w+)/.exec(again.result.reason);
+  const verbatim = { ...SCENARIOS.素直に完了, agent: (label, prompt, rec) => {
+    if (label === 'planner' && /判定の食い違い F/.test(prompt) && !rec.planned) { rec.planned = true; return { kind: 'intents', intents: [{ key: 'recheck', text: '確かめ直す', basis: ['P1'], rank: 1, recheck: id2 }], rerank: [] }; }
+    if (label.startsWith('executor:I')) return { facts: [{ text: fact, method: 'rerun', evidence: '新しい証拠' }], blank: false, seen: ['src/a.js'] };
+    if (label.startsWith('verifier:')) {
+      assert.equal([...prompt.matchAll(/^\d+: \{/gm)].length, 1, prompt);
+      return { verdicts: [{ candidate: 0, verdict: 'accept', reason: 'r' }] };
+    }
+  } };
+  const third = await runArgs(t, verbatim, again.result.nextArgs, { concurrency: 1 });
+  assert.equal(third.result.stopKind, 'complete', third.result.reason);
 });
 
 test('SP-BPCONFORMANCE-015: 試走の題材の CLI は、検証不能の方式の事実を受理と書かれても受理せず、要約の検証不能に載せて根拠に使わせない', async (t) => {

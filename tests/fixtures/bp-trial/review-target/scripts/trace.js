@@ -49,7 +49,7 @@ const LIST = { type: 'array' }
 const IDS = { type: 'array', items: STR }
 const SCHEMAS = {
   carrier: { type: 'object', properties: { responses: { type: 'array', items: STR } }, required: ['responses'] },
-  goal: { type: 'object', properties: { goal: STR, scope: IDS, prohibitions: IDS, numeric: LIST, origin: STR, commands: IDS, missing: IDS }, required: ['goal', 'scope', 'prohibitions', 'numeric', 'origin', 'commands', 'missing'] },
+  goal: { type: 'object', properties: { goal: STR, scope: IDS, prohibitions: IDS, numeric: LIST, origin: STR, missing: IDS }, required: ['goal', 'scope', 'prohibitions', 'numeric', 'origin', 'missing'] },
   planner: {
     type: 'object',
     properties: {
@@ -104,7 +104,7 @@ function factSchemas() {
     collector: { type: 'object', properties: { facts }, required: ['facts'] },
   }
 }
-// 写しは CLI と同じ置き場の下に、対象のリポジトリに書かない形で作る（scripts/copy.mjs）。写しの中で実行できるのは、目標の固定で記録した再現手順のコマンドだけ。
+// 写しは CLI と同じ置き場の下に、対象のリポジトリに書かない形で作る（scripts/copy.mjs）。写しの中で実行できるのは、開始で記録した再現手順のコマンドだけ。
 const copyLines = (to) => [
   `写しを作り直すコマンド（同じパスにあれば消して作り直す）: node '${SKILL}/scripts/copy.mjs' make <<'EOF'\n${JSON.stringify({ repo: run.repo, to })}\nEOF`,
   `写しの中で再現手順のコマンドを実行するコマンド（command に下の番号を書く）: node '${SKILL}/scripts/copy.mjs' exec <<'EOF'\n${JSON.stringify({ repo: run.repo, to, command: 1 })}\nEOF`,
@@ -225,7 +225,7 @@ async function fixGoal(request, hints) {
     ], SCHEMAS.goal, 'goal')
     if (!g) throw new Stop('blocked', '目標の固定役が結果を返さなかった')
     if (g.missing.length) throw new Stop('needs_input', `目標の固定に要る入力が無い: ${g.missing.join(' / ')}`)
-    await cli(u, [['goal', { goal: JSON.stringify({ goal: g.goal, scope: g.scope, prohibitions: g.prohibitions, numeric: g.numeric }), origin: g.origin, commands: g.commands, scope: g.scope }]])
+    await cli(u, [['goal', { goal: JSON.stringify({ goal: g.goal, scope: g.scope, prohibitions: g.prohibitions, numeric: g.numeric }), origin: g.origin, scope: g.scope }]])
   })
 }
 
@@ -283,9 +283,7 @@ async function item(intent, round) {
       ], factSchemas().executor, `executor:${intent.id}`)
       const seen = x?.seen?.length ? [['seen', { round, attempt, intent: intent.id, paths: x.seen }]] : []
       const failed = async (reason) => (await cli(u, [...seen, ['attempt', { round, attempt, intent: intent.id, reason }]])).at(-1)
-      // 確かめ直しの意図は、食い違った事実をいつも検証役の候補に入れる（実行役が言い換えると、同じ事実の判定にならない）。
-      const recheck = intent.recheck ? [{ text: intent.recheck.text, method: intent.recheck.method, evidence: intent.recheck.evidence }] : []
-      if (x && (x.blank || !x.facts.length) && !recheck.length) {
+      if (x && (x.blank || !x.facts.length) && !intent.recheck) {
         await cli(u, [...seen, ['done', { intent: intent.id, blank: true }]])
         return { facts: 0 }
       }
@@ -294,6 +292,9 @@ async function item(intent, round) {
         `記録ファイル: ${run.workDir}/${intent.id}.log`,
         methodsLine(),
       ], factSchemas().collector, `collector:${intent.id}`))?.facts ?? []
+      // 確かめ直しの意図は、食い違った事実を必ず検証役の候補に入れる（実行役が返さないか言い換えると、同じ事実の判定にならない）。
+      // 実行役が本文のまま返したら、その候補だけを使う（2 つ載せると、同じ事実に 2 つの判定が付いて、確かめ直しの中で食い違う）。
+      const recheck = intent.recheck && !found.some((f) => f.text === intent.recheck.text) ? [{ text: intent.recheck.text, method: intent.recheck.method, evidence: intent.recheck.evidence }] : []
       const candidates = [...found, ...recheck]
       if (!candidates.length) {
         if ((await failed('実行役が結果を返さず、回収役も事実の候補を返さなかった')).aborted) break

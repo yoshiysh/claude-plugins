@@ -60,12 +60,11 @@ function load(repo, state) {
     for (const r of batch) {
       v.records.push(r);
       if (r.asked) v.asked.set(r.asked, r);
-      if (r.t === 'start') { v.request = r.request; v.resumeKey = r.resumeKey; }
+      if (r.t === 'start') { v.request = r.request; v.commands = r.commands; v.resumeKey = r.resumeKey; }
       if (r.t === 'run') { v.runs.push(r.run); v.keys.set(r.run, r.key); v.limits = r.limits; }
       if (r.t === 'dispute') v.disputes.push(r);
       if (r.t === 'resolve') { v.resolved.set(r.fact, r.verdict); v.disputes = v.disputes.filter((d) => d.fact !== r.fact); }
       if (r.t === 'premise') v.premises.push(r);
-      if (r.t === 'commands') v.commands = r.list;
       if (r.t === 'hint') v.hints.push(r);
       if (r.t === 'intent') v.intents.set(r.id, { ...r, attempts: 0, status: 'pending' });
       if (r.t === 'rank') for (const x of r.ranks) v.intents.get(x.intent).rank = x.rank;
@@ -258,12 +257,14 @@ const resumeKeyOk = (v, req) => v.resumeKey === digest(String(req.resumeKey));
 const OPS = {
   // 開始は run の外で呼び出し元が 1 回だけ呼ぶ。runtime が送り直す書き込みではないので、送り直しの照合を持たない
   // （照合の鍵を run の中で作ると、依頼文を読める役が同じ鍵で送り直して、書き込みと再開の鍵を得られる）。
+  // 写しの中で実行してよいコマンドもここでだけ記録する（run の中の役が記録できると、その役が選んだコマンドを全ての役が実行できる）。
   start(req) {
     if (typeof req.request !== 'string' || req.request === '') reject('E_INPUT', 'request（依頼文）が要る');
+    if (!isCommands(req.commands)) reject('E_INPUT', 'commands（依頼文の再現手順のコマンドの並び）が要る');
     const state = `tc-${randomBytes(4).toString('hex')}`;
     const resumeKey = randomBytes(16).toString('hex');
     mkdirSync(dirOf(req.repo, state), { recursive: true });
-    append(req.repo, state, [{ t: 'start', request: req.request, resumeKey: digest(resumeKey) }]);
+    append(req.repo, state, [{ t: 'start', request: req.request, commands: req.commands, resumeKey: digest(resumeKey) }]);
     return { state, resumeKey };
   },
   // run は全て再開で始める。停止の記録の応答が失われた run も、ここで状態に書かれた停止を読んで続ける。
@@ -283,18 +284,17 @@ const OPS = {
     append(req.repo, req.state, [...records, { t: 'run', run, limits: req.limits, key: digest(writeKeyOf(req.resumeKey, req.state, run)) }, ...newAssets(req.repo, v, v.scope ?? [])]);
     return { ...issued(req, run), ...read };
   }),
-  // 目標・出発点・再現手順のコマンド・台帳と範囲の資産を 1 回の追記で書く（途中で切れると、範囲の無い台帳や出発点の無い状態が残る）。
+  // 目標・出発点・台帳と範囲の資産を 1 回の追記で書く（途中で切れると、範囲の無い台帳や出発点の無い状態が残る）。
   goal: (req) => write(req.repo, req.state, req, (v) => {
-    if (typeof req.goal !== 'string' || typeof req.origin !== 'string' || !Array.isArray(req.scope) || req.scope.length === 0 || !isCommands(req.commands)) reject('E_INPUT', 'goal・origin・commands と 1 件以上の scope が要る');
+    if (typeof req.goal !== 'string' || typeof req.origin !== 'string' || !Array.isArray(req.scope) || req.scope.length === 0) reject('E_INPUT', 'goal・origin と 1 件以上の scope が要る');
     if (v.scope !== null) {
       const now = Object.fromEntries(v.premises.map((p) => [p.kind, p.text]));
-      if (now.goal !== req.goal || now.origin !== req.origin || JSON.stringify(v.scope) !== JSON.stringify(req.scope) || JSON.stringify(v.commands) !== JSON.stringify(req.commands)) reject('E_CONFLICT', '既にある目標・出発点・再現手順のコマンド・台帳の範囲と食い違う');
+      if (now.goal !== req.goal || now.origin !== req.origin || JSON.stringify(v.scope) !== JSON.stringify(req.scope)) reject('E_CONFLICT', '既にある目標・出発点・台帳の範囲と食い違う');
       return sameAs(v.records.find((r) => r.t === 'ledger'));
     }
     return [
       { t: 'premise', run: req.run, id: 'P1', kind: 'goal', text: req.goal },
       { t: 'premise', run: req.run, id: 'P2', kind: 'origin', text: req.origin },
-      { t: 'commands', run: req.run, list: req.commands },
       ...newAssets(req.repo, v, req.scope),
       { t: 'ledger', run: req.run, scope: req.scope },
     ];
@@ -411,7 +411,7 @@ const OPS = {
   }), (v) => stopView(req.repo, v, v.stops.get(req.run))),
 };
 
-// 写しの中で実行してよいコマンドは、目標の固定で状態に記録した再現手順のコマンドだけ（scripts/copy.mjs が読む）。
+// 写しの中で実行してよいコマンドは、開始で状態に記録した再現手順のコマンドだけ（scripts/copy.mjs が読む）。
 export function commandsOf(repo, state) {
   if (!STATE_ID.test(String(state))) reject('E_INPUT', `状態 ID の形でない: ${state}`);
   return load(repo, state).commands ?? [];
