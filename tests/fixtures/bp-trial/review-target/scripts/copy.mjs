@@ -32,7 +32,7 @@ const realOr = (p) => { try { return realpathSync(p); } catch { return null; } }
 
 // リポジトリの中を指す symlink は、写しの中の同じ場所を指すリンクにする。外を指すもの（絶対パスと、解決先が根の外に出る相対パス）は
 // リンク先の中身を写す（リンクのまま写すと、写しの中の書き込みがリンクを通って対象のリポジトリや外へ届き、写しが隔離されない）。
-// 写さないリンクは dropped に写しの中のパスで載せる: リポジトリを含む祖先を指すもの（祖先ごと写すと、リポジトリと置き場を丸ごと深く写し、
+// 写さないもの（リンクと、通常のファイルでもディレクトリでもないもの）は dropped に写しの中のパスで載せる: リポジトリを含む祖先を指すもの（祖先ごと写すと、リポジトリと置き場を丸ごと深く写し、
 // 置き場が祖先の下にあると写しが自分の中へ写る）、外の中身を写す途中で写しを指すものや、辿ってきたディレクトリを指すもの（輪になって終わらない）、解決できないもの。
 function linkInto(root, from, at, dest, dropped) {
   const real = realOr(from);
@@ -43,7 +43,10 @@ function linkInto(root, from, at, dest, dropped) {
 
 function copyOut(real, at, ctx) {
   if (within(real, ctx.root) || within(ctx.dest, real) || within(real, ctx.dest) || ctx.chain.some((c) => within(real, c))) return ctx.dropped.push(path.relative(ctx.dest, at));
-  if (!statSync(real).isDirectory()) return copyFileSync(real, at);
+  const st = statSync(real);
+  // 通常のファイルとディレクトリだけを写す（FIFO を読むと書き手が来るまで止まり、デバイスやソケットは中身を写せない）。
+  if (st.isFile()) return copyFileSync(real, at);
+  if (!st.isDirectory()) return ctx.dropped.push(path.relative(ctx.dest, at));
   mkdirSync(at);
   for (const name of readdirSync(real)) {
     const r = realOr(path.join(real, name));

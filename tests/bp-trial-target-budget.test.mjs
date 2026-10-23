@@ -1,6 +1,6 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, promises as fs, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -1095,9 +1095,45 @@ test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、リポジ
   for (const [sub, args] of [['diff', [secret, path.join(src, 'a.txt')]], ['diff', ['--', secret, 'a.txt']], ['diff', ['--stat', secret, '/dev/null']], ['diff', ['secret-link', 'a.txt']], ['grep', [`--file=${secret}`]], ['grep', ['-f', secret]], ['grep', [`-nf${secret}`]], ['blame', ['--contents', secret, 'a.txt']], ['diff', [`-O${secret}`]], ['ls-files', ['-X', secret]], ['log', [`--orderfile=${secret}`]], ['diff', ['../']]]) {
     assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外/, `${sub} ${args.join(' ')}`);
   }
-  for (const [sub, args] of [['log', ['-SOldName', '--oneline']], ['log', ['-GOld', '--oneline']], ['blame', ['-L/committed/,+1', 'a.txt']], ['grep', ['-efoo']], ['grep', ['-nfoo']], ['grep', ['-e', '-O', 'a.txt']], ['ls-files', ['-X', '.gitignore', '-o', '-i']], ['log', ['-n', '1', 'HEAD']], ['diff', ['HEAD', '--', 'a.txt']]]) {
+  for (const [sub, args] of [['log', ['-SOldName', '--oneline']], ['log', ['-GOld', '--oneline']], ['blame', ['-L/committed/,+1', 'a.txt']], ['grep', ['-efoo']], ['grep', ['-e', '-O', 'a.txt']], ['log', ['-n', '1', 'HEAD']], ['diff', ['HEAD', '--', 'a.txt']],
+    ['grep', ['/usr/bin/env']], ['grep', ['..']], ['grep', ['-n', '/usr']], ['log', ['--grep', '/tmp']], ['log', ['--author', '..']], ['log', ['--grep=/etc/hosts', '-3']]]) {
     const r = gitRead(sub, { repo: src, args });
     assert.ok(!r.stdout.includes('secret'), `${sub} ${args.join(' ')}`);
   }
   assert.throws(() => gitRead('grep', { repo: src, args: ['-nO', 'a'] }), /外部のコマンド/);
+});
+
+test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、操作ごとの一覧に無い引数を全て拒否し、パスを OS と同じ順に要素ごとに解決して、中の symlink から .. で外へ出るパスも拒否する', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-secret-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  mkdirSync(path.join(outside, 'sub'));
+  writeFileSync(path.join(outside, 'secret.txt'), 'SECRET\n');
+  const src = await dirtyRepo(t, (d) => symlinkSync(path.join(outside, 'sub'), path.join(d, 'lnk')));
+  for (const [sub, args] of [['diff', ['lnk/../secret.txt', 'a.txt']], ['diff', ['--', 'lnk/../secret.txt']], ['log', ['--', 'lnk/../secret.txt']], ['diff', ['nothere/../../' + path.basename(outside) + '/secret.txt', 'a.txt']]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /リポジトリの外のパス/, `${sub} ${args.join(' ')}`);
+  }
+  for (const [sub, args] of [['blame', ['--contents', 'lnk/../secret.txt', 'a.txt']], ['blame', ['--contents=a.txt', 'a.txt']], ['grep', ['-f', 'a.txt']], ['diff', ['-Oa.txt']], ['ls-files', ['-X', '.gitignore']], ['log', ['--outp=x']], ['log', ['--show-signature']], ['diff', ['--no-index', 'a.txt', 'new.txt']], ['grep', ['--open-files-in-pager=true', 'a']]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /受け付ける引数の一覧に無い/, `${sub} ${args.join(' ')}`);
+  }
+});
+
+test('SP-BPCONFORMANCE-015: 試走の題材の写しは、外の中身を写す途中の FIFO などの通常のファイルでないものを写さずに応答に載せ、止まらずに終わる', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-fifo-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  writeFileSync(path.join(outside, 'x.txt'), 'x\n');
+  execFileSync('mkfifo', [path.join(outside, 'pipe')]);
+  const src = await dirtyRepo(t, (d) => symlinkSync(outside, path.join(d, 'out-dir')));
+  const { workDir } = stateFor(src, ['cat out-dir/x.txt']);
+  const to = path.join(workDir, 'I1.1');
+  const made = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(FIXTURE_DIR, 'scripts', 'copy.mjs'), 'make'], { env: process.env });
+    let out = '';
+    const timer = setTimeout(() => { child.kill(); reject(new Error('写しが終わらない')); }, 10000);
+    child.stdout.on('data', (d) => { out += d; });
+    child.on('close', () => { clearTimeout(timer); resolve(JSON.parse(out)); });
+    child.stdin.end(JSON.stringify({ repo: src, to }));
+  });
+  assert.equal(made.ok, true, JSON.stringify(made));
+  assert.deepEqual(made.dropped, ['out-dir/pipe']);
+  assert.equal(exec({ repo: src, to, command: 1 }).stdout, 'x\n');
 });
