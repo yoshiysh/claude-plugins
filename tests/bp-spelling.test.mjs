@@ -322,3 +322,16 @@ test('SP-BPENTRY-016: launch-args が出す runner の request の maxAgents が
   // 状態・見直しの判定・却下の理由は、載せない指摘がある（SP-BPFINDINGS-028・019・030）。それ以外は全て必須にする。
   assert.deepEqual([...FINDING_REQUIRED].sort(), fields.filter((f) => !['state', 'judgement', 'dismissReason'].includes(f)).sort());
 });
+
+// 展開後 0 件の拒否を needs_input に分ける合図は、拒否の理由の文言でなく欄で渡す。欄の名前を仕様・CLI・script の 3 箇所で照らす。
+test('SP-BPRUN-031・SP-BPAUTHORING-029: 参照を展開して扱う根拠が 0 件の start の拒否の欄（treatedGrounds・receivedGrounds）が、仕様の start の行と SP-BPAUTHORING-029・CLI の拒否・script の分岐で同じ綴りである', () => {
+  const startRow = RUN.split('\n').find((l) => l.startsWith('| `start` |'));
+  const item = AUTHORING.slice(AUTHORING.indexOf('#### SP-BPAUTHORING-029'), AUTHORING.indexOf('#### SP-BPAUTHORING-030'));
+  const cli = readFileSync(path.join(SCRIPT_DIR, 'bp', 'ops-run.mjs'), 'utf8');
+  for (const field of ['treatedGrounds', 'receivedGrounds']) {
+    assert.ok(startRow.includes(`\`${field}\``), `start の行に ${field} が無い`);
+    assert.ok(item.includes(`\`${field}\``), `SP-BPAUTHORING-029 に ${field} が無い`);
+  }
+  assert.match(cli, /reject\(CODES\.input, [^\n]*\{ treatedGrounds: 0, receivedGrounds: out\.length \}\)/);
+  assert.match(SCRIPTS.author.source, /r\.rejected && r\.response\?\.treatedGrounds === 0/);
+});
