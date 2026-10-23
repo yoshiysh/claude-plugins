@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  SKILL_DIR, candidateVerifier, defaults, logOf, newKey, runAuthor, runInspect, setup, setupInspect, viewOf,
+  REPO_ROOT, SKILL_DIR, candidateVerifier, defaults, logOf, newKey, runAuthor, runInspect, setup, setupInspect, viewOf,
 } from './helpers/bp-harness.mjs';
 import { canonical } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 import { STATES_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 
 const INSTRUCTION = '手順の節を短くする';
+const AUTHORING = readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', 'bp-authoring.md'), 'utf8');
+const AUTHORING_029 = AUTHORING.slice(AUTHORING.indexOf('#### SP-BPAUTHORING-029'), AUTHORING.indexOf('#### SP-BPAUTHORING-030'));
 const PLUGIN = 'p';
 
 // 入口（SKILL.md）の手順を模す: 機能の列を CLI に確かめさせ、起動ごとに key と args を CLI から得て、前の run の状態から次の入力を作らせ、
@@ -361,6 +363,10 @@ test('SP-BPAUTHORING-029・SP-BPFINDINGS-031: 参照だけの修正の根拠で�
   const empty = await update(clean.runs[0].state);
   assert.equal(empty.stopKind, 'needs_input', empty.reason);
   assert.match(empty.reason, /扱う根拠が 0 件/);
+  // SP-BPAUTHORING-029 は、受け取った件数と扱わなかった件数の両方を理由に載せる。参照先に指摘が無いときは、件数の 0 だけでは読めないので分けて書く。
+  assert.match(AUTHORING_029, /受け取った修正の根拠の件数と、SP-BPFINDINGS-031 で扱わなかった件数/);
+  assert.match(empty.reason, /受け取った 0 件、扱わなかった 0 件/);
+  assert.match(empty.reason, /参照先に指摘が無かった/);
   assert.ok(!Object.hasOwn(empty, 'state'));
   assert.equal(empty.launches, 1);
   const dismissedOnly = await entry(s.env, {
@@ -371,7 +377,9 @@ test('SP-BPAUTHORING-029・SP-BPFINDINGS-031: 参照だけの修正の根拠で�
   assert.ok(dismissedOnly.runs[0].result.findings.every((f) => f.state === 'dismissed'));
   const none = await update(dismissedOnly.runs[0].state);
   assert.equal(none.stopKind, 'needs_input', none.reason);
-  assert.match(none.reason, new RegExp(`受け取った ${dismissedOnly.runs[0].result.findings.length} 件`));
+  const n = dismissedOnly.runs[0].result.findings.length;
+  assert.match(none.reason, new RegExp(`受け取った ${n} 件、扱わなかった ${n} 件`));
+  assert.doesNotMatch(none.reason, /参照先に指摘が無かった/);
   const blocked = await entry(s.env, { functions: ['review'], first: { function: 'review', target }, scenarios: [{ carrier: async (prompt) => (prompt.includes(' targets <<') ? null : undefined) }] });
   assert.equal(blocked.runs[0].result.stopKind, 'blocked');
   const wrong = await update(blocked.runs[0].state);

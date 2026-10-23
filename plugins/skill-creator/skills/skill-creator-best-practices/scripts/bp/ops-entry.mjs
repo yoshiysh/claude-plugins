@@ -49,7 +49,6 @@ export async function chainCheck(ctx, req) {
   };
 }
 
-
 export function missingFields(findings) {
   if (!Array.isArray(findings)) return [{ finding: null, fields: [RESULT_KEYS.findings] }];
   return findings.flatMap((f, i) => {

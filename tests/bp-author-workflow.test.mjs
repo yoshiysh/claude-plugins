@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { tableAfter } from './helpers/bp-docs.mjs';
 import {
   MIN_LAUNCHES, REPO_ROOT, SKILL_DIR, VANISH_FILES, assetIds, createArgs, defaults, inspectArgs, launchStopFacts, newKey, resumeArgs, runAuthor, runInspect, setup, setupInspect, updateArgs, vanishScenario, variant, writePayload,
 } from './helpers/bp-harness.mjs';
@@ -922,10 +923,7 @@ test('SP-BPRUN-028・SP-BPRUN-031: 結果を書く運搬役が応答を失うと
 // 返り値の鍵の集合を、仕様の表の「返すとき」の列から機械的に照らす（仕様の表と応答の形を手で合わせない）。
 function returnRules() {
   const read = (file) => readFileSync(path.join(REPO_ROOT, 'docs', 'specifications', file), 'utf8');
-  const table = (text, header) => {
-    const lines = text.slice(text.indexOf(header)).split('\n');
-    return lines.slice(2).filter((_, i, all) => all.slice(0, i + 1).every((l) => l.startsWith('|'))).map((l) => l.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
-  };
+  const table = tableAfter;
   const keys = (cell) => [...cell.matchAll(/`([A-Za-z]+)`/g)].map((m) => m[1]);
   const common = table(read('bp-run.md'), '| 項目 | 綴り | 返すとき |').map(([, spell, when]) => ({ keys: keys(spell), when }));
   const complete = table(read('bp-authoring.md'), '| 条件: 機能 | 条件: 項目 | 綴り | 結果 |').map(([fn, , spell, body]) => ({ keys: keys(spell), when: `完了:${fn}:${body}` }));
