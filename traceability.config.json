@@ -1,0 +1,138 @@
+{
+  "root": ".",
+  "scopePrefixes": [
+    "SP-BP"
+  ],
+  "specDirectories": [
+    {
+      "path": "docs/specifications",
+      "prefix": "bp-"
+    }
+  ],
+  "testDirectories": [
+    {
+      "path": "tests",
+      "prefix": "bp-"
+    },
+    {
+      "path": "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp"
+    }
+  ],
+  "sourceDirectories": [
+    "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp",
+    {
+      "path": "plugins/skill-creator/skills/skill-creator-best-practices/scripts",
+      "prefix": "bp"
+    }
+  ],
+  "unmeasuredSources": {
+    "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_author.js": "Workflow DSL を模擬実行時に変換するテストのため、元ファイルの行・分岐への対応を通常の Node カバレッジでは保証できない。テストの実行状況は記録し、元ファイルは未計測として分母と別に明示する。",
+    "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_inspect.js": "Workflow DSL を模擬実行時に変換するテストのため、元ファイルの行・分岐への対応を通常の Node カバレッジでは保証できない。テストの実行状況は記録し、元ファイルは未計測として分母と別に明示する。"
+  },
+  "scenarios": {
+    "SP-BPFINDINGS-002": {
+      "normal": [
+        {
+          "id": "structured-assets",
+          "expectation": "frontmatter・前置き・同名見出し・コードフェンス・script から仕様どおりの資産位置を返す。"
+        }
+      ],
+      "recovery": [
+        {
+          "id": "stop-excludes-symlink",
+          "expectation": "開始後に plugin 外 symlink が追加されても停止を書けて除外パスが残り、再開と取り直しは拒否する。"
+        }
+      ],
+      "error": [
+        {
+          "id": "external-file",
+          "expectation": "plugin に属さない外部ファイルの開始を E_INPUT で拒否し状態を作らない。"
+        },
+        {
+          "id": "external-symlink",
+          "expectation": "plugin 外の実体を指す symlink の開始を E_INPUT で拒否し状態を作らない。"
+        }
+      ],
+      "boundary": [
+        {
+          "id": "line-shift",
+          "expectation": "本文の行追加で資産 ID と行番号を含まない位置が維持される。"
+        },
+        {
+          "id": "fence-setext",
+          "expectation": "フェンス内見出しと空行後の下線を見出しと誤認しない。"
+        },
+        {
+          "id": "empty-markdown",
+          "expectation": "空 Markdown から資産を作らない。"
+        },
+        {
+          "id": "whitespace-markdown",
+          "expectation": "空白だけの本文から資産を作らない。"
+        },
+        {
+          "id": "minimal-heading",
+          "expectation": "本文なしの最小 ATX 見出しを一資産にする。"
+        }
+      ]
+    },
+    "SP-BPFINDINGS-004": {
+      "normal": [
+        {
+          "id": "one-character",
+          "expectation": "一文字変更した節だけ内容の指紋が変わり、他の節は不変になる。"
+        },
+        {
+          "id": "fingerprint-set",
+          "expectation": "担当の指紋が資産 ID 順に連結した既知 SHA-256 と一致し、列挙順に依存せず内容の変更を識別する。"
+        }
+      ],
+      "recovery": {
+        "notApplicable": "バイト列からの指紋算出は状態や回復手順を持たない。台帳の取り直しは SP-BPFINDINGS-005 で扱う。"
+      },
+      "error": {
+        "notApplicable": "本項は資産バイト列と資産集合からの算出規則であり、拒否する入力やエラー回復を規定していない。"
+      },
+      "boundary": [
+        {
+          "id": "raw-bytes",
+          "expectation": "空バイト列の既知 SHA-256 に一致し、改行なし・LF・CRLF を区別する。"
+        }
+      ]
+    },
+    "SP-BPFINDINGS-033": {
+      "normal": [
+        {
+          "id": "one-heading",
+          "expectation": "一資産なら台帳が作成され、返した台帳 ID が状態に記録される。"
+        }
+      ],
+      "recovery": [
+        {
+          "id": "populate-after-rejection",
+          "expectation": "資産ゼロを拒否した後、同じ run で資産を追加して再作成できる。"
+        }
+      ],
+      "error": [
+        {
+          "id": "empty-ledger",
+          "expectation": "空内容の対象は理由つき E_INPUT となり台帳が残らない。"
+        },
+        {
+          "id": "whitespace-zero",
+          "expectation": "空白だけの本文も資産ゼロとして拒否し台帳を残さない。"
+        }
+      ],
+      "boundary": [
+        {
+          "id": "whitespace-zero",
+          "expectation": "空白だけの Markdown はゼロ資産のため台帳を作らない。"
+        },
+        {
+          "id": "one-heading",
+          "expectation": "最小見出し一つは一資産となり台帳を作る。"
+        }
+      ]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Review Guidelines
 
-PR をレビューする AI 向けの指示。実装の規約そのものは `AGENTS.md`「作業ルール」と `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md`（以下 best-practices.md）が正本で、ここでは写さない。
+PR をレビューする AI 向けの指示。実装・テスト・文書の共通規約は `docs/guidelines/README.md`、配布と作業の規則は `AGENTS.md`「作業ルール」、スキル固有の基準は `plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md`（以下 best-practices.md）が正本で、ここでは写さない。
 
 ## 読むもの
 
@@ -9,17 +9,20 @@ PR をレビューする AI 向けの指示。実装の規約そのものは `AG
 | 変更 | 読むもの |
 |---|---|
 | `plugins/*/skills/` `.agents/skills/` の `SKILL.md`・`agents/*.md`・`references/*.md` | `AGENTS.md`「現在の実体」、best-practices.md §1「SKILL.md の設計原則」・§2「description の設計」・§3「Sub-agent 設計」・§5「確定的処理はスクリプトに追い出す」・§10「チェックリスト（スキル公開前の確認）」・§11「Claude 5 世代の指示設計 — 世代共通の原則」・§12「制約の較正 — right altitude と代理指標の排除」 |
-| `plugins/*/workflows/*.js` | best-practices.md §13「オーケストレーション層の決定化 — Workflow 実行型」 |
-| スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `AGENTS.md`「注意点」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
+| `plugins/*/workflows/*.js` | `docs/guidelines/javascript.md`・`docs/guidelines/testing.md`、best-practices.md §13「オーケストレーション層の決定化 — Workflow 実行型」 |
+| スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `docs/guidelines/README.md`・`docs/guidelines/testing.md`、JavaScript では `docs/guidelines/javascript.md`。`AGENTS.md`「注意点」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
 | `plugins/*/.claude-plugin/plugin.json`・`plugins/*/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json` | `AGENTS.md`「注意点」（2 つの `plugin.json` の同期、Claude 専用の `dependencies` と Codex 専用の `interface`、marketplace 名） |
 | `plugins/` 配下の配置 | `AGENTS.md`「現在の実体」「作業ルール」（`plugins/` 配下の symlink 禁止、実体の置き場、plugin 間のパス参照・スクリプト直接実行の禁止。plugin 間の利用はスキル呼び出しと `dependencies`） |
-| `*.md` | 事実の誤り、存在しないファイルやコマンドへの参照、正本との重複 |
+| `*.md` | `docs/guidelines/documentation.md`。事実の誤り、存在しないファイルやコマンドへの参照、正本との重複 |
+| 仕様・ケース計画・トレーサビリティの設定やツール | `docs/guidelines/testing.md` と `scripts/traceability/README.md`。仕様の状態・検証方法、ケースの不足、参照誤り、計測対象・除外の変更 |
 | `.github/workflows/` | 権限が必要以上に広い、Secret の露出、SHA で固定していない Action |
-| すべて | `AGENTS.md`「作業ルール」 |
+| すべて | `docs/guidelines/README.md`、`AGENTS.md`「作業ルール」 |
 
 スキルを探すときは `plugins/` と、`.agents/skills/` のうち symlink でない entry（未公開スキルの実体）を検索する。`.agents/skills/` の公開済みスキルは `plugins/` の実体への symlink で、symlink を辿らない検索では中身が出ない（`AGENTS.md`「現在の実体」「注意点」）。
 
 `CLAUDE.md` と `.claude/skills` は `AGENTS.md` と `.agents/skills` への symlink なので、基底ブランチから戻された後も PR 側の実体を指す。`AGENTS.md` とスキルは実パス（`AGENTS.md`、`plugins/`、`.agents/skills/`）で読み、`CLAUDE.md`・`.claude/skills`・`.claude-pr/` 経由では読まない。PR がこの symlink 自体を変えたときは、その変更は差分（必要なら `.claude-pr/` のスナップショット）で確かめる。
+
+レビュー方針は基底ブランチの `REVIEW.md` と、その基底ブランチで参照するガイドラインを使う。PR 内で変更された規約はレビュー対象として読み、その変更だけで同じ PR の不具合を免責しない。
 
 ## 観点
 
@@ -29,6 +32,8 @@ PR をレビューする AI 向けの指示。実装の規約そのものは `AG
 - **不在・網羅の断定**：「〜は無い」「全て〜」「〜のみ」に、閉集合の全列挙・全文読み・形を変えた複数回の検索のいずれかの裏付けがあるか、手段でスコープされているか。裏付けの無い断定は検証済みとして下流の判断に使われる
 - **スキル構造**：frontmatter の `name`・`description`、SKILL.md がフロー・分岐・完了条件に留まり処理を `scripts/` に寄せているか、参照の深さ。基準は上の表の best-practices.md の節
 - **コメントと後方互換**：コードから読めない制約・根拠以外のコメント、旧形式の migration や fallback を新たに持ち込んでいないか。経緯は commit message / PR 本文に置くもので、互換層は合わない旧データを黙って通す。対象外の範囲は `AGENTS.md`「作業ルール」
+- **検証の意味と範囲**：仕様とケース計画を照らし、正常・準正常・異常・境界の必要なケース、不適用理由、期待値と assertion が妥当か。ケース対応率や行・分岐・関数のカバレッジの高さだけで意味の網羅を合格にしない。機械検査は参照・実行・計測の整合を持ち、ケース選択と期待結果の意味はレビューが持つ。レポートの未計画・skip・未実行・未計測・除外を読み、通常ゲートの成功を全体完了と混同しない
+- **構造と testability**：共通ガイドラインの責務・依存・副作用の境界が、振る舞いの独立検証を可能にしているか。抽象化や DRY の好みではなく、変更の波及や検証不能な契約を根拠に判断する
 - **スクリプト**：バグ（境界値・off-by-one・None・例外の握りつぶし・競合）、セキュリティ、性能。設計の好みや書式は対象外
 
 ## 指摘の基準
@@ -37,7 +42,7 @@ PR をレビューする AI 向けの指示。実装の規約そのものは `AG
 - 言語・ライブラリ・ツールの挙動についての主張（「この式は null でエラーになる」など）は、実行して確かめたか、使っている版の公式ドキュメントで確認できたものだけを書く。版ごとの文書が無いときは最新版で確かめ、そう書く。ドキュメントで確かめた指摘にはその URL を付ける。確かめられないなら書かない
 - 公式ドキュメントの版: Node.js は変更に関係する `package.json`（例: `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package.json`）の `engines` のメジャー版（`nodejs.org/docs/latest-v<major>.x/api/`）。Python は版を固定していないので `docs.python.org/3/` を使い、そう書く。Claude Code・Codex・GitHub Actions は現行の文書を使う
 - 指摘する前に、作者がそう書いた理由を考える。妥当な理由がありうるなら、断定せず質問の形で書く
-- 参照先の不在や frontmatter の欠落も指摘の対象にする。`make test`（中身は `AGENTS.md`「検証」）は GitHub Actions では走らないので、レビューで見なければ main に入る
+- 参照先の不在や frontmatter の欠落も指摘の対象にする。CI の `make check` 成功だけでは意味やケースの十分性は保証されないので、機械検査の対象外もレビューする
 - この PR が持ち込んでいない既存の問題は、重大なものだけを書き、既存の問題だと明記する
 
 ## 重大度
