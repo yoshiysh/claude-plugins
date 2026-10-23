@@ -164,6 +164,8 @@ test('検証方法: prepare の key で始めていない run・runs.json と違
   assert.deepEqual(await notes(u1({ instructions: expected.instructions, from: ['bp-r3'] })), []);
   assert.ok((await notes(u1({ instructions: expected.instructions.slice(1), from: ['bp-r3'] }))).some((n) => /利用者の指示/.test(n)));
   assert.ok((await notes(u1({ instructions: expected.instructions, from: ['bp-other'] }))).some((n) => /参照の形/.test(n)));
+  assert.ok((await notes(u1({ instructions: expected.instructions, from: [] }))).some((n) => /参照の形/.test(n)));
+  assert.ok((await notes(u1({ instructions: expected.instructions, from: ['bp-r3', 'bp-other'] }))).some((n) => /参照の形/.test(n)));
   assert.notDeepEqual(expectedSource('R4').files, expectedSource('R1').files);
   assert.notDeepEqual(expectedSource('R2').files, expectedSource('R4').files);
 });

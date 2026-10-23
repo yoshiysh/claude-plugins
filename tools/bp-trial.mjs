@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main as cli } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp-state.mjs';
 import {
-  CRITERIA_CHAPTERS, CRITERIA_DIR, INSPECTING_FUNCTIONS, PROMPT_AUDIT_FILE, STAGE, STATES_DIR, WORKFLOW_SOURCES,
+  CRITERIA_CHAPTERS, CRITERIA_DIR, FUNCTION, GROUND_INSTRUCTION, GROUND_REF_KEY, INSPECTING_FUNCTIONS, PROMPT_AUDIT_FILE, STAGE, STATES_DIR, WORKFLOW_SOURCES,
 } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { sum } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
@@ -15,6 +15,7 @@ import { conformanceTable } from '../plugins/skill-creator/skills/skill-creator-
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
 import { resolveStateRoot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/workspace.mjs';
 import { ISSUED_KEY } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-author.mjs';
+import { sourceOf } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-entry.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL_REL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
@@ -145,16 +146,16 @@ function fixtureDigests(name, inject) {
 }
 
 function instructionGrounds(def) {
-  return JSON.parse(readFileSync(path.join(TRIAL_DIR, def.grounds), 'utf8')).map((text) => ({ kind: '利用者の指示', text }));
+  return JSON.parse(readFileSync(path.join(TRIAL_DIR, def.grounds), 'utf8')).map((text) => ({ [GROUND_INSTRUCTION.kindKey]: GROUND_INSTRUCTION.kind, [GROUND_INSTRUCTION.textKey]: text }));
 }
 
 // 試走の記録は、runs.json の題材・依頼文・修正の根拠で始めた run の状態からだけ作る（模擬の run や別の題材の状態の記録で、試走の行を完了にしない）。
 export function expectedSource(name, runs = readRuns(), from = null) {
   const def = runs[name];
-  if (def.function === 'create') return { request: readFileSync(path.join(TRIAL_DIR, def.request), 'utf8').trim() };
+  if (def.function === FUNCTION.create) return { request: readFileSync(path.join(TRIAL_DIR, def.request), 'utf8').trim() };
   const base = def.from ? runs[def.from] : def;
   const out = { files: fixtureDigests(base.target, base.inject) };
-  if (def.function === 'update') out.grounds = { instructions: instructionGrounds(def), from: def.from ? from : null };
+  if (def.function === FUNCTION.update) out.grounds = { instructions: instructionGrounds(def), from: def.from ? from : null };
   return out;
 }
 
@@ -162,9 +163,9 @@ export function sourceOfState(view) {
   const run = view.runs[0].id;
   const start = view.fingerprints.find((f) => f.run === run && f.at === 'start');
   const out = { key: view.state.key };
-  if (view.state.function === 'create') out.request = view.state.request;
+  if (view.state.function === FUNCTION.create) out.request = view.state.request;
   else out.files = start.files;
-  if (view.state.function === 'update') {
+  if (view.state.function === FUNCTION.update) {
     out.grounds = {
       instructions: view.grounds.filter((g) => !g.from).map((g) => g.ground),
       from: [...new Set(view.grounds.filter((g) => g.from).map((g) => g.from))],
@@ -182,7 +183,8 @@ export function sourceProblems(source, expected) {
   if (expected.grounds !== undefined) {
     if (JSON.stringify(source.grounds?.instructions) !== JSON.stringify(expected.grounds.instructions)) problems.push('利用者の指示の修正の根拠が runs.json と違う');
     const refs = source.grounds?.from ?? [];
-    if (expected.grounds.from === null ? refs.length > 0 : refs.some((f) => f !== expected.grounds.from)) problems.push(`参照の形の修正の根拠が前の run の状態と違う: ${refs.join(', ')}`);
+    // 参照の並びは期待する前の状態の 1 件とちょうど一致する（参照の無い update を、参照を持って始めるはずの run として受けない）。
+    if (JSON.stringify(refs) !== JSON.stringify(expected.grounds.from === null ? [] : [expected.grounds.from])) problems.push(`参照の形の修正の根拠が前の run の状態と違う: ${refs.join(', ')}`);
   }
   return problems;
 }
@@ -235,10 +237,10 @@ export async function prepare(name, { cwd = process.cwd(), env = process.env, re
   const ctx = { cwd: top, env };
   const work = path.join(top, WORK_DIR_NAME);
   let input;
-  if (def.function === 'create') {
+  if (def.function === FUNCTION.create) {
     const root = path.join(top, '.agents', 'skills', def.skill);
     if (existsSync(root)) throw new Error(`create の対象スキルのディレクトリが既にある: ${root}`);
-    input = { function: 'create', request: readFileSync(path.join(TRIAL_DIR, def.request), 'utf8').trim(), target: { root } };
+    input = { function: FUNCTION.create, request: readFileSync(path.join(TRIAL_DIR, def.request), 'utf8').trim(), target: { root } };
   } else {
     let root;
     if (def.from) {
@@ -251,8 +253,8 @@ export async function prepare(name, { cwd = process.cwd(), env = process.env, re
     }
     const paths = await call('paths', { root }, ctx);
     input = { function: def.function, target: { root: paths.root, files: paths.files } };
-    if (def.function === 'update') {
-      input.grounds = [...(def.from ? [{ from: recordOf(def.from, recordsDir).state }] : []), ...instructionGrounds(def)];
+    if (def.function === FUNCTION.update) {
+      input.grounds = [...(def.from ? [{ [GROUND_REF_KEY]: recordOf(def.from, recordsDir).state }] : []), ...instructionGrounds(def)];
     }
   }
   const { key } = await call('key', {}, ctx);
@@ -324,7 +326,7 @@ export function workflowRunFiles(configDir) {
 }
 
 function roleOfFunction(fn) {
-  return fn === 'create' || fn === 'update' ? 'author' : 'inspect';
+  return Object.keys(WORKFLOW_SOURCES).find((role) => WORKFLOW_SOURCES[role] === sourceOf(fn));
 }
 
 const WORKFLOW_DONE = 'completed';
@@ -454,7 +456,7 @@ export async function writeRecord(name, stateId, { top, env = process.env, recor
   };
   mkdirSync(recordsDir, { recursive: true });
   writeFileSync(path.join(recordsDir, `${name}.json`), `${JSON.stringify(out, null, 2)}\n`);
-  if (def.function === 'create' && result.skill?.root && existsSync(result.skill.root)) {
+  if (def.function === FUNCTION.create && result.skill?.root && existsSync(result.skill.root)) {
     cpSync(result.skill.root, path.join(recordsDir, `${name}-output`), { recursive: true });
   }
   return out;
