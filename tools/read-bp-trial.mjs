@@ -9,6 +9,7 @@ import { applicability, forcedReason, forcedSources } from '../plugins/skill-cre
 import {
   EVAL_FUNCTION, EXPECTED_FILE, RECORDS_DIR, RUNS_FILE, TRIAL_DIR, applyInjections, belongs, evidenceProblems, expectedSource, fingerprint, injectUnits, readRuns, sameFingerprint, sourceProblems,
 } from './bp-trial.mjs';
+import { traceRows as sharedTraceRows } from './lib/bp-docs.mjs';
 
 export { EXPECTED_FILE, belongs, injectUnits };
 
@@ -120,7 +121,6 @@ export function read({ baseline, injected, expected }) {
 // ---- 試走の記録から、行ごとに当たり・外れ・測れない句・崩れを読む（「完了」にしてよい行の集合はここからだけ計算する）
 
 const SPECS = path.join(REPO_ROOT, 'docs', 'specifications');
-const TRACE_HEADING = '## トレーサビリティ表';
 
 // 同じ要求 ID と仕様項目 ID の行が 1 つの表に 2 つあるので、検証方法の列の文言まで含めて行を見分ける。
 export function rowKey(r) {
@@ -128,15 +128,7 @@ export function rowKey(r) {
 }
 
 export function traceRows(file, specsDir = SPECS) {
-  const lines = readFileSync(path.join(specsDir, file), 'utf8').split('\n');
-  const at = lines.indexOf(TRACE_HEADING);
-  if (at < 0) throw new Error(`${file} にトレーサビリティ表が無い`);
-  const rows = [];
-  for (const line of lines.slice(at + 1).filter((l) => l.startsWith('| PR-'))) {
-    const [req, spec, method, status] = line.replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim());
-    rows.push({ file, req, spec, method, status });
-  }
-  return rows;
+  return sharedTraceRows(file, specsDir);
 }
 
 function at(obj, p) {

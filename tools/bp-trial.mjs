@@ -7,11 +7,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main as cli } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp-state.mjs';
 import {
-  CRITERIA_CHAPTERS, CRITERIA_DIR, FUNCTION, GROUND_INSTRUCTION, GROUND_REF_KEY, INSPECTING_FUNCTIONS, PROMPT_AUDIT_FILE, STAGE, STATES_DIR, WORKFLOW_SOURCES,
+  CRITERIA_CHAPTERS, CRITERIA_DIR, FUNCTION, GROUND_INSTRUCTION, INSPECTING_FUNCTIONS, LAUNCH_KINDS, PROMPT_AUDIT_FILE, ROUTES, STAGE, STATES_DIR, WORKFLOW_SOURCES,
 } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { sum } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
-import { conformanceTable } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
+import { roleModels } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
 import { resolveStateRoot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/workspace.mjs';
 import { ISSUED_KEY } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-author.mjs';
@@ -229,11 +229,10 @@ function recordOf(name, recordsDir) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
-export async function prepare(name, { cwd = process.cwd(), env = process.env, recordsDir = RECORDS_DIR } = {}) {
+// 試走の args は入口と同じ操作で作る（chain-next・launch-args。skillDir と項目の表は CLI の 1 箇所から出る）。試走の記録は入口の args の経路を通った run になる。
+export async function prepareIn(name, { top, env = process.env, recordsDir = RECORDS_DIR }) {
   const def = readRuns()[name];
   if (!def) throw new Error(`run が runs.json に無い: ${name}`);
-  const top = toplevel(cwd);
-  const skillDir = path.join(top, SKILL_REL);
   const ctx = { cwd: top, env };
   const work = path.join(top, WORK_DIR_NAME);
   let input;
@@ -241,24 +240,25 @@ export async function prepare(name, { cwd = process.cwd(), env = process.env, re
     const root = path.join(top, '.agents', 'skills', def.skill);
     if (existsSync(root)) throw new Error(`create の対象スキルのディレクトリが既にある: ${root}`);
     input = { function: FUNCTION.create, request: readFileSync(path.join(TRIAL_DIR, def.request), 'utf8').trim(), target: { root } };
+  } else if (def.from) {
+    const instructions = JSON.parse(readFileSync(path.join(TRIAL_DIR, def.grounds), 'utf8'));
+    const next = await call('chain-next', { state: recordOf(def.from, recordsDir).state, next: def.function, instructions }, ctx);
+    if (!next.proceed) throw new Error(`${def.from} の状態から ${name} へ進めない: ${next.reason}`);
+    input = next.input;
   } else {
-    let root;
-    if (def.from) {
-      root = recordOf(def.from, recordsDir).target;
-      if (!root || !existsSync(root)) throw new Error(`${def.from} の対象スキルが無い: ${root}`);
-    } else {
-      root = path.join(work, name, def.target);
-      copyFixture(def.target, root);
-      if (def.inject) injectUnits(root, def.inject === 'all' ? null : def.inject);
-    }
+    const root = path.join(work, name, def.target);
+    copyFixture(def.target, root);
+    if (def.inject) injectUnits(root, def.inject === 'all' ? null : def.inject);
     const paths = await call('paths', { root }, ctx);
     input = { function: def.function, target: { root: paths.root, files: paths.files } };
-    if (def.function === FUNCTION.update) {
-      input.grounds = [...(def.from ? [{ [GROUND_REF_KEY]: recordOf(def.from, recordsDir).state }] : []), ...instructionGrounds(def)];
-    }
+    if (def.function === FUNCTION.update) input.grounds = instructionGrounds(def);
   }
   const { key } = await call('key', {}, ctx);
-  return { ...input, skillDir, key };
+  return (await call('launch-args', { route: ROUTES.native, launch: LAUNCH_KINDS.new, key, input }, ctx)).args;
+}
+
+export async function prepare(name, { cwd = process.cwd(), ...rest } = {}) {
+  return prepareIn(name, { top: toplevel(cwd), ...rest });
 }
 
 const ROLE_BY_STAGE = Object.freeze({
@@ -274,7 +274,7 @@ const CARRIER = '運搬役';
 
 // 運搬役の起動は状態に項目として残らないので、停止の記録の起動数から項目の試行（結果 1 と失敗ごとに 1 体）を引いて数える。
 export function launchesOf(view, criteriaDir) {
-  const models = Object.fromEntries(conformanceTable(criteriaDir, 'SP-BPCONFORMANCE-035', 'best-practices の役').rows.map(([role, model, effort]) => [role, { model: model.replace(/`/g, ''), effort: effort.replace(/`/g, '') }]));
+  const models = Object.fromEntries(roleModels(criteriaDir).map(({ role, model, effort }) => [role, { model, effort }]));
   const byRole = {};
   const transport = {};
   // review・audit の担当の作成と適用の判定は項目を持たず、agent の結果ごとに段の繰り返しの番号を書くので、その番号を起動数に数える。

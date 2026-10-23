@@ -5,13 +5,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
 import { confirmedKeys, readRecords, rowKey } from '../tools/read-bp-trial.mjs';
+import { traceRows as sharedTraceRows } from '../tools/lib/bp-docs.mjs';
 import { RUNS_FILE, TRIAL_DIR, readRuns } from '../tools/bp-trial.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPECS = path.join(ROOT, 'docs', 'specifications');
 const SKILL = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 const TEST_DIRS = [path.join(ROOT, 'tests'), path.join(SKILL, 'scripts', 'bp')];
-const TRACE_HEADER = '| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |';
 const STATUSES = ['未着手', '作成中', '完了'];
 
 // 試走と eval の行は名前の付いたテストでは縛れないので、記録と正解表から毎回計算した集合だけが「完了」を許す（手で足す集合を持たない）。
@@ -35,11 +35,8 @@ function titleIds(titles) {
   return ids;
 }
 
-// 行の字面の正規表現で拾うと、書式の崩れた行が検査から黙って消える。
 function traceRows(file) {
-  return tableAfter(readFileSync(path.join(SPECS, file), 'utf8'), TRACE_HEADER).map(([req, spec, method, status, ...rest]) => (
-    { file, req, spec, ids: (spec ?? '').split(',').map((x) => x.trim()), method, status, extra: rest.length }
-  ));
+  return sharedTraceRows(file, SPECS);
 }
 
 // bp-run.md の「検証方法」の見分け方の表を正本にし、テストに見分け方を書き写さない。

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { CODES, EXIT, STATE_ROOT_ENV } from './constants.mjs';
+import { CODES, ENTRY_OPS, EXIT, OPS, STATE_ROOT_ENV } from './constants.mjs';
 import { sum } from './ids.mjs';
 import { acceptance, main } from '../bp-state.mjs';
 import { CLI, CRITERIA_FIXTURE, LIMITS, REPO_ROOT, skillDir, stateRoot, tmpDir, newKey } from './fixtures/harness.mjs';
@@ -134,4 +134,10 @@ test('SP-BPRUN-031: CLI 経由の verdicts の受理は ok === true で、件数
 test('操作の出力が応答の予約欄と衝突すると内部の失敗にする', () => {
   for (const key of ['ok', 'op', 'sum']) assert.throws(() => acceptance('x', { [key]: 1 }), (e) => e.code === CODES.internal, key);
   assert.equal(acceptance('x', { n: 1 }).ok, true);
+});
+
+test('CLI: 知らない操作の拒否の理由は、受け付ける全ての操作（run の中の操作と入口の操作）を挙げる', async () => {
+  const { output } = await main(['no-such-op'], JSON.stringify({ sum: sum({}) }), { cwd: REPO_ROOT, env: {} });
+  assert.equal(output.code, CODES.input);
+  for (const op of [...Object.values(OPS), ...Object.values(ENTRY_OPS)]) assert.ok(output.reason.split(/[（ ）]/).includes(op), op);
 });

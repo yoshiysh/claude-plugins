@@ -1,4 +1,3 @@
-import path from 'node:path';
 import {
   CODES, ENTRY_OPS, FUNCTION, FUNCTIONS, GROUND_INSTRUCTION, GROUND_REF_KEY, INPUT_KEYS, INSPECTING_FUNCTIONS, LAUNCH_KINDS, NEXT_ARGS_KEYS,
   RESULT_KEYS, REWRITING_FUNCTIONS, ROUTES, STOP_KINDS, WORKFLOW_SOURCES,
@@ -6,8 +5,8 @@ import {
 import { resolveCallsites } from './callsites.mjs';
 import { checkFunction } from './checks.mjs';
 import { reject } from './errors.mjs';
-import { conformanceTable, conformanceValue } from './kinds.mjs';
-import { outcome } from './ops-author.mjs';
+import { conformanceValue, roleModels } from './kinds.mjs';
+import { excludedOf, outcome } from './ops-author.mjs';
 import { list } from './ops-run.mjs';
 import { readState } from './store.mjs';
 import { currentRun } from './view.mjs';
@@ -50,9 +49,6 @@ export async function chainCheck(ctx, req) {
   };
 }
 
-function excludedOf(r) {
-  return r.unresolved.map((u) => ({ ...u, file: path.join(r.root, 'SKILL.md') }));
-}
 
 export function missingFields(findings) {
   if (!Array.isArray(findings)) return [{ finding: null, fields: [RESULT_KEYS.findings] }];
@@ -115,7 +111,7 @@ export function sourceOf(fn) {
 }
 
 export function modelNames(criteriaDir) {
-  return [...new Set(conformanceTable(criteriaDir, 'SP-BPCONFORMANCE-035', 'best-practices の役').rows.map((r) => r[1].replace(/`/g, '')))];
+  return [...new Set(roleModels(criteriaDir).map((r) => r.model))];
 }
 
 // SP-BPENTRY-013・015・016: Workflow の args と、Codex runner の経路の request の項目を作る。入口は出力を書き換えずに渡す。

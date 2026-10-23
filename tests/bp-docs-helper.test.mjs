@@ -23,3 +23,19 @@ test('検証方法: 模擬の検証役の種類の選び方は、prompt に埋�
   await assert.rejects(firstUnforcedKind('"forced":["a","b"]', env), /閉集合に無い/);
   await assert.rejects(firstUnforcedKind('"forced": ["a"]', env), /形を読めない/);
 });
+
+test('検証方法: トレーサビリティ表を読む関数は 1 つで、表の途中に表の行でない行があれば投げ、黙って行を捨てない', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const path = await import('node:path');
+  const { traceRows } = await import('../tools/lib/bp-docs.mjs');
+  const { traceRows: readerRows } = await import('../tools/read-bp-trial.mjs');
+  const dir = mkdtempSync(path.join(tmpdir(), 'bp-trace-'));
+  const head = '## トレーサビリティ表\n\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n';
+  writeFileSync(path.join(dir, 'ok.md'), `${head}| PR-1 | SP-1 | m \\| n | 完了 |\n`);
+  writeFileSync(path.join(dir, 'broken.md'), `${head}| PR-1 | SP-1 | m | 完了 |\n\n| PR-2 | SP-2 | m | 完了 |\n`);
+  assert.deepEqual(readerRows('ok.md', dir), traceRows('ok.md', dir));
+  assert.equal(traceRows('ok.md', dir)[0].method, 'm \\| n');
+  assert.throws(() => traceRows('broken.md', dir), /表の途中/);
+  assert.throws(() => readerRows('broken.md', dir), /表の途中/);
+});

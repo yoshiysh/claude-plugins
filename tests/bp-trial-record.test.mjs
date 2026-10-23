@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { SKILL_DIR, TRIAL_DIR, checkWorktree, criteriaBody, evidenceProblems, expectedSource, fingerprint, launchesOf, runnerTimeouts, sameFingerprint, workflowEvidence, writeRecord } from '../tools/bp-trial.mjs';
+import { SKILL_DIR, TRIAL_DIR, checkWorktree, prepareIn, criteriaBody, evidenceProblems, expectedSource, fingerprint, launchesOf, runnerTimeouts, sameFingerprint, workflowEvidence, writeRecord } from '../tools/bp-trial.mjs';
 import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
@@ -411,4 +411,29 @@ test('検証方法: 同じ script の止まった記録と completed の組・2 
     assert.ok(ev.some((e) => e.siblings.length > 0) || keys.length > 1);
     assert.deepEqual(evidenceProblems({ function: 'review', state: 'bp-s', source: { key: keys[0] }, evidence: ev }, current), [], JSON.stringify(runs.map((r) => [r.args, r.status])));
   }
+});
+
+// 試走の args は入口と同じ chain-next・launch-args で作る（skillDir と項目の表は CLI の 1 箇所から出る）。
+test('検証方法: prepare は入口の launch-args で args を作り（skillDir は CLI の位置、key は CLI の key）、前の run を参照する update は chain-next の input を使い、前の run が完了していなければ進まない', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  const top = await tmp(t, 'bp-top-');
+  const opts = { top, env: { BP_STATE_ROOT: s.env.root }, recordsDir: await tmp(t, 'bp-rec-') };
+  const a1 = await prepareIn('A1', opts);
+  assert.deepEqual(Object.keys(a1).sort(), ['function', 'key', 'skillDir', 'target']);
+  assert.equal(a1.skillDir, SKILL_DIR);
+  assert.match(a1.key, /^k-[0-9a-f]{16}$/);
+  assert.equal(a1.target.root, await fs.realpath(path.join(top, '.bp-trial', 'A1', 'audit-target')));
+  const r3 = await prepareIn('R3', opts);
+  const done = (await runInspect(t, { env: s.env, args: r3 })).result;
+  assert.equal(done.stopKind, 'complete', done.reason);
+  await fs.writeFile(path.join(opts.recordsDir, 'R3.json'), JSON.stringify({ state: done.state, target: r3.target.root }));
+  const u1 = await prepareIn('U1', opts);
+  const instructions = JSON.parse(readFileSync(path.join(TRIAL_DIR, 'update-grounds.json'), 'utf8'));
+  assert.deepEqual(u1.grounds, [{ from: done.state }, ...instructions.map((text) => ({ kind: '利用者の指示', text }))]);
+  assert.deepEqual(u1.target, r3.target);
+  assert.equal(u1.skillDir, SKILL_DIR);
+  const blocked = (await runInspect(t, { env: s.env, args: { ...r3, key: (await s.env.request('key', {})).key }, scenario: { carrier: async (p) => (p.includes(' targets <<') ? null : undefined) } })).result;
+  await fs.writeFile(path.join(opts.recordsDir, 'R3.json'), JSON.stringify({ state: blocked.state, target: r3.target.root }));
+  await assert.rejects(prepareIn('U1', opts), /R3 の状態から U1 へ進めない/);
 });

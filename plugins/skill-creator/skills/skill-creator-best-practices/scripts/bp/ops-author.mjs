@@ -390,6 +390,11 @@ function verification(view, gateItem) {
   return out;
 }
 
+// 外した callsite（SP-BPENTRY-023）を、パスの一覧の記録から SKILL.md のパスつきで返す形にする。返り値と入口の報告で同じ形を使う。
+export function excludedOf(pathsRecord) {
+  return pathsRecord.unresolved.map((u) => ({ ...u, file: path.join(pathsRecord.root, 'SKILL.md') }));
+}
+
 // SP-BPRUN-032、SP-BPAUTHORING-032〜034: 返り値は状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。
 export async function outcome(ctx, req) {
   const { view } = await readState(ctx, req.state);
@@ -401,7 +406,7 @@ export async function outcome(ctx, req) {
   if (written.length) out[RESULT_KEYS.writtenFiles] = written;
   out[RESULT_KEYS.unverifiedRoleLimits] = ROLE_WRITE_LIMITS;
   const unresolved = view.paths.at(-1).unresolved ?? [];
-  if (unresolved.length) out[RESULT_KEYS.excludedCallsites] = unresolved.map((u) => ({ ...u, file: path.join(view.paths.at(-1).root, 'SKILL.md') }));
+  if (unresolved.length) out[RESULT_KEYS.excludedCallsites] = excludedOf(view.paths.at(-1));
   if (gateItem) {
     out[RESULT_KEYS.verification] = verification(view, gateItem);
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
