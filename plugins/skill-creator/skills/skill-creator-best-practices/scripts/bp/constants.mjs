@@ -43,6 +43,12 @@ export const WRITE_OPS = Object.freeze([
   OPS.vanishMatch, OPS.pathsRetake, OPS.snapshot, OPS.goalCheck, OPS.filesScan, OPS.gate, OPS.targets, OPS.bundle, OPS.applicability,
 ]);
 
+// 入口（SKILL.md）だけが呼ぶ読み出しの操作。run の中の script は呼ばないので、script が写す OPS と分ける（分けないと、入口の操作を足すたびに script の写しが変わる）。
+export const ENTRY_OPS = Object.freeze({ chainCheck: 'chain-check', chainNext: 'chain-next', launchArgs: 'launch-args', chainReport: 'chain-report' });
+export const ROUTES = Object.freeze({ native: 'native', codex: 'codex' });
+export const LAUNCH_KINDS = Object.freeze({ new: 'new', resume: 'resume' });
+export const WORKFLOW_SOURCES = Object.freeze({ author: 'best-practices-author', inspect: 'best-practices-inspect' });
+
 export const FUNCTION = Object.freeze({ create: 'create', review: 'review', update: 'update', audit: 'audit' });
 export const FUNCTIONS = Object.freeze(Object.values(FUNCTION));
 export const REWRITING_FUNCTIONS = new Set([FUNCTION.create, FUNCTION.update]);
@@ -226,6 +232,8 @@ export const GOAL_KEYS = Object.freeze({
 });
 export const SOURCE_KINDS = Object.freeze({ request: 'request', answer: 'answer', snapshot: 'snapshot', ground: 'ground' });
 export const GROUND_INSTRUCTION = Object.freeze({ kindKey: 'kind', kind: '利用者の指示', textKey: 'text' });
+// 前の review・audit の run の指摘を状態 ID で指す修正の根拠の形（SP-BPFINDINGS-031）。開始の操作が状態の返り値の指摘の一覧に展開する。
+export const GROUND_REF_KEY = 'from';
 export const SNAPSHOT_DIR = 'snapshot';
 export const SNAPSHOT_PARTS = Object.freeze({ root: 'root', plugin: 'plugin' });
 

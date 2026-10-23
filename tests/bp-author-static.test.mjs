@@ -46,7 +46,7 @@ test('SP-BPRUN-023: agent() を呼ぶのは launch の 1 箇所だけで、launc
   for (const r of roles) assert.ok(['writer', 'verifier', 'refuter', 'carrier'].includes(r), r);
 });
 
-test('SP-BPRUN-002・SP-BPAUTHORING-027: 入力を待つ手順が無く、needs_input で止まる箇所は入力の確かめと目標の固定の段だけ', () => {
+test('SP-BPRUN-002・SP-BPAUTHORING-027: 入力を待つ手順が無く、needs_input で止まる箇所は入力の確かめ（agent の起動の前と、参照の形の修正の根拠を展開する開始の操作）と目標の固定の段だけ', () => {
   const places = new Set();
   walk(AST, (n, parents) => {
     const stops = (n.type === 'NewExpression' && n.callee.name === 'Stop') || (n.type === 'CallExpression' && n.callee.name === 'early');
@@ -54,7 +54,7 @@ test('SP-BPRUN-002・SP-BPAUTHORING-027: 入力を待つ手順が無く、needs_
     if (stops && first?.type === 'MemberExpression' && first.object.name === 'STOP_KINDS' && first.property.name === 'needsInput') places.add(enclosing(parents));
     if (n.type === 'Identifier' && n.name === 'checkpoint') places.add(`checkpoint in ${enclosing(parents)}`);
   });
-  assert.deepEqual([...places].sort(), ['goalStage', 'validateArgs']);
+  assert.deepEqual([...places].sort(), ['goalStage', 'startRun', 'validateArgs']);
 });
 
 test('script の制約: 本体が meta を読まず、Date.now・Math.random・引数の無い new Date・import() を使わない（native host で throw する）', () => {

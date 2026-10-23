@@ -1,10 +1,11 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
+  CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GROUND_REF_KEY, INSPECTING_FUNCTIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
   RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
-import { lastGate, progress, writtenFiles } from './ops-author.mjs';
+import { isTreatedGround, lastGate, progress, writtenFiles } from './ops-author.mjs';
+import { inspectOutcome } from './ops-inspect.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
 import { diffFingerprints, homelessReason, isHomeless, isInList, pathKey, targetFingerprint } from './fingerprint.mjs';
@@ -105,6 +106,28 @@ async function existingStart(root, id, req) {
   return { ...startOutput(view, dir, view.runs[0].id), same: true };
 }
 
+// 参照の形の修正の根拠を、指す状態の返り値の指摘の一覧（返り値を作るのと同じ関数）に展開する。入口が指摘を書き写すと同じバイト列を保てない（SP-BPENTRY-010・SP-BPFINDINGS-031）。
+async function expandGrounds(ctx, grounds, root) {
+  const out = [];
+  for (const g of grounds) {
+    if (g === null || typeof g !== 'object' || Array.isArray(g) || !Object.hasOwn(g, GROUND_REF_KEY)) { out.push({ ground: g }); continue; }
+    const id = g[GROUND_REF_KEY];
+    if (typeof id !== 'string' || Object.keys(g).length !== 1) reject(CODES.input, `参照の形の修正の根拠は {"${GROUND_REF_KEY}": <状態 ID>} だけを持つ: ${JSON.stringify(g)}`);
+    const { view } = await readState(ctx, id);
+    if (!INSPECTING_FUNCTIONS.has(view.state.function)) reject(CODES.input, `参照の形の修正の根拠が review・audit でない状態を指す: ${id}（${view.state.function}）`);
+    if (!isCompleted(view)) reject(CODES.input, `参照の形の修正の根拠が完了で止まっていない状態を指す: ${id}`);
+    if (view.paths[0].root !== realpathLoose(root)) reject(CODES.input, `参照の形の修正の根拠が別の対象スキルの状態を指す: ${id}（${view.paths[0].root}）`);
+    const result = await inspectOutcome(ctx, { state: id });
+    for (const f of result[RESULT_KEYS.findings]) out.push({ ground: f, from: id });
+  }
+  const treated = out.filter((g) => isTreatedGround(g.ground)).length;
+  // 参照の無い並びは script が agent の起動の前に数えて止めるので、ここで数えるのは参照を展開した並びだけ。
+  if (treated === 0 && out.some((g) => g.from)) {
+    reject(CODES.input, `修正の根拠として扱う根拠が 0 件（参照を展開して受け取った ${out.length} 件、扱わなかった ${out.length} 件）。open の指摘か利用者の指示を 1 件以上渡す（SP-BPAUTHORING-029）`, { treatedGrounds: 0, receivedGrounds: out.length });
+  }
+  return out;
+}
+
 async function startNew(ctx, req) {
   checkFunction(req.function);
   checkKey(req.key);
@@ -122,7 +145,7 @@ async function startNew(ctx, req) {
   await checkTarget(req.function, target.root);
   const id = stateId(ctx.now ?? new Date(), ctx.random);
   const paths = { t: RECORDS.paths, n: 1, root: realpathLoose(target.root), files: files.map(realpathLoose), unresolved: [] };
-  const grounds = req.function === FUNCTION.update ? req.grounds.map((g, i) => ({ t: RECORDS.ground, id: groundId(i + 1), ground: g })) : [];
+  const grounds = req.function === FUNCTION.update ? (await expandGrounds(ctx, req.grounds, target.root)).map((g, i) => ({ t: RECORDS.ground, id: groundId(i + 1), ...g })) : [];
   const state = { t: RECORDS.state, id, key: req.key, function: req.function, limits: req.limits };
   if (req.function === FUNCTION.create) state.request = req.request;
   const run = runId(1);

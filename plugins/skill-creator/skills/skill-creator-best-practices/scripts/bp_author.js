@@ -60,6 +60,7 @@ const RUN_VIEWPOINTS = { create: ['conformance', 'goal'], update: ['conformance'
 const GOAL_KEYS = { deliverables: 'deliverables', scope: 'scope', prohibitions: 'prohibitions', numeric: 'numeric', deixis: 'deixis' }
 const SOURCE_KINDS = { request: 'request', answer: 'answer', snapshot: 'snapshot', ground: 'ground' }
 const GROUND_INSTRUCTION = { kindKey: 'kind', kind: '利用者の指示', textKey: 'text' }
+const GROUND_REF_KEY = 'from'
 const UNIT_RESULTS = { conform: 'conform', nonconform: 'nonconform', na: 'na', unchecked: 'unchecked' }
 const UNCHECKED_KINDS = { forced: 'forced', unforced: 'unforced' }
 const CONTRACT_ELEMENTS = ['発火する条件', '発火しない条件', '入力', '出力', '停止の種類']
@@ -137,6 +138,7 @@ function fnvSum(value) {
 
 function isTreatedGround(ground) {
   if (ground === null || typeof ground !== 'object' || Array.isArray(ground)) return false
+  if (Object.hasOwn(ground, GROUND_REF_KEY)) return typeof ground[GROUND_REF_KEY] === 'string' && Object.keys(ground).length === 1
   if (Object.hasOwn(ground, 'state')) return ground.state === 'open'
   return ground[GROUND_INSTRUCTION.kindKey] === GROUND_INSTRUCTION.kind && typeof ground[GROUND_INSTRUCTION.textKey] === 'string'
 }
@@ -589,6 +591,10 @@ async function startRun() {
   const first = await carry([request(OPS.start, body)])
   // 状態 ID は開始の応答でしか得られないので、応答を失ったら同じ key で 1 回だけ送り直す（同じ key の開始は同じ状態を返す）。
   const r = first.lost ? await carry([request(OPS.start, body)]) : first
+  // 参照の形の修正の根拠は開始の操作が展開して数えるので、扱う根拠が 0 件の拒否は入力の不足として返す（SP-BPAUTHORING-029）。
+  if (r.rejected && r.response?.treatedGrounds === 0) {
+    return { early: { ...early(STOP_KINDS.needsInput, r.response.reason), [RESULT_KEYS.launches]: budget.used() } }
+  }
   if (!r.ok) {
     const reason = `開始の操作が失敗した: ${r.reason}`
     return { early: { ...early(STOP_KINDS.blocked, reason, input.resume ? { [NEXT_ARGS_KEYS.function]: fn, [NEXT_ARGS_KEYS.state]: input.state } : null), [RESULT_KEYS.launches]: budget.used() } }

@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
+  CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION, GROUND_REF_KEY,
   INSPECTING_FUNCTIONS, LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
@@ -30,6 +30,7 @@ function needRewriting(view) {
 
 export function isTreatedGround(ground) {
   if (ground === null || typeof ground !== 'object' || Array.isArray(ground)) return false;
+  if (Object.hasOwn(ground, GROUND_REF_KEY)) return typeof ground[GROUND_REF_KEY] === 'string' && Object.keys(ground).length === 1;
   if (Object.hasOwn(ground, 'state')) return ground.state === 'open';
   return ground[GROUND_INSTRUCTION.kindKey] === GROUND_INSTRUCTION.kind && typeof ground[GROUND_INSTRUCTION.textKey] === 'string';
 }

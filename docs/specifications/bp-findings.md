@@ -324,12 +324,13 @@ run をまたいで指摘の状態を追うかの裁定が下るまで、create 
 review・audit の `ledger` は、`docs/specifications/bp-run.md` の SP-BPRUN-031 の `report` の操作の出力のうち、指摘の一覧を除いた欄（カバレッジ・skip 一覧・資産の結末・未反証の候補・拒否された結果）を同じ形で持つ。指摘の一覧を `ledger` の外の `findings` に置くのは、4 機能の返り値で同じ鍵から指摘を取り、update の修正の根拠にそのまま渡せるようにするため（`docs/specifications/bp-entry.md` の SP-BPENTRY-009）。create・update の綴りは `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-032〜SP-BPAUTHORING-034 が定める。
 
 #### SP-BPFINDINGS-031 修正の根拠の形
-update が受け取る修正の根拠は、次のどちらかの形でなければならない（PR-BPOPERATIONS-015）。前の機能の結果を update に渡すとき（PR-BPOPERATIONS-038）、渡す側は結果の指摘の一覧を SP-BPFINDINGS-029 の形のまま渡さなければならない。
+update が受け取る修正の根拠は、次のどれかの形でなければならない（PR-BPOPERATIONS-015）。前の機能の結果を update に渡すとき（PR-BPOPERATIONS-038）、渡す側は結果の指摘の一覧を SP-BPFINDINGS-029 の形のまま渡さなければならない。入口の連鎖は、前の run の参照の形で渡す（入口が指摘を書き写すと、同じバイト列を保てない：`docs/specifications/bp-entry.md` の SP-BPENTRY-010）。
 
 | 修正の根拠 | 形 |
 |---|---|
 | review・audit の指摘 | SP-BPFINDINGS-029 の項目。update が修正の根拠として扱うのは、状態が open の指摘だけとする（dismissed は反証で退けられた指摘である） |
 | 利用者の修正の指示 | 種別「利用者の指示」と、指示の文言をそのまま。資産 ID・観点・指摘の種類・状態を持たない |
+| 前の review・audit の run の参照 | `{"from": <状態 ID>}` だけを持つ。指す状態は、完了で止まった review・audit の状態で、対象スキルの根が update と同じでなければならない。CLI の開始の操作が、その状態の返り値の指摘の一覧（SP-BPFINDINGS-029 の形。返り値を作るのと同じ処理で作る）に展開し、並びのその位置に 1 件ずつ修正の根拠として記録する。展開した指摘のうち update が扱うのは、上の「review・audit の指摘」の行と同じく open の指摘だけとする |
 
 #### SP-BPFINDINGS-032 create と update の完了時に返す指摘
 create と update が完了したとき、create と update は、SP-BPFINDINGS-030 の項目のうち、指摘の一覧（自分の台帳の指摘ごとの状態）と skip 一覧を、`docs/specifications/bp-authoring.md` が定める完了時の出力に含めなければならない（PR-BPOPERATIONS-045・046）。

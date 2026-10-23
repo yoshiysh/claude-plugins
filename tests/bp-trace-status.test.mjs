@@ -96,7 +96,7 @@ test('検証方法: テスト名の仕様項目 ID の範囲は両端の間の�
 // 試走の行は模擬の検証役でも名前の付いたテストが通ってしまうので、テスト名の有無では「完了」を縛れない。
 test('検証方法: 試走で確かめる行は、試走で確かめた行の集合にあるときだけ「完了」で、見分け方の表が指す行は全てトレーサビリティ表にある', () => {
   const rules = trialRules();
-  assert.deepEqual(rules.map((r) => r.file).sort(), ['bp-authoring.md', 'bp-conformance.md', 'bp-inspection.md']);
+  assert.deepEqual(rules.map((r) => r.file).sort(), ['bp-authoring.md', 'bp-conformance.md', 'bp-entry.md', 'bp-inspection.md']);
   const early = [];
   let trial = 0;
   for (const rule of rules) {

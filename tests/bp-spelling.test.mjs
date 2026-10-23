@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CODES, NEXT_ARGS_KEYS, OPS, STAGES, VIEWPOINTS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { CODES, ENTRY_OPS, NEXT_ARGS_KEYS, OPS, STAGES, VIEWPOINTS, WORKFLOW_SOURCES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { tableAfter } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,10 +23,11 @@ test('SP-BPRUN-031: 仕様の符号の表と CLI の定数が一致する', () =
   assert.deepEqual(spec.sort(), Object.values(CODES).sort());
 });
 
-test('SP-BPRUN-031: 仕様の操作の表と CLI の定数が一致する', () => {
+test('SP-BPRUN-031: 仕様の操作の表と CLI の定数（run の中の操作と入口の操作）が一致し、2 つの集合が交わらない', () => {
   const rows = tableAfter(RUN, '| 操作 | 実現する項目 | 受け取るもの | 返すもの |');
   const spec = rows.map(([cell]) => cell.replace(/`/g, ''));
-  assert.deepEqual(spec.sort(), Object.values(OPS).sort());
+  assert.deepEqual(spec.sort(), [...Object.values(OPS), ...Object.values(ENTRY_OPS)].sort());
+  assert.deepEqual(Object.values(OPS).filter((op) => Object.values(ENTRY_OPS).includes(op)), []);
 });
 
 test('SP-BPRUN-033: 仕様の next_args の綴りと CLI の定数が一致する', () => {
@@ -68,6 +69,7 @@ const NOT_CLOSED = {
   RUN_VIEWPOINTS: '観点の値（SP-BPFINDINGS-011 のテストが照らす）',
   SOURCE_KINDS: 'schema の enum と prompt の例示で定数から引く。例示の "kind" の値はテストが別に照らす（SP-BPAUTHORING-006）',
   GROUND_INSTRUCTION: '欄の名前と種別の文言。CLI の関数と振る舞いで照らす',
+  GROUND_REF_KEY: '欄の名前。CLI の関数と振る舞いで照らす',
   CONTRACT_ELEMENTS: '契約の要素の文言。prompt に要素の名前として並べる',
   CRITERIA_DIR: 'パス', CRITERIA_FILES: 'パス',
   ROLE_WRITE_LIMITS: '返り値に載せる役の文言', INSPECT_ROLE_WRITE_LIMITS: '返り値に載せる役の文言',
@@ -77,7 +79,7 @@ const SCRIPTS = {
   author: {
     file: 'bp_author.js',
     copied: ['OPS', 'STAGE', 'CODES', 'FUNCTION', 'STOP_KINDS', 'NEXT_ARGS_KEYS', 'LIMIT_KEYS', 'INPUT_KEYS', 'RESULT_KEYS', 'RUN_VIEWPOINTS',
-      'GOAL_KEYS', 'SOURCE_KINDS', 'GROUND_INSTRUCTION', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'CONTRACT_ELEMENTS', 'GATE_NEXT', 'LIMIT_HITS', 'CRITERIA_DIR', 'CRITERIA_FILES',
+      'GOAL_KEYS', 'SOURCE_KINDS', 'GROUND_INSTRUCTION', 'GROUND_REF_KEY', 'UNIT_RESULTS', 'UNCHECKED_KINDS', 'CONTRACT_ELEMENTS', 'GATE_NEXT', 'LIMIT_HITS', 'CRITERIA_DIR', 'CRITERIA_FILES',
       'ROLE_WRITE_LIMITS', 'STOP_CAUSES', 'FILE_ACTIONS', 'ASSIGN_RULES', 'STAGE_STATUS', 'CONTRACT_NONE', 'JUDGEMENTS', 'REFUTATION_VERDICTS', 'VANISH_NONE'],
     skipFunctions: ['isTreatedGround'],
   },
@@ -110,7 +112,7 @@ function scriptFunction(names) {
   const s = SCRIPTS.author;
   const decls = s.top.filter((x) => x.type === 'FunctionDeclaration' && names.includes(x.id.name));
   const text = decls.map((d) => s.source.slice(d.start - OFFSET, d.end - OFFSET)).join('\n');
-  const consts = ['GROUND_INSTRUCTION'].map((n) => `const ${n} = ${JSON.stringify(literalOf(n))};`).join('\n');
+  const consts = ['GROUND_INSTRUCTION', 'GROUND_REF_KEY'].map((n) => `const ${n} = ${JSON.stringify(literalOf(n))};`).join('\n');
   return Function(`"use strict"; ${consts}\n${text}\nreturn { ${names.join(', ')} };`)();
 }
 
@@ -236,11 +238,12 @@ test('SP-BPRUN-031: script の fnvSum が CLI の sum と 500 個の値（日本
   }
 });
 
-test('SP-BPFINDINGS-031・SP-BPAUTHORING-029: script と CLI が修正の根拠として扱う根拠を同じに決める', () => {
+test('SP-BPFINDINGS-031・SP-BPAUTHORING-029: script と CLI が修正の根拠として扱う根拠（参照の形を含む）を同じに決める', () => {
   const { isTreatedGround } = scriptFunction(['isTreatedGround']);
   const cases = [
     { kind: '利用者の指示', text: 'a' }, { kind: '利用者の指示' }, { text: 'a' }, { id: 'F1', state: 'open' }, { id: 'F1', state: 'dismissed' },
     { state: 'open' }, { kind: '利用者の指示', text: 'a', state: 'resolved' }, null, 'x', [], {},
+    { from: 'bp-20261023000000-abcdefgh' }, { from: 1 }, { from: 'bp-x', state: 'open' }, { from: 'bp-x', kind: '利用者の指示', text: 'a' },
   ];
   for (const c of cases) assert.equal(isTreatedGround(c), cliTreated(c), JSON.stringify(c));
 });
@@ -299,4 +302,9 @@ test('SP-BPRUN-031: CLI の照らす先の決定が名指す判定基準の写�
     assert.ok(Object.hasOwn(CLI_CONSTANTS.CRITERIA_FILES, key), key);
     assert.ok(Object.hasOwn(CLI_CONSTANTS.TARGET_FILES, key), key);
   }
+});
+
+test('SP-BPENTRY-001: 入口が起動する source の名前の定数が 2 本の script の meta.name と一致する', () => {
+  assert.equal(literalIn(SCRIPTS.author, 'meta').name, WORKFLOW_SOURCES.author);
+  assert.equal(literalIn(SCRIPTS.inspect, 'meta').name, WORKFLOW_SOURCES.inspect);
 });
