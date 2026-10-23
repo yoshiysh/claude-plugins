@@ -293,38 +293,38 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |
 |---|---|---|---|
 | PR-BPOPERATIONS-001 | SP-BPENTRY-001 | 静的な照合（SKILL.md が 4 機能のそれぞれで Workflow を 1 run として起動する） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-013 | 静的な照合（callsite の入力の項目が機能と起動の種類ごとに表と一致する） | 未着手 |
-| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | 静的な照合（Codex runner の request が `limits.maxAgents`・`modelMap`・書き込みのできる workspace の mode を持つ） | 未着手 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-013 | 静的な照合（callsite の入力の項目が機能と起動の種類ごとに表と一致する） | 作成中 |
+| PR-BPOPERATIONS-001 | SP-BPENTRY-016 | CLI の単体テスト（`launch-args` が Codex runner の経路で出す request が `limits.maxAgents`・`modelMap` の全ての鍵・書き込みのできる workspace の mode を持つ） | 完了 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-018 | 振り分けの eval（native も runner も無い環境で run を起動せず install を案内する） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-002 | 静的な照合（振り分けが run の起動より前の手順にあり、script に振り分けが無い） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-003 | 振り分けの eval（4 機能のそれぞれに当たる依頼文が、その機能だけの列になる） | 未着手 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-005 | 振り分けの eval（review と audit のどちらにも読める依頼で、run を起動せずに尋ねる） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-006 | 連鎖の結合テスト（review・update・audit の run の入力に、根が対象スキルのディレクトリのパスの一覧が渡る） | 未着手 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 作成中 |
-| PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 連鎖の結合テスト（解決できない callsite が行番号とともに返り値に外したものとして載る） | 未着手 |
+| PR-BPOPERATIONS-002 | SP-BPENTRY-006 | 連鎖の結合テスト（review・update・audit の run の入力に、根が対象スキルのディレクトリのパスの一覧が渡る） | 完了 |
+| PR-BPOPERATIONS-002 | SP-BPENTRY-022 | 連鎖の結合テスト（自分の plugin の workflow script がパスの一覧に入る）と CLI の単体テスト（`name` と `scriptPath` の callsite を持つ対象スキルで、パスの一覧の作成が同じ入力に同じ一覧を返す） | 完了 |
+| PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 連鎖の結合テスト（解決できない callsite が行番号とともに返り値に外したものとして載る） | 完了 |
 | PR-BPOPERATIONS-002 | SP-BPENTRY-023 | 振り分けの eval（対象スキルを特定できない依頼で run を起動せずに尋ねる） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（create → review で、review の対象スキルが create の返り値の作ったスキルのディレクトリになる） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（状態を作らずに止まった run の返り値で、再開の仕方に next_args が無く、入力を直して新しく起動することが載る） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-004 | 振り分けの eval（順を述べた依頼と述べない依頼で、期待する列になる） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 連鎖の結合テスト（前の run の返り値より前に次の run が起動されない） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 連鎖の結合テスト（前の run が needs_input・BLOCKED で止まると次の run を起動せず、未実行の機能を返す） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（判定表の行ごとに、次の run の対象スキルと修正の根拠が表と一致し、update の後に足された workflow script が次の review の一覧に入る） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-010 | 連鎖の結合テスト（open と dismissed の指摘を含む review の返り値が、update の入力に同じバイト列で渡る） | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-007 | 連鎖の結合テスト（前の run の返り値より前に次の run が起動されない） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-008 | 連鎖の結合テスト（前の run が needs_input・BLOCKED で止まると次の run を起動せず、未実行の機能を返す） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-009 | 連鎖の結合テスト（判定表の行ごとに、次の run の対象スキルと修正の根拠が表と一致し、update の後に足された workflow script が次の review の一覧に入る） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-010 | 連鎖の結合テスト（open と dismissed の指摘を含む review・audit の返り値の指摘の一覧が、入口に書き写されずに参照の形で渡り、update の修正の根拠の記録に同じバイト列で入る） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-012 | 振り分けの eval（一部が当たらない依頼で、当たった部分だけを実行し、当たらなかった部分を返す） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（返り値に各 run の返り値が列の順に変えずに載り、止まったときは未実行の機能と next_args が載る） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-017 | 連鎖の結合テスト（native の起動の失敗で runner に切り替えず、未実行の機能と再開の手段を返す） | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-021 | 連鎖の結合テスト（返り値に各 run の返り値が列の順に変えずに載り、止まったときは未実行の機能と next_args が載る） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-017 | 連鎖の結合テスト（native の起動の失敗で runner に切り替えず、未実行の機能と再開の手段を返す） | 作成中 |
 | PR-BPOPERATIONS-038 | SP-BPENTRY-019 | 振り分けの eval（review の後に create を求める依頼で run を起動しない） | 未着手 |
-| PR-BPOPERATIONS-038 | SP-BPENTRY-020 | 連鎖の結合テスト（項目の欠けた指摘の一覧で update の run を起動しない） | 未着手 |
+| PR-BPOPERATIONS-038 | SP-BPENTRY-020 | 連鎖の結合テスト（項目の欠けた指摘の一覧で update の run を起動しない） | 完了 |
 | PR-BPOPERATIONS-039 | SP-BPENTRY-003 | 振り分けの eval（marketplace への公開だけを求める依頼が「当たる機能が無い」になる） | 未着手 |
 | PR-BPOPERATIONS-039 | SP-BPENTRY-011 | 振り分けの eval（当たる機能が無い依頼で run が 0 件起動され、当たる機能が無いことを返す） | 未着手 |
 | PR-BPOPERATIONS-039 | SP-BPENTRY-021 | 振り分けの eval（当たる機能が無いときの返り値に、当たる機能が無いことと 4 機能の名前がある） | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPENTRY-009 | 連鎖の結合テスト（review・audit → update で、指摘の一覧が修正の根拠として渡る） | 未着手 |
-| PR-BPOPERATIONS-036 | SP-BPENTRY-010 | 連鎖の結合テスト（入口が指摘を絞らず、update の受け手で dismissed が除かれる） | 未着手 |
-| PR-BPDESIGNEDSKILL-016 | SP-BPENTRY-013 | 静的な照合（SKILL.md の callsite の契約に起動数の上限の項目がある） | 未着手 |
+| PR-BPOPERATIONS-036 | SP-BPENTRY-009 | 連鎖の結合テスト（review・audit → update で、指摘の一覧が修正の根拠として渡る） | 完了 |
+| PR-BPOPERATIONS-036 | SP-BPENTRY-010 | 連鎖の結合テスト（入口が指摘を絞らず、update の受け手で dismissed が除かれる） | 完了 |
+| PR-BPDESIGNEDSKILL-016 | SP-BPENTRY-013 | 静的な照合（SKILL.md の callsite の契約に起動数の上限の項目がある） | 作成中 |
 | PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-014 | 静的な照合（native が無いときだけ Codex runner の経路を選び、native の失敗で切り替えない） | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-015 | 連鎖の結合テスト（Codex runner の経路で、最初の起動と再開の起動の両方に `limits.maxAgents` と同じ値の上限が渡る） | 未着手 |
-| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-016 | 静的な照合（`limits.maxAgents` を省略した request で起動しない） | 未着手 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-015 | 連鎖の結合テスト（Codex runner の経路で、最初の起動と再開の起動の両方に `limits.maxAgents` と同じ値の上限が渡る） | 完了 |
+| PR-BPDESIGNEDSKILL-022 | SP-BPENTRY-016 | 静的な照合（`limits.maxAgents` を省略した request で起動しない） | 作成中 |
 | PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-014 | 静的な照合（native Workflow が道具の一覧にあれば native の経路を 1 回だけ選ぶ） | 未着手 |
-| PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-015 | 連鎖の結合テスト（native Workflow の経路で、最初の起動と再開の起動のどちらにも上限が渡らない） | 未着手 |
+| PR-BPDESIGNEDSKILL-023 | SP-BPENTRY-015 | 連鎖の結合テスト（native Workflow の経路で、最初の起動と再開の起動のどちらにも上限が渡らない） | 完了 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-024 | 連鎖の結合テスト（模擬の backend の Codex runner で、update の run が `updatePolicy`・`updateContract` の無い host で起動でき、対象スキルに書ける） | 未着手 |
 | PR-BPOPERATIONS-001 | SP-BPENTRY-025 | 静的な照合（runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で SP-BPENTRY-025 の grep が 0 件）と runner のテストの実行（`meta.name` が `skill-creator-review` で `args.mode` が `update` の source が、他の source と同じ条件で動く） | 未着手 |

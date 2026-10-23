@@ -57,7 +57,7 @@ function excludedOf(r) {
 function missingFields(findings) {
   if (!Array.isArray(findings)) return [{ finding: null, fields: [RESULT_KEYS.findings] }];
   return findings.flatMap((f, i) => {
-    const fields = FINDING_REQUIRED.filter((k) => f === null || typeof f !== 'object' || !Object.hasOwn(f, k));
+    const fields = FINDING_REQUIRED.filter((k) => f === null || typeof f !== 'object' || f[k] === undefined);
     return fields.length ? [{ finding: f?.id ?? i, fields }] : [];
   });
 }

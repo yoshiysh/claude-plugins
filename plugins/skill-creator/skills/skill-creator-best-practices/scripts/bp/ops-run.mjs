@@ -4,7 +4,7 @@ import {
   CODES, FILE_ACTIONS, FINGERPRINT_AT, FUNCTION, GATE_DECISIONS, GROUND_REF_KEY, INSPECTING_FUNCTIONS, LIMIT_HITS, STOP_CAUSES, LIMIT_KEYS, NEXT_ARGS_KEYS, OPS, PARTED_STAGES, PREMISE_KINDS,
   RECORDS, REJECT_SCOPE, RESULT_KEYS, REWRITING_FUNCTIONS, STAGE, STAGES, STATES_DIR, STOP_KINDS, STOP_KINDS_BY_FUNCTION, WORK_DIR, emptyRunBase,
 } from './constants.mjs';
-import { isTreatedGround, lastGate, progress, writtenFiles } from './ops-author.mjs';
+import { designNote, isTreatedGround, lastGate, progress, writtenFiles } from './ops-author.mjs';
 import { inspectOutcome } from './ops-inspect.mjs';
 import { checkAttempt, checkFunction, checkStage, checkWritableItem, isPosInt, needPosInt } from './checks.mjs';
 import { reject } from './errors.mjs';
@@ -486,6 +486,8 @@ export function stop(ctx, req) {
       outside: outsidePaths,
       excluded,
       asked,
+      // 完了の返り値の設計の説明は停止の時点の本文で返す。後の run が対象スキルを書き換えても、同じ状態から同じ返り値を作る（SP-BPRUN-032）。
+      designNote: rewriting && kind === STOP_KINDS.complete ? await designNote(view) : undefined,
     };
     // 完了だけが書いたファイルに検証を通ったことを追記する（SP-BPAUTHORING-026）。
     const verified = rewriting && kind === STOP_KINDS.complete

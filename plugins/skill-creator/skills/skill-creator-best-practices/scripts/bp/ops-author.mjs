@@ -334,7 +334,7 @@ function sectionText(text, heading) {
   return lines.slice(start, end < 0 ? lines.length : end).join('\n');
 }
 
-async function designNote(view) {
+export async function designNote(view) {
   const write = [...view.items.values()].filter((i) => i.stage === STAGE.write && i.result?.result?.designNote).at(-1);
   if (!write) return null;
   const note = write.result.result.designNote;
@@ -343,10 +343,12 @@ async function designNote(view) {
   return { path: note.path, heading: note.heading ?? null, text: text === null ? null : sectionText(text, note.heading) };
 }
 
-async function skillOf(view) {
-  const now = await targetFingerprint(view.paths.at(-1));
-  const files = Object.entries(now.digests).map(([p, digest]) => ({ path: p, digest }));
-  const deleted = [...new Set(view.files.filter((f) => f.action === FILE_ACTIONS.delete && !Object.hasOwn(now.digests, f.path)).map((f) => f.path))];
+// 停止の時点の指紋から作る。今のファイルから作ると、後の run が対象スキルを書き換えたときに同じ状態の返り値が変わる（SP-BPRUN-032）。
+function skillOf(view) {
+  const run = currentRun(view).id;
+  const digests = view.fingerprints.find((f) => f.run === run && f.at === FINGERPRINT_AT.stop).files;
+  const files = Object.entries(digests).map(([p, digest]) => ({ path: p, digest }));
+  const deleted = [...new Set(view.files.filter((f) => f.action === FILE_ACTIONS.delete && !Object.hasOwn(digests, f.path)).map((f) => f.path))];
   return view.state.function === FUNCTION.create
     ? { root: realpathLoose(view.paths.at(-1).root), files }
     : { files, deleted };
@@ -402,8 +404,8 @@ export async function outcome(ctx, req) {
   }
   if (complete) {
     const report = ledgerReport(view, runViewpoints(view));
-    out[RESULT_KEYS.skill] = await skillOf(view);
-    out[RESULT_KEYS.designNote] = await designNote(view);
+    out[RESULT_KEYS.skill] = skillOf(view);
+    out[RESULT_KEYS.designNote] = stop.designNote ?? null;
     out[RESULT_KEYS.findings] = report.findings;
     out[RESULT_KEYS.skip] = report.skip;
     if (view.state.function === FUNCTION.update) {
