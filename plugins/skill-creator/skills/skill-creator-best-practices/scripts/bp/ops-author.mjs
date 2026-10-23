@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION,
+  CODES, CONTRACT_NONE, FILE_ACTIONS, FINDING_GATE, FINGERPRINT_AT, FUNCTION, GOAL_KEYS, GROUND_INSTRUCTION, GROUND_REF_KEY,
   INSPECTING_FUNCTIONS, LIMIT_KEYS, OPS, RECORDS, RESULT_KEYS, REWRITING_FUNCTIONS, ROLE_WRITE_LIMITS, SNAPSHOT_DIR, SNAPSHOT_PARTS,
   SOURCE_KINDS, STAGE, STOP_KINDS, UNCHECKED_KINDS, UNIT_RESULTS, VERIFICATION_KEYS, WORK_DIR,
 } from './constants.mjs';
@@ -30,6 +30,7 @@ function needRewriting(view) {
 
 export function isTreatedGround(ground) {
   if (ground === null || typeof ground !== 'object' || Array.isArray(ground)) return false;
+  if (Object.hasOwn(ground, GROUND_REF_KEY)) return typeof ground[GROUND_REF_KEY] === 'string' && Object.keys(ground).length === 1;
   if (Object.hasOwn(ground, 'state')) return ground.state === 'open';
   return ground[GROUND_INSTRUCTION.kindKey] === GROUND_INSTRUCTION.kind && typeof ground[GROUND_INSTRUCTION.textKey] === 'string';
 }
@@ -38,8 +39,12 @@ export function treatedGroundIds(view) {
   return view.grounds.filter((g) => isTreatedGround(g.ground)).map((g) => g.id);
 }
 
+const KEY_BYTES = 8;
+// key の操作が出す形。試走の記録は、この形の key で始めた run（callsite が CLI から key を得た run）だけを受ける。
+export const ISSUED_KEY = new RegExp(`^k-[0-9a-f]{${KEY_BYTES * 2}}$`);
+
 export async function key() {
-  return { key: `k-${randomBytes(8).toString('hex')}` };
+  return { key: `k-${randomBytes(KEY_BYTES).toString('hex')}` };
 }
 
 export async function paths(ctx, req) {
@@ -333,7 +338,7 @@ function sectionText(text, heading) {
   return lines.slice(start, end < 0 ? lines.length : end).join('\n');
 }
 
-async function designNote(view) {
+export async function designNote(view) {
   const write = [...view.items.values()].filter((i) => i.stage === STAGE.write && i.result?.result?.designNote).at(-1);
   if (!write) return null;
   const note = write.result.result.designNote;
@@ -342,10 +347,12 @@ async function designNote(view) {
   return { path: note.path, heading: note.heading ?? null, text: text === null ? null : sectionText(text, note.heading) };
 }
 
-async function skillOf(view) {
-  const now = await targetFingerprint(view.paths.at(-1));
-  const files = Object.entries(now.digests).map(([p, digest]) => ({ path: p, digest }));
-  const deleted = [...new Set(view.files.filter((f) => f.action === FILE_ACTIONS.delete && !Object.hasOwn(now.digests, f.path)).map((f) => f.path))];
+// 停止の時点の指紋から作る。今のファイルから作ると、後の run が対象スキルを書き換えたときに同じ状態の返り値が変わる（SP-BPRUN-032）。
+function skillOf(view) {
+  const run = currentRun(view).id;
+  const digests = view.fingerprints.find((f) => f.run === run && f.at === FINGERPRINT_AT.stop).files;
+  const files = Object.entries(digests).map(([p, digest]) => ({ path: p, digest }));
+  const deleted = [...new Set(view.files.filter((f) => f.action === FILE_ACTIONS.delete && !Object.hasOwn(digests, f.path)).map((f) => f.path))];
   return view.state.function === FUNCTION.create
     ? { root: realpathLoose(view.paths.at(-1).root), files }
     : { files, deleted };
@@ -383,6 +390,11 @@ function verification(view, gateItem) {
   return out;
 }
 
+// 外した callsite（SP-BPENTRY-023）を、パスの一覧の記録から SKILL.md のパスつきで返す形にする。返り値と入口の報告で同じ形を使う。
+export function excludedOf(pathsRecord) {
+  return pathsRecord.unresolved.map((u) => ({ ...u, file: path.join(pathsRecord.root, 'SKILL.md') }));
+}
+
 // SP-BPRUN-032、SP-BPAUTHORING-032〜034: 返り値は状態だけから作る（書いた run と完了した run が別でも同じ返り値になる）。
 export async function outcome(ctx, req) {
   const { view } = await readState(ctx, req.state);
@@ -394,15 +406,15 @@ export async function outcome(ctx, req) {
   if (written.length) out[RESULT_KEYS.writtenFiles] = written;
   out[RESULT_KEYS.unverifiedRoleLimits] = ROLE_WRITE_LIMITS;
   const unresolved = view.paths.at(-1).unresolved ?? [];
-  if (unresolved.length) out[RESULT_KEYS.excludedCallsites] = unresolved.map((u) => ({ ...u, file: path.join(view.paths.at(-1).root, 'SKILL.md') }));
+  if (unresolved.length) out[RESULT_KEYS.excludedCallsites] = excludedOf(view.paths.at(-1));
   if (gateItem) {
     out[RESULT_KEYS.verification] = verification(view, gateItem);
     out[RESULT_KEYS.residualRisks] = extraOf(view, gateItem.result.result.number, 'conformance')?.residualRisks ?? [];
   }
   if (complete) {
     const report = ledgerReport(view, runViewpoints(view));
-    out[RESULT_KEYS.skill] = await skillOf(view);
-    out[RESULT_KEYS.designNote] = await designNote(view);
+    out[RESULT_KEYS.skill] = skillOf(view);
+    out[RESULT_KEYS.designNote] = stop.designNote ?? null;
     out[RESULT_KEYS.findings] = report.findings;
     out[RESULT_KEYS.skip] = report.skip;
     if (view.state.function === FUNCTION.update) {

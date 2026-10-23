@@ -8,6 +8,7 @@ import * as run from './bp/ops-run.mjs';
 import * as ledger from './bp/ops-ledger.mjs';
 import * as author from './bp/ops-author.mjs';
 import * as inspect from './bp/ops-inspect.mjs';
+import { HANDLERS as ENTRY_HANDLERS } from './bp/ops-entry.mjs';
 import { locateState } from './bp/store.mjs';
 import { resolvePayload, sealResponse, verifyRequest } from './bp/transport.mjs';
 
@@ -49,12 +50,13 @@ const HANDLERS = {
   [OPS.bundle]: inspect.bundle,
   [OPS.applicability]: inspect.applicability,
   [OPS.stopDraft]: run.stopDraft,
+  ...ENTRY_HANDLERS,
 };
 
 const RESERVED = ['ok', 'op', 'sum'];
 
 export function context({ cwd = process.cwd(), env = process.env, criteriaDir = path.join(SKILL_DIR, CRITERIA_DIR), promptAudit = path.join(SKILL_DIR, PROMPT_AUDIT_FILE) } = {}) {
-  return { cwd, env, criteriaDir, promptAudit };
+  return { cwd, env, criteriaDir, promptAudit, skillDir: SKILL_DIR };
 }
 
 // 操作の出力が受理の印を上書きすると、応答の ok で受理を見分ける運搬役が誤るので、衝突は内部の失敗にする。
@@ -69,7 +71,7 @@ export async function main(argv, stdinText, { cwd, env, criteriaDir, promptAudit
   try {
     const op = argv[0];
     const handler = Object.hasOwn(HANDLERS, op) ? HANDLERS[op] : null;
-    if (!handler) throw new BpError(CODES.input, `操作が無い: ${JSON.stringify(op)}（${Object.values(OPS).join(' ')}）`);
+    if (!handler) throw new BpError(CODES.input, `操作が無い: ${JSON.stringify(op)}（${Object.keys(HANDLERS).join(' ')}）`);
     let req = verifyRequest(stdinText);
     if (req.payloadFile !== undefined) req = await resolvePayload(req, await locateState(ctx, req.state));
     const output = await handler(ctx, req);

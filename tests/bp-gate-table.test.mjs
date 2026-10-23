@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tableAfter } from './helpers/bp-docs.mjs';
 import {
   FINDING_ROWS, NEXT_ROWS, UNIT_ROWS, findingGate, iterationDecision, nextStep, unitGate,
 } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/gate.mjs';
@@ -11,15 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AUTHORING = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-authoring.md'), 'utf8');
 
 function table(header) {
-  const start = AUTHORING.indexOf(header);
-  assert.ok(start >= 0, header);
-  const lines = AUTHORING.slice(start).split('\n');
-  const rows = [];
-  for (const line of lines.slice(2)) {
-    if (!line.startsWith('|')) break;
-    rows.push(line.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
-  }
-  return rows;
+  return tableAfter(AUTHORING, header);
 }
 
 const ANY = '*';

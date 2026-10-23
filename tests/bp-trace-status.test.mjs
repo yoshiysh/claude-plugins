@@ -4,17 +4,19 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
+import { confirmedKeys, readRecords, rowKey } from '../tools/read-bp-trial.mjs';
+import { traceRows as sharedTraceRows } from '../tools/lib/bp-docs.mjs';
+import { RUNS_FILE, TRIAL_DIR, readRuns } from '../tools/bp-trial.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPECS = path.join(ROOT, 'docs', 'specifications');
 const SKILL = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
 const TEST_DIRS = [path.join(ROOT, 'tests'), path.join(SKILL, 'scripts', 'bp')];
-const TRACE_HEADER = '| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |';
 const STATUSES = ['未着手', '作成中', '完了'];
-const EXPECTED_TRIAL = JSON.parse(readFileSync(path.join(ROOT, 'tests', 'fixtures', 'bp-trial', 'review-target.expected.json'), 'utf8'));
 
-// 試走の行は名前の付いたテストでは縛れないので、試走の記録で確かめた行（仕様書|要求 ID|仕様項目 ID の列）だけをここに足す。
-const TRIAL_CONFIRMED = new Set([]);
+// 試走と eval の行は名前の付いたテストでは縛れないので、記録と正解表から毎回計算した集合だけが「完了」を許す（手で足す集合を持たない）。
+const TRIAL_ROWS = readRecords();
+const CONFIRMED = confirmedKeys(TRIAL_ROWS);
 
 function allTitles() {
   return TEST_DIRS.flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.test.mjs')).flatMap((f) => testTitles(path.join(dir, f))));
@@ -33,11 +35,8 @@ function titleIds(titles) {
   return ids;
 }
 
-// 行の字面の正規表現で拾うと、書式の崩れた行が検査から黙って消える。
 function traceRows(file) {
-  return tableAfter(readFileSync(path.join(SPECS, file), 'utf8'), TRACE_HEADER).map(([req, spec, method, status, ...rest]) => (
-    { file, req, spec, ids: (spec ?? '').split(',').map((x) => x.trim()), method, status, extra: rest.length }
-  ));
+  return sharedTraceRows(file, SPECS);
 }
 
 // bp-run.md の「検証方法」の見分け方の表を正本にし、テストに見分け方を書き写さない。
@@ -54,19 +53,15 @@ function trialRules() {
   });
 }
 
-// 「完了」にしてよいのは、トレーサビリティ表にあり、試走で確かめる行で、試走で全ての句を測れる行だけ（測る試走が無い行・測れない句を持つ行は入れられない）。
-function confirmedProblems(confirmed, rules) {
+// 正解表の行は、トレーサビリティ表にあり、試走か eval で確かめる行で、測る試走が「無し」でない行だけ（表に無い行の記録は、どの行も「完了」にしない）。
+function expectedProblems(rows, rules) {
   const problems = [];
-  for (const key of confirmed) {
-    const [file, req, spec] = key.split('|');
-    const rule = rules.find((r) => r.file === file);
-    const row = rule && traceRows(file).find((r) => r.req === req && r.spec === spec);
-    if (!row) { problems.push(`トレーサビリティ表に無い: ${key}`); continue; }
-    if (!rule.isTrial(row)) { problems.push(`試走で確かめる行でない: ${key}`); continue; }
-    if (!rule.how) continue;
-    if (rule.how.get(`${req}|${spec}`).startsWith('無し')) problems.push(`測る試走が無い: ${key}`);
-    const exp = EXPECTED_TRIAL.rows.find((r) => r.req === req && r.spec === spec);
-    if (exp && ((exp.unmeasured ?? []).length || Object.values(exp.measures).some((m) => m.by === 'none'))) problems.push(`試走で測れない句がある: ${key}`);
+  for (const r of rows) {
+    const rule = rules.find((x) => x.file === r.file);
+    const row = rule && traceRows(r.file).find((t) => t.req === r.req && t.spec === r.spec && t.method === r.method);
+    if (!row) { problems.push(`トレーサビリティ表に無い: ${rowKey(r)}`); continue; }
+    if (!rule.isTrial(row)) { problems.push(`試走で確かめる行でない: ${rowKey(r)}`); continue; }
+    if (rule.how?.get(`${r.req}|${r.spec}`).startsWith('無し')) problems.push(`測る試走が無い: ${rowKey(r)}`);
   }
   return problems;
 }
@@ -94,9 +89,9 @@ test('検証方法: テスト名の仕様項目 ID の範囲は両端の間の�
 });
 
 // 試走の行は模擬の検証役でも名前の付いたテストが通ってしまうので、テスト名の有無では「完了」を縛れない。
-test('検証方法: 試走で確かめる行は、試走で確かめた行の集合にあるときだけ「完了」で、見分け方の表が指す行は全てトレーサビリティ表にある', () => {
+test('検証方法: 試走と eval で確かめる行は、記録と正解表から計算した集合にあるときだけ「完了」で、見分け方の表が指す行は全てトレーサビリティ表にある', () => {
   const rules = trialRules();
-  assert.deepEqual(rules.map((r) => r.file).sort(), ['bp-authoring.md', 'bp-conformance.md', 'bp-inspection.md']);
+  assert.deepEqual(rules.map((r) => r.file).sort(), ['bp-authoring.md', 'bp-conformance.md', 'bp-entry.md', 'bp-inspection.md']);
   const early = [];
   let trial = 0;
   for (const rule of rules) {
@@ -104,26 +99,27 @@ test('検証方法: 試走で確かめる行は、試走で確かめた行の集
     for (const pair of rule.pairs ?? []) assert.ok(rows.some((r) => `${r.req}|${r.spec}` === pair), `${rule.file}: 試走の表の行がトレーサビリティ表に無い: ${pair}`);
     for (const r of rows.filter(rule.isTrial)) {
       trial += 1;
-      if (r.status === '完了' && !TRIAL_CONFIRMED.has(`${r.file}|${r.req}|${r.spec}`)) early.push(`${r.file}: ${r.req} ${r.spec}`);
+      if (r.status === '完了' && !CONFIRMED.has(rowKey(r))) early.push(`${r.file}: ${r.req} ${r.spec} ${r.method}`);
     }
   }
   assert.ok(trial > 0);
   assert.deepEqual(early, []);
-  assert.deepEqual(confirmedProblems(TRIAL_CONFIRMED, rules), []);
 });
 
-test('検証方法: 試走で確かめた行の集合は、トレーサビリティ表に無い行・試走の行でない行・測る試走が無い行・試走で測れない句を持つ行を受けない', () => {
+test('検証方法: 試走の正解表の全ての行は、トレーサビリティ表にある試走の行で、測る試走が「無し」の行を含まず、runs.json の全ての正解表のファイルがある', () => {
   const rules = trialRules();
+  assert.deepEqual(expectedProblems(TRIAL_ROWS, rules), []);
+  const runs = readRuns(RUNS_FILE);
+  const files = Object.values(runs).flatMap((r) => r.expected);
+  assert.ok(files.length > 0);
+  for (const f of files) assert.ok(statSync(path.join(TRIAL_DIR, f)).isFile(), f);
   const C = 'bp-conformance.md';
   const bad = [
-    `${C}|PR-BPDESIGNEDSKILL-999|SP-BPCONFORMANCE-006`,
-    `${C}|PR-BPDESIGNEDSKILL-017|SP-BPCONFORMANCE-022`,
-    `${C}|PR-BPDESIGNEDSKILL-001|SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004`,
-    `${C}|PR-BPDESIGNEDSKILL-008|SP-BPCONFORMANCE-012, SP-BPCONFORMANCE-027`,
-    `${C}|PR-BPOPERATIONS-025|${EXPECTED_TRIAL.rows.find((r) => r.req === 'PR-BPOPERATIONS-025').spec}`,
+    { file: C, req: 'PR-BPDESIGNEDSKILL-999', spec: 'SP-BPCONFORMANCE-006', method: 'x' },
+    { file: C, req: 'PR-BPDESIGNEDSKILL-017', spec: 'SP-BPCONFORMANCE-022', method: traceRows(C).find((r) => r.req === 'PR-BPDESIGNEDSKILL-017').method },
+    { file: C, req: 'PR-BPDESIGNEDSKILL-001', spec: 'SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-004', method: traceRows(C).find((r) => r.req === 'PR-BPDESIGNEDSKILL-001').method },
   ];
-  assert.equal(confirmedProblems(new Set(bad), rules).length, bad.length);
-  assert.deepEqual(confirmedProblems(new Set([`${C}|PR-BPDESIGNEDSKILL-002|SP-BPCONFORMANCE-006`]), rules), []);
+  assert.equal(expectedProblems(bad, rules).length, bad.length);
 });
 
 test('検証方法: best-practices の仕様書のトレーサビリティ表の全ての行が 4 列で、ステータスが未着手・作成中・完了のどれかである', () => {

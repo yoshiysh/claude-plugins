@@ -1,0 +1,9 @@
+[
+  "description の発火する条件に、「リリースノートの下書きを直したい」という依頼を足す。",
+  "description の発火しない条件に、CHANGELOG.md の自動生成の依頼を足す。",
+  "入力に、対象のリリースのタグ名を足す。ブランチ名に加えてタグ名も受け取り、前のリリースのタグの代わりにこのタグまでの PR を集める。",
+  "出力を、docs/release-notes/<ブランチ名>.md への書き込みから、利用者に返す Markdown の本文に変える。ファイルには書き込まない。",
+  "停止の種類に、利用者が途中で編集を打ち切ったときに、そこまでの下書きを返して止まる停止を足す。",
+  "references/style.md を、文体の規則の references/tone.md と、分類の規則の references/categories.md の 2 つのファイルに分ける。",
+  "scripts/collect.js と、SKILL.md のその Workflow の呼び出しを消す。PR の要約は、ターンの中で 1 件ずつ作る。"
+]

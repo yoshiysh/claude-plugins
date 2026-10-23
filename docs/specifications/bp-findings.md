@@ -324,12 +324,13 @@ run をまたいで指摘の状態を追うかの裁定が下るまで、create 
 review・audit の `ledger` は、`docs/specifications/bp-run.md` の SP-BPRUN-031 の `report` の操作の出力のうち、指摘の一覧を除いた欄（カバレッジ・skip 一覧・資産の結末・未反証の候補・拒否された結果）を同じ形で持つ。指摘の一覧を `ledger` の外の `findings` に置くのは、4 機能の返り値で同じ鍵から指摘を取り、update の修正の根拠にそのまま渡せるようにするため（`docs/specifications/bp-entry.md` の SP-BPENTRY-009）。create・update の綴りは `docs/specifications/bp-authoring.md` の SP-BPAUTHORING-032〜SP-BPAUTHORING-034 が定める。
 
 #### SP-BPFINDINGS-031 修正の根拠の形
-update が受け取る修正の根拠は、次のどちらかの形でなければならない（PR-BPOPERATIONS-015）。前の機能の結果を update に渡すとき（PR-BPOPERATIONS-038）、渡す側は結果の指摘の一覧を SP-BPFINDINGS-029 の形のまま渡さなければならない。
+update が受け取る修正の根拠は、次のどれかの形でなければならない（PR-BPOPERATIONS-015）。前の機能の結果を update に渡すとき（PR-BPOPERATIONS-038）、渡す側は結果の指摘の一覧を SP-BPFINDINGS-029 の形のまま渡さなければならない。入口の連鎖は、前の run の参照の形で渡す（入口が指摘を書き写すと、同じバイト列を保てない：`docs/specifications/bp-entry.md` の SP-BPENTRY-010）。
 
 | 修正の根拠 | 形 |
 |---|---|
 | review・audit の指摘 | SP-BPFINDINGS-029 の項目。update が修正の根拠として扱うのは、状態が open の指摘だけとする（dismissed は反証で退けられた指摘である） |
 | 利用者の修正の指示 | 種別「利用者の指示」と、指示の文言をそのまま。資産 ID・観点・指摘の種類・状態を持たない |
+| 前の review・audit の run の参照 | `{"from": <状態 ID>}` だけを持つ。指す状態は、完了で止まった review・audit の状態で、対象スキルの根が update と同じでなければならない。CLI の開始の操作が、その状態の返り値の指摘の一覧（SP-BPFINDINGS-029 の形。返り値を作るのと同じ処理で作る）に展開し、並びのその位置に 1 件ずつ修正の根拠として記録する。展開した指摘のうち update が扱うのは、上の「review・audit の指摘」の行と同じく open の指摘だけとする |
 
 #### SP-BPFINDINGS-032 create と update の完了時に返す指摘
 create と update が完了したとき、create と update は、SP-BPFINDINGS-030 の項目のうち、指摘の一覧（自分の台帳の指摘ごとの状態）と skip 一覧を、`docs/specifications/bp-authoring.md` が定める完了時の出力に含めなければならない（PR-BPOPERATIONS-045・046）。
@@ -435,7 +436,7 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-004 | CLI の単体テスト（1 字だけ変えた節の内容の指紋が変わり、他の節の指紋が変わらないことを確認） | 完了 |
 | PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | CLI の単体テスト（変更・追加・削除・不変の資産を 1 つずつ含む書き換えの後に列挙し直し、表の 4 行どおりの記録を確認） | 完了 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-006 | CLI の単体テスト（agent が台帳に無い資産 ID を返したとき記録が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-033 | SP-BPFINDINGS-007 | script の結合テスト（3 種の判定を返す偽の検証役で、各資産の判定が台帳に入ることを確認） | 作成中 |
+| PR-BPOPERATIONS-033 | SP-BPFINDINGS-007 | script の結合テスト（3 種の判定を返す偽の検証役で、各資産の判定が台帳に入ることを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-008 | CLI の単体テスト（指摘も問題なしも返さない「判断できない」の資産にも「見た」が記録されることを確認） | 完了 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-008 | CLI の単体テスト（「見た」の記録が反証の結果を待たずに入ることを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-009 | CLI の単体テスト（「確認済みで問題なし」が観点と担当の指紋の組とともに記録されることを確認） | 完了 |
@@ -445,7 +446,7 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-012 | script の結合テスト（同じ担当を 2 体が見て同じ鍵の候補を返したとき、反証役の起動が 1 回で、その結果が 2 件の候補の両方に記録されることを計数） | 作成中 |
 | PR-BPOPERATIONS-044 | SP-BPFINDINGS-036 | CLI の単体テスト（引用と内容の文言だけが違う同じ鍵の候補 2 件が同じ指摘になり、観点だけが違う 2 件が別の指摘 ID になることを確認） | 完了 |
 | PR-BPOPERATIONS-033 | SP-BPFINDINGS-010 | CLI の単体テスト（同じ資産に、同じ仕様項目の原則の表の別の行の違反を 2 件記録し、別の指摘になることを確認） | 完了 |
-| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | script の結合テスト（全ての重複でない候補が、それを返した検証役と別の反証役に渡ることを確認） | 作成中 |
+| PR-BPOPERATIONS-031 | SP-BPFINDINGS-013 | script の結合テスト（全ての重複でない候補が、それを返した検証役と別の反証役に渡ることを確認） | 完了 |
 | PR-BPOPERATIONS-031 | SP-BPFINDINGS-014 | CLI の単体テスト（表の 4 行の入力を与え、記録を確認） | 完了 |
 | PR-BPOPERATIONS-032 | SP-BPFINDINGS-014 | CLI の単体テスト（維持の候補が open、却下の候補が dismissed になることを確認） | 完了 |
 | PR-BPOPERATIONS-043 | SP-BPFINDINGS-014 | CLI の単体テスト（dismissed の指摘に却下の理由が記録されることを確認） | 完了 |
@@ -468,7 +469,7 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-025 | script の結合テスト（追加の起動の担当に skip 一覧の資産だけが含まれることを確認） | 完了 |
 | PR-BPOPERATIONS-034 | SP-BPFINDINGS-026 | script の結合テスト（起動数の上限で止まった review を再開し、前の run の「見た」と指摘が再開後の結果に載ることを確認） | 完了 |
 | PR-BPOPERATIONS-022 | SP-BPFINDINGS-026 | CLI の単体テスト（別の状態の台帳の指摘 ID を指定した状態の記録が拒否されることを確認） | 完了 |
-| PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | script の結合テスト（停止の間に対象スキルの節を 1 つ書き換えて再開し、その節の資産が skip 一覧に戻ることを確認） | 作成中 |
+| PR-BPOPERATIONS-021 | SP-BPFINDINGS-005 | script の結合テスト（停止の間に対象スキルの節を 1 つ書き換えて再開し、その節の資産が skip 一覧に戻ることを確認） | 完了 |
 | PR-BPOPERATIONS-022 | SP-BPFINDINGS-027 | script の結合テスト（review の open の指摘を update に渡し、update の台帳にその指摘が記録されず、update の台帳の指摘が update の検証役の候補だけから作られることと、同じ資産・同じ指摘の種類の update の指摘の ID が update の台帳 ID から作られ、前の機能の台帳 ID から同じ鍵で作る ID と違うことを確認。観点は機能ごとに違うので、指摘の鍵そのものは機能をまたいで同じにならない） | 完了 |
 | PR-BPOPERATIONS-042 | SP-BPFINDINGS-028 | script の結合テスト（update の結果で、受け取った指摘に状態が付かず指摘 ID だけが載り、状態の付いた指摘が全て update の台帳 ID と今の run の記録を持つことを確認） | 完了 |
 | PR-BPOPERATIONS-042 | SP-BPFINDINGS-028 | script の結合テスト（再開した update の結果で、前の run が最後の状態を記録した指摘に状態が載らず、記録した run と見直しの判定が載ることを確認） | 完了 |
@@ -480,6 +481,7 @@ E1・E2 は台帳に無い鍵の候補についてのイベントで、台帳に
 | PR-BPOPERATIONS-036 | SP-BPFINDINGS-031 | script の結合テスト（open と dismissed の指摘を含む review の結果を update に渡し、open の指摘だけが修正の根拠になることを確認） | 完了 |
 | PR-BPOPERATIONS-038 | SP-BPFINDINGS-031 | script の結合テスト（review → update の連鎖で、update に渡る指摘が SP-BPFINDINGS-029 の項目を全て持つことを確認） | 完了 |
 | PR-BPOPERATIONS-015 | SP-BPFINDINGS-031 | script の結合テスト（利用者の指示だけを修正の根拠として渡し、資産 ID の無い根拠が受け付けられることを確認） | 完了 |
+| PR-BPOPERATIONS-038 | SP-BPFINDINGS-031 | script の結合テスト（前の review・audit の参照の形で渡した修正の根拠が、その状態の返り値の指摘の一覧とバイト列で同じに記録され、参照の誤り（完了していない・review と audit でない・別の対象スキル・余分な欄）で開始の操作が拒否することを確認） | 完了 |
 | PR-BPOPERATIONS-045 | SP-BPFINDINGS-032 | script の結合テスト（update の完了時の出力に、台帳の指摘ごとの状態が全て載ることを確認） | 完了 |
 | PR-BPOPERATIONS-046 | SP-BPFINDINGS-032 | script の結合テスト（create の完了時の出力に skip 一覧が載ることを確認） | 完了 |
 | PR-BPOPERATIONS-035 | SP-BPFINDINGS-033 | CLI の単体テスト（ファイルが 0 件の対象スキルで台帳の作成が理由つきで失敗することを確認） | 完了 |

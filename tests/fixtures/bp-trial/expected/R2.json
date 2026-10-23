@@ -1,0 +1,30 @@
+{
+  "rows": [
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-024",
+      "spec": "SP-BPINSPECTION-007",
+      "method": "fixture（SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認）",
+      "checks": [
+        {
+          "clause": "SP-BPCONFORMANCE-003 の判定表の行ごとの違反を仕込み、指摘の種類がその仕様項目 ID になることを確認",
+          "by": "injections",
+          "viewpoint": "flow"
+        }
+      ]
+    },
+    {
+      "file": "bp-inspection.md",
+      "req": "PR-BPOPERATIONS-025",
+      "spec": "SP-BPINSPECTION-008",
+      "method": "fixture（同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認）と静的な照合（仕様の観点の prompt に章の値が無いことを確認）",
+      "checks": [
+        {
+          "clause": "同時実行の定数を 4 にした対象スキルで、指摘の種類が SP-BPCONFORMANCE-027 になることを確認",
+          "by": "injections",
+          "sp": "SP-BPCONFORMANCE-027"
+        }
+      ]
+    }
+  ]
+}
