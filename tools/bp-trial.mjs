@@ -2,11 +2,12 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { main as cli } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp-state.mjs';
 import {
-  CRITERIA_CHAPTERS, CRITERIA_DIR, CRITERIA_FILES, INSPECTING_FUNCTIONS, PROMPT_AUDIT_FILE, STAGE, STATES_DIR, WORKFLOW_SOURCES,
+  CRITERIA_CHAPTERS, CRITERIA_DIR, INSPECTING_FUNCTIONS, PROMPT_AUDIT_FILE, STAGE, STATES_DIR, WORKFLOW_SOURCES,
 } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { sum } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 import { readAll } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/journal.mjs';
@@ -27,10 +28,12 @@ const WORK_DIR_NAME = '.bp-trial';
 export const EVAL_FUNCTION = 'eval';
 const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
-// 検証役は写しの全文を読み、CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作るので、どちらも run の判定に使う。
-// 指紋から除くのは、トレーサビリティ表のステータスの列だけ（試走の記録からステータスを書き換えるたびに、その証拠の記録を古くしないため）。
+// 検証役は写しの全文を読み（bp-conformance が委ねる文書も開く）、CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作るので、
+// 写しの全てのファイルの全文を run の判定に使う。指紋から除くのは、トレーサビリティ表のステータスの値だけ（試走の記録からステータスを
+// 書き換えるたびに、その証拠の記録を古くしないため）。値でない文に書き換えたセルは指紋に入る。
 const TRACE_CHAPTER = CRITERIA_CHAPTERS.others.find((c) => c === 'トレーサビリティ表');
 if (!TRACE_CHAPTER) throw new Error('トレーサビリティ表の章が判定基準の章の閉集合に無い');
+const STATUS_VALUES = Object.freeze(['未着手', '作成中', '完了']);
 // 入口の操作のモジュールは run の中の script から呼ばれない（script の操作の写しは OPS だけを持つ）。runner の request の実測値を書き戻しても記録を古くしない。
 const UNFINGERPRINTED_CLI = Object.freeze(['ops-entry.mjs']);
 
@@ -43,10 +46,8 @@ export function criteriaBody(text) {
   return text.split('\n').map((line) => {
     const h2 = /^## (.+?)\s*$/.exec(line);
     if (h2) trace = h2[1] === TRACE_CHAPTER;
-    if (!trace || !/^\|.*\|\s*$/.test(line) || /^\|[\s:|-]+\|\s*$/.test(line)) return line;
-    const cells = line.replace(/\|\s*$/, '').split(/(?<!\\)\|/);
-    if (cells.length < 5) return line;
-    return `${cells.slice(0, -1).join('|')}| |`;
+    const m = trace ? /^(\|.*\|) ([^|]+?) \|\s*$/.exec(line) : null;
+    return m && STATUS_VALUES.includes(m[2]) ? `${m[1]} |` : line;
   }).join('\n');
 }
 
@@ -89,7 +90,7 @@ export function fingerprint(skillDir = SKILL_DIR, { entry = false } = {}) {
     scripts: scriptsOf(skillDir),
     cli: cliFiles(skillDir),
     promptAudit: sha(readFileSync(path.join(skillDir, PROMPT_AUDIT_FILE))),
-    criteria: Object.fromEntries(Object.entries(CRITERIA_FILES).map(([k, parts]) => [k, sha(criteriaBody(readFileSync(path.join(criteria, ...parts), 'utf8')))])),
+    criteria: Object.fromEntries(walkFiles(criteria).sort().map((rel) => [rel, sha(criteriaBody(readFileSync(path.join(criteria, rel), 'utf8')))])),
   };
 }
 
@@ -303,10 +304,67 @@ function startedAt(stateId) {
   return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : null;
 }
 
-export async function record(name, stateId, { cwd = process.cwd(), env = process.env, recordsDir = RECORDS_DIR } = {}) {
+// Claude Code の native Workflow は、run ごとに <設定のディレクトリ>/projects/<project>/<session>/workflows/<runId>.json へ、
+// 渡した args・script の本文・返り値・agent の数を書く。記録はこれを実行の側の証拠として、状態の run の key ごとに 1 つずつ持つ。
+// 模擬の backend の run はこのファイルを残さないので、証拠を見つけられずに記録を書かない（ファイルそのものの偽造は防げない）。
+export function workflowRunFiles(configDir) {
+  const projects = path.join(configDir, 'projects');
+  if (!existsSync(projects)) return [];
+  const out = [];
+  for (const project of readdirSync(projects)) {
+    const pdir = path.join(projects, project);
+    if (!statSync(pdir).isDirectory()) continue;
+    for (const session of readdirSync(pdir)) {
+      const wdir = path.join(pdir, session, 'workflows');
+      if (!existsSync(wdir)) continue;
+      for (const f of readdirSync(wdir).filter((n) => n.endsWith('.json'))) out.push(path.join(wdir, f));
+    }
+  }
+  return out;
+}
+
+function roleOfFunction(fn) {
+  return fn === 'create' || fn === 'update' ? 'author' : 'inspect';
+}
+
+export function workflowEvidence(view, stateId, configDir) {
+  const files = workflowRunFiles(configDir).map((file) => {
+    const bytes = readFileSync(file);
+    try {
+      return { file, sha: sha(bytes), json: JSON.parse(bytes.toString('utf8')) };
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+  return view.runs.map((r) => {
+    const hits = files.filter((f) => f.json?.args?.key === r.key);
+    if (hits.length !== 1) throw new Error(`run ${r.id} の key ${r.key} の Workflow の実行の記録が ${hits.length} 件（1 件でなければならない。模擬の backend の run は記録を残さない）: ${path.join(configDir, 'projects')}`);
+    const { file, sha: fileSha, json } = hits[0];
+    if (typeof json.script !== 'string') throw new Error(`Workflow の実行の記録に script の本文が無い: ${file}`);
+    const resultState = json.result?.state ?? null;
+    if (resultState !== null && resultState !== stateId) throw new Error(`Workflow の実行の記録の返り値の状態 ${resultState} が ${stateId} と違う: ${file}`);
+    return {
+      key: r.key, runId: json.runId ?? null, file, fileSha, scriptPath: json.scriptPath ?? null, scriptSha: sha(json.script),
+      status: json.status ?? null, agentCount: json.agentCount ?? null, durationMs: json.durationMs ?? null, totalTokens: json.totalTokens ?? null, resultState,
+    };
+  });
+}
+
+// 記録が照らせるのは、状態・Workflow の実行の記録・script の本文の整合まで。ファイルを書き換えた偽造は区別できないので、記録の出所は記録を足す PR の人間のレビューが保証する。
+export function evidenceProblems(rec, current) {
+  const ev = rec.evidence;
+  if (!Array.isArray(ev) || ev.length === 0) return ['本物の Workflow の実行の証拠が無い'];
+  const problems = [];
+  if (ev[0].key !== rec.source?.key) problems.push('最初の Workflow の実行の key が状態の key と違う');
+  const want = current.scripts[roleOfFunction(rec.function)];
+  if (ev.some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
+  if (ev.some((e) => e.resultState !== null && e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
+  return problems;
+}
+
+export async function writeRecord(name, stateId, { top, env = process.env, recordsDir = RECORDS_DIR, configDir = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude') }) {
   const def = readRuns()[name];
   if (!def) throw new Error(`run が runs.json に無い: ${name}`);
-  const top = toplevel(cwd);
   const skillDir = path.join(top, SKILL_REL);
   const ctx = { cwd: top, env };
   const dir = path.join(resolveStateRoot(ctx), STATES_DIR, stateId);
@@ -315,6 +373,10 @@ export async function record(name, stateId, { cwd = process.cwd(), env = process
   const source = sourceOfState(view);
   const refused = sourceProblems(source, expectedSource(name, readRuns(), def.from ? recordOf(def.from, recordsDir).state : null));
   if (refused.length) throw new Error(`${name} の記録を書かない: ${refused.join('。')}`);
+  const evidence = workflowEvidence(view, stateId, configDir);
+  const current = fingerprint(skillDir, { entry: def.function === EVAL_FUNCTION });
+  const stale = evidenceProblems({ function: def.function, state: stateId, source, evidence }, current);
+  if (stale.length) throw new Error(`${name} の記録を書かない: ${stale.join('。')}`);
   const result = await call('outcome', { state: stateId }, ctx);
   const started = startedAt(stateId);
   const out = {
@@ -323,10 +385,11 @@ export async function record(name, stateId, { cwd = process.cwd(), env = process
     state: stateId,
     target: view.paths[0].root,
     source,
+    evidence,
     result,
     launches: launchesOf(view, path.join(skillDir, CRITERIA_DIR)),
     durationMs: started === null ? null : statSync(path.join(dir, 'log.jsonl')).mtimeMs - started,
-    fingerprint: fingerprint(skillDir, { entry: def.function === EVAL_FUNCTION }),
+    fingerprint: current,
   };
   mkdirSync(recordsDir, { recursive: true });
   writeFileSync(path.join(recordsDir, `${name}.json`), `${JSON.stringify(out, null, 2)}\n`);
@@ -334,6 +397,10 @@ export async function record(name, stateId, { cwd = process.cwd(), env = process
     cpSync(result.skill.root, path.join(recordsDir, `${name}-output`), { recursive: true });
   }
   return out;
+}
+
+export async function record(name, stateId, { cwd = process.cwd(), ...rest } = {}) {
+  return writeRecord(name, stateId, { top: toplevel(cwd), ...rest });
 }
 
 export async function main(argv) {

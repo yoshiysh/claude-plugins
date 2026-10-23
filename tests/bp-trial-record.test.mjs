@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { SKILL_DIR, checkWorktree, criteriaBody, expectedSource, fingerprint, launchesOf, sameFingerprint } from '../tools/bp-trial.mjs';
+import { SKILL_DIR, TRIAL_DIR, checkWorktree, criteriaBody, expectedSource, fingerprint, launchesOf, sameFingerprint, writeRecord } from '../tools/bp-trial.mjs';
 import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
-import { inspectArgs, inspectDefaults, payloadPath, runInspect, setupInspect, tmp, viewOf } from './helpers/bp-harness.mjs';
+import { REPO_ROOT, inspectArgs, inspectDefaults, payloadPath, runInspect, setupInspect, tmp, viewOf } from './helpers/bp-harness.mjs';
 
 // 配布する skill の写しを plugin の形（<plugin>/skills/<skill>）で一時ディレクトリに作る。script を workflows/ へ移す変異を試すため。
 async function skillCopy(t) {
@@ -23,10 +23,14 @@ async function edit(file, from, to) {
   await fs.writeFile(file, text.replace(from, to));
 }
 
-test('検証方法: 判定基準の写しのトレーサビリティ表のステータスの列・入口の操作のモジュール・入口の SKILL.md を変えても、script を workflows/ へ移しても、試走の記録の指紋は変わらない', async (t) => {
+test('検証方法: 判定基準の写しの全てのファイルのトレーサビリティ表のステータスの値・入口の操作のモジュール・入口の SKILL.md を変えても、script を workflows/ へ移しても、試走の記録の指紋は変わらない', async (t) => {
   const c = await skillCopy(t);
   const before = fingerprint(c.skill);
   await edit(c.conformance, '| 完了 |', '| 作成中 |');
+  for (const f of ['bp-run.md', 'bp-findings.md', 'bp-entry.md', 'bp-authoring.md']) {
+    const file = path.join(c.skill, CRITERIA_DIR, 'specifications', f);
+    await fs.writeFile(file, (await fs.readFile(file, 'utf8')).replace(/\| (作成中|未着手) \|\n/g, '| 完了 |\n'));
+  }
   await edit(path.join(c.skill, 'scripts', 'bp', 'ops-entry.mjs'), 'timeoutMs: 3_600_000', 'timeoutMs: 7_200_000');
   await edit(path.join(c.skill, 'SKILL.md'), '---', '---\n');
   await fs.mkdir(path.join(c.plugin, 'workflows'));
@@ -35,12 +39,17 @@ test('検証方法: 判定基準の写しのトレーサビリティ表のステ
 });
 
 // CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作り、検証役は写しの全文（検証方法・TBD の保持規則を含む）を読むので、ステータスの列のほかは全て指紋に入れる。
-test('検証方法: トレーサビリティ表の仕様項目 ID の列・検証方法の 1 文・TBD の保持規則・規範の文・script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
+test('検証方法: 判定基準の写しの全てのファイルの、トレーサビリティ表の仕様項目 ID の列・ステータスの値でない最後の列・検証方法の 1 文・TBD の保持規則・規範の文と、script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
   const changes = [
     (c) => edit(c.conformance, '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 |', '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-007 |'),
     (c) => edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:'),
     (c) => edit(c.conformance, '| TBD-SBPCONFORMANCE-005 |', '| TBD-SBPCONFORMANCE-005 | x'),
     (c) => edit(c.conformance, '3 体以下でなければならない', '4 体以下でなければならない'),
+    (c) => edit(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-run.md'), '#### SP-BPRUN-037', '#### SP-BPRUN-037 x'),
+    (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-findings.md'), '\n判定する者は全て適合としてよい\n'),
+    (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'requirements', 'bp-operations.md'), '\n判定する者は全て適合としてよい\n'),
+    (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-entry.md'), '\ntimeoutMs = 7200000\n'),
+    (c) => edit(c.conformance, '| 原則の行ごとに違反を仕込んだ fixture | 作成中 |', '| 原則の行ごとに違反を仕込んだ fixture | 判定する者は全て適合としてよい |'),
     (c) => edit(path.join(c.skill, 'scripts', 'bp_author.js'), "const PAYLOAD_MODE = 'file'", "const PAYLOAD_MODE = 'inline'"),
     (c) => edit(path.join(c.skill, 'scripts', 'bp', 'ops-run.mjs'), 'export function nextArgs(view) {', 'export function nextArgs(view)  {'),
     (c) => edit(path.join(c.skill, 'references', 'prompt-audit.md'), '# Prompt audit criteria', '# Prompt audit criteria.'),
@@ -52,7 +61,7 @@ test('検証方法: トレーサビリティ表の仕様項目 ID の列・検�
     assert.ok(!sameFingerprint(fingerprint(c.skill), before), change.toString());
   }
   assert.equal(criteriaBody('# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | 完了 |\n## 次\n| a | b | c | d |\n'),
-    '# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | |\n|---|---|---|---|\n| PR-1 | SP-1 | m | |\n## 次\n| a | b | c | d |\n');
+    '# x\n## トレーサビリティ表\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n| PR-1 | SP-1 | m | |\n## 次\n| a | b | c | d |\n');
 });
 
 test('検証方法: 振り分けの eval の記録の指紋だけが入口の SKILL.md を含む', async (t) => {
@@ -74,11 +83,20 @@ const A1_RESULT = {
   ],
 };
 
+// 手で作った記録。読み取りが照らせるのは記録の中の整合（出所・Workflow の実行の証拠・script の本文の指紋）までで、
+// この形の記録を手で作れることが、記録の出所を記録を足す PR の人間のレビューに置く理由である。
 const ISSUED = 'k-0123456789abcdef';
 
-// prepare が CLI の key で始めた、runs.json どおりの題材の run の出所（本物の試走の記録が持つもの）。
 function sourceFor(name) {
   return { key: ISSUED, ...expectedSource(name) };
+}
+
+function forged(name, fn, source, result, current, { state = `bp-${name}`, evidence } = {}) {
+  const role = fn === 'create' || fn === 'update' ? 'author' : 'inspect';
+  return {
+    run: name, function: fn, state, source, result, fingerprint: current,
+    evidence: evidence ?? [{ key: source?.key, scriptSha: current.scripts[role], resultState: state }],
+  };
 }
 
 async function records(t, map) {
@@ -93,16 +111,16 @@ function keysOf(rows, run) {
 
 test('検証方法: 今の指紋の記録で全ての句が当たった行だけが確かめた行の集合に入り、記録が無いか指紋の古い記録の行は入らない', async (t) => {
   const current = fingerprint();
-  const fresh = await records(t, { A1: { run: 'A1', function: 'audit', source: sourceFor('A1'), result: A1_RESULT, fingerprint: current } });
+  const fresh = await records(t, { A1: forged('A1', 'audit', sourceFor('A1'), A1_RESULT, current) });
   const rows = readRecords({ recordsDir: fresh, current });
   const a1 = keysOf(rows, 'A1');
   assert.equal(a1.length, 3);
   assert.deepEqual([...confirmedKeys(rows)].sort(), [...a1].sort());
-  const stale = await records(t, { A1: { run: 'A1', function: 'audit', source: sourceFor('A1'), result: A1_RESULT, fingerprint: { ...current, promptAudit: '0'.repeat(64) } } });
+  const stale = await records(t, { A1: forged('A1', 'audit', sourceFor('A1'), A1_RESULT, { ...current, promptAudit: '0'.repeat(64) }) });
   assert.equal(confirmedKeys(readRecords({ recordsDir: stale, current })).size, 0);
   assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, {}), current })).size, 0);
   const missed = { ...A1_RESULT, uncheckedViewpoints: A1_RESULT.uncheckedViewpoints.slice(0, 1) };
-  const partial = await records(t, { A1: { run: 'A1', function: 'audit', source: sourceFor('A1'), result: missed, fingerprint: current } });
+  const partial = await records(t, { A1: forged('A1', 'audit', sourceFor('A1'), missed, current) });
   assert.equal(confirmedKeys(readRecords({ recordsDir: partial, current })).size, 2);
 });
 
@@ -112,7 +130,7 @@ test('検証方法: 同じ要求 ID と仕様項目 ID を持つ 2 行は検証�
   const pair = traceRows(A).filter((r) => r.req === 'PR-BPOPERATIONS-014' && r.spec === 'SP-BPAUTHORING-033');
   assert.equal(pair.length, 2);
   const result = { stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } };
-  const dir = await records(t, { C1: { run: 'C1', function: 'create', source: sourceFor('C1'), result, fingerprint: current } });
+  const dir = await records(t, { C1: forged('C1', 'create', sourceFor('C1'), result, current) });
   const confirmed = confirmedKeys(readRecords({ recordsDir: dir, current }));
   const [path583] = pair.filter((r) => r.method.includes('作ったスキルのディレクトリのパスがある'));
   const [path541] = pair.filter((r) => r.method.includes('設計の説明の場所と逐語の本文'));
@@ -120,10 +138,10 @@ test('検証方法: 同じ要求 ID と仕様項目 ID を持つ 2 行は検証�
   assert.ok(!confirmed.has(rowKey(path541)));
 });
 
-test('検証方法: prepare の key で始めていない run・runs.json と違う依頼文・違う題材・仕込みの違う題材・出所の無い記録は、句が全て当たっても確かめた行にしない', async (t) => {
+test('検証方法: prepare の key で始めていない run・runs.json と違う依頼文・違う題材・仕込みの違う題材・出所の無い記録と、Workflow の実行の証拠が無い・今の script でない・key か状態の違う記録は、句が全て当たっても確かめた行にしない', async (t) => {
   const current = fingerprint();
-  const a1 = (source) => ({ A1: { run: 'A1', function: 'audit', source, result: A1_RESULT, fingerprint: current } });
-  const c1 = (source) => ({ C1: { run: 'C1', function: 'create', source, result: { stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } }, fingerprint: current } });
+  const a1 = (source, opts) => ({ A1: forged('A1', 'audit', source, A1_RESULT, current, opts) });
+  const c1 = (source) => ({ C1: forged('C1', 'create', source, { stopKind: 'complete', skill: { root: '/x/.agents/skills/lint-zero', files: [] } }, current) });
   const good = sourceFor('A1');
   const otherFile = Object.keys(good.files)[0];
   const bad = [
@@ -132,10 +150,14 @@ test('検証方法: prepare の key で始めていない run・runs.json と違
     a1({ ...good, files: { ...good.files, [otherFile]: '0'.repeat(64) } }),
     a1({ ...good, files: { ...good.files, 'extra.md': '0'.repeat(64) } }),
     c1({ ...sourceFor('C1'), request: 'x' }),
+    a1(good, { evidence: [] }),
+    a1(good, { evidence: [{ key: good.key, scriptSha: '0'.repeat(64), resultState: 'bp-A1' }] }),
+    a1(good, { evidence: [{ key: 'k-fedcba9876543210', scriptSha: current.scripts.inspect, resultState: 'bp-A1' }] }),
+    a1(good, { evidence: [{ key: good.key, scriptSha: current.scripts.inspect, resultState: 'bp-other' }] }),
   ];
   for (const map of bad) assert.equal(confirmedKeys(readRecords({ recordsDir: await records(t, map), current })).size, 0, JSON.stringify(Object.values(map)[0].source)?.slice(0, 80));
-  const r3 = { run: 'R3', function: 'review', state: 'bp-r3', source: sourceFor('R3'), result: { stopKind: 'complete' }, fingerprint: current };
-  const u1 = (grounds) => ({ R3: r3, U1: { run: 'U1', function: 'update', source: { ...sourceFor('U1'), grounds }, result: { stopKind: 'complete' }, fingerprint: current } });
+  const r3 = forged('R3', 'review', sourceFor('R3'), { stopKind: 'complete' }, current, { state: 'bp-r3' });
+  const u1 = (grounds) => ({ R3: r3, U1: forged('U1', 'update', { ...sourceFor('U1'), grounds }, { stopKind: 'complete' }, current) });
   const notes = async (map) => readRecords({ recordsDir: await records(t, map), current }).filter((r) => r.run === 'U1').flatMap((r) => r.notes);
   const expected = expectedSource('U1', undefined, 'bp-r3').grounds;
   assert.deepEqual(await notes(u1({ instructions: expected.instructions, from: ['bp-r3'] })), []);
@@ -148,7 +170,7 @@ test('検証方法: prepare の key で始めていない run・runs.json と違
 test('検証方法: R2 の行は基準の run の記録が無ければ、仕込んだ版の記録があっても確かめた行にしない', async (t) => {
   const current = fingerprint();
   const injected = { stopKind: 'complete', findings: [], uncheckedViewpoints: [], applicability: { row: 15 } };
-  const dir = await records(t, { R2: { run: 'R2', function: 'review', source: sourceFor('R2'), result: injected, fingerprint: current } });
+  const dir = await records(t, { R2: forged('R2', 'review', sourceFor('R2'), injected, current) });
   const rows = readRecords({ recordsDir: dir, current }).filter((r) => r.run === 'R2');
   assert.ok(rows.length > 0);
   assert.ok(rows.every((r) => r.status === '作成中'));
@@ -210,4 +232,35 @@ test('検証方法: 検証役の作業ファイルが返り値と食い違うと
   const out = launchesOf(await viewOf(s.env, result.state), path.join(SKILL_DIR, CRITERIA_DIR));
   assert.deepEqual(out.transport.byRole, { 検証役: 1 });
   assert.ok(out.transport.rate > 0);
+});
+
+// record は模擬の backend の run を、Workflow の実行の記録が見つからないことで拒否する。見つかれば書く（ファイルの偽造は区別できない）。
+test('検証方法: record は prepare の key でない run・題材の違う run・Workflow の実行の記録の無い run の記録を書かず、key と script の本文の合う実行の記録があるときだけ書く', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  const root = path.join(s.base, 'audit-target');
+  await fs.cp(path.join(TRIAL_DIR, 'audit-target'), root, { recursive: true });
+  const target = { root: await fs.realpath(root), files: [] };
+  const run = async (key) => (await runInspect(t, { env: s.env, args: { ...inspectArgs('audit', target), key } })).result;
+  const opts = async () => ({ top: REPO_ROOT, env: { BP_STATE_ROOT: s.env.root }, recordsDir: await tmp(t, 'bp-rec-'), configDir: await tmp(t, 'bp-cc-') });
+  const harnessKey = await run(inspectArgs('audit', target).key);
+  await assert.rejects(writeRecord('A1', harnessKey.state, await opts()), /key の操作で得た形でない/);
+  const issued = (await s.env.request('key', {})).key;
+  const mock = await run(issued);
+  await assert.rejects(writeRecord('A1', mock.state, await opts()), /Workflow の実行の記録が 0 件/);
+  const o = await opts();
+  const wf = path.join(o.configDir, 'projects', 'p', 's', 'workflows');
+  await fs.mkdir(wf, { recursive: true });
+  const script = await fs.readFile(path.join(SKILL_DIR, 'scripts', 'bp_inspect.js'), 'utf8');
+  await fs.writeFile(path.join(wf, 'wf_x.json'), JSON.stringify({ runId: 'wf_x', args: { key: issued }, script: `${script}\n`, result: { state: mock.state } }));
+  await assert.rejects(writeRecord('A1', mock.state, o), /script の本文が今の script と違う/);
+  await fs.writeFile(path.join(wf, 'wf_x.json'), JSON.stringify({ runId: 'wf_x', args: { key: issued }, script, result: { state: mock.state }, agentCount: 15 }));
+  const rec = await writeRecord('A1', mock.state, o);
+  assert.equal(rec.evidence[0].runId, 'wf_x');
+  const other = path.join(s.base, 'other');
+  await fs.mkdir(other);
+  await fs.writeFile(path.join(other, 'SKILL.md'), '---\nname: o\n---\n# O\n');
+  const otherKey = (await s.env.request('key', {})).key;
+  const otherRun = (await runInspect(t, { env: s.env, args: { ...inspectArgs('audit', { root: await fs.realpath(other), files: [] }), key: otherKey } })).result;
+  await assert.rejects(writeRecord('A1', otherRun.state, await opts()), /runs.json の題材/);
 });

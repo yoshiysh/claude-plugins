@@ -7,7 +7,7 @@ import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best
 import { flowUnits } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/kinds.mjs';
 import { applicability, forcedReason, forcedSources } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/units.mjs';
 import {
-  EVAL_FUNCTION, EXPECTED_FILE, RECORDS_DIR, RUNS_FILE, TRIAL_DIR, applyInjections, belongs, expectedSource, fingerprint, injectUnits, readRuns, sameFingerprint, sourceProblems,
+  EVAL_FUNCTION, EXPECTED_FILE, RECORDS_DIR, RUNS_FILE, TRIAL_DIR, applyInjections, belongs, evidenceProblems, expectedSource, fingerprint, injectUnits, readRuns, sameFingerprint, sourceProblems,
 } from './bp-trial.mjs';
 
 export { EXPECTED_FILE, belongs, injectUnits };
@@ -241,6 +241,8 @@ function recordProblems(name, rec, current, runs, records) {
   if (rec.function !== def.function) return [`${name} の記録の機能 ${rec.function} が ${def.function} と違う`];
   if (!sameFingerprint(rec.fingerprint, current)) return [`${name} の記録の指紋が今の script・CLI・prompt-audit・判定基準の写しと違う（走らせ直すまで完了にしない）`];
   if (def.from && !records[def.from]) return [`${name} が参照する ${def.from} の記録が無い`];
+  const evidence = evidenceProblems(rec, current).map((p) => `${name}: ${p}`);
+  if (evidence.length) return evidence;
   return sourceProblems(rec.source, expectedSource(name, runs, def.from ? records[def.from].state : null)).map((p) => `${name}: ${p}`);
 }
 

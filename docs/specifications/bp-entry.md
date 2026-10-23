@@ -202,9 +202,9 @@ Codex runner の経路で、callsite は request に次を書かなければな�
 | request の項目 | 書くもの |
 |---|---|
 | `limits.maxAgents` | 省略してはならない。値は runner が受ける上限の 1000 とする（native の run は上限を持たないので、上限の役目は runner に収めることだけである：SP-BPENTRY-015） |
-| `limits.timeoutMs` | 省略してはならない。値は TBD-SBPENTRY-001 |
+| `limits.timeoutMs` | 省略してはならない（runner の既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。値は公開前の本物の agent での試走の記録の最長の run の所要時間の 2 倍を時間の単位で切り上げた値とし、入口の操作のモジュールの定数（`docs/specifications/bp-run.md` の SP-BPRUN-031）にだけ置く。試走の記録が無い間は、旧 caller の先例の値を置く |
 | `limits.concurrency` | SP-BPCONFORMANCE-027 の値（runner の既定の 2 に任せると、script の同時実行の定数が runner で絞られる） |
-| `limits.agentTimeoutMs` | 値は TBD-SBPENTRY-001。決まるまで省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
+| `limits.agentTimeoutMs` | 試走の記録の最長の 1 体の所要時間の 2 倍を、`limits.timeoutMs` と同じ定数にだけ置く。置くまでは省き、runner の既定（`limits.timeoutMs` の 80%）に任せる |
 | `modelMap` | best-practices の script が `agent()` に渡す全ての model の名前（SP-BPCONFORMANCE-035 の best-practices 自身の役の表の `model` の列）に、Codex の model を対応させる（全ての `agent()` が model を明示する（SP-BPRUN-023）ので、対応が欠けると、runner はその名前を使う最初の `agent()` を dispatch する前に例外を投げ、run 全体が失敗する：`scripts/runtime/models.mjs` の 27〜28 行、runtime README の Explicit live execution の節）。`modelMap` の鍵は、SP-BPCONFORMANCE-035 の best-practices の役の表の `model` の列の名前の全てとする。値は、起動する host がその時の Codex の model を明示で選んで埋める（Codex の model の名前を本書群に書くと、Codex の版で黙って古くなる）。callsite は、値の欠けた `modelMap` で起動してはならない |
 | workspace の mode と `requirements` | 4 機能とも書き込みのできる mode にし、`requirements` にその mode に合う capability を宣言する。review・audit も運搬役が作業場所の状態を CLI で書く（SP-BPRUN-008）。runner の既定は読み取りだけで、`requirements` は run の作成前に照合される（runtime README の Explicit live execution の節）。host に `updatePolicy`・`updateContract` を書かない（SP-BPENTRY-024） |
 
@@ -213,7 +213,7 @@ callsite は、`limits.maxAgents` を省略した request で起動してはな�
 Codex runner で review・audit が対象スキルを書き換えていないことは、SP-BPRUN-025・SP-BPRUN-026 で扱う。同時実行の上限は SP-BPCONFORMANCE-027 に従う。
 
 #### SP-BPENTRY-024 Codex runner の経路の前提
-本文書の Codex runner の経路は、runner が source の `meta.name` や `args` の値によって特定の caller を特別に扱わないことを前提にする（依頼者の裁定）。今の runner は、`meta.name` が `skill-creator-review` で `args.mode` が `update` の run を skill-creator の update として扱い、host の `updateContract`（`createWorkflow` では `updatePolicy`）が無ければ失敗させる（`scripts/runtime/runtime.mjs` の 69〜75 行、`scripts/runtime/adapter.mjs` の 45・97・113〜119 行、runtime README の 80〜87 行）。best-practices の update は対象スキルへ直接書く（SP-BPRUN-008）ので、staging への書き込みと承認後の適用を求めるこの扱いとは両立しない。SP-BPENTRY-025 の変更が入った runner でなければ、callsite は update の run を Codex runner の経路で起動してはならない。変更の入っていない runner を callsite が見分ける手段と、見分けたときに入口が返すものは TBD-SBPENTRY-003 で決める。
+本文書の Codex runner の経路は、runner が source の `meta.name` や `args` の値によって特定の caller を特別に扱わないことを前提にする（依頼者の裁定）。今の runner は、`meta.name` が `skill-creator-review` で `args.mode` が `update` の run を skill-creator の update として扱い、host の `updateContract`（`createWorkflow` では `updatePolicy`）が無ければ失敗させる（`scripts/runtime/runtime.mjs` の 69〜75 行、`scripts/runtime/adapter.mjs` の 45・97・113〜119 行、runtime README の 80〜87 行）。best-practices の update は対象スキルへ直接書く（SP-BPRUN-008）ので、staging への書き込みと承認後の適用を求めるこの扱いとは両立しない。今の runner のこの扱いは source の名前 `skill-creator-review` と `args.mode` の両方を条件にし（`scripts/runtime/runtime.mjs` の 34〜37・69〜72 行、`scripts/runtime/resume.mjs` の 150 行）、best-practices の source の名前（`best-practices-author`・`best-practices-inspect`）はそれと違うので、SP-BPENTRY-025 の変更の入っていない runner でも best-practices の update の run はこの扱いに入らない。callsite は runner の版を見分けない。
 
 #### SP-BPENTRY-025 runner と runtime README の変更
 SP-BPENTRY-024 の前提のために、`plugins/workflow/skills/dynamic-workflow-runner/` に次の変更を入れなければならない。コードの形は本文書では定めない。
@@ -227,7 +227,7 @@ SP-BPENTRY-024 の前提のために、`plugins/workflow/skills/dynamic-workflow
 | リポジトリ直下の `tests/` の、上の分岐と項目を前提にするテスト（`dynamic-workflow-adapter.test.mjs`・`skill-creator-workflow-meta.test.mjs`・`workflow-callers.test.mjs`。どれも上の grep に当たる） | 外した分岐に合わせて直すか消す |
 | 今の skill-creator の caller が runner に渡す `updatePolicy`・`updateContract` の扱い（`plugins/skill-creator/` の中） | 新しい best-practices と同じ変更で置き換える（分岐を外した runner は、この項目を未知の項目として拒否する） |
 
-変更の後に、runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で、上の grep に当たる箇所が 0 件であることを確かめる。
+変更の後に、runner の skill の中、リポジトリ直下の `tests/`、新しい best-practices の配布物を除いた `plugins/skill-creator/` で、上の grep に当たる箇所が 0 件であることを確かめる。ただし次の 2 つは照らす範囲から除く。判定基準の写し（`references/criteria/`）は本書を写すので、grep の式そのものに当たる。本項の「`meta.name` が `skill-creator-review` で `args.mode` が `update` の source が他の source と同じ条件で動く」ことを照らす runner のテストは、その名前を含まなければ書けない。
 
 runner の `requirements` の照合と workspace の mode（runtime README の Explicit writable and isolated checkouts の節）は変えない。best-practices の update が対象スキルに書けるのは、SP-BPENTRY-016 の workspace の mode による。
 
@@ -280,13 +280,7 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 
 ## TBD の宣言
 
-本文書が所属先の TBD。どれも着手を止めない（blocking: false）。
-
-| TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
-|---|---|---|---|---|
-| TBD-SBPENTRY-001 | Codex runner の request の `limits.timeoutMs` と `limits.agentTimeoutMs` の値（`limits.maxAgents` と `modelMap` は SP-BPENTRY-016 に書き戻した） | 値の出所が入力に無く、公開前の本物の agent での試走で run と 1 体の所要時間を測るまで決められない | false | 決まるまで、`limits.timeoutMs` を request から省いて runner の既定に任せてはならない（既定の 60 秒は、best-practices の run に合わせて決めた値ではない）。`launch-args` は、旧 caller の先例の値 3,600,000 を渡す。`limits.agentTimeoutMs` は省き、runner の既定に任せる |
-| TBD-SBPENTRY-002 | SKILL.md の callsite の契約に書く入力の綴り。綴りそのものは SP-BPENTRY-013 の綴りの表に書き戻した | callsite は新しい入口と同じ変更（SP-BPENTRY-025）で書き、それまで新しい Workflow を呼ぶ callsite が無い | false | callsite の契約は SP-BPENTRY-013 の綴りの表（script と CLI の定数 `INPUT_KEYS`）と同じ綴りで書き、表から変えてはならない。表と script・CLI の定数の一致は `tests/bp-spelling.test.mjs` が照らし、callsite を書く変更で同じテストを callsite に当てる |
-| TBD-SBPENTRY-003 | 変更（SP-BPENTRY-025）の入っていない runner を callsite が見分ける手段と、見分けたときに入口が利用者へ返すもの | runner の変更の有無を caller が知る手段が、runtime README に書かれていない | false | 決まるまで、best-practices は SP-BPENTRY-025 の変更と同じ変更で配布し、変更の入っていない runner と組み合わせて配布してはならない（見分けられないまま起動すると、runner が update の run を失敗させる：SP-BPENTRY-024） |
+本文書が所属先の TBD は無い。runner の request の時間の上限は SP-BPENTRY-016、入力の綴りは SP-BPENTRY-013、変更の入っていない runner の扱いは SP-BPENTRY-024 に書き戻した。
 
 ## トレーサビリティ表
 

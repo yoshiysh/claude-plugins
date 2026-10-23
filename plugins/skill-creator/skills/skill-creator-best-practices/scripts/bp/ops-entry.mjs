@@ -12,9 +12,9 @@ import { list } from './ops-run.mjs';
 import { readState } from './store.mjs';
 import { currentRun } from './view.mjs';
 
-// 入口だけが使う runner の request の値。試走の記録の指紋に入れないファイルに置く（実測で値を書き戻しても、run の中の処理が変わらないので記録を古くしない）。
+// 入口だけが使う runner の request の値。試走の記録の指紋に入れないファイルに置き、仕様に値を書き写さない（実測の値を書き戻しても、run の中の処理も判定基準の写しも変わらないので記録を古くしない）。
 // maxAgents は runner が受ける上限そのもの（native の run は上限を持たないので、上限の役目は runner に収めることだけ：SP-BPENTRY-015）。
-// timeoutMs は実測までの暫定で、旧 caller の先例の値。runner の既定の 60 秒に任せない（TBD-SBPENTRY-001 の保持規則）。
+// timeoutMs は試走の記録の最長の run の 2 倍（SP-BPENTRY-016）。試走の記録が無い間は旧 caller の先例の値。
 export const RUNNER_REQUEST = Object.freeze({ maxAgents: 1000, timeoutMs: 3_600_000, mode: 'workspace-write' });
 
 // SP-BPFINDINGS-029 の項目のうち、どの指摘にも載る欄（状態・見直しの判定・却下の理由は、載せない指摘がある）。
