@@ -366,3 +366,30 @@ test('検証方法: 最後でない run の証拠は killed・failed で、返�
   const mixed = await configWith(t, [wfRun('a', { key: K2, state: 'bp-s' }), wfRun('b', { key: K2, state: 'bp-other' })]);
   assert.throws(() => workflowEvidence(viewOfRuns([K2]), 'bp-s', mixed), /completed の Workflow の実行の記録が 2 件/);
 });
+
+test('検証方法: 同じ key の completed の記録の横にある記録は、completed・killed・failed 以外の状態か別の状態を持てば拒否し、止まった記録（sibling）も script の本文と状態を読み取りで照らしてから agent の所要時間に畳み込む', async (t) => {
+  const [K1, K2] = ['k-1111111111111111', 'k-2222222222222222'];
+  const current = fingerprint();
+  const ok = wfRun('z', { key: K2, state: 'bp-s' });
+  for (const side of [wfRun('r', { key: K2, status: 'running' }), wfRun('f', { key: K2, status: 'killed', state: 'bp-other' })]) {
+    const dir = await configWith(t, [side, ok]);
+    assert.throws(() => workflowEvidence(viewOfRuns([K2]), 'bp-s', dir), /どれでもない|別の状態/);
+  }
+  const alien = await configWith(t, [wfRun('s', { key: K2, status: 'killed', script: 'export const meta = {}', agents: [{ label: 'x', model: 'opus', ms: 180_000_000 }] }), ok]);
+  const ev = workflowEvidence(viewOfRuns([K2]), 'bp-s', alien);
+  assert.ok(evidenceProblems({ function: 'review', state: 'bp-s', source: { key: K2 }, evidence: ev }, current).some((p) => /script の本文/.test(p)));
+  const twoStopped = await configWith(t, [
+    wfRun('a', { key: K1, status: 'killed', agents: [{ label: 'verifier:flow', model: 'opus', ms: 7_000 }] }),
+    wfRun('b', { key: K1, status: 'failed', agentCount: 0 }),
+    wfRun('c', { key: K2, state: 'bp-s' }),
+  ]);
+  assert.equal(runnerTimeouts([{ evidence: workflowEvidence(viewOfRuns([K1, K2]), 'bp-s', twoStopped) }]).agentTimeoutMs, 14_000);
+  const base = { key: K1, scriptSha: current.scripts.inspect, agents: [] };
+  const read = (e) => evidenceProblems({ function: 'review', state: 'bp-s', source: { key: K1 }, evidence: [e, { key: K2, status: 'completed', scriptSha: current.scripts.inspect, resultState: 'bp-s', agents: [] }] }, current);
+  assert.deepEqual(read({ ...base, status: 'killed', resultState: null, siblings: [] }), []);
+  assert.ok(read({ ...base, status: 'running', resultState: null, siblings: [] }).length > 0);
+  assert.ok(read({ ...base, status: 'killed', resultState: 'bp-other', siblings: [] }).length > 0);
+  assert.ok(read({ ...base, status: 'killed', resultState: null, siblings: [{ status: 'killed', scriptSha: '0'.repeat(64), resultState: null }] }).length > 0);
+  assert.ok(read({ ...base, status: 'killed', resultState: null, siblings: [{ status: 'killed', scriptSha: current.scripts.inspect, resultState: 'bp-other' }] }).length > 0);
+  assert.ok(read({ ...base, status: 'killed', resultState: null, siblings: [{ status: 'running', scriptSha: current.scripts.inspect, resultState: null }] }).length > 0);
+});

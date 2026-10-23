@@ -359,6 +359,11 @@ function evidenceOf({ file, sha: fileSha, json }, key, siblings = []) {
     status: json.status ?? null, agentCount: json.agentCount ?? null, durationMs: json.durationMs ?? null, totalTokens: json.totalTokens ?? null,
     resultState: json.result?.state ?? null,
     agents: [...siblings.flatMap((f) => agentsOf(f.json)), ...agentsOf(json)],
+    // 畳み込んだ記録も読み取りで照らせるよう、1 つずつの状態・script の本文・返り値の状態を残す。
+    siblings: siblings.map((f) => ({
+      runId: f.json.runId ?? null, file: f.file, fileSha: f.sha, status: f.json.status ?? null,
+      scriptSha: typeof f.json.script === 'string' ? sha(f.json.script) : null, resultState: f.json.result?.state ?? null,
+    })),
   };
 }
 
@@ -409,9 +414,11 @@ export function evidenceProblems(rec, current) {
   const problems = [];
   if (ev[0].key !== rec.source?.key) problems.push('最初の Workflow の実行の key が状態の key と違う');
   const want = current.scripts[roleOfFunction(rec.function)];
+  const sib = ev.flatMap((e) => e.siblings ?? []);
   if (ev.some((e) => e.status !== WORKFLOW_DONE && !WORKFLOW_STOPPED.includes(e.status))) problems.push(`Workflow の実行の状態が completed・${WORKFLOW_STOPPED.join('・')} のどれでもない`);
-  if (ev.some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
-  if (ev.some((e) => (e.status === WORKFLOW_DONE || e.resultState !== null) && e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
+  if (sib.some((e) => !WORKFLOW_STOPPED.includes(e.status))) problems.push(`畳み込んだ Workflow の実行の状態が ${WORKFLOW_STOPPED.join('・')} のどれでもない`);
+  if ([...ev, ...sib].some((e) => e.scriptSha !== want)) problems.push('Workflow の実行が走らせた script の本文が今の script と違う');
+  if ([...ev, ...sib].some((e) => (e.status === WORKFLOW_DONE || e.resultState !== null) && e.resultState !== rec.state)) problems.push('Workflow の実行の返り値の状態が記録の状態と違う');
   if (ev.at(-1).status !== WORKFLOW_DONE) problems.push('最後の Workflow の実行が completed でない');
   return problems;
 }
