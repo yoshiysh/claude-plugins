@@ -535,7 +535,7 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 | PR-BPOPERATIONS-011 | SP-BPAUTHORING-025 | script の模擬実行（判定表の 4 行の入力で進み方を照らす） | 完了 |
 | PR-BPOPERATIONS-012 | SP-BPAUTHORING-025 | script の模擬実行（反復の上限で止まった返り値の理由に、不合格の指摘 ID と判定の単位がある） | 完了 |
 | PR-BPOPERATIONS-012 | SP-BPAUTHORING-034 | script の模擬実行（反復の上限で止まった返り値に検証の結果がある） | 完了 |
-| PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | script の模擬実行（未反証の候補・skip 一覧の残り・判定できない指摘のそれぞれで BLOCKED と、当たった項目の理由を返す） | 作成中 |
+| PR-BPOPERATIONS-013 | SP-BPAUTHORING-030 | script の模擬実行（未反証の候補・skip 一覧の残り・判定できない指摘のそれぞれで BLOCKED と、当たった項目の理由を返す） | 完了 |
 | PR-BPOPERATIONS-013 | SP-BPAUTHORING-031 | script の模擬実行（一覧の外へのパスの BLOCKED の理由にパスが全て載る） | 完了 |
 | PR-BPOPERATIONS-014 | SP-BPAUTHORING-032 | fixture の run（create の完了の返り値に検証の結果の全項目がある） | 作成中 |
 | PR-BPOPERATIONS-014 | SP-BPAUTHORING-033 | fixture の run（create の完了の返り値に、パスと指紋の一覧、設計の説明の場所と逐語の本文がある） | 作成中 |
