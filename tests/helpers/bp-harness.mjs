@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Workflow } from '../../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
 import { main as cli } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp-state.mjs';
-import { CRITERIA_FILES, PROMPT_AUDIT_FILE, STATES_DIR, STATE_ROOT_ENV } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { CRITERIA_DIR, PROMPT_AUDIT_FILE, STATES_DIR, STATE_ROOT_ENV } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { stateRoot } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs';
 import { sum } from '../../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ids.mjs';
 
@@ -30,15 +30,10 @@ export async function tmp(t, prefix) {
   return dir;
 }
 
-// 判定基準の写しはまだ本番の置き場（CRITERIA_DIR）に無いので、docs の正本を CRITERIA_FILES と同じ配置で一時ディレクトリへ写す。
+// 模擬実行も配布する写しそのものを読む（書き換えるテストが本物の写しを汚さないよう一時ディレクトリへ写す）。
 export async function criteriaCopy(t) {
   const dir = await tmp(t, 'bp-criteria-');
-  for (const parts of Object.values(CRITERIA_FILES)) {
-    const src = path.join(REPO_ROOT, 'docs', ...parts);
-    const dest = path.join(dir, ...parts);
-    await fs.mkdir(path.dirname(dest), { recursive: true });
-    await fs.copyFile(src, dest);
-  }
+  await fs.cp(path.join(SKILL_DIR, CRITERIA_DIR), dir, { recursive: true });
   return dir;
 }
 
@@ -53,6 +48,19 @@ export async function variant(t, replacements, script = SCRIPT) {
   const file = path.join(dir, path.basename(script));
   await fs.writeFile(file, source);
   return file;
+}
+
+// 読み替えの文は script の criteriaNote を正本にし、テストは字面を書き写さない（2 本の字面の一致は bp-script-shared が照らす）。
+export function criteriaNoteOf(root, script = SCRIPT) {
+  const m = /^function criteriaNote\(root\) \{\n([\s\S]*?)\n\}/m.exec(readFileSync(script, 'utf8'));
+  if (!m) throw new Error(`script に criteriaNote が無い: ${script}`);
+  return new Function('root', m[1])(root);
+}
+
+// 起動数の上限で止まった停止の理由から、上限・その時点の起動数・残した件数を読む（SP-BPCONFORMANCE-023）。読めなければ null。
+export function launchStopFacts(reason) {
+  const m = /起動数の上限 (\d+) で止まった（その時点の起動数 (\d+)。[^）]*）。残した項目の件数 (\d+)/.exec(reason ?? '');
+  return m ? { limit: Number(m[1]), used: Number(m[2]), left: Number(m[3]) } : null;
 }
 
 export function commands(prompt) {
@@ -354,6 +362,23 @@ export function stagesIn(lines) {
   return lines.flatMap((l) => l.records.filter((r) => r.t === 'stage').map((r) => r.stage));
 }
 
+// prompt に埋めた強いられた未検査の一覧の外から、閉集合の先頭の種類を選ぶ。一覧を埋めているのに形が違えば（空白入りなど）、
+// 強いられた種類を選んだり黙って先頭を選んだりせずに落とす。一覧を埋めない観点の prompt では、閉集合の先頭を選ぶ。
+export async function firstUnforcedKind(prompt, env) {
+  const { kinds } = await env.readFromPrompt(prompt, 'kinds');
+  const embeds = prompt.includes('"forced"');
+  const embedded = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
+  if (embeds && !embedded) throw new Error('prompt の強いられた未検査の一覧の形を読めない');
+  const forced = embedded ? JSON.parse(embedded) : [];
+  const kind = kinds.find((k) => !forced.includes(k.value));
+  if (!kind) throw new Error('強いられた未検査でない指摘の種類が閉集合に無い');
+  return kind.value;
+}
+
+export function candidateOf(asset, viewpoint, kind) {
+  return { asset, viewpoint, kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' };
+}
+
 // 観点が viewpoint の検証役のうち when に当たる起動で、担当の資産の 1 つに候補を返す（閉集合の先頭の、強いられた未検査でない種類）。
 export function candidateVerifier({ viewpoint, when = () => true, asset = (ids) => ids[0], judgement = 'candidate', also = {} } = {}) {
   return async (prompt, options, env, call, calls) => {
@@ -364,13 +389,11 @@ export function candidateVerifier({ viewpoint, when = () => true, asset = (ids) 
     const ids = assetIds(prompt);
     const target = asset(ids);
     if (!ids.includes(target)) return base;
-    const { kinds } = await env.readFromPrompt(prompt, 'kinds');
-    const forced = /"forced":(\[[^\]]*\])/.exec(prompt)?.[1];
-    const kind = kinds.find((k) => !(forced ? JSON.parse(forced) : []).includes(k.value)).value;
+    const kind = await firstUnforcedKind(prompt, env);
     const result = {
       ...base,
       judgements: ids.map((id) => ({ asset: id, judgement: id === target ? judgement : 'ok' })),
-      candidates: judgement === 'candidate' ? [{ asset: target, viewpoint, kind, quote: 'L1: 本文', content: '基準に反する', fix: '直す' }] : [],
+      candidates: judgement === 'candidate' ? [candidateOf(target, viewpoint, kind)] : [],
       ...also,
     };
     await writePayload(prompt, result);

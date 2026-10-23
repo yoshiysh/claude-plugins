@@ -10,7 +10,9 @@ const PERMISSION_SP = 'SP-BPCONFORMANCE-014';
 const EXECUTOR_TIME_ROW = '実行役の時間に上限を置く';
 // 強いられた未検査の出所（bp-authoring の用語「強いられた未検査」）と、未検査に固定した仕様項目（review の未検査の観点の理由：SP-BPINSPECTION-025）。
 const FORCED_REQUIREMENTS = Object.freeze({ always: [`${PR}014`], turnForm: [`${PR}002`] });
-const FORCED_BY = Object.freeze({ always: 'SP-BPCONFORMANCE-019', permission: 'SP-BPCONFORMANCE-019', executorTime: 'SP-BPCONFORMANCE-034', turnForm: 'SP-BPCONFORMANCE-006' });
+// Claude Code で確かめない制限（SP-BPCONFORMANCE-019）は、PR-BPDESIGNEDSKILL-014 の単位と「権限」の表の最後の行の 2 つの出所を持つ。
+const CLAUDE_CODE_UNCHECKED = 'SP-BPCONFORMANCE-019';
+const FORCED_BY = Object.freeze({ always: CLAUDE_CODE_UNCHECKED, permission: CLAUDE_CODE_UNCHECKED, executorTime: 'SP-BPCONFORMANCE-034', turnForm: 'SP-BPCONFORMANCE-006' });
 
 function numbers(text) {
   const out = [];
@@ -79,6 +81,11 @@ function sources(criteriaDir, { tolerateNoCapacity = false } = {}) {
   return { table, always, bySpec, unitsOf };
 }
 
+// 理由の選び方を CLI と読み取りの tool で割らないため、SP-BPINSPECTION-025 の規則をここ 1 箇所で当てる。
+export function forcedReason(sources, unit) {
+  return sources.turnForm.get(unit) ?? sources.always.get(unit);
+}
+
 // 強いられた未検査の単位ごとに、未検査に固定した仕様項目 ID を返す（always はどの形でも、turnForm はターンごとの指揮だけ）。
 export function forcedSources(criteriaDir, options) {
   const { bySpec, unitsOf } = sources(criteriaDir, options);
@@ -133,6 +140,7 @@ function checkConformance(result, rows) {
       if (stray) return `不適合の単位に、同じ結果の中に無い候補の鍵を添えた: ${u.unit} ${JSON.stringify(stray)}`;
     }
     if (u.result === UNIT_RESULTS.unchecked) {
+      if (!isStr(u.reason)) return `未検査の単位に理由が無い: ${u.unit}`;
       if (!Object.values(UNCHECKED_KINDS).includes(u.unchecked)) return `未検査の区分が選択肢に無い: ${u.unit}`;
       if (u.unchecked === UNCHECKED_KINDS.forced && !forced.has(u.unit)) return `強いられた未検査を、強いられた未検査でない単位に付けた: ${u.unit}`;
     }

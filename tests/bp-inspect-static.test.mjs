@@ -4,9 +4,10 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { candidateVerifier, inspectArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
+import { INSPECT_SCRIPT, MIN_LAUNCHES, candidateVerifier, criteriaNoteOf, inspectArgs, resumeArgs, runInspect, setupInspect, viewpointOf } from './helpers/bp-harness.mjs';
 import { INPUT_KEYS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { PATHS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/applicability.mjs';
+import { tableAfter } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', 'scripts', 'bp_inspect.js');
@@ -42,17 +43,6 @@ function fnSource(name) {
 function literal(name) {
   const d = BODY.filter((s) => s.type === 'VariableDeclaration').flatMap((s) => s.declarations).find((x) => x.id.name === name);
   return Function(`"use strict"; return (${SOURCE.slice(d.init.start - OFFSET, d.init.end - OFFSET)});`)();
-}
-
-function tableAfter(text, marker) {
-  const lines = text.slice(text.indexOf(marker)).split('\n');
-  const first = lines.findIndex((l) => l.startsWith('|'));
-  const rows = [];
-  for (const line of lines.slice(first + 2)) {
-    if (!line.startsWith('|')) break;
-    rows.push(line.replace(/^\||\|$/g, '').split('|').map((c) => c.trim()));
-  }
-  return rows;
 }
 
 async function promptsOf(t, fn, scenario = {}) {
@@ -117,7 +107,7 @@ test('SP-BPINSPECTION-023: bp-inspection.md に review・audit の入力の表�
   assert.match(INSPECTION, /`docs\/specifications\/bp-entry\.md` の SP-BPENTRY-013 の表を正とし、本文書に表を置かない/);
 });
 
-test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証役の prompt が資産の束と照らす先（判定基準の写し）のパスを持ち、共通の部分が先頭にあり、仕様の観点の prompt に「性能・容量」の章の値が無く、docs/ のパスを渡さない［review］`, async (t) => {
+test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証役の prompt が資産の束と照らす先（判定基準の写し）のパスを持ち、共通の部分が先頭にあり、仕様の観点の prompt に「性能・容量」の章の値が無く、写しの中の docs/ の読み替えを除くと docs/ のパスを渡さない［review］`, async (t) => {
   const got = await promptsOf(t, 'review');
   if (!got) return;
   const { s, calls } = got;
@@ -125,10 +115,12 @@ test(`SP-BPINSPECTION-008・SP-BPINSPECTION-017・SP-BPRUN-036: review の検証
   const spec = calls.find((c) => viewpointOf(c.prompt) === 'spec').prompt;
   const conformance = path.join(s.criteriaDir, 'specifications', 'bp-conformance.md');
   const design = path.join(s.criteriaDir, 'design', 'skill-design-patterns.md');
+  const note = criteriaNoteOf(s.criteriaDir, INSPECT_SCRIPT);
   for (const p of [flow, spec]) {
     assert.ok(p.includes(conformance) && p.includes(design));
     assert.match(p, /資産の束（[^）]*）: \S+bundle\.0\.md/);
-    assert.doesNotMatch(p, /(^|[\s/])docs\//);
+    assert.ok(p.includes(note));
+    assert.doesNotMatch(p.replace(note, ''), /(^|[\s/`])docs\//);
   }
   let i = 0;
   while (flow[i] === spec[i]) i += 1;
@@ -206,7 +198,7 @@ test('SP-BPINSPECTION-012・SP-BPINSPECTION-009: script は監査の観点の識
 test('SP-BPINSPECTION-025: 強いられた未検査の単位に付ける理由の仕様項目 ID の集合が、SP-BPINSPECTION-025 の表の検証役の未検査の行が名指す ID と一致する', () => {
   const row = tableAfter(INSPECTION, '| 場合 | 観点 | 範囲 | 理由 |').find((r) => r[0].includes('検証役が判定の単位を未検査とした'));
   const { always, turnForm } = forcedSources(DOCS);
-  assert.deepEqual([...new Set([...always.values(), ...turnForm.values()])].sort(), spList(row[3]).sort());
+  assert.deepEqual([...new Set([...always.values(), ...turnForm.values()])].sort(), [...new Set(spList(row[3]))].sort());
 });
 
 test('SP-BPINSPECTION-006・SP-BPINSPECTION-007・SP-BPINSPECTION-008: script は照らす先の章・節の名前を書き写さず照らす先の決定の出力から得て、適用の判定の prompt の仕様項目 ID が SP-BPINSPECTION-006 の表の判定基準と一致する', async (t) => {
@@ -268,5 +260,19 @@ test('SP-BPINSPECTION-017・SP-BPINSPECTION-018・SP-BPRUN-036: audit の検証�
     } else {
       assert.ok(own.includes(s.env.promptAudit));
     }
+  }
+});
+
+test('SP-BPRUN-036: 再開した run の検証役の prompt も、写しの中の docs/ の読み替えを写しの置き場の絶対パスで持つ［review］［audit］', async (t) => {
+  for (const fn of ['review', 'audit']) {
+    const s = await setupInspect(t);
+    if (!s) return;
+    const first = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target, { maxLaunches: MIN_LAUNCHES[fn] }) });
+    assert.equal(first.result.stopKind, 'iteration_limit');
+    const second = await runInspect(t, { env: s.env, args: resumeArgs(first.result) });
+    const verifiers = second.calls.filter((c) => c.role === 'verify');
+    assert.ok(verifiers.length > 0, fn);
+    const note = criteriaNoteOf(s.criteriaDir, INSPECT_SCRIPT);
+    for (const c of verifiers) assert.ok(c.prompt.includes(note), `${fn}: ${c.label}`);
   }
 });

@@ -402,7 +402,8 @@ const budget = makeBudget(input.limit)
 const run = { state: input.state ?? null, run: null, workDir: null, launched: 0 }
 const VIEWPOINT_LIST = RUN_VIEWPOINTS[fn]
 const CLI = `${input.skillDir}/scripts/bp-state.mjs`
-const CRITERIA = Object.fromEntries(Object.entries(CRITERIA_FILES).map(([k, parts]) => [k, [input.skillDir, CRITERIA_DIR, ...parts].join('/')]))
+const CRITERIA_ROOT = [input.skillDir, CRITERIA_DIR].join('/')
+const CRITERIA = Object.fromEntries(Object.entries(CRITERIA_FILES).map(([k, parts]) => [k, [CRITERIA_ROOT, ...parts].join('/')]))
 let open = null
 const viewpointByItem = new Map()
 const memo = { written: [], outside: [], target: input.target ?? null, goalText: null, request: input.request ?? null, answers: [], grounds: [] }
@@ -452,6 +453,11 @@ async function launch(role, prompt, { unit, label, schema }) {
   } catch (error) {
     return { out: null, failure: `（host の失敗: ${String(error?.message ?? error)}）` }
   }
+}
+
+// 写しは正本と 1 字も違わないので、本文の docs/ のパスは正本を指したまま残る。開くと配布先では読めず、このリポジトリでは写しでない正本を判定基準にする（SP-BPRUN-036）。
+function criteriaNote(root) {
+  return `判定基準の写しの中の \`docs/X\` は \`${root}/X\` と読む（写しは docs/ と同じ構成）。\`docs/\` を開かない。写しの中のそれ以外のリポジトリの相対パス（plugins/・scripts/・tests/・tools/・.agents/・.claude-plugin/・AGENTS.md）は出所の引用で判定基準でないので開かずに判定し、その中身が要る判定の単位は理由つきの未検査にする。`
 }
 
 function carrierPrompt(requests) {
@@ -657,6 +663,7 @@ function writePrompt(number, rewrite) {
     update ? '修正の根拠が触れない部分を含めて、対象スキルの全体を作り直してよい。ディレクトリの中でファイルを足しても消してもよい。新しい Workflow script が要るときはスキルのディレクトリの中に置く。' : 'Workflow script が要るときは、このディレクトリの中に置く（plugins/ の下へ置かない）。',
     '固定した目標に無い目標・制約を入れない。実行役の時間の上限の値を入れない。',
     `形は判定基準（${CRITERIA.conformance} の SP-BPCONFORMANCE-004 の順、Q3 は SP-BPCONFORMANCE-005）で問いに答えて決め、資産台帳の要否（SP-BPCONFORMANCE-009）と部品（SP-BPCONFORMANCE-008）を選ぶ。要求は ${CRITERIA.designedSkill}。`,
+    criteriaNote(CRITERIA_ROOT),
     '答えた問いと答え、重い形を強いた事実、段ごとの部品の名前を、対象スキルのディレクトリの中の 1 つのファイルに設計の説明として書く。形が変わらない反復でも今の対象スキルと食い違わないように保つ。',
     `返すもの: {"written": [{"path": <絶対パス>, "action": ${Object.values(FILE_ACTIONS).map((a) => JSON.stringify(a)).join('|')}}], "designNote": {"path": <根からの相対パス>, "heading": <節の見出し、ファイル全体なら省く>}}。説明の文は返さない（検証役に渡さないため）。`,
     '',
@@ -734,6 +741,7 @@ function verifierPrompt({ viewpoint, assignment, assets, itemId, attempt, extra 
     `あなたは best-practices の検証役（${viewpoint} の観点）。書き手と別の context で、対象スキルの今の内容だけを判定基準の写しに照らす（生成した本人の説明は渡されない）。`,
     `書いてよいのは作業ファイル（${run.workDir}）だけ。対象スキルにも状態にも書かない。`,
     `判定基準は写しだけを読む: ${Object.values(CRITERIA).join(' ')}。記憶や写しの外の文書を判定基準にしない。`,
+    criteriaNote(CRITERIA_ROOT),
     `対象スキル: ${memo.target.root}（根の外のファイル ${JSON.stringify(memo.target.files ?? [])}）`,
     `資産の位置（パスと範囲）は次の読み出しで得る:\n${reportCmd}`,
     `指摘の種類は次の閉集合から選ぶ:\n${kindsCmd}`,
@@ -853,6 +861,7 @@ function refuterPrompt(key, readCmd) {
   return [
     'あなたは best-practices の反証役。候補を出した検証役と別の context で、指摘の候補が判定基準に照らして本当に成り立つかを確かめる（生成した本人には自分の誤りが見えない）。',
     `書いてよいのは作業ファイル（${run.workDir}）だけ。判定基準は写しだけを読む: ${Object.values(CRITERIA).join(' ')}`,
+    criteriaNote(CRITERIA_ROOT),
     `対象スキル: ${memo.target.root}`,
     `候補の引用・内容・直し方は次の読み出しで、指摘の鍵が下と同じものを読む（同じ鍵の候補は全て）:\n${readCmd}`,
     `鍵ごとに 1 つの判定として ${JSON.stringify(REFUTATION_VERDICTS.uphold)}（維持）か ${JSON.stringify(REFUTATION_VERDICTS.reject)}（却下）を選び、理由を添えて {"verdict", "reason"} で返す。`,

@@ -453,6 +453,8 @@ export function stop(ctx, req) {
         limitHit = undefined;
       }
     }
+    // 残した件数の正本は CLI が導いた未着手の並びなので、script の理由に CLI が足す（SP-BPCONFORMANCE-023）。
+    if (limitHit === LIMIT_HITS.launch) reason = `${reason}。残した項目の件数 ${pending.length}`;
     const record = {
       t: RECORDS.stop, run: req.run, kind, reason, limitHit, requested, cause: kind === req.kind ? req.cause : undefined,
       stage: live.stage == null ? null : { stage: live.stage, round: live.round },

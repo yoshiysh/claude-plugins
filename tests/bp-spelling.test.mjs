@@ -4,23 +4,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CODES, NEXT_ARGS_KEYS, OPS, STAGES, VIEWPOINTS } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { tableAfter } from './helpers/bp-docs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RUN = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
 const FINDINGS = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-findings.md'), 'utf8');
-
-function tableAfter(text, marker) {
-  const start = text.indexOf(marker);
-  assert.ok(start >= 0, marker);
-  const lines = text.slice(start).split('\n');
-  const first = lines.findIndex((l) => l.startsWith('|'));
-  const rows = [];
-  for (const line of lines.slice(first + 2)) {
-    if (!line.startsWith('|')) break;
-    rows.push(line.replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim()));
-  }
-  return rows;
-}
 
 test('SP-BPRUN-038: 仕様の段の slug の表と CLI の定数が一致する', () => {
   const rows = tableAfter(RUN, '段の slug は次の表とする。');
@@ -155,7 +143,7 @@ for (const [label, s] of Object.entries(SCRIPTS)) {
     assert.deepEqual(hits, []);
   });
 
-  test(`SP-BPRUN-031・TBD-SBPRUN-001 の保持規則: ${s.file} の定数の写しが CLI の定数と深く一致し、CLI の定数と同じ名前の最上位の定数は全て照合に入っている`, () => {
+  test(`SP-BPRUN-031: ${s.file} の定数の写しが CLI の定数と深く一致し、CLI の定数と同じ名前の最上位の定数は全て照合に入っている`, () => {
     for (const name of s.copied) assert.deepEqual(literalIn(s, name), JSON.parse(JSON.stringify(CLI_CONSTANTS[name])), `${label}: ${name}`);
     const names = s.top.filter((x) => x.type === 'VariableDeclaration').map((x) => x.declarations[0].id.name);
     const stray = names.filter((n) => Object.hasOwn(CLI_CONSTANTS, n) && !s.copied.includes(n));

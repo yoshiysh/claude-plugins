@@ -17,7 +17,7 @@ import { strip } from './records.mjs';
 import { ledgerReport } from './report.mjs';
 import { mutate, readState } from './store.mjs';
 import { uncheckedViewpoints } from './unchecked.mjs';
-import { applicability as applicabilityRows, forcedSources } from './units.mjs';
+import { applicability as applicabilityRows, forcedReason, forcedSources } from './units.mjs';
 import { changedTargets, readTargets } from './targets.mjs';
 import { currentAssets, itemStatus, reachedStage, runViewpoints, stageEntry, validTarget } from './view.mjs';
 
@@ -38,7 +38,7 @@ function publicTargets(list) {
 export function targets(ctx, req) {
   return mutate(ctx, req, OPS.targets, (view) => {
     needInspecting(view);
-    needCriteria(ctx);
+    needCriteria(ctx, { files: false });
     needStage(view, STAGE.targets);
     const fn = view.state.function;
     const now = readTargets(ctx, fn);
@@ -46,12 +46,12 @@ export function targets(ctx, req) {
       const valid = validTarget(view);
       const changed = changedTargets(valid.targets, now.targets);
       const blocked = changed.length ? { reason: `再開した run の照らす先が状態の指紋と食い違う: ${changed.join(', ')}`, paths: changed } : null;
-      return { records: [], output: { viewpoints: valid.viewpoints, targets: publicTargets(valid.targets), blocked, compared: true } };
+      return { records: [], output: { viewpoints: valid.viewpoints, targets: publicTargets(valid.targets), criteriaDir: ctx.criteriaDir, blocked, compared: true } };
     }
     const record = { t: RECORDS.target, run: req.run, viewpoints: now.viewpoints, targets: publicTargets(now.targets) };
     const records = [record];
     if (!now.blocked) records.push({ t: RECORDS.stageEnd, stage: STAGE.targets, round: null });
-    return { records, output: { viewpoints: now.viewpoints, targets: record.targets, blocked: now.blocked, compared: false } };
+    return { records, output: { viewpoints: now.viewpoints, targets: record.targets, criteriaDir: ctx.criteriaDir, blocked: now.blocked, compared: false } };
   });
 }
 
@@ -120,7 +120,7 @@ export function applicability(ctx, req) {
     const judged = judgeApplicability(req.result, { assetIds: new Set(currentAssets(view).map((a) => a.id)), rows: applicabilityRows(ctx.criteriaDir, REVIEW_UNITS), allowed });
     if (judged.error) return rejected(REJECT_SCOPE.applicability, req.n, null, req.result, judged.error);
     const sources = forcedSources(ctx.criteriaDir, REVIEW_UNITS);
-    const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, sources.turnForm.get(u) ?? sources.always.get(u)]));
+    const forcedBy = Object.fromEntries(judged.forced.map((u) => [u, forcedReason(sources, u)]));
     const record = { t: RECORDS.applicability, run: req.run, result: req.result, ...judged, forcedBy };
     return { records: [record, end], output };
   });
