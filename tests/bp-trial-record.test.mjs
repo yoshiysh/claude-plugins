@@ -6,7 +6,7 @@ import { SKILL_DIR, checkWorktree, criteriaBody, fingerprint, launchesOf, sameFi
 import { confirmedKeys, readRecords, rowKey, traceRows } from '../tools/read-bp-trial.mjs';
 import { CRITERIA_DIR } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
 import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/view.mjs';
-import { tmp } from './helpers/bp-harness.mjs';
+import { inspectArgs, inspectDefaults, payloadPath, runInspect, setupInspect, tmp, viewOf } from './helpers/bp-harness.mjs';
 
 // 配布する skill の写しを plugin の形（<plugin>/skills/<skill>）で一時ディレクトリに作る。script を workflows/ へ移す変異を試すため。
 async function skillCopy(t) {
@@ -148,4 +148,21 @@ test('検証方法: 記録の役ごとの起動数は、停止の記録の起動
   }]);
   const r = launchesOf(review, path.join(SKILL_DIR, CRITERIA_DIR));
   assert.deepEqual([r.byRole['抽出役'].n, r.byRole['検証役'].n, r.byRole['運搬役'].n], [2, 1, 6]);
+});
+
+// 記録の E_TRANSPORT の率は、検証役が返り値と作業ファイルに同じ JSON を書けなかった試行を、模擬でなく script の本物の経路で数える。
+test('検証方法: 検証役の作業ファイルが返り値と食い違うと、script が書く試行の失敗の理由に E_TRANSPORT が入り、記録の役ごとの E_TRANSPORT の件数に数えられる', async (t) => {
+  const s = await setupInspect(t);
+  if (!s) return;
+  let n = 0;
+  const verify = async (prompt) => {
+    const r = await inspectDefaults.verify(prompt);
+    if ((n += 1) === 1) await fs.writeFile(payloadPath(prompt), JSON.stringify({ result: { ...r, candidates: [{ x: 1 }] } }));
+    return r;
+  };
+  const { result } = await runInspect(t, { env: s.env, args: inspectArgs('review', s.target), scenario: { verify } });
+  assert.equal(result.stopKind, 'complete', result.reason);
+  const out = launchesOf(await viewOf(s.env, result.state), path.join(SKILL_DIR, CRITERIA_DIR));
+  assert.deepEqual(out.transport.byRole, { 検証役: 1 });
+  assert.ok(out.transport.rate > 0);
 });
