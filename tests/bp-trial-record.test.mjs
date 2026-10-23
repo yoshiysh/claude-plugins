@@ -393,3 +393,20 @@ test('検証方法: 同じ key の completed の記録の横にある記録は�
   assert.ok(read({ ...base, status: 'killed', resultState: null, siblings: [{ status: 'killed', scriptSha: current.scripts.inspect, resultState: 'bp-other' }] }).length > 0);
   assert.ok(read({ ...base, status: 'killed', resultState: null, siblings: [{ status: 'running', scriptSha: current.scripts.inspect, resultState: null }] }).length > 0);
 });
+
+// 照合を厳しくしても、本物の試走が残す正当な組を誤って拒否しないことを、収集から読み取りの照合まで通して照らす。
+test('検証方法: 同じ script の止まった記録と completed の組・2 run の再開の組・args が JSON の文字列の組は、証拠の収集から読み取りの照合まで通って問題が 0 件になる', async (t) => {
+  const [K1, K2] = ['k-1111111111111111', 'k-2222222222222222'];
+  const current = fingerprint();
+  const cases = [
+    [[K2], [wfRun('a', { key: K2, status: 'killed', agents: [{ label: 'verifier:flow', model: 'opus', ms: 500 }] }), wfRun('b', { key: K2, state: 'bp-s' })]],
+    [[K2], [wfRun('a', { key: K2, status: 'failed', agentCount: 0 }), wfRun('b', { key: K2, state: 'bp-s' })]],
+    [[K1, K2], [wfRun('a', { key: K1, status: 'killed' }), wfRun('b', { key: K1, status: 'failed', agentCount: 0 }), wfRun('c', { key: K2, state: 'bp-s' })]],
+    [[K1, K2], [wfRun('a', { key: K1, status: 'killed', args: JSON.stringify({ key: K1 }) }), wfRun('b', { key: K2, state: 'bp-s', args: JSON.stringify({ key: K2 }) })]],
+  ];
+  for (const [keys, runs] of cases) {
+    const ev = workflowEvidence(viewOfRuns(keys), 'bp-s', await configWith(t, runs));
+    assert.ok(ev.some((e) => e.siblings.length > 0) || keys.length > 1);
+    assert.deepEqual(evidenceProblems({ function: 'review', state: 'bp-s', source: { key: keys[0] }, evidence: ev }, current), [], JSON.stringify(runs.map((r) => [r.args, r.status])));
+  }
+});
