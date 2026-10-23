@@ -2,7 +2,7 @@
 // 試行ごとの写しを作り直し（make）、開始で状態に記録した再現手順のコマンドを写しの中で実行する（exec）。
 // 写しは作業ツリーの今の内容から、ファイルを読むだけで作る（git worktree や git stash create は対象の .git に書く）。
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STATE_ID, commandsOf, workRootOf } from './state.mjs';
@@ -27,6 +27,17 @@ function target(repo, to) {
   return { dest: path.join(runDir, parts[2]), commands };
 }
 
+// リポジトリの中を指す symlink は、写しの中の同じ場所を指すリンクにする。外を指すもの（絶対パスと、解決先が根の外に出る相対パス）は
+// リンク先の中身を写す（リンクのまま写すと、写しの中の書き込みがリンクを通って対象のリポジトリや外へ届き、写しが隔離されない）。
+function linkInto(root, from, at, dest) {
+  let real;
+  try { real = realpathSync(from); } catch { return; }
+  const rel = path.relative(root, real);
+  if (!rel.startsWith('..') && !path.isAbsolute(rel)) symlinkSync(path.relative(path.dirname(at), path.join(dest, rel)), at);
+  else if (statSync(real).isDirectory()) cpSync(real, at, { recursive: true, dereference: true });
+  else copyFileSync(real, at);
+}
+
 export function make({ repo, to }) {
   const { dest } = target(repo, to);
   let old = null;
@@ -35,6 +46,7 @@ export function make({ repo, to }) {
   else if (old) rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest);
   const files = execFileSync('git', ['-C', repo, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: MAX_OUTPUT }).split('\0').filter(Boolean);
+  const root = realpathSync(repo);
   for (const file of new Set(files)) {
     const from = path.join(repo, file);
     let st;
@@ -42,7 +54,7 @@ export function make({ repo, to }) {
     if (!st.isFile() && !st.isSymbolicLink()) continue;
     const at = path.join(dest, file);
     mkdirSync(path.dirname(at), { recursive: true });
-    if (st.isSymbolicLink()) symlinkSync(readlinkSync(from), at);
+    if (st.isSymbolicLink()) linkInto(root, from, at, dest);
     else copyFileSync(from, at);
   }
   // 写しを独立した git のリポジトリにする（.git が無いと、写しの中の git が置き場の上にあるリポジトリを見つけて、そこを書き換える）。

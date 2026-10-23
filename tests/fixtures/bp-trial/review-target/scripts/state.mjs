@@ -171,6 +171,21 @@ function write(repo, state, req, make, { keyed = true, once = true } = {}) {
   });
 }
 
+// 前の周の記録の後に、受理でなかった事実（未記録を含む）を受理へ移した記録の数。受理済みの数の差で数えると、確かめ直しで受理から外れた事実が新しい受理を打ち消す。
+function acceptedSince(v, prev) {
+  const now = new Map();
+  let n = 0;
+  let after = prev === undefined;
+  for (const r of v.records) {
+    if (r === prev) after = true;
+    const verdict = r.t === 'fact' && !now.has(r.id) ? r.verdict : r.t === 'resolve' ? r.verdict : undefined;
+    if (verdict === undefined) continue;
+    const id = r.t === 'fact' ? r.id : r.fact;
+    if (after && verdict === 'accept' && now.get(id) !== 'accept') n += 1;
+    now.set(id, verdict);
+  }
+  return n;
+}
 const verdictOf = (v, id) => v.resolved.get(id) ?? v.facts.get(id)?.verdict;
 const known = (v, id) => verdictOf(v, id) === 'accept' || v.premises.some((p) => p.id === id);
 const hintsRead = (v) => new Set(v.records.filter((r) => r.t === 'rank' || r.t === 'claim').flatMap((r) => r.hintsRead ?? []));
@@ -254,19 +269,20 @@ const isLimits = (l) => isRound(l?.rounds) && isRound(l?.attempts);
 const isCommands = (c) => Array.isArray(c) && c.every((x) => typeof x === 'string' && x !== '');
 const resumeKeyOk = (v, req) => v.resumeKey === digest(String(req.resumeKey));
 
+// 開始は run の外で呼び出し元が 1 回だけ、scripts/start.mjs から呼ぶ（この CLI の操作に入れないので、必要な許可にも入らない）。
+// runtime が送り直す書き込みではないので、送り直しの照合を持たない（照合の鍵を run の中で作ると、依頼文を読める役が同じ鍵で送り直して、書き込みと再開の鍵を得られる）。
+// 写しの中で実行してよいコマンドもここでだけ記録する（run の中の役が状態を作れると、その状態に記録した任意のコマンドを写しの中で実行できる）。
+function start(req) {
+  if (typeof req.request !== 'string' || req.request === '') reject('E_INPUT', 'request（依頼文）が要る');
+  if (!isCommands(req.commands)) reject('E_INPUT', 'commands（依頼文の再現手順のコマンドの並び）が要る');
+  const state = `tc-${randomBytes(4).toString('hex')}`;
+  const resumeKey = randomBytes(16).toString('hex');
+  mkdirSync(dirOf(req.repo, state), { recursive: true });
+  append(req.repo, state, [{ t: 'start', request: req.request, commands: req.commands, resumeKey: digest(resumeKey) }]);
+  return { state, resumeKey };
+}
+
 const OPS = {
-  // 開始は run の外で呼び出し元が 1 回だけ呼ぶ。runtime が送り直す書き込みではないので、送り直しの照合を持たない
-  // （照合の鍵を run の中で作ると、依頼文を読める役が同じ鍵で送り直して、書き込みと再開の鍵を得られる）。
-  // 写しの中で実行してよいコマンドもここでだけ記録する（run の中の役が記録できると、その役が選んだコマンドを全ての役が実行できる）。
-  start(req) {
-    if (typeof req.request !== 'string' || req.request === '') reject('E_INPUT', 'request（依頼文）が要る');
-    if (!isCommands(req.commands)) reject('E_INPUT', 'commands（依頼文の再現手順のコマンドの並び）が要る');
-    const state = `tc-${randomBytes(4).toString('hex')}`;
-    const resumeKey = randomBytes(16).toString('hex');
-    mkdirSync(dirOf(req.repo, state), { recursive: true });
-    append(req.repo, state, [{ t: 'start', request: req.request, commands: req.commands, resumeKey: digest(resumeKey) }]);
-    return { state, resumeKey };
-  },
   // run は全て再開で始める。停止の記録の応答が失われた run も、ここで状態に書かれた停止を読んで続ける。
   resume: (req) => locked(req.repo, req.state, () => {
     const v = load(req.repo, req.state);
@@ -372,7 +388,7 @@ const OPS = {
     const prev = v.rounds.at(-1);
     const same = prev?.run === req.run;
     const facts = accepted(v).length;
-    const newFacts = facts - (prev?.facts ?? 0);
+    const newFacts = acceptedSince(v, prev);
     const dry = newFacts === 0 && !req.allFailed ? (same ? prev.dry : 0) + 1 : 0;
     const failed = req.allFailed ? (same ? prev.failed : 0) + 1 : 0;
     return { t: 'round', run: req.run, n: v.rounds.length + 1, launches: req.launches, facts, newFacts, dry, failed, unreadHints: unreadHints(v).length,
@@ -417,18 +433,20 @@ export function commandsOf(repo, state) {
   return load(repo, state).commands ?? [];
 }
 
-export function main(op, text) {
+function handle(op, text, fn, needsState) {
   try {
-    if (!Object.hasOwn(OPS, op)) reject('E_INPUT', `操作が無い: ${op}`);
     const req = JSON.parse(text);
     if (typeof req.repo !== 'string' || req.repo === '') reject('E_INPUT', 'repo（調べるリポジトリの絶対パス）が要る');
-    if (op !== 'start' && !STATE_ID.test(String(req.state))) reject('E_INPUT', 'state（状態 ID）が要る');
-    return { code: 0, out: { ok: true, op, ...OPS[op](req) } };
+    if (needsState && !STATE_ID.test(String(req.state))) reject('E_INPUT', 'state（状態 ID）が要る');
+    return { code: 0, out: { ok: true, op, ...fn(req) } };
   } catch (error) {
     if (error instanceof Rejected) return { code: 2, out: { ok: false, code: error.code, reason: error.message } };
     return { code: 1, out: { ok: false, code: 'E_INTERNAL', reason: String(error?.stack ?? error) } };
   }
 }
+
+export const main = (op, text) => (Object.hasOwn(OPS, op) ? handle(op, text, OPS[op], true) : { code: 2, out: { ok: false, code: 'E_INPUT', reason: `操作が無い: ${op}` } });
+export const startMain = (text) => handle('start', text, start, false);
 
 if (process.argv[1] && realpathSync(path.resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   const chunks = [];

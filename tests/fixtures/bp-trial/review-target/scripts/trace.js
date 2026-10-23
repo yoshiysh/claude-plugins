@@ -112,6 +112,7 @@ const copyLines = (to) => [
   `写しの中で再現手順のコマンドを実行するコマンド（command に下の番号を書く）: ${command('copy.mjs', 'exec', { repo: run.repo, to, command: 1 })}`,
   `再現手順のコマンド:\n${run.commands.map((c, n) => `${n + 1}: ${c}`).join('\n') || '（無い）'}`,
 ]
+const gitLine = () => `リポジトリを git で読む CLI（log・show・diff・blame・ls-files・grep。git を直接は実行しない）: ${command('git-read.mjs', 'log', { repo: run.repo, args: ['-1', '--oneline'] })}`
 const knownLine = () => `既知の事実を引く CLI（読み出しだけ）: ${command('state.mjs', 'get', { repo: run.repo, state: run.state, kind: '事実' })}`
 const methodsLine = () => `検証方式の綴り（method に書く）: ${Object.entries(run.methods).map(([k, name]) => `${k}（${name}）`).join('・')}`
 
@@ -192,28 +193,36 @@ async function cli(u, ops) {
   return responses
 }
 
-// 1 件が止まったら新しい意図を始めず、走っている意図の終わりを待つ（待たずに返すと、走っている agent の呼び出しが run の終わりに残る）。
-async function pool(items, work) {
-  const queue = [...items]
-  const running = new Set()
-  const out = []
+// 意図ごとに pipeline() の 1 item として流す。item は CONCURRENCY の枠を順位の順に取り、枠を取ったときに起動数の上限で確かめる
+// （収まらなければ、その item と後の item を始めずに未着手で残す）。1 件が止まったら、まだ始めていない item は始めずに終わる。
+// pipeline() は item の失敗を null にして残りを続けるので、停止は item の中で受け止めて、全ての item の終わりの後に投げ直す。
+async function flow(items, work) {
+  let free = CONCURRENCY
+  const waiting = []
+  const take = () => (free > 0 ? ((free -= 1), Promise.resolve()) : new Promise((resolve) => waiting.push(resolve)))
+  const give = () => { const next = waiting.shift(); if (next) next(); else free += 1 }
   const errors = []
   let full = false
-  const open = () => queue.length && !full && !errors.length
-  while (open() || running.size) {
-    while (open() && running.size < CONCURRENCY) {
-      if (!budget.fits(WORST.item)) {
+  let notStarted = 0
+  const out = await pipeline(items, async (intent) => {
+    await take()
+    try {
+      if (errors.length) return undefined
+      if (full || !budget.fits(WORST.item)) {
         full = true
-        break
+        notStarted += 1
+        return undefined
       }
-      const item = queue.shift()
-      const p = work(item).then((r) => { out.push(r) }, (e) => { errors.push(e) }).finally(() => running.delete(p))
-      running.add(p)
+      return await work(intent)
+    } catch (e) {
+      errors.push(e)
+      return undefined
+    } finally {
+      give()
     }
-    if (running.size) await Promise.race(running)
-  }
+  })
   if (errors.length) throw errors[0]
-  return { out, notStarted: queue.length }
+  return { out: out.filter((r) => r !== undefined && r !== null), notStarted }
 }
 
 // 足りない入力で止まった後の再開では、止まっていた間に足されたヒント（問いへの答え）も渡す。読んだと数えるのは計画役に渡した要約に載ったヒントだけなので、ここでは数えない。
@@ -278,6 +287,7 @@ async function item(intent, round) {
         `試行: ${attempt}`,
         ...copyLines(`${run.workDir}/${intent.id}.${attempt}`),
         knownLine(),
+        gitLine(),
         `前提（目標・範囲・禁止事項と出発点。範囲の外へ広げない）:\n${run.premises}`,
         `意図 ${intent.id}: ${intent.text}`,
         ...(intent.recheck ? [`確かめ直す事実（意図の間で判定が食い違った。本文を変えずに確かめる）: ${intent.recheck.fact}: ${intent.recheck.text}`] : []),
@@ -308,6 +318,7 @@ async function item(intent, round) {
         `作業ファイルの置き場: ${run.workDir}`,
         `意図 ${intent.id}・試行 ${attempt}`,
         ...copyLines(`${run.workDir}/${intent.id}.${attempt}.verify`),
+        gitLine(),
         `前提:\n${run.premises}`,
         `事実の候補（行頭が候補の番号）:\n${candidates.map((f, n) => `${n}: ${JSON.stringify(f)}`).join('\n')}`,
       ], SCHEMAS.verifier, `verifier:${intent.id}`)
@@ -338,6 +349,7 @@ async function extraSeen(round) {
         `役の指示: ${ROLES}/executor.md を読む。`,
         `リポジトリ: ${run.repo}`,
         `作業ファイルの置き場: ${run.workDir}`,
+        gitLine(),
         `前提:\n${run.premises}`,
         `意図: 台帳で誰も見ていない次のファイルを読み、読んだファイルを seen に返す。facts は空にする（この起動は見ていないファイルを無くすためのもので、事実は計画役の意図で確かめる）: ${skip.join(' ')}`,
         methodsLine(),
@@ -364,7 +376,7 @@ async function rounds(startRound) {
       rejections += 1
       lastRejection = p.reason
     }
-    const { out, notStarted } = await pool(p.pending, (intent) => item(intent, round))
+    const { out, notStarted } = await flow(p.pending, (intent) => item(intent, round))
     if (notStarted) throw launchStop()
     await extraSeen(round)
     const [r] = await unit(WORST.round, (u) => cli(u, [['round', { round, launches: run.roundLaunches + 1, allFailed: out.length > 0 && out.every((x) => x.failed) }]]))

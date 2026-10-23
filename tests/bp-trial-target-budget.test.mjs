@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
 import { FIXTURE_DIR } from '../tools/read-bp-trial.mjs';
-import { main as cli, logOf as logPath, workRootOf } from './fixtures/bp-trial/review-target/scripts/state.mjs';
+import { main as cli, logOf as logPath, startMain, workRootOf } from './fixtures/bp-trial/review-target/scripts/state.mjs';
+import { read as gitRead } from './fixtures/bp-trial/review-target/scripts/git-read.mjs';
 import { exec, make } from './fixtures/bp-trial/review-target/scripts/copy.mjs';
 
 // 題材の状態の置き場は利用者のホームの下が既定なので、テストの間は一時ディレクトリに向ける。
@@ -103,7 +104,7 @@ async function runArgs(t, sc, args, { concurrency = 3, root = FIXTURE_DIR } = {}
 
 // 状態は SKILL.md の「起動」のとおり、呼び出し元が run の前に CLI の start で作る。
 function started(dir, request = 'テスト a が落ちる原因を調べる', commands = ['cat src/a.js']) {
-  const { out } = cli('start', JSON.stringify({ repo: dir, request, commands }));
+  const { out } = startMain(JSON.stringify({ repo: dir, request, commands }));
   assert.equal(out.ok, true, JSON.stringify(out));
   return out;
 }
@@ -299,13 +300,16 @@ function assertRisks(risks) {
   for (const x of risks) assert.ok(x.restriction && x.reason && !/上の|全ての役/.test(`${x.role}${x.restriction}`), JSON.stringify(x));
 }
 
+// 開始は scripts/start.mjs の入口（state.mjs の操作に無い）。
+const run1 = (op, body) => (op === 'start' ? startMain(JSON.stringify(body)) : cli(op, JSON.stringify(body)));
+
 function call(op, body) {
-  const { out } = cli(op, JSON.stringify(body));
+  const { out } = run1(op, body);
   assert.equal(out.ok, true, `${op}: ${JSON.stringify(out)}`);
   return out;
 }
 
-const code = (op, body) => cli(op, JSON.stringify(body)).out.code;
+const code = (op, body) => run1(op, body).out.code;
 
 const LIMITS = { rounds: 5, attempts: 3 };
 
@@ -515,7 +519,7 @@ test('SP-BPCONFORMANCE-011・SP-BPCONFORMANCE-014: 試走の題材は、run の�
   assert.match(s.state, /^tc-[0-9a-f]{8}$/);
   assert.equal(code('active', { repo: dir }), 'E_INPUT');
   let stolen = null;
-  const thief = { ...SCENARIOS.素直に完了, agent: (label) => { if (label === 'goal') stolen = cli('start', JSON.stringify({ repo: dir, request })).out; } };
+  const thief = { ...SCENARIOS.素直に完了, agent: (label) => { if (label === 'goal') stolen = startMain(JSON.stringify({ repo: dir, request, commands: [] })).out; } };
   const r = await runArgs(t, thief, { state: s.state, repo: dir, skillDir: FIXTURE_DIR, resumeKey: s.resumeKey }, { concurrency: 1 });
   assert.equal(r.result.stopKind, 'complete', r.result.reason);
   assert.notEqual(stolen.state, s.state);
@@ -936,5 +940,76 @@ test('SP-BPCONFORMANCE-014: 試走の題材の CLI の Bash の許可は、scrip
   for (const p of allows) assert.ok(lines.some((l) => l.startsWith(p.replaceAll('<このスキルのディレクトリ>', FIXTURE_DIR))), `当たるコマンドの無い許可: ${p}`);
   const shown = [...skill.matchAll(/^node .*$/gm)].map(([l]) => l);
   assert.ok(shown.length >= 2);
-  for (const line of shown) assert.ok(covered(line, '<このスキルのディレクトリ>'), `SKILL.md のコマンドが許可に当たらない: ${line}`);
+  for (const line of shown) assert.equal(covered(line, '<このスキルのディレクトリ>'), !line.includes('/scripts/start.mjs'), `SKILL.md のコマンドと許可: ${line}`);
+  assert.ok(shown.some((l) => l.includes('/scripts/start.mjs')), '開始のコマンドが SKILL.md に無い');
+});
+
+test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-015: 試走の題材の写しは、リポジトリの外を指す symlink をリンク先の中身にし、中を指す symlink を写しの中へ向け、写しの中の書き込みを対象のリポジトリに届かせない', async (t) => {
+  const outside = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-outside-')));
+  t.after(() => fs.rm(outside, { recursive: true, force: true }));
+  writeFileSync(path.join(outside, 'o.txt'), 'outside\n');
+  const src = await dirtyRepo(t, (d) => {
+    symlinkSync(path.join(d, 'a.txt'), path.join(d, 'abs-link'));
+    symlinkSync('a.txt', path.join(d, 'rel-link'));
+    symlinkSync(path.relative(d, path.join(outside, 'o.txt')), path.join(d, 'up-link'));
+    symlinkSync(outside, path.join(d, 'out-dir'));
+  });
+  const before = status(src);
+  const { workDir } = stateFor(src, ['echo hi > abs-link; echo hi > rel-link; echo hi > up-link; echo hi > out-dir/o.txt']);
+  const to = path.join(workDir, 'I1.1');
+  make({ repo: src, to });
+  assert.equal(exec({ repo: src, to, command: 1 }).code, 0);
+  assert.deepEqual([readFileSync(path.join(src, 'a.txt'), 'utf8'), readFileSync(path.join(outside, 'o.txt'), 'utf8')], ['dirty\n', 'outside\n']);
+  assert.equal(status(src), before);
+  for (const f of ['abs-link', 'rel-link', 'up-link', 'out-dir/o.txt']) assert.ok(realpathSync(path.join(to, f)).startsWith(realpathSync(to) + path.sep), f);
+});
+
+test('SP-BPCONFORMANCE-014: 試走の題材の状態の CLI は状態を作らず、状態を作る入口は必要な許可の外にあり、git は書き込みと外部のコマンドの実行に当たる引数を拒否する CLI だけで読む', async (t) => {
+  const dir = await repo(t);
+  assert.equal(cli('start', JSON.stringify({ repo: dir, request: 'r', commands: ['touch pwned'] })).out.code, 'E_INPUT');
+  const skill = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8').split('## 必要な許可')[1].split('\n## ')[0];
+  assert.ok(!/^- `Bash\([^`]*start\.mjs/m.test(skill), '開始の入口が必要な許可に入る');
+  assert.ok(!/`Bash\(git /.test(skill), 'git の生の許可が残る');
+  const src = await dirtyRepo(t);
+  for (const [sub, args] of [['diff', [`--output=${src}/w1`, 'HEAD']], ['log', ['-1', '-p', `--outp=${src}/w2`]], ['grep', [`-Otouch ${src}/w3`, 'a']], ['grep', ['-nO', 'a']], ['grep', [`--open=touch ${src}/w4`, 'a']], ['diff', ['--ext-diff']], ['commit', ['-m', 'x']]]) {
+    assert.throws(() => gitRead(sub, { repo: src, args }), /書き込み|外部のコマンド|読むだけの git/, `${sub} ${args.join(' ')}`);
+  }
+  for (const f of ['w1', 'w2', 'w3', 'w4']) assert.ok(!existsSync(path.join(src, f)), f);
+  execFileSync('git', ['config', 'diff.external', `touch ${src}/w5`], { cwd: src });
+  assert.equal(gitRead('diff', { repo: src, args: [] }).code, 0);
+  assert.ok(!existsSync(path.join(src, 'w5')));
+  assert.match(gitRead('log', { repo: src, args: ['-1', '--format=%s'] }).stdout, /^c$/m);
+});
+
+test('SP-BPCONFORMANCE-032・SP-BPCONFORMANCE-015: 試走の題材は、確かめ直しで受理から外れた事実があっても、受理でなかった事実を受理へ移した記録だけを新しい事実と数えて、乾きと却下の連続を数える', async (t) => {
+  const { dir, base, resumeKey } = await begun(t);
+  const [a, b] = planned(base, 1, ['k1', 'k2']);
+  call('facts', { ...base, intent: a.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'accept' }, { text: 'Z は 3', method: 'refetch', evidence: 'e', verdict: 'accept' }] });
+  call('facts', { ...base, intent: b.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'reject' }, { text: 'Z は 3', method: 'refetch', evidence: 'e', verdict: 'reject' }] });
+  assert.equal(call('round', { ...base, round: 1, launches: 1, allFailed: false }).newFacts, 2);
+  call('stop', { ...base, kind: 'blocked', reason: '食い違い', launches: 1 });
+  const r = call('resume', { repo: dir, state: base.state, resumeKey, limits: LIMITS });
+  const next = { ...base, run: r.run, writeKey: r.writeKey };
+  const [x, z] = call('get', { ...next, kind: '事実' }).lines.map((l) => /^事実 (F\w+): (.*)$/.exec(l)).sort((p, q) => p[2].localeCompare(q[2])).map((m) => m[1]);
+  const [c, d] = call('plan', { ...next, round: 2, intents: [{ key: 'r1', text: 'r', basis: ['P1'], rank: 1, recheck: x }, { key: 'n1', text: 'n', basis: ['P1'], rank: 2 }], rerank: [], hintsRead: [] }).pending;
+  call('facts', { ...next, intent: c.id, facts: [{ text: 'X は 1', method: 'refetch', evidence: 'e', verdict: 'reject' }] });
+  call('facts', { ...next, intent: d.id, facts: [{ text: 'Y は 2', method: 'refetch', evidence: 'e', verdict: 'accept' }] });
+  const r2 = call('round', { ...next, round: 2, launches: 1, allFailed: false });
+  assert.deepEqual([r2.newFacts, r2.dry], [1, 0]);
+  const [e] = call('plan', { ...next, round: 3, intents: [{ key: 'r2', text: 'r', basis: ['P1'], rank: 1, recheck: z }], rerank: [], hintsRead: [] }).pending;
+  call('facts', { ...next, intent: e.id, facts: [{ text: 'Z は 3', method: 'refetch', evidence: 'e', verdict: 'reject' }] });
+  const r3 = call('round', { ...next, round: 3, launches: 1, allFailed: false });
+  assert.deepEqual([r3.newFacts, r3.dry], [0, 1]);
+});
+
+test('SP-BPCONFORMANCE-015: 試走の題材は、意図ごとの工程を pipeline() の item として流し、枠と起動数の上限は item の中で確かめる', async (t) => {
+  const text = readFileSync(path.join(FIXTURE_DIR, 'scripts', 'trace.js'), 'utf8');
+  assert.match(text, /await pipeline\(items, async \(intent\) =>/);
+  assert.ok(!/Promise\.race/.test(text), '自前の pool が残る');
+  let inFlight = 0;
+  let most = 0;
+  const slow = { ...SCENARIOS.素直に完了, intents: 6, agent: async (label) => { if (label.startsWith('executor:I')) { inFlight += 1; most = Math.max(most, inFlight); await new Promise((r) => setTimeout(r, 20)); inFlight -= 1; } } };
+  const r = await runTarget(t, slow, { concurrency: 8 });
+  assert.equal(r.result.stopKind, 'complete', r.result.reason);
+  assert.equal(most, 3);
 });
