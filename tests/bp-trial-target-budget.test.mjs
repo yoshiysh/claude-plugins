@@ -1177,15 +1177,31 @@ test('SP-BPCONFORMANCE-014: 試走の題材の git を読む CLI は、log の�
   }
 });
 
-test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-016: 試走の題材は、写しを作るときも台帳を取るときも、対象のリポジトリの .git を書き換えず、停止の記録の無い run の再開の扱いを SKILL.md に実装どおりに書く', async (t) => {
+test('SP-BPCONFORMANCE-014・SP-BPCONFORMANCE-016: 試走の題材の scripts は、対象のリポジトリへの git を全て scripts/git-safe.mjs から呼び、git-safe は索引を書き換えない設定と GIT_OPTIONAL_LOCKS=0 を必ず付け、停止の記録の無い run の再開の扱いを SKILL.md に実装どおりに書く', async (t) => {
+  const dir = path.join(FIXTURE_DIR, 'scripts');
+  const calls = readdirSync(dir).filter((f) => /\.m?js$/.test(f)).flatMap((f) => [...readFileSync(path.join(dir, f), 'utf8').matchAll(/\b(?:execFileSync|execFile|spawnSync|spawn|execSync|exec)\(\s*['"`]git\b[^\n]*/g)].map(([line]) => `${f}: ${line}`));
+  assert.deepEqual(calls.map((c) => c.split(':')[0]).sort(), ['copy.mjs', 'git-safe.mjs'], calls.join('\n'));
+  assert.ok(calls.some((c) => c.startsWith('copy.mjs') && /\['init', '-q'\], \{ cwd: dest \}/.test(c)), '写しの外の git は写しの git init だけ');
+  const bin = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-trial-fakegit-')));
+  t.after(() => fs.rm(bin, { recursive: true, force: true }));
+  const log = path.join(bin, 'calls.log');
+  const real = execFileSync('/usr/bin/env', ['sh', '-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nprintf '%s\\n' "GIT_OPTIONAL_LOCKS=$GIT_OPTIONAL_LOCKS $*" >> '${log}'\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${saved}`;
+  t.after(() => { process.env.PATH = saved; });
+  const { git } = await import(path.join(dir, 'git-safe.mjs'));
   const src = await dirtyRepo(t);
-  execFileSync('git', ['config', 'core.untrackedCache', 'true'], { cwd: src });
-  const future = new Date(Date.now() + 120_000);
-  utimesSync(path.join(src, 'a.txt'), future, future);
-  const before = gitSnapshot(src);
+  git(src, ['ls-files']);
   const { workDir } = stateFor(src, []);
   make({ repo: src, to: path.join(workDir, 'I1.1') });
-  assert.equal(gitSnapshot(src), before);
+  gitRead('diff', { repo: src, args: [] });
+  const seen = readFileSync(log, 'utf8').split('\n').filter((l) => l.includes(` -C ${src} `));
+  assert.ok(seen.length >= 4, seen.join('\n'));
+  for (const line of seen) {
+    assert.ok(line.startsWith('GIT_OPTIONAL_LOCKS=0 '), line);
+    for (const c of ['core.fsmonitor=false', 'diff.autoRefreshIndex=false', 'core.untrackedCache=false', 'log.showSignature=false', 'gpg.program=false']) assert.ok(line.includes(`-c ${c} `), `${c}: ${line}`);
+  }
   const skill = readFileSync(path.join(FIXTURE_DIR, 'SKILL.md'), 'utf8');
   assert.match(skill, /まだ何も書いていなければ[^。]*同じ run と同じ書き込みの鍵を返し、書き込みのあった run には BLOCKED の停止を足して/);
 });
