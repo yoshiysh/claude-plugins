@@ -77,7 +77,7 @@ class Stop {
 function validate(a) {
   const missing = ['state', 'repo', 'skillDir', 'resumeKey'].filter((k) => typeof a?.[k] !== 'string' || a[k] === '')
   if (missing.length) return { error: `起動に要る項目が無い: ${missing.join(', ')}` }
-  return { state: a.state, repo: a.repo, skillDir: a.skillDir, resumeKey: a.resumeKey, limit: a.maxLaunches }
+  return { state: a.state, repo: a.repo, skillDir: a.skillDir, resumeKey: a.resumeKey, limit: a.maxLaunches, tokens: a.maxTokens }
 }
 
 // 上限の確かめを他の項目の確かめより先に行う（docs/specifications/bp-run.md の SP-BPRUN-037。同時に当たる入力でも上限の理由を返す）。
@@ -90,11 +90,17 @@ if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1)) {
 if (limit !== undefined && limit < MIN_LAUNCHES) {
   return { stopKind: 'blocked', reason: `起動数の上限 ${limit} が最小の起動数 ${MIN_LAUNCHES} に満たない。上限が 1 件の意図にも足りない`, ...retry, launches: 0 }
 }
+const tokenLimit = args?.maxTokens
+if (tokenLimit !== undefined && !(Number.isInteger(tokenLimit) && tokenLimit >= 1)) {
+  return { stopKind: 'blocked', reason: `トークン量の上限 ${JSON.stringify(tokenLimit)} は 1 以上の整数でなければならない`, ...retry, launches: 0 }
+}
 const input = validate(args)
 if (input.error) return { stopKind: 'blocked', reason: input.error, launches: 0 }
 const SKILL = input.skillDir
 const ROLES = `${SKILL}/references/roles`
 const run = { state: input.state, run: null, repo: input.repo, workDir: null, writeKey: null, resumeKey: input.resumeKey, methods: null, premises: '', commands: [], round: null, roundLaunches: 0 }
+// 起動した agent のモデルの記録（返り値の models）。モデルを指定しなかった起動は host-default と残す。
+const modelLog = []
 
 // 検証方式の綴りは CLI が再開の応答で渡す（CLI の受け付ける綴りと、実行役に書かせる綴りを 1 つにする）。
 function factSchemas() {
@@ -117,7 +123,7 @@ const knownLine = () => `既知の事実を引く CLI（読み出しだけ）: $
 const methodsLine = () => `検証方式の綴り（method に書く）: ${Object.entries(run.methods).map(([k, name]) => `${k}（${name}）`).join('・')}`
 
 // 走っている単位の残りの最悪の数も足して確かめる。呼び終えた数だけで確かめると、同時に走る意図の残りが合わさって上限を超える。
-const budget = (() => {
+const launchBudget = (() => {
   let used = 0
   let seq = 0
   const running = new Map()
@@ -146,26 +152,36 @@ const budget = (() => {
 })()
 
 function launchStop() {
-  return new Stop('iteration_limit', `起動数の上限 ${input.limit} で止まった（その時点の起動数 ${budget.used()}）`, { limitHit: 'launch' })
+  return new Stop('iteration_limit', `起動数の上限 ${input.limit} で止まった（その時点の起動数 ${launchBudget.used()}）`, { limitHit: 'launch' })
+}
+
+// typeof で見るのは、budget を持たない実行環境（Codex runner・単体テスト）では識別子そのものが存在せず、参照しただけで ReferenceError になるため。そこではトークン量で止められないので、起動数の上限で費用を抑える。
+const tokenBudget = typeof budget !== 'undefined' && budget && budget.total ? budget : null
+const tokensSpent = () => tokenBudget.total - tokenBudget.remaining()
+
+function tokenStop() {
+  return new Stop('iteration_limit', `トークン量の上限 ${input.tokens} で止まった（その時点の消費量 ${tokensSpent()}）`, { limitHit: 'tokens' })
 }
 
 // 単位を始める前に最悪の数で確かめ、単位の中の起動はその単位に数える。
 async function unit(worst, body) {
-  if (!budget.fits(worst)) throw launchStop()
-  const u = budget.open(worst)
+  if (tokenBudget && input.tokens !== undefined && tokensSpent() >= input.tokens) throw tokenStop()
+  if (!launchBudget.fits(worst)) throw launchStop()
+  const u = launchBudget.open(worst)
   try {
     return await body(u)
   } finally {
-    budget.close(u)
+    launchBudget.close(u)
   }
 }
 
 // agent() の失敗（throw）も結果の欠けとして返す。工程の中では試行の失敗に、工程の外では BLOCKED の停止になり、どちらも理由が状態に残る。
 async function launch(u, role, lines, schema, label) {
-  budget.charge(u)
+  launchBudget.charge(u)
   run.roundLaunches += 1
+  modelLog.push({ role, model: ROLE_MODELS[role]?.model ?? 'host-default' })
   // 運搬役の出力は CLI の標準出力で、状態に残る。他の役の出力は run のディレクトリに写しを残す。
-  const copy = role === 'carrier' ? [] : [`出力の写し: ${run.workDir}/${String(budget.used()).padStart(4, '0')}-${label.replace(/[^\w.-]/g, '_')}.json`]
+  const copy = role === 'carrier' ? [] : [`出力の写し: ${run.workDir}/${String(launchBudget.used()).padStart(4, '0')}-${label.replace(/[^\w.-]/g, '_')}.json`]
   try {
     return await agent([...lines, ...copy].join('\n'), { ...ROLE_MODELS[role], label, schema })
   } catch {
@@ -208,7 +224,7 @@ async function flow(items, work) {
     await take()
     try {
       if (errors.length) return undefined
-      if (full || !budget.fits(WORST.item)) {
+      if (full || !launchBudget.fits(WORST.item)) {
         full = true
         notStarted += 1
         return undefined
@@ -383,6 +399,7 @@ async function rounds(startRound) {
     run.round = null
     run.roundLaunches = 0
     if (r.failed >= 2) throw new Stop('blocked', '方向を選び直しても全ての意図が失敗した')
+    if (r.unverifiableOver) throw new Stop('needs_input', `検証不能の事実が ${r.unverifiable} 件あり、歯止めの閾値を超えた。費用をかけて確かめるかは人間の判断が要る`)
     if (r.newFacts > 0) rejections = 0
     if (rejections >= 2 && r.unreadHints === 0) throw new Stop('needs_input', `完了の主張が新しい事実を挟まずに却下され続けた（最後の却下の理由: ${lastRejection}）`)
     if (r.dry >= DRY_ROUNDS && r.unreadHints === 0) throw new Stop('dry', `${DRY_ROUNDS} 周続けて新しい事実が無かった`)
@@ -428,26 +445,27 @@ const result = (written) => ({
   skip: written.skip,
   facts: written.facts,
   ...(stop.kind === 'complete' ? { cause: stop.extra.cause } : {}),
-  launches: budget.used(),
+  launches: launchBudget.used(),
   roundLaunches: written.rounds,
+  models: modelLog,
   residualRisks: RESIDUAL_RISKS,
 })
 if (stop.extra.written) return result(stop.extra.written)
 if (!run.run) {
-  return { stopKind: stop.kind, reason: stop.reason, nextArgs: nextArgs(), launches: budget.used(), residualRisks: RESIDUAL_RISKS }
+  return { stopKind: stop.kind, reason: stop.reason, nextArgs: nextArgs(), launches: launchBudget.used(), residualRisks: RESIDUAL_RISKS }
 }
-const final = budget.open(RESERVE)
+const final = launchBudget.open(RESERVE)
 let written = null
 try {
   // 周の途中で止まったときは、停止の運搬役をその周の起動に数える。周の記録の後に止まったときは、どの周にも数えない。
-  ;[written] = await cli(final, [['stop', { kind: stop.kind, reason: stop.reason, limitHit: stop.extra.limitHit, cause: stop.extra.cause, launches: budget.used() + 1, ...(run.round ? { round: run.round, roundLaunches: run.roundLaunches + 1 } : {}) }]])
+  ;[written] = await cli(final, [['stop', { kind: stop.kind, reason: stop.reason, limitHit: stop.extra.limitHit, cause: stop.extra.cause, launches: launchBudget.used() + 1, ...(run.round ? { round: run.round, roundLaunches: run.roundLaunches + 1 } : {}) }]])
 } catch (e) {
   const why = e instanceof Stop ? e.reason : String(e)
   return {
     stopKind: 'blocked',
     reason: `停止の記録を書けたかが分からない（止めようとした停止: ${stop.kind}: ${stop.reason}）: ${why}。nextArgs で再開すると、CLI が状態に書かれた停止を読む（完了が書かれていれば完了を返し、停止が書かれていなければ BLOCKED の停止を足してから続ける）`,
     nextArgs: nextArgs(),
-    launches: budget.used(),
+    launches: launchBudget.used(),
     residualRisks: RESIDUAL_RISKS,
   }
 }
