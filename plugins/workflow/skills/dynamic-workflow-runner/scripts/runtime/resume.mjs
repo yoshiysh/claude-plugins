@@ -202,7 +202,7 @@ export async function resumableWorkflow(request, host, resolved) {
     await durableFile(join(runDir, 'request.json'), requestText);
     const journal = await fsPromises.open(join(runDir, 'events.jsonl'), 'wx', 0o600);
     await syncDirectory(runDir);
-    try { return await execute({ backend, runDir, policy, limits, meta, body, argsText, source,
+    try { return await execute({ backend, runDir, policy, limits, body, argsText, source,
       requestText, previous, journal, capabilities, workspace }); }
     finally { await journal.close(); }
   } finally {
@@ -210,7 +210,7 @@ export async function resumableWorkflow(request, host, resolved) {
   }
 }
 
-async function execute({ backend, runDir, policy, limits, meta, body, argsText, source,
+async function execute({ backend, runDir, policy, limits, body, argsText, source,
   requestText, previous, journal, capabilities, workspace }) {
   let sequence = 0, digest = '', io = Promise.resolve(), poisoned;
   const record = event => {
@@ -397,6 +397,6 @@ async function execute({ backend, runDir, policy, limits, meta, body, argsText, 
     worker.on('message', message => {
       admission = admission.then(() => receive(message)); admission.catch(finish);
     });
-    worker.send({ type: 'start', args: JSON.parse(argsText), meta, body, checkpoints: true, workspace });
+    worker.send({ type: 'start', args: JSON.parse(argsText), body, checkpoints: true, workspace });
   });
 }

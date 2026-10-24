@@ -15,6 +15,7 @@ test('the body meta detector counts every reference form and ignores property na
     'const o = { meta: 1 }', 'class A { meta() {} }', 'class B { meta = 1 }', 'const u = import.meta.url', 'meta: for (;;) break meta']
   for (const source of quiet) assert.equal(bodyMetaReferences(definition + source).length, 0, source)
   assert.equal(bodyMetaReferences(definition).length, 0, 'the export const meta declaration is not a body reference')
+  assert.equal(bodyMetaReferences('export const meta = { name: 1 };\nmeta.x').length, 1, 'a source with invalid meta values is still guarded')
 })
 
 test('Workflow sources are enumerated from both placements without duplicates', () => {

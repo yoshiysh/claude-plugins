@@ -1,21 +1,8 @@
 import { globSync, readFileSync, realpathSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { join, relative, resolve } from 'node:path'
-
-const repoRoot = resolve(import.meta.dirname, '..', '..')
-// acorn はリポジトリ直下ではなく runner の runtime にだけ install される。パッケージ名で、runtime の位置から解決する。
-const { parse } = createRequire(join(repoRoot, 'plugins', 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'package.json'))('acorn')
-
-// runner の source.mjs と同じ構文の条件で読む。
-export function parseModule(source) {
-  return parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true })
-}
-
-export function isMetaDeclaration(statement) {
-  const declaration = statement?.declaration
-  return statement?.type === 'ExportNamedDeclaration' && declaration?.kind === 'const'
-    && declaration.declarations.length === 1 && declaration.declarations[0].id.name === 'meta'
-}
+import { join, relative } from 'node:path'
+// parse の条件と先頭文の形は runner の正本を使う。meta の値の検証（name・description・literal）は共有しない —
+// 値が壊れた source も列挙に残して本体のガードに掛けるため（runner は値の検証でそれを拒否する）。
+import { isMetaStatement, parseModule } from '../../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 
 function isPropertyName(node, parent) {
   if (!parent) return false
@@ -39,7 +26,7 @@ export function bodyMetaReferences(source) {
     }
   }
   const [first, ...body] = ast.body
-  if (!isMetaDeclaration(first)) visit(first, ast)
+  if (!isMetaStatement(first)) visit(first, ast)
   body.forEach((statement) => visit(statement, ast))
   return [...offsets].sort((a, b) => a - b)
 }
@@ -69,7 +56,8 @@ export function bodyLiteral(source, name) {
 
 // 置き場は best-practices.md §13「script の置き場」の 2 段。scripts/ の .js は Workflow source でないものも混ざるので
 // 先頭の文で選び、workflows/ の .js は全てを Workflow source として扱う（runner が全てを source として読むため）。
-// globSync は symlink のディレクトリを辿らないので、.agents/skills/ 側から拾えるのは未公開の実体だけになる（公開済みは plugins/ 側で拾う）。
+// globSync の * は symlink のディレクトリへ降りないので（node v26.12.0 で実測）、.agents/skills/ 側から拾えるのは未公開の実体だけで、
+// 公開済みは plugins/ 側で拾う。辿る実装に変わっても同じ実体を二重に数えないよう、realpath で重複を除く。
 const SCRIPT_GLOBS = ['plugins/*/skills/*/scripts/*.js', '.agents/skills/*/scripts/*.js']
 const WORKFLOW_GLOBS = ['plugins/*/workflows/*.js']
 
@@ -86,7 +74,7 @@ export function workflowSources(root) {
     } catch (error) {
       throw new Error(`${path}: cannot parse (${error.message})`)
     }
-    if (isMetaDeclaration(first)) add(path)
+    if (isMetaStatement(first)) add(path)
   }
   for (const path of WORKFLOW_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: root }))) add(path)
   return [...found.values()].sort()
