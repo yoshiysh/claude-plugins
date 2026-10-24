@@ -32,6 +32,23 @@ const TOOL = [
   '',
 ].join('\n')
 
+const REVIEW_MD = [
+  '# Review',
+  '',
+  '方針は `docs/rules.md`（以下 rules.md）を正本とする。',
+  '',
+  '## 読むもの',
+  '',
+  '| 変更 | 読むもの |',
+  '|---|---|',
+  '| `*.md` | `docs/guide.md`、rules.md「作業ルール」・「無い節」 |',
+  '| すべて | `docs/missing.md` |',
+  '',
+  '## 重大度',
+  '',
+].join('\n')
+const RULES_MD = '# Rules\n\n## 作業ルール\n\n- 写さない\n\n## ほか\n\nx\n'
+
 function git(repo, ...args) {
   return execFileSync('git', ['-C', repo, ...args], { env: GIT_ENV }).toString('utf8').trim()
 }
@@ -53,6 +70,9 @@ function fixture(t, { tool = true } = {}) {
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'config', 'commit.gpgsign', 'false')
   write(repo, '.github/workflows/claude_review.yml', WORKFLOW_YML)
+  write(repo, 'REVIEW.md', REVIEW_MD)
+  write(repo, 'docs/rules.md', RULES_MD)
+  write(repo, 'docs/guide.md', 'guide\n')
   if (tool) write(repo, 'tools/sync-bp-criteria.mjs', TOOL)
   write(repo, 'plugins/p/skills/s/scripts/bp/constants.mjs', "export const CRITERIA_DIR = 'references/criteria';\n")
   write(repo, 'docs/a.md', 'a\n')
@@ -122,6 +142,15 @@ test('plan: 計画を stateDir のファイルに書き、symlink と内容で�
   assert.equal(path.dirname(out.plan_path), fx.stateDir)
   assert.deepEqual(JSON.parse(readFileSync(out.plan_path, 'utf8')), out.plan)
   assert.deepEqual(out.plan.symlinks, ['plugins/p/docs-link'])
+  const pack = readFileSync(out.plan.policyPack.path, 'utf8')
+  assert.equal(path.dirname(out.plan.policyPack.path), fx.stateDir)
+  assert.deepEqual(out.plan.policyPack.index.map((e) => [e.id, e.path, e.title]), [['P1', 'REVIEW.md', null], ['P2', 'docs/guide.md', null], ['P3', 'docs/rules.md', '作業ルール']])
+  assert.deepEqual(out.plan.policyPack.missing, [{ path: 'docs/rules.md', title: '無い節' }, { path: 'docs/missing.md' }])
+  const lines = pack.split('\n')
+  const p3 = out.plan.policyPack.index[2]
+  assert.equal(lines[p3.pack[0] - 1], '## [P3] docs/rules.md「作業ルール」')
+  assert.deepEqual(lines.slice(p3.pack[0], p3.pack[1]), ['docs/rules.md:3| ## 作業ルール', 'docs/rules.md:4| ', 'docs/rules.md:5| - 写さない', 'docs/rules.md:6| '])
+  assert.match(pack, /束に入れなかったもの（見ていない）: docs\/rules.md「無い節」・docs\/missing.md/)
   assert.deepEqual(out.plan.skillDesignTargets, ['plugins/p/skills/s/SKILL.md', 'plugins/p/skills/s/scripts/run.js'], 'helper.js は Workflow source でない')
   assert.equal(out.plan.digests, null)
   const ng = run('plan', { ...diffBody(fx), reviewers: REVIEWERS.map((r) => ({ ...r, id: r.id === 'skill-design' ? 'structure' : r.id })), stateDir: fx.stateDir })
@@ -208,6 +237,11 @@ test('working_tree: staged・unstaged・untracked を含め、作業中の変更
   assert.deepEqual(Object.keys(out.plan.digests).sort(), out.plan.target.files)
   const ref = { planPath: out.plan_path, planSum: out.plan_sum }
   assert.equal(run('pin', signed(ref)).pin.ok, true)
+  const pack = out.plan.policyPack.path
+  const packText = readFileSync(pack, 'utf8')
+  writeFileSync(pack, `${packText}x`)
+  assert.match(run('pin', signed(ref)).pin.problems.join('\n'), /方針の束/, '束が計画の後に変わったら pin が拾う')
+  writeFileSync(pack, packText)
   write(fx.repo, 'docs/new.md', 'changed during review\n')
   const pin = run('pin', signed(ref))
   assert.equal(pin.exitCode, 0)
@@ -223,7 +257,7 @@ test('audit: scope の下の追跡・未追跡のファイルを列挙し、syml
   const audit = (scope) => run('inventory', { repo: fx.repo, mode: 'audit', headSha: fx.head, policyRef: fx.head, scope })
   const inv = audit(['docs'])
   assert.equal(inv.exitCode, 0, inv.reason)
-  assert.deepEqual(inv.inventory.reviewable, ['docs/untracked.md'], '作業ツリーに無い追跡ファイルは今の内容に無いので入れない')
+  assert.deepEqual(inv.inventory.reviewable, ['docs/guide.md', 'docs/rules.md', 'docs/untracked.md'], '作業ツリーに無い追跡ファイル（docs/a.md）は今の内容に無いので入れない')
   const whole = audit(['.'])
   assert.ok(whole.inventory.reviewable.includes('.github/workflows/claude_review.yml'))
   assert.ok(whole.inventory.reviewable.includes('plugins/p/docs-link'), '追跡中の symlink はリンク先の文字列として対象に入る')
@@ -238,7 +272,7 @@ test('audit: scope の下の追跡・未追跡のファイルを列挙し、syml
 test('pin: 対象を集め直せない（scope が消えた）ときは pin.ok を落とし、計画の不一致は E_INPUT で拒否する', (t) => {
   const fx = fixture(t)
   const reviewers = [{ id: 'correctness', focus: 'x', files: ['docs/a.md'] }, { id: 'docs', focus: 'y', files: ['docs/a.md'] }]
-  const out = run('plan', { repo: fx.repo, mode: 'audit', headSha: fx.head, policyRef: fx.head, scope: ['docs'], reviewers, stateDir: fx.stateDir })
+  const out = run('plan', { repo: fx.repo, mode: 'audit', headSha: fx.head, policyRef: fx.head, scope: ['docs/a.md'], reviewers, stateDir: fx.stateDir })
   assert.equal(out.exitCode, 0, out.reason)
   const ref = { planPath: out.plan_path, planSum: out.plan_sum }
   rmSync(path.join(fx.repo, 'docs'), { recursive: true })

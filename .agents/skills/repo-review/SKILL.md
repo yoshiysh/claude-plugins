@@ -4,7 +4,7 @@ description: >
   yoshiysh/claude-plugins リポジトリの作業ツリーの中で、そのリポジトリのコード・文書・スキル・差分・branch・PR・
   作業中の変更・path の範囲をレビューするときに使うこと。汎用のレビューではなく、base 側の REVIEW.md・
   docs/guidelines・AGENTS.md を規則として、観点ごとの独立した reviewer と別の検証役を Workflow で立て、
-  2 段の反証を通った指摘と、読んだ範囲・読めなかった範囲を返す（リポジトリのファイルを変えず、PR に投稿しない。書くのは repo の外の計画のファイル 1 つだけ）。
+  2 段の反証を通った指摘と、読んだ範囲・読めなかった範囲を返す（作業ツリーのファイルを変えず、PR に投稿しない。CLI が書くのは repo の外の `stateDir` の計画のファイルと方針の束だけで、`.git` が増えるのは手元に無い commit を `git fetch` するときだけ）。
   「この PR をレビューして」「この差分を REVIEW.md で見て」「作業中の変更をレビューして」
   「plugins/research を監査して」を、このリポジトリについて頼まれたら使う
   （Use when reviewing a diff, PR, working tree, or path of the yoshiysh/claude-plugins repository）。
@@ -40,7 +40,7 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
    - PR: `gh pr view <番号> --json baseRefOid,headRefOid` で得た head を **headSha**、`git merge-base <baseRefOid> <headRefOid>` を **baseRef**、base branch の先端（`baseRefOid`）を **policyRef** にする。手元に無い commit は `git fetch` で取る（`.git` の refs と objects が増える）。
    - diff は、作業ツリーが headSha を checkout した clean な状態でだけ始める。reviewer と検証役は作業ツリーのファイルも開くので、別の版の作業ツリーでは別の内容と行番号で候補が作られる。そうでなければ始めずに利用者に伝える（作業ツリーの切り替えは利用者の操作）。
    - branch・commit の差分: 比べる 2 点の完全な SHA を baseRef・headSha にし、base 側を policyRef にする。
-   - working_tree: 比べる base の SHA を baseRef と policyRef に、今の HEAD を headSha にする。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。
+   - working_tree: 比べる base の SHA を baseRef と policyRef に、今の HEAD を headSha にする。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
    - audit: 今の HEAD を headSha に、主ブランチの先端（`git rev-parse origin/main`）を policyRef にする。範囲を **scope** に入れる。公開済みスキルは `plugins/` の実体のパスで渡す（symlink を通る path は CLI が拒否する）。
 2. **対象を列挙する。** 次で inventory を取る（入力は stdin の JSON。repo はこのリポジトリの作業ツリーの絶対パス）。
 
@@ -50,8 +50,8 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
    JSON
    ```
 
-   CLI は policyRef の `.github/workflows/claude_review.yml` の `exclude-paths` に当たる path を `excluded`、`tools/sync-bp-criteria.mjs` が写しを書く置き場に当たる path を `generated` にして、変更を `reviewable`・`excluded`・`generated`・`preserved` に分ける。除外と生成物は名前だけを残し、内容を開かない。生成物の扱いと理由は出力の `generated_note` が示す。policyRef にその tool が無ければ生成物は無い。`pin_problems` が空でなければ（commit が無い、HEAD の食い違い）始めずに報告する。`reviewable` が 0 件なら Workflow を呼ばず、対象が無いことと除外・生成物の名前を報告して終える。
-3. **観点と担当を決め、計画を作る。** 下の「観点と担当」で reviewers を決め、inventory と同じ入力に `"reviewers"` と `"stateDir"`（`mktemp -d` で作った、repo の外のディレクトリ）を足して `plan` 操作を呼ぶ。CLI は計画を `stateDir` に 1 つのファイルとして書く。ほかに書くものは無く、repo の中も変えない。`E_PLAN` は担当の割り当ての誤りなので、理由のとおりに直して呼び直す。`E_PIN` は対象が固定できていないので、始めずに報告する。
+   CLI は policyRef の `.github/workflows/claude_review.yml` の `exclude-paths` に当たる path を `excluded`、`tools/sync-bp-criteria.mjs` が写しを書く置き場に当たる path を `generated` にして、変更を `reviewable`・`excluded`・`generated`・`preserved` に分ける。除外と生成物は名前だけを残し、内容を開かない。生成物の扱いと理由は出力の `generated_note` が示す。policyRef にその tool が無ければ生成物は無い。`pin_problems` が空でなければ始めずに、その内容を報告する。`reviewable` が 0 件なら Workflow を呼ばず、対象が無いことと除外・生成物の名前を報告して終える。
+3. **観点と担当を決め、計画を作る。** 下の「観点と担当」で reviewers を決め、inventory と同じ入力に `"reviewers"` と `"stateDir"`（`mktemp -d` で作った、repo の外のディレクトリ）を足して `plan` 操作を呼ぶ。CLI は `stateDir` に計画のファイルと方針の束（policyRef の `REVIEW.md` と、その「読むもの」の表が挙げる文書・節を行番号つきで 1 つにしたもの。reviewer と検証役はこれを共通の版として読む）を書く。ほかに書くものは無く、repo の中も変えない。束に入らなかった文書・節は計画の `policyPack.missing` に載り、見ていないものとして prompt に渡る。`E_PLAN` は担当の割り当ての誤りなので、理由のとおりに直して呼び直す。`E_PIN` は対象が固定できていないので、始めずに報告する。
 
 ## 観点と担当
 
@@ -109,9 +109,9 @@ Workflow の段と、source が構造で守ることは次のとおり。運搬�
 - **completed** は、全ての対象の coverage・全ての主張の判定が揃い、pin が最後まで崩れなかったことを示す。指摘が無くても、mode・base・head・policyRef・対象の件数・coverage を報告する。
 - **review_incomplete** は `reasons` に原因を持つ。
   - `coverage_or_limitations` と `verification_incomplete` は、レビューの一部が欠けたが、検証を通った `findings` は有効なまま返っている状態。欠けた範囲（`missing_coverage`・`limitations`・`unverified`）を明記し、「問題なし」と報告しない。
-  - `pin_changed`・`carrier_failed`・`cli_rejected` は、対象が計画と違う内容になったか、CLI の判定を得られなかった状態。`findings` は空で、`unverified_candidates` は確定指摘として扱わない。working_tree・audit の `pin_changed` は、今の内容で前処理からやり直す。diff の `pin_changed` は `pin.problems` を見る。HEAD・作業ツリーの変化なら作業ツリーを head の clean な状態に戻してから、commit が無い・`E_IO`（git が読めない）なら commit の取得や repo の状態を直してから、前処理からやり直す。
-  - `cli_rejected` の `reason` が `plan のファイルを読めない` なら、運搬役の worker が `stateDir` を読めていない。worker が読める repo の外の場所を `stateDir` にして前処理の 3 からやり直す。それ以外の `cli_rejected`（`merge`・`judge` の `E_INPUT`、`E_INTERNAL`）は source と CLI の食い違いなので、`reason` をそのまま報告し、やり直さない。
+  - `pin_changed`・`carrier_failed`・`cli_rejected` は、対象が計画と違う内容になったか、CLI の判定を得られなかった状態。`findings` は空で、`unverified_candidates` は確定指摘として扱わない。working_tree・audit の `pin_changed` は、今の内容で前処理からやり直す。diff の `pin_changed` は `pin.problems` を見る。HEAD・作業ツリーの変化なら、利用者に作業ツリーを head の clean な状態へ戻してもらう（切り替えは利用者の操作）。commit が無い・`E_IO`（git が読めない）なら commit の取得や repo の状態を直す。方針の束が変わった・消えたなら `stateDir` を作り直す。どれも直した後に前処理からやり直す。
+  - `cli_rejected` の `reason` が「plan のファイルを読めない」「plan のファイルが planSum と合わない」「plan のファイルが plan 操作の出力の形でない」のどれかなら、計画のファイルが worker から読めないか、計画の後に書き換わった。worker が読める repo の外の場所を `stateDir` にして前処理の 3 からやり直す。それ以外の `cli_rejected`（ほかの `E_INPUT`、`E_INTERNAL`）は source と CLI の食い違いなので、`reason` をそのまま報告し、やり直さない。
 - **findings** は確定した主張。`votes` に票ごとの観点・理由・確かめた path:line がある。`in_target: false` の指摘は差分の外の行なので summary に path:line で書く。
-- **refuted** は棄却された主張と票。件数を summary に含める。**invalid_findings** は場所が不正（除外・生成物・作業中の変更・audit の範囲外など）で検証に回さなかった候補。
+- **refuted** は棄却された主張と票。件数を summary に含める。**invalid_findings** は場所が不正（除外・生成物・作業中の変更・audit の範囲外など）で検証に回さなかった候補。**untrusted_findings** は HEAD が計画と違うと返した reviewer の指摘（`reported_by` 付き）で、別の版の内容を指し得るので検証に回しておらず、確定指摘として扱わない。
 - **excluded**・**generated**・**preserved** は内容を読んでいない path。生成物の同期を確かめたことにはならないので、`make test` を実行したか、その結果と一緒に書く。
 - 報告の書き方（言語、重大度の表記、件数の書き方、読めなかったファイルの列挙）は policyRef の `REVIEW.md`「出力」に従う。テストやコマンドの実行結果は、このスキルの外で実行したものだけを添え、実行していないものは未実行と書く。

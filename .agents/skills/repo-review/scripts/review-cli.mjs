@@ -5,7 +5,7 @@ import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } fr
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  CODES, ReviewError, WORKFLOW_SOURCE_PATHS, buildPlan, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge, pinProblems,
+  CODES, ReviewError, WORKFLOW_SOURCE_PATHS, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge, pinProblems,
 } from './review-core.mjs'
 
 // 内容を読まない path と生成物の書き先は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
@@ -13,9 +13,11 @@ export const POLICY_SOURCES = Object.freeze({
   excludeWorkflow: '.github/workflows/claude_review.yml',
   excludeKey: 'exclude-paths',
   criteriaTool: 'tools/sync-bp-criteria.mjs',
+  review: 'REVIEW.md',
 })
 export const GENERATED_NOTE = '生成物（判定基準の写し）は内容を読まず、根拠にも指摘の場所にもしない。docs/ の正本と同じ指摘が二重に出るためで、正本との同期は make test の SP-BPRUN-036 の検査が持つ。'
 const PLAN_FILE = (sum) => `repo-review-plan-${sum}.json`
+const PACK_FILE = (sha) => `repo-review-policy-${sha.slice(0, 16)}.md`
 const EXIT = Object.freeze({ ok: 0, rejected: 1, usage: 2 })
 
 export function defaultIo() {
@@ -193,6 +195,35 @@ export function collectDetails(request, files, io) {
   return { symlinks, workflowSources, digests }
 }
 
+// reviewer・検証役が同じ方針の文書をそれぞれ読み直さないよう、policyRef の版から行番号つきの束を 1 回だけ作る。
+export function buildPolicyPack(git, policyRef) {
+  if (!existsAt(git, policyRef, POLICY_SOURCES.review)) throw new ReviewError(CODES.io, `policyRef に ${POLICY_SOURCES.review} が無い`)
+  const review = showAt(git, policyRef, POLICY_SOURCES.review)
+  const parts = [{ path: POLICY_SOURCES.review, title: null, lines: review.split('\n') }]
+  const missing = []
+  for (const doc of parseReadingTable(review)) {
+    if (doc.path === POLICY_SOURCES.review) continue
+    if (!existsAt(git, policyRef, doc.path)) {
+      missing.push({ path: doc.path })
+      continue
+    }
+    const text = showAt(git, policyRef, doc.path)
+    if (doc.whole) {
+      parts.push({ path: doc.path, title: null, lines: text.split('\n') })
+      continue
+    }
+    const found = extractSections(text, doc.titles)
+    for (const sec of found.sections) parts.push({ path: doc.path, title: sec.title, lines: text.split('\n'), start: sec.start, end: sec.end })
+    for (const title of found.missing) missing.push({ path: doc.path, title })
+  }
+  for (const p of parts) {
+    p.start ??= 1
+    p.end ??= p.lines.length
+  }
+  const { text, index } = renderPolicyPack(policyRef, parts, missing)
+  return { text, index, missing }
+}
+
 function insideRepo(repo, dir, io) {
   const r = io.realpath(repo)
   const d = io.realpath(dir)
@@ -222,6 +253,8 @@ function loadPlan(body, io) {
   const digestsOk = plan.mode === 'diff' ? plan.digests === null
     : plan.digests !== null && typeof plan.digests === 'object' && !Array.isArray(plan.digests)
   if (!digestsOk) bad.push('digests')
+  const pack = plan.policyPack
+  if (!pack || typeof pack.path !== 'string' || typeof pack.sha256 !== 'string' || !Array.isArray(pack.index) || !Array.isArray(pack.missing)) bad.push('policyPack')
   if (bad.length) throw new ReviewError(CODES.input, `plan のファイルが plan 操作の出力の形でない: ${bad.join(', ')}`)
   return plan
 }
@@ -243,7 +276,11 @@ const OPS = {
     const pin = pinProblems(request, state)
     if (pin.length) throw new ReviewError(CODES.pin, pin.join('; '), { problems: pin })
     const inv = inventoryOf(request, state)
-    const plan = buildPlan(request, state, collectDetails(request, inv.reviewable, io))
+    const pack = buildPolicyPack((args) => io.git(request.repo, args), request.policyRef)
+    const packSha = sha256(Buffer.from(pack.text))
+    const packPath = path.join(io.realpath(stateDir), PACK_FILE(packSha))
+    io.writeFile(packPath, pack.text)
+    const plan = { ...buildPlan(request, state, collectDetails(request, inv.reviewable, io)), policyPack: { path: packPath, sha256: packSha, index: pack.index, missing: pack.missing } }
     const planSum = fnvSum(plan)
     const planPath = path.join(io.realpath(stateDir), PLAN_FILE(planSum))
     io.writeFile(planPath, JSON.stringify(plan))
@@ -253,7 +290,10 @@ const OPS = {
     const plan = loadPlan(body, io)
     try {
       const state = collectState(plan, io)
-      return { pin: checkPin(plan, state, collectDetails(plan, plan.target.files, io)) }
+      const pin = checkPin(plan, state, collectDetails(plan, plan.target.files, io))
+      const packOk = io.lstat(plan.policyPack.path)?.isFile() && sha256(io.readFile(plan.policyPack.path)) === plan.policyPack.sha256
+      if (!packOk) return { pin: { ...pin, ok: false, problems: [...pin.problems, '方針の束が計画の後に変わったか消えた'] } }
+      return { pin }
     } catch (error) {
       // 対象を集め直せないこと（scope が消えた・symlink になった・git が読めない）は、固定が崩れたことと同じに扱う。
       if (!(error instanceof ReviewError)) throw error

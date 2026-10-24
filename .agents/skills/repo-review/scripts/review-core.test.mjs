@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CODES, ReviewError, buildPlan, canonical, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
-  globToRegExp, isRepoPath, isWorkflowSource, judge, merge, partition,
+  extractSections, globToRegExp, isRepoPath, isWorkflowSource, judge, merge, parseReadingTable, partition, renderPolicyPack,
 } from './review-core.mjs'
 
 const H = 'a'.repeat(40)
@@ -400,4 +400,43 @@ test('judge は候補から決まる割り当てと違う段を E_INPUT で拒�
 
 test('judge: 候補が 0 件なら 1 段目の判定だけで complete', () => {
   assert.deepEqual(judge(R3, { clusters: [] }, [round([], [])]), { complete: true, outcomes: [], second: [], diagnostics: [] })
+})
+
+test('parseReadingTable: 右の列の文書と、その後に続く「…」を節として取り、節の無い文書は全体にする', () => {
+  const review = [
+    '正本は `docs/b.md`（以下 b.md）。',
+    '## 読むもの',
+    '| 変更 | 読むもの |',
+    '|---|---|',
+    '| `*.md` | `docs/a.md`、b.md §1「一」・§2「二」。`subprocess` の扱い「無関係」 |',
+    '| `*.js` | `docs/a.md`「節」、`docs/c.md` |',
+    '| `x` | 文書の無い行 |',
+    '## 次',
+    '| `docs/z.md` | 表の外 |',
+  ].join('\n')
+  assert.deepEqual(parseReadingTable(review), [
+    { path: 'docs/a.md', whole: true, titles: ['節'] },
+    { path: 'docs/b.md', whole: false, titles: ['一', '二'] },
+    { path: 'docs/c.md', whole: true, titles: [] },
+  ])
+  assert.throws(() => parseReadingTable('# 無い'), (e) => e.code === CODES.io)
+  assert.throws(() => parseReadingTable('## 読むもの\n\n文だけ\n'), (e) => e.code === CODES.io)
+})
+
+test('extractSections: 番号付きの見出しも名前で当て、同じか上の深さの次の見出しの前までを取り、コードの中の見出しは見ない', () => {
+  const text = ['# T', '## 1. 一', 'a', '```', '## 二', '```', '### 一の下', 'b', '## 二', 'c'].join('\n')
+  assert.deepEqual(extractSections(text, ['一', '二', '無い']), {
+    sections: [{ title: '一', start: 2, end: 8 }, { title: '二', start: 9, end: 10 }],
+    missing: ['無い'],
+  })
+})
+
+test('renderPolicyPack: 索引の行の範囲が束の本文の位置と元のファイルの行に合う', () => {
+  const lines = ['l1', 'l2', 'l3']
+  const { text, index } = renderPolicyPack('a'.repeat(40), [{ path: 'x.md', title: null, lines, start: 1, end: 3 }, { path: 'y.md', title: '節', lines, start: 2, end: 3 }], [{ path: 'z.md' }])
+  const out = text.split('\n')
+  assert.deepEqual(index.map((e) => [e.id, e.source]), [['P1', [1, 3]], ['P2', [2, 3]]])
+  assert.equal(out[index[1].pack[0] - 1], '## [P2] y.md「節」')
+  assert.deepEqual(out.slice(index[1].pack[0], index[1].pack[1]), ['y.md:2| l2', 'y.md:3| l3'])
+  assert.match(text, /束に入れなかったもの（見ていない）: z\.md/)
 })

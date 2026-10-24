@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { main } from '../.agents/skills/repo-review/scripts/review-cli.mjs'
-import { VERDICTS, VERIFY_ROUNDS, canonical, fnvSum, isWorkflowSource } from '../.agents/skills/repo-review/scripts/review-core.mjs'
+import { VERDICTS, VERIFY_ROUNDS, canonical, extractSections, fnvSum, isWorkflowSource, parseReadingTable } from '../.agents/skills/repo-review/scripts/review-core.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SKILL_DIR = realpathSync(path.join(ROOT, '.agents', 'skills', 'repo-review'))
@@ -54,6 +54,8 @@ function fixture(t) {
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'config', 'commit.gpgsign', 'false')
   write(repo, '.github/workflows/claude_review.yml', `jobs:\n  review:\n    with:\n      exclude-paths: '["**/*.lock"]'\n`)
+  write(repo, 'REVIEW.md', '# Review\n\n## 読むもの\n\n| 変更 | 読むもの |\n|---|---|\n| すべて | `rules/guide.md` |\n')
+  write(repo, 'rules/guide.md', '# Guide\n')
   write(repo, 'docs/a.md', 'a\n')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'base')
@@ -220,6 +222,10 @@ test('全ての agent 呼び出しが model と effort を明示し、運搬役�
   for (const c of b.calls.filter((x) => x.options.label.startsWith('carrier:'))) {
     assert.ok(!c.prompt.includes('"target"'), '運搬役は計画の本体を写さない')
   }
+  for (const c of b.calls.filter((x) => /^(review|verify)/.test(x.options.label))) {
+    assert.ok(c.prompt.includes(args.plan.policyPack.path), `${c.options.label}: 方針の束の path を渡す`)
+    assert.ok(!c.prompt.includes(':REVIEW.md'), `${c.options.label}: 方針を各体に git show で読み直させない`)
+  }
 })
 
 test('準正常: reviewer が 1 人返らなくても、他の reviewer の指摘は検証して返し、review_incomplete と明示する', async (t) => {
@@ -233,6 +239,20 @@ test('準正常: reviewer が 1 人返らなくても、他の reviewer の指�
   assert.deepEqual(result.reasons, ['coverage_or_limitations'])
   assert.deepEqual(result.missing_coverage, ['docs/b.md'])
   assert.equal(result.findings.length, 1, '検証済みの結果は捨てない')
+})
+
+test('準正常: HEAD が計画と違うと返した reviewer の指摘は検証に回さず、reported_by 付きで untrusted_findings に残す', async (t) => {
+  const { fx, args } = diffArgs(t)
+  const b = backend({
+    review: (id) => (id === 'correctness'
+      ? reviewOk('e'.repeat(40), id, { findings: [finding({ summary: 'stale' })] })
+      : reviewOk(fx.head, id)),
+    verify: () => assert.fail('指摘が他に無いので検証役を起動しない'),
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.deepEqual(result.reasons, ['coverage_or_limitations'])
+  assert.deepEqual(result.untrusted_findings.map((f) => [f.reported_by, f.summary, f.reason]), [['correctness', 'stale', 'head_mismatch']])
+  assert.deepEqual(result.findings, [])
 })
 
 test('準正常: 運搬役が応答を書き換えたら sum で検出して送り直し、書き換えた値を使わない', async (t) => {
@@ -504,5 +524,17 @@ test('初めての公開の操作が Workflow script を移せる（SKILL.md の
     // 公開の後は移す script が残っておらず、callsite は名前の呼び出しに書き換わっている。
     assert.deepEqual(found, [])
     assert.match(readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8'), new RegExp(`name: "[a-z][a-z0-9-]*:${META_NAME}"`))
+  }
+})
+
+test('このリポジトリの REVIEW.md から作る方針の束は、表が挙げる文書・節を落とさない（入らなかったものは missing に出る）', () => {
+  const review = readFileSync(path.join(ROOT, 'REVIEW.md'), 'utf8')
+  const docs = parseReadingTable(review)
+  assert.ok(docs.some((d) => d.path === 'AGENTS.md' && d.titles.includes('作業ルール')))
+  assert.ok(docs.some((d) => d.path.endsWith('best-practices.md') && d.titles.length > 0))
+  for (const d of docs) {
+    assert.ok(existsSync(path.join(ROOT, d.path)), d.path)
+    const { missing } = extractSections(readFileSync(path.join(ROOT, d.path), 'utf8'), d.titles)
+    assert.deepEqual(missing, [], `${d.path} に表の節が無い`)
   }
 })

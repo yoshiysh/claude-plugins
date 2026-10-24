@@ -486,3 +486,94 @@ export function judge(plan, merged, rounds) {
   })
   return { complete: outcomes.every((o) => o.verdict !== 'unverified'), outcomes, second: [], diagnostics: [...first.diagnostics, ...next.diagnostics] }
 }
+
+// REVIEW.md の「読むもの」の表の右の列から、読む文書と節を取り出す。文書は backtick の .md のパスか、REVIEW.md が
+// 「`<path>`（以下 <別名>）」で定めた別名。文書の後に続く「…」をその文書の節とし、節が 1 つも付かない文書は全体を読む。
+export function parseReadingTable(reviewText) {
+  const aliases = new Map([...reviewText.matchAll(/`([^`]+\.md)`（以下 ([^）]+)）/g)].map((m) => [m[2], m[1]]))
+  const section = reviewText.split(/^## /m).find((s) => s.startsWith('読むもの'))
+  if (!section) throw new ReviewError(CODES.io, 'REVIEW.md に「読むもの」の節が無い')
+  const rows = section.split('\n').filter((l) => /^\|/.test(l) && !/^\|\s*-+\s*\|/.test(l)).slice(1)
+  if (rows.length === 0) throw new ReviewError(CODES.io, 'REVIEW.md の「読むもの」に表の行が無い')
+  const docs = new Map()
+  const aliasPattern = [...aliases.keys()].map((a) => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  const token = new RegExp(`\`([^\`]+)\`|「([^」]+)」${aliasPattern ? `|(${aliasPattern})` : ''}`, 'g')
+  for (const row of rows) {
+    const cells = row.split('|')
+    const cell = cells.slice(2, -1).join('|')
+    let current = null
+    let titled = false
+    const close = () => {
+      if (current && !titled) docs.get(current).whole = true
+    }
+    for (const m of cell.matchAll(token)) {
+      const path = m[1] !== undefined ? (m[1].endsWith('.md') ? m[1] : null) : m[3] !== undefined ? aliases.get(m[3]) : undefined
+      if (path === undefined) {
+        if (current) {
+          docs.get(current).titles.add(m[2])
+          titled = true
+        }
+        continue
+      }
+      close()
+      current = path
+      titled = false
+      if (path && !docs.has(path)) docs.set(path, { whole: false, titles: new Set() })
+    }
+    close()
+  }
+  return [...docs.entries()].map(([path, d]) => ({ path, whole: d.whole, titles: [...d.titles] }))
+}
+
+// 見出しの文字列が節の名前と同じか、先頭の「<番号>. 」を除くと同じものを、その節とする。範囲は次の同じか上の深さの見出しの前まで。
+export function extractSections(text, titles) {
+  const lines = text.split('\n')
+  const headings = []
+  let fence = false
+  for (const [i, line] of lines.entries()) {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence
+    const m = !fence && /^(#{1,6})\s+(.*?)\s*$/.exec(line)
+    if (m) headings.push({ line: i + 1, level: m[1].length, text: m[2] })
+  }
+  const sections = []
+  const missing = []
+  for (const title of titles) {
+    const h = headings.find((x) => x.text === title || x.text.replace(/^\d+\.\s*/, '') === title)
+    if (!h) {
+      missing.push(title)
+      continue
+    }
+    const next = headings.find((x) => x.line > h.line && x.level <= h.level)
+    sections.push({ title, start: h.line, end: next ? next.line - 1 : lines.length })
+  }
+  return { sections, missing }
+}
+
+// 束は索引と、元のファイルの行番号を付けた本文。agent は索引から要る節だけを開き、根拠は元のファイルの path:line で書ける。
+export function renderPolicyPack(policyRef, parts, missing) {
+  const body = []
+  const index = []
+  for (const [k, p] of parts.entries()) {
+    const id = `P${k + 1}`
+    const label = p.title ? `${p.path}「${p.title}」` : `${p.path}（全体）`
+    const start = body.length + 1
+    body.push(`## [${id}] ${label}`)
+    for (let n = p.start; n <= p.end; n += 1) body.push(`${p.path}:${n}| ${p.lines[n - 1] ?? ''}`)
+    body.push('')
+    index.push({ id, path: p.path, title: p.title ?? null, source: [p.start, p.end], bodyStart: start, bodyEnd: body.length - 1 })
+  }
+  const missingLine = `束に入れなかったもの（見ていない）: ${missing.length ? missing.map((m) => (m.title ? `${m.path}「${m.title}」` : m.path)).join('・') : '無し'}`
+  const headerLength = 3 + index.length + 2
+  const header = [
+    `# repo-review の方針の束（policyRef ${policyRef} の REVIEW.md と、その「読むもの」の表が挙げる文書・節）`,
+    '',
+    '索引（束の中の行 / 元のファイルの行）:',
+    ...index.map((e) => `- [${e.id}] ${e.title ? `${e.path}「${e.title}」` : `${e.path}（全体）`} 束の ${e.bodyStart + headerLength}-${e.bodyEnd + headerLength} 行 / 元の ${e.source[0]}-${e.source[1]} 行`),
+    missingLine,
+    '',
+  ]
+  return {
+    text: [...header, ...body].join('\n'),
+    index: index.map((e) => ({ id: e.id, path: e.path, title: e.title, source: e.source, pack: [e.bodyStart + headerLength, e.bodyEnd + headerLength] })),
+  }
+}
