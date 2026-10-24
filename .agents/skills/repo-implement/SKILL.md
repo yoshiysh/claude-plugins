@@ -94,7 +94,7 @@ planner は影響する path・守る性質・手順・追加の check と、変
 
 ## 受け入れと開始時の check
 
-1. **受け入れ**: `implementation` を付けずに `inventory` を流す。CLI は、計画の段で作業ツリーが変わっていないこと、plan の path が symlink を通らず（通ると書き込みが plan の外の実体の path に現れるか repo の外へ出る）ignore されないこと、plan の check が許可リストに収まり必須の check を含むこと（正本は `scripts/implement-core.mjs` の `MAKE_TARGETS`・`NODE_TEST_SUFFIX`・`REQUIRED_CHECKS`）を確かめ、`admitted: true` のときだけ plan を記録する。`false` なら `problems` を示して止まる（許可リストに無い check が要るなら、利用者に手で実行するか見送るかを確かめる）。実装の回の前なら、計画し直した plan を受け入れ直せる。受け入れ直すと開始時の check の記録は消えるので、次の 2 を流し直す。
+1. **受け入れ**: `implementation` を付けずに `inventory` を流す。CLI は、計画の段で作業ツリーが変わっていないこと、plan の path が symlink を通らず（通ると書き込みが plan の外の実体の path に現れるか repo の外へ出る）ignore されないこと、plan の check が許可リストに収まり必須の check を含むこと（正本は `scripts/implement-core.mjs` の `MAKE_TARGETS`・`NODE_TEST_SUFFIX`・`REQUIRED_CHECKS`）を確かめ、`admitted: true` のときだけ plan を記録する。`false` なら `problems` を示して止まる（許可リストに無い check が要るなら、利用者に手で実行するか見送るかを確かめる）。実装の回の前なら、計画し直した plan を受け入れ直せる。出力の `baseline_needed` が true なら（plan が変わって開始時の check の記録が消えたか、まだ取っていない）次の 2 を流す。false なら記録が残っているので流さない。
 
    ```bash
    node [SKILL_DIR]/scripts/implement-cli.mjs inventory <<'JSON'
@@ -102,7 +102,7 @@ planner は影響する path・守る性質・手順・追加の check と、変
    JSON
    ```
 
-2. **開始時の check**: 同じ入力に `"phase": "baseline"` を足して `run-checks` を流す。実装の後に失敗した check が変更の起こしたものかを、CLI がこの記録と照らして決める。`make test` は数分かかり、shell の前景の実行の時間上限を超え得るので、`run-checks` は background で実行して終了を待つ（途中で打ち切ると記録が残らず、その段をやり直すことになる）。開始時に失敗した check（`exit_code` が 0 でない）は、変更後も失敗すれば修正の回では直さない（変更が起こしたと決められない）。依頼がその失敗を直すものでなければ、ここで止まって失敗の argv と出力を利用者に示し、続けるかを確かめる。
+2. **開始時の check**: 同じ入力に `"phase": "baseline"` を足して `run-checks` を流す。実装の後に失敗した check が変更の起こしたものかを、CLI がこの記録と照らして決める。`make test` は数分かかり、shell の前景の実行の時間上限を超え得るので、`run-checks` は background で実行して終了を待つ（途中で打ち切ると記録が残らず、その段をやり直すことになる）。開始時に失敗した check（`exit_code` が 0 でない）は、変更後も失敗すれば修正の回では直さない（変更が起こしたと決められない）。その check は plan の必須の check でもあるので、変更がその失敗を直さない限り `verify` は通らない。依頼がその失敗を直すものでなければ、ここで止まり、失敗の argv と出力を利用者に示して、止めるか、その失敗を直すことを依頼の範囲に入れて計画からやり直すかを確かめる（そのまま続けても完了にはならない）。
 
 ## 実装の回
 
@@ -169,7 +169,7 @@ repo-review が「レビューの対象が 0 件」（変更が除外・生成�
 | `next` | 司令塔の処理 |
 | --- | --- |
 | **verify** | 「最終照合と報告」へ進む |
-| **repair** | `"repair": "review"` で次の回を開く（券には CLI が記録した確定指摘が載る。`refuted` は直さない） |
+| **repair** | `"repair": "review"` で次の回を開く（券には CLI が記録した確定指摘が載る。`refuted` は直さない）。出力の `unverifiedDetail`（同時に残った未検証）は直さずに報告に載せる |
 | **retry_review** | 途中で止まったレビューで、確定指摘も未検証も無い。repo-review を同じ値で呼び直し、その返り値を記録する |
 | **abandon** | 確定していない指摘（未検証）が残るか、やり直しの上限に達した。「止まるとき」に従い、未検証の指摘を報告する |
 
@@ -177,7 +177,7 @@ repo-review が「レビューの対象が 0 件」（変更が除外・生成�
 
 ## 止まるとき
 
-実装の回を始めた後に止まる（上の各段の「止まるとき」・CLI の拒否・人の判断待ち）ときは、理由を添えて `abandon` を流す。CLI は開いた回を放棄として閉じ、以後の段を受け付けず、残った変更の path（`remaining`）と開始時の変更（`preservedPaths`）を返す。
+実装の回を始めた後に止まる（上の各段の「止まるとき」・CLI の拒否・人の判断待ち）ときは、理由を添えて `abandon` を流す。CLI は開いた回を放棄として閉じ、以後の段を受け付けず、残った変更の path（`remaining`）と開始時の変更（`preservedPaths`）、最後に記録したレビューの確定指摘と未検証の本文（`lastReview`）を返す。
 
 ```bash
 node [SKILL_DIR]/scripts/implement-cli.mjs abandon <<'JSON'
@@ -193,7 +193,7 @@ JSON
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 
-commit を頼まれたときは、commit の直前に `verify` を流し、`passed: true` のときだけ commit する。`false` なら commit せず、check とレビューからやり直す。
+commit を頼まれたときは、stage する前に `verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path だけを stage して commit する（preservedPaths は stage しない。利用者の作業で、この run が照らしていない）。CLI は index を開始時の記録と照らすので、stage した後に `verify` を流すと `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。
 
 ## 照合しないもの
 

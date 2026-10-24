@@ -57,11 +57,12 @@ function isRepoRelativePath(path) {
 
 export { canonical, fnvSum, isRepoRelativePath }
 
-// native の Workflow は返り値を {summary, agentCount, logs, result} の包み（tasks の .output）に入れて残す。その包みなら result を取り出す。
-const WORKFLOW_OUTPUT_KEYS = Object.freeze(['summary', 'agentCount', 'logs', 'result'])
+// native の Workflow は返り値を tasks の .output の包み（summary・agentCount・result ほか）に入れて残す。包みのキーは版で増えるので閉集合で見ず、
+// result と summary（文字列）・agentCount（数）を持つものを包みとみなして result を取り出す。repo-implement と repo-review の返り値はこの 3 つを併せ持たない。
 export function unwrapWorkflowOutput(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, 'result')) return value
-  return Object.keys(value).every((k) => WORKFLOW_OUTPUT_KEYS.includes(k)) ? value.result : value
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const wrapped = Object.hasOwn(value, 'result') && typeof value.summary === 'string' && typeof value.agentCount === 'number'
+  return wrapped ? value.result : value
 }
 
 export function sha256(bytes) {
@@ -305,8 +306,6 @@ export function reviewProblems({ review, reviewPlan, state, actual, digests }) {
   return problems
 }
 
-// 1 round のレビューの記録は 1 回。やり直せるのは前の記録が review_incomplete のときだけで、そのときも前の確定指摘は消さずに和を取る
-// （指摘 0 件が出るまで回し直して通すことを防ぐ）。
 // 1 round のレビューの記録は 1 回。やり直せるのは前の記録が review_incomplete のときだけ（MAX_REVIEW_RETRIES 回まで）で、
 // そのときも前の確定指摘と未検証は消さずに和を取る（指摘 0 件が出るまで回し直して通すことを防ぐ）。next は記録から決まる次の段。
 export function reviewRecord(review, round, snapshot, previous = []) {

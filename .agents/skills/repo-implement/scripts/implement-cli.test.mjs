@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defaultIo, main } from './implement-cli.mjs'
-import { CODES, DEFAULT_POLICY_REF, fnvSum, sha256 } from './implement-core.mjs'
+import { CODES, DEFAULT_POLICY_REF, MAX_REVIEW_RETRIES, fnvSum, sha256 } from './implement-core.mjs'
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), 'implement-cli.mjs')
 const GIT_ENV = {
@@ -194,8 +194,10 @@ test('inventory（受け入れ）: symlink・ignore される path、許可リ�
     const fx = fixture(t)
     const s = start(fx)
     admit(s, planFor(s))
+    assert.equal(ok('inventory', { ...ref(s), ...planFor(s) }).baseline_needed, false, '同じ plan の受け入れ直しは baseline を残す')
     const second = planFor(s, { checks: [{ kind: 'make', value: 'test' }, { kind: 'make', value: 'check' }] })
-    assert.equal(ok('inventory', { ...ref(s), ...second }).admitted, true)
+    const readmitted = ok('inventory', { ...ref(s), ...second })
+    assert.deepEqual([readmitted.admitted, readmitted.baseline_needed], [true, true])
     assert.equal(call('begin-round', { ...ref(s), ...second, repair: null }).code, CODES.state, 'baseline の取り直しの前')
     ok('run-checks', { ...ref(s), ...second, phase: 'baseline' })
     ok('begin-round', { ...ref(s), ...second, repair: null })
@@ -564,7 +566,7 @@ test('大きな入力はファイルの path で渡せ、拒否された op は�
     ok('run-checks', { ...ref(s), ...p, phase: 'after' })
     const rp = reviewPlanFile(s, ['src/a.mjs'])
     const reviewFile = path.join(s.stateDir, 'review.output')
-    writeFileSync(reviewFile, JSON.stringify({ summary: 'done', agentCount: 9, logs: [], result: reviewOf(s, ['src/a.mjs']) }))
+    writeFileSync(reviewFile, JSON.stringify({ summary: 'done', agentCount: 9, logs: [], result: reviewOf(s, ['src/a.mjs']), workflowProgress: [], totalTokens: 1, totalToolCalls: 1 }))
     assert.equal(ok('record-review', { ...ref(s), reviewPath: reviewFile, reviewPlanPath: rp.reviewPlanPath, reviewPlanSum: rp.reviewPlanSum }).next, 'verify')
   })
   await t.test('準正常: 写し間違いで拒否された後、同じ段を正しい入力で流し直せる', (t) => {
@@ -594,7 +596,7 @@ test('record-review: 記録から次の段を 1 つに決めて返す', async (t
     ['異常: completed で未検証が残る', [{ unverified: [{ claim: 'x' }] }], 'abandon'],
     ['準正常: 途中で止まったレビュー（やり直せる）', [{ status: 'review_incomplete', coverage: undefined, pin: undefined }], 'retry_review'],
     ['準正常: 確定指摘が残る review_incomplete は修正へ', [{ status: 'review_incomplete', coverage: undefined, pin: undefined, findings: [confirmed()] }], 'repair'],
-    ['境界: やり直しの上限に達した review_incomplete', [{ status: 'review_incomplete', coverage: undefined, pin: undefined }, { status: 'review_incomplete', coverage: undefined, pin: undefined }], 'abandon'],
+    ['境界: やり直しの上限に達した review_incomplete', Array.from({ length: MAX_REVIEW_RETRIES + 1 }, () => ({ status: 'review_incomplete', coverage: undefined, pin: undefined })), 'abandon'],
     ['準正常: やり直しても前の未検証は残る', [{ status: 'review_incomplete', coverage: undefined, pin: undefined, unverified: [{ claim: 'x' }] }], 'abandon'],
   ]
   for (const [name, reviews, next] of cases) {
@@ -609,9 +611,15 @@ test('record-review: 記録から次の段を 1 つに決めて返す', async (t
   await t.test('異常: 上限を超えるやり直し', (t) => {
     const { s } = implemented(t)
     const inc = { status: 'review_incomplete', coverage: undefined, pin: undefined }
-    recordReview(s, ['src/a.mjs'], inc)
-    recordReview(s, ['src/a.mjs'], inc)
+    for (let i = 0; i <= MAX_REVIEW_RETRIES; i += 1) assert.equal(recordReview(s, ['src/a.mjs'], inc).ok, true)
     assert.equal(recordReview(s, ['src/a.mjs'], inc).code, CODES.state)
+  })
+  await t.test('準正常: 確定指摘と未検証が同時に残るとき、未検証の本文を出力と abandon に残す', (t) => {
+    const { s } = implemented(t)
+    const out = recordReview(s, ['src/a.mjs'], { findings: [confirmed()], unverified: [{ claim: 'u' }] })
+    assert.deepEqual([out.next, out.unverifiedDetail], ['repair', [{ claim: 'u' }]])
+    const ab = ok('abandon', { ...ref(s), reason: 'x' })
+    assert.deepEqual([ab.lastReview.findingsDetail.length, ab.lastReview.unverifiedDetail], [1, [{ claim: 'u' }]])
   })
 })
 

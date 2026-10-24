@@ -214,11 +214,11 @@ const OPS = {
     if (io.lstat(path.join(dir, STATE_FILE))) throw new ImplementError(CODES.state, 'stateDir に前の state がある（新しい stateDir を作る）')
     // 変更は作業 branch の上に積む。主ブランチの上や branch の無い HEAD では、依頼の commit が主ブランチに直接入るか、どの branch にも残らない。
     const branch = io.git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowFailure: true })?.toString('utf8').trim() ?? null
-    if (branch === null) throw new ImplementError(CODES.pin, 'HEAD が branch を指していない（作業 branch を checkout する）')
-    if (branch === MAIN_BRANCH) throw new ImplementError(CODES.pin, `${MAIN_BRANCH} の上では始めない（作業 branch を用意する）`)
+    if (branch === null) throw new ImplementError(CODES.pin, 'HEAD が branch を指していない（git switch -c <作業 branch> で作業 branch を作ってから始める）')
+    if (branch === MAIN_BRANCH) throw new ImplementError(CODES.pin, `${MAIN_BRANCH} の上では始めない（git switch -c <作業 branch> で作業 branch を作ってから始める）`)
     const resolved = io.git(root, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${policyRef}^{commit}`], { allowFailure: true })
     const policySha = resolved?.toString('utf8').trim()
-    if (!isSha(policySha)) throw new ImplementError(CODES.pin, `policyRef を commit に解決できない: ${policyRef}`)
+    if (!isSha(policySha)) throw new ImplementError(CODES.pin, `policyRef を commit に解決できない: ${policyRef}（git fetch origin ${MAIN_BRANCH} で取ってから始める）`)
     const { head, snapshot, paths } = takeSnapshot(io, root)
     const changes = changeSet(io, root)
     const odd = [...new Set([...unreviewablePaths(paths, changes), ...changes.filter((p) => unreviewablePaths([p], changes).length)])].sort()
@@ -257,8 +257,9 @@ const OPS = {
       if (badChecks.length) problems.push({ cause: 'check_not_allowed', message: 'plan.checks が許可リストに収まらないか、必須の check を欠く（実行しない）', paths: badChecks })
       const admitted = problems.length === 0
       // 受け入れ直し（実装の前の計画し直し）では開始時の check も取り直す。check の集合が変わり得るため。
-      if (admitted) saveLedger(io, state, { ...ledger, plan_sum: body.planSum, baseline: ledger.plan_sum === body.planSum ? ledger.baseline : null })
-      return { admitted, problems, actual: now.actual }
+      const baseline = admitted && ledger.plan_sum === body.planSum ? ledger.baseline : null
+      if (admitted) saveLedger(io, state, { ...ledger, plan_sum: body.planSum, baseline })
+      return { admitted, problems, actual: now.actual, baseline_needed: admitted && baseline === null }
     }
     requireAdmitted(ledger, body.planSum)
     const problem = implementationProblem(implementation, ledger.open)
@@ -348,7 +349,7 @@ const OPS = {
     const record = reviewRecord(review, round, now.snapshot, reviewsOf(ledger, round))
     saveLedger(io, state, { ...ledger, reviews: [...ledger.reviews, record] })
     const { findingsDetail, unverifiedDetail, ...summary } = record
-    return { review: summary, next: record.next }
+    return { review: summary, unverifiedDetail, next: record.next }
   },
   // 止まった run の終端。開いた round を放棄として閉じ、以後の段を受け付けない。残った変更は消さずに返す（どうするかは利用者が決める）。
   abandon(body, io) {
@@ -363,7 +364,8 @@ const OPS = {
     saveLedger(io, state, { ...ledger, open: null, rounds, terminal })
     // 開いた round の書き込みは implementer のもので、inventory で照らしていないだけ。閉じた後の食い違いは段の外の書き込み。
     const moved = now.snapshot !== ledger.snapshot
-    return { terminal, remaining: now.actual, preservedPaths: state.preserved.map((p) => p.path), uninventoriedWrites: Boolean(ledger.open) && moved, changedOutsideSteps: !ledger.open && moved }
+    const lastReview = ledger.reviews.at(-1)
+    return { terminal, remaining: now.actual, lastReview: lastReview ? { round: lastReview.round, findingsDetail: lastReview.findingsDetail, unverifiedDetail: lastReview.unverifiedDetail } : null, preservedPaths: state.preserved.map((p) => p.path), uninventoriedWrites: Boolean(ledger.open) && moved, changedOutsideSteps: !ledger.open && moved }
   },
   verify(body, io) {
     const { state, ledger } = loadState(body, io)

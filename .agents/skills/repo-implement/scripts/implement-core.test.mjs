@@ -13,11 +13,14 @@ const PLAN = { status: 'approved', state_sum: 's1', affected_paths: ['src/a.mjs'
 
 test('unwrapWorkflowOutput は native の .output の包みからだけ result を取り出す', async (t) => {
   const result = { status: 'ready_for_check', sum: 'x' }
+  // native の .output の top-level の形（実物から形だけを写した。本文は小さくした）。
+  const output = { summary: 'done', agentCount: 1, logs: [], result, workflowProgress: [], totalTokens: 10, totalToolCalls: 2 }
   for (const [name, value, expected] of [
-    ['正常: .output の包み', { summary: 's', agentCount: 1, logs: [], result }, result],
+    ['正常: native の .output の包み（7 キー）', output, result],
+    ['正常: 版でキーが増えた包み', { ...output, newKey: 1 }, result],
     ['正常: 返り値そのもの', result, result],
-    ['境界: result だけを持つ包み', { result }, result],
-    ['境界: 包みに無いキーがあれば取り出さない', { result, extra: 1 }, { result, extra: 1 }],
+    ['境界: result はあるが summary・agentCount が無いもの（包みでない）', { result }, { result }],
+    ['境界: summary の型が違うもの', { ...output, summary: 1 }, { ...output, summary: 1 }],
     ['境界: null', null, null],
   ]) await t.test(name, () => assert.deepEqual(unwrapWorkflowOutput(value), expected))
 })
