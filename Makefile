@@ -6,6 +6,9 @@ SKILLS_DIR := .agents/skills
 VALIDATOR := $(SKILLS_DIR)/skill-creator-best-practices/scripts/quick_validate.py
 PORTABILITY := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_portability.py
 REFERENCES := $(SKILLS_DIR)/manage-marketplace-plugin/scripts/check_references.py
+TRACEABILITY := scripts/traceability/cli.mjs
+TRACEABILITY_CONFIG := traceability.config.json
+VERIFICATION_OUTPUT ?= .artifacts/verification
 
 # スキル一覧・tests ディレクトリはどちらも毎回導出する。ハードコードすると、スキルの
 # 追加・リネームのたびに検証対象から静かに漏れる（実例: worktree-sync → cleanup-branches の
@@ -23,7 +26,7 @@ REPO_NODE_TEST_FILES := $(shell $(FIND) tests -type f -name '*.test.mjs' -print 
 NODE_TEST_FILES := $(SKILL_NODE_TEST_FILES) $(PLUGIN_NODE_TEST_FILES) $(REPO_NODE_TEST_FILES)
 EVAL_RUNNERS := $(shell $(FIND) -L $(SKILLS_DIR) -type f -path '*/evals/run-fixtures.mjs' -print 2>/dev/null)
 
-.PHONY: test portability references check runtime-deps
+.PHONY: test portability references check runtime-deps traceability traceability-complete
 
 # Pinned runtime dependencies are installed before discovery executes Node tests.
 runtime-deps:
@@ -41,12 +44,18 @@ test: runtime-deps references
 	done
 	@if [ -n "$(NODE_TEST_FILES)" ]; then \
 		echo "── Node tests"; \
-		$(NODE) --test $(NODE_TEST_FILES); \
+		$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT) -- $(NODE_TEST_FILES); \
 	fi
 	@set -e; for e in $(EVAL_RUNNERS); do \
 		echo "── eval preflight $$e"; \
 		$(NODE) $$e; \
 	done
+
+traceability: runtime-deps
+	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT)
+
+traceability-complete: runtime-deps
+	@$(NODE) $(TRACEABILITY) --config $(TRACEABILITY_CONFIG) --output $(VERIFICATION_OUTPUT) --complete
 
 # 参照先の実在チェック。こちらは portability と違い合否ゲートにする。
 # 「install 先で壊れる書き方か」を分類する check_portability.py と違い、

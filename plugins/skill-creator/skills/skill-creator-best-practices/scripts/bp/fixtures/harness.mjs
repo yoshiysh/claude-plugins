@@ -19,10 +19,15 @@ export function newKey() {
 
 export const LIMITS = Object.freeze({ attempts: 3, iterations: 3, untilPass: 3 });
 
+// この checkout で end-to-end のテストを skip する理由（無ければ null）。トレーサビリティ検査の設定もこの関数を指し、skip を環境による未検証として許すかを同じ判定で決める。
+export function environmentSkipReason() {
+  return forbiddenReason(path.join(REPO_ROOT, STATE_DIR_NAME));
+}
+
 // 作業場所の判定は /tmp 系を拒否するので、状態の root はリポジトリの .gitignore 済みの場所に作る。
 export function stateRoot(t) {
+  const reason = environmentSkipReason();
   const root = path.join(REPO_ROOT, STATE_DIR_NAME, `test-${process.pid}-${randomBytes(4).toString('hex')}`);
-  const reason = forbiddenReason(root);
   if (reason) {
     t.skip(`checkout が /tmp 系にあり、作業場所の判定が end-to-end の root を拒否するため: ${reason}`);
     return null;

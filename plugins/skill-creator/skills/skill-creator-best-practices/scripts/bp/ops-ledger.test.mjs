@@ -89,7 +89,7 @@ test('SP-BPFINDINGS-001: ファイル 3 つの対象スキルで台帳を作り�
   assert.deepEqual([...new Set(assets.map((a) => a.path))].sort(), ['SKILL.md', 'references/r.md', 'scripts/s.js']);
 });
 
-test('SP-BPFINDINGS-033: ファイルが 0 件の対象スキルで台帳の作成が理由つきで失敗する', async (t) => {
+test('SP-BPFINDINGS-033 @error:empty-ledger: ファイルが 0 件の対象スキルで台帳の作成が理由つきで失敗する', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t, { 'SKILL.md': '' });
@@ -722,4 +722,42 @@ test('SP-BPRUN-038: 消えた資産の照合の段は取り直しの番号を回
   const two = await run.stageStart(ctx, { ...req, stage: 'vanish', round: r3.retake, keys: [{ finding, gone: r3.retake }] });
   assert.notEqual(two.items[0], one.items[0]);
   assert.match(two.items[0], new RegExp(`^vanish\\.${r3.retake}-`));
+});
+
+
+test('SP-BPFINDINGS-033 @recovery:populate-after-rejection: 空の台帳を拒否した後に資産を足すと同じ run で作成できる', async (t) => {
+  const ctx = context(t);
+  if (!ctx) return;
+  const root = await skillDir(t, { 'SKILL.md': '' });
+  const started = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+  const req = { state: started.state, run: started.run };
+  await assert.rejects(ledger.ledgerCreate(ctx, req), (error) => error.code === CODES.input && /0 件/.test(error.reason));
+  assert.equal((await viewOf(ctx, started.state)).ledger, null);
+  await fs.writeFile(path.join(root, 'SKILL.md'), '#');
+  const made = await ledger.ledgerCreate(ctx, req);
+  assert.equal(made.assets.length, 1);
+  assert.equal((await viewOf(ctx, started.state)).ledger.id, made.ledger);
+});
+
+test('SP-BPFINDINGS-033: 資産数 0 と 1 の境界で台帳の有無が変わる', async (t) => {
+  for (const { id, text, expected } of [
+    { id: 'whitespace-zero', text: ' \n\t', expected: 0 },
+    { id: 'one-heading', text: '#', expected: 1 },
+  ]) {
+    await t.test(`@${expected === 0 ? 'error' : 'normal'}:${id} @boundary:${id}`, async (t) => {
+      const ctx = context(t);
+      if (!ctx) return;
+      const root = await skillDir(t, { 'SKILL.md': text });
+      const started = await run.start(ctx, { key: newKey(), function: 'review', target: { root }, limits: LIMITS });
+      const req = { state: started.state, run: started.run };
+      if (expected === 0) {
+        await assert.rejects(ledger.ledgerCreate(ctx, req), (error) => error.code === CODES.input && /0 件/.test(error.reason));
+        assert.equal((await viewOf(ctx, started.state)).ledger, null);
+      } else {
+        const made = await ledger.ledgerCreate(ctx, req);
+        assert.equal(made.assets.length, expected);
+        assert.equal((await viewOf(ctx, started.state)).ledger.id, made.ledger);
+      }
+    });
+  }
 });

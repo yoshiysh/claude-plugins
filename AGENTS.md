@@ -51,6 +51,8 @@ install 手順は `README.md` の「インストール」を参照。plugin の�
 
 ## 作業ルール
 
+コード・テスト・文書の変更では [ガイドライン](docs/guidelines/README.md) を参照する。
+
 - 編集は `.agents/skills/<name>/` から行う（公開済みスキルは symlink 越しに `plugins/` の実体を触ることになる）。`.claude/skills/` は symlink なので直接実体を増やさない。例外は公開済みの Workflow script で、`.agents/` から届く経路が無いので `plugins/<plugin>/workflows/` を直接編集する。
 - `Workflow({ name })` は install 済みの plugin の写しに解決される。このリポジトリの未リリースの改稿を走らせるときは `Workflow({ scriptPath: "<checkout の絶対パス>/plugins/<plugin>/workflows/<f>.js", args })` で起動する（名前で起動すると install 済みの旧版が走り、plugin が未 install なら not found になる）。
 - 新規スキルは `.agents/skills/<name>/` に実体で作る。`plugins/` へ手で置かない（移動は `register_plugin.py` の仕事）。

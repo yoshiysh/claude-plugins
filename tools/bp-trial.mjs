@@ -16,6 +16,7 @@ import { buildView } from '../plugins/skill-creator/skills/skill-creator-best-pr
 import { resolveStateRoot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/workspace.mjs';
 import { ISSUED_KEY } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-author.mjs';
 import { sourceOf } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/ops-entry.mjs';
+import { TRACE_STATUSES } from './lib/bp-docs.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL_REL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
@@ -34,7 +35,6 @@ const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 // 書き換えるたびに、その証拠の記録を古くしないため）。値でない文に書き換えたセルは指紋に入る。
 const TRACE_CHAPTER = CRITERIA_CHAPTERS.others.find((c) => c === 'トレーサビリティ表');
 if (!TRACE_CHAPTER) throw new Error('トレーサビリティ表の章が判定基準の章の閉集合に無い');
-const STATUS_VALUES = Object.freeze(['未着手', '作成中', '完了']);
 // 入口の操作のモジュールは run の中の script から呼ばれない（script の操作の写しは OPS だけを持つ）。runner の request の実測値を書き戻しても記録を古くしない。
 const UNFINGERPRINTED_CLI = Object.freeze(['ops-entry.mjs']);
 
@@ -48,7 +48,7 @@ export function criteriaBody(text) {
     const h2 = /^## (.+?)\s*$/.exec(line);
     if (h2) trace = h2[1] === TRACE_CHAPTER;
     const m = trace ? /^(\|.*\|) ([^|]+?) \|\s*$/.exec(line) : null;
-    return m && STATUS_VALUES.includes(m[2]) ? `${m[1]} |` : line;
+    return m && TRACE_STATUSES.includes(m[2]) ? `${m[1]} |` : line;
   }).join('\n');
 }
 
