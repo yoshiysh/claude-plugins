@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -97,10 +97,11 @@ function existsAt(git, ref, file) {
   return git(['ls-tree', '-z', '--end-of-options', ref, '--', file]).length > 0
 }
 
-// tool が無い ref は写しを作る仕組みがまだ無い版で、生成物は無い（読めない tool とは区別して E_IO にしない）。
+// tool が無い ref は写しを作る仕組みがまだ無い版で、生成物は無い。tool はあるのに読めない形・import 先が無いときは E_POLICY にする。
 export function readGeneratedPaths(git, policyRef) {
   if (!existsAt(git, policyRef, POLICY_SOURCES.criteriaTool)) return []
   const { skill, constants } = parseCriteriaTool(showAt(git, policyRef, POLICY_SOURCES.criteriaTool))
+  if (!existsAt(git, policyRef, constants)) throw new ReviewError(CODES.policy, `${POLICY_SOURCES.criteriaTool} が import する ${constants} が policyRef に無い`)
   return [`${skill}/${parseCriteriaDir(showAt(git, policyRef, constants))}/**`]
 }
 
@@ -125,6 +126,7 @@ export function collectState(request, io) {
   // 未追跡も数えるのは、reviewer が作業ツリーを開いたときに head に無い内容を読まないようにするため（diff の判定にだけ使う）。
   const dirty = lines(git(['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=normal'])).map((entry) => entry.slice(3))
   if (missingCommits.length) return { head, missingCommits, dirty, excludePaths: [], generatedPaths: [], generatedNote: GENERATED_NOTE, paths: [] }
+  if (!existsAt(git, policyRef, POLICY_SOURCES.excludeWorkflow)) throw new ReviewError(CODES.policy, `policyRef に ${POLICY_SOURCES.excludeWorkflow} が無い`)
   const excludePaths = readExcludePaths(showAt(git, policyRef, POLICY_SOURCES.excludeWorkflow))
   const generatedPaths = readGeneratedPaths(git, policyRef)
   let paths
@@ -224,8 +226,9 @@ export function buildPolicyPack(git, policyRef) {
     p.start ??= 1
     p.end ??= p.lines.length
   }
-  const { text, index } = renderPolicyPack(policyRef, parts, missing)
-  return { text, index, missing }
+  const token = randomBytes(6).toString('hex')
+  const { text, index } = renderPolicyPack(policyRef, parts, missing, token)
+  return { text, index, missing, token }
 }
 
 function insideRepo(repo, dir, io) {
@@ -234,7 +237,6 @@ function insideRepo(repo, dir, io) {
   return d === r || d.startsWith(`${r}${path.sep}`)
 }
 
-// plan は caller の Bash で 1 回だけ書く。運搬役は計画の本体でなく path と sum だけを写す（写す量を対象の大きさに依らせない）。
 function replanOnFailure(fn) {
   try {
     return fn()
@@ -244,6 +246,7 @@ function replanOnFailure(fn) {
   }
 }
 
+// plan は caller の Bash で 1 回だけ書く。運搬役は計画の本体でなく path と sum だけを写す（写す量を対象の大きさに依らせない）。
 function loadPlan(body, io) {
   if (typeof body.planPath !== 'string' || !body.planPath.startsWith('/') || typeof body.planSum !== 'string') {
     throw new ReviewError(CODES.input, 'planPath（絶対パス）と planSum が要る', { retry: RETRY.replan })
@@ -267,7 +270,7 @@ function loadPlan(body, io) {
     : plan.digests !== null && typeof plan.digests === 'object' && !Array.isArray(plan.digests)
   if (!digestsOk) bad.push('digests')
   const pack = plan.policyPack
-  if (!pack || typeof pack.path !== 'string' || typeof pack.sha256 !== 'string' || !Array.isArray(pack.index) || !Array.isArray(pack.missing)) bad.push('policyPack')
+  if (!pack || typeof pack.path !== 'string' || typeof pack.sha256 !== 'string' || typeof pack.token !== 'string' || !Array.isArray(pack.index) || !Array.isArray(pack.missing)) bad.push('policyPack')
   if (bad.length) throw new ReviewError(CODES.input, `plan のファイルが plan 操作の出力の形でない: ${bad.join(', ')}`, { retry: RETRY.replan })
   return plan
 }
@@ -277,7 +280,7 @@ const OPS = {
     const request = checkRequest(body, { requireReviewers: false })
     const state = collectState(request, io)
     const issues = pinIssues(request, state)
-    return { inventory: inventoryOf(request, state), generated_note: state.generatedNote, pin_problems: issues.map((x) => x.message), pin_causes: causesOf(issues) }
+    return { inventory: inventoryOf(request, state), generated_note: state.generatedNote, pin_problems: issues.map((x) => x.message), pin_causes: causesOf(issues, request.mode) }
   },
   plan(body, io) {
     const { stateDir, ...rest } = body
@@ -288,13 +291,13 @@ const OPS = {
     if (insideRepo(request.repo, stateDir, io)) throw new ReviewError(CODES.input, 'stateDir が repo の中にある（plan のファイルが未追跡の変更として対象に混ざる）')
     const state = collectState(request, io)
     const issues = pinIssues(request, state)
-    if (issues.length) throw new ReviewError(CODES.pin, issues.map((x) => x.message).join('; '), { problems: issues.map((x) => x.message), causes: causesOf(issues) })
+    if (issues.length) throw new ReviewError(CODES.pin, issues.map((x) => x.message).join('; '), { problems: issues.map((x) => x.message), causes: causesOf(issues, request.mode) })
     const inv = inventoryOf(request, state)
     const pack = buildPolicyPack((args) => io.git(request.repo, args), request.policyRef)
     const packSha = sha256(Buffer.from(pack.text))
     const packPath = path.join(io.realpath(stateDir), PACK_FILE(packSha))
     io.writeFile(packPath, pack.text)
-    const plan = { ...buildPlan(request, state, collectDetails(request, inv.reviewable, io)), policyPack: { path: packPath, sha256: packSha, index: pack.index, missing: pack.missing } }
+    const plan = { ...buildPlan(request, state, collectDetails(request, inv.reviewable, io)), policyPack: { path: packPath, sha256: packSha, token: pack.token, index: pack.index, missing: pack.missing } }
     const planSum = fnvSum(plan)
     const planPath = path.join(io.realpath(stateDir), PLAN_FILE(planSum))
     io.writeFile(planPath, JSON.stringify(plan))
@@ -308,13 +311,13 @@ const OPS = {
       const packOk = io.lstat(plan.policyPack.path)?.isFile() && sha256(io.readFile(plan.policyPack.path)) === plan.policyPack.sha256
       if (!packOk) {
         const extra = { cause: 'pack', message: '方針の束が計画の後に変わったか消えた' }
-        return { pin: { ...pin, ok: false, problems: [...pin.problems, extra.message], causes: causesOf([...pin.causes, extra]) } }
+        return { pin: { ...pin, ok: false, problems: [...pin.problems, extra.message], causes: causesOf([...pin.causes, extra], plan.mode) } }
       }
       return { pin }
     } catch (error) {
       // 対象を集め直せないこと（scope が消えた・symlink になった・git が読めない）は、固定が崩れたことと同じに扱う。
       if (!(error instanceof ReviewError)) throw error
-      return { pin: failedPin([{ cause: 'collect', message: `${error.code}: ${error.message}` }]) }
+      return { pin: failedPin([{ cause: 'collect', message: `${error.code}: ${error.message}` }], plan.mode) }
     }
   },
   merge(body, io) {

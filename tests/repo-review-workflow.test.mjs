@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -87,11 +86,11 @@ function diffArgs(t, skillDir) {
 
 const finding = (patch) => ({ severity: 'MEDIUM', path: 'docs/a.md', line: 1, summary: 's', condition: 'c', impact: 'i', evidence: 'e', rule: 'r', rule_sections: ['P1'], ...patch })
 
-// 本物の agent が prompt の指示どおり shasum で束を読んだときの値を返す（scenario が明示した値はそのまま使う）。
-function withPackSha(prompt, res) {
-  if (!res || typeof res !== 'object' || res.policy_pack_sha256 !== undefined) return res
-  const file = /shasum -a 256 (\S+) の値/.exec(prompt)[1]
-  return { ...res, policy_pack_sha256: createHash('sha256').update(readFileSync(file)).digest('hex') }
+// 本物の agent が prompt の指示どおり束を開いて先頭の読取りトークンを読んだときの値を返す（scenario が明示した値はそのまま使う）。
+function withPackToken(prompt, res) {
+  if (!res || typeof res !== 'object' || res.policy_pack_token !== undefined) return res
+  const file = /方針の束 (\S+) から読む/.exec(prompt)[1]
+  return { ...res, policy_pack_token: /^読取りトークン（policy_pack_token に返す）: (\S+)$/m.exec(readFileSync(file, 'utf8'))[1] }
 }
 const reviewOk = (head, id, patch = {}) => ({ head_sha: head, coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], supporting_files: ['REVIEW.md'], findings: [], limitations: [], ...patch })
 
@@ -136,9 +135,9 @@ function backend(scenario) {
         const forced = scenario.carrier?.(n, responses)
         return forced === undefined ? { responses } : forced
       }
-      if (label.startsWith('review:')) return withPackSha(prompt, await scenario.review(label.slice('review:'.length), prompt))
+      if (label.startsWith('review:')) return withPackToken(prompt, await scenario.review(label.slice('review:'.length), prompt))
       const m = /^verify(\d):(.+)$/.exec(label)
-      if (m) return withPackSha(prompt, await scenario.verify(m[2], Number(m[1]), prompt))
+      if (m) return withPackToken(prompt, await scenario.verify(m[2], Number(m[1]), prompt))
       throw new Error(`unexpected label ${label}`)
     },
   }
@@ -233,6 +232,8 @@ test('全ての agent 呼び出しが model と effort を明示し、運搬役�
   for (const c of b.calls.filter((x) => /^(review|verify)/.test(x.options.label))) {
     assert.ok(c.prompt.includes(args.plan.policyPack.path), `${c.options.label}: 方針の束の path を渡す`)
     assert.ok(!c.prompt.includes(':REVIEW.md'), `${c.options.label}: 方針を各体に git show で読み直させない`)
+    assert.ok(!c.prompt.includes(args.plan.policyPack.token), `${c.options.label}: 読取りトークンを prompt に出さない（束を開かずに返せてしまう）`)
+    assert.ok(!c.prompt.includes('shasum'), `${c.options.label}: 追加のコマンドに頼らない`)
   }
 })
 
@@ -267,9 +268,9 @@ test('準正常: 方針の束を読めなかった reviewer の指摘は検証�
   const { fx, args } = diffArgs(t)
   const b = backend({
     review: (id) => (id === 'correctness'
-      ? { ...reviewOk(fx.head, id, { findings: [finding({ summary: 'no pack' })] }), policy_pack_sha256: 'unreadable' }
+      ? { ...reviewOk(fx.head, id, { findings: [finding({ summary: 'no pack' })] }), policy_pack_token: 'unreadable' }
       : reviewOk(fx.head, id, { findings: [finding({ path: 'docs/b.md', summary: 'ok' })] })),
-    verify: (lens, round, prompt) => ({ ...verifyAll(fx.head, () => 'confirmed')(lens, round, prompt), policy_pack_sha256: 'unreadable' }),
+    verify: (lens, round, prompt) => ({ ...verifyAll(fx.head, () => 'confirmed')(lens, round, prompt), policy_pack_token: 'unreadable' }),
   })
   const result = await runWorkflow(t, args, b)
   assert.deepEqual(result.untrusted_findings.map((f) => [f.reported_by, f.summary, f.reason]), [['correctness', 'no pack', 'pack_unread']])

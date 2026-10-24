@@ -50,8 +50,8 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
    JSON
    ```
 
-   CLI は policyRef の `.github/workflows/claude_review.yml` の `exclude-paths` に当たる path を `excluded`、`tools/sync-bp-criteria.mjs` が写しを書く置き場に当たる path を `generated` にして、変更を `reviewable`・`excluded`・`generated`・`preserved` に分ける。除外と生成物は名前だけを残し、内容を開かない。生成物の扱いと理由は出力の `generated_note` が示す。policyRef にその tool が無ければ生成物は無い。`pin_problems` が空でなければ始めずに、その内容と `pin_causes[].action` を報告する。`reviewable` が 0 件なら Workflow を呼ばず、対象が無いことと除外・生成物の名前を報告して終える。
-3. **観点と担当を決め、計画を作る。** 下の「観点と担当」で reviewers を決め、inventory と同じ入力に `"reviewers"` と `"stateDir"`（`mktemp -d` で作った、repo の外のディレクトリ）を足して `plan` 操作を呼ぶ。CLI は `stateDir` に計画のファイルと方針の束（policyRef の `REVIEW.md` と、その「読むもの」の表が挙げる文書・節を行番号つきで 1 つにしたもの。reviewer と検証役はこれを共通の版として読む）を書く。ほかに書くものは無く、repo の中も変えない。束に入らなかった文書・節は計画の `policyPack.missing` に載り、見ていないものとして prompt に渡る。`E_PLAN` は担当の割り当ての誤りなので、理由のとおりに直して呼び直す。`E_PIN` は対象が固定できていないので、始めずに `causes[].action`（原因ごとの次の手）を利用者に伝える。`E_POLICY` は policyRef の方針の文書（`REVIEW.md` の「読むもの」の表・`exclude-paths`・写しの tool）の形が CLI の読める形でないので、始めずに `reason` を報告する（方針を直すのはこのスキルの外の変更）。`E_IO` は git が読めない。
+   CLI は policyRef の `.github/workflows/claude_review.yml` の `exclude-paths` に当たる path を `excluded`、`tools/sync-bp-criteria.mjs` が写しを書く置き場に当たる path を `generated` にして、変更を `reviewable`・`excluded`・`generated`・`preserved` に分ける。除外と生成物は名前だけを残し、内容を開かない。生成物の扱いと理由は出力の `generated_note` が示す。policyRef にその tool が無ければ生成物は無い。`pin_problems` が空でなければ始めずに、`pin_causes[]` の次の手に従う（下の「pin の次の手」）。CLI が `E_POLICY` を返したら policyRef の方針の文書の形か欠落の問題で、始めずに `reason` を報告する（方針を直すのはこのスキルの外の変更）。`E_IO` は git が読めないので、repo の状態を確かめて報告する。`reviewable` が 0 件なら Workflow を呼ばず、対象が無いことと除外・生成物の名前を報告して終える。
+3. **観点と担当を決め、計画を作る。** 下の「観点と担当」で reviewers を決め、inventory と同じ入力に `"reviewers"` と `"stateDir"`（`mktemp -d` で作った、repo の外のディレクトリ）を足して `plan` 操作を呼ぶ。CLI は `stateDir` に計画のファイルと方針の束（policyRef の `REVIEW.md` と、その「読むもの」の表が挙げる文書・節を行番号つきで 1 つにしたもの。reviewer と検証役はこれを共通の版として読む）を書く。ほかに書くものは無く、repo の中も変えない。束に入らなかった文書・節は計画の `policyPack.missing` に載り、見ていないものとして prompt に渡る。`E_PLAN` は担当の割り当ての誤りなので、理由のとおりに直して呼び直す。`E_PIN` は対象が固定できていないので、始めずに `causes[]` の次の手に従う（下の「pin の次の手」）。`E_POLICY` は policyRef の方針の文書（`REVIEW.md` の「読むもの」の表・`exclude-paths`・写しの tool）の形が CLI の読める形でないので、始めずに `reason` を報告する（方針を直すのはこのスキルの外の変更）。`E_IO` は git が読めない。
 
 ## 観点と担当
 
@@ -73,7 +73,7 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
 > **Codex classification: read-only supported**。runner request の `requirements` と `limits` は source の
 > `meta.requirements`・`meta.limits` をそのまま使い、SKILL.md に値を写さない。source が `agent()` に渡す
 > model 名（source の `ROLE_MODELS`）の全てに runner の `modelMap` を明示する。運搬役の agent は worker の
-> sandbox で `node` と `git` を読み取りだけで実行し、`stateDir` の計画のファイルを読む。reviewer と検証役の agent は `stateDir` の方針の束を読み、その sha256 を返す（計画の値と違えば、その結果は検証に回らない）。worker の `cwd` は repo にする。
+> sandbox で `node` と `git` を読み取りだけで実行し、`stateDir` の計画のファイルを読む。reviewer と検証役の agent は `stateDir` の方針の束を読み、束の先頭の読取りトークンを返す（追加のコマンドは要らない。計画の値と違えば、その結果は検証に回らない）。worker の `cwd` は repo にする。
 
 `plan` の出力の `plan`・`plan_sum`・`plan_path` を、手を加えずに args へ写す（script が sum で写し間違いを拒否する）。
 
@@ -109,9 +109,10 @@ Workflow の段と、source が構造で守ることは次のとおり。運搬�
 - **completed** は、全ての対象の coverage・全ての主張の判定が揃い、pin が最後まで崩れなかったことを示す。指摘が無くても、mode・base・head・policyRef・対象の件数・coverage を報告する。
 - **review_incomplete** は `reasons` に原因を持つ。
   - `coverage_or_limitations` と `verification_incomplete` は、レビューの一部が欠けたが、検証を通った `findings` は有効なまま返っている状態。欠けた範囲（`missing_coverage`・`limitations`・`unverified`）を明記し、「問題なし」と報告しない。
-  - `pin_changed`・`carrier_failed`・`cli_rejected` は、対象が計画と違う内容になったか、CLI の判定を得られなかった状態。`findings` は空で、`unverified_candidates` は確定指摘として扱わない。working_tree・audit の `pin_changed` は、今の内容で前処理からやり直す。`pin_changed` の次の手は `pin.causes[].action`（原因の分類と次の手の正本は `scripts/review-core.mjs` の `PIN_CAUSES`）で、それを利用者に伝え、直した後に前処理からやり直す。
+  - `pin_changed`・`carrier_failed`・`cli_rejected` は、対象が計画と違う内容になったか、CLI の判定を得られなかった状態。`findings` は空で、`unverified_candidates` は確定指摘として扱わない。`pin_changed` の次の手は `pin.causes[]` に従う（下の「pin の次の手」）。
+  - **pin の次の手**: `E_PIN` の `causes[]`、inventory の `pin_causes[]`、`pin_changed` の `pin.causes[]` は、原因ごとに `by` と `action` を持つ（原因と mode の組から決まる。正本は `scripts/review-core.mjs` の `PIN_ACTIONS`）。`by` が `user` なら `action` を利用者に伝えて待ち、`caller` なら caller が `action` を行う。
   - `cli_rejected` は `retry` で分ける（値の正本は `scripts/review-core.mjs` の `RETRY`）。`replan` は計画のファイルが worker から読めないか計画の後に書き換わった状態で、worker が読める repo の外の場所を `stateDir` にして前処理の 3 からやり直す。`none` はやり直しても同じ答えになる source と CLI の食い違いなので、`reason` をそのまま報告し、やり直さない。
 - **findings** は確定した主張。`votes` に票ごとの観点・理由・確かめた path:line がある。`in_target: false` の指摘は差分の外の行なので summary に path:line で書く。
-- **refuted** は棄却された主張と票。件数を summary に含める。**invalid_findings** は場所が不正（除外・生成物・作業中の変更・audit の範囲外など）で検証に回さなかった候補。**untrusted_findings** は HEAD が計画と違うと返したか、方針の束を読めなかった reviewer の指摘（`reported_by` と `reason` 付き）で、別の版の内容か共通でない方針に依り得るので検証に回しておらず、確定指摘として扱わない。
+- **refuted** は棄却された主張と票。件数を summary に含める。**invalid_findings** は形が不正（除外・生成物・作業中の変更・audit の範囲外の場所、行の誤り、束に無い `rule_sections` など。`reason` に理由がある）で検証に回さなかった候補。**untrusted_findings** は CLI の merge が信用しないと判定した reviewer（`reason` が status。HEAD が計画と違う、方針の束を読めなかったなど）の指摘で、別の版の内容か共通でない方針に依り得るので検証に回しておらず、確定指摘として扱わない。
 - **excluded**・**generated**・**preserved** は内容を読んでいない path。生成物の同期を確かめたことにはならないので、`make test` を実行したか、その結果と一緒に書く。
 - 報告の書き方（言語、重大度の表記、件数の書き方、読めなかったファイルの列挙）は policyRef の `REVIEW.md`「出力」に従う。テストやコマンドの実行結果は、このスキルの外で実行したものだけを添え、実行していないものは未実行と書く。

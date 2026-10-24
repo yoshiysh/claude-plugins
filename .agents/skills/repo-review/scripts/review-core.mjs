@@ -15,19 +15,32 @@ const WORKFLOW_SOURCE_HEAD = /^export\s+const\s+meta\s*=\s*\{/
 export const VERDICTS = Object.freeze(['confirmed', 'refuted', 'unverified'])
 // 検証の段の数。1 段目は候補ごとに 1 体、2 段目は決着しなかった主張に残りの観点を全て当てる（best-practices の schemas.md「refuter の出力」）。
 export const VERIFY_ROUNDS = 2
+const UNTRUSTED_STATUSES = Object.freeze(['head_mismatch', 'pack_unread'])
 export const CODES = Object.freeze({ input: 'E_INPUT', pin: 'E_PIN', plan: 'E_PLAN', policy: 'E_POLICY', transport: 'E_TRANSPORT', io: 'E_IO', internal: 'E_INTERNAL' })
 // CLI の拒否に付ける、caller の次の手。replan は前処理の 3（plan）からやり直せば直り得るもの、none はやり直しても同じ答えになるもの。
 export const RETRY = Object.freeze({ replan: 'replan', none: 'none' })
-// pin が崩れた原因ごとの次の手。caller は pin.causes[].action をそのまま利用者に伝える（文言を caller 側に写さない）。
-export const PIN_CAUSES = Object.freeze({
-  commits: '手元に無い commit を git fetch で取ってから、前処理からやり直す',
-  head: '利用者に作業ツリーを headSha の checkout に戻してもらってから（切り替えは利用者の操作）、前処理からやり直す',
-  worktree: '利用者に作業ツリーの変更・未追跡のファイルを片付けてもらってから（片付けは利用者の操作）、前処理からやり直す',
-  preserved: 'preservedPaths を変更の集合にある path だけにして、前処理からやり直す',
-  changed: '計画の後に対象か方針が変わった。今の内容で前処理からやり直す',
-  pack: '方針の束が変わったか消えた。新しい stateDir で前処理の 3 からやり直す',
-  collect: '対象を集め直せなかった（scope の消失・git の失敗など）。problems の原因を直してから前処理からやり直す',
+// pin が崩れた原因と mode の組ごとの次の手と、それを行う主体（user は利用者の操作で caller は利用者に伝える、caller は caller が行う）。
+// 次の手の正本はここだけで、SKILL.md は pin.causes[] の by と action を参照する。
+const ANY = '*'
+export const PIN_ACTIONS = Object.freeze({
+  commits: { [ANY]: { by: 'caller', action: '手元に無い commit を git fetch で取ってから、前処理からやり直す' } },
+  head: {
+    diff: { by: 'user', action: '作業ツリーを headSha の checkout に戻してもらう（切り替えは利用者の操作）。戻った後に caller が前処理からやり直す' },
+    [ANY]: { by: 'caller', action: 'HEAD が動いた。今の HEAD を headSha にして前処理からやり直す' },
+  },
+  worktree: { diff: { by: 'user', action: '作業ツリーの変更・未追跡のファイルを片付けてもらう（片付けは利用者の操作）。片付いた後に caller が前処理からやり直す' } },
+  preserved: { [ANY]: { by: 'caller', action: 'preservedPaths を変更の集合にある path だけにして、前処理からやり直す' } },
+  changed: { [ANY]: { by: 'caller', action: '計画の後に対象か方針が変わった。今の内容で前処理からやり直す' } },
+  pack: { [ANY]: { by: 'caller', action: '方針の束が変わったか消えた。新しい stateDir で前処理の 3 からやり直す' } },
+  collect: { [ANY]: { by: 'caller', action: '対象を集め直せなかった（scope の消失・git の失敗など）。problems の原因を確かめ、直せるなら直して前処理からやり直す' } },
 })
+
+export function pinAction(cause, mode) {
+  const row = PIN_ACTIONS[cause]
+  const hit = row?.[mode] ?? row?.[ANY]
+  if (!hit) throw new ReviewError(CODES.internal, `pin の原因 ${cause} に mode ${mode} の次の手が無い`)
+  return hit
+}
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
@@ -204,12 +217,12 @@ export function pinProblems(request, state) {
   return pinIssues(request, state).map((x) => x.message)
 }
 
-export function causesOf(issues) {
-  return sorted(issues.map((x) => x.cause)).map((cause) => ({ cause, action: PIN_CAUSES[cause] }))
+export function causesOf(issues, mode) {
+  return sorted(issues.map((x) => x.cause)).map((cause) => ({ cause, ...pinAction(cause, mode) }))
 }
 
-export function failedPin(issues) {
-  return { ok: false, problems: issues.map((x) => x.message), causes: causesOf(issues), changed: [] }
+export function failedPin(issues, mode) {
+  return { ok: false, problems: issues.map((x) => x.message), causes: causesOf(issues, mode), changed: [] }
 }
 
 export function inventoryOf(request, state) {
@@ -279,7 +292,7 @@ export function checkPin(plan, state, details) {
     for (const file of plan.target.files) if ((details.digests[file] ?? null) !== (plan.digests[file] ?? null)) changed.push(file)
     if (changed.length) issues.push({ cause: 'changed', message: `対象の内容が計画の後に変わった: ${JSON.stringify(changed)}` })
   }
-  return { ok: issues.length === 0, problems: issues.map((x) => x.message), causes: causesOf(issues), changed }
+  return { ok: issues.length === 0, problems: issues.map((x) => x.message), causes: causesOf(issues, plan.mode), changed }
 }
 
 function unreadableMatcher(plan) {
@@ -309,9 +322,9 @@ function findingProblem(plan, unreadable, finding) {
 }
 
 function checkResultShape(res, i) {
-  const ok = isObject(res) && typeof res.head_sha === 'string' && typeof res.policy_pack_sha256 === 'string' && isStringArray(res.coverage) && isStringArray(res.supporting_files)
+  const ok = isObject(res) && typeof res.head_sha === 'string' && typeof res.policy_pack_token === 'string' && isStringArray(res.coverage) && isStringArray(res.supporting_files)
     && isCount(res.limitations) && Array.isArray(res.findings)
-  if (!ok) fail(CODES.input, [`results[${i}] は null か {head_sha, coverage, supporting_files, limitations（件数）, findings} でなければならない`])
+  if (!ok) fail(CODES.input, [`results[${i}] は null か {head_sha, policy_pack_token, coverage, supporting_files, limitations（件数）, findings} でなければならない`])
 }
 
 export function merge(plan, results) {
@@ -324,7 +337,7 @@ export function merge(plan, results) {
     if (res === null) return { ...base, status: 'missing', missing: [...rv.files] }
     if (res.head_sha !== plan.headSha) return { ...base, status: 'head_mismatch', missing: [...rv.files] }
     // 束を読めなかった reviewer は、全員の共通の方針でない判断をしている。HEAD の食い違いと同じく指摘を検証に回さない。
-    if (res.policy_pack_sha256 !== plan.policyPack.sha256) return { ...base, status: 'pack_unread', missing: [...rv.files] }
+    if (res.policy_pack_token !== plan.policyPack.token) return { ...base, status: 'pack_unread', missing: [...rv.files] }
     return {
       ...base,
       missing: rv.files.filter((f) => !res.coverage.includes(f)),
@@ -363,7 +376,10 @@ export function merge(plan, results) {
   const complete = missingCoverage.length === 0 && reviewers.every((rv) => rv.status === 'ok'
     && !rv.missing.length && !rv.extra.length && !rv.duplicate.length && !rv.invalidSupporting.length
     && !rv.invalidFindings.length && rv.limitations === 0)
-  return { complete, reviewers, missingCoverage, clusters, first: firstAssignments(plan, clusters) }
+  // 結果を返したが信用しない reviewer の指摘は、検証に回さず別の欄で返す（どの status がそれに当たるかはここだけが決める）。
+  const untrusted = reviewers.flatMap((rv, i) => (UNTRUSTED_STATUSES.includes(rv.status)
+    ? results[i].findings.map((_, j) => ({ reviewer: i, finding: j, reason: rv.status })) : []))
+  return { complete, reviewers, missingCoverage, clusters, untrusted, first: firstAssignments(plan, clusters) }
 }
 
 // 同じ path で行範囲が重なる指摘を 1 つの候補にまとめる（重なりは推移的にたどる）。隣り合うだけの範囲はまとめない。
@@ -446,10 +462,10 @@ function roundVotes(plan, unreadable, round, r) {
       expected.forEach((key) => record(key, 'missing'))
       return { ...diag, status: 'missing', missing: expected }
     }
-    if (!isObject(v) || typeof v.head_sha !== 'string' || typeof v.policy_pack_sha256 !== 'string' || !Array.isArray(v.results) || v.results.some((x) => !isObject(x))) {
-      fail(CODES.input, [`rounds[${r}].verifications[${ai}] は null か {head_sha, policy_pack_sha256, results} でなければならない`])
+    if (!isObject(v) || typeof v.head_sha !== 'string' || typeof v.policy_pack_token !== 'string' || !Array.isArray(v.results) || v.results.some((x) => !isObject(x))) {
+      fail(CODES.input, [`rounds[${r}].verifications[${ai}] は null か {head_sha, policy_pack_token, results} でなければならない`])
     }
-    const status = v.head_sha !== plan.headSha ? 'head_mismatch' : v.policy_pack_sha256 !== plan.policyPack.sha256 ? 'pack_unread' : null
+    const status = v.head_sha !== plan.headSha ? 'head_mismatch' : v.policy_pack_token !== plan.policyPack.token ? 'pack_unread' : null
     if (status) {
       expected.forEach((key) => record(key, 'missing'))
       return { ...diag, status, missing: expected }
@@ -624,7 +640,8 @@ function partLabel(path, title) {
   return title.startsWith('§') ? `${path} ${title}` : `${path}「${title}」`
 }
 
-export function renderPolicyPack(policyRef, parts, missing) {
+// token は束を開いた agent だけが知る短い値で、計画の外（prompt）には出さない。agent が返した値を CLI が照らして、束を読んだかを確かめる。
+export function renderPolicyPack(policyRef, parts, missing, token) {
   const body = []
   const index = []
   for (const [k, p] of parts.entries()) {
@@ -637,10 +654,11 @@ export function renderPolicyPack(policyRef, parts, missing) {
     index.push({ id, path: p.path, title: p.title ?? null, source: [p.start, p.end], bodyStart: start, bodyEnd: body.length - 1 })
   }
   const missingLine = `束に入れなかったもの（見ていない）: ${missing.length ? missing.map((m) => `${m.path ? partLabel(m.path, m.title).replace('（全体）', '') : m.text}（${m.reason}）`).join('・') : '無し'}`
-  const headerLength = 3 + index.length + 2
+  const headerLength = 4 + index.length + 2
   const header = [
     `# repo-review の方針の束（policyRef ${policyRef} の REVIEW.md と、その「読むもの」の表が挙げる文書・節）`,
     '',
+    `読取りトークン（policy_pack_token に返す）: ${token}`,
     '索引（束の中の行 / 元のファイルの行）:',
     ...index.map((e) => `- [${e.id}] ${partLabel(e.path, e.title)} 束の ${e.bodyStart + headerLength}-${e.bodyEnd + headerLength} 行 / 元の ${e.source[0]}-${e.source[1]} 行`),
     missingLine,

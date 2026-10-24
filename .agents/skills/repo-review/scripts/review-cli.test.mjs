@@ -144,6 +144,8 @@ test('plan: 計画を stateDir のファイルに書き、symlink と内容で�
   assert.deepEqual(out.plan.symlinks, ['plugins/p/docs-link'])
   const pack = readFileSync(out.plan.policyPack.path, 'utf8')
   assert.equal(path.dirname(out.plan.policyPack.path), fx.stateDir)
+  assert.match(out.plan.policyPack.token, /^[0-9a-f]{12}$/)
+  assert.ok(pack.includes(`読取りトークン（policy_pack_token に返す）: ${out.plan.policyPack.token}`))
   assert.deepEqual(out.plan.policyPack.index.map((e) => [e.id, e.path, e.title]), [['P1', 'REVIEW.md', null], ['P2', 'docs/guide.md', null], ['P3', 'docs/rules.md', '作業ルール']])
   assert.deepEqual(out.plan.policyPack.missing, [{ path: 'docs/rules.md', title: '無い節', reason: '節が無い' }, { path: 'docs/missing.md', reason: 'policyRef に無い' }])
   const lines = pack.split('\n')
@@ -181,6 +183,7 @@ test('diff は head を checkout した clean な作業ツリーでだけ計画�
     const ng = plan()
     assert.equal(ng.code, CODES.pin, label)
     assert.equal(ng.causes.length, 1, label)
+    assert.equal(ng.causes[0].by, 'user', `${label}: diff で作業ツリーを戻すのは利用者`)
     assert.match(ng.causes[0].action, /利用者/, `${label}: 次の手を CLI が返す`)
     assert.match(ng.reason, pattern, label)
     const pin = run('pin', ref)
@@ -364,4 +367,15 @@ test('CLI の入口: stdin の JSON を受けて 1 行の JSON と終了符号�
   const ng = spawnSync(process.execPath, [CLI, 'inventory'], { input: JSON.stringify({ ...diffBody(fx), baseRef: undefined }) })
   assert.equal(ng.status, 1)
   assert.equal(JSON.parse(ng.stdout.toString()).code, CODES.input)
+})
+
+test('policyRef に claude_review.yml や CRITERIA_DIR の import 先が無ければ E_POLICY（git の失敗の E_IO と分ける）', (t) => {
+  for (const [label, file] of [['claude_review.yml', '.github/workflows/claude_review.yml'], ['import 先', 'plugins/p/skills/s/scripts/bp/constants.mjs']]) {
+    const fx = fixture(t)
+    git(fx.repo, 'rm', '-q', file)
+    git(fx.repo, 'commit', '-q', '-m', 'rm')
+    const head = git(fx.repo, 'rev-parse', 'HEAD')
+    const out = run('inventory', { repo: fx.repo, mode: 'diff', baseRef: fx.head, headSha: head, policyRef: head })
+    assert.equal(out.code, CODES.policy, label)
+  }
 })

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CODES, ReviewError, buildPlan, canonical, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
-  extractSections, globToRegExp, isRepoPath, isWorkflowSource, judge, merge, parseReadingTable, partition, renderPolicyPack,
+  PIN_ACTIONS, extractSections, globToRegExp, pinAction, isRepoPath, isWorkflowSource, judge, merge, parseReadingTable, partition, renderPolicyPack,
 } from './review-core.mjs'
 
 const H = 'a'.repeat(40)
@@ -12,7 +12,7 @@ const H2 = 'd'.repeat(40)
 const EXCLUDE = ['**/*.lock', '**/package-lock.json']
 const GENERATED = ['plugins/p/skills/s/references/criteria/**']
 const NO_DETAILS = { symlinks: [], workflowSources: [], digests: null }
-const PACK = { path: '/s/pack.md', sha256: 'S', index: [{ id: 'P1' }, { id: 'P2' }], missing: [] }
+const PACK = { path: '/s/pack.md', sha256: 'H', token: 'S', index: [{ id: 'P1' }, { id: 'P2' }], missing: [] }
 
 function rejects(fn, code, pattern, label = '') {
   assert.throws(fn, (error) => {
@@ -235,7 +235,7 @@ function mergePlan(patch = {}) {
 }
 
 function result(patch = {}) {
-  const r = { head_sha: H, policy_pack_sha256: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], limitations: 0, findings: [], ...patch }
+  const r = { head_sha: H, policy_pack_token: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], limitations: 0, findings: [], ...patch }
   return { ...r, findings: Array.isArray(r.findings) ? r.findings.map((f) => ({ rule_sections: ['P1'], ...f })) : r.findings }
 }
 
@@ -264,7 +264,7 @@ test('merge: 欠けた reviewer・HEAD の違い・読み残し・余分・重�
     ['除外 path を根拠に読んだ', result({ supporting_files: ['x.lock'] }), { invalidSupporting: ['x.lock'] }, []],
     ['作業中の変更を根拠に読んだ', result({ supporting_files: ['mine.md'] }), { invalidSupporting: ['mine.md'] }, []],
     ['読めなかった記録', result({ limitations: 1 }), { limitations: 1 }, []],
-    ['方針の束を読めなかった', result({ policy_pack_sha256: 'unreadable' }), { status: 'pack_unread', missing: ['a.md', 'b.md'] }, ['b.md']],
+    ['方針の束を読めなかった', result({ policy_pack_token: 'unreadable' }), { status: 'pack_unread', missing: ['a.md', 'b.md'] }, ['b.md']],
   ]) {
     const out = merge(mergePlan({ preserved: ['mine.md'] }), [first, other])
     assert.equal(out.complete, false, label)
@@ -272,6 +272,12 @@ test('merge: 欠けた reviewer・HEAD の違い・読み残し・余分・重�
     assert.deepEqual(out.missingCoverage, missingCoverage, label)
     assert.equal(out.clusters.length, 1, `${label}: 他の reviewer の指摘は検証に回る`)
   }
+  const untrusted = merge(mergePlan(), [result({ policy_pack_token: 'unreadable', findings: [{ path: 'a.md', line: 3 }, { path: 'b.md', line: 1 }] }), result({ coverage: ['a.md'], head_sha: H2, findings: [{ path: 'a.md', line: 1 }] })])
+  assert.deepEqual(untrusted.untrusted, [
+    { reviewer: 0, finding: 0, reason: 'pack_unread' }, { reviewer: 0, finding: 1, reason: 'pack_unread' }, { reviewer: 1, finding: 0, reason: 'head_mismatch' },
+  ], '信用しない reviewer の指摘を CLI が列挙して返す')
+  assert.deepEqual(untrusted.clusters, [])
+  assert.deepEqual(merge(mergePlan(), [null, result({ coverage: ['a.md'] })]).untrusted, [], '返らなかった reviewer は指摘を持たない')
 })
 
 test('merge: 正規でない・除外・生成物・作業中の変更・audit の対象外・行の逆転の指摘は候補にしない', () => {
@@ -308,7 +314,7 @@ const R3 = { mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GE
 const CLUSTERS = [{ lens: 'a', members: [[0, 0], [1, 0]] }, { lens: 'b', members: [[1, 1]] }]
 const ev = [{ path: 'a.md', line: 1 }]
 const vote = (cluster, claim, verdict, evidence = verdict === 'confirmed' ? ev : []) => ({ cluster, claim, verdict, evidence })
-const round = (assignments, results) => ({ assignments, verifications: results.map((r) => (r === null ? null : { head_sha: H, policy_pack_sha256: 'S', results: r })) })
+const round = (assignments, results) => ({ assignments, verifications: results.map((r) => (r === null ? null : { head_sha: H, policy_pack_token: 'S', results: r })) })
 
 test('judge 1 段目: 有効な confirmed の 1 票だけで確定し、それ以外の主張は残りの観点に回す', () => {
   const first = firstAssignments(R3, CLUSTERS)
@@ -353,7 +359,7 @@ test('judge 1 段目: 欠けた・2 回の・不正な・読めなかった票�
   assert.deepEqual(extra.diagnostics[0].extra, ['1:0'], '担当外の票は捨てる')
   assert.equal(extra.outcomes[2].verdict, 'pending', '担当外の票では決着しない')
   for (const [label, head, sha, status] of [['HEAD が違う', H2, 'S', 'head_mismatch'], ['方針の束を読めなかった', H, 'unreadable', 'pack_unread']]) {
-    const v = judge(R3, { clusters: CLUSTERS }, [{ assignments: first, verifications: [{ head_sha: head, policy_pack_sha256: sha, results: [vote(0, 0, 'confirmed'), vote(0, 1, 'confirmed')] }, { head_sha: H, policy_pack_sha256: 'S', results: ok1 }] }])
+    const v = judge(R3, { clusters: CLUSTERS }, [{ assignments: first, verifications: [{ head_sha: head, policy_pack_token: sha, results: [vote(0, 0, 'confirmed'), vote(0, 1, 'confirmed')] }, { head_sha: H, policy_pack_token: 'S', results: ok1 }] }])
     assert.equal(v.diagnostics[0].status, status, label)
     assert.equal(v.outcomes[0].verdict, 'pending', label)
   }
@@ -482,4 +488,33 @@ test('renderPolicyPack: 索引の行の範囲が束の本文の位置と元の�
   assert.equal(out[index[1].pack[0] - 1], '## [P2] y.md「節」')
   assert.deepEqual(out.slice(index[1].pack[0], index[1].pack[1]), ['y.md:2| l2', 'y.md:3| l3'])
   assert.match(text, /束に入れなかったもの（見ていない）: z\.md/)
+})
+
+test('pin の次の手は原因と mode の組で決まり、直す主体（利用者か caller か）を持つ', () => {
+  for (const [cause, mode, by, pattern] of [
+    ['head', 'diff', 'user', /checkout に戻して/],
+    ['head', 'working_tree', 'caller', /今の HEAD を headSha にして/],
+    ['head', 'audit', 'caller', /今の HEAD を headSha にして/],
+    ['worktree', 'diff', 'user', /片付けて/],
+    ['preserved', 'working_tree', 'caller', /preservedPaths/],
+    ['commits', 'diff', 'caller', /git fetch/],
+    ['changed', 'audit', 'caller', /今の内容/],
+    ['pack', 'diff', 'caller', /stateDir/],
+    ['collect', 'audit', 'caller', /原因/],
+  ]) {
+    const a = pinAction(cause, mode)
+    assert.equal(a.by, by, `${cause}/${mode}`)
+    assert.match(a.action, pattern, `${cause}/${mode}`)
+  }
+  assert.throws(() => pinAction('worktree', 'audit'), (e) => e.code === CODES.internal, 'diff にしか起きない原因は他の mode に次の手を持たない')
+  for (const row of Object.values(PIN_ACTIONS)) for (const v of Object.values(row)) assert.ok(['user', 'caller'].includes(v.by))
+  const plan = buildPlan(request({ mode: 'working_tree' }), state(['a.md']), { ...NO_DETAILS, digests: { 'a.md': 'file:h' } })
+  assert.deepEqual(checkPin(plan, state(['a.md'], { head: H2 }), { ...NO_DETAILS, digests: { 'a.md': 'file:h' } }).causes.map((c) => [c.cause, c.by]), [['head', 'caller']], 'working_tree で HEAD が動いたら古い HEAD への切り替えを頼まない')
+})
+
+test('renderPolicyPack は読取りトークンを束の先頭に置き、索引の行の範囲をずらさない', () => {
+  const { text, index } = renderPolicyPack('a'.repeat(40), [{ path: 'x.md', title: null, lines: ['l1'], start: 1, end: 1 }], [], 'abc123')
+  const out = text.split('\n')
+  assert.ok(out.slice(0, 4).includes('読取りトークン（policy_pack_token に返す）: abc123'))
+  assert.equal(out[index[0].pack[0] - 1], '## [P1] x.md（全体）')
 })
