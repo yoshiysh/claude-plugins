@@ -216,7 +216,9 @@ test('inventory（実装の後）: 実際の変更を plan・touched_paths・pre
     { name: '異常: 申告漏れ', edit: (r) => { write(r, 'src/a.mjs', '2\n'); write(r, 'src/a.test.mjs', '2\n') }, touched: ['src/a.mjs'], causes: ['undeclared'] },
     { name: '異常: plan の外', edit: (r) => write(r, 'README.md', 'x\n'), touched: [], causes: ['outside_plan', 'undeclared'] },
     { name: '異常: preserved の内容を書き換えた', edit: (r) => write(r, 'keep.md', 'overwritten\n'), touched: [], causes: ['preserved_changed'] },
-    { name: '異常: preserved を git add した（内容は同じ）', edit: (r) => git(r, 'add', 'keep.md'), touched: [], causes: ['preserved_changed'] },
+    { name: '異常: preserved を git add した（内容は同じ）', edit: (r) => git(r, 'add', 'keep.md'), touched: [], causes: ['index_changed', 'preserved_changed'] },
+    { name: '異常: plan の path を stage した後に作業ツリーを編集した', edit: (r) => { write(r, 'src/a.mjs', 'staged\n'); git(r, 'add', 'src/a.mjs'); write(r, 'src/a.mjs', 'worktree\n') }, touched: ['src/a.mjs'], causes: ['index_changed'] },
+    { name: '異常: plan の path を stage した後に作業ツリーを HEAD に戻した（変更の集合から消える）', edit: (r) => { write(r, 'src/a.mjs', 'staged\n'); git(r, 'add', 'src/a.mjs'); write(r, 'src/a.mjs', 'export const a = 1\n') }, touched: ['src/a.mjs'], causes: ['index_changed'] },
     { name: '異常: 実装したと返したのに何も書いていない', edit: null, touched: ['src/a.mjs'], causes: ['no_effect'] },
     { name: '異常: 失敗した実装が作業ツリーを変えた', edit: (r) => write(r, 'src/a.mjs', '2\n'), touched: ['src/a.mjs'], status: 'blocked', causes: ['changed_on_failure'] },
   ]
@@ -494,6 +496,7 @@ test('通らなかった round の後は check・レビューへ進めず、aban
     write(fx.repo, 'src/a.mjs', 'half written\n')
     const out = ok('abandon', { ...ref(s), reason: 'workflow timeout' })
     assert.deepEqual(out.remaining, ['src/a.mjs'])
+    assert.deepEqual([out.uninventoriedWrites, out.changedOutsideSteps], [true, false], 'implementer の書き込みを段の外の書き込みと報告しない')
     const ledger = JSON.parse(readFileSync(s.state.ledgerPath, 'utf8'))
     assert.deepEqual([ledger.open, ledger.rounds.at(-1).status], [null, 'abandoned'])
   })
@@ -544,6 +547,72 @@ test('run-checks: 同じ round の run は全てを数え、通るまで回し�
   assert.equal(ok('run-checks', { ...ref(s), ...p, phase: 'after' }).passed, false)
   rmSync(path.join(fx.repo, 'FAIL'))
   assert.equal(call('run-checks', { ...ref(s), ...p, phase: 'after' }).code, CODES.state, '記録の外で失敗の原因を消した')
+})
+
+test('大きな入力はファイルの path で渡せ、拒否された op は記録を書かない（正しい入力で同じ段を流し直せる）', async (t) => {
+  await t.test('正常: implementationPath・reviewPath で渡す', (t) => {
+    const fx = fixture(t)
+    const s = start(fx)
+    const p = planFor(s)
+    admit(s, p)
+    const begun = ok('begin-round', { ...ref(s), ...p, repair: null })
+    write(fx.repo, 'src/a.mjs', '2\n')
+    const implFile = path.join(s.stateDir, 'impl.json')
+    writeFileSync(implFile, JSON.stringify(implementationFor(begun, ['src/a.mjs'])))
+    assert.equal(call('inventory', { ...ref(s), ...p, implementation: implementationFor(begun, ['src/a.mjs']), implementationPath: implFile }).code, CODES.input, '両方は渡さない')
+    assert.equal(ok('inventory', { ...ref(s), ...p, implementationPath: implFile }).passed, true)
+    ok('run-checks', { ...ref(s), ...p, phase: 'after' })
+    const rp = reviewPlanFile(s, ['src/a.mjs'])
+    const reviewFile = path.join(s.stateDir, 'review.json')
+    writeFileSync(reviewFile, JSON.stringify(reviewOf(s, ['src/a.mjs'])))
+    assert.equal(ok('record-review', { ...ref(s), reviewPath: reviewFile, reviewPlanPath: rp.reviewPlanPath, reviewPlanSum: rp.reviewPlanSum }).next, 'verify')
+  })
+  await t.test('準正常: 写し間違いで拒否された後、同じ段を正しい入力で流し直せる', (t) => {
+    const { s, p } = implemented(t)
+    const before = readFileSync(s.state.ledgerPath, 'utf8')
+    const rp = reviewPlanFile(s, ['src/a.mjs'])
+    const bad = [
+      ['record-review', { review: { ...reviewOf(s, ['src/a.mjs']), findings: [confirmed()] }, reviewPlanPath: rp.reviewPlanPath, reviewPlanSum: rp.reviewPlanSum }],
+      ['begin-round', { ...p, planSum: '00000000', repair: 'checks' }],
+      ['run-checks', { ...p, phase: 'later' }],
+      ['inventory', { ...p, implementation: { status: 'x' } }],
+      ['verify', { ...p, planSum: '00000000' }],
+      ['abandon', {}],
+    ]
+    for (const [op, body] of bad) {
+      assert.equal(call(op, { ...ref(s), ...body }).ok, false, op)
+      assert.equal(readFileSync(s.state.ledgerPath, 'utf8'), before, `${op} の拒否は記録を書かない`)
+    }
+    assert.equal(recordReview(s, ['src/a.mjs']).ok, true)
+  })
+})
+
+test('record-review: 記録から次の段を 1 つに決めて返す', async (t) => {
+  const cases = [
+    ['正常: 確定も未検証も無い', [{}], 'verify'],
+    ['異常: 確定指摘がある', [{ findings: [confirmed()] }], 'repair'],
+    ['異常: completed で未検証が残る', [{ unverified: [{ claim: 'x' }] }], 'abandon'],
+    ['準正常: 途中で止まったレビュー（やり直せる）', [{ status: 'review_incomplete', coverage: undefined, pin: undefined }], 'retry_review'],
+    ['準正常: 確定指摘が残る review_incomplete は修正へ', [{ status: 'review_incomplete', coverage: undefined, pin: undefined, findings: [confirmed()] }], 'repair'],
+    ['境界: やり直しの上限に達した review_incomplete', [{ status: 'review_incomplete', coverage: undefined, pin: undefined }, { status: 'review_incomplete', coverage: undefined, pin: undefined }], 'abandon'],
+    ['準正常: やり直しても前の未検証は残る', [{ status: 'review_incomplete', coverage: undefined, pin: undefined, unverified: [{ claim: 'x' }] }], 'abandon'],
+  ]
+  for (const [name, reviews, next] of cases) {
+    await t.test(name, (t) => {
+      const { s } = implemented(t)
+      let out
+      for (const patch of reviews) out = recordReview(s, ['src/a.mjs'], patch)
+      assert.equal(out.ok, true, out.reason)
+      assert.equal(out.next, next)
+    })
+  }
+  await t.test('異常: 上限を超えるやり直し', (t) => {
+    const { s } = implemented(t)
+    const inc = { status: 'review_incomplete', coverage: undefined, pin: undefined }
+    recordReview(s, ['src/a.mjs'], inc)
+    recordReview(s, ['src/a.mjs'], inc)
+    assert.equal(recordReview(s, ['src/a.mjs'], inc).code, CODES.state)
+  })
 })
 
 test('snapshot: 内容・未追跡・symlink の先の文字列で変わり、読むだけでは変わらない', (t) => {

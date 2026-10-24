@@ -2,7 +2,7 @@
 name: repo-review
 description: >
   yoshiysh/claude-plugins リポジトリの作業ツリーの中で、そのリポジトリのコード・文書・スキル・差分・branch・PR・
-  作業中の変更・path の範囲をレビューするときに使うこと。汎用のレビューではなく、基底ブランチ（policyRef）の REVIEW.md・
+  作業中の変更・path の範囲をレビューするときに使うこと。汎用のレビューではなく、base 側の REVIEW.md・
   docs/guidelines・AGENTS.md を規則として、観点ごとの独立した reviewer と別の検証役を Workflow で立て、
   2 段の反証を通った指摘と、読んだ範囲・読めなかった範囲を返す（作業ツリーのファイルを変えず、PR に投稿しない。CLI が書くのは repo の外の `stateDir` の計画のファイルと方針の束だけで、`.git` が増えるのは手元に無い commit を `git fetch` するときだけ）。
   「この PR をレビューして」「この差分を REVIEW.md で見て」「作業中の変更をレビューして」
@@ -24,7 +24,7 @@ description: >
 
 ## 目的と結果の扱い
 
-このリポジトリの変更か指定範囲を、基底ブランチの `REVIEW.md` に照らしてレビューする。**基底ブランチ** は変更が取り込まれる先の branch で、その先端の完全な SHA を **policyRef** にする（レビューする変更の側で変えた規約を基準に混ぜないため）。決められる処理（対象の列挙・除外・担当の照合・coverage・重複の統合・票の集計・内容の SHA-256 の照合）は `scripts/review-cli.mjs` が行い、問題の発見は観点ごとの reviewer、成否の判断は観点ごとの別の検証役が行う。レビュー中にリポジトリのファイルを変更せず、PR にも投稿しない。指摘への対応（修正・返信）はこのスキルの役割ではなく、別のスキルが受け持つ。
+このリポジトリの変更か指定範囲を、base 側の `REVIEW.md` に照らしてレビューする。決められる処理（対象の列挙・除外・担当の照合・coverage・重複の統合・票の集計・内容の SHA-256 の照合）は `scripts/review-cli.mjs` が行い、問題の発見は観点ごとの reviewer、成否の判断は観点ごとの別の検証役が行う。レビュー中にリポジトリのファイルを変更せず、PR にも投稿しない。指摘への対応（修正・返信）はこのスキルの役割ではなく、別のスキルが受け持つ。
 
 | モード | 対象 | 指摘の対象 | 作業ツリー |
 | --- | --- | --- | --- |
@@ -37,11 +37,11 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
 ## 前処理: 対象と方針を固定する
 
 1. **モードと SHA を決める。** 依頼の範囲を広げも狭めもしない。PR・branch・ファイル範囲が一意に決まらないときだけ確認する。別のスキルから baseRef・headSha・policyRef・preservedPaths を渡されて呼ばれたときは、その値を解決し直さずにそのまま使う（呼び出し側は自分の記録と結果を照らすので、間に ref が動くと照合が合わなくなる）。
-   - PR: `gh pr view <番号> --json baseRefOid,headRefOid` で得た head を **headSha**、`git merge-base <baseRefOid> <headRefOid>` を **baseRef**、base branch の先端（`baseRefOid`）を **policyRef** にする。手元に無い commit は `git fetch` で取る（`.git` の refs と objects が増える）。
+   - PR: `gh pr view <番号> --json baseRefOid,headRefOid` で得た head を **headSha**、`git merge-base <baseRefOid> <headRefOid>` を **baseRef**、base 側の先端（`baseRefOid`）を **policyRef** にする。手元に無い commit は `git fetch` で取る（`.git` の refs と objects が増える）。
    - diff は、作業ツリーが headSha を checkout した clean な状態でだけ始める。reviewer と検証役は作業ツリーのファイルも開くので、別の版の作業ツリーでは別の内容と行番号で候補が作られる。そうでなければ始めずに利用者に伝える（作業ツリーの切り替えは利用者の操作）。
-   - branch・commit の差分: 比べる 2 点の完全な SHA を baseRef・headSha にし、基底ブランチの先端（主ブランチなら `git rev-parse origin/main`）を policyRef にする。
-   - working_tree: 比べる base の SHA を baseRef に、基底ブランチの先端（主ブランチなら `git rev-parse origin/main`）を policyRef に、今の HEAD を headSha にする。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
-   - audit: 今の HEAD を headSha に、基底ブランチの先端（主ブランチなら `git rev-parse origin/main`）を policyRef にする。範囲を **scope** に入れる。公開済みスキルは `plugins/` の実体のパスで渡す（symlink を通る path は CLI が拒否する）。
+   - branch・commit の差分: 比べる 2 点の完全な SHA を baseRef・headSha にし、base 側を policyRef にする。
+   - working_tree: 比べる base の SHA を baseRef に、主ブランチの先端（`git rev-parse origin/main`）を policyRef に、今の HEAD を headSha にする（base が作業 branch の commit でも、その branch で変えた規約を基準に混ぜない）。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
+   - audit: 今の HEAD を headSha に、主ブランチの先端（`git rev-parse origin/main`）を policyRef にする。範囲を **scope** に入れる。公開済みスキルは `plugins/` の実体のパスで渡す（symlink を通る path は CLI が拒否する）。
 2. **対象を列挙する。** 次で inventory を取る（入力は stdin の JSON。repo はこのリポジトリの作業ツリーの絶対パス）。
 
    ```bash

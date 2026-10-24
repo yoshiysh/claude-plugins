@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { categories } from '../scripts/traceability/specs.mjs'
-import { main } from '../.agents/skills/repo-implement/scripts/implement-cli.mjs'
-import { main as reviewMain } from '../.agents/skills/repo-review/scripts/review-cli.mjs'
+import { changeSet, defaultIo, main } from '../.agents/skills/repo-implement/scripts/implement-cli.mjs'
+import { collectState, defaultIo as reviewIo, main as reviewMain } from '../.agents/skills/repo-review/scripts/review-cli.mjs'
 import { MAKE_TARGETS, canonical, fnvSum, isRepoRelativePath } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
 
@@ -198,7 +198,6 @@ test('計画: 計画が使えないときは理由つきの status で止まり�
     { name: '異常: planner が返らない', planner: () => null, status: 'incomplete', reason: 'planner-unavailable' },
     { name: '異常: planner が別の HEAD を見た', planner: (fx) => draft(fx, { head_sha: 'f'.repeat(40) }), status: 'incomplete', reason: 'planner-head-mismatch' },
     { name: '準正常: 人の判断が要る', planner: (fx) => draft(fx, { human_decision_required: true, questions: ['互換を保つか'] }), status: 'needs_human_decision' },
-    { name: '異常: 判断が要ると言うのに質問が無い', planner: (fx) => draft(fx, { human_decision_required: true }), status: 'incomplete', reason: 'planner-raised-decision-without-question' },
     { name: '異常: preserved と重なる', planner: (fx) => draft(fx, { affected_paths: ['keep.md', 'src/a.test.mjs'] }), status: 'needs_isolated_worktree' },
   ]
   for (const c of cases) {
@@ -236,6 +235,18 @@ test('計画: script の形の検査に落ちた計画は理由を添えて plan
       assert.match(result.problems.join('\n'), c.match)
       assert.equal(b.calls.length, 1 + MAX_PLAN_REVISIONS)
       assert.match(b.calls[1].prompt, /通らなかった理由/, '2 回目の planner に理由を渡す')
+    })
+  }
+  for (const [name, patch] of [
+    ['準正常: 判断が要ると言うのに質問が無い', { human_decision_required: true }],
+    ['準正常: 判断は要らないのに確認の質問がある', { questions: ['この理解で合っているか'] }],
+  ]) {
+    await t.test(name, async (t) => {
+      const fx = fixture(t)
+      const b = backend({ planner: (_, n) => (n === 0 ? draft(fx, patch) : draft(fx)), planReviewer: () => planReview(fx) })
+      const result = await run(t, 'plan', planArgs(fx), b)
+      assert.deepEqual([result.status, result.attempt], ['approved', 1], '人を待たせずに planner に戻す')
+      assert.match(b.calls[1].prompt, /human_decision_required が true のときだけ/)
     })
   }
   await t.test('準正常: 理由を受けて直した計画は通る', async (t) => {
@@ -541,6 +552,36 @@ test('変更の集合の定義は repo-review と同じ: start が preserved に
       const started = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-set-state-') })).output)
       assert.equal(started.code, 'E_PIN', started.reason)
     })
+  }
+})
+
+test('変更の集合は、さまざまな作業ツリーの状態で repo-review の working_tree の集合と一致する', (t) => {
+  const repo = tmp(t, 'repo-implement-cs-')
+  git(repo, 'init', '-q', '-b', 'main')
+  git(repo, 'config', 'commit.gpgsign', 'false')
+  write(repo, '.github/workflows/claude_review.yml', `jobs:\n  review:\n    with:\n      exclude-paths: '["**/*.lock"]'\n`)
+  write(repo, '.gitignore', 'ignored/\n')
+  for (const f of ['m.md', 's.md', 'd.md', 'k.md', 'r.md', 'sp ace.md']) write(repo, f, `${f}\n`)
+  git(repo, 'add', '-A')
+  git(repo, 'commit', '-q', '-m', 'base')
+  const head = git(repo, 'rev-parse', 'HEAD')
+  const states = [
+    () => {},
+    () => write(repo, 'm.md', 'edited\n'),
+    () => { write(repo, 's.md', 'staged\n'); git(repo, 'add', 's.md') },
+    () => { write(repo, 'k.md', 'staged\n'); git(repo, 'add', 'k.md'); write(repo, 'k.md', 'k.md\n') },
+    () => rmSync(path.join(repo, 'd.md')),
+    () => { git(repo, 'mv', 'r.md', 'renamed.md') },
+    () => write(repo, 'new/dir/u.md', 'u\n'),
+    () => write(repo, 'ignored/x.md', 'x\n'),
+    () => write(repo, 'sp ace.md', 'edited\n'),
+    () => { mkdirSync(path.join(repo, 'nested')); git(path.join(repo, 'nested'), 'init', '-q'); write(repo, 'nested/x', 'x\n') },
+  ]
+  for (const apply of states) {
+    apply()
+    const ours = changeSet(defaultIo(), repo)
+    const theirs = collectState({ repo, mode: 'working_tree', baseRef: head, headSha: head, policyRef: head }, reviewIo()).paths
+    assert.deepEqual(ours, theirs)
   }
 })
 

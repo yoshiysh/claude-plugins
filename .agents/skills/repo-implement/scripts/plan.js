@@ -237,10 +237,13 @@ for (let attempt = 0; attempt <= MAX_PLAN_REVISIONS; attempt += 1) {
   const draft = await run('planner', 'planner', attempt, '影響の分析', plannerBody(feedback), PLAN_SCHEMA)
   if (!draft) return { status: 'incomplete', reason: 'planner-unavailable', attempt }
   if (draft.head_sha !== state.head) return { status: 'incomplete', reason: 'planner-head-mismatch', expectedHead: state.head, observedHead: draft.head_sha, attempt }
-  if (draft.human_decision_required || draft.questions.length) {
-    if (!draft.questions.length) return { status: 'incomplete', reason: 'planner-raised-decision-without-question', draft, attempt }
-    return { status: 'needs_human_decision', questions: draft.questions, draft, attempt }
+  // 判断の要否と質問の有無が食い違う計画は、止めずに planner へ戻す（確認だけの質問で人を待たせない）。
+  if (draft.human_decision_required !== (draft.questions.length > 0)) {
+    last = { status: 'incomplete', reason: 'decision-and-questions-disagree', problems: ['human_decision_required と questions が食い違う'], draft, attempt }
+    feedback = { draft, problems: ['human_decision_required が true のときだけ questions を書く。questions は計画を変える判断だけで、進め方を変えない確認は invariants か、ケース計画の未カバーの理由に書く'] }
+    continue
   }
+  if (draft.human_decision_required) return { status: 'needs_human_decision', questions: draft.questions, draft, attempt }
   const preservedOverlaps = draft.affected_paths.filter((p) => preservedPaths.some((q) => overlaps(p, q)))
   if (preservedOverlaps.length) return { status: 'needs_isolated_worktree', preservedOverlaps, draft, attempt }
   const problems = draftProblems(draft)

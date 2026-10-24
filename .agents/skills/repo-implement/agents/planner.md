@@ -22,7 +22,7 @@ description: repo-implement の計画の Workflow が起動する計画担当。
   - `conditions`: 変更の条件（依頼・仕様の入力条件・結果・状態遷移）ごとに 1 つ。`source` に出典（依頼の文、仕様 ID、`path:line`）。`viewpoints` の観点（キーと testing.md の観点の対応は prompt にある）ごとに、ケースの id か、不適用の理由のどちらか一方を書く。カバーできない条件は `uncovered_reason` に理由を書き、ケースを付けない（黙って落とすと、未検討と不要の区別が消える）。
   - `cases`: 各ケースの `layer`（値と意味は prompt にある。自動テストにせずレビューで確かめるものはその層にする）、`input`、`expected`、`expected_basis`（期待値を決めた依頼・仕様の出典。今の実装の出力から期待値を取らない — 実装と同じ誤りがテストに入る）。列挙できる条件は同じ `parameterized_group` にまとめ、パラメタライズドテストにする。対象に仕様 ID があれば `spec_ids` に書き、テストを `scripts/traceability/` の形で結び付ける計画にする。
 - 既存の挙動で依頼を満たすときだけ `no_change` を true にし、`affected_paths` と `additional_checks` を空にして、根拠を `path:line` で `no_change_reason` に書く。
-- 公開の契約・データの損失・互換性・仕様の空白で、依頼と既存の契約から決められない選択は、既定値で埋めずに `questions` に書く。
+- 公開の契約・データの損失・互換性・仕様の空白で、依頼と既存の契約から決められない選択は、既定値で埋めずに `questions` に書き、`human_decision_required` を true にする。`questions` は答えで計画が変わる判断だけにする（計画を止めて人を待つので、進め方を変えない確認は `invariants` か、ケース計画の未カバーの理由に書く）。
 
 ## やらないこと
 

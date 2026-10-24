@@ -16,6 +16,8 @@ export const CHECK_KINDS = Object.freeze(['make', 'node-test'])
 export const REQUIRED_CHECKS = Object.freeze([Object.freeze({ kind: 'make', value: 'test' })])
 export const PHASES = Object.freeze(['baseline', 'after'])
 export const OUTPUT_TAIL_LINES = 40
+// review_incomplete の後にレビューをやり直せる回数。途中で止まったレビュー（pin の崩れ・運搬の失敗）は一時的な原因であり得るが、無制限に回すと止まらない。
+export const MAX_REVIEW_RETRIES = 1
 export const MAIN_BRANCH = 'main'
 // 方針の版は主ブランチの先端（REVIEW.md「レビュー方針は基底ブランチの REVIEW.md」）。作業 branch の commit が規約を変えていても、その変更で同じ変更を免責しない。
 export const DEFAULT_POLICY_REF = `origin/${MAIN_BRANCH}`
@@ -97,9 +99,9 @@ export function parsePorcelain(text) {
   return text.split('\0').filter(Boolean).map((entry) => ({ xy: entry.slice(0, 2), path: entry.slice(3) }))
 }
 
-// 「変更の集合」の正本は repo-review の working_tree と同じ定義（HEAD との差分 ∪ ignore されない未追跡のファイル）。
-// git status にだけ出る path（未追跡の入れ子の repo は末尾に / が付く、index だけが HEAD と違い作業ツリーは HEAD と同じ path）は、
-// この集合に無いか正規形の path でないので、preserved にも照合の対象にもできない。start はそれを拒否する。
+// 変更の集合は repo-review の working_tree と同じ集合（HEAD との差分 ∪ ignore されない未追跡のファイル。一致は tests/repo-implement-workflow.test.mjs が
+// 両方の CLI に同じ状態を通して照らす）。git status にだけ出る path（未追跡の入れ子の repo は末尾に / が付く、index だけが HEAD と違い作業ツリーは
+// HEAD と同じ path）は、この集合に無いか正規形の path でないので、preserved にも照合の対象にもできない。start はそれを拒否する。
 export function unreviewablePaths(statusPaths, changeSet) {
   return statusPaths.filter((p) => !isRepoRelativePath(p) || !changeSet.includes(p)).sort()
 }
@@ -119,6 +121,7 @@ export function stateProblem(state) {
   if (!Array.isArray(state.preserved) || state.preserved.some((p) => !isRepoRelativePath(p?.path) || typeof p?.digest !== 'string')) return 'state.preserved が {path, digest} の配列でない'
   if (typeof state.ledgerPath !== 'string' || !state.ledgerPath.startsWith('/')) return 'state.ledgerPath が絶対パスでない'
   if (typeof state.snapshot !== 'string') return 'state.snapshot が無い'
+  if (typeof state.index !== 'string') return 'state.index が無い'
   return null
 }
 
@@ -232,9 +235,11 @@ export function implementationProblem(implementation, open) {
 const diff = (a, b) => [...new Set(a)].filter((x) => !b.includes(x)).sort()
 
 // actual は開始時 HEAD からの変更の path（preserved を除く）、preservedNow は preserved の今の digest。
-export function inventoryProblems({ state, plan, head, actual, preservedNow, touched }) {
+export function inventoryProblems({ state, plan, head, actual, preservedNow, touched, index }) {
   const problems = []
   if (head !== state.head) problems.push({ cause: 'head_changed', message: `HEAD が開始時 ${state.head} から ${head} に変わった`, paths: [] })
+  // 変更の集合とレビュー・check は作業ツリーを見るが、commit は index を取り込む。index が開始時から動くと、照らしていない内容が commit に入り得る。
+  if (index !== state.index) problems.push({ cause: 'index_changed', message: 'index（stage した内容）が開始時から変わった', paths: [] })
   const outside = diff(actual, plan.affected_paths)
   if (outside.length) problems.push({ cause: 'outside_plan', message: 'plan.affected_paths の外の path が変わった', paths: outside })
   if (touched !== null) {
@@ -295,17 +300,29 @@ export function reviewProblems({ review, reviewPlan, state, actual, digests }) {
 
 // 1 round のレビューの記録は 1 回。やり直せるのは前の記録が review_incomplete のときだけで、そのときも前の確定指摘は消さずに和を取る
 // （指摘 0 件が出るまで回し直して通すことを防ぐ）。
+// 1 round のレビューの記録は 1 回。やり直せるのは前の記録が review_incomplete のときだけ（MAX_REVIEW_RETRIES 回まで）で、
+// そのときも前の確定指摘と未検証は消さずに和を取る（指摘 0 件が出るまで回し直して通すことを防ぐ）。next は記録から決まる次の段。
 export function reviewRecord(review, round, snapshot, previous = []) {
   if (previous.some((r) => r.status !== 'review_incomplete')) {
     throw new ImplementError(CODES.state, `round ${round} のレビューは既に記録した（やり直せるのは review_incomplete の後だけ）`)
   }
-  const seen = new Set()
-  const findingsDetail = [...previous.flatMap((r) => r.findingsDetail), ...review.findings].filter((f) => {
-    const key = canonical(f)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  if (previous.length > MAX_REVIEW_RETRIES) throw new ImplementError(CODES.state, `round ${round} のレビューのやり直しは ${MAX_REVIEW_RETRIES} 回まで`)
+  const union = (lists) => {
+    const seen = new Set()
+    return lists.flat().filter((x) => {
+      const key = canonical(x)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }
+  const findingsDetail = union([...previous.map((r) => r.findingsDetail), review.findings])
+  const unverifiedDetail = union([...previous.map((r) => r.unverifiedDetail), review.unverified])
+  const passed = review.status === 'completed' && findingsDetail.length === 0 && unverifiedDetail.length === 0
+  const next = findingsDetail.length ? 'repair'
+    : passed ? 'verify'
+      : review.status === 'review_incomplete' && unverifiedDetail.length === 0 && previous.length < MAX_REVIEW_RETRIES ? 'retry_review'
+        : 'abandon'
   return {
     round,
     snapshot,
@@ -313,8 +330,10 @@ export function reviewRecord(review, round, snapshot, previous = []) {
     reasons: [...review.reasons],
     findings: findingsDetail.length,
     findingsDetail,
-    unverified: review.unverified.length,
-    passed: review.status === 'completed' && findingsDetail.length === 0 && review.unverified.length === 0,
+    unverified: unverifiedDetail.length,
+    unverifiedDetail,
+    passed,
+    next,
   }
 }
 
@@ -330,9 +349,9 @@ export function baselineVerdict(baseline, check) {
   return hit.exit_code !== 0
 }
 
-export function verifyProblems({ state, ledger, plan, head, actual, preservedNow, snapshot }) {
+export function verifyProblems({ state, ledger, plan, head, actual, preservedNow, snapshot, index }) {
   const touched = ledger.rounds.flatMap((r) => r.touched)
-  const problems = inventoryProblems({ state, plan, head, actual, preservedNow, touched: ledger.rounds.length ? touched : null })
+  const problems = inventoryProblems({ state, plan, head, actual, preservedNow, index, touched: ledger.rounds.length ? touched : null })
   if (ledger.terminal) problems.push({ cause: 'terminated', message: `この run は abandon で終わっている（${ledger.terminal.reason}）`, paths: [] })
   if (ledger.open) problems.push({ cause: 'round_open', message: `round ${ledger.open.round} を inventory で閉じていない`, paths: [] })
   if (ledger.snapshot !== snapshot) problems.push({ cause: 'changed_outside_steps', message: '作業ツリーが CLI の記録の外で変わった', paths: [] })

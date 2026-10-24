@@ -200,6 +200,7 @@ test('inventoryProblems は plan の外・申告漏れ・preserved の変化・H
     { name: '異常: preserved の内容・index の状態が変わった', patch: { preservedNow: { 'keep.md': 'file:2' } }, causes: ['preserved_changed'] },
     { name: '異常: preserved が消えた', patch: { preservedNow: { 'keep.md': 'absent' } }, causes: ['preserved_changed'] },
     { name: '異常: HEAD が動いた', patch: { head: POLICY }, causes: ['head_changed'] },
+    { name: '異常: index が開始時から動いた', patch: { index: 'moved' }, causes: ['index_changed'] },
     { name: '境界: 実装の前（touched が null）は申告漏れを見ない', patch: { actual: [], touched: null }, causes: [] },
   ]
   for (const c of cases) {
