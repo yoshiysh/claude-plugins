@@ -9,6 +9,8 @@ import { gitOk } from './git-safe.mjs';
 
 const SUMMARY_MAX_CHARS = 8000;
 const SUMMARY_TRAILER_CHARS = 200;
+// 検証不能の歯止めの暫定の閾値（件数）。状態の検証不能の事実がこれを超えたら、round の応答が needs_input の停止を指示する。
+const UNVERIFIABLE_MAX = 3;
 const STOP_KINDS = ['complete', 'dry', 'needs_input', 'iteration_limit', 'blocked'];
 // 検証方式の綴りの正本。再開の応答で script に渡し、script が実行役の schema と prompt を作る。
 const METHODS = { refetch: '再取得', rerun: '再実行', citation: '出典照合', unverifiable: '検証不能' };
@@ -230,6 +232,16 @@ const stopView = (repo, v, record) => ({ ...skipOf(repo)(v), facts: factsOut(v),
 const lastStop = (v) => (v.runs.length > 1 ? v.stops.get(v.runs.at(-2)) : undefined);
 
 // 要約の項目の種類。載せなかった項目の宣言と、get の種類の引き方の両方がこの並びを使う（ヒントは get で引かせない。計画役が読むヒントを要約に載ったものに限るため）。
+// 試行の回数は意図単位だけでなく方向（意図の key）でも数え、CLI が意図をまたいで合算する（上限の判定と計画役の判断に使う）。
+const directionsOf = (v) => {
+  const byKey = new Map();
+  for (const i of v.intents.values()) {
+    if (i.key === undefined) continue;
+    byKey.set(i.key, (byKey.get(i.key) ?? 0) + i.attempts);
+  }
+  return [...byKey.entries()].filter(([, n]) => n > 0).map(([key, n]) => ({ id: key, line: `方向 ${key}: 試行 ${n} 回` }));
+};
+
 const KINDS = [
   ['前提', (v) => v.premises.map((p) => ({ id: p.id, line: premiseLine(p) }))],
   ['前の run の停止', (v) => [lastStop(v)].filter(Boolean).map((s) => ({ id: s.run, line: `前の run の停止 ${s.run}（${s.kind}）: ${s.reason}` }))],
@@ -241,6 +253,7 @@ const KINDS = [
   ['判定の食い違い', (v) => v.disputes.map((d) => ({ id: d.fact, line: `判定の食い違い ${d.fact}: ${verdictName[verdictOf(v, d.fact)]}と${verdictName[d.verdict]}（意図 ${d.intent}）` }))],
   ['却下した完了の主張', (v) => v.claims.filter((c) => c.verdict === 'reject').map((c) => ({ id: c.id, line: `却下した完了の主張 ${c.id}: ${c.reason}` }))],
   ['読まれていないヒント', (v) => unreadHints(v).map((h) => ({ id: h.id, line: `読まれていないヒント ${h.id}: ${h.text}` }))],
+  ['方向ごとの試行', directionsOf],
 ];
 
 function summary(v) {
@@ -391,7 +404,8 @@ const OPS = {
     const newFacts = acceptedSince(v, prev);
     const dry = newFacts === 0 && !req.allFailed ? (same ? prev.dry : 0) + 1 : 0;
     const failed = req.allFailed ? (same ? prev.failed : 0) + 1 : 0;
-    return { t: 'round', run: req.run, n: v.rounds.length + 1, launches: req.launches, facts, newFacts, dry, failed, unreadHints: unreadHints(v).length,
+    const unverifiable = [...v.facts.values()].filter((f) => verdictOf(v, f.id) === 'unverifiable').length;
+    return { t: 'round', run: req.run, n: v.rounds.length + 1, launches: req.launches, facts, newFacts, dry, failed, unreadHints: unreadHints(v).length, unverifiable, unverifiableOver: unverifiable > UNVERIFIABLE_MAX,
       limitHit: v.rounds.filter((r) => r.run === req.run).length + 1 >= v.limits.rounds };
   }),
   // 数値条件は目標の前提の numeric の全てに、受理済みの事実が当たっていなければ通さない。応答に目標と挙げた事実の本文を添え、完了の照合の検証役に渡す。

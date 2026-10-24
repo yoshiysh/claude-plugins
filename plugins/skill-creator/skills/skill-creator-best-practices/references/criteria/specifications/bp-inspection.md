@@ -137,7 +137,7 @@ CLI は、答えを状態に書き、答えから最初に到達した形を決�
 | 除く単位 | 判定する仕様の観点の仕様項目 |
 |---|---|
 | `SP-BPCONFORMANCE-012/体数と同時実行/t1/r3` | SP-BPCONFORMANCE-027 |
-| `SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r8` | SP-BPCONFORMANCE-032 |
+| `SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r9` | SP-BPCONFORMANCE-032 |
 | `SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r1` | SP-BPCONFORMANCE-030 |
 | `SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r4` | SP-BPCONFORMANCE-032 |
 | `SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r7` | SP-BPCONFORMANCE-031 |

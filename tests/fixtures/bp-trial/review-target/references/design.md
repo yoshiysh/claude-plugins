@@ -58,7 +58,7 @@
 
 ## 起動数の上限
 
-Codex runner の経路では、`limits.maxAgents` を超える起動が run 全体を失敗させるので、上限 `maxLaunches` を渡された run は、単位を始める前に最悪の起動数で確かめる。確かめは `used + Σ(走っている単位の worst − 使った数) + worst(u) + R ≤ L` とし、`scripts/trace.js` の定数 `WORST`・`RESERVE` から決定的に行う。
+Codex runner の経路では、`limits.maxAgents` を超える起動が run 全体を失敗させるので、上限 `maxLaunches` を渡された run は、単位を始める前に最悪の起動数で確かめる。確かめは `used + Σ(走っている単位の worst − 使った数) + worst(u) + R ≤ L` とし、`scripts/trace.js` の定数 `WORST`・`RESERVE` から決定的に行う。トークン量の上限 `maxTokens` は、消費量を run の中に読める native の経路でのみ入力として受け取り、既定の上限は置かない。その経路では、単位を始める前に host の budget の消費量を上限と照らし、達していれば反復の上限で止める。
 
 | 単位 | 最悪の起動数 | 中身 |
 |---|---|---|

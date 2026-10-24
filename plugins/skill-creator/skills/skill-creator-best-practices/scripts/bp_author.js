@@ -459,7 +459,7 @@ async function launch(role, prompt, { unit, label, schema }) {
 
 // 写しは正本と 1 字も違わないので、本文の docs/ のパスは正本を指したまま残る。開くと配布先では読めず、このリポジトリでは写しでない正本を判定基準にする（SP-BPRUN-036）。
 function criteriaNote(root) {
-  return `判定基準の写しの中の \`docs/X\` は \`${root}/X\` と読む（写しは docs/ と同じ構成）。\`docs/\` を開かない。写しの中のそれ以外のリポジトリの相対パス（plugins/・scripts/・tests/・tools/・.agents/・.claude-plugin/・AGENTS.md）は出所の引用で判定基準でないので開かずに判定し、その中身が要る判定の単位は理由つきの未検査にする。`
+  return `判定基準の写しの中の \`docs/X\` は \`${root}/X\` と読む（写しは docs/ と同じ構成）。\`docs/\` を開かない。写しの中のそれ以外のリポジトリの相対パス（plugins/・scripts/・tests/・tools/・.agents/・.claude-plugin/・AGENTS.md・REVIEW.md・README.md）は出所の引用で判定基準でないので開かずに判定し、その中身が要る判定の単位は理由つきの未検査にする。`
 }
 
 function carrierPrompt(requests) {

@@ -33,6 +33,7 @@ host に native Workflow があればそれを使い、無いとき（Codex）�
 | `skillDir` | 必須 | このスキルのディレクトリの絶対パス。役の指示と状態の CLI をここから読む |
 | `resumeKey` | 必須 | 再開の鍵（最初の起動は開始の応答、再開は `nextArgs` にある）。CLI は無いか違えば run を始めない |
 | `maxLaunches` | 経路の表に従う | 1 以上の整数 |
+| `maxTokens` | native の経路だけ渡す | トークン量の上限（1 以上の整数）。渡さなければ上限を置かない。消費量を run の中に読めない Codex runner では渡さず、起動数の上限で費用を抑える |
 
 止まった run を続けるときは、返り値の `nextArgs`（`state`・`repo`・`skillDir`・`resumeKey`）をそのまま `args` に渡し、経路の表に従って `maxLaunches` を足すか決める。`nextArgs` は起動数の上限を含まない。
 
@@ -98,4 +99,5 @@ Claude Code では、plugin から読み込む agent の設定の一部が無視
 - `coverage`（台帳の資産のうち、実行役が見た割合）と `skip`（見なかった資産の一覧）
 - `pending`・`aborted`（未着手と打ち切った意図）
 - `launches`（この run の起動数）と `roundLaunches`（この run の周ごとの起動数。周の途中で止まったときは、その周も停止の運搬役を含めて載せる）
+- `models`（この run で起動した agent のモデル。起動した順に役とモデルを載せ、モデルを指定しなかった起動は host-default と載せる）
 - `residualRisks`（agent を起動した後のどの返り値にも載る）
