@@ -146,7 +146,7 @@ const CARRIER_SCHEMA = {
 
 function modeLine() {
   if (plan.mode === 'diff') {
-    return `mode: diff。base ${plan.baseRef} から head ${plan.headSha} への commit 済みの差分をレビューする。作業ツリーと HEAD は使わず、内容は git show ${plan.headSha}:<path>、差分は git diff ${plan.baseRef} ${plan.headSha} -- <path>、呼び出し元の検索は git grep <pattern> ${plan.headSha} で読む。head に無い（削除・移動した）ファイルは git show ${plan.baseRef}:<path> で元の内容を読み、差分と残った参照を読み終えたら coverage に入れる。読んだ commit ${plan.headSha} を head_sha に返す。指摘はこの差分が持ち込んだか悪化させた問題に限る。`
+    return `mode: diff。base ${plan.baseRef} から head ${plan.headSha} への commit 済みの差分をレビューする。作業ツリーは head を checkout した clean な状態で、CLI が計画と各段でそれを確かめている。差分は担当ファイルに限った git diff ${plan.baseRef} ${plan.headSha} -- <path> で読む。head に無い（削除・移動した）ファイルは git show ${plan.baseRef}:<path> で元の内容を読み、差分と残った参照を読み終えたら coverage に入れる。作業の前後で HEAD が ${plan.headSha} のままかを確かめ、見た値を head_sha に返す。指摘はこの差分が持ち込んだか悪化させた問題に限る。`
   }
   if (plan.mode === 'working_tree') {
     return `mode: working_tree。base ${plan.baseRef} と現在の作業ツリー（staged・unstaged・untracked を含む）の差をレビューする。HEAD は ${plan.headSha} に固定されている。担当ファイルに限った git diff ${plan.baseRef} -- <path> で読み、untracked のファイルは直接読む。作業ツリーに無い（削除・移動した）ファイルは git show ${plan.baseRef}:<path> で元の内容を読み、差分と残った参照を読み終えたら coverage に入れる。作業の前後で HEAD が ${plan.headSha} のままかを確かめ、見た値を head_sha に返す。指摘はこの変更が持ち込んだか悪化させた問題に限る。`

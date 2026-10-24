@@ -171,6 +171,33 @@ test('準正常: 2 観点のとき 1 票の refuted だけでは棄却せず unv
   assert.deepEqual(result.findings, [])
 })
 
+test('境界: 2 観点で 1 段目の票が refuted でない主張には 2 段目の検証役を起動しない', async (t) => {
+  const { fx, args } = diffArgs(t)
+  const b = backend({
+    review: (id) => reviewOk(fx.head, id, { findings: id === 'correctness' ? [finding()] : [] }),
+    verify: verifyAll(fx.head, () => 'unverified'),
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.deepEqual(labels(b, 'verify'), ['verify1:correctness'])
+  assert.deepEqual(result.reasons, ['verification_incomplete'])
+  assert.equal(result.unverified.length, 1)
+  assert.deepEqual(result.launches, { reviewers: 2, verifiers: [1, 0], carriers: 2 })
+})
+
+test('異常: diff で作業ツリーがレビュー中に head と違う内容になったら pin_changed で止まる', async (t) => {
+  const { fx, args } = diffArgs(t)
+  const b = backend({
+    review: (id) => {
+      if (id === 'docs') write(fx.repo, 'docs/a.md', 'edited in the working tree\n')
+      return reviewOk(fx.head, id, { findings: [finding()] })
+    },
+    verify: () => assert.fail('pin が崩れた後に検証役を起動しない'),
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.deepEqual(result.reasons, ['pin_changed'])
+  assert.match(result.pin.problems.join('\n'), /作業ツリー/)
+})
+
 test('全ての agent 呼び出しが model と effort を明示し、運搬役は小さい model・低 effort、共通部分は prompt の先頭にそろう', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
@@ -371,6 +398,26 @@ function declarations(source, prefix = 'async function __s() {\n') {
   return out
 }
 
+test('Workflow source の判定は、置き方を変えた例でも runner の readSourceMetadata と一致する（meta の中身が literal かは見ない）', () => {
+  for (const text of [
+    "// c\nexport const meta = { name: 'a', description: 'b' }\nreturn 1",
+    "/* c */\n\nexport const meta = { name: 'a', description: 'b' }",
+    'export const meta = 1',
+    "const x = 1\nexport const meta = { name: 'a', description: 'b' }",
+    "import a from 'b'\nexport const meta = { name: 'a', description: 'b' }",
+  ]) {
+    let runner = true
+    try {
+      readSourceMetadata(text)
+    } catch {
+      runner = false
+    }
+    assert.equal(isWorkflowSource(text), runner, text)
+  }
+  // 既知の差: meta の中身が literal でない source を、runner は拒否するがこの判定は Workflow source とみなす（skill-design の担当が増える側に倒れる）。
+  assert.equal(isWorkflowSource("export const meta = { name: x, description: 'b' }"), true)
+})
+
 const literalOf = (name) => JSON.parse(new RegExp(`^const ${name} = (.+)$`, 'm').exec(SOURCE_TEXT)[1].replace(/'/g, '"'))
 
 test('Workflow source の写し（canonical・fnvSum・VERDICTS・VERIFY_ROUNDS）は CLI の部品と一致する', () => {
@@ -427,5 +474,9 @@ test('初めての公開の操作が Workflow script を移せる（SKILL.md の
   if (SOURCE.startsWith(path.join(SKILL_DIR, 'scripts'))) {
     assert.equal(found.length, 1)
     assert.deepEqual(found[0].reasons, [])
+  } else {
+    // 公開の後は移す script が残っておらず、callsite は名前の呼び出しに書き換わっている。
+    assert.deepEqual(found, [])
+    assert.match(readFileSync(path.join(SKILL_DIR, 'SKILL.md'), 'utf8'), new RegExp(`name: "[a-z][a-z0-9-]*:${META_NAME}"`))
   }
 })

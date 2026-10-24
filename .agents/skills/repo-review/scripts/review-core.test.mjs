@@ -57,11 +57,17 @@ test('globToRegExp: ** は 0 段以上のディレクトリ、* は / をまた�
   ]) assert.equal(globToRegExp(pattern).test(file), ok, `${pattern} ${file}`)
 })
 
-test('isWorkflowSource は先頭の文が export const meta のときだけ真', () => {
+test('isWorkflowSource は先頭の空白・コメントを読み飛ばし、先頭の文が export const meta = {…} のときだけ真', () => {
   for (const [text, ok] of [
     ["export const meta = { name: 'x', description: 'y' }\n", true],
     ["\n  export const meta={name:'x'}", true],
+    ["// 説明\nexport const meta = { name: 'x' }", true],
+    ["/* a\n b */ // c\n\nexport const meta = {}", true],
     ["import x from 'y'\nexport const meta = {}", false],
+    ["const a = 1\n// export const meta = {}", false],
+    ["/* export const meta = { */\nconst a = 1", false],
+    ['export const meta = 1', false],
+    ["export const meta = 'x'", false],
     ['export const metadata = {}', false],
     ['', false],
   ]) assert.equal(isWorkflowSource(text), ok, JSON.stringify(text))
@@ -117,7 +123,7 @@ test('checkRequest は audit の「.」と working_tree の preservedPaths を�
 })
 
 function state(paths, patch = {}) {
-  return { head: H, missingCommits: [], excludePaths: EXCLUDE, generatedPaths: GENERATED, generatedNote: 'note', paths, ...patch }
+  return { head: H, missingCommits: [], dirty: [], excludePaths: EXCLUDE, generatedPaths: GENERATED, generatedNote: 'note', paths, ...patch }
 }
 
 function request(patch = {}) {
@@ -155,6 +161,8 @@ test('スキル設計の観点の適用範囲: SKILL.md・agents はパスで、
     ['.agents/skills/s/scripts/run.js', true, true],
     ['plugins/p/skills/s/scripts/select_runtime.js', false, false],
     ['plugins/p/skills/s/references/guide.md', false, false],
+    ['tests/fixtures/t/review-target/SKILL.md', false, false],
+    ['tests/fixtures/t/review-target/agents/checker.md', false, false],
     ['docs/guidelines/README.md', false, false],
   ]) {
     const details = { ...NO_DETAILS, workflowSources: workflow ? [file] : [] }
@@ -167,10 +175,11 @@ test('スキル設計の観点の適用範囲: SKILL.md・agents はパスで、
   }
 })
 
-test('buildPlan は diff の commit の欠け・working_tree の HEAD の食い違い・変更の無い preservedPaths を E_PIN で拒否する', () => {
+test('buildPlan は commit の欠け・HEAD の食い違い・diff の作業ツリーの変更・変更の無い preservedPaths を E_PIN で拒否する', () => {
   rejects(() => buildPlan(request(), state(['a.md'], { missingCommits: [H] }), NO_DETAILS), CODES.pin, /commit が無い/)
-  const diffWithOtherHead = buildPlan(request(), state(['a.md'], { head: H2 }), NO_DETAILS)
-  assert.deepEqual(diffWithOtherHead.target.files, ['a.md'], 'diff は作業ツリーの HEAD に依らない')
+  rejects(() => buildPlan(request(), state(['a.md'], { head: H2 }), NO_DETAILS), CODES.pin, /HEAD/, 'diff も head を checkout した作業ツリーでだけ始める')
+  rejects(() => buildPlan(request(), state(['a.md'], { dirty: ['untracked.md'] }), NO_DETAILS), CODES.pin, /作業ツリー/)
+  assert.deepEqual(buildPlan(request({ mode: 'working_tree' }), state(['a.md'], { dirty: ['a.md'] }), { ...NO_DETAILS, digests: { 'a.md': 'file:h' } }).target.files, ['a.md'], 'working_tree は変更があって当然')
   rejects(() => buildPlan(request({ mode: 'working_tree' }), state(['a.md'], { head: H2 }), NO_DETAILS), CODES.pin, /HEAD/)
   rejects(() => buildPlan(request({ mode: 'working_tree', preservedPaths: ['gone.md'] }), state(['a.md']), NO_DETAILS), CODES.pin, /preservedPaths/)
   const wt = buildPlan(request({ mode: 'working_tree', preservedPaths: ['mine.md'] }), state(['a.md', 'mine.md']), { ...NO_DETAILS, digests: { 'a.md': 'file:h1' } })
@@ -195,7 +204,9 @@ test('checkPin: 計画の後に HEAD・方針・集合・内容のどれかが�
     if (pattern) assert.match(pin.problems.join('\n'), pattern, label)
   }
   const diffPlan = buildPlan(request(), state(['a.md']), NO_DETAILS)
-  assert.equal(checkPin(diffPlan, state(['a.md'], { head: H2 }), NO_DETAILS).ok, true)
+  assert.equal(checkPin(diffPlan, state(['a.md']), NO_DETAILS).ok, true)
+  assert.equal(checkPin(diffPlan, state(['a.md'], { head: H2 }), NO_DETAILS).ok, false)
+  assert.equal(checkPin(diffPlan, state(['a.md'], { dirty: ['a.md'] }), NO_DETAILS).ok, false)
   assert.equal(checkPin(diffPlan, state(['a.md'], { missingCommits: [B] }), NO_DETAILS).ok, false)
 })
 
@@ -361,6 +372,20 @@ test('judge 2 段目: 全観点の有効票の過半数で確定・棄却し、�
     assert.equal(out.outcomes[0].verdict, expected, label)
     assert.equal(out.complete, expected !== 'unverified', label)
   }
+})
+
+test('judge: 観点が 2 つのとき、1 段目の票が refuted でない主張は 2 段目に回さず unverified にする（過半数に届き得ない）', () => {
+  const twoLens = { ...R3, reviewers: R3.reviewers.slice(0, 2) }
+  const c2 = [{ lens: 'a', members: [[0, 0], [0, 1], [0, 2]] }]
+  const first = firstAssignments(twoLens, c2)
+  const out = judge(twoLens, { clusters: c2 }, [round(first, [[vote(0, 0, 'confirmed'), vote(0, 1, 'refuted'), vote(0, 2, 'unverified')]])])
+  assert.deepEqual(out.outcomes.map((o) => o.verdict), ['confirmed', 'pending', 'unverified'])
+  assert.deepEqual(out.second, [{ lens: 'b', items: [{ cluster: 0, claims: [1] }] }], '棄却され得る主張だけを回す')
+  const done = judge(twoLens, { clusters: c2 }, [round(first, [[vote(0, 0, 'confirmed'), vote(0, 1, 'refuted'), vote(0, 2, 'unverified')]]), round(out.second, [[vote(0, 1, 'refuted')]])])
+  assert.deepEqual(done.outcomes.map((o) => o.verdict), ['confirmed', 'refuted', 'unverified'])
+  const none = judge(twoLens, { clusters: c2 }, [round(first, [null])])
+  assert.deepEqual(none.second, [], '1 段目が欠けたら観点 2 つでは何も決まらないので起動しない')
+  assert.deepEqual(none.outcomes.map((o) => o.verdict), ['unverified', 'unverified', 'unverified'])
 })
 
 test('judge は候補から決まる割り当てと違う段を E_INPUT で拒否する', () => {

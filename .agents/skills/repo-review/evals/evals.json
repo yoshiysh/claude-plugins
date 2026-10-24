@@ -3,21 +3,21 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "commit 5535594（fix(skill-creator-best-practices): prompt-audit と update の指摘を反映）の差分を、その親 commit を base としてレビューして",
-      "expected_output": "diff mode で baseRef と policyRef を 5535594^ の完全な SHA、headSha を 5535594 の完全な SHA に固定し、作業ツリーを checkout せずに commit の内容だけを読む。inventory は 23 件を reviewable にし、policyRef に tools/sync-bp-criteria.mjs が無いので generated は空になる。SKILL.md・agents/*.md・plugins/skill-creator/workflows/review_skill.js（先頭が export const meta）を含むので skill-design の観点を足し、ほかに REVIEW.md の観点から 1 つ以上を選んで plan を通す。Workflow には plan・plan_sum・plan_path をそのまま渡し、PR やファイルに書き込まない。",
+      "prompt": "commit 5535594（fix(skill-creator-best-practices): prompt-audit と update の指摘を反映）の差分を、その親 commit を base としてレビューして（前提: このリポジトリの作業ツリーは 5535594 を detach checkout した clean な状態）",
+      "expected_output": "diff mode で baseRef と policyRef を 5535594^ の完全な SHA、headSha を 5535594 の完全な SHA に固定し、作業ツリーが 5535594 を checkout した clean な状態であることを inventory の pin_problems が空であることで確かめてから進む。inventory は 23 件を reviewable にし、policyRef に tools/sync-bp-criteria.mjs が無いので generated は空になる。SKILL.md・agents/*.md・plugins/skill-creator/workflows/review_skill.js（先頭が export const meta）を含むので skill-design の観点を足し、ほかに REVIEW.md の観点から 1 つ以上を選んで plan を通す。Workflow には plan・plan_sum・plan_path をそのまま渡し、PR やファイルに書き込まない。",
       "files": [],
       "assertions": [
         "inventory・plan の入力に exclude-paths の値を手で書いていないか",
         "reviewers に id が skill-design の観点があり、SKILL.md・agents/*.md・review_skill.js がその担当に入っているか",
         "reviewers が 2 つ以上で、23 件の全ての対象ファイルがどれかの担当に入っているか（plan が E_PLAN を返していないか）",
         "Workflow の args が skillDir・plan・planSum・planPath だけで、plan の出力と一致しているか",
-        "git checkout・git worktree add・作業ツリーのファイルの変更を行っていないか",
+        "作業ツリーの切り替え（git checkout・git worktree add）やファイルの変更を自分で行っていないか",
         "stateDir が repo の外にあるか"
       ]
     },
     {
       "id": 2,
-      "prompt": "commit 7bef2e3（docs: スキル設計原則に証拠の保存と再利用条件を追加）をレビューして",
+      "prompt": "commit 7bef2e3（docs: スキル設計原則に証拠の保存と再利用条件を追加）をレビューして（前提: このリポジトリの作業ツリーは 7bef2e3 を detach checkout した clean な状態）",
       "expected_output": "diff mode で 7bef2e3^ を baseRef と policyRef、7bef2e3 を headSha に固定する。inventory は docs/design/skill-design-patterns.md を reviewable、references/criteria/design/skill-design-patterns.md を generated に分け、写しの内容を読まない。報告では generated_note の扱い（内容を見ていないこと・同期の確認は make test の検査であること）を書き、make test を実行していなければ未実行と書く。",
       "files": [],
       "assertions": [
@@ -30,6 +30,17 @@
     },
     {
       "id": 3,
+      "prompt": "commit 7bef2e3 をレビューして（前提: 作業ツリーは別の branch を checkout していて、未コミットの変更もある）",
+      "expected_output": "inventory の pin_problems が HEAD の食い違いと作業ツリーの変更を返すので、Workflow を呼ばずに止まり、diff は head を checkout した clean な作業ツリーでだけ始められることを利用者に伝える。作業ツリーを自分で切り替えない。",
+      "files": [],
+      "assertions": [
+        "plan と Workflow を呼んでいないか",
+        "pin_problems の内容（HEAD の食い違い・作業ツリーの変更）を利用者に伝えているか",
+        "git checkout・git stash・git worktree add などで作業ツリーを自分で変えていないか"
+      ]
+    },
+    {
+      "id": 4,
       "prompt": "plugins/research/skills/search を監査して",
       "expected_output": "audit mode で scope に plugins/research/skills/search を渡し（.agents/skills/search の symlink を通る path は渡さない）、今の HEAD を headSha、origin/main の先端を policyRef に固定する。plan が対象の内容の SHA-256 を記録し、Workflow の pin が段ごとに照らす。SKILL.md・agents・Workflow source（scripts/investigate.js）を含むので skill-design の観点がある。指摘は変更前からある問題として報告し、リポジトリ全体を見たとは書かない。",
       "files": [],

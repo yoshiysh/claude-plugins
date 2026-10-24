@@ -9,7 +9,7 @@ PR をレビューする AI 向けの指示。実装・テスト・文書の共�
 | 変更 | 読むもの |
 |---|---|
 | `plugins/*/skills/` `.agents/skills/` の `SKILL.md`・`agents/*.md`・`references/*.md` | `AGENTS.md`「現在の実体」、best-practices.md §1「SKILL.md の設計原則」・§2「description の設計」・§3「Sub-agent 設計」・§5「確定的処理はスクリプトに追い出す」・§10「チェックリスト（スキル公開前の確認）」・§11「Claude 5 世代の指示設計 — 世代共通の原則」・§12「制約の較正 — right altitude と代理指標の排除」 |
-| Workflow script（`plugins/*/workflows/*.js` と、スキルの `scripts/*.js` のうち先頭の文が `export const meta` のもの） | `docs/guidelines/javascript.md`・`docs/guidelines/testing.md`、best-practices.md §13「オーケストレーション層の決定化 — Workflow 実行型」 |
+| Workflow script（best-practices.md §13「script の置き場」の置き場にある、先頭の文が `export const meta` の `.js`） | `docs/guidelines/javascript.md`・`docs/guidelines/testing.md`、best-practices.md §13「オーケストレーション層の決定化 — Workflow 実行型」 |
 | スクリプト（`*.py` `*.mjs` `*.js` `*.sh`）とテスト（`tests/`・`plugins/*/skills/*/scripts/*.test.mjs`） | `docs/guidelines/README.md`・`docs/guidelines/testing.md`、JavaScript では `docs/guidelines/javascript.md`。`AGENTS.md`「注意点」。バグとセキュリティを見る: `.agents/skills/` の走査、`subprocess` への文字列連結や `shell=True`、パスの組み立て、ゲートが依存する exit code |
 | `plugins/*/.claude-plugin/plugin.json`・`plugins/*/.codex-plugin/plugin.json`・`.claude-plugin/marketplace.json` | `AGENTS.md`「注意点」（2 つの `plugin.json` の同期、Claude 専用の `dependencies` と Codex 専用の `interface`、marketplace 名） |
 | `plugins/` 配下の配置 | `AGENTS.md`「現在の実体」「作業ルール」（`plugins/` 配下の symlink 禁止、実体の置き場、plugin 間のパス参照・スクリプト直接実行の禁止。plugin 間の利用はスキル呼び出しと `dependencies`） |

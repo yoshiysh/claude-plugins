@@ -5,7 +5,7 @@ import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } fr
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  CODES, ReviewError, buildPlan, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, merge, pinProblems,
+  CODES, ReviewError, WORKFLOW_SOURCE_PATHS, buildPlan, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge, pinProblems,
 } from './review-core.mjs'
 
 // 内容を読まない path と生成物の書き先は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
@@ -120,7 +120,9 @@ export function collectState(request, io) {
   const head = git(['rev-parse', 'HEAD']).toString('utf8').trim()
   const missingCommits = [baseRef, headSha, policyRef].filter((sha) => sha !== undefined)
     .filter((sha) => git(['rev-parse', '--verify', '--quiet', '--end-of-options', `${sha}^{commit}`], { allowFailure: true }) === null)
-  if (missingCommits.length) return { head, missingCommits, excludePaths: [], generatedPaths: [], generatedNote: GENERATED_NOTE, paths: [] }
+  // 未追跡も数えるのは、reviewer が作業ツリーを開いたときに head に無い内容を読まないようにするため（diff の判定にだけ使う）。
+  const dirty = lines(git(['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=normal'])).map((entry) => entry.slice(3))
+  if (missingCommits.length) return { head, missingCommits, dirty, excludePaths: [], generatedPaths: [], generatedNote: GENERATED_NOTE, paths: [] }
   const excludePaths = readExcludePaths(showAt(git, policyRef, POLICY_SOURCES.excludeWorkflow))
   const generatedPaths = readGeneratedPaths(git, policyRef)
   let paths
@@ -134,44 +136,59 @@ export function collectState(request, io) {
     const listed = lines(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...(whole ? [] : request.scope)]))
     paths = listed.filter((file) => io.lstat(path.join(repo, file)))
   }
-  return { head, missingCommits, excludePaths, generatedPaths, generatedNote: GENERATED_NOTE, paths: [...new Set(paths)].sort() }
+  return { head, missingCommits, dirty, excludePaths, generatedPaths, generatedNote: GENERATED_NOTE, paths: [...new Set(paths)].sort() }
 }
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+function treeModes(git, ref) {
+  return new Map(lines(git(['ls-tree', '-r', '-z', '--full-tree', '--end-of-options', ref])).map((entry) => {
+    const tab = entry.indexOf('\t')
+    return [entry.slice(tab + 1), entry.slice(0, tab).split(' ')[0]]
+  }))
+}
+
+const REGULAR = new Set(['100644', '100755'])
+
 // symlink はリンク先の文字列そのものを対象にする（辿ると別の path の実体を読むことになる）。digest は種類を前に付けて区別する。
+// Workflow source は置き場（WORKFLOW_SOURCE_PATHS）の中だけを内容で判定し、変更後に無いファイルは base の版で判定する（削除も設計の変更）。
 export function collectDetails(request, files, io) {
+  const git = (args) => io.git(request.repo, args)
+  const inPlace = matcher(WORKFLOW_SOURCE_PATHS)
   const symlinks = []
   const workflowSources = []
-  const digests = {}
-  if (request.mode === 'diff') {
-    const git = (args) => io.git(request.repo, args)
-    const modes = new Map(lines(git(['ls-tree', '-r', '-z', '--full-tree', '--end-of-options', request.headSha]))
-      .map((entry) => {
-        const tab = entry.indexOf('\t')
-        return [entry.slice(tab + 1), entry.slice(0, tab).split(' ')[0]]
-      }))
-    for (const file of files) {
-      const mode = modes.get(file)
-      if (mode === '120000') symlinks.push(file)
-      else if ((mode === '100644' || mode === '100755') && file.endsWith('.js') && isWorkflowSource(showAt(git, request.headSha, file))) workflowSources.push(file)
-    }
-    return { symlinks, workflowSources, digests: null }
+  const digests = request.mode === 'diff' ? null : {}
+  const headModes = request.mode === 'diff' ? treeModes(git, request.headSha) : null
+  let baseModes = null
+  const atBase = (file) => {
+    if (!request.baseRef) return false
+    baseModes ??= treeModes(git, request.baseRef)
+    return REGULAR.has(baseModes.get(file)) && isWorkflowSource(showAt(git, request.baseRef, file))
   }
   for (const file of files) {
-    const full = path.join(request.repo, file)
-    const st = io.lstat(full)
-    if (!st) digests[file] = null
-    else if (st.isSymbolicLink()) {
-      symlinks.push(file)
-      digests[file] = `symlink:${sha256(Buffer.from(io.readlink(full)))}`
-    } else if (st.isFile()) {
-      const bytes = io.readFile(full)
-      digests[file] = `file:${sha256(bytes)}`
-      if (file.endsWith('.js') && isWorkflowSource(bytes.toString('utf8'))) workflowSources.push(file)
-    } else digests[file] = 'other'
+    let present
+    if (request.mode === 'diff') {
+      const mode = headModes.get(file)
+      present = mode !== undefined
+      if (mode === '120000') symlinks.push(file)
+      if (inPlace(file) && REGULAR.has(mode) && isWorkflowSource(showAt(git, request.headSha, file))) workflowSources.push(file)
+    } else {
+      const full = path.join(request.repo, file)
+      const st = io.lstat(full)
+      present = Boolean(st)
+      if (!st) digests[file] = null
+      else if (st.isSymbolicLink()) {
+        symlinks.push(file)
+        digests[file] = `symlink:${sha256(Buffer.from(io.readlink(full)))}`
+      } else if (st.isFile()) {
+        const bytes = io.readFile(full)
+        digests[file] = `file:${sha256(bytes)}`
+        if (inPlace(file) && isWorkflowSource(bytes.toString('utf8'))) workflowSources.push(file)
+      } else digests[file] = 'other'
+    }
+    if (!present && inPlace(file) && atBase(file)) workflowSources.push(file)
   }
   return { symlinks, workflowSources, digests }
 }

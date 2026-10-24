@@ -2,10 +2,16 @@ export const MODES = Object.freeze(['diff', 'working_tree', 'audit'])
 export const MIN_REVIEWERS = 2
 export const LENS_ID = /^[a-z][a-z0-9-]*$/
 export const SKILL_DESIGN_LENS = 'skill-design'
-// このスキルが足す「スキル設計」の観点の適用範囲。Workflow source はパスでなく内容（WORKFLOW_SOURCE_HEAD）で決める。
-export const SKILL_DESIGN_TARGETS = Object.freeze(['**/SKILL.md', '**/skills/*/agents/*.md'])
-// quick_validate.py と同じ判定（先頭の文が export const meta）。runner の readSourceMetadata との一致は tests/repo-review-workflow.test.mjs が照らす。
-export const WORKFLOW_SOURCE_HEAD = /^\s*export\s+const\s+meta\s*=/
+// このスキルが足す「スキル設計」の観点の適用範囲（スキルの実体の置き場は AGENTS.md「現在の実体」）。tests/fixtures の題材は当てない。
+export const SKILL_DESIGN_TARGETS = Object.freeze([
+  'plugins/*/skills/*/SKILL.md', '.agents/skills/*/SKILL.md',
+  'plugins/*/skills/*/agents/*.md', '.agents/skills/*/agents/*.md',
+])
+// Workflow source を探す場所。best-practices.md §13「script の置き場」の 2 つの置き場（<skill>/scripts と plugin の workflows）を glob にしたもの。
+export const WORKFLOW_SOURCE_PATHS = Object.freeze(['plugins/*/workflows/*.js', 'plugins/*/skills/*/scripts/*.js', '.agents/skills/*/scripts/*.js'])
+// runner は先頭の文が export const meta = {…} であることを求める。先頭の空白・コメントを読み飛ばしてから見る（meta の中身が literal かまでは見ない）。
+const LEADING_TRIVIA = /^(?:\s+|\/\/[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/
+const WORKFLOW_SOURCE_HEAD = /^export\s+const\s+meta\s*=\s*\{/
 export const VERDICTS = Object.freeze(['confirmed', 'refuted', 'unverified'])
 // 検証の段の数。1 段目は候補ごとに 1 体、2 段目は決着しなかった主張に残りの観点を全て当てる（best-practices の schemas.md「refuter の出力」）。
 export const VERIFY_ROUNDS = 2
@@ -49,7 +55,7 @@ export function isRepoPath(file) {
 }
 
 export function isWorkflowSource(text) {
-  return WORKFLOW_SOURCE_HEAD.test(text)
+  return WORKFLOW_SOURCE_HEAD.test(text.replace(LEADING_TRIVIA, ''))
 }
 
 export function globToRegExp(pattern) {
@@ -171,14 +177,12 @@ export function partition(paths, { excludePaths, generatedPaths, preservedPaths 
   return out
 }
 
-// diff は commit の内容だけを読むので作業ツリーと HEAD に依らない。working_tree・audit は作業ツリーを読むので HEAD を固定する。
+// reviewer は作業ツリーのファイルも開ける。diff で作業ツリーが head と違う内容だと、別の版の内容と行番号で候補が作られるので、head を checkout した clean な作業ツリーでだけ始める。
 export function pinProblems(request, state) {
   const problems = []
-  if (request.mode === 'diff') {
-    if (state.missingCommits.length) problems.push(`commit が無い: ${JSON.stringify(state.missingCommits)}`)
-  } else if (state.head !== request.headSha) {
-    problems.push(`HEAD ${state.head} が headSha ${request.headSha} と違う`)
-  }
+  if (state.missingCommits.length) problems.push(`commit が無い: ${JSON.stringify(state.missingCommits)}`)
+  if (state.head !== request.headSha) problems.push(`HEAD ${state.head} が headSha ${request.headSha} と違う`)
+  if (request.mode === 'diff' && state.dirty.length) problems.push(`diff は作業ツリーに変更・未追跡のファイルがあると始められない: ${JSON.stringify(state.dirty)}`)
   const missingPreserved = request.preservedPaths.filter((p) => !state.paths.includes(p))
   if (missingPreserved.length) problems.push(`preservedPaths に変更の無いパスがある: ${JSON.stringify(missingPreserved)}`)
   return problems
@@ -456,19 +460,26 @@ export function judge(plan, merged, rounds) {
   const first = roundVotes(plan, unreadable, rounds[0], 0)
   const claims = clusters.flatMap((c, k) => c.members.map((_, i) => ({ cluster: k, claim: i })))
   const votesFor = (all, x) => all.filter((v) => v.cluster === x.cluster && v.claim === x.claim)
-  const pending = claims.filter((x) => !votesFor(first.votes, x).some((v) => v.vote === 'confirmed'))
+  const majority = Math.floor(plan.reviewers.length / 2) + 1
+  const unsettled = claims.filter((x) => !votesFor(first.votes, x).some((v) => v.vote === 'confirmed'))
+  // 2 段目で足せる票は残りの観点の数まで。過半数に届き得ない主張に検証役を起動しても結果は unverified から変わらない
+  // （例: 観点 2 つで 1 段目の票が refuted でない主張）。
+  const reachable = (x) => plan.reviewers.length - 1 >= majority
+    || votesFor(first.votes, x).filter((v) => v.vote === 'refuted').length + plan.reviewers.length - 1 >= majority
+  const pending = unsettled.filter(reachable)
   const second = secondAssignments(plan, clusters, pending)
   if (rounds.length === 1) {
-    const outcomes = claims.map((x) => ({ ...x, verdict: pending.includes(x) ? 'pending' : 'confirmed', votes: votesFor(first.votes, x) }))
-    return { complete: pending.length === 0, outcomes, second, diagnostics: first.diagnostics }
+    const verdictOf = (x) => (!unsettled.includes(x) ? 'confirmed' : pending.includes(x) ? 'pending' : 'unverified')
+    const outcomes = claims.map((x) => ({ ...x, verdict: verdictOf(x), votes: votesFor(first.votes, x) }))
+    return { complete: unsettled.length === 0, outcomes, second, diagnostics: first.diagnostics }
   }
   checkAssignments('rounds[1].assignments', rounds[1]?.assignments, second)
   const next = roundVotes(plan, unreadable, rounds[1], 1)
   const all = [...first.votes, ...next.votes]
-  const majority = Math.floor(plan.reviewers.length / 2) + 1
   const outcomes = claims.map((x) => {
     const votes = votesFor(all, x)
-    if (!pending.includes(x)) return { ...x, verdict: 'confirmed', votes }
+    if (!unsettled.includes(x)) return { ...x, verdict: 'confirmed', votes }
+    if (!pending.includes(x)) return { ...x, verdict: 'unverified', votes }
     const count = (verdict) => votes.filter((v) => v.vote === verdict).length
     const verdict = count('confirmed') >= majority ? 'confirmed' : count('refuted') >= majority ? 'refuted' : 'unverified'
     return { ...x, verdict, votes }

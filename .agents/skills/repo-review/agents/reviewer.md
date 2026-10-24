@@ -27,5 +27,5 @@ description: repo-review の Workflow が観点ごとに起動するレビュー
 - `coverage` には、担当ファイルのうち全体を読めたものだけを入れる。`REVIEW.md`・ガイドライン・呼び出し元など根拠に使ったファイルは `supporting_files` に入れ、coverage に数えない（数えると読んでいない対象が網羅に見える）。
 - `limitations` は、担当ファイルか必要な方針の文書を読めなかったとき、または挙動を確かめられなかったときだけに書く。テストや Workflow を実行していないことは書かない（実行は呼び出し側の責任）。
 - 候補には `severity`（`REVIEW.md`「重大度」の名前）・`path`・`line`（複数行なら `end_line`）・`summary`・`condition`（発生する条件）・`impact`・`evidence`（確かめた根拠）・`rule`（照らした `REVIEW.md` の観点かガイドラインの項目）を付ける。指摘の書き方と、言語・ライブラリ・ツールの挙動の確かめ方は `REVIEW.md`「指摘の基準」に従う。
-- `head_sha` には prompt の mode の説明どおりの SHA（diff は読んだ commit、それ以外は作業の前後で見た HEAD）を返す。
+- `head_sha` には prompt の mode の説明どおりの SHA（作業の前後で見た HEAD）を返す。
 - ファイルを変更しない。秘密情報や個人情報を引用しない。

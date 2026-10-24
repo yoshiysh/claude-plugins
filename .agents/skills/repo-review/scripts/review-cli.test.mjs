@@ -137,16 +137,45 @@ test('plan: stateDir が無い・repo の中なら E_INPUT で拒否し、ファ
   assert.equal(git(fx.repo, 'status', '--porcelain'), '')
 })
 
-test('diff は作業ツリーを使わないので、未コミットの変更や別の HEAD があっても計画でき、commit が無ければ E_PIN', (t) => {
+test('diff は head を checkout した clean な作業ツリーでだけ計画でき、変更・未追跡・別の HEAD・commit の欠けは E_PIN、計画の後の変化は pin が拾う', (t) => {
   const fx = fixture(t)
-  git(fx.repo, 'checkout', '-q', '--detach', fx.base)
-  write(fx.repo, 'docs/a.md', 'dirty\n')
-  const ok = run('plan', { ...diffBody(fx), reviewers: REVIEWERS, stateDir: fx.stateDir })
+  const plan = () => run('plan', { ...diffBody(fx), reviewers: REVIEWERS, stateDir: fx.stateDir })
+  const ok = plan()
   assert.equal(ok.exitCode, 0, ok.reason)
-  assert.deepEqual(ok.plan.target.files, HEAD_FILES)
+  const ref = signed({ planPath: ok.plan_path, planSum: ok.plan_sum })
+  for (const [label, dirty, undo, pattern] of [
+    ['追跡ファイルの変更', () => write(fx.repo, 'docs/a.md', 'dirty\n'), () => git(fx.repo, 'checkout', '-q', '--', 'docs/a.md'), /作業ツリー/],
+    ['未追跡のファイル', () => write(fx.repo, 'docs/new.md', 'n\n'), () => rmSync(path.join(fx.repo, 'docs/new.md')), /作業ツリー/],
+    ['別の HEAD', () => git(fx.repo, 'checkout', '-q', '--detach', fx.base), () => git(fx.repo, 'checkout', '-q', '--detach', fx.head), /HEAD/],
+  ]) {
+    dirty()
+    const ng = plan()
+    assert.equal(ng.code, CODES.pin, label)
+    assert.match(ng.reason, pattern, label)
+    const pin = run('pin', ref)
+    assert.equal(pin.pin.ok, false, `${label}: 計画の後に起きても pin が拾う`)
+    undo()
+  }
+  assert.equal(run('pin', ref).pin.ok, true)
   const missing = run('plan', { ...diffBody(fx), headSha: 'e'.repeat(40), reviewers: REVIEWERS, stateDir: fx.stateDir })
   assert.equal(missing.code, CODES.pin)
   assert.match(missing.reason, /commit が無い/)
+})
+
+test('diff: Workflow source は置き場の中だけを内容で判定し、削除したものは base の版で判定する', (t) => {
+  const fx = fixture(t)
+  write(fx.repo, 'tests/fixtures/t/scripts/fixture.js', "export const meta = { name: 'f', description: 'd' }\n")
+  git(fx.repo, 'rm', '-q', 'plugins/p/skills/s/scripts/run.js')
+  git(fx.repo, 'add', '-A')
+  git(fx.repo, 'commit', '-q', '-m', 'delete')
+  const next = git(fx.repo, 'rev-parse', 'HEAD')
+  const files = ['plugins/p/skills/s/scripts/run.js', 'tests/fixtures/t/scripts/fixture.js']
+  const reviewers = [{ id: 'skill-design', focus: 'x', files: ['plugins/p/skills/s/scripts/run.js'] }, { id: 'docs', focus: 'y', files }]
+  const out = run('plan', { repo: fx.repo, mode: 'diff', baseRef: fx.head, headSha: next, policyRef: fx.head, reviewers, stateDir: fx.stateDir })
+  assert.equal(out.exitCode, 0, out.reason)
+  assert.deepEqual(out.plan.skillDesignTargets, ['plugins/p/skills/s/scripts/run.js'])
+  const without = run('plan', { repo: fx.repo, mode: 'diff', baseRef: fx.head, headSha: next, policyRef: fx.head, reviewers: reviewers.map((r) => ({ ...r, id: r.id === 'skill-design' ? 'other' : r.id })), stateDir: fx.stateDir })
+  assert.equal(without.code, CODES.plan, '削除した Workflow source もスキル設計の観点に割り当てる')
 })
 
 test('diff: 移動・削除したファイルは元と先の両方の path をレビュー対象に入れる', (t) => {
