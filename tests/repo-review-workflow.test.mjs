@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -84,7 +85,14 @@ function diffArgs(t, skillDir) {
   return { fx, args: planArgs({ repo: fx.repo, mode: 'diff', baseRef: fx.base, headSha: fx.head, policyRef: fx.base, reviewers: REVIEWERS, stateDir: fx.stateDir }, skillDir) }
 }
 
-const finding = (patch) => ({ severity: 'MEDIUM', path: 'docs/a.md', line: 1, summary: 's', condition: 'c', impact: 'i', evidence: 'e', rule: 'r', ...patch })
+const finding = (patch) => ({ severity: 'MEDIUM', path: 'docs/a.md', line: 1, summary: 's', condition: 'c', impact: 'i', evidence: 'e', rule: 'r', rule_sections: ['P1'], ...patch })
+
+// 本物の agent が prompt の指示どおり shasum で束を読んだときの値を返す（scenario が明示した値はそのまま使う）。
+function withPackSha(prompt, res) {
+  if (!res || typeof res !== 'object' || res.policy_pack_sha256 !== undefined) return res
+  const file = /shasum -a 256 (\S+) の値/.exec(prompt)[1]
+  return { ...res, policy_pack_sha256: createHash('sha256').update(readFileSync(file)).digest('hex') }
+}
 const reviewOk = (head, id, patch = {}) => ({ head_sha: head, coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], supporting_files: ['REVIEW.md'], findings: [], limitations: [], ...patch })
 
 // prompt に並ぶ割り当て（候補 k の claims）を読み、主張ごとに decide(lens, round, summary) の判定で返す。
@@ -128,9 +136,9 @@ function backend(scenario) {
         const forced = scenario.carrier?.(n, responses)
         return forced === undefined ? { responses } : forced
       }
-      if (label.startsWith('review:')) return scenario.review(label.slice('review:'.length), prompt)
+      if (label.startsWith('review:')) return withPackSha(prompt, await scenario.review(label.slice('review:'.length), prompt))
       const m = /^verify(\d):(.+)$/.exec(label)
-      if (m) return scenario.verify(m[2], Number(m[1]), prompt)
+      if (m) return withPackSha(prompt, await scenario.verify(m[2], Number(m[1]), prompt))
       throw new Error(`unexpected label ${label}`)
     },
   }
@@ -255,6 +263,20 @@ test('準正常: HEAD が計画と違うと返した reviewer の指摘は検証
   assert.deepEqual(result.findings, [])
 })
 
+test('準正常: 方針の束を読めなかった reviewer の指摘は検証に回さず untrusted_findings に残し、検証役が読めなかった票は有効票にしない', async (t) => {
+  const { fx, args } = diffArgs(t)
+  const b = backend({
+    review: (id) => (id === 'correctness'
+      ? { ...reviewOk(fx.head, id, { findings: [finding({ summary: 'no pack' })] }), policy_pack_sha256: 'unreadable' }
+      : reviewOk(fx.head, id, { findings: [finding({ path: 'docs/b.md', summary: 'ok' })] })),
+    verify: (lens, round, prompt) => ({ ...verifyAll(fx.head, () => 'confirmed')(lens, round, prompt), policy_pack_sha256: 'unreadable' }),
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.deepEqual(result.untrusted_findings.map((f) => [f.reported_by, f.summary, f.reason]), [['correctness', 'no pack', 'pack_unread']])
+  assert.deepEqual(result.findings, [], '束を読めなかった検証役の confirmed では確定しない')
+  assert.ok(result.reasons.includes('verification_incomplete'))
+})
+
 test('準正常: 運搬役が応答を書き換えたら sum で検出して送り直し、書き換えた値を使わない', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
@@ -280,6 +302,7 @@ test('異常: 運搬役が上限まで応答を失ったら、候補を未検証
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'review_incomplete')
   assert.deepEqual(result.reasons, ['carrier_failed'])
+  for (const key of ['findings', 'refuted', 'unverified', 'invalid_findings', 'untrusted_findings']) assert.deepEqual(result[key], [], `途中で止まっても ${key} の欄を持つ`)
   assert.equal(result.unverified_candidates.length, 2)
   assert.deepEqual(result.findings, [])
   assert.equal(result.launches.carriers, literalOf('CARRIER_TRIES'))
@@ -297,6 +320,7 @@ test('異常: CLI が判定として拒否したら送り直さず cli_rejected 
   const result = await runWorkflow(t, args, b)
   assert.deepEqual(result.reasons, ['cli_rejected'])
   assert.match(result.reason, /E_INPUT/)
+  assert.equal(result.retry, 'replan', '計画のファイルを読めないのは前処理の 3 からやり直せば直り得る')
   assert.equal(result.launches.carriers, 1)
 })
 
@@ -529,12 +553,23 @@ test('初めての公開の操作が Workflow script を移せる（SKILL.md の
 
 test('このリポジトリの REVIEW.md から作る方針の束は、表が挙げる文書・節を落とさない（入らなかったものは missing に出る）', () => {
   const review = readFileSync(path.join(ROOT, 'REVIEW.md'), 'utf8')
-  const docs = parseReadingTable(review)
-  assert.ok(docs.some((d) => d.path === 'AGENTS.md' && d.titles.includes('作業ルール')))
-  assert.ok(docs.some((d) => d.path.endsWith('best-practices.md') && d.titles.length > 0))
+  const { docs, unparsed } = parseReadingTable(review)
+  assert.deepEqual(unparsed, [], '表の参照を全て解析できる')
+  // 期待する文書の集合は REVIEW.md の「読むもの」の表を読んで決めたもの（表を変えたらここも見直す）。
+  const BP = 'plugins/skill-creator/skills/skill-creator-best-practices/references/best-practices.md'
+  assert.deepEqual(docs.map((d) => d.path).sort(), ['AGENTS.md', BP, 'docs/guidelines/README.md', 'docs/guidelines/documentation.md', 'docs/guidelines/javascript.md', 'docs/guidelines/testing.md', 'scripts/traceability/README.md'].sort())
+  assert.deepEqual(docs.find((d) => d.path === 'AGENTS.md').titles.map((x) => x.title).sort(), ['作業ルール', '注意点', '現在の実体'].sort())
+  assert.deepEqual(docs.find((d) => d.path === BP).titles.map((x) => x.num).sort((a, b) => a - b), [1, 2, 3, 5, 10, 11, 12, 13, 13], '§13 は表の左の列の「script の置き場」と右の列の節の 2 つ')
   for (const d of docs) {
     assert.ok(existsSync(path.join(ROOT, d.path)), d.path)
     const { missing } = extractSections(readFileSync(path.join(ROOT, d.path), 'utf8'), d.titles)
     assert.deepEqual(missing, [], `${d.path} に表の節が無い`)
   }
+  // §1 の中のコードフェンスにある「# 悪い例」で節を切らず、次の「## 2.」の前までを取る。
+  const bp = readFileSync(path.join(ROOT, BP), 'utf8')
+  const s1 = extractSections(bp, [{ title: 'SKILL.md の設計原則', num: 1 }]).sections[0]
+  const bpLines = bp.split('\n')
+  assert.match(bpLines[s1.start - 1], /^## 1\. /)
+  assert.match(bpLines[s1.end], /^## 2\. /)
+  assert.ok(bpLines.slice(s1.start, s1.end).some((l) => l === '# 悪い例'), 'フェンスの中の見出しを含んだまま')
 })

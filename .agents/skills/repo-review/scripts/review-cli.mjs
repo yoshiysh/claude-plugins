@@ -5,7 +5,7 @@ import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } fr
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  CODES, ReviewError, WORKFLOW_SOURCE_PATHS, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge, pinProblems,
+  CODES, RETRY, ReviewError, WORKFLOW_SOURCE_PATHS, causesOf, failedPin, pinIssues, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge,
 } from './review-core.mjs'
 
 // 内容を読まない path と生成物の書き先は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
@@ -56,15 +56,15 @@ function lines(buffer) {
 
 export function readExcludePaths(yml) {
   const found = [...yml.matchAll(new RegExp(`^\\s*${POLICY_SOURCES.excludeKey}:\\s*'(.*)'\\s*$`, 'gm'))]
-  if (found.length !== 1) throw new ReviewError(CODES.io, `${POLICY_SOURCES.excludeWorkflow} に ${POLICY_SOURCES.excludeKey} が 1 行だけ無い（${found.length} 行）`)
+  if (found.length !== 1) throw new ReviewError(CODES.policy, `${POLICY_SOURCES.excludeWorkflow} に ${POLICY_SOURCES.excludeKey} が 1 行だけ無い（${found.length} 行）`)
   let list
   try {
     list = JSON.parse(found[0][1])
   } catch {
-    throw new ReviewError(CODES.io, `${POLICY_SOURCES.excludeKey} が JSON の配列として読めない`)
+    throw new ReviewError(CODES.policy, `${POLICY_SOURCES.excludeKey} が JSON の配列として読めない`)
   }
   if (!Array.isArray(list) || list.length === 0 || list.some((p) => typeof p !== 'string' || !p.trim())) {
-    throw new ReviewError(CODES.io, `${POLICY_SOURCES.excludeKey} が空でない glob の配列でない`)
+    throw new ReviewError(CODES.policy, `${POLICY_SOURCES.excludeKey} が空でない glob の配列でない`)
   }
   return list
 }
@@ -76,16 +76,16 @@ export function parseCriteriaTool(text) {
   const imported = /^import \{[^}]*\bCRITERIA_DIR\b[^}]*\} from '([^']+)';?$/m.exec(text)
   const writes = /path\.join\(root, SKILL, CRITERIA_DIR\)/.test(text)
   if (!skill || parts.length === 0 || skill[1].replace(/'[^']+'/g, '').replace(/[\s,]/g, '') !== '' || !imported || !writes) {
-    throw new ReviewError(CODES.io, `${POLICY_SOURCES.criteriaTool} から写しの書き先（SKILL・CRITERIA_DIR）を読めない`)
+    throw new ReviewError(CODES.policy, `${POLICY_SOURCES.criteriaTool} から写しの書き先（SKILL・CRITERIA_DIR）を読めない`)
   }
   const constants = path.posix.normalize(path.posix.join(path.posix.dirname(POLICY_SOURCES.criteriaTool), imported[1]))
-  if (constants.startsWith('../')) throw new ReviewError(CODES.io, `CRITERIA_DIR の import 先がリポジトリの外: ${imported[1]}`)
+  if (constants.startsWith('../')) throw new ReviewError(CODES.policy, `CRITERIA_DIR の import 先がリポジトリの外: ${imported[1]}`)
   return { skill: parts.join('/'), constants }
 }
 
 export function parseCriteriaDir(text) {
   const found = [...text.matchAll(/^export const CRITERIA_DIR = '([^']+)';?$/gm)]
-  if (found.length !== 1) throw new ReviewError(CODES.io, `CRITERIA_DIR の定義がちょうど 1 つない（${found.length} 個）`)
+  if (found.length !== 1) throw new ReviewError(CODES.policy, `CRITERIA_DIR の定義がちょうど 1 つない（${found.length} 個）`)
   return found[0][1]
 }
 
@@ -197,24 +197,28 @@ export function collectDetails(request, files, io) {
 
 // reviewer・検証役が同じ方針の文書をそれぞれ読み直さないよう、policyRef の版から行番号つきの束を 1 回だけ作る。
 export function buildPolicyPack(git, policyRef) {
-  if (!existsAt(git, policyRef, POLICY_SOURCES.review)) throw new ReviewError(CODES.io, `policyRef に ${POLICY_SOURCES.review} が無い`)
+  if (!existsAt(git, policyRef, POLICY_SOURCES.review)) throw new ReviewError(CODES.policy, `policyRef に ${POLICY_SOURCES.review} が無い`)
+  const toLines = (text) => text.replace(/\n$/, '').split('\n')
   const review = showAt(git, policyRef, POLICY_SOURCES.review)
-  const parts = [{ path: POLICY_SOURCES.review, title: null, lines: review.split('\n') }]
-  const missing = []
-  for (const doc of parseReadingTable(review)) {
+  const parts = [{ path: POLICY_SOURCES.review, title: null, lines: toLines(review) }]
+  const table = parseReadingTable(review)
+  const missing = table.unparsed.map((u) => ({ text: u.text, reason: u.reason }))
+  for (const doc of table.docs) {
     if (doc.path === POLICY_SOURCES.review) continue
     if (!existsAt(git, policyRef, doc.path)) {
-      missing.push({ path: doc.path })
+      missing.push({ path: doc.path, reason: 'policyRef に無い' })
       continue
     }
-    const text = showAt(git, policyRef, doc.path)
+    const lines = toLines(showAt(git, policyRef, doc.path))
     if (doc.whole) {
-      parts.push({ path: doc.path, title: null, lines: text.split('\n') })
+      parts.push({ path: doc.path, title: null, lines })
       continue
     }
-    const found = extractSections(text, doc.titles)
-    for (const sec of found.sections) parts.push({ path: doc.path, title: sec.title, lines: text.split('\n'), start: sec.start, end: sec.end })
-    for (const title of found.missing) missing.push({ path: doc.path, title })
+    const found = extractSections(lines.join('\n'), doc.titles)
+    // 別の節にまるごと含まれる節は束に重ねない（同じ行を 2 回読ませない）。
+    const inside = (a) => found.sections.some((b) => b !== a && b.start <= a.start && a.end <= b.end && (b.start < a.start || b.end > a.end))
+    for (const sec of found.sections) if (!inside(sec)) parts.push({ path: doc.path, title: sec.title, lines, start: sec.start, end: sec.end })
+    for (const title of found.missing) missing.push({ path: doc.path, title, reason: '節が無い' })
   }
   for (const p of parts) {
     p.start ??= 1
@@ -231,21 +235,30 @@ function insideRepo(repo, dir, io) {
 }
 
 // plan は caller の Bash で 1 回だけ書く。運搬役は計画の本体でなく path と sum だけを写す（写す量を対象の大きさに依らせない）。
+function replanOnFailure(fn) {
+  try {
+    return fn()
+  } catch (error) {
+    if (error instanceof ReviewError) error.detail.retry = RETRY.replan
+    throw error
+  }
+}
+
 function loadPlan(body, io) {
   if (typeof body.planPath !== 'string' || !body.planPath.startsWith('/') || typeof body.planSum !== 'string') {
-    throw new ReviewError(CODES.input, 'planPath（絶対パス）と planSum が要る')
+    throw new ReviewError(CODES.input, 'planPath（絶対パス）と planSum が要る', { retry: RETRY.replan })
   }
   let plan
   try {
     plan = JSON.parse(io.readFile(body.planPath).toString('utf8'))
   } catch (error) {
-    throw new ReviewError(CODES.input, `plan のファイルを読めない: ${error.message}`)
+    throw new ReviewError(CODES.input, `plan のファイルを読めない: ${error.message}`, { retry: RETRY.replan })
   }
-  if (fnvSum(plan) !== body.planSum) throw new ReviewError(CODES.input, 'plan のファイルが planSum と合わない')
-  checkRequest({
+  if (fnvSum(plan) !== body.planSum) throw new ReviewError(CODES.input, 'plan のファイルが planSum と合わない', { retry: RETRY.replan })
+  replanOnFailure(() => checkRequest({
     repo: plan.repo, mode: plan.mode, baseRef: plan.baseRef, headSha: plan.headSha, policyRef: plan.policyRef, scope: plan.scope,
     ...(plan.mode === 'working_tree' ? { preservedPaths: plan.preservedPaths } : {}), reviewers: plan.reviewers,
-  }, { requireReviewers: true })
+  }, { requireReviewers: true }))
   const lists = ['preservedPaths', 'excludePaths', 'generatedPaths', 'excluded', 'generated', 'preserved', 'symlinks', 'skillDesignTargets']
   const bad = lists.filter((key) => !Array.isArray(plan[key]) || plan[key].some((x) => typeof x !== 'string'))
   if (!Array.isArray(plan.target?.files) || plan.target.files.some((x) => typeof x !== 'string')) bad.push('target.files')
@@ -255,7 +268,7 @@ function loadPlan(body, io) {
   if (!digestsOk) bad.push('digests')
   const pack = plan.policyPack
   if (!pack || typeof pack.path !== 'string' || typeof pack.sha256 !== 'string' || !Array.isArray(pack.index) || !Array.isArray(pack.missing)) bad.push('policyPack')
-  if (bad.length) throw new ReviewError(CODES.input, `plan のファイルが plan 操作の出力の形でない: ${bad.join(', ')}`)
+  if (bad.length) throw new ReviewError(CODES.input, `plan のファイルが plan 操作の出力の形でない: ${bad.join(', ')}`, { retry: RETRY.replan })
   return plan
 }
 
@@ -263,7 +276,8 @@ const OPS = {
   inventory(body, io) {
     const request = checkRequest(body, { requireReviewers: false })
     const state = collectState(request, io)
-    return { inventory: inventoryOf(request, state), generated_note: state.generatedNote, pin_problems: pinProblems(request, state) }
+    const issues = pinIssues(request, state)
+    return { inventory: inventoryOf(request, state), generated_note: state.generatedNote, pin_problems: issues.map((x) => x.message), pin_causes: causesOf(issues) }
   },
   plan(body, io) {
     const { stateDir, ...rest } = body
@@ -273,8 +287,8 @@ const OPS = {
     }
     if (insideRepo(request.repo, stateDir, io)) throw new ReviewError(CODES.input, 'stateDir が repo の中にある（plan のファイルが未追跡の変更として対象に混ざる）')
     const state = collectState(request, io)
-    const pin = pinProblems(request, state)
-    if (pin.length) throw new ReviewError(CODES.pin, pin.join('; '), { problems: pin })
+    const issues = pinIssues(request, state)
+    if (issues.length) throw new ReviewError(CODES.pin, issues.map((x) => x.message).join('; '), { problems: issues.map((x) => x.message), causes: causesOf(issues) })
     const inv = inventoryOf(request, state)
     const pack = buildPolicyPack((args) => io.git(request.repo, args), request.policyRef)
     const packSha = sha256(Buffer.from(pack.text))
@@ -292,12 +306,15 @@ const OPS = {
       const state = collectState(plan, io)
       const pin = checkPin(plan, state, collectDetails(plan, plan.target.files, io))
       const packOk = io.lstat(plan.policyPack.path)?.isFile() && sha256(io.readFile(plan.policyPack.path)) === plan.policyPack.sha256
-      if (!packOk) return { pin: { ...pin, ok: false, problems: [...pin.problems, '方針の束が計画の後に変わったか消えた'] } }
+      if (!packOk) {
+        const extra = { cause: 'pack', message: '方針の束が計画の後に変わったか消えた' }
+        return { pin: { ...pin, ok: false, problems: [...pin.problems, extra.message], causes: causesOf([...pin.causes, extra]) } }
+      }
       return { pin }
     } catch (error) {
       // 対象を集め直せないこと（scope が消えた・symlink になった・git が読めない）は、固定が崩れたことと同じに扱う。
       if (!(error instanceof ReviewError)) throw error
-      return { pin: { ok: false, problems: [`${error.code}: ${error.message}`], changed: [] } }
+      return { pin: failedPin([{ cause: 'collect', message: `${error.code}: ${error.message}` }]) }
     }
   },
   merge(body, io) {
@@ -333,9 +350,12 @@ export function main(argv, input, io = defaultIo()) {
     return respond({ ok: true, op, ...OPS[op](rest, io) }, EXIT.ok)
   } catch (error) {
     if (error instanceof ReviewError) {
-      return respond({ ok: false, op, code: error.code, reason: error.message, ...(error.detail.problems ? { problems: error.detail.problems } : {}) }, EXIT.rejected)
+      return respond({
+        ok: false, op, code: error.code, reason: error.message, retry: error.detail.retry ?? RETRY.none,
+        ...(error.detail.problems ? { problems: error.detail.problems } : {}), ...(error.detail.causes ? { causes: error.detail.causes } : {}),
+      }, EXIT.rejected)
     }
-    return respond({ ok: false, op, code: CODES.internal, reason: String(error?.stack ?? error) }, EXIT.rejected)
+    return respond({ ok: false, op, code: CODES.internal, reason: String(error?.stack ?? error), retry: RETRY.none }, EXIT.rejected)
   }
 }
 

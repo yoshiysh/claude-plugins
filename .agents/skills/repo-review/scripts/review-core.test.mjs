@@ -12,6 +12,7 @@ const H2 = 'd'.repeat(40)
 const EXCLUDE = ['**/*.lock', '**/package-lock.json']
 const GENERATED = ['plugins/p/skills/s/references/criteria/**']
 const NO_DETAILS = { symlinks: [], workflowSources: [], digests: null }
+const PACK = { path: '/s/pack.md', sha256: 'S', index: [{ id: 'P1' }, { id: 'P2' }], missing: [] }
 
 function rejects(fn, code, pattern, label = '') {
   assert.throws(fn, (error) => {
@@ -226,7 +227,7 @@ test('clusterByRange: 重なる範囲は推移的にまとめ、隣り合うだ�
 
 function mergePlan(patch = {}) {
   return {
-    mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GENERATED, preserved: [],
+    mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GENERATED, preserved: [], policyPack: PACK,
     target: { files: ['a.md', 'b.md'] },
     reviewers: [{ id: 'correctness', focus: 'x', files: ['a.md', 'b.md'] }, { id: 'docs', focus: 'y', files: ['a.md'] }],
     ...patch,
@@ -234,7 +235,8 @@ function mergePlan(patch = {}) {
 }
 
 function result(patch = {}) {
-  return { head_sha: H, coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], limitations: 0, findings: [], ...patch }
+  const r = { head_sha: H, policy_pack_sha256: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], limitations: 0, findings: [], ...patch }
+  return { ...r, findings: Array.isArray(r.findings) ? r.findings.map((f) => ({ rule_sections: ['P1'], ...f })) : r.findings }
 }
 
 test('merge: 全員が担当を読み終え指摘が重なれば、候補は最初に挙げた観点の 1 段目に回る', () => {
@@ -262,6 +264,7 @@ test('merge: 欠けた reviewer・HEAD の違い・読み残し・余分・重�
     ['除外 path を根拠に読んだ', result({ supporting_files: ['x.lock'] }), { invalidSupporting: ['x.lock'] }, []],
     ['作業中の変更を根拠に読んだ', result({ supporting_files: ['mine.md'] }), { invalidSupporting: ['mine.md'] }, []],
     ['読めなかった記録', result({ limitations: 1 }), { limitations: 1 }, []],
+    ['方針の束を読めなかった', result({ policy_pack_sha256: 'unreadable' }), { status: 'pack_unread', missing: ['a.md', 'b.md'] }, ['b.md']],
   ]) {
     const out = merge(mergePlan({ preserved: ['mine.md'] }), [first, other])
     assert.equal(out.complete, false, label)
@@ -280,6 +283,8 @@ test('merge: 正規でない・除外・生成物・作業中の変更・audit �
     ['audit の対象外', { path: 'caller.md', line: 1 }, 'audit'],
     ['line が 0', { path: 'a.md', line: 0 }, 'diff'],
     ['end_line < line', { path: 'a.md', line: 5, end_line: 4 }, 'diff'],
+    ['rule_sections が束に無い', { path: 'a.md', line: 1, rule_sections: ['P9'] }, 'diff'],
+    ['rule_sections が空', { path: 'a.md', line: 1, rule_sections: [] }, 'diff'],
   ]) {
     const out = merge(mergePlan({ mode, preserved: ['mine.md'] }), [result({ findings: [finding] }), result({ coverage: ['a.md'] })])
     assert.equal(out.clusters.length, 0, label)
@@ -299,11 +304,11 @@ test('merge は欠けた・型の違う入力を既定値で埋めず E_INPUT �
 })
 
 // 3 観点・候補 2 つ（候補 0 は主張 2 つで lens a、候補 1 は主張 1 つで lens b）。
-const R3 = { mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GENERATED, preserved: [], target: { files: ['a.md'] }, reviewers: ['a', 'b', 'c'].map((id) => ({ id, focus: id, files: ['a.md'] })) }
+const R3 = { mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GENERATED, preserved: [], policyPack: PACK, target: { files: ['a.md'] }, reviewers: ['a', 'b', 'c'].map((id) => ({ id, focus: id, files: ['a.md'] })) }
 const CLUSTERS = [{ lens: 'a', members: [[0, 0], [1, 0]] }, { lens: 'b', members: [[1, 1]] }]
 const ev = [{ path: 'a.md', line: 1 }]
 const vote = (cluster, claim, verdict, evidence = verdict === 'confirmed' ? ev : []) => ({ cluster, claim, verdict, evidence })
-const round = (assignments, results) => ({ assignments, verifications: results.map((r) => (r === null ? null : { head_sha: H, results: r })) })
+const round = (assignments, results) => ({ assignments, verifications: results.map((r) => (r === null ? null : { head_sha: H, policy_pack_sha256: 'S', results: r })) })
 
 test('judge 1 段目: 有効な confirmed の 1 票だけで確定し、それ以外の主張は残りの観点に回す', () => {
   const first = firstAssignments(R3, CLUSTERS)
@@ -347,9 +352,11 @@ test('judge 1 段目: 欠けた・2 回の・不正な・読めなかった票�
   const extra = judge(R3, { clusters: CLUSTERS }, [round(first, [[vote(0, 0, 'confirmed'), vote(0, 1, 'confirmed'), vote(1, 0, 'confirmed')], [vote(1, 0, 'refuted')]])])
   assert.deepEqual(extra.diagnostics[0].extra, ['1:0'], '担当外の票は捨てる')
   assert.equal(extra.outcomes[2].verdict, 'pending', '担当外の票では決着しない')
-  const otherHead = judge(R3, { clusters: CLUSTERS }, [{ assignments: first, verifications: [{ head_sha: H2, results: [vote(0, 0, 'confirmed'), vote(0, 1, 'confirmed')] }, { head_sha: H, results: ok1 }] }])
-  assert.equal(otherHead.diagnostics[0].status, 'head_mismatch')
-  assert.equal(otherHead.outcomes[0].verdict, 'pending')
+  for (const [label, head, sha, status] of [['HEAD が違う', H2, 'S', 'head_mismatch'], ['方針の束を読めなかった', H, 'unreadable', 'pack_unread']]) {
+    const v = judge(R3, { clusters: CLUSTERS }, [{ assignments: first, verifications: [{ head_sha: head, policy_pack_sha256: sha, results: [vote(0, 0, 'confirmed'), vote(0, 1, 'confirmed')] }, { head_sha: H, policy_pack_sha256: 'S', results: ok1 }] }])
+    assert.equal(v.diagnostics[0].status, status, label)
+    assert.equal(v.outcomes[0].verdict, 'pending', label)
+  }
 })
 
 test('judge 2 段目: 全観点の有効票の過半数で確定・棄却し、届かなければ unverified', () => {
@@ -414,13 +421,40 @@ test('parseReadingTable: 右の列の文書と、その後に続く「…」を�
     '## 次',
     '| `docs/z.md` | 表の外 |',
   ].join('\n')
-  assert.deepEqual(parseReadingTable(review), [
-    { path: 'docs/a.md', whole: true, titles: ['節'] },
-    { path: 'docs/b.md', whole: false, titles: ['一', '二'] },
+  assert.deepEqual(parseReadingTable(review), {
+    docs: [
+      { path: 'docs/a.md', whole: true, titles: [{ title: '節', num: null }] },
+      { path: 'docs/b.md', whole: false, titles: [{ title: '一', num: 1 }, { title: '二', num: 2 }] },
+      { path: 'docs/c.md', whole: true, titles: [] },
+    ],
+    unparsed: [{ text: '「無関係」', reason: '文書の無い節の参照' }],
+  })
+  assert.throws(() => parseReadingTable('# 無い'), (e) => e.code === CODES.policy)
+  assert.throws(() => parseReadingTable('## 読むもの\n\n文だけ\n'), (e) => e.code === CODES.policy)
+})
+
+test('parseReadingTable: 左の列の別名の §参照も読み、取れなかった参照（backtick の無いパス・末尾の | の無い行・文書の無い §参照）を理由つきで返す', () => {
+  const review = [
+    '正本は `docs/b.md`（以下 b.md）。',
+    '## 読むもの',
+    '| 変更 | 読むもの |',
+    '|---|---|',
+    '| Workflow（b.md §13「置き場」の） | `docs/a.md` |',
+    '| `*.md`・`SKILL.md` | docs/plain.md を読む |',
+    '| `x` | `docs/c.md`',
+    '| `y` | §4「宙に浮いた節」 |',
+  ].join('\n')
+  const out = parseReadingTable(review)
+  assert.deepEqual(out.docs, [
+    { path: 'docs/b.md', whole: false, titles: [{ title: '置き場', num: 13 }] },
+    { path: 'docs/a.md', whole: true, titles: [] },
     { path: 'docs/c.md', whole: true, titles: [] },
+  ], '左の列の glob と .md の名前は文書として読まない')
+  assert.deepEqual(out.unparsed.map((u) => [u.text, u.reason]), [
+    ['docs/plain.md', 'backtick の無いパス'],
+    ['| `x` | `docs/c.md`', '表の行の末尾に | が無い'],
+    ['§4「宙に浮いた節」', '文書の無い節の参照'],
   ])
-  assert.throws(() => parseReadingTable('# 無い'), (e) => e.code === CODES.io)
-  assert.throws(() => parseReadingTable('## 読むもの\n\n文だけ\n'), (e) => e.code === CODES.io)
 })
 
 test('extractSections: 番号付きの見出しも名前で当て、同じか上の深さの次の見出しの前までを取り、コードの中の見出しは見ない', () => {
@@ -429,6 +463,15 @@ test('extractSections: 番号付きの見出しも名前で当て、同じか上
     sections: [{ title: '一', start: 2, end: 8 }, { title: '二', start: 9, end: 10 }],
     missing: ['無い'],
   })
+  assert.deepEqual(extractSections(`${text}\n`, [{ title: '二', num: null }]).sections, [{ title: '二', start: 9, end: 10 }], '末尾の改行は行に数えない')
+  assert.deepEqual(extractSections(text, [{ title: '一', num: 1 }, { title: '一', num: 2 }]), {
+    sections: [{ title: '§1「一」', start: 2, end: 8 }],
+    missing: ['§2「一」'],
+  }, '§番号があれば番号も照らす')
+  assert.deepEqual(extractSections(text, [{ title: '一の下', num: 1 }, { title: '一の下', num: 2 }]), {
+    sections: [{ title: '§1「一の下」', start: 7, end: 8 }],
+    missing: ['§2「一の下」'],
+  }, '§番号の節の中の小見出しも当てる（ほかの番号の節の中は当てない）')
 })
 
 test('renderPolicyPack: 索引の行の範囲が束の本文の位置と元のファイルの行に合う', () => {

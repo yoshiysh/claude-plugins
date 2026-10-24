@@ -15,7 +15,19 @@ const WORKFLOW_SOURCE_HEAD = /^export\s+const\s+meta\s*=\s*\{/
 export const VERDICTS = Object.freeze(['confirmed', 'refuted', 'unverified'])
 // 検証の段の数。1 段目は候補ごとに 1 体、2 段目は決着しなかった主張に残りの観点を全て当てる（best-practices の schemas.md「refuter の出力」）。
 export const VERIFY_ROUNDS = 2
-export const CODES = Object.freeze({ input: 'E_INPUT', pin: 'E_PIN', plan: 'E_PLAN', transport: 'E_TRANSPORT', io: 'E_IO', internal: 'E_INTERNAL' })
+export const CODES = Object.freeze({ input: 'E_INPUT', pin: 'E_PIN', plan: 'E_PLAN', policy: 'E_POLICY', transport: 'E_TRANSPORT', io: 'E_IO', internal: 'E_INTERNAL' })
+// CLI の拒否に付ける、caller の次の手。replan は前処理の 3（plan）からやり直せば直り得るもの、none はやり直しても同じ答えになるもの。
+export const RETRY = Object.freeze({ replan: 'replan', none: 'none' })
+// pin が崩れた原因ごとの次の手。caller は pin.causes[].action をそのまま利用者に伝える（文言を caller 側に写さない）。
+export const PIN_CAUSES = Object.freeze({
+  commits: '手元に無い commit を git fetch で取ってから、前処理からやり直す',
+  head: '利用者に作業ツリーを headSha の checkout に戻してもらってから（切り替えは利用者の操作）、前処理からやり直す',
+  worktree: '利用者に作業ツリーの変更・未追跡のファイルを片付けてもらってから（片付けは利用者の操作）、前処理からやり直す',
+  preserved: 'preservedPaths を変更の集合にある path だけにして、前処理からやり直す',
+  changed: '計画の後に対象か方針が変わった。今の内容で前処理からやり直す',
+  pack: '方針の束が変わったか消えた。新しい stateDir で前処理の 3 からやり直す',
+  collect: '対象を集め直せなかった（scope の消失・git の失敗など）。problems の原因を直してから前処理からやり直す',
+})
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 
@@ -178,14 +190,26 @@ export function partition(paths, { excludePaths, generatedPaths, preservedPaths 
 }
 
 // reviewer は作業ツリーのファイルも開ける。diff で作業ツリーが head と違う内容だと、別の版の内容と行番号で候補が作られるので、head を checkout した clean な作業ツリーでだけ始める。
-export function pinProblems(request, state) {
-  const problems = []
-  if (state.missingCommits.length) problems.push(`commit が無い: ${JSON.stringify(state.missingCommits)}`)
-  if (state.head !== request.headSha) problems.push(`HEAD ${state.head} が headSha ${request.headSha} と違う`)
-  if (request.mode === 'diff' && state.dirty.length) problems.push(`diff は作業ツリーに変更・未追跡のファイルがあると始められない: ${JSON.stringify(state.dirty)}`)
+export function pinIssues(request, state) {
+  const issues = []
+  if (state.missingCommits.length) issues.push({ cause: 'commits', message: `commit が無い: ${JSON.stringify(state.missingCommits)}` })
+  if (state.head !== request.headSha) issues.push({ cause: 'head', message: `HEAD ${state.head} が headSha ${request.headSha} と違う` })
+  if (request.mode === 'diff' && state.dirty.length) issues.push({ cause: 'worktree', message: `diff は作業ツリーに変更・未追跡のファイルがあると始められない: ${JSON.stringify(state.dirty)}` })
   const missingPreserved = request.preservedPaths.filter((p) => !state.paths.includes(p))
-  if (missingPreserved.length) problems.push(`preservedPaths に変更の無いパスがある: ${JSON.stringify(missingPreserved)}`)
-  return problems
+  if (missingPreserved.length) issues.push({ cause: 'preserved', message: `preservedPaths に変更の無いパスがある: ${JSON.stringify(missingPreserved)}` })
+  return issues
+}
+
+export function pinProblems(request, state) {
+  return pinIssues(request, state).map((x) => x.message)
+}
+
+export function causesOf(issues) {
+  return sorted(issues.map((x) => x.cause)).map((cause) => ({ cause, action: PIN_CAUSES[cause] }))
+}
+
+export function failedPin(issues) {
+  return { ok: false, problems: issues.map((x) => x.message), causes: causesOf(issues), changed: [] }
 }
 
 export function inventoryOf(request, state) {
@@ -241,21 +265,21 @@ function sameList(a, b) {
 
 // 計画の後に commit・HEAD・方針・変更の集合・作業ツリーのバイトのどれかが動くと、指摘は計画した対象とは別の内容を指す。
 export function checkPin(plan, state, details) {
-  const problems = pinProblems(plan, state)
+  const issues = pinIssues(plan, state)
   const inv = inventoryOf(plan, state)
   for (const key of ['excludePaths', 'generatedPaths']) {
-    if (!sameList(plan[key], inv[key])) problems.push(`${key} が計画と違う`)
+    if (!sameList(plan[key], inv[key])) issues.push({ cause: 'changed', message: `${key} が計画と違う` })
   }
   for (const key of ['reviewable', 'excluded', 'generated', 'preserved']) {
     const before = key === 'reviewable' ? plan.target.files : plan[key]
-    if (!sameList(before, inv[key])) problems.push(`${key} の集合が計画と違う: 計画 ${JSON.stringify(before)} 現在 ${JSON.stringify(inv[key])}`)
+    if (!sameList(before, inv[key])) issues.push({ cause: 'changed', message: `${key} の集合が計画と違う: 計画 ${JSON.stringify(before)} 現在 ${JSON.stringify(inv[key])}` })
   }
   const changed = []
   if (plan.digests) {
     for (const file of plan.target.files) if ((details.digests[file] ?? null) !== (plan.digests[file] ?? null)) changed.push(file)
-    if (changed.length) problems.push(`対象の内容が計画の後に変わった: ${JSON.stringify(changed)}`)
+    if (changed.length) issues.push({ cause: 'changed', message: `対象の内容が計画の後に変わった: ${JSON.stringify(changed)}` })
   }
-  return { ok: problems.length === 0, problems, changed }
+  return { ok: issues.length === 0, problems: issues.map((x) => x.message), causes: causesOf(issues), changed }
 }
 
 function unreadableMatcher(plan) {
@@ -277,11 +301,15 @@ function findingProblem(plan, unreadable, finding) {
   if (plan.mode === 'audit' && !plan.target.files.includes(finding.path)) return 'audit の指摘が対象の外にある'
   if (!Number.isInteger(finding.line) || finding.line < 1) return 'line が 1 以上の整数でない'
   if (finding.end_line !== undefined && (!Number.isInteger(finding.end_line) || finding.end_line < finding.line)) return 'end_line が line より前'
+  const ids = plan.policyPack.index.map((e) => e.id)
+  if (!Array.isArray(finding.rule_sections) || finding.rule_sections.length === 0 || finding.rule_sections.some((id) => !ids.includes(id))) {
+    return 'rule_sections が方針の束の節の ID でない'
+  }
   return null
 }
 
 function checkResultShape(res, i) {
-  const ok = isObject(res) && typeof res.head_sha === 'string' && isStringArray(res.coverage) && isStringArray(res.supporting_files)
+  const ok = isObject(res) && typeof res.head_sha === 'string' && typeof res.policy_pack_sha256 === 'string' && isStringArray(res.coverage) && isStringArray(res.supporting_files)
     && isCount(res.limitations) && Array.isArray(res.findings)
   if (!ok) fail(CODES.input, [`results[${i}] は null か {head_sha, coverage, supporting_files, limitations（件数）, findings} でなければならない`])
 }
@@ -295,6 +323,8 @@ export function merge(plan, results) {
     const base = { id: rv.id, status: 'ok', missing: [], extra: [], duplicate: [], invalidSupporting: [], invalidFindings: [], limitations: 0 }
     if (res === null) return { ...base, status: 'missing', missing: [...rv.files] }
     if (res.head_sha !== plan.headSha) return { ...base, status: 'head_mismatch', missing: [...rv.files] }
+    // 束を読めなかった reviewer は、全員の共通の方針でない判断をしている。HEAD の食い違いと同じく指摘を検証に回さない。
+    if (res.policy_pack_sha256 !== plan.policyPack.sha256) return { ...base, status: 'pack_unread', missing: [...rv.files] }
     return {
       ...base,
       missing: rv.files.filter((f) => !res.coverage.includes(f)),
@@ -416,12 +446,13 @@ function roundVotes(plan, unreadable, round, r) {
       expected.forEach((key) => record(key, 'missing'))
       return { ...diag, status: 'missing', missing: expected }
     }
-    if (!isObject(v) || typeof v.head_sha !== 'string' || !Array.isArray(v.results) || v.results.some((x) => !isObject(x))) {
-      fail(CODES.input, [`rounds[${r}].verifications[${ai}] は null か {head_sha, results} でなければならない`])
+    if (!isObject(v) || typeof v.head_sha !== 'string' || typeof v.policy_pack_sha256 !== 'string' || !Array.isArray(v.results) || v.results.some((x) => !isObject(x))) {
+      fail(CODES.input, [`rounds[${r}].verifications[${ai}] は null か {head_sha, policy_pack_sha256, results} でなければならない`])
     }
-    if (v.head_sha !== plan.headSha) {
+    const status = v.head_sha !== plan.headSha ? 'head_mismatch' : v.policy_pack_sha256 !== plan.policyPack.sha256 ? 'pack_unread' : null
+    if (status) {
       expected.forEach((key) => record(key, 'missing'))
-      return { ...diag, status: 'head_mismatch', missing: expected }
+      return { ...diag, status, missing: expected }
     }
     const keys = v.results.map((x) => `${x.cluster}:${x.claim}`)
     diag.extra = sorted(keys.filter((k) => !expected.includes(k)))
@@ -487,88 +518,131 @@ export function judge(plan, merged, rounds) {
   return { complete: outcomes.every((o) => o.verdict !== 'unverified'), outcomes, second: [], diagnostics: [...first.diagnostics, ...next.diagnostics] }
 }
 
-// REVIEW.md の「読むもの」の表の右の列から、読む文書と節を取り出す。文書は backtick の .md のパスか、REVIEW.md が
-// 「`<path>`（以下 <別名>）」で定めた別名。文書の後に続く「…」をその文書の節とし、節が 1 つも付かない文書は全体を読む。
+// REVIEW.md の「読むもの」の表から、読む文書と節を取り出す。文書は右の列の backtick の .md のパス（glob を除く）か、
+// REVIEW.md が「`<path>`（以下 <別名>）」で定めた別名（左の列でも読む）。文書の後に続く「…」（前に §<番号> があれば番号も）を
+// その文書の節とし、右の列で節が 1 つも付かない文書は全体を読む。取れなかった参照は理由つきで unparsed に返す（黙って落とすと見ていない文書が「無し」に化ける）。
 export function parseReadingTable(reviewText) {
   const aliases = new Map([...reviewText.matchAll(/`([^`]+\.md)`（以下 ([^）]+)）/g)].map((m) => [m[2], m[1]]))
-  const section = reviewText.split(/^## /m).find((s) => s.startsWith('読むもの'))
-  if (!section) throw new ReviewError(CODES.io, 'REVIEW.md に「読むもの」の節が無い')
-  const rows = section.split('\n').filter((l) => /^\|/.test(l) && !/^\|\s*-+\s*\|/.test(l)).slice(1)
-  if (rows.length === 0) throw new ReviewError(CODES.io, 'REVIEW.md の「読むもの」に表の行が無い')
+  const section = reviewText.split(/^## /m).find((x) => x.startsWith('読むもの'))
+  if (!section) throw new ReviewError(CODES.policy, 'REVIEW.md に「読むもの」の節が無い')
+  const rows = section.split('\n').filter((l) => /^\|/.test(l) && !/^\|[\s|:-]+$/.test(l)).slice(1)
+  if (rows.length === 0) throw new ReviewError(CODES.policy, 'REVIEW.md の「読むもの」に表の行が無い')
   const docs = new Map()
+  const unparsed = []
   const aliasPattern = [...aliases.keys()].map((a) => a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
-  const token = new RegExp(`\`([^\`]+)\`|「([^」]+)」${aliasPattern ? `|(${aliasPattern})` : ''}`, 'g')
-  for (const row of rows) {
-    const cells = row.split('|')
-    const cell = cells.slice(2, -1).join('|')
+  const token = new RegExp(`\`([^\`]+)\`|(?:§(\\d+))?「([^」]+)」${aliasPattern ? `|(${aliasPattern})` : ''}`, 'g')
+  const entry = (path) => {
+    if (!docs.has(path)) docs.set(path, { whole: false, titles: [] })
+    return docs.get(path)
+  }
+  const scan = (cell, right) => {
     let current = null
     let titled = false
     const close = () => {
-      if (current && !titled) docs.get(current).whole = true
+      if (current && right && !titled) entry(current).whole = true
     }
     for (const m of cell.matchAll(token)) {
-      const path = m[1] !== undefined ? (m[1].endsWith('.md') ? m[1] : null) : m[3] !== undefined ? aliases.get(m[3]) : undefined
-      if (path === undefined) {
-        if (current) {
-          docs.get(current).titles.add(m[2])
-          titled = true
-        }
+      if (m[1] !== undefined || m[4] !== undefined) {
+        close()
+        const doc = m[4] !== undefined ? aliases.get(m[4]) : right && m[1].endsWith('.md') && !/[*?[]/.test(m[1]) ? m[1] : null
+        current = doc
+        titled = false
+        if (doc && right) entry(doc)
         continue
       }
-      close()
-      current = path
-      titled = false
-      if (path && !docs.has(path)) docs.set(path, { whole: false, titles: new Set() })
+      const title = { title: m[3], num: m[2] === undefined ? null : Number(m[2]) }
+      if (current) {
+        const e = entry(current)
+        if (!e.titles.some((x) => x.title === title.title && x.num === title.num)) e.titles.push(title)
+        titled = true
+      } else if (right || title.num !== null) {
+        unparsed.push({ text: m[0], reason: '文書の無い節の参照' })
+      }
     }
     close()
+    const bare = cell.replace(/`[^`]*`/g, '')
+    for (const m of bare.matchAll(/(?:^|[^\w./-])((?:[\w.-]+\/)+[\w.-]+\.md)(?![\w/])/g)) unparsed.push({ text: m[1], reason: 'backtick の無いパス' })
   }
-  return [...docs.entries()].map(([path, d]) => ({ path, whole: d.whole, titles: [...d.titles] }))
+  for (const row of rows) {
+    const trimmed = row.trim()
+    if (!trimmed.endsWith('|')) unparsed.push({ text: trimmed, reason: '表の行の末尾に | が無い' })
+    const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|')
+    if (cells.length < 2) {
+      unparsed.push({ text: trimmed, reason: '表の列が足りない' })
+      continue
+    }
+    scan(cells[0], false)
+    scan(cells.slice(1).join('|'), true)
+  }
+  return { docs: [...docs.entries()].map(([path, d]) => ({ path, whole: d.whole, titles: d.titles })), unparsed }
 }
 
-// 見出しの文字列が節の名前と同じか、先頭の「<番号>. 」を除くと同じものを、その節とする。範囲は次の同じか上の深さの見出しの前まで。
+function titleLabel(t) {
+  return t.num === null || t.num === undefined ? t.title : `§${t.num}「${t.title}」`
+}
+
+// 見出しの文字列が節の名前と同じか、先頭の「<番号>. 」を除くと同じものを、その節とする。§番号があれば、その番号の節そのものか、
+// その節の中の同じ名前の見出しに限る（「§13「script の置き場」」は §13 の中の小見出しを指す）。
+// 範囲は次の同じか上の深さの見出しの前まで。末尾の改行は行に数えない。
 export function extractSections(text, titles) {
-  const lines = text.split('\n')
+  const lines = text.replace(/\n$/, '').split('\n')
   const headings = []
   let fence = false
   for (const [i, line] of lines.entries()) {
     if (/^\s*(```|~~~)/.test(line)) fence = !fence
     const m = !fence && /^(#{1,6})\s+(.*?)\s*$/.exec(line)
-    if (m) headings.push({ line: i + 1, level: m[1].length, text: m[2] })
+    if (m) {
+      const n = /^(\d+)\.\s*(.*)$/.exec(m[2])
+      headings.push({ line: i + 1, level: m[1].length, text: m[2], num: n ? Number(n[1]) : null, rest: n ? n[2] : m[2] })
+    }
   }
   const sections = []
   const missing = []
-  for (const title of titles) {
-    const h = headings.find((x) => x.text === title || x.text.replace(/^\d+\.\s*/, '') === title)
+  for (const raw of titles) {
+    const t = typeof raw === 'string' ? { title: raw, num: null } : raw
+    const named = (x) => x.text === t.title || x.rest === t.title
+    let h
+    if (t.num === null) h = headings.find(named)
+    else {
+      const top = headings.find((x) => x.num === t.num)
+      const topEnd = top && (headings.find((x) => x.line > top.line && x.level <= top.level)?.line ?? lines.length + 1)
+      h = top && (named(top) ? top : headings.find((x) => x.line > top.line && x.line < topEnd && named(x)))
+    }
     if (!h) {
-      missing.push(title)
+      missing.push(titleLabel(t))
       continue
     }
     const next = headings.find((x) => x.line > h.line && x.level <= h.level)
-    sections.push({ title, start: h.line, end: next ? next.line - 1 : lines.length })
+    sections.push({ title: titleLabel(t), start: h.line, end: next ? next.line - 1 : lines.length })
   }
   return { sections, missing }
 }
 
 // 束は索引と、元のファイルの行番号を付けた本文。agent は索引から要る節だけを開き、根拠は元のファイルの path:line で書ける。
+function partLabel(path, title) {
+  if (!title) return `${path}（全体）`
+  return title.startsWith('§') ? `${path} ${title}` : `${path}「${title}」`
+}
+
 export function renderPolicyPack(policyRef, parts, missing) {
   const body = []
   const index = []
   for (const [k, p] of parts.entries()) {
     const id = `P${k + 1}`
-    const label = p.title ? `${p.path}「${p.title}」` : `${p.path}（全体）`
+    const label = partLabel(p.path, p.title)
     const start = body.length + 1
     body.push(`## [${id}] ${label}`)
     for (let n = p.start; n <= p.end; n += 1) body.push(`${p.path}:${n}| ${p.lines[n - 1] ?? ''}`)
     body.push('')
     index.push({ id, path: p.path, title: p.title ?? null, source: [p.start, p.end], bodyStart: start, bodyEnd: body.length - 1 })
   }
-  const missingLine = `束に入れなかったもの（見ていない）: ${missing.length ? missing.map((m) => (m.title ? `${m.path}「${m.title}」` : m.path)).join('・') : '無し'}`
+  const missingLine = `束に入れなかったもの（見ていない）: ${missing.length ? missing.map((m) => `${m.path ? partLabel(m.path, m.title).replace('（全体）', '') : m.text}（${m.reason}）`).join('・') : '無し'}`
   const headerLength = 3 + index.length + 2
   const header = [
     `# repo-review の方針の束（policyRef ${policyRef} の REVIEW.md と、その「読むもの」の表が挙げる文書・節）`,
     '',
     '索引（束の中の行 / 元のファイルの行）:',
-    ...index.map((e) => `- [${e.id}] ${e.title ? `${e.path}「${e.title}」` : `${e.path}（全体）`} 束の ${e.bodyStart + headerLength}-${e.bodyEnd + headerLength} 行 / 元の ${e.source[0]}-${e.source[1]} 行`),
+    ...index.map((e) => `- [${e.id}] ${partLabel(e.path, e.title)} 束の ${e.bodyStart + headerLength}-${e.bodyEnd + headerLength} 行 / 元の ${e.source[0]}-${e.source[1]} 行`),
     missingLine,
     '',
   ]

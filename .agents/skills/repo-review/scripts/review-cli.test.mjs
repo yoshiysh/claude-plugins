@@ -145,12 +145,12 @@ test('plan: 計画を stateDir のファイルに書き、symlink と内容で�
   const pack = readFileSync(out.plan.policyPack.path, 'utf8')
   assert.equal(path.dirname(out.plan.policyPack.path), fx.stateDir)
   assert.deepEqual(out.plan.policyPack.index.map((e) => [e.id, e.path, e.title]), [['P1', 'REVIEW.md', null], ['P2', 'docs/guide.md', null], ['P3', 'docs/rules.md', '作業ルール']])
-  assert.deepEqual(out.plan.policyPack.missing, [{ path: 'docs/rules.md', title: '無い節' }, { path: 'docs/missing.md' }])
+  assert.deepEqual(out.plan.policyPack.missing, [{ path: 'docs/rules.md', title: '無い節', reason: '節が無い' }, { path: 'docs/missing.md', reason: 'policyRef に無い' }])
   const lines = pack.split('\n')
   const p3 = out.plan.policyPack.index[2]
   assert.equal(lines[p3.pack[0] - 1], '## [P3] docs/rules.md「作業ルール」')
   assert.deepEqual(lines.slice(p3.pack[0], p3.pack[1]), ['docs/rules.md:3| ## 作業ルール', 'docs/rules.md:4| ', 'docs/rules.md:5| - 写さない', 'docs/rules.md:6| '])
-  assert.match(pack, /束に入れなかったもの（見ていない）: docs\/rules.md「無い節」・docs\/missing.md/)
+  assert.match(pack, /束に入れなかったもの（見ていない）: docs\/rules.md「無い節」（節が無い）・docs\/missing.md（policyRef に無い）/)
   assert.deepEqual(out.plan.skillDesignTargets, ['plugins/p/skills/s/SKILL.md', 'plugins/p/skills/s/scripts/run.js'], 'helper.js は Workflow source でない')
   assert.equal(out.plan.digests, null)
   const ng = run('plan', { ...diffBody(fx), reviewers: REVIEWERS.map((r) => ({ ...r, id: r.id === 'skill-design' ? 'structure' : r.id })), stateDir: fx.stateDir })
@@ -180,6 +180,8 @@ test('diff は head を checkout した clean な作業ツリーでだけ計画�
     dirty()
     const ng = plan()
     assert.equal(ng.code, CODES.pin, label)
+    assert.equal(ng.causes.length, 1, label)
+    assert.match(ng.causes[0].action, /利用者/, `${label}: 次の手を CLI が返す`)
     assert.match(ng.reason, pattern, label)
     const pin = run('pin', ref)
     assert.equal(pin.pin.ok, false, `${label}: 計画の後に起きても pin が拾う`)
@@ -242,6 +244,11 @@ test('working_tree: staged・unstaged・untracked を含め、作業中の変更
   writeFileSync(pack, `${packText}x`)
   assert.match(run('pin', signed(ref)).pin.problems.join('\n'), /方針の束/, '束が計画の後に変わったら pin が拾う')
   writeFileSync(pack, packText)
+  rmSync(pack)
+  const gonePack = run('pin', signed(ref)).pin
+  assert.equal(gonePack.ok, false, '束が消えたら pin が拾う')
+  assert.deepEqual(gonePack.causes.map((c) => c.cause), ['pack'])
+  writeFileSync(pack, packText)
   write(fx.repo, 'docs/new.md', 'changed during review\n')
   const pin = run('pin', signed(ref))
   assert.equal(pin.exitCode, 0)
@@ -279,12 +286,17 @@ test('pin: 対象を集め直せない（scope が消えた）ときは pin.ok �
   const gone = run('pin', signed(ref))
   assert.equal(gone.exitCode, 0)
   assert.equal(gone.pin.ok, false)
+  assert.deepEqual(gone.pin.causes.map((c) => c.cause), ['collect'])
   assert.match(gone.pin.problems.join('\n'), /scope/)
   for (const [label, body] of [
     ['planSum の違い', { ...ref, planSum: '00000000' }],
     ['planPath が無い', { planSum: ref.planSum }],
     ['planPath のファイルが無い', { ...ref, planPath: path.join(fx.stateDir, 'none.json') }],
-  ]) assert.equal(run('pin', signed(body)).code, CODES.input, label)
+  ]) {
+    const r = run('pin', signed(body))
+    assert.equal(r.code, CODES.input, label)
+    assert.equal(r.retry, 'replan', `${label}: 前処理の 3 からやり直せば直り得る`)
+  }
   const original = JSON.parse(readFileSync(out.plan_path, 'utf8'))
   for (const [label, patch] of [
     ['option に見える headSha', { headSha: '--output=x' }],
@@ -320,13 +332,15 @@ test('運搬役の操作は sum の無い・合わない入力を E_TRANSPORT �
     assert.equal(JSON.parse(output).ok, false)
   }
   const broken = { ...defaultIo(), git: () => { throw new TypeError('boom') } }
-  assert.equal(run('pin', signed(ref), broken).code, CODES.internal)
+  const internal = run('pin', signed(ref), broken)
+  assert.equal(internal.code, CODES.internal)
+  assert.equal(internal.retry, 'none')
 })
 
-test('exclude-paths と写しの書き先の読み取りは、形が合わなければ E_IO で止まる', () => {
+test('exclude-paths と写しの書き先の読み取りは、形が合わなければ E_POLICY で止まる（git の失敗の E_IO と分ける）', () => {
   assert.deepEqual(readExcludePaths(WORKFLOW_YML), ['**/*.lock', '**/package-lock.json'])
   for (const yml of ['jobs: {}\n', `${WORKFLOW_YML}      exclude-paths: '["a"]'\n`, "      exclude-paths: 'not json'\n", "      exclude-paths: '[]'\n", "      exclude-paths: '[\"\"]'\n"]) {
-    assert.throws(() => readExcludePaths(yml), (e) => e.code === CODES.io, yml)
+    assert.throws(() => readExcludePaths(yml), (e) => e.code === CODES.policy, yml)
   }
   assert.deepEqual(parseCriteriaTool(TOOL), { skill: 'plugins/p/skills/s', constants: 'plugins/p/skills/s/scripts/bp/constants.mjs' })
   for (const [label, text] of [
@@ -334,10 +348,10 @@ test('exclude-paths と写しの書き先の読み取りは、形が合わなけ
     ['CRITERIA_DIR を import しない', TOOL.replace('CRITERIA_DIR, ', '')],
     ['書き先の式が違う', TOOL.replace('path.join(root, SKILL, CRITERIA_DIR)', 'path.join(root, CRITERIA_DIR)')],
     ['import 先がリポジトリの外', TOOL.replace("'../plugins/", "'../../plugins/")],
-  ]) assert.throws(() => parseCriteriaTool(text), (e) => e.code === CODES.io, label)
+  ]) assert.throws(() => parseCriteriaTool(text), (e) => e.code === CODES.policy, label)
   assert.equal(parseCriteriaDir("export const CRITERIA_DIR = 'references/criteria';\n"), 'references/criteria')
   for (const text of ['', "export const CRITERIA_DIR = 'a';\nexport const CRITERIA_DIR = 'b';\n", 'export const CRITERIA_DIR = CONST;\n']) {
-    assert.throws(() => parseCriteriaDir(text), (e) => e.code === CODES.io, text)
+    assert.throws(() => parseCriteriaDir(text), (e) => e.code === CODES.policy, text)
   }
 })
 
