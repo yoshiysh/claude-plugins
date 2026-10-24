@@ -5,7 +5,7 @@ import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } fr
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  CODES, RETRY, ReviewError, canonical, WORKFLOW_SOURCE_PATHS, causesOf, failedPin, pinIssues, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge,
+  CODES, RETRY, ReviewError, absAliases, canonical, WORKFLOW_SOURCE_PATHS, causesOf, failedPin, pinIssues, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge,
 } from './review-core.mjs'
 
 // 内容を読まない path と生成物の書き先は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
@@ -45,7 +45,14 @@ export function defaultIo() {
     },
     realpath: (file) => realpathSync(file),
     readFile: (file) => readFileSync(file),
-    readlink: (file) => readlinkSync(file),
+    readlink(file) {
+      try {
+        return readlinkSync(file)
+      } catch (error) {
+        // lstat の後に消えた・差し替わった link。plan では E_IO、pin では対象を集め直せなかったこととして返す。
+        throw new ReviewError(CODES.io, `${file} の link を読めない: ${error.message}`)
+      }
+    },
     writeFile: (file, text) => writeFileSync(file, text, { flag: 'w' }),
   }
 }
@@ -158,12 +165,19 @@ const REGULAR = new Set(['100644', '100755'])
 
 // symlink を repo の中の実体の path へ解決した対応表（宣言の正本）。core はこれで symlink 経由の読み（.agents/skills/<skill>/... など）を
 // 実体の path に直して禁止判定する。diff は headSha の tree の symlink から、working_tree・audit は reviewer が読む作業ツリーの
-// symlink（追跡中と、ignore されていない未追跡のもの）を readlink して作る。repo の外を指す link と絶対パスの link は表に入れない
-// （実体が repo の外なので、禁止 path の判定の対象にならない）。pin は同じ方法で作り直して計画と照らす。
-function addLink(map, link, target) {
-  if (target.startsWith('/')) return
-  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(link), target))
-  if (resolved === '..' || resolved.startsWith('../')) return
+// symlink（追跡中と、ignore されていない未追跡のもの）を readlink して作る。絶対パスの link は repo の絶対パス（とその別名）の下を指すときだけ
+// repo 相対に直して入れる。repo の外を指す link は、実体が repo の外で禁止 path の判定の対象にならないので入れない。pin は同じ方法で作り直して計画と照らす。
+function addLink(map, link, target, repo) {
+  let resolved
+  if (target.startsWith('/')) {
+    const norm = path.posix.normalize(target).replace(/\/+$/, '')
+    const prefix = absAliases(repo).find((r) => norm.startsWith(`${r}/`))
+    if (!prefix) return
+    resolved = norm.slice(prefix.length + 1)
+  } else {
+    resolved = path.posix.normalize(path.posix.join(path.posix.dirname(link), target))
+    if (resolved === '..' || resolved.startsWith('../')) return
+  }
   map[link] = resolved.replace(/\/+$/, '')
 }
 
@@ -171,22 +185,22 @@ export function collectWorktreeSymlinkMap(repo, io) {
   const map = {}
   for (const file of lines(io.git(repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']))) {
     const st = io.lstat(path.join(repo, file))
-    if (st?.isSymbolicLink()) addLink(map, file, String(io.readlink(path.join(repo, file))))
+    if (st?.isSymbolicLink()) addLink(map, file, String(io.readlink(path.join(repo, file))), repo)
   }
   return map
 }
 
 export function symlinkMapOf(request, io) {
-  return request.mode === 'diff' ? collectSymlinkMap((args) => io.git(request.repo, args), request.headSha) : collectWorktreeSymlinkMap(request.repo, io)
+  return request.mode === 'diff' ? collectSymlinkMap((args) => io.git(request.repo, args), request.headSha, request.repo) : collectWorktreeSymlinkMap(request.repo, io)
 }
 
-export function collectSymlinkMap(git, ref) {
+export function collectSymlinkMap(git, ref, repo) {
   const map = {}
   for (const entry of lines(git(['ls-tree', '-r', '-z', '--full-tree', '--end-of-options', ref]))) {
     const tab = entry.indexOf('\t')
     const [mode, , oid] = entry.slice(0, tab).split(' ')
     if (mode !== '120000') continue
-    addLink(map, entry.slice(tab + 1), git(['cat-file', 'blob', oid]).toString('utf8'))
+    addLink(map, entry.slice(tab + 1), git(['cat-file', 'blob', oid]).toString('utf8'), repo)
   }
   return map
 }

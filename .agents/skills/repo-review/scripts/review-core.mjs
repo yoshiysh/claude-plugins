@@ -21,7 +21,7 @@ export const VERIFY_ROUNDS = 2
 const UNTRUSTED_STATUSES = Object.freeze({
   head_mismatch: 'reviewer が見た HEAD が計画と違う。別の版の内容を指し得る',
   pack_unread: 'reviewer が方針の束を読めなかった。全員に共通の方針で判断していない',
-  forbidden_reads: 'reviewer が読まない path（除外・生成物・作業中の変更）を読んだ。読んではいけない内容に依り得る',
+  forbidden_reads: 'reviewer が読まない path（分類の正本は unreadableClassifier）を読んだ。読んではいけない内容に依り得る',
 })
 // 根拠の申告のうち、記録だけにする分類と、その意味。merge が ignoredSupporting の各項目の meaning に載せる（意味の正本はここだけ）。
 const IGNORED_KINDS = Object.freeze({
@@ -308,8 +308,8 @@ export function checkPin(plan, state, details) {
   return { ok: issues.length === 0, problems: issues.map((x) => x.message), causes: causesOf(issues, plan.mode), changed }
 }
 
-// 追跡中の symlink（計画の symlinkMap。CLI が plan の作成時に実体の path へ解決した対応表）を接頭辞で実体へ置き換える。
-// core はファイルシステムに触れないので、計画に無い symlink（追跡していないもの）は解決しない。
+// 計画の symlinkMap（CLI が計画の作成時に作った、symlink から repo の中の実体への対応表）で、接頭辞の一致する link を実体へ置き換える。
+// core はファイルシステムに触れないので、表に無い symlink は解決しない。
 export function resolveSymlinks(file, symlinkMap = {}) {
   let current = file
   for (let hop = 0; hop < 16; hop += 1) {
@@ -320,17 +320,24 @@ export function resolveSymlinks(file, symlinkMap = {}) {
   return current
 }
 
-// readThrough は「読んだ」申告（supporting_files・担当外の coverage）の判定にだけ使い、symlink を実体へ解決してからも見る。
-// 指摘と evidence の場所は symlink の行そのもの（リンク先の文字列）を指し得るので、元の path だけで見る。
-function unreadableMatcher(plan, { readThrough = false } = {}) {
+// 読まない path の分類の正本。理由の文字列は指摘・申告の不正の理由として結果に載る。
+function unreadableClassifier(plan) {
   const isExcluded = matcher(plan.excludePaths)
   const isGenerated = matcher(plan.generatedPaths)
   const preserved = new Set(plan.preserved)
-  return (file) => {
-    for (const f of new Set(readThrough ? [file, resolveSymlinks(file, plan.symlinkMap)] : [file])) {
-      if (isExcluded(f)) return '内容を読まない path'
-      if (isGenerated(f)) return '生成物'
-      if (preserved.has(f)) return '呼び出し側の作業中の変更'
+  return (f) => (isExcluded(f) ? '内容を読まない path' : isGenerated(f) ? '生成物' : preserved.has(f) ? '呼び出し側の作業中の変更' : null)
+}
+
+// symlink はこのリポジトリでは同じファイルの別名なので、指摘・evidence・申告のどれも symlinkMap で実体へ解決してからも禁止判定する。
+// 例外は、対象に入る葉の link そのもの（完全一致）を指す 1 行目（リンク先の文字列）だけで、そこではリンク先の禁止判定を当てない。
+function unreadableMatcher(plan) {
+  const classify = unreadableClassifier(plan)
+  const map = plan.symlinkMap ?? {}
+  const leafTarget = (f) => Object.hasOwn(map, f) && (plan.target.files.includes(f) || (plan.symlinks ?? []).includes(f))
+  return (file, { linkLine = false } = {}) => {
+    for (const f of new Set(linkLine && leafTarget(file) ? [file] : [file, resolveSymlinks(file, map)])) {
+      const why = classify(f)
+      if (why) return why
     }
     return null
   }
@@ -338,7 +345,7 @@ function unreadableMatcher(plan, { readThrough = false } = {}) {
 
 function findingProblem(plan, unreadable, finding) {
   if (!isObject(finding) || !isRepoPath(finding.path)) return 'path がリポジトリ相対の正規のパスでない'
-  const why = unreadable(finding.path)
+  const why = unreadable(finding.path, { linkLine: finding.line === 1 && (finding.end_line ?? 1) === 1 })
   if (why) return `path が${why}に当たる`
   if (plan.mode === 'audit' && !plan.target.files.includes(finding.path)) return 'audit の指摘が対象の外にある'
   if (!Number.isInteger(finding.line) || finding.line < 1) return 'line が 1 以上の整数でない'
@@ -359,7 +366,16 @@ function absAliases(abs) {
 // supporting_files の path（と担当外の coverage）を分類する。注記は schema の別の欄（lines）にあり、ここでは path だけを見る。
 // 読まない path の判定を先に、字句の正規化（`./`・`..`・`//`・repo の絶対パスとその別名）と計画の symlink 対応の範囲で行う。
 // repo の外は、束と完全一致なら policy_pack、それ以外は outside_repo。repo の外・パスでないものは根拠の列挙の不備として記録するだけで、対象の読み残しにはしない。
-export function classifySupporting(plan, unreadable, entry) {
+export { absAliases }
+
+// ok・forbidden 以外の分類は記録だけにする。IGNORED_KINDS に無い分類が来たら、黙って落とさず E_INTERNAL で止める。
+export function ignoredEntries(classified) {
+  const unknown = classified.filter((x) => !['ok', 'forbidden'].includes(x.kind) && !Object.hasOwn(IGNORED_KINDS, x.kind))
+  if (unknown.length) fail(CODES.internal, [`IGNORED_KINDS に無い分類: ${JSON.stringify(unknown.map((x) => x.kind))}`])
+  return classified.filter((x) => Object.hasOwn(IGNORED_KINDS, x.kind)).map((x) => ({ entry: x.entry, kind: x.kind, meaning: IGNORED_KINDS[x.kind] }))
+}
+
+export function classifySupporting(plan, unreadable, entry, { linkLine = false } = {}) {
   if (typeof entry !== 'string' || !entry.trim()) return { kind: 'not_path', entry }
   let rel = null
   if (entry.startsWith('/')) {
@@ -372,7 +388,7 @@ export function classifySupporting(plan, unreadable, entry) {
     if (rel === '..' || rel.startsWith('../')) return { kind: 'outside_repo', entry }
   }
   if (!isRepoPath(rel)) return { kind: 'not_path', entry }
-  const why = unreadable(rel)
+  const why = unreadable(rel, { linkLine })
   return why ? { kind: 'forbidden', entry, path: rel, reason: why } : { kind: 'ok', entry, path: rel }
 }
 
@@ -386,7 +402,6 @@ export function merge(plan, results) {
   if (!Array.isArray(results) || results.length !== plan.reviewers.length) fail(CODES.input, ['results は reviewers と同じ長さの配列でなければならない'])
   results.forEach((res, i) => res === null || checkResultShape(res, i))
   const unreadable = unreadableMatcher(plan)
-  const readUnreadable = unreadableMatcher(plan, { readThrough: true })
   const packIds = plan.policyPack.index.map((e) => e.id)
   const reviewers = plan.reviewers.map((rv, i) => {
     const res = results[i]
@@ -396,11 +411,12 @@ export function merge(plan, results) {
     // 束を読めなかった reviewer は、全員の共通の方針でない判断をしている。HEAD の食い違いと同じく指摘を検証に回さない。
     if (res.policy_pack_token !== plan.policyPack.token) return { ...base, status: 'pack_unread', missing: [...rv.files] }
     // 担当外の coverage も同じ分類にかけ、読まない path を読んだものは extra でなく forbiddenReads に振り分ける。
-    const outside = res.coverage.filter((f) => !rv.files.includes(f)).map((f) => classifySupporting(plan, readUnreadable, f))
-    const supporting = [...res.supporting_files.map((f) => classifySupporting(plan, readUnreadable, f.path)), ...outside.filter((x) => x.kind === 'forbidden')]
+    // 担当外の coverage に葉の link を書いたものは、指摘の 1 行目と同じく link そのものを読んだ扱いにする。
+    const outside = res.coverage.filter((f) => !rv.files.includes(f)).map((f) => classifySupporting(plan, unreadable, f, { linkLine: true }))
+    const supporting = [...res.supporting_files.map((f) => classifySupporting(plan, unreadable, f.path)), ...outside.filter((x) => x.kind === 'forbidden')]
     const forbidden = supporting.filter((x) => x.kind === 'forbidden')
     const forbiddenReads = [...new Map(forbidden.map((x) => [x.path, { path: x.path, reason: x.reason }])).values()].sort((a, b) => order(a.path, b.path))
-    const ignoredSupporting = supporting.filter((x) => Object.hasOwn(IGNORED_KINDS, x.kind)).map((x) => ({ entry: x.entry, kind: x.kind, meaning: IGNORED_KINDS[x.kind] }))
+    const ignoredSupporting = ignoredEntries(supporting)
     // 読まない path を読んだ reviewer は、HEAD の食い違いと同じく担当の全てを読み残しとし、指摘を検証に回さない（読んではいけない内容に依り得る）。
     if (forbiddenReads.length) return { ...base, status: 'forbidden_reads', missing: [...rv.files], forbiddenReads, ignoredSupporting }
     return {
@@ -495,7 +511,7 @@ function secondAssignments(plan, clusters, pending) {
 
 function evidenceProblem(unreadable, proof) {
   if (!isObject(proof) || !isRepoPath(proof.path)) return 'evidence の path が正規のパスでない'
-  if (unreadable(proof.path)) return 'evidence が読まない path を根拠にしている'
+  if (unreadable(proof.path, { linkLine: proof.line === 1 })) return 'evidence が読まない path を根拠にしている'
   if (!Number.isInteger(proof.line) || proof.line < 1) return 'evidence の line が 1 以上の整数でない'
   return null
 }

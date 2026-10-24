@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CODES, ReviewError, buildPlan, canonical, classifySupporting, resolveSymlinks, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
+  CODES, ReviewError, buildPlan, canonical, classifySupporting, ignoredEntries, resolveSymlinks, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
   PIN_ACTIONS, extractSections, globToRegExp, pinAction, isRepoPath, isWorkflowSource, judge, merge, parseReadingTable, partition, renderPolicyPack,
 } from './review-core.mjs'
 
@@ -637,7 +637,7 @@ test('merge: symlink 経由で読んだ生成物も計画の symlinkMap で実�
   rejects(() => merge(plan, [result({ coverage: [{ path: 'a.md' }] }), result({ coverage: ['a.md'] })]), CODES.input, null, 'coverage は path の文字列の配列')
 })
 
-test('symlink の解決は「読んだ」申告にだけ使い、symlink の行への指摘・根拠は元の path で判定する', () => {
+test('対象に入る葉の link の 1 行目への指摘・根拠は、リンク先の禁止判定を当てない（読んだ申告は実体へ解決して判定する）', () => {
   const plan = mergePlan({ mode: 'working_tree', target: { files: ['CLAUDE.md', 'a.md'] }, preserved: ['AGENTS.md'], symlinkMap: { 'CLAUDE.md': 'AGENTS.md' },
     reviewers: [{ id: 'correctness', focus: 'x', files: ['CLAUDE.md', 'a.md'] }, { id: 'docs', focus: 'y', files: ['a.md'] }] })
   const ok = merge(plan, [result({ coverage: ['CLAUDE.md', 'a.md'], findings: [{ path: 'CLAUDE.md', line: 1 }] }), result({ coverage: ['a.md'] })])
@@ -654,4 +654,47 @@ test('ignoredSupporting の各項目は分類の意味を持つ', () => {
   const out = merge(mergePlan(), [result({ supporting_files: ['/elsewhere/x.md', '../y.md', ' '] }), result({ coverage: ['a.md'] })])
   assert.deepEqual(out.reviewers[0].ignoredSupporting.map((x) => x.kind), ['outside_repo', 'outside_repo', 'not_path'])
   assert.ok(out.reviewers[0].ignoredSupporting.every((x) => typeof x.meaning === 'string' && x.meaning.length > 0))
+})
+
+test('ディレクトリの symlink の下の生成物を指す指摘・evidence・申告・担当外の coverage は、全て実体へ解決して不正・forbidden にする', () => {
+  const plan = mergePlan({ symlinkMap: { '.agents/skills/s': 'plugins/p/skills/s' } })
+  const under = '.agents/skills/s/references/criteria/x.md'
+  const finding = merge(plan, [result({ findings: [{ path: under, line: 3 }] }), result({ coverage: ['a.md'] })])
+  assert.match(finding.reviewers[0].invalidFindings[0].reason, /生成物/, '指摘')
+  const at1 = merge(plan, [result({ findings: [{ path: under, line: 1 }] }), result({ coverage: ['a.md'] })])
+  assert.match(at1.reviewers[0].invalidFindings[0].reason, /生成物/, '1 行目でも link そのものでなければ例外にしない')
+  for (const [label, r] of [['申告', result({ supporting_files: [under] })], ['担当外の coverage', result({ coverage: ['a.md', 'b.md', under] })]]) {
+    const out = merge(plan, [r, result({ coverage: ['a.md'] })])
+    assert.deepEqual(out.forbiddenReads.map((x) => [x.path, x.reason]), [[under, '生成物']], label)
+  }
+  const clusters = [{ lens: 'correctness', members: [[0, 0]] }]
+  const v = judge(plan, { clusters }, [{ assignments: firstAssignments(plan, clusters), verifications: [{ head_sha: H, policy_pack_token: 'S', results: [{ cluster: 0, claim: 0, verdict: 'confirmed', evidence: [{ path: under, line: 3 }] }] }] }])
+  assert.equal(v.outcomes[0].votes[0].vote, 'missing', 'evidence')
+})
+
+test('葉の link の例外は、link そのものが対象に入り、範囲が 1 行目だけのときに限る', () => {
+  const base = { preserved: ['AGENTS.md'], symlinkMap: { 'CLAUDE.md': 'AGENTS.md' } }
+  const inTarget = mergePlan({ ...base, target: { files: ['CLAUDE.md', 'a.md'] }, reviewers: [{ id: 'correctness', focus: 'x', files: ['CLAUDE.md', 'a.md'] }, { id: 'docs', focus: 'y', files: ['a.md'] }] })
+  const inSymlinks = mergePlan({ ...base, symlinks: ['CLAUDE.md'] })
+  const outside = mergePlan(base)
+  for (const [label, plan, finding, ok] of [
+    ['対象の link の 1 行目', inTarget, { path: 'CLAUDE.md', line: 1 }, true],
+    ['symlinks に入る link の 1 行目', inSymlinks, { path: 'CLAUDE.md', line: 1 }, true],
+    ['対象の link の 2 行目', inTarget, { path: 'CLAUDE.md', line: 2 }, false],
+    ['対象の link の 1-2 行目', inTarget, { path: 'CLAUDE.md', line: 1, end_line: 2 }, false],
+    ['対象でない link の 1 行目', outside, { path: 'CLAUDE.md', line: 1 }, false],
+  ]) {
+    const cov = plan.target.files.includes('CLAUDE.md') ? ['CLAUDE.md', 'a.md'] : ['a.md', 'b.md']
+    const out = merge(plan, [result({ coverage: cov, findings: [finding] }), result({ coverage: ['a.md'] })])
+    assert.equal(out.reviewers[0].invalidFindings.length === 0, ok, label)
+  }
+  const cov = merge(inSymlinks, [result({ coverage: ['a.md', 'b.md', 'CLAUDE.md'] }), result({ coverage: ['a.md'] })])
+  assert.deepEqual(cov.forbiddenReads, [], '担当外の coverage に対象の葉の link を書いても、リンク先が作業中の変更なだけでは forbidden にしない')
+  assert.deepEqual(cov.reviewers[0].extra, ['CLAUDE.md'])
+})
+
+test('ignoredEntries は IGNORED_KINDS に無い分類を黙って落とさず E_INTERNAL で止める', () => {
+  assert.deepEqual(ignoredEntries([{ kind: 'ok', entry: 'a' }, { kind: 'forbidden', entry: 'b' }]), [])
+  assert.equal(ignoredEntries([{ kind: 'outside_repo', entry: '/x' }])[0].kind, 'outside_repo')
+  rejects(() => ignoredEntries([{ kind: 'mystery', entry: 'x' }]), CODES.internal, /mystery/)
 })

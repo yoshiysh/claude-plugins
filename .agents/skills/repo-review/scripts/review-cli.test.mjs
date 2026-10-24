@@ -397,3 +397,28 @@ test('working_tree・audit の symlinkMap は作業ツリーの symlink（追跡
   assert.equal(pin.ok, false)
   assert.match(pin.problems.join('\n'), /symlinkMap/)
 })
+
+test('readlink の失敗（lstat の後に消えた link）は plan では E_IO、pin では対象を集め直せなかった collect になる', (t) => {
+  const fx = fixture(t)
+  write(fx.repo, 'docs/a.md', 'changed\n')
+  const body = { repo: fx.repo, mode: 'working_tree', baseRef: fx.head, headSha: fx.head, policyRef: fx.head, reviewers: [{ id: 'correctness', focus: 'x', files: ['docs/a.md'] }, { id: 'docs', focus: 'y', files: ['docs/a.md'] }], stateDir: fx.stateDir }
+  const vanishing = { ...defaultIo(), readlink: () => defaultIo().readlink(path.join(fx.repo, 'no-such-link')) }
+  const failed = run('plan', body, vanishing)
+  assert.equal(failed.code, CODES.io)
+  assert.match(failed.reason, /link を読めない/)
+  const ok = run('plan', body)
+  assert.equal(ok.exitCode, 0, ok.reason)
+  const pin = run('pin', signed({ planPath: ok.plan_path, planSum: ok.plan_sum }), vanishing).pin
+  assert.equal(pin.ok, false)
+  assert.deepEqual(pin.causes.map((c) => c.cause), ['collect'])
+})
+
+test('絶対パスの link は、repo の中を指すときだけ repo 相対の実体へ解決して symlinkMap に入れる', (t) => {
+  const fx = fixture(t)
+  symlinkSync(path.join(fx.repo, 'docs'), path.join(fx.repo, 'plugins/p/abs-in'))
+  symlinkSync('/etc', path.join(fx.repo, 'plugins/p/abs-out'))
+  const out = run('plan', { repo: fx.repo, mode: 'audit', headSha: fx.head, policyRef: fx.head, scope: ['docs/a.md'], reviewers: [{ id: 'correctness', focus: 'x', files: ['docs/a.md'] }, { id: 'docs', focus: 'y', files: ['docs/a.md'] }], stateDir: fx.stateDir })
+  assert.equal(out.exitCode, 0, out.reason)
+  assert.equal(out.plan.symlinkMap['plugins/p/abs-in'], 'docs')
+  assert.equal(Object.hasOwn(out.plan.symlinkMap, 'plugins/p/abs-out'), false)
+})
