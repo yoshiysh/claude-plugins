@@ -1,5 +1,6 @@
+import { globSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 
 const repoRoot = resolve(import.meta.dirname, '..', '..')
 // acorn はリポジトリ直下ではなく runner の runtime にだけ install される。パッケージ名で、runtime の位置から解決する。
@@ -64,4 +65,29 @@ export function bodyLiteral(source, name) {
     if (declarator) return literalValue(declarator.init)
   }
   throw new Error(`body constant ${name} is missing`)
+}
+
+// 置き場は best-practices.md §13「script の置き場」の 2 段。scripts/ の .js は Workflow source でないものも混ざるので
+// 先頭の文で選び、workflows/ の .js は全てを Workflow source として扱う（runner が全てを source として読むため）。
+// globSync は symlink のディレクトリを辿らないので、.agents/skills/ 側から拾えるのは未公開の実体だけになる（公開済みは plugins/ 側で拾う）。
+const SCRIPT_GLOBS = ['plugins/*/skills/*/scripts/*.js', '.agents/skills/*/scripts/*.js']
+const WORKFLOW_GLOBS = ['plugins/*/workflows/*.js']
+
+export function workflowSources(root) {
+  const found = new Map()
+  const add = (path) => {
+    const real = realpathSync(join(root, path))
+    if (!found.has(real)) found.set(real, relative(root, real))
+  }
+  for (const path of SCRIPT_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: root }))) {
+    let first
+    try {
+      first = parseModule(readFileSync(join(root, path), 'utf8')).body[0]
+    } catch (error) {
+      throw new Error(`${path}: cannot parse (${error.message})`)
+    }
+    if (isMetaDeclaration(first)) add(path)
+  }
+  for (const path of WORKFLOW_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: root }))) add(path)
+  return [...found.values()].sort()
 }

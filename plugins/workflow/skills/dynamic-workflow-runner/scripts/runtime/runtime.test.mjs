@@ -88,6 +88,10 @@ test('randomness, clock and direct process access are absent', async t => {
   for (const expression of ['Date.now()', 'new Date()', 'Math.random()', 'process.cwd()'])
     await assert.rejects(run(t, `return ${expression};`, { run: async () => '' }));
 });
+test('the body has no meta binding, as under native Workflow', async t => {
+  assert.equal((await run(t, `return typeof meta;`, { run: async () => '' })).result, 'undefined');
+  await assert.rejects(run(t, `return meta.name;`, { run: async () => '' }), /meta is not defined/);
+});
 test('parser rejects imports even in dead code; no regex rewriting of strings', () => {
   for (const source of ["if(false) import('fs');", "export default 1;"])
     assert.throws(() => compileSource(header + source), /unsupported/);

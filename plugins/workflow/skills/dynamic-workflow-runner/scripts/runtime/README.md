@@ -21,7 +21,8 @@ metadata statement by its AST source span, not regex or model translation. Names
 extensions are arbitrary. Imports and additional exports fail before execution.
 
 The injected API is `agent(prompt,{model,effort,label,phase,schema,isolation})`, `parallel(thunks)`,
-`pipeline(items,fn)`, `phase(title)`, `log(message)`, and `args`. Agent results are text
+`pipeline(items,fn)`, `phase(title)`, `log(message)`, and `args`. As under native Workflow, `meta` is not
+bound in the body; the runner reads it from the source outside the body. Agent results are text
 or schema-validated JSON. Backend failures and invalid outputs become null. Ordered
 fan-out retains nulls. Pipeline callback exceptions become null only after all items settle; host failures remain fatal. Configuration errors, resource limits and script exceptions
 fail the entire run; catching an agent error cannot bypass host limits.

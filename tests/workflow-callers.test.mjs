@@ -7,7 +7,7 @@ import test from 'node:test'
 import { resolveNamedWorkflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/named.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { cleanupSnapshot, createSnapshot } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/review-snapshot.mjs'
-import { bodyLiteral } from './helpers/workflow-source.mjs'
+import { bodyLiteral, workflowSources } from './helpers/workflow-source.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
 const pluginsRoot = join(repoRoot, 'plugins')
@@ -235,13 +235,20 @@ test('portable and host-default sources avoid hidden host state and the research
   assert.doesNotMatch(source, /evidence\/\$\{claim\.id\}/)
 })
 
-const portableModelHintSources = [
-  join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
-  join(pluginsRoot, 'skill-creator', 'workflows', 'build_skill.js'),
-]
+const portableModelHintSources = () => workflowSources(repoRoot)
+  .map((path) => join(repoRoot, path))
+  .filter((sourcePath) => readSourceMetadata(readFileSync(sourcePath, 'utf8')).codex_workflow_compatibility?.model_hints)
+
+test('portable sources are every Workflow source that declares model hints', () => {
+  const sources = portableModelHintSources()
+  for (const known of [
+    join(pluginsRoot, 'research', 'skills', 'search', 'scripts', 'investigate.js'),
+    join(pluginsRoot, 'skill-creator', 'workflows', 'build_skill.js'),
+  ]) assert.ok(sources.includes(known), `${known} is not enumerated`)
+})
 
 test('portable sources declare every non-load-bearing model hint exactly once', () => {
-  for (const sourcePath of portableModelHintSources) {
+  for (const sourcePath of portableModelHintSources()) {
     const source = readFileSync(sourcePath, 'utf8')
     assert.match(source, /schema_version: 'claude-workflow-model-portability\/v1'/)
     assert.match(source, /model_identity_semantics: 'non_load_bearing_scheduling_hint'/)
@@ -258,7 +265,7 @@ test('portable sources declare every non-load-bearing model hint exactly once', 
 // 本体の定数は meta の写し。native Workflow は本体に meta を渡さず、meta はリテラルでなければならず本体を参照できないので、
 // 写しの一致はここでしか保てない。本体が meta を読まないことは tests/workflow-source-native-meta.test.mjs が照らす。
 test('portable source body MODEL_HINTS mirror the meta model hints the runner reads', () => {
-  for (const sourcePath of portableModelHintSources) {
+  for (const sourcePath of portableModelHintSources()) {
     const source = readFileSync(sourcePath, 'utf8')
     const hints = Object.fromEntries(Object.entries(readSourceMetadata(source).codex_workflow_compatibility.model_hints)
       .map(([callsite, hint]) => [callsite, hint.requested_model]))
