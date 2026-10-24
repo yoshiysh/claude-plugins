@@ -9,8 +9,6 @@ export const meta = {
     { title: 'Evaluate' },
     { title: 'Synthesize' },
   ],
-  caps: { maxRounds: 6, subagentsPerRoundCap: 8 },
-  defaults: { maxRounds: 6, subagentsPerRoundCap: 6 },
   limits: {
     maxAgents: 109,
     concurrency: 8,
@@ -26,22 +24,22 @@ export const meta = {
 // 通常 3〜4ラウンドで収束する難問の大半をカバーしつつ、暴走時に打ち切れる。
 // voodoo constant であることを認める初期値であり、固定値ではなく実績（収束までの
 // 平均ラウンド数）を見て調整する対象。args.maxRounds はこの上限内だけ変更できる。
-const DEFAULT_MAX_ROUNDS = meta.defaults.maxRounds
-const HARD_MAX_ROUNDS = meta.caps.maxRounds
+const DEFAULT_MAX_ROUNDS = 6
+const HARD_MAX_ROUNDS = 6
 
 // DEFAULT_SUBAGENTS_CAP: 1ラウンドの並列 fan-out が大きすぎるとレビュー困難・
 // コスト超過を招くための上限。args.subagentsPerRoundCap はこの上限内だけ変更できる。
-const DEFAULT_SUBAGENTS_CAP = meta.defaults.subagentsPerRoundCap
-const HARD_SUBAGENTS_CAP = meta.caps.subagentsPerRoundCap
+const DEFAULT_SUBAGENTS_CAP = 6
+const HARD_SUBAGENTS_CAP = 8
 
-// The caller passes this canonical host ceiling unchanged; source args bound each run.
-const CODEX_RUNNER_LIMITS = meta.limits
-if (meta.limits.maxAgents !== meta.caps.maxRounds * (2 + 2 * meta.caps.subagentsPerRoundCap) + 1) {
-  throw new Error('Codex runner meta.limits.maxAgents must cover plan/evaluate plus capped execute/verify calls per round and synthesis.')
-}
-const FANOUT_WAVES = Math.ceil(meta.caps.subagentsPerRoundCap / meta.limits.concurrency)
-if (meta.limits.timeoutMs < (meta.caps.maxRounds * (2 + 2 * FANOUT_WAVES) + 1) * meta.limits.agentTimeoutMs) {
-  throw new Error('Codex runner meta.limits.timeoutMs must cover the sequential agent timeouts of every round and synthesis.')
+// native Workflow は本体に meta を渡さないので、meta.limits（runner が読む）の写しを本体に置く。写しの一致と、
+// limits が HARD_MAX_ROUNDS・HARD_SUBAGENTS_CAP の最悪の起動数・所要時間を覆うことは tests/dispatch-orchestrate.test.mjs が照らす。
+const CODEX_RUNNER_LIMITS = {
+  maxAgents: 109,
+  concurrency: 8,
+  timeoutMs: 6_600_000,
+  agentTimeoutMs: 240_000,
+  maxOutputBytes: 11_900_000,
 }
 
 const CLAUDE_PLAN_SCHEMA = {

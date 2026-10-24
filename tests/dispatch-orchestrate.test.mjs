@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { bodyLiteral } from './helpers/workflow-source.mjs';
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const skillDir = join(repoRoot, 'plugins', 'research', 'skills', 'dispatch');
@@ -35,7 +36,8 @@ async function runProfile(executionProfile) {
   const runDir = join(testRoot, 'run');
   const calls = [];
   try {
-    const sourceMeta = readSourceMetadata(await readFile(sourcePath, 'utf8'));
+    const sourceText = await readFile(sourcePath, 'utf8');
+    const sourceMeta = readSourceMetadata(sourceText);
     const args = { skillDir, topic: 'Check the behavior.', ...(executionProfile === 'codex_host_default' ? { executionProfile } : {}), maxRounds: 1, subagentsPerRoundCap: 1 };
     const limits = sourceMeta.limits;
     const result = await Workflow({
@@ -47,7 +49,7 @@ async function runProfile(executionProfile) {
       trustedSource: true,
       ...limits,
     });
-    return { result, calls, limits, args, hardSubagentsCap: sourceMeta.caps.subagentsPerRoundCap };
+    return { result, calls, limits, args, hardSubagentsCap: bodyLiteral(sourceText, 'HARD_SUBAGENTS_CAP') };
   } finally {
     await rm(testRoot, { recursive: true, force: true });
   }
@@ -95,4 +97,19 @@ test('Codex host-default profile keeps separate roles, omits model/effort, and e
     assert.equal(Object.hasOwn(options, 'effort'), false);
   }
   assert.match(calls.find(({ options }) => options.phase === 'Execute').prompt, /Do not identify yourself as Claude Fable 5/);
+});
+
+test('meta.limits covers the worst case of the body caps and the body keeps an exact copy (native Workflow does not bind meta in the body)', async () => {
+  const source = await readFile(sourcePath, 'utf8');
+  const limits = readSourceMetadata(source).limits;
+  const rounds = bodyLiteral(source, 'HARD_MAX_ROUNDS');
+  const cap = bodyLiteral(source, 'HARD_SUBAGENTS_CAP');
+  assert.deepEqual(bodyLiteral(source, 'CODEX_RUNNER_LIMITS'), { ...limits });
+  assert.equal(limits.maxAgents, rounds * (2 + 2 * cap) + 1, 'plan/evaluate plus capped execute/verify calls per round and synthesis');
+  const fanoutWaves = Math.ceil(cap / limits.concurrency);
+  assert.ok(limits.timeoutMs >= (rounds * (2 + 2 * fanoutWaves) + 1) * limits.agentTimeoutMs, 'sequential agent timeouts of every round and synthesis');
+  assert.ok(bodyLiteral(source, 'DEFAULT_MAX_ROUNDS') <= rounds);
+  assert.ok(bodyLiteral(source, 'DEFAULT_SUBAGENTS_CAP') <= cap);
+  assert.equal(readSourceMetadata(source).caps, undefined, 'caps live only in the body');
+  assert.equal(readSourceMetadata(source).defaults, undefined, 'defaults live only in the body');
 });

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs';
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs';
+import { bodyLiteral } from './helpers/workflow-source.mjs';
 
 const sourcePath = new URL('../plugins/workflow/skills/review-document/scripts/review-document.js', import.meta.url).pathname;
 const rubricPath = new URL('../plugins/workflow/skills/review-document/references/rubric.md', import.meta.url).pathname;
@@ -150,20 +151,20 @@ test('duplicate requested target paths cannot pass coverage', async t => {
 });
 
 test('refutation overflow is incomplete and stays within the declared call budget', async t => {
-  const meta = readSourceMetadata(await readFile(sourcePath, 'utf8'));
-  const f = await fixture(t, { suggestionCount: meta.caps.maxFindingsPerPass + 1 });
+  const maxFindings = bodyLiteral(await readFile(sourcePath, 'utf8'), 'MAX_FINDINGS_PER_PASS');
+  const f = await fixture(t, { suggestionCount: maxFindings + 1 });
   const result = await invoke(f, {
     rubricPath, executionMode: 'codex-runner', mode: 'review', targets: [f.target],
   }, 'overflow-run');
 
   assert.equal(result.verdict, 'review_incomplete');
   assert.ok(result.unverified.some(row => row.note?.includes('反証上限')));
-  assert.equal(f.calls.filter(call => call.options.label?.startsWith('refute-')).length, meta.caps.maxFindingsPerPass * 3);
+  assert.equal(f.calls.filter(call => call.options.label?.startsWith('refute-')).length, maxFindings * 3);
   assert.equal(f.calls.some(call => call.options.label === 'update'), false);
 });
 
 test('oversized Codex draft fails closed without returning partial content', async t => {
-  const cap = readSourceMetadata(await readFile(sourcePath, 'utf8')).caps.maxInlineDraftBytes;
+  const cap = bodyLiteral(await readFile(sourcePath, 'utf8'), 'MAX_INLINE_DRAFT_BYTES');
   const f = await fixture(t, { revisedContent: 'x'.repeat(cap + 1) });
   const result = await invoke(f, {
     rubricPath, executionMode: 'codex-runner', mode: 'revise', targets: [f.target],
@@ -226,4 +227,11 @@ test('native revise refutes all findings against staged files and keeps its file
   assert.equal(afterRefutes.length, 9 * 3);
   assert.ok(afterRefutes.every(call => call.prompt.includes(`[TARGET_FILES]:\n${stagedPath}\n`)));
   assert.ok(afterRefutes.some(call => call.prompt.includes(`"file": "${stagedPath}"`)));
+});
+
+test('meta.limits.maxAgents covers fixed calls plus before/after refutation caps of the body constant (native Workflow does not bind meta in the body)', async () => {
+  const source = await readFile(sourcePath, 'utf8');
+  const meta = readSourceMetadata(source);
+  assert.equal(meta.limits.maxAgents, 10 + bodyLiteral(source, 'MAX_FINDINGS_PER_PASS') * 6);
+  assert.equal(meta.caps, undefined, 'caps live only in the body');
 });

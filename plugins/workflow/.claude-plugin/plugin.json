@@ -1,6 +1,6 @@
 {
     "name": "workflow",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "description": "業務フロー系スキル（要求文書・仕様書の生成と監査、文書の言語化レビューと改稿、Codex 向け Workflow 内部互換層）",
     "author": {
         "name": "yoshiysh"
