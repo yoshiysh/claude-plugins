@@ -58,7 +58,7 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
 - policyRef の `REVIEW.md` を `git show <policyRef>:REVIEW.md` で読む。観点（reviewer の lens）は、その「観点」の項目と docs/guidelines の文書から、変更の性質に合うものを選んで立てる（人数の下限は `scripts/review-core.mjs` の `MIN_REVIEWERS`）。一覧をここに写さないのは、`REVIEW.md` が変わったときに写しだけが古くなるため。
 - 各 reviewer は `{ "id": "<観点の id>", "focus": "<照らす観点の名前と、見る内容>", "files": [...] }`。担当ファイルは「読むもの」の表で、そのファイルの種類に対応する文書を照らせる観点に割り当てる。全ての対象ファイルを 1 つ以上の観点に割り当てる（和集合が対象と一致しないと `plan` が拒否する）。id の形は `scripts/review-core.mjs` の `LENS_ID` で、合わなければ `plan` が `E_INPUT` で拒否する。
 - 対象に `SKILL.md`・スキルの `agents/*.md`・Workflow source（先頭の文が `export const meta` の `.js`）が含まれるときは、best-practices.md を規則として読む **スキル設計** の観点を `"id": "skill-design"` で足し、それらのファイルを担当させる。当たるかの判定の正本は `scripts/review-core.mjs` の `SKILL_DESIGN_TARGETS`・`WORKFLOW_SOURCE_PATHS`・`isWorkflowSource` で（置き場は best-practices.md §13「script の置き場」、削除した Workflow source は base の版で判定する）、当たるファイルを `skill-design` に割り当てないと `plan` が拒否する。
-- reviewer の人数の上限は、下の callsite が呼ぶ Workflow source の `meta.caps.maxReviewers`。超えるなら観点をまとめる。
+- reviewer の人数の上限は、下の callsite が呼ぶ Workflow source の定数 `MAX_REVIEWERS`。超えるなら観点をまとめる。
 
 ## Workflow を呼ぶ
 
@@ -99,7 +99,7 @@ Workflow の段と、source が構造で守ることは次のとおり。運搬�
 
 検証の段は best-practices の schemas.md「refuter の出力（REFUTE_SCHEMA）」の 2 段の組み方（1 体の段は有効な 1 票で確定、決着しない指摘だけ残りの観点に当てて多数決、欠けた・読めなかった票は有効票に数えない）に合わせている。その節と照らした範囲で、次は違う。
 
-- 観点の集合は reviewer の観点と同じで、人数（`MIN_REVIEWERS` から source の `meta.caps.maxReviewers` まで）で変わり、過半数も人数から決まる。固定の観点の一覧を持つと、`REVIEW.md` の観点と別の正本になる。
+- 観点の集合は reviewer の観点と同じで、人数（`MIN_REVIEWERS` から source の `MAX_REVIEWERS` まで）で変わり、過半数も人数から決まる。固定の観点の一覧を持つと、`REVIEW.md` の観点と別の正本になる。
 - 1 段目に置く観点（候補を最初に挙げた観点）は実測で選んでいない。
 - 重い指摘を最初から複数の検証役に当てず、検証に回す重さも絞らない（重さは reviewer の申告で、申告で体数や検証の有無を変えると起動数と範囲が帳簿の外で決まる）。
 - 1 体の検証役に渡す主張の数に上限が無い。体数を候補の数に依らない上限（段ごとに観点の数まで）に保つためで、1 体の入力は割り当てた主張の数に比例して増える。

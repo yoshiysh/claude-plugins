@@ -10,7 +10,6 @@ export const meta = {
     { title: '追加の検証' },
     { title: '最終の判定' },
   ],
-  caps: { maxReviewers: 8, carrierTries: 2 },
   limits: { maxAgents: 30, concurrency: 8, timeoutMs: 8100000, agentTimeoutMs: 900000, maxOutputBytes: 4000000 },
 }
 
@@ -26,13 +25,11 @@ const VERDICTS = ['confirmed', 'refuted', 'unverified']
 // REVIEW.md「重大度」の表の名前。script は REVIEW.md を読めないので写しを持ち、一致は同じテストが照らす。
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 const CARRIER_STEPS = ['網羅の照合と統合', '一次の判定', '最終の判定']
-// 検証役は 1 段目が観点ごとに 1 体まで、2 段目も観点ごとに 1 体まで。所要時間は reviewer・検証の段・運搬役の試行が順に並ぶ最悪の長さ。
-if (meta.limits.maxAgents !== (1 + VERIFY_ROUNDS) * meta.caps.maxReviewers + CARRIER_STEPS.length * meta.caps.carrierTries) {
-  throw new Error('meta.limits.maxAgents は reviewer・2 段の検証役の上限と運搬役の最悪の起動数の和でなければならない')
-}
-if (meta.limits.timeoutMs !== (1 + VERIFY_ROUNDS + CARRIER_STEPS.length * meta.caps.carrierTries) * meta.limits.agentTimeoutMs) {
-  throw new Error('meta.limits.timeoutMs は順に並ぶ agent の最悪の本数と agentTimeoutMs の積でなければならない')
-}
+// native Workflow は本体に meta を渡さないので、本体が使う値は本体の定数に置く。meta.limits（runner だけが読む）は
+// (1 + VERIFY_ROUNDS) * MAX_REVIEWERS + CARRIER_STEPS.length * CARRIER_TRIES 体と、順に並ぶ最悪の本数 × agentTimeoutMs に合わせ、
+// 一致は tests/repo-review-workflow.test.mjs が照らす。
+const MAX_REVIEWERS = 8
+const CARRIER_TRIES = 2
 
 // review-cli.mjs と同じ字面（一致は tests/repo-review-workflow.test.mjs が照らす）。運搬役の写し間違いを双方で検出する。
 function canonical(value) {
@@ -64,8 +61,8 @@ if (!plan || typeof plan !== 'object' || fnvSum(plan) !== input.planSum) {
 if (typeof input.planPath !== 'string' || !input.planPath.startsWith('/')) {
   throw new Error('args.planPath には review-cli.mjs plan の出力の plan_path をそのまま渡す')
 }
-if (!Array.isArray(plan.reviewers) || plan.reviewers.length > meta.caps.maxReviewers) {
-  throw new Error(`reviewer は ${meta.caps.maxReviewers} 人まで`)
+if (!Array.isArray(plan.reviewers) || plan.reviewers.length > MAX_REVIEWERS) {
+  throw new Error(`reviewer は ${MAX_REVIEWERS} 人まで`)
 }
 const CLI = `${skillDir}/scripts/review-cli.mjs`
 const PLAN_REF = { planPath: input.planPath, planSum: input.planSum }
@@ -255,7 +252,7 @@ async function carryOnce(step, requests) {
 
 async function carry(step, requests) {
   let r = null
-  for (let attempt = 0; attempt < meta.caps.carrierTries; attempt += 1) {
+  for (let attempt = 0; attempt < CARRIER_TRIES; attempt += 1) {
     r = await carryOnce(step, requests)
     if (r.ok || !r.lost) return r
   }

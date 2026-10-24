@@ -262,7 +262,7 @@ test('異常: 運搬役が上限まで応答を失ったら、候補を未検証
   assert.deepEqual(result.reasons, ['carrier_failed'])
   assert.equal(result.unverified_candidates.length, 2)
   assert.deepEqual(result.findings, [])
-  assert.equal(result.launches.carriers, META.caps.carrierTries)
+  assert.equal(result.launches.carriers, literalOf('CARRIER_TRIES'))
   assert.equal(labels(b, 'verify').length, 0)
 })
 
@@ -426,6 +426,32 @@ test('Workflow source の写し（canonical・fnvSum・VERDICTS・VERIFY_ROUNDS�
   assert.equal(source.get('fnvSum'), fnvSum.toString())
   assert.deepEqual(literalOf('VERDICTS'), [...VERDICTS])
   assert.equal(literalOf('VERIFY_ROUNDS'), VERIFY_ROUNDS)
+})
+
+test('meta.limits は本体の定数から決まる最悪の起動数・所要時間と一致する（本体は meta を読めないので式をテストで照らす）', () => {
+  const rounds = literalOf('VERIFY_ROUNDS')
+  const steps = literalOf('CARRIER_STEPS').length
+  const tries = literalOf('CARRIER_TRIES')
+  assert.equal(META.limits.maxAgents, (1 + rounds) * literalOf('MAX_REVIEWERS') + steps * tries)
+  assert.equal(META.limits.timeoutMs, (1 + rounds + steps * tries) * META.limits.agentTimeoutMs)
+  assert.equal(META.caps, undefined, '本体が使う値を meta に二重に持たない')
+})
+
+test('native Workflow は本体に meta を渡さない: 本体（export const meta の外）が識別子 meta を参照しない', () => {
+  const ast = acorn.parse(`async function __s() {\n${SOURCE_TEXT.replace(/^export const meta =/, 'const __meta =')}\n}`, { ecmaVersion: 'latest', sourceType: 'module' })
+  const refs = []
+  const visit = (node, parent) => {
+    if (!node || typeof node.type !== 'string') return
+    const isProperty = parent && ((parent.type === 'MemberExpression' && parent.property === node && !parent.computed)
+      || (parent.type === 'Property' && parent.key === node && !parent.computed))
+    if (node.type === 'Identifier' && node.name === 'meta' && !isProperty) refs.push(node.start)
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach((child) => visit(child, node))
+      else if (value && typeof value === 'object') visit(value, node)
+    }
+  }
+  visit(ast)
+  assert.deepEqual(refs, [], '本体の meta の参照は native Workflow で ReferenceError になる')
 })
 
 test('Workflow source の重大度の名前は REVIEW.md「重大度」の表と一致する', () => {
