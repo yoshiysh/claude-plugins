@@ -45,7 +45,7 @@ description: >
 
 CLI は段ごとの作業ツリーの snapshot を `stateDir` の記録に残し、次の段の始めに今の snapshot と照らす。段の外での書き込み（計画の段・券を閉じた後の実装の Workflow・check とレビューの間）は、次の段で `E_STATE` か `changed_outside_steps` として見つかる。記録が見ないものは「照合しないもの」にまとめる。
 
-CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒否で、`code` と `reason` を持つ（code の一覧は `scripts/implement-core.mjs` の `CODES`、個々の拒否の理由は `reason`）。`ok: false` の拒否では CLI は記録を書かないので、写し間違いが原因なら正しい入力で同じ op を流し直してよい。入力の誤りでない拒否（`reason` が段の順序や作業ツリーの状態を指す）なら次の段へ進まず、`reason` を報告する。Workflow の返り値（実装の Workflow・repo-review の Workflow）は、本文を写す代わりにファイルの path を `<名前>Path`（`implementationPath`・`reviewPath`）で渡せる。native の Workflow が返り値を残す tasks の `.output`（`{summary, agentCount, logs, result}` の包み）はそのまま渡してよく、CLI が `result` を取り出す。
+CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒否で、`code` と `reason` を持つ（code の一覧は `scripts/implement-core.mjs` の `CODES`、個々の拒否の理由は `reason`）。`ok: false` の拒否では CLI は記録を書かないので、写し間違いが原因なら正しい入力で同じ op を流し直してよい。入力の誤りでない拒否（`reason` が段の順序や作業ツリーの状態を指す）なら次の段へ進まず、`reason` を報告する。Workflow の返り値（実装の Workflow・repo-review の Workflow）は、本文を写す代わりにファイルの path を `<名前>Path`（`implementationPath`・`reviewPath`）で渡せる。native の Workflow が返り値を残す tasks の `.output`（返り値を `result` に入れた包み）はそのまま渡してよく、CLI が `result` を取り出す（包みの判定は `scripts/implement-core.mjs` の `unwrapWorkflowOutput`）。
 
 ## 開始: 状態を固定する
 
@@ -102,7 +102,7 @@ planner は影響する path・守る性質・手順・追加の check と、変
    JSON
    ```
 
-2. **開始時の check**: 同じ入力に `"phase": "baseline"` を足して `run-checks` を流す。実装の後に失敗した check が変更の起こしたものかを、CLI がこの記録と照らして決める。`make test` は数分かかり、shell の前景の実行の時間上限を超え得るので、`run-checks` は background で実行して終了を待つ（途中で打ち切ると記録が残らず、その段をやり直すことになる）。開始時に失敗した check（`exit_code` が 0 でない）は、変更後も失敗すれば修正の回では直さない（変更が起こしたと決められない）。その check は plan の必須の check でもあるので、変更がその失敗を直さない限り `verify` は通らない。依頼がその失敗を直すものでなければ、ここで止まり、失敗の argv と出力を利用者に示して、止めるか、その失敗を直すことを依頼の範囲に入れて計画からやり直すかを確かめる（そのまま続けても完了にはならない）。
+2. **開始時の check**: 同じ入力に `"phase": "baseline"` を足して `run-checks` を流す。実装の後に失敗した check が変更の起こしたものかを、CLI がこの記録と照らして決める。`make test` は数分かかり、shell の前景の実行の時間上限を超え得るので、`run-checks` は background で実行して終了を待つ（途中で打ち切ると記録が残らず、その段をやり直すことになる）。開始時に失敗した check（`exit_code` が 0 でない）は、変更後も失敗すれば修正の回では直さない（変更が起こしたと決められない）。`verify` は plan の check の全件の成功を求めるので、変更がその失敗を直さない限り `verify` は通らない。依頼がその失敗を直すものでなければ、ここで止まり、失敗の argv と出力を利用者に示して、止めるか、その失敗を直すことを依頼の範囲に入れて計画からやり直すかを確かめる（そのまま続けても完了にはならない）。
 
 ## 実装の回
 
@@ -193,7 +193,7 @@ JSON
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 
-commit を頼まれたときは、stage する前に `verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path だけを stage して commit する（preservedPaths は stage しない。利用者の作業で、この run が照らしていない）。CLI は index を開始時の記録と照らすので、stage した後に `verify` を流すと `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。
+commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。
 
 ## 照合しないもの
 
