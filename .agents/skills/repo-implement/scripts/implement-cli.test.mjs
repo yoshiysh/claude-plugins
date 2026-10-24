@@ -46,6 +46,7 @@ function fixture(t, { branch = 'work' } = {}) {
   symlinkSync('real', path.join(repo, 'link'))
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'base')
+  git(repo, 'update-ref', `refs/remotes/${DEFAULT_POLICY_REF}`, 'main')
   if (branch !== 'main') git(repo, 'checkout', '-q', '-b', branch)
   return { repo, stateDir: tmp(t, 'repo-implement-state-'), head: git(repo, 'rev-parse', 'HEAD') }
 }
@@ -61,7 +62,7 @@ function ok(op, body) {
 }
 
 function start(fx) {
-  const out = ok('start', { repo: fx.repo, stateDir: fx.stateDir, policyRef: 'main' })
+  const out = ok('start', { repo: fx.repo, stateDir: fx.stateDir })
   return { state: out.state, statePath: out.state_path, stateSum: out.state_sum, out, repo: fx.repo, stateDir: fx.stateDir }
 }
 
@@ -93,15 +94,21 @@ function round(s, p, edit, touched, { repair = null, status } = {}) {
 
 // repo-review の plan 操作が stateDir に書く計画のファイルの形（record-review が照らす部分）を、今の作業ツリーから作る。
 function reviewPlanFile(s, files, patch = {}) {
-  const digests = Object.fromEntries(files.map((f) => [f, `file:${sha256(readFileSync(path.join(s.repo, f)))}`]))
-  const plan = { mode: 'working_tree', baseRef: s.state.head, headSha: s.state.head, policyRef: s.state.policyRef, target: { files }, excluded: [], generated: [], preserved: s.out.preservedPaths, digests, ...patch }
+  const digests = Object.fromEntries(files.filter((f) => typeof f === 'string' && !f.startsWith('..')).map((f) => [f, `file:${sha256(readFileSync(path.join(s.repo, f)))}`]))
+  const plan = { mode: 'working_tree', baseRef: s.state.head, headSha: s.state.head, policyRef: s.state.policyRef, target: { files }, excluded: [], generated: [], preserved: s.out.preservedPaths, digests, reviewers: LENSES.map((id) => ({ id })), ...patch }
   const file = path.join(s.stateDir, `review-plan-${fnvSum(plan)}.json`)
   writeFileSync(file, JSON.stringify(plan))
   return { reviewPlanPath: file, reviewPlanSum: fnvSum(plan), plan }
 }
 
+const LENSES = ['correctness', 'docs']
+// repo-review の Workflow の返り値の形（record-review が照らす部分）。sum は本文の fnvSum。
 function reviewOf(s, files, patch = {}) {
-  return { status: 'completed', mode: 'working_tree', headSha: s.state.head, baseRef: s.state.head, policyRef: s.state.policyRef, scope: null, target: { files }, excluded: [], generated: [], preserved: s.out.preservedPaths, findings: [], unverified: [], reasons: [], ...patch }
+  const body = {
+    status: 'completed', mode: 'working_tree', headSha: s.state.head, baseRef: s.state.head, policyRef: s.state.policyRef, scope: null, target: { files },
+    excluded: [], generated: [], preserved: s.out.preservedPaths, coverage: LENSES.map((id) => ({ id })), pin: { ok: true }, findings: [], unverified: [], reasons: [], ...patch,
+  }
+  return { ...body, sum: fnvSum(body) }
 }
 
 const confirmed = (patch = {}) => ({
@@ -127,32 +134,25 @@ test('start: 開始時の変更を preservedPaths として内容・XY・index �
   assert.equal(fnvSum(JSON.parse(readFileSync(s.statePath, 'utf8'))), s.stateSum)
 })
 
-test('start: policyRef を省くと主ブランチの remote の先端を使う', (t) => {
+test('start: policyRef は主ブランチの remote の先端に固定し、呼び出し側の値を受け付けない', (t) => {
   const fx = fixture(t)
-  git(fx.repo, 'update-ref', `refs/remotes/${DEFAULT_POLICY_REF}`, 'main')
+  git(fx.repo, 'commit', '-q', '--allow-empty', '-m', 'work branch commit')
+  assert.equal(call('start', { repo: fx.repo, stateDir: fx.stateDir, policyRef: 'HEAD' }).code, CODES.input)
   const out = ok('start', { repo: fx.repo, stateDir: fx.stateDir })
-  assert.equal(out.state.policyRef, git(fx.repo, 'rev-parse', 'main'))
-})
-
-test('start: 未追跡の入れ子の repo があっても始められ、後の段が state を読める', (t) => {
-  const fx = fixture(t)
-  mkdirSync(path.join(fx.repo, 'nested'))
-  git(path.join(fx.repo, 'nested'), 'init', '-q')
-  write(fx.repo, 'nested/x', 'x\n')
-  const s = start(fx)
-  assert.deepEqual(s.out.preservedPaths, ['nested'])
-  assert.equal(ok('snapshot', ref(s)).unchanged, true)
+  assert.equal(out.state.policyRef, git(fx.repo, 'rev-parse', DEFAULT_POLICY_REF))
+  assert.notEqual(out.state.policyRef, out.state.head)
 })
 
 test('start: 始められない入力を理由つきで拒否し、state を書かない', async (t) => {
   const cases = [
-    { name: '異常: main の上', setup: (t) => fixture(t, { branch: 'main' }), body: (fx) => ({ repo: fx.repo, stateDir: fx.stateDir, policyRef: 'main' }), code: CODES.pin },
-    { name: '異常: branch の無い HEAD', body: (fx) => { git(fx.repo, 'checkout', '-q', '--detach'); return { repo: fx.repo, stateDir: fx.stateDir, policyRef: 'main' } }, code: CODES.pin },
-    { name: '異常: stateDir が repo の中', body: (fx) => { mkdirSync(path.join(fx.repo, 'st')); return { repo: fx.repo, stateDir: path.join(fx.repo, 'st'), policyRef: 'main' } }, code: CODES.input },
-    { name: '異常: policyRef が commit に解決しない', body: (fx) => ({ repo: fx.repo, stateDir: fx.stateDir, policyRef: 'no-such-ref' }), code: CODES.pin },
-    { name: '異常: policyRef を省いたが remote の主ブランチが無い', body: (fx) => ({ repo: fx.repo, stateDir: fx.stateDir }), code: CODES.pin },
-    { name: '異常: stateDir が無い', body: (fx) => ({ repo: fx.repo, stateDir: path.join(fx.stateDir, 'missing'), policyRef: 'main' }), code: CODES.input },
-    { name: '異常: repo が root でない', body: (fx) => ({ repo: path.join(fx.repo, 'src'), stateDir: fx.stateDir, policyRef: 'main' }), code: CODES.input },
+    { name: '異常: main の上', setup: (t) => fixture(t, { branch: 'main' }), body: (fx) => ({ repo: fx.repo, stateDir: fx.stateDir }), code: CODES.pin },
+    { name: '異常: branch の無い HEAD', body: (fx) => { git(fx.repo, 'checkout', '-q', '--detach'); return { repo: fx.repo, stateDir: fx.stateDir } }, code: CODES.pin },
+    { name: '異常: stateDir が repo の中', body: (fx) => { mkdirSync(path.join(fx.repo, 'st')); return { repo: fx.repo, stateDir: path.join(fx.repo, 'st') } }, code: CODES.input },
+    { name: '異常: remote の主ブランチが無い', body: (fx) => { git(fx.repo, 'update-ref', '-d', `refs/remotes/${DEFAULT_POLICY_REF}`); return { repo: fx.repo, stateDir: fx.stateDir } }, code: CODES.pin },
+    { name: '異常: 未追跡の入れ子の repo（レビューの変更の集合として扱えない）', body: (fx) => { mkdirSync(path.join(fx.repo, 'nested')); git(path.join(fx.repo, 'nested'), 'init', '-q'); write(fx.repo, 'nested/x', 'x\n'); return { repo: fx.repo, stateDir: fx.stateDir } }, code: CODES.pin },
+    { name: '異常: index だけが HEAD と違う path（staged の後に作業ツリーを戻した）', body: (fx) => { write(fx.repo, 'keep.md', 'staged\n'); git(fx.repo, 'add', 'keep.md'); write(fx.repo, 'keep.md', 'keep\n'); return { repo: fx.repo, stateDir: fx.stateDir } }, code: CODES.pin },
+    { name: '異常: stateDir が無い', body: (fx) => ({ repo: fx.repo, stateDir: path.join(fx.stateDir, 'missing') }), code: CODES.input },
+    { name: '異常: repo が root でない', body: (fx) => ({ repo: path.join(fx.repo, 'src'), stateDir: fx.stateDir }), code: CODES.input },
   ]
   for (const c of cases) {
     await t.test(c.name, (t) => {
@@ -166,7 +166,7 @@ test('start: 始められない入力を理由つきで拒否し、state を書�
   await t.test('準正常: 同じ stateDir での 2 回目の start は前の state を上書きしない', (t) => {
     const fx = fixture(t)
     start(fx)
-    assert.equal(call('start', { repo: fx.repo, stateDir: fx.stateDir, policyRef: 'main' }).code, CODES.state)
+    assert.equal(call('start', { repo: fx.repo, stateDir: fx.stateDir }).code, CODES.state)
   })
 })
 
@@ -463,6 +463,89 @@ test('verify: 最後に check と review を通した作業ツリーのままの
   })
 })
 
+test('通らなかった round の後は check・レビューへ進めず、abandon で終えて残った変更を返す', async (t) => {
+  for (const [name, status, edit, touched] of [
+    ['異常: 実装の Workflow が incomplete', 'incomplete', null, []],
+    ['異常: inventory が plan の外の変更で通らない', 'ready_for_check', (r) => write(r, 'README.md', 'x\n'), ['README.md']],
+  ]) {
+    await t.test(name, (t) => {
+      const fx = fixture(t)
+      const s = start(fx)
+      const p = planFor(s)
+      admit(s, p)
+      round(s, p, edit, touched, { status })
+      assert.equal(call('run-checks', { ...ref(s), ...p, phase: 'after' }).code, CODES.state)
+      assert.equal(call('begin-round', { ...ref(s), ...p, repair: 'checks' }).code, CODES.state)
+      assert.equal(ok('verify', { ...ref(s), ...p }).passed, false)
+      const out = ok('abandon', { ...ref(s), reason: name })
+      assert.deepEqual(out.remaining, edit ? ['README.md'] : [])
+      for (const [op, body] of [['begin-round', { ...p, repair: null }], ['run-checks', { ...p, phase: 'after' }], ['inventory', p], ['abandon', { reason: 'x' }]]) {
+        assert.equal(call(op, { ...ref(s), ...body }).code, CODES.state, `${op} は終わった run で受け付けない`)
+      }
+      assert.ok(ok('verify', { ...ref(s), ...p }).problems.some((x) => x.cause === 'terminated'))
+    })
+  }
+  await t.test('準正常: Workflow が返り値無しで終わって開いたままの round を abandon が閉じる', (t) => {
+    const fx = fixture(t)
+    const s = start(fx)
+    const p = planFor(s)
+    admit(s, p)
+    ok('begin-round', { ...ref(s), ...p, repair: null })
+    write(fx.repo, 'src/a.mjs', 'half written\n')
+    const out = ok('abandon', { ...ref(s), reason: 'workflow timeout' })
+    assert.deepEqual(out.remaining, ['src/a.mjs'])
+    const ledger = JSON.parse(readFileSync(s.state.ledgerPath, 'utf8'))
+    assert.deepEqual([ledger.open, ledger.rounds.at(-1).status], [null, 'abandoned'])
+  })
+  await t.test('異常: 理由の無い abandon', (t) => {
+    const fx = fixture(t)
+    const s = start(fx)
+    assert.equal(call('abandon', ref(s)).code, CODES.input)
+  })
+})
+
+test('record-review: 1 round に 1 回だけ記録し、やり直しは review_incomplete の後だけ', async (t) => {
+  await t.test('異常: completed の後の 2 回目', (t) => {
+    const { s } = implemented(t)
+    assert.equal(recordReview(s, ['src/a.mjs'], { findings: [confirmed()] }).ok, true)
+    assert.equal(recordReview(s, ['src/a.mjs']).code, CODES.state, '指摘 0 件が出るまで回し直せない')
+  })
+  await t.test('準正常: review_incomplete の後のやり直しは記録し、前の確定指摘を残す', (t) => {
+    const { s, p } = implemented(t)
+    assert.equal(recordReview(s, ['src/a.mjs'], { status: 'review_incomplete', coverage: undefined, pin: undefined, findings: [confirmed()] }).ok, true)
+    const again = recordReview(s, ['src/a.mjs'])
+    assert.equal(again.ok, true, again.reason)
+    assert.deepEqual([again.review.findings, again.review.passed], [1, false])
+    assert.deepEqual(ok('verify', { ...ref(s), ...p }).problems.map((x) => x.cause), ['review_not_passed'])
+  })
+  await t.test('異常: 返り値から findings を落とした', (t) => {
+    const { s } = implemented(t)
+    const rp = reviewPlanFile(s, ['src/a.mjs'])
+    const dropped = { ...reviewOf(s, ['src/a.mjs'], { findings: [confirmed()] }), findings: [] }
+    assert.equal(call('record-review', { ...ref(s), review: dropped, reviewPlanPath: rp.reviewPlanPath, reviewPlanSum: rp.reviewPlanSum }).code, CODES.input)
+  })
+  await t.test('異常: target.files の path が repo の外・文字列でない（内容を読む前に拒否する）', async (t) => {
+    for (const files of [['../outside'], [42]]) {
+      await t.test(JSON.stringify(files), (t) => {
+        const { s } = implemented(t)
+        const out = recordReview(s, files)
+        assert.equal(out.code, CODES.input, out.reason)
+      })
+    }
+  })
+})
+
+test('run-checks: 同じ round の run は全てを数え、通るまで回し直しても失敗は消えない', (t) => {
+  const fx = fixture(t)
+  const s = start(fx)
+  const p = planFor(s)
+  admit(s, p)
+  round(s, p, (r) => { write(r, 'src/a.mjs', '2\n'); write(r, 'FAIL', 'x\n') }, ['src/a.mjs', 'FAIL'])
+  assert.equal(ok('run-checks', { ...ref(s), ...p, phase: 'after' }).passed, false)
+  rmSync(path.join(fx.repo, 'FAIL'))
+  assert.equal(call('run-checks', { ...ref(s), ...p, phase: 'after' }).code, CODES.state, '記録の外で失敗の原因を消した')
+})
+
 test('snapshot: 内容・未追跡・symlink の先の文字列で変わり、読むだけでは変わらない', (t) => {
   const fx = fixture(t)
   const s = start(fx)
@@ -508,7 +591,7 @@ test('main: 使い方の誤りは exit 2、拒否は exit 1 で、本物の CLI 
     const fx = fixture(t)
     const dir = path.join(fx.stateDir, 'a b')
     mkdirSync(dir)
-    const r = spawnSync(process.execPath, [CLI, 'start'], { input: JSON.stringify({ repo: fx.repo, stateDir: dir, policyRef: 'main' }), encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [CLI, 'start'], { input: JSON.stringify({ repo: fx.repo, stateDir: dir }), encoding: 'utf8' })
     assert.equal(r.status, 0, r.stderr)
     const out = JSON.parse(r.stdout)
     assert.equal(out.ok, true)

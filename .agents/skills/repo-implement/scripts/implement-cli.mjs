@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url'
 import {
   CODES, DEFAULT_POLICY_REF, ImplementError, MAIN_BRANCH, PHASES, argvOf, baselineVerdict, checkPolicy, checkRecord, fnvSum,
   implementationProblem, inventoryProblems, isSha, newLedger, parsePorcelain, planCheckProblems, planProblem, requireAdmitted, requireClosed,
-  requireUnchanged, reviewProblems, reviewRecord, roundEffectProblems, roundTicket, sha256, snapshotOf, stateProblem, tail, verifyProblems,
+  requireLastRoundPassed, requireLive, requireUnchanged, reviewProblems, reviewRecord, reviewShapeProblems, reviewsOf, roundEffectProblems, roundTicket,
+  sha256, snapshotOf, stateProblem, tail, unreviewablePaths, verifyProblems,
 } from './implement-core.mjs'
 
 const STATE_FILE = 'repo-implement-state.json'
@@ -84,6 +85,18 @@ function statusEntries(io, repo) {
   return parsePorcelain(gitText(io, repo, ['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all']))
 }
 
+function zlist(io, repo, args) {
+  return gitText(io, repo, args).split('\0').filter(Boolean)
+}
+
+// 変更の集合の定義は core の unreviewablePaths のコメント（repo-review の working_tree と同じ）。
+function changeSet(io, repo) {
+  return [...new Set([
+    ...zlist(io, repo, ['diff', '--name-only', '-z', '--no-renames', 'HEAD']),
+    ...zlist(io, repo, ['ls-files', '-z', '--others', '--exclude-standard']),
+  ])].sort()
+}
+
 function takeSnapshot(io, repo) {
   const head = headOf(io, repo)
   const entries = statusEntries(io, repo).map((e) => ({ ...e, digest: digestOf(io, repo, e.path) }))
@@ -145,9 +158,9 @@ function saveLedger(io, state, ledger) {
 }
 
 function observe(io, state) {
-  const { head, snapshot, paths } = takeSnapshot(io, state.repo)
+  const { head, snapshot } = takeSnapshot(io, state.repo)
   const preserved = new Set(state.preserved.map((p) => p.path))
-  const actual = paths.filter((p) => !preserved.has(p)).sort()
+  const actual = changeSet(io, state.repo).filter((p) => !preserved.has(p))
   return { head, snapshot, actual, preservedNow: preservedDigests(io, state.repo, [...preserved]) }
 }
 
@@ -175,12 +188,12 @@ function ignoredPaths(io, repo, paths) {
 const OPS = {
   start(body, io) {
     const { repo, stateDir } = body
-    const policyRef = body.policyRef ?? DEFAULT_POLICY_REF
+    if (Object.hasOwn(body, 'policyRef')) throw new ImplementError(CODES.input, `policyRef は渡さない（CLI が ${DEFAULT_POLICY_REF} に固定する。作業 branch の規約で同じ変更を免責しないため）`)
+    const policyRef = DEFAULT_POLICY_REF
     if (typeof repo !== 'string' || !repo.startsWith('/')) throw new ImplementError(CODES.input, 'repo は作業ツリーの絶対パス')
     if (typeof stateDir !== 'string' || !stateDir.startsWith('/') || !io.lstat(stateDir)?.isDirectory()) {
       throw new ImplementError(CODES.input, 'stateDir は既にあるディレクトリの絶対パス（mktemp -d で作る）')
     }
-    if (typeof policyRef !== 'string' || !policyRef) throw new ImplementError(CODES.input, 'policyRef は省くか ref の文字列')
     const root = io.realpath(repo)
     if (gitText(io, root, ['rev-parse', '--show-toplevel']).trim() !== root) throw new ImplementError(CODES.input, 'repo が作業ツリーの root でない')
     if (insideRepo(root, stateDir, io)) throw new ImplementError(CODES.input, 'stateDir が repo の中にある（記録が未追跡の変更として数えられる）')
@@ -194,8 +207,13 @@ const OPS = {
     const policySha = resolved?.toString('utf8').trim()
     if (!isSha(policySha)) throw new ImplementError(CODES.pin, `policyRef を commit に解決できない: ${policyRef}`)
     const { head, snapshot, paths } = takeSnapshot(io, root)
-    const digests = preservedDigests(io, root, paths)
-    const preserved = paths.map((p) => ({ path: p, digest: digests[p] }))
+    const changes = changeSet(io, root)
+    const odd = [...new Set([...unreviewablePaths(paths, changes), ...changes.filter((p) => unreviewablePaths([p], changes).length)])].sort()
+    if (odd.length) {
+      throw new ImplementError(CODES.pin, `レビューの変更の集合として扱えない開始時の状態がある（未追跡の入れ子の repo か、index だけが HEAD と違う path）。commit・unstage・移動で片付けてから始める: ${JSON.stringify(odd)}`)
+    }
+    const digests = preservedDigests(io, root, changes)
+    const preserved = changes.map((p) => ({ path: p, digest: digests[p] }))
     const state = { repo: root, branch, head, policyRef: policySha, preserved, snapshot, checkPolicy: checkPolicy(), ledgerPath: path.join(dir, LEDGER_FILE) }
     const stateSum = fnvSum(state)
     const statePath = path.join(dir, STATE_FILE)
@@ -210,6 +228,7 @@ const OPS = {
   },
   inventory(body, io) {
     const { state, ledger } = loadState(body, io)
+    requireLive(ledger, 'inventory')
     const plan = loadPlan(body, state, body.stateSum)
     const now = observe(io, state)
     if (body.implementation === undefined || body.implementation === null) {
@@ -231,15 +250,16 @@ const OPS = {
     const problem = implementationProblem(body.implementation, ledger.open)
     if (problem) throw new ImplementError(CODES.input, problem)
     const impl = body.implementation
-    const record = { round: impl.repairRound, status: impl.status, touched: [...impl.touched_paths], snapshot_before: ledger.snapshot, snapshot_after: now.snapshot }
+    const touched = [...ledger.rounds.flatMap((r) => r.touched), ...impl.touched_paths]
+    const problems = [...inventoryProblems({ state, plan, ...now, touched }), ...roundEffectProblems(impl.status, ledger.snapshot, now.snapshot)]
+    const record = { round: impl.repairRound, status: impl.status, touched: [...impl.touched_paths], snapshot_before: ledger.snapshot, snapshot_after: now.snapshot, passed: problems.length === 0 }
     saveLedger(io, state, { ...ledger, open: null, snapshot: now.snapshot, rounds: [...ledger.rounds, record] })
-    const touched = [...ledger.rounds, record].flatMap((r) => r.touched)
-    const problems = [...inventoryProblems({ state, plan, ...now, touched }), ...roundEffectProblems(impl.status, record.snapshot_before, record.snapshot_after)]
     return { passed: problems.length === 0, round: impl.repairRound, status: impl.status, problems, actual: now.actual }
   },
   'begin-round'(body, io) {
     const { state, ledger } = loadState(body, io)
     const plan = loadPlan(body, state, body.stateSum)
+    requireLive(ledger, 'begin-round')
     requireAdmitted(ledger, body.planSum)
     requireClosed(ledger, 'begin-round')
     if (plan.status !== 'approved') throw new ImplementError(CODES.state, '変更不要の plan は実装しない')
@@ -253,11 +273,12 @@ const OPS = {
   'run-checks'(body, io) {
     const { state, ledger } = loadState(body, io)
     const plan = loadPlan(body, state, body.stateSum)
+    requireLive(ledger, 'run-checks')
     requireAdmitted(ledger, body.planSum)
     requireClosed(ledger, 'run-checks')
     if (!PHASES.includes(body.phase)) throw new ImplementError(CODES.input, `phase は ${PHASES.join('・')} のどれか`)
     if (body.phase === 'baseline' && (ledger.baseline || ledger.rounds.length)) throw new ImplementError(CODES.state, 'baseline は実装の前に 1 回だけ取る')
-    if (body.phase === 'after' && ledger.rounds.length === 0) throw new ImplementError(CODES.state, 'after は実装の round の後に取る')
+    if (body.phase === 'after') requireLastRoundPassed(ledger, 'run-checks')
     const bad = planCheckProblems(plan)
     if (bad.length) throw new ImplementError(CODES.check, bad.join('; '), { problems: bad })
     const before = takeSnapshot(io, state.repo)
@@ -289,27 +310,43 @@ const OPS = {
   },
   'record-review'(body, io) {
     const { state, ledger } = loadState(body, io)
+    requireLive(ledger, 'record-review')
     requireClosed(ledger, 'record-review')
+    requireLastRoundPassed(ledger, 'record-review')
     const round = ledger.rounds.length - 1
-    if (round < 0) throw new ImplementError(CODES.state, 'review は実装の round の後に記録する')
     if (ledger.checks.at(-1)?.round !== round) throw new ImplementError(CODES.state, `round ${round} の後の run-checks の前にレビューしない`)
     if (typeof body.reviewPlanPath !== 'string' || !body.reviewPlanPath.startsWith('/') || typeof body.reviewPlanSum !== 'string') {
       throw new ImplementError(CODES.input, 'reviewPlanPath・reviewPlanSum が要る（repo-review の plan 操作の出力の plan_path と plan_sum）')
     }
+    const shape = reviewShapeProblems(body.review)
+    if (shape.length) throw new ImplementError(CODES.input, shape.join('; '), { problems: shape })
     const reviewPlan = readJson(io, body.reviewPlanPath, 'repo-review の計画のファイル')
     if (fnvSum(reviewPlan) !== body.reviewPlanSum) throw new ImplementError(CODES.input, 'repo-review の計画のファイルが reviewPlanSum と合わない')
     const now = observe(io, state)
     requireUnchanged(ledger, now.snapshot, 'record-review')
-    const digests = Object.fromEntries((body.review?.target?.files ?? []).map((f) => {
+    const digests = Object.fromEntries(body.review.target.files.map((f) => {
       const d = digestOf(io, state.repo, f)
       return [f, d === 'absent' ? null : d]
     }))
     const problems = reviewProblems({ review: body.review, reviewPlan, state, actual: now.actual, digests })
     if (problems.length) throw new ImplementError(CODES.input, problems.join('; '), { problems })
-    const record = reviewRecord(body.review, round, now.snapshot)
+    const record = reviewRecord(body.review, round, now.snapshot, reviewsOf(ledger, round))
     saveLedger(io, state, { ...ledger, reviews: [...ledger.reviews, record] })
     const { findingsDetail, ...summary } = record
     return { review: summary }
+  },
+  // 止まった run の終端。開いた round を放棄として閉じ、以後の段を受け付けない。残った変更は消さずに返す（どうするかは利用者が決める）。
+  abandon(body, io) {
+    const { state, ledger } = loadState(body, io)
+    requireLive(ledger, 'abandon')
+    if (typeof body.reason !== 'string' || !body.reason.trim()) throw new ImplementError(CODES.input, 'reason（止まった理由）が要る')
+    const now = observe(io, state)
+    const rounds = ledger.open
+      ? [...ledger.rounds, { round: ledger.open.round, status: 'abandoned', touched: [], snapshot_before: ledger.snapshot, snapshot_after: now.snapshot, passed: false }]
+      : ledger.rounds
+    const terminal = { reason: body.reason, snapshot: now.snapshot }
+    saveLedger(io, state, { ...ledger, open: null, rounds, terminal })
+    return { terminal, remaining: now.actual, preservedPaths: state.preserved.map((p) => p.path), changedOutsideSteps: now.snapshot !== ledger.snapshot }
   },
   verify(body, io) {
     const { state, ledger } = loadState(body, io)

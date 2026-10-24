@@ -11,7 +11,7 @@ import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-
 import { categories } from '../scripts/traceability/specs.mjs'
 import { main } from '../.agents/skills/repo-implement/scripts/implement-cli.mjs'
 import { main as reviewMain } from '../.agents/skills/repo-review/scripts/review-cli.mjs'
-import { canonical, fnvSum, isRepoRelativePath } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
+import { MAKE_TARGETS, canonical, fnvSum, isRepoRelativePath } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -41,6 +41,14 @@ function sourceNamed(name) {
 }
 const PLAN_SOURCE = sourceNamed(PLAN_NAME)
 const RUN_SOURCE = sourceNamed(RUN_NAME)
+const REVIEW_SOURCE = (() => {
+  const dirs = [path.join(ROOT, '.agents', 'skills', 'repo-review', 'scripts'), ...readdirSync(path.join(ROOT, 'plugins')).map((p) => path.join(ROOT, 'plugins', p, 'workflows'))]
+  const hits = dirs.filter((d) => existsSync(d)).flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)))
+    .filter((f) => { try { return readSourceMetadata(readFileSync(f, 'utf8')).name === 'repo-review-run' } catch { return false } })
+  assert.equal(hits.length, 1)
+  return hits[0]
+})()
+const REVIEW_SKILL_DIR = realpathSync(path.join(ROOT, '.agents', 'skills', 'repo-review'))
 const TEXT = { plan: readFileSync(PLAN_SOURCE, 'utf8'), run: readFileSync(RUN_SOURCE, 'utf8') }
 const META = { plan: readSourceMetadata(TEXT.plan), run: readSourceMetadata(TEXT.run) }
 
@@ -70,9 +78,10 @@ function fixture(t) {
   write(repo, 'keep.md', 'keep\n')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'base')
+  git(repo, 'update-ref', 'refs/remotes/origin/main', 'main')
   git(repo, 'checkout', '-q', '-b', 'work')
   write(repo, 'keep.md', 'mine\n')
-  const out = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-wf-state-'), policyRef: 'main' })).output)
+  const out = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-wf-state-') })).output)
   assert.equal(out.ok, true, out.reason)
   return { repo, state: out.state, stateSum: out.state_sum, statePath: out.state_path, preservedPaths: out.preservedPaths }
 }
@@ -328,6 +337,32 @@ test('計画: state の写し間違いは agent を起動する前に拒否す�
   assert.equal(b.calls.length, 0)
 })
 
+const RR_COMMAND = /node '([^']+)' (\S+) <<'(RR_[0-9a-f]{8})'\n(.*)\n\3/g
+
+// repo-review の Workflow を本物の source で流す。運搬役は prompt のコマンドを本物の CLI で実行し、reviewer は指摘なしで担当を全て読んだと返す。
+async function runReview(t, rp, reviewers) {
+  const token = /^読取りトークン（policy_pack_token に返す）: (\S+)$/m.exec(readFileSync(rp.plan.policyPack.path, 'utf8'))[1]
+  const b = {
+    capabilities: ['read-only', 'fresh-thread'],
+    async run(prompt, options) {
+      if (options.label.startsWith('carrier:')) {
+        const responses = []
+        for (const m of prompt.matchAll(RR_COMMAND)) {
+          const out = reviewMain([m[2]], m[4]).output
+          responses.push(out)
+          if (!JSON.parse(out).ok) break
+        }
+        return { responses }
+      }
+      const id = options.label.slice('review:'.length)
+      return { head_sha: rp.plan.headSha, policy_pack_token: token, coverage: reviewers.find((r) => r.id === id).files, supporting_files: [], policy_sections: ['P1'], findings: [], limitations: [] }
+    },
+  }
+  const meta = readSourceMetadata(readFileSync(REVIEW_SOURCE, 'utf8'))
+  return Workflow({ scriptPath: REVIEW_SOURCE, args: { skillDir: REVIEW_SKILL_DIR, plan: rp.plan, planSum: rp.plan_sum, planPath: rp.plan_path } },
+    { backend: b, runDir: path.join(tmp(t, 'repo-implement-rr-run-'), 'run'), trustedSource: true, ...meta.limits })
+}
+
 test('通し: 計画 → 受け入れ → 実装 → check → 本物の repo-review の計画のファイルで record-review → verify が CLI の記録だけで通る', async (t) => {
   const fx = fixture(t)
   const approved = await approvedPlan(t, fx)
@@ -353,15 +388,14 @@ test('通し: 計画 → 受け入れ → 実装 → check → 本物の repo-re
     repo: fx.repo, mode: 'working_tree', baseRef: fx.state.head, headSha: fx.state.head, policyRef: fx.state.policyRef, preservedPaths: fx.preservedPaths, reviewers, stateDir: tmp(t, 'repo-implement-rr-'),
   })).output)
   assert.equal(rp.ok, true, rp.reason)
-  const review = {
-    status: 'completed', reasons: [], mode: rp.plan.mode, baseRef: rp.plan.baseRef, headSha: rp.plan.headSha, policyRef: rp.plan.policyRef, scope: rp.plan.scope ?? null,
-    target: rp.plan.target, excluded: rp.plan.excluded, generated: rp.plan.generated, preserved: rp.plan.preserved, findings: [], refuted: [], unverified: [],
-  }
+  const review = await runReview(t, rp, reviewers)
+  assert.equal(review.status, 'completed', JSON.stringify(review.reasons))
   const recorded = cli('record-review', { statePath: fx.statePath, stateSum: fx.stateSum, review, reviewPlanPath: rp.plan_path, reviewPlanSum: rp.plan_sum })
   assert.equal(recorded.ok, true, recorded.reason)
   const verified = cli('verify', ref)
   assert.deepEqual(verified.problems, [])
   assert.equal(verified.passed, true)
+  assert.equal(cli('record-review', { statePath: fx.statePath, stateSum: fx.stateSum, review, reviewPlanPath: rp.plan_path, reviewPlanSum: rp.plan_sum }).code, 'E_STATE', '同じ round の 2 回目は記録しない')
   write(fx.repo, 'src/a.mjs', 'export const a = 3\n')
   assert.equal(cli('verify', ref).passed, false, 'レビューの後の書き込みは通さない')
 })
@@ -467,6 +501,55 @@ test('修正: 券の入力（確定指摘・check の失敗）だけを implemen
   }
 })
 
+test('変更の集合の定義は repo-review と同じ: start が preserved にする path を repo-review の working_tree が受け入れ、扱えない状態は start が拒否する', async (t) => {
+  const make = (t) => {
+    const repo = tmp(t, 'repo-implement-set-')
+    git(repo, 'init', '-q', '-b', 'main')
+    git(repo, 'config', 'commit.gpgsign', 'false')
+    write(repo, '.github/workflows/claude_review.yml', `jobs:\n  review:\n    with:\n      exclude-paths: '["**/*.lock"]'\n`)
+    for (const f of ['m.md', 's.md', 'd.md', 'k.md']) write(repo, f, `${f}\n`)
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'base')
+    git(repo, 'update-ref', 'refs/remotes/origin/main', 'main')
+    git(repo, 'checkout', '-q', '-b', 'work')
+    return repo
+  }
+  const inventory = (repo, started) => JSON.parse(reviewMain(['inventory'], JSON.stringify({
+    repo, mode: 'working_tree', baseRef: started.state.head, headSha: started.state.head, policyRef: started.state.policyRef, preservedPaths: started.preservedPaths,
+  })).output)
+  await t.test('正常: unstaged・staged・untracked・削除', (t) => {
+    const repo = make(t)
+    write(repo, 'm.md', 'edited\n')
+    write(repo, 's.md', 'staged\n')
+    git(repo, 'add', 's.md')
+    write(repo, 'new/u.md', 'u\n')
+    rmSync(path.join(repo, 'd.md'))
+    const started = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-set-state-') })).output)
+    assert.equal(started.ok, true, started.reason)
+    const out = inventory(repo, started)
+    assert.deepEqual(out.pin_problems, [])
+    assert.deepEqual(out.inventory.preserved, started.preservedPaths)
+    assert.deepEqual(out.inventory.reviewable, [])
+  })
+  for (const [name, setup] of [
+    ['異常: 未追跡の入れ子の repo', (repo) => { mkdirSync(path.join(repo, 'nested')); git(path.join(repo, 'nested'), 'init', '-q'); write(repo, 'nested/x', 'x\n') }],
+    ['異常: index だけが HEAD と違う path', (repo) => { write(repo, 'k.md', 'staged\n'); git(repo, 'add', 'k.md'); write(repo, 'k.md', 'k.md\n') }],
+  ]) {
+    await t.test(name, (t) => {
+      const repo = make(t)
+      setup(repo)
+      const started = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-set-state-') })).output)
+      assert.equal(started.code, 'E_PIN', started.reason)
+    })
+  }
+})
+
+test('許可リストの make の target は Makefile の .PHONY にある', () => {
+  const makefile = readFileSync(path.join(ROOT, 'Makefile'), 'utf8')
+  const phony = /^\.PHONY:(.*)$/m.exec(makefile)[1].trim().split(/\s+/)
+  for (const target of MAKE_TARGETS) assert.ok(phony.includes(target), target)
+})
+
 test('SKILL.md が repo-review に渡す値（baseRef・headSha は開始時の HEAD、policyRef は主ブランチ、preservedPaths）を repo-review の CLI が受け入れ、変更だけを対象にする', (t) => {
   const repo = tmp(t, 'repo-implement-rr-')
   git(repo, 'init', '-q', '-b', 'main')
@@ -476,12 +559,13 @@ test('SKILL.md が repo-review に渡す値（baseRef・headSha は開始時の 
   write(repo, 'keep.md', 'k\n')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'base')
+  git(repo, 'update-ref', 'refs/remotes/origin/main', 'main')
   git(repo, 'checkout', '-q', '-b', 'work')
   write(repo, 'src/b.mjs', 'b\n')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'ahead of main')
   write(repo, 'keep.md', 'mine\n')
-  const started = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-rr-state-'), policyRef: 'main' })).output)
+  const started = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-rr-state-') })).output)
   assert.equal(started.ok, true, started.reason)
   assert.notEqual(started.state.head, started.state.policyRef, '主ブランチより先の commit を持つ branch で確かめる')
   write(repo, 'src/a.mjs', '2\n')

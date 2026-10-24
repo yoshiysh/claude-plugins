@@ -299,12 +299,17 @@ function rawCandidates() {
 }
 
 // 固定が崩れた後の指摘は計画した対象と別の内容を指し、CLI が拒否した判定は計算できていない。どちらも検証を通った指摘として返さない。
+// 返り値の sum は、呼び出し側が返り値を写して別の CLI に渡すときの写し間違い・落とし（findings を削るなど）を検出するため。
+function sealed(result) {
+  return { ...result, sum: fnvSum(result) }
+}
+
 function stop(reason, extra) {
-  return {
+  return sealed({
     status: 'review_incomplete', reasons: [reason], ...header(), ...extra,
     findings: [], refuted: [], unverified: [], invalid_findings: [], untrusted_findings: [], forbidden_reads: [],
     unverified_candidates: rawCandidates(), limitations: limitationsOf(), launches,
-  }
+  })
 }
 
 function failed(step, r) {
@@ -401,7 +406,7 @@ if (!merged.complete) reasons.push('coverage_or_limitations')
 if (merged.forbiddenReads.length) reasons.push('forbidden_reads')
 if (!judged.complete) reasons.push('verification_incomplete')
 
-return {
+return sealed({
   status: reasons.length ? 'review_incomplete' : 'completed',
   reasons,
   ...header(),
@@ -417,4 +422,4 @@ return {
   forbidden_reads: merged.forbiddenReads,
   verifier_diagnostics: judged.diagnostics,
   launches,
-}
+})

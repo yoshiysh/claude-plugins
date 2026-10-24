@@ -23,7 +23,9 @@ description: >
 - [実装の回](#実装の回)
 - [check と修正ループ](#check-と修正ループ)
 - [独立レビュー](#独立レビュー)
+- [止まるとき](#止まるとき)
 - [最終照合と報告](#最終照合と報告)
+- [照合しないもの](#照合しないもの)
 
 ## 目的と段
 
@@ -41,9 +43,9 @@ description: >
 
 書き込みのできる run には implementer だけを置く。runner は役ごとに書き込みの権限を分けられないので、同じ run に計画やレビューの役を置くと、その役も書けてしまう。commit・push・PR の作成は利用者が頼んだときだけ行い、merge はしない。
 
-CLI は段ごとの作業ツリーの snapshot を `stateDir` の記録に残し、次の段の始めに今の snapshot と照らす。段の外での書き込み（計画の段・2 回目の実装の Workflow・check とレビューの間）は、次の段で `E_STATE` か `changed_outside_steps` として見つかる。見えないのは `.gitignore` に当たる path と、未追跡の入れ子の repo の中身で（`git status` に出ない）、受け入れは ignore される path を plan に入れさせない。
+CLI は段ごとの作業ツリーの snapshot を `stateDir` の記録に残し、次の段の始めに今の snapshot と照らす。段の外での書き込み（計画の段・券を閉じた後の実装の Workflow・check とレビューの間）は、次の段で `E_STATE` か `changed_outside_steps` として見つかる。記録が見ないものは「照合しないもの」にまとめる。
 
-CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒否で、`code` と `reason` を持つ（code の一覧と意味の正本は `scripts/implement-core.mjs` の `CODES`）。拒否されたら次の段へ進まず、`reason` を報告する。
+CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒否で、`code` と `reason` を持つ（code の一覧は `scripts/implement-core.mjs` の `CODES`、個々の拒否の理由は `reason`）。拒否されたら次の段へ進まず、`reason` を報告する。
 
 ## 開始: 状態を固定する
 
@@ -56,7 +58,7 @@ CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒�
    JSON
    ```
 
-   CLI は HEAD と policyRef の完全な SHA、開始時の staged・unstaged・untracked の path（`preservedPaths`）と、その内容・status・index の entry、作業ツリーの snapshot を記録する。主ブランチの上や branch の無い HEAD では `E_PIN` で拒否する（依頼の commit が主ブランチに直接入るか、どの branch にも残らない）。作業 branch を用意してからやり直す。出力の `state`・`state_sum`・`state_path` を以後の全ての段に手を加えずに写す（写し間違いは sum で拒否される）。
+   CLI は HEAD と policyRef の完全な SHA、開始時の変更の path（`preservedPaths`。変更の集合の定義は repo-review の working_tree と同じで、正本は `scripts/implement-core.mjs` の `unreviewablePaths` のコメント）と、その内容・status・index の entry、作業ツリーの snapshot を記録する。policyRef は入力に取らない（作業 branch の規約で同じ変更を免責しないため）。次のときは `E_PIN` で拒否するので、`reason` を利用者に伝え、片付いてからやり直す: 主ブランチの上や branch の無い HEAD（依頼の commit が主ブランチに直接入るか、どの branch にも残らない）、未追跡の入れ子の repo や、index だけが HEAD と違う path がある（レビューの変更の集合として扱えない）。出力の `state`・`state_sum`・`state_path` を以後の全ての段に手を加えずに写す（写し間違いは sum で拒否される）。
 
 ## 計画と計画のレビュー
 
@@ -121,9 +123,9 @@ JSON
 > 前処理は `begin-round`、成功後処理はこの節の `inventory` と「check と修正ループ」。runner の verified return 以外で
 > 成功後処理へ進まず、runner 未 install・`unsupported_runtime`・`rejected_source`・`workflow_incomplete` はそのまま報告する。
 >
-> **Codex classification: workspace-write required**。host は worker の `cwd` を repo にし、`workspace.mode: "workspace-write"` と
-> `requirements: ["workspace-write"]` を設定する（source の要求だけでは書き込みの権限は上がらず、許可が無ければ runner が最初の agent の前に拒否する）。
-> `limits` と `modelMap` の扱いは計画の Workflow と同じ。
+> **Codex classification: workspace-write required**。host は worker の `cwd` を repo にし、`workspace.mode: "workspace-write"` を設定する
+> （source の要求だけでは書き込みの権限は上がらず、許可が無ければ runner が最初の agent の前に拒否する）。`requirements`・`limits`・`modelMap` の扱いは
+> 計画の Workflow と同じ（`requirements` は source の `meta.requirements` をそのまま使う）。
 
 ```js
 Workflow({
@@ -132,18 +134,20 @@ Workflow({
 })
 ```
 
-**どの status でも**、返り値をそのまま `implementation` に入れて `inventory` を流す（受け入れと同じ入力に `"implementation": <返り値>`）。CLI は券の round を閉じて記録し、開始時の HEAD からの実際の変更を plan の path・touched_paths の和・preservedPaths の不変と照らし、申告と作業ツリーの動きが合うか（実装したと返したのに何も変わっていない、失敗したのに変わった）を照らす。`passed: false` なら `problems` を報告して止まる（plan の外の変更や申告漏れを司令塔が戻さない。戻すのは破壊的な操作で、利用者が決める）。
+**どの status でも**、返り値をそのまま `implementation` に入れて `inventory` を流す（受け入れと同じ入力に `"implementation": <返り値>`）。CLI は券の round を閉じて記録し、開始時の HEAD からの実際の変更を plan の path・touched_paths の和・preservedPaths の不変と照らし、申告と作業ツリーの動きが合うか（実装したと返したのに何も変わっていない、失敗したのに変わった）を照らす。`passed: false` なら「止まるとき」に従う（plan の外の変更や申告漏れを司令塔が戻さない。戻すのは破壊的な操作で、利用者が決める）。通らなかった round の後は、CLI が check・レビュー・次の回を受け付けない。
 
 | status | 司令塔の処理 |
 | --- | --- |
 | **ready_for_check** | 実装の Workflow の実行が終わったことだけを表す。次の節の check へ進む |
-| **repair_limit_reached** | 修正の回の上限（実装の Workflow source の定数 `MAX_REPAIR_ROUNDS`）を超えた券で、implementer を起動していない。暴走を止める backstop で止まったこととして、残った失敗・確定指摘を示して未完了と報告する |
-| **blocked**・**incomplete** | `reason` と、ケースのテストの欠け（`caseTestGaps`）・未解決（`implementation.unresolved`）を示して止まる。承認済みの計画に implementer だけが変更不要と返したもの（`no-change-against-approved-plan`）もここに入る |
+| **repair_limit_reached** | 修正の回の上限（実装の Workflow source の定数 `MAX_REPAIR_ROUNDS`）を超えた券で、implementer を起動していない。暴走を止める backstop で止まったこととして、残った失敗・確定指摘を示して「止まるとき」に従う |
+| **blocked**・**incomplete** | `reason` と、ケースのテストの欠け（`caseTestGaps`）・未解決（`implementation.unresolved`）を示して「止まるとき」に従う。承認済みの計画に implementer だけが変更不要と返したもの（`no-change-against-approved-plan`）もここに入る |
+
+Workflow が返り値無しに終わった（error・timeout）ときは券が開いたままなので、`inventory` は流せない。「止まるとき」に従う。
 
 ## check と修正ループ
 
 1. 受け入れと同じ入力に `"phase": "after"` を足して `run-checks` を background で流す。CLI は plan の check を 1 件ずつ固定の argv で実行し、command・exit code・HEAD・出力の末尾と、実行の前後の snapshot を記録する。モデルの文や PR のコメントを shell に渡さない。
-2. `passed: true` なら独立レビューへ進む。`repairable: true` の失敗（開始時に成功していたか、開始時にまだ無かったテストの失敗）があれば、`"repair": "checks"` で次の回を開く。`failed_at_baseline` が `true` の失敗は開始時から失敗していたので直さず、原因を切り分けられなかったこととして報告する。
+2. `passed: true` なら独立レビューへ進む。`repairable: true` の失敗（開始時に成功していたか、開始時にまだ無かったテストの失敗）があれば、`"repair": "checks"` で次の回を開く。`failed_at_baseline` が `true` の失敗は開始時から失敗していたので直さず、原因を切り分けられなかったこととして「止まるとき」に従う。check の実行中に作業ツリーが変わった（`tree_changed: true`）ときも同じ。同じ回の run を流し直してもよいが、CLI は同じ回の全ての run の失敗を数えるので、一度失敗した check は修正の回を経ないと通らない。
 3. 修正の回の後は、毎回この節の 1 から（check の全件と独立レビューを）やり直す。
 
 ## 独立レビュー
@@ -156,15 +160,38 @@ node [SKILL_DIR]/scripts/implement-cli.mjs record-review <<'JSON'
 JSON
 ```
 
-CLI は、返り値の mode・SHA・対象・除外・生成物・preserved を repo-review の計画のファイルと開始時の記録に照らし、対象・除外・生成物の和が今の変更の集合と一致し、計画のファイルの内容の digest が今の内容と一致するときだけ記録する（レビューの範囲を狭めた・前の回の結果を出し直した、は拒否される）。
+CLI は、返り値の `sum`（repo-review の Workflow が本文に付ける）、mode・SHA・対象・除外・生成物・preserved を repo-review の計画のファイルと開始時の記録に照らし、completed なら観点ごとの coverage が計画の reviewers と一致して pin が崩れていないこと、対象・除外・生成物の和が今の変更の集合と一致し、計画のファイルの内容の digest が今の内容と一致することを確かめてから記録する（レビューの範囲を狭めた・返り値から指摘を落とした・前の回の結果を出し直した、は拒否される）。記録は 1 回に 1 つで、やり直せるのは前の記録が `review_incomplete` のときだけ（そのときも前の確定指摘は残る）。
+
+repo-review が「レビューの対象が 0 件」（変更が除外・生成物だけ）で Workflow を呼ばずに終えたときは、記録するレビューが無く `verify` は通らない。レビューを経ていない変更として「止まるとき」に従う。
 
 - 確定指摘があれば `"repair": "review"` で次の回を開く（券には CLI が記録した確定指摘が載る）。`refuted` は直さない。
 - `review_incomplete` や `unverified` が残るときは、レビューが通ったことにしない。司令塔の読み直しを独立レビューの代わりにしない（自分の読みは生成と同じ視点で、欠陥が見えない）。
 
+## 止まるとき
+
+実装の回を始めた後に止まる（上の各段の「止まるとき」・CLI の拒否・人の判断待ち）ときは、理由を添えて `abandon` を流す。CLI は開いた回を放棄として閉じ、以後の段を受け付けず、残った変更の path（`remaining`）と開始時の変更（`preservedPaths`）を返す。
+
+```bash
+node [SKILL_DIR]/scripts/implement-cli.mjs abandon <<'JSON'
+{"statePath": "<state_path>", "stateSum": "<state_sum>", "reason": "<止まった理由>"}
+JSON
+```
+
+残った変更は消さない。報告に、止まった理由、`remaining` の path、`changedOutsideSteps`、取れる手（commit して別の run で続ける・破棄する・別の worktree に移す）を書き、どれを取るかは利用者が決める（どれも作業ツリーの内容を変える操作で、未保存の作業を失い得る）。続けるときは、片付いた作業ツリーで新しい `stateDir` から始める。
+
 ## 最終照合と報告
 
-受け入れと同じ入力で `verify` を流す。CLI は記録だけを使い、HEAD が開始時のまま、開いた回が無く、承認済みの計画の変更が作業ツリーにあり、実際の変更が plan と touched_paths の和に収まり、preservedPaths が変わらず、最後の回の後の check が全て成功し、最後のレビューが確定指摘も未検証も無く通り、今の snapshot が最後に check とレビューを通した時点と一致することを照らす。`passed: true` のときだけ完了として報告する。
+受け入れと同じ入力で `verify` を流す。CLI は記録だけを使い、HEAD が開始時のまま、run が abandon で終わっておらず、開いた回が無く、最後の回が実装を終えて inventory を通り、承認済みの計画の変更が作業ツリーにあり、実際の変更が plan と touched_paths の和に収まり、preservedPaths が変わらず、最後の回の後の check が全て成功し、最後のレビューが確定指摘も未検証も無く通り、今の snapshot が最後に check とレビューを通した時点と一致することを照らす。`passed: true` のときだけ完了として報告する。
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 
 commit を頼まれたときは、commit の直前に `verify` を流し、`passed: true` のときだけ commit する。`false` なら commit せず、check とレビューからやり直す。
+
+## 照合しないもの
+
+CLI の記録と照合が見ないものは次のとおりで、報告では照合した範囲に含めない。
+
+- `.gitignore` に当たる path への書き込み（`git status` に出ない）。受け入れは ignore される path を plan に入れさせないが、implementer が plan の外の ignore される path に書いたことは見えない。
+- 実行中に作られた未追跡の入れ子の repo の中身（path だけが変更として現れる）。
+- 同じ券で実装の Workflow を 2 回走らせ、どちらも `inventory` の前に書き終えたときの 2 回目の書き込み（1 回分の変更として受け入れられ、touched_paths の申告と合う限り区別できない）。
+- sum を計算し直した意図的な改変（state・plan・券・Workflow の返り値・repo-review の返り値の sum は写し間違いと落としを検出するもので、署名ではない）。

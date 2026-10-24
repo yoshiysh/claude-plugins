@@ -93,9 +93,15 @@ export function tail(text, lines = OUTPUT_TAIL_LINES) {
 }
 
 // `git status --porcelain=v1 -z --no-renames` の各項目は "XY <path>"。--no-renames なので元の path の欄は無い。
-// 未追跡の入れ子の repo は末尾に / の付いたディレクトリで出るので、/ を外して path にそろえる（中身は git の外で、内容の digest は取れない）。
 export function parsePorcelain(text) {
-  return text.split('\0').filter(Boolean).map((entry) => ({ xy: entry.slice(0, 2), path: entry.slice(3).replace(/\/+$/, '') }))
+  return text.split('\0').filter(Boolean).map((entry) => ({ xy: entry.slice(0, 2), path: entry.slice(3) }))
+}
+
+// 「変更の集合」の正本は repo-review の working_tree と同じ定義（HEAD との差分 ∪ ignore されない未追跡のファイル）。
+// git status にだけ出る path（未追跡の入れ子の repo は末尾に / が付く、index だけが HEAD と違い作業ツリーは HEAD と同じ path）は、
+// この集合に無いか正規形の path でないので、preserved にも照合の対象にもできない。start はそれを拒否する。
+export function unreviewablePaths(statusPaths, changeSet) {
+  return statusPaths.filter((p) => !isRepoRelativePath(p) || !changeSet.includes(p)).sort()
 }
 
 export function snapshotOf(head, entries) {
@@ -139,7 +145,28 @@ export function planCheckProblems(plan) {
 
 // ledger.snapshot は、CLI が最後に受け入れた作業ツリーの snapshot。段の外での書き込みは、次の段でこれと食い違って見つかる。
 export function newLedger(stateSum, snapshot) {
-  return { state_sum: stateSum, snapshot, plan_sum: null, rounds: [], open: null, baseline: null, checks: [], reviews: [] }
+  return { state_sum: stateSum, snapshot, plan_sum: null, rounds: [], open: null, baseline: null, checks: [], reviews: [], terminal: null }
+}
+
+export function requireLive(ledger, step) {
+  if (ledger.terminal) throw new ImplementError(CODES.state, `${step}: この run は abandon で終わっている（${ledger.terminal.reason}）`)
+}
+
+// 最後の round が実装を終え、inventory の照合を通ったときだけ、その後の段（check・レビュー・次の修正）へ進める。
+export function requireLastRoundPassed(ledger, step) {
+  const last = ledger.rounds.at(-1)
+  if (!last) throw new ImplementError(CODES.state, `${step}: 実装の round が無い`)
+  if (last.status !== 'ready_for_check' || !last.passed) {
+    throw new ImplementError(CODES.state, `${step}: 最後の round ${last.round} が通っていない（status ${last.status}・inventory ${last.passed ? '通過' : '不通過'}）。abandon で終えて報告する`)
+  }
+}
+
+export function runsOf(ledger, round) {
+  return ledger.checks.filter((c) => c.phase === 'after' && c.round === round)
+}
+
+export function reviewsOf(ledger, round) {
+  return ledger.reviews.filter((r) => r.round === round)
 }
 
 export function requireAdmitted(ledger, planSum) {
@@ -175,15 +202,16 @@ export function roundTicket(ledger, plan, planSum, repair) {
     return { ticket: { round, plan_sum: planSum, state_sum: ledger.state_sum, snapshot: ledger.snapshot, repair: null, findings: [], checkFailures: [] } }
   }
   if (!REPAIRS.includes(repair)) throw new ImplementError(CODES.input, `round ${round} は修正の回で、repair は ${REPAIRS.join('・')} のどれか`)
-  const run = ledger.checks.at(-1)
-  if (!run || run.round !== round - 1) throw new ImplementError(CODES.state, `round ${round - 1} の実装の後の run-checks が無い`)
+  requireLastRoundPassed(ledger, 'begin-round')
+  const runs = runsOf(ledger, round - 1)
+  if (!runs.length) throw new ImplementError(CODES.state, `round ${round - 1} の実装の後の run-checks が無い`)
   if (repair === 'checks') {
-    const checkFailures = run.results.filter((r) => r.repairable === true)
+    const checkFailures = runs.flatMap((r) => r.results).filter((r) => r.repairable === true)
     if (!checkFailures.length) throw new ImplementError(CODES.state, '直前の run に、変更が起こしたと決められる失敗が無い')
     return { ticket: { round, plan_sum: planSum, state_sum: ledger.state_sum, snapshot: ledger.snapshot, repair, findings: [], checkFailures } }
   }
-  const review = ledger.reviews.at(-1)
-  if (!review || review.round !== round - 1) throw new ImplementError(CODES.state, `round ${round - 1} の後のレビューが記録されていない`)
+  const review = reviewsOf(ledger, round - 1).at(-1)
+  if (!review) throw new ImplementError(CODES.state, `round ${round - 1} の後のレビューが記録されていない`)
   if (!review.findingsDetail.length) throw new ImplementError(CODES.state, '直前のレビューに確定指摘が無い')
   const outside = review.findingsDetail.filter((f) => !insidePlan(f, plan))
   if (outside.length) return { needsReplan: outside }
@@ -229,12 +257,26 @@ const sortedEq = (a, b) => canonical([...a].sort()) === canonical([...b].sort())
 
 // repo-review の返り値と、その plan 操作が書いた計画のファイル（plan_path・plan_sum）を照らす。計画の digest で、今の作業ツリーの内容を
 // レビューしたことを確かめる（返り値そのものには内容の digest が無い）。
-export function reviewProblems({ review, reviewPlan, state, actual, digests }) {
+export function reviewShapeProblems(review) {
   const problems = []
   if (!review || typeof review !== 'object' || Array.isArray(review)) return ['review が repo-review の返り値のオブジェクトでない']
+  const { sum, ...rest } = review
+  if (typeof sum !== 'string' || fnvSum(rest) !== sum) problems.push('review の sum が無いか本文と合わない（repo-review の Workflow の返り値をそのまま渡す）')
+  if (!Array.isArray(review.target?.files) || review.target.files.some((f) => !isRepoRelativePath(f))) problems.push('review.target.files が repo 相対の path の配列でない')
+  return problems
+}
+
+export function reviewProblems({ review, reviewPlan, state, actual, digests }) {
+  const problems = reviewShapeProblems(review)
+  if (problems.length) return problems
   if (!['completed', 'review_incomplete'].includes(review.status)) problems.push(`review.status が completed・review_incomplete でない: ${JSON.stringify(review.status)}`)
   for (const key of ['findings', 'unverified', 'reasons', 'excluded', 'generated', 'preserved']) if (!Array.isArray(review[key])) problems.push(`review.${key} が配列でない`)
-  if (!Array.isArray(review.target?.files)) problems.push('review.target.files が配列でない')
+  // 途中で止まった review_incomplete（pin の崩れ・運搬の失敗）は coverage を持たない。completed は観点ごとの coverage と崩れなかった pin を持つ。
+  if (review.status === 'completed') {
+    const lensIds = (reviewPlan.reviewers ?? []).map((r) => r.id)
+    if (!Array.isArray(review.coverage) || !sortedEq(review.coverage.map((c) => c?.id), lensIds)) problems.push('review の coverage の観点が計画のファイルの reviewers と違う（Workflow を走らせた返り値でない）')
+    if (review.pin?.ok !== true) problems.push('completed の review に、最後まで崩れなかった pin が無い')
+  }
   if (problems.length) return problems
   if (review.findings.some((f) => !isConfirmedFinding(f))) problems.push('review.findings に repo-review が確定した指摘の形でないものがある')
   if (review.mode !== 'working_tree' || reviewPlan.mode !== 'working_tree') problems.push('review が working_tree モードでない')
@@ -251,16 +293,28 @@ export function reviewProblems({ review, reviewPlan, state, actual, digests }) {
   return problems
 }
 
-export function reviewRecord(review, round, snapshot) {
+// 1 round のレビューの記録は 1 回。やり直せるのは前の記録が review_incomplete のときだけで、そのときも前の確定指摘は消さずに和を取る
+// （指摘 0 件が出るまで回し直して通すことを防ぐ）。
+export function reviewRecord(review, round, snapshot, previous = []) {
+  if (previous.some((r) => r.status !== 'review_incomplete')) {
+    throw new ImplementError(CODES.state, `round ${round} のレビューは既に記録した（やり直せるのは review_incomplete の後だけ）`)
+  }
+  const seen = new Set()
+  const findingsDetail = [...previous.flatMap((r) => r.findingsDetail), ...review.findings].filter((f) => {
+    const key = canonical(f)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
   return {
     round,
     snapshot,
     status: review.status,
     reasons: [...review.reasons],
-    findings: review.findings.length,
-    findingsDetail: review.findings,
+    findings: findingsDetail.length,
+    findingsDetail,
     unverified: review.unverified.length,
-    passed: review.status === 'completed' && review.findings.length === 0 && review.unverified.length === 0,
+    passed: review.status === 'completed' && findingsDetail.length === 0 && review.unverified.length === 0,
   }
 }
 
@@ -279,6 +333,7 @@ export function baselineVerdict(baseline, check) {
 export function verifyProblems({ state, ledger, plan, head, actual, preservedNow, snapshot }) {
   const touched = ledger.rounds.flatMap((r) => r.touched)
   const problems = inventoryProblems({ state, plan, head, actual, preservedNow, touched: ledger.rounds.length ? touched : null })
+  if (ledger.terminal) problems.push({ cause: 'terminated', message: `この run は abandon で終わっている（${ledger.terminal.reason}）`, paths: [] })
   if (ledger.open) problems.push({ cause: 'round_open', message: `round ${ledger.open.round} を inventory で閉じていない`, paths: [] })
   if (ledger.snapshot !== snapshot) problems.push({ cause: 'changed_outside_steps', message: '作業ツリーが CLI の記録の外で変わった', paths: [] })
   if (plan.status === 'no_change') {
@@ -288,18 +343,21 @@ export function verifyProblems({ state, ledger, plan, head, actual, preservedNow
   const lastRound = ledger.rounds.length - 1
   if (lastRound < 0 || actual.length === 0) problems.push({ cause: 'not_implemented', message: '承認済みの plan の変更が作業ツリーに無い', paths: [] })
   if (lastRound < 0) return problems
-  const run = [...ledger.checks].reverse().find((c) => c.phase === 'after')
-  if (!run || run.round !== lastRound) {
+  const last = ledger.rounds[lastRound]
+  if (last.status !== 'ready_for_check' || !last.passed) problems.push({ cause: 'last_round_not_passed', message: `最後の round ${lastRound} が通っていない（status ${last.status}）`, paths: [] })
+  // 同じ round の run は全てを数える。失敗した run の後に通るまで回し直しても、失敗は消えない。
+  const runs = runsOf(ledger, lastRound)
+  const run = runs.at(-1)
+  if (!run) {
     problems.push({ cause: 'checks_missing', message: '最後の round の後の run-checks が記録されていない', paths: [] })
   } else {
-    const ran = new Map(run.results.map((r) => [checkKey(r.check), r]))
-    const failed = plan.checks.filter((c) => ran.get(checkKey(c))?.exit_code !== 0).map(checkKey)
-    if (failed.length) problems.push({ cause: 'checks_failed', message: '成功していない check がある', paths: failed })
-    if (run.tree_changed) problems.push({ cause: 'checks_changed_tree', message: 'check の実行中に作業ツリーが変わった', paths: [] })
+    const failed = plan.checks.filter((c) => runs.some((r) => r.results.find((x) => checkKey(x.check) === checkKey(c))?.exit_code !== 0)).map(checkKey)
+    if (failed.length) problems.push({ cause: 'checks_failed', message: '最後の round の run のどれかで成功していない check がある', paths: failed })
+    if (runs.some((r) => r.tree_changed)) problems.push({ cause: 'checks_changed_tree', message: 'check の実行中に作業ツリーが変わった', paths: [] })
     if (run.snapshot_after !== snapshot) problems.push({ cause: 'changed_since_checks', message: '最後に check を通した後に作業ツリーが変わった', paths: [] })
   }
-  const review = ledger.reviews.at(-1)
-  if (!review || review.round !== lastRound) {
+  const review = reviewsOf(ledger, lastRound).at(-1)
+  if (!review) {
     problems.push({ cause: 'review_missing', message: '最後の round の後の review が記録されていない', paths: [] })
   } else {
     if (!review.passed) problems.push({ cause: 'review_not_passed', message: `review が通っていない（status ${review.status}・findings ${review.findings}・unverified ${review.unverified}）`, paths: review.reasons })
