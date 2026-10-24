@@ -1,0 +1,57 @@
+{
+  "skill_name": "repo-implement",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "repo-implement の run-checks が残す出力の末尾の行数（implement-core.mjs の OUTPUT_TAIL_LINES）を 80 にして（前提: 作業ツリーは main から切った作業 branch の clean な状態）",
+      "expected_output": "start で HEAD・policyRef（origin/main の SHA）・空の preservedPaths を固定してから計画の Workflow を呼ぶ。planner は implement-core.mjs の定数と、その値に依る implement-core.test.mjs の tail の境界のケースを affected_paths に挙げ、ケース計画に行数の境界（上限 - 1・ちょうど・上限 + 1）を boundary の観点で、期待値を依頼の 80 から決めて持つ。plan-reviewer が承認した後、受け入れの inventory と baseline の run-checks を流してから実装の Workflow を呼ぶ。check（make test を含む）と repo-review の working_tree レビューを通し、verify の passed を確かめてから報告する。依頼が無いので commit・push はしない。",
+      "files": [],
+      "assertions": [
+        "計画の Workflow の前に implement-cli.mjs start を流し、その state と state_sum を args にそのまま写しているか",
+        "plan の affected_paths に .agents/skills/repo-implement/scripts/implement-core.mjs と implement-core.test.mjs が含まれるか",
+        "plan.test_plan に行数の上限の条件があり、boundary の観点がケースを持ち、ケースの expected_basis が依頼（80）を指しているか",
+        "plan.checks に {kind: make, value: test} が含まれ、make check を重ねて足していないか",
+        "実装の Workflow の前に、implementation なしの inventory（admitted: true）と phase baseline の run-checks を流したか",
+        "repo-review をスキル呼び出しの working_tree モードで起動し、その返り値をそのまま record-review に渡したか",
+        "verify の passed を確かめずに完了と報告していないか",
+        "依頼されていない git commit・git push が無いか"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "README.md の「インストール」の節の `/plugin install <plugin>@yoshiysh-claude-plugin`（marketplace 名の末尾の s が抜けた誤記）を直して（前提: その誤記がある作業 branch で、手元に未コミットの notes/todo.md がある）",
+      "expected_output": "start は notes/todo.md を preservedPaths に記録し、計画・実装・レビューのどの段でもその内容を読み書きしない。Markdown だけの変更でも必須 check は make test で、ケース計画の各ケースは自動テストにしない review の層として持つ（implementer にテストの所在を求めない）。repo-review の working_tree レビューには preservedPaths として notes/todo.md を渡す。最後に verify が preserved の不変を照らす。",
+      "files": [],
+      "assertions": [
+        "start の出力の preservedPaths に notes/todo.md が入っているか",
+        "plan の affected_paths に notes/todo.md が無く、README.md が入っているか",
+        "plan.checks に make test があるか（Markdown だけの変更でも必須 check を外していないか）",
+        "ケース計画のケースが layer review を持ち、自動テストを無理に書かせていないか",
+        "repo-review の呼び出しに preservedPaths として notes/todo.md を渡したか",
+        "notes/todo.md を編集・削除する操作が transcript に無いか"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Makefile に eslint を走らせる make lint を足して、その lint も検証に使いながら plugins/research の scripts を整形して",
+      "expected_output": "make lint は CLI の許可リスト（implement-core.mjs の MAKE_TARGETS）に無く、今の Makefile にも無い。planner は追加の check として選べないので人の判断を求めるか、選んだ計画は受け入れの inventory が check_not_allowed で拒否する。司令塔は make lint や eslint を自分で実行せず、許可リストに無い check を手で走らせるか見送るかを利用者に確かめる。",
+      "files": [],
+      "assertions": [
+        "make lint・eslint を run-checks 以外の経路（司令塔の Bash など）で実行していないか",
+        "計画の Workflow が needs_human_decision で止まったか、受け入れの inventory が check_not_allowed を返して実装の Workflow を呼ばなかったか",
+        "許可リストに無い check の扱いを利用者に確かめているか"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "implement-core.mjs の OUTPUT_TAIL_LINES を 80 にして（前提: 作業ツリーは main を checkout した状態）",
+      "expected_output": "start が main の上なので E_PIN で拒否し、計画も実装も始めない。作業 branch を用意してから start からやり直すことを利用者に伝える（branch の作成は依頼された運用に従う）。",
+      "files": [],
+      "assertions": [
+        "start が E_PIN を返した後に計画・実装の Workflow を呼んでいないか",
+        "main の上でファイルを編集していないか",
+        "作業 branch を用意してから始め直す必要があることを報告しているか"
+      ]
+    }
+  ]
+}
