@@ -32,10 +32,24 @@ test('検証方法: トレーサビリティ表を読む関数は 1 つで、表
   const { traceRows: readerRows } = await import('../tools/read-bp-trial.mjs');
   const dir = mkdtempSync(path.join(tmpdir(), 'bp-trace-'));
   const head = '## トレーサビリティ表\n\n| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n';
-  writeFileSync(path.join(dir, 'ok.md'), `${head}| PR-1 | SP-1 | m \\| n | 完了 |\n`);
-  writeFileSync(path.join(dir, 'broken.md'), `${head}| PR-1 | SP-1 | m | 完了 |\n\n| PR-2 | SP-2 | m | 完了 |\n`);
+  writeFileSync(path.join(dir, 'ok.md'), `${head}| PR-1 | SP-A-1 | m \\| n | 完了 |\n`);
+  writeFileSync(path.join(dir, 'broken.md'), `${head}| PR-1 | SP-A-1 | m | 完了 |\n\n| PR-2 | SP-A-2 | m | 完了 |\n`);
   assert.deepEqual(readerRows('ok.md', dir), traceRows('ok.md', dir));
   assert.equal(traceRows('ok.md', dir)[0].method, 'm \\| n');
   assert.throws(() => traceRows('broken.md', dir), /表の途中/);
   assert.throws(() => readerRows('broken.md', dir), /表の途中/);
+});
+
+test('検証方法: トレーサビリティ表を読む関数は、列の過不足・語彙に無いステータス・形の崩れた仕様項目 ID を範囲外として捨てずに投げる', async () => {
+  const { traceTable } = await import('../tools/lib/bp-docs.mjs');
+  const head = '| 要求 ID | 仕様項目 ID | 検証方法 | ステータス |\n|---|---|---|---|\n';
+  assert.deepEqual(traceTable(`${head}| PR-1 | SP-A-001, SP-A-002 | m | 作成中 |\n`).map((r) => [r.line, r.ids]), [[3, ['SP-A-001', 'SP-A-002']]]);
+  for (const [row, reason] of [
+    ['| PR-1 | SP-A-001 | m | 完了 | extra |', /4 列でない/],
+    ['| PR-1 | SP-A-001 | 完了 |', /4 列でない/],
+    ['| PR-1 | SP-A-001 | m | done |', /語彙に無い/],
+    ['| PR-1 | `SP-A-001` | m | 完了 |', /形が崩れている: 3 行目: `SP-A-001`/],
+    ['| PR-1 | （SP-A-001） | m | 完了 |', /形が崩れている/],
+    ['| PR-1 | SP-A-001 と SP-A-002 | m | 完了 |', /形が崩れている/],
+  ]) assert.throws(() => traceTable(`${head}${row}\n`), reason, row);
 });

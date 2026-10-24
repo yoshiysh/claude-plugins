@@ -25,6 +25,10 @@
       "prefix": "bp"
     }
   ],
+  "environmentSkip": {
+    "module": "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/fixtures/harness.mjs",
+    "export": "environmentSkipReason"
+  },
   "unmeasuredSources": {
     "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_author.js": "Workflow DSL を模擬実行時に変換するテストのため、元ファイルの行・分岐への対応を通常の Node カバレッジでは保証できない。テストの実行状況は記録し、元ファイルは未計測として分母と別に明示する。",
     "plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp_inspect.js": "Workflow DSL を模擬実行時に変換するテストのため、元ファイルの行・分岐への対応を通常の Node カバレッジでは保証できない。テストの実行状況は記録し、元ファイルは未計測として分母と別に明示する。"

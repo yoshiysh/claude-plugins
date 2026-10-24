@@ -1,39 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tableAfter, testTitles } from './helpers/bp-docs.mjs';
+import { tableAfter } from './helpers/bp-docs.mjs';
 import { confirmedKeys, readRecords, rowKey } from '../tools/read-bp-trial.mjs';
-import { traceRows as sharedTraceRows } from '../tools/lib/bp-docs.mjs';
+import { TRACE_STATUS, traceRows as sharedTraceRows } from '../tools/lib/bp-docs.mjs';
 import { RUNS_FILE, TRIAL_DIR, readRuns } from '../tools/bp-trial.mjs';
+import { loadConfig } from '../scripts/traceability/specs.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SPECS = path.join(ROOT, 'docs', 'specifications');
 const SKILL = path.join(ROOT, 'plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
-const TEST_DIRS = [path.join(ROOT, 'tests'), path.join(SKILL, 'scripts', 'bp')];
-const STATUSES = ['未着手', '作成中', '完了'];
+// 仕様書の集合はトレーサビリティ検査の設定を正本にする（集合を別に持つと、片方だけを通る「完了」の行ができる）。
+const CONFIG = await loadConfig(path.join(ROOT, 'traceability.config.json'));
 
 // 試走と eval の行は名前の付いたテストでは縛れないので、記録と正解表から毎回計算した集合だけが「完了」を許す（手で足す集合を持たない）。
 const TRIAL_ROWS = readRecords();
 const CONFIRMED = confirmedKeys(TRIAL_ROWS);
-
-function allTitles() {
-  return TEST_DIRS.flatMap((dir) => readdirSync(dir).filter((f) => f.endsWith('.test.mjs')).flatMap((f) => testTitles(path.join(dir, f))));
-}
-
-// テスト名の「SP-X-027〜031」「SP-X-011〜SP-X-013」は範囲の全ての ID を名指すものとして数える（端だけを拾うと間の ID が漏れる）。
-function titleIds(titles) {
-  const ids = new Set();
-  for (const t of titles) {
-    for (const m of t.matchAll(/(SP-[A-Z]+)-(\d{3})(?:〜(?:(SP-[A-Z]+)-)?(\d{3}))?/g)) {
-      if (m[3] && m[3] !== m[1]) throw new Error(`範囲の両端の接頭辞が違う: ${m[0]}`);
-      const last = Number(m[4] ?? m[2]);
-      for (let i = Number(m[2]); i <= last; i += 1) ids.add(`${m[1]}-${String(i).padStart(3, '0')}`);
-    }
-  }
-  return ids;
-}
 
 function traceRows(file) {
   return sharedTraceRows(file, SPECS);
@@ -66,28 +50,9 @@ function expectedProblems(rows, rules) {
   return problems;
 }
 
-const SPEC_FILES = readdirSync(SPECS).filter((f) => /^bp-.*\.md$/.test(f));
+const SPEC_FILES = CONFIG.specFiles.map((f) => path.relative(realpathSync(SPECS), path.join(CONFIG.root, f)));
 
-// テストの有無しか見ない（確かめ方が行の検証方法に足りるかは見ない。それは生成者と別の検証役が行とテストを突き合わせて見る）。
-// 「完了」の行に、テスト名の無い仕様項目が 1 つでもあれば、テストの無い行を「完了」にしている。
-test('検証方法: best-practices の仕様書のトレーサビリティ表で「完了」の行の仕様項目 ID が全て、どれかのテスト名に現れる', () => {
-  const ids = titleIds(allTitles());
-  const missing = [];
-  let rows = 0;
-  for (const r of SPEC_FILES.flatMap(traceRows).filter((x) => x.status === '完了')) {
-    rows += 1;
-    for (const id of r.ids) if (!ids.has(id)) missing.push(`${r.file}: ${r.req} ${id}`);
-  }
-  assert.ok(rows > 0);
-  assert.deepEqual([...new Set(missing)], []);
-});
-
-test('検証方法: テスト名の仕様項目 ID の範囲は両端の間の全ての ID を名指し、接頭辞の違う範囲を拒否する', () => {
-  assert.deepEqual([...titleIds(['SP-BPCONFORMANCE-027〜029・SP-BPRUN-011〜SP-BPRUN-012 と SP-BPRUN-040'])],
-    ['SP-BPCONFORMANCE-027', 'SP-BPCONFORMANCE-028', 'SP-BPCONFORMANCE-029', 'SP-BPRUN-011', 'SP-BPRUN-012', 'SP-BPRUN-040']);
-  assert.throws(() => titleIds(['SP-BPRUN-011〜SP-BPFINDINGS-013']), /接頭辞が違う/);
-});
-
+// 「完了」の行に成功したテストがあるかは make test のトレーサビリティ検査（scripts/traceability）が見る。ここは名前の付いたテストで縛れない試走の行だけを見る。
 // 試走の行は模擬の検証役でも名前の付いたテストが通ってしまうので、テスト名の有無では「完了」を縛れない。
 test('検証方法: 試走と eval で確かめる行は、記録と正解表から計算した集合にあるときだけ「完了」で、見分け方の表が指す行は全てトレーサビリティ表にある', () => {
   const rules = trialRules();
@@ -99,7 +64,7 @@ test('検証方法: 試走と eval で確かめる行は、記録と正解表か
     for (const pair of rule.pairs ?? []) assert.ok(rows.some((r) => `${r.req}|${r.spec}` === pair), `${rule.file}: 試走の表の行がトレーサビリティ表に無い: ${pair}`);
     for (const r of rows.filter(rule.isTrial)) {
       trial += 1;
-      if (r.status === '完了' && !CONFIRMED.has(rowKey(r))) early.push(`${r.file}: ${r.req} ${r.spec} ${r.method}`);
+      if (r.status === TRACE_STATUS.done && !CONFIRMED.has(rowKey(r))) early.push(`${r.file}: ${r.req} ${r.spec} ${r.method}`);
     }
   }
   assert.ok(trial > 0);
@@ -122,13 +87,10 @@ test('検証方法: 試走の正解表の全ての行は、トレーサビリテ
   assert.equal(expectedProblems(bad, rules).length, bad.length);
 });
 
-test('検証方法: best-practices の仕様書のトレーサビリティ表の全ての行が 4 列で、ステータスが未着手・作成中・完了のどれかである', () => {
-  const rows = SPEC_FILES.flatMap(traceRows);
-  assert.ok(rows.length > 100);
-  for (const r of rows) {
-    assert.equal(r.extra, 0, `${r.file}: ${r.req}`);
-    assert.ok(STATUSES.includes(r.status), `${r.file}: ${r.req} ${r.spec}: ${JSON.stringify(r.status)}`);
-  }
+// 列の数・ステータスの語彙・仕様項目 ID の形の検査は traceRows が持つ（ここに写さない）。
+test('検証方法: best-practices の仕様書のトレーサビリティ表を、行の形を検査する読み取りで全て読め、仕様書は仕様書の置き場にある', () => {
+  assert.ok(SPEC_FILES.length > 0 && SPEC_FILES.every((f) => !f.startsWith('..')));
+  assert.ok(SPEC_FILES.flatMap(traceRows).length > 100);
 });
 
 function filesUnder(dir, keep) {

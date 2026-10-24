@@ -1,8 +1,9 @@
 import { readFile, realpath, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { TRACE_STATUS, outsideFences, specHeading, traceTable } from '../../tools/lib/bp-docs.mjs';
 
 export const categories = ['normal', 'recovery', 'error', 'boundary'];
-export const idPattern = /SP-[A-Z][A-Z0-9]*-\d+/g;
 export async function inside(root, relative) {
   if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)) throw new Error(`Expected relative path: ${relative}`);
   const resolved = await realpath(path.resolve(root, relative));
@@ -19,6 +20,8 @@ export async function loadConfig(file) {
     if (new Set(config[key]).size !== config[key].length) throw new Error(`Duplicate ${key}`);
   }
   for (const key of ['specFiles', 'testFiles', 'sourceFiles']) for (const file of config[key]) await inside(config.root, file);
+  config.tracedTestFiles = new Set(await Promise.all(config.testFiles.map(file => inside(config.root, file))));
+  config.environmentSkipReason = await environmentSkipReason(config);
   config.scenarios ??= {};
   config.unmeasuredSources ??= {};
   for (const [file, reason] of Object.entries(config.unmeasuredSources)) {
@@ -26,49 +29,39 @@ export async function loadConfig(file) {
   }
   return config;
 }
-function outsideFences(markdown) {
-  let fence;
-  return markdown.split('\n').map(line => {
-    if (fence) {
-      const close = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/);
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = undefined;
-      return '';
-    }
-    const open = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
-      fence = open[1];
-      return '';
-    }
-    return line;
-  });
+// skip を環境による未検証として許すのは、skip を出す側と同じ判定が「この環境では実行できない」と答えるときだけ（設定が無ければ許さない）。
+async function environmentSkipReason(config) {
+  const gate = config.environmentSkip;
+  if (gate === undefined) return null;
+  if (!gate || typeof gate.module !== 'string' || typeof gate.export !== 'string') throw new Error('Invalid environmentSkip');
+  const decide = (await import(pathToFileURL(await inside(config.root, gate.module)).href))[gate.export];
+  if (typeof decide !== 'function') throw new Error(`Invalid environmentSkip export ${gate.export}`);
+  const reason = await decide();
+  if (reason !== null && (typeof reason !== 'string' || !reason)) throw new Error('environmentSkip must return a reason string or null');
+  return reason;
 }
 export async function readSpecs(config) {
   const specs = {};
-  const documents = await Promise.all(config.specFiles.map(async file => ({file,lines:outsideFences(await readFile(await inside(config.root,file), 'utf8'))})));
-  for (const {file,lines} of documents) {
-    for (const [index, line] of lines.entries()) {
-      const match = line.match(/^#{1,6}\s+(SP-[A-Z][A-Z0-9]*-\d+)\b/);
-      if (!match || !config.scopePrefixes.some(prefix => match[1].startsWith(prefix))) continue;
-      if (specs[match[1]]) throw new Error(`Duplicate specification ${match[1]}`);
-      specs[match[1]] = { id: match[1], file, line: index + 1, rows: [] };
+  const documents = await Promise.all(config.specFiles.map(async file => ({file,text:await readFile(await inside(config.root,file), 'utf8')})));
+  for (const {file,text} of documents) {
+    for (const [index, line] of outsideFences(text).entries()) {
+      const id = specHeading(line);
+      if (!id || !config.scopePrefixes.some(prefix => id.startsWith(prefix))) continue;
+      if (specs[id]) throw new Error(`Duplicate specification ${id}`);
+      specs[id] = { id, file, line: index + 1, rows: [] };
     }
   }
-  for (const {file,lines} of documents) {
-    for (const [index, line] of lines.entries()) {
-      if (!line.startsWith('|') || !line.includes('PR-')) continue;
-      const cells = line.split('|').slice(1, -1).map(x => x.trim());
-      if (cells.length < 4) continue;
-      const ids = cells[1].match(idPattern) ?? [];
-      const status = cells.at(-1);
-      if (!ids.length) continue;
-      if (!['未着手', '作成中', '完了'].includes(status)) throw new Error(`Invalid status ${file}:${index + 1}`);
-      for (const id of ids.filter(id => config.scopePrefixes.some(prefix => id.startsWith(prefix)))) {
-        if (!specs[id]) throw new Error(`Unknown specification ${id} at ${file}:${index + 1}`);
-        specs[id].rows.push({ file, line: index + 1, requirement: cells[0], verification: cells[2], status });
+  for (const {file,text} of documents) {
+    let rows;
+    try { rows = traceTable(text); } catch (error) { throw new Error(`Invalid verification table ${file}: ${error.message}`, {cause:error}); }
+    for (const row of rows) {
+      for (const id of row.ids.filter(id => config.scopePrefixes.some(prefix => id.startsWith(prefix)))) {
+        if (!specs[id]) throw new Error(`Unknown specification ${id} at ${file}:${row.line}`);
+        specs[id].rows.push({ file, line: row.line, requirement: row.req, verification: row.method, status: row.status });
       }
     }
   }
-  for (const spec of Object.values(specs)) spec.status = spec.rows.length && spec.rows.every(x => x.status === '完了') ? 'complete' : spec.rows.some(x => x.status !== '未着手') ? 'in-progress' : 'not-started';
+  for (const spec of Object.values(specs)) spec.status = spec.rows.length && spec.rows.every(x => x.status === TRACE_STATUS.done) ? 'complete' : spec.rows.some(x => x.status !== TRACE_STATUS.notStarted) ? 'in-progress' : 'not-started';
   validatePlans(config.scenarios, specs);
   return specs;
 }

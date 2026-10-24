@@ -598,7 +598,7 @@ test('SP-BPFINDINGS-002 @error:external-symlink: 根の中の symlink が plugin
   assert.deepEqual(await stateDirs(ctx), []);
 });
 
-test('SP-BPFINDINGS-002 @recovery:stop-excludes-symlink: 開始の後に plugin の外を指す symlink が置かれても、停止は書けてその実体を除外の一覧に残し、再開と取り直しは E_INPUT で止まる', async (t) => {
+test('SP-BPRUN-011・SP-BPRUN-016・SP-BPFINDINGS-002 @recovery:stop-excludes-symlink: 開始の後に plugin の外を指す symlink が置かれても、停止は書けてその実体を除外の一覧に残し、再開と取り直しは E_INPUT で止まる', async (t) => {
   const ctx = context(t);
   if (!ctx) return;
   const root = await skillDir(t);

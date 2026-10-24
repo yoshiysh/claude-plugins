@@ -30,7 +30,9 @@ export async function runTests(config, files) {
   if (result.signal || result.code === null || !summary || ![0,1].includes(result.code)) throw new Error(`Test runner incomplete: ${result.signal ?? result.code}; ${result.stderr}`);
   if ((result.code === 0) !== summary.success) throw new Error('Test runner exit/summary mismatch');
   const diagnostics = events.filter(x => ['test:stderr','test:stdout'].includes(x.type)).map(x => x.data.message).join('');
-  return {events,summary,includeAll,diagnostics:`${result.stderr}${diagnostics}`};
+  // テスト終了後の非同期の例外のようにテストの結果に現れない原因を含むので、件数の行と見分けずに全て残す。
+  const notes = events.filter(x => x.type === 'test:diagnostic').map(({data}) => ({file:data.file,line:data.line,level:data.level,message:data.message}));
+  return {events,summary,includeAll,notes,diagnostics:`${result.stderr}${diagnostics}`};
 }
 export function coverageReport(config, run) {
   const summary = run.events.findLast(event => event.type === 'test:coverage')?.data.summary;

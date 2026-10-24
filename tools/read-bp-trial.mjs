@@ -9,7 +9,7 @@ import { applicability, forcedReason, forcedSources } from '../plugins/skill-cre
 import {
   EVAL_FUNCTION, EXPECTED_FILE, RECORDS_DIR, RUNS_FILE, TRIAL_DIR, applyInjections, belongs, evidenceProblems, expectedSource, fingerprint, injectUnits, readRuns, sameFingerprint, sourceProblems,
 } from './bp-trial.mjs';
-import { traceRows as sharedTraceRows } from './lib/bp-docs.mjs';
+import { TRACE_STATUS, traceRows as sharedTraceRows } from './lib/bp-docs.mjs';
 
 export { EXPECTED_FILE, belongs, injectUnits };
 
@@ -111,7 +111,7 @@ export function read({ baseline, injected, expected }) {
     if (ownForced.length) parts.push({ sp: '強いられた未検査', ok: forcedSeen(ownForced), note: ownForced.join(' ') });
     const ownFalse = falsePositives.filter((f) => sps.some((sp) => belongs(f.kind, sp)));
     const unmeasured = row.unmeasured ?? [];
-    const status = broken.length || unmeasured.length || ownFalse.length || parts.some((p) => p.ok === null) || !parts.every((p) => p.ok) ? '作成中' : '完了';
+    const status = broken.length || unmeasured.length || ownFalse.length || parts.some((p) => p.ok === null) || !parts.every((p) => p.ok) ? TRACE_STATUS.inProgress : TRACE_STATUS.done;
     return { req: row.req, spec: row.spec, parts, unmeasured, falsePositives: ownFalse.map(describe), status };
   });
   const unseen = expected.injections.filter((i) => i.unseen?.length).map((i) => ({ sp: i.unit.split('/')[0], picked: i.unit, units: i.unseen }));
@@ -258,7 +258,7 @@ export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FIL
         const methods = new Map(traceRows('bp-conformance.md', specsDir).map((t) => [`${t.req}|${t.spec}`, t.method]));
         for (const row of exp.rows) {
           const r = injected?.rows.find((x) => x.req === row.req && x.spec === row.spec);
-          const status = problems.length === 0 && r ? r.status : '作成中';
+          const status = problems.length === 0 && r ? r.status : TRACE_STATUS.inProgress;
           const notes = problems.length ? problems : r ? [...(injected.valid ? [] : injected.broken), ...r.parts.map((p) => `${p.sp}: ${p.ok === null ? '測らない' : p.ok ? '当たり' : '外れ'}`)] : ['読めない'];
           out.push({ file: 'bp-conformance.md', req: row.req, spec: row.spec, method: methods.get(`${row.req}|${row.spec}`) ?? null, run: name, status, notes });
         }
@@ -268,7 +268,7 @@ export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FIL
         const parts = problems.length ? [] : row.checks.map((c) => ({ clause: c.clause, by: c.by, ok: evaluate(c, rec.result, { injected }) }));
         const unmeasured = row.unmeasured ?? [];
         const ok = problems.length === 0 && parts.every((p) => p.ok) && unmeasured.length === 0;
-        out.push({ file: row.file, req: row.req, spec: row.spec, method: row.method, run: name, status: ok ? '完了' : '作成中', parts, unmeasured, notes: problems });
+        out.push({ file: row.file, req: row.req, spec: row.spec, method: row.method, run: name, status: ok ? TRACE_STATUS.done : TRACE_STATUS.inProgress, parts, unmeasured, notes: problems });
       }
     }
   }
@@ -276,7 +276,7 @@ export function readRecords({ recordsDir = RECORDS_DIR, runs = readRuns(RUNS_FIL
 }
 
 export function confirmedKeys(rows) {
-  return new Set(rows.filter((r) => r.status === '完了').map(rowKey));
+  return new Set(rows.filter((r) => r.status === TRACE_STATUS.done).map(rowKey));
 }
 
 export function renderRecords(rows) {
