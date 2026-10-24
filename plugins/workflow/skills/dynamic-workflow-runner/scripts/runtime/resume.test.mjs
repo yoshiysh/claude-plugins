@@ -34,6 +34,16 @@ test('checkpoint stops then replays completed work and dispatches only new work'
   assert.ok((await stat(join(stopped.runDir, 'continuation.lock'))).isDirectory());
 });
 
+test('the body has no meta binding on the checkpoint and continuation path, as under native Workflow', async t => {
+  const f = await fixture(t, `const before = typeof meta; await agent('first'); await checkpoint('one'); return before + ' ' + typeof meta;`);
+  const stopped = await f.run();
+  assert.equal(stopped.status, 'checkpoint');
+  assert.equal(await f.run({ resume: resume(stopped) }), 'undefined undefined');
+  const g = await fixture(t, `await agent('first'); await checkpoint('one'); return meta.name;`);
+  const stoppedRead = await g.run();
+  await assert.rejects(g.run({ resume: resume(stoppedRead) }), /meta is not defined/);
+});
+
 test('checkpoint continuation retains the shared evidence workspace', async t => {
   const f = await fixture(t, `const path=workspace.path+'/evidence.md'; await agent('write '+path); await checkpoint('one'); return await agent('read '+path);`, {
     backend: {

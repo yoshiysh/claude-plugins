@@ -64,7 +64,7 @@ script を呼ぶ前に、司令塔（このスキルを読んでいる Claude）
 > native を 1 回だけ使う。native が存在しない Codex では `workflow:dynamic-workflow-runner` を
 > 内部互換層として使い、`executionMode: "codex-runner"` を args に渡す。runner は read-only で動き、
 > `revise` の完全な本文を返り値に含めて再採点する。本文はファイルへ書かず、返却できる改稿本文の合計は
-> source の `meta.caps.maxInlineDraftBytes` まで。上限超過や本文・対象パスの欠落時は切り詰めずに `update_failed` とする。native を
+> source の定数 `MAX_INLINE_DRAFT_BYTES` まで。上限超過や本文・対象パスの欠落時は切り詰めずに `update_failed` とする。native を
 > 試行後に error / timeout / invalid result となった場合も runner へ fallback しない。caller の human
 > gate は runner 内 gate に移さない。
 >

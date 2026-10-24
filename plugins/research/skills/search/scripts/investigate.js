@@ -17,10 +17,19 @@ export const meta = {
   },
 }
 
+// native Workflow は本体に meta を渡さないので、本体から meta を読むと起動直後に落ちる。
+// meta は純粋なリテラルでなければならず本体の値を参照できないため、値はここと meta の 2 箇所に置き、
+// 一致は tests/workflow-callers.test.mjs が検査する。
+const MODEL_HINTS = {
+  claim_extractor: 'sonnet',
+  source_verifier: 'sonnet',
+  root_cause_synthesizer: 'opus',
+}
+
 function modelHint(callsite) {
-  const hint = meta.codex_workflow_compatibility.model_hints[callsite]
-  if (!hint) throw new Error(`undeclared model hint callsite: ${callsite}`)
-  return hint.requested_model
+  const model = MODEL_HINTS[callsite]
+  if (!model) throw new Error(`undeclared model hint callsite: ${callsite}`)
+  return model
 }
 
 // DEFAULT_MAX_ROUNDS: 1 ラウンドで extractor 1 回 + claim 数分の verifier + synthesizer 1 回を

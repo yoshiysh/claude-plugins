@@ -18,15 +18,23 @@ function literal(node) {
   throw new Error('meta must contain only literal values');
 }
 
-function parseSource(source) {
-  const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true });
-  const first = ast.body[0];
-  const declaration = first?.declaration;
+export function parseModule(source) {
+  return parse(source, { ecmaVersion: 'latest', sourceType: 'module', allowReturnOutsideFunction: true });
+}
+
+// The shape check alone, so callers can recognize a source whose meta values are invalid.
+export function isMetaStatement(statement) {
+  const declaration = statement?.declaration;
   const binding = declaration?.declarations?.[0];
-  if (first?.type !== 'ExportNamedDeclaration' || declaration?.kind !== 'const' ||
-      declaration.declarations.length !== 1 || binding.id.name !== 'meta' || binding.init.type !== 'ObjectExpression')
-    throw new Error('first statement must be export const meta = {...}');
-  const meta = literal(binding.init);
+  return statement?.type === 'ExportNamedDeclaration' && declaration?.kind === 'const' &&
+    declaration.declarations.length === 1 && binding.id.name === 'meta' && binding.init?.type === 'ObjectExpression';
+}
+
+function parseSource(source) {
+  const ast = parseModule(source);
+  const first = ast.body[0];
+  if (!isMetaStatement(first)) throw new Error('first statement must be export const meta = {...}');
+  const meta = literal(first.declaration.declarations[0].init);
   if (typeof meta.name !== 'string' || !meta.name || typeof meta.description !== 'string' || !meta.description)
     throw new Error('meta requires name and description');
   return { meta, body: source.slice(first.end), statements: ast.body.slice(1) };

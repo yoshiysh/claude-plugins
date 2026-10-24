@@ -10,7 +10,6 @@ export const meta = {
     { title: 'Update', detail: 'mode=revise のとき、Codex runner は本文を返し native Workflow は staging へ改稿する' },
     { title: 'Rescore', detail: '改稿後の本文を同じ構成で再採点し before/after を突き合わせる' },
   ],
-  caps: { maxFindingsPerPass: 8, maxInlineDraftBytes: 196608 },
   limits: {
     maxAgents: 58,
     concurrency: 8,
@@ -20,10 +19,9 @@ export const meta = {
   },
 }
 
-const MAX_FINDINGS_PER_PASS = meta.caps.maxFindingsPerPass
-if (meta.limits.maxAgents !== 10 + MAX_FINDINGS_PER_PASS * 6) {
-  throw new Error('Codex runner meta.limits.maxAgents must cover fixed calls plus before/after refutation caps.')
-}
+// native Workflow は本体に meta を渡さないので、上限は本体の定数に置く。meta.limits.maxAgents が固定の起動数と
+// 改稿前後の反証の上限を覆うことは tests/review-document-runtime.test.mjs が照らす。
+const MAX_FINDINGS_PER_PASS = 8
 
 // 有効票の下限。3 票中 2 票が返らないと多数決の分母が 1 になり、「1 名が反証しなかった」
 // だけで確定してしまう。欠測は反証の不在ではないので、確定にも棄却にも回さない。
@@ -258,7 +256,7 @@ const parsedArgs = (typeof args === 'string' ? JSON.parse(args) : args) || {}
 const runnerWorkspace = typeof workspace === 'undefined' ? null : workspace
 const requestedRunnerMode = parsedArgs.executionMode === 'codex-runner'
 const inlineDraftMode = requestedRunnerMode || Boolean(runnerWorkspace && typeof runnerWorkspace.path === 'string')
-const MAX_INLINE_DRAFT_BYTES = meta.caps.maxInlineDraftBytes
+const MAX_INLINE_DRAFT_BYTES = 196608
 
 // ------------------------------------------------------------------ 起動時ガード
 // 対象も範囲も定まらないまま走らせると、何を見たのか説明できない結果が「採点結果」として

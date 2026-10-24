@@ -99,7 +99,7 @@ subagent を実行します。native Claude は Fable 5 と planner が選ぶモ
 全役割で host-default model を使います。収束すれば途中で打ち切ります。
 ```
 
-既定値と hard cap は `scripts/orchestrate.js` の literal `meta.defaults` / `meta.caps` を正本とする。
+既定値と hard cap は `scripts/orchestrate.js` の本体の定数 `DEFAULT_MAX_ROUNDS` / `HARD_MAX_ROUNDS` / `DEFAULT_SUBAGENTS_CAP` / `HARD_SUBAGENTS_CAP` を正本とする。
 見積もり時にその値を読み、SKILL.md 側へ写さない。ユーザーが上限を明示した場合はその値を
 `args` に渡す。
 
@@ -137,7 +137,7 @@ Workflow({ scriptPath: "[SKILL_DIR]/scripts/orchestrate.js", args: {
 
 Codex route の dynamic-workflow-runner request では、source の literal `meta.limits` を `args` の外側の
 `limits` にそのまま渡す。これは hard cap 全体を処理する host ceiling で、per-run の再計算や縮小はしない。
-source は `args.maxRounds` と `args.subagentsPerRoundCap` を `meta.defaults` / `meta.caps` に照らして検証し、
+source は `args.maxRounds` と `args.subagentsPerRoundCap` を本体の既定値と hard cap の定数に照らして検証し、
 実際のループを制限する。返却される `model_map_disclosure.required_runner_limits` も同じ `meta.limits` を示す。
 
 ```javascript

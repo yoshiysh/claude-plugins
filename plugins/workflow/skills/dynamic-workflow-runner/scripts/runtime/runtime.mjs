@@ -234,6 +234,6 @@ async function executeResolvedWorkflow(request, host, resolved) {
         queue.push({ ...message, validate }); pump();
       } catch (error) { finish(error); }
     });
-    worker.send({ type: 'start', args: JSON.parse(encodedArgs), meta, body, workspace });
+    worker.send({ type: 'start', args: JSON.parse(encodedArgs), body, workspace });
   });
 }

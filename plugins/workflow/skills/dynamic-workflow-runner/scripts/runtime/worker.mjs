@@ -28,12 +28,12 @@ process.on('message', async message => {
   };
   const emit = (type, value) => process.send({ type, value });
   const context = vm.createContext({ __rpc: rpc, __checkpoint: checkpoint, __emit: emit,
-    __args: JSON.stringify(message.args), __meta: JSON.stringify(message.meta),
+    __args: JSON.stringify(message.args),
     __workspace: JSON.stringify(message.workspace ?? null) },
     { codeGeneration: { strings: false, wasm: false } });
   try {
     new vm.Script(`
-      const args = JSON.parse(__args), meta = JSON.parse(__meta);
+      const args = JSON.parse(__args);
       const workspace = __workspace === 'null' ? null : Object.freeze(JSON.parse(__workspace));
       const agent = (prompt, options = {}) => __rpc(prompt, options);
       const checkpoint = label => __checkpoint(label);
