@@ -5,7 +5,7 @@ import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } fr
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  CODES, RETRY, ReviewError, WORKFLOW_SOURCE_PATHS, causesOf, failedPin, pinIssues, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge,
+  CODES, RETRY, ReviewError, canonical, WORKFLOW_SOURCE_PATHS, causesOf, failedPin, pinIssues, buildPlan, extractSections, parseReadingTable, renderPolicyPack, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, matcher, merge,
 } from './review-core.mjs'
 
 // 内容を読まない path と生成物の書き先は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
@@ -156,20 +156,37 @@ function treeModes(git, ref) {
 
 const REGULAR = new Set(['100644', '100755'])
 
-// 追跡中の symlink を、repo の中の実体の path へ解決した対応表。core はこれで symlink 経由の読み（.agents/skills/<skill>/... など）を実体の path に直して禁止判定する。
-// repo の外を指す link と絶対パスの link は表に入れない（実体が repo の外なので、禁止 path の判定の対象にならない）。
+// symlink を repo の中の実体の path へ解決した対応表（宣言の正本）。core はこれで symlink 経由の読み（.agents/skills/<skill>/... など）を
+// 実体の path に直して禁止判定する。diff は headSha の tree の symlink から、working_tree・audit は reviewer が読む作業ツリーの
+// symlink（追跡中と、ignore されていない未追跡のもの）を readlink して作る。repo の外を指す link と絶対パスの link は表に入れない
+// （実体が repo の外なので、禁止 path の判定の対象にならない）。pin は同じ方法で作り直して計画と照らす。
+function addLink(map, link, target) {
+  if (target.startsWith('/')) return
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(link), target))
+  if (resolved === '..' || resolved.startsWith('../')) return
+  map[link] = resolved.replace(/\/+$/, '')
+}
+
+export function collectWorktreeSymlinkMap(repo, io) {
+  const map = {}
+  for (const file of lines(io.git(repo, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']))) {
+    const st = io.lstat(path.join(repo, file))
+    if (st?.isSymbolicLink()) addLink(map, file, String(io.readlink(path.join(repo, file))))
+  }
+  return map
+}
+
+export function symlinkMapOf(request, io) {
+  return request.mode === 'diff' ? collectSymlinkMap((args) => io.git(request.repo, args), request.headSha) : collectWorktreeSymlinkMap(request.repo, io)
+}
+
 export function collectSymlinkMap(git, ref) {
   const map = {}
   for (const entry of lines(git(['ls-tree', '-r', '-z', '--full-tree', '--end-of-options', ref]))) {
     const tab = entry.indexOf('\t')
     const [mode, , oid] = entry.slice(0, tab).split(' ')
     if (mode !== '120000') continue
-    const link = entry.slice(tab + 1)
-    const target = git(['cat-file', 'blob', oid]).toString('utf8')
-    if (target.startsWith('/')) continue
-    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(link), target))
-    if (resolved === '..' || resolved.startsWith('../')) continue
-    map[link] = resolved.replace(/\/+$/, '')
+    addLink(map, entry.slice(tab + 1), git(['cat-file', 'blob', oid]).toString('utf8'))
   }
   return map
 }
@@ -316,7 +333,7 @@ const OPS = {
     const packSha = sha256(Buffer.from(pack.text))
     const packPath = path.join(io.realpath(stateDir), PACK_FILE(packSha))
     io.writeFile(packPath, pack.text)
-    const symlinkMap = collectSymlinkMap((args) => io.git(request.repo, args), request.headSha)
+    const symlinkMap = symlinkMapOf(request, io)
     const plan = { ...buildPlan(request, state, collectDetails(request, inv.reviewable, io)), symlinkMap, policyPack: { path: packPath, sha256: packSha, token: pack.token, index: pack.index, missing: pack.missing } }
     const planSum = fnvSum(plan)
     const planPath = path.join(io.realpath(stateDir), PLAN_FILE(planSum))
@@ -327,7 +344,11 @@ const OPS = {
     const plan = loadPlan(body, io)
     try {
       const state = collectState(plan, io)
-      const pin = checkPin(plan, state, collectDetails(plan, plan.target.files, io))
+      let pin = checkPin(plan, state, collectDetails(plan, plan.target.files, io))
+      if (canonical(symlinkMapOf(plan, io)) !== canonical(plan.symlinkMap)) {
+        const extra = { cause: 'changed', message: 'symlink の対応（symlinkMap）が計画の後に変わった' }
+        pin = { ...pin, ok: false, problems: [...pin.problems, extra.message], causes: causesOf([...pin.causes, extra], plan.mode) }
+      }
       const packOk = io.lstat(plan.policyPack.path)?.isFile() && sha256(io.readFile(plan.policyPack.path)) === plan.policyPack.sha256
       if (!packOk) {
         const extra = { cause: 'pack', message: '方針の束が計画の後に変わったか消えた' }

@@ -380,3 +380,20 @@ test('policyRef に claude_review.yml や CRITERIA_DIR の import 先が無け�
     assert.equal(out.code, CODES.policy, label)
   }
 })
+
+test('working_tree・audit の symlinkMap は作業ツリーの symlink（追跡中・未追跡）から作り、計画の後の変化を pin が拾う', (t) => {
+  const fx = fixture(t)
+  symlinkSync('../docs/a.md', path.join(fx.repo, 'plugins/p/untracked-link'))
+  rmSync(path.join(fx.repo, 'plugins/p/docs-link'))
+  symlinkSync('../x', path.join(fx.repo, 'plugins/p/docs-link'))
+  const reviewers = [{ id: 'correctness', focus: 'x', files: ['plugins/p/docs-link', 'plugins/p/untracked-link'] }, { id: 'docs', focus: 'y', files: ['plugins/p/docs-link'] }]
+  const out = run('plan', { repo: fx.repo, mode: 'working_tree', baseRef: fx.head, headSha: fx.head, policyRef: fx.head, reviewers, stateDir: fx.stateDir })
+  assert.equal(out.exitCode, 0, out.reason)
+  assert.deepEqual(out.plan.symlinkMap, { 'plugins/p/docs-link': 'plugins/x', 'plugins/p/untracked-link': 'plugins/docs/a.md' }, '作業ツリーのリンク先で解決し、未追跡の link も入れる')
+  const ref = signed({ planPath: out.plan_path, planSum: out.plan_sum })
+  assert.equal(run('pin', ref).pin.ok, true)
+  symlinkSync('../docs', path.join(fx.repo, 'plugins/p/another-link'))
+  const pin = run('pin', ref).pin
+  assert.equal(pin.ok, false)
+  assert.match(pin.problems.join('\n'), /symlinkMap/)
+})

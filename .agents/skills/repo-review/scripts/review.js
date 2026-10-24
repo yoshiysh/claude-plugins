@@ -394,7 +394,7 @@ for (const o of judged.outcomes) {
 }
 
 // 信用しない reviewer（どの status がそれかは CLI の merge が決める）の指摘は、検証に回さず確定指摘でない欄に残す。
-const untrustedFindings = merged.untrusted.map((x) => ({ reported_by: plan.reviewers[x.reviewer].id, reason: x.reason, ...results[x.reviewer].findings[x.finding] }))
+const untrustedFindings = merged.untrusted.map((x) => ({ reported_by: plan.reviewers[x.reviewer].id, reason: x.reason, meaning: x.meaning, ...results[x.reviewer].findings[x.finding] }))
 const invalidFindings = merged.reviewers.flatMap((rv, i) => rv.invalidFindings.map((x) => ({ reported_by: rv.id, reason: x.reason, finding: results[i].findings[x.finding] })))
 const reasons = []
 if (!merged.complete) reasons.push('coverage_or_limitations')

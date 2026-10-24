@@ -272,7 +272,8 @@ test('merge: 欠けた reviewer・HEAD の違い・読み残し・余分・重�
     assert.equal(out.clusters.length, 1, `${label}: 他の reviewer の指摘は検証に回る`)
   }
   const untrusted = merge(mergePlan(), [result({ policy_pack_token: 'unreadable', findings: [{ path: 'a.md', line: 3 }, { path: 'b.md', line: 1 }] }), result({ coverage: ['a.md'], head_sha: H2, findings: [{ path: 'a.md', line: 1 }] })])
-  assert.deepEqual(untrusted.untrusted, [
+  assert.ok(untrusted.untrusted.every((x) => typeof x.meaning === 'string' && x.meaning.length > 0), 'status の意味を CLI が載せる')
+  assert.deepEqual(untrusted.untrusted.map(({ meaning, ...x }) => x), [
     { reviewer: 0, finding: 0, reason: 'pack_unread' }, { reviewer: 0, finding: 1, reason: 'pack_unread' }, { reviewer: 1, finding: 0, reason: 'head_mismatch' },
   ], '信用しない reviewer の指摘を CLI が列挙して返す')
   assert.deepEqual(untrusted.clusters, [])
@@ -616,7 +617,7 @@ test('merge: 読まない path を読んだ reviewer は、coverage・supporting
     const out = merge(mergePlan(), [first, result({ coverage: ['a.md'] })])
     assert.deepEqual(out.forbiddenReads, [{ reviewer: 'correctness', path: 'x.lock', reason: '内容を読まない path' }], label)
     assert.deepEqual(out.reviewers[0].extra, [], `${label}: extra には振り分けない`)
-    assert.deepEqual(out.untrusted, [{ reviewer: 0, finding: 0, reason: 'forbidden_reads' }], label)
+    assert.deepEqual(out.untrusted.map(({ meaning, ...x }) => x), [{ reviewer: 0, finding: 0, reason: 'forbidden_reads' }], label)
     assert.deepEqual(out.clusters, [], `${label}: 検証に回さない`)
     assert.equal(out.reviewers[0].status, 'forbidden_reads', label)
     assert.deepEqual(out.missingCoverage, ['b.md'], `${label}: HEAD の食い違いと同じく担当を読み残しとする`)
@@ -634,4 +635,23 @@ test('merge: symlink 経由で読んだ生成物も計画の symlinkMap で実�
   const strings = { head_sha: H, policy_pack_token: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], policy_sections: [], limitations: 0, findings: [] }
   rejects(() => merge(plan, [strings, result({ coverage: ['a.md'] })]), CODES.input, /supporting_files/, '注記つきの文字列の supporting_files は受けない')
   rejects(() => merge(plan, [result({ coverage: [{ path: 'a.md' }] }), result({ coverage: ['a.md'] })]), CODES.input, null, 'coverage は path の文字列の配列')
+})
+
+test('symlink の解決は「読んだ」申告にだけ使い、symlink の行への指摘・根拠は元の path で判定する', () => {
+  const plan = mergePlan({ mode: 'working_tree', target: { files: ['CLAUDE.md', 'a.md'] }, preserved: ['AGENTS.md'], symlinkMap: { 'CLAUDE.md': 'AGENTS.md' },
+    reviewers: [{ id: 'correctness', focus: 'x', files: ['CLAUDE.md', 'a.md'] }, { id: 'docs', focus: 'y', files: ['a.md'] }] })
+  const ok = merge(plan, [result({ coverage: ['CLAUDE.md', 'a.md'], findings: [{ path: 'CLAUDE.md', line: 1 }] }), result({ coverage: ['a.md'] })])
+  assert.deepEqual(ok.reviewers[0].invalidFindings, [], 'symlink の行への指摘は、リンク先が作業中の変更でも不正にしない')
+  assert.equal(ok.clusters.length, 1)
+  const read = merge(plan, [result({ coverage: ['CLAUDE.md', 'a.md'], supporting_files: ['docs/../CLAUDE.md'] }), result({ coverage: ['a.md'] })])
+  assert.deepEqual(read.forbiddenReads.map((x) => x.path), ['CLAUDE.md'], 'symlink 経由で作業中の変更を読んだ申告は forbidden')
+  const first = firstAssignments(plan, ok.clusters)
+  const v = judge({ ...plan, policyPack: PACK }, { clusters: ok.clusters }, [{ assignments: first, verifications: [{ head_sha: H, policy_pack_token: 'S', results: [{ cluster: 0, claim: 0, verdict: 'confirmed', evidence: [{ path: 'CLAUDE.md', line: 1 }] }] }] }])
+  assert.equal(v.outcomes[0].verdict, 'confirmed', 'symlink の行を根拠にした票は有効')
+})
+
+test('ignoredSupporting の各項目は分類の意味を持つ', () => {
+  const out = merge(mergePlan(), [result({ supporting_files: ['/elsewhere/x.md', '../y.md', ' '] }), result({ coverage: ['a.md'] })])
+  assert.deepEqual(out.reviewers[0].ignoredSupporting.map((x) => x.kind), ['outside_repo', 'outside_repo', 'not_path'])
+  assert.ok(out.reviewers[0].ignoredSupporting.every((x) => typeof x.meaning === 'string' && x.meaning.length > 0))
 })

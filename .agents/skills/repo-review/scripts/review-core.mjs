@@ -17,7 +17,18 @@ const WORKFLOW_SOURCE_HEAD = /^export\s+const\s+meta\s*=\s*\{/
 export const VERDICTS = Object.freeze(['confirmed', 'refuted', 'unverified'])
 // 検証の段の数。1 段目は候補ごとに 1 体、2 段目は決着しなかった主張に残りの観点を全て当てる（best-practices の schemas.md「refuter の出力」）。
 export const VERIFY_ROUNDS = 2
-const UNTRUSTED_STATUSES = Object.freeze(['head_mismatch', 'pack_unread', 'forbidden_reads'])
+// 結果を返したが信用しない reviewer の status と、その意味。merge が untrusted の各項目の meaning に載せる（意味の正本はここだけ）。
+const UNTRUSTED_STATUSES = Object.freeze({
+  head_mismatch: 'reviewer が見た HEAD が計画と違う。別の版の内容を指し得る',
+  pack_unread: 'reviewer が方針の束を読めなかった。全員に共通の方針で判断していない',
+  forbidden_reads: 'reviewer が読まない path（除外・生成物・作業中の変更）を読んだ。読んではいけない内容に依り得る',
+})
+// 根拠の申告のうち、記録だけにする分類と、その意味。merge が ignoredSupporting の各項目の meaning に載せる（意味の正本はここだけ）。
+const IGNORED_KINDS = Object.freeze({
+  policy_pack: '方針の束そのもの。方針の根拠は policy_sections に節の ID で返す',
+  outside_repo: 'repo の外の path（スキル自身の指示文書など）。根拠は repo の中のファイルに限る',
+  not_path: 'repo 相対の path として読めない',
+})
 export const CODES = Object.freeze({ input: 'E_INPUT', pin: 'E_PIN', plan: 'E_PLAN', policy: 'E_POLICY', transport: 'E_TRANSPORT', io: 'E_IO', internal: 'E_INTERNAL' })
 // CLI の拒否に付ける、caller の次の手。replan は前処理の 3（plan）からやり直せば直り得るもの、none はやり直しても同じ答えになるもの。
 export const RETRY = Object.freeze({ replan: 'replan', none: 'none' })
@@ -309,12 +320,14 @@ export function resolveSymlinks(file, symlinkMap = {}) {
   return current
 }
 
-function unreadableMatcher(plan) {
+// readThrough は「読んだ」申告（supporting_files・担当外の coverage）の判定にだけ使い、symlink を実体へ解決してからも見る。
+// 指摘と evidence の場所は symlink の行そのもの（リンク先の文字列）を指し得るので、元の path だけで見る。
+function unreadableMatcher(plan, { readThrough = false } = {}) {
   const isExcluded = matcher(plan.excludePaths)
   const isGenerated = matcher(plan.generatedPaths)
   const preserved = new Set(plan.preserved)
   return (file) => {
-    for (const f of new Set([file, resolveSymlinks(file, plan.symlinkMap)])) {
+    for (const f of new Set(readThrough ? [file, resolveSymlinks(file, plan.symlinkMap)] : [file])) {
       if (isExcluded(f)) return '内容を読まない path'
       if (isGenerated(f)) return '生成物'
       if (preserved.has(f)) return '呼び出し側の作業中の変更'
@@ -373,6 +386,7 @@ export function merge(plan, results) {
   if (!Array.isArray(results) || results.length !== plan.reviewers.length) fail(CODES.input, ['results は reviewers と同じ長さの配列でなければならない'])
   results.forEach((res, i) => res === null || checkResultShape(res, i))
   const unreadable = unreadableMatcher(plan)
+  const readUnreadable = unreadableMatcher(plan, { readThrough: true })
   const packIds = plan.policyPack.index.map((e) => e.id)
   const reviewers = plan.reviewers.map((rv, i) => {
     const res = results[i]
@@ -382,11 +396,11 @@ export function merge(plan, results) {
     // 束を読めなかった reviewer は、全員の共通の方針でない判断をしている。HEAD の食い違いと同じく指摘を検証に回さない。
     if (res.policy_pack_token !== plan.policyPack.token) return { ...base, status: 'pack_unread', missing: [...rv.files] }
     // 担当外の coverage も同じ分類にかけ、読まない path を読んだものは extra でなく forbiddenReads に振り分ける。
-    const outside = res.coverage.filter((f) => !rv.files.includes(f)).map((f) => classifySupporting(plan, unreadable, f))
-    const supporting = [...res.supporting_files.map((f) => classifySupporting(plan, unreadable, f.path)), ...outside.filter((x) => x.kind === 'forbidden')]
+    const outside = res.coverage.filter((f) => !rv.files.includes(f)).map((f) => classifySupporting(plan, readUnreadable, f))
+    const supporting = [...res.supporting_files.map((f) => classifySupporting(plan, readUnreadable, f.path)), ...outside.filter((x) => x.kind === 'forbidden')]
     const forbidden = supporting.filter((x) => x.kind === 'forbidden')
     const forbiddenReads = [...new Map(forbidden.map((x) => [x.path, { path: x.path, reason: x.reason }])).values()].sort((a, b) => order(a.path, b.path))
-    const ignoredSupporting = supporting.filter((x) => !['ok', 'forbidden'].includes(x.kind)).map((x) => ({ entry: x.entry, kind: x.kind }))
+    const ignoredSupporting = supporting.filter((x) => Object.hasOwn(IGNORED_KINDS, x.kind)).map((x) => ({ entry: x.entry, kind: x.kind, meaning: IGNORED_KINDS[x.kind] }))
     // 読まない path を読んだ reviewer は、HEAD の食い違いと同じく担当の全てを読み残しとし、指摘を検証に回さない（読んではいけない内容に依り得る）。
     if (forbiddenReads.length) return { ...base, status: 'forbidden_reads', missing: [...rv.files], forbiddenReads, ignoredSupporting }
     return {
@@ -429,8 +443,8 @@ export function merge(plan, results) {
     && !rv.missing.length && !rv.extra.length && !rv.duplicate.length
     && !rv.invalidFindings.length && rv.limitations === 0)
   // 結果を返したが信用しない reviewer の指摘は、検証に回さず別の欄で返す（どの status がそれに当たるかは UNTRUSTED_STATUSES だけが決め、reason にその status を入れる）。
-  const untrusted = reviewers.flatMap((rv, i) => (UNTRUSTED_STATUSES.includes(rv.status)
-    ? results[i].findings.map((_, j) => ({ reviewer: i, finding: j, reason: rv.status })) : []))
+  const untrusted = reviewers.flatMap((rv, i) => (Object.hasOwn(UNTRUSTED_STATUSES, rv.status)
+    ? results[i].findings.map((_, j) => ({ reviewer: i, finding: j, reason: rv.status, meaning: UNTRUSTED_STATUSES[rv.status] })) : []))
   const forbiddenReads = reviewers.flatMap((rv) => rv.forbiddenReads.map((x) => ({ reviewer: rv.id, ...x })))
   return { complete, reviewers, missingCoverage, clusters, untrusted, forbiddenReads, first: firstAssignments(plan, clusters) }
 }
