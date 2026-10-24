@@ -59,11 +59,11 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
-      "file": "scripts/state.mjs",
+      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r16",
+      "file": "scripts/trace.js",
       "section": null,
-      "from": "    if (keyed && v.keys.get(v.runs.at(-1)) !== digest(String(writeKey))) reject('E_KEY', '書き込みの鍵が今の run のものでない（状態を書くのは運搬役だけ）');",
-      "to": "    if (keyed && ![...v.keys.values()].includes(digest(String(writeKey)))) reject('E_KEY', '書き込みの鍵がどの run のものでもない（状態を書くのは運搬役だけ）');",
+      "from": "// agent() の失敗（throw）も結果の欠けとして返す。工程の中では試行の失敗に、工程の外では BLOCKED の停止になり、どちらも理由が状態に残る。",
+      "to": "// agent() の失敗（throw）も結果の欠けとして返す。工程の中では試行の失敗になるが、工程の外では BLOCKED の停止にせず、黙って再試行し続ける。状態を読み書きする agent の失敗も、成功したことにして理由を残さない。",
       "unseen": [
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r1",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r2",
@@ -73,6 +73,7 @@
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r8",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r10",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r11",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r12",
@@ -83,18 +84,21 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-012/体数と同時実行/t1/r4",
+      "unit": "SP-BPCONFORMANCE-012/体数と同時実行/t1/r6",
       "file": "references/design.md",
       "section": [
         "設計の説明",
-        "周の実行"
+        "起動数の上限"
       ],
-      "from": "- 同時に走る agent は script の定数 `CONCURRENCY` の数まで。item は枠を順位の順に取り、残りは枠が空くまで待たせる。",
-      "to": "- 同時に走る agent は script の定数 `CONCURRENCY` の数まで。item は枠を順位の順に取り、残りは枠が空くまで待たせる。`CONCURRENCY` は、検証できた証拠や実測で決めた基準が無くても、速く終わらせたいときに大きくしてよい。広げた後に戻す条件は決めない。",
+      "from": "Codex runner の経路では、`limits.maxAgents` を超える起動が run 全体を失敗させるので、上限 `maxLaunches` を渡された run は、単位を始める前に最悪の起動数で確かめる。確かめは `used + Σ(走っている単位の worst − 使った数) + worst(u) + R ≤ L` とし、`scripts/trace.js` の定数 `WORST`・`RESERVE` から決定的に行う。",
+      "to": "Codex runner の経路では、`limits.maxAgents` を超える起動が run 全体を失敗させるので、上限 `maxLaunches` を渡された run は、単位を始める前に最悪の起動数で確かめる。確かめは `used + Σ(走っている単位の worst − 使った数) + worst(u) + R ≤ L` とし、`scripts/trace.js` の定数 `WORST`・`RESERVE` から決定的に行う。トークン量の上限は run の入力としては受け取らず、スキル側の固定の既定上限を置いて、入力が無くてもその上限で止める。",
       "unseen": [
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r1",
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r2",
-        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r5"
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r4",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r5",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r7",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r8"
       ]
     },
     {
@@ -135,14 +139,11 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r9",
-      "file": "references/roles/planner.md",
-      "section": [
-        "計画役",
-        "順位"
-      ],
-      "from": "意図には順位を付ける。呼ばれるたびに、新しく出す意図だけでなく、状態に残っている未着手の意図も含めて順位を付け直す（同時実行の上限で待つ意図をどの順で始めるかを、1 つの並びで決めるため）。",
-      "to": "意図には順位を付ける。呼ばれたときは、新しく出す意図にだけ順位を付け、状態に残っている未着手の意図は前の呼び出しで付けた順位をそのまま使う（付け直すと前の判断が無駄になるため）。",
+      "unit": "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r2",
+      "file": "scripts/state.mjs",
+      "section": null,
+      "from": "      if (r.t === 'done') v.intents.get(r.intent).status = r.blank ? 'blank' : 'done';",
+      "to": "      if (r.t === 'done') v.intents.get(r.intent).status = r.blank ? 'pending' : 'done';",
       "unseen": [
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r1",
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r2",
@@ -151,10 +152,11 @@
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r5",
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r6",
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r7",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r9",
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r10",
         "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r11",
+        "SP-BPCONFORMANCE-015/探索グラフ/計画役/t1/r12",
         "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r1",
-        "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r2",
         "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r3",
         "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r4",
         "SP-BPCONFORMANCE-015/探索グラフ/実行役・回収役・検証役/t1/r5",
@@ -171,7 +173,8 @@
         "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r2",
         "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r3",
         "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r5",
-        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r6"
+        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r6",
+        "SP-BPCONFORMANCE-015/探索グラフ/停止/t1/r8"
       ]
     },
     {
