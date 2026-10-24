@@ -142,6 +142,7 @@ test('plan: 計画を stateDir のファイルに書き、symlink と内容で�
   assert.equal(path.dirname(out.plan_path), fx.stateDir)
   assert.deepEqual(JSON.parse(readFileSync(out.plan_path, 'utf8')), out.plan)
   assert.deepEqual(out.plan.symlinks, ['plugins/p/docs-link'])
+  assert.deepEqual(out.plan.symlinkMap, { 'plugins/p/docs-link': 'plugins/docs' }, '追跡中の symlink を実体の path へ解決した対応表')
   const pack = readFileSync(out.plan.policyPack.path, 'utf8')
   assert.equal(path.dirname(out.plan.policyPack.path), fx.stateDir)
   assert.match(out.plan.policyPack.token, /^[0-9a-f]{12}$/)

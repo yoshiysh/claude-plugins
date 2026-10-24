@@ -24,7 +24,7 @@ description: repo-review の Workflow が観点ごとに起動するレビュー
 
 ## 返すもの
 
-- `coverage` には、担当ファイルのうち全体を読めたものだけを入れる。呼び出し元・利用側・テストなど根拠に使った repo の中のファイルは `supporting_files` に repo 相対パスで入れ、coverage に数えない（数えると読んでいない対象が網羅に見える）。方針の根拠は束の節の ID で `policy_sections` に入れ、束そのものと、この役割の指示文書（agents/*.md）はどちらにも入れない。
+- `coverage` には、担当ファイルのうち全体を読めたものだけを入れる。呼び出し元・利用側・テストなど根拠に使った repo の中のファイルは `supporting_files` に `{"path": "<repo 相対パス>", "lines": "<行などの注記。任意>"}` で入れ（path に注記を混ぜない）、coverage に数えない（数えると読んでいない対象が網羅に見える）。方針の根拠は束の節の ID で `policy_sections` に入れ、束そのものと、この役割の指示文書（agents/*.md）はどちらにも入れない。
 - `limitations` は、担当ファイルか必要な方針の文書を読めなかったとき、または挙動を確かめられなかったときだけに書く。テストや Workflow を実行していないことは書かない（実行は呼び出し側の責任）。
 - 候補には `severity`（`REVIEW.md`「重大度」の名前）・`path`・`line`（複数行なら `end_line`）・`summary`・`condition`（発生する条件）・`impact`・`evidence`（確かめた根拠）・`rule`（照らした規則）・`rule_sections`（照らした束の節の ID）を付ける。指摘の書き方と、言語・ライブラリ・ツールの挙動の確かめ方は `REVIEW.md`「指摘の基準」に従う。
 - `head_sha` には prompt の mode の説明どおりの SHA（作業の前後で見た HEAD）を返す。

@@ -156,6 +156,24 @@ function treeModes(git, ref) {
 
 const REGULAR = new Set(['100644', '100755'])
 
+// 追跡中の symlink を、repo の中の実体の path へ解決した対応表。core はこれで symlink 経由の読み（.agents/skills/<skill>/... など）を実体の path に直して禁止判定する。
+// repo の外を指す link と絶対パスの link は表に入れない（実体が repo の外なので、禁止 path の判定の対象にならない）。
+export function collectSymlinkMap(git, ref) {
+  const map = {}
+  for (const entry of lines(git(['ls-tree', '-r', '-z', '--full-tree', '--end-of-options', ref]))) {
+    const tab = entry.indexOf('\t')
+    const [mode, , oid] = entry.slice(0, tab).split(' ')
+    if (mode !== '120000') continue
+    const link = entry.slice(tab + 1)
+    const target = git(['cat-file', 'blob', oid]).toString('utf8')
+    if (target.startsWith('/')) continue
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(link), target))
+    if (resolved === '..' || resolved.startsWith('../')) continue
+    map[link] = resolved.replace(/\/+$/, '')
+  }
+  return map
+}
+
 // symlink はリンク先の文字列そのものを対象にする（辿ると別の path の実体を読むことになる）。digest は種類を前に付けて区別する。
 // Workflow source は置き場（WORKFLOW_SOURCE_PATHS）の中だけを内容で判定し、変更後に無いファイルは base の版で判定する（削除も設計の変更）。
 export function collectDetails(request, files, io) {
@@ -269,6 +287,7 @@ function loadPlan(body, io) {
   const digestsOk = plan.mode === 'diff' ? plan.digests === null
     : plan.digests !== null && typeof plan.digests === 'object' && !Array.isArray(plan.digests)
   if (!digestsOk) bad.push('digests')
+  if (!plan.symlinkMap || typeof plan.symlinkMap !== 'object' || Array.isArray(plan.symlinkMap) || Object.values(plan.symlinkMap).some((v) => typeof v !== 'string')) bad.push('symlinkMap')
   const pack = plan.policyPack
   if (!pack || typeof pack.path !== 'string' || typeof pack.sha256 !== 'string' || typeof pack.token !== 'string' || !Array.isArray(pack.index) || !Array.isArray(pack.missing)) bad.push('policyPack')
   if (bad.length) throw new ReviewError(CODES.input, `plan のファイルが plan 操作の出力の形でない: ${bad.join(', ')}`, { retry: RETRY.replan })
@@ -297,7 +316,8 @@ const OPS = {
     const packSha = sha256(Buffer.from(pack.text))
     const packPath = path.join(io.realpath(stateDir), PACK_FILE(packSha))
     io.writeFile(packPath, pack.text)
-    const plan = { ...buildPlan(request, state, collectDetails(request, inv.reviewable, io)), policyPack: { path: packPath, sha256: packSha, token: pack.token, index: pack.index, missing: pack.missing } }
+    const symlinkMap = collectSymlinkMap((args) => io.git(request.repo, args), request.headSha)
+    const plan = { ...buildPlan(request, state, collectDetails(request, inv.reviewable, io)), symlinkMap, policyPack: { path: packPath, sha256: packSha, token: pack.token, index: pack.index, missing: pack.missing } }
     const planSum = fnvSum(plan)
     const planPath = path.join(io.realpath(stateDir), PLAN_FILE(planSum))
     io.writeFile(planPath, JSON.stringify(plan))

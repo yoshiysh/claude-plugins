@@ -92,7 +92,7 @@ function withPackToken(prompt, res) {
   const file = /方針の束 (\S+) から読む/.exec(prompt)[1]
   return { ...res, policy_pack_token: /^読取りトークン（policy_pack_token に返す）: (\S+)$/m.exec(readFileSync(file, 'utf8'))[1] }
 }
-const reviewOk = (head, id, patch = {}) => ({ head_sha: head, coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], supporting_files: ['REVIEW.md'], policy_sections: ['P1'], findings: [], limitations: [], ...patch })
+const reviewOk = (head, id, patch = {}) => ({ head_sha: head, coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], supporting_files: [{ path: 'REVIEW.md' }], policy_sections: ['P1'], findings: [], limitations: [], ...patch })
 
 // prompt に並ぶ割り当て（候補 k の claims）を読み、主張ごとに decide(lens, round, summary) の判定で返す。
 function verifyAll(head, decide) {
@@ -281,8 +281,8 @@ test('準正常: 方針の束を読めなかった reviewer の指摘は検証�
 test('準正常: 根拠に方針の束や repo の外を挙げても完了し、読まない path を読んだら forbidden_reads で review_incomplete にする', async (t) => {
   const { fx, args } = diffArgs(t)
   for (const [label, supporting, reasons] of [
-    ['束と repo の外', [`${args.plan.policyPack.path} (P1 REVIEW.md:1-7)`, '/elsewhere/agents/reviewer.md'], []],
-    ['除外 path', ['deps.lock'], ['forbidden_reads']],
+    ['束と repo の外', [{ path: args.plan.policyPack.path, lines: 'P1 REVIEW.md:1-7' }, { path: '/elsewhere/agents/reviewer.md' }], []],
+    ['除外 path', [{ path: 'deps.lock' }], ['coverage_or_limitations', 'forbidden_reads']],
   ]) {
     const b = backend({ review: (id) => reviewOk(fx.head, id, { supporting_files: supporting }) })
     const result = await runWorkflow(t, args, b)

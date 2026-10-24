@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CODES, ReviewError, buildPlan, canonical, classifySupporting, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
+  CODES, ReviewError, buildPlan, canonical, classifySupporting, resolveSymlinks, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
   PIN_ACTIONS, extractSections, globToRegExp, pinAction, isRepoPath, isWorkflowSource, judge, merge, parseReadingTable, partition, renderPolicyPack,
 } from './review-core.mjs'
 
@@ -236,7 +236,8 @@ function mergePlan(patch = {}) {
 
 function result(patch = {}) {
   const r = { head_sha: H, policy_pack_token: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], policy_sections: ['P1'], limitations: 0, findings: [], ...patch }
-  return { ...r, findings: Array.isArray(r.findings) ? r.findings.map((f) => ({ rule_sections: ['P1'], ...f })) : r.findings }
+  const supporting = Array.isArray(r.supporting_files) ? r.supporting_files.map((x) => (typeof x === 'string' ? { path: x } : x)) : r.supporting_files
+  return { ...r, supporting_files: supporting, findings: Array.isArray(r.findings) ? r.findings.map((f) => ({ rule_sections: ['P1'], ...f })) : r.findings }
 }
 
 test('merge: 全員が担当を読み終え指摘が重なれば、候補は最初に挙げた観点の 1 段目に回る', () => {
@@ -523,12 +524,11 @@ test('supporting_files の分類: repo の外・方針の束・指示文書は�
     ['repo の中の絶対パス', '/r/docs/x.md', 'ok', { path: 'docs/x.md' }],
     ['repo の中の指示文書（スキルが repo の中）', '/r/.agents/skills/repo-review/agents/reviewer.md', 'ok', { path: '.agents/skills/repo-review/agents/reviewer.md' }],
     ['方針の束', '/s/repo-review-policy-abc.md', 'policy_pack', {}],
-    ['節の注記つきの方針の束', '/s/repo-review-policy-abc.md (P1 REVIEW.md:1-64)', 'policy_pack', {}],
     ['別の実パスの方針の束', '/private/s/repo-review-policy-abc.md', 'policy_pack', {}],
     ['repo の外の絶対パス', '/Users/u/skills/repo-review/agents/reviewer.md', 'outside_repo', {}],
     ['節の ID', 'P4', 'ok', { path: 'P4' }],
-    ['パスでない文', 'REVIEW.md の表', 'ok', { path: 'REVIEW.md の表' }],
-    ['.. を含む', '../x.md', 'not_path', {}],
+    ['空白を含む相対パス', 'a b/c.md', 'ok', { path: 'a b/c.md' }],
+    ['repo の外へ出る ..', '../x.md', 'outside_repo', {}],
     ['空', ' ', 'not_path', {}],
     ['除外 path', 'x.lock', 'forbidden', { path: 'x.lock' }],
     ['生成物', 'plugins/p/skills/s/references/criteria/y.md', 'forbidden', { path: 'plugins/p/skills/s/references/criteria/y.md' }],
@@ -542,9 +542,9 @@ test('supporting_files の分類: repo の外・方針の束・指示文書は�
 
 test('merge: 根拠の列挙が repo の外を指しても coverage は欠けず、読まない path の読みだけを forbiddenReads として返す', () => {
   for (const [label, supporting, complete, forbidden, ignored] of [
-    ['束と repo の外の指示文書', ['/s/repo-review-policy-abc.md (P1 REVIEW.md:1-64, P4 AGENTS.md:52-139)', '/Users/u/skills/repo-review/agents/reviewer.md'], true, [], 2],
-    ['除外 path', ['x.lock'], true, [{ reviewer: 'correctness', path: 'x.lock', reason: '内容を読まない path' }], 0],
-    ['作業中の変更', ['mine.md'], true, [{ reviewer: 'correctness', path: 'mine.md', reason: '呼び出し側の作業中の変更' }], 0],
+    ['束と repo の外の指示文書', [{ path: '/s/repo-review-policy-abc.md', lines: 'P1 REVIEW.md:1-64' }, '/Users/u/skills/repo-review/agents/reviewer.md'], true, [], 2],
+    ['除外 path（2 回挙げても 1 件）', ['x.lock', './x.lock'], false, [{ reviewer: 'correctness', path: 'x.lock', reason: '内容を読まない path' }], 0],
+    ['作業中の変更', ['mine.md'], false, [{ reviewer: 'correctness', path: 'mine.md', reason: '呼び出し側の作業中の変更' }], 0],
   ]) {
     const out = merge(mergePlan({ preserved: ['mine.md'] }), [result({ supporting_files: supporting }), result({ coverage: ['a.md'] })])
     assert.equal(out.complete, complete, label)
@@ -557,20 +557,81 @@ test('merge: 根拠の列挙が repo の外を指しても coverage は欠けず
 })
 
 test('回帰: native のスモークテストで reviewer が挙げた束の path と スキル自身の agents/reviewer.md で coverage_or_limitations にならない', () => {
-  // 190d227 の native Workflow のスモークテストで absence-claims の reviewer が返した supporting_files（リポジトリと束の場所だけを fixture に置き換えた）。
+  // native Workflow のスモークテストで reviewer が返した supporting_files の形（場所は架空のパスに置き換えた）。
   const plan = mergePlan({
-    repo: '/Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/gh-runner-stopped-windows-a5e576',
-    policyPack: { ...PACK, path: '/private/var/folders/j1/xj39qyh11db8zh2gh50ybkp40000gn/T/tmp.x/repo-review-policy-4a960702f9ede3ad.md' },
+    repo: '/home/u/work/repo-worktree',
+    policyPack: { ...PACK, path: '/private/var/folders/xx/T/tmp.x/repo-review-policy-4a960702f9ede3ad.md' },
     target: { files: ['docs/guidelines/documentation.md'] },
     reviewers: [{ id: 'absence-claims', focus: 'x', files: ['docs/guidelines/documentation.md'] }, { id: 'docs', focus: 'y', files: ['docs/guidelines/documentation.md'] }],
   })
   const supporting = [
-    '/private/var/folders/j1/xj39qyh11db8zh2gh50ybkp40000gn/T/tmp.x/repo-review-policy-4a960702f9ede3ad.md (P1 REVIEW.md:1-64, P4 AGENTS.md:52-139, P15 docs/guidelines/README.md:1-30)',
-    '/Users/yoshi/github/yoshiysh/claude-plugins/.agents/skills/repo-review/agents/reviewer.md',
+    { path: '/private/var/folders/xx/T/tmp.x/repo-review-policy-4a960702f9ede3ad.md', lines: 'P1 REVIEW.md:1-64, P4 AGENTS.md:52-139, P15 docs/guidelines/README.md:1-30' },
+    { path: '/home/u/work/repo/.agents/skills/repo-review/agents/reviewer.md' },
   ]
   const cov = ['docs/guidelines/documentation.md']
   const out = merge(plan, [result({ coverage: cov, supporting_files: supporting }), result({ coverage: cov, supporting_files: ['REVIEW.md'] })])
   assert.equal(out.complete, true)
   assert.deepEqual(out.forbiddenReads, [])
   assert.deepEqual(out.reviewers[0].ignoredSupporting.map((x) => x.kind), ['policy_pack', 'outside_repo'])
+})
+
+test('classifySupporting は字句の正規化と計画の symlink 対応の範囲で、読まない path を判定する', () => {
+  const plan = (repo) => mergePlan({ repo, symlinkMap: { '.agents/skills/s': 'plugins/p/skills/s', '.claude/skills': '.agents/skills' } })
+  for (const [label, repo, entry, kind, rel] of [
+    ['./ を前に付けた', '/r', './mine.md', 'forbidden', 'mine.md'],
+    ['.. で戻る', '/r', 'a/../mine.md', 'forbidden', 'mine.md'],
+    ['repo の外へ出る ..', '/r', '../mine.md', 'outside_repo', null],
+    ['絶対パスの ..', '/r', '/r/../r/mine.md', 'forbidden', 'mine.md'],
+    ['絶対パスの //', '/r', '/r//mine.md', 'forbidden', 'mine.md'],
+    ['repo の末尾の /', '/r/', '/r/mine.md', 'forbidden', 'mine.md'],
+    ['/var と /private/var（repo が /var）', '/var/t/r', '/private/var/t/r/mine.md', 'forbidden', 'mine.md'],
+    ['/private/var と /var（repo が /private/var）', '/private/var/t/r', '/var/t/r/x.lock', 'forbidden', 'x.lock'],
+    ['束の名前を含む別の path', '/r', '/elsewhere/repo-review-policy-abc.md', 'outside_repo', null],
+    ['束の別名', '/r', '/private/s/repo-review-policy-abc.md', 'policy_pack', null],
+    ['repo の中の普通の path', '/r', '/r/docs/./a.md', 'ok', 'docs/a.md'],
+    ['空白を含む repo', '/Users/First Last/repo', '/Users/First Last/repo/mine.md', 'forbidden', 'mine.md'],
+    ['空白を含む禁止 path', '/r', 'a b/mine.lock', 'forbidden', 'a b/mine.lock'],
+    ['repo の中の symlink 経由の禁止 path', '/r', '.agents/skills/s/references/criteria/y.md', 'forbidden', '.agents/skills/s/references/criteria/y.md'],
+    ['2 段の symlink 経由の禁止 path', '/r', '.claude/skills/s/references/criteria/y.md', 'forbidden', '.claude/skills/s/references/criteria/y.md'],
+    ['repo の絶対パスの symlink 経由', '/r', '/r/.agents/skills/s/references/criteria/y.md', 'forbidden', '.agents/skills/s/references/criteria/y.md'],
+    ['symlink 経由の普通の path', '/r', '.agents/skills/s/SKILL.md', 'ok', '.agents/skills/s/SKILL.md'],
+    ['束の名前を含む repo の中の path', '/r', 'docs/repo-review-policy-abc.md', 'ok', 'docs/repo-review-policy-abc.md'],
+  ]) {
+    const p = plan(repo)
+    const unreadable = (f) => (['mine.md', 'x.lock', 'a b/mine.lock'].includes(resolveSymlinks(f, p.symlinkMap)) || resolveSymlinks(f, p.symlinkMap).startsWith('plugins/p/skills/s/references/criteria/') ? 'x' : null)
+    const out = classifySupporting(p, unreadable, entry)
+    assert.equal(out.kind, kind, label)
+    if (rel) assert.equal(out.path, rel, label)
+  }
+  assert.equal(checkRequest({ ...baseRequest, repo: '/r//' }, { requireReviewers: false }).repo, '/r', '計画の repo は末尾の / を除く')
+  assert.equal(checkRequest({ ...baseRequest, repo: '//' }, { requireReviewers: false }).repo, '/', 'repo が / だけでも空にしない')
+})
+
+test('merge: 読まない path を読んだ reviewer は、coverage・supporting のどちらで申告しても forbiddenReads に出て、その指摘は untrusted になる', () => {
+  for (const [label, first] of [
+    ['supporting に禁止 path', result({ supporting_files: ['./x.lock'], findings: [{ path: 'a.md', line: 1 }] })],
+    ['不正な指摘も持つ', result({ supporting_files: ['x.lock'], findings: [{ path: 'x.lock', line: 1 }] })],
+    ['担当外の coverage に禁止 path', result({ coverage: ['a.md', 'b.md', 'x.lock'], findings: [{ path: 'a.md', line: 1 }] })],
+  ]) {
+    const out = merge(mergePlan(), [first, result({ coverage: ['a.md'] })])
+    assert.deepEqual(out.forbiddenReads, [{ reviewer: 'correctness', path: 'x.lock', reason: '内容を読まない path' }], label)
+    assert.deepEqual(out.reviewers[0].extra, [], `${label}: extra には振り分けない`)
+    assert.deepEqual(out.untrusted, [{ reviewer: 0, finding: 0, reason: 'forbidden_reads' }], label)
+    assert.deepEqual(out.clusters, [], `${label}: 検証に回さない`)
+    assert.equal(out.reviewers[0].status, 'forbidden_reads', label)
+    assert.deepEqual(out.missingCoverage, ['b.md'], `${label}: HEAD の食い違いと同じく担当を読み残しとする`)
+    assert.equal(out.complete, false, label)
+    assert.deepEqual(out.reviewers[0].invalidFindings, [], `${label}: 指摘は untrusted だけに載せ、invalid_findings と重ねない`)
+  }
+})
+
+test('merge: symlink 経由で読んだ生成物も計画の symlinkMap で実体に直して forbiddenReads にし、supporting_files は {path} の配列、coverage は path の配列だけを受ける', () => {
+  const plan = mergePlan({ symlinkMap: { '.agents/skills/s': 'plugins/p/skills/s', '.claude/skills': '.agents/skills' } })
+  for (const entry of ['.agents/skills/s/references/criteria/y.md', '.claude/skills/s/references/criteria/y.md']) {
+    const out = merge(plan, [result({ supporting_files: [{ path: entry, lines: 'L1-3' }] }), result({ coverage: ['a.md'] })])
+    assert.deepEqual(out.forbiddenReads.map((x) => [x.path, x.reason]), [[entry, '生成物']], entry)
+  }
+  const strings = { head_sha: H, policy_pack_token: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], policy_sections: [], limitations: 0, findings: [] }
+  rejects(() => merge(plan, [strings, result({ coverage: ['a.md'] })]), CODES.input, /supporting_files/, '注記つきの文字列の supporting_files は受けない')
+  rejects(() => merge(plan, [result({ coverage: [{ path: 'a.md' }] }), result({ coverage: ['a.md'] })]), CODES.input, null, 'coverage は path の文字列の配列')
 })
