@@ -9,8 +9,7 @@ export const CODES = Object.freeze({
   internal: 'E_INTERNAL',
 })
 
-// check の許可リストの正本。make の target は Makefile の検証の入口に限る（runtime-deps と references は test が含む）。
-// 必須 check は AGENTS.md「検証」の合否ゲート。
+// check の許可リストの正本。make の target は Makefile の検証の入口に限る。必須 check は AGENTS.md「検証」の合否ゲート。
 export const MAKE_TARGETS = Object.freeze(['test', 'check', 'portability', 'traceability', 'traceability-complete'])
 export const NODE_TEST_SUFFIX = '.test.mjs'
 export const CHECK_KINDS = Object.freeze(['make', 'node-test'])
@@ -18,6 +17,8 @@ export const REQUIRED_CHECKS = Object.freeze([Object.freeze({ kind: 'make', valu
 export const PHASES = Object.freeze(['baseline', 'after'])
 export const OUTPUT_TAIL_LINES = 40
 export const MAIN_BRANCH = 'main'
+// 方針の版は主ブランチの先端（REVIEW.md「レビュー方針は基底ブランチの REVIEW.md」）。作業 branch の commit が規約を変えていても、その変更で同じ変更を免責しない。
+export const DEFAULT_POLICY_REF = `origin/${MAIN_BRANCH}`
 
 export class ImplementError extends Error {
   constructor(code, message, detail = {}) {
@@ -75,7 +76,8 @@ export function checkProblem(check, affectedPaths) {
   if (check.kind === 'make') {
     return MAKE_TARGETS.includes(check.value) ? null : `make の target が許可リストに無い: ${JSON.stringify(check.value)}`
   }
-  if (!isRepoRelativePath(check.value) || check.value.startsWith('-')) return `node --test の path が repo 相対の正規形でない: ${JSON.stringify(check.value)}`
+  // - で始まる値は node の flag に、glob の文字を含む値は node --test の glob として読まれ、別のファイルを実行し得る。
+  if (!isRepoRelativePath(check.value) || check.value.startsWith('-') || /[*?[\]{}]/.test(check.value)) return `node --test の path が repo 相対の正規形でない: ${JSON.stringify(check.value)}`
   if (!check.value.endsWith(NODE_TEST_SUFFIX)) return `node --test の path が ${NODE_TEST_SUFFIX} でない: ${check.value}`
   if (!affectedPaths.includes(check.value)) return `node --test の path が plan.affected_paths に無い: ${check.value}`
   return null
@@ -91,8 +93,9 @@ export function tail(text, lines = OUTPUT_TAIL_LINES) {
 }
 
 // `git status --porcelain=v1 -z --no-renames` の各項目は "XY <path>"。--no-renames なので元の path の欄は無い。
+// 未追跡の入れ子の repo は末尾に / の付いたディレクトリで出るので、/ を外して path にそろえる（中身は git の外で、内容の digest は取れない）。
 export function parsePorcelain(text) {
-  return text.split('\0').filter(Boolean).map((entry) => ({ xy: entry.slice(0, 2), path: entry.slice(3) }))
+  return text.split('\0').filter(Boolean).map((entry) => ({ xy: entry.slice(0, 2), path: entry.slice(3).replace(/\/+$/, '') }))
 }
 
 export function snapshotOf(head, entries) {
@@ -109,6 +112,7 @@ export function stateProblem(state) {
   if (!isSha(state.head) || !isSha(state.policyRef)) return 'state.head・state.policyRef が完全な SHA でない'
   if (!Array.isArray(state.preserved) || state.preserved.some((p) => !isRepoRelativePath(p?.path) || typeof p?.digest !== 'string')) return 'state.preserved が {path, digest} の配列でない'
   if (typeof state.ledgerPath !== 'string' || !state.ledgerPath.startsWith('/')) return 'state.ledgerPath が絶対パスでない'
+  if (typeof state.snapshot !== 'string') return 'state.snapshot が無い'
   return null
 }
 
@@ -118,36 +122,80 @@ export function planProblem(plan, planSum, state, stateSum) {
   if (plan.state_sum !== stateSum) return 'plan が別の state で作られている'
   if (!['approved', 'no_change'].includes(plan.status)) return `plan.status が approved・no_change でない: ${JSON.stringify(plan.status)}`
   if (!Array.isArray(plan.affected_paths) || plan.affected_paths.some((p) => !isRepoRelativePath(p))) return 'plan.affected_paths が repo 相対の path の配列でない'
+  if (plan.status === 'approved' && plan.affected_paths.length === 0) return '承認済みの plan に affected_paths が無い'
   if (!Array.isArray(plan.checks)) return 'plan.checks が配列でない'
   return null
 }
 
-export function newLedger(stateSum) {
-  return { state_sum: stateSum, plan_sum: null, rounds: [], baseline: null, checks: [], reviews: [] }
+// 承認済みの plan の check は、許可リストに収まり、必須の check を全て含む。変更不要の plan は check を持たない。
+export function planCheckProblems(plan) {
+  const problems = plan.checks.map((c) => checkProblem(c, plan.affected_paths)).filter(Boolean)
+  if (plan.status === 'approved') {
+    const keys = plan.checks.map((c) => (c && typeof c === 'object' ? checkKey(c) : null))
+    for (const required of REQUIRED_CHECKS) if (!keys.includes(checkKey(required))) problems.push(`必須の check ${checkKey(required)} が無い`)
+  } else if (plan.checks.length) problems.push('変更不要の plan が check を持つ')
+  return problems
 }
 
-export function admitPlan(ledger, planSum) {
-  return { ...ledger, plan_sum: planSum }
+// ledger.snapshot は、CLI が最後に受け入れた作業ツリーの snapshot。段の外での書き込みは、次の段でこれと食い違って見つかる。
+export function newLedger(stateSum, snapshot) {
+  return { state_sum: stateSum, snapshot, plan_sum: null, rounds: [], open: null, baseline: null, checks: [], reviews: [] }
 }
 
 export function requireAdmitted(ledger, planSum) {
   if (ledger.plan_sum !== planSum) throw new ImplementError(CODES.state, 'この plan は inventory で受け入れていない（実装の前に implementation なしの inventory を呼ぶ）')
 }
 
-// 修正の回数は check の修正と review の修正の合計で、round は 0 から 1 ずつ増え、戻らない。上限は implement の Workflow source が持つ。
-export function recordRound(ledger, implementation) {
-  const expected = ledger.rounds.length
-  if (implementation.repairRound !== expected) {
-    throw new ImplementError(CODES.state, `repairRound は ${expected} でなければならない（${implementation.repairRound}）。round は戻さない`)
-  }
-  return { ...ledger, rounds: [...ledger.rounds, { round: expected, status: implementation.status, touched: [...implementation.touched_paths] }] }
+export function requireUnchanged(ledger, snapshot, step) {
+  if (ledger.snapshot !== snapshot) throw new ImplementError(CODES.state, `${step}: 作業ツリーが CLI の記録の外で変わった（最後に記録した snapshot と違う）`)
 }
 
-export function implementationProblem(implementation) {
+export function requireClosed(ledger, step) {
+  if (ledger.open) throw new ImplementError(CODES.state, `${step}: round ${ledger.open.round} の実装を inventory で閉じていない`)
+}
+
+export const REPAIRS = Object.freeze(['checks', 'review'])
+
+export function isConfirmedFinding(f) {
+  return Boolean(f && isRepoRelativePath(f.path) && Number.isSafeInteger(f.line) && f.line > 0 && typeof f.in_target === 'boolean'
+    && f.claim && ['severity', 'summary', 'condition', 'impact', 'evidence', 'rule'].every((k) => typeof f.claim[k] === 'string' && f.claim[k].trim())
+    && Array.isArray(f.votes) && f.votes.some((v) => v?.vote === 'confirmed'))
+}
+
+export function insidePlan(f, plan) {
+  return f.in_target && plan.affected_paths.includes(f.path)
+}
+
+// 修正の入力は CLI の記録から取る（司令塔が選ばない）。check の修正は直前の round の後の run の repairable な失敗、レビューの修正は直前の round の後のレビューの確定指摘。
+export function roundTicket(ledger, plan, planSum, repair) {
+  const round = ledger.rounds.length
+  if (ledger.baseline === null) throw new ImplementError(CODES.state, '実装の前に baseline の run-checks を流す')
+  if (round === 0) {
+    if (repair !== null) throw new ImplementError(CODES.input, '最初の実装（round 0）に修正の入力は無い（repair は null）')
+    return { ticket: { round, plan_sum: planSum, state_sum: ledger.state_sum, snapshot: ledger.snapshot, repair: null, findings: [], checkFailures: [] } }
+  }
+  if (!REPAIRS.includes(repair)) throw new ImplementError(CODES.input, `round ${round} は修正の回で、repair は ${REPAIRS.join('・')} のどれか`)
+  const run = ledger.checks.at(-1)
+  if (!run || run.round !== round - 1) throw new ImplementError(CODES.state, `round ${round - 1} の実装の後の run-checks が無い`)
+  if (repair === 'checks') {
+    const checkFailures = run.results.filter((r) => r.repairable === true)
+    if (!checkFailures.length) throw new ImplementError(CODES.state, '直前の run に、変更が起こしたと決められる失敗が無い')
+    return { ticket: { round, plan_sum: planSum, state_sum: ledger.state_sum, snapshot: ledger.snapshot, repair, findings: [], checkFailures } }
+  }
+  const review = ledger.reviews.at(-1)
+  if (!review || review.round !== round - 1) throw new ImplementError(CODES.state, `round ${round - 1} の後のレビューが記録されていない`)
+  if (!review.findingsDetail.length) throw new ImplementError(CODES.state, '直前のレビューに確定指摘が無い')
+  const outside = review.findingsDetail.filter((f) => !insidePlan(f, plan))
+  if (outside.length) return { needsReplan: outside }
+  return { ticket: { round, plan_sum: planSum, state_sum: ledger.state_sum, snapshot: ledger.snapshot, repair, findings: review.findingsDetail, checkFailures: [] } }
+}
+
+export function implementationProblem(implementation, open) {
   if (!implementation || typeof implementation !== 'object' || Array.isArray(implementation)) return 'implementation がオブジェクトでない'
   const { sum, ...rest } = implementation
   if (fnvSum(rest) !== sum) return 'implementation の sum が合わない（implement の Workflow の返り値をそのまま渡す）'
-  if (!Number.isSafeInteger(implementation.repairRound) || implementation.repairRound < 0) return 'implementation.repairRound が 0 以上の整数でない'
+  if (!open) return '開いている round が無い（begin-round の券で実装の Workflow を呼ぶ）'
+  if (implementation.ticket_sum !== open.ticket_sum || implementation.repairRound !== open.round) return '返り値が開いている round の券のものでない'
   if (typeof implementation.status !== 'string') return 'implementation.status が文字列でない'
   if (!Array.isArray(implementation.touched_paths) || implementation.touched_paths.some((p) => !isRepoRelativePath(p))) return 'implementation.touched_paths が repo 相対の path の配列でない'
   return null
@@ -166,18 +214,41 @@ export function inventoryProblems({ state, plan, head, actual, preservedNow, tou
     if (undeclared.length) problems.push({ cause: 'undeclared', message: 'implementer が touched_paths に挙げていない path が変わった', paths: undeclared })
   }
   const changed = state.preserved.filter((p) => preservedNow[p.path] !== p.digest).map((p) => p.path).sort()
-  if (changed.length) problems.push({ cause: 'preserved_changed', message: '開始時からあった変更（preservedPaths）の内容か有無が変わった', paths: changed })
+  if (changed.length) problems.push({ cause: 'preserved_changed', message: '開始時からあった変更（preservedPaths）の内容・有無・index の状態が変わった', paths: changed })
   return problems
 }
 
-export function reviewProblem(review, state) {
-  if (!review || typeof review !== 'object' || Array.isArray(review)) return 'review が repo-review の返り値のオブジェクトでない'
-  if (!['completed', 'review_incomplete'].includes(review.status)) return `review.status が completed・review_incomplete でない: ${JSON.stringify(review.status)}`
-  if (review.mode !== 'working_tree') return `review.mode が working_tree でない: ${JSON.stringify(review.mode)}`
-  if (review.headSha !== state.head || review.baseRef !== state.head) return 'review の headSha・baseRef が開始時 HEAD でない'
-  if (review.policyRef !== state.policyRef) return 'review の policyRef が開始時の policyRef でない'
-  for (const key of ['findings', 'unverified', 'reasons']) if (!Array.isArray(review[key])) return `review.${key} が配列でない`
-  return null
+// 実装したと申告した round は作業ツリーを動かし、失敗した round は動かさない。どちらに外れても申告と実際が違う。
+export function roundEffectProblems(status, before, after) {
+  if (status === 'ready_for_check' && before === after) return [{ cause: 'no_effect', message: '実装したと返したのに作業ツリーが変わっていない', paths: [] }]
+  if (status !== 'ready_for_check' && before !== after) return [{ cause: 'changed_on_failure', message: `status ${status} の実装が作業ツリーを変えた`, paths: [] }]
+  return []
+}
+
+const sortedEq = (a, b) => canonical([...a].sort()) === canonical([...b].sort())
+
+// repo-review の返り値と、その plan 操作が書いた計画のファイル（plan_path・plan_sum）を照らす。計画の digest で、今の作業ツリーの内容を
+// レビューしたことを確かめる（返り値そのものには内容の digest が無い）。
+export function reviewProblems({ review, reviewPlan, state, actual, digests }) {
+  const problems = []
+  if (!review || typeof review !== 'object' || Array.isArray(review)) return ['review が repo-review の返り値のオブジェクトでない']
+  if (!['completed', 'review_incomplete'].includes(review.status)) problems.push(`review.status が completed・review_incomplete でない: ${JSON.stringify(review.status)}`)
+  for (const key of ['findings', 'unverified', 'reasons', 'excluded', 'generated', 'preserved']) if (!Array.isArray(review[key])) problems.push(`review.${key} が配列でない`)
+  if (!Array.isArray(review.target?.files)) problems.push('review.target.files が配列でない')
+  if (problems.length) return problems
+  if (review.findings.some((f) => !isConfirmedFinding(f))) problems.push('review.findings に repo-review が確定した指摘の形でないものがある')
+  if (review.mode !== 'working_tree' || reviewPlan.mode !== 'working_tree') problems.push('review が working_tree モードでない')
+  if (review.headSha !== state.head || review.baseRef !== state.head) problems.push('review の headSha・baseRef が開始時の HEAD でない')
+  if (review.policyRef !== state.policyRef) problems.push('review の policyRef が開始時の policyRef でない')
+  if ((review.scope ?? null) !== null) problems.push('review に scope がある（working_tree は変更の全体をレビューする）')
+  for (const key of ['headSha', 'baseRef', 'policyRef']) if (review[key] !== reviewPlan[key]) problems.push(`review の ${key} が計画のファイルと違う`)
+  if (!sortedEq(review.target.files, reviewPlan.target?.files ?? [])) problems.push('review の対象が計画のファイルの対象と違う')
+  for (const key of ['excluded', 'generated', 'preserved']) if (!sortedEq(review[key], reviewPlan[key] ?? [])) problems.push(`review の ${key} が計画のファイルと違う`)
+  if (!sortedEq(review.preserved, state.preserved.map((p) => p.path))) problems.push('review の preserved が開始時の preservedPaths と違う')
+  if (!sortedEq([...review.target.files, ...review.excluded, ...review.generated], actual)) problems.push('review の対象・除外・生成物の和が今の変更の集合と違う')
+  const stale = review.target.files.filter((f) => (reviewPlan.digests?.[f] ?? null) !== digests[f])
+  if (stale.length) problems.push(`review した内容が今の内容と違う: ${JSON.stringify(stale)}`)
+  return problems
 }
 
 export function reviewRecord(review, round, snapshot) {
@@ -187,6 +258,7 @@ export function reviewRecord(review, round, snapshot) {
     status: review.status,
     reasons: [...review.reasons],
     findings: review.findings.length,
+    findingsDetail: review.findings,
     unverified: review.unverified.length,
     passed: review.status === 'completed' && review.findings.length === 0 && review.unverified.length === 0,
   }
@@ -196,19 +268,26 @@ export function checkRecord(phase, round, before, after, head, results) {
   return { phase, round, head, snapshot_before: before, snapshot_after: after, tree_changed: before !== after, results }
 }
 
-// 変更が起こした失敗と言えるのは、開始時（実装の前）に同じ check が成功していたときだけ。
+// 変更が起こした失敗と言えるのは、開始時（実装の前）に同じ check が成功していたか、開始時にまだ無かったテストの check のとき。
 export function baselineVerdict(baseline, check) {
   const hit = baseline?.results.find((r) => checkKey(r.check) === checkKey(check))
-  if (!hit || hit.exit_code === undefined || hit.not_run) return null
+  if (!hit) return null
+  if (hit.not_run) return false
   return hit.exit_code !== 0
 }
 
 export function verifyProblems({ state, ledger, plan, head, actual, preservedNow, snapshot }) {
   const touched = ledger.rounds.flatMap((r) => r.touched)
   const problems = inventoryProblems({ state, plan, head, actual, preservedNow, touched: ledger.rounds.length ? touched : null })
-  if (actual.length === 0) return problems
+  if (ledger.open) problems.push({ cause: 'round_open', message: `round ${ledger.open.round} を inventory で閉じていない`, paths: [] })
+  if (ledger.snapshot !== snapshot) problems.push({ cause: 'changed_outside_steps', message: '作業ツリーが CLI の記録の外で変わった', paths: [] })
+  if (plan.status === 'no_change') {
+    if (ledger.rounds.length || actual.length) problems.push({ cause: 'changed_for_no_change_plan', message: '変更不要の plan なのに実装の round か変更がある', paths: actual })
+    return problems
+  }
   const lastRound = ledger.rounds.length - 1
-  if (lastRound < 0) problems.push({ cause: 'no_round', message: '実装の round が記録されていない', paths: [] })
+  if (lastRound < 0 || actual.length === 0) problems.push({ cause: 'not_implemented', message: '承認済みの plan の変更が作業ツリーに無い', paths: [] })
+  if (lastRound < 0) return problems
   const run = [...ledger.checks].reverse().find((c) => c.phase === 'after')
   if (!run || run.round !== lastRound) {
     problems.push({ cause: 'checks_missing', message: '最後の round の後の run-checks が記録されていない', paths: [] })

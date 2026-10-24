@@ -2,12 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CODES, ImplementError, MAKE_TARGETS, OUTPUT_TAIL_LINES, REQUIRED_CHECKS, argvOf, baselineVerdict, checkProblem, fnvSum, implementationProblem,
-  inventoryProblems, newLedger, parsePorcelain, planProblem, recordRound, reviewProblem, reviewRecord, snapshotOf, tail, verifyProblems,
+  inventoryProblems, newLedger, parsePorcelain, planCheckProblems, planProblem, reviewProblems, reviewRecord, roundEffectProblems, roundTicket,
+  snapshotOf, tail, verifyProblems,
 } from './implement-core.mjs'
 
 const HEAD = 'a'.repeat(40)
 const POLICY = 'b'.repeat(40)
-const STATE = { repo: '/r', head: HEAD, policyRef: POLICY, preserved: [{ path: 'keep.md', digest: 'file:1' }], ledgerPath: '/s/l.json' }
+const STATE = { repo: '/r', head: HEAD, policyRef: POLICY, preserved: [{ path: 'keep.md', digest: 'file:1' }], ledgerPath: '/s/l.json', snapshot: 'S0' }
 const PLAN = { status: 'approved', state_sum: 's1', affected_paths: ['src/a.mjs', 'src/a.test.mjs'], checks: [{ kind: 'make', value: 'test' }] }
 
 test('許可リストの正本: 必須 check は make test で、make の target は許可リストに入っている', () => {
@@ -16,7 +17,7 @@ test('許可リストの正本: 必須 check は make test で、make の target
 })
 
 test('checkProblem は許可リストと affected_paths に照らして check を受け入れるか拒否する', async (t) => {
-  const affected = ['src/a.test.mjs', '-x.test.mjs', 'src/a.mjs']
+  const affected = ['src/a.test.mjs', '-x.test.mjs', 'src/a.mjs', ...['*', '?', '[', ']', '{', '}'].map((ch) => `src/a${ch}.test.mjs`)]
   const cases = [
     { name: '正常: make の許可された target', check: { kind: 'make', value: 'test' }, ok: true },
     { name: '正常: affected_paths にある .test.mjs', check: { kind: 'node-test', value: 'src/a.test.mjs' }, ok: true },
@@ -28,6 +29,7 @@ test('checkProblem は許可リストと affected_paths に照らして check �
     { name: '異常: .test.mjs でない path', check: { kind: 'node-test', value: 'src/a.mjs' }, ok: false, match: /\.test\.mjs/ },
     { name: '境界: - で始まる path は node の flag になるので拒否する', check: { kind: 'node-test', value: '-x.test.mjs' }, ok: false, match: /正規形/ },
     { name: '境界: .. を含む path', check: { kind: 'node-test', value: 'src/../a.test.mjs' }, ok: false, match: /正規形/ },
+    ...['*', '?', '[', ']', '{', '}'].map((ch) => ({ name: `境界: glob の文字 ${ch} を含む path は node --test が glob として読むので拒否する`, check: { kind: 'node-test', value: `src/a${ch}.test.mjs` }, ok: false, match: /正規形/ })),
   ]
   for (const c of cases) {
     await t.test(c.name, () => {
@@ -48,6 +50,7 @@ test('parsePorcelain は -z の項目を XY と path に分け、空白を含む
     { xy: ' M', path: 'a.md' }, { xy: '??', path: 'dir/b c.md' }, { xy: 'D ', path: 'gone.md' },
   ])
   assert.deepEqual(parsePorcelain(''), [], '境界: 変更が無い')
+  assert.deepEqual(parsePorcelain('?? sub/\0'), [{ xy: '??', path: 'sub' }], '境界: 未追跡の入れ子の repo は末尾の / を外す')
 })
 
 test('snapshotOf は項目の順に依らず、HEAD・状態・内容のどれが変わっても変わる', () => {
@@ -75,26 +78,70 @@ test('tail は末尾の行だけを残す', async (t) => {
   assert.equal(tail(undefined), '', '境界: 出力が無い')
 })
 
-test('recordRound は round を 0 から 1 ずつだけ進め、戻すことも飛ばすことも拒否する', async (t) => {
-  const impl = (round) => ({ repairRound: round, status: 'ready_for_check', touched_paths: ['src/a.mjs'] })
-  const one = recordRound(newLedger('s'), impl(0))
-  assert.deepEqual(one.rounds, [{ round: 0, status: 'ready_for_check', touched: ['src/a.mjs'] }])
-  for (const [name, ledger, round] of [
-    ['異常: 同じ round を繰り返す（リセット）', one, 0],
-    ['異常: round を飛ばす', one, 2],
-    ['異常: 最初の実装が 0 でない', newLedger('s'), 1],
-  ]) {
-    await t.test(name, () => {
-      assert.throws(() => recordRound(ledger, impl(round)), (e) => e instanceof ImplementError && e.code === CODES.state)
-    })
+
+const R = (round, extra = {}) => ({ round, status: 'ready_for_check', touched: ['src/a.mjs'], snapshot_before: 'A', snapshot_after: 'B', ...extra })
+const after = (round, results) => ({ phase: 'after', round, head: HEAD, snapshot_before: 'B', snapshot_after: 'B', tree_changed: false, results })
+const finding = (patch = {}) => ({
+  path: 'src/a.mjs', line: 1, in_target: true,
+  claim: { severity: 'HIGH', summary: 's', condition: 'c', impact: 'i', evidence: 'e', rule: 'r' },
+  votes: [{ vote: 'confirmed' }], ...patch,
+})
+const ledger0 = (patch = {}) => ({ ...newLedger('s1', 'S0'), plan_sum: 'p', baseline: { results: [] }, ...patch })
+
+test('roundTicket は round を記録から決め、修正の入力を記録から取る', async (t) => {
+  await t.test('正常: 最初の実装は修正の入力なしの round 0', () => {
+    assert.deepEqual(roundTicket(ledger0(), PLAN, 'p', null).ticket, { round: 0, plan_sum: 'p', state_sum: 's1', snapshot: 'S0', repair: null, findings: [], checkFailures: [] })
+  })
+  await t.test('正常: check の修正は直前の run の repairable な失敗だけを載せる', () => {
+    const fail = { check: { kind: 'make', value: 'test' }, exit_code: 2, repairable: true }
+    const old = { check: { kind: 'make', value: 'check' }, exit_code: 2, repairable: false }
+    const { ticket } = roundTicket(ledger0({ rounds: [R(0)], checks: [after(0, [fail, old])] }), PLAN, 'p', 'checks')
+    assert.deepEqual([ticket.round, ticket.checkFailures], [1, [fail]])
+  })
+  await t.test('正常: レビューの修正は直前のレビューの確定指摘を載せる', () => {
+    const f = finding()
+    const { ticket } = roundTicket(ledger0({ rounds: [R(0)], checks: [after(0, [])], reviews: [{ round: 0, findingsDetail: [f] }] }), PLAN, 'p', 'review')
+    assert.deepEqual(ticket.findings, [f])
+  })
+  await t.test('準正常: 計画の外か対象の外を指す確定指摘は券を出さず needsReplan を返す', () => {
+    for (const f of [finding({ path: 'README.md' }), finding({ in_target: false })]) {
+      const out = roundTicket(ledger0({ rounds: [R(0)], checks: [after(0, [])], reviews: [{ round: 0, findingsDetail: [f] }] }), PLAN, 'p', 'review')
+      assert.deepEqual(out, { needsReplan: [f] })
+    }
+  })
+  const rejects = [
+    ['異常: baseline の前', ledger0({ baseline: null }), null, CODES.state],
+    ['異常: round 0 に修正の入力', ledger0(), 'checks', CODES.input],
+    ['異常: 修正の回に入力が無い', ledger0({ rounds: [R(0)], checks: [after(0, [])] }), null, CODES.input],
+    ['異常: 直前の round の run が無い', ledger0({ rounds: [R(0), R(1)], checks: [after(0, [])] }), 'checks', CODES.state],
+    ['異常: 変更起因の失敗が無いのに check の修正', ledger0({ rounds: [R(0)], checks: [after(0, [{ repairable: false }])] }), 'checks', CODES.state],
+    ['異常: 直前の round のレビューが無い', ledger0({ rounds: [R(0)], checks: [after(0, [])] }), 'review', CODES.state],
+    ['異常: 確定指摘の無いレビューでレビューの修正', ledger0({ rounds: [R(0)], checks: [after(0, [])], reviews: [{ round: 0, findingsDetail: [] }] }), 'review', CODES.state],
+  ]
+  for (const [name, ledger, repair, code] of rejects) {
+    await t.test(name, () => assert.throws(() => roundTicket(ledger, PLAN, 'p', repair), (e) => e instanceof ImplementError && e.code === code))
   }
 })
 
-test('implementationProblem は sum で写し間違いを検出する', () => {
-  const body = { status: 'ready_for_check', repairRound: 0, touched_paths: ['a'] }
-  assert.equal(implementationProblem({ ...body, sum: fnvSum(body) }), null)
-  assert.match(implementationProblem({ ...body, touched_paths: ['b'], sum: fnvSum(body) }), /sum/)
-  assert.match(implementationProblem({ ...body, repairRound: -1, sum: fnvSum({ ...body, repairRound: -1 }) }), /repairRound/)
+test('implementationProblem は sum と開いている round の券で返り値を照らす', async (t) => {
+  const body = { status: 'ready_for_check', repairRound: 0, ticket_sum: 'T', touched_paths: ['a'] }
+  const open = { round: 0, ticket_sum: 'T' }
+  assert.equal(implementationProblem({ ...body, sum: fnvSum(body) }, open), null)
+  for (const [name, impl, o, match] of [
+    ['異常: 書き換えた返り値', { ...body, touched_paths: ['b'], sum: fnvSum(body) }, open, /sum/],
+    ['異常: 開いている round が無い', { ...body, sum: fnvSum(body) }, null, /開いている round/],
+    ['異常: 別の券の返り値', { ...body, ticket_sum: 'U', sum: fnvSum({ ...body, ticket_sum: 'U' }) }, open, /券/],
+    ['異常: 別の round の返り値', { ...body, repairRound: 1, sum: fnvSum({ ...body, repairRound: 1 }) }, open, /券/],
+  ]) await t.test(name, () => assert.match(implementationProblem(impl, o), match))
+})
+
+test('roundEffectProblems は申告と作業ツリーの動きの食い違いを返す', async (t) => {
+  for (const [name, status, before, afterSnap, causes] of [
+    ['正常: 実装して変わった', 'ready_for_check', 'A', 'B', []],
+    ['異常: 実装したと返したのに変わっていない', 'ready_for_check', 'A', 'A', ['no_effect']],
+    ['異常: 失敗した実装が作業ツリーを変えた', 'blocked', 'A', 'B', ['changed_on_failure']],
+    ['正常: 起動しなかった回は変えない', 'repair_limit_reached', 'A', 'A', []],
+  ]) await t.test(name, () => assert.deepEqual(roundEffectProblems(status, before, afterSnap).map((p) => p.cause), causes))
 })
 
 test('planProblem は sum・state・status の食い違いを拒否する', async (t) => {
@@ -104,7 +151,24 @@ test('planProblem は sum・state・status の食い違いを拒否する', asyn
     ['異常: plan を書き換えた', { ...PLAN, affected_paths: ['x'] }, sum, 's1', /planSum/],
     ['異常: 別の state の plan', PLAN, sum, 's2', /別の state/],
     ['異常: 承認されていない', { ...PLAN, status: 'blocked' }, fnvSum({ ...PLAN, status: 'blocked' }), 's1', /status/],
+    ['境界: 承認済みなのに affected_paths が空', { ...PLAN, affected_paths: [] }, fnvSum({ ...PLAN, affected_paths: [] }), 's1', /affected_paths が無い/],
   ]) await t.test(name, () => assert.match(planProblem(plan, planSum, STATE, stateSum), match))
+})
+
+test('planCheckProblems は必須の check の欠けと許可リストの外を返す', async (t) => {
+  for (const [name, plan, match] of [
+    ['正常: 必須を含む', PLAN, null],
+    ['異常: 必須の make test が無い', { ...PLAN, checks: [{ kind: 'make', value: 'check' }] }, /必須の check make:test/],
+    ['異常: 許可リストの外', { ...PLAN, checks: [...PLAN.checks, { kind: 'make', value: 'install' }] }, /許可リスト/],
+    ['異常: 変更不要の plan が check を持つ', { ...PLAN, status: 'no_change', affected_paths: [] }, /変更不要/],
+    ['正常: 変更不要の plan は check を持たない', { ...PLAN, status: 'no_change', affected_paths: [], checks: [] }, null],
+  ]) {
+    await t.test(name, () => {
+      const problems = planCheckProblems(plan)
+      if (match === null) assert.deepEqual(problems, [])
+      else assert.match(problems.join('\n'), match)
+    })
+  }
 })
 
 const clean = { state: STATE, plan: PLAN, head: HEAD, actual: ['src/a.mjs'], preservedNow: { 'keep.md': 'file:1' }, touched: ['src/a.mjs'] }
@@ -114,7 +178,7 @@ test('inventoryProblems は plan の外・申告漏れ・preserved の変化・H
     { name: '正常: 計画どおり', patch: {}, causes: [] },
     { name: '異常: plan の外の変更', patch: { actual: ['src/a.mjs', 'README.md'], touched: ['src/a.mjs', 'README.md'] }, causes: ['outside_plan'] },
     { name: '異常: 申告漏れ', patch: { actual: ['src/a.mjs', 'src/a.test.mjs'] }, causes: ['undeclared'] },
-    { name: '異常: preserved の内容が変わった', patch: { preservedNow: { 'keep.md': 'file:2' } }, causes: ['preserved_changed'] },
+    { name: '異常: preserved の内容・index の状態が変わった', patch: { preservedNow: { 'keep.md': 'file:2' } }, causes: ['preserved_changed'] },
     { name: '異常: preserved が消えた', patch: { preservedNow: { 'keep.md': 'absent' } }, causes: ['preserved_changed'] },
     { name: '異常: HEAD が動いた', patch: { head: POLICY }, causes: ['head_changed'] },
     { name: '境界: 実装の前（touched が null）は申告漏れを見ない', patch: { actual: [], touched: null }, causes: [] },
@@ -130,48 +194,64 @@ test('baselineVerdict は開始時の結果から、変更が起こした失敗�
   for (const [name, baseline, expected] of [
     ['正常: 開始時に成功していた', run({ exit_code: 0 }), false],
     ['異常: 開始時から失敗していた', run({ exit_code: 2 }), true],
-    ['境界: 開始時に実行していない（まだ無いテスト）', run({ not_run: 'x' }), null],
+    ['境界: 開始時にまだ無かったテストは、変更が作ったので変更起因', run({ not_run: 'x' }), false],
     ['境界: 開始時の記録に無い check', { results: [] }, null],
     ['境界: 開始時の記録そのものが無い', null, null],
   ]) await t.test(name, () => assert.equal(baselineVerdict(baseline, check), expected))
 })
 
-test('reviewProblem は repo-review の working_tree の返り値で、開始時の HEAD と policyRef のものだけを受け入れる', async (t) => {
-  const review = { status: 'completed', mode: 'working_tree', headSha: HEAD, baseRef: HEAD, policyRef: POLICY, findings: [], unverified: [], reasons: [] }
-  assert.equal(reviewProblem(review, STATE), null)
-  for (const [name, patch, match] of [
-    ['異常: diff モード', { mode: 'diff' }, /mode/],
-    ['異常: 別の HEAD', { headSha: POLICY }, /headSha/],
-    ['異常: 別の policyRef', { policyRef: HEAD }, /policyRef/],
-    ['異常: 知らない status', { status: 'done' }, /status/],
-    ['異常: findings が無い', { findings: undefined }, /findings/],
-  ]) await t.test(name, () => assert.match(reviewProblem({ ...review, ...patch }, STATE), match))
-  assert.equal(reviewRecord({ ...review, unverified: [{}] }, 0, 'x').passed, false, '未検証が残る review は通っていない')
-  assert.equal(reviewRecord({ ...review, status: 'review_incomplete' }, 0, 'x').passed, false)
+const REVIEW = { status: 'completed', mode: 'working_tree', headSha: HEAD, baseRef: HEAD, policyRef: POLICY, scope: null, target: { files: ['src/a.mjs'] }, excluded: [], generated: [], preserved: ['keep.md'], findings: [], unverified: [], reasons: [] }
+const REVIEW_PLAN = { mode: 'working_tree', headSha: HEAD, baseRef: HEAD, policyRef: POLICY, target: { files: ['src/a.mjs'] }, excluded: [], generated: [], preserved: ['keep.md'], digests: { 'src/a.mjs': 'file:x' } }
+
+test('reviewProblems は repo-review の返り値を、計画のファイル・開始時の状態・今の変更と内容に照らす', async (t) => {
+  const base = { review: REVIEW, reviewPlan: REVIEW_PLAN, state: STATE, actual: ['src/a.mjs'], digests: { 'src/a.mjs': 'file:x' } }
+  assert.deepEqual(reviewProblems(base), [])
+  const cases = [
+    ['異常: diff モード', { review: { ...REVIEW, mode: 'diff' } }, /working_tree/],
+    ['異常: 別の HEAD', { review: { ...REVIEW, headSha: POLICY } }, /headSha/],
+    ['異常: 別の policyRef', { review: { ...REVIEW, policyRef: HEAD } }, /policyRef/],
+    ['異常: scope で狭めた', { review: { ...REVIEW, scope: ['src'] } }, /scope/],
+    ['異常: implementer の変更を preserved に混ぜた', { review: { ...REVIEW, preserved: ['keep.md', 'src/a.mjs'], target: { files: [] } }, reviewPlan: { ...REVIEW_PLAN, preserved: ['keep.md', 'src/a.mjs'], target: { files: [] } } }, /preserved が開始時/],
+    ['異常: 対象が今の変更の一部だけ', { actual: ['src/a.mjs', 'src/b.mjs'] }, /和が今の変更/],
+    ['異常: 前の round の内容をレビューした結果', { digests: { 'src/a.mjs': 'file:y' } }, /今の内容と違う/],
+    ['異常: 返り値の対象が計画のファイルと違う', { review: { ...REVIEW, target: { files: ['src/b.mjs'] } } }, /計画のファイルの対象/],
+    ['異常: 確定指摘の形でない findings', { review: { ...REVIEW, findings: [{ path: 'src/a.mjs' }] } }, /確定した指摘の形/],
+    ['異常: 知らない status', { review: { ...REVIEW, status: 'done' } }, /status/],
+    ['異常: findings が無い', { review: { ...REVIEW, findings: undefined } }, /findings/],
+  ]
+  for (const [name, patch, match] of cases) await t.test(name, () => assert.match(reviewProblems({ ...base, ...patch }).join('\n'), match))
+  assert.equal(reviewRecord({ ...REVIEW, unverified: [{}] }, 0, 'x').passed, false, '未検証が残る review は通っていない')
+  assert.equal(reviewRecord({ ...REVIEW, status: 'review_incomplete' }, 0, 'x').passed, false)
 })
 
-function ledgerWith({ checkPatch = {}, reviewPatch = {}, results } = {}) {
+function ledgerWith({ checkPatch = {}, reviewPatch = {}, results, patch = {} } = {}) {
   return {
-    ...newLedger('s1'),
+    ...newLedger('s1', 'S'),
     plan_sum: 'p',
-    rounds: [{ round: 0, status: 'ready_for_check', touched: ['src/a.mjs'] }],
+    rounds: [R(0, { snapshot_after: 'S' })],
     checks: [{ phase: 'after', round: 0, snapshot_before: 'S', snapshot_after: 'S', tree_changed: false, results: results ?? [{ check: { kind: 'make', value: 'test' }, exit_code: 0 }], ...checkPatch }],
     reviews: [{ round: 0, snapshot: 'S', status: 'completed', reasons: [], findings: 0, unverified: 0, passed: true, ...reviewPatch }],
+    ...patch,
   }
 }
 
 test('verifyProblems は最後の check と review が今の作業ツリーで通ったときだけ空になる', async (t) => {
   const base = { state: STATE, plan: PLAN, head: HEAD, actual: ['src/a.mjs'], preservedNow: { 'keep.md': 'file:1' }, snapshot: 'S' }
+  const noChange = { ...PLAN, status: 'no_change', affected_paths: [], checks: [] }
   const cases = [
     { name: '正常: 全て通った', ledger: ledgerWith(), patch: {}, causes: [] },
     { name: '異常: check が失敗した', ledger: ledgerWith({ results: [{ check: { kind: 'make', value: 'test' }, exit_code: 2 }] }), patch: {}, causes: ['checks_failed'] },
     { name: '異常: plan の check を実行していない', ledger: ledgerWith({ results: [] }), patch: {}, causes: ['checks_failed'] },
-    { name: '異常: review の後に変わった', ledger: ledgerWith(), patch: { snapshot: 'T' }, causes: ['changed_since_checks', 'changed_since_review'] },
+    { name: '異常: review の後に記録の外で変わった', ledger: ledgerWith(), patch: { snapshot: 'T' }, causes: ['changed_outside_steps', 'changed_since_checks', 'changed_since_review'] },
     { name: '異常: review が通っていない', ledger: ledgerWith({ reviewPatch: { passed: false, findings: 1 } }), patch: {}, causes: ['review_not_passed'] },
     { name: '異常: check の実行中に作業ツリーが変わった', ledger: ledgerWith({ checkPatch: { tree_changed: true } }), patch: {}, causes: ['checks_changed_tree'] },
     { name: '異常: review が check の後の作業ツリーでない', ledger: ledgerWith({ checkPatch: { snapshot_after: 'U' } }), patch: {}, causes: ['changed_since_checks', 'review_not_on_checked_tree'] },
-    { name: '異常: 最後の round の後に check も review も無い', ledger: { ...ledgerWith(), rounds: [...ledgerWith().rounds, { round: 1, status: 'ready_for_check', touched: ['src/a.mjs'] }] }, patch: {}, causes: ['checks_missing', 'review_missing'] },
-    { name: '境界: 変更が無ければ check と review を求めない', ledger: { ...newLedger('s1'), plan_sum: 'p' }, patch: { actual: [] }, causes: [] },
+    { name: '異常: 最後の round の後に check も review も無い', ledger: ledgerWith({ patch: { rounds: [R(0), R(1, { snapshot_after: 'S' })] } }), patch: {}, causes: ['checks_missing', 'review_missing'] },
+    { name: '異常: 開いたままの round', ledger: ledgerWith({ patch: { open: { round: 1, ticket_sum: 'x' } } }), patch: {}, causes: ['round_open'] },
+    { name: '異常: 承認済みの plan なのに変更が無い', ledger: ledgerWith(), patch: { actual: [] }, causes: ['not_implemented'] },
+    { name: '異常: 承認済みの plan なのに round が無い', ledger: { ...newLedger('s1', 'S'), plan_sum: 'p' }, patch: { actual: [] }, causes: ['not_implemented'] },
+    { name: '正常: 変更不要の plan で round も変更も無い', ledger: { ...newLedger('s1', 'S'), plan_sum: 'p' }, patch: { plan: noChange, actual: [] }, causes: [] },
+    { name: '異常: 変更不要の plan なのに変更がある', ledger: { ...newLedger('s1', 'S'), plan_sum: 'p' }, patch: { plan: { ...noChange, affected_paths: ['src/a.mjs'] } }, causes: ['changed_for_no_change_plan'] },
   ]
   for (const c of cases) {
     await t.test(c.name, () => assert.deepEqual(verifyProblems({ ...base, ...c.patch, ledger: c.ledger }).map((p) => p.cause), c.causes))

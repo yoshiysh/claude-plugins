@@ -64,6 +64,8 @@ function fixture(t) {
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'config', 'commit.gpgsign', 'false')
   write(repo, 'Makefile', 'test:\n\t@echo ok\n')
+  write(repo, '.github/workflows/claude_review.yml', `jobs:\n  review:\n    with:\n      exclude-paths: '["**/*.lock"]'\n`)
+  write(repo, 'REVIEW.md', '# Review\n\n## 読むもの\n\n| 変更 | 読むもの |\n|---|---|\n| すべて | `REVIEW.md` |\n')
   write(repo, 'src/a.mjs', 'export const a = 1\n')
   write(repo, 'keep.md', 'keep\n')
   git(repo, 'add', '-A')
@@ -72,7 +74,7 @@ function fixture(t) {
   write(repo, 'keep.md', 'mine\n')
   const out = JSON.parse(main(['start'], JSON.stringify({ repo, stateDir: tmp(t, 'repo-implement-wf-state-'), policyRef: 'main' })).output)
   assert.equal(out.ok, true, out.reason)
-  return { repo, state: out.state, stateSum: out.state_sum, statePath: out.state_path }
+  return { repo, state: out.state, stateSum: out.state_sum, statePath: out.state_path, preservedPaths: out.preservedPaths }
 }
 
 const vp = (ids, reason = '') => ({ case_ids: ids, not_applicable_reason: reason })
@@ -113,16 +115,19 @@ function implementation(fx, patch = {}) {
   }
 }
 
+// handler は (prompt, n)。n はその役の何回目の起動か（label の末尾の -<n> を外した名前ごとに数える）。
 function backend(handlers, capabilities = ['read-only', 'fresh-thread']) {
   const calls = []
   return {
     calls,
     capabilities,
     async run(prompt, options) {
-      calls.push({ prompt, options })
-      const handler = handlers[options.label] ?? handlers[options.label.replace(/-\d+$/, '')]
+      const role = options.label.replace(/-\d+$/, '')
+      const n = calls.filter((c) => c.role === role).length
+      calls.push({ prompt, options, role })
+      const handler = handlers[role]
       if (!handler) throw new Error(`unexpected label ${options.label}`)
-      return handler(prompt)
+      return handler(prompt, n)
     },
   }
 }
@@ -133,6 +138,8 @@ async function run(t, kind, args, b) {
 }
 
 const planArgs = (fx, extra = {}) => ({ skillDir: SKILL_DIR, request: 'src/a.mjs の a を 2 にして', state: fx.state, stateSum: fx.stateSum, ...extra })
+const MAX_PLAN_REVISIONS = bodyLiteral(TEXT.plan, 'MAX_PLAN_REVISIONS')
+const MAX_REPAIR_ROUNDS = bodyLiteral(TEXT.run, 'MAX_REPAIR_ROUNDS')
 
 async function approvedPlan(t, fx) {
   const result = await run(t, 'plan', planArgs(fx), backend({ planner: () => draft(fx), planReviewer: () => planReview(fx) }))
@@ -141,7 +148,24 @@ async function approvedPlan(t, fx) {
 }
 
 const WRITE = ['read-only', 'fresh-thread', 'workspace-write']
-const runArgs = (fx, approved, extra = {}) => ({ skillDir: SKILL_DIR, state: fx.state, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum, ...extra })
+const cli = (op, body) => JSON.parse(main([op], JSON.stringify(body)).output)
+const refOf = (fx, approved) => ({ statePath: fx.statePath, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum })
+
+// 受け入れ・baseline・begin-round を CLI で流し、実装の Workflow の args を返す。
+function admitAndBegin(fx, approved) {
+  const ref = refOf(fx, approved)
+  assert.equal(cli('inventory', ref).admitted, true)
+  assert.equal(cli('run-checks', { ...ref, phase: 'baseline' }).ok, true)
+  const begun = cli('begin-round', { ...ref, repair: null })
+  assert.equal(begun.ok, true, begun.reason)
+  return { skillDir: SKILL_DIR, state: fx.state, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum, ticket: begun.ticket, ticketSum: begun.ticket_sum }
+}
+
+// begin-round を通さずに券の形だけを作る（実装の Workflow の入力検査を、CLI の記録と切り離して確かめる）。
+function ticketArgs(fx, approved, patch = {}) {
+  const ticket = { round: 0, plan_sum: approved.plan_sum, state_sum: fx.stateSum, snapshot: fx.state.snapshot, repair: null, findings: [], checkFailures: [], ...patch }
+  return { skillDir: SKILL_DIR, state: fx.state, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum, ticket, ticketSum: fnvSum(ticket) }
+}
 
 test('計画: planner と plan-reviewer が通した計画を、必須 check を足し sum をつけて approved で返す', async (t) => {
   const fx = fixture(t)
@@ -152,7 +176,7 @@ test('計画: planner と plan-reviewer が通した計画を、必須 check を
   assert.equal(result.plan_sum, fnvSum(result.plan))
   assert.equal(result.plan.state_sum, fx.stateSum)
   assert.equal(result.plan.request, 'src/a.mjs の a を 2 にして')
-  assert.deepEqual(b.calls.map((c) => c.options.label), ['planner', 'planReviewer'])
+  assert.deepEqual(b.calls.map((c) => c.options.label), ['planner-0', 'planReviewer-0'])
   for (const c of b.calls) assert.deepEqual([c.options.model, c.options.effort], ['opus', 'high'], c.options.label)
   const prefix = (c) => c.prompt.slice(0, c.prompt.indexOf('--- この役の担当 ---'))
   assert.ok(prefix(b.calls[0]).length > 0)
@@ -166,8 +190,6 @@ test('計画: 計画が使えないときは理由つきの status で止まり�
     { name: '異常: planner が別の HEAD を見た', planner: (fx) => draft(fx, { head_sha: 'f'.repeat(40) }), status: 'incomplete', reason: 'planner-head-mismatch' },
     { name: '準正常: 人の判断が要る', planner: (fx) => draft(fx, { human_decision_required: true, questions: ['互換を保つか'] }), status: 'needs_human_decision' },
     { name: '異常: 判断が要ると言うのに質問が無い', planner: (fx) => draft(fx, { human_decision_required: true }), status: 'incomplete', reason: 'planner-raised-decision-without-question' },
-    { name: '異常: 変更不要なのに path がある', planner: (fx) => draft(fx, { no_change: true, no_change_reason: 'x' }), status: 'incomplete', reason: 'invalid-no-change-plan' },
-    { name: '異常: path が正規形でない', planner: (fx) => draft(fx, { affected_paths: ['../a.mjs'] }), status: 'incomplete', reason: 'plan-missing-or-invalid-paths' },
     { name: '異常: preserved と重なる', planner: (fx) => draft(fx, { affected_paths: ['keep.md', 'src/a.test.mjs'] }), status: 'needs_isolated_worktree' },
   ]
   for (const c of cases) {
@@ -177,31 +199,42 @@ test('計画: 計画が使えないときは理由つきの status で止まり�
       const result = await run(t, 'plan', planArgs(fx), b)
       assert.equal(result.status, c.status)
       if (c.reason) assert.equal(result.reason, c.reason)
+      assert.equal(b.calls.length, 1, '止まる理由は計画し直しで直らないので planner に戻さない')
     })
   }
 })
 
-test('計画: ケース計画の形の欠けを invalid-test-plan で返す（観点の未検討・未カバーの黙殺・宙に浮いたケース）', async (t) => {
+test('計画: script の形の検査に落ちた計画は理由を添えて planner に戻し、MAX_PLAN_REVISIONS を超えたら止まる', async (t) => {
   const cond = (patch) => ({ ...TEST_PLAN.conditions[0], ...patch })
   const cases = [
-    { name: '異常: 観点がケースも不適用の理由も持たない', tp: { ...TEST_PLAN, conditions: [cond({ viewpoints: { ...TEST_PLAN.conditions[0].viewpoints, recovery: vp([]) } })] }, match: /recovery はケースか不適用の理由のどちらか一方/ },
-    { name: '異常: 観点がケースと不適用の理由の両方を持つ', tp: { ...TEST_PLAN, conditions: [cond({ viewpoints: { ...TEST_PLAN.conditions[0].viewpoints, error: vp(['T2'], 'x') } })] }, match: /error はケースか/ },
-    { name: '異常: ケースの無い条件に未カバーの理由が無い', tp: { ...TEST_PLAN, cases: [], conditions: [cond({ viewpoints: Object.fromEntries(categories.map((v) => [v, vp([], '無い')])) })] }, match: /未カバーの理由が無い/ },
-    { name: '異常: 未カバーの条件がケースを持つ', tp: { ...TEST_PLAN, conditions: [cond({ uncovered_reason: '測れない' })] }, match: /未カバーの条件 C1 がケースを持つ/ },
-    { name: '異常: 無いケースを指す', tp: { ...TEST_PLAN, cases: [TEST_PLAN.cases[0]] }, match: /無いケース T2/ },
-    { name: '異常: どの条件にも結び付かないケース', tp: { ...TEST_PLAN, cases: [...TEST_PLAN.cases, { ...TEST_PLAN.cases[0], id: 'T9' }] }, match: /T9 がどの条件にも結び付かない/ },
-    { name: '異常: ケースの重複', tp: { ...TEST_PLAN, cases: [...TEST_PLAN.cases, TEST_PLAN.cases[0]] }, match: /T1 が重複/ },
-    { name: '境界: 変更があるのに条件が 0 件', tp: { conditions: [], cases: [] }, match: /条件が 1 つも無い/ },
+    { name: '異常: 観点がケースも不適用の理由も持たない', patch: { test_plan: { ...TEST_PLAN, conditions: [cond({ viewpoints: { ...TEST_PLAN.conditions[0].viewpoints, recovery: vp([]) } })] } }, match: /recovery はケースか不適用の理由のどちらか一方/ },
+    { name: '異常: 観点がケースと不適用の理由の両方を持つ', patch: { test_plan: { ...TEST_PLAN, conditions: [cond({ viewpoints: { ...TEST_PLAN.conditions[0].viewpoints, error: vp(['T2'], 'x') } })] } }, match: /error はケースか/ },
+    { name: '異常: ケースの無い条件に未カバーの理由が無い', patch: { test_plan: { ...TEST_PLAN, cases: [], conditions: [cond({ viewpoints: Object.fromEntries(categories.map((v) => [v, vp([], '無い')])) })] } }, match: /未カバーの理由が無い/ },
+    { name: '異常: 未カバーの条件がケースを持つ', patch: { test_plan: { ...TEST_PLAN, conditions: [cond({ uncovered_reason: '測れない' })] } }, match: /未カバーの条件 C1 がケースを持つ/ },
+    { name: '異常: 無いケースを指す', patch: { test_plan: { ...TEST_PLAN, cases: [TEST_PLAN.cases[0]] } }, match: /無いケース T2/ },
+    { name: '異常: どの条件にも結び付かないケース', patch: { test_plan: { ...TEST_PLAN, cases: [...TEST_PLAN.cases, { ...TEST_PLAN.cases[0], id: 'T9' }] } }, match: /T9 がどの条件にも結び付かない/ },
+    { name: '異常: ケースの重複', patch: { test_plan: { ...TEST_PLAN, cases: [...TEST_PLAN.cases, TEST_PLAN.cases[0]] } }, match: /T1 が重複/ },
+    { name: '境界: 変更があるのに条件が 0 件', patch: { test_plan: { conditions: [], cases: [] } }, match: /条件が 1 つも無い/ },
+    { name: '異常: 変更不要なのに path がある', patch: { no_change: true, no_change_reason: 'x' }, match: /変更不要の計画は/ },
+    { name: '異常: path が正規形でない', patch: { affected_paths: ['../a.mjs'] }, match: /正規形でない/ },
   ]
   for (const c of cases) {
     await t.test(c.name, async (t) => {
       const fx = fixture(t)
-      const result = await run(t, 'plan', planArgs(fx), backend({ planner: () => draft(fx, { test_plan: c.tp }), planReviewer: () => assert.fail('起動しない') }))
-      assert.equal(result.status, 'incomplete')
-      assert.equal(result.reason, 'invalid-test-plan')
+      const b = backend({ planner: () => draft(fx, c.patch), planReviewer: () => assert.fail('起動しない') })
+      const result = await run(t, 'plan', planArgs(fx), b)
+      assert.deepEqual([result.status, result.reason, result.revisions_exhausted], ['incomplete', 'invalid-plan', true])
       assert.match(result.problems.join('\n'), c.match)
+      assert.equal(b.calls.length, 1 + MAX_PLAN_REVISIONS)
+      assert.match(b.calls[1].prompt, /通らなかった理由/, '2 回目の planner に理由を渡す')
     })
   }
+  await t.test('準正常: 理由を受けて直した計画は通る', async (t) => {
+    const fx = fixture(t)
+    const b = backend({ planner: (_, n) => (n === 0 ? draft(fx, { test_plan: { conditions: [], cases: [] } }) : draft(fx)), planReviewer: () => planReview(fx) })
+    const result = await run(t, 'plan', planArgs(fx), b)
+    assert.deepEqual([result.status, result.attempt], ['approved', 1])
+  })
   await t.test('正常: 未カバーを理由つきで明示した条件は受け入れる', async (t) => {
     const fx = fixture(t)
     const tp = { conditions: [...TEST_PLAN.conditions, { ...cond({ id: 'C2', uncovered_reason: '実機でしか確かめられない' }), viewpoints: Object.fromEntries(categories.map((v) => [v, vp([])])) }], cases: TEST_PLAN.cases }
@@ -219,39 +252,60 @@ test('計画: ケース計画の形の欠けを invalid-test-plan で返す（�
   })
 })
 
-test('計画: plan-reviewer の承認は根拠とケース計画の照合が揃ったときだけ通す', async (t) => {
+test('計画: plan-reviewer が通さない計画は指摘を添えて planner に戻し、根拠の欠けと人の判断は戻さず止まる', async (t) => {
   const gaps = (key) => ({ test_plan_review: { missing_conditions: [], unexamined_viewpoints: [], implementation_derived_expectations: [], [key]: ['x'] } })
-  const cases = [
-    { name: '異常: 根拠が無い', patch: { evidence: [] }, status: 'incomplete', reason: 'plan-review-evidence-incomplete' },
-    { name: '異常: 読んでいない path を根拠にする', patch: { evidence: [{ path: 'other.md', line: 1, claim: 'x' }] }, status: 'incomplete', reason: 'plan-review-evidence-incomplete' },
-    { name: '異常: 別の HEAD', patch: { head_sha: 'f'.repeat(40) }, status: 'incomplete', reason: 'plan-review-head-mismatch' },
-    { name: '準正常: 人の判断が要る', patch: { human_decisions: ['公開の契約を変えるか'] }, status: 'needs_human_decision' },
-    { name: '異常: 承認しない', patch: { approved: false, issues: ['caller を見落とした'] }, status: 'blocked' },
-    { name: '異常: 条件の取りこぼし', patch: gaps('missing_conditions'), status: 'blocked' },
-    { name: '異常: 観点の未検討', patch: gaps('unexamined_viewpoints'), status: 'blocked' },
-    { name: '異常: 期待値が実装由来', patch: gaps('implementation_derived_expectations'), status: 'blocked' },
+  const sendBack = [
+    ['異常: 承認しない', { approved: false, issues: ['caller を見落とした'] }],
+    ['異常: 条件の取りこぼし', gaps('missing_conditions')],
+    ['異常: 観点の未検討', gaps('unexamined_viewpoints')],
+    ['異常: 期待値が実装由来', gaps('implementation_derived_expectations')],
   ]
-  for (const c of cases) {
-    await t.test(c.name, async (t) => {
+  for (const [name, patch] of sendBack) {
+    await t.test(name, async (t) => {
       const fx = fixture(t)
-      const result = await run(t, 'plan', planArgs(fx), backend({ planner: () => draft(fx), planReviewer: () => planReview(fx, c.patch) }))
-      assert.equal(result.status, c.status)
-      if (c.reason) assert.equal(result.reason, c.reason)
+      const b = backend({ planner: () => draft(fx), planReviewer: () => planReview(fx, patch) })
+      const result = await run(t, 'plan', planArgs(fx), b)
+      assert.deepEqual([result.status, result.revisions_exhausted], ['blocked', true])
+      assert.equal(b.calls.filter((c) => c.role === 'planner').length, 1 + MAX_PLAN_REVISIONS)
+      assert.match(b.calls[2].prompt, /通らなかった理由/)
+    })
+  }
+  await t.test('準正常: 指摘を受けて直した計画を 2 回目に承認する', async (t) => {
+    const fx = fixture(t)
+    const b = backend({ planner: () => draft(fx), planReviewer: (_, n) => planReview(fx, n === 0 ? { approved: false, issues: ['x'] } : {}) })
+    const result = await run(t, 'plan', planArgs(fx), b)
+    assert.deepEqual([result.status, result.attempt], ['approved', 1])
+    assert.deepEqual(b.calls.map((c) => c.options.label), ['planner-0', 'planReviewer-0', 'planner-1', 'planReviewer-1'])
+  })
+  const stop = [
+    ['異常: 根拠が無い', { evidence: [] }, 'incomplete', 'plan-review-evidence-incomplete'],
+    ['異常: 読んでいない path を根拠にする', { evidence: [{ path: 'other.md', line: 1, claim: 'x' }] }, 'incomplete', 'plan-review-evidence-incomplete'],
+    ['異常: 別の HEAD', { head_sha: 'f'.repeat(40) }, 'incomplete', 'plan-review-head-mismatch'],
+    ['準正常: 人の判断が要る', { human_decisions: ['公開の契約を変えるか'] }, 'needs_human_decision', undefined],
+  ]
+  for (const [name, patch, status, reason] of stop) {
+    await t.test(name, async (t) => {
+      const fx = fixture(t)
+      const b = backend({ planner: () => draft(fx), planReviewer: () => planReview(fx, patch) })
+      const result = await run(t, 'plan', planArgs(fx), b)
+      assert.equal(result.status, status)
+      if (reason) assert.equal(result.reason, reason)
+      assert.equal(b.calls.length, 2)
     })
   }
 })
 
 test('schema に合わない返り値は採用せず、後の役を起動しない', async (t) => {
   const cases = [
-    { name: '異常: planner の返り値に test_plan が無い', kind: 'plan', handlers: (fx) => { const { test_plan, ...d } = draft(fx); return { planner: () => d, planReviewer: () => assert.fail('起動しない') } }, reason: 'planner-unavailable' },
-    { name: '異常: planner の check に余分なキー', kind: 'plan', handlers: (fx) => ({ planner: () => draft(fx, { additional_checks: [{ kind: 'make', value: 'test', args: '-j' }] }), planReviewer: () => assert.fail('起動しない') }), reason: 'planner-unavailable' },
-    { name: '異常: planner の観点が 1 つ欠ける', kind: 'plan', handlers: (fx) => { const { boundary, ...v } = TEST_PLAN.conditions[0].viewpoints; return { planner: () => draft(fx, { test_plan: { ...TEST_PLAN, conditions: [{ ...TEST_PLAN.conditions[0], viewpoints: v }] } }), planReviewer: () => assert.fail('起動しない') } }, reason: 'planner-unavailable' },
-    { name: '異常: plan-reviewer の返り値に test_plan_review が無い', kind: 'plan', handlers: (fx) => { const { test_plan_review, ...r } = planReview(fx); return { planner: () => draft(fx), planReviewer: () => r } }, reason: 'plan-review-unavailable' },
+    { name: '異常: planner の返り値に test_plan が無い', handlers: (fx) => { const { test_plan, ...d } = draft(fx); return { planner: () => d, planReviewer: () => assert.fail('起動しない') } }, reason: 'planner-unavailable' },
+    { name: '異常: planner の check に余分なキー', handlers: (fx) => ({ planner: () => draft(fx, { additional_checks: [{ kind: 'make', value: 'test', args: '-j' }] }), planReviewer: () => assert.fail('起動しない') }), reason: 'planner-unavailable' },
+    { name: '異常: planner の観点が 1 つ欠ける', handlers: (fx) => { const { boundary, ...v } = TEST_PLAN.conditions[0].viewpoints; return { planner: () => draft(fx, { test_plan: { ...TEST_PLAN, conditions: [{ ...TEST_PLAN.conditions[0], viewpoints: v }] } }), planReviewer: () => assert.fail('起動しない') } }, reason: 'planner-unavailable' },
+    { name: '異常: plan-reviewer の返り値に test_plan_review が無い', handlers: (fx) => { const { test_plan_review, ...r } = planReview(fx); return { planner: () => draft(fx), planReviewer: () => r } }, reason: 'plan-review-unavailable' },
   ]
   for (const c of cases) {
     await t.test(c.name, async (t) => {
       const fx = fixture(t)
-      const result = await run(t, c.kind, planArgs(fx), backend(c.handlers(fx)))
+      const result = await run(t, 'plan', planArgs(fx), backend(c.handlers(fx)))
       assert.equal(result.status, 'incomplete')
       assert.equal(result.reason, c.reason)
     })
@@ -259,7 +313,7 @@ test('schema に合わない返り値は採用せず、後の役を起動しな�
   await t.test('異常: implementer の返り値に余分なキー', async (t) => {
     const fx = fixture(t)
     const approved = await approvedPlan(t, fx)
-    const result = await run(t, 'run', runArgs(fx, approved), backend({ implementer: () => ({ ...implementation(fx), note: 'x' }) }, WRITE))
+    const result = await run(t, 'run', ticketArgs(fx, approved), backend({ implementer: () => ({ ...implementation(fx), note: 'x' }) }, WRITE))
     assert.equal(result.status, 'incomplete')
     assert.match(result.reason, /^implementer-(failed|unavailable)$/)
   })
@@ -274,11 +328,10 @@ test('計画: state の写し間違いは agent を起動する前に拒否す�
   assert.equal(b.calls.length, 0)
 })
 
-test('実装: 承認済みの計画を implementer に渡し、返り値を CLI の inventory がそのまま受け入れる', async (t) => {
+test('通し: 計画 → 受け入れ → 実装 → check → 本物の repo-review の計画のファイルで record-review → verify が CLI の記録だけで通る', async (t) => {
   const fx = fixture(t)
   const approved = await approvedPlan(t, fx)
-  const admitted = JSON.parse(main(['inventory'], JSON.stringify({ statePath: fx.statePath, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum })).output)
-  assert.equal(admitted.admitted, true, JSON.stringify(admitted))
+  const args = admitAndBegin(fx, approved)
   const b = backend({
     implementer: () => {
       write(fx.repo, 'src/a.mjs', 'export const a = 2\n')
@@ -286,20 +339,38 @@ test('実装: 承認済みの計画を implementer に渡し、返り値を CLI 
       return implementation(fx)
     },
   }, WRITE)
-  const result = await run(t, 'run', runArgs(fx, approved), b)
+  const result = await run(t, 'run', args, b)
   assert.equal(result.status, 'ready_for_check', JSON.stringify(result))
   assert.deepEqual(b.calls.map((c) => [c.options.label, c.options.model, c.options.effort]), [['implementer-0', 'opus', 'high']])
   assert.ok(!b.calls[0].prompt.includes('直す確定指摘'))
-  const inv = JSON.parse(main(['inventory'], JSON.stringify({ statePath: fx.statePath, stateSum: fx.stateSum, plan: approved.plan, planSum: approved.plan_sum, implementation: result })).output)
-  assert.equal(inv.ok, true, inv.reason)
-  assert.deepEqual(inv.problems, [])
+  const ref = refOf(fx, approved)
+  const inv = cli('inventory', { ...ref, implementation: result })
+  assert.equal(inv.passed, true, JSON.stringify(inv))
+  const checked = cli('run-checks', { ...ref, phase: 'after' })
+  assert.equal(checked.passed, true, JSON.stringify(checked))
+  const reviewers = [{ id: 'correctness', focus: 'バグ', files: ['src/a.mjs', 'src/a.test.mjs'] }, { id: 'docs', focus: '文書', files: ['src/a.mjs'] }]
+  const rp = JSON.parse(reviewMain(['plan'], JSON.stringify({
+    repo: fx.repo, mode: 'working_tree', baseRef: fx.state.head, headSha: fx.state.head, policyRef: fx.state.policyRef, preservedPaths: fx.preservedPaths, reviewers, stateDir: tmp(t, 'repo-implement-rr-'),
+  })).output)
+  assert.equal(rp.ok, true, rp.reason)
+  const review = {
+    status: 'completed', reasons: [], mode: rp.plan.mode, baseRef: rp.plan.baseRef, headSha: rp.plan.headSha, policyRef: rp.plan.policyRef, scope: rp.plan.scope ?? null,
+    target: rp.plan.target, excluded: rp.plan.excluded, generated: rp.plan.generated, preserved: rp.plan.preserved, findings: [], refuted: [], unverified: [],
+  }
+  const recorded = cli('record-review', { statePath: fx.statePath, stateSum: fx.stateSum, review, reviewPlanPath: rp.plan_path, reviewPlanSum: rp.plan_sum })
+  assert.equal(recorded.ok, true, recorded.reason)
+  const verified = cli('verify', ref)
+  assert.deepEqual(verified.problems, [])
+  assert.equal(verified.passed, true)
+  write(fx.repo, 'src/a.mjs', 'export const a = 3\n')
+  assert.equal(cli('verify', ref).passed, false, 'レビューの後の書き込みは通さない')
 })
 
 test('実装: 書き込みの権限が無い実行面では起動しない', async (t) => {
   const fx = fixture(t)
   const approved = await approvedPlan(t, fx)
   const b = backend({ implementer: () => assert.fail('起動しない') })
-  await assert.rejects(run(t, 'run', runArgs(fx, approved), b), /workspace-write/)
+  await assert.rejects(run(t, 'run', ticketArgs(fx, approved), b), /workspace-write/)
 })
 
 test('実装: implementer の返り値が契約に合わないときは理由つきの status で止まる', async (t) => {
@@ -311,23 +382,25 @@ test('実装: implementer の返り値が契約に合わないときは理由つ
     { name: '異常: 未解決が残る', impl: (fx) => implementation(fx, { unresolved: ['仕様が無い'] }), status: 'blocked', reason: 'implementation-unresolved' },
     { name: '異常: 計画の外を書いた', impl: (fx) => implementation(fx, { touched_paths: ['README.md'] }), status: 'blocked', reason: 'implementation-status-or-scope-mismatch' },
     { name: '異常: changed なのに path が無い', impl: (fx) => implementation(fx, { touched_paths: [] }), status: 'blocked', reason: 'implementation-status-or-scope-mismatch' },
+    { name: '異常: 承認済みの計画に implementer だけが変更不要と返す', impl: (fx) => implementation(fx, { status: 'no_change', touched_paths: [], case_tests: [] }), status: 'blocked', reason: 'no-change-against-approved-plan' },
     { name: '異常: 自動テストのケースにテストが無い', impl: (fx) => implementation(fx, { case_tests: [] }), status: 'incomplete', reason: 'case-tests-incomplete', gap: ['missing', ['T1']] },
     { name: '異常: 計画に無いケースのテスト', impl: (fx) => implementation(fx, { case_tests: [...implementation(fx).case_tests, { case_id: 'T9', tests: [{ path: 'src/a.test.mjs', name: 'x' }] }] }), status: 'incomplete', reason: 'case-tests-incomplete', gap: ['unknown', ['T9']] },
     { name: '異常: ケースの無いテスト', impl: (fx) => implementation(fx, { tests_without_case: [{ path: 'src/a.test.mjs', name: 'extra' }] }), status: 'incomplete', reason: 'case-tests-incomplete' },
     { name: '境界: review の層のケースはテストの所在を求めない', impl: (fx) => implementation(fx), status: 'ready_for_check' },
-    { name: '正常: 実装不要', impl: (fx) => implementation(fx, { status: 'no_change', touched_paths: [], case_tests: [] }), status: 'no_change' },
   ]
   for (const c of cases) {
     await t.test(c.name, async (t) => {
       const fx = fixture(t)
       const approved = await approvedPlan(t, fx)
-      const result = await run(t, 'run', runArgs(fx, approved), backend({ implementer: () => c.impl(fx) }, WRITE))
+      const args = ticketArgs(fx, approved)
+      const result = await run(t, 'run', args, backend({ implementer: () => c.impl(fx) }, WRITE))
       assert.equal(result.status, c.status, JSON.stringify(result))
       if (c.reason instanceof RegExp) assert.match(result.reason, c.reason)
       else if (c.reason) assert.equal(result.reason, c.reason)
       if (c.gap) assert.deepEqual(result.caseTestGaps[c.gap[0]], c.gap[1])
       const { sum, ...rest } = result
       assert.equal(sum, fnvSum(rest), 'どの status でも CLI が受け取れる sum を持つ')
+      assert.equal(result.ticket_sum, args.ticketSum)
     })
   }
 })
@@ -338,63 +411,60 @@ const confirmedFinding = (patch = {}) => ({
   votes: [{ round: 1, lens: 'correctness', vote: 'confirmed', reason: 'x', evidence: [] }],
   ...patch,
 })
+const failed = { check: { kind: 'make', value: 'test' }, argv: ['make', 'test'], exit_code: 2, stdout_tail: 'boom', stderr_tail: '', failed_at_baseline: false, repairable: true }
 
-function afterRun(fx, results, round = 0) {
-  const r = { phase: 'after', round, head: fx.state.head, snapshot_before: 'S', snapshot_after: 'S', tree_changed: false, results }
-  return { checkRun: r, checkRunSum: fnvSum(r) }
-}
-
-test('修正: 回数は MAX_REPAIR_ROUNDS までで、入力は確定指摘か変更起因の check の失敗だけ', async (t) => {
-  const MAX = bodyLiteral(TEXT.run, 'MAX_REPAIR_ROUNDS')
-  const failed = (repairable) => ({ check: { kind: 'make', value: 'test' }, argv: ['make', 'test'], exit_code: 2, stdout_tail: 'boom', stderr_tail: '', failed_at_baseline: !repairable, repairable })
+test('修正: 券の入力（確定指摘・check の失敗）だけを implementer に渡し、MAX_REPAIR_ROUNDS を超える券では起動しない', async (t) => {
   const cases = [
-    { name: '正常: 確定指摘を直す', extra: { repairRound: 1, reviewFindings: [confirmedFinding()] }, status: 'ready_for_check', prompt: /直す確定指摘/ },
-    { name: '正常: 変更起因の check の失敗を直す', extra: (fx) => ({ repairRound: 1, ...afterRun(fx, [failed(true)]) }), status: 'ready_for_check', prompt: /boom/ },
-    { name: '境界: 上限ちょうどの回', extra: { repairRound: MAX, reviewFindings: [confirmedFinding()] }, status: 'ready_for_check' },
-    { name: '異常: 確定指摘が計画の外を指す', extra: { repairRound: 1, reviewFindings: [confirmedFinding({ path: 'README.md' })] }, status: 'needs_replan' },
-    { name: '異常: 確定指摘が対象の外（呼び出し元）を指す', extra: { repairRound: 1, reviewFindings: [confirmedFinding({ in_target: false })] }, status: 'needs_replan' },
-    { name: '異常: 修正なのに直すものを返さなかった', extra: { repairRound: 1, reviewFindings: [confirmedFinding()] }, impl: (fx) => implementation(fx, { status: 'no_change', touched_paths: [], case_tests: [] }), status: 'blocked', reason: 'repair-returned-no-change' },
+    { name: '正常: 確定指摘を直す', patch: { round: 1, repair: 'review', findings: [confirmedFinding()] }, status: 'ready_for_check', prompt: /直す確定指摘/ },
+    { name: '正常: 変更起因の check の失敗を直す', patch: { round: 1, repair: 'checks', checkFailures: [failed] }, status: 'ready_for_check', prompt: /boom/ },
+    { name: '境界: 上限ちょうどの回', patch: { round: MAX_REPAIR_ROUNDS, repair: 'review', findings: [confirmedFinding()] }, status: 'ready_for_check' },
+    { name: '境界: 上限 + 1 の回は backstop で止まる', patch: { round: MAX_REPAIR_ROUNDS + 1, repair: 'review', findings: [confirmedFinding()] }, status: 'repair_limit_reached', launched: false },
   ]
   for (const c of cases) {
     await t.test(c.name, async (t) => {
       const fx = fixture(t)
       const approved = await approvedPlan(t, fx)
-      const b = backend({ implementer: () => (c.impl ?? implementation)(fx) }, WRITE)
-      const extra = typeof c.extra === 'function' ? c.extra(fx) : c.extra
-      const result = await run(t, 'run', runArgs(fx, approved, extra), b)
+      const b = backend({ implementer: () => implementation(fx) }, WRITE)
+      const result = await run(t, 'run', ticketArgs(fx, approved, c.patch), b)
       assert.equal(result.status, c.status, JSON.stringify(result))
-      if (c.reason) assert.equal(result.reason, c.reason)
       if (c.prompt) assert.match(b.calls[0].prompt, c.prompt)
-      assert.equal(result.repairRound, extra.repairRound)
+      assert.equal(b.calls.length, c.launched === false ? 0 : 1)
+      assert.equal(result.repairRound, c.patch.round)
     })
   }
   const rejected = [
-    ['異常: 上限を超える回', { repairRound: MAX + 1, reviewFindings: [confirmedFinding()] }],
-    ['異常: 負の回', { repairRound: -1 }],
-    ['異常: 最初の実装に修正の入力を渡す', { repairRound: 0, reviewFindings: [confirmedFinding()] }],
-    ['異常: 修正の回に入力が無い', { repairRound: 1 }],
-    ['異常: 開始時から失敗していた check だけを渡す', (fx) => ({ repairRound: 1, ...afterRun(fx, [failed(false)]) })],
-    ['異常: 前の round の check の失敗を持ち込む', (fx) => ({ repairRound: 2, ...afterRun(fx, [failed(true)], 0) })],
-    ['異常: 別の HEAD での check の結果', (fx) => ({ repairRound: 1, ...afterRun({ state: { head: 'f'.repeat(40) } }, [failed(true)]) })],
-    ['異常: 確定していない指摘', { repairRound: 1, reviewFindings: [confirmedFinding({ votes: [{ vote: 'refuted' }] })] }],
-    ['異常: run-checks の出力を書き換えた', (fx) => ({ repairRound: 1, ...afterRun(fx, [failed(true)]), checkRunSum: '00000000' })],
-    ['異常: 計画を書き換えた', { planSum: '00000000' }],
+    ['異常: 券を書き換えた', (fx, a) => ({ ...ticketArgs(fx, a), ticketSum: '00000000' })],
+    ['異常: 別の plan の券', (fx, a) => ticketArgs(fx, a, { plan_sum: '00000000' })],
+    ['異常: 別の state の券', (fx, a) => ticketArgs(fx, a, { state_sum: '00000000' })],
+    ['異常: 計画を書き換えた', (fx, a) => ({ ...ticketArgs(fx, a), planSum: '00000000' })],
+    ['異常: 負の round', (fx, a) => ticketArgs(fx, a, { round: -1 })],
   ]
-  for (const [name, extra] of rejected) {
+  for (const [name, mk] of rejected) {
     await t.test(name, async (t) => {
       const fx = fixture(t)
       const approved = await approvedPlan(t, fx)
       const b = backend({ implementer: () => assert.fail('起動しない') }, WRITE)
-      await assert.rejects(run(t, 'run', runArgs(fx, approved, typeof extra === 'function' ? extra(fx) : extra), b))
+      await assert.rejects(run(t, 'run', mk(fx, approved), b))
       assert.equal(b.calls.length, 0)
     })
   }
-  await t.test('異常: 承認されていない計画は実装しない', async (t) => {
-    const fx = fixture(t)
-    const approved = await approvedPlan(t, fx)
-    const plan = { ...approved.plan, status: 'blocked' }
-    await assert.rejects(run(t, 'run', runArgs(fx, { plan, plan_sum: fnvSum(plan) }), backend({}, WRITE)), /承認済み/)
-  })
+  const unapproved = [
+    ['異常: status が approved でない', { status: 'blocked' }],
+    ['異常: 別の policyRef の計画', { policy_ref: 'f'.repeat(40) }],
+    ['異常: 別の HEAD で立てた計画', { head_sha: 'f'.repeat(40) }],
+    ['異常: 別の state の計画', { state_sum: '00000000' }],
+    ['異常: plan-reviewer が承認していない', (p) => ({ plan_review: { ...p.plan_review, approved: false } })],
+    ['異常: plan-reviewer が別の HEAD を見た', (p) => ({ plan_review: { ...p.plan_review, head_sha: 'f'.repeat(40) } })],
+  ]
+  for (const [name, patch] of unapproved) {
+    await t.test(name, async (t) => {
+      const fx = fixture(t)
+      const approved = await approvedPlan(t, fx)
+      const plan = { ...approved.plan, ...(typeof patch === 'function' ? patch(approved.plan) : patch) }
+      const forged = { plan, plan_sum: fnvSum(plan) }
+      await assert.rejects(run(t, 'run', ticketArgs(fx, forged), backend({ implementer: () => assert.fail('起動しない') }, WRITE)), /承認済み/)
+    })
+  }
 })
 
 test('SKILL.md が repo-review に渡す値（baseRef・headSha は開始時の HEAD、policyRef は主ブランチ、preservedPaths）を repo-review の CLI が受け入れ、変更だけを対象にする', (t) => {
@@ -445,20 +515,18 @@ test('Workflow source の写し（canonical・fnvSum・isRepoRelativePath）は 
   }
 })
 
-test('写しの定数は正本と一致する（観点の名前は traceability の分類、重大度は REVIEW.md の表）', () => {
-  assert.deepEqual(bodyLiteral(TEXT.plan, 'VIEWPOINTS'), categories)
-  const review = readFileSync(path.join(ROOT, 'REVIEW.md'), 'utf8')
-  const section = review.split(/^## /m).find((s) => s.startsWith('重大度'))
-  assert.deepEqual(bodyLiteral(TEXT.run, 'SEVERITIES'), [...section.matchAll(/^\| ([A-Z]+) \|/gm)].map((m) => m[1]))
+test('観点のキーは traceability の分類と一致する', () => {
+  assert.deepEqual(Object.keys(bodyLiteral(TEXT.plan, 'VIEWPOINT_LABELS')), categories)
 })
 
-test('meta.limits は本体の役の数と agentTimeoutMs から決まり、全ての役が model と effort を明示する', () => {
+test('meta.limits は本体の役の数・計画し直しの上限・agentTimeoutMs から決まり、全ての役が model と effort を明示する', () => {
+  const planRoles = Object.keys(bodyLiteral(TEXT.plan, 'ROLE_MODELS')).length
+  assert.equal(META.plan.limits.maxAgents, planRoles * (1 + MAX_PLAN_REVISIONS))
+  assert.equal(META.run.limits.maxAgents, Object.keys(bodyLiteral(TEXT.run, 'ROLE_MODELS')).length)
   for (const kind of ['plan', 'run']) {
-    const roles = bodyLiteral(TEXT[kind], 'ROLE_MODELS')
     const limits = META[kind].limits
-    assert.equal(limits.maxAgents, Object.keys(roles).length, kind)
     assert.equal(limits.timeoutMs, limits.maxAgents * limits.agentTimeoutMs, kind)
-    for (const [role, opts] of Object.entries(roles)) {
+    for (const [role, opts] of Object.entries(bodyLiteral(TEXT[kind], 'ROLE_MODELS'))) {
       assert.equal(typeof opts.model, 'string', `${kind}:${role}`)
       assert.equal(typeof opts.effort, 'string', `${kind}:${role}`)
     }

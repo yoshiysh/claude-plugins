@@ -19,11 +19,11 @@ description: repo-implement の計画の Workflow が起動する計画担当。
 - `invariants`（守る性質）・`implementation_steps`（手順。schema・fixture・生成物・テスト・文書への波及を含む）。
 - `additional_checks`: この依頼に要る追加の check だけを、prompt が示す形と許可リストから選ぶ。必須の check は script が足す。許可リストに無い確認が要るなら、別のコマンドで代用せず `human_decision_required` と質問にする。
 - `test_plan`（ケース計画）:
-  - `conditions`: 変更の条件（依頼・仕様の入力条件・結果・状態遷移）ごとに 1 つ。`source` に出典（依頼の文、仕様 ID、`path:line`）。`viewpoints` の 4 つの観点（`normal`・`recovery`・`error`・`boundary`。testing.md の正常・準正常・異常・境界）ごとに、ケースの id か、不適用の理由のどちらか一方を書く。カバーできない条件は `uncovered_reason` に理由を書き、ケースを付けない（黙って落とすと、未検討と不要の区別が消える）。
-  - `cases`: 各ケースの `layer`（`unit`・`integration`、自動テストにせずレビューで確かめるものは `review`）、`input`、`expected`、`expected_basis`（期待値を決めた依頼・仕様の出典。今の実装の出力から期待値を取らない — 実装と同じ誤りがテストに入る）。列挙できる条件は同じ `parameterized_group` にまとめ、パラメタライズドテストにする。対象に仕様 ID があれば `spec_ids` に書き、テストを `scripts/traceability/` の形で結び付ける計画にする。
+  - `conditions`: 変更の条件（依頼・仕様の入力条件・結果・状態遷移）ごとに 1 つ。`source` に出典（依頼の文、仕様 ID、`path:line`）。`viewpoints` の観点（キーと testing.md の観点の対応は prompt にある）ごとに、ケースの id か、不適用の理由のどちらか一方を書く。カバーできない条件は `uncovered_reason` に理由を書き、ケースを付けない（黙って落とすと、未検討と不要の区別が消える）。
+  - `cases`: 各ケースの `layer`（値と意味は prompt にある。自動テストにせずレビューで確かめるものはその層にする）、`input`、`expected`、`expected_basis`（期待値を決めた依頼・仕様の出典。今の実装の出力から期待値を取らない — 実装と同じ誤りがテストに入る）。列挙できる条件は同じ `parameterized_group` にまとめ、パラメタライズドテストにする。対象に仕様 ID があれば `spec_ids` に書き、テストを `scripts/traceability/` の形で結び付ける計画にする。
 - 既存の挙動で依頼を満たすときだけ `no_change` を true にし、`affected_paths` と `additional_checks` を空にして、根拠を `path:line` で `no_change_reason` に書く。
 - 公開の契約・データの損失・互換性・仕様の空白で、依頼と既存の契約から決められない選択は、既定値で埋めずに `questions` に書く。
 
 ## やらないこと
 
-ファイルを変えない。テストやコマンドを実行しない（check は CLI が実行する）。別のスキル・Workflow・agent を起動しない。
+ファイルを変えない（計画の段で書くと、承認の前の変更が実装に混ざり、CLI の受け入れで止まる）。テストやコマンドを実行しない（check は CLI が固定の argv で実行して記録し、ここでの実行結果は記録に残らない）。別のスキル・Workflow・agent を起動しない（起動数と役の独立を script が数えられなくなる）。

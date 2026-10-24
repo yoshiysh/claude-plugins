@@ -40,7 +40,7 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
    - PR: `gh pr view <番号> --json baseRefOid,headRefOid` で得た head を **headSha**、`git merge-base <baseRefOid> <headRefOid>` を **baseRef**、base branch の先端（`baseRefOid`）を **policyRef** にする。手元に無い commit は `git fetch` で取る（`.git` の refs と objects が増える）。
    - diff は、作業ツリーが headSha を checkout した clean な状態でだけ始める。reviewer と検証役は作業ツリーのファイルも開くので、別の版の作業ツリーでは別の内容と行番号で候補が作られる。そうでなければ始めずに利用者に伝える（作業ツリーの切り替えは利用者の操作）。
    - branch・commit の差分: 比べる 2 点の完全な SHA を baseRef・headSha にし、base 側を policyRef にする。
-   - working_tree: 比べる base の SHA を baseRef と policyRef に、今の HEAD を headSha にする。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
+   - working_tree: 比べる base の SHA を baseRef に、主ブランチの先端（`git rev-parse origin/main`）を policyRef に、今の HEAD を headSha にする（base が作業 branch の commit でも、その branch で変えた規約を基準に混ぜない）。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
    - audit: 今の HEAD を headSha に、主ブランチの先端（`git rev-parse origin/main`）を policyRef にする。範囲を **scope** に入れる。公開済みスキルは `plugins/` の実体のパスで渡す（symlink を通る path は CLI が拒否する）。
 2. **対象を列挙する。** 次で inventory を取る（入力は stdin の JSON。repo はこのリポジトリの作業ツリーの絶対パス）。
 

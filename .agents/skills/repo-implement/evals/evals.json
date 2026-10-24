@@ -4,15 +4,15 @@
     {
       "id": 1,
       "prompt": "repo-implement の run-checks が残す出力の末尾の行数（implement-core.mjs の OUTPUT_TAIL_LINES）を 80 にして（前提: 作業ツリーは main から切った作業 branch の clean な状態）",
-      "expected_output": "start で HEAD・policyRef（origin/main の SHA）・空の preservedPaths を固定してから計画の Workflow を呼ぶ。planner は implement-core.mjs の定数と、その値に依る implement-core.test.mjs の tail の境界のケースを affected_paths に挙げ、ケース計画に行数の境界（上限 - 1・ちょうど・上限 + 1）を boundary の観点で、期待値を依頼の 80 から決めて持つ。plan-reviewer が承認した後、受け入れの inventory と baseline の run-checks を流してから実装の Workflow を呼ぶ。check（make test を含む）と repo-review の working_tree レビューを通し、verify の passed を確かめてから報告する。依頼が無いので commit・push はしない。",
+      "expected_output": "start で HEAD・policyRef（origin/main の SHA）・空の preservedPaths を固定してから計画の Workflow を呼ぶ。planner は implement-core.mjs の定数と、その値に依る implement-core.test.mjs の tail の境界のケースを affected_paths に挙げ、ケース計画に行数の境界（上限 - 1・ちょうど・上限 + 1）を boundary の観点で、期待値を依頼の 80 から決めて持つ。plan-reviewer が承認した後、受け入れの inventory と baseline の run-checks を流し、begin-round の券で実装の Workflow を呼んで、返り値をそのまま inventory に渡す。check（make test を含む）と repo-review の working_tree レビューを通し、verify の passed を確かめてから報告する。依頼が無いので commit・push はしない。",
       "files": [],
       "assertions": [
         "計画の Workflow の前に implement-cli.mjs start を流し、その state と state_sum を args にそのまま写しているか",
         "plan の affected_paths に .agents/skills/repo-implement/scripts/implement-core.mjs と implement-core.test.mjs が含まれるか",
         "plan.test_plan に行数の上限の条件があり、boundary の観点がケースを持ち、ケースの expected_basis が依頼（80）を指しているか",
         "plan.checks に {kind: make, value: test} が含まれ、make check を重ねて足していないか",
-        "実装の Workflow の前に、implementation なしの inventory（admitted: true）と phase baseline の run-checks を流したか",
-        "repo-review をスキル呼び出しの working_tree モードで起動し、その返り値をそのまま record-review に渡したか",
+        "実装の Workflow の前に、implementation なしの inventory（admitted: true）・phase baseline の run-checks・begin-round を流し、その ticket と ticket_sum を args にそのまま写したか",
+        "repo-review をスキル呼び出しの working_tree モードで起動し、その返り値と plan の plan_path・plan_sum をそのまま record-review に渡したか",
         "verify の passed を確かめずに完了と報告していないか",
         "依頼されていない git commit・git push が無いか"
       ]

@@ -1,15 +1,66 @@
 [
-  { "query": "このリポジトリの review-core.mjs の findingProblem のバグを直して", "should_trigger": true },
-  { "query": "implement-cli.mjs に --json を足して、テストも書いて", "should_trigger": true },
-  { "query": "plugins/research/skills/search の SKILL.md の手順の誤りを直して", "should_trigger": true },
-  { "query": "tests/helpers/workflow-source.mjs をリファクタして重複を減らして", "should_trigger": true },
-  { "query": "README.md のインストール手順のコマンド例を直して", "should_trigger": true },
-  { "query": "Makefile の test target に新しいテストのディレクトリも拾わせて", "should_trigger": true },
-  { "query": "新しいスキルを品質チェック付きで作りたい", "should_trigger": false },
-  { "query": "この SKILL.md が best-practices に沿っているか評価して", "should_trigger": false },
-  { "query": "作業中の変更を REVIEW.md の基準でレビューして", "should_trigger": false },
-  { "query": "PR #170 のレビュー指摘に対応して", "should_trigger": false },
-  { "query": "この機能の PRD を書いて", "should_trigger": false },
-  { "query": "別のリポジトリ personal-knowledge-rag の CLI にオプションを足して", "should_trigger": false },
-  { "query": "review-core.mjs の MIN_REVIEWERS はなぜ 2 なの？", "should_trigger": false }
+  {
+    "query": "このリポジトリの review-core.mjs の findingProblem のバグを直して",
+    "should_trigger": true
+  },
+  {
+    "query": "implement-cli.mjs に --json を足して、テストも書いて",
+    "should_trigger": true
+  },
+  {
+    "query": "plugins/research/skills/search の SKILL.md の手順の誤りを直して",
+    "should_trigger": true
+  },
+  {
+    "query": "tests/helpers/workflow-source.mjs をリファクタして重複を減らして",
+    "should_trigger": true
+  },
+  {
+    "query": "README.md のインストール手順のコマンド例を直して",
+    "should_trigger": true
+  },
+  {
+    "query": "Makefile の test target に新しいテストのディレクトリも拾わせて",
+    "should_trigger": true
+  },
+  {
+    "query": "新しいスキルを品質チェック付きで作りたい",
+    "should_trigger": false
+  },
+  {
+    "query": "この SKILL.md が best-practices に沿っているか評価して",
+    "should_trigger": false
+  },
+  {
+    "query": "作業中の変更を REVIEW.md の基準でレビューして",
+    "should_trigger": false
+  },
+  {
+    "query": "PR #170 のレビュー指摘に対応して",
+    "should_trigger": false
+  },
+  {
+    "query": "この機能の PRD を書いて",
+    "should_trigger": false
+  },
+  {
+    "query": "別のリポジトリ personal-knowledge-rag の CLI にオプションを足して",
+    "should_trigger": false
+  },
+  {
+    "query": "review-core.mjs の MIN_REVIEWERS はなぜ 2 なの？",
+    "should_trigger": false
+  },
+  {
+    "query": "Issue #150 に沿って skill-creator-best-practices の SKILL.md を改稿して",
+    "should_trigger": false
+  },
+  {
+    "query": "さっきの repo-review の確定指摘を反映して直して",
+    "should_trigger": false
+  },
+  {
+    "query": "この README のレビュー結果を反映して修正して",
+    "should_trigger": false
+  }
 ]
