@@ -59,14 +59,11 @@
     },
     {
       "viewpoint": "flow",
-      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r10",
-      "file": "SKILL.md",
-      "section": [
-        "trace-cause",
-        "停止と再開"
-      ],
-      "from": "再開した run は必ず計画役から始め、止まっていた間に足されたヒントを読ませる。",
-      "to": "再開した run は、止まった周の未着手の意図の実行から続け、計画役は次の周の始めに呼ぶ（止まる前の計画を無駄にしないため）。",
+      "unit": "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
+      "file": "scripts/state.mjs",
+      "section": null,
+      "from": "    if (keyed && v.keys.get(v.runs.at(-1)) !== digest(String(writeKey))) reject('E_KEY', '書き込みの鍵が今の run のものでない（状態を書くのは運搬役だけ）');",
+      "to": "    if (keyed && ![...v.keys.values()].includes(digest(String(writeKey)))) reject('E_KEY', '書き込みの鍵がどの run のものでもない（状態を書くのは運搬役だけ）');",
       "unseen": [
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r1",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r2",
@@ -76,11 +73,12 @@
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r6",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r7",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r8",
-        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r9",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r10",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r11",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r12",
         "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r13",
-        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r14"
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r14",
+        "SP-BPCONFORMANCE-011/停止・再開と人間の入力/t1/r15"
       ]
     },
     {
@@ -91,11 +89,12 @@
         "設計の説明",
         "周の実行"
       ],
-      "from": "- agent は意図ごとに 1 回ずつ起動し、意図の一覧を 1 回の呼び出しに渡さない。そのため runtime の 1 回の呼び出しの件数の上限に当たらず、意図を切り捨てない。",
-      "to": "- agent は意図ごとに 1 回ずつ起動する。意図の件数が runtime の 1 回の呼び出しの件数の上限を超えるときは、順位の高いものから上限の件数だけを流し、残りは捨てる。",
+      "from": "- 同時に走る agent は script の定数 `CONCURRENCY` の数まで。item は枠を順位の順に取り、残りは枠が空くまで待たせる。",
+      "to": "- 同時に走る agent は script の定数 `CONCURRENCY` の数まで。item は枠を順位の順に取り、残りは枠が空くまで待たせる。`CONCURRENCY` は、検証できた証拠や実測で決めた基準が無くても、速く終わらせたいときに大きくしてよい。広げた後に戻す条件は決めない。",
       "unseen": [
         "SP-BPCONFORMANCE-012/体数と同時実行/t1/r1",
-        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r2"
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r2",
+        "SP-BPCONFORMANCE-012/体数と同時実行/t1/r5"
       ]
     },
     {
