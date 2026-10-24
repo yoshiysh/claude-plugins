@@ -108,6 +108,7 @@ Workflow の段と、source が構造で守ることは次のとおり。運搬�
 
 - **completed** は、全ての対象の coverage・全ての主張の判定が揃い、pin が最後まで崩れなかったことを示す。指摘が無くても、mode・base・head・policyRef・対象の件数・coverage を報告する。
 - **review_incomplete** は `reasons` に原因を持つ。
+  - `forbidden_reads` は、reviewer が読まない path（除外・生成物・作業中の変更）を根拠に読んだと申告した状態で、`forbidden_reads` に reviewer と path がある。coverage は欠けていないが、読まない約束が破られたので報告に含める。根拠の列挙が repo の外（方針の束・スキル自身の指示文書・repo の外のパス）を指しただけのものは `coverage[].ignoredSupporting` に記録するだけで、review_incomplete にしない（対象を読み残したことにはならないため）。
   - `coverage_or_limitations` と `verification_incomplete` は、レビューの一部が欠けたが、検証を通った `findings` は有効なまま返っている状態。欠けた範囲（`missing_coverage`・`limitations`・`unverified`）を明記し、「問題なし」と報告しない。
   - `pin_changed`・`carrier_failed`・`cli_rejected` は、対象が計画と違う内容になったか、CLI の判定を得られなかった状態。`findings` は空で、`unverified_candidates` は確定指摘として扱わない。`pin_changed` の次の手は `pin.causes[]` に従う（下の「pin の次の手」）。
   - **pin の次の手**: `E_PIN` の `causes[]`、inventory の `pin_causes[]`、`pin_changed` の `pin.causes[]` は、原因ごとに `by` と `action` を持つ（原因と mode の組から決まる。正本は `scripts/review-core.mjs` の `PIN_ACTIONS`）。`by` が `user` なら `action` を利用者に伝えて待ち、`caller` なら caller が `action` を行う。

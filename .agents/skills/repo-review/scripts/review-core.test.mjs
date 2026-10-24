@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CODES, ReviewError, buildPlan, canonical, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
+  CODES, ReviewError, buildPlan, canonical, classifySupporting, checkPin, checkRequest, clusterByRange, firstAssignments, fnvSum,
   PIN_ACTIONS, extractSections, globToRegExp, pinAction, isRepoPath, isWorkflowSource, judge, merge, parseReadingTable, partition, renderPolicyPack,
 } from './review-core.mjs'
 
@@ -12,7 +12,7 @@ const H2 = 'd'.repeat(40)
 const EXCLUDE = ['**/*.lock', '**/package-lock.json']
 const GENERATED = ['plugins/p/skills/s/references/criteria/**']
 const NO_DETAILS = { symlinks: [], workflowSources: [], digests: null }
-const PACK = { path: '/s/pack.md', sha256: 'H', token: 'S', index: [{ id: 'P1' }, { id: 'P2' }], missing: [] }
+const PACK = { path: '/s/repo-review-policy-abc.md', sha256: 'H', token: 'S', index: [{ id: 'P1' }, { id: 'P2' }], missing: [] }
 
 function rejects(fn, code, pattern, label = '') {
   assert.throws(fn, (error) => {
@@ -227,7 +227,7 @@ test('clusterByRange: 重なる範囲は推移的にまとめ、隣り合うだ�
 
 function mergePlan(patch = {}) {
   return {
-    mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GENERATED, preserved: [], policyPack: PACK,
+    repo: '/r', mode: 'diff', headSha: H, excludePaths: EXCLUDE, generatedPaths: GENERATED, preserved: [], policyPack: PACK,
     target: { files: ['a.md', 'b.md'] },
     reviewers: [{ id: 'correctness', focus: 'x', files: ['a.md', 'b.md'] }, { id: 'docs', focus: 'y', files: ['a.md'] }],
     ...patch,
@@ -235,7 +235,7 @@ function mergePlan(patch = {}) {
 }
 
 function result(patch = {}) {
-  const r = { head_sha: H, policy_pack_token: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], limitations: 0, findings: [], ...patch }
+  const r = { head_sha: H, policy_pack_token: 'S', coverage: ['a.md', 'b.md'], supporting_files: ['REVIEW.md'], policy_sections: ['P1'], limitations: 0, findings: [], ...patch }
   return { ...r, findings: Array.isArray(r.findings) ? r.findings.map((f) => ({ rule_sections: ['P1'], ...f })) : r.findings }
 }
 
@@ -261,8 +261,6 @@ test('merge: 欠けた reviewer・HEAD の違い・読み残し・余分・重�
     ['担当の読み残し', result({ coverage: ['a.md'] }), { status: 'ok', missing: ['b.md'] }, ['b.md']],
     ['担当外の coverage', result({ coverage: ['a.md', 'b.md', 'z.md'] }), { extra: ['z.md'] }, []],
     ['coverage の重複', result({ coverage: ['a.md', 'b.md', 'a.md'] }), { duplicate: ['a.md'] }, []],
-    ['除外 path を根拠に読んだ', result({ supporting_files: ['x.lock'] }), { invalidSupporting: ['x.lock'] }, []],
-    ['作業中の変更を根拠に読んだ', result({ supporting_files: ['mine.md'] }), { invalidSupporting: ['mine.md'] }, []],
     ['読めなかった記録', result({ limitations: 1 }), { limitations: 1 }, []],
     ['方針の束を読めなかった', result({ policy_pack_token: 'unreadable' }), { status: 'pack_unread', missing: ['a.md', 'b.md'] }, ['b.md']],
   ]) {
@@ -517,4 +515,62 @@ test('renderPolicyPack は読取りトークンを束の先頭に置き、索引
   const out = text.split('\n')
   assert.ok(out.slice(0, 4).includes('読取りトークン（policy_pack_token に返す）: abc123'))
   assert.equal(out[index[0].pack[0] - 1], '## [P1] x.md（全体）')
+})
+
+test('supporting_files の分類: repo の外・方針の束・指示文書は記録だけにし、読まない path だけを forbiddenReads にする', () => {
+  for (const [label, entry, kind, extra] of [
+    ['repo 相対', 'REVIEW.md', 'ok', { path: 'REVIEW.md' }],
+    ['repo の中の絶対パス', '/r/docs/x.md', 'ok', { path: 'docs/x.md' }],
+    ['repo の中の指示文書（スキルが repo の中）', '/r/.agents/skills/repo-review/agents/reviewer.md', 'ok', { path: '.agents/skills/repo-review/agents/reviewer.md' }],
+    ['方針の束', '/s/repo-review-policy-abc.md', 'policy_pack', {}],
+    ['節の注記つきの方針の束', '/s/repo-review-policy-abc.md (P1 REVIEW.md:1-64)', 'policy_pack', {}],
+    ['別の実パスの方針の束', '/private/s/repo-review-policy-abc.md', 'policy_pack', {}],
+    ['repo の外の絶対パス', '/Users/u/skills/repo-review/agents/reviewer.md', 'outside_repo', {}],
+    ['節の ID', 'P4', 'ok', { path: 'P4' }],
+    ['パスでない文', 'REVIEW.md の表', 'ok', { path: 'REVIEW.md の表' }],
+    ['.. を含む', '../x.md', 'not_path', {}],
+    ['空', ' ', 'not_path', {}],
+    ['除外 path', 'x.lock', 'forbidden', { path: 'x.lock' }],
+    ['生成物', 'plugins/p/skills/s/references/criteria/y.md', 'forbidden', { path: 'plugins/p/skills/s/references/criteria/y.md' }],
+    ['作業中の変更', '/r/mine.md', 'forbidden', { path: 'mine.md' }],
+  ]) {
+    const out = classifySupporting(mergePlan({ preserved: ['mine.md'] }), (f) => (['x.lock', 'mine.md'].includes(f) || f.startsWith('plugins/p/skills/s/references/criteria/') ? 'x' : null), entry)
+    assert.equal(out.kind, kind, label)
+    for (const [k, v] of Object.entries(extra)) assert.equal(out[k], v, `${label}: ${k}`)
+  }
+})
+
+test('merge: 根拠の列挙が repo の外を指しても coverage は欠けず、読まない path の読みだけを forbiddenReads として返す', () => {
+  for (const [label, supporting, complete, forbidden, ignored] of [
+    ['束と repo の外の指示文書', ['/s/repo-review-policy-abc.md (P1 REVIEW.md:1-64, P4 AGENTS.md:52-139)', '/Users/u/skills/repo-review/agents/reviewer.md'], true, [], 2],
+    ['除外 path', ['x.lock'], true, [{ reviewer: 'correctness', path: 'x.lock', reason: '内容を読まない path' }], 0],
+    ['作業中の変更', ['mine.md'], true, [{ reviewer: 'correctness', path: 'mine.md', reason: '呼び出し側の作業中の変更' }], 0],
+  ]) {
+    const out = merge(mergePlan({ preserved: ['mine.md'] }), [result({ supporting_files: supporting }), result({ coverage: ['a.md'] })])
+    assert.equal(out.complete, complete, label)
+    assert.deepEqual(out.forbiddenReads, forbidden, label)
+    assert.equal(out.reviewers[0].ignoredSupporting.length, ignored, label)
+  }
+  const bad = merge(mergePlan(), [result({ policy_sections: ['P1', 'P9'] }), result({ coverage: ['a.md'] })])
+  assert.deepEqual(bad.reviewers[0].invalidPolicySections, ['P9'])
+  assert.equal(bad.complete, true, '束に無い節の ID は記録だけ')
+})
+
+test('回帰: native のスモークテストで reviewer が挙げた束の path と スキル自身の agents/reviewer.md で coverage_or_limitations にならない', () => {
+  // 190d227 の native Workflow のスモークテストで absence-claims の reviewer が返した supporting_files（リポジトリと束の場所だけを fixture に置き換えた）。
+  const plan = mergePlan({
+    repo: '/Users/yoshi/github/yoshiysh/claude-plugins/.claude/worktrees/gh-runner-stopped-windows-a5e576',
+    policyPack: { ...PACK, path: '/private/var/folders/j1/xj39qyh11db8zh2gh50ybkp40000gn/T/tmp.x/repo-review-policy-4a960702f9ede3ad.md' },
+    target: { files: ['docs/guidelines/documentation.md'] },
+    reviewers: [{ id: 'absence-claims', focus: 'x', files: ['docs/guidelines/documentation.md'] }, { id: 'docs', focus: 'y', files: ['docs/guidelines/documentation.md'] }],
+  })
+  const supporting = [
+    '/private/var/folders/j1/xj39qyh11db8zh2gh50ybkp40000gn/T/tmp.x/repo-review-policy-4a960702f9ede3ad.md (P1 REVIEW.md:1-64, P4 AGENTS.md:52-139, P15 docs/guidelines/README.md:1-30)',
+    '/Users/yoshi/github/yoshiysh/claude-plugins/.agents/skills/repo-review/agents/reviewer.md',
+  ]
+  const cov = ['docs/guidelines/documentation.md']
+  const out = merge(plan, [result({ coverage: cov, supporting_files: supporting }), result({ coverage: cov, supporting_files: ['REVIEW.md'] })])
+  assert.equal(out.complete, true)
+  assert.deepEqual(out.forbiddenReads, [])
+  assert.deepEqual(out.reviewers[0].ignoredSupporting.map((x) => x.kind), ['policy_pack', 'outside_repo'])
 })

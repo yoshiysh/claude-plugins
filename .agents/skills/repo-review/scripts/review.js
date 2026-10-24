@@ -93,10 +93,11 @@ const REVIEW_SCHEMA = {
     policy_pack_token: { type: 'string' },
     coverage: { type: 'array', items: { type: 'string' } },
     supporting_files: { type: 'array', items: { type: 'string' } },
+    policy_sections: { type: 'array', items: { type: 'string', pattern: '^P[0-9]+$' } },
     findings: { type: 'array', items: FINDING_SCHEMA },
     limitations: { type: 'array', items: { type: 'string' } },
   },
-  required: ['head_sha', 'policy_pack_token', 'coverage', 'supporting_files', 'findings', 'limitations'],
+  required: ['head_sha', 'policy_pack_token', 'coverage', 'supporting_files', 'policy_sections', 'findings', 'limitations'],
   additionalProperties: false,
 }
 
@@ -176,6 +177,7 @@ function reviewerPrompt(rv) {
   return [
     `${skillDir}/agents/reviewer.md を読み、その役割に従う。`,
     ...sharedContext(),
+    'supporting_files には、担当ファイル以外に根拠として読んだ repo の中のファイルを repo 相対パスで挙げる。方針の根拠（束の節）は supporting_files でなく policy_sections に束の節の ID（P1 など）で挙げる。方針の束そのものと、この prompt が従わせる agents/*.md（役割の指示文書）はどちらにも挙げない。',
     `findings の severity は REVIEW.md「重大度」の表の名前（${SEVERITIES.join('・')}）。行範囲が複数行にわたるときは end_line を付ける。rule_sections には照らした束の節の ID（P1 など）を、rule にはその中の規則（例: 「同じ値・列挙・上限を 2 箇所に書かない」）を書く。`,
     '--- この reviewer の担当 ---',
     `観点 id: ${rv.id}`,
@@ -292,7 +294,7 @@ function rawCandidates() {
 function stop(reason, extra) {
   return {
     status: 'review_incomplete', reasons: [reason], ...header(), ...extra,
-    findings: [], refuted: [], unverified: [], invalid_findings: [], untrusted_findings: [],
+    findings: [], refuted: [], unverified: [], invalid_findings: [], untrusted_findings: [], forbidden_reads: [],
     unverified_candidates: rawCandidates(), limitations: limitationsOf(), launches,
   }
 }
@@ -313,6 +315,7 @@ const compactResults = results.map((r) => r && {
   policy_pack_token: r.policy_pack_token,
   coverage: r.coverage,
   supporting_files: r.supporting_files,
+  policy_sections: r.policy_sections,
   limitations: r.limitations.length,
   findings: r.findings.map((f) => ({ path: f.path, line: f.line, rule_sections: f.rule_sections, ...(f.end_line === undefined ? {} : { end_line: f.end_line }) })),
 })
@@ -387,6 +390,7 @@ const untrustedFindings = merged.untrusted.map((x) => ({ reported_by: plan.revie
 const invalidFindings = merged.reviewers.flatMap((rv, i) => rv.invalidFindings.map((x) => ({ reported_by: rv.id, reason: x.reason, finding: results[i].findings[x.finding] })))
 const reasons = []
 if (!merged.complete) reasons.push('coverage_or_limitations')
+if (merged.forbiddenReads.length) reasons.push('forbidden_reads')
 if (!judged.complete) reasons.push('verification_incomplete')
 
 return {
@@ -402,6 +406,7 @@ return {
   unverified,
   invalid_findings: invalidFindings,
   untrusted_findings: untrustedFindings,
+  forbidden_reads: merged.forbiddenReads,
   verifier_diagnostics: judged.diagnostics,
   launches,
 }

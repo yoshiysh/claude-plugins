@@ -321,29 +321,46 @@ function findingProblem(plan, unreadable, finding) {
   return null
 }
 
+// supporting_files は repo の中の根拠のファイル。方針の根拠は束の節の ID（policy_sections）で返すので、束やスキル自身の指示文書など
+// repo の外のものが来ても、根拠の列挙の不備として ignoredSupporting に記録するだけで、対象の読み残しにはしない。
+// repo の中を絶対パスで書いたものは相対パスに直す。読まない path（除外・生成物・作業中の変更）を読んだものだけは契約違反として forbiddenReads に出す。
+export function classifySupporting(plan, unreadable, entry) {
+  if (typeof entry !== 'string' || !entry.trim()) return { kind: 'not_path', entry }
+  const packName = plan.policyPack.path.split('/').pop()
+  if (entry.startsWith(plan.policyPack.path) || entry.includes(packName)) return { kind: 'policy_pack', entry }
+  const rel = typeof plan.repo === 'string' && entry.startsWith(`${plan.repo}/`) ? entry.slice(plan.repo.length + 1) : entry
+  if (!isRepoPath(rel)) return { kind: rel.startsWith('/') ? 'outside_repo' : 'not_path', entry }
+  const why = unreadable(rel)
+  return why ? { kind: 'forbidden', entry, path: rel, reason: why } : { kind: 'ok', entry, path: rel }
+}
+
 function checkResultShape(res, i) {
-  const ok = isObject(res) && typeof res.head_sha === 'string' && typeof res.policy_pack_token === 'string' && isStringArray(res.coverage) && isStringArray(res.supporting_files)
+  const ok = isObject(res) && typeof res.head_sha === 'string' && typeof res.policy_pack_token === 'string' && isStringArray(res.coverage) && isStringArray(res.supporting_files) && isStringArray(res.policy_sections)
     && isCount(res.limitations) && Array.isArray(res.findings)
-  if (!ok) fail(CODES.input, [`results[${i}] は null か {head_sha, policy_pack_token, coverage, supporting_files, limitations（件数）, findings} でなければならない`])
+  if (!ok) fail(CODES.input, [`results[${i}] は null か {head_sha, policy_pack_token, coverage, supporting_files, policy_sections, limitations（件数）, findings} でなければならない`])
 }
 
 export function merge(plan, results) {
   if (!Array.isArray(results) || results.length !== plan.reviewers.length) fail(CODES.input, ['results は reviewers と同じ長さの配列でなければならない'])
   results.forEach((res, i) => res === null || checkResultShape(res, i))
   const unreadable = unreadableMatcher(plan)
+  const packIds = plan.policyPack.index.map((e) => e.id)
   const reviewers = plan.reviewers.map((rv, i) => {
     const res = results[i]
-    const base = { id: rv.id, status: 'ok', missing: [], extra: [], duplicate: [], invalidSupporting: [], invalidFindings: [], limitations: 0 }
+    const base = { id: rv.id, status: 'ok', missing: [], extra: [], duplicate: [], forbiddenReads: [], ignoredSupporting: [], invalidPolicySections: [], invalidFindings: [], limitations: 0 }
     if (res === null) return { ...base, status: 'missing', missing: [...rv.files] }
     if (res.head_sha !== plan.headSha) return { ...base, status: 'head_mismatch', missing: [...rv.files] }
     // 束を読めなかった reviewer は、全員の共通の方針でない判断をしている。HEAD の食い違いと同じく指摘を検証に回さない。
     if (res.policy_pack_token !== plan.policyPack.token) return { ...base, status: 'pack_unread', missing: [...rv.files] }
+    const supporting = res.supporting_files.map((f) => classifySupporting(plan, unreadable, f))
     return {
       ...base,
       missing: rv.files.filter((f) => !res.coverage.includes(f)),
       extra: sorted(res.coverage.filter((f) => !rv.files.includes(f))),
       duplicate: duplicates(res.coverage),
-      invalidSupporting: sorted(res.supporting_files.filter((f) => !isRepoPath(f) || unreadable(f))),
+      forbiddenReads: supporting.filter((x) => x.kind === 'forbidden').map((x) => ({ path: x.path, reason: x.reason })),
+      ignoredSupporting: supporting.filter((x) => !['ok', 'forbidden'].includes(x.kind)).map((x) => ({ entry: x.entry, kind: x.kind })),
+      invalidPolicySections: sorted(res.policy_sections.filter((id) => !packIds.includes(id))),
       invalidFindings: res.findings.flatMap((f, j) => {
         const why = findingProblem(plan, unreadable, f)
         return why ? [{ finding: j, reason: why }] : []
@@ -374,12 +391,13 @@ export function merge(plan, results) {
     members: c.members.map((m) => [m.reviewer, m.finding]),
   }))
   const complete = missingCoverage.length === 0 && reviewers.every((rv) => rv.status === 'ok'
-    && !rv.missing.length && !rv.extra.length && !rv.duplicate.length && !rv.invalidSupporting.length
+    && !rv.missing.length && !rv.extra.length && !rv.duplicate.length
     && !rv.invalidFindings.length && rv.limitations === 0)
   // 結果を返したが信用しない reviewer の指摘は、検証に回さず別の欄で返す（どの status がそれに当たるかはここだけが決める）。
   const untrusted = reviewers.flatMap((rv, i) => (UNTRUSTED_STATUSES.includes(rv.status)
     ? results[i].findings.map((_, j) => ({ reviewer: i, finding: j, reason: rv.status })) : []))
-  return { complete, reviewers, missingCoverage, clusters, untrusted, first: firstAssignments(plan, clusters) }
+  const forbiddenReads = reviewers.flatMap((rv) => rv.forbiddenReads.map((x) => ({ reviewer: rv.id, ...x })))
+  return { complete, reviewers, missingCoverage, clusters, untrusted, forbiddenReads, first: firstAssignments(plan, clusters) }
 }
 
 // 同じ path で行範囲が重なる指摘を 1 つの候補にまとめる（重なりは推移的にたどる）。隣り合うだけの範囲はまとめない。
