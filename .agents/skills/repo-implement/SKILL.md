@@ -45,7 +45,7 @@ description: >
 
 CLI は段ごとの作業ツリーの snapshot を `stateDir` の記録に残し、次の段の始めに今の snapshot と照らす。段の外での書き込み（計画の段・券を閉じた後の実装の Workflow・check とレビューの間）は、次の段で `E_STATE` か `changed_outside_steps` として見つかる。記録が見ないものは「照合しないもの」にまとめる。
 
-CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒否で、`code` と `reason` を持つ（code の一覧は `scripts/implement-core.mjs` の `CODES`、個々の拒否の理由は `reason`）。`ok: false` の拒否では CLI は記録を書かないので、写し間違いが原因なら正しい入力で同じ op を流し直してよい。入力の誤りでない拒否（`reason` が段の順序や作業ツリーの状態を指す）なら次の段へ進まず、`reason` を報告する。Workflow の返り値や repo-review の返り値のような大きな JSON は、本文を写す代わりに保存したファイルの path を `<名前>Path`（`implementationPath`・`reviewPath`）で渡せる。
+CLI の入力は stdin の JSON、出力は 1 行の JSON。`ok: false` は拒否で、`code` と `reason` を持つ（code の一覧は `scripts/implement-core.mjs` の `CODES`、個々の拒否の理由は `reason`）。`ok: false` の拒否では CLI は記録を書かないので、写し間違いが原因なら正しい入力で同じ op を流し直してよい。入力の誤りでない拒否（`reason` が段の順序や作業ツリーの状態を指す）なら次の段へ進まず、`reason` を報告する。Workflow の返り値（実装の Workflow・repo-review の Workflow）は、本文を写す代わりにファイルの path を `<名前>Path`（`implementationPath`・`reviewPath`）で渡せる。native の Workflow が返り値を残す tasks の `.output`（`{summary, agentCount, logs, result}` の包み）はそのまま渡してよく、CLI が `result` を取り出す。
 
 ## 開始: 状態を固定する
 
@@ -138,9 +138,9 @@ Workflow({
 
 | status | 司令塔の処理 |
 | --- | --- |
-| **ready_for_check** | 実装の Workflow の実行が終わったことだけを表す。次の節の check へ進む |
+| **ready_for_check** | 実装の Workflow の実行が終わったことだけを表す。次の節の check へ進む。`implementation.notes`（範囲内の判断・注記）は報告に載せる |
 | **repair_limit_reached** | 修正の回の上限（実装の Workflow source の定数 `MAX_REPAIR_ROUNDS`）を超えた券で、implementer を起動していない。暴走を止める backstop で止まったこととして、残った失敗・確定指摘を示して「止まるとき」に従う |
-| **blocked**・**incomplete** | `reason` と、ケースのテストの欠け（`caseTestGaps`）・未解決（`implementation.unresolved`）を示して「止まるとき」に従う。承認済みの計画に implementer だけが変更不要と返したもの（`no-change-against-approved-plan`）もここに入る |
+| **blocked**・**incomplete** | `reason` と、ケースのテストの欠け（`caseTestGaps`）・果たせなかった作業（`implementation.unresolved`）を示して「止まるとき」に従う。承認済みの計画に implementer だけが変更不要と返したもの（`no-change-against-approved-plan`）もここに入る |
 
 Workflow が返り値無しに終わった（error・timeout）ときは券が開いたままなので、`inventory` は流せない。「止まるとき」に従う。
 

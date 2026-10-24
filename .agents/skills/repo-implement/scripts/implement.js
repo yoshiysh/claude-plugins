@@ -97,9 +97,10 @@ const IMPLEMENT_SCHEMA = {
         additionalProperties: false,
       },
     },
-    unresolved: { type: 'array', items: { type: 'string', minLength: 1 } },
+    unresolved: { type: 'array', items: { type: 'string', minLength: 1 }, description: '計画か確定指摘が求めたのに果たせなかった作業だけ。1 件でもあれば run は止まる' },
+    notes: { type: 'array', items: { type: 'string', minLength: 1 }, description: '果たした作業についての注記と、計画の範囲内で下した判断。run は止まらず、報告に載る' },
   },
-  required: ['head_sha', 'status', 'summary', 'touched_paths', 'case_tests', 'tests_without_case', 'unresolved'],
+  required: ['head_sha', 'status', 'summary', 'touched_paths', 'case_tests', 'tests_without_case', 'unresolved', 'notes'],
   additionalProperties: false,
 }
 

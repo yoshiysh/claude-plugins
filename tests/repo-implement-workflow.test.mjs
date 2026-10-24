@@ -119,7 +119,7 @@ function planReview(fx, patch = {}) {
 function implementation(fx, patch = {}) {
   return {
     head_sha: fx.state.head, status: 'changed', summary: '直した', touched_paths: ['src/a.mjs', 'src/a.test.mjs'],
-    case_tests: [{ case_id: 'T1', tests: [{ path: 'src/a.test.mjs', name: 'a は 2 を返す' }] }], tests_without_case: [], unresolved: [],
+    case_tests: [{ case_id: 'T1', tests: [{ path: 'src/a.test.mjs', name: 'a は 2 を返す' }] }], tests_without_case: [], unresolved: [], notes: [],
     ...patch,
   }
 }
@@ -424,7 +424,9 @@ test('実装: implementer の返り値が契約に合わないときは理由つ
     // native の agent() は throw し、この runner は null に変える。どちらでも run を落とさず incomplete にする。
     { name: '異常: 構造化出力で失敗した（throw）', impl: () => { throw new Error('schema exhausted') }, status: 'incomplete', reason: /^implementer-(failed|unavailable)$/ },
     { name: '異常: 別の HEAD', impl: (fx) => implementation(fx, { head_sha: 'f'.repeat(40) }), status: 'blocked', reason: 'implementation-head-mismatch' },
-    { name: '異常: 未解決が残る', impl: (fx) => implementation(fx, { unresolved: ['仕様が無い'] }), status: 'blocked', reason: 'implementation-unresolved' },
+    { name: '異常: 果たせなかった作業が残る', impl: (fx) => implementation(fx, { unresolved: ['仕様が無い'] }), status: 'blocked', reason: 'implementation-unresolved' },
+    { name: '正常: 範囲内の判断の注記だけなら止まらない', impl: (fx) => implementation(fx, { notes: ['確定指摘に応えるためテスト名を計画の手順から 1 句変えた'] }), status: 'ready_for_check' },
+    { name: '異常: 注記と果たせなかった作業の両方があれば止まる', impl: (fx) => implementation(fx, { notes: ['x'], unresolved: ['y'] }), status: 'blocked', reason: 'implementation-unresolved' },
     { name: '異常: 計画の外を書いた', impl: (fx) => implementation(fx, { touched_paths: ['README.md'] }), status: 'blocked', reason: 'implementation-status-or-scope-mismatch' },
     { name: '異常: changed なのに path が無い', impl: (fx) => implementation(fx, { touched_paths: [] }), status: 'blocked', reason: 'implementation-status-or-scope-mismatch' },
     { name: '異常: 承認済みの計画に implementer だけが変更不要と返す', impl: (fx) => implementation(fx, { status: 'no_change', touched_paths: [], case_tests: [] }), status: 'blocked', reason: 'no-change-against-approved-plan' },

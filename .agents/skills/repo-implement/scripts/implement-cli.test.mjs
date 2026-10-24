@@ -563,8 +563,8 @@ test('大きな入力はファイルの path で渡せ、拒否された op は�
     assert.equal(ok('inventory', { ...ref(s), ...p, implementationPath: implFile }).passed, true)
     ok('run-checks', { ...ref(s), ...p, phase: 'after' })
     const rp = reviewPlanFile(s, ['src/a.mjs'])
-    const reviewFile = path.join(s.stateDir, 'review.json')
-    writeFileSync(reviewFile, JSON.stringify(reviewOf(s, ['src/a.mjs'])))
+    const reviewFile = path.join(s.stateDir, 'review.output')
+    writeFileSync(reviewFile, JSON.stringify({ summary: 'done', agentCount: 9, logs: [], result: reviewOf(s, ['src/a.mjs']) }))
     assert.equal(ok('record-review', { ...ref(s), reviewPath: reviewFile, reviewPlanPath: rp.reviewPlanPath, reviewPlanSum: rp.reviewPlanSum }).next, 'verify')
   })
   await t.test('準正常: 写し間違いで拒否された後、同じ段を正しい入力で流し直せる', (t) => {

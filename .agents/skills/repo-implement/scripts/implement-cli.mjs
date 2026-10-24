@@ -7,7 +7,7 @@ import {
   CODES, DEFAULT_POLICY_REF, ImplementError, MAIN_BRANCH, PHASES, argvOf, baselineVerdict, checkPolicy, checkRecord, fnvSum,
   implementationProblem, inventoryProblems, isSha, newLedger, parsePorcelain, planCheckProblems, planProblem, requireAdmitted, requireClosed,
   requireLastRoundPassed, requireLive, requireUnchanged, reviewProblems, reviewRecord, reviewShapeProblems, reviewsOf, roundEffectProblems, roundTicket,
-  sha256, snapshotOf, stateProblem, tail, unreviewablePaths, verifyProblems,
+  sha256, snapshotOf, stateProblem, tail, unreviewablePaths, unwrapWorkflowOutput, verifyProblems,
 } from './implement-core.mjs'
 
 const STATE_FILE = 'repo-implement-state.json'
@@ -157,7 +157,7 @@ function inputValue(body, key, io) {
   if (file === undefined) return body[key]
   if (body[key] !== undefined) throw new ImplementError(CODES.input, `${key} と ${key}Path の両方は渡さない`)
   if (typeof file !== 'string' || !file.startsWith('/')) throw new ImplementError(CODES.input, `${key}Path は絶対パス`)
-  return readJson(io, file, `${key}Path のファイル`)
+  return unwrapWorkflowOutput(readJson(io, file, `${key}Path のファイル`))
 }
 
 function loadPlan(body, state, stateSum) {

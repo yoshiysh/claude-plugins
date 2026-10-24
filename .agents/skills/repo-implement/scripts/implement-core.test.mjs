@@ -3,13 +3,24 @@ import assert from 'node:assert/strict'
 import {
   CODES, ImplementError, MAKE_TARGETS, OUTPUT_TAIL_LINES, REQUIRED_CHECKS, argvOf, baselineVerdict, checkProblem, fnvSum, implementationProblem,
   inventoryProblems, newLedger, parsePorcelain, planCheckProblems, planProblem, reviewProblems, reviewRecord, roundEffectProblems, roundTicket,
-  snapshotOf, tail, unreviewablePaths, verifyProblems,
+  snapshotOf, tail, unreviewablePaths, unwrapWorkflowOutput, verifyProblems,
 } from './implement-core.mjs'
 
 const HEAD = 'a'.repeat(40)
 const POLICY = 'b'.repeat(40)
 const STATE = { repo: '/r', head: HEAD, policyRef: POLICY, preserved: [{ path: 'keep.md', digest: 'file:1' }], ledgerPath: '/s/l.json', snapshot: 'S0' }
 const PLAN = { status: 'approved', state_sum: 's1', affected_paths: ['src/a.mjs', 'src/a.test.mjs'], checks: [{ kind: 'make', value: 'test' }] }
+
+test('unwrapWorkflowOutput は native の .output の包みからだけ result を取り出す', async (t) => {
+  const result = { status: 'ready_for_check', sum: 'x' }
+  for (const [name, value, expected] of [
+    ['正常: .output の包み', { summary: 's', agentCount: 1, logs: [], result }, result],
+    ['正常: 返り値そのもの', result, result],
+    ['境界: result だけを持つ包み', { result }, result],
+    ['境界: 包みに無いキーがあれば取り出さない', { result, extra: 1 }, { result, extra: 1 }],
+    ['境界: null', null, null],
+  ]) await t.test(name, () => assert.deepEqual(unwrapWorkflowOutput(value), expected))
+})
 
 test('許可リストの正本: 必須 check は make test で、make の target は許可リストに入っている', () => {
   assert.deepEqual(REQUIRED_CHECKS.map((c) => [c.kind, c.value]), [['make', 'test']])

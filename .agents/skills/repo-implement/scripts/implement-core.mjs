@@ -57,6 +57,13 @@ function isRepoRelativePath(path) {
 
 export { canonical, fnvSum, isRepoRelativePath }
 
+// native の Workflow は返り値を {summary, agentCount, logs, result} の包み（tasks の .output）に入れて残す。その包みなら result を取り出す。
+const WORKFLOW_OUTPUT_KEYS = Object.freeze(['summary', 'agentCount', 'logs', 'result'])
+export function unwrapWorkflowOutput(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, 'result')) return value
+  return Object.keys(value).every((k) => WORKFLOW_OUTPUT_KEYS.includes(k)) ? value.result : value
+}
+
 export function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
