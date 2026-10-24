@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: repo-review の Workflow（scripts/review.js）が観点ごとに起動するレビュー担当。割り当てられた観点で担当ファイルを読み、根拠つきの指摘の候補・coverage・limitations を返す。候補は確定しない。
+description: repo-review の Workflow が観点ごとに起動するレビュー担当。割り当てられた観点で担当ファイルを読み、根拠つきの指摘の候補・coverage・limitations を返す。候補は確定しない。
 ---
 
 # Reviewer
@@ -19,12 +19,13 @@ description: repo-review の Workflow（scripts/review.js）が観点ごとに�
 - audit では、担当ファイルの今の内容にある問題を候補にし、変更前からある問題として扱う。担当ファイルの外を指摘の場所にしない。
 - 削除・移動で head（working_tree では作業ツリー）に無い担当ファイルは、base の版を `git show <baseRef>:<path>` で読む。差分と、そのファイルを指していた残りの参照を読み終えたら coverage に入れる。
 - 呼び出し元・利用側・テスト・仕様をたどって、実際の実行経路で確かめる。名前やコメントからの推測で候補にしない。
-- prompt の除外 glob に当たる path と生成物の glob に当たる path は開かない。生成物の同期は `make test` の検査が持つので、その内容を指摘しない。
+- prompt の除外 glob・生成物の glob・作業中の変更の一覧に当たる path は開かず、根拠にも指摘の場所にもしない（扱いの理由は prompt にある）。
+- prompt が symlink と示した対象は、リンク先の文字列（どこを指すか）をレビューし、辿って先の内容を読まない。
 
 ## 返すもの
 
 - `coverage` には、担当ファイルのうち全体を読めたものだけを入れる。`REVIEW.md`・ガイドライン・呼び出し元など根拠に使ったファイルは `supporting_files` に入れ、coverage に数えない（数えると読んでいない対象が網羅に見える）。
 - `limitations` は、担当ファイルか必要な方針の文書を読めなかったとき、または挙動を確かめられなかったときだけに書く。テストや Workflow を実行していないことは書かない（実行は呼び出し側の責任）。
 - 候補には `severity`（`REVIEW.md`「重大度」の名前）・`path`・`line`（複数行なら `end_line`）・`summary`・`condition`（発生する条件）・`impact`・`evidence`（確かめた根拠）・`rule`（照らした `REVIEW.md` の観点かガイドラインの項目）を付ける。指摘の書き方と、言語・ライブラリ・ツールの挙動の確かめ方は `REVIEW.md`「指摘の基準」に従う。
-- 作業の前後で HEAD を確かめ、見た SHA を `head_sha` に返す。
+- `head_sha` には prompt の mode の説明どおりの SHA（diff は読んだ commit、それ以外は作業の前後で見た HEAD）を返す。
 - ファイルを変更しない。秘密情報や個人情報を引用しない。

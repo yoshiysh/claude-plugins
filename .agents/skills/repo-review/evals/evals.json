@@ -3,40 +3,40 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "この PR をレビューして（plugins/research/skills/search/SKILL.md の Workflow 呼び出しの説明と plugins/research/skills/search/scripts/investigate.js を変え、plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/package-lock.json も更新した PR）",
-      "expected_output": "diff mode で PR の merge-base を baseRef、head を headSha、base branch の先端を policyRef に固定する。review-cli.mjs の inventory が policyRef の claude_review.yml の exclude-paths で package-lock.json を excluded に分け、内容を開かない。SKILL.md と Workflow script があるので skill-design の観点を足し、そのほかに REVIEW.md の観点から 1 つ以上を選んで plan を通す。Workflow には plan と plan_sum をそのまま渡し、PR には投稿しない。",
+      "prompt": "commit 5535594（fix(skill-creator-best-practices): prompt-audit と update の指摘を反映）の差分を、その親 commit を base としてレビューして",
+      "expected_output": "diff mode で baseRef と policyRef を 5535594^ の完全な SHA、headSha を 5535594 の完全な SHA に固定し、作業ツリーを checkout せずに commit の内容だけを読む。inventory は 23 件を reviewable にし、policyRef に tools/sync-bp-criteria.mjs が無いので generated は空になる。SKILL.md・agents/*.md・plugins/skill-creator/workflows/review_skill.js（先頭が export const meta）を含むので skill-design の観点を足し、ほかに REVIEW.md の観点から 1 つ以上を選んで plan を通す。Workflow には plan・plan_sum・plan_path をそのまま渡し、PR やファイルに書き込まない。",
       "files": [],
       "assertions": [
-        "inventory・plan の入力に exclude-paths の値を手で書いておらず、出力の excluded に package-lock.json があるか",
-        "reviewers に id が skill-design の観点があり、SKILL.md と investigate.js がその担当に入っているか",
-        "reviewers が 2 つ以上で、全ての対象ファイルがどれかの担当に入っているか（plan が E_PLAN を返していないか）",
-        "Workflow の args が skillDir・plan・planSum だけで、plan と planSum が plan の出力と一致しているか",
-        "package-lock.json の内容を読む操作が transcript に無いか",
-        "PR へのコメント投稿や review の送信を行っていないか"
+        "inventory・plan の入力に exclude-paths の値を手で書いていないか",
+        "reviewers に id が skill-design の観点があり、SKILL.md・agents/*.md・review_skill.js がその担当に入っているか",
+        "reviewers が 2 つ以上で、23 件の全ての対象ファイルがどれかの担当に入っているか（plan が E_PLAN を返していないか）",
+        "Workflow の args が skillDir・plan・planSum・planPath だけで、plan の出力と一致しているか",
+        "git checkout・git worktree add・作業ツリーのファイルの変更を行っていないか",
+        "stateDir が repo の外にあるか"
       ]
     },
     {
       "id": 2,
-      "prompt": "判定基準の写しを同期し直しただけの PR をレビューして（docs/specifications/bp-run.md を 1 行直し、node tools/sync-bp-criteria.mjs で plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/ の写しを更新した PR）",
-      "expected_output": "inventory が判定基準の写しを generated に分け、内容を読まない。docs/specifications/bp-run.md は通常のレビュー対象として観点に割り当てる。結果の報告では、生成物は内容をレビューしておらず同期は make test（SP-BPRUN-036）の検査が持つことを書き、make test を実行していなければ未実行と書く。",
+      "prompt": "commit 7bef2e3（docs: スキル設計原則に証拠の保存と再利用条件を追加）をレビューして",
+      "expected_output": "diff mode で 7bef2e3^ を baseRef と policyRef、7bef2e3 を headSha に固定する。inventory は docs/design/skill-design-patterns.md を reviewable、references/criteria/design/skill-design-patterns.md を generated に分け、写しの内容を読まない。報告では generated_note の扱い（内容を見ていないこと・同期の確認は make test の検査であること）を書き、make test を実行していなければ未実行と書く。",
       "files": [],
       "assertions": [
-        "references/criteria/ 配下の path が inventory・plan の generated に入り、target.files に入っていないか",
+        "references/criteria/ 配下の path が generated に入り、target.files に入っていないか",
         "references/criteria/ 配下のファイル内容を読む操作が transcript に無いか",
-        "docs/specifications/bp-run.md が target.files にあり、reviewer の担当に入っているか",
-        "報告に、生成物を内容レビューしていないことと、同期の確認は make test の検査であることが書かれているか",
+        "docs/design/skill-design-patterns.md が target.files にあり、reviewer の担当に入っているか",
+        "報告に、生成物を内容レビューしていないことと同期の確認の持ち主が書かれているか",
         "make test を実行していないのに、同期を確かめたかのように書いていないか"
       ]
     },
     {
       "id": 3,
       "prompt": "plugins/research/skills/search を監査して",
-      "expected_output": "audit mode で scope に plugins/research/skills/search を渡し（.agents/skills/search の symlink は渡さない）、今の HEAD を headSha、主ブランチの先端を policyRef に固定する。plan が対象の内容の SHA-256 を記録し、Workflow の pin が前後で照らす。SKILL.md・agents・Workflow script を含むので skill-design の観点がある。指摘は変更前からある問題として報告し、リポジトリ全体を見たとは書かない。",
+      "expected_output": "audit mode で scope に plugins/research/skills/search を渡し（.agents/skills/search の symlink を通る path は渡さない）、今の HEAD を headSha、origin/main の先端を policyRef に固定する。plan が対象の内容の SHA-256 を記録し、Workflow の pin が段ごとに照らす。SKILL.md・agents・Workflow source（scripts/investigate.js）を含むので skill-design の観点がある。指摘は変更前からある問題として報告し、リポジトリ全体を見たとは書かない。",
       "files": [],
       "assertions": [
         "mode が audit で、scope が plugins/research/skills/search で、target.files がその配下に限られているか",
-        "plan の digests に target.files の全件の SHA-256 があるか",
-        "reviewers に skill-design の観点があるか",
+        "plan の digests に target.files の全件の値があるか",
+        "reviewers に skill-design の観点があり、investigate.js がその担当に入っているか",
         "結果が review_incomplete のとき、欠けた範囲を明記し「問題なし」と報告していないか",
         "リポジトリ全体を監査したと表現していないか"
       ]

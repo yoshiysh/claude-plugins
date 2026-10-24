@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,12 +9,23 @@ import { fileURLToPath } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import { main } from '../.agents/skills/repo-review/scripts/review-cli.mjs'
-import { VERDICTS, canonical, fnvSum } from '../.agents/skills/repo-review/scripts/review-core.mjs'
+import { VERDICTS, VERIFY_ROUNDS, canonical, fnvSum, isWorkflowSource } from '../.agents/skills/repo-review/scripts/review-core.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const SKILL_DIR = path.join(ROOT, '.agents', 'skills', 'repo-review')
-const SOURCE = path.join(SKILL_DIR, 'scripts', 'review.js')
-const META = readSourceMetadata(readFileSync(SOURCE, 'utf8'))
+const SKILL_DIR = realpathSync(path.join(ROOT, '.agents', 'skills', 'repo-review'))
+const META_NAME = 'repo-review-run'
+
+// 公開の前は skill の scripts/、公開の後は plugin の workflows/ にある。どちらでも meta.name で 1 本に決める。
+function workflowSource() {
+  const dirs = [path.join(SKILL_DIR, 'scripts'), ...readdirSync(path.join(ROOT, 'plugins')).map((p) => path.join(ROOT, 'plugins', p, 'workflows'))]
+  const hits = dirs.filter((d) => existsSync(d)).flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)))
+    .filter((f) => isWorkflowSource(readFileSync(f, 'utf8')) && readSourceMetadata(readFileSync(f, 'utf8')).name === META_NAME)
+  assert.equal(hits.length, 1, `meta.name ${META_NAME} の source がちょうど 1 本ない: ${hits}`)
+  return hits[0]
+}
+const SOURCE = workflowSource()
+const SOURCE_TEXT = readFileSync(SOURCE, 'utf8')
+const META = readSourceMetadata(SOURCE_TEXT)
 const acorn = createRequire(path.join(ROOT, 'plugins', 'workflow', 'skills', 'dynamic-workflow-runner', 'scripts', 'runtime', 'package.json'))('acorn')
 const COMMAND = /node '([^']+)' (\S+) <<'(RR_[0-9a-f]{8})'\n(.*)\n\3/g
 const GIT_ENV = {
@@ -32,13 +43,17 @@ function write(repo, file, text) {
   writeFileSync(path.join(repo, file), text)
 }
 
+function tmp(t, prefix) {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), prefix)))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  return dir
+}
+
 function fixture(t) {
-  const repo = realpathSync(mkdtempSync(path.join(tmpdir(), 'repo-review-wf-')))
-  t.after(() => rmSync(repo, { recursive: true, force: true }))
+  const repo = tmp(t, 'repo-review-wf-')
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'config', 'commit.gpgsign', 'false')
   write(repo, '.github/workflows/claude_review.yml', `jobs:\n  review:\n    with:\n      exclude-paths: '["**/*.lock"]'\n`)
-  write(repo, 'plugins/p/skills/s/scripts/bp/constants.mjs', "export const CRITERIA_DIR = 'references/criteria';\n")
   write(repo, 'docs/a.md', 'a\n')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'base')
@@ -48,7 +63,7 @@ function fixture(t) {
   write(repo, 'deps.lock', 'x\n')
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'head')
-  return { repo, base, head: git(repo, 'rev-parse', 'HEAD') }
+  return { repo, base, head: git(repo, 'rev-parse', 'HEAD'), stateDir: tmp(t, 'repo-review-state-') }
 }
 
 const REVIEWERS = [
@@ -56,16 +71,47 @@ const REVIEWERS = [
   { id: 'docs', focus: '文書', files: ['docs/a.md'] },
 ]
 
-function planFor(request) {
+function planArgs(request, skillDir = SKILL_DIR) {
   const out = JSON.parse(main(['plan'], JSON.stringify(request)).output)
   assert.equal(out.ok, true, out.reason)
-  return { plan: out.plan, planSum: out.plan_sum }
+  return { skillDir, plan: out.plan, planSum: out.plan_sum, planPath: out.plan_path }
+}
+
+function diffArgs(t, skillDir) {
+  const fx = fixture(t)
+  return { fx, args: planArgs({ repo: fx.repo, mode: 'diff', baseRef: fx.base, headSha: fx.head, policyRef: fx.base, reviewers: REVIEWERS, stateDir: fx.stateDir }, skillDir) }
 }
 
 const finding = (patch) => ({ severity: 'MEDIUM', path: 'docs/a.md', line: 1, summary: 's', condition: 'c', impact: 'i', evidence: 'e', rule: 'r', ...patch })
-const reviewOk = (head, patch = {}) => ({ head_sha: head, coverage: [], supporting_files: ['REVIEW.md'], findings: [], limitations: [], ...patch })
+const reviewOk = (head, id, patch = {}) => ({ head_sha: head, coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], supporting_files: ['REVIEW.md'], findings: [], limitations: [], ...patch })
 
-// 運搬役は prompt のコマンドを本物の CLI でそのまま流す。tamper は応答の行を書き換える（写し間違いの模擬）。
+// prompt に並ぶ割り当て（候補 k の claims）を読み、主張ごとに decide(lens, round, summary) の判定で返す。
+function verifyAll(head, decide) {
+  return (lens, round, prompt) => {
+    const results = []
+    for (const m of prompt.matchAll(/^候補 (\d+): [^\n]*\nclaims: (.*)$/gm)) {
+      for (const c of JSON.parse(m[2])) {
+        const verdict = decide(lens, round, c.summary)
+        results.push({ cluster: Number(m[1]), claim: c.claim, verdict, reason: `${lens}:${verdict}`, evidence: verdict === 'confirmed' ? [{ path: c.path, line: c.line, claim: 'x' }] : [] })
+      }
+    }
+    return { head_sha: head, results }
+  }
+}
+
+function runCommands(prompt, exec) {
+  const responses = []
+  for (const m of prompt.matchAll(COMMAND)) {
+    const output = exec(m)
+    responses.push(output)
+    if (!JSON.parse(output).ok) break
+  }
+  return responses
+}
+
+const inProcess = (m) => main([m[2]], m[4]).output
+
+// 運搬役は prompt のコマンドを本物の CLI でそのまま流す。scenario.carrier は n 回目の運搬の応答を差し替える。
 function backend(scenario) {
   const calls = []
   return {
@@ -76,65 +122,60 @@ function backend(scenario) {
       const { label } = options
       if (label.startsWith('carrier:')) {
         const n = calls.filter((c) => c.options.label.startsWith('carrier:')).length
-        if (scenario.carrier) {
-          const forced = scenario.carrier(n, prompt)
-          if (forced !== undefined) return forced
-        }
-        const responses = []
-        for (const m of prompt.matchAll(COMMAND)) {
-          assert.equal(m[1], path.join(SKILL_DIR, 'scripts', 'review-cli.mjs'))
-          const { output } = main([m[2]], m[4])
-          responses.push(output)
-          if (!JSON.parse(output).ok) break
-        }
-        return { responses }
+        const responses = runCommands(prompt, scenario.exec ?? inProcess)
+        const forced = scenario.carrier?.(n, responses)
+        return forced === undefined ? { responses } : forced
       }
       if (label.startsWith('review:')) return scenario.review(label.slice('review:'.length), prompt)
-      if (label.startsWith('verify:')) return scenario.verify(label.slice('verify:'.length), prompt)
+      const m = /^verify(\d):(.+)$/.exec(label)
+      if (m) return scenario.verify(m[2], Number(m[1]), prompt)
       throw new Error(`unexpected label ${label}`)
     },
   }
 }
 
 async function runWorkflow(t, args, b) {
-  const runRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'repo-review-run-')))
-  t.after(() => rmSync(runRoot, { recursive: true, force: true }))
+  const runRoot = tmp(t, 'repo-review-run-')
   return Workflow({ scriptPath: SOURCE, args }, { backend: b, runDir: path.join(runRoot, 'run'), trustedSource: true, ...META.limits })
 }
 
-function diffArgs(t) {
-  const fx = fixture(t)
-  const planned = planFor({ repo: fx.repo, mode: 'diff', baseRef: fx.base, headSha: fx.head, policyRef: fx.base, reviewers: REVIEWERS })
-  return { fx, args: { skillDir: SKILL_DIR, ...planned } }
-}
+const labels = (b, prefix) => b.calls.filter((c) => c.options.label.startsWith(prefix)).map((c) => c.options.label)
 
-test('正常: 観点ごとの reviewer と、重なった指摘を受けた観点の検証役が走り、成り立つ主張だけが確定する', async (t) => {
+test('正常: 1 段目で確定しなかった主張だけが残りの観点に回り、全観点が棄却した主張は refuted になる', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
-    review: (id) => id === 'correctness'
-      ? reviewOk(fx.head, { coverage: ['docs/a.md', 'docs/b.md'], findings: [finding({ line: 1, end_line: 2, summary: 'A' })] })
-      : reviewOk(fx.head, { coverage: ['docs/a.md'], findings: [finding({ line: 2, summary: 'B' })] }),
-    verify: () => ({ head_sha: fx.head, results: [{ cluster: 0, verdict: 'confirmed', confirmed_members: [1], reason: 'B だけ成り立つ', evidence: [{ path: 'docs/a.md', line: 2, claim: 'x' }] }] }),
+    review: (id) => (id === 'correctness'
+      ? reviewOk(fx.head, id, { findings: [finding({ line: 1, end_line: 2, summary: 'A' })] })
+      : reviewOk(fx.head, id, { findings: [finding({ line: 2, summary: 'B' })] })),
+    verify: verifyAll(fx.head, (lens, round, summary) => (summary === 'B' ? 'confirmed' : 'refuted')),
   })
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'completed', JSON.stringify(result.reasons))
-  assert.equal(result.findings.length, 1)
-  assert.deepEqual(result.findings[0].claims.map((c) => [c.summary, c.reported_by]), [['B', 'docs']])
-  assert.deepEqual(result.refuted.map((r) => r.claim.summary), ['A'])
+  assert.deepEqual(result.findings.map((f) => [f.claim.summary, f.claim.reported_by, f.votes.length]), [['B', 'docs', 1]])
+  assert.deepEqual(result.refuted.map((r) => [r.claim.summary, r.votes.map((v) => [v.round, v.lens, v.vote])]), [['A', [[1, 'correctness', 'refuted'], [2, 'docs', 'refuted']]]])
   assert.deepEqual(result.excluded, ['deps.lock'])
-  assert.deepEqual(result.launches, { reviewers: 2, verifiers: 1, carriers: 2 }, "網羅の照合と統合・判定の集計の運搬役が 1 回ずつ")
-  const verifyCalls = b.calls.filter((c) => c.options.label.startsWith('verify:'))
-  assert.deepEqual(verifyCalls.map((c) => c.options.label), ['verify:correctness'], '候補は最初に挙げた観点の検証役 1 体に回る')
+  assert.deepEqual(labels(b, 'verify'), ['verify1:correctness', 'verify2:docs'], '候補は最初に挙げた観点に、決着しない主張だけが残りの観点に回る')
+  assert.deepEqual(result.launches, { reviewers: 2, verifiers: [1, 1], carriers: 3 })
+})
+
+test('準正常: 2 観点のとき 1 票の refuted だけでは棄却せず unverified にし、review_incomplete と明示する', async (t) => {
+  const { fx, args } = diffArgs(t)
+  const b = backend({
+    review: (id) => reviewOk(fx.head, id, { findings: id === 'correctness' ? [finding()] : [] }),
+    verify: verifyAll(fx.head, (lens) => (lens === 'correctness' ? 'refuted' : 'unverified')),
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.equal(result.status, 'review_incomplete')
+  assert.deepEqual(result.reasons, ['verification_incomplete'])
+  assert.equal(result.unverified.length, 1)
+  assert.deepEqual(result.findings, [])
 })
 
 test('全ての agent 呼び出しが model と effort を明示し、運搬役は小さい model・低 effort、共通部分は prompt の先頭にそろう', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
-    review: (id) => reviewOk(fx.head, { coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], findings: id === 'docs' ? [finding({ path: 'docs/b.md' })] : [finding()] }),
-    verify: (lens, prompt) => {
-      const ids = [...prompt.matchAll(/^候補 (\d+):/gm)].map((m) => Number(m[1]))
-      return { head_sha: fx.head, results: ids.map((k) => ({ cluster: k, verdict: 'refuted', confirmed_members: [], reason: 'r', evidence: [] })) }
-    },
+    review: (id) => reviewOk(fx.head, id, { findings: id === 'docs' ? [finding({ path: 'docs/b.md' })] : [finding()] }),
+    verify: verifyAll(fx.head, () => 'confirmed'),
   })
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'completed', JSON.stringify(result.reasons))
@@ -143,20 +184,22 @@ test('全ての agent 呼び出しが model と effort を明示し、運搬役�
     assert.equal(typeof c.options.effort, 'string', c.options.label)
   }
   for (const c of b.calls.filter((x) => x.options.label.startsWith('carrier:'))) assert.deepEqual([c.options.model, c.options.effort], ['haiku', 'low'])
-  const verifiers = b.calls.filter((c) => c.options.label.startsWith('verify:'))
-  assert.equal(verifiers.length, 2, '観点ごとに検証役を立てる')
-  for (const [role, marker] of [['review:', '--- この reviewer の担当 ---'], ['verify:', '--- この検証役の担当 ---']]) {
+  assert.equal(labels(b, 'verify1:').length, 2, '観点ごとに検証役を立てる')
+  for (const [role, marker] of [['review:', '--- この reviewer の担当 ---'], ['verify1:', '--- この検証役の担当 ---']]) {
     const prefixes = b.calls.filter((c) => c.options.label.startsWith(role)).map((c) => c.prompt.slice(0, c.prompt.indexOf(marker)))
     assert.ok(prefixes[0].length > 0)
     assert.ok(prefixes.every((p) => p === prefixes[0]), `${role} の共通部分が同じ`)
+  }
+  for (const c of b.calls.filter((x) => x.options.label.startsWith('carrier:'))) {
+    assert.ok(!c.prompt.includes('"target"'), '運搬役は計画の本体を写さない')
   }
 })
 
 test('準正常: reviewer が 1 人返らなくても、他の reviewer の指摘は検証して返し、review_incomplete と明示する', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
-    review: (id) => (id === 'correctness' ? null : reviewOk(fx.head, { coverage: ['docs/a.md'], findings: [finding()] })),
-    verify: () => ({ head_sha: fx.head, results: [{ cluster: 0, verdict: 'confirmed', confirmed_members: [0], reason: 'ok', evidence: [{ path: 'docs/a.md', line: 1, claim: 'x' }] }] }),
+    review: (id) => (id === 'correctness' ? null : reviewOk(fx.head, id, { findings: [finding()] })),
+    verify: verifyAll(fx.head, () => 'confirmed'),
   })
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'review_incomplete')
@@ -165,66 +208,156 @@ test('準正常: reviewer が 1 人返らなくても、他の reviewer の指�
   assert.equal(result.findings.length, 1, '検証済みの結果は捨てない')
 })
 
-test('準正常: 運搬役の応答の写し間違いは sum で検出し、1 回だけ送り直す', async (t) => {
+test('準正常: 運搬役が応答を書き換えたら sum で検出して送り直し、書き換えた値を使わない', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
-    carrier: (n) => (n === 1 ? { responses: ['{"ok":true,"op":"pin","sum":"00000000"}'] } : undefined),
-    review: (id) => reviewOk(fx.head, { coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'] }),
+    carrier: (n, responses) => {
+      if (n !== 1) return undefined
+      const merged = JSON.parse(responses[1])
+      merged.merge.clusters = []
+      merged.merge.first = []
+      return { responses: [responses[0], JSON.stringify(merged)] }
+    },
+    review: (id) => reviewOk(fx.head, id, { findings: id === 'correctness' ? [finding()] : [] }),
+    verify: verifyAll(fx.head, () => 'confirmed'),
   })
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'completed')
-  assert.equal(result.launches.carriers, 2)
+  assert.equal(result.findings.length, 1)
+  assert.equal(result.launches.carriers, 3, '写し間違いの 1 回・送り直し・一次の判定')
 })
 
-test('異常: 運搬役が上限まで失敗したら、候補を未検証として返し review_incomplete で止まる', async (t) => {
+test('異常: 運搬役が上限まで応答を失ったら、候補を未検証として返し carrier_failed で止まる', async (t) => {
   const { fx, args } = diffArgs(t)
-  const b = backend({
-    carrier: () => null,
-    review: (id) => reviewOk(fx.head, { coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'], findings: [finding()] }),
-  })
+  const b = backend({ carrier: () => null, review: (id) => reviewOk(fx.head, id, { findings: [finding()] }) })
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'review_incomplete')
   assert.deepEqual(result.reasons, ['carrier_failed'])
   assert.equal(result.unverified_candidates.length, 2)
+  assert.deepEqual(result.findings, [])
   assert.equal(result.launches.carriers, META.caps.carrierTries)
-  assert.equal(b.calls.filter((c) => c.options.label.startsWith('verify:')).length, 0)
+  assert.equal(labels(b, 'verify').length, 0)
 })
 
-test('異常: レビュー中に対象の内容が変わったら検証に回さず pin_changed で止まる', async (t) => {
+test('異常: CLI が判定として拒否したら送り直さず cli_rejected で止まる', async (t) => {
+  const { fx, args } = diffArgs(t)
+  const b = backend({
+    review: (id) => {
+      rmSync(args.planPath, { force: true })
+      return reviewOk(fx.head, id, { findings: [finding()] })
+    },
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.deepEqual(result.reasons, ['cli_rejected'])
+  assert.match(result.reason, /E_INPUT/)
+  assert.equal(result.launches.carriers, 1)
+})
+
+function workingTreeArgs(t) {
   const fx = fixture(t)
   write(fx.repo, 'docs/a.md', 'working\n')
-  const planned = planFor({ repo: fx.repo, mode: 'working_tree', baseRef: fx.head, headSha: fx.head, policyRef: fx.head, reviewers: [
+  const args = planArgs({ repo: fx.repo, mode: 'working_tree', baseRef: fx.head, headSha: fx.head, policyRef: fx.head, stateDir: fx.stateDir, reviewers: [
     { id: 'correctness', focus: 'バグ', files: ['docs/a.md'] }, { id: 'docs', focus: '文書', files: ['docs/a.md'] },
   ] })
+  return { fx, args }
+}
+
+test('異常: レビュー中に対象の内容が変わったら検証に回さず pin_changed で止まる', async (t) => {
+  const { fx, args } = workingTreeArgs(t)
   const b = backend({
     review: (id) => {
       if (id === 'docs') write(fx.repo, 'docs/a.md', 'edited during review\n')
-      return reviewOk(fx.head, { coverage: ['docs/a.md'], findings: [finding()] })
+      return { ...reviewOk(fx.head, id, { findings: [finding()] }), coverage: ['docs/a.md'] }
     },
     verify: () => assert.fail('pin が崩れた後に検証役を起動しない'),
   })
-  const result = await runWorkflow(t, { skillDir: SKILL_DIR, ...planned }, b)
-  assert.equal(result.status, 'review_incomplete')
+  const result = await runWorkflow(t, args, b)
   assert.deepEqual(result.reasons, ['pin_changed'])
   assert.deepEqual(result.pin.changed, ['docs/a.md'])
 })
 
-test('境界: 指摘が 0 件なら検証役も 2 回目の運搬役も起動しない', async (t) => {
+test('異常: 検証の段の間に対象の内容が変わったら、検証を通った指摘も確定として返さない', async (t) => {
+  const { fx, args } = workingTreeArgs(t)
+  const b = backend({
+    review: (id) => ({ ...reviewOk(fx.head, id, { findings: [finding()] }), coverage: ['docs/a.md'] }),
+    verify: (lens, round, prompt) => {
+      write(fx.repo, 'docs/a.md', 'edited during verification\n')
+      return verifyAll(fx.head, () => 'confirmed')(lens, round, prompt)
+    },
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.equal(result.status, 'review_incomplete')
+  assert.deepEqual(result.reasons, ['pin_changed'])
+  assert.deepEqual(result.findings, [])
+  assert.equal(result.unverified_candidates.length, 2)
+})
+
+test('異常: 2 段目の検証の間に対象の内容が変わったら、最終の判定でも pin_changed で止まる', async (t) => {
+  const { fx, args } = workingTreeArgs(t)
+  const b = backend({
+    review: (id) => ({ ...reviewOk(fx.head, id, { findings: id === 'correctness' ? [finding()] : [] }), coverage: ['docs/a.md'] }),
+    verify: (lens, round, prompt) => {
+      if (round === 2) write(fx.repo, 'docs/a.md', 'edited during the second round\n')
+      return verifyAll(fx.head, () => 'refuted')(lens, round, prompt)
+    },
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.deepEqual(labels(b, 'verify'), ['verify1:correctness', 'verify2:docs'])
+  assert.deepEqual(result.reasons, ['pin_changed'])
+  assert.deepEqual(result.findings, [])
+  assert.equal(result.step, undefined)
+})
+
+test('境界: 指摘が 0 件なら検証役も 2 回目以降の運搬役も起動しない', async (t) => {
   const { fx, args } = diffArgs(t)
-  const b = backend({ review: (id) => reviewOk(fx.head, { coverage: id === 'correctness' ? ['docs/a.md', 'docs/b.md'] : ['docs/a.md'] }) })
+  const b = backend({ review: (id) => reviewOk(fx.head, id) })
   const result = await runWorkflow(t, args, b)
   assert.equal(result.status, 'completed')
   assert.deepEqual(result.findings, [])
-  assert.deepEqual(result.launches, { reviewers: 2, verifiers: 0, carriers: 1 })
+  assert.deepEqual(result.launches, { reviewers: 2, verifiers: [0, 0], carriers: 1 })
 })
 
-test('異常: plan と planSum が合わない args は agent を起動する前に拒否する', async (t) => {
+test('異常: plan・planSum・planPath・skillDir が不正な args は agent を起動する前に拒否する', async (t) => {
   const { args } = diffArgs(t)
   const b = backend({ review: () => assert.fail('起動しない') })
-  for (const bad of [{ ...args, planSum: '00000000' }, { ...args, plan: { ...args.plan, headSha: 'e'.repeat(40) } }, { ...args, skillDir: 'relative' }]) {
-    await assert.rejects(runWorkflow(t, bad, b))
-  }
+  for (const bad of [
+    { ...args, planSum: '00000000' },
+    { ...args, plan: { ...args.plan, headSha: 'e'.repeat(40) } },
+    { ...args, skillDir: 'relative' },
+    { ...args, planPath: undefined },
+  ]) await assert.rejects(runWorkflow(t, bad, b))
   assert.equal(b.calls.length, 0)
+})
+
+test('運搬役のコマンドは、空白を含む skillDir でも本物の bash でそのまま動く', async (t) => {
+  const copy = path.join(tmp(t, 'repo review skill '), 'repo-review')
+  cpSync(SKILL_DIR, copy, { recursive: true })
+  // 単一引用符・$・backtick を含むパスを運搬役の heredoc に通す（区切りの引用が外れると shell が展開して sum が合わなくなる）。
+  const odd = "docs/$HOME`id`'q'.md"
+  const fx = fixture(t)
+  write(fx.repo, odd, 'odd\n')
+  git(fx.repo, 'add', '-A')
+  git(fx.repo, 'commit', '-q', '-m', 'odd')
+  const head = git(fx.repo, 'rev-parse', 'HEAD')
+  const reviewers = [{ id: 'correctness', focus: 'バグ', files: ['docs/a.md', 'docs/b.md', odd] }, { id: 'docs', focus: '文書', files: ['docs/a.md'] }]
+  const args = planArgs({ repo: fx.repo, mode: 'diff', baseRef: fx.base, headSha: head, policyRef: fx.base, reviewers, stateDir: fx.stateDir }, copy)
+  fx.head = head
+  const shell = (m) => {
+    assert.equal(m[1], path.join(copy, 'scripts', 'review-cli.mjs'))
+    const r = spawnSync('bash', ['-c', m[0]], { encoding: 'utf8' })
+    return r.stdout.trim()
+  }
+  const b = backend({
+    exec: shell,
+    review: (id) => (id === 'correctness'
+      ? { ...reviewOk(fx.head, id, { findings: [finding({ path: odd })] }), coverage: ['docs/a.md', 'docs/b.md', odd] }
+      : reviewOk(fx.head, id)),
+    verify: verifyAll(fx.head, () => 'confirmed'),
+  })
+  const result = await runWorkflow(t, args, b)
+  assert.equal(result.status, 'completed', JSON.stringify(result))
+  assert.deepEqual(result.findings.map((f) => f.path), [odd])
+  assert.ok(b.calls.some((c) => c.options.label.startsWith('carrier:') && c.prompt.includes(odd)), 'そのパスが heredoc の本文に入っている')
 })
 
 function declarations(source, prefix = 'async function __s() {\n') {
@@ -238,10 +371,14 @@ function declarations(source, prefix = 'async function __s() {\n') {
   return out
 }
 
-test('Workflow source の canonical・fnvSum は CLI の部品と字面が同じ（import できない source の写し）', () => {
-  const source = declarations(readFileSync(SOURCE, 'utf8'))
+const literalOf = (name) => JSON.parse(new RegExp(`^const ${name} = (.+)$`, 'm').exec(SOURCE_TEXT)[1].replace(/'/g, '"'))
+
+test('Workflow source の写し（canonical・fnvSum・VERDICTS・VERIFY_ROUNDS）は CLI の部品と一致する', () => {
+  const source = declarations(SOURCE_TEXT)
   assert.equal(source.get('canonical'), canonical.toString())
   assert.equal(source.get('fnvSum'), fnvSum.toString())
+  assert.deepEqual(literalOf('VERDICTS'), [...VERDICTS])
+  assert.equal(literalOf('VERIFY_ROUNDS'), VERIFY_ROUNDS)
 })
 
 test('Workflow source の重大度の名前は REVIEW.md「重大度」の表と一致する', () => {
@@ -249,11 +386,46 @@ test('Workflow source の重大度の名前は REVIEW.md「重大度」の表と
   const section = review.split(/^## /m).find((s) => s.startsWith('重大度'))
   const names = [...section.matchAll(/^\| ([A-Z]+) \|/gm)].map((m) => m[1])
   assert.ok(names.length > 0)
-  const literal = /const SEVERITIES = (\[[^\]]*\])/.exec(readFileSync(SOURCE, 'utf8'))[1]
-  assert.deepEqual(JSON.parse(literal.replace(/'/g, '"')), names)
+  assert.deepEqual(literalOf('SEVERITIES'), names)
 })
 
-test('Workflow source の判定の名前は review-core.mjs の VERDICTS と一致する', () => {
-  const literal = /const VERDICTS = (\[[^\]]*\])/.exec(readFileSync(SOURCE, 'utf8'))[1]
-  assert.deepEqual(JSON.parse(literal.replace(/'/g, '"')), [...VERDICTS])
+function jsFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name)
+    if (e.name === 'node_modules' || e.isSymbolicLink()) return []
+    if (e.isDirectory()) return jsFiles(full)
+    return e.name.endsWith('.js') && statSync(full).isFile() ? [full] : []
+  })
+}
+
+test('Workflow source の判定（isWorkflowSource）は、リポジトリの全ての .js で runner の readSourceMetadata と一致する', () => {
+  const files = [...jsFiles(path.join(ROOT, 'plugins')), ...jsFiles(path.join(ROOT, '.agents', 'skills'))]
+  assert.ok(files.length > 0)
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    let runner = true
+    try {
+      readSourceMetadata(text)
+    } catch {
+      runner = false
+    }
+    assert.equal(isWorkflowSource(text), runner, path.relative(ROOT, file))
+  }
+})
+
+test('初めての公開の操作が Workflow script を移せる（SKILL.md の callsite 以外に移動前のパスが無い）', () => {
+  const code = [
+    'import json, sys',
+    'from pathlib import Path',
+    "sys.path.insert(0, sys.argv[1])",
+    'import register_plugin as r',
+    "print(json.dumps(r.inspect_workflow_scripts(Path(sys.argv[2]), 'repo-review', set(), set(), set())))",
+  ].join('\n')
+  const out = spawnSync('python3', ['-I', '-c', code, path.join(ROOT, '.agents', 'skills', 'manage-marketplace-plugin', 'scripts'), SKILL_DIR], { encoding: 'utf8' })
+  assert.equal(out.status, 0, out.stderr)
+  const found = JSON.parse(out.stdout)
+  if (SOURCE.startsWith(path.join(SKILL_DIR, 'scripts'))) {
+    assert.equal(found.length, 1)
+    assert.deepEqual(found[0].reasons, [])
+  }
 })

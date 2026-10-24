@@ -1,0 +1,46 @@
+[
+  {
+    "query": "このリポジトリの PR #166 をレビューして",
+    "should_trigger": true
+  },
+  {
+    "query": "いま作業ツリーにある変更を REVIEW.md の基準でレビューして",
+    "should_trigger": true
+  },
+  {
+    "query": "plugins/research/skills/search を監査して。網羅できなかったところも教えて",
+    "should_trigger": true
+  },
+  {
+    "query": "main と feature/be3591 の差分をこのリポジトリの規約でレビューして",
+    "should_trigger": true
+  },
+  {
+    "query": "このリポジトリで直近の commit の差分を AGENTS.md の作業ルールに照らしてレビューして",
+    "should_trigger": true
+  },
+  {
+    "query": "この SKILL.md、best-practices に照らしておかしいところがないかレビューして",
+    "should_trigger": false
+  },
+  {
+    "query": "別の会社のリポジトリ（github.com/acme/api）の PR をレビューしてコメントを付けて",
+    "should_trigger": false
+  },
+  {
+    "query": "この PR にレビューコメントを投稿して",
+    "should_trigger": false
+  },
+  {
+    "query": "レビューで出た指摘を直して",
+    "should_trigger": false
+  },
+  {
+    "query": "Python の list と tuple の違いを教えて",
+    "should_trigger": false
+  },
+  {
+    "query": "この README を読みやすさの観点で短く書き直して",
+    "should_trigger": false
+  }
+]

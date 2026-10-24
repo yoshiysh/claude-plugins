@@ -1,18 +1,21 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs'
+import { lstatSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CODES, ReviewError, buildPlan, checkPin, checkRequest, finalize, fnvSum, inventoryOf, merge, pinProblems } from './review-core.mjs'
+import {
+  CODES, ReviewError, buildPlan, checkPin, checkRequest, fnvSum, inventoryOf, isWorkflowSource, judge, merge, pinProblems,
+} from './review-core.mjs'
 
-// 内容を読まない path と生成物の置き場は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
+// 内容を読まない path と生成物の書き先は、どちらも policyRef の時点の正本から読む（写しを持つと正本と食い違う）。
 export const POLICY_SOURCES = Object.freeze({
   excludeWorkflow: '.github/workflows/claude_review.yml',
   excludeKey: 'exclude-paths',
-  criteriaConstant: 'export const CRITERIA_DIR',
+  criteriaTool: 'tools/sync-bp-criteria.mjs',
 })
-const CARRIER_OPS = Object.freeze(['pin', 'merge', 'finalize'])
+export const GENERATED_NOTE = '生成物（判定基準の写し）は内容を読まず、根拠にも指摘の場所にもしない。docs/ の正本と同じ指摘が二重に出るためで、正本との同期は make test の SP-BPRUN-036 の検査が持つ。'
+const PLAN_FILE = (sum) => `repo-review-plan-${sum}.json`
 const EXIT = Object.freeze({ ok: 0, rejected: 1, usage: 2 })
 
 export function defaultIo() {
@@ -26,7 +29,7 @@ export function defaultIo() {
           stdio: ['ignore', 'pipe', 'pipe'],
         })
       } catch (error) {
-        if (allowFailure && error.status === 1) return Buffer.alloc(0)
+        if (allowFailure && error.status === 1) return null
         throw new ReviewError(CODES.io, `git ${args.join(' ')} が失敗した: ${String(error.stderr ?? error.message).trim()}`)
       }
     },
@@ -35,11 +38,13 @@ export function defaultIo() {
         return lstatSync(file)
       } catch (error) {
         if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
-        throw error
+        throw new ReviewError(CODES.io, `${file} を調べられない: ${error.message}`)
       }
     },
+    realpath: (file) => realpathSync(file),
     readFile: (file) => readFileSync(file),
     readlink: (file) => readlinkSync(file),
+    writeFile: (file, text) => writeFileSync(file, text, { flag: 'w' }),
   }
 }
 
@@ -62,56 +67,145 @@ export function readExcludePaths(yml) {
   return list
 }
 
-export function readGeneratedPaths(grepOutput, policyRef) {
-  const hits = grepOutput.split('\n').filter(Boolean)
-  if (hits.length !== 1) throw new ReviewError(CODES.io, `${POLICY_SOURCES.criteriaConstant} が policyRef にちょうど 1 箇所ない（${hits.length} 箇所）`)
-  const m = new RegExp(`^${policyRef}:(.+?):\\d+:${POLICY_SOURCES.criteriaConstant} = '([^']+)'`).exec(hits[0])
-  const root = m && /^(.*?\/skills\/[^/]+)\//.exec(m[1])
-  if (!m || !root) throw new ReviewError(CODES.io, `判定基準の写しの置き場を読めない: ${hits[0]}`)
-  return [`${root[1]}/${m[2]}/**`]
+// 写しの書き先は tool の `path.join(root, SKILL, CRITERIA_DIR)`。SKILL は tool の中の定数、CRITERIA_DIR は tool が import する定数。
+export function parseCriteriaTool(text) {
+  const skill = /^const SKILL = path\.join\(([^)]*)\);?$/m.exec(text)
+  const parts = skill ? [...skill[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : []
+  const imported = /^import \{[^}]*\bCRITERIA_DIR\b[^}]*\} from '([^']+)';?$/m.exec(text)
+  const writes = /path\.join\(root, SKILL, CRITERIA_DIR\)/.test(text)
+  if (!skill || parts.length === 0 || skill[1].replace(/'[^']+'/g, '').replace(/[\s,]/g, '') !== '' || !imported || !writes) {
+    throw new ReviewError(CODES.io, `${POLICY_SOURCES.criteriaTool} から写しの書き先（SKILL・CRITERIA_DIR）を読めない`)
+  }
+  const constants = path.posix.normalize(path.posix.join(path.posix.dirname(POLICY_SOURCES.criteriaTool), imported[1]))
+  if (constants.startsWith('../')) throw new ReviewError(CODES.io, `CRITERIA_DIR の import 先がリポジトリの外: ${imported[1]}`)
+  return { skill: parts.join('/'), constants }
+}
+
+export function parseCriteriaDir(text) {
+  const found = [...text.matchAll(/^export const CRITERIA_DIR = '([^']+)';?$/gm)]
+  if (found.length !== 1) throw new ReviewError(CODES.io, `CRITERIA_DIR の定義がちょうど 1 つない（${found.length} 個）`)
+  return found[0][1]
+}
+
+function showAt(git, ref, file) {
+  return git(['show', '--end-of-options', `${ref}:${file}`]).toString('utf8')
+}
+
+function existsAt(git, ref, file) {
+  return git(['ls-tree', '-z', '--end-of-options', ref, '--', file]).length > 0
+}
+
+// tool が無い ref は写しを作る仕組みがまだ無い版で、生成物は無い（読めない tool とは区別して E_IO にしない）。
+export function readGeneratedPaths(git, policyRef) {
+  if (!existsAt(git, policyRef, POLICY_SOURCES.criteriaTool)) return []
+  const { skill, constants } = parseCriteriaTool(showAt(git, policyRef, POLICY_SOURCES.criteriaTool))
+  return [`${skill}/${parseCriteriaDir(showAt(git, policyRef, constants))}/**`]
+}
+
+function checkScope(repo, scope, io) {
+  for (const entry of scope) {
+    const parts = entry.split('/')
+    for (let i = 1; i <= parts.length; i += 1) {
+      const sub = parts.slice(0, i).join('/')
+      const st = io.lstat(path.join(repo, sub))
+      if (!st) throw new ReviewError(CODES.input, `scope のパスが作業ツリーに無い: ${entry}`)
+      if (st.isSymbolicLink()) throw new ReviewError(CODES.input, `scope のパスが symlink を通る（実体のパスを渡す）: ${entry}（${sub}）`)
+    }
+  }
 }
 
 export function collectState(request, io) {
   const { repo, mode, baseRef, headSha, policyRef } = request
   const git = (args, opts) => io.git(repo, args, opts)
   const head = git(['rev-parse', 'HEAD']).toString('utf8').trim()
-  const excludePaths = readExcludePaths(git(['show', `${policyRef}:${POLICY_SOURCES.excludeWorkflow}`]).toString('utf8'))
-  const grep = git(['grep', '-n', '-e', `^${POLICY_SOURCES.criteriaConstant} = `, policyRef], { allowFailure: true }).toString('utf8')
-  const generatedPaths = readGeneratedPaths(grep, policyRef)
-  const dirty = lines(git(['diff', '--name-only', '-z', '--no-renames', 'HEAD']))
+  const missingCommits = [baseRef, headSha, policyRef].filter((sha) => sha !== undefined)
+    .filter((sha) => git(['rev-parse', '--verify', '--quiet', '--end-of-options', `${sha}^{commit}`], { allowFailure: true }) === null)
+  if (missingCommits.length) return { head, missingCommits, excludePaths: [], generatedPaths: [], generatedNote: GENERATED_NOTE, paths: [] }
+  const excludePaths = readExcludePaths(showAt(git, policyRef, POLICY_SOURCES.excludeWorkflow))
+  const generatedPaths = readGeneratedPaths(git, policyRef)
   let paths
   if (mode === 'diff') {
-    paths = lines(git(['diff', '--name-only', '-z', '--no-renames', baseRef, headSha]))
+    paths = lines(git(['diff', '--name-only', '-z', '--no-renames', '--end-of-options', baseRef, headSha]))
   } else if (mode === 'working_tree') {
-    paths = [...lines(git(['diff', '--name-only', '-z', '--no-renames', baseRef])), ...lines(git(['ls-files', '-z', '--others', '--exclude-standard']))]
+    paths = [...lines(git(['diff', '--name-only', '-z', '--no-renames', '--end-of-options', baseRef])), ...lines(git(['ls-files', '-z', '--others', '--exclude-standard']))]
   } else {
     const whole = request.scope.length === 1 && request.scope[0] === '.'
-    for (const entry of whole ? [] : request.scope) {
-      const st = io.lstat(path.join(repo, entry))
-      if (!st) throw new ReviewError(CODES.input, `scope のパスが作業ツリーに無い: ${entry}`)
-      if (st.isSymbolicLink()) throw new ReviewError(CODES.input, `scope のパスが symlink（実体のパスを渡す）: ${entry}`)
-    }
+    if (!whole) checkScope(repo, request.scope, io)
     const listed = lines(git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...(whole ? [] : request.scope)]))
     paths = listed.filter((file) => io.lstat(path.join(repo, file)))
   }
-  return { head, dirty, excludePaths, generatedPaths, paths: [...new Set(paths)].sort() }
+  return { head, missingCommits, excludePaths, generatedPaths, generatedNote: GENERATED_NOTE, paths: [...new Set(paths)].sort() }
 }
 
-export function digestsOf(repo, files, io) {
-  const out = {}
-  for (const file of files) {
-    const full = path.join(repo, file)
-    const st = io.lstat(full)
-    const bytes = !st ? null : st.isSymbolicLink() ? Buffer.from(io.readlink(full)) : st.isFile() ? io.readFile(full) : Buffer.from('directory')
-    out[file] = bytes === null ? null : createHash('sha256').update(bytes).digest('hex')
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+// symlink はリンク先の文字列そのものを対象にする（辿ると別の path の実体を読むことになる）。digest は種類を前に付けて区別する。
+export function collectDetails(request, files, io) {
+  const symlinks = []
+  const workflowSources = []
+  const digests = {}
+  if (request.mode === 'diff') {
+    const git = (args) => io.git(request.repo, args)
+    const modes = new Map(lines(git(['ls-tree', '-r', '-z', '--full-tree', '--end-of-options', request.headSha]))
+      .map((entry) => {
+        const tab = entry.indexOf('\t')
+        return [entry.slice(tab + 1), entry.slice(0, tab).split(' ')[0]]
+      }))
+    for (const file of files) {
+      const mode = modes.get(file)
+      if (mode === '120000') symlinks.push(file)
+      else if ((mode === '100644' || mode === '100755') && file.endsWith('.js') && isWorkflowSource(showAt(git, request.headSha, file))) workflowSources.push(file)
+    }
+    return { symlinks, workflowSources, digests: null }
   }
-  return out
+  for (const file of files) {
+    const full = path.join(request.repo, file)
+    const st = io.lstat(full)
+    if (!st) digests[file] = null
+    else if (st.isSymbolicLink()) {
+      symlinks.push(file)
+      digests[file] = `symlink:${sha256(Buffer.from(io.readlink(full)))}`
+    } else if (st.isFile()) {
+      const bytes = io.readFile(full)
+      digests[file] = `file:${sha256(bytes)}`
+      if (file.endsWith('.js') && isWorkflowSource(bytes.toString('utf8'))) workflowSources.push(file)
+    } else digests[file] = 'other'
+  }
+  return { symlinks, workflowSources, digests }
 }
 
-function requirePlan(plan) {
-  const ok = plan && typeof plan === 'object' && typeof plan.repo === 'string' && typeof plan.headSha === 'string'
-    && Array.isArray(plan.target?.files) && Array.isArray(plan.excludePaths) && Array.isArray(plan.generatedPaths)
-  if (!ok) throw new ReviewError(CODES.input, 'plan が plan 操作の出力の形でない')
+function insideRepo(repo, dir, io) {
+  const r = io.realpath(repo)
+  const d = io.realpath(dir)
+  return d === r || d.startsWith(`${r}${path.sep}`)
+}
+
+// plan は caller の Bash で 1 回だけ書く。運搬役は計画の本体でなく path と sum だけを写す（写す量を対象の大きさに依らせない）。
+function loadPlan(body, io) {
+  if (typeof body.planPath !== 'string' || !body.planPath.startsWith('/') || typeof body.planSum !== 'string') {
+    throw new ReviewError(CODES.input, 'planPath（絶対パス）と planSum が要る')
+  }
+  let plan
+  try {
+    plan = JSON.parse(io.readFile(body.planPath).toString('utf8'))
+  } catch (error) {
+    throw new ReviewError(CODES.input, `plan のファイルを読めない: ${error.message}`)
+  }
+  if (fnvSum(plan) !== body.planSum) throw new ReviewError(CODES.input, 'plan のファイルが planSum と合わない')
+  checkRequest({
+    repo: plan.repo, mode: plan.mode, baseRef: plan.baseRef, headSha: plan.headSha, policyRef: plan.policyRef, scope: plan.scope,
+    ...(plan.mode === 'working_tree' ? { preservedPaths: plan.preservedPaths } : {}), reviewers: plan.reviewers,
+  }, { requireReviewers: true })
+  const lists = ['preservedPaths', 'excludePaths', 'generatedPaths', 'excluded', 'generated', 'preserved', 'symlinks', 'skillDesignTargets']
+  const bad = lists.filter((key) => !Array.isArray(plan[key]) || plan[key].some((x) => typeof x !== 'string'))
+  if (!Array.isArray(plan.target?.files) || plan.target.files.some((x) => typeof x !== 'string')) bad.push('target.files')
+  if (typeof plan.generatedNote !== 'string') bad.push('generatedNote')
+  const digestsOk = plan.mode === 'diff' ? plan.digests === null
+    : plan.digests !== null && typeof plan.digests === 'object' && !Array.isArray(plan.digests)
+  if (!digestsOk) bad.push('digests')
+  if (bad.length) throw new ReviewError(CODES.input, `plan のファイルが plan 操作の出力の形でない: ${bad.join(', ')}`)
   return plan
 }
 
@@ -119,29 +213,44 @@ const OPS = {
   inventory(body, io) {
     const request = checkRequest(body, { requireReviewers: false })
     const state = collectState(request, io)
-    return { inventory: inventoryOf(request, state), pin_problems: pinProblems(request, state) }
+    return { inventory: inventoryOf(request, state), generated_note: state.generatedNote, pin_problems: pinProblems(request, state) }
   },
   plan(body, io) {
-    const request = checkRequest(body, { requireReviewers: true })
+    const { stateDir, ...rest } = body
+    const request = checkRequest(rest, { requireReviewers: true })
+    if (typeof stateDir !== 'string' || !stateDir.startsWith('/') || !io.lstat(stateDir)?.isDirectory()) {
+      throw new ReviewError(CODES.input, 'stateDir は既にあるディレクトリの絶対パスでなければならない')
+    }
+    if (insideRepo(request.repo, stateDir, io)) throw new ReviewError(CODES.input, 'stateDir が repo の中にある（plan のファイルが未追跡の変更として対象に混ざる）')
     const state = collectState(request, io)
+    const pin = pinProblems(request, state)
+    if (pin.length) throw new ReviewError(CODES.pin, pin.join('; '), { problems: pin })
     const inv = inventoryOf(request, state)
-    const digests = request.mode === 'diff' ? null : digestsOf(request.repo, inv.reviewable, io)
-    const plan = buildPlan(request, state, digests)
-    return { plan, plan_sum: fnvSum(plan) }
+    const plan = buildPlan(request, state, collectDetails(request, inv.reviewable, io))
+    const planSum = fnvSum(plan)
+    const planPath = path.join(io.realpath(stateDir), PLAN_FILE(planSum))
+    io.writeFile(planPath, JSON.stringify(plan))
+    return { plan, plan_sum: planSum, plan_path: planPath }
   },
   pin(body, io) {
-    const plan = requirePlan(body.plan)
-    const state = collectState(plan, io)
-    const digests = plan.digests ? digestsOf(plan.repo, plan.target.files, io) : null
-    return { pin: checkPin(plan, state, digests) }
+    const plan = loadPlan(body, io)
+    try {
+      const state = collectState(plan, io)
+      return { pin: checkPin(plan, state, collectDetails(plan, plan.target.files, io)) }
+    } catch (error) {
+      // 対象を集め直せないこと（scope が消えた・symlink になった・git が読めない）は、固定が崩れたことと同じに扱う。
+      if (!(error instanceof ReviewError)) throw error
+      return { pin: { ok: false, problems: [`${error.code}: ${error.message}`], changed: [] } }
+    }
   },
-  merge(body) {
-    return { merge: merge(requirePlan(body.plan), body.results) }
+  merge(body, io) {
+    return { merge: merge(loadPlan(body, io), body.results) }
   },
-  finalize(body) {
-    return { finalize: finalize(requirePlan(body.plan), body.merged ?? {}, body.verifications) }
+  judge(body, io) {
+    return { judge: judge(loadPlan(body, io), body.merged, body.rounds) }
   },
 }
+const CARRIER_OPS = Object.freeze(['pin', 'merge', 'judge'])
 
 function respond(payload, exitCode) {
   return { exitCode, output: JSON.stringify({ ...payload, sum: fnvSum(payload) }) }
@@ -166,8 +275,10 @@ export function main(argv, input, io = defaultIo()) {
   try {
     return respond({ ok: true, op, ...OPS[op](rest, io) }, EXIT.ok)
   } catch (error) {
-    if (!(error instanceof ReviewError)) throw error
-    return respond({ ok: false, op, code: error.code, reason: error.message, ...(error.detail.problems ? { problems: error.detail.problems } : {}) }, EXIT.rejected)
+    if (error instanceof ReviewError) {
+      return respond({ ok: false, op, code: error.code, reason: error.message, ...(error.detail.problems ? { problems: error.detail.problems } : {}) }, EXIT.rejected)
+    }
+    return respond({ ok: false, op, code: CODES.internal, reason: String(error?.stack ?? error) }, EXIT.rejected)
   }
 }
 
