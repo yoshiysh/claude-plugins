@@ -267,7 +267,7 @@ const OPS = {
     const impl = implementation
     const touched = [...ledger.rounds.flatMap((r) => r.touched), ...impl.touched_paths]
     const problems = [...inventoryProblems({ state, plan, ...now, touched }), ...roundEffectProblems(impl.status, ledger.snapshot, now.snapshot)]
-    const record = { round: impl.repairRound, status: impl.status, touched: [...impl.touched_paths], snapshot_before: ledger.snapshot, snapshot_after: now.snapshot, passed: problems.length === 0 }
+    const record = { round: impl.repairRound, status: impl.status, touched: [...impl.touched_paths], snapshot_before: ledger.snapshot, snapshot_after: now.snapshot, passed: problems.length === 0, problems }
     saveLedger(io, state, { ...ledger, open: null, snapshot: now.snapshot, rounds: [...ledger.rounds, record] })
     return { passed: problems.length === 0, round: impl.repairRound, status: impl.status, problems, actual: now.actual }
   },

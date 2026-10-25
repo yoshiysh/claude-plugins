@@ -12,7 +12,12 @@ export const CODES = Object.freeze({
 // check の許可リストの正本。make の target は Makefile の検証の入口に限る。必須 check は AGENTS.md「検証」の合否ゲート。
 export const MAKE_TARGETS = Object.freeze(['test', 'check', 'portability', 'traceability', 'traceability-complete'])
 export const NODE_TEST_SUFFIX = '.test.mjs'
-export const CHECK_KINDS = Object.freeze(['make', 'node-test'])
+// kind ごとの value の決まり。planner への書式の説明もここから組む（plan.js は state.checkPolicy でしか正本を読めない）。
+export const CHECK_VALUES = Object.freeze({
+  make: `Makefile の target。${JSON.stringify(MAKE_TARGETS)} に限る`,
+  'node-test': `affected_paths にある ${NODE_TEST_SUFFIX} の path`,
+})
+export const CHECK_KINDS = Object.freeze(Object.keys(CHECK_VALUES))
 export const REQUIRED_CHECKS = Object.freeze([Object.freeze({ kind: 'make', value: 'test' })])
 export const PHASES = Object.freeze(['baseline', 'after'])
 export const OUTPUT_TAIL_LINES = 40
@@ -70,7 +75,7 @@ export function sha256(bytes) {
 }
 
 export function checkPolicy() {
-  return { makeTargets: [...MAKE_TARGETS], nodeTestSuffix: NODE_TEST_SUFFIX, required: REQUIRED_CHECKS.map((c) => ({ ...c })) }
+  return { kinds: { ...CHECK_VALUES }, required: REQUIRED_CHECKS.map((c) => ({ ...c })) }
 }
 
 export function checkKey(check) {
@@ -196,7 +201,7 @@ export const REPAIRS = Object.freeze(['checks', 'review'])
 
 export function isConfirmedFinding(f) {
   return Boolean(f && isRepoRelativePath(f.path) && Number.isSafeInteger(f.line) && f.line > 0 && typeof f.in_target === 'boolean'
-    && f.claim && ['severity', 'summary', 'condition', 'impact', 'evidence', 'rule'].every((k) => typeof f.claim[k] === 'string' && f.claim[k].trim())
+    && f.claim && ['severity', 'summary', 'condition', 'impact', 'evidence', 'rule'].every((k) => typeof f.claim[k] === 'string' && f.claim[k].length > 0)
     && Array.isArray(f.votes) && f.votes.some((v) => v?.vote === 'confirmed'))
 }
 
@@ -236,7 +241,7 @@ export function implementationProblem(implementation, open) {
   if (!open) return '開いている round が無い（begin-round の券で実装の Workflow を呼ぶ）'
   if (implementation.ticket_sum !== open.ticket_sum || implementation.repairRound !== open.round) return '返り値が開いている round の券のものでない'
   if (typeof implementation.status !== 'string') return 'implementation.status が文字列でない'
-  if (!Array.isArray(implementation.touched_paths) || implementation.touched_paths.some((p) => !isRepoRelativePath(p))) return 'implementation.touched_paths が repo 相対の path の配列でない'
+  if (!Array.isArray(implementation.touched_paths) || implementation.touched_paths.some((p) => typeof p !== 'string')) return 'implementation.touched_paths が文字列の配列でない'
   return null
 }
 
@@ -251,6 +256,9 @@ export function inventoryProblems({ state, plan, head, actual, preservedNow, tou
   const outside = diff(actual, plan.affected_paths)
   if (outside.length) problems.push({ cause: 'outside_plan', message: 'plan.affected_paths の外の path が変わった', paths: outside })
   if (touched !== null) {
+    // 正規形でない申告は E_INPUT で拒むと round が開いたまま残り、照合の結果が記録に届かない。round を閉じる原因として記録する。
+    const invalid = [...new Set(touched.filter((p) => !isRepoRelativePath(p)))].sort()
+    if (invalid.length) problems.push({ cause: 'invalid_touched_path', message: 'touched_paths に repo 相対の正規形でない path がある', paths: invalid })
     const undeclared = diff(actual, touched)
     if (undeclared.length) problems.push({ cause: 'undeclared', message: 'implementer が touched_paths に挙げていない path が変わった', paths: undeclared })
   }

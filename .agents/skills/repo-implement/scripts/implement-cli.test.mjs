@@ -235,6 +235,23 @@ test('inventory（実装の後）: 実際の変更を plan・touched_paths・pre
       assert.deepEqual(inv.problems.map((x) => x.cause), c.causes)
     })
   }
+  for (const [name, touchedOf] of [['./ 付き', () => './src/a.mjs'], ['絶対パス', (repo) => path.join(repo, 'src/a.mjs')]]) {
+    await t.test(`異常: 正規形でない touched_paths（${name}）でも round を閉じ、原因を記録する`, (t) => {
+      const fx = fixture(t)
+      const s = start(fx)
+      const p = planFor(s)
+      admit(s, p)
+      const bad = touchedOf(fx.repo)
+      const { inv } = round(s, p, (r) => write(r, 'src/a.mjs', '2\n'), [bad])
+      assert.equal(inv.passed, false)
+      assert.deepEqual(inv.problems.map((x) => x.cause), ['invalid_touched_path', 'undeclared'])
+      assert.deepEqual(inv.problems[0].paths, [bad])
+      const ledger = JSON.parse(readFileSync(s.state.ledgerPath, 'utf8'))
+      assert.equal(ledger.open, null)
+      assert.deepEqual(ledger.rounds.at(-1).problems.map((x) => x.cause), ['invalid_touched_path', 'undeclared'])
+      assert.equal(call('begin-round', { ...ref(s), ...p, repair: 'checks' }).code, CODES.state, '通らなかった round の後は次の回を開かない')
+    })
+  }
   await t.test('異常: 券の無い返り値・書き換えた返り値・同じ券の 2 回目を拒否する', (t) => {
     const fx = fixture(t)
     const s = start(fx)
@@ -402,6 +419,13 @@ test('record-review: 今の変更の全体を今の内容でレビューした�
     assert.equal(out.review.passed, false)
     const begun = ok('begin-round', { ...ref(s), ...p, repair: 'review' })
     assert.deepEqual([begun.ticket.round, begun.ticket.findings.length], [1, 1])
+  })
+  await t.test('境界: 空白だけの欄を持つ確定指摘も repo-review の schema（minLength: 1）どおり記録する', (t) => {
+    const { s, p } = implemented(t)
+    const blank = confirmed({ claim: { ...confirmed().claim, summary: ' ', evidence: '\n' } })
+    const out = recordReview(s, ['src/a.mjs'], { findings: [blank] })
+    assert.equal(out.ok, true, out.reason)
+    assert.deepEqual(ok('begin-round', { ...ref(s), ...p, repair: 'review' }).ticket.findings, [blank])
   })
   const rejects = [
     ['異常: 対象を一部に狭めた', (s) => recordReview(s, [], {}, {})],
