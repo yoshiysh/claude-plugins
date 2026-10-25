@@ -5,11 +5,11 @@ description: >
   頼まれたら使うこと。依頼をそのまま書き始めず、条件ごとのケース計画を含む計画を planner が立てて別の plan-reviewer が照らし、
   承認後に implementer だけが書き、CLI が check を固定の argv で実測し、repo-review の独立レビューと上限つきの修正ループを経て、
   作業ツリーが最後に check とレビューを通した状態のままかを CLI が照合してから報告する。
-  「この関数のバグを直して」「この CLI に option を足して」「この SKILL.md の手順を直して」「このスクリプトをリファクタして」を、
+  「この関数のバグを直して」「この CLI に option を足して」「この SKILL.md の手順を直して」「このスクリプトをリファクタして」
+  「さっきの repo-review の確定指摘を反映して直して」（PR に載っていないレビュー結果は依頼の文として受ける）を、
   このリポジトリについて頼まれたら使う（Use when implementing, fixing, or refactoring code, tests, skills, or docs in the yoshiysh/claude-plugins repository）。
   対象外: 新しいスキルの作成や best-practices への適合の評価・改稿（skill-creator-best-practices）、変更のレビューだけ（repo-review）、
-  既にあるレビュー結果・PR のレビュー指摘を反映する修正（address-review、汎用のものは workflow:pr-review-fix）、PRD・仕様書の作成（prd-spec）、
-  別のリポジトリでの実装。
+  GitHub の PR に付いたレビュー指摘への対応（address-review）、PRD・仕様書の作成（prd-spec）、別のリポジトリでの実装。
 ---
 
 # Repo implement

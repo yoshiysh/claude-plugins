@@ -57,10 +57,10 @@
   },
   {
     "query": "さっきの repo-review の確定指摘を反映して直して",
-    "should_trigger": false
+    "should_trigger": true
   },
   {
     "query": "この README のレビュー結果を反映して修正して",
-    "should_trigger": false
+    "should_trigger": true
   }
 ]

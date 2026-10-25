@@ -91,6 +91,7 @@ function fixture(t) {
   git(repo, 'add', '-A')
   git(repo, 'commit', '-q', '-m', 'head')
   const head = git(repo, 'rev-parse', 'HEAD')
+  git(repo, 'update-ref', 'refs/remotes/origin/main', base)
   const fx = { repo, base, head, stateDir: tmp(t, 'address-cli-state-') }
   fx.gh = fakeGithub(fx)
   const real = defaultIo()
@@ -142,7 +143,10 @@ test('collect は扱えない PR・作業ツリー・stateDir を拒否し、何
     { name: 'HEAD が PR の head と違う', code: CODES.pin, setup: (fx) => { fx.gh.view.headRefOid = fx.base } },
     { name: 'branch が違う', code: CODES.pin, setup: (fx) => { git(fx.repo, 'switch', '-q', '-c', 'other') } },
     { name: 'detached HEAD', code: CODES.pin, setup: (fx) => { git(fx.repo, 'switch', '-q', '--detach') } },
-    { name: 'base の commit が手元に無い', code: CODES.pin, setup: (fx) => { fx.gh.view.baseRefOid = 'd'.repeat(40) } },
+    { name: '方針の版 origin/main が手元に無い', code: CODES.pin, setup: (fx) => { git(fx.repo, 'update-ref', '-d', 'refs/remotes/origin/main') } },
+    { name: '作業ツリーに commit していない変更がある', code: CODES.pin, setup: (fx) => { write(fx.repo, 'src/a.mjs', 'export const a = 3\n') } },
+    { name: '作業ツリーに未追跡のファイルがある', code: CODES.pin, setup: (fx) => { write(fx.repo, 'notes/todo.md', 'x\n') } },
+    { name: 'stateDir が repo の中の ..x', code: CODES.input, body: (fx) => { mkdirSync(path.join(fx.repo, '..x')); return { stateDir: path.join(fx.repo, '..x') } } },
     { name: 'stateDir が repo の中', code: CODES.input, body: (fx) => ({ stateDir: fx.repo }) },
     { name: 'stateDir が無い', code: CODES.input, body: (fx) => ({ stateDir: path.join(fx.stateDir, 'none') }) },
     { name: 'pr が整数でない', code: CODES.input, body: () => ({ pr: '7' }) },
@@ -191,6 +195,7 @@ test('fix-request は triagePath の native の包みを受け付け、両方の
   writeFileSync(file, JSON.stringify({ summary: 's', agentCount: 2, result: triage }))
   assert.equal(cli(fx, 'fix-request', { ...ref(c), triagePath: file }).ok, true)
   assert.equal(cli(fx, 'fix-request', { ...ref(c), triagePath: file, triage }).code, CODES.input)
+  assert.equal(cli(fx, 'fix-request', { ...ref(c), triagePath: path.join(fx.stateDir, 'none.output') }).code, CODES.input)
 })
 
 function postAll(fx, out) {
@@ -221,6 +226,20 @@ test('修正の無い run: recheck が返信の本文を組み、confirm-replies
   const dup = cli(fx, 'confirm-replies', ref(c))
   assert.equal(dup.passed, false)
   assert.deepEqual(dup.duplicated.map((d) => d.posted), [[1000, 2000]])
+})
+
+test('投稿が途中で失敗しても、confirm-replies の missing の input_path で投稿し直せば通る', (t) => {
+  const fx = fixture(t)
+  const c = collect(fx)
+  const out = cli(fx, 'recheck', { ...ref(c), triage: triageOf(c, () => 'decline'), fixCommit: null })
+  postAll(fx, { replies: out.replies.slice(0, 1) })
+  const first = cli(fx, 'confirm-replies', ref(c))
+  assert.equal(first.passed, false)
+  assert.deepEqual(first.missing.map((m) => m.input_path), [out.replies[1].input_path])
+  const payload = JSON.parse(readFileSync(first.missing[0].input_path, 'utf8'))
+  fx.gh.post({ kind: 'conversation' }, payload.body, 3000)
+  const again = cli(fx, 'confirm-replies', ref(c))
+  assert.equal(again.passed, true, JSON.stringify(again))
 })
 
 test('confirm-replies は recheck の前と、無い statePath を拒否する', (t) => {
@@ -261,7 +280,18 @@ test('修正の run: push した commit が PR の head で 1 つだけなら、
 test('recheck は head と議論の変化で返信を止める', async (t) => {
   const cases = [
     { name: '修正が無いのに head が動いた', fix: false, setup: (fx) => { fx.gh.view.headRefOid = commitFix(fx) }, code: CODES.state },
-    { name: 'push した commit が PR の head でない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = fx.head; return sha }, code: CODES.state },
+    { name: 'push した commit が PR の head でない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = 'f'.repeat(40); return sha }, code: CODES.state },
+    { name: 'push が GitHub に反映されていない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = fx.head; return sha }, code: CODES.state, reason: /反映されていない.*1 回だけ流し直し/ },
+    {
+      name: '修正の commit の親が collect の head でない',
+      fix: true,
+      setup: (fx) => {
+        const sha = git(fx.repo, 'commit-tree', `${fx.head}^{tree}`, '-p', fx.base, '-m', 'side')
+        fx.gh.view.headRefOid = sha
+        return sha
+      },
+      code: CODES.state,
+    },
     {
       name: 'collect の head からの commit が 2 つ',
       fix: true,
@@ -294,6 +324,7 @@ test('recheck は head と議論の変化で返信を止める', async (t) => {
       const body = { ...ref(col), triage, fixCommit, ...(c.body ?? {}) }
       const out = cli(fx, 'recheck', body)
       assert.equal(out.code, c.code, out.reason)
+      if (c.reason) assert.match(out.reason, c.reason)
       assert.equal(existsSync(path.join(fx.stateDir, 'address-review-replies.json')), false)
     })
   }

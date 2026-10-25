@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  AddressError, CODES, EXCLUSION_REASONS, buildItems, changedTargets, confirmPlacement, discussionOf, fixRequest, fnvSum, newState,
+  AddressError, CODES, EXCLUSION_REASONS, answeredMark, buildItems, changedTargets, confirmPlacement, discussionOf, fixRequest, fnvSum, newState,
   planReplies, selectTargets, triageOf, unwrapWorkflowOutput,
 } from './address-core.mjs'
 
@@ -66,9 +66,14 @@ test('selectTargets の既定の除外と include・only', async (t) => {
     { name: '認証ユーザーの root は viewer', mutate: (r) => { r.inline[0].user = user('me') }, opts: {}, excluded: { 'thread:11': 'viewer' } },
     { name: '最後の返信が認証ユーザーなら answered', mutate: (r) => { r.inline[1].user = user('me') }, opts: {}, excluded: { 'thread:11': 'answered' } },
     {
-      name: '認証ユーザーの会話より前の会話は answered、後は対象',
-      mutate: (r) => { r.issues.push({ id: 32, user: user('me'), body: '返答', created_at: '2026-10-01T02:30:00Z', updated_at: '2026-10-01T02:30:00Z', html_url: 'https://x/32' }) },
+      name: '会話は認証ユーザーの返信の印が挙げたものだけが answered で、時刻では外さない',
+      mutate: (r) => { r.issues.push({ id: 32, user: user('me'), body: `返答\n\n${answeredMark(['issue_comment:31'])}`, created_at: '2026-10-09T00:00:00Z', updated_at: 'z', html_url: 'https://x/32' }) },
       opts: {}, items: ['thread:11', 'review:42'], excluded: { 'issue_comment:31': 'answered', 'issue_comment:32': 'viewer' },
+    },
+    {
+      name: '印の無い認証ユーザーの会話は、それより前の会話を外さない',
+      mutate: (r) => { r.issues.push({ id: 32, user: user('me'), body: '別件のメモ', created_at: '2026-10-09T00:00:00Z', updated_at: 'z', html_url: 'https://x/32' }) },
+      opts: {}, items: ['thread:11', 'issue_comment:31', 'review:42'], excluded: { 'issue_comment:32': 'viewer' },
     },
     { name: 'include は既定の除外を外す', mutate: () => {}, opts: { include: ['thread:21'] }, items: ['thread:11', 'thread:21', 'issue_comment:31', 'review:42'], excluded: {} },
     { name: 'only は他を not_selected にする', mutate: () => {}, opts: { only: ['review:42'] }, items: ['review:42'], excluded: { 'thread:11': 'not_selected', 'thread:21': 'not_selected', 'issue_comment:31': 'not_selected' } },
@@ -107,7 +112,7 @@ test('議論の snapshot は push で変わる outdated と行を含めず、返
 })
 
 function stateOf(items) {
-  const st = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', viewer: 'me', items, excluded: [] })
+  const st = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', policyRef: BASE, viewer: 'me', items, excluded: [] })
   return { state: st, stateSum: fnvSum(st) }
 }
 
@@ -170,9 +175,24 @@ test('planReplies は thread に @login つきで、会話には 1 件にまと�
   assert.ok(conversation.payload.body.startsWith('@github-actions[bot] @bob\n\n'))
   assert.match(conversation.payload.body, /根拠: README\.md:1/)
   assert.equal(conversation.payload.in_reply_to, undefined)
+  assert.ok(conversation.payload.body.endsWith(answeredMark(['issue_comment:31', 'review:42'])))
   const unfixed = planReplies(state, results, null)
   assert.deepEqual(unfixed.skipped, [{ comment_id: 'thread:11', reason: 'not_fixed' }])
   assert.deepEqual(unfixed.replies.map((r) => r.place.kind), ['conversation'])
+})
+
+test('次の run は、返した会話の指摘だけを外し、直さずに飛ばした指摘と後から来た指摘を残す', () => {
+  const r = raw()
+  r.issues.push({ id: 33, user: user('bob'), body: '会話の fix の指摘', created_at: '2026-10-01T02:10:00Z', updated_at: 'x', html_url: 'https://x/33' })
+  const items = selectTargets(buildItems(r), { viewer: 'me' }).items
+  const { state } = stateOf(items)
+  const results = items.map((i) => result(i.comment_id, ['thread:11', 'issue_comment:33'].includes(i.comment_id) ? 'fix' : 'decline'))
+  const [conversation] = planReplies(state, results, null).replies
+  r.issues.push({ id: 34, user: user('bob'), body: 'collect の後に来た指摘', created_at: '2026-10-01T02:20:00Z', updated_at: 'x', html_url: 'https://x/34' })
+  r.issues.push({ id: 35, user: user('me'), body: conversation.payload.body, created_at: '2026-10-01T03:00:00Z', updated_at: 'x', html_url: 'https://x/35' })
+  const next = selectTargets(buildItems(r), { viewer: 'me' })
+  assert.deepEqual(next.items.map((i) => i.comment_id), ['thread:11', 'issue_comment:33', 'issue_comment:34'])
+  assert.deepEqual(next.excluded.filter((e) => e.reason === 'answered').map((e) => e.comment_id), ['issue_comment:31', 'review:42'])
 })
 
 test('changedTargets は返信先の議論の変化と消失だけを返す', () => {
@@ -200,6 +220,16 @@ test('confirmPlacement は正しい場所に 1 回だけ付いたかを、改行
   assert.deepEqual(bad.duplicated.map((e) => e.posted), [[100, 101]])
   assert.deepEqual(bad.missing.map((e) => e.comment_ids), [['issue_comment:31']])
   assert.deepEqual(bad.misplaced.map((e) => e.elsewhere), [[102]])
+})
+
+test('confirmPlacement は同じ本文を別々の thread へ正しく返したものを誤った場所としない', () => {
+  const a = { comment_ids: ['thread:11'], place: { kind: 'thread', reply_to: 11 }, payload: { body: '@bot 同じ' }, input_path: '/s/reply-1.json' }
+  const b = { comment_ids: ['thread:21'], place: { kind: 'thread', reply_to: 21 }, payload: { body: '@bot 同じ' }, input_path: '/s/reply-2.json' }
+  const out = confirmPlacement([a, b], [{ id: 100, in_reply_to_id: 11, body: '@bot 同じ' }, { id: 101, in_reply_to_id: 21, body: '@bot 同じ' }], [])
+  assert.deepEqual(out.misplaced, [])
+  assert.deepEqual(out.confirmed.map((e) => e.posted), [[100], [101]])
+  const half = confirmPlacement([a, b], [{ id: 100, in_reply_to_id: 11, body: '@bot 同じ' }], [])
+  assert.deepEqual(half.missing, [{ comment_ids: ['thread:21'], input_path: '/s/reply-2.json', posted: [] }])
 })
 
 test('unwrapWorkflowOutput は包みだけを開く', () => {

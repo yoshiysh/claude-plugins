@@ -8,6 +8,9 @@ export const CODES = Object.freeze({
 
 // 方針（AGENTS.md・REVIEW.md・docs/guidelines）も repo-implement も、このリポジトリのものしか持たない。
 export const REPOSITORY = 'yoshiysh/claude-plugins'
+// 方針の版は repo-implement（とその中の repo-review）と同じ主ブランチの remote の先端。版が分かれると、分類と修正のレビューが別の規約で判断する。
+// repo-implement の DEFAULT_POLICY_REF との一致は tests/address-review-workflow.test.mjs が照らす。
+export const DEFAULT_POLICY_REF = 'origin/main'
 export const KINDS = Object.freeze(['thread', 'issue_comment', 'review'])
 export const CLASSIFICATIONS = Object.freeze(['fix', 'decline', 'out_of_scope', 'needs_decision', 'unverified'])
 // 返信を付けるのは、この分類だけ。needs_decision と unverified は run を止める（triage の status が completed にならない）。
@@ -16,7 +19,7 @@ export const EXCLUSION_REASONS = Object.freeze({
   resolved: '解決済みの thread',
   outdated: '指す行が今の head に無い thread（outdated）',
   viewer: 'gh の認証ユーザー自身の投稿（前の run の返信を指摘として読まないため）',
-  answered: '最後の発言が gh の認証ユーザーで、返答済み',
+  answered: '返答済み（thread は最後の発言が gh の認証ユーザー、会話は認証ユーザーの返信の末尾の印がその comment_id を挙げる）',
   not_selected: '利用者が only で選ばなかった',
 })
 
@@ -151,7 +154,23 @@ export function buildItems({ inline, issues, reviews, threads }) {
   return items
 }
 
-export function exclusionOf(item, viewer, lastViewerConversationAt) {
+// PR の会話への返信は 1 件に複数の指摘をまとめるので、どれに答えたかを本文の末尾の印で残し、次の run の collect が読む。
+const ANSWERED_MARK = 'address-review:answered'
+const ANSWERED_LINE = new RegExp(`<!-- ${ANSWERED_MARK} ([^>]*) -->`, 'g')
+
+export function answeredMark(ids) {
+  return `<!-- ${ANSWERED_MARK} ${ids.join(' ')} -->`
+}
+
+export function answeredIds(all, viewer) {
+  const ids = new Set()
+  for (const item of all.filter((i) => i.kind !== 'thread' && i.author === viewer)) {
+    for (const m of item.body.matchAll(ANSWERED_LINE)) m[1].trim().split(/\s+/).forEach((id) => ids.add(id))
+  }
+  return ids
+}
+
+export function exclusionOf(item, viewer, answered) {
   if (item.kind === 'thread') {
     if (item.resolved) return 'resolved'
     if (item.outdated) return 'outdated'
@@ -161,8 +180,7 @@ export function exclusionOf(item, viewer, lastViewerConversationAt) {
     return null
   }
   if (item.author === viewer) return 'viewer'
-  // PR の会話への返信は 1 件にまとめるので、その後に来たものだけが未返答。
-  if (lastViewerConversationAt && item.created_at <= lastViewerConversationAt) return 'answered'
+  if (answered.has(item.comment_id)) return 'answered'
   return null
 }
 
@@ -178,21 +196,20 @@ export function selectTargets(all, { viewer, include, only }) {
   const known = new Set(all.map((i) => i.comment_id))
   const unknown = [...includeIds, ...onlyIds].filter((id) => !known.has(id))
   if (unknown.length) throw new AddressError(CODES.input, `PR に無い comment_id: ${unknown.join(', ')}`)
-  const conversation = all.filter((i) => i.kind !== 'thread' && i.author === viewer).map((i) => i.created_at).sort()
-  const lastViewerConversationAt = conversation.at(-1) ?? null
+  const answered = answeredIds(all, viewer)
   const items = []
   const excluded = []
   for (const item of all) {
     const reason = onlyIds.length && !onlyIds.includes(item.comment_id)
       ? 'not_selected'
-      : (includeIds.includes(item.comment_id) ? null : exclusionOf(item, viewer, lastViewerConversationAt))
+      : (includeIds.includes(item.comment_id) ? null : exclusionOf(item, viewer, answered))
     if (reason) excluded.push({ comment_id: item.comment_id, reason })
     else items.push(item)
   }
   return { items, excluded }
 }
 
-export function newState({ repo, pr, view, head, branch, viewer, items, excluded }) {
+export function newState({ repo, pr, view, head, branch, policyRef, viewer, items, excluded }) {
   return {
     repository: REPOSITORY,
     repo,
@@ -200,7 +217,7 @@ export function newState({ repo, pr, view, head, branch, viewer, items, excluded
     base: view.baseRefOid,
     head,
     branch,
-    policyRef: view.baseRefOid,
+    policyRef,
     viewer,
     items,
     excluded,
@@ -294,7 +311,7 @@ export function planReplies(state, results, fix) {
       comment_ids: conversation.map((c) => c.item.comment_id),
       place: { kind: 'conversation' },
       endpoint: `repos/${state.repository}/issues/${state.pr}/comments`,
-      payload: { body: [mentions, ...sections].join('\n\n') },
+      payload: { body: [mentions, ...sections, answeredMark(conversation.map((c) => c.item.comment_id))].join('\n\n') },
     })
   }
   return { replies, skipped }
@@ -316,15 +333,17 @@ const normalize = (text) => String(text ?? '').replace(/\r\n/g, '\n').trim()
 
 export function confirmPlacement(replies, inline, issues) {
   const result = { confirmed: [], missing: [], duplicated: [], misplaced: [] }
+  const posts = [...inline.map((c) => ({ c, kind: 'inline' })), ...issues.map((c) => ({ c, kind: 'issue' }))]
+  const rightFor = (reply) => posts.filter(({ c, kind }) => normalize(c.body) === normalize(reply.payload.body) && (reply.place.kind === 'thread'
+    ? kind === 'inline' && c.in_reply_to_id === reply.place.reply_to
+    : kind === 'issue'))
+  // 同じ本文を別の thread へ返すのは正しい投稿なので、どの返信の正しい場所にも当たらないものだけを誤った場所とみなす。
+  const placed = new Set(replies.flatMap((r) => rightFor(r).map(({ c }) => c)))
   for (const reply of replies) {
-    const body = normalize(reply.payload.body)
-    const sameBody = [...inline.map((c) => ({ c, kind: 'inline' })), ...issues.map((c) => ({ c, kind: 'issue' }))]
-      .filter(({ c }) => normalize(c.body) === body)
-    const right = sameBody.filter(({ c, kind }) => (reply.place.kind === 'thread'
-      ? kind === 'inline' && c.in_reply_to_id === reply.place.reply_to
-      : kind === 'issue'))
-    const entry = { comment_ids: reply.comment_ids, posted: right.map(({ c }) => c.id) }
-    if (sameBody.length > right.length) result.misplaced.push({ ...entry, elsewhere: sameBody.filter((x) => !right.includes(x)).map(({ c }) => c.id) })
+    const right = rightFor(reply)
+    const elsewhere = posts.filter(({ c }) => normalize(c.body) === normalize(reply.payload.body) && !placed.has(c))
+    const entry = { comment_ids: reply.comment_ids, input_path: reply.input_path, posted: right.map(({ c }) => c.id) }
+    if (elsewhere.length) result.misplaced.push({ ...entry, elsewhere: elsewhere.map(({ c }) => c.id) })
     if (right.length === 0) result.missing.push(entry)
     else if (right.length > 1) result.duplicated.push(entry)
     else result.confirmed.push(entry)

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } fro
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  AddressError, CODES, REPOSITORY, buildItems, changedTargets, confirmPlacement, fixRequest, fnvSum, isSha, newState, planReplies,
+  AddressError, CODES, DEFAULT_POLICY_REF, REPOSITORY, buildItems, changedTargets, confirmPlacement, fixRequest, fnvSum, isSha, newState, planReplies,
   selectTargets, stateProblem, triageOf,
 } from './address-core.mjs'
 
@@ -99,6 +99,9 @@ function readState(body, io) {
 
 function triageInput(body, io) {
   if (body.triage !== undefined && body.triagePath !== undefined) throw new AddressError(CODES.input, 'triage と triagePath のどちらか一方を渡す')
+  if (body.triagePath !== undefined && (typeof body.triagePath !== 'string' || !io.exists(body.triagePath))) {
+    throw new AddressError(CODES.input, 'triagePath は分類の Workflow の返り値を残したファイルの path')
+  }
   if (typeof body.triagePath === 'string') return parseJson(io.readFile(body.triagePath), 'triagePath のファイル')
   if (body.triage === undefined) throw new AddressError(CODES.input, 'triage（分類の Workflow の返り値）か triagePath を渡す')
   return body.triage
@@ -112,7 +115,7 @@ function collect(body, io) {
   const root = io.realpath(io.git(repo, ['rev-parse', '--show-toplevel']).trim())
   const dir = io.realpath(stateDir)
   const rel = path.relative(root, dir)
-  if (!rel.startsWith('..') && !path.isAbsolute(rel)) throw new AddressError(CODES.input, 'stateDir は repo の外に置く（中に置くと作業ツリーの変更として repo-implement の照合に混ざる）')
+  if (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) throw new AddressError(CODES.input, 'stateDir は repo の外に置く（中に置くと作業ツリーの変更として repo-implement の照合に混ざる）')
   const statePath = path.join(dir, STATE_FILE)
   // 1 つの stateDir は 1 周（収集 → 分類 → 修正 → 返信）だけに使う。次の周は新しい stateDir の collect から。
   if (io.exists(statePath)) throw new AddressError(CODES.state, 'この stateDir は前の run が使った。新しい stateDir で collect する')
@@ -126,14 +129,16 @@ function collect(body, io) {
   if (now !== view.headRefOid || branch !== view.headRefName) {
     throw new AddressError(CODES.pin, `作業ツリー（branch ${branch ?? '(detached)'}・HEAD ${now}）が PR の head（branch ${view.headRefName}・${view.headRefOid}）と違う。PR の head branch を checkout した作業ツリーで始める`)
   }
-  if (io.git(repo, ['rev-parse', '--verify', '--quiet', `${view.baseRefOid}^{commit}`], { allowFailure: true }) === null) {
-    throw new AddressError(CODES.pin, `base の commit ${view.baseRefOid} が手元に無い（方針はこの版で読む）。git fetch origin してから始める`)
-  }
+  // 分類は作業ツリーを PR の head として読むので、head に無いローカルの変更を根拠にした返信が公開されないようにする。
+  const dirty = io.git(repo, ['status', '--porcelain', '--untracked-files=all']).trim()
+  if (dirty) throw new AddressError(CODES.pin, `作業ツリーに commit していない変更がある（${dirty.split('\n').length} 件）。commit するか片付けた clean な作業ツリーで始める`)
+  const policyRef = io.git(repo, ['rev-parse', '--verify', '--quiet', `${DEFAULT_POLICY_REF}^{commit}`], { allowFailure: true })?.trim()
+  if (!policyRef) throw new AddressError(CODES.pin, `方針の版 ${DEFAULT_POLICY_REF} が手元に無い。git fetch origin してから始める`)
   const viewer = ghJson(io, repo, ['api', 'user'], 'gh api user').login
   if (typeof viewer !== 'string' || !viewer) throw new AddressError(CODES.io, 'gh の認証ユーザーの login が取れない')
   const all = buildItems(fetchDiscussion(io, repo, pr))
   const { items, excluded } = selectTargets(all, { viewer, include: body.include, only: body.only })
-  const state = newState({ repo: root, pr, view, head: now, branch, viewer, items, excluded })
+  const state = newState({ repo: root, pr, view, head: now, branch, policyRef, viewer, items, excluded })
   const stateSum = fnvSum(state)
   io.writeFile(statePath, JSON.stringify(state, null, 2))
   return { state, state_sum: stateSum, state_path: statePath, items: items.length, excluded }
@@ -161,10 +166,13 @@ function recheck(body, io) {
   requirePr(view)
   let fix = null
   if (body.fixCommit) {
-    // push した commit が PR の head で、collect の head からの commit がそれ 1 つ（この run の修正）だけのときに限る。
+    // push した commit が PR の head で、その唯一の親が collect の head（この run の修正 1 つだけが足された）のときに限る。
+    if (view.headRefOid === state.head) {
+      throw new AddressError(CODES.state, `PR の head が collect の時のまま（${state.head}）で、push が GitHub に反映されていない。少し待って同じ入力で 1 回だけ流し直し、それでも同じなら返信を止める`)
+    }
     if (view.headRefOid !== body.fixCommit) throw new AddressError(CODES.state, `PR の head（${view.headRefOid}）が push した修正の commit（${body.fixCommit}）と違う。返信を止め、次の run で分類からやり直す`)
-    const added = io.git(state.repo, ['rev-list', `${state.head}..${body.fixCommit}`]).trim().split('\n').filter(Boolean)
-    if (added.length !== 1 || added[0] !== body.fixCommit) throw new AddressError(CODES.state, `collect の head から PR の head までの commit が、この run の修正 1 つではない（${added.length} 件）`)
+    const [, ...parents] = io.git(state.repo, ['rev-list', '--parents', '-n', '1', body.fixCommit]).trim().split(/\s+/)
+    if (parents.length !== 1 || parents[0] !== state.head) throw new AddressError(CODES.state, `修正の commit の親（${parents.join(', ')}）が collect の head ${state.head} だけではない。返信を止め、次の run で分類からやり直す`)
     fix = { commit: body.fixCommit, paths: io.git(state.repo, ['diff', '--name-only', state.head, body.fixCommit]).trim().split('\n').filter(Boolean) }
   } else if (view.headRefOid !== state.head) {
     throw new AddressError(CODES.state, `PR の head が collect の後に動いた（${state.head} → ${view.headRefOid}）。返信を止め、次の run で分類からやり直す`)

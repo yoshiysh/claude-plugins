@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { THREADS_QUERY } from './address-cli.mjs'
+import { CLASSIFICATIONS } from './address-core.mjs'
 
 const SKILL_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -32,6 +33,12 @@ test('検出は mutation の呼び出しに当たり、文中の語には当た�
   assert.ok(GRAPHQL_MUTATION.test(`${MUTATION} Resolve($id: ID!) { x }`))
   assert.equal(GRAPHQL_MUTATION.test('resolve の mutation が無いことを照らす'), false)
   assert.equal(GRAPHQL_MUTATION.test('thread を resolve しない'), false)
+})
+
+test('comment-triager.md の分類の表は CLASSIFICATIONS と同じ集合で同じ順', () => {
+  const text = readFileSync(path.join(SKILL_DIR, 'agents', 'comment-triager.md'), 'utf8')
+  const rows = [...text.matchAll(/^\| `([a-z_]+)` \|/gm)].map((m) => m[1])
+  assert.deepEqual(rows, [...CLASSIFICATIONS])
 })
 
 test('CLI が送る GraphQL は読み取りの query だけ', () => {

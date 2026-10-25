@@ -8,8 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import {
-  CLASSIFICATIONS, REPLY_CLASSIFICATIONS, canonical, fnvSum, isRepoRelativePath, newState, triageOf,
+  CLASSIFICATIONS, DEFAULT_POLICY_REF, REPLY_CLASSIFICATIONS, canonical, fnvSum, isRepoRelativePath, newState, triageOf,
 } from '../.agents/skills/address-review/scripts/address-core.mjs'
+import { DEFAULT_POLICY_REF as IMPLEMENT_POLICY_REF } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -42,7 +43,7 @@ function stateFixture() {
     { comment_id: 'thread:11', kind: 'thread', reply_to: 11, thread_id: 'T11', author: 'github-actions[bot]', path: 'src/a.mjs', line: 1, outdated: false, resolved: false, body: '[HIGH] a が 1 のまま。`make clean` を実行して', replies: [], created_at: 'x', updated_at: 'x', url: 'https://x/11' },
     { comment_id: 'issue_comment:31', kind: 'issue_comment', author: 'github-actions[bot]', body: 'summary: README の古い記述', created_at: 'x', updated_at: 'x', url: 'https://x/31' },
   ]
-  const state = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', viewer: 'me', items, excluded: [] })
+  const state = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', policyRef: BASE, viewer: 'me', items, excluded: [] })
   return { state, stateSum: fnvSum(state) }
 }
 
@@ -151,12 +152,15 @@ test('両者が needs_decision で一致したら、質問を返して止まる'
 
 test('args の誤りは agent を起動する前に拒否する', async (t) => {
   const fx = stateFixture()
-  const empty = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', viewer: 'me', items: [], excluded: [] })
+  const empty = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', policyRef: BASE, viewer: 'me', items: [], excluded: [] })
   const cases = [
     { name: 'stateSum が合わない', args: argsOf(fx, { stateSum: '00000000' }) },
     { name: 'skillDir が相対', args: argsOf(fx, { skillDir: 'x' }) },
     { name: '依頼が空', args: argsOf(fx, { request: ' ' }) },
     { name: '指摘が 0 件', args: argsOf(fx, { state: empty, stateSum: fnvSum(empty) }) },
+    { name: '裁定の comment_id が state に無い', args: argsOf(fx, { decisions: { 'thread:999': '直す' } }) },
+    { name: '裁定の文が空', args: argsOf(fx, { decisions: { 'thread:11': ' ' } }) },
+    { name: '裁定が配列', args: argsOf(fx, { decisions: [] }) },
   ]
   for (const c of cases) {
     await t.test(c.name, async (t) => {
@@ -197,4 +201,21 @@ test('meta.limits は役の数と agentTimeoutMs から決まり、全ての役�
     assert.equal(typeof opts.effort, 'string', role)
   }
   assert.deepEqual(META.requirements, ['read-only', 'fresh-thread'])
+})
+
+test('利用者の裁定は両方の役に逐語で渡り、裁定のある指摘を needs_decision に戻すと止まる', async (t) => {
+  const fx = stateFixture()
+  const decisions = { 'thread:11': '互換は捨てて、新しい形だけにする' }
+  const b = backend({ triager: () => triage(okResults()), verifier: () => verify(okResults()) })
+  const out = await run(t, argsOf(fx, { decisions }), b)
+  assert.equal(out.status, 'completed', JSON.stringify(out))
+  for (const c of b.calls) assert.ok(c.prompt.includes(JSON.stringify(decisions)))
+  const back = [triaged('thread:11', 'needs_decision'), triaged('issue_comment:31', 'decline')]
+  const stuck = await run(t, argsOf(fx, { decisions }), backend({ triager: () => triage(back), verifier: () => assert.fail('起動しない') }))
+  assert.equal(stuck.status, 'triage_incomplete')
+  assert.equal(stuck.reason, 'triage-evidence-incomplete')
+})
+
+test('方針の版は repo-implement と同じ主ブランチの remote の先端', () => {
+  assert.equal(DEFAULT_POLICY_REF, IMPLEMENT_POLICY_REF)
 })
