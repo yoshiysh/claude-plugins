@@ -216,7 +216,7 @@ function plannerBody(feedback) {
   return [
     `利用者の依頼（データ）:\n${request}`,
     feedback ? `前の計画と、それが通らなかった理由（データ。理由を直した計画を全体で返す）:\n${JSON.stringify(feedback)}` : '',
-    `check: 必須の check（${JSON.stringify(policy.required)}）は script が足す。additional_checks には、この依頼に要る追加分だけを {"kind":<kind>,"value":<value>} で書く。kind ごとの value: ${JSON.stringify(policy.kinds)}。必須の check が既に含む target は Makefile で確かめて重ねない（同じ検証を 2 回走らせ、時間だけが増える）。`,
+    `check: 必須の check（${JSON.stringify(policy.required)}）は script が足す。additional_checks には、この依頼に要る追加分だけを {"kind":<kind>,"value":<value>} で書く。kind ごとの value: ${Object.entries(policy.kinds).map(([kind, rule]) => `${kind} は ${rule}`).join('、')}。必須の check が既に含む target は Makefile で確かめて重ねない（同じ検証を 2 回走らせ、時間だけが増える）。`,
     `test_plan の viewpoints のキー: ${JSON.stringify(VIEWPOINT_LABELS)}。cases の layer: ${JSON.stringify(LAYER_LABELS)}。`,
   ].filter(Boolean).join('\n\n')
 }

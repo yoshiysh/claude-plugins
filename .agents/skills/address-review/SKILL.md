@@ -37,7 +37,16 @@ description: >
 | commit・push | `repo-implement` の verify が通った後に司令塔 | PR の head branch |
 | 返信 | CLI `recheck` → `gh api` の投稿 → CLI `confirm-replies` | PR のコメント |
 
-**このスキルを呼んだことを、commit・push・返信の許可とみなす。** 利用者の要件が「返信まで行う」ことなので、段ごとに確認を挟むと要件に反する。依頼の文が終わりの段を明示したときだけ、そこで止まって報告する: 「分類だけ」「妥当か教えて」などの読むだけの依頼は分類の後、「直すだけ」「commit しないで」は `repo-implement` の verify の後（変更は作業ツリーに残す）、「返信はしないで」は push の後。どれも明示が無ければ返信まで進む。fork の head・closed か merged の PR・`needs_decision`・`triage_incomplete`・`repo-implement` の verify の不通過では、その先の操作をせずに止まる（下の各段）。
+**このスキルを呼んだことを、commit・push・返信の許可とみなす。** 利用者の要件が「返信まで行う」ことなので、段ごとに確認を挟むと要件に反する。依頼の文が終わりの段を明示したときだけ、次の表の段で止まって報告する（下の各段の終わりで、この表を照らしてから次の段へ進む）。
+
+| 依頼の明示 | 止まる段 |
+| --- | --- |
+| 「分類だけ」「妥当か教えて」など読むだけ | 分類の後 |
+| 「commit しないで」 | `repo-implement` の verify の後。変更は作業ツリーに残す（次の run の `collect` は clean な作業ツリーを求めるので、利用者が commit するか片付けてから次の run を始める） |
+| 「直すだけ」「返信はしないで」 | push の後（commit したら push する。AGENTS.md「作業ルール」） |
+| 明示が無い | 返信まで |
+
+これとは別に、fork の head・closed か merged の PR・`needs_decision`・`triage_incomplete`・`repo-implement` の verify の不通過では、その先の操作をせずに止まる（下の各段）。
 
 **thread を resolve しない。** レビューの決着は利用者が自分で付けるため、このスキルには resolve の手順も API の呼び出しも置かない（`scripts/address-skill.test.mjs` が、スキルのファイルに resolve の mutation が無いことを照らす）。
 
@@ -88,9 +97,11 @@ comment-triager が全件を 1 つの context でまとめて分類し（分類�
 | --- | --- |
 | **completed** | 全件が返信のできる分類（`scripts/address-core.mjs` の `REPLY_CLASSIFICATIONS`）。返り値をそのまま次の段へ写す |
 | **needs_decision** | `questions` と各指摘の根拠を示して止まる。利用者の答えを `decisions` に逐語で入れ、次の run で収集からやり直す |
-| **triage_incomplete** | `reason` が `triager-unavailable`・`verifier-unavailable`（agent が返らなかった）なら、同じ args で 1 回だけ呼び直す。それ以外か 2 回目は、`disagreements`・`defects`・`unverified` の指摘を示して止まり、修正にも返信にも進まない。次の run は、利用者がその指摘への答えを `decisions` で渡すか、`only` でその指摘を外すかを選ぶ |
+| **triage_incomplete** | `reason` が `triager-unavailable`・`verifier-unavailable`（agent が返らなかった）なら、同じ args で 1 回だけ呼び直す。それ以外か 2 回目は、`disagreements`・`defects`・`unverified` の指摘を示して止まり、修正にも返信にも進まない。次の run は、利用者がその指摘への答えを `decisions` で渡すか、その指摘を除いた残りを `only` に挙げるかを選ぶ |
 
-依頼が分類だけなら、ここで分類の結果を報告して終える。
+`needs_decision` と `triage_incomplete` は、止まった指摘の `questions` と理由を併せて返す。`decisions` に入れた comment_id が次の run の `state` に無い（解決済み・outdated になった・`only` で選ばなかった）ときは Workflow が args の誤りとして拒否するので、その id を `decisions` から外して同じ args で呼び直す（無い指摘への裁定は使い道が無く、黙って捨てると利用者の答えが効いたかが見えなくなる。外した id は報告に書く）。
+
+completed なら「止まる段」の表を照らし、分類の後で止まる依頼なら分類の結果を報告して終える。
 
 ## 修正と push
 
@@ -102,16 +113,16 @@ comment-triager が全件を 1 つの context でまとめて分類し（分類�
    JSON
    ```
 
-   `fix_ids` が空なら修正をせず「返信」へ進み、`fixCommit` に `null` を渡す。
-2. `fix_ids` があれば、`repo-implement` スキルを**スキル呼び出し**で起動し、出力の `request` を依頼の文としてそのまま渡す（文は CLI が fix の指摘の確定した問題・根拠・直す path・コメントの本文から組む）。`repo-implement` は同じ作業ツリー（PR の head branch）で動く。止まり方・commit の手順は `repo-implement` の SKILL.md が正本。
-3. `repo-implement` の verify が `passed: true` で変更がある（`actual` が空でない）ときだけ、`repo-implement` の SKILL.md の commit の手順で、出力の `commit_message` を message にして commit する。依頼が「直すだけ」ならここで報告して終える。続けて `git push origin HEAD:refs/heads/<state.branch>` を流す（`--force` を付けない。collect の後に PR の head が動いていれば push が拒否され、そこで止まる）。push した commit の SHA（`git rev-parse HEAD`）を `fixCommit` にする。
-4. 次のときは commit も push もせず（済んだものは戻さない）、`fixCommit` に `null` を渡して「返信」へ進む。fix の指摘には返信しない（直していないのに直したと返さない。`recheck` が `skipped` に入れ、次の run に残る）。
+   `fix_ids` が空なら修正をせず、`fixCommit` を `null` にして「返信」へ進む。
+2. `fix_ids` があれば、`repo-implement` スキルを**スキル呼び出し**で起動し、出力の `request` を依頼の文としてそのまま渡す（文は CLI が fix の指摘の確定した問題・根拠・直す path・コメントの本文から組む）。`repo-implement` は同じ作業ツリー（PR の head branch）で動く。止まり方・commit と push の手順は `repo-implement` の SKILL.md が正本。
+3. `repo-implement` の verify が `passed: true` で変更がある（`actual` が空でない）とき: 依頼が「commit しないで」ならここで報告して終える。そうでなければ `repo-implement` の SKILL.md の commit と push の手順で、出力の `commit_message` を message にして commit し、PR の head branch（`state.branch`）へ push する（`--force` を付けない。collect の後に PR の head が動いていれば push が拒否され、次の 4 に当たる）。push した commit の SHA（`git rev-parse HEAD`）を `fixCommit` にして「返信」へ進む。
+4. 次のときは commit も push もせず（済んだものは戻さない）、`fixCommit` を `null` にして「返信」へ進む。fix の指摘には返信しない（直していないのに直したと返さない。`recheck` が `skipped` に入れ、次の run に残る）。
    - `repo-implement` が止まった・verify が通らなかった・push が拒否された: 止まった理由と `repo-implement` の報告を「報告」に載せる。
    - `repo-implement` が変更不要（`no_change`）で verify を通した: その根拠（計画の `no_change_reason`）を「報告」に載せる。
 
-依頼が「返信はしないで」なら、push の後に報告して終える。
-
 ## 返信
+
+この節に入る前に、どの経路（fix が 0 件・push の後・`repo-implement` が止まった・`no_change`）から来ても「止まる段」の表を照らし、返信より前で止まる依頼なら、ここで報告して終える。
 
 1. `recheck` を流す。
 
@@ -130,7 +141,7 @@ comment-triager が全件を 1 つの context でまとめて分類し（分類�
    gh api <endpoint> --method POST --input <input_path>
    ```
 
-3. 全件の投稿の後に `confirm-replies` を流す（入力は `statePath` と `stateSum`。読むだけで、何度流してもよい）。CLI はコメントを読み直し、各返信が正しい場所に 1 回だけ付いたかを返す。`missing` の件は、その `input_path` で 1 回だけ投稿し直してから `confirm-replies` を流し直す（`missing` は正しい場所に 1 件も無いので、二重にならない）。それでも `passed: false` なら、`missing`・`duplicated`・`misplaced` を報告して終える。二重の投稿・誤った場所の投稿を消さない（消すのは取り消せない操作で、利用者が決める）。
+3. 全件の投稿の後に `confirm-replies` を流す（入力は `statePath` と `stateSum`。読むだけで、何度流してもよい）。CLI はコメントを読み直し、各返信が正しい場所に 1 回だけ付いたかを返す。`missing` があれば、投稿の直後で読み取りに反映されていないだけのことがあるので、まず 30 秒待って `confirm-replies` を流し直す。それでも `missing` に残った件だけを、その `input_path` で 1 回だけ投稿し直し、もう一度 `confirm-replies` を流す（待ってから読み直した後の `missing` は正しい場所に 1 件も無いので、二重にならない）。それでも `passed: false` なら、`missing`・`duplicated`・`misplaced` を報告して終える。二重の投稿・誤った場所の投稿を消さない（消すのは取り消せない操作で、利用者が決める）。
 
 ## 止まるとき
 
@@ -154,6 +165,7 @@ CLI と分類の Workflow が見ないものは次のとおりで、報告では
 - 分類の草案の文の正しさ。script は形（分類ごとの必須の項目と path:line の形）だけを検査し、文の中身は triage-verifier が確かめる。
 - `confirm-replies` の照合は本文と場所の一致で行うので、同じ本文を別の人が同じ場所に書いたものも 1 件に数える。
 - thread の「返答済み」の除外は、最後に書いたのが認証ユーザーかで決める。認証ユーザーが指摘に答えずに書いた返信も返答として数える（含めるには `include`）。
+- 方針の版の SHA の一致。分類も `repo-implement` も主ブランチの remote の先端（同じ ref 名）で読むが、それぞれが始めた時点の SHA に固定するので、間に主ブランチが進むと別の SHA になる。
 - `repo-implement` の中の照合（計画・check・レビュー・verify）。正本は `repo-implement` の SKILL.md。
 - fix の返信の草案と実際の修正の一致。草案は修正の前に書かれ、`recheck` が足すのは commit の SHA と変えた path だけで、草案の文が `repo-implement` の変更と合うかは照らさない。
 - fix の指摘ごとの修正の有無。`fixCommit` があれば fix の指摘の全件を直したものとして返信する（`repo-implement` の計画が一部の指摘だけを扱ったかは見ない）。

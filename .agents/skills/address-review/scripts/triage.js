@@ -190,8 +190,8 @@ if (disagreements.length || verifierEvidence.length) {
 }
 
 const results = triage.results.map((r, n) => ({ ...r, verification: verification.results[n] }))
-if (results.some((r) => r.classification === 'unverified')) return finish({ status: 'triage_incomplete', reason: 'unverified-remains', results })
-if (results.some((r) => r.classification === 'needs_decision')) {
-  return finish({ status: 'needs_decision', results, questions: results.filter((r) => r.classification === 'needs_decision').map((r) => ({ comment_id: r.comment_id, questions: r.decision_questions })) })
-}
+// unverified と needs_decision が混ざっても、利用者が次の run の decisions に答えられるよう問いを両方の status で返す。
+const questions = results.filter((r) => r.classification === 'needs_decision').map((r) => ({ comment_id: r.comment_id, questions: r.decision_questions }))
+if (results.some((r) => r.classification === 'unverified')) return finish({ status: 'triage_incomplete', reason: 'unverified-remains', results, questions })
+if (questions.length) return finish({ status: 'needs_decision', results, questions })
 return finish({ status: 'completed', results })

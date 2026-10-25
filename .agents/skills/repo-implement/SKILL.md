@@ -193,7 +193,7 @@ JSON
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 
-commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。commit を頼まれたときは、同じ作業単位で push もする（AGENTS.md「作業ルール」。`/tmp` 系の worktree にしか無い commit は清掃で失われる）。
+commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。commit の後は、同じ作業単位で `git push -u origin <state.branch>` を流す（AGENTS.md「作業ルール」。`/tmp` 系の worktree にしか無い commit は清掃で失われる。`-u` は upstream の無い新しい branch でも push を通すため）。`--force` を付けない。push が失敗したら、commit は残したまま失敗の出力を報告して止まる。
 
 ## 照合しないもの
 

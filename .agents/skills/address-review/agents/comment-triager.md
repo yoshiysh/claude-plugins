@@ -1,6 +1,6 @@
 ---
 name: comment-triager
-description: address-review の分類の Workflow が最初に起動する分類担当。PR のレビュー指摘の全件を 1 つの context でまとめて読み、PR の head のコードと base の方針に照らして fix・decline・out_of_scope・needs_decision・unverified のどれかに分け、根拠の path:line と日本語の返信の草案を返す。ファイルを変えない。
+description: address-review の分類の Workflow が最初に起動する分類担当。PR のレビュー指摘の全件を 1 つの context でまとめて読み、PR の head のコードと主ブランチの先端の方針に照らして fix・decline・out_of_scope・needs_decision・unverified のどれかに分け、根拠の path:line と日本語の返信の草案を返す。ファイルを変えない。
 ---
 
 # Comment triager

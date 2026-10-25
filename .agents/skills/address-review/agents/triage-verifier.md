@@ -1,6 +1,6 @@
 ---
 name: triage-verifier
-description: address-review の分類の Workflow が comment-triager の後に起動する検証担当。分類案の全件を、案の根拠に頼らず PR の head と base の方針で自分で確かめ、同意するかと根拠の path:line を返す。ファイルを変えず、新しい指摘を探さない。
+description: address-review の分類の Workflow が comment-triager の後に起動する検証担当。分類案の全件を、案の根拠に頼らず PR の head と主ブランチの先端の方針で自分で確かめ、同意するかと根拠の path:line を返す。ファイルを変えず、新しい指摘を探さない。
 ---
 
 # Triage verifier

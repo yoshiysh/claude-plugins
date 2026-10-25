@@ -150,6 +150,17 @@ test('両者が needs_decision で一致したら、質問を返して止まる'
   assert.throws(() => triageOf(out, fx.state, fx.stateSum), /needs_decision/)
 })
 
+test('unverified と needs_decision が混ざると triage_incomplete で、needs_decision の問いも返す', async (t) => {
+  const fx = stateFixture()
+  const tr = [triaged('thread:11', 'needs_decision'), triaged('issue_comment:31', 'unverified', { evidence: [] })]
+  const v = verify(tr)
+  v.results[1].evidence = []
+  const out = await run(t, argsOf(fx), backend({ triager: () => triage(tr), verifier: () => v }))
+  assert.equal(out.status, 'triage_incomplete')
+  assert.equal(out.reason, 'unverified-remains')
+  assert.deepEqual(out.questions, [{ comment_id: 'thread:11', questions: ['どちらにするか'] }])
+})
+
 test('args の誤りは agent を起動する前に拒否する', async (t) => {
   const fx = stateFixture()
   const empty = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', policyRef: BASE, viewer: 'me', items: [], excluded: [] })
