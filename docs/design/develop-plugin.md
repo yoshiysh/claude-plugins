@@ -11,28 +11,30 @@
 - [plugin の構成](#plugin-の構成)
 - [形の判定](#形の判定)
 - [利用側リポジトリとの契約](#利用側リポジトリとの契約)
+- [決定で足す流れ](#決定で足す流れ)
 - [pr-review・pr-review-fix の機能の行き先](#pr-reviewpr-review-fix-の機能の行き先)
 - [3 リポジトリから取り込む仕組み](#3-リポジトリから取り込む仕組み)
 - [bp 計測から導いた差分](#bp-計測から導いた差分)
 - [移行計画](#移行計画)
-- [未決事項](#未決事項)
+- [決まったこと](#決まったこと)
 
 ## 結論と範囲
 
 - 土台は claude-plugins の `repo-implement`・`repo-review`・`address-review`（`.agents/skills/` の未公開の実体）にする。CLI と `stateDir` で状態を持ち、sum で写し間違いを止め、検証役を生成役と別の context に置く作りは、3 リポジトリの中でこれだけが持つ（出所は「3 リポジトリから取り込む仕組み」）。
 - 今の役の分担・段・照合は残す。変えるのは 2 種類だけ。
   - claude-plugins に固有の値の直書きを、利用側リポジトリの宣言と導出に移す（「利用側リポジトリとの契約」）。
-  - 一般化と設計方針への適合に要る段・op を足す。足すのは、投稿と投稿の確認、上限で止めた review-run の返り値をセッション側の CLI が状態に書く op とそこからの再開、skip 一覧からの追加起動、`REVIEW.md` の必須の観点の強制、PR の head の worktree、`stopAfter: "plan"` とそこからの再開、PR に付いた外のレビュー結果の分類。どれも本文の該当節に書く。
+  - 一般化と設計方針への適合に要る段・op を足す。足すのは、投稿と投稿の確認、上限で止めた review-run の返り値をセッション側の CLI が状態に書く op とそこからの再開、skip 一覧からの追加起動、`REVIEW.md` の必須の観点の強制、観点ごとの focus を書く役、`pipeline_status`、PR の head の worktree、`stopAfter: "plan"` とそこからの再開、外のレビュー結果の分類（PR のある対象と無い対象）、返信の前の required checks の待ち、条件つきの resolve、git の外の対象のレビュー。どれも本文の該当節に書く。
 - 3 スキルは同じ plugin に入れる。implement は review の返り値を厳密に照合し、address-review は implement に修正を渡す。別々の plugin にすると、相手の版がずれたときに照合が壊れる。
 
 | 共通化するもの（develop が持つ） | 利用側リポジトリに残すもの |
 |---|---|
-| 段の順序、CLI の照合（状態・券・snapshot・pin・coverage・票の集計・返信の再照合）、役の prompt（`agents/*.md`）、Workflow source、既定の観点 | 方針文書（`REVIEW.md` とその「読むもの」表が挙げる文書）、check の許可リストと必須 check、除外と生成物の置き場、commit 後の push の要否 |
+| 段の順序、CLI の照合（状態・券・snapshot・pin・coverage・票の集計・返信の再照合）、役の prompt（`agents/*.md`）、Workflow source、既定の観点 | 方針文書（`REVIEW.md` とその「読むもの」表が挙げる文書）、check の許可リストと必須 check、除外と生成物の置き場、commit 後の push の要否、人が読む出力の言語 |
 | 役ごとの model・effort（Workflow source の `ROLE_MODELS`） | 領域の観点（dcf の金融ロジック・Rust、pk のコーパス保護）。どれも各リポジトリの `REVIEW.md` に書く |
 
 **dcf の magi-issue-resolver は対象外にする。** Issue の選定から PR-ready・振り返りまでを 1 本の Workflow（`.agent/skills/magi-issue-resolver/scripts/issue-resolve.js`）で回すもので、実装・レビュー・指摘対応に分かれていない（dcf の SKILL.md を gh api で読んで確かめた）。「develop:* を呼ぶ側になる」という見立ては、条件つきでだけ成り立つ。
 - develop:implement と develop:address-review は、セッションが CLI を shell で流し、Workflow を段ごとに別の run で起動する作り。Workflow の中の agent から別の Workflow を起動できるかは未確認で、Codex runner は入れ子の workflow を持たない（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md` の未実装の一覧）。magi の Workflow の中から develop:* は呼べない前提で考える。
-- magi が develop:* を呼べるのは、run の境界（magi の Workflow が返った後に、セッションが次のスキルを起動する所）だけ。magi をその形に組み直すかは dcf の判断で、この構成案の範囲の外に置く。dcf の contextual-code-review の扱いは「未決事項」に置く。
+- magi が develop:* を呼べるのは、run の境界（magi の Workflow が返った後に、セッションが次のスキルを起動する所）だけ。magi をその形に組み直すかは dcf の判断で、この構成案の範囲の外に置く。
+- dcf の contextual-code-review は develop:review で置き換える（決定 5）。magi の Workflow の中のレビューエンジンの一覧から外す作業は、移行計画の段 2 に入れる。
 
 ## plugin の構成
 
@@ -84,7 +86,7 @@ Workflow source の名前（`meta.name`）は `implement-plan`・`implement-run`
 | Claude Code の native Workflow | 何も強いない。permission rules は全ての subagent に同じく効く（設計方針文書「権限」） | planner・reviewer・検証役・分類役の書き込みは止められない。事後に検出するだけ（implement は段ごとの snapshot、review は pin、全ての役は返した `head_sha` の照合） |
 
 - read-only の run の中では、`stateDir` を含めてどこにも書かない。運搬役が run の中で流す CLI の op は、今と同じく読んで照合し結果を返すだけのもの（今の `review-cli.mjs` の `CARRIER_OPS` は pin・merge・judge で、状態を書かない）。状態を書く op は、run が返った後にセッションが流す（implement の `inventory`、address-review の `triage-result` と同じ形）。
-- 各 SKILL.md には、run の前に利用者が許可しておくものを書く。node と git の実行、gh の読み出し、セッションが流す CLI の `stateDir` への書き込み。address-review と review の投稿では、gh の POST も要る。許可が無いと、長い run の途中で確認が出て止まる（`R:p1-best-practices-7`・`A:p1-best-practices-5`）。
+- 各 SKILL.md には、run の前に利用者が許可しておくものを書く。node と git の実行、gh の読み出し、セッションが流す CLI の `stateDir` への書き込み。address-review と review の投稿では、gh の POST も要る。address-review の resolve では、`gh api graphql` の mutation も要る（「resolve」）。review の `external` モードでは、repo の外の名指されたファイルの読み出しも要る。許可が無いと、長い run の途中で確認が出て止まる（`R:p1-best-practices-7`・`A:p1-best-practices-5`）。
 - 役の prompt は `agents/*.md` をパスで読ませる。subagent の frontmatter の制限は使わない。plugin から読む agent では frontmatter の一部が無視されるので、そこに頼ると配布先で黙って効かない。
 - 「残る危険」の列の内容は、各スキルの結果に毎回書く（PR-015）。
 
@@ -130,29 +132,30 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 | `implement-plan` | 人間の入力（needs_human_decision）は run の境界にできる。項目は 1 つの計画で、作り直しに要るのはその計画のレビュー結果だけ | 固定パイプライン型＋項目ごとの until-pass。上限で止まったときの `revisions_exhausted` が、until-pass の「通らなかったことと理由を返す」に当たる | 持たない（fan-out が無い。PR-018） | — |
 | `implement-run` | 戻りが無い | 固定パイプライン型（implementer 1 体） | 持たない（PR-018） | — |
 | implement の外側（run の並び） | 実装 → check → review → 修正、の戻りを run をまたいで持つ | 固定集合の反復型。修正の回の上限は `implement-run` の source の定数 | 持たない | 書き込める run には implementer だけを置く必要がある。runner は役ごとに書き込みの権限を分けられない（`repo-implement` SKILL.md の「目的と段」）。check は shell を要し、script は shell に触れない |
-| `review-run` | 戻りが無い（2 段目の検証は、1 段目で決着しなかった主張に当てる段で、戻りではない） | 固定パイプライン型＋観点ごとの検証・反証の部品 | 持つ（PR-005。下記） | — |
+| `review-run` | 戻りが無い（2 段目の検証は、1 段目で決着しなかった主張に当てる段で、戻りではない） | 固定パイプライン型＋観点ごとの検証・反証の部品。最初の段に focus を書く 1 体を置く（「contextual-code-review の置き換え」） | 持つ（PR-005。下記） | — |
 | `address-review-triage` | 戻りが無い（食い違えば止まる） | 固定パイプライン型（分類 1 体 → 検証 1 体） | 持たない（全件を 1 つの context で読み、fan-out しない。PR-018） | — |
-| address-review の外側 | 収集 → 分類 → 修正 → 返信。needs_decision は run の境界にし、次の run で `decisions` として入れる | 固定パイプライン型（1 run は 1 周） | 持たない | — |
+| address-review の外側 | 収集 → 分類 → 修正 → push → required checks の待ち → 返信 → resolve（PR の無い形は修正まで）。needs_decision は run の境界にし、次の run で `decisions` として入れる。checks の待ちは、待つ回数の上限つきの同じ op の流し直しで、段の間の戻りではない | 固定パイプライン型（1 run は 1 周） | 持たない | — |
 
-- implement の外側は、人間の入力ではなく権限の分離で run に分かれている。設計方針文書の図にはこの分岐が無いので、ここに条件として書く（図に足すかは「未決事項」）。
+- implement の外側は、人間の入力ではなく権限の分離で run に分かれている。設計方針文書「形の判定」の図の、書き込む役と書き込ませない役が同じ区間に要るかの問いと、同節の原則の表・例の着地の表の行が、これに当たる（決定 8 (i) で足した）。
 - 外側の並びで段を選ぶのは司令塔（スキルを読むセッション）の仕事（AGENTS.md「作業ルール」の、段の選択の項）。選ぶ材料は CLI の `next` で、司令塔は `next` に従い、内容を作らない。
 
 **目標の固定（PR-006）。** 入口で固定した目標と出発点を状態に書き、後の段はそれを書き換えない（設計方針文書「目標の固定」）。
 - implement：`start` が依頼の文を目標として状態に書く。今は needs_human_decision の回答を依頼の文に足して計画からやり直している（`repo-implement` SKILL.md「計画と計画のレビュー」の status の表）。develop では、回答を address-review の `decisions` と同じく別の記録として状態に足し、目標の文は変えない。目標の文に足すと、何を頼まれ何を後から決めたかが区別できなくなる。
 - review：計画の mode・SHA・対象・除外が目標。計画のファイルに固定し、sum で守る（今と同じ）。
-- address-review：PR と、collect で取った指摘の集合が目標。`stateDir` に固定する（今と同じ）。
+- address-review：PR と、collect で取った指摘の集合が目標。PR の無い形では、差分（base と head の SHA）かファイルの集合と、渡された指摘の集合が目標（「外のレビュー結果を分類して直す」）。どちらも `stateDir` に固定する。
+- review の `external` モード：対象のファイルと内容の SHA-256 が目標（「git の外の対象のレビュー」）。
 
 **review の資産台帳。** 適用条件（fan-out した結果について、どこまで見たかを宣言する必要がある）に当たる。今の作りでは、CLI が coverage と `missing_coverage` を返すだけで、欠けた資産を追加で見に行く経路が無い（`R:p1-best-practices-6`）。develop では次を足す。
 - 資産：対象ファイル（path と内容の SHA-256）。資産 ID は CLI が決める。
 - 結び付き：「見た」は信用できる reviewer の coverage から入れる。指摘は検証役の結果として入れる。
 - skip 一覧：信用できる reviewer が誰も読み終えていない資産。script はその資産だけを渡して reviewer を追加で起動し、新しく見た資産が無くなった回で止める。起動数の上限を渡されたときは、追加起動も枠に数える。
-- 追加で起動するのは reviewer で、設計方針文書「資産台帳」の skip 一覧の行が review の例に挙げる検証役ではない。develop:review で資産を読み「見た」を作るのは reviewer で、finding-verifier は割り当てられた主張だけを確かめ、新しい指摘を探さない（`repo-review/agents/finding-verifier.md`）。検証役に未読の資産を渡すと、発見と検証の票が混ざる。設計方針文書の行の書き方は「未決事項」に置く。
+- 追加で起動するのは reviewer。develop:review で資産を読み「見た」を作るのは reviewer で、finding-verifier は割り当てられた主張だけを確かめ、新しい指摘を探さない（`repo-review/agents/finding-verifier.md`）。設計方針文書「資産台帳」の skip 一覧の行は、追加で起動する役を「資産を読んで『見た』を作る役」とし、主張だけを確かめる役に未読の資産を渡さないと書いている（決定 8 (ii) で直した）。
 
 ## 利用側リポジトリとの契約
 
 ### 宣言する設定
 
-利用側は設定ファイルを 1 つ置く（置き場と名前は「未決事項」。以下は仮に `develop.config.json` と書く）。形は `review/references/repo-config.schema.json` で決め、CLI が読み込み時に schema で検査する。合わない設定は失敗させる。黙って既定に落とすと、書いた宣言が効かないまま run が進む。
+利用側は設定ファイル `develop.config.json` を 1 つ置く（決定 1。置き場はリポジトリの直下）。形は `review/references/repo-config.schema.json` で決め、CLI が読み込み時に schema で検査する。合わない設定は失敗させる。黙って既定に落とすと、書いた宣言が効かないまま run が進む。
 
 | 項目 | 形 | 無いときの既定と失敗の仕方 |
 |---|---|---|
@@ -163,6 +166,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 | check | `checks.allowed`：`[{id, argv, pathGlob?}]`、`checks.required`：`[id]` | 既定を置かない。implement は受け入れで止め、宣言の雛形を返す。review と address-review は使わない |
 | テストの設計の基準 | `testDesignGuide`（path か path#節） | plugin の既定（`implement/references/case-design.md`。案） |
 | commit の後 | `afterCommit`：`push` か `none` | `none`。address-review は返信が push 済みの SHA を指すので、この設定に関わらず push する |
+| 出力の言語 | `outputLanguage`（言語の名前。例 `ja`・`en`） | `ja`（決定 6）。効くのは人が読む出力だけ：address-review の返信の本文、review の PR への投稿の本文、3 スキルの報告。そのため comment-triager の `reply_draft` と、reviewer・検証役が書く指摘の本文（投稿に使う）は、この言語で書かせる。agent への prompt・agent の内部の作業・状態の中の機械向けの値には効かせない。`REVIEW.md` の「出力」が言語を書いていても、develop はこの設定だけを見る（2 箇所から決めると食い違う） |
 
 **方針の版は設定に入れず、導く。** 設定は方針の版から読むので、方針の版を設定に書くと循環する。
 - PR が対象なら、PR の base の branch の先端（今の repo-review の PR の扱い）。address-review と、address-review から呼ばれた implement もこれに当たる。base が既定ブランチでない PR（`release/*`・`develop` など）では、その base の branch が方針の branch になる。
@@ -192,7 +196,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 - 閉集合：`REVIEW.md` の「観点」の箇条の太字の名前と、既定の観点の種類の観点（対象に出た種類だけ）。`REVIEW.md` が無ければ既定の観点だけ。CLI が `inventory` で返す。
 - 必須の観点：`REVIEW.md` の「観点」の箇条のうち、文に「必ず当てる」を含むもの。CLI が方針の版の `REVIEW.md` から読み、`inventory` で必須として返す（設定に写さない）。箇条が書く適用の条件は散文で CLI には判定できないので、対象が 1 件でもあれば常に必須にする。条件に当たらない run では空振りの費用を払うが、落とす経路は無くなる。claude-plugins では「文書とコードの挙動の一致」がこれに当たる。
 - 種類の観点の必須：`REVIEW.md` が無ければ、既定の観点の共通と、対象に出た種類の観点を全て必須にする。`REVIEW.md` があるときに必須にする種類の観点は skill だけ（今の skill-design の検査を引き継ぐため。他の種類は `REVIEW.md` の観点に任せる）。
-- 司令塔は、閉集合から観点を選び、focus と担当を付けて `plan` に渡す。必須の観点が無い計画、閉集合の外の観点、担当の無い対象を、`plan` が拒否する。選ぶ余地が残るのは、必須でない観点だけ。
+- 司令塔は、閉集合から観点を選び、担当を付けて `plan` に渡す。focus（その差分で観点ごとに何を見るか）は司令塔が書かず、review-run の最初の段で focus を書く役が書く（「contextual-code-review の置き換え」）。必須の観点が無い計画、閉集合の外の観点、担当の無い対象を、`plan` が拒否する。選ぶ余地が残るのは、必須でない観点だけ。
 - skill の観点は、既定の観点の skill（`default-lenses.md` の skill の節）を指す。claude-plugins の `REVIEW.md` の「スキル構造」とは別の観点で、「スキル構造」は「必ず当てる」を含まないので任意になる。両方を立てると同じ規則を 2 体が読むので、司令塔は「スキル構造」を選ばなくてよい。skill の種類（`SKILL.md`、その隣の `agents/*.md`、先頭の文が `export const meta` の `.js`）のファイルは、skill の観点に必ず割り当てる。今の skill-design の観点と同じ検査を、claude-plugins の置き場の glob（`SKILL_DESIGN_TARGETS`・`WORKFLOW_SOURCE_PATHS`）に依らず、ファイル名と内容で行う。
 - skill の観点が何を規則に読むかは、`REVIEW.md` の「読むもの」表が決める。claude-plugins の表は、`SKILL.md`・`agents/*.md` と Workflow script の行で best-practices.md の節を挙げている。設定に規則を写さない（写すと表と 2 箇所になる）。best-practices.md は skill-creator plugin のファイルで、develop に作り付けにすると plugin をまたぐパス参照になる（AGENTS.md「plugin 間でスキルは共有できない」）。claude-plugins の作業ツリーにある版を、方針の版で読む。
 
@@ -212,8 +216,74 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 - review が起動数の上限で止まって `next_args` を返したとき：implement の `record-review` は、その返り値を記録せず `next: resume_review` を返す。司令塔は同じ `next_args` で review を呼び直し、completed か review_incomplete になった返り値だけを記録する。今の `record-review` が受けるのは completed と review_incomplete だけで、この経路が無い。
 - address-review は implement を呼ぶとき、PR の番号と、collect で固定した方針の版の SHA を渡す。今はそれぞれが始めた時点で主ブランチの先端を固定するので、間に主ブランチが進むと別の版で読む（`address-review` SKILL.md「照合しないもの」）。
   - 今の implement が方針の版を入力に取らないのは、作業 branch の規約で同じ変更を免責しないため（`repo-implement` SKILL.md「開始: 状態を固定する」の 2）。
-  - その防ぎを残すため、implement の CLI は、照らす先の branch を自分で導く。PR の番号を渡されたら `gh pr view --json baseRefName` の base の branch、無ければ既定ブランチ（「方針の版は設定に入れず、導く」）。渡された SHA がその branch の remote の先端の祖先（同じを含む）であることを `git merge-base --is-ancestor` で確かめ、違えば拒否する。base が `release/*` の PR でも、照らす先は既定ブランチではなく PR の base になる。作業 branch の commit は base の branch の祖先にならないので通らない。
+  - その防ぎを残すため、implement の CLI は、照らす先の branch を自分で導く。PR の番号を渡されたら `gh pr view --json baseRefName` の base の branch、PR の無い形で collect が branch を名指していればその branch（remote にあることを確かめる）、どちらも無ければ既定ブランチ（「方針の版は設定に入れず、導く」）。渡された SHA がその branch の remote の先端の祖先（同じを含む）であることを `git merge-base --is-ancestor` で確かめ、違えば拒否する。base が `release/*` の PR でも、照らす先は既定ブランチではなく PR の base になる。作業 branch の commit は base の branch の祖先にならないので通らない。
 - 返り値の形（`sum` を含む）は review の Workflow source の schema を正本にし、implement の `record-review` はそれを照合する。同じ plugin の同じ版で配るので、版のずれは起きない。
+
+## 決定で足す流れ
+
+利用者が決めたこと（「決まったこと」）から生まれる流れ。値（待つ回数・待つ間隔など）は core の名前付きの定数に置き、ここには書かない。
+
+### 返信の前に required checks を待つ（決定 4）
+
+address-review の push の後、返信の前に `await-checks` の op を足す。CLI は push した SHA が PR の head であることを確かめ、その SHA の required checks を gh で読む（どの gh の項目で読むかは未確認で、実装で決める）。
+
+| required checks の状態 | `next` | 理由 |
+|---|---|---|
+| 全て成功 | `recheck`（その後に返信） | 返信の「直した」が CI でも成り立っている |
+| 実行中が残る | `wait_and_retry`（今の `NEXT` と同じ待ち方）。回数は CLI が記録から数え、上限は core の定数 | 結果が出る前に返信すると、CI が落ちたときに誤った返信が残る |
+| 待つ回数の上限に達した | `report`。返信せずに止まる | 待ち続けると run が終わらない。push した commit は残り、次の run の collect から扱う |
+| 1 件でも失敗 | `report`。失敗した check の名前を返し、返信しない | 1 run は 1 周なので、直すのは次の run |
+| required checks が 1 件も無い | `recheck` | 待つものが無い。代わりの根拠は implement の `verify`（check と review を通った）で、そのことを報告に書く（pk の作り） |
+
+`recheck` の後に head が他の人の push で動いたときは、今の `blocked` の扱い（返信を止め、次の run で扱う）のままにする。
+
+### resolve（決定 3）
+
+返信を確かめた後（`confirm-replies` が通った後）に、`resolve-plan` と `confirm-resolves` の op を足す。CLI が次の条件を全て満たす thread だけを候補にし、GraphQL の mutation の入力をファイルに書く。セッションはそれを `gh api graphql --input <file>` で流す。
+- 分類が fix で、`recheck` が `skipped` にしていない（修正の commit で `repair_paths` のどれかが変わった）。
+- 修正の commit が、今の PR の head の祖先（同じを含む）。
+- その head の required checks が `await-checks` で全て成功している（required checks が無いときは、上の表の最後の行の扱い）。
+- その thread への返信が `confirm-replies` で確かめられている。
+- thread の議論が `recheck` の snapshot から変わっておらず、まだ resolve されていない（pk の「直前の再取得」）。
+
+fix 以外の扱い：
+- decline・out_of_scope：返信するが resolve しない。退ける理由に納得するかは指摘した人が決めることで、こちらが閉じると議論を一方的に終わらせる（pk は decline の根拠を返信した thread も resolve するが、ここは取り込まない）。
+- needs_decision・unverified：返信も resolve もしない（今と同じく止まる）。
+- issue_comment・review の本文：thread が無いので resolve の対象にならない。
+
+`STOP_AFTER` に `resolve` を足して既定にし、今の `reply` は「返信の後で止まる（resolve しない）」に変える。`scripts/address-skill.test.mjs` の「resolve の経路が無い」照合は、次の 2 つに変える。
+- resolve の mutation の文が、CLI の `resolve-plan` の組み立ての 1 箇所にだけある。
+- 分類・各条件の成否の組み合わせ（閉じた有限の集合）を全数列挙し、全ての条件を満たす組だけが候補になる（設計方針文書「機械で確かめる」の全数列挙の行）。
+
+### 外のレビュー結果を分類して直す（決定 7）
+
+入口は address-review の collect にする。collect に、PR のコメントの代わりに外のレビュー結果を受ける形（`source: "findings"`）を足す。PR があればその PR を、無ければ次の目標を入口で固定する。
+- 目標：差分なら `{baseRef, headSha}`（どちらも完全な SHA）、ファイルなら `{paths, headSha}`。headSha は今の HEAD と同じで、作業ツリーは clean であること（PR の形で head を checkout した clean な作業ツリーを求めるのと同じ。implement が書き込む前の出発点を固定するため）。
+- 方針の版：PR があれば PR の base の branch、無ければ既定ブランチの remote の先端（「方針の版は設定に入れず、導く」）。利用者が base の branch を名指したら、その branch の remote の先端。remote に無い branch は `E_PIN` で止める。
+- 指摘：利用者が渡すファイル。JSON の一覧（`{path?, line?, body}`。develop:review の返り値もこの形に読める）か、テキスト（全体を 1 件として扱う）。ID は CLI が順序と本文の SHA-256 から決める。司令塔は本文を分けない・書き換えない（分けると、分け方が検証を通らない生成になる）。
+- 流れ：分類の Workflow と分類の検証、`decisions` は PR の形と同じ。返信・push・`await-checks`・resolve の段は無い。`STOP_AFTER` は `classify` か `verify` だけを受け、commit は implement の規則（頼まれたときだけ、`afterCommit`）に従う。
+
+address-review を入口にする理由：
+- 分類と分類の検証（comment-triager・triage-verifier・CLI の照合・`decisions` の受け渡し）は address-review にだけある。implement に足すと、同じ役を 2 つのスキルに持つか、implement が分類の Workflow を呼ぶことになり、implement が「承認した 1 つの計画を実装する」以外の役を持つ。
+- PR の形と PR の無い形で、分類の基準と fix を implement に渡す経路を 1 つにできる。
+
+### git の外の対象のレビュー（決定 2）
+
+既定の入口（description が拾う依頼）では扱わない。利用者が、貼り付けた文書や repo の外のファイルを名指してレビューを頼んだときだけ、review の `external` モードで見る。
+- 対象：repo の外のファイルの path か、貼り付けた本文。本文は、セッションが `stateDir` のファイルに逐語で写す（写すだけで、手を加えない）。
+- pin：各ファイルの内容の SHA-256。commit は無い。
+- 方針：方針の版も方針文書も無い。既定の観点だけで見る。
+- 資産台帳：作る。資産はファイルと内容の SHA-256 で、git に依らず CLI が ID を決められる（設計方針文書「資産台帳」の定義に当たる）。
+- 結果に必ず書く、見なかったもの：方針文書（方針の版が無い）、除外と生成物の判定、PR への投稿（PR が無い）。
+- 検証の 2 段・coverage・skip 一覧は他のモードと同じ。
+
+### contextual-code-review の置き換え（決定 5）
+
+develop:review で置き換え、次を取り込む。
+- `pipeline_status`：CLI が `reasons` から決めて返す。completed は success。`coverage_or_limitations`・`verification_incomplete`・`forbidden_reads` だけなら degraded（検証を通った指摘は有効）。`pin_changed`・`carrier_failed`・`cli_rejected` があれば failed（指摘は空）。対応は core の定数に置く。呼び出し側は 1 つの値で「0 件」と「レビューできなかった」を分けられる。
+- 除外した指摘を空でも必ず返す：`refuted`・`invalid_findings`・`untrusted_findings` を返り値の schema の必須にする。
+- focus を書く役：review-run の最初の段に 1 体置く。選ばれた観点ごとに、その差分で何を見るかを、方針の束の節 ID と対象の path:line を引いて書く。観点を足したり外したりはしない。CLI は、引いた節 ID が束にあり、path が対象にあることを確かめ、合わない focus はその観点の focus を空にして limitations に書く。差分が小さく見えても省かない（dcf の `focus-brief-writer.md` の「常時無条件で呼ばれる」）。今は司令塔が focus を書いていて、司令塔が内容を作らないという役の分担に反する。起動数の上限を渡されたときは、この 1 体も枠に数える。
+- dcf の `REVIEW.md` の「金融ロジックで必ず見ること」は「観点」の箇条ではないので、必須の観点の規則に乗らない。段 2 で、dcf がこの節を「観点」の箇条（「必ず当てる」を含む）にするか、「読むもの」表の行にする。
 
 ## pr-review・pr-review-fix の機能の行き先
 
@@ -227,8 +297,8 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 | pr-review：PR を checkout せずにレビューする | 今の diff モードは、head を checkout した clean な作業ツリーを前提にする（`R:p1-description-alignment-3`）。CLI が `stateDir` の下に headSha の worktree を作り（案。`.git` の worktree の記録が増える）、worker の cwd をその worktree にする（Codex は runner request の cwd、今の callsite は repo を cwd にしている）。native Workflow で agent の cwd を変えられるかは未確認。変えられなければ、prompt に worktree の絶対 path を渡し、全ての path をそこ基点で読ませる | 無し（案が通れば） |
 | pr-review：confidence | 票で置き換える。確定には有効な票が要り、確かめられない主張は確定しない | 自己申告の confidence の欄 |
 | pr-review：重大度 blocker・major・minor・nit | CRITICAL・HIGH・MEDIUM・LOW（既定の観点の節） | 元の語彙 |
-| pr-review：貼り付けた文書・git の外のファイル | 取り込まない。pin（内容の SHA-256 と commit）と方針の束が git を前提にし、投稿には path と line が要る | git の外の対象のレビュー（「未決事項」） |
-| pr-review-fix：入力のレビュー結果を confirmed・rejected・unverified に分けてから直す | develop:review の結果は確定済みなので、そのまま implement に渡せる。PR に関わる外のレビュー結果は、address-review の分類と分類の検証に通す。collect に、PR のコメントの代わりに指摘の一覧を受ける入力を足し（案）、返信の段は飛ばす。目標（PR と指摘の集合）と方針の版（PR の base）は PR から決まる。PR の無い対象（branch の差分・ファイル）への外のレビュー結果は、目標も方針の版も collect では決まらないので、この経路に乗らない。implement が依頼の文として受け、planner と plan-reviewer が依頼と既存の契約に照らす範囲でしか確かめない（今と同じ） | PR の無い対象への外のレビュー結果を、分類と分類の検証に通す段（「未決事項」） |
+| pr-review：貼り付けた文書・git の外のファイル | 既定の入口では扱わず、利用者が明示したときだけ review の `external` モードで見る（「git の外の対象のレビュー」） | 方針文書による観点、投稿 |
+| pr-review-fix：入力のレビュー結果を confirmed・rejected・unverified に分けてから直す | develop:review の結果は確定済みなので、そのまま implement に渡せる。外のレビュー結果は、PR があってもなくても address-review の分類と分類の検証に通す（「外のレビュー結果を分類して直す」） | 無し |
 | pr-review-fix：plan だけを作る | implement に `stopAfter: "plan"` を足す（address-review の `STOP_AFTER` と同じ形）。止まるのは受け入れの後で、承認済みの計画は状態にある。続けるときは、返した `next_args`（状態の path と sum、計画と sum）で implement を呼ぶ。CLI は作業ツリーが受け入れの時から変わっていないことを snapshot で確かめ、開始時の check から続ける | 無し |
 | pr-review-fix：apply・verify | implement の実装の回、check、review | check を宣言していないリポジトリでは修正できない（設定が merge されるまで） |
 | pr-review-fix：確定した指摘だけ直す、未検証の重い指摘で止まる | implement は、確定指摘だけを券に載せる。未検証が残れば `abandon` | 無し |
@@ -248,10 +318,13 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 | 方針の束を 1 回だけ作り、全ての役に同じ版を配る | claude-plugins `repo-review` | review |
 | 観点ごとの reviewer、2 段の検証、見ていないもの（除外・生成物・未読）の宣言 | claude-plugins `repo-review` | review |
 | 分類役と検証役が食い違ったら止まる。返信の直前の再照合と投稿の確認 | claude-plugins `address-review` | address-review |
-| thread を resolve しない既定と、resolve の経路が無いことのテスト | claude-plugins `address-review`（`scripts/address-skill.test.mjs`） | address-review。未決事項 3 で明示の依頼の resolve を足すと決まれば、テストは「依頼の無い resolve が無い」ことの照合に変える |
+| 条件を満たした thread だけを resolve する（修正が PR の head にあり、required checks が成功し、返信を投稿したもの） | pk の address-review（SKILL.md「commit、push、返信、resolve」の表）。claude-plugins の `scripts/address-skill.test.mjs` は、条件の外の resolve が無いことの照合に変える | address-review（「resolve」） |
+| push の後、required checks の成功を待ってから返信する | pk の address-review | address-review（「返信の前に required checks を待つ」） |
 | 全ての CLI の出力（拒否も）が `next` を持つ | claude-plugins `address-review`（`NEXT`・`NEXT_BY_CODE`）。dcf の BLOCKED に `reason`・`evidence`・`next_action` を付ける作りも同じ考え | implement と review の CLI にも広げる |
 | agent が見た HEAD を返し、script が pin と照らす | pk の implement、claude-plugins にも同じものがある | 3 スキル |
-| 0 件と「レビューできなかった」を分ける | dcf の contextual-code-review（`pipeline_status`）、claude-plugins の `review_incomplete` も同じ | review（今の形で足りる） |
+| 0 件と「レビューできなかった」を分け、`pipeline_status`（success・degraded・failed）で返す | dcf の contextual-code-review、claude-plugins の `review_incomplete` も同じ考え | review（「contextual-code-review の置き換え」） |
+| 除外した指摘を空でも必ず返す（`excluded_findings`） | dcf の contextual-code-review | review の `refuted`・`invalid_findings`・`untrusted_findings` を schema の必須にする |
+| 差分に固有の focus を、方針の文書の見出し・行を引いて別の役が書く（focus brief） | dcf の contextual-code-review（`agents/focus-brief-writer.md`） | review-run の最初の段（「contextual-code-review の置き換え」） |
 
 ### 取り込まないもの
 
@@ -259,7 +332,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 |---|---|---|
 | `make tree-sha` による作業ツリーの同一性の確認 | pk | CLI の snapshot が同じことを Makefile に依らずに行う |
 | 複数のレビューエンジン（codex・open-code-review・`/code-review`・Fable）と、落ちたときの切り替え | dcf magi | 別の plugin や外部の道具に依存し、配布先で揃う保証が無い。票の独立と起動数の記録が script の外に出る |
-| focus brief を別 agent が書き、レビュー役に注入する | dcf contextual-code-review | 観点は CLI が作る閉集合から選び、必須の観点は `plan` が強いる（「観点の決め方」）。brief を LLM が作ると、何を見るかの全体が run ごとに変わり、必須の観点も落とせる |
+| 委譲されないとき（direct モード）の投稿の前に、利用者の承認を求める | dcf の contextual-code-review | pr-review の既定（PR が対象なら投稿する）を引き継ぐ。承認を挟むと、pr-review から吸収した既定が変わる |
 | 既存の欠陥の露出を、Issue（`review-deferred`）として起票する | dcf magi | 「正しいが独立」は address-review の `out_of_scope` が受ける。Issue 化で完了を先送りしない（AGENTS.md「作業ルール」） |
 | 振り返りの改善案を、その場でスキルに適用する | dcf magi | スキルの改善は bp の update の役割で、run の中で自分を書き換えない |
 | `[SKILL_DELEGATION ...]` の見出しで呼び出しの種類を分ける | dcf | 文の見出しの照合ではなく、args の `caller` で分ける（構造で分けられるので） |
@@ -294,7 +367,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 | 他人の PR・fork の PR への push | A:p1-loopholes-5 | collect で head に push できるかを確かめ、できなければ fix を needs_decision にして止める（gh で取れる項目は未確認） |
 | 写しの一致の検査が配布物の外 | minor の A:p1-best-practices-6、address-core.mjs の D、A:p1-duplicate-claims-3、R:p1-duplicate-claims-4 | 一致の照合を各スキルの `scripts/*.test.mjs` に移す。模擬実行は直下の `tests/` に残す |
 | eval が claude-plugins の PR 番号に依存 | minor の A:p1-best-practices-7 | fixture に置き換え、汎用の対象で測る |
-| 返信が日本語に固定 | minor の A:p1-loopholes-8 | 「未決事項」 |
+| 返信が日本語に固定 | minor の A:p1-loopholes-8 | `outputLanguage` の設定（決定 6） |
 
 ### 設計方針への適合の欠け
 
@@ -329,8 +402,8 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 | 段 | 作業 | 完了条件 | 壊れるもの |
 |---|---|---|---|
 | 1a. 設定を先に入れる（claude-plugins） | claude-plugins の設定ファイルと、`tools/sync-bp-criteria.mjs` に書き先を出力する option を、develop:implement の外で 1 つの PR にして main に merge する。develop が無い間は誰も読まない | main に設定と tool の option があり、設定がこの文書の形で書かれている（schema の検査は 1b で通す）。option の出力が今の `readGeneratedPaths` の結果と一致する | 無し（tool に option が増えるだけ） |
-| 1b. develop を作る（claude-plugins） | `.agents/skills/` の 3 つを改名して一般化する（この文書を前段に要求を起こし、bp update で改稿する）。3 本のテスト `tests/repo-implement-workflow.test.mjs`・`tests/repo-review-workflow.test.mjs`・`tests/address-review-workflow.test.mjs` を、一致の照合（各スキルの `scripts/*.test.mjs` へ移す）と模擬実行（直下の `tests/` に残す）に分ける。`tests/workflow-callers.test.mjs` の名前の callsite の区分の一覧に 4 本を足す。manage-marketplace-plugin で plugin `develop` を作って 3 つを登録する（Workflow source は `workflows/` に移り、callsite は名前の呼び出しになる） | `make test` が通る。bp review（scope full）で確定 0。棄却の理由に「専用と宣言している」を挙げるものが 0 件（理由の文を grep して数える）。`verify_install.py --plugin develop` が通る。evals と trigger evals を測る。claude-plugins の PR で address-review を 1 周、develop:review を上限つき（Codex runner）と上限なし（native）で 1 回ずつ流す。設定と tool の option は 1a で main にあるので、1b の merge の前に、checkout の scriptPath で流せる | claude-plugins で `repo-*` の名前を使う依頼（公開前なので、このリポジトリだけ）。段 3 までの発火の取り合い：`workflow:pr-review` と `develop:review`、`workflow:pr-review-fix` と `develop:implement`・`develop:address-review` |
-| 2. pk・dcf の写しを消す | 各リポジトリで、設定を足す PR を先に merge する。pk：`REVIEW.md` の表が読めることを確かめ、`.agents/skills/{implement,review,address-review}` と参照を消す。dcf：`rulesDir` を宣言し、contextual-code-review の扱いを決めてから（「未決事項」）。magi は変えない | 各リポジトリで、旧名の参照が grep で 0 件。develop:review を 1 回流し、`policyPack.missing` が空 | pk で旧名を使う依頼。dcf で contextual-code-review を消す場合は、magi のレビューエンジンの呼び出し |
+| 1b. develop を作る（claude-plugins） | `.agents/skills/` の 3 つを改名して一般化する（この文書を前段に要求を起こし、bp update で改稿する）。3 本のテスト `tests/repo-implement-workflow.test.mjs`・`tests/repo-review-workflow.test.mjs`・`tests/address-review-workflow.test.mjs` を、一致の照合（各スキルの `scripts/*.test.mjs` へ移す）と模擬実行（直下の `tests/` に残す）に分ける。`tests/workflow-callers.test.mjs` の名前の callsite の区分の一覧に 4 本を足す。`scripts/address-skill.test.mjs` を「resolve」の節の 2 つの照合に変える。manage-marketplace-plugin で plugin `develop` を作って 3 つを登録する（Workflow source は `workflows/` に移り、callsite は名前の呼び出しになる） | `make test` が通る。bp review（scope full）で確定 0。棄却の理由に「専用と宣言している」を挙げるものが 0 件（理由の文を grep して数える）。`verify_install.py --plugin develop` が通る。evals と trigger evals を測る。claude-plugins の PR で address-review を 1 周（required checks の待ちと resolve まで）、PR の無い差分で外のレビュー結果の形を 1 周、develop:review を上限つき（Codex runner）と上限なし（native）で 1 回ずつ流す。設定と tool の option は 1a で main にあるので、1b の merge の前に、checkout の scriptPath で流せる | claude-plugins で `repo-*` の名前を使う依頼（公開前なので、このリポジトリだけ）。段 3 までの発火の取り合い：`workflow:pr-review` と `develop:review`、`workflow:pr-review-fix` と `develop:implement`・`develop:address-review` |
+| 2. pk・dcf の写しを消す | 各リポジトリで、設定を足す PR を先に merge する。pk：`REVIEW.md` の表が読めることを確かめ、`.agents/skills/{implement,review,address-review}` と参照を消す。dcf：`rulesDir` を宣言し、`REVIEW.md` の「金融ロジックで必ず見ること」を必須の観点か「読むもの」表の行にする。`.agent/skills/contextual-code-review` を消し、magi の `scripts/issue-resolve.js` のレビューエンジンの一覧と、SKILL.md「構造として保証されるもの」の重いレンズの起動の条件から contextual-code-review を外す（magi の Workflow の中からは develop:review を呼べない前提。「結論と範囲」）。magi の他の段は変えない | 各リポジトリで、旧名（pk の 3 スキル、dcf の contextual-code-review）の参照が grep で 0 件。develop:review を 1 回流し、`policyPack.missing` が空で、dcf では金融ロジックの観点が必須として立つ | pk で旧名を使う依頼。dcf で contextual-code-review を呼ぶ依頼と、magi の重いレンズ（contextual-code-review の分が抜け、Fable だけが残る） |
 | 3. workflow の 2 スキルを廃止 | `plugins/workflow/skills/pr-review`・`pr-review-fix` と `.agents/skills/` の symlink を消す。参照を直す（`README.md:13`、`plugins/workflow/README.md:12-13`、`.agents/skills/manage-marketplace-plugin/tests/test_marketplace_safety.py:108`・`test_path_safety.py:59` の例の名前）。develop の trigger evals から、2 スキルとの取り合いの負例を外す。workflow の version を上げる | 下記の grep の条件を満たす。`make test` と `verify_install.py --plugin workflow` が通る | `/workflow:pr-review` と `/workflow:pr-review-fix` を呼ぶ利用者（not found になる） |
 
 - `.agents/skills/repo-implement/SKILL.md:13` と `.agents/skills/address-review/SKILL.md:10` の `workflow:pr-review-fix` への案内は、段 1b の一般化で書き直すので、段 3 を待たずに消える。
@@ -347,13 +420,23 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 - evals は with_skill と baseline を比べる。
 - trigger evals の負例に入れるもの：`workflow:review-document`、skill-creator-best-practices。段 3 までは `workflow:pr-review`・`workflow:pr-review-fix` も入れる。
 
-## 未決事項
+## 決まったこと
 
-1. 利用側の設定ファイルの置き場と名前（仮に `develop.config.json`）。方針の版から読むことは決めてある。
-2. git の外の対象（貼り付けた文書）のレビューを捨ててよいか。pr-review から失う機能のうち、代わりの経路が無いのはこれだけ。confidence の欄・spec と prd の自動の見分け・重大度の語彙は、別の形に置き換えた（「pr-review・pr-review-fix の機能の行き先」の表）。
-3. address-review で、利用者が明示したときに thread を resolve する経路を足すか。既定は今の「resolve しない」のまま取り込む。pk は条件つきで resolve する。
-4. push の後、required checks の成功を返信の前提にするか（pk の作り。今の claude-plugins には無い）。
-5. dcf の contextual-code-review を、仕組みだけ取り込むか、develop:review で置き換えて消すか。置き換えるなら、magi のレビューエンジンの呼び出しを直す必要がある。
-6. 返信の言語。日本語に固定するか、設定にするか、指摘の言語に合わせるか。
-7. PR の無い対象（branch の差分・ファイル）への外のレビュー結果を、分類と分類の検証に通す経路を作るか。pr-review-fix から失う機能はこれ。作るなら、目標（何の差分か）と方針の版（どの branch か）を入口で決める規則が要る。作らなければ、今と同じく implement が依頼の文として受ける。
-8. 設計方針文書への書き戻し。(i) 「形の判定」の図に、権限の分離で run を分ける場合を足すか（implement の外側）。(ii) 「資産台帳」の skip 一覧の行で review の追加起動の役を検証役としている書き方を、資産を読む役が reviewer の構成に合わせて直すか。
+利用者が決めたことと、反映した節。
+
+| # | 決めたこと | 反映した節 |
+|---|---|---|
+| 1 | 設定ファイルは `develop.config.json` | 「宣言する設定」 |
+| 2 | git の外の対象（貼り付けた文書）は、既定では扱わず、指定されたときだけレビューする | 「git の外の対象のレビュー」、「pr-review・pr-review-fix の機能の行き先」 |
+| 3 | thread を resolve してよい（条件つき） | 「resolve」、「3 リポジトリから取り込む仕組み」、「権限」、移行計画の段 1b |
+| 4 | 返信は required checks の成功を待つ | 「返信の前に required checks を待つ」、「3 リポジトリから取り込む仕組み」 |
+| 5 | dcf の contextual-code-review は develop:review で置き換え、有用な仕組みは取り込む | 「contextual-code-review の置き換え」、「3 リポジトリから取り込む仕組み」と「取り込まないもの」、「結論と範囲」、移行計画の段 2 |
+| 6 | 返信などの言語は日本語を既定にし、`develop.config.json` で変えられる。agent の内部の作業の言語は問わない | 「宣言する設定」の出力の言語、bp 差分の表 |
+| 7 | PR の無い対象への外のレビュー結果も、分類と分類の検証に通す | 「外のレビュー結果を分類して直す」、「pr-review・pr-review-fix の機能の行き先」 |
+| 8 | 設計方針文書の (i) 「形の判定」に権限の分離で run を分ける場合を足し、(ii) 「資産台帳」の skip 一覧の行を直す | `docs/design/skill-design-patterns.md` の「形の判定」（図・原則の表・例の着地の表）と「資産台帳」の skip 一覧の行。この文書の「形の判定」 |
+
+決めたことから新しく生まれた、利用者に決めてもらうこと：
+1. magi の重いレンズから contextual-code-review が抜けた分を、Fable だけで足りるとするか、magi の Workflow が返った後にセッションが develop:review を呼ぶ形に magi を組み直すか（dcf の判断）。
+
+決めたことから生まれた、この文書の外の作業：
+- 決定 8 (i) で「形の判定」の図に問いが 1 つ増えた。`docs/specifications/bp-conformance.md` は図の問いを A・Q1・Q2・Q3 の名前で表に持つので、新しい問いを足す仕様の改稿が要る（prd-spec で行う）。bp の基準の写し（`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/`）の同期も要る。
