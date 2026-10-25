@@ -131,7 +131,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 |---|---|---|---|---|
 | `implement-plan` | 人間の入力（needs_human_decision）は run の境界にできる。項目は 1 つの計画で、作り直しに要るのはその計画のレビュー結果だけ | 固定パイプライン型＋項目ごとの until-pass。上限で止まったときの `revisions_exhausted` が、until-pass の「通らなかったことと理由を返す」に当たる | 持たない（fan-out が無い。PR-018） | — |
 | `implement-run` | 戻りが無い | 固定パイプライン型（implementer 1 体） | 持たない（PR-018） | — |
-| implement の外側（run の並び） | 実装 → check → review → 修正、の戻りを run をまたいで持つ | 固定集合の反復型。修正の回の上限は `implement-run` の source の定数 | 持たない | 書き込める run には implementer だけを置く必要がある。runner は役ごとに書き込みの権限を分けられない（`repo-implement` SKILL.md の「目的と段」）。check は shell を要し、script は shell に触れない |
+| implement の外側（run の並び） | 実装 → check → review → 修正、の戻りを run をまたいで持つ | 固定集合の反復型。修正の回の上限は `implement-run` の source の定数 | 持たない | 書き込める run には implementer だけを置く必要がある。runner は役ごとに書き込みの権限を分けられない（`repo-implement` SKILL.md の「目的と段」）。Codex runner では run の権限で他の役の書き込みを止め、native Workflow では run の境界の snapshot で事後に検出する（「権限」）。check は shell を要し、script は shell に触れない |
 | `review-run` | 戻りが無い（2 段目の検証は、1 段目で決着しなかった主張に当てる段で、戻りではない） | 固定パイプライン型＋観点ごとの検証・反証の部品。最初の段に focus を書く 1 体を置く（「contextual-code-review の置き換え」） | 持つ（PR-005。下記） | — |
 | `address-review-triage` | 戻りが無い（食い違えば止まる） | 固定パイプライン型（分類 1 体 → 検証 1 体） | 持たない（全件を 1 つの context で読み、fan-out しない。PR-018） | — |
 | address-review の外側 | 収集 → 分類 → 修正 → push → required checks の待ち → 返信 → resolve（PR の無い形は修正まで）。needs_decision は run の境界にし、次の run で `decisions` として入れる。checks の待ちは、待つ回数の上限つきの同じ op の流し直しで、段の間の戻りではない | 固定パイプライン型（1 run は 1 周） | 持たない | — |
@@ -409,7 +409,7 @@ develop:review で置き換え、次を取り込む。
 
 | 段 | 作業 | 完了条件 | 壊れるもの |
 |---|---|---|---|
-| 0. bp の判定の模型を改める（claude-plugins） | 決定 8 (i) で、1 つのスキルが run の並びの形と各 run の形を持てるようになった。今の bp は、形の問いを A・Q1・Q2・Q3 の閉集合で持ち、1 つのスキルに 1 つの形（最初に到達した形）を付ける。下の作業で、判定の単位を「スキル」から「run の並びと各 run」に改める。仕様は prd-spec で改稿し、CLI とテストは実装で直す。改稿の後に `tools/sync-bp-criteria.mjs` で写しを同期する | 下の閉集合の全てに問い W が入り、W が「はい」のスキルで、run の並びと各 run の形が別々に判定される。`make test` が通る。W が「いいえ」の既存のスキルに bp review をかけ、判定が改稿の前と変わらない。W が「はい」の fixture（今の `repo-implement` の構成）で、run の並びが固定集合の反復型、各 run が固定パイプライン型（計画は＋until-pass）と判定される | 2a06b44 で設計方針文書（W あり）とその写しを同期した時から段 0 が終わるまで、配布される bp の中で、設計方針の写し（W あり）と仕様の写し・CLI（W なし）が食い違う。その間の bp は、develop:implement のような W が「はい」のスキルを 1 つの形で判定するので、PR-001・002 の判定は当てにならない |
+| 0. bp の判定の模型を改める（claude-plugins） | 決定 8 (i) で、1 つのスキルが run の並びの形と各 run の形を持てるようになった。今の bp は、形の問いを A・Q1・Q2・Q3 の閉集合で持ち、1 つのスキルに 1 つの形（最初に到達した形）を付ける。下の作業で、判定の単位を「スキル」から「run の並びと各 run」に改める。仕様は prd-spec で改稿し、CLI とテストは実装で直す。改稿の後に `tools/sync-bp-criteria.mjs` で写しを同期する | 下の閉集合の全てに問い W が入り、W が「はい」のスキルで、run の並びと各 run の形が別々に判定される。`make test` が通る。W が「いいえ」の既存のスキルに bp review をかけ、判定が改稿の前と変わらない。W が「はい」の fixture（今の `repo-implement` の構成）が、create・update・review の 3 つの経路のテストで通り、どの経路でも run の並びが固定集合の反復型、各 run が固定パイプライン型（計画は＋until-pass）と判定される（`make test` が落ちない create・update の経路も、テストで踏ませる） | 2a06b44 で設計方針文書（W あり）とその写しを同期した時から段 0 が終わるまで、配布される bp の中で、設計方針の写し（W あり）と仕様の写し・CLI（W なし）が食い違う。その間の bp は、develop:implement のような W が「はい」のスキルを 1 つの形で判定するので、PR-001・002 の判定は当てにならない |
 | 1a. 設定を先に入れる（claude-plugins） | claude-plugins の設定ファイルと、`tools/sync-bp-criteria.mjs` に書き先を出力する option を、develop:implement の外で 1 つの PR にして main に merge する。develop が無い間は誰も読まない | main に設定と tool の option があり、設定がこの文書の形で書かれている（schema の検査は 1b で通す）。option の出力が今の `readGeneratedPaths` の結果と一致する | 無し（tool に option が増えるだけ） |
 | 1b. develop を作る（claude-plugins） | `.agents/skills/` の 3 つを改名して一般化する（この文書を前段に要求を起こし、bp update で改稿する）。3 本のテスト `tests/repo-implement-workflow.test.mjs`・`tests/repo-review-workflow.test.mjs`・`tests/address-review-workflow.test.mjs` を、一致の照合（各スキルの `scripts/*.test.mjs` へ移す）と模擬実行（直下の `tests/` に残す）に分ける。`tests/workflow-callers.test.mjs` の名前の callsite の区分の一覧に 4 本を足す。`scripts/address-skill.test.mjs` を「resolve」の節の 2 つの照合に変える。manage-marketplace-plugin で plugin `develop` を作って 3 つを登録する（Workflow source は `workflows/` に移り、callsite は名前の呼び出しになる） | `make test` が通る。段 0 で改めた bp で、bp review（scope full）の確定 0。棄却の理由に「専用と宣言している」を挙げるものが 0 件（理由の文を grep して数える）。`verify_install.py --plugin develop` が通る。evals と trigger evals を測る。claude-plugins の PR で address-review を 1 周（required checks の待ちと resolve まで）、PR の無い差分で外のレビュー結果の形を 1 周、develop:review を上限つき（Codex runner）と上限なし（native）で 1 回ずつ流す。設定と tool の option は 1a で main にあるので、1b の merge の前に、checkout の scriptPath で流せる | claude-plugins で `repo-*` の名前を使う依頼（公開前なので、このリポジトリだけ）。段 3 までの発火の取り合い：`workflow:pr-review` と `develop:review`、`workflow:pr-review-fix` と `develop:implement`・`develop:address-review` |
 | 2. pk・dcf の写しを消す | 各リポジトリで、設定を足す PR を先に merge する。pk：`REVIEW.md` の表が読めることを確かめ、`.agents/skills/{implement,review,address-review}` と参照を消す。dcf：`rulesDir` を宣言し、`REVIEW.md` の「金融ロジックで必ず見ること」を必須の観点か「読むもの」表の行にする。`.agent/skills/contextual-code-review` を消し、magi の `scripts/issue-resolve.js` のレビューエンジンの一覧と、SKILL.md「構造として保証されるもの」の重いレンズの起動の条件から contextual-code-review を外す（magi の Workflow の中からは develop:review を呼べない前提。「結論と範囲」）。magi の他の段は変えない。利用側（dcf）で決めること：magi の重いレンズから contextual-code-review が抜けた分を、Fable だけで足りるとするか、magi の Workflow が返った後にセッションが develop:review を呼ぶ形に magi を組み直すか。develop が約束するのは、develop:review をセッションからスキル呼び出しで呼べること（「呼び出し側との契約」）と、返り値の契約（`pipeline_status` の三値・除外した指摘を空でも必ず返すこと・確定した指摘の一覧。「contextual-code-review の置き換え」）だけ | 各リポジトリで、旧名（pk の 3 スキル、dcf の contextual-code-review）の参照が grep で 0 件。develop:review を 1 回流し、`policyPack.missing` が空で、dcf では金融ロジックの観点が必須として立つ | pk で旧名を使う依頼。dcf で contextual-code-review を呼ぶ依頼と、magi の重いレンズ（contextual-code-review の分が抜け、Fable だけが残る） |
@@ -424,11 +424,20 @@ develop:review で置き換え、次を取り込む。
 - 既存の plugin からスキルを外す操作を manage-marketplace-plugin が扱うかは未確認。同スキルの description が対象外に挙げるのは、marketplace.json の閲覧のみ・アンインストール・公開済み plugin の削除・スキル本体の作成と編集で、スキルを外す操作には触れていない。扱わないなら、外す作業と両方の catalog の同期を手で行い、`verify_install.py` で確かめる。
 - 段 1b の試走は、`Workflow({ scriptPath: "<checkout の絶対パス>/plugins/develop/workflows/<f>.js" })` で起動し、CLI も checkout の path で流す。名前で起動すると、install 済みの旧版が走るか not found になる（AGENTS.md「作業ルール」）。試走が読む方針の版（main）には、1a で設定と tool の option が入っている。
 
-**段 0 で直す箇所。** 形の問いの閉集合と、1 つのスキルに 1 つの形という前提を持つ所（検証役が挙げたものを、grep で確かめた範囲）。
-- 仕様：`docs/specifications/bp-conformance.md` の用語の表（問い A・Q1・Q2・Q3、重い形）と SP-BPCONFORMANCE-003・004（形は最初に到達した 1 つ）、`docs/specifications/bp-inspection.md:109`・`:113-121`（受理する並びの表）、`docs/specifications/bp-run.md:593`（applicability の schema の `shape` が 1 つの値）、`docs/specifications/bp-authoring.md:168`・`:571`。
-- CLI と script：`plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs:270` の `APPLICABILITY_QUESTIONS`、同 `scripts/bp_inspect.js:65` の写し、`scripts/bp/applicability.mjs`。
+**段 0 の範囲。** 「1 つのスキルに 1 つの形（または判定表の 1 つの行）を前提にする全ての箇所」と定義する。一覧で範囲を決めない。列挙は必ず漏れ、`make test` が落ちない経路（下の create・update の経路）の漏れは見つからない。段 0 の作業の最初に、create・update・review の 3 つの経路の入口から、形と判定表の行を運ぶ値を辿って、この定義に当たる箇所を探し直す。
+
+**定義に当たる箇所の例。** 見つけた手段：検証役と PR #176 の CI のレビューが、grep（語は `APPLICABILITY_QUESTIONS`・`applicability`・`shape`・`row`・`SHAPES`・「形の判定」・「最初に到達」）と該当の行の読み出しで挙げた。このうち `bp_author.js:265`・`:759`、`units.mjs:109-125`、`ops-inspect.mjs:99`・`:165`、`bp_inspect.js:719-720`、`constants.mjs:273`、`bp-run.md:111` は、この文書を書く側も読んで確かめた。path は `plugins/skill-creator/skills/skill-creator-best-practices/scripts/` からの相対（`docs/` で始まるものを除く）。
+- 要求：`docs/requirements/bp-designed-skill.md:20`・`:47`・`:50`・`:53`・`:56`（PR-001〜004。形を 1 つ決める書き方）。
+- 仕様：
+  - `docs/specifications/bp-conformance.md` の用語の表（問い A・Q1・Q2・Q3、重い形）と SP-BPCONFORMANCE-003・004（形は最初に到達した 1 つ）、`:73-78`（SP-BPCONFORMANCE-006・007）、`:275`、`:294`
+  - `docs/specifications/bp-inspection.md:109`・`:113-121`（受理する並びの表）、`:123`、`:245`
+  - `docs/specifications/bp-run.md:111`（適用の判定は到達した形 1 つ）、`:593`（applicability の schema の `shape` が 1 つの値）
+  - `docs/specifications/bp-authoring.md:168`・`:231-232`・`:315`・`:571`
+- review の経路のコード：`bp/constants.mjs:270` の `APPLICABILITY_QUESTIONS` と `bp_inspect.js:65` の写し、`bp/applicability.mjs`、`bp/units.mjs:109-115`（判定表の行ごとに `form === SHAPES.turn` を見る）、`bp/ops-inspect.mjs:99`・`:165`（`shape` と `row` を 1 つずつ運ぶ）、`bp_inspect.js:719-720`。
+- create・update の経路のコード：`bp_author.js:265`（applicability の schema が `{row: integer}` の 1 つ）、`bp_author.js:759`（prompt が「当たる行を 1 つ選ぶ」）、`bp/units.mjs:122-125`（`checkConformance` が行 1 つで照らす）。この経路は問い A・Q を使わないので、W を足しても `make test` は落ちない。
 - テスト：`applicability.test.mjs:16`、`ops-inspect.test.mjs:274`、`APPLICABILITY_QUESTIONS` を読む `tests/bp-inspect-static.test.mjs`・`tests/bp-spelling.test.mjs`。
-- 写し：`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/` の仕様の写し（同期の tool で更新する）。
+- 写し：`references/criteria/` の要求・仕様の写し（同期の tool で更新する）。
+- 変えない見込みのもの：`bp/constants.mjs:273` の `SHAPES`（形の名前の集合は変わらない）。
 - 判定の模型の改め方（判定の単位を run の並びと各 run の組にする、`shape` を単位ごとの一覧にする）は、段 0 の要求・仕様で決める。この文書は改める必要と範囲だけを置く。
 
 **検証の担い手。** 生成と検証を分ける。改稿は bp update の builder が行う。合否は、決定的なテスト（`make test`）、bp review、生成者と別の fresh な監査が持つ。司令塔は改稿しない。
@@ -452,4 +461,4 @@ develop:review で置き換え、次を取り込む。
 | 8 | 設計方針文書の (i) 「形の判定」に権限の分離で run を分ける場合を足し、(ii) 「資産台帳」の skip 一覧の行を直す | `docs/design/skill-design-patterns.md` の「形の判定」（図・原則の表・例の着地の表）と「資産台帳」の skip 一覧の行。この文書の「形の判定」、移行計画の段 0 |
 
 決めたことから生まれた作業：
-- 決定 8 (i) で、1 つのスキルが複数の形を持てるようになり、bp の判定の模型（形の問いの閉集合と、1 つのスキルに 1 つの形）を改める必要が出た。移行計画の段 0 に置き、範囲は同じ節の「段 0 で直す箇所」に書いた。段 0 が終わるまで、配布される bp の中で設計方針の写しと仕様の写し・CLI が食い違う。
+- 決定 8 (i) で、1 つのスキルが複数の形を持てるようになり、bp の判定の模型（形の問いの閉集合と、1 つのスキルに 1 つの形）を改める必要が出た。移行計画の段 0 に置き、範囲は「1 つのスキルに 1 つの形を前提にする全ての箇所」と定義した（同じ節の「段 0 の範囲」。見つけた箇所は例として挙げた）。段 0 が終わるまで、配布される bp の中で設計方針の写しと仕様の写し・CLI が食い違う。
