@@ -43,8 +43,8 @@
 | 呼び出し | ディレクトリ（実体名） | 元 | 担うこと |
 |---|---|---|---|
 | `develop:implement` | `implement` | `repo-implement`・pr-review-fix の apply と verify | 計画 → 計画のレビュー → 実装 → check → review → 上限つきの修正 → 最終照合 |
-| `develop:review` | `review` | `repo-review`・pr-review | 観点ごとの reviewer → 統合 → 2 段の検証 → 結果。PR が対象なら投稿 |
-| `develop:address-review` | `address-review` | `address-review`・pr-review-fix の分類と返信 | 指摘の収集 → 分類と分類の検証 → implement に修正を渡す → 返信 → 投稿の確認 |
+| `develop:review` | `review` | `repo-review`・pr-review | focus を書く段 → 観点ごとの reviewer → 統合 → 2 段の検証 → 結果。PR が対象なら投稿と投稿の確認。利用者が明示したときだけ、git の外の対象を `external` モードで見る |
+| `develop:address-review` | `address-review` | `address-review`・pr-review-fix の分類と返信 | 指摘の収集 → 分類と分類の検証 → implement に修正を渡す → commit と push → required checks の待ち → 返信と投稿の確認 → 条件つきの resolve。PR の無い対象への外のレビュー結果は、分類から implement までで終わる |
 
 ディレクトリ名は frontmatter の `name` と揃える。install 先のキャッシュはディレクトリ名で作られ、兄弟スキルへの `../<name>/` 参照がこの名前に依存する（AGENTS.md「実体が plugins/ 側にある理由」）。改名は公開の前（段 1）に済ませる。公開後に変えると、兄弟参照とキャッシュが同時に壊れる。
 
@@ -231,11 +231,19 @@ address-review の push の後、返信の前に `await-checks` の op を足す
 |---|---|---|
 | 全て成功 | `recheck`（その後に返信） | 返信の「直した」が CI でも成り立っている |
 | 実行中が残る | `wait_and_retry`（今の `NEXT` と同じ待ち方）。回数は CLI が記録から数え、上限は core の定数 | 結果が出る前に返信すると、CI が落ちたときに誤った返信が残る |
-| 待つ回数の上限に達した | `report`。返信せずに止まる | 待ち続けると run が終わらない。push した commit は残り、次の run の collect から扱う |
-| 1 件でも失敗 | `report`。失敗した check の名前を返し、返信しない | 1 run は 1 周なので、直すのは次の run |
+| 待つ回数の上限に達した | `resume_checks`。返信せずに止まり、`next_args`（状態の path と sum）を返す | 待ち続けると run が終わらない。同じ周の続きなので、次の run は collect からではなく、同じ `stateDir` の `await-checks` から再開する（下記） |
+| 1 件でも失敗 | `report`。失敗した check の名前を返し、返信しない | CI の失敗は指摘ではないので、address-review は直さない。利用者が直すか、次の run の collect から扱う（下記の、push 済みの指摘の扱い） |
 | required checks が 1 件も無い | `recheck` | 待つものが無い。代わりの根拠は implement の `verify`（check と review を通った）で、そのことを報告に書く（pk の作り） |
 
 `recheck` の後に head が他の人の push で動いたときは、今の `blocked` の扱い（返信を止め、次の run で扱う）のままにする。
+
+**待ちの上限からの再開。** CLI は、待ちの上限で止まったことと push した SHA を状態に書く。再開の run は `next_args` で `await-checks` だけを流し直せ、分類の受け入れと返信の組み立ては繰り返さない（今の「同じ `stateDir` で 2 回目の分類と返信の組み立てを拒否する」はそのまま）。再開の前に PR の head が push した SHA から動いていれば、`blocked` と同じく止める。再開は何回でもでき、回数は状態に残す。
+
+**push 済みの指摘を、次の run で分類し直したとき。** checks の失敗や head の移動で返信しなかった指摘は、次の run の collect で再び集まる。今の分類の基準では「今の head で既に直っている」は decline になるが、それでは直した問題を「問題ではない」と返信し、resolve の候補からも外れる。そこで次のようにする。
+- CLI は collect で、PR の commit のうち指摘より後のものを一覧にして prompt に渡す。
+- comment-triager は、今の head で直っている指摘のうち、直したのがその一覧の commit であるものを `fix` とし、`fixed_by` にその SHA を閉集合から選んで返す（decline にしない）。triage-verifier はそれを確かめる。
+- CLI は、`fixed_by` が一覧にあり、その commit が `repair_paths` のどれかを変えていることを照らす。
+- `fixed_by` のある fix は implement に渡さない（直す変更が無い）。返信は `fixed_by` の SHA を引き、resolve の条件の「修正の commit」には `fixed_by` を使う。
 
 ### resolve（決定 3）
 
@@ -401,8 +409,9 @@ develop:review で置き換え、次を取り込む。
 
 | 段 | 作業 | 完了条件 | 壊れるもの |
 |---|---|---|---|
+| 0. bp の判定の模型を改める（claude-plugins） | 決定 8 (i) で、1 つのスキルが run の並びの形と各 run の形を持てるようになった。今の bp は、形の問いを A・Q1・Q2・Q3 の閉集合で持ち、1 つのスキルに 1 つの形（最初に到達した形）を付ける。下の作業で、判定の単位を「スキル」から「run の並びと各 run」に改める。仕様は prd-spec で改稿し、CLI とテストは実装で直す。改稿の後に `tools/sync-bp-criteria.mjs` で写しを同期する | 下の閉集合の全てに問い W が入り、W が「はい」のスキルで、run の並びと各 run の形が別々に判定される。`make test` が通る。W が「いいえ」の既存のスキルに bp review をかけ、判定が改稿の前と変わらない。W が「はい」の fixture（今の `repo-implement` の構成）で、run の並びが固定集合の反復型、各 run が固定パイプライン型（計画は＋until-pass）と判定される | 2a06b44 で設計方針文書（W あり）とその写しを同期した時から段 0 が終わるまで、配布される bp の中で、設計方針の写し（W あり）と仕様の写し・CLI（W なし）が食い違う。その間の bp は、develop:implement のような W が「はい」のスキルを 1 つの形で判定するので、PR-001・002 の判定は当てにならない |
 | 1a. 設定を先に入れる（claude-plugins） | claude-plugins の設定ファイルと、`tools/sync-bp-criteria.mjs` に書き先を出力する option を、develop:implement の外で 1 つの PR にして main に merge する。develop が無い間は誰も読まない | main に設定と tool の option があり、設定がこの文書の形で書かれている（schema の検査は 1b で通す）。option の出力が今の `readGeneratedPaths` の結果と一致する | 無し（tool に option が増えるだけ） |
-| 1b. develop を作る（claude-plugins） | `.agents/skills/` の 3 つを改名して一般化する（この文書を前段に要求を起こし、bp update で改稿する）。3 本のテスト `tests/repo-implement-workflow.test.mjs`・`tests/repo-review-workflow.test.mjs`・`tests/address-review-workflow.test.mjs` を、一致の照合（各スキルの `scripts/*.test.mjs` へ移す）と模擬実行（直下の `tests/` に残す）に分ける。`tests/workflow-callers.test.mjs` の名前の callsite の区分の一覧に 4 本を足す。`scripts/address-skill.test.mjs` を「resolve」の節の 2 つの照合に変える。manage-marketplace-plugin で plugin `develop` を作って 3 つを登録する（Workflow source は `workflows/` に移り、callsite は名前の呼び出しになる） | `make test` が通る。bp review（scope full）で確定 0。棄却の理由に「専用と宣言している」を挙げるものが 0 件（理由の文を grep して数える）。`verify_install.py --plugin develop` が通る。evals と trigger evals を測る。claude-plugins の PR で address-review を 1 周（required checks の待ちと resolve まで）、PR の無い差分で外のレビュー結果の形を 1 周、develop:review を上限つき（Codex runner）と上限なし（native）で 1 回ずつ流す。設定と tool の option は 1a で main にあるので、1b の merge の前に、checkout の scriptPath で流せる | claude-plugins で `repo-*` の名前を使う依頼（公開前なので、このリポジトリだけ）。段 3 までの発火の取り合い：`workflow:pr-review` と `develop:review`、`workflow:pr-review-fix` と `develop:implement`・`develop:address-review` |
+| 1b. develop を作る（claude-plugins） | `.agents/skills/` の 3 つを改名して一般化する（この文書を前段に要求を起こし、bp update で改稿する）。3 本のテスト `tests/repo-implement-workflow.test.mjs`・`tests/repo-review-workflow.test.mjs`・`tests/address-review-workflow.test.mjs` を、一致の照合（各スキルの `scripts/*.test.mjs` へ移す）と模擬実行（直下の `tests/` に残す）に分ける。`tests/workflow-callers.test.mjs` の名前の callsite の区分の一覧に 4 本を足す。`scripts/address-skill.test.mjs` を「resolve」の節の 2 つの照合に変える。manage-marketplace-plugin で plugin `develop` を作って 3 つを登録する（Workflow source は `workflows/` に移り、callsite は名前の呼び出しになる） | `make test` が通る。段 0 で改めた bp で、bp review（scope full）の確定 0。棄却の理由に「専用と宣言している」を挙げるものが 0 件（理由の文を grep して数える）。`verify_install.py --plugin develop` が通る。evals と trigger evals を測る。claude-plugins の PR で address-review を 1 周（required checks の待ちと resolve まで）、PR の無い差分で外のレビュー結果の形を 1 周、develop:review を上限つき（Codex runner）と上限なし（native）で 1 回ずつ流す。設定と tool の option は 1a で main にあるので、1b の merge の前に、checkout の scriptPath で流せる | claude-plugins で `repo-*` の名前を使う依頼（公開前なので、このリポジトリだけ）。段 3 までの発火の取り合い：`workflow:pr-review` と `develop:review`、`workflow:pr-review-fix` と `develop:implement`・`develop:address-review` |
 | 2. pk・dcf の写しを消す | 各リポジトリで、設定を足す PR を先に merge する。pk：`REVIEW.md` の表が読めることを確かめ、`.agents/skills/{implement,review,address-review}` と参照を消す。dcf：`rulesDir` を宣言し、`REVIEW.md` の「金融ロジックで必ず見ること」を必須の観点か「読むもの」表の行にする。`.agent/skills/contextual-code-review` を消し、magi の `scripts/issue-resolve.js` のレビューエンジンの一覧と、SKILL.md「構造として保証されるもの」の重いレンズの起動の条件から contextual-code-review を外す（magi の Workflow の中からは develop:review を呼べない前提。「結論と範囲」）。magi の他の段は変えない | 各リポジトリで、旧名（pk の 3 スキル、dcf の contextual-code-review）の参照が grep で 0 件。develop:review を 1 回流し、`policyPack.missing` が空で、dcf では金融ロジックの観点が必須として立つ | pk で旧名を使う依頼。dcf で contextual-code-review を呼ぶ依頼と、magi の重いレンズ（contextual-code-review の分が抜け、Fable だけが残る） |
 | 3. workflow の 2 スキルを廃止 | `plugins/workflow/skills/pr-review`・`pr-review-fix` と `.agents/skills/` の symlink を消す。参照を直す（`README.md:13`、`plugins/workflow/README.md:12-13`、`.agents/skills/manage-marketplace-plugin/tests/test_marketplace_safety.py:108`・`test_path_safety.py:59` の例の名前）。develop の trigger evals から、2 スキルとの取り合いの負例を外す。workflow の version を上げる | 下記の grep の条件を満たす。`make test` と `verify_install.py --plugin workflow` が通る | `/workflow:pr-review` と `/workflow:pr-review-fix` を呼ぶ利用者（not found になる） |
 
@@ -414,6 +423,13 @@ develop:review で置き換え、次を取り込む。
 - `plugins/workflow/.codex-plugin/plugin.json` の description は pr-review に触れていない（grep で確かめた）。
 - 既存の plugin からスキルを外す操作を manage-marketplace-plugin が扱うかは未確認。同スキルの description が対象外に挙げるのは、marketplace.json の閲覧のみ・アンインストール・公開済み plugin の削除・スキル本体の作成と編集で、スキルを外す操作には触れていない。扱わないなら、外す作業と両方の catalog の同期を手で行い、`verify_install.py` で確かめる。
 - 段 1b の試走は、`Workflow({ scriptPath: "<checkout の絶対パス>/plugins/develop/workflows/<f>.js" })` で起動し、CLI も checkout の path で流す。名前で起動すると、install 済みの旧版が走るか not found になる（AGENTS.md「作業ルール」）。試走が読む方針の版（main）には、1a で設定と tool の option が入っている。
+
+**段 0 で直す箇所。** 形の問いの閉集合と、1 つのスキルに 1 つの形という前提を持つ所（検証役が挙げたものを、grep で確かめた範囲）。
+- 仕様：`docs/specifications/bp-conformance.md` の用語の表（問い A・Q1・Q2・Q3、重い形）と SP-BPCONFORMANCE-003・004（形は最初に到達した 1 つ）、`docs/specifications/bp-inspection.md:109`・`:113-121`（受理する並びの表）、`docs/specifications/bp-run.md:593`（applicability の schema の `shape` が 1 つの値）、`docs/specifications/bp-authoring.md:168`・`:571`。
+- CLI と script：`plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs:270` の `APPLICABILITY_QUESTIONS`、同 `scripts/bp_inspect.js:65` の写し、`scripts/bp/applicability.mjs`。
+- テスト：`applicability.test.mjs:16`、`ops-inspect.test.mjs:274`、`APPLICABILITY_QUESTIONS` を読む `tests/bp-inspect-static.test.mjs`・`tests/bp-spelling.test.mjs`。
+- 写し：`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/` の仕様の写し（同期の tool で更新する）。
+- 判定の模型の改め方（判定の単位を run の並びと各 run の組にする、`shape` を単位ごとの一覧にする）は、段 0 の要求・仕様で決める。この文書は改める必要と範囲だけを置く。
 
 **検証の担い手。** 生成と検証を分ける。改稿は bp update の builder が行う。合否は、決定的なテスト（`make test`）、bp review、生成者と別の fresh な監査が持つ。司令塔は改稿しない。
 - bp review は段 1b の終わりと、各段で develop を直した後に毎回かける。
@@ -429,14 +445,14 @@ develop:review で置き換え、次を取り込む。
 | 1 | 設定ファイルは `develop.config.json` | 「宣言する設定」 |
 | 2 | git の外の対象（貼り付けた文書）は、既定では扱わず、指定されたときだけレビューする | 「git の外の対象のレビュー」、「pr-review・pr-review-fix の機能の行き先」 |
 | 3 | thread を resolve してよい（条件つき） | 「resolve」、「3 リポジトリから取り込む仕組み」、「権限」、移行計画の段 1b |
-| 4 | 返信は required checks の成功を待つ | 「返信の前に required checks を待つ」、「3 リポジトリから取り込む仕組み」 |
+| 4 | 返信は required checks の成功を待つ | 「返信の前に required checks を待つ」（待ちの上限からの再開、push 済みの指摘の扱いを含む）、「3 リポジトリから取り込む仕組み」 |
 | 5 | dcf の contextual-code-review は develop:review で置き換え、有用な仕組みは取り込む | 「contextual-code-review の置き換え」、「3 リポジトリから取り込む仕組み」と「取り込まないもの」、「結論と範囲」、移行計画の段 2 |
 | 6 | 返信などの言語は日本語を既定にし、`develop.config.json` で変えられる。agent の内部の作業の言語は問わない | 「宣言する設定」の出力の言語、bp 差分の表 |
 | 7 | PR の無い対象への外のレビュー結果も、分類と分類の検証に通す | 「外のレビュー結果を分類して直す」、「pr-review・pr-review-fix の機能の行き先」 |
-| 8 | 設計方針文書の (i) 「形の判定」に権限の分離で run を分ける場合を足し、(ii) 「資産台帳」の skip 一覧の行を直す | `docs/design/skill-design-patterns.md` の「形の判定」（図・原則の表・例の着地の表）と「資産台帳」の skip 一覧の行。この文書の「形の判定」 |
+| 8 | 設計方針文書の (i) 「形の判定」に権限の分離で run を分ける場合を足し、(ii) 「資産台帳」の skip 一覧の行を直す | `docs/design/skill-design-patterns.md` の「形の判定」（図・原則の表・例の着地の表）と「資産台帳」の skip 一覧の行。この文書の「形の判定」、移行計画の段 0 |
 
 決めたことから新しく生まれた、利用者に決めてもらうこと：
 1. magi の重いレンズから contextual-code-review が抜けた分を、Fable だけで足りるとするか、magi の Workflow が返った後にセッションが develop:review を呼ぶ形に magi を組み直すか（dcf の判断）。
 
-決めたことから生まれた、この文書の外の作業：
-- 決定 8 (i) で「形の判定」の図に問いが 1 つ増えた。`docs/specifications/bp-conformance.md` は図の問いを A・Q1・Q2・Q3 の名前で表に持つので、新しい問いを足す仕様の改稿が要る（prd-spec で行う）。bp の基準の写し（`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/`）の同期も要る。
+決めたことから生まれた作業：
+- 決定 8 (i) で、1 つのスキルが複数の形を持てるようになり、bp の判定の模型（形の問いの閉集合と、1 つのスキルに 1 つの形）を改める必要が出た。移行計画の段 0 に置き、範囲は同じ節の「段 0 で直す箇所」に書いた。段 0 が終わるまで、配布される bp の中で設計方針の写しと仕様の写し・CLI が食い違う。
