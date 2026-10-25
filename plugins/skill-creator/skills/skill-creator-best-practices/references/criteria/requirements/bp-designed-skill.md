@@ -20,13 +20,13 @@ create と update が作るスキルが設計方針文書に沿っているか�
 2. create・update が、対象スキルに設計方針文書の「形の判定」を軽い形から順に当て、形を決める。
 3. 決めた形に応じて部品を選び、形に関わる原則（PR-BPDESIGNEDSKILL-007〜013）を当てる。
 4. 重い形を選んだ条件を、対象スキルの設計の説明に書く。
-5. review は、create が作るスキルと update が作り直したスキルに限り、同じ要求に照らして対象スキルのフローを評価する。
+5. review は、同じ要求に照らして対象スキルのフローを評価する。
 
 ## スコープとスコープ外
 
 スコープ: 対象スキルが設計方針文書に適合するための性質。
 
-スコープ外: 設計方針文書が未決事項とする論点のうち、run をまたぐ指摘の追跡の裁定。裁定が下るまでの扱いは保持規則として `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-022・042 に置く。もう一つの未決事項である Codex runner での実行方法のうち、起動数の上限の値の出所は依頼者が裁定済みで、runner が Codex 側で決まる値を指定し、対象スキルがその出所にならないことを PR-BPDESIGNEDSKILL-022 が定める。渡された上限の受け取りと扱いは PR-BPDESIGNEDSKILL-016・017・019・020 が定める。
+スコープ外: 設計方針文書が未決事項とする論点のうち、run をまたぐ指摘の追跡の裁定。裁定が下るまでの扱いは保持規則として `docs/requirements/bp-operations.md` の PR-BPOPERATIONS-022・042 に置く。もう一つの未決事項である Codex runner での実行方法は依頼者が裁定済みで、本文書の PR-BPDESIGNEDSKILL-016・017・019〜023 が定める。
 
 ## 前提と依存
 
@@ -98,13 +98,13 @@ create と update は、対象スキルの役ごとの制限が、配布先（Cl
 create と update は、いずれかの配布先で効くかを確かめられなかった役ごとの制限を、残る危険として結果に書かなければならない。
 
 #### PR-BPDESIGNEDSKILL-016 起動数の上限の受け取り
-対象スキルの Workflow script が fan-out を含む場合、対象スキルは、runner が Codex 側で決まる値を指定する 1 run で起動する agent の数の上限を、入力として受け取れなければならない（Codex runner は 1 run の agent 呼び出しの総数に上限を課し、超えると run 全体が失敗する。出所は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`）。
+対象スキルの Workflow script が fan-out を含む場合、対象スキルは、1 run で起動する agent の数の上限を入力として受け取れなければならない（Codex runner は 1 run の agent 呼び出しの総数に上限を課し、超えると run 全体が失敗する。出所は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`）。
 
 #### PR-BPDESIGNEDSKILL-017 上限を渡された run の起動数
-runner が指定する起動数の上限を渡されたとき、対象スキルは、その run で起動する agent の数を上限以下に収めなければならない。
+起動数の上限を渡されたとき、対象スキルは、その run で起動する agent の数を上限以下に収めなければならない。
 
 #### PR-BPDESIGNEDSKILL-019 上限に収まらない項目
-runner が指定する起動数の上限を渡された run で、上限に収まらず処理していない fan-out の項目が残るとき、対象スキルは、その項目を順位付きの未着手として状態に残して止まらなければならない（切り捨てると、見ていない項目が「見た」と読まれる）。
+起動数の上限を渡された run で、上限に収まらず処理していない fan-out の項目が残るとき、対象スキルは、その項目を順位付きの未着手として状態に残して止まらなければならない（切り捨てると、見ていない項目が「見た」と読まれる）。
 
 #### PR-BPDESIGNEDSKILL-020 残した項目からの再開
 PR-BPDESIGNEDSKILL-019 で止まった run から再開したとき、対象スキルは、状態に残した未着手の項目から処理を続けなければならない。
@@ -113,7 +113,7 @@ PR-BPDESIGNEDSKILL-019 で止まった run から再開したとき、対象ス�
 起動数の上限を渡されないとき、対象スキルは、fan-out の項目の件数にも、1 run で起動する agent の数にも、固定の上限を置いてはならない（起動数の固定の上限とは、入力に依らず対象スキルが決め打ちする件数をいう。件数を決め打ちすると、PR-BPDESIGNEDSKILL-008 が参照する原則に反する。反復・周・試行の上限はこの要求の対象外とする）。
 
 #### PR-BPDESIGNEDSKILL-022 Codex runner での起動
-対象スキルの Workflow script が fan-out を含む場合、対象スキルは、自分の Workflow を Codex runner で起動するとき、起動数の上限の値の出所になってはならない（上限は Codex 側で決まる値を runner が指定する）。
+対象スキルの Workflow script が fan-out を含む場合、対象スキルは、自分の Workflow を Codex runner で起動するとき、起動数の上限を渡さなければならない。
 
 #### PR-BPDESIGNEDSKILL-023 Claude Code の native Workflow での起動
 対象スキルの Workflow script が fan-out を含む場合、対象スキルは、自分の Workflow を Claude Code の native Workflow で起動するとき、起動数の上限を渡してはならない。

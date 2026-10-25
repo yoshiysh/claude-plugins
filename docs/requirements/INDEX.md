@@ -230,17 +230,23 @@
 
 | 要求文書 | 対応する仕様文書 |
 |---|---|
-| `docs/requirements/bp-designed-skill.md` | （対応する仕様文書なし） |
-| `docs/requirements/bp-operations.md` | （対応する仕様文書なし） |
+| `docs/requirements/bp-designed-skill.md` | `docs/specifications/bp-authoring.md` / `docs/specifications/bp-conformance.md` / `docs/specifications/bp-entry.md` / `docs/specifications/bp-run.md` |
+| `docs/requirements/bp-operations.md` | `docs/specifications/bp-authoring.md` / `docs/specifications/bp-conformance.md` / `docs/specifications/bp-entry.md` / `docs/specifications/bp-findings.md` / `docs/specifications/bp-inspection.md` / `docs/specifications/bp-run.md` |
 | `docs/requirements/cleanup.md` | （対応する仕様文書なし） |
-| `docs/requirements/consumer.md` | （対応する仕様文書なし） |
-| `docs/requirements/requester.md` | （対応する仕様文書なし） |
+| `docs/requirements/consumer.md` | `docs/specifications/authoring.md` / `docs/specifications/elicitation.md` / `docs/specifications/flow.md` / `docs/specifications/verification.md` |
+| `docs/requirements/requester.md` | `docs/specifications/authoring.md` / `docs/specifications/elicitation.md` / `docs/specifications/flow.md` / `docs/specifications/verification.md` |
 
 ## 未解決（着手を止める未確定事項）
 
-着手を止める未確定事項は 0 件である。
+| ID | 内容 | 所在 |
+|---|---|---|
+| TBD-RCONSUMER-003 | 状態を持つ対象とみなす範囲と、その対象の振る舞いが定義されていると判定する条件（PR-CONSUMER-008 に関係する） | `docs/requirements/consumer.md` |
+| TBD-RCONSUMER-007 | 引き渡す文書に、実施した検査と実施していない検査の区別を載せるかどうか。載せる場合の対象とする検査の集合と、未実施の検査を指摘 0 件の検査と区別する表記も決まっていない | `docs/requirements/consumer.md` |
+| TBD-RCONSUMER-008 | 生成文書の記述が文書外の知識に依存していると判定する境界（PR-CONSUMER-026 に関係する） | `docs/requirements/consumer.md` |
+| TBD-RCONSUMER-010 | 仕様書が「実装が一意に決まる水準」に達したと判定する基準（PR-CONSUMER-031 に関係する） | `docs/requirements/consumer.md` |
+| TBD-RREQUESTER-016 | 中間の生成物を置くフォルダの名前となる案件名が、何によって決まるかが決まっていない（PR-REQUESTER-031 に関係する） | `docs/requirements/requester.md` |
 
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 仕様書が無いので数えていない
+- 実現する仕様項目が無い要求: 77 件

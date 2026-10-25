@@ -91,7 +91,7 @@ best-practices は、create・review・update・audit の 4 機能を提供し�
 複数の機能にまたがる依頼で、途中の機能が完了せずに止まったならば、best-practices は、後続の機能を実行せずに連なり全体を止め、止まった機能が返す報告を連なりの返しとしなければならない。
 
 #### PR-BPOPERATIONS-049 次の機能の入力を満たさないときの連なり
-複数の機能にまたがる依頼で、前の機能が完了しても、その結果が次の機能の必須の入力を満たさないならば、best-practices は、次の機能を実行せずに連なりを止め、完了した機能の結果を連なりの返しとして、次の機能を実行しなかったこととその理由を含めて返さなければならない。前の機能の結果を、必須の入力の定義に無い入力の代わりとして次の機能に渡してはならない。
+複数の機能にまたがる依頼で、best-practices は、前の機能の結果を、次の機能の必須の入力（update については PR-BPOPERATIONS-015 が定める入力）の代わりとして渡してはならない。必須の入力が満たされないまま実行された機能が完了せずに止まったときの連なりの扱いは、PR-BPOPERATIONS-048 に従う。
 
 ### create
 
@@ -186,7 +186,7 @@ create と update が完了したとき、create と update は skip 一覧を�
 ### review
 
 #### PR-BPOPERATIONS-024 フローの観点
-review は、create が作るスキルと update が作り直したスキルに限り、対象スキルのフローが適切かを、`docs/requirements/bp-designed-skill.md` の要求に照らして評価しなければならない（create・update が満たす性質と同じ基準で評価するため）。
+review は、対象スキルのフローが適切かを、`docs/requirements/bp-designed-skill.md` の要求に照らして評価しなければならない（create・update が満たす性質と同じ基準で評価するため）。
 
 #### PR-BPOPERATIONS-025 仕様の観点
 review は、対象スキルが仕様から逸れていないかを、best-practices の仕様書に照らして評価しなければならない（設計方針文書が暫定とした値と規則は、その仕様書が定める）。
