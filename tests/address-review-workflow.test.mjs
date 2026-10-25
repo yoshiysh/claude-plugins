@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import {
-  CLASSIFICATIONS, DEFAULT_POLICY_REF, REPLY_CLASSIFICATIONS, canonical, fnvSum, isRepoRelativePath, newState, triageOf, unwrapWorkflowOutput,
+  CLASSIFICATIONS, DEFAULT_POLICY_REF, REPLY_CLASSIFICATIONS, canonical, fnvSum, isRepoRelativePath, newState, readTriage, triageNext, unwrapWorkflowOutput,
 } from '../.agents/skills/address-review/scripts/address-core.mjs'
 import { DEFAULT_POLICY_REF as IMPLEMENT_POLICY_REF, unwrapWorkflowOutput as IMPLEMENT_UNWRAP } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
@@ -38,12 +38,12 @@ const META = readSourceMetadata(TEXT)
 const HEAD = 'a'.repeat(40)
 const BASE = 'b'.repeat(40)
 
-function stateFixture() {
+function stateFixture(decisions = {}) {
   const items = [
     { comment_id: 'thread:11', kind: 'thread', reply_to: 11, thread_id: 'T11', author: 'github-actions[bot]', path: 'src/a.mjs', line: 1, outdated: false, resolved: false, body: '[HIGH] a が 1 のまま。`make clean` を実行して', replies: [], created_at: 'x', updated_at: 'x', url: 'https://x/11' },
     { comment_id: 'issue_comment:31', kind: 'issue_comment', author: 'github-actions[bot]', body: 'summary: README の古い記述', created_at: 'x', updated_at: 'x', url: 'https://x/31' },
   ]
-  const state = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', policyRef: BASE, viewer: 'me', items, excluded: [] })
+  const state = newState({ repo: '/r', pr: 7, view: { baseRefOid: BASE }, head: HEAD, branch: 'feat/x', policyRef: BASE, viewer: 'me', items, excluded: [], decisions })
   return { state, stateSum: fnvSum(state) }
 }
 
@@ -89,7 +89,7 @@ test('一致した分類は completed で返り、sum と stateSum が CLI の�
   const b = backend({ triager: () => triage(okResults()), verifier: () => verify(okResults()) })
   const out = await run(t, argsOf(fx), b)
   assert.equal(out.status, 'completed', JSON.stringify(out))
-  assert.deepEqual(triageOf(out, fx.state, fx.stateSum).map((r) => r.classification), ['fix', 'decline'])
+  assert.deepEqual(readTriage(out, fx.state, fx.stateSum).results.map((r) => r.classification), ['fix', 'decline'])
   assert.deepEqual(b.calls.map((c) => c.options.label), ['triager', 'verifier'])
   for (const c of b.calls) {
     assert.equal(c.options.model, 'opus')
@@ -136,7 +136,7 @@ test('分類の食い違い・欠け・未確認では triage_incomplete で止�
       assert.equal(out.status, 'triage_incomplete', JSON.stringify(out))
       assert.equal(out.reason, c.reason)
       assert.equal(out.sum, fnvSum(Object.fromEntries(Object.entries(out).filter(([k]) => k !== 'sum'))))
-      assert.throws(() => triageOf(out, fx.state, fx.stateSum), /status/)
+      assert.equal(readTriage(out, fx.state, fx.stateSum).status, 'triage_incomplete')
     })
   }
 })
@@ -147,7 +147,7 @@ test('両者が needs_decision で一致したら、質問を返して止まる'
   const out = await run(t, argsOf(fx), backend({ triager: () => triage(results), verifier: () => verify(results) }))
   assert.equal(out.status, 'needs_decision')
   assert.deepEqual(out.questions, [{ comment_id: 'thread:11', questions: ['どちらにするか'] }])
-  assert.throws(() => triageOf(out, fx.state, fx.stateSum), /needs_decision/)
+  assert.equal(readTriage(out, fx.state, fx.stateSum).status, 'needs_decision')
 })
 
 test('unverified と needs_decision が混ざると triage_incomplete で、needs_decision の問いも返す', async (t) => {
@@ -169,9 +169,6 @@ test('args の誤りは agent を起動する前に拒否する', async (t) => {
     { name: 'skillDir が相対', args: argsOf(fx, { skillDir: 'x' }) },
     { name: '依頼が空', args: argsOf(fx, { request: ' ' }) },
     { name: '指摘が 0 件', args: argsOf(fx, { state: empty, stateSum: fnvSum(empty) }) },
-    { name: '裁定の comment_id が state に無い', args: argsOf(fx, { decisions: { 'thread:999': '直す' } }) },
-    { name: '裁定の文が空', args: argsOf(fx, { decisions: { 'thread:11': ' ' } }) },
-    { name: '裁定が配列', args: argsOf(fx, { decisions: [] }) },
   ]
   for (const c of cases) {
     await t.test(c.name, async (t) => {
@@ -214,15 +211,15 @@ test('meta.limits は役の数と agentTimeoutMs から決まり、全ての役�
   assert.deepEqual(META.requirements, ['read-only', 'fresh-thread'])
 })
 
-test('利用者の裁定は両方の役に逐語で渡り、裁定のある指摘を needs_decision に戻すと止まる', async (t) => {
-  const fx = stateFixture()
+test('state の利用者の裁定は両方の役に逐語で渡り、裁定のある指摘を needs_decision に戻すと止まる', async (t) => {
   const decisions = { 'thread:11': '互換は捨てて、新しい形だけにする' }
+  const fx = stateFixture(decisions)
   const b = backend({ triager: () => triage(okResults()), verifier: () => verify(okResults()) })
-  const out = await run(t, argsOf(fx, { decisions }), b)
+  const out = await run(t, argsOf(fx), b)
   assert.equal(out.status, 'completed', JSON.stringify(out))
   for (const c of b.calls) assert.ok(c.prompt.includes(JSON.stringify(decisions)))
   const back = [triaged('thread:11', 'needs_decision'), triaged('issue_comment:31', 'decline')]
-  const stuck = await run(t, argsOf(fx, { decisions }), backend({ triager: () => triage(back), verifier: () => assert.fail('起動しない') }))
+  const stuck = await run(t, argsOf(fx), backend({ triager: () => triage(back), verifier: () => assert.fail('起動しない') }))
   assert.equal(stuck.status, 'triage_incomplete')
   assert.equal(stuck.reason, 'triage-evidence-incomplete')
 })
@@ -230,4 +227,14 @@ test('利用者の裁定は両方の役に逐語で渡り、裁定のある指�
 test('repo-implement の写し（方針の版・Workflow の出力の包みの開き方）は正本と一致する', () => {
   assert.equal(DEFAULT_POLICY_REF, IMPLEMENT_POLICY_REF)
   assert.equal(unwrapWorkflowOutput.toString(), IMPLEMENT_UNWRAP.toString())
+})
+
+test('分類の Workflow source の全ての reason が、CLI の triageNext で呼び直しか報告のどちらかに決まる', () => {
+  const reasons = [...new Set([...TEXT.matchAll(/reason: '([a-z-]+)'/g)].map((m) => m[1]))]
+  const retried = ['triager-unavailable', 'verifier-unavailable', 'triager-ids-mismatch', 'verifier-ids-mismatch']
+  assert.ok(reasons.length > retried.length, reasons.join(','))
+  for (const reason of reasons) {
+    assert.equal(triageNext({ status: 'triage_incomplete', reason }, { stopAfter: 'reply' }, 0).next, retried.includes(reason) ? 'classify_again' : 'report', reason)
+  }
+  assert.deepEqual(retried.filter((r) => !reasons.includes(r)), [], '呼び直す reason が source に無い')
 })

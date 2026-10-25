@@ -54,12 +54,8 @@ if (!state || typeof state !== 'object' || fnvSum(state) !== stateSum) {
 }
 if (!Array.isArray(state.items) || state.items.length === 0) throw new Error('state に指摘が無い（collect の items が 0 件なら分類を呼ばずに報告する）')
 const ids = state.items.map((item) => item.comment_id)
-// 前の run の needs_decision への利用者の答え（comment_id → 利用者の文を逐語で）。分類の入力の契約になり、同じ問いで止まり直さない。
-const decisions = input.decisions ?? {}
-if (!decisions || typeof decisions !== 'object' || Array.isArray(decisions)
-  || Object.entries(decisions).some(([id, text]) => !ids.includes(id) || typeof text !== 'string' || !text.trim())) {
-  throw new Error('args.decisions は state の comment_id から利用者の裁定の文（空でない）への対応')
-}
+// 前の run の止まった指摘への利用者の答え（collect が検査して state に固定した。comment_id → 利用者の文を逐語で）。
+const decisions = state.decisions
 
 const EVIDENCE_SCHEMA = {
   type: 'object',

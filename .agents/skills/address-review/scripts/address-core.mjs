@@ -23,12 +23,44 @@ export const EXCLUSION_REASONS = Object.freeze({
   not_selected: '利用者が only で選ばなかった',
 })
 
+// CLI の全ての出力（成功も拒否も）が持つ次の手の閉じた列挙。司令塔は `next` だけを見て次の操作を選ぶ（止まる・流し直す条件を文書に写さない）。
+// 拒否の後の流し直しは 1 回だけで、流し直した op がまた拒否されたら report として扱う（拒否は記録を書かないので、回数は司令塔が数える）。
+export const NEXT = Object.freeze({
+  classify: '分類の Workflow を出力の state・state_sum で起動し、返り値を triage-result に渡す',
+  classify_again: '分類の Workflow を前と同じ args で 1 回だけ呼び直し、返り値を triage-result に渡す（回数は CLI が記録から数える）',
+  decide: '出力の questions を利用者に示して止まる。答えは次の run の collect の decisions に利用者の文を逐語で渡す',
+  implement: '出力の request を依頼の文として repo-implement をスキル呼び出しで起動し、その verify の出力を record-fix の verify に渡す（verify まで届かずに止まったら stopped に止まった理由）',
+  commit_push: 'repo-implement の SKILL.md の手順で出力の commit_message で commit し、出力の branch へ push する（--force を付けない）。push した commit の SHA を fixCommit に recheck を流す。push が失敗したら、失敗の出力と残った local の commit を報告して終える',
+  recheck: '出力の fixCommit で recheck を流す',
+  post: '出力の replies の各件を gh api <endpoint> --method POST --input <input_path> で投稿し、confirm-replies を流す',
+  repost: '出力の missing の各件だけを、その input_path で 1 回投稿し、confirm-replies を流す',
+  retry: '同じ入力で同じ op を 1 回だけ流し直す（gh・git の一時的な失敗）',
+  wait_and_retry: '30 秒待って（sleep 30 を background のコマンドで流し、その終了を待つ）同じ入力で同じ op を流す',
+  fetch_and_retry: 'git fetch origin を流してから、同じ入力で同じ op を 1 回だけ流し直す',
+  fix_input: 'reason のとおり入力を直して（前の op の出力をそのまま写し直す・新しい stateDir を作る）1 回だけ流し直す',
+  report: '出力（拒否なら reason）を報告して終える',
+})
+export const NEXT_BY_CODE = Object.freeze({ E_INPUT: 'fix_input', E_IO: 'retry', E_PIN: 'report', E_STATE: 'report', E_INTERNAL: 'report' })
+// どの段の後で止まるか。依頼の文から選ぶのは司令塔で、collect が state に固定し、以後の op の next に反映する。
+export const STOP_AFTER = Object.freeze({
+  classify: '分類の後で止まる（「分類だけ」「妥当か教えて」など読むだけの依頼）',
+  verify: 'repo-implement の verify の後で止まる（「commit しないで」。変更は作業ツリーに残り、次の run の collect の前に利用者が commit するか片付ける）',
+  push: 'push の後で止まる（「直すだけ」「返信はしないで」。commit したら push する: AGENTS.md「作業ルール」）',
+  reply: '返信まで進む（明示が無いとき）',
+})
+// 分類の Workflow を agent が返らなかった・並びが崩れたときに呼び直す回数。
+export const TRIAGE_RETRIES = 1
+
 export class AddressError extends Error {
   constructor(code, message, detail = {}) {
     super(message)
     this.code = code
     this.detail = detail
   }
+}
+
+export function nextOfError(error) {
+  return error.detail?.next ?? NEXT_BY_CODE[error.code]
 }
 
 function canonical(value) {
@@ -209,7 +241,22 @@ export function selectTargets(all, { viewer, include, only }) {
   return { items, excluded }
 }
 
-export function newState({ repo, pr, view, head, branch, policyRef, viewer, items, excluded }) {
+// 前の run の止まった指摘への利用者の答え。state に無い id・空や文字列でない値は外して返す（値を作り直すと利用者の文が逐語でなくなる）。
+export function splitDecisions(decisions, items) {
+  if (decisions === undefined) return { kept: {}, dropped: [] }
+  if (!decisions || typeof decisions !== 'object' || Array.isArray(decisions)) throw new AddressError(CODES.input, 'decisions は comment_id から利用者の文への対応')
+  const ids = new Set(items.map((i) => i.comment_id))
+  const kept = {}
+  const dropped = []
+  for (const [id, text] of Object.entries(decisions)) {
+    if (!ids.has(id)) dropped.push({ comment_id: id, value: text, reason: 'not_in_state' })
+    else if (typeof text !== 'string' || !text.trim()) dropped.push({ comment_id: id, value: text, reason: 'empty_or_not_text' })
+    else kept[id] = text
+  }
+  return { kept, dropped }
+}
+
+export function newState({ repo, pr, view, head, branch, policyRef, viewer, items, excluded, decisions = {}, stopAfter = 'reply' }) {
   return {
     repository: REPOSITORY,
     repo,
@@ -219,6 +266,8 @@ export function newState({ repo, pr, view, head, branch, policyRef, viewer, item
     branch,
     policyRef,
     viewer,
+    stopAfter,
+    decisions,
     items,
     excluded,
     discussion: Object.fromEntries(items.map((i) => [i.comment_id, fnvSum(discussionOf(i))])),
@@ -230,22 +279,39 @@ export function stateProblem(state, stateSum) {
   return null
 }
 
-export function triageOf(input, state, stateSum) {
+// 分類の Workflow の返り値を照らす。completed のときだけ results を返し、それ以外は止まり方を返す。
+export function readTriage(input, state, stateSum) {
   const triage = unwrapWorkflowOutput(input)
   if (!triage || typeof triage !== 'object') throw new AddressError(CODES.input, 'triage は分類の Workflow の返り値')
   const { sum, ...rest } = triage
   if (typeof sum !== 'string' || fnvSum(rest) !== sum) throw new AddressError(CODES.input, 'triage の sum が本文と合わない（返り値をそのまま渡す）')
   if (rest.stateSum !== stateSum) throw new AddressError(CODES.input, 'triage が別の collect の state のもの（stateSum が違う）')
-  if (rest.status !== 'completed') {
-    throw new AddressError(CODES.state, `triage の status が ${rest.status}。completed のときだけ修正と返信へ進む（needs_decision は利用者の判断、triage_incomplete は報告して止まる）`)
-  }
+  if (!['completed', 'needs_decision', 'triage_incomplete'].includes(rest.status)) throw new AddressError(CODES.input, `triage の status ${rest.status} を知らない`)
+  if (rest.status !== 'completed') return rest
   const ids = state.items.map((i) => i.comment_id)
   if (!Array.isArray(rest.results) || rest.results.length !== ids.length || rest.results.some((r, n) => r.comment_id !== ids[n])) {
     throw new AddressError(CODES.input, 'triage の results が state の指摘と 1 対 1 に並んでいない')
   }
   const blocked = rest.results.filter((r) => !REPLY_CLASSIFICATIONS.includes(r.classification))
-  if (blocked.length) throw new AddressError(CODES.state, `返信できない分類が残る: ${blocked.map((r) => `${r.comment_id}=${r.classification}`).join(', ')}`)
-  return rest.results
+  if (blocked.length) throw new AddressError(CODES.input, `completed なのに返信できない分類が残る: ${blocked.map((r) => `${r.comment_id}=${r.classification}`).join(', ')}`)
+  return rest
+}
+
+// agent が返らなかった・全件を渡した順に返さなかったときだけ、呼び直しで直り得る。
+const TRANSIENT_TRIAGE = /-(unavailable|ids-mismatch)$/
+
+export function triageNext(triage, state, retriesUsed) {
+  if (triage.status === 'needs_decision') return { next: 'decide' }
+  if (triage.status === 'triage_incomplete') return { next: TRANSIENT_TRIAGE.test(triage.reason) && retriesUsed < TRIAGE_RETRIES ? 'classify_again' : 'report' }
+  if (state.stopAfter === 'classify') return { next: 'report' }
+  if (triage.results.some((r) => r.classification === 'fix')) return { next: 'implement' }
+  return state.stopAfter === 'reply' ? { next: 'recheck', fixCommit: null } : { next: 'report' }
+}
+
+export function fixNext(state, { verify, stopped }) {
+  const fixed = verify && verify.passed === true && verify.actual.length > 0
+  if (fixed) return state.stopAfter === 'verify' ? { next: 'report', fixed } : { next: 'commit_push', fixed }
+  return state.stopAfter === 'reply' ? { next: 'recheck', fixCommit: null, fixed, stopped: stopped ?? null } : { next: 'report', fixed, stopped: stopped ?? null }
 }
 
 const where = (e) => `${e.path}:${e.line}`
@@ -349,4 +415,11 @@ export function confirmPlacement(replies, inline, issues) {
     else result.confirmed.push(entry)
   }
   return result
+}
+
+// 投稿の直後は読み取りに反映されていないことがあるので、1 回目の missing は待って読み直し、2 回目に残った分だけ投稿し直す。
+export function confirmNext(placement, attempt) {
+  const passed = placement.missing.length === 0 && placement.duplicated.length === 0 && placement.misplaced.length === 0
+  if (passed || placement.missing.length === 0 || attempt > 2) return { passed, next: 'report' }
+  return { passed, next: attempt === 1 ? 'wait_and_retry' : 'repost' }
 }

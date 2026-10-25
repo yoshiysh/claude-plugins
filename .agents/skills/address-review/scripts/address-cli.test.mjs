@@ -5,8 +5,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { THREADS_QUERY, defaultIo, main } from './address-cli.mjs'
-import { CODES, REPOSITORY, fnvSum } from './address-core.mjs'
+import { THREADS_QUERY, defaultIo, main, run } from './address-cli.mjs'
+import { AddressError, CODES, NEXT, REPOSITORY, fnvSum, nextOfError } from './address-core.mjs'
+import { siteOf, throwSites } from './throw-sites.mjs'
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), 'address-cli.mjs')
 const GIT_ENV = {
@@ -56,6 +57,8 @@ function fakeGithub(fx) {
   gh.run = (cwd, args) => {
     gh.calls.push({ cwd, args })
     const [a, b] = args
+    const raw = gh.raw?.[`${a} ${b}`] ?? gh.raw?.[b]
+    if (raw !== undefined) return raw
     if (a === 'repo' && b === 'view') return JSON.stringify({ nameWithOwner: gh.repository })
     if (a === 'pr' && b === 'view') return JSON.stringify(gh.view)
     if (a === 'api' && b === 'user') return JSON.stringify({ login: gh.viewer })
@@ -105,7 +108,27 @@ const cli = (fx, op, body) => {
 }
 const collect = (fx, extra = {}) => cli(fx, 'collect', { repo: fx.repo, pr: 7, stateDir: fx.stateDir, ...extra })
 
-function triageOf(c, classify) {
+const CLI_URL = import.meta.resolve('./address-cli.mjs')
+const hitSites = new Set()
+
+// 拒否を run で直に受け、throw の箇所を記録して { code, next, reason } を返す（main は stack を落とすので使わない）。
+function reject(fx, op, body) {
+  return rejected(() => run(op, body, fx.io), op)
+}
+
+function rejected(fn, what = 'call') {
+  try {
+    fn()
+  } catch (error) {
+    assert.ok(error instanceof AddressError, String(error?.stack ?? error))
+    const site = siteOf(error, CLI_URL)
+    if (site) hitSites.add(site)
+    return { code: error.code, next: nextOfError(error), reason: error.message }
+  }
+  assert.fail(`${what} が拒否しなかった`)
+}
+
+function triageOf(c, classify, extra = {}) {
   const results = c.state.items.map((i) => {
     const classification = classify(i)
     return {
@@ -113,20 +136,24 @@ function triageOf(c, classify) {
       repair_paths: classification === 'fix' ? ['src/a.mjs'] : [], decision_questions: [], reply_draft: '確かめました。', limitation: '',
     }
   })
-  const body = { status: 'completed', results, stateSum: c.state_sum }
+  const body = { status: 'completed', results, stateSum: c.state_sum, ...extra }
+  if (body.status !== 'completed') delete body.results
   return { ...body, sum: fnvSum(body) }
 }
 
 const ref = (c) => ({ statePath: c.state_path, stateSum: c.state_sum })
+const fixThread = (i) => (i.kind === 'thread' ? 'fix' : 'decline')
+const accept = (fx, c, classify = () => 'decline') => cli(fx, 'triage-result', { ...ref(c), triage: triageOf(c, classify) })
 
-test('collect は全ページを取り、既定の除外を名前だけ残して stateDir に書く', (t) => {
+test('collect は全ページを取り、既定の除外を名前だけ残して stateDir に書き、分類へ進む', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
   assert.equal(c.ok, true, c.reason)
+  assert.equal(c.next, 'classify')
   assert.deepEqual(c.state.items.map((i) => i.comment_id), ['thread:11', 'issue_comment:31'])
   assert.deepEqual(c.excluded, [{ comment_id: 'thread:21', reason: 'outdated' }])
   assert.equal(c.state.policyRef, fx.base)
-  assert.equal(c.state.head, fx.head)
+  assert.equal(c.state.stopAfter, 'reply')
   assert.equal(fnvSum(JSON.parse(readFileSync(c.state_path, 'utf8'))), c.state_sum)
   const graphql = fx.gh.calls.filter((x) => x.args[1] === 'graphql')
   assert.equal(graphql.length, 1)
@@ -134,68 +161,162 @@ test('collect は全ページを取り、既定の除外を名前だけ残して
   assert.ok(fx.gh.calls.filter((x) => x.args[1] === '--paginate').every((x) => x.args.includes('--slurp')))
 })
 
-test('collect は扱えない PR・作業ツリー・stateDir を拒否し、何も書かない', async (t) => {
+test('collect は指摘が 0 件なら report、使えない decisions を外して返す', (t) => {
+  const fx = fixture(t)
+  fx.gh.inline = []
+  fx.gh.threads = []
+  fx.gh.issues = []
+  const c = collect(fx, { decisions: { 'thread:11': '直す' } })
+  assert.equal(c.next, 'report')
+  assert.equal(c.items, 0)
+  assert.deepEqual(c.dropped_decisions, [{ comment_id: 'thread:11', value: '直す', reason: 'not_in_state' }])
+  const fy = fixture(t)
+  const d = collect(fy, { decisions: { 'thread:11': '互換を捨てる', 'issue_comment:31': '' } })
+  assert.deepEqual(d.state.decisions, { 'thread:11': '互換を捨てる' })
+  assert.deepEqual(d.dropped_decisions.map((x) => x.reason), ['empty_or_not_text'])
+})
+
+test('collect は扱えない PR・作業ツリー・入力を拒否し、next を返して何も書かない', async (t) => {
   const cases = [
-    { name: '別のリポジトリ', code: CODES.pin, setup: (fx) => { fx.gh.repository = 'other/repo' } },
-    { name: 'merged', code: CODES.pin, setup: (fx) => { fx.gh.view.state = 'MERGED' } },
-    { name: 'closed', code: CODES.pin, setup: (fx) => { fx.gh.view.state = 'CLOSED' } },
-    { name: 'fork の head', code: CODES.pin, setup: (fx) => { fx.gh.view.isCrossRepository = true } },
-    { name: 'HEAD が PR の head と違う', code: CODES.pin, setup: (fx) => { fx.gh.view.headRefOid = fx.base } },
-    { name: 'branch が違う', code: CODES.pin, setup: (fx) => { git(fx.repo, 'switch', '-q', '-c', 'other') } },
-    { name: 'detached HEAD', code: CODES.pin, setup: (fx) => { git(fx.repo, 'switch', '-q', '--detach') } },
-    { name: '方針の版 origin/main が手元に無い', code: CODES.pin, setup: (fx) => { git(fx.repo, 'update-ref', '-d', 'refs/remotes/origin/main') } },
-    { name: '作業ツリーに commit していない変更がある', code: CODES.pin, setup: (fx) => { write(fx.repo, 'src/a.mjs', 'export const a = 3\n') } },
-    { name: '作業ツリーに未追跡のファイルがある', code: CODES.pin, setup: (fx) => { write(fx.repo, 'notes/todo.md', 'x\n') } },
-    { name: 'stateDir が repo の中の ..x', code: CODES.input, body: (fx) => { mkdirSync(path.join(fx.repo, '..x')); return { stateDir: path.join(fx.repo, '..x') } } },
-    { name: 'stateDir が repo の中', code: CODES.input, body: (fx) => ({ stateDir: fx.repo }) },
-    { name: 'stateDir が無い', code: CODES.input, body: (fx) => ({ stateDir: path.join(fx.stateDir, 'none') }) },
-    { name: 'pr が整数でない', code: CODES.input, body: () => ({ pr: '7' }) },
-    { name: 'repo が相対パス', code: CODES.input, body: () => ({ repo: 'x' }) },
-    { name: 'PR に無い include', code: CODES.input, body: () => ({ include: ['thread:999'] }) },
-    { name: '投稿者の無いコメント', code: CODES.io, setup: (fx) => { fx.gh.issues[0].user = null } },
+    { name: '別のリポジトリ', code: CODES.pin, next: 'report', setup: (fx) => { fx.gh.repository = 'other/repo' } },
+    { name: 'merged', code: CODES.pin, next: 'report', setup: (fx) => { fx.gh.view.state = 'MERGED' } },
+    { name: 'fork の head', code: CODES.pin, next: 'report', setup: (fx) => { fx.gh.view.isCrossRepository = true } },
+    { name: 'HEAD が PR の head と違う', code: CODES.pin, next: 'report', setup: (fx) => { fx.gh.view.headRefOid = fx.base } },
+    { name: 'detached HEAD', code: CODES.pin, next: 'report', setup: (fx) => { git(fx.repo, 'switch', '-q', '--detach') } },
+    { name: '方針の版 origin/main が手元に無い', code: CODES.pin, next: 'fetch_and_retry', setup: (fx) => { git(fx.repo, 'update-ref', '-d', 'refs/remotes/origin/main') } },
+    { name: '作業ツリーに commit していない変更がある', code: CODES.pin, next: 'report', setup: (fx) => { write(fx.repo, 'src/a.mjs', 'export const a = 3\n') } },
+    { name: '作業ツリーに未追跡のファイルがある', code: CODES.pin, next: 'report', setup: (fx) => { write(fx.repo, 'notes/todo.md', 'x\n') } },
+    { name: 'stateDir が repo の中の ..x', code: CODES.input, next: 'fix_input', body: (fx) => { mkdirSync(path.join(fx.repo, '..x')); return { stateDir: path.join(fx.repo, '..x') } } },
+    { name: 'stateDir が無い', code: CODES.input, next: 'fix_input', body: (fx) => ({ stateDir: path.join(fx.stateDir, 'none') }) },
+    { name: 'stateDir を前の run が使った', code: CODES.state, next: 'fix_input', setup: (fx) => { writeFileSync(path.join(fx.stateDir, 'address-review-state.json'), '{}') }, keep: true },
+    { name: 'pr が整数でない', code: CODES.input, next: 'fix_input', body: () => ({ pr: '7' }) },
+    { name: 'repo が相対パス', code: CODES.input, next: 'fix_input', body: () => ({ repo: 'x' }) },
+    { name: 'stopAfter が列挙に無い', code: CODES.input, next: 'fix_input', body: () => ({ stopAfter: 'merge' }) },
+    { name: 'gh の認証ユーザーが取れない', code: CODES.io, next: 'retry', setup: (fx) => { fx.gh.viewer = '' } },
+    { name: 'gh の応答が JSON でない', code: CODES.io, next: 'retry', setup: (fx) => { fx.gh.raw = { 'repo view': 'not json' } } },
+    { name: 'reviewThreads の応答の形が違う', code: CODES.io, next: 'retry', setup: (fx) => { fx.gh.raw = { graphql: '[{}]' } } },
   ]
   for (const c of cases) {
     await t.test(c.name, (t) => {
       const fx = fixture(t)
       c.setup?.(fx)
-      const out = collect(fx, c.body?.(fx) ?? {})
-      assert.equal(out.ok, false)
-      assert.equal(out.code, c.code, out.reason)
-      assert.equal(out.exitCode, 1)
-      assert.equal(existsSync(path.join(fx.stateDir, 'address-review-state.json')), false)
+      const out = reject(fx, 'collect', { repo: fx.repo, pr: 7, stateDir: fx.stateDir, ...(c.body?.(fx) ?? {}) })
+      assert.deepEqual([out.code, out.next], [c.code, c.next], out.reason)
+      if (!c.keep) assert.equal(existsSync(path.join(fx.stateDir, 'address-review-state.json')), false)
     })
   }
 })
 
-test('同じ stateDir での 2 回目の collect は拒否する（1 周に 1 回）', (t) => {
-  const fx = fixture(t)
-  assert.equal(collect(fx).ok, true)
-  const again = collect(fx)
-  assert.equal(again.code, CODES.state)
+test('triage-result は分類の結果と stopAfter から next を返し、fix があれば依頼の文を組む', async (t) => {
+  const cases = [
+    ['fix があり返信まで', 'reply', fixThread, 'implement'],
+    ['fix があり push まで', 'push', fixThread, 'implement'],
+    ['fix があり分類だけ', 'classify', fixThread, 'report'],
+    ['fix が無く返信まで', 'reply', () => 'decline', 'recheck'],
+    ['fix が無く verify まで', 'verify', () => 'decline', 'report'],
+  ]
+  for (const [name, stopAfter, classify, next] of cases) {
+    await t.test(name, (t) => {
+      const fx = fixture(t)
+      const c = collect(fx, { stopAfter })
+      const out = accept(fx, c, classify)
+      assert.equal(out.ok, true, out.reason)
+      assert.equal(out.next, next)
+      if (next === 'implement') {
+        assert.deepEqual(out.fix_ids, ['thread:11'])
+        assert.match(out.request, /> \[HIGH\] a が 1 のまま/)
+      }
+      if (next === 'recheck') assert.equal(out.fixCommit, null)
+    })
+  }
 })
 
-test('fix-request は fix の指摘だけの依頼の文を返し、fix が無ければ null', (t) => {
+test('triage-result は止まった分類を利用者の判断・呼び直し・報告に振り分け、呼び直しを CLI が数える', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
-  const out = cli(fx, 'fix-request', { ...ref(c), triage: triageOf(c, (i) => (i.kind === 'thread' ? 'fix' : 'decline')) })
-  assert.equal(out.ok, true, out.reason)
-  assert.deepEqual(out.fix_ids, ['thread:11'])
-  assert.match(out.request, /> \[HIGH\] a が 1 のまま/)
-  const none = cli(fx, 'fix-request', { ...ref(c), triage: triageOf(c, () => 'decline') })
-  assert.equal(none.request, null)
-  const tampered = cli(fx, 'fix-request', { ...ref(c), stateSum: '00000000', triage: triageOf(c, () => 'decline') })
-  assert.equal(tampered.code, CODES.input)
+  const decide = cli(fx, 'triage-result', { ...ref(c), triage: triageOf(c, () => 'decline', { status: 'needs_decision', questions: [{ comment_id: 'thread:11', questions: ['どちら'] }] }) })
+  assert.equal(decide.next, 'decide')
+  assert.deepEqual(decide.questions, [{ comment_id: 'thread:11', questions: ['どちら'] }])
+  const lost = triageOf(c, () => 'decline', { status: 'triage_incomplete', reason: 'triager-unavailable' })
+  assert.equal(cli(fx, 'triage-result', { ...ref(c), triage: lost }).next, 'classify_again')
+  assert.equal(cli(fx, 'triage-result', { ...ref(c), triage: lost }).next, 'report')
+  const head = triageOf(c, () => 'decline', { status: 'triage_incomplete', reason: 'triager-head-mismatch', observedHead: 'x' })
+  const out = cli(fx, 'triage-result', { ...ref(c), triage: head })
+  assert.deepEqual([out.next, out.observedHead], ['report', 'x'])
 })
 
-test('fix-request は triagePath の native の包みを受け付け、両方の指定を拒否する', (t) => {
+test('triage-result は分類を 1 回だけ受け入れ、triagePath の native の包みを受け付ける', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
   const file = path.join(fx.stateDir, 'triage.output')
   const triage = triageOf(c, () => 'decline')
   writeFileSync(file, JSON.stringify({ summary: 's', agentCount: 2, result: triage }))
-  assert.equal(cli(fx, 'fix-request', { ...ref(c), triagePath: file }).ok, true)
-  assert.equal(cli(fx, 'fix-request', { ...ref(c), triagePath: file, triage }).code, CODES.input)
-  assert.equal(cli(fx, 'fix-request', { ...ref(c), triagePath: path.join(fx.stateDir, 'none.output') }).code, CODES.input)
+  assert.equal(cli(fx, 'triage-result', { ...ref(c), triagePath: file }).next, 'recheck')
+  assert.deepEqual(Object.values(reject(fx, 'triage-result', { ...ref(c), triage })).slice(0, 2), [CODES.state, 'report'])
+})
+
+test('triage-result の入力の誤りは fix_input', async (t) => {
+  const fx = fixture(t)
+  const c = collect(fx)
+  const file = path.join(fx.stateDir, 'x.output')
+  writeFileSync(file, '{}')
+  const cases = [
+    ['triage と triagePath の両方', { triage: triageOf(c, () => 'decline'), triagePath: file }],
+    ['無い triagePath', { triagePath: path.join(fx.stateDir, 'none') }],
+    ['triage が無い', {}],
+    ['stateSum が違う', { stateSum: '00000000', triage: triageOf(c, () => 'decline') }],
+    ['statePath が無い', { statePath: path.join(fx.stateDir, 'none.json'), triage: triageOf(c, () => 'decline') }],
+  ]
+  for (const [name, body] of cases) {
+    await t.test(name, () => {
+      const out = reject(fx, 'triage-result', { ...ref(c), ...body })
+      assert.deepEqual([out.code, out.next], [CODES.input, 'fix_input'], out.reason)
+    })
+  }
+  await t.test('記録が壊れている', () => {
+    writeFileSync(path.join(fx.stateDir, 'address-review-triage.json'), JSON.stringify({ stateSum: c.state_sum, retries: 0, accepted: null, sum: 'x' }))
+    assert.deepEqual(Object.values(reject(fx, 'triage-result', { ...ref(c), triage: triageOf(c, () => 'decline') })).slice(0, 2), [CODES.state, 'report'])
+  })
+})
+
+test('record-fix は verify の結果と stopAfter から next を返す', async (t) => {
+  const passed = { ok: true, op: 'verify', passed: true, problems: [], actual: ['src/a.mjs'] }
+  const cases = [
+    ['直して返信まで', 'reply', { verify: passed }, 'commit_push'],
+    ['直して push まで', 'push', { verify: passed }, 'commit_push'],
+    ['直して verify まで', 'verify', { verify: passed }, 'report'],
+    ['no_change で返信まで', 'reply', { verify: { ...passed, actual: [] } }, 'recheck'],
+    ['不通過で返信まで', 'reply', { verify: { ...passed, passed: false } }, 'recheck'],
+    ['止まって push まで', 'push', { stopped: 'needs_replan' }, 'report'],
+  ]
+  for (const [name, stopAfter, input, next] of cases) {
+    await t.test(name, (t) => {
+      const fx = fixture(t)
+      const c = collect(fx, { stopAfter })
+      accept(fx, c, fixThread)
+      const out = cli(fx, 'record-fix', { ...ref(c), ...input })
+      assert.equal(out.next, next, out.reason)
+      if (next === 'commit_push') assert.deepEqual([out.branch, /PR #7/.test(out.commit_message)], ['feat/x', true])
+    })
+  }
+})
+
+test('record-fix の拒否', async (t) => {
+  const cases = [
+    ['分類を受け入れる前', null, {}, CODES.state, 'report'],
+    ['fix の無い run', () => 'decline', { stopped: 'x' }, CODES.state, 'report'],
+    ['verify と stopped の両方', fixThread, { verify: { passed: true, actual: [] }, stopped: 'x' }, CODES.input, 'fix_input'],
+    ['verify の形が違う', fixThread, { verify: { passed: 'yes' } }, CODES.input, 'fix_input'],
+    ['stopped が空', fixThread, { stopped: ' ' }, CODES.input, 'fix_input'],
+  ]
+  for (const [name, classify, input, code, next] of cases) {
+    await t.test(name, (t) => {
+      const fx = fixture(t)
+      const c = collect(fx)
+      if (classify) accept(fx, c, classify)
+      assert.deepEqual(Object.values(reject(fx, 'record-fix', { ...ref(c), ...input })).slice(0, 2), [code, next])
+    })
+  }
 })
 
 function postAll(fx, out) {
@@ -205,56 +326,50 @@ function postAll(fx, out) {
   })
 }
 
-test('修正の無い run: recheck が返信の本文を組み、confirm-replies が 1 回だけ付いたことを確かめる', (t) => {
+test('修正の無い run: recheck が返信の本文を組んで post、confirm-replies が 1 回だけ付いたことを確かめる', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
-  const triage = triageOf(c, () => 'decline')
-  const out = cli(fx, 'recheck', { ...ref(c), triage, fixCommit: null })
-  assert.equal(out.ok, true, out.reason)
+  accept(fx, c)
+  const out = cli(fx, 'recheck', { ...ref(c), fixCommit: null })
+  assert.equal(out.next, 'post', out.reason)
   assert.deepEqual(out.replies.map((r) => r.endpoint), [`repos/${REPOSITORY}/pulls/7/comments`, `repos/${REPOSITORY}/issues/7/comments`])
   const thread = JSON.parse(readFileSync(out.replies[0].input_path, 'utf8'))
   assert.deepEqual(Object.keys(thread).sort(), ['body', 'in_reply_to'])
-  assert.equal(thread.in_reply_to, 11)
   assert.ok(thread.body.startsWith('@github-actions[bot] 確かめました。'))
   assert.match(thread.body, /根拠: src\/a\.mjs:1/)
-  assert.deepEqual(out.blocked, [])
   postAll(fx, out)
   const confirm = cli(fx, 'confirm-replies', ref(c))
-  assert.equal(confirm.passed, true, JSON.stringify(confirm))
-  assert.equal(confirm.confirmed.length, 2)
+  assert.deepEqual([confirm.passed, confirm.next, confirm.confirmed.length], [true, 'report', 2])
   fx.gh.post({ kind: 'thread', reply_to: 11 }, thread.body, 2000)
   const dup = cli(fx, 'confirm-replies', ref(c))
-  assert.equal(dup.passed, false)
+  assert.deepEqual([dup.passed, dup.next], [false, 'report'])
   assert.deepEqual(dup.duplicated.map((d) => d.posted), [[1000, 2000]])
 })
 
-test('投稿が途中で失敗しても、confirm-replies の missing の input_path で投稿し直せば通る', (t) => {
+test('confirm-replies は missing を 1 回目は待たせ、2 回目は投稿し直させ、3 回目は報告させる', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
-  const out = cli(fx, 'recheck', { ...ref(c), triage: triageOf(c, () => 'decline'), fixCommit: null })
+  accept(fx, c)
+  const out = cli(fx, 'recheck', { ...ref(c), fixCommit: null })
   postAll(fx, { replies: out.replies.slice(0, 1) })
   const first = cli(fx, 'confirm-replies', ref(c))
-  assert.equal(first.passed, false)
+  assert.equal(first.next, 'wait_and_retry')
   assert.deepEqual(first.missing.map((m) => m.input_path), [out.replies[1].input_path])
-  const payload = JSON.parse(readFileSync(first.missing[0].input_path, 'utf8'))
+  const second = cli(fx, 'confirm-replies', ref(c))
+  assert.equal(second.next, 'repost')
+  assert.equal(cli(fx, 'confirm-replies', ref(c)).next, 'report')
+  const payload = JSON.parse(readFileSync(second.missing[0].input_path, 'utf8'))
   fx.gh.post({ kind: 'conversation' }, payload.body, 3000)
-  const again = cli(fx, 'confirm-replies', ref(c))
-  assert.equal(again.passed, true, JSON.stringify(again))
+  const done = cli(fx, 'confirm-replies', ref(c))
+  assert.deepEqual([done.passed, done.next], [true, 'report'])
 })
 
-test('confirm-replies は recheck の前と、無い statePath を拒否する', (t) => {
+test('confirm-replies は recheck の前と壊れた記録を拒否する', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
-  assert.equal(cli(fx, 'confirm-replies', ref(c)).code, CODES.state)
-  assert.equal(cli(fx, 'confirm-replies', { ...ref(c), statePath: path.join(fx.stateDir, 'none.json') }).code, CODES.input)
-})
-
-test('recheck は 1 回だけ（2 回目は返信を組み直さない）', (t) => {
-  const fx = fixture(t)
-  const c = collect(fx)
-  const triage = triageOf(c, () => 'decline')
-  assert.equal(cli(fx, 'recheck', { ...ref(c), triage, fixCommit: null }).ok, true)
-  assert.equal(cli(fx, 'recheck', { ...ref(c), triage, fixCommit: null }).code, CODES.state)
+  assert.deepEqual(Object.values(reject(fx, 'confirm-replies', ref(c))).slice(0, 2), [CODES.state, 'report'])
+  writeFileSync(path.join(fx.stateDir, 'address-review-replies.json'), JSON.stringify({ stateSum: c.state_sum, replies: [], confirmations: 0, sum: 'x' }))
+  assert.deepEqual(Object.values(reject(fx, 'confirm-replies', ref(c))).slice(0, 2), [CODES.state, 'report'])
 })
 
 function commitFix(fx) {
@@ -263,25 +378,35 @@ function commitFix(fx) {
   return git(fx.repo, 'rev-parse', 'HEAD')
 }
 
-test('修正の run: push した commit が PR の head で 1 つだけなら、fix の返信に SHA と path を載せる', (t) => {
+test('修正の run: push した commit が PR の head で親が collect の head なら、fix の返信に SHA と path を載せる', (t) => {
   const fx = fixture(t)
   const c = collect(fx)
-  const triage = triageOf(c, (i) => (i.kind === 'thread' ? 'fix' : 'decline'))
+  accept(fx, c, fixThread)
   const sha = commitFix(fx)
   fx.gh.view.headRefOid = sha
   fx.gh.threads[0].isOutdated = true
-  const out = cli(fx, 'recheck', { ...ref(c), triage, fixCommit: sha })
-  assert.equal(out.ok, true, out.reason)
+  const out = cli(fx, 'recheck', { ...ref(c), fixCommit: sha })
+  assert.equal(out.next, 'post', out.reason)
   const thread = JSON.parse(readFileSync(out.replies[0].input_path, 'utf8'))
   assert.match(thread.body, new RegExp(`修正: ${sha}（src/a\\.mjs）`))
-  assert.deepEqual(out.skipped, [])
+})
+
+test('recheck は stopAfter が push なら push を確かめた後に report', (t) => {
+  const fx = fixture(t)
+  const c = collect(fx, { stopAfter: 'push' })
+  accept(fx, c, fixThread)
+  const sha = commitFix(fx)
+  fx.gh.view.headRefOid = sha
+  const out = cli(fx, 'recheck', { ...ref(c), fixCommit: sha })
+  assert.deepEqual([out.next, out.pushed], ['report', sha])
+  assert.equal(existsSync(path.join(fx.stateDir, 'address-review-replies.json')), false)
 })
 
 test('recheck は head と議論の変化で返信を止める', async (t) => {
   const cases = [
-    { name: '修正が無いのに head が動いた', fix: false, setup: (fx) => { fx.gh.view.headRefOid = commitFix(fx) }, code: CODES.state },
-    { name: 'push した commit が PR の head でない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = 'f'.repeat(40); return sha }, code: CODES.state },
-    { name: 'push が GitHub に反映されていない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = fx.head; return sha }, code: CODES.state, reason: /反映されていない.*1 回だけ流し直し/ },
+    { name: '修正が無いのに head が動いた', fix: false, setup: (fx) => { fx.gh.view.headRefOid = commitFix(fx) }, code: CODES.state, next: 'report' },
+    { name: 'push した commit が PR の head でない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = 'f'.repeat(40); return sha }, code: CODES.state, next: 'report' },
+    { name: 'push が GitHub に反映されていない', fix: true, setup: (fx, sha) => { fx.gh.view.headRefOid = fx.head; return sha }, code: CODES.state, next: 'wait_and_retry' },
     {
       name: '修正の commit の親が collect の head でない',
       fix: true,
@@ -291,29 +416,17 @@ test('recheck は head と議論の変化で返信を止める', async (t) => {
         return sha
       },
       code: CODES.state,
+      next: 'report',
     },
-    {
-      name: 'collect の head からの commit が 2 つ',
-      fix: true,
-      setup: (fx) => {
-        write(fx.repo, 'x.md', 'x\n')
-        git(fx.repo, 'add', '-A')
-        git(fx.repo, 'commit', '-q', '-m', 'other')
-        const sha = git(fx.repo, 'rev-parse', 'HEAD')
-        fx.gh.view.headRefOid = sha
-        return sha
-      },
-      code: CODES.state,
-    },
-    { name: 'PR が merged になった', fix: false, setup: (fx) => { fx.gh.view.state = 'MERGED' }, code: CODES.pin },
-    { name: 'fixCommit が無い', fix: false, body: { fixCommit: undefined }, code: CODES.input },
-    { name: 'fix が無いのに fixCommit がある', fix: false, classify: () => 'decline', body: { fixCommit: 'e'.repeat(40) }, code: CODES.input },
+    { name: 'PR が merged になった', fix: false, setup: (fx) => { fx.gh.view.state = 'MERGED' }, code: CODES.pin, next: 'report' },
+    { name: 'fixCommit が無い', fix: false, body: { fixCommit: undefined }, code: CODES.input, next: 'fix_input' },
+    { name: 'fix が無いのに fixCommit がある', fix: false, classify: () => 'decline', body: { fixCommit: 'e'.repeat(40) }, code: CODES.input, next: 'fix_input' },
   ]
   for (const c of cases) {
     await t.test(c.name, (t) => {
       const fx = fixture(t)
       const col = collect(fx)
-      const triage = triageOf(col, c.classify ?? ((i) => (i.kind === 'thread' ? 'fix' : 'decline')))
+      accept(fx, col, c.classify ?? fixThread)
       let fixCommit = null
       if (c.fix) {
         fixCommit = commitFix(fx)
@@ -321,30 +434,37 @@ test('recheck は head と議論の変化で返信を止める', async (t) => {
       }
       const override = c.setup?.(fx, fixCommit)
       if (override) fixCommit = override
-      const body = { ...ref(col), triage, fixCommit, ...(c.body ?? {}) }
-      const out = cli(fx, 'recheck', body)
-      assert.equal(out.code, c.code, out.reason)
-      if (c.reason) assert.match(out.reason, c.reason)
+      const out = reject(fx, 'recheck', { ...ref(col), fixCommit, ...(c.body ?? {}) })
+      assert.deepEqual([out.code, out.next], [c.code, c.next], out.reason)
       assert.equal(existsSync(path.join(fx.stateDir, 'address-review-replies.json')), false)
     })
   }
+  await t.test('分類を受け入れる前と 2 回目は拒否する', (t) => {
+    const fx = fixture(t)
+    const col = collect(fx)
+    assert.deepEqual(Object.values(reject(fx, 'recheck', { ...ref(col), fixCommit: null })).slice(0, 2), [CODES.state, 'report'])
+    accept(fx, col)
+    assert.equal(cli(fx, 'recheck', { ...ref(col), fixCommit: null }).next, 'post')
+    assert.deepEqual(Object.values(reject(fx, 'recheck', { ...ref(col), fixCommit: null })).slice(0, 2), [CODES.state, 'report'])
+  })
   await t.test('返信先の thread に新しい返信が付いたら、その返信だけを blocked にする', (t) => {
     const fx = fixture(t)
     const col = collect(fx)
+    accept(fx, col)
     fx.gh.inline.push({ id: 12, user: user('alice'), path: 'src/a.mjs', line: 1, in_reply_to_id: 11, body: '追記', created_at: 'z', updated_at: 'z', html_url: 'https://x/12' })
     fx.gh.issues.push({ id: 32, user: user('bob'), body: '新しい指摘', created_at: '2026-10-03T00:00:00Z', updated_at: 'z', html_url: 'https://x/32' })
-    const out = cli(fx, 'recheck', { ...ref(col), triage: triageOf(col, () => 'decline'), fixCommit: null })
-    assert.equal(out.ok, true, out.reason)
+    const out = cli(fx, 'recheck', { ...ref(col), fixCommit: null })
     assert.deepEqual(out.blocked, [{ comment_ids: ['thread:11'], changed: [{ comment_id: 'thread:11', reason: 'discussion_changed' }] }])
     assert.deepEqual(out.replies.map((r) => r.comment_ids), [['issue_comment:31']])
     assert.deepEqual(out.new_items, ['issue_comment:32'])
   })
-  await t.test('修正を push できなかった run は fix の指摘に返信しない', (t) => {
+  await t.test('返す返信が残らなければ report', (t) => {
     const fx = fixture(t)
     const col = collect(fx)
-    const out = cli(fx, 'recheck', { ...ref(col), triage: triageOf(col, (i) => (i.kind === 'thread' ? 'fix' : 'decline')), fixCommit: null })
-    assert.deepEqual(out.skipped, [{ comment_id: 'thread:11', reason: 'not_fixed' }])
-    assert.deepEqual(out.replies.map((r) => r.comment_ids), [['issue_comment:31']])
+    accept(fx, col, fixThread)
+    fx.gh.issues[0].body = '編集した'
+    const out = cli(fx, 'recheck', { ...ref(col), fixCommit: null })
+    assert.deepEqual([out.next, out.replies, out.skipped.map((x) => x.comment_id)], ['report', [], ['thread:11']])
   })
 })
 
@@ -352,8 +472,8 @@ test('collect・recheck は gh の argv にコメントの本文を入れない'
   const fx = fixture(t)
   fx.gh.inline[0].body = '`rm -rf /`; $(touch pwned) "\' 本文'
   const c = collect(fx)
-  assert.equal(c.ok, true)
-  cli(fx, 'recheck', { ...ref(c), triage: triageOf(c, () => 'decline'), fixCommit: null })
+  accept(fx, c)
+  cli(fx, 'recheck', { ...ref(c), fixCommit: null })
   for (const call of fx.gh.calls) assert.ok(call.args.every((a) => !a.includes('rm -rf')), call.args.join(' '))
 })
 
@@ -387,9 +507,11 @@ test('E_IO の reason は失敗した gh・git の argv を示し、query の本
   process.env.PATH = `${bin}${path.delimiter}${saved}`
   t.after(() => { process.env.PATH = saved })
   const io = defaultIo()
-  assert.throws(() => io.git('/r', ['rev-list', '--parents', 'x']), (e) => e.code === CODES.io && e.message.includes('git -C /r rev-list --parents x が失敗した: boom'))
-  assert.throws(() => io.gh('/', ['api', 'graphql', '-f', `query=${THREADS_QUERY}`, '-F', 'number=7']),
-    (e) => e.code === CODES.io && e.message.includes('gh api graphql -f query=… -F number=7 が失敗した') && !e.message.includes('reviewThreads'))
+  const g = rejected(() => io.git('/r', ['rev-list', '--parents', 'x']))
+  assert.deepEqual([g.code, g.next], [CODES.io, 'retry'])
+  assert.ok(g.reason.includes('git -C /r rev-list --parents x が失敗した: boom'), g.reason)
+  const h = rejected(() => io.gh('/', ['api', 'graphql', '-f', `query=${THREADS_QUERY}`, '-F', 'number=7']))
+  assert.ok(h.reason.includes('gh api graphql -f query=… -F number=7 が失敗した') && !h.reason.includes('reviewThreads'), h.reason)
 })
 
 test('CLI は使い方と JSON の誤りを exit 2 で返す', () => {
@@ -398,4 +520,30 @@ test('CLI は使い方と JSON の誤りを exit 2 で返す', () => {
     assert.equal(r.status, 2, r.stdout)
     assert.equal(JSON.parse(r.stdout).code, CODES.input)
   }
+})
+
+test('CLI の拒否の出力は全て next を持つ（使い方の誤り・知らない op・CLI の不具合）', (t) => {
+  for (const [argv, input] of [[['nope'], '{}'], [['collect', 'x'], '{}'], [['collect'], 'not json'], [['collect'], '[]']]) {
+    const out = JSON.parse(main(argv, input).output)
+    assert.deepEqual([out.code, out.next], [CODES.input, 'fix_input'])
+  }
+  const fx = fixture(t)
+  assert.deepEqual(Object.values(reject(fx, 'nope', {})).slice(0, 2), [CODES.input, 'fix_input'])
+  const broken = { ...fx.io, gh: () => { throw new Error('bug') } }
+  const out = JSON.parse(main(['collect'], JSON.stringify({ repo: fx.repo, pr: 7, stateDir: fx.stateDir }), broken).output)
+  assert.deepEqual([out.code, out.next], [CODES.internal, 'report'])
+})
+
+test('全ての出力の next は NEXT の値', (t) => {
+  for (const next of ['classify', 'classify_again', 'decide', 'implement', 'commit_push', 'recheck', 'post', 'repost', 'retry', 'wait_and_retry', 'fetch_and_retry', 'fix_input', 'report']) {
+    assert.ok(Object.hasOwn(NEXT, next), next)
+  }
+  assert.equal(Object.keys(NEXT).length, 13, 'NEXT に値を足したら、その値を返すケースをこのファイルに足す')
+})
+
+// このファイルの最後に置く（node:test はファイルの中の top-level の test を順に流すので、ここまでの拒否の箇所が集まっている）。
+test('address-cli.mjs の全ての throw new AddressError の箇所を、拒否のケースが 1 回以上通る', () => {
+  const sites = throwSites(CLI_URL)
+  assert.ok(sites.length > 0)
+  assert.deepEqual(sites.filter((line) => !hitSites.has(line)), [], 'テストのケースが通っていない throw の行（箇所を足したらケースを足す）')
 })

@@ -2,8 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AddressError, CODES, EXCLUSION_REASONS, answeredMark, buildItems, changedTargets, confirmPlacement, discussionOf, fixRequest, fnvSum, newState,
-  planReplies, selectTargets, triageOf, unwrapWorkflowOutput,
+  planReplies, selectTargets, unwrapWorkflowOutput, readTriage, triageNext, fixNext, confirmNext, splitDecisions, nextOfError,
+  NEXT, NEXT_BY_CODE, TRIAGE_RETRIES,
 } from './address-core.mjs'
+import { siteOf, throwSites } from './throw-sites.mjs'
+
+const CORE_URL = import.meta.resolve('./address-core.mjs')
+const hitSites = new Set()
+
+// AddressError の拒否を受け、code と next を照らし、throw の箇所を記録する。
+function throwsAddress(fn, code, next) {
+  let error = null
+  try {
+    fn()
+  } catch (e) {
+    error = e
+  }
+  assert.ok(error instanceof AddressError, String(error?.stack ?? 'throw しなかった'))
+  assert.deepEqual([error.code, nextOfError(error)], [code, next], error.message)
+  const site = siteOf(error, CORE_URL)
+  if (site) hitSites.add(site)
+}
 
 const BASE = 'b'.repeat(40)
 const HEAD = 'a'.repeat(40)
@@ -53,7 +72,7 @@ test('buildItems は応答の食い違いを E_IO で拒否する', async (t) =>
     await t.test(c.name, () => {
       const r = raw()
       c.mutate(r)
-      assert.throws(() => buildItems(r), (e) => e instanceof AddressError && e.code === CODES.io)
+      throwsAddress(() => buildItems(r), CODES.io, 'retry')
     })
   }
 })
@@ -91,7 +110,7 @@ test('selectTargets の既定の除外と include・only', async (t) => {
   }
   await t.test('PR に無い id と配列でない値は E_INPUT', () => {
     for (const opts of [{ include: ['thread:999'] }, { only: ['x'] }, { include: 'thread:11' }]) {
-      assert.throws(() => selectTargets(buildItems(raw()), { viewer: 'me', ...opts }), (e) => e.code === CODES.input)
+      throwsAddress(() => selectTargets(buildItems(raw()), { viewer: 'me', ...opts }), CODES.input, 'fix_input')
     }
   })
 })
@@ -126,24 +145,101 @@ function triageFor(stateSum, results, status = 'completed') {
   return { ...body, sum: fnvSum(body) }
 }
 
-test('triageOf は sum・stateSum・status・並びを照らし、native の包みから取り出す', async (t) => {
+test('readTriage は sum・stateSum・status・並びを照らし、native の包みから取り出す', async (t) => {
   const items = selectTargets(buildItems(raw()), { viewer: 'me' }).items
   const { state, stateSum } = stateOf(items)
   const ok = items.map((i) => result(i.comment_id, 'decline'))
-  assert.equal(triageOf(triageFor(stateSum, ok), state, stateSum).length, items.length)
-  assert.equal(triageOf({ summary: 's', agentCount: 2, result: triageFor(stateSum, ok) }, state, stateSum).length, items.length)
+  assert.equal(readTriage(triageFor(stateSum, ok), state, stateSum).results.length, items.length)
+  assert.equal(readTriage({ summary: 's', agentCount: 2, result: triageFor(stateSum, ok) }, state, stateSum).results.length, items.length)
+  assert.equal(readTriage(triageFor(stateSum, undefined, 'needs_decision'), state, stateSum).status, 'needs_decision')
   const cases = [
-    { name: 'sum が合わない', triage: { ...triageFor(stateSum, ok), status: 'completed', results: ok.slice(1) }, code: CODES.input },
-    { name: '別の state', triage: triageFor('00000000', ok), code: CODES.input },
-    { name: 'needs_decision', triage: triageFor(stateSum, ok, 'needs_decision'), code: CODES.state },
-    { name: 'triage_incomplete', triage: triageFor(stateSum, ok, 'triage_incomplete'), code: CODES.state },
-    { name: '並びが違う', triage: triageFor(stateSum, [...ok].reverse()), code: CODES.input },
-    { name: '欠けた', triage: triageFor(stateSum, ok.slice(1)), code: CODES.input },
-    { name: '返信できない分類', triage: triageFor(stateSum, ok.map((r, n) => (n ? r : { ...r, classification: 'unverified' }))), code: CODES.state },
+    { name: 'sum が合わない', triage: { ...triageFor(stateSum, ok), results: ok.slice(1) } },
+    { name: '別の state', triage: triageFor('00000000', ok) },
+    { name: '知らない status', triage: triageFor(stateSum, ok, 'done') },
+    { name: '並びが違う', triage: triageFor(stateSum, [...ok].reverse()) },
+    { name: '欠けた', triage: triageFor(stateSum, ok.slice(1)) },
+    { name: 'completed なのに返信できない分類', triage: triageFor(stateSum, ok.map((r, n) => (n ? r : { ...r, classification: 'unverified' }))) },
+    { name: '返り値でない', triage: null },
   ]
   for (const c of cases) {
-    await t.test(c.name, () => assert.throws(() => triageOf(c.triage, state, stateSum), (e) => e.code === c.code))
+    await t.test(c.name, () => throwsAddress(() => readTriage(c.triage, state, stateSum), CODES.input, 'fix_input'))
   }
+})
+
+const stopState = (stopAfter) => ({ stopAfter })
+const fixes = (cls) => ({ status: 'completed', results: [result('a', cls)] })
+
+test('triageNext は status・reason・呼び直しの回数・stopAfter から次の手を 1 つ決める', async (t) => {
+  const cases = [
+    ['needs_decision は利用者の判断', { status: 'needs_decision' }, 'reply', 0, 'decide'],
+    ['agent が返らなかった 1 回目は呼び直す', { status: 'triage_incomplete', reason: 'triager-unavailable' }, 'reply', 0, 'classify_again'],
+    ['並びが崩れた 1 回目は呼び直す', { status: 'triage_incomplete', reason: 'verifier-ids-mismatch' }, 'reply', 0, 'classify_again'],
+    ['呼び直しの上限に達したら報告', { status: 'triage_incomplete', reason: 'verifier-unavailable' }, 'reply', TRIAGE_RETRIES, 'report'],
+    ['head の食い違いは呼び直さない', { status: 'triage_incomplete', reason: 'triager-head-mismatch' }, 'reply', 0, 'report'],
+    ['分類の食い違いは呼び直さない', { status: 'triage_incomplete', reason: 'verification-disagrees' }, 'reply', 0, 'report'],
+    ['分類だけで止める', fixes('fix'), 'classify', 0, 'report'],
+    ['fix があれば修正', fixes('fix'), 'verify', 0, 'implement'],
+    ['fix が無く返信まで', fixes('decline'), 'reply', 0, 'recheck'],
+    ['fix が無く push まで', fixes('decline'), 'push', 0, 'report'],
+    ['fix が無く verify まで', fixes('decline'), 'verify', 0, 'report'],
+  ]
+  for (const [name, triage, stopAfter, used, next] of cases) {
+    await t.test(name, () => assert.equal(triageNext(triage, stopState(stopAfter), used).next, next))
+  }
+})
+
+test('fixNext は verify の結果と stopAfter から次の手を決める', async (t) => {
+  const passed = { passed: true, actual: ['src/a.mjs'] }
+  const cases = [
+    ['直して verify まで', { verify: passed }, 'verify', 'report'],
+    ['直して push まで', { verify: passed }, 'push', 'commit_push'],
+    ['直して返信まで', { verify: passed }, 'reply', 'commit_push'],
+    ['verify 不通過で返信まで', { verify: { passed: false, actual: ['x'] } }, 'reply', 'recheck'],
+    ['no_change で返信まで', { verify: { passed: true, actual: [] } }, 'reply', 'recheck'],
+    ['止まって返信まで', { stopped: 'needs_replan' }, 'reply', 'recheck'],
+    ['止まって push まで', { stopped: 'needs_replan' }, 'push', 'report'],
+    ['no_change で verify まで', { verify: { passed: true, actual: [] } }, 'verify', 'report'],
+  ]
+  for (const [name, input, stopAfter, next] of cases) {
+    await t.test(name, () => {
+      const out = fixNext(stopState(stopAfter), input)
+      assert.equal(out.next, next)
+      if (next === 'recheck') assert.equal(out.fixCommit, null)
+    })
+  }
+})
+
+test('confirmNext は 1 回目の missing を待って読み直し、2 回目に投稿し直し、3 回目は報告する', async (t) => {
+  const p = (missing, duplicated = []) => ({ missing, duplicated, misplaced: [], confirmed: [] })
+  const cases = [
+    ['全て付いた', p([]), 1, true, 'report'],
+    ['1 回目の missing', p([1]), 1, false, 'wait_and_retry'],
+    ['2 回目の missing', p([1]), 2, false, 'repost'],
+    ['3 回目の missing', p([1]), 3, false, 'report'],
+    ['missing が無く二重だけ', p([], [1]), 1, false, 'report'],
+  ]
+  for (const [name, placement, attempt, passed, next] of cases) {
+    await t.test(name, () => assert.deepEqual(confirmNext(placement, attempt), { passed, next }))
+  }
+})
+
+test('splitDecisions は state に無い id と空・文字列でない値を外して返す', () => {
+  const items = [{ comment_id: 'thread:11' }, { comment_id: 'review:42' }]
+  assert.deepEqual(splitDecisions(undefined, items), { kept: {}, dropped: [] })
+  assert.deepEqual(splitDecisions({ 'thread:11': '直す', 'review:42': ' ', 'thread:9': 'x', 'review:43': 1 }, items), {
+    kept: { 'thread:11': '直す' },
+    dropped: [
+      { comment_id: 'review:42', value: ' ', reason: 'empty_or_not_text' },
+      { comment_id: 'thread:9', value: 'x', reason: 'not_in_state' },
+      { comment_id: 'review:43', value: 1, reason: 'not_in_state' },
+    ],
+  })
+  throwsAddress(() => splitDecisions([], items), CODES.input, 'fix_input')
+})
+
+test('NEXT_BY_CODE は全ての CODES に NEXT の値を割り当てる', () => {
+  assert.deepEqual(Object.keys(NEXT_BY_CODE).sort(), Object.values(CODES).sort())
+  for (const next of Object.values(NEXT_BY_CODE)) assert.ok(Object.hasOwn(NEXT, next), next)
 })
 
 test('fixRequest は fix の指摘だけから依頼の文を組み、本文をデータとして引用する', () => {
@@ -236,4 +332,11 @@ test('unwrapWorkflowOutput は包みだけを開く', () => {
   assert.deepEqual(unwrapWorkflowOutput({ result: { a: 1 }, summary: 's', agentCount: 1 }), { a: 1 })
   assert.deepEqual(unwrapWorkflowOutput({ result: 1, summary: 's' }), { result: 1, summary: 's' })
   assert.equal(unwrapWorkflowOutput(null), null)
+})
+
+// このファイルの最後に置く（ここまでの拒否の箇所が集まっている）。
+test('address-core.mjs の全ての throw new AddressError の箇所を、拒否のケースが 1 回以上通る', () => {
+  const sites = throwSites(CORE_URL)
+  assert.ok(sites.length > 0)
+  assert.deepEqual(sites.filter((line) => !hitSites.has(line)), [], 'テストのケースが通っていない throw の行（箇所を足したらケースを足す）')
 })
