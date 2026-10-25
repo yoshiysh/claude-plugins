@@ -11,7 +11,7 @@ import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-
 import { categories } from '../scripts/traceability/specs.mjs'
 import { changeSet, defaultIo, main } from '../.agents/skills/repo-implement/scripts/implement-cli.mjs'
 import { collectState, defaultIo as reviewIo, main as reviewMain } from '../.agents/skills/repo-review/scripts/review-cli.mjs'
-import { MAKE_TARGETS, canonical, fnvSum, isRepoRelativePath } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
+import { MAKE_TARGETS, canonical, checkPolicy, fnvSum, isRepoRelativePath } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -183,6 +183,8 @@ test('計画: planner と plan-reviewer が通した計画を、必須 check を
   for (const c of b.calls) assert.deepEqual([c.options.model, c.options.effort], ['opus', 'high'], c.options.label)
   const prefix = (c) => c.prompt.slice(0, c.prompt.indexOf('--- この役の担当 ---'))
   assert.ok(prefix(b.calls[0]).length > 0)
+  for (const [kind, rule] of Object.entries(checkPolicy().kinds)) assert.ok(b.calls[0].prompt.includes(`${kind} は ${rule}`), kind)
+  assert.ok(!b.calls[0].prompt.includes('\\"'), 'check の書式の説明が二重にエスケープされている')
   assert.equal(prefix(b.calls[0]), prefix(b.calls[1]), '共通部分は prompt の先頭にそろう')
   assert.ok(b.calls[1].prompt.includes('"checks"'), 'plan-reviewer は script が足した check も含めて照らす')
 })

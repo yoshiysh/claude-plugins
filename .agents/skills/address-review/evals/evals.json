@@ -3,11 +3,11 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "PR #172 のレビュー指摘が妥当か、分類だけして（修正も返信もしない）（前提: 作業ツリーは PR #172 の head branch feat/repo-implement を checkout した clean な状態。PR #172 が開いている間だけ成り立ち、merge された後は collect が E_PIN で止まる）",
+      "prompt": "この PR のレビュー指摘が妥当か、分類だけして（修正も返信もしない）（前提: 開いた PR の head branch を checkout した clean な作業ツリーで、その PR に inline の thread と bot の summary の issue comment の両方がある）",
       "expected_output": "repo の外に mktemp -d で stateDir を作り、collect を流す。items には inline の thread と bot の summary の issue comment の両方が入り（件数は実行の時点で collect が返す値）、全てを 1 回の分類の Workflow に渡す。依頼が分類だけなので、status に関わらず分類の結果（各指摘の分類と根拠、needs_decision の問い、triage_incomplete の理由）を報告して終え、fix-request・repo-implement・commit・push・recheck・gh api の投稿のどれにも進まない。GitHub にも作業ツリーにも書かない。",
       "files": [],
       "assertions": [
-        "address-cli.mjs collect を repo・pr: 172・repo の外の stateDir で流し、その state と state_sum を分類の Workflow の args にそのまま写したか",
+        "address-cli.mjs collect を repo・前提の PR の番号・repo の外の stateDir で流し、その state と state_sum を分類の Workflow の args にそのまま写したか",
         "collect の items に issue_comment の summary が含まれ、inline の thread だけに絞っていないか",
         "分類の後に fix-request・repo-implement・git commit・git push・recheck・gh api の POST のどれも実行していないか",
         "各指摘の分類と根拠の path:line を報告しているか"

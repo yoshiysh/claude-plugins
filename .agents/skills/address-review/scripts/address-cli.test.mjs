@@ -348,14 +348,48 @@ test('recheck は head と議論の変化で返信を止める', async (t) => {
   })
 })
 
-test('gh に渡す argv にコメントの本文が入らず、shell を通らない', (t) => {
+test('collect・recheck は gh の argv にコメントの本文を入れない', (t) => {
   const fx = fixture(t)
   fx.gh.inline[0].body = '`rm -rf /`; $(touch pwned) "\' 本文'
   const c = collect(fx)
   assert.equal(c.ok, true)
   cli(fx, 'recheck', { ...ref(c), triage: triageOf(c, () => 'decline'), fixCommit: null })
   for (const call of fx.gh.calls) assert.ok(call.args.every((a) => !a.includes('rm -rf')), call.args.join(' '))
-  assert.equal(existsSync(path.join(fx.repo, 'pwned')), false)
+})
+
+test('defaultIo の gh と git は argv をそのまま実行ファイルに渡し、shell を通らない', (t) => {
+  const bin = tmp(t, 'address-cli-bin-')
+  const cwd = tmp(t, 'address-cli-cwd-')
+  const log = path.join(bin, 'argv.json')
+  // 受けた argv を記録するだけの偽の gh と git。PATH の先頭に置き、本物を呼ばない。
+  for (const name of ['gh', 'git']) {
+    writeFileSync(path.join(bin, name), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)))\nprocess.stdout.write('{}')\n`, { mode: 0o755 })
+  }
+  const saved = process.env.PATH
+  process.env.PATH = `${bin}${path.delimiter}${saved}`
+  t.after(() => { process.env.PATH = saved })
+  const hostile = '`touch pwned1`; $(touch pwned2) "\' | touch pwned3 && echo x'
+  const io = defaultIo()
+  io.gh(cwd, ['api', hostile, '-f', `query=${hostile}`])
+  assert.deepEqual(JSON.parse(readFileSync(log, 'utf8')), ['api', hostile, '-f', `query=${hostile}`])
+  io.git(cwd, ['log', hostile])
+  assert.deepEqual(JSON.parse(readFileSync(log, 'utf8')), ['-C', cwd, 'log', hostile])
+  for (const f of ['pwned1', 'pwned2', 'pwned3']) {
+    assert.equal(existsSync(path.join(cwd, f)), false)
+    assert.equal(existsSync(path.join(process.cwd(), f)), false)
+  }
+})
+
+test('E_IO の reason は失敗した gh・git の argv を示し、query の本文だけを省く', (t) => {
+  const bin = tmp(t, 'address-cli-bin-')
+  for (const name of ['gh', 'git']) writeFileSync(path.join(bin, name), `#!${process.execPath}\nprocess.stderr.write('boom')\nprocess.exit(2)\n`, { mode: 0o755 })
+  const saved = process.env.PATH
+  process.env.PATH = `${bin}${path.delimiter}${saved}`
+  t.after(() => { process.env.PATH = saved })
+  const io = defaultIo()
+  assert.throws(() => io.git('/r', ['rev-list', '--parents', 'x']), (e) => e.code === CODES.io && e.message.includes('git -C /r rev-list --parents x が失敗した: boom'))
+  assert.throws(() => io.gh('/', ['api', 'graphql', '-f', `query=${THREADS_QUERY}`, '-F', 'number=7']),
+    (e) => e.code === CODES.io && e.message.includes('gh api graphql -f query=… -F number=7 が失敗した') && !e.message.includes('reviewThreads'))
 })
 
 test('CLI は使い方と JSON の誤りを exit 2 で返す', () => {

@@ -19,7 +19,7 @@ comment-triager と別の context で、分類案が本当に成り立つかを�
 
 - `results`: 渡された順のまま、全ての `comment_id` に 1 件ずつ。`classification` は自分が確かめた分類、`agrees` は案の分類と草案に同意するか。
 - `evidence`: `unverified` 以外は、自分で確かめた repo 相対の `path`・`line`・`claim` を 1 件以上。
-- `reason`: 同意しないときは、どこが成り立たないか。
+- `reason`: 全件に書く。同意するときは確かめた根拠の要点、同意しないときはどこが成り立たないか。
 - `head_sha`: 作業の前後で見た HEAD。
 
 新しい指摘を足さない。片方の分類を選んで直さない（食い違いを決めるのは利用者で、ここで決めると 2 つの context の照合が 1 つの判断の写しになる）。

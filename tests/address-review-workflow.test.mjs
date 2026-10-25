@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { Workflow } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/runtime.mjs'
 import { readSourceMetadata } from '../plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/source.mjs'
 import {
-  CLASSIFICATIONS, DEFAULT_POLICY_REF, REPLY_CLASSIFICATIONS, canonical, fnvSum, isRepoRelativePath, newState, triageOf,
+  CLASSIFICATIONS, DEFAULT_POLICY_REF, REPLY_CLASSIFICATIONS, canonical, fnvSum, isRepoRelativePath, newState, triageOf, unwrapWorkflowOutput,
 } from '../.agents/skills/address-review/scripts/address-core.mjs'
-import { DEFAULT_POLICY_REF as IMPLEMENT_POLICY_REF } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
+import { DEFAULT_POLICY_REF as IMPLEMENT_POLICY_REF, unwrapWorkflowOutput as IMPLEMENT_UNWRAP } from '../.agents/skills/repo-implement/scripts/implement-core.mjs'
 import { bodyLiteral } from './helpers/workflow-source.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -227,6 +227,7 @@ test('利用者の裁定は両方の役に逐語で渡り、裁定のある指�
   assert.equal(stuck.reason, 'triage-evidence-incomplete')
 })
 
-test('方針の版は repo-implement と同じ主ブランチの remote の先端', () => {
+test('repo-implement の写し（方針の版・Workflow の出力の包みの開き方）は正本と一致する', () => {
   assert.equal(DEFAULT_POLICY_REF, IMPLEMENT_POLICY_REF)
+  assert.equal(unwrapWorkflowOutput.toString(), IMPLEMENT_UNWRAP.toString())
 })

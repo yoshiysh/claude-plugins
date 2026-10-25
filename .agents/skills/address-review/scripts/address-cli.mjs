@@ -32,7 +32,7 @@ export function defaultIo() {
       return execFileSync(cmd, args, { cwd, maxBuffer: MAX_BUFFER, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).toString('utf8')
     } catch (error) {
       if (allowFailure && error.status === 1) return null
-      throw new AddressError(CODES.io, `${cmd} ${args[0]} ${args[1] ?? ''} が失敗した: ${String(error.stderr ?? error.message).trim()}`)
+      throw new AddressError(CODES.io, `${cmd} ${args.map((arg) => (arg.startsWith('query=') ? 'query=…' : arg)).join(' ')} が失敗した: ${String(error.stderr ?? error.message).trim()}`)
     }
   }
   return {
