@@ -2,7 +2,7 @@ name: Claude Code Review
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, labeled]
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -12,12 +12,10 @@ permissions:
 jobs:
   review:
     # Dependabot と fork の PR には secret が渡らないので、必須 secret を空で渡す呼び出し自体をしない。
-    # 再利用 workflow は github.event.pull_request を前提にするので、手動の再実行は workflow_dispatch でなくこのラベルの付与で起こす。
     if: >-
       ${{ github.event.pull_request.draft == false &&
           github.event.sender.type == 'User' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          (github.event.action != 'labeled' || github.event.label.name == 'claude-review') }}
+          github.event.pull_request.head.repo.full_name == github.repository }}
     uses: yoshiysh/github-workflows/.github/workflows/claude-review.yml@9d19a71d56fc9babf47ff037a0e048f47345d076
     with:
       runs-on: '"ubuntu-latest"'
