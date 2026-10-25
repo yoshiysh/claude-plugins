@@ -36,11 +36,11 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
 
 ## 前処理: 対象と方針を固定する
 
-1. **モードと SHA を決める。** 依頼の範囲を広げも狭めもしない。PR・branch・ファイル範囲が一意に決まらないときだけ確認する。
-   - PR: `gh pr view <番号> --json baseRefOid,headRefOid` で得た head を **headSha**、`git merge-base <baseRefOid> <headRefOid>` を **baseRef**、base branch の先端（`baseRefOid`）を **policyRef** にする。手元に無い commit は `git fetch` で取る（`.git` の refs と objects が増える）。
+1. **モードと SHA を決める。** 依頼の範囲を広げも狭めもしない。PR・branch・ファイル範囲が一意に決まらないときだけ確認する。別のスキルから baseRef・headSha・policyRef・preservedPaths を渡されて呼ばれたときは、その値を解決し直さずにそのまま使う（呼び出し側は自分の記録と結果を照らすので、間に ref が動くと照合が合わなくなる）。
+   - PR: `gh pr view <番号> --json baseRefOid,headRefOid` で得た head を **headSha**、`git merge-base <baseRefOid> <headRefOid>` を **baseRef**、base 側の先端（`baseRefOid`）を **policyRef** にする。手元に無い commit は `git fetch` で取る（`.git` の refs と objects が増える）。
    - diff は、作業ツリーが headSha を checkout した clean な状態でだけ始める。reviewer と検証役は作業ツリーのファイルも開くので、別の版の作業ツリーでは別の内容と行番号で候補が作られる。そうでなければ始めずに利用者に伝える（作業ツリーの切り替えは利用者の操作）。
    - branch・commit の差分: 比べる 2 点の完全な SHA を baseRef・headSha にし、base 側を policyRef にする。
-   - working_tree: 比べる base の SHA を baseRef と policyRef に、今の HEAD を headSha にする。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
+   - working_tree: 比べる base の SHA を baseRef に、主ブランチの先端（`git rev-parse origin/main`）を policyRef に、今の HEAD を headSha にする（base が作業 branch の commit でも、その branch で変えた規約を基準に混ぜない）。依頼の前から利用者が持っていた変更の path は **preservedPaths** に入れる（レビューの対象から外れ、名前だけ結果に残る）。変更の集合にある path だけを入れる。無い path を入れると `pin_problems` になる。
    - audit: 今の HEAD を headSha に、主ブランチの先端（`git rev-parse origin/main`）を policyRef にする。範囲を **scope** に入れる。公開済みスキルは `plugins/` の実体のパスで渡す（symlink を通る path は CLI が拒否する）。
 2. **対象を列挙する。** 次で inventory を取る（入力は stdin の JSON。repo はこのリポジトリの作業ツリーの絶対パス）。
 
@@ -106,6 +106,7 @@ Workflow の段と、source が構造で守ることは次のとおり。運搬�
 
 ## 結果を解釈して返す
 
+- 返り値の `sum` は本文（`sum` を除いた全体）の fnvSum で、返り値を別のスキルの CLI へ写すときに、写し間違いや一部の落としを検出するために使う。
 - **completed** は、全ての対象の coverage・全ての主張の判定が揃い、pin が最後まで崩れなかったことを示す。指摘が無くても、mode・base・head・policyRef・対象の件数・coverage を報告する。
 - **review_incomplete** は `reasons` に原因を持つ。
   - `forbidden_reads` は、reviewer が読まない path を読んだと申告した状態で、`forbidden_reads` に reviewer と path がある。その reviewer の指摘は検証に回さず `untrusted_findings` に入り、その reviewer の担当は、ほかの信用できる reviewer が読み終えていなければ `missing_coverage` に載る。読まない path の分類と、path の正規化・symlink の扱いの正本は `scripts/review-core.mjs` の `unreadableClassifier`・`unreadableMatcher`・`classifySupporting`。根拠の列挙の書き方（正本は `agents/reviewer.md` の「返すもの」）に合わないだけのものは `coverage[].ignoredSupporting`（各項目の `meaning` が意味）、束に無い節の ID は `coverage[].invalidPolicySections` に記録するだけで、review_incomplete にしない（対象を読み残したことにはならないため）。

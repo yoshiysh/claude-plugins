@@ -237,6 +237,23 @@ test('全ての agent 呼び出しが model と effort を明示し、運搬役�
   }
 })
 
+test('返り値は全ての終わり方で、本文の fnvSum を sum に持つ（呼び出し側が写し間違い・落としを検出する）', async (t) => {
+  for (const [name, scenario] of [
+    ['completed', (fx) => ({ review: (id) => reviewOk(fx.head, id, { findings: [finding()] }), verify: verifyAll(fx.head, () => 'confirmed') })],
+    ['pin_changed', (fx) => ({ review: (id) => { if (id === 'docs') write(fx.repo, 'docs/a.md', 'x\n'); return reviewOk(fx.head, id) }, verify: () => assert.fail('起動しない') })],
+  ]) {
+    await t.test(name, async (t) => {
+      const { fx, args } = diffArgs(t)
+      const result = await runWorkflow(t, args, backend(scenario(fx)))
+      const { sum, ...rest } = result
+      assert.equal(sum, fnvSum(rest))
+      assert.equal(result.status, name === 'completed' ? 'completed' : 'review_incomplete')
+      assert.notEqual(fnvSum({ ...rest, status: 'other' }), sum, '本文を変えると sum が合わない')
+      if (name === 'completed') assert.notEqual(fnvSum({ ...rest, findings: [] }), sum, 'findings を落とすと sum が合わない')
+    })
+  }
+})
+
 test('準正常: reviewer が 1 人返らなくても、他の reviewer の指摘は検証して返し、review_incomplete と明示する', async (t) => {
   const { fx, args } = diffArgs(t)
   const b = backend({
