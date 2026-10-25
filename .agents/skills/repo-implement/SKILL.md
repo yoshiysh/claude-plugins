@@ -5,11 +5,12 @@ description: >
   頼まれたら使うこと。依頼をそのまま書き始めず、条件ごとのケース計画を含む計画を planner が立てて別の plan-reviewer が照らし、
   承認後に implementer だけが書き、CLI が check を固定の argv で実測し、repo-review の独立レビューと上限つきの修正ループを経て、
   作業ツリーが最後に check とレビューを通した状態のままかを CLI が照合してから報告する。
-  「この関数のバグを直して」「この CLI に option を足して」「この SKILL.md の手順を直して」「このスクリプトをリファクタして」を、
+  「この関数のバグを直して」「この CLI に option を足して」「この SKILL.md の手順を直して」「このスクリプトをリファクタして」
+  「さっきの repo-review の確定指摘を反映して直して」（PR に載っていないレビュー結果は依頼の文として受ける）を、
   このリポジトリについて頼まれたら使う（Use when implementing, fixing, or refactoring code, tests, skills, or docs in the yoshiysh/claude-plugins repository）。
   対象外: 新しいスキルの作成や best-practices への適合の評価・改稿（skill-creator-best-practices）、変更のレビューだけ（repo-review）、
-  既にあるレビュー結果・PR のレビュー指摘を反映する修正（address-review、汎用のものは workflow:pr-review-fix）、PRD・仕様書の作成（prd-spec）、
-  別のリポジトリでの実装。
+  GitHub の PR に付いたレビュー指摘への対応（address-review）、PRD・仕様書の作成（prd-spec）、別のリポジトリでの実装。
+  このリポジトリのレビュー結果の反映には、汎用の workflow:pr-review-fix でなくこれを使う。
 ---
 
 # Repo implement
@@ -193,7 +194,7 @@ JSON
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 
-commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。commit を頼まれたときは、同じ作業単位で push もする（AGENTS.md「作業ルール」。`/tmp` 系の worktree にしか無い commit は清掃で失われる）。
+commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。commit の後は、同じ作業単位で `git push origin <state.branch>` を流す（AGENTS.md「作業ルール」。`/tmp` 系の worktree にしか無い commit は清掃で失われる）。`--force` を付けない。push が失敗したら、commit は残したまま失敗の出力を報告して止まる。
 
 ## 照合しないもの
 
