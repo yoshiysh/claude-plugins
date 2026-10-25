@@ -102,9 +102,13 @@ function fixture(t) {
   return fx
 }
 
+// このファイルで実際に流した CLI の出力（成功・拒否）の next を集め、最後の test で NEXT と照らす。
+const seenNext = []
 const cli = (fx, op, body) => {
   const r = main([op], JSON.stringify(body), fx.io)
-  return { ...JSON.parse(r.output), exitCode: r.exitCode }
+  const out = JSON.parse(r.output)
+  seenNext.push(out.next)
+  return { ...out, exitCode: r.exitCode }
 }
 const collect = (fx, extra = {}) => cli(fx, 'collect', { repo: fx.repo, pr: 7, stateDir: fx.stateDir, ...extra })
 
@@ -123,6 +127,7 @@ function rejected(fn, what = 'call') {
     assert.ok(error instanceof AddressError, String(error?.stack ?? error))
     const site = siteOf(error, CLI_URL)
     if (site) hitSites.add(site)
+    seenNext.push(nextOfError(error))
     return { code: error.code, next: nextOfError(error), reason: error.message }
   }
   assert.fail(`${what} が拒否しなかった`)
@@ -242,7 +247,14 @@ test('triage-result は止まった分類を利用者の判断・呼び直し・
   assert.equal(cli(fx, 'triage-result', { ...ref(c), triage: lost }).next, 'report')
   const head = triageOf(c, () => 'decline', { status: 'triage_incomplete', reason: 'triager-head-mismatch', observedHead: 'x' })
   const out = cli(fx, 'triage-result', { ...ref(c), triage: head })
-  assert.deepEqual([out.next, out.observedHead], ['report', 'x'])
+  assert.deepEqual([out.next, out.observedHead, out.results], ['report', 'x', null])
+  const fy = fixture(t)
+  const d = collect(fy)
+  const disagree = triageOf(d, () => 'decline', { status: 'triage_incomplete', reason: 'verification-disagrees' })
+  disagree.results = d.state.items.map((i) => ({ comment_id: i.comment_id, classification: 'decline', evidence: [{ path: 'src/a.mjs', line: 1, claim: 'c' }] }))
+  const { sum: _s, ...body } = disagree
+  const kept = cli(fy, 'triage-result', { ...ref(d), triage: { ...body, sum: fnvSum(body) } })
+  assert.deepEqual([kept.next, kept.results.map((r) => r.evidence[0].path)], ['report', ['src/a.mjs', 'src/a.mjs']], '止まったときも各指摘の分類と根拠を出力に残す')
 })
 
 test('triage-result は分類を 1 回だけ受け入れ、triagePath の native の包みを受け付ける', (t) => {
@@ -354,7 +366,7 @@ test('confirm-replies は missing を 1 回目は待たせ、2 回目は投稿�
   postAll(fx, { replies: out.replies.slice(0, 1) })
   const first = cli(fx, 'confirm-replies', ref(c))
   assert.equal(first.next, 'wait_and_retry')
-  assert.deepEqual(first.missing.map((m) => m.input_path), [out.replies[1].input_path])
+  assert.deepEqual(first.missing.map((m) => [m.endpoint, m.input_path]), [[out.replies[1].endpoint, out.replies[1].input_path]])
   const second = cli(fx, 'confirm-replies', ref(c))
   assert.equal(second.next, 'repost')
   assert.equal(cli(fx, 'confirm-replies', ref(c)).next, 'report')
@@ -389,6 +401,20 @@ test('修正の run: push した commit が PR の head で親が collect の he
   assert.equal(out.next, 'post', out.reason)
   const thread = JSON.parse(readFileSync(out.replies[0].input_path, 'utf8'))
   assert.match(thread.body, new RegExp(`修正: ${sha}（src/a\\.mjs）`))
+})
+
+test('直す path のどれも修正の commit で変わっていない fix には返信しない', (t) => {
+  const fx = fixture(t)
+  const c = collect(fx)
+  const triage = triageOf(c, fixThread)
+  triage.results[0].repair_paths = ['README.md']
+  const { sum: _s, ...body } = triage
+  cli(fx, 'triage-result', { ...ref(c), triage: { ...body, sum: fnvSum(body) } })
+  const sha = commitFix(fx)
+  fx.gh.view.headRefOid = sha
+  const out = cli(fx, 'recheck', { ...ref(c), fixCommit: sha })
+  assert.deepEqual(out.skipped, [{ comment_id: 'thread:11', reason: 'repair_paths_unchanged' }])
+  assert.deepEqual(out.replies.map((r) => r.comment_ids), [['issue_comment:31']])
 })
 
 test('recheck は stopAfter が push なら push を確かめた後に report', (t) => {
@@ -525,20 +551,21 @@ test('CLI は使い方と JSON の誤りを exit 2 で返す', () => {
 test('CLI の拒否の出力は全て next を持つ（使い方の誤り・知らない op・CLI の不具合）', (t) => {
   for (const [argv, input] of [[['nope'], '{}'], [['collect', 'x'], '{}'], [['collect'], 'not json'], [['collect'], '[]']]) {
     const out = JSON.parse(main(argv, input).output)
+    seenNext.push(out.next)
     assert.deepEqual([out.code, out.next], [CODES.input, 'fix_input'])
   }
   const fx = fixture(t)
   assert.deepEqual(Object.values(reject(fx, 'nope', {})).slice(0, 2), [CODES.input, 'fix_input'])
   const broken = { ...fx.io, gh: () => { throw new Error('bug') } }
   const out = JSON.parse(main(['collect'], JSON.stringify({ repo: fx.repo, pr: 7, stateDir: fx.stateDir }), broken).output)
+  seenNext.push(out.next)
   assert.deepEqual([out.code, out.next], [CODES.internal, 'report'])
 })
 
-test('全ての出力の next は NEXT の値', (t) => {
-  for (const next of ['classify', 'classify_again', 'decide', 'implement', 'commit_push', 'recheck', 'post', 'repost', 'retry', 'wait_and_retry', 'fetch_and_retry', 'fix_input', 'report']) {
-    assert.ok(Object.hasOwn(NEXT, next), next)
-  }
-  assert.equal(Object.keys(NEXT).length, 13, 'NEXT に値を足したら、その値を返すケースをこのファイルに足す')
+test('流した全ての出力の next が NEXT の値で、NEXT の全ての値をどれかの出力が返した', () => {
+  assert.ok(seenNext.length > 0)
+  assert.deepEqual(seenNext.filter((next) => !Object.hasOwn(NEXT, next)), [], 'NEXT に無い next を返した出力がある')
+  assert.deepEqual(Object.keys(NEXT).filter((next) => !seenNext.includes(next)), [], 'どの出力も返していない NEXT の値（値を足したら、それを返すケースを足す）')
 })
 
 // このファイルの最後に置く（node:test はファイルの中の top-level の test を順に流すので、ここまでの拒否の箇所が集まっている）。

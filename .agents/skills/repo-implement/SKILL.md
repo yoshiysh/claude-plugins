@@ -10,6 +10,7 @@ description: >
   このリポジトリについて頼まれたら使う（Use when implementing, fixing, or refactoring code, tests, skills, or docs in the yoshiysh/claude-plugins repository）。
   対象外: 新しいスキルの作成や best-practices への適合の評価・改稿（skill-creator-best-practices）、変更のレビューだけ（repo-review）、
   GitHub の PR に付いたレビュー指摘への対応（address-review）、PRD・仕様書の作成（prd-spec）、別のリポジトリでの実装。
+  このリポジトリのレビュー結果の反映には、汎用の workflow:pr-review-fix でなくこれを使う。
 ---
 
 # Repo implement

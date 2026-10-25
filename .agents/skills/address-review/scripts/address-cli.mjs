@@ -177,7 +177,7 @@ function triageResult(body, io) {
   const route = triageNext(triage, state, record.retries)
   const { sum: _sum, stateSum: _stateSum, results, ...detail } = triage
   if (route.next === 'classify_again') writeRecord(io, file, { ...record, retries: record.retries + 1 })
-  if (triage.status !== 'completed') return { ...route, ...detail }
+  if (triage.status !== 'completed') return { ...route, ...detail, results: results ?? null }
   const fix = fixRequest(state, results)
   writeRecord(io, file, { ...record, accepted: { results, commit_message: fix.commit_message } })
   return { ...route, results, ...(route.next === 'implement' ? { request: fix.request, fix_ids: fix.fix_ids } : {}) }

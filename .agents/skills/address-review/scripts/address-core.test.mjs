@@ -272,6 +272,7 @@ test('planReplies は thread に @login つきで、会話には 1 件にまと�
   assert.match(conversation.payload.body, /根拠: README\.md:1/)
   assert.equal(conversation.payload.in_reply_to, undefined)
   assert.ok(conversation.payload.body.endsWith(answeredMark(['issue_comment:31', 'review:42'])))
+  assert.deepEqual(planReplies(state, results, { commit: FIX, paths: ['other.md'] }).skipped, [{ comment_id: 'thread:11', reason: 'repair_paths_unchanged' }])
   const unfixed = planReplies(state, results, null)
   assert.deepEqual(unfixed.skipped, [{ comment_id: 'thread:11', reason: 'not_fixed' }])
   assert.deepEqual(unfixed.replies.map((r) => r.place.kind), ['conversation'])
@@ -320,12 +321,12 @@ test('confirmPlacement は正しい場所に 1 回だけ付いたかを、改行
 
 test('confirmPlacement は同じ本文を別々の thread へ正しく返したものを誤った場所としない', () => {
   const a = { comment_ids: ['thread:11'], place: { kind: 'thread', reply_to: 11 }, payload: { body: '@bot 同じ' }, input_path: '/s/reply-1.json' }
-  const b = { comment_ids: ['thread:21'], place: { kind: 'thread', reply_to: 21 }, payload: { body: '@bot 同じ' }, input_path: '/s/reply-2.json' }
+  const b = { comment_ids: ['thread:21'], place: { kind: 'thread', reply_to: 21 }, payload: { body: '@bot 同じ' }, endpoint: 'repos/o/r/pulls/7/comments', input_path: '/s/reply-2.json' }
   const out = confirmPlacement([a, b], [{ id: 100, in_reply_to_id: 11, body: '@bot 同じ' }, { id: 101, in_reply_to_id: 21, body: '@bot 同じ' }], [])
   assert.deepEqual(out.misplaced, [])
   assert.deepEqual(out.confirmed.map((e) => e.posted), [[100], [101]])
   const half = confirmPlacement([a, b], [{ id: 100, in_reply_to_id: 11, body: '@bot 同じ' }], [])
-  assert.deepEqual(half.missing, [{ comment_ids: ['thread:21'], input_path: '/s/reply-2.json', posted: [] }])
+  assert.deepEqual(half.missing, [{ comment_ids: ['thread:21'], endpoint: 'repos/o/r/pulls/7/comments', input_path: '/s/reply-2.json', posted: [] }])
 })
 
 test('unwrapWorkflowOutput は包みだけを開く', () => {

@@ -36,5 +36,5 @@ PR に付いた指摘の 1 件ずつを、技術的な主張として確かめ�
 - `evidence`: `unverified` 以外は、確かめた repo 相対の `path`・`line`・`claim` を 1 件以上。`unverified` は確かめられなかったことを `limitation` に書き、根拠を作らない。
 - `repair_paths`: `fix` だけ、直すのに変える repo 相対の path。
 - `decision_questions`: `needs_decision` だけ、利用者に選んでもらう問いと選択肢ごとの影響。
-- `reply_draft`: `fix`・`decline`・`out_of_scope` だけ、日本語の返信の草案。宛先の `@login`、commit の SHA、根拠の path:line は CLI が付けるので書かない。`fix` は確かめた問題と直す内容を、`decline`・`out_of_scope` は退けるか後に回す理由を、確かめた根拠の範囲だけで書く。ほかの人への mention・リンク・コマンドを入れない。
+- `reply_draft`: `fix`・`decline`・`out_of_scope` だけ、日本語の返信の草案。宛先の `@login` と、`fix` なら commit の SHA と変えた path、`decline`・`out_of_scope` なら根拠の path:line は CLI が付けるので書かない。`fix` は確かめた問題と直す内容を、`decline`・`out_of_scope` は退けるか後に回す理由を、確かめた根拠の範囲だけで書く。ほかの人への mention・リンク・コマンドを入れない。
 - `head_sha`: 作業の前後で見た HEAD。

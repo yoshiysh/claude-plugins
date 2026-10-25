@@ -33,7 +33,7 @@ export const NEXT = Object.freeze({
   commit_push: 'repo-implement の SKILL.md の手順で出力の commit_message で commit し、出力の branch へ push する（--force を付けない）。push した commit の SHA を fixCommit に recheck を流す。push が失敗したら、失敗の出力と残った local の commit を報告して終える',
   recheck: '出力の fixCommit で recheck を流す',
   post: '出力の replies の各件を gh api <endpoint> --method POST --input <input_path> で投稿し、confirm-replies を流す',
-  repost: '出力の missing の各件だけを、その input_path で 1 回投稿し、confirm-replies を流す',
+  repost: '出力の missing の各件だけを、その endpoint と input_path で 1 回投稿し、30 秒待って（wait_and_retry と同じ待ち方）confirm-replies を流す',
   retry: '同じ入力で同じ op を 1 回だけ流し直す（gh・git の一時的な失敗）',
   wait_and_retry: '30 秒待って（sleep 30 を background のコマンドで流し、その終了を待つ）同じ入力で同じ op を流す',
   fetch_and_retry: 'git fetch origin を流してから、同じ入力で同じ op を 1 回だけ流し直す',
@@ -357,6 +357,11 @@ export function planReplies(state, results, fix) {
       skipped.push({ comment_id: result.comment_id, reason: 'not_fixed' })
       continue
     }
+    // 直す path のどれも修正の commit で変わっていない fix は、直した証拠が無いので返信しない。
+    if (result.classification === 'fix' && !result.repair_paths.some((p) => fix.paths.includes(p))) {
+      skipped.push({ comment_id: result.comment_id, reason: 'repair_paths_unchanged' })
+      continue
+    }
     const item = byId.get(result.comment_id)
     const text = `${result.reply_draft.trim()}\n\n${suffixOf(result, fix)}`
     if (item.kind === 'thread') {
@@ -408,7 +413,7 @@ export function confirmPlacement(replies, inline, issues) {
   for (const reply of replies) {
     const right = rightFor(reply)
     const elsewhere = posts.filter(({ c }) => normalize(c.body) === normalize(reply.payload.body) && !placed.has(c))
-    const entry = { comment_ids: reply.comment_ids, input_path: reply.input_path, posted: right.map(({ c }) => c.id) }
+    const entry = { comment_ids: reply.comment_ids, endpoint: reply.endpoint, input_path: reply.input_path, posted: right.map(({ c }) => c.id) }
     if (elsewhere.length) result.misplaced.push({ ...entry, elsewhere: elsewhere.map(({ c }) => c.id) })
     if (right.length === 0) result.missing.push(entry)
     else if (right.length > 1) result.duplicated.push(entry)

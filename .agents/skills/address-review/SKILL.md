@@ -7,7 +7,7 @@ description: >
   「この PR のレビューコメントに対応して」「#172 の bot の指摘を直して返信して」「この PR の指摘が妥当か分類だけして」を、
   このリポジトリについて頼まれたら使う（Use when addressing existing review comments on a pull request of the yoshiysh/claude-plugins repository）。
   対象外: 新しくレビューすること（repo-review）、PR に載っていないレビュー結果の反映や指摘と関係しない実装・修正（repo-implement）、
-  別のリポジトリの PR、thread の resolve。
+  別のリポジトリの PR、thread の resolve。このリポジトリの PR の指摘には、汎用の workflow:pr-review-fix でなくこれを使う。
 ---
 
 # Address review
@@ -26,10 +26,10 @@ description: >
 
 このリポジトリの PR に付いたレビュー指摘に、全てを最初に読む → 分類する → 直すものを直す → 返信する、の 1 周で対応する。決められる処理（指摘の収集・対象の選別・分類の結果の照合・修正の依頼の文と返信の本文の組み立て・返信の直前の再照合・投稿の確かめ・次の手の決定）は `scripts/address-cli.mjs` が行い、分類は 2 体の agent、修正は `repo-implement` が行う。司令塔（このスキルを読む session）はファイルを書かず、分類・返信の本文・修正の内容・次の手を自分で作らない（司令塔の手修正と手書きの返信は検証を通らずに成果物と PR に届く）。
 
-司令塔だけが行うことは次の 4 つで、それ以外の判断は CLI の出力に任せる。
+司令塔が CLI の出力を写す以外に行うのは次のとおりで、次の手の判断は CLI の出力の `next` に任せる。
 
-- 依頼の文から止める段（`stopAfter`）を選んで `collect` に渡す。
-- 分類の Workflow を起動する。
+- 依頼の文から PR の番号・止める段（`stopAfter`）・含める指摘（`include`・`only`）を選び、利用者の答えを `decisions` に逐語で写して `collect` に渡す。
+- 分類の Workflow を起動する（throw したときの呼び直しは「分類」の節）。
 - `repo-implement` をスキル呼び出しで起動し、commit と push をその SKILL.md の手順で行う。
 - CLI が書いた返信を `gh api` で投稿する。
 
@@ -79,7 +79,7 @@ Workflow({
 })
 ```
 
-`skillDir` はこのスキルの実ディレクトリの絶対パス（Workflow source は自分の位置を解決できない）。comment-triager が全件を 1 つの context でまとめて分類し（分類の基準は `agents/comment-triager.md`）、triage-verifier が別の context で全件を確かめ、1 件でも食い違えば止まる（多数決や片方の採用はしない）。返り値は status に関わらず `triage-result` に渡す。Workflow が返り値無しに throw した（args の写し間違い）ときは、collect の出力から args を写し直して 1 回だけ呼び直し、それでも throw したら報告して終える。
+`skillDir` はこのスキルの実ディレクトリの絶対パス（Workflow source は自分の位置を解決できない）。comment-triager が全件を 1 つの context でまとめて分類し（分類の基準は `agents/comment-triager.md`）、triage-verifier が別の context で全件を確かめ、1 件でも食い違えば止まる（多数決や片方の採用はしない）。検証役を 1 体にしているのは、確定に 2 体の一致を求める作りで、体数を増やしても確定する分類の確かさは変わらず、食い違いで止まる run が増えるだけだから。返り値は status に関わらず `triage-result` に渡す。Workflow が返り値無しに throw した（args の写し間違い）ときは、collect の出力から args を写し直して 1 回だけ呼び直し、それでも throw したら報告して終える。
 
 ## CLI の op
 
@@ -87,7 +87,7 @@ Workflow({
 
 | op | 足す入力 | 出力の主な値 |
 | --- | --- | --- |
-| `triage-result` | `triage`（分類の Workflow の返り値。tasks の `.output` の包みのまま `triagePath` でもよい） | `results`・`questions`、fix があれば `request`・`fix_ids` |
+| `triage-result` | `triage`（分類の Workflow の返り値。tasks の `.output` の包みのまま `triagePath` でもよい） | `results`（止まったときも、返り値にあれば各指摘の分類と根拠）・`questions`、fix があれば `request`・`fix_ids` |
 | `record-fix` | `verify`（repo-implement の verify の出力そのまま）か `stopped`（止まった理由の文） | `commit_message`・`branch`、修正したか（`fixed`） |
 | `recheck` | `fixCommit`（push した SHA か JSON の `null`） | `replies`（`endpoint`・`input_path`）・`skipped`・`blocked`・`new_items` |
 | `confirm-replies` | 無し | `passed`・`confirmed`・`missing`・`duplicated`・`misplaced` |
@@ -117,4 +117,4 @@ CLI と分類の Workflow が見ないものは次のとおりで、報告では
 - 方針の版の SHA の一致。分類も `repo-implement` も主ブランチの remote の先端（同じ ref 名）で読むが、それぞれが始めた時点の SHA に固定するので、間に主ブランチが進むと別の SHA になる。
 - `repo-implement` の中の照合（計画・check・レビュー・verify）。正本は `repo-implement` の SKILL.md。`record-fix` は verify の出力の `passed` と `actual` だけを見る。
 - fix の返信の草案と実際の修正の一致。草案は修正の前に書かれ、`recheck` が足すのは commit の SHA と変えた path だけで、草案の文が `repo-implement` の変更と合うかは照らさない。
-- fix の指摘ごとの修正の有無。`fixCommit` があれば fix の指摘の全件を直したものとして返信する（`repo-implement` の計画が一部の指摘だけを扱ったかは見ない）。
+- fix の指摘ごとの修正の中身。`recheck` は、fix の `repair_paths` のどれかが修正の commit で変わったかだけを見て（どれも変わっていなければその返信を `skipped` にする）、その path の変更がその指摘を直したかは見ない。
