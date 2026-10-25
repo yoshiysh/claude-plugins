@@ -1,0 +1,15 @@
+[
+  { "query": "PR #172 のレビュー指摘に対応して", "should_trigger": true },
+  { "query": "この PR の bot のコメントを直して返信までやって", "should_trigger": true },
+  { "query": "#170 の未対応の review thread を片付けて", "should_trigger": true },
+  { "query": "PR に付いた Claude レビューの summary の指摘に答えて", "should_trigger": true },
+  { "query": "このリポジトリの PR のレビューコメントを全部読んで、必要なものだけ直して返信して", "should_trigger": true },
+  { "query": "この PR をレビューして", "should_trigger": false },
+  { "query": "作業中の変更を REVIEW.md の基準でレビューして", "should_trigger": false },
+  { "query": "implement-cli.mjs に --json を足して、テストも書いて", "should_trigger": false },
+  { "query": "さっきの repo-review の確定指摘を反映して直して", "should_trigger": false },
+  { "query": "personal-knowledge-rag の PR #12 のレビューコメントに対応して", "should_trigger": false },
+  { "query": "PR #172 の review thread を全部 resolve して", "should_trigger": false },
+  { "query": "PR #172 を作って", "should_trigger": false },
+  { "query": "この README のレビュー結果を反映して修正して", "should_trigger": false }
+]
