@@ -83,11 +83,11 @@ Workflow source の名前（`meta.name`）は `implement-plan`・`implement-run`
 | host | 読み取り専用を何が強いるか | 残る危険（結果に書く） |
 |---|---|---|
 | Codex runner | run ごとの `requirements`。`implement-run` だけを workspace-write にし、他の run は read-only | runner は agent ごとの道具の許可を持たない（runtime README の未実装の一覧）。同じ run の中の役は分けられない |
-| Claude Code の native Workflow | 何も強いない。permission rules は全ての subagent に同じく効く（設計方針文書「権限」） | planner・reviewer・検証役・分類役の書き込みは止められない。事後に検出するだけ（implement は段ごとの snapshot、review は pin、全ての役は返した `head_sha` の照合） |
+| Claude Code の native Workflow | run の単位では何も強いない。permission rules は全ての subagent に同じく効く（設計方針文書「権限」）。登録した agent type の `tools`・`disallowedTools` で Edit・Write を外すことはできるが、`agent()` からその型を指定できるかは未確認（同節） | planner・reviewer・検証役・分類役の、Bash 経由などの書き込みは止められない。事後に検出するだけ（implement は段ごとの snapshot、review は pin、全ての役は返した `head_sha` の照合）。道具の制限を使えたとしても、この検出は残す |
 
 - read-only の run の中では、`stateDir` を含めてどこにも書かない。運搬役が run の中で流す CLI の op は、今と同じく読んで照合し結果を返すだけのもの（今の `review-cli.mjs` の `CARRIER_OPS` は pin・merge・judge で、状態を書かない）。状態を書く op は、run が返った後にセッションが流す（implement の `inventory`、address-review の `triage-result` と同じ形）。
 - 各 SKILL.md には、run の前に利用者が許可しておくものを書く。node と git の実行、gh の読み出し、セッションが流す CLI の `stateDir` への書き込み。address-review と review の投稿では、gh の POST も要る。address-review の resolve では、`gh api graphql` の mutation も要る（「resolve」）。review の `external` モードでは、repo の外の名指されたファイルの読み出しも要る。許可が無いと、長い run の途中で確認が出て止まる（`R:p1-best-practices-7`・`A:p1-best-practices-5`）。
-- 役の prompt は `agents/*.md` をパスで読ませる。subagent の frontmatter の制限は使わない。plugin から読む agent では frontmatter の一部が無視されるので、そこに頼ると配布先で黙って効かない。
+- 役の prompt は `agents/*.md` をパスで読ませ、subagent として登録しない。plugin から読む agent で無視される frontmatter は `hooks`・`mcpServers`・`permissionMode` で、`tools` は効く（subagents の docs）。それでも登録しないのは、`agent()` から登録した型を指定できるかが未確認で、指定できても道具の制限が Bash 経由の書き込みを止めず、run の境界の検出が要ることに変わりがないため。指定できると確かめられたら、書き込ませない役に Edit・Write を外した型を使うのは、検出に足す守りとして段 1b で検討する。
 - 「残る危険」の列の内容は、各スキルの結果に毎回書く（PR-015）。
 
 ### 起動数の上限（PR-016・017・019〜023）
@@ -131,7 +131,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 |---|---|---|---|---|
 | `implement-plan` | 人間の入力（needs_human_decision）は run の境界にできる。項目は 1 つの計画で、作り直しに要るのはその計画のレビュー結果だけ | 固定パイプライン型＋項目ごとの until-pass。上限で止まったときの `revisions_exhausted` が、until-pass の「通らなかったことと理由を返す」に当たる | 持たない（fan-out が無い。PR-018） | — |
 | `implement-run` | 戻りが無い | 固定パイプライン型（implementer 1 体） | 持たない（PR-018） | — |
-| implement の外側（run の並び） | 実装 → check → review → 修正、の戻りを run をまたいで持つ | 固定集合の反復型。修正の回の上限は `implement-run` の source の定数 | 持たない | 書き込める run には implementer だけを置く必要がある。runner は役ごとに書き込みの権限を分けられない（`repo-implement` SKILL.md の「目的と段」）。Codex runner では run の権限で他の役の書き込みを止め、native Workflow では run の境界の snapshot で事後に検出する（「権限」）。check は shell を要し、script は shell に触れない |
+| implement の外側（run の並び） | 実装 → check → review → 修正、の戻りを run をまたいで持つ | 固定集合の反復型。修正の回の上限は `implement-run` の source の定数 | 持たない | 書き込める run には implementer だけを置く必要がある。runner は役ごとに書き込みの権限を分けられない（`repo-implement` SKILL.md の「目的と段」）。Codex runner では run の権限で他の役の書き込みを止め、native Workflow では道具の制限で止まらない書き込みを run の境界の snapshot で事後に検出する（「権限」）。check は shell を要し、script は shell に触れない |
 | `review-run` | 戻りが無い（2 段目の検証は、1 段目で決着しなかった主張に当てる段で、戻りではない） | 固定パイプライン型＋観点ごとの検証・反証の部品。最初の段に focus を書く 1 体を置く（「contextual-code-review の置き換え」） | 持つ（PR-005。下記） | — |
 | `address-review-triage` | 戻りが無い（食い違えば止まる） | 固定パイプライン型（分類 1 体 → 検証 1 体） | 持たない（全件を 1 つの context で読み、fan-out しない。PR-018） | — |
 | address-review の外側 | 収集 → 分類 → 修正 → push → required checks の待ち → 返信 → resolve（PR の無い形は修正まで）。needs_decision は run の境界にし、次の run で `decisions` として入れる。checks の待ちは、待つ回数の上限つきの同じ op の流し直しで、段の間の戻りではない | 固定パイプライン型（1 run は 1 周） | 持たない | — |
@@ -426,17 +426,18 @@ develop:review で置き換え、次を取り込む。
 
 **段 0 の範囲。** 「1 つのスキルに 1 つの形（または判定表の 1 つの行）を前提にする全ての箇所」と定義する。一覧で範囲を決めない。列挙は必ず漏れ、`make test` が落ちない経路（下の create・update の経路）の漏れは見つからない。段 0 の作業の最初に、create・update・review の 3 つの経路の入口から、形と判定表の行を運ぶ値を辿って、この定義に当たる箇所を探し直す。
 
-**定義に当たる箇所の例。** 見つけた手段：検証役と PR #176 の CI のレビューが、grep（語は `APPLICABILITY_QUESTIONS`・`applicability`・`shape`・`row`・`SHAPES`・「形の判定」・「最初に到達」）と該当の行の読み出しで挙げた。このうち `bp_author.js:265`・`:759`、`units.mjs:109-125`、`ops-inspect.mjs:99`・`:165`、`bp_inspect.js:719-720`、`constants.mjs:273`、`bp-run.md:111` は、この文書を書く側も読んで確かめた。path は `plugins/skill-creator/skills/skill-creator-best-practices/scripts/` からの相対（`docs/` で始まるものを除く）。
+**定義に当たる箇所の例。** 見つけた手段：検証役と PR #176 の CI のレビューが、grep（語は `APPLICABILITY_QUESTIONS`・`applicability`・`shape`・`row`・`SHAPES`・「形の判定」・「最初に到達」）と該当の行の読み出しで挙げた。このうち `bp_author.js:265`・`:759`、`bp/units.mjs:109-125`、`bp/ops-inspect.mjs:99`・`:165`、`bp/ops-author.mjs:18`・`:234`、`bp_inspect.js:719-720`、`bp/constants.mjs:273`、`docs/specifications/bp-run.md:111` は、この文書を書く側も読んで確かめた。path の基点は 2 つ：`docs/`・`tests/` で始まるものはリポジトリ直下から、それ以外は `plugins/skill-creator/skills/skill-creator-best-practices/scripts/` から。
 - 要求：`docs/requirements/bp-designed-skill.md:20`・`:47`・`:50`・`:53`・`:56`（PR-001〜004。形を 1 つ決める書き方）。
 - 仕様：
   - `docs/specifications/bp-conformance.md` の用語の表（問い A・Q1・Q2・Q3、重い形）と SP-BPCONFORMANCE-003・004（形は最初に到達した 1 つ）、`:73-78`（SP-BPCONFORMANCE-006・007）、`:275`、`:294`
   - `docs/specifications/bp-inspection.md:109`・`:113-121`（受理する並びの表）、`:123`、`:245`
   - `docs/specifications/bp-run.md:111`（適用の判定は到達した形 1 つ）、`:593`（applicability の schema の `shape` が 1 つの値）
   - `docs/specifications/bp-authoring.md:168`・`:231-232`・`:315`・`:571`
-- review の経路のコード：`bp/constants.mjs:270` の `APPLICABILITY_QUESTIONS` と `bp_inspect.js:65` の写し、`bp/applicability.mjs`、`bp/units.mjs:109-115`（判定表の行ごとに `form === SHAPES.turn` を見る）、`bp/ops-inspect.mjs:99`・`:165`（`shape` と `row` を 1 つずつ運ぶ）、`bp_inspect.js:719-720`。
-- create・update の経路のコード：`bp_author.js:265`（applicability の schema が `{row: integer}` の 1 つ）、`bp_author.js:759`（prompt が「当たる行を 1 つ選ぶ」）、`bp/units.mjs:122-125`（`checkConformance` が行 1 つで照らす）。この経路は問い A・Q を使わないので、W を足しても `make test` は落ちない。
-- テスト：`applicability.test.mjs:16`、`ops-inspect.test.mjs:274`、`APPLICABILITY_QUESTIONS` を読む `tests/bp-inspect-static.test.mjs`・`tests/bp-spelling.test.mjs`。
-- 写し：`references/criteria/` の要求・仕様の写し（同期の tool で更新する）。
+- 両方の経路が通るコード：`bp/units.mjs:109-115`（`applicability()` の中で、判定表の行ごとに `form === SHAPES.turn` を見る。review からも、create・update の `bp/ops-author.mjs:18` の import と `:234` の `return { rows: applicability(ctx.criteriaDir) }` からも通る）。
+- review の経路のコード：`bp/constants.mjs:270` の `APPLICABILITY_QUESTIONS` と `bp_inspect.js:65` の写し、`bp/applicability.mjs`、`bp/ops-inspect.mjs:99`・`:165`（`shape` と `row` を 1 つずつ運ぶ）、`bp_inspect.js:719-720`。
+- create・update の経路のコード：`bp/ops-author.mjs:234`（判定表の行の一覧を返す）、`bp_author.js:265`（applicability の schema が `{row: integer}` の 1 つ）、`bp_author.js:759`（prompt が「当たる行を 1 つ選ぶ」）、`bp/units.mjs:122-125`（`checkConformance` が行 1 つで照らす）。この経路は問い A・Q を使わないので、W を足しても `make test` は落ちない。
+- テスト：`bp/applicability.test.mjs:16`、`bp/ops-inspect.test.mjs:274`、`APPLICABILITY_QUESTIONS` を読む `tests/bp-inspect-static.test.mjs`・`tests/bp-spelling.test.mjs`（リポジトリ直下）。
+- 写し：`plugins/skill-creator/skills/skill-creator-best-practices/references/criteria/` の要求・仕様の写し（同期の tool で更新する）。
 - 変えない見込みのもの：`bp/constants.mjs:273` の `SHAPES`（形の名前の集合は変わらない）。
 - 判定の模型の改め方（判定の単位を run の並びと各 run の組にする、`shape` を単位ごとの一覧にする）は、段 0 の要求・仕様で決める。この文書は改める必要と範囲だけを置く。
 
