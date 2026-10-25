@@ -92,10 +92,10 @@ create と update は、対象スキルの形を、設計方針文書の「形�
 ### 配布先での確認
 
 #### PR-BPDESIGNEDSKILL-014 役ごとの制限の実効性の確認
-create と update は、対象スキルの役ごとの制限が配布先で実際に効くかを確かめなければならない（plugin から読み込む agent では設定の一部が無視され、制限が黙って効かないことがある）。
+create と update は、対象スキルの役ごとの制限が、配布先（Claude Code・Codex）のそれぞれで実際に効くかを確かめなければならない（plugin から読み込む agent では設定の一部が無視され、制限が黙って効かないことがある）。
 
 #### PR-BPDESIGNEDSKILL-015 確かめられなかった制限の報告
-create と update は、配布先で効くかを確かめられなかった役ごとの制限を、残る危険として結果に書かなければならない。
+create と update は、いずれかの配布先で効くかを確かめられなかった役ごとの制限を、残る危険として結果に書かなければならない。
 
 #### PR-BPDESIGNEDSKILL-016 起動数の上限の受け取り
 対象スキルの Workflow script が fan-out を含む場合、対象スキルは、1 run で起動する agent の数の上限を入力として受け取れなければならない（Codex runner は 1 run の agent 呼び出しの総数に上限を課し、超えると run 全体が失敗する。出所は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`）。
