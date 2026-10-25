@@ -110,13 +110,16 @@ function finish(result) {
   return { ...out, sum: fnvSum(out) }
 }
 
+// plan.js の LAYER_LABELS のキーの 1 つ（一致は tests/repo-implement-workflow.test.mjs が照らす）。
+const REVIEW_LAYER = 'review'
+
 // review の層のケースはレビューが証拠を持つので、テストの所在を求めない（testing.md「仕様との対応と完了」）。
 function caseTestGaps(implementation) {
   const cases = plan.test_plan.cases
   const known = new Set(cases.map((c) => c.id))
   const located = new Map(implementation.case_tests.map((e) => [e.case_id, e.tests]))
   return {
-    missing: cases.filter((c) => c.layer !== 'review' && !(located.get(c.id)?.length > 0)).map((c) => c.id),
+    missing: cases.filter((c) => c.layer !== REVIEW_LAYER && !(located.get(c.id)?.length > 0)).map((c) => c.id),
     unknown: implementation.case_tests.map((e) => e.case_id).filter((id) => !known.has(id)),
     invalidPaths: implementation.case_tests.flatMap((e) => e.tests).concat(implementation.tests_without_case).map((t) => t.path).filter((p) => !isRepoRelativePath(p)),
     withoutCase: implementation.tests_without_case,

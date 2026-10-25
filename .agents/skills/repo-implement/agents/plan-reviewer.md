@@ -20,7 +20,7 @@ planner の計画を、planner の結論に寄らずに自分で読み直して�
 
 ## 返すもの
 
-- `checked_paths` には実際に読んだ repo 相対の path だけを入れ、`evidence` には読んだ path の `path`・`line`・その行が支える主張を入れる（読んでいない path を挙げた承認は script が受け付けない）。
+- `checked_paths` には実際に読んだ repo 相対の path だけを入れ、`evidence` には読んだ path の `path`・`line`・その行が支える主張を入れる（`evidence` の path が `checked_paths` に無い承認は script が `incomplete` にする。実際に読んだかは script では検出できない）。
 - `approved` は、範囲・check・ケース計画に欠けが無く、`issues` と `test_plan_review` の 3 つが全て空のときだけ true にする。
 
 ## やらないこと

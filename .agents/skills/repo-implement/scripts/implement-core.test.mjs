@@ -1,9 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CODES, ImplementError, MAKE_TARGETS, OUTPUT_TAIL_LINES, REQUIRED_CHECKS, argvOf, baselineVerdict, checkProblem, fnvSum, implementationProblem,
+  CHECK_KINDS, CODES, ImplementError, MAKE_TARGETS, OUTPUT_TAIL_LINES, REQUIRED_CHECKS, argvOf, baselineVerdict, checkProblem, fnvSum, implementationProblem,
   inventoryProblems, newLedger, parsePorcelain, planCheckProblems, planProblem, reviewProblems, reviewRecord, roundEffectProblems, roundTicket,
-  snapshotOf, tail, unreviewablePaths, unwrapWorkflowOutput, verifyProblems,
+  checkPolicy, snapshotOf, tail, unreviewablePaths, unwrapWorkflowOutput, verifyProblems,
 } from './implement-core.mjs'
 
 const HEAD = 'a'.repeat(40)
@@ -165,7 +165,22 @@ test('implementationProblem は sum と開いている round の券で返り値�
     ['異常: 開いている round が無い', { ...body, sum: fnvSum(body) }, null, /開いている round/],
     ['異常: 別の券の返り値', { ...body, ticket_sum: 'U', sum: fnvSum({ ...body, ticket_sum: 'U' }) }, open, /券/],
     ['異常: 別の round の返り値', { ...body, repairRound: 1, sum: fnvSum({ ...body, repairRound: 1 }) }, open, /券/],
+    ['異常: touched_paths に文字列でない値', { ...body, touched_paths: [1], sum: fnvSum({ ...body, touched_paths: [1] }) }, open, /文字列の配列/],
   ]) await t.test(name, () => assert.match(implementationProblem(impl, o), match))
+})
+
+test('inventoryProblems は正規形でない touched_paths を round を閉じる原因として返す', async (t) => {
+  const now = { state: STATE, plan: PLAN, head: HEAD, index: undefined, preservedNow: { 'keep.md': 'file:1' } }
+  for (const [name, touched, causes] of [
+    ['正常: 正規形の申告', ['src/a.mjs'], []],
+    ['異常: ./ 付き', ['./src/a.mjs'], ['invalid_touched_path', 'undeclared']],
+    ['異常: 絶対パス', ['/r/src/a.mjs'], ['invalid_touched_path', 'undeclared']],
+    ['異常: .. を含む', ['src/../src/a.mjs', 'src/a.mjs'], ['invalid_touched_path']],
+  ]) await t.test(name, () => assert.deepEqual(inventoryProblems({ ...now, actual: ['src/a.mjs'], touched }).map((p) => p.cause), causes))
+})
+
+test('checkPolicy は check の kind を正本の CHECK_KINDS から渡す', () => {
+  assert.deepEqual(Object.keys(checkPolicy().kinds), [...CHECK_KINDS])
 })
 
 test('roundEffectProblems は申告と作業ツリーの動きの食い違いを返す', async (t) => {

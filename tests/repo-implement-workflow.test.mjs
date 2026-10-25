@@ -26,8 +26,8 @@ const GIT_ENV = {
 }
 
 // 公開の前は skill の scripts/、公開の後は plugin の workflows/ にある。どちらでも meta.name で 1 本に決める。
-function sourceNamed(name) {
-  const dirs = [path.join(SKILL_DIR, 'scripts'), ...readdirSync(path.join(ROOT, 'plugins')).map((p) => path.join(ROOT, 'plugins', p, 'workflows'))]
+function sourceNamed(name, skillScripts = path.join(SKILL_DIR, 'scripts')) {
+  const dirs = [skillScripts, ...readdirSync(path.join(ROOT, 'plugins')).map((p) => path.join(ROOT, 'plugins', p, 'workflows'))]
   const hits = dirs.filter((d) => existsSync(d)).flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)))
     .filter((f) => {
       try {
@@ -41,14 +41,8 @@ function sourceNamed(name) {
 }
 const PLAN_SOURCE = sourceNamed(PLAN_NAME)
 const RUN_SOURCE = sourceNamed(RUN_NAME)
-const REVIEW_SOURCE = (() => {
-  const dirs = [path.join(ROOT, '.agents', 'skills', 'repo-review', 'scripts'), ...readdirSync(path.join(ROOT, 'plugins')).map((p) => path.join(ROOT, 'plugins', p, 'workflows'))]
-  const hits = dirs.filter((d) => existsSync(d)).flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.js')).map((f) => path.join(d, f)))
-    .filter((f) => { try { return readSourceMetadata(readFileSync(f, 'utf8')).name === 'repo-review-run' } catch { return false } })
-  assert.equal(hits.length, 1)
-  return hits[0]
-})()
 const REVIEW_SKILL_DIR = realpathSync(path.join(ROOT, '.agents', 'skills', 'repo-review'))
+const REVIEW_SOURCE = sourceNamed('repo-review-run', path.join(REVIEW_SKILL_DIR, 'scripts'))
 const TEXT = { plan: readFileSync(PLAN_SOURCE, 'utf8'), run: readFileSync(RUN_SOURCE, 'utf8') }
 const META = { plan: readSourceMetadata(TEXT.plan), run: readSourceMetadata(TEXT.run) }
 
@@ -411,6 +405,28 @@ test('通し: 計画 → 受け入れ → 実装 → check → 本物の repo-re
   assert.equal(cli('verify', ref).passed, false, 'レビューの後の書き込みは通さない')
 })
 
+test('通し: 正規形でない touched_paths を返した実装でも、inventory が round を閉じて原因を記録する', async (t) => {
+  for (const [name, touchedOf] of [['./ 付き', () => './src/a.mjs'], ['絶対パス', (repo) => path.join(repo, 'src/a.mjs')]]) {
+    await t.test(name, async (t) => {
+      const fx = fixture(t)
+      const approved = await approvedPlan(t, fx)
+      const args = admitAndBegin(fx, approved)
+      const bad = touchedOf(fx.repo)
+      const b = backend({ implementer: () => { write(fx.repo, 'src/a.mjs', 'export const a = 2\n'); return implementation(fx, { touched_paths: [bad] }) } }, WRITE)
+      const result = await run(t, 'run', args, b)
+      assert.equal(result.reason, 'implementation-status-or-scope-mismatch', JSON.stringify(result))
+      const inv = cli('inventory', { ...refOf(fx, approved), implementation: result })
+      assert.equal(inv.ok, true, inv.reason)
+      assert.equal(inv.passed, false)
+      const invalid = inv.problems.find((p) => p.cause === 'invalid_touched_path')
+      assert.deepEqual(invalid?.paths, [bad])
+      const ledger = JSON.parse(readFileSync(fx.state.ledgerPath, 'utf8'))
+      assert.equal(ledger.open, null)
+      assert.ok(ledger.rounds.at(-1).problems.some((p) => p.cause === 'invalid_touched_path'))
+    })
+  }
+})
+
 test('実装: 書き込みの権限が無い実行面では起動しない', async (t) => {
   const fx = fixture(t)
   const approved = await approvedPlan(t, fx)
@@ -644,6 +660,10 @@ test('Workflow source の写し（canonical・fnvSum・isRepoRelativePath）は 
 
 test('観点のキーは traceability の分類と一致する', () => {
   assert.deepEqual(Object.keys(bodyLiteral(TEXT.plan, 'VIEWPOINT_LABELS')), categories)
+})
+
+test('実装の Workflow がテストの所在を求めない層は、計画の Workflow の層のキーにある', () => {
+  assert.ok(Object.keys(bodyLiteral(TEXT.plan, 'LAYER_LABELS')).includes(bodyLiteral(TEXT.run, 'REVIEW_LAYER')))
 })
 
 test('meta.limits は本体の役の数・計画し直しの上限・agentTimeoutMs から決まり、全ての役が model と effort を明示する', () => {

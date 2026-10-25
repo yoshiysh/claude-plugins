@@ -41,7 +41,7 @@ description: >
 | レビュー | `repo-review` スキル（working_tree モード）→ CLI `record-review` | 無し |
 | 最終照合 | CLI `verify` | 無し |
 
-書き込みのできる run には implementer だけを置く。runner は役ごとに書き込みの権限を分けられないので、同じ run に計画やレビューの役を置くと、その役も書けてしまう。commit・push・PR の作成は利用者が頼んだときだけ行い、merge はしない。
+書き込みのできる run には implementer だけを置く。runner は役ごとに書き込みの権限を分けられないので、同じ run に計画やレビューの役を置くと、その役も書けてしまう。commit（頼まれた commit は push まで含む。「最終照合と報告」）と PR の作成は利用者が頼んだときだけ行い、merge はしない。
 
 CLI は段ごとの作業ツリーの snapshot を `stateDir` の記録に残し、次の段の始めに今の snapshot と照らす。段の外での書き込み（計画の段・券を閉じた後の実装の Workflow・check とレビューの間）は、次の段で `E_STATE` か `changed_outside_steps` として見つかる。記録が見ないものは「照合しないもの」にまとめる。
 
@@ -134,7 +134,7 @@ Workflow({
 })
 ```
 
-**どの status でも**、返り値をそのまま `implementation` に入れて `inventory` を流す（受け入れと同じ入力に `"implementation": <返り値>`）。CLI は券の round を閉じて記録し、開始時の HEAD からの実際の変更を plan の path・touched_paths の和・preservedPaths の不変と照らし、index（stage した内容）が開始時から動いていないこと（commit は index を取り込むので、照らしていない内容が入り得る）と、申告と作業ツリーの動きが合うか（実装したと返したのに何も変わっていない、失敗したのに変わった）を照らす。`passed: false` なら「止まるとき」に従う（plan の外の変更や申告漏れを司令塔が戻さない。戻すのは破壊的な操作で、利用者が決める）。通らなかった round の後は、CLI が check・レビュー・次の回を受け付けない。
+**どの status でも**、返り値をそのまま `implementation` に入れて `inventory` を流す（受け入れと同じ入力に `"implementation": <返り値>`）。CLI は券の round を閉じて記録し、開始時の HEAD からの実際の変更を plan の path・touched_paths の和（repo 相対の正規形でない申告も、round を閉じる原因として記録する）・preservedPaths の不変と照らし、index（stage した内容）が開始時から動いていないこと（commit は index を取り込むので、照らしていない内容が入り得る）と、申告と作業ツリーの動きが合うか（実装したと返したのに何も変わっていない、失敗したのに変わった）を照らす。`passed: false` なら「止まるとき」に従う（plan の外の変更や申告漏れを司令塔が戻さない。戻すのは破壊的な操作で、利用者が決める）。通らなかった round の後は、CLI が check・レビュー・次の回を受け付けない。
 
 | status | 司令塔の処理 |
 | --- | --- |
@@ -193,7 +193,7 @@ JSON
 
 報告に書くもの: 変更の内容と path、ケース計画（条件ごとのケースとテストの所在、不適用の理由、未カバーの条件と理由）、check ごとの argv と exit code、レビューの対象・観点・確定・棄却・未検証の件数、修正の回数（上限で止まったならそのこと）、`verify` の `problems`、照合の外にあるもの（ignore される path・入れ子の repo の中身）、実行していない確認と残した判断。成功していないものを成功として書かない。
 
-commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。
+commit を頼まれたときは、`verify` を流し、`passed: true` のときだけ、`verify` の出力の `actual` の path を `<actual>` として `git add -- <actual>` と `git commit --only -- <actual>` を続けて流す（`git add` は未追跡の新しいファイルと削除を commit に入れるため。`--only` は指定した path だけを commit に入れ、index にある他の内容、たとえば開始前に利用者が stage していた preservedPaths を入れない）。`verify` より先に stage すると CLI の index の照合が `index_changed` で落ちる。`false` なら stage も commit もせず、`problems` を報告する。commit を頼まれたときは、同じ作業単位で push もする（AGENTS.md「作業ルール」。`/tmp` 系の worktree にしか無い commit は清掃で失われる）。
 
 ## 照合しないもの
 
