@@ -55,7 +55,7 @@ audit の範囲は依頼された path に限る。リポジトリ全体と言�
 
 ## 観点と担当
 
-- policyRef の `REVIEW.md` を `git show <policyRef>:REVIEW.md` で読む。観点（reviewer の lens）は、その「観点」の項目と docs/guidelines の文書から、変更の性質に合うものを選んで立てる（人数の下限は `scripts/review-core.mjs` の `MIN_REVIEWERS`）。一覧をここに写さないのは、`REVIEW.md` が変わったときに写しだけが古くなるため。
+- policyRef の `REVIEW.md` を `git show <policyRef>:REVIEW.md` で読む。観点（reviewer の lens）は、その「観点」の項目と docs/guidelines の文書から、変更の性質に合うものを選んで立てる（人数の下限は `scripts/review-core.mjs` の `MIN_REVIEWERS`）。一覧をここに写さないのは、`REVIEW.md` が変わったときに写しだけが古くなるため。`REVIEW.md` の観点が「必ず当てる」条件を書いているものは、変更がその条件に当たれば必ず立てる。
 - 各 reviewer は `{ "id": "<観点の id>", "focus": "<照らす観点の名前と、見る内容>", "files": [...] }`。担当ファイルは「読むもの」の表で、そのファイルの種類に対応する文書を照らせる観点に割り当てる。全ての対象ファイルを 1 つ以上の観点に割り当てる（和集合が対象と一致しないと `plan` が拒否する）。id の形は `scripts/review-core.mjs` の `LENS_ID` で、合わなければ `plan` が `E_INPUT` で拒否する。
 - 対象に `SKILL.md`・スキルの `agents/*.md`・Workflow source（先頭の文が `export const meta` の `.js`）が含まれるときは、best-practices.md を規則として読む **スキル設計** の観点を `"id": "skill-design"` で足し、それらのファイルを担当させる。当たるかの判定の正本は `scripts/review-core.mjs` の `SKILL_DESIGN_TARGETS`・`WORKFLOW_SOURCE_PATHS`・`isWorkflowSource` で（置き場は best-practices.md §13「script の置き場」、削除した Workflow source は base の版で判定する）、当たるファイルを `skill-design` に割り当てないと `plan` が拒否する。
 - reviewer の人数の上限は、下の callsite が呼ぶ Workflow source の定数 `MAX_REVIEWERS`。超えるなら観点をまとめる。
