@@ -120,7 +120,7 @@ description: 未決・決定どうしの組・決定が要る指摘・新しい 
   問いを裁定する。持ち越した問いが組み直した flow と回答で決まるなら、同じ ID のまま裁定に変えて `ruled` に入れる（欄の
   消し方は差し戻しと同じ）。決まらなければ、候補の `flow_refs`・`flow_effect` を組み直した flow に合わせて put し直し、
   `questions` に入れて `questions --check` にも含める（組み直しで消えた要素を指す候補は、回答を当てるときに辿れない）。
-- **段 6（決定が要る指摘）**: route が `decision` の指摘と、writer の meta の新しい TBD を上の種類で裁定する。続けて、
+- **段 6（決定が要る指摘）**: route が `decision` の指摘と、meta の新しい TBD（書き換えてよい既存文書が保存した時から開いていた TBD を含む）を上の種類で裁定する。続けて、
   この段で裁定した resolution を、当てる単位と項目ごとに `routes.json` にまとめる（writer はそのうち verifier が
   合格させた resolution だけを当てる）。route が `writer` の指摘は扱わない。それは script が項目ごとに束ねて
   直接 writer に渡すので、この段が起動しないとき（decision も新しい TBD も 0 件）にも改稿に届く。ここで
