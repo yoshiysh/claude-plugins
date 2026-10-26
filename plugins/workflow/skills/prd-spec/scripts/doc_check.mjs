@@ -1629,7 +1629,8 @@ const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
 // 正本を置く理由は references/traceability.md §4。
 const CARRY_FILE = /^(requirements|specifications)-(.+)\.tbd\.json$/
-const carryFileOf = (key) => ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.tbd.json')
+const docFileOf = (key) => ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.md')
+const carryFileOf = (key) => docFileOf(key).replace(/\.md$/, '.tbd.json')
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 class DigestMismatch extends Error {}
@@ -2081,7 +2082,7 @@ function wsBackup(ws, opts) {
   const files = keys.map((key) => {
     const m = DOC_KEY.exec(key)
     if (!m) throw new LedgerRejected(`文書のキー（<requirements|specifications>/<topic>）ではありません（控えを取っていません）: ${key}`)
-    return `${m[1]}-${m[2]}.md`
+    return docFileOf(key)
   })
   for (const file of files) txBegin(ws, token, file)
   return { backup: true, token, docs: keys }
@@ -2159,7 +2160,7 @@ function fixedShas(ws, keys) {
   return Object.fromEntries(
     [...new Set(keys || [])].sort().map((key) => {
       const meta = ledgerOf('meta').file(key)
-      return [key, sha256(JSON.stringify([fileSha(path.join(ws, meta.replace(/\.meta\.json$/, '.md'))), fileSha(path.join(ws, meta))]))]
+      return [key, sha256(JSON.stringify([fileSha(path.join(ws, docFileOf(key))), fileSha(path.join(ws, meta))]))]
     })
   )
 }
@@ -2170,7 +2171,7 @@ function wsReset(ws, opts) {
   const fixed = [...new Set(opts.fixed || [])].sort()
   const docOf = (key) => {
     try {
-      return ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.md')
+      return docFileOf(key)
     } catch {
       throw new LedgerRejected(`文書のキー（<requirements|specifications>/<topic>）ではありません（何も消していません）: ${key}`)
     }
@@ -2180,7 +2181,7 @@ function wsReset(ws, opts) {
   const unkept = fixed.filter((key) => !keep.includes(key))
   if (unkept.length) throw new LedgerRejected(`--fixed の文書が --keep にありません（何も消していません）: ${unkept.join(', ')}`)
   const missing = keep.filter((_, i) => !fs.existsSync(path.join(ws, docs[i])))
-  if (missing.length) throw new LedgerRejected(`existing_docs の文書が W にありません（S0 で逐語で置く。何も消していません）: ${missing.join(', ')}`)
+  if (missing.length) throw new LedgerRejected(`existing_docs の文書が W にありません（S0 で doc_check place で置く。何も消していません）: ${missing.join(', ')}`)
   const carried = Object.fromEntries(keep.map((key) => [key, carriedTbd(ws, key)]).filter(([, tbd]) => tbd))
   const metas = keep.filter((key) => fixed.includes(key) || carried[key]).map((key) => ledgerOf('meta').file(key))
   const carries = keep.map(carryFileOf)
@@ -2202,8 +2203,7 @@ function wsReset(ws, opts) {
 function wsPlace(ws, opts) {
   if (opts.doc.length !== 1 || !opts.source) throw new Error('place には --doc <requirements|specifications>/<topic> と --source <元の文書のパス> が要ります')
   const key = opts.doc[0]
-  const meta = ledgerOf('meta').file(key)
-  const doc = meta.replace(/\.meta\.json$/, '.md')
+  const doc = docFileOf(key)
   const carry = carryFileOf(key)
   if (!/\.md$/.test(opts.source)) throw new Error(`--source は .md の文書のパスです: ${opts.source}`)
   const source = path.resolve(opts.source)
@@ -3867,7 +3867,7 @@ function planDocFiles(ws) {
   const plan = readJsonFile(path.join(ws, 'plan.json'))
   if (plan === null) throw new Error('plan.json がありません。置いてよい文書のファイル名が決まらないので、stray を判定できません')
   const keys = listOf(plan, 'docs').map((d) => d && d.key)
-  return new Set(keys.flatMap((k) => [`${String(k).replace('/', '-')}.md`, ledgerOf('meta').file(k), carryFileOf(k)]))
+  return new Set(keys.flatMap((k) => [docFileOf(k), ledgerOf('meta').file(k), carryFileOf(k)]))
 }
 
 function strayFiles(ws, live) {
