@@ -93,7 +93,7 @@ function tbdSibling(rel) {
 }
 
 // .tbd.json の字面は JSON の escape（\" と \n）を含むので、Markdown の参照の形で読むには text と candidates を復元した本文で走査する。
-// 形の正本は prd-spec の判定（carryShapeOk）。読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
+// 読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
 function body(file) {
   const raw = readFileSync(file, 'utf8');
   if (!file.endsWith(TBD_SUFFIX)) return raw;
