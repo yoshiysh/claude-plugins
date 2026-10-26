@@ -2219,7 +2219,7 @@ function wsPlace(ws, opts) {
 
 // tbdItemOk: meta の tbd の要素の形。put（storedRejects）と写しの読み手（reset・place）が同じ判定を使う。put が緩いと、監査を通った meta から
 // 保存した写しを次の run の reset が拒み、直す経路が手書きしか無い。
-const TBD_ITEM_SHAPE = '{ id: TBD-<R|S><領域>-<連番>, text: 空でない文字列, blocking: 真偽値, candidates?: 文字列の配列 }'
+const TBD_ITEM_SHAPE = `{ id: ${TBD_ID_IN_TEXT.source} に合う文字列, text: 空でない文字列, blocking: 真偽値, candidates?: 文字列の配列 }（欄はこの 4 つだけ）`
 function tbdItemOk(t) {
   return Boolean(
     t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).every((k) => ledgerOf('meta').fields.tbd.includes(k)) &&

@@ -1215,11 +1215,15 @@ class CarriedTbd(_Workspace):
     def test_putは写しにできない形のtbdを受け取らない(self):
         # put が緩いと、監査を通った meta から保存した写しを次の run の reset が拒む。
         ok = {"id": "TBD-RAUTH-003", "text": "t", "blocking": True}
-        for name, el in (("text が空", {**ok, "text": ""}), ("blocking が無い", {"id": ok["id"], "text": "t"}), ("ID の形が違う", {**ok, "id": "TBD-003"})):
+        meta = self.ws / "requirements-auth.meta.json"
+        before = meta.read_bytes()
+        for name, el in (("text が空", {**ok, "text": ""}), ("blocking が無い", {"id": ok["id"], "text": "t"}), ("ID の形が違う", {**ok, "id": "TBD-003"}),
+                         ("既存の要素の blocking を消す", {"id": "TBD-RAUTH-001", "blocking": None})):
             with self.subTest(name):
                 r = _put_run(self.ws, "meta", {"tbd": [el]}, "--doc", "requirements/auth")
                 self.assertEqual(r.returncode, 1, r.stderr)
-                self.assertIn("tbd", r.stderr)
+                self.assertIn(f"tbd {el['id']}: {{ id: ", r.stderr)
+                self.assertEqual(meta.read_bytes(), before)
 
     def test_writerが写しのあるmetaを書き換えた後はtraceを検査する(self):
         repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
