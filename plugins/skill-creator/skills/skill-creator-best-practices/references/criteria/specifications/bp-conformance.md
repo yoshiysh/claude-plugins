@@ -135,6 +135,8 @@ create・update は、対象スキルの役ごとの制限について、配布�
 | Claude Code | 確かめない。plugin から読み込む agent で無視される設定の一覧は Claude Code 公式 docs「Create custom subagents」にあり、判定基準の写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）に入る文書が一覧を持たない間は、PR-BPDESIGNEDSKILL-014 の判定の単位と、PR-BPDESIGNEDSKILL-010 の判定の単位のうち設計方針文書「権限」の表の最後の行（SP-BPCONFORMANCE-014）を「未検査」とし、適合とも不適合ともしてはならない（TBD-SBPCONFORMANCE-005。create・update の合否を妨げない：`docs/specifications/bp-authoring.md` の用語「強いられた未検査」） | 役ごとの制限の全て |
 | Codex runner | 確かめない。runner は agent ごとの道具の許可を持たず、権限は全ての呼び出しに一律に効く（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`。道具の許可を持たないことは Explicit live execution の節の tool allowlists の段落と Deliberate gaps / rollout gate の節、権限の一律は Explicit writable and isolated checkouts の節） | 役ごとの制限の全て |
 
+無視される設定の一覧を判定基準の写しに入る文書に持つか（TBD-SBPCONFORMANCE-005）が決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない。
+
 #### SP-BPCONFORMANCE-020 確かめられなかった制限の報告
 SP-BPCONFORMANCE-019 で確かめられなかった制限ごとに、create・update は「残る危険」として結果に載せなければならない。載せる項目は、役の名前・制限の中身・配布先・確かめられなかった理由の 4 つである。結果の中のどこに載せるかは、`docs/specifications/bp-authoring.md` の完了時の出力を正とする。
 
@@ -311,17 +313,6 @@ best-practices 自身の挙動で測れない行（対象スキルに対する�
 | PR-BPOPERATIONS-007 | SP-BPCONFORMANCE-005 | create の試走（依頼文を 1 回で解ける課題にする） |
 | PR-BPOPERATIONS-024 | SP-BPCONFORMANCE-001, SP-BPCONFORMANCE-002, SP-BPCONFORMANCE-003, SP-BPCONFORMANCE-018, SP-BPCONFORMANCE-038 | review の試走（仕込んだ違反が指摘として、仕込まない単位が指摘の無いまま返る） |
 | PR-BPOPERATIONS-025 | SP-BPCONFORMANCE-028, SP-BPCONFORMANCE-029, SP-BPCONFORMANCE-030, SP-BPCONFORMANCE-031, SP-BPCONFORMANCE-032, SP-BPCONFORMANCE-033, SP-BPCONFORMANCE-035, SP-BPCONFORMANCE-027, SP-BPCONFORMANCE-036 | review の試走（仕様の観点で、確定値の定数ごとに違反を仕込む）。SP-BPCONFORMANCE-028・SP-BPCONFORMANCE-029 は探索グラフ型の題材に当てる部品が無く測れないので、測る題材の試走を足すまで「作成中」 |
-
-## TBD の宣言
-
-本書が所属先の TBD。どれも着手を止めない（blocking: false）。保持規則は各 TBD を参照する仕様項目に置く。
-
-| TBD ID | 決めること | 決めない理由 | blocking | 保持規則 |
-|---|---|---|---|---|
-| TBD-SBPCONFORMANCE-001 | 探索グラフ型の実行役の時間の上限の値と、守らせ方 | Claude Code の `agent()` に経過時間の上限を指定する手段が入力に無い（Codex runner は `agentTimeoutMs` を持つ）。当たるのは探索グラフ型の対象スキルの実行役だけで、best-practices 自身は実行役を持たない | false | SP-BPCONFORMANCE-034 |
-| TBD-SBPCONFORMANCE-002 | ターンごとの指揮が重い形に当たるか | 形の判定の図では、ターンごとの指揮に問い A の「いいえ」からも、問い Q1 に「いいえ」と答えた後の問い Q3 の「いいえ」からも到達するので、重い形（Q1 に「いいえ」と答えて初めて到達する形）に当たるかが道によって変わり、図から決まらない | false | SP-BPCONFORMANCE-006 |
-| TBD-SBPCONFORMANCE-003 | 対象スキルの同時実行の上限の守らせ方（runtime の設定か script か）。best-practices 自身は script で守ると SP-BPCONFORMANCE-027 に書き戻した | Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている | false | SP-BPCONFORMANCE-027 |
-| TBD-SBPCONFORMANCE-005 | Claude Code の plugin から読み込む agent で無視される設定の一覧を、判定基準の写しに入る文書に持つか | 一覧は Claude Code 公式 docs にあり、run の中の agent は写し（`docs/specifications/bp-run.md` の SP-BPRUN-036）の外を判定基準として当てられない。一覧は Claude Code の版で変わる外部の事実で、写しに入れた一覧は版が上がると黙って古くなり、無視される設定に頼る制限を誤って「適合」とする（誤った適合は、判定していないと宣言する未検査より悪く、古くなったことを機械で検出する手段も無い） | false | SP-BPCONFORMANCE-019。加えて、決まるまで、判定する者は agent の記憶や写しの外の文書で一覧を補って判定してはならない |
 
 ## トレーサビリティ表
 

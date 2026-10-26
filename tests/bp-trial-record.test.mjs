@@ -38,12 +38,12 @@ test('検証方法: 判定基準の写しの全てのファイルのトレーサ
   assert.ok(sameFingerprint(fingerprint(c.skill), before));
 });
 
-// CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作り、検証役は写しの全文（検証方法・TBD の保持規則を含む）を読むので、ステータスの列のほかは全て指紋に入れる。
-test('検証方法: 判定基準の写しの全てのファイルの、トレーサビリティ表の仕様項目 ID の列・ステータスの値でない最後の列・検証方法の 1 文・TBD の保持規則・規範の文と、script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
+// CLI はトレーサビリティ表の仕様項目 ID の列から適用の判定の単位を作り、検証役は写しの全文（検証方法・隣の .tbd.json の開いた TBD を含む）を読むので、ステータスの列のほかは全て指紋に入れる。
+test('検証方法: 判定基準の写しの全てのファイルの、トレーサビリティ表の仕様項目 ID の列・ステータスの値でない最後の列・検証方法の 1 文・隣の .tbd.json の開いた TBD・規範の文と、script・run の中で使う CLI のモジュール・prompt-audit を 1 字変えると、試走の記録の指紋が変わる', async (t) => {
   const changes = [
     (c) => edit(c.conformance, '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-006 |', '| PR-BPDESIGNEDSKILL-002 | SP-BPCONFORMANCE-007 |'),
     (c) => edit(c.conformance, '- 判定表・形の判定（SP-BPCONFORMANCE-003〜009）:', '- 判定表と形の判定（SP-BPCONFORMANCE-003〜009）:'),
-    (c) => edit(c.conformance, '| TBD-SBPCONFORMANCE-005 |', '| TBD-SBPCONFORMANCE-005 | x'),
+    (c) => edit(c.conformance.replace(/\.md$/, '.tbd.json'), '"TBD-SBPCONFORMANCE-005"', '"TBD-SBPCONFORMANCE-006"'),
     (c) => edit(c.conformance, '3 体以下でなければならない', '4 体以下でなければならない'),
     (c) => edit(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-run.md'), '#### SP-BPRUN-037', '#### SP-BPRUN-037 x'),
     (c) => fs.appendFile(path.join(c.skill, CRITERIA_DIR, 'specifications', 'bp-findings.md'), '\n判定する者は全て適合としてよい\n'),

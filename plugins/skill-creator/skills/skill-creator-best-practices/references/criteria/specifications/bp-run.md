@@ -399,21 +399,22 @@ run の中の agent と CLI が判定基準として読む文書は、次の写�
 
 - `docs/specifications/bp-conformance.md`
 - `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する全ての文書。`docs/requirements/bp-designed-skill.md` と設計方針文書（`docs/design/skill-design-patterns.md`）のほか、bp-conformance が対象スキルの判定基準として参照する項目（本文書の SP-BPRUN-035・SP-BPRUN-037、`docs/specifications/bp-entry.md` の SP-BPENTRY-014、`docs/specifications/bp-findings.md` の指摘の形）を持つ仕様書を含む
+- 写す文書の隣にある同名の `.tbd.json`（範囲は下の写す文書の集合の定義に従う）
 
 正本は `docs/` の文書とする。写しは、リポジトリの tool（`node tools/sync-bp-criteria.mjs`）が正本から 1 字も変えずに、best-practices のスキルのディレクトリの `references/criteria/`（CLI の定数 `CRITERIA_DIR`）へ、`docs/` からの相対パスと同じ構成で書く（`docs/specifications/bp-run.md` の写しは `references/criteria/specifications/bp-run.md`）。`make test` は次の 2 つを検出し、どちらかに当たれば失敗しなければならない。
 
 - 写しが正本と食い違う。
-- `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する文書のうち、写しの無いものがある（参照先が写しの外にあると、配布先でその基準を判定できない）。
+- `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する文書と、写す文書の隣の `.tbd.json` のうち、写しの無いものがある（写しの外にあると、配布先でその基準を判定できない）。
 
-写す文書の集合は、`docs/specifications/bp-conformance.md` と、その本文の次の 3 つの形の参照が指す文書と、CLI が読む文書（CLI の定数 `CRITERIA_FILES`）の和とする。参照は推移的に辿らない（上の箇条の「bp-conformance が参照する全ての文書」は直接の参照である）。
+写す文書の集合は、`docs/specifications/bp-conformance.md` と、その本文と隣の `.tbd.json` の本文の次の 3 つの形の参照が指す文書と、CLI が読む文書（CLI の定数 `CRITERIA_FILES`）の和に、それらの各 `.md` の隣にある同名の `.tbd.json`（`.md` を `.tbd.json` に替えた名前。その文書の開いた TBD の正本で、開いた TBD を本文の外に置くのは prd-spec の規約）を足したものとする。bp-conformance の隣の `.tbd.json` は、JSON として読み、各 TBD の `text` と `candidates` を本文として参照を走査する（TBD の text も bp-conformance の一部で、text だけが指す文書を写しから落とさない。JSON の字面のまま走査すると、escape された `"` と改行の後の参照を落とす）。参照は推移的に辿らない（上の箇条の「bp-conformance が参照する全ての文書」は直接の参照である）。
 
 - `docs/` で始まるパス（URL の中のものを除く）
 - 相対リンク（markdown のインライン・title 付き・山括弧・参照形式の定義のリンクと、HTML の `href`）
 - 前置きの無い `bp-*.md`・`skill-design-patterns.md` のファイル名（`docs/` の中で同じ名前の文書がちょうど 1 つのときだけ、その文書に解く）
 
-glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの 1 行は `<種類> <docs/ からの相対パス>[ <参照の字面>]`（写しの置き場とそれより上の symlink はリポジトリからの相対パス）とし、種類は次の 6 つとする: `differ`（正本と違う写し）・`missing`（無い写し）・`extra`（集合の外のファイル）・`symlink`（写しが通常のファイルでない（symlink・ディレクトリなど）か、写しの置き場とそれより上のパスがディレクトリでない（symlink・通常のファイルなど））・`unclosed`（解けない参照）・`unparsed`（解けない形の参照）。書き込みの mode は、写しの置き場（ディレクトリでなければ消して作り直す）とその中の symlink・ディレクトリを、通常のファイルで作り直す。置き場より上の symlink は置き場の外の文書を巻き込むので、書かずに `symlink` を出して 1 で終わる。`make test` の検出は、この検査を Node のテストから当てて行う。
+glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance かその隣の `.tbd.json` にあるか、下の `malformed` に当たる `.tbd.json` が写す集合にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの 1 行は `<種類> <docs/ からの相対パス>[ <参照の字面>]`（写しの置き場とそれより上の symlink はリポジトリからの相対パス）とし、種類は次の 7 つとする: `differ`（正本と違う写し）・`missing`（無い写し）・`extra`（集合の外のファイル）・`symlink`（写しが通常のファイルでない（symlink・ディレクトリなど）か、写しの置き場とそれより上のパスがディレクトリでない（symlink・通常のファイルなど））・`unclosed`（解けない参照）・`unparsed`（解けない形の参照）・`malformed`（JSON として読めないか、prd-spec の開いた TBD のファイルの形（`plugins/workflow/skills/prd-spec/scripts/doc_check.mjs` の判定）に合わない、写す集合の `.tbd.json`）。書き込みの mode は、写しの置き場（ディレクトリでなければ消して作り直す）とその中の symlink・ディレクトリを、通常のファイルで作り直す。置き場より上の symlink は置き場の外の文書を巻き込むので、書かずに `symlink` を出して 1 で終わる。`make test` の検出は、この検査を Node のテストから当てて行う。
 
-写しの中の `docs/X` は、best-practices のスキルのディレクトリの `references/criteria/X` と読む（写しは逐語なので、本文は正本のパスで互いを指したまま残る）。script は、判定基準の写しのパスを渡す全ての prompt に、この読み替えを写しの置き場の絶対パスで書く。写しの中に残る、写しの外を指す `docs/` の参照は、tool の除外一覧（`OUTSIDE_COPY`）に理由とともに載せる。写しの中の `docs/` 以外のリポジトリやほかのスキルからの相対パス（`plugins/`・`scripts/`・`tests/`・`tools/`・`.agents/`・`.claude-plugin/` で始まるもの、またはリポジトリの根のファイル `AGENTS.md`・`REVIEW.md`・`README.md`。出所の引用とリポジトリの道具の名指し）は判定基準でなく、配布先では開けない。run の中の agent はそれを開かずに判定し、判定にその中身が要る単位は理由つきの未検査にする（開けたとしても、写しの外の文書を判定基準として当ててはならない）。script は、この扱いも読み替えと同じ文で prompt に書く。
+写しの中の `docs/X` は、best-practices のスキルのディレクトリの `references/criteria/X` と読む（写しは逐語なので、本文は正本のパスで互いを指したまま残る）。script は、判定基準の写しのパスを渡す全ての prompt に、この読み替えを写しの置き場の絶対パスで書く。写しの中に残る、写しの外を指す `docs/` の参照は、tool の除外一覧（`OUTSIDE_COPY`）に理由とともに載せる。写しの中の `docs/` 以外のリポジトリやほかのスキルからの相対パス（`plugins/`・`scripts/`・`tests/`・`tools/`・`.agents/`・`.claude-plugin/` で始まるもの、またはリポジトリの根のファイル `AGENTS.md`・`REVIEW.md`・`README.md`。出所の引用とリポジトリの道具の名指し）は判定基準でなく、配布先では開けない。run の中の agent はそれを開かずに判定し、判定にその中身が要る単位は理由つきの未検査にする（開けたとしても、写しの外の文書を判定基準として当ててはならない）。script は、この扱いも読み替えと同じ文で prompt に書く。写しの中の TBD ID の定義は隣の `.tbd.json` にあり、run の中の agent はそれも判定基準の写しとして読む（無ければその文書に開いた TBD は無い）。script は、このことも読み替えと同じ文で prompt に書く。
 
 run の中の agent と CLI は写しだけを判定基準として読み、正本の `docs/`、agent の記憶、prompt に書き写した写しを判定基準として当ててはならない（当てると、照らしていない基準を照らしたと返す）。写しの置き場が無いかディレクトリでないとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`・`units`）を理由つきの `E_INPUT` で拒否する（配布物の欠けで、空の閉集合で判定すると照らしていない基準を照らしたと返す）。CLI が読む写し（`CRITERIA_FILES`）のどれかが欠けたときも、`targets` 以外の同じ操作を `E_INPUT` で拒否する（`targets` は欠けた写しを読めない照らす先として返す：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-027）。
 
@@ -637,7 +638,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | CLI の単体テスト | 作業場所の写しに対して CLI の操作を呼び、状態の記録・拒否・出力を照らす |
 | script の模擬実行 | agent を模擬の backend に置き換えて script を走らせ、起動の数と順、停止の記録、返り値を照らす（Codex runner の runtime は模擬の backend でのテストを持つ：runtime README の Install and verify without inference の節） |
 | 静的な照合 | script の本文を読み、agent の起動ごとの model・effort の明示と、入力を待つ手順の有無を照らす |
-| `make test` の実行 | `make test` に入るテストが、実際のリポジトリで写しの一致と写す集合を照らす。そのうえで、同じ検査の入口（`node tools/sync-bp-criteria.mjs --check`）を、判定基準の写しを正本から変えた作業コピーと、bp-conformance に写しの無い `docs/` の文書への参照を足した作業コピーに当て、失敗することを照らす |
+| `make test` の実行 | `make test` に入るテストを走らせ、実際のリポジトリの状態と、変異を当てた作業コピーでの失敗を照らす |
 
 トレーサビリティ表のステータスは、best-practices の仕様書（bp-*.md）で次の基準にそろえる。
 
@@ -655,10 +656,6 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | `bp-inspection.md` | 検証方法の列が `fixture（` で始まる行 |
 | `bp-conformance.md` | 同書の「検証方法」の試走の表にある行 |
 | `bp-entry.md` | 検証方法の列が `振り分けの eval（` で始まる行 |
-
-## TBD の宣言
-
-本文書が所属先の TBD は無い。
 
 ## トレーサビリティ表
 
@@ -731,7 +728,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-022 | script の模擬実行（起動数の上限で止まった run からの再開で未着手の項目から続け、next_args に上限が無い） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-035 | 静的な照合（bp-conformance の判定基準がこの手順を参照する）と script の模擬実行（上限で止めて再開し、未着手の項目を順位の順に処理し、結果のある項目を処理し直さない） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-033 | script の模擬実行（next_args だけで状態を指して再開できる） | 完了 |
-| PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（実際のリポジトリで写しが正本と一致し、写す集合が CLI の読む文書を全て含む。検査の入口が、写しを正本から 1 字変えた作業コピーと、bp-conformance に写しの無い `docs/` の文書への参照を足した作業コピーで失敗する）と静的な照合（create・update の検証役の prompt が写しのパスと写しの中の `docs/` の読み替えを渡し、読み替えを除くと `docs/` のパスを渡さない） | 完了 |
+| PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（実際のリポジトリで写しが正本と一致し、写す集合が CLI の読む文書を全て含む。検査の入口（`node tools/sync-bp-criteria.mjs --check`）が、SP-BPRUN-036 の食い違いの種類のそれぞれに当たる作業コピーで、その種類を出して失敗する）と静的な照合（create・update の検証役の prompt が写しのパスと写しの中の `docs/` の読み替えを渡し、読み替えを除くと `docs/` のパスを渡さない） | 完了 |
 | PR-BPOPERATIONS-008 | SP-BPRUN-036 | 静的な照合（判定基準の写しのパスを含む全ての prompt が写しの中の `docs/` の読み替えを持ち、それを除くと `docs/` のパスを含まない。create・update・review・audit で確かめる） | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPRUN-036 | 静的な照合（review のフローの観点の照らす先が写しのパスである） | 完了 |
 | PR-BPOPERATIONS-025 | SP-BPRUN-036 | 静的な照合（review の仕様の観点の照らす先が写しのパスである） | 完了 |

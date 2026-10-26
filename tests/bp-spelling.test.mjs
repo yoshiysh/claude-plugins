@@ -259,7 +259,7 @@ test('SP-BPENTRY-013: 入力の綴りの表と script・CLI の入力の綴り�
   assert.deepEqual(literalOf('INPUT_KEYS'), JSON.parse(JSON.stringify(CLI_CONSTANTS.INPUT_KEYS)));
 });
 
-test('TBD-SBPAUTHORING-001 の書き戻し・SP-BPINSPECTION-024・SP-BPFINDINGS-030: SP-BPRUN-032・SP-BPAUTHORING-032〜034・SP-BPINSPECTION-024・SP-BPFINDINGS-030 の綴りの列が CLI の返り値の綴りと一致する', () => {
+test('SP-BPAUTHORING-032〜034 の表の綴りの列・SP-BPINSPECTION-024・SP-BPFINDINGS-030: SP-BPRUN-032・SP-BPAUTHORING-032〜034・SP-BPINSPECTION-024・SP-BPFINDINGS-030 の綴りの列が CLI の返り値の綴りと一致する', () => {
   const common = spellings(RUN, '| 項目 | 綴り | 返すとき |', 1);
   const complete = spellings(AUTHORING, '| 条件: 機能 | 条件: 項目 | 綴り | 結果 |', 2);
   const stopped = spellings(AUTHORING, '| 項目 | 綴り | 中身 |', 1);

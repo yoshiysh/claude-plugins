@@ -331,7 +331,7 @@ export const CRITERIA_FILES = Object.freeze({
 export const CRITERIA_CHAPTERS = Object.freeze({
   functional: '機能仕様',
   capacityPrefix: '性能・容量',
-  others: Object.freeze(['対象範囲', '用語定義', 'エラー処理と異常系', '検証方法', 'TBD の宣言', 'トレーサビリティ表']),
+  others: Object.freeze(['対象範囲', '用語定義', 'エラー処理と異常系', '検証方法', 'トレーサビリティ表']),
 });
 export const PROMPT_AUDIT_FILE = 'references/prompt-audit.md';
 // 照らす先の決定の出力で、観点ごとのファイルを名前で指す（パスの順に意味を持たせない）。
