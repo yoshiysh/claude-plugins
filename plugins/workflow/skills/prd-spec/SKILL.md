@@ -72,12 +72,12 @@ workspace を用意し、保存することだけである。** 決定・問い�
    対象リポジトリの中に作業ファイルを置かない（そのリポジトリの `.gitignore` は利用者の持ち物である）。
 3. **依頼文を `W/input.md` に逐語で書く。** 貼り付けられた議事録やメモも含め、要約も整形もしない。要約すると、
    依頼者が言っていないことが入力の顔をして全員に届く。
-4. **既存文書**（`existing`・`expand`）は `W/<kind>-<topic>.md` に逐語で置き、`existing_docs` に
-   `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。`expand` の要求文書は `fixed: true` にする
-   （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。元の文書の隣に `<topic>.tbd.json`（保存した
-   文書の開いている TBD の正本。保存の 2）があれば、`W/<kind>-<topic>.tbd.json` に逐語で置く（置かないと、その TBD が open_tbd と INDEX の
-   「未解決」から消える）。meta は書かない。段 1 の入口の `doc_check reset` が W を S0 の直後に戻すときに、`existing_docs` の `fixed` と
-   その写しから書く。`existing_docs` に無い文書はその reset が消す
+4. **既存文書**（`existing`・`expand`）は `node [SKILL_DIR]/scripts/doc_check.mjs place --workspace <W> --doc <kind>/<topic> --source <元のパス>`
+   で W に置き、`existing_docs` に `{ key: "<kind>/<topic>", source: "<元のパス>", fixed }` で並べる。place は文書と、その隣の
+   開いている TBD の写し（`.md` を `.tbd.json` に替えたファイル。`references/traceability.md` §4）をまとめて逐語で写す。手で写さない
+   （写しを置き忘れると、その TBD を誰も知らないまま保存の 3 が写しを上書きするか消す）。`expand` の要求文書は `fixed: true` にする
+   （固定の文書は別のランで承認されたもので、ここで書き換えるとその承認を迂回する）。meta は書かない。段 1 の入口の `doc_check reset` が
+   W を S0 の直後に戻すときに、`existing_docs` の `fixed` と写しから書く。`existing_docs` に無い文書はその reset が消す
    （`references/workflow-io.md` §3）。
 5. **許可と設定を確かめる**: native では `references/permissions.md` の前提（auto mode）・allow rule・推奨する cache の TTL を利用者に示し、足すかを確かめる。Codex は「実行環境」の host 設定と W の書込範囲を確認する。
    settings は書かない（利用者の持ち物である）。
@@ -159,12 +159,13 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    件数が 0 でなければ、保存は止めずに、`stray.path` のファイルの一覧を事後報告に添える。
 2. **INDEX**: `node [SKILL_DIR]/scripts/doc_check.mjs index --workspace <W> --req-dir <要求の保存先> --spec-dir <仕様の保存先> --open-tbd "<返り値の open_tbd をカンマで>"`
    を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す。INDEX は導出物で、手で書くと本体と
-   ずれる。同じ出力の `open_tbd_files` の `path` のファイルも `save_to` へ逐語で写し、`open_tbd_clear` のパスにファイルがあれば消す。
-   これが保存した文書の開いている TBD の正本で（meta は写さないので、ほかに残る場所が無い）、次のランの S0 が W に置き直す（S0 の 4）。
-   消さないと、閉じた TBD が次のランの「未解決」に戻る。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも W に置き、`existing_docs` に `fixed: true` で並べる（固定の印は `existing_docs` にしか無く、並べない文書は書き換えてよい文書として監査される）。
+   ずれる。同じ出力の `open_tbd_files`・`open_tbd_clear` は 3 で使う。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも W に置き、`existing_docs` に `fixed: true` で並べる（固定の印は `existing_docs` にしか無く、並べない文書は書き換えてよい文書として監査される）。
 3. **文書**: `W/<kind>-<topic>.md` を保存先へ写す。`new`・`expand` の保存先は既定で `docs/requirements/<topic>.md`・
    `docs/specifications/<topic>.md`、`existing` は `existing_docs[].source`（元の場所。別の場所に写すと、改訂が
    新規の文書に化けて元の文書が古いまま残る）。INDEX の `--req-dir`・`--spec-dir` も保存先に合わせる。`fixed` の文書は写さない。meta は写さない（根拠は W と commit に残る）。
+   文書を写したら、2 の出力の `open_tbd_files` にその文書があれば `path` のファイルを、写した先の `.md` を `.tbd.json` に替えたパスへ逐語で写し、
+   `open_tbd_clear` にあれば同じパスのファイルを消す（開いている TBD の正本。`references/traceability.md` §4。消さないと、閉じた TBD が
+   次のランの「未解決」に戻る）。下の衝突で写さなかった文書の写しには触れない。
    - 新規保存で同名のファイルが既にあれば上書きせず、差分を見せて判断を求める。
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
 4. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。

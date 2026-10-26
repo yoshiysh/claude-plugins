@@ -117,9 +117,9 @@ stdout の digest を突き合わせる（flow は `doc_check flow` の `content
   1 行足して `next_args` を付けずに止まる（どの段からやり直しても W の本文は戻らない。本文を `existing_docs` の `source` から置き直して段 1 から）。
   固定の文書があるのに `state.fixed_sha` が合わない `next_args` は、agent を起動する前に止まる。reset は S0 が書いたもの（依頼文・先例の一覧・`existing_docs` の文書）と
   所有表の外のファイル・`tmp/` を残して段の書き込みと `--keep` に無い文書を消し（消すものの正本は doc_check の `wsReset`）、固定の文書の
-  meta を書き直す。S0 が置いた `<kind>-<topic>.tbd.json`（保存した文書の開いている TBD）は、その文書の meta の `tbd` に写し、ID を stdout の
-  `carried_tbd` に出す。prd-spec.js はそれを `open_tbd` に入れる（writer の返り値だけから数えると、writer を起動しない文書の TBD が保存の
-  INDEX から消える）。`--keep` に無い文書を消すのは、S0 が置くのは `existing_docs` の文書だけで、それ以外は前のランの writer の文書だからである
+  meta を書き直す。S0 が place で置いた `<kind>-<topic>.tbd.json`（保存した文書の開いている TBD）は、その文書の meta の `tbd` に写し、文書のキーごとの ID を stdout の
+  `carried_tbd` に出す。prd-spec.js はそれをすべて `open_tbd` に入れ（writer の返り値だけから数えると、writer を起動しない文書の TBD が保存の
+  INDEX から消える）、固定でない文書のものは `new_tbd` にも入れて段 6 の裁定に回す（回さないと閉じる経路が無い）。`--keep` に無い文書を消すのは、S0 が置くのは `existing_docs` の文書だけで、それ以外は前のランの writer の文書だからである
   （同じ W で S0 からやり直すと、meta の無いまま INDEX に載り、同じ topic の単位の writer に前の草稿が渡る）。put はキー単位で足すので、戻さずに始めると前のランや止まった段 1・2 の
   要素と欄（intake が付けた D- の kind・quote、止まった flow-framer が足した O-）が再実行の書き込みの後にも残り、前のランの後の段の token の
   控えは新しい run の t1 の書き込みを拒む。answers も消すのは、段 1・2 が回答を読まず、新しい run は RS- を振り直すので、残った回答の ID が
@@ -236,13 +236,14 @@ state_hash と同じ `fnv(canonicalText(...))`）が付き、script は写しか
 | `snapshot --save <label> [--role auditor] [--live <label,…> [--sweep]] [--fixed <キー,…>]` | 監査役（`audited-*`）、writer | 項目ごとの hash を保存する。`--fixed` に挙げた文書の本文と meta の sha256 を stdout の `fixed_sha256` に出す（reset と同じ値）。`audited-` は `--role auditor` のときだけ。W に所有表（契約の「W のファイルと書き手」）と `plan.json` に無いファイルと、`--sweep` で消さなかった `tmp/` のものを `checks/<label>.stray.json` に書き、stdout の `stray` に件数とパスを出す。`--live` に挙げた label の `tmp/` は動作中として除く。`--sweep` は `--live` に無い label の `tmp/<label>/` を空のものも含めて消し、消したファイルとリンクを `checks/<label>.swept.json` に書いて `swept` に件数とパスを出す（`--live` が並行中の label のすべてであるときだけ付ける。script は監査の snapshot にだけ付ける）。台帳と文書のバイト数と、目安（`SIZE_BUDGET`）を超えたものを `checks/<label>.sizes.json` に書いて `size_over` に件数とパスを出す |
 | `diff --against <label> --expect <digest>` | 指名された監査役 | snapshot と今の木の項目の差分。digest が違えば exit 3 |
 | `tree-digest [--doc <キー>] [--live <label,…>]` | writer、指名された監査役、司令塔（保存の前） | 今の木（または 1 文書）の digest。`stray`・`size_over` は snapshot と同じ（一覧は `checks/tree-digest.*.json`） |
-| `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く。固定でない文書ごとに、開いている TBD があれば `checks/<kind>-<topic>.tbd.json` に書いて stdout の `open_tbd_files`（`doc`・`path`・`save_to`）に、無ければ保存先の写しのパスを `open_tbd_clear` に出す |
+| `index [--req-dir] [--spec-dir] [--open-tbd]` | 司令塔（保存の前） | 2 つの INDEX を導出して `checks/INDEX.<kind>.md` に書く。固定でない文書ごとに、開いている TBD があれば `checks/<kind>-<topic>.tbd.json` に書いて stdout の `open_tbd_files`（`doc`・`path`）に、無ければ文書のキーを `open_tbd_clear` に出す（写す先は文書の保存先で決まるので、パスは出さない）。写しの形が reset の受け取る形でなければ何も書かずに止まる |
 | `put --ledger <台帳> [--doc <キー>] [--expect-resolutions <sha> --expect-decisions <sha>] --token <token> [--input <作業用ディレクトリの中のパス>]` | 台帳の書き手（契約の所有表で「put で書く」とした役） | 標準入力（`--input` があればそのファイル。書けたら消し、拒否したら残す）の要素をキー単位で足し、同じキーの要素には送った欄だけを上書きする（意味は契約の「共通の約束」）。型の外の欄・経緯の印・欄の条件に合わない要素・逐語でない引用が 1 件でもあれば何も書かない |
 | `del --ledger <台帳> --ids <ID,…> [--collection <配列名>] --token <token>` | 台帳の書き手 | キーで要素を消す。無い ID は成功として数える |
 | `stash --save <label>` / `unstash --against <label> --token <token>` | flow-check（段 2・`3b-reframe` の lint の差し戻しの前と、それで flow が閉じなくなったとき） | flow.json と open.json を `checks/<label>.stash.json` に控え、stdout に `flow_sha256` を出す / 控えのとおりに書き戻し（段の token の控えを先に取る）、`flow_sha256` を出す。控えが無ければ何も書かない |
 | `backup --doc <キー> … --token <token>` | flow-check（段 4・7 の writer の前） | 文書の本文の控えを token の下に取る（無い文書は無い印。同じ token の控えがあれば取り直さない）。stdout に `backup: true`・`token`・控えを取った文書のキー（`docs`） |
 | `restore --token <token>` | flow-check（blocked の後の同じ段の再実行の入口） | token の控えを台帳と文書の本文に戻し、token の下で作られた台帳と文書を消して控えを消す（控えを書く途中で落ちた一時名は数えない。§3）。stdout に戻したファイルごとの前後の sha256（無いファイルは null）と flow.json の前後（`flow_before`・`flow_after`）、控えを消した後の段の token（`pruned_by`。あれば何も戻さない） |
-| `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`）とその本文と meta の sha256（`fixed_sha256`）と、写しから meta に写した TBD の ID（`carried_tbd`）。写しの形が違えば何も消さずに止まる |
+| `place --doc <キー> --source <元の文書のパス>` | 司令塔（S0） | 既存文書を `W/<kind>-<topic>.md` に、その隣の `.tbd.json`（開いている TBD の写し）があれば `W/<kind>-<topic>.tbd.json` に、まとめて逐語で写す。写しが無ければ前に置いた W の写しを消す。写しの形が reset の受け取る形でなければ何も置かずに止まる |
+| `reset [--keep <キー,…>] [--fixed <キー,…>]` | flow-check（段 1 から始める run の入口） | W を S0 の直後に戻す（消すものと残すものは §3 の段 1 の項）。キーが文書のキーの形でないか、`--fixed` が `--keep` に無いか、`--keep` の文書が W に無ければ何も消さずに止まる。stdout に消した名前（`removed`）と残した文書のキー（`kept`）と書き直した固定の文書のキー（`fixed`）とその本文と meta の sha256（`fixed_sha256`）と、写しから meta に写した TBD の文書のキーごとの ID（`carried_tbd`）。写しの形が違えば何も消さずに止まる |
 | `get --ledger <台帳> [--doc <キー>] --ids <ID,…> [--fields <欄,…>]` | 台帳を読む役（読み方は契約の「共通の約束」） | 台帳から ID の要素を加工せずに選んで stdout に出す。無い ID は `missing`、stdout の上限（`STDOUT_BUDGET`）に入らない ID は `over_budget`（ID の一覧だけで上限を超えれば exit 1）。何も書かない |
 | `view --ledger <台帳> [--doc <キー>] [--fields <欄,…>]` | 台帳を全件読む役（読み方は契約の「共通の約束」） | 台帳の全件を、要素ごとの JSON（`{"<配列名>": 要素}`、スカラーは `{"<名前>": 値}`）の欄と配列の要素を 1 行ずつにして `checks/view-<台帳のファイル名>[.<--fields の fnv>].txt` に書き、stdout にパス・要素数・行数・sha256 を出す（Read は 2000 字を超える行を切る）。名前は台帳と `--fields` だけで決まる |
 | `contract --role <役のファイル名> --part <n>` | どの役も（起動の最初。プロンプトが全部の `--part` を挙げる） | 役が読む契約の節（`CONTRACT_SECTIONS`）を契約から逐語で切り出し、`CONTRACT_BUDGET` バイト以下の `n` 番目の断片を出す（断片は節か行の頭で切れ、つなげると全体に戻る。断片が無い `n` は空）。stdout は JSON ではなく節の本文。見出しが 1 つでも無いか、断片が `CONTRACT_PARTS` を超えれば何も出さずに exit 1 |
