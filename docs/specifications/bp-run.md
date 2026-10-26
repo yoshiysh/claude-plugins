@@ -399,22 +399,22 @@ run の中の agent と CLI が判定基準として読む文書は、次の写�
 
 - `docs/specifications/bp-conformance.md`
 - `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する全ての文書。`docs/requirements/bp-designed-skill.md` と設計方針文書（`docs/design/skill-design-patterns.md`）のほか、bp-conformance が対象スキルの判定基準として参照する項目（本文書の SP-BPRUN-035・SP-BPRUN-037、`docs/specifications/bp-entry.md` の SP-BPENTRY-014、`docs/specifications/bp-findings.md` の指摘の形）を持つ仕様書を含む
-- 上の 2 つの各文書の隣にある同名の `.tbd.json`（`.md` を `.tbd.json` に替えた名前。その文書の開いた TBD の正本で、本文の TBD ID の定義を持つ。開いた TBD を本文の外に置くのは prd-spec の規約）
+- 写す文書の隣にある同名の `.tbd.json`（範囲は下の写す文書の集合の定義に従う）
 
 正本は `docs/` の文書とする。写しは、リポジトリの tool（`node tools/sync-bp-criteria.mjs`）が正本から 1 字も変えずに、best-practices のスキルのディレクトリの `references/criteria/`（CLI の定数 `CRITERIA_DIR`）へ、`docs/` からの相対パスと同じ構成で書く（`docs/specifications/bp-run.md` の写しは `references/criteria/specifications/bp-run.md`）。`make test` は次の 2 つを検出し、どちらかに当たれば失敗しなければならない。
 
 - 写しが正本と食い違う。
-- `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する文書と、写す文書の隣の `.tbd.json` のうち、写しの無いものがある（参照先や TBD の定義が写しの外にあると、配布先でその基準を判定できない）。
+- `docs/specifications/bp-conformance.md` が `docs/` のパスで参照する文書と、写す文書の隣の `.tbd.json` のうち、写しの無いものがある（写しの外にあると、配布先でその基準を判定できない）。
 
-写す文書の集合は、`docs/specifications/bp-conformance.md` と、その本文と隣の `.tbd.json` の本文の次の 3 つの形の参照が指す文書と、CLI が読む文書（CLI の定数 `CRITERIA_FILES`）の和に、それらの各 `.md` の隣にある同名の `.tbd.json` を足したものとする。bp-conformance の隣の `.tbd.json` の本文を参照の走査に含めるのは、TBD の text も bp-conformance の一部で、text だけが指す文書を写しから落とさないためである。参照は推移的に辿らない（上の箇条の「bp-conformance が参照する全ての文書」は直接の参照である）。
+写す文書の集合は、`docs/specifications/bp-conformance.md` と、その本文と隣の `.tbd.json` の本文の次の 3 つの形の参照が指す文書と、CLI が読む文書（CLI の定数 `CRITERIA_FILES`）の和に、それらの各 `.md` の隣にある同名の `.tbd.json`（`.md` を `.tbd.json` に替えた名前。その文書の開いた TBD の正本で、開いた TBD を本文の外に置くのは prd-spec の規約）を足したものとする。bp-conformance の隣の `.tbd.json` は、JSON として読み、各 TBD の `text` と `candidates` を本文として参照を走査する（TBD の text も bp-conformance の一部で、text だけが指す文書を写しから落とさない。JSON の字面のまま走査すると、escape された `"` と改行の後の参照を落とす）。参照は推移的に辿らない（上の箇条の「bp-conformance が参照する全ての文書」は直接の参照である）。
 
 - `docs/` で始まるパス（URL の中のものを除く）
 - 相対リンク（markdown のインライン・title 付き・山括弧・参照形式の定義のリンクと、HTML の `href`）
 - 前置きの無い `bp-*.md`・`skill-design-patterns.md` のファイル名（`docs/` の中で同じ名前の文書がちょうど 1 つのときだけ、その文書に解く）
 
-glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance かその隣の `.tbd.json` にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの 1 行は `<種類> <docs/ からの相対パス>[ <参照の字面>]`（写しの置き場とそれより上の symlink はリポジトリからの相対パス）とし、種類は次の 6 つとする: `differ`（正本と違う写し）・`missing`（無い写し）・`extra`（集合の外のファイル）・`symlink`（写しが通常のファイルでない（symlink・ディレクトリなど）か、写しの置き場とそれより上のパスがディレクトリでない（symlink・通常のファイルなど））・`unclosed`（解けない参照）・`unparsed`（解けない形の参照）。書き込みの mode は、写しの置き場（ディレクトリでなければ消して作り直す）とその中の symlink・ディレクトリを、通常のファイルで作り直す。置き場より上の symlink は置き場の外の文書を巻き込むので、書かずに `symlink` を出して 1 で終わる。`make test` の検出は、この検査を Node のテストから当てて行う。
+glob・`/` で終わるパス・解けない名前・`docs/` に無い文書を指す参照が bp-conformance かその隣の `.tbd.json` にあるか、下の `malformed` に当たる `.tbd.json` が写す集合にあれば、tool は写さずに失敗する（黙って飛ばすと、写しの外の基準が残る）。`node tools/sync-bp-criteria.mjs --check` は書かずに食い違いを 1 行 1 件で出力し、一致なら 0、食い違いがあれば 1、使い方の誤りなら 2 で終わる。食い違いの 1 行は `<種類> <docs/ からの相対パス>[ <参照の字面>]`（写しの置き場とそれより上の symlink はリポジトリからの相対パス）とし、種類は次の 7 つとする: `differ`（正本と違う写し）・`missing`（無い写し）・`extra`（集合の外のファイル）・`symlink`（写しが通常のファイルでない（symlink・ディレクトリなど）か、写しの置き場とそれより上のパスがディレクトリでない（symlink・通常のファイルなど））・`unclosed`（解けない参照）・`unparsed`（解けない形の参照）・`malformed`（JSON として読めないか、形が `{ "tbd": [...] }` でない、写す集合の `.tbd.json`）。書き込みの mode は、写しの置き場（ディレクトリでなければ消して作り直す）とその中の symlink・ディレクトリを、通常のファイルで作り直す。置き場より上の symlink は置き場の外の文書を巻き込むので、書かずに `symlink` を出して 1 で終わる。`make test` の検出は、この検査を Node のテストから当てて行う。
 
-写しの中の `docs/X` は、best-practices のスキルのディレクトリの `references/criteria/X` と読む（写しは逐語なので、本文は正本のパスで互いを指したまま残る）。script は、判定基準の写しのパスを渡す全ての prompt に、この読み替えを写しの置き場の絶対パスで書く。写しの中に残る、写しの外を指す `docs/` の参照は、tool の除外一覧（`OUTSIDE_COPY`）に理由とともに載せる。写しの中の `docs/` 以外のリポジトリやほかのスキルからの相対パス（`plugins/`・`scripts/`・`tests/`・`tools/`・`.agents/`・`.claude-plugin/` で始まるもの、またはリポジトリの根のファイル `AGENTS.md`・`REVIEW.md`・`README.md`。出所の引用とリポジトリの道具の名指し）は判定基準でなく、配布先では開けない。run の中の agent はそれを開かずに判定し、判定にその中身が要る単位は理由つきの未検査にする（開けたとしても、写しの外の文書を判定基準として当ててはならない）。script は、この扱いも読み替えと同じ文で prompt に書く。写しの中の TBD ID の定義はその文書の隣の同名の `.tbd.json` にあり、run の中の agent はそれも判定基準の写しとして読む（無ければその文書に開いた TBD は無い）。script は、このことも読み替えと同じ文で prompt に書く。
+写しの中の `docs/X` は、best-practices のスキルのディレクトリの `references/criteria/X` と読む（写しは逐語なので、本文は正本のパスで互いを指したまま残る）。script は、判定基準の写しのパスを渡す全ての prompt に、この読み替えを写しの置き場の絶対パスで書く。写しの中に残る、写しの外を指す `docs/` の参照は、tool の除外一覧（`OUTSIDE_COPY`）に理由とともに載せる。写しの中の `docs/` 以外のリポジトリやほかのスキルからの相対パス（`plugins/`・`scripts/`・`tests/`・`tools/`・`.agents/`・`.claude-plugin/` で始まるもの、またはリポジトリの根のファイル `AGENTS.md`・`REVIEW.md`・`README.md`。出所の引用とリポジトリの道具の名指し）は判定基準でなく、配布先では開けない。run の中の agent はそれを開かずに判定し、判定にその中身が要る単位は理由つきの未検査にする（開けたとしても、写しの外の文書を判定基準として当ててはならない）。script は、この扱いも読み替えと同じ文で prompt に書く。写しの中の TBD ID の定義は隣の `.tbd.json` にあり、run の中の agent はそれも判定基準の写しとして読む（無ければその文書に開いた TBD は無い）。script は、このことも読み替えと同じ文で prompt に書く。
 
 run の中の agent と CLI は写しだけを判定基準として読み、正本の `docs/`、agent の記憶、prompt に書き写した写しを判定基準として当ててはならない（当てると、照らしていない基準を照らしたと返す）。写しの置き場が無いかディレクトリでないとき、CLI は閉集合を要する操作（`verdicts`・`kinds`・`targets`・`applicability`・`units`）を理由つきの `E_INPUT` で拒否する（配布物の欠けで、空の閉集合で判定すると照らしていない基準を照らしたと返す）。CLI が読む写し（`CRITERIA_FILES`）のどれかが欠けたときも、`targets` 以外の同じ操作を `E_INPUT` で拒否する（`targets` は欠けた写しを読めない照らす先として返す：`docs/specifications/bp-inspection.md` の SP-BPINSPECTION-027）。
 

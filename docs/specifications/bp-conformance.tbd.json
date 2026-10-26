@@ -13,7 +13,7 @@
   {
    "blocking": false,
    "id": "TBD-SBPCONFORMANCE-003",
-   "text": "対象スキルの同時実行の上限の守らせ方（runtime の設定か script か）。best-practices 自身は script で守ると SP-BPCONFORMANCE-027 に書き戻した。Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている"
+   "text": "対象スキルの同時実行の上限の守らせ方（runtime の設定か script か）。Claude Code でスキルから同時実行の上限を設定できるかが入力から決まらず（入力にあるのは利用者の環境変数だけ）、設計方針文書「体数と同時実行」の表も実装で決めるとしている。値（SP-BPCONFORMANCE-027）は決まっている"
   },
   {
    "blocking": false,

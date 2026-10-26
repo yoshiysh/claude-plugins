@@ -86,8 +86,25 @@ function nameIndex(files) {
 }
 
 // 開いた TBD の正本は文書の隣の同名の .tbd.json にある（prd-spec の規約）。写しに無いと、配布先で本文の TBD ID の定義を読めない。
+const TBD_SUFFIX = '.tbd.json';
 function tbdSibling(rel) {
-  return rel.replace(/\.md$/, '.tbd.json');
+  return rel.replace(/\.md$/, TBD_SUFFIX);
+}
+
+// .tbd.json の字面は JSON の escape（\" と \n）を含むので、Markdown の参照の形で読むには text と candidates を復元した本文で走査する。
+// 読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
+function body(file) {
+  const raw = readFileSync(file, 'utf8');
+  if (!file.endsWith(TBD_SUFFIX)) return raw;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const items = data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).join() === 'tbd' && Array.isArray(data.tbd) ? data.tbd : null;
+  const ok = items?.every((t) => t && typeof t === 'object' && typeof t.text === 'string' && (t.candidates === undefined || (Array.isArray(t.candidates) && t.candidates.every((c) => typeof c === 'string'))));
+  return ok ? items.flatMap((t) => [t.text, ...(t.candidates ?? [])]).join('\n') : null;
 }
 
 // SP-BPRUN-036 は「bp-conformance が docs/ のパスで参照する全ての文書」なので、直接の参照で閉じる（推移的に辿らない）。
@@ -100,13 +117,16 @@ export function closure(root = REPO_ROOT) {
   const set = new Set([ROOT_DOC, ...Object.values(CRITERIA_FILES).map((parts) => parts.join('/'))]);
   for (const from of [ROOT_DOC, tbdSibling(ROOT_DOC)]) {
     if (from !== ROOT_DOC && !present.has(from)) continue;
-    for (const r of references(readFileSync(path.join(root, DOCS, from), 'utf8'), from, names)) {
+    const text = body(path.join(root, DOCS, from));
+    if (text === null) continue;
+    for (const r of references(text, from, names)) {
       if (r.unparsed) problems.push({ kind: 'unparsed', path: from, detail: r.token });
       else if (r.rel === null || !present.has(r.rel)) problems.push({ kind: 'unclosed', path: from, detail: r.token });
       else set.add(r.rel);
     }
   }
   for (const rel of [...set]) if (rel.endsWith('.md') && present.has(tbdSibling(rel))) set.add(tbdSibling(rel));
+  for (const rel of set) if (rel.endsWith(TBD_SUFFIX) && body(path.join(root, DOCS, rel)) === null) problems.push({ kind: 'malformed', path: rel });
   return { files: [...set].sort(), problems };
 }
 
@@ -182,8 +202,9 @@ export function outside(root = REPO_ROOT) {
   const seen = new Map();
   for (const rel of files) {
     const dest = path.join(copyRoot(root), rel);
-    if (!lstatOrNull(dest)?.isFile()) continue;
-    for (const r of references(readFileSync(dest, 'utf8'), rel, names)) {
+    const text = lstatOrNull(dest)?.isFile() ? body(dest) : null;
+    if (text === null) continue;
+    for (const r of references(text, rel, names)) {
       if (r.rel !== null && !r.unparsed && copied.has(r.rel)) continue;
       seen.set(`${rel}\0${r.token}`, { file: rel, token: r.token });
     }
@@ -205,8 +226,9 @@ export function repoPaths(root = REPO_ROOT) {
   const out = [];
   for (const rel of closure(root).files) {
     const dest = path.join(copyRoot(root), rel);
-    if (!lstatOrNull(dest)?.isFile()) continue;
-    const text = readFileSync(dest, 'utf8').replace(URL, ' ');
+    const raw = lstatOrNull(dest)?.isFile() ? body(dest) : null;
+    if (raw === null) continue;
+    const text = raw.replace(URL, ' ');
     for (const m of text.matchAll(dirRe)) out.push({ file: rel, token: m[0], top: `${m[1]}/` });
     for (const m of text.matchAll(fileRe)) out.push({ file: rel, token: m[0], top: m[1] });
   }
