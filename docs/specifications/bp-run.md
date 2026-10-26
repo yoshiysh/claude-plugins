@@ -638,7 +638,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | CLI の単体テスト | 作業場所の写しに対して CLI の操作を呼び、状態の記録・拒否・出力を照らす |
 | script の模擬実行 | agent を模擬の backend に置き換えて script を走らせ、起動の数と順、停止の記録、返り値を照らす（Codex runner の runtime は模擬の backend でのテストを持つ：runtime README の Install and verify without inference の節） |
 | 静的な照合 | script の本文を読み、agent の起動ごとの model・effort の明示と、入力を待つ手順の有無を照らす |
-| `make test` の実行 | `make test` に入るテストを走らせ、実際のリポジトリの状態と、変異を当てた作業コピーでの失敗を照らす（項目ごとに照らすものはトレーサビリティ表の検証方法の列に置く） |
+| `make test` の実行 | `make test` に入るテストを走らせ、実際のリポジトリの状態と、変異を当てた作業コピーでの失敗を照らす |
 
 トレーサビリティ表のステータスは、best-practices の仕様書（bp-*.md）で次の基準にそろえる。
 

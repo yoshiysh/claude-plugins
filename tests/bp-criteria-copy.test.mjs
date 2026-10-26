@@ -169,15 +169,15 @@ for (const [label, mutate, expected] of MUTATIONS) {
   });
 }
 
-// 失敗の種類の列挙は SP-BPRUN-036 を正本にし、どの種類も変異で少なくとも 1 回出す（出さない種類は、その検出が壊れても気づけない）。
-test('SP-BPRUN-036: 食い違いの種類のそれぞれを、少なくとも 1 つの変異が出す', () => {
+// 変異が出さない食い違いの種類は、その検出が壊れても気づけない。
+test('SP-BPRUN-036: 変異が出す食い違いの種類の集合が、SP-BPRUN-036 の種類の列挙と一致する', () => {
   const run = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
-  const rule = /種類は次の \d+ つとする: (.*?)。書き込みの mode/.exec(run);
+  const rule = /種類は次の (\d+) つとする: (.*?)。書き込みの mode/.exec(run);
   assert.ok(rule, 'SP-BPRUN-036 に食い違いの種類の列挙が無い');
-  const kinds = [...rule[1].matchAll(/`([a-z]+)`（/g)].map((m) => m[1]);
-  assert.ok(kinds.length > 0);
+  const kinds = [...rule[2].matchAll(/`([a-z]+)`（/g)].map((m) => m[1]);
+  assert.equal(kinds.length, Number(rule[1]));
   const produced = new Set(MUTATIONS.flatMap(([, , expected]) => expected.map((l) => l.split(' ')[0])));
-  assert.deepEqual(kinds.filter((k) => !produced.has(k)), []);
+  assert.deepEqual([...produced].sort(), [...kinds].sort());
 });
 
 test('SP-BPRUN-036: 変異の無い作業コピーでは sync-bp-criteria --check が終了符号 0 で何も出さない', async (t) => {
