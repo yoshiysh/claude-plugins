@@ -1160,7 +1160,7 @@ class CarriedTbd(_Workspace):
         self.assertEqual([f["doc"] for f in out["open_tbd_files"]], ["requirements/auth"])
         self.assertEqual([t["id"] for t in json.loads((repo / "docs/requirements/auth.tbd.json").read_text())["tbd"]], ["TBD-RAUTH-002"], "閉じた TBD-RAUTH-001 は写さない")
         ws = self._next_ws(repo, [("requirements", "auth")])
-        self.assertIn("0 件", self._unresolved(ws, "TBD-RAUTH-002")[0], "reset の前（meta が無い）は拾えない")
+        self.assertNotIn("TBD-RAUTH-002", self._unresolved(ws, "TBD-RAUTH-002")[0], "reset の前（meta が無い）は拾えない")
         reset = _ok(ws, "reset", "--keep", "requirements/auth", "--fixed", "requirements/auth")
         self.assertEqual(reset["carried_tbd"], {"requirements/auth": ["TBD-RAUTH-002"]})
         meta = json.loads((ws / "requirements-auth.meta.json").read_text())

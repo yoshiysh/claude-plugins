@@ -13,7 +13,7 @@
 | `workspace` | W の絶対パス（S0 で作ったもの） |
 | `skillDir` | このスキルの絶対パス。agent が Read する役割ファイルと、契約の節を出す doc_check のパスはここでしか決まらない |
 | `entry` | `new` / `existing` / `expand`。既存文書の監査と改訂は `existing`（SKILL.md の S0 の表） |
-| `existing_docs` | `existing`・`expand` のとき必須。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed: true \| false }]`。本文は W に置いてある。`key` が文書のキーの形（`prd-spec.js` の `DOC_KEY`）でないか `fixed` が真偽値でなければ、run は agent を起動する前に止まる（`key` は段 1 の入口の reset のコマンド文に入る） |
+| `existing_docs` | `existing`・`expand` のとき必須。`new` でも、保存先にある他の文書を固定の文書として置くときに渡す（SKILL.md の S0 の 4）。`[{ key: "<kind>/<topic>", source: "<元のパス>", fixed: true \| false }]`。本文は W に置いてある。`key` が文書のキーの形（`prd-spec.js` の `DOC_KEY`）でないか `fixed` が真偽値でなければ、run は agent を起動する前に止まる（`key` は段 1 の入口の reset のコマンド文に入る） |
 | `from` | 始める段（省略時 `1`）。`1` / `2` / `3` / `3a` / `3b` / `4` / `5` / `6` / `3a'` / `7` / `8` / `9` |
 | `state` | `from` が `1` 以外のとき要る。前の run の `next_args` ごと渡す（§3） |
 | `role_opts` | 任意。役割ごとの `{ model, effort }` の上書き（§2） |
