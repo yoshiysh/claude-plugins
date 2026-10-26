@@ -144,9 +144,9 @@
 | SP-AUTHORING-052 | 要求と仕様項目の対応の多重度 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-053 | 未確定事項の置き場 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-054 | 未確定事項の区分 | `docs/specifications/authoring.md` |
-| SP-AUTHORING-055 | 区分の並び順 | `docs/specifications/authoring.md` |
+| SP-AUTHORING-055 | 着手不能の未確定事項の一覧 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-056 | 未確定事項が持つ情報 | `docs/specifications/authoring.md` |
-| SP-AUTHORING-057 | 決定者と期限の空欄 | `docs/specifications/authoring.md` |
+| SP-AUTHORING-057 | 決定者と期限を持たない | `docs/specifications/authoring.md` |
 | SP-AUTHORING-058 | 未確定事項の本文 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-059 | 要求文からの未確定事項の参照 | `docs/specifications/authoring.md` |
 | SP-AUTHORING-060 | 保存先のパス | `docs/specifications/authoring.md` |

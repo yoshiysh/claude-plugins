@@ -52,18 +52,13 @@
   },
   {
    "blocking": true,
-   "id": "TBD-SAUTHORING-014",
-   "text": "未確定事項（TBD 一覧）の章の書式が決まっていない。3 つの区分をそれぞれ節として立てるか 1 つの表の中で区分を示すか、および ID・内容・誰が決めるか・いつまでにの 4 つの情報を表のどの列として並べるかを含む（SP-AUTHORING-055・SP-AUTHORING-056 に関係する）"
-  },
-  {
-   "blocking": true,
    "id": "TBD-SAUTHORING-015",
    "text": "生成文書を書き出す先のディレクトリの位置と名前、および生成文書のファイル名の作り方が決まっていない（SP-AUTHORING-060 に関係する）"
   },
   {
    "blocking": true,
    "id": "TBD-SAUTHORING-016",
-   "text": "要求文書の常設章の集合が決まっていない。SP-AUTHORING-007 が挙げる 4 つの内容をどの名前の章に分けて置くか、およびその 4 つのほかに常設章を置くかどうかを含む（SP-AUTHORING-007・SP-AUTHORING-010・SP-AUTHORING-012 に関係する）"
+   "text": "要求文書の常設章の集合が決まっていない。SP-AUTHORING-007 が挙げる 3 つの内容をどの名前の章に分けて置くか、およびその 3 つのほかに常設章を置くかどうかを含む（SP-AUTHORING-007・SP-AUTHORING-010・SP-AUTHORING-012 に関係する）"
   },
   {
    "blocking": true,
