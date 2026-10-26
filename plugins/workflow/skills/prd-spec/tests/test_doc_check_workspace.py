@@ -1212,12 +1212,22 @@ class CarriedTbd(_Workspace):
                 self.assertIn("requirements-auth.tbd.json", r.stderr)
                 self.assertTrue((ws / "plan.json").exists())
 
-    def test_indexはresetが拒む形の写しを書かない(self):
-        _put(self.ws, "meta", {"tbd": [{"id": "TBD-RAUTH-002", "text": "", "blocking": True}]}, "--doc", "requirements/auth")
-        r = _run(self.ws, "index", "--open-tbd", "TBD-RAUTH-002")
-        self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("requirements-auth.md", r.stderr)
-        self.assertFalse((self.ws / "checks" / "requirements-auth.tbd.json").exists())
+    def test_putは写しにできない形のtbdを受け取らない(self):
+        # put が緩いと、監査を通った meta から保存した写しを次の run の reset が拒む。
+        ok = {"id": "TBD-RAUTH-003", "text": "t", "blocking": True}
+        for name, el in (("text が空", {**ok, "text": ""}), ("blocking が無い", {"id": ok["id"], "text": "t"}), ("ID の形が違う", {**ok, "id": "TBD-003"})):
+            with self.subTest(name):
+                r = _put_run(self.ws, "meta", {"tbd": [el]}, "--doc", "requirements/auth")
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("tbd", r.stderr)
+
+    def test_writerが写しのあるmetaを書き換えた後はtraceを検査する(self):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        ws = self._next_ws(repo, [("requirements", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth")
+        _ok(ws, "del", "--ledger", "meta", "--doc", "requirements/auth", "--collection", "tbd", "--ids", "TBD-RAUTH-001")
+        _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-002")
+        self.assertTrue(any("NO-EVIDENCE" in f for f in _findings(ws)), "写しの無い文書と同じく、trace の無い項目を根拠なしとして数える")
 
 
 if __name__ == "__main__":

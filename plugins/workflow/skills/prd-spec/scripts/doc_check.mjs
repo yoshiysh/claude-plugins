@@ -1874,6 +1874,7 @@ function storedRejects(ws, name, value) {
     }
   }
   if (name === 'resolutions') bad.push(...domainAssessmentRejects(ws, value.resolutions || []))
+  if (name === 'meta') for (const t of value.tbd || []) if (!tbdItemOk(t)) bad.push(`tbd ${t && t.id}: ${TBD_ITEM_SHAPE} ではありません`)
   return bad
 }
 
@@ -2216,16 +2217,21 @@ function wsPlace(ws, opts) {
   return { placed: key, doc, carry: hasCarry ? carry : null }
 }
 
-// carryShapeOk: 写しの形。書く index と読む reset が同じ判定を使う（index が緩いと、保存できた写しを次の run の reset が拒み、直す経路が手書きしか無い）。
-const CARRY_SHAPE = '{ "tbd": [{ id, text, blocking, candidates? }]（1 件以上、ID は重複なし）}'
+// tbdItemOk: meta の tbd の要素の形。put（storedRejects）と写しの読み手（reset・place）が同じ判定を使う。put が緩いと、監査を通った meta から
+// 保存した写しを次の run の reset が拒み、直す経路が手書きしか無い。
+const TBD_ITEM_SHAPE = '{ id: TBD-<R|S><領域>-<連番>, text: 空でない文字列, blocking: 真偽値, candidates?: 文字列の配列 }'
+function tbdItemOk(t) {
+  return Boolean(
+    t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).every((k) => ledgerOf('meta').fields.tbd.includes(k)) &&
+      typeof t.id === 'string' && new RegExp(`^${TBD_ID_IN_TEXT.source}$`).test(t.id) && typeof t.text === 'string' && t.text.trim() && typeof t.blocking === 'boolean' &&
+      (t.candidates === undefined || (Array.isArray(t.candidates) && t.candidates.every((c) => typeof c === 'string')))
+  )
+}
+
+const CARRY_SHAPE = `{ "tbd": [${TBD_ITEM_SHAPE}]（1 件以上、ID は重複なし）}`
 function carryShapeOk(data) {
-  const fields = ledgerOf('meta').fields.tbd
-  const ok = (t) =>
-    t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).every((k) => fields.includes(k)) &&
-    typeof t.id === 'string' && new RegExp(`^${TBD_ID_IN_TEXT.source}$`).test(t.id) && typeof t.text === 'string' && t.text.trim() && typeof t.blocking === 'boolean' &&
-    (t.candidates === undefined || (Array.isArray(t.candidates) && t.candidates.every((c) => typeof c === 'string')))
   const tbd = data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).join() === 'tbd' ? data.tbd : null
-  return Array.isArray(tbd) && tbd.length > 0 && tbd.every(ok) && new Set(tbd.map((t) => t.id)).size === tbd.length
+  return Array.isArray(tbd) && tbd.length > 0 && tbd.every(tbdItemOk) && new Set(tbd.map((t) => t.id)).size === tbd.length
 }
 
 // carriedTbd: S0 が置いた写しの tbd。形が違えば何も消さずに止める（reset が黙って捨てると、開いている TBD が消える）。
@@ -2954,6 +2960,13 @@ function wsReport(ws, opts) {
   return { path: 'report.md', method: method.length, answered_by: answeredBy.length, measured: measured.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
 }
 
+// isResetMeta: meta が、段 1 の入口の reset が写しから書いたもの（固定でない文書）のままか。
+function isResetMeta(ws, key, meta) {
+  if (!meta || meta.fixed) return false
+  const carry = readJsonFile(path.join(ws, carryFileOf(key)))
+  return carry !== null && ledgerText(meta) === ledgerText({ ...emptyLedger(ledgerOf('meta')), tbd: carry.tbd })
+}
+
 function workspaceDocs(ws) {
   return fs
     .readdirSync(ws)
@@ -2962,7 +2975,7 @@ function workspaceDocs(ws) {
     .map((name) => {
       const [, kind, topic] = DOC_FILE.exec(name)
       const meta = readLedger(ws, 'meta', `${kind}/${topic}`)
-      return { key: `${kind}/${topic}`, kind, topic, path: name, markdown: fs.readFileSync(path.join(ws, name), 'utf8'), meta, carried: fs.existsSync(path.join(ws, carryFileOf(`${kind}/${topic}`))) }
+      return { key: `${kind}/${topic}`, kind, topic, path: name, markdown: fs.readFileSync(path.join(ws, name), 'utf8'), meta, resetMeta: isResetMeta(ws, `${kind}/${topic}`, meta) }
     })
 }
 
@@ -3051,9 +3064,9 @@ function deriveDocs(wsDocs) {
     const ids = [...new Set(secs.map((s) => s.id).filter(Boolean))]
     const idSet = new Set(ids)
     const inText = [...new Set(d.markdown.match(ID_IN_TEXT[d.kind]) || [])]
-    // 写しから reset が書いた meta の空の trace は、meta の無い既存文書と同じく未検査にする（根拠は前のランの W にしか無く、writer がまだ書いていない。
-    // 根拠なしとして数えると、写しを持つだけで全項目が blocking の指摘になる）。
-    const trace = !d.meta || (d.carried && !(d.meta.trace || []).length) ? undefined : Array.isArray(d.meta.trace) ? d.meta.trace : []
+    // reset が写しから書いたままの meta は、meta の無い既存文書と同じく trace を未検査にする（根拠は前のランの W にしか無い。根拠なしとして数えると、
+    // 写しを持つだけで全項目が blocking の指摘になる）。writer が一度でも meta を書き換えれば、写しの無い文書と同じく検査する。
+    const trace = !d.meta || d.resetMeta ? undefined : Array.isArray(d.meta.trace) ? d.meta.trace : []
     const tr = d.kind === 'specifications' ? traceabilityOf(d.markdown) : { links: [], lines: new Set() }
     return {
       key: d.key,
@@ -4114,7 +4127,6 @@ function wsIndex(ws, opts) {
       clear.push(d.key)
       continue
     }
-    if (!carryShapeOk({ tbd: open })) throw new Error(`${d.path} の meta の開いている TBD が写しの形 ${CARRY_SHAPE} ではありません。meta を put で直してから導出し直してください`)
     carry.push({ doc: d.key, path: path.join('checks', carryFileOf(d.key)), tbd: open })
   }
   for (const c of carry) fs.writeFileSync(path.join(ws, c.path), ledgerText({ tbd: c.tbd }))
