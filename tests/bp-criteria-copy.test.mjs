@@ -76,6 +76,9 @@ const MUTATIONS = [
     await fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-zz.tbd.json'), TBD_STUB);
     await editConformanceTbd(r, '（`docs/specifications/bp-zz.md`）');
   }, ['missing specifications/bp-zz.md', 'missing specifications/bp-zz.tbd.json']],
+  ['写しの集合に入る別の文書の隣の .tbd.json が JSON として読めない', async (r) => {
+    for (const base of ['docs', COPY]) await fs.writeFile(path.join(r, base, 'specifications', 'bp-run.tbd.json'), '{');
+  }, ['malformed specifications/bp-run.tbd.json']],
   ['bp-conformance の隣の .tbd.json の candidates に docs/ のパスの参照を足し、文書も置く', async (r) => {
     await fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-zz.md'), 'zz');
     await editConformanceTbd(r, '`docs/specifications/bp-zz.md` に置く', { candidate: true });
@@ -165,6 +168,17 @@ for (const [label, mutate, expected] of MUTATIONS) {
     assert.deepEqual(tool(root, '--check'), { code: 1, lines: expected });
   });
 }
+
+// 失敗の種類の列挙は SP-BPRUN-036 を正本にし、どの種類も変異で少なくとも 1 回出す（出さない種類は、その検出が壊れても気づけない）。
+test('SP-BPRUN-036: 食い違いの種類のそれぞれを、少なくとも 1 つの変異が出す', () => {
+  const run = readFileSync(path.join(ROOT, 'docs', 'specifications', 'bp-run.md'), 'utf8');
+  const rule = /種類は次の \d+ つとする: (.*?)。書き込みの mode/.exec(run);
+  assert.ok(rule, 'SP-BPRUN-036 に食い違いの種類の列挙が無い');
+  const kinds = [...rule[1].matchAll(/`([a-z]+)`（/g)].map((m) => m[1]);
+  assert.ok(kinds.length > 0);
+  const produced = new Set(MUTATIONS.flatMap(([, , expected]) => expected.map((l) => l.split(' ')[0])));
+  assert.deepEqual(kinds.filter((k) => !produced.has(k)), []);
+});
 
 test('SP-BPRUN-036: 変異の無い作業コピーでは sync-bp-criteria --check が終了符号 0 で何も出さない', async (t) => {
   assert.deepEqual(tool(await tmpRoot(t), '--check'), { code: 0, lines: [] });

@@ -638,7 +638,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | CLI の単体テスト | 作業場所の写しに対して CLI の操作を呼び、状態の記録・拒否・出力を照らす |
 | script の模擬実行 | agent を模擬の backend に置き換えて script を走らせ、起動の数と順、停止の記録、返り値を照らす（Codex runner の runtime は模擬の backend でのテストを持つ：runtime README の Install and verify without inference の節） |
 | 静的な照合 | script の本文を読み、agent の起動ごとの model・effort の明示と、入力を待つ手順の有無を照らす |
-| `make test` の実行 | `make test` に入るテストが、実際のリポジトリで写しの一致と写す集合を照らす。そのうえで、同じ検査の入口（`node tools/sync-bp-criteria.mjs --check`）を次の作業コピーに当て、失敗することを照らす: 判定基準の写しを正本から変えたもの、bp-conformance に写しの無い `docs/` の文書への参照を足したもの、写す文書の隣の `.tbd.json` の写しを消したもの、写す集合に入る文書の隣に写しの無い `.tbd.json` を足したもの、bp-conformance の隣の `.tbd.json` の `text` か `candidates` に写しの無い文書への参照を足したもの、その `.tbd.json` を `malformed` に当たる形にしたもの |
+| `make test` の実行 | `make test` に入るテストを走らせ、実際のリポジトリの状態と、変異を当てた作業コピーでの失敗を照らす（項目ごとに照らすものはトレーサビリティ表の検証方法の列に置く） |
 
 トレーサビリティ表のステータスは、best-practices の仕様書（bp-*.md）で次の基準にそろえる。
 
@@ -728,7 +728,7 @@ script は、run ごとに起動数を数え、停止の記録に書かせなけ
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-022 | script の模擬実行（起動数の上限で止まった run からの再開で未着手の項目から続け、next_args に上限が無い） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-035 | 静的な照合（bp-conformance の判定基準がこの手順を参照する）と script の模擬実行（上限で止めて再開し、未着手の項目を順位の順に処理し、結果のある項目を処理し直さない） | 完了 |
 | PR-BPDESIGNEDSKILL-020 | SP-BPRUN-033 | script の模擬実行（next_args だけで状態を指して再開できる） | 完了 |
-| PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（照らすものと作業コピーは「検証方法」の手段の表の `make test` の実行の行に従う）と静的な照合（create・update の検証役の prompt が写しのパスと写しの中の `docs/` の読み替えを渡し、読み替えを除くと `docs/` のパスを渡さない） | 完了 |
+| PR-BPOPERATIONS-008 | SP-BPRUN-036 | `make test` の実行（実際のリポジトリで写しが正本と一致し、写す集合が CLI の読む文書を全て含む。検査の入口（`node tools/sync-bp-criteria.mjs --check`）が、SP-BPRUN-036 の食い違いの種類のそれぞれに当たる作業コピーで、その種類を出して失敗する）と静的な照合（create・update の検証役の prompt が写しのパスと写しの中の `docs/` の読み替えを渡し、読み替えを除くと `docs/` のパスを渡さない） | 完了 |
 | PR-BPOPERATIONS-008 | SP-BPRUN-036 | 静的な照合（判定基準の写しのパスを含む全ての prompt が写しの中の `docs/` の読み替えを持ち、それを除くと `docs/` のパスを含まない。create・update・review・audit で確かめる） | 完了 |
 | PR-BPOPERATIONS-024 | SP-BPRUN-036 | 静的な照合（review のフローの観点の照らす先が写しのパスである） | 完了 |
 | PR-BPOPERATIONS-025 | SP-BPRUN-036 | 静的な照合（review の仕様の観点の照らす先が写しのパスである） | 完了 |
