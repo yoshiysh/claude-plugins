@@ -9,7 +9,7 @@ W/checks/<label>.snapshot.json に書く項目ごとの hash と比べて出す�
 4. doc は曖昧語・開いた TBD の断定・参照先の実在を拾い、複合語や保持規則は拾わない
 5. flow は出典の欠落と実在しない出典を拾い、flow.json の内容の sha256 を出す。conflicts は同じ target の組を列挙する
 6. stdout には本文を出さず、件数・digest・パスと ID（doc の flow_refs）だけを出す
-7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる（run の外の文書は本文の着手不能の表から読む）
+7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる
 """
 
 import hashlib
@@ -1049,72 +1049,6 @@ class Index(_Workspace):
         _ok(self.ws, "index", "--open-tbd", "")
         self.assertIn("着手を止める未確定事項は 0 件", (self.ws / "checks" / "INDEX.requirements.md").read_text())
 
-    LEGACY = (
-        "# 旧形式の要求\n\n## 要求一覧\n\n#### PR-OLD-001 保存\n\n保存先の裁定が下るまで、システムは保存してはならない（TBD-ROLD-001）。\n\n"
-        "## 未確定事項（TBD 一覧）\n\n区分は TBD-ROLD-002 も表に従う。\n\n"
-        "### 着手不能（これが決まるまで実装・QA に入れない）\n\n| ID | 内容 | 誰が決めるか | いつまでに |\n|---|---|---|---|\n"
-        "| TBD-ROLD-001 | 保存先が決まっていない |  |  |\n\n"
-        "### 進行可能（決まった時点で追記する）\n\n| ID | 内容 | 誰が決めるか | いつまでに |\n|---|---|---|---|\n"
-        "| TBD-ROLD-002 | 表示の順序が決まっていない |  |  |\n"
-    )
-
-    def _unresolved(self, *args):
-        _ok(self.ws, "index", *args)
-        return (self.ws / "checks" / "INDEX.requirements.md").read_text().split("## 未解決")[1].split("\n## ")[0]
-
-    def test_metaの無い文書は本文の着手不能の表のTBDを未解決に並べる(self):
-        # 前の run で保存した文書は meta を持たない。meta だけから導出すると、本文が着手不能とする TBD が INDEX から落ちる。
-        (self.ws / "requirements-old.md").write_text(self.LEGACY)
-        for args in ((), ("--open-tbd", ""), ("--open-tbd", "TBD-RAUTH-002")):
-            section = self._unresolved(*args)
-            self.assertIn("| TBD-ROLD-001 | 保存先が決まっていない | `docs/requirements/old.md` |", section)
-            self.assertNotIn("TBD-ROLD-002", section)
-            self.assertIn("| ID | 内容 | 所在 |", section)
-            self.assertNotIn("読めなかった", section)
-        self.assertNotIn("TBD-RAUTH-001", self._unresolved("--open-tbd", "TBD-RAUTH-002"))
-
-    def test_固定の文書は本文の着手不能の表のTBDを未解決に並べる(self):
-        # reset は固定の文書に tbd の無い meta を書く。run の外の文書の TBD は run が閉じられないので、--open-tbd で絞らない。
-        (self.ws / "requirements-old.md").write_text(self.LEGACY)
-        _ok(self.ws, "reset", "--keep", "requirements/auth,specifications/auth,requirements/old", "--fixed", "requirements/old")
-        self.assertTrue((self.ws / "requirements-old.meta.json").exists())
-        section = self._unresolved("--open-tbd", "")
-        self.assertIn("TBD-ROLD-001", section)
-        self.assertNotIn("TBD-ROLD-002", section)
-
-    def test_runが書く文書は本文に章があってもmetaのTBDだけを並べ章は検査で落ちる(self):
-        # 章を検査で落とさないと、保存後の次の run でその章が固定の文書の正本として読まれ、run をまたいで正本が 2 つになる。
-        _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", self.LEGACY[self.LEGACY.index("## 未確定事項"):] + "\n## 要求一覧\n")
-        section = self._unresolved("--open-tbd", "TBD-RAUTH-002")
-        self.assertIn("TBD-RAUTH-002", section)
-        self.assertNotIn("TBD-ROLD-001", section)
-        _ok(self.ws, "doc", "--open-tbd", "TBD-RAUTH-002")
-        self.assertIn("ST-NON-NORMATIVE-requirements/auth-経緯・未確定事項の章", _findings(self.ws))
-
-    def test_未確定事項の章の外にある区分の表は読まず読めなかったと宣言する(self):
-        outside = "## 補足\n\n### 着手不能\n\n| ID | 内容 |\n|---|---|\n| TBD-ROLD-005 | 章の外 |\n\n"
-        (self.ws / "requirements-old.md").write_text(self.LEGACY.replace("## 未確定事項", outside + "## 未確定事項"))
-        section = self._unresolved()
-        self.assertNotIn("| TBD-ROLD-005 | 章の外 |", section)
-        self.assertIn("読めなかった TBD が 1 件ある", section)
-        self.assertIn("| TBD-ROLD-005 | `docs/requirements/old.md` |", section)
-
-    def test_区分を表から決められない書式は0件にせず読めなかったと宣言する(self):
-        # 区分を決められない表を黙って進行可能と読むと、着手を止める TBD が「0 件」に化ける（fail-open）。
-        head = "# 旧形式の要求\n\n## 未確定事項（TBD 一覧）\n\n"
-        formats = {
-            "1 つの表の中の区分": "| ID | 区分 | 内容 |\n|---|---|---|\n| TBD-ROLD-001 | 着手不能 | 保存先 |\n",
-            "章の直下の表": "| ID | 内容 |\n|---|---|\n| TBD-ROLD-001 | 保存先 |\n",
-            "ID と一致しない列名": "### 着手不能\n\n| TBD ID | 内容 |\n|---|---|\n| TBD-ROLD-001 | 保存先 |\n",
-        }
-        for name, body in formats.items():
-            with self.subTest(name):
-                (self.ws / "requirements-old.md").write_text(head + body)
-                section = self._unresolved("--open-tbd", "")
-                self.assertIn("区分を読めた範囲では、着手を止める未確定事項は 0 件である。", section)
-                self.assertIn("読めなかった TBD が 1 件ある", section)
-                self.assertIn("| TBD-ROLD-001 | `docs/requirements/old.md` |", section)
-
     def _rows(self, kind):
         out = _ok(self.ws, "index", "--req-dir", "docs/requirements")
         text = (self.ws / out["indexes"][kind]["path"]).read_text()
@@ -1166,6 +1100,138 @@ class Index(_Workspace):
         a = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]
         b = _ok(self.ws, "index")["indexes"]["requirements"]["digest"]
         self.assertEqual(a, b)
+
+
+@unittest.skipUnless(shutil.which("node"), "node が無い環境ではスキップ")
+class CarriedTbd(_Workspace):
+    """保存した文書の開いている TBD は、保存先の文書の隣の <topic>.tbd.json が正本になり、次の run の reset が meta に写す。"""
+
+    def _save(self, open_tbd):
+        """前の run の保存（SKILL.md「保存と事後報告」の 2・3）: 文書を docs/<kind>/<topic>.md へ写し、index の出力の写しをその隣へ写し、
+        clear の文書の隣の写しを消す。"""
+        repo = Path(self._tmp.name) / "repo"
+        out = _ok(self.ws, "index", "--req-dir", "docs/requirements", "--spec-dir", "docs/specifications", "--open-tbd", open_tbd)
+        saved = lambda key: repo / "docs" / key.split("/")[0] / (key.split("/")[1] + ".md")
+        for key in ("requirements/auth", "specifications/auth"):
+            saved(key).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(self.ws / f"{key.replace('/', '-')}.md", saved(key))
+        for f in out["open_tbd_files"]:
+            shutil.copy(self.ws / f["path"], saved(f["doc"]).with_suffix(".tbd.json"))
+        for key in out["open_tbd_clear"]:
+            saved(key).with_suffix(".tbd.json").unlink(missing_ok=True)
+        return repo, out
+
+    def _next_ws(self, repo, docs):
+        """次の run の S0: 既存文書を place で W に置く（隣に写しがあればそれも置かれる）。"""
+        ws = Path(self._tmp.name) / "W2"
+        ws.mkdir()
+        shutil.copy(self.ws / "input.md", ws / "input.md")
+        for kind, topic in docs:
+            _ok(ws, "place", "--doc", f"{kind}/{topic}", "--source", str(repo / "docs" / kind / f"{topic}.md"))
+        return ws
+
+    def test_placeは文書と隣の写しをまとめて置き写しが無ければWの写しを消す(self):
+        repo, _ = self._save("TBD-RAUTH-002")
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        self.assertEqual((ws / "requirements-auth.md").read_bytes(), (repo / "docs/requirements/auth.md").read_bytes())
+        self.assertEqual((ws / "requirements-auth.tbd.json").read_bytes(), (repo / "docs/requirements/auth.tbd.json").read_bytes())
+        self.assertFalse((ws / "specifications-auth.tbd.json").exists())
+        (repo / "docs/requirements/auth.tbd.json").unlink()
+        out = _ok(ws, "place", "--doc", "requirements/auth", "--source", str(repo / "docs/requirements/auth.md"))
+        self.assertEqual(out["carry"], None)
+        self.assertFalse((ws / "requirements-auth.tbd.json").exists(), "置き直しで前の写しを残さない")
+
+    def test_placeは形の違う写しを置かない(self):
+        repo, _ = self._save("TBD-RAUTH-002")
+        (repo / "docs/requirements/auth.tbd.json").write_text('{"tbd": []}')
+        ws = Path(self._tmp.name) / "W2"
+        ws.mkdir()
+        r = _run(ws, "place", "--doc", "requirements/auth", "--source", str(repo / "docs/requirements/auth.md"))
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("auth.tbd.json", r.stderr)
+        self.assertEqual(list(ws.iterdir()), [])
+
+    def _unresolved(self, ws, open_tbd):
+        out = _ok(ws, "index", "--req-dir", "docs/requirements", "--open-tbd", open_tbd)
+        return (ws / out["indexes"]["requirements"]["path"]).read_text().split("## 未解決（着手を止める未確定事項）")[1].split("\n## ")[0], out
+
+    def test_開いたTBDを残して保存した文書は次のrunで固定の文書として置いても未解決に残る(self):
+        repo, out = self._save("TBD-RAUTH-002")
+        self.assertEqual([f["doc"] for f in out["open_tbd_files"]], ["requirements/auth"])
+        self.assertEqual([t["id"] for t in json.loads((repo / "docs/requirements/auth.tbd.json").read_text())["tbd"]], ["TBD-RAUTH-002"], "閉じた TBD-RAUTH-001 は写さない")
+        ws = self._next_ws(repo, [("requirements", "auth")])
+        self.assertNotIn("TBD-RAUTH-002", self._unresolved(ws, "TBD-RAUTH-002")[0], "reset の前（meta が無い）は拾えない")
+        reset = _ok(ws, "reset", "--keep", "requirements/auth", "--fixed", "requirements/auth")
+        self.assertEqual(reset["carried_tbd"], {"requirements/auth": ["TBD-RAUTH-002"]})
+        meta = json.loads((ws / "requirements-auth.meta.json").read_text())
+        self.assertEqual((meta["fixed"], [t["id"] for t in meta["tbd"]]), (True, ["TBD-RAUTH-002"]))
+        # prd-spec.js は reset の carried_tbd を open_tbd に入れるので、保存の index の --open-tbd に載る。
+        unresolved, out = self._unresolved(ws, ",".join(reset["carried_tbd"]["requirements/auth"]))
+        self.assertIn("| TBD-RAUTH-002 | 記録の保存先。解消: 依頼者の回答 | `docs/requirements/auth.md` |", unresolved)
+        self.assertEqual((out["open_tbd_files"], out["open_tbd_clear"]), ([], []), "固定の文書は保存しないので、保存先の写しに触れない")
+        self.assertEqual(_ok(ws, "reset", "--keep", "requirements/auth", "--fixed", "requirements/auth")["carried_tbd"], {"requirements/auth": ["TBD-RAUTH-002"]}, "段 1 からやり直しても写しから書き直す")
+
+    def test_開いたTBDが無くなった文書は保存先の写しを消す(self):
+        repo, _ = self._save("TBD-RAUTH-002")
+        ws = self._next_ws(repo, [("requirements", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth")
+        # 引き継いだ TBD を段 6 が閉じ、writer が meta から外した後の保存。
+        _ok(ws, "del", "--ledger", "meta", "--doc", "requirements/auth", "--collection", "tbd", "--ids", "TBD-RAUTH-002")
+        out = _ok(ws, "index", "--req-dir", "docs/requirements", "--open-tbd", "TBD-RAUTH-002")
+        self.assertEqual((out["open_tbd_files"], out["open_tbd_clear"]), ([], ["requirements/auth"]))
+
+    def test_書き換えてよい既存文書の写しはtraceを未検査のままmetaのtbdになりstrayに出ない(self):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        ws = self._next_ws(repo, [("requirements", "auth"), ("specifications", "auth")])
+        (ws / "specifications-old.tbd.json").write_text('{"tbd": []}')
+        before = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        reset = _ok(ws, "reset", "--keep", "requirements/auth,specifications/auth")
+        self.assertEqual(reset["carried_tbd"], {"requirements/auth": ["TBD-RAUTH-001", "TBD-RAUTH-002"]})
+        self.assertIn("specifications-old.tbd.json", reset["removed"], "残さない文書の写しは消す")
+        self.assertFalse((ws / "specifications-auth.meta.json").exists(), "写しの無い文書の meta は今までどおり消す")
+        self.assertTrue((ws / "requirements-auth.tbd.json").exists(), "写しは S0 の置いたものなので残す")
+        after = _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-001,TBD-RAUTH-002")
+        no_evidence = lambda o: [f for f in json.loads((ws / o["path"]).read_text())["findings"] if "NO-EVIDENCE" in f["id"]]
+        self.assertEqual((no_evidence(after), after["blocking"]), ([], before["blocking"]), "写しを持つだけで全項目が根拠なしにならない")
+        shutil.copy(self.ws / "plan.json", ws / "plan.json")
+        self.assertEqual(_ok(ws, "tree-digest")["stray"]["count"], 0)
+
+    def test_写しの形が違えばresetは何も消さない(self):
+        repo, _ = self._save("TBD-RAUTH-002")
+        ws = self._next_ws(repo, [("requirements", "auth")])
+        (ws / "plan.json").write_text("{}")
+        ok = {"id": "TBD-RAUTH-002", "text": "t", "blocking": True}
+        for name, body in (("tbd が空", {"tbd": []}), ("blocking が無い", {"tbd": [{"id": "TBD-RAUTH-002", "text": "t"}]}),
+                           ("ID の形が違う", {"tbd": [{**ok, "id": "RAUTH-2"}]}), ("余分な欄", {"tbd": [ok], "trace": []}),
+                           ("要素の余分な欄", {"tbd": [{**ok, "owner": "x"}]}), ("text が空", {"tbd": [{**ok, "text": " "}]}),
+                           ("candidates が配列でない", {"tbd": [{**ok, "candidates": "a"}]}), ("ID の重複", {"tbd": [ok, ok]})):
+            with self.subTest(name):
+                (ws / "requirements-auth.tbd.json").write_text(json.dumps(body))
+                r = _run(ws, "reset", "--keep", "requirements/auth", "--fixed", "requirements/auth")
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("requirements-auth.tbd.json", r.stderr)
+                self.assertTrue((ws / "plan.json").exists())
+
+    def test_putは写しにできない形のtbdを受け取らない(self):
+        # put が緩いと、監査を通った meta から保存した写しを次の run の reset が拒む。
+        ok = {"id": "TBD-RAUTH-003", "text": "t", "blocking": True}
+        meta = self.ws / "requirements-auth.meta.json"
+        before = meta.read_bytes()
+        for name, el in (("text が空", {**ok, "text": ""}), ("blocking が無い", {"id": ok["id"], "text": "t"}), ("ID の形が違う", {**ok, "id": "TBD-003"}),
+                         ("既存の要素の blocking を消す", {"id": "TBD-RAUTH-001", "blocking": None})):
+            with self.subTest(name):
+                r = _put_run(self.ws, "meta", {"tbd": [el]}, "--doc", "requirements/auth")
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn(f"tbd {el['id']}: {{ id: ", r.stderr)
+                self.assertEqual(meta.read_bytes(), before)
+
+    def test_writerが写しのあるmetaを書き換えた後はtraceを検査する(self):
+        repo, _ = self._save("TBD-RAUTH-001,TBD-RAUTH-002")
+        ws = self._next_ws(repo, [("requirements", "auth")])
+        _ok(ws, "reset", "--keep", "requirements/auth")
+        _ok(ws, "del", "--ledger", "meta", "--doc", "requirements/auth", "--collection", "tbd", "--ids", "TBD-RAUTH-001")
+        _ok(ws, "doc", "--open-tbd", "TBD-RAUTH-002")
+        self.assertTrue(any("NO-EVIDENCE" in f for f in _findings(ws)), "写しの無い文書と同じく、trace の無い項目を根拠なしとして数える")
 
 
 if __name__ == "__main__":

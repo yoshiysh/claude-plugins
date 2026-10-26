@@ -2305,8 +2305,17 @@ async function resetEntry() {
   const rc = parseStdout(x && x.reset_check)
   const shas = rc && rc.fixed_sha256
   const shaOk = shas && typeof shas === 'object' && canonicalText(Object.keys(shas)) === canonicalText(FIXED_KEYS) && Object.values(shas).every((v) => typeof v === 'string' && v)
-  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk) {
+  // carried_tbd は保存した文書から引き継いだ開いている TBD（文書のキーごと）。writer の返り値だけから数えると、writer を起動しない文書（固定の文書・
+  // 改稿の無い既存文書）の TBD が open_tbd と INDEX から消える。書き換えてよい文書のものは新しい TBD と同じく段 6 の裁定に回す（回さないと閉じる経路が無い）。
+  const carried = rc && rc.carried_tbd
+  const carriedOk = carried && typeof carried === 'object' && !Array.isArray(carried) &&
+    Object.entries(carried).every(([key, ids]) => KEEP_KEYS.includes(key) && Array.isArray(ids) && ids.length && ids.every((id) => typeof id === 'string' && id))
+  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk && carriedOk) {
     if (FIXED_KEYS.length) state.fixed_sha = shas
+    const all = Object.values(carried).flat()
+    const editable = Object.entries(carried).filter(([key]) => !FIXED_KEYS.includes(key)).flatMap(([, ids]) => ids)
+    if (all.length) state.open_tbd = uniq([...(state.open_tbd || []), ...all])
+    if (editable.length) state.new_tbd = uniq([...(state.new_tbd || []), ...editable])
     return null
   }
   return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')
@@ -2322,7 +2331,7 @@ function fixedMoved(audited, label) {
   const moved = FIXED_KEYS.filter((k) => got[k] !== state.fixed_sha[k])
   if (!moved.length) return null
   noteIntegrity(`固定の文書 ${moved.join(', ')} の本文か meta が、段 1 の入口から変わった（${label} の snapshot で照合）`)
-  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から逐語で置き直し、段 1 から始めてください`, rerun: false }
+  return { error: `固定の文書 ${moved.join(', ')} が段 1 の入口から変わりました（所有表の外の書き込み）。W の本文を existing_docs の source から doc_check place で置き直し、段 1 から始めてください`, rerun: false }
 }
 
 async function stage1() {
@@ -2800,7 +2809,7 @@ function decide(decision, tbd, allowQuestions, reasked) {
   return resolveCycle('6', {
     phase: 'Decide',
     task: [
-      `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、writer の meta の新しい TBD ${list(tbd)}。`,
+      `段 6（resolver.md の「段 6」）: route が decision の指摘 ${list(decision)}（${FINDINGS_READ}）、meta の新しい TBD（保存した文書から引き継いだ TBD を含む） ${list(tbd)}。`,
       redecide.length ? `再発した項目（項目: 前のパスの指摘 ← その裁定）: ${redecide.map((k) => `${k}: ${list(rec[k])} ← ${list(rulingsOfFindings(rec[k]))}`).join(' / ')}` : '',
       toHold.length ? `再発が続いた項目の指摘（hold にする）: ${list(toHold)}` : '',
       reasked.size ? `前の裁定に回答か保持規則がある再発の指摘（resolver.md の「段 6」）: ${list([...reasked].map((k) => k.slice(8)))}` : '',

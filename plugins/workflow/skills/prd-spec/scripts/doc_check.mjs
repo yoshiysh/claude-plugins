@@ -24,9 +24,6 @@ const CLAUSE_REF = '(?:(?:§|Clause|Section|箇条)\\s*\\d|第\\s*\\d+(?:\\.\\d+
 // TBD ID を本文から拾う。要求 ID と別に持つのは、この検査が効く先が違うからである。
 // 要求 ID の申告漏れはトレーサビリティを壊すが、TBD の申告漏れは**完成条件そのもの**を壊す。
 const TBD_ID_IN_TEXT = /\bTBD-[A-Z][A-Z0-9]*-\d+\b/g
-// 見出しの文字列が未確定事項の章であるか。run が書く文書では章そのものが欠陥（ST-NON-NORMATIVE-）で、run の外の旧形式の文書では
-// INDEX の未解決の読み元になる。見分け方を 1 つにしないと、検査を通った章が保存後に固定の文書の正本として読まれ、正本が 2 つになる。
-const TBD_CHAPTER = /^(未確定事項|TBD)(\s*一覧)?(\s*[（(][^）)]*[）)])?$/
 
 const ID_IN_TEXT = {
   requirements: /\bPR-[A-Z][A-Z0-9]*-\d+\b/g,
@@ -1167,17 +1164,14 @@ function structuralCompact(docs, flow) {
   //     案・未確定事項の章は、読み手（後続の実装者と AI）が従うべき規範を薄めるだけであり、
   //     経緯は git commit / PR 本文に残す。文字列は旧規約が定めていた定型なので機械照合できる。
   const NON_NORMATIVE = [
-    { hit: (ln) => /（既定[:：]/.test(ln), what: '決定ログの出所表記' },
-    { hit: (ln) => /（スキル既定[:：]/.test(ln), what: 'スキル既定の出所表記' },
-    {
-      hit: (ln) => /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討)\s*$/.test(ln) || (/^#{1,6}\s/.test(ln) && TBD_CHAPTER.test(ln.replace(/^#{1,6}\s*/, '').trim())),
-      what: '経緯・未確定事項の章',
-    },
+    { re: /（既定[:：]/, what: '決定ログの出所表記' },
+    { re: /（スキル既定[:：]/, what: 'スキル既定の出所表記' },
+    { re: /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討|未確定事項|TBD)\s*$/, what: '経緯・未確定事項の章' },
   ]
   for (const d of docs) {
     if (d.fixed || !d.markdown) continue
     for (const p of NON_NORMATIVE) {
-      const hit = String(d.markdown).split('\n').find((ln) => p.hit(ln))
+      const hit = String(d.markdown).split('\n').find((ln) => p.re.test(ln))
       if (!hit) continue
       out.push({ c: 'NON_NORMATIVE', d: d.key, a: [p.what, hit.trim().slice(0, 60), d.key] })
     }
@@ -1629,9 +1623,14 @@ const LINT_TEXT = {
 }
 // LINT_TEXT_END
 
-const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract']
+const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'place', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
+// CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
+// 正本を置く理由は references/traceability.md §4。
+const CARRY_FILE = /^(requirements|specifications)-(.+)\.tbd\.json$/
+const docFileOf = (key) => ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.md')
+const carryFileOf = (key) => docFileOf(key).replace(/\.md$/, '.tbd.json')
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 class DigestMismatch extends Error {}
@@ -1876,6 +1875,7 @@ function storedRejects(ws, name, value) {
     }
   }
   if (name === 'resolutions') bad.push(...domainAssessmentRejects(ws, value.resolutions || []))
+  if (name === 'meta') for (const t of value.tbd || []) if (!tbdItemOk(t)) bad.push(`tbd ${t && t.id}: ${TBD_ITEM_SHAPE} ではありません`)
   return bad
 }
 
@@ -2082,7 +2082,7 @@ function wsBackup(ws, opts) {
   const files = keys.map((key) => {
     const m = DOC_KEY.exec(key)
     if (!m) throw new LedgerRejected(`文書のキー（<requirements|specifications>/<topic>）ではありません（控えを取っていません）: ${key}`)
-    return `${m[1]}-${m[2]}.md`
+    return docFileOf(key)
   })
   for (const file of files) txBegin(ws, token, file)
   return { backup: true, token, docs: keys }
@@ -2160,7 +2160,7 @@ function fixedShas(ws, keys) {
   return Object.fromEntries(
     [...new Set(keys || [])].sort().map((key) => {
       const meta = ledgerOf('meta').file(key)
-      return [key, sha256(JSON.stringify([fileSha(path.join(ws, meta.replace(/\.meta\.json$/, '.md'))), fileSha(path.join(ws, meta))]))]
+      return [key, sha256(JSON.stringify([fileSha(path.join(ws, docFileOf(key))), fileSha(path.join(ws, meta))]))]
     })
   )
 }
@@ -2171,7 +2171,7 @@ function wsReset(ws, opts) {
   const fixed = [...new Set(opts.fixed || [])].sort()
   const docOf = (key) => {
     try {
-      return ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.md')
+      return docFileOf(key)
     } catch {
       throw new LedgerRejected(`文書のキー（<requirements|specifications>/<topic>）ではありません（何も消していません）: ${key}`)
     }
@@ -2181,15 +2181,66 @@ function wsReset(ws, opts) {
   const unkept = fixed.filter((key) => !keep.includes(key))
   if (unkept.length) throw new LedgerRejected(`--fixed の文書が --keep にありません（何も消していません）: ${unkept.join(', ')}`)
   const missing = keep.filter((_, i) => !fs.existsSync(path.join(ws, docs[i])))
-  if (missing.length) throw new LedgerRejected(`existing_docs の文書が W にありません（S0 で逐語で置く。何も消していません）: ${missing.join(', ')}`)
-  const metas = fixed.map((key) => ledgerOf('meta').file(key))
+  if (missing.length) throw new LedgerRejected(`existing_docs の文書が W にありません（S0 で doc_check place で置く。何も消していません）: ${missing.join(', ')}`)
+  const carried = Object.fromEntries(keep.map((key) => [key, carriedTbd(ws, key)]).filter(([, tbd]) => tbd))
+  const metas = keep.filter((key) => fixed.includes(key) || carried[key]).map((key) => ledgerOf('meta').file(key))
+  const carries = keep.map(carryFileOf)
   const removed = fs
     .readdirSync(ws)
-    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)))
+    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)) || (CARRY_FILE.test(n) && !carries.includes(n)))
     .sort()
   for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
-  for (const m of metas) writeAtomic([path.join(ws, m), ledgerText({ ...emptyLedger(ledgerOf('meta')), fixed: true })])
-  return { reset: true, removed, kept: keep, fixed, fixed_sha256: fixedShas(ws, fixed) }
+  for (const key of keep.filter((k) => fixed.includes(k) || carried[k])) {
+    const meta = { ...emptyLedger(ledgerOf('meta')), ...(fixed.includes(key) ? { fixed: true } : {}), ...(carried[key] ? { tbd: carried[key] } : {}) }
+    writeAtomic([path.join(ws, ledgerOf('meta').file(key)), ledgerText(meta)])
+  }
+  const carriedIds = Object.fromEntries(Object.entries(carried).map(([key, tbd]) => [key, tbd.map((t) => t.id).sort()]))
+  return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed) }
+}
+
+// place: S0 が既存文書を W に置く。文書と、その隣の開いている TBD の写しを 1 回でまとめて逐語で写す（写しを別の手順にすると置き忘れが起き、
+// 次の保存で写しの無い文書として正本を上書きするか消す）。隣に写しが無ければ、前に置いた W の写しを消す。
+function wsPlace(ws, opts) {
+  if (opts.doc.length !== 1 || !opts.source) throw new Error('place には --doc <requirements|specifications>/<topic> と --source <元の文書のパス> が要ります')
+  const key = opts.doc[0]
+  const doc = docFileOf(key)
+  const carry = carryFileOf(key)
+  if (!/\.md$/.test(opts.source)) throw new Error(`--source は .md の文書のパスです: ${opts.source}`)
+  const source = path.resolve(opts.source)
+  if (!fs.existsSync(source)) throw new Error(`--source の文書がありません: ${opts.source}`)
+  const carrySource = source.replace(/\.md$/, '.tbd.json')
+  const hasCarry = fs.existsSync(carrySource)
+  if (hasCarry && !carryShapeOk(readJsonFile(carrySource))) throw new Error(`${carrySource} の形が ${CARRY_SHAPE} ではありません（何も置いていません）`)
+  fs.copyFileSync(source, path.join(ws, doc))
+  if (hasCarry) fs.copyFileSync(carrySource, path.join(ws, carry))
+  else fs.rmSync(path.join(ws, carry), { force: true })
+  return { placed: key, doc, carry: hasCarry ? carry : null }
+}
+
+// tbdItemOk: meta の tbd の要素の形。put（storedRejects）と写しの読み手（reset・place）が同じ判定を使う。put が緩いと、監査を通った meta から
+// 保存した写しを次の run の reset が拒み、直す経路が手書きしか無い。
+const TBD_ITEM_SHAPE = `{ id: ${TBD_ID_IN_TEXT.source} に合う文字列, text: 空でない文字列, blocking: 真偽値, candidates?: 文字列の配列 }（欄はこの 4 つだけ）`
+function tbdItemOk(t) {
+  return Boolean(
+    t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).every((k) => ledgerOf('meta').fields.tbd.includes(k)) &&
+      typeof t.id === 'string' && new RegExp(`^${TBD_ID_IN_TEXT.source}$`).test(t.id) && typeof t.text === 'string' && t.text.trim() && typeof t.blocking === 'boolean' &&
+      (t.candidates === undefined || (Array.isArray(t.candidates) && t.candidates.every((c) => typeof c === 'string')))
+  )
+}
+
+const CARRY_SHAPE = `{ "tbd": [${TBD_ITEM_SHAPE}]（1 件以上、ID は重複なし）}`
+function carryShapeOk(data) {
+  const tbd = data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).join() === 'tbd' ? data.tbd : null
+  return Array.isArray(tbd) && tbd.length > 0 && tbd.every(tbdItemOk) && new Set(tbd.map((t) => t.id)).size === tbd.length
+}
+
+// carriedTbd: S0 が置いた写しの tbd。形が違えば何も消さずに止める（reset が黙って捨てると、開いている TBD が消える）。
+function carriedTbd(ws, key) {
+  const file = carryFileOf(key)
+  const data = readJsonFile(path.join(ws, file))
+  if (data === null) return null
+  if (!carryShapeOk(data)) throw new LedgerRejected(`${file} の形が ${CARRY_SHAPE} ではありません（何も消していません）`)
+  return data.tbd
 }
 
 function answerTexts(ws) {
@@ -2909,6 +2960,13 @@ function wsReport(ws, opts) {
   return { path: 'report.md', method: method.length, answered_by: answeredBy.length, measured: measured.length, holds: holds.length, drafts: drafts.length, upstream_revisions: upstream.length, sha256: sha256Bytes(Buffer.from(md)), ...swept }
 }
 
+// isResetMeta: meta が、段 1 の入口の reset が写しから書いたもの（固定でない文書）のままか。
+function isResetMeta(ws, key, meta) {
+  if (!meta || meta.fixed) return false
+  const carry = readJsonFile(path.join(ws, carryFileOf(key)))
+  return carry !== null && ledgerText(meta) === ledgerText({ ...emptyLedger(ledgerOf('meta')), tbd: carry.tbd })
+}
+
 function workspaceDocs(ws) {
   return fs
     .readdirSync(ws)
@@ -2917,7 +2975,7 @@ function workspaceDocs(ws) {
     .map((name) => {
       const [, kind, topic] = DOC_FILE.exec(name)
       const meta = readLedger(ws, 'meta', `${kind}/${topic}`)
-      return { key: `${kind}/${topic}`, kind, topic, path: name, markdown: fs.readFileSync(path.join(ws, name), 'utf8'), meta }
+      return { key: `${kind}/${topic}`, kind, topic, path: name, markdown: fs.readFileSync(path.join(ws, name), 'utf8'), meta, resetMeta: isResetMeta(ws, `${kind}/${topic}`, meta) }
     })
 }
 
@@ -3006,7 +3064,9 @@ function deriveDocs(wsDocs) {
     const ids = [...new Set(secs.map((s) => s.id).filter(Boolean))]
     const idSet = new Set(ids)
     const inText = [...new Set(d.markdown.match(ID_IN_TEXT[d.kind]) || [])]
-    const trace = d.meta ? (Array.isArray(d.meta.trace) ? d.meta.trace : []) : undefined
+    // reset が写しから書いたままの meta は、meta の無い既存文書と同じく trace を未検査にする（根拠は前のランの W にしか無い。根拠なしとして数えると、
+    // 写しを持つだけで全項目が blocking の指摘になる）。writer が一度でも meta を書き換えれば、写しの無い文書と同じく検査する。
+    const trace = !d.meta || d.resetMeta ? undefined : Array.isArray(d.meta.trace) ? d.meta.trace : []
     const tr = d.kind === 'specifications' ? traceabilityOf(d.markdown) : { links: [], lines: new Set() }
     return {
       key: d.key,
@@ -3807,7 +3867,7 @@ function planDocFiles(ws) {
   const plan = readJsonFile(path.join(ws, 'plan.json'))
   if (plan === null) throw new Error('plan.json がありません。置いてよい文書のファイル名が決まらないので、stray を判定できません')
   const keys = listOf(plan, 'docs').map((d) => d && d.key)
-  return new Set(keys.flatMap((k) => [`${String(k).replace('/', '-')}.md`, ledgerOf('meta').file(k)]))
+  return new Set(keys.flatMap((k) => [docFileOf(k), ledgerOf('meta').file(k), carryFileOf(k)]))
 }
 
 function strayFiles(ws, live) {
@@ -3997,32 +4057,6 @@ function docSummary(d) {
   return sections.length ? `${sections.join('／')}（${tail}）` : tail
 }
 
-// bodyTbd: 固定・meta の無い文書の TBD を読めるのは、旧形式の文書が本文に置いた未確定事項の章の、区分の見出しの下の表だけである。
-// 今の形（章を置かず、meta を保存しない）で保存した文書の開いた TBD を読む正本はまだ無い。だから本文の TBD ID のうち区分を
-// 読めなかったものは unread に返して INDEX に宣言する（黙って数えないと、着手を止める TBD が 0 件に化ける）。
-const TBD_CLASS = [
-  ['着手不能', true],
-  ['進行可能', false],
-  ['決めないと決めた', false],
-]
-function bodyTbd(md) {
-  const items = []
-  for (const sec of sectionsOf2(md)) {
-    if (!TBD_CHAPTER.test(sec.heading)) continue
-    for (const t of tablesOf(sec)) {
-      const cls = TBD_CLASS.find(([head]) => t.heading.startsWith(head))
-      const ic = t.header.indexOf('ID')
-      if (!cls || ic < 0) continue
-      const tc = t.header.indexOf('内容')
-      for (const r of t.rows) {
-        const id = (String(r.cells[ic] || '').match(TBD_ID_IN_TEXT) || [])[0]
-        if (id) items.push({ id, text: tc < 0 ? '' : r.cells[tc] || '', blocking: cls[1] })
-      }
-    }
-  }
-  return items
-}
-
 function wsIndex(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
@@ -4037,12 +4071,6 @@ function wsIndex(ws, opts) {
     return out
   }
   const openIds = new Set(opts.openTbd || docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))
-  // run が書く文書の正本は meta で、開いているかは run が決める。run の外の文書（固定・meta 無し）の TBD は run が閉じられないので、--open-tbd で絞らない。
-  const runOwned = (d) => !d.fixed && Array.isArray(d.trace)
-  const fromBody = new Map(docs.filter((d) => !runOwned(d)).map((d) => [d.key, bodyTbd(d.markdown)]))
-  const known = new Set([...docs.flatMap((d) => d.tbd_items.map((t) => t && t.id)), ...[...fromBody.values()].flat().map((t) => t.id)])
-  const openOf = (d) => (runOwned(d) ? d.tbd_items.filter((t) => t && t.id && openIds.has(t.id)) : fromBody.get(d.key))
-  const unreadOf = (d) => (runOwned(d) ? [] : [...new Set(d.markdown.match(TBD_ID_IN_TEXT) || [])].filter((id) => !known.has(id)))
   const specs = docs.filter((d) => d.kind === 'specifications')
   const links = specs.flatMap((s) => s.traceability.map((l) => ({ ...l, spec: s })))
   const written = {}
@@ -4070,17 +4098,11 @@ function wsIndex(ws, opts) {
         lines.push(`| \`${pathOf(d)}\` | ${related.join(' / ') || '（対応する仕様文書なし）'} |`)
       }
       lines.push('', '## 未解決（着手を止める未確定事項）', '')
-      const blocking = target.flatMap((d) => openOf(d).filter((t) => t.blocking).map((t) => ({ ...t, doc: pathOf(d) })))
-      const unread = target.flatMap((d) => unreadOf(d).map((id) => ({ id, doc: pathOf(d) })))
-      if (!blocking.length) lines.push(unread.length ? '区分を読めた範囲では、着手を止める未確定事項は 0 件である。' : '着手を止める未確定事項は 0 件である。', '')
+      const blocking = target.flatMap((d) => d.tbd_items.filter((t) => t && t.id && t.blocking && openIds.has(t.id)).map((t) => ({ ...t, doc: pathOf(d) })))
+      if (!blocking.length) lines.push('着手を止める未確定事項は 0 件である。', '')
       else {
         lines.push('| ID | 内容 | 所在 |', '|---|---|---|')
         for (const t of blocking) lines.push(`| ${cellOf(t.id)} | ${cellOf(t.text)} | \`${t.doc}\` |`)
-        lines.push('')
-      }
-      if (unread.length) {
-        lines.push(`run の外の文書の本文にあり、着手を止めるかを本文の表から読めなかった TBD が ${unread.length} 件ある（上の表に数えていない）。`, '', '| ID | 所在 |', '|---|---|')
-        for (const t of unread) lines.push(`| ${cellOf(t.id)} | \`${t.doc}\` |`)
         lines.push('')
       }
       const realized = new Set(links.map((l) => l.requirement_id))
@@ -4094,7 +4116,21 @@ function wsIndex(ws, opts) {
     fs.writeFileSync(path.join(ws, rel), lines.join('\n'))
     written[kind] = { path: rel, save_to: `${dirs[kind]}/INDEX.md`, digest: sha256(lines.join('\n')) }
   }
-  return { indexes: written }
+  // 保存する文書の開いている TBD を、文書の隣へ写すファイルとして出す。写す先は文書の保存先で決まり（existing は元の場所）、ここでは決まらないので
+  // 文書のキーで返す。固定の文書は保存しないので、保存先の写しをそのまま残す。開いている TBD が無い文書は消す側に出す（残すと、閉じた TBD が
+  // 次の run の「未解決」に戻る）。
+  const carry = []
+  const clear = []
+  for (const d of docs.filter((x) => !x.fixed)) {
+    const open = d.tbd_items.filter((t) => t && t.id && openIds.has(t.id))
+    if (!open.length) {
+      clear.push(d.key)
+      continue
+    }
+    carry.push({ doc: d.key, path: path.join('checks', carryFileOf(d.key)), tbd: open })
+  }
+  for (const c of carry) fs.writeFileSync(path.join(ws, c.path), ledgerText({ tbd: c.tbd }))
+  return { indexes: written, open_tbd_files: carry.map(({ doc, path: p }) => ({ doc, path: p })), open_tbd_clear: clear }
 }
 
 function parseWorkspaceArgs(argv) {
@@ -4128,6 +4164,7 @@ function parseWorkspaceArgs(argv) {
     else if (a === '--rulings') o.rulings = true
     else if (a === '--lint') o.lint = true
     else if (a === '--token') o.token = take()
+    else if (a === '--source') o.source = take()
     else if (a === '--fixed') o.fixed = take().split(',').map((s) => s.trim()).filter(Boolean)
     else if (a === '--file') o.file = take()
     else if (a === '--input') o.input = take()
@@ -4160,6 +4197,7 @@ function runWorkspace(mode, argv) {
   if (mode === 'unstash') return wsUnstash(ws, opts)
   if (mode === 'restore') return wsRestore(ws, opts)
   if (mode === 'reset') return wsReset(ws, opts)
+  if (mode === 'place') return wsPlace(ws, opts)
   if (mode === 'questions') return wsQuestions(ws, opts)
   if (mode === 'answers') return wsAnswers(ws, opts)
   if (mode === 'sha') return wsSha(ws, opts)

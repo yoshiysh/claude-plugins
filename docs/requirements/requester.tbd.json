@@ -1,0 +1,44 @@
+{
+ "tbd": [
+  {
+   "blocking": true,
+   "id": "TBD-RREQUESTER-016",
+   "text": "中間の生成物を置くフォルダの名前となる案件名が、何によって決まるかが決まっていない（PR-REQUESTER-031 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-006",
+   "text": "利用形態が把握できたとして、それに応じて要求文書の分量をどこまで伸縮させるかの判定規則が決まっていない（`docs/requirements/consumer.md` の PR-CONSUMER-030 に関係する。利用形態そのものを把握する方法は TBD-RCONSUMER-004）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-011",
+   "text": "着手を止めない事項について、依頼者へ回答を求めるかどうかが決まっていない。求めない場合に、求めない事項であると判定する条件も決まっていない"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-012",
+   "text": "依頼が対象外であると判定したときに依頼者へ返す内容が決まっていない（PR-REQUESTER-001 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-013",
+   "text": "依頼者が決まっていない旨を答えたことによって着手を止める未確定事項から外した事項を、依頼者へ示すかどうかが決まっていない（PR-REQUESTER-029 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-014",
+   "text": "実行基盤・保存先のファイルシステム・依頼者との対話以外に、システムが依存する外部システムがあるかどうかが決まっていない（前提と依存の表に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-015",
+   "text": "文書の作成を完了できなかったときに依頼者へ示す内容が決まっていない（PR-REQUESTER-026 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-RREQUESTER-017",
+   "text": "判定に迷うと実行主体が結論を定めなかったときに、依頼者へ示す情報の内訳が決まっていない（PR-REQUESTER-040 に関係する）"
+  }
+ ]
+}

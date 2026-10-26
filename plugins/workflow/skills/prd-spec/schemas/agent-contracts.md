@@ -121,7 +121,8 @@
 | `questions.md`、`questions.json` | `doc_check questions` の導出物。司令塔が実行する（形の検査 `--check` は、問いを出した resolver が返る前に行う） | [決定の台帳](#決定の台帳) | 導出物なので、手で直しても次の導出で上書きされる |
 | `report.md` | `doc_check report` の導出物。司令塔が実行する | [§resolver](#resolver) | 導出物なので、手で直しても次の導出で上書きされる |
 | `verifications.json` | resolver-verifier。put で書く | [決定の台帳](#決定の台帳) | writer が読んだ sha256 と verifier が検証した sha256 の照合 |
-| `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（固定の文書の meta は、段 1 の入口の `doc_check reset` が `existing_docs` の `fixed` から書く。文書は司令塔が S0 で逐語で置く） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
+| `<kind>-<topic>.md`、`<kind>-<topic>.meta.json` | その文書を持つ単位の writer だけ。meta は put で書く（固定の文書の meta と、`<kind>-<topic>.tbd.json` のある文書の meta は、段 1 の入口の `doc_check reset` が `existing_docs` の `fixed` とその写しから書く。文書は司令塔が S0 で `doc_check place` で逐語で置く） | [§writer](#writer) | 段 8 の木全体の diff と writer の申告の照合 |
+| `<kind>-<topic>.tbd.json` | 司令塔（S0 で、`doc_check place` が文書と一緒に、保存した文書の隣の `.tbd.json` を逐語で置く。誰も書き換えない。段 1 の入口の `doc_check reset` がこれを meta の `tbd` に写す） | `{ "tbd": [...] }`（要素は [§writer](#writer) の meta の `tbd`） | reset が形を検査し、合わなければ何も消さずに止まる |
 | `findings/r<n>-<役>-<文書>.json` | 各監査役（自分のファイルだけ） | [監査役の共通節](#監査役の共通節) | — |
 | `checks/*` | doc_check。`audited-*` の snapshot は監査役だけが保存する | doc_check の出力 | `audited-*` は保存時の digest を script が持ち、diff の `--expect` で照合する |
 | `tx/<token>/*` | doc_check（put・del が token の下の最初の書き込みの前に台帳の控えを取り、段 4・7 の writer の前に `backup` が文書の本文の控えを取り、`restore` が戻して消す。新しい token の最初の書き込みが他の token の控えを消す。段 1 の入口の `reset` が全部消す） | 台帳か本文のバイト列（`<ファイル>.pre`）か、token の下で作られた印（`<ファイル>.absent`） | — |
@@ -636,6 +637,8 @@ digest と、次の 2 つ。
   これ以外の出所は根拠として認められていないので、列挙に無い。
 - 1 項目に複数の trace を置いてよい。振る舞いを定める項目は `flow` の trace を 1 つ以上持つ。
 - TBD の ID は `TBD-<R|S><領域>-<連番>`（要求文書は R、仕様書は S。領域は topic を英大文字にしたもの）。
+- `tbd` の要素の形が doc_check の `tbdItemOk` に合わなければ put が拒む（その meta から保存の写しを作るため。拒んだときの stderr に形が出る）。
+- 既存文書の meta には、保存した時に開いていた TBD が段 1 の入口の reset で入っている。閉じるまで `tbd` から外さない（外すと、閉じていない TBD が保存の後に消える）。
 
 返り値:
 
