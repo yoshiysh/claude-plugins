@@ -18,7 +18,7 @@
 | 用語 | 意味 |
 |---|---|
 | develop | 本文書と 3 つの要求文書の要求を満たす plugin。develop:implement・develop:review・develop:address-review の 3 スキルからなる |
-| 利用側リポジトリ | develop を使うリポジトリ。yoshiysh/claude-plugins・personal-knowledge-rag（以下 pk）・stock-valuation-dcf（以下 dcf）を含む |
+| 利用側リポジトリ | develop を使うリポジトリ。claude-plugins・personal-knowledge-rag（以下 pk）・stock-valuation-dcf（以下 dcf）を含む |
 | 利用者 | develop のスキルを呼ぶ人 |
 | 司令塔 | スキルを読み、run を起動するセッション |
 | 利用側の宣言 | 利用側リポジトリが develop の挙動を変えるために置く設定。宣言できる項目と形は構成案の「宣言する設定」の節が持つ |
@@ -35,7 +35,7 @@
 
 ## 背景と課題
 
-yoshiysh/claude-plugins・pk・dcf の 3 リポジトリが、実装・レビュー・レビュー指摘対応のスキルをそれぞれ持っている。claude-plugins の 3 スキル（repo-implement・repo-review・address-review）は、状態を run の外に持ち、写し間違いを止め、検証役を生成役と別の context に置く作りを持つが、主ブランチ・対象リポジトリ・方針文書の名前・check・除外を claude-plugins の値で直書きしているので、他のリポジトリでは使えない。workflow plugin の pr-review・pr-review-fix とも役目が重なっている。develop は、これらを claude-plugins が配布する 1 つの plugin にまとめ、利用側リポジトリが宣言で挙動を変えられるようにする。
+claude-plugins・pk・dcf の 3 リポジトリが、実装・レビュー・レビュー指摘対応のスキルをそれぞれ持っている。claude-plugins の 3 スキル（repo-implement・repo-review・address-review）は、状態を run の外に持ち、写し間違いを止め、検証役を生成役と別の context に置く作りを持つが、主ブランチ・対象リポジトリ・方針文書の名前・check・除外を claude-plugins の値で直書きしているので、他のリポジトリでは使えない。workflow plugin の pr-review・pr-review-fix とも役目が重なっている。develop は、これらを claude-plugins が配布する 1 つの plugin にまとめ、利用側リポジトリが宣言で挙動を変えられるようにする。
 
 ## 想定する利用者と利用場面
 
@@ -283,7 +283,7 @@ develop は、行った PR への投稿・返信・thread の resolve を取り�
 #### PR-DEVELOPPLUGIN-074 履歴を書き換える push
 develop は、履歴を書き換える push をしてはならない（他の人が branch に積んだ commit を失わせないため）。
 
-## 移行と旧スキルの廃止
+### 移行と旧スキルの廃止
 
 #### PR-DEVELOPPLUGIN-050 利用側の宣言を先に入れる
 初めて develop を使う利用側リポジトリは、利用側の宣言を足す変更を develop:implement の外で方針の版に入れてから、develop を使い始めなければならない（宣言は方針の版から読むので、merge されるまで効かない）。

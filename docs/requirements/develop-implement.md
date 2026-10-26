@@ -11,7 +11,7 @@ claude-plugins の repo-implement は、計画・計画のレビュー・実装�
 | 利用者 | 利用場面 |
 |---|---|
 | 利用者 | 変更の実装を頼む。計画だけを作って止め、確かめてから続けるよう頼む |
-| develop:address-review | 分類と分類の検証を通った修正を、方針の版と、PR があるときは PR の番号を添えて渡す |
+| develop:address-review | 分類と分類の検証を通った修正を、方針の版と、PR があるときは PR の番号を、PR が無く base の branch が名指されたときはその branch を添えて渡す |
 
 ## どう使われるか
 
@@ -65,7 +65,7 @@ implement は、後の段で依頼の文と目標を書き換えてはならな�
 develop:address-review から方針の版の SHA を受け取ったとき、implement は、照らす先の branch を自分で導かなければならない（作業 branch の規約で同じ変更を免責しないため）。
 
 #### PR-DEVELOPIMPLEMENT-004 照らす先の branch の導き方
-implement は、PR の番号を渡されたらその PR の base の branch を、PR の無い形で指摘の収集が branch を名指していれば remote にあると確かめたその branch を、PR の番号も名指された branch も無ければ既定ブランチを、照らす先の branch にしなければならない。
+implement は、PR の番号を渡されたらその PR の base の branch を、PR の番号を渡されず develop:address-review から名指された base の branch を渡されたら remote にあると確かめたその branch を、PR の番号も名指された branch も渡されなければ既定ブランチを、照らす先の branch にしなければならない。
 
 #### PR-DEVELOPIMPLEMENT-053 名指された branch が remote に無いとき
 名指された branch が remote に無いか、あるかを確かめられないならば、implement は既定ブランチを照らす先にせずに止まり、理由を返さなければならない。
@@ -176,7 +176,7 @@ implement は、条件ごとのケース計画を、利用側の宣言が指定�
 ### develop:review の呼び出し
 
 #### PR-DEVELOPIMPLEMENT-023 review の呼び出し
-implement は、変更の後のレビューに develop:review をスキル呼び出しで起動し、呼び出し側であることと、implement の見ている対象と方針の版を指す pin の値を渡さなければならない（develop:review が値を解決し直さずに、implement と同じ対象と方針の版を見るため）。
+implement は、変更の後のレビューに develop:review を、未コミットの作業ツリーのレビュー（計画の mode が working_tree）としてスキル呼び出しで起動し、呼び出し側であることと、implement の見ている対象と方針の版を指す pin の値を渡さなければならない（develop:review が値を解決し直さずに、implement と同じ対象と方針の版を見るため）。
 
 #### PR-DEVELOPIMPLEMENT-024 review が上限で止まったとき
 develop:review が起動数の上限かトークン量の上限で止まって next_args を返したとき、implement はその返り値を最終の結果として記録せず、同じ next_args で develop:review を呼び直さなければならない（確定した指摘が 0 件でも、この返り値は 0 件の完了ではない）。
@@ -257,7 +257,7 @@ implement は、最終照合で、変更の後の check に変更が起こした
 implement は、commit を頼まれたときにだけ commit しなければならない。
 
 #### PR-DEVELOPIMPLEMENT-034 commit の後の push
-commit の後に push するかは、implement は利用側の宣言に従い、宣言が無ければ push してはならない（PR-DEVELOPIMPLEMENT-049 の場合を除く）。
+develop:address-review から PR の修正として commit を頼まれたとき（PR-DEVELOPIMPLEMENT-051）を除き、commit の後に push するかは、implement は利用側の宣言に従い、宣言が無ければ push してはならない。
 
 #### PR-DEVELOPIMPLEMENT-049 address-review から PR の修正を受けたとき
 develop:address-review から PR の修正として commit を頼まれたとき、implement は最終照合を通った修正を commit して、その SHA を返さなければならない。

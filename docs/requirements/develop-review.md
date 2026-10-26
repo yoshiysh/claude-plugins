@@ -10,8 +10,8 @@ claude-plugins の repo-review は、観点ごとの reviewer と 2 段の検証
 
 | 利用者 | 利用場面 |
 |---|---|
-| 利用者 | PR・差分のレビューを直接頼む。名指した git の外のファイルや貼り付けた文書のレビューを頼む |
-| develop:implement | 実装の後のレビューとして、pin の値を渡して呼ぶ |
+| 利用者 | PR・差分のレビューを直接頼む。path の範囲を今の内容で見る監査を頼む。名指した git の外のファイルや貼り付けた文書のレビューを頼む |
+| develop:implement | 実装の後の未コミットの作業ツリーのレビューとして、pin の値を渡して呼ぶ |
 | dcf のセッション | contextual-code-review の代わりに、スキル呼び出しで呼ぶ |
 
 ## どう使われるか
@@ -45,7 +45,14 @@ claude-plugins の repo-review は、観点ごとの reviewer と 2 段の検証
 ### 対象と目標
 
 #### PR-DEVELOPREVIEW-001 目標の固定
-review は、入口で計画の mode（対象を PR・差分・git の外の対象のどれとして見るか）・対象・対象の版（PR と差分では対象の commit、git の外の対象では PR-DEVELOPREVIEW-055 の各ファイルの内容の SHA-256）・除外を目標として固定し、後の段で書き換えてはならない。
+review は、入口で計画の mode（diff・working_tree・audit・external のどれか）・対象・対象の版（mode ごとに次の表のもの）・除外を目標として固定し、後の段で書き換えてはならない。
+
+| mode | 対象 | 目標として固定する対象の版 |
+|---|---|---|
+| diff | PR か差分 | 対象の commit |
+| working_tree | 未コミットの作業ツリー | 未コミットの作業ツリー |
+| audit | path の範囲 | path の範囲の今の内容 |
+| external | git の外の対象 | PR-DEVELOPREVIEW-055 の各ファイルの内容の SHA-256 |
 
 #### PR-DEVELOPREVIEW-002 checkout していない PR
 対象が PR であるとき、review は、利用者が PR の head を checkout していなくても、その head の内容をレビューしなければならない。
@@ -77,7 +84,7 @@ review は、必須の観点を方針の版の方針文書から読み、利用�
 方針文書があるとき、review は、skill 以外の種類の既定の観点を必須の観点にしてはならない（他の種類は方針文書の観点に任せる）。
 
 #### PR-DEVELOPREVIEW-010 計画の拒否
-review は、必須の観点が欠けた計画、閉集合の外の観点を含む計画、担当の無い対象を含む計画を拒否しなければならない（選ぶ余地は必須でない観点だけに残す）。
+review は、必須の観点が欠けた計画、閉集合の外の観点を含む計画、担当の無い対象を含む計画、mode が PR-DEVELOPREVIEW-001 の 4 つの外である計画を拒否しなければならない（選ぶ余地は必須でない観点だけに残す）。
 
 #### PR-DEVELOPREVIEW-011 skill の種類のファイルの割り当て
 review は、skill の種類のファイル（`SKILL.md`、その隣の `agents/*.md`、先頭の文が `export const meta` の `.js`）を、置き場ではなくファイル名と内容で見分け、skill の観点に必ず割り当てなければならない。

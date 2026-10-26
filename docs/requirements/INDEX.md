@@ -10,7 +10,7 @@
 | `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜050／50 件） |
 | `docs/requirements/cleanup.md` | 要求文書: cleanup-branches | 守るもの／取り込み済みの判定／状態の取得／取り込み済みの削除／判断が要る対象の問い／承認された対象の削除／作業状態／作業場所の同期／後処理／退避した変更の復帰／完了報告（PR-CLEANUP-001〜081、欠番は 031・034・035・038・039・072・079／74 件） |
 | `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方（PR-CONSUMER-001〜031、欠番は 014・016／29 件） |
-| `docs/requirements/develop-address-review.md` | 要求文書: develop:address-review | 入口と目標／分類／止める所／修正と push／required checks の待ち／返信／resolve（PR-DEVELOPADDRESSREVIEW-001〜055／55 件） |
+| `docs/requirements/develop-address-review.md` | 要求文書: develop:address-review | 入口と目標／分類／止める所／修正と push／required checks の待ち／返信／resolve（PR-DEVELOPADDRESSREVIEW-001〜057／57 件） |
 | `docs/requirements/develop-implement.md` | 要求文書: develop:implement | 入口と目標／計画／実装と check／develop:review の呼び出し／最終照合と永続化（PR-DEVELOPIMPLEMENT-001〜067／67 件） |
 | `docs/requirements/develop-plugin.md` | 要求文書: develop plugin 全体と利用側リポジトリとの契約 | 構成と呼び出し／利用側リポジトリとの契約／権限と残る危険／文脈の配達／停止と再開／取得した内容の記録／つまずきの記録と改善／費用と記録／形の判定／永続化と投稿の順序／移行と旧スキルの廃止（PR-DEVELOPPLUGIN-001〜085、欠番は 016／84 件） |
 | `docs/requirements/develop-review.md` | 要求文書: develop:review | 対象と目標／観点／focus／検証と資産台帳／返り値の契約／起動数の上限と再開／PR への投稿／git の外の対象（PR-DEVELOPREVIEW-001〜071／71 件） |
@@ -220,6 +220,7 @@
 | PR-DEVELOPADDRESSREVIEW-020 | 同じ状態での 2 回目の分類 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-048 | 人の判断を入れること | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-021 | 止める所の指定 | `docs/requirements/develop-address-review.md` |
+| PR-DEVELOPADDRESSREVIEW-056 | 止める所が行わないとした操作 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-022 | develop:implement への受け渡し | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-023 | 直す変更が無いとき | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-024 | develop:implement が止まったとき | `docs/requirements/develop-address-review.md` |
@@ -227,6 +228,7 @@
 | PR-DEVELOPADDRESSREVIEW-049 | commit の依頼 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-025 | push | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-054 | develop:implement が直す変更は無いと返したとき | `docs/requirements/develop-address-review.md` |
+| PR-DEVELOPADDRESSREVIEW-057 | push で止めるときに直す変更が無いと返されたとき | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-052 | push が拒まれたとき | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-026 | PR が無いときに行わないこと | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-027 | 待つ SHA | `docs/requirements/develop-address-review.md` |
@@ -523,9 +525,15 @@
 
 ## 未解決（着手を止める未確定事項）
 
-着手を止める未確定事項は 0 件である。
+| ID | 内容 | 所在 |
+|---|---|---|
+| TBD-RCONSUMER-003 | 状態を持つ対象とみなす範囲と、その対象の振る舞いが定義されていると判定する条件（PR-CONSUMER-008 に関係する） | `docs/requirements/consumer.md` |
+| TBD-RCONSUMER-007 | 引き渡す文書に、実施した検査と実施していない検査の区別を載せるかどうか。載せる場合の対象とする検査の集合と、未実施の検査を指摘 0 件の検査と区別する表記も決まっていない | `docs/requirements/consumer.md` |
+| TBD-RCONSUMER-008 | 生成文書の記述が文書外の知識に依存していると判定する境界（PR-CONSUMER-026 に関係する） | `docs/requirements/consumer.md` |
+| TBD-RCONSUMER-010 | 仕様書が「実装が一意に決まる水準」に達したと判定する基準（PR-CONSUMER-031 に関係する） | `docs/requirements/consumer.md` |
+| TBD-RREQUESTER-016 | 中間の生成物を置くフォルダの名前となる案件名が、何によって決まるかが決まっていない（PR-REQUESTER-031 に関係する） | `docs/requirements/requester.md` |
 
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 354 件
+- 実現する仕様項目が無い要求: 356 件
