@@ -577,7 +577,7 @@ ID を参照しなければならない。
 | PR-CONSUMER-023 | SP-AUTHORING-043 | 構造検査（要求文書と仕様書の間で衝突した未確定事項の ID の件数を測る） |
 | PR-CONSUMER-023 | SP-AUTHORING-044 | 構造検査（同一の項目に対して前後で異なる ID が振られた件数を測る） |
 | PR-CONSUMER-024 | SP-AUTHORING-082 | 構造検査（削除された項目の ID のうち、欠番として扱われていない件数を測る） |
-| PR-CONSUMER-024 | SP-AUTHORING-045 | 構造検査（本文が参照するが生成文書一式に存在しない ID の件数を測る） |
+| PR-CONSUMER-024 | SP-AUTHORING-045 | 構造検査（本文が参照するが生成文書一式にも未確定事項のファイルにも存在しない ID の件数を測る） |
 | PR-CONSUMER-005 | SP-AUTHORING-046 | 構造検査（トレーサビリティ表に現れない要求 ID の件数を測る） |
 | PR-CONSUMER-005 | SP-AUTHORING-047 | 静的検査（3 つの列を持たないトレーサビリティ表の件数を測る） |
 | PR-CONSUMER-006 | SP-AUTHORING-047 | 構造検査（検証方法の欄が空であるトレーサビリティ表の行の件数を測る） |
@@ -592,7 +592,7 @@ ID を参照しなければならない。
 | PR-CONSUMER-007 | SP-AUTHORING-054 | 静的検査（着手不能に区分されたまま引き渡された未確定事項の件数を測る） |
 | PR-CONSUMER-012 | SP-AUTHORING-055 | 目視検査（要求文書の着手不能の未確定事項のうち INDEX に無いものと、着手不能でないのに INDEX にあるものの件数を測る） |
 | PR-CONSUMER-012 | SP-AUTHORING-056 | 目視検査（3 つの情報のいずれかを欠く未確定事項の件数を測る） |
-| PR-CONSUMER-012 | SP-AUTHORING-057 | 目視検査（決定者か期限の情報を持つ未確定事項の件数を測る） |
+| PR-REQUESTER-009 | SP-AUTHORING-057 | 目視検査（決定者か期限の情報を持つ未確定事項の件数を測る） |
 | PR-CONSUMER-012 | SP-AUTHORING-058 | 目視検査（決めることを求める候補として明示されていない値を含む未確定事項の件数を測る） |
 | PR-CONSUMER-024 | SP-AUTHORING-059 | 構造検査（関係する未確定事項の ID を参照しない要求文と仕様項目の件数を測る） |
 | PR-CONSUMER-021 | SP-AUTHORING-060 | TBD-SAUTHORING-015（ディレクトリの位置と名前、ファイル名の作り方）が決まるまで検証方法を定められない |
