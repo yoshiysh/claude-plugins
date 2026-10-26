@@ -72,6 +72,11 @@
 `<doc>.meta.json` の `tbd` に起票し、INDEX の「未解決」節と prd-spec.js の返り値（`open_tbd`）が持つ
 （本文に置いてよいものの一覧は `document-structure.md` §4 が正）。
 
+meta は保存しないので、保存した文書の開いている TBD は保存先の文書の隣の `<topic>.tbd.json`（`doc_check index` が
+meta から導出する。形は meta の `tbd` と同じ）が正本になる。次のランはそれを W に置き、段 1 の入口の reset が meta の
+`tbd` に写して `open_tbd` に入れる（手順は SKILL.md の S0 の 4 と「保存と事後報告」の 2）。どの時点でも正本は 1 つで、
+ランの中は meta、保存の後はこのファイルである。
+
 ### ブロッキングの区分（件数より重要）
 
 各 TBD には「これが決まらないと実装・QA に着手できないか」を付ける。

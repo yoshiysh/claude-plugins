@@ -2305,8 +2305,12 @@ async function resetEntry() {
   const rc = parseStdout(x && x.reset_check)
   const shas = rc && rc.fixed_sha256
   const shaOk = shas && typeof shas === 'object' && canonicalText(Object.keys(shas)) === canonicalText(FIXED_KEYS) && Object.values(shas).every((v) => typeof v === 'string' && v)
-  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk) {
+  // carried_tbd は保存した文書から引き継いだ開いている TBD。writer の返り値だけから数えると、writer を起動しない文書（固定の文書・改稿の無い既存文書）の TBD が open_tbd と INDEX から消える。
+  const carried = rc && rc.carried_tbd
+  const carriedOk = Array.isArray(carried) && carried.every((id) => typeof id === 'string' && id)
+  if (rc && rc.reset === true && Array.isArray(rc.removed) && canonicalText(rc.kept) === canonicalText(KEEP_KEYS) && canonicalText(rc.fixed) === canonicalText(FIXED_KEYS) && shaOk && carriedOk) {
     if (FIXED_KEYS.length) state.fixed_sha = shas
+    if (carried.length) state.open_tbd = uniq([...(state.open_tbd || []), ...carried])
     return null
   }
   return blocked(`flow-check（段 1 の入口）が W を S0 の直後に戻した doc_check reset の stdout（残した文書 ${list(KEEP_KEYS)}、固定の文書 ${list(FIXED_KEYS)}）を返しませんでした（existing_docs の文書が W に無いと、reset は何も消さずに止まる）`, '1')

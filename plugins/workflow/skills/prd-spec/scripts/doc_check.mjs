@@ -1626,6 +1626,10 @@ const LINT_TEXT = {
 const WS_MODES = ['plan', 'flow', 'conflicts', 'doc', 'snapshot', 'diff', 'tree-digest', 'index', 'put', 'del', 'backup', 'restore', 'stash', 'unstash', 'reset', 'questions', 'answers', 'sha', 'report', 'get', 'view', 'describe', 'contract']
 const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
+// CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の隣の <topic>.tbd.json）を S0 が W に置いた写し。meta は保存しないので、
+// これが無いと次の run の reset が固定の文書の meta を空に戻し、開いている TBD が INDEX の「未解決」から消える。
+const CARRY_FILE = /^(requirements|specifications)-(.+)\.tbd\.json$/
+const carryFileOf = (key) => ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.tbd.json')
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 class DigestMismatch extends Error {}
@@ -2176,14 +2180,37 @@ function wsReset(ws, opts) {
   if (unkept.length) throw new LedgerRejected(`--fixed の文書が --keep にありません（何も消していません）: ${unkept.join(', ')}`)
   const missing = keep.filter((_, i) => !fs.existsSync(path.join(ws, docs[i])))
   if (missing.length) throw new LedgerRejected(`existing_docs の文書が W にありません（S0 で逐語で置く。何も消していません）: ${missing.join(', ')}`)
-  const metas = fixed.map((key) => ledgerOf('meta').file(key))
+  const carried = Object.fromEntries(keep.map((key) => [key, carriedTbd(ws, key)]).filter(([, tbd]) => tbd))
+  const metas = keep.filter((key) => fixed.includes(key) || carried[key]).map((key) => ledgerOf('meta').file(key))
+  const carries = keep.map(carryFileOf)
   const removed = fs
     .readdirSync(ws)
-    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)))
+    .filter((n) => (txLedgerFile(n) && !metas.includes(n)) || RESET_REMOVES.includes(n) || (DOC_FILE.test(n) && !docs.includes(n)) || (CARRY_FILE.test(n) && !carries.includes(n)))
     .sort()
   for (const n of removed) fs.rmSync(path.join(ws, n), { recursive: true, force: true })
-  for (const m of metas) writeAtomic([path.join(ws, m), ledgerText({ ...emptyLedger(ledgerOf('meta')), fixed: true })])
-  return { reset: true, removed, kept: keep, fixed, fixed_sha256: fixedShas(ws, fixed) }
+  for (const key of keep.filter((k) => fixed.includes(k) || carried[k])) {
+    const meta = { ...emptyLedger(ledgerOf('meta')), ...(fixed.includes(key) ? { fixed: true } : {}), ...(carried[key] ? { tbd: carried[key] } : {}) }
+    writeAtomic([path.join(ws, ledgerOf('meta').file(key)), ledgerText(meta)])
+  }
+  const carriedIds = [...new Set(Object.values(carried).flatMap((tbd) => tbd.map((t) => t.id)))].sort()
+  return { reset: true, removed, kept: keep, fixed, carried_tbd: carriedIds, fixed_sha256: fixedShas(ws, fixed) }
+}
+
+// carriedTbd: S0 が置いた写しの tbd。形が §writer の meta の tbd と違えば何も消さずに止める（reset が黙って捨てると、開いている TBD が消える）。
+function carriedTbd(ws, key) {
+  const file = carryFileOf(key)
+  const data = readJsonFile(path.join(ws, file))
+  if (data === null) return null
+  const fields = ledgerOf('meta').fields.tbd
+  const ok = (t) =>
+    t && typeof t === 'object' && !Array.isArray(t) && Object.keys(t).every((k) => fields.includes(k)) &&
+    typeof t.id === 'string' && new RegExp(`^${TBD_ID_IN_TEXT.source}$`).test(t.id) && typeof t.text === 'string' && t.text.trim() && typeof t.blocking === 'boolean' &&
+    (t.candidates === undefined || (Array.isArray(t.candidates) && t.candidates.every((c) => typeof c === 'string')))
+  const tbd = data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).join() === 'tbd' ? data.tbd : null
+  if (!Array.isArray(tbd) || !tbd.length || !tbd.every(ok) || new Set(tbd.map((t) => t.id)).size !== tbd.length) {
+    throw new LedgerRejected(`${file} の形が { "tbd": [{ id, text, blocking, candidates? }]（1 件以上、ID は重複なし）} ではありません（何も消していません）`)
+  }
+  return tbd
 }
 
 function answerTexts(ws) {
@@ -3801,7 +3828,7 @@ function planDocFiles(ws) {
   const plan = readJsonFile(path.join(ws, 'plan.json'))
   if (plan === null) throw new Error('plan.json がありません。置いてよい文書のファイル名が決まらないので、stray を判定できません')
   const keys = listOf(plan, 'docs').map((d) => d && d.key)
-  return new Set(keys.flatMap((k) => [`${String(k).replace('/', '-')}.md`, ledgerOf('meta').file(k)]))
+  return new Set(keys.flatMap((k) => [`${String(k).replace('/', '-')}.md`, ledgerOf('meta').file(k), carryFileOf(k)]))
 }
 
 function strayFiles(ws, live) {
@@ -4050,7 +4077,22 @@ function wsIndex(ws, opts) {
     fs.writeFileSync(path.join(ws, rel), lines.join('\n'))
     written[kind] = { path: rel, save_to: `${dirs[kind]}/INDEX.md`, digest: sha256(lines.join('\n')) }
   }
-  return { indexes: written }
+  // 保存する文書の開いている TBD を、保存先の文書の隣（<topic>.tbd.json）へ写す形で出す。固定の文書は保存しないので、保存先の写しをそのまま残す。
+  // 開いている TBD が無い文書は消す先として出す（残すと、閉じた TBD が次の run の「未解決」に戻る）。
+  const carry = []
+  const clear = []
+  for (const d of docs.filter((x) => !x.fixed)) {
+    const open = d.tbd_items.filter((t) => t && t.id && openIds.has(t.id))
+    const saveTo = pathOf(d).replace(/\.md$/, '.tbd.json')
+    if (!open.length) {
+      clear.push(saveTo)
+      continue
+    }
+    const rel = path.join('checks', carryFileOf(d.key))
+    fs.writeFileSync(path.join(ws, rel), ledgerText({ tbd: open }))
+    carry.push({ doc: d.key, path: rel, save_to: saveTo })
+  }
+  return { indexes: written, open_tbd_files: carry, open_tbd_clear: clear }
 }
 
 function parseWorkspaceArgs(argv) {

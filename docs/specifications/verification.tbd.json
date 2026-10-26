@@ -1,0 +1,59 @@
+{
+ "tbd": [
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-006",
+   "text": "同じ指摘が解消されないまま再び返ったときの振る舞いと、そのときの遷移先の状態が決まっていない。同じ指摘であると判定する条件も決まっていない"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-007",
+   "text": "指摘の重大度の区分と、どの区分の指摘が改稿を必須にするかが決まっていない（SP-VERIFICATION-031 に関係する）"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-009",
+   "text": "検査 1 回の結果が満たすべき形式が決まっていない（SP-VERIFICATION-039 に関係する）"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-010",
+   "text": "検査記録および残った指摘の保持先、検査記録が保持する項目の集合、検査を識別するキー、および実施できた検査の件数を数える分母となる検査の集合が決まっていない（SP-VERIFICATION-003・SP-VERIFICATION-023・SP-VERIFICATION-035・SP-VERIFICATION-041 に関係する）"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-012",
+   "text": "同一性を判定できずに依頼者へ確認を求めたとき、その検査がその回に何を返すか、応答を待つ間に反復を止めるか、確認を挟んだ回を往復の回数に数えるかが決まっていない（SP-VERIFICATION-045 に関係する）"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-013",
+   "text": "検査記録を引き渡す文書へ書き出す形式（置き場となる章、検査ごとの行の列構成、未実施を指摘 0 件と区別して表す値）が決まっていない（SP-VERIFICATION-005 に関係する。書き出す対象の範囲は `docs/requirements/consumer.md` の TBD-RCONSUMER-007 が扱う）"
+  },
+  {
+   "blocking": true,
+   "id": "TBD-SVERIFICATION-016",
+   "text": "2 回目の検査の検査記録を 1 回目の記録とどう併存させるか、および反復の終了時に引き渡す検査記録が全ての回の分であるか最後に実施した回の分であるかが決まっていない（SP-VERIFICATION-003・SP-VERIFICATION-005 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-SVERIFICATION-003",
+   "text": "改稿後に再び実施する検査の範囲が決まっていない。この範囲をどう定めても引き渡す稿が満たす性質は変わらず、変わるのは検査を実施する量だけである（SP-VERIFICATION-033 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-SVERIFICATION-014",
+   "text": "2 件以上の指摘が同一の箇所に対して両立しない書き換えを求めたときの扱いが決まっていない（SP-VERIFICATION-031 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-SVERIFICATION-015",
+   "text": "上限に達したときに記録する残った指摘から、2 回目の改稿によって書き換えられた箇所に対する指摘を除くかどうか、および除く場合にその判定をどの手段で行うかが決まっていない（SP-VERIFICATION-035 に関係する）"
+  },
+  {
+   "blocking": false,
+   "id": "TBD-SVERIFICATION-017",
+   "text": "実行の途中で作られた中間の生成物を照合元の入力に含めるかどうか、および含める場合にその範囲をどう定めるかが決まっていない（用語定義の「照合元の入力」の行と SP-VERIFICATION-042 に関係する）"
+  }
+ ]
+}

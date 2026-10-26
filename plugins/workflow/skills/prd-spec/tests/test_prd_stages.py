@@ -146,7 +146,7 @@ const resetWorld = (keep, fixed) => {
   persist()
   const keys = (x) => (x ? x.split(',').sort() : [])
   const fixedKeys = spec.reset_fixed || keys(fixed)
-  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: fixedKeys, ...(spec.reset_no_fixed_sha ? {} : { fixed_sha256: fixedShas(fixedKeys, null) }) })
+  return JSON.stringify({ reset: true, removed, kept: spec.reset_kept || keys(keep), fixed: fixedKeys, carried_tbd: spec.carried_tbd || [], ...(spec.reset_no_fixed_sha ? {} : { fixed_sha256: fixedShas(fixedKeys, null) }) })
 }
 const setFlow = (x) => {
   touch('flow')
@@ -1446,7 +1446,8 @@ class Stages(unittest.TestCase):
     def test_段1の入口がWをS0の直後に戻したstdoutを返さなければintakeを起動しない(self):
         entry = "flow-check:1-entry"
         for name, kw in (("応答しない", {"null_labels": [entry]}), ("stdout が無い", {"no_reset_at": [entry]}),
-                         ("固定の文書が違う", {"reset_fixed": ["requirements/other"]}), ("残した文書が違う", {"reset_kept": ["requirements/other"]})):
+                         ("固定の文書が違う", {"reset_fixed": ["requirements/other"]}), ("残した文書が違う", {"reset_kept": ["requirements/other"]}),
+                         ("引き継いだ TBD が配列でない", {"carried_tbd": "TBD-RX-001"})):
             with self.subTest(name):
                 r = run({"args": args(), **kw})
                 self.assertFalse(has(r["labels"], "intake"), r["labels"])
@@ -1534,6 +1535,13 @@ class Stages(unittest.TestCase):
         self.assertIn("doc_check.mjs reset --workspace /tmp/prd-w --keep requirements/a,requirements/x,specifications/x --fixed requirements/a,requirements/x`", nth_prompt(r, "flow-check:1-entry", 0))
         self.assertEqual(r["labels"][:2], ["flow-check:1-entry", "intake"])
         self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+
+    def test_保存した文書から引き継いだTBDはwriterが返さなくても開いたまま返る(self):
+        # 固定の文書の TBD は誰も閉じない。writer の返り値だけから数えると、保存の index の --open-tbd から落ちて「未解決」から消える。
+        r = run({**self._expand(), "carried_tbd": ["TBD-RX-001"]})
+        self.assertEqual(r["result"]["status"], "done", r["result"].get("reason"))
+        self.assertEqual(r["result"]["open_tbd"], ["TBD-RX-001"])
+        self.assertIn('--open-tbd "TBD-RX-001"', next(p["prompt"] for p in r["prompts"] if p["label"].startswith("writer:")))
 
     def test_intakeのplan_checkに指摘があれば1回だけ差し戻す(self):
         fixed = run({"args": args(), "plan_findings": {"intake": 2}})
