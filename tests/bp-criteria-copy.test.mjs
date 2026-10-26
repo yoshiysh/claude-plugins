@@ -45,11 +45,12 @@ function sortDeep(v) {
 }
 
 // TBD の text は bp-conformance の一部なので、本文と同じく写しも同じに変え、prd-spec の書式のまま書き直す。
-async function editConformanceTbd(root, extra) {
+async function editConformanceTbd(root, extra, { candidate = false } = {}) {
   for (const base of ['docs', COPY]) {
     const file = path.join(root, base, CONFORMANCE_TBD);
     const data = JSON.parse(await fs.readFile(file, 'utf8'));
-    data.tbd[0].text += extra;
+    if (candidate) data.tbd[0].candidates = [...(data.tbd[0].candidates ?? []), extra];
+    else data.tbd[0].text += extra;
     await fs.writeFile(file, `${JSON.stringify(sortDeep(data), null, 1)}\n`);
   }
 }
@@ -75,11 +76,18 @@ const MUTATIONS = [
     await fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-zz.tbd.json'), TBD_STUB);
     await editConformanceTbd(r, '（`docs/specifications/bp-zz.md`）');
   }, ['missing specifications/bp-zz.md', 'missing specifications/bp-zz.tbd.json']],
+  ['bp-conformance の隣の .tbd.json の candidates に docs/ のパスの参照を足し、文書も置く', async (r) => {
+    await fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-zz.md'), 'zz');
+    await editConformanceTbd(r, '`docs/specifications/bp-zz.md` に置く', { candidate: true });
+  }, ['missing specifications/bp-zz.md']],
   ['正本の bp-conformance の隣の .tbd.json を消す', async (r) => fs.rm(path.join(r, 'docs', CONFORMANCE_TBD)), [`extra ${CONFORMANCE_TBD}`]],
   ...[
     ['JSON として読めない', (text) => `${text}x`],
     ['形が { tbd: [...] } でない', () => '{"tbd":{}}\n'],
     ['要素の text が文字列でない', () => '{"tbd":[{"id":"TBD-SBPCONFORMANCE-001","text":1,"blocking":false}]}\n'],
+    ['tbd が空の配列', () => '{"tbd":[]}\n'],
+    ['要素に blocking が無い', () => '{"tbd":[{"id":"TBD-SBPCONFORMANCE-001","text":"x"}]}\n'],
+    ['要素の ID の形が違う', () => '{"tbd":[{"id":"TBD-001","text":"x","blocking":false}]}\n'],
   ].map(([label, change]) => [`bp-conformance の隣の .tbd.json が${label}`, async (r) => {
     for (const base of ['docs', COPY]) {
       const file = path.join(r, base, CONFORMANCE_TBD);

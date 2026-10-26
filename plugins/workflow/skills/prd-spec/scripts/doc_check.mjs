@@ -4284,4 +4284,5 @@ export {
   contractText,
   contractParts,
   writeAtomic,
+  carryShapeOk,
 }

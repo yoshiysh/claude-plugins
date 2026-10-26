@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR, CRITERIA_FILES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { carryShapeOk } from '../plugins/workflow/skills/prd-spec/scripts/doc_check.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
@@ -92,7 +93,7 @@ function tbdSibling(rel) {
 }
 
 // .tbd.json の字面は JSON の escape（\" と \n）を含むので、Markdown の参照の形で読むには text と candidates を復元した本文で走査する。
-// 読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
+// 形の正本は prd-spec の判定（carryShapeOk）。読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
 function body(file) {
   const raw = readFileSync(file, 'utf8');
   if (!file.endsWith(TBD_SUFFIX)) return raw;
@@ -102,9 +103,7 @@ function body(file) {
   } catch {
     return null;
   }
-  const items = data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).join() === 'tbd' && Array.isArray(data.tbd) ? data.tbd : null;
-  const ok = items?.every((t) => t && typeof t === 'object' && typeof t.text === 'string' && (t.candidates === undefined || (Array.isArray(t.candidates) && t.candidates.every((c) => typeof c === 'string'))));
-  return ok ? items.flatMap((t) => [t.text, ...(t.candidates ?? [])]).join('\n') : null;
+  return carryShapeOk(data) ? data.tbd.flatMap((t) => [t.text, ...(t.candidates ?? [])]).join('\n') : null;
 }
 
 // SP-BPRUN-036 は「bp-conformance が docs/ のパスで参照する全ての文書」なので、直接の参照で閉じる（推移的に辿らない）。
