@@ -3991,6 +3991,25 @@ function docSummary(d) {
   return sections.length ? `${sections.join('／')}（${tail}）` : tail
 }
 
+// bodyTbd: run の外で書かれた文書（固定・meta 無し）は TBD を meta に持たず、本文の「未確定事項」の章の表に持つ。
+// blocking は表の見出しが「着手不能」のときだけ真にする（ほかの区分を着手不能に数えると、止まっていない論点が INDEX に並ぶ）。
+function bodyTbd(md) {
+  const out = []
+  for (const sec of sectionsOf2(md)) {
+    if (!sec.heading.startsWith('未確定事項')) continue
+    for (const t of tablesOf(sec)) {
+      const ic = t.header.indexOf('ID')
+      const tc = t.header.indexOf('内容')
+      if (ic < 0) continue
+      for (const r of t.rows) {
+        const id = (String(r.cells[ic] || '').match(TBD_ID_IN_TEXT) || [])[0]
+        if (id) out.push({ id, text: tc < 0 ? '' : r.cells[tc] || '', blocking: t.heading.startsWith('着手不能') })
+      }
+    }
+  }
+  return out
+}
+
 function wsIndex(ws, opts) {
   const wsDocs = workspaceDocs(ws)
   if (!wsDocs.length) throw new Error('workspace に文書（requirements-*.md / specifications-*.md）がありません')
@@ -4005,6 +4024,9 @@ function wsIndex(ws, opts) {
     return out
   }
   const openIds = new Set(opts.openTbd || docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))
+  // run が書く文書の正本は meta で、開いているかは run が決める。run の外の文書（固定・meta 無し）の TBD は run が閉じられないので、--open-tbd で絞らない。
+  const runOwned = new Set(wsDocs.filter((d) => d.meta && !d.meta.fixed).map((d) => d.key))
+  const openOf = (d) => (runOwned.has(d.key) ? d.tbd_items.filter((t) => t && t.id && openIds.has(t.id)) : bodyTbd(d.markdown))
   const specs = docs.filter((d) => d.kind === 'specifications')
   const links = specs.flatMap((s) => s.traceability.map((l) => ({ ...l, spec: s })))
   const written = {}
@@ -4032,7 +4054,7 @@ function wsIndex(ws, opts) {
         lines.push(`| \`${pathOf(d)}\` | ${related.join(' / ') || '（対応する仕様文書なし）'} |`)
       }
       lines.push('', '## 未解決（着手を止める未確定事項）', '')
-      const blocking = target.flatMap((d) => d.tbd_items.filter((t) => t && t.id && t.blocking && openIds.has(t.id)).map((t) => ({ ...t, doc: pathOf(d) })))
+      const blocking = target.flatMap((d) => openOf(d).filter((t) => t.blocking).map((t) => ({ ...t, doc: pathOf(d) })))
       if (!blocking.length) lines.push('着手を止める未確定事項は 0 件である。', '')
       else {
         lines.push('| ID | 内容 | 所在 |', '|---|---|---|')

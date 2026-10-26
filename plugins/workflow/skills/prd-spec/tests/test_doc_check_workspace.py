@@ -9,7 +9,7 @@ W/checks/<label>.snapshot.json に書く項目ごとの hash と比べて出す�
 4. doc は曖昧語・開いた TBD の断定・参照先の実在を拾い、複合語や保持規則は拾わない
 5. flow は出典の欠落と実在しない出典を拾い、flow.json の内容の sha256 を出す。conflicts は同じ target の組を列挙する
 6. stdout には本文を出さず、件数・digest・パスと ID（doc の flow_refs）だけを出す
-7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる
+7. index は保存先の 2 つの INDEX を文書から導出し、開いている TBD だけを未解決に並べる（run の外の文書は本文の着手不能の表から読む）
 """
 
 import hashlib
@@ -1048,6 +1048,44 @@ class Index(_Workspace):
         self.assertNotIn("TBD-RAUTH-001", req)
         _ok(self.ws, "index", "--open-tbd", "")
         self.assertIn("着手を止める未確定事項は 0 件", (self.ws / "checks" / "INDEX.requirements.md").read_text())
+
+    LEGACY = (
+        "# 旧形式の要求\n\n## 要求一覧\n\n#### PR-OLD-001 保存\n\n保存先の裁定が下るまで、システムは保存してはならない（TBD-ROLD-001）。\n\n"
+        "## 未確定事項（TBD 一覧）\n\n本文の TBD-ROLD-009 は表の外なので数えない。\n\n"
+        "### 着手不能（これが決まるまで実装・QA に入れない）\n\n| ID | 内容 | 誰が決めるか | いつまでに |\n|---|---|---|---|\n"
+        "| TBD-ROLD-001 | 保存先が決まっていない |  |  |\n\n"
+        "### 進行可能（決まった時点で追記する）\n\n| ID | 内容 | 誰が決めるか | いつまでに |\n|---|---|---|---|\n"
+        "| TBD-ROLD-002 | 表示の順序が決まっていない |  |  |\n"
+    )
+
+    def _unresolved(self, *args):
+        _ok(self.ws, "index", *args)
+        return (self.ws / "checks" / "INDEX.requirements.md").read_text().split("## 未解決")[1].split("\n## ")[0]
+
+    def test_metaの無い文書は本文の着手不能の表のTBDを未解決に並べる(self):
+        # 前の run で保存した文書は meta を持たない。meta だけから導出すると、本文が着手不能とする TBD が INDEX から落ちる。
+        (self.ws / "requirements-old.md").write_text(self.LEGACY)
+        for args in ((), ("--open-tbd", ""), ("--open-tbd", "TBD-RAUTH-002")):
+            section = self._unresolved(*args)
+            self.assertIn("| TBD-ROLD-001 | 保存先が決まっていない | `docs/requirements/old.md` |", section)
+            self.assertNotIn("TBD-ROLD-002", section)
+            self.assertNotIn("TBD-ROLD-009", section)
+        self.assertNotIn("TBD-RAUTH-001", self._unresolved("--open-tbd", "TBD-RAUTH-002"))
+
+    def test_固定の文書は本文の着手不能の表のTBDを未解決に並べる(self):
+        # reset は固定の文書に tbd の無い meta を書く。run の外の文書の TBD は run が閉じられないので、--open-tbd で絞らない。
+        (self.ws / "requirements-old.md").write_text(self.LEGACY)
+        _ok(self.ws, "reset", "--keep", "requirements/auth,specifications/auth,requirements/old", "--fixed", "requirements/old")
+        self.assertTrue((self.ws / "requirements-old.meta.json").exists())
+        section = self._unresolved("--open-tbd", "")
+        self.assertIn("TBD-ROLD-001", section)
+        self.assertNotIn("TBD-ROLD-002", section)
+
+    def test_runが書く文書は本文に章があってもmetaのTBDだけを並べる(self):
+        _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", self.LEGACY[self.LEGACY.index("## 未確定事項"):] + "\n## 要求一覧\n")
+        section = self._unresolved("--open-tbd", "TBD-RAUTH-002")
+        self.assertIn("TBD-RAUTH-002", section)
+        self.assertNotIn("TBD-ROLD-001", section)
 
     def _rows(self, kind):
         out = _ok(self.ws, "index", "--req-dir", "docs/requirements")
