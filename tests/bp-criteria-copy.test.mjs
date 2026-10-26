@@ -12,6 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TOOL = path.join(ROOT, 'tools', 'sync-bp-criteria.mjs');
 const COPY = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices', CRITERIA_DIR);
 const CONFORMANCE = 'specifications/bp-conformance.md';
+const CONFORMANCE_TBD = 'specifications/bp-conformance.tbd.json';
 
 async function tmpRoot(t, { copies = true } = {}) {
   const dir = realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'bp-copy-')));
@@ -36,6 +37,22 @@ async function editConformance(root, extra) {
   for (const base of ['docs', COPY]) await fs.appendFile(path.join(root, base, CONFORMANCE), `\n${extra}\n`);
 }
 
+function sortDeep(v) {
+  if (Array.isArray(v)) return v.map(sortDeep);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortDeep(v[k])]));
+  return v;
+}
+
+// TBD の text は bp-conformance の一部なので、本文と同じく写しも同じに変え、prd-spec の書式のまま書き直す。
+async function editConformanceTbd(root, extra) {
+  for (const base of ['docs', COPY]) {
+    const file = path.join(root, base, CONFORMANCE_TBD);
+    const data = JSON.parse(await fs.readFile(file, 'utf8'));
+    data.tbd[0].text += extra;
+    await fs.writeFile(file, `${JSON.stringify(sortDeep(data), null, 1)}\n`);
+  }
+}
+
 test('SP-BPRUN-036: 配布する判定基準の写しが正本と一致し、閉包の全てを持つ（make test の合否）', () => {
   const found = check(ROOT);
   assert.deepEqual(found, [], `判定基準の写しが正本と食い違う。node tools/sync-bp-criteria.mjs で写し直す:\n${found.map((p) => `${p.kind} ${p.path}`).join('\n')}`);
@@ -46,6 +63,14 @@ const MUTATIONS = [
   ['写しを 1 字変える', async (r) => fs.appendFile(path.join(r, COPY, 'specifications', 'bp-run.md'), 'x'), ['differ specifications/bp-run.md']],
   ['写しを 1 つ消す', async (r) => fs.rm(path.join(r, COPY, 'requirements', 'bp-operations.md')), ['missing requirements/bp-operations.md']],
   ['置き場に余計なファイルを足す', async (r) => fs.writeFile(path.join(r, COPY, 'specifications', 'stray.md'), 'x'), ['extra specifications/stray.md']],
+  ['写しの .tbd.json を消す', async (r) => fs.rm(path.join(r, COPY, CONFORMANCE_TBD)), [`missing ${CONFORMANCE_TBD}`]],
+  ['正本の .tbd.json を 1 字変える', async (r) => fs.appendFile(path.join(r, 'docs', CONFORMANCE_TBD), 'x'), [`differ ${CONFORMANCE_TBD}`]],
+  ['写しの集合に入る別の文書の隣に .tbd.json を足す', async (r) => fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-run.tbd.json'), '{}\n'), ['missing specifications/bp-run.tbd.json']],
+  ['bp-conformance の隣の .tbd.json の text に写しの外の docs/ のパスを足す', async (r) => editConformanceTbd(r, '（`docs/specifications/bp-zz.md`）'), [`unclosed ${CONFORMANCE_TBD} docs/specifications/bp-zz.md`]],
+  ['bp-conformance の隣の .tbd.json の text に docs/ のパスの参照を足し、文書も置く', async (r) => {
+    await fs.writeFile(path.join(r, 'docs', 'specifications', 'bp-zz.md'), 'zz');
+    await editConformanceTbd(r, '（`docs/specifications/bp-zz.md`）');
+  }, ['missing specifications/bp-zz.md']],
   ['写しを symlink に置き換える', async (r) => {
     const p = path.join(r, COPY, 'specifications', 'bp-entry.md');
     await fs.rm(p);
@@ -104,6 +129,15 @@ for (const [label, mutate, expected] of MUTATIONS) {
 
 test('SP-BPRUN-036: 変異の無い作業コピーでは sync-bp-criteria --check が終了符号 0 で何も出さない', async (t) => {
   assert.deepEqual(tool(await tmpRoot(t), '--check'), { code: 0, lines: [] });
+});
+
+test('SP-BPRUN-036: 写しの集合に入らない文書の隣の .tbd.json は集合に入らず、--check は 0 で終わる', async (t) => {
+  const root = await tmpRoot(t);
+  const before = closure(root).files;
+  await fs.writeFile(path.join(root, 'docs', 'specifications', 'zz.md'), 'zz');
+  await fs.writeFile(path.join(root, 'docs', 'specifications', 'zz.tbd.json'), '{}\n');
+  assert.deepEqual(closure(root), { files: before, problems: [] });
+  assert.deepEqual(tool(root, '--check'), { code: 0, lines: [] });
 });
 
 test('SP-BPRUN-036: 空白の無い前置き（「正本:」）の後の docs/ のパスは参照に数え、写しが無ければ落とす', async (t) => {
@@ -171,13 +205,16 @@ test('SP-BPRUN-036: 写しの無い作業コピーに書き込みの mode を走
   for (const rel of closure(root).files) assert.ok(lstatSync(path.join(root, COPY, rel)).isFile(), rel);
 });
 
-test('SP-BPRUN-036: 写しの集合は bp-conformance と CLI が読む CRITERIA_FILES を全て含み、ほかは bp-conformance が名指す文書だけである', () => {
+test('SP-BPRUN-036: 写しの集合は bp-conformance・その隣の .tbd.json・CLI が読む CRITERIA_FILES を全て含み、ほかは bp-conformance が名指す文書と、集合の文書の隣の .tbd.json だけである', () => {
   const { files, problems } = closure(ROOT);
   assert.deepEqual(problems, []);
   const cli = Object.values(CRITERIA_FILES).map((parts) => parts.join('/'));
-  for (const f of [CONFORMANCE, ...cli]) assert.ok(files.includes(f), f);
-  const text = readFileSync(path.join(ROOT, 'docs', CONFORMANCE), 'utf8');
-  for (const f of files.filter((x) => x !== CONFORMANCE && !cli.includes(x))) assert.ok(text.includes(`docs/${f}`) || text.includes(path.basename(f)), f);
+  for (const f of [CONFORMANCE, CONFORMANCE_TBD, ...cli]) assert.ok(files.includes(f), f);
+  const text = [CONFORMANCE, CONFORMANCE_TBD].map((rel) => readFileSync(path.join(ROOT, 'docs', rel), 'utf8')).join('\n');
+  for (const f of files.filter((x) => x !== CONFORMANCE && !cli.includes(x))) {
+    if (f.endsWith('.tbd.json')) assert.ok(files.includes(f.replace(/\.tbd\.json$/, '.md')), f);
+    else assert.ok(text.includes(`docs/${f}`) || text.includes(path.basename(f)), f);
+  }
 });
 
 test('SP-BPRUN-036: URL の中の docs/ は閉包の参照に数えない', async (t) => {

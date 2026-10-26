@@ -278,10 +278,6 @@ native Workflow が今の道具の一覧に無く、`workflow:dynamic-workflow-r
 | CLI の単体テスト | `docs/specifications/bp-run.md` の「検証方法」の同名の手段 |
 | runner のテストの実行 | SP-BPENTRY-025 の変更を入れた runner について、runner の skill の中のテストとリポジトリ直下の `tests/` のテストを模擬の backend で走らせ、結果を照らす（runtime README の Install and verify without inference の節） |
 
-## TBD の宣言
-
-本文書が所属先の TBD は無い。runner の request の時間の上限は SP-BPENTRY-016、入力の綴りは SP-BPENTRY-013、変更の入っていない runner の扱いは SP-BPENTRY-024 に書き戻した。
-
 ## トレーサビリティ表
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |

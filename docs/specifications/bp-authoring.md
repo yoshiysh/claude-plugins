@@ -498,10 +498,6 @@ create・update が完了以外で止まったとき、返り値は SP-BPRUN-032
 |---|---|
 | fixture の run | 依頼文・対象スキル・修正の根拠の fixture を用意し、検証役と反証役の返り値を固定した偽の agent で create・update の script を走らせ、段の順・状態の記録・合否・返り値を照らす |
 
-## TBD の宣言
-
-本文書が所属先の TBD は無い。TBD-SBPAUTHORING-001（返り値の綴り）は SP-BPAUTHORING-032〜034 の表の「綴り」の列に、TBD-SBPAUTHORING-002（再開の始め方の細目）は SP-BPAUTHORING-035 の表に書き戻した。
-
 ## トレーサビリティ表
 
 | 要求 ID | 仕様項目 ID | 検証方法 | ステータス |

@@ -85,18 +85,28 @@ function nameIndex(files) {
   return names;
 }
 
+// 開いた TBD の正本は文書の隣の同名の .tbd.json にある（prd-spec の規約）。写しに無いと、配布先で本文の TBD ID の定義を読めない。
+function tbdSibling(rel) {
+  return rel.replace(/\.md$/, '.tbd.json');
+}
+
 // SP-BPRUN-036 は「bp-conformance が docs/ のパスで参照する全ての文書」なので、直接の参照で閉じる（推移的に辿らない）。
+// TBD の text も bp-conformance の一部なので、隣の .tbd.json の参照も同じに数える。
 export function closure(root = REPO_ROOT) {
   const files = docsFiles(root);
   const present = new Set(files);
+  const names = nameIndex(files);
   const problems = [];
   const set = new Set([ROOT_DOC, ...Object.values(CRITERIA_FILES).map((parts) => parts.join('/'))]);
-  const text = readFileSync(path.join(root, DOCS, ROOT_DOC), 'utf8');
-  for (const r of references(text, ROOT_DOC, nameIndex(files))) {
-    if (r.unparsed) problems.push({ kind: 'unparsed', path: ROOT_DOC, detail: r.token });
-    else if (r.rel === null || !present.has(r.rel)) problems.push({ kind: 'unclosed', path: ROOT_DOC, detail: r.token });
-    else set.add(r.rel);
+  for (const from of [ROOT_DOC, tbdSibling(ROOT_DOC)]) {
+    if (from !== ROOT_DOC && !present.has(from)) continue;
+    for (const r of references(readFileSync(path.join(root, DOCS, from), 'utf8'), from, names)) {
+      if (r.unparsed) problems.push({ kind: 'unparsed', path: from, detail: r.token });
+      else if (r.rel === null || !present.has(r.rel)) problems.push({ kind: 'unclosed', path: from, detail: r.token });
+      else set.add(r.rel);
+    }
   }
+  for (const rel of [...set]) if (rel.endsWith('.md') && present.has(tbdSibling(rel))) set.add(tbdSibling(rel));
   return { files: [...set].sort(), problems };
 }
 
