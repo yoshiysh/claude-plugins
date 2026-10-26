@@ -1628,9 +1628,11 @@ const DOC_FILE = /^(requirements|specifications)-(.+)\.md$/
 const DOC_PREFIX = /^(requirements|specifications)-/
 // CARRY_FILE: 保存した文書の開いている TBD の正本（保存先では文書の .md を .tbd.json に替えたファイル）を place が W に置いた写し。
 // 正本を置く理由は references/traceability.md §4。
-const CARRY_FILE = /^(requirements|specifications)-(.+)\.tbd\.json$/
+const CARRY_SUFFIX = '.tbd.json'
+const carryPathOf = (docPath) => docPath.replace(/\.md$/, CARRY_SUFFIX)
+const CARRY_FILE = new RegExp(`^(requirements|specifications)-(.+)${CARRY_SUFFIX.replace(/\./g, '\\.')}$`)
 const docFileOf = (key) => ledgerOf('meta').file(key).replace(/\.meta\.json$/, '.md')
-const carryFileOf = (key) => docFileOf(key).replace(/\.md$/, '.tbd.json')
+const carryFileOf = (key) => carryPathOf(docFileOf(key))
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
 class DigestMismatch extends Error {}
@@ -2208,7 +2210,7 @@ function wsPlace(ws, opts) {
   if (!/\.md$/.test(opts.source)) throw new Error(`--source は .md の文書のパスです: ${opts.source}`)
   const source = path.resolve(opts.source)
   if (!fs.existsSync(source)) throw new Error(`--source の文書がありません: ${opts.source}`)
-  const carrySource = source.replace(/\.md$/, '.tbd.json')
+  const carrySource = carryPathOf(source)
   const hasCarry = fs.existsSync(carrySource)
   if (hasCarry && !carryShapeOk(readJsonFile(carrySource))) throw new Error(`${carrySource} の形が ${CARRY_SHAPE} ではありません（何も置いていません）`)
   fs.copyFileSync(source, path.join(ws, doc))
@@ -4285,4 +4287,6 @@ export {
   contractParts,
   writeAtomic,
   carryShapeOk,
+  carryPathOf,
+  CARRY_SUFFIX,
 }

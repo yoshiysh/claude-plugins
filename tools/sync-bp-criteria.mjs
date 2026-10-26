@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR, CRITERIA_FILES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
-import { carryShapeOk } from '../plugins/workflow/skills/prd-spec/scripts/doc_check.mjs';
+import { CARRY_SUFFIX, carryPathOf, carryShapeOk } from '../plugins/workflow/skills/prd-spec/scripts/doc_check.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
@@ -86,17 +86,11 @@ function nameIndex(files) {
   return names;
 }
 
-// 開いた TBD の正本は文書の隣の同名の .tbd.json にある（prd-spec の規約）。写しに無いと、配布先で本文の TBD ID の定義を読めない。
-const TBD_SUFFIX = '.tbd.json';
-function tbdSibling(rel) {
-  return rel.replace(/\.md$/, TBD_SUFFIX);
-}
-
 // .tbd.json の字面は JSON の escape（\" と \n）を含むので、Markdown の参照の形で読むには text と candidates を復元した本文で走査する。
 // 読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
 function body(file) {
   const raw = readFileSync(file, 'utf8');
-  if (!file.endsWith(TBD_SUFFIX)) return raw;
+  if (!file.endsWith(CARRY_SUFFIX)) return raw;
   let data;
   try {
     data = JSON.parse(raw);
@@ -114,7 +108,7 @@ export function closure(root = REPO_ROOT) {
   const names = nameIndex(files);
   const problems = [];
   const set = new Set([ROOT_DOC, ...Object.values(CRITERIA_FILES).map((parts) => parts.join('/'))]);
-  for (const from of [ROOT_DOC, tbdSibling(ROOT_DOC)]) {
+  for (const from of [ROOT_DOC, carryPathOf(ROOT_DOC)]) {
     if (from !== ROOT_DOC && !present.has(from)) continue;
     const text = body(path.join(root, DOCS, from));
     if (text === null) continue;
@@ -124,8 +118,9 @@ export function closure(root = REPO_ROOT) {
       else set.add(r.rel);
     }
   }
-  for (const rel of [...set]) if (rel.endsWith('.md') && present.has(tbdSibling(rel))) set.add(tbdSibling(rel));
-  for (const rel of set) if (rel.endsWith(TBD_SUFFIX) && body(path.join(root, DOCS, rel)) === null) problems.push({ kind: 'malformed', path: rel });
+  // 開いた TBD の正本は文書の隣にある（prd-spec の規約）。写しに無いと、配布先で本文の TBD ID の定義を読めない。
+  for (const rel of [...set]) if (rel.endsWith('.md') && present.has(carryPathOf(rel))) set.add(carryPathOf(rel));
+  for (const rel of set) if (rel.endsWith(CARRY_SUFFIX) && body(path.join(root, DOCS, rel)) === null) problems.push({ kind: 'malformed', path: rel });
   return { files: [...set].sort(), problems };
 }
 
