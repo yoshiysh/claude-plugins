@@ -24,6 +24,9 @@ const CLAUSE_REF = '(?:(?:§|Clause|Section|箇条)\\s*\\d|第\\s*\\d+(?:\\.\\d+
 // TBD ID を本文から拾う。要求 ID と別に持つのは、この検査が効く先が違うからである。
 // 要求 ID の申告漏れはトレーサビリティを壊すが、TBD の申告漏れは**完成条件そのもの**を壊す。
 const TBD_ID_IN_TEXT = /\bTBD-[A-Z][A-Z0-9]*-\d+\b/g
+// 見出しの文字列が未確定事項の章であるか。run が書く文書では章そのものが欠陥（ST-NON-NORMATIVE-）で、run の外の旧形式の文書では
+// INDEX の未解決の読み元になる。見分け方を 1 つにしないと、検査を通った章が保存後に固定の文書の正本として読まれ、正本が 2 つになる。
+const TBD_CHAPTER = /^(未確定事項|TBD)(\s*一覧)?(\s*[（(][^）)]*[）)])?$/
 
 const ID_IN_TEXT = {
   requirements: /\bPR-[A-Z][A-Z0-9]*-\d+\b/g,
@@ -1164,14 +1167,17 @@ function structuralCompact(docs, flow) {
   //     案・未確定事項の章は、読み手（後続の実装者と AI）が従うべき規範を薄めるだけであり、
   //     経緯は git commit / PR 本文に残す。文字列は旧規約が定めていた定型なので機械照合できる。
   const NON_NORMATIVE = [
-    { re: /（既定[:：]/, what: '決定ログの出所表記' },
-    { re: /（スキル既定[:：]/, what: 'スキル既定の出所表記' },
-    { re: /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討|未確定事項|TBD)\s*$/, what: '経緯・未確定事項の章' },
+    { hit: (ln) => /（既定[:：]/.test(ln), what: '決定ログの出所表記' },
+    { hit: (ln) => /（スキル既定[:：]/.test(ln), what: 'スキル既定の出所表記' },
+    {
+      hit: (ln) => /^#{1,6}\s*(決定ログ|決定の記録|検討の経緯|採用しなかった案|代替案の検討)\s*$/.test(ln) || (/^#{1,6}\s/.test(ln) && TBD_CHAPTER.test(ln.replace(/^#{1,6}\s*/, '').trim())),
+      what: '経緯・未確定事項の章',
+    },
   ]
   for (const d of docs) {
     if (d.fixed || !d.markdown) continue
     for (const p of NON_NORMATIVE) {
-      const hit = String(d.markdown).split('\n').find((ln) => p.re.test(ln))
+      const hit = String(d.markdown).split('\n').find((ln) => p.hit(ln))
       if (!hit) continue
       out.push({ c: 'NON_NORMATIVE', d: d.key, a: [p.what, hit.trim().slice(0, 60), d.key] })
     }
@@ -3991,23 +3997,30 @@ function docSummary(d) {
   return sections.length ? `${sections.join('／')}（${tail}）` : tail
 }
 
-// bodyTbd: run の外で書かれた文書（固定・meta 無し）は TBD を meta に持たず、本文の「未確定事項」の章の表に持つ。
-// blocking は表の見出しが「着手不能」のときだけ真にする（ほかの区分を着手不能に数えると、止まっていない論点が INDEX に並ぶ）。
+// bodyTbd: 固定・meta の無い文書の TBD を読めるのは、旧形式の文書が本文に置いた未確定事項の章の、区分の見出しの下の表だけである。
+// 今の形（章を置かず、meta を保存しない）で保存した文書の開いた TBD を読む正本はまだ無い。だから本文の TBD ID のうち区分を
+// 読めなかったものは unread に返して INDEX に宣言する（黙って数えないと、着手を止める TBD が 0 件に化ける）。
+const TBD_CLASS = [
+  ['着手不能', true],
+  ['進行可能', false],
+  ['決めないと決めた', false],
+]
 function bodyTbd(md) {
-  const out = []
+  const items = []
   for (const sec of sectionsOf2(md)) {
-    if (!sec.heading.startsWith('未確定事項')) continue
+    if (!TBD_CHAPTER.test(sec.heading)) continue
     for (const t of tablesOf(sec)) {
+      const cls = TBD_CLASS.find(([head]) => t.heading.startsWith(head))
       const ic = t.header.indexOf('ID')
+      if (!cls || ic < 0) continue
       const tc = t.header.indexOf('内容')
-      if (ic < 0) continue
       for (const r of t.rows) {
         const id = (String(r.cells[ic] || '').match(TBD_ID_IN_TEXT) || [])[0]
-        if (id) out.push({ id, text: tc < 0 ? '' : r.cells[tc] || '', blocking: t.heading.startsWith('着手不能') })
+        if (id) items.push({ id, text: tc < 0 ? '' : r.cells[tc] || '', blocking: cls[1] })
       }
     }
   }
-  return out
+  return items
 }
 
 function wsIndex(ws, opts) {
@@ -4025,8 +4038,11 @@ function wsIndex(ws, opts) {
   }
   const openIds = new Set(opts.openTbd || docs.flatMap((d) => d.tbd_items.map((t) => t && t.id).filter(Boolean)))
   // run が書く文書の正本は meta で、開いているかは run が決める。run の外の文書（固定・meta 無し）の TBD は run が閉じられないので、--open-tbd で絞らない。
-  const runOwned = new Set(wsDocs.filter((d) => d.meta && !d.meta.fixed).map((d) => d.key))
-  const openOf = (d) => (runOwned.has(d.key) ? d.tbd_items.filter((t) => t && t.id && openIds.has(t.id)) : bodyTbd(d.markdown))
+  const runOwned = (d) => !d.fixed && Array.isArray(d.trace)
+  const fromBody = new Map(docs.filter((d) => !runOwned(d)).map((d) => [d.key, bodyTbd(d.markdown)]))
+  const known = new Set([...docs.flatMap((d) => d.tbd_items.map((t) => t && t.id)), ...[...fromBody.values()].flat().map((t) => t.id)])
+  const openOf = (d) => (runOwned(d) ? d.tbd_items.filter((t) => t && t.id && openIds.has(t.id)) : fromBody.get(d.key))
+  const unreadOf = (d) => (runOwned(d) ? [] : [...new Set(d.markdown.match(TBD_ID_IN_TEXT) || [])].filter((id) => !known.has(id)))
   const specs = docs.filter((d) => d.kind === 'specifications')
   const links = specs.flatMap((s) => s.traceability.map((l) => ({ ...l, spec: s })))
   const written = {}
@@ -4055,10 +4071,16 @@ function wsIndex(ws, opts) {
       }
       lines.push('', '## 未解決（着手を止める未確定事項）', '')
       const blocking = target.flatMap((d) => openOf(d).filter((t) => t.blocking).map((t) => ({ ...t, doc: pathOf(d) })))
-      if (!blocking.length) lines.push('着手を止める未確定事項は 0 件である。', '')
+      const unread = target.flatMap((d) => unreadOf(d).map((id) => ({ id, doc: pathOf(d) })))
+      if (!blocking.length) lines.push(unread.length ? '区分を読めた範囲では、着手を止める未確定事項は 0 件である。' : '着手を止める未確定事項は 0 件である。', '')
       else {
         lines.push('| ID | 内容 | 所在 |', '|---|---|---|')
         for (const t of blocking) lines.push(`| ${cellOf(t.id)} | ${cellOf(t.text)} | \`${t.doc}\` |`)
+        lines.push('')
+      }
+      if (unread.length) {
+        lines.push(`run の外の文書の本文にあり、着手を止めるかを本文の表から読めなかった TBD が ${unread.length} 件ある（上の表に数えていない）。`, '', '| ID | 所在 |', '|---|---|')
+        for (const t of unread) lines.push(`| ${cellOf(t.id)} | \`${t.doc}\` |`)
         lines.push('')
       }
       const realized = new Set(links.map((l) => l.requirement_id))

@@ -1051,7 +1051,7 @@ class Index(_Workspace):
 
     LEGACY = (
         "# 旧形式の要求\n\n## 要求一覧\n\n#### PR-OLD-001 保存\n\n保存先の裁定が下るまで、システムは保存してはならない（TBD-ROLD-001）。\n\n"
-        "## 未確定事項（TBD 一覧）\n\n本文の TBD-ROLD-009 は表の外なので数えない。\n\n"
+        "## 未確定事項（TBD 一覧）\n\n区分は TBD-ROLD-002 も表に従う。\n\n"
         "### 着手不能（これが決まるまで実装・QA に入れない）\n\n| ID | 内容 | 誰が決めるか | いつまでに |\n|---|---|---|---|\n"
         "| TBD-ROLD-001 | 保存先が決まっていない |  |  |\n\n"
         "### 進行可能（決まった時点で追記する）\n\n| ID | 内容 | 誰が決めるか | いつまでに |\n|---|---|---|---|\n"
@@ -1069,7 +1069,8 @@ class Index(_Workspace):
             section = self._unresolved(*args)
             self.assertIn("| TBD-ROLD-001 | 保存先が決まっていない | `docs/requirements/old.md` |", section)
             self.assertNotIn("TBD-ROLD-002", section)
-            self.assertNotIn("TBD-ROLD-009", section)
+            self.assertIn("| ID | 内容 | 所在 |", section)
+            self.assertNotIn("読めなかった", section)
         self.assertNotIn("TBD-RAUTH-001", self._unresolved("--open-tbd", "TBD-RAUTH-002"))
 
     def test_固定の文書は本文の着手不能の表のTBDを未解決に並べる(self):
@@ -1081,11 +1082,38 @@ class Index(_Workspace):
         self.assertIn("TBD-ROLD-001", section)
         self.assertNotIn("TBD-ROLD-002", section)
 
-    def test_runが書く文書は本文に章があってもmetaのTBDだけを並べる(self):
+    def test_runが書く文書は本文に章があってもmetaのTBDだけを並べ章は検査で落ちる(self):
+        # 章を検査で落とさないと、保存後の次の run でその章が固定の文書の正本として読まれ、run をまたいで正本が 2 つになる。
         _edit(self.ws, "requirements-auth.md", "## 要求一覧\n", self.LEGACY[self.LEGACY.index("## 未確定事項"):] + "\n## 要求一覧\n")
         section = self._unresolved("--open-tbd", "TBD-RAUTH-002")
         self.assertIn("TBD-RAUTH-002", section)
         self.assertNotIn("TBD-ROLD-001", section)
+        _ok(self.ws, "doc", "--open-tbd", "TBD-RAUTH-002")
+        self.assertIn("ST-NON-NORMATIVE-requirements/auth-経緯・未確定事項の章", _findings(self.ws))
+
+    def test_未確定事項の章の外にある区分の表は読まず読めなかったと宣言する(self):
+        outside = "## 補足\n\n### 着手不能\n\n| ID | 内容 |\n|---|---|\n| TBD-ROLD-005 | 章の外 |\n\n"
+        (self.ws / "requirements-old.md").write_text(self.LEGACY.replace("## 未確定事項", outside + "## 未確定事項"))
+        section = self._unresolved()
+        self.assertNotIn("| TBD-ROLD-005 | 章の外 |", section)
+        self.assertIn("読めなかった TBD が 1 件ある", section)
+        self.assertIn("| TBD-ROLD-005 | `docs/requirements/old.md` |", section)
+
+    def test_区分を表から決められない書式は0件にせず読めなかったと宣言する(self):
+        # 区分を決められない表を黙って進行可能と読むと、着手を止める TBD が「0 件」に化ける（fail-open）。
+        head = "# 旧形式の要求\n\n## 未確定事項（TBD 一覧）\n\n"
+        formats = {
+            "1 つの表の中の区分": "| ID | 区分 | 内容 |\n|---|---|---|\n| TBD-ROLD-001 | 着手不能 | 保存先 |\n",
+            "章の直下の表": "| ID | 内容 |\n|---|---|\n| TBD-ROLD-001 | 保存先 |\n",
+            "ID と一致しない列名": "### 着手不能\n\n| TBD ID | 内容 |\n|---|---|\n| TBD-ROLD-001 | 保存先 |\n",
+        }
+        for name, body in formats.items():
+            with self.subTest(name):
+                (self.ws / "requirements-old.md").write_text(head + body)
+                section = self._unresolved("--open-tbd", "")
+                self.assertIn("区分を読めた範囲では、着手を止める未確定事項は 0 件である。", section)
+                self.assertIn("読めなかった TBD が 1 件ある", section)
+                self.assertIn("| TBD-ROLD-001 | `docs/requirements/old.md` |", section)
 
     def _rows(self, kind):
         out = _ok(self.ws, "index", "--req-dir", "docs/requirements")

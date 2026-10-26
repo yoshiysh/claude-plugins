@@ -156,7 +156,8 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    している版は監査されていない。同じ出力の `stray`（W に所有表に無いファイル。版の控えなど）の
    件数が 0 でなければ、保存は止めずに、`stray.path` のファイルの一覧を事後報告に添える。
 2. **INDEX**: `node [SKILL_DIR]/scripts/doc_check.mjs index --workspace <W> --req-dir <要求の保存先> --spec-dir <仕様の保存先> --open-tbd "<返り値の open_tbd をカンマで>"`
-   を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す。INDEX は導出物で、手で書くと本体と
+   を実行し、出力の `indexes.<kind>.path` のファイルを `save_to` へ逐語で写す（`--open-tbd` が絞るのは run が書く文書の TBD だけで、
+   固定の文書と meta の無い文書の読み元は `references/traceability.md` §4「INDEX の「未解決」の読み元」が正）。INDEX は導出物で、手で書くと本体と
    ずれる。W に無い文書は INDEX に載らないので、保存先に他の文書があるランでは S0 でそれも W に置き、`existing_docs` に `fixed: true` で並べる（固定の印は `existing_docs` にしか無く、並べない文書は書き換えてよい文書として監査される）。
 3. **文書**: `W/<kind>-<topic>.md` を保存先へ写す。`new`・`expand` の保存先は既定で `docs/requirements/<topic>.md`・
    `docs/specifications/<topic>.md`、`existing` は `existing_docs[].source`（元の場所。別の場所に写すと、改訂が
@@ -165,7 +166,7 @@ args に打ち直すのは ID・件数・digest と、返った `next_args`・�
    - `existing` で既存文書を意図して改訂するときは止めない。差分と変更理由（`report.md` の該当箇所）を見せてから上書きする。
 4. **事後報告**: 1 で導出した `W/report.md` をそのまま見せる。方法論として決めたこと・既にある回答の当てはめ・現物で決めたこと・保持規則・Issue の文案・上位文書の改訂の文案がそこにある。
    依頼者はここで覆せる。返り値の `open_tbd` が 1 件以上なら「完成しました」と言わず、「あと N 個決まれば着手
-   できます」と件数と ID を示す。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
+   できます」と件数と ID を示す。固定の文書の TBD は INDEX の「未解決」に載るが `open_tbd` には入らないので、両者の件数は食い違いうる。`integrity`・`notices`・`missed`・`undeclared` が空でなければ、その行をそのまま添える（`undeclared` は writer が申告せずに変えた項目で、追加の監査は済んでいるが、申告漏れがあった事実は依頼者に見えるようにする）。
    `integrity` は sha256・digest の照合で食い違った事実、`notices` は照合ではない所見（監査の時点で W に所有表に無いファイルがあった、分量の目安を超えたファイルがあった、など）である。
 5. **Issue**: `report.md` の Issue の文案は、依頼者の承認を得てから `gh issue create` で起票し、番号を報告する。
    文案は書き換えない。

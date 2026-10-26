@@ -428,6 +428,13 @@ class StructuralFindingsTests(unittest.TestCase):
         r = run_structural([doc("requirements", "auth", "## 未確定事項\n\n- TBD-A-001\n", ids=[])])
         self.assertEqual(1, len([i for i in ids_of(r) if i.startswith("ST-NON-NORMATIVE")]))
 
+    def test_tbd_chapter_with_annotation_is_reported_but_heading_about_tbd_is_not(self):
+        # 「未確定事項（TBD 一覧）」を通すと、保存後の次の run でその章が固定の文書の TBD の正本として読まれる。
+        r = run_structural([doc("requirements", "auth", "## 未確定事項（TBD 一覧）\n\n- TBD-A-001\n", ids=[])])
+        self.assertEqual(["ST-NON-NORMATIVE-requirements/auth-経緯・未確定事項の章"], [i for i in ids_of(r) if i.startswith("ST-NON-NORMATIVE")])
+        r = run_structural([doc("specifications", "auth", "### 未確定事項の書式\n\n#### SP-A-001 置き場\n", ids=["SP-A-001"])])
+        self.assertEqual([], [i for i in ids_of(r) if i.startswith("ST-NON-NORMATIVE")])
+
     def test_normative_body_is_not_flagged_as_non_normative(self):
         r = run_structural(
             [doc("requirements", "auth", "### PR-A-001\n利用者を認証しなければならない。", ids=["PR-A-001"])]
