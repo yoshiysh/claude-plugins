@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -384,7 +384,7 @@ test('policyRef に claude_review.yml や CRITERIA_DIR の import 先が無け�
 test('working_tree・audit の symlinkMap は作業ツリーの symlink（追跡中・未追跡）から作り、計画の後の変化を pin が拾う', (t) => {
   const fx = fixture(t)
   symlinkSync('../docs/a.md', path.join(fx.repo, 'plugins/p/untracked-link'))
-  rmSync(path.join(fx.repo, 'plugins/p/docs-link'))
+  unlinkSync(path.join(fx.repo, 'plugins/p/docs-link'))
   symlinkSync('../x', path.join(fx.repo, 'plugins/p/docs-link'))
   const reviewers = [{ id: 'correctness', focus: 'x', files: ['plugins/p/docs-link', 'plugins/p/untracked-link'] }, { id: 'docs', focus: 'y', files: ['plugins/p/docs-link'] }]
   const out = run('plan', { repo: fx.repo, mode: 'working_tree', baseRef: fx.head, headSha: fx.head, policyRef: fx.head, reviewers, stateDir: fx.stateDir })
