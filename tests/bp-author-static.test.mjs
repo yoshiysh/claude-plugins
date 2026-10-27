@@ -144,13 +144,17 @@ async function goalCandidate(prompt, options, env) {
   return result;
 }
 
+const TBD_NOTE = /写しの中の TBD ID の定義は[^。]*隣の同名の `\.tbd\.json` にあり、それも判定基準の写しとして読む（無ければ[^。]*開いた TBD は無い）。/;
+
 // 写しは正本と 1 字も違わず docs/ のパスで互いを指すので、写しのパスを渡す prompt には読み替えが要る（無いと agent が正本か、配布先に無いパスを開く）。
-test('SP-BPRUN-036: 判定基準の写しのパスを含む全ての prompt が写しの中の docs/ の読み替えを持ち、それを除くと docs/ のパスを含まない［create］［update］［review］［audit］', async (t) => {
+// 開いた TBD の定義は本文の外の .tbd.json にあるので、読み替えの文はそれを読むことも渡す（無いと agent が本文の TBD ID を定義の無いものと読む）。
+test('SP-BPRUN-036: 判定基準の写しのパスを含む全ての prompt が写しの中の docs/ の読み替えと隣の .tbd.json を読むことを持ち、それを除くと docs/ のパスを含まない［create］［update］［review］［audit］', async (t) => {
   for (const [fn, args] of [['create', createArgs], ['update', updateArgs]]) {
     const s = await setup(t, { fn });
     if (!s) return;
     const root = [SKILL_DIR, CRITERIA_DIR].join('/');
     const note = criteriaNoteOf(root);
+    assert.match(note, TBD_NOTE, fn);
     const { calls } = await runAuthor(t, { env: s.env, args: args(s.target), scenario: { verify: goalCandidate } });
     const carrying = calls.filter((c) => c.prompt.includes(`${root}/`));
     assert.deepEqual([...new Set(carrying.map((c) => c.role))].sort(), ['refute', 'verify', 'write'], fn);
@@ -163,6 +167,7 @@ test('SP-BPRUN-036: 判定基準の写しのパスを含む全ての prompt が�
     const s = await setupInspect(t);
     if (!s) return;
     const note = criteriaNoteOf(s.criteriaDir, INSPECT_SCRIPT);
+    assert.match(note, TBD_NOTE, fn);
     const { result, calls } = await runInspect(t, { env: s.env, args: inspectArgs(fn, s.target), scenario: { verify: candidateVerifier({ viewpoint: fn === 'review' ? 'flow' : 'audit' }) } });
     assert.equal(result.stopKind, 'complete', result.reason);
     const carrying = calls.filter((c) => c.prompt.includes(`${s.criteriaDir}/`));

@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRITERIA_DIR, CRITERIA_FILES } from '../plugins/skill-creator/skills/skill-creator-best-practices/scripts/bp/constants.mjs';
+import { CARRY_SUFFIX, carryPathOf, carryShapeOk } from '../plugins/workflow/skills/prd-spec/scripts/doc_check.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL = path.join('plugins', 'skill-creator', 'skills', 'skill-creator-best-practices');
@@ -85,18 +86,41 @@ function nameIndex(files) {
   return names;
 }
 
+// .tbd.json の字面は JSON の escape（\" と \n）を含むので、Markdown の参照の形で読むには text と candidates を復元した本文で走査する。
+// 読めないか形の違う JSON は null を返し、closure が malformed として返す（空の本文として扱うと、text だけが指す文書を黙って落とす）。
+function body(file) {
+  const raw = readFileSync(file, 'utf8');
+  if (!file.endsWith(CARRY_SUFFIX)) return raw;
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return carryShapeOk(data) ? data.tbd.flatMap((t) => [t.text, ...(t.candidates ?? [])]).join('\n') : null;
+}
+
 // SP-BPRUN-036 は「bp-conformance が docs/ のパスで参照する全ての文書」なので、直接の参照で閉じる（推移的に辿らない）。
+// TBD の text も bp-conformance の一部なので、隣の .tbd.json の参照も同じに数える。
 export function closure(root = REPO_ROOT) {
   const files = docsFiles(root);
   const present = new Set(files);
+  const names = nameIndex(files);
   const problems = [];
   const set = new Set([ROOT_DOC, ...Object.values(CRITERIA_FILES).map((parts) => parts.join('/'))]);
-  const text = readFileSync(path.join(root, DOCS, ROOT_DOC), 'utf8');
-  for (const r of references(text, ROOT_DOC, nameIndex(files))) {
-    if (r.unparsed) problems.push({ kind: 'unparsed', path: ROOT_DOC, detail: r.token });
-    else if (r.rel === null || !present.has(r.rel)) problems.push({ kind: 'unclosed', path: ROOT_DOC, detail: r.token });
-    else set.add(r.rel);
+  for (const from of [ROOT_DOC, carryPathOf(ROOT_DOC)]) {
+    if (from !== ROOT_DOC && !present.has(from)) continue;
+    const text = body(path.join(root, DOCS, from));
+    if (text === null) continue;
+    for (const r of references(text, from, names)) {
+      if (r.unparsed) problems.push({ kind: 'unparsed', path: from, detail: r.token });
+      else if (r.rel === null || !present.has(r.rel)) problems.push({ kind: 'unclosed', path: from, detail: r.token });
+      else set.add(r.rel);
+    }
   }
+  // 開いた TBD の正本は文書の隣にある（prd-spec の規約）。写しに無いと、配布先で本文の TBD ID の定義を読めない。
+  for (const rel of [...set]) if (rel.endsWith('.md') && present.has(carryPathOf(rel))) set.add(carryPathOf(rel));
+  for (const rel of set) if (rel.endsWith(CARRY_SUFFIX) && body(path.join(root, DOCS, rel)) === null) problems.push({ kind: 'malformed', path: rel });
   return { files: [...set].sort(), problems };
 }
 
@@ -172,8 +196,9 @@ export function outside(root = REPO_ROOT) {
   const seen = new Map();
   for (const rel of files) {
     const dest = path.join(copyRoot(root), rel);
-    if (!lstatOrNull(dest)?.isFile()) continue;
-    for (const r of references(readFileSync(dest, 'utf8'), rel, names)) {
+    const text = lstatOrNull(dest)?.isFile() ? body(dest) : null;
+    if (text === null) continue;
+    for (const r of references(text, rel, names)) {
       if (r.rel !== null && !r.unparsed && copied.has(r.rel)) continue;
       seen.set(`${rel}\0${r.token}`, { file: rel, token: r.token });
     }
@@ -195,8 +220,9 @@ export function repoPaths(root = REPO_ROOT) {
   const out = [];
   for (const rel of closure(root).files) {
     const dest = path.join(copyRoot(root), rel);
-    if (!lstatOrNull(dest)?.isFile()) continue;
-    const text = readFileSync(dest, 'utf8').replace(URL, ' ');
+    const raw = lstatOrNull(dest)?.isFile() ? body(dest) : null;
+    if (raw === null) continue;
+    const text = raw.replace(URL, ' ');
     for (const m of text.matchAll(dirRe)) out.push({ file: rel, token: m[0], top: `${m[1]}/` });
     for (const m of text.matchAll(fileRe)) out.push({ file: rel, token: m[0], top: m[1] });
   }
