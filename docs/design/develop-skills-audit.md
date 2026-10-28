@@ -16,7 +16,7 @@
 ## 材料と表記
 
 - 監査役は 4 体。スキルごとに 1 体ずつと、スキル間の受け渡しを見る 1 体。この文書は 4 体の結果を統合し、重複をまとめたもの。
-- path:line はリポジトリ直下からのパスで、行番号は監査役が行番号つきで抜き出した束（原本の行番号を保つ）から取った。束を切った commit は確かめていない。この文書を書く側が確かめたのは、全ての path:line（160 件）についてファイルが今の作業ツリーにあり行番号がファイルの行数に収まることを script で照らしたことと、数件の行の中身を束と照らしたことだけ。それ以外の行の中身は、監査役が束に照らして確かめたもの。
+- path:line はリポジトリ直下からのパスで、行番号は監査役が行番号つきで抜き出した束（原本の行番号を保つ）から取った。束を切った commit は確かめていない。この文書を書く側が確かめたのは、全ての path:line（162 件）についてファイルが今の作業ツリーにあり行番号がファイルの行数に収まることを script で照らしたことと、数件の行の中身を束と照らしたことだけ。それ以外の行の中身は、監査役が束に照らして確かめたもの。
 - 【推測】は、監査役が記録（抜き出した行・計測表・transcript）では確かめず、そこから導いたもの。印の無いものは記録で確かめた。
 - 計測表：e5ea919c のセッションで走った Workflow 18 本・agent 82 体の transcript から、agent ごとの model・effort（api-request の params）・token・tool_result の文字数・同じ agent の中での同じファイルの再読を集計したもの。リポジトリには置いていない。役ごとの合計は次のとおり。
 
@@ -73,7 +73,7 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 
 | # | 要求 ID | path:line | ずれ | 守らないと壊れること |
 |---|---|---|---|---|
-| 1 | PR-001・002・004 | `.agents/skills/address-review/scripts/address-core.mjs:307`、`:319-342`、`.agents/skills/address-review/SKILL.md:33`、`.agents/skills/repo-implement/SKILL.md:35-45`、`.agents/skills/repo-implement/scripts/plan.js:21-24`、`:92-97`、`:121`、`:174`、`:179-192`、`.agents/skills/repo-implement/scripts/implement-core.mjs:21` | 変更の種類（文書・SKILL.md・コード）によらず、全ての fix が repo-implement の全段を通る。計画の run を置く理由が書かれていない（`SKILL.md:45` は書く役を分ける理由で、計画役を置く理由ではない）。ケース計画は schema で必須で、変更があって条件 0 件は不合格、各条件は 4 観点それぞれにケースか不適用の理由を要る。文書の変更でも `make test` を開始時と各回に流す | 8 行の文書修正に、計画の Workflow（最大 6 体）、`make test` 2 回（1 回約 349 秒）、3 観点 × 2 段のレビューが走る |
+| 1 | PR-001・002・004 | `.agents/skills/address-review/scripts/address-core.mjs:307`、`:319-342`、`.agents/skills/address-review/SKILL.md:33`、`.agents/skills/repo-implement/SKILL.md:35-45`、`.agents/skills/repo-implement/scripts/plan.js:21-24`、`:92-97`、`:121`、`:174`、`:179-192`、`.agents/skills/repo-implement/scripts/implement-core.mjs:21` | 変更の種類（文書・SKILL.md・コード）によらず、全ての fix が repo-implement の全段を通る。計画の run を置く理由が書かれていない（`SKILL.md:45` は書く役を分ける理由で、計画役を置く理由ではない）。ケース計画は schema で必須で、変更があって条件 0 件は不合格、各条件は 4 観点それぞれにケースか不適用の理由を要る。文書の変更でも `make test` を開始時と各回に流す | 8 行の文書修正に、計画の Workflow（最大 6 体）、`make test` 2 回（1 回約 349 秒。設計方針文書「水準と未決事項」の実測）、3 観点 × 2 段のレビューが走る |
 
 ### 文脈の配達
 
@@ -96,7 +96,7 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 |---|---|---|---|---|
 | 7 | PR-007 | `.agents/skills/repo-implement/SKILL.md:92`、`:189`、`.agents/skills/repo-implement/scripts/implement-cli.mjs:213-215`、`.agents/skills/repo-implement/scripts/implement-core.mjs:164`、`.agents/skills/address-review/SKILL.md:40`、`.agents/skills/address-review/scripts/address-cli.mjs:144` | 止まった後の再開の経路が無い。abandon の後も、address-review の次の周も、新しい `stateDir` から始める。ledger に計画は無く `plan_sum` だけ | 止まるたびに計画の Workflow と開始時の `make test` から全てやり直す |
 | 8 | PR-007 | `.agents/skills/repo-implement/SKILL.md:92-95`、`:118`、`.agents/skills/repo-implement/scripts/implement-cli.mjs:282-283`、`.agents/skills/repo-implement/scripts/plan.js:246`、`:277`、`.agents/skills/address-review/scripts/address-core.mjs:303-306`、`.agents/skills/address-review/scripts/address-cli.mjs:180` | needs_input に当たる停止（`needs_human_decision`・`needs_replan`・`decide`）が返すのは問いか `findingsOutsidePlan` だけ。ここまでの検証結果・影響の範囲・残った未着手を返さない。`next_args` も無い | 人が材料集めの往復で止まる。範囲外の指摘が、根が広いのか別件なのかを判断する材料なしに止まる |
-| 9 | PR-007【推測】 | `.agents/skills/address-review/scripts/triage.js:184-186`、`:191-192`、`.agents/skills/address-review/scripts/address-core.mjs:44-50` | 食い違い 1 件・unverified 1 件で run 全体が止まり、合意した他の fix も直されない。止まった時点の分類と検証の結果を次の run が引き継がない | 1 件のために、合意済みの分類（2 体分の分析）を捨てて最初から読み直す |
+| 9 | PR-007【推測】 | `.agents/skills/address-review/scripts/triage.js:184-186`、`:191-192`、`.agents/skills/address-review/scripts/address-cli.mjs:144` | 食い違い 1 件・unverified 1 件で run 全体が止まり、合意した他の fix も直されない。止まった時点の分類と検証の結果を次の run が引き継がない | 1 件のために、合意済みの分類（2 体分の分析）を捨てて最初から読み直す |
 | 10 | PR-007 | `.agents/skills/repo-implement/scripts/plan.js:217-218`、`:233-237`、`:243-244`、`:252-254`、`:266-269`、`:282-283` | 差し戻しは新しい planner に `{draft, problems}` を渡し、計画の全文を返させる。前の planner の読み（影響の調査）は渡らない。plan-reviewer の `evidence` も planner の次の回に渡らない。2 回目以降の plan-reviewer は前の回の指摘を知らない | 1 件の指摘のために全文を作り直し、直していない部分が揺れて別の指摘を生む。計測表：wf_9e929ee2 の planner-1・-2 が各 130k・99k 文字を読み直す |
 | 11 | PR-007 | `.agents/skills/repo-review/scripts/review.js:301-317`、`.agents/skills/repo-review/SKILL.md:54`、`.agents/skills/repo-implement/scripts/implement-core.mjs:338`、`.agents/skills/repo-implement/SKILL.md:174` | 運搬が失敗した停止は `findings: []` を返し、1 段目で確定した判定も reviewer・検証役の出力も状態に残さない（`stateDir` にあるのは計画と方針の束だけ）。repo-implement は `retry_review` で repo-review を丸ごと呼び直す | 最終の判定の運搬 1 回の失敗で、reviewer 3 体と検証役最大 6 体の作業を捨てる。計測表：落ちた 2 run の cache 読みは 5.82M＋7.37M＝約 13.2M |
 | 12 | PR-007 | `.agents/skills/address-review/agents/comment-triager.md:20`、`:24`、`:27`、`.agents/skills/address-review/scripts/triage.js:79-84`、`.agents/skills/address-review/scripts/address-core.mjs:15`、`.agents/skills/repo-implement/scripts/implement-core.mjs:229-235`、`.agents/skills/repo-implement/SKILL.md:110` | 指摘を束ねて、同じ根から来ていないか・設計の欠けではないかを問う段が無い。分類は 1 件ずつで、schema に根・グループの欄が無く、分類の 5 値に「根が広い」が無い。`needs_decision` の条件に「範囲を広げるべきか」が無い。確定指摘はそのまま券に載り（`implement-core.mjs:235`）、「修正の入力は CLI が選ぶ」（`SKILL.md:110`）が、束ねる段を置く場所を塞ぐ | 同じ根の指摘を症状ごとに最小差分で塞ぎ、隣の要求とぶつかって次の指摘を生む |
@@ -109,21 +109,21 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 |---|---|---|---|---|
 | 15 | PR-008 | `.agents/skills/repo-review/scripts/review.js:13`、`:321-323` | 同時実行を 8 体にし、初期値（3 体）から上げた根拠の測定が無い。script でも枠を絞らない | レート制限に当たる。1 run で cache 読み 5.8〜7.4M が短時間に出る |
 | 16 | PR-008 | `.agents/skills/repo-review/scripts/review.js:13`、`:52-68` | トークン量の上限を run の入力として受け取る経路が無い（`meta.limits` は個数と時間だけ） | 消費の大きい run を止められない |
-| 17 | PR-008 | `.agents/skills/repo-implement/scripts/plan.js:297`、`.agents/skills/repo-implement/scripts/implement.js:109-111`、`.agents/skills/repo-review/scripts/review.js:69`、`:409-425`、`.agents/skills/address-review/scripts/triage.js:157-160` | 実際に起動した agent のモデル・effort を結果に残さない（repo-review は起動数だけ） | モデル指定が効いたかを run の記録で確かめられない。今回の分析も外から集めた計測表に頼った |
+| 17 | PR-008 | `.agents/skills/repo-implement/scripts/implement.js:109-111`、`.agents/skills/repo-review/scripts/review.js:69`、`:409-425`、`.agents/skills/address-review/scripts/triage.js:157-160` | 実際に起動した agent のモデル・effort を結果に残さない（repo-review は起動数だけ） | モデル指定が効いたかを run の記録で確かめられない。今回の分析も外から集めた計測表に頼った |
 | 18 | PR-008 | `.agents/skills/address-review/scripts/address-core.mjs:319-341`、`.agents/skills/repo-implement/scripts/plan.js:266-269`、`.agents/skills/repo-review/scripts/review.js:167-182` | 同じ主張を triage-verifier・plan-reviewer・repo-review の検証役が 3 回、別の context で確かめ直す。前の段で確かめた事実が後の段に事実として渡らない。LLM に渡す前に機械で減らす原則に沿わない | 判断役の数だけ `high` の費用が掛け算になる |
 
 ### モデル・effort・prompt
 
 | # | 要求 ID | path:line | ずれ | 守らないと壊れること |
 |---|---|---|---|---|
-| 19 | PR-009 | `.agents/skills/repo-implement/scripts/plan.js:12-16`、`.agents/skills/repo-implement/scripts/implement.js:11-13`、`.agents/skills/repo-review/scripts/review.js:17-21`、`.agents/skills/address-review/scripts/triage.js:12-17` | planner・plan-reviewer・implementer・reviewer・検証役・comment-triager・triage-verifier が全て `opus`・`high`。Opus 5.5 の既定は `medium` で、上げた理由は「判断だから上位」という注記だけで測定が無い。運搬役の `haiku`・`low` は適合 | 測っていない設定で全ての判断役を払う。計画の 2 役の出力 token は計 97 万（planner-0 が最大 99,817） |
-| 20 | PR-009 | `.agents/skills/repo-implement/scripts/plan.js:75-123`、`:110-112`、`:124-140`、`:142-164`、`:250-254`、`:278-284`、`.agents/skills/repo-implement/agents/planner.md:21-23`、`.agents/skills/repo-implement/agents/plan-reviewer.md:15-17`、`:24` | ケースの `input`・`expected`・`expected_basis` が全件必須の非空文字列。文書の変更では「置き換える文の全文」を期待値に書くのが最短の充足になる【推測】。plan-reviewer は 5 種類のリストのどれかに 1 件あれば不承認で重大度が無い。script の形の検査に落ちた計画も 1 回分の作り直しを使う | 計画が実装の写しになって膨らむ。planner の出力が 17k〜99k token。指摘面が増えるほど不承認が増え、期待値が `implementation_derived_expectations` と往復する |
+| 19 | PR-009 | `.agents/skills/repo-implement/scripts/plan.js:12-16`、`.agents/skills/repo-implement/scripts/implement.js:11-13`、`.agents/skills/repo-review/scripts/review.js:17-21`、`.agents/skills/address-review/scripts/triage.js:12-17` | planner・plan-reviewer・implementer・reviewer・検証役・comment-triager・triage-verifier が全て `opus`・`high`。Opus 5.5 の既定は `medium`（設計方針文書「モデル・effort・prompt」の初期値の表）で、上げた理由は「判断だから上位」という注記だけで測定が無い。運搬役の `haiku`・`low` は適合 | 測っていない設定で全ての判断役を払う。計画の 2 役の出力 token は計 97 万（planner-0 が最大 99,817） |
+| 20 | PR-009 | `.agents/skills/repo-implement/scripts/plan.js:75-123`、`:110-112`、`:124-140`、`:142-164`、`:250-254`、`:278-284`、`.agents/skills/repo-implement/agents/planner.md:21-23`、`.agents/skills/repo-implement/agents/plan-reviewer.md:15-17`、`:24` | ケースの `input`・`expected`・`expected_basis` が全件必須の非空文字列。文書の変更では「置き換える文の全文」を期待値に書くのが最短の充足になる【推測】。plan-reviewer は 5 種類のリストのどれかに 1 件あれば不承認で重大度が無い。script の形の検査に落ちた計画も 1 回分の作り直しを使う | 計画が実装の写しになって膨らむ。planner の出力が 7k〜99k token（最小は wf_5f75be09 の planner-1 の 7,163）。指摘面が増えるほど不承認が増え、期待値が `implementation_derived_expectations` と往復する |
 
 ### 権限
 
 | # | 要求 ID | path:line | ずれ | 守らないと壊れること |
 |---|---|---|---|---|
-| 21 | PR-010・014・015 | `.agents/skills/repo-implement/scripts/plan.js:5`、`:210`、`.agents/skills/repo-implement/SKILL.md:47`、`:199-206`、`.agents/skills/repo-review/scripts/review.js:186`、`:205`、`:246`、`:321`、`:345`、`:409-425`、`.agents/skills/repo-review/SKILL.md:94`、`.agents/skills/address-review/scripts/triage.js:9`、`:121`、`.agents/skills/address-review/agents/comment-triager.md:1-4`、`.agents/skills/address-review/agents/triage-verifier.md:1-4` | `agent()` に agent type も道具の制限も渡さず、役の prompt で「agents/X.md を読め」と言うだけ。`meta.requirements` の `read-only` は Codex runner でしか効かない。native Workflow では書き込ませない役の書き込みを事後に検出するだけ（snapshot・pin）で、その残る危険を結果に書かない | 検出だけの保証が防止として読まれる。pin が崩れても、どの役の段かを切り分けられない |
+| 21 | PR-010・014・015 | `.agents/skills/repo-implement/scripts/plan.js:4`、`:210`、`.agents/skills/repo-implement/SKILL.md:47`、`:199-206`、`.agents/skills/repo-review/scripts/review.js:186`、`:205`、`:246`、`:321`、`:345`、`:409-425`、`.agents/skills/repo-review/SKILL.md:94`、`.agents/skills/address-review/scripts/triage.js:9`、`:121`、`.agents/skills/address-review/agents/comment-triager.md:1-4`、`.agents/skills/address-review/agents/triage-verifier.md:1-4` | `agent()` に agent type も道具の制限も渡さず、役の prompt で「agents/X.md を読め」と言うだけ。`meta.requirements` の `read-only` は Codex runner でしか効かない。native Workflow では書き込ませない役の書き込みを事後に検出するだけ（snapshot・pin）で、その残る危険を結果に書かない | 検出だけの保証が防止として読まれる。pin が崩れても、どの役の段かを切り分けられない |
 
 ### 状態の書き込み
 
@@ -131,7 +131,7 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 |---|---|---|---|---|
 | 22 | なし | `.agents/skills/repo-review/scripts/review.js:224-239`、`:351-359`、`:367`、`:375`、`.agents/skills/repo-review/scripts/review-cli.mjs:403-406`、`.agents/skills/repo-review/scripts/review-core.mjs:497-513`、`:515-530`、`:581`、`:592` | 運搬役に、検証役の全 claim の evidence と 2 段分の rounds を含む 6.4〜8.0KB の本文を heredoc として再出力させる。計画には path（`planPath`）を使うのに、検証役の出力には本文を使う。最終の判定は 1 段目の本文を再送する。`assignments` は CLI が候補から導ける値で、evidence は形の検査にしか使わないのに全件を運ぶ | 写し間違いで E_TRANSPORT になり、最終の判定が出ない（観察 6） |
 | 23 | なし | `.agents/skills/repo-review/scripts/review.js:32`、`:241-276` | 送り直しは同じ prompt・同じモデル・同じ本文の再送で、写しが直る機構が無い。wf_21436ea8 では 2 体が同じ誤りを、wf_796bca4b では 2 体が違う誤りをした | 再送が効かず、運搬役 2 体分を足して全損になる |
-| 24 | なし | `.agents/skills/repo-implement/SKILL.md:50`、`:80`、`:102`、`:114`、`:135`、`:160`、`.agents/skills/repo-implement/scripts/implement-core.mjs:164`、`:239-243`、`.agents/skills/repo-implement/scripts/implement-cli.mjs:155-161`、`:333-335` | 計画の JSON の全文を、司令塔が inventory・run-checks・begin-round・Workflow の args・verify のたびに書き写す。record-review も repo-review の返り値（6〜8KB）を写し、計画のファイルの path と sum を別の値として写す。sum は写し間違いの検出で、写さない構造ではない | 1 run で計画の転記が最低 6〜7 回あり、回が増えるほど司令塔の context が膨らむ |
+| 24 | なし | `.agents/skills/repo-implement/SKILL.md:50`、`:80`、`:102`、`:114`、`:135`、`:160`、`.agents/skills/repo-implement/scripts/implement-core.mjs:164`、`:239-243`、`.agents/skills/repo-implement/scripts/implement-cli.mjs:155-161`、`:333-335` | 計画の JSON の全文を、司令塔が inventory・run-checks・begin-round・Workflow の args・verify のたびに書き写す。record-review も repo-review の返り値（6〜8KB）を写し、計画のファイルの path と sum を別の値として写す。sum は写し間違いの検出で、写さない構造ではない | SKILL.md の手順どおりに進めると、司令塔が計画か返り値を inline で写す箇所が 5 つある（`SKILL.md:80`・`:102`・`:114`・`:135`・`:160` を数えた値で、実 run の回数ではない）。回が増えるほど司令塔の context が膨らむ |
 | 25 | なし | `.agents/skills/repo-implement/scripts/implement-cli.mjs:370-377`、`:380-382`、`.agents/skills/address-review/scripts/address-cli.mjs:186-198`、`.agents/skills/address-review/SKILL.md:118` | address-review が repo-implement の合否を受け取るのは、司令塔が写す `{passed, actual}` だけ。sum も記録の path も無い | 写し間違いや作った値でも、record-fix は commit・push へ進む。他の受け渡しは sum で守るのに、ここだけ穴になる |
 
 ### 機械で確かめる
@@ -150,7 +150,7 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 
 | # | 要求 ID | path:line | ずれ | 守らないと壊れること |
 |---|---|---|---|---|
-| 28 | なし | `.agents/skills/repo-implement/SKILL.md:189`、`.agents/skills/address-review/SKILL.md:40`、`:116` | run をまたぐ記録（どの指摘で止まったか、何回作り直したか）を持たない。`stateDir` は run ごとに捨てる | 「計画外で止まる → 作り直す」の繰り返しがスキルの記録に現れず、設計の直しにつなげられない。今回の計測も外から transcript を集めて作った |
+| 28 | なし | `.agents/skills/repo-implement/SKILL.md:189`、`.agents/skills/address-review/SKILL.md:40` | run をまたぐ記録（どの指摘で止まったか、何回作り直したか）を持たない。`stateDir` は run ごとに捨てる | 「計画外で止まる → 作り直す」の繰り返しがスキルの記録に現れず、設計の直しにつなげられない。今回の計測も外から transcript を集めて作った |
 
 ## 設計方針の側の欠け
 
@@ -178,6 +178,7 @@ Workflow の内訳は、計画 9 本・実装 3 本・レビュー 5 本・分�
 | `develop-plugin.md` の 39-125 行・154-209 行・222-348 行・408-448 行 | スキル間の監査役は、衝突を 24-25・32・126-152・210-221・350-406 行の範囲で見た |
 | 実機の挙動（Codex runner でのモデルの解決、agent の権限の実効性） | 実行していない。計測表と抜き出した行だけで判断した |
 | `tests/` の模擬実行のテストが全数列挙か標本か | 抜き出した束に入れていない |
+| 起動数の上限（PR-016・017・019〜023） | 監査役は照らしていない。fan-out を持つのは review の run だけで、構成案「起動数の上限」が扱う。再設計で足す役が起動数に与える影響は、再設計の文書の「体数と起動数」に置く |
 
 ## 未確定事項
 
