@@ -21,7 +21,7 @@
 ## 結論と範囲
 
 - 土台は claude-plugins の `repo-implement`・`repo-review`・`address-review`（`.agents/skills/` の未公開の実体）にする。CLI と `stateDir` で状態を持ち、sum で写し間違いを止め、検証役を生成役と別の context に置く作りは、3 リポジトリの中でこれだけが持つ（出所は「3 リポジトリから取り込む仕組み」）。
-- 今の役の分担・段・照合は残す。変えるのは 2 種類だけ。
+- 今の役の分担・段・照合は残す。変えるのは 2 種類だけ。（この行は `docs/design/develop-skills-redesign.md` の「develop-plugin.md との関係」で置き換える。役・段・照合も変える）
   - claude-plugins に固有の値の直書きを、利用側リポジトリの宣言と導出に移す（「利用側リポジトリとの契約」）。
   - 一般化と設計方針への適合に要る段・op を足す。足すのは、投稿と投稿の確認、上限で止めた review-run の返り値をセッション側の CLI が状態に書く op とそこからの再開、skip 一覧からの追加起動、`REVIEW.md` の必須の観点の強制、観点ごとの focus を書く役、`pipeline_status`、PR の head の worktree、`stopAfter: "plan"` とそこからの再開、外のレビュー結果の分類（PR のある対象と無い対象）、返信の前の required checks の待ち、条件つきの resolve、git の外の対象のレビュー。どれも本文の該当節に書く。
 - 3 スキルは同じ plugin に入れる。implement は review の返り値を厳密に照合し、address-review は implement に修正を渡す。別々の plugin にすると、相手の版がずれたときに照合が壊れる。
@@ -29,7 +29,7 @@
 | 共通化するもの（develop が持つ） | 利用側リポジトリに残すもの |
 |---|---|
 | 段の順序、CLI の照合（状態・券・snapshot・pin・coverage・票の集計・返信の再照合）、役の prompt（`agents/*.md`）、Workflow source、既定の観点 | 方針文書（`REVIEW.md` とその「読むもの」表が挙げる文書）、check の許可リストと必須 check、除外と生成物の置き場、commit 後の push の要否、人が読む出力の言語 |
-| 役ごとの model・effort（Workflow source の `ROLE_MODELS`） | 領域の観点（dcf の金融ロジック・Rust、pk のコーパス保護）。どれも各リポジトリの `REVIEW.md` に書く |
+| 役ごとの model・effort（Workflow source の `ROLE_MODELS`。初期値と理由の正本は `docs/design/develop-skills-redesign.md`「役ごとのモデル・effort」） | 領域の観点（dcf の金融ロジック・Rust、pk のコーパス保護）。どれも各リポジトリの `REVIEW.md` に書く |
 
 **dcf の magi-issue-resolver は対象外にする。** Issue の選定から PR-ready・振り返りまでを 1 本の Workflow（`.agent/skills/magi-issue-resolver/scripts/issue-resolve.js`）で回すもので、実装・レビュー・指摘対応に分かれていない（dcf の SKILL.md を gh api で読んで確かめた）。「develop:* を呼ぶ側になる」という見立ては、条件つきでだけ成り立つ。
 - develop:implement と develop:address-review は、セッションが CLI を shell で流し、Workflow を段ごとに別の run で起動する作り。Workflow の中の agent から別の Workflow を起動できるかは未確認で、Codex runner は入れ子の workflow を持たない（`plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md` の未実装の一覧）。magi の Workflow の中から develop:* は呼べない前提で考える。
@@ -85,7 +85,7 @@ Workflow source の名前（`meta.name`）は `implement-plan`・`implement-run`
 | Codex runner | run ごとの `requirements`。`implement-run` だけを workspace-write にし、他の run は read-only | runner は agent ごとの道具の許可を持たない（runtime README の未実装の一覧）。同じ run の中の役は分けられない |
 | Claude Code の native Workflow | run の単位では何も強いない。permission rules は全ての subagent に同じく効く（設計方針文書「権限」）。登録した agent type の `tools`・`disallowedTools` で Edit・Write を外すことはできるが、`agent()` からその型を指定できるかは未確認（同節） | planner・reviewer・検証役・分類役の、Bash 経由などの書き込みは止められない。事後に検出するだけ（implement は段ごとの snapshot、review は pin、全ての役は返した `head_sha` の照合）。道具の制限を使えたとしても、この検出は残す |
 
-- read-only の run の中では、`stateDir` を含めてどこにも書かない。運搬役が run の中で流す CLI の op は、今と同じく読んで照合し結果を返すだけのもの（今の `review-cli.mjs` の `CARRIER_OPS` は pin・merge・judge で、状態を書かない）。状態を書く op は、run が返った後にセッションが流す（implement の `inventory`、address-review の `triage-result` と同じ形）。
+- read-only の run の中では、`stateDir` を含めてどこにも書かない（native Workflow で役が作業ファイルを書く案は `docs/design/develop-skills-redesign.md`「運搬の形」）。運搬役が run の中で流す CLI の op は、今と同じく読んで照合し結果を返すだけのもの（今の `review-cli.mjs` の `CARRIER_OPS` は pin・merge・judge で、状態を書かない）。状態を書く op は、run が返った後にセッションが流す（implement の `inventory`、address-review の `triage-result` と同じ形）。
 - 各 SKILL.md には、run の前に利用者が許可しておくものを書く。node と git の実行、gh の読み出し、セッションが流す CLI の `stateDir` への書き込み。address-review と review の投稿では、gh の POST も要る。address-review の resolve では、`gh api graphql` の mutation も要る（「resolve」）。review の `external` モードでは、repo の外の名指されたファイルの読み出しも要る。許可が無いと、長い run の途中で確認が出て止まる（`R:p1-best-practices-7`・`A:p1-best-practices-5`）。
 - 役の prompt は `agents/*.md` をパスで読ませ、subagent として登録しない。plugin から読む agent で無視される frontmatter は `hooks`・`mcpServers`・`permissionMode` で、`tools` は効く（subagents の docs）。それでも登録しないのは、`agent()` から登録した型を指定できるかが未確認で、指定できても道具の制限が Bash 経由の書き込みを止めず、run の境界の検出が要ることに変わりがないため。指定できると確かめられたら、書き込ませない役に Edit・Write を外した型を使うのは、検出に足す守りとして段 1b で検討する。
 - 「残る危険」の列の内容は、各スキルの結果に毎回書く（PR-015）。
@@ -125,7 +125,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 
 ## 形の判定
 
-設計方針文書「形の判定」の図を、軽い形から順に当てた結果（PR-001）。重い形を選んだ所は、それを強いた条件を書く（PR-002）。
+設計方針文書「形の判定」の図を、軽い形から順に当てた結果（PR-001）。重い形を選んだ所は、それを強いた条件を書く（PR-002）。implement と address-review の判定は `docs/design/develop-skills-redesign.md`「形の判定」で当て直す。
 
 | 単位 | 問いへの答え | 形と部品 | 資産台帳 | 形を強いた条件 |
 |---|---|---|---|---|
@@ -217,7 +217,7 @@ fan-out を持つ Workflow source は `review-run` だけ。今の 4 本を `par
 - address-review は implement を呼ぶとき、PR の番号と、collect で固定した方針の版の SHA を渡す。今はそれぞれが始めた時点で主ブランチの先端を固定するので、間に主ブランチが進むと別の版で読む（`address-review` SKILL.md「照合しないもの」）。
   - 今の implement が方針の版を入力に取らないのは、作業 branch の規約で同じ変更を免責しないため（`repo-implement` SKILL.md「開始: 状態を固定する」の 2）。
   - その防ぎを残すため、implement の CLI は、照らす先の branch を自分で導く。PR の番号を渡されたら `gh pr view --json baseRefName` の base の branch、PR の無い形で collect が branch を名指していればその branch（remote にあることを確かめる）、どちらも無ければ既定ブランチ（「方針の版は設定に入れず、導く」）。渡された SHA がその branch の remote の先端の祖先（同じを含む）であることを `git merge-base --is-ancestor` で確かめ、違えば拒否する。base が `release/*` の PR でも、照らす先は既定ブランチではなく PR の base になる。作業 branch の commit は base の branch の祖先にならないので通らない。
-- 返り値の形（`sum` を含む）は review の Workflow source の schema を正本にし、implement の `record-review` はそれを照合する。同じ plugin の同じ版で配るので、版のずれは起きない。
+- 返り値の形（`sum` を含む）は review の Workflow source の schema を正本にし、implement の `record-review` はそれを照合する。同じ plugin の同じ版で配るので、版のずれは起きない。（返り値を path と sum にし、正本を CLI が書く結果のファイルの schema に移す案は `docs/design/develop-skills-redesign.md`「運搬の形」）
 
 ## 決定で足す流れ
 
@@ -371,7 +371,7 @@ develop:review で置き換え、次を取り込む。
 | 兄弟スキルが入っていない環境 | I:p1-loopholes-3、I:p1-best-practices-6、I:p1-prompt-audit-2、A:p1-loopholes-3、A:p1-best-practices-4 | 同じ plugin に入れる |
 | commit と push の規則を AGENTS.md に結合 | I:p1-loopholes-5、push の D | `afterCommit` の宣言と、導いた remote。push の argv は CLI が出す |
 | PR のレビューに head の checkout が要る | R:p1-description-alignment-3 | CLI が headSha の worktree を作る（「pr-review・pr-review-fix の機能の行き先」） |
-| model・effort の根拠が AGENTS.md を指す | minor の I:p1-best-practices-5、triage.js の D | 根拠を設計方針文書「モデル・effort・prompt」と eval の記録に置き換える |
+| model・effort の根拠が AGENTS.md を指す | minor の I:p1-best-practices-5、triage.js の D | 根拠を設計方針文書「モデル・effort・prompt」と eval の記録に置き換える。値は `docs/design/develop-skills-redesign.md`「役ごとのモデル・effort」 |
 | 他人の PR・fork の PR への push | A:p1-loopholes-5 | collect で head に push できるかを確かめ、できなければ fix を needs_decision にして止める（gh で取れる項目は未確認） |
 | 写しの一致の検査が配布物の外 | minor の A:p1-best-practices-6、address-core.mjs の D、A:p1-duplicate-claims-3、R:p1-duplicate-claims-4 | 一致の照合を各スキルの `scripts/*.test.mjs` に移す。模擬実行は直下の `tests/` に残す |
 | eval が claude-plugins の PR 番号に依存 | minor の A:p1-best-practices-7 | fixture に置き換え、汎用の対象で測る |
