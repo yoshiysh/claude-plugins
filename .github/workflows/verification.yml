@@ -10,6 +10,32 @@ permissions:
   contents: read
 
 jobs:
+  formal-bp-prd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '11'
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: '1.99.0'
+      - name: Download pinned TLC
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+        run: |
+          curl --fail --location --retry 3 --output "$TLA2TOOLS" \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+      - name: Check BP requirements model
+        env:
+          TLA2TOOLS: ${{ runner.temp }}/tla2tools.jar
+        run: |
+          command -v java
+          command -v rustc
+          command -v shasum
+          tests/formal/bp-prd/check.sh
+
   verification:
     runs-on: ubuntu-latest
     steps:

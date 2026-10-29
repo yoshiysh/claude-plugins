@@ -394,7 +394,14 @@ flowchart TD
 
 プログラム契約は事前条件の下で事後条件などを確かめ、定理証明は明記した定義・公理から対象の命題を導く。モデルを検査した場合、実装がモデルに対応することは別に確かめる。
 
-道具の例として TLA+、Alloy、Dafny、Lean がある。各道具の一次資料（[TLA+](https://lamport.azurewebsites.net/tla/tools.html)、[Alloy](https://alloytools.org/documentation.html)、[Dafny](https://dafny.org/dafny/OnlineTutorial/guide)、[Lean](https://lean-lang.org/theorem_proving_in_lean4/)）に基づく個別の機能と適用可能性は未確認であり、採用時に確認する。
+検証する性質に応じた道具の例を示す（各一次資料は 2026-10-29 に確認）。道具の用途は重なり、表は選択を限定しない。
+
+| 道具 | 使う場面の例 | 前提と範囲の例 |
+|---|---|---|
+| [TLA+・TLC](https://lamport.azurewebsites.net/tla/tools.html) | 停止・再開や並行処理を状態遷移として表し、完了条件や進行性をモデル検査する | TLC は指定したモデルの状態を探索する。有限化した範囲と、進行に必要な環境・公平性の前提を示す |
+| [Alloy](https://alloytools.org/documentation.html) | 資産・証拠・判定の関係や ID の一意性を表し、制約を破る例を探す。Alloy 6 では時間を含むモデル検査もできる | [探索する要素の範囲](https://alloytools.org/spec.html)を定める。指定した範囲で反例が無いことを、範囲外の保証に広げない |
+| [Dafny](https://dafny.org/dafny/OnlineTutorial/guide) | プログラムの事前条件・事後条件やループの不変条件を記述し、実装が契約を満たすか検証する | 契約と、その検証対象のコードが前提となる。別の実装が同じ性質を持つかは別に確かめる |
+| [Lean](https://lean-lang.org/theorem_proving_in_lean4/Introduction/) | 数学的な性質やアルゴリズムの性質を命題として定め、証明を機械で検査する | 明記した定義・公理と証明対象についての結果である。対象の定義や実装との対応は別に確かめる |
 
 ## 資産台帳
 
