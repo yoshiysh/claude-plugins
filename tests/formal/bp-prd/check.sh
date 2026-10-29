@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+if [ -n "${TLC_DOT:-}" ]; then
+  case "$TLC_DOT" in
+    /*) ;;
+    *) echo 'TLC_DOT must be an absolute path' >&2; exit 1 ;;
+  esac
+fi
 base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(CDPATH= cd -- "$base/../../.." && pwd)
 jar=${TLA2TOOLS:?Set TLA2TOOLS to the pinned tla2tools.jar}
@@ -13,13 +19,25 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/bp-prd-tlc.XXXXXX")
 trap 'rm -r "$tmp"' EXIT HUP INT TERM
 cp "$base/BP.tla" "$base/BP.cfg" "$tmp/"
 cd "$tmp"
+run_module=BP
 run() {
-  "$java" -Djava.io.tmpdir="$tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers 1 -metadir "$tmp/states-$1" -config "$tmp/$1.cfg" BP.tla > "$tmp/$1.log" 2>&1
+  run_name=$1; shift
+  "$java" -Djava.io.tmpdir="$tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers 1 -metadir "$tmp/states-$run_name" -config "$tmp/$run_name.cfg" "$@" "$run_module.tla" > "$tmp/$run_name.log" 2>&1
 }
+expect_exit() {
+  expect_name=$1; expect_code=$2; expect_message=$3; expect_label=$4; shift 4
+  expect_status=0; run "$expect_name" "$@" || expect_status=$?
+  if [ "$expect_status" -ne "$expect_code" ] || ! grep -F "$expect_message" "$tmp/$expect_name.log" >/dev/null; then
+    echo "$expect_label; exit=$expect_status" >&2
+    cat "$tmp/$expect_name.log" >&2; exit 1
+  fi
+}
+invariant_violation=12
+temporal_violation=13
+success=0
+success_message='Model checking completed. No error has been found.'
 cp BP.cfg baseline.cfg
-if ! "$java" -Djava.io.tmpdir="$tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers 1 -metadir "$tmp/states-baseline" -config "$tmp/baseline.cfg" -dump dot,actionlabels "$tmp/graph.dot" BP.tla > "$tmp/baseline.log" 2>&1; then
-  cat "$tmp/baseline.log" >&2; exit 1
-fi
+expect_exit baseline "$success" "$success_message" 'Expected successful baseline' -dump dot,actionlabels "$tmp/graph.dot"
 "$rustc" "$base/project_graph.rs" -o "$tmp/project-graph"
 cat > "$tmp/initial-fixture.dot" <<'DOT'
 strict digraph DiskGraph {
@@ -53,8 +71,33 @@ if ! cmp -s "$tmp/generated-graph.md" "$tmp/documented-graph.md"; then
   exit 1
 fi
 echo "README state graph matches TLC projection"
-grep -F 'Model checking completed. No error has been found.' "$tmp/baseline.log" >/dev/null
 printf 'normal: '; grep 'distinct states found' "$tmp/baseline.log" | tail -1
+cat > BPMaxRuns.tla <<'TLA'
+-------------------------- MODULE BPMaxRuns --------------------------
+EXTENDS BP
+NextThree ==
+  \/ /\ phase = "planning" /\ AcceptPlan
+  \/ /\ phase = "running" /\ VerifyFail
+  \/ /\ phase = "blocked" /\ run \notin fullySaved /\ StopSave
+  \/ /\ phase = "blocked" /\ run \in fullySaved /\ ~reported /\ Report
+  \/ /\ phase = "blocked" /\ reported /\ ~repaired /\ Repair
+  \/ /\ phase = "blocked" /\ reported /\ repaired /\ run < MaxRuns /\ Resume
+WitnessThree == ~(run = 3 /\ 3 \in records)
+======================================================================
+TLA
+cat > three-runs.cfg <<'CFG'
+CONSTANTS Mutation = "none" MaxRuns = 3
+INIT Init
+NEXT NextThree
+INVARIANTS TypeOK
+CHECK_DEADLOCK FALSE
+CFG
+run_module=BPMaxRuns
+expect_exit three-runs "$success" "$success_message" 'Expected TypeOK with three runs'
+sed 's/INVARIANTS TypeOK/INVARIANTS WitnessThree/' three-runs.cfg > witness-three.cfg
+expect_exit witness-three "$invariant_violation" 'Invariant WitnessThree is violated' 'Expected a record for the third run'
+run_module=BP
+echo 'TypeOK accepts a reachable third-run record'
 for case in \
   no_stop_verification:VerificationFailureStops \
   no_stop_save:SaveFailureStops \
@@ -72,77 +115,49 @@ for case in \
   missing_report_omitted:ReportAccurate; do
   name=${case%%:*}; invariant=${case#*:}
   sed "s/Mutation = \"none\"/Mutation = \"$name\"/; s/^INVARIANTS .*/INVARIANTS $invariant/; /^PROPERTIES /d" BP.cfg > "$name.cfg"
-  status=0; run "$name" || status=$?
-  if [ "$status" -ne 12 ] || ! grep -F "Invariant $invariant is violated" "$tmp/$name.log" >/dev/null; then
-    echo "Expected counterexample for $name ($invariant); exit=$status" >&2
-    cat "$tmp/$name.log" >&2; exit 1
-  fi
+  expect_exit "$name" "$invariant_violation" "Invariant $invariant is violated" "Expected counterexample for $name ($invariant)"
   echo "$name: expected counterexample ($invariant)"
 done
 for invariant in NoUnspecifiedTransitions RunningRequiresAcceptedPlan; do
   sed "s/Mutation = \"none\"/Mutation = \"ghost_start\"/; s/^INVARIANTS .*/INVARIANTS $invariant/; /^PROPERTIES /d" BP.cfg > "ghost-$invariant.cfg"
-  status=0; run "ghost-$invariant" || status=$?
-  if [ "$status" -ne 12 ] || ! grep -F "Invariant $invariant is violated" "$tmp/ghost-$invariant.log" >/dev/null; then
-    echo "Expected ghost transition counterexample ($invariant); exit=$status" >&2
-    cat "$tmp/ghost-$invariant.log" >&2; exit 1
-  fi
+  expect_exit "ghost-$invariant" "$invariant_violation" "Invariant $invariant is violated" "Expected ghost transition counterexample ($invariant)"
   echo "ghost_start: expected counterexample ($invariant)"
 done
 for action in AddHint Deliver AcceptPlan PlanFailed NeedsInput DryStop LimitStop ReplanForHint VerifyPass VerifyFail PartialSave SavePass SaveFail Complete StopSave StopSaveFail Report Repair Answer Resume RequestDelete Delete; do
   name=omit_$action
   sed "s/Mutation = \"none\"/Mutation = \"$name\"/; s/^INVARIANTS .*/INVARIANTS EventContract/; /^PROPERTIES /d" BP.cfg > "$name.cfg"
-  status=0; run "$name" || status=$?
-  if [ "$status" -ne 12 ] || ! grep -F 'Invariant EventContract is violated' "$tmp/$name.log" >/dev/null; then
-    echo "Expected missing-event counterexample for $action; exit=$status" >&2
-    cat "$tmp/$name.log" >&2; exit 1
-  fi
+  expect_exit "$name" "$invariant_violation" 'Invariant EventContract is violated' "Expected missing-event counterexample for $action"
   echo "$name: missing required transition detected"
 done
 for case in wrong_plan_failure_result wrong_needs_input_result wrong_accept_plan_result wrong_verify_failure_result wrong_save_failure_result wrong_resume_result wrong_report_reason missing_report_omitted wrong_save_failure_report omit_save_failure_report; do
   sed "s/Mutation = \"none\"/Mutation = \"$case\"/; s/^INVARIANTS .*/INVARIANTS OutcomeContract/; /^PROPERTIES /d" BP.cfg > "$case.cfg"
-  status=0; run "$case" || status=$?
-  if [ "$status" -ne 12 ] || ! grep -F 'Invariant OutcomeContract is violated' "$tmp/$case.log" >/dev/null; then
-    echo "Expected wrong-outcome counterexample for $case; exit=$status" >&2
-    cat "$tmp/$case.log" >&2; exit 1
-  fi
+  expect_exit "$case" "$invariant_violation" 'Invariant OutcomeContract is violated' "Expected wrong-outcome counterexample for $case"
   echo "$case: wrong required outcome detected"
 done
 for pair in premature_hint_read:HintReadOnlyAfterAccept resume_without_report:ResumeOnlyAfterReportAndRepair resume_without_repair:ResumeOnlyAfterReportAndRepair; do
   case=${pair%%:*}; property=${pair#*:}
   sed "s/Mutation = \"none\"/Mutation = \"$case\"/; s/ OutcomeContract//" BP.cfg > "$case.cfg"
-  status=0; run "$case" || status=$?
-  if [ "$status" -ne 13 ] || ! grep -F "Action property $property is violated" "$tmp/$case.log" >/dev/null; then
-    echo "Expected temporal counterexample for $case; exit=$status" >&2
-    cat "$tmp/$case.log" >&2; exit 1
-  fi
+  expect_exit "$case" "$temporal_violation" "Action property $property is violated" "Expected temporal counterexample for $case"
   echo "$case: expected temporal counterexample"
 done
 # A witness is checked by intentionally making the sought state violate an invariant.
 for witness in WitnessHintResume WitnessNeedsInputResume WitnessDryResume WitnessLimitResume WitnessPartialStopSave WitnessPartialStopFailure WitnessPartialSaveFailure WitnessTwoRunsRecords; do
   sed "s/^INVARIANTS .*/INVARIANTS $witness/; /^PROPERTIES /d" BP.cfg > "$witness.cfg"
-  status=0; run "$witness" || status=$?
-  if [ "$status" -ne 12 ] || ! grep -F "Invariant $witness is violated" "$tmp/$witness.log" >/dev/null; then
-    echo "Required state is unreachable: $witness; exit=$status" >&2; cat "$tmp/$witness.log" >&2; exit 1
-  fi
+  expect_exit "$witness" "$invariant_violation" "Invariant $witness is violated" "Required state is unreachable: $witness"
   echo "$witness: reachable"
 done
 for witness in WitnessHintResume WitnessNeedsInputResume WitnessDryResume WitnessLimitResume; do
   for case in no_hint_after_stop no_resume; do
     name="$case-$witness"
     sed "s/Mutation = \"none\"/Mutation = \"$case\"/; s/^INVARIANTS .*/INVARIANTS $witness/; /^PROPERTIES /d" BP.cfg > "$name.cfg"
-    if ! run "$name" || ! grep -F 'Model checking completed. No error has been found.' "$tmp/$name.log" >/dev/null; then
-      echo "Expected $witness to be unreachable after $case" >&2; cat "$tmp/$name.log" >&2; exit 1
-    fi
+    expect_exit "$name" "$success" "$success_message" "Expected $witness to be unreachable after $case"
     echo "$name: missing route detected (witness unreachable)"
   done
 done
 sed 's/SPECIFICATION Spec$/SPECIFICATION SpecWithoutFair/' BP.cfg > no_fairness.cfg
-status=0; run no_fairness || status=$?
-if [ "$status" -ne 13 ] || ! grep -F 'Temporal properties were violated' "$tmp/no_fairness.log" >/dev/null; then
-  echo "Expected progress counterexample without fairness; exit=$status" >&2; cat "$tmp/no_fairness.log" >&2; exit 1
-fi
+expect_exit no_fairness "$temporal_violation" 'Temporal properties were violated' 'Expected progress counterexample without fairness'
 echo 'no_fairness: expected progress counterexample'
 if [ "${TLC_DOT:-}" ]; then
-  "$java" -Djava.io.tmpdir="$tmp" -XX:+UseParallelGC -cp "$jar" tlc2.TLC -workers 1 -metadir "$tmp/dump-states" -config BP.cfg -dump dot,actionlabels "$TLC_DOT" BP.tla > "$tmp/dump.log" 2>&1
+  cp "$tmp/graph.dot" "$TLC_DOT"
   echo "state graph: $TLC_DOT"
 fi

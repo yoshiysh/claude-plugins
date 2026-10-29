@@ -121,7 +121,7 @@ Allowed == AddHint \/ Deliver \/ AcceptPlan \/ PlanFailed \/ NeedsInput \/ DrySt
 NoUnspecifiedTransitions == ~ENABLED (Next /\ ~Allowed)
 TypeOK == /\ phase \in {"planning", "running", "blocked", "needs_input", "dry", "limit", "done"}
   /\ verification \in {"pending", "pass", "fail"} /\ persistence \in {"pending", "pass", "fail"}
-  /\ records \subseteq {1, 2} /\ everSaved \subseteq {1, 2} /\ deleteRequested \in BOOLEAN
+  /\ records \subseteq 1..MaxRuns /\ everSaved \subseteq 1..MaxRuns /\ deleteRequested \in BOOLEAN
   /\ planAccepted \in BOOLEAN /\ directWrite \in BOOLEAN /\ hintOnStop \in BOOLEAN /\ needsInputSeen \in BOOLEAN /\ hintBlocked \in BOOLEAN /\ hint \in {"none", "unread", "delivered", "read"}
   /\ reason \in {"none", "planner", "verify", "save", "needs_input", "dry", "limit"}
   /\ reportedReason \in {"none", "planner", "verify", "save", "needs_input", "dry", "limit", "wrong"}
