@@ -31,6 +31,7 @@ claude-plugins の address-review は、PR の指摘を分類役と検証役で�
 
 - 方針の版の導き方と、利用側の宣言の扱いは PR-DEVELOPPLUGIN-011〜015・080 に従う。
 - 修正は develop:implement に依存する。
+- 停止と再開の表と完了の条件の「模型の action」の列は、`tests/formal/develop/DevelopSkill.tla` の action の名前を、「模型の性質」の列は `tests/formal/develop/DevelopProps.tla` の性質の名前を指す。
 
 ## リスクと影響
 
@@ -74,10 +75,10 @@ address-review は、外のレビュー結果の指摘に、指摘の順序と�
 対象が PR であるとき、address-review は、指摘の収集の時点で PR の head に push できるかを確かめなければならない（他人の PR や fork の PR では push できないことがある）。
 
 #### PR-DEVELOPADDRESSREVIEW-011 push できないとき
-PR の head に push できず、直す変更のある fix（develop:implement に渡し、push が要る fix）があるならば、address-review はその fix を人の判断待ちにして止まらなければならない。
+PR の head に push できず、直す変更のある fix（develop:implement に渡し、push が要る fix）があるならば、address-review は develop:implement に渡す前に止まり、push できるように権限を直して同じ next_args で再開することと、止める所を検証にして新しく呼ぶことを、人が決める次の手として返さなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-047 push できず直す変更が無いとき
-PR の head に push できず、止める所が指定なし・返信・resolve のどれかであり、直す変更のある fix が無いとき（直した commit を記録した fix・decline・out_of_scope だけのとき）、address-review は、PR-DEVELOPADDRESSREVIEW-011 の人の判断待ちにせず、push しない流れで PR-DEVELOPADDRESSREVIEW-027 の required checks の待ちへ進まなければならない（返信へ進むか返信せずに止まるかは PR-DEVELOPADDRESSREVIEW-029 の表、返信と resolve は PR-DEVELOPADDRESSREVIEW-021 の表のその止める所の行による）。
+PR の head に push できず、止める所が指定なし・返信・resolve のどれかであり、直す変更のある fix が無いとき（直した commit を記録した fix・decline・out_of_scope だけのとき）、address-review は、PR-DEVELOPADDRESSREVIEW-011 で止まらず、push しない流れで PR-DEVELOPADDRESSREVIEW-027 の required checks の待ちへ進まなければならない（返信へ進むか返信せずに止まるかは PR-DEVELOPADDRESSREVIEW-029 の表、返信と resolve は PR-DEVELOPADDRESSREVIEW-021 の表のその止める所の行による）。
 
 #### PR-DEVELOPADDRESSREVIEW-012 指摘より後の commit の一覧
 対象が PR であるとき、address-review は、指摘の収集で、指摘ごとに、その指摘が付いた時より後の PR の commit（指摘より後の commit）を一覧にして分類役に渡さなければならない。
@@ -88,7 +89,7 @@ PR の head に push できず、止める所が指定なし・返信・resolve 
 address-review は、分類役と分類の検証役を、読み取り専用の run で、分類役・検証役の順に動かさなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-014 分類が食い違ったとき
-分類役と分類の検証役の分類が食い違ったならば、address-review は止まり、食い違った指摘を返さなければならない。
+分類役と分類の検証役の分類が食い違ったならば、address-review は、食い違わなかった指摘の分類を受け入れ、食い違った指摘を人の判断が要る指摘として、PR-DEVELOPADDRESSREVIEW-019 と同じく run の境界で止まらなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-015 分類の run の書き込み
 分類の run の中で書き込みを検出したならば、address-review は BLOCKED で止まらなければならない。
@@ -100,7 +101,7 @@ address-review は、分類役と分類の検証役を、読み取り専用の r
 address-review は、記録した直した commit がその指摘の、指摘より後の commit の一覧にあり、その commit がその指摘の修正の対象のパスのどれかを変えていることを照らさなければならない。修正の対象のパスは、分類が fix の指摘ごとに分類で挙げる、直すのに変えるパスであり、指摘が付いた位置のパスではない。
 
 #### PR-DEVELOPADDRESSREVIEW-053 直した commit の照合に合わないとき
-PR-DEVELOPADDRESSREVIEW-017 の照合に合わないか照らせないならば、address-review は分類の結果を受け入れずに止まり、合わなかった指摘を返さなければならない。
+PR-DEVELOPADDRESSREVIEW-017 の照合に合わないか照らせないならば、address-review は、合わなかった指摘のほかの分類を受け入れ、合わなかった指摘を人の判断が要る指摘として、PR-DEVELOPADDRESSREVIEW-019 と同じく run の境界で止まらなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-018 既に直った指摘を修正に渡さない
 address-review は、直した commit を記録した fix を develop:implement に渡してはならない（直す変更が無い）。
@@ -112,7 +113,16 @@ address-review は、直した commit を記録した fix を develop:implement 
 address-review は、同じ状態に分類の run の結果を受け入れ直すことと、返信を組み立て直すことを拒否しなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-048 人の判断を入れること
-address-review は、人の判断待ちで止まった後に人の判断を入れることを、PR-DEVELOPADDRESSREVIEW-020 の拒否の対象にしてはならない（人の判断は分類の結果の受け入れとは別の記録である）。
+address-review は、人の判断が要る停止で止まった後に人の判断を入れることを、PR-DEVELOPADDRESSREVIEW-020 の拒否の対象にしてはならない（人の判断は分類の結果の受け入れとは別の記録である）。
+
+#### PR-DEVELOPADDRESSREVIEW-061 人の判断の値
+address-review は、人の判断として、指摘ごとに fix・decline・out_of_scope のどれかだけを受け付けなければならない。
+
+#### PR-DEVELOPADDRESSREVIEW-064 fix の判断の修正の対象のパス
+address-review は、fix の人の判断を、修正の対象のパス（PR-DEVELOPADDRESSREVIEW-017）を伴うときだけ受け付けなければならない。
+
+#### PR-DEVELOPADDRESSREVIEW-062 人の判断を入れた指摘の扱い
+address-review は、人の判断を入れた指摘を、分類の値を見る全ての要求（develop:implement への受け渡し、「直す変更」の有無、PR-DEVELOPADDRESSREVIEW-021・041・042 の表を含む）で、その判断の値を分類の値として扱わなければならない。
 
 ### 止める所
 
@@ -125,22 +135,22 @@ address-review は、PR の有無・止める所の指定・直す変更の有�
 
 | 条件: PR | 条件: 止める所 | 条件: 直す変更 | 結果 | 結果: 行わない操作 |
 |---|---|---|---|---|
-| あり | 指定なし | * | resolve とその確認まで進む | なし |
-| あり | 分類 | * | 分類と分類の検証の後で止まる | commit・push・返信・resolve |
-| あり | 検証 | ある | develop:implement に commit を頼まずに修正を渡し、最終照合の後で止まる（変更は作業ツリーに残る） | commit・push・返信・resolve |
-| あり | 検証 | 無い | 分類と分類の検証の後で止まる | commit・push・返信・resolve |
-| あり | push | ある | develop:implement の修正の commit を PR の head に push した後で止まる | 返信・resolve |
-| あり | push | 無い | 分類と分類の検証の後で止まる | commit・push・返信・resolve |
-| あり | 返信 | * | 返信とその確認の後で止まる | resolve |
-| あり | resolve | * | resolve とその確認まで進む | なし |
-| なし | 指定なし | ある | develop:implement に commit を頼まずに修正を渡し、修正まで進む | commit・push・返信・resolve |
-| なし | 指定なし | 無い | 分類と分類の検証の後で止まる | commit・push・返信・resolve |
-| なし | 分類 | * | 分類と分類の検証の後で止まる | commit・push・返信・resolve |
-| なし | 検証 | ある | develop:implement に commit を頼まずに修正を渡し、最終照合の後で止まる | commit・push・返信・resolve |
-| なし | 検証 | 無い | 分類と分類の検証の後で止まる | commit・push・返信・resolve |
-| なし | push | * | 指定を拒否する | commit・push・返信・resolve |
-| なし | 返信 | * | 指定を拒否する | commit・push・返信・resolve |
-| なし | resolve | * | 指定を拒否する | commit・push・返信・resolve |
+| あり | 指定なし | * | resolve とその確認の後で完了する | なし |
+| あり | 分類 | * | 分類と分類の検証の後で完了する | develop:implement の呼び出し・commit・push・required checks の待ち・返信・resolve |
+| あり | 検証 | ある | develop:implement に commit を頼まずに修正を渡し、最終照合の後で完了する（変更は作業ツリーに残る） | commit・push・required checks の待ち・返信・resolve |
+| あり | 検証 | 無い | 分類と分類の検証の後で完了する | commit・push・required checks の待ち・返信・resolve |
+| あり | push | ある | develop:implement の修正の commit を PR の head に push した後で完了する | required checks の待ち・返信・resolve |
+| あり | push | 無い | 分類と分類の検証の後で完了する | commit・push・required checks の待ち・返信・resolve |
+| あり | 返信 | * | 返信とその確認の後で完了する | resolve |
+| あり | resolve | * | resolve とその確認の後で完了する | なし |
+| なし | 指定なし | ある | develop:implement に commit を頼まずに修正を渡し、修正の後で完了する | commit・push・required checks の待ち・返信・resolve |
+| なし | 指定なし | 無い | 分類と分類の検証の後で完了する | commit・push・required checks の待ち・返信・resolve |
+| なし | 分類 | * | 分類と分類の検証の後で完了する | develop:implement の呼び出し・commit・push・required checks の待ち・返信・resolve |
+| なし | 検証 | ある | develop:implement に commit を頼まずに修正を渡し、最終照合の後で完了する | commit・push・required checks の待ち・返信・resolve |
+| なし | 検証 | 無い | 分類と分類の検証の後で完了する | commit・push・required checks の待ち・返信・resolve |
+| なし | push | * | 指定を拒否する | commit・push・required checks の待ち・返信・resolve |
+| なし | 返信 | * | 指定を拒否する | commit・push・required checks の待ち・返信・resolve |
+| なし | resolve | * | 指定を拒否する | commit・push・required checks の待ち・返信・resolve |
 
 #### PR-DEVELOPADDRESSREVIEW-056 止める所が行わないとした操作
 address-review は、止める所の指定のもとで、PR-DEVELOPADDRESSREVIEW-021 の表がその行の「行わない操作」に挙げた操作を行ってはならない。
@@ -156,8 +166,11 @@ address-review は、直す変更のある fix を、PR の番号（PR がある
 #### PR-DEVELOPADDRESSREVIEW-024 develop:implement が止まったとき
 develop:implement が止まったならば、address-review は完了ではない停止として止まり、どの指摘についても（decline・out_of_scope・直した commit を記録した fix を含む）push・返信・resolve をせずに、develop:implement が止まった理由と、develop:implement の段から続けるための next_args を返さなければならない（止まった run で他の指摘に返信すると、再開の後に直した指摘の返信を組めない）。
 
+#### PR-DEVELOPADDRESSREVIEW-066 develop:implement が止まったときに返す人が決めること
+PR-DEVELOPADDRESSREVIEW-024 で止まるとき、address-review は、develop:implement が返した人が決めること（PR-DEVELOPIMPLEMENT-062・PR-DEVELOPPLUGIN-038）と、それを develop:implement の状態に足すことを、次の手として返さなければならない。
+
 #### PR-DEVELOPADDRESSREVIEW-055 develop:implement の段からの再開
-PR-DEVELOPADDRESSREVIEW-024 の next_args で再開した run は、入口の作業ツリーの検査と、分類の受け入れ・返信の組み立てを繰り返さず、状態にある分類の結果をそのまま使って develop:implement の段から続けなければならない（その後は止まらなかったときと同じく push・待ち・返信・resolve へ進む）。
+PR-DEVELOPADDRESSREVIEW-024 の next_args で再開した run は、入口の作業ツリーの検査と、分類の受け入れ・返信の組み立てを繰り返さず、状態にある分類の結果をそのまま使わなければならない（その後は止まらなかったときと同じく push・待ち・返信・resolve へ進む）。
 
 #### PR-DEVELOPADDRESSREVIEW-049 commit の依頼
 対象が PR で止める所が検証でないとき、address-review は、develop:implement に修正を渡すときに commit も頼まなければならない。
@@ -213,10 +226,10 @@ address-review は、required checks の状態に応じて、次の表のとお�
 required checks が失敗したとき、address-review はその失敗を直してはならない（CI の失敗は指摘ではない）。
 
 #### PR-DEVELOPADDRESSREVIEW-031 待ちの上限からの再開
-待つ回数の上限で止まった address-review を next_args で続けるとき、address-review は同じ状態から required checks の待ちだけを流し直し、分類の受け入れと返信の組み立てを繰り返してはならない。
+待つ回数の上限で止まった address-review を next_args で続けるとき、address-review は、分類の受け入れと返信の組み立てを繰り返してはならない（待った回数の数え方は PR-DEVELOPPLUGIN-041）。
 
 #### PR-DEVELOPADDRESSREVIEW-032 再開の前に head が動いていたとき
-待ちの上限からの再開の前に、PR の head が待っていた SHA（push したときは push した SHA、push しなかったときは待ち始めた時の PR の head）から動いていたならば、address-review は止まらなければならない。
+待ちの上限からの再開の前に、PR の head が待っていた SHA（push したときは push した SHA、push しなかったときは待ち始めた時の PR の head）から動いていたならば、address-review は止まらなければならない（続け方は PR-DEVELOPADDRESSREVIEW-059）。
 
 #### PR-DEVELOPADDRESSREVIEW-033 待ちの再開の回数
 address-review は、待ちの上限からの再開の回数を制限してはならない。
@@ -230,10 +243,10 @@ address-review は、待ちの上限からの再開の回数を状態に残さ�
 address-review は、返信の直前に、PR の head と指摘の thread を指摘の収集の時と照らし直さなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-036 head が他の人の push で動いたとき
-返信の直前の照らし直しで PR の head が他の人の push で動いていたならば、address-review は返信を止め、その指摘を次の run で扱わなければならない。
+返信の直前の照らし直しで PR の head が他の人の push で動いていたならば、address-review はその run のどの指摘にも返信せずに止まらなければならない（続け方は PR-DEVELOPADDRESSREVIEW-059）。
 
 #### PR-DEVELOPADDRESSREVIEW-050 thread の議論が変わっていたとき
-返信の直前の照らし直しで、どれか 1 つの指摘の thread の議論が収集の時から変わっていたならば（指摘の本文の書き換え・新しいコメント・既に resolve されたことを含む）、address-review はその run のどの指摘にも返信せずに止まり、返信しなかった指摘を次の run で扱わなければならない（head が動いたときと同じ扱い）。
+返信の直前の照らし直しで、どれか 1 つの指摘の thread の議論が収集の時から変わっていたならば（指摘の本文の書き換え・新しいコメント・既に resolve されたことを含む）、address-review はその run のどの指摘にも返信せずに止まらなければならない（head が動いたときと同じ扱い）。
 
 #### PR-DEVELOPADDRESSREVIEW-051 返信を止めた指摘の報告
 PR-DEVELOPADDRESSREVIEW-050 で返信を止めたとき、address-review は議論が変わった指摘を、返信を止めた指摘として報告に書かなければならない。
@@ -290,3 +303,77 @@ address-review の検査は、分類と resolve の候補の各条件の成否�
 
 #### PR-DEVELOPADDRESSREVIEW-046 address-review の結果
 address-review は、分類・修正・返信・resolve の各結果を結果に書かなければならない。
+
+### 停止と再開
+
+#### PR-DEVELOPADDRESSREVIEW-058 停止の名前と記録する位置
+address-review は、止まるとき、次の表の停止の名前を止まった理由として返し、記録する位置の列の段（分類の run・止める所への振り分け・develop:implement の呼び出し・push・required checks の待ち・返信・返信の確認・resolve・resolve の確認のどれか。「止まった段」はその停止が起きた段。「なし」は新しく呼ぶしか続かない停止で、次の手は止まる条件を定める要求が定める）を再開する位置として状態に記録しなければならない。
+
+| 停止 | 止まる条件を定める要求 | 記録する位置 | 模型の kind | 模型の action |
+|---|---|---|---|---|
+| 呼び直しを要する拒否 | PR-DEVELOPADDRESSREVIEW-006、PR-DEVELOPPLUGIN-004・011・014 | なし | なし（模型の範囲の外） | 模型の範囲の外 |
+| 止める所の指定を拒否した | PR-DEVELOPADDRESSREVIEW-021（拒否の行。止める所を指定し直して新しく呼ぶ） | なし | `reject_args` | `A_RejectArgs` |
+| 作業ツリーが clean でない | PR-DEVELOPADDRESSREVIEW-004（作業ツリーを clean にして同じ引数で新しく呼ぶ） | なし | `refused` | `A_EntryDirty` |
+| 人の判断が要る | PR-DEVELOPADDRESSREVIEW-019・014・053 | 止める所への振り分け | `needs_input`・`mismatch` | `A_NeedsDecision`・`A_ClassifyMismatch` |
+| トークン量か待つ回数の上限 | PR-DEVELOPPLUGIN-045、PR-DEVELOPADDRESSREVIEW-029（実行中が残る行） | 止まった段の、結果を記録していない項目 | `limit_run` | `A_ClassifyToken`・`A_CiWaitLimit` |
+| push できない | PR-DEVELOPADDRESSREVIEW-011 | 止める所への振り分け | `push_denied` | `A_RoutePushDenied` |
+| develop:implement が止まった | PR-DEVELOPADDRESSREVIEW-024 | develop:implement の呼び出し | `impl_stopped` | `A_ImplStopped` |
+| push した SHA が head でない | PR-DEVELOPADDRESSREVIEW-028 | なし | なし（模型の範囲の外） | 模型の範囲の外 |
+| head が動いた | PR-DEVELOPADDRESSREVIEW-032 | なし | `head_moved` | `A_ResumeHeadMoved` |
+| 返信の直前に head か議論が動いた | PR-DEVELOPADDRESSREVIEW-036・050（新しく呼んで指摘の収集から始める） | なし | `stale` | `A_ReplyStale` |
+| BLOCKED | PR-DEVELOPADDRESSREVIEW-015・029（失敗・読めない・数えられない行）・040・044・052、PR-DEVELOPPLUGIN-033・040 | 止まった段の、結果を記録していない項目 | `blocked` | `A_ClassifyBlocked`・`A_PushRejected`・`A_CiStop`・`A_CheckMismatch` |
+
+#### PR-DEVELOPADDRESSREVIEW-059 停止からの再開
+止まった address-review を next_args で続けるとき、address-review は、停止・足された入力・PR の head・develop:implement の停止に応じて、次の表のとおりに続けるか再開を拒否しなければならない。足された入力の値は、なしか、人の判断（PR-DEVELOPADDRESSREVIEW-061）とする。PR の head は、required checks の待ちで止まった上限の停止でだけ待っていた SHA と照らす。develop:implement の停止は、develop:implement が止まった停止でだけ、develop:implement の停止の表（PR-DEVELOPIMPLEMENT-068）の記録する位置があるかで分ける。develop:implement の再開に要る入力（PR-DEVELOPIMPLEMENT-069）は、人が develop:implement の状態に足し、address-review は入力を足されずに再開する。
+
+> 条件の値: 停止 = 呼び直しを要する拒否 / 止める所の指定を拒否した / 作業ツリーが clean でない / 人の判断が要る / トークン量か待つ回数の上限 / push できない / develop:implement が止まった / push した SHA が head でない / head が動いた / 返信の直前に head か議論が動いた / BLOCKED
+> 条件の値: 足された入力 = なし / 人の判断
+> 条件の値: PR の head = 照らさない / 待っていた SHA のまま / 動いた
+> 条件の値: develop:implement の停止 = 位置がある / 位置がなし
+
+| 条件: 停止 | 条件: 足された入力 | 条件: PR の head | 条件: develop:implement の停止 | 結果 | 模型の kind | 模型の action |
+|---|---|---|---|---|---|---|
+| 人の判断が要る | 人の判断 | * | * | 記録した位置から、PR-DEVELOPADDRESSREVIEW-062 のとおり判断の値で振り分けて続ける | `needs_input`・`mismatch` | `A_Decide` |
+| トークン量か待つ回数の上限 | なし | 照らさない | * | 記録した位置から続ける | `limit_run` | `A_Resume` |
+| トークン量か待つ回数の上限 | なし | 待っていた SHA のまま | * | 記録した位置から続ける | `limit_run` | `A_Resume` |
+| トークン量か待つ回数の上限 | なし | 動いた | * | 再開を拒否し、head が動いた停止で止まる | `limit_run` | `A_PushByOther`・`A_ResumeHeadMoved` |
+| push できない | なし | * | * | 記録した位置から、PR-DEVELOPADDRESSREVIEW-010 の確認をやり直して続ける | `push_denied` | `A_Resume` |
+| develop:implement が止まった | なし | * | 位置がある | 記録した位置から、develop:implement を next_args で再開して続ける | `impl_stopped` | `A_Resume`（develop:implement の状態への入力と入れ子の再開は模型の範囲の外） |
+| develop:implement が止まった | なし | * | 位置がなし | 再開を拒否し、address-review を新しく呼ぶことを次の手として返す | `impl_stopped` | 模型の範囲の外 |
+| BLOCKED | なし | * | * | 原因を直した後に（required checks の失敗では、同じ head で流し直すか読めるようにした後に）、記録した位置から続ける（返信の確認か resolve の確認から続けるときは投稿し直さない） | `blocked` | `A_Resume`（原因を直す入力は模型の範囲の外） |
+| 上記以外 | * | * | * | 再開を拒否し、止まったまま、その停止をこの表のどの行で出られるか（記録する位置が「なし」の停止では新しく呼ぶこと）を次の手として返す | `needs_input`・`mismatch`・`refused`・`reject_args`・`stale`・`head_moved` | `A_RefuseResume`（模型は入力の無い再開だけを表す。合わない停止に人の判断を足した組み合わせは模型の範囲の外） |
+
+#### PR-DEVELOPADDRESSREVIEW-065 止まっている間のほかの入力
+address-review は、止まっている間に足された、再開ではない入力を、次の表のとおりに扱わなければならない。
+
+| 入力 | 扱い | 模型の action |
+|---|---|---|
+| 新しい呼び出し | 止まった状態を引き継がずに、指摘の収集から新しい依頼として始める | `A_Reinvoke` |
+| 打ち切り | 再開せずに終わる | `H_Abort` |
+
+### 完了の条件
+
+#### PR-DEVELOPADDRESSREVIEW-063 どの時点でも守る条件
+address-review は、完了の前と止まった後を含むどの時点でも、次の条件を全て満たさなければならない。
+
+- PR-DEVELOPADDRESSREVIEW-056 の行わない操作を行っていない（模型: `AddrNoForbidden`）。
+- develop:implement に渡したのは、分類か人の判断（PR-DEVELOPADDRESSREVIEW-062）が fix の指摘だけで、PR があるか、入口で作業ツリーが clean だったときだけである（模型: `AddrImplOnlyFix`）。
+- 返信したのは、PR-DEVELOPADDRESSREVIEW-029 の表で返信へ進んだ後だけである（模型: `AddrReplyAfterChecks`）。
+- resolve したのは、その thread への返信を確かめた後だけである（模型: `AddrResolveAfterReply`）。
+- PR の head が他の人の push で動いた後に、返信を投稿していない（模型: `AddrNoStaleReply`）。
+
+#### PR-DEVELOPADDRESSREVIEW-060 完了の条件
+address-review は、PR-DEVELOPADDRESSREVIEW-063 の条件に加えて次の条件を全て満たすときにだけ、完了しなければならない。
+
+- 全ての指摘の分類を受け入れており、人の判断が要る指摘には人の判断を入れている（模型: `AddrClassified`）。
+- PR が無いときは、止める所が push・返信・resolve でなく、入口で作業ツリーが clean だった（模型: `AddrNoPr`）。
+- 分類か人の判断が fix で直す変更のある指摘があり、止める所が分類でなければ、develop:implement に修正を渡した（模型: `AddrImplOnFix`）。
+- 修正の commit を頼んだとき（PR-DEVELOPADDRESSREVIEW-049）は、develop:implement が直す変更は無いと返したときを除き、commit を push した（模型: `AddrCommitPushed`）。
+- PR があり止める所が指定なし・返信・resolve のときは、required checks の待ちで返信へ進み、返信を確かめた（模型: `AddrReplyConfirmed`）。
+- PR があり止める所が指定なし・resolve のときは、PR-DEVELOPADDRESSREVIEW-043 の確認を通った（模型: `AddrResolveConfirmed`）。
+
+| 完了の種類 | 模型の action | 模型の性質 |
+|---|---|---|
+| 分類と分類の検証の後で完了 | `A_RouteClassifyOnly`・`A_RouteNoFixStop` | `AddressGoal` |
+| 修正か push の後で完了 | `A_ImplVerified`・`A_ImplNoChangeStop`・`A_PushOkDone` | `AddressGoal` |
+| 返信か resolve の確認の後で完了 | `A_ReplyConfirmedDone`・`A_ResolveConfirmed` | `AddressGoal` |

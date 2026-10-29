@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -152,7 +152,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-019
+ I_CheckPass_g(e) == IRun("check", e, "checkPass")
+-I_CheckPass_n(e) == SI("running", "review", "none", sk.res, [im EXCEPT !.checkFail = FALSE])
++I_CheckPass_n(e) == SI("running", IF im.fixRound >= im.fixLim /\ CountConf(im.last) THEN "decide" ELSE "review", "none", sk.res, [im EXCEPT !.checkFail = FALSE])
+ I_CheckPass(e) == Sys(I_CheckPass_g(e), I_CheckPass_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-019, PR-DEVELOPIMPLEMENT-029, PR-DEVELOPIMPLEMENT-074

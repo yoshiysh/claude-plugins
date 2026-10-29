@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -169,7 +169,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-024, PR-DEVELOPREVIEW-066
+ I_ReviewRecall_g(e) == I /\ Running /\ sk.stage = "review"
+                        /\ (e.n = "reviewLimit" \/ (e.n = "reviewLimitSame" /\ ~im.recalled))
+-I_ReviewRecall_n(e) == SI("running", "review", "none", sk.res, [im EXCEPT !.recalled = TRUE])
++I_ReviewRecall_n(e) == SI("running", "decide", "none", sk.res, [im EXCEPT !.recalled = TRUE])
+ I_ReviewRecall(e) == Sys(I_ReviewRecall_g(e), I_ReviewRecall_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-024, PR-DEVELOPIMPLEMENT-075

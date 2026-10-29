@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -291,7 +291,7 @@
+ I_Decide(e) == Sys(I_Decide_g(e), I_Decide_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-052, PR-DEVELOPIMPLEMENT-069
+-I_Answer_g(e) == IStop(e, "answer") /\ sk.kind = "needs_input"
++I_Answer_g(e) == (IStop(e, "answer") \/ IStop(e, "none")) /\ sk.kind = "needs_input"
+ I_Answer_n(e) == SI("running", "plan", "none", sk.res, im)
+ I_Answer(e) == Sys(I_Answer_g(e), I_Answer_n(e))
+ 

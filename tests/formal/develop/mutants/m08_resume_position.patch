@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -60,7 +60,7 @@
+ IStop(e, n) == I /\ Stopped /\ e.n = n
+ 
+ \* principle: sp-380c49d.md:184
+-IResumeStage == IF im.unread > 0 THEN "plan" ELSE sk.stage
++IResumeStage == sk.stage
+ 
+ (* --- develop:implement --- *)
+ 

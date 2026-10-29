@@ -30,6 +30,7 @@
 | 書き込ませない役 | 計画役・レビュー役・検証役・分類役のように、対象を書き換えない役 |
 | 残る危険 | run を起動した host が止められず、各スキルが結果に書いて利用者に知らせる危険。host ごとの内容は PR-DEVELOPPLUGIN-028 が定める |
 | 未着手 | 止まった時点でまだ処理していないもの。develop:review では起動していない項目（順位つき）を、develop:implement と develop:address-review ではまだ実行していない段を指す |
+| develop の模型 | `tests/formal/develop/` の TLA+ の状態機械。3 スキルの停止・再開・完了を遷移（action）と性質で表す。各要求文書の「模型の action」の列は、その行の振る舞いを表す遷移の名前、「模型の性質」の列は完了の条件を表す性質の名前を挙げ、遷移の無い行は「模型の範囲の外」と書く。bp の判定の模型とは別のもの |
 | 旧スキル | workflow:pr-review・workflow:pr-review-fix、pk の implement・review・address-review、dcf の contextual-code-review |
 | next_args・BLOCKED・needs_input | 設計方針文書の「用語」と「停止・再開と人間の入力」の節が定める意味で使う |
 
@@ -73,6 +74,7 @@ claude-plugins・pk・dcf の 3 リポジトリが、実装・レビュー・レ
 - develop は GitHub（gh の読み出し・投稿・GraphQL の mutation・required checks の読み出し）と git に依存する。
 - Codex では、native Workflow の代わりに workflow plugin の Codex runner に依存する。
 - develop の作成の完了の判定は、bp の review に依存する。
+- 3 スキルの停止と再開と完了の条件は、TLA+ の模型 `tests/formal/develop/` と、要求 ID（模型の `\* req:`）と action の名前（各要求文書の「模型の action」の列）で対応させ、`make test` がその対応を照らす。
 
 ## リスクと影響
 
@@ -97,7 +99,7 @@ develop は、3 スキルを同じ版にそろえて配布しなければなら�
 3 スキルの間の呼び出しは、develop:address-review から develop:implement、develop:implement から develop:review の 2 つの向きに限らなければならない。
 
 #### PR-DEVELOPPLUGIN-004 実行環境がそろわないとき
-native Workflow も Codex runner も使えないか、同じ plugin の兄弟スキルを呼べないならば、各スキルは run を起動する前に BLOCKED で止まり、使えない実行環境かスキルの名前と理由を返さなければならない。
+native Workflow も Codex runner も使えないか、同じ plugin の兄弟スキルを呼べないならば、各スキルは run を起動する前に、呼び直しを要する拒否の停止（各スキルの停止の表）で止まり、使えない実行環境かスキルの名前と理由を返さなければならない。
 
 #### PR-DEVELOPPLUGIN-005 Codex での実行
 native Workflow が無い Codex で呼ばれたとき、各スキルは Codex runner で run を実行しなければならない。
@@ -167,7 +169,7 @@ Codex runner で起動するとき、各スキルは、対象を書き換える�
 書き込ませない役の道具から Edit・Write を外せる場合も、各スキルは PR-DEVELOPPLUGIN-024 の検出を省いてはならない（道具の制限は Bash 経由の書き込みを止めない）。
 
 #### PR-DEVELOPPLUGIN-026 書き込みを検出したとき
-書き込ませない役の run の中で書き込みを検出したならば、各スキルはその run の結果を受け入れてはならない。
+書き込ませない役の run の中で書き込みを検出したならば、各スキルはその run の結果を受け入れてはならない（受け入れなかった後の止まり方は、PR-DEVELOPIMPLEMENT-009・PR-DEVELOPREVIEW-034・PR-DEVELOPADDRESSREVIEW-015 がスキルごとに定める）。
 
 #### PR-DEVELOPPLUGIN-027 検出した変化の報告
 書き込ませない役の run の中で書き込みを検出したならば、各スキルは検出した変化を結果に書かなければならない。
@@ -205,7 +207,7 @@ gh の読み出し・投稿・GraphQL の mutation、git の remote の読み出
 PR-DEVELOPPLUGIN-033 で止まるとき、状態に書けるならば、各スキルは止まった理由と未着手を状態に書かなければならない。
 
 #### PR-DEVELOPPLUGIN-035 再開の仕方
-止まったスキルを続けるとき、各スキルは next_args で新しい run を起動し、状態にある受理済みの結果をそのまま使って止まった所から続けなければならない（pin が崩れた review の再開（PR-DEVELOPREVIEW-043）、head が動いた待ちの再開（PR-DEVELOPADDRESSREVIEW-032）、作業ツリーが変わった計画の続き（PR-DEVELOPIMPLEMENT-014）、ヒントが足された implement の再開（PR-DEVELOPIMPLEMENT-040）、人の判断が足された abandon からの再開（PR-DEVELOPIMPLEMENT-063）は、それぞれの項目に従う）。
+止まったスキルを続けるとき、各スキルは next_args で新しい run を起動し、状態にある受理済みの結果と再開をまたいで残す値（PR-DEVELOPPLUGIN-041）をそのまま使い、そのスキルの停止と再開の表（PR-DEVELOPIMPLEMENT-069・PR-DEVELOPREVIEW-073・PR-DEVELOPADDRESSREVIEW-059）のとおりに続けるか再開を拒否しなければならない（再開を受け付けるか、どこから続けるかを、この表の外で決めると、同じ停止に 2 つの続け方が生まれるため）。
 
 #### PR-DEVELOPPLUGIN-036 relaunch の禁止
 各スキルは、止まった run を relaunch で続けてはならない。
@@ -220,10 +222,10 @@ PR-DEVELOPPLUGIN-033 で止まるとき、状態に書けるならば、各ス�
 各スキルは、前の run の遅れた書き込みが、新しい run の読んだ後の状態を変えないようにしなければならない。
 
 #### PR-DEVELOPPLUGIN-040 pipeline の外の agent の失敗
-run の中で pipeline の外の agent（状態を読み書きする agent を含む）が失敗したならば、各スキルは BLOCKED と理由を返して止まらなければならない（理由が残らないまま run が終わるのを防ぐ）。
+run の中で pipeline の外の agent（状態を読み書きする agent を含み、PR-DEVELOPREVIEW-030 が結果の状態 failed で返す develop:review の運搬役を除く）が失敗したならば、各スキルは BLOCKED と理由を返して止まらなければならない（理由が残らないまま run が終わるのを防ぐ）。
 
 #### PR-DEVELOPPLUGIN-041 再開をまたいで残す値
-各スキルは、再開をまたいで残す値（固定した目標・未着手・回数）を run の外の状態に持たなければならない（再開は新しい run の起動なので、script の変数は残らない）。
+各スキルは、再開をまたいで残す値（固定した目標・未着手・再開をまたいで引き継ぐ回数（修正の回の数・計画の作り直しの数・待ちの上限からの再開の回数・pin ごとの投稿の回数））を run の外の状態に持ち、run ごとに数える回数（トークン量・起動数・required checks を待った回数）を再開した run では 0 から数えなければならない（再開は新しい run の起動なので、script の変数は残らない）。
 
 #### PR-DEVELOPPLUGIN-042 写し間違いの検出
 各スキルは、セッションと run の間で受け渡す状態と返り値の写し間違いを検出し、写し間違えたものを受け付けてはならない。
@@ -256,7 +258,7 @@ develop は、PR-DEVELOPPLUGIN-077 で集めた繰り返すつまずきを、bp 
 トークン量の上限を渡されないとき、各スキルは既定のトークン量の上限を置いてはならない（既定を置くと、上限を渡さなかった run まで途中で止まる）。
 
 #### PR-DEVELOPPLUGIN-045 トークン量の上限に達したとき
-トークン量の上限に達したならば、各スキルは反復の上限として止まり、そこから再開できるようにしなければならない。
+トークン量の上限に達したならば、各スキルはトークン量の上限の停止（各スキルの停止の表）で止まらなければならない（トークン量は PR-DEVELOPPLUGIN-041 のとおり run ごとに数えるので、上限を変えなくても再開した run は続けられる）。
 
 #### PR-DEVELOPPLUGIN-046 起動した agent の記録
 各スキルは、実際に起動した agent のモデルと起動数を結果に記録しなければならない（役ごとのモデル指定が効いたかを記録で確かめるため）。
@@ -313,7 +315,7 @@ develop の作成の完了には、登録の後に `make test` と `verify_insta
 develop の作成の完了には、claude-plugins の PR で develop:address-review を required checks の待ちと resolve まで 1 周、PR の無い差分で外のレビュー結果の形を 1 周、develop:review を起動数の上限つき（Codex runner）と上限なし（native Workflow）で 1 回ずつ流すことを含めなければならない。
 
 #### PR-DEVELOPPLUGIN-082 試走を完了に数える条件
-PR-DEVELOPPLUGIN-057 の試走は、develop:address-review が required checks の待ちを経て resolve まで届き、外のレビュー結果の形が修正まで届き、develop:review の 2 回がどちらも結果の状態 failed を返さなかったときだけ、完了に数えなければならない。
+PR-DEVELOPPLUGIN-057 の試走は、develop:address-review が required checks の待ちを経て resolve まで届き、外のレビュー結果の形が修正まで届き、develop:review の 2 回がどちらも、next_args での再開を含めたその回の最後の run で結果の状態 success か degraded を返したときだけ、完了に数えなければならない。
 
 #### PR-DEVELOPPLUGIN-083 evals の測定
 develop の作成の完了には、evals を測り、with_skill と baseline を比べることを含めなければならない。

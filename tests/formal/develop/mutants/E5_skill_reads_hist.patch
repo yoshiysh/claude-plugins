@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -103,7 +103,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-009, PR-DEVELOPPLUGIN-033, PR-DEVELOPPLUGIN-040, PR-DEVELOPIMPLEMENT-025, PR-DEVELOPIMPLEMENT-056, PR-DEVELOPIMPLEMENT-031, PR-DEVELOPIMPLEMENT-050, PR-DEVELOPIMPLEMENT-068
+ I_Blocked_g(e) == I /\ Running /\ e.n \in {"agentFail", "write", "checkErr", "reviewFailed", "malformed", "finalFail", "pushRejected"}
+-I_Blocked_n(e) == SI("stopped", sk.stage, "blocked", sk.res, im)
++I_Blocked_n(e) == SI("stopped", hist.pos, "blocked", sk.res, im)
+ I_Blocked(e) == Sys(I_Blocked_g(e), I_Blocked_n(e))
+ 
+ \* req: PR-DEVELOPPLUGIN-045, PR-DEVELOPIMPLEMENT-068

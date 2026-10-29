@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -408,7 +408,7 @@
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-021, PR-DEVELOPPLUGIN-032, PR-DEVELOPADDRESSREVIEW-058
+ A_RejectArgs_g(e) == ARun("entry", e, "tick") /\ ~args.pr /\ args.stopAt \in {"push", "reply", "resolve"}
+-A_RejectArgs_n(e) == SA("stopped", "entry", "reject_args", ad)
++A_RejectArgs_n(e) == SA("running", "classify", "none", ad)
+ A_RejectArgs(e) == Sys(A_RejectArgs_g(e), A_RejectArgs_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-002

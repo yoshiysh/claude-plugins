@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -237,7 +237,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-069, PR-DEVELOPIMPLEMENT-072
+ \* principle: sp-380c49d.md:183, sp-380c49d.md:184
+ \* decided: 4, 11, D19 C
+-I_Resume_g(e) == IStop(e, "resume") /\
++I_Resume_g(e) == (IStop(e, "resume") \/ IStop(e, "none")) /\
+   (\/ sk.kind \in {"blocked", "limit_run"}
+    \/ sk.kind = "plan_stop" /\ ~im.wtChanged
+    \/ sk.kind = "limit_fix" /\ im.edited

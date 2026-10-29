@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -210,12 +210,12 @@
+ I_FinalGate(e) == Sys(I_FinalGate_g(e), I_FinalGate_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-057, PR-DEVELOPIMPLEMENT-033
+-I_FinalCommit_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ args.commitReq
++I_FinalCommit_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ args.commitReq /\ im.fixRound = 0
+ I_FinalCommit_n(e) == SI("running", "commit", "none", sk.res, im)
+ I_FinalCommit(e) == Sys(I_FinalCommit_g(e), I_FinalCommit_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-057, PR-DEVELOPIMPLEMENT-033, PR-DEVELOPIMPLEMENT-035, PR-DEVELOPIMPLEMENT-070
+-I_FinalDone_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ ~args.commitReq
++I_FinalDone_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ ~(args.commitReq /\ im.fixRound = 0)
+ I_FinalDone_n(e) == SI("done", sk.stage, "none", "verified", im)
+ I_FinalDone(e) == Sys(I_FinalDone_g(e), I_FinalDone_n(e))
+ 

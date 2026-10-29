@@ -32,6 +32,7 @@ claude-plugins の repo-review は、観点ごとの reviewer と 2 段の検証
 
 - 方針の版の導き方と、利用側の宣言の扱いは PR-DEVELOPPLUGIN-011〜015・080 に従う。
 - 起動数の上限の値の検査は `docs/specifications/bp-run.md` の起動数の上限の規則に、項目の順位の決め方は `docs/specifications/bp-inspection.md` の review の項目の順位に従う。
+- 停止と再開の表と完了の条件の「模型の action」の列は、`tests/formal/develop/DevelopSkill.tla` の action の名前を、「模型の性質」の列は `tests/formal/develop/DevelopProps.tla` の性質の名前を指す。
 
 ## リスクと影響
 
@@ -188,13 +189,27 @@ review は、反証された指摘・形の合わない指摘・信用できな�
 review は、確定した指摘の一覧を返さなければならない。
 
 #### PR-DEVELOPREVIEW-069 未検証の指摘の返却
-review は、検証が終わらなかった主張（未検証の指摘）の一覧を、確定した指摘と分けて返さなければならない（develop:implement は未検証の指摘が残るかで止まるかを決める）。
+review は、検証が終わらなかった主張（未検証の指摘）の一覧を、確定した指摘と分けて返さなければならない（develop:implement が止まるかを PR-DEVELOPIMPLEMENT-028 で決めるため）。
 
 #### PR-DEVELOPREVIEW-033 見ていないものの宣言
 review は、coverage と、読まれないまま残った資産の一覧と、見なかったもの（除外・生成物・未読）を結果に載せなければならない（見ていない箇所が「問題なし」と読まれるのを防ぐ）。
 
 #### PR-DEVELOPREVIEW-034 書き込みを検出したとき
 review の run の中で書き込みを検出したならば、review は結果の状態を failed にし、指摘を空で返さなければならない。
+
+#### PR-DEVELOPREVIEW-074 完了の条件
+review は、次の条件を全て満たすときにだけ、結果の状態を返して完了しなければならない。
+
+- 同じ pin のもとでの投稿の回数が PR-DEVELOPREVIEW-075 を満たしている（模型: `ReviewPostsOnce`）。
+- 結果の状態が failed であるのは、PR-DEVELOPREVIEW-030 の表の failed の行か PR-DEVELOPREVIEW-034 に当たったときで、そのときに限る（模型: `ReviewFailedIff`）。
+- failed でないときは、全ての項目の結果を記録しており、結果の状態が PR-DEVELOPREVIEW-030 の表の success か degraded の行と一致している（模型: `ReviewAllItems`）。
+- PR-DEVELOPREVIEW-047 で投稿するときは、PR-DEVELOPREVIEW-050 の確認を通っている（模型: `ReviewPostConfirmed`）。
+
+| 完了の種類 | 模型の action | 模型の性質 |
+|---|---|---|
+| failed | `R_Failed` | `ReviewGoal` |
+| 投稿しない success・degraded | `R_FinishDone` | `ReviewGoal` |
+| 投稿した success・degraded | `R_PostConfirmed` | `ReviewGoal` |
 
 ### 起動数の上限と再開
 
@@ -229,10 +244,43 @@ review は、未着手の順位を観点の順に、同じ観点の中では担�
 起動数の上限かトークン量の上限で止まった run が返ったとき、review は、その run の返り値を run の外で状態に書き、同じ返り値を何度書いても状態が変わらないようにしなければならない。
 
 #### PR-DEVELOPREVIEW-042 未着手からの再開
-起動数の上限かトークン量の上限で止まった review を続けるとき、review は未着手の項目から続け、結果のある項目を処理し直してはならない。
+起動数の上限かトークン量の上限で止まった review を、pin が崩れていないまま続けるとき、review は結果のある項目を処理し直してはならない。
 
-#### PR-DEVELOPREVIEW-043 pin が崩れていたときの再開
-再開の前に pin が崩れていると分かったならば、review は未着手から再開せず、計画からやり直さなければならない。
+#### PR-DEVELOPREVIEW-043 再開の前の pin の確認
+review は、再開の前に pin が崩れていないかを確かめなければならない（崩れていたときの続け方は PR-DEVELOPREVIEW-073 の表）。
+
+#### PR-DEVELOPREVIEW-072 停止の名前と記録する位置
+review は、止まるとき、次の表の停止の名前を止まった理由として返し、記録する位置の列の段（計画・項目の起動・投稿・投稿の確認のどれか。「止まった段」はその停止が起きた段。「なし」は新しく呼ぶしか続かない停止）を再開する位置として状態に記録しなければならない。
+
+| 停止 | 止まる条件を定める要求 | 記録する位置 | 模型の kind | 模型の action |
+|---|---|---|---|---|
+| 呼び直しを要する拒否 | PR-DEVELOPPLUGIN-004・011・014 | なし | なし（模型の範囲の外） | 模型の範囲の外 |
+| 「読むもの」表を読めない | PR-DEVELOPREVIEW-015 | なし | `read_list` | `R_ReadListBad` |
+| 起動数かトークン量の上限 | PR-DEVELOPREVIEW-039・066、PR-DEVELOPPLUGIN-045 | 項目の起動の、未着手の項目 | `limit_run` | `R_LimitStop` |
+| BLOCKED | PR-DEVELOPREVIEW-051・067、PR-DEVELOPPLUGIN-033・040 | 止まった段の、結果を記録していない項目 | `blocked` | `R_PostFail`・`R_PostMismatch` |
+
+#### PR-DEVELOPREVIEW-073 停止からの再開
+止まった review を next_args で続けるとき、review は、人の入力を待たずに、停止と pin に応じて次の表のとおりに続けるか再開を拒否しなければならない。
+
+> 条件の値: 停止 = 呼び直しを要する拒否 / 「読むもの」表を読めない / 起動数かトークン量の上限 / BLOCKED
+> 条件の値: pin = 崩れていない / 崩れた
+
+| 条件: 停止 | 条件: pin | 結果 | 模型の kind | 模型の action |
+|---|---|---|---|---|
+| 呼び直しを要する拒否 | * | 再開を拒否し、新しく呼ぶことを次の手として返す | なし（模型の範囲の外） | 模型の範囲の外 |
+| 「読むもの」表を読めない | * | 再開を拒否し、方針文書を直して方針の版に入れてから新しく呼ぶことを次の手として返す（再開は方針の版を導き直さないので、同じ表をまた読めずに止まるため） | `read_list` | `R_RefuseResume` |
+| 起動数かトークン量の上限 | 崩れていない | 記録した位置から続ける | `limit_run` | `R_Resume` |
+| BLOCKED | 崩れていない | 原因を直した後に、記録した位置から続ける（投稿の確認から続けるときは投稿し直さない） | `blocked` | `R_Resume`（原因を直す入力は模型の範囲の外） |
+| 上記以外 | * | 未着手と記録した位置を使わずに、計画からやり直す | `limit_run`・`blocked` | `R_Resume` |
+
+#### PR-DEVELOPREVIEW-077 止まっている間に起きること
+review は、止まっている間に起きたことと足された再開でない入力を、次の表のとおりに扱わなければならない。
+
+| 起きたこと | 扱い | 模型の action |
+|---|---|---|
+| pin が崩れる | 止まったまま、再開の前の確認（PR-DEVELOPREVIEW-043）で見つける | `R_BreakPin` |
+| 新しい呼び出し | 止まった状態を引き継がずに、計画から新しい依頼として始める | `R_Reinvoke` |
+| 打ち切り | 再開せずに終わる | `H_Abort` |
 
 #### PR-DEVELOPREVIEW-044 再開した run の権限
 再開した review の run も、読み取り専用で起動しなければならない。
@@ -265,6 +313,12 @@ PR に投稿したとき、review は、投稿したコメントが確定した�
 
 #### PR-DEVELOPREVIEW-067 投稿が拒まれたか失敗したとき
 gh で投稿を試みて拒まれたか失敗したならば（権限が無く拒まれたときを含む）、review は BLOCKED で止まり、失敗した操作と理由と次の手を返さなければならない。
+
+#### PR-DEVELOPREVIEW-075 同じ pin のもとでの投稿の回数
+review は、完了の前と止まった後を含むどの時点でも、同じ pin のもとで確定した指摘を PR に 2 回以上投稿してはならない（投稿は取り消さないので（PR-DEVELOPPLUGIN-049）、二重の投稿が残るため）。
+
+#### PR-DEVELOPREVIEW-076 pin が崩れた後の投稿
+pin が崩れて計画からやり直した review は、前の pin のもとで投稿したことを理由に、新しい pin のもとでの PR-DEVELOPREVIEW-047 の投稿を省いてはならない（PR-DEVELOPREVIEW-075 の回数は pin ごとに数える）。
 
 ### git の外の対象
 
