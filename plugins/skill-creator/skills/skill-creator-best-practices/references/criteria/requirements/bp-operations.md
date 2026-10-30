@@ -101,6 +101,11 @@ best-practices は、create・review・update・audit の 4 機能を提供し�
 #### PR-BPOPERATIONS-051 best-practices の run の記録
 best-practices は、4 機能の各 run について、作業記録、記録台帳、保持及び保存の失敗を `docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028〜036・038〜040・042 と同じように扱わなければならない。
 
+### 回答待ちの返り値
+
+#### PR-BPOPERATIONS-052 needs_input の返り値
+best-practices が needs_input を返して止まるとき、best-practices は、返り値に理由と判断材料（決めること・ここまでの検証結果・影響の範囲・残った作業）の欄を含め、まだ無い材料はその欄で無いと示さなければならない。受け取った入力を確かめる時点で、目標の固定に入る前に止まったときは、検証結果と残った作業が無いと示さなければならない。目標の固定で止まったとき（PR-BPOPERATIONS-005）は、残った作業と、それまでの検証結果があればそれを欄に載せなければならない。
+
 ### create
 
 #### PR-BPOPERATIONS-003 目標の固定
@@ -110,7 +115,7 @@ create は、スキルを書く前に、依頼文から、PR-BPDESIGNEDSKILL-006
 create は、依頼文に無い目標・制約を対象スキルに加えてはならない（頼まれていない成果物に費用を払い、その完了を報告することになる）。
 
 #### PR-BPOPERATIONS-005 待たれる入力の不足
-目標を固定するのに要る人間の入力（承認・回答）が足りないならば、create は needs_input と理由を返して止まらなければならない（run の中では入力を待って続けられない）。
+目標を固定するのに要る人間の入力（承認・回答）が足りないならば、create は needs_input を返して止まらなければならない（run の中では入力を待って続けられない。返り値は PR-BPOPERATIONS-052 が定める）。
 
 #### PR-BPOPERATIONS-006 run の中で入力を待たない
 create は、PR-BPDESIGNEDSKILL-007 と同じ原則に従い、自身の run の途中で人間の承認・回答を待つ手順を持ってはならない（Workflow の実行中は入力を受け取れない）。
@@ -131,7 +136,7 @@ create は、書いたスキルを、書いた agent と別の context で検証
 create は、書いたスキルが検証を通るまで、そのスキルを完了として報告してはならない（代わりに返すものは PR-BPOPERATIONS-012 が定める）。
 
 #### PR-BPOPERATIONS-011 書き直しの許容
-検証を通らなかったとき、create はスキルを書き直して再び検証してもよい。
+形式検証以外の検証を通らなかったとき、create はスキルを書き直して再び検証してもよい（形式検証を実行できないか形式検証に失敗したときは PR-BPDESIGNEDSKILL-027 に従う）。
 
 #### PR-BPOPERATIONS-012 検証を通らずに止まるとき
 書いたスキルが検証を通らないまま止まるならば、create は、通らなかったことと理由を返さなければならない。
