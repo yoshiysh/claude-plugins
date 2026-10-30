@@ -164,13 +164,13 @@ address-review は、直す変更のある fix を、PR の番号（PR がある
 分類の結果に直す変更が 1 件も無いとき、address-review は develop:implement を呼ばず、push もしてはならない。
 
 #### PR-DEVELOPADDRESSREVIEW-024 develop:implement が止まったとき
-develop:implement が止まったならば、address-review は完了ではない停止として止まり、どの指摘についても（decline・out_of_scope・直した commit を記録した fix を含む）push・返信・resolve をせずに、develop:implement が止まった理由と、develop:implement の段から続けるための next_args を返さなければならない（止まった run で他の指摘に返信すると、再開の後に直した指摘の返信を組めない）。
+develop:implement が止まったならば、address-review は完了ではない停止（develop:implement が止まった停止）として止まり、どの指摘についても（decline・out_of_scope・直した commit を記録した fix を含む）push・返信・resolve をせずに、PR-DEVELOPADDRESSREVIEW-066 が定める止まった理由と次の手を返さなければならない（止まった run で他の指摘に返信すると、再開の後に直した指摘の返信を組めない）。
 
-#### PR-DEVELOPADDRESSREVIEW-066 develop:implement が止まったときに返す人が決めること
-PR-DEVELOPADDRESSREVIEW-024 で止まるとき、address-review は、develop:implement が返した人が決めること（PR-DEVELOPIMPLEMENT-062・PR-DEVELOPPLUGIN-038）と、それを develop:implement の状態に足すことを、次の手として返さなければならない。
+#### PR-DEVELOPADDRESSREVIEW-066 develop:implement が止まったときに返すもの
+PR-DEVELOPADDRESSREVIEW-024 で止まるとき、address-review は、develop:implement が返した止まった理由と次の手（PR-DEVELOPPLUGIN-032。人の判断が要る停止では PR-DEVELOPIMPLEMENT-062・PR-DEVELOPPLUGIN-038 の人が決めることを含む）を返し、address-review の次の手を、PR-DEVELOPADDRESSREVIEW-059 の表の「develop:implement の停止」の列で分けて返さなければならない。位置があるときは、address-review の next_args を返し、次の手を、develop:implement の再開に要る入力を develop:implement の状態に足してから address-review をその next_args で再開することとし、位置がなしのときは、059 の表の位置がなしの行の次の手とし、develop:implement が返した次の手のうち原因の直し方（方針文書の修正など）はその前に行う手順として残し、develop:implement を新しく呼ぶことは address-review を新しく呼ぶことに置き換えて返す（位置がなしの停止では develop:implement も address-review も再開を拒否するので、next_args と状態に足す入力は続け方にならない。develop:implement だけを新しく呼ぶと、address-review の分類と返信が続かない）。
 
 #### PR-DEVELOPADDRESSREVIEW-055 develop:implement の段からの再開
-PR-DEVELOPADDRESSREVIEW-024 の next_args で再開した run は、入口の作業ツリーの検査と、分類の受け入れ・返信の組み立てを繰り返さず、状態にある分類の結果をそのまま使わなければならない（その後は止まらなかったときと同じく push・待ち・返信・resolve へ進む）。
+PR-DEVELOPADDRESSREVIEW-066 の next_args（develop:implement の停止の記録する位置があるとき）で再開した run は、入口の作業ツリーの検査と、分類の受け入れ・返信の組み立てを繰り返さず、状態にある分類の結果をそのまま使わなければならない（その後は止まらなかったときと同じく push・待ち・返信・resolve へ進む）。
 
 #### PR-DEVELOPADDRESSREVIEW-049 commit の依頼
 対象が PR で止める所が検証でないとき、address-review は、develop:implement に修正を渡すときに commit も頼まなければならない。
@@ -339,16 +339,16 @@ address-review は、止まるとき、次の表の停止の名前を止まっ�
 | トークン量か待つ回数の上限 | なし | 動いた | * | 再開を拒否し、head が動いた停止で止まる | `limit_run` | `A_PushByOther`・`A_ResumeHeadMoved` |
 | push できない | なし | * | * | 記録した位置から、PR-DEVELOPADDRESSREVIEW-010 の確認をやり直して続ける | `push_denied` | `A_Resume` |
 | develop:implement が止まった | なし | * | 位置がある | 記録した位置から、develop:implement を next_args で再開して続ける | `impl_stopped` | `A_Resume`（develop:implement の状態への入力と入れ子の再開は模型の範囲の外） |
-| develop:implement が止まった | なし | * | 位置がなし | 再開を拒否し、address-review を新しく呼ぶことを次の手として返す | `impl_stopped` | 模型の範囲の外 |
+| develop:implement が止まった | なし | * | 位置がなし | 再開を拒否し、PR-DEVELOPIMPLEMENT-078 のとおり develop:implement が加えた変更を退避してから、address-review を新しく呼ぶことを次の手として返す | `impl_stopped` | 模型の範囲の外 |
 | BLOCKED | なし | * | * | 原因を直した後に（required checks の失敗では、同じ head で流し直すか読めるようにした後に）、記録した位置から続ける（返信の確認か resolve の確認から続けるときは投稿し直さない） | `blocked` | `A_Resume`（原因を直す入力は模型の範囲の外） |
-| 上記以外 | * | * | * | 再開を拒否し、止まったまま、その停止をこの表のどの行で出られるか（記録する位置が「なし」の停止では新しく呼ぶこと）を次の手として返す | `needs_input`・`mismatch`・`refused`・`reject_args`・`stale`・`head_moved` | `A_RefuseResume`（模型は入力の無い再開だけを表す。合わない停止に人の判断を足した組み合わせは模型の範囲の外） |
+| 上記以外 | * | * | * | 再開を拒否し、止まったまま、その停止をこの表のどの行で出られるか（記録する位置が「なし」の停止では、PR-DEVELOPADDRESSREVIEW-058 の表でその停止の止まる条件を定める要求が定める次の手）を次の手として返す | `needs_input`・`mismatch`・`refused`・`reject_args`・`stale`・`head_moved` | `A_RefuseResume`（模型は入力の無い再開だけを表す。合わない停止に人の判断を足した組み合わせは模型の範囲の外） |
 
 #### PR-DEVELOPADDRESSREVIEW-065 止まっている間のほかの入力
 address-review は、止まっている間に足された、再開ではない入力を、次の表のとおりに扱わなければならない。
 
 | 入力 | 扱い | 模型の action |
 |---|---|---|
-| 新しい呼び出し | 止まった状態を引き継がずに、指摘の収集から新しい依頼として始める | `A_Reinvoke` |
+| 新しい呼び出し | 止まった状態を引き継がずに、指摘の収集から新しい依頼として始める。develop:implement が作業ツリーを変えた後の停止から新しく呼ぶときは、PR-DEVELOPIMPLEMENT-078 のとおり、先に変更を退避してから呼ぶことを次の手とする（PR が無いときは、退避しないと入口の PR-DEVELOPADDRESSREVIEW-004 で拒否される） | `A_Reinvoke` |
 | 打ち切り | 再開せずに終わる | `H_Abort` |
 
 ### 完了の条件
@@ -356,7 +356,7 @@ address-review は、止まっている間に足された、再開ではない�
 #### PR-DEVELOPADDRESSREVIEW-063 どの時点でも守る条件
 address-review は、完了の前と止まった後を含むどの時点でも、次の条件を全て満たさなければならない。
 
-- PR-DEVELOPADDRESSREVIEW-056 の行わない操作を行っていない（模型: `AddrNoForbidden`）。
+- PR-DEVELOPADDRESSREVIEW-056 の行わない操作を行っていない（模型: `AddrNoForbidden`。模型の条件は、PR があり止める所が push で直す変更が無いときの commit・push を含まない点でこの条件より弱い）。
 - develop:implement に渡したのは、分類か人の判断（PR-DEVELOPADDRESSREVIEW-062）が fix の指摘だけで、PR があるか、入口で作業ツリーが clean だったときだけである（模型: `AddrImplOnlyFix`）。
 - 返信したのは、PR-DEVELOPADDRESSREVIEW-029 の表で返信へ進んだ後だけである（模型: `AddrReplyAfterChecks`）。
 - resolve したのは、その thread への返信を確かめた後だけである（模型: `AddrResolveAfterReply`）。

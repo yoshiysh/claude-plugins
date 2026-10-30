@@ -189,7 +189,7 @@ implement は、変更の後のレビューに develop:review を、未コミッ
 develop:review が起動数の上限かトークン量の上限で止まって next_args を返したとき、PR-DEVELOPIMPLEMENT-075 に当たるときを除き、implement はその返り値を最終の結果として記録せず、同じ next_args で develop:review を呼び直さなければならない（確定した指摘が 0 件でも、この返り値は 0 件の完了ではない）。
 
 #### PR-DEVELOPIMPLEMENT-075 呼び直しが進まないとき
-PR-DEVELOPIMPLEMENT-024 で呼び直した develop:review が、未着手の項目を 1 件も減らさずに再び上限で止まったならば、implement は呼び直さずに BLOCKED で止まり、減らなかった未着手と next_args を返さなければならない（呼び直しても同じ未着手で止まり続けるため）。
+PR-DEVELOPIMPLEMENT-024 で呼び直した develop:review が、未着手の項目を 1 件も減らさずに再び上限で止まったならば、implement は呼び直さずに BLOCKED で止まり、減らなかった未着手と next_args と、develop:review が止まった上限（起動数の上限なら runner の agent の総数の上限、トークン量の上限なら PR-DEVELOPPLUGIN-043 のトークン量の上限）を上げてから同じ next_args で再開するという次の手を返さなければならない（呼び直しても同じ未着手で止まり続けるため）。この停止から再開した implement は、上げた上限の値を読み直し、読み直した値を develop:review に渡さなければならない（起動数の上限は PR-DEVELOPREVIEW-071 のとおりに渡す。next_args は上限の値を持たないので、読み直さないと上げた値が review に届かない）。
 
 #### PR-DEVELOPIMPLEMENT-025 記録する review の返り値
 implement は、develop:review が返した結果の状態に応じて、次の表のとおりに扱わなければならない。
@@ -203,7 +203,7 @@ implement は、develop:review が返した結果の状態に応じて、次の�
 | failed | 記録せず、最終照合へ進まず、commit も push もせずに BLOCKED で止まり、failed の理由と next_args を返す |
 
 #### PR-DEVELOPIMPLEMENT-077 review が結果の状態を返さずに止まったとき
-develop:review が上限以外の停止（結果の状態を返さない停止）を返したとき、implement は、その停止が「読むもの」表を読めない停止（PR-DEVELOPREVIEW-015）ならば呼び直しを要する拒否の停止で、それ以外ならば BLOCKED で止まり、develop:review が返した理由と次の手を返さなければならない（「読むもの」表は方針の版から読むので、同じ版で呼び直しても同じ停止に戻るため）。
+develop:review が上限以外の停止（結果の状態を返さない停止）を返したとき、implement は、その停止が「読むもの」表を読めない停止（PR-DEVELOPREVIEW-015）ならば呼び直しを要する拒否の停止で、それ以外ならば BLOCKED で止まり、develop:review が返した理由を返さなければならない（「読むもの」表は方針の版から読むので、同じ版で呼び直しても同じ停止に戻るため）。次の手は、develop:review が返した次の手を写さずに implement の続け方として返し、呼び直しを要する拒否の停止では、PR-DEVELOPIMPLEMENT-078 のとおり変更を退避し、方針文書を直して方針の版に入れてから implement を新しく呼ぶこととし、BLOCKED では、原因を直した後に next_args で再開することとしなければならない（develop:review の次の手は develop:review を新しく呼ぶことで、implement の続け方ではない）。
 
 #### PR-DEVELOPIMPLEMENT-045 review が failed のときの変更
 develop:review の failed で止まるとき、implement は作業ツリーの変更を捨ててはならない（原因を直した後に next_args で再開できるようにする）。
@@ -284,7 +284,7 @@ implement は、最終照合で、変更の後の check に変更が起こした
 最終照合が通らずに止まるとき、implement は作業ツリーの変更を捨ててはならない（原因を直した後に再開できるようにする）。
 
 #### PR-DEVELOPIMPLEMENT-033 commit する条件
-implement は、commit を頼まれたときにだけ commit しなければならない。
+implement は、commit を頼まれたときにだけ commit しなければならない。commit を頼まれていても、commit の段で commit するものが無いとき（この呼び出しで commit した後に PR-DEVELOPIMPLEMENT-071 で計画の run へ戻り、その後に変更が無いときと、実装の run の変更を修正の回で全て戻したときを含む）は、implement は空の commit を作らずに完了し、作った commit が無いことを結果に書かなければならない（返す SHA は PR-DEVELOPIMPLEMENT-049 のとおり、この呼び出しで作った commit のもので、無ければ返さない）。
 
 #### PR-DEVELOPIMPLEMENT-034 commit の後の push
 develop:address-review から PR の修正として commit を頼まれたとき（PR-DEVELOPIMPLEMENT-051）を除き、commit の後に push するかは、implement は利用側の宣言に従い、宣言が無ければ push してはならない。
@@ -349,7 +349,7 @@ implement は、止まるとき、次の表の停止の名前を止まった理�
 | トークン量の上限 | なし | なし | * | 記録した位置から続ける | `limit_run` | `I_Resume` |
 | BLOCKED | あり | なし | * | 計画の run から作り直す | `blocked` | `I_Resume` |
 | BLOCKED | なし | なし | * | 原因を直した後に、記録した位置から続ける | `blocked` | `I_Resume`（原因を直す入力は模型の範囲の外） |
-| 上記以外 | * | * | * | 再開を拒否し、止まったまま、その停止をこの表のどの行で出られるか（記録する位置が「なし」の停止では新しく呼ぶこと）を次の手として返す。足されたヒントは、再開した run が読む | `no_check`・`wt_changed`・`limit_plan`・`needs_input`・`abandon`・`limit_fix` | `I_RefuseResume`（模型は入力の無い再開だけを表す。回答・判断・引き上げを合わない停止に足した組み合わせは模型の範囲の外） |
+| 上記以外 | * | * | * | 再開を拒否し、止まったまま、その停止をこの表のどの行で出られるか（記録する位置が「なし」の停止では、PR-DEVELOPIMPLEMENT-068 の表でその停止の止まる条件を定める要求が定める次の手）を次の手として返す。足されたヒントは、再開した run が読む | `no_check`・`wt_changed`・`limit_plan`・`needs_input`・`abandon`・`limit_fix` | `I_RefuseResume`（模型は入力の無い再開だけを表す。回答・判断・引き上げを合わない停止に足した組み合わせは模型の範囲の外） |
 
 #### PR-DEVELOPIMPLEMENT-076 止まっている間のほかの入力
 implement は、止まっている間に足された、再開ではない入力を、次の表のとおりに扱わなければならない。
@@ -357,8 +357,17 @@ implement は、止まっている間に足された、再開ではない入力�
 | 入力 | 扱い | 模型の action |
 |---|---|---|
 | ヒントの追記 | PR-DEVELOPIMPLEMENT-039・042 のとおりに扱う | `I_HintStopped`・`I_HintRefused` |
-| 新しい呼び出し | 止まった状態を引き継がずに、入口から新しい依頼として始める | `I_Reinvoke` |
+| 新しい呼び出し | 止まった状態を引き継がずに、入口から新しい依頼として始める（実装の run が作業ツリーを変えた後の停止からは、PR-DEVELOPIMPLEMENT-078 のとおり先に変更を退避する） | `I_Reinvoke` |
 | 打ち切り | 再開せずに終わる | `H_Abort` |
+
+#### PR-DEVELOPIMPLEMENT-078 実装の後の停止から新しく呼ぶとき
+implement は、呼び出しの開始時に変更のあったパスと HEAD を状態に記録し、実装の run が作業ツリーを変えた後に止まるときは、新しく呼ぶ次の手に、次の手順と、この呼び出しが変えたパス・作った commit の SHA・開始時から変更のあったパスのうちこの呼び出しも変えたパスを添えて返さなければならない（同じパスに利用者の変更と implement の変更が混ざると、人はどれを退避するかを決められない）。
+
+- 止まった呼び出しが作業ツリーに加えた変更を退避し、作業ツリーをその呼び出しの開始時の状態に戻す。呼び出しの前からあった変更は退避しない。
+- 止まった呼び出しが作った commit のうち push していないものは、別の参照に残してから、HEAD をその呼び出しの開始時の commit に戻す。push した commit は戻さない（PR の branch の一部になっているため）。
+- その後に implement を新しく呼ぶ。
+
+戻さないと、開始時の check（PR-DEVELOPIMPLEMENT-016）が前の呼び出しの変更を含む状態で流れ、その変更が起こした失敗を開始時から落ちていた失敗と数える。push した commit の変更が起こした失敗だけは、新しい呼び出しでも開始時の失敗として数える。
 
 ### 完了の条件
 

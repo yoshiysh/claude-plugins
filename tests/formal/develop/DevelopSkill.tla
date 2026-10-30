@@ -126,7 +126,7 @@ I_Change_g(e) == IRun("impl", e, "change")
 I_Change_n(e) == SI("running", "check", "none", sk.res, [im EXCEPT !.changed = TRUE, !.planned = FALSE])
 I_Change(e) == Sys(I_Change_g(e), I_Change_n(e))
 
-\* req: PR-DEVELOPIMPLEMENT-044, PR-DEVELOPIMPLEMENT-061, PR-DEVELOPIMPLEMENT-070
+\* req: PR-DEVELOPIMPLEMENT-044, PR-DEVELOPIMPLEMENT-061, PR-DEVELOPIMPLEMENT-070, PR-DEVELOPIMPLEMENT-071
 \* decided: 1
 I_NoChangeEnd_g(e) == IRun("impl", e, "noChange") /\ ~HasRet /\ ~im.changed /\ im.unread = 0
 I_NoChangeEnd_n(e) == SI("done", sk.stage, "none", "nochange", [im EXCEPT !.planned = FALSE])
@@ -214,7 +214,7 @@ I_FinalCommit_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ ar
 I_FinalCommit_n(e) == SI("running", "commit", "none", sk.res, im)
 I_FinalCommit(e) == Sys(I_FinalCommit_g(e), I_FinalCommit_n(e))
 
-\* req: PR-DEVELOPIMPLEMENT-057, PR-DEVELOPIMPLEMENT-033, PR-DEVELOPIMPLEMENT-035, PR-DEVELOPIMPLEMENT-070
+\* req: PR-DEVELOPIMPLEMENT-057, PR-DEVELOPIMPLEMENT-033, PR-DEVELOPIMPLEMENT-035, PR-DEVELOPIMPLEMENT-070, PR-DEVELOPIMPLEMENT-071
 I_FinalDone_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ ~args.commitReq
 I_FinalDone_n(e) == SI("done", sk.stage, "none", "verified", im)
 I_FinalDone(e) == Sys(I_FinalDone_g(e), I_FinalDone_n(e))
@@ -224,12 +224,12 @@ I_CommitPush_g(e) == IRun("commit", e, "commitOk") /\ args.pushDecl
 I_CommitPush_n(e) == SI("running", "push", "none", sk.res, im)
 I_CommitPush(e) == Sys(I_CommitPush_g(e), I_CommitPush_n(e))
 
-\* req: PR-DEVELOPIMPLEMENT-034, PR-DEVELOPIMPLEMENT-070
+\* req: PR-DEVELOPIMPLEMENT-034, PR-DEVELOPIMPLEMENT-070, PR-DEVELOPIMPLEMENT-071
 I_CommitDone_g(e) == IRun("commit", e, "commitOk") /\ ~args.pushDecl /\ im.unread = 0
 I_CommitDone_n(e) == SI("done", sk.stage, "none", "committed", im)
 I_CommitDone(e) == Sys(I_CommitDone_g(e), I_CommitDone_n(e))
 
-\* req: PR-DEVELOPIMPLEMENT-034, PR-DEVELOPIMPLEMENT-070
+\* req: PR-DEVELOPIMPLEMENT-034, PR-DEVELOPIMPLEMENT-070, PR-DEVELOPIMPLEMENT-071
 I_PushOk_g(e) == IRun("push", e, "pushOk") /\ im.unread = 0
 I_PushOk_n(e) == SI("done", sk.stage, "none", "committed", im)
 I_PushOk(e) == Sys(I_PushOk_g(e), I_PushOk_n(e))

@@ -2,7 +2,7 @@
 +++ DevelopSkill.tla
 @@ -216,7 +216,7 @@
  
- \* req: PR-DEVELOPIMPLEMENT-057, PR-DEVELOPIMPLEMENT-033, PR-DEVELOPIMPLEMENT-035, PR-DEVELOPIMPLEMENT-070
+ \* req: PR-DEVELOPIMPLEMENT-057, PR-DEVELOPIMPLEMENT-033, PR-DEVELOPIMPLEMENT-035, PR-DEVELOPIMPLEMENT-070, PR-DEVELOPIMPLEMENT-071
  I_FinalDone_g(e) == IRun("final", e, "tick") /\ im.unread = 0 /\ FinalOk /\ ~args.commitReq
 -I_FinalDone_n(e) == SI("done", sk.stage, "none", "verified", im)
 +I_FinalDone_n(e) == SI("done", sk.stage, "none", "committed", im)
