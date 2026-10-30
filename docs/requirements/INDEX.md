@@ -6,8 +6,8 @@
 
 | パス | 扱う関心事 | どういう要求が書かれているか |
 |---|---|---|
-| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／配布先での確認（PR-BPDESIGNEDSKILL-001〜023／23 件） |
-| `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜050／50 件） |
+| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／形式検証／run の記録／配布先での確認（PR-BPDESIGNEDSKILL-001〜042／42 件） |
+| `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／4 機能に共通する run の記録／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜051／51 件） |
 | `docs/requirements/cleanup.md` | 要求文書: cleanup-branches | 守るもの／取り込み済みの判定／状態の取得／取り込み済みの削除／判断が要る対象の問い／承認された対象の削除／作業状態／作業場所の同期／後処理／退避した変更の復帰／完了報告（PR-CLEANUP-001〜081、欠番は 031・034・035・038・039・072・079／74 件） |
 | `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方（PR-CONSUMER-001〜031、欠番は 014・016／29 件） |
 | `docs/requirements/develop-address-review.md` | 要求文書: develop:address-review | 入口と目標／分類／止める所／修正と push／required checks の待ち／返信／resolve／停止と再開／完了の条件（PR-DEVELOPADDRESSREVIEW-001〜066／66 件） |
@@ -34,6 +34,25 @@
 | PR-BPDESIGNEDSKILL-011 | 探索グラフ | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-012 | 状態の書き込み | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-013 | 資産台帳の原則 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-024 | 形式化の対象の洗い出し | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-037 | 形式化できない性質 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-041 | 形式化できない性質の確認 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-025 | 形式検証の実施 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-026 | 形式検証の結果と範囲 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-027 | 形式検証の失敗 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-028 | 担当ごとの作業記録 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-029 | 作業記録への参照 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-039 | 記録の保存先 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-030 | 共有の記録台帳への書き込み | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-031 | 記録の分割 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-032 | 記録の正本 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-033 | 作業記録の書き方 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-040 | 文書の一般規約の参照 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-042 | 適用した文書の一般規約の版 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-034 | 記録の保持 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-038 | 過去の実行の記録 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-035 | 記録の保存の失敗 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-036 | 性能の見直しに使う記録 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-014 | 役ごとの制限の実効性の確認 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-015 | 確かめられなかった制限の報告 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-016 | 起動数の上限の受け取り | `docs/requirements/bp-designed-skill.md` |
@@ -49,6 +68,7 @@
 | PR-BPOPERATIONS-039 | どの機能にも当たらない依頼 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-048 | 途中の機能が止まったときの連なり | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-049 | 次の機能の入力を満たさないときの連なり | `docs/requirements/bp-operations.md` |
+| PR-BPOPERATIONS-051 | best-practices の run の記録 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-003 | 目標の固定 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-004 | 依頼文に無い目標の禁止 | `docs/requirements/bp-operations.md` |
 | PR-BPOPERATIONS-005 | 待たれる入力の不足 | `docs/requirements/bp-operations.md` |
@@ -562,4 +582,4 @@
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 382 件
+- 実現する仕様項目が無い要求: 402 件
