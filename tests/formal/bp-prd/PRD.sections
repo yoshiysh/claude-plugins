@@ -1,0 +1,17 @@
+043c1acf1618b1517d9682903ab928fdc23a03b382596a04220d82d308aa79b5	docs/requirements/bp-designed-skill.md	#### PR-BPDESIGNEDSKILL-007 停止・再開と人間の入力
+4d4c525bc8d4e1d5eaf18b0512a6d5ccabe5e2660cc59af9dd0acce94f395365	docs/requirements/bp-designed-skill.md	### 形式検証
+820ad43b6b9beb7c8796d90d25e1e44d4d80f5741b756022d700e7bf0ab2e8d6	docs/requirements/bp-designed-skill.md	### run の記録
+20bdc7b99058ec4502565b4d585e5e10bd905ba01685ccddee431c90f667d7b4	docs/requirements/bp-operations.md	## 用語
+4a61d1f35822a2414315eaca8f1a49d4c71ac50d8272823e26183e97993f788a	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-005 待たれる入力の不足
+b32422615a26043a1a8bb2ba4abcdba1e785ba878a87e6ef3f4b00747b32802e	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-009 生成と別の context での検証
+ce96221c966e8c1854bdaa08affd99654c445857ce33a8908e0f8c166e89e80b	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-010 検証を通るまでの完了の扱い
+4bd61bb54a11025c349e36e8c655a36a9fd624df6892f75fbe94a5a04644c767	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-011 書き直しの許容
+c49ac04867aced805d21ff113a2265fd39c625edfb70821fac4df6f5a1a3341c	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-012 検証を通らずに止まるとき
+14155e27d5280cb1f0a079409b417c3a2db6dd643caa211e2d3c817bee26d5e9	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-013 続けられない失敗
+6290247e2d9a73220b6657f4a7eba0f093c7cbedbdc80cc8012e0c82415615b0	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-041 途中で止まったときの報告
+e2f759161d0ca3a547bf48b1400164aef6f7dc15f0a7f01185469c09d3dd2677	docs/requirements/bp-operations.md	#### PR-BPOPERATIONS-051 best-practices の run の記録
+9fee547132e4be60fa4440317cdb40246f8463f1e47f403f2d5875428459e169	docs/design/skill-design-patterns.md	## 用語
+c0e63a87f4340e7b44018e9330853fcd60c15636d2efd18c6c62375728322b55	docs/design/skill-design-patterns.md	## 停止・再開と人間の入力
+da30ec35fe95d13ad397981b16a843e0126d5fce6e41dc3150772b94b30289ff	docs/design/skill-design-patterns.md	### 停止
+1a68f3c9e4e345bdf5b89a46bdf4fbf368f63d09e39ba5ac3679513877076489	docs/design/skill-design-patterns.md	## 機械で確かめる
+5194ff1e79dea495e632daaf9f4d3babee0b6d29c8b79d1c67df40b63d6d5301	docs/design/skill-design-patterns.md	## 記録と改善
