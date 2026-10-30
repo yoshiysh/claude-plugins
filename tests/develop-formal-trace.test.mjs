@@ -17,12 +17,12 @@ const NONE = 'none';
 const SKILLS = Object.freeze({
   'develop-implement': {
     set: 'IActs', goal: 'ImplGoal', prefix: 'Impl',
-    branches: [{ next: 'IResumeStage', on: 'im.unread', column: '未読のヒント' }],
+    branches: [{ next: 'IResumeStage', on: 'im.unread', column: '未読のヒント', when: { 'im.unread > 0': 'あり', 'im.unread = 0': 'なし' } }],
     stages: { なし: NONE, '開始時の check': 'baseline', '計画の run': 'plan', 'PR-DEVELOPIMPLEMENT-029 の判定': 'decide', '止まった段の、結果を記録していない項目': ANY },
   },
   'develop-review': {
     set: 'RActs', goal: 'ReviewGoal', prefix: 'Review',
-    branches: [{ next: 'IF rv.pinBroken', on: 'rv.pinBroken', column: 'pin' }],
+    branches: [{ next: 'IF rv.pinBroken', on: 'rv.pinBroken', column: 'pin', when: { '~rv.pinBroken': '崩れていない', 'rv.pinBroken': '崩れた' } }],
     stages: { なし: NONE, '項目の起動の、未着手の項目': 'items', '止まった段の、結果を記録していない項目': ANY },
   },
   'develop-address-review': {
@@ -135,34 +135,69 @@ function kindsOfGuard(g, kinds) {
   return ks;
 }
 
-// 次の状態が分岐する再開の action について、guard の選言肢のうち分岐の変数を見ないものの kind ごとに、
-// その (kind, action) の行の条件の列の値（* は全ての値）が、条件の値の全てを覆うかを照らす。
-// guard が分岐の変数を見る選言肢は、guard がすでに片方の値に絞っているので照らさない。
+function disjunctsOf(g) {
+  if (!g.includes('\\/')) return [g];
+  const parts = g.split('\\/');
+  if (/^(?:[\s\S]*(?:\(|\/\\))?\s*$/.test(parts[0])) return parts.slice(1);
+  return [parts[0].replace(/^[\s\S]*\/\\\s*\(\s*/, ''), ...parts.slice(1)];
+}
+
+// 次の状態が分岐する再開の action について、guard の選言肢ごとに、分岐の変数を見ない選言肢は条件の値の全てを、
+// 分岐の変数を見る選言肢は when が写す値だけを、その (kind, action) の行の条件の列の値（* は全ての値）が過不足なく覆うかを照らす。
 export function branchCoverage(markdown, skillTla, names, spec, resumeRows) {
   const errors = [];
-  const { kinds, resumers } = shapeOf(skillTla, names);
+  const { enters, kinds, resumers } = shapeOf(skillTla, names);
+  const alwaysPlan = (k) => {
+    const es = [...enters.values()].filter((e) => e.kind === k);
+    return es.length > 0 && es.every((e) => e.stage === 'plan');
+  };
   for (const b of spec.branches || []) {
     const col = `条件: ${b.column}`;
     const line = new RegExp(`^> 条件の値: ${b.column} = (.*)$`, 'm').exec(markdown);
     if (!line) { errors.push(`condition values of ${b.column} are not declared`); continue; }
     const values = line[1].split(' / ').map((v) => v.trim());
+    const whenVals = Object.values(b.when || {});
+    const badWhen = whenVals.filter((v) => !values.includes(v));
+    if (badWhen.length) { errors.push(`branch ${b.column} maps when to undeclared values: ${badWhen}`); continue; }
+    const missWhen = values.filter((v) => !whenVals.includes(v));
+    if (missWhen.length) { errors.push(`branch ${b.column} when does not cover values: ${missWhen}`); continue; }
+    let matchedActions = 0;
     for (const a of resumers) {
       if (!partOf(skillTla, a, '_n').includes(b.next)) continue;
+      matchedActions++;
       const g = partOf(skillTla, a, '_g');
-      const parts = g.includes('\\/') ? g.split('\\/').slice(1) : [g];
-      for (const d of parts) {
-        if (d.includes(b.on)) continue;
-        for (const k of kindsOfGuard(d, kinds)) {
-          const seen = new Set();
-          for (const r of resumeRows) {
-            if (!ticks(r[KIND]).includes(k) || !ticks(r[ACTION]).includes(a)) continue;
-            for (const v of r[col] === ANY ? values : [r[col]]) seen.add(v);
-          }
-          const miss = values.filter((v) => !seen.has(v));
-          if (miss.length) errors.push(`(${k}, ${a}) branches on ${b.column}, but no row covers ${miss}`);
+      const expected = new Map();
+      for (const d of disjunctsOf(g)) {
+        const ks = kindsOfGuard(d, kinds);
+        if (!ks.size) { errors.push(`${a} has a disjunct without a recognized kind guard`); continue; }
+        let allowed = values;
+        if (d.includes(b.on)) {
+          const hit = Object.entries(b.when || {})
+            .filter(([expr]) => new RegExp(`(?<![~\\w])${expr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.])`).test(d))
+            .map(([, v]) => v);
+          if (!hit.length) { errors.push(`${a} has an unrecognized ${b.on} guard`); continue; }
+          allowed = hit;
+        }
+        for (const k of ks) {
+          if (!expected.has(k)) expected.set(k, new Set());
+          for (const v of allowed) expected.get(k).add(v);
         }
       }
+      for (const [k, want] of expected) {
+        const seen = new Set();
+        for (const r of resumeRows) {
+          if (!ticks(r[KIND]).includes(k) || !ticks(r[ACTION]).includes(a)) continue;
+          if (r[col] === ANY && !alwaysPlan(k)) { errors.push(`(${k}, ${a}) cannot use * for ${b.column}`); continue; }
+          if (r[col] !== ANY && !values.includes(r[col])) { errors.push(`(${k}, ${a}) has undeclared ${b.column} value: ${r[col]}`); continue; }
+          for (const v of r[col] === ANY ? values : [r[col]]) seen.add(v);
+        }
+        const miss = [...want].filter((v) => !seen.has(v));
+        if (miss.length) errors.push(`(${k}, ${a}) branches on ${b.column}, but no row covers ${miss}`);
+        const extra = [...seen].filter((v) => !want.has(v));
+        if (extra.length) errors.push(`(${k}, ${a}) restricts ${b.column} to ${[...want]}, but row covers ${extra}`);
+      }
     }
+    if (!matchedActions) errors.push(`branch ${b.column} matched no (kind, action) pair`);
   }
   return errors;
 }
@@ -463,7 +498,7 @@ test('照合の部品は、kind・stage・guard の対・停止の名前・結�
     .replace('I_Go_g(e) == IStop(e, "resume") /\\ sk.kind = "k1"', 'I_Go_g(e) == IStop(e, "resume") /\\\n  (\\/ sk.kind = "k1"\n   \\/ sk.kind = "k2" /\\ im.unread > 0)')
     .replace('I_Go_n(e) == SI("running", sk.stage,', 'I_Go_n(e) == SI("running", IResumeStage,')
     .replace('I_No_g(e) == IStop(e, "resume") /\\ sk.kind \\in {"k2"}', 'I_No_g(e) == IStop(e, "resume") /\\ sk.kind \\in {"k2"} /\\ im.unread = 0');
-  const branchSpec = { ...spec, branches: [{ next: 'IResumeStage', on: 'im.unread', column: 'ヒント' }] };
+  const branchSpec = { ...spec, branches: [{ next: 'IResumeStage', on: 'im.unread', column: 'ヒント', when: { 'im.unread > 0': 'あり', 'im.unread = 0': 'なし' } }] };
   const branchDoc = good
     .replace('> 条件の値: 停止 = s1 / s2', '> 条件の値: 停止 = s1 / s2\n> 条件の値: ヒント = あり / なし')
     .replace('| 条件: 停止 | 結果 | 模型の kind | 模型の action |', '| 条件: 停止 | 条件: ヒント | 結果 | 模型の kind | 模型の action |').replace('|---|---|---|---|\n| s1', '|---|---|---|---|---|\n| s1')
@@ -473,6 +508,25 @@ test('照合の部品は、kind・stage・guard の対・停止の名前・結�
   assert.deepEqual(checkSkillDoc(branchDoc, branchSkill, props, branchSpec), [], 'a disjunct that reads the branch variable needs one value only');
   const uncovered = branchDoc.replace('| s1 | なし | 続ける | `k1` | `I_Go` |\n', '');
   assert.match(checkSkillDoc(uncovered, branchSkill, props, branchSpec).join('\n'), /\(k1, I_Go\) branches on ヒント, but no row covers なし/);
+  const restrictedWildcard = branchDoc.replace('| s2 | あり | 続ける | `k2` | `I_Go` |', '| s2 | * | 続ける | `k2` | `I_Go` |');
+  assert.match(checkSkillDoc(restrictedWildcard, branchSkill, props, branchSpec).join('\n'), /\(k2, I_Go\) restricts ヒント to あり, but row covers なし/);
+  const restrictedWrong = branchDoc.replace('| s2 | あり | 続ける | `k2` | `I_Go` |', '| s2 | なし | 続ける | `k2` | `I_Go` |');
+  assert.match(checkSkillDoc(restrictedWrong, branchSkill, props, branchSpec).join('\n'), /\(k2, I_Go\) branches on ヒント, but no row covers あり/);
+  const undeclaredVal = branchDoc.replace('| s2 | あり | 続ける | `k2` | `I_Go` |', '| s2 | 不明 | 続ける | `k2` | `I_Go` |');
+  assert.match(checkSkillDoc(undeclaredVal, branchSkill, props, branchSpec).join('\n'), /\(k2, I_Go\) has undeclared ヒント value: 不明/);
+  const infixSkill = branchSkill.replace('(\\/ sk.kind = "k1"\n   \\/ sk.kind = "k2" /\\ im.unread > 0)', '(sk.kind = "k1"\n   \\/ sk.kind = "k2" /\\ im.unread > 0)');
+  assert.deepEqual(checkSkillDoc(branchDoc, infixSkill, props, branchSpec), [], 'an infix disjunction without a leading \\/ keeps the first disjunct');
+  assert.match(checkSkillDoc(uncovered, infixSkill, props, branchSpec).join('\n'), /\(k1, I_Go\) branches on ヒント, but no row covers なし/);
+  const infixFirstUnguarded = branchSkill.replace('(\\/ sk.kind = "k1"\n   \\/ sk.kind = "k2" /\\ im.unread > 0)', '(im.unread > 1\n   \\/ sk.kind = "k1"\n   \\/ sk.kind = "k2" /\\ im.unread > 0)');
+  assert.match(checkSkillDoc(branchDoc, infixFirstUnguarded, props, branchSpec).join('\n'), /I_Go has a disjunct without a recognized kind guard/);
+  const unguardedDisjunct = branchSkill.replace('\\/ sk.kind = "k2" /\\ im.unread > 0', '\\/ sk.kind = "k2" /\\ im.unread > 0\n   \\/ im.unread > 1');
+  assert.match(checkSkillDoc(branchDoc, unguardedDisjunct, props, branchSpec).join('\n'), /I_Go has a disjunct without a recognized kind guard/);
+  const unusedBranchSpec = { ...spec, branches: [{ next: 'NoSuchNext', on: 'im.unread', column: 'ヒント', when: { 'im.unread > 0': 'あり', 'im.unread = 0': 'なし' } }] };
+  assert.match(checkSkillDoc(branchDoc, branchSkill, props, unusedBranchSpec).join('\n'), /branch ヒント matched no \(kind, action\) pair/);
+  const badWhenSpec = { ...spec, branches: [{ next: 'IResumeStage', on: 'im.unread', column: 'ヒント', when: { 'im.unread > 0': 'そのまま', 'im.unread = 0': 'なし' } }] };
+  assert.match(checkSkillDoc(branchDoc, branchSkill, props, badWhenSpec).join('\n'), /branch ヒント maps when to undeclared values: そのまま/);
+  const wildcardNonPlan = branchDoc.replace('| s1 | あり | 続ける | `k1` | `I_Go` |', '| s1 | * | 続ける | `k1` | `I_Go` |').replace('| s1 | なし | 続ける | `k1` | `I_Go` |', '| s1 | あり | 続ける | `k1` | `I_Go` |');
+  assert.match(checkSkillDoc(wildcardNonPlan, branchSkill, props, branchSpec).join('\n'), /\(k1, I_Go\) cannot use \* for ヒント/);
 
   assert.deepEqual(expandIds('PR-A-001・002（行）・003、PR-B-004'), ['PR-A-001', 'PR-A-002', 'PR-A-003', 'PR-B-004']);
   assert.deepEqual([...reqIdsOf(skill)], ['PR-X-001', 'PR-X-002', 'PR-X-003', 'PR-X-004']);

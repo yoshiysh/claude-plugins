@@ -251,8 +251,8 @@
 | PR-DEVELOPADDRESSREVIEW-055 | develop:implement の段からの再開 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-049 | commit の依頼 | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-025 | push | `docs/requirements/develop-address-review.md` |
-| PR-DEVELOPADDRESSREVIEW-054 | develop:implement が直す変更は無いと返したとき | `docs/requirements/develop-address-review.md` |
-| PR-DEVELOPADDRESSREVIEW-057 | push で止めるときに直す変更が無いと返されたとき | `docs/requirements/develop-address-review.md` |
+| PR-DEVELOPADDRESSREVIEW-054 | develop:implement が commit しなかったとき | `docs/requirements/develop-address-review.md` |
+| PR-DEVELOPADDRESSREVIEW-057 | push で止めるときに commit しなかったとき | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-052 | push が拒まれたとき | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-026 | PR が無いときに行わないこと | `docs/requirements/develop-address-review.md` |
 | PR-DEVELOPADDRESSREVIEW-027 | 待つ SHA | `docs/requirements/develop-address-review.md` |

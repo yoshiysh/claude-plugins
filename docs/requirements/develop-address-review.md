@@ -54,7 +54,7 @@ address-review は、PR のコメントの指摘と、利用者が渡す外の�
 PR が無いとき、address-review は、差分（base と head の完全な SHA）かファイルの集合（path と head の SHA）と、渡された指摘の集合を目標として状態に固定しなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-004 PR が無いときの作業ツリー
-PR が無い address-review の初回の起動で、渡された head の SHA が今の HEAD と同じでないか作業ツリーが clean でないならば、address-review は入口で拒否しなければならない（develop:implement が書き込む前の出発点を固定するため。develop:implement の段からの再開は PR-DEVELOPADDRESSREVIEW-055）。
+PR が無い address-review の初回の起動で、PR-DEVELOPIMPLEMENT-078 の開始点の引き継ぎを伴わないときは、渡された head の SHA が今の HEAD と同じでないか作業ツリーが clean でないならば、PR-DEVELOPADDRESSREVIEW-059・065 により PR-DEVELOPIMPLEMENT-078 の開始点を引き継いで新しく呼ばれたときは、渡された head の SHA が今の HEAD および引き継いだ開始時の HEAD と同じでないか引き継いだ開始時に変更のあったパスが空でないならば、address-review は入口で拒否しなければならない（develop:implement が書き込む前の出発点を固定するため。PR が無いときは PR-DEVELOPADDRESSREVIEW-021・056 により develop:implement に commit を頼まないので、develop:implement が作業ツリーを変えた後に止まっても今の HEAD は開始時の HEAD のままである。develop:implement の段からの再開は PR-DEVELOPADDRESSREVIEW-055）。
 
 #### PR-DEVELOPADDRESSREVIEW-005 名指された branch の方針の版
 PR が無く、利用者が base の branch を名指したとき、address-review は、その branch の remote の先端を方針の版にしなければならない。
@@ -81,7 +81,7 @@ PR の head に push できず、直す変更のある fix（develop:implement �
 PR の head に push できず、止める所が指定なし・返信・resolve のどれかであり、直す変更のある fix が無いとき（直した commit を記録した fix・decline・out_of_scope だけのとき）、address-review は、PR-DEVELOPADDRESSREVIEW-011 で止まらず、push しない流れで PR-DEVELOPADDRESSREVIEW-027 の required checks の待ちへ進まなければならない（返信へ進むか返信せずに止まるかは PR-DEVELOPADDRESSREVIEW-029 の表、返信と resolve は PR-DEVELOPADDRESSREVIEW-021 の表のその止める所の行による）。
 
 #### PR-DEVELOPADDRESSREVIEW-012 指摘より後の commit の一覧
-対象が PR であるとき、address-review は、指摘の収集で、指摘ごとに、その指摘が付いた時より後の PR の commit（指摘より後の commit）を一覧にして分類役に渡さなければならない。
+対象が PR であるとき、address-review は、指摘の収集で、指摘ごとに、その指摘が付いた時より後の PR の commit（指摘より後の commit。PR-DEVELOPIMPLEMENT-078 の開始点を引き継いで新しく呼ばれたときに、引き継いだ開始時の HEAD より後にローカルで作られた未 push の commit は含めない）を一覧にして分類役に渡さなければならない。
 
 ### 分類
 
@@ -158,7 +158,7 @@ address-review は、止める所の指定のもとで、PR-DEVELOPADDRESSREVIEW
 ### 修正と push
 
 #### PR-DEVELOPADDRESSREVIEW-022 develop:implement への受け渡し
-address-review は、直す変更のある fix を、PR の番号（PR があるとき）・名指された base の branch（PR が無く、指摘の収集で利用者が名指したとき）・指摘の収集で固定した方針の版の SHA と一緒に develop:implement に渡さなければならない（それぞれが始めた時点で主ブランチの先端を固定すると、間に主ブランチが進んだときに別の版で読む）。
+address-review は、直す変更のある fix を、PR の番号（PR があるとき）・名指された base の branch（PR が無く、指摘の収集で利用者が名指したとき）・指摘の収集で固定した方針の版の SHA・PR-DEVELOPADDRESSREVIEW-059・065 により引き継いだ PR-DEVELOPIMPLEMENT-078 の開始点（引き継いだとき）と一緒に develop:implement に渡さなければならない（それぞれが始めた時点で主ブランチの先端を固定すると、間に主ブランチが進んだときに別の版で読む）。
 
 #### PR-DEVELOPADDRESSREVIEW-023 直す変更が無いとき
 分類の結果に直す変更が 1 件も無いとき、address-review は develop:implement を呼ばず、push もしてはならない。
@@ -167,7 +167,7 @@ address-review は、直す変更のある fix を、PR の番号（PR がある
 develop:implement が止まったならば、address-review は完了ではない停止（develop:implement が止まった停止）として止まり、どの指摘についても（decline・out_of_scope・直した commit を記録した fix を含む）push・返信・resolve をせずに、PR-DEVELOPADDRESSREVIEW-066 が定める止まった理由と次の手を返さなければならない（止まった run で他の指摘に返信すると、再開の後に直した指摘の返信を組めない）。
 
 #### PR-DEVELOPADDRESSREVIEW-066 develop:implement が止まったときに返すもの
-PR-DEVELOPADDRESSREVIEW-024 で止まるとき、address-review は、develop:implement が返した止まった理由と次の手（PR-DEVELOPPLUGIN-032。人の判断が要る停止では PR-DEVELOPIMPLEMENT-062・PR-DEVELOPPLUGIN-038 の人が決めることを含む）を返し、address-review の次の手を、PR-DEVELOPADDRESSREVIEW-059 の表の「develop:implement の停止」の列で分けて返さなければならない。位置があるときは、address-review の next_args を返し、次の手を、develop:implement の再開に要る入力を develop:implement の状態に足してから address-review をその next_args で再開することとし、位置がなしのときは、059 の表の位置がなしの行の次の手とし、develop:implement が返した次の手のうち原因の直し方（方針文書の修正など）はその前に行う手順として残し、develop:implement を新しく呼ぶことは address-review を新しく呼ぶことに置き換えて返す（位置がなしの停止では develop:implement も address-review も再開を拒否するので、next_args と状態に足す入力は続け方にならない。develop:implement だけを新しく呼ぶと、address-review の分類と返信が続かない）。
+PR-DEVELOPADDRESSREVIEW-024 で止まるとき、address-review は、develop:implement が返した止まった理由と次の手（PR-DEVELOPPLUGIN-032。人の判断が要る停止では PR-DEVELOPIMPLEMENT-062・PR-DEVELOPPLUGIN-038 の人が決めることを、develop:implement の実装の run が作業ツリーを変えた後の停止では PR-DEVELOPIMPLEMENT-078 の開始点の引き継ぎの指定を含む）を返し、address-review の次の手を、PR-DEVELOPADDRESSREVIEW-059 の表の「develop:implement の停止」の列で分けて返さなければならない。位置があるときは、address-review の next_args を返し、次の手を、develop:implement の再開に要る入力を develop:implement の状態に足してから address-review をその next_args で再開することとし、位置がなしのときは、059 の表の位置がなしの行の次の手とし、develop:implement が返した次の手のうち原因の直し方はその前に行う手順として残し、develop:implement を新しく呼ぶことは（PR-DEVELOPIMPLEMENT-078 の開始点の引き継ぎを伴うときはその引き継ぎを伴って）address-review を新しく呼ぶことに置き換えて返す（位置がなしの停止では develop:implement も address-review も再開を拒否するので、next_args と状態に足す入力は続け方にならない。develop:implement だけを新しく呼ぶと、address-review の分類と返信が続かない）。
 
 #### PR-DEVELOPADDRESSREVIEW-055 develop:implement の段からの再開
 PR-DEVELOPADDRESSREVIEW-066 の next_args（develop:implement の停止の記録する位置があるとき）で再開した run は、入口の作業ツリーの検査と、分類の受け入れ・返信の組み立てを繰り返さず、状態にある分類の結果をそのまま使わなければならない（その後は止まらなかったときと同じく push・待ち・返信・resolve へ進む）。
@@ -176,13 +176,13 @@ PR-DEVELOPADDRESSREVIEW-066 の next_args（develop:implement の停止の記録
 対象が PR で止める所が検証でないとき、address-review は、develop:implement に修正を渡すときに commit も頼まなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-025 push
-対象が PR であるとき、address-review は、develop:implement が commit した修正を、利用側の宣言の commit の後の設定に関わらず push しなければならない（返信は push 済みの SHA を指す）。
+対象が PR であるとき、address-review は、develop:implement が PR-DEVELOPIMPLEMENT-049 で返した commit（この呼び出しで作った commit と、PR-DEVELOPIMPLEMENT-071 で計画の run に戻る前に作った commit と、PR-DEVELOPIMPLEMENT-078 で引き継いだ未 push の commit を含む）を、利用側の宣言の commit の後の設定に関わらず push しなければならない（返信は push 済みの SHA を指す）。
 
-#### PR-DEVELOPADDRESSREVIEW-054 develop:implement が直す変更は無いと返したとき
-対象が PR で止める所が指定なし・返信・resolve のどれかであり、develop:implement が直す変更は無いと返して commit しなかったとき、address-review はその fix の指摘について push せず、PR-DEVELOPADDRESSREVIEW-027・029 の待ちの後に、直す変更が無かったことを返信しなければならない（その thread は PR-DEVELOPADDRESSREVIEW-041 の候補にならない）。
+#### PR-DEVELOPADDRESSREVIEW-054 develop:implement が commit しなかったとき
+対象が PR で止める所が指定なし・返信・resolve のどれかであり、develop:implement が PR-DEVELOPIMPLEMENT-049 で commit の SHA を 1 つも返さずに完了したとき（実装の run が新たな変更を作らず PR-DEVELOPIMPLEMENT-078 で引き継いだ変更も未 push の commit も無かったとき（PR-DEVELOPIMPLEMENT-044）と、修正の round で実装の run が加えた未コミットの変更が全て元に戻って commit が 1 つも作られず引き継いだ未 push の commit も無かったとき（PR-DEVELOPIMPLEMENT-033））、address-review はその fix の指摘について push せず、PR-DEVELOPADDRESSREVIEW-027・029 の待ちの後に、直す変更が無かったことを返信しなければならない（その thread は PR-DEVELOPADDRESSREVIEW-041 の候補にならない）。
 
-#### PR-DEVELOPADDRESSREVIEW-057 push で止めるときに直す変更が無いと返されたとき
-対象が PR で止める所が push であり、develop:implement が直す変更は無いと返して commit しなかったとき、address-review は required checks を待たずに止まらなければならない（返信と resolve は PR-DEVELOPADDRESSREVIEW-056 により行わない）。
+#### PR-DEVELOPADDRESSREVIEW-057 push で止めるときに commit しなかったとき
+対象が PR で止める所が push であり、develop:implement が PR-DEVELOPIMPLEMENT-049 で commit の SHA を 1 つも返さずに完了したとき（PR-DEVELOPIMPLEMENT-044・033）、address-review は push も required checks の待ちもせずに完了しなければならない（返信と resolve は PR-DEVELOPADDRESSREVIEW-056 により行わない）。
 
 #### PR-DEVELOPADDRESSREVIEW-052 push が拒まれたとき
 push が拒まれたならば、address-review は返信も resolve もせずに止まり、拒まれた理由を返さなければならない。
@@ -193,7 +193,7 @@ PR が無いとき、address-review は、返信・push・required checks の待
 ### required checks の待ち
 
 #### PR-DEVELOPADDRESSREVIEW-027 待つ SHA
-address-review は、push したときは push した SHA の、push しなかったとき（分類の結果に直す変更が無く develop:implement を呼ばなかったとき（PR-DEVELOPADDRESSREVIEW-023）と、develop:implement が直す変更は無いと返したとき（PR-DEVELOPADDRESSREVIEW-054））は今の PR の head の required checks を、返信の前に待たなければならない。
+address-review は、push したときは push した SHA の、push しなかったとき（分類の結果に直す変更が無く develop:implement を呼ばなかったとき（PR-DEVELOPADDRESSREVIEW-023）と、develop:implement が commit せずに完了したとき（PR-DEVELOPADDRESSREVIEW-054））は今の PR の head の required checks を、返信の前に待たなければならない。
 
 #### PR-DEVELOPADDRESSREVIEW-028 push した SHA と PR の head
 required checks を読む前に、address-review は push した SHA が PR の head であることを確かめ、違えば止まらなければならない。
@@ -203,7 +203,7 @@ address-review は、required checks の状態に応じて、次の表のとお�
 
 > 条件の値: required checks = 全て成功 / 失敗が 1 件以上 / 失敗が無く実行中が残る / 1 件も無い / 読めない
 > 条件の値: 待った回数 = 上限未満 / 上限に達した / 数えられない
-> 条件の値: develop:implement = 呼んで push した / 呼んで直す変更は無いと返された / 呼んでいない
+> 条件の値: develop:implement = 呼んで push した / 呼んで commit しなかった / 呼んでいない
 
 | 条件: required checks | 条件: 待った回数 | 条件: develop:implement | 結果 |
 |---|---|---|---|
@@ -215,8 +215,8 @@ address-review は、required checks の状態に応じて、次の表のとお�
 | 失敗が無く実行中が残る | 上限に達した | * | 返信せずに止まり、next_args を返す |
 | 1 件も無い | 上限未満 | 呼んで push した | 待たずに返信へ進み、required checks が無かったことと、代わりの根拠が develop:implement の最終照合であることを報告に書く |
 | 1 件も無い | 上限に達した | 呼んで push した | 待たずに返信へ進み、required checks が無かったことと、代わりの根拠が develop:implement の最終照合であることを報告に書く |
-| 1 件も無い | 上限未満 | 呼んで直す変更は無いと返された | 待たずに返信へ進み、required checks が無かったことを報告に書く |
-| 1 件も無い | 上限に達した | 呼んで直す変更は無いと返された | 待たずに返信へ進み、required checks が無かったことを報告に書く |
+| 1 件も無い | 上限未満 | 呼んで commit しなかった | 待たずに返信へ進み、required checks が無かったことを報告に書く |
+| 1 件も無い | 上限に達した | 呼んで commit しなかった | 待たずに返信へ進み、required checks が無かったことを報告に書く |
 | 1 件も無い | 上限未満 | 呼んでいない | 待たずに返信へ進み、required checks が無かったことと、代わりの根拠が分類の検証（分類の検証役と CLI の照合。直した commit を記録した fix では PR-DEVELOPADDRESSREVIEW-017 の照合を含む）であることを報告に書く |
 | 1 件も無い | 上限に達した | 呼んでいない | 待たずに返信へ進み、required checks が無かったことと、代わりの根拠が分類の検証（分類の検証役と CLI の照合。直した commit を記録した fix では PR-DEVELOPADDRESSREVIEW-017 の照合を含む）であることを報告に書く |
 | 読めない | * | * | BLOCKED で止まる（PR-DEVELOPPLUGIN-033） |
@@ -339,16 +339,16 @@ address-review は、止まるとき、次の表の停止の名前を止まっ�
 | トークン量か待つ回数の上限 | なし | 動いた | * | 再開を拒否し、head が動いた停止で止まる | `limit_run` | `A_PushByOther`・`A_ResumeHeadMoved` |
 | push できない | なし | * | * | 記録した位置から、PR-DEVELOPADDRESSREVIEW-010 の確認をやり直して続ける | `push_denied` | `A_Resume` |
 | develop:implement が止まった | なし | * | 位置がある | 記録した位置から、develop:implement を next_args で再開して続ける | `impl_stopped` | `A_Resume`（develop:implement の状態への入力と入れ子の再開は模型の範囲の外） |
-| develop:implement が止まった | なし | * | 位置がなし | 再開を拒否し、PR-DEVELOPIMPLEMENT-078 のとおり develop:implement が加えた変更を退避してから、address-review を新しく呼ぶことを次の手として返す | `impl_stopped` | 模型の範囲の外 |
+| develop:implement が止まった | なし | * | 位置がなし | 再開を拒否し、develop:implement の実装の run が作業ツリーを変えた後の停止では PR-DEVELOPIMPLEMENT-078 の開始点を引き継いで、変える前の停止ではそのまま、address-review を新しく呼ぶことを次の手として返す | `impl_stopped` | 模型の範囲の外 |
 | BLOCKED | なし | * | * | 原因を直した後に（required checks の失敗では、同じ head で流し直すか読めるようにした後に）、記録した位置から続ける（返信の確認か resolve の確認から続けるときは投稿し直さない） | `blocked` | `A_Resume`（原因を直す入力は模型の範囲の外） |
 | 上記以外 | * | * | * | 再開を拒否し、止まったまま、その停止をこの表のどの行で出られるか（記録する位置が「なし」の停止では、PR-DEVELOPADDRESSREVIEW-058 の表でその停止の止まる条件を定める要求が定める次の手）を次の手として返す | `needs_input`・`mismatch`・`refused`・`reject_args`・`stale`・`head_moved` | `A_RefuseResume`（模型は入力の無い再開だけを表す。合わない停止に人の判断を足した組み合わせは模型の範囲の外） |
 
 #### PR-DEVELOPADDRESSREVIEW-065 止まっている間のほかの入力
-address-review は、止まっている間に足された、再開ではない入力を、次の表のとおりに扱わなければならない。
+address-review は、止まっている間に足された、再開ではない入力を、次の表のとおりに扱わなければならない。新しい呼び出しを受けたとき、develop:implement が止まった停止（PR-DEVELOPADDRESSREVIEW-024）のうち develop:implement の実装の run が作業ツリーを変えた後の停止から新しく呼ばれたときは、address-review は作業ツリーを巻き戻さずに PR-DEVELOPIMPLEMENT-078 の開始点を引き継ぎ、その開始点を PR-DEVELOPADDRESSREVIEW-004 の入口の検査と PR-DEVELOPADDRESSREVIEW-012 の指摘より後の commit の一覧と PR-DEVELOPADDRESSREVIEW-022 の develop:implement への受け渡しに使わなければならない。それ以外の停止（develop:implement が作業ツリーを変える前の停止と、develop:implement が完了した後の push・required checks の待ち・返信・resolve の段の停止）から新しく呼ばれたときは、address-review は PR-DEVELOPIMPLEMENT-078 の開始点を引き継がずに今の PR の head から指摘の収集を始めなければならない（push の後の段の停止では、前の呼び出しで push 済みの commit が PR の head の履歴に入っており、PR-DEVELOPADDRESSREVIEW-012・016 の指摘より後の commit として扱われる）。
 
 | 入力 | 扱い | 模型の action |
 |---|---|---|
-| 新しい呼び出し | 止まった状態を引き継がずに、指摘の収集から新しい依頼として始める。develop:implement が作業ツリーを変えた後の停止から新しく呼ぶときは、PR-DEVELOPIMPLEMENT-078 のとおり、先に変更を退避してから呼ぶことを次の手とする（PR が無いときは、退避しないと入口の PR-DEVELOPADDRESSREVIEW-004 で拒否される） | `A_Reinvoke` |
+| 新しい呼び出し | 止まった状態を引き継がずに、指摘の収集から新しい依頼として始める（develop:implement の実装の run が作業ツリーを変えた後の停止からは、PR-DEVELOPIMPLEMENT-078 の開始点を引き継ぐ） | `A_Reinvoke` |
 | 打ち切り | 再開せずに終わる | `H_Abort` |
 
 ### 完了の条件
@@ -357,7 +357,7 @@ address-review は、止まっている間に足された、再開ではない�
 address-review は、完了の前と止まった後を含むどの時点でも、次の条件を全て満たさなければならない。
 
 - PR-DEVELOPADDRESSREVIEW-056 の行わない操作を行っていない（模型: `AddrNoForbidden`。模型の条件は、PR があり止める所が push で直す変更が無いときの commit・push を含まない点でこの条件より弱い）。
-- develop:implement に渡したのは、分類か人の判断（PR-DEVELOPADDRESSREVIEW-062）が fix の指摘だけで、PR があるか、入口で作業ツリーが clean だったときだけである（模型: `AddrImplOnlyFix`）。
+- develop:implement に渡したのは、分類か人の判断（PR-DEVELOPADDRESSREVIEW-062）が fix の指摘だけで、PR があるか、入口で PR-DEVELOPADDRESSREVIEW-004 の検査を通ったときだけである（模型: `AddrImplOnlyFix`）。
 - 返信したのは、PR-DEVELOPADDRESSREVIEW-029 の表で返信へ進んだ後だけである（模型: `AddrReplyAfterChecks`）。
 - resolve したのは、その thread への返信を確かめた後だけである（模型: `AddrResolveAfterReply`）。
 - PR の head が他の人の push で動いた後に、返信を投稿していない（模型: `AddrNoStaleReply`）。
@@ -366,9 +366,9 @@ address-review は、完了の前と止まった後を含むどの時点でも�
 address-review は、PR-DEVELOPADDRESSREVIEW-063 の条件に加えて次の条件を全て満たすときにだけ、完了しなければならない。
 
 - 全ての指摘の分類を受け入れており、人の判断が要る指摘には人の判断を入れている（模型: `AddrClassified`）。
-- PR が無いときは、止める所が push・返信・resolve でなく、入口で作業ツリーが clean だった（模型: `AddrNoPr`）。
+- PR が無いときは、止める所が push・返信・resolve でなく、入口で PR-DEVELOPADDRESSREVIEW-004 の検査を通った（模型: `AddrNoPr`）。
 - 分類か人の判断が fix で直す変更のある指摘があり、止める所が分類でなければ、develop:implement に修正を渡した（模型: `AddrImplOnFix`）。
-- 修正の commit を頼んだとき（PR-DEVELOPADDRESSREVIEW-049）は、develop:implement が直す変更は無いと返したときを除き、commit を push した（模型: `AddrCommitPushed`）。
+- 修正の commit を頼んだとき（PR-DEVELOPADDRESSREVIEW-049）は、develop:implement が PR-DEVELOPIMPLEMENT-049 で commit の SHA を 1 つも返さずに完了したとき（PR-DEVELOPADDRESSREVIEW-054・057）を除き、commit を push した（模型: `AddrCommitPushed`）。
 - PR があり止める所が指定なし・返信・resolve のときは、required checks の待ちで返信へ進み、返信を確かめた（模型: `AddrReplyConfirmed`）。
 - PR があり止める所が指定なし・resolve のときは、PR-DEVELOPADDRESSREVIEW-043 の確認を通った（模型: `AddrResolveConfirmed`）。
 
