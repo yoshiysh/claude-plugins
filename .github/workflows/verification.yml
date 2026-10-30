@@ -10,7 +10,34 @@ permissions:
   contents: read
 
 jobs:
+  formal-bp-prd-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = pull_request ]; then
+            git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed-files"
+            run=$(sh tests/formal/bp-prd/prd_sections.sh affected tests/formal/bp-prd/PRD.sections \
+              tests/formal/bp-prd/ .github/workflows/verification.yml < "$RUNNER_TEMP/changed-files")
+          else
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   formal-bp-prd:
+    needs: formal-bp-prd-scope
+    if: needs.formal-bp-prd-scope.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
