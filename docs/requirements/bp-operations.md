@@ -202,7 +202,7 @@ create と update が完了したとき、create と update は skip 一覧を�
 review は、対象スキルのフローが適切かを、`docs/requirements/bp-designed-skill.md` の要求に照らして評価しなければならない（create・update が満たす性質と同じ基準で評価するため）。
 
 #### PR-BPOPERATIONS-025 仕様の観点
-review は、対象スキルが仕様から逸れていないかを、best-practices の仕様書に照らして評価しなければならない（設計方針文書が暫定とした値と規則は、その仕様書が定める）。
+review は、対象スキルが仕様から逸れていないかを、best-practices の仕様書に照らして評価しなければならない（設計方針文書が暫定とした値と規則は、役ごとのモデルと effort の値を除き、その仕様書が定める。役ごとのモデルと effort は `docs/requirements/bp-designed-skill.md` PR-BPDESIGNEDSKILL-009 に従って照らす）。
 
 #### PR-BPOPERATIONS-026 仕様書が無いとき
 best-practices の仕様書が無い間、review は仕様の観点を未検査として結果に示さなければならない（無いまま「問題なし」と返すと、照らしていない観点が照らしたと読まれる）。仕様書の一部だけが存在するときは、この定めは照らすべき観点ごと・範囲ごとに当たり、対応する仕様書が無い観点は未検査として結果に示さなければならず、仕様書の一部が存在することだけを理由に対応する仕様書が無い観点を検査済みにしてはならない。

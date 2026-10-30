@@ -75,7 +75,10 @@ create と update は、対象スキルの形を、設計方針文書の「形�
 対象スキルが Workflow script を持つ場合、対象スキルは、設計方針文書の「体数と同時実行」の節の原則を満たさなければならない。
 
 #### PR-BPDESIGNEDSKILL-009 モデル・effort・prompt
-対象スキルが Workflow script を持つ場合、対象スキルは、設計方針文書の「モデル・effort・prompt」の節の原則を満たさなければならない。
+対象スキルが Workflow script を持つ場合、対象スキルは、設計方針文書の「モデル・effort・prompt」の節の原則を満たさなければならない。create・update と review は、同節のうち役ごとのモデルと effort への適合を PR-BPDESIGNEDSKILL-048 だけで判定しなければならない（どの値を使うかは対象スキルに任せ、同節のうち役ごとの初期値の表と、モデルを変えたときの effort の測り直しを求める原則の行と、xhigh と max を使ってよい役を限る原則の行には照らさない。同節のうち prompt に何を書くかを定める行は 1 文目の判定に含む）。
+
+#### PR-BPDESIGNEDSKILL-048 役ごとのモデルと effort の指定
+対象スキルが Workflow script を持つ場合、対象スキルは、全ての役でモデルと effort を指定しなければならない。
 
 #### PR-BPDESIGNEDSKILL-010 権限
 対象スキルが Workflow script を持つ場合、対象スキルは、設計方針文書の「権限」の節の原則を満たさなければならない。
@@ -166,16 +169,22 @@ create と update は、形式検証の対象、手法、道具、前提、検�
 ### 配布先での確認
 
 #### PR-BPDESIGNEDSKILL-014 役ごとの制限の実効性の確認
-create と update は、対象スキルの役ごとの制限が、配布先（Claude Code・Codex）のそれぞれで実際に効くかを確かめなければならない（plugin から読み込む agent では設定の一部が無視され、制限が黙って効かないことがある）。
+create と update は、対象スキルの役ごとの制限が、配布先（Claude Code・Codex）のそれぞれで実際に効くかを確かめなければならない（plugin から読み込む agent では設定の一部が無視され、制限が黙って効かないことがある）。Claude Code で無視される設定の一覧を読めないときは、PR-BPDESIGNEDSKILL-049・050 に従う。
 
 #### PR-BPDESIGNEDSKILL-045 Claude Code での確かめ方
-create と update は、Claude Code で役ごとの制限が効くかを、設計方針文書にある無視される設定の一覧に照らして確かめなければならない（版が上がって一覧が古くなる危険は受け入れる）。
+設計方針文書にある無視される設定の一覧を読めたとき、create と update は、Claude Code で役ごとの制限が効くかを、その一覧に照らして確かめなければならない（版が上がって一覧が古くなる危険は受け入れる）。create と update は、本項と PR-BPDESIGNEDSKILL-014・049・050 の「無視される設定の一覧」として、設計方針文書のうち plugin から読み込む agent で無視される frontmatter の設定を名前で挙げた記述（現在は「形の判定」の節の表の行）を見出しの有無を問わず扱い、設計方針文書を読めないかその記述が無いときに限り一覧を読めないと判定しなければならない。
+
+#### PR-BPDESIGNEDSKILL-049 一覧を読めないときの制限の扱い
+設計方針文書にある無視される設定の一覧を読めないならば、create と update は、対象スキルの全ての役ごとの制限を、Claude Code で効くかを確かめられなかった制限として PR-BPDESIGNEDSKILL-015 に従って報告しなければならない。
+
+#### PR-BPDESIGNEDSKILL-050 一覧を読めないときの合否
+設計方針文書にある無視される設定の一覧を読めないならば、create と update は、PR-BPDESIGNEDSKILL-049 で確かめられなかった制限があることだけを理由に、対象スキルが検証を通らなかったと判定してはならない。
 
 #### PR-BPDESIGNEDSKILL-046 効かないと確かめた制限
 create と update は、配布先で効かないと確かめた役ごとの制限を不適合とし、その制限が効く形に直すまで、対象スキルが検証を通ったと判定してはならない。
 
 #### PR-BPDESIGNEDSKILL-015 確かめられなかった制限の報告
-create と update は、いずれかの配布先で効くかを確かめられなかった役ごとの制限を、残る危険として検証の結果（`docs/requirements/bp-operations.md` PR-BPOPERATIONS-014・023 が返すもの）に書かなければならない。PR-BPDESIGNEDSKILL-045 に従って一覧に照らした制限は、確かめられなかった制限に含めてはならない。
+create と update は、いずれかの配布先で効くかを確かめられなかった役ごとの制限を、残る危険として検証の結果（`docs/requirements/bp-operations.md` PR-BPOPERATIONS-014・023 が返すもの）に書かなければならない。create と update は、PR-BPDESIGNEDSKILL-045 に従って一覧に照らした制限を、Claude Code で効くかを確かめられなかった制限として書いてはならない（Codex で効くかを確かめられなかった制限としては 1 文目に従って書く）。
 
 #### PR-BPDESIGNEDSKILL-016 起動数の上限の受け取り
 対象スキルの Workflow script が fan-out を含む場合、対象スキルは、1 run で起動する agent の数の上限を入力として受け取れなければならない（Codex runner は 1 run の agent 呼び出しの総数に上限を課し、超えると run 全体が失敗する。出所は `plugins/workflow/skills/dynamic-workflow-runner/scripts/runtime/README.md`）。

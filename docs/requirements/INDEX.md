@@ -6,7 +6,7 @@
 
 | パス | 扱う関心事 | どういう要求が書かれているか |
 |---|---|---|
-| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／形式検証／run の記録／配布先での確認（PR-BPDESIGNEDSKILL-001〜047／47 件） |
+| `docs/requirements/bp-designed-skill.md` | 要求文書: create・update が作るスキルが備える性質 | 形の判定／形に関わる原則／形式検証／run の記録／配布先での確認（PR-BPDESIGNEDSKILL-001〜050／50 件） |
 | `docs/requirements/bp-operations.md` | 要求文書: best-practices の 4 機能（create・review・update・audit） | 機能の振り分け／4 機能に共通する run の記録／回答待ちの返り値／create／update／create と update に共通／review／audit／review と audit に共通（PR-BPOPERATIONS-001〜052／52 件） |
 | `docs/requirements/cleanup.md` | 要求文書: cleanup-branches | 守るもの／取り込み済みの判定／状態の取得／取り込み済みの削除／判断が要る対象の問い／承認された対象の削除／作業状態／作業場所の同期／後処理／退避した変更の復帰／完了報告（PR-CLEANUP-001〜081、欠番は 031・034・035・038・039・072・079／74 件） |
 | `docs/requirements/consumer.md` | 後続作業者にとっての要求 | 引き渡しの完了条件／後続作業を戻りなく進めるための要求／後続作業を不具合なく進めるための要求／後続作業を精度高く進めるための要求／後続作業を迷いなく進めるための要求／後続作業をぶれずに進めるための要求／読み手が AI であることに由来する要求／分量の決まり方（PR-CONSUMER-001〜031、欠番は 014・016／29 件） |
@@ -26,6 +26,7 @@
 | PR-BPDESIGNEDSKILL-007 | 停止・再開と人間の入力 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-008 | 体数と同時実行 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-009 | モデル・effort・prompt | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-048 | 役ごとのモデルと effort の指定 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-010 | 権限 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-011 | 探索グラフ | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-043 | 実行役の時間の上限の値 | `docs/requirements/bp-designed-skill.md` |
@@ -54,6 +55,8 @@
 | PR-BPDESIGNEDSKILL-036 | 性能の見直しに使う記録 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-014 | 役ごとの制限の実効性の確認 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-045 | Claude Code での確かめ方 | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-049 | 一覧を読めないときの制限の扱い | `docs/requirements/bp-designed-skill.md` |
+| PR-BPDESIGNEDSKILL-050 | 一覧を読めないときの合否 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-046 | 効かないと確かめた制限 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-015 | 確かめられなかった制限の報告 | `docs/requirements/bp-designed-skill.md` |
 | PR-BPDESIGNEDSKILL-016 | 起動数の上限の受け取り | `docs/requirements/bp-designed-skill.md` |
@@ -275,4 +278,4 @@
 ## 検査結果
 
 - ID の重複: 0 件
-- 実現する仕様項目が無い要求: 103 件
+- 実現する仕様項目が無い要求: 106 件
