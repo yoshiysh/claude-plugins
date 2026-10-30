@@ -29,7 +29,7 @@ test('relative TLC_DOT is rejected before loading TLC', () => {
 });
 
 test('TLC_JOBS other than a positive integer is rejected before loading TLC', () => {
-  for (const jobs of ['', '0', '-1', 'abc', '1.5', '08', ' 2']) {
+  for (const jobs of ['', '0', '00', '-1', 'abc', '1.5', ' 2']) {
     const result = sh([script], { env: { TLC_JOBS: jobs, TLA2TOOLS: '/nonexistent/tla2tools.jar' } });
     assert.equal(result.status, 1, `TLC_JOBS=${JSON.stringify(jobs)}`);
     assert.match(result.stderr, /TLC_JOBS must be a positive integer/);
@@ -42,9 +42,13 @@ test('TLC_JOBS defaults to the CPU count and accepts an explicit count', () => {
   delete env.TLC_JOBS;
   const fallback = spawnSync('sh', [cases, 'jobs'], { encoding: 'utf8', env });
   assert.equal(fallback.status, 0);
-  assert.match(fallback.stdout, /^[1-9][0-9]*\n$/);
+  const cpus = spawnSync('getconf', ['_NPROCESSORS_ONLN'], { encoding: 'utf8' });
+  assert.equal(cpus.status, 0);
+  assert.equal(fallback.stdout, `${Number(cpus.stdout.trim())}\n`);
   const explicit = sh([cases, 'jobs'], { env: { TLC_JOBS: '3' } });
   assert.equal(explicit.stdout, '3\n');
+  const padded = sh([cases, 'jobs'], { env: { TLC_JOBS: '08' } });
+  assert.equal(padded.stdout, '8\n');
 });
 
 const fakeJava = `#!/bin/sh
@@ -262,13 +266,36 @@ test('a changed pinned section names the section and the re-verification steps',
   const { root, manifest, env, scratch } = sectionRoot(t);
   const doc = path.join(root, 'docs', 'design.md');
   fs.writeFileSync(doc, designDoc.replace('child text', 'changed child'));
-  const result = sh([sections, 'check', root, manifest], { env });
+  const result = sh([sections, 'check', '.', path.basename(manifest)], { env, cwd: root });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, 'docs/design.md: ## Terms: OK\n');
   assert.match(result.stderr, /docs\/design\.md: ## Stop: CHANGED/);
   assert.match(result.stderr, /Re-verify the model before updating the pins/);
   assert.match(result.stderr, /run check\.sh until it passes/);
   assert.deepEqual(fs.readdirSync(scratch), []);
+
+  const command = result.stderr.match(/^ {5}(sh .*)$/m)[1];
+  const elsewhere = tempDir(t);
+  const regenerate = spawnSync('sh', ['-c', command], { cwd: elsewhere, encoding: 'utf8' });
+  assert.equal(regenerate.status, 0, regenerate.stderr);
+  assert.equal(fs.readFileSync(manifest, 'utf8'), sh([sections, 'print', root, manifest], { env }).stdout);
+  assert.equal(fs.existsSync(`${manifest}.new`), false);
+  assert.deepEqual(fs.readdirSync(elsewhere), []);
+  const recheck = sh([sections, 'check', root, manifest], { env });
+  assert.equal(recheck.status, 0, recheck.stderr);
+});
+
+test('the regeneration command survives spaces and quotes in the paths', (t) => {
+  const root = path.join(tempDir(t), "pins with 'quote'");
+  fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'design.md'), designDoc);
+  const manifest = path.join(root, 'pinned sections');
+  fs.writeFileSync(manifest, `${'0'.repeat(64)}\tdocs/design.md\t## Stop\n`);
+  const result = sh([sections, 'check', root, manifest]);
+  assert.equal(result.status, 1);
+  const command = result.stderr.match(/^ {5}(sh .*)$/m)[1];
+  assert.equal(spawnSync('sh', ['-c', command], { cwd: tempDir(t) }).status, 0);
+  assert.equal(sh([sections, 'check', root, manifest]).status, 0);
 });
 
 test('a last manifest line without a newline is still checked', (t) => {

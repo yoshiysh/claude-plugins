@@ -10,8 +10,10 @@ usage() {
 jobs_count() {
   jobs=${TLC_JOBS-$(getconf _NPROCESSORS_ONLN)}
   case $jobs in
-    '' | *[!0-9]* | 0*) echo 'TLC_JOBS must be a positive integer' >&2; exit 1 ;;
+    '' | *[!0-9]*) echo 'TLC_JOBS must be a positive integer' >&2; exit 1 ;;
   esac
+  jobs=$(printf '%s\n' "$jobs" | sed 's/^0*//')
+  [ -n "$jobs" ] || { echo 'TLC_JOBS must be a positive integer' >&2; exit 1; }
   echo "$jobs"
 }
 

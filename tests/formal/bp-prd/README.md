@@ -62,7 +62,7 @@ TLC_DOT=/path/to/state-graph.dot TLA2TOOLS=/path/to/tools/tla2tools.jar tests/fo
 
 `TLC_DOT` の図は到達した状態変数の組を含むため大きい。Graphviz の `dot -Tsvg state-graph.dot -o state-graph.svg` で描画できる。README の射影は `project_graph.rs` の出力を囲みの内側に置き、`check.sh` の比較を通す。図だけを編集しても検査は通らない。
 
-各検査は互いに独立した TLC の起動であり、`tlc_cases.sh` が並列に走らせる。同時に走らせる数は `TLC_JOBS` で指定し、既定は CPU 数（`getconf _NPROCESSORS_ONLN`）。正の整数以外を指定すると jar を読む前に停止する。各 TLC は `-workers 1` で走る。TLC は標準 module を `java.io.tmpdir` に展開してそこから読むので、各検査は spec と cfg の写し・`java.io.tmpdir`・metadir を自分だけの作業ディレクトリに持ち、並列の検査とファイルを共有しない。判定は全ての起動が終わってから宣言順に行い、出力の順序は並列数によらない。期待した終了コードと出力のメッセージが一致しない最初の検査で、その検査のラベルと TLC のログを出して非 0 で止まる。
+各検査は互いに独立した TLC の起動であり、`tlc_cases.sh` が並列に走らせる。同時に走らせる数は `TLC_JOBS` で指定し、既定は CPU 数（`getconf _NPROCESSORS_ONLN`）。正の整数以外（0 を含む）を指定すると jar を読む前に停止する。先頭の 0 は落として渡す。各 TLC は `-workers 1` で走る。TLC は標準 module を `java.io.tmpdir` に展開してそこから読み、終了時に消すので、各検査は spec と cfg の写し・`java.io.tmpdir`・metadir を自分だけの作業ディレクトリに持ち、並列の検査とファイルを共有しない。判定は全ての起動が終わってから宣言順に行い、出力の順序は並列数によらない。期待した終了コードと出力のメッセージが一致しない最初の検査で、その検査のラベルと TLC のログを出して非 0 で止まる。
 
 `check.sh` は、`MaxRuns` が記録の型に反映されることも、3 run で記録を残す限定経路を使って検査する。主モデルの範囲は後述のとおりである。
 
@@ -72,13 +72,9 @@ TLC_DOT=/path/to/state-graph.dot TLA2TOOLS=/path/to/tools/tla2tools.jar tests/fo
 
 要求の「形式検証」「run の記録」の節は、導入文で設計方針の「機械で確かめる」「記録と改善」の節の原則を取り込むので、その 2 節も固定する（PR-BPDESIGNEDSKILL-007 が取り込む「停止・再開と人間の入力」と同じ扱い）。固定した設計の節の各行とモデルの対応は「固定した節の行ごとの対応」に名指しで書く。
 
-照合に落ちると、変わった文書・見出しと再検証の手順を出して止まる。ハッシュだけを更新せず、次の順に進める。
+照合に落ちると、`prd_sections.sh` が変わった文書・見出しと、再検証の手順、固定し直すコマンドを出して止まる。手順の正本はその出力であり、ハッシュだけを更新せずにその順に従う。
 
-1. 変わった節を読み、`BP.tla` と本書の「性質と要求」「対象と限界」との対応を見直す。
-2. 対応が崩れていればモデル・性質・変異・本書を直し、`check.sh` を通す。
-3. その後で、repo のルートから `sh tests/formal/bp-prd/prd_sections.sh print . tests/formal/bp-prd/PRD.sections > /tmp/PRD.sections && mv /tmp/PRD.sections tests/formal/bp-prd/PRD.sections` を実行する。出力を `PRD.sections` へ直接リダイレクトすると、読む前に空になる。
-
-対応する節を増やすときも `PRD.sections` に行を足して同じ手順で固定する。
+対応する節を増やすときは、`PRD.sections` に SHA-256 を 64 桁の `0` にした行を足す。照合はその行で落ちるので、出た手順に従って固定する。
 
 `.github/workflows/verification.yml` の `formal-bp-prd` ジョブは、pull request では `PRD.sections` に載る文書、`tests/formal/bp-prd/` 配下、`verification.yml` のいずれかが変わったときだけ走る。変更ファイルとの照合は `prd_sections.sh affected` が行うので、文書の一覧は `PRD.sections` だけに書く。main への push と `workflow_dispatch` では常に走る。
 
@@ -160,7 +156,7 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 | 同 | 「needs_input で止めるときは、理由だけでなく、人間が判断に要る材料」 | 対象外（判断の材料を持たない） |
 | 同 | 「ヒントは人間が CLI で状態に追記する」 | `AddHint` は完了以外のどの phase でも有効（`EventContract`）。停止中に足したヒントを次の run で受け付ける到達（`WitnessHintResume` ほか 3 本）と、停止中の追加を無効にした変異での到達不能 |
 | 同 | 「スキルは run を起動したときに、ヒントの足し方を人間に示す」 | 対象外（利用者への表示を持たない） |
-| 同 | 「計画役が読んだヒントと、停止の判定が「読まれていないヒント」とするヒントを一致させる」 | `HintReadOnlyAfterAccept`・`DryStopWithoutUnreadHint`・`WitnessDryAfterReadHint`・`NoUnreadHintOnCompletion` |
+| 同 | 「計画役が読んだヒントと、停止の判定が「読まれていないヒント」とするヒントを一致させる」 | `HintReadOnlyAfterAccept`・`DryStopWithoutUnreadHint`・`WitnessDryAfterReadHint`・`NoUnreadHintOnCompletion`。読まれていないヒントを残したまま却下で止まる向きは対象外（完了の主張と却下を持たない） |
 | 同 | 「ヒントの既読は、計画役が出力を返し、CLI がその書き込みを受け付けた時点で」 | `HintReadOnlyAfterAccept`（変異 `premature_hint_read`）。完了の主張の却下理由を記録することを受け付けに含める部分は対象外（完了の主張と却下を持たない） |
 | 同 | 「完了した状態へのヒントの追記は、CLI が拒否する」 | `AddHint` は `done` で無効。完了後に追記できると `NoUnreadHintOnCompletion` が破れる |
 | 同 | 「止めた run や途中で終わった run は relaunch せず」 | 新しい run としての再開は `ResumeStartsNewRun`。記録・未保存範囲・ヒントは再開をまたいで残る。受理済みの事実・試行の回数・打ち切りの再利用は対象外（事実・意図・試行を持たない） |
@@ -190,6 +186,7 @@ BLOCKED・needs_input・乾き・反復上限で停止中に追加されたヒ�
 | 同 | 小節「形式化の対象と手法」の導入文と、表の「停止・再開と人間の入力」の行 | このモデルはこの行の候補（停止理由、ヒントの配達・既読、再開時の状態の遷移のモデル検査）を、対象と限界に書いた有限の範囲で行うものに当たる。対象スキルが適用したことの確認ではない |
 | 同 | 同表の「構成要素・文脈の配達」「形の判定・目標の固定」「体数・同時実行・権限」「モデル・effort・prompt」「探索グラフ・状態の書き込み」「機械検査・資産台帳」「証拠記録の保存と照会」「記録と改善」の行 | 対象外。それぞれの対象（役と入出力、決定表、起動数と権限、モデル設定、事実と意図、資産、証拠記録、比較条件）を持たない。「探索グラフ・状態の書き込み」の停止は乾きだけを抽象化して持つ |
 | 同 | 小節の表の後の、プログラム契約・定理証明とモデルと実装の対応の段落 | 対象外。実装とこのモデルの対応は確かめていない（対象と限界の 2 項目め） |
+| 同 | 道具の表の前の文（道具の例を示し、用途は重なり、表は選択を限定しない） | 対象外。道具の選び方についての断り書きで、run の状態に現れない |
 | 同 | 道具の表の TLA+・TLC の行 | このモデルの道具。有限化の範囲と公平性の前提は本書に書く |
 | 同 | 道具の表の Alloy・Dafny・Lean の行 | 対象外。使っていない |
 | 設計「記録と改善」 | 「各 run の担当ごとの作業記録と証拠を、記録台帳の参照から後で辿れるよう」 | 要求 PR-BPDESIGNEDSKILL-028〜036・038〜040・042 として「性質と要求」の表と対象外の項で扱う |

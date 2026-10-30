@@ -134,13 +134,12 @@ for witness in WitnessHintResume WitnessNeedsInputResume WitnessDryResume Witnes
   mutate none "$witness" "$witness"
   add_case cases.list "$witness" BP "$invariant_violation" "Invariant $witness is violated" "Required state is unreachable: $witness" "$witness: reachable"
 done
-for witness in WitnessHintResume WitnessNeedsInputResume WitnessDryResume WitnessLimitResume; do
-  for case in no_hint_after_stop no_resume; do
-    mutate "$case" "$witness" "$case-$witness"
-    add_case cases.list "$case-$witness" BP "$success" "$success_message" "Expected $witness to be unreachable after $case" "$case-$witness: missing route detected (witness unreachable)"
-  done
-done
-for pair in omit_PartialSave:WitnessPartialSaveFailure dry_blocks_read_hint:WitnessDryAfterReadHint; do
+for pair in \
+  no_hint_after_stop:WitnessHintResume no_resume:WitnessHintResume \
+  no_hint_after_stop:WitnessNeedsInputResume no_resume:WitnessNeedsInputResume \
+  no_hint_after_stop:WitnessDryResume no_resume:WitnessDryResume \
+  no_hint_after_stop:WitnessLimitResume no_resume:WitnessLimitResume \
+  omit_PartialSave:WitnessPartialSaveFailure dry_blocks_read_hint:WitnessDryAfterReadHint; do
   case=${pair%%:*}; witness=${pair#*:}
   mutate "$case" "$witness" "$case-$witness"
   add_case cases.list "$case-$witness" BP "$success" "$success_message" "Expected $witness to be unreachable after $case" "$case-$witness: missing route detected (witness unreachable)"

@@ -1,10 +1,15 @@
 #!/bin/sh
 set -eu
 tab=$(printf '\t')
+self=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
 
 usage() {
   echo 'usage: prd_sections.sh check ROOT MANIFEST | print ROOT MANIFEST | affected MANIFEST PREFIX... < CHANGED_FILES' >&2
   exit 2
+}
+
+quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
 extract() {
@@ -64,13 +69,15 @@ each_section() {
     exit 1
   fi
   if [ "$changed" -ne 0 ]; then
+    pinned=$(CDPATH= cd -- "$(dirname -- "$manifest")" && pwd)/$(basename -- "$manifest")
+    regenerate="sh $(quote "$self") print $(quote "$(CDPATH= cd -- "$root" && pwd)") $(quote "$pinned") > $(quote "$pinned.new") && mv $(quote "$pinned.new") $(quote "$pinned")"
     cat >&2 <<EOF
 Requirement or design sections pinned by $manifest changed.
 Re-verify the model before updating the pins:
-  1. Read each CHANGED section and compare it with BP.tla and README.md (the properties-to-requirements table and the scope limits).
+  1. Read each CHANGED section and compare it with BP.tla and README.md (the properties-to-requirements table, the row-by-row mapping of pinned sections, and the scope limits).
   2. Change the model, its properties, mutations, and README where they no longer match, then run check.sh until it passes.
-  3. Only then regenerate the pins into a separate file and move it over the manifest (redirecting onto the manifest empties it before it is read):
-     sh prd_sections.sh print ROOT $manifest > new-manifest && mv new-manifest $manifest
+  3. Only then regenerate the pins with the command below. It writes next to the manifest first, because redirecting onto the manifest empties it before it is read.
+     $regenerate
 EOF
     exit 1
   fi
