@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -582,7 +582,7 @@
+ \* req: PR-DEVELOPADDRESSREVIEW-031, PR-DEVELOPADDRESSREVIEW-033, PR-DEVELOPADDRESSREVIEW-059
+ \* principle: sp-380c49d.md:184, sp-380c49d.md:185 (the wait count starts from 0 in every resumed run)
+ \* decided: 8
+-A_Resume_g(e) == AStop(e, "resume") /\
++A_Resume_g(e) == (AStop(e, "resume") \/ AStop(e, "none")) /\
+   (\/ sk.kind \in {"blocked", "impl_stopped", "push_denied"}
+    \/ sk.kind = "limit_run" /\ ~(sk.stage = "wait" /\ ad.headMoved))
+ A_Resume_n(e) == SA("running", sk.stage, "none", [ad EXCEPT !.waitCnt = 0])

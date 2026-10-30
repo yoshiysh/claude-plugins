@@ -1,0 +1,11 @@
+--- DevelopEnv.tla
++++ DevelopEnv.tla
+@@ -106,7 +106,7 @@
+          [] g = "classify" -> e.n \in {"agreeFix", "agreeNoFix", "agreeNeedsDec", "mismatch",
+                                        "pathMismatch", "write", "agentFail", "token"}
+          [] g = "route" -> IF args.stopAt # "classify" /\ EffFix /\ NeedsCommit
+-                           THEN e.n \in {"pushable", "pushDenied"} ELSE e.n = "tick"
++                           THEN e.n \in {"pushable", "pushDenied"} ELSE e.n = "tick" /\ args.stopAt # "classify"
+          [] g = "implement" -> e.n \in (IF NeedsCommit THEN {"implCommitted"} ELSE {"implVerified"})
+                                        \cup {"implNoChange", "implStopped"}
+          [] g = "push" -> e.n \in {"pushOk", "pushRejected"}

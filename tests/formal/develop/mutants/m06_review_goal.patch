@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -350,12 +350,12 @@
+ R_LimitStop(e) == Sys(R_LimitStop_g(e), R_LimitStop_n(e))
+ 
+ \* req: PR-DEVELOPREVIEW-030, PR-DEVELOPREVIEW-047
+-R_FinishPost_g(e) == RRun("items") /\ rv.pending = 0 /\ e.n \in {"finishClean", "finishPartial"} /\ args.postReq
++R_FinishPost_g(e) == RRun("items") /\ rv.pending = 0 /\ e.n \in {"finishClean", "finishPartial"} /\ FALSE
+ R_FinishPost_n(e) == SR("running", "post", "none", IF e.n = "finishClean" THEN "success" ELSE "degraded", rv)
+ R_FinishPost(e) == Sys(R_FinishPost_g(e), R_FinishPost_n(e))
+ 
+ \* req: PR-DEVELOPREVIEW-030, PR-DEVELOPREVIEW-031, PR-DEVELOPREVIEW-032, PR-DEVELOPREVIEW-033, PR-DEVELOPREVIEW-069, PR-DEVELOPREVIEW-074
+-R_FinishDone_g(e) == RRun("items") /\ rv.pending = 0 /\ e.n \in {"finishClean", "finishPartial"} /\ ~args.postReq
++R_FinishDone_g(e) == RRun("items") /\ rv.pending = 0 /\ e.n \in {"finishClean", "finishPartial"} /\ TRUE
+ R_FinishDone_n(e) == SR("done", sk.stage, "none", IF e.n = "finishClean" THEN "success" ELSE "degraded", rv)
+ R_FinishDone(e) == Sys(R_FinishDone_g(e), R_FinishDone_n(e))
+ 

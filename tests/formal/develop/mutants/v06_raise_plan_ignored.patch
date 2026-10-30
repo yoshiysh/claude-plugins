@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -279,7 +279,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-007, PR-DEVELOPIMPLEMENT-069
+ \* principle: sp-380c49d.md:185
+ I_RaisePlan_g(e) == IStop(e, "raise") /\ sk.kind = "limit_plan"
+-I_RaisePlan_n(e) == SI("running", IResumeStage, "none", sk.res, [im EXCEPT !.rebLim = @ + 1])
++I_RaisePlan_n(e) == SI("running", IResumeStage, "none", sk.res, im)
+ I_RaisePlan(e) == Sys(I_RaisePlan_g(e), I_RaisePlan_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-062, PR-DEVELOPIMPLEMENT-064, PR-DEVELOPIMPLEMENT-069

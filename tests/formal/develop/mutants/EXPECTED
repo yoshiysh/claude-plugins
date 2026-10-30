@@ -1,0 +1,60 @@
+# patch                              skill      property that must break it (SANY / deadlock / NOTFIRED:<action> / a witness that must stay unreached)  origin
+E1_spont_resume                      implement  OutputOnInput            vac3 E1
+E2_auto_answer                       implement  OutputOnInput            vac3 E2
+E4_addr_auto_resume                  address    OutputOnInput            vac3 E4
+E5_skill_reads_hist                  implement  SANY                     vac3 E5
+N11_baseline_skips_impl              implement  ImplGoal                 vac3 N11
+N12_fix_round_skips_impl             implement  ImplGoal                 vac3 N12
+C1_common_variable                   implement  SANY                     vac3 C1
+m01_deadlock                         address    deadlock                 m01
+m02_determinism                      implement  Determinism              m02
+m03_dead_end                         implement  NoDeadEnd                m03
+m04_liveness                         implement  Termination              m04
+m05_impl_goal                        implement  ImplGoal                 m05 (and the skill half of vac3 B1)
+m06_review_goal                      review     ReviewGoal               m06
+m07_address_goal                     address    AddressGoal              m07
+m08_resume_position                  implement  ResumePosition           m08
+m10_decision_cross_return            implement  ImplGoal                 m10
+m11_decision_ignored                 implement  W_DecideEffect           m11
+m12_confirm_as_reject                implement  ImplGoal                 m12
+m13_table_drift                      implement  Determinism              m13
+x1_ret_drops_conf                    implement  ImplGoal                 x1
+x2_checkfail_ignored                 implement  ImplGoal                 x2
+x3_ci_failure_passes                 address    AddressGoal              x3
+x4_human_decision_ignored            address    AddressGoal              x4
+x5_resume_is_new_call                implement  ResumePosition           x5 (epoch is gone; a resume treated as a new invocation)
+x6_skip_final                        implement  ImplGoal                 x6 (b: a verified done has no unread hint, IMPL-071)
+x7_nondet_in_action                  address    Determinism              x7
+x8_classify_swapped                  address    AddressGoal              x8
+x9_reply_on_mismatch                 address    AddressGoal              x9
+o1_outofplan_dropped                 implement  NOTFIRED:I_OutOfPlan     o1
+r1_pinchanged_as_itemdone            review     ReviewGoal               r1
+r2_partial_as_success                review     ReviewGoal               r2
+v02_commit_dropped_after_fix         implement  ImplGoal                 v02
+v03_no_check_proceeds                implement  ImplGoal                 v03 (b: goal condition args.checkDecl added)
+v05_raise_fix_ignored                implement  W_FixBeyond              v05
+v06_raise_plan_ignored               implement  W_PlanBeyond             v06
+v07_dirty_proceeds                   address    AddressGoal              v07 (b: goal condition pr or clean entry added)
+v08_bad_args_proceed                 address    AddressGoal              v08 (b: goal condition on the requested stop added)
+v11_fix_treated_as_classify_stop     address    AddressGoal              v11
+v12_wait_not_reset                   address    W_WaitBeyond             v12
+v13_post_skipped_when_partial        review     ReviewGoal               v13
+v14_impl_stop_as_done                address    AddressGoal              v14
+v15_recall_skips_review              implement  ImplGoal                 v15
+v17_push_reject_as_success           address    AddressGoal              v17
+v18_post_fail_as_done                review     ReviewGoal               v18
+s2_props_reads_skill                 implement  SANY                     s2
+s3_property_outside_props            implement  SANY                     s3
+a1_skill_writes_hist                 implement  SANY                     a1
+J8_token_pos_plan                    implement  ImplGoal                 vac3 J8 (b: no plan accepted again after the plan stop without a hint or 043)
+J7_pushdenied_pos_entry              address    AddressGoal              vac3 J7 (b: a human fix decision is implemented)
+J10_postmismatch_pos_post            review     ReviewGoal               vac3 J10 (b: at most one post under the same pin)
+B2b_baseline_not_recorded            implement  ImplGoal                 vac3 B2b skill half (b: no start check after the change)
+m09_restop                           implement  W_EditDone               m09 (killed by the decision-4 witness)
+f1_replan_not_implemented            implement  ImplGoal                 f1 (a probe that turned out to fall)
+f4_fixlimit_edit_refused             implement  W_EditDone               f4 (killed by the decision-4 witness)
+v04_wt_changed_resumes               implement  ResumePosition           v04 (a probe that turned out to fall)
+N11_d19c_skips_impl                  implement  ImplGoal                 new: D19 C taken literally (029 none/none goes to the final collation)
+A036_stale_check_dropped             address    AddressGoal              new: the 036 check before replying dropped (b: no reply confirmed on a moved head)
+A032_reply_after_other_push          address    AddressGoal              new: waiting goes on after another push, and the reply ignores the moved head
+F1_resume_drops_from_limit           implement  ImplGoal                 new: verify-docs-b F1 (a stop inside the rebuilt plan run drops the 072 check and review)
