@@ -29,7 +29,7 @@
 | context | agent が 1 回の実行の中で持つ入力と作業の内容。「生成と別の context」は、生成した agent の context を持たない別の agent を指す |
 | fan-out | 1 つの段で、項目（ファイル・観点・意図など）ごとに agent を起動して処理すること |
 | 設計の説明 | 対象スキルに書き残す、形を選んだ条件などの設計の記述（設計方針文書の「形の判定」の節が「スキルの設計の説明」と呼ぶもの） |
-| 作業記録 | run の担当が、自分の実行内容と結果、その根拠及び未確認を後から辿るために残す記録 |
+| 作業記録 | run の担当が、自分の作業を後から辿るために残す記録。欄は `docs/requirements/bp-designed-skill.md` の PR-BPDESIGNEDSKILL-028 が定める |
 | 記録台帳 | run の作業記録と証拠への参照をまとめる台帳。資産と指摘の対応を管理する資産台帳とは役割が異なる |
 | 文書の一般規約 | [文書のガイドライン](https://github.com/yoshiysh/claude-plugins/blob/main/docs/guidelines/documentation.md)。作業記録を含む文書の書き方の正本 |
 
@@ -227,7 +227,7 @@ audit は、監査の流れを、現行の best-practices スキルが行う監�
 review と audit は、対象スキルを書き換えてはならない（修正は update が行う）。
 
 #### PR-BPOPERATIONS-031 指摘の反証
-review と audit は、指摘の候補を、生成と別の context で反証してから結果に含めなければならない（生成した本人には自分の誤りが見えない）。
+review と audit は、指摘の候補を、生成と別の context で反証してから結果に含めなければならない（生成した本人には自分の誤りが見えない）。ただし review は、`docs/requirements/bp-designed-skill.md` PR-BPDESIGNEDSKILL-051 の機械の照合だけで決まる指摘を、反証を経ずに結果に含めなければならない（決定的な照合は反証しても結果が変わらず、反証の段の費用だけがかかる）。
 
 #### PR-BPOPERATIONS-032 指摘の状態
 review と audit は、指摘の状態を open と dismissed のどちらかとして返さなければならない（対象が書き換わらない run では resolved / regressed が決まらない）。
