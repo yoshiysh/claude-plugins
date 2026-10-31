@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -50,7 +50,7 @@
+ NeedsCommit == NeedsCommitOf(args)
+ WaitsChecks == args.pr /\ args.stopAt \in {"none", "reply", "resolve"}
+ 
+-Sys(gd, n) == gd /\ sk' = n /\ inbox' = NoEv
++Sys(gd, n) == gd /\ sk' = n /\ inbox' = NoEv /\ hist' = [hist EXCEPT !.unread = 0]
+ 
+ SI(s, g, k, o, m) == [sk EXCEPT !.st = s, !.stage = g, !.kind = k, !.res = o, !.im = m]
+ SR(s, g, k, o, r) == [sk EXCEPT !.st = s, !.stage = g, !.kind = k, !.res = o, !.rv = r]

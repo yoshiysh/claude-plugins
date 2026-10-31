@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -35,7 +35,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-063, PR-DEVELOPIMPLEMENT-064
+ CountUnv(r) == r.unv \ {d.c : d \in {dd \in im.decisions : dd.r = r.id}}
+ \* req: PR-DEVELOPIMPLEMENT-063, PR-DEVELOPIMPLEMENT-027
+-CountConf(r) == r.conf \/ \E d \in im.decisions : d.r = r.id /\ d.v = "confirm"
++CountConf(r) == r.conf
+ HasRet == im.last.id > 0
+ \* req: PR-DEVELOPIMPLEMENT-029, PR-DEVELOPIMPLEMENT-019
+ \* decided: additional decision 4 (a check failure caused by the change is a fix target)

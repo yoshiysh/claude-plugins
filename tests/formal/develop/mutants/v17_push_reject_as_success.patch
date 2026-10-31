@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -520,7 +520,7 @@
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-052, PR-DEVELOPADDRESSREVIEW-058
+ A_PushRejected_g(e) == ARun("push", e, "pushRejected")
+-A_PushRejected_n(e) == SA("stopped", "push", "blocked", ad)
++A_PushRejected_n(e) == SA("running", "wait", "none", ad)
+ A_PushRejected(e) == Sys(A_PushRejected_g(e), A_PushRejected_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-029

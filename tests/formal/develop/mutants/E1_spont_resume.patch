@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -237,7 +237,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-069, PR-DEVELOPIMPLEMENT-072
+ \* principle: docs/design/skill-design-patterns.md 停止・再開と人間の入力「完了以外の停止からは再開できる」「再開した run は必ず計画役から始め、止まっていた間に増えたヒントを読ませる」
+ \* decided: 4, 11, D19 C
+-I_Resume_g(e) == IStop(e, "resume") /\
++I_Resume_g(e) == (IStop(e, "resume") \/ IStop(e, "none")) /\
+   (\/ sk.kind \in {"blocked", "limit_run"}
+    \/ sk.kind = "plan_stop" /\ ~im.wtChanged
+    \/ sk.kind = "limit_fix" /\ im.edited

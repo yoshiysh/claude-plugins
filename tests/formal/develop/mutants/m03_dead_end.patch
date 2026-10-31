@@ -1,0 +1,11 @@
+--- DevelopEnv.tla
++++ DevelopEnv.tla
+@@ -80,7 +80,7 @@
+          [] g = "push" -> e.n \in {"pushOk", "pushRejected", "hint"}
+          [] OTHER -> FALSE
+   ELSE \/ e.n \in {"resume", "abort", "hint"}
+-       \/ k \in {"limit_fix", "limit_plan"} /\ e.n = "raise"
++       \/ k = "limit_fix" /\ e.n = "raise"
+        \/ k = "limit_fix" /\ e.n = "editWt"
+        \/ k = "abandon" /\ e.n = "decide" /\ ValidDec(e)
+        \/ k = "needs_input" /\ e.n = "answer"

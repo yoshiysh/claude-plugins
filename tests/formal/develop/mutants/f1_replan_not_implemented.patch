@@ -1,0 +1,10 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -79,6 +79,7 @@
+ I_PlanOkGo_g(e) == IRun("plan", e, "planOk") /\ args.checkDecl /\ ~(args.planStop /\ ~im.planStopUsed)
+ I_PlanOkGo_n(e) == SI("running",
+                       CASE im.fromLimit -> "check"
++                        [] im.baseline /\ HasRet -> "decide"
+                         [] im.baseline -> "impl"
+                         [] OTHER -> "baseline",
+                       "none", sk.res, [im EXCEPT !.unread = 0, !.fromLimit = FALSE, !.planned = im.fromLimit])

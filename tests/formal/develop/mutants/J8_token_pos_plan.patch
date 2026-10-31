@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -108,7 +108,7 @@
+ 
+ \* req: PR-DEVELOPPLUGIN-045, PR-DEVELOPIMPLEMENT-068
+ I_Token_g(e) == I /\ Running /\ e.n = "token"
+-I_Token_n(e) == SI("stopped", sk.stage, "limit_run", sk.res, im)
++I_Token_n(e) == SI("stopped", "plan", "limit_run", sk.res, im)
+ I_Token(e) == Sys(I_Token_g(e), I_Token_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-039

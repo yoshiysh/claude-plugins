@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -157,7 +157,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-019, PR-DEVELOPIMPLEMENT-029, PR-DEVELOPIMPLEMENT-074
+ I_CheckFail_g(e) == IRun("check", e, "checkFailChange")
+-I_CheckFail_n(e) == SI("running", "review", "none", sk.res, [im EXCEPT !.checkFail = TRUE])
++I_CheckFail_n(e) == SI("running", "check", "none", sk.res, [im EXCEPT !.checkFail = TRUE])
+ I_CheckFail(e) == Sys(I_CheckFail_g(e), I_CheckFail_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-023, PR-DEVELOPIMPLEMENT-025, PR-DEVELOPREVIEW-032, PR-DEVELOPREVIEW-069

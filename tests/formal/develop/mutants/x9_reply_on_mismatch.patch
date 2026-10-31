@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -560,12 +560,12 @@
+ A_ReplyConfirmedDone(e) == Sys(A_ReplyConfirmedDone_g(e), A_ReplyConfirmedDone_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-041
+-A_ReplyConfirmedNext_g(e) == ARun("replyCheck", e, "confirmOk") /\ args.stopAt # "reply"
++A_ReplyConfirmedNext_g(e) == A /\ Running /\ sk.stage = "replyCheck" /\ e.n \in {"confirmOk", "confirmMismatch"} /\ args.stopAt # "reply"
+ A_ReplyConfirmedNext_n(e) == SA("running", "resolve", "none", ad)
+ A_ReplyConfirmedNext(e) == Sys(A_ReplyConfirmedNext_g(e), A_ReplyConfirmedNext_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-040, PR-DEVELOPADDRESSREVIEW-044, PR-DEVELOPADDRESSREVIEW-058
+-A_CheckMismatch_g(e) == A /\ Running /\ sk.stage \in {"replyCheck", "resolveCheck"} /\ e.n = "confirmMismatch"
++A_CheckMismatch_g(e) == A /\ Running /\ (sk.stage = "resolveCheck" \/ (sk.stage = "replyCheck" /\ args.stopAt = "reply")) /\ e.n = "confirmMismatch"
+ A_CheckMismatch_n(e) == SA("stopped", sk.stage, "blocked", ad)
+ A_CheckMismatch(e) == Sys(A_CheckMismatch_g(e), A_CheckMismatch_n(e))
+ 

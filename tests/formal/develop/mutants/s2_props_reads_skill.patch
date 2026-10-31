@@ -1,0 +1,11 @@
+--- DevelopProps.tla
++++ DevelopProps.tla
+@@ -69,7 +69,7 @@
+ \* req: PR-DEVELOPIMPLEMENT-070, PR-DEVELOPIMPLEMENT-071, PR-DEVELOPIMPLEMENT-072
+ \* N11 and N12 (revised) of the acceptance
+ ImplGoal ==
+-  (IsI /\ out.st = "done") =>
++  (IsI /\ out.st = "done" /\ sk.im.changed) =>
+     /\ ImplCheckDecl
+     /\ ImplNoChange
+     /\ ImplVerified

@@ -1,0 +1,17 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -524,12 +524,12 @@
+ A_PushRejected(e) == Sys(A_PushRejected_g(e), A_PushRejected_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-029
+-A_CiPass_g(e) == A /\ Running /\ sk.stage = "wait" /\ e.n \in {"ciSuccess", "ciNone"}
++A_CiPass_g(e) == A /\ Running /\ sk.stage = "wait" /\ e.n \in {"ciSuccess", "ciNone", "ciFailure"}
+ A_CiPass_n(e) == SA("running", "reply", "none", ad)
+ A_CiPass(e) == Sys(A_CiPass_g(e), A_CiPass_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-029, PR-DEVELOPADDRESSREVIEW-030, PR-DEVELOPPLUGIN-033, PR-DEVELOPADDRESSREVIEW-058
+-A_CiStop_g(e) == A /\ Running /\ sk.stage = "wait" /\ e.n \in {"ciFailure", "ciUnreadable"}
++A_CiStop_g(e) == A /\ Running /\ sk.stage = "wait" /\ e.n \in {"ciUnreadable"}
+ A_CiStop_n(e) == SA("stopped", "wait", "blocked", ad)
+ A_CiStop(e) == Sys(A_CiStop_g(e), A_CiStop_n(e))
+ 

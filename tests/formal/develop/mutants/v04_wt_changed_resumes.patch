@@ -1,0 +1,20 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -239,7 +239,7 @@
+ \* decided: 4, 11, D19 C
+ I_Resume_g(e) == IStop(e, "resume") /\
+   (\/ sk.kind \in {"blocked", "limit_run"}
+-   \/ sk.kind = "plan_stop" /\ ~im.wtChanged
++   \/ sk.kind = "plan_stop"
+    \/ sk.kind = "limit_fix" /\ im.edited
+    \/ sk.kind \in {"abandon", "needs_input"} /\ im.unread > 0)
+ I_Resume_n(e) == SI("running", IResumeStage, "none", sk.res,
+@@ -249,7 +249,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-014, PR-DEVELOPIMPLEMENT-068, PR-DEVELOPIMPLEMENT-069
+ \* decided: 10
+-I_ResumeWtChanged_g(e) == IStop(e, "resume") /\ sk.kind = "plan_stop" /\ im.wtChanged
++I_ResumeWtChanged_g(e) == FALSE
+ I_ResumeWtChanged_n(e) == SI("stopped", sk.stage, "wt_changed", sk.res, im)
+ I_ResumeWtChanged(e) == Sys(I_ResumeWtChanged_g(e), I_ResumeWtChanged_n(e))
+ 

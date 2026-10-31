@@ -1,0 +1,32 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -545,12 +545,12 @@
+ A_CiWaitLimit(e) == Sys(A_CiWaitLimit_g(e), A_CiWaitLimit_n(e))
+ 
+ \* req: PR-DEVELOPPLUGIN-048
+-A_ReplyPost_g(e) == ARun("reply", e, "replyPost")
++A_ReplyPost_g(e) == A /\ Running /\ sk.stage = "reply" /\ e.n \in {"replyPost", "headStale"}
+ A_ReplyPost_n(e) == SA("running", "replyCheck", "none", ad)
+ A_ReplyPost(e) == Sys(A_ReplyPost_g(e), A_ReplyPost_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-036, PR-DEVELOPADDRESSREVIEW-050, PR-DEVELOPADDRESSREVIEW-058
+-A_ReplyStale_g(e) == ARun("reply", e, "headStale")
++A_ReplyStale_g(e) == FALSE
+ A_ReplyStale_n(e) == SA("stopped", "reply", "stale", ad)
+ A_ReplyStale(e) == Sys(A_ReplyStale_g(e), A_ReplyStale_n(e))
+ 
+@@ -584,12 +584,12 @@
+ \* decided: 8
+ A_Resume_g(e) == AStop(e, "resume") /\
+   (\/ sk.kind \in {"blocked", "impl_stopped", "push_denied"}
+-   \/ sk.kind = "limit_run" /\ ~(sk.stage = "wait" /\ ad.headMoved))
++   \/ sk.kind = "limit_run")
+ A_Resume_n(e) == SA("running", sk.stage, "none", [ad EXCEPT !.waitCnt = 0])
+ A_Resume(e) == Sys(A_Resume_g(e), A_Resume_n(e))
+ 
+ \* req: PR-DEVELOPADDRESSREVIEW-032, PR-DEVELOPADDRESSREVIEW-058, PR-DEVELOPADDRESSREVIEW-059
+-A_ResumeHeadMoved_g(e) == AStop(e, "resume") /\ sk.kind = "limit_run" /\ sk.stage = "wait" /\ ad.headMoved
++A_ResumeHeadMoved_g(e) == FALSE
+ A_ResumeHeadMoved_n(e) == SA("stopped", sk.stage, "head_moved", ad)
+ A_ResumeHeadMoved(e) == Sys(A_ResumeHeadMoved_g(e), A_ResumeHeadMoved_n(e))
+ 

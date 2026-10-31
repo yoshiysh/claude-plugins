@@ -1,0 +1,11 @@
+--- DevelopSkill.tla
++++ DevelopSkill.tla
+@@ -118,7 +118,7 @@
+ 
+ \* req: PR-DEVELOPIMPLEMENT-016, PR-DEVELOPIMPLEMENT-013
+ I_BaselineOk_g(e) == IRun("baseline", e, "checkOk")
+-I_BaselineOk_n(e) == SI("running", "impl", "none", sk.res, [im EXCEPT !.baseline = TRUE])
++I_BaselineOk_n(e) == SI("running", "check", "none", sk.res, [im EXCEPT !.baseline = TRUE])
+ I_BaselineOk(e) == Sys(I_BaselineOk_g(e), I_BaselineOk_n(e))
+ 
+ \* req: PR-DEVELOPIMPLEMENT-018
